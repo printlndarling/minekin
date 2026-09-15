@@ -21,4 +21,11 @@
 | [OWASP 提示词注入指南](https://cheatsheetseries.owasp.org/cheatsheets/LLM_Prompt_Injection_Prevention_Cheat_Sheet.html) | 指令与不可信内容分离、最小权限与工具/输出验证的技术参考 | 不能保证“永远无泄漏”，必须用真实对话、网页、记忆和调用的对抗回放 |
 | [OWASP LLM01:2025](https://genai.owasp.org/llmrisk/llm01-prompt-injection/)及[OpenAI Agent 注入研究](https://openai.com/index/designing-agents-to-resist-prompt-injection/) | 补充间接注入、外传目标与模型防护不足的威胁分类 | 作为风险与验收设计参考，不能代替 Kin 网关实现与测试 |
 
-其他已有引用分布在 [Alma 参考](alma-reference.md)、[外部工具](external-tools.md)和[自主学习](learning.md)。下一轮核对 Hermes/OpenClaw/Voyager 和 Fabric 对应版本的 GUI/输入资料后才把版本、许可与适用局限写入此表；未做检索的来源不伪称“已验证”。
+| [Minecraft Java 1.21.4 官方更新说明（2024-12-02）](https://www.minecraft.net/en-us/article/minecraft-java-edition-1-21-4) | 官方版本变更有 Pale Garden、Pale Oak、Creaking Heart、Resin 和 Eyeblossom；候选世界书版本锚点，2026-09-16 复核 | 不是完整百科，更不透露本世界物品/坐标；工程基线与游戏结果仍须实测 |
+| [官方 Stronghold 指南（2024-07-04）](https://www.minecraft.net/en-us/article/stronghold) | 说明珍珠+烈焰粉→眼、投掷指向要塞、填门框，2026-09-16 复核 | 方向是正常游戏观察，不等于直接查要塞位置；动作成功须现场验证 |
+| [官方速通指南（2022-05-18）](https://www.minecraft.net/en-us/article/how-beat-minecraft-under-30-mins) | 下界、堡垒、烈焰棒、珍珠与末地龙的实例，2026-09-16 复核 | 旧速通策略不是 1.21.4 机制规范，也不是 Kin 必走路线 |
+| [Voyager 原论文（2023）](https://arxiv.org/abs/2305.16291)及[作者项目](https://github.com/MineDojo/Voyager) | 自动课程、可执行技能库与执行反馈自验证，2026-09-16 复核 | 其环境和代码技能不能直接作为 Kin 的 Fabric 真客户端技能 |
+| [Hermes 官方技能系统](https://hermes-agent.nousresearch.com/docs/user-guide/features/skills)及[使用指南](https://hermes-agent.nousresearch.com/docs/guides/work-with-skills) | 按需载入和自写技能，2026-09-16 复核；官网可能更新 | Kin 不照搬无审批脚本写入权限，只借目录与归纳思路 |
+| [OpenClaw 官方网页工具](https://docs.openclaw.ai/tools/web)及[技能系统](https://docs.openclaw.ai/tools/skills) | 网页搜索/读取与技能范围设计参考，2026-09-16 复核 | 外部 Agent 权限不能等同玩家可见游戏行为 |
+
+其他已有引用分布在 [Alma 参考](alma-reference.md)、[外部工具](external-tools.md)和[自主学习](learning.md)。下一轮核对 Alma/服务器资料和 Fabric 对应版本的 GUI/输入资料后才把版本、许可与适用局限写入此表；未做检索的来源不伪称“已验证”。
