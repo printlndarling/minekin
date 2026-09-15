@@ -41,6 +41,8 @@ flowchart TD
 - [外部工具与自主查资料](docs/external-tools.md)：研究任务、协作承诺、知识验证及工具能力边界。
 - [玩家在线模式与首次进入](docs/lifecycle.md)：陪玩/独立运行、初见、下线、重返与模式切换。
 - [人格与行为变化](docs/personality.md)：初始性格、价值观、心境、习惯、恶作剧与长期改变。
+- [目标与游戏日](docs/goals.md)：单个 Kin 的短、中、长期目标、推进与调整。
+- [多 Kin 世界（远期）](docs/multi-kin.md)：多个独立玩家的合作、关系、分工和信息边界。
 
 ## 现阶段边界
 
