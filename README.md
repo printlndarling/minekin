@@ -69,6 +69,8 @@ flowchart TD
 
 后续技术核查集中在[研究台账](docs/research-tracker.md)、[资料索引](docs/references.md)、[客户端底座核查](docs/client-foundation.md)和[玩家式动作契约](docs/action-contracts.md)。这些文档列的是证据支持的候选实现和必须在真客户端上验证的动作，不表示已有可运行玩家。
 
+后续实施边界见[玩家等价感知实施](docs/perception-implementation.md)和[单 Kin 数据契约](docs/mind-data-contract.md)：隔离底层只供本地动作的读数；亲历事件、人物判断、情绪和自主目标有不同来源与可修订生命周期。当前仍是设计与实验计划。
+
 ## 现阶段边界
 
 优先支持单客户端、单 AI 玩家、Minecraft Java **原版生存玩法**与私人测试服务器；Fabric 用于接入 Kin 客户端，不代表首版支持模组内容。模组玩法和多 Kin 作为 future。先证明自治与社会记忆，再扩大技能库和世界复杂度。动作最终经过正常客户端输入，不使用传送或无挖掘延迟；有限数据读取例外需声明和审计，主动矿透与默认观察分开配置，不默许隐蔽资源搜索。公开服务器部署前应遵守对应服务器的规则，并清楚标识这是自动化玩家。
