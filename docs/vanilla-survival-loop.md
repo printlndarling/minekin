@@ -21,6 +21,8 @@
 - [AltoClef 的使用文档](https://github.com/gaucho-matrero/altoclef/blob/main/usage.md)给出 `get`、`food`、`deposit` 等资源任务；其[设计说明](https://github.com/gaucho-matrero/altoclef/wiki/1:-Documentation:-Big-Picture)展示材料依赖、已有物品跳过和防御/食物任务抢占。原仓库已归档，直接接入当前 Java 版本和客户端感知边界并未得到验证。
 - 两者均不是“Kin 已经会原版生存”的证明。初期可借用资源图、局部寻路和动作分解思路，感知/客户端输入/任务反馈要以可审计的 Kin 适配接口实现。[感知政策](perception-policy.md)覆盖底层目标选择；其特殊矿透模式不能暗中成为普通开局找矿能力。
 
+GUI 合成、挖掘时长、拾物、炉/箱以及战斗/施工的候选客户端接口和服务器同步契约，详见[玩家式动作契约](action-contracts.md)。这些是依据 Yarn Javadoc 提出的实验路线，还不是已运行验证的 Kin 动作。
+
 ## 待调研技术 TODO（先验证，后选栈）
 
 1. 锁定一个 Minecraft Java/Fabric 版本，对照现成底座的版本、维护状态、集成 API、许可及正常客户端操作路径；分别验证可复用、需改造和不可接入的功能。
