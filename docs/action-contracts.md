@@ -11,14 +11,14 @@
 ### 1. 寻树、砍木、拾取
 
 1. 寻树：先从视锥和遮挡允许的观察或亲历地点产生候选；可转视角主动寻找，不把已加载世界内所有木头坐标送给 Kin。导航只对经观察允许的目标发请求；寻路可用 Baritone API 候选，但需单独审计其路径缓存、拆/放方块和扫描策略。
-2. 砍木：正常移到距离与角度允许的方块，检查目前 `crosshairTarget` 命中该目标，开始破坏并逐 tick 持续；候选客户端接口有 `attackBlock`、`updateBlockBreakingProgress` 与 `cancelBlockBreaking`，而非瞬时 `breakBlock` 一键跳过正常挖掘时长。目标遮挡、工具不对、别人挡路或危险中断即停止；实际木块改变与掉落需二次核对。
+2. 砍木：正常移到距离与角度允许的方块，检查目前 `crosshairTarget` 命中该目标，开始破坏并逐 tick 持续；候选客户端接口有 `attackBlock`、`updateBlockBreakingProgress` 与 `cancelBlockBreaking`，**该 Javadoc 同时存在 `breakBlock` 方法，单凭方法名不能证明它是瞬挖或合法操作路径**，需检查 1.21.4 实际客户端源码/游戏行为。不得通过其他快捷路径跳过正常挖掘时长。目标遮挡、工具不对、别人挡路或危险中断即停止；实际木块改变与掉落需二次核对。
 3. 拾取：仅从已看见或近处合理听/触的掉落物产生目标，靠正常移动接近并观察背包同步后的数量增加；**没有“给自己加物品”动作**。掉落物被玩家拿走、烧毁或过期，均返回失败或未知。
 
 ### 2. 背包、工作台、炉与箱
 
 当前屏幕必须先由真实的对方可达工作台、炉、箱等交互打开。`ClientPlayerInteractionManager` 暴露 `interactBlock`、`clickRecipe`、`clickSlot`、`clickButton`；[`ScreenHandler.syncId`](https://maven.fabricmc.net/docs/yarn-1.21.4%2Bbuild.8/net/minecraft/screen/ScreenHandler.html)用于匹配当前玩家打开的界面，不能从旧 GUI 留一个 `syncId` 后盲点下一个容器。客户端有 [`CraftingScreenHandler`](https://maven.fabricmc.net/docs/yarn-1.21.4%2Bbuild.8/net/minecraft/screen/CraftingScreenHandler.html)和[`AbstractFurnaceScreenHandler`](https://maven.fabricmc.net/docs/yarn-1.21.4%2Bbuild.8/net/minecraft/screen/AbstractFurnaceScreenHandler.html)，这也是后续专业化 GUI adapter 的来源。
 
-- GUI adapter 先检查处理器类型、当前 `syncId`、焦点、槽位实际映射和自身背包材料；配方助手只消费对该角色公开可学、适用本游戏版本的合成规则。可以走正常配方书的 `clickRecipe` 或在已打开界面内执行合法槽位点击，**不可用 `clickCreativeStack` 或伪造直接添加物品**。等待每步状态同步，再拿成品、确认材料减少与成品增加；掉线或窗口意外关闭须返回 `unknown`/`failed`。
+- GUI adapter 先检查处理器类型、当前 `syncId`、焦点、槽位实际映射、游标暂存物品和自身背包材料；配方助手只消费对该角色公开可学、适用本游戏版本的合成规则。该版 `clickRecipe` 需**当前可用的 `NetworkRecipeId`**，不是知识树里一段配方文字；也可在已打开界面内执行合法槽位点击，**不可用 `clickCreativeStack` 或伪造直接添加物品**。等待每步状态同步，再拿成品、确认材料减少与成品增加；掉线或窗口意外关闭须返回 `unknown`/`failed`。关窗可能把游标物品送回背包或掉落，危险抢占先保命，记录材料去向，不能假定不会丢失；具体[接口核查](gui-combat-interface-audit.md)。
 - 炉：打开炉 GUI，放实际输入与燃料，读取该界面呈现的进度/结果、选择等待或离开做自己的事；取成品时再次确认同步背包。房子、炉、床、箱的操作先验证放置、权属约定、位置记忆和重新到达，容器内容仅在 Kin 自己正常打开时可读，不得扫描未打开私箱。
 - 服务器可能改变原版配方、拒绝交互或网络延迟；不重复套用上一次 `slotId`、`syncId` 和旧材料列表。首版合成目标限制为工作台、木板/木棍/镐、基础炉与床等已验证流程；不能因为旧版 AltoClef 会获取 400+ 物品就宣称这些动作现成。
 
