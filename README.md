@@ -40,6 +40,7 @@ flowchart TD
 - [Alma 参考研究](docs/alma-reference.md)：公开文档能证实的机制、Minekin 的借鉴点与差异。
 - [外部工具与自主查资料](docs/external-tools.md)：研究任务、协作承诺、知识验证及工具能力边界。
 - [玩家在线模式与首次进入](docs/lifecycle.md)：陪玩/独立运行、初见、下线、重返与模式切换。
+- [人格与行为变化](docs/personality.md)：初始性格、价值观、心境、习惯、恶作剧与长期改变。
 
 ## 现阶段边界
 
