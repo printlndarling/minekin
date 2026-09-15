@@ -10,6 +10,6 @@
 | 单独的 Tool Model 处理工具分析、参数、记忆及后台任务 | 试验将事件整理与检索交给较轻的后台模型，长程社会推理留给主模型 | 反射层和玩家动作由本地确定性控制器完成；轻模型仍可能生成错误记忆 |
 | 任务列表、计划模式、工具调用与结果反馈 | 把长期目标与可执行技能拆开，记录中断、失败与结果 | Alma 的工具任务通常由人类对话发起；Minekin 要自己产生目标并持续生活 |
 
-官方材料：[产品主页](https://alma.now/)、[记忆系统文档](https://alma.now/docs/features/memory)、[工具与 Tool Model 文档](https://alma.now/docs/features/tools)。产品文档说明它可以跨对话记忆偏好和上下文，也支持工具与任务管理；没有证明它具备长期自治的游戏角色、真实 Minecraft 客户端控制、证据受限的感知或情绪驱动的世界行为。Minekin 借鉴的是“记忆可维护、可检索、可追溯”的方法，具体方案见 [PlayerMind](player-mind.md)；实时控制仍见 [架构](architecture.md)。
+官方材料（2026-09-16 在线复核）：[产品主页](https://alma.now/)、[记忆系统文档](https://alma.now/docs/features/memory.html)、[工具与 Tool Model 文档](https://alma.now/docs/features/tools)。文档明确写有“对话中提取→嵌入存储→每次回答前检索”、可编辑重要度/耐久性/来源和独立 Tool Model；这些是**Alma 官方描述的产品功能**，而不是对 Kin 技术路线的实测。Alma 首页提供 Windows/Linux 下载，但也说明目前只在 macOS Apple Silicon 上测试过，不能借该桌面产品的跨平台宣传证明长驻 Minecraft 客户端兼容。它没有证据显示具备长期自治游戏角色、真实 Minecraft 客户端控制、证据受限的感知或情绪驱动的世界行为。Minekin 借鉴“记忆可维护、可检索、可追溯”，具体见 [PlayerMind](player-mind.md)；实时控制见 [架构](architecture.md)。
 
 后续若 Alma 发布源码、技术博客或具体决策机制，再核对新的第一手资料，更新此页的“已证实/推断/未公开”边界。

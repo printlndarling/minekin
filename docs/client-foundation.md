@@ -20,6 +20,6 @@
 2. 对同一已见树，分别测试导航目标、走位、转视角、持续合法破坏、拾取、库存核验与被其他玩家挡路后的停止/恢复。Baritone 自带 `legitMine` 只针对文档描述的采矿可见性；需要检查它的路径探索、方块缓存和目标扫描，禁止墙后真值传入 Kin 或底层执行目标。
 3. 打开真实工作台/背包 GUI，选择公开配方、逐步合成并以库存核验，记录配方/点击/客户端与服务器同步的失败。寻路命令不能代替 GUI/拾取成功；未知接口则先自写最小操作，不假报拥有整套 400+ 物品任务库。
 4. 对反射与战斗，实测 Fabric tick 触发至首次输入、目标视野/遮挡和正常旋转速度。不能为了避免模型延迟打开 Meteor 的 KillAura 或直接读 360°实体精确坐标；本地反射独立于云端模型运行，成功与失败均留回放。
-5. 冻结可重现的版本矩阵：游戏版本、Fabric Loader/API、Baritone API 的源码 commit 或可信发布包哈希、Java/Gradle、测试服类型与规则。把直接链接、修改分发与附带许可证作为发布前检查项；Baritone [仓库许可](https://github.com/cabaletta/baritone/blob/1.21.4/LICENSE)是 LGPL-3.0，README另标附加说明；Meteor [GPL-3.0](https://github.com/MeteorDevelopment/meteor-client/blob/master/LICENSE)，AltoClef [MIT](https://github.com/gaucho-matrero/altoclef/blob/main/LICENSE)。这里不构成最终法律结论。
+5. 冻结可重现的版本矩阵：游戏版本、Fabric Loader/API、Baritone API 的源码 commit 或可信发布包哈希、Java/Gradle、测试服类型与规则。把直接链接、修改分发与附带许可证作为发布前检查项；Baritone [同版源码许可](https://github.com/cabaletta/baritone/blob/78d3613e8c2e4c2f4bb56a6d84fe2844bd6d22e8/LICENSE)是 LGPL-3.0，当前 README 未找到以前所说的附加例外；Fabric API [1.21.4 LICENSE](https://github.com/FabricMC/fabric-api/blob/1.21.4/LICENSE)为 Apache-2.0；Meteor [GPL-3.0](https://github.com/MeteorDevelopment/meteor-client/blob/master/LICENSE)，AltoClef [MIT](https://github.com/gaucho-matrero/altoclef/blob/main/LICENSE)。具体版本和前提见[版本/许可矩阵](version-license-matrix.md)；这里不是最终法律结论。
 
 **决策结论**：优先试 Fabric + Baritone API + 自写缺失动作，AltoClef 借设计，Meteor 暂不集成。这是证据支持的实验路线，**未达到“已经具备技术底座、可以开发完整 Kin”的确认等级**。后续核查与风险见[研究台账](research-tracker.md)，证据索引见[参考资料](references.md)。

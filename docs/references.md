@@ -1,6 +1,6 @@
 # 技术与研究出处索引
 
-最后逐项在线核对：2026-09-15。此表区别**源码给出的事实**、**可借鉴的思路**、**Kin 需自行验证的能力**；不是下载这些项目就能形成 Kin 的说明书。GitHub 链接标分支时仍须在决定依赖前锁具体 commit 与发布包哈希；官网文档可能随默认 Minecraft 版本更新。
+最新来源核对：2026-09-16。此表区别**源码给出的事实**、**可借鉴的思路**、**Kin 需自行验证的能力**；不是下载这些项目就能形成 Kin 的说明书。GitHub 分支链接在选择依赖前须锁具体 commit 与发布包哈希；官网文档可能随默认 Minecraft 版本更新，当前核到的部分逐项见[版本/许可矩阵](version-license-matrix.md)。
 
 | 来源 | 当下核对到的事实与适用版本 | 局限与使用方式 |
 | --- | --- | --- |
@@ -9,7 +9,7 @@
 | [Baritone 1.21.4 构建参数](https://github.com/cabaletta/baritone/blob/1.21.4/gradle.properties) | 分支的 Minecraft `1.21.4`、Fabric Loader `0.16.9`、Java `21`、Baritone `1.13.1` 见属性文件 | 构建参数不是 Kin + Fabric API + 测试服真实兼容、也不保证仓库所有默认分支常年停留 1.21.4 |
 | [Baritone 官方 SETUP](https://github.com/cabaletta/baritone/blob/1.21.4/SETUP.md) | 列出支持版本与 Fabric API/standalone/unoptimized 构件；API 构件适合其他模组集成 | 发布包与源码 commit 均需锁定；不能用 standalone 构件声称它允许 Kin 调用 API |
 | [Baritone USAGE](https://github.com/cabaletta/baritone/blob/1.21.4/USAGE.md) | 文档有 `goto`、`mine`、`follow`、`build`、`legitMine` | 它是算法能力和命令级文档，不证明正常玩家可见域过滤；聊天命令有错发公屏风险，优先 API 接口 |
-| [Baritone LICENSE](https://github.com/cabaletta/baritone/blob/1.21.4/LICENSE) | 仓库元数据标 LGPL-3.0，README 还标“anime exception” | README 与 LICENSE/源码头的附加措辞需发布前复核；链接、修改、分发义务另做许可审查，避免贸然复制代码 |
+| [Baritone 1.21.4 LICENSE](https://github.com/cabaletta/baritone/blob/78d3613e8c2e4c2f4bb56a6d84fe2844bd6d22e8/LICENSE)与[同 commit README](https://github.com/cabaletta/baritone/blob/78d3613e8c2e4c2f4bb56a6d84fe2844bd6d22e8/README.md) | 原版 LICENSE 为 LGPL-3.0；README FAQ 允许当库使用且强调遵守 LGPL，2026-09-16 复核 | **未找到之前误引的 “anime exception”**；链接/修改/分发要求在成品外发前另行许可审核，不复制源码 |
 | [AltoClef 官方仓库](https://github.com/gaucho-matrero/altoclef)及[LICENSE](https://github.com/gaucho-matrero/altoclef/blob/main/LICENSE) | 仓库已归档，官方 README 自述原版 Fabric `1.18`，MIT | 400+ 物品、自动通关是原项目对旧版能力的报告，不是 1.21.4 可直接集成/继承的证据；借鉴任务依赖和执行反馈 |
 | [Meteor 官方仓库/README](https://github.com/MeteorDevelopment/meteor-client)及[LICENSE](https://github.com/MeteorDevelopment/meteor-client/blob/master/LICENSE) | 自称用于 anarchy 服务器的 Fabric utility mod，GPL-3.0，README 明确使用其源码的同许可证/源码披露要求 | 其默认战斗/感知功能可能越过玩家等价边界；不作为首版强制底层依赖，不挪源码到私有 Kin |
 | [Yarn `ClientPlayerInteractionManager` 1.21.4+build.8](https://maven.fabricmc.net/docs/yarn-1.21.4%2Bbuild.8/net/minecraft/client/network/ClientPlayerInteractionManager.html) | 当前 Javadoc 列正常破坏/攻击/对方块交互、配方书、槽位点击以及持续挖掘进度 | 方法存在不代表动作成功；需要真实游戏服核验服务器同步和玩家式感知 |
@@ -20,14 +20,12 @@
 | [Generative Agents 原论文](https://arxiv.org/abs/2304.03442)及[作者源码](https://github.com/joonspk-research/generative_agents) | 2023 年论文与原仓库研究观察、反思、检索、规划和社会互动 | 研究为类 Sims 环境；不能当作 Fabric 客户端、低延迟反射或 Minecraft 社会人格现成实现 |
 | [OWASP 提示词注入指南](https://cheatsheetseries.owasp.org/cheatsheets/LLM_Prompt_Injection_Prevention_Cheat_Sheet.html) | 指令与不可信内容分离、最小权限与工具/输出验证的技术参考 | 不能保证“永远无泄漏”，必须用真实对话、网页、记忆和调用的对抗回放 |
 | [OWASP LLM01:2025](https://genai.owasp.org/llmrisk/llm01-prompt-injection/)及[OpenAI Agent 注入研究](https://openai.com/index/designing-agents-to-resist-prompt-injection/) | 补充间接注入、外传目标与模型防护不足的威胁分类 | 作为风险与验收设计参考，不能代替 Kin 网关实现与测试 |
-
 | [Minecraft Java 1.21.4 官方更新说明（2024-12-02）](https://www.minecraft.net/en-us/article/minecraft-java-edition-1-21-4) | 官方版本变更有 Pale Garden、Pale Oak、Creaking Heart、Resin 和 Eyeblossom；候选世界书版本锚点，2026-09-16 复核 | 不是完整百科，更不透露本世界物品/坐标；工程基线与游戏结果仍须实测 |
 | [官方 Stronghold 指南（2024-07-04）](https://www.minecraft.net/en-us/article/stronghold) | 说明珍珠+烈焰粉→眼、投掷指向要塞、填门框，2026-09-16 复核 | 方向是正常游戏观察，不等于直接查要塞位置；动作成功须现场验证 |
 | [官方速通指南（2022-05-18）](https://www.minecraft.net/en-us/article/how-beat-minecraft-under-30-mins) | 下界、堡垒、烈焰棒、珍珠与末地龙的实例，2026-09-16 复核 | 旧速通策略不是 1.21.4 机制规范，也不是 Kin 必走路线 |
 | [Voyager 原论文（2023）](https://arxiv.org/abs/2305.16291)及[作者项目](https://github.com/MineDojo/Voyager) | 自动课程、可执行技能库与执行反馈自验证，2026-09-16 复核 | 其环境和代码技能不能直接作为 Kin 的 Fabric 真客户端技能 |
 | [Hermes 官方技能系统](https://hermes-agent.nousresearch.com/docs/user-guide/features/skills)及[使用指南](https://hermes-agent.nousresearch.com/docs/guides/work-with-skills) | 按需载入和自写技能，2026-09-16 复核；官网可能更新 | Kin 不照搬无审批脚本写入权限，只借目录与归纳思路 |
 | [OpenClaw 官方网页工具](https://docs.openclaw.ai/tools/web)及[技能系统](https://docs.openclaw.ai/tools/skills) | 网页搜索/读取与技能范围设计参考，2026-09-16 复核 | 外部 Agent 权限不能等同玩家可见游戏行为 |
-
 | [Minecraft EULA（2026-09-16 复核）](https://www.minecraft.net/en-us/eula) | Java 版正常购买/游玩与原创 Mod 授权、禁止分发组合后的修改游戏本体、社区规范和账号条件 | 活文档可变；并未规定所有私人服一致的自动化账号披露格式，更非允许规避目标服规则 |
 | [Minecraft Usage Guidelines（2026-09-16 复核）](https://www.minecraft.net/en-us/usage-guidelines)及[社区标准](https://www.minecraft.net/en-us/community-standards) | 分发原创 Mod 的限制与多人社区安全边界，可作为服务器准入参考 | 当前服管理员的 bot/矿透/PvP/陷阱规则还须独立取得；人格不覆盖运营规则 |
 | [Minecraft 官方账号要求](https://help.minecraft.net/hc/en-us/articles/19615552270221-Accounts-Required-to-Play-Minecraft) | 登录和账号资格的官方说明，2026-09-16 复核 | 未提供 Kin 免手工登陆、长期 token 保存或私服兼容的保证 |
@@ -35,5 +33,7 @@
 | [Minecraft 快照 23w43a（2023-10-25）](https://www.minecraft.net/en-us/article/minecraft-snapshot-23w43a) | 官方说明玩家模拟默认 20 ticks/s；2026-09-16 复核 | 50ms 是逻辑周期换算，不是输入/网络/图形/水桶救援端到端保证；目标 1.21.4 仍要实测 |
 | [OpenTelemetry traces 官方概念（2026-09-16 复核）](https://opentelemetry.io/docs/concepts/signals/traces/) | span 时间事件/属性/link 说明可跨本地动作与异步模型任务记录关系 | 不强制选用远端收集器，原始玩家聊天/坐标/密钥不能因此自动上传 |
 | [SQLite 在线备份官方说明](https://www.sqlite.org/backup.html)及[WAL](https://www.sqlite.org/wal.html) | 为单 Kin 本地事件账本的一致性备份和并行查询候选提供出处，2026-09-16 复核 | 非实际负载/故障恢复证明，磁盘、加密、迁移、WAL 清理还要实测 |
+| [Fabric API 固定源码参数](https://github.com/FabricMC/fabric-api/blob/7347d6186858dcfcf7fccf747e8029067caaece5/gradle.properties)、[Maven `0.119.4+1.21.4`](https://maven.fabricmc.net/net/fabricmc/fabric-api/fabric-api/0.119.4%2B1.21.4/)、同 commit [客户端 tick](https://github.com/FabricMC/fabric-api/blob/7347d6186858dcfcf7fccf747e8029067caaece5/fabric-lifecycle-events-v1/src/client/java/net/fabricmc/fabric/api/client/event/lifecycle/v1/ClientTickEvents.java)/[连接事件](https://github.com/FabricMC/fabric-api/blob/7347d6186858dcfcf7fccf747e8029067caaece5/fabric-networking-api-v1/src/client/java/net/fabricmc/fabric/api/client/networking/v1/ClientPlayConnectionEvents.java) | 官方源码与 2025-08-08 发布构件同为 MC 1.21.4，源码写 Loader 0.16.9，2026-09-16 核对；同 commit [LICENSE](https://github.com/FabricMC/fabric-api/blob/7347d6186858dcfcf7fccf747e8029067caaece5/LICENSE)为 Apache-2.0 | 发布与接口存在不证明和 Baritone/服务器共存；先按[矩阵](version-license-matrix.md)试构建与真服 |
+| [Alma 原站](https://alma.now/)、[官方记忆说明](https://alma.now/docs/features/memory.html)、[工具说明](https://alma.now/docs/features/tools) | 官网证实对话记忆提取/嵌入/检索、人工管理、Tool Model 和网页工具，2026-09-16 在线核对 | 是桌面助理对话产品，Windows/Linux 下载选项并不代表作者已测试，官网注明目前仅 macOS Apple Silicon 测试；没有 Kin 长期角色和 Fabric 底层的实测能力 |
 
-其他已有引用分布在 [Alma 参考](alma-reference.md)、[外部工具](external-tools.md)和[自主学习](learning.md)。下一轮核对 Alma/服务器资料和 Fabric 对应版本的 GUI/输入资料后才把版本、许可与适用局限写入此表；未做检索的来源不伪称“已验证”。
+其他设计启发分布在 [Alma 参考](alma-reference.md)、[外部工具](external-tools.md)和[自主学习](learning.md)。剩余来源/条款在发布前逐版本复核；每个状态、许可与实际集成结果须与[研究台账](research-tracker.md)同步。
