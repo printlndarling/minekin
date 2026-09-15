@@ -28,4 +28,12 @@
 | [Hermes 官方技能系统](https://hermes-agent.nousresearch.com/docs/user-guide/features/skills)及[使用指南](https://hermes-agent.nousresearch.com/docs/guides/work-with-skills) | 按需载入和自写技能，2026-09-16 复核；官网可能更新 | Kin 不照搬无审批脚本写入权限，只借目录与归纳思路 |
 | [OpenClaw 官方网页工具](https://docs.openclaw.ai/tools/web)及[技能系统](https://docs.openclaw.ai/tools/skills) | 网页搜索/读取与技能范围设计参考，2026-09-16 复核 | 外部 Agent 权限不能等同玩家可见游戏行为 |
 
+| [Minecraft EULA（2026-09-16 复核）](https://www.minecraft.net/en-us/eula) | Java 版正常购买/游玩与原创 Mod 授权、禁止分发组合后的修改游戏本体、社区规范和账号条件 | 活文档可变；并未规定所有私人服一致的自动化账号披露格式，更非允许规避目标服规则 |
+| [Minecraft Usage Guidelines（2026-09-16 复核）](https://www.minecraft.net/en-us/usage-guidelines)及[社区标准](https://www.minecraft.net/en-us/community-standards) | 分发原创 Mod 的限制与多人社区安全边界，可作为服务器准入参考 | 当前服管理员的 bot/矿透/PvP/陷阱规则还须独立取得；人格不覆盖运营规则 |
+| [Minecraft 官方账号要求](https://help.minecraft.net/hc/en-us/articles/19615552270221-Accounts-Required-to-Play-Minecraft) | 登录和账号资格的官方说明，2026-09-16 复核 | 未提供 Kin 免手工登陆、长期 token 保存或私服兼容的保证 |
+| [Yarn 1.21.4+build.8 ClientPlayNetworkHandler](https://maven.fabricmc.net/docs/yarn-1.21.4%2Bbuild.8/net/minecraft/client/network/ClientPlayNetworkHandler.html) | `getConnection/isConnectionOpen`及断线相关正常客户端接口，2026-09-16 复核 | 接口存在不证明自行发起正版连接/渲染/图形服务稳定 |
+| [Minecraft 快照 23w43a（2023-10-25）](https://www.minecraft.net/en-us/article/minecraft-snapshot-23w43a) | 官方说明玩家模拟默认 20 ticks/s；2026-09-16 复核 | 50ms 是逻辑周期换算，不是输入/网络/图形/水桶救援端到端保证；目标 1.21.4 仍要实测 |
+| [OpenTelemetry traces 官方概念（2026-09-16 复核）](https://opentelemetry.io/docs/concepts/signals/traces/) | span 时间事件/属性/link 说明可跨本地动作与异步模型任务记录关系 | 不强制选用远端收集器，原始玩家聊天/坐标/密钥不能因此自动上传 |
+| [SQLite 在线备份官方说明](https://www.sqlite.org/backup.html)及[WAL](https://www.sqlite.org/wal.html) | 为单 Kin 本地事件账本的一致性备份和并行查询候选提供出处，2026-09-16 复核 | 非实际负载/故障恢复证明，磁盘、加密、迁移、WAL 清理还要实测 |
+
 其他已有引用分布在 [Alma 参考](alma-reference.md)、[外部工具](external-tools.md)和[自主学习](learning.md)。下一轮核对 Alma/服务器资料和 Fabric 对应版本的 GUI/输入资料后才把版本、许可与适用局限写入此表；未做检索的来源不伪称“已验证”。
