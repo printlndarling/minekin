@@ -35,6 +35,7 @@ flowchart TD
 - [PlayerMind 设计](docs/player-mind.md)：目标、所有权、关系和可追溯记忆。
 - [开发路线与验收](docs/roadmap.md)：分阶段原型、演示场景和衡量办法。
 - [设计决策与待验证问题](docs/decisions.md)：已定原则、尚未验证的假设，以及进入开发前的检查条件。
+- [Alma 参考研究](docs/alma-reference.md)：公开文档能证实的机制、Minekin 的借鉴点与差异。
 
 ## 现阶段边界
 
