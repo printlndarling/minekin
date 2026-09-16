@@ -20,7 +20,8 @@
 
 | 开发阶段证据门槛 | 必测回放及报告 | 若失败 |
 | --- | --- | --- |
-| 独立 Harness 与真实客户端闭环 | Gateway/Runtime、薄 Fabric Bridge、正常账号图形客户端和 Server Profile 入测试服；验证 A/B 模式、IPC 鉴权、断线身份、基本移动/使用及 Dashboard 故障隔离 | 暂停基线栈，修正 Runtime/Bridge 边界或版本；不把心智塞回 Mod，也不降级成协议 Bot 却继续声称真客户端 |
+| 独立 Harness 与受管理真实客户端闭环 | Gateway/Runtime、自带 Launcher/Account/Version 后端、薄 Fabric Bridge 和 Server Profile 入测试服；全新 Linux 主机经 Web 授权、探测协议、自动准备已验证 bundle，并在无可见桌面窗口下运行；验证 A/B 模式、IPC 鉴权、断线身份、基本移动/使用及 Dashboard 故障隔离 | 暂停基线栈，修正 Runtime/Bridge 边界或版本；不把心智塞回 Mod，也不降级成协议 Bot 却继续声称真客户端 |
+| 版本探测与 bundle 供应链 | SRV、协议号/版本文本、正确/错误/未知版本、多版本代理与关闭/伪造 ping；下载中断、hash、缓存、Java/natives、Bridge 握手和跨版本重启 | 低置信度或未测试组合必须阻断/管理侧 pin；不得无限试连、发布半成 bundle、复用旧 lease 或降级协议 Bot |
 | Dashboard 与观战隔离 | localhost 默认安全、实时状态序列、紧急停止、敏感字段、浏览器断线；Live View 测延迟/资源且不进入 PlayerMind | 未认证访问、浏览器可直发游戏输入或观战/真值污染认知均属阻断；关闭媒体不应停止 Kin |
 | 合法身体与本地反射 | 取木/拾取/真实 GUI/箱炉/盾牌及局部建造分段测试，跌落中断；报告实际输入→服务器反馈、失败占比和 FPS/TPS/RTT | 精确缩小能力声明，标注未实现，修改动作原语；不能只看模型说已完成 |
 | 社会人物与长期自主 | 两天以上包含无人指令生活、能放弃通关、错把误伤当攻击的纠正、陌生人/运行者/老友关系变化、死后身份连续 | 重做证据/情绪/目标更新，不套固定“攻击→报仇”故事或默认主人命令 |

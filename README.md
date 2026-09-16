@@ -30,14 +30,16 @@ Minekin 是独立运行的 Agent Runtime / Harness，不是一个靠游戏聊天
 flowchart TD
     UI["Web Dashboard"] --> GW["Kin Gateway / Supervisor"]
     GW --> M["Kin Runtime：Soul、Mind、Memory、Tools"]
-    M --> S["Game Session / Adapter"]
-    S --> B["薄 Fabric Client Bridge"]
-    B --> MC["Minecraft Java Client"]
+    M --> S["Launcher / Session Manager"]
+    S --> P["Probe / Version Bundle"]
+    S --> MC["受管理的隐藏 Minecraft Client"]
+    MC --> B["薄 Fabric Client Bridge"]
+    B --> M
     MC --> V["独立 Live View 媒体流"]
     V --> UI
 ```
 
-本地 Bridge 处理跌落、受击、低血量等紧急情况，不等待模型或网络。Runtime 行为层负责当前任务和中断/恢复，LLM 只在需要社会判断、语义理解或长程计划时参与。Live View 给人类看真实客户端第一人称画面，与 AI 感知隔离，不持续消耗视觉 token。完整产品形态、Server Profile、Dashboard 页面和进程边界见[独立 Runtime 与 Web Dashboard](docs/standalone-runtime-dashboard.md)。导航和任务技能可探索 Baritone 等现有底座，但具体兼容性、许可和实际控制效果须在原型阶段验证。
+本地 Bridge 处理跌落、受击、低血量等紧急情况，不等待模型或网络。Runtime 行为层负责当前任务和中断/恢复，LLM 只在需要社会判断、语义理解或长程计划时参与。Live View 给人类看真实客户端第一人称画面，与 AI 感知隔离，不持续消耗视觉 token。完整产品形态、Server Profile、Dashboard 页面和进程边界见[独立 Runtime 与 Web Dashboard](docs/standalone-runtime-dashboard.md)。Minekin 不接管用户已有启动器或客户端，而由自带 Launcher Service 探测服务器协议、自动准备已验证版本包，并在虚拟显示/隐藏窗口中运行受管理的真实客户端；详见[受管理客户端与自动版本切换](docs/managed-client-runtime.md)。导航和任务技能可探索 Baritone 等现有底座，但具体兼容性、许可和实际控制效果须在原型阶段验证。
 
 创建 Kin 时人格与**领域知识掌握多边形**可分别自定义或随机生成：开局可深懂通关、红石或建造知识，知道多少不代表实际玩得多好。实战水平来自入世后的操作、失败、练习和自主迭代；懂落地水不默认已经做得出。Kin 合成时也可能漏听呼唤；一次受击能触发保命，却不自动证明敌意；它可以因脾气回敬提醒者，或因善意误杀的真实损失生气。见[开局知识画像](docs/knowledge-profile.md)、[后天技能](docs/ability.md)与[交互判断](docs/attention-intent.md)。
 
@@ -47,6 +49,7 @@ flowchart TD
 
 - [架构与数据边界](docs/architecture.md)：模块职责、时延目标、感知约束和紧急控制。
 - [独立 Runtime 与 Web Dashboard](docs/standalone-runtime-dashboard.md)：Harness 产品形态、薄客户端 Bridge、Server Profile、实时状态与第一人称观战。
+- [受管理客户端与自动版本切换](docs/managed-client-runtime.md)：自带启动器后端、账号授权、无可见窗口运行、服务器探测、版本包和 Linux 部署。
 - [玩家等价感知与有限例外](docs/perception-policy.md)：数据辅助、受限妥协、底层技能审计和验证。
 - [社会判断与矿透场景](docs/social-judgment.md)：怀疑与证据、服务器说法、人格选择和可选感知模式。
 - [PlayerMind 设计](docs/player-mind.md)：目标、所有权、关系和可追溯记忆。

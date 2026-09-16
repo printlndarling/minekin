@@ -1,10 +1,10 @@
 # 首轮客户端底座核查：选择实验基线，不预装作弊动作
 
-核查日期：2026-09-15。这里解决“先用什么版本、哪些底座值得试”的**开工前研究问题**，还未锁最终版本、未构建 Kin，也没有在真实账号上验证登录、寻路或合成。原版生存指服务器玩法；Minekin 产品本体采用独立 Runtime/Harness，客户端内的 Fabric 代码只是薄 Bridge。技术上它仍是 Client Mod 构件，但不承载 Soul、Memory、LLM 或 Dashboard，也不表示允许模组游戏内容。
+核查日期：2026-09-15。这里解决“先用什么版本、哪些底座值得试”的**开工前研究问题**，还未锁最终版本、未构建 Kin，也没有在真实账号上验证登录、寻路或合成。原版生存指服务器玩法；Minekin 产品本体采用独立 Runtime/Harness，客户端内的 Fabric 代码只是薄 Bridge。技术上它仍是 Client Mod 构件，但不承载 Soul、Memory、LLM 或 Dashboard，也不表示允许模组游戏内容。客户端不是由用户桌面启动器人工打开，而由 Minekin 自带后端按[受管理客户端契约](managed-client-runtime.md)下载校验、隔离启动并自动选择已验证版本包。
 
 ## 版本与构件取舍
 
-暂选 Minecraft Java `1.21.4` + Java `21` 作为**第一轮兼容性实验基线**，因为 [Baritone 该分支的 gradle.properties](https://github.com/cabaletta/baritone/blob/1.21.4/gradle.properties)明确给出该目标和 Fabric Loader `0.16.9`。它不要求用户往后永远玩旧版；若实验发现该版本与 Fabric API、运行账号或服务器环境冲突，切换到能一起构建和运行的版本，再重建对应[原版世界书](world-guide.md)。Fabric [官方事件指南](https://docs.fabricmc.net/develop/events/)给出事件回调、客户端 tick 和必要时 Mixin 的接入点，但官网默认展示更新版本的 API；方法和具体类签名都要对 `1.21.4` 重核，不把最新示例直接复制进旧版工程。
+暂选 Minecraft Java `1.21.4` + Java `21` 作为**第一个 `tested` Client Bundle 的兼容性实验基线**，因为 [Baritone 该分支的 gradle.properties](https://github.com/cabaletta/baritone/blob/1.21.4/gradle.properties)明确给出该目标和 Fabric Loader `0.16.9`。它不要求用户往后永远玩旧版；若实验发现该版本与 Fabric API、运行账号或服务器环境冲突，切换到能一起构建和运行的版本，再重建对应[原版世界书](world-guide.md)。Fabric [官方事件指南](https://docs.fabricmc.net/develop/events/)给出事件回调、客户端 tick 和必要时 Mixin 的接入点，但官网默认展示更新版本的 API；方法和具体类签名都要对 `1.21.4` 重核，不把最新示例直接复制进旧版工程。
 
 | 候选 | 证据 | 本轮决定与理由 |
 | --- | --- | --- |
@@ -22,4 +22,4 @@
 4. 对反射与战斗，实测 Fabric tick 触发至首次输入、目标视野/遮挡和正常旋转速度。不能为了避免模型延迟打开 Meteor 的 KillAura 或直接读 360°实体精确坐标；本地反射独立于云端模型运行，成功与失败均留回放。
 5. 冻结可重现的版本矩阵：游戏版本、Fabric Loader/API、Baritone API 的源码 commit 或可信发布包哈希、Java/Gradle、测试服类型与规则。把直接链接、修改分发与附带许可证作为发布前检查项；Baritone [同版源码许可](https://github.com/cabaletta/baritone/blob/78d3613e8c2e4c2f4bb56a6d84fe2844bd6d22e8/LICENSE)是 LGPL-3.0，当前 README 未找到以前所说的附加例外；Fabric API [1.21.4 LICENSE](https://github.com/FabricMC/fabric-api/blob/1.21.4/LICENSE)为 Apache-2.0；Meteor [GPL-3.0](https://github.com/MeteorDevelopment/meteor-client/blob/master/LICENSE)，AltoClef [MIT](https://github.com/gaucho-matrero/altoclef/blob/main/LICENSE)。具体版本和前提见[版本/许可矩阵](version-license-matrix.md)；这里不是最终法律结论。
 
-**决策结论**：产品形态为独立 Kin Runtime/Gateway + Web Dashboard；Minecraft 侧优先试薄 Fabric Bridge + Baritone API + 自写缺失动作，AltoClef 借设计，Meteor 暂不集成。这是证据支持的实验路线，**未达到“已经具备技术底座、可以开发完整 Kin”的确认等级**。后续核查与风险见[研究台账](research-tracker.md)，证据索引见[参考资料](references.md)。
+**决策结论**：产品形态为独立 Kin Runtime/Gateway + Web Dashboard + 自带 Launcher/Account/Version 后端；Minecraft 侧由受管理的隐藏真实客户端加载薄 Fabric Bridge，并优先试 Baritone API + 自写缺失动作，AltoClef 借设计，Meteor 暂不集成。这是证据支持的实验路线，**未达到“已经具备技术底座、可以开发完整 Kin”的确认等级**。后续核查与风险见[研究台账](research-tracker.md)，证据索引见[参考资料](references.md)。

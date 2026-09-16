@@ -4,9 +4,9 @@
 
 ## 启动前世界外流程
 
-独立 Gateway 通过 Web Dashboard/配置文件维护版本化 Server Profile：至少包括 host、port、Minecraft/Bridge 版本、账号 profile 引用、A/B 模式、锚定玩家、服务器规则、感知/能力配置、资源包与重连策略。host + port 只是必要信息；账号未登录、白名单、版本、正版验证、资源包或服规仍可阻断入服。详情见[独立 Runtime 与 Dashboard](standalone-runtime-dashboard.md)。
+独立 Gateway 通过 Web Dashboard 维护版本化 Server Profile：至少包括 host、port、版本策略/探测协议、已解析 bundle、账号 profile 引用、A/B 模式、锚定玩家、服务器规则、感知/能力配置、资源包与重连策略。Minekin 自带 Launcher/Account/Version 后端，不调用用户已有启动器；host + port 只是必要信息，账号未授权、白名单、未知协议、未验证 Bridge、正版验证、资源包或服规仍可阻断入服。详情见[独立 Runtime 与 Dashboard](standalone-runtime-dashboard.md)和[受管理客户端契约](managed-client-runtime.md)。
 
-1. 运行者在**可信的本地/管理界面**选择 A（陪玩）或 B（独立），指定私人测试服务器、Kin 专用且正常持有的 Java 账号、与 Kin 相关的运行者玩家身份、启动/退出权限和服务器规则记录。账号授权用正常 Minecraft 启动器/会话路径，不能开发一个绕过正版验证的协议登录；令牌/密码留在账号/进程隔离层，不进入角色提示词、外部研究请求、游戏聊天或可分享日志。专用账号而非共享运行者号能验证身份连续性；购买/授权成本单列，勿声称现有账号可多实例同时登录。
+1. 运行者在**可信的本地/管理界面**选择 A（陪玩）或 B（独立），指定私人测试服务器、Kin 专用且正常持有的 Java 账号、与 Kin 相关的运行者玩家身份、启动/退出权限和服务器规则记录。账号授权从 Dashboard 交给 Account Broker，以用户交互式 Microsoft 授权和 Minecraft 档案核验建立正常会话，不能开发一个绕过正版验证的协议登录或复制已有启动器 token；令牌/密码留在 secrets/进程隔离层，不进入角色提示词、外部研究请求、游戏聊天或可分享日志。专用账号而非共享运行者号能验证身份连续性；购买/授权成本单列，勿声称现有账号可多实例同时登录。
 2. 人工核对**当前目标服务器**的自动化客户端、PvP、改动感知/矿透、24 小时在线、聊天/骚扰与信息披露规则；私人可控测试服由运行者确定允许范围并通知参与者。禁止的能力在游戏外网关直接不可用，不交给 Kin 的人设自行越权。“邪恶人格”可在各参与者知情且允许的游戏规则内引发冲突，不是豁免 [Minecraft 社区标准](https://www.minecraft.net/en-us/community-standards)或管理员规则；公开服若不允许就不部署。
 3. 若服务规则要求说明自动化账号性质，运行者使用服主同意的**账号标识/服务器注册/管理员渠道/欢迎告知**。Kin 在世界内仍从第一人称认为自己是 Kin 玩家，回答不展开模型/后台，也不假冒别人的账号；世界内角色自述不能替代合规渠道。官方 EULA 没有给所有服务器同一“必须在公屏披露机器人”的统一步骤，具体方式须取自目标服规则。
 
@@ -18,7 +18,7 @@
 
 ## B 模式与共用状态机
 
-`stopped → account_ready → connecting → joined → active/idle → leaving/disconnected → stopped/retry_pending`；A 另需要有效邀请，B 可在服务启动且规则允许时自行连接。B 可持续在线，但不是“断电仍行动”：客户端崩溃/服务器停机后经验冻结，重连核对地点、生命、背包、可见世界和承诺，再由 Kin 决定恢复、换目标或休息。闲置允许站着等炉或降低认知调用频率；本地保命不因此关闭。
+`stopped → probing → bundle_ready → account_ready → client_starting → bridge_ready → connecting → joined → active/idle → leaving/disconnected → stopped/retry_pending`；A 另需要有效邀请，B 可在服务启动且规则允许时自行连接。B 可持续在线，但不是“断电仍行动”：客户端崩溃/服务器停机后经验冻结，重连核对地点、生命、背包、可见世界和承诺，再由 Kin 决定恢复、换目标或休息。闲置允许站着等炉或降低认知调用频率；本地保命不因此关闭。
 
 同一个角色固定 `kin_id`、`account_identity`、`world/server_identity`、`persona_id`、长期事件账本和出生→死亡→重生记录；服务找不到或无法验证既有身份库时进入恢复态，绝不自动随机一个新人格顶替。启动/崩溃/迁移与旧动作失效遵守[持久化与恢复契约](persistence-recovery-contract.md)。新服务器不把旧箱子权属硬套进来；重生还是同一个人。模式变更写入版本化世界外配置并有效时刻生效，角色人格与过去不重抽；只允许可信运行者设置连接/工具权限，其他玩家聊天仅可影响 Kin 的世界内决定。客户端 1.21.4 Yarn 的 [ClientPlayNetworkHandler](https://maven.fabricmc.net/docs/yarn-1.21.4%2Bbuild.8/net/minecraft/client/network/ClientPlayNetworkHandler.html)列 `isConnectionOpen`、`getConnection`及断线处理，是观察连接状态的候选接口，**不是自动登录或某服务器兼容的证据**。
 

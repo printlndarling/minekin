@@ -1,6 +1,6 @@
 # 独立 Runtime 架构与感知边界
 
-Minekin 的产品进程、Soul/Memory、模型、工具和管理界面位于 Minecraft 之外；客户端内只有薄 Fabric Bridge。两种在线模式是 Game Session Policy，不要求把 Agent 做成 Mod。进程拓扑、Server Profile、Dashboard 和 Live View 见[独立 Runtime 与 Web Dashboard](standalone-runtime-dashboard.md)。
+Minekin 的产品进程、Soul/Memory、模型、工具和管理界面位于 Minecraft 之外；客户端内只有薄 Fabric Bridge。两种在线模式是 Game Session Policy，不要求把 Agent 做成 Mod。进程拓扑、Server Profile、Dashboard 和 Live View 见[独立 Runtime 与 Web Dashboard](standalone-runtime-dashboard.md)。Minekin 不接管已有启动器/客户端；自带 Launcher/Account/Version 服务负责 Web 授权、服务器探测、受支持版本包和无可见窗口运行，见[受管理客户端契约](managed-client-runtime.md)。
 
 ## 模块与控制权
 
@@ -8,6 +8,7 @@ Minekin 的产品进程、Soul/Memory、模型、工具和管理界面位于 Min
 | --- | --- | --- |
 | Kin Gateway / Supervisor | 独立服务的启停、配置、会话、Dashboard API、鉴权和健康状态 | 不发新连接/目标，保留 emergency stop 和恢复信息 |
 | Web Dashboard | 展示 Soul/状态/时间线/成本/告警和第一人称观战；管理配置与安全停机 | 页面/媒体断开不得阻塞 Runtime 或 Bridge |
+| Managed Client Runtime | 自带 Launcher、Account Broker、Server Probe、Version Resolver、Bundle Registry、虚拟显示和客户端监督；不依赖桌面启动器 | 未识别/未验证版本阻断，下载/进程失败不污染 Soul/Memory，不回退协议 Bot |
 | Fabric Client Bridge | 薄适配器：获取受限自身状态、视听事件、合法输入、反射与技能结果；不保存人格/长期记忆 | 失去心跳即松键、停止高风险操作并安全退出 |
 | 在线生命周期控制器 | 按模式与玩家在线事件决定加入、暂停、退出和重连 | 保存状态并停止新行为，避免重复登录 |
 | 感知过滤器 | 将客户端数据转换为正常玩家可感知的观察 | 不把未经筛选的原始世界状态交给决策层 |
