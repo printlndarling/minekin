@@ -17,7 +17,7 @@
 ## 需要做的最小验证，而不是一句“框架已成熟”
 
 1. 同一客户端账号和指定私人测试服：正常入服，客户端能获得本人 HUD/背包、聊天与**经过过滤**的可见实体，Fabric 控制器每客户端 tick 能记录事件；异常退出/再登不复制身份。服务器规则及自动化账号的世界外披露由运行者负责。
-2. 对同一已见树，分别测试导航目标、走位、转视角、持续合法破坏、拾取、库存核验与被其他玩家挡路后的停止/恢复。Baritone 自带 `legitMine` 只针对文档描述的采矿可见性；需要检查它的路径探索、方块缓存和目标扫描，禁止墙后真值传入 Kin 或底层执行目标。
+2. 对同一已见树，分别测试导航目标、走位、转视角、持续合法破坏、拾取、库存核验与被其他玩家挡路后的停止/恢复。Baritone `legitMine` 的上游使用说明不是画面可见性保证；[固定源码审计](baritone-perception-audit.md)指出近域方块状态读数与目标可达性判断仍存在。需同时检查导航路径探索、矿点发现、方块缓存和最终目标消费链；未证明可严格隔离时只以已观察目标测试导航，并自写受限目标发现/寻路，不让墙后矿点成为人物信念或执行目标。
 3. 打开真实工作台/背包 GUI，选择公开配方、逐步合成并以库存核验，记录配方/点击/客户端与服务器同步的失败。寻路命令不能代替 GUI/拾取成功；未知接口则先自写最小操作，不假报拥有整套 400+ 物品任务库。
 4. 对反射与战斗，实测 Fabric tick 触发至首次输入、目标视野/遮挡和正常旋转速度。不能为了避免模型延迟打开 Meteor 的 KillAura 或直接读 360°实体精确坐标；本地反射独立于云端模型运行，成功与失败均留回放。
 5. 冻结可重现的版本矩阵：游戏版本、Fabric Loader/API、Baritone API 的源码 commit 或可信发布包哈希、Java/Gradle、测试服类型与规则。把直接链接、修改分发与附带许可证作为发布前检查项；Baritone [同版源码许可](https://github.com/cabaletta/baritone/blob/78d3613e8c2e4c2f4bb56a6d84fe2844bd6d22e8/LICENSE)是 LGPL-3.0，当前 README 未找到以前所说的附加例外；Fabric API [1.21.4 LICENSE](https://github.com/FabricMC/fabric-api/blob/1.21.4/LICENSE)为 Apache-2.0；Meteor [GPL-3.0](https://github.com/MeteorDevelopment/meteor-client/blob/master/LICENSE)，AltoClef [MIT](https://github.com/gaucho-matrero/altoclef/blob/main/LICENSE)。具体版本和前提见[版本/许可矩阵](version-license-matrix.md)；这里不是最终法律结论。

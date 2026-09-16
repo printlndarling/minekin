@@ -17,7 +17,7 @@
 
 ## 轻量底座核查与局限
 
-- [Baritone 的 1.21.4 使用文档](https://github.com/cabaletta/baritone/blob/1.21.4/USAGE.md)已列出 `goto`、`mine`、`farm`、`build` 等动作及 `legitMine`（仅寻找实际可见矿物）的选项；这是算法/任务能力的现成证据，**不是**我们版本已兼容、也不是所有路径查询均玩家等价的证据。
+- [Baritone 1.21.4 固定版使用文档](https://github.com/cabaletta/baritone/blob/78d3613e8c2e4c2f4bb56a6d84fe2844bd6d22e8/USAGE.md)列出 `goto`、`mine`、`farm`、`build`，且对 `legitMine` 有“只采它能看到的矿”之类的使用说明；**这只是上游文档的功能描述，不能当作 Kin 的当前画面可见性证明**。[同 commit 的 `MineProcess`](https://github.com/cabaletta/baritone/blob/78d3613e8c2e4c2f4bb56a6d84fe2844bd6d22e8/src/main/java/baritone/process/MineProcess.java)在 `legitMine` 路径仍先查询附近方块状态再判断可达，而一般模式还有缓存/区块扫描。未运行完整采矿链，不把这种源码能力误称为实际作弊或集成兼容；普通模式优先只为已观察目标试受限导航，矿点发现需要自写过滤或通过原型证明每个读数与目标消费均在允许域，见[源码审计](baritone-perception-audit.md)。
 - [AltoClef 的使用文档](https://github.com/gaucho-matrero/altoclef/blob/main/usage.md)给出 `get`、`food`、`deposit` 等资源任务；其[设计说明](https://github.com/gaucho-matrero/altoclef/wiki/1:-Documentation:-Big-Picture)展示材料依赖、已有物品跳过和防御/食物任务抢占。原仓库已归档，直接接入当前 Java 版本和客户端感知边界并未得到验证。
 - 两者均不是“Kin 已经会原版生存”的证明。初期可借用资源图、局部寻路和动作分解思路，感知/客户端输入/任务反馈要以可审计的 Kin 适配接口实现。[感知政策](perception-policy.md)覆盖底层目标选择；其特殊矿透模式不能暗中成为普通开局找矿能力。
 
