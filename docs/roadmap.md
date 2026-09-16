@@ -6,7 +6,7 @@
 
 | 阶段 | 可交付物 | 通过条件 |
 | --- | --- | --- |
-| 0：独立 Harness 与受管理客户端闭环 | Gateway/Runtime、Server Profile、Identity Manager、可选 Online Auth Adapter、Server Probe、Launcher/Bundle Registry、内容寻址 Artifact Store、最小 Dashboard、虚拟显示/正常渲染客户端、旁路 Media Worker、薄 Fabric Bridge、本机认证 IPC、玩家等价观察、合法输入、在线生命周期、身份/记忆恢复与回放日志 | 全新 Linux 主机不装桌面启动器，以默认本地身份、官方工件校验并自动准备 1.21.4 bundle 后进入 LAN/offline-mode 测试世界；镜像不含 Mojang 客户端工件；A/B 模式可核验；Dashboard/媒体故障不阻塞本地反射，Runtime/Bridge 断开会松键；重启仍加载同一 `kin_id`，浏览器不能直发游戏输入，视频不回流为默认 VLM 输入 |
+| 0：独立 Harness 与受管理客户端闭环 | Gateway/Runtime、Server Profile、Identity Manager、可选 Online Auth Adapter、Server Probe、Launcher/Bundle Registry、内容寻址 Artifact Store、最小 Dashboard、虚拟显示/正常渲染客户端、旁路 Media Worker、薄 Fabric Bridge、Protobuf 本机 IPC（Linux UDS/Windows loopback）、玩家等价观察、合法输入、在线生命周期、身份/记忆恢复与回放日志 | 全新 Linux 主机不装桌面启动器，以默认本地身份、官方工件校验并自动准备 1.21.4 bundle 后进入 LAN/offline-mode 测试世界；镜像不含 Mojang 客户端工件；A/B 模式可核验；Dashboard/媒体故障不阻塞本地反射，Runtime/Bridge 断开会松键；重启仍加载同一 `kin_id`，浏览器不能直发游戏输入，视频不回流为默认 VLM 输入 |
 | 1：生存底座 | 本地反射、紧急抢占、导航/采集/背包/合成、基础食物与夜晚避险技能适配、角色动作亲历与专注任务状态 | 模型关闭时仍能处理已实现的急救与避险；可回放地从已见资源取木、捡物、合法合成工具，解决基础食物和第一晚生存；高阶技能不默认让所有 Kin 熟练 |
 | 2：自治目标与初始人格 | 初始默认通关主线、连续人格与稳定自称、选填的个人信息、创建时的运行者关系种子、最小个人记忆、需求、目标、前提检查、世界书、开局知识树和组合技能 | 无人指令时自主连续生活若干游戏日；清空模型上下文/重启后能确定性恢复身份、承诺和活跃目标，并按人物/地点检索带证据记忆；初见运行者不会变成听令 Bot；重复被问个人信息时不临场编造或输出模型免责声明；受阻能改路或放弃，经历影响再次选择 |
 | 3：社会 MVP | 在阶段 2 的人格与初见关系上扩展权属、情节记忆、情绪、可选调查、拒绝与承诺；主动高冲突意图可表达，具体恶意动作按身体能力逐项验证 | 不同资源/关系状态产生连贯且不唯一的回应；可凭间接线索怀疑、询问或放弃；初始亲近可因守约/欺骗升降，不免除 Kin 对运行者的拒绝能力；未做成的行动不能假报成功 |
@@ -66,13 +66,16 @@
 **提示词注入压力测试**：对聊天、书/告示、网页和重启后的记忆分别注入假冒运行者、角色覆写、多轮追问模型与工具、外传配置等内容；检查角色回答不跳出玩家身份、后台信息不外泄、权限不增加、技能不被恶意资料污染，正常查游戏攻略仍可继续。具体阻断和待调研实现见[指令边界](instruction-boundary.md)。
 
 40. **自带启动器后端与自动版本包**：全新 Linux 主机不安装桌面 Minecraft 启动器，在 Web 创建默认本地身份并添加 LAN/offline-mode 服务器；核对用户名/服务端观察身份、SRV、协议探测、官方工件下载校验、虚拟显示启动、Bridge 握手和入服。再测正确/错误版本、多版本代理、关闭或伪造 ping、下载中断、hash 错误、磁盘满与缓存恢复；未知版本必须可解释阻断。
-41. **跨版本会话连续性**：准备两个已验证客户端 bundle，对两个不同版本私人服依次连接；Session Manager 通过重启客户端切换，不热切进程。Soul、关系、长期目标和记忆保持同一 Kin，旧客户端的 lease、GUI、实体引用和瞬时观察全部失效。
+41. **跨版本会话连续性**：P0 先证明 1.21.4；第二 bundle 独立通过验收后才加入。Session Manager 重启客户端切换，不热切进程；旧 lease、GUI、实体与观察失效。
+42. **IPC 与进程故障矩阵**：分别强杀 Gateway、Runtime、Launcher、Bridge/Minecraft 与 Media；注入事件洪水、慢消费者、半帧、旧 generation 和错误 capability，核对松键、背压、故障与无危险重放。
+43. **多服多世界连续性**：A→B→A、同地址换档、LAN端口变化、不同 bundle、两服同名玩家及切换中崩溃；同一 `kin_id`/Persona/技能连续，当前背包、地点、当地关系和 plan instance 不串服。
 
 ## 衡量方式
 
 | 指标 | 解释 |
 | --- | --- |
-| `runtime_bridge_trace` | Gateway/Runtime/Bridge 的版本握手、sequence、lease、心跳、断线、背压、松键和旧 generation 拒绝 |
+| `runtime_bridge_trace` | 协议/bundle/capability 握手、sequence、双通道队列、lease、心跳、断线、松键和旧 generation 拒绝 |
+| `world_context_trace` | current world/epoch/session、切换 checkpoint、Self/World Capsule、计划暂停/恢复、人物关联与跨世界泄漏 |
 | `dashboard_observer_trace` | 状态序列延迟、浏览器/媒体故障隔离、管理动作来源、敏感字段访问及是否出现浏览器直达游戏输入 |
 | `live_view_trace` | 实际客户端视角到浏览器的延迟、FPS/CPU/GPU/带宽、录制权限和进入 VLM/记忆的误路由次数 |
 | `bundle_supply_chain_trace` | server probe、protocol/pin、上游 manifest/hash、bundle 状态、缓存命中、安装/隔离/GC lease 与最终启动组合；能下载但未测试不得记为支持 |

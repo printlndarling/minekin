@@ -61,7 +61,7 @@ Launcher Service 自己完成普通启动器的后端职责，但不制作桌面
 5. 下载到临时目录，逐项核对来源、大小与清单哈希；
 6. 生成不可变 `Client Bundle Manifest`，原子发布到内容寻址缓存；
 7. 为每次世界会话创建可写 overlay：options、服务器资源包、日志、崩溃报告和会话临时文件；
-8. 只把会话 token 以最小生命周期传给客户端进程，不落入命令展示、一般日志或模型上下文；
+8. 默认离线身份不产生在线认证 token；显式 online profile 只把短期会话材料以最小生命周期传给客户端进程，不落入命令展示、日志或模型上下文；
 9. 启动后等待 Bridge 以 nonce、bundle hash、协议版本和 capability manifest 握手；
 10. 握手、服务器连接和角色生成均成功后，才把会话标记为 `PLAYABLE`。
 
@@ -183,7 +183,7 @@ stateDiagram-v2
 
 ### Linux Server（首要部署目标）
 
-- `minekin-gateway`、`minekin-runtime`、`launcher-service`、`managed-client`、`media-worker` 分进程/容器；
+- `minekin-gateway`、`minekin-runtime`、`launcher-service`、`managed-client`、`media-worker` 分故障域；P0 先用 systemd/独立进程，闭环后再固化 OCI profile；
 - 数据卷分为 durable identity/memory、secrets、content-addressed bundles、session overlays 和有期限日志；
 - 虚拟显示或经过验证的离屏上下文承载真实客户端，默认无宿主桌面窗口；
 - 按客户端实例限制 CPU、RAM、磁盘、网络、GPU 和进程数；
@@ -202,6 +202,8 @@ stateDiagram-v2
 - [Linux 无窗口真实客户端、渲染与 Live View 契约](headless-client-media-contract.md)：虚拟显示、llvmpipe/GPU 执行档、进程隔离、FFmpeg/WebRTC 候选、资源预算和媒体失败降级。
 
 这里的 `headless` 始终指没有前台桌面交互，不指删掉真实客户端渲染。首版以虚拟显示中的正常渲染为基线；外部 VLM 仍默认零调用。
+Runtime/Bridge 采用 Protobuf framing、Linux UDS/Windows loopback、control/event 双通道；切服创建新 session generation。详见[IPC 与进程部署契约](runtime-ipc-deployment-contract.md)和[世界上下文契约](world-context-contract.md)。
+
 ## 开发前必须验证
 
 1. 全新 Linux 主机只安装 Minekin 后，通过 Web 创建默认离线身份、添加 LAN/offline-mode 服务器并自动准备指定版本；不人工安装 Minecraft/Fabric。

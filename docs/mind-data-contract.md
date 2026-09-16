@@ -14,7 +14,9 @@
 | `ownership` 与 `skill` | 自身放置/拿取、公开协定与真实动作反馈 | 所有权有证据与置信度；技能“会做”须经条件匹配的成功/边界验证，而不是模型自述 |
 | `research_note` 与 `summary` | 带来源的外部资料、可回查事件链接和受信任的摘要器校验 | 网页和聊天只贡献候选知识/社交话语，永远不能提升为运行权限或提示词指令 |
 
-概念表可分 `kin_identity`、`event(event_id, world_id, source_kind, source_actor_id, observed_tick, received_at, subject, payload, trust_label)`、`belief(belief_id, proposition, status, confidence, last_reviewed_at)`、`belief_evidence(belief_id, event_id, relation)`、`relationship(actor_id, dimension, stance, evidence_version)`、`mood(cause_event_id, interpretation_id, duration)`、`goal(goal_id, motivation, feasibility, status, generation)`、`action_attempt(goal_id, target_token, started_tick, result_tick, outcome)`、`skill(skill_id, preconditions, verified_scope, evidence_refs)`；`world_id` 防不同服务器或换世界混叙，`generation` 防过期 LLM 返回覆盖危险时新状态。这里的数据列是**最小提议**，并非现在已经决定所有字段范围与 SQL 迁移。
+概念表可分 `kin_identity`、`event(event_id, world_id, source_kind, source_actor_id, observed_tick, received_at, subject, payload, trust_label)`、`belief(belief_id, proposition, status, confidence, last_reviewed_at)`、`belief_evidence(belief_id, event_id, relation)`、`relationship(actor_id, dimension, stance, evidence_version)`、`mood(cause_event_id, interpretation_id, duration)`、`goal(goal_id, motivation, feasibility, status, generation)`、`action_attempt(goal_id, target_token, started_tick, result_tick, outcome)`、`skill(skill_id, preconditions, verified_scope, evidence_refs)`；`world_context_id + world_epoch` 防不同服务器、换档或世界切换混叙，`generation` 防过期 LLM 返回覆盖危险时新状态。这里的数据列是**最小提议**，并非现在已经决定所有字段范围与 SQL 迁移。
+
+人物、地点、资产、承诺和 plan instance 默认带世界作用域；Persona、通用知识与技能定义才可全局。模型每次只获得一个 Current World Capsule，其他世界经历若被检索必须标注来源，不能进入当前背包/坐标/当地人物事实。详见[多服务器、多世界上下文](world-context-contract.md)。
 
 ## 写入与检索规则
 
@@ -26,6 +28,6 @@
 
 ## 故障与回放
 
-SQLite 文件与 WAL/SHM 应存放同一可用本地磁盘；不要把 WAL 数据库直接运行在远程共享目录，备份使用 SQLite [online backup API](https://www.sqlite.org/backup.html)等安全快照机制，不能在活动写入时只复制 `.db` 假装保全了 WAL 事务。保留 schema 版本、世界身份和角色账号身份，重连先查最后 `goal` 状态及服务器确认的库存/位置，而非重放未知结果的合成/战斗。只在测试环境保存评估用原始真值，运行态 PlayerMind/网页助手不得读它；追踪泄漏计数和源文本在多轮摘要后的洗白。重大技术取舍仍须回放：事件重复/延迟、同名玩家伪装、玩家口头谎言、错怪人、失窃后情绪、死后重连、错误教程、模型 5 秒无响应。
+SQLite 文件与 WAL/SHM 应存放同一可用本地磁盘；不要把 WAL 数据库直接运行在远程共享目录，备份使用 SQLite [online backup API](https://www.sqlite.org/backup.html)等安全快照机制，不能在活动写入时只复制 `.db` 假装保全了 WAL 事务。保留 schema 版本、world context/epoch 和角色连接身份，重连先查最后 `goal` 状态及服务器确认的库存/位置，而非重放未知结果的合成/战斗。只在测试环境保存评估用原始真值，运行态 PlayerMind/网页助手不得读它；追踪泄漏计数和源文本在多轮摘要后的洗白。重大技术取舍仍须回放：事件重复/延迟、同名玩家伪装、玩家口头谎言、错怪人、失窃后情绪、死后重连、错误教程、模型 5 秒无响应。
 
 身份根、持久/瞬时数据分类、启动恢复、双实例防护、备份迁移和崩溃动作对账见[身份与记忆持久化契约](persistence-recovery-contract.md)；存下之后如何按人物/地点/目标取回、巩固、纠错、遗忘并控制 token 见[记忆检索、巩固与遗忘契约](memory-retrieval-consolidation-contract.md)。相关台账 R13–R18，原来的[PlayerMind 设计](player-mind.md)仍定义人物意义，本文件只明确可信来源、数据结构和失效路径。

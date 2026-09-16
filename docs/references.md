@@ -84,3 +84,7 @@
 | [Linux `/proc/<pid>/cmdline` 手册](https://man7.org/linux/man-pages/man5/proc_pid_cmdline.5.html)及[kernel proc 文档](https://www.kernel.org/doc/html/latest/filesystems/proc.html) | 一手系统文档说明进程完整命令行和环境可通过 proc 暴露，支持审计 Minecraft access-token 启动参数风险 | 权限随 uid/namespace/宿主策略变化；只能通过隔离、最小生命周期和实测降低暴露，不能声称零泄漏 |
 
 其他设计启发分布在 [Alma 参考](alma-reference.md)、[外部工具](external-tools.md)和[自主学习](learning.md)。剩余来源/条款在发布前逐版本复核；每个状态、许可与实际集成结果须与[研究台账](research-tracker.md)同步。
+| [Java SE 21 UnixDomainSocketAddress](https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/net/UnixDomainSocketAddress.html) 与 [SocketChannel](https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/nio/channels/SocketChannel.html) | Java 21 标准库支持 Unix-domain socket 地址及 NIO 读写；2026-09-16 核对 | 只证明原语；平台支持、权限、吞吐和断线语义须原型 |
+| [Python 3.12 asyncio streams](https://docs.python.org/3.12/library/asyncio-stream.html#asyncio.start_unix_server) | 官方提供 Unix socket client/server、流缓冲和 `drain()` 背压原语；2026-09-16 核对 | Unix-only；Windows 使用 loopback TCP，应用层仍须有界队列 |
+| [Protocol Buffers proto3 guide](https://protobuf.dev/programming-guides/proto3/#updating) | 官方说明字段号不可更改/复用、删除字段应 reserved，并列 wire-safe/unsafe 变更；2026-09-16 核对 | 不自动提供 framing、鉴权、顺序、lease 或业务兼容性 |
+| [systemd resource control](https://www.freedesktop.org/software/systemd/man/latest/systemd.resource-control.html) 与 [execution environment](https://www.freedesktop.org/software/systemd/man/latest/systemd.exec.html) | P0 cgroup 资源限制和进程沙箱候选依据；2026-09-16 核对 | 限制可能破坏 Java natives、显示或媒体，必须逐项实测 |

@@ -46,14 +46,14 @@
 | Runtime/Gateway | Python 3.12+、asyncio、FastAPI、Pydantic | Agent/模型/研究工具生态成熟；FastAPI 官方支持 WebSocket。具体版本冻结后再建锁文件 |
 | Dashboard | React + TypeScript + Vite | 状态面板、时间线和全屏观战适合浏览器 SPA；不与 Agent 进程混成桌面 UI |
 | 持久化 | SQLite + WAL，文件对象单独目录 | 首版单机单 Kin，已有恢复契约；不把 Redis/Postgres 设为前置 |
-| Core↔Bridge | 本机认证 WebSocket，版本化 JSON schema | 跨 Python/Java、双向事件和首版调试简单；频率/开销不满足时再评估二进制编码 |
+| Core↔Bridge | Protobuf framing；Linux Unix Domain Socket，Windows loopback TCP；control/event 双通道 | 避免浏览器协议承担身体控制；版本、背压、lease、generation 与故障语义见独立 IPC 契约 |
 | Launcher/Client Manager | 独立后端服务 + 内容寻址工件缓存 | 负责官方元数据、本地身份/可选在线认证、服务器探测、Java/Fabric/Bridge bundle 与无窗口进程；不把游戏资产预装进发布镜像 |
 | Bridge | 按已验证 bundle 构建的 Fabric Client driver | 贴近真实客户端 tick、GUI 和输入；只做最小动作与观察，不承载心智 |
 | 实时状态 | Gateway WebSocket | 向 Dashboard 推送状态快照增量、事件和健康信息；不能直接暴露密钥/原始私密记忆 |
 | 游戏画面 | 窗口/帧缓冲采集 + WebRTC 候选 | [W3C WebRTC](https://www.w3.org/TR/webrtc/)适合浏览器实时媒体；具体采集/中继库须按 Windows/Linux、延迟和 GPU 占用原型选择 |
 | 可观测性 | 结构化本地事件 + OpenTelemetry-compatible trace | 先本地记录；是否部署远端 collector 后定，敏感聊天/坐标不默认上传 |
 
-[FastAPI WebSocket 官方说明](https://fastapi.tiangolo.com/advanced/websockets/)只证明框架存在双向接口，不证明单进程内存广播可用于生产；Gateway 仍需背压、断线重放、状态序列号和慢客户端隔离。传输实现是可替换项，Bridge Contract 才是稳定边界。
+[FastAPI WebSocket 官方说明](https://fastapi.tiangolo.com/advanced/websockets/)只用于说明 Dashboard/Gateway 可提供双向状态流，不再作为 Core↔Bridge 正式协议。Bridge 使用独立本机 Protobuf 通道；具体 framing、握手、背压和部署见[IPC 与进程部署契约](runtime-ipc-deployment-contract.md)。
 
 Python 不是反射执行器。每 tick 需要的掉落、爆炸、松键、局部跟踪仍在 Java Bridge 内完成；Python Runtime 负责秒级以上行为选择、社会判断和长期规划。
 
@@ -122,12 +122,14 @@ host + port 只是必要信息，不等于能入服。身份模式不匹配、�
 
 模式切换只改变“何时允许进入世界”，不换 Soul、不清空记忆、不改变运行者关系，更不授予锚定玩家命令权。
 
+同一个 Runtime 可以管理同一 `kin_id` 的多个 Server Profile/World Context，但任一时刻最多一个活动游戏会话。切服先冻结旧世界计划、撤销输入并提交 checkpoint，再用新 generation 进入目标世界；全局 Persona/知识连续，当地状态严格隔离。详见[多服务器与多世界上下文](world-context-contract.md)。
+
 ## Web Dashboard 信息架构
 
 ### 首页
 
 - Kin 在线/离线/恢复/暂停状态；
-- 当前 Server Profile、A/B 模式、客户端/Bridge/Runtime 版本；
+- 当前 Server Profile、world context/epoch、A/B 模式、客户端/Bridge/Runtime 版本；
 - 当前目标、正在执行的技能、最近中断和等待原因；
 - 生命/饥饿/维度等玩家自身可知状态；
 - 模型、搜索、视觉和机器资源预算摘要；
@@ -177,7 +179,7 @@ Dashboard 的默认写操作限于启动、暂停、紧急停止、模式/配置
 - 所有配置变更有 actor、时间、前后版本和原因；游戏文本无管理 API 权限；
 - 队列满、浏览器断开或媒体断流不得阻塞本地反射与输入释放。
 
-OpenClaw 的 Dashboard 资料可借鉴“Gateway 与 WebSocket 握手鉴权”的形态，但 Minekin 不能照搬其权限模型；游戏账号、视频、人物记忆和本地动作具有不同敏感级别。
+OpenClaw 的 Dashboard 资料可借鉴“Gateway 与 WebSocket 握手鉴权”的形态，但 Minekin 不能照搬其权限模型；游戏身份、视频、人物记忆和本地动作具有不同敏感级别。
 
 ## 启动与关闭
 

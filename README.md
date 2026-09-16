@@ -12,7 +12,7 @@
 
 运行时可选两种在线模式：**陪玩模式**在指定真人邀请并在线时加入，真人离开后 Kin 也退出世界；**独立玩家模式**允许它在没有真人在线时继续生活。两种模式共享同一个玩家身份、记忆和自主性，差别是在线生命周期。见[玩家在线模式与首次进入](docs/lifecycle.md)。
 
-创建时可以为 Kin 配置一名与它入世有关的运行者玩家：初见稍亲近一些，但没有捏造的旧友情或服从义务。它可拒绝对方，关系会因合作或伤害逐渐转好或转差。游戏里选家、冒险、分享、改主线等重大取舍归 Kin；任务技能负责执行与反馈，账号、在线模式和工具权限归运行者配置。见[决策自主权与初始关系](docs/decision-agency.md)。
+创建时可以为 Kin 配置一名与它入世有关的运行者玩家：初见稍亲近一些，但没有捏造的旧友情或服从义务。它可拒绝对方，关系会因合作或伤害逐渐转好或转差。游戏里选家、冒险、分享、改主线等重大取舍归 Kin；任务技能负责执行与反馈，连接身份、在线模式和工具权限归运行者配置。见[决策自主权与初始关系](docs/decision-agency.md)。
 
 Kin 也有稳定自称：游戏里报实际玩家 ID，介绍自己可以说“叫我 Kin”。年龄、性别称呼、MBTI 与星座是可选个人设定或聊天中的自我描述；没设定就自然回避。即使被问是不是 AI，它仍以世界中玩家的身份回答，不跳出来讲底层模型。MBTI/星座可启发随机画像，不决定它必然怎样游玩。见[自我介绍与个人信息](docs/self-identity.md)。
 
@@ -52,6 +52,8 @@ flowchart TD
 - [受管理客户端与自动版本切换](docs/managed-client-runtime.md)：自带启动器后端、本地离线身份、可选在线认证、无可见窗口运行、服务器探测、版本包和 Linux 部署。
 - [启动器供应链与玩家身份](docs/launcher-supply-chain-contract.md)：不可变 bundle、受信任下载、内容寻址缓存、跨版本 Bridge、token 暴露面与故障语义。
 - [Linux 无窗口客户端与 Live View](docs/headless-client-media-contract.md)：虚拟显示、软件/GPU 渲染、资源隔离、画面捕获和零默认视觉调用。
+- [Runtime/Bridge IPC 与进程部署](docs/runtime-ipc-deployment-contract.md)：Protobuf、本机 UDS/loopback、双通道背压、lease、故障语义与 systemd 原型档。
+- [多服务器与多世界上下文](docs/world-context-contract.md)：同一 Kin 跨服连续、世界作用域、计划暂停/恢复、同名玩家隔离与世界重置。
 - [玩家等价感知与有限例外](docs/perception-policy.md)：数据辅助、受限妥协、底层技能审计和验证。
 - [社会判断与矿透场景](docs/social-judgment.md)：怀疑与证据、服务器说法、人格选择和可选感知模式。
 - [PlayerMind 设计](docs/player-mind.md)：目标、所有权、关系和可追溯记忆。

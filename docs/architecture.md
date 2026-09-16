@@ -1,6 +1,6 @@
 # 独立 Runtime 架构与感知边界
 
-Minekin 的产品进程、Soul/Memory、模型、工具和管理界面位于 Minecraft 之外；客户端内只有薄 Fabric Bridge。两种在线模式是 Game Session Policy，不要求把 Agent 做成 Mod。进程拓扑、Server Profile、Dashboard 和 Live View 见[独立 Runtime 与 Web Dashboard](standalone-runtime-dashboard.md)。Minekin 不接管已有启动器/客户端；自带 Launcher/Account/Version 服务负责 Web 授权、服务器探测、受支持版本包和无可见窗口运行，见[受管理客户端契约](managed-client-runtime.md)。
+Minekin 的产品进程、Soul/Memory、模型、工具和管理界面位于 Minecraft 之外；客户端内只有薄 Fabric Bridge。两种在线模式是 Game Session Policy，不要求把 Agent 做成 Mod。进程拓扑、Server Profile、Dashboard 和 Live View 见[独立 Runtime 与 Web Dashboard](standalone-runtime-dashboard.md)。Minekin 不接管已有启动器/客户端；自带 Launcher/Identity/Version 服务负责默认本地身份、可选在线认证、服务器探测、受支持版本包和无可见窗口运行，见[受管理客户端契约](managed-client-runtime.md)。
 
 ## 模块与控制权
 
@@ -8,7 +8,7 @@ Minekin 的产品进程、Soul/Memory、模型、工具和管理界面位于 Min
 | --- | --- | --- |
 | Kin Gateway / Supervisor | 独立服务的启停、配置、会话、Dashboard API、鉴权和健康状态 | 不发新连接/目标，保留 emergency stop 和恢复信息 |
 | Web Dashboard | 展示 Soul/状态/时间线/成本/告警和第一人称观战；管理配置与安全停机 | 页面/媒体断开不得阻塞 Runtime 或 Bridge |
-| Managed Client Runtime | 自带 Launcher、Account Broker、Server Probe、Version Resolver、Bundle Registry、虚拟显示和客户端监督；不依赖桌面启动器 | 未识别/未验证版本阻断，下载/进程失败不污染 Soul/Memory，不回退协议 Bot |
+| Managed Client Runtime | 自带 Launcher、Identity Manager、可选 Online Auth Adapter、Server Probe、Version Resolver、Bundle Registry、虚拟显示和客户端监督；不依赖桌面启动器 | 未识别/未验证版本阻断，下载/进程失败不污染 Soul/Memory，不回退协议 Bot |
 | Fabric Client Bridge | 薄适配器：获取受限自身状态、视听事件、合法输入、反射与技能结果；不保存人格/长期记忆 | 失去心跳即松键、停止高风险操作并安全退出 |
 | 在线生命周期控制器 | 按模式与玩家在线事件决定加入、暂停、退出和重连 | 保存状态并停止新行为，避免重复登录 |
 | 感知过滤器 | 将客户端数据转换为正常玩家可感知的观察 | 不把未经筛选的原始世界状态交给决策层 |
@@ -25,11 +25,13 @@ Minekin 的产品进程、Soul/Memory、模型、工具和管理界面位于 Min
 
 外部工具网关位于长程认知侧，与逐 tick 客户端回路隔离。它接受带目标、期限、能力要求的任务，在后台返回结构化结果、出处和失败原因；结果只是候选知识，不直接成为游戏真值或客户端动作。见[外部工具与自主查资料](external-tools.md)。
 
-在线生命周期控制器只决定角色是否在世界中及是否恢复任务，不修改 PlayerMind 的价值判断。陪玩模式下真人离开时暂停待办、保存事件与意图并正常断开客户端；独立玩家模式可以在无人在线时继续运行。重连前检查账号会话、世界身份和旧任务前置条件，避免把过期的移动/攻击指令直接续上。具体体验与状态见[玩家在线模式](lifecycle.md)。
+在线生命周期控制器只决定角色是否在世界中及是否恢复任务，不修改 PlayerMind 的价值判断。陪玩模式下真人离开时暂停待办、保存事件与意图并正常断开客户端；独立玩家模式可以在无人在线时继续运行。重连前检查身份 profile、目标世界上下文和旧任务前置条件，避免把过期的移动/攻击指令直接续上。具体体验与状态见[玩家在线模式](lifecycle.md)。
 
-目标管理器归属每个 Kin 自己的 PlayerMind：它可以提出、选择、更改或放弃长期方向和近期项目；行为/任务层只检查所选意图的现实前提与结果，不能以资源效率或运行者的聊天请求偷偷改写人物方向。初始运行者玩家关系来自创建配置，并以预置来源进入 Kin 私人关系状态；世界外账号、上线模式和能力开关仍由运行者配置，游戏中提要求时不获得 Kin 的服从权。决策责任与评估见[自主权与初始关系](decision-agency.md)。后续多 Kin 扩展为每个角色独立运行同一结构，每个客户端只获得自己的合法观察；角色间通过世界里可交流的渠道提出计划和共享约定，而非共享一份全知数据库。见[目标设计](goals.md)和[多 Kin 世界](multi-kin.md)。
+目标管理器归属每个 Kin 自己的 PlayerMind：它可以提出、选择、更改或放弃长期方向和近期项目；行为/任务层只检查所选意图的现实前提与结果，不能以资源效率或运行者的聊天请求偷偷改写人物方向。初始运行者玩家关系来自创建配置，并以预置来源进入 Kin 私人关系状态；世界外连接身份、上线模式和能力开关仍由运行者配置，游戏中提要求时不获得 Kin 的服从权。决策责任与评估见[自主权与初始关系](decision-agency.md)。后续多 Kin 扩展为每个角色独立运行同一结构，每个客户端只获得自己的合法观察；角色间通过世界里可交流的渠道提出计划和共享约定，而非共享一份全知数据库。见[目标设计](goals.md)和[多 Kin 世界](multi-kin.md)。
 
 游戏聊天/告示和外部资料在进入 PlayerMind 前标记来源与信任级别，只作为数据和候选主张，不得改写可信配置。对游戏聊天输出和外部工具动作设置泄漏/权限网关；记忆摘要和技能生成也不得把攻击文字升级成指令。见[指令边界](instruction-boundary.md)。
+
+Runtime 与 Bridge 的正式边界采用版本化 Protobuf、本机 Unix Domain Socket/loopback TCP、control/event 双通道、心跳、lease 与 generation；Dashboard 不复用该凭据或通道。详见[Runtime/Bridge IPC 契约](runtime-ipc-deployment-contract.md)。同一 Kin 可进入多个服务器/世界，但当前现实、地点、人物与计划实例按 world context 隔离，见[多服务器与多世界上下文](world-context-contract.md)。
 
 ## 时间尺度与预算
 
