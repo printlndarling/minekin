@@ -32,6 +32,10 @@
 | [官方速通指南（2022-05-18）](https://www.minecraft.net/en-us/article/how-beat-minecraft-under-30-mins) | 下界、堡垒、烈焰棒、珍珠与末地龙的实例，2026-09-16 复核 | 旧速通策略不是 1.21.4 机制规范，也不是 Kin 必走路线 |
 | [Voyager 原论文（2023）](https://arxiv.org/abs/2305.16291)及[作者项目](https://github.com/MineDojo/Voyager) | 自动课程、可执行技能库与执行反馈自验证，2026-09-16 复核 | 其环境和代码技能不能直接作为 Kin 的 Fabric 真客户端技能 |
 | [Hermes 官方技能系统](https://hermes-agent.nousresearch.com/docs/user-guide/features/skills)及[使用指南](https://hermes-agent.nousresearch.com/docs/guides/work-with-skills) | 按需载入和自写技能，2026-09-16 复核；官网可能更新 | Kin 不照搬无审批脚本写入权限，只借目录与归纳思路 |
+| [Hermes Agent Loop](https://hermes-agent.nousresearch.com/docs/developer-guide/agent-loop)、[架构](https://hermes-agent.nousresearch.com/docs/developer-guide/architecture)与[Observer Hooks](https://hermes-agent.nousresearch.com/docs/developer-guide/observer-hooks) | 官方文档列工具/回调/预算/会话持久化及后端中立观察事件，启发独立 Runtime 与可观测层分离，2026-09-16 复核 | 不包含 Minecraft 真客户端、tick 反射、玩家等价过滤或视频观战，不能直接复用为身体层 |
+| [OpenClaw Control UI](https://docs.openclaw.ai/web/control-ui)、[Dashboard](https://docs.openclaw.ai/web/dashboard)与[Web 安全表面](https://docs.openclaw.ai/web) | 官方文档说明 Gateway 服务浏览器 UI、同端口 WebSocket 和握手鉴权，启发 Minekin Gateway + Dashboard 形态，2026-09-16 复核 | OpenClaw 权限/会话模型不等于游戏账号、人物记忆和 Bridge 权限；不得照搬成浏览器直控游戏 |
+| [FastAPI WebSocket 官方文档](https://fastapi.tiangolo.com/advanced/websockets/) | Python Gateway 双向状态流的候选框架，支持 WebSocket 路由与依赖/安全接入 | 示例内存广播不是生产架构；背压、重放、多进程和慢客户端隔离仍需原型 |
+| [W3C WebRTC Recommendation（2025-03-13）](https://www.w3.org/TR/webrtc/) | 浏览器实时音视频标准，可作为 Kin 第一人称 Live View 的媒体候选 | 只定义浏览器实时通信能力；窗口采集、编码、中继、鉴权、资源占用和端到端延迟均未决定/实测 |
 | [OpenClaw 官方网页工具](https://docs.openclaw.ai/tools/web)及[技能系统](https://docs.openclaw.ai/tools/skills) | 网页搜索/读取与技能范围设计参考，2026-09-16 复核 | 外部 Agent 权限不能等同玩家可见游戏行为 |
 | [Minecraft EULA（2026-09-16 复核）](https://www.minecraft.net/en-us/eula) | Java 版正常购买/游玩与原创 Mod 授权、禁止分发组合后的修改游戏本体、社区规范和账号条件 | 活文档可变；并未规定所有私人服一致的自动化账号披露格式，更非允许规避目标服规则 |
 | [Minecraft Usage Guidelines（2026-09-16 复核）](https://www.minecraft.net/en-us/usage-guidelines)及[社区标准](https://www.minecraft.net/en-us/community-standards) | 分发原创 Mod 的限制与多人社区安全边界，可作为服务器准入参考 | 当前服管理员的 bot/矿透/PvP/陷阱规则还须独立取得；人格不覆盖运营规则 |
