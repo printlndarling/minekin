@@ -18,6 +18,9 @@
 | [Yarn `GameRenderer` 1.21.4+build.8](https://maven.fabricmc.net/docs/yarn-1.21.4%2Bbuild.8/net/minecraft/client/render/GameRenderer.html) | 常规客户端查当前准星目标并限制交互距离；可作过滤候选入口 | 准星命中不是完整视觉识别；投影视锥、射线遮挡/光照还需截图和私人场景验收 |
 | [SQLite WAL](https://www.sqlite.org/wal.html)、[外键](https://www.sqlite.org/foreignkeys.html)、[UPSERT](https://www.sqlite.org/lang_upsert.html)、[在线备份](https://www.sqlite.org/backup.html) | 官方资料支持本地单角色事件账本的并行读写、约束、幂等和备份候选 | WAL 不适合跨主机网络文件系统；要测试写负载/重连和关闭期间事务，不直接拷运行中 `.db` |
 | [Generative Agents 原论文](https://arxiv.org/abs/2304.03442)及[作者源码](https://github.com/joonspk-research/generative_agents) | 2023 年论文与原仓库研究观察、反思、检索、规划和社会互动 | 研究为类 Sims 环境；不能当作 Fabric 客户端、低延迟反射或 Minecraft 社会人格现成实现 |
+| [MemGPT 原论文](https://arxiv.org/abs/2310.08560) | 2023 年论文研究有限上下文之外的分层/虚拟上下文管理及多会话对话 | 是记忆编排思路，不证明 Minekin 的身份连续、Minecraft 事件 schema、中文召回或成本 |
+| [LongMemEval 原论文](https://arxiv.org/abs/2410.10813) | 2024 年基准覆盖跨会话信息提取、时间推理、知识更新和拒答，可用于设计 Kin 长记忆回放维度 | 基准数据和指标不是长期 Minecraft 玩家实测；需自建人物/地点/承诺/技能语料 |
+| [SQLite FTS5 官方文档](https://www.sqlite.org/fts5.html) | SQLite 内建全文检索候选，可与结构化键一起为本地记忆做词项召回，2026-09-16 复核 | 不提供语义真值；中文 tokenization、昵称、版本词汇、延迟和数据库规模均须原型测试 |
 | [OWASP 提示词注入指南](https://cheatsheetseries.owasp.org/cheatsheets/LLM_Prompt_Injection_Prevention_Cheat_Sheet.html) | 指令与不可信内容分离、最小权限与工具/输出验证的技术参考 | 不能保证“永远无泄漏”，必须用真实对话、网页、记忆和调用的对抗回放 |
 | [OWASP LLM01:2025](https://genai.owasp.org/llmrisk/llm01-prompt-injection/)及[OpenAI Agent 注入研究](https://openai.com/index/designing-agents-to-resist-prompt-injection/) | 补充间接注入、外传目标与模型防护不足的威胁分类 | 作为风险与验收设计参考，不能代替 Kin 网关实现与测试 |
 | [Minecraft Java 1.21.4 官方更新说明（2024-12-02）](https://www.minecraft.net/en-us/article/minecraft-java-edition-1-21-4) | 官方版本变更有 Pale Garden、Pale Oak、Creaking Heart、Resin 和 Eyeblossom；候选世界书版本锚点，2026-09-16 复核 | 不是完整百科，更不透露本世界物品/坐标；工程基线与游戏结果仍须实测 |

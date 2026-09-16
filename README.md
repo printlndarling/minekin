@@ -48,6 +48,7 @@ flowchart TD
 - [社会判断与矿透场景](docs/social-judgment.md)：怀疑与证据、服务器说法、人格选择和可选感知模式。
 - [PlayerMind 设计](docs/player-mind.md)：目标、所有权、关系和可追溯记忆。
 - [身份、记忆持久化与崩溃恢复](docs/persistence-recovery-contract.md)：同一 Kin 的身份根、重启恢复、瞬时状态失效、备份与迁移。
+- [记忆检索、巩固与遗忘](docs/memory-retrieval-consolidation-contract.md)：启动自我包、证据检索、摘要修订、合理遗忘与上下文成本。
 - [开发路线与验收](docs/roadmap.md)：分阶段原型、演示场景和衡量办法。
 - [设计决策与待验证问题](docs/decisions.md)：已定原则、尚未验证的假设，以及进入开发前的检查条件。
 - [Alma 参考研究](docs/alma-reference.md)：公开文档能证实的机制、Minekin 的借鉴点与差异。
