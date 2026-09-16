@@ -4,7 +4,7 @@
 
 ## 在同一客户端里只允许一个写者
 
-反射、局部寻路、战斗、GUI 和高层意图必须走 `InputArbiter`：每次授予 `input_lease(owner, intent_generation, priority, acquired_tick, expires_tick, held_keys, rotation_bound)`，唯一执行线程在客户端 tick 上对批准动作赋值；模型、网页、聊天、数据库线程不能直接写 `KeyBinding` 或角色视角。世界外强制停机和目标服禁止能力先于反射，反射可抢占导航/施工，GUI 会话与移动/普通攻击互斥。若同时集成 Baritone，**它也是争夺真实客户端输入的控制者**；不证明只让自写模块单写就能自动限制第三方 mod，需查其输入路径或禁用冲突模块并测试实际抢占。
+反射、局部寻路、战斗、GUI 和高层意图必须走 `InputArbiter`：每次授予 `input_lease(owner, intent_generation, priority, acquired_tick, expires_tick, held_keys, rotation_bound)`，唯一执行线程在客户端 tick 上对批准动作赋值；模型、网页、聊天、数据库线程不能直接写 `KeyBinding` 或角色视角。世界外强制停机和目标服禁止能力先于反射，反射可抢占导航/施工，GUI 会话与移动/普通攻击互斥。若同时集成 Baritone，**它也是争夺真实客户端输入的控制者**；[固定源码输入审计](baritone-input-audit.md)显示它在控制路径时会切换 `ClientPlayerEntity.input` 为自带的 `PlayerMovementInput`，强制移动状态独立于 Kin 的 `KeyBinding`，且正常 `cancelEverything()` 在不可取消片段可能返回 false。因此 Kin 只能仲裁自己的命令，不能凭单写者声明即时覆盖 Baritone；首轮在危险地形先禁 Baritone 自动路径，实验核验上游强制键、路径状态、输入对象、停挖及实际服务端效果，不可安全隔离则用自写受限局部技能。
 
 正常移动可候选从选项的绑定键维持按住/松开状态，视角以当前自身 `yaw/pitch` 在每次本地更新最多变化经配置的角度而非瞬转；紧急水桶、剑/盾的攻用也须走当前客户端准星、所持物、GUI 与服务器动作限制。**`setYaw/setPitch` 是本地角度接口而不是人类视觉技能保证；禁止 `setPos/teleport` 一类修改人物位置**。`KeyBinding.setPressed(true)` 未必等同产生一次 `wasPressed` 脉冲或真实鼠标事件；要分别验证“持续按住走路/举盾”和“一次点击攻击/GUI/切槽”的正常游戏输入路径，不靠重复 setPressed 伪造点击。GUI 槽位仍按当前服务器同步后的 handler 使用现有[动作契约](action-contracts.md)，不凭按键模拟绕过校验。
 
