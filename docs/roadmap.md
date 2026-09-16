@@ -6,7 +6,7 @@
 
 | 阶段 | 可交付物 | 通过条件 |
 | --- | --- | --- |
-| 0：独立 Harness 与受管理客户端闭环 | Gateway/Runtime、Server Profile、Account Broker、Server Probe、Launcher/Bundle Registry、最小 Dashboard、虚拟显示/隐藏真实客户端、薄 Fabric Bridge、本机认证 IPC、玩家等价观察、合法输入、在线生命周期、身份/记忆恢复与回放日志 | 全新 Linux 主机不装桌面启动器，经 Web 授权并自动准备 1.21.4 bundle 后进入测试世界；A/B 模式可核验；Dashboard/媒体故障不阻塞本地反射，Runtime/Bridge 断开会松键；重启仍加载同一 `kin_id`，浏览器不能直发游戏输入，未授权真值不进入决策 |
+| 0：独立 Harness 与受管理客户端闭环 | Gateway/Runtime、Server Profile、Account Broker、Server Probe、Launcher/Bundle Registry、内容寻址 Artifact Store、最小 Dashboard、虚拟显示/正常渲染客户端、旁路 Media Worker、薄 Fabric Bridge、本机认证 IPC、玩家等价观察、合法输入、在线生命周期、身份/记忆恢复与回放日志 | 全新 Linux 主机不装桌面启动器，经 Web 授权、官方工件校验并自动准备 1.21.4 bundle 后进入测试世界；镜像不含 Mojang 客户端工件；A/B 模式可核验；Dashboard/媒体故障不阻塞本地反射，Runtime/Bridge 断开会松键；重启仍加载同一 `kin_id`，浏览器不能直发游戏输入，视频不回流为默认 VLM 输入 |
 | 1：生存底座 | 本地反射、紧急抢占、导航/采集/背包/合成、基础食物与夜晚避险技能适配、角色动作亲历与专注任务状态 | 模型关闭时仍能处理已实现的急救与避险；可回放地从已见资源取木、捡物、合法合成工具，解决基础食物和第一晚生存；高阶技能不默认让所有 Kin 熟练 |
 | 2：自治目标与初始人格 | 初始默认通关主线、连续人格与稳定自称、选填的个人信息、创建时的运行者关系种子、最小个人记忆、需求、目标、前提检查、世界书、开局知识树和组合技能 | 无人指令时自主连续生活若干游戏日；清空模型上下文/重启后能确定性恢复身份、承诺和活跃目标，并按人物/地点检索带证据记忆；初见运行者不会变成听令 Bot；重复被问个人信息时不临场编造或输出模型免责声明；受阻能改路或放弃，经历影响再次选择 |
 | 3：社会 MVP | 在阶段 2 的人格与初见关系上扩展权属、情节记忆、情绪、可选调查、拒绝与承诺；主动高冲突意图可表达，具体恶意动作按身体能力逐项验证 | 不同资源/关系状态产生连贯且不唯一的回应；可凭间接线索怀疑、询问或放弃；初始亲近可因守约/欺骗升降，不免除 Kin 对运行者的拒绝能力；未做成的行动不能假报成功 |
@@ -75,6 +75,9 @@
 | `runtime_bridge_trace` | Gateway/Runtime/Bridge 的版本握手、sequence、lease、心跳、断线、背压、松键和旧 generation 拒绝 |
 | `dashboard_observer_trace` | 状态序列延迟、浏览器/媒体故障隔离、管理动作来源、敏感字段访问及是否出现浏览器直达游戏输入 |
 | `live_view_trace` | 实际客户端视角到浏览器的延迟、FPS/CPU/GPU/带宽、录制权限和进入 VLM/记忆的误路由次数 |
+| `bundle_supply_chain_trace` | server probe、protocol/pin、上游 manifest/hash、bundle 状态、缓存命中、安装/隔离/GC lease 与最终启动组合；能下载但未测试不得记为支持 |
+| `auth_secret_exposure_trace` | refresh/access token 在 argv、环境、日志、崩溃报告、遥测、Dashboard、媒体和备份中的实际暴露检查；报告残余风险，不声称零泄漏 |
+| `render_media_isolation_trace` | virtual display/renderer profile、client tick/render/capture/encode 资源与延迟；媒体/Dashboard 故障时 Bridge 反射和游戏会话是否独立 |
 | `event_to_input_ticks` | 紧急事件到首次合法输入的 tick 数，报告分布而非只报均值 |
 | `reflex_success_rate` | 分物品与环境配置报告的救援率，允许失败 |
 | `stale_intent_rejected` | 危险期间过期 LLM 意图被丢弃的次数 |

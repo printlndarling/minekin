@@ -178,6 +178,14 @@ stateDiagram-v2
 
 同样运行后端服务与受管理客户端，只是虚拟显示/媒体驱动可换为本机隐藏窗口实现。不得把“本地部署”退化为调用用户现有启动器路径。
 
+## 细化实施契约
+
+本文件保留总体边界，两个独立契约负责实现级收敛：
+
+- [启动器供应链、版本包与账号会话契约](launcher-supply-chain-contract.md)：受信任元数据、不可变 bundle、内容寻址缓存、下载/回收事务、OAuth/Minecraft 会话、Linux argv 暴露面和跨版本 Bridge target。
+- [Linux 无窗口真实客户端、渲染与 Live View 契约](headless-client-media-contract.md)：虚拟显示、llvmpipe/GPU 执行档、进程隔离、FFmpeg/WebRTC 候选、资源预算和媒体失败降级。
+
+这里的 `headless` 始终指没有前台桌面交互，不指删掉真实客户端渲染。首版以虚拟显示中的正常渲染为基线；外部 VLM 仍默认零调用。
 ## 开发前必须验证
 
 1. 全新 Linux 主机只安装 Minekin 后，通过 Web 授权账号、添加服务器并自动准备指定版本；不人工安装 Minecraft/Fabric。

@@ -10,6 +10,8 @@
 | 世界内决策权归 Kin | Kin 可主动产生、权衡、推迟、撤销重大目标；任务图负责现有能力与材料前提，不从运行者请求或效率指标生成唯一标准行为；本地反射仅处理即时危险 |
 | 独立 Harness 是产品本体 | Soul、Mind、Memory、工具、生命周期和 Web Dashboard 运行在 Minecraft 之外；A/B 是会话策略，不把项目做成聊天命令 Mod |
 | 自带受管理客户端后端 | 不接管用户已有启动器/客户端；Web 管理 Account Broker、服务器探测、已验证版本 bundle、隔离启动、虚拟显示与 Live View。自动识别失败时阻断或管理侧 pin，不退回协议 Bot |
+| 不可变客户端供应链 | 上游元数据、Minecraft/Fabric/Bridge/Java 工件与运行参数冻结为带来源和 hash 的 bundle；游戏工件按授权下载而不随镜像分发；未知/损坏组合隔离，能下载不等于受支持 |
+| 渲染与观战旁路 | Linux 无窗口仍保留真实 render thread/GLFW/OpenGL；首版以虚拟显示正常渲染为基线。Media Worker 无输入权，观战失败先降媒体且视频不默认进入 VLM/记忆 |
 | 薄 Bridge 接入真实客户端 | Minecraft Java 客户端和独立账号正常加入测试世界；Fabric Bridge 只做过滤观察、本地反射、输入仲裁和结果反馈，行动最终经过合法客户端输入 |
 | 分层控制 | 紧急反射在本地执行，LLM 不参与逐 tick 操作；危险可抢占并使过期意图失效 |
 | 玩家等价感知与例外 | 默认使用玩家可知信息；成本或操作困难时可声明少量限域、限时读取例外，但不能暗中变成隐藏世界知识 |
@@ -75,7 +77,7 @@
 
 ## 待选择的范围
 
-- **独立 Runtime 与 Dashboard 实现细节**：产品形态已定为 Gateway/Runtime + 薄 Fabric Bridge；首版自动拉起或发现已登录客户端、IPC 序列化/背压、localhost 或远程面板、Windows/Linux 采集与 WebRTC 中继库仍需小原型选择，见[独立 Runtime 与 Dashboard](standalone-runtime-dashboard.md)。
+- **独立 Runtime 与 Dashboard 实现细节**：产品形态已定为 Gateway/Runtime + 自带 Managed Client Runtime + 薄 Fabric Bridge；不再保留“发现/接管已登录客户端”路线。仍需小原型选择 IPC 序列化/背压、localhost 或远程面板、虚拟显示/renderer、捕获与 WebRTC 中继库，见[独立 Runtime 与 Dashboard](standalone-runtime-dashboard.md)、[供应链契约](launcher-supply-chain-contract.md)和[无窗口媒体契约](headless-client-media-contract.md)。
 - **首发版本与依赖**：固定一个 Minecraft Java 原版生存版本；Fabric/导航库仅是客户端集成依赖，具体版本、兼容性和许可待核实。模组物品、生物和玩法作为 future，不进入首版世界书。
 - **基础动作适配调研**：Baritone 已有导航/采集命令、AltoClef 展示资源依赖和生存任务；原仓库归档、版本和感知问题阻止直接定为最终框架。当前只确认存在可借鉴的底座；具体 API、许可、版本适配、GUI 合成与产权保护待原型验证，见[首登技术 TODO](vanilla-survival-loop.md)。
 - **技能的自动化程度**：初期应允许 Kin 从经历中生成并调用由已有合法客户端能力构成的流程；说明型方法可辅助思考，但不等于技能已落地。能否自动生成新的底层客户端动作实现，要在真实回放中验证输入边界、兼容性和恢复机制后再定。
