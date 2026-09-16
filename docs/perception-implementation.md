@@ -10,7 +10,7 @@
 | `LocalActionContext` | 本地反射、寻路/拾取等局部技能 | 与玩家观察相同的目标，加获许可的**限域、自身/碰撞**运动辅助；例外指定技能、半径和短有效期，不泄漏到信念或他人实时位置 |
 | `RawEvaluationTrace` | 测试环境的离线评估 | 允许保存客户端原始真值以对照墙后/未见目标；**运行时任何规划器、自动寻路、记忆检索都不可访问**，必须隔离账号/进程接口与日志权限 |
 
-一个 `Observation` 至少有 `kind`、`observed_at_tick`、`source`、`spatial_scope`、`confidence`、`evidence_id`、`expires_at`。存“目前我看见箱子”不等于存“箱子里的物品”，除非 Kin 实际打开 GUI；“听到背后僵尸”可以触发转头或警惕，不能附墙后精确坐标。聊天里的“我开矿透啦”是玩家**声称**，与 Kin 的发现不同；对这句话可做社交推断，不自动打开矿透能力。
+一个 `Observation` 至少有 `kind`、`observed_at_tick`、`source`、`spatial_scope`、`confidence`、`evidence_id`、`expires_at`。存“目前我看见箱子”不等于存“箱子里的物品”，除非 Kin 实际打开 GUI；“听到背后僵尸”可以触发转头或警惕，不能附墙后精确坐标。同版原版[伤害包/角色归因审计](social-attribution-contract.md)显示包可包含受击因果实体 ID；未经过玩家可感知线索核实，不能据此让人物在墙后指名攻击者。聊天里的“我开矿透啦”是玩家**声称**，与 Kin 的发现不同；对这句话可做社交推断，不自动打开矿透能力。
 
 ## 从画面/客户端状态产生可见目标
 
