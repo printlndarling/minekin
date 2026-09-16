@@ -18,6 +18,6 @@
 
 `stopped → account_ready → connecting → joined → active/idle → leaving/disconnected → stopped/retry_pending`；A 另需要有效邀请，B 可在服务启动且规则允许时自行连接。B 可持续在线，但不是“断电仍行动”：客户端崩溃/服务器停机后经验冻结，重连核对地点、生命、背包、可见世界和承诺，再由 Kin 决定恢复、换目标或休息。闲置允许站着等炉或降低认知调用频率；本地保命不因此关闭。
 
-同一个角色固定 `account_identity`、`world/server_identity`、`persona_id`、长期事件账本和出生→死亡→重生记录。新服务器不把旧箱子权属硬套进来；重生还是同一个人。模式变更写入版本化世界外配置并有效时刻生效，角色人格与过去不重抽；只允许可信运行者设置连接/工具权限，其他玩家聊天仅可影响 Kin 的世界内决定。客户端 1.21.4 Yarn 的 [ClientPlayNetworkHandler](https://maven.fabricmc.net/docs/yarn-1.21.4%2Bbuild.8/net/minecraft/client/network/ClientPlayNetworkHandler.html)列 `isConnectionOpen`、`getConnection`及断线处理，是观察连接状态的候选接口，**不是自动登录或某服务器兼容的证据**。
+同一个角色固定 `kin_id`、`account_identity`、`world/server_identity`、`persona_id`、长期事件账本和出生→死亡→重生记录；服务找不到或无法验证既有身份库时进入恢复态，绝不自动随机一个新人格顶替。启动/崩溃/迁移与旧动作失效遵守[持久化与恢复契约](persistence-recovery-contract.md)。新服务器不把旧箱子权属硬套进来；重生还是同一个人。模式变更写入版本化世界外配置并有效时刻生效，角色人格与过去不重抽；只允许可信运行者设置连接/工具权限，其他玩家聊天仅可影响 Kin 的世界内决定。客户端 1.21.4 Yarn 的 [ClientPlayNetworkHandler](https://maven.fabricmc.net/docs/yarn-1.21.4%2Bbuild.8/net/minecraft/client/network/ClientPlayNetworkHandler.html)列 `isConnectionOpen`、`getConnection`及断线处理，是观察连接状态的候选接口，**不是自动登录或某服务器兼容的证据**。
 
 开发阶段实测：在正常图形 Minecraft Java/Fabric 客户端、专用正版账号与匹配版本的私人测试服，验证入服/渲染/移动/聊天、A 信号与退出、B 无人在线仍操作、锚定角色重名/改名、崩溃/断线/重连/切模式后无重复动作；核对服务端看到的是真实玩家账号，且按所选规则准入。Linux/Windows 长驻图形会话与资源消耗须实测，不能把协议 headless 客户端或关闭渲染的任务框架偷换为真实游戏客户端。

@@ -47,6 +47,7 @@ flowchart TD
 - [玩家等价感知与有限例外](docs/perception-policy.md)：数据辅助、受限妥协、底层技能审计和验证。
 - [社会判断与矿透场景](docs/social-judgment.md)：怀疑与证据、服务器说法、人格选择和可选感知模式。
 - [PlayerMind 设计](docs/player-mind.md)：目标、所有权、关系和可追溯记忆。
+- [身份、记忆持久化与崩溃恢复](docs/persistence-recovery-contract.md)：同一 Kin 的身份根、重启恢复、瞬时状态失效、备份与迁移。
 - [开发路线与验收](docs/roadmap.md)：分阶段原型、演示场景和衡量办法。
 - [设计决策与待验证问题](docs/decisions.md)：已定原则、尚未验证的假设，以及进入开发前的检查条件。
 - [Alma 参考研究](docs/alma-reference.md)：公开文档能证实的机制、Minekin 的借鉴点与差异。

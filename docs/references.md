@@ -52,4 +52,6 @@
 
 | [Yarn 1.21.4+build.8 BlockView](https://maven.fabricmc.net/docs/yarn-1.21.4%2Bbuild.8/net/minecraft/world/BlockView.html)、[ClientWorld](https://maven.fabricmc.net/docs/yarn-1.21.4%2Bbuild.8/net/minecraft/client/world/ClientWorld.html)、[BedBlock](https://maven.fabricmc.net/docs/yarn-1.21.4%2Bbuild.8/net/minecraft/block/BedBlock.html)与[DimensionType](https://maven.fabricmc.net/docs/yarn-1.21.4%2Bbuild.8/net/minecraft/world/dimension/DimensionType.html) | 同版映射列方块/流体/射线、客户端区块加载、床放置/维度可用性、维度坐标比例等候选接口；2026-09-16 在线核对，见[地点评估契约](settlement-location-contract.md) | 客户端持有或区块已加载不等于人物看见；禁止高度图/全块扫描进入普通选址，床登记、资产迁移、门链路与实际落点仍须私人服回放 |
 
+| [SQLite 原子提交](https://www.sqlite.org/atomiccommit.html)、[WAL](https://www.sqlite.org/wal.html)、[在线备份](https://www.sqlite.org/backup.html)与[PRAGMA 完整性/版本](https://www.sqlite.org/pragma.html#pragma_integrity_check) | 官方文档说明事务原子性/崩溃恢复假设、WAL 同主机和 checkpoint、在线一致快照、integrity_check/foreign_key_check 及应用 user_version；2026-09-16 核对，见[身份与记忆持久化契约](persistence-recovery-contract.md) | 不能证明跨 Minecraft/数据库 exactly-once，不能替代损坏/断电/恢复演练；活动 WAL 不可只复制单个 db，具体同步级别、备份频率和迁移仍需原型实测 |
+
 其他设计启发分布在 [Alma 参考](alma-reference.md)、[外部工具](external-tools.md)和[自主学习](learning.md)。剩余来源/条款在发布前逐版本复核；每个状态、许可与实际集成结果须与[研究台账](research-tracker.md)同步。
