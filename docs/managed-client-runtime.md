@@ -1,13 +1,13 @@
 # 自带启动器后端、受管理客户端与自动版本切换契约
 
-研究时间：2026-09-16。本文件定义 Minekin 如何在不依赖用户已有 Minecraft 启动器、不弹出普通游戏前端窗口的前提下，启动一个真实 Minecraft Java Client，并由 Web Dashboard 管理服务器、账号、版本、运行状态和第一人称观战。
+研究时间：2026-09-16。本文件定义 Minekin 如何在不依赖用户已有 Minecraft 启动器、不弹出普通游戏前端窗口的前提下，启动一个真实 Minecraft Java Client，并由 Web Dashboard 管理服务器、本地身份/可选在线认证、版本、运行状态和第一人称观战。
 
 这里的“无界面”是**没有用户需要操作的桌面启动器和可见游戏窗口**，不是把 Minecraft Java Client 偷换成纯协议机器人。真实客户端仍有 render thread、GLFW/OpenGL 上下文、网络栈和完整客户端状态；Linux 服务器可把它运行在隔离容器与虚拟显示中。
 
 ## 固定产品结论
 
 1. Minekin 自带 `Managed Client Runtime`，不发现、不接管，也不依赖用户电脑上已有的官方启动器、第三方启动器或正在运行的游戏进程。
-2. Dashboard 是唯一普通管理入口；账号授权、Server Profile、安装进度、版本选择、启停、日志、备份和 Live View 都在 Web 中完成。
+2. Dashboard 是唯一普通管理入口；身份档案、可选在线认证、Server Profile、安装进度、版本选择、启停、日志、备份和 Live View 都在 Web 中完成。
 3. Minecraft 客户端由 Minekin 后端按需安装、校验、启动、停止和回收；用户不手动下载对应游戏版本或 Fabric。
 4. Kin 的 Soul、Memory、PlayerMind、工具与长期状态不在客户端实例内。换服务器版本、重启客户端或重建容器不得换掉 Kin。
 5. 自动版本切换是“探测服务器 → 解析协议 → 选择已验证运行包 → 启动/重启客户端”，不是一个运行中的 Minecraft 进程热切版本。
@@ -18,7 +18,8 @@
 | 组件 | 职责 | 不负责 |
 | --- | --- | --- |
 | Launcher Service | 解析版本元数据、下载/校验工件、组装 classpath/JVM 参数、管理 Java 与 natives | Soul、游戏决策、保存明文密码 |
-| Account Broker | 从 Web 发起交互式授权、续期、账户与游戏档案核验、隔离令牌 | 把 token 交给 LLM、聊天、网页工具或日志 |
+| Identity Manager | 保存稳定 `kin_id`、本地玩家名和按服务器记录的游戏身份；默认不产生登录令牌 | 把离线用户名/UUID误当跨服务器可信身份 |
+| Optional Online Auth Adapter | 仅在 Server Profile 明确选择 `microsoft` 时交互式授权、续期并核验游戏档案 | 作为默认路径、自动弹登录或把 token 交给 LLM/日志 |
 | Server Probe | DNS/SRV、地址解析、状态探测、协议号与版本名采集 | 保证服务端诚实、绕过白名单/封禁/正版验证 |
 | Version Resolver | 把探测结果映射到已支持的运行包，处理歧义、固定版本和缓存 | 对未知版本“碰运气”登录 |
 | Bundle Registry | 记录受支持的 Minecraft/Fabric/Bridge/Java/OS/arch 组合与哈希 | 声称所有 Java 版本天然兼容同一 Bridge |
@@ -64,7 +65,7 @@ Launcher Service 自己完成普通启动器的后端职责，但不制作桌面
 9. 启动后等待 Bridge 以 nonce、bundle hash、协议版本和 capability manifest 握手；
 10. 握手、服务器连接和角色生成均成功后，才把会话标记为 `PLAYABLE`。
 
-Minecraft 客户端、libraries 与 assets 不预装进 Minekin 发布镜像；运行者授权账号后按官方来源下载，并遵守 Minecraft EULA。Minekin 自身只分发 Harness、Launcher、Bridge 与必要的开源依赖。
+Minecraft 客户端、libraries 与 assets 不预装进 Minekin 发布镜像；由 Launcher 按官方来源下载，并遵守 Minecraft EULA；是否需要在线账号由目标服务器的认证模式决定。Minekin 自身只分发 Harness、Launcher、Bridge 与必要的开源依赖。
 
 ### Client Bundle Manifest
 
@@ -80,20 +81,35 @@ Minecraft 客户端、libraries 与 assets 不预装进 Minekin 发布镜像；�
 - 世界书、配方/动作 schema 和 Player-Equivalent Filter 版本；
 - 构建状态：`candidate`、`tested`、`quarantined`、`unsupported`。
 
-“可以从元数据下载”不等于“Minekin 支持”。只有完成构建、启动、账号入服、Bridge 握手、输入、GUI、反射、退出和恢复测试的组合才进入 `tested`。
+“可以从元数据下载”不等于“Minekin 支持”。只有完成构建、启动、所选身份模式入服、Bridge 握手、输入、GUI、反射、退出和恢复测试的组合才进入 `tested`。
 
-## 账号授权
+## 身份与认证模式
 
-无桌面 GUI 不代表无用户授权。推荐流程：
+默认路径是 **本地离线身份**，不是 Microsoft/Xbox 登录。Server Profile 必须显式保存 `auth_mode: offline | microsoft`，默认 `offline`；不得因为 Launcher 能做在线认证，就把在线账号变成启动 Minekin 的前置条件。
 
-1. 用户在 Dashboard 点击添加账号；
-2. Account Broker 创建一次性设备码或授权链接；
-3. 用户在自己的浏览器完成 Microsoft 登录与同意；
-4. 后端完成 Minecraft entitlement/profile 核验并保存账户引用；
-5. refresh token 进入系统密钥环或加密 secrets store；Dashboard 只显示昵称、UUID、授权状态和到期/重授权提示；
-6. 模型、网页查询、游戏聊天、回放导出和客户端 Bridge 均拿不到 refresh token。
+### 本地离线身份（默认）
 
-Microsoft 官方 device authorization flow 适合无浏览器/输入受限设备，但它只证明 Microsoft 身份登录候选；Xbox/Minecraft 服务链、应用注册、权限、token 续期和发行合规仍须单独原型与条款核验。不得复制官方启动器 token、要求用户粘贴密码或提供离线盗版模式作为正常路径。
+Identity Manager 为每个 Kin 保存稳定的 `kin_id`、配置的游戏用户名和按服务器观察到的玩家身份。该路径不创建 access/refresh token，适用于：
+
+- 单人游戏开放到局域网的集成服务器；
+- 明确关闭 Session Service 验证的私人服务器或经其代理准入的后端；
+- 本地开发与隔离测试世界。
+
+离线身份不绕过要求在线验证的服务器，也不自动修改服务端配置。状态 ping/协议号通常不能证明服务器是否要求 Session Service；首连按 Server Profile 执行。若服务器以会话验证失败拒绝连接，返回 `AUTH_MODE_MISMATCH`，不能静默切换到 Microsoft 登录。
+
+离线名字和服务端派生/改写的 UUID **不是跨服务器的密码学身份**。服务器、代理、用户名或转发方式变化都可能改变服务端看到的 UUID；未保护的 offline-mode 入口还可能允许冒名。关系与长期记忆以内部 `kin_id` 连续；白名单、权限、权属和“是不是同一玩家”的安全判断绑定 `server_id + server_observed_identity`，首次及重连均核验。
+
+### Microsoft 在线认证（可选适配器）
+
+只有目标服务器要求在线验证且运行者显式将 `auth_mode` 改为 `microsoft` 时，才启用 Online Auth Adapter：
+
+1. 用户在 Dashboard 创建一次性设备码或授权链接；
+2. 用户在自己的浏览器完成 Microsoft 登录与同意；
+3. Adapter 完成仍待原型核实的 Xbox/Minecraft entitlement 与 profile 链；
+4. refresh token 进入系统密钥环或加密 secrets store；
+5. 游戏进程只获得当前会话所需短期材料，Dashboard 只显示档案与重授权状态。
+
+不得复制官方启动器 token、索要密码或把令牌放进参数、日志、提示词、聊天、网页工具、回放与备份。Microsoft 认证是兼容更多服务器的可选能力，不是首版离线/LAN 路径的开发就绪阻断项；若后来声称支持 online-mode，必须单独通过完整认证链和泄漏审计。
 
 ## 服务器版本自动识别
 
@@ -103,7 +119,7 @@ Microsoft 官方 device authorization flow 适合无浏览器/输入受限设备
 2. 在不建立游戏会话前执行 Server List Ping，记录服务端公开返回的版本文本、协议号、MOTD、资源包相关提示和 RTT。
 3. 以**协议号为主要键**、版本文本为辅助证据，查本地 `Protocol Catalog`。
 4. 从 Bundle Registry 选择最新的 `tested` bundle；缓存不存在时自动安装。
-5. 运行静态 preflight：账号授权、系统资源、Java、Bridge、服规 profile、资源包策略、版本/能力兼容。
+5. 运行静态 preflight：身份档案与认证模式、系统资源、Java、Bridge、服规 profile、资源包策略、版本/能力兼容。
 6. 启动受管理客户端并尝试一次受控连接；服务端实际拒绝信息可修正候选，但不自动扩大能力或循环试遍所有版本。
 7. 将最终解析结果、置信度、证据、bundle hash 和连接结果写入 Server Profile 审计记录。
 
@@ -133,13 +149,13 @@ Microsoft 官方 device authorization flow 适合无浏览器/输入受限设备
 Dashboard 增加以下管理页：
 
 - **Servers**：host、port、SRV 结果、协议探测、版本策略、服规/资源包/重连配置；
-- **Accounts**：设备码授权、账号档案、授权状态、重新授权和撤销；不展示 token；
+- **Identities**：默认本地身份、用户名、服务器观察到的 UUID；仅在可选在线档案中显示设备码授权、重授权和撤销，永不展示 token；
 - **Client Bundles**：已缓存版本、兼容矩阵、哈希、磁盘占用、验证状态、失败原因和清理；
 - **Sessions**：安装→启动→Bridge 握手→登录→PLAYABLE 状态机、资源和日志；
 - **Live View**：第一人称视频、媒体延迟、帧率与断流；不作为默认 AI 输入；
-- **Diagnostics**：Java/GL/虚拟显示/GPU、网络、DNS、账号、版本和服务器拒绝原因。
+- **Diagnostics**：Java/GL/虚拟显示/GPU、网络、DNS、身份/认证模式、版本和服务器拒绝原因。
 
-配置写入版本化管理存储，由 Gateway 校验后下发。浏览器不能直接拼 JVM 参数、路径、下载 URL 或游戏输入；聊天和网页内容也没有 Server Profile、Bundle Registry 或账号写权限。
+配置写入版本化管理存储，由 Gateway 校验后下发。浏览器不能直接拼 JVM 参数、路径、下载 URL 或游戏输入；聊天和网页内容也没有 Server Profile、Bundle Registry、身份档案或在线认证写权限。
 
 ## 生命周期状态机
 
@@ -161,7 +177,7 @@ stateDiagram-v2
     CONNECTING --> BLOCKED
 ```
 
-每次状态变化必须有结构化原因。`BLOCKED` 不是自动退回旧版本继续玩；修复配置、重新授权、安装受支持 bundle 或管理员确认后才重新开始。客户端崩溃不损坏 Soul/Memory，但世界状态标陈旧、旧 action lease 作废，重连后先重验血量、位置、背包、维度、GUI 和当前服务器身份。
+每次状态变化必须有结构化原因。`BLOCKED` 不是自动退回旧版本继续玩；修复配置、选择匹配的身份模式、必要时为可选在线档案重新授权、安装受支持 bundle 或管理员确认后才重新开始。客户端崩溃不损坏 Soul/Memory，但世界状态标陈旧、旧 action lease 作废，重连后先重验血量、位置、背包、维度、GUI 和当前服务器身份。
 
 ## 部署形态
 
@@ -182,13 +198,13 @@ stateDiagram-v2
 
 本文件保留总体边界，两个独立契约负责实现级收敛：
 
-- [启动器供应链、版本包与账号会话契约](launcher-supply-chain-contract.md)：受信任元数据、不可变 bundle、内容寻址缓存、下载/回收事务、OAuth/Minecraft 会话、Linux argv 暴露面和跨版本 Bridge target。
+- [启动器供应链、版本包与玩家身份契约](launcher-supply-chain-contract.md)：受信任元数据、不可变 bundle、内容寻址缓存、下载/回收事务、OAuth/Minecraft 会话、Linux argv 暴露面和跨版本 Bridge target。
 - [Linux 无窗口真实客户端、渲染与 Live View 契约](headless-client-media-contract.md)：虚拟显示、llvmpipe/GPU 执行档、进程隔离、FFmpeg/WebRTC 候选、资源预算和媒体失败降级。
 
 这里的 `headless` 始终指没有前台桌面交互，不指删掉真实客户端渲染。首版以虚拟显示中的正常渲染为基线；外部 VLM 仍默认零调用。
 ## 开发前必须验证
 
-1. 全新 Linux 主机只安装 Minekin 后，通过 Web 授权账号、添加服务器并自动准备指定版本；不人工安装 Minecraft/Fabric。
+1. 全新 Linux 主机只安装 Minekin 后，通过 Web 创建默认离线身份、添加 LAN/offline-mode 服务器并自动准备指定版本；不人工安装 Minecraft/Fabric。
 2. 真实 1.21.4 客户端在虚拟显示中启动、Bridge 握手、加入私人测试服，宿主无可见游戏窗口。
 3. Live View 展示同一客户端实际画面；关闭媒体进程不影响本地反射、网络会话和 PlayerMind。
 4. 正确版本、错误版本、多版本代理、关闭 ping、伪造版本文本、SRV、白名单、资源包拒绝分别得到可解释结果。
@@ -203,7 +219,7 @@ stateDiagram-v2
 
 - Linux 首版用 Xvfb/X11 虚拟显示，还是经验证后采用 EGL/OSMesa；
 - Minecraft/Java runtime 的缓存布局、可复现下载清单和镜像层边界；
-- Account Broker 的具体库、应用注册及加密 secrets backend；
+- Identity Manager 的离线 profile/按服务器身份绑定；可选 Online Auth Adapter 的具体库、应用注册及加密 secrets backend；
 - Protocol Catalog 的维护源、协议共享版本的优先规则与 ViaVersion 探测策略；
 - 首批正式支持几个版本，以及每个版本是否复用一套 Bridge 源码多目标构建；
 - Live View 用窗口捕获、帧缓冲钩子还是编码侧共享纹理；

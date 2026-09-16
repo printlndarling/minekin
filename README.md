@@ -49,8 +49,8 @@ flowchart TD
 
 - [架构与数据边界](docs/architecture.md)：模块职责、时延目标、感知约束和紧急控制。
 - [独立 Runtime 与 Web Dashboard](docs/standalone-runtime-dashboard.md)：Harness 产品形态、薄客户端 Bridge、Server Profile、实时状态与第一人称观战。
-- [受管理客户端与自动版本切换](docs/managed-client-runtime.md)：自带启动器后端、账号授权、无可见窗口运行、服务器探测、版本包和 Linux 部署。
-- [启动器供应链与账号会话](docs/launcher-supply-chain-contract.md)：不可变 bundle、受信任下载、内容寻址缓存、跨版本 Bridge、token 暴露面与故障语义。
+- [受管理客户端与自动版本切换](docs/managed-client-runtime.md)：自带启动器后端、本地离线身份、可选在线认证、无可见窗口运行、服务器探测、版本包和 Linux 部署。
+- [启动器供应链与玩家身份](docs/launcher-supply-chain-contract.md)：不可变 bundle、受信任下载、内容寻址缓存、跨版本 Bridge、token 暴露面与故障语义。
 - [Linux 无窗口客户端与 Live View](docs/headless-client-media-contract.md)：虚拟显示、软件/GPU 渲染、资源隔离、画面捕获和零默认视觉调用。
 - [玩家等价感知与有限例外](docs/perception-policy.md)：数据辅助、受限妥协、底层技能审计和验证。
 - [社会判断与矿透场景](docs/social-judgment.md)：怀疑与证据、服务器说法、人格选择和可选感知模式。
