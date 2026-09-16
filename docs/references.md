@@ -18,6 +18,10 @@
 | [Yarn `GameRenderer` 1.21.4+build.8](https://maven.fabricmc.net/docs/yarn-1.21.4%2Bbuild.8/net/minecraft/client/render/GameRenderer.html) | 常规客户端查当前准星目标并限制交互距离；可作过滤候选入口 | 准星命中不是完整视觉识别；投影视锥、射线遮挡/光照还需截图和私人场景验收 |
 | [SQLite WAL](https://www.sqlite.org/wal.html)、[外键](https://www.sqlite.org/foreignkeys.html)、[UPSERT](https://www.sqlite.org/lang_upsert.html)、[在线备份](https://www.sqlite.org/backup.html) | 官方资料支持本地单角色事件账本的并行读写、约束、幂等和备份候选 | WAL 不适合跨主机网络文件系统；要测试写负载/重连和关闭期间事务，不直接拷运行中 `.db` |
 | [Generative Agents 原论文](https://arxiv.org/abs/2304.03442)及[作者源码](https://github.com/joonspk-research/generative_agents) | 2023 年论文与原仓库研究观察、反思、检索、规划和社会互动 | 研究为类 Sims 环境；不能当作 Fabric 客户端、低延迟反射或 Minecraft 社会人格现成实现 |
+| [BFI-2 原论文（Soto & John, 2017）](https://pubmed.ncbi.nlm.nih.gov/27055049/) | 以五个领域和 15 个 facet 构建层级人格描述，为 Persona Manifest 的“广义倾向/细分表现”分层提供研究参考，2026-09-16 复核 | 是人类人格测量研究，不应照搬为 NPC 行为公式，也不能由得分推出 Minecraft 技能或单次动作 |
+| [IPIP 官方项目](https://ipip.ori.org/) | 公开提供公共领域的人格项目和量表资源，可用于字段措辞灵感及许可清晰的原型问项，2026-09-16 复核 | 量表项目不是 Kin 的默认创建表；中文适配、角色生成与行为有效性仍需独立测试 |
+| [Whole Trait Theory 原论文](https://pubmed.ncbi.nlm.nih.gov/26097268/) | 将描述性特质与产生情境状态的社会认知机制区分，支持“稳定倾向 + 情境变化”而非固定动作模板 | 理论不能证明 LLM 角色长期一致，也不提供 Minekin 的状态更新阈值 |
+| [Schwartz 基本价值观综述（2012）](https://scholarworks.gvsu.edu/orpc/vol2/iss1/11/) | 把价值视为跨情境、按重要性排序的动机目标，启发将价值优先级与人格倾向、心境分层 | 不是 Minekin 的必选十维 schema；文化测量结论不能直接当作虚拟玩家行为校准 |
 | [MemGPT 原论文](https://arxiv.org/abs/2310.08560) | 2023 年论文研究有限上下文之外的分层/虚拟上下文管理及多会话对话 | 是记忆编排思路，不证明 Minekin 的身份连续、Minecraft 事件 schema、中文召回或成本 |
 | [LongMemEval 原论文](https://arxiv.org/abs/2410.10813) | 2024 年基准覆盖跨会话信息提取、时间推理、知识更新和拒答，可用于设计 Kin 长记忆回放维度 | 基准数据和指标不是长期 Minecraft 玩家实测；需自建人物/地点/承诺/技能语料 |
 | [SQLite FTS5 官方文档](https://www.sqlite.org/fts5.html) | SQLite 内建全文检索候选，可与结构化键一起为本地记忆做词项召回，2026-09-16 复核 | 不提供语义真值；中文 tokenization、昵称、版本词汇、延迟和数据库规模均须原型测试 |

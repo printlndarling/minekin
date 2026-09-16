@@ -55,6 +55,7 @@ flowchart TD
 - [外部工具与自主查资料](docs/external-tools.md)：研究任务、协作承诺、知识验证及工具能力边界。
 - [玩家在线模式与首次进入](docs/lifecycle.md)：陪玩/独立运行、初见、下线、重返与模式切换。
 - [人格与行为变化](docs/personality.md)：自定义/随机初始人格、价值观、心境、习惯、恶作剧与长期改变。
+- [初始人格生成与长期演变](docs/persona-generation-contract.md)：结构化 Persona Manifest、随机种子、矛盾处理、坏人格与可追溯慢变。
 - [自我介绍与个人信息](docs/self-identity.md)：账号名、自称、选填年龄/性别/标签及多日连续的玩家式对话。
 - [指令边界与提示词注入防护](docs/instruction-boundary.md)：游戏聊天和网页的信任等级、后台信息泄漏红线、权限隔离与对抗测试。
 - [决策自主权与初始关系](docs/decision-agency.md)：重大决定的负责层、初见运行者的关系种子及自治验收。
