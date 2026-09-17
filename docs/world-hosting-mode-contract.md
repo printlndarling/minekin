@@ -148,7 +148,7 @@ Kin 可以在世界内自主决定“我想新开一个世界/继续旧世界”
 
 `host-integrated: tested`独立于 `p0-core: tested`。没有保存、第二客户端加入、崩溃恢复和真值隔离证据时，Dashboard 不得显示“可托管世界”。
 
-## 尚待原型冻结
+## 必须由 HOST 原型冻结的参数
 
 - 新世界创建 UI/registry 如何用客户端现有 world-creation pipeline稳定驱动，而不伪造 GUI 成功；
 - hosted save 的一致性 checkpoint、增量备份、配额和迁移实现；

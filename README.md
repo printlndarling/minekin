@@ -70,7 +70,9 @@ flowchart TD
 - [身份、记忆持久化与崩溃恢复](docs/persistence-recovery-contract.md)：同一 Kin 的身份根、重启恢复、瞬时状态失效、备份与迁移。
 - [记忆检索、巩固与遗忘](docs/memory-retrieval-consolidation-contract.md)：启动自我包、证据检索、摘要修订、合理遗忘与上下文成本。
 - [开发路线与验收](docs/roadmap.md)：分阶段原型、演示场景和衡量办法。
-- [设计决策与待验证问题](docs/decisions.md)：已定原则、尚未验证的假设，以及进入开发前的检查条件。
+- [设计决策与验证问题](docs/decisions.md)：已定原则、原型假设、首轮默认决议与进入开发前的检查条件。
+- [开发前文档收口审计](docs/pre-development-closure-audit.md)：全仓覆盖、未决项分类、P0 实证门禁与开发放行判断。
+- [重大待确认清单](docs/critical-confirmations.md)：只记录会改变项目根本方向的问题；当前无开放项。
 - [Alma 参考研究](docs/alma-reference.md)：公开文档能证实的机制、Minekin 的借鉴点与差异。
 - [可借鉴项目与源码仓库](docs/inspiration-projects.md)：Axon、llm-playing-minecraft、Voyager、Hermes、OpenClaw、Baritone、AltoClef、Meteor、Mineflayer/Mindcraft 的用途、限制与许可门禁。
 - [外部工具与自主查资料](docs/external-tools.md)：研究任务、协作承诺、知识验证及工具能力边界。
@@ -82,7 +84,7 @@ flowchart TD
 - [决策自主权与初始关系](docs/decision-agency.md)：重大决定的负责层、初见运行者的关系种子及自治验收。
 - [目标与游戏日](docs/goals.md)：单个 Kin 的短、中、长期目标、推进与调整。
 - [玩家旅程与进度边界](docs/player-journey.md)：从出生、默认通关主线到通关之后，区分首版能力与待验证技能。
-- [首登原版生存闭环](docs/vanilla-survival-loop.md)：寻路、破坏、拾取、合成的底座证据、操作回放和技术 TODO。
+- [首登原版生存闭环](docs/vanilla-survival-loop.md)：寻路、破坏、拾取、合成的底座证据和分阶段原型验证矩阵。
 - [居住与行路策略](docs/living-strategy.md)：定居、临时据点、游走及后续地点/下界门选择。
 - [多 Kin 世界（远期）](docs/multi-kin.md)：多个独立玩家的合作、关系、分工和信息边界。
 - [原版世界书](docs/world-guide.md)：初始游戏常识、版本知识、按需查询和知识来源。

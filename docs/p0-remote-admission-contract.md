@@ -140,7 +140,7 @@ TCP connect、ConnectScreen状态文字、ping 成功、`ClientPlayNetworkHandle
 
 每个 case 归档 LaunchPlan脱敏摘要、Server Profile revision、地址解析时间线、Bridge事件、服务端 oracle时间线、首快照 schema/digest、按键/lease状态和最终分类。服务端观察信息只在 run 结束后由验收器离线交叉核对。
 
-## 原型前尚未冻结
+## 必须由 P0 实验冻结的参数
 
 - `LEGACY`候选 account type 与各 game-argument sentinel 的实际可启动组合；
 - Fabric 1.21.4 INIT/JOIN/DISCONNECT 事件与 vanilla screen/network callback 的精确先后；

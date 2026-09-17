@@ -227,7 +227,7 @@ Runtime/Bridge 采用 Protobuf framing、Linux UDS/Windows loopback、control/ev
 9. CPU 软件渲染与 GPU 透传分别量启动时间、内存、CPU/GPU、帧率、tick/反射延迟和 Live View 延迟。
 10. A/B 模式由 Session Manager 决定是否启动/保持客户端；切模式不重建 Kin，也不给锚定玩家控制权。
 
-## 尚待原型决定而非重大产品待确认
+## 必须由原型选择的实现参数
 
 - Linux 首版用 Xvfb/X11 虚拟显示，还是经验证后采用 EGL/OSMesa；
 - Minecraft/Java runtime 的缓存布局、可复现下载清单和镜像层边界；
