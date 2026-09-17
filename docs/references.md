@@ -115,3 +115,13 @@
 | Baritone [fabric.mod.json](https://github.com/cabaletta/baritone/blob/78d3613e8c2e4c2f4bb56a6d84fe2844bd6d22e8/fabric/src/main/resources/fabric.mod.json) | 同版、LGPL-3.0、使用 mixins且 entrypoints为空 | 只支持隔离成导航实验，不证明兼容 |
 
 完整设计见[P0 Thin Bridge 契约](p0-bridge-bootstrap-contract.md)。截至 2026-09-17 没有 Bridge JAR、Fabric 主菜单或入服实测结果。
+
+## P0 隔离验证、原版服务端与证据门禁（2026-09-17 核对）
+
+| 来源 | 适用版本/日期 | 支持的判断 | 局限 |
+| --- | --- | --- | --- |
+| [Mojang 1.21.4 version JSON](https://piston-meta.mojang.com/v1/packages/d152a3712859b294a2dff641f99a7fe219cd3aec/1.21.4.json) | release 1.21.4；2026-09-17 重核 | 官方 server download 指向 SHA-1 `4707d00eb834b446575d89a61a11b5d548d8c001`、大小 56,880,250 bytes，可固定 P0 原版服务端工件 | 元数据和摘要不证明本地已下载、接受 EULA、启动或入服 |
+| [Yarn 1.21.4+build.8 `MinecraftServer`](https://maven.fabricmc.net/docs/yarn-1.21.4%2Bbuild.8/net/minecraft/server/MinecraftServer.html) | MC 1.21.4；2026-09-17 重核 | 文档说明逻辑服务端处理玩家动作、伤害、世界时间和命令，并区分 dedicated/integrated server；支持把服务端观察作为离线测试真值 | Yarn Javadoc 不是协议稳定性承诺，也不规定 Minekin 如何采集/隔离真值 |
+| [Yarn 1.21.4+build.8 `MinecraftDedicatedServer`](https://maven.fabricmc.net/docs/yarn-1.21.4%2Bbuild.8/net/minecraft/server/dedicated/MinecraftDedicatedServer.html) | MC 1.21.4；2026-09-17 核对 | 同版类包含 command queue、terminal/RCON相关入口与服务端属性访问；支持由 Test Orchestrator 独占本地 stdin/stdout，而不授 Kin 权限 | 不证明控制台输出格式稳定；P0 禁用 RCON，具体断言仍须原型 |
+| [Minecraft EULA](https://www.minecraft.net/en-us/eula) | 2026-09-17 重核 | 官方客户端/服务端工件的获取、使用与再分发须遵守适用条款；测试镜像不默认内嵌 JAR | 法律文本不是技术兼容性或服务器规则证明 |
+| [OpenTelemetry traces](https://opentelemetry.io/docs/concepts/signals/traces/) | 2026-09-17 重核 | trace/span/event/link 可作为跨进程 Bridge、server、orchestrator 时间线关联参考 | 不解决 wall-clock 同步，也不要求 P0 部署远端 telemetry backend |
