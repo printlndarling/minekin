@@ -173,3 +173,18 @@
 | [SQLite atomic commit](https://www.sqlite.org/atomiccommit.html) 与 [WAL](https://www.sqlite.org/wal.html) | Kin Mind本地存储；2026-09-17复核 | 可保护Mind数据库自身的完整事务与恢复 | 无法与Minecraft save组成分布式原子事务；必须双水位和上线对账 |
 
 完整设计与 `HOSTCOMMIT-001…110`见[自建世界提交与跨世界恢复契约](hosted-world-commit-recovery-contract.md)。截至核查日没有真客户端保存、强杀、回滚或分叉运行证据。
+
+## P0 远程入服、地址解析与客户端 Session（2026-09-17 核对）
+
+| 来源 | 适用版本 | 证据用途 | 局限 |
+| --- | --- | --- | --- |
+| [Yarn ConnectScreen](https://maven.fabricmc.net/docs/yarn-1.21.4%2Bbuild.8/net/minecraft/client/gui/screen/multiplayer/ConnectScreen.html) | 1.21.4+build.8 | 公开静态 `connect`入口接收 client、ServerAddress、ServerInfo、quickPlay与cookie，用于 LAN/远端服务器 | 映射文档不证明 Minekin Bridge已调用成功，也不冻结事件先后 |
+| [Yarn ServerAddress](https://maven.fabricmc.net/docs/yarn-1.21.4%2Bbuild.8/net/minecraft/client/network/ServerAddress.html) | 1.21.4+build.8 | `parse`、host、port与合法性入口 | 不替代 Minekin的可信 profile和地址安全策略 |
+| [Yarn AllowedAddressResolver](https://maven.fabricmc.net/docs/yarn-1.21.4%2Bbuild.8/net/minecraft/client/network/AllowedAddressResolver.html)、[AddressResolver](https://maven.fabricmc.net/docs/yarn-1.21.4%2Bbuild.8/net/minecraft/client/network/AddressResolver.html)、[RedirectResolver](https://maven.fabricmc.net/docs/yarn-1.21.4%2Bbuild.8/net/minecraft/client/network/RedirectResolver.html) | 1.21.4+build.8 | vanilla解析、block list与 SRV redirect的存在 | DNS TTL、取消、重绑定和目标环境时延仍须原型 |
+| [Yarn ServerInfo](https://maven.fabricmc.net/docs/yarn-1.21.4%2Bbuild.8/net/minecraft/client/network/ServerInfo.html)、[ServerType](https://maven.fabricmc.net/docs/yarn-1.21.4%2Bbuild.8/net/minecraft/client/network/ServerInfo.ServerType.html) | 1.21.4+build.8 | 地址、LAN/OTHER/REALM类型及资源包策略字段 | 不证明服务器规则或资源包安全 |
+| [Yarn Session](https://maven.fabricmc.net/docs/yarn-1.21.4%2Bbuild.8/net/minecraft/client/session/Session.html)、[AccountType](https://maven.fabricmc.net/docs/yarn-1.21.4%2Bbuild.8/net/minecraft/client/session/Session.AccountType.html) | 1.21.4+build.8 | Session构造字段；AccountType只有 LEGACY/MOJANG/MSA，证实没有 OFFLINE 枚举 | `LEGACY`只是 P0候选映射，不能由文档推出可用 sentinel |
+| [Yarn Uuids](https://maven.fabricmc.net/docs/yarn-1.21.4%2Bbuild.8/net/minecraft/util/Uuids.html) | 1.21.4+build.8 | 同版离线 nickname→UUID/profile候选函数 | 服务端/代理仍可重算或改写，不能代替 server-observed evidence |
+| [Yarn RunArgs / Network / Game](https://maven.fabricmc.net/docs/yarn-1.21.4%2Bbuild.8/net/minecraft/client/RunArgs.html) | 1.21.4+build.8 | 客户端运行参数分为 network、game等组，network包含 Session与属性/代理 | 文档不暴露 launcher占位符的最终可用组合，必须实启验证 |
+
+核对结论：官方映射足以支持“受管理真客户端由 Bridge在 client thread发起正常连接”的候选路线；不足以证明默认离线 session参数、服务端身份映射、JOIN事件顺序或任意服务器兼容。对应设计与 ADMIT 用例见[P0 远程入服与离线身份协议](p0-remote-admission-contract.md)。
+

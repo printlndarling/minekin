@@ -57,6 +57,7 @@ flowchart TD
 - [启动器供应链与玩家身份](docs/launcher-supply-chain-contract.md)：不可变 bundle、受信任下载、内容寻址缓存、跨版本 Bridge、token 暴露面与故障语义。
 - [P0 1.21.4 启动计划](docs/p0-launch-plan-contract.md)：官方/Fabric 元数据合并、Java/classpath/natives、默认离线身份、阻断条件与首个真客户端实验。
 - [P0 Thin Bridge 启动与装配](docs/p0-bridge-bootstrap-contract.md)：Fabric client entrypoint、core/nav bundle 拆分、线程边界、握手后连接及 capability 门控。
+- [P0 远程入服与离线身份](docs/p0-remote-admission-contract.md)：正常客户端连接入口、地址/SRV 策略、身份分层、JOIN/首快照门禁与失败分类。
 - [P0 隔离验证与证据门禁](docs/p0-validation-evidence-contract.md)：原版 dedicated/LAN 测试域、oracle 隔离、三时间线、证据包与 candidate→tested 晋级。
 - [Linux 无窗口客户端与 Live View](docs/headless-client-media-contract.md)：虚拟显示、软件/GPU 渲染、资源隔离、画面捕获和零默认视觉调用。
 - [Runtime/Bridge IPC 与进程部署](docs/runtime-ipc-deployment-contract.md)：Protobuf、本机 UDS/loopback、双通道背压、lease、故障语义与 systemd 原型档。

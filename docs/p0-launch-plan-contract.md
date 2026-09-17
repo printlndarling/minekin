@@ -85,6 +85,9 @@ session:
 
 ## 离线身份与服务端身份
 
+> 完整连接状态、地址解析、身份分层和 ADMIT 验收见[P0 远程入服与离线身份协议](p0-remote-admission-contract.md)。
+
+- `auth_mode: offline`是 Minekin 管理策略，不是原版 `Session.AccountType`；1.21.4 映射只有 `LEGACY`、`MOJANG`、`MSA`。P0 将 `LEGACY`仅作为候选映射实测，不能把枚举名当作已验证的离线启动方案。
 - 本地 username 是运行者配置，不从聊天临时改名；首先检查 Minecraft 名称约束与本机 profile 冲突。
 - 本地候选 UUID按同版 nickname→offline profile 规则生成，用于客户端自洽；进入 LAN/offline-mode 后，以服务端实际观察到的 name/UUID 建立 `server_observed_identity` 证据。
 - 内部人格、记忆与计划仍以 `kin_id` 为根。不同服务器同名、代理改写 UUID、改名或世界切换都不能合并/重建 Kin。
@@ -113,6 +116,7 @@ session:
 5. 连接前强杀 Launcher、启动中强杀 Minecraft、握手后断 Bridge；验证临时区清理、按键释放、旧 generation 拒绝和世界状态重验。
 6. 先验收不含 Baritone 的 `p0-core`（Fabric API + Bridge），再独立验收加入 Baritone 的 `p0-nav-exp`；后者失败不阻断 core 或自写技能路线。装配、entrypoint、线程和握手状态机见[P0 Thin Bridge 契约](p0-bridge-bootstrap-contract.md)。
 7. 只有上述启动、入服、退出/恢复和最小合法输入完成，且[P0 隔离验证与证据门禁](p0-validation-evidence-contract.md)中的 mandatory case、真值隔离与 evidence bundle 全部满足，P0 bundle 才能从 `candidate` 变为 `tested`；手工演示或单侧日志不能晋级。
+8. 跑 ADMIT-001…120，特别核对 `LEGACY`候选 session参数、SRV/地址策略、JOIN与首快照门禁、本地候选身份和服务端观察身份；未通过时不得写“默认离线身份已支持”。
 
 ## 不作出的承诺
 

@@ -13,6 +13,8 @@
 | 不可变客户端供应链 | 上游元数据、Minecraft/Fabric/Bridge/Java 工件与运行参数冻结为带来源和 hash 的 bundle；游戏工件按授权下载而不随镜像分发；未知/损坏组合隔离，能下载不等于受支持 |
 | 渲染与观战旁路 | Linux 无窗口仍保留真实 render thread/GLFW/OpenGL；首版以虚拟显示正常渲染为基线。Media Worker 无输入权，观战失败先降媒体且视频不默认进入 VLM/记忆 |
 | 薄 Bridge 接入真实客户端 | Minecraft Java 客户端以独立本地身份默认加入 LAN/offline-mode 测试世界；online-mode 账号仅为可选兼容路径；Fabric Bridge 只做过滤观察、本地反射、输入仲裁和结果反馈，行动最终经过合法客户端输入 |
+| 离线策略与客户端账号类型分层 | `auth_mode: offline`是管理策略，不能假定原版存在 OFFLINE account type；P0候选 session映射须实测。人格根始终是 `kin_id`，本地候选 UUID与服务端观察身份分别保存，不因改名/代理而错误合并 |
+| PLAYABLE 是复合门禁 | TCP、ping、连接 screen和 INIT都不算入世；同 generation 的 JOIN、客户端 world/player/network handler、首个 authoritative snapshot和输入全释放全部成立后才授 lease |
 | 自建世界参数分权 | Kin 自主决定是否/何时创建自己的世界及游戏内目标；P0 创建组合固定为普通原版生存基线。实际 LevelInfo/GeneratorOptions 由 proposal、管理策略与 tested baseline合成，聊天/网页无权开启 cheats、改 GameRules或注入 datapack |
 | 同 JVM 服务端真值隔离 | `p0-core`不得调用 `MinecraftClient.getServer()`；自建世界用独立 `p0-host-exp`窄适配器，只输出管理事件。源码/class/mixin门禁与运行时 canary共同验收，不声称同 JVM具有进程级安全隔离 |
 | 分层控制 | 紧急反射在本地执行，LLM 不参与逐 tick 操作；危险可抢占并使过期意图失效 |

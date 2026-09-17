@@ -85,8 +85,8 @@ stateDiagram-v2
     IPC_CONNECTING --> OBSERVE_ONLY: handshake ok
     IPC_CONNECTING --> SAFE_STOP: timeout / mismatch
     OBSERVE_ONLY --> CONNECTING_WORLD: ConnectWorld
-    CONNECTING_WORLD --> PLAYABLE: JOIN + snapshot
-    CONNECTING_WORLD --> OBSERVE_ONLY: rejected
+    CONNECTING_WORLD --> PLAYABLE: JOIN + authoritative snapshot
+    CONNECTING_WORLD --> OBSERVE_ONLY: parse / resolve / login rejected
     PLAYABLE --> OBSERVE_ONLY: DISCONNECT
     PLAYABLE --> SAFE_STOP: control lost
     SAFE_STOP --> [*]
@@ -97,7 +97,7 @@ stateDiagram-v2
 3. worker 证明 nonce、session/generation、bundle/Bridge/protocol/capabilities；失败保持无输入并请求回收。
 4. 握手成功仅到 `OBSERVE_ONLY`。Runtime 发送带 Server Profile 引用、deadline 和 generation 的 `ConnectWorld`。
 5. Bridge 在 client thread确认无现存世界/连接任务并匹配版本，再调用 1.21.4 连接适配器。
-6. JOIN 后先发 authoritative snapshot；Runtime 接受当前服务器/世界身份后才发高层输入 lease并标 `PLAYABLE`。
+6. INIT、TCP连接或 screen状态都不是成功。只有同 generation 的 PLAY JOIN、本地 world/player/network handler成立，并由 Bridge 发出首个 authoritative snapshot；Runtime 校验 profile revision和 world binding后才发高层输入 lease并标 `PLAYABLE`。详细 admission子状态、身份分层和失败码见[P0 远程入服协议](p0-remote-admission-contract.md)。
 7. 取消、失败或断线都撤销实体/GUI/action generation和按键；重连由 Session Manager 决定，Bridge 不无限重试。
 
 LAN 世界仍按 host/port 远端连接处理；Bridge 不扫描整个局域网。Server Profile 提供地址，status ping 不能推断 `auth_mode`。
