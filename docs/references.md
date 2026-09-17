@@ -188,3 +188,19 @@
 
 核对结论：官方映射足以支持“受管理真客户端由 Bridge在 client thread发起正常连接”的候选路线；不足以证明默认离线 session参数、服务端身份映射、JOIN事件顺序或任意服务器兼容。对应设计与 ADMIT 用例见[P0 远程入服与离线身份协议](p0-remote-admission-contract.md)。
 
+## 可借鉴项目与源码仓库（2026-09-17 核对）
+
+详细分层、采用判断和许可证门禁见[可借鉴项目与源码仓库地图](inspiration-projects.md)。下表只作快速入口；“可借鉴”不代表兼容已实测或可以不经许可证审查直接复制。
+
+| 层次 | 项目/仓库 | 主要参考点 | 当前判断 |
+| --- | --- | --- | --- |
+| 真客户端+LLM组合 | [Axon](https://github.com/jeremy46231/axon)（GPL-3.0）、[llm-playing-minecraft](https://github.com/drmcbride12/llm-playing-minecraft)（Apache-2.0） | Fabric Bridge、Baritone工具循环、外置 controller、action schema | 架构/源码对照；不整体引入。前者README自标无真实测试，后者自称early-stage |
+| 导航与任务 | [Baritone](https://github.com/cabaletta/baritone)（LGPL-3.0+项目例外）、[AltoClef](https://github.com/gaucho-matrero/altoclef)（MIT，已归档） | 寻路过程与复杂生存task分解 | Baritone仅进隔离nav实验；AltoClef只作旧源码研究 |
+| 生存/战斗模块 | [Meteor Client](https://github.com/MeteorDevelopment/meteor-client)（GPL-3.0） | Fabric模块和物品/生存控制实现 | anarchy utility mod且含作弊语义；默认不集成 |
+| 终身学习 | [Voyager](https://github.com/MineDojo/Voyager)（MIT）、[Hermes Agent](https://github.com/NousResearch/hermes-agent)（MIT） | 自动课程、技能库、反馈改进、跨会话检索与技能沉淀 | 借鉴有证据的技能生命周期；不允许模型直接发布任意代码 |
+| Harness/Dashboard | [OpenClaw](https://github.com/openclaw/openclaw)（MIT）、[Hermes Agent](https://github.com/NousResearch/hermes-agent) | Gateway、Control UI、工具、sandbox、observer、部署后端 | 借进程与权限边界，不替代 PlayerMind/Bridge；入站内容始终不可信 |
+| 协议Bot对照 | [Mineflayer](https://github.com/PrismarineJS/mineflayer)（MIT）、[Mindcraft](https://github.com/mindcraft-bots/mindcraft)（MIT） | Minecraft自动化生态、LLM角色与多Agent对照 | 可作研究/测试参与者；不作为 Kin真实Java客户端身体 |
+| 产品体验 | [Alma](https://alma.now/) | 记忆管理、检索与工具UX | 未确认可审计官方源码/许可；只作产品设计参考 |
+
+本批直接核对了各仓库 README 与 LICENSE；上游活跃状态、版本和许可可能变化，实施时仍须锁定精确 commit、保留归属、生成SBOM并重跑兼容/安全验收。
+

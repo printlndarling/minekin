@@ -70,6 +70,7 @@ flowchart TD
 - [开发路线与验收](docs/roadmap.md)：分阶段原型、演示场景和衡量办法。
 - [设计决策与待验证问题](docs/decisions.md)：已定原则、尚未验证的假设，以及进入开发前的检查条件。
 - [Alma 参考研究](docs/alma-reference.md)：公开文档能证实的机制、Minekin 的借鉴点与差异。
+- [可借鉴项目与源码仓库](docs/inspiration-projects.md)：Axon、llm-playing-minecraft、Voyager、Hermes、OpenClaw、Baritone、AltoClef、Meteor、Mineflayer/Mindcraft 的用途、限制与许可门禁。
 - [外部工具与自主查资料](docs/external-tools.md)：研究任务、协作承诺、知识验证及工具能力边界。
 - [玩家在线模式与首次进入](docs/lifecycle.md)：陪玩/独立运行、初见、下线、重返与模式切换。
 - [人格与行为变化](docs/personality.md)：自定义/随机初始人格、价值观、心境、习惯、恶作剧与长期改变。
