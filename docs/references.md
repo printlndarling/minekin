@@ -228,3 +228,23 @@
 | [MinecraftInstance.cpp](https://github.com/PrismLauncher/PrismLauncher/blob/a2209210179e156bb2b326e551262f76d94d2010/launcher/minecraft/MinecraftInstance.cpp) | Session只补 name、UUID、token、userType等映射；profile映射没有clientId/xuid；未命中占位符被替换为空，game arguments仍按列表输出为launch-script `param` | 静态源码不能证明1.21.4接受空值，也不证明未来commit相同 |
 | [EntryPoint.java](https://github.com/PrismLauncher/PrismLauncher/blob/a2209210179e156bb2b326e551262f76d94d2010/libraries/launcher/org/prismlauncher/EntryPoint.java)、[AbstractLauncher.java](https://github.com/PrismLauncher/PrismLauncher/blob/a2209210179e156bb2b326e551262f76d94d2010/libraries/launcher/org/prismlauncher/launcher/impl/AbstractLauncher.java) | line-based launch script把`param `解析成参数名与空值，并汇集为gameArgs | 只覆盖Prism子进程协议，不是Mojang规范 |
 | [StandardLauncher.java](https://github.com/PrismLauncher/PrismLauncher/blob/a2209210179e156bb2b326e551262f76d94d2010/libraries/launcher/org/prismlauncher/launcher/impl/StandardLauncher.java)、[libraries README](https://github.com/PrismLauncher/PrismLauncher/blob/a2209210179e156bb2b326e551262f76d94d2010/libraries/README.md) | StandardLauncher保留gameArgs并调用Minecraft main class；launcher library许可证说明为GPL-3.0-only with classpath exception | 仍需Minekin自己的dry-run、Bridge Session观察与服务端验收；不能复制源码规避许可证审查 |
+
+
+## 2026-09-17 技术栈选型补充
+
+| 来源 | 支持的选择 | 局限 |
+| --- | --- | --- |
+| [Python TaskGroup](https://docs.python.org/3/library/asyncio-task.html#task-groups) | 结构化并发、任务组退出时的取消/异常传播，适合 Runtime 会话 supervisor | 不提供领域事件、耐久状态或 Bridge 实时保证 |
+| [uv workspaces](https://docs.astral.sh/uv/concepts/projects/workspaces/) | 一个锁文件管理多个 Python app/package | 仍需冻结 Python/平台轮子并做供应链校验 |
+| [FastAPI WebSockets](https://fastapi.tiangolo.com/advanced/websockets/)与[Pydantic Models](https://docs.pydantic.dev/latest/concepts/models/) | Gateway REST/WSS 与边界 schema 候选 | 不代替背压、鉴权、重放和领域协议 |
+| [SQLAlchemy asyncio](https://docs.sqlalchemy.org/en/20/orm/extensions/asyncio.html)与[Alembic](https://alembic.sqlalchemy.org/) | Python 异步持久化、显式事务和迁移工具 | AsyncSession 不能跨并发任务共享；迁移和 SQLite batch 操作仍要测试 |
+| [SQLite WAL](https://www.sqlite.org/wal.html) | 同机读写并发、单写者、checkpoint 约束；官方 2026-08-25 页面列出 WAL-reset bug 修复版本 | 要求 SQLite >=3.51.3 或官方回补 3.50.7/3.44.6；禁止网络文件系统，仍需故障注入 |
+| [SQLite FTS5](https://www.sqlite.org/fts5.html) | 本地词项检索和可重建记忆索引 | 中文分词和语义召回需 Minekin 基准，不是事实权威 |
+| [Protocol Buffers proto3](https://protobuf.dev/programming-guides/proto3/)与[Buf breaking](https://buf.build/docs/breaking/overview/) | Java/Python IPC schema、生成与破坏性变更检查 | framing、队列、lease、认证和错误语义由 Minekin 定义 |
+| [React](https://react.dev/learn)、[Vite](https://vite.dev/guide/)与[TanStack Query](https://tanstack.com/query/latest/docs/framework/react/overview) | 私有 SPA Dashboard、构建与 REST server state | 不连接 Bridge；实时事件和媒体仍用独立通道 |
+| [Node.js release schedule](https://github.com/nodejs/release#release-schedule) | 2026-09-17 时 24.x 为 Active LTS，作为 Dashboard 构建基线 | 到实现时重核 LTS/依赖兼容并锁版本 |
+| [FFmpeg x11grab](https://ffmpeg.org/ffmpeg-devices.html#x11grab)与[MediaMTX](https://github.com/bluenviron/mediamtx) | Linux 真实窗口采集和可选 WebRTC/LL-HLS 中继 | 未证明 Minecraft 无窗口/GPU/编码延迟；媒体不进入默认感知 |
+| [OpenTelemetry Python](https://opentelemetry.io/docs/languages/python/) | 本地 trace/metric 关联候选 | 默认不上传敏感游戏数据，不能替代验收 evidence |
+| [MCP architecture](https://modelcontextprotocol.io/docs/learn/architecture) | 外部工具连接器的可选标准适配面 | 协议不是信任边界，仍需 capability/policy/预算/出站检查 |
+| [LangGraph persistence](https://docs.langchain.com/oss/python/langgraph/persistence)与[Temporal workflow execution](https://docs.temporal.io/workflow-execution) | 说明其 checkpoint/耐久工作流能力，可供后续隔离子任务评估 | 均不放入 P0 身体控制、权威记忆或会话恢复核心 |
+| [pytest](https://docs.pytest.org/en/stable/)、[Hypothesis](https://hypothesis.readthedocs.io/)与[Playwright](https://playwright.dev/docs/intro) | Python 属性/故障测试与 Dashboard 端到端测试 | 真实 Minecraft/Fabric/服务器场景仍需受控 runner 和证据包 |

@@ -49,6 +49,7 @@ flowchart TD
 
 - [架构与数据边界](docs/architecture.md)：模块职责、时延目标、感知约束和紧急控制。
 - [独立 Runtime 与 Web Dashboard](docs/standalone-runtime-dashboard.md)：Harness 产品形态、薄客户端 Bridge、Server Profile、实时状态与第一人称观战。
+- [技术架构与工程栈选择](docs/technical-stack-selection.md)：Python/Java/React 分工、自研 Harness、SQLite/IPC/媒体/部署/测试栈与升级门槛。
 - [受管理客户端与自动版本切换](docs/managed-client-runtime.md)：自带启动器后端、本地离线身份、可选在线认证、无可见窗口运行、服务器探测、版本包和 Linux 部署。
 - [受管理目录与世界承载模式](docs/world-hosting-mode-contract.md)：独立 run directory、固定 bundle、远端加入与 Kin 自建 integrated LAN 世界。
 - [Kin 自建世界存储生命周期](docs/hosted-world-storage-lifecycle-contract.md)：原生创建/加载、双重单写锁、保存关闭、冷备、崩溃恢复与 LAN 验收。

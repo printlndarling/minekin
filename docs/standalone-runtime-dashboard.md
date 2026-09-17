@@ -230,3 +230,8 @@ OpenClaw 的 Dashboard 资料可借鉴“Gateway 与 WebSocket 握手鉴权”�
 - 监控页面展示到什么粒度才不泄漏其他玩家隐私或诱导运行者把 Kin 当生产机器人。
 
 这些是实现/体验选择，不改变核心边界：独立 Harness 是产品本体，Minekin 自带后端启动并管理真实客户端，Bridge 是薄而可替换的客户端 driver，Live View 是人类观察通道而非 AI 视觉输入。
+
+
+## 技术栈冻结入口
+
+上述候选已在[技术架构与工程栈选择](technical-stack-selection.md)收敛为首轮实现默认：Python 3.12 控制面、自研事件驱动 Harness、Java 21 Fabric Bridge、React/Vite Dashboard、SQLite WAL 单写、proto3/Buf + UDS、systemd/Xvfb/FFmpeg，MediaMTX 仅作按需媒体中继。发生冲突时以该选择文档和真实 P0 证据为准；LangGraph、Temporal、Celery/Redis、gRPC、Postgres、Kubernetes 与外部 VLM 均不作为首轮前置。
