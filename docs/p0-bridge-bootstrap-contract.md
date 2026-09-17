@@ -30,7 +30,7 @@ Fabric API 候选 aggregate JAR 的官方 Maven checksum 已核为 SHA-1 `1c7871
 
 ## 模组装配
 
-只读 bundle 的 `mods`来自确定清单，不扫描宿主用户的 `.minecraft/mods`：
+这里不是假设 Kin 会使用用户现成的 `.minecraft`。Minecraft 客户端无论只进服务器还是自己开世界都需要 run directory；Minekin 为它指定完全独立的 managed run directory。只读 bundle 的 `mods`来自确定清单，只扫描该 bundle/实例获准的目录，宿主用户的 `.minecraft`从不挂载或读取：
 
 | 变体 | 必需 JAR | 用途 | 状态 |
 | --- | --- | --- | --- |
