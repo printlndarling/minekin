@@ -73,6 +73,7 @@
 45. **Bridge bootstrap 与线程边界**：`p0-core` 只装 Fabric API+Bridge，验证 metadata/entrypoint、快速初始化、后台双 IPC、OBSERVE_ONLY、ConnectWorld、JOIN首快照、输入 lease和失联松键；额外未知 mod 必须拒绝。core 通过后再测 Baritone mixin 的 `p0-nav-exp`，分别评级。
 46. **P0 隔离验证与证据晋级**：同一不可变 `p0-core` 分别跑官方原版 dedicated offline 与 LAN integrated-world；Kin 无 op/console/RCON，测试 oracle 独立保存服务端真值。篡改摘要、提前 lease、旧 generation、断线粘键、危险重放、oracle/VLM 回流均为硬失败；只有 mandatory evidence bundle 完整才能从 candidate 晋级 tested。
 47. **独立运行目录与 Kin 自建世界**：先验证 JOIN_REMOTE 会创建 Minekin 自己的 run directory 且完全不访问宿主 `.minecraft`；再创建/恢复 hosted save，以 `cheatsAllowed=false`开放 integrated LAN，让第二真实客户端加入。覆盖 A/B×JOIN/HOST、端口占用、save lock、磁盘满、正常保存、强杀恢复及 hosted→remote→hosted 不串世界。
+48. **自建世界存储生命周期**：使用固定 1.21.4 bundle 从空 data root 创建世界，核对 Manifest、Supervisor lease 与 vanilla session lock、symlink/越界拒绝、首 JOIN、保存/flush、冷备和重启恢复；在保存前/中/后强杀进程并做真实恢复演练。LAN 开放与本地世界启动分别判定，integrated-server 真值不得进入 Kin belief；详见[HOST-001…100](hosted-world-storage-lifecycle-contract.md)。
 
 ## 衡量方式
 
