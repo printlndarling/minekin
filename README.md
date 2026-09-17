@@ -53,6 +53,7 @@ flowchart TD
 - [受管理目录与世界承载模式](docs/world-hosting-mode-contract.md)：独立 run directory、固定 bundle、远端加入与 Kin 自建 integrated LAN 世界。
 - [Kin 自建世界存储生命周期](docs/hosted-world-storage-lifecycle-contract.md)：原生创建/加载、双重单写锁、保存关闭、冷备、崩溃恢复与 LAN 验收。
 - [Kin 自建世界控制边界](docs/hosted-world-control-boundary-contract.md)：创建参数合成、client/server线程交接、同 JVM 服务端真值隔离与 HOSTCTL 验收。
+- [Kin 自建世界提交与跨世界恢复](docs/hosted-world-commit-recovery-contract.md)：默认维度注册表、玩家/世界双保存水位、关闭故障矩阵、回滚分叉与记忆隔离。
 - [启动器供应链与玩家身份](docs/launcher-supply-chain-contract.md)：不可变 bundle、受信任下载、内容寻址缓存、跨版本 Bridge、token 暴露面与故障语义。
 - [P0 1.21.4 启动计划](docs/p0-launch-plan-contract.md)：官方/Fabric 元数据合并、Java/classpath/natives、默认离线身份、阻断条件与首个真客户端实验。
 - [P0 Thin Bridge 启动与装配](docs/p0-bridge-bootstrap-contract.md)：Fabric client entrypoint、core/nav bundle 拆分、线程边界、握手后连接及 capability 门控。

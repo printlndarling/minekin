@@ -75,6 +75,7 @@
 47. **独立运行目录与 Kin 自建世界**：先验证 JOIN_REMOTE 会创建 Minekin 自己的 run directory 且完全不访问宿主 `.minecraft`；再创建/恢复 hosted save，以 `cheatsAllowed=false`开放 integrated LAN，让第二真实客户端加入。覆盖 A/B×JOIN/HOST、端口占用、save lock、磁盘满、正常保存、强杀恢复及 hosted→remote→hosted 不串世界。
 48. **自建世界存储生命周期**：使用固定 1.21.4 bundle 从空 data root 创建世界，核对 Manifest、Supervisor lease 与 vanilla session lock、symlink/越界拒绝、首 JOIN、保存/flush、冷备和重启恢复；在保存前/中/后强杀进程并做真实恢复演练。LAN 开放与本地世界启动分别判定，integrated-server 真值不得进入 Kin belief；详见[HOST-001…100](hosted-world-storage-lifecycle-contract.md)。
 49. **自建世界控制与真值隔离**：同一 Kin提案生成可复现 effective profile；聊天/网页不能打开 creative、cheats、keepInventory、固定 seed或 datapack。记录 create/load/save/LAN/stop 的 client/server线程时间线和旧 callback拒绝；对 core/nav注入 `getServer`/`ServerWorld`引用应构建失败，并以墙后实体、容器、远处玩家、seed/save path canary验证 Runtime/Memory/prompt无旁路真值。
+50. **自建世界提交与跨世界恢复**：由固定bundle的默认preset生成维度；分别取证玩家数据、世界数据/flush、server stop、session close和Mind事务。对每个边界强杀并核对JointResumeToken；回滚递增epoch，复制分叉产生新hosted identity，hosted A→remote B→A任一时刻只有一个Current World为ACTIVE。
 
 ## 衡量方式
 
@@ -84,6 +85,7 @@
 | `managed_storage_trace` | run directory/artifact/bundle/session/hosted-save 的规范化路径、挂载、单写锁、checkpoint 和宿主 `.minecraft`访问次数（目标 0） |
 | `hosted_world_trace` | hosted_world_id/epoch、integrated server启动、LAN端口、加入玩家、保存/flush/崩溃恢复与真值隔离 |
 | `host_control_trace` | world proposal→effective profile摘要、client/server线程、命令/generation、异步完成、host-control输出分类、字节码门禁和 canary泄漏检查 |
+| `host_commit_trace` | default preset/维度摘要、玩家与世界保存阶段、stop/session close、Mind高水位、JointResumeToken、epoch/lineage与故障注入结果 |
 | `runtime_bridge_trace` | 协议/bundle/capability 握手、sequence、双通道队列、lease、心跳、断线、松键和旧 generation 拒绝 |
 | `world_context_trace` | current world/epoch/session、切换 checkpoint、Self/World Capsule、计划暂停/恢复、人物关联与跨世界泄漏 |
 | `dashboard_observer_trace` | 状态序列延迟、浏览器/媒体故障隔离、管理动作来源、敏感字段访问及是否出现浏览器直达游戏输入 |

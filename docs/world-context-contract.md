@@ -20,6 +20,19 @@
 
 远端的 host/port、MOTD、离线用户名或服务端 UUID 都不足以自动证明“还是同一世界/同一个人”。LAN端口会变，同地址也可能换档。world context 由稳定配置决定；自动信号只提出候选。host 模式以 hosted world manifest、创建事件和 epoch识别 save；复制、回滚或替换存档需要候选新 epoch。无法确认时进入 `world_identity_review`，世界事实按 stale 处理。
 
+## 世界延续、回滚与分叉
+
+世界身份不使用显示名、目录名、seed、LAN端口或 remote 地址单独判断。hosted world维护 `hosted_world_id + world_epoch + lineage`：
+
+- 原存档正常重启：同 hosted world、同 epoch；
+- 从旧 checkpoint/备份回滚：同 hosted world、新 epoch；
+- 复制后两边都继续发展：新 hosted world，保留 parent lineage；
+- 删除后创建同名世界：新 hosted world和新 world context；
+- LAN端口变化：不改变世界身份；
+- remote同地址换档：进入 `world_identity_review`，不能自动继承旧资产。
+
+回滚之后，Kin仍记得被回滚掉的经历属于自己的人生，但相关物资、建筑、位置和计划进展只作为“已失效分支记忆”，不能进入 Current Reality。世界与Mind没有跨系统原子事务；正常退出与异常恢复使用[自建世界提交与跨世界恢复契约](hosted-world-commit-recovery-contract.md)的双水位与 `JointResumeToken`。
+
 ## 数据作用域
 
 | 数据 | 作用域 | 切换后 |
@@ -101,5 +114,7 @@ Kin 可以记得“A 世界的 Steve 骗过我”，但 B 世界同名 Steve 不
 10. 模型上下文清空：恢复同一 Kin 和正确 Current World Capsule。
 11. 自己建服：创建 hosted save、开放 LAN、第二客户端加入；正常/强杀重启后世界与 Kin 连续。
 12. hosted→remote→hosted：全局自我连续，两边背包、地点、人物和 plan instance 不串；LAN 端口变化不改变 hosted world identity。
+13. hosted world回滚：保持同一Kin和hosted identity、递增epoch；回滚点后事实成为失效分支记忆。
+14. 复制save后两边继续发展：产生不同hosted_world_id；同名、同seed和共同祖先不允许自动合并当前现实。
 
 指标包括 `cross_world_state_leak`、`wrong_world_plan_activated`、`same_name_actor_merged_without_evidence`、`stale_session_action_replayed`、`world_epoch_mismatch`、`current_world_ambiguity`。前四项未被阻断属于严重缺陷。

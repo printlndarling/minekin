@@ -156,3 +156,20 @@
 | [Yarn `IntegratedServer`](https://maven.fabricmc.net/docs/yarn-1.21.4%2Bbuild.8/net/minecraft/server/integrated/IntegratedServer.html) | MC 1.21.4；2026-09-17 核对 | `openToLan`返回成功与实际端口可查询；`saveAll`存在；`stop(true)`若在 server thread调用会死锁 | 最终 save/player-data/disconnect/stop/session-close 顺序和 LAN执行线程未实测 |
 
 完整设计和 HOSTCTL-001…090 见[自建世界控制边界](hosted-world-control-boundary-contract.md)。截至 2026-09-17 没有创建档、线程回放、class扫描或 canary运行证据。
+
+
+## 自建世界默认维度与提交关闭（2026-09-17）
+
+| 资料 | 适用范围 / 最后核对 | 支持的判断 | 局限 |
+| --- | --- | --- | --- |
+| [Yarn `IntegratedServerLoader.createAndStart`](https://maven.fabricmc.net/docs/yarn-1.21.4%2Bbuild.8/net/minecraft/server/integrated/IntegratedServerLoader.html) | MC 1.21.4；2026-09-17 | loader显式接收 `Function<WrapperLookup, DimensionOptionsRegistryHolder>`，维度必须从当前动态注册表语境构造 | 不证明候选supplier已编译、调用线程或callback顺序 |
+| [Yarn `WorldPreset.createDimensionsRegistryHolder`](https://maven.fabricmc.net/docs/yarn-1.21.4%2Bbuild.8/net/minecraft/world/gen/WorldPreset.html) 与 [`WorldPresets.DEFAULT`](https://maven.fabricmc.net/docs/yarn-1.21.4%2Bbuild.8/net/minecraft/world/gen/WorldPresets.html) | MC 1.21.4；2026-09-17 | 可由DEFAULT registry entry自身生成维度holder，不必手写主世界/下界/末地参数 | registry取得链、生命周期和实际world-key集合仍须固定bundle原型 |
+| [Yarn `DimensionOptionsRegistryHolder`](https://maven.fabricmc.net/docs/yarn-1.21.4%2Bbuild.8/net/minecraft/world/dimension/DimensionOptionsRegistryHolder.html) | MC 1.21.4；2026-09-17 | holder暴露 `getWorldKeys`、vanilla维度判断相关接口，可形成创建审计证据 | 不能把完整registry对象或seed送入PlayerMind |
+| [Yarn `GeneratorOptionsHolder`](https://maven.fabricmc.net/docs/yarn-1.21.4%2Bbuild.8/net/minecraft/client/world/GeneratorOptionsHolder.html) | MC 1.21.4 client；2026-09-17 | 原版client把GeneratorOptions、维度registry、selected dimensions、动态registry和datapack内容作为同一创建语境 | 这是UI/client模型证据，不是建议依赖私有CreateWorldScreen流程 |
+| [Yarn `MinecraftServer.save/saveAll`](https://maven.fabricmc.net/docs/yarn-1.21.4%2Bbuild.8/net/minecraft/server/MinecraftServer.html) | MC 1.21.4；2026-09-17 | `save`文档明确：保存玩家数据需另调用 `PlayerManager.saveAllPlayerData()`；flush/force和返回值可取证 | 未说明Minekin最终顺序、重复保存成本或崩溃时磁盘持久性 |
+| [Yarn `PlayerManager.saveAllPlayerData`](https://maven.fabricmc.net/docs/yarn-1.21.4%2Bbuild.8/net/minecraft/server/PlayerManager.html) | MC 1.21.4；2026-09-17 | 玩家数据是独立显式保存面 | void返回不等于可单独证明所有文件durable；异常/故障窗口须实测 |
+| [Yarn `MinecraftClient.disconnect/onDisconnected`](https://maven.fabricmc.net/docs/yarn-1.21.4%2Bbuild.8/net/minecraft/client/MinecraftClient.html) | MC 1.21.4 client；2026-09-17 | 有正式客户端断开入口和回调候选 | Javadoc不冻结其与server stop、save和session close的实际顺序 |
+| [Yarn `IntegratedServer.stop`](https://maven.fabricmc.net/docs/yarn-1.21.4%2Bbuild.8/net/minecraft/server/integrated/IntegratedServer.html) 与 [`LevelStorage.Session.close`](https://maven.fabricmc.net/docs/yarn-1.21.4%2Bbuild.8/net/minecraft/world/level/storage/LevelStorage.Session.html) | MC 1.21.4；2026-09-17 | stop(true)不能在server thread等待自身；Session为AutoCloseable且close可失败 | stop/session close单独不证明世界与玩家数据都已成功保存 |
+| [SQLite atomic commit](https://www.sqlite.org/atomiccommit.html) 与 [WAL](https://www.sqlite.org/wal.html) | Kin Mind本地存储；2026-09-17复核 | 可保护Mind数据库自身的完整事务与恢复 | 无法与Minecraft save组成分布式原子事务；必须双水位和上线对账 |
+
+完整设计与 `HOSTCOMMIT-001…110`见[自建世界提交与跨世界恢复契约](hosted-world-commit-recovery-contract.md)。截至核查日没有真客户端保存、强杀、回滚或分叉运行证据。

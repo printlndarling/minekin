@@ -212,9 +212,12 @@ HOST_RECOVERY_REQUIRED
 
 `host-control: tested`需要与[存储生命周期 HOST-001…100](hosted-world-storage-lifecycle-contract.md)使用同一不可变 bundle和 evidence bundle。静态扫描通过不能代替黑盒 canary，黑盒未发现也不能代替构建门禁。
 
+
+保存不能只看 `saveAll`：玩家数据、世界数据与 Mind 数据库的双水位和故障恢复另见[自建世界提交与跨世界恢复契约](hosted-world-commit-recovery-contract.md)。
+
 ## 仍待原型冻结
 
-- 默认维度 supplier从 registry生成的确切调用链及 datapack lifecycle处置；
+- 固定 bundle 中 `WORLD_PRESET -> WorldPresets.DEFAULT -> WorldPreset.createDimensionsRegistryHolder()`候选链已找到，仍须编译/运行核对签名、三维度摘要及 datapack lifecycle；
 - `createAndStart`异步阶段的真实 client-thread/callback顺序；
 - `saveAll`、玩家数据保存、disconnect、server stop和 session close 的最小无损顺序；
 - `openToLan`实际执行线程、端口绑定与完成判据；

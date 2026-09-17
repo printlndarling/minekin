@@ -83,6 +83,8 @@ SQLite 的[原子提交说明](https://www.sqlite.org/atomiccommit.html)描述�
 
 启动界面可以展示“我是谁/上次发生了什么”的诊断，但这不是让 LLM重新发明身份。任何恢复失败都应在连接服务器前暴露。
 
+Minecraft integrated save与Mind SQLite事务无法构成单一ACID事务。host模式额外保存世界提交水位、心智事件水位和 `JointResumeToken`；只有玩家数据、世界数据/flush、server stop、session close和Mind事务均有证据时才称干净退出。窗口关闭、disconnect或进程退出码0都不够。详见[自建世界提交与跨世界恢复契约](hosted-world-commit-recovery-contract.md)。
+
 ## 正常退出与异常崩溃
 
 正常退出先阻止新任务，抢占并释放输入，关闭/放弃当前 GUI 操作，记录未完成意图和承诺，提交 `session_closing` 与最后确认事件，然后关闭数据库连接。可安排 checkpoint 和在线备份，但不能在活动 WAL 写入时只复制单个 `.db` 文件；WAL 模式要求相关进程在同一主机，数据库、WAL 和 SHM 留在受支持的本地文件系统。

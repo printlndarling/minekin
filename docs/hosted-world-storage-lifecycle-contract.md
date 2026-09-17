@@ -4,7 +4,7 @@
 
 所有结论目前来自同版公开接口与工程约束，不表示 Minekin 已创建存档、生成区块、开放端口、保存成功或完成恢复。
 
-创建参数的三层合成、client/server线程交接及同 JVM 服务端真值门禁已拆到[自建世界控制边界契约](hosted-world-control-boundary-contract.md)；本文仍负责存储与恢复状态机。
+创建参数的三层合成、client/server线程交接及同 JVM 服务端真值门禁已拆到[自建世界控制边界契约](hosted-world-control-boundary-contract.md)；玩家/世界数据双保存、Mind双水位、回滚分叉与跨世界恢复见[提交与恢复契约](hosted-world-commit-recovery-contract.md)。本文仍负责存储与恢复状态机。
 
 ## P0-host 决定
 
@@ -172,7 +172,7 @@ P0 测试网络保持 loopback/隔离 LAN。以后真实家庭 LAN的绑定地�
 1. Session Manager阻止新连接/新高层目标；
 2. Bridge撤销高层 lease、停止 GUI/移动/攻击并松键；
 3. 若有其他玩家，按管理策略发送世界关闭提示并等待有界宽限；
-4. 在 server线程请求 `saveAll`并要求 flush，记录开始/结束/返回与异常；
+4. 在 server线程分别记录玩家数据保存与世界数据保存/flush；`saveAll`不能单独证明玩家数据已持久化；
 5. 在不会死锁的线程边界停止 integrated server；上游 `stop(waitForShutdown)`明确提示不能在 server thread中等待自身；
 6. client确认退出世界，关闭 `LevelStorage.Session`；
 7. 写入 clean checkpoint、world manifest和事件高水位，再释放 Supervisor lease；
@@ -236,7 +236,7 @@ Kin是世界主人不等于全知管理员：
 
 - 专用 persistent run directory与容器 bind mount哪种跨平台实现更可靠；
 - 非默认难度/极限/预设/seed/GameRules/datapack 组合的逐项开放与实验性设置/数据包警告；
-- `saveAll`、玩家数据、client disconnect、server stop与 session close 的实际 callback/线程顺序（静态线程边界见控制契约）；
+- `saveAllPlayerData -> saveAll(flush)`、client disconnect、server stop与 session close 的真实 callback/线程顺序及重复保存成本（双水位与故障矩阵已在提交恢复契约冻结）；
 - 大世界冷备耗时、增量备份候选、配额与保留默认值；
 - LAN发现广播、绑定接口与允许玩家策略；
 - 存档导入的 archive traversal、symlink/hardlink、压缩炸弹、版本/datapack扫描；
