@@ -1,6 +1,6 @@
 # 启动器供应链、版本包与玩家身份契约
 
-研究时间：2026-09-16。本文件把“Minekin 自带本地启动器后端”落实为可审计的版本解析、下载、缓存、玩家身份与启动边界。它不表示这些路径已经跑通；默认离线身份路径仍须在全新 Linux 主机、LAN 与 offline-mode 私服上原型验证；可选在线认证另行验证。
+研究时间：2026-09-16；P0 元数据组装核查更新：2026-09-17。本文件把“Minekin 自带本地启动器后端”落实为可审计的版本解析、下载、缓存、玩家身份与启动边界。它不表示这些路径已经跑通；默认离线身份路径仍须在全新 Linux 主机、LAN 与 offline-mode 私服上原型验证；可选在线认证另行验证。
 
 ## 结论
 
@@ -48,7 +48,7 @@ Server List Ping 只是为选择真实客户端而做的窄协议探测，不是
 
 ## 不可变 Client Bundle
 
-建议 bundle id 为清单规范化序列化后的 SHA-256。至少冻结：
+建议 bundle id 为清单规范化序列化后的 SHA-256。动态上游响应的原始字节、取得时间与摘要必须旁存；bundle id 则由语义启动计划和实际工件摘要决定，避免 Fabric profile 的无关生成时间让相同工件随机漂移，同时任何依赖/main class/参数变化都必须改变 bundle。P0 的确定性合并与阻断规则见[P0 1.21.4 启动计划](p0-launch-plan-contract.md)。至少冻结：
 
 | 类别 | 必需字段 |
 | --- | --- |
@@ -134,5 +134,5 @@ Bridge 握手至少含 `bundle_id`、`minecraft_version`、`protocol_id`、`brid
 - Identity Manager 的本地 GameProfile/服务器身份绑定实现；可选 Online Auth Adapter 采用 MSAL 加自写 Minecraft 服务链，还是经许可审查后复用成熟认证库；
 - Java runtime 选官方 manifest 指定发行物还是受支持的固定发行版镜像缓存；
 - Artifact Store 物化使用 hardlink、reflink 还是只读 bind mount；
-- 首批支持版本数量。文档当前只把 1.21.4 作为第一个候选，不承诺任意服务器版本即刻可用。
+- 首批执行版本已收敛为唯一 P0 候选 1.21.4；第二 bundle 仍未选择。1.21.4 在完成真实构建、离线入服、Bridge/输入、退出恢复前仍是 `candidate`，不承诺任意服务器版本即刻可用。
 

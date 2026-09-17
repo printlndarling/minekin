@@ -80,7 +80,7 @@
 ## 待选择的范围
 
 - **独立 Runtime 与 Dashboard 实现细节**：产品形态已定为 Gateway/Runtime + 自带 Managed Client Runtime + 薄 Fabric Bridge；不再保留“发现/接管已登录客户端”路线。仍需小原型选择 IPC 序列化/背压、localhost 或远程面板、虚拟显示/renderer、捕获与 WebRTC 中继库，见[独立 Runtime 与 Dashboard](standalone-runtime-dashboard.md)、[供应链契约](launcher-supply-chain-contract.md)和[无窗口媒体契约](headless-client-media-contract.md)。
-- **首发版本与依赖**：固定一个 Minecraft Java 原版生存版本；Fabric/导航库仅是客户端集成依赖，具体版本、兼容性和许可待核实。模组物品、生物和玩法作为 future，不进入首版世界书。
+- **首发版本与依赖**：P0 唯一执行基线固定为 Minecraft Java 1.21.4、Java 21、Fabric Loader 0.16.9、Fabric API 0.119.4+1.21.4 与 Yarn 1.21.4+build.8；这仍是 `candidate`，必须通过[P0 启动计划](p0-launch-plan-contract.md)的真实构建/入服/恢复门槛才能标 `tested`。Baritone 是可拆除候选，组合不兼容时自写技能；第二 bundle、模组玩法和多 Kin 属 future。
 - **基础动作适配调研**：Baritone 已有导航/采集命令、AltoClef 展示资源依赖和生存任务；原仓库归档、版本和感知问题阻止直接定为最终框架。当前只确认存在可借鉴的底座；具体 API、许可、版本适配、GUI 合成与产权保护待原型验证，见[首登技术 TODO](vanilla-survival-loop.md)。
 - **技能的自动化程度**：初期应允许 Kin 从经历中生成并调用由已有合法客户端能力构成的流程；说明型方法可辅助思考，但不等于技能已落地。能否自动生成新的底层客户端动作实现，要在真实回放中验证输入边界、兼容性和恢复机制后再定。
 - **视觉的参与程度**：首版默认不使用外部 VLM，普通生存使用经过画面基线验证的受限结构化观察；截图主要服务离线公平校准。复杂建筑/社交语义优先本地几何、亲历互动与不确定性表达；若确有价值才经运行者配置费用/隐私许可，事件触发单次裁剪图像，不持续逐帧上传。见[同版候选契约](screen-observation-contract.md)。

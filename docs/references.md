@@ -88,3 +88,16 @@
 | [Python 3.12 asyncio streams](https://docs.python.org/3.12/library/asyncio-stream.html#asyncio.start_unix_server) | 官方提供 Unix socket client/server、流缓冲和 `drain()` 背压原语；2026-09-16 核对 | Unix-only；Windows 使用 loopback TCP，应用层仍须有界队列 |
 | [Protocol Buffers proto3 guide](https://protobuf.dev/programming-guides/proto3/#updating) | 官方说明字段号不可更改/复用、删除字段应 reserved，并列 wire-safe/unsafe 变更；2026-09-16 核对 | 不自动提供 framing、鉴权、顺序、lease 或业务兼容性 |
 | [systemd resource control](https://www.freedesktop.org/software/systemd/man/latest/systemd.resource-control.html) 与 [execution environment](https://www.freedesktop.org/software/systemd/man/latest/systemd.exec.html) | P0 cgroup 资源限制和进程沙箱候选依据；2026-09-16 核对 | 限制可能破坏 Java natives、显示或媒体，必须逐项实测 |
+
+
+## P0 Launcher 元数据与离线身份（2026-09-17 核对）
+
+| 资料 | 支持的结论 | 局限 |
+| --- | --- | --- |
+| [Mojang version manifest v2](https://piston-meta.mojang.com/mc/game/version_manifest_v2.json) 与固定[1.21.4 版本 JSON](https://piston-meta.mojang.com/v1/packages/d152a3712859b294a2dff641f99a7fe219cd3aec/1.21.4.json) | 1.21.4 条目 SHA-1、Java 21、client/assets/logging、library rules、JVM/game 参数和工件摘要的直接来源 | 元数据能解析不等于 Minekin 合并、下载或启动成功；manifest 会继续更新，必须冻结实际响应 |
+| [Fabric Meta API 源码仓库说明](https://github.com/FabricMC/fabric-meta/blob/b40c08d703827ed09a54006a48a90c4320f6d05d/README.md) 与 [1.21.4/Loader 0.16.9 profile](https://meta.fabricmc.net/v2/versions/loader/1.21.4/0.16.9/profile/json) | 官方说明 profile/json 可用于标准 launcher；当前 profile 继承 1.21.4、使用 KnotClient并给出追加库 | 动态响应时间字段可漂移；仍须保存原文、规范化语义并做合并器一致性测试 |
+| [Fabric Intermediary 1.21.4 SHA-1](https://maven.fabricmc.net/net/fabricmc/intermediary/1.21.4/intermediary-1.21.4.jar.sha1) 与 [Loader 0.16.9 SHA-1](https://maven.fabricmc.net/net/fabricmc/fabric-loader/0.16.9/fabric-loader-0.16.9.jar.sha1) | profile 缺内嵌 digest 的 Maven 工件仍可从同一官方仓库固定 checksum sidecar | SHA-1 是上游现有标识，不替代传输限制、内容寻址 SHA-256 与实际下载校验 |
+| [Yarn 1.21.4 Uuids](https://maven.fabricmc.net/docs/yarn-1.21.4%2Bbuild.8/net/minecraft/util/Uuids.html) | 同版有昵称派生的 offline UUID/profile 接口，可作本地候选 GameProfile | 不证明代理/服务器最终观察 UUID，也不使离线昵称成为可信身份 |
+| [Yarn 1.21.4 MinecraftServer](https://maven.fabricmc.net/docs/yarn-1.21.4%2Bbuild.8/net/minecraft/server/MinecraftServer.html) | 在线验证开关与 LAN 场景的代码级边界 | 不证明任何具体公网服允许离线身份；状态 ping 也不能推出认证模式 |
+
+以上是静态证据，完整设计见[P0 1.21.4 启动计划](p0-launch-plan-contract.md)。截至 2026-09-17 没有真实客户端启动或入服结果。

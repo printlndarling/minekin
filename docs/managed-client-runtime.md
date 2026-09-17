@@ -1,6 +1,6 @@
 # 自带启动器后端、受管理客户端与自动版本切换契约
 
-研究时间：2026-09-16。本文件定义 Minekin 如何在不依赖用户已有 Minecraft 启动器、不弹出普通游戏前端窗口的前提下，启动一个真实 Minecraft Java Client，并由 Web Dashboard 管理服务器、本地身份/可选在线认证、版本、运行状态和第一人称观战。
+研究时间：2026-09-16；P0 启动计划核查更新：2026-09-17。本文件定义 Minekin 如何在不依赖用户已有 Minecraft 启动器、不弹出普通游戏前端窗口的前提下，启动一个真实 Minecraft Java Client，并由 Web Dashboard 管理服务器、本地身份/可选在线认证、版本、运行状态和第一人称观战。
 
 这里的“无界面”是**没有用户需要操作的桌面启动器和可见游戏窗口**，不是把 Minecraft Java Client 偷换成纯协议机器人。真实客户端仍有 render thread、GLFW/OpenGL 上下文、网络栈和完整客户端状态；Linux 服务器可把它运行在隔离容器与虚拟显示中。
 
@@ -63,7 +63,7 @@ Launcher Service 自己完成普通启动器的后端职责，但不制作桌面
 7. 为每次世界会话创建可写 overlay：options、服务器资源包、日志、崩溃报告和会话临时文件；
 8. 默认离线身份不产生在线认证 token；显式 online profile 只把短期会话材料以最小生命周期传给客户端进程，不落入命令展示、日志或模型上下文；
 9. 启动后等待 Bridge 以 nonce、bundle hash、协议版本和 capability manifest 握手；
-10. 握手、服务器连接和角色生成均成功后，才把会话标记为 `PLAYABLE`。
+10. 握手、服务器连接和角色生成均成功后，才把会话标记为 `PLAYABLE`。\n\nP0 的具体元数据快照、profile 继承算法、字段所有权、离线占位边界和 fail-closed 结果码见[P0 1.21.4 启动计划](p0-launch-plan-contract.md)。P0 不用 quick-play 绕过 Bridge 握手：客户端先启动并证明 bundle/schema/session，再由 Bridge 发起 Server Profile 连接。
 
 Minecraft 客户端、libraries 与 assets 不预装进 Minekin 发布镜像；由 Launcher 按官方来源下载，并遵守 Minecraft EULA；是否需要在线账号由目标服务器的认证模式决定。Minekin 自身只分发 Harness、Launcher、Bridge 与必要的开源依赖。
 
@@ -198,7 +198,7 @@ stateDiagram-v2
 
 本文件保留总体边界，两个独立契约负责实现级收敛：
 
-- [启动器供应链、版本包与玩家身份契约](launcher-supply-chain-contract.md)：受信任元数据、不可变 bundle、内容寻址缓存、下载/回收事务、OAuth/Minecraft 会话、Linux argv 暴露面和跨版本 Bridge target。
+- [启动器供应链、版本包与玩家身份契约](launcher-supply-chain-contract.md)：受信任元数据、不可变 bundle、内容寻址缓存、下载/回收事务、OAuth/Minecraft 会话、Linux argv 暴露面和跨版本 Bridge target。\n- [P0 1.21.4 启动计划](p0-launch-plan-contract.md)：固定上游快照、Fabric profile 合并、LaunchPlan、默认离线 profile 与阻断/验收矩阵。
 - [Linux 无窗口真实客户端、渲染与 Live View 契约](headless-client-media-contract.md)：虚拟显示、llvmpipe/GPU 执行档、进程隔离、FFmpeg/WebRTC 候选、资源预算和媒体失败降级。
 
 这里的 `headless` 始终指没有前台桌面交互，不指删掉真实客户端渲染。首版以虚拟显示中的正常渲染为基线；外部 VLM 仍默认零调用。
