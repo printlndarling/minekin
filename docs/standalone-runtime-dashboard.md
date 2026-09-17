@@ -90,9 +90,11 @@ Bridge 只允许四类能力：
 
 失去 Runtime 心跳时 Bridge 释放 Kin 持有的键，停止高风险动作并进入安全停机；不能自主改成另一个人格继续玩。Runtime 失去 Bridge 时保留人物和未决目标，标记世界状态陈旧，不虚构游戏结果。
 
-## Server Profile
+## World / Server Profile
 
-Dashboard 提供 Server Profile，而不是要求用户改源码：
+Dashboard 管理世界入口，而不是要求用户改源码。`JOIN_REMOTE`使用 Server Profile；`HOST_INTEGRATED_LAN`使用 Hosted World Profile，并与 A/B 在线策略正交。目录和存档边界见[受管理目录与世界承载模式](world-hosting-mode-contract.md)。
+
+Remote Server Profile：
 
 | 字段 | 说明 |
 | --- | --- |
@@ -109,6 +111,8 @@ Dashboard 提供 Server Profile，而不是要求用户改源码：
 | reconnect_policy | 重试上限、退避、人工确认和异常停止条件 |
 | resource_pack_policy | 目标服资源包/兼容要求及人工确认 |
 
+Hosted World Profile 至少保存 `hosted_world_id`、Minecraft/bundle、save manifest/epoch、创建来源、难度/game mode、LAN 开关/端口、`cheatsAllowed=false`默认值、允许玩家、备份和磁盘配额。LAN 端口是会话端点，不是世界身份。
+
 host + port 只是必要信息，不等于能入服。身份模式不匹配、版本/Loader 不匹配、白名单、封禁、在线验证、资源包、代理、服务端 Mod/插件和服规都可能阻断连接。Dashboard 应在连接前给出 preflight 结果，不显示“配置已保存”就假装 Kin 已上线。
 
 私服列表和身份引用属于管理数据，不能进入游戏聊天或网页研究请求。Server Profile 修改有版本和审计；游戏内玩家说“换到这个 IP”只能成为社交消息，不能触发客户端连接到任意地址。
@@ -116,6 +120,8 @@ host + port 只是必要信息，不等于能入服。身份模式不匹配、�
 ## A/B 模式如何落在独立 Harness
 
 两种模式不与独立系统冲突，它们只是 Game Session Policy：
+
+A/B 只决定何时存在世界会话；它们都可配合 JOIN_REMOTE 或 HOST_INTEGRATED_LAN。
 
 - A 陪玩：Gateway/Memory 可以常驻，但没有可信 anchor invite 时 Minecraft 世界会话不连接或停在客户端外；锚定玩家离开后安全断开。世界外 Runtime 可保持身份和待办，默认不继续产生世界经历。
 - B 独立：Gateway 在运行窗口内允许 Session Manager 启动/连接/退避重连；没有真人在线时 Kin 仍可生活，但允许闲置、等待和降低模型调用。
