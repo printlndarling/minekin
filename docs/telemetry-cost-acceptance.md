@@ -6,7 +6,7 @@
 
 每次行动记录 `episode_id`、`client_tick`、单调时钟时间、实际 Java/客户端/Fabric/服务端版本、`persona_id`、`goal_id/intent_version`、观察来源/有效期、感知模式和例外开关、决策层/动作原语/抢占、服务器同步反馈、是否从自己的客户端可观察完成。异步研究有 `research_id`、查询权限/目标、资料来源、有效期、取消、候选技能版本；模型调用只存模型**成本分类**、调用时长、输入/输出 token 数与失败类别，真实模型名称/密钥仅在管理侧访问控制记录，不进入 Kin 社交上下文。基于 [OpenTelemetry trace/span 官方概念](https://opentelemetry.io/docs/concepts/signals/traces/)可用操作 span、时间戳事件与 span link 关联客户端动作和迟到的后台查询，但不需要首版强制部署整套远端追踪平台。
 
-测试服可另有服务器真值和截图用于离线比较感知，但与线上 PlayerMind 的事件库/日志访问权限彻底隔离，避免回放数据绕过“玩家等价”。日志中的其他玩家账号、聊天和房屋位置属需要保护的信息：默认只保留最少审计字段，敏感正文缩短保留期/脱敏，原始截图和服务端真值仅在受控测试中使用；公开 Demo 必须得到参与者同意和脱敏。运行中数据库依 [SQLite 官方 WAL](https://www.sqlite.org/wal.html)/[在线备份接口](https://www.sqlite.org/backup.html)安排一致性备份，不直接拷写入中的单个 db 当完整快照。恢复验证死后/重启后同一角色记忆，不等于黑盒 LLM 原样重放必然确定：回放应冻结输入、原始响应和随机种子，分别报录制模式与重新推理模式。
+测试服可另有服务器真值和截图用于离线比较感知，但与线上 PlayerMind 的事件库/日志访问权限彻底隔离，避免回放数据绕过“玩家等价”。P0 采用[隔离验证与证据包契约](p0-validation-evidence-contract.md)：Kin 不得拥有 op/console/RCON，Orchestrator 的服务端真值只在测试结束后与 Bridge/Runtime 证据交叉断言；任何 oracle 回流都属于硬失败。日志中的其他玩家账号、聊天和房屋位置属需要保护的信息：默认只保留最少审计字段，敏感正文缩短保留期/脱敏，原始截图和服务端真值仅在受控测试中使用；公开 Demo 必须得到参与者同意和脱敏。运行中数据库依 [SQLite 官方 WAL](https://www.sqlite.org/wal.html)/[在线备份接口](https://www.sqlite.org/backup.html)安排一致性备份，不直接拷写入中的单个 db 当完整快照。恢复验证死后/重启后同一角色记忆，不等于黑盒 LLM 原样重放必然确定：回放应冻结输入、原始响应和随机种子，分别报录制模式与重新推理模式。
 
 ## 延迟、资源与账单
 
