@@ -1,6 +1,6 @@
 # 多服务器、多世界上下文与切换契约
 
-研究时间：2026-09-16。本文件落实：Kin 可以加入不同服务器和世界，退出、重进或切换后仍是同一个人，同时不会把不同世界的实时状态、地点、玩家、计划和资产混在一起。
+研究时间：2026-09-16。本文件落实：Kin 可以加入不同服务器/世界，也可以创建并持有自己的 integrated-LAN 世界；退出、重进或切换后仍是同一个人，同时不会把不同世界的实时状态、地点、玩家、计划和资产混在一起。
 
 > 一个 Kin 身份，多套世界生活；过去都记得，当前只信当前世界。
 
@@ -9,14 +9,16 @@
 | 标识 | 生命周期与用途 |
 | --- | --- |
 | `kin_id` | 创建后不可变；全局自我、Persona、稳定自称和生命史根 |
+| `attachment_mode` | `JOIN_REMOTE` 或 `HOST_INTEGRATED_LAN`；决定远端加入还是本地 save+integrated server |
 | `server_profile_id` | 连接地址、身份模式、规则、版本策略与能力边界 |
+| `hosted_world_id` | Kin-owned save 的持久标识；仅 host 模式使用，不以 LAN 端口为主键 |
 | `world_context_id` | 运行者创建/确认的逻辑世界标识 |
 | `world_epoch` | 世界确认重置/换档时递增，阻止旧地点/资产成为当前事实 |
 | `dimension_key` | 主世界、下界、末地等维度作用域 |
 | `session_id/generation` | 每次客户端会话新建，失效输入、GUI、实体与在途动作 |
 | `actor_identity_id` | 按服务器观察并可显式关联，防止同名玩家误合并 |
 
-host/port、MOTD、离线用户名或服务端 UUID 都不足以自动证明“还是同一世界/同一个人”。LAN端口会变，同地址也可能换档。world context 由稳定配置决定；自动信号只提出候选。无法确认时进入 `world_identity_review`，世界事实按 stale 处理。
+远端的 host/port、MOTD、离线用户名或服务端 UUID 都不足以自动证明“还是同一世界/同一个人”。LAN端口会变，同地址也可能换档。world context 由稳定配置决定；自动信号只提出候选。host 模式以 hosted world manifest、创建事件和 epoch识别 save；复制、回滚或替换存档需要候选新 epoch。无法确认时进入 `world_identity_review`，世界事实按 stale 处理。
 
 ## 数据作用域
 
@@ -97,5 +99,7 @@ Kin 可以记得“A 世界的 Steve 骗过我”，但 B 世界同名 Steve 不
 8. 切换中强杀：恢复后只有一个 current world，动作不重放；
 9. A 的承诺到期时正在 B：可记起/计划回去，不能假装履约；
 10. 模型上下文清空：恢复同一 Kin 和正确 Current World Capsule。
+11. 自己建服：创建 hosted save、开放 LAN、第二客户端加入；正常/强杀重启后世界与 Kin 连续。
+12. hosted→remote→hosted：全局自我连续，两边背包、地点、人物和 plan instance 不串；LAN 端口变化不改变 hosted world identity。
 
 指标包括 `cross_world_state_leak`、`wrong_world_plan_activated`、`same_name_actor_merged_without_evidence`、`stale_session_action_replayed`、`world_epoch_mismatch`、`current_world_ambiguity`。前四项未被阻断属于严重缺陷。
