@@ -203,6 +203,7 @@ stateDiagram-v2
 - [启动器供应链、版本包与玩家身份契约](launcher-supply-chain-contract.md)：受信任元数据、不可变 bundle、内容寻址缓存、下载/回收事务、OAuth/Minecraft 会话、Linux argv 暴露面和跨版本 Bridge target。
 - [P0 1.21.4 启动计划](p0-launch-plan-contract.md)：固定上游快照、Fabric profile 合并、LaunchPlan、默认离线 profile 与阻断/验收矩阵。
 - [P0 Thin Bridge 启动与装配](p0-bridge-bootstrap-contract.md)：固定 mods 集、entrypoint/线程边界、握手后连接、core/nav 变体与 capability 门控。
+- [P0 隔离验证与证据门禁](p0-validation-evidence-contract.md)：官方原版测试服、LAN host、测试 oracle 权限隔离、证据包和 bundle 晋级。
 - [Linux 无窗口真实客户端、渲染与 Live View 契约](headless-client-media-contract.md)：虚拟显示、llvmpipe/GPU 执行档、进程隔离、FFmpeg/WebRTC 候选、资源预算和媒体失败降级。
 
 这里的 `headless` 始终指没有前台桌面交互，不指删掉真实客户端渲染。首版以虚拟显示中的正常渲染为基线；外部 VLM 仍默认零调用。
