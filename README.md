@@ -39,7 +39,7 @@ flowchart TD
     V --> UI
 ```
 
-本地 Bridge 处理跌落、受击、低血量等紧急情况，不等待模型或网络。Runtime 行为层负责当前任务和中断/恢复，LLM 只在需要社会判断、语义理解或长程计划时参与。Live View 给人类看真实客户端第一人称画面，与 AI 感知隔离，不持续消耗视觉 token。完整产品形态、Server Profile、Dashboard 页面和进程边界见[独立 Runtime 与 Web Dashboard](docs/standalone-runtime-dashboard.md)。Minekin 不接管用户已有启动器或客户端，而由自带 Launcher Service 探测服务器协议、自动准备已验证版本包，并在虚拟显示/隐藏窗口中运行受管理的真实客户端；详见[受管理客户端与自动版本切换](docs/managed-client-runtime.md)。导航和任务技能可探索 Baritone 等现有底座，但具体兼容性、许可和实际控制效果须在原型阶段验证。
+本地 Bridge 处理跌落、受击、低血量等紧急情况，不等待模型或网络。Runtime 行为层负责当前任务和中断/恢复，LLM 只在需要社会判断、语义理解或长程计划时参与。Live View 给人类看真实客户端第一人称画面，与 AI 感知隔离，不持续消耗视觉 token。完整产品形态、Server Profile、Dashboard 页面和进程边界见[独立 Runtime 与 Web Dashboard](docs/standalone-runtime-dashboard.md)。Minekin 不接管用户已有启动器或客户端，也不读取宿主用户的 `.minecraft`；自带 Launcher Service 为受管理客户端创建独立数据根、准备已验证版本包，并在虚拟显示/隐藏窗口中运行真实客户端。Kin 可用 `JOIN_REMOTE` 加入别人的 dedicated/LAN 世界，也可用 `HOST_INTEGRATED_LAN` 创建或加载自己的存档并开放 LAN；这与 A/B 在线策略是两个维度。详见[受管理客户端与自动版本切换](docs/managed-client-runtime.md)和[受管理目录与世界承载模式](docs/world-hosting-mode-contract.md)。导航和任务技能可探索 Baritone 等现有底座，但具体兼容性、许可和实际控制效果须在原型阶段验证。
 
 创建 Kin 时人格与**领域知识掌握多边形**可分别自定义或随机生成：开局可深懂通关、红石或建造知识，知道多少不代表实际玩得多好。实战水平来自入世后的操作、失败、练习和自主迭代；懂落地水不默认已经做得出。Kin 合成时也可能漏听呼唤；一次受击能触发保命，却不自动证明敌意；它可以因脾气回敬提醒者，或因善意误杀的真实损失生气。见[开局知识画像](docs/knowledge-profile.md)、[后天技能](docs/ability.md)与[交互判断](docs/attention-intent.md)。
 
@@ -50,6 +50,7 @@ flowchart TD
 - [架构与数据边界](docs/architecture.md)：模块职责、时延目标、感知约束和紧急控制。
 - [独立 Runtime 与 Web Dashboard](docs/standalone-runtime-dashboard.md)：Harness 产品形态、薄客户端 Bridge、Server Profile、实时状态与第一人称观战。
 - [受管理客户端与自动版本切换](docs/managed-client-runtime.md)：自带启动器后端、本地离线身份、可选在线认证、无可见窗口运行、服务器探测、版本包和 Linux 部署。
+- [受管理目录与世界承载模式](docs/world-hosting-mode-contract.md)：独立 run directory、固定 bundle、远端加入与 Kin 自建 integrated LAN 世界。
 - [启动器供应链与玩家身份](docs/launcher-supply-chain-contract.md)：不可变 bundle、受信任下载、内容寻址缓存、跨版本 Bridge、token 暴露面与故障语义。
 - [P0 1.21.4 启动计划](docs/p0-launch-plan-contract.md)：官方/Fabric 元数据合并、Java/classpath/natives、默认离线身份、阻断条件与首个真客户端实验。
 - [P0 Thin Bridge 启动与装配](docs/p0-bridge-bootstrap-contract.md)：Fabric client entrypoint、core/nav bundle 拆分、线程边界、握手后连接及 capability 门控。
