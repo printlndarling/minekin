@@ -4,6 +4,8 @@
 
 所有结论目前来自同版公开接口与工程约束，不表示 Minekin 已创建存档、生成区块、开放端口、保存成功或完成恢复。
 
+创建参数的三层合成、client/server线程交接及同 JVM 服务端真值门禁已拆到[自建世界控制边界契约](hosted-world-control-boundary-contract.md)；本文仍负责存储与恢复状态机。
+
 ## P0-host 决定
 
 1. 使用 1.21.4 原生 `IntegratedServerLoader`与 `LevelStorage`管线，不以鼠标宏点击“创建世界”作为权威实现。
@@ -233,8 +235,8 @@ Kin是世界主人不等于全知管理员：
 ## 仍待原型决定
 
 - 专用 persistent run directory与容器 bind mount哪种跨平台实现更可靠；
-- CreateWorld参数如何从 Kin决定、管理策略与 vanilla默认值合成，并处理实验性设置/数据包警告；
-- integrated server停止、client disconnect与 session close 的实际 callback/线程顺序；
+- 非默认难度/极限/预设/seed/GameRules/datapack 组合的逐项开放与实验性设置/数据包警告；
+- `saveAll`、玩家数据、client disconnect、server stop与 session close 的实际 callback/线程顺序（静态线程边界见控制契约）；
 - 大世界冷备耗时、增量备份候选、配额与保留默认值；
 - LAN发现广播、绑定接口与允许玩家策略；
 - 存档导入的 archive traversal、symlink/hardlink、压缩炸弹、版本/datapack扫描；
