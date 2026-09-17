@@ -8,10 +8,11 @@
 
 1. 首个基础 bundle 为 `p0-core`：Minecraft 1.21.4 + Java 21 + Fabric Loader 0.16.9 + Fabric API 0.119.4+1.21.4 + Minekin Bridge。
 2. Baritone 不作为 `p0-core` 的启动前提。另建 `p0-nav-exp` 变体，在 core 通过后添加固定研究构件；失败时保留自写受限导航路线。
-3. Bridge 先在主菜单完成 bundle/session/协议握手，再接受一次 `ConnectWorld`；不靠 quick-play 绕过握手。
-4. Bridge 启动后默认 `OBSERVE_ONLY`。没有正确 generation、capability、control 心跳和输入 lease 时，任何移动、攻击或 GUI 指令都不能执行。
-5. IPC、DNS、序列化、压缩和磁盘日志不得阻塞客户端初始化、tick 或 render thread。
-6. Bridge 不写 Soul/Memory 数据库，不自行决定目标，也不能被游戏聊天修改配置。
+3. Kin 自建 integrated world另建 `p0-host-exp` 变体，只在 core通过后加入窄 `host-control`适配器；JOIN_REMOTE 的 core不能因此获得服务端对象能力。
+4. Bridge 先在主菜单完成 bundle/session/协议握手，再接受一次 `ConnectWorld`；不靠 quick-play 绕过握手。
+5. Bridge 启动后默认 `OBSERVE_ONLY`。没有正确 generation、capability、control 心跳和输入 lease 时，任何移动、攻击或 GUI 指令都不能执行。
+6. IPC、DNS、序列化、压缩和磁盘日志不得阻塞客户端初始化、tick 或 render thread。
+7. Bridge 不写 Soul/Memory 数据库，不自行决定目标，也不能被游戏聊天修改配置。
 
 ## 上游证据与边界
 
@@ -24,6 +25,7 @@
 | 同版 [connection events](https://github.com/FabricMC/fabric-api/blob/7347d6186858dcfcf7fccf747e8029067caaece5/fabric-networking-api-v1/src/client/java/net/fabricmc/fabric/api/client/networking/v1/ClientPlayConnectionEvents.java) | INIT、JOIN、DISCONNECT 可区分；DISCONNECT 后不应发包 | 真实事件顺序与恢复 |
 | Yarn [MinecraftClient](https://maven.fabricmc.net/docs/yarn-1.21.4%2Bbuild.8/net/minecraft/client/MinecraftClient.html) / [ThreadExecutor](https://maven.fabricmc.net/docs/yarn-1.21.4%2Bbuild.8/net/minecraft/util/thread/ThreadExecutor.html) | 客户端管理渲染、输入、连接，并提供 execute/submit/isOnThread | 后台线程可安全持有 world/player/GUI；设计必须回 client thread |
 | Yarn [ConnectScreen](https://maven.fabricmc.net/docs/yarn-1.21.4%2Bbuild.8/net/minecraft/client/gui/screen/multiplayer/ConnectScreen.html) | 用于 LAN/远端服务器并有静态 connect 候选 | 正确调用时机、取消和错误映射 |
+| Yarn [`MinecraftClient.getServer`](https://maven.fabricmc.net/docs/yarn-1.21.4%2Bbuild.8/net/minecraft/client/MinecraftClient.html) / [`MinecraftServer`](https://maven.fabricmc.net/docs/yarn-1.21.4%2Bbuild.8/net/minecraft/server/MinecraftServer.html) | integrated world中 client代码可直达 server，再访问 ServerWorld/PlayerManager等真值；client-only不等于信息隔离 | 尚未发生泄漏不等于安全；须拆 host-control、扫描字节码并跑 canary |
 | Baritone [fabric.mod.json](https://github.com/cabaletta/baritone/blob/78d3613e8c2e4c2f4bb56a6d84fe2844bd6d22e8/fabric/src/main/resources/fabric.mod.json) | 声明 MC 1.21.4、Loader >=0.14.22、LGPL-3.0，使用 mixins，entrypoints 为空 | 与 Bridge mixins/输入写者兼容 |
 
 Fabric API 候选 aggregate JAR 的官方 Maven checksum 已核为 SHA-1 `1c7871b6af04edc8b8f0dbad12606d67f6118a11`、SHA-256 `d183bacb845167f09264c2f90322b7ecffe8826debda6f60e597889264bef4af`；仍须由实际下载器重新核验。
@@ -36,6 +38,7 @@ Fabric API 候选 aggregate JAR 的官方 Maven checksum 已核为 SHA-1 `1c7871
 | --- | --- | --- | --- |
 | `p0-core` | Fabric API aggregate + Minekin Bridge | 生命周期、最小观察、IPC、输入仲裁 | 首个 candidate |
 | `p0-nav-exp` | `p0-core` + 固定 Baritone 构件 | 已知合法目标导航实验 | core 后独立 candidate |
+| `p0-host-exp` | `p0-core` + Minekin host-control | 创建/加载/保存/LAN/关闭生命周期；无人物观察能力 | core 后独立 candidate |
 | 未来 target | 每版本独立 Bridge/API/技能构件 | 多版本 | 不进入 P0 |
 
 启动前逐个打开 JAR 并核对：
@@ -58,6 +61,7 @@ Bridge manifest 目标为 client-only，并声明 1.21.4、Java 21、Loader 0.16
 | Client-thread adapter | tick/execute 中读取允许状态、连接/断开、施加授权输入 | HTTP、模型调用、阻塞 |
 | Reflex/input arbiter | 本地安全反射、单一输入写者、lease/generation、松键 | 人格和跨世界计划 |
 | Observation filter | 玩家等价 DTO 与明确动作例外 | 输出全世界真值 |
+| Host-control（仅 `p0-host-exp`） | 创建/加载/保存/LAN/停止的管理事件 | 读取或输出 ServerWorld、实体、玩家背包/坐标、存档内容 |
 | Metrics | tick预算、队列、丢弃、握手、结果 | token、秘密、无界日志 |
 
 ## 线程与数据所有权
@@ -132,8 +136,9 @@ Runtime 只能使用协商交集。bundle/Bridge 更新、切服或 reconnect �
 6. GUI、死亡、切服和 control断开时验证松键及旧对象失效。
 7. 压测 inbox/event 洪水、超长 frame、慢消费者和序列化异常。
 8. core 通过后再测 `p0-nav-exp` 的 mixin、输入所有权、取消尾部和感知越界。
-9. 只有 core 的启动、握手、连接、最小观察/输入、退出恢复通过，Bridge 才可标 tested；导航变体独立评级。
-10. 所有通过结论必须满足[P0 隔离验证与证据门禁](p0-validation-evidence-contract.md)：原版服务端真值与 Runtime/Bridge 日志离线交叉核对，oracle 不回流，缺 evidence bundle 时不得 PASS。
+9. `p0-host-exp`按[自建世界控制边界](hosted-world-control-boundary-contract.md)扫描源码/class/mixin/access widener，并跑 server真值 canary；不得用 host结果污染 core评级。
+10. 只有 core 的启动、握手、连接、最小观察/输入、退出恢复通过，Bridge 才可标 tested；导航与 host变体独立评级。
+11. 所有通过结论必须满足[P0 隔离验证与证据门禁](p0-validation-evidence-contract.md)：原版服务端真值与 Runtime/Bridge 日志离线交叉核对，oracle 不回流，缺 evidence bundle 时不得 PASS。
 
 ## 不作出的承诺
 
