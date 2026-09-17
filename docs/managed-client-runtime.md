@@ -12,6 +12,8 @@
 4. Kin 的 Soul、Memory、PlayerMind、工具与长期状态不在客户端实例内。换服务器版本、重启客户端或重建容器不得换掉 Kin。
 5. 自动版本切换是“探测服务器 → 解析协议 → 选择已验证运行包 → 启动/重启客户端”，不是一个运行中的 Minecraft 进程热切版本。
 6. 未识别或未验证版本必须阻断并显示原因；不得静默猜测、无限试连或回退到纯协议 Bot。
+7. 每个受管理客户端使用 Minekin 自己的 data root/run directory，绝不发现、读取或复用宿主用户的 `.minecraft`、mods、saves 或账号。
+8. 世界承载是独立维度：`JOIN_REMOTE` 加入别人的 dedicated/LAN 世界；`HOST_INTEGRATED_LAN` 创建或加载 Kin 自己的 save 并开放 LAN。
 
 ## 组件边界
 
@@ -60,10 +62,11 @@ Launcher Service 自己完成普通启动器的后端职责，但不制作桌面
 4. 选择与 OS/arch 匹配的 Java runtime、libraries 与 natives；
 5. 下载到临时目录，逐项核对来源、大小与清单哈希；
 6. 生成不可变 `Client Bundle Manifest`，原子发布到内容寻址缓存；
-7. 为每次世界会话创建可写 overlay：options、服务器资源包、日志、崩溃报告和会话临时文件；
-8. 默认离线身份不产生在线认证 token；显式 online profile 只把短期会话材料以最小生命周期传给客户端进程，不落入命令展示、日志或模型上下文；
-9. 启动后等待 Bridge 以 nonce、bundle hash、协议版本和 capability manifest 握手；
-10. 握手、服务器连接和角色生成均成功后，才把会话标记为 `PLAYABLE`。
+7. 为每次世界会话创建独立 managed run directory/可写 overlay：options、服务器资源包、日志、崩溃报告和会话临时文件；它不位于也不引用宿主用户的 `.minecraft`；
+8. 仅 `HOST_INTEGRATED_LAN`把当前 Kin-owned save 从持久 Hosted World Store 单写挂载到该 run directory；`JOIN_REMOTE`不挂载 hosted save；
+9. 默认离线身份不产生在线认证 token；显式 online profile 只把短期会话材料以最小生命周期传给客户端进程，不落入命令展示、日志或模型上下文；
+10. 启动后等待 Bridge 以 nonce、bundle hash、协议版本和 capability manifest 握手；
+11. 握手、服务器连接和角色生成均成功后，才把会话标记为 `PLAYABLE`。
 
 P0 的具体元数据快照、profile 继承算法、字段所有权、离线占位边界和 fail-closed 结果码见[P0 1.21.4 启动计划](p0-launch-plan-contract.md)。P0 不用 quick-play 绕过 Bridge 握手：客户端先启动并证明 bundle/schema/session，再由 Bridge 发起 Server Profile 连接。
 
@@ -204,6 +207,7 @@ stateDiagram-v2
 - [P0 1.21.4 启动计划](p0-launch-plan-contract.md)：固定上游快照、Fabric profile 合并、LaunchPlan、默认离线 profile 与阻断/验收矩阵。
 - [P0 Thin Bridge 启动与装配](p0-bridge-bootstrap-contract.md)：固定 mods 集、entrypoint/线程边界、握手后连接、core/nav 变体与 capability 门控。
 - [P0 隔离验证与证据门禁](p0-validation-evidence-contract.md)：官方原版测试服、LAN host、测试 oracle 权限隔离、证据包和 bundle 晋级。
+- [受管理目录与世界承载模式](world-hosting-mode-contract.md)：run directory 与宿主 `.minecraft`隔离、remote/host 两模式、hosted save、integrated server/LAN 生命周期。
 - [Linux 无窗口真实客户端、渲染与 Live View 契约](headless-client-media-contract.md)：虚拟显示、llvmpipe/GPU 执行档、进程隔离、FFmpeg/WebRTC 候选、资源预算和媒体失败降级。
 
 这里的 `headless` 始终指没有前台桌面交互，不指删掉真实客户端渲染。首版以虚拟显示中的正常渲染为基线；外部 VLM 仍默认零调用。
