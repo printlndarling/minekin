@@ -208,6 +208,7 @@ stateDiagram-v2
 - [P0 Thin Bridge 启动与装配](p0-bridge-bootstrap-contract.md)：固定 mods 集、entrypoint/线程边界、握手后连接、core/nav 变体与 capability 门控。
 - [P0 隔离验证与证据门禁](p0-validation-evidence-contract.md)：官方原版测试服、LAN host、测试 oracle 权限隔离、证据包和 bundle 晋级。
 - [受管理目录与世界承载模式](world-hosting-mode-contract.md)：run directory 与宿主 `.minecraft`隔离、remote/host 两模式、hosted save、integrated server/LAN 生命周期。
+- [Kin 自建世界存储生命周期](hosted-world-storage-lifecycle-contract.md)：1.21.4 原生创建/加载、Manifest、双重单写、保存关闭、冷备、恢复与 HOST 验收矩阵。
 - [Linux 无窗口真实客户端、渲染与 Live View 契约](headless-client-media-contract.md)：虚拟显示、llvmpipe/GPU 执行档、进程隔离、FFmpeg/WebRTC 候选、资源预算和媒体失败降级。
 
 这里的 `headless` 始终指没有前台桌面交互，不指删掉真实客户端渲染。首版以虚拟显示中的正常渲染为基线；外部 VLM 仍默认零调用。
