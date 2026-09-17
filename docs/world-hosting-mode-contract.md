@@ -67,6 +67,8 @@ Server Profile 继续拥有 host/port、认证模式、版本策略、服务器�
 6. 关闭时先停止新连接与动作，保存/flush integrated server，关闭世界，再提交世界 checkpoint；
 7. 重启后恢复同一 `kin_id + hosted_world_id + world_epoch`，但玩家、实体、GUI 与未完成动作全部重验。
 
+创建/加载不是 UI 自动化：世界目录、`HostedWorldManifest`、双重单写锁、原生 loader/session、保存关闭、冷备和恢复的具体边界见[Kin 自建世界存储生命周期](hosted-world-storage-lifecycle-contract.md)。该契约的 HOST 用例通过前，本模式只能标记为 candidate。
+
 重要限制：
 
 - integrated server 与 Kin 客户端同进程生命周期；客户端退出/崩溃时 LAN 世界也停止服务，其他玩家会断线；
