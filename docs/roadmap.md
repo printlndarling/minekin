@@ -68,7 +68,9 @@
 40. **自带启动器后端与自动版本包**：全新 Linux 主机不安装桌面 Minecraft 启动器，在 Web 创建默认本地身份并添加 LAN/offline-mode 服务器；核对用户名/服务端观察身份、SRV、协议探测、官方工件下载校验、虚拟显示启动、Bridge 握手和入服。再测正确/错误版本、多版本代理、关闭或伪造 ping、下载中断、hash 错误、磁盘满与缓存恢复；未知版本必须可解释阻断。
 41. **跨版本会话连续性**：P0 先证明 1.21.4；第二 bundle 独立通过验收后才加入。Session Manager 重启客户端切换，不热切进程；旧 lease、GUI、实体与观察失效。
 42. **IPC 与进程故障矩阵**：分别强杀 Gateway、Runtime、Launcher、Bridge/Minecraft 与 Media；注入事件洪水、慢消费者、半帧、旧 generation 和错误 capability，核对松键、背压、故障与无危险重放。
-43. **多服多世界连续性**：A→B→A、同地址换档、LAN端口变化、不同 bundle、两服同名玩家及切换中崩溃；同一 `kin_id`/Persona/技能连续，当前背包、地点、当地关系和 plan instance 不串服。\n44. **P0 LaunchPlan 合规**：固定 1.21.4 元数据与 Fabric profile，逐项核 Java 21、rules、113 项 base libraries、Fabric 追加库、assets、logging、natives、mods 与摘要；先 Bridge 握手再入服。LAN/offline-mode 分别测服务端观察身份；online-mode、错误摘要、缺 native、错误 Java/profile 必须阻断，不能自动启用 Microsoft 或猜版本。
+43. **多服多世界连续性**：A→B→A、同地址换档、LAN端口变化、不同 bundle、两服同名玩家及切换中崩溃；同一 `kin_id`/Persona/技能连续，当前背包、地点、当地关系和 plan instance 不串服。
+44. **P0 LaunchPlan 合规**：固定 1.21.4 元数据与 Fabric profile，逐项核 Java 21、rules、113 项 base libraries、Fabric 追加库、assets、logging、natives、mods 与摘要；先 Bridge 握手再入服。LAN/offline-mode 分别测服务端观察身份；online-mode、错误摘要、缺 native、错误 Java/profile 必须阻断，不能自动启用 Microsoft 或猜版本。
+45. **Bridge bootstrap 与线程边界**：`p0-core` 只装 Fabric API+Bridge，验证 metadata/entrypoint、快速初始化、后台双 IPC、OBSERVE_ONLY、ConnectWorld、JOIN首快照、输入 lease和失联松键；额外未知 mod 必须拒绝。core 通过后再测 Baritone mixin 的 `p0-nav-exp`，分别评级。
 
 ## 衡量方式
 

@@ -101,3 +101,17 @@
 | [Yarn 1.21.4 MinecraftServer](https://maven.fabricmc.net/docs/yarn-1.21.4%2Bbuild.8/net/minecraft/server/MinecraftServer.html) | 在线验证开关与 LAN 场景的代码级边界 | 不证明任何具体公网服允许离线身份；状态 ping 也不能推出认证模式 |
 
 以上是静态证据，完整设计见[P0 1.21.4 启动计划](p0-launch-plan-contract.md)。截至 2026-09-17 没有真实客户端启动或入服结果。
+
+
+## P0 Thin Bridge 与 Fabric 装配（2026-09-17 核对）
+
+| 资料 | 支持的结论 | 局限 |
+| --- | --- | --- |
+| Loader 0.16.9 [tag commit](https://github.com/FabricMC/fabric-loader/commit/083a4dc339655bddec498ffd75f13580d9b9722d)与[`FabricLoaderImpl`](https://github.com/FabricMC/fabric-loader/blob/083a4dc339655bddec498ffd75f13580d9b9722d/src/main/java/net/fabricmc/loader/impl/FabricLoaderImpl.java) | 固定源码从 game dir mods或显式目录发现候选并解析依赖 | 不证明 Minekin 集合加载成功 |
+| 同版 [client hooks](https://github.com/FabricMC/fabric-loader/blob/083a4dc339655bddec498ffd75f13580d9b9722d/minecraft/src/main/java/net/fabricmc/loader/impl/game/minecraft/Hooks.java) 与 [ClientModInitializer](https://github.com/FabricMC/fabric-loader/blob/083a4dc339655bddec498ffd75f13580d9b9722d/src/main/java/net/fabricmc/api/ClientModInitializer.java) | 同步调用 main/client entrypoint | 非阻塞是 Minekin 约束，不是上游保证 |
+| [Fabric 1.21.4 项目结构](https://github.com/FabricMC/fabric-docs/blob/53dd9650e7ecb3566b03bfe260556407b5ff4267/versions/1.21.4/develop/getting-started/project-structure.md) | metadata 的 environment、entrypoints、depends、mixins字段 | 示例不是可发布 Bridge manifest |
+| 同版 [ClientTickEvents](https://github.com/FabricMC/fabric-api/blob/7347d6186858dcfcf7fccf747e8029067caaece5/fabric-lifecycle-events-v1/src/client/java/net/fabricmc/fabric/api/client/event/lifecycle/v1/ClientTickEvents.java) 与 [ClientPlayConnectionEvents](https://github.com/FabricMC/fabric-api/blob/7347d6186858dcfcf7fccf747e8029067caaece5/fabric-networking-api-v1/src/client/java/net/fabricmc/fabric/api/client/networking/v1/ClientPlayConnectionEvents.java) | tick及 INIT/JOIN/DISCONNECT 生命周期候选 | 不证明预算、顺序和反射闭环 |
+| Yarn [MinecraftClient](https://maven.fabricmc.net/docs/yarn-1.21.4%2Bbuild.8/net/minecraft/client/MinecraftClient.html)、[ThreadExecutor](https://maven.fabricmc.net/docs/yarn-1.21.4%2Bbuild.8/net/minecraft/util/thread/ThreadExecutor.html)、[ConnectScreen](https://maven.fabricmc.net/docs/yarn-1.21.4%2Bbuild.8/net/minecraft/client/gui/screen/multiplayer/ConnectScreen.html) | client thread投递与 LAN/远端服连接候选 | 调用时机、取消和跨线程安全待测 |
+| Baritone [fabric.mod.json](https://github.com/cabaletta/baritone/blob/78d3613e8c2e4c2f4bb56a6d84fe2844bd6d22e8/fabric/src/main/resources/fabric.mod.json) | 同版、LGPL-3.0、使用 mixins且 entrypoints为空 | 只支持隔离成导航实验，不证明兼容 |
+
+完整设计见[P0 Thin Bridge 契约](p0-bridge-bootstrap-contract.md)。截至 2026-09-17 没有 Bridge JAR、Fabric 主菜单或入服实测结果。

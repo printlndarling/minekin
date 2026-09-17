@@ -1,6 +1,6 @@
 # Runtime、Bridge IPC 与单机进程部署契约
 
-研究时间：2026-09-16。本文件把“独立 Agent Harness + 薄 Fabric Bridge”落实为首个原型可实现的进程、传输、消息与故障边界。以下是设计决策和待测指标，不是已运行结果。
+研究时间：2026-09-16；Bridge 启动线程核查更新：2026-09-17。本文件把“独立 Agent Harness + 薄 Fabric Bridge”落实为首个原型可实现的进程、传输、消息与故障边界。以下是设计决策和待测指标，不是已运行结果。
 
 ## 首版技术决定
 
@@ -28,7 +28,7 @@ Bridge 选 JDK NIO + Protobuf framing，而不是嵌入 gRPC/Netty，以减少 M
 | Minecraft JVM + Bridge | 当前会话观察、输入、反射、动作结果 | 长期人格、网页工具、跨世界数据库 |
 | `media-worker` | 只读帧源、编码、短期观看发布凭据 | 控制 IPC、Memory、在线认证令牌 |
 
-启动顺序：身份/数据库检查 → Server Profile/bundle → 新 session generation 与 IPC 目录 → Runtime/Launcher → Minecraft JVM → Bridge 握手 → 允许入服。关闭先禁止新 intent、撤销 lease、松键，再停媒体、断游戏、提交会话，最后关数据库。
+启动顺序：身份/数据库检查 → Server Profile/bundle → 新 session generation 与 IPC 目录 → Runtime/Launcher → Minecraft JVM → Bridge entrypoint快速注册并返回 → 后台 IPC 握手 → `OBSERVE_ONLY` → 允许连接世界。Bridge 不在 `onInitializeClient` 内等待 Runtime；client 状态只通过 tick inbox或 `MinecraftClient.execute` 访问，编码/socket在 worker。完整状态机见[P0 Thin Bridge 契约](p0-bridge-bootstrap-contract.md)。关闭先禁止新 intent、撤销 lease、松键，再停媒体、断游戏、提交会话，最后关数据库。
 
 ## 端点与握手
 

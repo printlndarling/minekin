@@ -111,7 +111,7 @@ session:
 3. 分别进入一个 LAN 集成世界和一个受控 offline-mode 1.21.4 私服，记录客户端名、本地候选 UUID、服务端观察身份和重启连续性。
 4. 对 online-mode、错误版本、错误 Java、错误摘要、缺 native、重复用户名、白名单和断网做负向测试，必须可解释失败且无无限重试。
 5. 连接前强杀 Launcher、启动中强杀 Minecraft、握手后断 Bridge；验证临时区清理、按键释放、旧 generation 拒绝和世界状态重验。
-6. Fabric API、Bridge 单独加载后再与 Baritone 候选组合；组合失败不阻断自写技能路线。
+6. 先验收不含 Baritone 的 `p0-core`（Fabric API + Bridge），再独立验收加入 Baritone 的 `p0-nav-exp`；后者失败不阻断 core 或自写技能路线。装配、entrypoint、线程和握手状态机见[P0 Thin Bridge 契约](p0-bridge-bootstrap-contract.md)。
 7. 只有上述启动、入服、退出/恢复和最小合法输入完成，P0 bundle 才能从 `candidate` 变为 `tested`。
 
 ## 不作出的承诺

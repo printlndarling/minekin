@@ -50,7 +50,9 @@ flowchart TD
 - [架构与数据边界](docs/architecture.md)：模块职责、时延目标、感知约束和紧急控制。
 - [独立 Runtime 与 Web Dashboard](docs/standalone-runtime-dashboard.md)：Harness 产品形态、薄客户端 Bridge、Server Profile、实时状态与第一人称观战。
 - [受管理客户端与自动版本切换](docs/managed-client-runtime.md)：自带启动器后端、本地离线身份、可选在线认证、无可见窗口运行、服务器探测、版本包和 Linux 部署。
-- [启动器供应链与玩家身份](docs/launcher-supply-chain-contract.md)：不可变 bundle、受信任下载、内容寻址缓存、跨版本 Bridge、token 暴露面与故障语义。\n- [P0 1.21.4 启动计划](docs/p0-launch-plan-contract.md)：官方/Fabric 元数据合并、Java/classpath/natives、默认离线身份、阻断条件与首个真客户端实验。
+- [启动器供应链与玩家身份](docs/launcher-supply-chain-contract.md)：不可变 bundle、受信任下载、内容寻址缓存、跨版本 Bridge、token 暴露面与故障语义。
+- [P0 1.21.4 启动计划](docs/p0-launch-plan-contract.md)：官方/Fabric 元数据合并、Java/classpath/natives、默认离线身份、阻断条件与首个真客户端实验。
+- [P0 Thin Bridge 启动与装配](docs/p0-bridge-bootstrap-contract.md)：Fabric client entrypoint、core/nav bundle 拆分、线程边界、握手后连接及 capability 门控。
 - [Linux 无窗口客户端与 Live View](docs/headless-client-media-contract.md)：虚拟显示、软件/GPU 渲染、资源隔离、画面捕获和零默认视觉调用。
 - [Runtime/Bridge IPC 与进程部署](docs/runtime-ipc-deployment-contract.md)：Protobuf、本机 UDS/loopback、双通道背压、lease、故障语义与 systemd 原型档。
 - [多服务器与多世界上下文](docs/world-context-contract.md)：同一 Kin 跨服连续、世界作用域、计划暂停/恢复、同名玩家隔离与世界重置。
