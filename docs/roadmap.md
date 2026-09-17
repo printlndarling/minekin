@@ -72,12 +72,15 @@
 44. **P0 LaunchPlan 合规**：固定 1.21.4 元数据与 Fabric profile，逐项核 Java 21、rules、113 项 base libraries、Fabric 追加库、assets、logging、natives、mods 与摘要；先 Bridge 握手再入服。LAN/offline-mode 分别测服务端观察身份；online-mode、错误摘要、缺 native、错误 Java/profile 必须阻断，不能自动启用 Microsoft 或猜版本。
 45. **Bridge bootstrap 与线程边界**：`p0-core` 只装 Fabric API+Bridge，验证 metadata/entrypoint、快速初始化、后台双 IPC、OBSERVE_ONLY、ConnectWorld、JOIN首快照、输入 lease和失联松键；额外未知 mod 必须拒绝。core 通过后再测 Baritone mixin 的 `p0-nav-exp`，分别评级。
 46. **P0 隔离验证与证据晋级**：同一不可变 `p0-core` 分别跑官方原版 dedicated offline 与 LAN integrated-world；Kin 无 op/console/RCON，测试 oracle 独立保存服务端真值。篡改摘要、提前 lease、旧 generation、断线粘键、危险重放、oracle/VLM 回流均为硬失败；只有 mandatory evidence bundle 完整才能从 candidate 晋级 tested。
+47. **独立运行目录与 Kin 自建世界**：先验证 JOIN_REMOTE 会创建 Minekin 自己的 run directory 且完全不访问宿主 `.minecraft`；再创建/恢复 hosted save，以 `cheatsAllowed=false`开放 integrated LAN，让第二真实客户端加入。覆盖 A/B×JOIN/HOST、端口占用、save lock、磁盘满、正常保存、强杀恢复及 hosted→remote→hosted 不串世界。
 
 ## 衡量方式
 
 | 指标 | 解释 |
 | --- | --- |
 | `p0_evidence_bundle` | 不可变 build/case/environment/world 身份、Bridge/Server/Orchestrator 三时间线、断言结果与摘要；缺失或歧义不得标绿 |
+| `managed_storage_trace` | run directory/artifact/bundle/session/hosted-save 的规范化路径、挂载、单写锁、checkpoint 和宿主 `.minecraft`访问次数（目标 0） |
+| `hosted_world_trace` | hosted_world_id/epoch、integrated server启动、LAN端口、加入玩家、保存/flush/崩溃恢复与真值隔离 |
 | `runtime_bridge_trace` | 协议/bundle/capability 握手、sequence、双通道队列、lease、心跳、断线、松键和旧 generation 拒绝 |
 | `world_context_trace` | current world/epoch/session、切换 checkpoint、Self/World Capsule、计划暂停/恢复、人物关联与跨世界泄漏 |
 | `dashboard_observer_trace` | 状态序列延迟、浏览器/媒体故障隔离、管理动作来源、敏感字段访问及是否出现浏览器直达游戏输入 |
