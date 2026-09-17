@@ -217,3 +217,14 @@
 
 取舍：不再笼统写“之后决定sentinel”，而是执行[P0离线Session参数兼容契约](p0-offline-session-compatibility-contract.md)的OFFLINE-001…100；没有赢家时明确阻断，不扩大尝试或伪造认证。
 
+
+
+### P0 Offline Session 参数传递链补充
+
+下列源码固定在 Prism Launcher commit `a2209210179e156bb2b326e551262f76d94d2010`，核对时间 2026-09-17。用途仅是确认成熟 Launcher 如何形成并传递 argv，不代表 Minekin 采用其 GPL 实现，也不替代真实 Minecraft 1.21.4 启动实验。
+
+| 来源 | 可确认的事实 | 局限 |
+| --- | --- | --- |
+| [MinecraftInstance.cpp](https://github.com/PrismLauncher/PrismLauncher/blob/a2209210179e156bb2b326e551262f76d94d2010/launcher/minecraft/MinecraftInstance.cpp) | Session只补 name、UUID、token、userType等映射；profile映射没有clientId/xuid；未命中占位符被替换为空，game arguments仍按列表输出为launch-script `param` | 静态源码不能证明1.21.4接受空值，也不证明未来commit相同 |
+| [EntryPoint.java](https://github.com/PrismLauncher/PrismLauncher/blob/a2209210179e156bb2b326e551262f76d94d2010/libraries/launcher/org/prismlauncher/EntryPoint.java)、[AbstractLauncher.java](https://github.com/PrismLauncher/PrismLauncher/blob/a2209210179e156bb2b326e551262f76d94d2010/libraries/launcher/org/prismlauncher/launcher/impl/AbstractLauncher.java) | line-based launch script把`param `解析成参数名与空值，并汇集为gameArgs | 只覆盖Prism子进程协议，不是Mojang规范 |
+| [StandardLauncher.java](https://github.com/PrismLauncher/PrismLauncher/blob/a2209210179e156bb2b326e551262f76d94d2010/libraries/launcher/org/prismlauncher/launcher/impl/StandardLauncher.java)、[libraries README](https://github.com/PrismLauncher/PrismLauncher/blob/a2209210179e156bb2b326e551262f76d94d2010/libraries/README.md) | StandardLauncher保留gameArgs并调用Minecraft main class；launcher library许可证说明为GPL-3.0-only with classpath exception | 仍需Minekin自己的dry-run、Bridge Session观察与服务端验收；不能复制源码规避许可证审查 |

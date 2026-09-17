@@ -77,7 +77,8 @@
 49. **自建世界控制与真值隔离**：同一 Kin提案生成可复现 effective profile；聊天/网页不能打开 creative、cheats、keepInventory、固定 seed或 datapack。记录 create/load/save/LAN/stop 的 client/server线程时间线和旧 callback拒绝；对 core/nav注入 `getServer`/`ServerWorld`引用应构建失败，并以墙后实体、容器、远处玩家、seed/save path canary验证 Runtime/Memory/prompt无旁路真值。
 50. **自建世界提交与跨世界恢复**：由固定bundle的默认preset生成维度；分别取证玩家数据、世界数据/flush、server stop、session close和Mind事务。对每个边界强杀并核对JointResumeToken；回滚递增epoch，复制分叉产生新hosted identity，hosted A→remote B→A任一时刻只有一个Current World为ACTIVE。
 51. **P0 远程入服与离线身份**：固定可信 Server Profile，通过 vanilla地址/SRV解析与 `ConnectScreen.connect`在 client thread入服；验证 offline策略到客户端 Session的候选映射。只有同 generation 的 JOIN、world/player/network handler和首快照齐备才 PLAYABLE；覆盖地址阻断、认证/白名单/资源包失败、取消晚回调、重连、改名/代理身份改写及 oracle不回流。
-52. **P0 离线 Session兼容矩阵**：捕获Prism固定commit对1.21.4的最终argv；以同一username/UUID/token材料对比 `userType=offline`与 `legacy`，再验证UUID编码、clientId/xuid、未知/default负向行为。Bridge独立回报实际Session但永不回传认证正文；只有启动、JOIN、身份、重启和脱敏全部通过才冻结版本绑定profile。
+52. **P0 离线 Session兼容矩阵**：静态追踪Prism固定commit的参数替换与Launcher传递链，以同一username/UUID/token及显式空clientId/xuid对比 `userType=offline`与 `legacy`，再按失败证据验证UUID编码、sentinel、未知/default负向行为。Bridge独立回报实际Session但永不回传认证正文；只有启动、JOIN、身份、重启和脱敏全部通过才冻结版本绑定profile。
+53. **P0 核心垂直切片**：按 W00→W70 依次冻结规格/夹具、完成元数据dry-run、只读Bridge、离线Session、原版服务器准入、玩家等价首快照、最小合法输入及故障证据；任一阶段失败即停止晋级。PlayerMind、导航、HOST、Dashboard视频和多版本不进入首个core，导航只作为W80独立实验。
 
 ## 衡量方式
 

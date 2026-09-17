@@ -139,6 +139,7 @@ Runtime 只能使用协商交集。bundle/Bridge 更新、切服或 reconnect �
 9. `p0-host-exp`按[自建世界控制边界](hosted-world-control-boundary-contract.md)扫描源码/class/mixin/access widener，并跑 server真值 canary；不得用 host结果污染 core评级。
 10. 只有 core 的启动、握手、连接、最小观察/输入、退出恢复通过，Bridge 才可标 tested；导航与 host变体独立评级。
 11. 所有通过结论必须满足[P0 隔离验证与证据门禁](p0-validation-evidence-contract.md)：原版服务端真值与 Runtime/Bridge 日志离线交叉核对，oracle 不回流，缺 evidence bundle 时不得 PASS。
+12. 实施批次与停止条件按[P0 核心原型执行计划](p0-prototype-execution-plan.md)执行：Bridge先以只读握手成立，再开放连接、首快照和最小输入；不得在同一首批实现中混入PlayerMind、导航或Dashboard。
 
 ## 不作出的承诺
 

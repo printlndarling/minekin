@@ -49,10 +49,11 @@ Prism Launcher commit [`a220921`](https://github.com/PrismLauncher/PrismLauncher
 - [`MinecraftAccount::createOffline`](https://github.com/PrismLauncher/PrismLauncher/blob/a2209210179e156bb2b326e551262f76d94d2010/launcher/minecraft/auth/MinecraftAccount.cpp)把启动器内部类型设为 Offline，把 token设为字符串 `"0"`，生成随机 client token，并用 username生成 profile id；
 - 同文件的 `uuidFromUsername`对 `OfflinePlayer:<username>`做MD5并设置UUID v3/IETF位，与原版离线UUID思路一致；
 - [`MinecraftAccount::typeString`](https://github.com/PrismLauncher/PrismLauncher/blob/a2209210179e156bb2b326e551262f76d94d2010/launcher/minecraft/auth/MinecraftAccount.h)对其内部 Offline返回字符串 `"offline"`；
-- [`MinecraftInstance`](https://github.com/PrismLauncher/PrismLauncher/blob/a2209210179e156bb2b326e551262f76d94d2010/launcher/minecraft/MinecraftInstance.cpp)把 session的 access token、player name、UUID和 user type填入版本参数模板；
+- [`MinecraftInstance`](https://github.com/PrismLauncher/PrismLauncher/blob/a2209210179e156bb2b326e551262f76d94d2010/launcher/minecraft/MinecraftInstance.cpp)把 session的 access token、player name、UUID和 user type填入版本参数模板；同一文件的 profile映射没有 `clientid`或 `auth_xuid`，而 token替换函数会把未命中的占位符替换为空字符串；
+- [`EntryPoint`](https://github.com/PrismLauncher/PrismLauncher/blob/a2209210179e156bb2b326e551262f76d94d2010/libraries/launcher/org/prismlauncher/EntryPoint.java)与[`AbstractLauncher`](https://github.com/PrismLauncher/PrismLauncher/blob/a2209210179e156bb2b326e551262f76d94d2010/libraries/launcher/org/prismlauncher/launcher/impl/AbstractLauncher.java)保留 `param `行的空值，[StandardLauncher](https://github.com/PrismLauncher/PrismLauncher/blob/a2209210179e156bb2b326e551262f76d94d2010/libraries/launcher/org/prismlauncher/launcher/impl/StandardLauncher.java)再把参数列表交给 Minecraft main class；
 - Prism Launcher本体为[GPL-3.0](https://github.com/PrismLauncher/PrismLauncher/blob/a2209210179e156bb2b326e551262f76d94d2010/LICENSE)。
 
-这说明 `token=0 + offline UUID + userType=offline`是现实Launcher实践，却**不能证明 Minecraft 1.21.4会把字符串 offline解释为一个同名AccountType**。Minekin只把它作为黑盒兼容候选；不复制GPL实现。
+因此固定 commit 的 Prism parity 已可由源码静态定义：`token=0 + offline UUID + userType=offline + 空 clientId/xuid argv 值`。这里的“空”是 option 后存在的独立空字符串参数，不是省略 option，也不是传入字面 `${clientid}`/`${auth_xuid}`。这仍**不能证明 Minecraft 1.21.4会接受这些值或把字符串 offline解释为同名AccountType**；Minekin只把它作为兼容候选，不复制GPL实现。
 
 ## P0 参数模型
 
@@ -96,13 +97,13 @@ offline_session_candidate:
 
 | Candidate | `userType` | UUID | token | clientId/xuid | 目的 |
 | --- | --- | --- | --- | --- | --- |
-| OFF-A Prism parity | `offline` | 原版算法，先测Id128 | `"0"` | 先完全复现Prism在同版元数据上的最终argv | 验证成熟Launcher实践在1.21.4中的实际Session/日志 |
-| OFF-B Enum aligned | `legacy` | 与A相同 | `"0"` | 与A相同 | 验证与1.21.4公开AccountType名称对齐的候选 |
+| OFF-A Prism parity | `offline` | 原版算法，先测Id128 | `"0"` | 两个option均带显式空字符串argv值 | 验证固定Prism源码路径在1.21.4中的实际Session/日志 |
+| OFF-B Enum aligned | `legacy` | 与A相同 | `"0"` | 与A相同的显式空值 | 只改变userType，验证与1.21.4公开AccountType名称对齐的候选 |
 | OFF-C UUID form | 采用A/B胜者 | 带连字符canonical | `"0"` | 与胜者相同 | 只在Id128失败或身份不一致时比较解析差异 |
 | OFF-D Diagnostic default | 删除整个 `--userType value`对 | 与胜者相同 | `"0"` | 与胜者相同 | 判断客户端默认值；只作诊断，不能悄悄偏离元数据 |
 | OFF-N Negative | 明确无效字符串 | 固定正确值 | `"0"` | 固定值 | 证明日志与验收能识别未知类型，不能成为发布候选 |
 
-`clientId/xuid`不在本文凭空冻结为空或 `"0"`。实施前先对固定Prism commit在1.21.4 profile上的**最终argv**做一次只读捕获，再形成两个显式候选：空argv元素与非空sentinel。不得把未替换的 `${clientid}`、`${auth_xuid}`传给游戏，也不得让空值导致下一项flag被吞作required argument。
+固定Prism源码链已把 parity 收敛为 clientId/xuid 的**显式空argv元素**。实施时仍应在 dry-run 与启动证据中检查 option/value 边界，保证空值不会让下一项flag被吞作 required argument。只有真实启动对空值产生可归因失败时，才运行 OFFLINE-050 中预先登记的非空 sentinel 对照；不得把未替换的 `${clientid}`、`${auth_xuid}`传给游戏，也不得无限试值。
 
 候选尝试次数由测试计划固定，不能在运行时遇到拒绝后无限排列组合，更不能把服务器拒绝当作授权去尝试在线账号。
 
@@ -138,7 +139,7 @@ credential_values_exposed = false
 
 | Case | 场景 | 断言 |
 | --- | --- | --- |
-| OFFLINE-001 | 捕获Prism固定commit+1.21.4最终argv | 每个占位符有显式值；记录来源，不复制GPL代码 |
+| OFFLINE-001 | 核对Prism固定commit的参数替换与Launcher传递链 | clientId/xuid静态期望均为显式空argv值；dry-run无字面占位符或参数错位；记录源码commit，不复制GPL代码 |
 | OFFLINE-010 | OFF-A启动到Bridge | 记录实际Session AccountType与警告；不预设结果 |
 | OFFLINE-020 | OFF-B启动到Bridge | 与A使用相同非userType材料，可比较 |
 | OFFLINE-030 | A/B分别加入受控offline-mode服 | JOIN+首快照+服务端身份证据完整 |
