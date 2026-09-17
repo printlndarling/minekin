@@ -204,3 +204,16 @@
 
 本批直接核对了各仓库 README 与 LICENSE；上游活跃状态、版本和许可可能变化，实施时仍须锁定精确 commit、保留归属、生成SBOM并重跑兼容/安全验收。
 
+## P0 离线 Session 与成熟 Launcher 对照（2026-09-17 核对）
+
+| 来源 | 固定范围 | 证据 | 限制 |
+| --- | --- | --- | --- |
+| [Prism Launcher `MinecraftAccount.cpp`](https://github.com/PrismLauncher/PrismLauncher/blob/a2209210179e156bb2b326e551262f76d94d2010/launcher/minecraft/auth/MinecraftAccount.cpp) | commit `a220921` | 内部Offline账号使用token `"0"`、随机client token、`OfflinePlayer:<name>`的UUID v3，并把session字段交给参数映射 | 第三方Launcher实践，不是Mojang对1.21.4离线参数的规范；Prism为GPL-3.0，Minekin只作行为对照 |
+| [Prism Launcher `MinecraftAccount.h`](https://github.com/PrismLauncher/PrismLauncher/blob/a2209210179e156bb2b326e551262f76d94d2010/launcher/minecraft/auth/MinecraftAccount.h) | 同commit | 内部Offline类型的 `typeString()`返回 `offline` | 与Minecraft 1.21.4 `Session.AccountType`不是同一枚举 |
+| [Prism Launcher参数映射](https://github.com/PrismLauncher/PrismLauncher/blob/a2209210179e156bb2b326e551262f76d94d2010/launcher/minecraft/MinecraftInstance.cpp) | 同commit | 把access token、player name、UUID、user type填入profile模板 | 尚须捕获该commit对固定1.21.4元数据的最终clientId/xuid/argv |
+| [Prism Launcher LICENSE](https://github.com/PrismLauncher/PrismLauncher/blob/a2209210179e156bb2b326e551262f76d94d2010/LICENSE) | 同commit | GPL-3.0 | 不直接复制实现；若未来复用必须独立许可证审查 |
+| [Mojang 1.21.4固定版本JSON](https://piston-meta.mojang.com/v1/packages/d152a3712859b294a2dff641f99a7fe219cd3aec/1.21.4.json) | SHA-1 `d152a371…` | game args明确包含username/UUID/accessToken/clientId/xuid/userType占位符 | 只定义模板，不规定离线sentinel |
+| [Yarn Session](https://maven.fabricmc.net/docs/yarn-1.21.4%2Bbuild.8/net/minecraft/client/session/Session.html)、[AccountType](https://maven.fabricmc.net/docs/yarn-1.21.4%2Bbuild.8/net/minecraft/client/session/Session.AccountType.html)、[Uuids](https://maven.fabricmc.net/docs/yarn-1.21.4%2Bbuild.8/net/minecraft/util/Uuids.html) | 1.21.4+build.8 | Session字段、LEGACY/MOJANG/MSA枚举与原版离线UUID函数 | 没有OFFLINE枚举，也不证明 `offline`字符串的解析/回退行为 |
+
+取舍：不再笼统写“之后决定sentinel”，而是执行[P0离线Session参数兼容契约](p0-offline-session-compatibility-contract.md)的OFFLINE-001…100；没有赢家时明确阻断，不扩大尝试或伪造认证。
+

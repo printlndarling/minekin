@@ -81,7 +81,7 @@ session:
 | 在线身份 | 默认完全不运行 | 只有显式 `auth_mode: microsoft` 才由独立适配器提供；不属于 P0 离线放行条件 |
 | 游戏决策 | 无 | Kin Runtime；Launcher 不根据聊天改配置或权限 |
 
-1.21.4 的 base game arguments仍包含 username、UUID、access token、client id、xuid、user type 等占位符。离线启动计划必须为解析器提供类型正确的**非秘密本地值**，但不得把它们称作有效认证。具体 sentinel 和 `userType` 组合在 P0 启动实验中冻结；未验证前不在文档伪造一条“保证可用”的命令。
+1.21.4 的 base game arguments仍包含 username、UUID、access token、client id、xuid、user type 等占位符。离线启动计划必须为解析器提供类型正确的**非秘密本地值**，但不得把它们称作有效认证。具体候选、Prism Launcher源码对照、Bridge实况字段和 OFFLINE-001…100 见[P0 离线 Session 参数兼容契约](p0-offline-session-compatibility-contract.md)。当前只把 `token=0 + userType=offline`视为第三方Launcher实践，把 `userType=legacy`视为与1.21.4公开枚举对齐的另一候选；两者均未验证，不能写成“保证可用”的命令。
 
 ## 离线身份与服务端身份
 
@@ -116,7 +116,7 @@ session:
 5. 连接前强杀 Launcher、启动中强杀 Minecraft、握手后断 Bridge；验证临时区清理、按键释放、旧 generation 拒绝和世界状态重验。
 6. 先验收不含 Baritone 的 `p0-core`（Fabric API + Bridge），再独立验收加入 Baritone 的 `p0-nav-exp`；后者失败不阻断 core 或自写技能路线。装配、entrypoint、线程和握手状态机见[P0 Thin Bridge 契约](p0-bridge-bootstrap-contract.md)。
 7. 只有上述启动、入服、退出/恢复和最小合法输入完成，且[P0 隔离验证与证据门禁](p0-validation-evidence-contract.md)中的 mandatory case、真值隔离与 evidence bundle 全部满足，P0 bundle 才能从 `candidate` 变为 `tested`；手工演示或单侧日志不能晋级。
-8. 跑 ADMIT-001…120，特别核对 `LEGACY`候选 session参数、SRV/地址策略、JOIN与首快照门禁、本地候选身份和服务端观察身份；未通过时不得写“默认离线身份已支持”。
+8. 先跑 OFFLINE-001…100：捕获固定Prism commit在1.21.4上的最终argv，对比 `userType=offline`与 `legacy`、UUID格式及clientId/xuid策略，由Bridge记录实际Session；再跑 ADMIT-001…120 的SRV/地址策略、JOIN门禁与服务端身份。未通过时不得写“默认离线身份已支持”。
 
 ## 不作出的承诺
 

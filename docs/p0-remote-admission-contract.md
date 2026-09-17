@@ -15,7 +15,7 @@ Yarn 1.21.4+build.8 映射确认：
 - [`Session`](https://maven.fabricmc.net/docs/yarn-1.21.4%2Bbuild.8/net/minecraft/client/session/Session.html)由 username、UUID、access token、xuid/clientId 和 account type 组成，而 [`Session.AccountType`](https://maven.fabricmc.net/docs/yarn-1.21.4%2Bbuild.8/net/minecraft/client/session/Session.AccountType.html)只有 `LEGACY`、`MOJANG`、`MSA`，**没有 `OFFLINE` 枚举**；
 - [`Uuids.getOfflinePlayerUuid`](https://maven.fabricmc.net/docs/yarn-1.21.4%2Bbuild.8/net/minecraft/util/Uuids.html)与 `getOfflinePlayerProfile`可生成同版本地候选 profile。
 
-因此，Minekin 的 `auth_mode: offline` 是 Harness/Identity Manager 的策略标签，不等同于客户端 `Session.AccountType`。P0 可把 `LEGACY` 作为候选映射实验，但 access-token sentinel、`userType` 参数和 UUID 最终组合必须由真实启动与入服证据冻结，不能从枚举名称推导“保证可用”。
+因此，Minekin 的 `auth_mode: offline` 是 Harness/Identity Manager 的策略标签，不等同于客户端 `Session.AccountType`。Prism Launcher固定源码提供 `token=0/userType=offline`的现实对照，而1.21.4公开枚举支持 `LEGACY`候选；二者的有限比较、clientId/xuid与UUID格式见[P0 离线 Session参数兼容契约](p0-offline-session-compatibility-contract.md)。最终组合必须由真实启动与入服证据冻结，不能从任一名称推导“保证可用”。
 
 ## 身份分层
 

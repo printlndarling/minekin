@@ -56,6 +56,7 @@ flowchart TD
 - [Kin 自建世界提交与跨世界恢复](docs/hosted-world-commit-recovery-contract.md)：默认维度注册表、玩家/世界双保存水位、关闭故障矩阵、回滚分叉与记忆隔离。
 - [启动器供应链与玩家身份](docs/launcher-supply-chain-contract.md)：不可变 bundle、受信任下载、内容寻址缓存、跨版本 Bridge、token 暴露面与故障语义。
 - [P0 1.21.4 启动计划](docs/p0-launch-plan-contract.md)：官方/Fabric 元数据合并、Java/classpath/natives、默认离线身份、阻断条件与首个真客户端实验。
+- [P0 离线 Session 参数兼容](docs/p0-offline-session-compatibility-contract.md)：Prism对照、offline/legacy候选、UUID/token/clientId/xuid参数矩阵、Bridge实况与验收门禁。
 - [P0 Thin Bridge 启动与装配](docs/p0-bridge-bootstrap-contract.md)：Fabric client entrypoint、core/nav bundle 拆分、线程边界、握手后连接及 capability 门控。
 - [P0 远程入服与离线身份](docs/p0-remote-admission-contract.md)：正常客户端连接入口、地址/SRV 策略、身份分层、JOIN/首快照门禁与失败分类。
 - [P0 隔离验证与证据门禁](docs/p0-validation-evidence-contract.md)：原版 dedicated/LAN 测试域、oracle 隔离、三时间线、证据包与 candidate→tested 晋级。

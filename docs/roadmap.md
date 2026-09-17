@@ -77,6 +77,7 @@
 49. **自建世界控制与真值隔离**：同一 Kin提案生成可复现 effective profile；聊天/网页不能打开 creative、cheats、keepInventory、固定 seed或 datapack。记录 create/load/save/LAN/stop 的 client/server线程时间线和旧 callback拒绝；对 core/nav注入 `getServer`/`ServerWorld`引用应构建失败，并以墙后实体、容器、远处玩家、seed/save path canary验证 Runtime/Memory/prompt无旁路真值。
 50. **自建世界提交与跨世界恢复**：由固定bundle的默认preset生成维度；分别取证玩家数据、世界数据/flush、server stop、session close和Mind事务。对每个边界强杀并核对JointResumeToken；回滚递增epoch，复制分叉产生新hosted identity，hosted A→remote B→A任一时刻只有一个Current World为ACTIVE。
 51. **P0 远程入服与离线身份**：固定可信 Server Profile，通过 vanilla地址/SRV解析与 `ConnectScreen.connect`在 client thread入服；验证 offline策略到客户端 Session的候选映射。只有同 generation 的 JOIN、world/player/network handler和首快照齐备才 PLAYABLE；覆盖地址阻断、认证/白名单/资源包失败、取消晚回调、重连、改名/代理身份改写及 oracle不回流。
+52. **P0 离线 Session兼容矩阵**：捕获Prism固定commit对1.21.4的最终argv；以同一username/UUID/token材料对比 `userType=offline`与 `legacy`，再验证UUID编码、clientId/xuid、未知/default负向行为。Bridge独立回报实际Session但永不回传认证正文；只有启动、JOIN、身份、重启和脱敏全部通过才冻结版本绑定profile。
 
 ## 衡量方式
 
@@ -84,6 +85,7 @@
 | --- | --- |
 | `p0_evidence_bundle` | 不可变 build/case/environment/world 身份、Bridge/Server/Orchestrator 三时间线、断言结果与摘要；缺失或歧义不得标绿 |
 | `remote_admission_trace` | profile revision、原始地址与DNS/SRV结果、connection generation、login/JOIN/首快照、lease、失败分类、本地候选身份与服务端观察身份；oracle回流目标 0 |
+| `offline_session_trace` | candidate、脱敏argv摘要、本地UUID算法/编码、Bridge观察Session类型、clientId/xuid presence、离线服/在线服结果与服务端身份；认证正文暴露目标0 |
 | `managed_storage_trace` | run directory/artifact/bundle/session/hosted-save 的规范化路径、挂载、单写锁、checkpoint 和宿主 `.minecraft`访问次数（目标 0） |
 | `hosted_world_trace` | hosted_world_id/epoch、integrated server启动、LAN端口、加入玩家、保存/flush/崩溃恢复与真值隔离 |
 | `host_control_trace` | world proposal→effective profile摘要、client/server线程、命令/generation、异步完成、host-control输出分类、字节码门禁和 canary泄漏检查 |
