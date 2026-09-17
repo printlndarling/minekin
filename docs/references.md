@@ -125,3 +125,11 @@
 | [Yarn 1.21.4+build.8 `MinecraftDedicatedServer`](https://maven.fabricmc.net/docs/yarn-1.21.4%2Bbuild.8/net/minecraft/server/dedicated/MinecraftDedicatedServer.html) | MC 1.21.4；2026-09-17 核对 | 同版类包含 command queue、terminal/RCON相关入口与服务端属性访问；支持由 Test Orchestrator 独占本地 stdin/stdout，而不授 Kin 权限 | 不证明控制台输出格式稳定；P0 禁用 RCON，具体断言仍须原型 |
 | [Minecraft EULA](https://www.minecraft.net/en-us/eula) | 2026-09-17 重核 | 官方客户端/服务端工件的获取、使用与再分发须遵守适用条款；测试镜像不默认内嵌 JAR | 法律文本不是技术兼容性或服务器规则证明 |
 | [OpenTelemetry traces](https://opentelemetry.io/docs/concepts/signals/traces/) | 2026-09-17 重核 | trace/span/event/link 可作为跨进程 Bridge、server、orchestrator 时间线关联参考 | 不解决 wall-clock 同步，也不要求 P0 部署远端 telemetry backend |
+
+## 受管理运行目录与 Integrated LAN 世界（2026-09-17 核对）
+
+| 来源 | 适用版本/日期 | 支持的判断 | 局限 |
+| --- | --- | --- | --- |
+| [Yarn 1.21.4+build.8 `MinecraftClient`](https://maven.fabricmc.net/docs/yarn-1.21.4%2Bbuild.8/net/minecraft/client/MinecraftClient.html) | MC 1.21.4；2026-09-17 核对 | `runDirectory`被定义为保存 options、worlds、resource packs、logs 等的运行目录；客户端可连接 integrated 或 remote server，并暴露 integrated-server loader/start 接口 | 不规定 Minekin 的目录布局，也不证明无窗口创建世界流程已跑通 |
+| [Yarn 1.21.4+build.8 `IntegratedServer`](https://maven.fabricmc.net/docs/yarn-1.21.4%2Bbuild.8/net/minecraft/server/integrated/IntegratedServer.html) | MC 1.21.4；2026-09-17 核对 | `openToLan(gameMode, cheatsAllowed, port)`明确为 integrated server 开放 LAN并返回成功；dedicated server不支持该方法 | 不证明绑定地址、防火墙、端口冲突、保存恢复或 Bridge mixin 隔离已经安全 |
+| [Yarn 1.21.4+build.8 `OpenToLanScreen`](https://maven.fabricmc.net/docs/yarn-1.21.4%2Bbuild.8/net/minecraft/client/gui/screen/OpenToLanScreen.html) | MC 1.21.4；2026-09-17 核对 | 同版界面包含 game mode、allowCommands 与 port 状态，可辅助核对正常客户端的 LAN 配置语义 | UI 字段不等于后端自动化接口；Minekin 必须在 client thread通过受控适配器实测 |
