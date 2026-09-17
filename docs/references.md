@@ -133,3 +133,14 @@
 | [Yarn 1.21.4+build.8 `MinecraftClient`](https://maven.fabricmc.net/docs/yarn-1.21.4%2Bbuild.8/net/minecraft/client/MinecraftClient.html) | MC 1.21.4；2026-09-17 核对 | `runDirectory`被定义为保存 options、worlds、resource packs、logs 等的运行目录；客户端可连接 integrated 或 remote server，并暴露 integrated-server loader/start 接口 | 不规定 Minekin 的目录布局，也不证明无窗口创建世界流程已跑通 |
 | [Yarn 1.21.4+build.8 `IntegratedServer`](https://maven.fabricmc.net/docs/yarn-1.21.4%2Bbuild.8/net/minecraft/server/integrated/IntegratedServer.html) | MC 1.21.4；2026-09-17 核对 | `openToLan(gameMode, cheatsAllowed, port)`明确为 integrated server 开放 LAN并返回成功；dedicated server不支持该方法 | 不证明绑定地址、防火墙、端口冲突、保存恢复或 Bridge mixin 隔离已经安全 |
 | [Yarn 1.21.4+build.8 `OpenToLanScreen`](https://maven.fabricmc.net/docs/yarn-1.21.4%2Bbuild.8/net/minecraft/client/gui/screen/OpenToLanScreen.html) | MC 1.21.4；2026-09-17 核对 | 同版界面包含 game mode、allowCommands 与 port 状态，可辅助核对正常客户端的 LAN 配置语义 | UI 字段不等于后端自动化接口；Minekin 必须在 client thread通过受控适配器实测 |
+
+## Kin 自建世界存储生命周期（2026-09-17 核对）
+
+| 来源 | 适用版本/日期 | 支持的判断 | 局限 |
+| --- | --- | --- | --- |
+| [Yarn 1.21.4+build.8 `IntegratedServerLoader`](https://maven.fabricmc.net/docs/yarn-1.21.4%2Bbuild.8/net/minecraft/server/integrated/IntegratedServerLoader.html) | MC 1.21.4；2026-09-17 核对 | 有 `createAndStart`、`start`、新世界启动及备份/资源包失败分支，可设计无鼠标宏的创建/加载 adapter | 参数合成、无 UI 警告处置、callback与线程顺序仍须真客户端测试 |
+| [Yarn 1.21.4+build.8 `LevelStorage`](https://maven.fabricmc.net/docs/yarn-1.21.4%2Bbuild.8/net/minecraft/world/level/storage/LevelStorage.html) 与 [`Session`](https://maven.fabricmc.net/docs/yarn-1.21.4%2Bbuild.8/net/minecraft/world/level/storage/LevelStorage.Session.html) | MC 1.21.4；2026-09-17 核对 | `createSession`有 IOException/符号链接校验；session有备份、关闭、level data备份和恢复候选 | 上游同时存在绕过符号链接检查的入口，Minekin明确禁用；接口存在不证明在线热备或自动修复安全 |
+| [Yarn 1.21.4+build.8 `SessionLock`](https://maven.fabricmc.net/docs/yarn-1.21.4%2Bbuild.8/net/minecraft/world/level/storage/SessionLock.html) | MC 1.21.4；2026-09-17 核对 | `create/isValid/isLocked/close`可与 Supervisor lease组成双重单写 | 不能见到遗留 lock 文件就认定进程活着或强删；强杀、竞争和跨平台文件锁须故障注入 |
+| [Yarn 1.21.4+build.8 `IntegratedServer`](https://maven.fabricmc.net/docs/yarn-1.21.4%2Bbuild.8/net/minecraft/server/integrated/IntegratedServer.html) | MC 1.21.4；2026-09-17 核对 | 有 `saveAll`、`stop`、`openToLan`候选，可设计保存/flush、关闭和 LAN 状态分离 | 参数、死锁边界、磁盘满、端口监听和恢复语义未实测；P0只承诺冷备候选 |
+
+完整设计与 HOST-001…100 见[Kin 自建世界存储生命周期](hosted-world-storage-lifecycle-contract.md)。截至 2026-09-17 仍无世界创建、保存、备份恢复或第二客户端加入的运行证据。
