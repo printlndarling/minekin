@@ -144,3 +144,15 @@
 | [Yarn 1.21.4+build.8 `IntegratedServer`](https://maven.fabricmc.net/docs/yarn-1.21.4%2Bbuild.8/net/minecraft/server/integrated/IntegratedServer.html) | MC 1.21.4；2026-09-17 核对 | 有 `saveAll`、`stop`、`openToLan`候选，可设计保存/flush、关闭和 LAN 状态分离 | 参数、死锁边界、磁盘满、端口监听和恢复语义未实测；P0只承诺冷备候选 |
 
 完整设计与 HOST-001…100 见[Kin 自建世界存储生命周期](hosted-world-storage-lifecycle-contract.md)。截至 2026-09-17 仍无世界创建、保存、备份恢复或第二客户端加入的运行证据。
+
+## 自建世界参数、线程与同 JVM 边界（2026-09-17 核对）
+
+| 来源 | 适用版本/日期 | 支持的判断 | 局限 |
+| --- | --- | --- | --- |
+| [Yarn 1.21.4+build.8 `WorldCreator`](https://maven.fabricmc.net/docs/yarn-1.21.4%2Bbuild.8/net/minecraft/client/gui/screen/world/WorldCreator.html) 与 [`CreateWorldScreen`](https://maven.fabricmc.net/docs/yarn-1.21.4%2Bbuild.8/net/minecraft/client/gui/screen/world/CreateWorldScreen.html) | MC 1.21.4；2026-09-17 核对 | client-side创建模型明确区分模式、难度、cheats、seed、结构、奖励箱、世界类型与 GameRules；可作 Minekin schema/vanilla语义对照 | UI状态和私有 `createLevelInfo/startServer`不作为无窗口生产 API，不能反射复用后声称稳定 |
+| [Yarn `LevelInfo`](https://maven.fabricmc.net/docs/yarn-1.21.4%2Bbuild.8/net/minecraft/world/level/LevelInfo.html)、[`GeneratorOptions`](https://maven.fabricmc.net/docs/yarn-1.21.4%2Bbuild.8/net/minecraft/world/gen/GeneratorOptions.html) 与 [`WorldPresets`](https://maven.fabricmc.net/docs/yarn-1.21.4%2Bbuild.8/net/minecraft/world/gen/WorldPresets.html) | MC 1.21.4；2026-09-17 核对 | 创建参数可明确落为 game mode/hardcore/difficulty/commands/GameRules/DataConfiguration 以及 seed/structures/bonus chest和 registry preset | 默认维度 supplier、datapack lifecycle和非默认组合仍须同 bundle实测 |
+| [Yarn `ThreadExecutor`](https://maven.fabricmc.net/docs/yarn-1.21.4%2Bbuild.8/net/minecraft/util/thread/ThreadExecutor.html) | MC 1.21.4；2026-09-17 核对 | client/server executor继承 `isOnThread`及 `submit`，支持显式线程归属与异步状态机候选 | 不说明每个调用的线程安全；future完成、callback顺序与死锁仍须记录验证 |
+| [Yarn `MinecraftClient.getServer`](https://maven.fabricmc.net/docs/yarn-1.21.4%2Bbuild.8/net/minecraft/client/MinecraftClient.html) 与 [`MinecraftServer.getWorld/getWorlds/getPlayerManager`](https://maven.fabricmc.net/docs/yarn-1.21.4%2Bbuild.8/net/minecraft/server/MinecraftServer.html) | MC 1.21.4；2026-09-17 核对 | integrated world中 client代码可取得 server对象并继续访问服务端世界/玩家真值，证明 client-only声明不是感知隔离 | 这是能力面证据，不表示 Minekin已泄漏；源码/字节码门禁和黑盒 canary必须原型验证 |
+| [Yarn `IntegratedServer`](https://maven.fabricmc.net/docs/yarn-1.21.4%2Bbuild.8/net/minecraft/server/integrated/IntegratedServer.html) | MC 1.21.4；2026-09-17 核对 | `openToLan`返回成功与实际端口可查询；`saveAll`存在；`stop(true)`若在 server thread调用会死锁 | 最终 save/player-data/disconnect/stop/session-close 顺序和 LAN执行线程未实测 |
+
+完整设计和 HOSTCTL-001…090 见[自建世界控制边界](hosted-world-control-boundary-contract.md)。截至 2026-09-17 没有创建档、线程回放、class扫描或 canary运行证据。
