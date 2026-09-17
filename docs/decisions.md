@@ -13,6 +13,8 @@
 | 不可变客户端供应链 | 上游元数据、Minecraft/Fabric/Bridge/Java 工件与运行参数冻结为带来源和 hash 的 bundle；游戏工件按授权下载而不随镜像分发；未知/损坏组合隔离，能下载不等于受支持 |
 | 渲染与观战旁路 | Linux 无窗口仍保留真实 render thread/GLFW/OpenGL；首版以虚拟显示正常渲染为基线。Media Worker 无输入权，观战失败先降媒体且视频不默认进入 VLM/记忆 |
 | 薄 Bridge 接入真实客户端 | Minecraft Java 客户端以独立本地身份默认加入 LAN/offline-mode 测试世界；online-mode 账号仅为可选兼容路径；Fabric Bridge 只做过滤观察、本地反射、输入仲裁和结果反馈，行动最终经过合法客户端输入 |
+| 自建世界参数分权 | Kin 自主决定是否/何时创建自己的世界及游戏内目标；P0 创建组合固定为普通原版生存基线。实际 LevelInfo/GeneratorOptions 由 proposal、管理策略与 tested baseline合成，聊天/网页无权开启 cheats、改 GameRules或注入 datapack |
+| 同 JVM 服务端真值隔离 | `p0-core`不得调用 `MinecraftClient.getServer()`；自建世界用独立 `p0-host-exp`窄适配器，只输出管理事件。源码/class/mixin门禁与运行时 canary共同验收，不声称同 JVM具有进程级安全隔离 |
 | 分层控制 | 紧急反射在本地执行，LLM 不参与逐 tick 操作；危险可抢占并使过期意图失效 |
 | 玩家等价感知与例外 | 默认使用玩家可知信息；成本或操作困难时可声明少量限域、限时读取例外，但不能暗中变成隐藏世界知识 |
 | 可选作弊行为与自主判断 | 矿透等改变感知的能力须独立配置并由 Kin 主动启用，记录来源与社会后果；玩家说法不能直接升级为事实或能力许可 |
