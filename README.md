@@ -72,6 +72,7 @@ flowchart TD
 - [身份、记忆持久化与崩溃恢复](docs/persistence-recovery-contract.md)：同一 Kin 的身份根、重启恢复、瞬时状态失效、备份与迁移。
 - [记忆检索、巩固与遗忘](docs/memory-retrieval-consolidation-contract.md)：启动自我包、证据检索、摘要修订、合理遗忘与上下文成本。
 - [开发路线与验收](docs/roadmap.md)：分阶段原型、演示场景和衡量办法。
+- [开发 TODO 与执行门禁](docs/development-todo.md)：从 W00 到产品阶段的可执行队列、环境缺口与提交纪律。
 - [设计决策与验证问题](docs/decisions.md)：已定原则、原型假设、首轮默认决议与进入开发前的检查条件。
 - [开发前文档收口审计](docs/pre-development-closure-audit.md)：全仓覆盖、未决项分类、P0 实证门禁与开发放行判断。
 - [重大待确认清单](docs/critical-confirmations.md)：只记录会改变项目根本方向的问题；当前无开放项。
