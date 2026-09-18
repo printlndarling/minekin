@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "id": "minekin_bridge",
+  "version": "${version}",
+  "name": "Minekin Thin Bridge",
+  "description": "P0 client lifecycle, observation, and bounded input bridge.",
+  "environment": "client",
+  "entrypoints": {
+    "client": [
+      "org.minekin.bridge.MinekinBridgeClient"
+    ]
+  },
+  "depends": {
+    "fabricloader": ">=0.16.9",
+    "fabric-api": "*",
+    "java": ">=21",
+    "minecraft": "~1.21.4"
+  }
+}

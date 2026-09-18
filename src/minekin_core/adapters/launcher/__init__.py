@@ -1,0 +1,1 @@
+"""Managed Minecraft launcher adapters."""

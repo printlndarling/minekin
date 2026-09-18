@@ -1,0 +1,18 @@
+[versions]
+fabric-api = "0.119.4+1.21.4"
+fabric-loader = "0.16.9"
+junit = "5.13.4"
+loom = "1.9.2"
+minecraft = "1.21.4"
+yarn = "1.21.4+build.8"
+
+[libraries]
+fabric-api = { module = "net.fabricmc.fabric-api:fabric-api", version.ref = "fabric-api" }
+fabric-loader = { module = "net.fabricmc:fabric-loader", version.ref = "fabric-loader" }
+junit-bom = { module = "org.junit:junit-bom", version.ref = "junit" }
+junit-jupiter = { module = "org.junit.jupiter:junit-jupiter" }
+minecraft = { module = "com.mojang:minecraft", version.ref = "minecraft" }
+yarn = { module = "net.fabricmc:yarn", version.ref = "yarn" }
+
+[plugins]
+fabric-loom = { id = "fabric-loom", version.ref = "loom" }
