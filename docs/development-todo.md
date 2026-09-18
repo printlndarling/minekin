@@ -49,6 +49,8 @@
 - [x] 逐项校验 URL、大小、SHA、Java 21、main class、规则与固定 mod 集；计划覆盖 4,120 个去重工件（含 4,039 个 asset object、9 个 Linux native 和 logging 配置）。
 - [x] 使用独立 argv 元素；JVM 占位符必须全部解析、game 占位符必须转为 typed entry，并禁止 shell 拼接与宿主 `.minecraft` 访问。
 - [x] 建立带 staging/quarantine/原子发布的内容寻址 artifact store、逐文件复核的只读 bundle 与 generation 隔离的可写 session overlay。
+- [x] 工件抓取：只走 https（重定向降级到 http 也拒绝）、URL 不得带凭据；已在校验通过的缓存中的工件直接复用、不重发请求；只有传输错误才重试，策略拒绝与摘要不符立即返回——重下同样的错字节只会浪费镜像；单次 pass 不因一个失败中止，交由调用方在 `complete` 为假时拒绝启动。暂存、隔离、原子发布与只读封存由 `ArtifactStore.install` 负责，抓取层只提供传输。
+- [ ] 真把 4,120 个工件抓进 store 并据此跑真实客户端：需要网络与受控 runner，尚未执行。
 - [x] 门禁：所有工件与参数可复核；元数据/asset/bundle 篡改、未知 mod、路径越界或不兼容 runtime 均 fail closed；Bridge 未构建时保持明确 blocker，不谎称 launchable。
 
 ## W20：只读 Thin Bridge
