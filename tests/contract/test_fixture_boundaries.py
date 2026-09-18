@@ -79,3 +79,45 @@ def test_framing_golden_uses_network_order_length_prefix() -> None:
     frame = bytes.fromhex(golden["frame_hex"])
     assert frame[:4] == len(envelope).to_bytes(4, "big")
     assert frame[4:] == envelope
+
+
+def test_case_manifest_oracle_boundary_is_enforced(tmp_path: Path) -> None:
+    """A case declares its oracle inputs separately; the tool checks the declaration."""
+
+    base = {
+        "schema_version": 1,
+        "case_id": "W50-SNAPSHOT-001",
+        "work_package": "W50",
+        "mandatory": True,
+        "assertions": ["first_snapshot_is_authoritative"],
+    }
+    (tmp_path / "good.json").write_text(
+        json.dumps(
+            {
+                **base,
+                "inputs": ["tests/fixtures/runtime-input/*.json"],
+                "oracle_inputs": ["tests/oracle/canary.json"],
+            }
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / "input-names-oracle.json").write_text(
+        json.dumps({**base, "inputs": ["tests/oracle/canary.json"]}), encoding="utf-8"
+    )
+    (tmp_path / "oracle-input-elsewhere.json").write_text(
+        json.dumps({**base, "inputs": [], "oracle_inputs": ["tests/fixtures/canary.json"]}),
+        encoding="utf-8",
+    )
+
+    result = subprocess.run(
+        [sys.executable, "tools/check_boundaries.py", "--cases-dir", str(tmp_path)],
+        cwd=REPOSITORY_ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 1
+    assert "a declared input references the oracle" in result.stderr
+    assert "outside tests/oracle/" in result.stderr
+    assert "good.json" not in result.stderr

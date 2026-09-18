@@ -2,14 +2,19 @@
 
 from __future__ import annotations
 
+import argparse
 import ast
+import json
 import sys
 import tomllib
 from pathlib import Path
+from typing import cast
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 PACKAGE_ROOT = REPOSITORY_ROOT / "src" / "minekin_core"
 BRIDGE_ROOT = REPOSITORY_ROOT / "bridge"
+CASE_FIXTURES = REPOSITORY_ROOT / "tests" / "fixtures" / "cases"
+ORACLE_DIRECTORY = "tests/oracle/"
 
 # These are package prefixes, not a complete third-party allowlist. The checks
 # deliberately target architectural seams that ordinary linters cannot express.
@@ -52,7 +57,7 @@ def imported_modules(tree: ast.AST, path: Path) -> list[tuple[int, str]]:
     return imports
 
 
-def violations() -> list[str]:
+def violations(cases_dir: Path = CASE_FIXTURES) -> list[str]:
     errors: list[str] = []
     for path in sorted(PACKAGE_ROOT.rglob("*.py")):
         relative = path.relative_to(PACKAGE_ROOT)
@@ -102,11 +107,51 @@ def violations() -> list[str]:
         errors.append("pyproject.toml: wheel must contain only src/minekin_core")
     if "force-include" in wheel:
         errors.append("pyproject.toml: wheel force-include could bypass the oracle boundary")
+    errors.extend(_case_manifest_errors(cases_dir))
+    return errors
+
+
+def _case_manifest_errors(cases_dir: Path) -> list[str]:
+    """A case declares its oracle inputs separately, so the declaration is checked.
+
+    The product validates a case manifest's shape; only this side is allowed to
+    know that an oracle exists at all, so the boundary rule lives here.
+    """
+
+    errors: list[str] = []
+    for path in sorted(cases_dir.glob("*.json")):
+        relative = path.relative_to(cases_dir).name
+        try:
+            case = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
+            errors.append(f"{relative}: case manifest is unreadable: {error}")
+            continue
+        if not isinstance(case, dict):
+            errors.append(f"{relative}: case manifest must be an object")
+            continue
+        document = cast(dict[str, object], case)
+        inputs = document.get("inputs", [])
+        oracle_inputs = document.get("oracle_inputs", [])
+        if not isinstance(inputs, list) or not isinstance(oracle_inputs, list):
+            errors.append(f"{relative}: inputs and oracle_inputs must be arrays")
+            continue
+        for entry in cast(list[object], inputs):
+            folded = str(entry).casefold()
+            if any(marker in folded for marker in PRODUCT_ORACLE_REFERENCES):
+                errors.append(f"{relative}: a declared input references the oracle: {entry!r}")
+        for entry in cast(list[object], oracle_inputs):
+            if not str(entry).startswith(ORACLE_DIRECTORY):
+                errors.append(
+                    f"{relative}: an oracle input is outside {ORACLE_DIRECTORY}: {entry!r}"
+                )
     return errors
 
 
 def main() -> int:
-    errors = violations()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--cases-dir", type=Path, default=CASE_FIXTURES)
+    args = parser.parse_args()
+    errors = violations(args.cases_dir)
     if errors:
         print("\n".join(errors), file=sys.stderr)
         return 1
