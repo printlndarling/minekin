@@ -59,6 +59,9 @@
 - [x] 实测 Bridge JAR 并修正了对 `build_required` 的理解：`./gradlew build` 产出 `minekin-bridge-0.0.0.jar`（1.17 MB、157 项，含 `fabric.mod.json`、生成的 `io.minekin.protocol.v1.*`，以及 include 进去的 `META-INF/jars/protobuf-javalite-4.36.2.jar`），连续三次 `clean build` 的 SHA-256 完全相同，所有条目时间戳都是 1980-01-01（DOS epoch）。
 - [x] 但那份确定性**不是构建声明出来的**：在 `build.gradle.kts` 里加 `withType<Jar>` 的 `isPreserveFileTimestamps = false` / `isReproducibleFileOrder = true` 之后产物字节完全没变——连条目顺序都没变有序，因为真正产出 remapped jar 的是 Loom 的 `RemapJarTask`。既然那条声明不控制真正发布的东西，就没有留下它：一个看起来保证、实际不保证的设置，正是本仓库一路在清理的那类问题。
 - [ ] 因此 `build_required` 不只是「还没人构建」：要把 JAR 摘要钉进 recipe，前提是先测出**真正决定 `RemapJarTask` 输出布局的那个设置**，否则钉住的是 Loom 1.9.2 的行为而不是本仓库的保证。在那之前 `build_required` 是诚实的状态。
+- [x] 把上一条追到底，结论比「那条声明没用」更精确：`RemapJarTask` **确实**继承 `org.gradle.jvm.tasks.Jar`（实测层级：`RemapJarTask_Decorated` → `RemapJarTask` → `AbstractRemapJarTask` → `Jar` → `Zip` → `AbstractArchiveTask` → …），所以 `withType<Jar>` 的确配置到了它；但把 `isPreserveFileTimestamps` 反过来设成 `true` 之后产物仍然逐字节相同（时间戳仍是 1980、顺序仍未排序、摘要不变）。也就是说决定最终字节的是 Loom 的 remap 阶段，不是 `Jar` 任务自己的写档。
+- [x] 这修正了「确定性来路不明」的判断：它来自 Loom 刻意为之的可复现输出，而 Loom 本身是**被钉住的**——版本目录写死 1.9.2，`verification-metadata.xml` 有它的 SHA-256，`check_bridge_scaffold.py` 也会校验。因此确定性依赖的是一个被固定并核验过的构件，而不是运气；Loom 升级时必须重新评审摘要，这正是钉住 recipe 的含义。
+- [ ] 仍未验证的是**跨平台**可复现：这里只在本机（Windows、本机 JDK）连续构建过三次。在受控 Linux runner 上用固定 JDK 21 产出同一摘要之前，不应把 JAR 摘要写进 recipe。
 
 ## W20：只读 Thin Bridge
 
