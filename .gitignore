@@ -6,6 +6,9 @@ __pycache__/
 .mypy_cache/
 .pyright/
 
+# Scratch space for task-created tooling and downloads. Never committed.
+.tmp/
+
 .gradle/
 bridge/build/
 .wrapper-bootstrap/

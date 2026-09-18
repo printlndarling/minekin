@@ -1,7 +1,11 @@
 version: v2
 clean: true
 plugins:
+  # `pyi_out` emits the `.pyi` stub alongside each `.py` module. The stubs are
+  # not optional: protobuf registers message classes at import time, so without
+  # them the strict Pyright gate cannot see `Envelope`, `CHANNEL_CONTROL` or
+  # `FromString`, and every consumer of the protocol package becomes untyped.
   - remote: buf.build/protocolbuffers/python:v31.1
     out: src/minekin_core/generated
-  - remote: buf.build/protocolbuffers/java:v31.1
-    out: bridge/src/generated/java
+    opt:
+      - pyi_out

@@ -17,7 +17,7 @@
 - [x] Git 工作树与 `origin/main` 基线确认。
 - [x] Python 与 uv 可用。
 - [x] 固定 Java 21；本机以 JDK 21.0.12.1 完成 Gradle 8.12.1 的 Bridge `clean check`。
-- [x] 以 CI 中固定版本的 Buf action 提供 schema build/lint/format 门禁；本机另用固定 Buf `v1.50.0` 完成 W00 lint。
+- [x] 以 CI 中固定版本的 Buf action 提供 schema build/lint/format 门禁；本机另用固定 Buf `v1.50.0` 完成 W00 lint，并复现同一生成字节。
 - [x] 完成 Gradle 依赖锁与 SHA-256 verification metadata；固定 Wrapper 8.12.1 已在 Java 21 下通过离线 strict verification `clean check`。
 - [ ] 为受控 Linux runner 准备 Java 21、Xvfb、原版 1.21.4 server 与隔离账号/目录。
 
@@ -29,6 +29,7 @@
 - [x] 实现并测试 Session 状态与合法转换表。
 - [x] 冻结 ID、generation、sequence、deadline 与 monotonic/wall-clock 语义。
 - [x] 冻结 proto v1：envelope、hello、fault、observation、lease、`release_all`。
+- [x] 提交 `src/minekin_core/generated` 的 Python gencode 与 `.pyi` stub，并提供 `tools/generate_protos.py` 与 CI 漂移门禁：生成字节可复现，导入路径统一为 `minekin_core.generated.minekin.v1`，缺 stub 即视为未完成。
 - [x] 冻结 SQLite schema/migration v1、单 writer-thread 与 transactional outbox 契约。
 - [x] 冻结错误分类、退出码、脱敏规则与未知错误 fail-closed 行为。
 - [x] 冻结 CLI schema；`doctor` 为只读实现，其余命令在实现前明确无副作用地失败。
@@ -50,6 +51,7 @@
 ## W20：只读 Thin Bridge
 
 - [x] 建立 Java 21/Fabric 1.21.4 client entrypoint 与固定 manifest。
+- [x] Java gencode 归 Gradle protobuf plugin 在构建期从 `proto/` 生成，不提交生成目录；`bridge/src/generated` 的旧 Buf 产物已移除，避免污染 bundle source digest。
 - [x] 实现 control/event 双通道的长度前缀 Protobuf framing。
 - [x] 实现 nonce、protocol、generation、bundle 与 capability 握手。
 - [x] Bridge 默认 `OBSERVE_ONLY`，握手前无连接和输入能力。

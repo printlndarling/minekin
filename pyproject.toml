@@ -9,7 +9,7 @@ description = "P0 control plane for the Minekin managed Minecraft client"
 readme = "README.md"
 requires-python = ">=3.12,<3.14"
 dependencies = [
-    "protobuf>=5.29,<7",
+    "protobuf>=6.31.1,<7",
 ]
 
 [project.scripts]
@@ -30,8 +30,13 @@ packages = ["src/minekin_core"]
 addopts = "-ra --strict-config --strict-markers"
 testpaths = ["tests"]
 
+# The generated package still ships `.pyi` stubs, so hand-written code gets real
+# types for `Envelope`, `Capability` and friends. `ignore` only silences
+# diagnostics *inside* protoc's own stubs, which use bare `Mapping` parameters
+# and cannot satisfy strict mode. Do not drop the stubs to satisfy this entry.
 [tool.pyright]
 include = ["src", "tests", "tools"]
+ignore = ["src/minekin_core/generated"]
 pythonVersion = "3.12"
 typeCheckingMode = "strict"
 
@@ -39,6 +44,9 @@ typeCheckingMode = "strict"
 target-version = "py312"
 line-length = 100
 src = ["src", "tests", "tools"]
+# Generated modules carry a multi-kilobyte serialized descriptor on one line and
+# dependency imports that exist only for descriptor registration.
+extend-exclude = ["src/minekin_core/generated"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]

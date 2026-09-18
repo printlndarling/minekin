@@ -1,1 +1,1 @@
-"""Generated Minekin v1 protocol namespace."""
+"""Generated protobuf package; regenerate with tools/generate_protos.py."""
