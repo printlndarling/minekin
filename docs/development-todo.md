@@ -62,7 +62,9 @@
 ## W30：Offline Session
 
 - [ ] 按 OFF-A（`offline`）→ OFF-B（`legacy`）运行有界候选，不静默漂移。
-- [ ] 冻结 `token=0`、offline UUID 与 clientId/xuid 显式空 argv 语义。
+- [x] 冻结 `token=0`、offline UUID 与 clientId/xuid 显式空 argv 语义：`domain/offline_identity.py` 复刻 `UUID.nameUUIDFromBytes("OfflinePlayer:"+name)`，向量取自 JDK 实际输出；`adapters/launcher/offline_session.py` 冻结 OFF-A/OFF-B 候选，并强制每个空值仍是紧跟自己 option 的独立 argv 元素。
+- [x] OFFLINE-001 静态子集：dry-run 无字面 `${...}`；未声明占位符直接拒绝而不是替换成空字符串；空值位置与候选声明不一致即失败。
+- [ ] 把已冻结的 session argv 接入启动路径；当前只有 dry-run 模型，没有启动实现。
 - [ ] Bridge 脱敏报告实际 Session；日志不得出现敏感正文。
 - [ ] 执行 `OFFLINE-001…100`，仅在条件满足时运行 UUID/sentinel 对照。
 - [ ] 门禁：启动、握手与身份材料可解释，失败分类明确。

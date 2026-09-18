@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from collections.abc import Mapping
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any, cast
@@ -155,10 +156,12 @@ def build_launch_plan(profile_path: Path, *, workspace_root: Path | None = None)
             "native_artifacts": native_artifacts,
             "native_extract_excludes": ["META-INF/"],
             "asset_index": _store_path(metadata.asset_index),
+            "assets_index_name": metadata.asset_index_id,
             "assets_dir": "bundle/assets",
             "logging_config": _store_path(metadata.logging_config),
             "natives_dir": "session/natives",
             "game_dir": "session/game",
+            "version_type": metadata.version_type,
         },
         "metadata": {
             "base_sha256": metadata.base_metadata_sha256,
@@ -170,3 +173,29 @@ def build_launch_plan(profile_path: Path, *, workspace_root: Path | None = None)
     canonical = json.dumps(plan, sort_keys=True, separators=(",", ":")).encode()
     plan["plan_sha256"] = hashlib.sha256(canonical).hexdigest()
     return plan
+
+
+def game_environment(plan: Mapping[str, Any]) -> dict[str, str]:
+    """The non-session game argument values: paths and version identity.
+
+    Session material is deliberately absent. It is joined at launch time so one
+    reviewed bundle can serve an identity revision it was not built against.
+    """
+
+    runtime_value = plan.get("runtime")
+    bundle_value = plan.get("bundle")
+    if not isinstance(runtime_value, dict) or not isinstance(bundle_value, dict):
+        raise _reject("launch plan is missing its runtime or bundle section")
+    runtime = cast(dict[str, Any], runtime_value)
+    bundle = cast(dict[str, Any], bundle_value)
+    environment = {
+        "version_name": bundle.get("minecraft"),
+        "version_type": runtime.get("version_type"),
+        "game_directory": runtime.get("game_dir"),
+        "assets_root": runtime.get("assets_dir"),
+        "assets_index_name": runtime.get("assets_index_name"),
+    }
+    for name, value in environment.items():
+        if not isinstance(value, str) or not value:
+            raise _reject(f"launch plan has no {name} game argument value")
+    return cast(dict[str, str], environment)

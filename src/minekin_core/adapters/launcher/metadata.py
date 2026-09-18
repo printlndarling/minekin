@@ -23,6 +23,9 @@ FABRIC_LOADER = "0.16.9"
 FABRIC_MAIN_CLASS = "net.fabricmc.loader.impl.launch.knot.KnotClient"
 JAVA_MAJOR = 21
 ASSET_INDEX_SHA1 = "8d07e20a532738f3ee13392a23871abb5927fd79"
+# The reviewed version JSON carries "type": "release" and it is passed to the
+# client as ${version_type}, so it is validated rather than passed through.
+VERSION_TYPE = "release"
 
 _SHA1 = re.compile(r"^[0-9a-f]{40}$")
 _KNOWN_OS_NAMES = frozenset({"linux", "osx", "windows"})
@@ -117,6 +120,7 @@ class Artifact:
 @dataclass(frozen=True, slots=True)
 class PinnedMetadata:
     version: str
+    version_type: str
     java_major: int
     base_main_class: str
     fabric_main_class: str
@@ -303,6 +307,8 @@ def parse_pinned_metadata(
     version = _load_json(version_raw, "version metadata")
     if version.get("id") != MINECRAFT_VERSION:
         raise _reject("version metadata id does not match the bundle recipe")
+    if version.get("type") != VERSION_TYPE:
+        raise _reject("version metadata type is not the reviewed release channel")
     java = _object(version.get("javaVersion"), "javaVersion")
     if _integer(java.get("majorVersion"), "javaVersion.majorVersion") != JAVA_MAJOR:
         raise _reject("version metadata requires an unexpected Java major")
@@ -410,6 +416,7 @@ def parse_pinned_metadata(
 
     return PinnedMetadata(
         version=MINECRAFT_VERSION,
+        version_type=VERSION_TYPE,
         java_major=JAVA_MAJOR,
         base_main_class=BASE_MAIN_CLASS,
         fabric_main_class=FABRIC_MAIN_CLASS,
