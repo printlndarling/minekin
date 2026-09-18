@@ -14,7 +14,8 @@ from minekin_core.adapters.system.clock import SystemClock
 from minekin_core.cli.doctor import diagnose
 from minekin_core.cli.init import initialise_identity
 from minekin_core.cli.parser import parse_args
-from minekin_core.config import configured_username, data_root
+from minekin_core.cli.session import start_session
+from minekin_core.config import configured_username, data_root, java_executable, kin_selector
 from minekin_core.domain.errors import (
     ErrorCategory,
     ExitCode,
@@ -22,7 +23,7 @@ from minekin_core.domain.errors import (
     Retryability,
     fail_closed,
 )
-from minekin_core.domain.ids import KinId
+from minekin_core.domain.ids import KinId, SessionId
 
 
 def _command_name(args: argparse.Namespace) -> str:
@@ -74,6 +75,18 @@ def run(
             clock=SystemClock(),
         )
         _emit(report.as_dict(), stdout)
+        return int(ExitCode.OK)
+
+    if args.command == "session" and args.session_command == "start":
+        launch = start_session(
+            root=data_root(),
+            profile=Path(args.profile),
+            java_executable=java_executable(),
+            session_id=SessionId.new().value,
+            generation=1,
+            kin_selector=kin_selector(),
+        )
+        _emit(launch.as_dict(), stdout)
         return int(ExitCode.OK)
 
     if args.command == "launch-plan":

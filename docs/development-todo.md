@@ -75,6 +75,8 @@
 - [x] spawn 与基本进程监管：直接 `Popen`（`shell=False` + 列表 argv，无 shell 复解析），cwd 为 session game 目录，日志落盘；身份记录为 `(pid, started_at, argv_digest)` 而不只是 PID——PID 会被系统复用，单独用不能跨 run 认人。停止是有界的：先请它退出，到点仍在则 kill，因为它还占着 session overlay、在服务端看来还像一名玩家。同一 supervisor 第二次 start 被拒。
 - [x] 客户端环境显式化：不隐式继承宿主环境。`HOME`/XDG/TEMP 一律改指 session 目录（继承了宿主 `HOME` 的客户端仍然够得到运行者的文件，而受管运行目录存在的意义正是挡住这件事），需要宿主提供的东西（虚拟显示要的 `DISPLAY`）必须逐个指名转发，且转发值中出现 `.minecraft` 路径分段即拒绝。改指到的目录必须在启动前存在——实测传给子进程一个不存在的 `TMPDIR` 会让它告警并可能无法建临时文件。
 - [ ] 重启后的残留进程对账（按 PID identity 与 run metadata 判断接管/终止/人工阻断）：需要受控 runner 才能验证，故意留空而不是猜。
+- [x] `session start` 接线完成：读数据根与 Kin（根下只有一个 Kin 时无需选择，多于一个必须显式指定，否则拒绝——启动错的 Kin 是后续步骤挽不回来的）、读身份根、构建计划，然后**先验证就绪再创建任何东西**：计划自己说 not launchable 就带着 blocker 拒绝，计划点名的每一个工件都必须已在 store 中校验通过，缺一个就报出第一个缺失项。通过后建 session overlay、组装命令行、交给 supervisor 启动。overlay 的路径由 `session_overlay_path` 计算而非事后发现，所以 supervisor 的日志目录在 overlay 存在之前就能命名。
+- [ ] 事件记录：契约要求 adapter 返回结果后追加成功/失败事件。事件存储是异步的并带独立 writer 线程，其生命周期是单独一步，尚未接上。
 - [x] Bridge 脱敏报告：`SessionIdentityReport` 随 hello 与首快照上报候选、用户名、UUID、AccountType 与 clientId/xuid presence；凭据按结构不可携带——消息没有 `bytes` 字段、观测 record 没有 token/secret/key 分量、`credential_values_exposed` 为 true 时拒绝。形状由已发布的 descriptor 断言，不靠人工复查。
 - [x] `SESSION_MATERIAL_MISMATCH` 规则：从**实际 argv** 读回 Launcher 记录的 session 材料（不是从候选重新推导），与 Bridge 上报逐项比较；uuid 按规范化后的身份比较以容纳 id128/canonical，`userType` 与 `AccountType` 分属不同命名空间故只记录不比较，任一不一致都阻断 `PLAYABLE`。
 - [ ] 读取真实客户端 Session 回填该报告：需要真实客户端，尚未实现。

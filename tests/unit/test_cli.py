@@ -42,7 +42,6 @@ def test_launch_plan_requires_explicit_dry_run() -> None:
 @pytest.mark.parametrize(
     "argv",
     [
-        ["session", "start", "--profile", "missing.json"],
         ["session", "status"],
         ["session", "stop"],
         ["evidence", "verify", "missing-run"],
@@ -73,6 +72,24 @@ def test_init_without_a_stated_root_creates_nothing(
 
     with pytest.raises(MinekinError):
         run(["init", "--kin-id", "kin-1"], stdout=io.StringIO(), stderr=io.StringIO())
+
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_session_start_without_a_stated_root_creates_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`session start` left the placeholder list, so its own rule is asserted here."""
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("MINEKIN_HOME", raising=False)
+
+    with pytest.raises(MinekinError):
+        run(
+            ["session", "start", "--profile", "missing.json"],
+            stdout=io.StringIO(),
+            stderr=io.StringIO(),
+        )
 
     assert list(tmp_path.iterdir()) == []
 

@@ -8,6 +8,7 @@ where data lives and which name a Kin plays under; see
 from __future__ import annotations
 
 import os
+import shutil
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -17,6 +18,8 @@ from minekin_core.domain.offline_identity import is_valid_username
 
 DATA_ROOT_VARIABLE = "MINEKIN_HOME"
 USERNAME_VARIABLE = "MINEKIN_USERNAME"
+JAVA_VARIABLE = "MINEKIN_JAVA"
+KIN_VARIABLE = "MINEKIN_KIN_ID"
 
 
 def _reject(message: str) -> MinekinError:
@@ -56,6 +59,32 @@ def configured_username(environ: Mapping[str, str] | None = None) -> str:
             f"{USERNAME_VARIABLE} must follow the vanilla 3-16 [A-Za-z0-9_] rule: {value!r}"
         )
     return value
+
+
+def kin_selector(environ: Mapping[str, str] | None = None) -> str | None:
+    """An explicit Kin choice, needed only when the root holds more than one."""
+
+    source = os.environ if environ is None else environ
+    value = source.get(KIN_VARIABLE, "").strip()
+    return value or None
+
+
+def java_executable(environ: Mapping[str, str] | None = None) -> Path:
+    """Where Java lives: named by the operator, otherwise found on `PATH`."""
+
+    source = os.environ if environ is None else environ
+    explicit = source.get(JAVA_VARIABLE, "").strip()
+    if explicit:
+        path = Path(explicit)
+        if not path.is_absolute():
+            raise _reject(f"{JAVA_VARIABLE} must be an absolute path")
+        if not path.is_file():
+            raise _reject(f"{JAVA_VARIABLE} names a file that does not exist: {path}")
+        return path
+    found = shutil.which("java")
+    if found is None:
+        raise _reject(f"java was not found on PATH; set {JAVA_VARIABLE} to name one")
+    return Path(found)
 
 
 @dataclass(frozen=True, slots=True)
