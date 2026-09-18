@@ -7,6 +7,9 @@ from minekin_core.domain.ids import Generation
 from minekin_core.domain.perception import (
     DEFAULT_OBSERVATION_RADIUS_BLOCKS,
     EntityCandidate,
+    InventoryStackValue,
+    InventoryValue,
+    SelfStateValue,
     SnapshotAdmission,
     admit_snapshot,
 )
@@ -30,6 +33,30 @@ def decode_entities(
     )
 
 
+def decode_self_state(snapshot: observation_pb2.InitialObservation) -> SelfStateValue:
+    return SelfStateValue(
+        health=snapshot.self.health,
+        max_health=snapshot.self.max_health,
+        food=snapshot.self.food,
+        saturation=snapshot.self.saturation,
+        alive=snapshot.self.alive,
+    )
+
+
+def decode_inventory(snapshot: observation_pb2.InitialObservation) -> InventoryValue:
+    return InventoryValue(
+        revision=snapshot.inventory.revision,
+        stacks=tuple(
+            InventoryStackValue(
+                slot=stack.slot,
+                item_id=stack.item_id,
+                count=stack.count,
+            )
+            for stack in snapshot.inventory.stacks
+        ),
+    )
+
+
 def admit_first_snapshot(
     snapshot: observation_pb2.InitialObservation,
     *,
@@ -47,5 +74,7 @@ def admit_first_snapshot(
         entities=decode_entities(snapshot),
         recorded=recorded,
         reported=decode_session_identity(snapshot.session_identity),
+        self_state=decode_self_state(snapshot),
+        inventory=decode_inventory(snapshot),
         radius_blocks=radius_blocks,
     )

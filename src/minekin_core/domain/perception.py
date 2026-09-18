@@ -31,6 +31,11 @@ from minekin_core.domain.session_material import (
 # generous, because the line-of-sight rule is the one doing the work.
 DEFAULT_OBSERVATION_RADIUS_BLOCKS: Final[float] = 64.0
 
+# Vanilla scales the HUD uses. A reading outside these is not a player state, so
+# it is a broken or fabricated observation rather than something to clamp.
+MAX_FOOD: Final[int] = 20
+MAX_STACK_COUNT: Final[int] = 64
+
 
 class EntityReason(StrEnum):
     """Why a proposed entity was not passed up, as a stable evidence token."""
@@ -48,6 +53,49 @@ class SnapshotReason(StrEnum):
     NOT_AUTHORITATIVE = "NOT_AUTHORITATIVE"
     GENERATION_MISMATCH = "GENERATION_MISMATCH"
     SESSION_MATERIAL_MISMATCH = "SESSION_MATERIAL_MISMATCH"
+    SELF_STATE_INCOHERENT = "SELF_STATE_INCOHERENT"
+    INVENTORY_INVALID = "INVENTORY_INVALID"
+
+
+class IntegrityViolation(StrEnum):
+    """The specific finding behind a self-state or inventory rejection."""
+
+    SELF_NOT_FINITE = "SELF_NOT_FINITE"
+    MAX_HEALTH_NOT_POSITIVE = "MAX_HEALTH_NOT_POSITIVE"
+    HEALTH_OUT_OF_RANGE = "HEALTH_OUT_OF_RANGE"
+    FOOD_OUT_OF_RANGE = "FOOD_OUT_OF_RANGE"
+    SATURATION_NEGATIVE = "SATURATION_NEGATIVE"
+    ALIVE_DISAGREES_WITH_HEALTH = "ALIVE_DISAGREES_WITH_HEALTH"
+    INVENTORY_REVISION_UNSET = "INVENTORY_REVISION_UNSET"
+    STACK_COUNT_OUT_OF_RANGE = "STACK_COUNT_OUT_OF_RANGE"
+    STACK_ITEM_MISSING = "STACK_ITEM_MISSING"
+    STACK_SLOT_DUPLICATED = "STACK_SLOT_DUPLICATED"
+
+
+@dataclass(frozen=True, slots=True)
+class SelfStateValue:
+    """The HUD fields coherence is decided from, not a mirror of the message."""
+
+    health: float
+    max_health: float
+    food: int
+    saturation: float
+    alive: bool
+
+
+@dataclass(frozen=True, slots=True)
+class InventoryStackValue:
+    """One summary stack: what coherence needs, without the item damage or NBT."""
+
+    slot: int
+    item_id: str
+    count: int
+
+
+@dataclass(frozen=True, slots=True)
+class InventoryValue:
+    revision: int
+    stacks: tuple[InventoryStackValue, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -101,15 +149,68 @@ class SnapshotAdmission:
     visible_world: VisibleWorld
     session: SessionMaterialVerdict
     game_tick: int
+    integrity: tuple[IntegrityViolation, ...] = ()
 
     def as_document(self) -> dict[str, object]:
         return {
             "admitted": self.admitted,
             "reasons": [reason.value for reason in self.reasons],
             "game_tick": self.game_tick,
+            "integrity": [violation.value for violation in self.integrity],
             "session": self.session.as_document(),
             "visible_world": self.visible_world.as_document(),
         }
+
+
+def self_state_violations(state: SelfStateValue) -> tuple[IntegrityViolation, ...]:
+    """Check the HUD reading against what vanilla can actually report.
+
+    Values are rejected rather than clamped: a health of 300 is not a player at
+    full health, it is a reading nobody should act on.
+    """
+
+    violations: set[IntegrityViolation] = set()
+    if not all(
+        math.isfinite(value) for value in (state.health, state.max_health, state.saturation)
+    ):
+        violations.add(IntegrityViolation.SELF_NOT_FINITE)
+    if isinstance(state.max_health, bool) or not state.max_health > 0:
+        violations.add(IntegrityViolation.MAX_HEALTH_NOT_POSITIVE)
+    # NaN compares false against every bound, so a non-finite health would slip
+    # through the range check below.
+    if not math.isfinite(state.health) or not 0 <= state.health <= state.max_health:
+        violations.add(IntegrityViolation.HEALTH_OUT_OF_RANGE)
+    # `bool` is an `int`, so a JSON `true` would otherwise pass as food 1.
+    if isinstance(state.food, bool) or not 0 <= state.food <= MAX_FOOD:
+        violations.add(IntegrityViolation.FOOD_OUT_OF_RANGE)
+    if math.isfinite(state.saturation) and state.saturation < 0:
+        violations.add(IntegrityViolation.SATURATION_NEGATIVE)
+    if state.alive != (state.health > 0):
+        violations.add(IntegrityViolation.ALIVE_DISAGREES_WITH_HEALTH)
+    return tuple(sorted(violations))
+
+
+def inventory_violations(inventory: InventoryValue) -> tuple[IntegrityViolation, ...]:
+    """Check the inventory summary before anything treats it as the real contents."""
+
+    violations: set[IntegrityViolation] = set()
+    # Revision zero means the Bridge never populated the summary, so nothing here
+    # can be correlated with a known inventory state.
+    if isinstance(inventory.revision, bool) or inventory.revision < 1:
+        violations.add(IntegrityViolation.INVENTORY_REVISION_UNSET)
+
+    slots: set[int] = set()
+    for stack in inventory.stacks:
+        if not stack.item_id.strip():
+            violations.add(IntegrityViolation.STACK_ITEM_MISSING)
+        if isinstance(stack.count, bool) or not 1 <= stack.count <= MAX_STACK_COUNT:
+            violations.add(IntegrityViolation.STACK_COUNT_OUT_OF_RANGE)
+        if stack.slot in slots:
+            # Two stacks in one slot means the summary does not describe a real
+            # inventory, so its counts cannot be trusted either.
+            violations.add(IntegrityViolation.STACK_SLOT_DUPLICATED)
+        slots.add(stack.slot)
+    return tuple(sorted(violations))
 
 
 def filter_visible_entities(
@@ -179,6 +280,8 @@ def admit_snapshot(
     entities: tuple[EntityCandidate, ...],
     recorded: RecordedSessionMaterial,
     reported: ReportedSessionIdentity,
+    self_state: SelfStateValue,
+    inventory: InventoryValue,
     radius_blocks: float = DEFAULT_OBSERVATION_RADIUS_BLOCKS,
 ) -> SnapshotAdmission:
     """Decide whether a first snapshot may become the basis of PLAYABLE.
@@ -189,6 +292,9 @@ def admit_snapshot(
 
     visible_world = filter_visible_entities(entities, radius_blocks=radius_blocks)
     session = compare_session_material(recorded, reported)
+    self_violations = self_state_violations(self_state)
+    inventory_findings = inventory_violations(inventory)
+    integrity = tuple(sorted({*self_violations, *inventory_findings}))
 
     reasons: set[SnapshotReason] = set()
     if not authoritative:
@@ -197,6 +303,10 @@ def admit_snapshot(
         reasons.add(SnapshotReason.GENERATION_MISMATCH)
     if not session.matched:
         reasons.add(SnapshotReason.SESSION_MATERIAL_MISMATCH)
+    if self_violations:
+        reasons.add(SnapshotReason.SELF_STATE_INCOHERENT)
+    if inventory_findings:
+        reasons.add(SnapshotReason.INVENTORY_INVALID)
 
     admitted = not reasons
     return SnapshotAdmission(
@@ -205,4 +315,5 @@ def admit_snapshot(
         visible_world=visible_world if admitted else VisibleWorld((), visible_world.rejected),
         session=session,
         game_tick=game_tick,
+        integrity=integrity,
     )

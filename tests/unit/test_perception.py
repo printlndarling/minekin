@@ -10,10 +10,16 @@ from minekin_core.domain.ids import Generation
 from minekin_core.domain.perception import (
     EntityCandidate,
     EntityReason,
+    IntegrityViolation,
+    InventoryStackValue,
+    InventoryValue,
+    SelfStateValue,
     SnapshotAdmission,
     SnapshotReason,
     admit_snapshot,
     filter_visible_entities,
+    inventory_violations,
+    self_state_violations,
 )
 from minekin_core.domain.session_material import (
     RecordedSessionMaterial,
@@ -36,6 +42,11 @@ REPORTED = ReportedSessionIdentity(
     client_id_present=False,
     xuid_present=False,
     credential_values_exposed=False,
+)
+HEALTHY = SelfStateValue(health=20.0, max_health=20.0, food=20, saturation=5.0, alive=True)
+LOADED = InventoryValue(
+    revision=1,
+    stacks=(InventoryStackValue(slot=0, item_id="minecraft:stone", count=64),),
 )
 
 
@@ -65,6 +76,8 @@ def admit(
     entities: tuple[EntityCandidate, ...] = (),
     reported: ReportedSessionIdentity = REPORTED,
     radius_blocks: float = 64.0,
+    self_state: SelfStateValue = HEALTHY,
+    inventory: InventoryValue = LOADED,
 ) -> SnapshotAdmission:
     return admit_snapshot(
         authoritative=authoritative,
@@ -74,6 +87,8 @@ def admit(
         entities=entities,
         recorded=RECORDED,
         reported=reported,
+        self_state=self_state,
+        inventory=inventory,
         radius_blocks=radius_blocks,
     )
 
@@ -85,6 +100,8 @@ def snapshot(
     authoritative: bool = True,
     entities: tuple[EntityCandidate, ...] = (),
     session: ReportedSessionIdentity = REPORTED,
+    self_state: SelfStateValue = HEALTHY,
+    inventory: InventoryValue = LOADED,
 ) -> observation_pb2.InitialObservation:
     message = observation_pb2.InitialObservation(
         generation=generation,
@@ -99,7 +116,17 @@ def snapshot(
             session_client_id_present=session.client_id_present,
             credential_values_exposed=session.credential_values_exposed,
         ),
+        self=observation_pb2.SelfState(
+            health=self_state.health,
+            max_health=self_state.max_health,
+            food=self_state.food,
+            saturation=self_state.saturation,
+            alive=self_state.alive,
+        ),
+        inventory=observation_pb2.InventorySummary(revision=inventory.revision),
     )
+    for stack in inventory.stacks:
+        message.inventory.stacks.add(slot=stack.slot, item_id=stack.item_id, count=stack.count)
     for candidate in entities:
         message.visible_entities.add(
             observation_id=candidate.observation_id,
@@ -276,6 +303,7 @@ def test_the_admission_document_is_evidence_ready() -> None:
         "admitted": False,
         "reasons": ["NOT_AUTHORITATIVE"],
         "game_tick": 100,
+        "integrity": [],
         "session": {
             "matched": True,
             "mismatches": [],
@@ -310,3 +338,140 @@ def test_a_wire_snapshot_without_a_session_report_is_not_admitted() -> None:
 
 def test_an_empty_entity_list_decodes_to_an_empty_world() -> None:
     assert decode_entities(observation_pb2.InitialObservation()) == ()
+
+
+def test_a_healthy_self_state_has_no_violations() -> None:
+    assert self_state_violations(HEALTHY) == ()
+
+
+@pytest.mark.parametrize(
+    ("state", "expected"),
+    [
+        (replace(HEALTHY, max_health=0.0), IntegrityViolation.MAX_HEALTH_NOT_POSITIVE),
+        (replace(HEALTHY, max_health=-1.0), IntegrityViolation.MAX_HEALTH_NOT_POSITIVE),
+        (replace(HEALTHY, health=21.0), IntegrityViolation.HEALTH_OUT_OF_RANGE),
+        (replace(HEALTHY, health=-1.0), IntegrityViolation.HEALTH_OUT_OF_RANGE),
+        (replace(HEALTHY, health=float("nan")), IntegrityViolation.HEALTH_OUT_OF_RANGE),
+        (replace(HEALTHY, food=21), IntegrityViolation.FOOD_OUT_OF_RANGE),
+        (replace(HEALTHY, food=-1), IntegrityViolation.FOOD_OUT_OF_RANGE),
+        # `True` is an int, so without the bool guard it would read as food 1.
+        (replace(HEALTHY, food=True), IntegrityViolation.FOOD_OUT_OF_RANGE),
+        (replace(HEALTHY, saturation=-0.1), IntegrityViolation.SATURATION_NEGATIVE),
+        (replace(HEALTHY, health=0.0), IntegrityViolation.ALIVE_DISAGREES_WITH_HEALTH),
+        (
+            replace(HEALTHY, alive=False),
+            IntegrityViolation.ALIVE_DISAGREES_WITH_HEALTH,
+        ),
+    ],
+)
+def test_an_impossible_hud_reading_is_flagged(
+    state: SelfStateValue, expected: IntegrityViolation
+) -> None:
+    assert expected in self_state_violations(state)
+
+
+def test_a_dead_player_with_no_health_is_coherent() -> None:
+    assert self_state_violations(replace(HEALTHY, health=0.0, alive=False)) == ()
+
+
+def test_non_finite_self_state_is_flagged_once_without_repeating_itself() -> None:
+    violations = self_state_violations(replace(HEALTHY, saturation=float("inf")))
+
+    assert IntegrityViolation.SELF_NOT_FINITE in violations
+    assert IntegrityViolation.SATURATION_NEGATIVE not in violations
+
+
+def test_a_plausible_inventory_has_no_violations() -> None:
+    assert inventory_violations(LOADED) == ()
+
+
+@pytest.mark.parametrize(
+    ("inventory", "expected"),
+    [
+        (replace(LOADED, revision=0), IntegrityViolation.INVENTORY_REVISION_UNSET),
+        (replace(LOADED, revision=True), IntegrityViolation.INVENTORY_REVISION_UNSET),
+        (
+            replace(LOADED, stacks=(InventoryStackValue(slot=0, item_id="", count=1),)),
+            IntegrityViolation.STACK_ITEM_MISSING,
+        ),
+        (
+            replace(
+                LOADED, stacks=(InventoryStackValue(slot=0, item_id="minecraft:stone", count=0),)
+            ),
+            IntegrityViolation.STACK_COUNT_OUT_OF_RANGE,
+        ),
+        (
+            replace(
+                LOADED, stacks=(InventoryStackValue(slot=0, item_id="minecraft:stone", count=65),)
+            ),
+            IntegrityViolation.STACK_COUNT_OUT_OF_RANGE,
+        ),
+        (
+            replace(
+                LOADED,
+                stacks=(
+                    InventoryStackValue(slot=3, item_id="minecraft:stone", count=1),
+                    InventoryStackValue(slot=3, item_id="minecraft:dirt", count=1),
+                ),
+            ),
+            IntegrityViolation.STACK_SLOT_DUPLICATED,
+        ),
+    ],
+)
+def test_an_impossible_inventory_is_flagged(
+    inventory: InventoryValue, expected: IntegrityViolation
+) -> None:
+    assert expected in inventory_violations(inventory)
+
+
+def test_an_incoherent_self_state_is_not_admitted() -> None:
+    admission = admit(entities=(entity(),), self_state=replace(HEALTHY, food=99))
+
+    assert not admission.admitted
+    assert admission.reasons == (SnapshotReason.SELF_STATE_INCOHERENT,)
+    assert admission.integrity == (IntegrityViolation.FOOD_OUT_OF_RANGE,)
+    assert admission.visible_world.accepted == ()
+
+
+def test_an_invalid_inventory_is_not_admitted() -> None:
+    admission = admit(entities=(entity(),), inventory=replace(LOADED, revision=0))
+
+    assert not admission.admitted
+    assert admission.reasons == (SnapshotReason.INVENTORY_INVALID,)
+    assert admission.integrity == (IntegrityViolation.INVENTORY_REVISION_UNSET,)
+
+
+def test_both_halves_of_the_finding_are_reported_together() -> None:
+    admission = admit(
+        self_state=replace(HEALTHY, health=99.0),
+        inventory=replace(LOADED, revision=0),
+    )
+
+    assert set(admission.reasons) == {
+        SnapshotReason.SELF_STATE_INCOHERENT,
+        SnapshotReason.INVENTORY_INVALID,
+    }
+    assert set(admission.integrity) == {
+        IntegrityViolation.HEALTH_OUT_OF_RANGE,
+        IntegrityViolation.INVENTORY_REVISION_UNSET,
+    }
+
+
+def test_a_coherent_wire_snapshot_carries_its_self_state_and_inventory() -> None:
+    admission = admit_first_snapshot(
+        snapshot(entities=(entity(),)), generation=Generation(7), recorded=RECORDED
+    )
+
+    assert admission.admitted
+    assert admission.integrity == ()
+
+
+def test_an_incoherent_wire_snapshot_is_not_admitted() -> None:
+    admission = admit_first_snapshot(
+        snapshot(self_state=replace(HEALTHY, alive=False)),
+        generation=Generation(7),
+        recorded=RECORDED,
+    )
+
+    assert not admission.admitted
+    assert SnapshotReason.SELF_STATE_INCOHERENT in admission.reasons

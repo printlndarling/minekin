@@ -89,7 +89,7 @@
 ## W50：玩家等价首快照
 
 - [x] visible-world 过滤器与首快照准入：未确认视线的候选只丢弃不猜位置，距离、非有限坐标（NaN 会绕过朴素距离判断）、缺失或重复的目标令牌各自计数；快照未准入时**不交出任何实体**，漏检 `admitted` 的调用者也拿不到世界。
-- [ ] self 与 inventory 快照及数值一致性过滤器（生命/饥饿/饱食范围、背包 revision 与堆叠上界）。
+- [x] self 与 inventory 一致性过滤器：生命不在 `0..max_health`、`max_health` 非正、饥饿不在 vanilla 的 `0..20`、饱食为负、非有限数值，以及 `alive` 与 `health > 0` 互相矛盾都判为不可用读数——按拒绝处理而不是钳制，300 点生命不是满血玩家。背包侧拒绝未设置的 revision、非 1..64 的堆叠数、缺 item id 与同槽重复；`bool` 是 `int`，因此每个整数上界都单独挡 `true`（否则 `food=true` 会被读成食物 1）。
 - [x] 同 generation 与身份绑定的准入：`authoritative`、快照 generation 必须是当前 generation、快照内 session 报告必须与 Launcher 记录一致，三者任一不成立都不准入。
 - [ ] 建立 Bridge/Runtime、server truth、orchestrator 三条时间线：需要真实运行。
 - [x] oracle canary 与字段泄漏扫描：canary 值进入 wheel 路径/内容即失败（已验证能抓到人为注入），产品源码与 runtime-input 也扫描；观察消息的字段集与命名按已发布 descriptor 断言，容器、seed、服务端坐标没有字段可落。
