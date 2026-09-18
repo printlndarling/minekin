@@ -128,6 +128,34 @@ class PinnedMetadata:
     base_metadata_sha256: str
     fabric_metadata_sha256: str
     fabric_coordinates: tuple[str, ...]
+    fabric_libraries: tuple[Artifact, ...]
+
+
+_FABRIC_CHECKSUM_REGISTRY = {
+    "net.fabricmc:intermediary:1.21.4": ("de610a8c6216662541bf345ba07ab8d099e1ec25", 701826),
+    "net.fabricmc:fabric-loader:0.16.9": ("7eaa23079ac1569963e488054db124c7eb984f05", 1387357),
+}
+
+
+def _maven_artifact(entry: Mapping[str, Any]) -> Artifact:
+    coordinate = _text(entry.get("name"), "Fabric library.name")
+    parts = coordinate.split(":")
+    if len(parts) != 3 or not all(parts):
+        raise _reject("Fabric library coordinate is not group:artifact:version")
+    group, name, version = parts
+    relative = f"{group.replace('.', '/')}/{name}/{version}/{name}-{version}.jar"
+    base_url = _https_url(entry.get("url"), f"Fabric library {coordinate}.url")
+    sha1 = entry.get("sha1")
+    size = entry.get("size")
+    if sha1 is None or size is None:
+        registered = _FABRIC_CHECKSUM_REGISTRY.get(coordinate)
+        if registered is None:
+            raise _reject("Fabric library has no reviewed checksum sidecar")
+        sha1, size = registered
+    return _artifact(
+        {"path": relative, "url": f"{base_url.rstrip('/')}/{relative}", "sha1": sha1, "size": size},
+        coordinate,
+    )
 
 
 def _rule_matches(rule: Mapping[str, Any], target: TargetPlatform) -> bool:
@@ -315,9 +343,12 @@ def parse_pinned_metadata(
         raise _reject("Fabric profile inheritance does not match the pinned Minecraft version")
     if fabric.get("mainClass") != FABRIC_MAIN_CLASS:
         raise _reject("Fabric profile main class is not the reviewed Knot client")
-    coordinates = tuple(
-        _text(_object(item, "Fabric library").get("name"), "Fabric library.name")
+    fabric_library_entries = [
+        _object(item, "Fabric library")
         for item in _array(fabric.get("libraries"), "Fabric libraries")
+    ]
+    coordinates = tuple(
+        _text(item.get("name"), "Fabric library.name") for item in fabric_library_entries
     )
     if f"net.fabricmc:fabric-loader:{FABRIC_LOADER}" not in coordinates:
         raise _reject("Fabric profile does not contain the pinned loader")
@@ -341,6 +372,7 @@ def parse_pinned_metadata(
         base_metadata_sha256=hashlib.sha256(version_raw).hexdigest(),
         fabric_metadata_sha256=hashlib.sha256(fabric_raw).hexdigest(),
         fabric_coordinates=coordinates,
+        fabric_libraries=tuple(_maven_artifact(item) for item in fabric_library_entries),
     )
 
 

@@ -44,7 +44,6 @@ def test_launch_plan_requires_explicit_dry_run() -> None:
     [
         ["init", "--kin-id", "kin-1"],
         ["bundle", "verify", "--profile", "missing.json"],
-        ["launch-plan", "--profile", "missing.json", "--dry-run"],
         ["session", "start", "--profile", "missing.json"],
         ["session", "status"],
         ["session", "stop"],

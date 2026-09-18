@@ -17,6 +17,11 @@
     "api": "0.119.4+1.21.4",
     "yarn": "1.21.4+build.8"
   },
+  "metadata": {
+    "version_manifest": "../launcher/version_manifest_v2.json",
+    "version_json": "../launcher/1.21.4.json",
+    "fabric_profile": "../launcher/fabric-loader-0.16.9.json"
+  },
   "artifacts": [
     {
       "name": "fabric-api",

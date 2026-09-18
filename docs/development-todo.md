@@ -41,9 +41,9 @@
 ## W10：Launcher 元数据与 dry-run
 
 - [x] 保存上游原始响应并解析、校验 Mojang 1.21.4 与 Fabric 0.16.9 固定元数据；版本身份、Java/main class、规则与 Fabric 继承均 fail closed。
-- [ ] 生成可审计的 classpath、natives、JVM/game argv 与内容摘要。
+- [x] 生成可审计的内容寻址 classpath、session natives 目录、独立 JVM argv、typed game argv 模板与规范化计划摘要。
 - [ ] 逐项校验 URL、大小、SHA、Java 21、main class、规则与固定 mod 集。
-- [ ] 使用独立 argv 元素；禁止 shell 拼接、未替换占位符与宿主 `.minecraft` 访问。
+- [x] 使用独立 argv 元素；JVM 占位符必须全部解析、game 占位符必须转为 typed entry，并禁止 shell 拼接与宿主 `.minecraft` 访问。
 - [ ] 建立内容寻址 artifact store、只读 bundle 与可写 session overlay。
 - [ ] 门禁：所有工件与参数可复核；篡改、未知 artifact 或不兼容 runtime 均 fail closed。
 

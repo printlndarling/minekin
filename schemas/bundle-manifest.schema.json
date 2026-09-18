@@ -4,7 +4,7 @@
   "title": "Minekin P0 bundle recipe manifest v1",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "bundle_name", "status", "launchable", "minecraft", "runtime", "fabric", "artifacts"],
+  "required": ["schema_version", "bundle_name", "status", "launchable", "minecraft", "runtime", "fabric", "metadata", "artifacts"],
   "properties": {
     "schema_version": {"const": 1},
     "bundle_name": {"type": "string", "minLength": 1},
@@ -37,6 +37,16 @@
         "loader": {"const": "0.16.9"},
         "api": {"const": "0.119.4+1.21.4"},
         "yarn": {"const": "1.21.4+build.8"}
+      }
+    },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["version_manifest", "version_json", "fabric_profile"],
+      "properties": {
+        "version_manifest": {"type": "string", "minLength": 1},
+        "version_json": {"type": "string", "minLength": 1},
+        "fabric_profile": {"type": "string", "minLength": 1}
       }
     },
     "artifacts": {

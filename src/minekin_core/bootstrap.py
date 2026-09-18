@@ -6,8 +6,10 @@ import argparse
 import json
 import sys
 from collections.abc import Sequence
+from pathlib import Path
 from typing import TextIO
 
+from minekin_core.adapters.launcher.launch_plan import build_launch_plan
 from minekin_core.cli.doctor import diagnose
 from minekin_core.cli.parser import parse_args
 from minekin_core.domain.errors import ExitCode, fail_closed
@@ -43,6 +45,10 @@ def run(
         report = diagnose()
         _emit(report.as_dict(), stdout)
         return int(ExitCode.OK if report.ok else ExitCode.CONFIG)
+
+    if args.command == "launch-plan":
+        _emit(build_launch_plan(Path(args.profile)), stdout)
+        return int(ExitCode.OK)
 
     command = _command_name(args)
     _emit(
