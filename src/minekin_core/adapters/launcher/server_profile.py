@@ -17,12 +17,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
 
+from minekin_core.domain.admission import AddressPolicy, decide_endpoint
 from minekin_core.domain.errors import ErrorCategory, MinekinError, Retryability
 
 PROFILE_SCHEMA_VERSION = 1
 MINECRAFT_VERSION = "1.21.4"
 
-_LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1"})
 _RESOURCE_PACK_POLICIES = frozenset({"deny", "prompt"})
 _PROFILE_ID = re.compile(r"^[a-z0-9][a-z0-9._-]+$")
 _REQUIRED_KEYS = frozenset(
@@ -64,7 +64,7 @@ class ServerProfile:
 
     @property
     def is_loopback(self) -> bool:
-        return self.host in _LOOPBACK_HOSTS
+        return decide_endpoint(AddressPolicy.p0_loopback(), self.host, self.port).allowed
 
     def endpoint(self) -> str:
         """The socket endpoint, with IPv6 bracketed the way a client needs it."""
@@ -136,10 +136,13 @@ def load_server_profile(path: Path) -> ServerProfile:
         raise _reject("server profile profile_id is not a lowercase reference")
 
     host = _text(profile, "host")
-    if host not in _LOOPBACK_HOSTS:
-        raise _reject("P0 admits only a saved loopback profile; no LAN scan or DNS name")
-
     port = _port(profile)
+    decision = decide_endpoint(AddressPolicy.p0_loopback(), host, port)
+    if not decision.allowed:
+        reasons = ", ".join(reason.value for reason in decision.reasons)
+        raise _reject(
+            f"P0 admits only a saved loopback profile ({reasons}); no LAN scan or DNS name"
+        )
 
     if _text(profile, "auth_mode") != "offline":
         raise _reject("P0 has no online-mode admission path")
