@@ -16,7 +16,7 @@
 
 - [x] Git 工作树与 `origin/main` 基线确认。
 - [x] Python 与 uv 可用。
-- [x] 固定 Java 21；本机以 JDK 21.0.12.1 完成 Gradle 8.12.1 的 Bridge `clean check`。
+- [x] 固定 Java 21；本机以 JDK 21.0.12.1 完成 Gradle 8.12.1 的 Bridge `clean check`，并在改过 proto 与 Bridge 源码之后以 `--offline` 重新验证过：strict verification、锁定依赖、`BUILD SUCCESSFUL`。Bridge 源码树摘要在反复跑 Gradle 之后保持不变，说明 `build/` 与 `.gradle/` 确实被排除在摘要之外。
 - [x] 以 CI 中固定版本的 Buf action 提供 schema build/lint/format 门禁；本机另用固定 Buf `v1.50.0` 完成 W00 lint，并复现同一生成字节。
 - [x] 完成 Gradle 依赖锁与 SHA-256 verification metadata；固定 Wrapper 8.12.1 已在 Java 21 下通过离线 strict verification `clean check`。
 - [ ] 为受控 Linux runner 准备 Java 21、Xvfb、原版 1.21.4 server 与隔离账号/目录。
@@ -62,6 +62,7 @@
 - [x] Bridge 默认 `OBSERVE_ONLY`，握手前无连接和输入能力。
 - [x] IPC/编码在后台有界队列运行，Minecraft 对象只在 client thread 访问。
 - [x] 门禁（静态子集）：错误 nonce/protocol、未协商 capability 与越界心跳/帧长被拒并 safe-stop，未知 mod 被 bundle recipe 拒绝，握手后仍为 `OBSERVE_ONLY`（无连接、无输入）；由 `BridgeProtocolSelfTest`、`BridgeIpcWorkerSelfTest` 与 `test_unknown_mod_is_rejected` 覆盖，并已接入 CI 的 `bridge-static`。
+- [x] Gradle 侧终于有测试：`build.gradle.kts` 一直声明 JUnit 并配置 `useJUnitPlatform()`，但 `:test` 始终是 `NO-SOURCE`，于是「manifest 里写的 entrypoint 类是否真的存在、是否真的实现 `ClientModInitializer`」从来没人验过——而 manifest 指向一个不存在的类是 Fabric 启动失败的经典形态，文本检查抓不到。现在 `BridgeEntrypointTest` 用编译产物验证这条链，并复核 manifest 的固定依赖集与 client-only 环境。它需要 Fabric API 在 classpath 上，但不需要 Minecraft 运行时，因此在依赖已缓存时本机离线可跑；普通 CI 仍不下载 Minecraft 资产，所以不进 CI。
 - [ ] 门禁（实测）：真实 1.21.4 客户端内 tick/render 回调预算的 P50/P95/P99 尚未测量；W20 只有“worker 启动不阻塞、队列有界不阻塞”的结构证据，实测随 W30 首次真实启动补齐。
 
 ## W30：Offline Session
