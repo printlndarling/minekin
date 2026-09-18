@@ -18,7 +18,10 @@ class RuntimeRequirements:
     python_max_exclusive: tuple[int, int] = (3, 14)
     java_major: int = 21
     protobuf_distribution: str = "protobuf"
-    protobuf_min: tuple[int, int] = (5, 29)
+    # The checked-in gencode calls ValidateProtobufRuntimeVersion(6, 31, 1), so a
+    # host below that floor fails at import rather than at a check. Keep this in
+    # step with the pyproject floor and the generated modules.
+    protobuf_min: tuple[int, int] = (6, 31)
     protobuf_max_exclusive: tuple[int, int] = (7, 0)
 
     def supports_python(self, version: tuple[int, int]) -> bool:
