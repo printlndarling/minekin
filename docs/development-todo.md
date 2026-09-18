@@ -72,7 +72,8 @@
 ## W40：原版服务器准入
 
 - [ ] 启动隔离的 vanilla 1.21.4 `online-mode=false` dedicated server。
-- [ ] 实现可信 Server Profile、地址/SRV 策略与 connection generation。
+- [x] 静态子集：可信 Server Profile 加载与地址策略——只接受冻结 schema 里的 `127.0.0.1`/`::1` 两个 loopback literal，拒绝 DNS 名、私网、通配、第二条 loopback 与未知字段；profile 内容摘要作为 revision。以 `schemas/server-profile.schema.json` 做逐项对照测试，产品规则只允许比 schema 更严。
+- [ ] 地址/SRV 解析策略与 connection generation：需要真实客户端连接路径，尚未实现。
 - [ ] 经普通客户端执行 ConnectWorld，按 JOIN/认证/白名单/资源包等原因分类。
 - [ ] 取消、重连与晚到 callback 不得改变新 generation。
 - [ ] 执行 `ADMIT-001…120`；Kin 不得获得 op、RCON 或 console 权限。
