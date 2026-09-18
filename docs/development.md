@@ -26,6 +26,14 @@ uv run pytest
 uv run python tools/check_boundaries.py
 ```
 
+Bridge 协议与适配器可在无 Gradle、无 Minecraft 的情况下验证。第一条只编译协议内核；第二条从 Maven Central 按 SHA-1 校验下载固定 protoc 与 javalite，再编译 W20 适配器并跑自测。两条都只要求本机 JDK：
+
+```text
+uv run --no-project python tools/check_bridge_scaffold.py
+uv run --no-project python tools/check_bridge_protocol.py
+uv run --no-project python tools/check_bridge_proto_java.py
+```
+
 Bridge 必须用 Java 21。仓库中的 wrapper 配置不会在检出时下载 Minecraft 或 Gradle 工件；首次执行下列命令才会解析候选依赖：
 
 ```text

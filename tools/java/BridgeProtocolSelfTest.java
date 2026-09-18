@@ -1,18 +1,27 @@
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
+import java.util.function.Function;
 import org.minekin.bridge.protocol.FrameCodec;
 import org.minekin.bridge.protocol.HandshakeGate;
 import org.minekin.bridge.runtime.BoundedChannel;
 import org.minekin.bridge.runtime.BridgePhaseMachine;
 
 public final class BridgeProtocolSelfTest {
+    private static final Set<String> BASELINE_CAPABILITIES =
+            Set.of("session.handshake.v1", "observation.lifecycle.v1");
+    private static final int DEFAULT_HEARTBEAT_MS = 500;
+    private static final int DEFAULT_MAX_FRAME_BYTES = 4 * 1024 * 1024;
+
     public static void main(String[] args) {
         framingIsNetworkOrderAndIncremental();
         oversizedFramesFailBeforeAllocation();
         queuesNeverBlockOrGrowPastTheirBound();
         phasesFailClosedAndNeverPermitInput();
         handshakeIsSingleUseAndIdentityBound();
+        wrongNonceProtocolAndCapabilitiesAreRejected();
+        handshakeBoundsAdmitOnlyTheAcceptedRange();
     }
 
     private static void framingIsNetworkOrderAndIncremental() {
@@ -60,11 +69,124 @@ public final class BridgeProtocolSelfTest {
     }
 
     private static void handshakeIsSingleUseAndIdentityBound() {
+        HandshakeGate.Expected expected = expectedHandshake();
+        BridgePhaseMachine phases = new BridgePhaseMachine();
+        phases.transition(BridgePhaseMachine.Phase.IPC_CONNECTING);
+        HandshakeGate gate = new HandshakeGate(expected, phases);
+        require(gate.bridgeHello().proof().length() == 64, "HMAC proof is SHA-256 hex");
+        require(gate.bridgeHello().launchNonce().length() == 64, "nonce is explicit 256-bit hex");
+        var accepted = signed(
+                gate,
+                1,
+                0,
+                "session-01",
+                4,
+                BASELINE_CAPABILITIES,
+                DEFAULT_HEARTBEAT_MS,
+                DEFAULT_MAX_FRAME_BYTES);
+        require(gate.accept(accepted), "matching Core hello");
+        require(phases.phase() == BridgePhaseMachine.Phase.OBSERVE_ONLY, "observe-only activation");
+        require(!gate.accept(accepted), "handshake cannot be replayed");
+        require(phases.phase() == BridgePhaseMachine.Phase.SAFE_STOP, "replay is fail-closed");
+
+        expectHandshakeRejected(expected, gate2 -> signed(
+                gate2, 1, 0, "session-01", 5, BASELINE_CAPABILITIES,
+                DEFAULT_HEARTBEAT_MS, DEFAULT_MAX_FRAME_BYTES));
+
+        BridgePhaseMachine badProofPhases = new BridgePhaseMachine();
+        badProofPhases.transition(BridgePhaseMachine.Phase.IPC_CONNECTING);
+        HandshakeGate badProofGate = new HandshakeGate(expected, badProofPhases);
+        var badProof = new HandshakeGate.CoreHelloData(
+                1,
+                0,
+                "session-01",
+                4,
+                BASELINE_CAPABILITIES,
+                DEFAULT_HEARTBEAT_MS,
+                DEFAULT_MAX_FRAME_BYTES,
+                "0".repeat(64));
+        require(!badProofGate.accept(badProof), "invalid Core proof is rejected");
+    }
+
+    /** A wrong nonce, protocol revision, session or capability set must never reach OBSERVE_ONLY. */
+    private static void wrongNonceProtocolAndCapabilitiesAreRejected() {
+        HandshakeGate.Expected expected = expectedHandshake();
+
+        expectHandshakeRejected(expected, gate -> signed(
+                gate, 2, 0, "session-01", 4, BASELINE_CAPABILITIES,
+                DEFAULT_HEARTBEAT_MS, DEFAULT_MAX_FRAME_BYTES));
+        expectHandshakeRejected(expected, gate -> signed(
+                gate, 1, 1, "session-01", 4, BASELINE_CAPABILITIES,
+                DEFAULT_HEARTBEAT_MS, DEFAULT_MAX_FRAME_BYTES));
+        expectHandshakeRejected(expected, gate -> signed(
+                gate, 1, 0, "session-02", 4, BASELINE_CAPABILITIES,
+                DEFAULT_HEARTBEAT_MS, DEFAULT_MAX_FRAME_BYTES));
+        expectHandshakeRejected(expected, gate -> signed(
+                gate, 1, 0, "session-01", 4, Set.of("observation.lifecycle.v1"),
+                DEFAULT_HEARTBEAT_MS, DEFAULT_MAX_FRAME_BYTES));
+        expectHandshakeRejected(expected, gate -> signed(
+                gate, 1, 0, "session-01", 4,
+                Set.of("session.handshake.v1", "control.move.v1"),
+                DEFAULT_HEARTBEAT_MS, DEFAULT_MAX_FRAME_BYTES));
+
+        // The launch nonce is inside both signed contexts, so a hello bound to a
+        // previous launch must not be admitted.
+        byte[] staleNonce = new byte[32];
+        java.util.Arrays.fill(staleNonce, (byte) 9);
+        HandshakeGate.Expected staleLaunch = new HandshakeGate.Expected(
+                expected.protocolMajor(),
+                expected.protocolMinor(),
+                expected.kinId(),
+                expected.sessionId(),
+                expected.generation(),
+                expected.clientInstanceId(),
+                expected.bundleDigest(),
+                expected.bridgeDigest(),
+                expected.minecraftVersion(),
+                expected.fabricLoaderVersion(),
+                staleNonce,
+                expected.sessionKey(),
+                expected.capabilities());
+        BridgePhaseMachine signerPhases = new BridgePhaseMachine();
+        signerPhases.transition(BridgePhaseMachine.Phase.IPC_CONNECTING);
+        HandshakeGate signer = new HandshakeGate(expected, signerPhases);
+        HandshakeGate.CoreHelloData helloForCurrentLaunch = signed(
+                signer,
+                1,
+                0,
+                "session-01",
+                4,
+                BASELINE_CAPABILITIES,
+                DEFAULT_HEARTBEAT_MS,
+                DEFAULT_MAX_FRAME_BYTES);
+        expectHandshakeRejected(staleLaunch, ignored -> helloForCurrentLaunch);
+    }
+
+    private static void handshakeBoundsAdmitOnlyTheAcceptedRange() {
+        HandshakeGate.Expected expected = expectedHandshake();
+
+        expectHandshakeRejected(expected, gate -> signed(
+                gate, 1, 0, "session-01", 4, BASELINE_CAPABILITIES, 99, DEFAULT_MAX_FRAME_BYTES));
+        expectHandshakeRejected(expected, gate -> signed(
+                gate, 1, 0, "session-01", 4, BASELINE_CAPABILITIES, 10_001, DEFAULT_MAX_FRAME_BYTES));
+        expectHandshakeRejected(expected, gate -> signed(
+                gate, 1, 0, "session-01", 4, BASELINE_CAPABILITIES, DEFAULT_HEARTBEAT_MS, 1023));
+        expectHandshakeRejected(expected, gate -> signed(
+                gate, 1, 0, "session-01", 4, BASELINE_CAPABILITIES, DEFAULT_HEARTBEAT_MS,
+                16 * 1024 * 1024 + 1));
+
+        expectHandshakeAccepted(expected, gate -> signed(
+                gate, 1, 0, "session-01", 4, BASELINE_CAPABILITIES, 100, 1024));
+        expectHandshakeAccepted(expected, gate -> signed(
+                gate, 1, 0, "session-01", 4, BASELINE_CAPABILITIES, 10_000, 16 * 1024 * 1024));
+    }
+
+    private static HandshakeGate.Expected expectedHandshake() {
         byte[] nonce = new byte[32];
         byte[] key = new byte[32];
         java.util.Arrays.fill(nonce, (byte) 7);
         java.util.Arrays.fill(key, (byte) 11);
-        var expected = new HandshakeGate.Expected(
+        return new HandshakeGate.Expected(
                 1,
                 0,
                 "kin-01",
@@ -77,22 +199,28 @@ public final class BridgeProtocolSelfTest {
                 "0.16.9",
                 nonce,
                 key,
-                java.util.Set.of("session.handshake.v1", "observation.lifecycle.v1"));
-        BridgePhaseMachine phases = new BridgePhaseMachine();
-        phases.transition(BridgePhaseMachine.Phase.IPC_CONNECTING);
-        HandshakeGate gate = new HandshakeGate(expected, phases);
-        require(gate.bridgeHello().proof().length() == 64, "HMAC proof is SHA-256 hex");
-        require(gate.bridgeHello().launchNonce().length() == 64, "nonce is explicit 256-bit hex");
+                BASELINE_CAPABILITIES);
+    }
+
+    private static HandshakeGate.CoreHelloData signed(
+            HandshakeGate gate,
+            int protocolMajor,
+            int protocolMinor,
+            String sessionId,
+            long generation,
+            Set<String> capabilities,
+            int heartbeatIntervalMs,
+            int maxFrameBytes) {
         var unsigned = new HandshakeGate.CoreHelloData(
-                1,
-                0,
-                "session-01",
-                4,
-                java.util.Set.of("session.handshake.v1", "observation.lifecycle.v1"),
-                500,
-                4 * 1024 * 1024,
+                protocolMajor,
+                protocolMinor,
+                sessionId,
+                generation,
+                capabilities,
+                heartbeatIntervalMs,
+                maxFrameBytes,
                 "");
-        var accepted = new HandshakeGate.CoreHelloData(
+        return new HandshakeGate.CoreHelloData(
                 unsigned.protocolMajor(),
                 unsigned.protocolMinor(),
                 unsigned.sessionId(),
@@ -101,50 +229,29 @@ public final class BridgeProtocolSelfTest {
                 unsigned.heartbeatIntervalMs(),
                 unsigned.maxFrameBytes(),
                 gate.proofForCoreHello(unsigned));
-        require(gate.accept(accepted), "matching Core hello");
-        require(phases.phase() == BridgePhaseMachine.Phase.OBSERVE_ONLY, "observe-only activation");
-        require(!gate.accept(accepted), "handshake cannot be replayed");
-        require(phases.phase() == BridgePhaseMachine.Phase.SAFE_STOP, "replay is fail-closed");
+    }
 
-        BridgePhaseMachine rejectedPhases = new BridgePhaseMachine();
-        rejectedPhases.transition(BridgePhaseMachine.Phase.IPC_CONNECTING);
-        HandshakeGate rejected = new HandshakeGate(expected, rejectedPhases);
-        var wrongGenerationUnsigned = new HandshakeGate.CoreHelloData(
-                1,
-                0,
-                "session-01",
-                5,
-                java.util.Set.of("session.handshake.v1"),
-                500,
-                4 * 1024 * 1024,
-                "");
-        var wrongGeneration = new HandshakeGate.CoreHelloData(
-                wrongGenerationUnsigned.protocolMajor(),
-                wrongGenerationUnsigned.protocolMinor(),
-                wrongGenerationUnsigned.sessionId(),
-                wrongGenerationUnsigned.generation(),
-                wrongGenerationUnsigned.acceptedCapabilities(),
-                wrongGenerationUnsigned.heartbeatIntervalMs(),
-                wrongGenerationUnsigned.maxFrameBytes(),
-                rejected.proofForCoreHello(wrongGenerationUnsigned));
-        require(!rejected.accept(wrongGeneration), "old or future generation is rejected");
+    private static void expectHandshakeRejected(
+            HandshakeGate.Expected expected, Function<HandshakeGate, HandshakeGate.CoreHelloData> build) {
+        BridgePhaseMachine phases = new BridgePhaseMachine();
+        phases.transition(BridgePhaseMachine.Phase.IPC_CONNECTING);
+        HandshakeGate gate = new HandshakeGate(expected, phases);
+        require(!gate.accept(build.apply(gate)), "mismatched Core hello must be rejected");
         require(
-                rejectedPhases.phase() == BridgePhaseMachine.Phase.SAFE_STOP,
-                "identity mismatch safe-stops");
+                phases.phase() == BridgePhaseMachine.Phase.SAFE_STOP,
+                "rejected handshake safe-stops the Bridge");
+    }
 
-        BridgePhaseMachine badProofPhases = new BridgePhaseMachine();
-        badProofPhases.transition(BridgePhaseMachine.Phase.IPC_CONNECTING);
-        HandshakeGate badProofGate = new HandshakeGate(expected, badProofPhases);
-        var badProof = new HandshakeGate.CoreHelloData(
-                1,
-                0,
-                "session-01",
-                4,
-                java.util.Set.of("session.handshake.v1"),
-                500,
-                4 * 1024 * 1024,
-                "0".repeat(64));
-        require(!badProofGate.accept(badProof), "invalid Core proof is rejected");
+    private static void expectHandshakeAccepted(
+            HandshakeGate.Expected expected, Function<HandshakeGate, HandshakeGate.CoreHelloData> build) {
+        BridgePhaseMachine phases = new BridgePhaseMachine();
+        phases.transition(BridgePhaseMachine.Phase.IPC_CONNECTING);
+        HandshakeGate gate = new HandshakeGate(expected, phases);
+        require(gate.accept(build.apply(gate)), "accepted Core hello must be admitted");
+        require(
+                phases.phase() == BridgePhaseMachine.Phase.OBSERVE_ONLY,
+                "accepted handshake reaches OBSERVE_ONLY");
+        require(!phases.permitsInput(), "OBSERVE_ONLY still refuses input");
     }
 
     private static void expectFailure(Runnable operation) {

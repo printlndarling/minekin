@@ -56,7 +56,8 @@
 - [x] 实现 nonce、protocol、generation、bundle 与 capability 握手。
 - [x] Bridge 默认 `OBSERVE_ONLY`，握手前无连接和输入能力。
 - [x] IPC/编码在后台有界队列运行，Minecraft 对象只在 client thread 访问。
-- [ ] 门禁：错误 nonce/protocol/未知 mod 被拒，client tick/render 不被阻塞。
+- [x] 门禁（静态子集）：错误 nonce/protocol、未协商 capability 与越界心跳/帧长被拒并 safe-stop，未知 mod 被 bundle recipe 拒绝，握手后仍为 `OBSERVE_ONLY`（无连接、无输入）；由 `BridgeProtocolSelfTest`、`BridgeIpcWorkerSelfTest` 与 `test_unknown_mod_is_rejected` 覆盖，并已接入 CI 的 `bridge-static`。
+- [ ] 门禁（实测）：真实 1.21.4 客户端内 tick/render 回调预算的 P50/P95/P99 尚未测量；W20 只有“worker 启动不阻塞、队列有界不阻塞”的结构证据，实测随 W30 首次真实启动补齐。
 
 ## W30：Offline Session
 
