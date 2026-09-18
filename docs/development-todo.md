@@ -129,7 +129,8 @@
 
 - [ ] 实现 `look`、短时 `move` 与幂等 `release_all`。
 - [x] 输入仲裁（Core 侧）：唯一 input owner、lease、deadline、priority 与前置状态检查全部落在 `domain/input_control.py`。取值方式来自冻结的 proto 而不是自创：优先级用 `INPUT_PRIORITY_NORMAL/URGENT/EMERGENCY` 的排序，lease 字段与 `InputLease` 一致，能力名沿用 `control.<skill>.v1` 约定（`control.move.v1`/`control.look.v1`）。规则：一次只允许一个 lease；同级或更低优先级不得抢走输入（EMERGENCY 可以抢占，这是反射路径需要的）；lease 在 deadline 处失效；引用已被替换 lease 的迟到动作一律只判为 `LEASE_SUPERSEDED` 而不执行；能力未被 lease 覆盖、动作自身 deadline 已过、或不在 PLAYABLE，都拒。所有拒绝原因一并收集，一次就说清全部原因。
-- [ ] 实现 Core/Bridge 双 watchdog。
+- [x] Core 侧 watchdog（双 watchdog 的第二层）：`domain/control_watchdog.py` 在会话进入 PLAYABLE 时**先武装、再等心跳**——启动途中就死掉的 Bridge 一个心跳都不会发，等收到才开始的看门狗永远不会发现它。超时阈值由协商的 `heartbeat_interval_ms` 推出（容忍若干个间隔，因为漏一个间隔是普通调度抖动），并且：**旧 generation 的心跳既不计数也不续期**（否则一条已关闭连接的数据包会让新连接显得还活着），乱序到达的旧时间戳同样不算新信息。与 `InputArbiter` 的合成为「静默 → 判超时 → withdraw(TIMEOUT) → 无 lease → 拒绝一切输入」，这条链路有测试覆盖。
+- [ ] Bridge 侧 watchdog（真正保证松键的第一层）与其本地按键释放：需要真实客户端；契约明确它是最终保障，Core 这层只是第二层。
 - [x] 松键的**判定**（Core 侧）：八种失效原因（显式、IPC 断、客户端死亡、GUI 冲突、超时、generation 改变、离开 PLAYABLE、被抢占）走同一条 `withdraw`，结果都是「没有任何 lease 留下」，因此都意味着松全部按键；重复 withdraw 无害，在本来就没有 lease 时 withdraw 依然报出「需要松键」——Bridge 必须照做，而不是因为 Core 以为自己没持有就跳过。有一条测试遍历全部八种原因逐一验证这一不变量。
 - [ ] 松键的**执行**（Bridge 侧）与 `look`/短时 `move` 的实际施加：需要真实客户端，Bridge 的本地 watchdog 才是最终保障。
 - [ ] 门禁：服务端离线核验真实位移；不得瞬移、直接写状态或残留按键。
