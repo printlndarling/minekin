@@ -19,6 +19,12 @@ from minekin_core.adapters.launcher.artifacts import ArtifactStore, SessionOverl
 from minekin_core.adapters.launcher.launch_plan import build_launch_plan
 from minekin_core.adapters.launcher.metadata import Artifact
 from minekin_core.adapters.launcher.offline_session import OFFLINE_SESSION_CANDIDATES
+from minekin_core.adapters.launcher.orphans import (
+    Liveness,
+    default_probe,
+    require_no_unresolved_client,
+    write_marker,
+)
 from minekin_core.adapters.launcher.process import build_process_spec
 from minekin_core.adapters.launcher.supervisor import ProcessIdentity, ProcessSupervisor
 from minekin_core.adapters.sqlite.connection import connect_reader
@@ -172,6 +178,7 @@ def start_session(
     supervisor_factory: SupervisorFactory = default_supervisor_factory,
     forward_environment: Mapping[str, str] | None = None,
     event_log: SessionEventLog | None = None,
+    probe: Callable[[int], Liveness] = default_probe,
 ) -> SessionLaunch:
     """Read the identity, prove readiness, then create the overlay and start."""
 
@@ -187,6 +194,10 @@ def start_session(
     plan = build_launch_plan(profile)
     require_launchable(plan)
     require_store_complete(plan, ArtifactStore(runs / "artifact-store"))
+
+    # Before anything is created: a second client on top of a live one shares the
+    # overlay and appears to the server as a second player.
+    require_no_unresolved_client(runs, probe=probe)
 
     overlays = SessionOverlayStore(runs / "session")
     overlay = overlays.create(session_id, generation)
@@ -221,6 +232,7 @@ def start_session(
             error=error,
         )
         raise
+    write_marker(overlay, identity=process, session_id=session_id, generation=generation)
     ledger.record_process_started(
         kin_id=str(identity.kin_id),
         run_id=run_id,
