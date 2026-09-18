@@ -1,6 +1,6 @@
 # 开发 TODO 与执行门禁
 
-更新：2026-09-18。
+更新：2026-09-19。
 
 本文把现有设计文档转换为可执行开发队列。若本文与专项契约冲突，以更新且更具体的契约为准；P0 的实现入口是 [P0 核心原型执行计划](p0-prototype-execution-plan.md)与 [P0 core 内部架构](p0-core-internal-architecture.md)。
 
@@ -16,9 +16,9 @@
 
 - [x] Git 工作树与 `origin/main` 基线确认。
 - [x] Python 与 uv 可用。
-- [ ] 安装并固定 Java 21；当前开发机仅检测到 Java 17，W20 及真客户端实验不得在此条件下宣称通过。
+- [x] 固定 Java 21；本机以 JDK 21.0.12.1 完成 Gradle 8.12.1 的 Bridge `clean check`。
 - [x] 以 CI 中固定版本的 Buf action 提供 schema build/lint/format 门禁；本机另用固定 Buf `v1.50.0` 完成 W00 lint。
-- [ ] 完成 Gradle 依赖锁与 verification metadata；Wrapper 及发行包 SHA-256 已固定，但 Java 21 环境首次解析仍待执行。
+- [x] 完成 Gradle 依赖锁与 SHA-256 verification metadata；固定 Wrapper 8.12.1 已在 Java 21 下通过离线 strict verification `clean check`。
 - [ ] 为受控 Linux runner 准备 Java 21、Xvfb、原版 1.21.4 server 与隔离账号/目录。
 
 ## W00：规格、夹具与整体框架
@@ -49,11 +49,11 @@
 
 ## W20：只读 Thin Bridge
 
-- [ ] 建立 Java 21/Fabric 1.21.4 client entrypoint 与固定 manifest。
-- [ ] 实现 control/event 双通道的长度前缀 Protobuf framing。
-- [ ] 实现 nonce、protocol、generation、bundle 与 capability 握手。
-- [ ] Bridge 默认 `OBSERVE_ONLY`，握手前无连接和输入能力。
-- [ ] IPC/编码在后台有界队列运行，Minecraft 对象只在 client thread 访问。
+- [x] 建立 Java 21/Fabric 1.21.4 client entrypoint 与固定 manifest。
+- [x] 实现 control/event 双通道的长度前缀 Protobuf framing。
+- [x] 实现 nonce、protocol、generation、bundle 与 capability 握手。
+- [x] Bridge 默认 `OBSERVE_ONLY`，握手前无连接和输入能力。
+- [x] IPC/编码在后台有界队列运行，Minecraft 对象只在 client thread 访问。
 - [ ] 门禁：错误 nonce/protocol/未知 mod 被拒，client tick/render 不被阻塞。
 
 ## W30：Offline Session

@@ -43,6 +43,22 @@ def main() -> None:
             'option("lite")',
         ),
     )
+    require_text(
+        BRIDGE / "gradle.lockfile",
+        (
+            "com.google.protobuf:protobuf-javalite:4.36.2=",
+            "net.fabricmc:fabric-loader:0.16.9=",
+        ),
+    )
+    require_text(BRIDGE / "settings-gradle.lockfile", ("empty=incomingCatalogForLibs0",))
+    require_text(
+        BRIDGE / "gradle" / "verification-metadata.xml",
+        (
+            '<component group="com.google.protobuf" name="protobuf-javalite" version="4.36.2">',
+            '<component group="fabric-loom" name="fabric-loom.gradle.plugin" version="1.9.2">',
+            '<component group="net.fabricmc" name="fabric-loader" version="0.16.9">',
+        ),
+    )
     manifest = json.loads((BRIDGE / "src" / "main" / "resources" / "fabric.mod.json").read_text())
     if manifest["environment"] != "client" or manifest["id"] != "minekin_bridge":
         raise SystemExit("Fabric manifest must remain a client-only minekin_bridge mod")
