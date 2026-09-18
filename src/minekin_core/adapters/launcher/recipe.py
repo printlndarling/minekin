@@ -36,7 +36,7 @@ def _reject(message: str) -> MinekinError:
 
 def source_tree_sha256(root: Path) -> str:
     if not root.is_dir() or root.is_symlink():
-        raise _reject("Bridge source root is missing or is a symlink")
+        raise _reject(f"Bridge source root is missing or is a symlink: {root}")
     digest = hashlib.sha256()
     files = sorted(
         path

@@ -16,10 +16,29 @@ from minekin_core.domain.errors import ErrorCategory, MinekinError, Retryability
 
 _PLACEHOLDER = re.compile(r"^\$\{([a-zA-Z0-9_]+)\}$")
 
+# A directory holding both of these is a workspace checkout rather than an
+# installed copy. Counting parent directories instead is an accident of nesting
+# depth that happens to work from the source tree and silently points inside
+# site-packages once the package is installed.
+WORKSPACE_MARKERS: tuple[str, ...] = ("bridge", "proto")
+
 
 def _reject(message: str) -> MinekinError:
     return MinekinError(
         "launcher.plan", "build", ErrorCategory.SUPPLY_CHAIN, Retryability.OPERATOR_ACTION, message
+    )
+
+
+def find_workspace_root(start: Path) -> Path:
+    """Walk up from `start` to the checkout that holds the Bridge and the protos."""
+
+    for candidate in (start, *start.parents):
+        if all((candidate / marker).is_dir() for marker in WORKSPACE_MARKERS):
+            return candidate
+    raise _reject(
+        f"no Minekin workspace found above {start}: verifying a bundle recipe needs the "
+        f"Bridge source tree, which an installed wheel does not carry. Run this from a "
+        f"checkout, or pass the workspace root explicitly."
     )
 
 
@@ -65,7 +84,7 @@ def _typed_arguments(arguments: tuple[str, ...]) -> list[dict[str, str]]:
 
 def build_launch_plan(profile_path: Path, *, workspace_root: Path | None = None) -> dict[str, Any]:
     profile_path = profile_path.resolve()
-    workspace_root = workspace_root or Path(__file__).resolve().parents[4]
+    workspace_root = workspace_root or find_workspace_root(Path(__file__).resolve())
     recipe_audit = validate_bundle_recipe(profile_path, workspace_root)
     profile = _load_object(profile_path)
     runtime_value = profile.get("runtime")

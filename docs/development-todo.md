@@ -20,6 +20,7 @@
 - [x] 以 CI 中固定版本的 Buf action 提供 schema build/lint/format 门禁；本机另用固定 Buf `v1.50.0` 完成 W00 lint，并复现同一生成字节。
 - [x] 完成 Gradle 依赖锁与 SHA-256 verification metadata；固定 Wrapper 8.12.1 已在 Java 21 下通过离线 strict verification `clean check`。
 - [ ] 为受控 Linux runner 准备 Java 21、Xvfb、原版 1.21.4 server 与隔离账号/目录。
+- [x] 已实测 wheel 装出来能不能跑：把 `uv build --wheel` 的产物装进一个干净 venv 再逐条执行命令。`doctor`、`init`、`session status` 都正常（migrations 与 `schema.sql` 确实被打进 wheel，否则 `init` 会在 importlib.resources 上炸）。但 `launch-plan`（以及依赖它的 `session start`）在源码树之外必然失败，因为它用 `Path(__file__).resolve().parents[4]` 猜工作区根，装在 site-packages 里就猜到了 venv 的 `Lib`，于是去找 `<venv>/Lib/bridge` 并报「Bridge source root is missing」。现在改为按标记目录（同时存在 `bridge/` 与 `proto/`）向上查找工作区，并在找不到时把查找起点和「已安装的 wheel 不带源码树」写进错误里。这条 CI 结构上抓不到：CI 会 build wheel，但所有命令都在源码树里跑。
 
 ## W00：规格、夹具与整体框架
 
