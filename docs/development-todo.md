@@ -72,7 +72,9 @@
 - [x] 身份根可持久化：`kin_identity` 单行存储 `kin_id`、local profile、identity revision 与 username；缺失时读取直接失败而不隐式新建，第二次 `init` 被拒绝，未知 `uuid_algorithm` 被拒绝。
 - [x] `minekin init` 接线完成：数据根来自 `MINEKIN_HOME`、username 来自 `MINEKIN_USERNAME`，两者都**没有默认值**，未设置即 `CONFIG` 失败并点名变量；相对根在 `resolve()` 之前拒绝。目录布局为 `<root>/kin/<kin_id>/{kin.sqlite3, run/}`，`run/` 就是启动计划相对路径所相对的根。`init` 不幂等：数据库已存在即拒绝，且拒绝时不留下任何痕迹。这两项都是**提案**，见[数据根与身份创建提案](run-directory-proposal.md)——契约都没有规定它们，改起来只涉及一个函数与 `init` 的读取点。
 - [x] 把冻结的 session argv 与计划里的 JVM 参数组装成完整命令行：计划中的路径按契约是 run-root 相对，只有 `adapters/launcher/process.py` 把它们变成绝对路径，因此"到底指向哪个目录"只有一个答案。classpath 逐项重建而不是重写拼接串；`-cp` 后面若不是类路径就拒绝（否则会把下一个选项当成类路径吞掉）；仍为相对计划路径、或 `.minecraft` 作为路径分段出现的参数一律拒绝。该判别必须按路径分段——`net.minecraft.client.main.Main` 是类名，不是目录，第一版按子串判断会误杀它。
-- [ ] 真正 spawn 与进程监管（PID identity、接管/终止判定）；run root 的来源仍未定，见上文。
+- [x] spawn 与基本进程监管：直接 `Popen`（`shell=False` + 列表 argv，无 shell 复解析），cwd 为 session game 目录，日志落盘；身份记录为 `(pid, started_at, argv_digest)` 而不只是 PID——PID 会被系统复用，单独用不能跨 run 认人。停止是有界的：先请它退出，到点仍在则 kill，因为它还占着 session overlay、在服务端看来还像一名玩家。同一 supervisor 第二次 start 被拒。
+- [x] 客户端环境显式化：不隐式继承宿主环境。`HOME`/XDG/TEMP 一律改指 session 目录（继承了宿主 `HOME` 的客户端仍然够得到运行者的文件，而受管运行目录存在的意义正是挡住这件事），需要宿主提供的东西（虚拟显示要的 `DISPLAY`）必须逐个指名转发，且转发值中出现 `.minecraft` 路径分段即拒绝。改指到的目录必须在启动前存在——实测传给子进程一个不存在的 `TMPDIR` 会让它告警并可能无法建临时文件。
+- [ ] 重启后的残留进程对账（按 PID identity 与 run metadata 判断接管/终止/人工阻断）：需要受控 runner 才能验证，故意留空而不是猜。
 - [x] Bridge 脱敏报告：`SessionIdentityReport` 随 hello 与首快照上报候选、用户名、UUID、AccountType 与 clientId/xuid presence；凭据按结构不可携带——消息没有 `bytes` 字段、观测 record 没有 token/secret/key 分量、`credential_values_exposed` 为 true 时拒绝。形状由已发布的 descriptor 断言，不靠人工复查。
 - [x] `SESSION_MATERIAL_MISMATCH` 规则：从**实际 argv** 读回 Launcher 记录的 session 材料（不是从候选重新推导），与 Bridge 上报逐项比较；uuid 按规范化后的身份比较以容纳 id128/canonical，`userType` 与 `AccountType` 分属不同命名空间故只记录不比较，任一不一致都阻断 `PLAYABLE`。
 - [ ] 读取真实客户端 Session 回填该报告：需要真实客户端，尚未实现。

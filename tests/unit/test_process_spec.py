@@ -210,6 +210,15 @@ def test_the_evidence_document_names_what_was_invoked_without_dumping_it() -> No
         "main_class": "net.fabricmc.loader.impl.launch.knot.KnotClient",
         "argv_length": len(spec().argv),
         "argv_digest": document["argv_digest"],
+        "environment_names": [
+            "HOME",
+            "TEMP",
+            "TMP",
+            "TMPDIR",
+            "XDG_CACHE_HOME",
+            "XDG_CONFIG_HOME",
+            "XDG_DATA_HOME",
+        ],
     }
     assert isinstance(document["argv_digest"], str)
     assert json.dumps(document)  # evidence documents must be serialisable

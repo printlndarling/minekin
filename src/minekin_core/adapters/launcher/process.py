@@ -47,13 +47,15 @@ def _reject(message: str) -> MinekinError:
 
 @dataclass(frozen=True, slots=True)
 class ClientProcessSpec:
-    """Exactly what to invoke, and where, for one managed client."""
+    """Exactly what to invoke, where, and with which environment."""
 
     argv: tuple[str, ...]
     working_directory: Path
     java_executable: Path
     run_root: Path
     main_class: str
+    environment: Mapping[str, str]
+    session_directories: tuple[Path, ...] = ()
 
     def as_document(self) -> dict[str, object]:
         return {
@@ -63,6 +65,7 @@ class ClientProcessSpec:
             "main_class": self.main_class,
             "argv_length": len(self.argv),
             "argv_digest": argument_digest(self.argv),
+            "environment_names": sorted(self.environment),
         }
 
 
@@ -73,6 +76,57 @@ def argument_digest(argv: tuple[str, ...]) -> str:
     return hashlib.sha256("\0".join(argv).encode("utf-8", errors="surrogatepass")).hexdigest()
 
 
+# User-level locations are redirected into the session rather than inherited. A
+# client that inherits the operator's HOME can still reach their files, which is
+# exactly the boundary the managed run directory exists to hold.
+_SESSION_DIRECTORIES: tuple[tuple[str, str], ...] = (
+    ("HOME", ""),
+    ("XDG_DATA_HOME", "xdg-data"),
+    ("XDG_CONFIG_HOME", "xdg-config"),
+    ("XDG_CACHE_HOME", "xdg-cache"),
+    ("TMPDIR", "tmp"),
+    ("TEMP", "tmp"),
+    ("TMP", "tmp"),
+)
+
+
+def session_redirects(working_directory: Path) -> tuple[tuple[str, Path], ...]:
+    """The redirected variable names and the session directories they point at.
+
+    The directories have to exist before the client starts: a process handed a
+    `TMPDIR` that is not there warns and can fail to make its own temporary files.
+    """
+
+    session = working_directory.parent
+    return tuple(
+        (name, session / suffix if suffix else session) for name, suffix in _SESSION_DIRECTORIES
+    )
+
+
+def redirect_targets(working_directory: Path) -> tuple[Path, ...]:
+    return tuple(target for _, target in session_redirects(working_directory))
+
+
+def client_environment(
+    working_directory: Path, *, forward: Mapping[str, str] | None = None
+) -> dict[str, str]:
+    """The environment the client is given, and nothing it is not.
+
+    Nothing is inherited implicitly. Anything the operator's host must supply —
+    `DISPLAY` for a virtual display, typically — is named explicitly, so the set
+    of host facts a managed client can observe is a reviewable list.
+    """
+
+    environment = {name: str(target) for name, target in session_redirects(working_directory)}
+    for name, value in (forward or {}).items():
+        if name in environment:
+            raise _reject(f"{name} cannot be forwarded; it is already redirected into the session")
+        if _mentions_host_minecraft(value):
+            raise _reject(f"forwarded {name} names the host .minecraft directory")
+        environment[name] = value
+    return environment
+
+
 def build_process_spec(
     plan: Mapping[str, Any],
     *,
@@ -80,6 +134,7 @@ def build_process_spec(
     material: OfflineIdentityMaterial,
     candidate: SessionCandidate,
     java_executable: Path,
+    forward_environment: Mapping[str, str] | None = None,
 ) -> ClientProcessSpec:
     """Assemble the full command line for one offline managed-client launch."""
 
@@ -112,12 +167,15 @@ def build_process_spec(
 
     argv = (*jvm_args, main_class, *game_args)
     _require_materialised(argv)
+    working_directory = _resolve(root, environment["game_directory"])
     return ClientProcessSpec(
         argv=argv,
-        working_directory=_resolve(root, environment["game_directory"]),
+        working_directory=working_directory,
         java_executable=java_executable,
         run_root=root,
         main_class=main_class,
+        environment=client_environment(working_directory, forward=forward_environment),
+        session_directories=redirect_targets(working_directory),
     )
 
 
