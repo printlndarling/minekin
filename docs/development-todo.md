@@ -84,11 +84,12 @@
 
 ## W50：玩家等价首快照
 
-- [ ] 实现 self、inventory 与 visible-world 最小快照及过滤器。
-- [ ] 同 generation 的 JOIN、world/player/network handler 与首快照共同构成 `PLAYABLE`。
-- [ ] 建立 Bridge/Runtime、server truth、orchestrator 三条时间线。
-- [ ] 加入视锥/遮挡/oracle canary 与目录、字段泄漏扫描。
-- [ ] 门禁：首快照失败不授 lease；隐藏实体、容器与服务端坐标不得进入产品输出。
+- [x] visible-world 过滤器与首快照准入：未确认视线的候选只丢弃不猜位置，距离、非有限坐标（NaN 会绕过朴素距离判断）、缺失或重复的目标令牌各自计数；快照未准入时**不交出任何实体**，漏检 `admitted` 的调用者也拿不到世界。
+- [ ] self 与 inventory 快照及数值一致性过滤器（生命/饥饿/饱食范围、背包 revision 与堆叠上界）。
+- [x] 同 generation 与身份绑定的准入：`authoritative`、快照 generation 必须是当前 generation、快照内 session 报告必须与 Launcher 记录一致，三者任一不成立都不准入。
+- [ ] 建立 Bridge/Runtime、server truth、orchestrator 三条时间线：需要真实运行。
+- [x] oracle canary 与字段泄漏扫描：canary 值进入 wheel 路径/内容即失败（已验证能抓到人为注入），产品源码与 runtime-input 也扫描；观察消息的字段集与命名按已发布 descriptor 断言，容器、seed、服务端坐标没有字段可落。
+- [ ] 门禁：首快照失败不授 lease（实体侧已按结构保证）；实测部分需要真实客户端。
 
 ## W60：最小合法输入
 
