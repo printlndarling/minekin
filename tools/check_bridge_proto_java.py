@@ -15,7 +15,34 @@ ROOT = Path(__file__).resolve().parents[1]
 PROTOBUF_VERSION = "4.36.2"
 MAVEN_BASE = "https://repo1.maven.org/maven2/com/google/protobuf"
 PROTOS = tuple(sorted((ROOT / "proto" / "minekin" / "v1").glob("*.proto")))
+FABRIC_STUBS = {
+    "net/fabricmc/api/ClientModInitializer.java": """\
+package net.fabricmc.api;
+public interface ClientModInitializer { void onInitializeClient(); }
+""",
+    "net/fabricmc/fabric/api/client/event/lifecycle/v1/Event.java": """\
+package net.fabricmc.fabric.api.client.event.lifecycle.v1;
+public final class Event<T> { public void register(T listener) {} }
+""",
+    "net/fabricmc/fabric/api/client/event/lifecycle/v1/ClientTickEvents.java": """\
+package net.fabricmc.fabric.api.client.event.lifecycle.v1;
+public final class ClientTickEvents {
+    private ClientTickEvents() {}
+    public static final Event<EndTick> END_CLIENT_TICK = new Event<>();
+    @FunctionalInterface public interface EndTick { void onEndTick(Object client); }
+}
+""",
+    "net/fabricmc/fabric/api/client/event/lifecycle/v1/ClientLifecycleEvents.java": """\
+package net.fabricmc.fabric.api.client.event.lifecycle.v1;
+public final class ClientLifecycleEvents {
+    private ClientLifecycleEvents() {}
+    public static final Event<ClientStopping> CLIENT_STOPPING = new Event<>();
+    @FunctionalInterface public interface ClientStopping { void onClientStopping(Object client); }
+}
+""",
+}
 ADAPTER_SOURCES = (
+    ROOT / "bridge/src/main/java/org/minekin/bridge/MinekinBridgeClient.java",
     ROOT / "bridge/src/main/java/org/minekin/bridge/runtime/BridgePhaseMachine.java",
     ROOT / "bridge/src/main/java/org/minekin/bridge/runtime/BoundedChannel.java",
     ROOT / "bridge/src/main/java/org/minekin/bridge/runtime/BridgeIpcWorker.java",
@@ -75,9 +102,15 @@ def main() -> None:
     with tempfile.TemporaryDirectory(prefix="minekin-bridge-proto-") as temporary:
         work = Path(temporary)
         generated = work / "generated"
+        stubs = work / "stubs"
         classes = work / "classes"
         generated.mkdir()
+        stubs.mkdir()
         classes.mkdir()
+        for relative_path, source in FABRIC_STUBS.items():
+            stub = stubs / relative_path
+            stub.parent.mkdir(parents=True, exist_ok=True)
+            stub.write_text(source, encoding="utf-8")
         protoc = work / ("protoc.exe" if os.name == "nt" else "protoc")
         runtime = work / "protobuf-javalite.jar"
         _download_verified(
@@ -100,6 +133,7 @@ def main() -> None:
             ]
         )
         generated_sources = [str(path) for path in generated.rglob("*.java")]
+        stub_sources = [str(path) for path in stubs.rglob("*.java")]
         _run(
             [
                 javac,
@@ -110,6 +144,7 @@ def main() -> None:
                 "-d",
                 str(classes),
                 *generated_sources,
+                *stub_sources,
                 *(str(path) for path in ADAPTER_SOURCES),
             ]
         )

@@ -46,6 +46,29 @@ def main() -> None:
     manifest = json.loads((BRIDGE / "src" / "main" / "resources" / "fabric.mod.json").read_text())
     if manifest["environment"] != "client" or manifest["id"] != "minekin_bridge":
         raise SystemExit("Fabric manifest must remain a client-only minekin_bridge mod")
+    if manifest["depends"] != {
+        "fabricloader": "=0.16.9",
+        "fabric-api": "=0.119.4+1.21.4",
+        "java": ">=21",
+        "minecraft": "=1.21.4",
+    }:
+        raise SystemExit("Bridge manifest dependencies are not the reviewed p0-core set")
+    require_text(
+        BRIDGE
+        / "src"
+        / "main"
+        / "java"
+        / "org"
+        / "minekin"
+        / "bridge"
+        / "MinekinBridgeClient.java",
+        (
+            "MINEKIN_BRIDGE_DESCRIPTOR",
+            "ClientTickEvents.END_CLIENT_TICK.register",
+            "ClientLifecycleEvents.CLIENT_STOPPING.register",
+            "created.start()",
+        ),
+    )
     print("Minekin Bridge scaffold pins: OK")
 
 
