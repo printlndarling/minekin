@@ -142,6 +142,8 @@
 - [x] 不可变 evidence bundle 的封存与校验：manifest 与冻结形状一致，工件按 sha256 记账，bundle 摘要覆盖 manifest 字节；同一目录绝不覆盖旧 run（改正是新 run，不是编辑）；工件或 manifest 含凭据正文即整体拒封——不做就地脱敏，静默改写的日志比缺失的日志更糟；校验端重新对账摘要并检出缺失、篡改与未声明文件。工件名走白名单而非黑名单：Windows 上 `/x` 既非绝对路径、拼接又会替换 bundle 根。
 - [x] 报告诚实性规则：缺 expected/observed 对照时结果不得是 `PASS`（只能 `INCOMPLETE`），`PASS` 不得带 failures，`FAIL` 必须有 reason code，只有先后无法在时钟误差窗口内判定时才用 `AMBIGUOUS`。
 - [x] candidate→tested 晋级检查：case manifest 按冻结 schema 校验（含 `mandatory` 必须是布尔——真值字符串会把用例悄悄移出晋级门禁；`assertions` 不得为空），`case_version` 用用例定义自身的摘要，因此改过用例就必须产生新 run；只有 mandatory 用例全部拿到「已校验且结果为 `PASS` 且版本一致」的证据才可晋级，缺证据/未校验/非 PASS/版本不符分别给出稳定原因码；非 mandatory 用例不拦晋级。
+- [x] case 声明的断言必须有实现：case manifest 里的断言名一直是自由字符串，晋级机制又照单全收 bundle 里记的东西，于是「用例点名了一个没有任何东西实现的断言」或「实现被改名」都不会被发现。现在 `tools/check_case_assertions.py` 维护一张名字→实现位置的登记表（实现分 `tool` 与 `pytest` 两种），既拒绝用例点名未登记的名字，也核对每个登记目标确实存在（pytest 那条还会确认函数名仍在文件里），改名即失败。它只校验**声明**而不运行检查——运行是 orchestrator 的事，属于需要真实客户端的运行时用例。已接入 CI 的 python job。
+- [ ] 还未接线的是让 case 真正跑出 bundle：现有 evidence bundle 的字段形状（minecraft/loader/world/identity/server 摘要）是为**运行时**用例设计的，而 `W00-CONTRACT-001` 这类仓库自检用例根本没有启动，套用那个形状就得编造 launcher 摘要。因此没有为它伪造 bundle，而是把「断言有实现」这一步先做实。
 - [x] case manifest 的 oracle 边界由 `tools/check_boundaries.py` 检查：`inputs` 不得出现 oracle 标记，`oracle_inputs` 必须落在 oracle 目录内。产品侧只校验结构——产品代码连 oracle 的名字都不许出现，这条规则曾经被我错误地放进产品里，是 `check_boundaries` 抓出来的。
 - [ ] 三条时间线（Bridge/Runtime、server truth、orchestrator）与 `evidence verify`/`replay` 的 CLI 接线：前者要真实运行，后者要 run 目录约定与断言谓词语义，两者都未定，因此 bundle 与晋级检查目前只有库、没有命令入口。
 - [ ] 跑完 `CORE-001…090`、mandatory OFFLINE/ADMIT cases 与 L6 baseline。

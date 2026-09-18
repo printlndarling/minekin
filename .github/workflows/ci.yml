@@ -21,6 +21,7 @@ jobs:
       - run: uv run pyright
       - run: uv run pytest
       - run: uv run python tools/check_boundaries.py
+      - run: uv run python tools/check_case_assertions.py
       - run: uv run python tools/verify_fixture_digests.py
       - run: uv build --wheel
       - run: uv run python tools/check_wheel_boundary.py dist/*.whl
