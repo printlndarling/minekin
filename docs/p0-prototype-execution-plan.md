@@ -21,6 +21,17 @@ P0 核心原型只回答一个问题：
 
 “到达主菜单”“进服一次”或“画面里动了”都不是完成。
 
+## P0 运行形态与依赖上限
+
+P0 产品侧只有两个主要进程：
+
+1. `minekin-core`：一个 Python 3.12 进程，内部模块包含 launcher、session runtime、标准库 SQLite event ledger、CLI 和 evidence hooks；
+2. Minecraft Java 21 JVM：加载 Thin Fabric Bridge。
+
+原版 dedicated server 与 test-orchestrator 是测试夹具，不计入产品常驻进程。P0 不运行独立 Gateway、Web Dashboard、媒体服务、模型服务、Redis/Postgres 或多个 Python microservice。Core 内部模块必须可测试、可替换，但不得为了“未来可能拆分”提前增加网络 hop。
+
+P0 最小依赖固定为 Python/uv、Java 21/Gradle/Fabric、proto3/Buf、本机 UDS 或 loopback、SQLite、pytest/JUnit。标准库 `sqlite3` 足够支撑 core 证据账本；ORM、Web API 与前端均后置。
+
 ## 明确排除
 
 以下内容不进入首个 P0 core 切片：
@@ -78,7 +89,7 @@ flowchart TD
 | `schemas` | manifest、profile、snapshot、evidence schema | 无版本的自由 JSON |
 | `evidence` | 不可变摘要、三时间线、断言结果 | token/xuid/clientId 正文 |
 
-建议的初始进程边界保持为“Java Thin Bridge + 独立 Runtime/Test Orchestrator”，IPC 继续按既有契约采用版本化 Protobuf 和本机 UDS/受限 loopback；具体语言、构建工具和部署文件只有在 W00/W10 的最小 spike 后冻结。
+初始产品进程边界固定为“一个 Python `minekin-core` + 一个 Minecraft JVM/Thin Bridge”。Test Orchestrator 独立运行但仅属于测试域。两大产品进程之间继续采用版本化 Protobuf 和本机 UDS/受限 loopback；Core 内 launcher/session/evidence 以函数与领域接口组合，不额外网络化。
 
 ## Session 候选执行顺序
 

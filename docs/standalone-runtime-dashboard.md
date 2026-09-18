@@ -39,7 +39,11 @@
 
 建议首版全部部署在运行 Minecraft 的同一台机器。PlayerMind 可以等待云端模型，但反射、输入仲裁、Bridge 心跳和危险时松键必须留在本机；把这些经公网往返会把网络故障引入保命闭环。远端 Gateway、集群和多 Kin 调度属于 future。
 
-## 推荐首版技术栈
+## 阶段边界
+
+完整产品包含 Gateway、Dashboard、媒体和拆分后的服务，但首个 P0 core 不同时实现这些组件。P0 只有一个 Python `minekin-core` 与一个 Minecraft JVM/Thin Bridge；CLI 代替 Dashboard，标准库 SQLite 代替完整 ORM/迁移层，真实窗口或测试虚拟显示只为取证。PlayerMind 在 P1，Web Dashboard/观战在 P2。具体冻结清单见[技术架构与工程栈选择](technical-stack-selection.md)。
+
+## 推荐成熟产品技术栈
 
 | 层 | 候选选择 | 理由与边界 |
 | --- | --- | --- |

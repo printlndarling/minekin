@@ -4,7 +4,7 @@
 
 ## 结论
 
-Minekin 采用**单机优先的多进程模块化单体**，而不是聊天机器人框架、Minecraft 协议 Bot、桌面 GUI 自动化或一开始就做微服务：
+Minekin 的目标形态采用**单机优先、可拆分的模块化单体**，而不是聊天机器人框架、Minecraft 协议 Bot、桌面 GUI 自动化或一开始就做微服务。这里必须区分“最终产品边界”和“P0 实际开工形态”：P0 只运行两个主要进程，不按最终拓扑一次性拆服务：
 
 - Python 控制面承载 PlayerMind、持久状态、工具、模型编排、会话和 Dashboard API；
 - Java 21 Fabric Bridge 驻留于 Minekin 自己启动的真实 Minecraft 客户端，只负责 tick 级观察、反射、输入仲裁和动作反馈；
@@ -16,7 +16,34 @@ Minekin 采用**单机优先的多进程模块化单体**，而不是聊天机�
 
 这套方案保留“独立大型 Agent 系统”的产品形态，同时承认真客户端需要一个薄 Bridge。Python 从不进入逐 tick 保命闭环，Java Bridge 也不拥有 Kin 的人格。
 
-## 进程拓扑
+## 分阶段技术栈：防止一次造完
+
+| 阶段 | 只引入什么 | 明确不做 | 退出条件 |
+| --- | --- | --- | --- |
+| P0 Core | Python 3.12 + `asyncio` + 标准库 `sqlite3` + CLI；Java 21 + Fabric；proto3 + 本机 socket；pytest/JUnit | FastAPI、React、Node、SQLAlchemy/Alembic、模型、PlayerMind、Baritone、视频、容器、OpenTelemetry | 真客户端启动、离线服 JOIN、首快照、短 lease 输入、松键与强杀恢复都有证据 |
+| P1 PlayerMind | Pydantic、`httpx`、模型适配、目标/关系/记忆/技能状态机、受限 Tool Gateway；按数据迁移需要再引入 SQLAlchemy/Alembic | 漂亮 Dashboard、实时视频、多模型路由、MCP 市场、分布式作业 | 单 Kin 能持续游戏日、拒绝/改目标、跨重启保持同一人格和世界隔离 |
+| P2 产品化 | FastAPI/Uvicorn、React/TypeScript/Vite、Dashboard、Xvfb/FFmpeg、正式迁移与备份、结构化 telemetry | Kubernetes、多主机、多 Kin 集群 | 可配置、可观战、可回放、可升级并满足单机长期运行 |
+| Future | MediaMTX/WebRTC、MCP 连接器、Postgres、Temporal、OCI、多 Kin 调度 | 没有测量依据就提前引入 | 仅由升级触发条件启动专题原型 |
+
+P0 的依赖清单应短到可以一次看完：`Python + Java/Fabric + Protobuf/socket + SQLite + CLI + 测试`。表中后续组件只是架构预留，不得出现在 P0 的“必须安装/必须掌握”列表里。
+
+### P0 只有两个主要进程
+
+```text
+minekin-core (Python)
+├── launcher
+├── session runtime
+├── SQLite event ledger
+├── CLI
+└── test/evidence hooks
+
+Minecraft JVM
+└── Fabric Thin Bridge
+```
+
+受控原版服务器和 test-orchestrator 是测试夹具，不算产品常驻服务。P0 不独立启动 Gateway、Launcher、Runtime、媒体服务和 Dashboard；Python 包内保留模块边界，以后按故障隔离和安全需要拆进程。即使暂时同进程，仍禁止浏览器直达 Bridge、绕过 lease 或让 Launcher 修改人格数据。
+
+## 目标产品进程拓扑（P2 以后）
 
 | 进程 | 首选实现 | 唯一权威/边界 |
 | --- | --- | --- |
@@ -27,7 +54,7 @@ Minekin 采用**单机优先的多进程模块化单体**，而不是聊天机�
 | `minekin-media` | Xvfb + FFmpeg；MediaMTX 为可选中继 | 真实客户端画面采集；断流不影响 Runtime，不进入默认模型输入 |
 | Dashboard | React + TypeScript + Vite | 人类观测、配置、回放、急停；浏览器永不持有 Bridge 凭据 |
 
-这些进程位于同一 monorepo，但以独立入口和最小权限运行。P0 不引入 Kubernetes、服务网格、Kafka、Redis、RabbitMQ 或分布式数据库。一个 Kin、一台主机和一个活动世界会话不需要这些系统，它们只会增加恢复语义和故障面。
+这些是成熟产品的权限边界，不是 P0 同时开工的进程清单。P2 以后才根据故障隔离与远程管理需要拆出独立入口；P0 始终只有 `minekin-core` 与 Minecraft JVM 两个主要进程。P0 不引入 Kubernetes、服务网格、Kafka、Redis、RabbitMQ 或分布式数据库。
 
 ## Agent Harness：自研事件驱动内核
 
@@ -70,12 +97,10 @@ OpenAI-compatible API 可以作为模型适配面的一个实现，但不把任�
 ### Python 控制面
 
 - Python `3.12.x` 作为 P0 基线；项目声明 `>=3.12,<3.14`，验证后再扩大；
-- `uv` workspace 与锁文件管理 Runtime、Gateway、Launcher 和共享包；
-- FastAPI + Uvicorn 提供 REST/WSS，Pydantic v2 管理配置和消息 schema；
-- SQLAlchemy 2.x + Alembic 管理关系模型和迁移；Runtime 每个并发任务独立 session，保持单写者；
-- `httpx` 负责模型/公开资料 HTTP，所有出站请求经 Tool Gateway；
-- Ruff + Pyright；pytest + pytest-asyncio + Hypothesis；
-- OpenTelemetry API/SDK 记录本地 trace，默认不配置远端 exporter。
+- P0 用 `uv` 单项目锁文件、标准库 `asyncio/sqlite3`、生成的 Protobuf 类型、Ruff、Pyright、pytest；
+- P1 才加入 Pydantic v2 与 `httpx`，用于领域 schema、模型和公开资料适配；
+- SQLAlchemy 2.x + Alembic 仅在表结构和迁移复杂度证明需要时进入 P1/P2；此前单写 repository 隔离 SQL，禁止业务层散写；
+- FastAPI + Uvicorn、pytest-asyncio/Hypothesis 与 OpenTelemetry 在对应 API、并发属性测试和可观测需求出现时加入，不作为 W00 安装前置。
 
 Python 3.12 是稳定工程基线而非性能层。若 profiling 证明调度或媒体路径 CPU 不足，优先隔离热点，不提前把整个控制面改写为 Rust/Go。
 
@@ -105,10 +130,10 @@ Dashboard 不做 SSR，不需要 Next.js。它是本地/私有控制台，SPA �
 
 ### SQLite 决策
 
-P0 用本机 SQLite WAL，原因是单 Kin、单主机、Runtime 单写，能提供事务、恢复、备份和足够的查询能力。具体约束：
+P0 用 Python 标准库 `sqlite3` 驱动本机 SQLite WAL，通过单一 repository/写队列访问；不为了 ORM 先引入 SQLAlchemy。P1/P2 出现多表迁移和管理 API 后再评估 SQLAlchemy/Alembic。选择 SQLite 的原因是单 Kin、单主机、Runtime 单写，能提供事务、恢复、备份和足够的查询能力。具体约束：
 
 - 只有 Runtime 写数据库；Gateway/Dashboard 经 API 读取，禁止直接开写连接；
-- SQLAlchemy 2.x + Alembic；迁移必须可备份、可回滚或明确只前进；
+- P0 schema 使用显式版本表和受测 SQL migration；若进入 SQLAlchemy/Alembic，迁移仍必须可备份、可回滚或明确只前进；
 - 开启 foreign keys、busy timeout，定义 checkpoint/备份窗口；
 - SQLite 必须在启动时报告实际运行库版本；WAL 环境要求 `>=3.51.3`，或官方列明已回补的 `3.50.7/3.44.6`，否则拒绝多连接 WAL 配置；
 - 数据库与 WAL/SHM 位于本地文件系统，不放 NFS/共享卷；
@@ -206,13 +231,13 @@ tests/
 docs/
 ```
 
-Python 三个 app 可共享 workspace 包，但不得共享全局内存来绕过 IPC/恢复契约。P0 若为加速把 Gateway 与 Runtime 暂时放进同一 OS 进程，数据库单写、模块边界和浏览器不能直达 Bridge 三条仍必须保留；进入长期运行前恢复独立进程。
+P0 不创建三个 Python app：先以一个 `minekin-core` 包含 launcher/session/runtime/CLI，并以清楚模块接口隔离。P2 引入 Dashboard、远程 API 或独立权限域后，再拆为多个入口；拆分前后数据库单写、持久事件、Bridge lease 和故障恢复语义必须一致。
 
 ## 首个实现切片
 
 按已有 W00–W70 计划，不先做完整人格或漂亮 Dashboard：
 
-1. 冻结 Python/Java/proto/SQLite 工具链和锁文件；
+1. 冻结 P0 最小工具链与依赖上限，生成一页可审计安装清单；
 2. Launcher dry-run 生成 1.21.4 offline 参数与独立目录；
 3. Java Bridge 只读握手、心跳、能力与安全松键；
 4. Runtime 接收受限自身快照并写入事件账本；
