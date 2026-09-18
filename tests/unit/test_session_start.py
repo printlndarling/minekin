@@ -1,17 +1,21 @@
 from __future__ import annotations
 
-import hashlib
 import io
 import json
 from collections.abc import Mapping
-from dataclasses import asdict
 from pathlib import Path
 from typing import Any, cast
 
 import pytest
+from session_support import (  # type: ignore[import-not-found]
+    PAYLOAD,
+    PROFILE,
+    fabricated,
+    fake_plan,
+    stub_supervisor,
+)
 
 from minekin_core.adapters.launcher.artifacts import ArtifactStore, SessionOverlayStore
-from minekin_core.adapters.launcher.metadata import Artifact
 from minekin_core.adapters.launcher.supervisor import ProcessSupervisor
 from minekin_core.application.ports.clock import FakeClock
 from minekin_core.bootstrap import main, run
@@ -29,70 +33,7 @@ from minekin_core.config import USERNAME_VARIABLE
 from minekin_core.domain.errors import ErrorCategory, ExitCode, MinekinError
 from minekin_core.domain.ids import KinId
 
-PROFILE = Path(__file__).resolve().parents[1] / "fixtures/runtime-input/bundle-p0-core-1.21.4.json"
 KIN_ID = KinId("kin-01")
-PAYLOAD = b"client jar bytes\n"
-
-
-class StubProcess:
-    pid = 4242
-
-    def poll(self) -> int:
-        return 0
-
-
-def stub_supervisor(log_directory: Path) -> ProcessSupervisor:
-    """A supervisor whose "client" never runs, so the composition can be checked."""
-
-    def spawn(*args: object, **kwargs: object) -> object:
-        return StubProcess()
-
-    return ProcessSupervisor(clock=FakeClock(), spawn=cast(Any, spawn), log_directory=log_directory)
-
-
-def fabricated() -> tuple[dict[str, Any], Artifact]:
-    """A minimal but structurally real plan, so the ready path can be exercised."""
-
-    artifact = Artifact(
-        coordinate="example:client:1.21.4",
-        path="versions/1.21.4/client.jar",
-        url="https://example.invalid/client.jar",
-        size=len(PAYLOAD),
-        sha1=hashlib.sha1(PAYLOAD).hexdigest(),
-        kind="client",
-    )
-    store_path = f"artifact-store/sha1/{artifact.sha1[:2]}/{artifact.sha1}/client.jar"
-    paired = ("--username", "auth_player_name"), ("--uuid", "auth_uuid")
-    plan: dict[str, Any] = {
-        "launchable": True,
-        "blockers": [],
-        "bundle": {"main_class": "example.Main", "minecraft": "1.21.4"},
-        "runtime": {
-            "jvm_args": ["-cp", store_path, "-Djava.library.path=session/natives"],
-            "classpath": [store_path],
-            "natives_dir": "session/natives",
-            "game_dir": "session/game",
-            "assets_dir": "bundle/assets",
-            "assets_index_name": "19",
-            "version_type": "release",
-            "game_arg_template": [
-                entry
-                for literal, placeholder in paired
-                for entry in (
-                    {"kind": "literal", "value": literal},
-                    {"kind": "placeholder", "name": placeholder},
-                )
-            ],
-        },
-        "artifacts": [asdict(artifact)],
-    }
-    return plan, artifact
-
-
-def fake_plan(_profile: Path, *, workspace_root: Path | None = None) -> dict[str, Any]:
-    """Stand in for the reviewed profile, whose bundle is not built yet."""
-
-    return fabricated()[0]
 
 
 def initialised(tmp_path: Path) -> Path:

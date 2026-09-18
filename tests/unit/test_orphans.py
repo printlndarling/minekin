@@ -1,19 +1,21 @@
 from __future__ import annotations
 
-import hashlib
-import io
 import json
 import subprocess
 import sys
 from collections.abc import Callable
-from dataclasses import asdict
 from pathlib import Path
-from typing import Any, cast
 
 import pytest
+from session_support import (
+    PROFILE,
+    fake_plan,
+    kin_root,
+    ready_data_root,
+    run_root,
+    stub_supervisor,
+)
 
-from minekin_core.adapters.launcher.artifacts import ArtifactStore
-from minekin_core.adapters.launcher.metadata import Artifact
 from minekin_core.adapters.launcher.orphans import (
     MARKER_NAME,
     Liveness,
@@ -22,11 +24,8 @@ from minekin_core.adapters.launcher.orphans import (
     session_claims,
     write_marker,
 )
-from minekin_core.adapters.launcher.supervisor import ProcessIdentity, ProcessSupervisor
-from minekin_core.application.ports.clock import FakeClock
+from minekin_core.adapters.launcher.supervisor import ProcessIdentity
 from minekin_core.bootstrap import main
-from minekin_core.cli import session as session_module
-from minekin_core.cli.init import initialise_identity
 from minekin_core.cli.session import session_overlay_path, start_session
 from minekin_core.config import USERNAME_VARIABLE
 from minekin_core.domain.errors import (
@@ -36,26 +35,15 @@ from minekin_core.domain.errors import (
 )
 from minekin_core.domain.ids import KinId
 
-PROFILE = Path(__file__).resolve().parents[1] / "fixtures/runtime-input/bundle-p0-core-1.21.4.json"
 KIN_ID = KinId("kin-01")
-PAYLOAD = b"client jar bytes\n"
 
 
 def identity(pid: int = 4242) -> ProcessIdentity:
     return ProcessIdentity(pid=pid, started_at="2026-01-01T00:00:00Z", argv_digest="a" * 64)
 
 
-def run_root(tmp_path: Path) -> Path:
-    """The Kin's run root, created once however many times a test asks for it."""
-
-    root = tmp_path / "kin" / "kin-01" / "run"
-    if not (tmp_path / "kin" / "kin-01" / "kin.sqlite3").exists():
-        initialise_identity(KIN_ID, root=tmp_path, username="Kin", clock=FakeClock())
-    return root
-
-
 def marked(tmp_path: Path, pid: int = 4242, *, session_id: str = "session-01") -> Path:
-    root = run_root(tmp_path)
+    root = run_root(kin_root(tmp_path))
     overlay = session_overlay_path(root, session_id, 1)
     overlay.mkdir(parents=True)
     return write_marker(overlay, identity=identity(pid), session_id=session_id, generation=1)
@@ -225,69 +213,12 @@ def test_a_real_client_is_still_recorded_when_the_platform_cannot_ask(tmp_path: 
         child.wait()
 
 
-def fabricated() -> tuple[dict[str, Any], Artifact]:
-    artifact = Artifact(
-        coordinate="example:client:1.21.4",
-        path="versions/1.21.4/client.jar",
-        url="https://example.invalid/client.jar",
-        size=len(PAYLOAD),
-        sha1=hashlib.sha1(PAYLOAD).hexdigest(),
-        kind="client",
-    )
-    store_path = f"artifact-store/sha1/{artifact.sha1[:2]}/{artifact.sha1}/client.jar"
-    plan: dict[str, Any] = {
-        "launchable": True,
-        "blockers": [],
-        "bundle": {"main_class": "example.Main", "minecraft": "1.21.4"},
-        "runtime": {
-            "jvm_args": ["-cp", store_path, "-Djava.library.path=session/natives"],
-            "classpath": [store_path],
-            "natives_dir": "session/natives",
-            "game_dir": "session/game",
-            "assets_dir": "bundle/assets",
-            "assets_index_name": "19",
-            "version_type": "release",
-            "game_arg_template": [
-                {"kind": "literal", "value": "--username"},
-                {"kind": "placeholder", "name": "auth_player_name"},
-            ],
-        },
-        "artifacts": [asdict(artifact)],
-    }
-    return plan, artifact
-
-
-def fake_plan(_profile: Path, *, workspace_root: Path | None = None) -> dict[str, Any]:
-    return fabricated()[0]
-
-
-class StubProcess:
-    pid = 4242
-
-    def poll(self) -> int:
-        return 0
-
-
-def stub_supervisor(log_directory: Path) -> ProcessSupervisor:
-    def spawn(*args: object, **kwargs: object) -> object:
-        return StubProcess()
-
-    return ProcessSupervisor(clock=FakeClock(), spawn=cast(Any, spawn), log_directory=log_directory)
-
-
-def ready_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    root = run_root(tmp_path)
-    _, artifact = fabricated()
-    monkeypatch.setattr(session_module, "build_launch_plan", fake_plan)
-    ArtifactStore(root / "artifact-store").install(artifact, io.BytesIO(PAYLOAD))
-    return root
-
-
 def test_start_session_refuses_while_a_previous_client_is_unresolved(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    root = ready_run(tmp_path, monkeypatch)
-    overlay = session_overlay_path(root, "session-00", 1)
+    ready_data_root(tmp_path, monkeypatch)
+    runs = run_root(kin_root(tmp_path))
+    overlay = session_overlay_path(runs, "session-00", 1)
     overlay.mkdir(parents=True)
     write_marker(overlay, identity=identity(), session_id="session-00", generation=1)
 
@@ -302,14 +233,15 @@ def test_start_session_refuses_while_a_previous_client_is_unresolved(
             probe=probe(Liveness.ALIVE),
         )
 
-    assert not session_overlay_path(root, "session-01", 1).exists()
+    assert not session_overlay_path(runs, "session-01", 1).exists()
 
 
 def test_a_resolved_previous_client_does_not_block_a_start(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    root = ready_run(tmp_path, monkeypatch)
-    overlay = session_overlay_path(root, "session-00", 1)
+    ready_data_root(tmp_path, monkeypatch)
+    runs = run_root(kin_root(tmp_path))
+    overlay = session_overlay_path(runs, "session-00", 1)
     overlay.mkdir(parents=True)
     write_marker(overlay, identity=identity(), session_id="session-00", generation=1)
 
@@ -329,7 +261,7 @@ def test_a_resolved_previous_client_does_not_block_a_start(
 def test_start_session_records_the_client_it_started(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    root = ready_run(tmp_path, monkeypatch)
+    ready_data_root(tmp_path, monkeypatch)
 
     launch = start_session(
         root=tmp_path,
@@ -341,7 +273,8 @@ def test_start_session_records_the_client_it_started(
         probe=probe(Liveness.GONE),
     )
 
-    marker = session_overlay_path(root, "session-01", 1) / MARKER_NAME
+    runs = run_root(kin_root(tmp_path))
+    marker = session_overlay_path(runs, "session-01", 1) / MARKER_NAME
     document = json.loads(marker.read_bytes())
 
     assert document["session_id"] == "session-01"
@@ -354,7 +287,7 @@ def test_the_cli_surfaces_an_unresolved_client(
 ) -> None:
     """The orphan refusal reaches the operator as a PROCESS exit code, not a crash."""
 
-    ready_run(tmp_path, monkeypatch)
+    ready_data_root(tmp_path, monkeypatch)
     monkeypatch.setattr("minekin_core.bootstrap.build_launch_plan", fake_plan)
     overlay = session_overlay_path(run_root(tmp_path), "session-00", 1)
     overlay.mkdir(parents=True)
