@@ -2,6 +2,8 @@ syntax = "proto3";
 
 package minekin.v1;
 
+import "minekin/v1/session.proto";
+
 option java_multiple_files = true;
 option java_outer_classname = "ObservationProto";
 option java_package = "io.minekin.protocol.v1";
@@ -44,4 +46,5 @@ message InitialObservation {
   InventorySummary inventory = 4;
   repeated VisibleEntity visible_entities = 5;
   bool authoritative = 6;
+  SessionIdentityReport session_identity = 7;
 }

@@ -22,9 +22,10 @@ _runtime_version.ValidateProtobufRuntimeVersion(
 _sym_db = _symbol_database.Default()
 
 
+from minekin_core.generated.minekin.v1 import session_pb2 as minekin_dot_v1_dot_session__pb2
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x1cminekin/v1/observation.proto\x12\nminekin.v1\"\xd0\x01\n\tSelfState\x12\x16\n\x06health\x18\x01 \x01(\x02R\x06health\x12\x1d\n\nmax_health\x18\x02 \x01(\x02R\tmaxHealth\x12\x12\n\x04\x66ood\x18\x03 \x01(\x05R\x04\x66ood\x12\x1e\n\nsaturation\x18\x04 \x01(\x02R\nsaturation\x12\x1b\n\ton_ground\x18\x05 \x01(\x08R\x08onGround\x12\x14\n\x05\x61live\x18\x06 \x01(\x08R\x05\x61live\x12%\n\x0e\x63urrent_screen\x18\x07 \x01(\tR\rcurrentScreen\"k\n\x0eInventoryStack\x12\x12\n\x04slot\x18\x01 \x01(\rR\x04slot\x12\x17\n\x07item_id\x18\x02 \x01(\tR\x06itemId\x12\x14\n\x05\x63ount\x18\x03 \x01(\rR\x05\x63ount\x12\x16\n\x06\x64\x61mage\x18\x04 \x01(\rR\x06\x64\x61mage\"b\n\x10InventorySummary\x12\x1a\n\x08revision\x18\x01 \x01(\x04R\x08revision\x12\x32\n\x06stacks\x18\x02 \x03(\x0b\x32\x1a.minekin.v1.InventoryStackR\x06stacks\"\xd8\x01\n\rVisibleEntity\x12%\n\x0eobservation_id\x18\x01 \x01(\tR\robservationId\x12\x1f\n\x0b\x65ntity_type\x18\x02 \x01(\tR\nentityType\x12\x1d\n\nrelative_x\x18\x03 \x01(\x02R\trelativeX\x12\x1d\n\nrelative_y\x18\x04 \x01(\x02R\trelativeY\x12\x1d\n\nrelative_z\x18\x05 \x01(\x02R\trelativeZ\x12\"\n\rline_of_sight\x18\x06 \x01(\x08R\x0blineOfSight\"\xa4\x02\n\x12InitialObservation\x12\x1e\n\ngeneration\x18\x01 \x01(\x04R\ngeneration\x12\x1b\n\tgame_tick\x18\x02 \x01(\x04R\x08gameTick\x12)\n\x04self\x18\x03 \x01(\x0b\x32\x15.minekin.v1.SelfStateR\x04self\x12:\n\tinventory\x18\x04 \x01(\x0b\x32\x1c.minekin.v1.InventorySummaryR\tinventory\x12\x44\n\x10visible_entities\x18\x05 \x03(\x0b\x32\x19.minekin.v1.VisibleEntityR\x0fvisibleEntities\x12$\n\rauthoritative\x18\x06 \x01(\x08R\rauthoritativeB,\n\x16io.minekin.protocol.v1B\x10ObservationProtoP\x01\x62\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x1cminekin/v1/observation.proto\x12\nminekin.v1\x1a\x18minekin/v1/session.proto\"\xd0\x01\n\tSelfState\x12\x16\n\x06health\x18\x01 \x01(\x02R\x06health\x12\x1d\n\nmax_health\x18\x02 \x01(\x02R\tmaxHealth\x12\x12\n\x04\x66ood\x18\x03 \x01(\x05R\x04\x66ood\x12\x1e\n\nsaturation\x18\x04 \x01(\x02R\nsaturation\x12\x1b\n\ton_ground\x18\x05 \x01(\x08R\x08onGround\x12\x14\n\x05\x61live\x18\x06 \x01(\x08R\x05\x61live\x12%\n\x0e\x63urrent_screen\x18\x07 \x01(\tR\rcurrentScreen\"k\n\x0eInventoryStack\x12\x12\n\x04slot\x18\x01 \x01(\rR\x04slot\x12\x17\n\x07item_id\x18\x02 \x01(\tR\x06itemId\x12\x14\n\x05\x63ount\x18\x03 \x01(\rR\x05\x63ount\x12\x16\n\x06\x64\x61mage\x18\x04 \x01(\rR\x06\x64\x61mage\"b\n\x10InventorySummary\x12\x1a\n\x08revision\x18\x01 \x01(\x04R\x08revision\x12\x32\n\x06stacks\x18\x02 \x03(\x0b\x32\x1a.minekin.v1.InventoryStackR\x06stacks\"\xd8\x01\n\rVisibleEntity\x12%\n\x0eobservation_id\x18\x01 \x01(\tR\robservationId\x12\x1f\n\x0b\x65ntity_type\x18\x02 \x01(\tR\nentityType\x12\x1d\n\nrelative_x\x18\x03 \x01(\x02R\trelativeX\x12\x1d\n\nrelative_y\x18\x04 \x01(\x02R\trelativeY\x12\x1d\n\nrelative_z\x18\x05 \x01(\x02R\trelativeZ\x12\"\n\rline_of_sight\x18\x06 \x01(\x08R\x0blineOfSight\"\xf2\x02\n\x12InitialObservation\x12\x1e\n\ngeneration\x18\x01 \x01(\x04R\ngeneration\x12\x1b\n\tgame_tick\x18\x02 \x01(\x04R\x08gameTick\x12)\n\x04self\x18\x03 \x01(\x0b\x32\x15.minekin.v1.SelfStateR\x04self\x12:\n\tinventory\x18\x04 \x01(\x0b\x32\x1c.minekin.v1.InventorySummaryR\tinventory\x12\x44\n\x10visible_entities\x18\x05 \x03(\x0b\x32\x19.minekin.v1.VisibleEntityR\x0fvisibleEntities\x12$\n\rauthoritative\x18\x06 \x01(\x08R\rauthoritative\x12L\n\x10session_identity\x18\x07 \x01(\x0b\x32!.minekin.v1.SessionIdentityReportR\x0fsessionIdentityB,\n\x16io.minekin.protocol.v1B\x10ObservationProtoP\x01\x62\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
@@ -32,14 +33,14 @@ _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'minekin.v1.observation_pb2'
 if not _descriptor._USE_C_DESCRIPTORS:
   _globals['DESCRIPTOR']._loaded_options = None
   _globals['DESCRIPTOR']._serialized_options = b'\n\026io.minekin.protocol.v1B\020ObservationProtoP\001'
-  _globals['_SELFSTATE']._serialized_start=45
-  _globals['_SELFSTATE']._serialized_end=253
-  _globals['_INVENTORYSTACK']._serialized_start=255
-  _globals['_INVENTORYSTACK']._serialized_end=362
-  _globals['_INVENTORYSUMMARY']._serialized_start=364
-  _globals['_INVENTORYSUMMARY']._serialized_end=462
-  _globals['_VISIBLEENTITY']._serialized_start=465
-  _globals['_VISIBLEENTITY']._serialized_end=681
-  _globals['_INITIALOBSERVATION']._serialized_start=684
-  _globals['_INITIALOBSERVATION']._serialized_end=976
+  _globals['_SELFSTATE']._serialized_start=71
+  _globals['_SELFSTATE']._serialized_end=279
+  _globals['_INVENTORYSTACK']._serialized_start=281
+  _globals['_INVENTORYSTACK']._serialized_end=388
+  _globals['_INVENTORYSUMMARY']._serialized_start=390
+  _globals['_INVENTORYSUMMARY']._serialized_end=488
+  _globals['_VISIBLEENTITY']._serialized_start=491
+  _globals['_VISIBLEENTITY']._serialized_end=707
+  _globals['_INITIALOBSERVATION']._serialized_start=710
+  _globals['_INITIALOBSERVATION']._serialized_end=1080
 # @@protoc_insertion_point(module_scope)

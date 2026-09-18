@@ -42,8 +42,26 @@ class Capability(_message.Message):
     version: int
     def __init__(self, name: _Optional[str] = ..., version: _Optional[int] = ...) -> None: ...
 
+class SessionIdentityReport(_message.Message):
+    __slots__ = ("identity_candidate_id", "session_username", "session_uuid", "session_account_type", "session_xuid_present", "session_client_id_present", "credential_values_exposed")
+    IDENTITY_CANDIDATE_ID_FIELD_NUMBER: _ClassVar[int]
+    SESSION_USERNAME_FIELD_NUMBER: _ClassVar[int]
+    SESSION_UUID_FIELD_NUMBER: _ClassVar[int]
+    SESSION_ACCOUNT_TYPE_FIELD_NUMBER: _ClassVar[int]
+    SESSION_XUID_PRESENT_FIELD_NUMBER: _ClassVar[int]
+    SESSION_CLIENT_ID_PRESENT_FIELD_NUMBER: _ClassVar[int]
+    CREDENTIAL_VALUES_EXPOSED_FIELD_NUMBER: _ClassVar[int]
+    identity_candidate_id: str
+    session_username: str
+    session_uuid: str
+    session_account_type: str
+    session_xuid_present: bool
+    session_client_id_present: bool
+    credential_values_exposed: bool
+    def __init__(self, identity_candidate_id: _Optional[str] = ..., session_username: _Optional[str] = ..., session_uuid: _Optional[str] = ..., session_account_type: _Optional[str] = ..., session_xuid_present: bool = ..., session_client_id_present: bool = ..., credential_values_exposed: bool = ...) -> None: ...
+
 class BridgeHello(_message.Message):
-    __slots__ = ("protocol", "launch_nonce", "proof", "kin_id", "session_id", "generation", "client_instance_id", "bundle_digest", "bridge_digest", "minecraft_version", "fabric_loader_version", "capabilities", "phase")
+    __slots__ = ("protocol", "launch_nonce", "proof", "kin_id", "session_id", "generation", "client_instance_id", "bundle_digest", "bridge_digest", "minecraft_version", "fabric_loader_version", "capabilities", "phase", "session_identity")
     PROTOCOL_FIELD_NUMBER: _ClassVar[int]
     LAUNCH_NONCE_FIELD_NUMBER: _ClassVar[int]
     PROOF_FIELD_NUMBER: _ClassVar[int]
@@ -57,6 +75,7 @@ class BridgeHello(_message.Message):
     FABRIC_LOADER_VERSION_FIELD_NUMBER: _ClassVar[int]
     CAPABILITIES_FIELD_NUMBER: _ClassVar[int]
     PHASE_FIELD_NUMBER: _ClassVar[int]
+    SESSION_IDENTITY_FIELD_NUMBER: _ClassVar[int]
     protocol: _envelope_pb2.ProtocolVersion
     launch_nonce: str
     proof: str
@@ -70,7 +89,8 @@ class BridgeHello(_message.Message):
     fabric_loader_version: str
     capabilities: _containers.RepeatedCompositeFieldContainer[Capability]
     phase: BridgePhase
-    def __init__(self, protocol: _Optional[_Union[_envelope_pb2.ProtocolVersion, _Mapping]] = ..., launch_nonce: _Optional[str] = ..., proof: _Optional[str] = ..., kin_id: _Optional[str] = ..., session_id: _Optional[str] = ..., generation: _Optional[int] = ..., client_instance_id: _Optional[str] = ..., bundle_digest: _Optional[str] = ..., bridge_digest: _Optional[str] = ..., minecraft_version: _Optional[str] = ..., fabric_loader_version: _Optional[str] = ..., capabilities: _Optional[_Iterable[_Union[Capability, _Mapping]]] = ..., phase: _Optional[_Union[BridgePhase, str]] = ...) -> None: ...
+    session_identity: SessionIdentityReport
+    def __init__(self, protocol: _Optional[_Union[_envelope_pb2.ProtocolVersion, _Mapping]] = ..., launch_nonce: _Optional[str] = ..., proof: _Optional[str] = ..., kin_id: _Optional[str] = ..., session_id: _Optional[str] = ..., generation: _Optional[int] = ..., client_instance_id: _Optional[str] = ..., bundle_digest: _Optional[str] = ..., bridge_digest: _Optional[str] = ..., minecraft_version: _Optional[str] = ..., fabric_loader_version: _Optional[str] = ..., capabilities: _Optional[_Iterable[_Union[Capability, _Mapping]]] = ..., phase: _Optional[_Union[BridgePhase, str]] = ..., session_identity: _Optional[_Union[SessionIdentityReport, _Mapping]] = ...) -> None: ...
 
 class CoreHello(_message.Message):
     __slots__ = ("protocol", "session_id", "generation", "accepted_capabilities", "heartbeat_interval_ms", "max_frame_bytes", "proof")

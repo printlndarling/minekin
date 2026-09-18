@@ -65,7 +65,8 @@
 - [x] 冻结 `token=0`、offline UUID 与 clientId/xuid 显式空 argv 语义：`domain/offline_identity.py` 复刻 `UUID.nameUUIDFromBytes("OfflinePlayer:"+name)`，向量取自 JDK 实际输出；`adapters/launcher/offline_session.py` 冻结 OFF-A/OFF-B 候选，并强制每个空值仍是紧跟自己 option 的独立 argv 元素。
 - [x] OFFLINE-001 静态子集：dry-run 无字面 `${...}`；未声明占位符直接拒绝而不是替换成空字符串；空值位置与候选声明不一致即失败。
 - [ ] 把已冻结的 session argv 接入启动路径；当前只有 dry-run 模型，没有启动实现。
-- [ ] Bridge 脱敏报告实际 Session；日志不得出现敏感正文。
+- [x] Bridge 脱敏报告：`SessionIdentityReport` 随 hello 与首快照上报候选、用户名、UUID、AccountType 与 clientId/xuid presence；凭据按结构不可携带——消息没有 `bytes` 字段、观测 record 没有 token/secret/key 分量、`credential_values_exposed` 为 true 时拒绝。形状由已发布的 descriptor 断言，不靠人工复查。
+- [ ] 读取真实客户端 Session 回填该报告，并在 Launcher argv 摘要与 Bridge 实测不一致时判 `SESSION_MATERIAL_MISMATCH`；依赖真实客户端。
 - [ ] 执行 `OFFLINE-001…100`，仅在条件满足时运行 UUID/sentinel 对照。
 - [ ] 门禁：启动、握手与身份材料可解释，失败分类明确。
 

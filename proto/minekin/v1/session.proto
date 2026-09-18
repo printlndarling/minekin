@@ -23,6 +23,28 @@ message Capability {
   uint32 version = 2;
 }
 
+// The Bridge's own reading of the live client Session, reported with the hello
+// and with the first snapshot so Runtime can compare it against the argv
+// material the Launcher recorded. Credential bodies never appear here: presence
+// is a boolean and the Access Token stays inside the client process.
+//
+// The message deliberately has no `bytes` field, so a token cannot be embedded
+// even by mistake.
+message SessionIdentityReport {
+  // Which reviewed offline candidate this launch is testing.
+  string identity_candidate_id = 1;
+  string session_username = 2;
+  // Recorded exactly as the client reports it, so the id128 and canonical forms
+  // stay distinguishable when comparing candidate results.
+  string session_uuid = 3;
+  string session_account_type = 4;
+  bool session_xuid_present = 5;
+  bool session_client_id_present = 6;
+  // Always false. It travels on the wire so a report claiming otherwise is
+  // detectable instead of silently trusted.
+  bool credential_values_exposed = 7;
+}
+
 message BridgeHello {
   ProtocolVersion protocol = 1;
   string launch_nonce = 2;
@@ -37,6 +59,7 @@ message BridgeHello {
   string fabric_loader_version = 11;
   repeated Capability capabilities = 12;
   BridgePhase phase = 13;
+  SessionIdentityReport session_identity = 14;
 }
 
 message CoreHello {

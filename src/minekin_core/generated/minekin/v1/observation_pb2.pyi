@@ -1,3 +1,4 @@
+from minekin_core.generated.minekin.v1 import session_pb2 as _session_pb2
 from google.protobuf.internal import containers as _containers
 from google.protobuf import descriptor as _descriptor
 from google.protobuf import message as _message
@@ -61,17 +62,19 @@ class VisibleEntity(_message.Message):
     def __init__(self, observation_id: _Optional[str] = ..., entity_type: _Optional[str] = ..., relative_x: _Optional[float] = ..., relative_y: _Optional[float] = ..., relative_z: _Optional[float] = ..., line_of_sight: bool = ...) -> None: ...
 
 class InitialObservation(_message.Message):
-    __slots__ = ("generation", "game_tick", "self", "inventory", "visible_entities", "authoritative")
+    __slots__ = ("generation", "game_tick", "self", "inventory", "visible_entities", "authoritative", "session_identity")
     GENERATION_FIELD_NUMBER: _ClassVar[int]
     GAME_TICK_FIELD_NUMBER: _ClassVar[int]
     SELF_FIELD_NUMBER: _ClassVar[int]
     INVENTORY_FIELD_NUMBER: _ClassVar[int]
     VISIBLE_ENTITIES_FIELD_NUMBER: _ClassVar[int]
     AUTHORITATIVE_FIELD_NUMBER: _ClassVar[int]
+    SESSION_IDENTITY_FIELD_NUMBER: _ClassVar[int]
     generation: int
     game_tick: int
     self: SelfState
     inventory: InventorySummary
     visible_entities: _containers.RepeatedCompositeFieldContainer[VisibleEntity]
     authoritative: bool
-    def __init__(self_, generation: _Optional[int] = ..., game_tick: _Optional[int] = ..., self: _Optional[_Union[SelfState, _Mapping]] = ..., inventory: _Optional[_Union[InventorySummary, _Mapping]] = ..., visible_entities: _Optional[_Iterable[_Union[VisibleEntity, _Mapping]]] = ..., authoritative: bool = ...) -> None: ...
+    session_identity: _session_pb2.SessionIdentityReport
+    def __init__(self_, generation: _Optional[int] = ..., game_tick: _Optional[int] = ..., self: _Optional[_Union[SelfState, _Mapping]] = ..., inventory: _Optional[_Union[InventorySummary, _Mapping]] = ..., visible_entities: _Optional[_Iterable[_Union[VisibleEntity, _Mapping]]] = ..., authoritative: bool = ..., session_identity: _Optional[_Union[_session_pb2.SessionIdentityReport, _Mapping]] = ...) -> None: ...
