@@ -42,11 +42,12 @@
     "metadata": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["version_manifest", "version_json", "fabric_profile"],
+      "required": ["version_manifest", "version_json", "fabric_profile", "asset_index"],
       "properties": {
         "version_manifest": {"type": "string", "minLength": 1},
         "version_json": {"type": "string", "minLength": 1},
-        "fabric_profile": {"type": "string", "minLength": 1}
+        "fabric_profile": {"type": "string", "minLength": 1},
+        "asset_index": {"type": "string", "minLength": 1}
       }
     },
     "artifacts": {
@@ -60,8 +61,21 @@
           "kind": {"enum": ["metadata", "library", "mod", "server", "bridge"]},
           "verification": {"enum": ["sha1", "sha256", "build_required"]},
           "digest": {"type": "string", "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$"},
-          "source": {"type": "string"}
-        }
+          "source": {"type": "string"},
+          "size": {"type": "integer", "minimum": 1},
+          "license": {"type": "string", "minLength": 1},
+          "source_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+        },
+        "allOf": [
+          {
+            "if": {"properties": {"verification": {"enum": ["sha1", "sha256"]}}},
+            "then": {"required": ["digest", "size", "source", "license"]}
+          },
+          {
+            "if": {"properties": {"verification": {"const": "build_required"}}},
+            "then": {"required": ["source", "source_digest", "license"]}
+          }
+        ]
       }
     }
   }

@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, cast
 
 from minekin_core.adapters.launcher.metadata import Artifact, TargetPlatform, load_pinned_metadata
+from minekin_core.adapters.launcher.recipe import validate_bundle_recipe
 from minekin_core.domain.errors import ErrorCategory, MinekinError, Retryability
 
 _PLACEHOLDER = re.compile(r"^\$\{([a-zA-Z0-9_]+)\}$")
@@ -61,8 +62,10 @@ def _typed_arguments(arguments: tuple[str, ...]) -> list[dict[str, str]]:
     return result
 
 
-def build_launch_plan(profile_path: Path) -> dict[str, Any]:
+def build_launch_plan(profile_path: Path, *, workspace_root: Path | None = None) -> dict[str, Any]:
     profile_path = profile_path.resolve()
+    workspace_root = workspace_root or Path(__file__).resolve().parents[4]
+    recipe_audit = validate_bundle_recipe(profile_path, workspace_root)
     profile = _load_object(profile_path)
     runtime_value = profile.get("runtime")
     if not isinstance(runtime_value, dict):
@@ -74,9 +77,17 @@ def build_launch_plan(profile_path: Path) -> dict[str, Any]:
         _metadata_path(profile_path, profile, "version_manifest"),
         _metadata_path(profile_path, profile, "version_json"),
         _metadata_path(profile_path, profile, "fabric_profile"),
+        _metadata_path(profile_path, profile, "asset_index"),
         target=TargetPlatform("linux", "x86_64"),
     )
-    ordered = [metadata.client, *metadata.libraries, *metadata.fabric_libraries]
+    ordered = [
+        metadata.client,
+        *metadata.libraries,
+        *metadata.fabric_libraries,
+        metadata.asset_index,
+        *metadata.asset_objects,
+        metadata.logging_config,
+    ]
     by_path: dict[str, Artifact] = {}
     for artifact in ordered:
         existing = by_path.get(artifact.path)
@@ -84,7 +95,14 @@ def build_launch_plan(profile_path: Path) -> dict[str, Any]:
             raise _reject("two artifacts claim the same immutable path")
         by_path.setdefault(artifact.path, artifact)
     artifacts = list(by_path.values())
-    classpath = [_store_path(artifact) for artifact in artifacts]
+    classpath = [
+        _store_path(artifact)
+        for artifact in [metadata.client, *metadata.libraries, *metadata.fabric_libraries]
+        if artifact.kind != "native"
+    ]
+    native_artifacts = [
+        _store_path(artifact) for artifact in metadata.libraries if artifact.kind == "native"
+    ]
     replacements = {
         "${natives_directory}": "session/natives",
         "${launcher_name}": "minekin",
@@ -97,6 +115,9 @@ def build_launch_plan(profile_path: Path) -> dict[str, Any]:
         for placeholder, replacement in replacements.items():
             resolved = resolved.replace(placeholder, replacement)
         jvm_args.append(resolved)
+    jvm_args.append(
+        metadata.logging_argument.replace("${path}", _store_path(metadata.logging_config))
+    )
     if any("${" in argument for argument in jvm_args):
         raise _reject("JVM argument contains an unresolved placeholder")
     recipe_artifacts_value = profile.get("artifacts")
@@ -131,6 +152,11 @@ def build_launch_plan(profile_path: Path) -> dict[str, Any]:
             "jvm_args": jvm_args,
             "game_arg_template": _typed_arguments(metadata.game_arguments),
             "classpath": classpath,
+            "native_artifacts": native_artifacts,
+            "native_extract_excludes": ["META-INF/"],
+            "asset_index": _store_path(metadata.asset_index),
+            "assets_dir": "bundle/assets",
+            "logging_config": _store_path(metadata.logging_config),
             "natives_dir": "session/natives",
             "game_dir": "session/game",
         },
@@ -138,6 +164,8 @@ def build_launch_plan(profile_path: Path) -> dict[str, Any]:
             "base_sha256": metadata.base_metadata_sha256,
             "fabric_sha256": metadata.fabric_metadata_sha256,
         },
+        "fixed_mods": list(recipe_audit.fixed_mods),
+        "bridge_source_sha256": recipe_audit.bridge_source_sha256,
     }
     canonical = json.dumps(plan, sort_keys=True, separators=(",", ":")).encode()
     plan["plan_sha256"] = hashlib.sha256(canonical).hexdigest()

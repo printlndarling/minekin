@@ -20,7 +20,8 @@
   "metadata": {
     "version_manifest": "../launcher/version_manifest_v2.json",
     "version_json": "../launcher/1.21.4.json",
-    "fabric_profile": "../launcher/fabric-loader-0.16.9.json"
+    "fabric_profile": "../launcher/fabric-loader-0.16.9.json",
+    "asset_index": "../launcher/asset-index-19.json"
   },
   "artifacts": [
     {
@@ -28,13 +29,17 @@
       "kind": "mod",
       "verification": "sha256",
       "digest": "d183bacb845167f09264c2f90322b7ecffe8826debda6f60e597889264bef4af",
-      "source": "https://maven.fabricmc.net/net/fabricmc/fabric-api/fabric-api/0.119.4+1.21.4/"
+      "size": 2149128,
+      "source": "https://maven.fabricmc.net/net/fabricmc/fabric-api/fabric-api/0.119.4+1.21.4/fabric-api-0.119.4+1.21.4.jar",
+      "license": "Apache-2.0"
     },
     {
       "name": "minekin-bridge",
       "kind": "bridge",
       "verification": "build_required",
-      "source": "workspace:bridge"
+      "source": "workspace:bridge",
+      "source_digest": "2877e72e89ddd667813d1a19d75b18803c6222d54b9f69042e36e533b753fd0f",
+      "license": "NOASSERTION"
     }
   ]
 }

@@ -16,6 +16,12 @@ def test_launch_plan_is_deterministic_and_has_independent_arguments() -> None:
     assert first == build_launch_plan(PROFILE)
     assert first["bundle"]["main_class"] == "net.fabricmc.loader.impl.launch.knot.KnotClient"
     assert first["runtime"]["classpath"]
+    assert len(first["artifacts"]) == 4120
+    assert len(first["runtime"]["classpath"]) == 70
+    assert len(first["runtime"]["native_artifacts"]) == 9
+    assert first["runtime"]["asset_index"].endswith("/19.json")
+    assert first["runtime"]["logging_config"].endswith("/client-1.21.2.xml")
+    assert sum(item["kind"] == "asset" for item in first["artifacts"]) == 4039
     assert all("${" not in item for item in first["runtime"]["jvm_args"])
     assert all(
         item["kind"] in {"literal", "placeholder"} for item in first["runtime"]["game_arg_template"]

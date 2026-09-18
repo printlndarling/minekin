@@ -50,6 +50,20 @@ def run(
         _emit(build_launch_plan(Path(args.profile)), stdout)
         return int(ExitCode.OK)
 
+    if args.command == "bundle" and args.bundle_command == "verify":
+        plan = build_launch_plan(Path(args.profile))
+        _emit(
+            {
+                "schema_version": 1,
+                "status": "valid_recipe",
+                "launchable": plan["launchable"],
+                "blockers": plan["blockers"],
+                "plan_sha256": plan["plan_sha256"],
+            },
+            stdout,
+        )
+        return int(ExitCode.OK)
+
     command = _command_name(args)
     _emit(
         {

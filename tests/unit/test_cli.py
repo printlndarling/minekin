@@ -43,7 +43,6 @@ def test_launch_plan_requires_explicit_dry_run() -> None:
     "argv",
     [
         ["init", "--kin-id", "kin-1"],
-        ["bundle", "verify", "--profile", "missing.json"],
         ["session", "start", "--profile", "missing.json"],
         ["session", "status"],
         ["session", "stop"],

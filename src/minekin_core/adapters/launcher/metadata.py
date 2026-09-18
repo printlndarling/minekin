@@ -22,6 +22,7 @@ BASE_MAIN_CLASS = "net.minecraft.client.main.Main"
 FABRIC_LOADER = "0.16.9"
 FABRIC_MAIN_CLASS = "net.fabricmc.loader.impl.launch.knot.KnotClient"
 JAVA_MAJOR = 21
+ASSET_INDEX_SHA1 = "8d07e20a532738f3ee13392a23871abb5927fd79"
 
 _SHA1 = re.compile(r"^[0-9a-f]{40}$")
 _KNOWN_OS_NAMES = frozenset({"linux", "osx", "windows"})
@@ -121,6 +122,10 @@ class PinnedMetadata:
     fabric_main_class: str
     asset_index_id: str
     client: Artifact
+    asset_index: Artifact
+    asset_objects: tuple[Artifact, ...]
+    logging_config: Artifact
+    logging_argument: str
     source_library_count: int
     libraries: tuple[Artifact, ...]
     jvm_arguments: tuple[str, ...]
@@ -282,6 +287,7 @@ def parse_pinned_metadata(
     manifest_raw: bytes,
     version_raw: bytes,
     fabric_raw: bytes,
+    asset_index_raw: bytes,
     *,
     target: TargetPlatform,
 ) -> PinnedMetadata:
@@ -312,12 +318,55 @@ def parse_pinned_metadata(
     )
     assets = _object(version.get("assetIndex"), "assetIndex")
     asset_index_id = _text(assets.get("id"), "assetIndex.id")
-    _artifact(
+    if assets.get("sha1") != ASSET_INDEX_SHA1:
+        raise _reject("asset index identity differs from the reviewed response")
+    asset_index = _artifact(
         assets,
         f"com.mojang:assets:{asset_index_id}",
         "asset-index",
         default_path=f"assets/indexes/{asset_index_id}.json",
     )
+    if hashlib.sha1(asset_index_raw).hexdigest() != ASSET_INDEX_SHA1:
+        raise _reject("asset index digest does not match the pinned SHA-1")
+    asset_index_document = _load_json(asset_index_raw, "asset index")
+    asset_values = _object(asset_index_document.get("objects"), "asset index.objects")
+    asset_objects: list[Artifact] = []
+    total_asset_size = 0
+    for logical_name, raw_object in sorted(asset_values.items()):
+        asset_object = _object(raw_object, f"asset object {logical_name}")
+        digest = _text(asset_object.get("hash"), f"asset object {logical_name}.hash")
+        size = _integer(asset_object.get("size"), f"asset object {logical_name}.size")
+        if not _SHA1.fullmatch(digest) or size <= 0:
+            raise _reject("asset object identity is malformed")
+        total_asset_size += size
+        asset_objects.append(
+            Artifact(
+                coordinate=f"asset:{logical_name}",
+                path=f"assets/objects/{digest[:2]}/{digest}",
+                url=f"https://resources.download.minecraft.net/{digest[:2]}/{digest}",
+                size=size,
+                sha1=digest,
+                kind="asset",
+            )
+        )
+    if total_asset_size != _integer(assets.get("totalSize"), "assetIndex.totalSize"):
+        raise _reject("asset index total size differs from version metadata")
+
+    logging = _object(version.get("logging"), "logging")
+    logging_client = _object(logging.get("client"), "logging.client")
+    if logging_client.get("type") != "log4j2-xml":
+        raise _reject("logging configuration type is not reviewed")
+    logging_file = _object(logging_client.get("file"), "logging.client.file")
+    logging_id = _text(logging_file.get("id"), "logging.client.file.id")
+    logging_config = _artifact(
+        logging_file,
+        f"com.mojang:logging:{logging_id}",
+        "logging",
+        default_path=f"logging/{logging_id}",
+    )
+    logging_argument = _text(logging_client.get("argument"), "logging.client.argument")
+    if logging_argument != "-Dlog4j.configurationFile=${path}":
+        raise _reject("logging JVM argument is not the reviewed template")
 
     source_libraries = _array(version.get("libraries"), "libraries")
     if len(source_libraries) != 113:
@@ -332,7 +381,8 @@ def parse_pinned_metadata(
         if not rules_allow(library.get("rules"), target):
             continue
         library_downloads = _object(library.get("downloads"), f"library {coordinate}.downloads")
-        libraries.append(_artifact(library_downloads.get("artifact"), coordinate))
+        kind = "native" if ":natives-" in coordinate else "library"
+        libraries.append(_artifact(library_downloads.get("artifact"), coordinate, kind))
 
     arguments = _object(version.get("arguments"), "arguments")
     jvm_arguments = _arguments(arguments.get("jvm"), target, "arguments.jvm")
@@ -365,6 +415,10 @@ def parse_pinned_metadata(
         fabric_main_class=FABRIC_MAIN_CLASS,
         asset_index_id=asset_index_id,
         client=client,
+        asset_index=asset_index,
+        asset_objects=tuple(asset_objects),
+        logging_config=logging_config,
+        logging_argument=logging_argument,
         source_library_count=len(source_libraries),
         libraries=tuple(libraries),
         jvm_arguments=jvm_arguments,
@@ -380,6 +434,7 @@ def load_pinned_metadata(
     manifest_path: Path,
     version_path: Path,
     fabric_path: Path,
+    asset_index_path: Path,
     *,
     target: TargetPlatform,
 ) -> PinnedMetadata:
@@ -387,5 +442,6 @@ def load_pinned_metadata(
         manifest_path.read_bytes(),
         version_path.read_bytes(),
         fabric_path.read_bytes(),
+        asset_index_path.read_bytes(),
         target=target,
     )

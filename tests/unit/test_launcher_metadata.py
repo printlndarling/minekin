@@ -27,6 +27,7 @@ def test_pinned_metadata_resolves_linux_x86_64() -> None:
         FIXTURES / "version_manifest_v2.json",
         FIXTURES / "1.21.4.json",
         FIXTURES / "fabric-loader-0.16.9.json",
+        FIXTURES / "asset-index-19.json",
         target=TARGET,
     )
 
@@ -35,8 +36,13 @@ def test_pinned_metadata_resolves_linux_x86_64() -> None:
     assert metadata.fabric_main_class == FABRIC_MAIN_CLASS
     assert metadata.client.sha1 == "a7e5a6024bfd3cd614625aa05629adf760020304"
     assert metadata.asset_index_id == "19"
+    assert metadata.asset_index.sha1 == "8d07e20a532738f3ee13392a23871abb5927fd79"
+    assert len(metadata.asset_objects) == 4039
+    assert sum(item.size for item in metadata.asset_objects) == 421_518_376
+    assert metadata.logging_config.kind == "logging"
     assert metadata.source_library_count == 113
     assert len(metadata.libraries) == 70
+    assert sum(item.kind == "native" for item in metadata.libraries) == 9
     assert len(metadata.fabric_coordinates) == 8
     assert "-cp" in metadata.jvm_arguments
     assert "${classpath}" in metadata.jvm_arguments
@@ -51,6 +57,7 @@ def test_version_metadata_tampering_fails_closed() -> None:
             _raw("version_manifest_v2.json"),
             version,
             _raw("fabric-loader-0.16.9.json"),
+            _raw("asset-index-19.json"),
             target=TARGET,
         )
 
@@ -64,6 +71,18 @@ def test_manifest_cannot_redirect_the_pinned_version() -> None:
             json.dumps(manifest).encode(),
             _raw("1.21.4.json"),
             _raw("fabric-loader-0.16.9.json"),
+            _raw("asset-index-19.json"),
+            target=TARGET,
+        )
+
+
+def test_asset_index_tampering_fails_closed() -> None:
+    with pytest.raises(MinekinError, match="asset index digest"):
+        parse_pinned_metadata(
+            _raw("version_manifest_v2.json"),
+            _raw("1.21.4.json"),
+            _raw("fabric-loader-0.16.9.json"),
+            _raw("asset-index-19.json") + b"\n",
             target=TARGET,
         )
 
@@ -76,6 +95,7 @@ def test_fabric_profile_inheritance_is_exact() -> None:
             _raw("version_manifest_v2.json"),
             _raw("1.21.4.json"),
             json.dumps(fabric).encode(),
+            _raw("asset-index-19.json"),
             target=TARGET,
         )
 
