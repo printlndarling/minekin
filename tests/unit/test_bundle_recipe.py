@@ -50,3 +50,41 @@ def test_bundle_verify_cli_is_read_only() -> None:
     assert report["launchable"] is False
     assert report["blockers"] == ["minekin-bridge: build required"]
     assert stderr.getvalue() == ""
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [("yarn", "1.21.4+build.9"), ("api", "0.119.5+1.21.4"), ("loader", "0.17.0")],
+)
+def test_an_unreviewed_fabric_pin_is_rejected(tmp_path: Path, field: str, value: str) -> None:
+    """Every value in the recipe's fabric section is enforced, not decorative.
+
+    The section is what a reviewer reads to learn what the bundle is made of, so
+    a value nothing checks can silently disagree with what is actually used.
+    """
+
+    recipe = json.loads(PROFILE.read_bytes())
+    recipe["fabric"][field] = value
+    candidate = tmp_path / "recipe.json"
+    candidate.write_text(json.dumps(recipe), encoding="utf-8")
+
+    with pytest.raises(MinekinError, match=f"fabric.{field} is not the reviewed value"):
+        validate_bundle_recipe(candidate, ROOT)
+
+
+def test_the_recipe_pins_agree_with_the_bridge_version_catalog() -> None:
+    """Two lists of the same versions would drift; this makes the drift loud."""
+
+    import tomllib
+
+    from minekin_core.adapters.launcher import recipe as recipe_module
+
+    catalog = tomllib.loads(
+        (ROOT / "bridge" / "gradle" / "libs.versions.toml").read_text(encoding="utf-8")
+    )
+    versions = catalog["versions"]
+
+    assert versions["minecraft"] == "1.21.4"
+    assert versions["fabric-loader"] == "0.16.9"
+    assert versions["fabric-api"] == recipe_module.FABRIC_API_VERSION
+    assert versions["yarn"] == recipe_module.FABRIC_YARN

@@ -49,6 +49,7 @@
 - [x] 生成可审计的内容寻址 classpath、session natives 目录、独立 JVM argv、typed game argv 模板与规范化计划摘要。
 - [x] 复核过 W10 计数：实际 4,120 个去重工件 = 4,039 asset + 69 library + 9 native + client + asset-index + logging，与文档所写一致。
 - [x] 逐项校验 URL、大小、SHA、Java 21、main class、规则与固定 mod 集；计划覆盖 4,120 个去重工件（含 4,039 个 asset object、9 个 Linux native 和 logging 配置）。
+- [x] recipe 的 `fabric` 段全部成为受检 pin：`api` 与 `yarn` 此前只是一段没人校验的字符串，而评审者正是靠这段了解这个 bundle 由什么组成，于是"写下来的"可能和"实际用的"不一致。现在两者都按固定常量 fail closed，并有一条测试把它们与 Bridge 的 Gradle 版本目录逐项对齐，两处版本无法再各自漂移。
 - [x] 使用独立 argv 元素；JVM 占位符必须全部解析、game 占位符必须转为 typed entry，并禁止 shell 拼接与宿主 `.minecraft` 访问。
 - [x] 建立带 staging/quarantine/原子发布的内容寻址 artifact store、逐文件复核的只读 bundle 与 generation 隔离的可写 session overlay。
 - [x] 工件抓取：只走 https（重定向降级到 http 也拒绝）、URL 不得带凭据；已在校验通过的缓存中的工件直接复用、不重发请求；只有传输错误才重试，策略拒绝与摘要不符立即返回——重下同样的错字节只会浪费镜像；单次 pass 不因一个失败中止，交由调用方在 `complete` 为假时拒绝启动。暂存、隔离、原子发布与只读封存由 `ArtifactStore.install` 负责，抓取层只提供传输。
@@ -77,7 +78,7 @@
 - [x] 把冻结的 session argv 与计划里的 JVM 参数组装成完整命令行：计划中的路径按契约是 run-root 相对，只有 `adapters/launcher/process.py` 把它们变成绝对路径，因此"到底指向哪个目录"只有一个答案。classpath 逐项重建而不是重写拼接串；`-cp` 后面若不是类路径就拒绝（否则会把下一个选项当成类路径吞掉）；仍为相对计划路径、或 `.minecraft` 作为路径分段出现的参数一律拒绝。该判别必须按路径分段——`net.minecraft.client.main.Main` 是类名，不是目录，第一版按子串判断会误杀它。
 - [x] spawn 与基本进程监管：直接 `Popen`（`shell=False` + 列表 argv，无 shell 复解析），cwd 为 session game 目录，日志落盘；身份记录为 `(pid, started_at, argv_digest)` 而不只是 PID——PID 会被系统复用，单独用不能跨 run 认人。停止是有界的：先请它退出，到点仍在则 kill，因为它还占着 session overlay、在服务端看来还像一名玩家。同一 supervisor 第二次 start 被拒。
 - [x] 客户端环境显式化：不隐式继承宿主环境。`HOME`/XDG/TEMP 一律改指 session 目录（继承了宿主 `HOME` 的客户端仍然够得到运行者的文件，而受管运行目录存在的意义正是挡住这件事），需要宿主提供的东西（虚拟显示要的 `DISPLAY`）必须逐个指名转发，且转发值中出现 `.minecraft` 路径分段即拒绝。改指到的目录必须在启动前存在——实测传给子进程一个不存在的 `TMPDIR` 会让它告警并可能无法建临时文件。
-- [ ] 重启后的残留进程对账（按 PID identity 与 run metadata 判断接管/终止/人工阻断）：需要受控 runner 才能验证，故意留空而不是猜。
+- [ ] 重启后的残留进程对账（按 PID identity 与 run metadata 判断接管/终止/人工阻断）：需要受控 runner 才能验证，故意留空而不是猜。其 golden fixture `tests/fixtures/crash/pending-outbox.v1.json` 与 `tests/fixtures/replay/session-preparing.v1.json` 已经提交并受摘要保护，但**目前没有任何消费者**——这是"先提交 fixture 与预期、再提交实现"的顺序，不是死文件，不要删。已核对：replay fixture 的 `payload_hash` 就是它自身 payload 的规范 JSON 摘要。
 - [x] `session start` 接线完成：读数据根与 Kin（根下只有一个 Kin 时无需选择，多于一个必须显式指定，否则拒绝——启动错的 Kin 是后续步骤挽不回来的）、读身份根、构建计划，然后**先验证就绪再创建任何东西**：计划自己说 not launchable 就带着 blocker 拒绝，计划点名的每一个工件都必须已在 store 中校验通过，缺一个就报出第一个缺失项。通过后建 session overlay、组装命令行、交给 supervisor 启动。overlay 的路径由 `session_overlay_path` 计算而非事后发现，所以 supervisor 的日志目录在 overlay 存在之前就能命名。
 - [x] 事件记录：契约要求 adapter 拿到结果之后再追加成功/失败事件，`session start` 现在在进程启动后记 `SessionProcessStarted`、在启动失败时记 `SessionProcessFailed` 并照常抛出。记录用的是已经脱敏的 `safe_message` 与错误分类，从不记原始异常正文；`source`/`trust_class` 标为 LAUNCHER，与"这是启动器报告的事实"一致。sequence 按 run 续号而不是从 1 重来，payload 哈希用账本自己的规范 JSON 摘要。启动之前的拒绝（没有 Kin、计划不可启动、工件缺失）不写事件——那是运行者错误而不是一次运行的结果。`sequence`/`generation` 在库里是 TEXT，因为 uint64 放不进 SQLite 的有符号 INTEGER。
 - [x] Bridge 脱敏报告：`SessionIdentityReport` 随 hello 与首快照上报候选、用户名、UUID、AccountType 与 clientId/xuid presence；凭据按结构不可携带——消息没有 `bytes` 字段、观测 record 没有 token/secret/key 分量、`credential_values_exposed` 为 true 时拒绝。形状由已发布的 descriptor 断言，不靠人工复查。

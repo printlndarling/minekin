@@ -10,6 +10,12 @@ from typing import Any, cast
 
 from minekin_core.domain.errors import ErrorCategory, MinekinError, Retryability
 
+# The recipe's `fabric` section is what a reviewer reads to learn what the bundle
+# is made of, so every value in it is pinned rather than decorative: `api` and
+# `yarn` used to be unchecked, which let the readable statement disagree with the
+# enforced one.
+FABRIC_API_VERSION = "0.119.4+1.21.4"
+FABRIC_YARN = "1.21.4+build.8"
 FABRIC_API_URL = (
     "https://maven.fabricmc.net/net/fabricmc/fabric-api/fabric-api/"
     "0.119.4+1.21.4/fabric-api-0.119.4+1.21.4.jar"
@@ -82,12 +88,14 @@ def validate_bundle_recipe(profile_path: Path, workspace_root: Path) -> RecipeAu
     if not isinstance(value, dict):
         raise _reject("bundle recipe must be an object")
     profile = cast(dict[str, Any], value)
-    expected_pins = {
-        "minecraft": ("version", "1.21.4"),
-        "runtime": ("java_major", 21),
-        "fabric": ("loader", "0.16.9"),
-    }
-    for section_name, (field, expected) in expected_pins.items():
+    expected_pins = (
+        ("minecraft", "version", "1.21.4"),
+        ("runtime", "java_major", 21),
+        ("fabric", "loader", "0.16.9"),
+        ("fabric", "api", FABRIC_API_VERSION),
+        ("fabric", "yarn", FABRIC_YARN),
+    )
+    for section_name, field, expected in expected_pins:
         section = profile.get(section_name)
         if not isinstance(section, dict):
             raise _reject(f"bundle recipe {section_name} must be an object")
