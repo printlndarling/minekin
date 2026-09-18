@@ -1,0 +1,53 @@
+syntax = "proto3";
+
+package minekin.v1;
+
+option java_multiple_files = true;
+option java_package = "io.minekin.protocol.v1";
+option java_outer_classname = "EnvelopeProto";
+
+// ProtocolVersion participates in handshake compatibility. A major mismatch is
+// fatal; a minor version may only add wire-compatible optional fields.
+message ProtocolVersion {
+  uint32 major = 1;
+  uint32 minor = 2;
+}
+
+enum Channel {
+  CHANNEL_UNSPECIFIED = 0;
+  CHANNEL_CONTROL = 1;
+  CHANNEL_EVENT = 2;
+}
+
+// Every cross-process message is self-describing across reconnects. IDs use
+// canonical lower-case UUID text at the domain boundary.
+message Envelope {
+  ProtocolVersion protocol = 1;
+  string message_type = 2;
+  Channel channel = 3;
+  uint64 sequence = 4;
+  string correlation_id = 5;
+  string reply_to = 6;
+
+  string kin_id = 10;
+  string run_id = 11;
+  string client_instance_id = 12;
+  string session_id = 13;
+  uint64 generation = 14;
+  string world_context_id = 15;
+
+  uint64 monotonic_ns = 20;
+  string observed_at_utc = 21;
+  optional uint64 game_tick = 22;
+  optional uint64 deadline_monotonic_ns = 23;
+  string lease_id = 24;
+  string trace_id = 25;
+
+  // The concrete protobuf message is selected by message_type. Implementations
+  // must reject unknown types instead of guessing a schema.
+  bytes payload = 30;
+
+  reserved 7 to 9;
+  reserved 16 to 19;
+  reserved 26 to 29;
+}

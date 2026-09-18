@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "case_id": "W00-CONTRACT-001",
+  "work_package": "W00",
+  "mandatory": true,
+  "inputs": [
+    "schemas/*.schema.json",
+    "proto/minekin/v1/*.proto",
+    "tests/fixtures/runtime-input/*.json"
+  ],
+  "assertions": [
+    "schemas_are_versioned",
+    "fixture_digests_match_manifest",
+    "runtime_input_does_not_reference_oracle",
+    "product_package_does_not_import_test_orchestrator"
+  ],
+  "oracle_inputs": [
+    "tests/oracle/canary.json"
+  ]
+}

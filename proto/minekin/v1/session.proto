@@ -1,0 +1,55 @@
+syntax = "proto3";
+
+package minekin.v1;
+
+import "minekin/v1/envelope.proto";
+
+option java_multiple_files = true;
+option java_package = "io.minekin.protocol.v1";
+option java_outer_classname = "SessionProto";
+
+enum BridgePhase {
+  BRIDGE_PHASE_UNSPECIFIED = 0;
+  BRIDGE_PHASE_MOD_LOADED = 1;
+  BRIDGE_PHASE_IPC_CONNECTING = 2;
+  BRIDGE_PHASE_OBSERVE_ONLY = 3;
+  BRIDGE_PHASE_CONNECTING_WORLD = 4;
+  BRIDGE_PHASE_PLAYABLE = 5;
+  BRIDGE_PHASE_SAFE_STOP = 6;
+}
+
+message Capability {
+  string name = 1;
+  uint32 version = 2;
+}
+
+message BridgeHello {
+  ProtocolVersion protocol = 1;
+  string launch_nonce = 2;
+  string proof = 3;
+  string kin_id = 4;
+  string session_id = 5;
+  uint64 generation = 6;
+  string client_instance_id = 7;
+  string bundle_digest = 8;
+  string bridge_digest = 9;
+  string minecraft_version = 10;
+  string fabric_loader_version = 11;
+  repeated Capability capabilities = 12;
+  BridgePhase phase = 13;
+}
+
+message CoreHello {
+  ProtocolVersion protocol = 1;
+  string session_id = 2;
+  uint64 generation = 3;
+  repeated Capability accepted_capabilities = 4;
+  uint32 heartbeat_interval_ms = 5;
+  uint32 max_frame_bytes = 6;
+}
+
+message Heartbeat {
+  uint64 generation = 1;
+  uint64 monotonic_ns = 2;
+  BridgePhase phase = 3;
+}

@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "bundle_name": "p0-core-1.21.4-linux-x86_64",
+  "status": "recipe",
+  "launchable": false,
+  "minecraft": {
+    "version": "1.21.4",
+    "version_metadata_url": "https://piston-meta.mojang.com/v1/packages/d152a3712859b294a2dff641f99a7fe219cd3aec/1.21.4.json",
+    "version_metadata_sha1": "d152a3712859b294a2dff641f99a7fe219cd3aec"
+  },
+  "runtime": {
+    "java_major": 21,
+    "os_arch": "linux-x86_64"
+  },
+  "fabric": {
+    "loader": "0.16.9",
+    "api": "0.119.4+1.21.4",
+    "yarn": "1.21.4+build.8"
+  },
+  "artifacts": [
+    {
+      "name": "fabric-api",
+      "kind": "mod",
+      "verification": "sha256",
+      "digest": "d183bacb845167f09264c2f90322b7ecffe8826debda6f60e597889264bef4af",
+      "source": "https://maven.fabricmc.net/net/fabricmc/fabric-api/fabric-api/0.119.4+1.21.4/"
+    },
+    {
+      "name": "minekin-bridge",
+      "kind": "bridge",
+      "verification": "build_required",
+      "source": "workspace:bridge"
+    }
+  ]
+}

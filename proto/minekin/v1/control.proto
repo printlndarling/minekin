@@ -1,0 +1,68 @@
+syntax = "proto3";
+
+package minekin.v1;
+
+option java_multiple_files = true;
+option java_package = "io.minekin.protocol.v1";
+option java_outer_classname = "ControlProto";
+
+enum InputPriority {
+  INPUT_PRIORITY_UNSPECIFIED = 0;
+  INPUT_PRIORITY_NORMAL = 1;
+  INPUT_PRIORITY_URGENT = 2;
+  INPUT_PRIORITY_EMERGENCY = 3;
+}
+
+message InputLease {
+  string lease_id = 1;
+  uint64 generation = 2;
+  string client_instance_id = 3;
+  uint64 issued_monotonic_ns = 4;
+  uint64 deadline_monotonic_ns = 5;
+  InputPriority priority = 6;
+  repeated string capabilities = 7;
+}
+
+message LookInput {
+  string action_id = 1;
+  string lease_id = 2;
+  uint64 generation = 3;
+  float delta_yaw_degrees = 4;
+  float delta_pitch_degrees = 5;
+  uint64 deadline_monotonic_ns = 6;
+}
+
+message MoveInput {
+  string action_id = 1;
+  string lease_id = 2;
+  uint64 generation = 3;
+  float forward = 4;
+  float strafe = 5;
+  bool jump = 6;
+  bool sneak = 7;
+  uint64 deadline_monotonic_ns = 8;
+}
+
+message ReleaseAllInputs {
+  string action_id = 1;
+  uint64 generation = 2;
+  string reason_code = 3;
+}
+
+enum ActionStatus {
+  ACTION_STATUS_UNSPECIFIED = 0;
+  ACTION_STATUS_ACCEPTED = 1;
+  ACTION_STATUS_STARTED = 2;
+  ACTION_STATUS_SUCCEEDED = 3;
+  ACTION_STATUS_FAILED = 4;
+  ACTION_STATUS_CANCELLED = 5;
+  ACTION_STATUS_UNKNOWN_AFTER_DISCONNECT = 6;
+}
+
+message ActionResult {
+  string action_id = 1;
+  uint64 generation = 2;
+  ActionStatus status = 3;
+  string reason_code = 4;
+  string evidence_ref = 5;
+}

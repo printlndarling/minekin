@@ -1,0 +1,47 @@
+syntax = "proto3";
+
+package minekin.v1;
+
+option java_multiple_files = true;
+option java_package = "io.minekin.protocol.v1";
+option java_outer_classname = "ObservationProto";
+
+message SelfState {
+  float health = 1;
+  float max_health = 2;
+  int32 food = 3;
+  float saturation = 4;
+  bool on_ground = 5;
+  bool alive = 6;
+  string current_screen = 7;
+}
+
+message InventoryStack {
+  uint32 slot = 1;
+  string item_id = 2;
+  uint32 count = 3;
+  uint32 damage = 4;
+}
+
+message InventorySummary {
+  uint64 revision = 1;
+  repeated InventoryStack stacks = 2;
+}
+
+message VisibleEntity {
+  string observation_id = 1;
+  string entity_type = 2;
+  float relative_x = 3;
+  float relative_y = 4;
+  float relative_z = 5;
+  bool line_of_sight = 6;
+}
+
+message InitialObservation {
+  uint64 generation = 1;
+  uint64 game_tick = 2;
+  SelfState self = 3;
+  InventorySummary inventory = 4;
+  repeated VisibleEntity visible_entities = 5;
+  bool authoritative = 6;
+}

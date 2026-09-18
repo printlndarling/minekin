@@ -1,0 +1,41 @@
+syntax = "proto3";
+
+package minekin.v1;
+
+option java_multiple_files = true;
+option java_package = "io.minekin.protocol.v1";
+option java_outer_classname = "FaultProto";
+
+enum ErrorCategory {
+  ERROR_CATEGORY_UNSPECIFIED = 0;
+  ERROR_CATEGORY_CONFIG = 1;
+  ERROR_CATEGORY_SUPPLY_CHAIN = 2;
+  ERROR_CATEGORY_STORAGE = 3;
+  ERROR_CATEGORY_PROCESS = 4;
+  ERROR_CATEGORY_IPC_PROTOCOL = 5;
+  ERROR_CATEGORY_IPC_BACKPRESSURE = 6;
+  ERROR_CATEGORY_SESSION = 7;
+  ERROR_CATEGORY_ADMISSION = 8;
+  ERROR_CATEGORY_PERCEPTION_BOUNDARY = 9;
+  ERROR_CATEGORY_CONTROL_SAFETY = 10;
+  ERROR_CATEGORY_TIMEOUT = 11;
+  ERROR_CATEGORY_INTERNAL_INVARIANT = 12;
+}
+
+enum Retryability {
+  RETRYABILITY_UNSPECIFIED = 0;
+  RETRYABILITY_NEVER = 1;
+  RETRYABILITY_SAFE = 2;
+  RETRYABILITY_AFTER_OPERATOR_ACTION = 3;
+}
+
+message Fault {
+  string fault_id = 1;
+  string component = 2;
+  string operation = 3;
+  ErrorCategory category = 4;
+  Retryability retryability = 5;
+  string redacted_summary = 6;
+  string evidence_ref = 7;
+  bool terminal = 8;
+}

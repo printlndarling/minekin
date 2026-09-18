@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "profile_id": "p0-controlled-offline-loopback",
+  "host": "127.0.0.1",
+  "port": 25565,
+  "auth_mode": "offline",
+  "minecraft_version": "1.21.4",
+  "visibility": "isolated_test_only",
+  "resource_pack_policy": "deny"
+}

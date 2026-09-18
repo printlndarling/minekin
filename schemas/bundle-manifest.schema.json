@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://minekin.local/schemas/bundle-manifest.v1.json",
+  "title": "Minekin P0 bundle recipe manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "bundle_name", "status", "launchable", "minecraft", "runtime", "fabric", "artifacts"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "bundle_name": {"type": "string", "minLength": 1},
+    "status": {"enum": ["recipe", "candidate", "tested", "quarantined"]},
+    "launchable": {"type": "boolean"},
+    "minecraft": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["version", "version_metadata_url", "version_metadata_sha1"],
+      "properties": {
+        "version": {"const": "1.21.4"},
+        "version_metadata_url": {"type": "string", "format": "uri"},
+        "version_metadata_sha1": {"type": "string", "pattern": "^[0-9a-f]{40}$"}
+      }
+    },
+    "runtime": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["java_major", "os_arch"],
+      "properties": {
+        "java_major": {"const": 21},
+        "os_arch": {"enum": ["linux-x86_64", "windows-x86_64"]}
+      }
+    },
+    "fabric": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["loader", "api", "yarn"],
+      "properties": {
+        "loader": {"const": "0.16.9"},
+        "api": {"const": "0.119.4+1.21.4"},
+        "yarn": {"const": "1.21.4+build.8"}
+      }
+    },
+    "artifacts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "kind", "verification"],
+        "properties": {
+          "name": {"type": "string"},
+          "kind": {"enum": ["metadata", "library", "mod", "server", "bridge"]},
+          "verification": {"enum": ["sha1", "sha256", "build_required"]},
+          "digest": {"type": "string", "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$"},
+          "source": {"type": "string"}
+        }
+      }
+    }
+  }
+}
