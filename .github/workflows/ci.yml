@@ -33,6 +33,10 @@ jobs:
       - uses: bufbuild/buf-action@v1.5.0
         with:
           setup_only: true
+          # Pinning the action pins the action, not the CLI it downloads. Lint
+          # rules and format output change between Buf releases, so an unpinned
+          # CLI can turn this gate red without a change to this repository.
+          version: v1.50.0
       - run: buf build --error-format=github-actions
       - run: buf lint --error-format=github-actions
       - run: buf format --diff --error-format=github-actions --exit-code
