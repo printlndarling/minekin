@@ -23,7 +23,8 @@
 
 ## W00：规格、夹具与整体框架
 
-- [x] 建立 `pyproject.toml`、`uv.lock`、Python 3.12–3.13 范围与 Node-free P0 依赖清单。
+- [x] 建立 `pyproject.toml`、`uv.lock`、Python 3.12–3.13 范围与 Node-free P0 产品依赖清单。
+- [ ] 固定 Pyright 门禁的 Node 运行时：产品与构建确实不需要 Node，但 `uv run pyright` 需要，且它默认先用 `PATH` 上的 node、找不到就用 nodeenv 联网下载。实测本机用 PATH 上的 v22.22.3，把 node 移出 PATH 后下载了 26.9.0——同一份代码在不同主机跑在不同 Node 上，完全离线的环境跑不了这道门禁。要么预先提供固定版本 node，要么上 `pyright[nodejs]` + `PYRIGHT_PYTHON_GLOBAL_NODE=0`。详见[开发环境](development.md)。
 - [x] 建立 `src/minekin_core` 的 domain/application/ports/adapters/entrypoints/generated/cli 边界。
 - [x] 建立 `bridge`、`proto/minekin/v1`、`tests` 与 `test-orchestrator` 骨架。
 - [x] 实现并测试 Session 状态与合法转换表。
@@ -46,6 +47,7 @@
 
 - [x] 保存上游原始响应并解析、校验 Mojang 1.21.4 与 Fabric 0.16.9 固定元数据；版本身份、Java/main class、规则与 Fabric 继承均 fail closed。
 - [x] 生成可审计的内容寻址 classpath、session natives 目录、独立 JVM argv、typed game argv 模板与规范化计划摘要。
+- [x] 复核过 W10 计数：实际 4,120 个去重工件 = 4,039 asset + 69 library + 9 native + client + asset-index + logging，与文档所写一致。
 - [x] 逐项校验 URL、大小、SHA、Java 21、main class、规则与固定 mod 集；计划覆盖 4,120 个去重工件（含 4,039 个 asset object、9 个 Linux native 和 logging 配置）。
 - [x] 使用独立 argv 元素；JVM 占位符必须全部解析、game 占位符必须转为 typed entry，并禁止 shell 拼接与宿主 `.minecraft` 访问。
 - [x] 建立带 staging/quarantine/原子发布的内容寻址 artifact store、逐文件复核的只读 bundle 与 generation 隔离的可写 session overlay。

@@ -11,9 +11,13 @@
 | Minecraft | 1.21.4 |
 | Fabric | Loader 0.16.9、API 0.119.4+1.21.4、Yarn 1.21.4+build.8 |
 | Bridge build | Gradle Wrapper、Fabric Loom、JUnit 5、依赖锁 |
-| Node.js | P0 不需要，也不得成为构建前置 |
+| Node.js | 产品不需要；构建不前置；**但 Pyright 门禁需要 Node 运行时**，见下文 |
 
 Web、Node、FastAPI、Pydantic、ORM/Alembic、Agent 框架、Baritone、媒体和容器均不属于 P0 core 依赖。Fabric/Minecraft 版本目前是候选执行基线，不代表已完成真实客户端验证。
+
+`uv run pyright` 是本仓库唯一需要 Node 的步骤，而它并不自带运行时：Pyright 先找 `PATH` 上的 `node`（默认 `PYRIGHT_PYTHON_GLOBAL_NODE=1`），找不到就用 `nodeenv` 从网络安装一个到 `%USERPROFILE%\.cache\pyright-python\nodeenv`。实测：本机 `PATH` 上的 node 是 v22.22.3，把 node 移出 `PATH` 后 Pyright 下载了 26.9.0。因此**同一份代码在不同主机上会跑在不同 Node 版本下**，且完全离线的环境跑不了这道门禁。
+
+若要让这道门禁可复现，两条路任选：预先在 `PATH` 上提供固定版本的 node；或安装 `pyright[nodejs]` 并把 `PYRIGHT_PYTHON_GLOBAL_NODE=0`，让 Pyright 只使用锁文件里那个被固定的 Node。目前两者都没做，所以这一点是**未固定的**。
 
 ## 本地初始化
 
