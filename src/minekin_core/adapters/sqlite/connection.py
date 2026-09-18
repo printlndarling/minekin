@@ -1,16 +1,38 @@
-"""SQLite connection policy and schema-v1 migration."""
+"""SQLite connection policy and ordered schema migrations."""
 
 from __future__ import annotations
 
 import sqlite3
+from collections.abc import Mapping
 from importlib.resources import files
 from pathlib import Path
+from types import MappingProxyType
+from typing import Final
 
 APPLICATION_ID = 1_296_783_694  # ASCII "MKIN"
-SCHEMA_VERSION = 1
+APPLICATION_VERSION = "0.0.0"
+SCHEMA_VERSION = 2
 MIN_SQLITE_VERSION = (3, 37, 0)  # STRICT tables were introduced in 3.37.
 WAL_SAFE_VERSION = (3, 51, 3)
 WAL_BACKPORTS = {(3, 50, 7), (3, 44, 6)}
+
+# Applied in order, each exactly once. A migration file contains only its own
+# DDL; the runner owns the bookkeeping rows and the version bump, so a new
+# migration cannot forget to record itself.
+MIGRATIONS: Final[tuple[tuple[int, str], ...]] = (
+    (1, "0001_initial.sql"),
+    (2, "0002_identity_root.sql"),
+)
+
+_V1_TABLES: Final[frozenset[str]] = frozenset(
+    {"schema_version", "schema_migration", "event", "outbox", "projection"}
+)
+_EXPECTED_TABLES: Final[Mapping[int, frozenset[str]]] = MappingProxyType(
+    {
+        1: _V1_TABLES,
+        2: _V1_TABLES | {"kin_identity"},
+    }
+)
 
 
 class SQLiteCompatibilityError(RuntimeError):
@@ -46,7 +68,7 @@ def connect_writer(path: Path, *, busy_timeout_ms: int = 5_000) -> sqlite3.Conne
         connection.close()
         raise SQLiteCompatibilityError(f"WAL mode unavailable (journal_mode={journal_mode!r})")
     connection.execute("PRAGMA synchronous = FULL")
-    migrate_to_v1(connection)
+    migrate(connection)
     return connection
 
 
@@ -61,49 +83,66 @@ def connect_reader(path: Path, *, busy_timeout_ms: int = 5_000) -> sqlite3.Conne
     return connection
 
 
-def migrate_to_v1(connection: sqlite3.Connection) -> None:
+def migrate(connection: sqlite3.Connection) -> None:
+    """Bring a database up to `SCHEMA_VERSION`, or refuse to touch it."""
+
     application_id = int(connection.execute("PRAGMA application_id").fetchone()[0])
-    version = int(connection.execute("PRAGMA user_version").fetchone()[0])
     if application_id not in (0, APPLICATION_ID):
         raise SQLiteCompatibilityError(
             f"database application_id {application_id} is not Minekin ({APPLICATION_ID})"
         )
+    version = int(connection.execute("PRAGMA user_version").fetchone()[0])
     if version > SCHEMA_VERSION:
         raise SQLiteCompatibilityError(
             f"database schema v{version} is newer than supported v{SCHEMA_VERSION}"
         )
     if version == SCHEMA_VERSION:
-        _validate_v1(connection)
+        _validate_schema(connection, version)
         return
 
-    existing_tables = {
+    if version == 0 and _existing_tables(connection):
+        raise SQLiteCompatibilityError(
+            "unversioned database contains tables; refusing an implicit destructive migration"
+        )
+
+    for target, filename in MIGRATIONS:
+        if target <= version:
+            continue
+        _apply_migration(connection, target, filename)
+        version = target
+    _validate_schema(connection, version)
+
+
+def _existing_tables(connection: sqlite3.Connection) -> set[str]:
+    return {
         str(row[0])
         for row in connection.execute(
             "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'"
         )
     }
-    if existing_tables:
-        raise SQLiteCompatibilityError(
-            "unversioned database contains tables; refusing an implicit destructive migration"
-        )
 
+
+def _apply_migration(connection: sqlite3.Connection, target: int, filename: str) -> None:
     migration = (
         files("minekin_core.adapters.sqlite")
-        .joinpath("migrations", "0001_initial.sql")
+        .joinpath("migrations", filename)
         .read_text(encoding="utf-8")
     )
+    stamp = "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')"
     script = "\n".join(
         [
             "BEGIN IMMEDIATE;",
             migration,
             "INSERT INTO schema_version(singleton, version, applied_at_utc) "
-            "VALUES (1, 1, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));",
+            f"VALUES (1, {target}, {stamp}) "
+            "ON CONFLICT(singleton) DO UPDATE SET "
+            f"version = {target}, applied_at_utc = {stamp};",
             "INSERT INTO schema_migration("
             "migration_id, from_version, to_version, application_version, "
             "started_at_utc, completed_at_utc, backup_ref"
-            ") VALUES (1, 0, 1, '0.0.0', "
-            "strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), "
-            "strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), NULL);",
+            f") VALUES ({target}, {target - 1}, {target}, '{APPLICATION_VERSION}', "
+            f"{stamp}, {stamp}, NULL);",
+            f"PRAGMA user_version = {target};",
             "COMMIT;",
         ]
     )
@@ -113,22 +152,19 @@ def migrate_to_v1(connection: sqlite3.Connection) -> None:
         if connection.in_transaction:
             connection.rollback()
         raise
-    _validate_v1(connection)
 
 
-def _validate_v1(connection: sqlite3.Connection) -> None:
+def _validate_schema(connection: sqlite3.Connection, version: int) -> None:
     if int(connection.execute("PRAGMA application_id").fetchone()[0]) != APPLICATION_ID:
         raise SQLiteCompatibilityError("Minekin application_id is missing")
-    expected = {"schema_version", "schema_migration", "event", "outbox", "projection"}
-    actual = {
-        str(row[0])
-        for row in connection.execute(
-            "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'"
-        )
-    }
-    missing = expected - actual
+    missing = _EXPECTED_TABLES[version] - _existing_tables(connection)
     if missing:
-        raise SQLiteCompatibilityError(f"schema v1 is missing tables: {sorted(missing)!r}")
+        raise SQLiteCompatibilityError(f"schema v{version} is missing tables: {sorted(missing)!r}")
     row = connection.execute("SELECT version FROM schema_version WHERE singleton = 1").fetchone()
-    if row is None or int(row[0]) != SCHEMA_VERSION:
+    if row is None or int(row[0]) != version:
         raise SQLiteCompatibilityError("schema_version table disagrees with PRAGMA user_version")
+    applied = int(connection.execute("PRAGMA user_version").fetchone()[0])
+    if applied != version:
+        raise SQLiteCompatibilityError(
+            f"PRAGMA user_version is v{applied} but the schema was validated as v{version}"
+        )
