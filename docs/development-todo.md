@@ -66,7 +66,8 @@
 - [x] OFFLINE-001 静态子集：dry-run 无字面 `${...}`；未声明占位符直接拒绝而不是替换成空字符串；空值位置与候选声明不一致即失败。
 - [ ] 把已冻结的 session argv 接入启动路径；当前只有 dry-run 模型，没有启动实现。
 - [x] Bridge 脱敏报告：`SessionIdentityReport` 随 hello 与首快照上报候选、用户名、UUID、AccountType 与 clientId/xuid presence；凭据按结构不可携带——消息没有 `bytes` 字段、观测 record 没有 token/secret/key 分量、`credential_values_exposed` 为 true 时拒绝。形状由已发布的 descriptor 断言，不靠人工复查。
-- [ ] 读取真实客户端 Session 回填该报告，并在 Launcher argv 摘要与 Bridge 实测不一致时判 `SESSION_MATERIAL_MISMATCH`；依赖真实客户端。
+- [x] `SESSION_MATERIAL_MISMATCH` 规则：从**实际 argv** 读回 Launcher 记录的 session 材料（不是从候选重新推导），与 Bridge 上报逐项比较；uuid 按规范化后的身份比较以容纳 id128/canonical，`userType` 与 `AccountType` 分属不同命名空间故只记录不比较，任一不一致都阻断 `PLAYABLE`。
+- [ ] 读取真实客户端 Session 回填该报告：需要真实客户端，尚未实现。
 - [ ] 执行 `OFFLINE-001…100`，仅在条件满足时运行 UUID/sentinel 对照。
 - [ ] 门禁：启动、握手与身份材料可解释，失败分类明确。
 

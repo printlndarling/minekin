@@ -20,6 +20,7 @@ from typing import Final
 
 from minekin_core.domain.errors import ErrorCategory, MinekinError, Retryability
 from minekin_core.domain.offline_identity import OfflineIdentityMaterial
+from minekin_core.domain.session_material import RecordedSessionMaterial
 
 # Even though the offline sentinel is public, every authentication field is
 # classified and redacted the same way so an online adapter cannot inherit a
@@ -217,6 +218,37 @@ def _verify_option_value_boundaries(
         previous = template[index - 1]
         if not isinstance(previous, LiteralArgument) or not previous.value.startswith("-"):
             raise _reject("an empty argv value must remain attached to its own option flag")
+
+
+_RECORDED_OPTIONS: Final[tuple[str, ...]] = ("--username", "--uuid", "--clientId", "--xuid")
+
+
+def recorded_material(
+    candidate: SessionCandidate, arguments: Sequence[str]
+) -> RecordedSessionMaterial:
+    """Read the identity material back out of a resolved argv.
+
+    This reads what was actually encoded rather than re-deriving it from the
+    candidate, so a bug that puts a value in the wrong argv slot is caught here
+    instead of silently matching a hand-built record.
+    """
+
+    values: dict[str, str] = {}
+    for option in _RECORDED_OPTIONS:
+        positions = [index for index, argument in enumerate(arguments) if argument == option]
+        if len(positions) != 1:
+            raise _reject(f"resolved argv must carry exactly one {option} option")
+        value_index = positions[0] + 1
+        if value_index >= len(arguments):
+            raise _reject(f"{option} has no value element in the resolved argv")
+        values[option] = arguments[value_index]
+    return RecordedSessionMaterial(
+        identity_candidate_id=candidate.candidate_id,
+        username=values["--username"],
+        uuid_argv=values["--uuid"],
+        client_id_present=values["--clientId"] != EMPTY_ARGV,
+        xuid_present=values["--xuid"] != EMPTY_ARGV,
+    )
 
 
 def candidate_document(candidate: SessionCandidate) -> dict[str, object]:
