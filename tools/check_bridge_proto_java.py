@@ -17,14 +17,19 @@ MAVEN_BASE = "https://repo1.maven.org/maven2/com/google/protobuf"
 PROTOS = tuple(sorted((ROOT / "proto" / "minekin" / "v1").glob("*.proto")))
 ADAPTER_SOURCES = (
     ROOT / "bridge/src/main/java/org/minekin/bridge/runtime/BridgePhaseMachine.java",
+    ROOT / "bridge/src/main/java/org/minekin/bridge/runtime/BoundedChannel.java",
+    ROOT / "bridge/src/main/java/org/minekin/bridge/runtime/BridgeIpcWorker.java",
     ROOT / "bridge/src/main/java/org/minekin/bridge/protocol/HandshakeGate.java",
     ROOT / "bridge/src/main/java/org/minekin/bridge/protocol/DescriptorLoader.java",
     ROOT / "bridge/src/main/java/org/minekin/bridge/protocol/BootstrapDescriptorAdapter.java",
     ROOT / "bridge/src/main/java/org/minekin/bridge/protocol/EnvelopeGate.java",
+    ROOT / "bridge/src/main/java/org/minekin/bridge/protocol/EndpointConnector.java",
     ROOT / "bridge/src/main/java/org/minekin/bridge/protocol/FrameCodec.java",
     ROOT / "bridge/src/main/java/org/minekin/bridge/protocol/FramedEnvelopeChannel.java",
+    ROOT / "bridge/src/main/java/org/minekin/bridge/protocol/NioEnvelopeChannel.java",
     ROOT / "tools/java/BridgeProtoAdapterSelfTest.java",
     ROOT / "tools/java/BridgeEnvelopeTransportSelfTest.java",
+    ROOT / "tools/java/BridgeIpcWorkerSelfTest.java",
 )
 
 
@@ -124,6 +129,15 @@ def main() -> None:
                 "-cp",
                 os.pathsep.join((str(classes), str(runtime))),
                 "BridgeEnvelopeTransportSelfTest",
+            ]
+        )
+        _run(
+            [
+                str(java),
+                "-ea",
+                "-cp",
+                os.pathsep.join((str(classes), str(runtime))),
+                "BridgeIpcWorkerSelfTest",
             ]
         )
     print("Minekin Bridge protobuf adapter: OK (verified Maven artifacts, Java 17 subset)")
