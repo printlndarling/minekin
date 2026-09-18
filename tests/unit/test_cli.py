@@ -42,7 +42,6 @@ def test_launch_plan_requires_explicit_dry_run() -> None:
 @pytest.mark.parametrize(
     "argv",
     [
-        ["session", "stop"],
         ["evidence", "verify", "missing-run"],
         ["replay", "missing-evidence"],
     ],

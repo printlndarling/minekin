@@ -17,8 +17,10 @@ overwritten; only a session that never resolved needs an operator to look.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
+import signal
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from enum import StrEnum
@@ -188,4 +190,127 @@ def require_no_unresolved_client(
         f"session {first.session_id} generation {first.generation} recorded client pid "
         f"{first.identity.pid} and it is {first.liveness.value}{others}; confirm it is gone "
         f"and remove {Path(first.overlay) / MARKER_NAME}, or stop it deliberately"
+    )
+
+
+class IdentityProof(StrEnum):
+    """Whether a live process can be shown to be the client this run recorded."""
+
+    PROVEN = "PROVEN"
+    # It exists, but its command line is not the one we recorded, so the PID has
+    # been reused by something else and is none of our business.
+    NOT_OURS = "NOT_OURS"
+    # This platform cannot be asked. Refusing beats guessing, because the guess
+    # that is wrong here kills an unrelated process.
+    UNVERIFIABLE = "UNVERIFIABLE"
+
+
+def default_cmdline(pid: int) -> bytes | None:
+    """The process's NUL-separated command line, or None when it cannot be read.
+
+    Linux exposes exactly what the process was started with, which is precisely
+    what was hashed into the marker.
+    """
+
+    if os.name != "posix":
+        return None
+    try:
+        return Path(f"/proc/{pid}/cmdline").read_bytes()
+    except OSError:
+        return None
+
+
+def prove_process_identity(
+    pid: int,
+    expected_digest: str,
+    *,
+    read_cmdline: Callable[[int], bytes | None] = default_cmdline,
+) -> IdentityProof:
+    """Decide whether a live `pid` is the client the marker recorded.
+
+    The recorded digest is over the arguments joined with NUL, and `/proc` reports
+    them separated by NUL with a trailing one, so the comparison is exact rather
+    than a heuristic on a process name.
+    """
+
+    raw = read_cmdline(pid)
+    if raw is None:
+        return IdentityProof.UNVERIFIABLE
+    command_line = raw.rstrip(b"\x00")
+    if not command_line:
+        return IdentityProof.NOT_OURS
+    return (
+        IdentityProof.PROVEN
+        if hashlib.sha256(command_line).hexdigest() == expected_digest
+        else IdentityProof.NOT_OURS
+    )
+
+
+def terminate_process(pid: int) -> None:
+    """Ask one process to stop. Only ever called for a proven identity."""
+
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except ProcessLookupError:
+        return
+    except OSError as error:
+        raise _reject(
+            f"process {pid} could not be asked to stop: {type(error).__name__}"
+        ) from error
+
+
+@dataclass(frozen=True, slots=True)
+class StopOutcome:
+    """What stopping asked for, and what it declined to do."""
+
+    terminated: tuple[int, ...]
+    left_alone: tuple[int, ...]
+    unresolved: tuple[int, ...]
+
+    @property
+    def complete(self) -> bool:
+        return not self.unresolved
+
+    def as_document(self) -> dict[str, object]:
+        return {
+            "terminated": list(self.terminated),
+            "left_alone": list(self.left_alone),
+            "unresolved": list(self.unresolved),
+        }
+
+
+def stop_recorded_clients(
+    run_root: Path,
+    *,
+    probe: Callable[[int], Liveness] = default_probe,
+    read_cmdline: Callable[[int], bytes | None] = default_cmdline,
+    terminate: Callable[[int], None] = terminate_process,
+) -> StopOutcome:
+    """Stop the clients this run recorded, and only the ones it can prove are its own.
+
+    The operator asking is the authorisation to stop; what still has to be earned
+    is the right to signal a particular PID, and a command line that matches the
+    marker is what earns it.
+    """
+
+    terminated: list[int] = []
+    left_alone: list[int] = []
+    unresolved: list[int] = []
+    for claim in session_claims(run_root, probe=probe):
+        if claim.resolved:
+            continue
+        pid = claim.identity.pid
+        proof = prove_process_identity(pid, claim.identity.argv_digest, read_cmdline=read_cmdline)
+        if proof is IdentityProof.NOT_OURS:
+            left_alone.append(pid)
+            continue
+        if proof is IdentityProof.UNVERIFIABLE:
+            unresolved.append(pid)
+            continue
+        terminate(pid)
+        terminated.append(pid)
+    return StopOutcome(
+        terminated=tuple(terminated),
+        left_alone=tuple(left_alone),
+        unresolved=tuple(unresolved),
     )

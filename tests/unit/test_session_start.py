@@ -225,7 +225,7 @@ def test_the_cli_reports_a_frozen_but_unimplemented_session_subcommand(
     monkeypatch.setenv("MINEKIN_HOME", str(tmp_path))
     stdout, stderr = io.StringIO(), io.StringIO()
 
-    code = run(["session", "stop"], stdout=stdout, stderr=stderr)
+    code = run(["evidence", "verify", "missing-run"], stdout=stdout, stderr=stderr)
 
     assert code == int(ExitCode.USAGE)
     assert json.loads(stderr.getvalue())["status"] == "not_implemented"

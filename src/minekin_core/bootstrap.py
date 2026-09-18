@@ -14,7 +14,7 @@ from minekin_core.adapters.system.clock import SystemClock
 from minekin_core.cli.doctor import diagnose
 from minekin_core.cli.init import initialise_identity
 from minekin_core.cli.parser import parse_args
-from minekin_core.cli.session import start_session
+from minekin_core.cli.session import start_session, stop_session
 from minekin_core.cli.status import read_status
 from minekin_core.config import configured_username, data_root, java_executable, kin_selector
 from minekin_core.domain.errors import (
@@ -94,6 +94,11 @@ def run(
         report = read_status(data_root(), kin_selector=kin_selector())
         _emit(report.as_dict(), stdout)
         return int(ExitCode.OK)
+
+    if args.command == "session" and args.session_command == "stop":
+        stopped = stop_session(data_root(), kin_selector=kin_selector())
+        _emit(stopped.as_dict(), stdout)
+        return int(ExitCode.OK if stopped.outcome.complete else ExitCode.PROCESS)
 
     if args.command == "launch-plan":
         _emit(build_launch_plan(Path(args.profile)), stdout)

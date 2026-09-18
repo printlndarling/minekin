@@ -21,8 +21,12 @@ from minekin_core.adapters.launcher.metadata import Artifact
 from minekin_core.adapters.launcher.offline_session import OFFLINE_SESSION_CANDIDATES
 from minekin_core.adapters.launcher.orphans import (
     Liveness,
+    StopOutcome,
+    default_cmdline,
     default_probe,
     require_no_unresolved_client,
+    stop_recorded_clients,
+    terminate_process,
     write_marker,
 )
 from minekin_core.adapters.launcher.process import build_process_spec
@@ -250,3 +254,43 @@ def start_session(
         identity=process,
         argv_digest=process.argv_digest,
     )
+
+
+@dataclass(frozen=True, slots=True)
+class StopReport:
+    kin_id: str
+    outcome: StopOutcome
+
+    def as_dict(self) -> dict[str, object]:
+        return {
+            "schema_version": 1,
+            "command": "session stop",
+            "status": "stopped" if self.outcome.complete else "blocked",
+            "kin_id": self.kin_id,
+            **self.outcome.as_document(),
+        }
+
+
+def stop_session(
+    root: Path,
+    *,
+    kin_selector: str | None = None,
+    probe: Callable[[int], Liveness] = default_probe,
+    read_cmdline: Callable[[int], bytes | None] = default_cmdline,
+    terminate: Callable[[int], None] = terminate_process,
+) -> StopReport:
+    """Stop the clients this Kin recorded, as far as they can be identified.
+
+    Stopping is idempotent: a Kin with nothing running is already stopped. What is
+    not idempotent is touching a process that cannot be shown to be ours, so that
+    is reported rather than done.
+    """
+
+    kin_id = select_kin(root, kin_selector)
+    outcome = stop_recorded_clients(
+        run_root(root, kin_id),
+        probe=probe,
+        read_cmdline=read_cmdline,
+        terminate=terminate,
+    )
+    return StopReport(kin_id=str(kin_id), outcome=outcome)

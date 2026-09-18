@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 import json
 import subprocess
 import sys
@@ -18,14 +19,20 @@ from session_support import (
 
 from minekin_core.adapters.launcher.orphans import (
     MARKER_NAME,
+    IdentityProof,
     Liveness,
+    StopOutcome,
+    default_cmdline,
     default_probe,
+    prove_process_identity,
     require_no_unresolved_client,
     session_claims,
+    stop_recorded_clients,
     write_marker,
 )
+from minekin_core.adapters.launcher.process import argument_digest
 from minekin_core.adapters.launcher.supervisor import ProcessIdentity
-from minekin_core.bootstrap import main
+from minekin_core.bootstrap import main, run
 from minekin_core.cli.session import session_overlay_path, start_session
 from minekin_core.config import USERNAME_VARIABLE
 from minekin_core.domain.errors import (
@@ -38,15 +45,26 @@ from minekin_core.domain.ids import KinId
 KIN_ID = KinId("kin-01")
 
 
-def identity(pid: int = 4242) -> ProcessIdentity:
-    return ProcessIdentity(pid=pid, started_at="2026-01-01T00:00:00Z", argv_digest="a" * 64)
+def identity(pid: int = 4242, *, argv_digest: str = "a" * 64) -> ProcessIdentity:
+    return ProcessIdentity(pid=pid, started_at="2026-01-01T00:00:00Z", argv_digest=argv_digest)
 
 
-def marked(tmp_path: Path, pid: int = 4242, *, session_id: str = "session-01") -> Path:
+def marked(
+    tmp_path: Path,
+    pid: int = 4242,
+    *,
+    session_id: str = "session-01",
+    argv_digest: str = "a" * 64,
+) -> Path:
     root = run_root(kin_root(tmp_path))
     overlay = session_overlay_path(root, session_id, 1)
     overlay.mkdir(parents=True)
-    return write_marker(overlay, identity=identity(pid), session_id=session_id, generation=1)
+    return write_marker(
+        overlay,
+        identity=identity(pid, argv_digest=argv_digest),
+        session_id=session_id,
+        generation=1,
+    )
 
 
 def probe(answer: Liveness) -> Callable[[int], Liveness]:
@@ -299,3 +317,182 @@ def test_the_cli_surfaces_an_unresolved_client(
 
     assert code == int(ExitCode.PROCESS)
     assert MARKER_NAME in capsys.readouterr().err
+
+
+# --- proving that a live pid is the client we recorded -------------------------
+
+
+def test_the_recorded_digest_is_exactly_what_proc_reports() -> None:
+    """The round trip the whole proof rests on: our NUL join is /proc's format."""
+
+    argv = ("/usr/lib/jvm/temurin-21/bin/java", "-cp", "a.jar", "--username", "Kin")
+    recorded = argument_digest(argv)
+
+    proof = prove_process_identity(
+        4242, recorded, read_cmdline=lambda pid: b"\0".join(a.encode() for a in argv) + b"\0"
+    )
+
+    assert proof is IdentityProof.PROVEN
+
+
+def test_a_reused_pid_is_not_mistaken_for_ours() -> None:
+    proof = prove_process_identity(
+        4242,
+        argument_digest(("/usr/bin/java", "-jar", "ours.jar")),
+        read_cmdline=lambda pid: b"/usr/bin/something-else\0--totally\0",
+    )
+
+    assert proof is IdentityProof.NOT_OURS
+
+
+def test_an_unreadable_command_line_is_not_a_verdict() -> None:
+    """`None` means the platform could not be asked, which is not the same as no."""
+
+    assert prove_process_identity(4242, "a" * 64, read_cmdline=lambda pid: None) is (
+        IdentityProof.UNVERIFIABLE
+    )
+
+
+def test_an_empty_command_line_is_not_ours() -> None:
+    assert prove_process_identity(4242, "a" * 64, read_cmdline=lambda pid: b"\0") is (
+        IdentityProof.NOT_OURS
+    )
+
+
+def test_the_real_reader_admits_this_platform_cannot_be_asked() -> None:
+    import os
+
+    if os.name == "posix":
+        pytest.skip("this platform exposes the command line")
+    assert default_cmdline(4242) is None
+    assert prove_process_identity(4242, "a" * 64) is IdentityProof.UNVERIFIABLE
+
+
+# --- stopping -----------------------------------------------------------------
+
+
+def reads_our_command_line(_pid: int) -> bytes | None:
+    return b"java" + bytes([0]) + b"-jar" + bytes([0]) + b"ours.jar" + bytes([0])
+
+
+def reads_a_foreign_command_line(_pid: int) -> bytes | None:
+    return b"someone-else" + bytes([0])
+
+
+def reads_nothing(_pid: int) -> bytes | None:
+    return None
+
+
+class Recorder:
+    """Stands in for `terminate`, so a test never signals a real process."""
+
+    def __init__(self) -> None:
+        self.pids: list[int] = []
+
+    def __call__(self, pid: int) -> None:
+        self.pids.append(pid)
+
+
+def stop(
+    tmp_path: Path, *, proof: IdentityProof, answered: Liveness = Liveness.ALIVE
+) -> tuple[StopOutcome, Recorder]:
+    terminate = Recorder()
+    digest = argument_digest(("java", "-jar", "ours.jar"))
+    marked(tmp_path, pid=4242, argv_digest=digest)
+    readers: dict[IdentityProof, Callable[[int], bytes | None]] = {
+        IdentityProof.PROVEN: reads_our_command_line,
+        IdentityProof.NOT_OURS: reads_a_foreign_command_line,
+        IdentityProof.UNVERIFIABLE: reads_nothing,
+    }
+    outcome = stop_recorded_clients(
+        run_root(kin_root(tmp_path)),
+        probe=probe(answered),
+        read_cmdline=readers[proof],
+        terminate=terminate,
+    )
+    return outcome, terminate
+
+
+def test_a_proven_client_is_asked_to_stop(tmp_path: Path) -> None:
+    outcome, terminate = stop(tmp_path, proof=IdentityProof.PROVEN)
+
+    assert outcome.terminated == (4242,)
+    assert terminate.pids == [4242]
+    assert outcome.complete
+
+
+def test_a_reused_pid_is_left_alone(tmp_path: Path) -> None:
+    """Signalling it would kill an unrelated process; the operator is told instead."""
+
+    outcome, terminate = stop(tmp_path, proof=IdentityProof.NOT_OURS)
+
+    assert terminate.pids == []
+    assert outcome.left_alone == (4242,)
+    assert outcome.terminated == ()
+    assert outcome.complete
+
+
+def test_an_unverifiable_client_is_not_stopped_and_not_called_done(tmp_path: Path) -> None:
+    outcome, terminate = stop(tmp_path, proof=IdentityProof.UNVERIFIABLE)
+
+    assert terminate.pids == []
+    assert outcome.unresolved == (4242,)
+    assert not outcome.complete
+
+
+def test_a_finished_client_needs_no_stopping(tmp_path: Path) -> None:
+    outcome, terminate = stop(tmp_path, proof=IdentityProof.PROVEN, answered=Liveness.GONE)
+
+    assert terminate.pids == []
+    assert outcome.as_document() == {"terminated": [], "left_alone": [], "unresolved": []}
+    assert outcome.complete
+
+
+def test_stopping_a_kin_with_nothing_recorded_succeeds(tmp_path: Path) -> None:
+    kin_root(tmp_path)
+    terminate = Recorder()
+
+    outcome = stop_recorded_clients(run_root(kin_root(tmp_path)), terminate=terminate)
+
+    assert outcome.complete
+    assert terminate.pids == []
+
+
+def test_the_stop_document_is_evidence_ready(tmp_path: Path) -> None:
+    outcome, _ = stop(tmp_path, proof=IdentityProof.PROVEN)
+
+    assert outcome.as_document() == {
+        "terminated": [4242],
+        "left_alone": [],
+        "unresolved": [],
+    }
+
+
+def test_the_cli_reports_a_kin_with_nothing_to_stop(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Stopping is idempotent, so an idle Kin is success rather than an error."""
+
+    kin_root(tmp_path)
+    monkeypatch.setenv("MINEKIN_HOME", str(tmp_path))
+    stdout = io.StringIO()
+
+    code = run(["session", "stop"], stdout=stdout, stderr=io.StringIO())
+
+    assert code == int(ExitCode.OK)
+    assert json.loads(stdout.getvalue())["status"] == "stopped"
+
+
+def test_the_cli_reports_a_client_it_could_not_stop(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Not being able to prove identity is not success; it is a PROCESS failure."""
+
+    marked(tmp_path)
+    monkeypatch.setenv("MINEKIN_HOME", str(tmp_path))
+    stdout = io.StringIO()
+
+    code = run(["session", "stop"], stdout=stdout, stderr=io.StringIO())
+
+    assert code == int(ExitCode.PROCESS)
+    assert json.loads(stdout.getvalue())["unresolved"] == [4242]
