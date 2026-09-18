@@ -30,11 +30,11 @@ flowchart LR
 ```mermaid
 flowchart TD
   CLI["entrypoints / CLI"] --> App["application"]
-  Adapters["adapters"] --> App
+  CLI --> Adapters["adapters"]
   App --> Domain["domain"]
-  Adapters --> Ports["application ports"]
-  App --> Ports
-  Domain
+  App --> Ports["application ports"]
+  Adapters --> Ports
+  Adapters --> Domain
 ```
 
 - `domain`：纯 Python 值对象、状态机、命令/事件语义和错误；不得 import SQLite、socket、subprocess、Fabric 或 CLI。
