@@ -108,8 +108,9 @@
 - [ ] 注入 Core、Bridge/client、server 与连接阶段故障。
 - [ ] 对账未决 outbox，失效历史 generation/lease，防止危险动作重放。
 - [ ] 验证重复启动、同一 `kin_id` 重启与瞬时世界状态重验。
-- [ ] 生成不可变 evidence bundle、三时间线、脱敏日志、结果摘要与所有 digest。
-- [ ] 实现 evidence verify/replay 与 candidate→tested 晋级检查。
+- [x] 不可变 evidence bundle 的封存与校验：manifest 与冻结形状一致，工件按 sha256 记账，bundle 摘要覆盖 manifest 字节；同一目录绝不覆盖旧 run（改正是新 run，不是编辑）；工件或 manifest 含凭据正文即整体拒封——不做就地脱敏，静默改写的日志比缺失的日志更糟；校验端重新对账摘要并检出缺失、篡改与未声明文件。工件名走白名单而非黑名单：Windows 上 `/x` 既非绝对路径、拼接又会替换 bundle 根。
+- [x] 报告诚实性规则：缺 expected/observed 对照时结果不得是 `PASS`（只能 `INCOMPLETE`），`PASS` 不得带 failures，`FAIL` 必须有 reason code，只有先后无法在时钟误差窗口内判定时才用 `AMBIGUOUS`。
+- [ ] 三条时间线（Bridge/Runtime、server truth、orchestrator）与 `evidence verify`/`replay` 的 CLI 接线：前者要真实运行，后者要 run 目录约定与断言谓词语义，两者都未定，因此 bundle 目前只有库、没有命令入口。
 - [ ] 跑完 `CORE-001…090`、mandatory OFFLINE/ADMIT cases 与 L6 baseline。
 - [ ] 门禁：mandatory case 全部有真实 `PASS` evidence 后才能标记 `P0_CORE_TESTED`。
 
