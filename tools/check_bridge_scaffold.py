@@ -19,14 +19,29 @@ def require_text(path: Path, expected: tuple[str, ...]) -> None:
 def main() -> None:
     require_text(
         BRIDGE / "gradle" / "libs.versions.toml",
-        ("1.21.4", "0.16.9", "0.119.4+1.21.4", "1.21.4+build.8", "1.9.2"),
+        (
+            "1.21.4",
+            "0.16.9",
+            "0.119.4+1.21.4",
+            "1.21.4+build.8",
+            "1.9.2",
+            "4.36.2",
+            "0.10.0",
+        ),
     )
     require_text(
         BRIDGE / "gradle" / "wrapper" / "gradle-wrapper.properties",
         ("gradle-8.12.1-bin.zip", "distributionSha256Sum=", "validateDistributionUrl=true"),
     )
     require_text(
-        BRIDGE / "build.gradle.kts", ("JavaLanguageVersion.of(21)", "lockAllConfigurations")
+        BRIDGE / "build.gradle.kts",
+        (
+            "JavaLanguageVersion.of(21)",
+            "lockAllConfigurations",
+            "alias(libs.plugins.protobuf)",
+            'srcDir("../proto")',
+            'option("lite")',
+        ),
     )
     manifest = json.loads((BRIDGE / "src" / "main" / "resources" / "fabric.mod.json").read_text())
     if manifest["environment"] != "client" or manifest["id"] != "minekin_bridge":

@@ -4,6 +4,8 @@ fabric-loader = "0.16.9"
 junit = "5.13.4"
 loom = "1.9.2"
 minecraft = "1.21.4"
+protobuf = "4.36.2"
+protobuf-plugin = "0.10.0"
 yarn = "1.21.4+build.8"
 
 [libraries]
@@ -12,7 +14,9 @@ fabric-loader = { module = "net.fabricmc:fabric-loader", version.ref = "fabric-l
 junit-bom = { module = "org.junit:junit-bom", version.ref = "junit" }
 junit-jupiter = { module = "org.junit.jupiter:junit-jupiter" }
 minecraft = { module = "com.mojang:minecraft", version.ref = "minecraft" }
+protobuf-javalite = { module = "com.google.protobuf:protobuf-javalite", version.ref = "protobuf" }
 yarn = { module = "net.fabricmc:yarn", version.ref = "yarn" }
 
 [plugins]
 fabric-loom = { id = "fabric-loom", version.ref = "loom" }
+protobuf = { id = "com.google.protobuf", version.ref = "protobuf-plugin" }
