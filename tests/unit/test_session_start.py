@@ -298,6 +298,7 @@ def test_the_launch_document_is_evidence_ready() -> None:
         session_id="session-01",
         generation=1,
         kin_id="kin-01",
+        run_id="run-01",
         overlay="/run/session/session-01/generation-1",
         identity=ProcessIdentity(pid=7, started_at="2026-01-01T00:00:00Z", argv_digest="a" * 64),
         argv_digest="a" * 64,
@@ -308,3 +309,94 @@ def test_the_launch_document_is_evidence_ready() -> None:
     assert document["pid"] == 7
     assert document["kin_id"] == "kin-01"
     assert json.dumps(document)
+
+
+def stored_events(database_path: Path) -> list[dict[str, object]]:
+    import sqlite3
+
+    connection = sqlite3.connect(database_path)
+    connection.row_factory = sqlite3.Row
+    try:
+        rows = connection.execute(
+            "SELECT event_type, run_id, session_id, payload_json FROM event ORDER BY position"
+        ).fetchall()
+    finally:
+        connection.close()
+    return [dict(row) for row in rows]
+
+
+def test_a_started_event_reaches_the_ledger(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = initialised(tmp_path)
+    _, artifact = fabricated()
+    monkeypatch.setattr(session_module, "build_launch_plan", fake_plan)
+    runs = tmp_path / "kin" / "kin-01" / "run"
+    ArtifactStore(runs / "artifact-store").install(artifact, io.BytesIO(PAYLOAD))
+
+    launch = start_session(
+        root=root,
+        profile=PROFILE,
+        java_executable=Path("/usr/bin/java"),
+        session_id="session-01",
+        generation=1,
+        supervisor_factory=stub_supervisor,
+    )
+
+    rows = stored_events(database_for(root, KIN_ID))
+    assert [row["event_type"] for row in rows] == ["SessionProcessStarted"]
+    assert rows[0]["run_id"] == launch.run_id
+    assert rows[0]["session_id"] == "session-01"
+
+
+def test_a_failed_start_records_a_failure_and_still_raises(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = initialised(tmp_path)
+    _, artifact = fabricated()
+    monkeypatch.setattr(session_module, "build_launch_plan", fake_plan)
+    runs = tmp_path / "kin" / "kin-01" / "run"
+    ArtifactStore(runs / "artifact-store").install(artifact, io.BytesIO(PAYLOAD))
+
+    def refusing_supervisor(log_directory: Path) -> ProcessSupervisor:
+        def spawn(*args: object, **kwargs: object) -> object:
+            raise OSError("no such file")
+
+        return ProcessSupervisor(
+            clock=FakeClock(), spawn=cast(Any, spawn), log_directory=log_directory
+        )
+
+    with pytest.raises(MinekinError, match="could not be started"):
+        start_session(
+            root=root,
+            profile=PROFILE,
+            java_executable=Path("/usr/bin/java"),
+            session_id="session-01",
+            generation=1,
+            supervisor_factory=refusing_supervisor,
+        )
+
+    rows = stored_events(database_for(root, KIN_ID))
+    assert [row["event_type"] for row in rows] == ["SessionProcessFailed"]
+    assert json.loads(str(rows[0]["payload_json"]))["category"] == "PROCESS"
+
+
+def test_a_refusal_before_the_launcher_leaves_no_ledger_entry(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An operator error is not a run outcome, so no run has begun."""
+
+    root = initialised(tmp_path)
+    monkeypatch.setattr(session_module, "build_launch_plan", fake_plan)
+
+    with pytest.raises(MinekinError, match="not in the store yet"):
+        start_session(
+            root=root,
+            profile=PROFILE,
+            java_executable=Path("/usr/bin/java"),
+            session_id="session-01",
+            generation=1,
+            supervisor_factory=stub_supervisor,
+        )
+
+    assert stored_events(database_for(root, KIN_ID)) == []

@@ -23,10 +23,11 @@ from minekin_core.adapters.launcher.process import build_process_spec
 from minekin_core.adapters.launcher.supervisor import ProcessIdentity, ProcessSupervisor
 from minekin_core.adapters.sqlite.connection import connect_reader
 from minekin_core.adapters.sqlite.identity_store import read_identity_root
+from minekin_core.adapters.sqlite.session_log import SessionEventLog
 from minekin_core.adapters.system.clock import SystemClock
 from minekin_core.cli.init import DATABASE_NAME, KIN_DIRECTORY, kin_directory, run_root
 from minekin_core.domain.errors import ErrorCategory, MinekinError, Retryability
-from minekin_core.domain.ids import KinId
+from minekin_core.domain.ids import ClientInstanceId, KinId, RunId
 
 SupervisorFactory = Callable[[Path], ProcessSupervisor]
 
@@ -44,6 +45,7 @@ class SessionLaunch:
     session_id: str
     generation: int
     kin_id: str
+    run_id: str
     overlay: str
     identity: ProcessIdentity
     argv_digest: str
@@ -53,6 +55,7 @@ class SessionLaunch:
             "schema_version": 1,
             "status": "started",
             "kin_id": self.kin_id,
+            "run_id": self.run_id,
             "session_id": self.session_id,
             "generation": self.generation,
             "overlay": self.overlay,
@@ -168,6 +171,7 @@ def start_session(
     kin_selector: str | None = None,
     supervisor_factory: SupervisorFactory = default_supervisor_factory,
     forward_environment: Mapping[str, str] | None = None,
+    event_log: SessionEventLog | None = None,
 ) -> SessionLaunch:
     """Read the identity, prove readiness, then create the overlay and start."""
 
@@ -199,11 +203,37 @@ def start_session(
         java_executable=java_executable,
         forward_environment=forward_environment,
     )
-    process = supervisor.start(spec)
+
+    # The ledger records what the launcher did, after it did it. Refusals before
+    # this point are operator errors rather than run outcomes, so they leave no
+    # entry: a run only begins once a process does.
+    run_id = RunId.new().value
+    client_instance_id = ClientInstanceId.new().value
+    ledger = event_log if event_log is not None else SessionEventLog(database, clock=SystemClock())
+    try:
+        process = supervisor.start(spec)
+    except MinekinError as error:
+        ledger.record_process_failed(
+            kin_id=str(identity.kin_id),
+            run_id=run_id,
+            session_id=session_id,
+            generation=generation,
+            error=error,
+        )
+        raise
+    ledger.record_process_started(
+        kin_id=str(identity.kin_id),
+        run_id=run_id,
+        session_id=session_id,
+        generation=generation,
+        client_instance_id=client_instance_id,
+        argv_digest=process.argv_digest,
+    )
     return SessionLaunch(
         session_id=session_id,
         generation=generation,
         kin_id=str(identity.kin_id),
+        run_id=run_id,
         overlay=str(overlay),
         identity=process,
         argv_digest=process.argv_digest,
