@@ -278,13 +278,13 @@ def test_the_cli_refuses_a_session_when_no_kin_exists(
     assert "init" in capsys.readouterr().err
 
 
-def test_the_cli_reports_an_unknown_session_subcommand(
+def test_the_cli_reports_a_frozen_but_unimplemented_session_subcommand(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("MINEKIN_HOME", str(tmp_path))
     stdout, stderr = io.StringIO(), io.StringIO()
 
-    code = run(["session", "status"], stdout=stdout, stderr=stderr)
+    code = run(["session", "stop"], stdout=stdout, stderr=stderr)
 
     assert code == int(ExitCode.USAGE)
     assert json.loads(stderr.getvalue())["status"] == "not_implemented"
