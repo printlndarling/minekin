@@ -12,7 +12,7 @@ from minekin_core.bootstrap import run
 from minekin_core.cli.doctor import diagnose
 from minekin_core.cli.parser import parse_args
 from minekin_core.config import RuntimeRequirements
-from minekin_core.domain.errors import ExitCode
+from minekin_core.domain.errors import ExitCode, MinekinError
 
 
 @pytest.mark.parametrize(
@@ -42,7 +42,6 @@ def test_launch_plan_requires_explicit_dry_run() -> None:
 @pytest.mark.parametrize(
     "argv",
     [
-        ["init", "--kin-id", "kin-1"],
         ["session", "start", "--profile", "missing.json"],
         ["session", "status"],
         ["session", "stop"],
@@ -60,6 +59,21 @@ def test_w00_placeholders_fail_without_touching_path_arguments(
     assert run(argv, stdout=stdout, stderr=stderr) == ExitCode.USAGE
     assert stdout.getvalue() == ""
     assert json.loads(stderr.getvalue())["status"] == "not_implemented"
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_init_without_a_stated_root_creates_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`init` left the placeholder list, so its own no-side-effect rule is asserted here."""
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("MINEKIN_HOME", raising=False)
+    monkeypatch.setenv("MINEKIN_USERNAME", "Kin")
+
+    with pytest.raises(MinekinError):
+        run(["init", "--kin-id", "kin-1"], stdout=io.StringIO(), stderr=io.StringIO())
+
     assert list(tmp_path.iterdir()) == []
 
 

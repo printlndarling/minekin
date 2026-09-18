@@ -10,9 +10,19 @@ from pathlib import Path
 from typing import TextIO
 
 from minekin_core.adapters.launcher.launch_plan import build_launch_plan
+from minekin_core.adapters.system.clock import SystemClock
 from minekin_core.cli.doctor import diagnose
+from minekin_core.cli.init import initialise_identity
 from minekin_core.cli.parser import parse_args
-from minekin_core.domain.errors import ExitCode, fail_closed
+from minekin_core.config import configured_username, data_root
+from minekin_core.domain.errors import (
+    ErrorCategory,
+    ExitCode,
+    MinekinError,
+    Retryability,
+    fail_closed,
+)
+from minekin_core.domain.ids import KinId
 
 
 def _command_name(args: argparse.Namespace) -> str:
@@ -45,6 +55,26 @@ def run(
         report = diagnose()
         _emit(report.as_dict(), stdout)
         return int(ExitCode.OK if report.ok else ExitCode.CONFIG)
+
+    if args.command == "init":
+        try:
+            kin_id = KinId(str(args.kin_id))
+        except ValueError as error:
+            raise MinekinError(
+                "cli",
+                "init",
+                ErrorCategory.CONFIG,
+                Retryability.OPERATOR_ACTION,
+                f"--kin-id is not a usable identifier: {error}",
+            ) from error
+        report = initialise_identity(
+            kin_id,
+            root=data_root(),
+            username=configured_username(),
+            clock=SystemClock(),
+        )
+        _emit(report.as_dict(), stdout)
+        return int(ExitCode.OK)
 
     if args.command == "launch-plan":
         _emit(build_launch_plan(Path(args.profile)), stdout)

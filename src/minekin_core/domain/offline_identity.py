@@ -43,6 +43,12 @@ def offline_player_uuid(username: str) -> uuid.UUID:
     return uuid.UUID(bytes=digest, version=3)
 
 
+def is_valid_username(value: str) -> bool:
+    """Whether a name satisfies the vanilla rule a server will enforce anyway."""
+
+    return bool(_VANILLA_USERNAME.fullmatch(value))
+
+
 @dataclass(frozen=True, slots=True)
 class OfflineIdentityMaterial:
     """Non-secret session material for one revision of a Kin's offline identity.
@@ -58,7 +64,7 @@ class OfflineIdentityMaterial:
     created_at: str
 
     def __post_init__(self) -> None:
-        if not _VANILLA_USERNAME.fullmatch(self.username):
+        if not is_valid_username(self.username):
             raise ValueError("username must follow the vanilla 3-16 [A-Za-z0-9_] rule")
         if self.identity_revision < 1:
             raise ValueError("identity_revision starts at one")

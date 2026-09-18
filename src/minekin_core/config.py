@@ -1,8 +1,61 @@
-"""Frozen P0 runtime requirements used by read-only diagnostics."""
+"""Frozen P0 runtime requirements and operator-supplied locations.
+
+Nothing here creates anything. Reading the environment is how the operator states
+where data lives and which name a Kin plays under; see
+`docs/run-directory-proposal.md` for why those two have no defaults.
+"""
 
 from __future__ import annotations
 
+import os
+from collections.abc import Mapping
 from dataclasses import dataclass
+from pathlib import Path
+
+from minekin_core.domain.errors import ErrorCategory, MinekinError, Retryability
+from minekin_core.domain.offline_identity import is_valid_username
+
+DATA_ROOT_VARIABLE = "MINEKIN_HOME"
+USERNAME_VARIABLE = "MINEKIN_USERNAME"
+
+
+def _reject(message: str) -> MinekinError:
+    return MinekinError(
+        "config", "resolve", ErrorCategory.CONFIG, Retryability.OPERATOR_ACTION, message
+    )
+
+
+def data_root(environ: Mapping[str, str] | None = None) -> Path:
+    """The operator's data root, which deliberately has no default.
+
+    A default would create directories under someone's home directory because
+    they ran a command, rather than because they said where data belongs.
+    """
+
+    source = os.environ if environ is None else environ
+    raw = source.get(DATA_ROOT_VARIABLE, "")
+    if not raw.strip():
+        raise _reject(f"{DATA_ROOT_VARIABLE} is required and has no default")
+    path = Path(raw)
+    # Checked before resolving, which would otherwise make it absolute against
+    # the current directory and hide the mistake.
+    if not path.is_absolute():
+        raise _reject(f"{DATA_ROOT_VARIABLE} must be an absolute path")
+    return path.resolve()
+
+
+def configured_username(environ: Mapping[str, str] | None = None) -> str:
+    """The name this Kin plays under, as stated by the operator."""
+
+    source = os.environ if environ is None else environ
+    value = source.get(USERNAME_VARIABLE, "")
+    if not value.strip():
+        raise _reject(f"{USERNAME_VARIABLE} is required and has no default")
+    if not is_valid_username(value):
+        raise _reject(
+            f"{USERNAME_VARIABLE} must follow the vanilla 3-16 [A-Za-z0-9_] rule: {value!r}"
+        )
+    return value
 
 
 @dataclass(frozen=True, slots=True)

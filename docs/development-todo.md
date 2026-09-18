@@ -67,7 +67,8 @@
 - [ ] 按 OFF-A（`offline`）→ OFF-B（`legacy`）运行有界候选，不静默漂移。
 - [x] 冻结 `token=0`、offline UUID 与 clientId/xuid 显式空 argv 语义：`domain/offline_identity.py` 复刻 `UUID.nameUUIDFromBytes("OfflinePlayer:"+name)`，向量取自 JDK 实际输出；`adapters/launcher/offline_session.py` 冻结 OFF-A/OFF-B 候选，并强制每个空值仍是紧跟自己 option 的独立 argv 元素。
 - [x] OFFLINE-001 静态子集：dry-run 无字面 `${...}`；未声明占位符直接拒绝而不是替换成空字符串；空值位置与候选声明不一致即失败。
-- [x] 身份根可持久化：`kin_identity` 单行存储 `kin_id`、local profile、identity revision 与 username；缺失时读取直接失败而不隐式新建，第二次 `init` 被拒绝，未知 `uuid_algorithm` 被拒绝。运行目录位置仍未定，`minekin init` 尚未接线。
+- [x] 身份根可持久化：`kin_identity` 单行存储 `kin_id`、local profile、identity revision 与 username；缺失时读取直接失败而不隐式新建，第二次 `init` 被拒绝，未知 `uuid_algorithm` 被拒绝。
+- [x] `minekin init` 接线完成：数据根来自 `MINEKIN_HOME`、username 来自 `MINEKIN_USERNAME`，两者都**没有默认值**，未设置即 `CONFIG` 失败并点名变量；相对根在 `resolve()` 之前拒绝。目录布局为 `<root>/kin/<kin_id>/{kin.sqlite3, run/}`，`run/` 就是启动计划相对路径所相对的根。`init` 不幂等：数据库已存在即拒绝，且拒绝时不留下任何痕迹。这两项都是**提案**，见[数据根与身份创建提案](run-directory-proposal.md)——契约都没有规定它们，改起来只涉及一个函数与 `init` 的读取点。
 - [x] 把冻结的 session argv 与计划里的 JVM 参数组装成完整命令行：计划中的路径按契约是 run-root 相对，只有 `adapters/launcher/process.py` 把它们变成绝对路径，因此"到底指向哪个目录"只有一个答案。classpath 逐项重建而不是重写拼接串；`-cp` 后面若不是类路径就拒绝（否则会把下一个选项当成类路径吞掉）；仍为相对计划路径、或 `.minecraft` 作为路径分段出现的参数一律拒绝。该判别必须按路径分段——`net.minecraft.client.main.Main` 是类名，不是目录，第一版按子串判断会误杀它。
 - [ ] 真正 spawn 与进程监管（PID identity、接管/终止判定）；run root 的来源仍未定，见上文。
 - [x] Bridge 脱敏报告：`SessionIdentityReport` 随 hello 与首快照上报候选、用户名、UUID、AccountType 与 clientId/xuid presence；凭据按结构不可携带——消息没有 `bytes` 字段、观测 record 没有 token/secret/key 分量、`credential_values_exposed` 为 true 时拒绝。形状由已发布的 descriptor 断言，不靠人工复查。
