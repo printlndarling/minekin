@@ -59,6 +59,8 @@
 - [x] 工件抓取：只走 https（重定向降级到 http 也拒绝）、URL 不得带凭据；已在校验通过的缓存中的工件直接复用、不重发请求；只有传输错误才重试，策略拒绝与摘要不符立即返回——重下同样的错字节只会浪费镜像；单次 pass 不因一个失败中止，交由调用方在 `complete` 为假时拒绝启动。暂存、隔离、原子发布与只读封存由 `ArtifactStore.install` 负责，抓取层只提供传输。
 - [x] 有界地核对了固定上游**如今仍然**提供固定字节：`tools/verify_supply_chain.py` 只取每个上游主机上最小的那个工件，外加 recipe 唯一的 mod（fabric-api）。它在**抓取之前**先印出本次会用掉多少字节、超出预算即拒绝——全量抓取是一个 GB，不该被顺手做掉。2026-09-19 实测：6 个工件覆盖全部五个上游主机，全部通过；其中 fabric-api 的 size 2,149,128、sha256 `d183bacb…`、sha1 `1c7871b6…` 与 recipe 及文档所记逐位相同。这个工具**不进 CI**：它需要网络，而 CI 不该依赖 Mojang；可离线验证的那一半（预算拒绝）有测试。
 - [ ] 全量 4,120 个工件与真实客户端仍未跑：需要受控 runner。
+- [x] 原版 server JAR 的 pin 也核对过了：契约与资料索引记的 SHA-1 `4707d00e…`、大小 56,880,250 bytes，与冻结元数据 `downloads.server` 逐位相同，且 Mojang 的 URL 本身把 SHA-1 写在路径里（内容寻址），因此三者互相印证。这三条现在都是**离线**断言（`tests/contract/test_server_artifact_pin.py`），契约或元数据被改就会失败，不必每次重下 54 MB。
+- [x] 真实上游也核过了：`tools/verify_supply_chain.py --include-server --max-bytes 60000000` 实测 7 个工件（五个 bundle 主机 + fabric-api + 原版 server）全部匹配，server JAR 56,880,250 bytes、SHA-1 相同。server 是 opt-in：默认预算下工具会先印出会花 59,531,345 bytes 然后**拒绝**，所以 54 MB 不会被人顺手拉下来。
 - [x] 门禁：所有工件与参数可复核；元数据/asset/bundle 篡改、未知 mod、路径越界或不兼容 runtime 均 fail closed；Bridge 未构建时保持明确 blocker，不谎称 launchable。
 - [x] 实测 Bridge JAR 并修正了对 `build_required` 的理解：`./gradlew build` 产出 `minekin-bridge-0.0.0.jar`（1.17 MB、157 项，含 `fabric.mod.json`、生成的 `io.minekin.protocol.v1.*`，以及 include 进去的 `META-INF/jars/protobuf-javalite-4.36.2.jar`），连续三次 `clean build` 的 SHA-256 完全相同，所有条目时间戳都是 1980-01-01（DOS epoch）。
 - [x] 但那份确定性**不是构建声明出来的**：在 `build.gradle.kts` 里加 `withType<Jar>` 的 `isPreserveFileTimestamps = false` / `isReproducibleFileOrder = true` 之后产物字节完全没变——连条目顺序都没变有序，因为真正产出 remapped jar 的是 Loom 的 `RemapJarTask`。既然那条声明不控制真正发布的东西，就没有留下它：一个看起来保证、实际不保证的设置，正是本仓库一路在清理的那类问题。

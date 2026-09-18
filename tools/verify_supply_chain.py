@@ -27,6 +27,7 @@ DEFAULT_PROFILE = (
     REPOSITORY_ROOT / "tests" / "fixtures" / "runtime-input" / ("bundle-p0-core-1.21.4.json")
 )
 DEFAULT_MAX_BYTES = 8 * 1024 * 1024
+VERSION_METADATA = REPOSITORY_ROOT / "tests" / "fixtures" / "launcher" / "1.21.4.json"
 FETCH_TIMEOUT_S = 60.0
 
 
@@ -55,6 +56,19 @@ def _smallest_per_host(artifacts: list[dict[str, object]]) -> list[dict[str, obj
     return list(chosen.values())
 
 
+def server_artifact() -> dict[str, object]:
+    """The pinned vanilla server the test domain runs, from the frozen metadata.
+
+    It is not part of the client bundle, which is why it is opt-in: it is fifty
+    times the size of everything else this tool fetches put together.
+    """
+
+    import json
+
+    downloads = json.loads(VERSION_METADATA.read_bytes())["downloads"]
+    return dict(downloads["server"])
+
+
 def plan() -> list[dict[str, object]]:
     from minekin_core.adapters.launcher.launch_plan import build_launch_plan
 
@@ -64,6 +78,11 @@ def plan() -> list[dict[str, object]]:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--max-bytes", type=int, default=DEFAULT_MAX_BYTES)
+    parser.add_argument(
+        "--include-server",
+        action="store_true",
+        help="also verify the pinned vanilla server jar (~54 MB, not part of the bundle)",
+    )
     args = parser.parse_args()
 
     from minekin_core.adapters.launcher.recipe import (
@@ -73,7 +92,10 @@ def main() -> int:
     )
 
     selected = _smallest_per_host(plan())
+    server = server_artifact() if args.include_server else None
     planned_bytes = sum(int(str(item["size"])) for item in selected) + FABRIC_API_SIZE
+    if server is not None:
+        planned_bytes += int(str(server["size"]))
     print(f"budget {args.max_bytes} bytes; this run would fetch {planned_bytes} bytes")
     if planned_bytes > args.max_bytes:
         print(
@@ -104,6 +126,14 @@ def main() -> int:
                 "net.fabricmc.fabric-api", len(payload), hashlib.sha1(payload).hexdigest(), digest
             )
         )
+
+    if server is not None:
+        payload = _read(str(server["url"]))
+        digest = hashlib.sha1(payload).hexdigest()
+        if digest != server["sha1"] or len(payload) != server["size"]:
+            errors.append("vanilla server: pinned SHA-1 or size does not match the served jar")
+        else:
+            verified.append(Verified("com.mojang:server:1.21.4", len(payload), digest, None))
 
     for item in verified:
         print(f"ok  {item.name}  {item.size} bytes")
