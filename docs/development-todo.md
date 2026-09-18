@@ -40,7 +40,7 @@
 
 ## W10：Launcher 元数据与 dry-run
 
-- [ ] 解析并校验 Mojang 1.21.4 与 Fabric 0.16.9 固定元数据。
+- [x] 保存上游原始响应并解析、校验 Mojang 1.21.4 与 Fabric 0.16.9 固定元数据；版本身份、Java/main class、规则与 Fabric 继承均 fail closed。
 - [ ] 生成可审计的 classpath、natives、JVM/game argv 与内容摘要。
 - [ ] 逐项校验 URL、大小、SHA、Java 21、main class、规则与固定 mod 集。
 - [ ] 使用独立 argv 元素；禁止 shell 拼接、未替换占位符与宿主 `.minecraft` 访问。

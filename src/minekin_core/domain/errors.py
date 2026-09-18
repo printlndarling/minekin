@@ -103,7 +103,7 @@ def redact_data(value: object, *, secrets: tuple[str, ...] = ()) -> object:
     return value
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class MinekinError(Exception):
     component: str
     operation: str

@@ -31,7 +31,7 @@ def test_all_json_contracts_are_parseable_and_versioned() -> None:
     assert paths
     for path in paths:
         value = json.loads(path.read_text(encoding="utf-8"))
-        if path.parent.name != "schemas":
+        if path.parent.name != "schemas" and "launcher" not in path.parts:
             assert value["schema_version"] == 1, path
 
 
