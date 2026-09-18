@@ -56,6 +56,8 @@ Minecraft JVM
 
 这些是成熟产品的权限边界，不是 P0 同时开工的进程清单。P2 以后才根据故障隔离与远程管理需要拆出独立入口；P0 始终只有 `minekin-core` 与 Minecraft JVM 两个主要进程。P0 不引入 Kubernetes、服务网格、Kafka、Redis、RabbitMQ 或分布式数据库。
 
+更细的 Python 包、事件信封、状态机、SQLite writer thread、outbox、lease 和恢复顺序见[P0 minekin-core 内部架构契约](p0-core-internal-architecture.md)。
+
 ## Agent Harness：自研事件驱动内核
 
 核心不用 LangChain、LangGraph、CrewAI、AutoGen 或 OpenClaw/Hermes 直接充当 Runtime。Minekin 需要的不是“模型连续调用工具”，而是四种不同时间尺度、可抢占的控制：

@@ -58,6 +58,7 @@ flowchart TD
 - [启动器供应链与玩家身份](docs/launcher-supply-chain-contract.md)：不可变 bundle、受信任下载、内容寻址缓存、跨版本 Bridge、token 暴露面与故障语义。
 - [P0 1.21.4 启动计划](docs/p0-launch-plan-contract.md)：官方/Fabric 元数据合并、Java/classpath/natives、默认离线身份、阻断条件与首个真客户端实验。
 - [P0 核心原型执行计划](docs/p0-prototype-execution-plan.md)：从规格冻结到真实进服、首快照、最小输入、故障恢复与证据晋级的严格垂直切片。
+- [P0 minekin-core 内部架构](docs/p0-core-internal-architecture.md)：两进程 Core 的模块依赖、事件信封、会话状态机、SQLite 写线程、outbox、lease、恢复与 W00 接口。
 - [P0 离线 Session 参数兼容](docs/p0-offline-session-compatibility-contract.md)：Prism对照、offline/legacy候选、UUID/token/clientId/xuid参数矩阵、Bridge实况与验收门禁。
 - [P0 Thin Bridge 启动与装配](docs/p0-bridge-bootstrap-contract.md)：Fabric client entrypoint、core/nav bundle 拆分、线程边界、握手后连接及 capability 门控。
 - [P0 远程入服与离线身份](docs/p0-remote-admission-contract.md)：正常客户端连接入口、地址/SRV 策略、身份分层、JOIN/首快照门禁与失败分类。

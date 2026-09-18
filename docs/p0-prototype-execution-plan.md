@@ -45,6 +45,8 @@ P0 最小依赖固定为 Python/uv、Java 21/Gradle/Fabric、proto3/Buf、本机
 
 这些能力不是被否定，而是只有 core 的进程、会话、观察、输入、隔离和证据边界先成立，后续结论才可归因。
 
+内部模块、依赖方向、事件/命令分离、Session 状态机、SQLite 写线程、transactional outbox、TaskGroup 与 CLI 冻结项见[P0 minekin-core 内部架构契约](p0-core-internal-architecture.md)。该契约是 W00 的实现入口；若与较早的宽泛目录建议冲突，以它为准。
+
 ## 依赖顺序
 
 ```mermaid
