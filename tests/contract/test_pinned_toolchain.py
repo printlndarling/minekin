@@ -36,7 +36,7 @@ def step_block(uses_prefix: str) -> list[str]:
     raise AssertionError(f"{uses_prefix} is not referenced in {WORKFLOW.name}")
 
 
-def test_every_installed_action_is_version_pinned() -> None:
+def test_every_installed_action_pins_the_version_it_installs() -> None:
     """The `uses:` reference is pinned by tag; that does not pin what it downloads."""
 
     for prefix in PINNED_ACTIONS:
@@ -46,6 +46,22 @@ def test_every_installed_action_is_version_pinned() -> None:
             f"{prefix} does not pin the version of the tool it installs; "
             "an unpinned tool can change this gate's behaviour on its own schedule"
         )
+
+
+def test_every_installed_action_verifies_the_download() -> None:
+    """A version names what to fetch; a digest is what proves it arrived intact."""
+
+    for prefix in PINNED_ACTIONS:
+        block = step_block(prefix)
+
+        checksums = [
+            line.strip().removeprefix("checksum:").strip()
+            for line in block
+            if line.strip().startswith("checksum:")
+        ]
+        assert len(checksums) == 1, f"{prefix} must supply exactly one checksum"
+        assert len(checksums[0]) == 64, f"{prefix} checksum is not a sha256: {checksums[0]!r}"
+        assert all(character in "0123456789abcdef" for character in checksums[0]), checksums[0]
 
 
 def test_the_buf_cli_version_is_the_reviewed_one() -> None:

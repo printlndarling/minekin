@@ -19,7 +19,8 @@
 - [x] 固定 Java 21；本机以 JDK 21.0.12.1 完成 Gradle 8.12.1 的 Bridge `clean check`，并在改过 proto 与 Bridge 源码之后以 `--offline` 重新验证过：strict verification、锁定依赖、`BUILD SUCCESSFUL`。Bridge 源码树摘要在反复跑 Gradle 之后保持不变，说明 `build/` 与 `.gradle/` 确实被排除在摘要之外。
 - [x] 以固定版本的 Buf action 提供 schema build/lint/format 门禁；本机用固定 Buf `v1.50.0` 完成 lint 并复现同一生成字节。
 - [x] 补上 Buf **CLI** 的版本 pin：原来只钉了 action（`bufbuild/buf-action@v1.5.0`），而 action 下载的是哪个 CLI 并没有指定，等于用「最新的那个」。lint 规则与 format 输出会随 Buf 版本变化，所以这道门禁本来可以在本仓库毫无改动的情况下变红或悄悄改成在检查别的东西。现在显式写 `version: v1.50.0`，并有契约测试断言这条 pin 存在（同一个测试也覆盖「哪些工具由 workflow 自己安装就必须自己钉住」）。
-- [ ] Buf CLI 的 `checksum` 仍未设置：action 支持它，本仓库其他工件都做摘要核验，这里也应该做；但本机访问 GitHub release 资产持续失败（连接被重置），拿不到官方 `sha256.txt`，所以没有编造一个值。
+- [x] Buf CLI 的 `checksum` 已补上：重试后取到了 release 的官方 `sha256.txt`，并先确认 action 下载的是**裸二进制** `buf-Linux-x86_64`（其 dist 里完全没有 `tar.gz`），因此用的是该条目而不是压缩包的摘要。契约测试同时断言 version 与 checksum 存在且是 64 位小写十六进制。
+- [ ] workflow 里的 action 本身仍按 tag 引用（`actions/checkout@v5`、`astral-sh/setup-uv@v6`、`bufbuild/buf-action@v1.5.0`），没有按 commit SHA 固定。本仓库对工件一律做摘要核验，action 是另一类供应链入口；是否改成 SHA 引用需要单独决定（它会让升级更麻烦，但能挡住 tag 被移动）。
 - [x] 完成 Gradle 依赖锁与 SHA-256 verification metadata；固定 Wrapper 8.12.1 已在 Java 21 下通过离线 strict verification `clean check`。
 - [ ] 为受控 Linux runner 准备 Java 21、Xvfb、原版 1.21.4 server 与隔离账号/目录。
 - [x] 已实测 wheel 装出来能不能跑：把 `uv build --wheel` 的产物装进一个干净 venv 再逐条执行命令。`doctor`、`init`、`session status` 都正常（migrations 与 `schema.sql` 确实被打进 wheel，否则 `init` 会在 importlib.resources 上炸）。但 `launch-plan`（以及依赖它的 `session start`）在源码树之外必然失败，因为它用 `Path(__file__).resolve().parents[4]` 猜工作区根，装在 site-packages 里就猜到了 venv 的 `Lib`，于是去找 `<venv>/Lib/bridge` 并报「Bridge source root is missing」。现在改为按标记目录（同时存在 `bridge/` 与 `proto/`）向上查找工作区，并在找不到时把查找起点和「已安装的 wheel 不带源码树」写进错误里。这条 CI 结构上抓不到：CI 会 build wheel，但所有命令都在源码树里跑。

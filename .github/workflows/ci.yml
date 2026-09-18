@@ -37,6 +37,11 @@ jobs:
           # rules and format output change between Buf releases, so an unpinned
           # CLI can turn this gate red without a change to this repository.
           version: v1.50.0
+          # From the release's own sha256.txt. The action downloads the plain
+          # `buf-Linux-x86_64`, not the tarball, so this is that entry. Every
+          # other artifact this repository fetches is digest-verified; the CLI
+          # that gates the protocol should not be the exception.
+          checksum: 154ea883ce098eac4fa106ff9ee4e4964bb97f809dd8ec9c34a432b466ce1494
       - run: buf build --error-format=github-actions
       - run: buf lint --error-format=github-actions
       - run: buf format --diff --error-format=github-actions --exit-code
