@@ -33,6 +33,7 @@
 - [x] 冻结 SQLite schema/migration v1、单 writer-thread 与 transactional outbox 契约。v1 文件本身未改动，仅在其上追加。
 - [x] 把单步 v1 迁移泛化为有序迁移执行器：每条迁移自己记账、抬升 `user_version` 并更新 `schema_version`，重复打开是 no-op，v1 库可原地升到 v2 且保留既有事件；比当前代码更新的库版本被拒绝而不是降级。
 - [x] `0002_identity_root.sql` 落 `kin_identity` 单行身份根：`kin_id` 不可变，离线 UUID 由 `uuid_algorithm` + `username` 推导而不是存储（存了就会和规则本身不一致），不保存任何必须失效的瞬时状态。
+- [x] `schema.sql` 是当前 schema 的 golden 文档表示，与迁移产物对齐到 v2；新增漂移测试：把 golden 文件与迁移各建一个库、比对 `sqlite_master` 的建表语句与版本。此前它已悄悄停在 v1 而无人发现，因为没有东西会因它过时而失败。
 - [x] 冻结错误分类、退出码、脱敏规则与未知错误 fail-closed 行为。
 - [x] 冻结 CLI schema；`doctor` 为只读实现，其余命令在实现前明确无副作用地失败。
 - [x] 提供 fake Clock/Launcher/Bridge/EventStore/Evidence ports。

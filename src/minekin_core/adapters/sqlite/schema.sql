@@ -1,5 +1,7 @@
--- Minekin core SQLite schema v1.  This file is documentation and a golden
--- representation; migrations/0001_initial.sql is the executable source.
+-- Minekin core SQLite schema, current version.  This file is documentation and a
+-- golden representation of what `migrations/` produces; the migration files are
+-- the executable source.  Update this file in the same commit as any migration,
+-- and the drift test will fail until you do.
 PRAGMA application_id = 1296783694; -- ASCII "MKIN"
 
 CREATE TABLE schema_version (
@@ -80,4 +82,18 @@ CREATE TABLE projection (
     PRIMARY KEY (projection_name, projection_key)
 ) STRICT, WITHOUT ROWID;
 
-PRAGMA user_version = 1;
+-- v2: the identity root.  Exactly one row, created only by an explicit init.
+-- `kin_id` never changes; the offline UUID is derived from `username` by
+-- `uuid_algorithm` rather than stored, so a stored value cannot disagree with
+-- the rule that produces it.  No transient state has a column here.
+CREATE TABLE kin_identity (
+    singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+    kin_id TEXT NOT NULL UNIQUE,
+    local_profile_id TEXT NOT NULL,
+    identity_revision INTEGER NOT NULL CHECK (identity_revision >= 1),
+    username TEXT NOT NULL,
+    uuid_algorithm TEXT NOT NULL,
+    created_at_utc TEXT NOT NULL
+) STRICT;
+
+PRAGMA user_version = 2;
