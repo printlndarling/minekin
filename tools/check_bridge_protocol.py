@@ -10,6 +10,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 SOURCES = (
     ROOT / "bridge/src/main/java/org/minekin/bridge/protocol/FrameCodec.java",
+    ROOT / "bridge/src/main/java/org/minekin/bridge/protocol/HandshakeGate.java",
     ROOT / "bridge/src/main/java/org/minekin/bridge/runtime/BoundedChannel.java",
     ROOT / "bridge/src/main/java/org/minekin/bridge/runtime/BridgePhaseMachine.java",
     ROOT / "tools/java/BridgeProtocolSelfTest.java",

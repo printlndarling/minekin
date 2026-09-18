@@ -46,10 +46,42 @@ message CoreHello {
   repeated Capability accepted_capabilities = 4;
   uint32 heartbeat_interval_ms = 5;
   uint32 max_frame_bytes = 6;
+  bytes proof = 7;
 }
 
 message Heartbeat {
   uint64 generation = 1;
   uint64 monotonic_ns = 2;
   BridgePhase phase = 3;
+}
+
+enum EndpointTransport {
+  ENDPOINT_TRANSPORT_UNSPECIFIED = 0;
+  ENDPOINT_TRANSPORT_UNIX_DOMAIN_SOCKET = 1;
+  ENDPOINT_TRANSPORT_LOOPBACK_TCP = 2;
+}
+
+message IpcEndpoint {
+  Channel channel = 1;
+  EndpointTransport transport = 2;
+  string unix_socket_path = 3;
+  string host = 4;
+  uint32 port = 5;
+}
+
+// Written once by the Launcher into the private session overlay. The Bridge
+// reads and deletes it on its IPC worker; it must never be logged or placed in argv.
+message BridgeBootstrapDescriptor {
+  ProtocolVersion protocol = 1;
+  string kin_id = 2;
+  string session_id = 3;
+  uint64 generation = 4;
+  string client_instance_id = 5;
+  string bundle_digest = 6;
+  string bridge_digest = 7;
+  bytes launch_nonce = 8;
+  bytes session_key = 9;
+  repeated Capability advertised_capabilities = 10;
+  repeated IpcEndpoint endpoints = 11;
+  uint32 max_frame_bytes = 12;
 }
