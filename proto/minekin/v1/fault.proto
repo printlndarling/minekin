@@ -3,8 +3,8 @@ syntax = "proto3";
 package minekin.v1;
 
 option java_multiple_files = true;
-option java_package = "io.minekin.protocol.v1";
 option java_outer_classname = "FaultProto";
+option java_package = "io.minekin.protocol.v1";
 
 enum ErrorCategory {
   ERROR_CATEGORY_UNSPECIFIED = 0;
@@ -26,7 +26,8 @@ enum Retryability {
   RETRYABILITY_UNSPECIFIED = 0;
   RETRYABILITY_NEVER = 1;
   RETRYABILITY_SAFE = 2;
-  RETRYABILITY_AFTER_OPERATOR_ACTION = 3;
+  RETRYABILITY_NEW_GENERATION = 3;
+  RETRYABILITY_OPERATOR_ACTION = 4;
 }
 
 message Fault {

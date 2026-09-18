@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "events": [
+    {
+      "event_id": "event-1",
+      "event_type": "SessionPreparing",
+      "schema_version": 1,
+      "kin_id": "kin-1",
+      "run_id": "run-1",
+      "session_id": "session-1",
+      "generation": 1,
+      "sequence": 1,
+      "correlation_id": "corr-1",
+      "monotonic_ns": 100,
+      "observed_at_utc": "2026-09-18T00:00:00Z",
+      "source": "CORE",
+      "trust_class": "CORE",
+      "payload": {"state": "PREPARING"},
+      "payload_hash": "1cc48441b723b2707d7b7d44fb567d8c2f0188da1703e6eff9f8e899de47f700"
+    }
+  ],
+  "expected_projection": {
+    "state": "PREPARING",
+    "last_event_position": 1
+  }
+}

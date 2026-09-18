@@ -3,8 +3,8 @@ syntax = "proto3";
 package minekin.v1;
 
 option java_multiple_files = true;
-option java_package = "io.minekin.protocol.v1";
 option java_outer_classname = "EnvelopeProto";
+option java_package = "io.minekin.protocol.v1";
 
 // ProtocolVersion participates in handshake compatibility. A major mismatch is
 // fatal; a minor version may only add wire-compatible optional fields.
@@ -19,8 +19,29 @@ enum Channel {
   CHANNEL_EVENT = 2;
 }
 
-// Every cross-process message is self-describing across reconnects. IDs use
-// canonical lower-case UUID text at the domain boundary.
+enum EventSource {
+  EVENT_SOURCE_UNSPECIFIED = 0;
+  EVENT_SOURCE_CORE = 1;
+  EVENT_SOURCE_BRIDGE = 2;
+  EVENT_SOURCE_LAUNCHER = 3;
+  EVENT_SOURCE_OPERATOR_CLI = 4;
+  // This value is valid only in isolated test evidence. Product transports,
+  // event stores, projections, and generated product packages must reject it.
+  EVENT_SOURCE_SERVER_ORACLE_TEST_ONLY = 5;
+}
+
+enum TrustClass {
+  TRUST_CLASS_UNSPECIFIED = 0;
+  TRUST_CLASS_CORE = 1;
+  TRUST_CLASS_BRIDGE_FILTERED = 2;
+  TRUST_CLASS_LAUNCHER = 3;
+  TRUST_CLASS_OPERATOR = 4;
+  TRUST_CLASS_UNTRUSTED_WORLD_CONTENT = 5;
+}
+
+// Every cross-process message is self-describing across reconnects. IDs are
+// opaque, log-safe values; individual domain types decide whether UUID syntax
+// is required.
 message Envelope {
   ProtocolVersion protocol = 1;
   string message_type = 2;
@@ -47,7 +68,19 @@ message Envelope {
   // must reject unknown types instead of guessing a schema.
   bytes payload = 30;
 
+  // Domain-event metadata. Commands and acknowledgements may leave these
+  // unset; persisted events must supply every field and a SHA-256 payload hash.
+  string event_id = 31;
+  string event_type = 32;
+  uint32 payload_schema_version = 33;
+  string causation_id = 34;
+  EventSource source = 35;
+  TrustClass trust_class = 36;
+  // Raw 32-byte SHA-256; SQLite/evidence render the same digest as lowercase hex.
+  bytes payload_hash = 37;
+
   reserved 7 to 9;
   reserved 16 to 19;
   reserved 26 to 29;
+  reserved 38 to 49;
 }

@@ -3,8 +3,8 @@ syntax = "proto3";
 package minekin.v1;
 
 option java_multiple_files = true;
-option java_package = "io.minekin.protocol.v1";
 option java_outer_classname = "ObservationProto";
+option java_package = "io.minekin.protocol.v1";
 
 message SelfState {
   float health = 1;

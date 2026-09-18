@@ -17,26 +17,26 @@
 - [x] Git 工作树与 `origin/main` 基线确认。
 - [x] Python 与 uv 可用。
 - [ ] 安装并固定 Java 21；当前开发机仅检测到 Java 17，W20 及真客户端实验不得在此条件下宣称通过。
-- [ ] 安装或以锁定方式提供 Buf；当前开发机未检测到 Buf。
-- [ ] 建立 Gradle Wrapper 与依赖校验；不得依赖未固定的全局 Gradle。
+- [x] 以 CI 中固定版本的 Buf action 提供 schema build/lint/format 门禁；本机另用固定 Buf `v1.50.0` 完成 W00 lint。
+- [ ] 完成 Gradle 依赖锁与 verification metadata；Wrapper 及发行包 SHA-256 已固定，但 Java 21 环境首次解析仍待执行。
 - [ ] 为受控 Linux runner 准备 Java 21、Xvfb、原版 1.21.4 server 与隔离账号/目录。
 
 ## W00：规格、夹具与整体框架
 
-- [ ] 建立 `pyproject.toml`、`uv.lock`、Python 3.12–3.13 范围与 Node-free P0 依赖清单。
-- [ ] 建立 `src/minekin_core` 的 domain/application/ports/adapters/entrypoints/generated/cli 边界。
-- [ ] 建立 `bridge`、`proto/minekin/v1`、`tests` 与 `test-orchestrator` 骨架。
-- [ ] 实现并测试 Session 状态与合法转换表。
-- [ ] 冻结 ID、generation、sequence、deadline 与 monotonic/wall-clock 语义。
-- [ ] 冻结 proto v1：envelope、hello、fault、observation、lease、`release_all`。
-- [ ] 冻结 SQLite schema/migration v1、单 writer-thread 与 transactional outbox 契约。
-- [ ] 冻结错误分类、退出码、脱敏规则与未知错误 fail-closed 行为。
-- [ ] 冻结 CLI schema；W00 至少提供 `doctor` 与安全的 dry-run 表面。
-- [ ] 提供 fake Clock/Launcher/Bridge/EventStore/Evidence ports。
-- [ ] 提供 protobuf、framing、event replay 与 crash golden fixtures，并固定摘要。
-- [ ] 自动检查依赖方向和产品构建不得包含 oracle。
-- [ ] 写 ADR：P0 不引入 Web、ORM、通用 Agent 框架和多 Python 服务。
-- [ ] 门禁：schema 可版本化、fixtures 摘要固定、oracle 与产品输入目录隔离。
+- [x] 建立 `pyproject.toml`、`uv.lock`、Python 3.12–3.13 范围与 Node-free P0 依赖清单。
+- [x] 建立 `src/minekin_core` 的 domain/application/ports/adapters/entrypoints/generated/cli 边界。
+- [x] 建立 `bridge`、`proto/minekin/v1`、`tests` 与 `test-orchestrator` 骨架。
+- [x] 实现并测试 Session 状态与合法转换表。
+- [x] 冻结 ID、generation、sequence、deadline 与 monotonic/wall-clock 语义。
+- [x] 冻结 proto v1：envelope、hello、fault、observation、lease、`release_all`。
+- [x] 冻结 SQLite schema/migration v1、单 writer-thread 与 transactional outbox 契约。
+- [x] 冻结错误分类、退出码、脱敏规则与未知错误 fail-closed 行为。
+- [x] 冻结 CLI schema；`doctor` 为只读实现，其余命令在实现前明确无副作用地失败。
+- [x] 提供 fake Clock/Launcher/Bridge/EventStore/Evidence ports。
+- [x] 提供 protobuf、framing、event replay 与 crash golden fixtures，并固定跨平台摘要。
+- [x] 自动检查依赖方向、Bridge 引用与产品 wheel 不得包含 oracle。
+- [x] 写 ADR：P0 不引入 Web、ORM、通用 Agent 框架和多 Python 服务。
+- [x] 门禁：schema 可版本化、fixtures 摘要固定、oracle 与产品输入目录隔离。
 
 ## W10：Launcher 元数据与 dry-run
 

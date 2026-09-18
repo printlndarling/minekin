@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "crash_point": "after_transaction_commit_before_effect",
+  "events_committed": ["event-1"],
+  "outbox": [
+    {
+      "outbox_id": "outbox-1",
+      "effect_type": "START_CLIENT",
+      "idempotency_key": "start-client-1",
+      "status": "pending",
+      "attempts": 0
+    }
+  ],
+  "expected_recovery": {
+    "replay_input_lease": false,
+    "reconcile_client_process_identity": true,
+    "invalidate_historical_generation": true
+  }
+}

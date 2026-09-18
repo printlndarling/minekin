@@ -5,8 +5,8 @@ package minekin.v1;
 import "minekin/v1/envelope.proto";
 
 option java_multiple_files = true;
-option java_package = "io.minekin.protocol.v1";
 option java_outer_classname = "SessionProto";
+option java_package = "io.minekin.protocol.v1";
 
 enum BridgePhase {
   BRIDGE_PHASE_UNSPECIFIED = 0;
