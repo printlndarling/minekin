@@ -44,7 +44,7 @@
 - [x] 生成可审计的内容寻址 classpath、session natives 目录、独立 JVM argv、typed game argv 模板与规范化计划摘要。
 - [ ] 逐项校验 URL、大小、SHA、Java 21、main class、规则与固定 mod 集。
 - [x] 使用独立 argv 元素；JVM 占位符必须全部解析、game 占位符必须转为 typed entry，并禁止 shell 拼接与宿主 `.minecraft` 访问。
-- [ ] 建立内容寻址 artifact store、只读 bundle 与可写 session overlay。
+- [x] 建立带 staging/quarantine/原子发布的内容寻址 artifact store、逐文件复核的只读 bundle 与 generation 隔离的可写 session overlay。
 - [ ] 门禁：所有工件与参数可复核；篡改、未知 artifact 或不兼容 runtime 均 fail closed。
 
 ## W20：只读 Thin Bridge
