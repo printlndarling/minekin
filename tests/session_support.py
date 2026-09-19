@@ -19,11 +19,17 @@ from minekin_core.adapters.launcher.artifacts import (
     store_relative_path,
 )
 from minekin_core.adapters.launcher.metadata import Artifact
+from minekin_core.adapters.launcher.offline_session import (
+    EMPTY_ARGV,
+    OFFLINE_SESSION_CANDIDATES,
+)
 from minekin_core.adapters.launcher.supervisor import ProcessSupervisor
 from minekin_core.application.ports.clock import FakeClock
 from minekin_core.cli import session as session_module
 from minekin_core.cli.init import initialise_identity
 from minekin_core.domain.ids import KinId
+from minekin_core.domain.offline_identity import OfflineIdentityMaterial
+from minekin_core.generated.minekin.v1 import observation_pb2, session_pb2
 
 PROFILE = (
     Path(__file__).resolve().parent / "fixtures" / "runtime-input" / "bundle-p0-core-1.21.4.json"
@@ -62,9 +68,18 @@ def fabricated() -> tuple[dict[str, Any], Artifact]:
             "assets_dir": "bundle/assets",
             "assets_index_name": "19",
             "version_type": "release",
+            # All four options the Launcher encodes, not just the two that name
+            # the player: the recorded session material is read back out of the
+            # resolved argv, and a fixture that carries only half of it would
+            # test a launch shape that cannot happen.
             "game_arg_template": [
                 entry
-                for pair in (("--username", "auth_player_name"), ("--uuid", "auth_uuid"))
+                for pair in (
+                    ("--username", "auth_player_name"),
+                    ("--uuid", "auth_uuid"),
+                    ("--clientId", "clientid"),
+                    ("--xuid", "auth_xuid"),
+                )
                 for entry in (
                     {"kind": "literal", "value": pair[0]},
                     {"kind": "placeholder", "name": pair[1]},
@@ -163,3 +178,45 @@ def ready_data_root(tmp_path: Path, monkeypatch: Any) -> Path:
     stand_in_for_the_built_workspace(monkeypatch)
     ArtifactStore(run_root(tmp_path) / "artifact-store").install(artifact, io.BytesIO(PAYLOAD))
     return root
+
+
+def first_snapshot(
+    *,
+    generation: int,
+    material: OfflineIdentityMaterial,
+    game_tick: int = 1,
+    authoritative: bool = True,
+) -> observation_pb2.InitialObservation:
+    """A first snapshot Core should admit for a fabricated launch.
+
+    Every value comes from the same sources the launch itself used — the identity
+    the data root was created with, and the one reviewed candidate the plan
+    selects — rather than from anything the code under test produced, because a
+    helper that copied what it was checking would agree with anything.
+    """
+
+    candidate = OFFLINE_SESSION_CANDIDATES[0]
+    return observation_pb2.InitialObservation(
+        generation=generation,
+        game_tick=game_tick,
+        authoritative=authoritative,
+        self=observation_pb2.SelfState(
+            health=20.0,
+            max_health=20.0,
+            food=20,
+            saturation=5.0,
+            on_ground=True,
+            alive=True,
+            current_screen="GameMenuScreen",
+        ),
+        inventory=observation_pb2.InventorySummary(revision=1),
+        session_identity=session_pb2.SessionIdentityReport(
+            identity_candidate_id=candidate.candidate_id,
+            session_username=material.username,
+            session_uuid=material.uuid_canonical,
+            session_account_type="LEGACY",
+            session_client_id_present=candidate.client_id_argv != EMPTY_ARGV,
+            session_xuid_present=candidate.xuid_argv != EMPTY_ARGV,
+            credential_values_exposed=False,
+        ),
+    )

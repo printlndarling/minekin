@@ -28,14 +28,28 @@ from bridge_peer import (  # type: ignore[import-not-found]
 from minekin_core.adapters.bridge.ipc import (
     BRIDGE_HELLO_TYPE,
     CONNECTION_LIFECYCLE_TYPE,
+    INITIAL_OBSERVATION_TYPE,
     BridgeIpcHost,
     BridgeSession,
 )
+from minekin_core.adapters.launcher.offline_session import OFFLINE_SESSION_CANDIDATES
 from minekin_core.cli.session_runtime import SessionOutcome, SessionRun, supervise_session
 from minekin_core.domain.connection import ConnectionGenerations, ConnectionState
 from minekin_core.domain.ids import OpaqueId
+from minekin_core.domain.session_material import RecordedSessionMaterial
 from minekin_core.domain.session_state import SessionState, SessionStateMachine
 from minekin_core.generated.minekin.v1 import envelope_pb2, observation_pb2, session_pb2
+
+# What the Launcher recorded for this Kin. Stated rather than read back from a
+# launch: this test drives the runtime directly, so there is no launch to read it
+# from — and the snapshot below has to match it, which is the check under test.
+RECORDED = RecordedSessionMaterial(
+    identity_candidate_id=OFFLINE_SESSION_CANDIDATES[0].candidate_id,
+    username="Kin",
+    uuid_argv="8f40376b-c23f-3ef1-b553-5564eea75639",
+    client_id_present=False,
+    xuid_present=False,
+)
 
 PROFILE = OpaqueId("local-test")
 REVISION = "c" * 64
@@ -112,6 +126,46 @@ class Peer:
         core = await asyncio.wait_for(read_frame(control_reader), 2)
         self.core_hello = session_pb2.CoreHello.FromString(core.payload)
 
+    async def snapshot(self, *, generation: int = 1) -> None:
+        """Send a first snapshot Core should admit, and which the launch agrees with."""
+
+        assert self.event_writer is not None
+        self.sequence += 1
+        snapshot = observation_pb2.InitialObservation(
+            generation=generation,
+            game_tick=1,
+            authoritative=True,
+            self=observation_pb2.SelfState(
+                health=20.0,
+                max_health=20.0,
+                food=20,
+                saturation=5.0,
+                on_ground=True,
+                alive=True,
+                current_screen="GameMenuScreen",
+            ),
+            inventory=observation_pb2.InventorySummary(revision=1),
+            session_identity=session_pb2.SessionIdentityReport(
+                identity_candidate_id=RECORDED.identity_candidate_id,
+                session_username=RECORDED.username,
+                session_uuid=RECORDED.uuid_argv,
+                session_account_type="LEGACY",
+                session_client_id_present=RECORDED.client_id_present,
+                session_xuid_present=RECORDED.xuid_present,
+                credential_values_exposed=False,
+            ),
+        )
+        await write_frame(
+            self.event_writer,
+            envelope(
+                self.bridge,
+                INITIAL_OBSERVATION_TYPE,
+                envelope_pb2.CHANNEL_EVENT,
+                self.sequence,
+                snapshot.SerializeToString(deterministic=True),
+            ),
+        )
+
     async def report(self, phase: observation_pb2.ConnectionPhase, *, generation: int = 1) -> None:
         assert self.event_writer is not None
         self.sequence += 1
@@ -133,8 +187,8 @@ class Peer:
             ),
         )
 
-    async def observe(self, tick: int) -> None:
-        """An event type this build receives but does not act on."""
+    async def snapshot_without_identity(self, tick: int) -> None:
+        """A snapshot that says nothing about who is running: refused, with reasons."""
 
         assert self.event_writer is not None
         self.sequence += 1
@@ -142,7 +196,7 @@ class Peer:
             self.event_writer,
             envelope(
                 self.bridge,
-                "minekin.v1.InitialObservation",
+                INITIAL_OBSERVATION_TYPE,
                 envelope_pb2.CHANNEL_EVENT,
                 self.sequence,
                 observation_pb2.InitialObservation(
@@ -164,6 +218,7 @@ async def _supervise(
     *,
     exit_event: asyncio.Event,
     timeout: float = 8.0,
+    recorded: RecordedSessionMaterial | None = RECORDED,
 ) -> SessionRun:
     return await asyncio.wait_for(
         supervise_session(
@@ -172,6 +227,7 @@ async def _supervise(
             connections=connections,
             handshake_timeout=3.0,
             until_client_exit=exit_event.wait,
+            recorded=recorded,
         ),
         timeout,
     )
@@ -191,15 +247,18 @@ def test_a_session_follows_the_reported_phases_and_stops_with_the_client(
         async def client() -> None:
             await peer.prove()
             assert peer.core_hello is not None
-            await peer.observe(tick=1)
+            await peer.snapshot_without_identity(tick=1)
             for phase in (
                 observation_pb2.CONNECTION_PHASE_RESOLVING,
                 observation_pb2.CONNECTION_PHASE_LOGIN_NEGOTIATING,
                 observation_pb2.CONNECTION_PHASE_PLAY_INIT,
                 observation_pb2.CONNECTION_PHASE_JOIN_SEEN,
-                observation_pb2.CONNECTION_PHASE_PLAYABLE,
             ):
                 await peer.report(phase)
+            # PLAYABLE is not a phase on that list: it is Core's conclusion about
+            # a snapshot it admitted, so the snapshot is what carries the session
+            # the rest of the way.
+            await peer.snapshot()
             await _wait_until(lambda: machine.state is SessionState.PLAYABLE)
             await peer.report(observation_pb2.CONNECTION_PHASE_DISCONNECTED)
             # Wait for the report to be applied rather than for the state to be
@@ -220,7 +279,11 @@ def test_a_session_follows_the_reported_phases_and_stops_with_the_client(
 
         assert run.outcome is SessionOutcome.CLIENT_EXITED
         assert run.events_applied == 6
-        assert run.events_ignored == 1
+        assert run.events_ignored == 0
+        # A snapshot that does not describe the recorded identity is refused, and
+        # the refusal says why: this is the difference between a Kin that could not
+        # see and one that saw nothing.
+        assert "SESSION_MATERIAL_MISMATCH" in run.snapshot_rejections
         assert run.connection_state is ConnectionState.DISCONNECTED
         assert run.session_state is SessionState.STOPPED
         # §13: the attempt is invalidated on the way out, so a late report from
@@ -251,11 +314,13 @@ def test_the_session_reaches_playable_before_the_client_leaves(tmp_path: Path) -
                 (observation_pb2.CONNECTION_PHASE_LOGIN_NEGOTIATING, SessionState.CONNECTING),
                 (observation_pb2.CONNECTION_PHASE_PLAY_INIT, SessionState.CONNECTING),
                 (observation_pb2.CONNECTION_PHASE_JOIN_SEEN, SessionState.JOINED_UNVERIFIED),
-                (observation_pb2.CONNECTION_PHASE_PLAYABLE, SessionState.PLAYABLE),
             ):
                 await peer.report(phase)
                 await _wait_until(lambda state=expected: machine.state is state)
                 reached.append(machine.state)
+            await peer.snapshot()
+            await _wait_until(lambda: machine.state is SessionState.PLAYABLE)
+            reached.append(machine.state)
             exit_event.set()
             await peer.close()
 
@@ -269,6 +334,7 @@ def test_the_session_reaches_playable_before_the_client_leaves(tmp_path: Path) -
                 until_client_exit=exit_event.wait,
                 on_handshake=lambda: _note(handshakes),
                 on_connection=lambda state, reason: _note(reported, (state, reason)),
+                recorded=RECORDED,
             ),
             8,
         )

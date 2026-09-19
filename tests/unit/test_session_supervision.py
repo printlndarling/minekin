@@ -34,10 +34,13 @@ from bridge_peer import (  # type: ignore[import-not-found]
 from minekin_core.adapters.bridge.ipc import (
     BRIDGE_HELLO_TYPE,
     CONNECT_WORLD_TYPE,
+    INITIAL_OBSERVATION_TYPE,
     BridgeSession,
 )
 from minekin_core.adapters.launcher.server_profile import load_server_profile
 from minekin_core.adapters.launcher.supervisor import ProcessSupervisor
+from minekin_core.adapters.sqlite.connection import connect_reader
+from minekin_core.adapters.sqlite.identity_store import read_identity_root
 from minekin_core.adapters.sqlite.session_log import (
     CLIENT_EXITED,
     HELLO_ACCEPTED,
@@ -56,6 +59,7 @@ from minekin_core.cli.session import (
 from minekin_core.cli.session_runtime import SessionOutcome, SessionRun
 from minekin_core.domain.connection import ConnectionState
 from minekin_core.domain.errors import MinekinError
+from minekin_core.domain.offline_identity import OfflineIdentityMaterial
 from minekin_core.domain.session_state import SessionState
 from minekin_core.generated.minekin.v1 import (
     control_pb2,
@@ -67,6 +71,7 @@ from session_support import (  # type: ignore[import-not-found]
     PROFILE,
     STUB_PID,
     fabricated,
+    first_snapshot,
     ready_data_root,
     run_root,
 )
@@ -80,15 +85,24 @@ SERVER_PROFILE = (
     REPOSITORY_ROOT / "tests" / "fixtures" / "runtime-input" / "controlled-offline-server.json"
 )
 # The phases a client reports on its way into a world, in the only order the
-# frozen connection table allows. The last one is the join Core has been waiting
-# to be able to record.
+# frozen connection table allows. It stops at the join: PLAYABLE is not a phase
+# a Bridge announces, it is Core's conclusion about a snapshot it admitted.
 CONNECTED_PHASES: tuple[observation_pb2.ConnectionPhase, ...] = (
     observation_pb2.CONNECTION_PHASE_RESOLVING,
     observation_pb2.CONNECTION_PHASE_LOGIN_NEGOTIATING,
     observation_pb2.CONNECTION_PHASE_PLAY_INIT,
     observation_pb2.CONNECTION_PHASE_JOIN_SEEN,
-    observation_pb2.CONNECTION_PHASE_PLAYABLE,
 )
+
+
+def _material(root: Path) -> OfflineIdentityMaterial:
+    """The identity this Kin was created with, read from the ledger's own store."""
+
+    connection = connect_reader(root / "kin" / "kin-01" / "kin.sqlite3")
+    try:
+        return read_identity_root(connection).material
+    finally:
+        connection.close()
 
 
 async def _wait_until(predicate: Callable[[], bool], timeout: float = 5.0) -> None:
@@ -470,6 +484,21 @@ def test_a_named_server_profile_becomes_one_connect_command(
                     _lifecycle(bridge, command, phase).SerializeToString(deterministic=True),
                 ),
             )
+
+        # Then the first snapshot, which is what makes the attempt playable —
+        # Core validates it, and the Bridge's word is not what decides.
+        await write_frame(
+            event_writer,
+            envelope(
+                bridge,
+                INITIAL_OBSERVATION_TYPE,
+                envelope_pb2.CHANNEL_EVENT,
+                len(CONNECTED_PHASES) + 1,
+                first_snapshot(
+                    generation=bridge.generation, material=_material(root)
+                ).SerializeToString(deterministic=True),
+            ),
+        )
 
         # The join has to reach the ledger *while the session is still running*:
         # a timeline assembled at exit is not a timeline.

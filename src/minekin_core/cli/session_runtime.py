@@ -20,16 +20,18 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
 
-from minekin_core.adapters.bridge.admission import apply_lifecycle
+from minekin_core.adapters.bridge.admission import accept_snapshot, apply_lifecycle
 from minekin_core.adapters.bridge.ipc import BridgeIpcHost, IpcProtocolError
+from minekin_core.adapters.bridge.perception import admit_first_snapshot
 from minekin_core.domain.connection import (
     CallbackDisposition,
     ConnectionGenerations,
     ConnectionState,
 )
+from minekin_core.domain.session_material import RecordedSessionMaterial
 from minekin_core.domain.session_state import (
     SessionState,
     SessionStateMachine,
@@ -59,6 +61,8 @@ class SessionRun:
     connection_state: ConnectionState | None
     events_applied: int
     events_ignored: int
+    snapshots_admitted: int = 0
+    snapshot_rejections: tuple[str, ...] = ()
 
     def as_dict(self) -> dict[str, object]:
         return {
@@ -71,6 +75,11 @@ class SessionRun:
             ),
             "events_applied": self.events_applied,
             "events_ignored": self.events_ignored,
+            # A first snapshot that was not admitted is the difference between a
+            # Kin that could not see and a Kin that saw nothing, so the count and
+            # the reasons are reported rather than folded into "ignored".
+            "snapshots_admitted": self.snapshots_admitted,
+            "snapshot_rejections": list(self.snapshot_rejections),
         }
 
 
@@ -78,6 +87,8 @@ class SessionRun:
 class _Progress:
     applied: int = 0
     ignored: int = 0
+    snapshots_admitted: int = 0
+    snapshot_rejections: set[str] = field(default_factory=lambda: set[str]())
 
 
 async def supervise_session(
@@ -90,6 +101,7 @@ async def supervise_session(
     on_handshake: Callable[[], Awaitable[None]] | None = None,
     on_ready: Callable[[], Awaitable[None]] | None = None,
     on_connection: Callable[[ConnectionState, str], Awaitable[None]] | None = None,
+    recorded: RecordedSessionMaterial | None = None,
 ) -> SessionRun:
     """Wait for the handshake, follow the Bridge, and stop when the client does.
 
@@ -132,7 +144,7 @@ async def supervise_session(
             await on_ready()
 
         reader = asyncio.create_task(
-            _read_events(host, session, connections, progress, on_connection),
+            _read_events(host, session, connections, progress, on_connection, recorded),
             name="minekin-bridge-events",
         )
         client = asyncio.create_task(_client_exited(until_client_exit), name="minekin-client-exit")
@@ -201,12 +213,18 @@ async def _read_events(
     connections: ConnectionGenerations,
     progress: _Progress,
     on_connection: Callable[[ConnectionState, str], Awaitable[None]] | None,
+    recorded: RecordedSessionMaterial | None,
 ) -> None:
     """Apply every reported phase until the channel ends or the run is cancelled."""
 
     while True:
         event = await host.receive_event()
         message = event.message
+        if isinstance(message, observation_pb2.InitialObservation):
+            await _admit_first_snapshot(
+                message, session, connections, progress, on_connection, recorded
+            )
+            continue
         if not isinstance(message, observation_pb2.ConnectionLifecycle):
             # Counted rather than dropped silently: an event type this build
             # does not act on is a fact about the run, not noise.
@@ -225,6 +243,42 @@ async def _read_events(
             and decision.current_state is not None
         ):
             await on_connection(decision.current_state, outcome.failure_reason)
+
+
+async def _admit_first_snapshot(
+    snapshot: observation_pb2.InitialObservation,
+    session: SessionStateMachine,
+    connections: ConnectionGenerations,
+    progress: _Progress,
+    on_connection: Callable[[ConnectionState, str], Awaitable[None]] | None,
+    recorded: RecordedSessionMaterial | None,
+) -> None:
+    """Let an admitted snapshot, and not a Bridge's word, make an attempt playable.
+
+    The contract puts the acceptance here: the Bridge sends the first
+    authoritative snapshot and the Runtime validates it before anything is marked
+    PLAYABLE. A snapshot that is not admitted changes nothing and yields no
+    entities — it is counted with its reasons rather than dropped, because "the
+    Kin could not see" and "the Kin saw nothing" are different facts about a run.
+    """
+
+    attempt = connections.active
+    if attempt is None or recorded is None:
+        progress.ignored += 1
+        return
+    admission = admit_first_snapshot(snapshot, generation=attempt.generation, recorded=recorded)
+    if not admission.admitted:
+        progress.snapshot_rejections.update(reason.value for reason in admission.reasons)
+        return
+    decision = accept_snapshot(connections, attempt.generation)
+    if decision.disposition is not CallbackDisposition.ADVANCED or decision.current_state is None:
+        progress.ignored += 1
+        return
+    progress.applied += 1
+    progress.snapshots_admitted += 1
+    advance_for_connection(session, decision)
+    if on_connection is not None:
+        await on_connection(decision.current_state, "")
 
 
 def _wind_down(session: SessionStateMachine, *, failed: bool) -> None:
@@ -257,4 +311,6 @@ def _report(
         connection_state=None if active is None else active.state,
         events_applied=progress.applied,
         events_ignored=progress.ignored,
+        snapshots_admitted=progress.snapshots_admitted,
+        snapshot_rejections=tuple(sorted(progress.snapshot_rejections)),
     )

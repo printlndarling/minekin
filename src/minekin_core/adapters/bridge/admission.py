@@ -31,13 +31,20 @@ from minekin_core.generated.minekin.v1 import observation_pb2
 # invalidated that generation, so Core closes its own copy of the attempt.
 CANCELLED_PHASE: Final[int] = observation_pb2.CONNECTION_PHASE_CANCELLED
 
+# Deliberately absent from `_PHASE_SIGNALS`. The contract puts the acceptance
+# with the Runtime: the Bridge sends the first authoritative snapshot and the
+# Runtime validates it before anything is marked PLAYABLE. So a Bridge saying it
+# is playable is not evidence that a snapshot was ever checked, and honouring it
+# would let a Bridge admit a session on its own word — the one thing the
+# snapshot boundary exists to prevent.
+PLAYABLE_PHASE: Final[int] = observation_pb2.CONNECTION_PHASE_PLAYABLE
+
 _PHASE_SIGNALS: Final[MappingProxyType[int, ConnectionSignal]] = MappingProxyType(
     {
         observation_pb2.CONNECTION_PHASE_RESOLVING: ConnectionSignal.RESOLUTION_STARTED,
         observation_pb2.CONNECTION_PHASE_LOGIN_NEGOTIATING: ConnectionSignal.ENDPOINT_ALLOWED,
         observation_pb2.CONNECTION_PHASE_PLAY_INIT: ConnectionSignal.LOGIN_ACCEPTED,
         observation_pb2.CONNECTION_PHASE_JOIN_SEEN: ConnectionSignal.JOIN_OBSERVED,
-        observation_pb2.CONNECTION_PHASE_PLAYABLE: ConnectionSignal.SNAPSHOT_ACCEPTED,
         observation_pb2.CONNECTION_PHASE_DISCONNECTED: ConnectionSignal.DISCONNECTED,
         observation_pb2.CONNECTION_PHASE_FAILED: ConnectionSignal.FAILURE,
     }
@@ -61,6 +68,7 @@ class LifecycleDisposition(StrEnum):
 
     APPLIED = "APPLIED"
     CLOSED = "CLOSED"
+    WITHHELD = "WITHHELD"
     UNBOUND = "UNBOUND"
     FOREIGN_PROFILE = "FOREIGN_PROFILE"
     UNKNOWN_PHASE = "UNKNOWN_PHASE"
@@ -88,7 +96,9 @@ def apply_lifecycle(
 
     phase = lifecycle.phase
     reason = lifecycle.failure_reason
-    if phase not in _KNOWN_PHASES or (phase != CANCELLED_PHASE and phase not in _PHASE_SIGNALS):
+    if phase not in _KNOWN_PHASES or (
+        phase not in {CANCELLED_PHASE, PLAYABLE_PHASE} and phase not in _PHASE_SIGNALS
+    ):
         return AdmissionOutcome(LifecycleDisposition.UNKNOWN_PHASE)
     if reason not in _KNOWN_REASONS:
         return AdmissionOutcome(LifecycleDisposition.UNKNOWN_REASON)
@@ -118,12 +128,27 @@ def apply_lifecycle(
             _reason_token(reason),
         )
 
+    if phase == PLAYABLE_PHASE:
+        # Known, checked, and deliberately not acted on: see `PLAYABLE_PHASE`.
+        return AdmissionOutcome(LifecycleDisposition.WITHHELD, None, _reason_token(reason))
+
     decision = connections.apply(generation, _PHASE_SIGNALS[phase])
     return AdmissionOutcome(
         LifecycleDisposition.APPLIED,
         decision,
         _reason_token(reason),
     )
+
+
+def accept_snapshot(connections: ConnectionGenerations, generation: Generation) -> CallbackDecision:
+    """The one signal only Core may produce, and only after admitting a snapshot.
+
+    `SNAPSHOT_ACCEPTED` is not a phase a Bridge reports; it is Core's own
+    conclusion about a snapshot it has validated. This is the only place it is
+    applied, so a reader can find every path to `PLAYABLE` in one search.
+    """
+
+    return connections.apply(generation, ConnectionSignal.SNAPSHOT_ACCEPTED)
 
 
 def _reason_belongs_to_phase(phase: int, reason: int, terminal: bool) -> bool:

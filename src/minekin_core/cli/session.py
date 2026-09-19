@@ -33,7 +33,10 @@ from minekin_core.adapters.launcher.launch_plan import (
 )
 from minekin_core.adapters.launcher.mods import install_fixed_mods
 from minekin_core.adapters.launcher.natives import materialise_natives
-from minekin_core.adapters.launcher.offline_session import OFFLINE_SESSION_CANDIDATES
+from minekin_core.adapters.launcher.offline_session import (
+    OFFLINE_SESSION_CANDIDATES,
+    recorded_material,
+)
 from minekin_core.adapters.launcher.orphans import (
     Liveness,
     StopOutcome,
@@ -68,6 +71,7 @@ from minekin_core.domain.errors import ErrorCategory, MinekinError, Retryability
 from minekin_core.domain.events import EventSource, TrustClass
 from minekin_core.domain.ids import ClientInstanceId, KinId, OpaqueId, RunId
 from minekin_core.domain.recovery import START_CLIENT
+from minekin_core.domain.session_material import RecordedSessionMaterial
 from minekin_core.domain.session_state import SessionState, SessionStateMachine
 from minekin_core.domain.time import Deadline, MonotonicInstant
 from minekin_core.generated.minekin.v1 import control_pb2
@@ -302,6 +306,10 @@ class PreparedSession:
     recovery: RecoveryReport = NOTHING_TO_RECONCILE
     bridge_session: BridgeSession | None = None
     bridge_descriptor: Path | None = None
+    #: What this launch actually put in the client's argv, read back from the
+    #: resolved arguments rather than re-derived — the first snapshot is checked
+    #: against it, so a value encoded in the wrong slot is caught there.
+    recorded: RecordedSessionMaterial | None = None
 
 
 def start_session(
@@ -476,12 +484,13 @@ async def prepare_session_async(
         descriptor = descriptor_path(overlay / IPC_DIRECTORY)
 
     supervisor = supervisor_factory(overlay / "logs")
+    candidate = OFFLINE_SESSION_CANDIDATES[0]
     spec = build_process_spec(
         plan,
         run_root=runs,
         overlay=overlay,
         material=identity.material,
-        candidate=OFFLINE_SESSION_CANDIDATES[0],
+        candidate=candidate,
         java_executable=java_executable,
         forward_environment=forward_environment,
         bridge_descriptor=descriptor,
@@ -500,6 +509,7 @@ async def prepare_session_async(
         recovery=recovery,
         bridge_session=bridge_session,
         bridge_descriptor=descriptor,
+        recorded=recorded_material(candidate, spec.argv),
     )
 
 
@@ -726,6 +736,7 @@ async def start_and_supervise(
         on_handshake=on_handshake,
         on_ready=on_ready,
         on_connection=on_connection,
+        recorded=prepared.recorded,
     )
     # How the run ended is Core's own observation, whatever the Bridge reported
     # along the way.

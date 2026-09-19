@@ -5,6 +5,7 @@ import pytest
 from minekin_core.adapters.bridge.admission import (
     AdmissionOutcome,
     LifecycleDisposition,
+    accept_snapshot,
     apply_lifecycle,
 )
 from minekin_core.domain.connection import (
@@ -31,7 +32,10 @@ WHITELIST_REJECTED = observation_pb2.ADMISSION_FAILURE_REASON_WHITELIST_REJECTED
 DNS_FAILED = observation_pb2.ADMISSION_FAILURE_REASON_DNS_FAILED
 CANCELLED_REASON = observation_pb2.ADMISSION_FAILURE_REASON_CANCELLED
 
-PROGRESS = (RESOLVING, LOGIN_NEGOTIATING, PLAY_INIT, JOIN_SEEN, PLAYABLE)
+# The phases the Bridge reports. PLAYABLE is deliberately not one of them:
+# it is Core's conclusion about a snapshot it admitted, not a phase a Bridge
+# can announce.
+PROGRESS = (RESOLVING, LOGIN_NEGOTIATING, PLAY_INIT, JOIN_SEEN)
 TERMINAL_PHASES = (DISCONNECTED, FAILED, observation_pb2.CONNECTION_PHASE_CANCELLED)
 
 
@@ -60,9 +64,9 @@ def drive(
     return [apply_lifecycle(connections, report(phase)) for phase in phases]
 
 
-def test_the_reported_phases_are_what_make_an_attempt_playable() -> None:
+def test_the_reported_phases_are_what_make_an_attempt_join() -> None:
     connections = ConnectionGenerations()
-    connections.begin(PROFILE, REVISION)
+    attempt = connections.begin(PROFILE, REVISION)
 
     outcomes = drive(connections, *PROGRESS)
 
@@ -73,7 +77,33 @@ def test_the_reported_phases_are_what_make_an_attempt_playable() -> None:
         CallbackDisposition.ADVANCED
     ] * len(PROGRESS)
     assert connections.active is not None
+    assert connections.active.state is ConnectionState.JOIN_SEEN
+
+    # And only the Runtime's own acceptance of a snapshot carries it further.
+    decision = accept_snapshot(connections, attempt.generation)
+
+    assert decision.disposition is CallbackDisposition.ADVANCED
     assert connections.active.state is ConnectionState.PLAYABLE
+
+
+def test_a_bridge_claiming_playable_is_not_evidence_of_a_snapshot() -> None:
+    """The contract puts the acceptance with the Runtime, so this is withheld.
+
+    A Bridge that could mark itself playable would admit a session no snapshot
+    was ever checked for, which is the one thing the snapshot boundary exists to
+    prevent.
+    """
+
+    connections = ConnectionGenerations()
+    connections.begin(PROFILE, REVISION)
+    drive(connections, *PROGRESS)
+
+    outcome = apply_lifecycle(connections, report(PLAYABLE))
+
+    assert outcome.disposition is LifecycleDisposition.WITHHELD
+    assert outcome.decision is None
+    assert connections.active is not None
+    assert connections.active.state is ConnectionState.JOIN_SEEN
 
 
 def test_a_reason_is_carried_through_as_a_stable_token() -> None:

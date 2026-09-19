@@ -17,7 +17,11 @@ from bridge_peer import (  # type: ignore[import-not-found]
     session,
     write_frame,
 )
-from minekin_core.adapters.bridge.admission import LifecycleDisposition, apply_lifecycle
+from minekin_core.adapters.bridge.admission import (
+    LifecycleDisposition,
+    accept_snapshot,
+    apply_lifecycle,
+)
 from minekin_core.adapters.bridge.ipc import (
     ADMISSION_CAPABILITY,
     BRIDGE_HELLO_TYPE,
@@ -31,7 +35,11 @@ from minekin_core.adapters.bridge.ipc import (
     BridgeSession,
     IpcProtocolError,
 )
-from minekin_core.domain.connection import ConnectionGenerations, ConnectionState
+from minekin_core.domain.connection import (
+    CallbackDisposition,
+    ConnectionGenerations,
+    ConnectionState,
+)
 from minekin_core.domain.ids import OpaqueId
 from minekin_core.domain.session_state import (
     SessionState,
@@ -333,13 +341,12 @@ def test_reported_phases_drive_the_generation_gated_attempt(tmp_path: Path) -> N
         connections = ConnectionGenerations()
         attempt = connections.begin(profile_id, revision)
 
-        phases = (
+        # PLAYABLE is deliberately absent: it is not a phase a Bridge reports.
+        admission_phases = (
             observation_pb2.CONNECTION_PHASE_RESOLVING,
             observation_pb2.CONNECTION_PHASE_LOGIN_NEGOTIATING,
             observation_pb2.CONNECTION_PHASE_PLAY_INIT,
             observation_pb2.CONNECTION_PHASE_JOIN_SEEN,
-            observation_pb2.CONNECTION_PHASE_PLAYABLE,
-            observation_pb2.CONNECTION_PHASE_DISCONNECTED,
         )
         reached: list[ConnectionState] = []
         session_states: list[SessionState] = []
@@ -354,9 +361,9 @@ def test_reported_phases_drive_the_generation_gated_attempt(tmp_path: Path) -> N
         ):
             session_machine.advance(target)
 
-        # The host demands a contiguous event sequence, so this also re-checks the
-        # ordering rule the Bridge's writer has to satisfy.
-        for sequence, phase in enumerate(phases, start=1):
+        async def send_phase(sequence: int, phase: observation_pb2.ConnectionPhase) -> None:
+            """Put one report on the wire and apply what comes back off it."""
+
             lifecycle = observation_pb2.ConnectionLifecycle(
                 generation=int(attempt.generation),
                 server_profile_id=str(profile_id),
@@ -389,8 +396,31 @@ def test_reported_phases_drive_the_generation_gated_attempt(tmp_path: Path) -> N
             advance_for_connection(session_machine, outcome.decision)
             session_states.append(session_machine.state)
 
-        assert reached[-2] is ConnectionState.PLAYABLE
-        assert reached[-1] is ConnectionState.DISCONNECTED
+        # The host demands a contiguous event sequence, so this also re-checks the
+        # ordering rule the Bridge's writer has to satisfy.
+        for sequence, phase in enumerate(admission_phases, start=1):
+            await send_phase(sequence, phase)
+
+        # The attempt is joined and no further report on this channel can move it:
+        # the contract puts the acceptance with the Runtime, so PLAYABLE comes from
+        # a snapshot Core validated, not from a phase a Bridge announced.
+        decision = accept_snapshot(connections, attempt.generation)
+        assert decision.disposition is CallbackDisposition.ADVANCED
+        assert connections.active is not None
+        reached.append(connections.active.state)
+        advance_for_connection(session_machine, decision)
+        session_states.append(session_machine.state)
+
+        await send_phase(len(admission_phases) + 1, observation_pb2.CONNECTION_PHASE_DISCONNECTED)
+
+        assert reached == [
+            ConnectionState.RESOLVING,
+            ConnectionState.LOGIN_NEGOTIATING,
+            ConnectionState.PLAY_INIT,
+            ConnectionState.JOIN_SEEN,
+            ConnectionState.PLAYABLE,
+            ConnectionState.DISCONNECTED,
+        ]
         # Four admission phases collapse to one session state, so the session only
         # moves when the connection reaches a phase that means something new.
         assert session_states == [
