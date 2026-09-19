@@ -450,6 +450,37 @@ watches the displacement and the client reports its own hand — and Core says
 nothing throughout, which is the point: this run's ledger has no
 `InputReleased` at all, that being Core's event and Core being absent.
 
+### When Core is killed rather than paused
+
+`MINEKIN_DOMAIN_KILL_CORE=1` uses SIGKILL where `MINEKIN_DOMAIN_SILENCE` uses
+SIGSTOP, and the difference is not just severity: a killed Core closes its
+sockets, and a closed socket is not a peer that went quiet.
+
+```text
+$ MINEKIN_SERVER_JAR=… MINEKIN_DOMAIN_PROBE=Kin MINEKIN_DOMAIN_KILL_CORE=1 \
+      bash test-orchestrator/runner/run.sh domain session start --profile … --server-profile … \
+      --hold-forward-seconds 60
+domain: the session is playable
+domain: Core has been killed; the Bridge should let go
+domain: the Kin left the game after Core died
+client   [19:00:55] bridge applied ce6f8f83…: holding [move.forward]
+client   [19:00:58] bridge is failing closed (IPC_LOST); the client will be stopped by its next tick
+client   [19:00:58] bridge released move.forward
+client   [19:00:58] bridge released 1 input(s) after IPC_LOST
+ledger   InputLeaseGranted                                   (and nothing after it)
+```
+
+The ledger stopping at the grant is the point of the run: `InputReleased` is
+Core's event, and Core was not there to write it, so the absent line is itself
+the evidence that something else lifted the keys.
+
+The two switches also draw a line the contract draws but nothing had measured:
+**silence** releases the keys and the client keeps running, because the peer may
+come back; **a closed socket** releases them and stops the client too, because it
+will not. A run therefore accepts either ending as proof that the release took
+effect — the Kin stopped walking, or the Kin is gone, and a process that has
+exited cannot be holding a key.
+
 ### When the keyboard stops being the world's
 
 A held key has to come up when the client stops taking input, and the run can

@@ -93,6 +93,9 @@ public final class BridgeIpcWorker implements AutoCloseable {
     private volatile Thread eventThread;
     private volatile NioEnvelopeChannel control;
     private volatile NioEnvelopeChannel event;
+    /** Why the Bridge is failing closed, for the release that follows it. */
+    private volatile BridgeInputController.ReleaseReason faultReason =
+            BridgeInputController.ReleaseReason.BRIDGE_FAULT;
     private volatile BridgeInputController input;
 
     public BridgeIpcWorker(
@@ -230,7 +233,10 @@ public final class BridgeIpcWorker implements AutoCloseable {
             return true;
         }
         if (message == Notice.SAFE_STOP) {
-            releaseInputs(BridgeInputController.ReleaseReason.BRIDGE_FAULT, "");
+            // The reason the worker failed closed with, not a default: this notice is
+            // how a fault reaches the client thread, and the release it triggers is the
+            // one an operator will read.
+            releaseInputs(faultReason, "");
         }
         return false;
     }
@@ -407,7 +413,7 @@ public final class BridgeIpcWorker implements AutoCloseable {
             heartbeatLoop(descriptor, heartbeat);
         } catch (Exception error) {
             if (!stopping.get()) {
-                failClosed();
+                failClosed(reasonFor(error));
             }
         } finally {
             closeQuietly(control);
@@ -504,7 +510,11 @@ public final class BridgeIpcWorker implements AutoCloseable {
                         Channel.CHANNEL_EVENT,
                         sequence,
                         message.payload().toByteString());
-                event.write(outbound, handshakeTimeout);
+                try {
+                    event.write(outbound, handshakeTimeout);
+                } catch (IOException error) {
+                    throw new IpcLost(error);
+                }
                 if (sequence == Long.MAX_VALUE) {
                     throw new IOException("event sequence exhausted the P0 signed range");
                 }
@@ -531,7 +541,15 @@ public final class BridgeIpcWorker implements AutoCloseable {
             if (remaining <= 0) {
                 throw new SocketTimeoutException("Bridge heartbeat timed out");
             }
-            Envelope envelope = control.read(Duration.ofNanos(remaining));
+            Envelope envelope;
+            try {
+                envelope = control.read(Duration.ofNanos(remaining));
+            } catch (IOException error) {
+                // Not a protocol violation: the socket itself is done. Which of the
+                // two it is decides what the release is called, and a Core that died
+                // must not be reported as a Bridge that broke.
+                throw new IpcLost(error);
+            }
             state.gate().validate(envelope);
             if (HEARTBEAT_TYPE.equals(envelope.getMessageType())) {
                 Heartbeat heartbeat = Heartbeat.parseFrom(envelope.getPayload());
@@ -814,10 +832,23 @@ public final class BridgeIpcWorker implements AutoCloseable {
     }
 
     private void failClosed() {
+        failClosed(BridgeInputController.ReleaseReason.BRIDGE_FAULT);
+    }
+
+    /**
+     * Fails closed, remembering why, because the release that follows carries it.
+     *
+     * <p>The reason is the caller's and it has to be: a Core whose socket went away
+     * and a Bridge that broke its own invariants are different facts about the run,
+     * and a log that calls both `BRIDGE_FAULT` sends an operator to look at the
+     * wrong process.
+     */
+    private void failClosed(BridgeInputController.ReleaseReason reason) {
         if (!stopping.compareAndSet(false, true)) {
             return;
         }
-        LOGGER.error("bridge is failing closed; the client will be stopped by its next tick");
+        faultReason = reason;
+        LOGGER.error("bridge is failing closed ({}); the client will be stopped by its next tick", reason);
         phases.safeStop();
         clientInbox.replaceWith(Notice.SAFE_STOP);
         closeQuietly(control);
@@ -829,6 +860,28 @@ public final class BridgeIpcWorker implements AutoCloseable {
         Thread writer = eventThread;
         if (writer != null && writer != Thread.currentThread()) {
             writer.interrupt();
+        }
+    }
+
+    /**
+     * Whether a failure is the channel going away or the Bridge's own fault.
+     *
+     * <p>Only the transport is marked: a socket that closed, a peer that reset it,
+     * or one that stopped answering are all the same fact about the run, and every
+     * other way of failing closed is the Bridge refusing to go on.
+     */
+    static BridgeInputController.ReleaseReason reasonFor(Exception error) {
+        boolean channelWentAway =
+                error instanceof IpcLost || error instanceof SocketTimeoutException;
+        return channelWentAway
+                ? BridgeInputController.ReleaseReason.IPC_LOST
+                : BridgeInputController.ReleaseReason.BRIDGE_FAULT;
+    }
+
+    /** The channel went away, as opposed to the Bridge or the contract breaking. */
+    static final class IpcLost extends IOException {
+        IpcLost(IOException cause) {
+            super(cause.getMessage(), cause);
         }
     }
 

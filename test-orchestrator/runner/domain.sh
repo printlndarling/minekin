@@ -22,6 +22,7 @@ probe="${MINEKIN_DOMAIN_PROBE:-}"
 kill="${MINEKIN_DOMAIN_KILL:-}"
 silence="${MINEKIN_DOMAIN_SILENCE:-}"
 look="${MINEKIN_DOMAIN_LOOK:-}"
+kill_core="${MINEKIN_DOMAIN_KILL_CORE:-}"
 # How often the server is asked about the Kin. A look is over within a second
 # of the join, so a run that wants a reading on both sides of it asks more
 # often than the default — the pair is what shows a heading changed.
@@ -237,7 +238,7 @@ fi
 # Its own budget rather than what is left of the join's: a slow boot must not
 # spend the walk's allowance, which is how the first version of this reported a
 # Kin that had walked seventeen blocks as one that never moved.
-if [[ -n "${probe}" && "${hold_requested}" -eq 1 ]]; then
+if [[ -n "${probe}" && "${hold_requested}" -eq 1 && -z "${kill_core}" ]]; then
     walked=0
     deadline=$((SECONDS + seconds))
     for _ in $(seq 1 "${seconds}"); do
@@ -300,6 +301,63 @@ if [[ -n "${look}" ]]; then
         printf 'domain: the turn is the one that was asked for, and the Kin stayed put\n' >&2
     else
         printf 'domain: the Kin never turned as asked within %ss\n' "${seconds}" >&2
+    fi
+fi
+
+# Core killed outright rather than paused: the sockets really close, and the
+# Bridge has to let go without being told anything. Unlike the silence case,
+# `session start` dies with it — so this block does its own waiting, and there is
+# no run document at the end of the run, which is the honest shape of it: the
+# evidence is the client's own log and the server's readings.
+if [[ -n "${kill_core}" ]]; then
+    deadline=$((SECONDS + seconds))
+    for _ in $(seq 1 "${seconds}"); do
+        [ "${SECONDS}" -lt "${deadline}" ] || break
+        if [ "$(horizontal_positions | sort -u | wc -l)" -ge 2 ]; then
+            if pkill -KILL -f "minekin_core session start"; then
+                printf 'domain: Core has been killed; the Bridge should let go
+' >&2
+            else
+                printf 'domain: could not find Core to kill it
+' >&2
+            fi
+            break
+        fi
+        sleep 1
+    done
+    # The release is what this is about, and the server can see its effect two
+    # ways: a Kin that stopped walking, or a Kin whose client exited — a socket
+    # that closed is not a peer that went quiet, so the Bridge also stops the
+    # client, and nothing can be held by a process that is gone. Both are
+    # accepted, and which one happened is said out loud.
+    stopped=0
+    left=0
+    deadline=$((SECONDS + seconds))
+    for _ in $(seq 1 "${seconds}"); do
+        [ "${SECONDS}" -lt "${deadline}" ] || break
+        positions=$(horizontal_positions)
+        distinct=$(printf '%s
+' "${positions}" | sort -u | wc -l)
+        settled=$(printf '%s
+' "${positions}" | tail -n 2 | sort -u | wc -l)
+        if grep -q "${player} left the game" "${server_directory}/server.log" 2>/dev/null; then
+            left=1
+        fi
+        if [ "${distinct}" -ge 2 ] && { [ "${settled}" -eq 1 ] || [ "${left}" -eq 1 ]; }; then
+            stopped=1
+            break
+        fi
+        sleep 1
+    done
+    if [ "${stopped}" -eq 0 ]; then
+        printf 'domain: the Kin never stopped after Core died
+' >&2
+    elif [ "${left}" -eq 1 ]; then
+        printf 'domain: the Kin left the game after Core died
+' >&2
+    else
+        printf 'domain: the server saw the Kin stop after Core died
+' >&2
     fi
 fi
 

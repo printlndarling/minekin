@@ -1,6 +1,7 @@
 package org.minekin.bridge.runtime;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -9,7 +10,9 @@ import io.minekin.protocol.v1.ConnectWorld;
 import io.minekin.protocol.v1.LookInput;
 import io.minekin.protocol.v1.MoveInput;
 import io.minekin.protocol.v1.ReleaseAllInputs;
+import org.minekin.bridge.input.BridgeInputController;
 import java.io.IOException;
+import java.net.SocketTimeoutException;
 import org.junit.jupiter.api.Test;
 
 final class BridgeIpcWorkerValidationTest {
@@ -225,5 +228,33 @@ final class BridgeIpcWorkerValidationTest {
                 .setDeltaYawDegrees(yaw)
                 .setDeltaPitchDegrees(pitch)
                 .build();
+    }
+
+    @Test
+    void aChannelThatWentAwayIsNotABridgeFault() {
+        // The two are different facts about a run and the release reason says which:
+        // a Core whose socket closed is not a Bridge that broke, and a log that calls
+        // both BRIDGE_FAULT sends an operator to look at the wrong process.
+        assertEquals(
+                BridgeInputController.ReleaseReason.IPC_LOST,
+                BridgeIpcWorker.reasonFor(new BridgeIpcWorker.IpcLost(new IOException("closed"))));
+        assertEquals(
+                BridgeInputController.ReleaseReason.IPC_LOST,
+                BridgeIpcWorker.reasonFor(new SocketTimeoutException("stopped answering")));
+    }
+
+    @Test
+    void everyOtherWayOfFailingClosedIsTheBridgesOwnFault() {
+        // A gate refusing a message, a parse failure, and a bug are all the Bridge
+        // declining to go on with something it was sent or something it did.
+        assertEquals(
+                BridgeInputController.ReleaseReason.BRIDGE_FAULT,
+                BridgeIpcWorker.reasonFor(new IllegalArgumentException("bad MoveInput")));
+        assertEquals(
+                BridgeInputController.ReleaseReason.BRIDGE_FAULT,
+                BridgeIpcWorker.reasonFor(new IOException("not the transport")));
+        assertEquals(
+                BridgeInputController.ReleaseReason.BRIDGE_FAULT,
+                BridgeIpcWorker.reasonFor(new IllegalStateException("an invariant broke")));
     }
 }
