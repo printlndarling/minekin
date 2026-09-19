@@ -26,12 +26,15 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import sqlite3
 import sys
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
 
+from minekin_core.cli.init import DATABASE_NAME, kin_directory
+from minekin_core.domain.ids import KinId
 from minekin_core.domain.offline_identity import offline_player_uuid
 
 EXIT_HELD = 0
@@ -45,6 +48,20 @@ _LINE = r"\[[^\]]*\] \[Server thread/INFO\]: {name} {event}"
 
 RUN_DOCUMENT_KEY = "run"
 
+# The reviewed session event types this module needs to name. They are the
+# ledger's vocabulary, and a case that reads Core's own record has to speak it.
+HELLO_ACCEPTED = "BridgeHelloAccepted"
+JOIN_OBSERVED = "JoinObserved"
+PLAYABLE_ESTABLISHED = "PlayableEstablished"
+INPUT_LEASE_GRANTED = "InputLeaseGranted"
+
+_LEDGER_COLUMNS = (
+    "position, event_id, event_type, schema_version, kin_id, run_id, "
+    "client_instance_id, session_id, generation, world_context_id, sequence, "
+    "correlation_id, causation_id, monotonic_ns, observed_at_utc, source, "
+    "trust_class, payload_json, payload_hash"
+)
+
 
 def _sentence(name: str, event: str) -> re.Pattern[str]:
     return re.compile(_LINE.format(name=re.escape(name), event=re.escape(event)))
@@ -54,16 +71,71 @@ class Unreadable(Exception):
     """The material a case needs is not there or is not readable."""
 
 
+def ledger_rows(database: Path, run_id: str) -> list[dict[str, object]]:
+    """This run's events, as the ledger recorded them.
+
+    Read-only, and scoped by run id: the ledger is one file for every run a Kin
+    has ever had, and a case judged against another run's events would be judged
+    against nothing. A missing database is not raised here — the caller decides
+    whether a case needs the ledger at all, and a run whose ledger cannot be read
+    must look different from a run that recorded nothing.
+    """
+
+    connection = sqlite3.connect(f"file:{database.as_posix()}?mode=ro", uri=True)
+    connection.row_factory = sqlite3.Row
+    try:
+        rows = connection.execute(
+            f"SELECT {_LEDGER_COLUMNS} FROM event WHERE run_id = ? ORDER BY position",
+            (run_id,),
+        ).fetchall()
+    finally:
+        connection.close()
+    return [dict(row) for row in rows]
+
+
+def timeline_bytes(events: Sequence[Mapping[str, object]]) -> bytes:
+    """The same rows as a sealed artifact: one JSON object per line."""
+
+    return "".join(json.dumps(dict(event), sort_keys=True) + "\n" for event in events).encode(
+        "utf-8"
+    )
+
+
+def ledger_timeline(database: Path, run_id: str) -> bytes:
+    """This run's events, exported as they were recorded."""
+
+    return timeline_bytes(ledger_rows(database, run_id))
+
+
 @dataclass(frozen=True, slots=True)
 class RunMaterial:
-    """What a finished run left behind, as the asserter reads it."""
+    """What a finished run left behind, as the asserter reads it.
+
+    Two records of the same run that do not know about each other: Core's own
+    run document, and the ledger Core kept as it went. The server's log and the
+    server's user cache are the third party in the room, and they are the only
+    one allowed to say what the game did.
+    """
 
     run_document: Mapping[str, object]
+    #: This run's ledger events, in the order they were recorded.
+    ledger_events: tuple[Mapping[str, object], ...]
+    #: False when there is no readable ledger at all. Assertions that need one say
+    #: so rather than reading an empty list as "this never happened".
+    ledger_readable: bool
     server_log: str
     #: The name-to-UUID map the *server* wrote when somebody logged in. The
     #: client's own claim about who it is is not evidence of who the server saw.
     server_identities: Mapping[str, str]
     username: str
+
+    def recorded(self, event_type: str) -> tuple[Mapping[str, object], ...]:
+        """Every event of one type this run recorded."""
+
+        return tuple(event for event in self.ledger_events if event.get("event_type") == event_type)
+
+    def has(self, event_type: str) -> bool:
+        return bool(self.recorded(event_type))
 
     def run(self) -> Mapping[str, object]:
         value = self.run_document.get(RUN_DOCUMENT_KEY)
@@ -82,21 +154,50 @@ class RunMaterial:
         return None if found is None else found.start()
 
 
-def read_run_material(*, run_document: Path, server_directory: Path, username: str) -> RunMaterial:
-    """Read a finished run's material, refusing anything that is not readable."""
+def read_run_material(
+    *, run_document: Path, data_root: Path, server_directory: Path, username: str
+) -> RunMaterial:
+    """Read a finished run's material, refusing anything that is not readable.
+
+    The ledger is looked up from the data root by the identity the run document
+    carries, and a missing database is *not* an error here: a case that never
+    needs Core's own record must still be judgeable on a host where the ledger is
+    gone. What it must never be is indistinguishable from a ledger that was read
+    and had nothing in it — hence `ledger_readable`, which the assertions that
+    need one check before reporting that they saw nothing.
+    """
 
     try:
         document = json.loads(run_document.read_bytes())
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
-        raise Unreadable(f"{run_document} is not readable JSON: {error}") from error
+        raise Unreadable(f"{run_document} is not readable run document JSON: {error}") from error
     if not isinstance(document, dict):
         raise Unreadable(f"{run_document} is not a run document object")
+    run = cast(dict[str, object], document)
 
+    kin, identifier = run.get("kin_id"), run.get("run_id")
+    if not isinstance(kin, str) or not isinstance(identifier, str):
+        raise Unreadable(f"{run_document} names no run to look up in the ledger")
+
+    events: list[Mapping[str, object]] = []
+    readable = False
+    database = kin_directory(data_root, KinId(kin)) / DATABASE_NAME
+    if database.is_file():
+        try:
+            events = [cast(Mapping[str, object], row) for row in ledger_rows(database, identifier)]
+        except sqlite3.Error as error:
+            raise Unreadable(f"{database} cannot be read for this run: {error}") from error
+        readable = True
+
+    # A run with no world to join has no server, and its absence is a fact about
+    # the run rather than a reason the run cannot be judged.
     log_path = server_directory / "server.log"
-    try:
-        server_log = log_path.read_text(encoding="utf-8", errors="replace")
-    except OSError as error:
-        raise Unreadable(f"{log_path} cannot be read: {error}") from error
+    server_log = ""
+    if log_path.is_file():
+        try:
+            server_log = log_path.read_text(encoding="utf-8", errors="replace")
+        except OSError as error:
+            raise Unreadable(f"{log_path} cannot be read: {error}") from error
 
     cache_path = server_directory / "usercache.json"
     identities: dict[str, str] = {}
@@ -116,7 +217,9 @@ def read_run_material(*, run_document: Path, server_directory: Path, username: s
                 identities[name] = identifier
 
     return RunMaterial(
-        run_document=cast(Mapping[str, object], document),
+        run_document=run,
+        ledger_events=tuple(events),
+        ledger_readable=readable,
         server_log=server_log,
         server_identities=identities,
         username=username,
@@ -178,6 +281,52 @@ def first_snapshot_admitted(material: RunMaterial) -> str | None:
     return None
 
 
+def handshake_accepted_by_core(material: RunMaterial) -> str | None:
+    """Core accepted this client's hello, in Core's own record.
+
+    Measured: on a session that never joins a world the Bridge writes nothing at
+    all to the client's log, so the client cannot be asked whether the handshake
+    happened. Core can — `BridgeHelloAccepted` is written after it verified the
+    proof, which makes this the one side of the handshake that does not rest on
+    the other side's word for it.
+    """
+
+    if not material.ledger_readable:
+        return "LEDGER_UNREADABLE"
+    return None if material.has(HELLO_ACCEPTED) else "HANDSHAKE_NOT_RECORDED"
+
+
+def stayed_observe_only(material: RunMaterial) -> str | None:
+    """The Kin observed, and was never driven.
+
+    Observation only is a claim about what did *not* happen — no join, no
+    admitted snapshot, no input lease — and each of those is checked in both
+    records where both exist, because a session that was handed the input is
+    exactly what the claim denies.
+    """
+
+    if not material.ledger_readable:
+        return "LEDGER_UNREADABLE"
+    if not material.has(HELLO_ACCEPTED):
+        # With no handshake nothing was observing, so "it only observed" would be
+        # true for the wrong reason.
+        return "NO_HANDSHAKE_TO_OBSERVE_FROM"
+    for event_type, reason in (
+        (JOIN_OBSERVED, "JOINED_A_WORLD"),
+        (PLAYABLE_ESTABLISHED, "SNAPSHOT_ADMITTED"),
+        (INPUT_LEASE_GRANTED, "INPUT_LEASED"),
+    ):
+        if material.has(event_type):
+            return reason
+    run = material.run()
+    if _integer(run, "snapshots_admitted"):
+        return "SNAPSHOT_ADMITTED"
+    state = _text(run, "connection_state")
+    if state is not None:
+        return f"CONNECTION_STATE:{state}"
+    return None
+
+
 def leave_after_join_observed(material: RunMaterial) -> str | None:
     """The Kin left the world, after having joined it.
 
@@ -211,6 +360,8 @@ ASSERTIONS: dict[str, Callable[[RunMaterial], str | None]] = {
     "server_observed_join_identity": server_observed_join_identity,
     "first_snapshot_admitted": first_snapshot_admitted,
     "leave_after_join_observed": leave_after_join_observed,
+    "handshake_accepted_by_core": handshake_accepted_by_core,
+    "stayed_observe_only": stayed_observe_only,
 }
 
 
@@ -290,6 +441,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--case", type=Path, required=True, help="the case manifest to judge by")
     parser.add_argument("--run-document", type=Path, required=True)
+    parser.add_argument("--data-root", type=Path, required=True)
     parser.add_argument("--server-directory", type=Path, required=True)
     parser.add_argument("--username", required=True)
     args = parser.parse_args(argv)
@@ -304,6 +456,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         material = read_run_material(
             run_document=args.run_document,
+            data_root=args.data_root,
             server_directory=args.server_directory,
             username=args.username,
         )

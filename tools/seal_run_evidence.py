@@ -34,7 +34,6 @@ import os
 import platform
 import re
 import shutil
-import sqlite3
 import subprocess
 import sys
 from collections.abc import Mapping, Sequence
@@ -49,9 +48,17 @@ from minekin_core.adapters.launcher.launch_plan import build_launch_plan, find_w
 from minekin_core.adapters.launcher.recipe import BRIDGE_JAR_SHA256, source_tree_sha256
 from minekin_core.adapters.launcher.server_profile import load_server_profile
 from minekin_core.cli.evidence import bundle_directory
-from minekin_core.cli.init import DATABASE_NAME, kin_directory, run_root
+from minekin_core.cli.init import run_root
 from minekin_core.domain.evidence import Assertions, EvidenceManifest, EvidenceResult
 from minekin_core.domain.ids import KinId
+
+# The tools directory, so the asserter can be imported by name. One module owns
+# the reading of a finished run's material, and this seals what it read instead
+# of keeping a second copy of how to read it — a second copy is a second place
+# for the two to disagree about which events belong to this run.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from assert_case_evidence import read_run_material, timeline_bytes
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 
@@ -204,33 +211,6 @@ def configured_profile(profile: Path) -> str:
     return f"{profile.name}#{digest[:16]}"
 
 
-def ledger_timeline(database: Path, run_id: str) -> bytes:
-    """This run's events, exported as they were recorded.
-
-    The ledger is the only place the Bridge/Runtime timeline exists, and it is a
-    live database, so what is sealed is an export of this run's rows rather than
-    the file: a reader gets the fields the contract names, and the payload hash
-    that the ledger's own integrity rests on is carried along with them.
-    """
-
-    connection = sqlite3.connect(f"file:{database.as_posix()}?mode=ro", uri=True)
-    connection.row_factory = sqlite3.Row
-    try:
-        rows = connection.execute(
-            "SELECT position, event_id, event_type, schema_version, kin_id, run_id, "
-            "client_instance_id, session_id, generation, world_context_id, sequence, "
-            "correlation_id, causation_id, monotonic_ns, observed_at_utc, source, "
-            "trust_class, payload_json, payload_hash "
-            "FROM event WHERE run_id = ? ORDER BY position",
-            (run_id,),
-        ).fetchall()
-    except sqlite3.Error as error:
-        raise Unsealable(f"{database} cannot be read for this run: {error}") from error
-    finally:
-        connection.close()
-    return "".join(json.dumps(dict(row), sort_keys=True) + "\n" for row in rows).encode("utf-8")
-
-
 def _artifact(path: Path, name: str, found: dict[str, bytes]) -> None:
     """Seal one file under `name`, if it is there at all.
 
@@ -280,6 +260,7 @@ def run_asserter(
     *,
     case: Path,
     run_document: Path,
+    data_root: Path,
     server_directory: Path,
     username: str,
     python: str = sys.executable,
@@ -294,6 +275,8 @@ def run_asserter(
             str(case),
             "--run-document",
             str(run_document),
+            "--data-root",
+            str(data_root),
             "--server-directory",
             str(server_directory),
             "--username",
@@ -448,6 +431,7 @@ def seal(
     verdict = run_asserter(
         case=case,
         run_document=run_document_path,
+        data_root=data_root,
         server_directory=server_directory,
         username=username,
     )
@@ -483,8 +467,16 @@ def seal(
             now=moment,
         ),
     )
-    artifacts["bridge-trace.jsonl"] = ledger_timeline(
-        kin_directory(data_root, kin_id) / DATABASE_NAME, run_id
+    # The timeline sealed here is literally what the judge read: this is the same
+    # reading, serialised, so the bundle cannot hold a different set of events
+    # from the one the verdict was reached on.
+    artifacts["bridge-trace.jsonl"] = timeline_bytes(
+        read_run_material(
+            run_document=run_document_path,
+            data_root=data_root,
+            server_directory=server_directory,
+            username=username,
+        ).ledger_events
     )
 
     directory = bundle_directory(run_root(data_root, kin_id), run_id)

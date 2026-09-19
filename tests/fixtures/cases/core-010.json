@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "case_id": "CORE-010",
+  "work_package": "W20",
+  "mandatory": true,
+  "inputs": [
+    "tests/fixtures/runtime-input/bundle-p0-core-1.21.4.json"
+  ],
+  "assertions": [
+    "handshake_accepted_by_core",
+    "stayed_observe_only"
+  ]
+}

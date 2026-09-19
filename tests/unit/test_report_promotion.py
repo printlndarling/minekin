@@ -126,7 +126,11 @@ def test_everything_is_gated_on_by_default_and_the_missing_cases_are_named(
 
     assert document["status"] == "blocked"
     assert document["gated"] is None
-    assert document["overall"]["blocking_cases"] == ["W00-CONTRACT-001"]
+    # Named in the registry's own order, which is the order of the files.
+    assert sorted(document["overall"]["blocking_cases"]) == [
+        "CORE-010",
+        "W00-CONTRACT-001",
+    ]
     assert document["overall"]["blocks"] == ["CASE_WITHOUT_EVIDENCE"]
     # The package that does have evidence is still reported as promotable.
     assert document["work_packages"]["W40"]["promotable"] is True
@@ -220,7 +224,11 @@ def test_no_evidence_at_all_names_the_cases_that_are_missing(tmp_path: Path) -> 
 
     assert document["status"] == "blocked"
     assert document["evidence"]["count"] == 0
-    assert sorted(document["overall"]["blocking_cases"]) == ["CORE-020", "W00-CONTRACT-001"]
+    assert sorted(document["overall"]["blocking_cases"]) == [
+        "CORE-010",
+        "CORE-020",
+        "W00-CONTRACT-001",
+    ]
 
 
 def test_gating_on_a_package_with_no_cases_is_refused(tmp_path: Path) -> None:

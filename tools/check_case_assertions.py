@@ -87,6 +87,8 @@ IMPLEMENTATIONS: dict[str, Implementation] = {
     "server_observed_join_identity": _runtime("server_observed_join_identity"),
     "first_snapshot_admitted": _runtime("first_snapshot_admitted"),
     "leave_after_join_observed": _runtime("leave_after_join_observed"),
+    "handshake_accepted_by_core": _runtime("handshake_accepted_by_core"),
+    "stayed_observe_only": _runtime("stayed_observe_only"),
 }
 
 

@@ -24,7 +24,10 @@ from minekin_core.domain.offline_identity import offline_player_uuid
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 ASSERTER = REPOSITORY_ROOT / "tools" / "assert_case_evidence.py"
-REVIEWED_CASE = REPOSITORY_ROOT / "tests" / "fixtures" / "cases" / "core-020.json"
+CASES = REPOSITORY_ROOT / "tests" / "fixtures" / "cases"
+REVIEWED_CASE = CASES / "core-020.json"
+OBSERVE_ONLY_CASE = CASES / "core-010.json"
+RUN_ID = "5c1f9a7b2d3e4f6089abcdef01234567"
 USERNAME = "Kin"
 # The UUID a real run's server recorded for this name, read back from the
 # `usercache.json` vanilla wrote next to its log. Asserted below to be what the
@@ -37,6 +40,8 @@ LEFT = f"[19:28:40] [Server thread/INFO]: {USERNAME} left the game"
 
 class _Material(Protocol):
     run_document: Mapping[str, object]
+    ledger_events: tuple[Mapping[str, object], ...]
+    ledger_readable: bool
     server_log: str
     server_identities: Mapping[str, str]
     username: str
@@ -120,15 +125,32 @@ def run_document(**run_overrides: object) -> dict[str, object]:
     }
 
 
+def event(event_type: str, **payload: object) -> Mapping[str, object]:
+    """One ledger row, carrying the fields a case reads."""
+
+    return {
+        "event_type": event_type,
+        "run_id": RUN_ID,
+        "payload_json": json.dumps(payload, sort_keys=True),
+    }
+
+
+HANDSHAKE = "BridgeHelloAccepted"
+
+
 def material(
     *,
     document: dict[str, object] | None = None,
     log: str = f"{JOINED}\n{LEFT}\n",
     identities: Mapping[str, str] | None = None,
     username: str = USERNAME,
+    events: tuple[Mapping[str, object], ...] = (),
+    ledger_readable: bool = True,
 ) -> _Material:
     return ASSERTER_MODULE.RunMaterial(
         run_document=run_document() if document is None else document,
+        ledger_events=events,
+        ledger_readable=ledger_readable,
         server_log=log,
         server_identities={USERNAME: RECORDED_UUID} if identities is None else identities,
         username=username,
@@ -157,10 +179,118 @@ def test_a_run_that_did_everything_the_case_asks_for_holds() -> None:
 def test_the_reviewed_case_names_only_assertions_the_asserter_performs() -> None:
     """A name in a manifest and a name in the registry have to be one name."""
 
-    declared = reviewed_case()["assertions"]
-    assert isinstance(declared, list)
-    for name in cast(list[object], declared):
-        assert str(name) in ASSERTER_MODULE.ASSERTIONS
+    for path in (REVIEWED_CASE, OBSERVE_ONLY_CASE):
+        declared = cast(dict[str, object], json.loads(path.read_text(encoding="utf-8")))[
+            "assertions"
+        ]
+        assert isinstance(declared, list)
+        for name in cast(list[object], declared):
+            assert str(name) in ASSERTER_MODULE.ASSERTIONS, f"{path.name} names {name}"
+
+
+def observe_only_case() -> dict[str, object]:
+    """The reviewed L1 case: to the main menu, handshake, still observing."""
+
+    return cast(dict[str, object], json.loads(OBSERVE_ONLY_CASE.read_text(encoding="utf-8")))
+
+
+def no_world_document(**run_overrides: object) -> dict[str, object]:
+    """The run document a session with no server profile prints, as measured."""
+
+    measured: dict[str, object] = {
+        "connection_state": None,
+        "snapshots_admitted": 0,
+        "events_applied": 0,
+        "outcome": "BRIDGE_LOST",
+    }
+    measured.update(run_overrides)
+    return run_document(**measured)
+
+
+def test_a_session_that_only_observed_holds() -> None:
+    verdict = ASSERTER_MODULE.evaluate(
+        observe_only_case(), material(document=no_world_document(), events=(event(HANDSHAKE),))
+    )
+
+    assert verdict.result == "PASS"
+    assert verdict.observed == ("handshake_accepted_by_core", "stayed_observe_only")
+
+
+def test_the_handshake_is_read_from_core_s_own_record() -> None:
+    """Measured: the Bridge writes nothing to the client's log without a world.
+
+    So the client cannot be asked whether the handshake happened. Core can, and
+    its answer is the one the ledger holds.
+    """
+
+    without = ASSERTER_MODULE.evaluate(
+        observe_only_case(), material(document=no_world_document(), events=())
+    )
+    with_it = ASSERTER_MODULE.evaluate(
+        observe_only_case(), material(document=no_world_document(), events=(event(HANDSHAKE),))
+    )
+
+    assert without.failures == (
+        "handshake_accepted_by_core:HANDSHAKE_NOT_RECORDED",
+        "stayed_observe_only:NO_HANDSHAKE_TO_OBSERVE_FROM",
+    )
+    assert with_it.result == "PASS"
+
+
+@pytest.mark.parametrize(
+    ("event_type", "reason"),
+    [
+        ("JoinObserved", "JOINED_A_WORLD"),
+        ("PlayableEstablished", "SNAPSHOT_ADMITTED"),
+        ("InputLeaseGranted", "INPUT_LEASED"),
+    ],
+)
+def test_anything_that_drove_the_client_is_not_observation_only(
+    event_type: str, reason: str
+) -> None:
+    verdict = ASSERTER_MODULE.evaluate(
+        observe_only_case(),
+        material(document=no_world_document(), events=(event(HANDSHAKE), event(event_type))),
+    )
+
+    assert f"stayed_observe_only:{reason}" in verdict.failures
+    assert verdict.result == "FAIL"
+
+
+def test_a_snapshot_core_admitted_is_found_without_the_ledger_saying_so() -> None:
+    """The two records are checked against each other, not just one of them."""
+
+    verdict = ASSERTER_MODULE.evaluate(
+        observe_only_case(),
+        material(document=no_world_document(snapshots_admitted=1), events=(event(HANDSHAKE),)),
+    )
+
+    assert verdict.failures == ("stayed_observe_only:SNAPSHOT_ADMITTED",)
+
+
+def test_a_connection_state_is_a_world_even_when_no_event_says_so() -> None:
+    verdict = ASSERTER_MODULE.evaluate(
+        observe_only_case(),
+        material(
+            document=no_world_document(connection_state="PLAYABLE"),
+            events=(event(HANDSHAKE),),
+        ),
+    )
+
+    assert verdict.failures == ("stayed_observe_only:CONNECTION_STATE:PLAYABLE",)
+
+
+def test_an_unreadable_ledger_is_not_a_ledger_that_recorded_nothing() -> None:
+    """The two answers mean different things and must not be the same string."""
+
+    verdict = ASSERTER_MODULE.evaluate(
+        observe_only_case(), material(document=no_world_document(), ledger_readable=False)
+    )
+
+    assert verdict.failures == (
+        "handshake_accepted_by_core:LEDGER_UNREADABLE",
+        "stayed_observe_only:LEDGER_UNREADABLE",
+    )
 
 
 def test_a_kin_that_never_joined_fails_every_assertion_that_needs_it() -> None:
@@ -291,6 +421,8 @@ def arguments_for(tmp_path: Path, run: Path) -> list[str]:
         str(REVIEWED_CASE),
         "--run-document",
         str(run),
+        "--data-root",
+        str(tmp_path),
         "--server-directory",
         str(tmp_path),
         "--username",
