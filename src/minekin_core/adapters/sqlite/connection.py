@@ -92,14 +92,42 @@ def connect_writer(path: Path, *, busy_timeout_ms: int = 5_000) -> sqlite3.Conne
     return connection
 
 
+def assert_reviewed_ledger(connection: sqlite3.Connection) -> None:
+    """Refuse a file that is not a ledger this build wrote.
+
+    Nothing here migrates or creates: a reader opens with `mode=ro`. So a file
+    that is not a reviewed ledger is either somebody else's database or the
+    remains of a migration that rolled back, and both are better named here than
+    discovered later as "no such table: kin_identity" — which is what the driver
+    says, and what the CLI redacts.
+
+    An unmigrated database is *not* readable on purpose. Nothing in this build
+    produces one: `connect_writer` migrates in the same call that opens it, so a
+    file without the schema is a state only a failed init leaves behind.
+    """
+
+    version = int(connection.execute("PRAGMA user_version").fetchone()[0])
+    if version not in _EXPECTED_TABLES:
+        raise SQLiteCompatibilityError(
+            f"database schema version {version} is not one this build knows: this is "
+            f"not a Minekin ledger, or a migration did not complete"
+        )
+    _validate_schema(connection, version)
+
+
 def connect_reader(path: Path, *, busy_timeout_ms: int = 5_000) -> sqlite3.Connection:
-    """Open a query-only connection without accidentally creating a database."""
+    """Open a query-only connection to a reviewed ledger, creating nothing."""
 
     uri = f"{path.resolve().as_uri()}?mode=ro"
     connection = sqlite3.connect(uri, uri=True, isolation_level=None)
     connection.row_factory = sqlite3.Row
     connection.execute("PRAGMA query_only = ON")
     connection.execute(f"PRAGMA busy_timeout = {busy_timeout_ms:d}")
+    try:
+        assert_reviewed_ledger(connection)
+    except BaseException:
+        connection.close()
+        raise
     return connection
 
 

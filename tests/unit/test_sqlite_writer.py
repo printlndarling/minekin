@@ -181,3 +181,54 @@ def test_a_ledger_row_that_does_not_match_its_digest_names_the_event(tmp_path: P
 
     assert raised.value.category is ErrorCategory.STORAGE
     assert "event-1" in raised.value.safe_message
+
+
+def test_a_reader_refuses_a_file_that_is_not_a_ledger(tmp_path: Path) -> None:
+    """Named here rather than discovered later as "no such table: kin_identity".
+
+    That driver message is what the CLI redacts, so a foreign database used to
+    arrive as "unexpected internal failure".
+    """
+
+    foreign = tmp_path / "someone-elses.sqlite3"
+    creator = sqlite3.connect(foreign)
+    creator.execute("CREATE TABLE their_notes (body TEXT)")
+    creator.commit()
+    creator.close()
+
+    with pytest.raises(MinekinError, match="not a Minekin ledger") as raised:
+        connect_reader(foreign)
+
+    assert raised.value.category is ErrorCategory.STORAGE
+
+
+def test_an_unmigrated_database_is_not_readable(tmp_path: Path) -> None:
+    """Nothing here produces one, so reading it would be guessing.
+
+    `connect_writer` migrates in the same call that opens it, so a file without
+    the schema is what a rolled-back migration leaves behind.
+    """
+
+    half = tmp_path / "half-initialised.sqlite3"
+    sqlite3.connect(half).close()
+
+    with pytest.raises(MinekinError, match="migration did not complete"):
+        connect_reader(half)
+
+
+def test_a_reviewed_ledger_is_still_readable(tmp_path: Path) -> None:
+    """The validation must not refuse the files it exists to protect."""
+
+    database = tmp_path / "core.sqlite3"
+
+    async def write_a_row() -> None:
+        async with SQLiteWriter(database) as writer:
+            await SQLiteEventStore(database, writer).append([_event()])
+
+    asyncio.run(write_a_row())
+
+    connection = connect_reader(database)
+    try:
+        assert connection.execute("SELECT count(*) FROM event ").fetchone()[0] == 1
+    finally:
+        connection.close()

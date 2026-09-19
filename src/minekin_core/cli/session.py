@@ -331,9 +331,6 @@ async def prepare_session_async(
     # `connect_reader` opens with mode=ro, so a missing file surfaces as a
     # driver error the CLI redacts. `session status` already guards this; a
     # start should say the same thing rather than something less useful.
-    # `connect_reader` opens with mode=ro, so a missing file surfaces as a
-    # driver error the CLI redacts. `session status` already guards this; a
-    # start should say the same thing rather than something less useful.
     if not database.is_file():
         raise _reject(f"{database} is missing; run `minekin init` first")
     connection = connect_reader(database)

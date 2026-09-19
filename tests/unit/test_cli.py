@@ -168,3 +168,24 @@ def test_the_compatibility_error_carries_its_own_message() -> None:
     assert error.safe_message == "SQLite 3.45.1 is outside the safety set"
     assert error.category is ErrorCategory.STORAGE
     assert error.exit_code is ExitCode.STORAGE
+
+
+def test_a_foreign_database_is_reported_rather_than_redacted(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The operator's mistake is a file in the wrong place, and it is sayable."""
+
+    kin = tmp_path / "kin" / "kin-01"
+    kin.mkdir(parents=True)
+    foreign = sqlite3.connect(kin / "kin.sqlite3")
+    foreign.execute("CREATE TABLE their_notes (body TEXT)")
+    foreign.commit()
+    foreign.close()
+    monkeypatch.setenv("MINEKIN_HOME", str(tmp_path))
+    monkeypatch.setenv("MINEKIN_USERNAME", "Kin")
+
+    code = main(["session", "status"])
+    document = json.loads(capsys.readouterr().err)
+
+    assert code == int(ExitCode.STORAGE)
+    assert "not a Minekin ledger" in document["message"]
