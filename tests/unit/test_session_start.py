@@ -361,3 +361,35 @@ def test_a_refusal_before_the_launcher_leaves_no_ledger_entry(
         )
 
     assert stored_events(database_for(root, KIN_ID)) == []
+
+
+def test_a_kin_directory_that_cannot_be_an_identifier_is_named(tmp_path: Path) -> None:
+    """`KinId(...)` would raise a bare ValueError, which the CLI redacts.
+
+    "the directory is called `my kin`" is the whole diagnosis, and it is not
+    derivable from "unexpected internal failure".
+    """
+
+    (tmp_path / "kin" / "my kin").mkdir(parents=True)
+
+    with pytest.raises(MinekinError, match="not a usable Kin name") as raised:
+        select_kin(tmp_path, None)
+
+    assert raised.value.category is ErrorCategory.CONFIG
+    assert "my kin" in raised.value.safe_message
+
+
+def test_a_start_with_no_ledger_says_so(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`session status` already guards this; a start should say the same thing."""
+
+    (tmp_path / "kin" / "kin-01").mkdir(parents=True)
+    monkeypatch.setenv("MINEKIN_HOME", str(tmp_path))
+    monkeypatch.setenv(USERNAME_VARIABLE, "Kin")
+
+    code = main(["session", "start", "--profile", str(PROFILE)])
+    document = json.loads(capsys.readouterr().err)
+
+    assert code == int(ExitCode.CONFIG)
+    assert "run `minekin init` first" in document["message"]

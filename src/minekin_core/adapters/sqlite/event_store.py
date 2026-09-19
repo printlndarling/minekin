@@ -16,6 +16,7 @@ from minekin_core.application.ports.event_store import (
     OutboxItem,
     Projection,
 )
+from minekin_core.domain.errors import ErrorCategory, MinekinError, Retryability
 from minekin_core.domain.events import EventSource, TrustClass
 
 from .connection import connect_reader
@@ -207,7 +208,20 @@ def _event_from_row(row: sqlite3.Row) -> EventEnvelope:
     payload = cast(JsonValue, json.loads(str(row["payload_json"])))
     stored_hash = str(row["payload_hash"])
     if payload_digest(payload) != stored_hash:
-        raise ValueError(f"stored payload hash mismatch for event {row['event_id']}")
+        # A ledger row that does not match its own digest is a storage fault,
+        # and the event id is the one thing that makes it investigable. As a
+        # bare ValueError the CLI redacted both.
+        # A ledger row that does not match its own digest is a storage fault,
+        # and the event id is the one thing that makes it investigable. As a
+        # bare ValueError the CLI redacted both.
+        raise MinekinError(
+            "sqlite.event_store",
+            "read",
+            ErrorCategory.STORAGE,
+            Retryability.OPERATOR_ACTION,
+            f"stored payload hash mismatch for event {row['event_id']}: "
+            f"the ledger is not the one it was written as",
+        )
     return EventEnvelope(
         event_id=str(row["event_id"]),
         event_type=str(row["event_type"]),

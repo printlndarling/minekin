@@ -146,6 +146,22 @@ def select_kin(root: Path, selector: str | None) -> KinId:
     candidates = (
         sorted(path.name for path in base.iterdir() if path.is_dir()) if base.is_dir() else []
     )
+    # A directory that cannot be an identifier was not put there by `init`, and
+    # `KinId(...)` would raise a bare ValueError that the CLI redacts. Name it
+    # here instead, because "the directory is called `my kin`" is the whole
+    # diagnosis and it is not derivable from "unexpected internal failure".
+    # A directory that cannot be an identifier was not put there by `init`, and
+    # `KinId(...)` would raise a bare ValueError that the CLI redacts. Name it
+    # here instead, because "the directory is called `my kin`" is the whole
+    # diagnosis and it is not derivable from "unexpected internal failure".
+    for candidate in candidates:
+        try:
+            KinId(candidate)
+        except ValueError as error:
+            raise _reject(
+                f"this root holds a directory that is not a usable Kin name: "
+                f"{candidate!r} ({error})"
+            ) from error
     if selector:
         if selector not in candidates:
             raise _reject(f"this root holds no Kin named {selector!r}")
@@ -312,6 +328,14 @@ async def prepare_session_async(
 
     kin_id = select_kin(root, kin_selector)
     database = database_for(root, kin_id)
+    # `connect_reader` opens with mode=ro, so a missing file surfaces as a
+    # driver error the CLI redacts. `session status` already guards this; a
+    # start should say the same thing rather than something less useful.
+    # `connect_reader` opens with mode=ro, so a missing file surfaces as a
+    # driver error the CLI redacts. `session status` already guards this; a
+    # start should say the same thing rather than something less useful.
+    if not database.is_file():
+        raise _reject(f"{database} is missing; run `minekin init` first")
     connection = connect_reader(database)
     try:
         identity = read_identity_root(connection)

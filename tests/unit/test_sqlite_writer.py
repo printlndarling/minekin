@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import sqlite3
 import threading
 import time
 from dataclasses import replace
@@ -21,6 +22,7 @@ from minekin_core.application.ports.event_store import (
     OutboxItem,
     Projection,
 )
+from minekin_core.domain.errors import ErrorCategory, MinekinError
 from minekin_core.domain.events import EventSource, TrustClass
 
 
@@ -144,3 +146,38 @@ def test_oracle_source_is_rejected_before_persistence() -> None:
 )
 def test_wal_runtime_gate(version: tuple[int, int, int], expected: bool) -> None:
     assert supports_multi_connection_wal(version) is expected
+
+
+def test_a_ledger_row_that_does_not_match_its_digest_names_the_event(tmp_path: Path) -> None:
+    """The read-path counterpart of the write-path check, and it says which row.
+
+    A stored row whose payload no longer hashes to its recorded digest is a
+    storage fault. It used to surface as a bare ValueError, which the CLI
+    redacts, so the event id — the one thing that makes it investigable — was
+    thrown away with the message.
+    """
+
+    database = tmp_path / "core.sqlite3"
+
+    async def write_a_row() -> None:
+        async with SQLiteWriter(database) as writer:
+            await SQLiteEventStore(database, writer).append([_event()])
+
+    asyncio.run(write_a_row())
+
+    corruption = sqlite3.connect(database)
+    try:
+        corruption.execute("UPDATE event SET payload_json = '{\"tampered\": true}'")
+        corruption.commit()
+    finally:
+        corruption.close()
+
+    async def read_it_back() -> object:
+        async with SQLiteWriter(database) as writer:
+            return await SQLiteEventStore(database, writer).read_all()
+
+    with pytest.raises(MinekinError, match="payload hash mismatch") as raised:
+        asyncio.run(read_it_back())
+
+    assert raised.value.category is ErrorCategory.STORAGE
+    assert "event-1" in raised.value.safe_message
