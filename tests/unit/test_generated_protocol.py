@@ -60,6 +60,46 @@ def test_generated_session_schema_links_envelope_types() -> None:
     assert decoded.DESCRIPTOR.file.name == "minekin/v1/session.proto"
 
 
+def test_connect_world_schema_carries_only_pinned_profile_inputs() -> None:
+    fields = control_pb2.ConnectWorld.DESCRIPTOR.fields_by_name
+
+    assert {name: field.number for name, field in fields.items()} == {
+        "request_id": 1,
+        "generation": 2,
+        "server_profile_id": 3,
+        "server_profile_revision": 4,
+        "original_host": 5,
+        "port": 6,
+        "resource_pack_policy": 7,
+        "deadline_monotonic_ns": 8,
+    }
+    assert "password" not in fields
+    assert "token" not in fields
+
+
+def test_connection_lifecycle_has_stable_failure_reasons_but_no_server_text() -> None:
+    fields = observation_pb2.ConnectionLifecycle.DESCRIPTOR.fields_by_name
+    reasons = observation_pb2.AdmissionFailureReason.keys()
+
+    assert {name: field.number for name, field in fields.items()} == {
+        "generation": 1,
+        "server_profile_id": 2,
+        "server_profile_revision": 3,
+        "phase": 4,
+        "failure_reason": 5,
+        "terminal": 6,
+    }
+    assert "ADMISSION_FAILURE_REASON_WHITELIST_REJECTED" in reasons
+    assert "ADMISSION_FAILURE_REASON_RESOURCE_PACK_BLOCKED" in reasons
+    assert not {"message", "server_text", "reason_text"} & set(fields)
+
+
+def test_initial_observation_keeps_management_bindings_out_of_player_state() -> None:
+    fields = observation_pb2.InitialObservation.DESCRIPTOR.fields_by_name
+
+    assert not {"server_profile_id", "server_profile_revision", "world_context_id"} & set(fields)
+
+
 def test_every_frozen_proto_is_importable() -> None:
     assert [module.DESCRIPTOR.name for module in GENERATED_MODULES] == [
         f"minekin/v1/{stem}.proto" for stem in GENERATED_STEMS

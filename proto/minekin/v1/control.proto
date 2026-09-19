@@ -6,6 +6,40 @@ option java_multiple_files = true;
 option java_outer_classname = "ControlProto";
 option java_package = "io.minekin.protocol.v1";
 
+enum ResourcePackPolicy {
+  RESOURCE_PACK_POLICY_UNSPECIFIED = 0;
+  RESOURCE_PACK_POLICY_DENY = 1;
+  RESOURCE_PACK_POLICY_PROMPT = 2;
+}
+
+// Core may send this only after Bridge handshake and capability negotiation.
+// The Bridge must still apply its own address policy before invoking the normal
+// Minecraft client connection path on the client thread.
+message ConnectWorld {
+  string request_id = 1;
+  uint64 generation = 2;
+  string server_profile_id = 3;
+  string server_profile_revision = 4;
+  string original_host = 5;
+  uint32 port = 6;
+  ResourcePackPolicy resource_pack_policy = 7;
+  uint64 deadline_monotonic_ns = 8;
+}
+
+enum ConnectionCancelReason {
+  CONNECTION_CANCEL_REASON_UNSPECIFIED = 0;
+  CONNECTION_CANCEL_REASON_OPERATOR = 1;
+  CONNECTION_CANCEL_REASON_TIMEOUT = 2;
+  CONNECTION_CANCEL_REASON_NEW_GENERATION = 3;
+  CONNECTION_CANCEL_REASON_SESSION_STOPPING = 4;
+}
+
+message CancelConnection {
+  string request_id = 1;
+  uint64 generation = 2;
+  ConnectionCancelReason reason = 3;
+}
+
 enum InputPriority {
   INPUT_PRIORITY_UNSPECIFIED = 0;
   INPUT_PRIORITY_NORMAL = 1;

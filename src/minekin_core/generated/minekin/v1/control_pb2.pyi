@@ -7,6 +7,20 @@ from typing import ClassVar as _ClassVar, Optional as _Optional, Union as _Union
 
 DESCRIPTOR: _descriptor.FileDescriptor
 
+class ResourcePackPolicy(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+    __slots__ = ()
+    RESOURCE_PACK_POLICY_UNSPECIFIED: _ClassVar[ResourcePackPolicy]
+    RESOURCE_PACK_POLICY_DENY: _ClassVar[ResourcePackPolicy]
+    RESOURCE_PACK_POLICY_PROMPT: _ClassVar[ResourcePackPolicy]
+
+class ConnectionCancelReason(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+    __slots__ = ()
+    CONNECTION_CANCEL_REASON_UNSPECIFIED: _ClassVar[ConnectionCancelReason]
+    CONNECTION_CANCEL_REASON_OPERATOR: _ClassVar[ConnectionCancelReason]
+    CONNECTION_CANCEL_REASON_TIMEOUT: _ClassVar[ConnectionCancelReason]
+    CONNECTION_CANCEL_REASON_NEW_GENERATION: _ClassVar[ConnectionCancelReason]
+    CONNECTION_CANCEL_REASON_SESSION_STOPPING: _ClassVar[ConnectionCancelReason]
+
 class InputPriority(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     __slots__ = ()
     INPUT_PRIORITY_UNSPECIFIED: _ClassVar[InputPriority]
@@ -23,6 +37,14 @@ class ActionStatus(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     ACTION_STATUS_FAILED: _ClassVar[ActionStatus]
     ACTION_STATUS_CANCELLED: _ClassVar[ActionStatus]
     ACTION_STATUS_UNKNOWN_AFTER_DISCONNECT: _ClassVar[ActionStatus]
+RESOURCE_PACK_POLICY_UNSPECIFIED: ResourcePackPolicy
+RESOURCE_PACK_POLICY_DENY: ResourcePackPolicy
+RESOURCE_PACK_POLICY_PROMPT: ResourcePackPolicy
+CONNECTION_CANCEL_REASON_UNSPECIFIED: ConnectionCancelReason
+CONNECTION_CANCEL_REASON_OPERATOR: ConnectionCancelReason
+CONNECTION_CANCEL_REASON_TIMEOUT: ConnectionCancelReason
+CONNECTION_CANCEL_REASON_NEW_GENERATION: ConnectionCancelReason
+CONNECTION_CANCEL_REASON_SESSION_STOPPING: ConnectionCancelReason
 INPUT_PRIORITY_UNSPECIFIED: InputPriority
 INPUT_PRIORITY_NORMAL: InputPriority
 INPUT_PRIORITY_URGENT: InputPriority
@@ -34,6 +56,36 @@ ACTION_STATUS_SUCCEEDED: ActionStatus
 ACTION_STATUS_FAILED: ActionStatus
 ACTION_STATUS_CANCELLED: ActionStatus
 ACTION_STATUS_UNKNOWN_AFTER_DISCONNECT: ActionStatus
+
+class ConnectWorld(_message.Message):
+    __slots__ = ("request_id", "generation", "server_profile_id", "server_profile_revision", "original_host", "port", "resource_pack_policy", "deadline_monotonic_ns")
+    REQUEST_ID_FIELD_NUMBER: _ClassVar[int]
+    GENERATION_FIELD_NUMBER: _ClassVar[int]
+    SERVER_PROFILE_ID_FIELD_NUMBER: _ClassVar[int]
+    SERVER_PROFILE_REVISION_FIELD_NUMBER: _ClassVar[int]
+    ORIGINAL_HOST_FIELD_NUMBER: _ClassVar[int]
+    PORT_FIELD_NUMBER: _ClassVar[int]
+    RESOURCE_PACK_POLICY_FIELD_NUMBER: _ClassVar[int]
+    DEADLINE_MONOTONIC_NS_FIELD_NUMBER: _ClassVar[int]
+    request_id: str
+    generation: int
+    server_profile_id: str
+    server_profile_revision: str
+    original_host: str
+    port: int
+    resource_pack_policy: ResourcePackPolicy
+    deadline_monotonic_ns: int
+    def __init__(self, request_id: _Optional[str] = ..., generation: _Optional[int] = ..., server_profile_id: _Optional[str] = ..., server_profile_revision: _Optional[str] = ..., original_host: _Optional[str] = ..., port: _Optional[int] = ..., resource_pack_policy: _Optional[_Union[ResourcePackPolicy, str]] = ..., deadline_monotonic_ns: _Optional[int] = ...) -> None: ...
+
+class CancelConnection(_message.Message):
+    __slots__ = ("request_id", "generation", "reason")
+    REQUEST_ID_FIELD_NUMBER: _ClassVar[int]
+    GENERATION_FIELD_NUMBER: _ClassVar[int]
+    REASON_FIELD_NUMBER: _ClassVar[int]
+    request_id: str
+    generation: int
+    reason: ConnectionCancelReason
+    def __init__(self, request_id: _Optional[str] = ..., generation: _Optional[int] = ..., reason: _Optional[_Union[ConnectionCancelReason, str]] = ...) -> None: ...
 
 class InputLease(_message.Message):
     __slots__ = ("lease_id", "generation", "client_instance_id", "issued_monotonic_ns", "deadline_monotonic_ns", "priority", "capabilities")

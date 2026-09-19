@@ -8,6 +8,48 @@ option java_multiple_files = true;
 option java_outer_classname = "ObservationProto";
 option java_package = "io.minekin.protocol.v1";
 
+enum ConnectionPhase {
+  CONNECTION_PHASE_UNSPECIFIED = 0;
+  CONNECTION_PHASE_RESOLVING = 1;
+  CONNECTION_PHASE_LOGIN_NEGOTIATING = 2;
+  CONNECTION_PHASE_PLAY_INIT = 3;
+  CONNECTION_PHASE_JOIN_SEEN = 4;
+  CONNECTION_PHASE_PLAYABLE = 5;
+  CONNECTION_PHASE_DISCONNECTED = 6;
+  CONNECTION_PHASE_FAILED = 7;
+  CONNECTION_PHASE_CANCELLED = 8;
+}
+
+enum AdmissionFailureReason {
+  ADMISSION_FAILURE_REASON_UNSPECIFIED = 0;
+  ADMISSION_FAILURE_REASON_ADDRESS_INVALID = 1;
+  ADMISSION_FAILURE_REASON_DNS_FAILED = 2;
+  ADMISSION_FAILURE_REASON_ADDRESS_POLICY_BLOCKED = 3;
+  ADMISSION_FAILURE_REASON_CONNECT_TIMEOUT = 4;
+  ADMISSION_FAILURE_REASON_PROTOCOL_MISMATCH = 5;
+  ADMISSION_FAILURE_REASON_AUTH_MODE_MISMATCH = 6;
+  ADMISSION_FAILURE_REASON_WHITELIST_REJECTED = 7;
+  ADMISSION_FAILURE_REASON_DUPLICATE_LOGIN = 8;
+  ADMISSION_FAILURE_REASON_RESOURCE_PACK_BLOCKED = 9;
+  ADMISSION_FAILURE_REASON_FIRST_SNAPSHOT_TIMEOUT = 10;
+  ADMISSION_FAILURE_REASON_WORLD_BINDING_MISMATCH = 11;
+  ADMISSION_FAILURE_REASON_UNEXPECTED_DISCONNECT = 12;
+  ADMISSION_FAILURE_REASON_CONTROL_LOST = 13;
+  ADMISSION_FAILURE_REASON_CANCELLED = 14;
+  ADMISSION_FAILURE_REASON_INTERNAL_INVARIANT = 15;
+}
+
+// Server-supplied text is deliberately absent. The Bridge maps it to a stable
+// reason and may keep redacted diagnostics outside the product event payload.
+message ConnectionLifecycle {
+  uint64 generation = 1;
+  string server_profile_id = 2;
+  string server_profile_revision = 3;
+  ConnectionPhase phase = 4;
+  AdmissionFailureReason failure_reason = 5;
+  bool terminal = 6;
+}
+
 message SelfState {
   float health = 1;
   float max_health = 2;
@@ -47,4 +89,5 @@ message InitialObservation {
   repeated VisibleEntity visible_entities = 5;
   bool authoritative = 6;
   SessionIdentityReport session_identity = 7;
+  reserved 8 to 10;
 }

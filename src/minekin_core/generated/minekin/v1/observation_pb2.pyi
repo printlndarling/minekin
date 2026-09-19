@@ -1,11 +1,84 @@
 from minekin_core.generated.minekin.v1 import session_pb2 as _session_pb2
 from google.protobuf.internal import containers as _containers
+from google.protobuf.internal import enum_type_wrapper as _enum_type_wrapper
 from google.protobuf import descriptor as _descriptor
 from google.protobuf import message as _message
 from collections.abc import Iterable as _Iterable, Mapping as _Mapping
 from typing import ClassVar as _ClassVar, Optional as _Optional, Union as _Union
 
 DESCRIPTOR: _descriptor.FileDescriptor
+
+class ConnectionPhase(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+    __slots__ = ()
+    CONNECTION_PHASE_UNSPECIFIED: _ClassVar[ConnectionPhase]
+    CONNECTION_PHASE_RESOLVING: _ClassVar[ConnectionPhase]
+    CONNECTION_PHASE_LOGIN_NEGOTIATING: _ClassVar[ConnectionPhase]
+    CONNECTION_PHASE_PLAY_INIT: _ClassVar[ConnectionPhase]
+    CONNECTION_PHASE_JOIN_SEEN: _ClassVar[ConnectionPhase]
+    CONNECTION_PHASE_PLAYABLE: _ClassVar[ConnectionPhase]
+    CONNECTION_PHASE_DISCONNECTED: _ClassVar[ConnectionPhase]
+    CONNECTION_PHASE_FAILED: _ClassVar[ConnectionPhase]
+    CONNECTION_PHASE_CANCELLED: _ClassVar[ConnectionPhase]
+
+class AdmissionFailureReason(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+    __slots__ = ()
+    ADMISSION_FAILURE_REASON_UNSPECIFIED: _ClassVar[AdmissionFailureReason]
+    ADMISSION_FAILURE_REASON_ADDRESS_INVALID: _ClassVar[AdmissionFailureReason]
+    ADMISSION_FAILURE_REASON_DNS_FAILED: _ClassVar[AdmissionFailureReason]
+    ADMISSION_FAILURE_REASON_ADDRESS_POLICY_BLOCKED: _ClassVar[AdmissionFailureReason]
+    ADMISSION_FAILURE_REASON_CONNECT_TIMEOUT: _ClassVar[AdmissionFailureReason]
+    ADMISSION_FAILURE_REASON_PROTOCOL_MISMATCH: _ClassVar[AdmissionFailureReason]
+    ADMISSION_FAILURE_REASON_AUTH_MODE_MISMATCH: _ClassVar[AdmissionFailureReason]
+    ADMISSION_FAILURE_REASON_WHITELIST_REJECTED: _ClassVar[AdmissionFailureReason]
+    ADMISSION_FAILURE_REASON_DUPLICATE_LOGIN: _ClassVar[AdmissionFailureReason]
+    ADMISSION_FAILURE_REASON_RESOURCE_PACK_BLOCKED: _ClassVar[AdmissionFailureReason]
+    ADMISSION_FAILURE_REASON_FIRST_SNAPSHOT_TIMEOUT: _ClassVar[AdmissionFailureReason]
+    ADMISSION_FAILURE_REASON_WORLD_BINDING_MISMATCH: _ClassVar[AdmissionFailureReason]
+    ADMISSION_FAILURE_REASON_UNEXPECTED_DISCONNECT: _ClassVar[AdmissionFailureReason]
+    ADMISSION_FAILURE_REASON_CONTROL_LOST: _ClassVar[AdmissionFailureReason]
+    ADMISSION_FAILURE_REASON_CANCELLED: _ClassVar[AdmissionFailureReason]
+    ADMISSION_FAILURE_REASON_INTERNAL_INVARIANT: _ClassVar[AdmissionFailureReason]
+CONNECTION_PHASE_UNSPECIFIED: ConnectionPhase
+CONNECTION_PHASE_RESOLVING: ConnectionPhase
+CONNECTION_PHASE_LOGIN_NEGOTIATING: ConnectionPhase
+CONNECTION_PHASE_PLAY_INIT: ConnectionPhase
+CONNECTION_PHASE_JOIN_SEEN: ConnectionPhase
+CONNECTION_PHASE_PLAYABLE: ConnectionPhase
+CONNECTION_PHASE_DISCONNECTED: ConnectionPhase
+CONNECTION_PHASE_FAILED: ConnectionPhase
+CONNECTION_PHASE_CANCELLED: ConnectionPhase
+ADMISSION_FAILURE_REASON_UNSPECIFIED: AdmissionFailureReason
+ADMISSION_FAILURE_REASON_ADDRESS_INVALID: AdmissionFailureReason
+ADMISSION_FAILURE_REASON_DNS_FAILED: AdmissionFailureReason
+ADMISSION_FAILURE_REASON_ADDRESS_POLICY_BLOCKED: AdmissionFailureReason
+ADMISSION_FAILURE_REASON_CONNECT_TIMEOUT: AdmissionFailureReason
+ADMISSION_FAILURE_REASON_PROTOCOL_MISMATCH: AdmissionFailureReason
+ADMISSION_FAILURE_REASON_AUTH_MODE_MISMATCH: AdmissionFailureReason
+ADMISSION_FAILURE_REASON_WHITELIST_REJECTED: AdmissionFailureReason
+ADMISSION_FAILURE_REASON_DUPLICATE_LOGIN: AdmissionFailureReason
+ADMISSION_FAILURE_REASON_RESOURCE_PACK_BLOCKED: AdmissionFailureReason
+ADMISSION_FAILURE_REASON_FIRST_SNAPSHOT_TIMEOUT: AdmissionFailureReason
+ADMISSION_FAILURE_REASON_WORLD_BINDING_MISMATCH: AdmissionFailureReason
+ADMISSION_FAILURE_REASON_UNEXPECTED_DISCONNECT: AdmissionFailureReason
+ADMISSION_FAILURE_REASON_CONTROL_LOST: AdmissionFailureReason
+ADMISSION_FAILURE_REASON_CANCELLED: AdmissionFailureReason
+ADMISSION_FAILURE_REASON_INTERNAL_INVARIANT: AdmissionFailureReason
+
+class ConnectionLifecycle(_message.Message):
+    __slots__ = ("generation", "server_profile_id", "server_profile_revision", "phase", "failure_reason", "terminal")
+    GENERATION_FIELD_NUMBER: _ClassVar[int]
+    SERVER_PROFILE_ID_FIELD_NUMBER: _ClassVar[int]
+    SERVER_PROFILE_REVISION_FIELD_NUMBER: _ClassVar[int]
+    PHASE_FIELD_NUMBER: _ClassVar[int]
+    FAILURE_REASON_FIELD_NUMBER: _ClassVar[int]
+    TERMINAL_FIELD_NUMBER: _ClassVar[int]
+    generation: int
+    server_profile_id: str
+    server_profile_revision: str
+    phase: ConnectionPhase
+    failure_reason: AdmissionFailureReason
+    terminal: bool
+    def __init__(self, generation: _Optional[int] = ..., server_profile_id: _Optional[str] = ..., server_profile_revision: _Optional[str] = ..., phase: _Optional[_Union[ConnectionPhase, str]] = ..., failure_reason: _Optional[_Union[AdmissionFailureReason, str]] = ..., terminal: bool = ...) -> None: ...
 
 class SelfState(_message.Message):
     __slots__ = ("health", "max_health", "food", "saturation", "on_ground", "alive", "current_screen")
