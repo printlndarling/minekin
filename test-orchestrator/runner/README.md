@@ -481,6 +481,39 @@ will not. A run therefore accepts either ending as proof that the release took
 effect — the Kin stopped walking, or the Kin is gone, and a process that has
 exited cannot be holding a key.
 
+### After a crash, a restart
+
+The data volume outlives the container, so the crash and the restart that follows
+it are two runs of the same command — the second one checking what the first left
+behind:
+
+```text
+$ MINEKIN_SERVER_JAR=… MINEKIN_DOMAIN_PROBE=Kin MINEKIN_DOMAIN_KILL_CORE=1 \
+      bash test-orchestrator/runner/run.sh domain session start --profile … --server-profile … \
+      --hold-forward-seconds 60                       # the Kin is walking when Core dies
+$ MINEKIN_SERVER_JAR=… MINEKIN_DOMAIN_PROBE=Kin MINEKIN_DOMAIN_STILL=1 \
+      bash test-orchestrator/runner/run.sh domain session start --profile … --server-profile …
+domain: the session is playable
+domain: the Kin moved 0.000 blocks across 12 readings and did not walk
+run      "actions_applied": 0, "snapshots_admitted": 1, "recovery": {"invalidated": [], "waiting": []}
+```
+
+The second run admits a **new** snapshot, so the world state is re-verified rather
+than reused, and it asks for nothing — yet the Kin, which the first run left
+walking, does not move a block. Nothing the dead run asked for survives it.
+
+Stillness is measured by distance and not by equality, because the world is not
+empty: a summoned pig that wanders into the Kin shoves it, and a Kin shoved 1.5
+blocks in three seconds has not walked anywhere. Walking is 4.3 blocks per
+second, so a two-block threshold separates a shove from a step by an order of
+magnitude rather than by tuning.
+
+What this pair does **not** cover is the window where a crash leaves a pending
+outbox item — between recording the intent and settling the effect, which is the
+second a client spends starting. The harness cannot land there from where it
+waits, so that branch is covered against a real ledger by unit tests instead, and
+that is the honest boundary rather than a claim.
+
 ### When the server ends the session
 
 `MINEKIN_DOMAIN_KICK=Kin` has the server kick the Kin a few seconds after it

@@ -24,6 +24,7 @@ kick="${MINEKIN_DOMAIN_KICK:-}"
 silence="${MINEKIN_DOMAIN_SILENCE:-}"
 look="${MINEKIN_DOMAIN_LOOK:-}"
 kill_core="${MINEKIN_DOMAIN_KILL_CORE:-}"
+still="${MINEKIN_DOMAIN_STILL:-}"
 # How often the server is asked about the Kin. A look is over within a second
 # of the join, so a run that wants a reading on both sides of it asks more
 # often than the default — the pair is what shows a heading changed.
@@ -322,17 +323,17 @@ if [[ -n "${kill_core}" ]]; then
     deadline=$((SECONDS + seconds))
     for _ in $(seq 1 "${seconds}"); do
         [ "${SECONDS}" -lt "${deadline}" ] || break
-        if [ "$(horizontal_positions | sort -u | wc -l)" -ge 2 ]; then
-            if pkill -KILL -f "minekin_core session start"; then
-                printf 'domain: Core has been killed; the Bridge should let go
-' >&2
-            else
-                printf 'domain: could not find Core to kill it
-' >&2
-            fi
-            break
+        # While the Kin is walking, which this block can see because the walk
+        # wait is skipped for exactly this run.
+        if [ "$(horizontal_positions | sort -u | wc -l)" -lt 2 ]; then
+            continue
         fi
-        sleep 1
+        if pkill -KILL -f "minekin_core session start"; then
+            printf 'domain: Core has been killed; the Bridge should let go\n' "${kill_core}" >&2
+        else
+            printf 'domain: could not find Core to kill it\n' >&2
+        fi
+        break
     done
     # The release is what this is about, and the server can see its effect two
     # ways: a Kin that stopped walking, or a Kin whose client exited — a socket
@@ -345,10 +346,8 @@ if [[ -n "${kill_core}" ]]; then
     for _ in $(seq 1 "${seconds}"); do
         [ "${SECONDS}" -lt "${deadline}" ] || break
         positions=$(horizontal_positions)
-        distinct=$(printf '%s
-' "${positions}" | sort -u | wc -l)
-        settled=$(printf '%s
-' "${positions}" | tail -n 2 | sort -u | wc -l)
+        distinct=$(printf '%s\n' "${positions}" | sort -u | wc -l)
+        settled=$(printf '%s\n' "${positions}" | tail -n 2 | sort -u | wc -l)
         if grep -q "${player} left the game" "${server_directory}/server.log" 2>/dev/null; then
             left=1
         fi
@@ -359,14 +358,11 @@ if [[ -n "${kill_core}" ]]; then
         sleep 1
     done
     if [ "${stopped}" -eq 0 ]; then
-        printf 'domain: the Kin never stopped after Core died
-' >&2
+        printf 'domain: the Kin never stopped after Core died\n' >&2
     elif [ "${left}" -eq 1 ]; then
-        printf 'domain: the Kin left the game after Core died
-' >&2
+        printf 'domain: the Kin left the game after Core died\n' >&2
     else
-        printf 'domain: the server saw the Kin stop after Core died
-' >&2
+        printf 'domain: the server saw the Kin stop after Core died\n' >&2
     fi
 fi
 
@@ -387,16 +383,53 @@ if [[ -n "${kick}" ]]; then
         sleep 1
     done
     if [ "${kicked}" -eq 1 ]; then
-        printf 'domain: the server ended the session while the client kept running
-' >&2
+        printf 'domain: the server ended the session while the client kept running\n' >&2
     else
-        printf 'domain: the server never ended the session within %ss
-' "${seconds}" >&2
+        printf 'domain: the server never ended the session within %ss\n' "${seconds}" >&2
     fi
 fi
 
-printf 'domain: stopping the session
-' >&2
+# A run that is checking what a *previous* run left behind: the Kin must not be
+# moving. Nothing in the new session asks it to, and nothing the dead one asked
+# for may still be in force — which is a fact about the world, so the world is
+# where it is read.
+if [[ -n "${still}" ]]; then
+    # Measured by distance rather than by equality, because the world is not
+    # empty: a summoned pig that wanders into the Kin pushes it, and a Kin that
+    # was shoved 1.5 blocks in three seconds has not walked anywhere. Walking is
+    # 4.3 blocks per second, so the two are two orders of magnitude apart given
+    # any sensible probe interval — the threshold is the gap between a shove and
+    # a step, not a tuned number.
+    walked=0
+    moved=0
+    readings=0
+    deadline=$((SECONDS + seconds))
+    for _ in $(seq 1 "${seconds}"); do
+        kill -0 "${session_pid}" 2>/dev/null || break
+        [ "${SECONDS}" -lt "${deadline}" ] || break
+        positions=$(horizontal_positions)
+        readings=$(printf '%s\n' "${positions}" | grep -c . || true)
+        if [ "${readings}" -ge 2 ]; then
+            drift=$(printf '%s\n' "${positions}" |
+                awk -F, 'NR == 1 { x = $1; z = $2 } { lx = $1; lz = $2 }
+                         END { dx = lx - x; dz = lz - z; printf "%.3f", sqrt(dx * dx + dz * dz) }')
+            if awk -v drift="${drift}" 'BEGIN { exit !(drift > 2.0) }'; then
+                moved=1
+            fi
+            break
+        fi
+        sleep 1
+    done
+    if [ "${moved}" -eq 1 ]; then
+        printf 'domain: the Kin moved %s blocks without being asked to\n' "${drift}" >&2
+    elif [ "${readings}" -ge 2 ]; then
+        printf 'domain: the Kin moved %s blocks across %s readings and did not walk\n'             "${drift}" "${readings}" >&2
+    else
+        printf 'domain: the Kin was never seen in the world\n' >&2
+    fi
+fi
+
+printf 'domain: stopping the session\n' >&2
 
 # Idempotent, and it identifies the client by its recorded pid and command line
 # rather than by name, so a session that has already ended is reported as stopped

@@ -326,7 +326,12 @@
 
 - [ ] 注入 Core、Bridge/client、server 与连接阶段故障。
 - [ ] 对账未决 outbox，失效历史 generation/lease，防止危险动作重放。
-- [ ] 验证重复启动、同一 `kin_id` 重启与瞬时世界状态重验。
+- [x] **崩溃之后的重启：同一个 `kin_id` 再起一次，世界状态重新验证，而死掉那次让它做的事一件都不留。** 这一条按「两次运行」来验，因为数据卷跨容器保留，所以两次运行共用同一本账：
+  - **A（崩溃）**：Kin 走着的时候 `SIGKILL` 掉 Core（`MINEKIN_DOMAIN_KILL_CORE=1`）——套接字关闭，Bridge 以 `IPC_LOST` 松键并停掉客户端（上一批测过的那条路）；
+  - **B（重启）**：同一条命令再跑一次，不给任何输入（`MINEKIN_DOMAIN_STILL=1`）。**实测**：`connection_state: PLAYABLE` 且 `snapshots_admitted: 1`——一次**新的**快照被准入，世界状态是重新验证的而不是沿用的；`actions_applied: 0`（这次运行什么都没要求）；服务端自己报出 **10 次以上读数里位移 0.000 格**——上一批结束的时候 Kin 正在走，重启之后它一步都没动。`recovery` 块如实地说它这次**无事可做**：`{"invalidated": [], "waiting": [], "status": "reconciled"}`，因为崩溃发生在启动早已 settle 之后。
+  - **诚实记下没有覆盖的那一半**：真正会留下 pending outbox 的窗口是「记下意图、还没 settle 效果」那段（§8 说的那个窗口，也就是启动客户端的那一秒）。要打中它，harness 必须在**启动窗口里**杀掉 Core，而这个块按构造排在 playable 等待之后 ✗ 打不中。我先加了个 `KILL_CORE=early` 想做到，实测发现它**从来不可能早于 playable**——于是把它删掉了，而不是留一个名字在说谎的开关。那段窗口的 **pending 分支由 `tests/unit/test_recovery_service.py` 对着真账本覆盖**（`test_reconciliation_against_the_real_ledger`、`test_a_start_that_never_happened_is_settled_too`、`test_a_retryable_effect_stays_pending`…），**没有**真崩溃的端到端验证。
+- [x] **`MINEKIN_DOMAIN_STILL` 这条判据第一版是错的，而且错得很有意思**：它用「两次读数不同」判「Kin 动了」，于是第一次跑就报 `the Kin moved without being asked to`——而日志里那段位移是**被猪拱的**（世界里有召来的猪，它走到 Kin 身上把它推了 1.5 格）。**「被推」与「在走」是两件事**，一个是环境、一个是残留的输入：现在按**距离**判（首末读数的大圆距离 > 2 格才算走了——步行是 4.3 格/秒，两者差着数量级），并把测到的距离写进日志让读的人自己判断。同一条判据的其余部分也有同样的脆弱性（`settled` 用的是「最后两次完全相同」），只是还没被撞上。
+- [x] **一个反复咬人的工具问题，这次顺手治了根**：我用 heredoc 往 `domain.sh` 里写块时，`\n` 会**变成真的换行**，于是 `printf '...\n'` 落进文件是「字符串里带一个裸换行」——bash 照样能跑、`bash -n` 也照样通过，只是源码不可读，而且这类错误我这几批已经制造了十几次。现在文件里的这种残骸全部按一个明确的规则修好了（**当前导引号数不成对、且下一行以引号开头**时合并，并把换行写回 `\n` 转义；awk 那种跨行单引号串的下一行不是引号开头，所以不会被误伤），并且判定规则留在了这一条里——下次再犯，一眼能认出来。
 - [x] 不可变 evidence bundle 的封存与校验：manifest 与冻结形状一致，工件按 sha256 记账，bundle 摘要覆盖 manifest 字节；同一目录绝不覆盖旧 run（改正是新 run，不是编辑）；工件或 manifest 含凭据正文即整体拒封——不做就地脱敏，静默改写的日志比缺失的日志更糟；校验端重新对账摘要并检出缺失、篡改与未声明文件。工件名走白名单而非黑名单：Windows 上 `/x` 既非绝对路径、拼接又会替换 bundle 根。
 - [x] 报告诚实性规则：缺 expected/observed 对照时结果不得是 `PASS`（只能 `INCOMPLETE`），`PASS` 不得带 failures，`FAIL` 必须有 reason code，只有先后无法在时钟误差窗口内判定时才用 `AMBIGUOUS`。
 - [x] candidate→tested 晋级检查：case manifest 按冻结 schema 校验（含 `mandatory` 必须是布尔——真值字符串会把用例悄悄移出晋级门禁；`assertions` 不得为空），`case_version` 用用例定义自身的摘要，因此改过用例就必须产生新 run；只有 mandatory 用例全部拿到「已校验且结果为 `PASS` 且版本一致」的证据才可晋级，缺证据/未校验/非 PASS/版本不符分别给出稳定原因码；非 mandatory 用例不拦晋级。
