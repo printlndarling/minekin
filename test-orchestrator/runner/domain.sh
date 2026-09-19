@@ -20,6 +20,8 @@ player="${MINEKIN_USERNAME:-Kin}"
 summon="${MINEKIN_DOMAIN_SUMMON:-}"
 probe="${MINEKIN_DOMAIN_PROBE:-}"
 kill="${MINEKIN_DOMAIN_KILL:-}"
+silence="${MINEKIN_DOMAIN_SILENCE:-}"
+silenced=0
 runs=/data/server-runs
 
 # Empty means "the world is as vanilla generated it", which is what every run
@@ -129,6 +131,20 @@ read_position() {
     /opt/sqlite/bin/sqlite3 "${ledger}" 'select coalesce(max(position), 0) from event;' 2>/dev/null ||
         true
 }
+# The horizontal positions the server has reported, one per line, newest last.
+# Y is dropped deliberately: a Kin standing still at spawn can be reported twice
+# with different Y, so counting any two positions would accept a fall for a walk.
+#
+# A log with no positions in it yet is the normal state of a run whose Kin has
+# not been asked, not a failure: grep exits 1 for "no match" and `pipefail` is
+# set, so an unguarded pipeline here ends the run the moment the probe has
+# nothing to report.
+horizontal_positions() {
+    { grep -o 'has the following entity data: \[[^]]*\]' \
+        "${server_directory}/server.log" 2>/dev/null || true; } |
+        sed 's/.*\[//; s/\]//; s/d//g' |
+        awk -F', *' '{print $1","$3}'
+}
 baseline=$(read_position)
 baseline=${baseline:-0}
 playable=0
@@ -155,6 +171,32 @@ else
     printf 'domain: the session never became playable within %ss\n' "${seconds}" >&2
 fi
 
+# The Bridge's own watchdog, which is the guarantee that keys come up even when
+# nobody is left to ask. §12 puts it in the process holding the keys, and it needs
+# nobody's permission; the Core-side watchdog is the second layer. So the run
+# takes Core away — SIGSTOP rather than a kill, because the session has to survive
+# to be stopped afterwards — once the Kin is walking, and lets the walk wait below
+# decide whether the server saw it stop.
+if [[ -n "${silence}" ]]; then
+    deadline=$((SECONDS + seconds))
+    for _ in $(seq 1 "${seconds}"); do
+        kill -0 "${session_pid}" 2>/dev/null || break
+        [ "${SECONDS}" -lt "${deadline}" ] || break
+        if [ "$(horizontal_positions | sort -u | wc -l)" -ge 2 ]; then
+            # -f with the command, not the wrapper: xvfb-run is between this
+            # script and the CLI, and stopping the wrapper would stop nothing.
+            if pkill -STOP -f "minekin_core session start"; then
+                silenced=1
+                printf 'domain: Core has gone quiet; the Bridge should let go\n' >&2
+            else
+                printf 'domain: could not find Core to make it quiet\n' >&2
+            fi
+            break
+        fi
+        sleep 1
+    done
+fi
+
 # A run that is supposed to move the Kin waits for the movement itself, because
 # the acceptance for input is the server's own observation of it. What counts as
 # movement is *horizontal*: a Kin standing still at spawn can still be reported
@@ -176,19 +218,17 @@ if [[ -n "${probe}" ]]; then
     for _ in $(seq 1 "${seconds}"); do
         kill -0 "${session_pid}" 2>/dev/null || break
         [ "${SECONDS}" -lt "${deadline}" ] || break
-        # A log with no positions in it yet is the normal state of a run whose
-        # Kin has not been asked, not a failure: grep exits 1 for "no match" and
-        # `pipefail` is set, so an unguarded pipeline here ends the run the moment
-        # the probe has nothing to report.
-        positions=$( { grep -o 'has the following entity data: \[[^]]*\]' \
-            "${server_directory}/server.log" 2>/dev/null || true; } |
-            sed 's/.*\[//; s/\]//; s/d//g' |
-            awk -F', *' '{print $1","$3}')
+        positions=$(horizontal_positions)
         distinct=$(printf '%s\n' "${positions}" | sort -u | wc -l)
         settled=$(printf '%s\n' "${positions}" | tail -n 2 | sort -u | wc -l)
         if [ "${distinct}" -ge 2 ] && [ "${settled}" -eq 1 ]; then
-            walked=1
-            break
+            # When the run is testing the Bridge's own watchdog, a stop only
+            # counts if Core had actually gone quiet first: a Kin that stopped for
+            # any other reason would otherwise be read as a watchdog release.
+            if [ -z "${silence}" ] || [ "${silenced}" -eq 1 ]; then
+                walked=1
+                break
+            fi
         fi
         sleep 1
     done
@@ -197,6 +237,13 @@ if [[ -n "${probe}" ]]; then
     else
         printf 'domain: the server never saw the Kin walk and stop within %ss\n' "${seconds}" >&2
     fi
+fi
+
+# Core comes back before anything else is asked of it: a stopped CLI cannot notice
+# the client leaving, and `session stop` would have nothing that reads its answer.
+if [ "${silenced}" -eq 1 ]; then
+    pkill -CONT -f "minekin_core session start" || true
+    printf 'domain: Core is running again\n' >&2
 fi
 
 printf 'domain: stopping the session\n' >&2

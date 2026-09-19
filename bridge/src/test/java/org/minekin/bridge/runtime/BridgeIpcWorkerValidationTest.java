@@ -157,4 +157,15 @@ final class BridgeIpcWorkerValidationTest {
                 .setDeadlineMonotonicNs(deadlineMonotonicNs)
                 .build();
     }
+
+    @Test
+    void theKeysComeUpLongBeforeTheClientIsStopped() {
+        // The two responses to a silent Core are ordered, and the order is the
+        // whole point: at the same tolerance the release never happens, because
+        // stopping the client wins the race. Measured — two seconds of silence
+        // stopped the client and the contract's release never ran.
+        assertTrue(
+                BridgeIpcWorker.INPUT_MISSED_HEARTBEATS < BridgeIpcWorker.CORE_ABSENT_INTERVALS,
+                "the input watchdog must lapse strictly before the transport gives up");
+    }
 }

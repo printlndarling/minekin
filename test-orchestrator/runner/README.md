@@ -18,6 +18,9 @@ MINEKIN_SERVER_JAR=<path> MINEKIN_DOMAIN_SUMMON=minecraft:pig \
 MINEKIN_SERVER_JAR=<path> MINEKIN_DOMAIN_PROBE=Kin \
     bash test-orchestrator/runner/run.sh domain session start --profile <bundle> --server-profile <profile> \
         --hold-forward-seconds 8
+MINEKIN_SERVER_JAR=<path> MINEKIN_DOMAIN_PROBE=Kin MINEKIN_DOMAIN_SILENCE=1 \
+    bash test-orchestrator/runner/run.sh domain session start --profile <bundle> --server-profile <profile> \
+        --hold-forward-seconds 60
 bash test-orchestrator/runner/run.sh --shell 'glxinfo -B'   # or any other command
 ```
 
@@ -378,6 +381,42 @@ granted lease and reports once when its deadline passes, the runtime watches a
 caller-owned awaitable beside the client watcher, and Core withdraws the lease
 and sends `ReleaseAllInputs(TIMEOUT)` — the same call the wind-down makes, which
 is why the ledger record of it lives in that one path rather than in both.
+
+### When Core stops answering
+
+`MINEKIN_DOMAIN_SILENCE=1` takes Core out of the scheduler — SIGSTOP, not a kill,
+because the session has to survive to be stopped afterwards — once the Kin is
+walking and holding forward. The Bridge has to let go on its own: §12 puts that
+guarantee in the process holding the keys, and it needs nobody's permission.
+
+The first run of this did not verify the guarantee, it found a defect: **two
+seconds of silence stopped the client** rather than releasing the keys. The two
+responses to silence had the same tolerance — the input watchdog's three missed
+heartbeats and the transport read's three missed heartbeats are both 1.5 s — so
+stopping the client always won the race and the release never ran. Releasing is
+now the first response (three intervals) and giving up on the channel the last
+(60 intervals, 30 s by default), with a test pinning the order.
+
+```text
+$ MINEKIN_SERVER_JAR=… MINEKIN_DOMAIN_PROBE=Kin MINEKIN_DOMAIN_SILENCE=1 \
+      bash test-orchestrator/runner/run.sh domain \
+      session start --profile … --server-profile … --hold-forward-seconds 60
+domain: the session is playable
+domain: Core has gone quiet; the Bridge should let go
+domain: the server saw the Kin walk and then stop
+domain: Core is running again
+server   [18:31:11] Kin has the following entity data: [-0.82d, -60.0d, 19.99d]
+server   [18:31:16] Kin has the following entity data: [-0.82d, -60.0d, 19.99d]
+client   [18:31:02] bridge applied 0ba1ec4b…: holding [move.forward]
+client   [18:31:08] bridge released move.forward
+client   [18:31:08] bridge released input after TIMEOUT
+```
+
+No death, no disconnect, no `failing closed`: the Kin stopped because the keys
+came up and the session carried on. The two sides are independent — the server
+watches the displacement and the client reports its own hand — and Core says
+nothing throughout, which is the point: this run's ledger has no
+`InputReleased` at all, that being Core's event and Core being absent.
 
 ### When the keyboard stops being the world's
 

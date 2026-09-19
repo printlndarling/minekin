@@ -56,7 +56,23 @@ public final class BridgeIpcWorker implements AutoCloseable {
      * the player's controls. More than one, because a single missed interval is ordinary
      * scheduling jitter rather than a reason to stop walking.
      */
-    private static final int INPUT_MISSED_HEARTBEATS = 3;
+    static final int INPUT_MISSED_HEARTBEATS = 3;
+    /**
+     * How many heartbeat intervals of silence mean the channel is gone rather than
+     * its peer being slow.
+     *
+     * <p>Deliberately far longer than the input watchdog tolerates, and the reason
+     * is the one measurement that matters here: at the same tolerance the release
+     * never happens, because stopping the client wins the race. Measured on the
+     * controlled runner — two seconds of SIGSTOP on Core while the Kin walked
+     * produced `bridge is failing closed` and a stopped client, not the
+     * `bridge released 1 input(s) after TIMEOUT` the contract asks for.
+     *
+     * <p>Letting go of the keys is the first response to silence; stopping the
+     * client destroys a session that a returning Core may still own, so it waits
+     * for silence no scheduling hiccup could produce.
+     */
+    static final int CORE_ABSENT_INTERVALS = 60;
     private static final long MONOTONIC_ORIGIN = System.nanoTime();
 
     private final Path descriptorPath;
@@ -410,7 +426,10 @@ public final class BridgeIpcWorker implements AutoCloseable {
         input = created;
         return new HeartbeatState(
                 gate,
-                Duration.ofMillis(Math.multiplyExact(coreHello.getHeartbeatIntervalMs(), 3L)),
+                Duration.ofMillis(
+                        Math.multiplyExact(
+                                coreHello.getHeartbeatIntervalMs(),
+                                (long) CORE_ABSENT_INTERVALS)),
                 accepted.acceptedCapabilities());
     }
 

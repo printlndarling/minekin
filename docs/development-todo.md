@@ -275,7 +275,17 @@
   - **客户端**：`18:17:38 bridge applied dc2c8218…: holding [move.forward]` → `18:17:43 bridge released move.forward` → `18:17:43 bridge let go of its held input: the client is showing DeathScreen`——**同一秒**；
   - 之后服务端两次位置读数相同（`25.53`、`25.53`），而会话还活着。
   选死亡而不是别的界面，是因为**只有服务端能造出它**：它是唯一一个不需要碰客户端、就能让客户端弹出界面的办法，因此这一条的两侧证据互相独立。
-  **还缺的**：watchdog 那条路（Core 沉默够久而松键）在真客户端上仍没被触发过——域目前没有让 Core 在按键期间安静下来的开关；`jump`/`sneak`/`strafe` 也从来没被按下过。
+  **还缺的**：`jump`/`sneak`/`strafe` 从来没被按下过（见门禁那条）；watchdog 那条路见下一条。
+- [x] **契约说的「最终松键保障」，在真客户端上验过了——而且它本来根本没机会发生。** 域的开关是 `MINEKIN_DOMAIN_SILENCE=1`：Kin 走到一半时用 **SIGSTOP**（不是 kill，因为会话之后还要能被停掉）把 Core 从调度里拿掉。第一次跑的结果不是"没验出来"，而是**验出了一个缺陷**：
+  ```
+  [minekin-bridge-ipc/ERROR] bridge is failing closed; the client will be stopped by its next tick
+  [Render thread/INFO]  bridge released 1 input(s) after BRIDGE_FAULT
+  ```
+  也就是说 **Core 安静两秒，Bridge 直接把客户端停掉**，而契约要的「超时 → 松键、客户端继续活着」从未发生。原因是两个阈值**撞在了一起**：输入看门狗的容差是 `INPUT_MISSED_HEARTBEATS=3 × heartbeat_interval`（默认 1.5 秒），而传输层的 read 超时原来是 `heartbeat_interval × 3`——**同一个 1.5 秒**，于是"停客户端"和"松键"同时到期，赢的永远是前者。现在两者显式分开：松键仍是 3 个间隔，传输层判死等 `CORE_ABSENT_INTERVALS=60` 个间隔（默认 30 秒），并有一条用例钉住这个**次序**（`INPUT_MISSED_HEARTBEATS < CORE_ABSENT_INTERVALS`）——因为同容差下松键永远不发生，而这一点只有实测才看得见。理由写在常量旁边：**松开按键是对沉默的第一反应，停掉客户端则会毁掉一个返回的 Core 仍可能拥有的会话**。
+  **修完后的实测**（同一轮命令）：
+  - **服务端自己说**：`18:31:06 Z=11.97`、`18:31:11 Z=19.99`、`18:31:16 Z=19.99`——走了 25 格然后**停住**，而且**没有死亡、没有断线**，会话还活着；
+  - **客户端**：`18:31:02 bridge applied 0ba1ec4b…: holding [move.forward]` → `18:31:08 bridge released move.forward` + `bridge released input after TIMEOUT`，**没有 `failing closed`**，客户端继续运行；
+  - 这一条的两侧证据是独立的：**服务端看的是位移，客户端看的是它自己松了手**，而 Core 全程没有说话（账本里这次运行**没有** `InputReleased`——那是 Core 的事件，而 Core 当时不在）。
 - [x] **`getClass().getSimpleName()` 在真客户端上是 `class_418`**：这是这一批顺带挖出来的事实，因为它同时打在两处——日志里的界面标签，和首快照的 `self.current_screen`。生产客户端的 Minecraft 类在运行时是 **intermediary** 名，所以「那个界面的类名」是 `class_418`（对照 Yarn 映射：`DeathScreen` 的 intermediary 就是 `class_418`，一字不差）——一个每个版本都会变的令牌，读日志的人拿它没办法。日志这一侧现在改成 **Bridge 自己认得出来的标签**（`DeathScreen`/`GameMenuScreen`/`TitleScreen`/`ConnectScreen`，其余一律 `SomeScreen`）：只说自己**能证明**的那一点，而且它只是本地日志、不是产品事件。**`self.current_screen` 仍原样带着类名**——它是产品事件，改它要么定一份冻结词表、要么用 Fabric 的 `MappingResolver`（而后者在生产环境里未必解析得到 named 名），所以这一条留成待办，而不是顺手改掉。
 - [x] 松键的**判定**（Core 侧）：八种失效原因（显式、IPC 断、客户端死亡、GUI 冲突、超时、generation 改变、离开 PLAYABLE、被抢占）走同一条 `withdraw`，结果都是「没有任何 lease 留下」，因此都意味着松全部按键；重复 withdraw 无害，在本来就没有 lease 时 withdraw 依然报出「需要松键」——Bridge 必须照做，而不是因为 Core 以为自己没持有就跳过。有一条测试遍历全部八种原因逐一验证这一不变量。
 - [x] **Bridge 侧输入的第一层：所有权账本 + 本地 watchdog（纯逻辑，接线是下一步）**。契约 §12 把最后一道保障放在 Bridge（「Bridge 本地 watchdog 才是最终松键保障」），触发面是断 IPC、generation 改变、死亡、GUI 冲突、超时、Bridge fault、离开 PLAYABLE，并且明确按下的键状态是**必须失效的瞬时状态**、不持久化。新增 `bridge/.../input/`：`InputOwnership`（这一代 Bridge 按住了什么，全部操作幂等；`releaseAll` **报告**释放了哪些而不是只清空——它持有的东西正是客户端必须被告知松开的东西）；`InputWatchdog`（**被第一条消息武装**而不是被构造武装：启动途中就死掉的 Core 一条消息都不发，构造即计时的看门狗永远等不到触发；乱序到达的旧时间戳既不算心跳也不延期，与 Core 侧同一口径；容差边界取严格大于，恰好容差内的沉默仍在容差内）；`KeySink`（键真正下落的地方；与 Minecraft 打交道的实现自己负责切到客户端线程，因为调用它的可能正是「别的东西卡住时才会运行」的看门狗）；以及把三者合起来的 `BridgeInputController`：移动按**与已持有状态的差**施加（重复命令不再按键，丢掉某个轴只松那个轴——所以「全部松开」松的是账本而不是最后一条命令），拒绝过期 generation、过期 deadline、非有限或越界的轴；`tick` 在 watchdog 到期时松开一次且只报一次，`beginGeneration` 不继承上一代的任何按键。**一个刻意的取舍**：被拒绝的命令**不改变**已持有的状态——迟到的命令不是「松开之前那条」的指令，撤回是 Core 的决定（有用例专钉此点）。29 条 Java 测试全过（容器内 `./gradlew build`）。新增类会改变 jar，因此按流程重录 pin（`0fc598f6…`、1,227,837、源码树 `87605542…`），九道门全过。**接线（worker 每条消息喂 watchdog、断连即松、Minecraft 的 KeySink、`look`/短时 `move` 的实际施加）尚未完成**，所以本条目前只有测试在跑这些类——按本仓库先例明写在这里，而不当成已经能用。
