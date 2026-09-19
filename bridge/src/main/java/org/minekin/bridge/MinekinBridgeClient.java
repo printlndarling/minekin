@@ -93,6 +93,18 @@ public final class MinekinBridgeClient implements ClientModInitializer {
                                 created,
                                 BridgeInputController.ReleaseReason.BRIDGE_FAULT);
                     }
+                    // A connection the client gave up on, classified on the thread
+                    // that caught it. Nothing else fires for one: the failure happens
+                    // before a login handler exists.
+                    try {
+                        controller.reportPendingConnectFailure();
+                    } catch (RuntimeException error) {
+                        stopSafely(
+                                client,
+                                controller,
+                                created,
+                                BridgeInputController.ReleaseReason.BRIDGE_FAULT);
+                    }
                     // The first snapshot's clock, and it is a tick rather than the join
                     // event on purpose: the join is reported before the server's world
                     // has reached the client, so the snapshot is taken on the first tick

@@ -539,12 +539,40 @@ is how a refused connection is produced without a second fixture: the target
 is wrong at the moment the client dials it, and everything else about the run
 is unchanged.
 
-This is the one failure the Bridge still says nothing about. A refusal, an
-unknown host and a connect timeout all happen before a login handler exists,
-so every Fabric event the Bridge listens to stays silent and the ledger ends
-at the phase before negotiation. The obvious hook — the screen vanilla shows
-for it — was tried twice and does not work; `docs/development-todo.md` records
-both attempts and what the second one measured.
+This is the one failure the Bridge used to say nothing about, and no longer does.
+A refusal, an unknown host and a connect timeout all happen before a login handler
+exists, so every Fabric event the Bridge listens to stays silent for them; the
+ledger used to end at the phase before negotiation, which reads as a run that went
+nowhere rather than one whose target was not listening.
+
+The hook is on the two `MinecraftClient.execute` calls inside the connector's
+`run` — one is the path taken when the address does not resolve, the other is the
+catch, where the exception is still in hand:
+
+```text
+client   [Server Connector #1] bridge observed a failed connection: finishConnect(..) failed:
+                              Connection refused: localhost/127.0.0.1:25565 (ADDRESS_INVALID)
+client   [Render thread]      bridge classified the connection failure as ADDRESS_INVALID
+ledger   SessionInterrupted{"phase":"FAILED","reason":"ADMISSION_FAILURE_REASON_ADDRESS_INVALID"}
+```
+
+The category comes from the exception's type, which is exact for all three: the
+netty exception a refusal carries is an `AnnotatedConnectException`, and that is a
+`ConnectException`. Classifying by the sentence instead would be classifying by a
+translation.
+
+Four earlier attempts at this are in `docs/development-todo.md`, and they are worth
+reading before touching this code: one reported a failed connection for a login
+that then succeeded, one never fired, one did not compile, and one took the client
+down at class transform. The successful hook exists because those four said where
+not to look.
+
+**A refused connection is the only one of the three this domain can produce.** DNS
+failure needs a name that does not resolve, and the frozen Server Profile schema
+admits only `127.0.0.1` and `::1`; a timeout needs something that accepts the
+connection and never answers, and a loopback refusal is instant. Both paths are
+implemented and their mapping is unit-tested, but neither has been seen in a run,
+and that is recorded as such rather than counted as verified.
 
 ### When the server ends the session
 

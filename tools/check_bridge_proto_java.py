@@ -62,6 +62,7 @@ public final class ClientAdmissionController {
     public void handle(MinecraftClient client, BridgeIpcWorker.ClientMessage message) {}
     public void safeStop(MinecraftClient client) {}
     public void collectSnapshotWhenPlayable(MinecraftClient client) {}
+    public void reportPendingConnectFailure() {}
     public void loginNegotiating() {}
     public void playInit() {}
     public void joinSeen() {}

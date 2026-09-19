@@ -268,8 +268,39 @@ public final class ClientAdmissionController {
     }
 
     /**
-     * The play session ended.
+     * A connection the client could not make, between the thread that caught it and
+     * the tick that reports it.
      *
+     * <p>The connector thread has the exception and the client thread owns every
+     * report, so the reason travels between them the way a disconnect reason does.
+     * Null means nothing is waiting.
+     */
+    private static volatile AdmissionFailureReason pendingConnectFailure;
+
+    public static void rememberConnectFailure(AdmissionFailureReason reason) {
+        pendingConnectFailure = reason;
+    }
+
+    /**
+     * Report a connection the client gave up on, if one is waiting.
+     *
+     * <p>Called from the client tick, because nothing else fires: the failure
+     * happens before a login handler exists, so the events the other reports come
+     * from never happen at all.
+     */
+    public void reportPendingConnectFailure() {
+        AdmissionFailureReason reason = pendingConnectFailure;
+        pendingConnectFailure = null;
+        if (reason == null) {
+            return;
+        }
+        LOGGER.info("bridge classified the connection failure as {}", reason);
+        report(ConnectionPhase.CONNECTION_PHASE_FAILED, reason, true);
+    }
+
+    /**
+     * The play session ended.
+             *
      * <p>Two different events look identical from here, and what tells them
      * apart is whether the server said anything. A session that simply ends is
      * DISCONNECTED and carries no reason, which is the contract's rule. A
