@@ -18,6 +18,7 @@ set -euo pipefail
 seconds="${MINEKIN_DOMAIN_SECONDS:-240}"
 player="${MINEKIN_USERNAME:-Kin}"
 summon="${MINEKIN_DOMAIN_SUMMON:-}"
+probe="${MINEKIN_DOMAIN_PROBE:-}"
 runs=/data/server-runs
 
 # Empty means "the world is as vanilla generated it", which is what every run
@@ -26,6 +27,14 @@ runs=/data/server-runs
 summon_args=()
 if [[ -n "${summon}" ]]; then
     summon_args=(--summon "${summon}")
+fi
+
+# A run that is supposed to move the Kin has to be able to ask the server where
+# the Kin is: the server does not log where anyone walks, and the acceptance for
+# input is the server's own observation of the displacement.
+probe_args=()
+if [[ -n "${probe}" ]]; then
+    probe_args=(--probe-player "${probe}")
 fi
 
 # One fresh directory per run, numbered past everything already there: a run
@@ -43,6 +52,7 @@ python /src/tools/run_controlled_server.py \
     --accept-eula \
     --allow-player "${player}" \
     "${summon_args[@]}" \
+    "${probe_args[@]}" \
     --keep-running >/tmp/domain-server.log 2>&1 &
 server_pid=$!
 
@@ -96,35 +106,84 @@ session_pid=$!
 set -e
 
 # The wait is for the join, not for a duration: a clock long enough for this
-# machine is a clock that is wrong on a slower one. The bound only decides how
-# long a run that never joins is given before it is stopped anyway, and a run
-# stopped before it joins still ends with a document.
+# machine is a clock that is wrong on a slower one.
 #
-# `last_event_type` alone is not this run's playable, it is the Kin's: the ledger
-# is one per Kin and every domain run before this one ended at
-# PlayableEstablished, so the question is already true when the session starts and
-# waits for nothing. Measured — the first version of this stopped the session a
-# second in, before the client had been recorded, and `session stop` had nothing
-# to terminate. What makes it this run's is the ledger having *grown* since before
-# the session started.
-read_events() {
-    grep -o '"events_recorded": [0-9]*' | grep -o '[0-9]*' | head -1
+# Asked of the ledger rather than of `session status`, and asked as "was a
+# playable recorded after this run started" rather than "is it the last thing
+# recorded". The status projection only shows the last event type, and once a
+# run holds the input, `InputLeaseGranted` follows `PlayableEstablished` within
+# milliseconds — so the last-event test is true for a window too small to poll,
+# and the first version of this spent its whole budget waiting for a state the
+# ledger had already recorded. Measured.
+ledger=$(ls -1 /data/kin/*/kin.sqlite3 2>/dev/null | head -1)
+read_position() {
+    /opt/sqlite/bin/sqlite3 "${ledger}" 'select coalesce(max(position), 0) from event;' 2>/dev/null ||
+        true
 }
-baseline=$(python -m minekin_core session status 2>/dev/null | { read_events || true; } || true)
+baseline=$(read_position)
 baseline=${baseline:-0}
+playable=0
 deadline=$((SECONDS + seconds))
 for _ in $(seq 1 "${seconds}"); do
     kill -0 "${session_pid}" 2>/dev/null || break
     [ "${SECONDS}" -lt "${deadline}" ] || break
-    status=$(python -m minekin_core session status 2>/dev/null || true)
-    recorded=$(printf '%s' "$status" | { read_events || true; } || true)
-    if [ "${recorded:-0}" -gt "${baseline}" ] &&
-        printf '%s' "$status" | grep -q '"last_event_type": "PlayableEstablished"'; then
-        printf 'domain: the session is playable; stopping it\n' >&2
+    recorded=$(/opt/sqlite/bin/sqlite3 "${ledger}" \
+        "select 1 from event where position > ${baseline} and event_type='PlayableEstablished' limit 1;" \
+        2>/dev/null || true)
+    if [ -n "${recorded}" ]; then
+        playable=1
         break
     fi
     sleep 1
 done
+# Said out loud either way. A bound that expires quietly turns "the Kin never
+# joined" into "the harness moved on", and the two need different answers: this
+# one has already done it once, on a run whose client took three minutes to
+# boot because the asset materialisation was cold.
+if [ "${playable}" -eq 1 ]; then
+    printf 'domain: the session is playable\n' >&2
+else
+    printf 'domain: the session never became playable within %ss\n' "${seconds}" >&2
+fi
+
+# A run that is supposed to move the Kin waits for the movement itself, because
+# the acceptance for input is the server's own observation of it. What counts as
+# movement is *horizontal*: a Kin standing still at spawn can still be reported
+# twice with different Y, so counting any two positions would accept a fall at
+# spawn as a walk.
+#
+# Its own budget rather than what is left of the join's: a slow boot must not
+# spend the walk's allowance, which is exactly how the first version of this
+# reported a Kin that had walked seventeen blocks as one that never moved.
+if [[ -n "${probe}" ]]; then
+    walked=0
+    deadline=$((SECONDS + seconds))
+    for _ in $(seq 1 "${seconds}"); do
+        kill -0 "${session_pid}" 2>/dev/null || break
+        [ "${SECONDS}" -lt "${deadline}" ] || break
+        # A log with no positions in it yet is the normal state of a run whose
+        # Kin has not been asked, not a failure: grep exits 1 for "no match" and
+        # `pipefail` is set, so an unguarded pipeline here ends the run the moment
+        # the probe has nothing to report.
+        seen=$( { grep -o 'has the following entity data: \[[^]]*\]' \
+            "${server_directory}/server.log" 2>/dev/null || true; } |
+            sed 's/.*\[//; s/\]//; s/d//g' |
+            awk -F', *' '{print $1","$3}' | sort -u | wc -l)
+        seen=${seen:-0}
+        if [ "${seen}" -ge 2 ]; then
+            walked=1
+            break
+        fi
+        sleep 1
+    done
+    if [ "${walked}" -eq 1 ]; then
+        printf 'domain: the server has seen the Kin in two places\n' >&2
+    else
+        printf 'domain: the server never saw the Kin in two places within %ss\n' "${seconds}" >&2
+    fi
+fi
+
+printf 'domain: stopping the session\n' >&2
 
 # Idempotent, and it identifies the client by its recorded pid and command line
 # rather than by name, so a session that has already ended is reported as stopped

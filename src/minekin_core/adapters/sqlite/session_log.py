@@ -49,6 +49,8 @@ PROCESS_FAILED = "SessionProcessFailed"
 HELLO_ACCEPTED = "BridgeHelloAccepted"
 JOIN_OBSERVED = "JoinObserved"
 PLAYABLE_ESTABLISHED = "PlayableEstablished"
+INPUT_LEASE_GRANTED = "InputLeaseGranted"
+INPUT_RELEASED = "InputReleased"
 SESSION_INTERRUPTED = "SessionInterrupted"
 CLIENT_EXITED = "ClientProcessExited"
 
@@ -59,6 +61,8 @@ SESSION_EVENT_TYPES = frozenset(
         HELLO_ACCEPTED,
         JOIN_OBSERVED,
         PLAYABLE_ESTABLISHED,
+        INPUT_LEASE_GRANTED,
+        INPUT_RELEASED,
         SESSION_INTERRUPTED,
         CLIENT_EXITED,
     }

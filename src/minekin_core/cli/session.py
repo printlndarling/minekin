@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, cast
 
@@ -20,6 +20,9 @@ from minekin_core.adapters.bridge.bootstrap import bridge_session_for, descripto
 from minekin_core.adapters.bridge.ipc import (
     ADMISSION_CAPABILITY,
     CONNECT_WORLD_TYPE,
+    MOVE_CAPABILITY,
+    MOVE_INPUT_TYPE,
+    RELEASE_ALL_INPUTS_TYPE,
     BridgeIpcHost,
     BridgeSession,
     monotonic_ns,
@@ -56,6 +59,8 @@ from minekin_core.adapters.sqlite.identity_store import read_identity_root
 from minekin_core.adapters.sqlite.session_log import (
     CLIENT_EXITED,
     HELLO_ACCEPTED,
+    INPUT_LEASE_GRANTED,
+    INPUT_RELEASED,
     JOIN_OBSERVED,
     PLAYABLE_ESTABLISHED,
     SESSION_INTERRUPTED,
@@ -70,6 +75,13 @@ from minekin_core.domain.connection import ConnectionGenerations, ConnectionStat
 from minekin_core.domain.errors import ErrorCategory, MinekinError, Retryability
 from minekin_core.domain.events import EventSource, TrustClass
 from minekin_core.domain.ids import ClientInstanceId, KinId, OpaqueId, RunId
+from minekin_core.domain.input_control import (
+    InputArbiter,
+    InputLease,
+    InputPriority,
+    InputRequest,
+    ReleaseReason,
+)
 from minekin_core.domain.recovery import START_CLIENT
 from minekin_core.domain.session_material import RecordedSessionMaterial
 from minekin_core.domain.session_state import SessionState, SessionStateMachine
@@ -585,6 +597,26 @@ async def launch_prepared_async(prepared: PreparedSession) -> SessionLaunch:
     )
 
 
+# The bound on one run's authorisation to walk. A lease deadline is not a
+# duration to walk for — it is the moment the authorisation lapses, so a
+# session that outlives it stops being allowed to move rather than walking
+# on an authority nobody still holds.
+_HOLD_FORWARD_LEASE_S = 120.0
+
+
+@dataclass
+class HoldForward:
+    """The one movement a run may issue, and the lease that authorises it."""
+
+    arbiter: InputArbiter | None = None
+    lease: InputLease | None = None
+    action_id: str = ""
+    # The arbiter's own words for why no lease was granted, when it refused.
+    # Kept rather than dropped: a run that was asked to walk and did not is a
+    # fact about the run, and the reason is the only part of it worth having.
+    refusal: str = ""
+
+
 async def start_and_supervise(
     *,
     root: Path,
@@ -602,6 +634,7 @@ async def start_and_supervise(
     exit_poll_s: float = DEFAULT_EXIT_POLL_S,
     server_profile: Path | None = None,
     connection_timeout: float = DEFAULT_CONNECTION_TIMEOUT_S,
+    hold_forward: bool = False,
 ) -> tuple[SessionLaunch, SessionRun]:
     """Start a managed session with a live Bridge and stay with it until it ends.
 
@@ -644,12 +677,24 @@ async def start_and_supervise(
     )
     if prepared.bridge_session is None or prepared.bridge_descriptor is None:
         raise _reject("the session was prepared without a Bridge session to host")
+    # Bound to a local for the closures below: the guard above has established it,
+    # and a closure reading the attribute again is a read a checker cannot narrow.
+    bridge_session = prepared.bridge_session
     if target is not None and ADMISSION_CAPABILITY not in prepared.bridge_session.capabilities:
         # Refused before the client starts, because a session that cannot be
         # asked to connect is not the session the operator asked for.
         raise _reject(
             "this Bridge session was negotiated without "
             f"{ADMISSION_CAPABILITY}, so no connection can be requested"
+        )
+    if hold_forward and server_profile is None:
+        # A hold with no world to walk in would be a lever that does nothing: the
+        # operator asked for something this run cannot express.
+        raise _reject("--hold-forward needs --server-profile: there is no world to walk in")
+    if hold_forward and MOVE_CAPABILITY not in prepared.bridge_session.capabilities:
+        raise _reject(
+            "this Bridge session was negotiated without "
+            f"{MOVE_CAPABILITY}, so the client cannot be steered"
         )
 
     session.advance(SessionState.STARTING_CLIENT)
@@ -680,6 +725,11 @@ async def start_and_supervise(
             trust_class=trust_class,
         )
 
+    # A run that was asked to walk gets exactly one input owner. The lease is the
+    # authorisation — generation, capability, deadline — and withdrawing it is what
+    # tells the Bridge to lift the key; nothing else in the run touches input.
+    movement = HoldForward() if hold_forward else None
+
     async def on_handshake() -> None:
         # Core verified the proof, so this is Core's conclusion rather than the
         # Bridge's word.
@@ -698,6 +748,10 @@ async def start_and_supervise(
         if target is None:
             return
         attempt = connections.begin(OpaqueId(target.profile_id), target.revision)
+        if movement is not None:
+            # Bound to the generation the command goes out under, because that is
+            # the generation the Bridge gates the movement against.
+            movement.arbiter = InputArbiter(attempt.generation)
         command = connect_world_command(
             target,
             request_id=OpaqueId.new().value,
@@ -708,6 +762,102 @@ async def start_and_supervise(
             ).monotonic_ns,
         )
         await host.send_control(CONNECT_WORLD_TYPE, command)
+
+    async def on_playable() -> None:
+        """Hold the forward key, under a lease, once the session may be driven."""
+
+        if movement is None or movement.arbiter is None:
+            return
+        # The arbiter refuses to authorise anything for a session that is not
+        # playable, and this is the moment that becomes true. Nothing says it on
+        # the arbiter's behalf: it is a decision this run makes, and Core is the
+        # only side that knows the snapshot was admitted.
+        movement.arbiter.set_playable(True)
+        issued = monotonic_ns()
+        deadline = issued + int(_HOLD_FORWARD_LEASE_S * 1_000_000_000)
+        lease = InputLease(
+            lease_id=OpaqueId.new().value,
+            generation=movement.arbiter.generation,
+            client_instance_id=bridge_session.client_instance_id,
+            issued_monotonic_ns=issued,
+            deadline_monotonic_ns=deadline,
+            priority=InputPriority.NORMAL,
+            capabilities=frozenset({MOVE_CAPABILITY}),
+        )
+        granted = movement.arbiter.grant(lease)
+        if not granted.accepted:
+            movement.refusal = ",".join(item.value for item in granted.refusals)
+            return
+        authorised = movement.arbiter.decide(
+            InputRequest(
+                lease_id=lease.lease_id,
+                generation=lease.generation,
+                capability=MOVE_CAPABILITY,
+                deadline_monotonic_ns=deadline,
+            ),
+            now=MonotonicInstant(issued),
+        )
+        if not authorised.accepted:
+            movement.refusal = ",".join(item.value for item in authorised.refusals)
+            return
+        movement.action_id = OpaqueId.new().value
+        try:
+            await host.send_control(
+                MOVE_INPUT_TYPE,
+                control_pb2.MoveInput(
+                    action_id=movement.action_id,
+                    lease_id=lease.lease_id,
+                    generation=int(lease.generation),
+                    forward=1.0,
+                    deadline_monotonic_ns=deadline,
+                ),
+            )
+        except (OSError, RuntimeError):
+            # The transport went while the session was being made playable. The run
+            # is over by another road, and a ledger entry here would record a grant
+            # that never reached the client.
+            movement.refusal = "CONTROL_CHANNEL_LOST"
+            return
+        await record(
+            INPUT_LEASE_GRANTED,
+            {
+                "capability": MOVE_CAPABILITY,
+                "lease_id": lease.lease_id,
+                "action_id": movement.action_id,
+                "deadline_monotonic_ns": deadline,
+                "priority": InputPriority.NORMAL.name,
+            },
+            source=EventSource.CORE,
+            trust_class=TrustClass.CORE,
+        )
+        movement.lease = lease
+
+    async def on_wind_down() -> None:
+        """Take the input back, whatever ended the run.
+
+        Unconditional for the reason the arbiter documents: a Bridge that holds
+        nothing is not evidence that the client is holding nothing, so the release
+        goes out even when Core believes it granted no lease. The reason code is
+        Core's own withdrawal — a session ending is not a fault in the input.
+        """
+
+        if movement is None or movement.arbiter is None:
+            return
+        outcome = movement.arbiter.withdraw(ReleaseReason.EXPLICIT)
+        await host.send_control(
+            RELEASE_ALL_INPUTS_TYPE,
+            control_pb2.ReleaseAllInputs(
+                action_id=OpaqueId.new().value,
+                generation=int(outcome.generation),
+                reason_code=ReleaseReason.EXPLICIT.value,
+            ),
+        )
+        await record(
+            INPUT_RELEASED,
+            outcome.as_document(),
+            source=EventSource.CORE,
+            trust_class=TrustClass.CORE,
+        )
 
     async def on_connection(state: ConnectionState, reason: str) -> None:
         recorded = _CONNECTION_EVENTS.get(state)
@@ -742,8 +892,16 @@ async def start_and_supervise(
         on_handshake=on_handshake,
         on_ready=on_ready,
         on_connection=on_connection,
+        on_playable=on_playable,
+        on_wind_down=on_wind_down,
         recorded=prepared.recorded,
     )
+    if movement is not None and movement.refusal:
+        # Only this caller knows why the input was never taken: the runtime sees
+        # commands and answers, not the arbiter's reasons. Recorded on the run
+        # rather than left in a hook, so "the Kin was told to walk and could not"
+        # survives even when there was nothing to release.
+        run = replace(run, input_refusal=movement.refusal)
     # How the run ended is Core's own observation, whatever the Bridge reported
     # along the way.
     await record(

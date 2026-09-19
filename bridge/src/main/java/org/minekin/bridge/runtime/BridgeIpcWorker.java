@@ -1,6 +1,8 @@
 package org.minekin.bridge.runtime;
 
 import com.google.protobuf.ByteString;
+import io.minekin.protocol.v1.ActionResult;
+import io.minekin.protocol.v1.ActionStatus;
 import io.minekin.protocol.v1.AdmissionFailureReason;
 import io.minekin.protocol.v1.BridgeBootstrapDescriptor;
 import io.minekin.protocol.v1.CancelConnection;
@@ -12,6 +14,7 @@ import io.minekin.protocol.v1.CoreHello;
 import io.minekin.protocol.v1.Envelope;
 import io.minekin.protocol.v1.Heartbeat;
 import io.minekin.protocol.v1.InitialObservation;
+import io.minekin.protocol.v1.MoveInput;
 import io.minekin.protocol.v1.ProtocolVersion;
 import io.minekin.protocol.v1.ReleaseAllInputs;
 import java.io.IOException;
@@ -45,6 +48,8 @@ public final class BridgeIpcWorker implements AutoCloseable {
     public static final String CONNECTION_LIFECYCLE_TYPE = "minekin.v1.ConnectionLifecycle";
     public static final String RELEASE_ALL_INPUTS_TYPE = "minekin.v1.ReleaseAllInputs";
     public static final String INITIAL_OBSERVATION_TYPE = "minekin.v1.InitialObservation";
+    public static final String MOVE_INPUT_TYPE = "minekin.v1.MoveInput";
+    public static final String ACTION_RESULT_TYPE = "minekin.v1.ActionResult";
     private static final Logger LOGGER = LoggerFactory.getLogger("minekin-bridge");
     /**
      * How many heartbeat intervals of silence the Bridge tolerates before it lets go of
@@ -131,10 +136,56 @@ public final class BridgeIpcWorker implements AutoCloseable {
                     release.value().getReasonCode());
             return true;
         }
+        if (message instanceof MoveCommand move) {
+            applyMove(move.value());
+            return true;
+        }
         if (message == Notice.SAFE_STOP) {
             releaseInputs(BridgeInputController.ReleaseReason.BRIDGE_FAULT, "");
         }
         return false;
+    }
+
+    /**
+     * Presses and lifts the keys the command asks for, and answers for it.
+     *
+     * <p>Every command gets an answer, refused ones included. A Kin that was told
+     * to walk and did not is a fact Core has to be able to record, and the
+     * alternative — silence — reads exactly like a command that is still being
+     * carried out.
+     */
+    private void applyMove(MoveInput command) {
+        BridgeInputController controller = input;
+        if (controller == null) {
+            return;
+        }
+        BridgeInputController.Outcome outcome = controller.move(
+                monotonicNow(),
+                command.getDeadlineMonotonicNs(),
+                command.getGeneration(),
+                command.getForward(),
+                command.getStrafe(),
+                command.getJump(),
+                command.getSneak());
+        if (outcome.applied()) {
+            LOGGER.info("bridge applied {}: holding {}", command.getActionId(), outcome.held());
+        } else {
+            LOGGER.warn(
+                    "bridge refused {}: {} (holding {})",
+                    command.getActionId(),
+                    outcome.refusalCode(),
+                    outcome.held());
+        }
+        publishActionResult(
+                ActionResult.newBuilder()
+                        .setActionId(command.getActionId())
+                        .setGeneration(command.getGeneration())
+                        .setStatus(
+                                outcome.applied()
+                                        ? ActionStatus.ACTION_STATUS_ACCEPTED
+                                        : ActionStatus.ACTION_STATUS_FAILED)
+                        .setReasonCode(outcome.refusalCode())
+                        .build());
     }
 
     /** Client-thread shutdown/error hook; logs only after the bindings changed. */
@@ -203,6 +254,28 @@ public final class BridgeIpcWorker implements AutoCloseable {
             LOGGER.error(
                     "bridge event outbox is full ({} held); dropping the first snapshot",
                     eventOutbox.size());
+            failClosed();
+            return false;
+        }
+        return true;
+    }
+
+    /**
+     * The answer to one input command, which is must-deliver for the same reason
+     * a phase is: a command with no answer is indistinguishable from one still
+     * being carried out, and the difference matters most exactly when the answer
+     * is a refusal.
+     */
+    public boolean publishActionResult(ActionResult result) {
+        java.util.Objects.requireNonNull(result, "result");
+        if (stopping.get() || !started.get() || event == null) {
+            return false;
+        }
+        if (!eventOutbox.offer(new EventMessage(ACTION_RESULT_TYPE, result))) {
+            LOGGER.error(
+                    "bridge event outbox is full ({} held); dropping the result for {}",
+                    eventOutbox.size(),
+                    result.getActionId());
             failClosed();
             return false;
         }
@@ -290,7 +363,8 @@ public final class BridgeIpcWorker implements AutoCloseable {
                         HEARTBEAT_TYPE,
                         CONNECT_WORLD_TYPE,
                         CANCEL_CONNECTION_TYPE,
-                        RELEASE_ALL_INPUTS_TYPE));
+                        RELEASE_ALL_INPUTS_TYPE,
+                        MOVE_INPUT_TYPE));
         Envelope reply = control.read(handshakeTimeout);
         gate.validate(reply);
         if (!CORE_HELLO_TYPE.equals(reply.getMessageType())) {
@@ -390,6 +464,20 @@ public final class BridgeIpcWorker implements AutoCloseable {
                 // generation mismatch would only preserve unsafe state.
                 if (!clientInbox.offer(new ReleaseCommand(command))) {
                     throw new IOException("client inbox is full for ReleaseAllInputs");
+                }
+            } else if (MOVE_INPUT_TYPE.equals(envelope.getMessageType())) {
+                MoveInput command = onLocalClock(
+                        MoveInput.parseFrom(envelope.getPayload()), envelope.getMonotonicNs());
+                validateMove(command);
+                if (!state.capabilities().contains(HandshakeGate.MOVE_CAPABILITY)) {
+                    // A command the negotiation never covered. Refused here rather
+                    // than dropped: a Core that believes it can move a client it
+                    // never agreed to move has a bug, and this is where it shows.
+                    throw new IOException("MoveInput arrived without the movement capability");
+                }
+                observeCoreMessage();
+                if (!clientInbox.offer(new MoveCommand(command))) {
+                    throw new IOException("client inbox is full for MoveInput");
                 }
             } else if (CANCEL_CONNECTION_TYPE.equals(envelope.getMessageType())) {
                 CancelConnection command = CancelConnection.parseFrom(envelope.getPayload());
@@ -524,6 +612,66 @@ public final class BridgeIpcWorker implements AutoCloseable {
         }
     }
 
+    /**
+     * Restates a movement command's deadline in this JVM's clock, or in the past.
+     *
+     * <p>The deadline and the envelope's own timestamp come from the same clock —
+     * Core's — so their difference is a duration, and a duration is the only thing
+     * two processes without a shared origin can agree on. Comparing Core's raw
+     * deadline against {@code System.nanoTime()} would be comparing two unrelated
+     * numbers and would pass or fail by accident; the same reasoning already
+     * governs the connect deadline.
+     *
+     * <p>A command whose deadline has already passed is not an error: it is a
+     * command Core stopped waiting for, and the controller refuses exactly that
+     * with a code in the result Core reads. So the deadline is moved into the past
+     * rather than thrown on, unlike a connect — starting a connection nobody waits
+     * for is unsafe, while not pressing a key is the safe answer to a late
+     * command.
+     */
+    static MoveInput onLocalClock(MoveInput command, long receivedAtNanos) {
+        if (command.getDeadlineMonotonicNs() == 0) {
+            return command.toBuilder().setDeadlineMonotonicNs(0).build();
+        }
+        long remaining;
+        try {
+            remaining = Math.subtractExact(command.getDeadlineMonotonicNs(), receivedAtNanos);
+        } catch (ArithmeticException overflow) {
+            remaining = 0;
+        }
+        if (remaining <= 0) {
+            return command.toBuilder().setDeadlineMonotonicNs(monotonicNow() - 1).build();
+        }
+        return command.toBuilder()
+                .setDeadlineMonotonicNs(Math.addExact(monotonicNow(), remaining))
+                .build();
+    }
+
+    /**
+     * Refuses a movement command that is not one, before it reaches the client.
+     *
+     * <p>This is about identity and shape, not about whether the command is still
+     * wanted: a stale generation or a passed deadline is a refusal the controller
+     * reports with a code, because a Core that is merely late is not a Core that is
+     * broken. A blank action, a generation nobody could be, a missing lease, or an
+     * axis that is not a number is a command that cannot be answered for at all.
+     */
+    static void validateMove(MoveInput command) {
+        if (command.getActionId().isBlank()
+                || command.getActionId().length() > 128
+                || command.getGeneration() == 0
+                || command.getLeaseId().isBlank()
+                || command.getLeaseId().length() > 128
+                || !axis(command.getForward())
+                || !axis(command.getStrafe())) {
+            throw new IllegalArgumentException("MoveInput violates the negotiated input bounds");
+        }
+    }
+
+    private static boolean axis(float value) {
+        return Float.isFinite(value) && value >= -1.0f && value <= 1.0f;
+    }
+
     private void failClosed() {
         if (!stopping.compareAndSet(false, true)) {
             return;
@@ -558,7 +706,8 @@ public final class BridgeIpcWorker implements AutoCloseable {
         }
     }
 
-    private static long monotonicNow() {
+    /** Package-private so a test can measure a translated deadline against it. */
+    static long monotonicNow() {
         return Math.max(1, System.nanoTime() - MONOTONIC_ORIGIN);
     }
 
@@ -573,7 +722,7 @@ public final class BridgeIpcWorker implements AutoCloseable {
     }
 
     public sealed interface ClientMessage
-            permits Notice, ConnectCommand, CancelCommand, ReleaseCommand {}
+            permits Notice, ConnectCommand, CancelCommand, ReleaseCommand, MoveCommand {}
 
     public enum Notice implements ClientMessage {
         OBSERVE_ONLY,
@@ -585,6 +734,8 @@ public final class BridgeIpcWorker implements AutoCloseable {
     public record CancelCommand(CancelConnection value) implements ClientMessage {}
 
     public record ReleaseCommand(ReleaseAllInputs value) implements ClientMessage {}
+
+    public record MoveCommand(MoveInput value) implements ClientMessage {}
 
     private record HeartbeatState(EnvelopeGate gate, Duration timeout, Set<String> capabilities) {
         private HeartbeatState {

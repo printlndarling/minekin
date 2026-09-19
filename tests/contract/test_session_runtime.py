@@ -10,7 +10,7 @@ follows the reported phases to PLAYABLE and stops when the client does.
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
 
@@ -26,9 +26,11 @@ from bridge_peer import (  # type: ignore[import-not-found]
     write_frame,
 )
 from minekin_core.adapters.bridge.ipc import (
+    ACTION_RESULT_TYPE,
     BRIDGE_HELLO_TYPE,
     CONNECTION_LIFECYCLE_TYPE,
     INITIAL_OBSERVATION_TYPE,
+    RELEASE_ALL_INPUTS_TYPE,
     BridgeIpcHost,
     BridgeSession,
 )
@@ -38,7 +40,12 @@ from minekin_core.domain.connection import ConnectionGenerations, ConnectionStat
 from minekin_core.domain.ids import OpaqueId
 from minekin_core.domain.session_material import RecordedSessionMaterial
 from minekin_core.domain.session_state import SessionState, SessionStateMachine
-from minekin_core.generated.minekin.v1 import envelope_pb2, observation_pb2, session_pb2
+from minekin_core.generated.minekin.v1 import (
+    control_pb2,
+    envelope_pb2,
+    observation_pb2,
+    session_pb2,
+)
 
 # What the Launcher recorded for this Kin. Stated rather than read back from a
 # launch: this test drives the runtime directly, so there is no launch to read it
@@ -205,6 +212,31 @@ class Peer:
             ),
         )
 
+    async def action_result(
+        self, *, status: control_pb2.ActionStatus, action_id: str = "walk-1"
+    ) -> None:
+        """The Bridge's answer to one input command."""
+
+        assert self.event_writer is not None
+        self.sequence += 1
+        await write_frame(
+            self.event_writer,
+            envelope(
+                self.bridge,
+                ACTION_RESULT_TYPE,
+                envelope_pb2.CHANNEL_EVENT,
+                self.sequence,
+                control_pb2.ActionResult(
+                    action_id=action_id,
+                    generation=1,
+                    status=status,
+                    reason_code=(
+                        "" if status == control_pb2.ACTION_STATUS_ACCEPTED else "STALE_GENERATION"
+                    ),
+                ).SerializeToString(deterministic=True),
+            ),
+        )
+
     async def close(self) -> None:
         await close_writers(
             *(writer for writer in (self.control_writer, self.event_writer) if writer is not None)
@@ -219,6 +251,8 @@ async def _supervise(
     exit_event: asyncio.Event,
     timeout: float = 8.0,
     recorded: RecordedSessionMaterial | None = RECORDED,
+    on_playable: Callable[[], Awaitable[None]] | None = None,
+    on_wind_down: Callable[[], Awaitable[None]] | None = None,
 ) -> SessionRun:
     return await asyncio.wait_for(
         supervise_session(
@@ -228,6 +262,8 @@ async def _supervise(
             handshake_timeout=3.0,
             until_client_exit=exit_event.wait,
             recorded=recorded,
+            on_playable=on_playable,
+            on_wind_down=on_wind_down,
         ),
         timeout,
     )
@@ -520,5 +556,169 @@ def test_an_internal_event_reader_failure_is_not_reported_as_client_exit() -> No
 
         assert host.closed
         assert connections.active is None
+
+    asyncio.run(scenario())
+
+
+async def _drive_to_playable(peer: Peer, machine: SessionStateMachine) -> None:
+    """Prove the session and take it to PLAYABLE, the way a real client does."""
+
+    await peer.prove()
+    for phase in (
+        observation_pb2.CONNECTION_PHASE_RESOLVING,
+        observation_pb2.CONNECTION_PHASE_LOGIN_NEGOTIATING,
+        observation_pb2.CONNECTION_PHASE_PLAY_INIT,
+        observation_pb2.CONNECTION_PHASE_JOIN_SEEN,
+    ):
+        await peer.report(phase)
+        await _wait_until(lambda: machine.state is not SessionState.CONNECTING)
+    await peer.snapshot()
+    await _wait_until(lambda: machine.state is SessionState.PLAYABLE)
+
+
+def test_control_is_offered_once_on_the_transition_and_not_per_snapshot(
+    tmp_path: Path,
+) -> None:
+    """A hook that fired per snapshot would send the command again each time."""
+
+    async def scenario() -> None:
+        bridge = session()
+        host = BridgeIpcHost(bridge)
+        descriptor = await host.prepare(tmp_path / "descriptor.pb")
+        machine, connections = _in_handshake()
+        exit_event = asyncio.Event()
+        peer = Peer(descriptor, bridge)
+        offered: list[bool] = []
+
+        async def client() -> None:
+            await _drive_to_playable(peer, machine)
+            # A second snapshot for a session that is already playable changes
+            # nothing, and it is the shape a real client produces when it
+            # re-reports. It must not be read as a second session starting.
+            await peer.snapshot()
+            await asyncio.sleep(0.05)
+            exit_event.set()
+            await peer.close()
+
+        running = asyncio.create_task(client())
+        run = await _supervise(
+            host,
+            machine,
+            connections,
+            exit_event=exit_event,
+            on_playable=lambda: _note(offered),
+        )
+        await running
+
+        assert offered == [True]
+        assert run.outcome is SessionOutcome.CLIENT_EXITED
+
+    asyncio.run(scenario())
+
+
+def test_an_action_result_is_counted_as_the_bridge_answered(tmp_path: Path) -> None:
+    """A refused command and an applied one are different facts about a run."""
+
+    async def scenario() -> None:
+        bridge = session()
+        host = BridgeIpcHost(bridge)
+        descriptor = await host.prepare(tmp_path / "descriptor.pb")
+        machine, connections = _in_handshake()
+        exit_event = asyncio.Event()
+        peer = Peer(descriptor, bridge)
+
+        async def client() -> None:
+            await _drive_to_playable(peer, machine)
+            await peer.action_result(status=control_pb2.ACTION_STATUS_ACCEPTED)
+            await peer.action_result(status=control_pb2.ACTION_STATUS_FAILED)
+            await asyncio.sleep(0.05)
+            exit_event.set()
+            await peer.close()
+
+        running = asyncio.create_task(client())
+        run = await _supervise(host, machine, connections, exit_event=exit_event)
+        await running
+
+        assert run.actions_applied == 1
+        assert run.actions_refused == 1
+        # Counted as answers, not as unhandled noise: an event this build does
+        # not act on is a fact about the run, and these two are acted on.
+        assert run.events_ignored == 0
+        document = run.as_dict()
+        assert document["actions_applied"] == 1
+        assert document["input_release_failed"] is False
+
+    asyncio.run(scenario())
+
+
+def test_the_wind_down_hook_can_still_reach_the_bridge(tmp_path: Path) -> None:
+    """The last chance to speak exists because the transport is still open."""
+
+    async def scenario() -> None:
+        bridge = session()
+        host = BridgeIpcHost(bridge)
+        descriptor = await host.prepare(tmp_path / "descriptor.pb")
+        machine, connections = _in_handshake()
+        exit_event = asyncio.Event()
+        peer = Peer(descriptor, bridge)
+        spoke: list[bool] = []
+
+        async def release() -> None:
+            await host.send_control(
+                RELEASE_ALL_INPUTS_TYPE,
+                control_pb2.ReleaseAllInputs(
+                    action_id="release-1", generation=1, reason_code="EXPLICIT"
+                ),
+            )
+            spoke.append(True)
+
+        async def client() -> None:
+            await _drive_to_playable(peer, machine)
+            exit_event.set()
+            await peer.close()
+
+        running = asyncio.create_task(client())
+        run = await _supervise(
+            host, machine, connections, exit_event=exit_event, on_wind_down=release
+        )
+        await running
+
+        assert spoke == [True]
+        assert run.release_failed is False
+
+    asyncio.run(scenario())
+
+
+def test_a_wind_down_that_cannot_say_goodbye_is_recorded_rather_than_raised(
+    tmp_path: Path,
+) -> None:
+    """The Bridge releases on its own when the channel goes; this is Core's side."""
+
+    async def scenario() -> None:
+        bridge = session()
+        host = BridgeIpcHost(bridge)
+        descriptor = await host.prepare(tmp_path / "descriptor.pb")
+        machine, connections = _in_handshake()
+        exit_event = asyncio.Event()
+        peer = Peer(descriptor, bridge)
+
+        async def failing_release() -> None:
+            raise OSError("the transport went first")
+
+        async def client() -> None:
+            await _drive_to_playable(peer, machine)
+            exit_event.set()
+            await peer.close()
+
+        running = asyncio.create_task(client())
+        run = await _supervise(
+            host, machine, connections, exit_event=exit_event, on_wind_down=failing_release
+        )
+        await running
+
+        # The run ended the way the client ending it ends, and the failed goodbye
+        # is a fact in the document rather than an exception over the top of it.
+        assert run.outcome is SessionOutcome.CLIENT_EXITED
+        assert run.release_failed is True
 
     asyncio.run(scenario())

@@ -36,6 +36,7 @@ class _Runner(Protocol):
     def verify_jar(self, path: Path) -> None: ...
 
     def summon_command(self, entity_type: str) -> str: ...
+    def position_probe_command(self, player: str) -> str: ...
 
     def main(self) -> int: ...
 
@@ -161,6 +162,19 @@ def test_a_summon_is_a_console_line_and_never_a_second_command() -> None:
     ):
         with pytest.raises(SystemExit, match="not a vanilla entity id"):
             RUNNER.summon_command(injection)
+
+
+def test_a_position_probe_is_a_console_line_and_never_a_second_command() -> None:
+    """Same channel, same rule: the name is checked, not escaped."""
+
+    assert RUNNER.position_probe_command("Kin") == "data get entity Kin Pos"
+    assert RUNNER.position_probe_command("Kin_One") == "data get entity Kin_One Pos"
+
+    # `1Kin` is deliberately not in this list: a leading digit is a perfectly
+    # legal vanilla name, and a check that refused it would refuse real players.
+    for injection in ("Kin\nstop", "Kin; stop", "Kin`stop`", "Ki n", "", "Kin\n", "ab"):
+        with pytest.raises(SystemExit, match="not a vanilla player name"):
+            RUNNER.position_probe_command(injection)
 
 
 def test_the_tool_takes_a_clean_stop_from_sigterm(

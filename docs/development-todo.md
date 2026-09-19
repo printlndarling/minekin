@@ -258,7 +258,15 @@
 
 ## W60：最小合法输入
 
-- [ ] 实现 `look`、短时 `move` 与幂等 `release_all`。
+- [x] **`move` 真的走通了，而且是服务端自己看到的**。`session start --hold-forward` 让 Core 在首快照被准入（PLAYABLE）那一刻批准一个 `control.move.v1` 的 lease、发一条 `MoveInput(forward=1)`；Bridge 校验身份/lease/generation/axes 与**协商出来的 `control.move.v1` capability** 之后，经 `VanillaKeySink` 按住客户端的 `forwardKey`，并把 `ActionResult` 回给 Core；会话结束时 Core 撤回 lease 并发 `ReleaseAllInputs`。**一轮域运行里三段互相独立的证据**：
+  - **服务端**（它自己的观测，run 结束后离线读）：`Kin joined the game` 之后 `[17:46:04] Kin has the following entity data: [-7.5, -60.0, 16.66]`、`[17:46:09] … [-7.5, -60.0, 38.24]`——5 秒 21.6 格，正好是原版步行速度约 4.3 格/秒。**瞬移会是一次跳跃而不是匀速**，所以"没有瞬移"这条是量出来的，不是保证的；
+  - **客户端**：`bridge collected 2 entity candidate(s) … 2 confirmed visible` 之后紧跟 `bridge applied c8946f96…: holding [move.forward]`；
+  - **账本**：`PlayableEstablished → InputLeaseGranted(capability=control.move.v1, priority=NORMAL) → InputReleased(had_lease=true, reason=EXPLICIT)`，run 文档 `actions_applied: 1`、`input_refusal: ""`、`input_release_failed: false`。
+- [x] **`ActionResult` 是必须回的那一半**。一条没有答复的命令与一条还在执行中的命令，在外表上完全一样。Bridge 对每条命令都回一条（拒绝的用 `ACTION_STATUS_FAILED` 带上稳定 reason code，如 `STALE_GENERATION`/`DEADLINE_EXCEEDED`），Core 计成 `actions_applied`/`actions_refused`。**时间的时钟差也在这里解决**：`MoveInput` 的 deadline 与信封自己的 `monotonic_ns` 来自 Core 的同一个时钟，所以两者之差是唯一的可比值，Bridge 把差值换算到自己的时钟上——与 `ConnectWorld` 同一条理由；但**过期不是错误**（与 connect 不同）：过期的命令被改写成"已经过期"，由控制器以 `DEADLINE_EXCEEDED` 拒绝并回给 Core，因为"不按键"本来就是迟到命令的安全答案。
+- [x] **三处"看起来对"的东西，都是这一轮实测逼出来的。** **(一)** arbiter 建好了，却没人告诉它会话已经 playable：`InputArbiter` 默认 `playable=False`，于是 `grant()` 以 `NOT_PLAYABLE` 拒绝——而那条拒绝**只挂在 release 事件的 payload 上**，release 又因为客户端被杀而发不出去，于是整件事在证据里不留痕迹（run 文档只显示 `actions_applied: 0`）。现在 `on_playable` 先 `set_playable(True)`，拒绝理由写进 **run 文档**（`input_refusal`）：拒绝意味着永远不会有 release，把理由挂在 release 上就是挂在一扇不会开的门上。**(二)** 等 playable 的条件是 `session status` 的 `last_event_type`，而 `InputLeaseGranted` 在 `PlayableEstablished` 之后**几毫秒**就写进去了——条件为真的窗口比轮询间隔还短，于是域白等满 240 秒，而 Kin 已经在世界里走了 780 格。现在直接问账本：「这次运行开始之后是否记录过 `PlayableEstablished`」。**(三)** 两个等待各自计时（原先共用一个 deadline，一次冷启动三分钟就把走路的额度吃光），于是同一批证据先被读成"从没动过"。
+- [x] **`domain.sh` 里 `pipefail` 与 `grep` 的组合**：`grep` 没有匹配就返回 1，而 `set -o pipefail` 让整条管道失败，于是「服务器日志里还没有位置」这个**正常状态**直接把脚本打死（`run.sh exited 1`，且没有任何输出解释原因）。现在把 `grep || true` 包进命令组。这几次是同一类错误：**边界条件被当成了失败**，而失败又没有任何人说出来。
+- [ ] `look` 仍未接线，而且它比 `move` 更需要先想清楚：`player.setYaw()` 是**直接写状态**，而门禁明说不得直接写状态；该走的是鼠标视角那条路（`Mouse` 的 cursor delta），而那条路要处理窗口是否持有光标。
+
 - [x] 输入仲裁（Core 侧）：唯一 input owner、lease、deadline、priority 与前置状态检查全部落在 `domain/input_control.py`。取值方式来自冻结的 proto 而不是自创：优先级用 `INPUT_PRIORITY_NORMAL/URGENT/EMERGENCY` 的排序，lease 字段与 `InputLease` 一致，能力名沿用 `control.<skill>.v1` 约定（`control.move.v1`/`control.look.v1`）。规则：一次只允许一个 lease；同级或更低优先级不得抢走输入（EMERGENCY 可以抢占，这是反射路径需要的）；lease 在 deadline 处失效；引用已被替换 lease 的迟到动作一律只判为 `LEASE_SUPERSEDED` 而不执行；能力未被 lease 覆盖、动作自身 deadline 已过、或不在 PLAYABLE，都拒。所有拒绝原因一并收集，一次就说清全部原因。
 - [x] Core 侧 watchdog（双 watchdog 的第二层）：`domain/control_watchdog.py` 在会话进入 PLAYABLE 时**先武装、再等心跳**——启动途中就死掉的 Bridge 一个心跳都不会发，等收到才开始的看门狗永远不会发现它。超时阈值由协商的 `heartbeat_interval_ms` 推出（容忍若干个间隔，因为漏一个间隔是普通调度抖动），并且：**旧 generation 的心跳既不计数也不续期**（否则一条已关闭连接的数据包会让新连接显得还活着），乱序到达的旧时间戳同样不算新信息。与 `InputArbiter` 的合成为「静默 → 判超时 → withdraw(TIMEOUT) → 无 lease → 拒绝一切输入」，这条链路有测试覆盖。
 - [ ] Bridge 侧 watchdog 与本地按键释放的**真实客户端验收**：接线、静态/loopback 证据与跨平台可复现性已具备（见下两条），但「真实按下再证明抬起」以及 watchdog 在真客户端上的触发仍需要真客户端。契约明确它是最终保障，Core 那层只是第二层。
@@ -271,8 +279,10 @@
   - **(三) 离线 Java 门禁的 Fabric stub 把客户端参数写成了 `Object`**，比真实 Fabric 事件**更宽**：于是 `stopSafely(client, ...)` 这种"取真实 `MinecraftClient`"的写法直接编译失败——这是好事，说明它抓到了；但反过来，一个把 `Object` 传下去的监听器本来能悄悄过关。stub 现在按真实签名写成 `MinecraftClient`，这个门禁才真的在检查"这个 mod 能被注册"。
 - [x] **这一次的跨平台结论**（照本仓库对工件的一贯要求，两件事都在第二个平台上验了）：jar 在 Windows（`21.0.12.1+1-LTS-4`）与受控 Linux 容器（Temurin `21.0.12+8`，`--dependency-verification=off`）上逐字节相同，都是 `4a7c8880…`、1,234,638 字节；**源码树摘要**在宿主与 Linux 容器里也相同，都是 `f8779f02…`（这正是上一批那个遍历顺序 bug 的回归验证——它只有在两个平台各算一遍时才看得见）。pin 因此记为 jar `4a7c8880…` / 1,234,638 与源码树 `f8779f02…`，并同步更新 fixture 的 `digest`/`size`/`source_digest` 与 `manifest.sha256` 中该 fixture 自己那行。本地九道门全过：ruff check/format、pyright（0 errors）、pytest（851 条）、`check_boundaries`、`check_case_assertions`、`verify_fixture_digests`、wheel 边界、`check_bridge_scaffold`、`check_bridge_protocol`、`check_bridge_proto_java`，以及 Gradle `clean build`（34 条 Java 测试）。
 
-- [ ] 松键的**执行**（Bridge 侧）与 `look`/短时 `move` 的实际施加：需要真实客户端，Bridge 的本地 watchdog 才是最终保障。
-- [ ] 门禁：服务端离线核验真实位移；不得瞬移、直接写状态或残留按键。
+- [x] 松键的**执行**（Bridge 侧）与 `move` 的实际施加：见上，`move` 已经跑通到服务端观测。`release_all` 的执行侧也接上了——lease 撤回后 Core 发 `ReleaseAllInputs`，本轮实测里那条 release **真的发出去了**（`input_release_failed: false`，账本有 `InputReleased(had_lease=true)`）。**但"Bridge 真的把键松开了"仍只有两面证据**（Core 的 `InputReleased` 与客户端日志），没有第三次独立观测；进程被杀那条路上，真正松键的是 Bridge 自己的 IPC-断线释放（§12 的第二层），那一条在本轮没有单独的验收。`look` 见上一条。
+- [x] 门禁（真实位移）：服务端自己报出两个位置、5 秒 21.6 格、匀速——**没有瞬移**，也没有直接写状态（走的路径是客户端自己的按键绑定，不是改玩家坐标）。**limitation**：lease 的 deadline 目前只是被记录（`MoveInput` 与 lease 上都有），**没有任何东西在到期时释放**，`lease_watchdog` 还没实现——所以"短时"这一半是靠域在检测到位移后就结束会话达成的，不是产品保证的。
+- [ ] 门禁（残留按键）：靠一次以客户端为观测点的"真实按下再证明抬起"来验收；现有的证据只到"Core 发过 release、Bridge 有松键实现与测试"。
+
 
 ## W70：恢复与证据晋级
 

@@ -48,6 +48,19 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="PATH",
         help="connect the client to this saved Server Profile after the handshake",
     )
+    # The third optional input document, and the same reasoning as the second:
+    # a run that should hold a movement key is a property of this run, not of a
+    # session that would have to be re-opened in another process to change it.
+    # It is a hold rather than a walk for a measured reason: what bounds it is the
+    # lease and the session, and a run that ends takes the key with it.
+    session_start.add_argument(
+        "--hold-forward",
+        action="store_true",
+        help=(
+            "hold the forward key from the moment the session is playable "
+            "until the run ends (needs --server-profile)"
+        ),
+    )
     session_commands.add_parser("status", help="read the current projection")
     session_commands.add_parser("stop", help="idempotently stop the current session")
 

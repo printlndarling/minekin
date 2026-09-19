@@ -15,6 +15,12 @@ import org.minekin.bridge.runtime.BridgePhaseMachine;
 public final class HandshakeGate {
     public static final String HANDSHAKE_CAPABILITY = "session.handshake.v1";
     public static final String ADMISSION_CAPABILITY = "admission.connect.v1";
+    /**
+     * The capability that authorises movement, named by the contract's
+     * {@code control.<skill>.v1} convention. A client can be admitted to a world
+     * without being steerable, and the negotiation is what keeps those two apart.
+     */
+    public static final String MOVE_CAPABILITY = "control.move.v1";
     public static final int MIN_FRAME_BYTES = 1024;
     public static final int MAX_FRAME_BYTES = 16 * 1024 * 1024;
 

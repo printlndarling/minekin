@@ -37,7 +37,7 @@ from minekin_core.domain.session_state import (
     SessionStateMachine,
     advance_for_connection,
 )
-from minekin_core.generated.minekin.v1 import observation_pb2
+from minekin_core.generated.minekin.v1 import control_pb2, observation_pb2
 
 # A disposition worth reporting: the attempt moved, or it came to a stop. A
 # stale generation is what a reconnect leaves behind and says nothing about the
@@ -65,6 +65,10 @@ class SessionRun:
     snapshot_rejections: tuple[str, ...] = ()
     entities_admitted: int = 0
     entities_rejected: int = 0
+    actions_applied: int = 0
+    actions_refused: int = 0
+    release_failed: bool = False
+    input_refusal: str = ""
 
     def as_dict(self) -> dict[str, object]:
         return {
@@ -87,6 +91,20 @@ class SessionRun:
             # dropped everything, and those are different facts.
             "entities_admitted": self.entities_admitted,
             "entities_rejected": self.entities_rejected,
+            # Whether the Bridge carried out what it was told to do. A
+            # refused command is the difference between a Kin that did not
+            # move and a Kin that was never able to.
+            "actions_applied": self.actions_applied,
+            "actions_refused": self.actions_refused,
+            # Whether the session could say goodbye. The Bridge releases on its
+            # own when the channel goes, so this is about Core's side of the
+            # promise and is recorded rather than assumed.
+            "input_release_failed": self.release_failed,
+            # Why this run never held the input, in the arbiter's words. Empty
+            # when it held what it asked for. The document rather than the
+            # ledger, because a refusal means no release is ever sent and the
+            # release is what would have carried it.
+            "input_refusal": self.input_refusal,
         }
 
 
@@ -98,6 +116,9 @@ class _Progress:
     snapshot_rejections: set[str] = field(default_factory=lambda: set[str]())
     entities_admitted: int = 0
     entities_rejected: int = 0
+    actions_applied: int = 0
+    actions_refused: int = 0
+    release_failed: bool = False
 
 
 async def supervise_session(
@@ -110,6 +131,8 @@ async def supervise_session(
     on_handshake: Callable[[], Awaitable[None]] | None = None,
     on_ready: Callable[[], Awaitable[None]] | None = None,
     on_connection: Callable[[ConnectionState, str], Awaitable[None]] | None = None,
+    on_playable: Callable[[], Awaitable[None]] | None = None,
+    on_wind_down: Callable[[], Awaitable[None]] | None = None,
     recorded: RecordedSessionMaterial | None = None,
 ) -> SessionRun:
     """Wait for the handshake, follow the Bridge, and stop when the client does.
@@ -125,6 +148,19 @@ async def supervise_session(
     runtime does not send the command itself because which world, and under which
     profile, is a decision it has no inputs for.
 
+    `on_playable` runs once, on the transition the snapshot admission produced:
+    it is the first moment a session may be given input, and *only* the caller can
+    send one, because which movement, under which lease and for how long are all
+    decisions this module has no inputs for. It is awaited in the reader, so it is
+    a command being sent rather than something being waited for.
+
+    `on_wind_down` is the last chance to speak to the Bridge: it runs after the
+    generation is closed and before the transport is, which is the only order in
+    which a release can both be honest about the generation it belongs to and still
+    reach the Bridge. A failure there is recorded rather than raised, because the
+    Bridge releases everything it holds when the channel goes away — that is §12's
+    second watchdog, and this call only makes it explicit.
+
     The callbacks report what this run observed — that the Bridge proved its
     session, and which connection state an attempt reached *and why it stopped
     there*. The reason is the Bridge's stable classification, not a server's
@@ -138,61 +174,83 @@ async def supervise_session(
         raise ValueError("handshake_timeout must be positive")
 
     progress = _Progress()
+    # Assigned on every path; reported after the wind-down, because whether the
+    # session could say goodbye to its Bridge is part of how the run ended and a
+    # report built before that would be a report of a different run.
+    outcome: SessionOutcome
+    connection_state: ConnectionState | None = None
     try:
         failure = await _authenticate(host, handshake_timeout)
         if failure is not None:
             _wind_down(session, failed=True)
-            return _report(failure, session, connections, progress)
+            outcome = failure
+        else:
+            if on_handshake is not None:
+                await on_handshake()
+            session.advance(SessionState.READY_MENU)
+            # Before the reader starts, so a command that provokes an immediate
+            # report cannot race the task that is supposed to read it.
+            if on_ready is not None:
+                await on_ready()
 
-        if on_handshake is not None:
-            await on_handshake()
-        session.advance(SessionState.READY_MENU)
-        # Before the reader starts, so a command that provokes an immediate
-        # report cannot race the task that is supposed to read it.
-        if on_ready is not None:
-            await on_ready()
+            reader = asyncio.create_task(
+                _read_events(
+                    host, session, connections, progress, on_connection, on_playable, recorded
+                ),
+                name="minekin-bridge-events",
+            )
+            client = asyncio.create_task(
+                _client_exited(until_client_exit), name="minekin-client-exit"
+            )
+            try:
+                finished, _ = await asyncio.wait(
+                    {reader, client}, return_when=asyncio.FIRST_COMPLETED
+                )
+            finally:
+                for task in (reader, client):
+                    task.cancel()
+                # A cancelled client watcher may be blocked in a thread the caller
+                # owns; gather with return_exceptions so this wait cannot hang or
+                # raise before the transport is closed.
+                await asyncio.gather(reader, client, return_exceptions=True)
 
-        reader = asyncio.create_task(
-            _read_events(host, session, connections, progress, on_connection, recorded),
-            name="minekin-bridge-events",
-        )
-        client = asyncio.create_task(_client_exited(until_client_exit), name="minekin-client-exit")
-        try:
-            finished, _ = await asyncio.wait({reader, client}, return_when=asyncio.FIRST_COMPLETED)
-        finally:
-            for task in (reader, client):
-                task.cancel()
-            # A cancelled client watcher may be blocked in a thread the caller
-            # owns; gather with return_exceptions so this wait cannot hang or
-            # raise before the transport is closed.
-            await asyncio.gather(reader, client, return_exceptions=True)
-
-        if reader in finished:
-            error = reader.exception()
-            if isinstance(error, IpcProtocolError):
-                # The Bridge broke the negotiated contract. Anything else is a
-                # bug in this process and must not be folded into a network
-                # outcome, so it propagates and the CLI reports an internal
-                # invariant.
-                _wind_down(session, failed=True)
-                return _report(SessionOutcome.BRIDGE_LOST, session, connections, progress)
-            if error is not None:
-                # A payload, state-machine, or callback failure is a Core
-                # invariant error, not a normal client exit. Preserve the
-                # original exception and traceback for the CLI boundary.
-                raise error
-            raise RuntimeError("Bridge event reader stopped without a terminal outcome")
-
-        _wind_down(session, failed=False)
-        return _report(SessionOutcome.CLIENT_EXITED, session, connections, progress)
+            if reader in finished:
+                error = reader.exception()
+                if isinstance(error, IpcProtocolError):
+                    # The Bridge broke the negotiated contract. Anything else is a
+                    # bug in this process and must not be folded into a network
+                    # outcome, so it propagates and the CLI reports an internal
+                    # invariant.
+                    _wind_down(session, failed=True)
+                    outcome = SessionOutcome.BRIDGE_LOST
+                elif error is not None:
+                    # A payload, state-machine, or callback failure is a Core
+                    # invariant error, not a normal client exit. Preserve the
+                    # original exception and traceback for the CLI boundary.
+                    raise error
+                else:
+                    raise RuntimeError("Bridge event reader stopped without a terminal outcome")
+            else:
+                _wind_down(session, failed=False)
+                outcome = SessionOutcome.CLIENT_EXITED
     finally:
         # §13: invalidate the generation before the transport stops, so a late
         # report from the closed socket cannot advance a session that is
         # already winding down.
         active = connections.active
+        # Read *before* the close: how the attempt ended is part of the report,
+        # and after the generation is closed there is no attempt left to ask.
+        connection_state = None if active is None else active.state
         if active is not None:
             connections.close(active.generation)
+        if on_wind_down is not None:
+            try:
+                await on_wind_down()
+            except (OSError, RuntimeError):
+                progress.release_failed = True
         await host.close()
+
+    return _report(outcome, session, connection_state, progress)
 
 
 async def _client_exited(until_client_exit: Callable[[], Awaitable[object]]) -> None:
@@ -222,10 +280,12 @@ async def _read_events(
     connections: ConnectionGenerations,
     progress: _Progress,
     on_connection: Callable[[ConnectionState, str], Awaitable[None]] | None,
+    on_playable: Callable[[], Awaitable[None]] | None,
     recorded: RecordedSessionMaterial | None,
 ) -> None:
     """Apply every reported phase until the channel ends or the run is cancelled."""
 
+    playable_reported = False
     while True:
         event = await host.receive_event()
         message = event.message
@@ -233,6 +293,22 @@ async def _read_events(
             await _admit_first_snapshot(
                 message, session, connections, progress, on_connection, recorded
             )
+            # Once, and on the transition rather than on the state: a second
+            # snapshot is not a second session starting to walk, and a hook that
+            # fired per snapshot would send the command again each time.
+            if (
+                not playable_reported
+                and on_playable is not None
+                and session.state is SessionState.PLAYABLE
+            ):
+                playable_reported = True
+                await on_playable()
+            continue
+        if isinstance(message, control_pb2.ActionResult):
+            if message.status == control_pb2.ACTION_STATUS_ACCEPTED:
+                progress.actions_applied += 1
+            else:
+                progress.actions_refused += 1
             continue
         if not isinstance(message, observation_pb2.ConnectionLifecycle):
             # Counted rather than dropped silently: an event type this build
@@ -315,18 +391,20 @@ def _wind_down(session: SessionStateMachine, *, failed: bool) -> None:
 def _report(
     outcome: SessionOutcome,
     session: SessionStateMachine,
-    connections: ConnectionGenerations,
+    connection_state: ConnectionState | None,
     progress: _Progress,
 ) -> SessionRun:
-    active = connections.active
     return SessionRun(
         outcome=outcome,
         session_state=session.state,
-        connection_state=None if active is None else active.state,
+        connection_state=connection_state,
         events_applied=progress.applied,
         events_ignored=progress.ignored,
         snapshots_admitted=progress.snapshots_admitted,
         snapshot_rejections=tuple(sorted(progress.snapshot_rejections)),
         entities_admitted=progress.entities_admitted,
         entities_rejected=progress.entities_rejected,
+        actions_applied=progress.actions_applied,
+        actions_refused=progress.actions_refused,
+        release_failed=progress.release_failed,
     )

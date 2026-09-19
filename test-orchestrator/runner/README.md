@@ -15,6 +15,8 @@ MINEKIN_SERVER_JAR=<path> bash test-orchestrator/runner/run.sh domain \
     session start --profile <bundle> --server-profile <server profile>
 MINEKIN_SERVER_JAR=<path> MINEKIN_DOMAIN_SUMMON=minecraft:pig \
     bash test-orchestrator/runner/run.sh domain session start --profile <bundle> --server-profile <profile>
+MINEKIN_SERVER_JAR=<path> MINEKIN_DOMAIN_PROBE=Kin \
+    bash test-orchestrator/runner/run.sh domain session start --profile <bundle> --server-profile <profile> --hold-forward
 bash test-orchestrator/runner/run.sh --shell 'glxinfo -B'   # or any other command
 ```
 
@@ -323,6 +325,48 @@ What found it was not another exclusion. It was standing a small capture server
 on 25565 in this container and reading the bytes the client put on the wire —
 no server jar, no bridge change, no re-recorded pin. `next_state=3` appears in
 no log anywhere. When both ends are silent, read the bytes.
+
+### The Kin walks, and the server is asked where it is
+
+`--hold-forward` makes Core hold the forward key from the moment the session is
+playable, under a `control.move.v1` lease. The acceptance for input is the
+server's own observation of the displacement, and a server does not log where
+anyone walks — so the run asks it, with `data get entity <name> Pos` on the
+console, and reads the answer out of the server's log.
+
+```text
+$ MINEKIN_SERVER_JAR=.tmp/vanilla/server.jar MINEKIN_DOMAIN_PROBE=Kin \
+      bash test-orchestrator/runner/run.sh domain \
+      session start --profile … --server-profile … --hold-forward
+server   [17:46:01] Kin joined the game
+server   [17:46:04] Kin has the following entity data: [-7.5d, -60.0d, 16.65d]
+server   [17:46:09] Kin has the following entity data: [-7.5d, -60.0d, 38.24d]
+client   bridge applied c8946f96…: holding [move.forward]
+ledger   InputLeaseGranted → InputReleased
+run      "actions_applied": 1, "input_refusal": "", "input_release_failed": false
+```
+
+21.6 blocks in five seconds is walking speed, and a teleport would be a jump
+rather than a rate — which is what makes "no teleport" a measurement here
+instead of a promise.
+
+The run waits for **two positions that differ horizontally**: a Kin standing
+still at spawn can be reported twice with different `Y`, so counting any two
+positions would accept a fall at spawn as a walk. Each wait has its own budget,
+because a slow boot must not spend the walk's allowance — the first version
+shared one deadline and read a Kin that had walked 780 blocks as one that never
+moved.
+
+That wait asks the ledger rather than `session status`, which shows only the
+*last* event type: `InputLeaseGranted` lands milliseconds after
+`PlayableEstablished`, so "the last event is playable" is true for a window too
+short to poll. The question is instead whether a playable was recorded after
+this run started.
+
+The hold lasts until the run ends. Its lease carries a deadline, and *nothing
+enforces it yet* — `lease_watchdog` is not built — so what bounds the walk in
+this domain is the harness stopping the session once it has seen the
+displacement.
 
 ### Refusals get classified too
 

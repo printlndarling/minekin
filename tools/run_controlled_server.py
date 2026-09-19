@@ -160,6 +160,24 @@ def request_clean_stop(signum: int, frame: object) -> None:
     raise KeyboardInterrupt
 
 
+def position_probe_command(player: str) -> str:
+    """The console line that makes the server say where a player is.
+
+    The acceptance for input is that the *server* observes the displacement, and
+    a server does not log where anyone walks. Asking it is the only way to get
+    its own answer: the reply goes to the console, which is where this runs.
+
+    Like the summon, it is a console command, so the name is checked against the
+    shape a vanilla player name has rather than escaped.
+    """
+
+    from minekin_core.domain.offline_identity import is_valid_username
+
+    if not is_valid_username(player):
+        raise SystemExit(f"not a vanilla player name: {player!r}")
+    return f"data get entity {player} Pos"
+
+
 def _sha1(stream: BinaryIO) -> str:
     digest = hashlib.sha1(usedforsecurity=False)
     while chunk := stream.read(1024 * 1024):
@@ -226,6 +244,18 @@ def main() -> int:
     )
     parser.add_argument("--java", type=Path, default=None)
     parser.add_argument(
+        "--probe-player",
+        default=None,
+        metavar="NAME",
+        help="make the server report this player's position, so a run can show movement",
+    )
+    parser.add_argument(
+        "--probe-every-seconds",
+        type=float,
+        default=5.0,
+        help="how often the position probe is asked (default 5)",
+    )
+    parser.add_argument(
         "--allow-player",
         action="append",
         default=[],
@@ -241,6 +271,9 @@ def main() -> int:
         return 2
     if args.ready_timeout <= 0:
         print("--ready-timeout must be positive", file=sys.stderr)
+        return 2
+    if args.probe_every_seconds <= 0:
+        print("--probe-every-seconds must be positive", file=sys.stderr)
         return 2
 
     for stop_signal in (signal.SIGINT, signal.SIGTERM):
@@ -259,6 +292,11 @@ def main() -> int:
     )
 
     summon = None if args.summon is None else summon_command(args.summon)
+    probe = None if args.probe_player is None else position_probe_command(args.probe_player)
+    # Asked immediately: the join line the server already writes says where the
+    # player started, and a probe that waited a full interval would only say it
+    # again.
+    next_probe = 0.0
     java = args.java or java_executable()
     log = args.directory / "server.log"
     with log.open("wb") as stream:
@@ -284,10 +322,20 @@ def main() -> int:
                 print(f"summoned: {args.summon}")
             if args.keep_running:
                 print("server is up; press Ctrl+C to stop it cleanly")
-                try:
-                    process.wait()
-                except KeyboardInterrupt:
-                    return 130
+                while process.poll() is None:
+                    if (
+                        probe is not None
+                        and process.stdin is not None
+                        and time.monotonic() >= next_probe
+                    ):
+                        # Written to the console, so the server's own log holds
+                        # where the player was and when. A run that moved the Kin
+                        # is one the server can be asked about; nothing else in
+                        # the run can answer for it.
+                        process.stdin.write((probe + "\n").encode())
+                        process.stdin.flush()
+                        next_probe = time.monotonic() + args.probe_every_seconds
+                    time.sleep(0.1)
                 return process.returncode
         finally:
             stop(process)
