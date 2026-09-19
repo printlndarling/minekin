@@ -77,6 +77,7 @@
 - [x] 实现 nonce、protocol、generation、bundle 与 capability 握手。
 - [x] Bridge 默认 `OBSERVE_ONLY`，握手前无连接和输入能力。
 - [x] IPC/编码在后台有界队列运行，Minecraft 对象只在 client thread 访问。
+- [x] Core 侧 Windows loopback IPC 主机静态子集：control/event 各绑定独立随机 `127.0.0.1` 端口，以独占创建的一次性 protobuf descriptor 交付 256-bit nonce/key；服务端先按四字节网络序长度上限解帧，再校验 protocol、channel、sequence、session/generation/client identity 和 HMAC，只有双向证明通过才启动心跳及 control/event 收发。事件队列有界且溢出时清空旧观察、显式报错；Windows Proactor 挂起读在关闭时先断 transport，整个收尾有界。错误 proof、超长帧、descriptor 覆盖与不安全参数均有本地 loopback 契约测试。Windows descriptor 的私有 ACL 仍由尚未接线的 session overlay 创建者负责，真实 Bridge 握手尚未以此替代下方实测门禁。
 - [x] 门禁（静态子集）：错误 nonce/protocol、未协商 capability 与越界心跳/帧长被拒并 safe-stop，未知 mod 被 bundle recipe 拒绝，握手后仍为 `OBSERVE_ONLY`（无连接、无输入）；由 `BridgeProtocolSelfTest`、`BridgeIpcWorkerSelfTest` 与 `test_unknown_mod_is_rejected` 覆盖，并已接入 CI 的 `bridge-static`。
 - [x] Gradle 侧终于有测试：`build.gradle.kts` 一直声明 JUnit 并配置 `useJUnitPlatform()`，但 `:test` 始终是 `NO-SOURCE`，于是「manifest 里写的 entrypoint 类是否真的存在、是否真的实现 `ClientModInitializer`」从来没人验过——而 manifest 指向一个不存在的类是 Fabric 启动失败的经典形态，文本检查抓不到。现在 `BridgeEntrypointTest` 用编译产物验证这条链，并复核 manifest 的固定依赖集与 client-only 环境。它需要 Fabric API 在 classpath 上，但不需要 Minecraft 运行时，因此在依赖已缓存时本机离线可跑；普通 CI 仍不下载 Minecraft 资产，所以不进 CI。
 - [ ] 门禁（实测）：真实 1.21.4 客户端内 tick/render 回调预算的 P50/P95/P99 尚未测量；W20 只有“worker 启动不阻塞、队列有界不阻塞”的结构证据，实测随 W30 首次真实启动补齐。
