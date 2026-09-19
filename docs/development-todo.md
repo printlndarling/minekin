@@ -210,7 +210,16 @@
 - [x] **那 2–4 秒的空档有了一个量级对得上的解释**：vanilla 在真正连之前会经 `AllowedAddressResolver` 里的 `BlockListChecker` 去取 `https://sessionserver.mojang.com/blocked.json`。在域容器里实测：DNS 正常（0.55 s / 1.65 s），那个 URL 1.60 s 返回 **HTTP 404**（不是预期的 JSON 列表）。1.6 秒与观测到的 2–4 秒是同一个量级，而"取不到 → 当作不阻断"是 vanilla 的既定行为。**这条目前只是量级相称，不是定论**——它解释延迟，还不足以解释断开。
 - [x] **「是不是我们自己掐的」有了正面答案：不是**。`cancelVanilla` 是这份代码里**唯一**主动关连接的地方，现在它自己会说话（并且会说明当时屏幕上是不是那个 ConnectScreen）。实测：那一行没有出现，而同一批里 `bridge asked vanilla to connect to 127.0.0.1:25565 for generation 1` 与 vanilla 自己的 `Connecting to 127.0.0.1, 25565` 紧挨着出现——命令确实到了 vanilla。所以上一个问题（没有任何 `DisconnectionInfo`）现在有两个正面证据合起来读：**不是服务端发的断开包，也不是这份代码关的**。
 - [x] **套接字快照这次锚对了，并且抓到了真东西**。这一次容器里**没有跑任何探针**，所以那段时间唯一可能连 25565 的进程就是我们的客户端。快照（0.1 秒一次，写进数据卷）抓到：该连接第一次被看到时**已经是 TIME_WAIT（14:02:14.04），且 TIME_WAIT 握在服务端那一侧**——TIME_WAIT 属于先发 FIN 的一方，也就是说**先关的是服务端**。同时它从未以 ESTABLISHED 被采样到，所以它的存活时间不到采样间隔的量级。把这一批的时间线排在一起：`:09` 我们的命令与 vanilla 的 `Connecting to`、`:13` 登录 handler 出现、`:14` 连接已经进了 TIME_WAIT、`:14` FAILED。**那 4 秒空档也因此有了量级相称的解释**（resolver 里 `BlockListChecker` 取 `blocked.json` 实测 1.60 秒，加上 DNS）。**剩下的问题因此变得很窄**：客户端连上了，服务端几乎立刻把连接关掉且不留一行日志；而同样名字、同样 UUID、同样协议号的手写客户端是被接受的——差别只能在**这个客户端发出去的东西**上。
-- [ ] **下一步：看这个客户端到底发了什么**。手写探针能读到 `LoginSuccess`，说明服务端侧的接收逻辑没问题，所以要么把客户端发出的握手字节记下来（在 `ClientConnection` 出站处，或用一个只读的本地抓包），要么先确认客户端实际用的协议号/next-state/地址字符串与我们以为的一致。**在此之前不要猜**：这一批已经把"服务端拒绝"、"我们自己关的"、"DNS"、"白名单"、"暂停"逐条用正面证据排除掉了。
+- [x] **根因找到并修掉了：我们把普通连接发成了一次「传送」。** 办法是**读字节而不是继续推**——在同一个容器里用一个小脚本顶替 25565 的域（不需要服务端 jar、不需要改 Bridge、不需要重录 pin），把客户端实际发出的东西整包读出来。第一行就是答案：
+  `HANDSHAKE protocol=769 host='localhost' port=25565 next_state=3`
+  ——**`next_state=3` 是 `TRANSFER`，不是 `LOGIN`（2）**。vanilla 的语义在字节码里读得很清楚：`ConnectScreen$1` 先算 `cookieStorage != null`，再调 `ClientConnection.connect(..., Z)`，而那个方法就是 `transfer ? ConnectionIntent.TRANSFER : ConnectionIntent.LOGIN`。也就是说 **cookie storage 只要不是 null 就是一次传送**，哪怕它里面是空的；而**原版服务端会静默拒绝一次它没有发起的传送**——不发断开包、只关 socket、两边都不留日志。这一条把我们量到的每一个症状都对上了：没有 `DisconnectionInfo`（所以 Mixin 不响）、服务端沉默、连接刚出现就进了 TIME_WAIT、账本上一条 `FAILED`/`UNEXPECTED_DISCONNECT`。我们传的是 `new CookieStorage(Map.of())`，而契约里那句「cookie storage 在普通 P0 连接中为空」的意思是**不带**，不是"带着一个空的"。修法就是把那个参数传 `null`（并在代码里写明为什么：空的 cookie storage 不是"没有 cookie"，而是"一次没有 cookie 的传送"）。
+- [x] **修完之后：真实客户端加入了受隔离的服务端**。同一条 `domain` 命令，三份互相独立的证据对上：
+  - **客户端**（Bridge 自己的本地日志，一条条相位）：`bridge asked vanilla to connect to 127.0.0.1:25565 for generation 1` → `Connecting to 127.0.0.1, 25565` → `LOGIN_NEGOTIATING` → `PLAY_INIT` → `JOIN_SEEN`；
+  - **账本**：`SessionProcessStarted`(LAUNCHER) → `BridgeHelloAccepted`(CORE) → **`JoinObserved`(BRIDGE/BRIDGE_FILTERED, {"phase":"JOIN_SEEN"})**——这是**第一次由真客户端、经真 Fabric 事件、经真 loopback IPC 报上来的加入事实**，而不是任何 mock；
+  - **服务端侧真值**（run 结束后手工读的，按契约只做离线交叉核对）：`Kin[/127.0.0.1:42662] logged in with entity id 1 at (-9.5, -60.0, 2.5)` 与 `Kin joined the game`，四分钟后我杀掉容器时是 `Kin lost connection: Disconnected`。也就是说这个客户端**在世界里待了四分钟**，不是连上就掉。
+  账本停在这里是对的：`PlayableEstablished` 需要首快照被接受（W50），在那之前 `JOIN_SEEN` 就是这条路能诚实到达的最远处。
+  - **一条诊断方法值得留住**（它才是这一批真正的收获）：**当双方都不说话时，去读字节**。前面几批把服务端、白名单、DNS、暂停、以及"是不是我们自己关的"逐条量过，都对；但它们全是**排除法**，而真正定位到的那一步是"把客户端发出去的那一包读出来"——一次就够。这条方法比那一行修复更值得记：`next_state=3` 在任何日志里都不存在。
+- [x] 经普通客户端执行 ConnectWorld：**已经做到了**——普通 1.21.4 客户端、经普通连接路径（不是 bot、不是 GUI 自动点击），进了受隔离的服务端并被服务端自己记为 `Kin joined the game`，Core 账本上有 `JoinObserved`。**这一条只覆盖「成功加入」**：按 JOIN/认证/白名单/资源包等原因**分类**需要各自的负向用例（online-mode 拒绝、白名单拒绝、重复登录、资源包阻断），那些还没有跑，仍挂在下面 `ADMIT-001…120` 上。
 - [ ] 取消、重连与晚到 callback 不得改变新 generation。
 - [ ] 执行 `ADMIT-001…120`；Kin 不得获得 op、RCON 或 console 权限。
 

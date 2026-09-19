@@ -210,45 +210,39 @@ One `ERROR` is in the log and is not a defect to fix here:
 default layer set and the world generates; the alternative would be inventing a
 generator preset the profile does not name.
 
-## What it does not do yet
+## What it does now
 
-The client's login dies seconds after it starts, and the disconnect carries no
-reason at all. That is now a measured statement rather than a guess: a mixin on
-the client's login-disconnect path logs `DisconnectionInfo.reason()`, and it
-never fires. The socket simply goes away — seen only because Fabric's event also
-hangs off `channelInactive`, not off a disconnect packet.
-
-What the domain has been cleared of, by measurement rather than by argument:
-
-| Suspect | Verdict |
-| --- | --- |
-| The server, the whitelist, the port | A hand-written client reads the *whole* login: `0x03 Set Compression` then `0x02 LoginSuccess` — this identity is let in |
-| That first probe's conclusion | It stopped at the first packet; `Set Compression` says the server speaks protocol, not that the identity was accepted |
-| The server's silence | Not evidence: it logs nothing for an accepted handshake either |
-| `usercache.json` being empty | Not evidence: vanilla writes it on a completed join |
-| Name resolution | `_minecraft._tcp.127.0.0.1` NXDOMAINs in 0.19 s; the literal resolves in 0.01 s |
-| Vanilla's `pause-when-empty-seconds` | Reproduces with pausing off (the property was changed anyway, on its own merits) |
-| The bridge cancelling it | Ruled out positively: `cancelVanilla`, the only local closer, now logs itself and never did |
-| The client sending a disconnect | Ruled out: no `DisconnectionInfo` is ever produced |
-
-Where it actually gets to, with the socket snapshot anchored to the run (and no
-probe running in that container, so the only process that could have connected
-was the client):
+A managed client joins the isolated domain. Three independent pieces of evidence
+agree:
 
 ```text
-14:02:09  bridge asked vanilla to connect to 127.0.0.1:25565 for generation 1
-14:02:09  Connecting to 127.0.0.1, 25565
-14:02:13  bridge reporting CONNECTION_PHASE_LOGIN_NEGOTIATING for generation 1
-14:02:14  <the connection is first seen, already in TIME_WAIT, held by the server>
-14:02:14  bridge reporting CONNECTION_PHASE_FAILED for generation 1
+client   bridge asked vanilla to connect to 127.0.0.1:25565 for generation 1
+client   Connecting to 127.0.0.1, 25565
+client   bridge reporting CONNECTION_PHASE_LOGIN_NEGOTIATING for generation 1
+client   bridge reporting CONNECTION_PHASE_PLAY_INIT for generation 1
+client   bridge reporting CONNECTION_PHASE_JOIN_SEEN for generation 1
+
+ledger   SessionProcessStarted  LAUNCHER
+ledger   BridgeHelloAccepted    CORE
+ledger   JoinObserved           BRIDGE   {"phase":"JOIN_SEEN"}
+
+server   Kin[/127.0.0.1:42662] logged in with entity id 1 at (-9.5, -60.0, 2.5)
+server   Kin joined the game
 ```
 
-TIME_WAIT belongs to whoever sent the first FIN, so **the server closed first** —
-and it logs nothing. The connection was never sampled as ESTABLISHED at a 0.1 s
-cadence, so it lived well under a sampling interval. The four seconds before the
-login handler match the resolver's `BlockListChecker` fetch (1.60 s here) plus
-DNS.
+The server line is read by hand after the run, which is the only way the contract
+allows server truth to be used. The ledger stops at `JOIN_SEEN` on purpose:
+`PlayableEstablished` needs the first snapshot accepted (W50), and until that
+exists this is as far as the path can honestly reach.
 
-That narrows it to one question: a hand-written client with the same name, UUID
-and protocol is accepted, so the difference is in what *this* client sends. The
-next step is to read the bytes it puts on the wire rather than infer them.
+Getting there was a one-line bug with a loud lesson. The client was sending
+`next_state=3` — `TRANSFER`, not `LOGIN` — because vanilla decides that from
+whether the cookie storage is null, and `new CookieStorage(Map.of())` is not
+null. An empty cookie storage is not "no cookies"; it is *a transfer with no
+cookies in it*, and a vanilla server refuses a transfer it did not start by
+closing the socket without a word.
+
+What found it was not another exclusion. It was standing a small capture server
+on 25565 in this container and reading the bytes the client put on the wire —
+no server jar, no bridge change, no re-recorded pin. `next_state=3` appears in
+no log anywhere. When both ends are silent, read the bytes.

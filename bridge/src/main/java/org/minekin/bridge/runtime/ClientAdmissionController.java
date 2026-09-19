@@ -6,13 +6,11 @@ import io.minekin.protocol.v1.ConnectionLifecycle;
 import io.minekin.protocol.v1.ConnectionPhase;
 import io.minekin.protocol.v1.ResourcePackPolicy;
 import io.netty.channel.ChannelFuture;
-import java.util.Map;
 import java.util.function.Predicate;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.client.gui.screen.TitleScreen;
 import net.minecraft.client.gui.screen.multiplayer.ConnectScreen;
-import net.minecraft.client.network.CookieStorage;
 import net.minecraft.client.network.ServerAddress;
 import net.minecraft.client.network.ServerInfo;
 import net.minecraft.network.ClientConnection;
@@ -214,7 +212,19 @@ public final class ClientAdmissionController {
                     address,
                     server,
                     false,
-                    new CookieStorage(Map.of()));
+                    // Null, not an empty CookieStorage. Vanilla decides the
+                    // handshake's intent from whether this is null:
+                    //
+                    //     cookieStorage == null ? LOGIN : TRANSFER
+                    //
+                    // so an empty storage is not "no cookies", it is a transfer
+                    // with no cookies in it — and a vanilla server refuses a
+                    // transfer it did not start, silently, by closing the socket
+                    // with no disconnect packet. That is what a plain P0
+                    // connection was doing: `next_state=3`, socket closed,
+                    // nothing logged on either side. "Empty cookie storage" in
+                    // the contract means absent.
+                    null);
             if (!(client.currentScreen instanceof ConnectScreen screen)) {
                 throw new IllegalStateException("vanilla did not install ConnectScreen");
             }
