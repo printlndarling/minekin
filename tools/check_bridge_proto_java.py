@@ -120,6 +120,15 @@ public interface PacketSender {}
 package net.minecraft.client.network;
 public class ClientLoginNetworkHandler {}
 """,
+    # The one method the Bridge calls to turn a view, with the signature read from
+    # the compiled client rather than guessed: it takes the cursor delta the mouse
+    # would have handed it, which is what keeps a look the client's own.
+    "net/minecraft/client/network/ClientPlayerEntity.java": """\
+package net.minecraft.client.network;
+public class ClientPlayerEntity {
+    public void changeLookDirection(double cursorDeltaX, double cursorDeltaY) {}
+}
+""",
     "net/minecraft/client/network/ClientPlayNetworkHandler.java": """\
 package net.minecraft.client.network;
 public class ClientPlayNetworkHandler {}
@@ -186,10 +195,12 @@ public class ConnectScreen extends Screen {}
     "net/minecraft/client/MinecraftClient.java": """\
 package net.minecraft.client;
 import net.minecraft.client.gui.screen.Screen;
+import net.minecraft.client.network.ClientPlayerEntity;
 import net.minecraft.client.option.GameOptions;
 public class MinecraftClient {
     public final GameOptions options = new GameOptions();
     public Screen currentScreen;
+    public ClientPlayerEntity player;
     public static MinecraftClient getInstance() { return new MinecraftClient(); }
     public void execute(Runnable operation) { operation.run(); }
     public boolean isOnThread() { return true; }
@@ -207,6 +218,8 @@ ADAPTER_SOURCES = (
     ROOT / "bridge/src/main/java/org/minekin/bridge/input/KeySink.java",
     ROOT / "bridge/src/main/java/org/minekin/bridge/input/MovementBinding.java",
     ROOT / "bridge/src/main/java/org/minekin/bridge/input/VanillaKeySink.java",
+    ROOT / "bridge/src/main/java/org/minekin/bridge/input/ViewSink.java",
+    ROOT / "bridge/src/main/java/org/minekin/bridge/input/VanillaViewSink.java",
     ROOT / "bridge/src/main/java/org/minekin/bridge/protocol/HandshakeGate.java",
     ROOT / "bridge/src/main/java/org/minekin/bridge/protocol/AdmissionCommandGate.java",
     ROOT / "bridge/src/main/java/org/minekin/bridge/protocol/DescriptorLoader.java",

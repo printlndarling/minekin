@@ -16,10 +16,14 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, cast
 
+from google.protobuf.message import Message
+
 from minekin_core.adapters.bridge.bootstrap import bridge_session_for, descriptor_path
 from minekin_core.adapters.bridge.ipc import (
     ADMISSION_CAPABILITY,
     CONNECT_WORLD_TYPE,
+    LOOK_CAPABILITY,
+    LOOK_INPUT_TYPE,
     MOVE_CAPABILITY,
     MOVE_INPUT_TYPE,
     RELEASE_ALL_INPUTS_TYPE,
@@ -599,18 +603,32 @@ async def launch_prepared_async(prepared: PreparedSession) -> SessionLaunch:
     )
 
 
-@dataclass
-class HoldForward:
-    """The one movement a run may issue, the lease that authorises it, and its clock.
+# The most a single look command may ask for. The Bridge bounds a turn at the
+# same number; this is the earlier refusal, before a client is started for it.
+MAX_LOOK_DEGREES = 360.0
 
-    The duration is the caller's because it is what the lease was granted for:
-    the authorisation carries the moment it lapses, and that moment is the only
-    thing that ends the hold. Until this existed the deadline was written into
-    the lease and read by nobody, so a short move lasted exactly as long as the
-    run did.
+# How long a look's authorisation lasts. A look is one instant's work, so its
+# lease is only long enough to carry the command and be withdrawn.
+DEFAULT_LOOK_LEASE_S = 5.0
+
+
+@dataclass
+class InputPlan:
+    """What this run asks the client to do, the lease that authorises it, and its clock.
+
+    Both kinds of input arrive here because they share everything except what they
+    send: one lease, one arbiter, one release. A hold is a duration and a look is
+    a delta, and the duration is the caller's because it is what the lease was
+    granted for — the authorisation carries the moment it lapses, and that moment
+    is the only thing that ends a hold. Until that existed the deadline was
+    written into the lease and read by nobody, so a short move lasted exactly as
+    long as the run did.
     """
 
-    seconds: float
+    hold_seconds: float | None = None
+    yaw_degrees: float = 0.0
+    pitch_degrees: float = 0.0
+    look: bool = False
     arbiter: InputArbiter | None = None
     lease: InputLease | None = None
     watchdog: LeaseWatchdog = field(default_factory=LeaseWatchdog)
@@ -621,6 +639,62 @@ class HoldForward:
     # Kept rather than dropped: a run that was asked to walk and did not is a
     # fact about the run, and the reason is the only part of it worth having.
     refusal: str = ""
+
+    @property
+    def capabilities(self) -> frozenset[str]:
+        """What this plan needs authorising for, and nothing it does not.
+
+        A look is its own capability because a client can be steerable without
+        being turnable; a plan that asks for both holds one lease covering both.
+        """
+
+        wanted: set[str] = set()
+        if self.hold_seconds is not None:
+            wanted.add(MOVE_CAPABILITY)
+        if self.look:
+            wanted.add(LOOK_CAPABILITY)
+        return frozenset(wanted)
+
+    @property
+    def lease_seconds(self) -> float:
+        """How long the authorisation lasts. A hold owns its duration; a look does not."""
+
+        return self.hold_seconds if self.hold_seconds is not None else DEFAULT_LOOK_LEASE_S
+
+    def commands(self, lease: InputLease, deadline_ns: int) -> list[tuple[str, str, Message]]:
+        """The commands this plan sends, in a stable order, and what authorises each."""
+
+        outstanding: list[tuple[str, str, Message]] = []
+        if self.hold_seconds is not None:
+            outstanding.append(
+                (
+                    MOVE_CAPABILITY,
+                    MOVE_INPUT_TYPE,
+                    control_pb2.MoveInput(
+                        action_id=self.action_id,
+                        lease_id=lease.lease_id,
+                        generation=int(lease.generation),
+                        forward=1.0,
+                        deadline_monotonic_ns=deadline_ns,
+                    ),
+                )
+            )
+        if self.look:
+            outstanding.append(
+                (
+                    LOOK_CAPABILITY,
+                    LOOK_INPUT_TYPE,
+                    control_pb2.LookInput(
+                        action_id=self.action_id,
+                        lease_id=lease.lease_id,
+                        generation=int(lease.generation),
+                        delta_yaw_degrees=self.yaw_degrees,
+                        delta_pitch_degrees=self.pitch_degrees,
+                        deadline_monotonic_ns=deadline_ns,
+                    ),
+                )
+            )
+        return outstanding
 
 
 async def start_and_supervise(
@@ -641,6 +715,8 @@ async def start_and_supervise(
     server_profile: Path | None = None,
     connection_timeout: float = DEFAULT_CONNECTION_TIMEOUT_S,
     hold_forward: float | None = None,
+    look_yaw_degrees: float | None = None,
+    look_pitch_degrees: float | None = None,
 ) -> tuple[SessionLaunch, SessionRun]:
     """Start a managed session with a live Bridge and stay with it until it ends.
 
@@ -693,19 +769,42 @@ async def start_and_supervise(
             "this Bridge session was negotiated without "
             f"{ADMISSION_CAPABILITY}, so no connection can be requested"
         )
-    if hold_forward is not None and server_profile is None:
-        # A hold with no world to walk in would be a lever that does nothing: the
+    wants_look = look_yaw_degrees is not None or look_pitch_degrees is not None
+    plan = (
+        None
+        if hold_forward is None and not wants_look
+        else InputPlan(
+            hold_seconds=hold_forward,
+            look=wants_look,
+            yaw_degrees=0.0 if look_yaw_degrees is None else look_yaw_degrees,
+            pitch_degrees=0.0 if look_pitch_degrees is None else look_pitch_degrees,
+        )
+    )
+    if plan is not None and server_profile is None:
+        # Input with no world to drive would be a lever that does nothing: the
         # operator asked for something this run cannot express.
-        raise _reject("--hold-forward-seconds needs --server-profile: there is no world")
+        raise _reject("asking for input needs --server-profile: there is no world to drive")
     if hold_forward is not None and hold_forward <= 0:
         # A lease deadline already past is not a hold, it is a refusal dressed as
         # one, and the run would report a Kin that never moved.
         raise _reject("--hold-forward-seconds must be positive")
-    if hold_forward is not None and MOVE_CAPABILITY not in prepared.bridge_session.capabilities:
-        raise _reject(
-            "this Bridge session was negotiated without "
-            f"{MOVE_CAPABILITY}, so the client cannot be steered"
-        )
+    for degrees, flag in (
+        (look_yaw_degrees, "--look-yaw-degrees"),
+        (look_pitch_degrees, "--look-pitch-degrees"),
+    ):
+        # Refused here rather than in the Bridge: the Bridge bounds a turn at a
+        # full turn either way, and an operator who asked for more should be told
+        # before a client is started for it.
+        if degrees is not None and not -MAX_LOOK_DEGREES <= degrees <= MAX_LOOK_DEGREES:
+            raise _reject(f"{flag} is bounded to {MAX_LOOK_DEGREES} degrees either way")
+    if plan is not None:
+        missing = sorted(plan.capabilities - prepared.bridge_session.capabilities)
+        if missing:
+            raise _reject(
+                "this Bridge session was negotiated without "
+                + ", ".join(missing)
+                + ", so the client cannot be driven"
+            )
 
     session.advance(SessionState.STARTING_CLIENT)
     host = BridgeIpcHost(prepared.bridge_session)
@@ -735,11 +834,6 @@ async def start_and_supervise(
             trust_class=trust_class,
         )
 
-    # A run that was asked to walk gets exactly one input owner. The lease is the
-    # authorisation — generation, capability, deadline — and withdrawing it is what
-    # tells the Bridge to lift the key; nothing else in the run touches input.
-    movement = None if hold_forward is None else HoldForward(seconds=hold_forward)
-
     async def on_handshake() -> None:
         # Core verified the proof, so this is Core's conclusion rather than the
         # Bridge's word.
@@ -758,10 +852,10 @@ async def start_and_supervise(
         if target is None:
             return
         attempt = connections.begin(OpaqueId(target.profile_id), target.revision)
-        if movement is not None:
+        if plan is not None:
             # Bound to the generation the command goes out under, because that is
-            # the generation the Bridge gates the movement against.
-            movement.arbiter = InputArbiter(attempt.generation)
+            # the generation the Bridge gates the plan against.
+            plan.arbiter = InputArbiter(attempt.generation)
         command = connect_world_command(
             target,
             request_id=OpaqueId.new().value,
@@ -774,78 +868,76 @@ async def start_and_supervise(
         await host.send_control(CONNECT_WORLD_TYPE, command)
 
     async def on_playable() -> None:
-        """Hold the forward key, under a lease, once the session may be driven."""
+        """Ask for this run's input, under one lease, once the session may be driven."""
 
-        if movement is None or movement.arbiter is None:
+        if plan is None or plan.arbiter is None:
             return
         # The arbiter refuses to authorise anything for a session that is not
         # playable, and this is the moment that becomes true. Nothing says it on
         # the arbiter's behalf: it is a decision this run makes, and Core is the
         # only side that knows the snapshot was admitted.
-        movement.arbiter.set_playable(True)
+        plan.arbiter.set_playable(True)
         issued = monotonic_ns()
-        deadline = issued + int(movement.seconds * 1_000_000_000)
+        deadline = issued + int(plan.lease_seconds * 1_000_000_000)
         lease = InputLease(
             lease_id=OpaqueId.new().value,
-            generation=movement.arbiter.generation,
+            generation=plan.arbiter.generation,
             client_instance_id=bridge_session.client_instance_id,
             issued_monotonic_ns=issued,
             deadline_monotonic_ns=deadline,
             priority=InputPriority.NORMAL,
-            capabilities=frozenset({MOVE_CAPABILITY}),
+            # What this plan needs, and nothing else: a look-only run holds a lease
+            # that cannot move the client, and a movement authorisation is not a
+            # blanket permission to drive it.
+            capabilities=plan.capabilities,
         )
-        granted = movement.arbiter.grant(lease)
+        granted = plan.arbiter.grant(lease)
         if not granted.accepted:
-            movement.refusal = ",".join(item.value for item in granted.refusals)
+            plan.refusal = ",".join(item.value for item in granted.refusals)
             return
-        authorised = movement.arbiter.decide(
-            InputRequest(
-                lease_id=lease.lease_id,
-                generation=lease.generation,
-                capability=MOVE_CAPABILITY,
-                deadline_monotonic_ns=deadline,
-            ),
-            now=MonotonicInstant(issued),
-        )
-        if not authorised.accepted:
-            movement.refusal = ",".join(item.value for item in authorised.refusals)
-            return
-        movement.action_id = OpaqueId.new().value
-        try:
-            await host.send_control(
-                MOVE_INPUT_TYPE,
-                control_pb2.MoveInput(
-                    action_id=movement.action_id,
+        plan.action_id = OpaqueId.new().value
+        for capability, message_type, message in plan.commands(lease, deadline):
+            # Authorised one capability at a time, at this instant: the arbiter
+            # answers for an action, so a plan that asks for two things is two
+            # answers, and the one that is refused is the one not sent.
+            authorised = plan.arbiter.decide(
+                InputRequest(
                     lease_id=lease.lease_id,
-                    generation=int(lease.generation),
-                    forward=1.0,
+                    generation=lease.generation,
+                    capability=capability,
                     deadline_monotonic_ns=deadline,
                 ),
+                now=MonotonicInstant(issued),
             )
-        except (OSError, RuntimeError):
-            # The transport went while the session was being made playable. The run
-            # is over by another road, and a ledger entry here would record a grant
-            # that never reached the client.
-            movement.refusal = "CONTROL_CHANNEL_LOST"
-            return
-        await record(
-            INPUT_LEASE_GRANTED,
-            {
-                "capability": MOVE_CAPABILITY,
-                "lease_id": lease.lease_id,
-                "action_id": movement.action_id,
-                "deadline_monotonic_ns": deadline,
-                "priority": InputPriority.NORMAL.name,
-            },
-            source=EventSource.CORE,
-            trust_class=TrustClass.CORE,
-        )
-        movement.lease = lease
+            if not authorised.accepted:
+                plan.refusal = ",".join(item.value for item in authorised.refusals)
+                return
+            try:
+                await host.send_control(message_type, message)
+            except (OSError, RuntimeError):
+                # The transport went while the session was being made playable. The
+                # run is over by another road, and a ledger entry here would record
+                # a grant that never reached the client.
+                plan.refusal = "CONTROL_CHANNEL_LOST"
+                return
+            await record(
+                INPUT_LEASE_GRANTED,
+                {
+                    "capability": capability,
+                    "lease_id": lease.lease_id,
+                    "action_id": plan.action_id,
+                    "deadline_monotonic_ns": deadline,
+                    "priority": InputPriority.NORMAL.name,
+                },
+                source=EventSource.CORE,
+                trust_class=TrustClass.CORE,
+            )
+        plan.lease = lease
         # Armed only now, on a lease that was granted and sent: a watchdog armed
         # before that would lapse an authorisation the client never received.
-        movement.deadline_monotonic_ns = deadline
-        movement.watchdog.arm(lease)
-        movement.playable.set()
+        plan.deadline_monotonic_ns = deadline
+        plan.watchdog.arm(lease)
+        plan.playable.set()
 
     async def release_inputs(arbiter: InputArbiter, reason: ReleaseReason) -> ReleaseOutcome:
         """Withdraw the lease and tell the Bridge, in that order, for one reason.
@@ -886,10 +978,10 @@ async def start_and_supervise(
         grant happens whenever the snapshot happens to be admitted.
         """
 
-        if movement is None:
+        if plan is None:
             return
-        await movement.playable.wait()
-        remaining = movement.deadline_monotonic_ns - monotonic_ns()
+        await plan.playable.wait()
+        remaining = plan.deadline_monotonic_ns - monotonic_ns()
         if remaining > 0:
             await asyncio.sleep(remaining / 1_000_000_000)
 
@@ -900,13 +992,13 @@ async def start_and_supervise(
         that has since been replaced cannot release the one that replaced it.
         """
 
-        if movement is None or movement.arbiter is None:
+        if plan is None or plan.arbiter is None:
             return
-        lapsed = movement.watchdog.lapsed(MonotonicInstant(monotonic_ns()))
-        current = movement.arbiter.current
+        lapsed = plan.watchdog.lapsed(MonotonicInstant(monotonic_ns()))
+        current = plan.arbiter.current
         if lapsed is None or current is None or lapsed.lease_id != current.lease_id:
             return
-        await release_inputs(movement.arbiter, ReleaseReason.TIMEOUT)
+        await release_inputs(plan.arbiter, ReleaseReason.TIMEOUT)
 
     async def on_wind_down() -> None:
         """Take the input back, whatever ended the run.
@@ -917,10 +1009,10 @@ async def start_and_supervise(
         Core's own withdrawal — a session ending is not a fault in the input.
         """
 
-        if movement is None or movement.arbiter is None:
+        if plan is None or plan.arbiter is None:
             return
-        movement.watchdog.disarm()
-        await release_inputs(movement.arbiter, ReleaseReason.EXPLICIT)
+        plan.watchdog.disarm()
+        await release_inputs(plan.arbiter, ReleaseReason.EXPLICIT)
 
     async def on_connection(state: ConnectionState, reason: str) -> None:
         recorded = _CONNECTION_EVENTS.get(state)
@@ -959,16 +1051,16 @@ async def start_and_supervise(
         on_wind_down=on_wind_down,
         # Only when a hold was asked for: with no lease there is no moment, and a
         # watcher that never completes is a task that exists to be cancelled.
-        until_input_release=None if movement is None else until_input_release,
-        on_input_release=None if movement is None else on_input_release,
+        until_input_release=None if plan is None else until_input_release,
+        on_input_release=None if plan is None else on_input_release,
         recorded=prepared.recorded,
     )
-    if movement is not None and movement.refusal:
+    if plan is not None and plan.refusal:
         # Only this caller knows why the input was never taken: the runtime sees
         # commands and answers, not the arbiter's reasons. Recorded on the run
         # rather than left in a hook, so "the Kin was told to walk and could not"
         # survives even when there was nothing to release.
-        run = replace(run, input_refusal=movement.refusal)
+        run = replace(run, input_refusal=plan.refusal)
     # How the run ended is Core's own observation, whatever the Bridge reported
     # along the way.
     await record(

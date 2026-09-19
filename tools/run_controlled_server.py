@@ -207,6 +207,22 @@ def position_probe_command(player: str) -> str:
     return f"data get entity {player} Pos"
 
 
+def rotation_probe_command(player: str) -> str:
+    """The console line that makes the server say where a player is looking.
+
+    The other half of what a server can be asked about a Kin, and the only way to
+    observe a look: a turn is not a movement, so no position reading will show one.
+    Like the others it goes to the console, so the name is checked rather than
+    escaped.
+    """
+
+    from minekin_core.domain.offline_identity import is_valid_username
+
+    if not is_valid_username(player):
+        raise SystemExit(f"not a vanilla player name: {player!r}")
+    return f"data get entity {player} Rotation"
+
+
 def _sha1(stream: BinaryIO) -> str:
     digest = hashlib.sha1(usedforsecurity=False)
     while chunk := stream.read(1024 * 1024):
@@ -337,6 +353,7 @@ def main() -> int:
 
     summon = None if args.summon is None else summon_command(args.summon)
     probe = None if args.probe_player is None else position_probe_command(args.probe_player)
+    rotation = None if args.probe_player is None else rotation_probe_command(args.probe_player)
     kill = None if args.kill_player is None else kill_command(args.kill_player)
     joined_at = None
     # Asked immediately: the join line the server already writes says where the
@@ -380,6 +397,13 @@ def main() -> int:
                         # the run can answer for it.
                         process.stdin.write((probe + "\n").encode())
                         process.stdin.flush()
+                        if rotation is not None:
+                            # Asked alongside the position rather than behind a
+                            # flag of its own: they are the two things a server
+                            # can be asked about a Kin, and a look shows up in
+                            # exactly one of them.
+                            process.stdin.write((rotation + "\n").encode())
+                            process.stdin.flush()
                         next_probe = time.monotonic() + args.probe_every_seconds
                     # Killed through a death rather than a disconnect: a disconnect
                     # ends the session, and a death is the case where the client is

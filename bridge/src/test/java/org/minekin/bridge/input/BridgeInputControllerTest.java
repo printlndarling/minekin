@@ -36,8 +36,22 @@ final class BridgeInputControllerTest {
         }
     }
 
+    private static final class RecordingView implements ViewSink {
+        private final List<String> events = new ArrayList<>();
+
+        @Override
+        public void turn(float yawDegrees, float pitchDegrees) {
+            events.add("turn:" + yawDegrees + "," + pitchDegrees);
+        }
+    }
+
     private static BridgeInputController controllerFor(RecordingSink sink) {
-        return new BridgeInputController(sink, new InputWatchdog(INTERVAL, MISSES), GENERATION);
+        return controllerFor(sink, new RecordingView());
+    }
+
+    private static BridgeInputController controllerFor(RecordingSink sink, RecordingView view) {
+        return new BridgeInputController(
+                sink, view, new InputWatchdog(INTERVAL, MISSES), GENERATION);
     }
 
     private static BridgeInputController.Outcome move(
@@ -319,6 +333,84 @@ final class BridgeInputControllerTest {
 
         long expired = INTERVAL * 2 + INTERVAL * (MISSES + 1);
         assertTrue(controller.tick(expired), "the watchdog was re-armed by the new command");
+        assertEquals(List.of(), controller.held());
+    }
+
+    @Test
+    void aLookTurnsTheViewAndPressesNothing() {
+        RecordingSink sink = new RecordingSink();
+        RecordingView view = new RecordingView();
+        BridgeInputController controller = controllerFor(sink, view);
+
+        BridgeInputController.Outcome outcome =
+                controller.look(INTERVAL, DEADLINE, GENERATION, 90.0f, -30.0f);
+
+        assertTrue(outcome.applied());
+        assertEquals(List.of("turn:90.0,-30.0"), view.events);
+        // A look is not held state: it is over when it is applied, so there is
+        // nothing in the ledger and nothing for a release to lift.
+        assertEquals(List.of(), controller.held());
+        assertEquals(List.of(), sink.events);
+    }
+
+    @Test
+    void aLookForAClientThatIsNotTakingInputIsRefused() {
+        RecordingSink sink = new RecordingSink();
+        RecordingView view = new RecordingView();
+        BridgeInputController controller = controllerFor(sink, view);
+        controller.blockInput("PauseScreen");
+
+        BridgeInputController.Outcome outcome =
+                controller.look(INTERVAL, DEADLINE, GENERATION, 90.0f, 0.0f);
+
+        assertFalse(outcome.applied());
+        assertEquals(BridgeInputController.REFUSED_GUI_CONFLICT, outcome.refusalCode());
+        assertEquals(List.of(), view.events, "the view did not move");
+    }
+
+    @Test
+    void aTurnThatIsNotATurnIsRefusedRatherThanClamped() {
+        RecordingSink sink = new RecordingSink();
+        RecordingView view = new RecordingView();
+        BridgeInputController controller = controllerFor(sink, view);
+
+        // NaN compares false against every bound, so a naive range check lets it
+        // through, and a turn of a thousand degrees is not a look.
+        assertFalse(controller.look(INTERVAL, DEADLINE, GENERATION, Float.NaN, 0.0f).applied());
+        assertFalse(controller.look(INTERVAL, DEADLINE, GENERATION, 0.0f, Float.NaN).applied());
+        assertFalse(controller.look(INTERVAL, DEADLINE, GENERATION, 1000.0f, 0.0f).applied());
+        assertEquals(
+                BridgeInputController.REFUSED_MALFORMED_TURN,
+                controller.look(INTERVAL, DEADLINE, GENERATION, 1000.0f, 0.0f).refusalCode());
+        assertEquals(List.of(), view.events);
+    }
+
+    @Test
+    void aLookForAGenerationThatEndedIsRefused() {
+        RecordingSink sink = new RecordingSink();
+        RecordingView view = new RecordingView();
+        BridgeInputController controller = controllerFor(sink, view);
+
+        BridgeInputController.Outcome outcome =
+                controller.look(INTERVAL, DEADLINE, GENERATION - 1, 90.0f, 0.0f);
+
+        assertFalse(outcome.applied());
+        assertEquals(BridgeInputController.REFUSED_STALE_GENERATION, outcome.refusalCode());
+        assertEquals(List.of(), view.events);
+    }
+
+    @Test
+    void aLookIsAlsoEvidenceThatCoreIsAlive() {
+        RecordingSink sink = new RecordingSink();
+        BridgeInputController controller = controllerFor(sink);
+        move(controller, INTERVAL, 1.0f, 0.0f, false, false);
+
+        controller.look(INTERVAL * 2, DEADLINE, GENERATION, 10.0f, 0.0f);
+
+        // The watchdog counts from the most recent command of either kind: a Core
+        // that only ever looks is a Core that is still there.
+        assertFalse(controller.tick(INTERVAL * 2 + INTERVAL * MISSES));
+        assertTrue(controller.tick(INTERVAL * 2 + INTERVAL * (MISSES + 1)));
         assertEquals(List.of(), controller.held());
     }
 }

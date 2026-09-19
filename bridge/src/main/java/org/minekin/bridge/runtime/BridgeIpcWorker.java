@@ -14,6 +14,7 @@ import io.minekin.protocol.v1.CoreHello;
 import io.minekin.protocol.v1.Envelope;
 import io.minekin.protocol.v1.Heartbeat;
 import io.minekin.protocol.v1.InitialObservation;
+import io.minekin.protocol.v1.LookInput;
 import io.minekin.protocol.v1.MoveInput;
 import io.minekin.protocol.v1.ProtocolVersion;
 import io.minekin.protocol.v1.ReleaseAllInputs;
@@ -36,6 +37,7 @@ import org.minekin.bridge.protocol.HandshakeGate;
 import org.minekin.bridge.input.BridgeInputController;
 import org.minekin.bridge.input.InputWatchdog;
 import org.minekin.bridge.input.KeySink;
+import org.minekin.bridge.input.ViewSink;
 import org.minekin.bridge.protocol.NioEnvelopeChannel;
 
 /** Owns descriptor I/O, both local sockets, protobuf encoding, and handshake on a daemon thread. */
@@ -49,6 +51,7 @@ public final class BridgeIpcWorker implements AutoCloseable {
     public static final String RELEASE_ALL_INPUTS_TYPE = "minekin.v1.ReleaseAllInputs";
     public static final String INITIAL_OBSERVATION_TYPE = "minekin.v1.InitialObservation";
     public static final String MOVE_INPUT_TYPE = "minekin.v1.MoveInput";
+    public static final String LOOK_INPUT_TYPE = "minekin.v1.LookInput";
     public static final String ACTION_RESULT_TYPE = "minekin.v1.ActionResult";
     private static final Logger LOGGER = LoggerFactory.getLogger("minekin-bridge");
     /**
@@ -80,6 +83,7 @@ public final class BridgeIpcWorker implements AutoCloseable {
     private final Duration handshakeTimeout;
     private final BridgePhaseMachine phases;
     private final KeySink keySink;
+    private final ViewSink viewSink;
     private final BoundedChannel<ClientMessage> clientInbox;
     private final BoundedChannel<EventMessage> eventOutbox;
     private final AdmissionCommandGate admissionCommands = new AdmissionCommandGate();
@@ -97,12 +101,14 @@ public final class BridgeIpcWorker implements AutoCloseable {
             Duration handshakeTimeout,
             int inboxCapacity,
             BridgePhaseMachine phases,
-            KeySink keySink) {
+            KeySink keySink,
+            ViewSink viewSink) {
         this.descriptorPath = descriptorPath.toAbsolutePath().normalize();
         this.connectTimeout = requirePositive(connectTimeout, "connectTimeout");
         this.handshakeTimeout = requirePositive(handshakeTimeout, "handshakeTimeout");
         this.phases = java.util.Objects.requireNonNull(phases, "phases");
         this.keySink = java.util.Objects.requireNonNull(keySink, "keySink");
+        this.viewSink = java.util.Objects.requireNonNull(viewSink, "viewSink");
         clientInbox = new BoundedChannel<>(inboxCapacity);
         eventOutbox = new BoundedChannel<>(inboxCapacity);
     }
@@ -144,6 +150,47 @@ public final class BridgeIpcWorker implements AutoCloseable {
     }
 
     /**
+     * Turns the view the command asks for, and answers for it.
+
+     * <p>One turn, applied and over: nothing is held afterwards, so there is
+     * nothing here for a release to lift. The answer matters for the same reason
+     * it does for a movement command — a Kin that was told to look and did not is
+     * a fact Core has to be able to record.
+     */
+    private void applyLook(LookInput command) {
+        BridgeInputController controller = input;
+        if (controller == null) {
+            return;
+        }
+        BridgeInputController.Outcome outcome = controller.look(
+                monotonicNow(),
+                command.getDeadlineMonotonicNs(),
+                command.getGeneration(),
+                command.getDeltaYawDegrees(),
+                command.getDeltaPitchDegrees());
+        if (outcome.applied()) {
+            LOGGER.info(
+                    "bridge applied look {}: {} yaw, {} pitch degrees",
+                    command.getActionId(),
+                    command.getDeltaYawDegrees(),
+                    command.getDeltaPitchDegrees());
+        } else {
+            LOGGER.warn(
+                    "bridge refused look {}: {}", command.getActionId(), outcome.refusalCode());
+        }
+        publishActionResult(
+                ActionResult.newBuilder()
+                        .setActionId(command.getActionId())
+                        .setGeneration(command.getGeneration())
+                        .setStatus(
+                                outcome.applied()
+                                        ? ActionStatus.ACTION_STATUS_ACCEPTED
+                                        : ActionStatus.ACTION_STATUS_FAILED)
+                        .setReasonCode(outcome.refusalCode())
+                        .build());
+    }
+
+    /**
      * What the client is showing, from the client tick.
      *
      * <p>The keyboard's owner is the one release trigger only this side can see, so it
@@ -176,6 +223,10 @@ public final class BridgeIpcWorker implements AutoCloseable {
         }
         if (message instanceof MoveCommand move) {
             applyMove(move.value());
+            return true;
+        }
+        if (message instanceof LookCommand look) {
+            applyLook(look.value());
             return true;
         }
         if (message == Notice.SAFE_STOP) {
@@ -402,7 +453,8 @@ public final class BridgeIpcWorker implements AutoCloseable {
                         CONNECT_WORLD_TYPE,
                         CANCEL_CONNECTION_TYPE,
                         RELEASE_ALL_INPUTS_TYPE,
-                        MOVE_INPUT_TYPE));
+                        MOVE_INPUT_TYPE,
+                        LOOK_INPUT_TYPE));
         Envelope reply = control.read(handshakeTimeout);
         gate.validate(reply);
         if (!CORE_HELLO_TYPE.equals(reply.getMessageType())) {
@@ -418,6 +470,7 @@ public final class BridgeIpcWorker implements AutoCloseable {
         }
         BridgeInputController created = new BridgeInputController(
                 keySink,
+                viewSink,
                 new InputWatchdog(
                         Duration.ofMillis(coreHello.getHeartbeatIntervalMs()).toNanos(),
                         INPUT_MISSED_HEARTBEATS),
@@ -519,6 +572,17 @@ public final class BridgeIpcWorker implements AutoCloseable {
                 observeCoreMessage();
                 if (!clientInbox.offer(new MoveCommand(command))) {
                     throw new IOException("client inbox is full for MoveInput");
+                }
+            } else if (LOOK_INPUT_TYPE.equals(envelope.getMessageType())) {
+                LookInput command = onLocalClock(
+                        LookInput.parseFrom(envelope.getPayload()), envelope.getMonotonicNs());
+                validateLook(command);
+                if (!state.capabilities().contains(HandshakeGate.LOOK_CAPABILITY)) {
+                    throw new IOException("LookInput arrived without the look capability");
+                }
+                observeCoreMessage();
+                if (!clientInbox.offer(new LookCommand(command))) {
+                    throw new IOException("client inbox is full for LookInput");
                 }
             } else if (CANCEL_CONNECTION_TYPE.equals(envelope.getMessageType())) {
                 CancelConnection command = CancelConnection.parseFrom(envelope.getPayload());
@@ -689,6 +753,42 @@ public final class BridgeIpcWorker implements AutoCloseable {
     }
 
     /**
+     * The same restatement for a look, which carries the same kind of deadline.
+     */
+    static LookInput onLocalClock(LookInput command, long receivedAtNanos) {
+        if (command.getDeadlineMonotonicNs() == 0) {
+            return command.toBuilder().setDeadlineMonotonicNs(0).build();
+        }
+        long remaining;
+        try {
+            remaining = Math.subtractExact(command.getDeadlineMonotonicNs(), receivedAtNanos);
+        } catch (ArithmeticException overflow) {
+            remaining = 0;
+        }
+        if (remaining <= 0) {
+            return command.toBuilder().setDeadlineMonotonicNs(monotonicNow() - 1).build();
+        }
+        return command.toBuilder()
+                .setDeadlineMonotonicNs(Math.addExact(monotonicNow(), remaining))
+                .build();
+    }
+
+    /**
+     * Refuses a look that is not one, for the reasons a movement command is.
+     */
+    static void validateLook(LookInput command) {
+        if (command.getActionId().isBlank()
+                || command.getActionId().length() > 128
+                || command.getGeneration() == 0
+                || command.getLeaseId().isBlank()
+                || command.getLeaseId().length() > 128
+                || !Float.isFinite(command.getDeltaYawDegrees())
+                || !Float.isFinite(command.getDeltaPitchDegrees())) {
+            throw new IllegalArgumentException("LookInput violates the negotiated input bounds");
+        }
+    }
+
+    /**
      * Refuses a movement command that is not one, before it reaches the client.
      *
      * <p>This is about identity and shape, not about whether the command is still
@@ -763,7 +863,7 @@ public final class BridgeIpcWorker implements AutoCloseable {
     }
 
     public sealed interface ClientMessage
-            permits Notice, ConnectCommand, CancelCommand, ReleaseCommand, MoveCommand {}
+            permits Notice, ConnectCommand, CancelCommand, ReleaseCommand, MoveCommand, LookCommand {}
 
     public enum Notice implements ClientMessage {
         OBSERVE_ONLY,
@@ -777,6 +877,8 @@ public final class BridgeIpcWorker implements AutoCloseable {
     public record ReleaseCommand(ReleaseAllInputs value) implements ClientMessage {}
 
     public record MoveCommand(MoveInput value) implements ClientMessage {}
+
+    public record LookCommand(LookInput value) implements ClientMessage {}
 
     private record HeartbeatState(EnvelopeGate gate, Duration timeout, Set<String> capabilities) {
         private HeartbeatState {

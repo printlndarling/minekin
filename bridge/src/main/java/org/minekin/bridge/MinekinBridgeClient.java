@@ -15,6 +15,7 @@ import net.minecraft.client.gui.screen.TitleScreen;
 import net.minecraft.client.gui.screen.multiplayer.ConnectScreen;
 import org.minekin.bridge.input.BridgeInputController;
 import org.minekin.bridge.input.VanillaKeySink;
+import org.minekin.bridge.input.VanillaViewSink;
 import org.minekin.bridge.runtime.BridgeIpcWorker;
 import org.minekin.bridge.runtime.BridgePhaseMachine;
 import org.minekin.bridge.runtime.ClientAdmissionController;
@@ -46,7 +47,8 @@ public final class MinekinBridgeClient implements ClientModInitializer {
                 Duration.ofSeconds(5),
                 16,
                 phases,
-                new VanillaKeySink());
+                new VanillaKeySink(),
+                new VanillaViewSink());
         ClientAdmissionController controller = new ClientAdmissionController(
                 phases, created::publishLifecycle, created::publishObservation);
         ClientTickEvents.END_CLIENT_TICK.register(

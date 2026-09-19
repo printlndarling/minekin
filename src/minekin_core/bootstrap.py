@@ -117,6 +117,12 @@ def run(
                 hold_forward=(
                     None if args.hold_forward_seconds is None else float(args.hold_forward_seconds)
                 ),
+                look_yaw_degrees=(
+                    None if args.look_yaw_degrees is None else float(args.look_yaw_degrees)
+                ),
+                look_pitch_degrees=(
+                    None if args.look_pitch_degrees is None else float(args.look_pitch_degrees)
+                ),
             )
         )
         _emit({**launch.as_dict(), "run": run.as_dict()}, stdout)

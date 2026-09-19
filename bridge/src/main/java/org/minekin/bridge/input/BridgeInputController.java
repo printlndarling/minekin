@@ -63,15 +63,27 @@ public final class BridgeInputController {
     public static final String REFUSED_MALFORMED = "MALFORMED_AXES";
     /** The client is not taking input: something else owns the keyboard. */
     public static final String REFUSED_GUI_CONFLICT = "GUI_CONFLICT";
+    /** A turn that is bigger than any turn: a delta nobody meant. */
+    public static final String REFUSED_MALFORMED_TURN = "MALFORMED_TURN";
+
+    /**
+     * The most a single look command may ask for, in degrees. A full turn either
+     * way is a bound a command cannot exceed by accident and a delta of a million
+     * degrees cannot slip under.
+     */
+    private static final float MAX_TURN_DEGREES = 360.0F;
 
     private final KeySink sink;
+    private final ViewSink view;
     private final InputWatchdog watchdog;
     private InputOwnership ownership;
     private boolean inputBlocked;
     private String blockedBy = "";
 
-    public BridgeInputController(KeySink sink, InputWatchdog watchdog, long generation) {
+    public BridgeInputController(
+            KeySink sink, ViewSink view, InputWatchdog watchdog, long generation) {
         this.sink = Objects.requireNonNull(sink, "sink");
+        this.view = Objects.requireNonNull(view, "view");
         this.watchdog = Objects.requireNonNull(watchdog, "watchdog");
         this.ownership = new InputOwnership(generation);
     }
@@ -140,6 +152,44 @@ public final class BridgeInputController {
         }
         apply(wanted);
         return Outcome.applied(ownership.held());
+    }
+
+    /**
+     * Applies one bounded turn, and answers for it.
+
+     * <p>A look is not held state. It is applied once and forgotten, so it never
+     * enters the ledger and there is nothing to release — which is also why it
+     * cannot be the thing a Kin keeps doing after something has gone wrong. What
+     * it shares with a movement command is every reason it can be refused, and
+     * they are checked in the same order for the same reasons.
+     */
+    public synchronized Outcome look(
+            long nowNanos,
+            long deadlineNanos,
+            long generation,
+            float deltaYawDegrees,
+            float deltaPitchDegrees) {
+        observeCoreMessage(nowNanos);
+        if (generation != ownership.generation()) {
+            return Outcome.refused(REFUSED_STALE_GENERATION);
+        }
+        if (inputBlocked) {
+            return Outcome.refused(REFUSED_GUI_CONFLICT);
+        }
+        if (deadlineNanos != 0 && nowNanos > deadlineNanos) {
+            return Outcome.refused(REFUSED_DEADLINE_EXCEEDED);
+        }
+        if (!turn(deltaYawDegrees) || !turn(deltaPitchDegrees)) {
+            return Outcome.refused(REFUSED_MALFORMED_TURN);
+        }
+        view.turn(deltaYawDegrees, deltaPitchDegrees);
+        // The held keys are unchanged by a look, and reported anyway: what a
+        // command leaves held is the same question for both kinds.
+        return Outcome.applied(ownership.held());
+    }
+
+    private static boolean turn(float degrees) {
+        return Float.isFinite(degrees) && Math.abs(degrees) <= MAX_TURN_DEGREES;
     }
 
     /**

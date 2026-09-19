@@ -21,8 +21,23 @@ summon="${MINEKIN_DOMAIN_SUMMON:-}"
 probe="${MINEKIN_DOMAIN_PROBE:-}"
 kill="${MINEKIN_DOMAIN_KILL:-}"
 silence="${MINEKIN_DOMAIN_SILENCE:-}"
+look="${MINEKIN_DOMAIN_LOOK:-}"
+# How often the server is asked about the Kin. A look is over within a second
+# of the join, so a run that wants a reading on both sides of it asks more
+# often than the default — the pair is what shows a heading changed.
+probe_seconds="${MINEKIN_DOMAIN_PROBE_SECONDS:-5}"
 silenced=0
 runs=/data/server-runs
+
+# What this run was asked to do, read from the command that was given to it: the
+# harness waits for what the session was told to do, not for what the operator
+# happened to export as well.
+hold_requested=0
+for argument in "$@"; do
+    case "${argument}" in
+        --hold-forward-seconds) hold_requested=1 ;;
+    esac
+done
 
 # Empty means "the world is as vanilla generated it", which is what every run
 # did before this existed — so it stays optional rather than becoming a required
@@ -37,7 +52,7 @@ fi
 # input is the server's own observation of the displacement.
 probe_args=()
 if [[ -n "${probe}" ]]; then
-    probe_args=(--probe-player "${probe}")
+    probe_args=(--probe-player "${probe}" --probe-every-seconds "${probe_seconds}")
 fi
 
 # And a run that is verifying the release a death causes has to be able to kill the
@@ -142,8 +157,18 @@ read_position() {
 horizontal_positions() {
     { grep -o 'has the following entity data: \[[^]]*\]' \
         "${server_directory}/server.log" 2>/dev/null || true; } |
-        sed 's/.*\[//; s/\]//; s/d//g' |
-        awk -F', *' '{print $1","$3}'
+        sed 's/.*\[//; s/\]//; s/[df]//g' |
+        awk -F', *' 'NF == 3 {print $1","$3}'
+}
+
+# The rotation the server has reported, one yaw per line. Two components rather
+# than three is what tells a rotation reading from a position reading: the server
+# answers both with the same words and only the shape differs.
+reported_yaws() {
+    { grep -o 'has the following entity data: \[[^]]*\]' \
+        "${server_directory}/server.log" 2>/dev/null || true; } |
+        sed 's/.*\[//; s/\]//; s/[df]//g' |
+        awk -F', *' 'NF == 2 {print $1}'
 }
 baseline=$(read_position)
 baseline=${baseline:-0}
@@ -197,7 +222,7 @@ if [[ -n "${silence}" ]]; then
     done
 fi
 
-# A run that is supposed to move the Kin waits for the movement itself, because
+# A run that was asked to hold a key waits for the movement itself, because
 # the acceptance for input is the server's own observation of it. What counts as
 # movement is *horizontal*: a Kin standing still at spawn can still be reported
 # twice with different Y, so counting any two positions would accept a fall at
@@ -212,7 +237,7 @@ fi
 # Its own budget rather than what is left of the join's: a slow boot must not
 # spend the walk's allowance, which is how the first version of this reported a
 # Kin that had walked seventeen blocks as one that never moved.
-if [[ -n "${probe}" ]]; then
+if [[ -n "${probe}" && "${hold_requested}" -eq 1 ]]; then
     walked=0
     deadline=$((SECONDS + seconds))
     for _ in $(seq 1 "${seconds}"); do
@@ -246,7 +271,40 @@ if [ "${silenced}" -eq 1 ]; then
     printf 'domain: Core is running again\n' >&2
 fi
 
-printf 'domain: stopping the session\n' >&2
+if [[ -n "${look}" ]]; then
+    looked=0
+    deadline=$((SECONDS + seconds))
+    for _ in $(seq 1 "${seconds}"); do
+        kill -0 "${session_pid}" 2>/dev/null || break
+        [ "${SECONDS}" -lt "${deadline}" ] || break
+        yaws=$(reported_yaws)
+        distinct=$(printf '%s\n' "${yaws}" | sort -u | wc -l)
+        places=$(horizontal_positions | sort -u | wc -l)
+        # Two different headings and still one place: the turn happened and it was
+        # a turn. A look is not a movement, so a Kin that also teleported would
+        # show up here as a second place.
+        if [ "${distinct}" -ge 2 ] && [ "${places}" -le 1 ]; then
+            turned=$(printf '%s\n' "${yaws}" |
+                awk 'NR == 1 { first = $1 } { last = $1 } END { d = last - first; if (d < 0) d = -d; printf "%.3f", d }')
+            printf 'domain: the server saw the Kin turn by %s degrees (asked for %s)\n' \
+                "${turned}" "${look}" >&2
+            if awk -v turned="${turned}" -v asked="${look}" \
+                'BEGIN { d = turned - asked; if (d < 0) d = -d; exit !(d <= 1.0) }'; then
+                looked=1
+            fi
+            break
+        fi
+        sleep 1
+    done
+    if [ "${looked}" -eq 1 ]; then
+        printf 'domain: the turn is the one that was asked for, and the Kin stayed put\n' >&2
+    else
+        printf 'domain: the Kin never turned as asked within %ss\n' "${seconds}" >&2
+    fi
+fi
+
+printf 'domain: stopping the session
+' >&2
 
 # Idempotent, and it identifies the client by its recorded pid and command line
 # rather than by name, so a session that has already ended is reported as stopped

@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.minekin.protocol.v1.ConnectWorld;
+import io.minekin.protocol.v1.LookInput;
 import io.minekin.protocol.v1.MoveInput;
 import io.minekin.protocol.v1.ReleaseAllInputs;
 import java.io.IOException;
@@ -167,5 +168,62 @@ final class BridgeIpcWorkerValidationTest {
         assertTrue(
                 BridgeIpcWorker.INPUT_MISSED_HEARTBEATS < BridgeIpcWorker.CORE_ABSENT_INTERVALS,
                 "the input watchdog must lapse strictly before the transport gives up");
+    }
+
+    @Test
+    void aLookWithoutIdentityOrWithAnImpossibleTurnIsRefused() {
+        assertDoesNotThrow(() -> BridgeIpcWorker.validateLook(look("look-1", 1, "lease-1", 90f, 0f)));
+
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> BridgeIpcWorker.validateLook(look("", 1, "lease-1", 90f, 0f)));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> BridgeIpcWorker.validateLook(look("look-1", 0, "lease-1", 90f, 0f)));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> BridgeIpcWorker.validateLook(look("look-1", 1, "", 90f, 0f)));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> BridgeIpcWorker.validateLook(look("look-1", 1, "lease-1", Float.NaN, 0f)));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> BridgeIpcWorker.validateLook(
+                        look("look-1", 1, "lease-1", 0f, Float.POSITIVE_INFINITY)));
+    }
+
+    @Test
+    void aLookDeadlineIsRestatedInThisClockTheSameWay() {
+        long received = 1_000_000_000L;
+
+        LookInput translated = BridgeIpcWorker.onLocalClock(
+                look("look-1", 1, "lease-1", 90f, 0f).toBuilder()
+                        .setDeadlineMonotonicNs(received + 5_000_000_000L)
+                        .build(),
+                received);
+        long localRemaining = translated.getDeadlineMonotonicNs() - BridgeIpcWorker.monotonicNow();
+
+        assertTrue(localRemaining > 4_000_000_000L && localRemaining <= 5_000_000_000L);
+        // And a look that expired is restated in the past rather than thrown on,
+        // for the same reason a late movement command is: not turning is safe.
+        assertTrue(
+                BridgeIpcWorker.onLocalClock(
+                                look("look-1", 1, "lease-1", 90f, 0f).toBuilder()
+                                        .setDeadlineMonotonicNs(received)
+                                        .build(),
+                                received)
+                        .getDeadlineMonotonicNs()
+                        < BridgeIpcWorker.monotonicNow());
+    }
+
+    private static LookInput look(
+            String actionId, long generation, String leaseId, float yaw, float pitch) {
+        return LookInput.newBuilder()
+                .setActionId(actionId)
+                .setGeneration(generation)
+                .setLeaseId(leaseId)
+                .setDeltaYawDegrees(yaw)
+                .setDeltaPitchDegrees(pitch)
+                .build();
     }
 }

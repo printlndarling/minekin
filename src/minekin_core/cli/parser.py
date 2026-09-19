@@ -63,6 +63,23 @@ def build_parser() -> argparse.ArgumentParser:
             "playable, then let the lease lapse (needs --server-profile)"
         ),
     )
+    # The look, which is the other half of what a run may ask for. Two flags
+    # because they are two axes and one of them may be left alone: a look of
+    # exactly zero degrees is not a look, so absent has to be expressible.
+    session_start.add_argument(
+        "--look-yaw-degrees",
+        type=float,
+        default=None,
+        metavar="DEGREES",
+        help="turn the view this far (positive is right) once the session is playable",
+    )
+    session_start.add_argument(
+        "--look-pitch-degrees",
+        type=float,
+        default=None,
+        metavar="DEGREES",
+        help="tilt the view this far (positive is up) once the session is playable",
+    )
     session_commands.add_parser("status", help="read the current projection")
     session_commands.add_parser("stop", help="idempotently stop the current session")
 

@@ -21,6 +21,12 @@ public final class HandshakeGate {
      * without being steerable, and the negotiation is what keeps those two apart.
      */
     public static final String MOVE_CAPABILITY = "control.move.v1";
+    /**
+     * And looking, which is its own capability for the same reason: a client can
+     * be steerable without being turnable, and the negotiation is what keeps
+     * those two apart.
+     */
+    public static final String LOOK_CAPABILITY = "control.look.v1";
     public static final int MIN_FRAME_BYTES = 1024;
     public static final int MAX_FRAME_BYTES = 16 * 1024 * 1024;
 

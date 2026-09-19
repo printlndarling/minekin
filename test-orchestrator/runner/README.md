@@ -382,6 +382,38 @@ caller-owned awaitable beside the client watcher, and Core withdraws the lease
 and sends `ReleaseAllInputs(TIMEOUT)` — the same call the wind-down makes, which
 is why the ledger record of it lives in that one path rather than in both.
 
+### A Kin that turns
+
+`--look-yaw-degrees` asks the client to turn, and the server is the only side that
+can say whether it did: a turn is not a movement, so no position reading shows
+one. The probe asks for `Rotation` alongside `Pos`, and a run that wants a reading
+on both sides of the turn asks more often than the default.
+
+```text
+$ MINEKIN_SERVER_JAR=… MINEKIN_DOMAIN_PROBE=Kin MINEKIN_DOMAIN_PROBE_SECONDS=1 \
+      MINEKIN_DOMAIN_LOOK=90 bash test-orchestrator/runner/run.sh domain \
+      session start --profile … --server-profile … --look-yaw-degrees 90
+domain: the server saw the Kin turn by 90.000 degrees (asked for 90)
+domain: the turn is the one that was asked for, and the Kin stayed put
+server   [18:48:28] Kin has the following entity data: [5.5d, -60.0d, 6.5d]
+server   [18:48:28] Kin has the following entity data: [0.0f, 0.0f]
+server   [18:48:31] Kin has the following entity data: [5.5d, -60.0d, 6.5d]
+server   [18:48:31] Kin has the following entity data: [90.0f, 0.0f]
+client   [18:48:29] bridge turned the view by 90.0 yaw, 0.0 pitch degrees
+ledger   InputLeaseGranted{capability: control.look.v1}
+```
+
+The same place and a different heading: the position readings agreeing is the
+"no teleport" half, and the heading landing exactly on the requested 90 is what
+makes this the client's own look path rather than a written angle. That number is
+the check on the scale factor: `Entity.changeLookDirection` takes the cursor
+delta the mouse would have handed it and multiplies by 0.15 degrees per unit —
+read out of the compiled method, and confirmed here by the result.
+
+The two kinds of reading are told apart by shape, not by wording: the server
+answers both probes with the same words, and only a position has three
+components.
+
 ### When Core stops answering
 
 `MINEKIN_DOMAIN_SILENCE=1` takes Core out of the scheduler — SIGSTOP, not a kill,

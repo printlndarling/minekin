@@ -32,6 +32,7 @@ import org.minekin.bridge.protocol.BootstrapDescriptorAdapter;
 import org.minekin.bridge.protocol.FramedEnvelopeChannel;
 import org.minekin.bridge.protocol.HandshakeGate;
 import org.minekin.bridge.input.KeySink;
+import org.minekin.bridge.input.ViewSink;
 import org.minekin.bridge.runtime.BridgeIpcWorker;
 import org.minekin.bridge.runtime.BridgePhaseMachine;
 
@@ -106,6 +107,10 @@ public final class BridgeIpcWorkerSelfTest {
 
                         @Override
                         public void release(String capability) {}
+                    },
+                    new ViewSink() {
+                        @Override
+                        public void turn(float yawDegrees, float pitchDegrees) {}
                     })) {
                 long start = System.nanoTime();
                 worker.start();
