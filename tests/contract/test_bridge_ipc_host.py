@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 
+from minekin_core.adapters.bridge.admission import LifecycleDisposition, apply_lifecycle
 from minekin_core.adapters.bridge.ipc import (
     ADMISSION_CAPABILITY,
     BRIDGE_HELLO_TYPE,
@@ -21,6 +22,8 @@ from minekin_core.adapters.bridge.ipc import (
     BridgeSession,
     IpcProtocolError,
 )
+from minekin_core.domain.connection import ConnectionGenerations, ConnectionState
+from minekin_core.domain.ids import OpaqueId
 from minekin_core.generated.minekin.v1 import (
     control_pb2,
     envelope_pb2,
@@ -363,3 +366,86 @@ def test_session_configuration_rejects_unsafe_bounds(change: dict[str, object]) 
 
     with pytest.raises(ValueError):
         BridgeSession(**values)  # type: ignore[arg-type]
+
+
+def test_reported_phases_drive_the_generation_gated_attempt(tmp_path: Path) -> None:
+    """The real host and the real classifier, with nothing hand-written between them.
+
+    The unit tests for the classifier name the wire enums directly. This runs the
+    same classifier against bytes that came off the loopback event channel, so a
+    renamed or renumbered phase fails here rather than only in a real client run.
+    """
+
+    async def scenario() -> None:
+        bridge_session = session()
+        host = BridgeIpcHost(bridge_session)
+        descriptor = await host.prepare(tmp_path / "descriptor.pb")
+        control_reader, control_writer = await connect(descriptor, envelope_pb2.CHANNEL_CONTROL)
+        _event_reader, event_writer = await connect(descriptor, envelope_pb2.CHANNEL_EVENT)
+        value = hello(bridge_session)
+        await write_frame(
+            control_writer,
+            envelope(
+                bridge_session,
+                BRIDGE_HELLO_TYPE,
+                envelope_pb2.CHANNEL_CONTROL,
+                1,
+                value.SerializeToString(deterministic=True),
+            ),
+        )
+        await host.authenticate()
+        await asyncio.wait_for(read_frame(control_reader), 1)
+
+        profile_id = OpaqueId("local-test")
+        revision = "c" * 64
+        connections = ConnectionGenerations()
+        attempt = connections.begin(profile_id, revision)
+
+        phases = (
+            observation_pb2.CONNECTION_PHASE_RESOLVING,
+            observation_pb2.CONNECTION_PHASE_LOGIN_NEGOTIATING,
+            observation_pb2.CONNECTION_PHASE_PLAY_INIT,
+            observation_pb2.CONNECTION_PHASE_JOIN_SEEN,
+            observation_pb2.CONNECTION_PHASE_PLAYABLE,
+            observation_pb2.CONNECTION_PHASE_DISCONNECTED,
+        )
+        reached: list[ConnectionState] = []
+        # The host demands a contiguous event sequence, so this also re-checks the
+        # ordering rule the Bridge's writer has to satisfy.
+        for sequence, phase in enumerate(phases, start=1):
+            lifecycle = observation_pb2.ConnectionLifecycle(
+                generation=int(attempt.generation),
+                server_profile_id=str(profile_id),
+                server_profile_revision=revision,
+                phase=phase,
+                terminal=phase
+                in {
+                    observation_pb2.CONNECTION_PHASE_DISCONNECTED,
+                    observation_pb2.CONNECTION_PHASE_FAILED,
+                    observation_pb2.CONNECTION_PHASE_CANCELLED,
+                },
+            )
+            await write_frame(
+                event_writer,
+                envelope(
+                    bridge_session,
+                    CONNECTION_LIFECYCLE_TYPE,
+                    envelope_pb2.CHANNEL_EVENT,
+                    sequence,
+                    lifecycle.SerializeToString(deterministic=True),
+                ),
+            )
+            event = await asyncio.wait_for(host.receive_event(), 1)
+            assert isinstance(event.message, observation_pb2.ConnectionLifecycle)
+            outcome = apply_lifecycle(connections, event.message)
+            assert outcome.disposition is LifecycleDisposition.APPLIED, outcome
+            assert connections.active is not None
+            reached.append(connections.active.state)
+
+        assert reached[-2] is ConnectionState.PLAYABLE
+        assert reached[-1] is ConnectionState.DISCONNECTED
+
+        await host.close()
+        await close_writers(control_writer, event_writer)
+
+    asyncio.run(scenario())

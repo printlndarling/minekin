@@ -27,6 +27,7 @@ class ConnectionState(StrEnum):
     PLAY_INIT = "PLAY_INIT"
     JOIN_SEEN = "JOIN_SEEN"
     PLAYABLE = "PLAYABLE"
+    DISCONNECTED = "DISCONNECTED"
     FAILED = "FAILED"
 
 
@@ -36,6 +37,7 @@ class ConnectionSignal(StrEnum):
     LOGIN_ACCEPTED = "LOGIN_ACCEPTED"
     JOIN_OBSERVED = "JOIN_OBSERVED"
     SNAPSHOT_ACCEPTED = "SNAPSHOT_ACCEPTED"
+    DISCONNECTED = "DISCONNECTED"
     FAILURE = "FAILURE"
 
 
@@ -47,6 +49,14 @@ class CallbackDisposition(StrEnum):
     FUTURE_GENERATION = "FUTURE_GENERATION"
     CLOSED_GENERATION = "CLOSED_GENERATION"
     OUT_OF_ORDER = "OUT_OF_ORDER"
+
+
+# States an attempt may come to rest in. Nothing advances out of them, and a
+# disconnected session stays the disconnect that was observed rather than being
+# rewritten as a failure with a reason nobody sent.
+_TERMINAL: Final[frozenset[ConnectionState]] = frozenset(
+    {ConnectionState.DISCONNECTED, ConnectionState.FAILED}
+)
 
 
 _ADVANCES: Final[MappingProxyType[tuple[ConnectionState, ConnectionSignal], ConnectionState]] = (
@@ -66,6 +76,21 @@ _ADVANCES: Final[MappingProxyType[tuple[ConnectionState, ConnectionSignal], Conn
             ),
             (ConnectionState.JOIN_SEEN, ConnectionSignal.SNAPSHOT_ACCEPTED): (
                 ConnectionState.PLAYABLE
+            ),
+            # A disconnect ends a session that had already reached the play
+            # phase. It is not a failure and carries no reason: the server may
+            # simply have shut down, and reading a normal end as a fault would
+            # put a made-up reason code into the evidence. Before PLAY_INIT a
+            # closed socket is a login failure with a reason instead, so
+            # DISCONNECTED from an earlier state is out of order.
+            (ConnectionState.PLAY_INIT, ConnectionSignal.DISCONNECTED): (
+                ConnectionState.DISCONNECTED
+            ),
+            (ConnectionState.JOIN_SEEN, ConnectionSignal.DISCONNECTED): (
+                ConnectionState.DISCONNECTED
+            ),
+            (ConnectionState.PLAYABLE, ConnectionSignal.DISCONNECTED): (
+                ConnectionState.DISCONNECTED
             ),
         }
     )
@@ -150,7 +175,10 @@ class ConnectionGenerations:
 
         previous = attempt.state
         if signal is ConnectionSignal.FAILURE:
-            if previous in {ConnectionState.PLAYABLE, ConnectionState.FAILED}:
+            # A failure report is out of order once the session reached PLAYABLE
+            # or already ended: the legitimate report for a connection that dies
+            # mid-session is a disconnect, which carries no reason.
+            if previous is ConnectionState.PLAYABLE or previous in _TERMINAL:
                 return CallbackDecision(
                     CallbackDisposition.OUT_OF_ORDER,
                     generation,
@@ -169,9 +197,12 @@ class ConnectionGenerations:
         if target is None:
             # A callback from the current generation in an impossible order is
             # not merely late: treating it as progress could grant input early.
-            # Fail this attempt closed and require a new generation.
+            # Fail this attempt closed and require a new generation. A terminal
+            # state stays as it is: a disconnect that a later contradictory
+            # report follows up is still the disconnect that was observed, and
+            # rewriting it as FAILED would invent a reason code nobody sent.
             current = previous
-            if previous is not ConnectionState.FAILED:
+            if previous not in _TERMINAL:
                 self._active = replace(attempt, state=ConnectionState.FAILED)
                 current = ConnectionState.FAILED
             return CallbackDecision(

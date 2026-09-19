@@ -115,3 +115,76 @@ def test_stale_close_cannot_cancel_the_current_attempt() -> None:
 def test_profile_revision_must_be_a_canonical_sha256(revision: str) -> None:
     with pytest.raises(ValueError, match="SHA-256"):
         ConnectionGenerations().begin(PROFILE, revision)
+
+
+def _drive_to(connections: ConnectionGenerations, *signals: ConnectionSignal) -> Generation:
+    attempt = connections.begin(PROFILE, REVISION)
+    for signal in signals:
+        connections.apply(attempt.generation, signal)
+    return attempt.generation
+
+
+_IN_PLAY = (
+    ConnectionSignal.RESOLUTION_STARTED,
+    ConnectionSignal.ENDPOINT_ALLOWED,
+    ConnectionSignal.LOGIN_ACCEPTED,
+)
+_JOINED = (*_IN_PLAY, ConnectionSignal.JOIN_OBSERVED)
+_PLAYABLE = (*_JOINED, ConnectionSignal.SNAPSHOT_ACCEPTED)
+
+
+@pytest.mark.parametrize("prelude", [_IN_PLAY, _JOINED, _PLAYABLE])
+def test_a_disconnect_ends_the_session_without_inventing_a_reason(
+    prelude: tuple[ConnectionSignal, ...],
+) -> None:
+    """The Bridge reports a closed connection as a phase, not as a failure code."""
+
+    connections = ConnectionGenerations()
+    generation = _drive_to(connections, *prelude)
+
+    decision = connections.apply(generation, ConnectionSignal.DISCONNECTED)
+
+    assert decision.disposition is CallbackDisposition.ADVANCED
+    assert connections.active is not None
+    assert connections.active.state is ConnectionState.DISCONNECTED
+
+
+def test_a_disconnect_before_the_play_phase_is_out_of_order() -> None:
+    """A socket closed mid-login is a login failure that names a reason, not this."""
+
+    connections = ConnectionGenerations()
+    generation = _drive_to(connections, ConnectionSignal.RESOLUTION_STARTED)
+
+    decision = connections.apply(generation, ConnectionSignal.DISCONNECTED)
+
+    assert decision.disposition is CallbackDisposition.OUT_OF_ORDER
+    assert connections.active is not None
+    assert connections.active.state is ConnectionState.FAILED
+
+
+def test_a_late_report_cannot_turn_a_disconnect_into_a_failure() -> None:
+    """Rewriting it as FAILED would put a reason code into evidence that nobody sent."""
+
+    connections = ConnectionGenerations()
+    generation = _drive_to(connections, *_PLAYABLE)
+    connections.apply(generation, ConnectionSignal.DISCONNECTED)
+
+    decision = connections.apply(generation, ConnectionSignal.FAILURE)
+
+    assert decision.disposition is CallbackDisposition.OUT_OF_ORDER
+    assert not decision.changed_state
+    assert connections.active is not None
+    assert connections.active.state is ConnectionState.DISCONNECTED
+
+
+def test_a_disconnect_is_closed_explicitly_before_the_next_generation() -> None:
+    connections = ConnectionGenerations()
+    generation = _drive_to(connections, *_PLAYABLE)
+    connections.apply(generation, ConnectionSignal.DISCONNECTED)
+
+    closed = connections.close(generation)
+    reconnected = connections.begin(PROFILE, REVISION)
+
+    assert closed.disposition is CallbackDisposition.CLOSED
+    assert closed.previous_state is ConnectionState.DISCONNECTED
+    assert reconnected.generation == Generation(2)
