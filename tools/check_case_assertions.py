@@ -112,6 +112,14 @@ IMPLEMENTATIONS: dict[str, Implementation] = {
     "the_bridge_classified_the_refusal": _runtime("the_bridge_classified_the_refusal"),
     "the_server_saw_the_kin_turn": _runtime("the_server_saw_the_kin_turn"),
     "the_server_saw_the_block_change": _runtime("the_server_saw_the_block_change"),
+    "input_was_refused_before_the_world_was_playable": _runtime(
+        "input_was_refused_before_the_world_was_playable"
+    ),
+    "no_lease_was_granted": _runtime("no_lease_was_granted"),
+    "the_bridge_never_pressed_a_key": _runtime("the_bridge_never_pressed_a_key"),
+    "the_server_saw_the_kin_arrive_and_never_move": _runtime(
+        "the_server_saw_the_kin_arrive_and_never_move"
+    ),
 }
 
 

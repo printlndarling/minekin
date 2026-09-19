@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "case_id": "CORE-050",
+  "work_package": "W60",
+  "mandatory": true,
+  "inputs": [
+    "tests/fixtures/runtime-input/bundle-p0-core-1.21.4.json",
+    "tests/fixtures/runtime-input/controlled-offline-server.json"
+  ],
+  "assertions": [
+    "input_was_refused_before_the_world_was_playable",
+    "no_lease_was_granted",
+    "the_bridge_never_pressed_a_key",
+    "the_server_saw_the_kin_arrive_and_never_move"
+  ]
+}

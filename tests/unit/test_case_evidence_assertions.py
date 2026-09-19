@@ -204,6 +204,7 @@ def test_the_reviewed_case_names_only_assertions_the_asserter_performs() -> None
         REVIEWED_CASE,
         OBSERVE_ONLY_CASE,
         MOVEMENT_CASE,
+        REFUSED_EARLY_CASE,
         LOST_RUNTIME_CASE,
         BLACK_HOLE_CASE,
         REFUSED_CASE,
@@ -1218,3 +1219,144 @@ def test_the_registry_and_the_asserter_name_the_same_assertions() -> None:
         if implementation.target == CHECKER.RUNTIME_ASSERTER
     }
     assert registered == set(ASSERTER_MODULE.ASSERTIONS)
+
+
+# A run that asked for its hold at the join: the world was real, the Kin was
+# there, and nothing was ever driven. The readings are the shape a stillness wait
+# produces — the same place, asked twice — and the client's log is the one a run
+# writes when the Bridge never presses anything.
+REFUSED_EARLY_CASE = CASES / "core-050.json"
+JOIN_OBSERVED = "JoinObserved"
+INPUT_REFUSED = "InputRefused"
+INPUT_LEASED = "InputLeaseGranted"
+NOT_PLAYABLE = "NOT_PLAYABLE"
+STILL_READINGS = (
+    JOINED + "\n"
+    "has the following entity data: [-6.5d, -60.0d, 7.5d]\n"
+    "has the following entity data: [0.0f, 0.0f]\n"
+    "has the following entity data: [-6.5d, -60.0d, 7.5d]\n"
+    "has the following entity data: [0.0f, 0.0f]\n"
+)
+
+
+def refused_early_case() -> dict[str, object]:
+    return cast(dict[str, object], json.loads(REFUSED_EARLY_CASE.read_text(encoding="utf-8")))
+
+
+def refusal(phase: str = "JOIN_SEEN", *reasons: str) -> Mapping[str, object]:
+    return event(
+        INPUT_REFUSED,
+        phase=phase,
+        capabilities=["control.move.v1"],
+        refusals=list(reasons or (NOT_PLAYABLE,)),
+    )
+
+
+def asked_too_early(**overrides: object) -> _Material:
+    """A run that joined, asked, was refused, and was never driven."""
+
+    arguments: dict[str, object] = {
+        "document": run_document(actions_applied=0, actions_refused=0, snapshots_admitted=1),
+        "log": STILL_READINGS,
+        "client_log": "bridge is waiting for the handshake\n",
+        "events": (event(JOIN_OBSERVED), refusal()),
+    }
+    arguments.update(overrides)
+    return material(**arguments)  # type: ignore[arg-type]
+
+
+def test_a_run_that_asked_too_early_holds() -> None:
+    verdict = ASSERTER_MODULE.evaluate(refused_early_case(), asked_too_early())
+
+    assert verdict.result == "PASS"
+    assert verdict.observed == verdict.expected
+    assert verdict.failures == ()
+
+
+def test_a_run_that_never_asked_is_not_evidence_that_it_was_refused() -> None:
+    """The refusal is the evidence, so a run without one proves nothing at all."""
+
+    verdict = ASSERTER_MODULE.evaluate(
+        refused_early_case(), asked_too_early(events=(event(JOIN_OBSERVED),))
+    )
+
+    assert "input_was_refused_before_the_world_was_playable:NO_REFUSAL_RECORDED" in verdict.failures
+
+
+def test_a_refusal_in_another_phase_is_not_a_refusal_at_the_join() -> None:
+    """Asked at the wrong moment and refused is a different run.
+
+    The phase is half the claim: "refused, at some point, for some reason" would
+    also be true of a run that asked once the world was real and was turned down
+    for something else entirely.
+    """
+
+    verdict = ASSERTER_MODULE.evaluate(
+        refused_early_case(),
+        asked_too_early(events=(event(JOIN_OBSERVED), refusal("PLAYABLE", "LEASE_ACTIVE"))),
+    )
+
+    assert "input_was_refused_before_the_world_was_playable:REFUSED_OTHERWISE:PLAYABLE" in (
+        verdict.failures
+    )
+
+
+def test_a_refusal_that_does_not_say_why_is_not_a_refusal_on_the_record() -> None:
+    """The arbiter's reasons are the actionable half of a refusal."""
+
+    verdict = ASSERTER_MODULE.evaluate(
+        refused_early_case(),
+        asked_too_early(events=(event(JOIN_OBSERVED), refusal("JOIN_SEEN", "LEASE_ACTIVE"))),
+    )
+
+    assert "input_was_refused_before_the_world_was_playable:REFUSED_OTHERWISE:JOIN_SEEN" in (
+        verdict.failures
+    )
+
+
+def test_a_lease_anywhere_is_not_a_run_that_was_never_driven() -> None:
+    verdict = ASSERTER_MODULE.evaluate(
+        refused_early_case(),
+        asked_too_early(
+            events=(
+                event(JOIN_OBSERVED),
+                refusal(),
+                event(INPUT_LEASED, capability="control.move.v1"),
+            )
+        ),
+    )
+
+    assert "no_lease_was_granted:LEASE_GRANTED:control.move.v1" in verdict.failures
+
+
+def test_a_client_that_was_driven_is_not_a_client_that_was_left_alone() -> None:
+    """Core's refusal is Core's account; the client is asked too."""
+
+    verdict = ASSERTER_MODULE.evaluate(
+        refused_early_case(),
+        asked_too_early(
+            client_log="bridge pressed use.hand\nbridge applied 0047d1b8…: holding [use.hand]\n"
+        ),
+    )
+
+    assert "the_bridge_never_pressed_a_key:KEY_WAS_PRESSED:bridge pressed use.hand" in (
+        verdict.failures
+    )
+
+
+def test_a_kin_that_moved_is_not_a_kin_that_was_never_driven() -> None:
+    """The world's own account, read against the same threshold as a walk."""
+
+    walked_away = STILL_READINGS + "has the following entity data: [-6.5d, -60.0d, 21.5d]\n"
+    verdict = ASSERTER_MODULE.evaluate(refused_early_case(), asked_too_early(log=walked_away))
+
+    assert "the_server_saw_the_kin_arrive_and_never_move:THE_KIN_MOVED:14.00" in verdict.failures
+
+
+def test_one_reading_is_a_place_and_not_a_stillness() -> None:
+    """Two moments are what "it did not move" is a claim about."""
+
+    one = JOINED + "\n" + "has the following entity data: [-6.5d, -60.0d, 7.5d]\n"
+    verdict = ASSERTER_MODULE.evaluate(refused_early_case(), asked_too_early(log=one))
+
+    assert "the_server_saw_the_kin_arrive_and_never_move:NO_SERVER_READINGS" in verdict.failures

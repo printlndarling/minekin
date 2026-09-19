@@ -58,11 +58,25 @@ JOIN_OBSERVED = "JoinObserved"
 PLAYABLE_ESTABLISHED = "PlayableEstablished"
 INPUT_LEASE_GRANTED = "InputLeaseGranted"
 INPUT_RELEASED = "InputReleased"
+INPUT_REFUSED = "InputRefused"
 
 #: The reviewed capability a move is granted under, and the reason a lease that
 #: simply ran out records.
 MOVE_CAPABILITY = "control.move.v1"
 TIMEOUT = "TIMEOUT"
+
+#: The arbiter's own word for "this session has not admitted a snapshot, so it may
+#: not be driven", and the connection phase a run is in when that is the answer:
+#: it has joined, and it is not playable. The pair is what makes "asked too early"
+#: a fact about a run rather than a reading of its intent.
+NOT_PLAYABLE = "NOT_PLAYABLE"
+JOIN_SEEN_PHASE = "JOIN_SEEN"
+
+#: What the Bridge writes when it acts on an input at all. Measured on real runs:
+#: `bridge pressed use.hand` and `bridge applied 0047d1b8…: holding [move.forward]`
+#: — one line per press, which is what makes "nothing was ever held" a claim the
+#: client's own log can support rather than a claim about Core's intentions.
+_BRIDGE_PRESS = re.compile(r"bridge (?:pressed [\w.]+|applied \w+: holding \[[^\]]*\])")
 
 #: The reason the Bridge records when the runtime it was talking to went away,
 #: and the line it writes when it lets go. Measured, from a run whose Core was
@@ -559,6 +573,17 @@ def the_bridge_carried_the_input_out(material: RunMaterial) -> str | None:
     return None
 
 
+def _horizontal(before: tuple[float, ...], after: tuple[float, ...]) -> float:
+    """How far apart two of the server's position readings are, ignoring height.
+
+    Height is deliberately not part of it: a Kin standing at spawn can be reported
+    twice with different Y, so counting any two readings that differ would accept
+    a fall at spawn as a walk.
+    """
+
+    return ((after[0] - before[0]) ** 2 + (after[2] - before[2]) ** 2) ** 0.5
+
+
 def the_server_saw_the_kin_move(material: RunMaterial) -> str | None:
     """The Kin's displacement, measured by the server rather than by the Kin.
 
@@ -570,8 +595,7 @@ def the_server_saw_the_kin_move(material: RunMaterial) -> str | None:
     positions = probe_readings(material.server_log, 3)
     if len(positions) < 2:
         return "NO_SERVER_READINGS"
-    first, last = positions[0], positions[-1]
-    horizontal = ((last[0] - first[0]) ** 2 + (last[2] - first[2]) ** 2) ** 0.5
+    horizontal = _horizontal(positions[0], positions[-1])
     if horizontal < MINIMUM_STEP_BLOCKS:
         return f"MOVED_LESS_THAN_A_STEP:{horizontal:.2f}"
     return None
@@ -638,8 +662,7 @@ def the_server_saw_the_kin_stop_after_the_move(material: RunMaterial) -> str | N
     positions = probe_readings(material.server_log, 3)
     if len(positions) < 2:
         return "NO_SERVER_READINGS"
-    first, last = positions[0], positions[-1]
-    moved = ((last[0] - first[0]) ** 2 + (last[2] - first[2]) ** 2) ** 0.5
+    moved = _horizontal(positions[0], positions[-1])
     if moved < MINIMUM_STEP_BLOCKS:
         return f"NEVER_MOVED:{moved:.2f}"
     if positions[-2] != positions[-1] and material.leave_line() is None:
@@ -795,6 +818,97 @@ def the_server_saw_the_block_change(material: RunMaterial) -> str | None:
     return None
 
 
+def input_was_refused_before_the_world_was_playable(material: RunMaterial) -> str | None:
+    """Core asked to drive the Kin too early, and the answer is on the record.
+
+    The contract's L4 rule is that a lease is granted only after the join *and*
+    the first snapshot. This is the half of it that shows the rule is *enforced*
+    rather than merely never broken: the run asked at the join, and the arbiter
+    said no. Both halves of the answer are read — the phase it was refused in and
+    the arbiter's own reason — because a refusal with neither is a refusal nobody
+    can act on, and because "refused, at some point, for some reason" would also
+    be true of a run refused for something else entirely.
+    """
+
+    if not material.ledger_readable:
+        return "LEDGER_UNREADABLE"
+    refusals = material.recorded(INPUT_REFUSED)
+    if not refusals:
+        return "NO_REFUSAL_RECORDED"
+    phases: set[str] = set()
+    for event in refusals:
+        recorded = payload(event)
+        reasons = recorded.get("refusals")
+        phases.add(str(recorded.get("phase")))
+        if (
+            recorded.get("phase") == JOIN_SEEN_PHASE
+            and isinstance(reasons, list)
+            and NOT_PLAYABLE in reasons
+        ):
+            return None
+    return f"REFUSED_OTHERWISE:{','.join(sorted(phases))}"
+
+
+def no_lease_was_granted(material: RunMaterial) -> str | None:
+    """Nothing was authorised: no lease reached the client, so no key could be held.
+
+    One side of "the Kin was never driven". A lease is the only thing that lets
+    Core send an input, so a run with none to its name could not have driven
+    anything — and this names the capability it would have carried, because a
+    lease for something else would be a different run.
+    """
+
+    if not material.ledger_readable:
+        return "LEDGER_UNREADABLE"
+    granted = material.recorded(INPUT_LEASE_GRANTED)
+    if not granted:
+        return None
+    capabilities = sorted({str(payload(event).get("capability")) for event in granted})
+    return f"LEASE_GRANTED:{','.join(capabilities)}"
+
+
+def the_bridge_never_pressed_a_key(material: RunMaterial) -> str | None:
+    """The other side of the same fact, in the other side's own words.
+
+    Core's refusal is Core's account of a decision. This is the client saying that
+    nothing was ever held: every press and every hold the Bridge performs is
+    logged, measured on real runs (`bridge pressed use.hand`, `bridge applied
+    …: holding [move.forward]`), so the absence of those lines is a fact about the
+    client rather than an inference from the absence of a lease.
+    """
+
+    if not material.client_log:
+        return "NO_CLIENT_LOG"
+    pressed = _BRIDGE_PRESS.search(material.client_log)
+    if pressed is not None:
+        return f"KEY_WAS_PRESSED:{pressed.group(0)}"
+    return None
+
+
+def the_server_saw_the_kin_arrive_and_never_move(material: RunMaterial) -> str | None:
+    """The world's own account: the Kin reached it, and it never went anywhere.
+
+    A claim about what did not happen needs a record that would have shown it
+    happening. The server was asked where the Kin is on the same cadence as any
+    other run, and every answer is the same place — measured against the same
+    threshold that separates a step from a shove, so "it never moved" is the same
+    rule as "it moved", read the other way.
+    """
+
+    if material.join_line() is None:
+        return "JOIN_NOT_LOGGED"
+    positions = probe_readings(material.server_log, 3)
+    if len(positions) < 2:
+        # One reading is a place, not a stillness: "it did not move" is a claim
+        # about two moments, and the same standard the walk is held to.
+        return "NO_SERVER_READINGS"
+    for reading in positions[1:]:
+        moved = _horizontal(positions[0], reading)
+        if moved >= MINIMUM_STEP_BLOCKS:
+            return f"THE_KIN_MOVED:{moved:.2f}"
+    return None
+
+
 #: Every assertion a case manifest may name, and what performs it. A name that is
 #: not here cannot be judged, which the verdict reports rather than passing over.
 ASSERTIONS: dict[str, Callable[[RunMaterial], str | None]] = {
@@ -820,6 +934,12 @@ ASSERTIONS: dict[str, Callable[[RunMaterial], str | None]] = {
     "the_bridge_classified_the_refusal": the_bridge_classified_the_refusal,
     "the_server_saw_the_kin_turn": the_server_saw_the_kin_turn,
     "the_server_saw_the_block_change": the_server_saw_the_block_change,
+    "input_was_refused_before_the_world_was_playable": (
+        input_was_refused_before_the_world_was_playable
+    ),
+    "no_lease_was_granted": no_lease_was_granted,
+    "the_bridge_never_pressed_a_key": the_bridge_never_pressed_a_key,
+    "the_server_saw_the_kin_arrive_and_never_move": (the_server_saw_the_kin_arrive_and_never_move),
 }
 
 

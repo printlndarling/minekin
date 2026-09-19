@@ -408,6 +408,16 @@
   - **握手指令之前那一段由传输层覆盖**：尚未 authenticate 的 host 拒绝**所有**控制命令（不只是输入），并新增了一条契约用例断言这一点——对一个输入类型和一个非输入类型各断言一次，因为"只覆盖输入"的门禁是有人会绕过去的那种门禁。
   - **这一步的边界**：CORE-050 还**没有 fixture、还没有真实运行、也还没有进入晋级门禁**。Core 侧现在能问、能记、有对照；下一步是把它做成一个用例（断言读账本里的 `InputRefused` 与「客户端从未被驱动」）并在受控域里真跑一轮。
 
+- [x] **`CORE-050` 成为门禁的一部分：一次「问得太早」的真实运行，四条断言全部成立。** 这是 L4 缺的另一半——CORE-040 证的是「合法输入会产生服务端看得见的结果」，这一条证的是「世界还不真的存在时，输入根本发不出去」。用例（`tests/fixtures/cases/core-050.json`，`mandatory: true`）四条断言，各自读一份会活下来的记录：
+  - `input_was_refused_before_the_world_was_playable`：账本里有一条 `InputRefused`，**phase 是 `JOIN_SEEN`** 且**理由里有 `NOT_PLAYABLE`**。两半都要——没有 phase 的「某时被拒」也可能是别的原因、别的时刻。
+  - `no_lease_was_granted`：整轮运行**没有任何** `InputLeaseGranted`，并列出它若存在会携带的 capability（租到别的东西是另一轮运行）。
+  - `the_bridge_never_pressed_a_key`：**客户端自己那本日志**里没有 Bridge 按过键的两行（`bridge pressed …` / `bridge applied …: holding […]`）。Core 的拒绝是 Core 的一面之词，这一条是另一侧说「什么也没被按下」。
+  - `the_server_saw_the_kin_arrive_and_never_move`：世界那边 Kin 到达过、而每一条位置读数都在同一个地方——用的是与「走了一格」**同一个阈值**，只是反过来读；而且要求**至少两条读数**（一条读数是一个地点，不是一次静止）。
+  - **实测**（受控域里一轮真运行，`--hold-forward-seconds 30 --hold-at join`）：`result: PASS`、`failures: []`、九件工件、`evidence verify` 报 `verified: true, sealed: true`、harness 退出码 0；harness 自己那句 `the Kin moved 0.000 blocks across 2 readings and did not walk` 就是 stillness 的现场读数。run document 里 `input_refusal: "NOT_PLAYABLE"`、`actions_applied: 0`，而 `connection_state: "PLAYABLE"`、`snapshots_admitted: 1`——**世界是真的，Kin 仍然一步没动**，这才是这条用例要的那种证据。
+  - **harness 学到的一件事**：它按运行自己的参数认出「这次问在 join 上」，于是**不再等一次永远不会发生的行走**（并且把这件事说出来）。不这样做的话，这一轮会把 240 秒预算花在一个本就应该被拒绝的 hold 上。
+  - **一次失败教会的另一件事**：把 fixture 从 `mandatory: false` 改成 `true` 之后，**已封存的两份 PASS 证据立刻不再满足门禁**（`CASE_VERSION_MISMATCH`）——因为 case version 覆盖的是用例**定义**，`mandatory` 是定义的一部分。这不是缺陷，是规则在起作用：证据必须对着**它当时那份定义**被判。重跑一次之后就对了，而这也是这个仓库一贯的做法（旧 FAIL 不删、不手改）。
+  - **顺带把三个 fixture 的行尾统一了**：`core-040.json`、`admit-110.json`、`core-050.json` 在 Windows 上被 `write_text` 写成了 CRLF（工作区字节与 git 存的不一致，而摘要门禁按规范化后的字节判，所以谁也没红）。现在工作区就是 LF，等于 git 存的那份；三份的摘要都没变，说明之前那份摘要本来就是规范化后的值——**这条纪律与 `.gitattributes` 里那条 `*.sh text eol=lf` 是同一件事**。
+
 ## W70：恢复与证据晋级
 
 - [x] **杀 Core 那条路一直在"报告一次没发生过的故障注入"，而且报告得很像成功。** 想给 L5（`CORE-060`）取证时先量了一次杀 Core 的运行，结果有两处不对劲：**存在 run document**（被 SIGKILL 的 CLI 不可能打印任何东西），而客户端日志里**没有** `IPC_LOST` 的松键记录。于是给那个循环加了一条临时打印，实测结果是 `DEBUG kill loop at 32s: distinct=0` **连续 90 次、`SECONDS` 一直停在 32**——原因很简单也很要命：那个循环**没有 `sleep`**，而它的预算是用 `SECONDS` 算的；`SECONDS` 在命令不耗时的自旋里根本不前进，于是"150 秒的等待"在毫秒内跑完并放弃。接着**下面那个等待**（它有 sleep）看到 Kin 停住了——那是 hold 到期自然停的——于是打印 `the server saw the Kin stop after Core died`。也就是说：**一个没有注入故障的运行，被报告成了注入成功的运行**，而它的证据（停住的读数）本来就会出现。

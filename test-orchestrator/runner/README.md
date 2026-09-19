@@ -21,6 +21,9 @@ MINEKIN_SERVER_JAR=<path> MINEKIN_DOMAIN_PROBE=Kin \
 MINEKIN_SERVER_JAR=<path> MINEKIN_DOMAIN_PROBE=Kin MINEKIN_DOMAIN_USE_TARGET=1 \
     bash test-orchestrator/runner/run.sh domain session start --profile <bundle> --server-profile <profile> \
         --hold-forward-seconds 8 --hold-use-seconds 8 --look-yaw-degrees 45
+MINEKIN_SERVER_JAR=<path> MINEKIN_DOMAIN_PROBE=Kin MINEKIN_DOMAIN_STILL=1 \
+    bash test-orchestrator/runner/run.sh domain session start --profile <bundle> --server-profile <profile> \
+        --hold-forward-seconds 30 --hold-at join
 MINEKIN_SERVER_JAR=<path> MINEKIN_DOMAIN_PROBE=Kin MINEKIN_DOMAIN_SILENCE=1 \
     bash test-orchestrator/runner/run.sh domain session start --profile <bundle> --server-profile <profile> \
         --hold-forward-seconds 60
@@ -496,6 +499,51 @@ then is simply never walked into — so the tool keeps placing one where the Kin
 currently looking until the server says one of them has been used. Bounded at
 twelve, because a scene that never gets used is a fact about the run and the log
 should say so once.
+
+### A Kin that is never driven
+
+The other half of L4: not that an input produces a result, but that an input the
+world has not earned is never sent. `--hold-at join` asks for the hold at the
+moment the Kin is in the world and the first snapshot has *not* been admitted, so
+the answer is no — and the answer is the evidence.
+
+```text
+$ MINEKIN_SERVER_JAR=… MINEKIN_DOMAIN_PROBE=Kin MINEKIN_DOMAIN_STILL=1 \
+      bash test-orchestrator/runner/run.sh domain \
+      session start --profile … --server-profile … \
+      --hold-forward-seconds 30 --hold-at join
+domain: this run asks for its hold at the join, so it is refused and there is no walk to wait for
+domain: the session is playable
+domain: the Kin moved 0.000 blocks across 2 readings and did not walk
+ledger   JoinObserved
+ledger   InputRefused  {phase: JOIN_SEEN, capabilities: [control.move.v1], refusals: [NOT_PLAYABLE]}
+ledger   PlayableEstablished
+run      "input_refusal": "NOT_PLAYABLE", "actions_applied": 0, "snapshots_admitted": 1
+client   (no `bridge pressed` line anywhere in the log)
+```
+
+The world became real — the snapshot was admitted and the session reached
+`PLAYABLE` — and the Kin still never moved, because the one moment it was allowed
+to ask had already passed. Four assertions read that from four places: the
+refusal's phase and reason from the ledger, the absence of any lease, the absence
+of any press in the client's own log, and the server's readings all naming one
+place.
+
+Two things the harness had to learn:
+
+* **A run that asks at the join is not a run to wait for a walk on.** It reads
+  the phase from the run's own arguments, skips the walk wait, and says so — a
+  harness that skipped a wait silently could not be told apart from one whose wait
+  was satisfied.
+* **The stillness needs two readings.** One reading is a place, not a stillness,
+  and the assertion refuses to call it one; `MINEKIN_DOMAIN_STILL=1` is what gives
+  it the second, and it measures the drift against the same two-block threshold
+  that separates a step from a shove.
+
+The evidence is deliberately ordered: the refusal is written *after* the join and
+*before* playable, so the ledger reads `JoinObserved → InputRefused →
+PlayableEstablished` — a request made at a moment, and answered, in the world's
+own order of events.
 
 ### When Core stops answering
 

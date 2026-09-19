@@ -68,6 +68,11 @@ runs=/data/server-runs
 # sealing needs to name the documents this run was actually given rather than
 # the ones this script would have chosen.
 hold_requested=0
+# The phase the run asks at, read from its own arguments rather than from another
+# switch: a run that asks at the join is *refused* (the world is not playable
+# yet), so there is no walk to wait for and a harness that waited for one would
+# spend its whole budget on a hold that was correctly never granted.
+hold_at="playable"
 profile=""
 server_profile=""
 connection_timeout=""
@@ -80,6 +85,7 @@ for argument in "$@"; do
         --profile) profile="${argument}" ;;
         --server-profile) server_profile="${argument}" ;;
         --connection-timeout-seconds) connection_timeout="${argument}" ;;
+        --hold-at) hold_at="${argument}" ;;
     esac
     previous="${argument}"
 done
@@ -464,7 +470,16 @@ fi
 # Its own budget rather than what is left of the join's: a slow boot must not
 # spend the walk's allowance, which is how the first version of this reported a
 # Kin that had walked seventeen blocks as one that never moved.
-if [[ -n "${probe}" && "${hold_requested}" -eq 1 && -z "${kill_core}" ]]; then
+#
+# A run that asks for its hold at the join is left out of this entirely, and the
+# reason is the case it exists for: the answer is *no*, so there is nothing to
+# wait for. Said out loud rather than passed over, because a harness that skipped
+# a wait silently is one whose reader cannot tell a walk that did not happen from
+# one it stopped looking for.
+if [ "${hold_at}" = "join" ]; then
+    printf 'domain: this run asks for its hold at the join, so it is refused and there is no walk to wait for\n' >&2
+fi
+if [[ -n "${probe}" && "${hold_requested}" -eq 1 && -z "${kill_core}" && "${hold_at}" != "join" ]]; then
     walked=0
     deadline=$((SECONDS + seconds))
     for _ in $(seq 1 "${seconds}"); do
