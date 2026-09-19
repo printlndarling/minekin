@@ -29,9 +29,8 @@ from typing import Any, cast
 
 from minekin_core.adapters.launcher.artifacts import ArtifactStore, store_relative_path
 from minekin_core.adapters.launcher.launch_plan import artifacts_from_plan
+from minekin_core.adapters.launcher.process import resolve_plan_path
 from minekin_core.domain.errors import ErrorCategory, MinekinError, Retryability
-
-NATIVES_DIRECTORY = "natives"
 
 
 def _reject(message: str) -> MinekinError:
@@ -44,16 +43,8 @@ def _reject(message: str) -> MinekinError:
     )
 
 
-def natives_directory(overlay: Path) -> Path:
-    """Where the client is told to look, given that the overlay is the game dir."""
-
-    if not overlay.is_absolute():
-        raise _reject("the session overlay must be an absolute path")
-    return overlay.resolve() / NATIVES_DIRECTORY
-
-
 def materialise_natives(
-    plan: Mapping[str, Any], *, overlay: Path, store: ArtifactStore
+    plan: Mapping[str, Any], *, run_root: Path, overlay: Path, store: ArtifactStore
 ) -> tuple[Path, ...]:
     """Extract every native the plan declares into the overlay's natives directory.
 
@@ -64,7 +55,10 @@ def materialise_natives(
 
     declared = _declared_natives(plan)
     excludes = _excludes(plan)
-    target = natives_directory(overlay)
+    # Where the client is told to look, resolved the way the launch resolves it:
+    # one statement of what a plan path means, so the launch and this cannot
+    # come to different answers about the same directory.
+    target = resolve_plan_path(run_root, overlay, _natives_directory(plan))
     target.mkdir(parents=True, exist_ok=True)
     written: list[Path] = []
     digests: dict[str, str] = {}
@@ -94,6 +88,13 @@ def materialise_natives(
     return tuple(written)
 
 
+def _natives_directory(plan: Mapping[str, Any]) -> str:
+    directories = _runtime(plan, "natives_dir")
+    if len(directories) != 1 or not isinstance(directories[0], str) or not directories[0]:
+        raise _reject("launch plan runtime.natives_dir must name one directory")
+    return directories[0]
+
+
 def _declared_natives(plan: Mapping[str, Any]) -> set[str]:
     values = _runtime(plan, "native_artifacts")
     if not values:
@@ -119,7 +120,10 @@ def _runtime(plan: Mapping[str, Any], key: str) -> list[object]:
     runtime = plan.get("runtime")
     if not isinstance(runtime, dict):
         raise _reject("launch plan runtime must be an object")
-    return list(cast(list[object], cast(dict[str, Any], runtime).get(key) or []))
+    value = cast(dict[str, Any], runtime).get(key)
+    if isinstance(value, str):
+        return [value]
+    return list(cast(list[object], value or []))
 
 
 def _contents(jar: Path, *, excludes: Sequence[str]) -> Iterator[tuple[str, bytes]]:

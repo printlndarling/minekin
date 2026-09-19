@@ -236,7 +236,7 @@ def _mentions_host_minecraft(argument: str) -> bool:
     return any(segment.casefold() == _HOST_MINECRAFT for segment in re.split(r"[\\/]", argument))
 
 
-def _resolve(run_root: Path, overlay: Path, value: str) -> Path:
+def resolve_plan_path(run_root: Path, overlay: Path, value: str) -> Path:
     """Turn one plan-relative path into the absolute path it names.
 
     Two roots, not one: `session/` is the writable overlay for this generation
@@ -244,6 +244,12 @@ def _resolve(run_root: Path, overlay: Path, value: str) -> Path:
     what makes the overlay actually isolated — resolving `session/game` against
     the run root, as this used to, put the client in a directory shared by every
     session and every generation of the same Kin.
+
+    This is public because it is the one statement of what a plan path means.
+    The launch resolves the paths it hands the client, and the steps that put
+    files where those paths point have to resolve them the same way — a second
+    statement is a second answer, and that is how the classpath came to name a
+    file the store never wrote.
     """
 
     if Path(value).is_absolute() or _mentions_host_minecraft(value):
@@ -253,6 +259,10 @@ def _resolve(run_root: Path, overlay: Path, value: str) -> Path:
     if value.startswith(SESSION_PREFIX):
         return (overlay / value[len(SESSION_PREFIX) :]).resolve()
     return (run_root / value).resolve()
+
+
+def _resolve(run_root: Path, overlay: Path, value: str) -> Path:
+    return resolve_plan_path(run_root, overlay, value)
 
 
 def _string_list(runtime: Mapping[str, Any], key: str) -> list[str]:

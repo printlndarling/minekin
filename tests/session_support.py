@@ -98,9 +98,13 @@ def stand_in_for_the_built_workspace(monkeypatch: Any) -> None:
     def natives(*_args: object, **_kwargs: object) -> tuple[Path, ...]:
         return ()
 
+    def assets(*_args: object, **_kwargs: object) -> tuple[Path, ...]:
+        return ()
+
     monkeypatch.setattr(session_module, "require_built_bridge", built_bridge)
     monkeypatch.setattr(session_module, "install_fixed_mods", mods)
     monkeypatch.setattr(session_module, "materialise_natives", natives)
+    monkeypatch.setattr(session_module, "materialise_assets", assets)
 
 
 def fake_plan(_profile: Path, *, workspace_root: Path | None = None) -> dict[str, Any]:

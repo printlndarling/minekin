@@ -218,10 +218,11 @@ def test_a_started_session_finds_its_mods_in_the_overlay(
 
     # The fabricated plan declares no natives, and extraction has its own tests;
     # this one is about where the mods end up.
-    def no_natives(*_args: object, **_kwargs: object) -> tuple[Path, ...]:
+    def nothing_to_materialise(*_args: object, **_kwargs: object) -> tuple[Path, ...]:
         return ()
 
-    monkeypatch.setattr(session_module, "materialise_natives", no_natives)
+    monkeypatch.setattr(session_module, "materialise_natives", nothing_to_materialise)
+    monkeypatch.setattr(session_module, "materialise_assets", nothing_to_materialise)
 
     launch = start_session(
         root=root,

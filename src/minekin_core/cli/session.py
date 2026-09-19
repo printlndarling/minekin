@@ -19,6 +19,7 @@ from typing import Any, cast
 from minekin_core.adapters.bridge.bootstrap import bridge_session_for, descriptor_path
 from minekin_core.adapters.bridge.ipc import BridgeIpcHost, BridgeSession
 from minekin_core.adapters.launcher.artifacts import ArtifactStore, SessionOverlayStore
+from minekin_core.adapters.launcher.assets import materialise_assets
 from minekin_core.adapters.launcher.launch_plan import (
     artifacts_from_plan,
     build_launch_plan,
@@ -376,7 +377,22 @@ async def prepare_session_async(
     # the client is given their directory as `java.library.path`. Nothing else
     # takes them out of their jars, and a client that cannot load LWJGL says so
     # only once it has already started, as a missing `liblwjgl.so`.
-    materialise_natives(plan, overlay=overlay, store=ArtifactStore(runs / "artifact-store"))
+    materialise_natives(
+        plan,
+        run_root=runs,
+        overlay=overlay,
+        store=ArtifactStore(runs / "artifact-store"),
+    )
+
+    # The client reads its assets from `bundle/assets`, and the store keeps them
+    # under a layout the client does not speak. This is the view it does speak,
+    # and it is per run because the bytes are the same for every generation.
+    materialise_assets(
+        plan,
+        run_root=runs,
+        overlay=overlay,
+        store=ArtifactStore(runs / "artifact-store"),
+    )
 
     run_id = RunId.new().value
     client_instance_id = ClientInstanceId.new().value

@@ -14,12 +14,7 @@ import pytest
 from minekin_core.adapters.launcher.artifacts import ArtifactStore, store_relative_path
 from minekin_core.adapters.launcher.launch_plan import build_launch_plan
 from minekin_core.adapters.launcher.metadata import Artifact
-from minekin_core.adapters.launcher.natives import (
-    NATIVES_DIRECTORY,
-    entry_relative_path,
-    materialise_natives,
-    natives_directory,
-)
+from minekin_core.adapters.launcher.natives import entry_relative_path, materialise_natives
 from minekin_core.domain.errors import ErrorCategory, MinekinError
 
 PROFILE = Path(__file__).parents[1] / "fixtures" / "runtime-input" / "bundle-p0-core-1.21.4.json"
@@ -87,8 +82,18 @@ def _store(tmp_path: Path, *artifacts: Artifact, payloads: dict[str, bytes]) -> 
     return store
 
 
+def natives_target(overlay: Path, *parts: str) -> Path:
+    """Where the plan says the client looks, reached the same way the launch is."""
+
+    return overlay.joinpath("natives", *parts)
+
+
+def _run_root(tmp_path: Path) -> Path:
+    return tmp_path / "run"
+
+
 def _overlay(tmp_path: Path) -> Path:
-    overlay = tmp_path / "run" / "session" / "session-01" / "generation-1"
+    overlay = _run_root(tmp_path) / "session" / "session-01" / "generation-1"
     overlay.mkdir(parents=True)
     return overlay
 
@@ -101,20 +106,22 @@ def test_the_libraries_land_where_the_plan_tells_the_client_to_look(tmp_path: Pa
     store = _store(tmp_path, native, payloads={native.coordinate: payload})
     overlay = _overlay(tmp_path)
 
-    written = materialise_natives(_plan(native), overlay=overlay, store=store)
+    written = materialise_natives(
+        _plan(native), run_root=_run_root(tmp_path), overlay=overlay, store=store
+    )
 
     assert [path.name for path in written] == ["liblwjgl.so"]
-    assert (overlay / NATIVES_DIRECTORY / "liblwjgl.so").read_bytes() == LIBRARY
+    assert natives_target(overlay, "liblwjgl.so").read_bytes() == LIBRARY
     # The directory entry in the jar is not a file, and the excluded prefix is
     # not extracted.
-    assert sorted(item.name for item in (overlay / NATIVES_DIRECTORY).iterdir()) == ["liblwjgl.so"]
+    assert sorted(item.name for item in natives_target(overlay).iterdir()) == ["liblwjgl.so"]
 
     # And that is the directory the plan's own paths name: the plan says where
     # relative to the session root, and the overlay is the session root.
     plan = build_launch_plan(PROFILE)
     declared = PurePosixPath(plan["runtime"]["natives_dir"])
     assert declared.parts[0] == "session"
-    assert natives_directory(overlay) == overlay / PurePosixPath(*declared.parts[1:])
+    assert written[0].parent == overlay / PurePosixPath(*declared.parts[1:])
     assert f"-Djava.library.path={declared}" in plan["runtime"]["jvm_args"]
 
 
@@ -131,7 +138,9 @@ def test_a_second_native_that_agrees_is_not_a_conflict(tmp_path: Path) -> None:
         payloads={first.coordinate: payload, second.coordinate: payload},
     )
 
-    written = materialise_natives(_plan(first, second), overlay=_overlay(tmp_path), store=store)
+    written = materialise_natives(
+        _plan(first, second), run_root=_run_root(tmp_path), overlay=_overlay(tmp_path), store=store
+    )
 
     assert len(written) == 2
 
@@ -151,7 +160,12 @@ def test_two_natives_that_disagree_about_a_library_are_refused(tmp_path: Path) -
     )
 
     with pytest.raises(MinekinError, match="disagrees with a jar already extracted") as raised:
-        materialise_natives(_plan(first, second), overlay=_overlay(tmp_path), store=store)
+        materialise_natives(
+            _plan(first, second),
+            run_root=_run_root(tmp_path),
+            overlay=_overlay(tmp_path),
+            store=store,
+        )
 
     assert raised.value.category is ErrorCategory.SUPPLY_CHAIN
 
@@ -176,7 +190,9 @@ def test_an_entry_that_points_outside_the_natives_directory_is_refused(
     overlay = _overlay(tmp_path)
 
     with pytest.raises(MinekinError, match="outside the natives directory") as raised:
-        materialise_natives(_plan(native), overlay=overlay, store=store)
+        materialise_natives(
+            _plan(native), run_root=_run_root(tmp_path), overlay=overlay, store=store
+        )
 
     assert raised.value.category is ErrorCategory.SUPPLY_CHAIN
     assert not (overlay.parent / "escape.so").exists()
@@ -228,11 +244,14 @@ def test_an_artifact_the_plan_does_not_call_a_native_is_not_opened(tmp_path: Pat
     overlay = _overlay(tmp_path)
 
     written = materialise_natives(
-        _plan(native, library, natives=(native,)), overlay=overlay, store=store
+        _plan(native, library, natives=(native,)),
+        run_root=_run_root(tmp_path),
+        overlay=overlay,
+        store=store,
     )
 
     assert [path.name for path in written] == ["liblwjgl.so"]
-    assert not (overlay / NATIVES_DIRECTORY / "libsmuggled.so").exists()
+    assert not natives_target(overlay, "libsmuggled.so").exists()
 
 
 def test_a_native_that_is_not_in_the_store_is_refused(tmp_path: Path) -> None:
@@ -241,7 +260,9 @@ def test_a_native_that_is_not_in_the_store_is_refused(tmp_path: Path) -> None:
     store = ArtifactStore(tmp_path / "artifact-store")
 
     with pytest.raises(MinekinError, match="missing from the content-addressed store"):
-        materialise_natives(_plan(native), overlay=_overlay(tmp_path), store=store)
+        materialise_natives(
+            _plan(native), run_root=_run_root(tmp_path), overlay=_overlay(tmp_path), store=store
+        )
 
 
 def test_a_plan_with_no_natives_is_refused(tmp_path: Path) -> None:
@@ -252,7 +273,12 @@ def test_a_plan_with_no_natives_is_refused(tmp_path: Path) -> None:
     store = _store(tmp_path, native, payloads={native.coordinate: payload})
 
     with pytest.raises(MinekinError, match="declares no natives to extract"):
-        materialise_natives(_plan(native, natives=()), overlay=_overlay(tmp_path), store=store)
+        materialise_natives(
+            _plan(native, natives=()),
+            run_root=_run_root(tmp_path),
+            overlay=_overlay(tmp_path),
+            store=store,
+        )
 
 
 def test_a_native_that_yields_no_library_is_refused(tmp_path: Path) -> None:
@@ -261,7 +287,9 @@ def test_a_native_that_yields_no_library_is_refused(tmp_path: Path) -> None:
     store = _store(tmp_path, native, payloads={native.coordinate: payload})
 
     with pytest.raises(MinekinError, match="none of them contained a library"):
-        materialise_natives(_plan(native), overlay=_overlay(tmp_path), store=store)
+        materialise_natives(
+            _plan(native), run_root=_run_root(tmp_path), overlay=_overlay(tmp_path), store=store
+        )
 
 
 def test_a_jar_that_is_not_a_jar_is_refused(tmp_path: Path) -> None:
@@ -270,4 +298,6 @@ def test_a_jar_that_is_not_a_jar_is_refused(tmp_path: Path) -> None:
     store = _store(tmp_path, native, payloads={native.coordinate: payload})
 
     with pytest.raises(MinekinError, match="not a readable jar"):
-        materialise_natives(_plan(native), overlay=_overlay(tmp_path), store=store)
+        materialise_natives(
+            _plan(native), run_root=_run_root(tmp_path), overlay=_overlay(tmp_path), store=store
+        )
