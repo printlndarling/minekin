@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import io
+import json
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any, cast
@@ -21,7 +22,9 @@ from minekin_core.cli import session as session_module
 from minekin_core.cli.init import initialise_identity
 from minekin_core.domain.ids import KinId
 
-PROFILE = Path(__file__).resolve().parents[1] / "fixtures/runtime-input/bundle-p0-core-1.21.4.json"
+PROFILE = (
+    Path(__file__).resolve().parent / "fixtures" / "runtime-input" / "bundle-p0-core-1.21.4.json"
+)
 KIN_ID = KinId("kin-01")
 PAYLOAD = b"client jar bytes\n"
 STUB_PID = 4242
@@ -67,6 +70,11 @@ def fabricated() -> tuple[dict[str, Any], Artifact]:
         },
         "artifacts": [asdict(artifact)],
     }
+    # Computed the way `build_launch_plan` computes it, so a fabricated plan is
+    # structurally the same thing the Bridge session material is derived from.
+    canonical = json.dumps(plan, sort_keys=True, separators=(",", ":")).encode()
+    plan["plan_sha256"] = hashlib.sha256(canonical).hexdigest()
+    plan["bridge_source_sha256"] = "d" * 64
     return plan, artifact
 
 

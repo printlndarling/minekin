@@ -10,11 +10,14 @@ on its own, so what is left here is the order and the refusal rules.
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
 
+from minekin_core.adapters.bridge.bootstrap import bridge_session_for, descriptor_path
+from minekin_core.adapters.bridge.ipc import BridgeIpcHost, BridgeSession
 from minekin_core.adapters.launcher.artifacts import ArtifactStore, SessionOverlayStore
 from minekin_core.adapters.launcher.launch_plan import build_launch_plan
 from minekin_core.adapters.launcher.metadata import Artifact
@@ -29,17 +32,33 @@ from minekin_core.adapters.launcher.orphans import (
     terminate_process,
     write_marker,
 )
-from minekin_core.adapters.launcher.process import build_process_spec
+from minekin_core.adapters.launcher.process import ClientProcessSpec, build_process_spec
 from minekin_core.adapters.launcher.supervisor import ProcessIdentity, ProcessSupervisor
 from minekin_core.adapters.sqlite.connection import connect_reader
 from minekin_core.adapters.sqlite.identity_store import read_identity_root
 from minekin_core.adapters.sqlite.session_log import SessionEventLog
 from minekin_core.adapters.system.clock import SystemClock
 from minekin_core.cli.init import DATABASE_NAME, KIN_DIRECTORY, kin_directory, run_root
+from minekin_core.cli.session_runtime import SessionRun, supervise_session
+from minekin_core.domain.connection import ConnectionGenerations
 from minekin_core.domain.errors import ErrorCategory, MinekinError, Retryability
 from minekin_core.domain.ids import ClientInstanceId, KinId, RunId
+from minekin_core.domain.session_state import SessionState, SessionStateMachine
 
 SupervisorFactory = Callable[[Path], ProcessSupervisor]
+
+# One managed session's own directory inside the overlay, created for it by
+# SessionOverlayStore. The descriptor carries a session key, so it goes here
+# rather than anywhere the operator or the host can point at.
+IPC_DIRECTORY = "ipc"
+
+# How long the managed client has to prove its session before Core gives up.
+DEFAULT_HANDSHAKE_TIMEOUT_S = 30.0
+
+# How often the supervisor is asked whether the client is still there. Polling
+# rather than blocking in a thread: a thread parked on the child would keep the
+# event loop's executor alive at shutdown and hang the process.
+DEFAULT_EXIT_POLL_S = 0.2
 
 
 def _reject(message: str, category: ErrorCategory = ErrorCategory.CONFIG) -> MinekinError:
@@ -171,6 +190,23 @@ def require_store_complete(plan: Mapping[str, Any], store: ArtifactStore) -> Non
         )
 
 
+@dataclass(frozen=True, slots=True)
+class PreparedSession:
+    """A launch that is ready to spawn: overlay created, spec built, nothing started."""
+
+    kin_id: str
+    session_id: str
+    generation: int
+    run_id: str
+    client_instance_id: str
+    overlay: Path
+    spec: ClientProcessSpec
+    supervisor: ProcessSupervisor
+    ledger: SessionEventLog
+    bridge_session: BridgeSession | None = None
+    bridge_descriptor: Path | None = None
+
+
 def start_session(
     *,
     root: Path,
@@ -185,6 +221,44 @@ def start_session(
     probe: Callable[[int], Liveness] = default_probe,
 ) -> SessionLaunch:
     """Read the identity, prove readiness, then create the overlay and start."""
+
+    return launch_prepared(
+        prepare_session(
+            root=root,
+            profile=profile,
+            java_executable=java_executable,
+            session_id=session_id,
+            generation=generation,
+            kin_selector=kin_selector,
+            supervisor_factory=supervisor_factory,
+            forward_environment=forward_environment,
+            event_log=event_log,
+            probe=probe,
+        )
+    )
+
+
+def prepare_session(
+    *,
+    root: Path,
+    profile: Path,
+    java_executable: Path,
+    session_id: str,
+    generation: int,
+    kin_selector: str | None = None,
+    supervisor_factory: SupervisorFactory = default_supervisor_factory,
+    forward_environment: Mapping[str, str] | None = None,
+    event_log: SessionEventLog | None = None,
+    probe: Callable[[int], Liveness] = default_probe,
+    host_bridge: bool = False,
+) -> PreparedSession:
+    """Everything a launch needs, with the overlay already created and nothing started.
+
+    Split from the spawn so a caller can do work that must happen *between* the
+    overlay existing and the client running — hosting the Bridge IPC session is
+    exactly that: the descriptor has to be in the overlay before the client
+    reads it, and the overlay must not exist before the readiness checks pass.
+    """
 
     kin_id = select_kin(root, kin_selector)
     database = database_for(root, kin_id)
@@ -209,6 +283,20 @@ def start_session(
         # The supervisor's log directory was named from this path already.
         raise _reject("the session overlay was created somewhere unexpected")
 
+    run_id = RunId.new().value
+    client_instance_id = ClientInstanceId.new().value
+    bridge_session: BridgeSession | None = None
+    descriptor: Path | None = None
+    if host_bridge:
+        bridge_session = bridge_session_for(
+            plan,
+            kin_id=kin_id,
+            session_id=session_id,
+            generation=generation,
+            client_instance_id=client_instance_id,
+        )
+        descriptor = descriptor_path(overlay / IPC_DIRECTORY)
+
     supervisor = supervisor_factory(overlay / "logs")
     spec = build_process_spec(
         plan,
@@ -217,43 +305,136 @@ def start_session(
         candidate=OFFLINE_SESSION_CANDIDATES[0],
         java_executable=java_executable,
         forward_environment=forward_environment,
+        bridge_descriptor=descriptor,
+    )
+    ledger = event_log if event_log is not None else SessionEventLog(database, clock=SystemClock())
+    return PreparedSession(
+        kin_id=str(identity.kin_id),
+        session_id=session_id,
+        generation=generation,
+        run_id=run_id,
+        client_instance_id=client_instance_id,
+        overlay=overlay,
+        spec=spec,
+        supervisor=supervisor,
+        ledger=ledger,
+        bridge_session=bridge_session,
+        bridge_descriptor=descriptor,
     )
 
-    # The ledger records what the launcher did, after it did it. Refusals before
-    # this point are operator errors rather than run outcomes, so they leave no
-    # entry: a run only begins once a process does.
-    run_id = RunId.new().value
-    client_instance_id = ClientInstanceId.new().value
-    ledger = event_log if event_log is not None else SessionEventLog(database, clock=SystemClock())
+
+def launch_prepared(prepared: PreparedSession) -> SessionLaunch:
+    """Spawn the prepared client and record it.
+
+    The ledger records what the launcher did, after it did it. Refusals before
+    this point are operator errors rather than run outcomes, so they leave no
+    entry: a run only begins once a process does.
+    """
+
     try:
-        process = supervisor.start(spec)
+        process = prepared.supervisor.start(prepared.spec)
     except MinekinError as error:
-        ledger.record_process_failed(
-            kin_id=str(identity.kin_id),
-            run_id=run_id,
-            session_id=session_id,
-            generation=generation,
+        prepared.ledger.record_process_failed(
+            kin_id=prepared.kin_id,
+            run_id=prepared.run_id,
+            session_id=prepared.session_id,
+            generation=prepared.generation,
             error=error,
         )
         raise
-    write_marker(overlay, identity=process, session_id=session_id, generation=generation)
-    ledger.record_process_started(
-        kin_id=str(identity.kin_id),
-        run_id=run_id,
-        session_id=session_id,
-        generation=generation,
-        client_instance_id=client_instance_id,
+    write_marker(
+        prepared.overlay,
+        identity=process,
+        session_id=prepared.session_id,
+        generation=prepared.generation,
+    )
+    prepared.ledger.record_process_started(
+        kin_id=prepared.kin_id,
+        run_id=prepared.run_id,
+        session_id=prepared.session_id,
+        generation=prepared.generation,
+        client_instance_id=prepared.client_instance_id,
         argv_digest=process.argv_digest,
     )
     return SessionLaunch(
-        session_id=session_id,
-        generation=generation,
-        kin_id=str(identity.kin_id),
-        run_id=run_id,
-        overlay=str(overlay),
+        session_id=prepared.session_id,
+        generation=prepared.generation,
+        kin_id=prepared.kin_id,
+        run_id=prepared.run_id,
+        overlay=str(prepared.overlay),
         identity=process,
         argv_digest=process.argv_digest,
     )
+
+
+async def start_and_supervise(
+    *,
+    root: Path,
+    profile: Path,
+    java_executable: Path,
+    session_id: str,
+    generation: int,
+    kin_selector: str | None = None,
+    supervisor_factory: SupervisorFactory = default_supervisor_factory,
+    forward_environment: Mapping[str, str] | None = None,
+    event_log: SessionEventLog | None = None,
+    probe: Callable[[int], Liveness] = default_probe,
+    handshake_timeout: float = DEFAULT_HANDSHAKE_TIMEOUT_S,
+    exit_poll_s: float = DEFAULT_EXIT_POLL_S,
+) -> tuple[SessionLaunch, SessionRun]:
+    """Start a managed session with a live Bridge and stay with it until it ends.
+
+    Everything here runs in one event loop on purpose. The host's listening
+    sockets belong to the loop that created them, so preparing it in one
+    `asyncio.run` and supervising in another would leave the transport behind on
+    a loop that has already closed.
+    """
+
+    session = SessionStateMachine()
+    session.advance(SessionState.PREPARING)
+    prepared = prepare_session(
+        root=root,
+        profile=profile,
+        java_executable=java_executable,
+        session_id=session_id,
+        generation=generation,
+        kin_selector=kin_selector,
+        supervisor_factory=supervisor_factory,
+        forward_environment=forward_environment,
+        event_log=event_log,
+        probe=probe,
+        host_bridge=True,
+    )
+    if prepared.bridge_session is None or prepared.bridge_descriptor is None:
+        raise _reject("the session was prepared without a Bridge session to host")
+
+    session.advance(SessionState.STARTING_CLIENT)
+    host = BridgeIpcHost(prepared.bridge_session)
+    # Written before the spawn: the client reads it during its own startup, and
+    # a client that finds no descriptor refuses to come up at all.
+    # Written before the spawn: the client reads it during its own startup, and
+    # a client that finds no descriptor refuses to come up at all.
+    await host.prepare(prepared.bridge_descriptor)
+
+    # Off the loop, for two reasons: launching is blocking work, and the ledger
+    # opens its own writer through `asyncio.run`, which cannot be nested inside
+    # a loop that is already running. §9 wants the fsync off this loop anyway.
+    launch = await asyncio.to_thread(launch_prepared, prepared)
+    session.advance(SessionState.WAITING_BRIDGE)
+    session.advance(SessionState.HANDSHAKING)
+
+    async def until_client_exit() -> None:
+        while prepared.supervisor.running():
+            await asyncio.sleep(exit_poll_s)
+
+    run = await supervise_session(
+        host=host,
+        session=session,
+        connections=ConnectionGenerations(),
+        handshake_timeout=handshake_timeout,
+        until_client_exit=until_client_exit,
+    )
+    return launch, run
 
 
 @dataclass(frozen=True, slots=True)

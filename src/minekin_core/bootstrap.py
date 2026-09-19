@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import sys
 from collections.abc import Sequence
@@ -14,7 +15,8 @@ from minekin_core.adapters.system.clock import SystemClock
 from minekin_core.cli.doctor import diagnose
 from minekin_core.cli.init import initialise_identity
 from minekin_core.cli.parser import parse_args
-from minekin_core.cli.session import start_session, stop_session
+from minekin_core.cli.session import start_and_supervise, stop_session
+from minekin_core.cli.session_runtime import SessionOutcome, SessionRun
 from minekin_core.cli.status import read_status
 from minekin_core.config import configured_username, data_root, java_executable, kin_selector
 from minekin_core.domain.errors import (
@@ -25,6 +27,19 @@ from minekin_core.domain.errors import (
     fail_closed,
 )
 from minekin_core.domain.ids import KinId, SessionId
+
+# A run that ended because the client left is the command succeeding; anything
+# else is why it did not.
+_OUTCOME_EXIT_CODES: dict[SessionOutcome, ExitCode] = {
+    SessionOutcome.CLIENT_EXITED: ExitCode.OK,
+    SessionOutcome.BRIDGE_LOST: ExitCode.IPC_PROTOCOL,
+    SessionOutcome.HANDSHAKE_FAILED: ExitCode.IPC_PROTOCOL,
+    SessionOutcome.HANDSHAKE_TIMEOUT: ExitCode.TIMEOUT,
+}
+
+
+def _exit_code_for(run: SessionRun) -> ExitCode:
+    return _OUTCOME_EXIT_CODES[run.outcome]
 
 
 def _command_name(args: argparse.Namespace) -> str:
@@ -48,8 +63,8 @@ def run(
 ) -> int:
     """Parse and execute one CLI command.
 
-    W00 intentionally implements only diagnostics. Every other frozen command
-    fails before reading its path arguments or creating persistent state.
+    Commands that are frozen but not implemented fail before reading their path
+    arguments or creating persistent state, and say so on stderr.
     """
 
     args = parse_args(argv)
@@ -79,16 +94,18 @@ def run(
         return int(ExitCode.OK)
 
     if args.command == "session" and args.session_command == "start":
-        launch = start_session(
-            root=data_root(),
-            profile=Path(args.profile),
-            java_executable=java_executable(),
-            session_id=SessionId.new().value,
-            generation=1,
-            kin_selector=kin_selector(),
+        launch, run = asyncio.run(
+            start_and_supervise(
+                root=data_root(),
+                profile=Path(args.profile),
+                java_executable=java_executable(),
+                session_id=SessionId.new().value,
+                generation=1,
+                kin_selector=kin_selector(),
+            )
         )
-        _emit(launch.as_dict(), stdout)
-        return int(ExitCode.OK)
+        _emit({**launch.as_dict(), "run": run.as_dict()}, stdout)
+        return int(_exit_code_for(run))
 
     if args.command == "session" and args.session_command == "status":
         report = read_status(data_root(), kin_selector=kin_selector())
