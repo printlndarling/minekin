@@ -254,6 +254,7 @@ def start_session(
     forward_environment: Mapping[str, str] | None = None,
     event_log: SessionEventLog | None = None,
     probe: Callable[[int], Liveness] = default_probe,
+    cmdline: Callable[[int], bytes | None] = default_cmdline,
 ) -> SessionLaunch:
     """Read the identity, prove readiness, then create the overlay and start."""
 
@@ -269,6 +270,7 @@ def start_session(
             forward_environment=forward_environment,
             event_log=event_log,
             probe=probe,
+            cmdline=cmdline,
         )
     )
 
@@ -285,6 +287,7 @@ def prepare_session(
     forward_environment: Mapping[str, str] | None = None,
     event_log: SessionEventLog | None = None,
     probe: Callable[[int], Liveness] = default_probe,
+    cmdline: Callable[[int], bytes | None] = default_cmdline,
     host_bridge: bool = False,
 ) -> PreparedSession:
     """Prepare a launch, for a caller that is not already running a loop."""
@@ -301,6 +304,7 @@ def prepare_session(
             forward_environment=forward_environment,
             event_log=event_log,
             probe=probe,
+            cmdline=cmdline,
             host_bridge=host_bridge,
         )
     )
@@ -318,6 +322,7 @@ async def prepare_session_async(
     forward_environment: Mapping[str, str] | None = None,
     event_log: SessionEventLog | None = None,
     probe: Callable[[int], Liveness] = default_probe,
+    cmdline: Callable[[int], bytes | None] = default_cmdline,
     host_bridge: bool = False,
 ) -> PreparedSession:
     """Everything a launch needs, with the overlay already created and nothing started.
@@ -356,7 +361,7 @@ async def prepare_session_async(
 
     # Before anything is created: a second client on top of a live one shares the
     # overlay and appears to the server as a second player.
-    require_no_unresolved_client(runs, probe=probe)
+    require_no_unresolved_client(runs, probe=probe, cmdline=cmdline)
 
     overlays = SessionOverlayStore(runs / "session")
     overlay = overlays.create(session_id, generation)
@@ -510,6 +515,7 @@ async def start_and_supervise(
     forward_environment: Mapping[str, str] | None = None,
     event_log: SessionEventLog | None = None,
     probe: Callable[[int], Liveness] = default_probe,
+    cmdline: Callable[[int], bytes | None] = default_cmdline,
     handshake_timeout: float = DEFAULT_HANDSHAKE_TIMEOUT_S,
     exit_poll_s: float = DEFAULT_EXIT_POLL_S,
 ) -> tuple[SessionLaunch, SessionRun]:
@@ -534,6 +540,7 @@ async def start_and_supervise(
         forward_environment=forward_environment,
         event_log=event_log,
         probe=probe,
+        cmdline=cmdline,
         host_bridge=True,
     )
     if prepared.bridge_session is None or prepared.bridge_descriptor is None:

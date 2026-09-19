@@ -18,7 +18,12 @@ from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
 
-from minekin_core.adapters.launcher.orphans import Liveness, default_probe, session_claims
+from minekin_core.adapters.launcher.orphans import (
+    Liveness,
+    default_cmdline,
+    default_probe,
+    session_claims,
+)
 from minekin_core.adapters.sqlite.connection import connect_reader
 from minekin_core.cli.init import run_root
 from minekin_core.cli.session import database_for, select_kin
@@ -119,6 +124,8 @@ def observe_state(clients: tuple[ClientSummary, ...]) -> ObservedState:
 
     if any(client.liveness is Liveness.ALIVE for client in clients):
         return ObservedState.RUNNING
+    # A live PID whose command line proves it belongs to something else is GONE,
+    # so it is neither running nor unresolved; it is simply not a client of ours.
     if any(client.liveness is Liveness.UNKNOWN for client in clients):
         return ObservedState.UNRESOLVED
     return ObservedState.IDLE
@@ -129,6 +136,7 @@ def read_status(
     *,
     kin_selector: str | None = None,
     probe: Callable[[int], Liveness] = default_probe,
+    cmdline: Callable[[int], bytes | None] = default_cmdline,
 ) -> StatusReport:
     """Read the session picture for one Kin, changing nothing."""
 
@@ -146,7 +154,7 @@ def read_status(
             pid=claim.identity.pid,
             liveness=claim.liveness,
         )
-        for claim in session_claims(runs, probe=probe)
+        for claim in session_claims(runs, probe=probe, cmdline=cmdline)
     )
     return StatusReport(
         kin_id=str(kin_id),

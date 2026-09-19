@@ -2,20 +2,10 @@ from __future__ import annotations
 
 import io
 import json
-import subprocess
-import sys
 from collections.abc import Callable
 from pathlib import Path
 
 import pytest
-from session_support import (
-    PROFILE,
-    fake_plan,
-    kin_root,
-    ready_data_root,
-    run_root,
-    stub_supervisor,
-)
 
 from minekin_core.adapters.launcher.orphans import (
     MARKER_NAME,
@@ -41,6 +31,14 @@ from minekin_core.domain.errors import (
     MinekinError,
 )
 from minekin_core.domain.ids import KinId
+from session_support import (
+    PROFILE,
+    fake_plan,
+    kin_root,
+    ready_data_root,
+    run_root,
+    stub_supervisor,
+)
 
 KIN_ID = KinId("kin-01")
 
@@ -74,10 +72,30 @@ def probe(answer: Liveness) -> Callable[[int], Liveness]:
     return answer_with
 
 
-def test_a_recorded_process_is_found_with_the_probes_answer(tmp_path: Path) -> None:
-    marked(tmp_path, pid=7777)
+#: A command line whose digest the marker can record, and readers standing in for
+#: `/proc` so identity is decided without touching the host's real one.
+OURS_ARGV = ("java", "-jar", "ours.jar")
+OURS_DIGEST = argument_digest(OURS_ARGV)
 
-    claims = session_claims(run_root(tmp_path), probe=probe(Liveness.ALIVE))
+
+def reads_our_command_line(_pid: int) -> bytes | None:
+    return b"\0".join(argument.encode() for argument in OURS_ARGV) + b"\0"
+
+
+def reads_a_foreign_command_line(_pid: int) -> bytes | None:
+    return b"/usr/bin/something-else\0--totally\0"
+
+
+def reads_nothing(_pid: int) -> bytes | None:
+    return None
+
+
+def test_a_recorded_process_is_found_with_the_probes_answer(tmp_path: Path) -> None:
+    marked(tmp_path, pid=7777, argv_digest=OURS_DIGEST)
+
+    claims = session_claims(
+        run_root(tmp_path), probe=probe(Liveness.ALIVE), cmdline=reads_our_command_line
+    )
 
     assert len(claims) == 1
     assert claims[0].session_id == "session-01"
@@ -215,20 +233,42 @@ def test_the_default_probe_calls_a_pid_that_cannot_exist_gone() -> None:
     assert default_probe(-1) is Liveness.GONE
 
 
-def test_a_real_client_is_still_recorded_when_the_platform_cannot_ask(tmp_path: Path) -> None:
-    """A probe is never trusted blindly: what was recorded is what gets reported."""
+def test_a_live_pid_with_the_recorded_command_line_is_our_client(tmp_path: Path) -> None:
+    """A probe is never trusted blindly: the command line is what proves ownership."""
 
-    child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"])
-    try:
-        marked(tmp_path, pid=child.pid)
+    marked(tmp_path, pid=7777, argv_digest=OURS_DIGEST)
 
-        claims = session_claims(run_root(tmp_path))
+    claims = session_claims(
+        run_root(tmp_path), probe=probe(Liveness.ALIVE), cmdline=reads_our_command_line
+    )
 
-        assert [claim.identity.pid for claim in claims] == [child.pid]
-        assert claims[0].liveness in {Liveness.ALIVE, Liveness.UNKNOWN}
-    finally:
-        child.kill()
-        child.wait()
+    assert [claim.identity.pid for claim in claims] == [7777]
+    assert claims[0].liveness is Liveness.ALIVE
+    assert not claims[0].resolved
+
+
+def test_a_live_pid_with_a_foreign_command_line_is_gone(tmp_path: Path) -> None:
+    """A reused number is not a reason to refuse: the client that held it is gone."""
+
+    marked(tmp_path, pid=7777, argv_digest=OURS_DIGEST)
+
+    claims = session_claims(
+        run_root(tmp_path), probe=probe(Liveness.ALIVE), cmdline=reads_a_foreign_command_line
+    )
+
+    assert claims[0].liveness is Liveness.GONE
+    assert claims[0].resolved
+
+
+def test_a_live_pid_whose_command_line_cannot_be_read_is_unknown(tmp_path: Path) -> None:
+    """Not being able to read a command line is not proof of absence."""
+
+    marked(tmp_path, pid=7777, argv_digest=OURS_DIGEST)
+
+    claims = session_claims(run_root(tmp_path), probe=probe(Liveness.ALIVE), cmdline=reads_nothing)
+
+    assert claims[0].liveness is Liveness.UNKNOWN
+    assert not claims[0].resolved
 
 
 def test_start_session_refuses_while_a_previous_client_is_unresolved(
@@ -249,6 +289,97 @@ def test_start_session_refuses_while_a_previous_client_is_unresolved(
             generation=1,
             supervisor_factory=stub_supervisor,
             probe=probe(Liveness.ALIVE),
+        )
+
+    assert not session_overlay_path(runs, "session-01", 1).exists()
+
+
+def test_start_session_proceeds_when_the_live_pid_is_not_ours(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The number was reused, so there is no client to protect; the start runs."""
+
+    ready_data_root(tmp_path, monkeypatch)
+    runs = run_root(kin_root(tmp_path))
+    overlay = session_overlay_path(runs, "session-00", 1)
+    overlay.mkdir(parents=True)
+    write_marker(
+        overlay,
+        identity=identity(4242, argv_digest=OURS_DIGEST),
+        session_id="session-00",
+        generation=1,
+    )
+
+    launch = start_session(
+        root=tmp_path,
+        profile=PROFILE,
+        java_executable=Path("/usr/bin/java"),
+        session_id="session-01",
+        generation=1,
+        supervisor_factory=stub_supervisor,
+        probe=probe(Liveness.ALIVE),
+        cmdline=reads_a_foreign_command_line,
+    )
+
+    assert launch.session_id == "session-01"
+    assert session_overlay_path(runs, "session-01", 1).is_dir()
+
+
+def test_start_session_refuses_while_our_own_client_is_alive(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ready_data_root(tmp_path, monkeypatch)
+    runs = run_root(kin_root(tmp_path))
+    overlay = session_overlay_path(runs, "session-00", 1)
+    overlay.mkdir(parents=True)
+    write_marker(
+        overlay,
+        identity=identity(4242, argv_digest=OURS_DIGEST),
+        session_id="session-00",
+        generation=1,
+    )
+
+    with pytest.raises(MinekinError, match="confirm it is gone"):
+        start_session(
+            root=tmp_path,
+            profile=PROFILE,
+            java_executable=Path("/usr/bin/java"),
+            session_id="session-01",
+            generation=1,
+            supervisor_factory=stub_supervisor,
+            probe=probe(Liveness.ALIVE),
+            cmdline=reads_our_command_line,
+        )
+
+    assert not session_overlay_path(runs, "session-01", 1).exists()
+
+
+def test_start_session_refuses_when_a_live_pid_cannot_be_verified(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An unreadable command line is unresolved, and unresolved refuses a start."""
+
+    ready_data_root(tmp_path, monkeypatch)
+    runs = run_root(kin_root(tmp_path))
+    overlay = session_overlay_path(runs, "session-00", 1)
+    overlay.mkdir(parents=True)
+    write_marker(
+        overlay,
+        identity=identity(4242, argv_digest=OURS_DIGEST),
+        session_id="session-00",
+        generation=1,
+    )
+
+    with pytest.raises(MinekinError, match="confirm it is gone"):
+        start_session(
+            root=tmp_path,
+            profile=PROFILE,
+            java_executable=Path("/usr/bin/java"),
+            session_id="session-01",
+            generation=1,
+            supervisor_factory=stub_supervisor,
+            probe=probe(Liveness.ALIVE),
+            cmdline=reads_nothing,
         )
 
     assert not session_overlay_path(runs, "session-01", 1).exists()
@@ -371,18 +502,6 @@ def test_the_real_reader_admits_this_platform_cannot_be_asked() -> None:
 # --- stopping -----------------------------------------------------------------
 
 
-def reads_our_command_line(_pid: int) -> bytes | None:
-    return b"java" + bytes([0]) + b"-jar" + bytes([0]) + b"ours.jar" + bytes([0])
-
-
-def reads_a_foreign_command_line(_pid: int) -> bytes | None:
-    return b"someone-else" + bytes([0])
-
-
-def reads_nothing(_pid: int) -> bytes | None:
-    return None
-
-
 class Recorder:
     """Stands in for `terminate`, so a test never signals a real process."""
 
@@ -430,6 +549,25 @@ def test_a_reused_pid_is_left_alone(tmp_path: Path) -> None:
     assert outcome.left_alone == (4242,)
     assert outcome.terminated == ()
     assert outcome.complete
+
+
+def test_stop_names_a_foreign_pid_that_a_claim_calls_gone(tmp_path: Path) -> None:
+    """The claim collapses a foreign PID into GONE; stopping must still name it."""
+
+    outcome, terminate = stop(tmp_path, proof=IdentityProof.NOT_OURS)
+
+    claims = session_claims(
+        run_root(kin_root(tmp_path)),
+        probe=probe(Liveness.ALIVE),
+        cmdline=reads_a_foreign_command_line,
+    )
+    # The same marker a start reads as resolved ...
+    assert claims[0].resolved
+
+    # ... stop reports rather than swallowing into that classification.
+    assert outcome.left_alone == (4242,)
+    assert outcome.terminated == ()
+    assert terminate.pids == []
 
 
 def test_an_unverifiable_client_is_not_stopped_and_not_called_done(tmp_path: Path) -> None:

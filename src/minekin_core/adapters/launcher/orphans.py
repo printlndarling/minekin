@@ -4,11 +4,12 @@ Starting a second client on top of a live one is worse than a failed start: two
 JVMs share one session overlay and the server sees two players. So a start refuses
 while a previous session's process is unresolved, and names it.
 
-What this cannot do is prove that a live PID is *ours*. A PID is reused by the
-operating system, and reading another process's command line is not portable, so
-the honest outcomes are three: the process is gone, it is alive, or the platform
-cannot say. The third case refuses too, because "probably gone" is not a reason
-to put a second player in a world.
+A live PID is not the end of the question. On a platform that can be asked, the
+command line of a live PID says whether it is the client this run recorded or
+something that inherited its number — the same evidence the stop path decides on.
+A live PID whose command line is provably not ours is gone, so a start may
+proceed; one whose command line cannot be read is unresolved, and then a start
+refuses, because "probably gone" is not a reason to put a second player in a world.
 
 Nothing clears a marker. A marker for a finished run is the trace that the run
 happened, in keeping with the rule that failed runs are appended rather than
@@ -22,7 +23,7 @@ import json
 import os
 import signal
 from collections.abc import Callable, Iterator
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import StrEnum
 from pathlib import Path
 from typing import cast
@@ -154,45 +155,6 @@ def _read(path: Path) -> SessionClaim:
     )
 
 
-def session_claims(
-    run_root: Path, *, probe: Callable[[int], Liveness] = default_probe
-) -> tuple[SessionClaim, ...]:
-    """Every recorded client, with what the platform can say about it."""
-
-    claims: list[SessionClaim] = []
-    for path in _markers(run_root):
-        claim = _read(path)
-        claims.append(
-            SessionClaim(
-                session_id=claim.session_id,
-                generation=claim.generation,
-                overlay=claim.overlay,
-                identity=claim.identity,
-                liveness=probe(claim.identity.pid),
-            )
-        )
-    return tuple(claims)
-
-
-def require_no_unresolved_client(
-    run_root: Path, *, probe: Callable[[int], Liveness] = default_probe
-) -> None:
-    """Refuse a new start while a previous session's client is unresolved."""
-
-    unresolved = tuple(
-        claim for claim in session_claims(run_root, probe=probe) if not claim.resolved
-    )
-    if not unresolved:
-        return
-    first = unresolved[0]
-    others = f" (and {len(unresolved) - 1} more)" if len(unresolved) > 1 else ""
-    raise _reject(
-        f"session {first.session_id} generation {first.generation} recorded client pid "
-        f"{first.identity.pid} and it is {first.liveness.value}{others}; confirm it is gone "
-        f"and remove {Path(first.overlay) / MARKER_NAME}, or stop it deliberately"
-    )
-
-
 class IdentityProof(StrEnum):
     """Whether a live process can be shown to be the client this run recorded."""
 
@@ -246,6 +208,76 @@ def prove_process_identity(
     )
 
 
+def _probed(run_root: Path, probe: Callable[[int], Liveness]) -> Iterator[SessionClaim]:
+    """Every marker, carrying only what the OS probe answers about its PID.
+
+    Keeping the probe's raw answer here is what lets the stop path refuse a PID it
+    cannot prove: reading a verdict that already collapsed a foreign PID into
+    "gone" would lose the distinction before stop could report it.
+    """
+
+    for path in _markers(run_root):
+        claim = _read(path)
+        yield replace(claim, liveness=probe(claim.identity.pid))
+
+
+def session_claims(
+    run_root: Path,
+    *,
+    probe: Callable[[int], Liveness] = default_probe,
+    cmdline: Callable[[int], bytes | None] = default_cmdline,
+) -> tuple[SessionClaim, ...]:
+    """Every recorded client, with what the platform can say about it.
+
+    A live PID is only this run's client when its command line is the one the
+    marker recorded. When the platform can read that line and it is not ours, the
+    operating system reused the number and the client is gone; when the line
+    cannot be read, the client is unresolved rather than assumed gone.
+    """
+
+    return tuple(_identified(claim, cmdline=cmdline) for claim in _probed(run_root, probe))
+
+
+def _identified(claim: SessionClaim, *, cmdline: Callable[[int], bytes | None]) -> SessionClaim:
+    """Turn a live PID into the answer its command line can prove."""
+
+    if claim.liveness is not Liveness.ALIVE:
+        return claim
+    proof = prove_process_identity(
+        claim.identity.pid, claim.identity.argv_digest, read_cmdline=cmdline
+    )
+    if proof is IdentityProof.PROVEN:
+        return claim
+    return replace(
+        claim,
+        liveness=Liveness.GONE if proof is IdentityProof.NOT_OURS else Liveness.UNKNOWN,
+    )
+
+
+def require_no_unresolved_client(
+    run_root: Path,
+    *,
+    probe: Callable[[int], Liveness] = default_probe,
+    cmdline: Callable[[int], bytes | None] = default_cmdline,
+) -> None:
+    """Refuse a new start while a previous session's client is unresolved."""
+
+    unresolved = tuple(
+        claim
+        for claim in session_claims(run_root, probe=probe, cmdline=cmdline)
+        if not claim.resolved
+    )
+    if not unresolved:
+        return
+    first = unresolved[0]
+    others = f" (and {len(unresolved) - 1} more)" if len(unresolved) > 1 else ""
+    raise _reject(
+        f"session {first.session_id} generation {first.generation} recorded client pid "
+        f"{first.identity.pid} and it is {first.liveness.value}{others}; confirm it is gone "
+        f"and remove {Path(first.overlay) / MARKER_NAME}, or stop it deliberately"
+    )
+
+
 def terminate_process(pid: int) -> None:
     """Ask one process to stop. Only ever called for a proven identity."""
 
@@ -296,19 +328,26 @@ def stop_recorded_clients(
     terminated: list[int] = []
     left_alone: list[int] = []
     unresolved: list[int] = []
-    for claim in session_claims(run_root, probe=probe):
-        if claim.resolved:
-            continue
+    for claim in _probed(run_root, probe):
         pid = claim.identity.pid
-        proof = prove_process_identity(pid, claim.identity.argv_digest, read_cmdline=read_cmdline)
-        if proof is IdentityProof.NOT_OURS:
-            left_alone.append(pid)
+        if claim.resolved:
+            # The probe says the recorded PID is gone, so there is nothing to stop.
             continue
-        if proof is IdentityProof.UNVERIFIABLE:
+        if claim.liveness is Liveness.UNKNOWN:
+            # The platform cannot say whether it still exists, so it cannot earn a
+            # signal; the operator is told instead.
             unresolved.append(pid)
             continue
-        terminate(pid)
-        terminated.append(pid)
+        # Alive: only a command line that matches the marker earns a signal, and
+        # one that is provably not ours is reported rather than acted on.
+        proof = prove_process_identity(pid, claim.identity.argv_digest, read_cmdline=read_cmdline)
+        if proof is IdentityProof.PROVEN:
+            terminate(pid)
+            terminated.append(pid)
+        elif proof is IdentityProof.NOT_OURS:
+            left_alone.append(pid)
+        else:
+            unresolved.append(pid)
     return StopOutcome(
         terminated=tuple(terminated),
         left_alone=tuple(left_alone),

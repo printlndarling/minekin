@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from minekin_core.adapters.launcher.orphans import Liveness, write_marker
+from minekin_core.adapters.launcher.process import argument_digest
 from minekin_core.adapters.launcher.supervisor import ProcessIdentity
 from minekin_core.adapters.sqlite.connection import connect_writer
 from minekin_core.adapters.sqlite.session_log import SessionEventLog
@@ -30,6 +31,24 @@ def probe(answer: Liveness) -> Callable[[int], Liveness]:
     return answer_with
 
 
+#: What the recorded marker hashed, and readers standing in for `/proc`, so a
+#: test decides identity without reading the host's real command lines.
+OURS_ARGV = ("java", "-jar", "ours.jar")
+OURS_DIGEST = argument_digest(OURS_ARGV)
+
+
+def reads_ours(_pid: int) -> bytes | None:
+    return b"\0".join(argument.encode() for argument in OURS_ARGV) + b"\0"
+
+
+def reads_foreign(_pid: int) -> bytes | None:
+    return b"/usr/bin/something-else\0--totally\0"
+
+
+def reads_nothing(_pid: int) -> bytes | None:
+    return None
+
+
 def kin_root(tmp_path: Path) -> Path:
     """A Kin's data root, created once however many times a test asks for it."""
 
@@ -47,7 +66,9 @@ def record_client(tmp_path: Path, *, session_id: str = "session-01", pid: int = 
     overlay.mkdir(parents=True)
     return write_marker(
         overlay,
-        identity=ProcessIdentity(pid=pid, started_at="2026-01-01T00:00:00Z", argv_digest="a" * 64),
+        identity=ProcessIdentity(
+            pid=pid, started_at="2026-01-01T00:00:00Z", argv_digest=OURS_DIGEST
+        ),
         session_id=session_id,
         generation=1,
     )
@@ -67,7 +88,7 @@ def test_a_live_client_is_running(tmp_path: Path) -> None:
     kin_root(tmp_path)
     record_client(tmp_path)
 
-    report = read_status(tmp_path, probe=probe(Liveness.ALIVE))
+    report = read_status(tmp_path, probe=probe(Liveness.ALIVE), cmdline=reads_ours)
 
     assert report.state is ObservedState.RUNNING
     assert report.clients[0].pid == 4242
@@ -92,6 +113,30 @@ def test_a_finished_client_leaves_the_kin_idle(tmp_path: Path) -> None:
     assert read_status(tmp_path, probe=probe(Liveness.GONE)).state is ObservedState.IDLE
 
 
+def test_a_live_pid_with_a_foreign_command_line_reads_idle(tmp_path: Path) -> None:
+    """The number was reused, so no client of ours is running and none is stuck."""
+
+    kin_root(tmp_path)
+    record_client(tmp_path)
+
+    report = read_status(tmp_path, probe=probe(Liveness.ALIVE), cmdline=reads_foreign)
+
+    assert report.state is ObservedState.IDLE
+    assert report.clients[0].liveness is Liveness.GONE
+
+
+def test_a_live_pid_whose_command_line_cannot_be_read_is_unresolved(tmp_path: Path) -> None:
+    """Consistent with `start`, which refuses in exactly this case."""
+
+    kin_root(tmp_path)
+    record_client(tmp_path)
+
+    report = read_status(tmp_path, probe=probe(Liveness.ALIVE), cmdline=reads_nothing)
+
+    assert report.state is ObservedState.UNRESOLVED
+    assert report.clients[0].liveness is Liveness.UNKNOWN
+
+
 def test_a_live_client_outranks_an_unanswerable_one(tmp_path: Path) -> None:
     kin_root(tmp_path)
     record_client(tmp_path, session_id="session-01", pid=1)
@@ -100,7 +145,7 @@ def test_a_live_client_outranks_an_unanswerable_one(tmp_path: Path) -> None:
     def by_pid(pid: int) -> Liveness:
         return Liveness.ALIVE if pid == 1 else Liveness.UNKNOWN
 
-    report = read_status(tmp_path, probe=by_pid)
+    report = read_status(tmp_path, probe=by_pid, cmdline=reads_ours)
 
     assert report.state is ObservedState.RUNNING
     assert [client.session_id for client in report.clients] == ["session-01", "session-02"]
