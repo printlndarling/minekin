@@ -69,6 +69,10 @@ TIMEOUT = "TIMEOUT"
 IPC_LOST = "IPC_LOST"
 _BRIDGE_RELEASE = re.compile(r"released (\d+) input\(s\) after ([A-Z_]+)")
 
+#: What the Bridge writes when it acts on a cancel. Measured in a run against a
+#: black hole, after the attempt reached `LOGIN_NEGOTIATING` and stayed there.
+CANCEL_LINE = "bridge is cancelling the client's connection"
+
 #: What counts as having walked. Measured: vanilla survival walking is about 4.3
 #: blocks per second, and the thing this has to tell a step apart from is a shove
 #: — a summoned pig wandering into the Kin moves it well under a block, so the
@@ -619,6 +623,68 @@ def the_server_saw_the_kin_stop_after_the_move(material: RunMaterial) -> str | N
     return None
 
 
+def the_attempt_was_abandoned_at_its_deadline(material: RunMaterial) -> str | None:
+    """Core gave up on the attempt, in Core's own words, for its own reason.
+
+    The run document carries it because §5 names no ledger event for "the attempt
+    was given up on" — and writing `SessionInterrupted` would say the session was
+    interrupted, which is false: it is still here.
+    """
+
+    run = material.run()
+    cancelled = _text(run, "connection_cancelled")
+    if cancelled is None:
+        return "NO_CONNECTION_RECORD"
+    if not cancelled:
+        return "NO_ATTEMPT_WAS_ABANDONED"
+    if cancelled != TIMEOUT:
+        return f"ABANDONED_FOR_ANOTHER_REASON:{cancelled}"
+    return None
+
+
+def no_world_was_joined(material: RunMaterial) -> str | None:
+    """Nothing was joined, and the record is asked rather than the client.
+
+    A connection that was accepted is not a join: the contract says TCP, INIT and
+    screen state may not be counted as one on their own. What would count is a
+    join the Bridge reported, a snapshot Core admitted, and a connection state of
+    PLAYABLE — so all three are checked, in both records where both exist.
+    """
+
+    if material.has(JOIN_OBSERVED):
+        return "THE_BRIDGE_REPORTED_A_JOIN"
+    if material.has(PLAYABLE_ESTABLISHED):
+        return "CORE_ADMITTED_A_SNAPSHOT"
+    run = material.run()
+    if _integer(run, "snapshots_admitted"):
+        return "SNAPSHOT_ADMITTED"
+    state = _text(run, "connection_state")
+    if state is not None:
+        return f"CONNECTION_STATE:{state}"
+    return None
+
+
+def the_cancel_reached_the_client_and_was_acted_on(material: RunMaterial) -> str | None:
+    """The other side of the cancel: the Bridge did what Core asked it to.
+
+    Core recording that it gave up is half the story — the world it gave up on
+    might still have a client dialling it forever. Measured, the Bridge's own line
+    in the client's log is `bridge is cancelling the client's connection`, after
+    an attempt that reached `LOGIN_NEGOTIATING` and stayed there.
+
+    What is *not* claimed here is that the run continued afterwards. The harness
+    ends a session by terminating the client, so every run this seals ends
+    `BRIDGE_LOST` whatever happened before, and an assertion about the ending
+    would be an assertion about the harness.
+    """
+
+    if not material.client_log:
+        return "NO_CLIENT_LOG"
+    if CANCEL_LINE not in material.client_log:
+        return "THE_BRIDGE_NEVER_CANCELLED_IT"
+    return None
+
+
 #: Every assertion a case manifest may name, and what performs it. A name that is
 #: not here cannot be judged, which the verdict reports rather than passing over.
 ASSERTIONS: dict[str, Callable[[RunMaterial], str | None]] = {
@@ -635,6 +701,11 @@ ASSERTIONS: dict[str, Callable[[RunMaterial], str | None]] = {
         the_bridge_released_the_input_when_the_ipc_was_lost
     ),
     "the_server_saw_the_kin_stop_after_the_move": the_server_saw_the_kin_stop_after_the_move,
+    "the_attempt_was_abandoned_at_its_deadline": the_attempt_was_abandoned_at_its_deadline,
+    "no_world_was_joined": no_world_was_joined,
+    "the_cancel_reached_the_client_and_was_acted_on": (
+        the_cancel_reached_the_client_and_was_acted_on
+    ),
 }
 
 

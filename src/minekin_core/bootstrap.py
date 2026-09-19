@@ -16,7 +16,11 @@ from minekin_core.cli.doctor import diagnose
 from minekin_core.cli.evidence import verify_run
 from minekin_core.cli.init import initialise_identity
 from minekin_core.cli.parser import parse_args
-from minekin_core.cli.session import start_and_supervise, stop_session
+from minekin_core.cli.session import (
+    DEFAULT_CONNECTION_TIMEOUT_S,
+    start_and_supervise,
+    stop_session,
+)
 from minekin_core.cli.session_runtime import SessionOutcome, SessionRun
 from minekin_core.cli.status import read_status
 from minekin_core.config import (
@@ -115,6 +119,11 @@ def run(
                 # the code's.
                 forward_environment=forwarded_environment(),
                 server_profile=(None if args.server_profile is None else Path(args.server_profile)),
+                connection_timeout=(
+                    DEFAULT_CONNECTION_TIMEOUT_S
+                    if args.connection_timeout_seconds is None
+                    else float(args.connection_timeout_seconds)
+                ),
                 hold_forward=(
                     None if args.hold_forward_seconds is None else float(args.hold_forward_seconds)
                 ),

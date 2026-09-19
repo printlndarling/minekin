@@ -48,6 +48,17 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="PATH",
         help="connect the client to this saved Server Profile after the handshake",
     )
+    # How long this run is willing to wait for that world. The default is the
+    # reviewed one; a scenario that wants to watch Core give up has to be able to
+    # ask for less, because the client has its own read timeout and a test whose
+    # two clocks are the same length is a race rather than a test.
+    session_start.add_argument(
+        "--connection-timeout-seconds",
+        type=float,
+        default=None,
+        metavar="SECONDS",
+        help="how long to wait for the named world before giving up on the attempt",
+    )
     # The third optional input document, and the same reasoning as the second:
     # a run that should hold a movement key is a property of this run, not of a
     # session that would have to be re-opened in another process to change it.

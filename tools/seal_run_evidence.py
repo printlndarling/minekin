@@ -94,9 +94,16 @@ class Unsealable(Exception):
 
 
 def server_jar_sha1(jar: Path) -> str:
-    """The server jar's SHA-1 as measured from the bytes that were mounted."""
+    """The server jar's SHA-1 as measured from the bytes that were mounted.
 
-    digest = hashlib.sha1(jar.read_bytes(), usedforsecurity=False)
+    A jar that is not there is a caller mistake rather than a crash: naming one
+    this run never used would be a claim about bytes nobody has.
+    """
+
+    try:
+        digest = hashlib.sha1(jar.read_bytes(), usedforsecurity=False)
+    except OSError as error:
+        raise Unsealable(f"the server jar named for this run cannot be read: {error}") from error
     return digest.hexdigest()
 
 

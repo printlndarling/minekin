@@ -273,6 +273,12 @@
   - **还没做的**：声明与实现之间的那层仍然靠人：harness 要**手动**指名这次跑的是哪个 case（`MINEKIN_DOMAIN_CASE`），没有任何东西核对"这次用的开关"与"这个 case 的场景"是否对得上；`case_version` 只覆盖用例**定义**、不覆盖断言的**实现**（下面 W70 那条记了这件事）。
 - [ ] 仍未跑的两类负向用例：`online-mode=true` 对离线客户端、资源包阻断。第一类还有个额外障碍：冻结的 Server Profile schema 里 `auth_mode` 只有 `offline`，`load_server_profile` 明确拒绝别的值（"P0 has no online-mode admission path"），所以**产品侧今天根本无法表达一个在线模式目标**——要量那句话，得像上面两条一样先在域这一侧制造出来，而不是假装它已经在契约里。
 - [ ] 取消、重连与晚到 callback 不得改变新 generation。
+- [x] **第一个 ADMIT 用例：一个「接受连接但从不回应」的目标，以及 Core 在自己的 deadline 上放弃它。** 上一步把超时处置接上了线，但只用真实 IPC 对端验过；要让**真客户端**卡住需要一个黑洞——原版服务端做不到（它会应答），而"什么都没有"得到的是**拒绝**（另一条路径、另一种分类）。新增 `tools/run_silent_listener.py`：绑定 Server Profile 的地址、接受连接、**一个字节都不发**，并把它接受了什么说出来（一个没人拨过的黑洞不能证明客户端放弃过）。harness 侧新增 `MINEKIN_DOMAIN_BLACK_HOLE`：不起原版服务端、改起这个监听者，`run.sh` 也不再要求 `MINEKIN_SERVER_JAR`。
+  - **为什么要给 `session start` 加 `--connection-timeout-seconds`**：客户端自己有一条 30 秒的读超时，而 Core 的默认 deadline 也是 30 秒——两个等长的钟放在一起是竞态而不是测试。这个开关让场景能要求一个更短的、属于 Core 的 deadline（实测用 8 秒）。
+  - **用例是 `ADMIT-110`**（契约只给了一个区间 `ADMIT-001…110` 而没有逐条定义，所以这里定义的是**这一条**：目标接受连接却从不回应时，Core 在自己的 deadline 上取消这次尝试）。三条断言各自读一份记录：`the_attempt_was_abandoned_at_its_deadline`（run document 的 `connection_cancelled == "TIMEOUT"`——§5 没有为这件事命名事件，写 `SessionInterrupted` 是说会话被打断了，那是假话）、`no_world_was_joined`（账本与文档两处一起看：没有 `JoinObserved`、没有 `PlayableEstablished`、`snapshots_admitted` 为 0、`connection_state` 为空——契约明说 TCP/INIT/界面状态不得单独判成功）、`the_cancel_reached_the_client_and_was_acted_on`（**Bridge 自己那行** `bridge is cancelling the client's connection`，实测里它出现在一次到达 `LOGIN_NEGOTIATING` 就停住、然后被取消的尝试之后）。
+  - **实测**：`MINEKIN_DOMAIN_BLACK_HOLE=1 … --connection-timeout-seconds 8` → harness `the client dialled the black hole and got nothing`、run document `connection_cancelled: TIMEOUT`、`snapshots_admitted: 0`、`connection_state: null`、6 件工件（没有任何服务端的）、三条断言全部 observed、`evidence verify` 通过、**harness 退出码 0**。
+  - **一条断言又是错的，而错的仍然是它**：第一版第三条要求 `outcome == CLIENT_EXITED`，实测拿到 `BRIDGE_LOST`——因为 **harness 结束会话的办法是终止客户端**，所以每一轮由 harness 结束的运行都记 `BRIDGE_LOST`，关于"结束方式"的断言其实是在断言 harness。改成读 Bridge 自己那行之后通过；这段测量写进了断言的注释。
+  - **这一轮还量出两处工具缺陷，各自都修了根**：**(一)** 封存端**崩溃**（不是拒绝）：harness 给一次没有挂载 jar 的运行传了 `--server-jar /server/server.jar`，`read_bytes` 抛 `FileNotFoundError`，工具带着 traceback 退出 1——现在 harness 不再为黑洞运行点名一个不存在的 jar，封存端也会把"读不到的 jar"变成 `Unsealable` 而不是崩溃。**(二)** harness 把"空报告"当成"封了但没过"，于是**工具自己的 stderr 被丢掉**——第一次排查时看到的只有一句空白的 verdict；现在非零退出或空报告都会把工具的原话打出来。
 - [ ] 执行 `ADMIT-001…120`；Kin 不得获得 op、RCON 或 console 权限。
 
 ## W50：玩家等价首快照

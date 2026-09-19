@@ -29,6 +29,7 @@ REVIEWED_CASE = CASES / "core-020.json"
 OBSERVE_ONLY_CASE = CASES / "core-010.json"
 MOVEMENT_CASE = CASES / "core-040.json"
 LOST_RUNTIME_CASE = CASES / "core-060.json"
+BLACK_HOLE_CASE = CASES / "admit-110.json"
 RUN_ID = "5c1f9a7b2d3e4f6089abcdef01234567"
 USERNAME = "Kin"
 # The UUID a real run's server recorded for this name, read back from the
@@ -194,7 +195,13 @@ def test_a_run_that_did_everything_the_case_asks_for_holds() -> None:
 def test_the_reviewed_case_names_only_assertions_the_asserter_performs() -> None:
     """A name in a manifest and a name in the registry have to be one name."""
 
-    for path in (REVIEWED_CASE, OBSERVE_ONLY_CASE, MOVEMENT_CASE, LOST_RUNTIME_CASE):
+    for path in (
+        REVIEWED_CASE,
+        OBSERVE_ONLY_CASE,
+        MOVEMENT_CASE,
+        LOST_RUNTIME_CASE,
+        BLACK_HOLE_CASE,
+    ):
         declared = cast(dict[str, object], json.loads(path.read_text(encoding="utf-8")))[
             "assertions"
         ]
@@ -586,6 +593,90 @@ def test_a_kin_that_never_moved_did_not_stop() -> None:
     )
 
     assert verdict.failures == ("the_server_saw_the_kin_stop_after_the_move:NO_SERVER_READINGS",)
+
+
+# The run a black hole produced: the attempt reached LOGIN_NEGOTIATING and stayed
+# there, and the Bridge's own line is what says the cancel arrived.
+BLACK_HOLE_CANCEL = "bridge is cancelling the client's connection (screen matches: false)"
+
+
+def black_hole_case() -> dict[str, object]:
+    return cast(dict[str, object], json.loads(BLACK_HOLE_CASE.read_text(encoding="utf-8")))
+
+
+def never_answered(**overrides: object) -> _Material:
+    document = no_world_document(connection_cancelled="TIMEOUT", outcome="BRIDGE_LOST")
+    arguments: dict[str, object] = {
+        "document": document,
+        "client_log": BLACK_HOLE_CANCEL,
+        "events": (event(HANDSHAKE),),
+    }
+    arguments.update(overrides)
+    return material(**arguments)  # type: ignore[arg-type]
+
+
+def test_a_target_that_never_answered_gives_core_a_deadline_to_give_up_on() -> None:
+    verdict = ASSERTER_MODULE.evaluate(black_hole_case(), never_answered())
+
+    assert verdict.result == "PASS"
+    assert verdict.observed == verdict.expected
+    assert verdict.failures == ()
+
+
+@pytest.mark.parametrize(
+    ("cancelled", "reason"),
+    [
+        ("", "NO_ATTEMPT_WAS_ABANDONED"),
+        ("OPERATOR", "ABANDONED_FOR_ANOTHER_REASON:OPERATOR"),
+    ],
+)
+def test_an_attempt_abandoned_for_something_else_is_named(cancelled: str, reason: str) -> None:
+    verdict = ASSERTER_MODULE.evaluate(
+        black_hole_case(),
+        never_answered(document=no_world_document(connection_cancelled=cancelled)),
+    )
+
+    assert f"the_attempt_was_abandoned_at_its_deadline:{reason}" in verdict.failures
+
+
+@pytest.mark.parametrize(
+    ("overrides", "reason"),
+    [
+        ({"events": (event(HANDSHAKE), event("JoinObserved"))}, "THE_BRIDGE_REPORTED_A_JOIN"),
+        (
+            {"events": (event(HANDSHAKE), event("PlayableEstablished"))},
+            "CORE_ADMITTED_A_SNAPSHOT",
+        ),
+        ({"document": run_document(snapshots_admitted=1)}, "SNAPSHOT_ADMITTED"),
+        (
+            {"document": run_document(snapshots_admitted=0, connection_state="PLAYABLE")},
+            "CONNECTION_STATE:PLAYABLE",
+        ),
+    ],
+)
+def test_a_connection_that_was_accepted_is_not_a_join(
+    overrides: dict[str, object], reason: str
+) -> None:
+    """The contract's own warning: TCP, INIT and screen state may not pass alone."""
+
+    verdict = ASSERTER_MODULE.evaluate(black_hole_case(), never_answered(**overrides))
+
+    assert f"no_world_was_joined:{reason}" in verdict.failures
+
+
+@pytest.mark.parametrize(
+    ("client_log", "reason"),
+    [
+        ("", "NO_CLIENT_LOG"),
+        ("bridge asked vanilla to connect to 127.0.0.1:25565\n", "THE_BRIDGE_NEVER_CANCELLED_IT"),
+    ],
+)
+def test_core_giving_up_is_not_the_same_as_the_client_letting_go(
+    client_log: str, reason: str
+) -> None:
+    verdict = ASSERTER_MODULE.evaluate(black_hole_case(), never_answered(client_log=client_log))
+
+    assert f"the_cancel_reached_the_client_and_was_acted_on:{reason}" in verdict.failures
 
 
 def test_a_kin_that_never_joined_fails_every_assertion_that_needs_it() -> None:

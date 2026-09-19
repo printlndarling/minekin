@@ -61,6 +61,11 @@ if [[ "${1:-}" == "domain" ]]; then
             --server-profile) world=1 ;;
         esac
     done
+    # A black-hole run names a target and needs no server jar: the thing on the
+    # other end is a listener that never speaks, not a world.
+    if [[ -n "${MINEKIN_DOMAIN_BLACK_HOLE:-}" ]]; then
+        world=0
+    fi
     if [[ "${world}" -eq 1 ]]; then
         SERVER_JAR="${MINEKIN_SERVER_JAR:-}"
         if [[ -z "${SERVER_JAR}" ]]; then
@@ -84,6 +89,7 @@ if [[ "${1:-}" == "domain" ]]; then
         -e MINEKIN_DOMAIN_KILL -e MINEKIN_DOMAIN_KICK -e MINEKIN_DOMAIN_KILL_CORE
         -e MINEKIN_DOMAIN_SILENCE -e MINEKIN_DOMAIN_STILL -e MINEKIN_DOMAIN_NO_SERVER
         -e MINEKIN_DOMAIN_CASE
+        -e MINEKIN_DOMAIN_BLACK_HOLE
         -e MINEKIN_DOMAIN_SECONDS)
     if [[ "${world}" -eq 1 ]]; then
         EXTRA_ARGS+=(-v "${SERVER_JAR}:/server/server.jar:ro")

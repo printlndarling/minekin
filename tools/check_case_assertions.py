@@ -99,6 +99,13 @@ IMPLEMENTATIONS: dict[str, Implementation] = {
     "the_server_saw_the_kin_stop_after_the_move": _runtime(
         "the_server_saw_the_kin_stop_after_the_move"
     ),
+    "the_attempt_was_abandoned_at_its_deadline": _runtime(
+        "the_attempt_was_abandoned_at_its_deadline"
+    ),
+    "no_world_was_joined": _runtime("no_world_was_joined"),
+    "the_cancel_reached_the_client_and_was_acted_on": _runtime(
+        "the_cancel_reached_the_client_and_was_acted_on"
+    ),
 }
 
 

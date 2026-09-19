@@ -31,6 +31,11 @@ still="${MINEKIN_DOMAIN_STILL:-}"
 # definition and judges the case's assertions, and it does neither for a run
 # nobody said was a case. Unset means nothing about this run changes.
 case_id="${MINEKIN_DOMAIN_CASE:-}"
+# A target that accepts a connection and never answers. The vanilla server cannot
+# produce that — it answers — and nothing listening produces a refusal instead,
+# which is a different path. This one exists to watch Core give up on its own
+# deadline, and it is the only scenario where the client is expected to *hang*.
+black_hole="${MINEKIN_DOMAIN_BLACK_HOLE:-}"
 # How often the server is asked about the Kin. A look is over within a second
 # of the join, so a run that wants a reading on both sides of it asks more
 # often than the default — the pair is what shows a heading changed.
@@ -50,6 +55,7 @@ runs=/data/server-runs
 hold_requested=0
 profile=""
 server_profile=""
+connection_timeout=""
 previous=""
 for argument in "$@"; do
     case "${argument}" in
@@ -58,6 +64,7 @@ for argument in "$@"; do
     case "${previous}" in
         --profile) profile="${argument}" ;;
         --server-profile) server_profile="${argument}" ;;
+        --connection-timeout-seconds) connection_timeout="${argument}" ;;
     esac
     previous="${argument}"
 done
@@ -113,7 +120,16 @@ stop_the_server() {
 }
 trap stop_the_server EXIT
 
-if [ -n "${server_profile}" ]; then
+if [ -n "${server_profile}" ] && [ -n "${black_hole}" ]; then
+    # Something is listening on the address the profile names and it will never
+    # answer. Started before the client so the port is taken when the client
+    # dials, and its log is kept because "nobody ever connected" is a fact this
+    # scenario has to be able to see.
+    python /src/tools/run_silent_listener.py --server-profile "${server_profile}" \
+        >/tmp/domain-black-hole.log 2>&1 &
+    server_pid=$!
+    printf 'domain: a black hole is listening; nothing will answer\n' >&2
+elif [ -n "${server_profile}" ]; then
     # One fresh directory per run, numbered past everything already there: a run
     # directory is evidence and is only ever appended to.
     n=1
@@ -145,7 +161,11 @@ fi
 # run with no server has no clock to wait for.
 if [ -n "${server_pid}" ]; then
     for _ in $(seq 1 480); do
-        if grep -q 'Done (' "${server_directory}/server.log" 2>/dev/null; then
+        if [ -n "${black_hole}" ]; then
+            if grep -q '"listening"' /tmp/domain-black-hole.log 2>/dev/null; then
+                break
+            fi
+        elif grep -q 'Done (' "${server_directory}/server.log" 2>/dev/null; then
             break
         fi
         if ! kill -0 "${server_pid}" 2>/dev/null; then
@@ -155,11 +175,19 @@ if [ -n "${server_pid}" ]; then
         fi
         sleep 1
     done
-    if ! grep -q 'Done (' "${server_directory}/server.log" 2>/dev/null; then
-        printf 'domain: the server never reported ready\n' >&2
-        exit 1
+    if [ -n "${black_hole}" ]; then
+        if ! grep -q '"listening"' /tmp/domain-black-hole.log 2>/dev/null; then
+            printf 'domain: the black hole never reported that it was listening\n' >&2
+            exit 1
+        fi
+        printf 'domain: the black hole is ready\n' >&2
+    else
+        if ! grep -q 'Done (' "${server_directory}/server.log" 2>/dev/null; then
+            printf 'domain: the server never reported ready\n' >&2
+            exit 1
+        fi
+        printf 'domain: server ready\n' >&2
     fi
-    printf 'domain: server ready\n' >&2
 fi
 
 # A run whose target is not listening. The server is stopped again as soon as it
@@ -240,7 +268,45 @@ reported_yaws() {
 baseline=$(read_position)
 baseline=${baseline:-0}
 playable=0
-if [ -z "${server_profile}" ]; then
+if [ -n "${black_hole}" ]; then
+    # Two waits, because two things have to happen before this run has anything
+    # to say. First the client has to boot and handshake — that takes as long as
+    # it takes, and it is the same wait a run with no world uses. Then Core's own
+    # deadline has to pass, and that is a duration the operator named on the
+    # command line: waiting a little longer than it is deliberate, because the
+    # give-up being watched has to happen while the harness is still watching.
+    handshake_by=$((SECONDS + seconds))
+    for _ in $(seq 1 "${seconds}"); do
+        kill -0 "${session_pid}" 2>/dev/null || break
+        [ "${SECONDS}" -lt "${handshake_by}" ] || break
+        recorded=$(/opt/sqlite/bin/sqlite3 "${ledger}" \
+            "select 1 from event where position > ${baseline} and event_type='BridgeHelloAccepted' limit 1;" \
+            2>/dev/null || true)
+        if [ -n "${recorded}" ]; then
+            playable=1
+            break
+        fi
+        sleep 1
+    done
+    if [ "${playable}" -eq 1 ]; then
+        printf 'domain: the handshake was recorded; the client is about to dial\n' >&2
+        answer_by=$((SECONDS + ${connection_timeout:-30} + 15))
+        if [ "${answer_by}" -gt $((SECONDS + seconds)) ]; then
+            answer_by=$((SECONDS + seconds))
+        fi
+        while [ "${SECONDS}" -lt "${answer_by}" ]; do
+            kill -0 "${session_pid}" 2>/dev/null || break
+            sleep 1
+        done
+    else
+        printf 'domain: no handshake was recorded within %ss\n' "${seconds}" >&2
+    fi
+    if grep -q '"accepted"' /tmp/domain-black-hole.log 2>/dev/null; then
+        printf 'domain: the client dialled the black hole and got nothing\n' >&2
+    else
+        printf 'domain: nothing ever connected to the black hole\n' >&2
+    fi
+elif [ -z "${server_profile}" ]; then
     # A run with no world to join never becomes playable, and waiting for it
     # would spend the whole budget on a state that cannot happen. What it does do
     # is handshake — and that is what waited for here, on Core's own ledger,
@@ -608,15 +674,26 @@ if [[ -n "${case_id}" ]]; then
         # would report the run as unproven. Bounded, and the seal happens either
         # way — a run the server never saw leave is a fact the verdict should
         # carry, not a reason to stop.
-        for _ in $(seq 1 30); do
-            if grep -q "${player} left the game" "${server_directory}/server.log" 2>/dev/null; then
-                break
-            fi
-            sleep 1
-        done
+        if [ -z "${black_hole}" ]; then
+            # A run that ended against a real server waits for that server's own
+            # account of leaving. A black hole never had anything to say, and
+            # waiting thirty seconds for a sentence it cannot write is thirty
+            # seconds this scenario would spend proving nothing.
+            for _ in $(seq 1 30); do
+                if grep -q "${player} left the game" "${server_directory}/server.log" 2>/dev/null; then
+                    break
+                fi
+                sleep 1
+            done
+        fi
         world_args=(--server-profile "${server_profile}"
-            --server-directory "${server_directory}"
-            --server-jar /server/server.jar)
+            --server-directory "${server_directory}")
+        if [ -z "${black_hole}" ]; then
+            # A black hole is not a server: there is no jar behind it, and naming
+            # one that was never mounted would be a claim about bytes that were
+            # never there.
+            world_args+=(--server-jar /server/server.jar)
+        fi
     fi
 
     # The renderer is measured rather than assumed, and it is measured under the
@@ -651,8 +728,12 @@ if [[ -n "${case_id}" ]]; then
         --session-argv "$@" >/tmp/domain-seal.json 2>/tmp/domain-seal.err
     sealed=$?
     set -e
-    if [ "${sealed}" -eq 2 ]; then
-        printf 'domain: the run could not be sealed: ' >&2
+    if [ "${sealed}" -eq 2 ] || [ ! -s /tmp/domain-seal.json ]; then
+        # A sealer that said nothing and exited zero-ish did not seal: the codes
+        # are 0 for held, 1 for sealed-and-failed, 2 for could-not-seal, and an
+        # empty report is none of those. Printing its stderr either way is the
+        # difference between "the case failed" and "the tool fell over".
+        printf 'domain: the run could not be sealed (exit %s): ' "${sealed}" >&2
         tr -d '\n' </tmp/domain-seal.err >&2 || true
         printf '\n' >&2
         status=1
