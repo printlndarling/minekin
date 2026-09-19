@@ -113,6 +113,7 @@ def run(
                 # operator's environment, and the list of what may be lent is
                 # the code's.
                 forward_environment=forwarded_environment(),
+                server_profile=(None if args.server_profile is None else Path(args.server_profile)),
             )
         )
         _emit({**launch.as_dict(), "run": run.as_dict()}, stdout)

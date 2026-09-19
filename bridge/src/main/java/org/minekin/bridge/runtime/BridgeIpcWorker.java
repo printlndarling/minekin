@@ -324,6 +324,7 @@ public final class BridgeIpcWorker implements AutoCloseable {
                 heartbeatDeadline = heartbeatDeadline(state.timeout());
             } else if (CONNECT_WORLD_TYPE.equals(envelope.getMessageType())) {
                 ConnectWorld command = ConnectWorld.parseFrom(envelope.getPayload());
+                validateConnectDeadline(command, envelope.getMonotonicNs());
                 admissionCommands.acceptConnect(command, state.capabilities());
                 observeCoreMessage();
                 if (!clientInbox.offer(new ConnectCommand(command))) {
@@ -442,6 +443,33 @@ public final class BridgeIpcWorker implements AutoCloseable {
                 || command.getGeneration() == 0
                 || !command.getReasonCode().matches("[A-Z0-9_]{1,64}")) {
             throw new IOException("ReleaseAllInputs identity or reason is invalid");
+        }
+    }
+
+    /**
+     * Refuses a connect command that Core has already stopped waiting for.
+     *
+     * <p>The deadline and the envelope's own timestamp come from the same
+     * clock — Core's — so their difference is a duration, and a duration is the
+     * only thing two processes without a shared origin can agree on. Comparing
+     * the raw deadline against this JVM's {@code System.nanoTime()} would be
+     * comparing two unrelated numbers and would pass or fail by accident.
+     *
+     * <p>This is checked when the command is read rather than when the client
+     * tick consumes it, because that is the moment the sender's stamp is still
+     * on hand. Starting a connection Core has given up on is the failure this
+     * exists to prevent: it would put a client in a world nobody is waiting
+     * for, under a generation Core no longer tracks.
+     */
+    static void validateConnectDeadline(ConnectWorld command, long receivedAtNanos) throws IOException {
+        long remaining;
+        try {
+            remaining = Math.subtractExact(command.getDeadlineMonotonicNs(), receivedAtNanos);
+        } catch (ArithmeticException overflow) {
+            throw new IOException("ConnectWorld deadline is not a usable duration");
+        }
+        if (remaining <= 0) {
+            throw new IOException("ConnectWorld expired before the client could act on it");
         }
     }
 

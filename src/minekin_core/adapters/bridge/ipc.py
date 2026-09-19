@@ -426,7 +426,7 @@ class BridgeIpcHost:
                 await asyncio.sleep(interval)
                 heartbeat = session_pb2.Heartbeat(
                     generation=self.session.generation,
-                    monotonic_ns=_monotonic_ns(),
+                    monotonic_ns=monotonic_ns(),
                     phase=session_pb2.BRIDGE_PHASE_OBSERVE_ONLY,
                 )
                 await self._send_control(HEARTBEAT_TYPE, heartbeat)
@@ -510,7 +510,7 @@ class BridgeIpcHost:
             session_id=self.session.session_id,
             generation=self.session.generation,
             client_instance_id=self.session.client_instance_id,
-            monotonic_ns=_monotonic_ns(),
+            monotonic_ns=monotonic_ns(),
             payload=payload,
         )
 
@@ -614,5 +614,14 @@ def _is_loopback_pair(peer: object, local: object) -> bool:
     )
 
 
-def _monotonic_ns() -> int:
+def monotonic_ns() -> int:
+    """The clock every outbound envelope is stamped with.
+
+    Public because a deadline Core puts *inside* a message has to be expressed in
+    the same clock as the `monotonic_ns` of the envelope that carries it — that
+    difference is the only duration two processes without a shared origin can
+    agree on — and two definitions of "now" would silently stop being the same
+    clock.
+    """
+
     return max(1, time.monotonic_ns())

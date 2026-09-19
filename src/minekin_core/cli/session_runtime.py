@@ -88,6 +88,7 @@ async def supervise_session(
     handshake_timeout: float,
     until_client_exit: Callable[[], Awaitable[object]],
     on_handshake: Callable[[], Awaitable[None]] | None = None,
+    on_ready: Callable[[], Awaitable[None]] | None = None,
     on_connection: Callable[[ConnectionState], Awaitable[None]] | None = None,
 ) -> SessionRun:
     """Wait for the handshake, follow the Bridge, and stop when the client does.
@@ -96,6 +97,12 @@ async def supervise_session(
     owns how it knows, because "the process ended" and "the operator asked to
     stop" both end a run and the runtime should not have to tell them apart. Its
     result is ignored, so an `Event.wait` is a fine thing to pass.
+
+    `on_ready` runs once the session has reached the menu, before a single report
+    is read. It is the caller's chance to act on a client that has proved itself
+    and is not yet doing anything — asking it to connect to a world is that. The
+    runtime does not send the command itself because which world, and under which
+    profile, is a decision it has no inputs for.
 
     The two callbacks report what this run observed — that the Bridge proved its
     session, and which connection state an attempt reached. They say nothing
@@ -116,6 +123,10 @@ async def supervise_session(
         if on_handshake is not None:
             await on_handshake()
         session.advance(SessionState.READY_MENU)
+        # Before the reader starts, so a command that provokes an immediate
+        # report cannot race the task that is supposed to read it.
+        if on_ready is not None:
+            await on_ready()
 
         reader = asyncio.create_task(
             _read_events(host, session, connections, progress, on_connection),

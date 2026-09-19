@@ -130,16 +130,30 @@ class SQLiteWriter:
         return await self.execute(run, transactional=False)
 
     async def aclose(self) -> None:
+        """Stop the thread, queueing the stop signal before anything can suspend.
+
+        The signal is a synchronous `put_nowait` rather than an awaited one on
+        purpose. A caller that is already unwinding from a cancellation never
+        reaches its next `await` — the `CancelledError` is re-thrown at that point
+        without running what is being awaited — so an awaited stop would simply
+        not happen, and the thread would stay parked on an empty queue for the
+        life of the process. A non-daemon thread that nothing will ever stop is
+        an interpreter that never exits, and that is not a theoretical failure:
+        it is what a ledger write cancelled as the session was torn down did.
+
+        The join can still be abandoned by a cancellation, and that is fine: the
+        thread it is waiting for has already been told to stop.
+        """
+
         with self._state_lock:
-            if self._closed:
-                already_closed = True
-            else:
+            if not self._closed:
                 self._closed = True
-                already_closed = False
-        if already_closed:
-            await asyncio.to_thread(self._thread.join)
-            return
-        await asyncio.to_thread(self._requests.put, _STOP)
+                try:
+                    self._requests.put_nowait(_STOP)
+                except queue.Full as error:
+                    raise WriterQueueFull(
+                        "SQLite writer queue is full, so it cannot be stopped"
+                    ) from error
         await asyncio.to_thread(self._thread.join)
 
     async def __aenter__(self) -> SQLiteWriter:

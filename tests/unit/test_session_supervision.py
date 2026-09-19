@@ -14,10 +14,14 @@ Bridge does — from the file, with no shared state.
 from __future__ import annotations
 
 import asyncio
+import json
 import sqlite3
+import threading
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any, cast
+
+import pytest
 
 from bridge_peer import (  # type: ignore[import-not-found]
     close_writers,
@@ -27,11 +31,18 @@ from bridge_peer import (  # type: ignore[import-not-found]
     read_frame,
     write_frame,
 )
-from minekin_core.adapters.bridge.ipc import BRIDGE_HELLO_TYPE, BridgeSession
+from minekin_core.adapters.bridge.ipc import (
+    BRIDGE_HELLO_TYPE,
+    CONNECT_WORLD_TYPE,
+    BridgeSession,
+)
+from minekin_core.adapters.launcher.server_profile import load_server_profile
 from minekin_core.adapters.launcher.supervisor import ProcessSupervisor
 from minekin_core.adapters.sqlite.session_log import (
     CLIENT_EXITED,
     HELLO_ACCEPTED,
+    JOIN_OBSERVED,
+    PLAYABLE_ESTABLISHED,
     PROCESS_STARTED,
     SESSION_INTERRUPTED,
 )
@@ -43,8 +54,15 @@ from minekin_core.cli.session import (
     start_and_supervise,
 )
 from minekin_core.cli.session_runtime import SessionOutcome, SessionRun
+from minekin_core.domain.connection import ConnectionState
+from minekin_core.domain.errors import MinekinError
 from minekin_core.domain.session_state import SessionState
-from minekin_core.generated.minekin.v1 import envelope_pb2, session_pb2
+from minekin_core.generated.minekin.v1 import (
+    control_pb2,
+    envelope_pb2,
+    observation_pb2,
+    session_pb2,
+)
 from session_support import (  # type: ignore[import-not-found]
     PROFILE,
     STUB_PID,
@@ -56,6 +74,21 @@ from session_support import (  # type: ignore[import-not-found]
 SESSION_ID = "session-01"
 GENERATION = 1
 JAVA = Path("/usr/lib/jvm/temurin-21/bin/java")
+CONNECTION_LIFECYCLE_TYPE = "minekin.v1.ConnectionLifecycle"
+REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
+SERVER_PROFILE = (
+    REPOSITORY_ROOT / "tests" / "fixtures" / "runtime-input" / "controlled-offline-server.json"
+)
+# The phases a client reports on its way into a world, in the only order the
+# frozen connection table allows. The last one is the join Core has been waiting
+# to be able to record.
+CONNECTED_PHASES: tuple[observation_pb2.ConnectionPhase, ...] = (
+    observation_pb2.CONNECTION_PHASE_RESOLVING,
+    observation_pb2.CONNECTION_PHASE_LOGIN_NEGOTIATING,
+    observation_pb2.CONNECTION_PHASE_PLAY_INIT,
+    observation_pb2.CONNECTION_PHASE_JOIN_SEEN,
+    observation_pb2.CONNECTION_PHASE_PLAYABLE,
+)
 
 
 async def _wait_until(predicate: Callable[[], bool], timeout: float = 5.0) -> None:
@@ -320,3 +353,290 @@ def test_a_client_that_never_proves_itself_ends_the_session(
     # The client is still there; the session is not, which is what lets the
     # operator decide whether to stop it or look at its logs.
     assert process.exited is False
+
+
+async def _wait_for_control_message(
+    reader: asyncio.StreamReader, message_type: str, *, timeout: float = 5.0
+) -> envelope_pb2.Envelope:
+    """Read control frames until one carries the type asked for.
+
+    Heartbeats share the control channel, so "the next frame" is not what any of
+    this is about: the next *command* is.
+    """
+
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout
+    while True:
+        remaining = deadline - loop.time()
+        if remaining <= 0:
+            raise TimeoutError(f"no {message_type} arrived")
+        frame = await asyncio.wait_for(read_frame(reader), remaining)
+        if frame.message_type == message_type:
+            return frame
+
+
+def _lifecycle(
+    bridge: BridgeSession,
+    command: control_pb2.ConnectWorld,
+    phase: observation_pb2.ConnectionPhase,
+) -> observation_pb2.ConnectionLifecycle:
+    """One phase report, naming the profile the command named.
+
+    A report that named another profile would be describing somebody else's
+    connection, and Core refusing it is the point of the binding — so the fake
+    client here echoes back what it was actually told, the way a real one would.
+    """
+
+    return observation_pb2.ConnectionLifecycle(
+        generation=bridge.generation,
+        server_profile_id=command.server_profile_id,
+        server_profile_revision=command.server_profile_revision,
+        phase=phase,
+        failure_reason=observation_pb2.ADMISSION_FAILURE_REASON_UNSPECIFIED,
+        terminal=False,
+    )
+
+
+def test_a_named_server_profile_becomes_one_connect_command(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    """Core asks the proved client to join the saved world, and the reports bind.
+
+    This is the seam the contract describes: the client proves its bundle and
+    schema first, and only then is it told where to go. Everything the command
+    carries is read back and compared against the profile fixture itself, so the
+    assertion is about the profile being the only source rather than about a copy
+    of its values.
+    """
+
+    root = ready_data_root(tmp_path, monkeypatch)
+    process = LiveProcess()
+    supervisor = live_supervisor(process, descriptor_path(tmp_path), [])
+    database = root / "kin" / "kin-01" / "kin.sqlite3"
+    profile = load_server_profile(SERVER_PROFILE)
+
+    async def scenario() -> tuple[SessionRun, control_pb2.ConnectWorld, envelope_pb2.Envelope]:
+        running = asyncio.create_task(
+            start_and_supervise(
+                root=root,
+                profile=PROFILE,
+                java_executable=JAVA,
+                session_id=SESSION_ID,
+                generation=GENERATION,
+                supervisor_factory=lambda _logs: supervisor,
+                handshake_timeout=5.0,
+                exit_poll_s=0.01,
+                server_profile=SERVER_PROFILE,
+            )
+        )
+        path = descriptor_path(tmp_path)
+        await _wait_until(path.is_file)
+        descriptor = session_pb2.BridgeBootstrapDescriptor.FromString(path.read_bytes())
+        bridge = BridgeSession(
+            kin_id=descriptor.kin_id,
+            session_id=descriptor.session_id,
+            generation=descriptor.generation,
+            client_instance_id=descriptor.client_instance_id,
+            bundle_digest=descriptor.bundle_digest,
+            bridge_digest=descriptor.bridge_digest,
+            launch_nonce=descriptor.launch_nonce,
+            session_key=descriptor.session_key,
+        )
+        control_reader, control_writer = await connect(descriptor, envelope_pb2.CHANNEL_CONTROL)
+        _event_reader, event_writer = await connect(descriptor, envelope_pb2.CHANNEL_EVENT)
+        await write_frame(
+            control_writer,
+            envelope(
+                bridge,
+                BRIDGE_HELLO_TYPE,
+                envelope_pb2.CHANNEL_CONTROL,
+                1,
+                hello(bridge).SerializeToString(deterministic=True),
+            ),
+        )
+        await asyncio.wait_for(read_frame(control_reader), 5)
+
+        frame = await _wait_for_control_message(control_reader, CONNECT_WORLD_TYPE)
+        command = control_pb2.ConnectWorld.FromString(frame.payload)
+
+        for sequence, phase in enumerate(CONNECTED_PHASES, start=1):
+            await write_frame(
+                event_writer,
+                envelope(
+                    bridge,
+                    CONNECTION_LIFECYCLE_TYPE,
+                    envelope_pb2.CHANNEL_EVENT,
+                    sequence,
+                    _lifecycle(bridge, command, phase).SerializeToString(deterministic=True),
+                ),
+            )
+
+        # The join has to reach the ledger *while the session is still running*:
+        # a timeline assembled at exit is not a timeline.
+        await _wait_until(
+            lambda: any(row[0] == PLAYABLE_ESTABLISHED for row in _ledger_rows(database))
+        )
+        process.exited = True
+        _launch, run = await asyncio.wait_for(running, 10)
+        await close_writers(control_writer, event_writer)
+        return run, command, frame
+
+    run, command, frame = asyncio.run(scenario())
+
+    assert command.server_profile_id == profile.profile_id
+    assert command.server_profile_revision == profile.revision
+    assert command.original_host == profile.host
+    assert command.port == profile.port
+    assert command.resource_pack_policy == control_pb2.RESOURCE_PACK_POLICY_DENY
+    assert command.request_id
+    # The deadline is Core's own clock, and it is the *duration* to the envelope's
+    # stamp that the Bridge can act on: the two stamps share an origin, and this
+    # asserts the difference is the timeout that was asked for rather than a
+    # number that merely looks plausible.
+    remaining = command.deadline_monotonic_ns - frame.monotonic_ns
+    assert 0 < remaining <= 30 * 1_000_000_000
+
+    assert run.connection_state is ConnectionState.PLAYABLE
+    assert run.outcome is SessionOutcome.CLIENT_EXITED
+    rows = _ledger_rows(database)
+    assert [row[0] for row in rows] == [
+        PROCESS_STARTED,
+        HELLO_ACCEPTED,
+        JOIN_OBSERVED,
+        PLAYABLE_ESTABLISHED,
+        CLIENT_EXITED,
+    ]
+    # The join is the Bridge's report, so it is recorded as such.
+    assert rows[2] == (JOIN_OBSERVED, "BRIDGE", "BRIDGE_FILTERED")
+    assert rows[3] == (PLAYABLE_ESTABLISHED, "BRIDGE", "BRIDGE_FILTERED")
+    # These two writes come from the event reader, which the session cancels on
+    # its way out — the first writes the runtime had ever made from a task that
+    # gets cancelled. A writer interrupted mid-close used to strand its
+    # non-daemon thread, and a thread nothing will ever stop is a process that
+    # never exits: the symptom was the interpreter hanging after every test had
+    # passed, with no failing assertion to point at it.
+    assert [thread.name for thread in threading.enumerate() if "sqlite-writer" in thread.name] == []
+
+
+def test_a_session_with_no_server_profile_is_never_told_to_connect(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    """Naming no world is a supported way to run, and it must stay one."""
+
+    root = ready_data_root(tmp_path, monkeypatch)
+    process = LiveProcess()
+    supervisor = live_supervisor(process, descriptor_path(tmp_path), [])
+    database = root / "kin" / "kin-01" / "kin.sqlite3"
+
+    async def scenario() -> tuple[SessionRun, list[str]]:
+        running = asyncio.create_task(
+            start_and_supervise(
+                root=root,
+                profile=PROFILE,
+                java_executable=JAVA,
+                session_id=SESSION_ID,
+                generation=GENERATION,
+                supervisor_factory=lambda _logs: supervisor,
+                handshake_timeout=5.0,
+                exit_poll_s=0.01,
+            )
+        )
+        path = descriptor_path(tmp_path)
+        await _wait_until(path.is_file)
+        descriptor = session_pb2.BridgeBootstrapDescriptor.FromString(path.read_bytes())
+        bridge = BridgeSession(
+            kin_id=descriptor.kin_id,
+            session_id=descriptor.session_id,
+            generation=descriptor.generation,
+            client_instance_id=descriptor.client_instance_id,
+            bundle_digest=descriptor.bundle_digest,
+            bridge_digest=descriptor.bridge_digest,
+            launch_nonce=descriptor.launch_nonce,
+            session_key=descriptor.session_key,
+        )
+        control_reader, control_writer = await connect(descriptor, envelope_pb2.CHANNEL_CONTROL)
+        _event_reader, event_writer = await connect(descriptor, envelope_pb2.CHANNEL_EVENT)
+        await write_frame(
+            control_writer,
+            envelope(
+                bridge,
+                BRIDGE_HELLO_TYPE,
+                envelope_pb2.CHANNEL_CONTROL,
+                1,
+                hello(bridge).SerializeToString(deterministic=True),
+            ),
+        )
+        await asyncio.wait_for(read_frame(control_reader), 5)
+
+        # The control channel is live — heartbeats keep arriving — and none of
+        # what arrives is a command. Frames having arrived is what makes the
+        # absence meaningful rather than a read that simply did not happen.
+        seen: list[str] = []
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + 1.5
+        while len(seen) < 2 and loop.time() < deadline:
+            try:
+                frame = await asyncio.wait_for(read_frame(control_reader), 1.0)
+            except TimeoutError:
+                break
+            seen.append(frame.message_type)
+        assert seen, "no frames arrived, so this proves nothing"
+
+        process.exited = True
+        _launch, run = await asyncio.wait_for(running, 10)
+        await close_writers(control_writer, event_writer)
+        return run, seen
+
+    run, seen = asyncio.run(scenario())
+
+    assert CONNECT_WORLD_TYPE not in seen
+    assert run.connection_state is None
+    assert run.events_applied == 0
+    assert [row[0] for row in _ledger_rows(database)] == [
+        PROCESS_STARTED,
+        HELLO_ACCEPTED,
+        CLIENT_EXITED,
+    ]
+
+
+def test_an_unusable_server_profile_is_refused_before_the_client_starts(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    root = ready_data_root(tmp_path, monkeypatch)
+    process = LiveProcess()
+    spawned: list[bool] = []
+    supervisor = live_supervisor(process, descriptor_path(tmp_path), spawned)
+    unusable = tmp_path / "server.json"
+    unusable.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "profile_id": "somewhere-on-the-network",
+                "host": "mc.example.invalid",
+                "port": 25565,
+                "auth_mode": "offline",
+                "minecraft_version": "1.21.4",
+                "visibility": "isolated_test_only",
+                "resource_pack_policy": "deny",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(MinekinError, match="loopback"):
+        asyncio.run(
+            start_and_supervise(
+                root=root,
+                profile=PROFILE,
+                java_executable=JAVA,
+                session_id=SESSION_ID,
+                generation=GENERATION,
+                supervisor_factory=lambda _logs: supervisor,
+                server_profile=unusable,
+            )
+        )
+
+    # Nothing was created and nothing was spawned: the profile is read before the
+    # run begins, so an unusable one costs nothing but the error message.
+    assert spawned == []
+    assert not descriptor_path(tmp_path).exists()

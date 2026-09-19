@@ -41,6 +41,28 @@ def test_launch_plan_requires_explicit_dry_run() -> None:
     assert raised.value.code == ExitCode.USAGE
 
 
+def test_session_start_naming_no_server_is_exactly_what_it_used_to_be() -> None:
+    """The saved-world option is additive: absent means "leave the client at the menu"."""
+
+    assert parse_args(["session", "start", "--profile", "profile.json"]).server_profile is None
+
+
+def test_session_start_can_name_the_saved_world_to_join() -> None:
+    parsed = parse_args(
+        [
+            "session",
+            "start",
+            "--profile",
+            "profile.json",
+            "--server-profile",
+            "server.json",
+        ]
+    )
+
+    assert parsed.profile == "profile.json"
+    assert parsed.server_profile == "server.json"
+
+
 @pytest.mark.parametrize(
     "argv",
     [

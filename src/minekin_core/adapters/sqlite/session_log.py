@@ -9,6 +9,14 @@ The ledger owns the only write connection, so each record opens the writer,
 appends, and closes it. That is a whole thread per event, which is the right
 trade for a command that runs twice per launch.
 
+`SQLiteWriter` starts its thread when it is *constructed*, so the bracket here is
+`try:` immediately after the constructor with `await writer.start()` inside it.
+Starting the writer outside the `try` left the thread behind whenever `start()`
+raised or the caller was cancelled on that await, and a non-daemon thread with
+nothing left to stop it hangs the interpreter at exit. That was not hypothetical:
+it is what a join report arriving as the client exits did, because a report is
+written from a task that the session cancels on its way out.
+
 Reconciling a previous run's leftovers is the same shape and lives here for the
 same reason: one writer lifetime, and no second writer racing an append.
 """
@@ -222,8 +230,8 @@ class SessionEventLog:
             created_at_utc=self._clock.utc_now().isoformat(),
         )
         writer = SQLiteWriter(self._database)
-        await writer.start()
         try:
+            await writer.start()
             await SQLiteEventStore(self._database, writer).append_with_outbox([], item)
         finally:
             await writer.aclose()
@@ -233,8 +241,8 @@ class SessionEventLog:
         """Mark an effect finished, once its result has been recorded."""
 
         writer = SQLiteWriter(self._database)
-        await writer.start()
         try:
+            await writer.start()
             await SQLiteEventStore(self._database, writer).mark_outbox_complete(
                 outbox_id, self._clock.utc_now().isoformat()
             )
@@ -257,8 +265,8 @@ class SessionEventLog:
         """Read the run's next sequence and append, within one writer lifetime."""
 
         writer = SQLiteWriter(self._database)
-        await writer.start()
         try:
+            await writer.start()
             store = SQLiteEventStore(self._database, writer)
             existing = await store.read_all()
             envelope = EventEnvelope(
@@ -298,8 +306,8 @@ async def reconcile_outbox_async(database: Path, *, clock: Clock) -> RecoveryRep
     """
 
     writer = SQLiteWriter(database)
-    await writer.start()
     try:
+        await writer.start()
         return await reconcile_pending_outbox(SQLiteEventStore(database, writer), clock=clock)
     finally:
         await writer.aclose()

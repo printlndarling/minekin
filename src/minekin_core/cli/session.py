@@ -17,7 +17,13 @@ from pathlib import Path
 from typing import Any, cast
 
 from minekin_core.adapters.bridge.bootstrap import bridge_session_for, descriptor_path
-from minekin_core.adapters.bridge.ipc import BridgeIpcHost, BridgeSession
+from minekin_core.adapters.bridge.ipc import (
+    ADMISSION_CAPABILITY,
+    CONNECT_WORLD_TYPE,
+    BridgeIpcHost,
+    BridgeSession,
+    monotonic_ns,
+)
 from minekin_core.adapters.launcher.artifacts import ArtifactStore, SessionOverlayStore
 from minekin_core.adapters.launcher.assets import materialise_assets
 from minekin_core.adapters.launcher.launch_plan import (
@@ -40,6 +46,7 @@ from minekin_core.adapters.launcher.orphans import (
 )
 from minekin_core.adapters.launcher.process import ClientProcessSpec, build_process_spec
 from minekin_core.adapters.launcher.recipe import require_built_bridge
+from minekin_core.adapters.launcher.server_profile import ServerProfile, load_server_profile
 from minekin_core.adapters.launcher.supervisor import ProcessIdentity, ProcessSupervisor
 from minekin_core.adapters.sqlite.connection import connect_reader
 from minekin_core.adapters.sqlite.identity_store import read_identity_root
@@ -59,9 +66,11 @@ from minekin_core.cli.session_runtime import SessionOutcome, SessionRun, supervi
 from minekin_core.domain.connection import ConnectionGenerations, ConnectionState
 from minekin_core.domain.errors import ErrorCategory, MinekinError, Retryability
 from minekin_core.domain.events import EventSource, TrustClass
-from minekin_core.domain.ids import ClientInstanceId, KinId, RunId
+from minekin_core.domain.ids import ClientInstanceId, KinId, OpaqueId, RunId
 from minekin_core.domain.recovery import START_CLIENT
 from minekin_core.domain.session_state import SessionState, SessionStateMachine
+from minekin_core.domain.time import Deadline, MonotonicInstant
+from minekin_core.generated.minekin.v1 import control_pb2
 
 SupervisorFactory = Callable[[Path], ProcessSupervisor]
 
@@ -98,6 +107,59 @@ DEFAULT_HANDSHAKE_TIMEOUT_S = 30.0
 # rather than blocking in a thread: a thread parked on the child would keep the
 # event loop's executor alive at shutdown and hang the process.
 DEFAULT_EXIT_POLL_S = 0.2
+
+# How long a requested connection may take before Core stops meaning it. The
+# value rides inside `ConnectWorld` so the Bridge can refuse a command that is
+# already stale when it reads it; Core sending `CancelConnection(TIMEOUT)` once
+# the deadline passes is a further step and is not wired here.
+DEFAULT_CONNECTION_TIMEOUT_S = 30.0
+
+# The profile's word for a resource-pack policy, and the wire enum it means.
+# Both spellings are reviewed; nothing else is admitted, because an unrecognised
+# policy silently mapped to "deny" would be a policy the operator did not choose.
+_RESOURCE_PACK_POLICIES: dict[str, control_pb2.ResourcePackPolicy] = {
+    "deny": control_pb2.RESOURCE_PACK_POLICY_DENY,
+    "prompt": control_pb2.RESOURCE_PACK_POLICY_PROMPT,
+}
+
+
+def connect_world_command(
+    profile: ServerProfile,
+    *,
+    request_id: str,
+    generation: int,
+    deadline_monotonic_ns: int,
+) -> control_pb2.ConnectWorld:
+    """The one command that asks a proved client to join a saved world.
+
+    Everything the client acts on comes from the reviewed profile: the host, the
+    port and the resource-pack policy. This is where "which server" stops being a
+    decision and becomes a message, so a version of this that took a host from
+    its caller would be a version that let a caller pick any target.
+
+    The deadline is in the monotonic clock of this process, and it is meaningful
+    on the other side because the envelope carrying it is stamped from the same
+    clock: the difference between the two is a duration, which is the only thing
+    two processes with different origins can agree on.
+    """
+
+    try:
+        policy = _RESOURCE_PACK_POLICIES[profile.resource_pack_policy]
+    except KeyError as error:
+        raise _reject(
+            "the server profile names an unreviewed resource pack policy: "
+            f"{profile.resource_pack_policy!r}"
+        ) from error
+    return control_pb2.ConnectWorld(
+        request_id=request_id,
+        generation=generation,
+        server_profile_id=profile.profile_id,
+        server_profile_revision=profile.revision,
+        original_host=profile.host,
+        port=profile.port,
+        resource_pack_policy=policy,
+        deadline_monotonic_ns=deadline_monotonic_ns,
+    )
 
 
 def _reject(message: str, category: ErrorCategory = ErrorCategory.CONFIG) -> MinekinError:
@@ -518,6 +580,8 @@ async def start_and_supervise(
     cmdline: Callable[[int], bytes | None] = default_cmdline,
     handshake_timeout: float = DEFAULT_HANDSHAKE_TIMEOUT_S,
     exit_poll_s: float = DEFAULT_EXIT_POLL_S,
+    server_profile: Path | None = None,
+    connection_timeout: float = DEFAULT_CONNECTION_TIMEOUT_S,
 ) -> tuple[SessionLaunch, SessionRun]:
     """Start a managed session with a live Bridge and stay with it until it ends.
 
@@ -525,7 +589,22 @@ async def start_and_supervise(
     sockets belong to the loop that created them, so preparing it in one
     `asyncio.run` and supervising in another would leave the transport behind on
     a loop that has already closed.
+
+    `server_profile` is optional. Without it the client comes up, proves itself
+    and is left at the menu, which is what every run before this one did. With
+    it, the client is asked to join the saved world as soon as it is at the menu
+    — and the request is made by *this* process, because the session is only
+    reachable while this process is hosting it.
     """
+
+    target: ServerProfile | None = None
+    if server_profile is not None:
+        if connection_timeout <= 0:
+            raise _reject("the connection timeout must be positive")
+        # Read before anything is created: an unusable profile is an operator
+        # error, and a run that has already built an overlay should not be the
+        # thing that discovers one.
+        target = load_server_profile(server_profile)
 
     session = SessionStateMachine()
     session.advance(SessionState.PREPARING)
@@ -545,6 +624,13 @@ async def start_and_supervise(
     )
     if prepared.bridge_session is None or prepared.bridge_descriptor is None:
         raise _reject("the session was prepared without a Bridge session to host")
+    if target is not None and ADMISSION_CAPABILITY not in prepared.bridge_session.capabilities:
+        # Refused before the client starts, because a session that cannot be
+        # asked to connect is not the session the operator asked for.
+        raise _reject(
+            "this Bridge session was negotiated without "
+            f"{ADMISSION_CAPABILITY}, so no connection can be requested"
+        )
 
     session.advance(SessionState.STARTING_CLIENT)
     host = BridgeIpcHost(prepared.bridge_session)
@@ -579,6 +665,30 @@ async def start_and_supervise(
         # Bridge's word.
         await record(HELLO_ACCEPTED, {}, source=EventSource.CORE, trust_class=TrustClass.CORE)
 
+    async def on_ready() -> None:
+        """Ask the proved client to join the saved world, if one was named.
+
+        The generation is opened here rather than at the handshake, because a
+        generation is an *attempt*: nothing has been attempted until a command
+        is on its way out. Opened here, it is also the generation the Bridge's
+        reports will be gated against, which is what turns them from `UNBOUND`
+        into applied facts.
+        """
+
+        if target is None:
+            return
+        attempt = connections.begin(OpaqueId(target.profile_id), target.revision)
+        command = connect_world_command(
+            target,
+            request_id=OpaqueId.new().value,
+            generation=attempt.generation.value,
+            deadline_monotonic_ns=Deadline.after(
+                MonotonicInstant(monotonic_ns()),
+                int(connection_timeout * 1_000_000_000),
+            ).monotonic_ns,
+        )
+        await host.send_control(CONNECT_WORLD_TYPE, command)
+
     async def on_connection(state: ConnectionState) -> None:
         event_type = _CONNECTION_EVENTS.get(state)
         if event_type is None:
@@ -596,13 +706,19 @@ async def start_and_supervise(
         while prepared.supervisor.running():
             await asyncio.sleep(exit_poll_s)
 
+    # One instance, shared with the runtime: the generation a report is gated
+    # against is the generation the command was sent under, and there is only
+    # one place that knows both.
+    connections = ConnectionGenerations()
+
     run = await supervise_session(
         host=host,
         session=session,
-        connections=ConnectionGenerations(),
+        connections=connections,
         handshake_timeout=handshake_timeout,
         until_client_exit=until_client_exit,
         on_handshake=on_handshake,
+        on_ready=on_ready,
         on_connection=on_connection,
     )
     # How the run ended is Core's own observation, whatever the Bridge reported

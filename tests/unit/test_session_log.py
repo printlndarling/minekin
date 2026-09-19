@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import sqlite3
 from pathlib import Path
 
 import pytest
@@ -251,3 +252,43 @@ def test_writers_are_closed_so_no_thread_outlives_the_call(tmp_path: Path) -> No
             await writer.aclose()
 
     assert asyncio.run(round_trip()) == ()
+
+
+def _writer_threads() -> list[str]:
+    import threading
+
+    return [thread.name for thread in threading.enumerate() if "sqlite-writer" in thread.name]
+
+
+def test_a_ledger_that_cannot_open_does_not_leave_its_writer_thread_behind(
+    tmp_path: Path,
+) -> None:
+    """The thread is started by the constructor, so a failed `start()` still owns one.
+
+    Closing it has to sit in the same `try` that starts it. A non-daemon thread
+    parked on an empty queue is invisible until the interpreter tries to exit, at
+    which point it hangs — which is exactly what happened once a join report
+    began being written from a task the session cancels on its way out, and it is
+    what this pins.
+    """
+
+    unusable = tmp_path / "not-a-database.sqlite3"
+    unusable.write_bytes(b"this is not a SQLite file\n")
+    ledger = SessionEventLog(unusable, clock=FakeClock())
+    before = _writer_threads()
+
+    with pytest.raises(sqlite3.DatabaseError):
+        asyncio.run(
+            ledger.record_session_event(
+                event_type=PROCESS_STARTED,
+                kin_id="kin-01",
+                run_id="run-01",
+                session_id="session-01",
+                generation=1,
+                payload={},
+                source=EventSource.CORE,
+                trust_class=TrustClass.CORE,
+            )
+        )
+
+    assert _writer_threads() == before

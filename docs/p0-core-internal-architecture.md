@@ -347,12 +347,14 @@ minekin init --kin-id ...
 minekin doctor
 minekin bundle verify --profile ...
 minekin launch-plan --profile ... --dry-run
-minekin session start --profile ...
+minekin session start --profile ... [--server-profile ...]
 minekin session status
 minekin session stop
 minekin evidence verify <run-id>
 minekin replay <evidence-dir>
 ```
+
+`--server-profile` 是可选的第二个输入文档：不给就与加它之前逐字相同（客户端启动、证明自己、停在主菜单），给了就在握手之后由 Core 发出 `ConnectWorld`，把客户端接到那份已评审的、不可变的 Server Profile 上。它没有做成独立动词（`session connect`），因为会话只在本进程托管期间可达，而客户端只有一个 Bridge 对。
 
 `doctor` 只诊断，不修复或下载；`dry-run` 不启动 Java；`status` 读取 projection；`stop` 可重复；任何 destructive cleanup 都不属于隐式启动流程。
 

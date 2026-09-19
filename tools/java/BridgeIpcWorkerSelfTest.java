@@ -38,6 +38,11 @@ import org.minekin.bridge.runtime.BridgePhaseMachine;
 /** End-to-end loopback check for the daemon worker and its two socket connections. */
 public final class BridgeIpcWorkerSelfTest {
     private static final int MAX_FRAME_BYTES = 1_048_576;
+    // The control sequence the connect command is sent under. `envelope` stamps
+    // that frame's monotonic_ns with it, and the deadline is set relative to it,
+    // so this is the number both halves of the command have to agree on.
+    private static final long CONNECT_STAMP = 3;
+    private static final long DEADLINE_MARGIN_NS = 5_000_000_000L;
     private static final String DIGEST = "cd".repeat(32);
     private static final String PROFILE_ID = "p0-controlled";
     private static final String PROFILE_REVISION = "ab".repeat(32);
@@ -192,9 +197,17 @@ public final class BridgeIpcWorkerSelfTest {
                     .setOriginalHost("127.0.0.1")
                     .setPort(25565)
                     .setResourcePackPolicy(ResourcePackPolicy.RESOURCE_PACK_POLICY_DENY)
-                    .setDeadlineMonotonicNs(1)
+                    // Measured against the envelope's own stamp, the way Core
+                    // sends it: the deadline and the stamp share a clock, so a
+                    // bare small number is a command that expired before it was
+                    // read and the Bridge refuses it.
+                    .setDeadlineMonotonicNs(CONNECT_STAMP + DEADLINE_MARGIN_NS)
                     .build();
-            control.write(envelope(3, BridgeIpcWorker.CONNECT_WORLD_TYPE, connect.toByteString()));
+            control.write(
+                    envelope(
+                            CONNECT_STAMP,
+                            BridgeIpcWorker.CONNECT_WORLD_TYPE,
+                            connect.toByteString()));
             ReleaseAllInputs releaseCommand = ReleaseAllInputs.newBuilder()
                     .setActionId("release-1")
                     .setGeneration(1)

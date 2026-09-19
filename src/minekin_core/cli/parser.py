@@ -36,6 +36,18 @@ def build_parser() -> argparse.ArgumentParser:
     session_commands = session_parser.add_subparsers(dest="session_command", required=True)
     session_start = session_commands.add_parser("start", help="start a managed session")
     session_start.add_argument("--profile", required=True, metavar="PATH")
+    # §15's surface lists `session start --profile ...`; this is an optional
+    # second input document rather than a new verb, because the alternative —
+    # a `session connect` command — would have to re-open a session that is
+    # already running in another process, and the client only has one Bridge.
+    # Without it the session behaves exactly as it did before: the client comes
+    # up, proves itself, and stays at the menu.
+    session_start.add_argument(
+        "--server-profile",
+        default=None,
+        metavar="PATH",
+        help="connect the client to this saved Server Profile after the handshake",
+    )
     session_commands.add_parser("status", help="read the current projection")
     session_commands.add_parser("stop", help="idempotently stop the current session")
 
