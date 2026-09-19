@@ -22,6 +22,22 @@ see `bridge/` and `proto/` together and a wheel does not carry them. The data
 root is the `minekin-runner-data` volume, so a session's overlay, ledger and
 artifact store outlive the container.
 
+## Filling the store before a session can start
+
+`session start` refuses when an artifact it needs is not in the store, and the
+store is empty in a fresh volume. `tools/fetch_bundle.py` is what fills it:
+about 3,970 artifacts and 386 MB for p0-core, plus the fetched fixed mods, which
+are loaded from the game directory rather than the classpath and so are not in
+the plan's artifact list. Read `--dry-run` first.
+
+Measured here, over the real bundle: a sequential pass took about 2.9 seconds
+per artifact — nearly three hours — at roughly 35 KB/s, meaning it was waiting
+on round trips rather than on the link. With the default bound of eight in
+flight the same pass moves about 4.1 artifacts per second and finishes in around
+a quarter of an hour. `--jobs` changes the bound; nothing else about the pass
+changes with it, since every artifact is still verified by the store before it
+is published and a part-filled store still resumes.
+
 ## Why this base image and not a distribution one
 
 The frozen WAL safety gate requires SQLite 3.51.3 or newer, or one of the
