@@ -63,13 +63,23 @@ def test_the_host_facts_lent_to_a_client_are_the_named_ones() -> None:
     let anything through it.
     """
 
-    forwarded = forwarded_environment({"DISPLAY": ":99", "LD_PRELOAD": "/host/evil.so"})
+    forwarded = forwarded_environment(
+        {"DISPLAY": ":99", "XAUTHORITY": "/run/xvfb/auth", "LD_PRELOAD": "/host/evil.so"}
+    )
 
-    assert forwarded == {"DISPLAY": ":99"}
+    assert forwarded == {"DISPLAY": ":99", "XAUTHORITY": "/run/xvfb/auth"}
 
 
 def test_a_host_with_no_display_lends_nothing() -> None:
     assert forwarded_environment({}) == {}
+
+
+def test_the_display_and_its_credential_are_forwarded_together() -> None:
+    """`DISPLAY` alone is refused by the X server, and GLFW does not say why."""
+
+    both = forwarded_environment({"DISPLAY": ":99", "XAUTHORITY": "/run/xvfb/auth"})
+
+    assert set(both) == {"DISPLAY", "XAUTHORITY"}
 
 
 @pytest.mark.parametrize("value", ["", "   "])

@@ -26,7 +26,15 @@ KIN_VARIABLE = "MINEKIN_KIN_ID"
 # from the operator's host, so letting the operator name the names would hand
 # them the one reviewable door — `LD_PRELOAD` arrives through it as readily as a
 # display does.
-FORWARDED_VARIABLES: tuple[str, ...] = ("DISPLAY",)
+#
+# `DISPLAY` and `XAUTHORITY` are the two halves of one fact: where the display
+# is, and the credential that may use it. The second is not optional. A virtual
+# display started by `xvfb-run` authenticates its clients with a cookie file,
+# and the client's own `HOME` is redirected into its session — so with only
+# `DISPLAY` forwarded, GLFW is refused by the X server and says something that
+# does not mention authentication at all: "Failed to initialize GLFW, errors:
+# GLFW error during init: [0x1000E] Failed to detect any supported platform".
+FORWARDED_VARIABLES: tuple[str, ...] = ("DISPLAY", "XAUTHORITY")
 
 
 def _reject(message: str) -> MinekinError:
@@ -84,7 +92,8 @@ def forwarded_environment(environ: Mapping[str, str] | None = None) -> dict[str,
     and nothing inside a session overlay can answer which one that is. A
     variable that is unset, or set to nothing, is simply absent — the client then
     has no display, which is also a fact about the host rather than something to
-    invent a value for.
+    invent a value for. `XAUTHORITY` is the same fact continued: the name of the
+    file holding the credential for that display.
     """
 
     source = os.environ if environ is None else environ
