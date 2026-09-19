@@ -382,7 +382,11 @@
   - **还没做 / 仍未定的**：`case_version` 只覆盖用例**定义**（manifest 的摘要），**不覆盖断言的实现**——这次把 `leave_after_join_observed` 从"要求 CLIENT_EXITED"改成"只看服务端那一行"并没有改变任何一份 manifest 的摘要，于是同一个 case 版本可以对应两种不同的判据。这是"一个 case 版本应当覆盖什么"的一个真问题，留在这里没有偷偷绕过去。另外：harness 是**手动**指名 case 的，没有任何东西核对开关与场景是否一致；`replay` 仍然没有入口（见下条）；非 case 的 harness 运行与以前逐字相同。
 - [ ] `replay <evidence-dir>` 仍然没有入口，因为它要的东西没定：重放要把事件流重新过一遍状态机、再与 fixture 的 `expected_projection` 比对（`tests/fixtures/replay/session-preparing.v1.json` 从 W00 冻结到现在**没有任何东西读它**），而重放需要一个 projector。bundle 里现在**已经有**这次运行的完整事件流（`bridge-trace.jsonl`），所以缺的是 projector 与"比较什么"的语义，不再是"事件流在哪"。
 - [ ] 跑完 `CORE-001…090`、mandatory OFFLINE/ADMIT cases 与 L6 baseline。
-- [ ] 门禁：mandatory case 全部有真实 `PASS` evidence 后才能标记 `P0_CORE_TESTED`。
+- [x] **门禁有入口了，而且它现在的答案是"还不行"，并把缺的东西点名列出来。** 晋级规则从 W70 起就是库（`domain/cases.py` 的 `evaluate_promotion`、`adapters/evidence/promotion.py`），但它一直没有东西可读——磁盘上没有任何一份 bundle。现在有了，`tools/report_promotion.py` 就是把它们读出来回答这个问题的命令：遍历数据根下每个 Kin 的 `run/evidence/`，逐份校验，再按工作包给出 `promotable`/`blocking_cases`/`blocks`，最后按"指定的那个包"或"全部 mandatory case"决定退出码（0 可晋级 / 1 被挡 / 2 问题本身问不出来）。它**只读不写**：契约说只有 Registry 的 promotion job 能改 bundle 状态，这里没有 Registry，所以它给的是那份工作需要的答案，而不是替这个仓库宣布自己已经 tested。
+  - **两件事刻意不当作同一件事**：校验不过的 bundle 仍然**参与**判定并被记成 `EVIDENCE_NOT_VERIFIED`，而不是被跳过——一份从报告里悄悄消失的证据会让数据根显得比实际更空；而"只读位被恢复过"的 bundle 会被列进 `unsealed` 但**不单独构成阻挡**，因为摘要是保证、权限位只是提醒（这是 `evidence verify` 早就采取的口径）。读不出来的目录（`manifest.json` 存在但坏了）会被**点名**列进 `unreadable`，而不是让整个报告崩掉——这也是它不直接用 `evaluate_case_promotion` 的原因：那个函数自己重新校验目录，遇到读不了的就抛，报告就没法把"我读不了它"当成阻挡理由说出来。
+  - **一次失败不会挡掉后来的通过**：数据根上同一次 case 的 FAIL 与 PASS 会同时存在（契约要求失败证据保留、修好之后重跑而不是编辑），判定按"有满足的就算满足"。库里 `blocks` 是**对所有候选**收集的集合，因此一个 `promotable: true` 的包旁边仍可能列着 `EVIDENCE_IS_NOT_A_PASS`——所以报告把每份 bundle **逐条列出**（run_id、case_id、case_version、result、verified、sealed、violations），让那个理由有主可查，而不是让人去猜。这条语义有用例钉住。
+  - **真实数据根上的实测**（容器里那四次真实运行留下的四份 bundle）：`--work-package W40` → **退出码 0**、`promotable: true`、`blocking_cases: []`，逐条列出 1 份 FAIL（断言放宽之前那次）与 3 份 PASS、全部 `verified`/`sealed`；不加 `--work-package` → **退出码 1**，`overall.blocking_cases: ["W00-CONTRACT-001"]`、`blocks: ["CASE_WITHOUT_EVIDENCE", …]`——仓库自检类用例**没有** bundle，而那正是上一条说的、还没有形状的那一类。
+  - **因此 `P0_CORE_TESTED` 今天仍然不能标记**，而且现在这个"不能"是可复核的一句话而不是一句态度：唯一挡着的 mandatory case 是 `W00-CONTRACT-001`（仓库自检，从未启动过任何东西），它需要的是一份**不属于运行时形状**的 evidence，这件事仍未定。CORE-010/030/040/050/060/070/080/090 与 ADMIT 系列同样还没有用例定义。
 
 ## W70 之后
 
