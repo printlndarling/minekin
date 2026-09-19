@@ -76,8 +76,28 @@ to. Whether it reaches a *playable frame rate* under software rasterisation is
 still open, and the prototype contract asks for tick and frame stability numbers
 rather than a promise.
 
+## What it does
+
+Measured on this image, `session start` brings up a real 1.21.4 client under
+Xvfb and the Bridge handshake is accepted:
+
+```text
+bash test-orchestrator/runner/run.sh --shell   'xvfb-run -a --server-args="-screen 0 1280x720x24" /opt/minekin/bin/python -m minekin_core      session start --profile /src/tests/fixtures/runtime-input/bundle-p0-core-1.21.4.json'
+```
+
+The client reaches its main menu and builds its texture atlases; the ledger for
+that run holds `SessionProcessStarted` followed by `BridgeHelloAccepted`. The
+session then stays supervised, because nothing yet tells it to connect to a
+world, so the command runs until the client exits or is stopped.
+
 ## What it does not do yet
 
-It starts no server. The vanilla 1.21.4 dedicated server, the isolated account
-and the per-run directories named alongside the runner in the environment gate
-are separate pieces of the same work package.
+It starts no server, and the client is not driven: the vanilla 1.21.4 dedicated
+server, the isolated account and the per-run directories named alongside the
+runner in the environment gate are separate pieces of the same work package.
+
+The materialised assets view is also still missing — the plan names
+`bundle/assets` and nothing publishes it, so the client logs `Can't open the
+resource index file` for the asset index. It renders anyway, out of the assets
+its own jar carries, which is why this is a missing contract step rather than a
+broken client.
