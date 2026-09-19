@@ -17,7 +17,9 @@ Web、Node、FastAPI、Pydantic、ORM/Alembic、Agent 框架、Baritone、媒体
 
 `uv run pyright` 是本仓库唯一需要 Node 的步骤，而它并不自带运行时：Pyright 先找 `PATH` 上的 `node`（默认 `PYRIGHT_PYTHON_GLOBAL_NODE=1`），找不到就用 `nodeenv` 从网络安装一个到 `%USERPROFILE%\.cache\pyright-python\nodeenv`。实测：本机 `PATH` 上的 node 是 v22.22.3，把 node 移出 `PATH` 后 Pyright 下载了 26.9.0。因此**同一份代码在不同主机上会跑在不同 Node 版本下**，且完全离线的环境跑不了这道门禁。
 
-若要让这道门禁可复现，两条路任选：预先在 `PATH` 上提供固定版本的 node；或安装 `pyright[nodejs]` 并把 `PYRIGHT_PYTHON_GLOBAL_NODE=0`，让 Pyright 只使用锁文件里那个被固定的 Node。目前两者都没做，所以这一点是**未固定的**。
+现在这道门禁**已经固定**：开发依赖写成 `pyright[nodejs]`，锁文件里因此多了一个逐平台记摘要的 `nodejs-wheel-binaries`（当前 24.19.0），Pyright 只使用它。两条实测证据：把 `PATH` 上的 node 全部去掉（只留 `System32`），`pyright --version` 照常返回；先在最前面放一个必然失败的假 `node`，Pyright 仍然正常通过——两次都说明它根本没看 `PATH`。
+
+注意**没有**按另一条路去设 `PYRIGHT_PYTHON_GLOBAL_NODE=0`：装上 `nodejs` extra 之后那个变量不改变结果，而留一个不控制任何东西的设置正是本仓库一路在清理的那类问题（参见 W10 关于 `isPreserveFileTimestamps` 的结论）。
 
 ## 本地初始化
 

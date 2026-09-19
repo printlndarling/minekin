@@ -30,7 +30,7 @@
 ## W00：规格、夹具与整体框架
 
 - [x] 建立 `pyproject.toml`、`uv.lock`、Python 3.12–3.13 范围与 Node-free P0 产品依赖清单。
-- [ ] 固定 Pyright 门禁的 Node 运行时：产品与构建确实不需要 Node，但 `uv run pyright` 需要，且它默认先用 `PATH` 上的 node、找不到就用 nodeenv 联网下载。实测本机用 PATH 上的 v22.22.3，把 node 移出 PATH 后下载了 26.9.0——同一份代码在不同主机跑在不同 Node 上，完全离线的环境跑不了这道门禁。要么预先提供固定版本 node，要么上 `pyright[nodejs]` + `PYRIGHT_PYTHON_GLOBAL_NODE=0`。详见[开发环境](development.md)。
+- [x] 固定 Pyright 门禁的 Node 运行时（原始记录如下）：产品与构建确实不需要 Node，但 `uv run pyright` 需要，且它默认先用 `PATH` 上的 node、找不到就用 nodeenv 联网下载。实测本机用 PATH 上的 v22.22.3，把 node 移出 PATH 后下载了 26.9.0——同一份代码在不同主机跑在不同 Node 上，完全离线的环境跑不了这道门禁。要么预先提供固定版本 node，要么上 `pyright[nodejs]` + `PYRIGHT_PYTHON_GLOBAL_NODE=0`。详见[开发环境](development.md)。**已解决**：依赖改为 `pyright[nodejs]`，锁文件里多了逐平台记摘要的 `nodejs-wheel-binaries`（24.19.0），Pyright 只用它。两条实测：`PATH` 上完全没有 node 时 `pyright --version` 照常返回；把必然失败的假 `node` 放在 `PATH` 最前面，Pyright 仍正常通过。**没有**顺手加 `PYRIGHT_PYTHON_GLOBAL_NODE=0`——装上这个 extra 之后它不改变任何结果，而留一个不控制任何东西的设置正是本仓库一直在清理的那类问题。
 - [x] 建立 `src/minekin_core` 的 domain/application/ports/adapters/entrypoints/generated/cli 边界。
 - [x] 建立 `bridge`、`proto/minekin/v1`、`tests` 与 `test-orchestrator` 骨架。
 - [x] 实现并测试 Session 状态与合法转换表。

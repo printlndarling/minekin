@@ -197,6 +197,7 @@ def test_a_started_session_reports_what_reconciliation_did(
     root = kin_root(tmp_path)
     plan, artifact = fabricated()
     stand_in_for_the_built_workspace(monkeypatch)
+
     def this_plan(_profile: Path, *, workspace_root: Path | None = None) -> dict[str, Any]:
         return plan
 

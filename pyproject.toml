@@ -18,7 +18,10 @@ minekin = "minekin_core.__main__:main"
 [dependency-groups]
 dev = [
     "jsonschema>=4.23,<5",
-    "pyright>=1.1.405,<2",
+    # The `nodejs` extra pins the Node that runs the checker. Without it pyright
+    # uses whatever node is on PATH and downloads one when there is none, so the
+    # same source could be checked by a different runtime on every host.
+    "pyright[nodejs]>=1.1.405,<2",
     "pytest>=8.4,<10",
     "ruff>=0.13,<1",
 ]
