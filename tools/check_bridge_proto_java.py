@@ -58,7 +58,67 @@ public final class ClientAdmissionController {
             BridgePhaseMachine phases, Predicate<ConnectionLifecycle> lifecycleSink) {}
     public void handle(MinecraftClient client, BridgeIpcWorker.ClientMessage message) {}
     public void safeStop(MinecraftClient client) {}
+    public void loginNegotiating() {}
+    public void playInit() {}
+    public void joinSeen() {}
+    public void loginFailed() {}
+    public void playEnded() {}
 }
+""",
+    # The phases only the client can observe. Stubbed with the real listener
+    # signatures from fabric-networking-api-v1 4.4.0+db5e668204, because a stub
+    # that widened them would accept a listener the real dispatcher cannot hold.
+    "net/fabricmc/fabric/api/client/networking/v1/ClientLoginConnectionEvents.java": """\
+package net.fabricmc.fabric.api.client.networking.v1;
+import net.fabricmc.fabric.api.client.event.lifecycle.v1.Event;
+import net.minecraft.client.MinecraftClient;
+import net.minecraft.client.network.ClientLoginNetworkHandler;
+public final class ClientLoginConnectionEvents {
+    private ClientLoginConnectionEvents() {}
+    public static final Event<Init> INIT = new Event<>();
+    public static final Event<Disconnect> DISCONNECT = new Event<>();
+    @FunctionalInterface public interface Init {
+        void onLoginStart(ClientLoginNetworkHandler handler, MinecraftClient client);
+    }
+    @FunctionalInterface public interface Disconnect {
+        void onLoginDisconnect(ClientLoginNetworkHandler handler, MinecraftClient client);
+    }
+}
+""",
+    "net/fabricmc/fabric/api/client/networking/v1/ClientPlayConnectionEvents.java": """\
+package net.fabricmc.fabric.api.client.networking.v1;
+import net.fabricmc.fabric.api.client.event.lifecycle.v1.Event;
+import net.fabricmc.fabric.api.networking.v1.PacketSender;
+import net.minecraft.client.MinecraftClient;
+import net.minecraft.client.network.ClientPlayNetworkHandler;
+public final class ClientPlayConnectionEvents {
+    private ClientPlayConnectionEvents() {}
+    public static final Event<Init> INIT = new Event<>();
+    public static final Event<Join> JOIN = new Event<>();
+    public static final Event<Disconnect> DISCONNECT = new Event<>();
+    @FunctionalInterface public interface Init {
+        void onPlayInit(ClientPlayNetworkHandler handler, MinecraftClient client);
+    }
+    @FunctionalInterface public interface Join {
+        void onPlayReady(
+                ClientPlayNetworkHandler handler, PacketSender sender, MinecraftClient client);
+    }
+    @FunctionalInterface public interface Disconnect {
+        void onPlayDisconnect(ClientPlayNetworkHandler handler, MinecraftClient client);
+    }
+}
+""",
+    "net/fabricmc/fabric/api/networking/v1/PacketSender.java": """\
+package net.fabricmc.fabric.api.networking.v1;
+public interface PacketSender {}
+""",
+    "net/minecraft/client/network/ClientLoginNetworkHandler.java": """\
+package net.minecraft.client.network;
+public class ClientLoginNetworkHandler {}
+""",
+    "net/minecraft/client/network/ClientPlayNetworkHandler.java": """\
+package net.minecraft.client.network;
+public class ClientPlayNetworkHandler {}
 """,
     "org/slf4j/Logger.java": """\
 package org.slf4j;

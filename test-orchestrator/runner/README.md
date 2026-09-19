@@ -177,9 +177,20 @@ generator preset the profile does not name.
 
 ## What it does not do yet
 
-Nothing connects the client to the server. The runner can bring up the isolated
-domain, and it can bring up a managed client, but no command asks for a
-connection: Core has no entry point that sends `ConnectWorld`, so `session start`
-reaches the main menu and stays there. Until that exists the two halves are
-started separately and never meet, which is why W40's real admission gate is
-still open.
+The two halves still cannot meet. `session start --server-profile` does ask for a
+connection — Core sends `ConnectWorld`, the Bridge hands it to vanilla, and the
+client dials the address in the profile — but the server is in a different
+container, and loopback is per container. The frozen Server Profile schema admits
+only `127.0.0.1` and `::1`, so the only shape compatible with it is the server and
+the client as two processes in *one* container, sharing a loopback. That mode does
+not exist yet.
+
+Measured with the command and no server, which is what that gap looks like:
+
+```text
+[Render thread/INFO]: Connecting to 127.0.0.1, 25565
+[Server Connector #1/ERROR]: ... Connection refused: localhost/127.0.0.1:25565
+```
+
+The first line is vanilla's own, from the address Core sent. The second is the
+runner's missing mode.

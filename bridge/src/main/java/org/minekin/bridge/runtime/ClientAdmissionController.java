@@ -61,11 +61,111 @@ public final class ClientAdmissionController {
         try {
             cancelVanilla(client);
         } finally {
-            activeScreen = null;
-            parentScreen = null;
-            activeProfileId = null;
-            activeProfileRevision = null;
+            clearGeneration();
         }
+    }
+
+    /**
+     * The client started negotiating a login with a server.
+     *
+     * <p>Everything the client reports about itself arrives through one of these
+     * five methods, and each is fired by vanilla for *every* server the client
+     * talks to — including connections this Bridge never asked for. A report is
+     * therefore only made while a generation is ours to report on: an event with
+     * no active generation is not evidence about anything, and attributing it to
+     * whatever attempt happens to be current is how an unrelated connection
+     * would advance this one.
+     */
+    public void loginNegotiating() {
+        report(
+                ConnectionPhase.CONNECTION_PHASE_LOGIN_NEGOTIATING,
+                AdmissionFailureReason.ADMISSION_FAILURE_REASON_UNSPECIFIED,
+                false);
+    }
+
+    /** The play network handler exists: the server completed the login handshake. */
+    public void playInit() {
+        report(
+                ConnectionPhase.CONNECTION_PHASE_PLAY_INIT,
+                AdmissionFailureReason.ADMISSION_FAILURE_REASON_UNSPECIFIED,
+                false);
+    }
+
+    /** The client is in the world. A snapshot still has to be accepted for PLAYABLE. */
+    public void joinSeen() {
+        report(
+                ConnectionPhase.CONNECTION_PHASE_JOIN_SEEN,
+                AdmissionFailureReason.ADMISSION_FAILURE_REASON_UNSPECIFIED,
+                false);
+    }
+
+    /**
+     * The login ended without becoming a play session.
+     *
+     * <p>A failure rather than a disconnect: nothing was joined, so there is no
+     * session a normal end could have ended. The reason is the stable enum and
+     * never the server's own words — a server may say anything, and this is a
+     * product event.
+     */
+    public void loginFailed() {
+        report(
+                ConnectionPhase.CONNECTION_PHASE_FAILED,
+                AdmissionFailureReason.ADMISSION_FAILURE_REASON_UNEXPECTED_DISCONNECT,
+                true);
+    }
+
+    /** A play session ended. Terminal, and deliberately without a reason. */
+    public void playEnded() {
+        report(
+                ConnectionPhase.CONNECTION_PHASE_DISCONNECTED,
+                AdmissionFailureReason.ADMISSION_FAILURE_REASON_UNSPECIFIED,
+                true);
+    }
+
+    /**
+     * Reports one phase the client reached, if that generation is still ours.
+     *
+     * <p>A terminal phase ends the generation: the attempt is over, so the
+     * bookkeeping that would attribute a later event to it is cleared and the
+     * phase machine returns to OBSERVE_ONLY so a new attempt may begin.
+     * Publishing happens first, while the generation still names what it is
+     * about.
+     */
+    private void report(ConnectionPhase phase, AdmissionFailureReason reason, boolean terminal) {
+        if (activeGeneration == 0) {
+            return;
+        }
+        publish(phase, reason, terminal);
+        if (terminal) {
+            activeGeneration = 0;
+            clearGeneration();
+            if (phases.phase() == BridgePhaseMachine.Phase.CONNECTING_WORLD
+                    || phases.phase() == BridgePhaseMachine.Phase.PLAYABLE) {
+                phases.transition(BridgePhaseMachine.Phase.OBSERVE_ONLY);
+            }
+        }
+    }
+
+    private void clearGeneration() {
+        activeScreen = null;
+        parentScreen = null;
+        activeProfileId = null;
+        activeProfileRevision = null;
+    }
+
+    /**
+     * The bookkeeping that says an attempt has begun, apart from the vanilla call
+     * that starts it.
+     *
+     * <p>Split out so that the part deciding what this controller believes can be
+     * exercised without a client: every rule about which event may advance which
+     * generation lives here, and none of it needs Minecraft.
+     */
+    void beginGeneration(ConnectWorld command) {
+        activeGeneration = command.getGeneration();
+        activeProfileId = command.getServerProfileId();
+        activeProfileRevision = command.getServerProfileRevision();
+        phases.transition(BridgePhaseMachine.Phase.CONNECTING_WORLD);
     }
 
     private void connect(MinecraftClient client, ConnectWorld command) {
@@ -83,10 +183,7 @@ public final class ClientAdmissionController {
                 command.getServerProfileId(), address.toString(), ServerInfo.ServerType.OTHER);
         server.setResourcePackPolicy(resourcePackPolicy(command.getResourcePackPolicy()));
         parentScreen = client.currentScreen != null ? client.currentScreen : new TitleScreen();
-        activeGeneration = command.getGeneration();
-        activeProfileId = command.getServerProfileId();
-        activeProfileRevision = command.getServerProfileRevision();
-        phases.transition(BridgePhaseMachine.Phase.CONNECTING_WORLD);
+        beginGeneration(command);
         try {
             publish(
                     ConnectionPhase.CONNECTION_PHASE_RESOLVING,
@@ -105,9 +202,7 @@ public final class ClientAdmissionController {
             activeScreen = screen;
         } catch (RuntimeException error) {
             activeGeneration = 0;
-            activeScreen = null;
-            activeProfileId = null;
-            activeProfileRevision = null;
+            clearGeneration();
             if (phases.phase() == BridgePhaseMachine.Phase.CONNECTING_WORLD) {
                 phases.transition(BridgePhaseMachine.Phase.OBSERVE_ONLY);
             }
@@ -128,10 +223,7 @@ public final class ClientAdmissionController {
                 ConnectionPhase.CONNECTION_PHASE_CANCELLED,
                 AdmissionFailureReason.ADMISSION_FAILURE_REASON_CANCELLED,
                 true);
-        activeScreen = null;
-        parentScreen = null;
-        activeProfileId = null;
-        activeProfileRevision = null;
+        clearGeneration();
         if (phases.phase() == BridgePhaseMachine.Phase.CONNECTING_WORLD
                 || phases.phase() == BridgePhaseMachine.Phase.PLAYABLE) {
             phases.transition(BridgePhaseMachine.Phase.OBSERVE_ONLY);
