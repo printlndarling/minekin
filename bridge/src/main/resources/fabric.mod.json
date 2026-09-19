@@ -10,6 +10,9 @@
       "org.minekin.bridge.MinekinBridgeClient"
     ]
   },
+  "mixins": [
+    "minekin_bridge.mixins.json"
+  ],
   "depends": {
     "fabricloader": "=0.16.9",
     "fabric-api": "=0.119.4+1.21.4",

@@ -7,13 +7,14 @@ import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientLifecycleEvents;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import org.minekin.bridge.runtime.BridgeIpcWorker;
 import org.minekin.bridge.runtime.BridgePhaseMachine;
+import org.minekin.bridge.runtime.ClientAdmissionController;
 
 /** Thin client entrypoint that only registers hooks and starts the daemon IPC worker. */
 public final class MinekinBridgeClient implements ClientModInitializer {
     static final String DESCRIPTOR_ENVIRONMENT_VARIABLE = "MINEKIN_BRIDGE_DESCRIPTOR";
     private static final int MAX_NOTICES_PER_TICK = 8;
     private BridgeIpcWorker worker;
-    private BridgeIpcWorker.ClientMessage lastMessage;
+    private ClientAdmissionController admission;
 
     @Override
     public void onInitializeClient() {
@@ -25,22 +26,31 @@ public final class MinekinBridgeClient implements ClientModInitializer {
             throw new IllegalStateException("Minekin Bridge bootstrap descriptor is not configured");
         }
 
+        BridgePhaseMachine phases = new BridgePhaseMachine();
+        ClientAdmissionController controller = new ClientAdmissionController(phases);
         BridgeIpcWorker created = new BridgeIpcWorker(
                 Path.of(descriptor),
                 Duration.ofSeconds(5),
                 Duration.ofSeconds(5),
                 16,
-                new BridgePhaseMachine());
+                phases);
         ClientTickEvents.END_CLIENT_TICK.register(
-                client -> created.drainClientMessages(MAX_NOTICES_PER_TICK, this::acceptMessage));
-        ClientLifecycleEvents.CLIENT_STOPPING.register(client -> created.close());
+                client -> created.drainClientMessages(
+                        MAX_NOTICES_PER_TICK,
+                        message -> {
+                            try {
+                                controller.handle(client, message);
+                            } catch (RuntimeException error) {
+                                controller.safeStop(client);
+                                created.close();
+                            }
+                        }));
+        ClientLifecycleEvents.CLIENT_STOPPING.register(client -> {
+            controller.safeStop(client);
+            created.close();
+        });
+        admission = controller;
         worker = created;
         created.start();
-    }
-
-    private void acceptMessage(BridgeIpcWorker.ClientMessage message) {
-        // Runs only on the client tick. Admission execution is added after this
-        // bounded, typed handoff is verified independently from socket I/O.
-        lastMessage = message;
     }
 }

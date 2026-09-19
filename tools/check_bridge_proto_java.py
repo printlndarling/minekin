@@ -40,6 +40,14 @@ public final class ClientLifecycleEvents {
     @FunctionalInterface public interface ClientStopping { void onClientStopping(Object client); }
 }
 """,
+    "org/minekin/bridge/runtime/ClientAdmissionController.java": """\
+package org.minekin.bridge.runtime;
+public final class ClientAdmissionController {
+    public ClientAdmissionController(BridgePhaseMachine phases) {}
+    public void handle(Object client, BridgeIpcWorker.ClientMessage message) {}
+    public void safeStop(Object client) {}
+}
+""",
 }
 ADAPTER_SOURCES = (
     ROOT / "bridge/src/main/java/org/minekin/bridge/MinekinBridgeClient.java",

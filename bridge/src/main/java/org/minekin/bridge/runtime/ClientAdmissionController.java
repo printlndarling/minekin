@@ -1,0 +1,146 @@
+package org.minekin.bridge.runtime;
+
+import io.minekin.protocol.v1.ConnectWorld;
+import io.minekin.protocol.v1.ResourcePackPolicy;
+import io.netty.channel.ChannelFuture;
+import java.util.Map;
+import net.minecraft.client.MinecraftClient;
+import net.minecraft.client.gui.screen.Screen;
+import net.minecraft.client.gui.screen.TitleScreen;
+import net.minecraft.client.gui.screen.multiplayer.ConnectScreen;
+import net.minecraft.client.network.CookieStorage;
+import net.minecraft.client.network.ServerAddress;
+import net.minecraft.client.network.ServerInfo;
+import net.minecraft.network.ClientConnection;
+import org.minekin.bridge.mixin.ConnectScreenAccessor;
+
+/** Executes already-validated admission commands only from the client tick. */
+public final class ClientAdmissionController {
+    private final BridgePhaseMachine phases;
+    private long activeGeneration;
+    private ConnectScreen activeScreen;
+    private Screen parentScreen;
+
+    public ClientAdmissionController(BridgePhaseMachine phases) {
+        this.phases = java.util.Objects.requireNonNull(phases, "phases");
+    }
+
+    public void handle(MinecraftClient client, BridgeIpcWorker.ClientMessage message) {
+        java.util.Objects.requireNonNull(client, "client");
+        java.util.Objects.requireNonNull(message, "message");
+        if (message == BridgeIpcWorker.Notice.OBSERVE_ONLY) {
+            return;
+        }
+        if (message == BridgeIpcWorker.Notice.SAFE_STOP) {
+            safeStop(client);
+            return;
+        }
+        if (message instanceof BridgeIpcWorker.ConnectCommand connect) {
+            connect(client, connect.value());
+            return;
+        }
+        if (message instanceof BridgeIpcWorker.CancelCommand cancel) {
+            cancel(client, cancel.value().getGeneration());
+            return;
+        }
+        throw new IllegalStateException("unknown client admission message");
+    }
+
+    public void safeStop(MinecraftClient client) {
+        activeGeneration = 0;
+        phases.safeStop();
+        try {
+            cancelVanilla(client);
+        } finally {
+            activeScreen = null;
+            parentScreen = null;
+        }
+    }
+
+    private void connect(MinecraftClient client, ConnectWorld command) {
+        if (phases.phase() != BridgePhaseMachine.Phase.OBSERVE_ONLY
+                || activeGeneration != 0
+                || client.world != null
+                || client.player != null
+                || client.getNetworkHandler() != null
+                || client.currentScreen instanceof ConnectScreen) {
+            throw new IllegalStateException("client is not ready for a new connection generation");
+        }
+
+        ServerAddress address = new ServerAddress(command.getOriginalHost(), command.getPort());
+        ServerInfo server = new ServerInfo(
+                command.getServerProfileId(), address.toString(), ServerInfo.ServerType.OTHER);
+        server.setResourcePackPolicy(resourcePackPolicy(command.getResourcePackPolicy()));
+        parentScreen = client.currentScreen != null ? client.currentScreen : new TitleScreen();
+        activeGeneration = command.getGeneration();
+        phases.transition(BridgePhaseMachine.Phase.CONNECTING_WORLD);
+        try {
+            ConnectScreen.connect(
+                    parentScreen,
+                    client,
+                    address,
+                    server,
+                    false,
+                    new CookieStorage(Map.of()));
+            if (!(client.currentScreen instanceof ConnectScreen screen)) {
+                throw new IllegalStateException("vanilla did not install ConnectScreen");
+            }
+            activeScreen = screen;
+        } catch (RuntimeException error) {
+            activeGeneration = 0;
+            activeScreen = null;
+            phases.transition(BridgePhaseMachine.Phase.OBSERVE_ONLY);
+            throw error;
+        }
+    }
+
+    private void cancel(MinecraftClient client, long generation) {
+        if (generation != activeGeneration || generation == 0) {
+            throw new IllegalStateException("cancel does not name the active client generation");
+        }
+        // Invalidate before touching the vanilla connection, mirroring the Core
+        // and IPC-side rule for late callbacks.
+        activeGeneration = 0;
+        cancelVanilla(client);
+        activeScreen = null;
+        parentScreen = null;
+        if (phases.phase() == BridgePhaseMachine.Phase.CONNECTING_WORLD
+                || phases.phase() == BridgePhaseMachine.Phase.PLAYABLE) {
+            phases.transition(BridgePhaseMachine.Phase.OBSERVE_ONLY);
+        }
+    }
+
+    private void cancelVanilla(MinecraftClient client) {
+        if (activeScreen != null && client.currentScreen == activeScreen) {
+            synchronized (activeScreen) {
+                ConnectScreenAccessor accessor = (ConnectScreenAccessor) activeScreen;
+                accessor.minekin$setConnectingCancelled(true);
+                ChannelFuture future = accessor.minekin$getFuture();
+                if (future != null) {
+                    future.cancel(true);
+                    accessor.minekin$setFuture(null);
+                }
+                ClientConnection connection = accessor.minekin$getConnection();
+                if (connection != null) {
+                    connection.disconnect(ConnectScreen.ABORTED_TEXT);
+                }
+            }
+            client.setScreen(parentScreen);
+            return;
+        }
+        if (client.getNetworkHandler() != null) {
+            client.getNetworkHandler().getConnection().disconnect(ConnectScreen.ABORTED_TEXT);
+        }
+        if (parentScreen != null) {
+            client.disconnect(parentScreen);
+        }
+    }
+
+    private static ServerInfo.ResourcePackPolicy resourcePackPolicy(ResourcePackPolicy policy) {
+        return switch (policy) {
+            case RESOURCE_PACK_POLICY_DENY -> ServerInfo.ResourcePackPolicy.DISABLED;
+            case RESOURCE_PACK_POLICY_PROMPT -> ServerInfo.ResourcePackPolicy.PROMPT;
+            default -> throw new IllegalArgumentException("resource pack policy is not actionable");
+        };
+    }
+}

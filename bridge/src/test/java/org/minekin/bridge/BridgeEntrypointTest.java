@@ -77,4 +77,18 @@ final class BridgeEntrypointTest {
                 manifest().contains("\"environment\": \"client\""),
                 "the Bridge must never load on a dedicated server");
     }
+
+    @Test
+    void theVersionPinnedConnectCancellationMixinIsDeclared() throws Exception {
+        String document = manifest();
+
+        assertTrue(document.contains("minekin_bridge.mixins.json"));
+        try (InputStream stream = BridgeEntrypointTest.class.getResourceAsStream(
+                "/minekin_bridge.mixins.json")) {
+            assertTrue(stream != null, "the declared mixin config must be packaged");
+            String mixins = new String(stream.readAllBytes(), StandardCharsets.UTF_8);
+            assertTrue(mixins.contains("ConnectScreenAccessor"));
+            assertTrue(mixins.contains("\"required\": true"));
+        }
+    }
 }

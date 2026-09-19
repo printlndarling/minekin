@@ -117,7 +117,7 @@
 - [ ] DNS/SRV 解析本身，以及「每次重连重新解析、不永久信任旧 SRV 结果」的时序：需要真实客户端连接路径。
 - [x] connection generation 的纯领域门禁：每次 begin 从 1 单调分配且必须先显式 close 当前 generation；旧 generation 的 DNS/Netty/JOIN/snapshot 回调只返回 `STALE_GENERATION`，关闭后的晚到回调只返回 `CLOSED_GENERATION`，均不改变新状态；未分配的未来 generation 与当前 generation 的乱序回调 fail closed，JOIN 与 authoritative snapshot 缺一不可 `PLAYABLE`。真实 client-thread 事件接线仍随 ConnectWorld 实测完成，不能用此静态状态机代替。
 - [x] 冻结 W40 wire schema：`ConnectWorld` 只携带已保存 profile 的 id/revision、原始 host/port、资源包策略、generation 与 deadline；`CancelConnection` 使用枚举原因；`ConnectionLifecycle` 只上报稳定 phase/failure enum，不给服务端任意文本开产品通道。profile binding 属于生命周期管理元数据，world context 由 Envelope 承载，二者都不塞进玩家等价 `InitialObservation`；Python gencode、`.pyi` 与 Java lite 编译检查已同步。
-- [x] Bridge command ingress 静态子集：IPC worker 只在握手协商 `admission.connect.v1` 后解析 `ConnectWorld`/`CancelConnection`，再次限制 loopback、profile revision、deadline、资源包策略与单调 connection generation，再以非阻塞有界 inbox 交给 client tick；取消先在 IPC 侧失效 generation，再进入 client thread。队列满、能力缺失、重放/跳号或非法目标均 safe-stop；真实 `ConnectScreen` 调用尚未接入。
+- [x] Bridge command ingress 与 client-thread 适配静态子集：IPC worker 只在握手协商 `admission.connect.v1` 后解析 `ConnectWorld`/`CancelConnection`，再次限制 loopback、profile revision、deadline、资源包策略与单调 connection generation，再以非阻塞有界 inbox 交给 client tick；client tick 使用固定 1.21.4 的公开 `ConnectScreen.connect`、`ServerAddress`、`ServerInfo(OTHER)`、`quickPlay=false` 与空 cookie storage，资源包只映射 deny/prompt。取消先失效 generation，再经 required Mixin accessor 精确执行 vanilla Cancel 按钮所用的 future/connection 路径，无反射；队列满、能力缺失、重放/跳号、非法目标或 tick 适配异常均 safe-stop。真实 JOIN/DISCONNECT 回调的 generation 绑定与生命周期上报尚未接入。
 - [ ] 经普通客户端执行 ConnectWorld，按 JOIN/认证/白名单/资源包等原因分类。
 - [ ] 取消、重连与晚到 callback 不得改变新 generation。
 - [ ] 执行 `ADMIT-001…120`；Kin 不得获得 op、RCON 或 console 权限。
