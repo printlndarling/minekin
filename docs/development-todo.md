@@ -111,6 +111,7 @@
 ## W40：原版服务器准入
 
 - [ ] 启动隔离的 vanilla 1.21.4 `online-mode=false` dedicated server。
+- [x] 受控 server runner 已准备：只接受显式 `--accept-eula`，先复核官方 1.21.4 server JAR 的大小与 SHA-1，再写全新的 run 目录；固定 loopback、offline、survival、difficulty、seed、白名单、无 op、无 RCON/query/command-block/console 广播，并按 vanilla 离线 UUID 规则生成白名单。旧 run 目录、非法或仅大小写不同的玩家名均 fail closed；启动未就绪时不会因 `--keep-running` 误报成功，退出始终有界停服。配置与拒绝路径已有离线契约测试，但尚未代替上一条真实启动门禁。
 - [x] 静态子集：可信 Server Profile 加载与地址策略——只接受冻结 schema 里的 `127.0.0.1`/`::1` 两个 loopback literal，拒绝 DNS 名、私网、通配、第二条 loopback 与未知字段；profile 内容摘要作为 revision。以 `schemas/server-profile.schema.json` 做逐项对照测试，产品规则只允许比 schema 更严。
 - [x] 地址策略判定：解析后的 endpoint 必须再过一次策略，只接受 profile 声明的网络；名称永不解析入位（可重绑定），link-local（含云元数据 `169.254.169.254`）、unspecified 与 multicast 是任何策略都不能放宽的无条件拒绝。profile 加载与判定共用同一份规则，不再各写一遍 loopback 字面量。
 - [ ] DNS/SRV 解析本身，以及「每次重连重新解析、不永久信任旧 SRV 结果」的时序：需要真实客户端连接路径。
