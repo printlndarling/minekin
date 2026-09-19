@@ -34,6 +34,12 @@ def _reject(message: str) -> MinekinError:
     )
 
 
+def _looks_binary(content: bytes) -> bool:
+    """Git's own test: a NUL byte in the first 8000 bytes means binary."""
+
+    return b"\0" in content[:8000]
+
+
 def source_tree_sha256(root: Path) -> str:
     if not root.is_dir() or root.is_symlink():
         raise _reject(f"Bridge source root is missing or is a symlink: {root}")
@@ -51,10 +57,15 @@ def source_tree_sha256(root: Path) -> str:
         digest.update(path.relative_to(root).as_posix().encode())
         digest.update(b"\0")
         content = path.read_bytes()
-        if (
-            path.suffix in {".bat", ".java", ".json", ".kts", ".properties", ".toml"}
-            or path.name == "gradlew"
-        ):
+        # The digest must answer "did the source change?", not "which platform
+        # checked it out?". `core.autocrlf` rewrites some text files to CRLF on
+        # Windows and leaves them LF elsewhere, and a whitelist of suffixes
+        # decides that by accident: it listed `.java` and `.kts` but not `.xml`,
+        # so `gradle/verification-metadata.xml` alone made one commit hash
+        # differently on each platform and the recipe could not be reproduced
+        # from both. Normalise whatever git would call text instead of guessing
+        # by name, and leave true binaries byte-for-byte.
+        if not _looks_binary(content):
             content = content.replace(b"\r\n", b"\n")
         digest.update(content)
         digest.update(b"\0")

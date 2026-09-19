@@ -102,3 +102,53 @@ def test_the_plan_uses_the_finder_when_no_root_is_given(
 
     with pytest.raises(MinekinError, match="no Minekin workspace found"):
         build_launch_plan(PROFILE)
+
+
+def _write_tree(root: Path, files: dict[str, str], *, newline: str = "\n") -> Path:
+    for relative, text in files.items():
+        path = root / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(text.replace("\n", newline).encode())
+    return root
+
+
+def test_the_digest_does_not_depend_on_which_platform_checked_the_tree_out(
+    tmp_path: Path,
+) -> None:
+    """`core.autocrlf` hands the same commit CRLF on Windows and LF elsewhere.
+
+    The digest answers "did the source change?". A whitelist of suffixes let it
+    answer "was this checked out on Windows?" instead: it covered `build.gradle.kts`
+    and the `.java` sources but not `gradle/verification-metadata.xml`, so one
+    commit hashed differently on each platform and the recipe could not be
+    reproduced from both at once.
+    """
+
+    files = {
+        "build.gradle.kts": "plugins { `java-library` }\n",
+        "gradle/verification-metadata.xml": "<verification-metadata/>\n",
+        "gradle.lockfile": "org.example:library:1.0=compileClasspath\n",
+        "gradle/wrapper/gradle-wrapper.properties": "distributionUrl=https\\://x/y.zip\n",
+        "gradlew": '#!/bin/sh\nexec java "$@"\n',
+        "src/main/java/Main.java": "public class Main {}\n",
+    }
+
+    unix = source_tree_sha256(_write_tree(tmp_path / "unix", files))
+    windows = source_tree_sha256(_write_tree(tmp_path / "windows", files, newline="\r\n"))
+
+    assert unix == windows
+
+
+def test_a_binary_file_is_hashed_byte_for_byte(tmp_path: Path) -> None:
+    """Line normalisation must not reach a jar, or two jars could share one digest."""
+
+    tree = tmp_path / "tree"
+    tree.mkdir()
+    artifact = tree / "gradle-wrapper.jar"
+    # These two differ only by the CRLF that normalisation would erase.
+    artifact.write_bytes(b"PK\x03\x04\x00\x00\r\n")
+    with_crlf = source_tree_sha256(tree)
+
+    artifact.write_bytes(b"PK\x03\x04\x00\x00\n")
+
+    assert source_tree_sha256(tree) != with_crlf
