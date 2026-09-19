@@ -1,0 +1,212 @@
+"""Running one managed session until it ends.
+
+`cli/session.py` gets a session ready and started; this module owns what happens
+next. It is the §10 task tree from the internal architecture, scoped to the
+parts that exist today: the bounded handshake wait, the Bridge event stream, and
+ending the run when the client does.
+
+It lives in the composition root rather than in `application/` because it has to
+name a concrete transport, the concrete session machines and the concrete
+supervisor at once, and §2 already reserves the entrypoints layer as the only
+one allowed to know all of them. A port-shaped version would need an `Any`-typed
+seam with exactly one implementation behind it.
+
+No bare `create_task`: every task started here is awaited or cancelled and its
+failure becomes the run's outcome, because a session whose event reader died
+quietly looks exactly like a session where nothing is happening.
+"""
+
+from __future__ import annotations
+
+import asyncio
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
+from enum import StrEnum
+
+from minekin_core.adapters.bridge.admission import apply_lifecycle
+from minekin_core.adapters.bridge.ipc import BridgeIpcHost, IpcProtocolError
+from minekin_core.domain.connection import ConnectionGenerations, ConnectionState
+from minekin_core.domain.session_state import (
+    SessionState,
+    SessionStateMachine,
+    advance_for_connection,
+)
+from minekin_core.generated.minekin.v1 import observation_pb2
+
+
+class SessionOutcome(StrEnum):
+    """How a run ended, as a stable token for evidence."""
+
+    CLIENT_EXITED = "CLIENT_EXITED"
+    BRIDGE_LOST = "BRIDGE_LOST"
+    HANDSHAKE_TIMEOUT = "HANDSHAKE_TIMEOUT"
+    HANDSHAKE_FAILED = "HANDSHAKE_FAILED"
+
+
+@dataclass(frozen=True, slots=True)
+class SessionRun:
+    outcome: SessionOutcome
+    session_state: SessionState
+    connection_state: ConnectionState | None
+    events_applied: int
+    events_ignored: int
+
+    def as_dict(self) -> dict[str, object]:
+        return {
+            "schema_version": 1,
+            "status": "ended",
+            "outcome": self.outcome.value,
+            "session_state": self.session_state.value,
+            "connection_state": (
+                None if self.connection_state is None else self.connection_state.value
+            ),
+            "events_applied": self.events_applied,
+            "events_ignored": self.events_ignored,
+        }
+
+
+@dataclass(slots=True)
+class _Progress:
+    applied: int = 0
+    ignored: int = 0
+
+
+async def supervise_session(
+    *,
+    host: BridgeIpcHost,
+    session: SessionStateMachine,
+    connections: ConnectionGenerations,
+    handshake_timeout: float,
+    until_client_exit: Callable[[], Awaitable[object]],
+) -> SessionRun:
+    """Wait for the handshake, follow the Bridge, and stop when the client does.
+
+    `until_client_exit` completes when the managed client is gone; the caller
+    owns how it knows, because "the process ended" and "the operator asked to
+    stop" both end a run and the runtime should not have to tell them apart. Its
+    result is ignored, so an `Event.wait` is a fine thing to pass.
+    """
+
+    if handshake_timeout <= 0:
+        raise ValueError("handshake_timeout must be positive")
+
+    progress = _Progress()
+    try:
+        failure = await _authenticate(host, handshake_timeout)
+        if failure is not None:
+            _wind_down(session, failed=True)
+            return _report(failure, session, connections, progress)
+
+        session.advance(SessionState.READY_MENU)
+
+        reader = asyncio.create_task(
+            _read_events(host, session, connections, progress), name="minekin-bridge-events"
+        )
+        client = asyncio.create_task(_client_exited(until_client_exit), name="minekin-client-exit")
+        try:
+            finished, _ = await asyncio.wait({reader, client}, return_when=asyncio.FIRST_COMPLETED)
+        finally:
+            for task in (reader, client):
+                task.cancel()
+            # A cancelled client watcher may be blocked in a thread the caller
+            # owns; gather with return_exceptions so this wait cannot hang or
+            # raise before the transport is closed.
+            await asyncio.gather(reader, client, return_exceptions=True)
+
+        if reader in finished:
+            error = reader.exception()
+            if isinstance(error, IpcProtocolError):
+                # The Bridge broke the negotiated contract. Anything else is a
+                # bug in this process and must not be folded into a network
+                # outcome, so it propagates and the CLI reports an internal
+                # invariant.
+                _wind_down(session, failed=True)
+                return _report(SessionOutcome.BRIDGE_LOST, session, connections, progress)
+
+        _wind_down(session, failed=False)
+        return _report(SessionOutcome.CLIENT_EXITED, session, connections, progress)
+    finally:
+        # §13: invalidate the generation before the transport stops, so a late
+        # report from the closed socket cannot advance a session that is
+        # already winding down.
+        active = connections.active
+        if active is not None:
+            connections.close(active.generation)
+        await host.close()
+
+
+async def _client_exited(until_client_exit: Callable[[], Awaitable[object]]) -> None:
+    """Adapt the caller's awaitable to the `None` this module waits on."""
+
+    await until_client_exit()
+
+
+async def _authenticate(host: BridgeIpcHost, timeout: float) -> SessionOutcome | None:
+    """Prove the session, or say how it failed. `None` means the Bridge is up."""
+
+    try:
+        await host.authenticate(timeout)
+    except TimeoutError:
+        return SessionOutcome.HANDSHAKE_TIMEOUT
+    except (OSError, RuntimeError):
+        # The transport closed, or the Bridge proved the wrong identity. Both
+        # are the handshake failing closed, and the host has already torn itself
+        # down by the time this returns.
+        return SessionOutcome.HANDSHAKE_FAILED
+    return None
+
+
+async def _read_events(
+    host: BridgeIpcHost,
+    session: SessionStateMachine,
+    connections: ConnectionGenerations,
+    progress: _Progress,
+) -> None:
+    """Apply every reported phase until the channel ends or the run is cancelled."""
+
+    while True:
+        event = await host.receive_event()
+        message = event.message
+        if not isinstance(message, observation_pb2.ConnectionLifecycle):
+            # Counted rather than dropped silently: an event type this build
+            # does not act on is a fact about the run, not noise.
+            progress.ignored += 1
+            continue
+        outcome = apply_lifecycle(connections, message)
+        if outcome.accepted:
+            progress.applied += 1
+        if outcome.decision is not None:
+            advance_for_connection(session, outcome.decision)
+
+
+def _wind_down(session: SessionStateMachine, *, failed: bool) -> None:
+    """Leave the session in §7's outlets, in the only order the table allows.
+
+    A Bridge lost while the session is merely at the menu is not a failure: the
+    frozen table gives READY_MENU no outlet to FAILED, because a client sitting
+    in the menu whose control channel died is a session to stop, not a session
+    that broke. Inside a connection it is a failure, and the table agrees.
+    """
+
+    if failed and session.can_advance(SessionState.FAILED):
+        session.advance(SessionState.FAILED)
+    if session.can_advance(SessionState.STOPPING):
+        session.advance(SessionState.STOPPING)
+    if session.can_advance(SessionState.STOPPED):
+        session.advance(SessionState.STOPPED)
+
+
+def _report(
+    outcome: SessionOutcome,
+    session: SessionStateMachine,
+    connections: ConnectionGenerations,
+    progress: _Progress,
+) -> SessionRun:
+    active = connections.active
+    return SessionRun(
+        outcome=outcome,
+        session_state=session.state,
+        connection_state=None if active is None else active.state,
+        events_applied=progress.applied,
+        events_ignored=progress.ignored,
+    )
