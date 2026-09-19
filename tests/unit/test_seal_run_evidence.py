@@ -30,6 +30,7 @@ from minekin_core.adapters.sqlite.session_log import (
 )
 from minekin_core.adapters.system.clock import SystemClock
 from minekin_core.domain.events import EventSource, TrustClass
+from minekin_core.domain.evidence import EMPTY_DOCUMENT_SHA256, NO_WORLD
 from minekin_core.domain.ids import KinId
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
@@ -38,6 +39,7 @@ SERVER_PROFILE = (
     REPOSITORY_ROOT / "tests" / "fixtures" / "runtime-input" / "controlled-offline-server.json"
 )
 CASE = REPOSITORY_ROOT / "tests" / "fixtures" / "cases" / "core-020.json"
+OBSERVE_ONLY_CASE = REPOSITORY_ROOT / "tests" / "fixtures" / "cases" / "core-010.json"
 RUN_ID = "5c1f9a7b2d3e4f6089abcdef01234567"
 SESSION_ID = "f030bbeadf464c188c2921ede35e4c9f"
 KIN = KinId("kin-01")
@@ -108,14 +110,16 @@ def run_document(overlay: Path) -> dict[str, object]:
     }
 
 
-def write_ledger(data_root: Path) -> Path:
+def write_ledger(
+    data_root: Path, events: tuple[str, ...] = (HELLO_ACCEPTED, PLAYABLE_ESTABLISHED)
+) -> Path:
     """A real ledger, written by the real event log."""
 
     database = data_root / "kin" / str(KIN) / "kin.sqlite3"
     database.parent.mkdir(parents=True, exist_ok=True)
     connect_writer(database).close()
     log = SessionEventLog(database, clock=SystemClock())
-    for event_type in (HELLO_ACCEPTED, PLAYABLE_ESTABLISHED):
+    for event_type in events:
         asyncio.run(
             log.record_session_event(
                 event_type=event_type,
@@ -351,3 +355,81 @@ def test_an_unreadable_run_document_is_not_sealed(
 
     with pytest.raises(SEALER.Unsealable, match="not a readable run document"):
         seal_it(data_root, server, document)
+
+
+def no_world_run(tmp_path: Path) -> tuple[Path, Path]:
+    """A run that joined nothing: a real ledger with only the handshake in it."""
+
+    data_root = tmp_path / "no-world" / "data"
+    write_ledger(data_root, events=(HELLO_ACCEPTED,))
+    overlay = data_root / "kin" / str(KIN) / "run" / "session" / SESSION_ID / "generation-1"
+    (overlay / "logs").mkdir(parents=True)
+    document = no_world_document(overlay)
+    path = tmp_path / "no-world" / "session.json"
+    path.write_text(json.dumps(document), encoding="utf-8")
+    return data_root, path
+
+
+def no_world_document(overlay: Path) -> dict[str, object]:
+    document = run_document(overlay)
+    run = cast(dict[str, object], document["run"])
+    run.update(
+        {
+            "connection_state": None,
+            "snapshots_admitted": 0,
+            "events_applied": 0,
+            "entities_admitted": 0,
+        }
+    )
+    return document
+
+
+def test_a_run_that_joined_no_world_seals_the_absence_of_one(tmp_path: Path) -> None:
+    """The contract's third kind, because the other two would be a claim about
+    a world nobody visited."""
+
+    data_root, document = no_world_run(tmp_path)
+
+    report = SEALER.seal(
+        data_root=data_root,
+        case=OBSERVE_ONLY_CASE,
+        profile=PROFILE,
+        server_profile=None,
+        run_document_path=document,
+        server_directory=None,
+        username=USERNAME,
+    )
+
+    assert report["result"] == "PASS"
+    manifest = json.loads(
+        (data_root / "kin" / str(KIN) / "run" / "evidence" / RUN_ID / "manifest.json").read_bytes()
+    )
+    assert manifest["world"] == {
+        "kind": NO_WORLD,
+        "server_config_digest": EMPTY_DOCUMENT_SHA256,
+        "seed_or_snapshot_id": NO_WORLD,
+    }
+    assert manifest["bundle"]["server_jar_sha1"] == ""
+    assert manifest["identity"]["server_observed_name_uuid"] == ""
+    assert "server/server.log" not in {record["path"] for record in manifest["artifacts"]}
+    assert verify_bundle(data_root / "kin" / str(KIN) / "run" / "evidence" / RUN_ID).verified
+
+
+def test_a_bundle_may_not_call_a_world_it_joined_no_world(tmp_path: Path) -> None:
+    """Measured against Core's own document, not against the operator's word."""
+
+    data_root, document = no_world_run(tmp_path)
+    loaded = cast(dict[str, Any], json.loads(document.read_bytes()))
+    loaded["run"]["connection_state"] = "PLAYABLE"
+    document.write_text(json.dumps(loaded), encoding="utf-8")
+
+    with pytest.raises(SEALER.Unsealable, match="the run document records a world"):
+        SEALER.seal(
+            data_root=data_root,
+            case=OBSERVE_ONLY_CASE,
+            profile=PROFILE,
+            server_profile=None,
+            run_document_path=document,
+            server_directory=None,
+            username=USERNAME,
+        )

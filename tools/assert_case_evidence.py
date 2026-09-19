@@ -155,7 +155,11 @@ class RunMaterial:
 
 
 def read_run_material(
-    *, run_document: Path, data_root: Path, server_directory: Path, username: str
+    *,
+    run_document: Path,
+    data_root: Path,
+    server_directory: Path | None,
+    username: str,
 ) -> RunMaterial:
     """Read a finished run's material, refusing anything that is not readable.
 
@@ -189,19 +193,20 @@ def read_run_material(
             raise Unreadable(f"{database} cannot be read for this run: {error}") from error
         readable = True
 
-    # A run with no world to join has no server, and its absence is a fact about
-    # the run rather than a reason the run cannot be judged.
-    log_path = server_directory / "server.log"
+    # A run with no world to join has no server at all, which is a fact about the
+    # run rather than a reason it cannot be judged — so there is no server
+    # directory to name, and nothing to read from one.
     server_log = ""
-    if log_path.is_file():
+    log_path = None if server_directory is None else server_directory / "server.log"
+    if log_path is not None and log_path.is_file():
         try:
             server_log = log_path.read_text(encoding="utf-8", errors="replace")
         except OSError as error:
             raise Unreadable(f"{log_path} cannot be read: {error}") from error
 
-    cache_path = server_directory / "usercache.json"
+    cache_path = None if server_directory is None else server_directory / "usercache.json"
     identities: dict[str, str] = {}
-    if cache_path.is_file():
+    if cache_path is not None and cache_path.is_file():
         try:
             entries = json.loads(cache_path.read_bytes())
         except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
@@ -442,7 +447,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--case", type=Path, required=True, help="the case manifest to judge by")
     parser.add_argument("--run-document", type=Path, required=True)
     parser.add_argument("--data-root", type=Path, required=True)
-    parser.add_argument("--server-directory", type=Path, required=True)
+    parser.add_argument(
+        "--server-directory",
+        type=Path,
+        default=None,
+        help="the server run's directory; absent for a run that joined no world",
+    )
     parser.add_argument("--username", required=True)
     args = parser.parse_args(argv)
 

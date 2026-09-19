@@ -105,7 +105,7 @@ environment:
   cpu_memory: "<summary>"
   renderer_display: "<llvmpipe-or-gpu/display>"
 world:
-  kind: "dedicated|lan"
+  kind: "dedicated|lan|none"
   server_config_digest: "<sha256>"
   seed_or_snapshot_id: "<controlled ref>"
 identity:
@@ -125,6 +125,18 @@ assertions:
 ```
 
 日志先脱敏再封存：不含在线 token、秘密、完整聊天或无关玩家位置。原始敏感证据仅保存在受控测试域并有期限；公开报告只发布摘要、哈希和获授权片段。evidence bundle 的 digest 与测试代码/文档 commit 相互引用；修改任一文件都会产生新 run，不覆盖旧结论。
+
+### `world.kind: "none"`：一次没有加入任何世界的运行
+
+L1 的要证内容是"真客户端到主菜单、握手完成、仍是 `OBSERVE_ONLY`"——**这次运行根本没有世界**，而上面那一段把 `world` 当必填，于是这类运行要么写一句假话（`dedicated`），要么写一个真服务器的摘要（更糟）。2026-09-20 补上第三个取值，规则如下：
+
+- `kind: "none"` 表示这次运行**没有加入任何世界**：没有服务端、没有存档、没有连接尝试。它不是"服务端未知"，也不是"暂时不知道"——那些都该失败而不是记成这个值。
+- 此时 `server_config_digest` **必须是空文档的 sha256**，即 `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`。这是"没有任何服务端配置"的唯一表示：字段仍然是一个合法摘要（否则它与"摘要缺失"这一失败长得一样），但它的值不可能是任何一份真配置的摘要。这条约束是双向的——校验端拒绝 `kind: "none"` 与非空文档摘要同时出现，也拒绝另外两种 kind 出现空文档摘要，否则这个取值会变成"绕开服务端配置要求"的逃逸口。
+- `seed_or_snapshot_id` 写 `none`，`server_jar_sha1` 写空串：这次运行没有用到 jar，也没有种子，写任何值都是编造。
+- `identity.server_observed_name_uuid` 为空：没有服务端观察过这个身份，而"服务端观察到什么"不能被客户端自报替代。`identity.configured_profile` 仍然填，因为客户端确实带着一份配置运行过。
+
+这份取值只对**没有世界**的运行成立。L0 那类仓库自检用例（`CORE-001`，从不启动任何东西）是否也能用这一份形状，是另一个问题：它没有客户端、没有 JVM 运行时、没有身份，因此需要的不是这里的一个取值，而是"证据种类"本身的一次决定。**还没有定**，所以没有为它伪造 bundle。
+
 
 ## 晋级阶梯
 

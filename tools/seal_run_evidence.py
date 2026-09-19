@@ -49,7 +49,13 @@ from minekin_core.adapters.launcher.recipe import BRIDGE_JAR_SHA256, source_tree
 from minekin_core.adapters.launcher.server_profile import load_server_profile
 from minekin_core.cli.evidence import bundle_directory
 from minekin_core.cli.init import run_root
-from minekin_core.domain.evidence import Assertions, EvidenceManifest, EvidenceResult
+from minekin_core.domain.evidence import (
+    EMPTY_DOCUMENT_SHA256,
+    NO_WORLD,
+    Assertions,
+    EvidenceManifest,
+    EvidenceResult,
+)
 from minekin_core.domain.ids import KinId
 
 # The tools directory, so the asserter can be imported by name. One module owns
@@ -58,7 +64,7 @@ from minekin_core.domain.ids import KinId
 # for the two to disagree about which events belong to this run.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from assert_case_evidence import read_run_material, timeline_bytes
+from assert_case_evidence import RUN_DOCUMENT_KEY, read_run_material, timeline_bytes
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 
@@ -229,7 +235,7 @@ def _artifact(path: Path, name: str, found: dict[str, bytes]) -> None:
 def collect_artifacts(
     *,
     overlay: Path,
-    server_directory: Path,
+    server_directory: Path | None,
     run_document: bytes,
     orchestrator: Mapping[str, object],
 ) -> dict[str, bytes]:
@@ -250,9 +256,10 @@ def collect_artifacts(
     for report in sorted((overlay / "crash-reports").glob("*")):
         if report.is_file():
             _artifact(report, f"client/crash-reports/{report.name}", found)
-    _artifact(server_directory / "server.log", "server/server.log", found)
-    _artifact(server_directory / "usercache.json", "server/usercache.json", found)
-    _artifact(server_directory / "server.properties", "server/server.properties", found)
+    if server_directory is not None:
+        _artifact(server_directory / "server.log", "server/server.log", found)
+        _artifact(server_directory / "usercache.json", "server/usercache.json", found)
+        _artifact(server_directory / "server.properties", "server/server.properties", found)
     return found
 
 
@@ -261,27 +268,28 @@ def run_asserter(
     case: Path,
     run_document: Path,
     data_root: Path,
-    server_directory: Path,
+    server_directory: Path | None,
     username: str,
     python: str = sys.executable,
 ) -> dict[str, object]:
     """The case's verdict, from the one module that judges rather than writes."""
 
+    arguments = [
+        python,
+        str(ASSERTER),
+        "--case",
+        str(case),
+        "--run-document",
+        str(run_document),
+        "--data-root",
+        str(data_root),
+        "--username",
+        username,
+    ]
+    if server_directory is not None:
+        arguments += ["--server-directory", str(server_directory)]
     completed = subprocess.run(
-        [
-            python,
-            str(ASSERTER),
-            "--case",
-            str(case),
-            "--run-document",
-            str(run_document),
-            "--data-root",
-            str(data_root),
-            "--server-directory",
-            str(server_directory),
-            "--username",
-            username,
-        ],
+        arguments,
         capture_output=True,
         text=True,
         check=False,
@@ -324,22 +332,29 @@ def build_manifest(
     *,
     case: Path,
     profile: Path,
-    server_profile: Path,
+    server_profile: Path | None,
     run_document: Mapping[str, object],
     verdict: Mapping[str, object],
-    server_directory: Path,
+    server_directory: Path | None,
     server_jar: Path | None,
     username: str,
     renderer_display: str,
     java: Path | None,
     workspace_root: Path,
 ) -> EvidenceManifest:
-    """Assemble the manifest from what was measured, refusing what was not."""
+    """Assemble the manifest from what was measured, refusing what was not.
+
+    A run with no server profile is a run that joined no world, and it records
+    that rather than borrowing the closest word that fits: the contract's third
+    kind, with the digest of nothing where a server configuration would go. What
+    it must never do is say `dedicated` because the field is required — a bundle
+    that describes a world nobody visited is worse than one that describes none.
+    """
 
     definition = load_case_manifest(case)
     plan = build_launch_plan(profile, workspace_root=workspace_root)
     bundle = cast(Mapping[str, object], plan["bundle"])
-    target = load_server_profile(server_profile)
+    target = None if server_profile is None else load_server_profile(server_profile)
     run_id = _text(run_document, "run_id")
     facts = host_facts(java, renderer_display)
     result = str(verdict.get("result", ""))
@@ -353,7 +368,7 @@ def build_manifest(
         launch_plan_digest=str(plan["plan_sha256"]),
         bridge_digest=BRIDGE_JAR_SHA256,
         protocol_schema_digest=protocol_schema_digest(workspace_root),
-        server_config_digest=target.revision,
+        server_config_digest=EMPTY_DOCUMENT_SHA256 if target is None else target.revision,
         minecraft=str(bundle["minecraft"]),
         loader=str(bundle["fabric_loader"]),
         fabric_api=str(bundle["fabric_api"]),
@@ -363,10 +378,14 @@ def build_manifest(
         java_runtime=facts.java_runtime,
         cpu_memory=facts.cpu_memory,
         renderer_display=facts.renderer_display,
-        world_kind=DEDICATED,
-        seed_or_snapshot_id=world_seed(server_directory),
+        world_kind=NO_WORLD if target is None else DEDICATED,
+        seed_or_snapshot_id=(
+            NO_WORLD if server_directory is None else world_seed(server_directory)
+        ),
         configured_profile=configured_profile(profile),
-        server_observed_name_uuid=server_observed_identity(server_directory, username),
+        server_observed_name_uuid=(
+            "" if server_directory is None else server_observed_identity(server_directory, username)
+        ),
     )
 
 
@@ -381,7 +400,7 @@ def orchestrator_trace(
     *,
     case: Path,
     run_id: str,
-    server_directory: Path,
+    server_directory: Path | None,
     session_argv: Sequence[str],
     verdict: Mapping[str, object],
     now: datetime,
@@ -405,9 +424,9 @@ def seal(
     data_root: Path,
     case: Path,
     profile: Path,
-    server_profile: Path,
+    server_profile: Path | None,
     run_document_path: Path,
-    server_directory: Path,
+    server_directory: Path | None,
     username: str,
     server_jar: Path | None = None,
     java: Path | None = None,
@@ -435,6 +454,22 @@ def seal(
         server_directory=server_directory,
         username=username,
     )
+    if server_profile is None:
+        # A manifest that says "no world" while Core's own document shows a
+        # connection would be a lie about the run, and the run document is where
+        # that can be caught: the profile is the operator's statement of what was
+        # joined, and this is Core's record of what happened.
+        section = run_document.get(RUN_DOCUMENT_KEY)
+        run: Mapping[str, object] = (
+            cast(Mapping[str, object], section) if isinstance(section, Mapping) else {}
+        )
+        state, admitted = run.get("connection_state"), run.get("snapshots_admitted")
+        if state is not None or admitted:
+            raise Unsealable(
+                "no server profile was given, but the run document records a world: "
+                f"connection_state={state!r}, snapshots_admitted={admitted!r}"
+            )
+
     kin_id = KinId(_text(run_document, "kin_id"))
     run_id = _text(run_document, "run_id")
     overlay = Path(_text(run_document, "overlay"))
@@ -503,9 +538,19 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--data-root", type=Path, required=True)
     parser.add_argument("--case", type=Path, required=True)
     parser.add_argument("--profile", type=Path, required=True)
-    parser.add_argument("--server-profile", type=Path, required=True)
+    parser.add_argument(
+        "--server-profile",
+        type=Path,
+        default=None,
+        help="absent for a run that joined no world; the bundle records that",
+    )
     parser.add_argument("--run-document", type=Path, required=True)
-    parser.add_argument("--server-directory", type=Path, required=True)
+    parser.add_argument(
+        "--server-directory",
+        type=Path,
+        default=None,
+        help="the server run's directory; absent when there was no server",
+    )
     parser.add_argument("--username", required=True)
     parser.add_argument("--server-jar", type=Path, default=None)
     parser.add_argument("--java", type=Path, default=None)

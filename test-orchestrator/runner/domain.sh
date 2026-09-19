@@ -88,27 +88,13 @@ if [[ -n "${kick}" ]]; then
     kick_args=(--kick-player "${kick}")
 fi
 
-# One fresh directory per run, numbered past everything already there: a run
-# directory is evidence and is only ever appended to.
-n=1
-while [ -e "${runs}/run-${n}" ]; do n=$((n + 1)); done
-server_directory="${runs}/run-${n}"
-
-# The tool's own chatter goes to /tmp rather than into the run directory: it
-# creates that directory itself and refuses a non-empty one, which is the check
-# that keeps an earlier run's world and log from being written over.
-python /src/tools/run_controlled_server.py \
-    --directory "${server_directory}" \
-    --jar /server/server.jar \
-    --accept-eula \
-    --allow-player "${player}" \
-    "${summon_args[@]}" \
-    "${probe_args[@]}" \
-    "${kill_args[@]}" \
-    "${kick_args[@]}" \
-    --keep-running >/tmp/domain-server.log 2>&1 &
-server_pid=$!
-
+# A run that names no server profile joins no world, and there is nothing for a
+# server to do: starting one would add half a minute and a world to the data
+# volume for a run that will never look at either. What it must not do is leave
+# the harness unable to say which kind of run this was — the session's own
+# arguments say it, and everything below reads them.
+server_pid=""
+server_directory=""
 stop_the_server() {
     # SIGTERM, not SIGINT. A background job of a non-interactive shell inherits
     # SIGINT set to ignore, so `kill -INT` on this process did nothing at all and
@@ -116,31 +102,61 @@ stop_the_server() {
     # that had already finished. Measured in the runner image: `SIGINT SIG_IGN`,
     # `SIGTERM SIG_DFL`, and the tool installs a handler for both now, so either
     # one reaches the server's own `stop` command and the world is saved.
-    kill -TERM "${server_pid}" 2>/dev/null || true
-    wait "${server_pid}" 2>/dev/null || true
+    if [ -n "${server_pid}" ]; then
+        kill -TERM "${server_pid}" 2>/dev/null || true
+        wait "${server_pid}" 2>/dev/null || true
+    fi
 }
 trap stop_the_server EXIT
 
-printf 'domain: server run directory %s\n' "${server_directory}" >&2
+if [ -n "${server_profile}" ]; then
+    # One fresh directory per run, numbered past everything already there: a run
+    # directory is evidence and is only ever appended to.
+    n=1
+    while [ -e "${runs}/run-${n}" ]; do n=$((n + 1)); done
+    server_directory="${runs}/run-${n}"
+
+    # The tool's own chatter goes to /tmp rather than into the run directory: it
+    # creates that directory itself and refuses a non-empty one, which is the
+    # check that keeps an earlier run's world and log from being written over.
+    python /src/tools/run_controlled_server.py \
+        --directory "${server_directory}" \
+        --jar /server/server.jar \
+        --accept-eula \
+        --allow-player "${player}" \
+        "${summon_args[@]}" \
+        "${probe_args[@]}" \
+        "${kill_args[@]}" \
+        "${kick_args[@]}" \
+        --keep-running >/tmp/domain-server.log 2>&1 &
+    server_pid=$!
+
+    printf 'domain: server run directory %s\n' "${server_directory}" >&2
+else
+    printf 'domain: no server profile; this run joins no world\n' >&2
+fi
 
 # The client is not started until the server says it is ready. A refused
-# connection is not a test of the admission path, it is a test of the clock.
-for _ in $(seq 1 480); do
-    if grep -q 'Done (' "${server_directory}/server.log" 2>/dev/null; then
-        break
-    fi
-    if ! kill -0 "${server_pid}" 2>/dev/null; then
-        printf 'domain: the server exited before it reported ready\n' >&2
-        tail -n 20 /tmp/domain-server.log >&2 || true
+# connection is not a test of the admission path, it is a test of the clock. A
+# run with no server has no clock to wait for.
+if [ -n "${server_pid}" ]; then
+    for _ in $(seq 1 480); do
+        if grep -q 'Done (' "${server_directory}/server.log" 2>/dev/null; then
+            break
+        fi
+        if ! kill -0 "${server_pid}" 2>/dev/null; then
+            printf 'domain: the server exited before it reported ready\n' >&2
+            tail -n 20 /tmp/domain-server.log >&2 || true
+            exit 1
+        fi
+        sleep 1
+    done
+    if ! grep -q 'Done (' "${server_directory}/server.log" 2>/dev/null; then
+        printf 'domain: the server never reported ready\n' >&2
         exit 1
     fi
-    sleep 1
-done
-if ! grep -q 'Done (' "${server_directory}/server.log" 2>/dev/null; then
-    printf 'domain: the server never reported ready\n' >&2
-    exit 1
+    printf 'domain: server ready\n' >&2
 fi
-printf 'domain: server ready\n' >&2
 
 # A run whose target is not listening. The server is stopped again as soon as it
 # has proved it can start, which is the cheapest way to get a refused connection:
@@ -220,27 +236,53 @@ reported_yaws() {
 baseline=$(read_position)
 baseline=${baseline:-0}
 playable=0
-deadline=$((SECONDS + seconds))
-for _ in $(seq 1 "${seconds}"); do
-    kill -0 "${session_pid}" 2>/dev/null || break
-    [ "${SECONDS}" -lt "${deadline}" ] || break
-    recorded=$(/opt/sqlite/bin/sqlite3 "${ledger}" \
-        "select 1 from event where position > ${baseline} and event_type='PlayableEstablished' limit 1;" \
-        2>/dev/null || true)
-    if [ -n "${recorded}" ]; then
-        playable=1
-        break
+if [ -z "${server_profile}" ]; then
+    # A run with no world to join never becomes playable, and waiting for it
+    # would spend the whole budget on a state that cannot happen. What it does do
+    # is handshake — and that is what waited for here, on Core's own ledger,
+    # because the Bridge writes nothing at all to the client's log in a session
+    # that never joins (measured).
+    deadline=$((SECONDS + seconds))
+    for _ in $(seq 1 "${seconds}"); do
+        kill -0 "${session_pid}" 2>/dev/null || break
+        [ "${SECONDS}" -lt "${deadline}" ] || break
+        recorded=$(/opt/sqlite/bin/sqlite3 "${ledger}" \
+            "select 1 from event where position > ${baseline} and event_type='BridgeHelloAccepted' limit 1;" \
+            2>/dev/null || true)
+        if [ -n "${recorded}" ]; then
+            playable=1
+            break
+        fi
+        sleep 1
+    done
+    if [ "${playable}" -eq 1 ]; then
+        printf 'domain: the handshake was recorded by Core\n' >&2
+    else
+        printf 'domain: no handshake was recorded within %ss\n' "${seconds}" >&2
     fi
-    sleep 1
-done
-# Said out loud either way. A bound that expires quietly turns "the Kin never
-# joined" into "the harness moved on", and the two need different answers: this
-# one has already done it once, on a run whose client took three minutes to
-# boot because the asset materialisation was cold.
-if [ "${playable}" -eq 1 ]; then
-    printf 'domain: the session is playable\n' >&2
 else
-    printf 'domain: the session never became playable within %ss\n' "${seconds}" >&2
+    deadline=$((SECONDS + seconds))
+    for _ in $(seq 1 "${seconds}"); do
+        kill -0 "${session_pid}" 2>/dev/null || break
+        [ "${SECONDS}" -lt "${deadline}" ] || break
+        recorded=$(/opt/sqlite/bin/sqlite3 "${ledger}" \
+            "select 1 from event where position > ${baseline} and event_type='PlayableEstablished' limit 1;" \
+            2>/dev/null || true)
+        if [ -n "${recorded}" ]; then
+            playable=1
+            break
+        fi
+        sleep 1
+    done
+    # Said out loud either way. A bound that expires quietly turns "the Kin never
+    # joined" into "the harness moved on", and the two need different answers: this
+    # one has already done it once, on a run whose client took three minutes to
+    # boot because the asset materialisation was cold.
+    if [ "${playable}" -eq 1 ]; then
+        printf 'domain: the session is playable\n' >&2
+    else
+        printf 'domain: the session never became playable within %ss\n' "${seconds}" >&2
+    fi
 fi
 
 # The Bridge's own watchdog, which is the guarantee that keys come up even when
@@ -521,12 +563,24 @@ printf '\n' >&2
 # unproven. Bounded, and the seal happens either way — a run the server never saw
 # leave is a fact the verdict should carry, not a reason to stop.
 if [[ -n "${case_id}" ]]; then
-    for _ in $(seq 1 30); do
-        if grep -q "${player} left the game" "${server_directory}/server.log" 2>/dev/null; then
-            break
-        fi
-        sleep 1
-    done
+    world_args=()
+    if [ -n "${server_profile}" ]; then
+        # The leave has to be in the server's log before the case can be judged,
+        # and the server writes it a moment after the client's socket goes:
+        # waited for rather than assumed, because a seal that failed on a race
+        # would report the run as unproven. Bounded, and the seal happens either
+        # way — a run the server never saw leave is a fact the verdict should
+        # carry, not a reason to stop.
+        for _ in $(seq 1 30); do
+            if grep -q "${player} left the game" "${server_directory}/server.log" 2>/dev/null; then
+                break
+            fi
+            sleep 1
+        done
+        world_args=(--server-profile "${server_profile}"
+            --server-directory "${server_directory}"
+            --server-jar /server/server.jar)
+    fi
 
     # The renderer is measured rather than assumed, and it is measured under the
     # same wrapper the session ran under: this is the software rasteriser the
@@ -547,10 +601,8 @@ if [[ -n "${case_id}" ]]; then
         --data-root /data \
         --case "${case_file}" \
         --profile "${profile}" \
-        --server-profile "${server_profile}" \
+        "${world_args[@]}" \
         --run-document /tmp/domain-session.json \
-        --server-directory "${server_directory}" \
-        --server-jar /server/server.jar \
         --username "${player}" \
         --renderer-display "${renderer}" \
         --session-argv "$@" >/tmp/domain-seal.json 2>/tmp/domain-seal.err

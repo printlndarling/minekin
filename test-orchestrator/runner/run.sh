@@ -51,28 +51,43 @@ EXTRA_ARGS=()
 # that on their behalf — `--accept-eula` travels through with everything else.
 if [[ "${1:-}" == "domain" ]]; then
     shift
-    SERVER_JAR="${MINEKIN_SERVER_JAR:-}"
-    if [[ -z "${SERVER_JAR}" ]]; then
-        echo "MINEKIN_SERVER_JAR must name the pinned server jar." >&2
-        echo "Get one with: uv run python tools/verify_supply_chain.py \\" >&2
-        echo "    --save-server <path> --max-bytes 60000000" >&2
-        exit 2
-    fi
-    if [[ ! -f "${SERVER_JAR}" ]]; then
-        echo "MINEKIN_SERVER_JAR is not a file: ${SERVER_JAR}" >&2
-        exit 2
-    fi
-    if command -v cygpath >/dev/null 2>&1; then
-        SERVER_JAR="$(cygpath -m "${SERVER_JAR}")"
+    # A run that names no server profile joins no world: there is nothing to
+    # start, so there is no jar to name either. Read from the session's own
+    # arguments rather than from another switch, because those already say what
+    # the run is.
+    world=0
+    for argument in "$@"; do
+        case "${argument}" in
+            --server-profile) world=1 ;;
+        esac
+    done
+    if [[ "${world}" -eq 1 ]]; then
+        SERVER_JAR="${MINEKIN_SERVER_JAR:-}"
+        if [[ -z "${SERVER_JAR}" ]]; then
+            echo "MINEKIN_SERVER_JAR must name the pinned server jar." >&2
+            echo "Get one with: uv run python tools/verify_supply_chain.py \\" >&2
+            echo "    --save-server <path> --max-bytes 60000000" >&2
+            exit 2
+        fi
+        if [[ ! -f "${SERVER_JAR}" ]]; then
+            echo "MINEKIN_SERVER_JAR is not a file: ${SERVER_JAR}" >&2
+            exit 2
+        fi
+        if command -v cygpath >/dev/null 2>&1; then
+            SERVER_JAR="$(cygpath -m "${SERVER_JAR}")"
+        fi
     fi
     # `-e NAME` without a value forwards the host's, and an unset one stays
     # unset: the runner does not invent a world for the operator.
-    EXTRA_ARGS=(-v "${SERVER_JAR}:/server/server.jar:ro" -e MINEKIN_DOMAIN_SUMMON
+    EXTRA_ARGS=(-e MINEKIN_DOMAIN_SUMMON
         -e MINEKIN_DOMAIN_PROBE -e MINEKIN_DOMAIN_PROBE_SECONDS -e MINEKIN_DOMAIN_LOOK
         -e MINEKIN_DOMAIN_KILL -e MINEKIN_DOMAIN_KICK -e MINEKIN_DOMAIN_KILL_CORE
         -e MINEKIN_DOMAIN_SILENCE -e MINEKIN_DOMAIN_STILL -e MINEKIN_DOMAIN_NO_SERVER
         -e MINEKIN_DOMAIN_CASE
         -e MINEKIN_DOMAIN_SECONDS)
+    if [[ "${world}" -eq 1 ]]; then
+        EXTRA_ARGS+=(-v "${SERVER_JAR}:/server/server.jar:ro")
+    fi
     ENDPOINT=(--entrypoint /bin/bash)
     # The server and the client are both in this one container, which is the only
     # shape the loopback-only profile schema allows. The session's arguments are

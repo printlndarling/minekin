@@ -17,6 +17,8 @@ from minekin_core.adapters.evidence.bundle import (
 )
 from minekin_core.domain.errors import ErrorCategory, MinekinError
 from minekin_core.domain.evidence import (
+    EMPTY_DOCUMENT_SHA256,
+    NO_WORLD,
     ArtifactRecord,
     Assertions,
     EvidenceManifest,
@@ -280,6 +282,37 @@ def test_a_pass_that_observed_nothing_is_still_not_sealable() -> None:
     assert (
         EvidenceViolation.RESULT_NEEDS_ASSERTIONS in manifest(assertions=nothing_seen).violations()
     )
+
+
+def test_a_run_that_joined_no_world_records_the_absence_and_seals(bundle_dir: Path) -> None:
+    """The contract's third kind: what a run with no server at all leaves behind."""
+
+    without_a_world = manifest(world_kind=NO_WORLD, server_config_digest=EMPTY_DOCUMENT_SHA256)
+
+    written = write_bundle(bundle_dir, without_a_world, artifacts())
+
+    assert written.manifest.world_kind == NO_WORLD
+    assert written.manifest.violations() == ()
+    assert verify_bundle(bundle_dir).verified
+
+
+def test_a_world_record_that_contradicts_itself_is_refused() -> None:
+    """Both directions, because one of them would be an escape hatch.
+
+    A kind that could be paired with any digest would let a bundle say "no world"
+    to avoid having a server configuration at all, which is not the same claim as
+    "this run had no server".
+    """
+
+    # Saying no world while carrying a server's configuration.
+    assert EvidenceViolation.WORLD_RECORD_INCONSISTENT in manifest(world_kind=NO_WORLD).violations()
+    # Saying a world while carrying the digest of nothing.
+    assert (
+        EvidenceViolation.WORLD_RECORD_INCONSISTENT
+        in manifest(server_config_digest=EMPTY_DOCUMENT_SHA256).violations()
+    )
+    # And the plain case is not a violation.
+    assert EvidenceViolation.WORLD_RECORD_INCONSISTENT not in manifest().violations()
 
 
 def test_an_incomplete_bundle_without_a_comparison_is_sealable(bundle_dir: Path) -> None:

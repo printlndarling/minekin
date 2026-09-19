@@ -16,6 +16,15 @@ from typing import Final
 
 EVIDENCE_SCHEMA: Final[str] = "minekin.p0.evidence.v1"
 
+#: What a run that joined no world records where a server configuration would go.
+#: It is the digest of the empty document: still a valid digest, so it cannot be
+#: confused with the failure of a *missing* digest, and impossible to produce from
+#: any real configuration. See the validation contract, `world.kind: "none"`.
+NO_WORLD: Final[str] = "none"
+EMPTY_DOCUMENT_SHA256: Final[str] = (
+    "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+)
+
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 
 
@@ -38,6 +47,7 @@ class EvidenceViolation(StrEnum):
     RESULT_NEEDS_ASSERTIONS = "RESULT_NEEDS_ASSERTIONS"
     PASS_WITH_FAILURES = "PASS_WITH_FAILURES"
     FAILURE_WITHOUT_REASON = "FAILURE_WITHOUT_REASON"
+    WORLD_RECORD_INCONSISTENT = "WORLD_RECORD_INCONSISTENT"
 
 
 @dataclass(frozen=True, slots=True)
@@ -139,6 +149,15 @@ class EvidenceManifest:
         has_comparison = bool(self.assertions.expected) and bool(self.assertions.observed)
         if claims and not has_comparison:
             found.add(EvidenceViolation.RESULT_NEEDS_ASSERTIONS)
+        # `kind: "none"` says this run joined no world at all, and then the only
+        # digest it may carry is the digest of nothing — and the other way round,
+        # so a real kind cannot borrow the empty digest to sidestep the
+        # server-configuration requirement. A value that could be paired with
+        # anything would be an escape hatch rather than a record of absence.
+        absent = self.server_config_digest == EMPTY_DOCUMENT_SHA256
+        if (self.world_kind == NO_WORLD) != absent:
+            found.add(EvidenceViolation.WORLD_RECORD_INCONSISTENT)
+
         if self.result is EvidenceResult.PASS and self.assertions.failures:
             found.add(EvidenceViolation.PASS_WITH_FAILURES)
         if self.result is EvidenceResult.FAIL and not self.assertions.failures:
