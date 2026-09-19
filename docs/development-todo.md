@@ -369,7 +369,12 @@
 
 ## W70：恢复与证据晋级
 
-- [ ] 注入 Core、Bridge/client、server 与连接阶段故障。
+- [x] **杀 Core 那条路一直在"报告一次没发生过的故障注入"，而且报告得很像成功。** 想给 L5（`CORE-060`）取证时先量了一次杀 Core 的运行，结果有两处不对劲：**存在 run document**（被 SIGKILL 的 CLI 不可能打印任何东西），而客户端日志里**没有** `IPC_LOST` 的松键记录。于是给那个循环加了一条临时打印，实测结果是 `DEBUG kill loop at 32s: distinct=0` **连续 90 次、`SECONDS` 一直停在 32**——原因很简单也很要命：那个循环**没有 `sleep`**，而它的预算是用 `SECONDS` 算的；`SECONDS` 在命令不耗时的自旋里根本不前进，于是"150 秒的等待"在毫秒内跑完并放弃。接着**下面那个等待**（它有 sleep）看到 Kin 停住了——那是 hold 到期自然停的——于是打印 `the server saw the Kin stop after Core died`。也就是说：**一个没有注入故障的运行，被报告成了注入成功的运行**，而它的证据（停住的读数）本来就会出现。
+  - **修法是两件事**：循环里补 `sleep 1`（并把"为什么必须有它"写进注释：`SECONDS` 只在 shell 真的在等的时候前进），以及**注入没成功就大声说出来**——`the Core was never killed, so this run proves nothing about a lost runtime`，并把整轮运行判为非零退出，而不是让它长得像别的那几轮。
+  - **实测（两端都量了）**：修好之后 `--hold-forward-seconds 25` 那一轮打印 `Core has been killed` → `the Kin left the game after the Core was killed`，客户端日志是 `bridge released 1 input(s) after IPC_LOST`（**这正是 L5 要的那条证据**）；而故意不带 `MINEKIN_DOMAIN_PROBE`（没有 probe 就没有读数，注入永远等不到时机）那一轮打印了那句"proves nothing"并且 **退出码 1**（此前它会打印"服务端看到 Kin 停下"并退出 14）。
+  - **这不是"从来没用过"**：数据卷里翻出过 3 份带 `IPC_LOST` 的客户端日志，说明这条路的**竞态有时赢**——量到的证据是真的，但这条路径本身不可靠，且**输了也看不出来**。已加契约测试：`domain.sh` 里每个 `for _ in $(seq 1 …)` 等待循环体内都必须有一条 `sleep` **语句**。这条测试的第一版是错的（它接受注释里的那个词——那个循环的注释里恰好写着 `sleep 1`），是**把 sleep 语句删掉、看测试是否变红**才发现的；删掉之后测试确实变红，这才算数。
+  - **它挡着的是 `CORE-060`**：被杀的 Core **没有 run document**，而封存端现在要求它。下一步要么让封存端接受"没有 run document 的运行"（run id 从账本取、客户端日志从 overlay 取），要么把这条链的证据换成别的东西——这是一个要说清楚的决定，不是补一个默认值。
+
 - [ ] 对账未决 outbox，失效历史 generation/lease，防止危险动作重放。
 - [x] **崩溃之后的重启：同一个 `kin_id` 再起一次，世界状态重新验证，而死掉那次让它做的事一件都不留。** 这一条按「两次运行」来验，因为数据卷跨容器保留，所以两次运行共用同一本账：
   - **A（崩溃）**：Kin 走着的时候 `SIGKILL` 掉 Core（`MINEKIN_DOMAIN_KILL_CORE=1`）——套接字关闭，Bridge 以 `IPC_LOST` 松键并停掉客户端（上一批测过的那条路）；

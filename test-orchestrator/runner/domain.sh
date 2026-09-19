@@ -36,6 +36,10 @@ case_id="${MINEKIN_DOMAIN_CASE:-}"
 # often than the default — the pair is what shows a heading changed.
 probe_seconds="${MINEKIN_DOMAIN_PROBE_SECONDS:-5}"
 silenced=0
+#: Set when the harness itself failed to do what the run asked for — a fault
+#: that was not injected, or a seal that did not happen. A run that did not do
+#: what it says it does must not exit like one that did.
+injection_failed=0
 runs=/data/server-runs
 
 # What this run was asked to do, read from the command that was given to it: the
@@ -403,20 +407,41 @@ fi
 # evidence is the client's own log and the server's readings.
 if [[ -n "${kill_core}" ]]; then
     deadline=$((SECONDS + seconds))
+    killed=0
     for _ in $(seq 1 "${seconds}"); do
+        kill -0 "${session_pid}" 2>/dev/null || break
         [ "${SECONDS}" -lt "${deadline}" ] || break
         # While the Kin is walking, which this block can see because the walk
         # wait is skipped for exactly this run.
+        #
+        # `sleep 1`, and not only for politeness: `SECONDS` does not advance
+        # while a loop spins through commands that take no time, so a budget
+        # measured in `SECONDS` around a body with no `sleep` is not a budget —
+        # the whole loop runs in milliseconds and gives up before the first
+        # probe reading has been written. Measured: ninety iterations at
+        # `SECONDS=32`, every one of them seeing no movement at all, after which
+        # the wait below found the Kin stopped — because the hold had expired on
+        # its own — and reported a fault injection that never happened.
         if [ "$(horizontal_positions | sort -u | wc -l)" -lt 2 ]; then
+            sleep 1
             continue
         fi
         if pkill -KILL -f "minekin_core session start"; then
-            printf 'domain: Core has been killed; the Bridge should let go\n' "${kill_core}" >&2
+            killed=1
+            printf 'domain: Core has been killed; the Bridge should let go\n' >&2
         else
             printf 'domain: could not find Core to kill it\n' >&2
         fi
         break
     done
+    # A run that was asked to inject a fault and did not inject it proves nothing
+    # about a lost runtime, and the wait below would happily report the Kin
+    # stopping for the reason it would have stopped anyway. Said out loud, and
+    # the run is failed rather than left looking like the others.
+    if [ "${killed}" -eq 0 ]; then
+        printf 'domain: the Core was never killed, so this run proves nothing about a lost runtime\n' >&2
+        injection_failed=1
+    fi
     # The release is what this is about, and the server can see its effect two
     # ways: a Kin that stopped walking, or a Kin whose client exited — a socket
     # that closed is not a peer that went quiet, so the Bridge also stops the
@@ -425,26 +450,30 @@ if [[ -n "${kill_core}" ]]; then
     stopped=0
     left=0
     deadline=$((SECONDS + seconds))
-    for _ in $(seq 1 "${seconds}"); do
-        [ "${SECONDS}" -lt "${deadline}" ] || break
-        positions=$(horizontal_positions)
-        distinct=$(printf '%s\n' "${positions}" | sort -u | wc -l)
-        settled=$(printf '%s\n' "${positions}" | tail -n 2 | sort -u | wc -l)
-        if grep -q "${player} left the game" "${server_directory}/server.log" 2>/dev/null; then
-            left=1
-        fi
-        if [ "${distinct}" -ge 2 ] && { [ "${settled}" -eq 1 ] || [ "${left}" -eq 1 ]; }; then
-            stopped=1
-            break
-        fi
-        sleep 1
-    done
-    if [ "${stopped}" -eq 0 ]; then
-        printf 'domain: the Kin never stopped after Core died\n' >&2
+    if [ "${killed}" -eq 1 ]; then
+        for _ in $(seq 1 "${seconds}"); do
+            [ "${SECONDS}" -lt "${deadline}" ] || break
+            positions=$(horizontal_positions)
+            distinct=$(printf '%s\n' "${positions}" | sort -u | wc -l)
+            settled=$(printf '%s\n' "${positions}" | tail -n 2 | sort -u | wc -l)
+            if grep -q "${player} left the game" "${server_directory}/server.log" 2>/dev/null; then
+                left=1
+            fi
+            if [ "${distinct}" -ge 2 ] && { [ "${settled}" -eq 1 ] || [ "${left}" -eq 1 ]; }; then
+                stopped=1
+                break
+            fi
+            sleep 1
+        done
+    fi
+    if [ "${killed}" -eq 0 ]; then
+        : # already said, above, along with why the run proves nothing
+    elif [ "${stopped}" -eq 0 ]; then
+        printf 'domain: the Kin never stopped after the Core was killed\n' >&2
     elif [ "${left}" -eq 1 ]; then
-        printf 'domain: the Kin left the game after Core died\n' >&2
+        printf 'domain: the Kin left the game after the Core was killed\n' >&2
     else
-        printf 'domain: the server saw the Kin stop after Core died\n' >&2
+        printf 'domain: the server saw the Kin stop after the Core was killed\n' >&2
     fi
 fi
 
@@ -649,4 +678,7 @@ if [[ -n "${case_id}" ]]; then
     fi
 fi
 
+if [ "${injection_failed}" -eq 1 ]; then
+    status=1
+fi
 exit "${status}"

@@ -55,3 +55,34 @@ def test_every_forwarded_environment_variable_is_actually_used(script: Path) -> 
     ]
 
     assert not dead, f"{script.name} reads and never passes on: {dead}"
+
+
+def test_every_deadline_loop_gives_the_clock_a_chance_to_advance() -> None:
+    """A budget measured in `SECONDS` around a body with no `sleep` is not a budget.
+
+    Measured: the kill-core wait spun through its whole allowance in
+    milliseconds, every iteration seeing nothing, and the wait after it then
+    reported a fault injection that had never happened — because the hold
+    expired on its own and the Kin stopped for that reason instead. `SECONDS`
+    only advances while the shell is waiting for something.
+    """
+
+    domain = RUNNER / "domain.sh"
+    lines = domain.read_text(encoding="utf-8").splitlines()
+    checked = 0
+    for index, line in enumerate(lines):
+        if "for _ in $(seq 1" not in line:
+            continue
+        body: list[str] = []
+        for following in lines[index + 1 :]:
+            if following.strip() == "done":
+                break
+            body.append(following)
+        # A `sleep` *statement*, not the word: the comment above the kill loop's
+        # own sleep says the word, and a check that accepted it would pass with
+        # the statement gone — which is how this test's first version was wrong.
+        assert any(entry.strip().startswith("sleep") for entry in body), (
+            f"the wait loop at {domain}:{index + 1} has no sleep, so its deadline never arrives"
+        )
+        checked += 1
+    assert checked, "no wait loops found; this test is looking at the wrong file"
