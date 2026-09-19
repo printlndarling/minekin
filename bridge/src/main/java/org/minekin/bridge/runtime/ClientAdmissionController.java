@@ -4,6 +4,7 @@ import io.minekin.protocol.v1.ConnectWorld;
 import io.minekin.protocol.v1.AdmissionFailureReason;
 import io.minekin.protocol.v1.ConnectionLifecycle;
 import io.minekin.protocol.v1.ConnectionPhase;
+import io.minekin.protocol.v1.InitialObservation;
 import io.minekin.protocol.v1.ResourcePackPolicy;
 import io.netty.channel.ChannelFuture;
 import java.util.Locale;
@@ -24,6 +25,7 @@ public final class ClientAdmissionController {
     private static final Logger LOGGER = LoggerFactory.getLogger("minekin-bridge");
     private final BridgePhaseMachine phases;
     private final Predicate<ConnectionLifecycle> lifecycleSink;
+    private final Predicate<InitialObservation> observationSink;
     private long activeGeneration;
     private String activeProfileId;
     private String activeProfileRevision;
@@ -31,9 +33,12 @@ public final class ClientAdmissionController {
     private Screen parentScreen;
 
     public ClientAdmissionController(
-            BridgePhaseMachine phases, Predicate<ConnectionLifecycle> lifecycleSink) {
+            BridgePhaseMachine phases,
+            Predicate<ConnectionLifecycle> lifecycleSink,
+            Predicate<InitialObservation> observationSink) {
         this.phases = java.util.Objects.requireNonNull(phases, "phases");
         this.lifecycleSink = java.util.Objects.requireNonNull(lifecycleSink, "lifecycleSink");
+        this.observationSink = java.util.Objects.requireNonNull(observationSink, "observationSink");
     }
 
     public void handle(MinecraftClient client, BridgeIpcWorker.ClientMessage message) {
@@ -99,6 +104,32 @@ public final class ClientAdmissionController {
                 ConnectionPhase.CONNECTION_PHASE_JOIN_SEEN,
                 AdmissionFailureReason.ADMISSION_FAILURE_REASON_UNSPECIFIED,
                 false);
+    }
+
+    /**
+     * Send the first snapshot, which is what an attempt has to be made playable by.
+     *
+     * <p>Called once per join, on the client thread, because every value in it is
+     * client-thread state. The generation is read here rather than passed in: only
+     * this controller knows which attempt is current, and a snapshot attributed to
+     * the wrong generation is one Core must refuse.
+     *
+     * <p>A client that cannot honestly describe itself sends nothing and the
+     * session stays joined, which the run reports. It is not a reason to stop a
+     * client that is otherwise running.
+     */
+    public void publishFirstSnapshot(MinecraftClient client) {
+        if (activeGeneration == 0) {
+            return;
+        }
+        InitialObservation snapshot = ClientSnapshot.collect(client, activeGeneration);
+        if (snapshot == null) {
+            LOGGER.warn("bridge could not describe itself, so no first snapshot was sent");
+            return;
+        }
+        if (!observationSink.test(snapshot)) {
+            LOGGER.warn("bridge could not hand the first snapshot to the worker");
+        }
     }
 
     /**

@@ -98,6 +98,29 @@ def test_a_matching_report_is_accepted() -> None:
 
     assert verdict.matched
     assert verdict.mismatches == ()
+
+
+def test_a_report_that_claims_no_candidate_is_not_made_wrong_by_that() -> None:
+    """The candidate id names the Launcher's strategy, which a client cannot see.
+
+    A client observes the argv it was given, not the reviewed name of the choice
+    that produced it — so a Bridge that reports the material without echoing a
+    label has not reported something wrong.
+    """
+
+    verdict = compare_session_material(recorded(), reported(identity_candidate_id=""))
+
+    assert verdict.matched
+    assert verdict.mismatches == ()
+
+
+def test_a_report_claiming_another_candidate_is_still_refused() -> None:
+    """Claiming one is a claim to be a launch this is not."""
+
+    verdict = compare_session_material(recorded(), reported(identity_candidate_id="enum-aligned"))
+
+    assert not verdict.matched
+    assert MISMATCH_IDENTITY_CANDIDATE in verdict.mismatches
     assert verdict.observed_account_type == "offline"
 
 

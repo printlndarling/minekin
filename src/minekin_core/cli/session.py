@@ -82,14 +82,24 @@ SupervisorFactory = Callable[[Path], ProcessSupervisor]
 #: than built in a default, so the default is a value and not an expression.
 NOTHING_TO_RECONCILE = RecoveryReport(invalidated=(), waiting=())
 
-# The connection states that are a fact §5 names. The three phases before a join
-# are progress towards one, not facts themselves, so they are deliberately
-# absent and the recorder ignores them.
-_CONNECTION_EVENTS: dict[ConnectionState, str] = {
-    ConnectionState.JOIN_SEEN: JOIN_OBSERVED,
-    ConnectionState.PLAYABLE: PLAYABLE_ESTABLISHED,
-    ConnectionState.DISCONNECTED: SESSION_INTERRUPTED,
-    ConnectionState.FAILED: SESSION_INTERRUPTED,
+# The connection states that are a fact §5 names, and who concluded each one.
+# The three phases before a join are progress towards one, not facts themselves,
+# so they are deliberately absent and the recorder ignores them.
+#
+# The trust class follows the conclusion, not the channel. A join is the Bridge
+# reporting what its client did, so it is the Bridge's filtered word. Being
+# playable is Core's own conclusion from a snapshot it admitted — §6 says trust
+# may not be self-declared, and recording Core's verdict as the Bridge's report
+# would name the wrong source for the strongest fact in the session.
+_CONNECTION_EVENTS: dict[ConnectionState, tuple[str, EventSource, TrustClass]] = {
+    ConnectionState.JOIN_SEEN: (JOIN_OBSERVED, EventSource.BRIDGE, TrustClass.BRIDGE_FILTERED),
+    ConnectionState.PLAYABLE: (PLAYABLE_ESTABLISHED, EventSource.CORE, TrustClass.CORE),
+    ConnectionState.DISCONNECTED: (
+        SESSION_INTERRUPTED,
+        EventSource.BRIDGE,
+        TrustClass.BRIDGE_FILTERED,
+    ),
+    ConnectionState.FAILED: (SESSION_INTERRUPTED, EventSource.BRIDGE, TrustClass.BRIDGE_FILTERED),
 }
 
 _OUTCOME_EVENTS: dict[SessionOutcome, str] = {
@@ -700,23 +710,19 @@ async def start_and_supervise(
         await host.send_control(CONNECT_WORLD_TYPE, command)
 
     async def on_connection(state: ConnectionState, reason: str) -> None:
-        event_type = _CONNECTION_EVENTS.get(state)
-        if event_type is None:
+        recorded = _CONNECTION_EVENTS.get(state)
+        if recorded is None:
             # A phase that only moves the session closer to a join is not a fact
             # §5 names, and inventing one would put noise in the ledger.
             return
+        event_type, source, trust_class = recorded
         payload: dict[str, Any] = {"phase": state.value}
         if reason:
             # The Bridge's stable classification of why the attempt stopped —
             # never the server's words, which have no channel into a product
             # event. A failure with no category is one nobody can act on.
             payload["reason"] = reason
-        await record(
-            event_type,
-            payload,
-            source=EventSource.BRIDGE,
-            trust_class=TrustClass.BRIDGE_FILTERED,
-        )
+        await record(event_type, payload, source=source, trust_class=trust_class)
 
     async def until_client_exit() -> None:
         while prepared.supervisor.running():

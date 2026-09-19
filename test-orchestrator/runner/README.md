@@ -231,9 +231,28 @@ server   Kin joined the game
 ```
 
 The server line is read by hand after the run, which is the only way the contract
-allows server truth to be used. The ledger stops at `JOIN_SEEN` on purpose:
-`PlayableEstablished` needs the first snapshot accepted (W50), and until that
-exists this is as far as the path can honestly reach.
+allows server truth to be used.
+
+The session then goes all the way to playable, because the Bridge sends the first
+authoritative snapshot and **Core** admits it:
+
+```text
+ledger   JoinObserved         BRIDGE  {"phase":"JOIN_SEEN"}
+ledger   PlayableEstablished  CORE    {"phase":"PLAYABLE"}
+```
+
+The two entries have different sources on purpose. The join is the Bridge
+reporting what its client did; being playable is Core's own conclusion from a
+snapshot it validated, and §6 does not allow a trust class to be self-declared —
+so naming the Bridge as the source of Core's verdict would put the wrong name on
+the strongest fact in the session.
+
+The snapshot carries the client's own state and nothing else. `visible_entities`
+is empty by rule rather than by omission: the contract's minimum for a snapshot
+is the player's own state and context, and it is explicit that this does not open
+entities behind walls or unseen containers. An empty list is therefore "nothing
+was checked", not "nothing is there", and the line-of-sight collection is a
+separate piece of work.
 
 Getting there was a one-line bug with a loud lesson. The client was sending
 `next_state=3` — `TRANSFER`, not `LOGIN` — because vanilla decides that from

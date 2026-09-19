@@ -7,6 +7,7 @@ import io.minekin.protocol.v1.AdmissionFailureReason;
 import io.minekin.protocol.v1.ConnectWorld;
 import io.minekin.protocol.v1.ConnectionLifecycle;
 import io.minekin.protocol.v1.ConnectionPhase;
+import io.minekin.protocol.v1.InitialObservation;
 import java.util.ArrayList;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
@@ -28,9 +29,15 @@ final class ClientAdmissionControllerTest {
 
     private final List<ConnectionLifecycle> reported = new ArrayList<>();
     private final BridgePhaseMachine phases = new BridgePhaseMachine();
-    private final ClientAdmissionController controller =
-            new ClientAdmissionController(phases, lifecycle -> {
+    private final List<InitialObservation> observed = new ArrayList<>();
+    private final ClientAdmissionController controller = new ClientAdmissionController(
+            phases,
+            lifecycle -> {
                 reported.add(lifecycle);
+                return true;
+            },
+            observation -> {
+                observed.add(observation);
                 return true;
             });
 

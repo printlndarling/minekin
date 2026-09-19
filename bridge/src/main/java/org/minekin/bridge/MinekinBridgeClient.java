@@ -42,8 +42,8 @@ public final class MinekinBridgeClient implements ClientModInitializer {
                 16,
                 phases,
                 new VanillaKeySink());
-        ClientAdmissionController controller =
-                new ClientAdmissionController(phases, created::publishLifecycle);
+        ClientAdmissionController controller = new ClientAdmissionController(
+                phases, created::publishLifecycle, created::publishObservation);
         ClientTickEvents.END_CLIENT_TICK.register(
                 client -> {
                     created.drainClientMessages(
@@ -94,7 +94,15 @@ public final class MinekinBridgeClient implements ClientModInitializer {
         ClientPlayConnectionEvents.INIT.register((handler, client) -> observe(
                 client, controller, created, controller::playInit));
         ClientPlayConnectionEvents.JOIN.register((handler, sender, client) -> observe(
-                client, controller, created, controller::joinSeen));
+                client,
+                controller,
+                created,
+                () -> {
+                    controller.joinSeen();
+                    // And the snapshot, without which the join is where the
+                    // session stops: it is what Core admits to make it playable.
+                    controller.publishFirstSnapshot(client);
+                }));
         ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> observe(
                 client, controller, created, controller::playEnded));
 
@@ -111,6 +119,11 @@ public final class MinekinBridgeClient implements ClientModInitializer {
         try {
             report.run();
         } catch (RuntimeException error) {
+            // Named rather than swallowed: this wrapper is what turns a fault in a
+            // listener into a stopped client, and a stopped client with no cause
+            // recorded is the failure mode every diagnostic in this file exists
+            // for. The exception is the cause.
+            LOGGER.error("bridge fault while handling a client event", error);
             stopSafely(client, controller, worker, BridgeInputController.ReleaseReason.BRIDGE_FAULT);
         }
     }

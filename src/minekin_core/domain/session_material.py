@@ -99,7 +99,16 @@ def compare_session_material(
     if not reported.username.strip() or not reported.uuid.strip():
         mismatches.add(MISMATCH_REPORT_INCOMPLETE)
 
-    if reported.identity_candidate_id != recorded.identity_candidate_id:
+    # The candidate id is the Launcher's label for what this launch is testing,
+    # not something a client can observe about itself: a client sees the argv it
+    # was given, not the reviewed name of the strategy that produced it. So a
+    # report that does not claim one is not made wrong by that — and one that
+    # *does* name a different candidate is still refused, because that is a claim
+    # to be a launch it is not.
+    if (
+        reported.identity_candidate_id
+        and reported.identity_candidate_id != recorded.identity_candidate_id
+    ):
         mismatches.add(MISMATCH_IDENTITY_CANDIDATE)
 
     if reported.username != recorded.username:

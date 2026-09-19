@@ -51,13 +51,17 @@ public final class ClientLifecycleEvents {
     "org/minekin/bridge/runtime/ClientAdmissionController.java": """\
 package org.minekin.bridge.runtime;
 import io.minekin.protocol.v1.ConnectionLifecycle;
+import io.minekin.protocol.v1.InitialObservation;
 import java.util.function.Predicate;
 import net.minecraft.client.MinecraftClient;
 public final class ClientAdmissionController {
     public ClientAdmissionController(
-            BridgePhaseMachine phases, Predicate<ConnectionLifecycle> lifecycleSink) {}
+            BridgePhaseMachine phases,
+            Predicate<ConnectionLifecycle> lifecycleSink,
+            Predicate<InitialObservation> observationSink) {}
     public void handle(MinecraftClient client, BridgeIpcWorker.ClientMessage message) {}
     public void safeStop(MinecraftClient client) {}
+    public void publishFirstSnapshot(MinecraftClient client) {}
     public void loginNegotiating() {}
     public void playInit() {}
     public void joinSeen() {}

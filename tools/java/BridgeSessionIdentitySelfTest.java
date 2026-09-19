@@ -21,6 +21,7 @@ public final class BridgeSessionIdentitySelfTest {
 
     public static void main(String[] arguments) {
         reportCarriesTheReviewedObservations();
+        aBlankCandidateIdIsTheHonestValueFromAClient();
         theAdapterCannotBeHandedACredentialBody();
         malformedObservationsAreRejected();
         aReportClaimingExposureIsRefused();
@@ -67,9 +68,32 @@ public final class BridgeSessionIdentitySelfTest {
         }
     }
 
+    private static void aBlankCandidateIdIsTheHonestValueFromAClient() {
+        // The candidate names the Launcher's reviewed strategy, and a client
+        // cannot see that: it sees the argv it was given. Core reads a blank id
+        // as "no claim", and still refuses a *named* one that disagrees.
+        SessionIdentityReport report = SessionIdentityReportAdapter.toProto(
+                "",
+                new ObservedSession(
+                        "Kin", "8f40376b-c23f-3ef1-b553-5564eea75639", "LEGACY", false, false));
+        assert report.getIdentityCandidateId().isEmpty()
+                : "a blank candidate id must survive the adapter";
+        assert report.getSessionUsername().equals("Kin")
+                : "the observed identity must still be reported";
+
+        // And an account type the client does not carry is reported as absent
+        // rather than replaced with an enum it never held.
+        SessionIdentityReport noAccountType = SessionIdentityReportAdapter.toProto(
+                "prism-parity",
+                new ObservedSession(
+                        "Kin", "8f40376b-c23f-3ef1-b553-5564eea75639", "", false, false));
+        assert noAccountType.getSessionAccountType().isEmpty()
+                : "an absent account type must stay absent";
+    }
+
     private static void malformedObservationsAreRejected() {
         expectRejected(() -> SessionIdentityReportAdapter.toProto(
-                " ",
+                null,
                 new ObservedSession(
                         "Kin", "8f40376b-c23f-3ef1-b553-5564eea75639", "LEGACY", false, false)));
         expectRejected(() -> SessionIdentityReportAdapter.toProto(
@@ -78,10 +102,6 @@ public final class BridgeSessionIdentitySelfTest {
                         "", "8f40376b-c23f-3ef1-b553-5564eea75639", "LEGACY", false, false)));
         expectRejected(() -> SessionIdentityReportAdapter.toProto(
                 "prism-parity", new ObservedSession("Kin", "not-a-uuid", "LEGACY", false, false)));
-        expectRejected(() -> SessionIdentityReportAdapter.toProto(
-                "prism-parity",
-                new ObservedSession(
-                        "Kin", "8f40376b-c23f-3ef1-b553-5564eea75639", "", false, false)));
     }
 
     private static void aReportClaimingExposureIsRefused() {

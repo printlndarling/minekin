@@ -535,9 +535,12 @@ def test_a_named_server_profile_becomes_one_connect_command(
         PLAYABLE_ESTABLISHED,
         CLIENT_EXITED,
     ]
-    # The join is the Bridge's report, so it is recorded as such.
+    # The join is the Bridge's report, so it is recorded as such — and being
+    # playable is Core's own conclusion from a snapshot it admitted, so it is
+    # recorded as Core's. §6 says a trust class may not be self-declared, and
+    # naming the Bridge as the source of Core's verdict would be exactly that.
     assert rows[2] == (JOIN_OBSERVED, "BRIDGE", "BRIDGE_FILTERED")
-    assert rows[3] == (PLAYABLE_ESTABLISHED, "BRIDGE", "BRIDGE_FILTERED")
+    assert rows[3] == (PLAYABLE_ESTABLISHED, "CORE", "CORE")
     # These two writes come from the event reader, which the session cancels on
     # its way out — the first writes the runtime had ever made from a task that
     # gets cancelled. A writer interrupted mid-close used to strand its

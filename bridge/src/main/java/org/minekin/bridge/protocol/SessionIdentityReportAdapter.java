@@ -19,8 +19,12 @@ public final class SessionIdentityReportAdapter {
 
     public static SessionIdentityReport toProto(
             String identityCandidateId, ObservedSession observed) {
-        if (identityCandidateId == null || identityCandidateId.isBlank()) {
-            throw new IllegalArgumentException("identity candidate id is required");
+        // A blank candidate id is allowed, and it is the honest value from the
+        // client: the candidate names the Launcher's reviewed strategy, which a
+        // client cannot see — it sees the argv it was given. Core reads a blank
+        // one as "no claim", and a *named* one that disagrees is still refused.
+        if (identityCandidateId == null) {
+            throw new IllegalArgumentException("identity candidate id must be a string");
         }
         if (observed.username().isBlank()) {
             throw new IllegalArgumentException("session username is required");
@@ -28,9 +32,10 @@ public final class SessionIdentityReportAdapter {
         if (!isUuid(observed.uuid())) {
             throw new IllegalArgumentException("session uuid must be canonical or id128 form");
         }
-        if (observed.accountType().isBlank()) {
-            throw new IllegalArgumentException("session account type must be recorded verbatim");
-        }
+        // A blank account type is allowed because it is an observation: the
+        // client can carry none at all, and the candidate matrix is what finds
+        // out which candidates it carries one for. An invented enum here would
+        // record a value the client never held.
         return SessionIdentityReport.newBuilder()
                 .setIdentityCandidateId(identityCandidateId)
                 .setSessionUsername(observed.username())

@@ -11,6 +11,7 @@ import io.minekin.protocol.v1.ConnectionPhase;
 import io.minekin.protocol.v1.CoreHello;
 import io.minekin.protocol.v1.Envelope;
 import io.minekin.protocol.v1.Heartbeat;
+import io.minekin.protocol.v1.InitialObservation;
 import io.minekin.protocol.v1.ProtocolVersion;
 import io.minekin.protocol.v1.ReleaseAllInputs;
 import java.io.IOException;
@@ -43,6 +44,7 @@ public final class BridgeIpcWorker implements AutoCloseable {
     public static final String CANCEL_CONNECTION_TYPE = "minekin.v1.CancelConnection";
     public static final String CONNECTION_LIFECYCLE_TYPE = "minekin.v1.ConnectionLifecycle";
     public static final String RELEASE_ALL_INPUTS_TYPE = "minekin.v1.ReleaseAllInputs";
+    public static final String INITIAL_OBSERVATION_TYPE = "minekin.v1.InitialObservation";
     private static final Logger LOGGER = LoggerFactory.getLogger("minekin-bridge");
     /**
      * How many heartbeat intervals of silence the Bridge tolerates before it lets go of
@@ -58,7 +60,7 @@ public final class BridgeIpcWorker implements AutoCloseable {
     private final BridgePhaseMachine phases;
     private final KeySink keySink;
     private final BoundedChannel<ClientMessage> clientInbox;
-    private final BoundedChannel<ConnectionLifecycle> eventOutbox;
+    private final BoundedChannel<EventMessage> eventOutbox;
     private final AdmissionCommandGate admissionCommands = new AdmissionCommandGate();
     private final AtomicBoolean started = new AtomicBoolean();
     private final AtomicBoolean stopping = new AtomicBoolean();
@@ -145,6 +147,21 @@ public final class BridgeIpcWorker implements AutoCloseable {
         return clientInbox.rejectedCount() + eventOutbox.rejectedCount();
     }
 
+    /**
+     * One must-deliver event, with the message type the event channel carries it
+     * under.
+     *
+     * <p>The channel's sequence is shared across event types — the host requires
+     * a contiguous one — so one writer owns both kinds and the type travels with
+     * the payload rather than being decided by whoever reads the queue.
+     */
+    public record EventMessage(String messageType, com.google.protobuf.MessageLite payload) {
+        public EventMessage {
+            java.util.Objects.requireNonNull(messageType, "messageType");
+            java.util.Objects.requireNonNull(payload, "payload");
+        }
+    }
+
     /** Non-blocking client-thread handoff for must-deliver lifecycle events. */
     public boolean publishLifecycle(ConnectionLifecycle lifecycle) {
         java.util.Objects.requireNonNull(lifecycle, "lifecycle");
@@ -157,7 +174,7 @@ public final class BridgeIpcWorker implements AutoCloseable {
                     validLifecycle(lifecycle));
             return false;
         }
-        if (!eventOutbox.offer(lifecycle)) {
+        if (!eventOutbox.offer(new EventMessage(CONNECTION_LIFECYCLE_TYPE, lifecycle))) {
             // Worth saying out loud: this is the Bridge failing itself closed
             // because a phase it must deliver had nowhere to go, and the client
             // it is attached to will be cancelled a moment later. Without this
@@ -166,6 +183,26 @@ public final class BridgeIpcWorker implements AutoCloseable {
                     "bridge event outbox is full ({} held), failing closed on {}",
                     eventOutbox.size(),
                     lifecycle.getPhase());
+            failClosed();
+            return false;
+        }
+        return true;
+    }
+
+    /**
+     * The first snapshot, for the same reason a phase is must-deliver: it is what
+     * makes an attempt playable, and dropping it silently would leave a session
+     * joined and going nowhere with nothing recorded about why.
+     */
+    public boolean publishObservation(InitialObservation observation) {
+        java.util.Objects.requireNonNull(observation, "observation");
+        if (stopping.get() || !started.get() || event == null) {
+            return false;
+        }
+        if (!eventOutbox.offer(new EventMessage(INITIAL_OBSERVATION_TYPE, observation))) {
+            LOGGER.error(
+                    "bridge event outbox is full ({} held); dropping the first snapshot",
+                    eventOutbox.size());
             failClosed();
             return false;
         }
@@ -292,13 +329,13 @@ public final class BridgeIpcWorker implements AutoCloseable {
         long sequence = 1;
         try {
             while (!stopping.get()) {
-                ConnectionLifecycle lifecycle = eventOutbox.take();
+                EventMessage message = eventOutbox.take();
                 Envelope outbound = envelope(
                         descriptor,
-                        CONNECTION_LIFECYCLE_TYPE,
+                        message.messageType(),
                         Channel.CHANNEL_EVENT,
                         sequence,
-                        lifecycle.toByteString());
+                        message.payload().toByteString());
                 event.write(outbound, handshakeTimeout);
                 if (sequence == Long.MAX_VALUE) {
                     throw new IOException("event sequence exhausted the P0 signed range");
