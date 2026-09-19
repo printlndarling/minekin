@@ -12,7 +12,7 @@ to find out.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from typing import Any, cast
 
@@ -95,6 +95,7 @@ def provision_bundle(
     *,
     fetcher: ArtifactFetcher | None = None,
     max_bytes: int | None = None,
+    on_progress: Callable[[int, int], None] | None = None,
 ) -> ProvisionReport:
     """Fetch everything the plan names that is not already verified.
 
@@ -113,7 +114,9 @@ def provision_bundle(
             f"artifacts needs {needed} bytes, over the {max_bytes} byte budget; "
             f"raise the budget deliberately rather than by accident"
         )
-    outcome = (fetcher or ArtifactFetcher(store)).fetch(plan_fetch_set(plan))
+    outcome = (fetcher or ArtifactFetcher(store)).fetch(
+        plan_fetch_set(plan), on_progress=on_progress
+    )
     return ProvisionReport(
         installed=outcome.installed,
         reused=outcome.reused,

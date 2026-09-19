@@ -4,6 +4,7 @@ import hashlib
 import http.server
 import io
 import threading
+import time
 import urllib.error
 import urllib.request
 from collections.abc import Iterator
@@ -306,3 +307,140 @@ def test_an_artifact_is_installed_from_a_real_http_response(
 
     assert outcome.complete, outcome.as_document()
     assert store.verify(item).read_bytes() == payload
+
+
+def _bundle(count: int) -> list[Artifact]:
+    """`count` artifacts with distinct content, so no two share a store path."""
+
+    items: list[Artifact] = []
+    for index in range(count):
+        payload = f"payload {index}".encode()
+        items.append(
+            Artifact(
+                coordinate=f"asset:{index}",
+                path=f"{index}.bin",
+                url=f"https://example.invalid/{index}",
+                size=len(payload),
+                sha1=hashlib.sha1(payload).hexdigest(),
+                kind="asset",
+            )
+        )
+    return items
+
+
+def _payloads(items: list[Artifact]) -> dict[str, bytes]:
+    return {item.url: f"payload {item.url.rsplit('/', 1)[-1]}".encode() for item in items}
+
+
+def test_a_pass_keeps_several_downloads_in_flight(tmp_path: Path) -> None:
+    """A sequential pass over the reviewed bundle was measured in hours.
+
+    The opener only returns once `jobs` of them are inside it at the same time,
+    so a pass that fetches one artifact at a time cannot finish at all — which
+    is what makes this a test of concurrency rather than of speed.
+    """
+
+    jobs = 4
+    items = _bundle(12)
+    payloads = _payloads(items)
+    barrier = threading.Barrier(jobs, timeout=5.0)
+
+    def opener(url: str, timeout: float) -> BinaryIO:
+        del timeout
+        barrier.wait()
+        return io.BytesIO(payloads[url])
+
+    store = ArtifactStore(tmp_path / "store")
+
+    outcome = ArtifactFetcher(store, opener=opener, jobs=jobs).fetch(items)
+
+    assert outcome.complete, outcome.as_document()
+    assert len(outcome.installed) == 12
+    assert store.verify(items[7]).read_bytes() == payloads[items[7].url]
+
+
+def test_the_report_keeps_the_plans_order_however_the_workers_finish(tmp_path: Path) -> None:
+    """Which artifacts failed must not depend on which worker happened to win."""
+
+    items = _bundle(6)
+    payloads = _payloads(items)
+
+    def opener(url: str, timeout: float) -> BinaryIO:
+        del timeout
+        # The first artifact is the slowest, so completion order is not plan order.
+        time.sleep(0.02 * (len(items) - int(url.rsplit("/", 1)[-1])))
+        return io.BytesIO(payloads[url])
+
+    store = ArtifactStore(tmp_path / "store")
+
+    outcome = ArtifactFetcher(store, opener=opener, jobs=len(items)).fetch(items)
+
+    assert outcome.installed == tuple(item.coordinate for item in items)
+    assert outcome.reused == ()
+
+
+def test_a_failure_is_reported_against_its_own_coordinate_in_plan_order(tmp_path: Path) -> None:
+    items = _bundle(4)
+    payloads = _payloads(items)
+    broken = items[1].url
+
+    def opener(url: str, timeout: float) -> BinaryIO:
+        del timeout
+        if url == broken:
+            raise urllib.error.HTTPError(url, 404, "Not Found", Message(), None)  # type: ignore[arg-type]
+        return io.BytesIO(payloads[url])
+
+    store = ArtifactStore(tmp_path / "store")
+
+    outcome = ArtifactFetcher(store, opener=opener, jobs=4).fetch(items)
+
+    assert [failure.coordinate for failure in outcome.failed] == [items[1].coordinate]
+    assert outcome.failed[0].reason == "HTTP 404"
+    assert outcome.installed == (items[0].coordinate, items[2].coordinate, items[3].coordinate)
+
+
+def test_one_worker_fetches_everything_and_still_reports_progress(tmp_path: Path) -> None:
+    """The sequential path stays, because a bound of one is a legitimate bound."""
+
+    items = _bundle(3)
+    payloads = _payloads(items)
+    seen: list[tuple[int, int]] = []
+    store = ArtifactStore(tmp_path / "store")
+
+    outcome = ArtifactFetcher(
+        store, opener=lambda url, timeout: io.BytesIO(payloads[url]), jobs=1
+    ).fetch(items, on_progress=lambda done, total: seen.append((done, total)))
+
+    assert outcome.complete
+    assert seen == [(1, 3), (2, 3), (3, 3)]
+
+
+def test_progress_counts_each_artifact_once_and_calls_back_from_the_calling_thread(
+    tmp_path: Path,
+) -> None:
+    """Workers fetch; this thread reports, so a caller may print from the callback."""
+
+    items = _bundle(12)
+    payloads = _payloads(items)
+    seen: list[tuple[int, int]] = []
+    callers: list[threading.Thread] = []
+    store = ArtifactStore(tmp_path / "store")
+
+    def progress(done: int, total: int) -> None:
+        seen.append((done, total))
+        callers.append(threading.current_thread())
+
+    ArtifactFetcher(store, opener=lambda url, timeout: io.BytesIO(payloads[url]), jobs=4).fetch(
+        items, on_progress=progress
+    )
+
+    assert [done for done, _ in seen] == list(range(1, 13))
+    assert {total for _, total in seen} == {12}
+    assert set(callers) == {threading.current_thread()}
+
+
+def test_a_job_count_below_one_is_refused(tmp_path: Path) -> None:
+    store = ArtifactStore(tmp_path / "store")
+
+    with pytest.raises(ValueError, match="jobs"):
+        ArtifactFetcher(store, jobs=0)

@@ -5,8 +5,14 @@ bytes are checked against the pinned size and SHA-1 by the store before anything
 is published, and a mismatch is quarantined rather than stored, so a hostile or
 merely broken mirror cannot put content into the cache.
 
-Downloads are sequential on purpose: the assets are small, and a bounded,
-resumable, easily-diagnosed pass is worth more here than a parallel one.
+Downloads run a few at a time, and the number is a parameter rather than a
+property of the loop. Measured against the reviewed p0-core bundle, a sequential
+pass over its 3,970 missing artifacts took about 2.9 seconds each — nearly three
+hours — while moving roughly 35 KB/s, which is to say it was waiting on round
+trips and not on the link. Concurrency is still bounded: every artifact is
+verified by the store before it is published, a failure is still reported against
+the coordinate that caused it, and an interrupted pass still resumes by finding
+what is already present.
 """
 
 from __future__ import annotations
@@ -14,7 +20,8 @@ from __future__ import annotations
 import urllib.error
 import urllib.parse
 import urllib.request
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from typing import BinaryIO, Protocol, cast
 
@@ -24,6 +31,7 @@ from minekin_core.domain.errors import ErrorCategory, MinekinError, Retryability
 
 DEFAULT_TIMEOUT_S = 60.0
 DEFAULT_MAX_ATTEMPTS = 3
+DEFAULT_JOBS = 8
 
 
 class UrlOpener(Protocol):
@@ -65,6 +73,15 @@ class FetchFailure:
     url: str
     category: ErrorCategory
     reason: str
+
+
+@dataclass(frozen=True, slots=True)
+class _Outcome:
+    """What one artifact did, kept per artifact so the report can stay ordered."""
+
+    coordinate: str
+    reused: bool
+    failure: FetchFailure | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -124,49 +141,91 @@ class ArtifactFetcher:
         opener: UrlOpener = open_https,
         timeout_s: float = DEFAULT_TIMEOUT_S,
         max_attempts: int = DEFAULT_MAX_ATTEMPTS,
+        jobs: int = DEFAULT_JOBS,
     ) -> None:
         if timeout_s <= 0:
             raise ValueError("timeout_s must be positive")
         if max_attempts < 1:
             raise ValueError("max_attempts must be at least one")
+        if jobs < 1:
+            raise ValueError("jobs must be at least one")
         self._store = store
         self._opener = opener
         self._timeout_s = timeout_s
         self._max_attempts = max_attempts
+        self._jobs = jobs
 
-    def fetch(self, artifacts: Sequence[Artifact]) -> FetchOutcome:
+    def fetch(
+        self,
+        artifacts: Sequence[Artifact],
+        *,
+        on_progress: Callable[[int, int], None] | None = None,
+    ) -> FetchOutcome:
         """Install every artifact that is not already verified, collecting failures.
 
         A failure does not stop the pass: knowing all of what is missing is worth
         more than stopping at the first gap, and the caller refuses to launch
-        unless the outcome is complete.
+        unless the outcome is complete. The report keeps the plan's order, so
+        which artifacts failed does not depend on which worker finished first.
+
+        `on_progress` is called after each artifact with (done, total). Filling
+        the reviewed bundle is thousands of requests and hours of them, so a
+        caller that can show its own progress should be able to; nothing here
+        prints.
         """
 
-        installed: list[str] = []
-        reused: list[str] = []
-        failed: list[FetchFailure] = []
-        for artifact in artifacts:
-            try:
-                self._store.verify(artifact)
-            except MinekinError:
-                pass
-            else:
-                reused.append(artifact.coordinate)
-                continue
+        if self._jobs == 1:
+            outcomes: list[_Outcome] = []
+            for artifact in artifacts:
+                outcomes.append(self._one(artifact))
+                if on_progress is not None:
+                    on_progress(len(outcomes), len(artifacts))
+        else:
+            # Workers never contend for a path: the store publishes each blob
+            # under a name only that artifact's content can produce. What is
+            # shared here is the progress callback, and it is called from this
+            # thread as futures complete, not from the workers themselves.
+            ordered: list[_Outcome | None] = [None] * len(artifacts)
+            with ThreadPoolExecutor(max_workers=self._jobs) as pool:
+                futures = {
+                    pool.submit(self._one, artifact): index
+                    for index, artifact in enumerate(artifacts)
+                }
+                for completed, future in enumerate(as_completed(futures), start=1):
+                    ordered[futures[future]] = future.result()
+                    if on_progress is not None:
+                        on_progress(completed, len(artifacts))
+            outcomes = [outcome for outcome in ordered if outcome is not None]
 
+        installed = [
+            outcome.coordinate
+            for outcome in outcomes
+            if outcome.failure is None and not outcome.reused
+        ]
+        reused = [outcome.coordinate for outcome in outcomes if outcome.reused]
+        failed = [outcome.failure for outcome in outcomes if outcome.failure is not None]
+        return FetchOutcome(installed=tuple(installed), reused=tuple(reused), failed=tuple(failed))
+
+    def _one(self, artifact: Artifact) -> _Outcome:
+        """Fetch one artifact if it is not already here, and say what happened."""
+
+        try:
+            self._store.verify(artifact)
+        except MinekinError:
             error = self._attempt(artifact)
             if error is None:
-                installed.append(artifact.coordinate)
-            else:
-                failed.append(
-                    FetchFailure(
-                        coordinate=artifact.coordinate,
-                        url=artifact.url,
-                        category=_classify(error),
-                        reason=_reason(error),
-                    )
-                )
-        return FetchOutcome(installed=tuple(installed), reused=tuple(reused), failed=tuple(failed))
+                return _Outcome(artifact.coordinate, reused=False, failure=None)
+            return _Outcome(
+                artifact.coordinate,
+                reused=False,
+                failure=FetchFailure(
+                    coordinate=artifact.coordinate,
+                    url=artifact.url,
+                    category=_classify(error),
+                    reason=_reason(error),
+                ),
+            )
+        return _Outcome(artifact.coordinate, reused=True, failure=None)
 
     def _attempt(self, artifact: Artifact) -> BaseException | None:
         """Return the failure, or None when the artifact was installed.

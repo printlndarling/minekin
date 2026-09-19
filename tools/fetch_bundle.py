@@ -18,9 +18,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
 
 from minekin_core.adapters.launcher.artifacts import ArtifactStore
+from minekin_core.adapters.launcher.fetch import DEFAULT_JOBS, ArtifactFetcher
 from minekin_core.adapters.launcher.launch_plan import build_launch_plan
 from minekin_core.adapters.launcher.provision import (
     missing_artifacts,
@@ -65,6 +67,14 @@ def main(argv: list[str] | None = None) -> int:
         help="refuse to fetch more than this many bytes; none means no limit",
     )
     parser.add_argument("--dry-run", action="store_true", help="report the plan without fetching")
+    parser.add_argument(
+        "--jobs",
+        type=int,
+        default=DEFAULT_JOBS,
+        metavar="N",
+        help=f"how many downloads to have in flight at once (default {DEFAULT_JOBS})",
+    )
+    parser.add_argument("--quiet", action="store_true", help="do not report progress on stderr")
     arguments = parser.parse_args(argv)
 
     store = _resolve_store(arguments.store)
@@ -81,13 +91,29 @@ def main(argv: list[str] | None = None) -> int:
         "artifacts": len(artifacts),
         "missing": len(missing),
         "missing_bytes": sum(artifact.size for artifact in missing),
+        "jobs": arguments.jobs,
     }
     if arguments.dry_run:
         _emit({**summary, "status": "planned"})
         return 0
 
+    def progress(done: int, total: int) -> None:
+        if arguments.quiet:
+            return
+
+        # stdout stays a single document; a fetch of thousands of artifacts is
+        # hours long and needs to be legible while it happens.
+        if done == total or done % 100 == 0:
+            print(f"fetching {done}/{total}", file=sys.stderr, flush=True)
+
     try:
-        report = provision_bundle(plan, store_object, max_bytes=arguments.max_bytes)
+        report = provision_bundle(
+            plan,
+            store_object,
+            fetcher=ArtifactFetcher(store_object, jobs=arguments.jobs),
+            max_bytes=arguments.max_bytes,
+            on_progress=progress,
+        )
     except MinekinError as error:
         _emit({**summary, "status": "refused", "reason": error.safe_message})
         return 2
