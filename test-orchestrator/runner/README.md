@@ -21,6 +21,8 @@ MINEKIN_SERVER_JAR=<path> MINEKIN_DOMAIN_PROBE=Kin \
 MINEKIN_SERVER_JAR=<path> MINEKIN_DOMAIN_PROBE=Kin MINEKIN_DOMAIN_SILENCE=1 \
     bash test-orchestrator/runner/run.sh domain session start --profile <bundle> --server-profile <profile> \
         --hold-forward-seconds 60
+MINEKIN_SERVER_JAR=<path> MINEKIN_DOMAIN_NO_SERVER=1 \
+    bash test-orchestrator/runner/run.sh domain session start --profile <bundle> --server-profile <profile>
 bash test-orchestrator/runner/run.sh --shell 'glxinfo -B'   # or any other command
 ```
 
@@ -528,6 +530,21 @@ outbox item — between recording the intent and settling the effect, which is t
 second a client spends starting. The harness cannot land there from where it
 waits, so that branch is covered against a real ledger by unit tests instead, and
 that is the honest boundary rather than a claim.
+
+### When nothing is listening
+
+`MINEKIN_DOMAIN_NO_SERVER=1` stops the server again as soon as it has proved
+it can start, so the address in the frozen profile has nothing behind it. It
+is how a refused connection is produced without a second fixture: the target
+is wrong at the moment the client dials it, and everything else about the run
+is unchanged.
+
+This is the one failure the Bridge still says nothing about. A refusal, an
+unknown host and a connect timeout all happen before a login handler exists,
+so every Fabric event the Bridge listens to stays silent and the ledger ends
+at the phase before negotiation. The obvious hook — the screen vanilla shows
+for it — was tried twice and does not work; `docs/development-todo.md` records
+both attempts and what the second one measured.
 
 ### When the server ends the session
 

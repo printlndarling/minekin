@@ -24,6 +24,7 @@ kick="${MINEKIN_DOMAIN_KICK:-}"
 silence="${MINEKIN_DOMAIN_SILENCE:-}"
 look="${MINEKIN_DOMAIN_LOOK:-}"
 kill_core="${MINEKIN_DOMAIN_KILL_CORE:-}"
+no_server="${MINEKIN_DOMAIN_NO_SERVER:-}"
 still="${MINEKIN_DOMAIN_STILL:-}"
 # How often the server is asked about the Kin. A look is over within a second
 # of the join, so a run that wants a reading on both sides of it asks more
@@ -125,6 +126,16 @@ if ! grep -q 'Done (' "${server_directory}/server.log" 2>/dev/null; then
     exit 1
 fi
 printf 'domain: server ready\n' >&2
+
+# A run whose target is not listening. The server is stopped again as soon as it
+# has proved it can start, which is the cheapest way to get a refused connection:
+# the client still connects to the address in the frozen profile, and nothing is
+# there. It is the one failure the Bridge used to say nothing about, because it
+# never reaches a login handler.
+if [[ -n "${no_server}" ]]; then
+    stop_the_server
+    printf 'domain: the server has been stopped; nothing is listening\n' >&2
+fi
 
 # The session is stopped rather than timed out. A killed CLI never prints the run
 # document, and the document is the only place Core's own verdict on the first
