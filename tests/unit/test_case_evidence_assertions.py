@@ -100,6 +100,10 @@ def load(name: str) -> ModuleType:
 
 ASSERTER_MODULE = cast(_Asserter, load("assert_case_evidence"))
 CHECKER = cast(_Checker, load("check_case_assertions"))
+#: The other side of the block reading: what the harness asks the server, and the
+#: words it has the server say. Loaded here because the material below is built
+#: from those words rather than from a copy of them.
+SERVER_TOOL = load("run_controlled_server")
 
 
 def run_document(**run_overrides: object) -> dict[str, object]:
@@ -317,16 +321,40 @@ def test_an_unreadable_ledger_is_not_a_ledger_that_recorded_nothing() -> None:
     )
 
 
-# The walk a real run produced: the server's own readings, verbatim from a server
-# log, and the ledger events a hold leaves behind. The rotation readings are the
-# same words as the position readings and are told apart by their shape, which is
-# what these tests are built from rather than invented.
-WALK_READINGS = (
+# The readings a real CORE-040 produced, verbatim from a server log: the walk,
+# the turn and the block, each as the server answered it. The rotation readings
+# are the same words as the position readings and are told apart by their shape,
+# which is what these tests are built from rather than invented.
+#
+# The block is asked about as a predicate, not read as data, and the words are
+# the harness's own: measured on this pinned server, `data get block … powered`
+# answers "The target block is not a block entity", so the question goes the
+# other way round — `execute if block`, whose answer is `Test passed` either way
+# unless the command has the server say which state it was asked about.
+def block_reading(word: str) -> str:
+    """One answer to one block question, as the server writes it."""
+
+    return f"[19:28:12] [Server thread/INFO]: [Server] {word}\n"
+
+
+CORE_040_READINGS = (
+    # Standing at spawn, facing north, the lever in front of the Kin unpowered.
     "has the following entity data: [-7.5d, -60.0d, 4.5d]\n"
     "has the following entity data: [0.0f, 0.0f]\n"
-    "has the following entity data: [-7.5d, -60.0d, 17.663647774198928d]\n"
-    "has the following entity data: [0.0f, 0.0f]\n"
-    "has the following entity data: [-7.5d, -60.0d, 17.663647774198928d]\n"
+    + block_reading(SERVER_TOOL.BLOCK_INITIAL)
+    # Walking, then turning while still walking, with the use key held.
+    + "has the following entity data: [-7.5d, -60.0d, 17.663647774198928d]\n"
+    "has the following entity data: [45.0f, 0.0f]\n"
+    + block_reading(SERVER_TOOL.BLOCK_CHANGED)
+    # Stopped where it was, facing where it turned to.
+    + "has the following entity data: [-7.5d, -60.0d, 17.663647774198928d]\n"
+    "has the following entity data: [45.0f, 0.0f]\n" + block_reading(SERVER_TOOL.BLOCK_CHANGED)
+)
+
+#: The same log with no block reading in it at all, which is what a run whose
+#: harness never placed a lever looks like.
+NO_BLOCK_READINGS = "".join(
+    line for line in CORE_040_READINGS.splitlines(keepends=True) if "minekin-target" not in line
 )
 
 LEASE = event(
@@ -345,7 +373,7 @@ def movement_case() -> dict[str, object]:
 def walked(**run_overrides: object) -> _Material:
     return material(
         document=run_document(**run_overrides),
-        log=WALK_READINGS,
+        log=CORE_040_READINGS,
         events=(event("PlayableEstablished"), LEASE, RELEASE),
     )
 
@@ -360,23 +388,48 @@ def test_a_walk_that_the_server_saw_holds() -> None:
     assert verdict.failures == ()
 
 
-def test_a_rotation_reading_is_not_a_position_reading() -> None:
+def test_the_case_the_walk_is_judged_by_names_every_kind_of_input_it_covers() -> None:
+    """CORE-040 is move/look/use, so the manifest has to ask about all three."""
+
+    assert movement_case()["assertions"] == [
+        "move_input_was_leased",
+        "the_bridge_carried_the_input_out",
+        "the_server_saw_the_kin_move",
+        "the_lease_expired_and_was_released",
+        "the_server_saw_the_kin_turn",
+        "the_server_saw_the_block_change",
+    ]
+
+
+def test_a_reading_that_is_not_a_position_is_not_a_position() -> None:
     """Two components or three is what tells them apart, and nothing else does."""
 
-    readings = ASSERTER_MODULE.probe_readings(WALK_READINGS, 3)
+    readings = ASSERTER_MODULE.probe_readings(CORE_040_READINGS, 3)
 
     assert len(readings) == 3
     assert all(len(reading) == 3 for reading in readings)
+    assert len(ASSERTER_MODULE.probe_readings(CORE_040_READINGS, 2)) == 3
 
 
 def test_the_displacement_is_measured_by_the_server_not_the_client() -> None:
-    """A run whose document is a perfect report of a walk it never walked."""
+    """A run whose document is a perfect report of a walk it never walked.
+
+    The turn and the block are supplied, so that the reading the server is
+    missing is the only thing this material is missing: one position is not a
+    displacement, however the run describes itself.
+    """
 
     verdict = ASSERTER_MODULE.evaluate(
         movement_case(),
         material(
             document=run_document(actions_applied=1, actions_refused=0),
-            log="has the following entity data: [-7.5d, -60.0d, 4.5d]\n",
+            log=(
+                "has the following entity data: [-7.5d, -60.0d, 4.5d]\n"
+                "has the following entity data: [0.0f, 0.0f]\n"
+                "has the following entity data: [45.0f, 0.0f]\n"
+                "minekin-target-initial\n"
+                "minekin-target-changed\n"
+            ),
             events=(LEASE, RELEASE),
         ),
     )
@@ -390,6 +443,10 @@ def test_a_shove_is_not_a_step() -> None:
     shuffled = (
         "has the following entity data: [-7.5d, -60.0d, 4.5d]\n"
         "has the following entity data: [-6.2d, -60.0d, 5.1d]\n"
+        "has the following entity data: [0.0f, 0.0f]\n"
+        "has the following entity data: [45.0f, 0.0f]\n"
+        "minekin-target-initial\n"
+        "minekin-target-changed\n"
     )
 
     verdict = ASSERTER_MODULE.evaluate(
@@ -404,12 +461,251 @@ def test_a_shove_is_not_a_step() -> None:
     assert verdict.failures == ("the_server_saw_the_kin_move:MOVED_LESS_THAN_A_STEP:1.43",)
 
 
+def test_a_turn_the_server_never_saw_is_named() -> None:
+    """A Kin that walked and used something, with a heading that never changed."""
+
+    verdict = ASSERTER_MODULE.evaluate(
+        movement_case(),
+        material(
+            document=run_document(actions_applied=1, actions_refused=0),
+            log=(
+                "has the following entity data: [-7.5d, -60.0d, 4.5d]\n"
+                "has the following entity data: [45.0f, 0.0f]\n"
+                "minekin-target-initial\n"
+                "has the following entity data: [-7.5d, -60.0d, 17.663647774198928d]\n"
+                "has the following entity data: [45.0f, 0.0f]\n"
+                "minekin-target-changed\n"
+            ),
+            events=(LEASE, RELEASE),
+        ),
+    )
+
+    assert verdict.failures == ("the_server_saw_the_kin_turn:NO_TURN_OBSERVED",)
+
+
+def test_a_lever_that_was_never_pulled_is_named() -> None:
+    """The use key held at a lever that stayed exactly as the harness placed it."""
+
+    untouched = CORE_040_READINGS.replace("minekin-target-changed", "")
+    verdict = ASSERTER_MODULE.evaluate(
+        movement_case(),
+        material(
+            document=run_document(actions_applied=1, actions_refused=0),
+            log=untouched,
+            events=(LEASE, RELEASE),
+        ),
+    )
+
+    assert verdict.failures == ("the_server_saw_the_block_change:THE_BLOCK_NEVER_CHANGED",)
+
+
+def test_a_block_that_was_never_in_its_placed_state_is_not_a_block_that_changed() -> None:
+    """A block already moved on when the first question was asked proves nothing.
+
+    The harness places it in a known state, so a run that never hears that state
+    cannot say what the block was before the Kin touched it — and "it is something
+    else now" is then a fact about the world rather than about the Kin.
+    """
+
+    verdict = ASSERTER_MODULE.evaluate(
+        movement_case(),
+        material(
+            document=run_document(actions_applied=1, actions_refused=0),
+            log=CORE_040_READINGS.replace("minekin-target-initial", ""),
+            events=(LEASE, RELEASE),
+        ),
+    )
+
+    assert verdict.failures == (
+        "the_server_saw_the_block_change:THE_BLOCK_WAS_NEVER_IN_ITS_PLACED_STATE",
+    )
+
+
+def test_a_block_nobody_asked_about_is_not_a_block_that_changed() -> None:
+    """Silence from the server is not the server saying the world did not change."""
+
+    verdict = ASSERTER_MODULE.evaluate(
+        movement_case(),
+        material(
+            document=run_document(actions_applied=1, actions_refused=0),
+            log=NO_BLOCK_READINGS,
+            events=(LEASE, RELEASE),
+        ),
+    )
+
+    assert verdict.failures == ("the_server_saw_the_block_change:THE_BLOCK_WAS_NEVER_ASKED_ABOUT",)
+
+
+# The other side of the same fact: what the harness asks the server, and whether
+# the words it has the server say are the words this asserter reads. Nothing else
+# checks that they are one string, and measured, the previous pair were not: the
+# harness asked `data get block … powered`, which this server answers with "The
+# target block is not a block entity" for a lever.
+TARGET_AT = (-7, -60, 4)
+
+
+def test_the_block_the_harness_asks_about_is_the_block_the_asserter_reads() -> None:
+    """The whole round trip, from the console line to the case holding."""
+
+    commands = SERVER_TOOL.block_probe_commands(TARGET_AT)
+    # The block's own coordinates, not a place relative to the Kin: the Kin walks,
+    # and a relative question would walk with it.
+    assert all(f"{TARGET_AT[0]} {TARGET_AT[1]} {TARGET_AT[2]}" in command for command in commands)
+    assert all("^ ^" not in command for command in commands)
+    # Questions whose answers are `Test passed` either way, unless the server is
+    # made to say which state it was asked about.
+    assert all(
+        command.endswith("run say " + word)
+        for command, word in zip(
+            commands, (SERVER_TOOL.BLOCK_INITIAL, SERVER_TOOL.BLOCK_CHANGED), strict=True
+        )
+    )
+
+    # What the server would write, in the order a run produces it: the block is
+    # placed in its first state and the Kin moves it on, so that answer comes
+    # first.
+    said = "".join(
+        f"[19:28:12] [Server thread/INFO]: [Server] {command.rsplit(' ', 1)[-1]}\n"
+        for command in commands
+    )
+    verdict = ASSERTER_MODULE.evaluate(
+        movement_case(),
+        material(
+            document=run_document(actions_applied=1, actions_refused=0),
+            log=NO_BLOCK_READINGS + said,
+            events=(LEASE, RELEASE),
+        ),
+    )
+
+    assert verdict.failures == ()
+    assert verdict.result == "PASS"
+
+
+def test_the_before_of_the_change_is_asked_where_the_block_was_just_put() -> None:
+    """The one reading that has to be relative, and why it can be."""
+
+    placed = SERVER_TOOL.use_target_command(USERNAME)
+    command = SERVER_TOOL.initial_block_probe_command(USERNAME)
+
+    # The same place, asked about in the same breath: whatever offset the block
+    # went to, the first question is about that offset and not another.
+    offset = placed.split("setblock ", 1)[1].split(" minecraft:", 1)[0]
+    assert offset == "^ ^1 ^3"
+    assert command.startswith(f"execute at {USERNAME} if block ")
+    assert f"if block {offset} " in command
+    assert command.endswith(SERVER_TOOL.BLOCK_INITIAL)
+
+
+def test_the_block_goes_where_the_client_s_own_look_goes() -> None:
+    """Geometry, and the reason it is this geometry rather than another.
+
+    Every part of it was measured against this client, and the two earlier scenes
+    were both wrong in ways no log showed:
+
+    * **Which layer.** The eyes are at 1.62, so the layer the look travels through
+      is the one above the feet — and local coordinates are measured from the feet
+      with a forward axis that is *horizontal*: a run whose Kin was pitched ten
+      degrees down still had `^ ^ ^2` land in the feet layer, and an `anchored
+      eyes` in front of it changed nothing either.
+    * **Which block.** A lever's shape is six sixteenths of a block tall and the
+      eye is 0.62 of the way up its own, so a level look passes five thousandths
+      of a block under a standing lever. A pitched look reaches it only within a
+      narrow band of distances, and this run is walking: the walk carries the ray
+      along itself, so every lever is at the right distance for a tenth of a
+      second. A note block is a full cube and cannot be missed at any distance.
+    * **How far.** Three blocks, so the Kin walks into it and stops — which is
+      what turns a moving aim into a still one, and is also the walk-and-stop the
+      harness waits for.
+    """
+
+    placed = SERVER_TOOL.use_target_command(USERNAME)
+
+    assert f"execute at {USERNAME} run setblock ^ ^1 ^3 " in placed
+    assert "minecraft:note_block[note=0]" in placed
+    # `keep`, so a block that is already there is reported rather than carved out.
+    assert placed.endswith(" keep")
+
+
+def test_the_block_the_asserter_reads_is_the_one_the_harness_asks_about() -> None:
+    """One string, not two: the questions name the block the placement named."""
+
+    placed = SERVER_TOOL.use_target_command(USERNAME)
+    assert "minecraft:note_block" in placed
+
+    for command in SERVER_TOOL.block_probe_commands(TARGET_AT):
+        assert "minecraft:note_block" in command
+
+
+def test_the_block_s_own_coordinates_come_from_the_server_s_own_reply(tmp_path: Path) -> None:
+    """Measured, verbatim: `Changed the block at -7, -60, 4`."""
+
+    log = tmp_path / "server.log"
+    log.write_text(
+        '[23:09:12] [Server thread/INFO]: Done (3.489s)! For help, type "help"\n'
+        "[23:09:13] [Server thread/INFO]: Changed the block at -7, -60, 4\n",
+        encoding="utf-8",
+    )
+
+    assert SERVER_TOOL.placed_blocks(log) == (TARGET_AT,)
+
+
+def test_every_block_a_run_put_down_is_still_asked_about(tmp_path: Path) -> None:
+    """A run places several, and the ones the Kin has walked past are evidence."""
+
+    log = tmp_path / "server.log"
+    log.write_text(
+        "[23:09:13] [Server thread/INFO]: Changed the block at -7, -60, 4\n"
+        "[23:09:14] [Server thread/INFO]: Changed the block at -5, -60, 6\n",
+        encoding="utf-8",
+    )
+
+    assert SERVER_TOOL.placed_blocks(log) == (TARGET_AT, (-5, -60, 6))
+
+
+def test_a_server_that_placed_nothing_has_no_coordinates_to_ask_about(tmp_path: Path) -> None:
+    """`keep` refuses a space that is taken, and says so instead of carving."""
+
+    log = tmp_path / "server.log"
+    log.write_text("[23:09:13] [Server thread/INFO]: Could not set the block\n", encoding="utf-8")
+
+    assert SERVER_TOOL.placed_blocks(log) == ()
+    assert SERVER_TOOL.block_spoken_of(log) is False
+
+
+def test_the_harness_stops_putting_blocks_down_once_the_server_has_answered(
+    tmp_path: Path,
+) -> None:
+    """The bound on a scene that is set up again and again until it is used."""
+
+    said = tmp_path / "server.log"
+    said.write_text(
+        f"[19:28:12] [Server thread/INFO]: [Server] {SERVER_TOOL.BLOCK_INITIAL}\n",
+        encoding="utf-8",
+    )
+    assert SERVER_TOOL.block_spoken_of(said) is False
+    assert SERVER_TOOL.MAX_USE_TARGETS > 0
+
+    said.write_text(
+        said.read_text(encoding="utf-8")
+        + f"[19:28:13] [Server thread/INFO]: [Server] {SERVER_TOOL.BLOCK_CHANGED}\n",
+        encoding="utf-8",
+    )
+    assert SERVER_TOOL.block_spoken_of(said) is True
+
+
+def test_a_block_in_front_of_a_name_that_is_not_a_name_is_refused() -> None:
+    """The name goes to the console, where a newline is a second command."""
+
+    with pytest.raises(SystemExit, match="not a vanilla player name"):
+        SERVER_TOOL.use_target_command("Kin; op @a")
+
+
 def test_a_lease_for_something_else_is_not_a_lease_to_move() -> None:
     verdict = ASSERTER_MODULE.evaluate(
         movement_case(),
         material(
             document=run_document(actions_applied=1, actions_refused=0),
-            log=WALK_READINGS,
+            log=CORE_040_READINGS,
             events=(event("InputLeaseGranted", capability="control.look.v1"), RELEASE),
         ),
     )
@@ -422,7 +718,7 @@ def test_an_input_with_no_lease_at_all_is_named() -> None:
         movement_case(),
         material(
             document=run_document(actions_applied=1, actions_refused=0),
-            log=WALK_READINGS,
+            log=CORE_040_READINGS,
             events=(event("PlayableEstablished"), RELEASE),
         ),
     )
@@ -441,7 +737,7 @@ def test_what_the_bridge_did_with_the_command_is_what_is_reported(
         movement_case(),
         material(
             document=run_document(actions_applied=applied, actions_refused=refused),
-            log=WALK_READINGS,
+            log=CORE_040_READINGS,
             events=(LEASE, RELEASE),
         ),
     )
@@ -456,7 +752,7 @@ def test_a_release_for_another_reason_is_not_the_hold_ending() -> None:
         movement_case(),
         material(
             document=run_document(actions_applied=1, actions_refused=0),
-            log=WALK_READINGS,
+            log=CORE_040_READINGS,
             events=(LEASE, event("InputReleased", generation=1, had_lease=True, reason="EXPLICIT")),
         ),
     )
@@ -472,7 +768,7 @@ def test_a_hold_that_was_never_released_is_named() -> None:
         movement_case(),
         material(
             document=run_document(actions_applied=1, actions_refused=0),
-            log=WALK_READINGS,
+            log=CORE_040_READINGS,
             events=(LEASE,),
         ),
     )

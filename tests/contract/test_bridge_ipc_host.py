@@ -31,19 +31,24 @@ from minekin_core.adapters.bridge.ipc import (
     HANDSHAKE_CAPABILITY,
     HEARTBEAT_TYPE,
     LOOK_CAPABILITY,
+    LOOK_INPUT_TYPE,
     MOVE_CAPABILITY,
-    USE_CAPABILITY,
+    MOVE_INPUT_TYPE,
     RELEASE_ALL_INPUTS_TYPE,
+    USE_CAPABILITY,
+    USE_INPUT_TYPE,
     BridgeIpcHost,
     BridgeSession,
     IpcProtocolError,
 )
+from minekin_core.cli.session import InputPlan
 from minekin_core.domain.connection import (
     CallbackDisposition,
     ConnectionGenerations,
     ConnectionState,
 )
-from minekin_core.domain.ids import OpaqueId
+from minekin_core.domain.ids import Generation, OpaqueId
+from minekin_core.domain.input_control import InputLease, InputPriority
 from minekin_core.domain.session_state import (
     SessionState,
     SessionStateMachine,
@@ -55,6 +60,22 @@ from minekin_core.generated.minekin.v1 import (
     observation_pb2,
     session_pb2,
 )
+
+LEASE_DEADLINE = 5_000_000_000
+
+
+def lease() -> InputLease:
+    """One lease authorising everything the plan below asks for."""
+
+    return InputLease(
+        lease_id="lease-1",
+        generation=Generation(7),
+        client_instance_id="client-1",
+        issued_monotonic_ns=1,
+        deadline_monotonic_ns=LEASE_DEADLINE,
+        priority=InputPriority.NORMAL,
+        capabilities=frozenset({MOVE_CAPABILITY, LOOK_CAPABILITY, USE_CAPABILITY}),
+    )
 
 
 def test_loopback_handshake_heartbeat_commands_and_events(tmp_path: Path) -> None:
@@ -216,6 +237,69 @@ def test_control_send_rejects_a_message_type_payload_mismatch(tmp_path: Path) ->
         await close_writers(control_writer, event_writer)
 
     asyncio.run(scenario())
+
+
+def test_every_command_a_plan_can_send_reaches_the_peer(tmp_path: Path) -> None:
+    """Whatever a plan can ask for, the host can send.
+
+    Written because the two disagreed: `UseInput` was admitted into the control
+    type set, advertised as a capability and bindable on the Bridge, and the
+    host's table of payload classes had no entry for it — so a run that used
+    something died with a `KeyError` out of the send path, after the movement
+    command had already gone out and been recorded. A second copy of the same
+    names is one place to add a message and one place to forget it, which is why
+    the table is now the only copy; this is the test that would have noticed.
+    """
+
+    async def scenario() -> None:
+        bridge_session = session()
+        host = BridgeIpcHost(bridge_session)
+        descriptor = await host.prepare(tmp_path / "descriptor.pb")
+        control_reader, control_writer = await connect(descriptor, envelope_pb2.CHANNEL_CONTROL)
+        _event_reader, event_writer = await connect(descriptor, envelope_pb2.CHANNEL_EVENT)
+        value = hello(bridge_session)
+        await write_frame(
+            control_writer,
+            envelope(
+                bridge_session,
+                BRIDGE_HELLO_TYPE,
+                envelope_pb2.CHANNEL_CONTROL,
+                1,
+                value.SerializeToString(deterministic=True),
+            ),
+        )
+        await host.authenticate()
+
+        plan = InputPlan(hold_seconds=8.0, use_seconds=8.0, look=True, yaw_degrees=45.0)
+        plan.action_id = "action-1"
+        commands = plan.commands(lease(), LEASE_DEADLINE)
+        # The order is the plan's, and it is stable so that a run's ledger reads
+        # in the order the client was told to do things.
+        assert [name for _, name, _ in commands] == [
+            MOVE_INPUT_TYPE,
+            USE_INPUT_TYPE,
+            LOOK_INPUT_TYPE,
+        ]
+
+        for _, message_type, message in commands:
+            await host.send_control(message_type, message)
+            frame = await _frame_of_type(control_reader, message_type)
+            assert frame.payload == message.SerializeToString(deterministic=True)
+
+        await host.close()
+        await close_writers(control_writer, event_writer)
+
+    asyncio.run(scenario())
+
+
+async def _frame_of_type(reader: asyncio.StreamReader, message_type: str) -> envelope_pb2.Envelope:
+    """The next control frame of this type, skipping the heartbeats in between."""
+
+    for _ in range(32):
+        frame = await asyncio.wait_for(read_frame(reader), 1)
+        if frame.message_type == message_type:
+            return frame
+    raise AssertionError(f"no {message_type} frame arrived")
 
 
 def test_control_sequence_allocation_is_atomic_across_concurrent_senders() -> None:

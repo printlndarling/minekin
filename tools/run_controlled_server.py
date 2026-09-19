@@ -37,6 +37,16 @@ FIXED_WORLD_SEED = "minekin-p0-controlled"
 # else. The command goes to the server's console, where a newline would be a
 # second command, so the shape is checked rather than escaped.
 _ENTITY_ID = re.compile(r"^[a-z0-9_.-]+(:[a-z0-9_./-]+)?$")
+#: What the server says when a `setblock` worked, which is where the block it
+#: placed is. The coordinates are the point: the Kin moves, the block does not.
+_BLOCK_PLACED = re.compile(r"Changed the block at (-?\d+), (-?\d+), (-?\d+)")
+#: The two words the block probe has the server say, one per state. Named here
+#: because the asserter reads them and the two sides have to be one string.
+#: How many times a run will put a block in front of the Kin before it stops
+#: trying. Bounded rather than "until it works", because a scene that never gets
+#: used is a fact about the run and the log should say so once rather than keep
+#: filling up with blocks nobody pressed.
+MAX_USE_TARGETS = 12
 READY_MARKER = "Done ("
 DEFAULT_READY_TIMEOUT_S = 240.0
 
@@ -239,6 +249,123 @@ def rotation_probe_command(player: str) -> str:
     return f"data get entity {player} Rotation"
 
 
+def use_target_command(player: str) -> str:
+    """The console line that puts a use-able block in front of a player.
+
+    A note block, three blocks ahead in the layer the Kin's eyes are in, and both
+    halves of that are settled by measurement rather than by preference:
+
+    * **A block the look cannot miss.** The first version of this put a lever
+      there, and a lever's shape is `createCuboidShape(5, 0, 4, 11, 6, 12)` — six
+      sixteenths of a block tall, standing on the floor of its block. A standing
+      player's eyes are 0.62 of the way up their own block and the shape's top
+      edge is at 0.625, so a level look passes five thousandths of a block under
+      it; a look tilted down reaches it only within a narrow band of distances;
+      and the one thing this run cannot do is stand still, because it is also
+      measuring a walk. Walking is along the look, so the Kin carries the ray
+      *along itself* and each lever is at the right distance for a tenth of a
+      second. A note block is a full cube and the ray cannot miss it at any
+      distance — and its `note` is not a state the world can put back.
+
+    * **Three blocks, so the Kin walks into it.** The Kin stops against it, which
+      is what turns a moving aim into a still one, and is also the walk-and-stop
+      the harness waits for. It stops about 2.7 blocks later, which is more than
+      the two blocks that separate a walk from a shove.
+
+    `keep` rather than `replace`: if the space is not free the command says so
+    instead of carving a hole in the world for the test to succeed in.
+    """
+
+    _checked_player(player)
+    return f"execute at {player} run setblock ^ ^1 ^3 minecraft:note_block[note=0] keep"
+
+
+#: What the block probe has the server say, one state each. Named here because
+#: the asserter reads them and the two sides have to be one string. The state is
+#: asked as a predicate rather than read as data, for a measured reason: `data get
+#: block` answers for block entities and a note block is not one — this pinned
+#: server replies "The target block is not a block entity". `execute if block`
+#: answers `Test passed` or `Test failed`, and these words are what the command
+#: has the server say on the way, because otherwise every answer is the same two
+#: words whichever state was asked about.
+BLOCK_CHANGED = "minekin-target-changed"
+BLOCK_INITIAL = "minekin-target-initial"
+
+
+def block_probe_commands(position: tuple[int, int, int]) -> tuple[str, str]:
+    """The console lines that make the server say whether the block still is what
+    it was placed as.
+
+    Asked as a predicate rather than read as data, for a measured reason: `data get
+    block` answers for block *entities*, and this pinned server said so when it was
+    asked about a note block's `note` — "The target block is not a block entity".
+    `execute if block` answers `Test passed` or `Test failed` either way, which is
+    why each question has the server *say* which state it asked about.
+
+    The position is the block's own, learned from the server's reply to the
+    placement, and not a place relative to the Kin: the Kin walks, and `^ ^1 ^3`
+    from a moving player asks about a hillside as soon as it has taken a step.
+    """
+
+    x, y, z = position
+    return (
+        f"execute if block {x} {y} {z} minecraft:note_block[note=0] run say {BLOCK_INITIAL}",
+        f"execute unless block {x} {y} {z} minecraft:note_block[note=0] run say {BLOCK_CHANGED}",
+    )
+
+
+def initial_block_probe_command(player: str) -> str:
+    """The same question, asked where the block was just put.
+
+    The one moment the "before" of a change can be recorded without knowing the
+    world's geometry: the Kin is standing three blocks back from it, in the same
+    console burst as the placement, and — because the placement is three blocks
+    out and the reach is four and a half — a press that lands before this question
+    is answered could already have changed it. Asked relatively for exactly that
+    reason: the coordinates are not known until the server has answered the
+    placement, and by then the Kin has moved.
+    """
+
+    _checked_player(player)
+    return (
+        f"execute at {player} if block ^ ^1 ^3 minecraft:note_block[note=0] run say {BLOCK_INITIAL}"
+    )
+
+
+def placed_blocks(log: Path) -> tuple[tuple[int, int, int], ...]:
+    """Where the server said each block it placed went, in the order it said so.
+
+    Its reply to a `setblock` names the coordinates — measured: `Changed the block
+    at -7, -60, 4` — which is the only way this tool can ask about that same block
+    later without knowing the world's geometry.
+    """
+
+    try:
+        text = log.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return ()
+    return tuple((int(x), int(y), int(z)) for x, y, z in _BLOCK_PLACED.findall(text))
+
+
+def block_spoken_of(log: Path) -> bool:
+    """Whether the server has yet said the block is no longer what it was placed as."""
+
+    try:
+        text = log.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return False
+    return BLOCK_CHANGED in text
+
+
+def _checked_player(player: str) -> None:
+    """A console command takes the name, so the name is checked, not escaped."""
+
+    from minekin_core.domain.offline_identity import is_valid_username
+
+    if not is_valid_username(player):
+        raise SystemExit(f"not a vanilla player name: {player!r}")
+
+
 def _sha1(stream: BinaryIO) -> str:
     digest = hashlib.sha1(usedforsecurity=False)
     while chunk := stream.read(1024 * 1024):
@@ -323,6 +450,11 @@ def main() -> int:
         help="how long after the join to kill it (default 6)",
     )
     parser.add_argument(
+        "--use-target",
+        action="store_true",
+        help="put a block in front of the probed player and ask the server for its state",
+    )
+    parser.add_argument(
         "--probe-player",
         default=None,
         metavar="NAME",
@@ -376,6 +508,25 @@ def main() -> int:
     summon = None if args.summon is None else summon_command(args.summon)
     probe = None if args.probe_player is None else position_probe_command(args.probe_player)
     rotation = None if args.probe_player is None else rotation_probe_command(args.probe_player)
+    if args.use_target and args.probe_player is None:
+        # Refused rather than defaulted: "in front of" is in front of somebody,
+        # and a block in front of nobody is a block this run never asked about.
+        raise SystemExit("--use-target needs --probe-player to put it in front of")
+    target = None if not args.use_target else use_target_command(args.probe_player or "")
+    initial_block = (
+        None if not args.use_target else initial_block_probe_command(args.probe_player or "")
+    )
+    asked_about_block = args.use_target
+    #: Every block the server has said it placed, oldest first. A list rather than
+    #: one position because the block is placed again and again while the Kin
+    #: turns: only the one it is looking at when a press lands can be touched.
+    blocks: list[tuple[int, int, int]] = []
+    placements = 0
+    #: Whether the burst that is owed the moment the Kin is in the world has
+    #: happened. Kept apart from the cadence for the reason the comment below the
+    #: loop gives: five seconds after a join is five seconds of a moving Kin.
+    probed_at_join = False
+    probed_player = str(args.probe_player or "")
     kill = None if args.kill_player is None else kill_command(args.kill_player)
     kick = None if args.kick_player is None else kick_command(args.kick_player)
     pending: list[tuple[str, str]] = []
@@ -415,15 +566,61 @@ def main() -> int:
             if args.keep_running:
                 print("server is up; press Ctrl+C to stop it cleanly")
                 while process.poll() is None:
+                    # The first reading is owed the moment the Kin is in the world
+                    # rather than at the next tick of the cadence, because the join
+                    # is when the scene has to be there. The Core drives the Kin the
+                    # instant the world is playable — a fraction of a second later —
+                    # and the heading it turns *from* is only visible before that.
+                    # Measured on a run that waited for a five second cadence: the
+                    # heading it turned from was never sampled, so a turn showed up
+                    # as no turn and the case failed on a clock.
+                    joined = (
+                        not probed_at_join
+                        and bool(probed_player)
+                        and has_joined(log, probed_player)
+                    )
                     if (
                         probe is not None
                         and process.stdin is not None
-                        and time.monotonic() >= next_probe
+                        and (time.monotonic() >= next_probe or joined)
                     ):
-                        # Written to the console, so the server's own log holds
-                        # where the player was and when. A run that moved the Kin
-                        # is one the server can be asked about; nothing else in
-                        # the run can answer for it.
+                        if joined:
+                            probed_at_join = True
+                        # Every block the server has said it placed, which is the
+                        # only way to ask about one of them later without knowing
+                        # the world's geometry.
+                        for position in placed_blocks(log):
+                            if position not in blocks:
+                                blocks.append(position)
+                        if (
+                            target is not None
+                            and probed_at_join
+                            and placements < MAX_USE_TARGETS
+                            and not block_spoken_of(log)
+                        ):
+                            # Asked repeatedly rather than once, and that is the
+                            # whole point of the repetition: the block has to be in
+                            # front of the Kin *and* the Kin has to be looking at
+                            # it, and at the join it is looking one way and about
+                            # to be told to look another. Rather than guess when the
+                            # turning has stopped, the tool keeps putting a block
+                            # where the Kin is currently looking until the server
+                            # says one has been used — the ones placed at the wrong
+                            # moment are simply never reached.
+                            #
+                            # And only once the Kin is in the world: a `setblock` at
+                            # a player who has not joined fails with "No entity was
+                            # found", which is a line in a console nobody reads, so
+                            # the tool would carry on asking about a block that was
+                            # never put anywhere. Measured on a run that did exactly
+                            # that — zero mentions of it in the log.
+                            process.stdin.write((target + "\n").encode())
+                            process.stdin.flush()
+                            placements += 1
+                            print(f"asked the server for a use target, number {placements}")
+                            if initial_block is not None:
+                                process.stdin.write((initial_block + "\n").encode())
+                                process.stdin.flush()
                         process.stdin.write((probe + "\n").encode())
                         process.stdin.flush()
                         if rotation is not None:
@@ -434,6 +631,19 @@ def main() -> int:
                             process.stdin.write((rotation + "\n").encode())
                             process.stdin.flush()
                         next_probe = time.monotonic() + args.probe_every_seconds
+                    # The block the Kin is at, asked far more often than anything
+                    # else, and for a measured reason: its state changes on every
+                    # use, a held key uses it about every five ticks, and the value
+                    # it cycles through comes back around to the one it was placed
+                    # with. Which state a run catches by looking once is therefore
+                    # a matter of when it looked, and the evidence is not that state
+                    # but that the block was ever in another. Catching that needs a
+                    # question asked faster than the thing it asks about: two ticks
+                    # apart, against a value that holds for five.
+                    if asked_about_block and blocks and process.stdin is not None:
+                        for question in block_probe_commands(blocks[-1]):
+                            process.stdin.write((question + "\n").encode())
+                            process.stdin.flush()
                     # Console commands that end a session in the two ways the
                     # contract names separately: a death leaves the client running
                     # with a screen owning the keyboard, and a kick ends the

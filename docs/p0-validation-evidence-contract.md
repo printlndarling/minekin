@@ -176,7 +176,7 @@ HOST世界保存/恢复另需 `HOSTCOMMIT-001…110` 证据；它验证默认维
 2. `CORE-010`：到主菜单、hello、握手、OBSERVE_ONLY；Runtime 缺失/晚到/错误协议。
 3. `CORE-020`：原版 dedicated offline join；服务端 name/UUID、JOIN首快照与退出。
 4. `CORE-030`：LAN join；端口变化、host 退出和重新进入。
-5. `CORE-040`：最小合法 move/look/use；Bridge trace 与 server truth 都能解释结果。（2026-09-20 状态：`use` 尚未接线，`look` 已有实现但本用例只覆盖 **move** 那条链——因此 `tests/fixtures/cases/core-040.json` 目前是 **mandatory: false**，它的证据登记在册但不参与晋级门禁。把 `use` 接上并让本用例覆盖全部三种动作之后才应当改为 mandatory。）
+5. `CORE-040`：最小合法 move/look/use；Bridge trace 与 server truth 都能解释结果。（2026-09-20 状态：**三种动作都已覆盖，本用例已是 `mandatory: true`**。`use` 已接线（第四条能力 `control.use.v1`、第四条 wire 消息 `UseInput`），并且有一条把它变成服务端可观察的事实的场景：Kin 走向一个摆在三格外的音符盒、撞上去停住、按住 use，服务端每次都被问它是不是还是被摆下去时的状态。六条断言（move 四条 + 转向 + 方块状态改变）在一轮真实运行里全部通过、封存、可验。它是本仓库第一个同时覆盖 move/look/use 的用例。）
 6. `CORE-050`：握手前、JOIN前、首快照前的输入全部被拒绝。
 7. `CORE-060`：逐个强杀 Runtime、Launcher、client、server；验证 lease、松键、回收和重验。（2026-09-20 状态：只有**强杀 Core** 这一种已经有用例（`tests/fixtures/cases/core-060.json`，判据是账本里的 lease + 客户端日志里 Bridge 的 `IPC_LOST` 松键 + 服务端读数停住），另外三种进程与"回收/重验"尚未覆盖，因此该用例目前是 **mandatory: false**：它的证据登记在册但不参与晋级门禁。四种故障都覆盖之后才应当改为 mandatory。）
 8. `CORE-070`：断线/半帧/慢消费者/事件洪水；有界背压且无危险重放。

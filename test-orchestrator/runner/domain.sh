@@ -41,6 +41,16 @@ black_hole="${MINEKIN_DOMAIN_BLACK_HOLE:-}"
 # failure where the client gets all the way into the login handshake and the
 # *server* is what says no.
 not_whitelisted="${MINEKIN_DOMAIN_NOT_WHITELISTED:-}"
+# A block three in front of the Kin, and the server asked what state it is in. A
+# use that changes nothing is a key held at nothing, so the scene puts something
+# in front that can change and the reading is the server's own.
+#
+# It is a note block and not a lever, and three blocks out rather than two, for
+# measured reasons given in full in the tool's own `use_target_command`: this run
+# also measures a walk, a walk carries the look along itself, and what is wanted
+# is a block the ray cannot miss at any distance — one the Kin walks into and
+# stops against, which is also the walk-and-stop this harness waits for.
+use_target="${MINEKIN_DOMAIN_USE_TARGET:-}"
 # How often the server is asked about the Kin. A look is over within a second
 # of the join, so a run that wants a reading on both sides of it asks more
 # often than the default — the pair is what shows a heading changed.
@@ -74,6 +84,7 @@ for argument in "$@"; do
     previous="${argument}"
 done
 
+
 # Empty means "the world is as vanilla generated it", which is what every run
 # did before this existed — so it stays optional rather than becoming a required
 # argument with an empty value.
@@ -88,6 +99,9 @@ fi
 probe_args=()
 if [[ -n "${probe}" ]]; then
     probe_args=(--probe-player "${probe}" --probe-every-seconds "${probe_seconds}")
+fi
+if [[ -n "${use_target}" ]]; then
+    probe_args+=(--use-target)
 fi
 
 # And a run that is verifying the release a death causes has to be able to kill the
@@ -367,9 +381,13 @@ elif [ -z "${server_profile}" ]; then
     fi
 else
     deadline=$((SECONDS + seconds))
+    ended='the bound expired'
     for _ in $(seq 1 "${seconds}"); do
-        kill -0 "${session_pid}" 2>/dev/null || break
         [ "${SECONDS}" -lt "${deadline}" ] || break
+        # The ledger is read before the session is asked whether it is alive, and
+        # that order is the point: a session that died is exactly a session whose
+        # last ledger rows are the ones worth reading, and asking `kill -0` first
+        # reports "never became playable" about a run whose ledger says otherwise.
         recorded=$(/opt/sqlite/bin/sqlite3 "${ledger}" \
             "select 1 from event where position > ${baseline} and event_type='PlayableEstablished' limit 1;" \
             2>/dev/null || true)
@@ -377,16 +395,23 @@ else
             playable=1
             break
         fi
+        if ! kill -0 "${session_pid}" 2>/dev/null; then
+            ended='the session exited first'
+            break
+        fi
         sleep 1
     done
     # Said out loud either way. A bound that expires quietly turns "the Kin never
     # joined" into "the harness moved on", and the two need different answers: this
     # one has already done it once, on a run whose client took three minutes to
-    # boot because the asset materialisation was cold.
+    # boot because the asset materialisation was cold. Which of the two happened
+    # is said too, because "it exited" and "it was still starting" are answered by
+    # reading different things.
     if [ "${playable}" -eq 1 ]; then
         printf 'domain: the session is playable\n' >&2
     else
-        printf 'domain: the session never became playable within %ss\n' "${seconds}" >&2
+        printf 'domain: the session never became playable within %ss (%s)\n' \
+            "${seconds}" "${ended}" >&2
     fi
 fi
 

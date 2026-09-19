@@ -18,6 +18,9 @@ MINEKIN_SERVER_JAR=<path> MINEKIN_DOMAIN_SUMMON=minecraft:pig \
 MINEKIN_SERVER_JAR=<path> MINEKIN_DOMAIN_PROBE=Kin \
     bash test-orchestrator/runner/run.sh domain session start --profile <bundle> --server-profile <profile> \
         --hold-forward-seconds 8
+MINEKIN_SERVER_JAR=<path> MINEKIN_DOMAIN_PROBE=Kin MINEKIN_DOMAIN_USE_TARGET=1 \
+    bash test-orchestrator/runner/run.sh domain session start --profile <bundle> --server-profile <profile> \
+        --hold-forward-seconds 8 --hold-use-seconds 8 --look-yaw-degrees 45
 MINEKIN_SERVER_JAR=<path> MINEKIN_DOMAIN_PROBE=Kin MINEKIN_DOMAIN_SILENCE=1 \
     bash test-orchestrator/runner/run.sh domain session start --profile <bundle> --server-profile <profile> \
         --hold-forward-seconds 60
@@ -430,6 +433,69 @@ read out of the compiled method, and confirmed here by the result.
 The two kinds of reading are told apart by shape, not by wording: the server
 answers both probes with the same words, and only a position has three
 components.
+
+### A Kin that uses something
+
+`--hold-use-seconds` makes Core hold the use key under a `control.use.v1` lease,
+and `MINEKIN_DOMAIN_USE_TARGET=1` puts something in front of the Kin that can
+change state, so that a use is a fact about the world rather than about a key.
+A server cannot be asked what a block *is* — `data get block` answers for block
+entities, and this one answers `The target block is not a block entity` for
+everything else — so the question is asked as a predicate, and the command makes
+the server say which state it asked about:
+
+```text
+$ MINEKIN_SERVER_JAR=… MINEKIN_DOMAIN_PROBE=Kin MINEKIN_DOMAIN_USE_TARGET=1 \
+      MINEKIN_DOMAIN_PROBE_SECONDS=1 bash test-orchestrator/runner/run.sh domain \
+      session start --profile … --server-profile … \
+      --hold-forward-seconds 8 --hold-use-seconds 8 --look-yaw-degrees 45
+server   [23:32:16] Kin joined the game
+server   [23:32:17] Changed the block at -4, -59, 9
+server   [23:32:17] [Server] minekin-target-initial
+server   [23:32:17] Kin has the following entity data: [-3.5d, -60.0d, 6.5d]
+server   [23:32:17] Kin has the following entity data: [0.0f, 0.0f]
+server   [23:32:20] Kin has the following entity data: [-8.5d, -60.0d, 9.87d]
+server   [23:32:20] Kin has the following entity data: [45.0f, 0.0f]
+server   [23:32:20] [Server] minekin-target-changed
+client   [23:32:19] bridge pressed use.hand
+ledger   InputLeaseGranted{capability: control.use.v1} → InputReleased{TIMEOUT}
+```
+
+The block is placed in the layer the Kin's eyes are in, three blocks ahead, and
+the Kin walks into it and stops — which is what makes the aim still while the
+walk is being measured, and is also the walk-and-stop the harness waits for. It
+is a note block rather than a lever, and the difference is the whole difficulty:
+
+* **A lever is smaller than the ray's aim.** `javap` on this client's
+  `LeverBlock` gives `createCuboidShape(5, 0, 4, 11, 6, 12)` — six sixteenths of a
+  block, standing on the floor of its block. A standing player's eyes are at
+  1.62, which is **0.62** of the way up their own block, and the shape's top edge
+  is at 0.625: a level look passes five thousandths of a block *under* it. A look
+  tilted down reaches it only within a narrow band of distances, and this run is
+  walking — a walk carries the ray along itself, so the lever is at the right
+  distance for about a tenth of a second and the held key repeats every five
+  ticks. A note block is a full cube: there is no aim to get wrong.
+* **A state that toggles is a state a probe can miss.** A lever flips, and a held
+  key flips it back — every five ticks, against a probe cadence of five seconds,
+  which is exactly ten flips: every sample lands in the same half of the cycle.
+  The first run of this read a lever that was being switched off and on every
+  fifth of a second as a lever nothing had touched. So the state is one that
+  advances instead of toggling, and it is asked about every loop (~two ticks)
+  rather than on the cadence: what the case needs is not *what* the block is now
+  but that it was ever not what the harness placed.
+* **Which layer `^` measures from.** Local coordinates are measured from the
+  player's position — their feet — and the forward axis is **horizontal**: a run
+  whose Kin was pitched ten degrees down still had `^ ^ ^2` land in the feet
+  layer, one below the layer the look travels through, and an `anchored eyes` in
+  front of it changed nothing either. The offset is therefore `^ ^1 ^3`, which
+  says the layer rather than relying on the pitch.
+
+The scene is set up more than once, on purpose. The join is too early — the Kin
+is looking one way and is about to be told to look another, and a block placed
+then is simply never walked into — so the tool keeps placing one where the Kin is
+currently looking until the server says one of them has been used. Bounded at
+twelve, because a scene that never gets used is a fact about the run and the log
+should say so once.
 
 ### When Core stops answering
 

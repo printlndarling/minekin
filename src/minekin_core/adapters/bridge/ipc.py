@@ -64,17 +64,21 @@ USE_INPUT_TYPE: Final = "minekin.v1.UseInput"
 INITIAL_OBSERVATION_TYPE: Final = "minekin.v1.InitialObservation"
 ACTION_RESULT_TYPE: Final = "minekin.v1.ActionResult"
 _UINT64_MAX: Final = (1 << 64) - 1
-_CONTROL_TYPES: Final = frozenset(
-    {
-        CONNECT_WORLD_TYPE,
-        CANCEL_CONNECTION_TYPE,
-        RELEASE_ALL_INPUTS_TYPE,
-        MOVE_INPUT_TYPE,
-        LOOK_INPUT_TYPE,
-        USE_INPUT_TYPE,
-        HEARTBEAT_TYPE,
-    }
-)
+# The admitted control message types, each with the protobuf class that carries
+# it. One table rather than a set plus a second lookup, because two lists of the
+# same names is one place to add a message and one place to forget it — which is
+# exactly what had happened when `UseInput` arrived, and the forgetting was a
+# `KeyError` on the send path rather than anything that named the problem.
+_CONTROL_TYPES: Final = {
+    CONNECT_WORLD_TYPE: control_pb2.ConnectWorld,
+    CANCEL_CONNECTION_TYPE: control_pb2.CancelConnection,
+    RELEASE_ALL_INPUTS_TYPE: control_pb2.ReleaseAllInputs,
+    MOVE_INPUT_TYPE: control_pb2.MoveInput,
+    LOOK_INPUT_TYPE: control_pb2.LookInput,
+    USE_INPUT_TYPE: control_pb2.UseInput,
+    HEARTBEAT_TYPE: session_pb2.Heartbeat,
+}
+_SENDABLE_CONTROL_TYPES: Final = frozenset(_CONTROL_TYPES) - {HEARTBEAT_TYPE}
 _EVENT_TYPES: Final = {
     CONNECTION_LIFECYCLE_TYPE: observation_pb2.ConnectionLifecycle,
     INITIAL_OBSERVATION_TYPE: observation_pb2.InitialObservation,
@@ -294,16 +298,9 @@ class BridgeIpcHost:
     async def send_control(self, message_type: str, message: Message) -> None:
         if not self._authenticated:
             raise RuntimeError("Bridge session is not authenticated")
-        if message_type not in _CONTROL_TYPES - {HEARTBEAT_TYPE}:
+        if message_type not in _SENDABLE_CONTROL_TYPES:
             raise ValueError("control message type is not admitted")
-        expected_type: type[Message]
-        expected_type = {
-            CONNECT_WORLD_TYPE: control_pb2.ConnectWorld,
-            CANCEL_CONNECTION_TYPE: control_pb2.CancelConnection,
-            RELEASE_ALL_INPUTS_TYPE: control_pb2.ReleaseAllInputs,
-            MOVE_INPUT_TYPE: control_pb2.MoveInput,
-            LOOK_INPUT_TYPE: control_pb2.LookInput,
-        }[message_type]
+        expected_type = _CONTROL_TYPES[message_type]
         if not isinstance(message, expected_type):
             raise TypeError(f"{message_type} payload has the wrong protobuf type")
         if (

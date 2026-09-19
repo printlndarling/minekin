@@ -100,6 +100,16 @@ WORLD_CLAIMING_STATES = frozenset({"PLAYABLE", "JOIN_SEEN"})
 #: tells the two readings apart.
 _PROBE = re.compile(r"has the following entity data: \[([^\]]*)\]")
 
+#: What the server says when it is asked whether the block in front of the Kin is
+#: still what the harness placed there. A predicate rather than a value, for a
+#: measured reason: `data get block` answers for block entities and a note block
+#: is not one — this pinned server replies "The target block is not a block
+#: entity". `execute if block` answers `Test passed` or `Test failed` either way,
+#: so the words below are what the harness has the server say on the way.
+BLOCK_INITIAL = "minekin-target-initial"
+BLOCK_CHANGED = "minekin-target-changed"
+_BLOCK = re.compile(rf"{BLOCK_INITIAL}|{BLOCK_CHANGED}")
+
 _LEDGER_COLUMNS = (
     "position, event_id, event_type, schema_version, kin_id, run_id, "
     "client_instance_id, session_id, generation, world_context_id, sequence, "
@@ -736,6 +746,55 @@ def the_cancel_reached_the_client_and_was_acted_on(material: RunMaterial) -> str
     return None
 
 
+def the_server_saw_the_kin_turn(material: RunMaterial) -> str | None:
+    """Two headings, in the server's own readings.
+
+    A turn is not a movement, so no *position* reading can show one: what shows
+    it is the rotation the server reports. How many degrees were asked for is the
+    harness's own comparison against the run's command line; what is readable
+    from the material is that the Kin's heading changed and the world saw it.
+
+    Standing still is deliberately *not* part of this. A run may walk and turn at
+    once — the harness does — and demanding stillness here would make the case
+    assert something about the run rather than about the turn.
+    """
+
+    headings = probe_readings(material.server_log, 2)
+    if len(headings) < 2:
+        return "NO_SERVER_READINGS"
+    if len({reading[0] for reading in headings}) < 2:
+        return "NO_TURN_OBSERVED"
+    return None
+
+
+def the_server_saw_the_block_change(material: RunMaterial) -> str | None:
+    """The block in front of the Kin changed state, in the server's own answer.
+
+    A key held at nothing changes nothing. The harness puts a block in front of the
+    Kin — a note block, placed with note zero — asks the server whether it is still
+    in that state in the same breath as putting it there, and then asks about the
+    same block, by the coordinates the server itself named when it placed it, over
+    and over afterwards. Both halves of the change are therefore the server's own
+    words about one block, and neither is the client's idea of what it touched.
+
+    Asked as a predicate rather than read as a value, so a block and a block that
+    changed are told apart by what came back rather than by what was asked: a block
+    the harness never managed to place answers neither question, and one that was
+    placed and then left alone answers the first one every time.
+    """
+
+    readings = _BLOCK.findall(material.server_log)
+    if not readings:
+        return "THE_BLOCK_WAS_NEVER_ASKED_ABOUT"
+    if BLOCK_CHANGED not in readings:
+        return "THE_BLOCK_NEVER_CHANGED"
+    if BLOCK_INITIAL not in readings:
+        # The harness places it in that state, so its absence is not "the Kin was
+        # quick": it means this run cannot say what the block was before.
+        return "THE_BLOCK_WAS_NEVER_IN_ITS_PLACED_STATE"
+    return None
+
+
 #: Every assertion a case manifest may name, and what performs it. A name that is
 #: not here cannot be judged, which the verdict reports rather than passing over.
 ASSERTIONS: dict[str, Callable[[RunMaterial], str | None]] = {
@@ -759,6 +818,8 @@ ASSERTIONS: dict[str, Callable[[RunMaterial], str | None]] = {
     ),
     "the_refusal_was_classified_in_the_ledger": the_refusal_was_classified_in_the_ledger,
     "the_bridge_classified_the_refusal": the_bridge_classified_the_refusal,
+    "the_server_saw_the_kin_turn": the_server_saw_the_kin_turn,
+    "the_server_saw_the_block_change": the_server_saw_the_block_change,
 }
 
 

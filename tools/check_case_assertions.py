@@ -110,6 +110,8 @@ IMPLEMENTATIONS: dict[str, Implementation] = {
         "the_refusal_was_classified_in_the_ledger"
     ),
     "the_bridge_classified_the_refusal": _runtime("the_bridge_classified_the_refusal"),
+    "the_server_saw_the_kin_turn": _runtime("the_server_saw_the_kin_turn"),
+    "the_server_saw_the_block_change": _runtime("the_server_saw_the_block_change"),
 }
 
 

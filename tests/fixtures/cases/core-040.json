@@ -2,7 +2,7 @@
   "schema_version": 1,
   "case_id": "CORE-040",
   "work_package": "W60",
-  "mandatory": false,
+  "mandatory": true,
   "inputs": [
     "tests/fixtures/runtime-input/bundle-p0-core-1.21.4.json",
     "tests/fixtures/runtime-input/controlled-offline-server.json"
@@ -11,6 +11,8 @@
     "move_input_was_leased",
     "the_bridge_carried_the_input_out",
     "the_server_saw_the_kin_move",
-    "the_lease_expired_and_was_released"
+    "the_lease_expired_and_was_released",
+    "the_server_saw_the_kin_turn",
+    "the_server_saw_the_block_change"
   ]
 }

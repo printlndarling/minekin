@@ -377,7 +377,7 @@
   - **判据是从一次真实运行里量出来的**：`--hold-forward-seconds 3` 的那一轮，服务端读数是 `[-7.5, -60.0, 4.5]` → `[-7.5, -60.0, 17.66]` → 同样的值（**位移 13.16 格**，与"步行 4.3 格/秒 × 3 秒"对得上，末两条相同即停住），账本是 `InputLeaseGranted{capability: control.move.v1}` → `InputReleased{reason: TIMEOUT}`，run document 是 `actions_applied: 1, actions_refused: 0`。
   - **两个读数形状必须分得开**：服务端回答位置是 `[x, y, z]`、回答朝向是 `[yaw, pitch]`——**同一句话、只有形状不同**，所以读数按分量个数区分，有一条用例专门钉住"两分量的读数不会被当成位置"。"走了一格"的阈值（2 格）不是调出来的：步行 4.3 格/秒、而这只猪把 Kin 拱开不到一格，阈值取的是这两者之间的量级差——harness 也是用同一个数字决定什么时候停止等待，理由写在断言里。
   - **实测**：`MINEKIN_DOMAIN_CASE=CORE-040` 那一轮 → 四条断言全部 `observed`、`result: PASS`、9 件工件、`evidence verify` 报 `verified: true, sealed: true`。**harness 一行都没改**——走这条链所需的一切（probe 读数、run document、账本）已经在它写的材料里了。
-  - **它现在是 `mandatory: false`，原因写在契约自己的 CORE-040 条目里**：契约那条写的是 move/look/**use**，而 `use` 还没接线、本用例只覆盖 **move** 那一条链。让一个只覆盖三分之一动作的用例去把 L4 的门禁点亮，等于用真实证据说一句不真实的话。它的证据仍然**在册**（晋级报告的 `evidence.bundles` 里能看到它 PASS 且 verified），只是不参与判定；等 `use` 接上、三种动作都覆盖之后才应当改成 mandatory。
+  - **它现在是 `mandatory: false`，原因写在契约自己的 CORE-040 条目里**：契约那条写的是 move/look/**use**，而 `use` 还没接线、本用例只覆盖 **move** 那一条链。让一个只覆盖三分之一动作的用例去把 L4 的门禁点亮，等于用真实证据说一句不真实的话。它的证据仍然**在册**（晋级报告的 `evidence.bundles` 里能看到它 PASS 且 verified），只是不参与判定；等 `use` 接上、三种动作都覆盖之后才应当改成 mandatory。（2026-09-20 更新：这件事已经做了，见本文件下面那条——`use` 已接线，三种动作在同一轮里被服务端看见，`CORE-040` 现在是 `mandatory: true`。）
 - [x] **域现在把高度也报出来**：`reported_heights()` 取位置读数里的第二个分量，走完那条消息从"walk and stop"变成"walk and stop; its height moved through N blocks"——**跳跃是唯一只在这一项里出现的事**（同一个位置、不同的高度），所以它需要一个能被读到的数字，而不是一条"它动了"的断言。
 
 
@@ -388,6 +388,18 @@
   - **重录 pin（两侧逐字节相同）**：Windows 构建与 Linux 容器构建都是 `580daa93…`、1,266,556 字节；源码树摘要 `9af6db41…`。`recipe.py` 两个常量、fixture 的 `digest`/`size`/`source_digest` 一起更新——**并且 `proto/minekin/v1/control.proto` 自己也是冻结工件**，它的摘要行也得跟着动（fixture 摘要门禁当场抓到了这一条）。
   - **三道既有的 pin 各自尽了职**：Java 的 `InputBindingTest` 钉着 wire 名字的完整列表（加 `use.hand` 才通过）、`test_bridge_ipc_host` 钉着协商出来的 capability 集合（加 `control.use.v1` 才通过）、离线编译门禁的 `GameOptions` stub 缺 `useKey` 时直接编译失败。三次都是"改完就红"，这正是它们存在的理由。
   - **仍未做的，也是这一步的边界**：**还没有任何一次运行真的"用了"什么**。能力由两侧的单元用例与离线编译门禁验证，但服务端可观察的 use（对着一块能改变状态的方块按下去，再从服务端问它的状态）需要新场景与新探针——那是下一步，做完之后 `CORE-040` 才有资格从 `mandatory: false` 变成门禁的一部分。
+
+- [x] **`use` 现在有一次真实运行作证，`CORE-040` 因此改成 `mandatory: true`——这是第一次让一个用例同时覆盖 move/look/use 三种动作。** 六条断言（move 四条 + 转向 + 方块状态改变）在一轮真运行里全部 `observed`、`result: PASS`、9 件工件、`evidence verify` 通过、harness 退出码 0；晋级报告的 `overall.blocking_cases` 里已经**没有 `CORE-040`**（它此前一直在那儿，且在案的 PASS 包都是 `mandatory: false` 时留下的）。换掉的是「只覆盖三分之一的用例不该点亮 L4 门禁」那句顾虑——现在它不成立了，因为三种动作是在同一轮里被服务端看见的。
+  - **场景**：`MINEKIN_DOMAIN_CASE=CORE-040 MINEKIN_DOMAIN_PROBE=Kin MINEKIN_DOMAIN_USE_TARGET=1 MINEKIN_DOMAIN_PROBE_SECONDS=1` + `--hold-forward-seconds 8 --hold-use-seconds 8 --look-yaw-degrees 45`。三个开关都不可省：`USE_TARGET` 让服务端工具在 Kin 面前摆一个能被「用」、状态可问的方块；`PROBE_SECONDS=1` 是因为**转向必须在 8 秒的 hold 之内被看见**（join 时一次 0°、转完后一次 45°，这一对就是「转过了」的证据，默认的 5 秒间隔量不到 pre-turn 那一次）；`--look-yaw-degrees` 就是那个转。
+  - **这一步试了四次，每次失败都指向一个量出来的事实**：
+    - **形状**：`javap` 出来的 `LeverBlock` 常量是 `FLOOR_Z_AXIS_SHAPE = createCuboidShape(5,0,4,11,6,12)`、`CEILING_Z_AXIS_SHAPE = (5,10,4,11,16,12)`——拉杆**只有 6/16 格高**，贴着方块底或顶；而站立玩家眼睛在 1.62，也就是自己方块往上 **0.62**。于是平视的射线从「立在地上的」顶上**差 0.005 格擦过**、从「挂在天花板上的」底下**差 0.005 格擦过**：两次都差一根头发，日志里一个字都不会有。拉杆不是"摆好了就行"的道具。
+    - **数据还是谓词**：`data get block <pos> powered` 对拉杆的回答实测是 **`The target block is not a block entity`**——它只答 block entity。所以探针只能是谓词 `execute if block …`，而谓词的两种答案都是 `Test passed`，因此命令里带 `run say minekin-target-…`，让服务端**自己说出**问的是哪个状态；断言读的就是这两个词。
+    - **局部坐标**：`^` 从玩家的**脚**量起，而它的「前」轴**不含俯仰**——实测一轮里 Kin 明明俯视 10°，`anchored eyes … ^ ^ ^2` 仍然落在脚那一层（比眼睛低一层），`anchored eyes` 本身也没改变结果。所以偏移写成 `^ ^1 ^3`：一格上（正好是眼睛那一层）+ 三格前（水平），与俯仰无关。
+    - **走路会把射线沿着自己搬**：这条运行同时要量「走」，而走的水平方向就是视线的水平方向，于是 Kin 一边走一边把射线**沿自身平移**——方块落在射线里的那一段距离只持续约 0.1 秒，而按住的 use 每 5 tick 才按一次，两次之间 Kin 已经走进去了。所以目标换成**满方块的音符盒**：射线在任何距离都打得到它（不存在"瞄准"这件事），并且摆在**三格**外——Kin 会**撞上去停住**，把"移动中的瞄准"变成"站定的瞄准"，同时正好是 harness 等的那个 walk-and-stop。停下时位移约 2.7 格，在"一次推挤"与"一步"的 2 格阈值之上。
+    - **采样会与它共振**：音符盒每次使用都进位，按住时每 5 tick 一次，而位置探针的间隔是 5 秒——**正好 10 个周期**，于是每次采样都落在同一个相位上，方块明明在变却每次都读成没变（第一次运行报的就是 `THE_BLOCK_NEVER_CHANGED`）。修法是两条：块状态**每次循环都问**（约 2 tick 一次，比它变化的节奏快），以及目标的状态**不是二值翻转而是一路进位**——"它曾经不是被摆下去时的那个状态"才是证据，"它现在是什么"不是。
+  - **顺带修掉一个把话说错的地方**：`send_control` 的类型→payload 表里**没有 `UseInput`**，所以三种动作一起发的那一轮，在第一条命令记完账之后就以 `KeyError` 崩了（CLI 把它脱敏成 `INTERNAL_INVARIANT` / 退出码 70），而**离线用例一个都没红**——因为没有任何测试把「计划能产生的每条命令」真的从 host 发出去。现在那张表是唯一的副本（`_CONTROL_TYPES` 由它派生，"加了类型但忘了 payload"这种状态不再可表达），并补了一条契约测试：把 `InputPlan.commands()` 产出的每一条都真实发过 loopback 并核对回程；**做过变异验证**——把 `UseInput` 那一行删掉，这条立刻红。
+  - **harness 的等待顺序也是错的，一并修了**：playable 的等待先问 `kill -0` 再读账本，于是**一个已经死掉的会话**会被报成「从未变成 playable」，而账本里明明写着 `PlayableEstablished`。现在先读账本再问进程，并且消息说清是两者中的哪一个（`the bound expired` / `the session exited first`）——一个把死因说错的诊断比没有诊断更贵。
+  - **它在 fixture 与契约里都改了**：`tests/fixtures/cases/core-040.json` 六条断言 + `mandatory: true`（fixture 摘要跟着重算）；契约自己的 CORE-040 条目改成「三种动作都已覆盖、此时才是 mandatory」。
 
 ## W70：恢复与证据晋级
 
