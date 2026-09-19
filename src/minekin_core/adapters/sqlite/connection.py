@@ -9,6 +9,8 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Final
 
+from minekin_core.domain.errors import ErrorCategory, MinekinError, Retryability
+
 APPLICATION_ID = 1_296_783_694  # ASCII "MKIN"
 APPLICATION_VERSION = "0.0.0"
 SCHEMA_VERSION = 2
@@ -35,8 +37,24 @@ _EXPECTED_TABLES: Final[Mapping[int, frozenset[str]]] = MappingProxyType(
 )
 
 
-class SQLiteCompatibilityError(RuntimeError):
-    """The database or SQLite runtime cannot safely implement this schema."""
+class SQLiteCompatibilityError(MinekinError):
+    """The database or SQLite runtime cannot safely implement this schema.
+
+    A `MinekinError` rather than a bare `RuntimeError`, because every message
+    here says what is wrong and what would satisfy the gate. As an unclassified
+    exception the CLI redacted all of them to "unexpected internal failure" —
+    which is what a stock Linux host actually got, since its SQLite is older
+    than the frozen WAL safety set.
+    """
+
+    def __init__(self, message: str) -> None:
+        super().__init__(
+            component="sqlite",
+            operation="connect",
+            category=ErrorCategory.STORAGE,
+            retryability=Retryability.OPERATOR_ACTION,
+            safe_message=message,
+        )
 
 
 def supports_multi_connection_wal(version: tuple[int, int, int]) -> bool:
@@ -52,9 +70,11 @@ def connect_writer(path: Path, *, busy_timeout_ms: int = 5_000) -> sqlite3.Conne
             f"SQLite {required} or newer is required; found {sqlite3.sqlite_version}"
         )
     if not supports_multi_connection_wal(sqlite3.sqlite_version_info):
+        accepted = " or ".join(".".join(map(str, backport)) for backport in sorted(WAL_BACKPORTS))
         raise SQLiteCompatibilityError(
-            "SQLite runtime is outside the validated multi-connection WAL safety set: "
-            f"{sqlite3.sqlite_version}"
+            f"SQLite {sqlite3.sqlite_version} is outside the validated multi-connection WAL "
+            f"safety set: this build accepts {'.'.join(map(str, WAL_SAFE_VERSION))} or newer, "
+            f"or the backports {accepted}"
         )
     if busy_timeout_ms < 0:
         raise ValueError("busy_timeout_ms cannot be negative")

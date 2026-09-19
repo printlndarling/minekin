@@ -2,17 +2,19 @@ from __future__ import annotations
 
 import io
 import json
+import sqlite3
 import subprocess
 from collections.abc import Sequence
 from pathlib import Path
 
 import pytest
 
-from minekin_core.bootstrap import run
+from minekin_core.adapters.sqlite.connection import SQLiteCompatibilityError
+from minekin_core.bootstrap import main, run
 from minekin_core.cli.doctor import diagnose
 from minekin_core.cli.parser import parse_args
 from minekin_core.config import RuntimeRequirements
-from minekin_core.domain.errors import ExitCode, MinekinError
+from minekin_core.domain.errors import ErrorCategory, ExitCode, MinekinError
 
 
 @pytest.mark.parametrize(
@@ -131,3 +133,38 @@ def test_doctor_fails_when_java_version_is_not_the_frozen_major() -> None:
     assert next(check for check in report.checks if check.name == "java").summary.startswith(
         "Java 17"
     )
+
+
+def test_an_unsupported_sqlite_is_reported_as_a_storage_problem(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The gate is deliberate, so its refusal has to reach the operator.
+
+    A stock Linux distribution ships a SQLite older than the frozen WAL safety
+    set. That refusal travelled as an unclassified exception, and the CLI
+    redacted it to "unexpected internal failure" — so the message saying exactly
+    what was wrong never appeared.
+    """
+
+    monkeypatch.setenv("MINEKIN_HOME", str(tmp_path))
+    monkeypatch.setenv("MINEKIN_USERNAME", "Kin")
+    monkeypatch.setattr(sqlite3, "sqlite_version_info", (3, 45, 1))
+    monkeypatch.setattr(sqlite3, "sqlite_version", "3.45.1")
+
+    # `main` is where an exception becomes the document the operator reads.
+    code = main(["init", "--kin-id", "kin-01"])
+    document = json.loads(capsys.readouterr().err)
+
+    assert code == int(ExitCode.STORAGE)
+    assert document["category"] == "STORAGE"
+    assert "3.45.1" in document["message"]
+    # Naming what would satisfy the gate is what makes it actionable.
+    assert "3.51.3" in document["message"]
+
+
+def test_the_compatibility_error_carries_its_own_message() -> None:
+    error = SQLiteCompatibilityError("SQLite 3.45.1 is outside the safety set")
+
+    assert error.safe_message == "SQLite 3.45.1 is outside the safety set"
+    assert error.category is ErrorCategory.STORAGE
+    assert error.exit_code is ExitCode.STORAGE
