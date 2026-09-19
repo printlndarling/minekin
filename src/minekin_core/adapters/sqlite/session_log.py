@@ -22,7 +22,7 @@ from typing import Any
 from minekin_core.adapters.sqlite.event_store import SQLiteEventStore, payload_digest
 from minekin_core.adapters.sqlite.writer import SQLiteWriter
 from minekin_core.application.ports.clock import Clock
-from minekin_core.application.ports.event_store import EventEnvelope
+from minekin_core.application.ports.event_store import EventEnvelope, OutboxItem
 from minekin_core.application.recovery_service import (
     RecoveryReport,
     reconcile_pending_outbox,
@@ -30,6 +30,7 @@ from minekin_core.application.recovery_service import (
 from minekin_core.domain.errors import MinekinError
 from minekin_core.domain.events import EventSource, TrustClass
 from minekin_core.domain.ids import CorrelationId, EventId
+from minekin_core.domain.recovery import RecoveryAction, recovery_action
 
 PROCESS_STARTED = "SessionProcessStarted"
 PROCESS_FAILED = "SessionProcessFailed"
@@ -196,6 +197,49 @@ class SessionEventLog:
             source=source,
             trust_class=trust_class,
         )
+
+    async def open_effect(self, *, effect_type: str, idempotency_key: str) -> str:
+        """Record the intent to perform an effect, before performing it.
+
+        §8 commits the acceptance and the outbox item together and only then
+        attempts the effect, so a crash in between leaves the intent on the
+        ledger. That is the whole point: an effect nobody recorded is an effect
+        nobody can reconcile.
+
+        An effect type this build cannot recover is refused here rather than
+        written, because a row that recovery would only refuse is a row that
+        stops the next start for no reason.
+        """
+
+        if recovery_action(effect_type).action is RecoveryAction.FAIL_CLOSED:
+            raise ValueError(f"{effect_type} is not an effect recovery can read")
+        outbox_id = EventId.new().value
+        item = OutboxItem(
+            outbox_id=outbox_id,
+            effect_type=effect_type,
+            idempotency_key=idempotency_key,
+            payload=None,
+            created_at_utc=self._clock.utc_now().isoformat(),
+        )
+        writer = SQLiteWriter(self._database)
+        await writer.start()
+        try:
+            await SQLiteEventStore(self._database, writer).append_with_outbox([], item)
+        finally:
+            await writer.aclose()
+        return outbox_id
+
+    async def settle_effect(self, outbox_id: str) -> None:
+        """Mark an effect finished, once its result has been recorded."""
+
+        writer = SQLiteWriter(self._database)
+        await writer.start()
+        try:
+            await SQLiteEventStore(self._database, writer).mark_outbox_complete(
+                outbox_id, self._clock.utc_now().isoformat()
+            )
+        finally:
+            await writer.aclose()
 
     async def _record_async(
         self,

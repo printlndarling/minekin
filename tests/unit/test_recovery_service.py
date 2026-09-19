@@ -4,14 +4,16 @@ from __future__ import annotations
 
 import asyncio
 import io
+import sqlite3
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
 from minekin_core.adapters.launcher.artifacts import ArtifactStore
+from minekin_core.adapters.launcher.supervisor import ProcessSupervisor
 from minekin_core.adapters.sqlite.event_store import SQLiteEventStore, payload_digest
-from minekin_core.adapters.sqlite.session_log import reconcile_outbox
+from minekin_core.adapters.sqlite.session_log import SessionEventLog, reconcile_outbox
 from minekin_core.adapters.sqlite.writer import SQLiteWriter
 from minekin_core.application.ports.clock import FakeClock
 from minekin_core.application.ports.event_store import EventEnvelope, OutboxItem
@@ -22,6 +24,7 @@ from minekin_core.domain.errors import ErrorCategory, MinekinError
 from minekin_core.domain.events import EventSource, TrustClass
 from minekin_core.domain.ids import KinId
 from session_support import (  # type: ignore[import-not-found]
+    PAYLOAD,
     PROFILE,
     fabricated,
     kin_root,
@@ -222,3 +225,108 @@ def test_a_started_session_reports_what_reconciliation_did(
         "waiting": [],
     }
     assert launch.as_dict()["recovery"] == launch.recovery.as_dict()
+
+
+def _rows(database: Path, query: str) -> list[tuple[str, ...]]:
+    connection = sqlite3.connect(database)
+    try:
+        return [tuple(str(value) for value in row) for row in connection.execute(query).fetchall()]
+    finally:
+        connection.close()
+
+
+def _outbox(database: Path) -> list[tuple[str, ...]]:
+    return _rows(database, "SELECT effect_type, status FROM outbox ORDER BY outbox_id")
+
+
+def _event_types(database: Path) -> list[str]:
+    return [row[0] for row in _rows(database, "SELECT event_type FROM event ORDER BY position")]
+
+
+def _database(tmp_path: Path) -> Path:
+    return database_for(tmp_path, KIN_ID)
+
+
+def _ready_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """A data root that passes readiness, with the plan's one artifact installed."""
+
+    root = kin_root(tmp_path)
+    plan, artifact = fabricated()
+    stand_in_for_the_built_workspace(monkeypatch)
+
+    def this_plan(_profile: Path, *, workspace_root: Path | None = None) -> dict[str, Any]:
+        return plan
+
+    monkeypatch.setattr(session_module, "build_launch_plan", this_plan)
+    ArtifactStore(run_root(tmp_path) / "artifact-store").install(artifact, io.BytesIO(PAYLOAD))
+    return root
+
+
+def _start(root: Path, spawn: object) -> object:
+    supervisor = ProcessSupervisor(clock=FakeClock(), spawn=cast(Any, spawn), log_directory=None)
+    return start_session(
+        root=root,
+        profile=PROFILE,
+        java_executable=Path("/usr/bin/java"),
+        session_id="session-01",
+        generation=1,
+        supervisor_factory=lambda _logs: supervisor,
+    )
+
+
+class _Process:
+    pid = 4242
+
+    def poll(self) -> int:
+        return 0
+
+
+def test_the_intent_is_committed_before_the_effect_is_attempted(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """§8's ordering: an effect nobody recorded is one nobody can reconcile."""
+
+    seen_at_spawn: list[list[tuple[str, ...]]] = []
+
+    def spawn(*_args: object, **_kwargs: object) -> object:
+        # The ledger, as it stands at the moment the effect is attempted.
+        seen_at_spawn.append(_outbox(_database(tmp_path)))
+        return _Process()
+
+    root = _ready_root(tmp_path, monkeypatch)
+    _start(root, spawn)
+
+    assert seen_at_spawn == [[("START_CLIENT", "pending")]]
+    # ...and once its result is recorded the effect is finished, rather than left
+    # for the next start to replay.
+    assert _outbox(_database(tmp_path)) == [("START_CLIENT", "completed")]
+
+
+def test_a_start_that_never_happened_is_settled_too(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A failed attempt has a result, so it is not something to replay either."""
+
+    def spawn(*_args: object, **_kwargs: object) -> object:
+        raise OSError("no such file")
+
+    root = _ready_root(tmp_path, monkeypatch)
+
+    with pytest.raises(MinekinError):
+        _start(root, spawn)
+
+    assert _outbox(_database(tmp_path)) == [("START_CLIENT", "completed")]
+    assert "SessionProcessFailed" in _event_types(_database(tmp_path))
+
+
+def test_the_ledger_refuses_an_effect_recovery_cannot_read(tmp_path: Path) -> None:
+    """A row recovery would only refuse is a row that stops the next start."""
+
+    kin_root(tmp_path)
+
+    with pytest.raises(ValueError, match="recovery can read"):
+        asyncio.run(
+            SessionEventLog(_database(tmp_path), clock=FakeClock()).open_effect(
+                effect_type="SOMETHING_FROM_A_LATER_VERSION", idempotency_key="key"
+            )
+        )

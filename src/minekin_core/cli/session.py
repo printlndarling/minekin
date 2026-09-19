@@ -58,6 +58,7 @@ from minekin_core.domain.connection import ConnectionGenerations, ConnectionStat
 from minekin_core.domain.errors import ErrorCategory, MinekinError, Retryability
 from minekin_core.domain.events import EventSource, TrustClass
 from minekin_core.domain.ids import ClientInstanceId, KinId, RunId
+from minekin_core.domain.recovery import START_CLIENT
 from minekin_core.domain.session_state import SessionState, SessionStateMachine
 
 SupervisorFactory = Callable[[Path], ProcessSupervisor]
@@ -405,6 +406,13 @@ async def launch_prepared_async(prepared: PreparedSession) -> SessionLaunch:
     entry: a run only begins once a process does.
     """
 
+    # §8: the intent is committed before the effect is attempted, so a crash in
+    # between leaves something on the ledger to reconcile. The key is the run,
+    # which is new for every launch, so a repeat of this effect is a new request
+    # rather than a duplication of this one.
+    intent = await prepared.ledger.open_effect(
+        effect_type=START_CLIENT, idempotency_key=prepared.run_id
+    )
     try:
         process = prepared.supervisor.start(prepared.spec)
     except MinekinError as error:
@@ -415,6 +423,9 @@ async def launch_prepared_async(prepared: PreparedSession) -> SessionLaunch:
             generation=prepared.generation,
             error=error,
         )
+        # The attempt has a result, so the effect is finished: a failed start is
+        # not something for the next run to replay.
+        await prepared.ledger.settle_effect(intent)
         raise
     write_marker(
         prepared.overlay,
@@ -430,6 +441,7 @@ async def launch_prepared_async(prepared: PreparedSession) -> SessionLaunch:
         client_instance_id=prepared.client_instance_id,
         argv_digest=process.argv_digest,
     )
+    await prepared.ledger.settle_effect(intent)
     return SessionLaunch(
         session_id=prepared.session_id,
         generation=prepared.generation,
