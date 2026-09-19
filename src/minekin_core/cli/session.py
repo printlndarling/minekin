@@ -48,8 +48,10 @@ from minekin_core.adapters.sqlite.session_log import (
     PLAYABLE_ESTABLISHED,
     SESSION_INTERRUPTED,
     SessionEventLog,
+    reconcile_outbox_async,
 )
 from minekin_core.adapters.system.clock import SystemClock
+from minekin_core.application.recovery_service import RecoveryReport
 from minekin_core.cli.init import DATABASE_NAME, KIN_DIRECTORY, kin_directory, run_root
 from minekin_core.cli.session_runtime import SessionOutcome, SessionRun, supervise_session
 from minekin_core.domain.connection import ConnectionGenerations, ConnectionState
@@ -59,6 +61,10 @@ from minekin_core.domain.ids import ClientInstanceId, KinId, RunId
 from minekin_core.domain.session_state import SessionState, SessionStateMachine
 
 SupervisorFactory = Callable[[Path], ProcessSupervisor]
+
+#: What reconciliation reports when there was nothing left over. Named rather
+#: than built in a default, so the default is a value and not an expression.
+NOTHING_TO_RECONCILE = RecoveryReport(invalidated=(), waiting=())
 
 # The connection states that are a fact §5 names. The three phases before a join
 # are progress towards one, not facts themselves, so they are deliberately
@@ -108,6 +114,8 @@ class SessionLaunch:
     overlay: str
     identity: ProcessIdentity
     argv_digest: str
+    #: What reconciliation did to the previous run's leftovers, if anything.
+    recovery: RecoveryReport = NOTHING_TO_RECONCILE
 
     def as_dict(self) -> dict[str, object]:
         return {
@@ -121,6 +129,7 @@ class SessionLaunch:
             "pid": self.identity.pid,
             "started_at": self.identity.started_at,
             "argv_digest": self.argv_digest,
+            "recovery": self.recovery.as_dict(),
         }
 
 
@@ -209,6 +218,7 @@ class PreparedSession:
     spec: ClientProcessSpec
     supervisor: ProcessSupervisor
     ledger: SessionEventLog
+    recovery: RecoveryReport = NOTHING_TO_RECONCILE
     bridge_session: BridgeSession | None = None
     bridge_descriptor: Path | None = None
 
@@ -258,6 +268,39 @@ def prepare_session(
     probe: Callable[[int], Liveness] = default_probe,
     host_bridge: bool = False,
 ) -> PreparedSession:
+    """Prepare a launch, for a caller that is not already running a loop."""
+
+    return asyncio.run(
+        prepare_session_async(
+            root=root,
+            profile=profile,
+            java_executable=java_executable,
+            session_id=session_id,
+            generation=generation,
+            kin_selector=kin_selector,
+            supervisor_factory=supervisor_factory,
+            forward_environment=forward_environment,
+            event_log=event_log,
+            probe=probe,
+            host_bridge=host_bridge,
+        )
+    )
+
+
+async def prepare_session_async(
+    *,
+    root: Path,
+    profile: Path,
+    java_executable: Path,
+    session_id: str,
+    generation: int,
+    kin_selector: str | None = None,
+    supervisor_factory: SupervisorFactory = default_supervisor_factory,
+    forward_environment: Mapping[str, str] | None = None,
+    event_log: SessionEventLog | None = None,
+    probe: Callable[[int], Liveness] = default_probe,
+    host_bridge: bool = False,
+) -> PreparedSession:
     """Everything a launch needs, with the overlay already created and nothing started.
 
     Split from the spawn so a caller can do work that must happen *between* the
@@ -273,6 +316,11 @@ def prepare_session(
         identity = read_identity_root(connection)
     finally:
         connection.close()
+
+    # §13 puts reconciliation before a new run starts: what did not end cleanly
+    # is marked, and the effects that cannot survive a restart are closed rather
+    # than left for a later start to pick up.
+    recovery = await reconcile_outbox_async(database, clock=SystemClock())
 
     runs = run_root(root, kin_id)
     plan = build_launch_plan(profile)
@@ -337,6 +385,7 @@ def prepare_session(
         spec=spec,
         supervisor=supervisor,
         ledger=ledger,
+        recovery=recovery,
         bridge_session=bridge_session,
         bridge_descriptor=descriptor,
     )
@@ -389,6 +438,7 @@ async def launch_prepared_async(prepared: PreparedSession) -> SessionLaunch:
         overlay=str(prepared.overlay),
         identity=process,
         argv_digest=process.argv_digest,
+        recovery=prepared.recovery,
     )
 
 
@@ -417,7 +467,7 @@ async def start_and_supervise(
 
     session = SessionStateMachine()
     session.advance(SessionState.PREPARING)
-    prepared = prepare_session(
+    prepared = await prepare_session_async(
         root=root,
         profile=profile,
         java_executable=java_executable,

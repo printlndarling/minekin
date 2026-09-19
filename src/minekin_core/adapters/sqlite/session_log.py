@@ -8,6 +8,9 @@ one nobody can explain.
 The ledger owns the only write connection, so each record opens the writer,
 appends, and closes it. That is a whole thread per event, which is the right
 trade for a command that runs twice per launch.
+
+Reconciling a previous run's leftovers is the same shape and lives here for the
+same reason: one writer lifetime, and no second writer racing an append.
 """
 
 from __future__ import annotations
@@ -20,6 +23,10 @@ from minekin_core.adapters.sqlite.event_store import SQLiteEventStore, payload_d
 from minekin_core.adapters.sqlite.writer import SQLiteWriter
 from minekin_core.application.ports.clock import Clock
 from minekin_core.application.ports.event_store import EventEnvelope
+from minekin_core.application.recovery_service import (
+    RecoveryReport,
+    reconcile_pending_outbox,
+)
 from minekin_core.domain.errors import MinekinError
 from minekin_core.domain.events import EventSource, TrustClass
 from minekin_core.domain.ids import CorrelationId, EventId
@@ -236,3 +243,25 @@ class SessionEventLog:
             return envelope
         finally:
             await writer.aclose()
+
+
+async def reconcile_outbox_async(database: Path, *, clock: Clock) -> RecoveryReport:
+    """Settle what an earlier run left pending, before this one starts anything.
+
+    The ledger owns its only write connection, so this opens the writer, lets the
+    application service decide, and closes it. Async because its caller inside a
+    supervised start is already in a loop and cannot nest one.
+    """
+
+    writer = SQLiteWriter(database)
+    await writer.start()
+    try:
+        return await reconcile_pending_outbox(SQLiteEventStore(database, writer), clock=clock)
+    finally:
+        await writer.aclose()
+
+
+def reconcile_outbox(database: Path, *, clock: Clock) -> RecoveryReport:
+    """The same reconciliation for a caller that is not already running a loop."""
+
+    return asyncio.run(reconcile_outbox_async(database, clock=clock))
