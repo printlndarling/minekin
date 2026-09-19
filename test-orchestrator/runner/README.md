@@ -90,6 +90,16 @@ that run holds `SessionProcessStarted` followed by `BridgeHelloAccepted`. The
 session then stays supervised, because nothing yet tells it to connect to a
 world, so the command runs until the client exits or is stopped.
 
+Before the client starts, the assets it reads are materialised out of the store
+into `bundle/assets`: measured here, 4,040 files and 412 MB, read-only, once per
+run rather than once per generation. That step is what stops the client logging
+`Can't open the resource index file` — the store's layout is content-addressed
+and the client's is not, so nothing but that step turns one into the other.
+
+Two errors remain in the client's log and neither is a defect to fix here: the
+narrator cannot load, and `AudioSystem` cannot open an OpenAL device, so the
+client turns sounds off. A container has no sound device.
+
 ## What it does not do yet
 
 It starts no server, and the client is not driven: the vanilla 1.21.4 dedicated
