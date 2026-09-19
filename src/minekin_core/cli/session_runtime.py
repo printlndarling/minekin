@@ -133,6 +133,8 @@ async def supervise_session(
     on_connection: Callable[[ConnectionState, str], Awaitable[None]] | None = None,
     on_playable: Callable[[], Awaitable[None]] | None = None,
     on_wind_down: Callable[[], Awaitable[None]] | None = None,
+    until_input_release: Callable[[], Awaitable[object]] | None = None,
+    on_input_release: Callable[[], Awaitable[None]] | None = None,
     recorded: RecordedSessionMaterial | None = None,
 ) -> SessionRun:
     """Wait for the handshake, follow the Bridge, and stop when the client does.
@@ -153,6 +155,14 @@ async def supervise_session(
     send one, because which movement, under which lease and for how long are all
     decisions this module has no inputs for. It is awaited in the reader, so it is
     a command being sent rather than something being waited for.
+
+    `until_input_release` completes when the caller's authorisation to drive the
+    client should end, and `on_input_release` is what it does about that. The
+    caller owns the moment because only the caller knows it: a lease is granted
+    with a deadline, and Core is the side that granted it. The runtime owns the
+    task, because a task started inside a callback is a task nobody cancels —
+    and this one has to be cancelled, or a run that has ended would still be
+    scheduled to act.
 
     `on_wind_down` is the last chance to speak to the Bridge: it runs after the
     generation is closed and before the transport is, which is the only order in
@@ -202,17 +212,51 @@ async def supervise_session(
             client = asyncio.create_task(
                 _client_exited(until_client_exit), name="minekin-client-exit"
             )
-            try:
-                finished, _ = await asyncio.wait(
-                    {reader, client}, return_when=asyncio.FIRST_COMPLETED
+            # Not a way for the run to end: a lease lapsing is one more thing that
+            # happens during a session, so this task is in the wait set but not in
+            # the race below — the runtime does what was asked and goes back to
+            # waiting, which is why the wait is a loop.
+            release = None
+            if until_input_release is not None and on_input_release is not None:
+                release = asyncio.create_task(
+                    _client_exited(until_input_release), name="minekin-input-release"
                 )
+            watched: set[asyncio.Task[None]] = {reader, client}
+            if release is not None:
+                watched.add(release)
+            try:
+                while True:
+                    finished, _ = await asyncio.wait(watched, return_when=asyncio.FIRST_COMPLETED)
+                    if reader in finished or client in finished:
+                        break
+                    # The caller's moment arrived and nothing else ended: do the one
+                    # thing it asked for, then keep supervising. The task is dropped
+                    # from the set because it is done, and a done task left in the
+                    # set would make the very next wait return immediately.
+                    assert release is not None
+                    watched.discard(release)
+                    try:
+                        await on_input_release()  # type: ignore[misc]
+                    except (OSError, RuntimeError):
+                        # The wind-down's rule, for the same reason: the Bridge
+                        # releases everything it holds when the channel goes, so a
+                        # release Core cannot deliver is recorded, not raised. A
+                        # transport that has already gone must not turn into a run
+                        # that failed for an unrelated reason.
+                        progress.release_failed = True
             finally:
-                for task in (reader, client):
-                    task.cancel()
+                for task in (reader, client, release):
+                    if task is not None:
+                        task.cancel()
                 # A cancelled client watcher may be blocked in a thread the caller
                 # owns; gather with return_exceptions so this wait cannot hang or
                 # raise before the transport is closed.
-                await asyncio.gather(reader, client, return_exceptions=True)
+                await asyncio.gather(
+                    reader,
+                    client,
+                    *(item for item in (release,) if item is not None),
+                    return_exceptions=True,
+                )
 
             if reader in finished:
                 error = reader.exception()

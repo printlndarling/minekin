@@ -152,9 +152,15 @@ fi
 # twice with different Y, so counting any two positions would accept a fall at
 # spawn as a walk.
 #
+# And what it waits for is the walk *ending*: the last two reports have to agree,
+# with two different places before them. That is the difference between "the hold
+# was released and the session carried on" and "the session ended", which look
+# identical in a log that stops — and it is the whole point of a lease deadline,
+# so a run that never sees it has not verified one.
+#
 # Its own budget rather than what is left of the join's: a slow boot must not
-# spend the walk's allowance, which is exactly how the first version of this
-# reported a Kin that had walked seventeen blocks as one that never moved.
+# spend the walk's allowance, which is how the first version of this reported a
+# Kin that had walked seventeen blocks as one that never moved.
 if [[ -n "${probe}" ]]; then
     walked=0
     deadline=$((SECONDS + seconds))
@@ -165,21 +171,22 @@ if [[ -n "${probe}" ]]; then
         # Kin has not been asked, not a failure: grep exits 1 for "no match" and
         # `pipefail` is set, so an unguarded pipeline here ends the run the moment
         # the probe has nothing to report.
-        seen=$( { grep -o 'has the following entity data: \[[^]]*\]' \
+        positions=$( { grep -o 'has the following entity data: \[[^]]*\]' \
             "${server_directory}/server.log" 2>/dev/null || true; } |
             sed 's/.*\[//; s/\]//; s/d//g' |
-            awk -F', *' '{print $1","$3}' | sort -u | wc -l)
-        seen=${seen:-0}
-        if [ "${seen}" -ge 2 ]; then
+            awk -F', *' '{print $1","$3}')
+        distinct=$(printf '%s\n' "${positions}" | sort -u | wc -l)
+        settled=$(printf '%s\n' "${positions}" | tail -n 2 | sort -u | wc -l)
+        if [ "${distinct}" -ge 2 ] && [ "${settled}" -eq 1 ]; then
             walked=1
             break
         fi
         sleep 1
     done
     if [ "${walked}" -eq 1 ]; then
-        printf 'domain: the server has seen the Kin in two places\n' >&2
+        printf 'domain: the server saw the Kin walk and then stop\n' >&2
     else
-        printf 'domain: the server never saw the Kin in two places within %ss\n' "${seconds}" >&2
+        printf 'domain: the server never saw the Kin walk and stop within %ss\n' "${seconds}" >&2
     fi
 fi
 

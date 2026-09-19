@@ -253,6 +253,8 @@ async def _supervise(
     recorded: RecordedSessionMaterial | None = RECORDED,
     on_playable: Callable[[], Awaitable[None]] | None = None,
     on_wind_down: Callable[[], Awaitable[None]] | None = None,
+    until_input_release: Callable[[], Awaitable[object]] | None = None,
+    on_input_release: Callable[[], Awaitable[None]] | None = None,
 ) -> SessionRun:
     return await asyncio.wait_for(
         supervise_session(
@@ -264,6 +266,8 @@ async def _supervise(
             recorded=recorded,
             on_playable=on_playable,
             on_wind_down=on_wind_down,
+            until_input_release=until_input_release,
+            on_input_release=on_input_release,
         ),
         timeout,
     )
@@ -718,6 +722,96 @@ def test_a_wind_down_that_cannot_say_goodbye_is_recorded_rather_than_raised(
 
         # The run ended the way the client ending it ends, and the failed goodbye
         # is a fact in the document rather than an exception over the top of it.
+        assert run.outcome is SessionOutcome.CLIENT_EXITED
+        assert run.release_failed is True
+
+    asyncio.run(scenario())
+
+
+def test_a_release_moment_does_not_end_the_run(tmp_path: Path) -> None:
+    """A lease lapsing is one more thing in a session, not the end of one."""
+
+    async def scenario() -> None:
+        bridge = session()
+        host = BridgeIpcHost(bridge)
+        descriptor = await host.prepare(tmp_path / "descriptor.pb")
+        machine, connections = _in_handshake()
+        exit_event = asyncio.Event()
+        peer = Peer(descriptor, bridge)
+        playable = asyncio.Event()
+        fired: list[bool] = []
+
+        async def until_release() -> None:
+            await playable.wait()
+
+        async def on_release() -> None:
+            fired.append(True)
+
+        async def client() -> None:
+            await _drive_to_playable(peer, machine)
+            playable.set()
+            await _wait_until(lambda: fired == [True])
+            # The session is still playable and still supervised: the runtime did
+            # what the caller asked and went back to waiting, rather than reading
+            # the caller's moment as the client leaving.
+            assert machine.state is SessionState.PLAYABLE
+            exit_event.set()
+            await peer.close()
+
+        running = asyncio.create_task(client())
+        run = await _supervise(
+            host,
+            machine,
+            connections,
+            exit_event=exit_event,
+            until_input_release=until_release,
+            on_input_release=on_release,
+        )
+        await running
+
+        assert fired == [True]
+        assert run.outcome is SessionOutcome.CLIENT_EXITED
+        assert run.connection_state is ConnectionState.PLAYABLE
+
+    asyncio.run(scenario())
+
+
+def test_a_release_that_cannot_be_sent_is_recorded_rather_than_raised(tmp_path: Path) -> None:
+    """The Bridge releases on its own when the channel goes; this is Core's side."""
+
+    async def scenario() -> None:
+        bridge = session()
+        host = BridgeIpcHost(bridge)
+        descriptor = await host.prepare(tmp_path / "descriptor.pb")
+        machine, connections = _in_handshake()
+        exit_event = asyncio.Event()
+        peer = Peer(descriptor, bridge)
+        playable = asyncio.Event()
+
+        async def until_release() -> None:
+            await playable.wait()
+
+        async def failing_release() -> None:
+            raise OSError("the control channel went first")
+
+        async def client() -> None:
+            await _drive_to_playable(peer, machine)
+            playable.set()
+            await asyncio.sleep(0.05)
+            exit_event.set()
+            await peer.close()
+
+        running = asyncio.create_task(client())
+        run = await _supervise(
+            host,
+            machine,
+            connections,
+            exit_event=exit_event,
+            until_input_release=until_release,
+            on_input_release=failing_release,
+        )
+        await running
+
         assert run.outcome is SessionOutcome.CLIENT_EXITED
         assert run.release_failed is True
 

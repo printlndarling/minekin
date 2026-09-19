@@ -54,11 +54,13 @@ def build_parser() -> argparse.ArgumentParser:
     # It is a hold rather than a walk for a measured reason: what bounds it is the
     # lease and the session, and a run that ends takes the key with it.
     session_start.add_argument(
-        "--hold-forward",
-        action="store_true",
+        "--hold-forward-seconds",
+        type=float,
+        default=None,
+        metavar="SECONDS",
         help=(
-            "hold the forward key from the moment the session is playable "
-            "until the run ends (needs --server-profile)"
+            "hold the forward key for this long from the moment the session is "
+            "playable, then let the lease lapse (needs --server-profile)"
         ),
     )
     session_commands.add_parser("status", help="read the current projection")

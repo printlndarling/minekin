@@ -16,7 +16,8 @@ MINEKIN_SERVER_JAR=<path> bash test-orchestrator/runner/run.sh domain \
 MINEKIN_SERVER_JAR=<path> MINEKIN_DOMAIN_SUMMON=minecraft:pig \
     bash test-orchestrator/runner/run.sh domain session start --profile <bundle> --server-profile <profile>
 MINEKIN_SERVER_JAR=<path> MINEKIN_DOMAIN_PROBE=Kin \
-    bash test-orchestrator/runner/run.sh domain session start --profile <bundle> --server-profile <profile> --hold-forward
+    bash test-orchestrator/runner/run.sh domain session start --profile <bundle> --server-profile <profile> \
+        --hold-forward-seconds 8
 bash test-orchestrator/runner/run.sh --shell 'glxinfo -B'   # or any other command
 ```
 
@@ -56,7 +57,8 @@ $ MINEKIN_SERVER_JAR=.tmp/vanilla/server.jar bash test-orchestrator/runner/run.s
                      --server-profile /src/tests/fixtures/runtime-input/controlled-offline-server.json
 domain: server run directory /data/server-runs/run-26
 domain: server ready
-domain: the session is playable; stopping it
+domain: the session is playable
+domain: stopping the session
 domain: session stop said {"command": "session stop", "kin_id": "kin-01", "terminated": [201], …}
 {"argv_digest": …"run": {"connection_state": "PLAYABLE", "entities_admitted": 2, "entities_rejected": 0,
                          "snapshots_admitted": 1, "snapshot_rejections": [], "session_state": "STOPPED", …}}
@@ -328,8 +330,9 @@ no log anywhere. When both ends are silent, read the bytes.
 
 ### The Kin walks, and the server is asked where it is
 
-`--hold-forward` makes Core hold the forward key from the moment the session is
-playable, under a `control.move.v1` lease. The acceptance for input is the
+`--hold-forward-seconds` makes Core hold the forward key from the moment the
+session is playable, under a `control.move.v1` lease, and let it lapse when the
+lease's own deadline passes. The acceptance for input is the
 server's own observation of the displacement, and a server does not log where
 anyone walks — so the run asks it, with `data get entity <name> Pos` on the
 console, and reads the answer out of the server's log.
@@ -337,25 +340,32 @@ console, and reads the answer out of the server's log.
 ```text
 $ MINEKIN_SERVER_JAR=.tmp/vanilla/server.jar MINEKIN_DOMAIN_PROBE=Kin \
       bash test-orchestrator/runner/run.sh domain \
-      session start --profile … --server-profile … --hold-forward
-server   [17:46:01] Kin joined the game
-server   [17:46:04] Kin has the following entity data: [-7.5d, -60.0d, 16.65d]
-server   [17:46:09] Kin has the following entity data: [-7.5d, -60.0d, 38.24d]
-client   bridge applied c8946f96…: holding [move.forward]
-ledger   InputLeaseGranted → InputReleased
-run      "actions_applied": 1, "input_refusal": "", "input_release_failed": false
+      session start --profile … --server-profile … --hold-forward-seconds 8
+server   [18:02:59] Kin joined the game
+server   [18:03:02] Kin has the following entity data: [-2.5d, -60.0d, 12.01d]
+server   [18:03:07] Kin has the following entity data: [-2.5d, -60.0d, 33.60d]
+server   [18:03:12] Kin has the following entity data: [-2.5d, -60.0d, 39.03d]
+server   [18:03:17] Kin has the following entity data: [-2.5d, -60.0d, 39.03d]
+client   bridge applied a5b9a84b…: holding [move.forward]        (18:03:01)
+client   bridge released 1 input(s) after CORE_REQUEST (TIMEOUT)  (18:03:09)
+ledger   InputLeaseGranted → InputReleased{reason: TIMEOUT}
 ```
 
 21.6 blocks in five seconds is walking speed, and a teleport would be a jump
 rather than a rate — which is what makes "no teleport" a measurement here
-instead of a promise.
+instead of a promise. The last two positions agreeing is the other half: the
+Kin stopped **eight seconds after the grant** while the session stayed alive
+for another ten, so what ended the walk was the lease and not the run. Those
+two look identical in a log that simply stops, which is why the harness waits
+for both.
 
-The run waits for **two positions that differ horizontally**: a Kin standing
-still at spawn can be reported twice with different `Y`, so counting any two
-positions would accept a fall at spawn as a walk. Each wait has its own budget,
-because a slow boot must not spend the walk's allowance — the first version
-shared one deadline and read a Kin that had walked 780 blocks as one that never
-moved.
+The run waits for **two positions that differ horizontally, and then for the
+last two to agree**: a Kin standing still at spawn can be reported twice with
+different `Y`, so counting any two positions would accept a fall at spawn as a
+walk, and stopping at the first change would accept a session that ended as a
+lease that lapsed. Each wait has its own budget, because a slow boot must not
+spend the walk's allowance — the first version shared one deadline and read a
+Kin that had walked 780 blocks as one that never moved.
 
 That wait asks the ledger rather than `session status`, which shows only the
 *last* event type: `InputLeaseGranted` lands milliseconds after
@@ -363,10 +373,11 @@ That wait asks the ledger rather than `session status`, which shows only the
 short to poll. The question is instead whether a playable was recorded after
 this run started.
 
-The hold lasts until the run ends. Its lease carries a deadline, and *nothing
-enforces it yet* — `lease_watchdog` is not built — so what bounds the walk in
-this domain is the harness stopping the session once it has seen the
-displacement.
+The hold lasts as long as the lease says. `domain/lease_watchdog.py` holds the
+granted lease and reports once when its deadline passes, the runtime watches a
+caller-owned awaitable beside the client watcher, and Core withdraws the lease
+and sends `ReleaseAllInputs(TIMEOUT)` — the same call the wind-down makes, which
+is why the ledger record of it lives in that one path rather than in both.
 
 ### Refusals get classified too
 

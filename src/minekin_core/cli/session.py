@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, cast
 
@@ -80,8 +80,10 @@ from minekin_core.domain.input_control import (
     InputLease,
     InputPriority,
     InputRequest,
+    ReleaseOutcome,
     ReleaseReason,
 )
+from minekin_core.domain.lease_watchdog import LeaseWatchdog
 from minekin_core.domain.recovery import START_CLIENT
 from minekin_core.domain.session_material import RecordedSessionMaterial
 from minekin_core.domain.session_state import SessionState, SessionStateMachine
@@ -597,19 +599,23 @@ async def launch_prepared_async(prepared: PreparedSession) -> SessionLaunch:
     )
 
 
-# The bound on one run's authorisation to walk. A lease deadline is not a
-# duration to walk for — it is the moment the authorisation lapses, so a
-# session that outlives it stops being allowed to move rather than walking
-# on an authority nobody still holds.
-_HOLD_FORWARD_LEASE_S = 120.0
-
-
 @dataclass
 class HoldForward:
-    """The one movement a run may issue, and the lease that authorises it."""
+    """The one movement a run may issue, the lease that authorises it, and its clock.
 
+    The duration is the caller's because it is what the lease was granted for:
+    the authorisation carries the moment it lapses, and that moment is the only
+    thing that ends the hold. Until this existed the deadline was written into
+    the lease and read by nobody, so a short move lasted exactly as long as the
+    run did.
+    """
+
+    seconds: float
     arbiter: InputArbiter | None = None
     lease: InputLease | None = None
+    watchdog: LeaseWatchdog = field(default_factory=LeaseWatchdog)
+    playable: asyncio.Event = field(default_factory=asyncio.Event)
+    deadline_monotonic_ns: int = 0
     action_id: str = ""
     # The arbiter's own words for why no lease was granted, when it refused.
     # Kept rather than dropped: a run that was asked to walk and did not is a
@@ -634,7 +640,7 @@ async def start_and_supervise(
     exit_poll_s: float = DEFAULT_EXIT_POLL_S,
     server_profile: Path | None = None,
     connection_timeout: float = DEFAULT_CONNECTION_TIMEOUT_S,
-    hold_forward: bool = False,
+    hold_forward: float | None = None,
 ) -> tuple[SessionLaunch, SessionRun]:
     """Start a managed session with a live Bridge and stay with it until it ends.
 
@@ -687,11 +693,15 @@ async def start_and_supervise(
             "this Bridge session was negotiated without "
             f"{ADMISSION_CAPABILITY}, so no connection can be requested"
         )
-    if hold_forward and server_profile is None:
+    if hold_forward is not None and server_profile is None:
         # A hold with no world to walk in would be a lever that does nothing: the
         # operator asked for something this run cannot express.
-        raise _reject("--hold-forward needs --server-profile: there is no world to walk in")
-    if hold_forward and MOVE_CAPABILITY not in prepared.bridge_session.capabilities:
+        raise _reject("--hold-forward-seconds needs --server-profile: there is no world")
+    if hold_forward is not None and hold_forward <= 0:
+        # A lease deadline already past is not a hold, it is a refusal dressed as
+        # one, and the run would report a Kin that never moved.
+        raise _reject("--hold-forward-seconds must be positive")
+    if hold_forward is not None and MOVE_CAPABILITY not in prepared.bridge_session.capabilities:
         raise _reject(
             "this Bridge session was negotiated without "
             f"{MOVE_CAPABILITY}, so the client cannot be steered"
@@ -728,7 +738,7 @@ async def start_and_supervise(
     # A run that was asked to walk gets exactly one input owner. The lease is the
     # authorisation — generation, capability, deadline — and withdrawing it is what
     # tells the Bridge to lift the key; nothing else in the run touches input.
-    movement = HoldForward() if hold_forward else None
+    movement = None if hold_forward is None else HoldForward(seconds=hold_forward)
 
     async def on_handshake() -> None:
         # Core verified the proof, so this is Core's conclusion rather than the
@@ -774,7 +784,7 @@ async def start_and_supervise(
         # only side that knows the snapshot was admitted.
         movement.arbiter.set_playable(True)
         issued = monotonic_ns()
-        deadline = issued + int(_HOLD_FORWARD_LEASE_S * 1_000_000_000)
+        deadline = issued + int(movement.seconds * 1_000_000_000)
         lease = InputLease(
             lease_id=OpaqueId.new().value,
             generation=movement.arbiter.generation,
@@ -831,6 +841,72 @@ async def start_and_supervise(
             trust_class=TrustClass.CORE,
         )
         movement.lease = lease
+        # Armed only now, on a lease that was granted and sent: a watchdog armed
+        # before that would lapse an authorisation the client never received.
+        movement.deadline_monotonic_ns = deadline
+        movement.watchdog.arm(lease)
+        movement.playable.set()
+
+    async def release_inputs(arbiter: InputArbiter, reason: ReleaseReason) -> ReleaseOutcome:
+        """Withdraw the lease and tell the Bridge, in that order, for one reason.
+
+        One path for both endings — the term running out and the run winding down —
+        because release every key is one instruction, and a second copy of it is a
+        second place for it to drift.
+        """
+
+        outcome = arbiter.withdraw(reason)
+        await host.send_control(
+            RELEASE_ALL_INPUTS_TYPE,
+            control_pb2.ReleaseAllInputs(
+                action_id=OpaqueId.new().value,
+                generation=int(outcome.generation),
+                reason_code=reason.value,
+            ),
+        )
+        # Recorded here rather than by the callers: the first version wrote it in
+        # the wind-down only, so the release that the lease deadline sent — the
+        # one the whole feature is about — reached the Bridge and left no trace in
+        # the ledger. The comment above says a second copy is a second place to
+        # drift, and this was the drift.
+        await record(
+            INPUT_RELEASED,
+            outcome.as_document(),
+            source=EventSource.CORE,
+            trust_class=TrustClass.CORE,
+        )
+        return outcome
+
+    async def until_input_release() -> None:
+        """Wait out the lease: the moment the session was playable, plus its term.
+
+        Its own clock rather than the runtime's, because the duration is what the
+        lease was granted for and the runtime has no inputs for it. Waiting for
+        playable first matters: the deadline is measured from the grant, and the
+        grant happens whenever the snapshot happens to be admitted.
+        """
+
+        if movement is None:
+            return
+        await movement.playable.wait()
+        remaining = movement.deadline_monotonic_ns - monotonic_ns()
+        if remaining > 0:
+            await asyncio.sleep(remaining / 1_000_000_000)
+
+    async def on_input_release() -> None:
+        """The term is over: stop being allowed to drive the client.
+
+        Asked of the watchdog rather than assumed, so a lapse belonging to a lease
+        that has since been replaced cannot release the one that replaced it.
+        """
+
+        if movement is None or movement.arbiter is None:
+            return
+        lapsed = movement.watchdog.lapsed(MonotonicInstant(monotonic_ns()))
+        current = movement.arbiter.current
+        if lapsed is None or current is None or lapsed.lease_id != current.lease_id:
+            return
+        await release_inputs(movement.arbiter, ReleaseReason.TIMEOUT)
 
     async def on_wind_down() -> None:
         """Take the input back, whatever ended the run.
@@ -843,21 +919,8 @@ async def start_and_supervise(
 
         if movement is None or movement.arbiter is None:
             return
-        outcome = movement.arbiter.withdraw(ReleaseReason.EXPLICIT)
-        await host.send_control(
-            RELEASE_ALL_INPUTS_TYPE,
-            control_pb2.ReleaseAllInputs(
-                action_id=OpaqueId.new().value,
-                generation=int(outcome.generation),
-                reason_code=ReleaseReason.EXPLICIT.value,
-            ),
-        )
-        await record(
-            INPUT_RELEASED,
-            outcome.as_document(),
-            source=EventSource.CORE,
-            trust_class=TrustClass.CORE,
-        )
+        movement.watchdog.disarm()
+        await release_inputs(movement.arbiter, ReleaseReason.EXPLICIT)
 
     async def on_connection(state: ConnectionState, reason: str) -> None:
         recorded = _CONNECTION_EVENTS.get(state)
@@ -894,6 +957,10 @@ async def start_and_supervise(
         on_connection=on_connection,
         on_playable=on_playable,
         on_wind_down=on_wind_down,
+        # Only when a hold was asked for: with no lease there is no moment, and a
+        # watcher that never completes is a task that exists to be cancelled.
+        until_input_release=None if movement is None else until_input_release,
+        on_input_release=None if movement is None else on_input_release,
         recorded=prepared.recorded,
     )
     if movement is not None and movement.refusal:

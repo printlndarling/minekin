@@ -114,7 +114,9 @@ def run(
                 # the code's.
                 forward_environment=forwarded_environment(),
                 server_profile=(None if args.server_profile is None else Path(args.server_profile)),
-                hold_forward=bool(args.hold_forward),
+                hold_forward=(
+                    None if args.hold_forward_seconds is None else float(args.hold_forward_seconds)
+                ),
             )
         )
         _emit({**launch.as_dict(), "run": run.as_dict()}, stdout)
