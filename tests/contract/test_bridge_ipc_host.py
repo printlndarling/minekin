@@ -11,7 +11,12 @@ import pytest
 
 from minekin_core.adapters.bridge.ipc import (
     ADMISSION_CAPABILITY,
+    BRIDGE_HELLO_TYPE,
+    CONNECT_WORLD_TYPE,
+    CONNECTION_LIFECYCLE_TYPE,
+    CORE_HELLO_TYPE,
     HANDSHAKE_CAPABILITY,
+    HEARTBEAT_TYPE,
     BridgeIpcHost,
     BridgeSession,
     IpcProtocolError,
@@ -178,7 +183,7 @@ def test_loopback_handshake_heartbeat_commands_and_events(tmp_path: Path) -> Non
             control_writer,
             envelope(
                 bridge_session,
-                "BridgeHello",
+                BRIDGE_HELLO_TYPE,
                 envelope_pb2.CHANNEL_CONTROL,
                 1,
                 value.SerializeToString(deterministic=True),
@@ -189,7 +194,7 @@ def test_loopback_handshake_heartbeat_commands_and_events(tmp_path: Path) -> Non
 
         core_envelope = await asyncio.wait_for(read_frame(control_reader), 1)
         assert core_envelope.sequence == 1
-        assert core_envelope.message_type == "CoreHello"
+        assert core_envelope.message_type == CORE_HELLO_TYPE
         core_hello = session_pb2.CoreHello.FromString(core_envelope.payload)
         accepted = {value.name for value in core_hello.accepted_capabilities}
         assert core_hello.proof == core_proof(
@@ -201,7 +206,7 @@ def test_loopback_handshake_heartbeat_commands_and_events(tmp_path: Path) -> Non
 
         heartbeat_envelope = await asyncio.wait_for(read_frame(control_reader), 1)
         assert heartbeat_envelope.sequence == 2
-        assert heartbeat_envelope.message_type == "Heartbeat"
+        assert heartbeat_envelope.message_type == HEARTBEAT_TYPE
         heartbeat = session_pb2.Heartbeat.FromString(heartbeat_envelope.payload)
         assert heartbeat.generation == bridge_session.generation
         assert heartbeat.monotonic_ns > 0
@@ -216,7 +221,7 @@ def test_loopback_handshake_heartbeat_commands_and_events(tmp_path: Path) -> Non
             resource_pack_policy=control_pb2.RESOURCE_PACK_POLICY_DENY,
             deadline_monotonic_ns=100,
         )
-        await host.send_control("ConnectWorld", command)
+        await host.send_control(CONNECT_WORLD_TYPE, command)
         command_envelope = await asyncio.wait_for(read_frame(control_reader), 1)
         assert command_envelope.sequence == 3
         assert control_pb2.ConnectWorld.FromString(command_envelope.payload) == command
@@ -231,7 +236,7 @@ def test_loopback_handshake_heartbeat_commands_and_events(tmp_path: Path) -> Non
             event_writer,
             envelope(
                 bridge_session,
-                "ConnectionLifecycle",
+                CONNECTION_LIFECYCLE_TYPE,
                 envelope_pb2.CHANNEL_EVENT,
                 1,
                 lifecycle.SerializeToString(deterministic=True),
@@ -259,7 +264,7 @@ def test_bad_bridge_proof_fails_closed(tmp_path: Path) -> None:
             control_writer,
             envelope(
                 bridge_session,
-                "BridgeHello",
+                BRIDGE_HELLO_TYPE,
                 envelope_pb2.CHANNEL_CONTROL,
                 1,
                 value.SerializeToString(deterministic=True),
@@ -285,7 +290,7 @@ def test_control_send_rejects_a_message_type_payload_mismatch(tmp_path: Path) ->
             control_writer,
             envelope(
                 bridge_session,
-                "BridgeHello",
+                BRIDGE_HELLO_TYPE,
                 envelope_pb2.CHANNEL_CONTROL,
                 1,
                 value.SerializeToString(deterministic=True),
@@ -294,7 +299,7 @@ def test_control_send_rejects_a_message_type_payload_mismatch(tmp_path: Path) ->
         await host.authenticate()
 
         with pytest.raises(TypeError, match="wrong protobuf type"):
-            await host.send_control("ConnectWorld", control_pb2.CancelConnection())
+            await host.send_control(CONNECT_WORLD_TYPE, control_pb2.CancelConnection())
 
         await host.close()
         await close_writers(control_writer, event_writer)

@@ -36,11 +36,18 @@ MIN_FRAME_BYTES: Final = 1024
 MAX_FRAME_BYTES: Final = 16 * 1024 * 1024
 DEFAULT_MAX_FRAME_BYTES: Final = 1024 * 1024
 DEFAULT_HEARTBEAT_INTERVAL_MS: Final = 500
+BRIDGE_HELLO_TYPE: Final = "minekin.v1.BridgeHello"
+CORE_HELLO_TYPE: Final = "minekin.v1.CoreHello"
+HEARTBEAT_TYPE: Final = "minekin.v1.Heartbeat"
+CONNECT_WORLD_TYPE: Final = "minekin.v1.ConnectWorld"
+CANCEL_CONNECTION_TYPE: Final = "minekin.v1.CancelConnection"
+CONNECTION_LIFECYCLE_TYPE: Final = "minekin.v1.ConnectionLifecycle"
+INITIAL_OBSERVATION_TYPE: Final = "minekin.v1.InitialObservation"
 _UINT64_MAX: Final = (1 << 64) - 1
-_CONTROL_TYPES: Final = frozenset({"ConnectWorld", "CancelConnection", "Heartbeat"})
+_CONTROL_TYPES: Final = frozenset({CONNECT_WORLD_TYPE, CANCEL_CONNECTION_TYPE, HEARTBEAT_TYPE})
 _EVENT_TYPES: Final = {
-    "ConnectionLifecycle": observation_pb2.ConnectionLifecycle,
-    "InitialObservation": observation_pb2.InitialObservation,
+    CONNECTION_LIFECYCLE_TYPE: observation_pb2.ConnectionLifecycle,
+    INITIAL_OBSERVATION_TYPE: observation_pb2.InitialObservation,
 }
 
 
@@ -222,13 +229,13 @@ class BridgeIpcHost:
                 envelope,
                 channel=envelope_pb2.CHANNEL_CONTROL,
                 sequence=1,
-                allowed_types={"BridgeHello"},
+                allowed_types={BRIDGE_HELLO_TYPE},
             )
             hello = session_pb2.BridgeHello.FromString(envelope.payload)
             accepted = self._validate_bridge_hello(hello)
             core_hello = self._core_hello(accepted)
             await asyncio.wait_for(
-                self._send_control("CoreHello", core_hello, reply_to=envelope.correlation_id),
+                self._send_control(CORE_HELLO_TYPE, core_hello, reply_to=envelope.correlation_id),
                 timeout,
             )
             self._authenticated = True
@@ -244,10 +251,10 @@ class BridgeIpcHost:
     async def send_control(self, message_type: str, message: Message) -> None:
         if not self._authenticated:
             raise RuntimeError("Bridge session is not authenticated")
-        if message_type not in _CONTROL_TYPES - {"Heartbeat"}:
+        if message_type not in _CONTROL_TYPES - {HEARTBEAT_TYPE}:
             raise ValueError("control message type is not admitted")
         expected_type: type[Message]
-        if message_type == "ConnectWorld":
+        if message_type == CONNECT_WORLD_TYPE:
             expected_type = control_pb2.ConnectWorld
         else:
             expected_type = control_pb2.CancelConnection
@@ -407,7 +414,7 @@ class BridgeIpcHost:
                     monotonic_ns=_monotonic_ns(),
                     phase=session_pb2.BRIDGE_PHASE_OBSERVE_ONLY,
                 )
-                await self._send_control("Heartbeat", heartbeat)
+                await self._send_control(HEARTBEAT_TYPE, heartbeat)
         except asyncio.CancelledError:
             raise
         except BaseException as error:
