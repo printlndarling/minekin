@@ -42,6 +42,10 @@ HEARTBEAT_TYPE: Final = "minekin.v1.Heartbeat"
 CONNECT_WORLD_TYPE: Final = "minekin.v1.ConnectWorld"
 CANCEL_CONNECTION_TYPE: Final = "minekin.v1.CancelConnection"
 CONNECTION_LIFECYCLE_TYPE: Final = "minekin.v1.ConnectionLifecycle"
+# Core does not send this yet: the name is pinned here because the Bridge
+# handles it and a rename on either side would otherwise be invisible until a
+# real client failed to let go of a key.
+RELEASE_ALL_INPUTS_TYPE: Final = "minekin.v1.ReleaseAllInputs"
 INITIAL_OBSERVATION_TYPE: Final = "minekin.v1.InitialObservation"
 _UINT64_MAX: Final = (1 << 64) - 1
 _CONTROL_TYPES: Final = frozenset({CONNECT_WORLD_TYPE, CANCEL_CONNECTION_TYPE, HEARTBEAT_TYPE})
@@ -179,6 +183,10 @@ class BridgeIpcHost:
         self._event: _EnvelopeStream | None = None
         self._event_task: asyncio.Task[None] | None = None
         self._heartbeat_task: asyncio.Task[None] | None = None
+        # Heartbeats and application commands share one sender-side sequence.
+        # The stream lock serialises bytes, not sequence allocation, so this
+        # lock must cover allocation, write, and increment together.
+        self._control_send_lock = asyncio.Lock()
         self._control_sequence = 1
         self._event_sequence = 1
         self._closed = False
@@ -391,18 +399,19 @@ class BridgeIpcHost:
     ) -> None:
         if self._control is None:
             raise RuntimeError("control channel is not connected")
-        sequence = self._control_sequence
-        if sequence > _UINT64_MAX:
-            raise IpcProtocolError("control sequence exhausted")
-        envelope = self._envelope(
-            message_type,
-            envelope_pb2.CHANNEL_CONTROL,
-            sequence,
-            message.SerializeToString(deterministic=True),
-            reply_to=reply_to,
-        )
-        await self._control.write(envelope)
-        self._control_sequence += 1
+        async with self._control_send_lock:
+            sequence = self._control_sequence
+            if sequence > _UINT64_MAX:
+                raise IpcProtocolError("control sequence exhausted")
+            envelope = self._envelope(
+                message_type,
+                envelope_pb2.CHANNEL_CONTROL,
+                sequence,
+                message.SerializeToString(deterministic=True),
+                reply_to=reply_to,
+            )
+            await self._control.write(envelope)
+            self._control_sequence += 1
 
     async def _send_heartbeats(self) -> None:
         interval = self.session.heartbeat_interval_ms / 1000

@@ -141,6 +141,12 @@ async def supervise_session(
                 # invariant.
                 _wind_down(session, failed=True)
                 return _report(SessionOutcome.BRIDGE_LOST, session, connections, progress)
+            if error is not None:
+                # A payload, state-machine, or callback failure is a Core
+                # invariant error, not a normal client exit. Preserve the
+                # original exception and traceback for the CLI boundary.
+                raise error
+            raise RuntimeError("Bridge event reader stopped without a terminal outcome")
 
         _wind_down(session, failed=False)
         return _report(SessionOutcome.CLIENT_EXITED, session, connections, progress)

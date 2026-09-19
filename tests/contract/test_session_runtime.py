@@ -422,3 +422,35 @@ def test_a_join_that_skips_the_login_phases_fails_the_attempt_closed(tmp_path: P
         assert run.session_state is SessionState.STOPPED
 
     asyncio.run(scenario())
+
+
+def test_an_internal_event_reader_failure_is_not_reported_as_client_exit() -> None:
+    class ExplodingHost:
+        closed = False
+
+        async def authenticate(self, _timeout: float) -> object:
+            return object()
+
+        async def receive_event(self) -> object:
+            raise ValueError("broken event decoder")
+
+        async def close(self) -> None:
+            self.closed = True
+
+    async def scenario() -> None:
+        host = ExplodingHost()
+        machine, connections = _in_handshake()
+
+        with pytest.raises(ValueError, match="broken event decoder"):
+            await supervise_session(
+                host=host,  # type: ignore[arg-type]
+                session=machine,
+                connections=connections,
+                handshake_timeout=1,
+                until_client_exit=asyncio.Event().wait,
+            )
+
+        assert host.closed
+        assert connections.active is None
+
+    asyncio.run(scenario())

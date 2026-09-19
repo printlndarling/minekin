@@ -9,6 +9,8 @@ import java.util.function.Consumer;
 public final class BoundedChannel<T> {
     private final ArrayBlockingQueue<T> queue;
     private final AtomicLong rejected = new AtomicLong();
+    private final Object mutationLock = new Object();
+    private boolean terminal;
 
     public BoundedChannel(int capacity) {
         if (capacity < 1) {
@@ -19,11 +21,17 @@ public final class BoundedChannel<T> {
 
     public boolean offer(T value) {
         Objects.requireNonNull(value, "value");
-        boolean accepted = queue.offer(value);
-        if (!accepted) {
-            rejected.incrementAndGet();
+        synchronized (mutationLock) {
+            if (terminal) {
+                rejected.incrementAndGet();
+                return false;
+            }
+            boolean accepted = queue.offer(value);
+            if (!accepted) {
+                rejected.incrementAndGet();
+            }
+            return accepted;
         }
-        return accepted;
     }
 
     /** Blocking consumption is reserved for daemon workers; producers never wait. */
@@ -32,14 +40,17 @@ public final class BoundedChannel<T> {
     }
 
     /** Drop queued work and guarantee one terminal safety message is next. */
-    public synchronized void replaceWith(T value) {
+    public void replaceWith(T value) {
         Objects.requireNonNull(value, "value");
-        int dropped = queue.size();
-        queue.clear();
-        if (!queue.offer(value)) {
-            throw new IllegalStateException("bounded channel could not accept terminal value");
+        synchronized (mutationLock) {
+            terminal = true;
+            int dropped = queue.size();
+            queue.clear();
+            if (!queue.offer(value)) {
+                throw new IllegalStateException("bounded channel could not accept terminal value");
+            }
+            rejected.addAndGet(dropped);
         }
-        rejected.addAndGet(dropped);
     }
 
     public int drain(int limit, Consumer<T> consumer) {
@@ -47,13 +58,17 @@ public final class BoundedChannel<T> {
         if (limit < 0) {
             throw new IllegalArgumentException("limit cannot be negative");
         }
-        int drained = 0;
-        T value;
-        while (drained < limit && (value = queue.poll()) != null) {
-            consumer.accept(value);
-            drained++;
+        java.util.ArrayList<T> values = new java.util.ArrayList<>(Math.min(limit, queue.size()));
+        synchronized (mutationLock) {
+            T value;
+            while (values.size() < limit && (value = queue.poll()) != null) {
+                values.add(value);
+            }
         }
-        return drained;
+        for (T value : values) {
+            consumer.accept(value);
+        }
+        return values.size();
     }
 
     public int size() {

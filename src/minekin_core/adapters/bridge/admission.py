@@ -45,6 +45,10 @@ _PHASE_SIGNALS: Final[MappingProxyType[int, ConnectionSignal]] = MappingProxyTyp
 
 _NO_REASON: Final[int] = observation_pb2.ADMISSION_FAILURE_REASON_UNSPECIFIED
 _CANCELLED: Final[int] = observation_pb2.ADMISSION_FAILURE_REASON_CANCELLED
+_KNOWN_PHASES: Final[frozenset[int]] = frozenset(observation_pb2.ConnectionPhase.values())
+_KNOWN_REASONS: Final[frozenset[int]] = frozenset(
+    observation_pb2.AdmissionFailureReason.values()
+)
 _TERMINAL_PHASES: Final[frozenset[int]] = frozenset(
     {
         observation_pb2.CONNECTION_PHASE_DISCONNECTED,
@@ -62,6 +66,7 @@ class LifecycleDisposition(StrEnum):
     UNBOUND = "UNBOUND"
     FOREIGN_PROFILE = "FOREIGN_PROFILE"
     UNKNOWN_PHASE = "UNKNOWN_PHASE"
+    UNKNOWN_REASON = "UNKNOWN_REASON"
     MISPAIRED_REASON = "MISPAIRED_REASON"
     INVALID_GENERATION = "INVALID_GENERATION"
 
@@ -85,8 +90,10 @@ def apply_lifecycle(
 
     phase = lifecycle.phase
     reason = lifecycle.failure_reason
-    if phase != CANCELLED_PHASE and phase not in _PHASE_SIGNALS:
+    if phase not in _KNOWN_PHASES or (phase != CANCELLED_PHASE and phase not in _PHASE_SIGNALS):
         return AdmissionOutcome(LifecycleDisposition.UNKNOWN_PHASE)
+    if reason not in _KNOWN_REASONS:
+        return AdmissionOutcome(LifecycleDisposition.UNKNOWN_REASON)
     if not _reason_belongs_to_phase(phase, reason, lifecycle.terminal):
         return AdmissionOutcome(LifecycleDisposition.MISPAIRED_REASON)
     try:

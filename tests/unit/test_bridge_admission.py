@@ -36,10 +36,10 @@ TERMINAL_PHASES = (DISCONNECTED, FAILED, observation_pb2.CONNECTION_PHASE_CANCEL
 
 
 def report(
-    phase: observation_pb2.ConnectionPhase,
+    phase: int,
     *,
     generation: int = 1,
-    reason: observation_pb2.AdmissionFailureReason = NO_REASON,
+    reason: int = NO_REASON,
     terminal: bool | None = None,
     profile_id: str = str(PROFILE),
     revision: str = REVISION,
@@ -48,8 +48,8 @@ def report(
         generation=generation,
         server_profile_id=profile_id,
         server_profile_revision=revision,
-        phase=phase,
-        failure_reason=reason,
+        phase=phase,  # type: ignore[arg-type]
+        failure_reason=reason,  # type: ignore[arg-type]
         terminal=phase in TERMINAL_PHASES if terminal is None else terminal,
     )
 
@@ -172,6 +172,30 @@ def test_an_unspecified_phase_is_not_a_phase() -> None:
     outcome = apply_lifecycle(connections, report(observation_pb2.CONNECTION_PHASE_UNSPECIFIED))
 
     assert outcome.disposition is LifecycleDisposition.UNKNOWN_PHASE
+    assert outcome.decision is None
+    assert connections.active is not None
+    assert connections.active.state is ConnectionState.REQUEST_ACCEPTED
+
+
+def test_an_unknown_wire_phase_is_rejected_before_state_changes() -> None:
+    connections = ConnectionGenerations()
+    connections.begin(PROFILE, REVISION)
+
+    outcome = apply_lifecycle(connections, report(123_456))
+
+    assert outcome.disposition is LifecycleDisposition.UNKNOWN_PHASE
+    assert outcome.decision is None
+    assert connections.active is not None
+    assert connections.active.state is ConnectionState.REQUEST_ACCEPTED
+
+
+def test_an_unknown_wire_reason_is_rejected_before_state_changes() -> None:
+    connections = ConnectionGenerations()
+    connections.begin(PROFILE, REVISION)
+
+    outcome = apply_lifecycle(connections, report(FAILED, reason=123_456))
+
+    assert outcome.disposition is LifecycleDisposition.UNKNOWN_REASON
     assert outcome.decision is None
     assert connections.active is not None
     assert connections.active.state is ConnectionState.REQUEST_ACCEPTED

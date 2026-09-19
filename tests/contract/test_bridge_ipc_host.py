@@ -5,6 +5,7 @@ import struct
 from pathlib import Path
 
 import pytest
+
 from bridge_peer import (  # type: ignore[import-not-found]
     close_writers,
     connect,
@@ -16,7 +17,6 @@ from bridge_peer import (  # type: ignore[import-not-found]
     session,
     write_frame,
 )
-
 from minekin_core.adapters.bridge.admission import LifecycleDisposition, apply_lifecycle
 from minekin_core.adapters.bridge.ipc import (
     ADMISSION_CAPABILITY,
@@ -190,6 +190,44 @@ def test_control_send_rejects_a_message_type_payload_mismatch(tmp_path: Path) ->
 
         await host.close()
         await close_writers(control_writer, event_writer)
+
+    asyncio.run(scenario())
+
+
+def test_control_sequence_allocation_is_atomic_across_concurrent_senders() -> None:
+    class PausingStream:
+        def __init__(self) -> None:
+            self.sequences: list[int] = []
+            self.first_started = asyncio.Event()
+            self.release_first = asyncio.Event()
+
+        async def write(self, value: envelope_pb2.Envelope) -> None:
+            self.sequences.append(value.sequence)
+            if len(self.sequences) == 1:
+                self.first_started.set()
+                await self.release_first.wait()
+
+    async def scenario() -> None:
+        host = BridgeIpcHost(session())
+        stream = PausingStream()
+        host._control = stream  # type: ignore[assignment]  # pyright: ignore[reportPrivateUsage]
+        first = asyncio.create_task(
+            host._send_control(  # pyright: ignore[reportPrivateUsage]
+                HEARTBEAT_TYPE, session_pb2.Heartbeat(generation=1)
+            )
+        )
+        await stream.first_started.wait()
+        second = asyncio.create_task(
+            host._send_control(  # pyright: ignore[reportPrivateUsage]
+                HEARTBEAT_TYPE, session_pb2.Heartbeat(generation=1)
+            )
+        )
+        await asyncio.sleep(0)
+
+        assert stream.sequences == [1]
+        stream.release_first.set()
+        await asyncio.gather(first, second)
+        assert stream.sequences == [1, 2]
 
     asyncio.run(scenario())
 
