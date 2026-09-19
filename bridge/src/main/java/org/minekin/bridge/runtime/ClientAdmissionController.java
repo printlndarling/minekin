@@ -111,14 +111,14 @@ public final class ClientAdmissionController {
      * read here and classified rather than forwarded.
      */
     public void loginFailed() {
-        AdmissionFailureReason reason = classifyLoginFailure(takeLoginReason());
+        AdmissionFailureReason reason = classifyDisconnect(takeDisconnectReason());
         LOGGER.info("bridge classified the login failure as {}", reason);
         report(ConnectionPhase.CONNECTION_PHASE_FAILED, reason, true);
     }
 
     /**
-     * The reason a server gave for ending a login, held between the packet that
-     * carried it and the report that classifies it.
+     * The reason a server gave for ending a connection, held between the packet
+     * that carried it and the report that classifies it.
      *
      * <p>Static because the two halves that meet here cannot see each other: a
      * mixin has no instance to hold, and the controller is per client — and
@@ -126,30 +126,31 @@ public final class ClientAdmissionController {
      * refusing to initialize twice. It is cleared as it is read, so a reason
      * from one attempt can never be classified against the next.
      */
-    private static volatile String pendingLoginReason = "";
+    private static volatile String pendingDisconnectReason = "";
 
-    public static void rememberLoginReason(String reason) {
-        pendingLoginReason = reason == null ? "" : reason;
+    public static void rememberDisconnectReason(String reason) {
+        pendingDisconnectReason = reason == null ? "" : reason;
     }
 
-    private static String takeLoginReason() {
-        String reason = pendingLoginReason;
-        pendingLoginReason = "";
+    private static String takeDisconnectReason() {
+        String reason = pendingDisconnectReason;
+        pendingDisconnectReason = "";
         return reason;
     }
 
     /**
-     * The stable classification for a login a server ended.
+     * The stable classification for a connection a server ended.
      *
      * <p>The server's own words are the only thing that tells a whitelist
-     * rejection apart from an authentication mismatch — the protocol carries a
-     * sentence, not a code — so this matches the sentences a *vanilla* server
-     * sends and nothing more. A reason it does not recognise stays
-     * UNEXPECTED_DISCONNECT rather than being forced into a category: a wrong
-     * category is worse evidence than an honest "unclassified", because it is a
-     * claim about the server that nobody made.
+     * rejection apart from an authentication mismatch, or a duplicate login from
+     * a session that simply ended — the protocol carries a sentence, not a code
+     * — so this matches the sentences a *vanilla* server sends and nothing more.
+     * A reason it does not recognise stays UNEXPECTED_DISCONNECT rather than
+     * being forced into a category: a wrong category is worse evidence than an
+     * honest "unclassified", because it is a claim about the server that nobody
+     * made.
      */
-    static AdmissionFailureReason classifyLoginFailure(String reason) {
+    static AdmissionFailureReason classifyDisconnect(String reason) {
         String text = reason == null ? "" : reason.toLowerCase(Locale.ROOT);
         if (text.isBlank()) {
             return AdmissionFailureReason.ADMISSION_FAILURE_REASON_UNEXPECTED_DISCONNECT;
@@ -172,12 +173,30 @@ public final class ClientAdmissionController {
         return AdmissionFailureReason.ADMISSION_FAILURE_REASON_UNEXPECTED_DISCONNECT;
     }
 
-    /** A play session ended. Terminal, and deliberately without a reason. */
+    /**
+     * The play session ended.
+     *
+     * <p>Two different events look identical from here, and what tells them
+     * apart is whether the server said anything. A session that simply ends is
+     * DISCONNECTED and carries no reason, which is the contract's rule. A
+     * session the server *ended* arrives as a disconnect packet with its reason
+     * — measured, that is how a duplicate login is delivered mid-session — and
+     * reporting that as a plain disconnect records a Kin the server threw out
+     * as one that stopped on its own. That is the same class of error as
+     * inventing a reason: a fact in the evidence that is not what happened.
+     */
     public void playEnded() {
-        report(
-                ConnectionPhase.CONNECTION_PHASE_DISCONNECTED,
-                AdmissionFailureReason.ADMISSION_FAILURE_REASON_UNSPECIFIED,
-                true);
+        String reason = takeDisconnectReason();
+        if (reason.isBlank()) {
+            report(
+                    ConnectionPhase.CONNECTION_PHASE_DISCONNECTED,
+                    AdmissionFailureReason.ADMISSION_FAILURE_REASON_UNSPECIFIED,
+                    true);
+            return;
+        }
+        AdmissionFailureReason classified = classifyDisconnect(reason);
+        LOGGER.info("bridge classified the disconnect as {}", classified);
+        report(ConnectionPhase.CONNECTION_PHASE_FAILED, classified, true);
     }
 
     /**

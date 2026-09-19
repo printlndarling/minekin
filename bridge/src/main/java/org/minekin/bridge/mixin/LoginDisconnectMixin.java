@@ -37,7 +37,7 @@ public abstract class LoginDisconnectMixin {
             LoginDisconnectS2CPacket packet, CallbackInfo callback) {
         String reason = packet.getReason().getString();
         LOGGER.warn("bridge observed a login disconnect from the server: {}", reason);
-        ClientAdmissionController.rememberLoginReason(reason);
+        ClientAdmissionController.rememberDisconnectReason(reason);
     }
 
     @Inject(method = "onDisconnected", at = @At("HEAD"))

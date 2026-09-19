@@ -264,3 +264,18 @@ The server's sentence stays in the local log; only the category reaches the
 ledger, because a server may say anything and the product event may not carry
 it. The hook is `onDisconnect(LoginDisconnectS2CPacket)`, measured rather than
 guessed: `onDisconnected` is not reached for a kick the server sends.
+
+A second login under the same name — a probe, while the managed client is
+already in the world — exercises the other kind of ending:
+
+```text
+server   Kin lost connection: You logged in from another location
+client   bridge observed a disconnect from the server: You logged in from another location
+client   bridge classified the disconnect as ADMISSION_FAILURE_REASON_DUPLICATE_LOGIN
+ledger   SessionInterrupted  {"phase":"FAILED","reason":"ADMISSION_FAILURE_REASON_DUPLICATE_LOGIN"}
+```
+
+That used to be recorded as `{"phase":"DISCONNECTED"}` — a session the server
+threw out, written down as one that stopped on its own. A disconnect *without* a
+reason is a session that ended; one *with* a reason is a session the server
+ended.

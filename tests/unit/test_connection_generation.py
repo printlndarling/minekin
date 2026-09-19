@@ -177,6 +177,39 @@ def test_a_late_report_cannot_turn_a_disconnect_into_a_failure() -> None:
     assert connections.active.state is ConnectionState.DISCONNECTED
 
 
+def test_a_kick_after_playable_is_a_failure_and_not_a_plain_disconnect() -> None:
+    """Measured, not assumed: a server that ends a session sends its reason.
+
+    A vanilla server kicks a client with a disconnect packet carrying
+    `You logged in from another location` when the same name logs in again, and
+    calling that a plain disconnect records a session the server ended as one
+    that simply ended. §7's table already allows `PLAYABLE -> FAILED`; this is
+    the connection machine catching up with it rather than the other way round.
+    """
+
+    connections = ConnectionGenerations()
+    generation = _drive_to(connections, *_PLAYABLE)
+
+    decision = connections.apply(generation, ConnectionSignal.FAILURE)
+
+    assert decision.disposition is CallbackDisposition.FAILED
+    assert decision.changed_state
+    assert connections.active is not None
+    assert connections.active.state is ConnectionState.FAILED
+
+
+def test_a_failure_after_the_attempt_already_ended_is_still_out_of_order() -> None:
+    connections = ConnectionGenerations()
+    generation = _drive_to(connections, *_PLAYABLE)
+    connections.apply(generation, ConnectionSignal.FAILURE)
+
+    decision = connections.apply(generation, ConnectionSignal.FAILURE)
+
+    assert decision.disposition is CallbackDisposition.OUT_OF_ORDER
+    assert connections.active is not None
+    assert connections.active.state is ConnectionState.FAILED
+
+
 def test_a_disconnect_is_closed_explicitly_before_the_next_generation() -> None:
     connections = ConnectionGenerations()
     generation = _drive_to(connections, *_PLAYABLE)

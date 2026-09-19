@@ -9,6 +9,7 @@ import io.minekin.protocol.v1.ConnectionLifecycle;
 import io.minekin.protocol.v1.ConnectionPhase;
 import java.util.ArrayList;
 import java.util.List;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -58,6 +59,14 @@ final class ClientAdmissionControllerTest {
     private ConnectionLifecycle only() {
         assertEquals(1, reported.size(), "exactly one report was expected");
         return reported.get(0);
+    }
+
+    @BeforeEach
+    void startFromNoRememberedReason() {
+        // The reason holder is static — it is how a mixin reaches a controller —
+        // so every test states the state it starts from rather than inheriting
+        // whatever the last one left.
+        ClientAdmissionController.rememberDisconnectReason("");
     }
 
     @Test
@@ -117,6 +126,28 @@ final class ClientAdmissionControllerTest {
     }
 
     @Test
+    void aSessionTheServerEndedIsAFailureAndNotAPlainDisconnect() {
+        // Measured: a duplicate login is delivered mid-session as a disconnect
+        // packet carrying `You logged in from another location`. Reporting that
+        // as DISCONNECTED would record a Kin the server threw out as one that
+        // stopped on its own.
+        beginAttempt();
+        controller.playInit();
+        controller.joinSeen();
+        reported.clear();
+        ClientAdmissionController.rememberDisconnectReason("You logged in from another location");
+
+        controller.playEnded();
+
+        ConnectionLifecycle lifecycle = only();
+        assertEquals(ConnectionPhase.CONNECTION_PHASE_FAILED, lifecycle.getPhase());
+        assertEquals(
+                AdmissionFailureReason.ADMISSION_FAILURE_REASON_DUPLICATE_LOGIN,
+                lifecycle.getFailureReason());
+        assertTrue(lifecycle.getTerminal());
+    }
+
+    @Test
     void anEndingRetiresTheGenerationSoNoLaterEventSpeaksForIt() {
         beginAttempt();
         controller.loginFailed();
@@ -152,19 +183,19 @@ final class ClientAdmissionControllerTest {
         // controlled domain rather than invented here.
         assertEquals(
                 AdmissionFailureReason.ADMISSION_FAILURE_REASON_WHITELIST_REJECTED,
-                ClientAdmissionController.classifyLoginFailure(
+                ClientAdmissionController.classifyDisconnect(
                         "You are not white-listed on this server!"));
         assertEquals(
                 AdmissionFailureReason.ADMISSION_FAILURE_REASON_DUPLICATE_LOGIN,
-                ClientAdmissionController.classifyLoginFailure(
+                ClientAdmissionController.classifyDisconnect(
                         "You are already connected to this server!"));
         assertEquals(
                 AdmissionFailureReason.ADMISSION_FAILURE_REASON_AUTH_MODE_MISMATCH,
-                ClientAdmissionController.classifyLoginFailure(
+                ClientAdmissionController.classifyDisconnect(
                         "Failed to verify username!"));
         assertEquals(
                 AdmissionFailureReason.ADMISSION_FAILURE_REASON_PROTOCOL_MISMATCH,
-                ClientAdmissionController.classifyLoginFailure("Outdated server!"));
+                ClientAdmissionController.classifyDisconnect("Outdated server!"));
     }
 
     @Test
@@ -173,18 +204,18 @@ final class ClientAdmissionControllerTest {
         // unknown sentence is an honest "unclassified" rather than a guess.
         assertEquals(
                 AdmissionFailureReason.ADMISSION_FAILURE_REASON_UNEXPECTED_DISCONNECT,
-                ClientAdmissionController.classifyLoginFailure("Server is restarting, sorry!"));
+                ClientAdmissionController.classifyDisconnect("Server is restarting, sorry!"));
         assertEquals(
                 AdmissionFailureReason.ADMISSION_FAILURE_REASON_UNEXPECTED_DISCONNECT,
-                ClientAdmissionController.classifyLoginFailure(""));
+                ClientAdmissionController.classifyDisconnect(""));
         assertEquals(
                 AdmissionFailureReason.ADMISSION_FAILURE_REASON_UNEXPECTED_DISCONNECT,
-                ClientAdmissionController.classifyLoginFailure(null));
+                ClientAdmissionController.classifyDisconnect(null));
     }
 
     @Test
     void aReasonIsClassifiedOnceAndThenForgotten() {
-        ClientAdmissionController.rememberLoginReason("You are not white-listed on this server!");
+        ClientAdmissionController.rememberDisconnectReason("You are not white-listed on this server!");
         beginAttempt();
         controller.loginFailed();
 

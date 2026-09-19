@@ -175,10 +175,21 @@ class ConnectionGenerations:
 
         previous = attempt.state
         if signal is ConnectionSignal.FAILURE:
-            # A failure report is out of order once the session reached PLAYABLE
-            # or already ended: the legitimate report for a connection that dies
-            # mid-session is a disconnect, which carries no reason.
-            if previous is ConnectionState.PLAYABLE or previous in _TERMINAL:
+            # Out of order once the attempt has already come to rest: rewriting a
+            # terminal state would put a reason code into the evidence that
+            # nobody sent.
+            #
+            # It *is* in order from PLAYABLE, and that changed because a
+            # measurement contradicted the reason it used to be refused. The old
+            # rule said "the legitimate report for a connection that dies
+            # mid-session is a disconnect, which carries no reason" — and a
+            # vanilla server that ends a session itself does the opposite: it
+            # sends a disconnect *packet* carrying its reason (`You logged in
+            # from another location`, measured). Treating that as a plain
+            # disconnect records a session the server ended as one that simply
+            # ended, which is the same class of error as inventing a reason — a
+            # fact in the evidence that is not what happened.
+            if previous in _TERMINAL:
                 return CallbackDecision(
                     CallbackDisposition.OUT_OF_ORDER,
                     generation,
