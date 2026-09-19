@@ -199,6 +199,10 @@ public final class ClientAdmissionController {
         server.setResourcePackPolicy(resourcePackPolicy(command.getResourcePackPolicy()));
         parentScreen = client.currentScreen != null ? client.currentScreen : new TitleScreen();
         beginGeneration(command);
+        LOGGER.info(
+                "bridge asked vanilla to connect to {} for generation {}",
+                address,
+                command.getGeneration());
         try {
             publish(
                     ConnectionPhase.CONNECTION_PHASE_RESOLVING,
@@ -272,6 +276,14 @@ public final class ClientAdmissionController {
     }
 
     private void cancelVanilla(MinecraftClient client) {
+        // Logged because this is the one place this code closes a connection, and
+        // it closes it the way the vanilla Cancel button does — by cancelling the
+        // connect future. That path produces no DisconnectionInfo, so a cancelled
+        // connection is indistinguishable from a connection that failed on its
+        // own unless this line says which one happened.
+        LOGGER.warn(
+                "bridge is cancelling the client's connection (screen matches: {})",
+                activeScreen != null && client.currentScreen == activeScreen);
         if (activeScreen != null && client.currentScreen == activeScreen) {
             synchronized (activeScreen) {
                 ConnectScreenAccessor accessor = (ConnectScreenAccessor) activeScreen;

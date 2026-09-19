@@ -38,8 +38,8 @@ FABRIC_API_SHA1 = "1c7871b6af04edc8b8f0dbad12606d67f6118a11"
 # Bridge source is not allowed to "just work". The jar has to be rebuilt and
 # this pin renewed, because a plan that names this digest and ships other bytes
 # is the failure the pin exists to catch.
-BRIDGE_JAR_SHA256 = "0d7e2f9bf3c141df5df82a860db036837eaf9bbdf94f0d7d4b6d8ff98af22f04"
-BRIDGE_JAR_SIZE = 1_238_170
+BRIDGE_JAR_SHA256 = "176b4eb6b8e042e77dc1161ed7cb9b56433c3162cc7b204706a2a0b2617aa9c3"
+BRIDGE_JAR_SIZE = 1_238_334
 BRIDGE_JAR_RELATIVE_PATH = "bridge/build/libs/minekin-bridge-0.0.0.jar"
 
 

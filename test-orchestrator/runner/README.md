@@ -228,17 +228,27 @@ What the domain has been cleared of, by measurement rather than by argument:
 | `usercache.json` being empty | Not evidence: vanilla writes it on a completed join |
 | Name resolution | `_minecraft._tcp.127.0.0.1` NXDOMAINs in 0.19 s; the literal resolves in 0.01 s |
 | Vanilla's `pause-when-empty-seconds` | Reproduces with pausing off (the property was changed anyway, on its own merits) |
-| The bridge cancelling it | Ruled out: the diagnostics that say when it stops the client never fired |
-| The client sending a disconnect | Ruled out: `cancelVanilla` is the only local closer and uses `ABORTED_TEXT`, which would have shown a reason |
+| The bridge cancelling it | Ruled out positively: `cancelVanilla`, the only local closer, now logs itself and never did |
+| The client sending a disconnect | Ruled out: no `DisconnectionInfo` is ever produced |
 
-One plausible cause of the 2–4 second gap between `Connecting to` and the login
-handler is sized but not proven: vanilla resolves the address through a
-`BlockListChecker` that fetches `sessionserver.mojang.com/blocked.json`, and
-inside the container that fetch takes 1.60 s and answers **404** rather than the
-expected list. That explains a delay of the right magnitude; it does not explain
-a disconnect.
+Where it actually gets to, with the socket snapshot anchored to the run (and no
+probe running in that container, so the only process that could have connected
+was the client):
 
-The next two moves are both about pinning measurement down rather than guessing:
-log `cancelVanilla`, which is the only place this code closes a connection, and
-redo the socket snapshot with its window anchored to the client's own
-`Connecting to` line instead of to the run's start time.
+```text
+14:02:09  bridge asked vanilla to connect to 127.0.0.1:25565 for generation 1
+14:02:09  Connecting to 127.0.0.1, 25565
+14:02:13  bridge reporting CONNECTION_PHASE_LOGIN_NEGOTIATING for generation 1
+14:02:14  <the connection is first seen, already in TIME_WAIT, held by the server>
+14:02:14  bridge reporting CONNECTION_PHASE_FAILED for generation 1
+```
+
+TIME_WAIT belongs to whoever sent the first FIN, so **the server closed first** —
+and it logs nothing. The connection was never sampled as ESTABLISHED at a 0.1 s
+cadence, so it lived well under a sampling interval. The four seconds before the
+login handler match the resolver's `BlockListChecker` fetch (1.60 s here) plus
+DNS.
+
+That narrows it to one question: a hand-written client with the same name, UUID
+and protocol is accepted, so the difference is in what *this* client sends. The
+next step is to read the bytes it puts on the wire rather than infer them.
