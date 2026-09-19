@@ -1,14 +1,16 @@
-# Controlled client runner
+# Controlled runner
 
 The Linux environment the acceptance items in W20/W30/W40 have been waiting for:
 a real Minecraft 1.21.4 client, in a virtual display, on the platform the launch
-plan targets. Nothing here is a product artifact — the image ships in neither the
-wheel nor the Bridge jar, and the runner never reads the test oracle.
+plan targets — plus the isolated vanilla server it is supposed to connect to.
+Nothing here is a product artifact — the image ships in neither the wheel nor the
+Bridge jar, and the runner never reads the test oracle.
 
 ```text
 bash test-orchestrator/runner/run.sh doctor
 bash test-orchestrator/runner/run.sh init --kin-id kin-01
 bash test-orchestrator/runner/run.sh session start --profile tests/fixtures/runtime-input/bundle-p0-core-1.21.4.json
+MINEKIN_SERVER_JAR=<path> bash test-orchestrator/runner/run.sh server --accept-eula --allow-player Kin
 bash test-orchestrator/runner/run.sh --shell 'glxinfo -B'   # or any other command
 ```
 
@@ -100,14 +102,44 @@ Two errors remain in the client's log and neither is a defect to fix here: the
 narrator cannot load, and `AudioSystem` cannot open an OpenAL device, so the
 client turns sounds off. A container has no sound device.
 
+## The server half
+
+```text
+uv run python tools/verify_supply_chain.py --save-server <path> --max-bytes 60000000
+MINEKIN_SERVER_JAR=<path> bash test-orchestrator/runner/run.sh server \
+    --accept-eula --allow-player Kin
+```
+
+The first command is where the server jar comes from, because nothing else was
+that step: the supply-chain check already fetches those bytes to compare them
+against the pin, so `--save-server` keeps the payload it has just verified at the
+path the operator names. It fetches 59,531,345 bytes — the six smallest artifacts
+on the plan, fabric-api, and the 54 MB server — and prints that number before it
+starts. A file already at that path is replaced only if it is the same bytes.
+
+The second runs `tools/run_controlled_server.py` inside the runner. The jar is
+mounted read-only from a host path rather than copied, so which jar a run used is
+answerable from the command that ran. Each run gets a fresh directory under the
+data volume at `/data/server-runs/run-<n>`, and `n` skips everything already
+there, so an earlier run's world, log and settings are never overwritten. A run
+that is refused leaves nothing behind: the EULA check happens before the
+directory is created.
+
+**The EULA is the operator's to accept**, so this passes `--accept-eula` through
+and never supplies it. Without it the tool exits 2 and writes nothing at all,
+which is what the runner shows you if you try:
+
+```text
+$ MINEKIN_SERVER_JAR=.tmp/vanilla/server.jar bash test-orchestrator/runner/run.sh server
+server run directory: /data/server-runs/run-1
+the Minecraft EULA must be accepted by the operator: pass --accept-eula
+```
+
 ## What it does not do yet
 
-It starts no server, and the client is not driven: the vanilla 1.21.4 dedicated
-server, the isolated account and the per-run directories named alongside the
-runner in the environment gate are separate pieces of the same work package.
-
-The materialised assets view is also still missing — the plan names
-`bundle/assets` and nothing publishes it, so the client logs `Can't open the
-resource index file` for the asset index. It renders anyway, out of the assets
-its own jar carries, which is why this is a missing contract step rather than a
-broken client.
+Nothing connects the client to the server. The runner can bring up the isolated
+domain, and it can bring up a managed client, but no command asks for a
+connection: Core has no entry point that sends `ConnectWorld`, so `session start`
+reaches the main menu and stays there. Until that exists the two halves are
+started separately and never meet, which is why W40's real admission gate is
+still open.
