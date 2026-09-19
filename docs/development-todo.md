@@ -203,7 +203,12 @@
 - [x] **把失败变可见，并把几个猜测真正排掉**。契约允许 Bridge "keep redacted diagnostics outside the product event payload"，于是 Bridge 在本地日志里记下了它看到的每一件事（每条被上报的相位与它的 generation、被丢弃而**不**上报的报告、事件 outbox 满导致 fail-closed、以及 Bridge 主动停客户端的那一刻）。跑一遍 `domain` 之后日志直接给出了答案的形状：
   `bridge reporting CONNECTION_PHASE_LOGIN_NEGOTIATING …` 与 `bridge reporting CONNECTION_PHASE_FAILED …` 出现在**同一秒**。也就是说这不是超时、也不是等服务端应答等出来的失败：登录 handler 建起来之后通道立刻就不活动了。
 - [x] **并且把服务端排除干净了——用一个手写的协议客户端**。`.tmp` 里一个一次性的探针（握手 + login start，protocol 769、名字 `Kin`、白名单里那个离线 UUID）对同一个域拿到了 `0x03 Set Compression`，也就是**登录被接受了**。**顺带纠正上一条里的一个错误推断**：服务端"什么都没记"曾被我当成"登录没到达"，那是错的——vanilla 对一个**被接受**的握手同样一个字都不记（探针这次就被接受了，服务端日志照样停在 `Done (…)`）。所以服务端的沉默不是证据，`usercache.json` 为空也不是（它只在成功加入后写）。同时排掉的还有名字解析：`_minecraft._tcp.127.0.0.1` 在 0.19 秒内干净地 NXDOMAIN，字面量 0.01 秒解析出来，vanilla 会很快回落到字面量，所以那 4 秒的空档不是 DNS。
-- [ ] **仍然不知道客户端为什么断，而原因只存在于一个地方**：vanilla 把断开理由画在 `DisconnectedScreen` 上（`latest.log` 里没有任何一行，`stderr` 是空的，netty 也没报错），所以下一步就是把它读出来——在客户端的断开路径上挂一个 Mixin（取消路径已有 `ConnectScreenAccessor` 这个先例），把那个界面的 title/reason 记进**本机日志**（服务端原话不进产品事件）。**还有一个仍然无法解释的观察值得跟着走**：`Connecting to 127.0.0.1, 25565` 与登录 handler 建立之间隔着约 4 秒，中间还夹着一次资源重载（纹理图集），而登录 handler 一建立就断开。**在读到那句理由之前不要再猜**：这一批已经把服务端、白名单、地址策略、DNS、暂停、以及"是不是我们自己把它掐了"逐条量过了。
+- [x] **把「谁掐断了它」这个问题问到了底，答案是「没有人说过话」**。在客户端的登录断开路径上挂了一个 Mixin（`LoginDisconnectMixin`，照 `ConnectScreenAccessor` 的先例，并确认 refmap 把它解析成了 `class_635.method_10839`），它记的是 `DisconnectionInfo.reason()`——也就是"谁说了为什么"。**它一次都没触发**。这就是答案：这次断开**没有任何 `DisconnectionInfo`**，socket 就这么没了；我们之所以知道"发生过一次断开"，是因为 Fabric 的事件除了 `handleDisconnection` 之外还挂在 `channelInactive` 上，而走的正是后者。也就是说：不是服务端发了断开包，也不是我们这边调用 `disconnect(...)`（`cancelVanilla` 只有一处、用的是 `ConnectScreen.ABORTED_TEXT`，真走了它会留下理由）。
+- [x] **顺手把服务端和身份彻底洗清了——而且纠正了上一批那个探针的结论**。上一批的探针读到第一个包 `0x03 Set Compression` 就收手了，那个包只说明"服务端在讲协议"，**不说明身份被接受**：压缩启用之后才轮到白名单那一步。这次把整个登录交换读完，拿到的是
+  `0x03 Set Compression` → `0x02 LoginSuccess`
+  ——**服务端让这个身份进去了**（名字 `Kin`、白名单里那个离线 UUID）。所以服务端、白名单、端口、地址策略这几条到此为止，全部有正面证据。
+- [x] **那 2–4 秒的空档有了一个量级对得上的解释**：vanilla 在真正连之前会经 `AllowedAddressResolver` 里的 `BlockListChecker` 去取 `https://sessionserver.mojang.com/blocked.json`。在域容器里实测：DNS 正常（0.55 s / 1.65 s），那个 URL 1.60 s 返回 **HTTP 404**（不是预期的 JSON 列表）。1.6 秒与观测到的 2–4 秒是同一个量级，而"取不到 → 当作不阻断"是 vanilla 的既定行为。**这条目前只是量级相称，不是定论**——它解释延迟，还不足以解释断开。
+- [ ] **下一步两件事，都是把测量钉死而不是继续猜**：**(一)** 给 `cancelVanilla` 加一条本地日志——它是我们唯一一处主动关连接的地方，真走了它会说明；目前只能从"没有 `DisconnectionInfo`"推出不是它，还没有正面证据。**(二)** 重做一次套接字快照，把窗口**锚在客户端自己打出 `Connecting to` 的那一刻**而不是按运行开始时间估算——上一批那次快照里 25565 只出现过 LISTEN、没有对端连接，但同一个窗口是否真覆盖了那次尝试无法确认（同形状的另几次运行确实打出了 `Connecting to`），所以那条**不作为结论记录**。
 - [ ] 取消、重连与晚到 callback 不得改变新 generation。
 - [ ] 执行 `ADMIT-001…120`；Kin 不得获得 op、RCON 或 console 权限。
 

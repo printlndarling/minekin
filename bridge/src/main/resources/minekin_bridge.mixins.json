@@ -3,7 +3,8 @@
   "package": "org.minekin.bridge.mixin",
   "compatibilityLevel": "JAVA_21",
   "client": [
-    "ConnectScreenAccessor"
+    "ConnectScreenAccessor",
+    "LoginDisconnectMixin"
   ],
   "injectors": {
     "defaultRequire": 1

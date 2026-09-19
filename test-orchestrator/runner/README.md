@@ -212,25 +212,33 @@ generator preset the profile does not name.
 
 ## What it does not do yet
 
-The client reaches the server and the login dies in the same second it starts.
-Both ends are silent about it — the client because vanilla draws a disconnect
-reason on the `DisconnectedScreen` rather than logging it, and the server because
-vanilla does not log a handshake it accepts either.
+The client's login dies seconds after it starts, and the disconnect carries no
+reason at all. That is now a measured statement rather than a guess: a mixin on
+the client's login-disconnect path logs `DisconnectionInfo.reason()`, and it
+never fires. The socket simply goes away — seen only because Fabric's event also
+hangs off `channelInactive`, not off a disconnect packet.
 
 What the domain has been cleared of, by measurement rather than by argument:
 
 | Suspect | Verdict |
 | --- | --- |
-| The server, the whitelist, the port | A hand-written protocol client gets `0x03 Set Compression` — the login is accepted |
+| The server, the whitelist, the port | A hand-written client reads the *whole* login: `0x03 Set Compression` then `0x02 LoginSuccess` — this identity is let in |
+| That first probe's conclusion | It stopped at the first packet; `Set Compression` says the server speaks protocol, not that the identity was accepted |
 | The server's silence | Not evidence: it logs nothing for an accepted handshake either |
 | `usercache.json` being empty | Not evidence: vanilla writes it on a completed join |
 | Name resolution | `_minecraft._tcp.127.0.0.1` NXDOMAINs in 0.19 s; the literal resolves in 0.01 s |
 | Vanilla's `pause-when-empty-seconds` | Reproduces with pausing off (the property was changed anyway, on its own merits) |
-| The Bridge cancelling it | Ruled out: the diagnostics that say when it stops the client never fired |
+| The bridge cancelling it | Ruled out: the diagnostics that say when it stops the client never fired |
+| The client sending a disconnect | Ruled out: `cancelVanilla` is the only local closer and uses `ABORTED_TEXT`, which would have shown a reason |
 
-The remaining observation worth following is the ~4 second gap between
-`Connecting to` and the login handler being created, with a resource reload in
-between, followed by an immediate disconnect. The next step is to read the one
-place the answer exists — a Mixin on the client's disconnect path, logging that
-screen's title and reason locally. The contract permits the bridge to keep
-redacted diagnostics outside the product event payload.
+One plausible cause of the 2–4 second gap between `Connecting to` and the login
+handler is sized but not proven: vanilla resolves the address through a
+`BlockListChecker` that fetches `sessionserver.mojang.com/blocked.json`, and
+inside the container that fetch takes 1.60 s and answers **404** rather than the
+expected list. That explains a delay of the right magnitude; it does not explain
+a disconnect.
+
+The next two moves are both about pinning measurement down rather than guessing:
+log `cancelVanilla`, which is the only place this code closes a connection, and
+redo the socket snapshot with its window anchored to the client's own
+`Connecting to` line instead of to the run's start time.
