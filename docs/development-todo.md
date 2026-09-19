@@ -115,7 +115,7 @@
 - [x] 静态子集：可信 Server Profile 加载与地址策略——只接受冻结 schema 里的 `127.0.0.1`/`::1` 两个 loopback literal，拒绝 DNS 名、私网、通配、第二条 loopback 与未知字段；profile 内容摘要作为 revision。以 `schemas/server-profile.schema.json` 做逐项对照测试，产品规则只允许比 schema 更严。
 - [x] 地址策略判定：解析后的 endpoint 必须再过一次策略，只接受 profile 声明的网络；名称永不解析入位（可重绑定），link-local（含云元数据 `169.254.169.254`）、unspecified 与 multicast 是任何策略都不能放宽的无条件拒绝。profile 加载与判定共用同一份规则，不再各写一遍 loopback 字面量。
 - [ ] DNS/SRV 解析本身，以及「每次重连重新解析、不永久信任旧 SRV 结果」的时序：需要真实客户端连接路径。
-- [ ] connection generation 的分配与「旧 generation 回调只作诊断」在真实事件流中的接线；`Generation.accepts` 已有，接线未做。
+- [x] connection generation 的纯领域门禁：每次 begin 从 1 单调分配且必须先显式 close 当前 generation；旧 generation 的 DNS/Netty/JOIN/snapshot 回调只返回 `STALE_GENERATION`，关闭后的晚到回调只返回 `CLOSED_GENERATION`，均不改变新状态；未分配的未来 generation 与当前 generation 的乱序回调 fail closed，JOIN 与 authoritative snapshot 缺一不可 `PLAYABLE`。真实 client-thread 事件接线仍随 ConnectWorld 实测完成，不能用此静态状态机代替。
 - [ ] 经普通客户端执行 ConnectWorld，按 JOIN/认证/白名单/资源包等原因分类。
 - [ ] 取消、重连与晚到 callback 不得改变新 generation。
 - [ ] 执行 `ADMIT-001…120`；Kin 不得获得 op、RCON 或 console 权限。
