@@ -19,8 +19,11 @@ from typing import Any, cast
 from minekin_core.adapters.bridge.bootstrap import bridge_session_for, descriptor_path
 from minekin_core.adapters.bridge.ipc import BridgeIpcHost, BridgeSession
 from minekin_core.adapters.launcher.artifacts import ArtifactStore, SessionOverlayStore
-from minekin_core.adapters.launcher.launch_plan import build_launch_plan, find_workspace_root
-from minekin_core.adapters.launcher.metadata import Artifact
+from minekin_core.adapters.launcher.launch_plan import (
+    artifacts_from_plan,
+    build_launch_plan,
+    find_workspace_root,
+)
 from minekin_core.adapters.launcher.mods import install_fixed_mods
 from minekin_core.adapters.launcher.offline_session import OFFLINE_SESSION_CANDIDATES
 from minekin_core.adapters.launcher.orphans import (
@@ -171,27 +174,6 @@ def require_launchable(plan: Mapping[str, Any]) -> None:
         )
 
 
-def _artifact_from(entry: Mapping[str, Any]) -> Artifact:
-    """Read one plan artifact, refusing a malformed entry rather than coercing it."""
-
-    try:
-        size = entry["size"]
-        if isinstance(size, bool) or not isinstance(size, int):
-            raise TypeError("size")
-        return Artifact(
-            coordinate=str(entry["coordinate"]),
-            path=str(entry["path"]),
-            url=str(entry["url"]),
-            size=size,
-            sha1=str(entry["sha1"]),
-            kind=str(entry.get("kind", "library")),
-        )
-    except (KeyError, TypeError) as error:
-        raise _reject(
-            f"launch plan artifact entry is malformed: {error}", ErrorCategory.SUPPLY_CHAIN
-        ) from error
-
-
 def require_store_complete(plan: Mapping[str, Any], store: ArtifactStore) -> None:
     """Every artifact the plan names must already be in the store, verified.
 
@@ -199,19 +181,16 @@ def require_store_complete(plan: Mapping[str, Any], store: ArtifactStore) -> Non
     in ways that look like a rendering bug rather than a missing download.
     """
 
-    entries = cast(list[Mapping[str, Any]], plan.get("artifacts", []))
-    if not entries:
-        raise _reject("launch plan names no artifacts", ErrorCategory.SUPPLY_CHAIN)
+    artifacts = artifacts_from_plan(plan)
     missing: list[str] = []
-    for entry in entries:
-        artifact = _artifact_from(entry)
+    for artifact in artifacts:
         try:
             store.verify(artifact)
         except MinekinError:
             missing.append(artifact.coordinate)
     if missing:
         raise _reject(
-            f"{len(missing)} of {len(entries)} artifacts are not in the store yet, "
+            f"{len(missing)} of {len(artifacts)} artifacts are not in the store yet, "
             f"starting with {missing[0]}; fetch them before starting a session",
             ErrorCategory.SUPPLY_CHAIN,
         )

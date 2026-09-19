@@ -230,3 +230,39 @@ def game_environment(plan: Mapping[str, Any]) -> dict[str, str]:
         if not isinstance(value, str) or not value:
             raise _reject(f"launch plan has no {name} game argument value")
     return cast(dict[str, str], environment)
+
+
+def artifacts_from_plan(plan: Mapping[str, Any]) -> tuple[Artifact, ...]:
+    """Read back the artifacts a plan names, refusing a malformed entry.
+
+    Every consumer of a plan needs this and none of them should coerce a broken
+    entry into a plausible one: a wrong size or a missing digest that is read as
+    a default is a verification that silently stops verifying.
+    """
+
+    entries = cast(list[object], plan.get("artifacts") or [])
+    if not entries:
+        raise _reject("launch plan names no artifacts")
+    artifacts: list[Artifact] = []
+    for entry in entries:
+        if not isinstance(entry, dict):
+            raise _reject("launch plan artifact entry is malformed: not an object")
+        artifacts.append(_artifact_from(cast(Mapping[str, Any], entry)))
+    return tuple(artifacts)
+
+
+def _artifact_from(entry: Mapping[str, Any]) -> Artifact:
+    try:
+        size = entry["size"]
+        if isinstance(size, bool) or not isinstance(size, int):
+            raise TypeError("size")
+        return Artifact(
+            coordinate=str(entry["coordinate"]),
+            path=str(entry["path"]),
+            url=str(entry["url"]),
+            size=size,
+            sha1=str(entry["sha1"]),
+            kind=str(entry.get("kind", "library")),
+        )
+    except (KeyError, TypeError) as error:
+        raise _reject(f"launch plan artifact entry is malformed: {error}") from error
