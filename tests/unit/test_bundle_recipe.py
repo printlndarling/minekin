@@ -1,13 +1,20 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 
 import pytest
 
-from minekin_core.adapters.launcher.recipe import validate_bundle_recipe
+from minekin_core.adapters.launcher import recipe as recipe_module
+from minekin_core.adapters.launcher.recipe import (
+    BRIDGE_JAR_RELATIVE_PATH,
+    BRIDGE_JAR_SIZE,
+    require_built_bridge,
+    validate_bundle_recipe,
+)
 from minekin_core.bootstrap import run
-from minekin_core.domain.errors import ExitCode, MinekinError
+from minekin_core.domain.errors import ErrorCategory, ExitCode, MinekinError
 
 ROOT = Path(__file__).parents[2]
 PROFILE = ROOT / "tests" / "fixtures" / "runtime-input" / "bundle-p0-core-1.21.4.json"
@@ -17,7 +24,9 @@ def test_fixed_mod_recipe_validates_source_identity() -> None:
     audit = validate_bundle_recipe(PROFILE, ROOT)
     assert audit.fixed_mods == ("fabric-api", "minekin-bridge")
     assert len(audit.bridge_source_sha256) == 64
-    assert audit.blockers == ("minekin-bridge: build required",)
+    # Nothing is blocked any more: the recipe pins the jar instead of saying it has
+    # yet to be pinned, and whether that jar exists is asked at start time.
+    assert audit.blockers == ()
 
 
 def test_unknown_mod_is_rejected(tmp_path: Path) -> None:
@@ -47,8 +56,8 @@ def test_bundle_verify_cli_is_read_only() -> None:
     report = json.loads(stdout.getvalue())
     assert code == ExitCode.OK
     assert report["status"] == "valid_recipe"
-    assert report["launchable"] is False
-    assert report["blockers"] == ["minekin-bridge: build required"]
+    assert report["launchable"] is True
+    assert report["blockers"] == []
     assert stderr.getvalue() == ""
 
 
@@ -88,3 +97,50 @@ def test_the_recipe_pins_agree_with_the_bridge_version_catalog() -> None:
     assert versions["fabric-loader"] == "0.16.9"
     assert versions["fabric-api"] == recipe_module.FABRIC_API_VERSION
     assert versions["yarn"] == recipe_module.FABRIC_YARN
+
+
+def _jar(workspace: Path, payload: bytes) -> Path:
+    path = workspace / BRIDGE_JAR_RELATIVE_PATH
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(payload)
+    return path
+
+
+def test_a_built_bridge_is_only_accepted_at_the_pinned_digest(tmp_path: Path) -> None:
+    payload = b"a reviewed bridge build\n"
+    jar = _jar(tmp_path, payload)
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(recipe_module, "BRIDGE_JAR_SHA256", hashlib.sha256(payload).hexdigest())
+    monkeypatch.setattr(recipe_module, "BRIDGE_JAR_SIZE", len(payload))
+    try:
+        assert require_built_bridge(tmp_path) == jar
+    finally:
+        monkeypatch.undo()
+
+
+def test_a_missing_bridge_jar_names_the_build_that_has_not_happened(tmp_path: Path) -> None:
+    with pytest.raises(MinekinError, match="has not been built") as raised:
+        require_built_bridge(tmp_path)
+
+    assert raised.value.category is ErrorCategory.SUPPLY_CHAIN
+    assert str(tmp_path) in raised.value.safe_message
+
+
+def test_a_bridge_jar_of_the_wrong_size_is_refused(tmp_path: Path) -> None:
+    _jar(tmp_path, b"not the reviewed build\n")
+
+    with pytest.raises(MinekinError, match="bytes, not the reviewed") as raised:
+        require_built_bridge(tmp_path)
+
+    assert raised.value.category is ErrorCategory.SUPPLY_CHAIN
+
+
+def test_a_bridge_jar_of_the_right_size_but_the_wrong_bytes_is_refused(tmp_path: Path) -> None:
+    """Size alone would pass a rebuilt jar that changed without the pin moving."""
+
+    _jar(tmp_path, b"x" * BRIDGE_JAR_SIZE)
+
+    with pytest.raises(MinekinError, match="not the reviewed build of this source") as raised:
+        require_built_bridge(tmp_path)
+
+    assert raised.value.category is ErrorCategory.SUPPLY_CHAIN

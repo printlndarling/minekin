@@ -19,7 +19,7 @@ from typing import Any, cast
 from minekin_core.adapters.bridge.bootstrap import bridge_session_for, descriptor_path
 from minekin_core.adapters.bridge.ipc import BridgeIpcHost, BridgeSession
 from minekin_core.adapters.launcher.artifacts import ArtifactStore, SessionOverlayStore
-from minekin_core.adapters.launcher.launch_plan import build_launch_plan
+from minekin_core.adapters.launcher.launch_plan import build_launch_plan, find_workspace_root
 from minekin_core.adapters.launcher.metadata import Artifact
 from minekin_core.adapters.launcher.offline_session import OFFLINE_SESSION_CANDIDATES
 from minekin_core.adapters.launcher.orphans import (
@@ -33,6 +33,7 @@ from minekin_core.adapters.launcher.orphans import (
     write_marker,
 )
 from minekin_core.adapters.launcher.process import ClientProcessSpec, build_process_spec
+from minekin_core.adapters.launcher.recipe import require_built_bridge
 from minekin_core.adapters.launcher.supervisor import ProcessIdentity, ProcessSupervisor
 from minekin_core.adapters.sqlite.connection import connect_reader
 from minekin_core.adapters.sqlite.identity_store import read_identity_root
@@ -297,6 +298,9 @@ def prepare_session(
     plan = build_launch_plan(profile)
     require_launchable(plan)
     require_store_complete(plan, ArtifactStore(runs / "artifact-store"))
+    # The recipe pins the jar the reviewed source builds, so the launch asks the
+    # workspace for it rather than trusting whatever a build happened to leave.
+    require_built_bridge(find_workspace_root(Path(__file__).resolve()))
 
     # Before anything is created: a second client on top of a live one shares the
     # overlay and appears to the server as a second player.

@@ -7,13 +7,6 @@ from pathlib import Path
 from typing import Any, cast
 
 import pytest
-from session_support import (  # type: ignore[import-not-found]
-    PAYLOAD,
-    PROFILE,
-    fabricated,
-    fake_plan,
-    stub_supervisor,
-)
 
 from minekin_core.adapters.launcher.artifacts import ArtifactStore, SessionOverlayStore
 from minekin_core.adapters.launcher.supervisor import ProcessSupervisor
@@ -32,6 +25,14 @@ from minekin_core.cli.session import (
 from minekin_core.config import USERNAME_VARIABLE
 from minekin_core.domain.errors import ErrorCategory, ExitCode, MinekinError
 from minekin_core.domain.ids import KinId
+from session_support import (
+    PAYLOAD,
+    PROFILE,
+    fabricated,
+    fake_plan,
+    stand_in_for_the_bridge_build,  # type: ignore[import-not-found]
+    stub_supervisor,
+)
 
 KIN_ID = KinId("kin-01")
 
@@ -76,16 +77,29 @@ def test_an_unknown_selector_is_refused(tmp_path: Path) -> None:
         select_kin(tmp_path, "kin-99")
 
 
-def test_the_reviewed_profile_is_not_launchable_yet() -> None:
-    """It names a Bridge that has not been built, and says so."""
+def test_the_reviewed_profile_is_sound_but_still_cannot_start(tmp_path: Path) -> None:
+    """The recipe no longer blocks; what it needs is a build and a store, not an edit.
+
+    Its Bridge is pinned by digest rather than `build_required`, so the plan is
+    launchable. The refusals that remain are about this host: the jar has to
+    exist and the artifacts have to be fetched, and both are checked at start
+    time rather than baked into the plan's own digest.
+    """
 
     from minekin_core.adapters.launcher.launch_plan import build_launch_plan
 
-    with pytest.raises(MinekinError, match="not launchable yet") as raised:
-        require_launchable(build_launch_plan(PROFILE))
+    plan = build_launch_plan(PROFILE)
+
+    assert plan["launchable"] is True
+    assert plan["blockers"] == []
+    # A locally built jar is not something to fetch, so it is not in the list of
+    # artifacts the store has to hold.
+    assert all("minekin-bridge" not in str(item["coordinate"]) for item in plan["artifacts"])
+
+    with pytest.raises(MinekinError, match="are not in the store yet") as raised:
+        require_store_complete(plan, ArtifactStore(tmp_path / "artifact-store"))
 
     assert raised.value.category is ErrorCategory.SUPPLY_CHAIN
-    assert "minekin-bridge" in raised.value.safe_message
 
 
 def test_a_plan_that_claims_nothing_is_not_launchable() -> None:
@@ -137,6 +151,7 @@ def test_start_session_composes_the_steps_in_order(
     root = initialised(tmp_path)
     _, artifact = fabricated()
     monkeypatch.setattr(session_module, "build_launch_plan", fake_plan)
+    stand_in_for_the_bridge_build(monkeypatch)
     runs = tmp_path / "kin" / "kin-01" / "run"
     ArtifactStore(runs / "artifact-store").install(artifact, io.BytesIO(PAYLOAD))
 
@@ -163,6 +178,7 @@ def test_start_session_refuses_before_creating_an_overlay(
 
     root = initialised(tmp_path)
     monkeypatch.setattr(session_module, "build_launch_plan", fake_plan)
+    stand_in_for_the_bridge_build(monkeypatch)
 
     with pytest.raises(MinekinError, match="not in the store yet"):
         start_session(
@@ -183,6 +199,7 @@ def test_start_session_uses_the_persisted_identity(
     root = initialised(tmp_path)
     _, artifact = fabricated()
     monkeypatch.setattr(session_module, "build_launch_plan", fake_plan)
+    stand_in_for_the_bridge_build(monkeypatch)
     runs = tmp_path / "kin" / "kin-01" / "run"
     ArtifactStore(runs / "artifact-store").install(artifact, io.BytesIO(PAYLOAD))
     seen: list[str] = []
@@ -272,6 +289,7 @@ def test_a_started_event_reaches_the_ledger(
     root = initialised(tmp_path)
     _, artifact = fabricated()
     monkeypatch.setattr(session_module, "build_launch_plan", fake_plan)
+    stand_in_for_the_bridge_build(monkeypatch)
     runs = tmp_path / "kin" / "kin-01" / "run"
     ArtifactStore(runs / "artifact-store").install(artifact, io.BytesIO(PAYLOAD))
 
@@ -296,6 +314,7 @@ def test_a_failed_start_records_a_failure_and_still_raises(
     root = initialised(tmp_path)
     _, artifact = fabricated()
     monkeypatch.setattr(session_module, "build_launch_plan", fake_plan)
+    stand_in_for_the_bridge_build(monkeypatch)
     runs = tmp_path / "kin" / "kin-01" / "run"
     ArtifactStore(runs / "artifact-store").install(artifact, io.BytesIO(PAYLOAD))
 
@@ -329,6 +348,7 @@ def test_a_refusal_before_the_launcher_leaves_no_ledger_entry(
 
     root = initialised(tmp_path)
     monkeypatch.setattr(session_module, "build_launch_plan", fake_plan)
+    stand_in_for_the_bridge_build(monkeypatch)
 
     with pytest.raises(MinekinError, match="not in the store yet"):
         start_session(

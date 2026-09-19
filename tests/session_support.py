@@ -78,6 +78,20 @@ def fabricated() -> tuple[dict[str, Any], Artifact]:
     return plan, artifact
 
 
+def stand_in_for_the_bridge_build(monkeypatch: Any) -> None:
+    """Stand in for the check that the pinned Bridge jar exists.
+
+    A fabricated plan has no real build behind it. That check has its own tests;
+    if it ran in every session test, those tests would depend on whether this
+    checkout happens to have been built.
+    """
+
+    def stand_in(_root: Path) -> Path:
+        return Path("/dev/null")
+
+    monkeypatch.setattr(session_module, "require_built_bridge", stand_in)
+
+
 def fake_plan(_profile: Path, *, workspace_root: Path | None = None) -> dict[str, Any]:
     """Stand in for the reviewed profile, whose bundle is not launchable yet."""
 
@@ -131,5 +145,6 @@ def ready_data_root(tmp_path: Path, monkeypatch: Any) -> Path:
     root = kin_root(tmp_path)
     _, artifact = fabricated()
     monkeypatch.setattr(session_module, "build_launch_plan", fake_plan)
+    stand_in_for_the_bridge_build(monkeypatch)
     ArtifactStore(run_root(tmp_path) / "artifact-store").install(artifact, io.BytesIO(PAYLOAD))
     return root

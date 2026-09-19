@@ -30,8 +30,8 @@ def test_launch_plan_is_deterministic_and_has_independent_arguments() -> None:
         item["kind"] in {"literal", "placeholder"} for item in first["runtime"]["game_arg_template"]
     )
     assert all(item["url"].startswith("https://") for item in first["artifacts"])
-    assert first["blockers"] == ["minekin-bridge: build required"]
-    assert not first["launchable"]
+    assert first["blockers"] == []
+    assert first["launchable"]
 
 
 def test_cli_emits_plan_without_writing_or_starting_java(tmp_path: Path) -> None:

@@ -23,6 +23,21 @@ FABRIC_API_URL = (
 FABRIC_API_SIZE = 2_149_128
 FABRIC_API_SHA256 = "d183bacb845167f09264c2f90322b7ecffe8826debda6f60e597889264bef4af"
 
+# The Bridge is Minekin's own artifact, so no upstream publishes a digest for
+# it: the supply-chain contract says an own artifact without one gets a fixed
+# SHA-256 instead, and TLS is not accepted as the only integrity guarantee. The
+# digest below is that pin, and it was shown to be reproducible off this
+# machine: Windows with JDK 21.0.12.1+1-LTS-4 and Linux x86_64 with Temurin
+# 21.0.12+8 both build this exact jar.
+#
+# The consequence is a stricter rule than the source digest alone: changing the
+# Bridge source is not allowed to "just work". The jar has to be rebuilt and
+# this pin renewed, because a plan that names this digest and ships other bytes
+# is the failure the pin exists to catch.
+BRIDGE_JAR_SHA256 = "fc1692d2a1c0f2ca6c05cca572ffe7798bcd4f42db30a23d3215c1022709d850"
+BRIDGE_JAR_SIZE = 1_220_236
+BRIDGE_JAR_RELATIVE_PATH = "bridge/build/libs/minekin-bridge-0.0.0.jar"
+
 
 def _reject(message: str) -> MinekinError:
     return MinekinError(
@@ -141,12 +156,14 @@ def validate_bundle_recipe(profile_path: Path, workspace_root: Path) -> RecipeAu
         bridge.get(key) != expected
         for key, expected in {
             "kind": "bridge",
-            "verification": "build_required",
+            "verification": "sha256",
             "source": "workspace:bridge",
             "license": "NOASSERTION",
+            "digest": BRIDGE_JAR_SHA256,
+            "size": BRIDGE_JAR_SIZE,
         }.items()
     ):
-        raise _reject("Bridge build recipe is not the reviewed workspace source")
+        raise _reject("Bridge jar pin is not the reviewed build of the workspace source")
     actual_source_digest = source_tree_sha256(workspace_root / "bridge")
     if bridge.get("source_digest") != actual_source_digest:
         raise _reject("Bridge source tree digest differs from the bundle recipe")
@@ -157,5 +174,39 @@ def validate_bundle_recipe(profile_path: Path, workspace_root: Path) -> RecipeAu
         bundle_name=bundle_name,
         fixed_mods=("fabric-api", "minekin-bridge"),
         bridge_source_sha256=actual_source_digest,
-        blockers=("minekin-bridge: build required",),
+        # Nothing is blocked: the recipe now pins the jar rather than saying it
+        # has yet to be pinned. Whether that jar exists is a fact about the
+        # build host, not about the plan, and `require_built_bridge` asks it at
+        # start time — putting it here would make the plan's own digest depend
+        # on what the machine happened to have built.
+        blockers=(),
     )
+
+
+def require_built_bridge(workspace_root: Path) -> Path:
+    """The built Bridge jar, or a refusal saying what is wrong with it.
+
+    A missing jar is a build that has not happened; a jar that is the wrong size
+    or the wrong bytes is a different thing entirely, and both are refused here
+    rather than discovered by a client that will not load the Bridge.
+    """
+
+    jar = workspace_root / BRIDGE_JAR_RELATIVE_PATH
+    if not jar.is_file():
+        raise _reject(
+            f"the Bridge jar has not been built: {jar} is missing; "
+            f"run `./gradlew build` in the bridge directory"
+        )
+    size = jar.stat().st_size
+    if size != BRIDGE_JAR_SIZE:
+        raise _reject(
+            f"the Bridge jar is {size} bytes, not the reviewed {BRIDGE_JAR_SIZE}; "
+            f"the pin no longer describes this build"
+        )
+    digest = hashlib.sha256(jar.read_bytes()).hexdigest()
+    if digest != BRIDGE_JAR_SHA256:
+        raise _reject(
+            f"the Bridge jar is not the reviewed build of this source: {digest} is not "
+            f"the pinned digest"
+        )
+    return jar
