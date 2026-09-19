@@ -65,7 +65,9 @@ if [[ "${1:-}" == "domain" ]]; then
     if command -v cygpath >/dev/null 2>&1; then
         SERVER_JAR="$(cygpath -m "${SERVER_JAR}")"
     fi
-    EXTRA_ARGS=(-v "${SERVER_JAR}:/server/server.jar:ro")
+    # `-e NAME` without a value forwards the host's, and an unset one stays
+    # unset: the runner does not invent a world for the operator.
+    EXTRA_ARGS=(-v "${SERVER_JAR}:/server/server.jar:ro" -e MINEKIN_DOMAIN_SUMMON)
     ENDPOINT=(--entrypoint /bin/bash)
     # The server and the client are both in this one container, which is the only
     # shape the loopback-only profile schema allows. The session's arguments are

@@ -63,6 +63,8 @@ class SessionRun:
     events_ignored: int
     snapshots_admitted: int = 0
     snapshot_rejections: tuple[str, ...] = ()
+    entities_admitted: int = 0
+    entities_rejected: int = 0
 
     def as_dict(self) -> dict[str, object]:
         return {
@@ -80,6 +82,11 @@ class SessionRun:
             # the reasons are reported rather than folded into "ignored".
             "snapshots_admitted": self.snapshots_admitted,
             "snapshot_rejections": list(self.snapshot_rejections),
+            # What the Kin could see, and what was proposed and dropped. A
+            # snapshot with no entities is either an empty world or a filter that
+            # dropped everything, and those are different facts.
+            "entities_admitted": self.entities_admitted,
+            "entities_rejected": self.entities_rejected,
         }
 
 
@@ -89,6 +96,8 @@ class _Progress:
     ignored: int = 0
     snapshots_admitted: int = 0
     snapshot_rejections: set[str] = field(default_factory=lambda: set[str]())
+    entities_admitted: int = 0
+    entities_rejected: int = 0
 
 
 async def supervise_session(
@@ -267,6 +276,10 @@ async def _admit_first_snapshot(
         progress.ignored += 1
         return
     admission = admit_first_snapshot(snapshot, generation=attempt.generation, recorded=recorded)
+    # Counted either way: the filter runs whether or not the snapshot is admitted,
+    # and "the Kin proposed six things and could confirm two" is evidence about
+    # the world rather than about the verdict.
+    progress.entities_rejected += len(admission.visible_world.rejected)
     if not admission.admitted:
         progress.snapshot_rejections.update(reason.value for reason in admission.reasons)
         return
@@ -276,6 +289,7 @@ async def _admit_first_snapshot(
         return
     progress.applied += 1
     progress.snapshots_admitted += 1
+    progress.entities_admitted += len(admission.visible_world.accepted)
     advance_for_connection(session, decision)
     if on_connection is not None:
         await on_connection(decision.current_state, "")
@@ -313,4 +327,6 @@ def _report(
         events_ignored=progress.ignored,
         snapshots_admitted=progress.snapshots_admitted,
         snapshot_rejections=tuple(sorted(progress.snapshot_rejections)),
+        entities_admitted=progress.entities_admitted,
+        entities_rejected=progress.entities_rejected,
     )

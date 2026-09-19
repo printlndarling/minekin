@@ -13,6 +13,8 @@ bash test-orchestrator/runner/run.sh session start --profile tests/fixtures/runt
 MINEKIN_SERVER_JAR=<path> bash test-orchestrator/runner/run.sh server --accept-eula --allow-player Kin
 MINEKIN_SERVER_JAR=<path> bash test-orchestrator/runner/run.sh domain \
     session start --profile <bundle> --server-profile <server profile>
+MINEKIN_SERVER_JAR=<path> MINEKIN_DOMAIN_SUMMON=minecraft:pig \
+    bash test-orchestrator/runner/run.sh domain session start --profile <bundle> --server-profile <profile>
 bash test-orchestrator/runner/run.sh --shell 'glxinfo -B'   # or any other command
 ```
 
@@ -31,23 +33,53 @@ processes in one container (`--network host` is not available on Docker Desktop
 for Windows). `run.sh domain` is that shape; `domain.sh` is the part of it that
 runs inside.
 
-`timeout` goes *inside* `xvfb-run`, not outside. Signal it from the outside and
-the signal lands on the X server, which takes the client's display away and ends
-the client through `X connection to :99 broken` — a client death that has
-nothing to do with the session, and one that quietly contaminates any conclusion
-about how the run went.
+The session is ended by stopping it, not by a clock. A `timeout` around
+`session start` kills a CLI that then never prints the **run document**, and the
+document is the only place Core's own verdicts live — how many entities it
+admitted, how many snapshots it refused. A windowed run could show what the
+Bridge sent and never what Core made of it. So `domain.sh` waits for this run's
+own ledger to reach `PlayableEstablished` and then calls `session stop`, which
+ends the client it recorded and lets the CLI return normally.
+
+That wait is for the join, not for a duration: a clock long enough for this
+machine is a clock that is wrong on a slower one. The obvious condition does not
+work — `session status`'s `last_event_type` is the *Kin's* ledger, and every
+earlier domain run already ended at `PlayableEstablished`, so it is true before
+the session even starts. What makes it this run's playable is the ledger having
+*grown*, which is what the script now asks.
 
 ```text
 $ MINEKIN_SERVER_JAR=.tmp/vanilla/server.jar bash test-orchestrator/runner/run.sh domain \
       session start --profile /src/tests/fixtures/runtime-input/bundle-p0-core-1.21.4.json \
                      --server-profile /src/tests/fixtures/runtime-input/controlled-offline-server.json
-domain: server run directory /data/server-runs/run-4
+domain: server run directory /data/server-runs/run-26
 domain: server ready
-domain: session exited 124
+domain: the session is playable; stopping it
+domain: session stop said {"command": "session stop", "kin_id": "kin-01", "terminated": [201], …}
+{"argv_digest": …"run": {"connection_state": "PLAYABLE", "entities_admitted": 2, "entities_rejected": 0,
+                         "snapshots_admitted": 1, "snapshot_rejections": [], "session_state": "STOPPED", …}}
+domain: session exited 14
 ```
 
-The session's exit code is 124 because a client that has joined sits in the world
-and only the window ends it; the ledger is what says how the run went.
+The exit code is the session's own outcome, and `14` is `BRIDGE_LOST`: the
+harness stopped the client, so the Bridge went with it. A run that did everything
+asked of it therefore ends non-zero, which is the harness's doing and not the
+run's — the document is what says how the run went.
+
+Two signals were involved in getting there and both were wrong in the same way —
+looking like they worked:
+
+* `kill -INT` on a background job of a non-interactive shell is a **no-op**. That
+  job inherits SIGINT set to `SIG_IGN`; measured in this image, `SIGINT SIG_IGN`
+  and `SIGTERM SIG_DFL`. So the "stop the server cleanly" trap sent nothing and
+  the server ran until the container was killed — eight minutes of a run that had
+  already finished, hidden by an outer `timeout`. `run_controlled_server.py` now
+  installs handlers for SIGINT *and* SIGTERM (both take the clean-stop path that
+  saves the world), the script sends SIGTERM, and the whole run takes 44 seconds
+  instead of 560+.
+* `session stop`'s answer is kept in the log rather than discarded. "Stopped" and
+  "failed to stop" look identical from the outside, and only one of them means the
+  run's ending had anything to do with the run.
 
 `doctor` passes every check inside the image, which is the point of it: python
 3.12.3, Java 21, protobuf 6.33.6 and SQLite 3.53.4. The same command fails on a
@@ -247,12 +279,38 @@ snapshot it validated, and §6 does not allow a trust class to be self-declared 
 so naming the Bridge as the source of Core's verdict would put the wrong name on
 the strongest fact in the session.
 
-The snapshot carries the client's own state and nothing else. `visible_entities`
-is empty by rule rather than by omission: the contract's minimum for a snapshot
-is the player's own state and context, and it is explicit that this does not open
-entities behind walls or unseen containers. An empty list is therefore "nothing
-was checked", not "nothing is there", and the line-of-sight collection is a
-separate piece of work.
+The snapshot carries the client's own state and the entities this client can
+confirm it can see. `visible_entities` holds every entity within 64 blocks, each
+with vanilla's own `canSee` verdict, its UUID as a stable token, and its offset
+from the player — and a candidate the client could *not* see is sent rather than
+dropped, because Core counts those rejections and a silent omission would be the
+Bridge deciding policy it does not own.
+
+The world has to contain something for that to mean anything, so `--summon` puts
+one entity at the world spawn:
+
+```text
+$ MINEKIN_SERVER_JAR=.tmp/vanilla/server.jar MINEKIN_DOMAIN_SUMMON=minecraft:pig \
+      bash test-orchestrator/runner/run.sh domain session start --profile … --server-profile …
+server   [16:17:03] Summoned new Pig
+client   bridge knows of 1 entity candidate(s) 1 tick(s) after joining
+client   bridge collected 1 entity candidate(s) within 64.0 blocks, 1 confirmed visible
+run      "entities_admitted": 2, "entities_rejected": 0
+```
+
+The count varies between runs because it is a real world: two entities near spawn
+on one run, six on another. That is the point — these are numbers about a world,
+not a constant the Bridge was told to produce.
+
+**The join is not the moment to take it.** The first version collected the
+snapshot from the join event and reported zero entities for a world that had a
+summoned pig in it: `JOIN_SEEN` comes from the game-join packet, and the server's
+entity-tracker packets arrive after it. The numbers were true about the client and
+false about the world, which is the one thing a snapshot may not be. The
+collection now waits on the client tick for vanilla's own "the player is in
+control" signal — no screen up, which is the terrain-download screen having been
+dismissed — bounded at 100 ticks so a screen that never clears cannot starve the
+session.
 
 Getting there was a one-line bug with a loud lesson. The client was sending
 `next_state=3` — `TRANSFER`, not `LOGIN` — because vanilla decides that from

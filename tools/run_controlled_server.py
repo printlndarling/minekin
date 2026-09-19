@@ -15,6 +15,8 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
+import signal
 import subprocess
 import sys
 import time
@@ -31,6 +33,10 @@ SERVER_SIZE = 56_880_250
 # The world is fixed rather than random so that a run is reproducible, and flat so
 # that generating it costs nothing on a machine that is not a runner.
 FIXED_WORLD_SEED = "minekin-p0-controlled"
+# A vanilla entity id: `minecraft:pig`, `pig`, and nothing that could be anything
+# else. The command goes to the server's console, where a newline would be a
+# second command, so the shape is checked rather than escaped.
+_ENTITY_ID = re.compile(r"^[a-z0-9_.-]+(:[a-z0-9_./-]+)?$")
 READY_MARKER = "Done ("
 DEFAULT_READY_TIMEOUT_S = 240.0
 
@@ -118,6 +124,42 @@ def write_configuration(
     (directory / "ops.json").write_text("[]\n", encoding="utf-8")
 
 
+def summon_command(entity_type: str) -> str:
+    """The console line that puts one entity at the world spawn, or a refusal.
+
+    The controlled world is empty and flat, so without this the first snapshot's
+    visible world is vacuously empty and the entity path is never exercised by a
+    run. It is a console command, which is a channel where an unchecked string is
+    a second command, so the entity id is matched against the shape vanilla
+    ids have rather than escaped.
+    """
+
+    if not _ENTITY_ID.fullmatch(entity_type):
+        raise SystemExit(f"not a vanilla entity id: {entity_type!r}")
+    return f"summon {entity_type} ~ ~ ~"
+
+
+def request_clean_stop(signum: int, frame: object) -> None:
+    """Route a stop signal into the same path Ctrl+C already takes.
+
+    Handled explicitly rather than left to the default, because the default is
+    not the same disposition in every process that runs this tool. A background
+    job of a non-interactive shell — which is how the domain runner starts it —
+    inherits SIGINT set to *ignore*, so the SIGINT that runner sent was a no-op
+    and the server it should have stopped kept running until the container was
+    killed. SIGTERM's default is the opposite failure: it dies at once, without
+    reaching the `stop` that saves the world. Measured in the runner image:
+    `SIGINT SIG_IGN`, `SIGTERM SIG_DFL`, and `kill -INT` on such a process
+    leaves it alive.
+
+    Both are now the clean stop, and both are installed even where the inherited
+    disposition was to ignore, so a caller does not have to know which kind of
+    process it started.
+    """
+
+    raise KeyboardInterrupt
+
+
 def _sha1(stream: BinaryIO) -> str:
     digest = hashlib.sha1(usedforsecurity=False)
     while chunk := stream.read(1024 * 1024):
@@ -176,6 +218,12 @@ def main() -> int:
     parser.add_argument("--accept-eula", action="store_true")
     parser.add_argument("--ready-timeout", type=float, default=DEFAULT_READY_TIMEOUT_S)
     parser.add_argument("--keep-running", action="store_true")
+    parser.add_argument(
+        "--summon",
+        default=None,
+        metavar="ENTITY_TYPE",
+        help="put one entity at the world spawn, so the world is not empty",
+    )
     parser.add_argument("--java", type=Path, default=None)
     parser.add_argument(
         "--allow-player",
@@ -195,6 +243,9 @@ def main() -> int:
         print("--ready-timeout must be positive", file=sys.stderr)
         return 2
 
+    for stop_signal in (signal.SIGINT, signal.SIGTERM):
+        signal.signal(stop_signal, request_clean_stop)
+
     from minekin_core.adapters.launcher.server_profile import load_server_profile
     from minekin_core.config import java_executable
 
@@ -207,6 +258,7 @@ def main() -> int:
         allowed_players=tuple(args.allow_player),
     )
 
+    summon = None if args.summon is None else summon_command(args.summon)
     java = args.java or java_executable()
     log = args.directory / "server.log"
     with log.open("wb") as stream:
@@ -224,6 +276,12 @@ def main() -> int:
                 tail = log.read_text(encoding="utf-8", errors="replace").splitlines()[-20:]
                 print("\n".join(tail), file=sys.stderr)
                 return 1
+            if summon is not None and process.stdin is not None:
+                # After ready and before anything connects: the entity has to
+                # exist by the time a client takes its first snapshot.
+                process.stdin.write((summon + "\n").encode())
+                process.stdin.flush()
+                print(f"summoned: {args.summon}")
             if args.keep_running:
                 print("server is up; press Ctrl+C to stop it cleanly")
                 try:
@@ -239,4 +297,11 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    try:
+        raise SystemExit(main())
+    except KeyboardInterrupt:
+        # Only reachable outside the `--keep-running` wait: a stop signal that
+        # arrives while the server is merely being started. The world is already
+        # saved by the `finally` above, so this is the exit code, not a rescue.
+        print("stopped by signal", file=sys.stderr)
+        raise SystemExit(130) from None

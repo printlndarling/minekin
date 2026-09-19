@@ -73,6 +73,19 @@ public final class MinekinBridgeClient implements ClientModInitializer {
                                 created,
                                 BridgeInputController.ReleaseReason.BRIDGE_FAULT);
                     }
+                    // The first snapshot's clock, and it is a tick rather than the join
+                    // event on purpose: the join is reported before the server's world
+                    // has reached the client, so the snapshot is taken on the first tick
+                    // the client is actually in control. See the method.
+                    try {
+                        controller.collectSnapshotWhenPlayable(client);
+                    } catch (RuntimeException error) {
+                        stopSafely(
+                                client,
+                                controller,
+                                created,
+                                BridgeInputController.ReleaseReason.BRIDGE_FAULT);
+                    }
                 });
         ClientLifecycleEvents.CLIENT_STOPPING.register(client -> stopSafely(
                 client, controller, created, BridgeInputController.ReleaseReason.SHUTDOWN));
@@ -97,12 +110,10 @@ public final class MinekinBridgeClient implements ClientModInitializer {
                 client,
                 controller,
                 created,
-                () -> {
-                    controller.joinSeen();
-                    // And the snapshot, without which the join is where the
-                    // session stops: it is what Core admits to make it playable.
-                    controller.publishFirstSnapshot(client);
-                }));
+                // The join arms the snapshot, which the tick above then takes: it is
+                // what Core admits to make the session playable, and it cannot be
+                // taken here because the server's world has not reached the client.
+                controller::joinSeen));
         ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> observe(
                 client, controller, created, controller::playEnded));
 

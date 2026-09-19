@@ -1,0 +1,13 @@
+# Shell scripts have to be LF, and not only in the committed blob.
+#
+# `test-orchestrator/runner/*.sh` is bind-mounted into the runner container and
+# executed there by its shebang. On a Windows checkout with `core.autocrlf=true`
+# the working tree gets CRLF, and `#!/usr/bin/env bash` becomes `bash\r` — the
+# script dies with `No such file or directory` before its first command, while
+# `bash -n` still calls it syntactically fine, because a comment with a stray CR
+# is a comment. That cost a verification run whose failure looked like a
+# conclusion about the code under test.
+#
+# `gradlew` is the same shape and is executed inside the Linux container too.
+*.sh text eol=lf
+gradlew text eol=lf

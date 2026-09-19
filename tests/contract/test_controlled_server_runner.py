@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib
 import json
+import signal
 import subprocess
 import sys
 from pathlib import Path
@@ -33,6 +34,12 @@ class _Runner(Protocol):
     ) -> None: ...
 
     def verify_jar(self, path: Path) -> None: ...
+
+    def summon_command(self, entity_type: str) -> str: ...
+
+    def main(self) -> int: ...
+
+    def request_clean_stop(self, signum: int, frame: object) -> None: ...
 
 
 def _load_runner() -> _Runner:
@@ -135,3 +142,63 @@ def test_eula_must_be_explicit_before_the_directory_is_created(tmp_path: Path) -
     assert result.returncode == 2
     assert "must be accepted by the operator" in result.stderr
     assert not directory.exists()
+
+
+def test_a_summon_is_a_console_line_and_never_a_second_command() -> None:
+    """The console is a channel where an unchecked string is another command."""
+
+    assert RUNNER.summon_command("minecraft:pig") == "summon minecraft:pig ~ ~ ~"
+    assert RUNNER.summon_command("pig") == "summon pig ~ ~ ~"
+
+    for injection in (
+        "pig\nstop",
+        "pig; stop",
+        "pig `stop`",
+        "pig\n",
+        "Pig",
+        "",
+        "pig pig",
+    ):
+        with pytest.raises(SystemExit, match="not a vanilla entity id"):
+            RUNNER.summon_command(injection)
+
+
+def test_the_tool_takes_a_clean_stop_from_sigterm(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """SIGTERM, because the SIGINT this used to rely on never arrived.
+
+    A background job of a non-interactive shell inherits SIGINT set to ignore —
+    measured in the runner image — so `kill -INT` on the tool was a no-op and a
+    domain run's server kept running until the container was killed. SIGTERM's
+    default kills without saving. Both are now the clean stop.
+    """
+
+    saved = signal.getsignal(signal.SIGTERM)
+    saved_int = signal.getsignal(signal.SIGINT)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            TOOL,
+            "--directory",
+            str(tmp_path / "run"),
+            "--jar",
+            str(tmp_path / "missing.jar"),
+            "--accept-eula",
+        ],
+    )
+    try:
+        # The jar check is what fails, and it fails after the handlers are
+        # installed: a tool that is killed while still starting up has to save
+        # the world too.
+        with pytest.raises(SystemExit, match="is missing"):
+            RUNNER.main()
+        assert signal.getsignal(signal.SIGTERM) is RUNNER.request_clean_stop
+        assert signal.getsignal(signal.SIGINT) is RUNNER.request_clean_stop
+    finally:
+        signal.signal(signal.SIGTERM, saved)
+        signal.signal(signal.SIGINT, saved_int)
+
+    with pytest.raises(KeyboardInterrupt):
+        RUNNER.request_clean_stop(signal.SIGTERM, None)

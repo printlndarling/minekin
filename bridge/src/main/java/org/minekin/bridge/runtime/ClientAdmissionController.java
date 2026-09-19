@@ -31,6 +31,19 @@ public final class ClientAdmissionController {
     private String activeProfileRevision;
     private ConnectScreen activeScreen;
     private Screen parentScreen;
+    private boolean snapshotPending;
+    private int ticksSinceJoin;
+    private int lastProbeCount = -1;
+
+    /**
+     * How long the first snapshot waits for vanilla to say the client is in control.
+     *
+     * <p>Bounded so that a client whose screen never clears still produces a
+     * snapshot: a session that never becomes playable because the Bridge is
+     * waiting for a condition that will not arrive is worse than a snapshot taken
+     * of a client that is still loading.
+     */
+    static final int SNAPSHOT_DEFERRAL_LIMIT_TICKS = 100;
 
     public ClientAdmissionController(
             BridgePhaseMachine phases,
@@ -104,24 +117,74 @@ public final class ClientAdmissionController {
                 ConnectionPhase.CONNECTION_PHASE_JOIN_SEEN,
                 AdmissionFailureReason.ADMISSION_FAILURE_REASON_UNSPECIFIED,
                 false);
+        // A join is not the moment to take the snapshot, it is the moment to start
+        // waiting for one — see collectSnapshotWhenPlayable. Armed only for a
+        // generation of ours, on the same rule as the report above.
+        if (activeGeneration != 0) {
+            snapshotPending = true;
+            ticksSinceJoin = 0;
+            lastProbeCount = -1;
+        }
     }
 
     /**
-     * Send the first snapshot, which is what an attempt has to be made playable by.
+     * Take the first snapshot, once vanilla says the client is in control of the world.
      *
-     * <p>Called once per join, on the client thread, because every value in it is
-     * client-thread state. The generation is read here rather than passed in: only
-     * this controller knows which attempt is current, and a snapshot attributed to
-     * the wrong generation is one Core must refuse.
+     * <p>Called every client tick, and does nothing until a join has armed it.
      *
-     * <p>A client that cannot honestly describe itself sends nothing and the
-     * session stays joined, which the run reports. It is not a reason to stop a
-     * client that is otherwise running.
+     * <p>Not at the join, which is what this used to be and what a run showed to be
+     * wrong. `JOIN_SEEN` is reported from the game-join packet, and the server's
+     * entity-tracker packets for the world around the player arrive after it: a
+     * snapshot taken there reported an empty visible world for a world that
+     * contained a summoned pig. The counts were true about the client and false
+     * about the world, which is the one thing a snapshot may not be.
+     *
+     * <p>So it waits for vanilla's own signal instead: no screen up, which is the
+     * terrain-download screen having been dismissed, which happens when the
+     * player's own spawn packet has been processed. The entity packets travel in
+     * the same batch.
+     *
+     * <p>Every value in a snapshot is client-thread state, so this runs on that
+     * thread. The generation is read here rather than passed in: only this
+     * controller knows which attempt is current, and a snapshot attributed to the
+     * wrong generation is one Core must refuse. A client that cannot honestly
+     * describe itself sends nothing and the session stays joined, which the run
+     * reports; it is not a reason to stop a client that is otherwise running.
      */
-    public void publishFirstSnapshot(MinecraftClient client) {
-        if (activeGeneration == 0) {
+    public void collectSnapshotWhenPlayable(MinecraftClient client) {
+        if (!snapshotPending) {
             return;
         }
+        if (activeGeneration == 0) {
+            snapshotPending = false;
+            return;
+        }
+        if (client.world == null || client.player == null) {
+            return;
+        }
+        ticksSinceJoin++;
+        // Logged on change rather than per tick: this is the line that says whether
+        // the world had anything in it and when the client learned of it, and a
+        // line per tick would say the same thing unreadably.
+        int candidates = ClientSnapshot.entityCandidates(client);
+        if (candidates != lastProbeCount) {
+            lastProbeCount = candidates;
+            LOGGER.info(
+                    "bridge knows of {} entity candidate(s) {} tick(s) after joining",
+                    candidates,
+                    ticksSinceJoin);
+        }
+        Screen screen = client.currentScreen;
+        if (screen != null && ticksSinceJoin < SNAPSHOT_DEFERRAL_LIMIT_TICKS) {
+            return;
+        }
+        if (screen != null) {
+            LOGGER.warn(
+                    "bridge waited {} ticks and the client still shows {}; taking the snapshot anyway",
+                    ticksSinceJoin,
+                    screen.getClass().getSimpleName());
+        }
+        snapshotPending = false;
         InitialObservation snapshot = ClientSnapshot.collect(client, activeGeneration);
         if (snapshot == null) {
             LOGGER.warn("bridge could not describe itself, so no first snapshot was sent");
@@ -271,6 +334,11 @@ public final class ClientAdmissionController {
         parentScreen = null;
         activeProfileId = null;
         activeProfileRevision = null;
+        // A snapshot owed to a generation that has ended is a snapshot of an
+        // attempt that is over, and the next one arms its own.
+        snapshotPending = false;
+        ticksSinceJoin = 0;
+        lastProbeCount = -1;
     }
 
     /**

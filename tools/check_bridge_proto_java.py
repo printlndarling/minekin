@@ -61,7 +61,7 @@ public final class ClientAdmissionController {
             Predicate<InitialObservation> observationSink) {}
     public void handle(MinecraftClient client, BridgeIpcWorker.ClientMessage message) {}
     public void safeStop(MinecraftClient client) {}
-    public void publishFirstSnapshot(MinecraftClient client) {}
+    public void collectSnapshotWhenPlayable(MinecraftClient client) {}
     public void loginNegotiating() {}
     public void playInit() {}
     public void joinSeen() {}
