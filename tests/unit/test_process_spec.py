@@ -10,6 +10,7 @@ import pytest
 from minekin_core.adapters.launcher.launch_plan import build_launch_plan
 from minekin_core.adapters.launcher.offline_session import OFFLINE_SESSION_CANDIDATES
 from minekin_core.adapters.launcher.process import (
+    BRIDGE_DESCRIPTOR_VARIABLE,
     RUN_ROOT_PREFIXES,
     argument_digest,
     build_process_spec,
@@ -222,3 +223,50 @@ def test_the_evidence_document_names_what_was_invoked_without_dumping_it() -> No
     }
     assert isinstance(document["argv_digest"], str)
     assert json.dumps(document)  # evidence documents must be serialisable
+
+
+def test_the_bridge_descriptor_is_named_to_the_client_and_nothing_else_is() -> None:
+    """The Bridge reads exactly one path from the environment, so Core sets exactly one."""
+
+    descriptor = RUN_ROOT / "session/s1/generation-1/bridge-bootstrap.pb"
+    built = spec(bridge_descriptor=descriptor)
+
+    assert built.environment[BRIDGE_DESCRIPTOR_VARIABLE] == str(descriptor)
+    assert set(built.environment) == {
+        "HOME",
+        "XDG_DATA_HOME",
+        "XDG_CONFIG_HOME",
+        "XDG_CACHE_HOME",
+        "TMPDIR",
+        "TEMP",
+        "TMP",
+        BRIDGE_DESCRIPTOR_VARIABLE,
+    }
+
+
+def test_no_bridge_descriptor_means_no_variable() -> None:
+    """A client launched without a descriptor must see nothing rather than a stale path."""
+
+    assert BRIDGE_DESCRIPTOR_VARIABLE not in spec().environment
+
+
+@pytest.mark.parametrize(
+    "descriptor",
+    [
+        Path("relative/bridge-bootstrap.pb"),
+        Path("/home/operator/.minecraft/bridge-bootstrap.pb").resolve(),
+        Path("/srv/.MineCraft/bridge-bootstrap.pb").resolve(),
+    ],
+)
+def test_a_bridge_descriptor_outside_the_session_is_refused(descriptor: Path) -> None:
+    with pytest.raises(MinekinError) as raised:
+        spec(bridge_descriptor=descriptor)
+
+    assert raised.value.category is ErrorCategory.CONFIG
+
+
+def test_a_forwarded_variable_cannot_impersonate_the_bridge_descriptor() -> None:
+    """Only Core may name the descriptor; a host value would point the Bridge elsewhere."""
+
+    with pytest.raises(MinekinError, match="forwarded"):
+        spec(forward_environment={BRIDGE_DESCRIPTOR_VARIABLE: "/tmp/elsewhere.pb"})

@@ -35,6 +35,12 @@ RUN_ROOT_PREFIXES: tuple[str, ...] = ("artifact-store/", "bundle/", "session/")
 # The game arguments that name a directory rather than a value.
 ENVIRONMENT_PATH_KEYS: frozenset[str] = frozenset({"game_directory", "assets_root"})
 
+# The one variable the Bridge reads at client start to find its bootstrap
+# descriptor. The Java side names it in MinekinBridgeClient; the two spellings
+# are pinned together in tests/contract/test_bridge_java_constants.py, because a
+# rename on either side is invisible until a real client refuses to start.
+BRIDGE_DESCRIPTOR_VARIABLE: str = "MINEKIN_BRIDGE_DESCRIPTOR"
+
 _PATH_ARGUMENT = re.compile(r"^(?P<key>-[A-Za-z0-9_.]+)=(?P<value>.*)$")
 _HOST_MINECRAFT = ".minecraft"
 
@@ -108,22 +114,43 @@ def redirect_targets(working_directory: Path) -> tuple[Path, ...]:
 
 
 def client_environment(
-    working_directory: Path, *, forward: Mapping[str, str] | None = None
+    working_directory: Path,
+    *,
+    forward: Mapping[str, str] | None = None,
+    bridge_descriptor: Path | None = None,
 ) -> dict[str, str]:
     """The environment the client is given, and nothing it is not.
 
     Nothing is inherited implicitly. Anything the operator's host must supply —
     `DISPLAY` for a virtual display, typically — is named explicitly, so the set
     of host facts a managed client can observe is a reviewable list.
+
+    `bridge_descriptor` is the second kind of entry and is deliberately not part
+    of `forward`: forwarded values come from the operator's host, while this one
+    is created by Core for this session and must never be supplied by the host.
     """
 
     environment = {name: str(target) for name, target in session_redirects(working_directory)}
     for name, value in (forward or {}).items():
         if name in environment:
             raise _reject(f"{name} cannot be forwarded; it is already redirected into the session")
+        if name == BRIDGE_DESCRIPTOR_VARIABLE:
+            # The descriptor carries the session key. A host-supplied value would
+            # point the Bridge at a file the operator controls, and with no
+            # descriptor of our own this variable would otherwise arrive through
+            # the forward list alone.
+            raise _reject(
+                f"{name} cannot be forwarded; only Core names the bridge bootstrap descriptor"
+            )
         if _mentions_host_minecraft(value):
             raise _reject(f"forwarded {name} names the host .minecraft directory")
         environment[name] = value
+    if bridge_descriptor is not None:
+        if not bridge_descriptor.is_absolute():
+            raise _reject("the bridge descriptor path must be absolute")
+        if _mentions_host_minecraft(str(bridge_descriptor)):
+            raise _reject("the bridge descriptor path names the host .minecraft directory")
+        environment[BRIDGE_DESCRIPTOR_VARIABLE] = str(bridge_descriptor)
     return environment
 
 
@@ -135,6 +162,7 @@ def build_process_spec(
     candidate: SessionCandidate,
     java_executable: Path,
     forward_environment: Mapping[str, str] | None = None,
+    bridge_descriptor: Path | None = None,
 ) -> ClientProcessSpec:
     """Assemble the full command line for one offline managed-client launch."""
 
@@ -174,7 +202,9 @@ def build_process_spec(
         java_executable=java_executable,
         run_root=root,
         main_class=main_class,
-        environment=client_environment(working_directory, forward=forward_environment),
+        environment=client_environment(
+            working_directory, forward=forward_environment, bridge_descriptor=bridge_descriptor
+        ),
         session_directories=redirect_targets(working_directory),
     )
 
