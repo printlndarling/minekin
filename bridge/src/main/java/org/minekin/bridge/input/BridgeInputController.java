@@ -61,10 +61,14 @@ public final class BridgeInputController {
     public static final String REFUSED_STALE_GENERATION = "STALE_GENERATION";
     public static final String REFUSED_DEADLINE_EXCEEDED = "DEADLINE_EXCEEDED";
     public static final String REFUSED_MALFORMED = "MALFORMED_AXES";
+    /** The client is not taking input: something else owns the keyboard. */
+    public static final String REFUSED_GUI_CONFLICT = "GUI_CONFLICT";
 
     private final KeySink sink;
     private final InputWatchdog watchdog;
     private InputOwnership ownership;
+    private boolean inputBlocked;
+    private String blockedBy = "";
 
     public BridgeInputController(KeySink sink, InputWatchdog watchdog, long generation) {
         this.sink = Objects.requireNonNull(sink, "sink");
@@ -104,6 +108,11 @@ public final class BridgeInputController {
         if (generation != ownership.generation()) {
             return Outcome.refused(REFUSED_STALE_GENERATION);
         }
+        if (inputBlocked) {
+            // A key pressed now would be pressed at a client that is not reading
+            // its keyboard, and would still be down when it starts again.
+            return Outcome.refused(REFUSED_GUI_CONFLICT);
+        }
         if (deadlineNanos != 0 && nowNanos > deadlineNanos) {
             return Outcome.refused(REFUSED_DEADLINE_EXCEEDED);
         }
@@ -131,6 +140,50 @@ public final class BridgeInputController {
         }
         apply(wanted);
         return Outcome.applied(ownership.held());
+    }
+
+    /**
+     * The client stopped taking input, so let go of everything it holds.
+
+     * <p>§12 lists the keyboard being taken by something else among the things
+     * that must lift every key, and it is the one only this side can see: who owns
+     * the keyboard is a fact about this client rather than a report from anyone.
+     * Three of the contract's triggers arrive through it — a screen the player
+     * opened, the death screen, and the title screen a client falls back to when a
+     * session ends — which is why it is one mechanism and not three.
+
+     * @param label what has the keyboard, for the log; it is never interpreted
+     * @return whether this call was the one that let go
+     */
+    public synchronized boolean blockInput(String label) {
+        Objects.requireNonNull(label, "label");
+        if (inputBlocked) {
+            return false;
+        }
+        inputBlocked = true;
+        blockedBy = label;
+        return !releaseAll(ReleaseReason.GUI_CONFLICT).isEmpty();
+    }
+
+    /**
+     * The client takes input again.
+
+     * <p>Nothing is pressed back. What was held was let go of deliberately, and a
+     * command is what presses a key — a Bridge that restored the ledger by itself
+     * would be one that resumes driving a client nobody has asked it to drive.
+     */
+    public synchronized void unblockInput() {
+        inputBlocked = false;
+        blockedBy = "";
+    }
+
+    public synchronized boolean inputBlocked() {
+        return inputBlocked;
+    }
+
+    /** What has the keyboard, for a log line. Empty when the client takes input. */
+    public synchronized String blockedBy() {
+        return blockedBy;
     }
 
     /**
@@ -172,7 +225,13 @@ public final class BridgeInputController {
         return true;
     }
 
-    /** A new generation never inherits a key from the one that ended. */
+    /**
+     * A new generation never inherits a key from the one that ended.
+
+     * <p>It does not clear a blocked client: whether the client is taking input is
+     * a fact about the client, and a new generation is a fact about us. The client
+     * tick is what unblocks, when the screen is gone.
+     */
     public synchronized List<String> beginGeneration(long generation) {
         List<String> released = releaseAll(ReleaseReason.GENERATION_CHANGED);
         ownership = new InputOwnership(generation);

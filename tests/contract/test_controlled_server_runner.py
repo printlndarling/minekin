@@ -37,6 +37,7 @@ class _Runner(Protocol):
 
     def summon_command(self, entity_type: str) -> str: ...
     def position_probe_command(self, player: str) -> str: ...
+    def kill_command(self, player: str) -> str: ...
 
     def main(self) -> int: ...
 
@@ -175,6 +176,17 @@ def test_a_position_probe_is_a_console_line_and_never_a_second_command() -> None
     for injection in ("Kin\nstop", "Kin; stop", "Kin`stop`", "Ki n", "", "Kin\n", "ab"):
         with pytest.raises(SystemExit, match="not a vanilla player name"):
             RUNNER.position_probe_command(injection)
+
+
+def test_a_kill_is_a_console_line_and_never_a_second_command() -> None:
+    """The one release trigger a server can cause, and the same console rule."""
+
+    assert RUNNER.kill_command("Kin") == "kill Kin"
+    assert RUNNER.kill_command("Kin_One") == "kill Kin_One"
+
+    for injection in ("Kin\nstop", "Kin; stop", "Kin`stop`", "Ki n", "", "Kin\n", "ab"):
+        with pytest.raises(SystemExit, match="not a vanilla player name"):
+            RUNNER.kill_command(injection)
 
 
 def test_the_tool_takes_a_clean_stop_from_sigterm(

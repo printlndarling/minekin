@@ -379,6 +379,38 @@ caller-owned awaitable beside the client watcher, and Core withdraws the lease
 and sends `ReleaseAllInputs(TIMEOUT)` — the same call the wind-down makes, which
 is why the ledger record of it lives in that one path rather than in both.
 
+### When the keyboard stops being the world's
+
+A held key has to come up when the client stops taking input, and the run can
+make that happen in exactly one way: `MINEKIN_DOMAIN_KILL=Kin` has the server
+kill the Kin a few seconds after it joins, while it is holding forward.
+
+```text
+server   [18:17:37] Kin joined the game
+server   [18:17:43] Kin was killed
+client   [18:17:38] bridge applied dc2c8218…: holding [move.forward]
+client   [18:17:43] bridge released move.forward
+client   [18:17:43] bridge let go of its held input: the client is showing DeathScreen
+server   [18:17:50] Kin has the following entity data: [-5.5d, -60.0d, 25.53d]   (and again at :55)
+```
+
+A death is the only way to make a client open a screen without touching the
+client, which is what makes the two sides of this evidence independent: the
+server says it killed the Kin, and the Bridge says it let go, in the same
+second. It is also three of §12's triggers arriving through one mechanism — a
+screen the player opened, the death screen, and the title screen a client falls
+back to when a session ends are all "the keyboard is not the world's any more".
+
+The label is the Bridge's own, not the class's name. A production client's
+Minecraft classes are intermediary at runtime, so `getClass().getSimpleName()`
+for the death screen is `class_418` — a token that means nothing to a reader and
+changes with every version. Measured here first, then confirmed against the Yarn
+mappings. So the Bridge names the screens it can prove it is looking at
+(`DeathScreen`, `GameMenuScreen`, `TitleScreen`, `ConnectScreen`) and says
+`SomeScreen` for anything else. The snapshot's `self.current_screen` still
+carries the class name; changing what a *product event* holds is its own
+decision, and it is recorded as an open item rather than quietly done here.
+
 ### Refusals get classified too
 
 Setting `MINEKIN_USERNAME` to another name whitelists that name instead of the

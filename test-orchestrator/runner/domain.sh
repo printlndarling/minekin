@@ -19,6 +19,7 @@ seconds="${MINEKIN_DOMAIN_SECONDS:-240}"
 player="${MINEKIN_USERNAME:-Kin}"
 summon="${MINEKIN_DOMAIN_SUMMON:-}"
 probe="${MINEKIN_DOMAIN_PROBE:-}"
+kill="${MINEKIN_DOMAIN_KILL:-}"
 runs=/data/server-runs
 
 # Empty means "the world is as vanilla generated it", which is what every run
@@ -37,6 +38,13 @@ if [[ -n "${probe}" ]]; then
     probe_args=(--probe-player "${probe}")
 fi
 
+# And a run that is verifying the release a death causes has to be able to kill the
+# Kin, which only the server can do.
+kill_args=()
+if [[ -n "${kill}" ]]; then
+    kill_args=(--kill-player "${kill}")
+fi
+
 # One fresh directory per run, numbered past everything already there: a run
 # directory is evidence and is only ever appended to.
 n=1
@@ -53,6 +61,7 @@ python /src/tools/run_controlled_server.py \
     --allow-player "${player}" \
     "${summon_args[@]}" \
     "${probe_args[@]}" \
+    "${kill_args[@]}" \
     --keep-running >/tmp/domain-server.log 2>&1 &
 server_pid=$!
 

@@ -139,6 +139,35 @@ def summon_command(entity_type: str) -> str:
     return f"summon {entity_type} ~ ~ ~"
 
 
+def kill_command(player: str) -> str:
+    """The console line that kills a player, or a refusal.
+
+    The one release trigger a server can cause is a death: the client shows its
+    death screen, the keyboard stops belonging to the world, and the Bridge is
+    the only side that can see it. So a run that wants to exercise that has to
+    be able to kill the Kin, and only the server can.
+
+    A console command like the others, so the name is checked rather than
+    escaped.
+    """
+
+    from minekin_core.domain.offline_identity import is_valid_username
+
+    if not is_valid_username(player):
+        raise SystemExit(f"not a vanilla player name: {player!r}")
+    return f"kill {player}"
+
+
+def has_joined(log: Path, player: str) -> bool:
+    """Whether the server has said this player is in the world."""
+
+    try:
+        text = log.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return False
+    return f"{player} joined the game" in text
+
+
 def request_clean_stop(signum: int, frame: object) -> None:
     """Route a stop signal into the same path Ctrl+C already takes.
 
@@ -244,6 +273,18 @@ def main() -> int:
     )
     parser.add_argument("--java", type=Path, default=None)
     parser.add_argument(
+        "--kill-player",
+        default=None,
+        metavar="NAME",
+        help="kill this player once it has joined, so a release has a cause",
+    )
+    parser.add_argument(
+        "--kill-after-join-seconds",
+        type=float,
+        default=6.0,
+        help="how long after the join to kill it (default 6)",
+    )
+    parser.add_argument(
         "--probe-player",
         default=None,
         metavar="NAME",
@@ -275,6 +316,9 @@ def main() -> int:
     if args.probe_every_seconds <= 0:
         print("--probe-every-seconds must be positive", file=sys.stderr)
         return 2
+    if args.kill_after_join_seconds <= 0:
+        print("--kill-after-join-seconds must be positive", file=sys.stderr)
+        return 2
 
     for stop_signal in (signal.SIGINT, signal.SIGTERM):
         signal.signal(stop_signal, request_clean_stop)
@@ -293,6 +337,8 @@ def main() -> int:
 
     summon = None if args.summon is None else summon_command(args.summon)
     probe = None if args.probe_player is None else position_probe_command(args.probe_player)
+    kill = None if args.kill_player is None else kill_command(args.kill_player)
+    joined_at = None
     # Asked immediately: the join line the server already writes says where the
     # player started, and a probe that waited a full interval would only say it
     # again.
@@ -335,6 +381,20 @@ def main() -> int:
                         process.stdin.write((probe + "\n").encode())
                         process.stdin.flush()
                         next_probe = time.monotonic() + args.probe_every_seconds
+                    # Killed through a death rather than a disconnect: a disconnect
+                    # ends the session, and a death is the case where the client is
+                    # still running and no longer taking input.
+                    if kill is not None and process.stdin is not None:
+                        if joined_at is None and has_joined(log, str(args.kill_player)):
+                            joined_at = time.monotonic()
+                        if (
+                            joined_at is not None
+                            and time.monotonic() - joined_at >= args.kill_after_join_seconds
+                        ):
+                            process.stdin.write((kill + "\n").encode())
+                            process.stdin.flush()
+                            print(f"killed: {args.kill_player}")
+                            kill = None
                     time.sleep(0.1)
                 return process.returncode
         finally:

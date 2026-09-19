@@ -155,13 +155,41 @@ public class GameOptions {
     public final KeyBinding sneakKey = new KeyBinding();
 }
 """,
+    # The screen field is typed rather than `Object`, and there is no way to read
+    # anything out of a Screen: the Bridge is allowed to know a screen's *class*
+    # (a product event may not carry a screen's text) and nothing else about it.
+    "net/minecraft/client/gui/screen/Screen.java": """\
+package net.minecraft.client.gui.screen;
+public class Screen {}
+""",
+    # The screens the Bridge can name, as subclasses of the one above: naming them
+    # is only possible if they are distinguishable by type, which is the point.
+    "net/minecraft/client/gui/screen/DeathScreen.java": """\
+package net.minecraft.client.gui.screen;
+public class DeathScreen extends Screen {}
+""",
+    "net/minecraft/client/gui/screen/GameMenuScreen.java": """\
+package net.minecraft.client.gui.screen;
+public class GameMenuScreen extends Screen {}
+""",
+    "net/minecraft/client/gui/screen/TitleScreen.java": """\
+package net.minecraft.client.gui.screen;
+public class TitleScreen extends Screen {}
+""",
+    "net/minecraft/client/gui/screen/multiplayer/ConnectScreen.java": """\
+package net.minecraft.client.gui.screen.multiplayer;
+import net.minecraft.client.gui.screen.Screen;
+public class ConnectScreen extends Screen {}
+""",
     # Compile-only Minecraft facade. Its always-present instance and inline
     # execution do not claim to test real client-thread behaviour.
     "net/minecraft/client/MinecraftClient.java": """\
 package net.minecraft.client;
+import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.client.option.GameOptions;
 public class MinecraftClient {
     public final GameOptions options = new GameOptions();
+    public Screen currentScreen;
     public static MinecraftClient getInstance() { return new MinecraftClient(); }
     public void execute(Runnable operation) { operation.run(); }
     public boolean isOnThread() { return true; }

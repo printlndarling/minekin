@@ -127,6 +127,28 @@ public final class BridgeIpcWorker implements AutoCloseable {
         return released;
     }
 
+    /**
+     * What the client is showing, from the client tick.
+     *
+     * <p>The keyboard's owner is the one release trigger only this side can see, so it
+     * arrives as an observation rather than as a question: this class owns the
+     * sockets and knows nothing about screens, and the client tick knows nothing
+     * about leases. An empty label means the client is taking input again.
+     */
+    public void observeClientInput(String openScreen) {
+        BridgeInputController controller = input;
+        if (controller == null) {
+            return;
+        }
+        if (openScreen.isEmpty()) {
+            controller.unblockInput();
+            return;
+        }
+        if (controller.blockInput(openScreen)) {
+            LOGGER.warn("bridge let go of its held input: the client is showing {}", openScreen);
+        }
+    }
+
     /** Apply an input-side client message synchronously on the client tick. */
     public boolean handleInputMessage(ClientMessage message) {
         java.util.Objects.requireNonNull(message, "message");

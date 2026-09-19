@@ -236,4 +236,89 @@ final class BridgeInputControllerTest {
         assertTrue(outcome.applied());
         assertEquals(List.of(BridgeInputController.FORWARD), outcome.held());
     }
+
+    @Test
+    void aScreenTakingTheKeyboardLetsGoOfEverythingHeld() {
+        RecordingSink sink = new RecordingSink();
+        BridgeInputController controller = controllerFor(sink);
+        move(controller, INTERVAL, 1.0f, 0.0f, true, false);
+        assertEquals(
+                List.of(BridgeInputController.FORWARD, BridgeInputController.JUMP),
+                controller.held());
+
+        assertTrue(controller.blockInput("DeathScreen"), "the call that let go says so");
+        assertEquals(List.of(), controller.held());
+        assertTrue(controller.inputBlocked());
+        assertEquals("DeathScreen", controller.blockedBy());
+        assertEquals(
+                List.of(
+                        "press:move.forward",
+                        "press:move.jump",
+                        "release:move.forward",
+                        "release:move.jump"),
+                sink.events);
+    }
+
+    @Test
+    void aSecondReportOfTheSameScreenIsNotASecondRelease() {
+        RecordingSink sink = new RecordingSink();
+        BridgeInputController controller = controllerFor(sink);
+        move(controller, INTERVAL, 1.0f, 0.0f, false, false);
+        controller.blockInput("DeathScreen");
+        List<String> after = List.copyOf(sink.events);
+
+        assertFalse(controller.blockInput("DeathScreen"));
+        assertEquals(after, sink.events, "nothing was held, and nothing happened");
+    }
+
+    @Test
+    void aCommandForAClientThatIsNotTakingInputIsRefused() {
+        RecordingSink sink = new RecordingSink();
+        BridgeInputController controller = controllerFor(sink);
+        controller.blockInput("PauseScreen");
+        List<String> after = List.copyOf(sink.events);
+
+        BridgeInputController.Outcome outcome = move(controller, INTERVAL, 1.0f, 0.0f, false, false);
+
+        assertFalse(outcome.applied());
+        assertEquals(BridgeInputController.REFUSED_GUI_CONFLICT, outcome.refusalCode());
+        // Not pressed and not queued: a key pressed at a client that is not reading
+        // its keyboard would still be down when it starts reading again.
+        assertEquals(after, sink.events);
+        assertEquals(List.of(), controller.held());
+    }
+
+    @Test
+    void theClientTakingInputAgainPressesNothingBack() {
+        RecordingSink sink = new RecordingSink();
+        BridgeInputController controller = controllerFor(sink);
+        move(controller, INTERVAL, 1.0f, 0.0f, false, false);
+        controller.blockInput("PauseScreen");
+        List<String> after = List.copyOf(sink.events);
+
+        controller.unblockInput();
+
+        assertFalse(controller.inputBlocked());
+        assertEquals("", controller.blockedBy());
+        assertEquals(after, sink.events, "a command is what presses a key, not a screen closing");
+
+        // And the next command works, which is what makes unblocking mean anything.
+        assertTrue(move(controller, INTERVAL * 2, 1.0f, 0.0f, false, false).applied());
+        assertEquals(List.of(BridgeInputController.FORWARD), controller.held());
+        assertEquals("press:move.forward", sink.events.get(sink.events.size() - 1));
+    }
+
+    @Test
+    void lettingGoForAScreenStillLeavesALaterSilenceAbleToTimeOut() {
+        RecordingSink sink = new RecordingSink();
+        BridgeInputController controller = controllerFor(sink);
+        move(controller, INTERVAL, 1.0f, 0.0f, false, false);
+        controller.blockInput("PauseScreen");
+        controller.unblockInput();
+        move(controller, INTERVAL * 2, 1.0f, 0.0f, false, false);
+
+        long expired = INTERVAL * 2 + INTERVAL * (MISSES + 1);
+        assertTrue(controller.tick(expired), "the watchdog was re-armed by the new command");
+        assertEquals(List.of(), controller.held());
+    }
 }

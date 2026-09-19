@@ -8,6 +8,11 @@ import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.networking.v1.ClientLoginConnectionEvents;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
 import net.minecraft.client.MinecraftClient;
+import net.minecraft.client.gui.screen.DeathScreen;
+import net.minecraft.client.gui.screen.GameMenuScreen;
+import net.minecraft.client.gui.screen.Screen;
+import net.minecraft.client.gui.screen.TitleScreen;
+import net.minecraft.client.gui.screen.multiplayer.ConnectScreen;
 import org.minekin.bridge.input.BridgeInputController;
 import org.minekin.bridge.input.VanillaKeySink;
 import org.minekin.bridge.runtime.BridgeIpcWorker;
@@ -73,6 +78,19 @@ public final class MinekinBridgeClient implements ClientModInitializer {
                                 created,
                                 BridgeInputController.ReleaseReason.BRIDGE_FAULT);
                     }
+                    // Who owns the keyboard. §12 makes this a release trigger, and
+                    // the client tick is where it is observable — nothing else in the
+                    // Bridge can see that vanilla has handed the keyboard to a screen,
+                    // which is also how the death screen and the title screen arrive.
+                    try {
+                        created.observeClientInput(screenLabel(client.currentScreen));
+                    } catch (RuntimeException error) {
+                        stopSafely(
+                                client,
+                                controller,
+                                created,
+                                BridgeInputController.ReleaseReason.BRIDGE_FAULT);
+                    }
                     // The first snapshot's clock, and it is a tick rather than the join
                     // event on purpose: the join is reported before the server's world
                     // has reached the client, so the snapshot is taken on the first tick
@@ -120,6 +138,38 @@ public final class MinekinBridgeClient implements ClientModInitializer {
         admission = controller;
         worker = created;
         created.start();
+    }
+
+    /**
+     * What the Bridge can say about the screen that has the keyboard, if any.
+
+     * <p>Not the class's own name. A production client's Minecraft classes are
+     * intermediary at runtime, so `getClass().getSimpleName()` is `class_418` for
+     * the death screen — a token that means nothing to a reader and is a different
+     * string in every version. Measured, and the reason this exists.
+
+     * <p>So the Bridge names the screens it can prove it is looking at and says no
+     * more than that about anything else. It is a label for a local log line:
+     * which screen it is has no bearing on what the Bridge does, which is to let go
+     * of every key.
+     */
+    static String screenLabel(Screen screen) {
+        if (screen == null) {
+            return "";
+        }
+        if (screen instanceof DeathScreen) {
+            return "DeathScreen";
+        }
+        if (screen instanceof GameMenuScreen) {
+            return "GameMenuScreen";
+        }
+        if (screen instanceof TitleScreen) {
+            return "TitleScreen";
+        }
+        if (screen instanceof ConnectScreen) {
+            return "ConnectScreen";
+        }
+        return "SomeScreen";
     }
 
     private static void observe(
