@@ -12,8 +12,10 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 import pytest
+
 from bridge_peer import (  # type: ignore[import-not-found]
     close_writers,
     connect,
@@ -23,7 +25,6 @@ from bridge_peer import (  # type: ignore[import-not-found]
     session,
     write_frame,
 )
-
 from minekin_core.adapters.bridge.ipc import (
     BRIDGE_HELLO_TYPE,
     CONNECTION_LIFECYCLE_TYPE,
@@ -56,6 +57,12 @@ async def _wait_until(predicate: Callable[[], bool], timeout: float = 3.0) -> No
         if loop.time() > deadline:
             raise TimeoutError("the condition never held")
         await asyncio.sleep(0.005)
+
+
+async def _note(collected: list[Any], value: Any = True) -> None:
+    """An asynchronous callback that records only that it was called, and with what."""
+
+    collected.append(value)
 
 
 def _in_handshake() -> tuple[SessionStateMachine, ConnectionGenerations]:
@@ -234,6 +241,8 @@ def test_the_session_reaches_playable_before_the_client_leaves(tmp_path: Path) -
         exit_event = asyncio.Event()
         peer = Peer(descriptor, bridge)
         reached: list[SessionState] = []
+        reported: list[ConnectionState] = []
+        handshakes: list[bool] = []
 
         async def client() -> None:
             await peer.prove()
@@ -251,7 +260,18 @@ def test_the_session_reaches_playable_before_the_client_leaves(tmp_path: Path) -
             await peer.close()
 
         running = asyncio.create_task(client())
-        await _supervise(host, machine, connections, exit_event=exit_event)
+        await asyncio.wait_for(
+            supervise_session(
+                host=host,
+                session=machine,
+                connections=connections,
+                handshake_timeout=3.0,
+                until_client_exit=exit_event.wait,
+                on_handshake=lambda: _note(handshakes),
+                on_connection=lambda state: _note(reported, state),
+            ),
+            8,
+        )
         await running
 
         assert reached == [
@@ -261,6 +281,17 @@ def test_the_session_reaches_playable_before_the_client_leaves(tmp_path: Path) -
             SessionState.JOINED_UNVERIFIED,
             SessionState.PLAYABLE,
         ]
+        # The runtime reports every phase the attempt moved to, including the
+        # ones that are only progress. Which of them deserve a ledger entry is
+        # the caller's question, not this module's.
+        assert reported == [
+            ConnectionState.RESOLVING,
+            ConnectionState.LOGIN_NEGOTIATING,
+            ConnectionState.PLAY_INIT,
+            ConnectionState.JOIN_SEEN,
+            ConnectionState.PLAYABLE,
+        ]
+        assert handshakes == [True]
 
     asyncio.run(scenario())
 

@@ -25,13 +25,22 @@ from enum import StrEnum
 
 from minekin_core.adapters.bridge.admission import apply_lifecycle
 from minekin_core.adapters.bridge.ipc import BridgeIpcHost, IpcProtocolError
-from minekin_core.domain.connection import ConnectionGenerations, ConnectionState
+from minekin_core.domain.connection import (
+    CallbackDisposition,
+    ConnectionGenerations,
+    ConnectionState,
+)
 from minekin_core.domain.session_state import (
     SessionState,
     SessionStateMachine,
     advance_for_connection,
 )
 from minekin_core.generated.minekin.v1 import observation_pb2
+
+# A disposition worth reporting: the attempt moved, or it came to a stop. A
+# stale generation is what a reconnect leaves behind and says nothing about the
+# connection the session is actually in.
+_REPORTED_DISPOSITIONS = frozenset({CallbackDisposition.ADVANCED, CallbackDisposition.FAILED})
 
 
 class SessionOutcome(StrEnum):
@@ -78,6 +87,8 @@ async def supervise_session(
     connections: ConnectionGenerations,
     handshake_timeout: float,
     until_client_exit: Callable[[], Awaitable[object]],
+    on_handshake: Callable[[], Awaitable[None]] | None = None,
+    on_connection: Callable[[ConnectionState], Awaitable[None]] | None = None,
 ) -> SessionRun:
     """Wait for the handshake, follow the Bridge, and stop when the client does.
 
@@ -85,6 +96,11 @@ async def supervise_session(
     owns how it knows, because "the process ended" and "the operator asked to
     stop" both end a run and the runtime should not have to tell them apart. Its
     result is ignored, so an `Event.wait` is a fine thing to pass.
+
+    The two callbacks report what this run observed — that the Bridge proved its
+    session, and which connection state an attempt reached. They say nothing
+    about how that becomes a ledger entry: which event type and which trust
+    class a fact deserves is a decision this module has no business making.
     """
 
     if handshake_timeout <= 0:
@@ -97,10 +113,13 @@ async def supervise_session(
             _wind_down(session, failed=True)
             return _report(failure, session, connections, progress)
 
+        if on_handshake is not None:
+            await on_handshake()
         session.advance(SessionState.READY_MENU)
 
         reader = asyncio.create_task(
-            _read_events(host, session, connections, progress), name="minekin-bridge-events"
+            _read_events(host, session, connections, progress, on_connection),
+            name="minekin-bridge-events",
         )
         client = asyncio.create_task(_client_exited(until_client_exit), name="minekin-client-exit")
         try:
@@ -161,6 +180,7 @@ async def _read_events(
     session: SessionStateMachine,
     connections: ConnectionGenerations,
     progress: _Progress,
+    on_connection: Callable[[ConnectionState], Awaitable[None]] | None,
 ) -> None:
     """Apply every reported phase until the channel ends or the run is cancelled."""
 
@@ -175,8 +195,16 @@ async def _read_events(
         outcome = apply_lifecycle(connections, message)
         if outcome.accepted:
             progress.applied += 1
-        if outcome.decision is not None:
-            advance_for_connection(session, outcome.decision)
+        decision = outcome.decision
+        if decision is None:
+            continue
+        advance_for_connection(session, decision)
+        if (
+            on_connection is not None
+            and decision.disposition in _REPORTED_DISPOSITIONS
+            and decision.current_state is not None
+        ):
+            await on_connection(decision.current_state)
 
 
 def _wind_down(session: SessionStateMachine, *, failed: bool) -> None:

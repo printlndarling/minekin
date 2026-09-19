@@ -36,16 +36,41 @@ from minekin_core.adapters.launcher.process import ClientProcessSpec, build_proc
 from minekin_core.adapters.launcher.supervisor import ProcessIdentity, ProcessSupervisor
 from minekin_core.adapters.sqlite.connection import connect_reader
 from minekin_core.adapters.sqlite.identity_store import read_identity_root
-from minekin_core.adapters.sqlite.session_log import SessionEventLog
+from minekin_core.adapters.sqlite.session_log import (
+    CLIENT_EXITED,
+    HELLO_ACCEPTED,
+    JOIN_OBSERVED,
+    PLAYABLE_ESTABLISHED,
+    SESSION_INTERRUPTED,
+    SessionEventLog,
+)
 from minekin_core.adapters.system.clock import SystemClock
 from minekin_core.cli.init import DATABASE_NAME, KIN_DIRECTORY, kin_directory, run_root
-from minekin_core.cli.session_runtime import SessionRun, supervise_session
-from minekin_core.domain.connection import ConnectionGenerations
+from minekin_core.cli.session_runtime import SessionOutcome, SessionRun, supervise_session
+from minekin_core.domain.connection import ConnectionGenerations, ConnectionState
 from minekin_core.domain.errors import ErrorCategory, MinekinError, Retryability
+from minekin_core.domain.events import EventSource, TrustClass
 from minekin_core.domain.ids import ClientInstanceId, KinId, RunId
 from minekin_core.domain.session_state import SessionState, SessionStateMachine
 
 SupervisorFactory = Callable[[Path], ProcessSupervisor]
+
+# The connection states that are a fact §5 names. The three phases before a join
+# are progress towards one, not facts themselves, so they are deliberately
+# absent and the recorder ignores them.
+_CONNECTION_EVENTS: dict[ConnectionState, str] = {
+    ConnectionState.JOIN_SEEN: JOIN_OBSERVED,
+    ConnectionState.PLAYABLE: PLAYABLE_ESTABLISHED,
+    ConnectionState.DISCONNECTED: SESSION_INTERRUPTED,
+    ConnectionState.FAILED: SESSION_INTERRUPTED,
+}
+
+_OUTCOME_EVENTS: dict[SessionOutcome, str] = {
+    SessionOutcome.CLIENT_EXITED: CLIENT_EXITED,
+    SessionOutcome.BRIDGE_LOST: SESSION_INTERRUPTED,
+    SessionOutcome.HANDSHAKE_FAILED: SESSION_INTERRUPTED,
+    SessionOutcome.HANDSHAKE_TIMEOUT: SESSION_INTERRUPTED,
+}
 
 # One managed session's own directory inside the overlay, created for it by
 # SessionOverlayStore. The descriptor carries a session key, so it goes here
@@ -324,6 +349,12 @@ def prepare_session(
 
 
 def launch_prepared(prepared: PreparedSession) -> SessionLaunch:
+    """Spawn the prepared client, for a caller that is not running a loop."""
+
+    return asyncio.run(launch_prepared_async(prepared))
+
+
+async def launch_prepared_async(prepared: PreparedSession) -> SessionLaunch:
     """Spawn the prepared client and record it.
 
     The ledger records what the launcher did, after it did it. Refusals before
@@ -334,7 +365,7 @@ def launch_prepared(prepared: PreparedSession) -> SessionLaunch:
     try:
         process = prepared.supervisor.start(prepared.spec)
     except MinekinError as error:
-        prepared.ledger.record_process_failed(
+        await prepared.ledger.record_process_failed_async(
             kin_id=prepared.kin_id,
             run_id=prepared.run_id,
             session_id=prepared.session_id,
@@ -348,7 +379,7 @@ def launch_prepared(prepared: PreparedSession) -> SessionLaunch:
         session_id=prepared.session_id,
         generation=prepared.generation,
     )
-    prepared.ledger.record_process_started(
+    await prepared.ledger.record_process_started_async(
         kin_id=prepared.kin_id,
         run_id=prepared.run_id,
         session_id=prepared.session_id,
@@ -412,16 +443,47 @@ async def start_and_supervise(
     host = BridgeIpcHost(prepared.bridge_session)
     # Written before the spawn: the client reads it during its own startup, and
     # a client that finds no descriptor refuses to come up at all.
-    # Written before the spawn: the client reads it during its own startup, and
-    # a client that finds no descriptor refuses to come up at all.
     await host.prepare(prepared.bridge_descriptor)
 
-    # Off the loop, for two reasons: launching is blocking work, and the ledger
-    # opens its own writer through `asyncio.run`, which cannot be nested inside
-    # a loop that is already running. §9 wants the fsync off this loop anyway.
-    launch = await asyncio.to_thread(launch_prepared, prepared)
+    launch = await launch_prepared_async(prepared)
     session.advance(SessionState.WAITING_BRIDGE)
     session.advance(SessionState.HANDSHAKING)
+
+    async def record(
+        event_type: str,
+        payload: dict[str, Any],
+        *,
+        source: EventSource,
+        trust_class: TrustClass,
+    ) -> None:
+        await prepared.ledger.record_session_event(
+            event_type=event_type,
+            kin_id=prepared.kin_id,
+            run_id=prepared.run_id,
+            session_id=prepared.session_id,
+            generation=prepared.generation,
+            payload=payload,
+            source=source,
+            trust_class=trust_class,
+        )
+
+    async def on_handshake() -> None:
+        # Core verified the proof, so this is Core's conclusion rather than the
+        # Bridge's word.
+        await record(HELLO_ACCEPTED, {}, source=EventSource.CORE, trust_class=TrustClass.CORE)
+
+    async def on_connection(state: ConnectionState) -> None:
+        event_type = _CONNECTION_EVENTS.get(state)
+        if event_type is None:
+            # A phase that only moves the session closer to a join is not a fact
+            # §5 names, and inventing one would put noise in the ledger.
+            return
+        await record(
+            event_type,
+            {"phase": state.value},
+            source=EventSource.BRIDGE,
+            trust_class=TrustClass.BRIDGE_FILTERED,
+        )
 
     async def until_client_exit() -> None:
         while prepared.supervisor.running():
@@ -433,6 +495,16 @@ async def start_and_supervise(
         connections=ConnectionGenerations(),
         handshake_timeout=handshake_timeout,
         until_client_exit=until_client_exit,
+        on_handshake=on_handshake,
+        on_connection=on_connection,
+    )
+    # How the run ended is Core's own observation, whatever the Bridge reported
+    # along the way.
+    await record(
+        _OUTCOME_EVENTS[run.outcome],
+        {"outcome": run.outcome.value},
+        source=EventSource.CORE,
+        trust_class=TrustClass.CORE,
     )
     return launch, run
 
