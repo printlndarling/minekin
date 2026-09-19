@@ -423,7 +423,7 @@ def test_a_bundle_may_not_call_a_world_it_joined_no_world(tmp_path: Path) -> Non
     loaded["run"]["connection_state"] = "PLAYABLE"
     document.write_text(json.dumps(loaded), encoding="utf-8")
 
-    with pytest.raises(SEALER.Unsealable, match="the run document records a world"):
+    with pytest.raises(SEALER.Unsealable, match="the record shows a world"):
         SEALER.seal(
             data_root=data_root,
             case=OBSERVE_ONLY_CASE,
