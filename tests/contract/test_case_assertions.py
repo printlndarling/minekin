@@ -67,3 +67,22 @@ def test_a_registered_assertion_whose_implementation_is_gone_is_refused(
 
     assert result.returncode == 1
     assert "does not exist" in result.stderr
+
+
+def test_a_renamed_function_inside_a_tool_is_refused(tmp_path: Path) -> None:
+    """A file that exists is not an assertion that is performed.
+
+    One tool implements several assertions, one function each, so "the target
+    exists" was enough to keep a name registered after the function performing it
+    was renamed — the name would look covered by a file that no longer carries
+    it. The registry therefore names the function too, and this is that check.
+    """
+
+    tool = tmp_path / "tools" / "assert_case_evidence.py"
+    tool.parent.mkdir(parents=True)
+    tool.write_text('"""Some other tool entirely."""\n', encoding="utf-8")
+
+    result = run_tool("--root", str(tmp_path))
+
+    assert result.returncode == 1
+    assert "has no server_observed_join_identity" in result.stderr

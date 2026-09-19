@@ -30,13 +30,22 @@ class Implementation:
 
     kind: str
     target: str
+    #: The function inside the target that performs this assertion, when the
+    #: target implements several. Without it a `tool` target can only say the
+    #: file is there, and a rename inside the file would leave the name
+    #: registered and unperformed.
+    symbol: str = ""
 
     def missing_reason(self, root: Path) -> str | None:
         """Why this implementation cannot be found, or None when it is there."""
 
         if self.kind == "tool":
             path = root / self.target
-            return None if path.is_file() else f"{self.target} does not exist"
+            if not path.is_file():
+                return f"{self.target} does not exist"
+            if self.symbol and f"def {self.symbol}(" not in path.read_text(encoding="utf-8"):
+                return f"{self.target} has no {self.symbol}"
+            return None
         if self.kind == "pytest":
             file_name, _, test_name = self.target.partition("::")
             path = root / file_name
@@ -46,6 +55,15 @@ class Implementation:
                 return f"{file_name} has no {test_name}"
             return None
         return f"unknown implementation kind {self.kind!r}"
+
+
+#: The tool that judges a finished run's evidence. Every assertion a *runtime*
+#: case declares is performed by one function in it, named after the assertion.
+RUNTIME_ASSERTER = "tools/assert_case_evidence.py"
+
+
+def _runtime(name: str) -> Implementation:
+    return Implementation("tool", RUNTIME_ASSERTER, symbol=name)
 
 
 # The names a case may rely on. A case naming anything else is a case whose
@@ -66,6 +84,9 @@ IMPLEMENTATIONS: dict[str, Implementation] = {
         "tests/contract/test_fixture_boundaries.py"
         "::test_product_build_and_import_boundaries_exclude_oracle",
     ),
+    "server_observed_join_identity": _runtime("server_observed_join_identity"),
+    "first_snapshot_admitted": _runtime("first_snapshot_admitted"),
+    "leave_after_join_observed": _runtime("leave_after_join_observed"),
 }
 
 

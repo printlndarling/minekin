@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "case_id": "CORE-020",
+  "work_package": "W40",
+  "mandatory": true,
+  "inputs": [
+    "tests/fixtures/runtime-input/bundle-p0-core-1.21.4.json",
+    "tests/fixtures/runtime-input/controlled-offline-server.json"
+  ],
+  "assertions": [
+    "server_observed_join_identity",
+    "first_snapshot_admitted",
+    "leave_after_join_observed"
+  ]
+}
