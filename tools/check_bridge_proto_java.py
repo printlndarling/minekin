@@ -125,6 +125,7 @@ package org.slf4j;
 public interface Logger {
     default void info(String message, Object... values) {}
     default void warn(String message, Object... values) {}
+    default void error(String message, Object... values) {}
 }
 """,
     "org/slf4j/LoggerFactory.java": """\

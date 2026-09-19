@@ -149,9 +149,23 @@ public final class BridgeIpcWorker implements AutoCloseable {
     public boolean publishLifecycle(ConnectionLifecycle lifecycle) {
         java.util.Objects.requireNonNull(lifecycle, "lifecycle");
         if (stopping.get() || !started.get() || event == null || !validLifecycle(lifecycle)) {
+            LOGGER.warn(
+                    "bridge dropped a lifecycle report: stopping={} started={} event={} valid={}",
+                    stopping.get(),
+                    started.get(),
+                    event != null,
+                    validLifecycle(lifecycle));
             return false;
         }
         if (!eventOutbox.offer(lifecycle)) {
+            // Worth saying out loud: this is the Bridge failing itself closed
+            // because a phase it must deliver had nowhere to go, and the client
+            // it is attached to will be cancelled a moment later. Without this
+            // line the client simply stops, with no cause anywhere.
+            LOGGER.error(
+                    "bridge event outbox is full ({} held), failing closed on {}",
+                    eventOutbox.size(),
+                    lifecycle.getPhase());
             failClosed();
             return false;
         }
@@ -477,6 +491,7 @@ public final class BridgeIpcWorker implements AutoCloseable {
         if (!stopping.compareAndSet(false, true)) {
             return;
         }
+        LOGGER.error("bridge is failing closed; the client will be stopped by its next tick");
         phases.safeStop();
         clientInbox.replaceWith(Notice.SAFE_STOP);
         closeQuietly(control);

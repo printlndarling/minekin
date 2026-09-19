@@ -13,10 +13,13 @@ import org.minekin.bridge.input.VanillaKeySink;
 import org.minekin.bridge.runtime.BridgeIpcWorker;
 import org.minekin.bridge.runtime.BridgePhaseMachine;
 import org.minekin.bridge.runtime.ClientAdmissionController;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /** Thin client entrypoint that only registers hooks and starts the daemon IPC worker. */
 public final class MinekinBridgeClient implements ClientModInitializer {
     static final String DESCRIPTOR_ENVIRONMENT_VARIABLE = "MINEKIN_BRIDGE_DESCRIPTOR";
+    private static final Logger LOGGER = LoggerFactory.getLogger("minekin-bridge");
     private static final int MAX_NOTICES_PER_TICK = 8;
     private BridgeIpcWorker worker;
     private ClientAdmissionController admission;
@@ -117,6 +120,11 @@ public final class MinekinBridgeClient implements ClientModInitializer {
             ClientAdmissionController controller,
             BridgeIpcWorker worker,
             BridgeInputController.ReleaseReason reason) {
+        // Logged because this is the Bridge stopping the client, and a client
+        // that simply stops with no cause recorded anywhere is unreadable: the
+        // server it was talking to sees a connection that went away, and the
+        // session sees a verdict rather than a reason.
+        LOGGER.error("bridge is stopping the client: {}", reason);
         try {
             controller.safeStop(client);
         } finally {

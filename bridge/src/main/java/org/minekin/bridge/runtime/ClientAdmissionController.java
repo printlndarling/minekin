@@ -17,9 +17,12 @@ import net.minecraft.client.network.ServerAddress;
 import net.minecraft.client.network.ServerInfo;
 import net.minecraft.network.ClientConnection;
 import org.minekin.bridge.mixin.ConnectScreenAccessor;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /** Executes already-validated admission commands only from the client tick. */
 public final class ClientAdmissionController {
+    private static final Logger LOGGER = LoggerFactory.getLogger("minekin-bridge");
     private final BridgePhaseMachine phases;
     private final Predicate<ConnectionLifecycle> lifecycleSink;
     private long activeGeneration;
@@ -133,8 +136,20 @@ public final class ClientAdmissionController {
      */
     private void report(ConnectionPhase phase, AdmissionFailureReason reason, boolean terminal) {
         if (activeGeneration == 0) {
+            // Local only, and deliberately: a diagnostic is not an event. The
+            // contract forbids a server's words from entering a product payload,
+            // and this line carries none — but it does say that something was
+            // seen and not attributed, which is the difference between "nothing
+            // happened" and "something happened that we refused to believe".
+            LOGGER.info("bridge saw {} with no generation of ours active; not reported", phase);
             return;
         }
+        LOGGER.info(
+                "bridge reporting {} for generation {} (terminal={}, reason={})",
+                phase,
+                activeGeneration,
+                terminal,
+                reason);
         publish(phase, reason, terminal);
         if (terminal) {
             activeGeneration = 0;

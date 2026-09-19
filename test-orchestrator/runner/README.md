@@ -212,19 +212,25 @@ generator preset the profile does not name.
 
 ## What it does not do yet
 
-The client reaches the server and the login fails, about three seconds later,
-without a word from either side. The server records nothing at all — its
-`usercache.json` is empty, and vanilla only writes that on a successful login —
-and the client records nothing either, because vanilla draws a disconnect reason
-on the `DisconnectedScreen` rather than logging it. TCP is not the problem: a
-connection to `127.0.0.1:25565` from inside the same container reaches
-ESTABLISHED, and the server process is healthy, parked in its ordinary 50 ms tick
-wait.
+The client reaches the server and the login dies in the same second it starts.
+Both ends are silent about it — the client because vanilla draws a disconnect
+reason on the `DisconnectedScreen` rather than logging it, and the server because
+vanilla does not log a handshake it accepts either.
 
-What is *not* the problem has been measured rather than assumed: disabling
-vanilla's `pause-when-empty-seconds` does not change it (the domain no longer
-pauses, which is right for its own reasons, and the login still fails).
+What the domain has been cleared of, by measurement rather than by argument:
 
-The next move is to make the failure visible — the bridge may keep redacted
-diagnostics outside the product event payload, so a local log line at the login
-disconnect would say what the server said — and then to diagnose it.
+| Suspect | Verdict |
+| --- | --- |
+| The server, the whitelist, the port | A hand-written protocol client gets `0x03 Set Compression` — the login is accepted |
+| The server's silence | Not evidence: it logs nothing for an accepted handshake either |
+| `usercache.json` being empty | Not evidence: vanilla writes it on a completed join |
+| Name resolution | `_minecraft._tcp.127.0.0.1` NXDOMAINs in 0.19 s; the literal resolves in 0.01 s |
+| Vanilla's `pause-when-empty-seconds` | Reproduces with pausing off (the property was changed anyway, on its own merits) |
+| The Bridge cancelling it | Ruled out: the diagnostics that say when it stops the client never fired |
+
+The remaining observation worth following is the ~4 second gap between
+`Connecting to` and the login handler being created, with a resource reload in
+between, followed by an immediate disconnect. The next step is to read the one
+place the answer exists — a Mixin on the client's disconnect path, logging that
+screen's title and reason locally. The contract permits the bridge to keep
+redacted diagnostics outside the product event payload.
