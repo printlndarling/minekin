@@ -21,8 +21,12 @@ import json
 from pathlib import Path
 
 from minekin_core.adapters.launcher.artifacts import ArtifactStore
-from minekin_core.adapters.launcher.launch_plan import artifacts_from_plan, build_launch_plan
-from minekin_core.adapters.launcher.provision import missing_artifacts, provision_bundle
+from minekin_core.adapters.launcher.launch_plan import build_launch_plan
+from minekin_core.adapters.launcher.provision import (
+    missing_artifacts,
+    plan_fetch_set,
+    provision_bundle,
+)
 from minekin_core.cli.session import run_root, select_kin
 from minekin_core.config import data_root, kin_selector
 from minekin_core.domain.errors import MinekinError
@@ -65,7 +69,7 @@ def main(argv: list[str] | None = None) -> int:
 
     store = _resolve_store(arguments.store)
     plan = build_launch_plan(Path(arguments.profile))
-    artifacts = artifacts_from_plan(plan)
+    artifacts = plan_fetch_set(plan)
     store_object = ArtifactStore(store)
     missing = missing_artifacts(plan, store_object)
 

@@ -12,6 +12,7 @@ import pytest
 from minekin_core.adapters.launcher.artifacts import ArtifactStore
 from minekin_core.adapters.launcher.fetch import ArtifactFetcher
 from minekin_core.adapters.launcher.metadata import Artifact
+from minekin_core.adapters.launcher.mods import install_fixed_mods
 from minekin_core.adapters.launcher.provision import (
     missing_artifacts,
     provision_bundle,
@@ -137,3 +138,41 @@ def test_a_plan_with_no_artifacts_is_refused(tmp_path: Path) -> None:
 def test_a_non_positive_budget_is_refused(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="max_bytes"):
         provision_bundle({"artifacts": []}, ArtifactStore(tmp_path / "store"), max_bytes=0)
+
+
+def test_a_fetched_mod_is_part_of_the_job_and_lands_where_the_client_loads_it(
+    tmp_path: Path,
+) -> None:
+    """Fetching and placing are two modules; this is the seam between them.
+
+    fabric-api is loaded from the game directory rather than the classpath, so
+    it is not in the plan's artifact list. Nothing else fetches it, and without
+    it a full fetch leaves the mods step refusing a missing download.
+    """
+
+    payload = b"the fabric api jar"
+    url = "https://example.invalid/fabric-api-0.119.4+1.21.4.jar"
+    record = {
+        "name": "fabric-api",
+        "kind": "mod",
+        "sha256": hashlib.sha256(payload).hexdigest(),
+        "size": len(payload),
+        "source": url,
+        "sha1": hashlib.sha1(payload).hexdigest(),
+    }
+    library = _artifact("library", b"already here")
+    store = ArtifactStore(tmp_path / "store")
+    store.install(library, io.BytesIO(b"already here"))
+    plan = {"artifacts": _plan(library)["artifacts"], "fixed_mods": [record]}
+
+    report = provision_bundle(
+        plan, store, fetcher=ArtifactFetcher(store, opener=_serving({url: payload}))
+    )
+
+    assert report.complete
+    assert report.installed == (url,)
+    assert report.reused == ("library",)
+    overlay = tmp_path / "overlay"
+    overlay.mkdir()
+    placed = install_fixed_mods(plan, overlay=overlay, store=store, workspace_root=tmp_path)
+    assert [path.name for path in placed] == ["fabric-api-0.119.4+1.21.4.jar"]

@@ -34,8 +34,12 @@ def test_dry_run_reports_the_job_without_fetching(tmp_path: Path) -> None:
     assert result.returncode == 0
     planned = json.loads(result.stdout)
     assert planned["status"] == "planned"
-    assert planned["artifacts"] == 4120
-    assert planned["missing"] == 4120
+    # 4,120 artifacts from the Minecraft metadata plus the one fixed mod that is
+    # fetched rather than built here: fabric-api is loaded from the game
+    # directory, not the classpath, so it is not in the artifact list — but
+    # nothing else would put it in the store either.
+    assert planned["artifacts"] == 4121
+    assert planned["missing"] == 4121
     assert planned["missing_bytes"] > 0
     # Naming the store is what makes a fetch into the wrong one visible.
     assert planned["store"] == str(tmp_path.resolve())
@@ -59,4 +63,4 @@ def test_a_dry_run_is_not_bounded_by_the_budget(tmp_path: Path) -> None:
     )
 
     assert result.returncode == 0
-    assert json.loads(result.stdout)["missing"] == 4120
+    assert json.loads(result.stdout)["missing"] == 4121

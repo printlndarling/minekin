@@ -97,25 +97,41 @@ def _source_for(record: Mapping[str, Any], *, store: ArtifactStore, workspace_ro
         return jar
     # A fetched mod: the store keys by SHA-1, so that is what locates it, and
     # its absence is the same "fetch it first" refusal as any other artifact.
+    artifact = fetched_mod_artifact(record)
+    if artifact is None:
+        raise _reject(f"{name} names no source to fetch")
+    try:
+        return store.verify(artifact)
+    except MinekinError as error:
+        raise _reject(f"{name} is not in the content-addressed store yet") from error
+
+
+def fetched_mod_artifact(record: Mapping[str, Any]) -> Artifact | None:
+    """The store artifact a fetched mod record names, or None when it is built here.
+
+    One construction for two callers: this module to find the jar, and
+    provisioning to fetch it. Two would drift, and a store key that drifts is a
+    jar that is never found — the failure would look like a missing download.
+    """
+
+    source = str(record.get("source", ""))
+    if not source or source.startswith(_WORKSPACE_PREFIX):
+        return None
+    name = str(record.get("name", ""))
     sha1 = record.get("sha1")
     size = record.get("size")
     if not isinstance(sha1, str) or isinstance(size, bool) or not isinstance(size, int):
         raise _reject(f"{name} has no usable store identity")
-    try:
-        return store.verify(
-            Artifact(
-                coordinate=source,
-                # The store keys by the basename of the artifact's path, and for
-                # a fetched mod that basename is the one at the end of its URL.
-                path=Path(source).name,
-                url=source,
-                size=size,
-                sha1=sha1,
-                kind=str(record.get("kind", "mod")),
-            )
-        )
-    except MinekinError as error:
-        raise _reject(f"{name} is not in the content-addressed store yet") from error
+    return Artifact(
+        coordinate=source,
+        # The store keys by the basename of the artifact's path, and for a
+        # fetched mod that basename is the one at the end of its URL.
+        path=Path(source).name,
+        url=source,
+        size=size,
+        sha1=sha1,
+        kind=str(record.get("kind", "mod")),
+    )
 
 
 def _require_pin(record: Mapping[str, Any], source: Path) -> None:
