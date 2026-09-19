@@ -14,7 +14,10 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any, cast
 
-from minekin_core.adapters.launcher.artifacts import ArtifactStore
+from minekin_core.adapters.launcher.artifacts import (
+    ArtifactStore,
+    store_relative_path,
+)
 from minekin_core.adapters.launcher.metadata import Artifact
 from minekin_core.adapters.launcher.supervisor import ProcessSupervisor
 from minekin_core.application.ports.clock import FakeClock
@@ -46,7 +49,7 @@ def fabricated() -> tuple[dict[str, Any], Artifact]:
         sha1=hashlib.sha1(PAYLOAD).hexdigest(),
         kind="client",
     )
-    store_path = f"artifact-store/sha1/{artifact.sha1[:2]}/{artifact.sha1}/client.jar"
+    store_path = store_relative_path(artifact)
     plan: dict[str, Any] = {
         "launchable": True,
         "blockers": [],

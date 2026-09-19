@@ -6,7 +6,9 @@ from pathlib import Path
 
 import pytest
 
+from minekin_core.adapters.launcher.artifacts import ArtifactStore
 from minekin_core.adapters.launcher.launch_plan import build_launch_plan, find_workspace_root
+from minekin_core.adapters.launcher.metadata import Artifact
 from minekin_core.adapters.launcher.recipe import source_tree_sha256
 from minekin_core.bootstrap import run
 from minekin_core.domain.errors import ExitCode, MinekinError
@@ -14,13 +16,54 @@ from minekin_core.domain.errors import ExitCode, MinekinError
 PROFILE = Path(__file__).parents[1] / "fixtures" / "runtime-input" / "bundle-p0-core-1.21.4.json"
 
 
+def test_the_path_a_plan_declares_is_the_path_the_store_writes(tmp_path: Path) -> None:
+    """The readiness check and the launch have to agree about where the store is.
+
+    They did not. The plan restated the store's layout rather than asking it, and
+    the restatement was missing the part of the layout that says these are blobs
+    — so every classpath entry named a file that was never written, while the
+    readiness check, which asks the store, passed. What a client saw was a main
+    class it could not find, and nothing in the suite compared the two.
+    """
+
+    plan = build_launch_plan(PROFILE)
+    store = ArtifactStore(tmp_path / "artifact-store")
+
+    for record in plan["artifacts"]:
+        artifact = Artifact(
+            coordinate=record["coordinate"],
+            path=record["path"],
+            url=record["url"],
+            size=record["size"],
+            sha1=record["sha1"],
+            kind=record["kind"],
+        )
+        assert Path(tmp_path / record["store_path"]) == store.path_for(artifact)
+
+    # The classpath is a subset of those paths rather than its own set, so a
+    # classpath entry that no artifact answers for cannot be declared.
+    declared = {record["store_path"] for record in plan["artifacts"]}
+    assert set(plan["runtime"]["classpath"]) <= declared
+    assert set(plan["runtime"]["native_artifacts"]) <= declared
+
+
 def test_launch_plan_is_deterministic_and_has_independent_arguments() -> None:
     first = build_launch_plan(PROFILE)
     assert first == build_launch_plan(PROFILE)
     assert first["bundle"]["main_class"] == "net.fabricmc.loader.impl.launch.knot.KnotClient"
     assert first["runtime"]["classpath"]
-    assert len(first["artifacts"]) == 4120
-    assert len(first["runtime"]["classpath"]) == 70
+    assert len(first["artifacts"]) == 4119
+    assert len(first["runtime"]["classpath"]) == 69
+    # One ASM, and it is Fabric's. Both of them on the classpath is not a
+    # difference of degree: the Loader refuses to start when it finds two
+    # copies of a class it needs, which is what it did here.
+    asm = [
+        Path(entry).name
+        for entry in first["runtime"]["classpath"]
+        if Path(entry).name in {"asm-9.6.jar", "asm-9.7.1.jar"}
+    ]
+    assert asm == ["asm-9.7.1.jar"]
+    assert all("/asm-9.6.jar" not in item["store_path"] for item in first["artifacts"])
     assert len(first["runtime"]["native_artifacts"]) == 9
     assert first["runtime"]["asset_index"].endswith("/19.json")
     assert first["runtime"]["logging_config"].endswith("/client-1.21.2.xml")

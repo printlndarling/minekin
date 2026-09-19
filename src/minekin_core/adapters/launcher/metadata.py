@@ -117,6 +117,20 @@ class Artifact:
     kind: str = "library"
 
 
+def library_key(artifact: Artifact) -> str:
+    """What a Fabric profile overrides its parent by: group and artifact.
+
+    The version is left out because overriding is exactly the act of stating a
+    different version, and the classifier is left out because a native is the
+    same artifact as the library it was built from.
+    """
+
+    parts = artifact.coordinate.split(":")
+    if len(parts) < 2 or not all(parts[:2]):
+        raise _reject("library coordinate is not group:artifact:version")
+    return f"{parts[0]}:{parts[1]}"
+
+
 @dataclass(frozen=True, slots=True)
 class PinnedMetadata:
     version: str
@@ -138,6 +152,26 @@ class PinnedMetadata:
     fabric_metadata_sha256: str
     fabric_coordinates: tuple[str, ...]
     fabric_libraries: tuple[Artifact, ...]
+
+    @property
+    def resolved_libraries(self) -> tuple[Artifact, ...]:
+        """The libraries the profile resolves to, overrides applied.
+
+        A Fabric profile inherits from Minecraft and re-states the libraries it
+        needs, so the two lists overlap and simply concatenating them puts two
+        versions of one artifact on the classpath. The Loader then refuses to
+        start at all — measured with ASM 9.6, which is Minecraft's, beside ASM
+        9.7.1, which is Fabric's: "duplicate ASM classes found on classpath".
+        The profile's statement of a library replaces its parent's.
+
+        This is the whole resolved set rather than the parent's half of it, so
+        that appending the profile's list to it is not a thing a caller can do
+        by accident: that is exactly the mistake this exists to prevent.
+        """
+
+        replaced = {library_key(item) for item in self.fabric_libraries}
+        parent = tuple(item for item in self.libraries if library_key(item) not in replaced)
+        return (*parent, *self.fabric_libraries)
 
 
 _FABRIC_CHECKSUM_REGISTRY = {

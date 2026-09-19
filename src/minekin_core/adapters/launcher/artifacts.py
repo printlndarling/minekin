@@ -19,6 +19,15 @@ from minekin_core.domain.errors import ErrorCategory, MinekinError, Retryability
 
 _SAFE_ID = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$")
 
+# Where the store keeps things, named once. The launch plan tells a client where
+# to find an artifact, so it has to agree with this — and it did not: the plan
+# restated the layout without `blobs/`, so every classpath entry it produced
+# named a file that was never there and a client could not load its own main
+# class. A second statement of a layout is a second layout; this is the only one.
+STORE_DIRECTORY = "artifact-store"
+_BLOBS_DIRECTORY = "blobs"
+_SHA1_DIRECTORY = "sha1"
+
 
 def _reject(message: str, *, category: ErrorCategory = ErrorCategory.SUPPLY_CHAIN) -> MinekinError:
     return MinekinError(
@@ -81,6 +90,26 @@ def _remove_tree(path: Path) -> None:
     shutil.rmtree(path)
 
 
+def _artifact_location(artifact: Artifact) -> Path:
+    """Where an artifact's bytes live, relative to the store root."""
+
+    filename = Path(artifact.path).name
+    if not filename or filename in {".", ".."}:
+        raise _reject("artifact filename is unsafe")
+    return Path(_BLOBS_DIRECTORY) / _SHA1_DIRECTORY / artifact.sha1[:2] / artifact.sha1 / filename
+
+
+def store_relative_path(artifact: Artifact) -> str:
+    """Where an artifact's bytes live, relative to the *run* root.
+
+    This is the form a launch plan is allowed to name, because every path a plan
+    carries is relative to the run root and only `process.py` turns them into
+    absolute ones.
+    """
+
+    return f"{STORE_DIRECTORY}/{_artifact_location(artifact).as_posix()}"
+
+
 @dataclass(frozen=True, slots=True)
 class BundleEntry:
     view_path: str
@@ -99,7 +128,7 @@ class ArtifactStore:
             raise _reject(
                 "artifact store cannot live inside .minecraft", category=ErrorCategory.CONFIG
             )
-        self.blobs = self.root / "blobs" / "sha1"
+        self.blobs = self.root / _BLOBS_DIRECTORY / _SHA1_DIRECTORY
         self.staging = self.root / ".staging"
         self.quarantine = self.root / "quarantine"
         for path in (self.blobs, self.staging, self.quarantine):
@@ -107,10 +136,7 @@ class ArtifactStore:
             _assert_no_symlink(path, self.root)
 
     def path_for(self, artifact: Artifact) -> Path:
-        filename = Path(artifact.path).name
-        if not filename or filename in {".", ".."}:
-            raise _reject("artifact filename is unsafe")
-        return self.blobs / artifact.sha1[:2] / artifact.sha1 / filename
+        return self.root / _artifact_location(artifact)
 
     def verify(self, artifact: Artifact) -> Path:
         path = self.path_for(artifact)

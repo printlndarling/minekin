@@ -10,7 +10,12 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any, cast
 
-from minekin_core.adapters.launcher.metadata import Artifact, TargetPlatform, load_pinned_metadata
+from minekin_core.adapters.launcher.artifacts import store_relative_path
+from minekin_core.adapters.launcher.metadata import (
+    Artifact,
+    TargetPlatform,
+    load_pinned_metadata,
+)
 from minekin_core.adapters.launcher.recipe import validate_bundle_recipe
 from minekin_core.domain.errors import ErrorCategory, MinekinError, Retryability
 
@@ -76,7 +81,15 @@ def _metadata_path(profile_path: Path, profile: dict[str, Any], key: str) -> Pat
 
 
 def _store_path(artifact: Artifact) -> str:
-    return f"artifact-store/sha1/{artifact.sha1[:2]}/{artifact.sha1}/{Path(artifact.path).name}"
+    """Ask the store where it will put this, rather than restating it.
+
+    Restated, the two drifted: the plan left out the part of the store's layout
+    that says these are blobs, and every classpath entry it produced named a
+    file that was never written. Nothing compared the readiness check, which
+    used the store, with the launch, which used the plan.
+    """
+
+    return store_relative_path(artifact)
 
 
 def _typed_arguments(arguments: tuple[str, ...]) -> list[dict[str, str]]:
@@ -112,8 +125,7 @@ def build_launch_plan(profile_path: Path, *, workspace_root: Path | None = None)
     )
     ordered = [
         metadata.client,
-        *metadata.libraries,
-        *metadata.fabric_libraries,
+        *metadata.resolved_libraries,
         metadata.asset_index,
         *metadata.asset_objects,
         metadata.logging_config,
@@ -127,11 +139,13 @@ def build_launch_plan(profile_path: Path, *, workspace_root: Path | None = None)
     artifacts = list(by_path.values())
     classpath = [
         _store_path(artifact)
-        for artifact in [metadata.client, *metadata.libraries, *metadata.fabric_libraries]
+        for artifact in [metadata.client, *metadata.resolved_libraries]
         if artifact.kind != "native"
     ]
     native_artifacts = [
-        _store_path(artifact) for artifact in metadata.libraries if artifact.kind == "native"
+        _store_path(artifact)
+        for artifact in metadata.resolved_libraries
+        if artifact.kind == "native"
     ]
     replacements = {
         "${natives_directory}": SESSION_NATIVES_PATH,

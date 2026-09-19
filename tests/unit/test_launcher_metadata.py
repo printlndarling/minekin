@@ -8,7 +8,10 @@ import pytest
 from minekin_core.adapters.launcher.metadata import (
     FABRIC_MAIN_CLASS,
     VERSION_METADATA_SHA1,
+    Artifact,
+    PinnedMetadata,
     TargetPlatform,
+    library_key,
     load_pinned_metadata,
     parse_pinned_metadata,
 )
@@ -109,3 +112,51 @@ def test_version_metadata_sha1_pin_is_the_reviewed_value() -> None:
     import hashlib
 
     assert hashlib.sha1(_raw("1.21.4.json")).hexdigest() == VERSION_METADATA_SHA1
+
+
+def _pinned() -> PinnedMetadata:
+    return load_pinned_metadata(
+        FIXTURES / "version_manifest_v2.json",
+        FIXTURES / "1.21.4.json",
+        FIXTURES / "fabric-loader-0.16.9.json",
+        FIXTURES / "asset-index-19.json",
+        target=TARGET,
+    )
+
+
+def test_the_fabric_profile_replaces_the_libraries_it_restates() -> None:
+    """Two versions of one library on the classpath stops the Loader outright.
+
+    Minecraft ships ASM 9.6 and Fabric 0.16.9 states ASM 9.7.1, so this is not a
+    question of which one wins: the Loader refuses to start when it finds two
+    copies of a class it needs, and that is what it did.
+    """
+
+    metadata = _pinned()
+
+    parent = {library_key(item): item for item in metadata.libraries}
+    resolved = {library_key(item): item for item in metadata.resolved_libraries}
+
+    assert parent["org.ow2.asm:asm"].coordinate == "org.ow2.asm:asm:9.6"
+    assert resolved["org.ow2.asm:asm"].coordinate == "org.ow2.asm:asm:9.7.1"
+    assert resolved["org.ow2.asm:asm"] in metadata.fabric_libraries
+
+    # It replaces rather than filters: nothing else the parent stated is gone,
+    # and the only artifact that changed is the one the profile restated.
+    assert set(parent) <= set(resolved)
+    assert len(resolved) == len(parent) + len(metadata.fabric_libraries) - 1
+
+
+def test_a_native_is_a_build_of_the_library_it_overrides() -> None:
+    """The classifier says which build, not which artifact, so it is not the key."""
+
+    native = Artifact(
+        coordinate="org.lwjgl:lwjgl:3.3.3:natives-linux",
+        path="org/lwjgl/lwjgl/3.3.3/lwjgl-3.3.3-natives-linux.jar",
+        url="https://example.invalid/lwjgl-natives.jar",
+        size=1,
+        sha1="0" * 40,
+        kind="native",
+    )
+
+    assert library_key(native) == "org.lwjgl:lwjgl"
