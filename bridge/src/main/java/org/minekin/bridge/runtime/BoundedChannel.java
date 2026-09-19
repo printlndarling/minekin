@@ -58,17 +58,19 @@ public final class BoundedChannel<T> {
         if (limit < 0) {
             throw new IllegalArgumentException("limit cannot be negative");
         }
-        java.util.ArrayList<T> values = new java.util.ArrayList<>(Math.min(limit, queue.size()));
-        synchronized (mutationLock) {
+        int drained = 0;
+        while (drained < limit) {
             T value;
-            while (values.size() < limit && (value = queue.poll()) != null) {
-                values.add(value);
+            synchronized (mutationLock) {
+                value = queue.poll();
             }
-        }
-        for (T value : values) {
+            if (value == null) {
+                break;
+            }
             consumer.accept(value);
+            drained++;
         }
-        return values.size();
+        return drained;
     }
 
     public int size() {

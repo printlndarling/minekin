@@ -46,9 +46,7 @@ _PHASE_SIGNALS: Final[MappingProxyType[int, ConnectionSignal]] = MappingProxyTyp
 _NO_REASON: Final[int] = observation_pb2.ADMISSION_FAILURE_REASON_UNSPECIFIED
 _CANCELLED: Final[int] = observation_pb2.ADMISSION_FAILURE_REASON_CANCELLED
 _KNOWN_PHASES: Final[frozenset[int]] = frozenset(observation_pb2.ConnectionPhase.values())
-_KNOWN_REASONS: Final[frozenset[int]] = frozenset(
-    observation_pb2.AdmissionFailureReason.values()
-)
+_KNOWN_REASONS: Final[frozenset[int]] = frozenset(observation_pb2.AdmissionFailureReason.values())
 _TERMINAL_PHASES: Final[frozenset[int]] = frozenset(
     {
         observation_pb2.CONNECTION_PHASE_DISCONNECTED,

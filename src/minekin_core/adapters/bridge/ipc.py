@@ -32,6 +32,9 @@ PROTOCOL_MAJOR: Final = 1
 PROTOCOL_MINOR: Final = 0
 HANDSHAKE_CAPABILITY: Final = "session.handshake.v1"
 ADMISSION_CAPABILITY: Final = "admission.connect.v1"
+MOVEMENT_CAPABILITIES: Final = frozenset(
+    {"move.forward", "move.back", "move.left", "move.right", "move.jump", "move.sneak"}
+)
 MIN_FRAME_BYTES: Final = 1024
 MAX_FRAME_BYTES: Final = 16 * 1024 * 1024
 DEFAULT_MAX_FRAME_BYTES: Final = 1024 * 1024
@@ -42,13 +45,12 @@ HEARTBEAT_TYPE: Final = "minekin.v1.Heartbeat"
 CONNECT_WORLD_TYPE: Final = "minekin.v1.ConnectWorld"
 CANCEL_CONNECTION_TYPE: Final = "minekin.v1.CancelConnection"
 CONNECTION_LIFECYCLE_TYPE: Final = "minekin.v1.ConnectionLifecycle"
-# Core does not send this yet: the name is pinned here because the Bridge
-# handles it and a rename on either side would otherwise be invisible until a
-# real client failed to let go of a key.
 RELEASE_ALL_INPUTS_TYPE: Final = "minekin.v1.ReleaseAllInputs"
 INITIAL_OBSERVATION_TYPE: Final = "minekin.v1.InitialObservation"
 _UINT64_MAX: Final = (1 << 64) - 1
-_CONTROL_TYPES: Final = frozenset({CONNECT_WORLD_TYPE, CANCEL_CONNECTION_TYPE, HEARTBEAT_TYPE})
+_CONTROL_TYPES: Final = frozenset(
+    {CONNECT_WORLD_TYPE, CANCEL_CONNECTION_TYPE, RELEASE_ALL_INPUTS_TYPE, HEARTBEAT_TYPE}
+)
 _EVENT_TYPES: Final = {
     CONNECTION_LIFECYCLE_TYPE: observation_pb2.ConnectionLifecycle,
     INITIAL_OBSERVATION_TYPE: observation_pb2.InitialObservation,
@@ -262,13 +264,17 @@ class BridgeIpcHost:
         if message_type not in _CONTROL_TYPES - {HEARTBEAT_TYPE}:
             raise ValueError("control message type is not admitted")
         expected_type: type[Message]
-        if message_type == CONNECT_WORLD_TYPE:
-            expected_type = control_pb2.ConnectWorld
-        else:
-            expected_type = control_pb2.CancelConnection
+        expected_type = {
+            CONNECT_WORLD_TYPE: control_pb2.ConnectWorld,
+            CANCEL_CONNECTION_TYPE: control_pb2.CancelConnection,
+            RELEASE_ALL_INPUTS_TYPE: control_pb2.ReleaseAllInputs,
+        }[message_type]
         if not isinstance(message, expected_type):
             raise TypeError(f"{message_type} payload has the wrong protobuf type")
-        if ADMISSION_CAPABILITY not in self.session.capabilities:
+        if (
+            message_type in {CONNECT_WORLD_TYPE, CANCEL_CONNECTION_TYPE}
+            and ADMISSION_CAPABILITY not in self.session.capabilities
+        ):
             raise RuntimeError("admission capability was not negotiated")
         await self._send_control(message_type, message)
 

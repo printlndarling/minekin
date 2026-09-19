@@ -26,6 +26,7 @@ from minekin_core.adapters.bridge.ipc import (
     CORE_HELLO_TYPE,
     HANDSHAKE_CAPABILITY,
     HEARTBEAT_TYPE,
+    RELEASE_ALL_INPUTS_TYPE,
     BridgeIpcHost,
     BridgeSession,
     IpcProtocolError,
@@ -112,6 +113,15 @@ def test_loopback_handshake_heartbeat_commands_and_events(tmp_path: Path) -> Non
         command_envelope = await asyncio.wait_for(read_frame(control_reader), 1)
         assert command_envelope.sequence == 3
         assert control_pb2.ConnectWorld.FromString(command_envelope.payload) == command
+
+        release = control_pb2.ReleaseAllInputs(
+            action_id="release-1", generation=1, reason_code="EXPLICIT"
+        )
+        await host.send_control(RELEASE_ALL_INPUTS_TYPE, release)
+        release_envelope = await asyncio.wait_for(read_frame(control_reader), 1)
+        assert release_envelope.sequence == 4
+        assert release_envelope.message_type == RELEASE_ALL_INPUTS_TYPE
+        assert control_pb2.ReleaseAllInputs.FromString(release_envelope.payload) == release
 
         lifecycle = observation_pb2.ConnectionLifecycle(
             generation=1,

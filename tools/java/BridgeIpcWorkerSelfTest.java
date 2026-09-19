@@ -14,6 +14,7 @@ import io.minekin.protocol.v1.Heartbeat;
 import io.minekin.protocol.v1.IpcEndpoint;
 import io.minekin.protocol.v1.ProtocolVersion;
 import io.minekin.protocol.v1.ResourcePackPolicy;
+import io.minekin.protocol.v1.ReleaseAllInputs;
 import java.net.InetSocketAddress;
 import java.net.StandardProtocolFamily;
 import java.nio.channels.ServerSocketChannel;
@@ -30,6 +31,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.minekin.bridge.protocol.BootstrapDescriptorAdapter;
 import org.minekin.bridge.protocol.FramedEnvelopeChannel;
 import org.minekin.bridge.protocol.HandshakeGate;
+import org.minekin.bridge.input.KeySink;
 import org.minekin.bridge.runtime.BridgeIpcWorker;
 import org.minekin.bridge.runtime.BridgePhaseMachine;
 
@@ -92,7 +94,14 @@ public final class BridgeIpcWorkerSelfTest {
                     Duration.ofSeconds(2),
                     Duration.ofSeconds(2),
                     4,
-                    phases)) {
+                    phases,
+                    new KeySink() {
+                        @Override
+                        public void press(String capability) {}
+
+                        @Override
+                        public void release(String capability) {}
+                    })) {
                 long start = System.nanoTime();
                 worker.start();
                 assert System.nanoTime() - start < Duration.ofMillis(500).toNanos()
@@ -103,6 +112,12 @@ public final class BridgeIpcWorkerSelfTest {
                 BridgeIpcWorker.ClientMessage command = awaitMessage(worker, Duration.ofSeconds(4));
                 assert command instanceof BridgeIpcWorker.ConnectCommand;
                 assert ((BridgeIpcWorker.ConnectCommand) command).value().getGeneration() == 1;
+                BridgeIpcWorker.ClientMessage release = awaitMessage(worker, Duration.ofSeconds(4));
+                assert release instanceof BridgeIpcWorker.ReleaseCommand;
+                assert ((BridgeIpcWorker.ReleaseCommand) release)
+                        .value()
+                        .getActionId()
+                        .equals("release-1");
                 assert Files.notExists(descriptorPath);
                 assertLifecycleAdmission(worker);
                 assert eventsDelivered.await(4, TimeUnit.SECONDS)
@@ -180,6 +195,16 @@ public final class BridgeIpcWorkerSelfTest {
                     .setDeadlineMonotonicNs(1)
                     .build();
             control.write(envelope(3, BridgeIpcWorker.CONNECT_WORLD_TYPE, connect.toByteString()));
+            ReleaseAllInputs releaseCommand = ReleaseAllInputs.newBuilder()
+                    .setActionId("release-1")
+                    .setGeneration(1)
+                    .setReasonCode("EXPLICIT")
+                    .build();
+            control.write(
+                    envelope(
+                            4,
+                            BridgeIpcWorker.RELEASE_ALL_INPUTS_TYPE,
+                            releaseCommand.toByteString()));
             for (int index = 0; index < PUBLISHED_LIFECYCLES.length; index++) {
                 Envelope lifecycleEnvelope = events.read();
                 assert lifecycleEnvelope.getChannel() == Channel.CHANNEL_EVENT

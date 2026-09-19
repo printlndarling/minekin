@@ -78,6 +78,19 @@ tasks.withType<JavaCompile>().configureEach {
 
 tasks.test {
     useJUnitPlatform()
+    // The test JVM inherits this project directory as its working directory, and
+    // the Minecraft log4j configuration that the `minecraft(...)` dependency puts
+    // on the test classpath writes `logs/latest.log` relative to it. That landed a
+    // build artifact inside `bridge/`, which is the tree `source_tree_sha256`
+    // hashes — so the recipe's `source_digest` depended on whether a build had run,
+    // and a checked-out tree plus a build reported "Bridge source tree digest
+    // differs from the bundle recipe" for a reason that had nothing to do with the
+    // source. Build output belongs under `build/`, which the digest already
+    // excludes.
+    workingDir = layout.buildDirectory.dir("test-working-directory").get().asFile
+    // Gradle does not create a test working directory, and a process cannot be
+    // started in one that does not exist.
+    doFirst { workingDir.mkdirs() }
 }
 
 dependencyLocking {

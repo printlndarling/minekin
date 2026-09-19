@@ -23,9 +23,13 @@ from minekin_core.adapters.launcher import process
 BRIDGE_ROOT = Path(__file__).resolve().parents[2] / "bridge" / "src" / "main" / "java"
 WORKER = BRIDGE_ROOT / "org" / "minekin" / "bridge" / "runtime" / "BridgeIpcWorker.java"
 CLIENT = BRIDGE_ROOT / "org" / "minekin" / "bridge" / "MinekinBridgeClient.java"
+INPUT_CONTROLLER = (
+    BRIDGE_ROOT / "org" / "minekin" / "bridge" / "input" / "BridgeInputController.java"
+)
 
 _TYPE_CONSTANT = re.compile(r'String\s+(\w+_TYPE)\s*=\s*"([^"]+)"')
 _ENVIRONMENT_CONSTANT = re.compile(r'String\s+(\w*ENVIRONMENT_VARIABLE)\s*=\s*"([^"]+)"')
+_INPUT_CAPABILITY = re.compile(r'public static final String\s+\w+\s*=\s*"(move\.[^"]+)"')
 
 
 def _constants(path: Path, pattern: re.Pattern[str]) -> dict[str, str]:
@@ -52,3 +56,10 @@ def test_the_descriptor_variable_the_bridge_reads_is_the_one_core_sets() -> None
 
     assert declared, f"no environment variable constants found in {CLIENT}"
     assert set(declared.values()) == {process.BRIDGE_DESCRIPTOR_VARIABLE}
+
+
+def test_the_movement_capability_vocabulary_is_shared() -> None:
+    declared = set(_INPUT_CAPABILITY.findall(INPUT_CONTROLLER.read_text(encoding="utf-8")))
+
+    assert declared
+    assert declared == ipc.MOVEMENT_CAPABILITIES

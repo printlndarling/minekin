@@ -33,6 +33,7 @@ public final class BridgeInputController {
         GUI_CONFLICT,
         TIMEOUT,
         BRIDGE_FAULT,
+        CORE_REQUEST,
         LEFT_PLAYABLE,
         OPERATOR,
         SHUTDOWN
@@ -135,12 +136,20 @@ public final class BridgeInputController {
     /**
      * Releases everything held, for a named reason, and reports what that was.
      *
+     * <p>The reason is the caller's, and it has to be the caller's: a fault in
+     * the Bridge and a request from Core are different events with the same
+     * effect, and a log that cannot tell them apart is a log that will be read
+     * wrongly. Core's own words for why it withdrew travel beside the reason
+     * rather than replacing it.
+     *
      * <p>It reports even when the ledger is empty. A Bridge that believes it
      * holds nothing is not evidence that the client is holding nothing, and the
      * one caller that matters — the release path — is the last chance to say so.
      */
     public synchronized List<String> releaseAll(ReleaseReason reason) {
         Objects.requireNonNull(reason, "reason");
+        // The worker records the reason after this synchronous state change;
+        // the controller owns only the invariant that every held key is lifted.
         List<String> released = ownership.releaseAll();
         for (String capability : released) {
             sink.release(capability);

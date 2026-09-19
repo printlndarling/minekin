@@ -12,6 +12,7 @@ import io.minekin.protocol.v1.CoreHello;
 import io.minekin.protocol.v1.Envelope;
 import io.minekin.protocol.v1.Heartbeat;
 import io.minekin.protocol.v1.ProtocolVersion;
+import io.minekin.protocol.v1.ReleaseAllInputs;
 import java.io.IOException;
 import java.net.SocketTimeoutException;
 import java.nio.channels.SocketChannel;
@@ -20,12 +21,17 @@ import java.time.Duration;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.minekin.bridge.protocol.AdmissionCommandGate;
 import org.minekin.bridge.protocol.BootstrapDescriptorAdapter;
 import org.minekin.bridge.protocol.DescriptorLoader;
 import org.minekin.bridge.protocol.EndpointConnector;
 import org.minekin.bridge.protocol.EnvelopeGate;
 import org.minekin.bridge.protocol.HandshakeGate;
+import org.minekin.bridge.input.BridgeInputController;
+import org.minekin.bridge.input.InputWatchdog;
+import org.minekin.bridge.input.KeySink;
 import org.minekin.bridge.protocol.NioEnvelopeChannel;
 
 /** Owns descriptor I/O, both local sockets, protobuf encoding, and handshake on a daemon thread. */
@@ -36,12 +42,21 @@ public final class BridgeIpcWorker implements AutoCloseable {
     public static final String CONNECT_WORLD_TYPE = "minekin.v1.ConnectWorld";
     public static final String CANCEL_CONNECTION_TYPE = "minekin.v1.CancelConnection";
     public static final String CONNECTION_LIFECYCLE_TYPE = "minekin.v1.ConnectionLifecycle";
+    public static final String RELEASE_ALL_INPUTS_TYPE = "minekin.v1.ReleaseAllInputs";
+    private static final Logger LOGGER = LoggerFactory.getLogger("minekin-bridge");
+    /**
+     * How many heartbeat intervals of silence the Bridge tolerates before it lets go of
+     * the player's controls. More than one, because a single missed interval is ordinary
+     * scheduling jitter rather than a reason to stop walking.
+     */
+    private static final int INPUT_MISSED_HEARTBEATS = 3;
     private static final long MONOTONIC_ORIGIN = System.nanoTime();
 
     private final Path descriptorPath;
     private final Duration connectTimeout;
     private final Duration handshakeTimeout;
     private final BridgePhaseMachine phases;
+    private final KeySink keySink;
     private final BoundedChannel<ClientMessage> clientInbox;
     private final BoundedChannel<ConnectionLifecycle> eventOutbox;
     private final AdmissionCommandGate admissionCommands = new AdmissionCommandGate();
@@ -51,17 +66,20 @@ public final class BridgeIpcWorker implements AutoCloseable {
     private volatile Thread eventThread;
     private volatile NioEnvelopeChannel control;
     private volatile NioEnvelopeChannel event;
+    private volatile BridgeInputController input;
 
     public BridgeIpcWorker(
             Path descriptorPath,
             Duration connectTimeout,
             Duration handshakeTimeout,
             int inboxCapacity,
-            BridgePhaseMachine phases) {
+            BridgePhaseMachine phases,
+            KeySink keySink) {
         this.descriptorPath = descriptorPath.toAbsolutePath().normalize();
         this.connectTimeout = requirePositive(connectTimeout, "connectTimeout");
         this.handshakeTimeout = requirePositive(handshakeTimeout, "handshakeTimeout");
         this.phases = java.util.Objects.requireNonNull(phases, "phases");
+        this.keySink = java.util.Objects.requireNonNull(keySink, "keySink");
         clientInbox = new BoundedChannel<>(inboxCapacity);
         eventOutbox = new BoundedChannel<>(inboxCapacity);
     }
@@ -85,6 +103,44 @@ public final class BridgeIpcWorker implements AutoCloseable {
         return phases.phase();
     }
 
+    /**
+     * The watchdog's clock, driven from the client thread.
+     *
+     * <p>The heartbeat loop already refuses to wait forever for Core, and this is
+     * the other failure: a worker thread that is itself wedged, which no loop can
+     * notice. The client thread is still ticking when that happens, and this is
+     * what it does about it. Returns true on the tick that let go.
+     */
+    public boolean tickInput() {
+        BridgeInputController controller = input;
+        boolean released = controller != null && controller.tick(monotonicNow());
+        if (released) {
+            LOGGER.warn("bridge released input after {}", BridgeInputController.ReleaseReason.TIMEOUT);
+        }
+        return released;
+    }
+
+    /** Apply an input-side client message synchronously on the client tick. */
+    public boolean handleInputMessage(ClientMessage message) {
+        java.util.Objects.requireNonNull(message, "message");
+        if (message instanceof ReleaseCommand release) {
+            releaseInputs(
+                    BridgeInputController.ReleaseReason.CORE_REQUEST,
+                    release.value().getReasonCode());
+            return true;
+        }
+        if (message == Notice.SAFE_STOP) {
+            releaseInputs(BridgeInputController.ReleaseReason.BRIDGE_FAULT, "");
+        }
+        return false;
+    }
+
+    /** Client-thread shutdown/error hook; logs only after the bindings changed. */
+    public void releaseInputsOnClientThread(
+            BridgeInputController.ReleaseReason reason, String reasonCode) {
+        releaseInputs(reason, reasonCode);
+    }
+
     public long rejectedMessageCount() {
         return clientInbox.rejectedCount() + eventOutbox.rejectedCount();
     }
@@ -104,7 +160,13 @@ public final class BridgeIpcWorker implements AutoCloseable {
 
     @Override
     public void close() {
-        stopping.set(true);
+        if (!stopping.compareAndSet(false, true)) {
+            return;
+        }
+        // Closing invalidates every queued command. The client-thread caller may
+        // already have released input, but SAFE_STOP must still be the only next
+        // message if a tick drains again during shutdown.
+        clientInbox.replaceWith(Notice.SAFE_STOP);
         closeQuietly(control);
         closeQuietly(event);
         Thread worker = thread;
@@ -176,7 +238,8 @@ public final class BridgeIpcWorker implements AutoCloseable {
                         CORE_HELLO_TYPE,
                         HEARTBEAT_TYPE,
                         CONNECT_WORLD_TYPE,
-                        CANCEL_CONNECTION_TYPE));
+                        CANCEL_CONNECTION_TYPE,
+                        RELEASE_ALL_INPUTS_TYPE));
         Envelope reply = control.read(handshakeTimeout);
         gate.validate(reply);
         if (!CORE_HELLO_TYPE.equals(reply.getMessageType())) {
@@ -190,6 +253,14 @@ public final class BridgeIpcWorker implements AutoCloseable {
         if (!clientInbox.offer(Notice.OBSERVE_ONLY)) {
             throw new IOException("client notice queue is full after handshake");
         }
+        BridgeInputController created = new BridgeInputController(
+                keySink,
+                new InputWatchdog(
+                        Duration.ofMillis(coreHello.getHeartbeatIntervalMs()).toNanos(),
+                        INPUT_MISSED_HEARTBEATS),
+                descriptor.expected().generation());
+        created.observeCoreMessage(monotonicNow());
+        input = created;
         return new HeartbeatState(
                 gate,
                 Duration.ofMillis(Math.multiplyExact(coreHello.getHeartbeatIntervalMs(), 3L)),
@@ -249,16 +320,29 @@ public final class BridgeIpcWorker implements AutoCloseable {
                         || heartbeat.getMonotonicNs() == 0) {
                     throw new IOException("heartbeat identity is invalid");
                 }
+                observeCoreMessage();
                 heartbeatDeadline = heartbeatDeadline(state.timeout());
             } else if (CONNECT_WORLD_TYPE.equals(envelope.getMessageType())) {
                 ConnectWorld command = ConnectWorld.parseFrom(envelope.getPayload());
                 admissionCommands.acceptConnect(command, state.capabilities());
+                observeCoreMessage();
                 if (!clientInbox.offer(new ConnectCommand(command))) {
                     throw new IOException("client inbox is full for ConnectWorld");
+                }
+            } else if (RELEASE_ALL_INPUTS_TYPE.equals(envelope.getMessageType())) {
+                ReleaseAllInputs command = ReleaseAllInputs.parseFrom(envelope.getPayload());
+                validateRelease(command);
+                observeCoreMessage();
+                // Release is deliberately fail-safe: a stale positive generation
+                // still lifts keys. It may not grant control, so suppressing it on a
+                // generation mismatch would only preserve unsafe state.
+                if (!clientInbox.offer(new ReleaseCommand(command))) {
+                    throw new IOException("client inbox is full for ReleaseAllInputs");
                 }
             } else if (CANCEL_CONNECTION_TYPE.equals(envelope.getMessageType())) {
                 CancelConnection command = CancelConnection.parseFrom(envelope.getPayload());
                 admissionCommands.acceptCancel(command, state.capabilities());
+                observeCoreMessage();
                 if (!clientInbox.offer(new CancelCommand(command))) {
                     throw new IOException("client inbox is full for CancelConnection");
                 }
@@ -295,7 +379,9 @@ public final class BridgeIpcWorker implements AutoCloseable {
         if (lifecycle.getGeneration() == 0
                 || lifecycle.getServerProfileId().isBlank()
                 || !lifecycle.getServerProfileRevision().matches("[0-9a-f]{64}")
-                || lifecycle.getPhase() == ConnectionPhase.CONNECTION_PHASE_UNSPECIFIED) {
+                || lifecycle.getPhase() == ConnectionPhase.CONNECTION_PHASE_UNSPECIFIED
+                || lifecycle.getPhase() == ConnectionPhase.UNRECOGNIZED
+                || lifecycle.getFailureReason() == AdmissionFailureReason.UNRECOGNIZED) {
             return false;
         }
         boolean terminalPhase = switch (lifecycle.getPhase()) {
@@ -312,7 +398,8 @@ public final class BridgeIpcWorker implements AutoCloseable {
         AdmissionFailureReason reason = lifecycle.getFailureReason();
         return switch (lifecycle.getPhase()) {
             case CONNECTION_PHASE_FAILED ->
-                    reason != AdmissionFailureReason.ADMISSION_FAILURE_REASON_UNSPECIFIED;
+                    reason != AdmissionFailureReason.ADMISSION_FAILURE_REASON_UNSPECIFIED
+                            && reason != AdmissionFailureReason.ADMISSION_FAILURE_REASON_CANCELLED;
             case CONNECTION_PHASE_CANCELLED ->
                     reason == AdmissionFailureReason.ADMISSION_FAILURE_REASON_UNSPECIFIED
                             || reason
@@ -321,10 +408,49 @@ public final class BridgeIpcWorker implements AutoCloseable {
         };
     }
 
+    /**
+     * Hands the input back on the client thread. Faults arrive here through the
+     * terminal inbox notice; normal shutdown calls the explicit client-thread hook.
+     */
+    private void releaseInputs(BridgeInputController.ReleaseReason reason, String reasonCode) {
+        BridgeInputController controller = input;
+        if (controller == null) {
+            return;
+        }
+        java.util.List<String> released = controller.releaseAll(reason);
+        if (reasonCode == null || reasonCode.isBlank()) {
+            LOGGER.info("bridge released {} input(s) after {}", released.size(), reason);
+        } else {
+            LOGGER.info(
+                    "bridge released {} input(s) after {} ({})",
+                    released.size(),
+                    reason,
+                    reasonCode);
+        }
+    }
+
+    private void observeCoreMessage() {
+        BridgeInputController controller = input;
+        if (controller != null) {
+            controller.observeCoreMessage(monotonicNow());
+        }
+    }
+
+    static void validateRelease(ReleaseAllInputs command) throws IOException {
+        if (command.getActionId().isBlank()
+                || command.getActionId().length() > 128
+                || command.getGeneration() == 0
+                || !command.getReasonCode().matches("[A-Z0-9_]{1,64}")) {
+            throw new IOException("ReleaseAllInputs identity or reason is invalid");
+        }
+    }
+
     private void failClosed() {
+        if (!stopping.compareAndSet(false, true)) {
+            return;
+        }
         phases.safeStop();
         clientInbox.replaceWith(Notice.SAFE_STOP);
-        stopping.set(true);
         closeQuietly(control);
         closeQuietly(event);
         Thread controlWorker = thread;
@@ -366,7 +492,8 @@ public final class BridgeIpcWorker implements AutoCloseable {
         }
     }
 
-    public sealed interface ClientMessage permits Notice, ConnectCommand, CancelCommand {}
+    public sealed interface ClientMessage
+            permits Notice, ConnectCommand, CancelCommand, ReleaseCommand {}
 
     public enum Notice implements ClientMessage {
         OBSERVE_ONLY,
@@ -376,6 +503,8 @@ public final class BridgeIpcWorker implements AutoCloseable {
     public record ConnectCommand(ConnectWorld value) implements ClientMessage {}
 
     public record CancelCommand(CancelConnection value) implements ClientMessage {}
+
+    public record ReleaseCommand(ReleaseAllInputs value) implements ClientMessage {}
 
     private record HeartbeatState(EnvelopeGate gate, Duration timeout, Set<String> capabilities) {
         private HeartbeatState {

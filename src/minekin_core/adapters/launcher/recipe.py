@@ -38,8 +38,8 @@ FABRIC_API_SHA1 = "1c7871b6af04edc8b8f0dbad12606d67f6118a11"
 # Bridge source is not allowed to "just work". The jar has to be rebuilt and
 # this pin renewed, because a plan that names this digest and ships other bytes
 # is the failure the pin exists to catch.
-BRIDGE_JAR_SHA256 = "0fc598f6f51f12f5d429a28d57e0dfe9db0cccc2cf277b9de23c9919519ac656"
-BRIDGE_JAR_SIZE = 1_227_837
+BRIDGE_JAR_SHA256 = "4a7c888030582a150b87c07f66cce4837c6a6b1cebc9167884ab5e242e35f4df"
+BRIDGE_JAR_SIZE = 1_234_638
 BRIDGE_JAR_RELATIVE_PATH = "bridge/build/libs/minekin-bridge-0.0.0.jar"
 
 
@@ -64,11 +64,22 @@ def source_tree_sha256(root: Path) -> str:
         raise _reject(f"Bridge source root is missing or is a symlink: {root}")
     digest = hashlib.sha256()
     files = sorted(
-        path
-        for path in root.rglob("*")
-        if path.is_file()
-        and not path.is_symlink()
-        and not any(part in {".gradle", "build"} for part in path.relative_to(root).parts)
+        (
+            path
+            for path in root.rglob("*")
+            if path.is_file()
+            and not path.is_symlink()
+            and not any(part in {".gradle", "build"} for part in path.relative_to(root).parts)
+        ),
+        # Ordered by the path's own text rather than by the platform's idea of
+        # path order. `sorted()` compares `Path` objects with `WindowsPath.__lt__`
+        # on Windows, which is case-insensitive, and `PosixPath.__lt__` on Linux,
+        # which is not — so a file and a directory whose names differ only in case
+        # swap places between platforms and the same source tree hashes
+        # differently on each. That is precisely the failure the comment below is
+        # about, arriving by a second route. Codepoint order is the same
+        # everywhere, and it is what both platforms must agree on.
+        key=lambda path: path.relative_to(root).as_posix(),
     )
     if not files:
         raise _reject("Bridge source tree is empty")

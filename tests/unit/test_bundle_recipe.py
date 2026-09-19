@@ -11,6 +11,7 @@ from minekin_core.adapters.launcher.recipe import (
     BRIDGE_JAR_RELATIVE_PATH,
     BRIDGE_JAR_SIZE,
     require_built_bridge,
+    source_tree_sha256,
     validate_bundle_recipe,
 )
 from minekin_core.bootstrap import run
@@ -104,6 +105,34 @@ def _jar(workspace: Path, payload: bytes) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(payload)
     return path
+
+
+def test_the_source_digest_does_not_depend_on_how_the_platform_sorts_paths(
+    tmp_path: Path,
+) -> None:
+    """`sorted()` on `Path` objects is case-insensitive on Windows and not on Linux.
+
+    That is the same failure the content normalisation exists for, arriving by a
+    second route: a file and a directory whose names differ only in case change
+    places between platforms, and the same source tree then hashes differently on
+    each. `Zebra.txt` beside `apple.txt` is exactly such a pair, and this asserts
+    the order the function is supposed to use rather than the one the platform
+    happens to have.
+    """
+
+    root = tmp_path / "bridge"
+    root.mkdir()
+    (root / "Zebra.txt").write_text("zebra", encoding="utf-8")
+    (root / "apple.txt").write_text("apple", encoding="utf-8")
+
+    expected = hashlib.sha256()
+    for name in ("Zebra.txt", "apple.txt"):  # codepoint order, on any platform
+        expected.update(name.encode())
+        expected.update(bytes([0]))
+        expected.update((root / name).read_bytes())
+        expected.update(bytes([0]))
+
+    assert source_tree_sha256(root) == expected.hexdigest()
 
 
 def test_a_built_bridge_is_only_accepted_at_the_pinned_digest(tmp_path: Path) -> None:

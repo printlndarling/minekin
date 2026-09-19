@@ -24,31 +24,82 @@ public interface ClientModInitializer { void onInitializeClient(); }
 package net.fabricmc.fabric.api.client.event.lifecycle.v1;
 public final class Event<T> { public void register(T listener) {} }
 """,
+    # The client parameter is typed, not `Object`. The real Fabric events carry a
+    # MinecraftClient, and a stub that widened it to Object would accept a
+    # listener that cannot actually be registered — the compile this gate exists
+    # to perform would pass while the mod failed to load.
     "net/fabricmc/fabric/api/client/event/lifecycle/v1/ClientTickEvents.java": """\
 package net.fabricmc.fabric.api.client.event.lifecycle.v1;
+import net.minecraft.client.MinecraftClient;
 public final class ClientTickEvents {
     private ClientTickEvents() {}
     public static final Event<EndTick> END_CLIENT_TICK = new Event<>();
-    @FunctionalInterface public interface EndTick { void onEndTick(Object client); }
+    @FunctionalInterface public interface EndTick { void onEndTick(MinecraftClient client); }
 }
 """,
     "net/fabricmc/fabric/api/client/event/lifecycle/v1/ClientLifecycleEvents.java": """\
 package net.fabricmc.fabric.api.client.event.lifecycle.v1;
+import net.minecraft.client.MinecraftClient;
 public final class ClientLifecycleEvents {
     private ClientLifecycleEvents() {}
     public static final Event<ClientStopping> CLIENT_STOPPING = new Event<>();
-    @FunctionalInterface public interface ClientStopping { void onClientStopping(Object client); }
+    @FunctionalInterface public interface ClientStopping {
+        void onClientStopping(MinecraftClient client);
+    }
 }
 """,
     "org/minekin/bridge/runtime/ClientAdmissionController.java": """\
 package org.minekin.bridge.runtime;
 import io.minekin.protocol.v1.ConnectionLifecycle;
 import java.util.function.Predicate;
+import net.minecraft.client.MinecraftClient;
 public final class ClientAdmissionController {
     public ClientAdmissionController(
             BridgePhaseMachine phases, Predicate<ConnectionLifecycle> lifecycleSink) {}
-    public void handle(Object client, BridgeIpcWorker.ClientMessage message) {}
-    public void safeStop(Object client) {}
+    public void handle(MinecraftClient client, BridgeIpcWorker.ClientMessage message) {}
+    public void safeStop(MinecraftClient client) {}
+}
+""",
+    "org/slf4j/Logger.java": """\
+package org.slf4j;
+public interface Logger {
+    default void info(String message, Object... values) {}
+    default void warn(String message, Object... values) {}
+}
+""",
+    "org/slf4j/LoggerFactory.java": """\
+package org.slf4j;
+public final class LoggerFactory {
+    private static final Logger LOGGER = new Logger() {};
+    private LoggerFactory() {}
+    public static Logger getLogger(String name) { return LOGGER; }
+}
+""",
+    "net/minecraft/client/option/KeyBinding.java": """\
+package net.minecraft.client.option;
+public class KeyBinding { public void setPressed(boolean pressed) {} }
+""",
+    "net/minecraft/client/option/GameOptions.java": """\
+package net.minecraft.client.option;
+public class GameOptions {
+    public final KeyBinding forwardKey = new KeyBinding();
+    public final KeyBinding backKey = new KeyBinding();
+    public final KeyBinding leftKey = new KeyBinding();
+    public final KeyBinding rightKey = new KeyBinding();
+    public final KeyBinding jumpKey = new KeyBinding();
+    public final KeyBinding sneakKey = new KeyBinding();
+}
+""",
+    # Compile-only Minecraft facade. Its always-present instance and inline
+    # execution do not claim to test real client-thread behaviour.
+    "net/minecraft/client/MinecraftClient.java": """\
+package net.minecraft.client;
+import net.minecraft.client.option.GameOptions;
+public class MinecraftClient {
+    public final GameOptions options = new GameOptions();
+    public static MinecraftClient getInstance() { return new MinecraftClient(); }
+    public void execute(Runnable operation) { operation.run(); }
+    public boolean isOnThread() { return true; }
 }
 """,
 }
@@ -57,6 +108,12 @@ ADAPTER_SOURCES = (
     ROOT / "bridge/src/main/java/org/minekin/bridge/runtime/BridgePhaseMachine.java",
     ROOT / "bridge/src/main/java/org/minekin/bridge/runtime/BoundedChannel.java",
     ROOT / "bridge/src/main/java/org/minekin/bridge/runtime/BridgeIpcWorker.java",
+    ROOT / "bridge/src/main/java/org/minekin/bridge/input/BridgeInputController.java",
+    ROOT / "bridge/src/main/java/org/minekin/bridge/input/InputOwnership.java",
+    ROOT / "bridge/src/main/java/org/minekin/bridge/input/InputWatchdog.java",
+    ROOT / "bridge/src/main/java/org/minekin/bridge/input/KeySink.java",
+    ROOT / "bridge/src/main/java/org/minekin/bridge/input/MovementBinding.java",
+    ROOT / "bridge/src/main/java/org/minekin/bridge/input/VanillaKeySink.java",
     ROOT / "bridge/src/main/java/org/minekin/bridge/protocol/HandshakeGate.java",
     ROOT / "bridge/src/main/java/org/minekin/bridge/protocol/AdmissionCommandGate.java",
     ROOT / "bridge/src/main/java/org/minekin/bridge/protocol/DescriptorLoader.java",
