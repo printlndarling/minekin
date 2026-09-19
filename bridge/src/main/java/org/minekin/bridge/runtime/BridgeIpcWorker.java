@@ -18,6 +18,7 @@ import io.minekin.protocol.v1.LookInput;
 import io.minekin.protocol.v1.MoveInput;
 import io.minekin.protocol.v1.ProtocolVersion;
 import io.minekin.protocol.v1.ReleaseAllInputs;
+import io.minekin.protocol.v1.UseInput;
 import java.io.IOException;
 import java.net.SocketTimeoutException;
 import java.nio.channels.SocketChannel;
@@ -52,6 +53,7 @@ public final class BridgeIpcWorker implements AutoCloseable {
     public static final String INITIAL_OBSERVATION_TYPE = "minekin.v1.InitialObservation";
     public static final String MOVE_INPUT_TYPE = "minekin.v1.MoveInput";
     public static final String LOOK_INPUT_TYPE = "minekin.v1.LookInput";
+    public static final String USE_INPUT_TYPE = "minekin.v1.UseInput";
     public static final String ACTION_RESULT_TYPE = "minekin.v1.ActionResult";
     private static final Logger LOGGER = LoggerFactory.getLogger("minekin-bridge");
     /**
@@ -232,6 +234,10 @@ public final class BridgeIpcWorker implements AutoCloseable {
             applyLook(look.value());
             return true;
         }
+        if (message instanceof UseCommand use) {
+            applyUse(use.value());
+            return true;
+        }
         if (message == Notice.SAFE_STOP) {
             // The reason the worker failed closed with, not a default: this notice is
             // how a fault reaches the client thread, and the release it triggers is the
@@ -262,6 +268,37 @@ public final class BridgeIpcWorker implements AutoCloseable {
                 command.getStrafe(),
                 command.getJump(),
                 command.getSneak());
+        if (outcome.applied()) {
+            LOGGER.info("bridge applied {}: holding {}", command.getActionId(), outcome.held());
+        } else {
+            LOGGER.warn(
+                    "bridge refused {}: {} (holding {})",
+                    command.getActionId(),
+                    outcome.refusalCode(),
+                    outcome.held());
+        }
+        publishActionResult(
+                ActionResult.newBuilder()
+                        .setActionId(command.getActionId())
+                        .setGeneration(command.getGeneration())
+                        .setStatus(
+                                outcome.applied()
+                                        ? ActionStatus.ACTION_STATUS_ACCEPTED
+                                        : ActionStatus.ACTION_STATUS_FAILED)
+                        .setReasonCode(outcome.refusalCode())
+                        .build());
+    }
+
+    private void applyUse(UseInput command) {
+        BridgeInputController controller = input;
+        if (controller == null) {
+            return;
+        }
+        BridgeInputController.Outcome outcome = controller.use(
+                monotonicNow(),
+                command.getDeadlineMonotonicNs(),
+                command.getGeneration(),
+                command.getUse());
         if (outcome.applied()) {
             LOGGER.info("bridge applied {}: holding {}", command.getActionId(), outcome.held());
         } else {
@@ -460,7 +497,8 @@ public final class BridgeIpcWorker implements AutoCloseable {
                         CANCEL_CONNECTION_TYPE,
                         RELEASE_ALL_INPUTS_TYPE,
                         MOVE_INPUT_TYPE,
-                        LOOK_INPUT_TYPE));
+                        LOOK_INPUT_TYPE,
+                        USE_INPUT_TYPE));
         Envelope reply = control.read(handshakeTimeout);
         gate.validate(reply);
         if (!CORE_HELLO_TYPE.equals(reply.getMessageType())) {
@@ -601,6 +639,17 @@ public final class BridgeIpcWorker implements AutoCloseable {
                 observeCoreMessage();
                 if (!clientInbox.offer(new LookCommand(command))) {
                     throw new IOException("client inbox is full for LookInput");
+                }
+            } else if (USE_INPUT_TYPE.equals(envelope.getMessageType())) {
+                UseInput command = onLocalClock(
+                        UseInput.parseFrom(envelope.getPayload()), envelope.getMonotonicNs());
+                validateUse(command);
+                if (!state.capabilities().contains(HandshakeGate.USE_CAPABILITY)) {
+                    throw new IOException("UseInput arrived without the use capability");
+                }
+                observeCoreMessage();
+                if (!clientInbox.offer(new UseCommand(command))) {
+                    throw new IOException("client inbox is full for UseInput");
                 }
             } else if (CANCEL_CONNECTION_TYPE.equals(envelope.getMessageType())) {
                 CancelConnection command = CancelConnection.parseFrom(envelope.getPayload());
@@ -792,8 +841,44 @@ public final class BridgeIpcWorker implements AutoCloseable {
     }
 
     /**
+     * The same restatement for a use, which carries the same kind of deadline.
+     *
+     * <p>The third of these is a copy of the other two rather than one method
+     * over all of them: protobuf's builders have no common supertype to write
+     * that over, so the choice is three short methods or reflection, and this
+     * file already chose.
+     */
+    static UseInput onLocalClock(UseInput command, long receivedAtNanos) {
+        if (command.getDeadlineMonotonicNs() == 0) {
+            return command.toBuilder().setDeadlineMonotonicNs(0).build();
+        }
+        long remaining;
+        try {
+            remaining = Math.subtractExact(command.getDeadlineMonotonicNs(), receivedAtNanos);
+        } catch (ArithmeticException overflow) {
+            remaining = 0;
+        }
+        if (remaining <= 0) {
+            return command.toBuilder().setDeadlineMonotonicNs(monotonicNow() - 1).build();
+        }
+        return command.toBuilder()
+                .setDeadlineMonotonicNs(Math.addExact(monotonicNow(), remaining))
+                .build();
+    }
+
+    /**
      * Refuses a look that is not one, for the reasons a movement command is.
      */
+    static void validateUse(UseInput command) {
+        if (command.getActionId().isBlank()
+                || command.getActionId().length() > 128
+                || command.getGeneration() == 0
+                || command.getLeaseId().isBlank()
+                || command.getLeaseId().length() > 128) {
+            throw new IllegalArgumentException("UseInput violates the negotiated input bounds");
+        }
+    }
+
     static void validateLook(LookInput command) {
         if (command.getActionId().isBlank()
                 || command.getActionId().length() > 128
@@ -916,7 +1001,13 @@ public final class BridgeIpcWorker implements AutoCloseable {
     }
 
     public sealed interface ClientMessage
-            permits Notice, ConnectCommand, CancelCommand, ReleaseCommand, MoveCommand, LookCommand {}
+            permits Notice,
+                    ConnectCommand,
+                    CancelCommand,
+                    ReleaseCommand,
+                    MoveCommand,
+                    LookCommand,
+                    UseCommand {}
 
     public enum Notice implements ClientMessage {
         OBSERVE_ONLY,
@@ -932,6 +1023,8 @@ public final class BridgeIpcWorker implements AutoCloseable {
     public record MoveCommand(MoveInput value) implements ClientMessage {}
 
     public record LookCommand(LookInput value) implements ClientMessage {}
+
+    public record UseCommand(UseInput value) implements ClientMessage {}
 
     private record HeartbeatState(EnvelopeGate gate, Duration timeout, Set<String> capabilities) {
         private HeartbeatState {

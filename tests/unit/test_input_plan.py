@@ -13,6 +13,8 @@ from minekin_core.adapters.bridge.ipc import (
     LOOK_INPUT_TYPE,
     MOVE_CAPABILITY,
     MOVE_INPUT_TYPE,
+    USE_CAPABILITY,
+    USE_INPUT_TYPE,
 )
 from minekin_core.cli.session import DEFAULT_LOOK_LEASE_S, InputPlan
 from minekin_core.domain.ids import Generation
@@ -31,7 +33,7 @@ def lease() -> InputLease:
         issued_monotonic_ns=1,
         deadline_monotonic_ns=DEADLINE,
         priority=InputPriority.NORMAL,
-        capabilities=frozenset({MOVE_CAPABILITY, LOOK_CAPABILITY}),
+        capabilities=frozenset({MOVE_CAPABILITY, LOOK_CAPABILITY, USE_CAPABILITY}),
     )
 
 
@@ -122,3 +124,47 @@ def test_the_axes_a_hold_asks_for_travel_on_the_command() -> None:
     assert move.strafe == -1.0
     assert move.jump is True
     assert move.sneak is False
+
+
+def test_a_use_needs_its_own_capability_and_is_a_hold_like_the_others() -> None:
+    """Using something is holding a key, so what ends it is the lease."""
+    plan = InputPlan(use_seconds=4.0)
+
+    assert plan.capabilities == frozenset({USE_CAPABILITY})
+    assert plan.lease_seconds == 4.0
+
+
+def test_a_use_becomes_one_use_command_carrying_the_lease() -> None:
+    plan = InputPlan(use_seconds=4.0)
+    plan.action_id = "action-1"
+
+    commands = plan.commands(lease(), DEADLINE)
+
+    assert [name for _, name, _ in commands] == [USE_INPUT_TYPE]
+    capability, _, raw = commands[0]
+    message = cast(control_pb2.UseInput, raw)
+    assert capability == USE_CAPABILITY
+    assert message.action_id == "action-1"
+    assert message.lease_id == "lease-1"
+    assert message.generation == 1
+    assert message.use is True
+    assert message.deadline_monotonic_ns == DEADLINE
+
+
+def test_one_lease_covers_every_ask_and_lasts_as_long_as_the_longest() -> None:
+    """A lease that lapsed before the use did would take back a wanted key."""
+    plan = InputPlan(hold_seconds=2.0, use_seconds=6.0)
+
+    assert plan.capabilities == frozenset({MOVE_CAPABILITY, USE_CAPABILITY})
+    assert plan.lease_seconds == 6.0
+    assert [name for _, name, _ in plan.commands(lease(), DEADLINE)] == [
+        MOVE_INPUT_TYPE,
+        USE_INPUT_TYPE,
+    ]
+
+
+def test_a_run_may_ask_to_use_its_hands_without_going_anywhere() -> None:
+    plan = InputPlan(use_seconds=1.0)
+
+    assert plan.hold_seconds is None
+    assert plan.capabilities == frozenset({USE_CAPABILITY})

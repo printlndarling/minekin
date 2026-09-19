@@ -39,6 +39,11 @@ MOVE_CAPABILITY: Final = "control.move.v1"
 # And looking, which is its own capability for the same reason: a client can be
 # steerable without being turnable, and the two must be able to differ.
 LOOK_CAPABILITY: Final = "control.look.v1"
+# And using what is in front of it, its own capability for the same reason again:
+# a client can be steerable and turnable without being allowed to touch anything,
+# and that is the capability that lets a Kin act on the world rather than only
+# move through it.
+USE_CAPABILITY: Final = "control.use.v1"
 MOVEMENT_CAPABILITIES: Final = frozenset(
     {"move.forward", "move.back", "move.left", "move.right", "move.jump", "move.sneak"}
 )
@@ -55,6 +60,7 @@ CONNECTION_LIFECYCLE_TYPE: Final = "minekin.v1.ConnectionLifecycle"
 RELEASE_ALL_INPUTS_TYPE: Final = "minekin.v1.ReleaseAllInputs"
 MOVE_INPUT_TYPE: Final = "minekin.v1.MoveInput"
 LOOK_INPUT_TYPE: Final = "minekin.v1.LookInput"
+USE_INPUT_TYPE: Final = "minekin.v1.UseInput"
 INITIAL_OBSERVATION_TYPE: Final = "minekin.v1.InitialObservation"
 ACTION_RESULT_TYPE: Final = "minekin.v1.ActionResult"
 _UINT64_MAX: Final = (1 << 64) - 1
@@ -65,6 +71,7 @@ _CONTROL_TYPES: Final = frozenset(
         RELEASE_ALL_INPUTS_TYPE,
         MOVE_INPUT_TYPE,
         LOOK_INPUT_TYPE,
+        USE_INPUT_TYPE,
         HEARTBEAT_TYPE,
     }
 )
@@ -90,7 +97,13 @@ class BridgeSession:
     launch_nonce: bytes
     session_key: bytes
     capabilities: frozenset[str] = frozenset(
-        {HANDSHAKE_CAPABILITY, ADMISSION_CAPABILITY, MOVE_CAPABILITY, LOOK_CAPABILITY}
+        {
+            HANDSHAKE_CAPABILITY,
+            ADMISSION_CAPABILITY,
+            MOVE_CAPABILITY,
+            LOOK_CAPABILITY,
+            USE_CAPABILITY,
+        }
     )
     max_frame_bytes: int = DEFAULT_MAX_FRAME_BYTES
     heartbeat_interval_ms: int = DEFAULT_HEARTBEAT_INTERVAL_MS
@@ -303,6 +316,8 @@ class BridgeIpcHost:
             # never told it may be steered would refuse this, and failing here
             # says which side of the negotiation was wrong.
             raise RuntimeError("movement capability was not negotiated")
+        if message_type == USE_INPUT_TYPE and USE_CAPABILITY not in self.session.capabilities:
+            raise RuntimeError("use capability was not negotiated")
         if message_type == LOOK_INPUT_TYPE and LOOK_CAPABILITY not in self.session.capabilities:
             raise RuntimeError("look capability was not negotiated")
         await self._send_control(message_type, message)

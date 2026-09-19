@@ -77,6 +77,20 @@ message MoveInput {
   uint64 deadline_monotonic_ns = 8;
 }
 
+// The use key, held or let go for the length of the lease.
+//
+// It is the same shape as a movement command on purpose: a player who is using
+// something is a player holding a key, so the state to carry is held and the way
+// it ends is the lease being withdrawn — the same single release path, which is
+// what makes "no key is left down" one rule rather than one per key.
+message UseInput {
+  string action_id = 1;
+  string lease_id = 2;
+  uint64 generation = 3;
+  bool use = 4;
+  uint64 deadline_monotonic_ns = 5;
+}
+
 message ReleaseAllInputs {
   string action_id = 1;
   uint64 generation = 2;

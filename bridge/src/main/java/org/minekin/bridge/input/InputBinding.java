@@ -5,7 +5,7 @@ import net.minecraft.client.option.GameOptions;
 import net.minecraft.client.option.KeyBinding;
 
 /**
- * The capabilities the Bridge drives, and which vanilla binding each one is.
+ * The keys the Bridge may hold, and which vanilla binding each one is.
  *
  * <p>The Bridge drives the client's own bindings rather than synthesising input
  * events: a managed Kin is a player at a keyboard, and the client's view of what
@@ -13,17 +13,18 @@ import net.minecraft.client.option.KeyBinding;
  * key held, and it is also what makes releasing it complete — the client already
  * knows how to let go of a key it thinks is down.
  */
-public enum MovementBinding {
+public enum InputBinding {
     FORWARD(BridgeInputController.FORWARD),
     BACK(BridgeInputController.BACK),
     LEFT(BridgeInputController.LEFT),
     RIGHT(BridgeInputController.RIGHT),
     JUMP(BridgeInputController.JUMP),
-    SNEAK(BridgeInputController.SNEAK);
+    SNEAK(BridgeInputController.SNEAK),
+    USE(BridgeInputController.USE);
 
     private final String capability;
 
-    MovementBinding(String capability) {
+    InputBinding(String capability) {
         this.capability = capability;
     }
 
@@ -32,8 +33,8 @@ public enum MovementBinding {
     }
 
     /** The binding for a capability, or empty when it is not one the Bridge holds. */
-    public static Optional<MovementBinding> of(String capability) {
-        for (MovementBinding binding : values()) {
+    public static Optional<InputBinding> of(String capability) {
+        for (InputBinding binding : values()) {
             if (binding.capability.equals(capability)) {
                 return Optional.of(binding);
             }
@@ -49,6 +50,7 @@ public enum MovementBinding {
             case RIGHT -> options.rightKey;
             case JUMP -> options.jumpKey;
             case SNEAK -> options.sneakKey;
+            case USE -> options.useKey;
         };
     }
 }

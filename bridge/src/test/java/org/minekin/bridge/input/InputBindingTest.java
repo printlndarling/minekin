@@ -9,14 +9,14 @@ import java.util.Optional;
 import org.junit.jupiter.api.Test;
 
 /** The capability names are wire vocabulary, so they are pinned here. */
-final class MovementBindingTest {
+final class InputBindingTest {
 
     @Test
     void everyCapabilityTheBridgeDrivesRoundTrips() {
-        for (MovementBinding binding : MovementBinding.values()) {
+        for (InputBinding binding : InputBinding.values()) {
             assertEquals(
                     Optional.of(binding),
-                    MovementBinding.of(binding.capability()),
+                    InputBinding.of(binding.capability()),
                     binding + " must be reachable by the name it is pressed under");
         }
     }
@@ -32,15 +32,16 @@ final class MovementBindingTest {
                         "move.left",
                         "move.right",
                         "move.jump",
-                        "move.sneak"),
-                Arrays.stream(MovementBinding.values()).map(MovementBinding::capability).toList());
+                        "move.sneak",
+                        "use.hand"),
+                Arrays.stream(InputBinding.values()).map(InputBinding::capability).toList());
     }
 
     @Test
     void aCapabilityTheBridgeDoesNotDriveIsNotInvented() {
-        assertTrue(MovementBinding.of("look.yaw").isEmpty());
-        assertTrue(MovementBinding.of("move.forward ").isEmpty());
-        assertTrue(MovementBinding.of("").isEmpty());
-        assertTrue(MovementBinding.of(null).isEmpty());
+        assertTrue(InputBinding.of("look.yaw").isEmpty());
+        assertTrue(InputBinding.of("move.forward ").isEmpty());
+        assertTrue(InputBinding.of("").isEmpty());
+        assertTrue(InputBinding.of(null).isEmpty());
     }
 }

@@ -56,6 +56,9 @@ public final class BridgeInputController {
     public static final String RIGHT = "move.right";
     public static final String JUMP = "move.jump";
     public static final String SNEAK = "move.sneak";
+    // Not a movement, and named as what it is: the key a player holds to use
+    // whatever they are looking at.
+    public static final String USE = "use.hand";
 
     public static final String REFUSED_STALE_GENERATION = "STALE_GENERATION";
     public static final String REFUSED_DEADLINE_EXCEEDED = "DEADLINE_EXCEEDED";
@@ -148,6 +151,36 @@ public final class BridgeInputController {
         }
         if (sneak) {
             wanted.add(SNEAK);
+        }
+        apply(wanted);
+        return Outcome.applied(ownership.held());
+    }
+
+    /**
+     * Holds the use key, or lets it go, and answers for it.
+     *
+     * <p>It is the same shape as a movement command on purpose: a player who is
+     * using something is a player holding a key, so what is carried is held state
+     * and what ends it is the lease being withdrawn. Every reason it can be
+     * refused is checked in the same order as a movement for the same reasons.
+     */
+    public synchronized Outcome use(
+            long nowNanos, long deadlineNanos, long generation, boolean use) {
+        observeCoreMessage(nowNanos);
+        if (generation != ownership.generation()) {
+            return Outcome.refused(REFUSED_STALE_GENERATION);
+        }
+        if (inputBlocked) {
+            return Outcome.refused(REFUSED_GUI_CONFLICT);
+        }
+        if (deadlineNanos != 0 && nowNanos > deadlineNanos) {
+            return Outcome.refused(REFUSED_DEADLINE_EXCEEDED);
+        }
+        Set<String> wanted = new TreeSet<>(ownership.held());
+        if (use) {
+            wanted.add(USE);
+        } else {
+            wanted.remove(USE);
         }
         apply(wanted);
         return Outcome.applied(ownership.held());

@@ -163,6 +163,7 @@ public class GameOptions {
     public final KeyBinding rightKey = new KeyBinding();
     public final KeyBinding jumpKey = new KeyBinding();
     public final KeyBinding sneakKey = new KeyBinding();
+    public final KeyBinding useKey = new KeyBinding();
 }
 """,
     # The screen field is typed rather than `Object`, and there is no way to read
@@ -217,7 +218,7 @@ ADAPTER_SOURCES = (
     ROOT / "bridge/src/main/java/org/minekin/bridge/input/InputOwnership.java",
     ROOT / "bridge/src/main/java/org/minekin/bridge/input/InputWatchdog.java",
     ROOT / "bridge/src/main/java/org/minekin/bridge/input/KeySink.java",
-    ROOT / "bridge/src/main/java/org/minekin/bridge/input/MovementBinding.java",
+    ROOT / "bridge/src/main/java/org/minekin/bridge/input/InputBinding.java",
     ROOT / "bridge/src/main/java/org/minekin/bridge/input/VanillaKeySink.java",
     ROOT / "bridge/src/main/java/org/minekin/bridge/input/ViewSink.java",
     ROOT / "bridge/src/main/java/org/minekin/bridge/input/VanillaViewSink.java",

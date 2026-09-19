@@ -32,6 +32,7 @@ from minekin_core.adapters.bridge.ipc import (
     HEARTBEAT_TYPE,
     LOOK_CAPABILITY,
     MOVE_CAPABILITY,
+    USE_CAPABILITY,
     RELEASE_ALL_INPUTS_TYPE,
     BridgeIpcHost,
     BridgeSession,
@@ -74,6 +75,7 @@ def test_loopback_handshake_heartbeat_commands_and_events(tmp_path: Path) -> Non
             ADMISSION_CAPABILITY,
             MOVE_CAPABILITY,
             LOOK_CAPABILITY,
+            USE_CAPABILITY,
         }
 
         control_reader, control_writer = await connect(descriptor, envelope_pb2.CHANNEL_CONTROL)

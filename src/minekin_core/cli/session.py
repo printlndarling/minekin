@@ -28,6 +28,8 @@ from minekin_core.adapters.bridge.ipc import (
     MOVE_CAPABILITY,
     MOVE_INPUT_TYPE,
     RELEASE_ALL_INPUTS_TYPE,
+    USE_CAPABILITY,
+    USE_INPUT_TYPE,
     BridgeIpcHost,
     BridgeSession,
     monotonic_ns,
@@ -632,6 +634,11 @@ class InputPlan:
     """
 
     hold_seconds: float | None = None
+    #: How long the use key is held, when this run asks for it. Its own duration
+    #: rather than a boolean for the same reason a movement hold has one: what
+    #: ends it is the lease lapsing, and a hold with no length would be a key held
+    #: until something else went wrong.
+    use_seconds: float | None = None
     strafe: float = 0.0
     jump: bool = False
     sneak: bool = False
@@ -662,13 +669,22 @@ class InputPlan:
             wanted.add(MOVE_CAPABILITY)
         if self.look:
             wanted.add(LOOK_CAPABILITY)
+        if self.use_seconds is not None:
+            wanted.add(USE_CAPABILITY)
         return frozenset(wanted)
 
     @property
     def lease_seconds(self) -> float:
-        """How long the authorisation lasts. A hold owns its duration; a look does not."""
+        """How long the authorisation lasts. A hold owns its duration; a look does not.
 
-        return self.hold_seconds if self.hold_seconds is not None else DEFAULT_LOOK_LEASE_S
+        One lease covers everything this run asks for, so it has to last as long
+        as the longest of them: a lease that covered the movement and lapsed
+        before the use did would take a key back that was still wanted, and the
+        release is one instruction for all of them either way.
+        """
+
+        holds = [value for value in (self.hold_seconds, self.use_seconds) if value is not None]
+        return max(holds) if holds else DEFAULT_LOOK_LEASE_S
 
     def commands(self, lease: InputLease, deadline_ns: int) -> list[tuple[str, str, Message]]:
         """The commands this plan sends, in a stable order, and what authorises each."""
@@ -687,6 +703,20 @@ class InputPlan:
                         strafe=self.strafe,
                         jump=self.jump,
                         sneak=self.sneak,
+                        deadline_monotonic_ns=deadline_ns,
+                    ),
+                )
+            )
+        if self.use_seconds is not None:
+            outstanding.append(
+                (
+                    USE_CAPABILITY,
+                    USE_INPUT_TYPE,
+                    control_pb2.UseInput(
+                        action_id=self.action_id,
+                        lease_id=lease.lease_id,
+                        generation=int(lease.generation),
+                        use=True,
                         deadline_monotonic_ns=deadline_ns,
                     ),
                 )
@@ -727,6 +757,7 @@ async def start_and_supervise(
     server_profile: Path | None = None,
     connection_timeout: float = DEFAULT_CONNECTION_TIMEOUT_S,
     hold_forward: float | None = None,
+    hold_use: float | None = None,
     hold_strafe: float | None = None,
     hold_jump: bool = False,
     hold_sneak: bool = False,
@@ -793,9 +824,10 @@ async def start_and_supervise(
         raise _reject("holding an axis needs --hold-forward-seconds: it is the hold's length")
     plan = (
         None
-        if hold_forward is None and not wants_look
+        if hold_forward is None and not wants_look and hold_use is None
         else InputPlan(
             hold_seconds=hold_forward,
+            use_seconds=hold_use,
             strafe=0.0 if hold_strafe is None else hold_strafe,
             jump=hold_jump,
             sneak=hold_sneak,
@@ -808,6 +840,8 @@ async def start_and_supervise(
         # Input with no world to drive would be a lever that does nothing: the
         # operator asked for something this run cannot express.
         raise _reject("asking for input needs --server-profile: there is no world to drive")
+    if hold_use is not None and hold_use <= 0:
+        raise _reject("--hold-use-seconds must be positive")
     if hold_forward is not None and hold_forward <= 0:
         # A lease deadline already past is not a hold, it is a refusal dressed as
         # one, and the run would report a Kin that never moved.

@@ -43,7 +43,7 @@ public final class VanillaKeySink implements KeySink {
     }
 
     private void apply(String capability, boolean pressed) {
-        MovementBinding.of(capability)
+        InputBinding.of(capability)
                 .ifPresentOrElse(
                         binding -> {
                             MinecraftClient client = runningClient();

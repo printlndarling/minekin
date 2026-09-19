@@ -127,6 +127,7 @@ def run(
                 hold_forward=(
                     None if args.hold_forward_seconds is None else float(args.hold_forward_seconds)
                 ),
+                hold_use=(None if args.hold_use_seconds is None else float(args.hold_use_seconds)),
                 hold_strafe=(None if args.hold_strafe is None else float(args.hold_strafe)),
                 hold_jump=bool(args.hold_jump),
                 hold_sneak=bool(args.hold_sneak),

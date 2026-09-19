@@ -27,6 +27,9 @@ public final class HandshakeGate {
      * those two apart.
      */
     public static final String LOOK_CAPABILITY = "control.look.v1";
+    // And using what is in front of it: the capability that lets a Kin act on the
+    // world rather than only move through it.
+    public static final String USE_CAPABILITY = "control.use.v1";
     public static final int MIN_FRAME_BYTES = 1024;
     public static final int MAX_FRAME_BYTES = 16 * 1024 * 1024;
 

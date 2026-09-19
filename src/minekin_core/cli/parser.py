@@ -99,6 +99,17 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="hold the sneak key for the length of the hold",
     )
+    # And the one input that is not an axis at all: using whatever is in front of
+    # the Kin. It is a hold for the same reason the movement keys are — the lease
+    # is what ends it — and its own flag rather than part of the hold, because a
+    # run may ask for either without the other.
+    session_start.add_argument(
+        "--hold-use-seconds",
+        type=float,
+        default=None,
+        metavar="SECONDS",
+        help="hold the use key for this long once the session is playable",
+    )
     session_start.add_argument(
         "--look-yaw-degrees",
         type=float,

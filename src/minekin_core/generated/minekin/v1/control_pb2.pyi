@@ -141,6 +141,20 @@ class MoveInput(_message.Message):
     deadline_monotonic_ns: int
     def __init__(self, action_id: _Optional[str] = ..., lease_id: _Optional[str] = ..., generation: _Optional[int] = ..., forward: _Optional[float] = ..., strafe: _Optional[float] = ..., jump: bool = ..., sneak: bool = ..., deadline_monotonic_ns: _Optional[int] = ...) -> None: ...
 
+class UseInput(_message.Message):
+    __slots__ = ("action_id", "lease_id", "generation", "use", "deadline_monotonic_ns")
+    ACTION_ID_FIELD_NUMBER: _ClassVar[int]
+    LEASE_ID_FIELD_NUMBER: _ClassVar[int]
+    GENERATION_FIELD_NUMBER: _ClassVar[int]
+    USE_FIELD_NUMBER: _ClassVar[int]
+    DEADLINE_MONOTONIC_NS_FIELD_NUMBER: _ClassVar[int]
+    action_id: str
+    lease_id: str
+    generation: int
+    use: bool
+    deadline_monotonic_ns: int
+    def __init__(self, action_id: _Optional[str] = ..., lease_id: _Optional[str] = ..., generation: _Optional[int] = ..., use: bool = ..., deadline_monotonic_ns: _Optional[int] = ...) -> None: ...
+
 class ReleaseAllInputs(_message.Message):
     __slots__ = ("action_id", "generation", "reason_code")
     ACTION_ID_FIELD_NUMBER: _ClassVar[int]

@@ -381,6 +381,14 @@
 - [x] **域现在把高度也报出来**：`reported_heights()` 取位置读数里的第二个分量，走完那条消息从"walk and stop"变成"walk and stop; its height moved through N blocks"——**跳跃是唯一只在这一项里出现的事**（同一个位置、不同的高度），所以它需要一个能被读到的数字，而不是一条"它动了"的断言。
 
 
+- [x] **`use` 接线了，所以 L4 的「三种动作」少了一种这件事不再是真的——但用例还没跟上，这一条只讲能力。** 契约的 L4 要 move/look/**use**，而前两者早已实现、`use` 一直是缺的那个。现在它是**第四个 capability**（`control.use.v1`）与第四条 wire 消息（`UseInput`），形状刻意与移动命令相同：**使用东西就是按住一个键**，所以携带的是"按住"状态、结束它的是 lease 被撤回——于是"不许留下按住的键"仍然只有一条规则，而不是每个键一条。
+  - **两侧各自的最小改动**：Core 侧 `USE_CAPABILITY`/`USE_INPUT_TYPE`、`InputPlan.use_seconds`（自己的时长，与移动 hold 同理：结束它的是 lease，没有长度的 hold 会是一个键被按到别的事情出错为止）、`--hold-use-seconds`；Bridge 侧 `HandshakeGate.USE_CAPABILITY`、`BridgeInputController.USE`（`use.hand`）与 `use(now, deadline, generation, boolean)`、worker 的类型/分派/`validateUse`/`UseCommand`/`applyUse`。
+  - **一处改名，因为不改名就是一句小谎**：`MovementBinding` → **`InputBinding`**——它现在也绑定 use 键，一个说"move"的名字绑着使用键是在说错话。改名波及 sink、Java 用例与离线编译门禁的源码清单。
+  - **`onLocalClock` 有了第三份拷贝，而这是刻意的**：deadline 从 envelope 的钟改写到本地钟的那段逻辑，protobuf 的 builder **没有共同父类型**可以写出一个泛型版本，所以只有两个选择——三份短方法，或者反射；这个文件已经选了前者，注释里写明了。
+  - **重录 pin（两侧逐字节相同）**：Windows 构建与 Linux 容器构建都是 `580daa93…`、1,266,556 字节；源码树摘要 `9af6db41…`。`recipe.py` 两个常量、fixture 的 `digest`/`size`/`source_digest` 一起更新——**并且 `proto/minekin/v1/control.proto` 自己也是冻结工件**，它的摘要行也得跟着动（fixture 摘要门禁当场抓到了这一条）。
+  - **三道既有的 pin 各自尽了职**：Java 的 `InputBindingTest` 钉着 wire 名字的完整列表（加 `use.hand` 才通过）、`test_bridge_ipc_host` 钉着协商出来的 capability 集合（加 `control.use.v1` 才通过）、离线编译门禁的 `GameOptions` stub 缺 `useKey` 时直接编译失败。三次都是"改完就红"，这正是它们存在的理由。
+  - **仍未做的，也是这一步的边界**：**还没有任何一次运行真的"用了"什么**。能力由两侧的单元用例与离线编译门禁验证，但服务端可观察的 use（对着一块能改变状态的方块按下去，再从服务端问它的状态）需要新场景与新探针——那是下一步，做完之后 `CORE-040` 才有资格从 `mandatory: false` 变成门禁的一部分。
+
 ## W70：恢复与证据晋级
 
 - [x] **杀 Core 那条路一直在"报告一次没发生过的故障注入"，而且报告得很像成功。** 想给 L5（`CORE-060`）取证时先量了一次杀 Core 的运行，结果有两处不对劲：**存在 run document**（被 SIGKILL 的 CLI 不可能打印任何东西），而客户端日志里**没有** `IPC_LOST` 的松键记录。于是给那个循环加了一条临时打印，实测结果是 `DEBUG kill loop at 32s: distinct=0` **连续 90 次、`SECONDS` 一直停在 32**——原因很简单也很要命：那个循环**没有 `sleep`**，而它的预算是用 `SECONDS` 算的；`SECONDS` 在命令不耗时的自旋里根本不前进，于是"150 秒的等待"在毫秒内跑完并放弃。接着**下面那个等待**（它有 sleep）看到 Kin 停住了——那是 hold 到期自然停的——于是打印 `the server saw the Kin stop after Core died`。也就是说：**一个没有注入故障的运行，被报告成了注入成功的运行**，而它的证据（停住的读数）本来就会出现。
