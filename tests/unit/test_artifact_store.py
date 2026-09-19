@@ -112,11 +112,14 @@ def test_session_overlay_is_generation_scoped_and_writable(tmp_path: Path) -> No
     second = overlays.create("session-01", 2)
 
     assert first != second
+    # The overlay is the client's run directory, so it carries the directories a
+    # Minecraft client expects, `mods` among them.
     assert {path.name for path in first.iterdir()} == {
         "cache",
         "crash-reports",
         "ipc",
         "logs",
+        "mods",
         "server-resource-packs",
         "session.json",
     }

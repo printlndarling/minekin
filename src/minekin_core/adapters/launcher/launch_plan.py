@@ -198,7 +198,7 @@ def build_launch_plan(profile_path: Path, *, workspace_root: Path | None = None)
             "base_sha256": metadata.base_metadata_sha256,
             "fabric_sha256": metadata.fabric_metadata_sha256,
         },
-        "fixed_mods": list(recipe_audit.fixed_mods),
+        "fixed_mods": [asdict(mod) for mod in recipe_audit.fixed_mods],
         "bridge_source_sha256": recipe_audit.bridge_source_sha256,
     }
     canonical = json.dumps(plan, sort_keys=True, separators=(",", ":")).encode()

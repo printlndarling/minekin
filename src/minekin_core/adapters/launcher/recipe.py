@@ -22,7 +22,11 @@ FABRIC_API_URL = (
 )
 FABRIC_API_SIZE = 2_149_128
 FABRIC_API_SHA256 = "d183bacb845167f09264c2f90322b7ecffe8826debda6f60e597889264bef4af"
-
+# The content-addressed store keys by SHA-1 because that is what the upstream
+# metadata publishes. The recipe pins SHA-256, so both are recorded: the pin is
+# the stronger claim, and the SHA-1 is how the store finds the file. The value
+# is the one the bootstrap contract and the supply-chain check already record.
+FABRIC_API_SHA1 = "1c7871b6af04edc8b8f0dbad12606d67f6118a11"
 # The Bridge is Minekin's own artifact, so no upstream publishes a digest for
 # it: the supply-chain contract says an own artifact without one gets a fixed
 # SHA-256 instead, and TLS is not accepted as the only integrity guarantee. The
@@ -88,9 +92,27 @@ def source_tree_sha256(root: Path) -> str:
 
 
 @dataclass(frozen=True, slots=True)
+class FixedMod:
+    """One mod the client must load, with everything needed to place it.
+
+    `source` is either the pinned URL to fetch from or `workspace:<path>` for an
+    artifact this repository builds. `sha1` is present only for a fetched mod,
+    because it is the store's key there rather than a second opinion about the
+    bytes.
+    """
+
+    name: str
+    kind: str
+    sha256: str
+    size: int
+    source: str
+    sha1: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class RecipeAudit:
     bundle_name: str
-    fixed_mods: tuple[str, ...]
+    fixed_mods: tuple[FixedMod, ...]
     bridge_source_sha256: str
     blockers: tuple[str, ...]
 
@@ -172,7 +194,23 @@ def validate_bundle_recipe(profile_path: Path, workspace_root: Path) -> RecipeAu
         raise _reject("bundle_name is required")
     return RecipeAudit(
         bundle_name=bundle_name,
-        fixed_mods=("fabric-api", "minekin-bridge"),
+        fixed_mods=(
+            FixedMod(
+                name="fabric-api",
+                kind="mod",
+                sha256=FABRIC_API_SHA256,
+                size=FABRIC_API_SIZE,
+                source=FABRIC_API_URL,
+                sha1=FABRIC_API_SHA1,
+            ),
+            FixedMod(
+                name="minekin-bridge",
+                kind="bridge",
+                sha256=BRIDGE_JAR_SHA256,
+                size=BRIDGE_JAR_SIZE,
+                source=f"workspace:{BRIDGE_JAR_RELATIVE_PATH}",
+            ),
+        ),
         bridge_source_sha256=actual_source_digest,
         # Nothing is blocked: the recipe now pins the jar rather than saying it
         # has yet to be pinned. Whether that jar exists is a fact about the

@@ -22,7 +22,7 @@ PROFILE = ROOT / "tests" / "fixtures" / "runtime-input" / "bundle-p0-core-1.21.4
 
 def test_fixed_mod_recipe_validates_source_identity() -> None:
     audit = validate_bundle_recipe(PROFILE, ROOT)
-    assert audit.fixed_mods == ("fabric-api", "minekin-bridge")
+    assert [mod.name for mod in audit.fixed_mods] == ["fabric-api", "minekin-bridge"]
     assert len(audit.bridge_source_sha256) == 64
     # Nothing is blocked any more: the recipe pins the jar instead of saying it has
     # yet to be pinned, and whether that jar exists is asked at start time.

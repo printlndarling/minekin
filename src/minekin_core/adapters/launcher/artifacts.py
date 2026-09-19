@@ -307,7 +307,7 @@ class BundleStore:
 class SessionOverlayStore:
     """Create a writable directory owned by exactly one session generation."""
 
-    _DIRECTORIES = ("logs", "crash-reports", "server-resource-packs", "cache", "ipc")
+    _DIRECTORIES = ("logs", "crash-reports", "server-resource-packs", "cache", "ipc", "mods")
 
     def __init__(self, root: Path) -> None:
         requested_root = root.absolute()

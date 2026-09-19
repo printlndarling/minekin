@@ -21,6 +21,7 @@ from minekin_core.adapters.bridge.ipc import BridgeIpcHost, BridgeSession
 from minekin_core.adapters.launcher.artifacts import ArtifactStore, SessionOverlayStore
 from minekin_core.adapters.launcher.launch_plan import build_launch_plan, find_workspace_root
 from minekin_core.adapters.launcher.metadata import Artifact
+from minekin_core.adapters.launcher.mods import install_fixed_mods
 from minekin_core.adapters.launcher.offline_session import OFFLINE_SESSION_CANDIDATES
 from minekin_core.adapters.launcher.orphans import (
     Liveness,
@@ -311,6 +312,15 @@ def prepare_session(
     if overlay != session_overlay_path(runs, session_id, generation):
         # The supervisor's log directory was named from this path already.
         raise _reject("the session overlay was created somewhere unexpected")
+
+    # The overlay is the client's game directory, so the fixed mods go into its
+    # mods/ before the client can start looking for them.
+    install_fixed_mods(
+        plan,
+        overlay=overlay,
+        store=ArtifactStore(runs / "artifact-store"),
+        workspace_root=find_workspace_root(Path(__file__).resolve()),
+    )
 
     run_id = RunId.new().value
     client_instance_id = ClientInstanceId.new().value

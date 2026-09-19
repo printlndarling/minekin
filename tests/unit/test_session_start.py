@@ -30,7 +30,7 @@ from session_support import (
     PROFILE,
     fabricated,
     fake_plan,
-    stand_in_for_the_bridge_build,  # type: ignore[import-not-found]
+    stand_in_for_the_built_workspace,  # type: ignore[import-not-found]
     stub_supervisor,
 )
 
@@ -151,7 +151,7 @@ def test_start_session_composes_the_steps_in_order(
     root = initialised(tmp_path)
     _, artifact = fabricated()
     monkeypatch.setattr(session_module, "build_launch_plan", fake_plan)
-    stand_in_for_the_bridge_build(monkeypatch)
+    stand_in_for_the_built_workspace(monkeypatch)
     runs = tmp_path / "kin" / "kin-01" / "run"
     ArtifactStore(runs / "artifact-store").install(artifact, io.BytesIO(PAYLOAD))
 
@@ -178,7 +178,7 @@ def test_start_session_refuses_before_creating_an_overlay(
 
     root = initialised(tmp_path)
     monkeypatch.setattr(session_module, "build_launch_plan", fake_plan)
-    stand_in_for_the_bridge_build(monkeypatch)
+    stand_in_for_the_built_workspace(monkeypatch)
 
     with pytest.raises(MinekinError, match="not in the store yet"):
         start_session(
@@ -199,7 +199,7 @@ def test_start_session_uses_the_persisted_identity(
     root = initialised(tmp_path)
     _, artifact = fabricated()
     monkeypatch.setattr(session_module, "build_launch_plan", fake_plan)
-    stand_in_for_the_bridge_build(monkeypatch)
+    stand_in_for_the_built_workspace(monkeypatch)
     runs = tmp_path / "kin" / "kin-01" / "run"
     ArtifactStore(runs / "artifact-store").install(artifact, io.BytesIO(PAYLOAD))
     seen: list[str] = []
@@ -289,7 +289,7 @@ def test_a_started_event_reaches_the_ledger(
     root = initialised(tmp_path)
     _, artifact = fabricated()
     monkeypatch.setattr(session_module, "build_launch_plan", fake_plan)
-    stand_in_for_the_bridge_build(monkeypatch)
+    stand_in_for_the_built_workspace(monkeypatch)
     runs = tmp_path / "kin" / "kin-01" / "run"
     ArtifactStore(runs / "artifact-store").install(artifact, io.BytesIO(PAYLOAD))
 
@@ -314,7 +314,7 @@ def test_a_failed_start_records_a_failure_and_still_raises(
     root = initialised(tmp_path)
     _, artifact = fabricated()
     monkeypatch.setattr(session_module, "build_launch_plan", fake_plan)
-    stand_in_for_the_bridge_build(monkeypatch)
+    stand_in_for_the_built_workspace(monkeypatch)
     runs = tmp_path / "kin" / "kin-01" / "run"
     ArtifactStore(runs / "artifact-store").install(artifact, io.BytesIO(PAYLOAD))
 
@@ -348,7 +348,7 @@ def test_a_refusal_before_the_launcher_leaves_no_ledger_entry(
 
     root = initialised(tmp_path)
     monkeypatch.setattr(session_module, "build_launch_plan", fake_plan)
-    stand_in_for_the_bridge_build(monkeypatch)
+    stand_in_for_the_built_workspace(monkeypatch)
 
     with pytest.raises(MinekinError, match="not in the store yet"):
         start_session(
