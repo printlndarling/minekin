@@ -171,6 +171,7 @@ Event 表示已经发生的事实，只追加不原地改写。例：
 - `PlayableEstablished`
 - `InputLeaseGranted`
 - `InputReleased`
+- `InputRefused`
 - `SessionInterrupted`
 - `ClientProcessExited`
 

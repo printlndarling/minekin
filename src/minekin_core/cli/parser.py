@@ -110,6 +110,17 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="SECONDS",
         help="hold the use key for this long once the session is playable",
     )
+    # When this run asks for its hold. `playable` is the only moment that can
+    # succeed, so it is the default; `join` asks before the first snapshot and is
+    # refused, which is how "no lease before the world is real" is tested rather
+    # than assumed. The refusal is recorded either way.
+    session_start.add_argument(
+        "--hold-at",
+        choices=("playable", "join"),
+        default="playable",
+        metavar="PHASE",
+        help="when to ask for the hold: playable (default) or join, which is refused",
+    )
     session_start.add_argument(
         "--look-yaw-degrees",
         type=float,

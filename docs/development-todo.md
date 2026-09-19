@@ -401,6 +401,13 @@
   - **harness 的等待顺序也是错的，一并修了**：playable 的等待先问 `kill -0` 再读账本，于是**一个已经死掉的会话**会被报成「从未变成 playable」，而账本里明明写着 `PlayableEstablished`。现在先读账本再问进程，并且消息说清是两者中的哪一个（`the bound expired` / `the session exited first`）——一个把死因说错的诊断比没有诊断更贵。
   - **它在 fixture 与契约里都改了**：`tests/fixtures/cases/core-040.json` 六条断言 + `mandatory: true`（fixture 摘要跟着重算）；契约自己的 CORE-040 条目改成「三种动作都已覆盖、此时才是 mandatory」。
 
+- [x] **一次被拒绝的输入现在是一条记录，而且「问得太早」这件事第一次可以被违反——所以它第一次能被测。** 契约的 L4 写的是「只有 JOIN+首快照后获得 lease」，CORE-050 把它展开成「握手前、JOIN 前、首快照前的输入全部被拒绝」。这条不变量此前**没有任何东西能违反**：Core 只在成功的那个时刻开口，所以它永远成立、也永远没有证据。两处改动让它可以被问，并且问了有记录：
+  - **`InputRefused` 成为账本事件**（`{phase, capabilities, refusals}`，`refusals` 是仲裁器自己的 token）。此前拒绝只落在 run document 的 `input_refusal` 一个字符串上——**一次运行可以问两次**（join 一次、playable 一次），而一个字段只会留下最后一次的答案。现在每一次被拒答都是一条只追加的记录，理由不会被吞掉。
+  - **`session start --hold-at join`**：这次运行**故意问得太早**。默认 `playable` 与既有行为逐字相同；`join` 时 plan 在**观察到 join 之后、首快照之前**被送到仲裁器面前，仲裁器说 `NOT_PLAYABLE`，这条答案被记录，而**运行不因此结束**（结束一次运行的是客户端，不是一次被拒的 hold）。拒绝的记录**写在 join 之后**，所以账本读起来就是这次运行经历的顺序。
+  - **两条测出来的对照**（`tests/unit/test_session_supervision.py`，都在真实 IPC 对端上驱动）：`--hold-at join` → 账本里恰好一条 `InputRefused{phase: "JOIN_SEEN", capabilities: ["control.move.v1"], refusals: ["NOT_PLAYABLE"]}`、**没有任何** `InputLeaseGranted`、`run.input_refusal == "NOT_PLAYABLE"`、`snapshots_admitted == 0`（答案之所以是"不"的原因）、outcome 仍是 `CLIENT_EXITED`；**默认不问** → 同一条路径上一条拒绝记录也没有（这正是"阶段是可选项、不是把拒绝塞进每一次运行"的证据）。
+  - **握手指令之前那一段由传输层覆盖**：尚未 authenticate 的 host 拒绝**所有**控制命令（不只是输入），并新增了一条契约用例断言这一点——对一个输入类型和一个非输入类型各断言一次，因为"只覆盖输入"的门禁是有人会绕过去的那种门禁。
+  - **这一步的边界**：CORE-050 还**没有 fixture、还没有真实运行、也还没有进入晋级门禁**。Core 侧现在能问、能记、有对照；下一步是把它做成一个用例（断言读账本里的 `InputRefused` 与「客户端从未被驱动」）并在受控域里真跑一轮。
+
 ## W70：恢复与证据晋级
 
 - [x] **杀 Core 那条路一直在"报告一次没发生过的故障注入"，而且报告得很像成功。** 想给 L5（`CORE-060`）取证时先量了一次杀 Core 的运行，结果有两处不对劲：**存在 run document**（被 SIGKILL 的 CLI 不可能打印任何东西），而客户端日志里**没有** `IPC_LOST` 的松键记录。于是给那个循环加了一条临时打印，实测结果是 `DEBUG kill loop at 32s: distinct=0` **连续 90 次、`SECONDS` 一直停在 32**——原因很简单也很要命：那个循环**没有 `sleep`**，而它的预算是用 `SECONDS` 算的；`SECONDS` 在命令不耗时的自旋里根本不前进，于是"150 秒的等待"在毫秒内跑完并放弃。接着**下面那个等待**（它有 sleep）看到 Kin 停住了——那是 hold 到期自然停的——于是打印 `the server saw the Kin stop after Core died`。也就是说：**一个没有注入故障的运行，被报告成了注入成功的运行**，而它的证据（停住的读数）本来就会出现。

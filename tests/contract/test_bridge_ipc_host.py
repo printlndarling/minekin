@@ -239,6 +239,38 @@ def test_control_send_rejects_a_message_type_payload_mismatch(tmp_path: Path) ->
     asyncio.run(scenario())
 
 
+def test_no_control_command_can_be_sent_before_the_bridge_proves_itself(
+    tmp_path: Path,
+) -> None:
+    """The earliest of the moments an input may not be sent at.
+
+    CORE-050 asks that inputs before the handshake, before the join and before the
+    first snapshot are all refused. This is the first of the three and the only one
+    no run can reach: before the Bridge has proved its session there is no channel
+    to refuse a *command* on, so what refuses is the transport, and it refuses
+    every command rather than only the input ones. Asserted for an input and for a
+    command that is not one, because a gate that only covers inputs is a gate
+    somebody will route around.
+    """
+
+    async def scenario() -> None:
+        host = BridgeIpcHost(session())
+        await host.prepare(tmp_path / "descriptor.pb")
+
+        with pytest.raises(RuntimeError, match="not authenticated"):
+            await host.send_control(
+                MOVE_INPUT_TYPE,
+                control_pb2.MoveInput(action_id="a", lease_id="l", generation=1),
+            )
+        with pytest.raises(RuntimeError, match="not authenticated"):
+            await host.send_control(
+                RELEASE_ALL_INPUTS_TYPE,
+                control_pb2.ReleaseAllInputs(action_id="a", generation=1),
+            )
+
+    asyncio.run(scenario())
+
+
 def test_every_command_a_plan_can_send_reaches_the_peer(tmp_path: Path) -> None:
     """Whatever a plan can ask for, the host can send.
 

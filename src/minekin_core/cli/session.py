@@ -67,6 +67,7 @@ from minekin_core.adapters.sqlite.session_log import (
     CLIENT_EXITED,
     HELLO_ACCEPTED,
     INPUT_LEASE_GRANTED,
+    INPUT_REFUSED,
     INPUT_RELEASED,
     JOIN_OBSERVED,
     PLAYABLE_ESTABLISHED,
@@ -86,6 +87,7 @@ from minekin_core.domain.input_control import (
     InputArbiter,
     InputLease,
     InputPriority,
+    InputRefusal,
     InputRequest,
     ReleaseOutcome,
     ReleaseReason,
@@ -619,6 +621,17 @@ MAX_LOOK_DEGREES = 360.0
 # lease is only long enough to carry the command and be withdrawn.
 DEFAULT_LOOK_LEASE_S = 5.0
 
+# When a run asks for its hold. `playable` is the only moment that can succeed:
+# the lease means "the client may be driven", and the first snapshot is what makes
+# that true. `join` exists because a run has to be able to ask *too early* and have
+# the answer recorded — the contract's invariant is "no lease before the join and
+# the first snapshot", and an invariant nothing is ever allowed to test is a
+# comment. A run that asks at the join is refused, and that refusal is the
+# evidence.
+HOLD_AT_PLAYABLE = "playable"
+HOLD_AT_JOIN = "join"
+HOLD_PHASES = (HOLD_AT_PLAYABLE, HOLD_AT_JOIN)
+
 
 @dataclass
 class InputPlan:
@@ -761,6 +774,7 @@ async def start_and_supervise(
     hold_strafe: float | None = None,
     hold_jump: bool = False,
     hold_sneak: bool = False,
+    hold_at: str = HOLD_AT_PLAYABLE,
     look_yaw_degrees: float | None = None,
     look_pitch_degrees: float | None = None,
 ) -> tuple[SessionLaunch, SessionRun]:
@@ -842,6 +856,12 @@ async def start_and_supervise(
         raise _reject("asking for input needs --server-profile: there is no world to drive")
     if hold_use is not None and hold_use <= 0:
         raise _reject("--hold-use-seconds must be positive")
+    if hold_at not in HOLD_PHASES:
+        raise _reject(f"--hold-at must be one of {', '.join(HOLD_PHASES)}")
+    if plan is None and hold_at != HOLD_AT_PLAYABLE:
+        # A phase with no request behind it: the operator asked *when* to ask
+        # without asking for anything.
+        raise _reject("--hold-at needs a hold to be asked for")
     if hold_forward is not None and hold_forward <= 0:
         # A lease deadline already past is not a hold, it is a refusal dressed as
         # one, and the run would report a Kin that never moved.
@@ -980,16 +1000,41 @@ async def start_and_supervise(
         # the same shape `input_refusal` has, for the same reason.
         cancelled[0] = CONNECTION_CANCEL_TIMEOUT
 
-    async def on_playable() -> None:
-        """Ask for this run's input, under one lease, once the session may be driven."""
+    async def record_refusal(phase: str, refusals: tuple[InputRefusal, ...]) -> None:
+        """The arbiter said no, and this is the run's record of having asked.
+
+        A ledger event rather than only the run document's `input_refusal`: a run
+        can ask at two moments, and a single field would keep whichever answer
+        came last. The reasons are the arbiter's own tokens — a refusal whose
+        category is dropped is a refusal nobody can act on.
+        """
+
+        reasons = [item.value for item in refusals]
+        if plan is not None:
+            plan.refusal = ",".join(reasons)
+        await record(
+            INPUT_REFUSED,
+            {
+                "phase": phase,
+                "capabilities": sorted(() if plan is None else plan.capabilities),
+                "refusals": reasons,
+            },
+            source=EventSource.CORE,
+            trust_class=TrustClass.CORE,
+        )
+
+    async def present_the_plan(phase: str) -> None:
+        """Ask the arbiter for this run's input, at one phase, and record its answer.
+
+        Two callers and one body, because what a run asks for is the same at both
+        moments and only *when* it asks differs: at the join — which is too early,
+        and is how "no lease before the join and the first snapshot" is tested
+        rather than assumed — and once the snapshot has been admitted, which is the
+        only moment that can succeed.
+        """
 
         if plan is None or plan.arbiter is None:
             return
-        # The arbiter refuses to authorise anything for a session that is not
-        # playable, and this is the moment that becomes true. Nothing says it on
-        # the arbiter's behalf: it is a decision this run makes, and Core is the
-        # only side that knows the snapshot was admitted.
-        plan.arbiter.set_playable(True)
         issued = monotonic_ns()
         deadline = issued + int(plan.lease_seconds * 1_000_000_000)
         lease = InputLease(
@@ -1006,7 +1051,7 @@ async def start_and_supervise(
         )
         granted = plan.arbiter.grant(lease)
         if not granted.accepted:
-            plan.refusal = ",".join(item.value for item in granted.refusals)
+            await record_refusal(phase, granted.refusals)
             return
         plan.action_id = OpaqueId.new().value
         for capability, message_type, message in plan.commands(lease, deadline):
@@ -1023,7 +1068,7 @@ async def start_and_supervise(
                 now=MonotonicInstant(issued),
             )
             if not authorised.accepted:
-                plan.refusal = ",".join(item.value for item in authorised.refusals)
+                await record_refusal(phase, authorised.refusals)
                 return
             try:
                 await host.send_control(message_type, message)
@@ -1051,6 +1096,23 @@ async def start_and_supervise(
         plan.deadline_monotonic_ns = deadline
         plan.watchdog.arm(lease)
         plan.playable.set()
+
+    async def on_playable() -> None:
+        """Ask for this run's input, under one lease, once the session may be driven."""
+
+        if plan is None or plan.arbiter is None:
+            return
+        # The arbiter refuses to authorise anything for a session that is not
+        # playable, and this is the moment that becomes true. Nothing says it on
+        # the arbiter's behalf: it is a decision this run makes, and Core is the
+        # only side that knows the snapshot was admitted.
+        plan.arbiter.set_playable(True)
+        if hold_at != HOLD_AT_PLAYABLE:
+            # This run named the phase it asks at, and it has already asked. Asking
+            # again here would turn one refusal into a refusal followed by a grant,
+            # which is a different run from the one the operator asked for.
+            return
+        await present_the_plan(ConnectionState.PLAYABLE.value)
 
     async def release_inputs(arbiter: InputArbiter, reason: ReleaseReason) -> ReleaseOutcome:
         """Withdraw the lease and tell the Bridge, in that order, for one reason.
@@ -1141,6 +1203,11 @@ async def start_and_supervise(
             # event. A failure with no category is one nobody can act on.
             payload["reason"] = reason
         await record(event_type, payload, source=source, trust_class=trust_class)
+        if state is ConnectionState.JOIN_SEEN and hold_at == HOLD_AT_JOIN:
+            # Asked *after* the join is recorded, so the ledger reads in the order
+            # the run lived it: the world the Kin joined, and then the answer to a
+            # request for input made before there was anything to drive.
+            await present_the_plan(state.value)
 
     async def until_client_exit() -> None:
         while prepared.supervisor.running():

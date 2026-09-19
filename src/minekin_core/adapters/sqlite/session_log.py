@@ -51,6 +51,11 @@ JOIN_OBSERVED = "JoinObserved"
 PLAYABLE_ESTABLISHED = "PlayableEstablished"
 INPUT_LEASE_GRANTED = "InputLeaseGranted"
 INPUT_RELEASED = "InputReleased"
+#: Core asked to drive the client and was told no, with the arbiter's reasons.
+#: Its own event rather than one more string on the run document, because a run
+#: may ask more than once — at the join and again once the world is real — and a
+#: single field would keep only the last answer.
+INPUT_REFUSED = "InputRefused"
 SESSION_INTERRUPTED = "SessionInterrupted"
 CLIENT_EXITED = "ClientProcessExited"
 
@@ -63,6 +68,7 @@ SESSION_EVENT_TYPES = frozenset(
         PLAYABLE_ESTABLISHED,
         INPUT_LEASE_GRANTED,
         INPUT_RELEASED,
+        INPUT_REFUSED,
         SESSION_INTERRUPTED,
         CLIENT_EXITED,
     }

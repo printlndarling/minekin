@@ -45,6 +45,8 @@ from minekin_core.adapters.sqlite.identity_store import read_identity_root
 from minekin_core.adapters.sqlite.session_log import (
     CLIENT_EXITED,
     HELLO_ACCEPTED,
+    INPUT_LEASE_GRANTED,
+    INPUT_REFUSED,
     JOIN_OBSERVED,
     PLAYABLE_ESTABLISHED,
     PROCESS_STARTED,
@@ -893,3 +895,183 @@ def test_a_rejected_login_reaches_the_ledger_with_its_category(
     # The server's own sentence has no channel into a product event; only the
     # category does.
     assert all("white-listed" not in row for row in payloads)
+
+
+async def _joined_run(*, root: Path, hold_at: str | None) -> tuple[SessionRun, Path]:
+    """One run that reaches the join and then stops, with a hold asked for.
+
+    The phases are the ones a real run reports, in order, because the session's
+    table only lets it reach a connection state *through* the attempt: a join
+    reported without the phases before it is out of order.
+    """
+
+    process = LiveProcess()
+    path = descriptor_path(root)
+    supervisor = live_supervisor(process, path, [])
+    database = root / "kin" / "kin-01" / "kin.sqlite3"
+    arguments: dict[str, Any] = {} if hold_at is None else {"hold_at": hold_at}
+    running = asyncio.create_task(
+        start_and_supervise(
+            root=root,
+            profile=PROFILE,
+            java_executable=JAVA,
+            session_id=SESSION_ID,
+            generation=GENERATION,
+            supervisor_factory=lambda _logs: supervisor,
+            handshake_timeout=5.0,
+            exit_poll_s=0.01,
+            server_profile=SERVER_PROFILE,
+            hold_forward=8.0,
+            **arguments,
+        )
+    )
+    await _wait_until(path.is_file)
+    descriptor = session_pb2.BridgeBootstrapDescriptor.FromString(path.read_bytes())
+    bridge = BridgeSession(
+        kin_id=descriptor.kin_id,
+        session_id=descriptor.session_id,
+        generation=descriptor.generation,
+        client_instance_id=descriptor.client_instance_id,
+        bundle_digest=descriptor.bundle_digest,
+        bridge_digest=descriptor.bridge_digest,
+        launch_nonce=descriptor.launch_nonce,
+        session_key=descriptor.session_key,
+    )
+    control_reader, control_writer = await connect(descriptor, envelope_pb2.CHANNEL_CONTROL)
+    _event_reader, event_writer = await connect(descriptor, envelope_pb2.CHANNEL_EVENT)
+    await write_frame(
+        control_writer,
+        envelope(
+            bridge,
+            BRIDGE_HELLO_TYPE,
+            envelope_pb2.CHANNEL_CONTROL,
+            1,
+            hello(bridge).SerializeToString(deterministic=True),
+        ),
+    )
+    await asyncio.wait_for(read_frame(control_reader), 5)
+    frame = await _wait_for_control_message(control_reader, CONNECT_WORLD_TYPE)
+    command = control_pb2.ConnectWorld.FromString(frame.payload)
+    for sequence, phase in enumerate(
+        (
+            observation_pb2.CONNECTION_PHASE_RESOLVING,
+            observation_pb2.CONNECTION_PHASE_LOGIN_NEGOTIATING,
+            observation_pb2.CONNECTION_PHASE_PLAY_INIT,
+            observation_pb2.CONNECTION_PHASE_JOIN_SEEN,
+        ),
+        start=1,
+    ):
+        await write_frame(
+            event_writer,
+            envelope(
+                bridge,
+                CONNECTION_LIFECYCLE_TYPE,
+                envelope_pb2.CHANNEL_EVENT,
+                sequence,
+                _lifecycle(bridge, command, phase).SerializeToString(deterministic=True),
+            ),
+        )
+    await _wait_until(lambda: any(row[0] == JOIN_OBSERVED for row in _ledger_rows(database)))
+    # The answer, if there is one, is written by the reader that reported the
+    # join and lands a moment after it. A run that asked has asked by now; a run
+    # that did not will never ask.
+    await asyncio.sleep(0.3)
+    process.exited = True
+    _launch, run = await asyncio.wait_for(running, 10)
+    await close_writers(control_writer, event_writer)
+    return run, database
+
+
+def _ledger_facts(database: Path) -> list[tuple[str, dict[str, Any]]]:
+    """Every recorded event, as its type and its decoded payload, in order."""
+
+    return [
+        (kind, json.loads(payload))
+        for (kind, _source, _trust), payload in zip(
+            _ledger_rows(database), _ledger_payloads(database), strict=True
+        )
+    ]
+
+
+def test_a_hold_asked_for_at_the_join_is_refused_and_the_refusal_is_recorded(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    """The contract's L4 invariant, made testable instead of assumed.
+
+    "A lease is obtained only after the join *and* the first snapshot" is a rule
+    about when Core may drive a client, and nothing could test it: Core only ever
+    asked at the moment that succeeds, and an invariant nothing is allowed to
+    violate is one nobody has evidence for. `--hold-at join` asks too early on
+    purpose, and what comes back is the evidence — the arbiter's refusal, with
+    its own reason, in the ledger, and no lease anywhere.
+    """
+
+    root = ready_data_root(tmp_path, monkeypatch)
+    run, database = asyncio.run(_joined_run(root=root, hold_at="join"))
+
+    facts = _ledger_facts(database)
+    kinds = [kind for kind, _ in facts]
+    assert JOIN_OBSERVED in kinds
+    assert INPUT_LEASE_GRANTED not in kinds
+    assert [payload for kind, payload in facts if kind == INPUT_REFUSED] == [
+        {
+            "phase": "JOIN_SEEN",
+            "capabilities": ["control.move.v1"],
+            "refusals": ["NOT_PLAYABLE"],
+        }
+    ]
+    # In the run's own order: the world the Kin joined, and then the answer to a
+    # request made before there was anything in it to drive.
+    assert kinds.index(JOIN_OBSERVED) < kinds.index(INPUT_REFUSED)
+
+    # Nothing was sent, and being refused did not end the run: a client is what
+    # ends a run, and a hold that was refused is not a reason to stop.
+    assert run.input_refusal == "NOT_PLAYABLE"
+    assert run.outcome is SessionOutcome.CLIENT_EXITED
+    # No snapshot was admitted, which is the whole reason the answer was no.
+    assert run.snapshots_admitted == 0
+    assert run.connection_cancelled == ""
+
+
+def test_a_hold_asked_for_by_default_is_not_asked_for_at_the_join(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    """The other half of the same rule, and the reason the phase is a choice.
+
+    Without `--hold-at`, a run that has joined and is not yet playable has asked
+    for nothing — so there is no refusal to record, and a run whose world arrives
+    normally carries no refusal it did not earn.
+    """
+
+    root = ready_data_root(tmp_path, monkeypatch)
+    run, database = asyncio.run(_joined_run(root=root, hold_at=None))
+
+    facts = _ledger_facts(database)
+    kinds = [kind for kind, _ in facts]
+    assert JOIN_OBSERVED in kinds
+    assert INPUT_REFUSED not in kinds
+    assert INPUT_LEASE_GRANTED not in kinds
+    assert run.input_refusal == ""
+
+
+def test_asking_when_to_hold_without_a_hold_is_refused(tmp_path: Path, monkeypatch: Any) -> None:
+    """A phase with no request behind it is not a run.
+
+    `--hold-at` says *when* to ask for input, so a run that asks when without
+    asking what is an operator error rather than a default nobody chose.
+    """
+
+    root = ready_data_root(tmp_path, monkeypatch)
+
+    with pytest.raises(MinekinError, match="--hold-at needs a hold"):
+        asyncio.run(
+            start_and_supervise(
+                root=root,
+                profile=PROFILE,
+                java_executable=JAVA,
+                session_id=SESSION_ID,
+                generation=GENERATION,
+                handshake_timeout=5.0,
+                hold_at="join",
+            )
+        )
