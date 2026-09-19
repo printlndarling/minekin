@@ -1,6 +1,6 @@
 # 开发 TODO 与执行门禁
 
-更新：2026-09-19。
+更新：2026-09-20。
 
 本文把现有设计文档转换为可执行开发队列。若本文与专项契约冲突，以更新且更具体的契约为准；P0 的实现入口是 [P0 核心原型执行计划](p0-prototype-execution-plan.md)与 [P0 core 内部架构](p0-core-internal-architecture.md)。
 
@@ -362,7 +362,10 @@
 - [x] case 声明的断言必须有实现：case manifest 里的断言名一直是自由字符串，晋级机制又照单全收 bundle 里记的东西，于是「用例点名了一个没有任何东西实现的断言」或「实现被改名」都不会被发现。现在 `tools/check_case_assertions.py` 维护一张名字→实现位置的登记表（实现分 `tool` 与 `pytest` 两种），既拒绝用例点名未登记的名字，也核对每个登记目标确实存在（pytest 那条还会确认函数名仍在文件里），改名即失败。它只校验**声明**而不运行检查——运行是 orchestrator 的事，属于需要真实客户端的运行时用例。已接入 CI 的 python job。
 - [ ] 还未接线的是让 case 真正跑出 bundle：现有 evidence bundle 的字段形状（minecraft/loader/world/identity/server 摘要）是为**运行时**用例设计的，而 `W00-CONTRACT-001` 这类仓库自检用例根本没有启动，套用那个形状就得编造 launcher 摘要。因此没有为它伪造 bundle，而是把「断言有实现」这一步先做实。
 - [x] case manifest 的 oracle 边界由 `tools/check_boundaries.py` 检查：`inputs` 不得出现 oracle 标记，`oracle_inputs` 必须落在 oracle 目录内。产品侧只校验结构——产品代码连 oracle 的名字都不许出现，这条规则曾经被我错误地放进产品里，是 `check_boundaries` 抓出来的。
-- [ ] 三条时间线（Bridge/Runtime、server truth、orchestrator）与 `evidence verify`/`replay` 的 CLI 接线：前者要真实运行，后者要 run 目录约定与断言谓词语义，两者都未定，因此 bundle 与晋级检查目前只有库、没有命令入口。
+- [x] **`evidence verify` 有命令入口了，run 目录约定也定了。** 这条原来卡在两件都「未定」的事上：run 目录约定与断言谓词语义。约定现在定了，并写进 `docs/run-directory-proposal.md` 的决定四：一次 Core 运行 = 一个 run id（uuid4 的 hex），它的证据封存在 `<kin>/run/evidence/<run-id>/`，**目录名就是 run id**，所以只拿到 run id 的校验端有一个算得出来的地址。校验端**不要求 `MINEKIN_KIN_ID`**：bundle 是拿来交给别人的，查它的人通常不是跑它的人，身份根/账本/artifact 缓存都不是回答「这份证据还立不立得住」所需要的东西；于是在数据根下的每个 Kin 里找这个名字，找到 0 个或 2 个都报 `CONFIG` 而**不挑一个**（run id 是 uuid4，撞名意味着其中一份不是它自称的那份，挑任一个都会把一次运行的证据记到另一次头上）。run id 变成路径段之前按**标识符规则**校验（`domain.ids` 那一条），而不是去找 `..`：不是 uuid 的 run id 指不到任何运行，于是它连文件系统都不该碰。**实测**走的是真实命令行入口（不是进程内调用 `run()`），`MINEKIN_HOME` 是真目录：封好的 bundle → `exit 0`、`status: verified` 且报出 `bundle_digest`；把 `server-truth.txt` 改一个字节 → `exit 12`、`violations: ["ARTIFACT_DIGEST_MISMATCH:server-truth.txt"]`；未知 run id → `exit 10`；`../home` 这种 id → `exit 10`，消息是「不是可用的 run id」。`sealed`（权限位）与 `verified`（摘要）**分开报**：摘要才是保证、权限位只是提醒，所以摘要对而权限位丢了仍然算 verified，而校验**不写一个字节**（有一条测试把整个目录的文件名/大小/mtime 取前后两次比对，并断言封着的仍是封着的）。
+- [x] **还有一条只有这一层能查的规则：目录名就是归属**，所以 manifest 里的 `test_run_id` 与目录名不一致即 `RUN_ID_MISMATCH`。bundle 只按目录名被认领（`evaluate_case_promotion` 就是用 `directory.name` 当 run id），把一份 bundle 搬到另一个 run id 下必须立刻被发现，否则晋级检查会把一次运行的证据记到另一个用例名下。
+- [ ] 三条时间线（Bridge/Runtime、server truth、orchestrator）仍然没接：三条都各自存在——Bridge 自己在记一条、服务端日志给一条、orchestrator 的判定在 harness 里——但「把三段对齐成一份可比的东西」要求真实运行，这件事没有做。
+- [ ] `replay <evidence-dir>` 仍然没有入口，因为它要的东西没定：重放要把事件流重新过一遍状态机、再与 fixture 的 `expected_projection` 比对（`tests/fixtures/replay/session-preparing.v1.json` 从 W00 冻结到现在**没有任何东西读它**），而重放需要一个 projector，数据根里也还没有「这次运行的完整事件流」被封存的约定。与其给 `replay` 一个不做这件事的入口，不如让它继续留在「未实现」里。
 - [ ] 跑完 `CORE-001…090`、mandatory OFFLINE/ADMIT cases 与 L6 baseline。
 - [ ] 门禁：mandatory case 全部有真实 `PASS` evidence 后才能标记 `P0_CORE_TESTED`。
 

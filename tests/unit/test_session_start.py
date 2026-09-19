@@ -278,16 +278,17 @@ def test_the_cli_refuses_a_session_when_no_kin_exists(
     assert "init" in capsys.readouterr().err
 
 
-def test_the_cli_reports_a_frozen_but_unimplemented_session_subcommand(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+def test_the_cli_refuses_a_run_id_that_no_bundle_answers_to(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    """`evidence verify` left the placeholder list, so its refusal is asserted here."""
+
     monkeypatch.setenv("MINEKIN_HOME", str(tmp_path))
-    stdout, stderr = io.StringIO(), io.StringIO()
 
-    code = run(["evidence", "verify", "missing-run"], stdout=stdout, stderr=stderr)
+    code = main(["evidence", "verify", "missing-run"])
 
-    assert code == int(ExitCode.USAGE)
-    assert json.loads(stderr.getvalue())["status"] == "not_implemented"
+    assert code == int(ExitCode.CONFIG)
+    assert "no evidence bundle for run missing-run" in capsys.readouterr().err
 
 
 def test_the_launch_document_is_evidence_ready() -> None:

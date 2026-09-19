@@ -13,6 +13,7 @@ from typing import TextIO
 from minekin_core.adapters.launcher.launch_plan import build_launch_plan
 from minekin_core.adapters.system.clock import SystemClock
 from minekin_core.cli.doctor import diagnose
+from minekin_core.cli.evidence import verify_run
 from minekin_core.cli.init import initialise_identity
 from minekin_core.cli.parser import parse_args
 from minekin_core.cli.session import start_and_supervise, stop_session
@@ -158,6 +159,14 @@ def run(
             stdout,
         )
         return int(ExitCode.OK)
+
+    if args.command == "evidence" and args.evidence_command == "verify":
+        # Whether a bundle holds up is not a reason the command failed, so it
+        # gets its own exit code rather than an error: the report on stdout is
+        # the answer, and the code is what a script branches on.
+        verification = verify_run(data_root(), args.run_id)
+        _emit(verification.as_dict(), stdout)
+        return int(ExitCode.OK if verification.verified else ExitCode.STORAGE)
 
     command = _command_name(args)
     _emit(

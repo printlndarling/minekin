@@ -66,7 +66,8 @@ def test_session_start_can_name_the_saved_world_to_join() -> None:
 @pytest.mark.parametrize(
     "argv",
     [
-        ["evidence", "verify", "missing-run"],
+        # `evidence verify` left this list when it got an implementation; the
+        # ones left here are still frozen with nowhere to dispatch to.
         ["replay", "missing-evidence"],
     ],
 )
