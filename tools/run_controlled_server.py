@@ -158,6 +158,22 @@ def kill_command(player: str) -> str:
     return f"kill {player}"
 
 
+def kick_command(player: str) -> str:
+    """The console line that disconnects a player, or a refusal.
+
+    A death proves the client lets go when a screen takes the keyboard; a kick
+    proves it lets go when the *session* ends, which is a different trigger the
+    contract names separately. Only the server can start one, which is what keeps
+    the two sides of the evidence independent.
+    """
+
+    from minekin_core.domain.offline_identity import is_valid_username
+
+    if not is_valid_username(player):
+        raise SystemExit(f"not a vanilla player name: {player!r}")
+    return f"kick {player}"
+
+
 def has_joined(log: Path, player: str) -> bool:
     """Whether the server has said this player is in the world."""
 
@@ -289,6 +305,12 @@ def main() -> int:
     )
     parser.add_argument("--java", type=Path, default=None)
     parser.add_argument(
+        "--kick-player",
+        default=None,
+        metavar="NAME",
+        help="disconnect this player once it has joined, so a release has a session cause",
+    )
+    parser.add_argument(
         "--kill-player",
         default=None,
         metavar="NAME",
@@ -355,6 +377,13 @@ def main() -> int:
     probe = None if args.probe_player is None else position_probe_command(args.probe_player)
     rotation = None if args.probe_player is None else rotation_probe_command(args.probe_player)
     kill = None if args.kill_player is None else kill_command(args.kill_player)
+    kick = None if args.kick_player is None else kick_command(args.kick_player)
+    pending: list[tuple[str, str]] = []
+    if kill is not None:
+        pending.append(("killed", kill))
+    if kick is not None:
+        pending.append(("kicked", kick))
+    watched_player = str(args.kill_player or args.kick_player or "")
     joined_at = None
     # Asked immediately: the join line the server already writes says where the
     # player started, and a probe that waited a full interval would only say it
@@ -405,20 +434,23 @@ def main() -> int:
                             process.stdin.write((rotation + "\n").encode())
                             process.stdin.flush()
                         next_probe = time.monotonic() + args.probe_every_seconds
-                    # Killed through a death rather than a disconnect: a disconnect
-                    # ends the session, and a death is the case where the client is
-                    # still running and no longer taking input.
-                    if kill is not None and process.stdin is not None:
-                        if joined_at is None and has_joined(log, str(args.kill_player)):
+                    # Console commands that end a session in the two ways the
+                    # contract names separately: a death leaves the client running
+                    # with a screen owning the keyboard, and a kick ends the
+                    # session. Both are driven from here because only the server
+                    # can start either, which is what keeps the evidence two-sided.
+                    if pending and process.stdin is not None:
+                        if joined_at is None and has_joined(log, watched_player):
                             joined_at = time.monotonic()
                         if (
                             joined_at is not None
                             and time.monotonic() - joined_at >= args.kill_after_join_seconds
                         ):
-                            process.stdin.write((kill + "\n").encode())
-                            process.stdin.flush()
-                            print(f"killed: {args.kill_player}")
-                            kill = None
+                            for label, command in pending:
+                                process.stdin.write((command + "\n").encode())
+                                process.stdin.flush()
+                                print(f"{label}: {watched_player}")
+                            pending.clear()
                     time.sleep(0.1)
                 return process.returncode
         finally:

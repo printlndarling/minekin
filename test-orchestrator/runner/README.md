@@ -481,6 +481,35 @@ will not. A run therefore accepts either ending as proof that the release took
 effect — the Kin stopped walking, or the Kin is gone, and a process that has
 exited cannot be holding a key.
 
+### When the server ends the session
+
+`MINEKIN_DOMAIN_KICK=Kin` has the server kick the Kin a few seconds after it
+joins, while it is holding forward. A kick ends the *session*; a death leaves the
+session running with a screen owning the keyboard. The contract names them as
+separate release triggers, so a run has to be able to produce both.
+
+```text
+$ MINEKIN_SERVER_JAR=… MINEKIN_DOMAIN_PROBE=Kin MINEKIN_DOMAIN_KICK=Kin bash test-orchestrator/runner/run.sh domain \
+      session start --profile … --server-profile … --hold-forward-seconds 60
+domain: the server ended the session while the client kept running
+server   [19:11:48] Kicked Kin: Kicked by an operator
+server   [19:11:48] Kin lost connection: Kicked by an operator
+client   [19:11:48] bridge released move.forward
+client   [19:11:48] bridge released 1 input(s) after LEFT_PLAYABLE (PLAY_ENDED)
+ledger   SessionInterrupted{phase: FAILED, reason: ADMISSION_FAILURE_REASON_UNEXPECTED_DISCONNECT}
+```
+
+The client keeps running after the kick — the session ended, not the process — so
+this run still ends with a document, unlike the killed-Core one.
+
+Getting there found a real defect of the kind this file keeps producing: the play
+disconnect arrives on the **network** thread, and the key sink refuses to touch
+bindings anywhere but the client thread. Releasing inline therefore threw
+`Minecraft input may only change on the client thread`, which the Bridge's own
+error handling turned into a stopped client — on the one path that exists to let
+go of the keys. The release is now dispatched with `client.execute(...)`, and the
+sink's assertion is what caught it rather than a run that merely looked wrong.
+
 ### When the keyboard stops being the world's
 
 A held key has to come up when the client stops taking input, and the run can

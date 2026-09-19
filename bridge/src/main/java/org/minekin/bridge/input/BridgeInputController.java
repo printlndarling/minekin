@@ -35,7 +35,6 @@ public final class BridgeInputController {
         BRIDGE_FAULT,
         CORE_REQUEST,
         LEFT_PLAYABLE,
-        OPERATOR,
         SHUTDOWN
     }
 

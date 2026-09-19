@@ -69,7 +69,8 @@ if [[ "${1:-}" == "domain" ]]; then
     # unset: the runner does not invent a world for the operator.
     EXTRA_ARGS=(-v "${SERVER_JAR}:/server/server.jar:ro" -e MINEKIN_DOMAIN_SUMMON
         -e MINEKIN_DOMAIN_PROBE -e MINEKIN_DOMAIN_PROBE_SECONDS -e MINEKIN_DOMAIN_LOOK
-        -e MINEKIN_DOMAIN_KILL -e MINEKIN_DOMAIN_KILL_CORE -e MINEKIN_DOMAIN_SILENCE
+        -e MINEKIN_DOMAIN_KILL -e MINEKIN_DOMAIN_KICK -e MINEKIN_DOMAIN_KILL_CORE
+        -e MINEKIN_DOMAIN_SILENCE
         -e MINEKIN_DOMAIN_SECONDS)
     ENDPOINT=(--entrypoint /bin/bash)
     # The server and the client are both in this one container, which is the only

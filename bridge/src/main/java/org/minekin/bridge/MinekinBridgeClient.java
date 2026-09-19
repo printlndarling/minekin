@@ -135,7 +135,25 @@ public final class MinekinBridgeClient implements ClientModInitializer {
                 // taken here because the server's world has not reached the client.
                 controller::joinSeen));
         ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> observe(
-                client, controller, created, controller::playEnded));
+                client,
+                controller,
+                created,
+                () -> {
+                    // Dispatched to the client thread rather than done here: a play
+                    // disconnect arrives on the network thread, and the keys belong to
+                    // the client. Measured — releasing inline threw
+                    // "Minecraft input may only change on the client thread", which the
+                    // sink's guard turned into a Bridge fault and a stopped client, on
+                    // the one path that exists to let go of the keys.
+                    //
+                    // Released before the report rather than after it, and named for
+                    // what happened: the title screen vanilla shows next would otherwise
+                    // be what an operator reads as the cause, which is a true fact about
+                    // the keyboard standing in for the fact about the session.
+                    client.execute(() -> created.releaseInputsOnClientThread(
+                            BridgeInputController.ReleaseReason.LEFT_PLAYABLE, "PLAY_ENDED"));
+                    controller.playEnded();
+                }));
 
         admission = controller;
         worker = created;

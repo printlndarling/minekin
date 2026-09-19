@@ -20,6 +20,7 @@ player="${MINEKIN_USERNAME:-Kin}"
 summon="${MINEKIN_DOMAIN_SUMMON:-}"
 probe="${MINEKIN_DOMAIN_PROBE:-}"
 kill="${MINEKIN_DOMAIN_KILL:-}"
+kick="${MINEKIN_DOMAIN_KICK:-}"
 silence="${MINEKIN_DOMAIN_SILENCE:-}"
 look="${MINEKIN_DOMAIN_LOOK:-}"
 kill_core="${MINEKIN_DOMAIN_KILL_CORE:-}"
@@ -63,6 +64,13 @@ if [[ -n "${kill}" ]]; then
     kill_args=(--kill-player "${kill}")
 fi
 
+# Same for the other ending a server can start: a kick, which ends the session
+# while the client keeps running.
+kick_args=()
+if [[ -n "${kick}" ]]; then
+    kick_args=(--kick-player "${kick}")
+fi
+
 # One fresh directory per run, numbered past everything already there: a run
 # directory is evidence and is only ever appended to.
 n=1
@@ -80,6 +88,7 @@ python /src/tools/run_controlled_server.py \
     "${summon_args[@]}" \
     "${probe_args[@]}" \
     "${kill_args[@]}" \
+    "${kick_args[@]}" \
     --keep-running >/tmp/domain-server.log 2>&1 &
 server_pid=$!
 
@@ -358,6 +367,31 @@ if [[ -n "${kill_core}" ]]; then
     else
         printf 'domain: the server saw the Kin stop after Core died
 ' >&2
+    fi
+fi
+
+# Kicked rather than killed: the server ends the session and the client keeps
+# running, which is the trigger §12 calls leaving playable. The kick itself is
+# fired by the server tool on its own clock; what is waited for here is the
+# server's own account of the session ending.
+if [[ -n "${kick}" ]]; then
+    kicked=0
+    deadline=$((SECONDS + seconds))
+    for _ in $(seq 1 "${seconds}"); do
+        kill -0 "${session_pid}" 2>/dev/null || break
+        [ "${SECONDS}" -lt "${deadline}" ] || break
+        if grep -qE "${kick} (lost connection|left the game)" \n            "${server_directory}/server.log" 2>/dev/null; then
+            kicked=1
+            break
+        fi
+        sleep 1
+    done
+    if [ "${kicked}" -eq 1 ]; then
+        printf 'domain: the server ended the session while the client kept running
+' >&2
+    else
+        printf 'domain: the server never ended the session within %ss
+' "${seconds}" >&2
     fi
 fi
 
