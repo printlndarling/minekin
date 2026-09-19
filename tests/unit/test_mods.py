@@ -216,6 +216,13 @@ def test_a_started_session_finds_its_mods_in_the_overlay(
     monkeypatch.setattr(session_module, "require_built_bridge", built_bridge)
     monkeypatch.setattr(session_module, "find_workspace_root", this_workspace)
 
+    # The fabricated plan declares no natives, and extraction has its own tests;
+    # this one is about where the mods end up.
+    def no_natives(*_args: object, **_kwargs: object) -> tuple[Path, ...]:
+        return ()
+
+    monkeypatch.setattr(session_module, "materialise_natives", no_natives)
+
     launch = start_session(
         root=root,
         profile=PROFILE,

@@ -25,6 +25,7 @@ from minekin_core.adapters.launcher.launch_plan import (
     find_workspace_root,
 )
 from minekin_core.adapters.launcher.mods import install_fixed_mods
+from minekin_core.adapters.launcher.natives import materialise_natives
 from minekin_core.adapters.launcher.offline_session import OFFLINE_SESSION_CANDIDATES
 from minekin_core.adapters.launcher.orphans import (
     Liveness,
@@ -370,6 +371,12 @@ async def prepare_session_async(
         store=ArtifactStore(runs / "artifact-store"),
         workspace_root=find_workspace_root(Path(__file__).resolve()),
     )
+
+    # The natives are not on the classpath: the plan names them apart from it and
+    # the client is given their directory as `java.library.path`. Nothing else
+    # takes them out of their jars, and a client that cannot load LWJGL says so
+    # only once it has already started, as a missing `liblwjgl.so`.
+    materialise_natives(plan, overlay=overlay, store=ArtifactStore(runs / "artifact-store"))
 
     run_id = RunId.new().value
     client_instance_id = ClientInstanceId.new().value
