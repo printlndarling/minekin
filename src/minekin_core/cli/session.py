@@ -626,6 +626,9 @@ class InputPlan:
     """
 
     hold_seconds: float | None = None
+    strafe: float = 0.0
+    jump: bool = False
+    sneak: bool = False
     yaw_degrees: float = 0.0
     pitch_degrees: float = 0.0
     look: bool = False
@@ -675,6 +678,9 @@ class InputPlan:
                         lease_id=lease.lease_id,
                         generation=int(lease.generation),
                         forward=1.0,
+                        strafe=self.strafe,
+                        jump=self.jump,
+                        sneak=self.sneak,
                         deadline_monotonic_ns=deadline_ns,
                     ),
                 )
@@ -715,6 +721,9 @@ async def start_and_supervise(
     server_profile: Path | None = None,
     connection_timeout: float = DEFAULT_CONNECTION_TIMEOUT_S,
     hold_forward: float | None = None,
+    hold_strafe: float | None = None,
+    hold_jump: bool = False,
+    hold_sneak: bool = False,
     look_yaw_degrees: float | None = None,
     look_pitch_degrees: float | None = None,
 ) -> tuple[SessionLaunch, SessionRun]:
@@ -770,11 +779,20 @@ async def start_and_supervise(
             f"{ADMISSION_CAPABILITY}, so no connection can be requested"
         )
     wants_look = look_yaw_degrees is not None or look_pitch_degrees is not None
+    # The axes and the keys are modifiers of the hold: a duration is what makes a
+    # hold exist, and asking to hold an axis without one is a run that means
+    # nothing rather than a run with a default duration nobody chose.
+    axis_asked = hold_strafe is not None or hold_jump or hold_sneak
+    if axis_asked and hold_forward is None:
+        raise _reject("holding an axis needs --hold-forward-seconds: it is the hold's length")
     plan = (
         None
         if hold_forward is None and not wants_look
         else InputPlan(
             hold_seconds=hold_forward,
+            strafe=0.0 if hold_strafe is None else hold_strafe,
+            jump=hold_jump,
+            sneak=hold_sneak,
             look=wants_look,
             yaw_degrees=0.0 if look_yaw_degrees is None else look_yaw_degrees,
             pitch_degrees=0.0 if look_pitch_degrees is None else look_pitch_degrees,
@@ -788,6 +806,10 @@ async def start_and_supervise(
         # A lease deadline already past is not a hold, it is a refusal dressed as
         # one, and the run would report a Kin that never moved.
         raise _reject("--hold-forward-seconds must be positive")
+    if hold_strafe is not None and not -1.0 <= hold_strafe <= 1.0:
+        # The Bridge refuses an out-of-range axis rather than clamping it; an
+        # operator who typed one should hear about it before a client starts.
+        raise _reject("--hold-strafe is bounded to -1..1")
     for degrees, flag in (
         (look_yaw_degrees, "--look-yaw-degrees"),
         (look_pitch_degrees, "--look-pitch-degrees"),

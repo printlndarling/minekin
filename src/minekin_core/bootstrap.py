@@ -117,6 +117,9 @@ def run(
                 hold_forward=(
                     None if args.hold_forward_seconds is None else float(args.hold_forward_seconds)
                 ),
+                hold_strafe=(None if args.hold_strafe is None else float(args.hold_strafe)),
+                hold_jump=bool(args.hold_jump),
+                hold_sneak=bool(args.hold_sneak),
                 look_yaw_degrees=(
                     None if args.look_yaw_degrees is None else float(args.look_yaw_degrees)
                 ),

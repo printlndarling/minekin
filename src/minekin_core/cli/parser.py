@@ -66,6 +66,28 @@ def build_parser() -> argparse.ArgumentParser:
     # The look, which is the other half of what a run may ask for. Two flags
     # because they are two axes and one of them may be left alone: a look of
     # exactly zero degrees is not a look, so absent has to be expressible.
+    # The rest of the movement axes, as modifiers of the hold: the duration flag
+    # is what makes a hold exist at all, and these say what is held. Each is a
+    # field of MoveInput, so none of them is a new concept on the wire — what
+    # they verify is that the binding the Bridge presses for each name is the
+    # one vanilla calls that thing, which no unit test can decide.
+    session_start.add_argument(
+        "--hold-strafe",
+        type=float,
+        default=None,
+        metavar="AXIS",
+        help="hold the strafe axis too, -1 left to 1 right (needs --hold-forward-seconds)",
+    )
+    session_start.add_argument(
+        "--hold-jump",
+        action="store_true",
+        help="hold the jump key for the length of the hold",
+    )
+    session_start.add_argument(
+        "--hold-sneak",
+        action="store_true",
+        help="hold the sneak key for the length of the hold",
+    )
     session_start.add_argument(
         "--look-yaw-degrees",
         type=float,

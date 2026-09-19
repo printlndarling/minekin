@@ -172,6 +172,16 @@ horizontal_positions() {
         awk -F', *' 'NF == 3 {print $1","$3}'
 }
 
+# The height the server has reported, one per line. A jump is the only thing that
+# shows up here and nowhere else: the Kin leaves the ground and comes back, at the
+# same place.
+reported_heights() {
+    { grep -o 'has the following entity data: \[[^]]*\]' \
+        "${server_directory}/server.log" 2>/dev/null || true; } |
+        sed 's/.*\[//; s/\]//; s/[df]//g' |
+        awk -F', *' 'NF == 3 {print $2}'
+}
+
 # The rotation the server has reported, one yaw per line. Two components rather
 # than three is what tells a rotation reading from a position reading: the server
 # answers both with the same words and only the shape differs.
@@ -269,7 +279,11 @@ if [[ -n "${probe}" && "${hold_requested}" -eq 1 && -z "${kill_core}" ]]; then
         sleep 1
     done
     if [ "${walked}" -eq 1 ]; then
-        printf 'domain: the server saw the Kin walk and then stop\n' >&2
+        heights=$(reported_heights)
+        span=$(printf '%s\n' "${heights}" | sort -n |
+            awk 'NR == 1 { lo = $1 } { hi = $1 } END { printf "%.2f", hi - lo }')
+        printf 'domain: the server saw the Kin walk and stop; its height moved through %s blocks\n' \
+            "${span}" >&2
     else
         printf 'domain: the server never saw the Kin walk and stop within %ss\n' "${seconds}" >&2
     fi

@@ -362,6 +362,21 @@ for another ten, so what ended the walk was the lease and not the run. Those
 two look identical in a log that simply stops, which is why the harness waits
 for both.
 
+`--hold-strafe`, `--hold-jump` and `--hold-sneak` add to what the hold holds, and
+each is checked against a number vanilla publishes rather than against "something
+happened":
+
+| Held | The server saw |
+| --- | --- |
+| forward (`--hold-forward-seconds N`) | 4.32 blocks/s (walking is 4.317) |
+| `--hold-sneak` | 1.30 blocks/s (4.317 × 0.3 = 1.295) |
+| `--hold-jump` | a height range of 1.25 blocks (a jump is 1.2522) |
+| `--hold-strafe 1` | X and Z changing equally — a 45° diagonal |
+
+That is the one thing unit tests cannot decide: whether the binding the Bridge
+presses for a name is what vanilla calls that name. A `KeyBinding` mapped to the
+wrong field passes every test in the repository and walks the Kin sideways.
+
 The run waits for **two positions that differ horizontally, and then for the
 last two to agree**: a Kin standing still at spawn can be reported twice with
 different `Y`, so counting any two positions would accept a fall at spawn as a

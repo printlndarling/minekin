@@ -107,3 +107,18 @@ def test_both_kinds_are_two_commands_under_one_lease_in_a_stable_order() -> None
     move = cast(control_pb2.MoveInput, commands[0][2])
     look = cast(control_pb2.LookInput, commands[1][2])
     assert move.lease_id == look.lease_id == "lease-1"
+
+
+def test_the_axes_a_hold_asks_for_travel_on_the_command() -> None:
+    """Each name is a field of MoveInput, so what a run holds is what it sends."""
+
+    plan = InputPlan(hold_seconds=4.0, strafe=-1.0, jump=True, sneak=False)
+    plan.action_id = "action-4"
+
+    commands = plan.commands(lease(), DEADLINE)
+
+    move = cast(control_pb2.MoveInput, commands[0][2])
+    assert move.forward == 1.0
+    assert move.strafe == -1.0
+    assert move.jump is True
+    assert move.sneak is False
