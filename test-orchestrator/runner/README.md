@@ -246,3 +246,21 @@ What found it was not another exclusion. It was standing a small capture server
 on 25565 in this container and reading the bytes the client put on the wire —
 no server jar, no bridge change, no re-recorded pin. `next_state=3` appears in
 no log anywhere. When both ends are silent, read the bytes.
+
+### Refusals get classified too
+
+Setting `MINEKIN_USERNAME` to another name whitelists that name instead of the
+Kin's — the client's own username comes from the identity root, not the
+environment — so the domain refuses the Kin:
+
+```text
+server   Disconnecting Kin (…): You are not white-listed on this server!
+client   bridge observed a login disconnect from the server: You are not white-listed on this server!
+client   bridge classified the login failure as ADMISSION_FAILURE_REASON_WHITELIST_REJECTED
+ledger   SessionInterrupted  {"phase":"FAILED","reason":"ADMISSION_FAILURE_REASON_WHITELIST_REJECTED"}
+```
+
+The server's sentence stays in the local log; only the category reaches the
+ledger, because a server may say anything and the product event may not carry
+it. The hook is `onDisconnect(LoginDisconnectS2CPacket)`, measured rather than
+guessed: `onDisconnected` is not reached for a kick the server sends.

@@ -640,3 +640,129 @@ def test_an_unusable_server_profile_is_refused_before_the_client_starts(
     # run begins, so an unusable one costs nothing but the error message.
     assert spawned == []
     assert not descriptor_path(tmp_path).exists()
+
+
+def _ledger_payloads(database: Path) -> list[str]:
+    """The recorded payloads, in order, as the ledger holds them."""
+
+    connection = sqlite3.connect(database)
+    try:
+        rows = connection.execute("SELECT payload_json FROM event ORDER BY position").fetchall()
+    finally:
+        connection.close()
+    return [str(row[0]) for row in rows]
+
+
+def test_a_rejected_login_reaches_the_ledger_with_its_category(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    """A failure whose category is dropped is a failure nobody can act on.
+
+    The Bridge classifies what a server said into a stable enum and puts that on
+    the wire; this asserts the other end of that: the category survives Core's
+    reading of the report and lands in the ledger next to the phase, so evidence
+    says *why* a Kin could not enter a world and not merely that it could not.
+    """
+
+    root = ready_data_root(tmp_path, monkeypatch)
+    process = LiveProcess()
+    supervisor = live_supervisor(process, descriptor_path(tmp_path), [])
+    database = root / "kin" / "kin-01" / "kin.sqlite3"
+
+    async def scenario() -> None:
+        running = asyncio.create_task(
+            start_and_supervise(
+                root=root,
+                profile=PROFILE,
+                java_executable=JAVA,
+                session_id=SESSION_ID,
+                generation=GENERATION,
+                supervisor_factory=lambda _logs: supervisor,
+                handshake_timeout=5.0,
+                exit_poll_s=0.01,
+                server_profile=SERVER_PROFILE,
+            )
+        )
+        path = descriptor_path(tmp_path)
+        await _wait_until(path.is_file)
+        descriptor = session_pb2.BridgeBootstrapDescriptor.FromString(path.read_bytes())
+        bridge = BridgeSession(
+            kin_id=descriptor.kin_id,
+            session_id=descriptor.session_id,
+            generation=descriptor.generation,
+            client_instance_id=descriptor.client_instance_id,
+            bundle_digest=descriptor.bundle_digest,
+            bridge_digest=descriptor.bridge_digest,
+            launch_nonce=descriptor.launch_nonce,
+            session_key=descriptor.session_key,
+        )
+        control_reader, control_writer = await connect(descriptor, envelope_pb2.CHANNEL_CONTROL)
+        _event_reader, event_writer = await connect(descriptor, envelope_pb2.CHANNEL_EVENT)
+        await write_frame(
+            control_writer,
+            envelope(
+                bridge,
+                BRIDGE_HELLO_TYPE,
+                envelope_pb2.CHANNEL_CONTROL,
+                1,
+                hello(bridge).SerializeToString(deterministic=True),
+            ),
+        )
+        await asyncio.wait_for(read_frame(control_reader), 5)
+        frame = await _wait_for_control_message(control_reader, CONNECT_WORLD_TYPE)
+        command = control_pb2.ConnectWorld.FromString(frame.payload)
+
+        # The server refused this Kin: the Bridge says so with the stable enum
+        # it classified the server's sentence into, and the failure is terminal.
+        # RESOLVING comes first because §7's table only lets a session reach the
+        # connection states *through* the attempt — a failure reported without it
+        # is out of order, which is a rule this repository already pins.
+        for sequence, (phase, reason, terminal) in enumerate(
+            (
+                (
+                    observation_pb2.CONNECTION_PHASE_RESOLVING,
+                    observation_pb2.ADMISSION_FAILURE_REASON_UNSPECIFIED,
+                    False,
+                ),
+                (
+                    observation_pb2.CONNECTION_PHASE_FAILED,
+                    observation_pb2.ADMISSION_FAILURE_REASON_WHITELIST_REJECTED,
+                    True,
+                ),
+            ),
+            start=1,
+        ):
+            lifecycle = observation_pb2.ConnectionLifecycle(
+                generation=bridge.generation,
+                server_profile_id=command.server_profile_id,
+                server_profile_revision=command.server_profile_revision,
+                phase=phase,
+                failure_reason=reason,
+                terminal=terminal,
+            )
+            await write_frame(
+                event_writer,
+                envelope(
+                    bridge,
+                    CONNECTION_LIFECYCLE_TYPE,
+                    envelope_pb2.CHANNEL_EVENT,
+                    sequence,
+                    lifecycle.SerializeToString(deterministic=True),
+                ),
+            )
+        await _wait_until(lambda: any("FAILED" in row for row in _ledger_payloads(database)))
+        process.exited = True
+        await asyncio.wait_for(running, 10)
+        await close_writers(control_writer, event_writer)
+
+    asyncio.run(scenario())
+
+    payloads = _ledger_payloads(database)
+    interrupted = next(row for row in payloads if "FAILED" in row)
+    assert json.loads(interrupted) == {
+        "phase": "FAILED",
+        "reason": "ADMISSION_FAILURE_REASON_WHITELIST_REJECTED",
+    }
+    # The server's own sentence has no channel into a product event; only the
+    # category does.
+    assert all("white-listed" not in row for row in payloads)

@@ -34,8 +34,13 @@ final class ClientAdmissionControllerTest {
             });
 
     private void inWorld() {
-        phases.transition(BridgePhaseMachine.Phase.IPC_CONNECTING);
-        phases.transition(BridgePhaseMachine.Phase.OBSERVE_ONLY);
+        // Idempotent, because a terminal report already puts the machine back at
+        // OBSERVE_ONLY — which is the state a second attempt legitimately starts
+        // from, and not an illegal transition.
+        if (phases.phase() != BridgePhaseMachine.Phase.OBSERVE_ONLY) {
+            phases.transition(BridgePhaseMachine.Phase.IPC_CONNECTING);
+            phases.transition(BridgePhaseMachine.Phase.OBSERVE_ONLY);
+        }
     }
 
     private void beginAttempt() {
@@ -139,5 +144,61 @@ final class ClientAdmissionControllerTest {
         controller.playEnded();
 
         assertEquals(List.of(), reported);
+    }
+
+    @Test
+    void aServerReasonBecomesTheStableCategoryForIt() {
+        // The exact sentence a vanilla 1.21.4 server sends, measured in the
+        // controlled domain rather than invented here.
+        assertEquals(
+                AdmissionFailureReason.ADMISSION_FAILURE_REASON_WHITELIST_REJECTED,
+                ClientAdmissionController.classifyLoginFailure(
+                        "You are not white-listed on this server!"));
+        assertEquals(
+                AdmissionFailureReason.ADMISSION_FAILURE_REASON_DUPLICATE_LOGIN,
+                ClientAdmissionController.classifyLoginFailure(
+                        "You are already connected to this server!"));
+        assertEquals(
+                AdmissionFailureReason.ADMISSION_FAILURE_REASON_AUTH_MODE_MISMATCH,
+                ClientAdmissionController.classifyLoginFailure(
+                        "Failed to verify username!"));
+        assertEquals(
+                AdmissionFailureReason.ADMISSION_FAILURE_REASON_PROTOCOL_MISMATCH,
+                ClientAdmissionController.classifyLoginFailure("Outdated server!"));
+    }
+
+    @Test
+    void aReasonNobodyRecognisesStaysUnclassified() {
+        // A wrong category is a claim about the server that nobody made, so an
+        // unknown sentence is an honest "unclassified" rather than a guess.
+        assertEquals(
+                AdmissionFailureReason.ADMISSION_FAILURE_REASON_UNEXPECTED_DISCONNECT,
+                ClientAdmissionController.classifyLoginFailure("Server is restarting, sorry!"));
+        assertEquals(
+                AdmissionFailureReason.ADMISSION_FAILURE_REASON_UNEXPECTED_DISCONNECT,
+                ClientAdmissionController.classifyLoginFailure(""));
+        assertEquals(
+                AdmissionFailureReason.ADMISSION_FAILURE_REASON_UNEXPECTED_DISCONNECT,
+                ClientAdmissionController.classifyLoginFailure(null));
+    }
+
+    @Test
+    void aReasonIsClassifiedOnceAndThenForgotten() {
+        ClientAdmissionController.rememberLoginReason("You are not white-listed on this server!");
+        beginAttempt();
+        controller.loginFailed();
+
+        assertEquals(
+                AdmissionFailureReason.ADMISSION_FAILURE_REASON_WHITELIST_REJECTED,
+                only().getFailureReason());
+
+        // The next attempt must not inherit the last one's reason: a rejection
+        // attributed to a connection that never happened is worse than none.
+        reported.clear();
+        beginAttempt();
+        controller.loginFailed();
+        assertEquals(
+                AdmissionFailureReason.ADMISSION_FAILURE_REASON_UNEXPECTED_DISCONNECT,
+                only().getFailureReason());
     }
 }

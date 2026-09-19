@@ -6,6 +6,7 @@ import io.minekin.protocol.v1.ConnectionLifecycle;
 import io.minekin.protocol.v1.ConnectionPhase;
 import io.minekin.protocol.v1.ResourcePackPolicy;
 import io.netty.channel.ChannelFuture;
+import java.util.Locale;
 import java.util.function.Predicate;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.screen.Screen;
@@ -106,13 +107,69 @@ public final class ClientAdmissionController {
      * <p>A failure rather than a disconnect: nothing was joined, so there is no
      * session a normal end could have ended. The reason is the stable enum and
      * never the server's own words — a server may say anything, and this is a
-     * product event.
+     * product event. The words are still what decides *which* enum, so they are
+     * read here and classified rather than forwarded.
      */
     public void loginFailed() {
-        report(
-                ConnectionPhase.CONNECTION_PHASE_FAILED,
-                AdmissionFailureReason.ADMISSION_FAILURE_REASON_UNEXPECTED_DISCONNECT,
-                true);
+        AdmissionFailureReason reason = classifyLoginFailure(takeLoginReason());
+        LOGGER.info("bridge classified the login failure as {}", reason);
+        report(ConnectionPhase.CONNECTION_PHASE_FAILED, reason, true);
+    }
+
+    /**
+     * The reason a server gave for ending a login, held between the packet that
+     * carried it and the report that classifies it.
+     *
+     * <p>Static because the two halves that meet here cannot see each other: a
+     * mixin has no instance to hold, and the controller is per client — and
+     * there is exactly one client per process, which the mod already enforces by
+     * refusing to initialize twice. It is cleared as it is read, so a reason
+     * from one attempt can never be classified against the next.
+     */
+    private static volatile String pendingLoginReason = "";
+
+    public static void rememberLoginReason(String reason) {
+        pendingLoginReason = reason == null ? "" : reason;
+    }
+
+    private static String takeLoginReason() {
+        String reason = pendingLoginReason;
+        pendingLoginReason = "";
+        return reason;
+    }
+
+    /**
+     * The stable classification for a login a server ended.
+     *
+     * <p>The server's own words are the only thing that tells a whitelist
+     * rejection apart from an authentication mismatch — the protocol carries a
+     * sentence, not a code — so this matches the sentences a *vanilla* server
+     * sends and nothing more. A reason it does not recognise stays
+     * UNEXPECTED_DISCONNECT rather than being forced into a category: a wrong
+     * category is worse evidence than an honest "unclassified", because it is a
+     * claim about the server that nobody made.
+     */
+    static AdmissionFailureReason classifyLoginFailure(String reason) {
+        String text = reason == null ? "" : reason.toLowerCase(Locale.ROOT);
+        if (text.isBlank()) {
+            return AdmissionFailureReason.ADMISSION_FAILURE_REASON_UNEXPECTED_DISCONNECT;
+        }
+        if (text.contains("not white-listed") || text.contains("not whitelisted")) {
+            return AdmissionFailureReason.ADMISSION_FAILURE_REASON_WHITELIST_REJECTED;
+        }
+        if (text.contains("already connected") || text.contains("logged in from another location")) {
+            return AdmissionFailureReason.ADMISSION_FAILURE_REASON_DUPLICATE_LOGIN;
+        }
+        if (text.contains("failed to verify username") || text.contains("not authenticated")) {
+            return AdmissionFailureReason.ADMISSION_FAILURE_REASON_AUTH_MODE_MISMATCH;
+        }
+        if (text.contains("outdated server") || text.contains("outdated client")) {
+            return AdmissionFailureReason.ADMISSION_FAILURE_REASON_PROTOCOL_MISMATCH;
+        }
+        if (text.contains("resource pack")) {
+            return AdmissionFailureReason.ADMISSION_FAILURE_REASON_RESOURCE_PACK_BLOCKED;
+        }
+        return AdmissionFailureReason.ADMISSION_FAILURE_REASON_UNEXPECTED_DISCONNECT;
     }
 
     /** A play session ended. Terminal, and deliberately without a reason. */

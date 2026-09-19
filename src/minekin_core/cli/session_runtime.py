@@ -89,7 +89,7 @@ async def supervise_session(
     until_client_exit: Callable[[], Awaitable[object]],
     on_handshake: Callable[[], Awaitable[None]] | None = None,
     on_ready: Callable[[], Awaitable[None]] | None = None,
-    on_connection: Callable[[ConnectionState], Awaitable[None]] | None = None,
+    on_connection: Callable[[ConnectionState, str], Awaitable[None]] | None = None,
 ) -> SessionRun:
     """Wait for the handshake, follow the Bridge, and stop when the client does.
 
@@ -104,10 +104,13 @@ async def supervise_session(
     runtime does not send the command itself because which world, and under which
     profile, is a decision it has no inputs for.
 
-    The two callbacks report what this run observed — that the Bridge proved its
-    session, and which connection state an attempt reached. They say nothing
-    about how that becomes a ledger entry: which event type and which trust
-    class a fact deserves is a decision this module has no business making.
+    The callbacks report what this run observed — that the Bridge proved its
+    session, and which connection state an attempt reached *and why it stopped
+    there*. The reason is the Bridge's stable classification, not a server's
+    words, and it travels with the state because a failure whose category is
+    dropped is a failure nobody can act on. They say nothing about how that
+    becomes a ledger entry: which event type and which trust class a fact
+    deserves is a decision this module has no business making.
     """
 
     if handshake_timeout <= 0:
@@ -197,7 +200,7 @@ async def _read_events(
     session: SessionStateMachine,
     connections: ConnectionGenerations,
     progress: _Progress,
-    on_connection: Callable[[ConnectionState], Awaitable[None]] | None,
+    on_connection: Callable[[ConnectionState, str], Awaitable[None]] | None,
 ) -> None:
     """Apply every reported phase until the channel ends or the run is cancelled."""
 
@@ -221,7 +224,7 @@ async def _read_events(
             and decision.disposition in _REPORTED_DISPOSITIONS
             and decision.current_state is not None
         ):
-            await on_connection(decision.current_state)
+            await on_connection(decision.current_state, outcome.failure_reason)
 
 
 def _wind_down(session: SessionStateMachine, *, failed: bool) -> None:

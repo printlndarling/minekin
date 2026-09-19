@@ -689,15 +689,21 @@ async def start_and_supervise(
         )
         await host.send_control(CONNECT_WORLD_TYPE, command)
 
-    async def on_connection(state: ConnectionState) -> None:
+    async def on_connection(state: ConnectionState, reason: str) -> None:
         event_type = _CONNECTION_EVENTS.get(state)
         if event_type is None:
             # A phase that only moves the session closer to a join is not a fact
             # §5 names, and inventing one would put noise in the ledger.
             return
+        payload: dict[str, Any] = {"phase": state.value}
+        if reason:
+            # The Bridge's stable classification of why the attempt stopped —
+            # never the server's words, which have no channel into a product
+            # event. A failure with no category is one nobody can act on.
+            payload["reason"] = reason
         await record(
             event_type,
-            {"phase": state.value},
+            payload,
             source=EventSource.BRIDGE,
             trust_class=TrustClass.BRIDGE_FILTERED,
         )

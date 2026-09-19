@@ -219,7 +219,15 @@
   - **服务端侧真值**（run 结束后手工读的，按契约只做离线交叉核对）：`Kin[/127.0.0.1:42662] logged in with entity id 1 at (-9.5, -60.0, 2.5)` 与 `Kin joined the game`，四分钟后我杀掉容器时是 `Kin lost connection: Disconnected`。也就是说这个客户端**在世界里待了四分钟**，不是连上就掉。
   账本停在这里是对的：`PlayableEstablished` 需要首快照被接受（W50），在那之前 `JOIN_SEEN` 就是这条路能诚实到达的最远处。
   - **一条诊断方法值得留住**（它才是这一批真正的收获）：**当双方都不说话时，去读字节**。前面几批把服务端、白名单、DNS、暂停、以及"是不是我们自己关的"逐条量过，都对；但它们全是**排除法**，而真正定位到的那一步是"把客户端发出去的那一包读出来"——一次就够。这条方法比那一行修复更值得记：`next_state=3` 在任何日志里都不存在。
-- [x] 经普通客户端执行 ConnectWorld：**已经做到了**——普通 1.21.4 客户端、经普通连接路径（不是 bot、不是 GUI 自动点击），进了受隔离的服务端并被服务端自己记为 `Kin joined the game`，Core 账本上有 `JoinObserved`。**这一条只覆盖「成功加入」**：按 JOIN/认证/白名单/资源包等原因**分类**需要各自的负向用例（online-mode 拒绝、白名单拒绝、重复登录、资源包阻断），那些还没有跑，仍挂在下面 `ADMIT-001…120` 上。
+- [x] 经普通客户端执行 ConnectWorld：**已经做到了**——普通 1.21.4 客户端、经普通连接路径（不是 bot、不是 GUI 自动点击），进了受隔离的服务端并被服务端自己记为 `Kin joined the game`，Core 账本上有 `JoinObserved`。**这一条只覆盖「成功加入」**：按 JOIN/认证/白名单/资源包等原因**分类**需要各自的负向用例（online-mode 拒绝、白名单拒绝、重复登录、资源包阻断），其中**白名单拒绝已经在下面那条里跑通并分类到账本**，另外三类还没有跑。
+- [x] **服务端说的那句话现在会被分类，而不是被丢进同一个桶**。先用域**制造一次真的拒绝**：把 `MINEKIN_USERNAME` 换成别的名字（只影响服务端白名单，客户端的用户名来自身份根，所以 Kin 会被拒），服务端说
+  `Disconnecting Kin (…): You are not white-listed on this server!`
+  而 Bridge 当时仍然只报 `UNEXPECTED_DISCONNECT`——契约点名的那些类别（白名单、认证模式、重复登录、资源包）一个都没用上。
+  - **钩在哪里，是量出来的而不是猜的**：原先挂在 `onDisconnected(DisconnectionInfo)` 上，它对一次**服务端发起的踢出**根本不触发（服务端那次是发断开包，走的是 `onDisconnect(LoginDisconnectS2CPacket)` 那条路；Fabric 的事件之所以还是会响，是因为它还挂在 `channelInactive` 上）。改挂 `onDisconnect` 之后既拿得到那句话，又因为它**先于** Fabric 的断开事件运行，报告失败时理由已经在手上了。
+  - **分类是一个纯函数**：把 vanilla 服务端会说的那几句映射到稳定枚举，**认不出来的一律留在 `UNEXPECTED_DISCONNECT`**——一个错的类别是关于服务端的一项没人做过的声明，比诚实的"未分类"更糟。它是静态的，因此**离线可测**（`ClientAdmissionControllerTest` 新增四类句子的映射，以及"认不出就保持未分类"与"理由只被消费一次、不会被下一次尝试继承"）。
+  - **类别必须真的进证据，否则不算证据**：`on_connection` 现在把 Bridge 分类出的 reason 和相位一起交给调用方，`session start` 把它写进账本。**端到端实测**：服务端那句话 → 客户端本地日志 `bridge classified the login failure as ADMISSION_FAILURE_REASON_WHITELIST_REJECTED` → 账本 `SessionInterrupted {"phase":"FAILED","reason":"ADMISSION_FAILURE_REASON_WHITELIST_REJECTED"}`，而**服务端那句原话不在账本里**（契约：原话不进产品事件，只留在本机日志）。另有一条契约测试在真 loopback 上钉住这条链（把 `WHITELIST_REJECTED` 从假 Bridge 送进去，断言账本 payload 恰好是那两项）。
+  - **范围**：四类里**白名单这一类现在有从服务端原话到账本的完整证据**；认证模式、重复登录、资源包三类目前只有映射规则与单元用例，**还没有各自量到的真实句子**，所以还不能说它们验过。
+- [ ] 未跑的三类负向用例：`online-mode=true` 对离线客户端、同账号重复登录、资源包阻断。每一类都要先**量出服务端实际说的那句话**（照上面白名单那条的做法），再确认映射对得上——把类别建在猜出来的句子上，正是上一条刻意不做的事。
 - [ ] 取消、重连与晚到 callback 不得改变新 generation。
 - [ ] 执行 `ADMIT-001…120`；Kin 不得获得 op、RCON 或 console 权限。
 

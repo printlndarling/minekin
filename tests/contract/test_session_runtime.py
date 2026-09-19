@@ -268,7 +268,7 @@ def test_the_session_reaches_playable_before_the_client_leaves(tmp_path: Path) -
                 handshake_timeout=3.0,
                 until_client_exit=exit_event.wait,
                 on_handshake=lambda: _note(handshakes),
-                on_connection=lambda state: _note(reported, state),
+                on_connection=lambda state, reason: _note(reported, (state, reason)),
             ),
             8,
         )
@@ -282,14 +282,16 @@ def test_the_session_reaches_playable_before_the_client_leaves(tmp_path: Path) -
             SessionState.PLAYABLE,
         ]
         # The runtime reports every phase the attempt moved to, including the
-        # ones that are only progress. Which of them deserve a ledger entry is
-        # the caller's question, not this module's.
+        # ones that are only progress, and the classification that came with it.
+        # Which of them deserve a ledger entry is the caller's question, not this
+        # module's — but a failure whose category is dropped on the way is a
+        # failure nobody can act on, so the reason travels with the state.
         assert reported == [
-            ConnectionState.RESOLVING,
-            ConnectionState.LOGIN_NEGOTIATING,
-            ConnectionState.PLAY_INIT,
-            ConnectionState.JOIN_SEEN,
-            ConnectionState.PLAYABLE,
+            (ConnectionState.RESOLVING, ""),
+            (ConnectionState.LOGIN_NEGOTIATING, ""),
+            (ConnectionState.PLAY_INIT, ""),
+            (ConnectionState.JOIN_SEEN, ""),
+            (ConnectionState.PLAYABLE, ""),
         ]
         assert handshakes == [True]
 
