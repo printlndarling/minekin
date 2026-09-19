@@ -21,6 +21,13 @@ USERNAME_VARIABLE = "MINEKIN_USERNAME"
 JAVA_VARIABLE = "MINEKIN_JAVA"
 KIN_VARIABLE = "MINEKIN_KIN_ID"
 
+# The host facts a managed client is allowed to observe. This is a list in the
+# code rather than an operator-supplied list on purpose: a forwarded value comes
+# from the operator's host, so letting the operator name the names would hand
+# them the one reviewable door — `LD_PRELOAD` arrives through it as readily as a
+# display does.
+FORWARDED_VARIABLES: tuple[str, ...] = ("DISPLAY",)
+
 
 def _reject(message: str) -> MinekinError:
     return MinekinError(
@@ -67,6 +74,26 @@ def kin_selector(environ: Mapping[str, str] | None = None) -> str | None:
     source = os.environ if environ is None else environ
     value = source.get(KIN_VARIABLE, "").strip()
     return value or None
+
+
+def forwarded_environment(environ: Mapping[str, str] | None = None) -> dict[str, str]:
+    """The named host facts that are present, for the client to be given.
+
+    `DISPLAY` is here because a virtual display is a fact about the host and not
+    about the session: the client renders where the *operator* put the display,
+    and nothing inside a session overlay can answer which one that is. A
+    variable that is unset, or set to nothing, is simply absent — the client then
+    has no display, which is also a fact about the host rather than something to
+    invent a value for.
+    """
+
+    source = os.environ if environ is None else environ
+    forwarded: dict[str, str] = {}
+    for name in FORWARDED_VARIABLES:
+        value = source.get(name)
+        if value is not None and value.strip():
+            forwarded[name] = value
+    return forwarded
 
 
 def java_executable(environ: Mapping[str, str] | None = None) -> Path:

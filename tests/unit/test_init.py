@@ -18,6 +18,7 @@ from minekin_core.config import (
     USERNAME_VARIABLE,
     configured_username,
     data_root,
+    forwarded_environment,
 )
 from minekin_core.domain.errors import ErrorCategory, ExitCode, MinekinError
 from minekin_core.domain.ids import KinId
@@ -52,6 +53,28 @@ def test_a_relative_data_root_is_refused(value: str) -> None:
         data_root({DATA_ROOT_VARIABLE: value})
 
     assert raised.value.category is ErrorCategory.CONFIG
+
+
+def test_the_host_facts_lent_to_a_client_are_the_named_ones() -> None:
+    """A forwarded value is a host fact; what may be forwarded is the code's list.
+
+    `LD_PRELOAD` is the same shape of thing as `DISPLAY` — a variable the host
+    set — so if the operator could name the names, the one reviewable door would
+    let anything through it.
+    """
+
+    forwarded = forwarded_environment({"DISPLAY": ":99", "LD_PRELOAD": "/host/evil.so"})
+
+    assert forwarded == {"DISPLAY": ":99"}
+
+
+def test_a_host_with_no_display_lends_nothing() -> None:
+    assert forwarded_environment({}) == {}
+
+
+@pytest.mark.parametrize("value", ["", "   "])
+def test_a_display_set_to_nothing_is_absent_rather_than_invented(value: str) -> None:
+    assert forwarded_environment({"DISPLAY": value}) == {}
 
 
 def test_the_username_is_read_from_the_environment() -> None:

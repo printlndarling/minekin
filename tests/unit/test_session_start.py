@@ -8,6 +8,7 @@ from typing import Any, cast
 
 import pytest
 
+from minekin_core import bootstrap as bootstrap_module
 from minekin_core.adapters.launcher.artifacts import ArtifactStore, SessionOverlayStore
 from minekin_core.adapters.launcher.supervisor import ProcessSupervisor
 from minekin_core.application.ports.clock import FakeClock
@@ -222,6 +223,47 @@ def test_start_session_uses_the_persisted_identity(
 
     assert seen == [str(session_overlay_path(runs, "session-01", 1) / "logs")]
     assert database_for(root, KIN_ID).is_file()
+
+
+class _StopAfterCapture(Exception):
+    """Raised by the stubbed launcher so the CLI stops before it needs a result."""
+
+
+def test_the_cli_lends_the_client_the_hosts_display_and_not_the_whole_environment(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A managed client is given an environment rather than inheriting one.
+
+    A client with no `DISPLAY` cannot open a window at all, so the virtual
+    display the controlled runner provides reaches it only through here — and
+    the list of what may be lent is a list in the code, because a forwarded
+    value is by definition one the operator's host chose.
+    """
+
+    java = tmp_path / "java"
+    java.write_text("#!/bin/sh", encoding="utf-8")
+    monkeypatch.setenv("MINEKIN_HOME", str(tmp_path))
+    monkeypatch.setenv(USERNAME_VARIABLE, "Kin")
+    monkeypatch.setenv("MINEKIN_JAVA", str(java))
+    monkeypatch.setenv("DISPLAY", ":99")
+    monkeypatch.setenv("LD_PRELOAD", "/host/evil.so")
+    captured: dict[str, object] = {}
+
+    async def capture(*args: object, **kwargs: object) -> object:
+        del args
+        captured.update(kwargs)
+        raise _StopAfterCapture
+
+    monkeypatch.setattr(bootstrap_module, "start_and_supervise", capture)
+
+    with pytest.raises(_StopAfterCapture):
+        run(
+            ["session", "start", "--profile", str(PROFILE)],
+            stdout=io.StringIO(),
+            stderr=io.StringIO(),
+        )
+
+    assert captured["forward_environment"] == {"DISPLAY": ":99"}
 
 
 def test_the_cli_refuses_a_session_when_no_kin_exists(

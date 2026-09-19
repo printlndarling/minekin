@@ -18,7 +18,13 @@ from minekin_core.cli.parser import parse_args
 from minekin_core.cli.session import start_and_supervise, stop_session
 from minekin_core.cli.session_runtime import SessionOutcome, SessionRun
 from minekin_core.cli.status import read_status
-from minekin_core.config import configured_username, data_root, java_executable, kin_selector
+from minekin_core.config import (
+    configured_username,
+    data_root,
+    forwarded_environment,
+    java_executable,
+    kin_selector,
+)
 from minekin_core.domain.errors import (
     ErrorCategory,
     ExitCode,
@@ -102,6 +108,11 @@ def run(
                 session_id=SessionId.new().value,
                 generation=1,
                 kin_selector=kin_selector(),
+                # Resolved here, at the edge, the way the data root and Java
+                # are: what the host is willing to lend the client is the
+                # operator's environment, and the list of what may be lent is
+                # the code's.
+                forward_environment=forwarded_environment(),
             )
         )
         _emit({**launch.as_dict(), "run": run.as_dict()}, stdout)
