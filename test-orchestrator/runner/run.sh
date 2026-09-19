@@ -15,6 +15,8 @@
 #         bash test-orchestrator/runner/run.sh init --kin-id kin-01
 #         bash test-orchestrator/runner/run.sh --shell glxinfo -B
 #         bash test-orchestrator/runner/run.sh server --accept-eula --allow-player Kin
+#         MINEKIN_SERVER_JAR=<path> bash test-orchestrator/runner/run.sh domain \
+#             session start --profile <bundle> --server-profile <server profile>
 #
 set -euo pipefail
 
@@ -47,7 +49,29 @@ EXTRA_ARGS=()
 # The EULA is not passed here. `run_controlled_server.py` refuses to write
 # `eula=true` unless the operator asked for it, and this script does not decide
 # that on their behalf — `--accept-eula` travels through with everything else.
-if [[ "${1:-}" == "server" ]]; then
+if [[ "${1:-}" == "domain" ]]; then
+    shift
+    SERVER_JAR="${MINEKIN_SERVER_JAR:-}"
+    if [[ -z "${SERVER_JAR}" ]]; then
+        echo "MINEKIN_SERVER_JAR must name the pinned server jar." >&2
+        echo "Get one with: uv run python tools/verify_supply_chain.py \\" >&2
+        echo "    --save-server <path> --max-bytes 60000000" >&2
+        exit 2
+    fi
+    if [[ ! -f "${SERVER_JAR}" ]]; then
+        echo "MINEKIN_SERVER_JAR is not a file: ${SERVER_JAR}" >&2
+        exit 2
+    fi
+    if command -v cygpath >/dev/null 2>&1; then
+        SERVER_JAR="$(cygpath -m "${SERVER_JAR}")"
+    fi
+    EXTRA_ARGS=(-v "${SERVER_JAR}:/server/server.jar:ro")
+    ENDPOINT=(--entrypoint /bin/bash)
+    # The server and the client are both in this one container, which is the only
+    # shape the loopback-only profile schema allows. The session's arguments are
+    # passed straight through to the CLI.
+    COMMAND=(-lc '/src/test-orchestrator/runner/domain.sh "$@"' minekin-runner)
+elif [[ "${1:-}" == "server" ]]; then
     shift
     SERVER_JAR="${MINEKIN_SERVER_JAR:-}"
     if [[ -z "${SERVER_JAR}" ]]; then

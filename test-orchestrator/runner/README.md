@@ -11,8 +11,43 @@ bash test-orchestrator/runner/run.sh doctor
 bash test-orchestrator/runner/run.sh init --kin-id kin-01
 bash test-orchestrator/runner/run.sh session start --profile tests/fixtures/runtime-input/bundle-p0-core-1.21.4.json
 MINEKIN_SERVER_JAR=<path> bash test-orchestrator/runner/run.sh server --accept-eula --allow-player Kin
+MINEKIN_SERVER_JAR=<path> bash test-orchestrator/runner/run.sh domain \
+    session start --profile <bundle> --server-profile <server profile>
 bash test-orchestrator/runner/run.sh --shell 'glxinfo -B'   # or any other command
 ```
+
+## The whole domain in one container
+
+The `domain` mode is the three file modes above with both halves running at once:
+it starts the isolated server on a fresh run directory, waits for the server to
+say it is ready, runs the session against it, and stops the server.
+
+Both halves have to be in *this* container. The frozen Server Profile schema
+admits only `127.0.0.1` and `::1`, and loopback is per container — so a server
+started by `run.sh server` is in a different network namespace from a client
+started by `run.sh session`, and the two can never see each other however
+correct the address is. The only shape compatible with that policy is two
+processes in one container (`--network host` is not available on Docker Desktop
+for Windows). `run.sh domain` is that shape; `domain.sh` is the part of it that
+runs inside.
+
+`timeout` goes *inside* `xvfb-run`, not outside. Signal it from the outside and
+the signal lands on the X server, which takes the client's display away and ends
+the client through `X connection to :99 broken` — a client death that has
+nothing to do with the session, and one that quietly contaminates any conclusion
+about how the run went.
+
+```text
+$ MINEKIN_SERVER_JAR=.tmp/vanilla/server.jar bash test-orchestrator/runner/run.sh domain \
+      session start --profile /src/tests/fixtures/runtime-input/bundle-p0-core-1.21.4.json \
+                     --server-profile /src/tests/fixtures/runtime-input/controlled-offline-server.json
+domain: server run directory /data/server-runs/run-4
+domain: server ready
+domain: session exited 124
+```
+
+The session's exit code is 124 because a client that has joined sits in the world
+and only the window ends it; the ledger is what says how the run went.
 
 `doctor` passes every check inside the image, which is the point of it: python
 3.12.3, Java 21, protobuf 6.33.6 and SQLite 3.53.4. The same command fails on a
@@ -177,20 +212,19 @@ generator preset the profile does not name.
 
 ## What it does not do yet
 
-The two halves still cannot meet. `session start --server-profile` does ask for a
-connection — Core sends `ConnectWorld`, the Bridge hands it to vanilla, and the
-client dials the address in the profile — but the server is in a different
-container, and loopback is per container. The frozen Server Profile schema admits
-only `127.0.0.1` and `::1`, so the only shape compatible with it is the server and
-the client as two processes in *one* container, sharing a loopback. That mode does
-not exist yet.
+The client reaches the server and the login fails, about three seconds later,
+without a word from either side. The server records nothing at all — its
+`usercache.json` is empty, and vanilla only writes that on a successful login —
+and the client records nothing either, because vanilla draws a disconnect reason
+on the `DisconnectedScreen` rather than logging it. TCP is not the problem: a
+connection to `127.0.0.1:25565` from inside the same container reaches
+ESTABLISHED, and the server process is healthy, parked in its ordinary 50 ms tick
+wait.
 
-Measured with the command and no server, which is what that gap looks like:
+What is *not* the problem has been measured rather than assumed: disabling
+vanilla's `pause-when-empty-seconds` does not change it (the domain no longer
+pauses, which is right for its own reasons, and the login still fails).
 
-```text
-[Render thread/INFO]: Connecting to 127.0.0.1, 25565
-[Server Connector #1/ERROR]: ... Connection refused: localhost/127.0.0.1:25565
-```
-
-The first line is vanilla's own, from the address Core sent. The second is the
-runner's missing mode.
+The next move is to make the failure visible — the bridge may keep redacted
+diagnostics outside the product event payload, so a local log line at the login
+disconnect would say what the server said — and then to diagnose it.

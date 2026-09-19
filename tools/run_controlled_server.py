@@ -64,6 +64,16 @@ def properties_for(profile: object, *, level_seed: str) -> dict[str, str]:
         "level-name": "world",
         "level-seed": level_seed,
         "level-type": "minecraft:flat",
+        # Vanilla's default is 60, and it is wrong for this domain specifically:
+        # a controlled server is empty for almost its whole life, because the
+        # only player is one this launcher starts, and it is empty for exactly
+        # the stretch in which that player is booting and connecting. Pausing is
+        # a power saving for an idle production server, not for a domain whose
+        # purpose is to be joined. (It did not turn out to be the cause of the
+        # login failure that was being chased when this was added — that still
+        # reproduces with pausing off — so it is a fix for a real wrongness
+        # rather than for that symptom.)
+        "pause-when-empty-seconds": "0",
         "motd": f"Minekin controlled offline test domain ({profile.profile_id})",
     }
 

@@ -63,6 +63,9 @@ def test_server_properties_are_private_vanilla_survival() -> None:
     assert properties["enable-command-block"] == "false"
     assert properties["broadcast-console-to-ops"] == "false"
     assert properties["level-seed"] == "fixed-seed"
+    # A domain exists to be connected to, and vanilla's default of 60 seconds
+    # pauses it while it waits — a paused server stops processing connections.
+    assert properties["pause-when-empty-seconds"] == "0"
 
 
 def test_configuration_whitelists_only_named_offline_players(tmp_path: Path) -> None:
