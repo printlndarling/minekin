@@ -24,6 +24,11 @@ from minekin_core.adapters.bridge.ipc import (
 )
 from minekin_core.domain.connection import ConnectionGenerations, ConnectionState
 from minekin_core.domain.ids import OpaqueId
+from minekin_core.domain.session_state import (
+    SessionState,
+    SessionStateMachine,
+    advance_for_connection,
+)
 from minekin_core.generated.minekin.v1 import (
     control_pb2,
     envelope_pb2,
@@ -410,6 +415,18 @@ def test_reported_phases_drive_the_generation_gated_attempt(tmp_path: Path) -> N
             observation_pb2.CONNECTION_PHASE_DISCONNECTED,
         )
         reached: list[ConnectionState] = []
+        session_states: list[SessionState] = []
+        # A session that has finished its Bridge handshake sits in READY_MENU.
+        session_machine = SessionStateMachine()
+        for target in (
+            SessionState.PREPARING,
+            SessionState.STARTING_CLIENT,
+            SessionState.WAITING_BRIDGE,
+            SessionState.HANDSHAKING,
+            SessionState.READY_MENU,
+        ):
+            session_machine.advance(target)
+
         # The host demands a contiguous event sequence, so this also re-checks the
         # ordering rule the Bridge's writer has to satisfy.
         for sequence, phase in enumerate(phases, start=1):
@@ -439,11 +456,24 @@ def test_reported_phases_drive_the_generation_gated_attempt(tmp_path: Path) -> N
             assert isinstance(event.message, observation_pb2.ConnectionLifecycle)
             outcome = apply_lifecycle(connections, event.message)
             assert outcome.disposition is LifecycleDisposition.APPLIED, outcome
+            assert outcome.decision is not None
             assert connections.active is not None
             reached.append(connections.active.state)
+            advance_for_connection(session_machine, outcome.decision)
+            session_states.append(session_machine.state)
 
         assert reached[-2] is ConnectionState.PLAYABLE
         assert reached[-1] is ConnectionState.DISCONNECTED
+        # Four admission phases collapse to one session state, so the session only
+        # moves when the connection reaches a phase that means something new.
+        assert session_states == [
+            SessionState.CONNECTING,
+            SessionState.CONNECTING,
+            SessionState.CONNECTING,
+            SessionState.JOINED_UNVERIFIED,
+            SessionState.PLAYABLE,
+            SessionState.READY_MENU,
+        ]
 
         await host.close()
         await close_writers(control_writer, event_writer)
