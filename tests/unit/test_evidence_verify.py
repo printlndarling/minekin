@@ -28,6 +28,7 @@ from minekin_core.cli.evidence import (
     RUN_ID_MISMATCH,
     bundle_directory,
     locate_bundle,
+    repository_bundle_directory,
     verify_run,
 )
 from minekin_core.cli.init import run_root
@@ -99,6 +100,32 @@ def test_the_sealing_address_and_the_searching_address_are_the_same(tmp_path: Pa
     assert bundle_directory(run_root(tmp_path, KIN), RUN_ID) == literal_bundle(
         tmp_path, KIN, RUN_ID
     )
+
+
+def test_a_repository_check_seals_beside_the_kins_and_not_inside_one(tmp_path: Path) -> None:
+    """A check of the repository belongs to no Kin, and naming one would be a lie."""
+
+    assert repository_bundle_directory(tmp_path, RUN_ID) == (tmp_path / "repo-evidence" / RUN_ID)
+
+
+def test_a_repository_check_is_found_by_the_same_search_as_a_run(tmp_path: Path) -> None:
+    directory = repository_bundle_directory(tmp_path, RUN_ID)
+    write_bundle(directory, manifest(), artifacts())
+
+    assert verify_run(tmp_path, RUN_ID).verified
+    assert locate_bundle(tmp_path, RUN_ID) == directory
+
+
+def test_the_same_run_id_in_both_places_is_still_refused(tmp_path: Path) -> None:
+    """The rule is about the name, not about who wrote the bundle."""
+
+    seal(tmp_path, KIN)
+    write_bundle(repository_bundle_directory(tmp_path, RUN_ID), manifest(), artifacts())
+
+    with pytest.raises(MinekinError) as raised:
+        locate_bundle(tmp_path, RUN_ID)
+
+    assert "2 bundles" in raised.value.safe_message
 
 
 def test_a_sealed_bundle_is_found_by_its_run_id_and_verifies(tmp_path: Path) -> None:

@@ -31,13 +31,10 @@ import argparse
 import hashlib
 import json
 import os
-import platform
 import re
-import shutil
 import subprocess
 import sys
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import cast
@@ -45,7 +42,7 @@ from typing import cast
 from minekin_core.adapters.evidence.bundle import write_bundle
 from minekin_core.adapters.evidence.promotion import load_case_manifest
 from minekin_core.adapters.launcher.launch_plan import build_launch_plan, find_workspace_root
-from minekin_core.adapters.launcher.recipe import BRIDGE_JAR_SHA256, source_tree_sha256
+from minekin_core.adapters.launcher.recipe import BRIDGE_JAR_SHA256
 from minekin_core.adapters.launcher.server_profile import load_server_profile
 from minekin_core.cli.evidence import bundle_directory
 from minekin_core.cli.init import run_root
@@ -65,6 +62,7 @@ from minekin_core.domain.ids import KinId
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from assert_case_evidence import RUN_DOCUMENT_KEY, read_run_material, timeline_bytes
+from evidence_provenance import host_facts, profile_reference, protocol_schema_digest
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 
@@ -88,75 +86,6 @@ _SAFE_SEGMENT = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+-]*$")
 
 class Unsealable(Exception):
     """The run cannot be sealed, and saying why is more useful than a traceback."""
-
-
-@dataclass(frozen=True, slots=True)
-class HostFacts:
-    """What the host was, as the run's environment section reports it."""
-
-    os_kernel: str
-    java_runtime: str
-    cpu_memory: str
-    renderer_display: str
-
-
-def _first_lines(text: str, count: int = 2) -> str:
-    """The vendor's own words about its runtime, joined and bounded."""
-
-    lines = [line.strip() for line in text.splitlines() if line.strip()]
-    return " / ".join(lines[:count])
-
-
-def java_runtime(java: Path | None) -> str:
-    """Which JVM the client ran under, read from that JVM rather than assumed."""
-
-    executable = java or shutil.which("java")
-    if executable is None:
-        return "unmeasured"
-    try:
-        completed = subprocess.run(
-            [str(executable), "-version"], capture_output=True, text=True, check=False
-        )
-    except OSError as error:
-        return f"unmeasurable ({type(error).__name__})"
-    # `java -version` writes to stderr, and has done since before anyone expected
-    # otherwise. Both streams are read so the answer does not depend on the JDK.
-    return _first_lines(f"{completed.stdout}\n{completed.stderr}") or "unmeasured"
-
-
-def cpu_memory() -> str:
-    """Processors and RAM, from the kernel's own accounting where it exists."""
-
-    processors = os.cpu_count() or 0
-    meminfo = Path("/proc/meminfo")
-    if not meminfo.is_file():
-        return f"{processors} vCPU / memory unmeasured"
-    match = re.search(r"^MemTotal:\s+(\d+) kB$", meminfo.read_text(encoding="utf-8"), re.MULTILINE)
-    if match is None:
-        return f"{processors} vCPU / memory unmeasured"
-    gib = int(match.group(1)) / (1024 * 1024)
-    return f"{processors} vCPU / {gib:.1f} GiB"
-
-
-def host_facts(java: Path | None, renderer_display: str) -> HostFacts:
-    return HostFacts(
-        os_kernel=f"{platform.system()} {platform.release()}",
-        java_runtime=java_runtime(java),
-        cpu_memory=cpu_memory(),
-        renderer_display=renderer_display,
-    )
-
-
-def protocol_schema_digest(workspace_root: Path) -> str:
-    """The reviewed protocol schema, as one digest.
-
-    `proto/` is the schema; the generated code is downstream of it. The digest is
-    the recipe's own tree rule rather than a second one, so "a tree digest" means
-    one thing in this repository: paths and (CRLF-normalised) bytes in codepoint
-    order, which is what makes it the same value on both platforms.
-    """
-
-    return source_tree_sha256(workspace_root / "proto")
 
 
 def server_jar_sha1(jar: Path) -> str:
@@ -203,18 +132,6 @@ def server_observed_identity(server_directory: Path, username: str) -> str:
         if item.get("name") == username and isinstance(item.get("uuid"), str):
             return f"{username}/{item['uuid']}"
     return ""
-
-
-def configured_profile(profile: Path) -> str:
-    """A reference to the client profile that carries no path from this host.
-
-    The profile is named by its file name and the digest of its bytes: enough to
-    say which document was used, and nothing about where the operator keeps it —
-    a bundle is handed to other people.
-    """
-
-    digest = hashlib.sha256(profile.read_bytes()).hexdigest()
-    return f"{profile.name}#{digest[:16]}"
 
 
 def _artifact(path: Path, name: str, found: dict[str, bytes]) -> None:
@@ -382,7 +299,7 @@ def build_manifest(
         seed_or_snapshot_id=(
             NO_WORLD if server_directory is None else world_seed(server_directory)
         ),
-        configured_profile=configured_profile(profile),
+        configured_profile=profile_reference(profile),
         server_observed_name_uuid=(
             "" if server_directory is None else server_observed_identity(server_directory, username)
         ),

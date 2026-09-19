@@ -142,6 +142,40 @@ def test_the_verdict_has_the_shape_the_sealer_records(root: Path) -> None:
     assert document["result"] == "PASS"
 
 
+def test_the_verdict_names_the_check_run_so_its_bundle_has_an_address(root: Path) -> None:
+    """Nothing else produces an id for a check of the repository, so this does."""
+
+    first = RUNNER.run_case(case(("ok",)), registry=registry("ok"), root=root)
+    second = RUNNER.run_case(case(("ok",)), registry=registry("ok"), root=root)
+
+    assert first.run_id != second.run_id
+    assert first.run_id.isalnum() and len(first.run_id) == 32
+    assert first.as_document()["run_id"] == first.run_id
+
+
+def test_kept_output_is_written_where_the_caller_asked(root: Path, tmp_path: Path) -> None:
+    """The verdict carries the last words; a bundle needs the whole log."""
+
+    outputs = tmp_path / "outputs"
+
+    verdict = RUNNER.run_case(
+        case(("ok", "bad")), registry=registry("ok", "bad"), root=root, output_directory=outputs
+    )
+
+    assert (outputs / "bad.log").is_file()
+    assert "the schema is not versioned" in (outputs / "bad.log").read_text(encoding="utf-8")
+    assert verdict.as_document()["checks"][1]["output"] == str(outputs / "bad.log")
+    # Not asked for, not written: the field says so rather than naming a path.
+    assert verdict.as_document()["checks"][0]["output"] == str(outputs / "ok.log")
+
+
+def test_without_a_directory_no_output_is_kept(root: Path) -> None:
+    verdict = RUNNER.run_case(case(("ok",)), registry=registry("ok"), root=root)
+
+    assert verdict.checks[0].output_path is None
+    assert verdict.as_document()["checks"][0]["output"] is None
+
+
 def test_the_command_exits_by_what_it_found(root: Path) -> None:
     held = subprocess.run(
         [sys.executable, str(TOOL), "--case", str(REVIEWED_CASE)],

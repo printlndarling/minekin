@@ -39,10 +39,19 @@
 - 目录名与 manifest 里的 `test_run_id` 必须一致，不一致即 `RUN_ID_MISMATCH`。目录名是 bundle 与 run 之间唯一的对应关系，把它搬到另一个 run id 下必须立刻被发现。
 - run id 变成路径段之前要按**标识符**规则校验（`domain.ids` 那一条），不是去找 `..`：run id 本来就是 uuid，不是 uuid 的 run id 指不到任何一次运行，于是它连碰文件系统都不该碰。
 
+## 决定五：仓库自检的证据放在 `repo-evidence/<run-id>/`，与 Kin 并列
+
+- 有一类用例**不属于任何 Kin**：仓库自己的契约检查（schema 都带版本、夹具摘要对得上、runtime input 不引用 oracle、产品包不导入 orchestrator）。它们在任何 Kin 存在之前就该能跑，而且不涉及身份、世界或客户端。把它们塞进 `kin/<kin_id>/run/evidence/` 就得**指名一个 Kin**——而"一次仓库自检属于哪个 Kin"不是一个有答案的问题，正是 `select_kin` 不肯替人猜的那类事。
+- 因此数据根下多一个并列的目录：`repo-evidence/<run-id>/`。**地址规则完全相同**：目录名就是 run id，一个 run id 一份，永不覆盖。
+- 查找端**两类一起找**（`candidate_roots` 同时返回每个 Kin 的证据根与这一处），因为给命令的是一个 run id，而查它的人不该先知道这份 bundle 是哪一类。撞名规则不变：同一个 run id 在两处都有 bundle 仍然拒绝，而不是挑一个——"唯一"是 run id 的性质，与谁写的无关。
+- 两种 bundle 的**内容**不同（一次运行有 run document、账本与客户端日志；一次仓库检查只有各条断言的输出），但**形状相同**：同一份 manifest、同一套违规规则、同一个校验命令。
+
 ## 目录布局
 
 ```
 $MINEKIN_HOME/
+  repo-evidence/         仓库自检的证据，每次检查一份（不属于任何 Kin）
+    <run-id>/            manifest.json、bundle.sha256 与各条断言的输出
   kin/
     <kin_id>/
       kin.sqlite3          身份根与事件账本（单 writer-thread）

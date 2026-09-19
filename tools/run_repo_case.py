@@ -35,6 +35,7 @@ from typing import cast
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from check_case_assertions import IMPLEMENTATIONS, Implementation
+from minekin_core.domain.ids import RunId
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 
@@ -63,6 +64,9 @@ class CheckOutcome:
     exit_code: int | None
     held: bool
     detail: str
+    #: The check's whole output, when the caller asked for it to be kept. None
+    #: when nobody asked: the verdict carries the last words either way.
+    output_path: Path | None = None
 
     def as_document(self) -> dict[str, object]:
         return {
@@ -73,6 +77,7 @@ class CheckOutcome:
             "exit_code": self.exit_code,
             "held": self.held,
             "detail": self.detail,
+            "output": None if self.output_path is None else str(self.output_path),
         }
 
 
@@ -81,6 +86,10 @@ class RepoVerdict:
     """Which assertions were expected, which held, and why the rest did not."""
 
     case_id: str
+    #: The identity of this check run. Nothing else produces one — a repository
+    #: check is not a managed run — so the thing that performs it names it, and
+    #: the bundle is sealed at the address that name gives.
+    run_id: str
     checks: tuple[CheckOutcome, ...]
     unimplemented: tuple[str, ...]
 
@@ -115,6 +124,7 @@ class RepoVerdict:
             "schema_version": 1,
             "command": "run repo case",
             "case_id": self.case_id,
+            "run_id": self.run_id,
             "result": self.result,
             "expected": list(self.expected),
             "observed": list(self.observed),
@@ -142,6 +152,22 @@ def _last_words(output: str) -> str:
     return lines[-1][:DETAIL_LIMIT]
 
 
+def _keep(output: str, directory: Path | None, name: str) -> Path | None:
+    """Keep one check's whole output, when a directory was named for it.
+
+    The verdict carries the last words and the exit code; the whole output is an
+    artifact, because a bundle is what someone else has to check later and a
+    failing check's first line is often the one that says why.
+    """
+
+    if directory is None:
+        return None
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / f"{name}.log"
+    path.write_text(output, encoding="utf-8")
+    return path
+
+
 def run_check(
     name: str,
     implementation: Implementation,
@@ -149,6 +175,7 @@ def run_check(
     root: Path,
     python: str = sys.executable,
     timeout: float = DEFAULT_TIMEOUT_SECONDS,
+    output_directory: Path | None = None,
 ) -> CheckOutcome:
     """Run one assertion's implementation, from the repository root."""
 
@@ -192,6 +219,7 @@ def run_check(
         detail=""
         if completed.returncode == 0
         else _last_words(f"{completed.stdout}\n{completed.stderr}"),
+        output_path=_keep(f"{completed.stdout}\n{completed.stderr}", output_directory, name),
     )
 
 
@@ -209,6 +237,8 @@ def run_case(
     root: Path = REPOSITORY_ROOT,
     python: str = sys.executable,
     timeout: float = DEFAULT_TIMEOUT_SECONDS,
+    output_directory: Path | None = None,
+    run_id: str | None = None,
 ) -> RepoVerdict:
     """Run every assertion the case declares, in the order it declares them."""
 
@@ -240,8 +270,22 @@ def run_case(
                 )
             )
             continue
-        outcomes.append(run_check(name, implementation, root=root, python=python, timeout=timeout))
-    return RepoVerdict(case_id=case_id, checks=tuple(outcomes), unimplemented=tuple(unimplemented))
+        outcomes.append(
+            run_check(
+                name,
+                implementation,
+                root=root,
+                python=python,
+                timeout=timeout,
+                output_directory=output_directory,
+            )
+        )
+    return RepoVerdict(
+        case_id=case_id,
+        run_id=run_id if run_id is not None else RunId.new().value,
+        checks=tuple(outcomes),
+        unimplemented=tuple(unimplemented),
+    )
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -251,6 +295,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--case", type=Path, required=True)
     parser.add_argument("--root", type=Path, default=REPOSITORY_ROOT)
     parser.add_argument("--timeout", type=float, default=DEFAULT_TIMEOUT_SECONDS)
+    parser.add_argument(
+        "--output-directory",
+        type=Path,
+        default=None,
+        help="where to keep each check's whole output, one file per check",
+    )
     args = parser.parse_args(argv)
 
     try:
@@ -268,7 +318,10 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     try:
         verdict = run_case(
-            cast(Mapping[str, object], document), root=args.root, timeout=args.timeout
+            cast(Mapping[str, object], document),
+            root=args.root,
+            timeout=args.timeout,
+            output_directory=args.output_directory,
         )
     except Unrunnable as error:
         failure = {"schema_version": 1, "status": "unrunnable", "message": str(error)}

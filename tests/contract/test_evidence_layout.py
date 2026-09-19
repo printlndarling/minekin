@@ -16,7 +16,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from minekin_core.cli.evidence import EVIDENCE_DIRECTORY
+from minekin_core.cli.evidence import EVIDENCE_DIRECTORY, REPO_EVIDENCE_DIRECTORY
 from minekin_core.cli.init import KIN_DIRECTORY, RUN_DIRECTORY
 
 PROPOSAL = Path(__file__).resolve().parents[2] / "docs" / "run-directory-proposal.md"
@@ -67,3 +67,12 @@ def test_the_documented_kin_directory_is_the_one_the_code_names() -> None:
 
     assert f"{KIN_DIRECTORY}/" in block
     assert EVIDENCE_DIRECTORY == "evidence"
+
+
+def test_the_repository_evidence_is_documented_beside_the_kins() -> None:
+    """A check of the repository belongs to no Kin, so it does not live in one."""
+
+    children = _children(_layout_block(PROPOSAL.read_text(encoding="utf-8")), "$MINEKIN_HOME")
+
+    assert REPO_EVIDENCE_DIRECTORY in children
+    assert children[REPO_EVIDENCE_DIRECTORY] == children[KIN_DIRECTORY]

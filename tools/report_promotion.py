@@ -110,6 +110,11 @@ def discover(data_root: Path) -> EvidenceOnDisk:
     verifications: dict[str, BundleVerification] = {}
     unreadable: list[str] = []
     for root in candidate_roots(data_root):
+        # An evidence root that is not there holds nothing: the repository's is
+        # absent on a host that has only ever run sessions, and a Kin's is absent
+        # before `init`.
+        if not root.is_dir():
+            continue
         for directory in sorted(path for path in root.iterdir() if path.is_dir()):
             # A directory that is not a bundle is not this command's business —
             # the evidence root is a plain directory and anything may live in it.

@@ -31,6 +31,13 @@ from minekin_core.domain.ids import RunId
 
 EVIDENCE_DIRECTORY = "evidence"
 
+#: Where the evidence of a check that belongs to no Kin lives: the repository's
+#: own contracts are checked before there is any Kin, and by nothing that has an
+#: identity or a world. It sits beside `kin/` rather than inside it, because
+#: putting it under a Kin would mean naming one, and which Kin a repository check
+#: belongs to is not a question that has an answer.
+REPO_EVIDENCE_DIRECTORY = "repo-evidence"
+
 #: The one violation this layer adds. The rest come from the bundle library, and
 #: a mismatch here is the reason they cannot be trusted: the directory name is
 #: how a bundle is attributed to a run at all.
@@ -55,13 +62,33 @@ def bundle_directory(run_root: Path, run_id: str) -> Path:
     return evidence_root(run_root) / _checked_run_id(run_id)
 
 
+def repository_root(root: Path) -> Path:
+    """Where the repository's own checks seal their evidence."""
+
+    return root / REPO_EVIDENCE_DIRECTORY
+
+
+def repository_bundle_directory(root: Path, run_id: str) -> Path:
+    """The one address a repository check's bundle is sealed to."""
+
+    return repository_root(root) / _checked_run_id(run_id)
+
+
 def candidate_roots(root: Path) -> tuple[Path, ...]:
-    """Every Kin's evidence root under the data root, in a stable order."""
+    """Every evidence root under the data root, in a stable order.
+
+    Both kinds are searched, and by the same rule: a run id is what names a
+    bundle, so whoever is checking one — a Kin's run or a check of the repository
+    itself — should not have to know which kind it was before looking.
+    """
 
     kin_root = root / KIN_DIRECTORY
-    if not kin_root.is_dir():
-        return ()
-    return tuple(sorted(path for path in kin_root.glob(f"*/{RUN_DIRECTORY}/{EVIDENCE_DIRECTORY}")))
+    from_kin = (
+        sorted(path for path in kin_root.glob(f"*/{RUN_DIRECTORY}/{EVIDENCE_DIRECTORY}"))
+        if kin_root.is_dir()
+        else []
+    )
+    return tuple([*from_kin, repository_root(root)])
 
 
 def locate_bundle(root: Path, run_id: str) -> Path:
