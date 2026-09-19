@@ -106,6 +106,10 @@ IMPLEMENTATIONS: dict[str, Implementation] = {
     "the_cancel_reached_the_client_and_was_acted_on": _runtime(
         "the_cancel_reached_the_client_and_was_acted_on"
     ),
+    "the_refusal_was_classified_in_the_ledger": _runtime(
+        "the_refusal_was_classified_in_the_ledger"
+    ),
+    "the_bridge_classified_the_refusal": _runtime("the_bridge_classified_the_refusal"),
 }
 
 

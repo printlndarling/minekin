@@ -90,6 +90,7 @@ if [[ "${1:-}" == "domain" ]]; then
         -e MINEKIN_DOMAIN_SILENCE -e MINEKIN_DOMAIN_STILL -e MINEKIN_DOMAIN_NO_SERVER
         -e MINEKIN_DOMAIN_CASE
         -e MINEKIN_DOMAIN_BLACK_HOLE
+        -e MINEKIN_DOMAIN_NOT_WHITELISTED
         -e MINEKIN_DOMAIN_SECONDS)
     if [[ "${world}" -eq 1 ]]; then
         EXTRA_ARGS+=(-v "${SERVER_JAR}:/server/server.jar:ro")

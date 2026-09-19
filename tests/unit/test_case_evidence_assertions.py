@@ -30,6 +30,7 @@ OBSERVE_ONLY_CASE = CASES / "core-010.json"
 MOVEMENT_CASE = CASES / "core-040.json"
 LOST_RUNTIME_CASE = CASES / "core-060.json"
 BLACK_HOLE_CASE = CASES / "admit-110.json"
+REFUSED_CASE = CASES / "admit-100.json"
 RUN_ID = "5c1f9a7b2d3e4f6089abcdef01234567"
 USERNAME = "Kin"
 # The UUID a real run's server recorded for this name, read back from the
@@ -201,6 +202,7 @@ def test_the_reviewed_case_names_only_assertions_the_asserter_performs() -> None
         MOVEMENT_CASE,
         LOST_RUNTIME_CASE,
         BLACK_HOLE_CASE,
+        REFUSED_CASE,
     ):
         declared = cast(dict[str, object], json.loads(path.read_text(encoding="utf-8")))[
             "assertions"
@@ -677,6 +679,71 @@ def test_core_giving_up_is_not_the_same_as_the_client_letting_go(
     verdict = ASSERTER_MODULE.evaluate(black_hole_case(), never_answered(client_log=client_log))
 
     assert f"the_cancel_reached_the_client_and_was_acted_on:{reason}" in verdict.failures
+
+
+# The refusal a real server produced, in both records: the Bridge's own line in
+# the client's log, and the phase-plus-category Core recorded.
+REFUSAL = "bridge classified the login failure as ADMISSION_FAILURE_REASON_WHITELIST_REJECTED"
+
+
+def refused_case() -> dict[str, object]:
+    return cast(dict[str, object], json.loads(REFUSED_CASE.read_text(encoding="utf-8")))
+
+
+def refused(**overrides: object) -> _Material:
+    arguments: dict[str, object] = {
+        "document": run_document(
+            connection_state="FAILED", snapshots_admitted=0, outcome="BRIDGE_LOST"
+        ),
+        "client_log": REFUSAL,
+        "events": (
+            event(HANDSHAKE),
+            event(
+                "SessionInterrupted",
+                phase="FAILED",
+                reason="ADMISSION_FAILURE_REASON_WHITELIST_REJECTED",
+            ),
+        ),
+    }
+    arguments.update(overrides)
+    return material(**arguments)  # type: ignore[arg-type]
+
+
+def test_a_server_that_refuses_the_kin_is_classified_and_recorded() -> None:
+    verdict = ASSERTER_MODULE.evaluate(refused_case(), refused())
+
+    assert verdict.result == "PASS"
+    assert verdict.observed == verdict.expected
+    assert verdict.failures == ()
+
+
+def test_a_failed_attempt_is_not_a_world_this_run_was_in() -> None:
+    """Measured: a refused login ends with the connection state `FAILED`.
+
+    Demanding an empty state would call that a join, which is the opposite of
+    what it is. The states that claim a world are the ones checked.
+    """
+
+    verdict = ASSERTER_MODULE.evaluate(refused_case(), refused())
+
+    assert "no_world_was_joined" in verdict.observed
+
+
+def test_a_refusal_that_was_never_classified_is_named() -> None:
+    verdict = ASSERTER_MODULE.evaluate(
+        refused_case(),
+        refused(events=(event(HANDSHAKE), event("SessionInterrupted", phase="FAILED"))),
+    )
+
+    assert "the_refusal_was_classified_in_the_ledger:NO_CLASSIFIED_REFUSAL" in verdict.failures
+
+
+def test_a_category_that_reached_core_without_the_bridge_making_it_is_not_evidence() -> None:
+    """Both records are needed: Core recording is not the Bridge recognising."""
+
+    verdict = ASSERTER_MODULE.evaluate(refused_case(), refused(client_log=""))
+
+    assert verdict.failures == ("the_bridge_classified_the_refusal:NO_CLIENT_LOG",)
 
 
 def test_a_kin_that_never_joined_fails_every_assertion_that_needs_it() -> None:

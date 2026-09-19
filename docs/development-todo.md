@@ -279,6 +279,10 @@
   - **实测**：`MINEKIN_DOMAIN_BLACK_HOLE=1 … --connection-timeout-seconds 8` → harness `the client dialled the black hole and got nothing`、run document `connection_cancelled: TIMEOUT`、`snapshots_admitted: 0`、`connection_state: null`、6 件工件（没有任何服务端的）、三条断言全部 observed、`evidence verify` 通过、**harness 退出码 0**。
   - **一条断言又是错的，而错的仍然是它**：第一版第三条要求 `outcome == CLIENT_EXITED`，实测拿到 `BRIDGE_LOST`——因为 **harness 结束会话的办法是终止客户端**，所以每一轮由 harness 结束的运行都记 `BRIDGE_LOST`，关于"结束方式"的断言其实是在断言 harness。改成读 Bridge 自己那行之后通过；这段测量写进了断言的注释。
   - **这一轮还量出两处工具缺陷，各自都修了根**：**(一)** 封存端**崩溃**（不是拒绝）：harness 给一次没有挂载 jar 的运行传了 `--server-jar /server/server.jar`，`read_bytes` 抛 `FileNotFoundError`，工具带着 traceback 退出 1——现在 harness 不再为黑洞运行点名一个不存在的 jar，封存端也会把"读不到的 jar"变成 `Unsealable` 而不是崩溃。**(二)** harness 把"空报告"当成"封了但没过"，于是**工具自己的 stderr 被丢掉**——第一次排查时看到的只有一句空白的 verdict；现在非零退出或空报告都会把工具的原话打出来。
+- [x] **第二个 ADMIT 用例：服务端拒绝 Kin，而拒绝被分类、被记下、被两处记录对上。** 这是与黑洞不同的**另一条失败路径**：客户端把登录握手走完，是**服务端**说不。harness 加 `MINEKIN_DOMAIN_NOT_WHITELISTED`（不给 `run_controlled_server.py` 传 `--allow-player`，白名单因此是空的，而 `white-list=true` + `enforce-whitelist=true` 是既有的固定配置），并且**不等一个永远不会到来的世界**：改成等账本里这次运行自己的 `SessionInterrupted{phase: FAILED}`。
+  - **用例是 `ADMIT-100`**（同样在契约条目里写明定义的是哪一条），三条断言分读三处：`the_refusal_was_classified_in_the_ledger`（账本里 `phase: FAILED` 配 `ADMISSION_FAILURE_REASON_WHITELIST_REJECTED`——**类别是 Bridge 对服务端原话的分类**，原话永不进产品事件）、`the_bridge_classified_the_refusal`（客户端日志里 Bridge 自己那行 `bridge classified the login failure as …WHITELIST_REJECTED`——两处都要，因为只Core 记下而 Bridge 没认出来是 Core 在猜，只 Bridge 认出来而没进账本则是没人以后能拿来用的一个事实）、`no_world_was_joined`。
+  - **`no_world_was_joined` 因此被修松了一处，而松得对**：它原来要求 `connection_state` 为空，而**实测**被拒绝的登录结束时状态是 `FAILED`——按原判据会把一次被拒绝的登录判成"加入过"。现在它只拒绝**声称在世界里**的状态（`PLAYABLE`/`JOIN_SEEN`），终止态（`FAILED`/`DISCONNECTED`）不算；这正是契约「TCP连接、INIT或 screen状态不得单独判成功」的读法。
+  - **实测**：`MINEKIN_DOMAIN_NOT_WHITELISTED=1` → `server ready` → `the session was interrupted, as this run expected` → 三条断言全部 observed、9 件工件（含服务端自己的日志）、`evidence verify` 通过、**harness 退出码 0**。
 - [ ] 执行 `ADMIT-001…120`；Kin 不得获得 op、RCON 或 console 权限。
 
 ## W50：玩家等价首快照

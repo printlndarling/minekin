@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "case_id": "ADMIT-100",
+  "work_package": "W40",
+  "mandatory": false,
+  "inputs": [
+    "tests/fixtures/runtime-input/bundle-p0-core-1.21.4.json",
+    "tests/fixtures/runtime-input/controlled-offline-server.json"
+  ],
+  "assertions": [
+    "the_refusal_was_classified_in_the_ledger",
+    "the_bridge_classified_the_refusal",
+    "no_world_was_joined"
+  ]
+}

@@ -36,6 +36,11 @@ case_id="${MINEKIN_DOMAIN_CASE:-}"
 # which is a different path. This one exists to watch Core give up on its own
 # deadline, and it is the only scenario where the client is expected to *hang*.
 black_hole="${MINEKIN_DOMAIN_BLACK_HOLE:-}"
+# A server that starts and then refuses the Kin: the whitelist stays empty, and
+# `white-list=true` with `enforce-whitelist=true` does the rest. This is the one
+# failure where the client gets all the way into the login handshake and the
+# *server* is what says no.
+not_whitelisted="${MINEKIN_DOMAIN_NOT_WHITELISTED:-}"
 # How often the server is asked about the Kin. A look is over within a second
 # of the join, so a run that wants a reading on both sides of it asks more
 # often than the default — the pair is what shows a heading changed.
@@ -139,11 +144,18 @@ elif [ -n "${server_profile}" ]; then
     # The tool's own chatter goes to /tmp rather than into the run directory: it
     # creates that directory itself and refuses a non-empty one, which is the
     # check that keeps an earlier run's world and log from being written over.
+    # The whitelist is what this run is about when the Kin is meant to be
+    # refused: omitting the name leaves it empty, and the server's own
+    # `usercache.json` and log are then the record of the refusal.
+    allow_args=(--allow-player "${player}")
+    if [ -n "${not_whitelisted}" ]; then
+        allow_args=()
+    fi
     python /src/tools/run_controlled_server.py \
         --directory "${server_directory}" \
         --jar /server/server.jar \
         --accept-eula \
-        --allow-player "${player}" \
+        "${allow_args[@]}" \
         "${summon_args[@]}" \
         "${probe_args[@]}" \
         "${kill_args[@]}" \
@@ -268,7 +280,30 @@ reported_yaws() {
 baseline=$(read_position)
 baseline=${baseline:-0}
 playable=0
-if [ -n "${black_hole}" ]; then
+if [ -n "${not_whitelisted}" ]; then
+    # What this run is about is a refusal, and the refusal is a ledger fact: the
+    # Bridge classifies the login failure and Core records the phase and the
+    # reason together. Waiting for a world this run will never join would spend
+    # the budget on something that cannot happen.
+    deadline=$((SECONDS + seconds))
+    for _ in $(seq 1 "${seconds}"); do
+        kill -0 "${session_pid}" 2>/dev/null || break
+        [ "${SECONDS}" -lt "${deadline}" ] || break
+        recorded=$(/opt/sqlite/bin/sqlite3 "${ledger}" \
+            "select 1 from event where position > ${baseline} and event_type='SessionInterrupted' and payload_json like '%FAILED%' limit 1;" \
+            2>/dev/null || true)
+        if [ -n "${recorded}" ]; then
+            playable=1
+            break
+        fi
+        sleep 1
+    done
+    if [ "${playable}" -eq 1 ]; then
+        printf 'domain: the session was interrupted, as this run expected\n' >&2
+    else
+        printf 'domain: the session was never interrupted within %ss\n' "${seconds}" >&2
+    fi
+elif [ -n "${black_hole}" ]; then
     # Two waits, because two things have to happen before this run has anything
     # to say. First the client has to boot and handshake — that takes as long as
     # it takes, and it is the same wait a run with no world uses. Then Core's own

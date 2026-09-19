@@ -52,6 +52,7 @@ RUN_DOCUMENT_KEY = "run"
 # The reviewed session event types this module needs to name. They are the
 # ledger's vocabulary, and a case that reads Core's own record has to speak it.
 PROCESS_STARTED = "SessionProcessStarted"
+SESSION_INTERRUPTED = "SessionInterrupted"
 HELLO_ACCEPTED = "BridgeHelloAccepted"
 JOIN_OBSERVED = "JoinObserved"
 PLAYABLE_ESTABLISHED = "PlayableEstablished"
@@ -73,12 +74,25 @@ _BRIDGE_RELEASE = re.compile(r"released (\d+) input\(s\) after ([A-Z_]+)")
 #: black hole, after the attempt reached `LOGIN_NEGOTIATING` and stayed there.
 CANCEL_LINE = "bridge is cancelling the client's connection"
 
+#: The category the Bridge gives a server that refuses the Kin, and the phase
+#: Core records it under. Measured: the ledger holds
+#: `SessionInterrupted {phase: FAILED, reason: …WHITELIST_REJECTED}`, and the
+#: client's own log holds the Bridge's line naming the same category. The
+#: server's sentence never enters a product event; the category is what does.
+WHITELIST_REJECTED = "ADMISSION_FAILURE_REASON_WHITELIST_REJECTED"
+REFUSAL_LINE = f"bridge classified the login failure as {WHITELIST_REJECTED}"
+
 #: What counts as having walked. Measured: vanilla survival walking is about 4.3
 #: blocks per second, and the thing this has to tell a step apart from is a shove
 #: — a summoned pig wandering into the Kin moves it well under a block, so the
 #: threshold is the gap between the two, not a tuned number. The harness uses the
 #: same number to decide when to stop waiting, for the same reason.
 MINIMUM_STEP_BLOCKS = 2.0
+
+#: The connection states that claim the session is in a world. Everything else —
+#: the phases before a join, and the terminal states an attempt ends in — is not
+#: a world this run was ever in.
+WORLD_CLAIMING_STATES = frozenset({"PLAYABLE", "JOIN_SEEN"})
 
 #: What the server answers when it is asked where something is. Vanilla replies
 #: to a data query with `has the following entity data: [x, y, z]` for a position
@@ -647,8 +661,11 @@ def no_world_was_joined(material: RunMaterial) -> str | None:
 
     A connection that was accepted is not a join: the contract says TCP, INIT and
     screen state may not be counted as one on their own. What would count is a
-    join the Bridge reported, a snapshot Core admitted, and a connection state of
-    PLAYABLE — so all three are checked, in both records where both exist.
+    join the Bridge reported, a snapshot Core admitted, and a connection state
+    that means the session is *in* the world — so those are what are checked, in
+    both records where both exist. An attempt that ended in `FAILED` or
+    `DISCONNECTED` is an attempt that did not join, and demanding that the state
+    be empty would call a refused login a join.
     """
 
     if material.has(JOIN_OBSERVED):
@@ -659,8 +676,42 @@ def no_world_was_joined(material: RunMaterial) -> str | None:
     if _integer(run, "snapshots_admitted"):
         return "SNAPSHOT_ADMITTED"
     state = _text(run, "connection_state")
-    if state is not None:
+    if state in WORLD_CLAIMING_STATES:
         return f"CONNECTION_STATE:{state}"
+    return None
+
+
+def the_refusal_was_classified_in_the_ledger(material: RunMaterial) -> str | None:
+    """The server said no, and Core recorded the phase and the category together.
+
+    The category is the Bridge's classification of what the server said, not the
+    server's sentence: the contract keeps arbitrary server text out of product
+    events, so a category is the only thing that can travel. Measured, a refused
+    login lands as `phase: FAILED` with `reason: …WHITELIST_REJECTED`.
+    """
+
+    if not material.ledger_readable:
+        return "LEDGER_UNREADABLE"
+    for event in material.recorded(SESSION_INTERRUPTED):
+        seen = payload(event)
+        if seen.get("phase") == "FAILED" and seen.get("reason") == WHITELIST_REJECTED:
+            return None
+    return "NO_CLASSIFIED_REFUSAL"
+
+
+def the_bridge_classified_the_refusal(material: RunMaterial) -> str | None:
+    """The client's own log, where the classification was made.
+
+    The ledger says what Core recorded; this says the Bridge recognised it. Both
+    are needed: a ledger entry with no classification behind it would be Core
+    guessing, and a classification that never reached the ledger would be a fact
+    nobody can act on later.
+    """
+
+    if not material.client_log:
+        return "NO_CLIENT_LOG"
+    if REFUSAL_LINE not in material.client_log:
+        return "THE_BRIDGE_DID_NOT_CLASSIFY_IT"
     return None
 
 
@@ -706,6 +757,8 @@ ASSERTIONS: dict[str, Callable[[RunMaterial], str | None]] = {
     "the_cancel_reached_the_client_and_was_acted_on": (
         the_cancel_reached_the_client_and_was_acted_on
     ),
+    "the_refusal_was_classified_in_the_ledger": the_refusal_was_classified_in_the_ledger,
+    "the_bridge_classified_the_refusal": the_bridge_classified_the_refusal,
 }
 
 
