@@ -13,7 +13,7 @@ public final class MinekinBridgeClient implements ClientModInitializer {
     static final String DESCRIPTOR_ENVIRONMENT_VARIABLE = "MINEKIN_BRIDGE_DESCRIPTOR";
     private static final int MAX_NOTICES_PER_TICK = 8;
     private BridgeIpcWorker worker;
-    private BridgeIpcWorker.Notice lastNotice;
+    private BridgeIpcWorker.ClientMessage lastMessage;
 
     @Override
     public void onInitializeClient() {
@@ -32,14 +32,15 @@ public final class MinekinBridgeClient implements ClientModInitializer {
                 16,
                 new BridgePhaseMachine());
         ClientTickEvents.END_CLIENT_TICK.register(
-                client -> created.drainClientNotices(MAX_NOTICES_PER_TICK, this::acceptNotice));
+                client -> created.drainClientMessages(MAX_NOTICES_PER_TICK, this::acceptMessage));
         ClientLifecycleEvents.CLIENT_STOPPING.register(client -> created.close());
         worker = created;
         created.start();
     }
 
-    private void acceptNotice(BridgeIpcWorker.Notice notice) {
-        // Runs only on the client tick. W20 has no command or input handler.
-        lastNotice = notice;
+    private void acceptMessage(BridgeIpcWorker.ClientMessage message) {
+        // Runs only on the client tick. Admission execution is added after this
+        // bounded, typed handoff is verified independently from socket I/O.
+        lastMessage = message;
     }
 }

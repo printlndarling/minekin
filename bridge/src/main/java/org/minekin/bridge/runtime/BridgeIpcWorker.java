@@ -2,18 +2,22 @@ package org.minekin.bridge.runtime;
 
 import com.google.protobuf.ByteString;
 import io.minekin.protocol.v1.BridgeBootstrapDescriptor;
+import io.minekin.protocol.v1.CancelConnection;
 import io.minekin.protocol.v1.Channel;
+import io.minekin.protocol.v1.ConnectWorld;
 import io.minekin.protocol.v1.CoreHello;
 import io.minekin.protocol.v1.Envelope;
 import io.minekin.protocol.v1.Heartbeat;
 import io.minekin.protocol.v1.ProtocolVersion;
 import java.io.IOException;
+import java.net.SocketTimeoutException;
 import java.nio.channels.SocketChannel;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
+import org.minekin.bridge.protocol.AdmissionCommandGate;
 import org.minekin.bridge.protocol.BootstrapDescriptorAdapter;
 import org.minekin.bridge.protocol.DescriptorLoader;
 import org.minekin.bridge.protocol.EndpointConnector;
@@ -26,13 +30,16 @@ public final class BridgeIpcWorker implements AutoCloseable {
     public static final String BRIDGE_HELLO_TYPE = "minekin.v1.BridgeHello";
     public static final String CORE_HELLO_TYPE = "minekin.v1.CoreHello";
     public static final String HEARTBEAT_TYPE = "minekin.v1.Heartbeat";
+    public static final String CONNECT_WORLD_TYPE = "minekin.v1.ConnectWorld";
+    public static final String CANCEL_CONNECTION_TYPE = "minekin.v1.CancelConnection";
     private static final long MONOTONIC_ORIGIN = System.nanoTime();
 
     private final Path descriptorPath;
     private final Duration connectTimeout;
     private final Duration handshakeTimeout;
     private final BridgePhaseMachine phases;
-    private final BoundedChannel<Notice> clientNotices;
+    private final BoundedChannel<ClientMessage> clientInbox;
+    private final AdmissionCommandGate admissionCommands = new AdmissionCommandGate();
     private final AtomicBoolean started = new AtomicBoolean();
     private final AtomicBoolean stopping = new AtomicBoolean();
     private volatile Thread thread;
@@ -43,13 +50,13 @@ public final class BridgeIpcWorker implements AutoCloseable {
             Path descriptorPath,
             Duration connectTimeout,
             Duration handshakeTimeout,
-            int noticeCapacity,
+            int inboxCapacity,
             BridgePhaseMachine phases) {
         this.descriptorPath = descriptorPath.toAbsolutePath().normalize();
         this.connectTimeout = requirePositive(connectTimeout, "connectTimeout");
         this.handshakeTimeout = requirePositive(handshakeTimeout, "handshakeTimeout");
         this.phases = java.util.Objects.requireNonNull(phases, "phases");
-        clientNotices = new BoundedChannel<>(noticeCapacity);
+        clientInbox = new BoundedChannel<>(inboxCapacity);
     }
 
     /** Starts exactly once and returns without descriptor or socket I/O. */
@@ -63,16 +70,16 @@ public final class BridgeIpcWorker implements AutoCloseable {
         worker.start();
     }
 
-    public int drainClientNotices(int limit, Consumer<Notice> consumer) {
-        return clientNotices.drain(limit, consumer);
+    public int drainClientMessages(int limit, Consumer<ClientMessage> consumer) {
+        return clientInbox.drain(limit, consumer);
     }
 
     public BridgePhaseMachine.Phase phase() {
         return phases.phase();
     }
 
-    public long rejectedNoticeCount() {
-        return clientNotices.rejectedCount();
+    public long rejectedMessageCount() {
+        return clientInbox.rejectedCount();
     }
 
     @Override
@@ -101,7 +108,7 @@ public final class BridgeIpcWorker implements AutoCloseable {
         } catch (Exception error) {
             if (!stopping.get()) {
                 phases.safeStop();
-                clientNotices.offer(Notice.SAFE_STOP);
+                clientInbox.replaceWith(Notice.SAFE_STOP);
             }
         } finally {
             closeQuietly(control);
@@ -140,7 +147,11 @@ public final class BridgeIpcWorker implements AutoCloseable {
                         descriptor.expected().generation(),
                         descriptor.expected().clientInstanceId()),
                 Channel.CHANNEL_CONTROL,
-                Set.of(CORE_HELLO_TYPE, HEARTBEAT_TYPE));
+                Set.of(
+                        CORE_HELLO_TYPE,
+                        HEARTBEAT_TYPE,
+                        CONNECT_WORLD_TYPE,
+                        CANCEL_CONNECTION_TYPE));
         Envelope reply = control.read(handshakeTimeout);
         gate.validate(reply);
         if (!CORE_HELLO_TYPE.equals(reply.getMessageType())) {
@@ -151,26 +162,47 @@ public final class BridgeIpcWorker implements AutoCloseable {
         if (!handshake.accept(accepted)) {
             throw new IOException("CoreHello proof or negotiated values were rejected");
         }
-        if (!clientNotices.offer(Notice.OBSERVE_ONLY)) {
+        if (!clientInbox.offer(Notice.OBSERVE_ONLY)) {
             throw new IOException("client notice queue is full after handshake");
         }
         return new HeartbeatState(
-                gate, Duration.ofMillis(Math.multiplyExact(coreHello.getHeartbeatIntervalMs(), 3L)));
+                gate,
+                Duration.ofMillis(Math.multiplyExact(coreHello.getHeartbeatIntervalMs(), 3L)),
+                accepted.acceptedCapabilities());
     }
 
     private void heartbeatLoop(
             BootstrapDescriptorAdapter.AdaptedDescriptor descriptor, HeartbeatState state)
             throws IOException {
+        long heartbeatDeadline = heartbeatDeadline(state.timeout());
         while (!stopping.get()) {
-            Envelope envelope = control.read(state.timeout());
-            state.gate().validate(envelope);
-            if (!HEARTBEAT_TYPE.equals(envelope.getMessageType())) {
-                throw new IOException("CoreHello may not be replayed after activation");
+            long remaining = heartbeatDeadline - System.nanoTime();
+            if (remaining <= 0) {
+                throw new SocketTimeoutException("Bridge heartbeat timed out");
             }
-            Heartbeat heartbeat = Heartbeat.parseFrom(envelope.getPayload());
-            if (heartbeat.getGeneration() != descriptor.expected().generation()
-                    || heartbeat.getMonotonicNs() == 0) {
-                throw new IOException("heartbeat identity is invalid");
+            Envelope envelope = control.read(Duration.ofNanos(remaining));
+            state.gate().validate(envelope);
+            if (HEARTBEAT_TYPE.equals(envelope.getMessageType())) {
+                Heartbeat heartbeat = Heartbeat.parseFrom(envelope.getPayload());
+                if (heartbeat.getGeneration() != descriptor.expected().generation()
+                        || heartbeat.getMonotonicNs() == 0) {
+                    throw new IOException("heartbeat identity is invalid");
+                }
+                heartbeatDeadline = heartbeatDeadline(state.timeout());
+            } else if (CONNECT_WORLD_TYPE.equals(envelope.getMessageType())) {
+                ConnectWorld command = ConnectWorld.parseFrom(envelope.getPayload());
+                admissionCommands.acceptConnect(command, state.capabilities());
+                if (!clientInbox.offer(new ConnectCommand(command))) {
+                    throw new IOException("client inbox is full for ConnectWorld");
+                }
+            } else if (CANCEL_CONNECTION_TYPE.equals(envelope.getMessageType())) {
+                CancelConnection command = CancelConnection.parseFrom(envelope.getPayload());
+                admissionCommands.acceptCancel(command, state.capabilities());
+                if (!clientInbox.offer(new CancelCommand(command))) {
+                    throw new IOException("client inbox is full for CancelConnection");
+                }
+            } else {
+                throw new IOException("CoreHello may not be replayed after activation");
             }
         }
     }
@@ -204,6 +236,14 @@ public final class BridgeIpcWorker implements AutoCloseable {
         return value;
     }
 
+    private static long heartbeatDeadline(Duration timeout) {
+        try {
+            return Math.addExact(System.nanoTime(), timeout.toNanos());
+        } catch (ArithmeticException error) {
+            throw new IllegalArgumentException("heartbeat timeout is too large", error);
+        }
+    }
+
     private static long monotonicNow() {
         return Math.max(1, System.nanoTime() - MONOTONIC_ORIGIN);
     }
@@ -218,10 +258,20 @@ public final class BridgeIpcWorker implements AutoCloseable {
         }
     }
 
-    public enum Notice {
+    public sealed interface ClientMessage permits Notice, ConnectCommand, CancelCommand {}
+
+    public enum Notice implements ClientMessage {
         OBSERVE_ONLY,
         SAFE_STOP
     }
 
-    private record HeartbeatState(EnvelopeGate gate, Duration timeout) {}
+    public record ConnectCommand(ConnectWorld value) implements ClientMessage {}
+
+    public record CancelCommand(CancelConnection value) implements ClientMessage {}
+
+    private record HeartbeatState(EnvelopeGate gate, Duration timeout, Set<String> capabilities) {
+        private HeartbeatState {
+            capabilities = Set.copyOf(capabilities);
+        }
+    }
 }

@@ -3,12 +3,14 @@ import io.minekin.protocol.v1.BridgeBootstrapDescriptor;
 import io.minekin.protocol.v1.BridgeHello;
 import io.minekin.protocol.v1.Capability;
 import io.minekin.protocol.v1.Channel;
+import io.minekin.protocol.v1.ConnectWorld;
 import io.minekin.protocol.v1.CoreHello;
 import io.minekin.protocol.v1.EndpointTransport;
 import io.minekin.protocol.v1.Envelope;
 import io.minekin.protocol.v1.Heartbeat;
 import io.minekin.protocol.v1.IpcEndpoint;
 import io.minekin.protocol.v1.ProtocolVersion;
+import io.minekin.protocol.v1.ResourcePackPolicy;
 import java.net.InetSocketAddress;
 import java.net.StandardProtocolFamily;
 import java.nio.channels.ServerSocketChannel;
@@ -62,9 +64,12 @@ public final class BridgeIpcWorkerSelfTest {
                 worker.start();
                 assert System.nanoTime() - start < Duration.ofMillis(500).toNanos()
                         : "worker start performed blocking I/O";
-                BridgeIpcWorker.Notice notice = awaitNotice(worker, Duration.ofSeconds(4));
+                BridgeIpcWorker.ClientMessage notice = awaitMessage(worker, Duration.ofSeconds(4));
                 assert notice == BridgeIpcWorker.Notice.OBSERVE_ONLY;
                 assert worker.phase() == BridgePhaseMachine.Phase.OBSERVE_ONLY;
+                BridgeIpcWorker.ClientMessage command = awaitMessage(worker, Duration.ofSeconds(4));
+                assert command instanceof BridgeIpcWorker.ConnectCommand;
+                assert ((BridgeIpcWorker.ConnectCommand) command).value().getGeneration() == 1;
                 assert Files.notExists(descriptorPath);
             } finally {
                 releaseServer.countDown();
@@ -102,7 +107,9 @@ public final class BridgeIpcWorkerSelfTest {
                     0,
                     "session-worker",
                     3,
-                    Set.of(HandshakeGate.HANDSHAKE_CAPABILITY),
+                    Set.of(
+                            HandshakeGate.HANDSHAKE_CAPABILITY,
+                            HandshakeGate.ADMISSION_CAPABILITY),
                     500,
                     MAX_FRAME_BYTES,
                     "0".repeat(64));
@@ -110,7 +117,8 @@ public final class BridgeIpcWorkerSelfTest {
                     .setProtocol(ProtocolVersion.newBuilder().setMajor(1))
                     .setSessionId("session-worker")
                     .setGeneration(3)
-                    .addAcceptedCapabilities(capability())
+                    .addAcceptedCapabilities(capability(HandshakeGate.HANDSHAKE_CAPABILITY))
+                    .addAcceptedCapabilities(capability(HandshakeGate.ADMISSION_CAPABILITY))
                     .setHeartbeatIntervalMs(500)
                     .setMaxFrameBytes(MAX_FRAME_BYTES)
                     .setProof(ByteString.copyFrom(
@@ -122,18 +130,29 @@ public final class BridgeIpcWorkerSelfTest {
                     .setMonotonicNs(1)
                     .build();
             control.write(envelope(2, BridgeIpcWorker.HEARTBEAT_TYPE, heartbeat.toByteString()));
+            ConnectWorld connect = ConnectWorld.newBuilder()
+                    .setRequestId("connect-1")
+                    .setGeneration(1)
+                    .setServerProfileId("p0-controlled")
+                    .setServerProfileRevision("ab".repeat(32))
+                    .setOriginalHost("127.0.0.1")
+                    .setPort(25565)
+                    .setResourcePackPolicy(ResourcePackPolicy.RESOURCE_PACK_POLICY_DENY)
+                    .setDeadlineMonotonicNs(1)
+                    .build();
+            control.write(envelope(3, BridgeIpcWorker.CONNECT_WORLD_TYPE, connect.toByteString()));
             release.await();
         } catch (Throwable error) {
             failure.set(error);
         }
     }
 
-    private static BridgeIpcWorker.Notice awaitNotice(
+    private static BridgeIpcWorker.ClientMessage awaitMessage(
             BridgeIpcWorker worker, Duration timeout) throws Exception {
-        AtomicReference<BridgeIpcWorker.Notice> result = new AtomicReference<>();
+        AtomicReference<BridgeIpcWorker.ClientMessage> result = new AtomicReference<>();
         long deadline = System.nanoTime() + timeout.toNanos();
         while (result.get() == null && System.nanoTime() < deadline) {
-            worker.drainClientNotices(1, result::set);
+            worker.drainClientMessages(1, result::set);
             if (result.get() == null) {
                 Thread.sleep(5);
             }
@@ -158,7 +177,8 @@ public final class BridgeIpcWorkerSelfTest {
                 .setBridgeDigest(DIGEST)
                 .setLaunchNonce(ByteString.copyFrom(new byte[32]))
                 .setSessionKey(ByteString.copyFrom(new byte[32]))
-                .addAdvertisedCapabilities(capability())
+                .addAdvertisedCapabilities(capability(HandshakeGate.HANDSHAKE_CAPABILITY))
+                .addAdvertisedCapabilities(capability(HandshakeGate.ADMISSION_CAPABILITY))
                 .addEndpoints(endpoint(Channel.CHANNEL_CONTROL, controlPort))
                 .addEndpoints(endpoint(Channel.CHANNEL_EVENT, eventPort))
                 .setMaxFrameBytes(MAX_FRAME_BYTES)
@@ -189,9 +209,9 @@ public final class BridgeIpcWorkerSelfTest {
                 .build();
     }
 
-    private static Capability capability() {
+    private static Capability capability(String name) {
         return Capability.newBuilder()
-                .setName(HandshakeGate.HANDSHAKE_CAPABILITY)
+                .setName(name)
                 .setVersion(1)
                 .build();
     }

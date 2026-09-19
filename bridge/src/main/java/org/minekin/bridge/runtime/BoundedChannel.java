@@ -26,6 +26,17 @@ public final class BoundedChannel<T> {
         return accepted;
     }
 
+    /** Drop queued work and guarantee one terminal safety message is next. */
+    public synchronized void replaceWith(T value) {
+        Objects.requireNonNull(value, "value");
+        int dropped = queue.size();
+        queue.clear();
+        if (!queue.offer(value)) {
+            throw new IllegalStateException("bounded channel could not accept terminal value");
+        }
+        rejected.addAndGet(dropped);
+    }
+
     public int drain(int limit, Consumer<T> consumer) {
         Objects.requireNonNull(consumer, "consumer");
         if (limit < 0) {

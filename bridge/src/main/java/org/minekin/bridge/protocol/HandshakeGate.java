@@ -14,6 +14,7 @@ import org.minekin.bridge.runtime.BridgePhaseMachine;
 /** Validates the immutable W20 handshake before entering OBSERVE_ONLY. */
 public final class HandshakeGate {
     public static final String HANDSHAKE_CAPABILITY = "session.handshake.v1";
+    public static final String ADMISSION_CAPABILITY = "admission.connect.v1";
     public static final int MIN_FRAME_BYTES = 1024;
     public static final int MAX_FRAME_BYTES = 16 * 1024 * 1024;
 

@@ -47,6 +47,7 @@ ADAPTER_SOURCES = (
     ROOT / "bridge/src/main/java/org/minekin/bridge/runtime/BoundedChannel.java",
     ROOT / "bridge/src/main/java/org/minekin/bridge/runtime/BridgeIpcWorker.java",
     ROOT / "bridge/src/main/java/org/minekin/bridge/protocol/HandshakeGate.java",
+    ROOT / "bridge/src/main/java/org/minekin/bridge/protocol/AdmissionCommandGate.java",
     ROOT / "bridge/src/main/java/org/minekin/bridge/protocol/DescriptorLoader.java",
     ROOT / "bridge/src/main/java/org/minekin/bridge/protocol/BootstrapDescriptorAdapter.java",
     ROOT / "bridge/src/main/java/org/minekin/bridge/protocol/SessionIdentityReportAdapter.java",
@@ -59,6 +60,7 @@ ADAPTER_SOURCES = (
     ROOT / "tools/java/BridgeEnvelopeTransportSelfTest.java",
     ROOT / "tools/java/BridgeIpcWorkerSelfTest.java",
     ROOT / "tools/java/BridgeSessionIdentitySelfTest.java",
+    ROOT / "tools/java/AdmissionCommandGateSelfTest.java",
 )
 
 
@@ -184,6 +186,15 @@ def main() -> None:
                 "-cp",
                 os.pathsep.join((str(classes), str(runtime))),
                 "BridgeSessionIdentitySelfTest",
+            ]
+        )
+        _run(
+            [
+                str(java),
+                "-ea",
+                "-cp",
+                os.pathsep.join((str(classes), str(runtime))),
+                "AdmissionCommandGateSelfTest",
             ]
         )
     print("Minekin Bridge protobuf adapter: OK (verified Maven artifacts, Java 17 subset)")

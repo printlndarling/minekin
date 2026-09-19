@@ -55,6 +55,11 @@ public final class BridgeProtocolSelfTest {
         List<String> drained = new ArrayList<>();
         require(queue.drain(1, drained::add) == 1, "tick drain budget");
         require(drained.equals(List.of("one")), "FIFO handoff");
+        queue.replaceWith("safe-stop");
+        List<String> terminal = new ArrayList<>();
+        queue.drain(2, terminal::add);
+        require(terminal.equals(List.of("safe-stop")), "safe-stop replaces queued work");
+        require(queue.rejectedCount() == 2, "replaced work is observable as rejected");
     }
 
     private static void phasesFailClosedAndNeverPermitInput() {
