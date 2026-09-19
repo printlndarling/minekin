@@ -330,6 +330,7 @@ def prepare_session(
     spec = build_process_spec(
         plan,
         run_root=runs,
+        overlay=overlay,
         material=identity.material,
         candidate=OFFLINE_SESSION_CANDIDATES[0],
         java_executable=java_executable,

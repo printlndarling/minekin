@@ -55,7 +55,7 @@ def fabricated() -> tuple[dict[str, Any], Artifact]:
             "jvm_args": ["-cp", store_path, "-Djava.library.path=session/natives"],
             "classpath": [store_path],
             "natives_dir": "session/natives",
-            "game_dir": "session/game",
+            "game_dir": "session/",
             "assets_dir": "bundle/assets",
             "assets_index_name": "19",
             "version_type": "release",

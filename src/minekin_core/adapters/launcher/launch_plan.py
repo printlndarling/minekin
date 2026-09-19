@@ -22,6 +22,16 @@ _PLACEHOLDER = re.compile(r"^\$\{([a-zA-Z0-9_]+)\}$")
 # site-packages once the package is installed.
 WORKSPACE_MARKERS: tuple[str, ...] = ("bridge", "proto")
 
+# Plan paths name one of two roots. The run root holds the immutable store and
+# the read-only bundle; `session/` names the writable overlay for one session
+# generation. The launch-plan contract puts the client's game directory at the
+# overlay itself, not at a shared directory beside it, so `session/` with
+# nothing after it is the overlay root and `session/natives` is a directory
+# inside the overlay.
+SESSION_PREFIX: str = "session/"
+SESSION_OVERLAY_PATH: str = "session/"
+SESSION_NATIVES_PATH: str = "session/natives"
+
 
 def _reject(message: str) -> MinekinError:
     return MinekinError(
@@ -124,7 +134,7 @@ def build_launch_plan(profile_path: Path, *, workspace_root: Path | None = None)
         _store_path(artifact) for artifact in metadata.libraries if artifact.kind == "native"
     ]
     replacements = {
-        "${natives_directory}": "session/natives",
+        "${natives_directory}": SESSION_NATIVES_PATH,
         "${launcher_name}": "minekin",
         "${launcher_version}": "0.0.0",
         "${classpath}": ":".join(classpath),
@@ -178,8 +188,10 @@ def build_launch_plan(profile_path: Path, *, workspace_root: Path | None = None)
             "assets_index_name": metadata.asset_index_id,
             "assets_dir": "bundle/assets",
             "logging_config": _store_path(metadata.logging_config),
-            "natives_dir": "session/natives",
-            "game_dir": "session/game",
+            "natives_dir": SESSION_NATIVES_PATH,
+            # The contract makes the session overlay the client's game directory
+            # rather than a sibling of it, so `session/` alone names the overlay.
+            "game_dir": SESSION_OVERLAY_PATH,
             "version_type": metadata.version_type,
         },
         "metadata": {

@@ -11,7 +11,7 @@ from minekin_core.adapters.launcher.launch_plan import build_launch_plan
 from minekin_core.adapters.launcher.offline_session import OFFLINE_SESSION_CANDIDATES
 from minekin_core.adapters.launcher.process import (
     BRIDGE_DESCRIPTOR_VARIABLE,
-    RUN_ROOT_PREFIXES,
+    PLAN_PATH_PREFIXES,
     argument_digest,
     build_process_spec,
 )
@@ -39,9 +39,15 @@ def plan() -> dict[str, Any]:
     return build_launch_plan(PROFILE)
 
 
+# The session overlay is the client's game directory: plan paths under
+# `session/` resolve here rather than into a directory shared by every session.
+OVERLAY = Path("/srv/minekin/run/session/session-01/generation-1").resolve()
+
+
 def spec(plan_document: dict[str, Any] | None = None, **overrides: object):
     arguments: dict[str, object] = {
         "run_root": RUN_ROOT,
+        "overlay": OVERLAY,
         "material": material(),
         "candidate": OFF_A,
         "java_executable": JAVA,
@@ -69,14 +75,14 @@ def test_every_path_bearing_jvm_argument_is_absolutised() -> None:
     for argument in built.argv:
         if argument.startswith("-D") and "=" in argument:
             value = argument.split("=", 1)[1]
-            if value.startswith(RUN_ROOT_PREFIXES):
+            if value.startswith(PLAN_PATH_PREFIXES):
                 pytest.fail(f"{argument!r} was left relative")
 
 
 def test_no_argument_survives_as_a_run_root_relative_path() -> None:
     built = spec()
 
-    offenders = [item for item in built.argv if item.startswith(RUN_ROOT_PREFIXES)]
+    offenders = [item for item in built.argv if item.startswith(PLAN_PATH_PREFIXES)]
     assert offenders == []
 
 
@@ -97,26 +103,24 @@ def test_the_natives_directory_is_absolute_in_every_argument_that_names_it() -> 
 
     named = [item for item in built.argv if item.endswith("=session/natives")]
     assert named == []
-    pointing = [
-        item for item in built.argv if item.split("=", 1)[-1] == str(RUN_ROOT / "session/natives")
-    ]
+    pointing = [item for item in built.argv if item.split("=", 1)[-1] == str(OVERLAY / "natives")]
     assert len(pointing) == 4
 
 
 def test_an_argument_left_as_a_relative_plan_path_is_refused() -> None:
-    """A relative path would resolve against the game directory, not the run root."""
+    """A relative path would resolve against the overlay, not against a plan root."""
 
     document = copy.deepcopy(plan())
     document["runtime"]["jvm_args"].append("session/orphan")
 
-    with pytest.raises(MinekinError, match="left as a run-root-relative path"):
+    with pytest.raises(MinekinError, match="left as a plan-relative path"):
         spec(document)
 
 
 def test_the_client_runs_inside_the_session_game_directory() -> None:
     built = spec()
 
-    assert built.working_directory == RUN_ROOT / "session/game"
+    assert built.working_directory == OVERLAY
     assert element_after(built.argv, "--gameDir") == str(built.working_directory)
     assert element_after(built.argv, "--assetsDir") == str(RUN_ROOT / "bundle/assets")
 
@@ -206,7 +210,7 @@ def test_the_evidence_document_names_what_was_invoked_without_dumping_it() -> No
 
     assert document == {
         "java_executable": str(JAVA),
-        "working_directory": str(RUN_ROOT / "session/game"),
+        "working_directory": str(OVERLAY),
         "run_root": str(RUN_ROOT),
         "main_class": "net.fabricmc.loader.impl.launch.knot.KnotClient",
         "argv_length": len(spec().argv),

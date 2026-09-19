@@ -24,16 +24,16 @@ from minekin_core.domain.errors import ErrorCategory, MinekinError
 def spec(tmp_path: Path, script: str, **overrides: object) -> ClientProcessSpec:
     """A real process, using the running interpreter as the stand-in for java."""
 
-    game = tmp_path / "session" / "game"
-    game.mkdir(parents=True, exist_ok=True)
+    overlay = tmp_path / "session" / "session-01" / "generation-1"
+    overlay.mkdir(parents=True, exist_ok=True)
     arguments: dict[str, object] = {
         "argv": ("-c", script),
-        "working_directory": game,
+        "working_directory": overlay,
         "java_executable": Path(sys.executable),
         "run_root": tmp_path,
         "main_class": "probe",
-        "environment": client_environment(game),
-        "session_directories": redirect_targets(game),
+        "environment": client_environment(overlay),
+        "session_directories": redirect_targets(overlay),
     }
     arguments.update(overrides)
     return ClientProcessSpec(**arguments)  # type: ignore[arg-type]
@@ -93,7 +93,7 @@ def test_the_child_runs_inside_the_session_game_directory(tmp_path: Path) -> Non
 
     printed = wait_for_log(tmp_path / "logs" / "stdout.log")
 
-    assert printed == str(tmp_path / "session" / "game")
+    assert printed == str(tmp_path / "session" / "session-01" / "generation-1")
 
 
 def test_the_child_receives_exactly_the_named_environment(tmp_path: Path) -> None:
@@ -101,19 +101,22 @@ def test_the_child_receives_exactly_the_named_environment(tmp_path: Path) -> Non
 
     run = supervisor(tmp_path, log_directory=tmp_path / "logs")
     run_to_exit(run, spec(tmp_path, PRINT_ENVIRONMENT))
+    overlay = tmp_path / "session" / "session-01" / "generation-1"
 
     environment = json.loads(wait_for_log(tmp_path / "logs" / "stdout.log"))
 
-    assert environment["HOME"] == str(tmp_path / "session")
-    assert environment["XDG_CACHE_HOME"] == str(tmp_path / "session" / "xdg-cache")
-    assert environment["TMPDIR"] == str(tmp_path / "session" / "tmp")
+    # The working directory is the overlay, so the redirected variables point
+    # inside it rather than at a directory beside it.
+    assert environment["HOME"] == str(overlay)
+    assert environment["XDG_CACHE_HOME"] == str(overlay / "xdg-cache")
+    assert environment["TMPDIR"] == str(overlay / "tmp")
     assert "MINEKIN_FORWARDED" not in environment
 
 
 def test_a_forwarded_host_variable_reaches_the_child(tmp_path: Path) -> None:
-    game = tmp_path / "session" / "game"
-    game.mkdir(parents=True)
-    environment = client_environment(game, forward={"MINEKIN_FORWARDED": ":99"})
+    overlay = tmp_path / "session" / "session-01" / "generation-1"
+    overlay.mkdir(parents=True)
+    environment = client_environment(overlay, forward={"MINEKIN_FORWARDED": ":99"})
     run = supervisor(tmp_path, log_directory=tmp_path / "logs")
 
     run_to_exit(run, spec(tmp_path, PRINT_ENVIRONMENT, environment=environment))
@@ -203,14 +206,14 @@ def test_an_unstartable_executable_is_reported_as_a_process_failure(tmp_path: Pa
     assert raised.value.category is ErrorCategory.PROCESS
 
 
-def test_the_session_directories_are_redirected_into_the_run(tmp_path: Path) -> None:
-    game = tmp_path / "session" / "game"
-    game.mkdir(parents=True)
+def test_the_session_directories_are_redirected_into_the_overlay(tmp_path: Path) -> None:
+    overlay = tmp_path / "session" / "session-01" / "generation-1"
+    overlay.mkdir(parents=True)
 
-    environment = client_environment(game, forward={"DISPLAY": ":99"})
+    environment = client_environment(overlay, forward={"DISPLAY": ":99"})
 
     assert environment["DISPLAY"] == ":99"
-    assert environment["HOME"] == str(tmp_path / "session")
+    assert environment["HOME"] == str(overlay)
     assert all(
         not value.startswith(str(Path.home())) or str(tmp_path) in value
         for value in environment.values()
@@ -219,19 +222,19 @@ def test_the_session_directories_are_redirected_into_the_run(tmp_path: Path) -> 
 
 @pytest.mark.parametrize("name", ["HOME", "XDG_DATA_HOME", "TMPDIR"])
 def test_a_redirected_variable_cannot_be_forwarded_over(tmp_path: Path, name: str) -> None:
-    game = tmp_path / "session" / "game"
-    game.mkdir(parents=True)
+    overlay = tmp_path / "session" / "session-01" / "generation-1"
+    overlay.mkdir(parents=True)
 
     with pytest.raises(MinekinError, match="already redirected"):
-        client_environment(game, forward={name: "/host/place"})
+        client_environment(overlay, forward={name: "/host/place"})
 
 
 def test_a_forwarded_value_naming_the_host_minecraft_is_refused(tmp_path: Path) -> None:
-    game = tmp_path / "session" / "game"
-    game.mkdir(parents=True)
+    overlay = tmp_path / "session" / "session-01" / "generation-1"
+    overlay.mkdir(parents=True)
 
     with pytest.raises(MinekinError, match=r"host \.minecraft"):
-        client_environment(game, forward={"MODS": "/home/operator/.minecraft/mods"})
+        client_environment(overlay, forward={"MODS": "/home/operator/.minecraft/mods"})
 
 
 def test_a_recorded_identity_round_trips(tmp_path: Path) -> None:

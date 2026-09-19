@@ -196,7 +196,7 @@ def test_game_environment_carries_only_paths_and_version_identity() -> None:
     assert environment == {
         "version_name": "1.21.4",
         "version_type": "release",
-        "game_directory": "session/game",
+        "game_directory": "session/",
         "assets_root": "bundle/assets",
         "assets_index_name": "19",
     }
