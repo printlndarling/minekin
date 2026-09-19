@@ -135,6 +135,46 @@ server run directory: /data/server-runs/run-1
 the Minecraft EULA must be accepted by the operator: pass --accept-eula
 ```
 
+### Measured
+
+```text
+$ MINEKIN_SERVER_JAR=.tmp/vanilla/server.jar bash test-orchestrator/runner/run.sh server \
+      --accept-eula --allow-player Kin
+server run directory: /data/server-runs/run-1
+started 9; waiting for 'Done (' in /data/server-runs/run-1/server.log
+Controlled server: OK (ready, then stopped; /data/server-runs/run-1/server.log holds the run)
+```
+
+The isolation held in the started server, not just in the file the tool wrote —
+the settings are quoted back from `server.properties` after vanilla rewrote it on
+first run: `online-mode=false`, `white-list=true` with `enforce-whitelist=true`,
+`gamemode=survival`, `force-gamemode=true`, `spawn-protection=0`, and
+`enable-rcon`/`enable-query`/`enable-command-block`/`broadcast-console-to-ops`
+all false. `whitelist.json` names one account, the Kin's, under the offline UUID
+`8f40376b-c23f-3ef1-b553-5564eea75639`, and `ops.json` is empty. The log says
+where it bound and that it saw the trade it was making:
+
+```text
+[Server thread/INFO]: Starting Minecraft server on 127.0.0.1:25565
+[Server thread/WARN]: **** SERVER IS RUNNING IN OFFLINE/INSECURE MODE!
+[Server thread/INFO]: Done (0.512s)! For help, type "help"
+[Server thread/INFO]: Stopping the server
+[Server thread/INFO]: ThreadedAnvilChunkStorage: All dimensions are saved
+```
+
+Per-run isolation comes for free: a modern server jar is a bundler that unpacks
+the server and 44 MB of libraries into its working directory, so each run gets
+its own copy rather than sharing one. That is also the cost — `run-1` is 64 MB on
+disk (44 MB libraries, 18 MB server, 3.5 MB world) and nothing prunes it. Runs
+are evidence, so they are appended to and never rewritten; when they should be
+collected is the same open question the session markers are.
+
+One `ERROR` is in the log and is not a defect to fix here:
+`No key layers in MapLike[{}]` is vanilla's flat generator saying that
+`level-type=minecraft:flat` arrived without a `layers` key. It falls back to the
+default layer set and the world generates; the alternative would be inventing a
+generator preset the profile does not name.
+
 ## What it does not do yet
 
 Nothing connects the client to the server. The runner can bring up the isolated
