@@ -89,6 +89,10 @@ IMPLEMENTATIONS: dict[str, Implementation] = {
     "leave_after_join_observed": _runtime("leave_after_join_observed"),
     "handshake_accepted_by_core": _runtime("handshake_accepted_by_core"),
     "stayed_observe_only": _runtime("stayed_observe_only"),
+    "move_input_was_leased": _runtime("move_input_was_leased"),
+    "the_bridge_carried_the_input_out": _runtime("the_bridge_carried_the_input_out"),
+    "the_server_saw_the_kin_move": _runtime("the_server_saw_the_kin_move"),
+    "the_lease_expired_and_was_released": _runtime("the_lease_expired_and_was_released"),
 }
 
 

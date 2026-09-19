@@ -54,6 +54,25 @@ HELLO_ACCEPTED = "BridgeHelloAccepted"
 JOIN_OBSERVED = "JoinObserved"
 PLAYABLE_ESTABLISHED = "PlayableEstablished"
 INPUT_LEASE_GRANTED = "InputLeaseGranted"
+INPUT_RELEASED = "InputReleased"
+
+#: The reviewed capability a move is granted under, and the reason a lease that
+#: simply ran out records.
+MOVE_CAPABILITY = "control.move.v1"
+TIMEOUT = "TIMEOUT"
+
+#: What counts as having walked. Measured: vanilla survival walking is about 4.3
+#: blocks per second, and the thing this has to tell a step apart from is a shove
+#: — a summoned pig wandering into the Kin moves it well under a block, so the
+#: threshold is the gap between the two, not a tuned number. The harness uses the
+#: same number to decide when to stop waiting, for the same reason.
+MINIMUM_STEP_BLOCKS = 2.0
+
+#: What the server answers when it is asked where something is. Vanilla replies
+#: to a data query with `has the following entity data: [x, y, z]` for a position
+#: and `[yaw, pitch]` for a rotation: two components or three, and that is what
+#: tells the two readings apart.
+_PROBE = re.compile(r"has the following entity data: \[([^\]]*)\]")
 
 _LEDGER_COLUMNS = (
     "position, event_id, event_type, schema_version, kin_id, run_id, "
@@ -61,6 +80,21 @@ _LEDGER_COLUMNS = (
     "correlation_id, causation_id, monotonic_ns, observed_at_utc, source, "
     "trust_class, payload_json, payload_hash"
 )
+
+
+def probe_readings(log: str, components: int) -> tuple[tuple[float, ...], ...]:
+    """The server's own answers, one per probe that asked for this shape."""
+
+    readings: list[tuple[float, ...]] = []
+    for match in _PROBE.finditer(log):
+        parts = [part.strip().rstrip("df") for part in match.group(1).split(",")]
+        if len(parts) != components:
+            continue
+        try:
+            readings.append(tuple(float(part) for part in parts))
+        except ValueError:
+            continue
+    return tuple(readings)
 
 
 def _sentence(name: str, event: str) -> re.Pattern[str]:
@@ -359,6 +393,90 @@ def leave_after_join_observed(material: RunMaterial) -> str | None:
     return None
 
 
+def payload(event: Mapping[str, object]) -> Mapping[str, object]:
+    """One ledger row's payload, as the event recorded it."""
+
+    raw = event.get("payload_json")
+    if not isinstance(raw, str):
+        return {}
+    try:
+        document = json.loads(raw)
+    except json.JSONDecodeError:
+        return {}
+    return cast(Mapping[str, object], document) if isinstance(document, Mapping) else {}
+
+
+def move_input_was_leased(material: RunMaterial) -> str | None:
+    """Core granted a lease for the move capability in this run.
+
+    The capability is checked rather than assumed: a lease is an authorisation
+    for *one* thing, and a run that was leased something else did not get to move
+    because it was allowed to.
+    """
+
+    if not material.ledger_readable:
+        return "LEDGER_UNREADABLE"
+    grants = material.recorded(INPUT_LEASE_GRANTED)
+    if not grants:
+        return "NO_LEASE_GRANTED"
+    capabilities = {str(payload(event).get("capability")) for event in grants}
+    if MOVE_CAPABILITY not in capabilities:
+        return f"LEASE_IS_NOT_FOR_A_MOVE:{','.join(sorted(capabilities))}"
+    return None
+
+
+def the_bridge_carried_the_input_out(material: RunMaterial) -> str | None:
+    """Core's own record of what the Bridge did with the command."""
+
+    run = material.run()
+    applied = _integer(run, "actions_applied")
+    refused = _integer(run, "actions_refused")
+    if applied is None or refused is None:
+        return "ACTION_COUNTS_MISSING"
+    if refused:
+        return f"ACTIONS_REFUSED:{refused}"
+    if applied < 1:
+        return "NOTHING_WAS_APPLIED"
+    return None
+
+
+def the_server_saw_the_kin_move(material: RunMaterial) -> str | None:
+    """The Kin's displacement, measured by the server rather than by the Kin.
+
+    What the client believes it did is not evidence that it moved: the server's
+    own readings are, and this is the point of the whole chain — an input that
+    was legal and carried out is still not a movement until the world says so.
+    """
+
+    positions = probe_readings(material.server_log, 3)
+    if len(positions) < 2:
+        return "NO_SERVER_READINGS"
+    first, last = positions[0], positions[-1]
+    horizontal = ((last[0] - first[0]) ** 2 + (last[2] - first[2]) ** 2) ** 0.5
+    if horizontal < MINIMUM_STEP_BLOCKS:
+        return f"MOVED_LESS_THAN_A_STEP:{horizontal:.2f}"
+    return None
+
+
+def the_lease_expired_and_was_released(material: RunMaterial) -> str | None:
+    """The input was taken back when the hold's own deadline passed.
+
+    A release for any other reason — a channel that went away, a session ending —
+    is a different fact about a different cause, so the reason is checked rather
+    than the event's presence.
+    """
+
+    if not material.ledger_readable:
+        return "LEDGER_UNREADABLE"
+    releases = material.recorded(INPUT_RELEASED)
+    if not releases:
+        return "NO_RELEASE_RECORDED"
+    reasons = {str(payload(event).get("reason")) for event in releases}
+    if TIMEOUT not in reasons:
+        return f"RELEASED_FOR_ANOTHER_REASON:{','.join(sorted(reasons))}"
+    return None
+
+
 #: Every assertion a case manifest may name, and what performs it. A name that is
 #: not here cannot be judged, which the verdict reports rather than passing over.
 ASSERTIONS: dict[str, Callable[[RunMaterial], str | None]] = {
@@ -367,6 +485,10 @@ ASSERTIONS: dict[str, Callable[[RunMaterial], str | None]] = {
     "leave_after_join_observed": leave_after_join_observed,
     "handshake_accepted_by_core": handshake_accepted_by_core,
     "stayed_observe_only": stayed_observe_only,
+    "move_input_was_leased": move_input_was_leased,
+    "the_bridge_carried_the_input_out": the_bridge_carried_the_input_out,
+    "the_server_saw_the_kin_move": the_server_saw_the_kin_move,
+    "the_lease_expired_and_was_released": the_lease_expired_and_was_released,
 }
 
 

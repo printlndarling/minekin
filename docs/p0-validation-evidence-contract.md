@@ -135,7 +135,7 @@ L1 的要证内容是"真客户端到主菜单、握手完成、仍是 `OBSERVE_
 - `seed_or_snapshot_id` 写 `none`，`server_jar_sha1` 写空串：这次运行没有用到 jar，也没有种子，写任何值都是编造。
 - `identity.server_observed_name_uuid` 为空：没有服务端观察过这个身份，而"服务端观察到什么"不能被客户端自报替代。`identity.configured_profile` 仍然填，因为客户端确实带着一份配置运行过。
 
-这份取值只对**没有世界**的运行成立。L0 那类仓库自检用例（`CORE-001`，从不启动任何东西）是否也能用这一份形状，是另一个问题：它没有客户端、没有 JVM 运行时、没有身份，因此需要的不是这里的一个取值，而是"证据种类"本身的一次决定。**还没有定**，所以没有为它伪造 bundle。
+这份取值只对**没有世界**的运行成立。L0 那类仓库自检用例（从不启动任何东西）**也走同一份形状**：它的 `inputs` 恰恰就是那份已评审的 bundle 与夹具，因此 `bundle` 段里那些"这次检查的是什么"的字段填的是真值而不是编造，而 `world` 段就是这里的 `none`。2026-09-20 已实测：`W00-CONTRACT-001` 的四条检查被封成一份 bundle、`evidence verify` 通过、晋级报告把它算作该用例的证据。仓库自检的 bundle 不放在任何 Kin 下面（`repo-evidence/<run-id>/`，见[数据根目录提案](run-directory-proposal.md)决定五）。
 
 
 ## 晋级阶梯
@@ -176,7 +176,7 @@ HOST世界保存/恢复另需 `HOSTCOMMIT-001…110` 证据；它验证默认维
 2. `CORE-010`：到主菜单、hello、握手、OBSERVE_ONLY；Runtime 缺失/晚到/错误协议。
 3. `CORE-020`：原版 dedicated offline join；服务端 name/UUID、JOIN首快照与退出。
 4. `CORE-030`：LAN join；端口变化、host 退出和重新进入。
-5. `CORE-040`：最小合法 move/look/use；Bridge trace 与 server truth 都能解释结果。
+5. `CORE-040`：最小合法 move/look/use；Bridge trace 与 server truth 都能解释结果。（2026-09-20 状态：`use` 尚未接线，`look` 已有实现但本用例只覆盖 **move** 那条链——因此 `tests/fixtures/cases/core-040.json` 目前是 **mandatory: false**，它的证据登记在册但不参与晋级门禁。把 `use` 接上并让本用例覆盖全部三种动作之后才应当改为 mandatory。）
 6. `CORE-050`：握手前、JOIN前、首快照前的输入全部被拒绝。
 7. `CORE-060`：逐个强杀 Runtime、Launcher、client、server；验证 lease、松键、回收和重验。
 8. `CORE-070`：断线/半帧/慢消费者/事件洪水；有界背压且无危险重放。

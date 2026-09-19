@@ -359,6 +359,11 @@
   - **jump**（`--hold-jump`）：高度在 `-60.00 / -59.58 / -58.75 / -59.20 …` 之间来回，**总高差 1.25 格**（原版跳跃高度 1.2522 ✓），而且最后一跳落回地面；
   - **strafe**（`--hold-strafe 1`）：X 与 Z **等量变化**（-1.5→-34.9 与 -3.5→+29.9），就是前向 + 右移的 45° 对角线。
   四个数字都不是"看起来对"，而是与原版常量对得上；而且这两次运行里 hold 到期后 Kin 都**停住并落地**，所以「松开」也被这四个轴各自走过一遍（不再只是 `forward`）。
+- [x] **L4 的第一份证据：走完那条链现在是一个用例（`CORE-040`），而且已封存。** 契约要 L4 证的是"输入 → 服务端确认的结果"这条链。四条断言各自读一份记录，没有一条靠自报：`move_input_was_leased`（账本里这次的 lease **capability 是 `control.move.v1`**——lease 是"被授权做某一件事"，租到别的东西的运行没有资格走）、`the_bridge_carried_the_input_out`（run document 的 `actions_applied ≥ 1` 且 `actions_refused == 0`）、`the_server_saw_the_kin_move`（**服务端自己的读数**里首末水平位移 ≥ 一格）、`the_lease_expired_and_was_released`（`InputReleased` 且**理由是 `TIMEOUT`**——通道断掉是另一个原因、另一件事）。
+  - **判据是从一次真实运行里量出来的**：`--hold-forward-seconds 3` 的那一轮，服务端读数是 `[-7.5, -60.0, 4.5]` → `[-7.5, -60.0, 17.66]` → 同样的值（**位移 13.16 格**，与"步行 4.3 格/秒 × 3 秒"对得上，末两条相同即停住），账本是 `InputLeaseGranted{capability: control.move.v1}` → `InputReleased{reason: TIMEOUT}`，run document 是 `actions_applied: 1, actions_refused: 0`。
+  - **两个读数形状必须分得开**：服务端回答位置是 `[x, y, z]`、回答朝向是 `[yaw, pitch]`——**同一句话、只有形状不同**，所以读数按分量个数区分，有一条用例专门钉住"两分量的读数不会被当成位置"。"走了一格"的阈值（2 格）不是调出来的：步行 4.3 格/秒、而这只猪把 Kin 拱开不到一格，阈值取的是这两者之间的量级差——harness 也是用同一个数字决定什么时候停止等待，理由写在断言里。
+  - **实测**：`MINEKIN_DOMAIN_CASE=CORE-040` 那一轮 → 四条断言全部 `observed`、`result: PASS`、9 件工件、`evidence verify` 报 `verified: true, sealed: true`。**harness 一行都没改**——走这条链所需的一切（probe 读数、run document、账本）已经在它写的材料里了。
+  - **它现在是 `mandatory: false`，原因写在契约自己的 CORE-040 条目里**：契约那条写的是 move/look/**use**，而 `use` 还没接线、本用例只覆盖 **move** 那一条链。让一个只覆盖三分之一动作的用例去把 L4 的门禁点亮，等于用真实证据说一句不真实的话。它的证据仍然**在册**（晋级报告的 `evidence.bundles` 里能看到它 PASS 且 verified），只是不参与判定；等 `use` 接上、三种动作都覆盖之后才应当改成 mandatory。
 - [x] **域现在把高度也报出来**：`reported_heights()` 取位置读数里的第二个分量，走完那条消息从"walk and stop"变成"walk and stop; its height moved through N blocks"——**跳跃是唯一只在这一项里出现的事**（同一个位置、不同的高度），所以它需要一个能被读到的数字，而不是一条"它动了"的断言。
 
 

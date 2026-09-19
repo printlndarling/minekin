@@ -27,6 +27,7 @@ ASSERTER = REPOSITORY_ROOT / "tools" / "assert_case_evidence.py"
 CASES = REPOSITORY_ROOT / "tests" / "fixtures" / "cases"
 REVIEWED_CASE = CASES / "core-020.json"
 OBSERVE_ONLY_CASE = CASES / "core-010.json"
+MOVEMENT_CASE = CASES / "core-040.json"
 RUN_ID = "5c1f9a7b2d3e4f6089abcdef01234567"
 USERNAME = "Kin"
 # The UUID a real run's server recorded for this name, read back from the
@@ -63,6 +64,11 @@ class _Asserter(Protocol):
     EXIT_HELD: int
     EXIT_FAILED: int
     EXIT_UNJUDGED: int
+
+    #: The server's own answers, one per probe that asked for this shape. Public
+    #: because it is how this module reads a position or a rotation, and a case
+    #: about a turn reads the other one.
+    def probe_readings(self, log: str, components: int) -> tuple[tuple[float, ...], ...]: ...
 
     def evaluate(self, case: Mapping[str, object], material: _Material) -> _Verdict: ...
 
@@ -179,7 +185,7 @@ def test_a_run_that_did_everything_the_case_asks_for_holds() -> None:
 def test_the_reviewed_case_names_only_assertions_the_asserter_performs() -> None:
     """A name in a manifest and a name in the registry have to be one name."""
 
-    for path in (REVIEWED_CASE, OBSERVE_ONLY_CASE):
+    for path in (REVIEWED_CASE, OBSERVE_ONLY_CASE, MOVEMENT_CASE):
         declared = cast(dict[str, object], json.loads(path.read_text(encoding="utf-8")))[
             "assertions"
         ]
@@ -291,6 +297,169 @@ def test_an_unreadable_ledger_is_not_a_ledger_that_recorded_nothing() -> None:
         "handshake_accepted_by_core:LEDGER_UNREADABLE",
         "stayed_observe_only:LEDGER_UNREADABLE",
     )
+
+
+# The walk a real run produced: the server's own readings, verbatim from a server
+# log, and the ledger events a hold leaves behind. The rotation readings are the
+# same words as the position readings and are told apart by their shape, which is
+# what these tests are built from rather than invented.
+WALK_READINGS = (
+    "has the following entity data: [-7.5d, -60.0d, 4.5d]\n"
+    "has the following entity data: [0.0f, 0.0f]\n"
+    "has the following entity data: [-7.5d, -60.0d, 17.663647774198928d]\n"
+    "has the following entity data: [0.0f, 0.0f]\n"
+    "has the following entity data: [-7.5d, -60.0d, 17.663647774198928d]\n"
+)
+
+LEASE = event(
+    "InputLeaseGranted", capability="control.move.v1", lease_id="e4929e876af04ea29aad535e4142ee70"
+)
+RELEASE = event("InputReleased", generation=1, had_lease=True, reason="TIMEOUT")
+
+
+def movement_case() -> dict[str, object]:
+    return cast(
+        dict[str, object],
+        json.loads(MOVEMENT_CASE.read_text(encoding="utf-8")),
+    )
+
+
+def walked(**run_overrides: object) -> _Material:
+    return material(
+        document=run_document(**run_overrides),
+        log=WALK_READINGS,
+        events=(event("PlayableEstablished"), LEASE, RELEASE),
+    )
+
+
+def test_a_walk_that_the_server_saw_holds() -> None:
+    verdict = ASSERTER_MODULE.evaluate(
+        movement_case(), walked(actions_applied=1, actions_refused=0)
+    )
+
+    assert verdict.result == "PASS"
+    assert verdict.observed == verdict.expected
+    assert verdict.failures == ()
+
+
+def test_a_rotation_reading_is_not_a_position_reading() -> None:
+    """Two components or three is what tells them apart, and nothing else does."""
+
+    readings = ASSERTER_MODULE.probe_readings(WALK_READINGS, 3)
+
+    assert len(readings) == 3
+    assert all(len(reading) == 3 for reading in readings)
+
+
+def test_the_displacement_is_measured_by_the_server_not_the_client() -> None:
+    """A run whose document is a perfect report of a walk it never walked."""
+
+    verdict = ASSERTER_MODULE.evaluate(
+        movement_case(),
+        material(
+            document=run_document(actions_applied=1, actions_refused=0),
+            log="has the following entity data: [-7.5d, -60.0d, 4.5d]\n",
+            events=(LEASE, RELEASE),
+        ),
+    )
+
+    assert verdict.failures == ("the_server_saw_the_kin_move:NO_SERVER_READINGS",)
+
+
+def test_a_shove_is_not_a_step() -> None:
+    """Measured: walking is 4.3 blocks a second, a wandering pig is well under one."""
+
+    shuffled = (
+        "has the following entity data: [-7.5d, -60.0d, 4.5d]\n"
+        "has the following entity data: [-6.2d, -60.0d, 5.1d]\n"
+    )
+
+    verdict = ASSERTER_MODULE.evaluate(
+        movement_case(),
+        material(
+            document=run_document(actions_applied=1, actions_refused=0),
+            log=shuffled,
+            events=(LEASE, RELEASE),
+        ),
+    )
+
+    assert verdict.failures == ("the_server_saw_the_kin_move:MOVED_LESS_THAN_A_STEP:1.43",)
+
+
+def test_a_lease_for_something_else_is_not_a_lease_to_move() -> None:
+    verdict = ASSERTER_MODULE.evaluate(
+        movement_case(),
+        material(
+            document=run_document(actions_applied=1, actions_refused=0),
+            log=WALK_READINGS,
+            events=(event("InputLeaseGranted", capability="control.look.v1"), RELEASE),
+        ),
+    )
+
+    assert verdict.failures == ("move_input_was_leased:LEASE_IS_NOT_FOR_A_MOVE:control.look.v1",)
+
+
+def test_an_input_with_no_lease_at_all_is_named() -> None:
+    verdict = ASSERTER_MODULE.evaluate(
+        movement_case(),
+        material(
+            document=run_document(actions_applied=1, actions_refused=0),
+            log=WALK_READINGS,
+            events=(event("PlayableEstablished"), RELEASE),
+        ),
+    )
+
+    assert "move_input_was_leased:NO_LEASE_GRANTED" in verdict.failures
+
+
+@pytest.mark.parametrize(
+    ("applied", "refused", "reason"),
+    [(0, 0, "NOTHING_WAS_APPLIED"), (1, 2, "ACTIONS_REFUSED:2")],
+)
+def test_what_the_bridge_did_with_the_command_is_what_is_reported(
+    applied: int, refused: int, reason: str
+) -> None:
+    verdict = ASSERTER_MODULE.evaluate(
+        movement_case(),
+        material(
+            document=run_document(actions_applied=applied, actions_refused=refused),
+            log=WALK_READINGS,
+            events=(LEASE, RELEASE),
+        ),
+    )
+
+    assert f"the_bridge_carried_the_input_out:{reason}" in verdict.failures
+
+
+def test_a_release_for_another_reason_is_not_the_hold_ending() -> None:
+    """The channel going away is a different fact about a different cause."""
+
+    verdict = ASSERTER_MODULE.evaluate(
+        movement_case(),
+        material(
+            document=run_document(actions_applied=1, actions_refused=0),
+            log=WALK_READINGS,
+            events=(LEASE, event("InputReleased", generation=1, had_lease=True, reason="EXPLICIT")),
+        ),
+    )
+
+    assert (
+        "the_lease_expired_and_was_released:RELEASED_FOR_ANOTHER_REASON:EXPLICIT"
+        in verdict.failures
+    )
+
+
+def test_a_hold_that_was_never_released_is_named() -> None:
+    verdict = ASSERTER_MODULE.evaluate(
+        movement_case(),
+        material(
+            document=run_document(actions_applied=1, actions_refused=0),
+            log=WALK_READINGS,
+            events=(LEASE,),
+        ),
+    )
+
+    assert "the_lease_expired_and_was_released:NO_RELEASE_RECORDED" in verdict.failures
 
 
 def test_a_kin_that_never_joined_fails_every_assertion_that_needs_it() -> None:
