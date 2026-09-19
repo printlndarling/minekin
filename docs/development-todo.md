@@ -373,7 +373,11 @@
   - **修法是两件事**：循环里补 `sleep 1`（并把"为什么必须有它"写进注释：`SECONDS` 只在 shell 真的在等的时候前进），以及**注入没成功就大声说出来**——`the Core was never killed, so this run proves nothing about a lost runtime`，并把整轮运行判为非零退出，而不是让它长得像别的那几轮。
   - **实测（两端都量了）**：修好之后 `--hold-forward-seconds 25` 那一轮打印 `Core has been killed` → `the Kin left the game after the Core was killed`，客户端日志是 `bridge released 1 input(s) after IPC_LOST`（**这正是 L5 要的那条证据**）；而故意不带 `MINEKIN_DOMAIN_PROBE`（没有 probe 就没有读数，注入永远等不到时机）那一轮打印了那句"proves nothing"并且 **退出码 1**（此前它会打印"服务端看到 Kin 停下"并退出 14）。
   - **这不是"从来没用过"**：数据卷里翻出过 3 份带 `IPC_LOST` 的客户端日志，说明这条路的**竞态有时赢**——量到的证据是真的，但这条路径本身不可靠，且**输了也看不出来**。已加契约测试：`domain.sh` 里每个 `for _ in $(seq 1 …)` 等待循环体内都必须有一条 `sleep` **语句**。这条测试的第一版是错的（它接受注释里的那个词——那个循环的注释里恰好写着 `sleep 1`），是**把 sleep 语句删掉、看测试是否变红**才发现的；删掉之后测试确实变红，这才算数。
-  - **它挡着的是 `CORE-060`**：被杀的 Core **没有 run document**，而封存端现在要求它。下一步要么让封存端接受"没有 run document 的运行"（run id 从账本取、客户端日志从 overlay 取），要么把这条链的证据换成别的东西——这是一个要说清楚的决定，不是补一个默认值。
+  - **它挡着的 `CORE-060` 现在有了：一次「Core 被杀」的运行能封存、能判、能验。** 这一步要回答的问题很具体——**被杀的 Core 没有 run document**，而封存端一直要求它。定下来的做法是让"运行"可以由两种名字之一指定：Core 打印的 document，或它的 run id；没有 document 时，能问账本的都问账本（run id、kin、session/generation，以及 overlay 的位置——客户端日志在那里），因为账本正是**在 Core 死后仍然存在**的那份记录。同一条规则两边都用：`RunMaterial` 现在带上 `kin_id`/`run_id`/`overlay`，封存端从**读过的那份材料**取名而不是再读一遍文档。**空的 run document 不进 bundle**：没有就是没有，一个空文件会被读成"它什么也没说"而不是"它从来不存在"。
+  - **三条断言各自读一份会活下来的记录**：`move_input_was_leased`（账本里确实租过——否则"松开了"是句空话）、`the_bridge_released_the_input_when_the_ipc_was_lost`（**客户端日志里 Bridge 自己写的那行**，实测 `bridge released 1 input(s) after IPC_LOST`；理由要被检查，因为 `CORE_REQUEST` 是 lease 到期、`LEFT_PLAYABLE` 是会话结束，只有 IPC 消失才是运行时消失；计数为 0 也不行——"什么也没握着"让松手变得没有内容）、`the_server_saw_the_kin_stop_after_the_move`（世界那边：先是动过、然后不再动）。
+  - **实测（一轮真运行）**：Core 被杀 → Bridge 松键 → Kin 离开 → 三条断言全部 `observed`、`result: PASS`、8 件工件（**没有** `run-document.json`）、`evidence verify` 通过、harness 退出码 0。
+  - **第一次跑是 FAIL，而错的是断言不是运行**：`the_server_saw_the_kin_stop_after_the_move:STILL_MOVING_AFTER_THE_RUNTIME_WENT_AWAY`。读服务端日志才看清——杀落在**迈步中间**，客户端随即离开，于是最后两条读数本来就不同（根本没有"停下之后"的读数，也不可能有）。"最后两条读数相同"是停下的一种形状，不是唯一的；**离开了的客户端也不握着键**，所以判据改成"读数安定**或**已经离开"——与 harness 等待时用的正是同一条规则。这一段测量写进了断言的注释。
+  - **它仍不是 `mandatory`**：契约的 CORE-060 要的是**逐个强杀 Runtime、Launcher、client、server** 四种，而这条只覆盖了 Core 一种；"回收/重验"也没有覆盖。同 CORE-040，理由写在契约自己的 CORE-060 条目里，证据登记在册但不参与门禁。
 
 - [ ] 对账未决 outbox，失效历史 generation/lease，防止危险动作重放。
 - [x] **崩溃之后的重启：同一个 `kin_id` 再起一次，世界状态重新验证，而死掉那次让它做的事一件都不留。** 这一条按「两次运行」来验，因为数据卷跨容器保留，所以两次运行共用同一本账：

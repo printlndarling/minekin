@@ -61,7 +61,12 @@ from minekin_core.domain.ids import KinId
 # for the two to disagree about which events belong to this run.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from assert_case_evidence import RUN_DOCUMENT_KEY, read_run_material, timeline_bytes
+from assert_case_evidence import (
+    PLAYABLE_ESTABLISHED,
+    RUN_DOCUMENT_KEY,
+    read_run_material,
+    timeline_bytes,
+)
 from evidence_provenance import host_facts, profile_reference, protocol_schema_digest
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
@@ -151,7 +156,7 @@ def _artifact(path: Path, name: str, found: dict[str, bytes]) -> None:
 
 def collect_artifacts(
     *,
-    overlay: Path,
+    overlay: Path | None,
     server_directory: Path | None,
     run_document: bytes,
     orchestrator: Mapping[str, object],
@@ -159,20 +164,25 @@ def collect_artifacts(
     """Every artifact this run left, under names a reader can recognise."""
 
     found: dict[str, bytes] = {
-        "run-document.json": run_document,
         "orchestrator-trace.json": (
             json.dumps(orchestrator, indent=2, sort_keys=True) + "\n"
         ).encode("utf-8"),
     }
+    if run_document:
+        # Absent rather than empty when there was none: a run whose Core was
+        # killed leaves no document, and an empty file would read as one that
+        # said nothing rather than as one that never existed.
+        found["run-document.json"] = run_document
     # The client's own output, where the Bridge's lines are: sealing the whole
     # stream rather than a filtered selection means a reader can check any
     # selection against it rather than having to trust one.
-    _artifact(overlay / "logs" / "stdout.log", "client/stdout.log", found)
-    _artifact(overlay / "logs" / "stderr.log", "client/stderr.log", found)
-    _artifact(overlay / "logs" / "latest.log", "client/latest.log", found)
-    for report in sorted((overlay / "crash-reports").glob("*")):
-        if report.is_file():
-            _artifact(report, f"client/crash-reports/{report.name}", found)
+    if overlay is not None:
+        _artifact(overlay / "logs" / "stdout.log", "client/stdout.log", found)
+        _artifact(overlay / "logs" / "stderr.log", "client/stderr.log", found)
+        _artifact(overlay / "logs" / "latest.log", "client/latest.log", found)
+        for report in sorted((overlay / "crash-reports").glob("*")):
+            if report.is_file():
+                _artifact(report, f"client/crash-reports/{report.name}", found)
     if server_directory is not None:
         _artifact(server_directory / "server.log", "server/server.log", found)
         _artifact(server_directory / "usercache.json", "server/usercache.json", found)
@@ -183,10 +193,11 @@ def collect_artifacts(
 def run_asserter(
     *,
     case: Path,
-    run_document: Path,
+    run_document: Path | None,
     data_root: Path,
     server_directory: Path | None,
     username: str,
+    run_id: str | None = None,
     python: str = sys.executable,
 ) -> dict[str, object]:
     """The case's verdict, from the one module that judges rather than writes."""
@@ -196,13 +207,15 @@ def run_asserter(
         str(ASSERTER),
         "--case",
         str(case),
-        "--run-document",
-        str(run_document),
         "--data-root",
         str(data_root),
         "--username",
         username,
     ]
+    if run_document is None:
+        arguments += ["--run-id", str(run_id)]
+    else:
+        arguments += ["--run-document", str(run_document)]
     if server_directory is not None:
         arguments += ["--server-directory", str(server_directory)]
     completed = subprocess.run(
@@ -250,7 +263,7 @@ def build_manifest(
     case: Path,
     profile: Path,
     server_profile: Path | None,
-    run_document: Mapping[str, object],
+    run_id: str,
     verdict: Mapping[str, object],
     server_directory: Path | None,
     server_jar: Path | None,
@@ -272,7 +285,6 @@ def build_manifest(
     plan = build_launch_plan(profile, workspace_root=workspace_root)
     bundle = cast(Mapping[str, object], plan["bundle"])
     target = None if server_profile is None else load_server_profile(server_profile)
-    run_id = _text(run_document, "run_id")
     facts = host_facts(java, renderer_display)
     result = str(verdict.get("result", ""))
     if result not in {item.value for item in EvidenceResult}:
@@ -306,13 +318,6 @@ def build_manifest(
     )
 
 
-def _text(document: Mapping[str, object], key: str) -> str:
-    value = document.get(key)
-    if not isinstance(value, str) or not value:
-        raise Unsealable(f"the run document has no {key}")
-    return value
-
-
 def orchestrator_trace(
     *,
     case: Path,
@@ -342,9 +347,10 @@ def seal(
     case: Path,
     profile: Path,
     server_profile: Path | None,
-    run_document_path: Path,
+    run_document_path: Path | None,
     server_directory: Path | None,
     username: str,
+    run_id: str | None = None,
     server_jar: Path | None = None,
     java: Path | None = None,
     renderer_display: str = "unmeasured",
@@ -353,43 +359,65 @@ def seal(
     workspace_root: Path | None = None,
     now: datetime | None = None,
 ) -> dict[str, object]:
-    """Seal this run's evidence, or say what stopped it."""
+    """Seal this run's evidence, or say what stopped it.
 
-    try:
-        raw = run_document_path.read_bytes()
-        document = json.loads(raw)
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
-        raise Unsealable(f"{run_document_path} is not a readable run document: {error}") from error
-    if not isinstance(document, dict):
-        raise Unsealable(f"{run_document_path} is not a run document object")
-    run_document = cast(dict[str, object], document)
+    A run is named by the document Core printed at its end, or by its run id when
+    there is no document — which is the case for a run whose Core was killed, and
+    the reason the second way exists at all. Everything the document would have
+    said about the run's identity is then taken from the ledger, the record that
+    survived the kill.
+    """
+
+    if (run_document_path is None) == (run_id is None):
+        raise Unsealable("name the run either by its document or by its run id, not both")
+
+    raw = b""
+    run_document: dict[str, object] = {}
+    if run_document_path is not None:
+        try:
+            raw = run_document_path.read_bytes()
+            document = json.loads(raw)
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
+            raise Unsealable(
+                f"{run_document_path} is not a readable run document: {error}"
+            ) from error
+        if not isinstance(document, dict):
+            raise Unsealable(f"{run_document_path} is not a run document object")
+        run_document = cast(dict[str, object], document)
 
     verdict = run_asserter(
         case=case,
         run_document=run_document_path,
+        run_id=run_id,
         data_root=data_root,
         server_directory=server_directory,
         username=username,
     )
+    material = read_run_material(
+        run_document=run_document_path,
+        run_id=run_id,
+        data_root=data_root,
+        server_directory=server_directory,
+        username=username,
+    )
+
     if server_profile is None:
-        # A manifest that says "no world" while Core's own document shows a
-        # connection would be a lie about the run, and the run document is where
-        # that can be caught: the profile is the operator's statement of what was
-        # joined, and this is Core's record of what happened.
+        # A manifest that says "no world" while the record shows a world would be
+        # a lie about the run. The document says so when there is one, and the
+        # ledger — the record that survives a killed Core — says so otherwise.
         section = run_document.get(RUN_DOCUMENT_KEY)
         run: Mapping[str, object] = (
             cast(Mapping[str, object], section) if isinstance(section, Mapping) else {}
         )
         state, admitted = run.get("connection_state"), run.get("snapshots_admitted")
-        if state is not None or admitted:
+        if state is not None or admitted or material.has(PLAYABLE_ESTABLISHED):
             raise Unsealable(
-                "no server profile was given, but the run document records a world: "
+                "no server profile was given, but the record shows a world: "
                 f"connection_state={state!r}, snapshots_admitted={admitted!r}"
             )
 
-    kin_id = KinId(_text(run_document, "kin_id"))
-    run_id = _text(run_document, "run_id")
-    overlay = Path(_text(run_document, "overlay"))
+    kin_id = KinId(material.kin_id)
+    identifier = material.run_id
     root = workspace_root if workspace_root is not None else find_workspace_root(REPOSITORY_ROOT)
     moment = now if now is not None else datetime.now(UTC)
 
@@ -397,7 +425,7 @@ def seal(
         case=case,
         profile=profile,
         server_profile=server_profile,
-        run_document=run_document,
+        run_id=identifier,
         verdict=verdict,
         server_directory=server_directory,
         server_jar=server_jar,
@@ -407,12 +435,12 @@ def seal(
         workspace_root=root,
     )
     artifacts = collect_artifacts(
-        overlay=overlay,
+        overlay=material.overlay,
         server_directory=server_directory,
         run_document=raw,
         orchestrator=orchestrator_trace(
             case=case,
-            run_id=run_id,
+            run_id=identifier,
             server_directory=server_directory,
             session_argv=session_argv,
             verdict=verdict,
@@ -422,22 +450,15 @@ def seal(
     # The timeline sealed here is literally what the judge read: this is the same
     # reading, serialised, so the bundle cannot hold a different set of events
     # from the one the verdict was reached on.
-    artifacts["bridge-trace.jsonl"] = timeline_bytes(
-        read_run_material(
-            run_document=run_document_path,
-            data_root=data_root,
-            server_directory=server_directory,
-            username=username,
-        ).ledger_events
-    )
+    artifacts["bridge-trace.jsonl"] = timeline_bytes(material.ledger_events)
 
-    directory = bundle_directory(run_root(data_root, kin_id), run_id)
+    directory = bundle_directory(run_root(data_root, kin_id), identifier)
     sealed = write_bundle(directory, manifest, artifacts, secrets=secrets)
     return {
         "schema_version": 1,
         "command": "seal run evidence",
         "status": "sealed",
-        "run_id": run_id,
+        "run_id": identifier,
         "case_id": manifest.case_id,
         "case_version": manifest.case_version,
         "result": manifest.result.value,
@@ -461,7 +482,17 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="absent for a run that joined no world; the bundle records that",
     )
-    parser.add_argument("--run-document", type=Path, required=True)
+    parser.add_argument(
+        "--run-document",
+        type=Path,
+        default=None,
+        help="what Core printed at the end; absent for a run that never printed one",
+    )
+    parser.add_argument(
+        "--run-id",
+        default=None,
+        help="names the run when there is no document, as a killed Core leaves none",
+    )
     parser.add_argument(
         "--server-directory",
         type=Path,
@@ -495,6 +526,7 @@ def main(argv: list[str] | None = None) -> int:
             profile=args.profile,
             server_profile=args.server_profile,
             run_document_path=args.run_document,
+            run_id=args.run_id,
             server_directory=args.server_directory,
             username=args.username,
             server_jar=args.server_jar,

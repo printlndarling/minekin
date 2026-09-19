@@ -289,6 +289,14 @@ else
     fi
 fi
 
+# Which run this is, from the ledger rather than from the document: a run whose
+# Core is killed never prints one, and the ledger is the record that survives it.
+# The first event this run recorded is the launcher's own account of starting it.
+run_id=$(/opt/sqlite/bin/sqlite3 "${ledger}" \
+    "select run_id from event where position > ${baseline} order by position limit 1;" \
+    2>/dev/null || true)
+printf 'domain: this run is %s\n' "${run_id}" >&2
+
 # The Bridge's own watchdog, which is the guarantee that keys come up even when
 # nobody is left to ask. §12 puts it in the process holding the keys, and it needs
 # nobody's permission; the Core-side watchdog is the second layer. So the run
@@ -626,12 +634,18 @@ if [[ -n "${case_id}" ]]; then
     case_file="/src/tests/fixtures/cases/$(printf '%s' "${case_id}" | tr '[:upper:]' '[:lower:]').json"
     printf 'domain: sealing run evidence for case %s\n' "${case_id}" >&2
     set +e
+    # Named by the document Core printed, or by its run id when there is none —
+    # which is exactly the killed-Core case, where the absence is the point.
+    named_run=(--run-document /tmp/domain-session.json)
+    if [ ! -s /tmp/domain-session.json ]; then
+        named_run=(--run-id "${run_id}")
+    fi
     python /src/tools/seal_run_evidence.py \
         --data-root /data \
         --case "${case_file}" \
         --profile "${profile}" \
         "${world_args[@]}" \
-        --run-document /tmp/domain-session.json \
+        "${named_run[@]}" \
         --username "${player}" \
         --renderer-display "${renderer}" \
         --session-argv "$@" >/tmp/domain-seal.json 2>/tmp/domain-seal.err

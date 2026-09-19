@@ -28,6 +28,7 @@ CASES = REPOSITORY_ROOT / "tests" / "fixtures" / "cases"
 REVIEWED_CASE = CASES / "core-020.json"
 OBSERVE_ONLY_CASE = CASES / "core-010.json"
 MOVEMENT_CASE = CASES / "core-040.json"
+LOST_RUNTIME_CASE = CASES / "core-060.json"
 RUN_ID = "5c1f9a7b2d3e4f6089abcdef01234567"
 USERNAME = "Kin"
 # The UUID a real run's server recorded for this name, read back from the
@@ -40,6 +41,9 @@ LEFT = f"[19:28:40] [Server thread/INFO]: {USERNAME} left the game"
 
 
 class _Material(Protocol):
+    kin_id: str
+    run_id: str
+    overlay: object
     run_document: Mapping[str, object]
     ledger_events: tuple[Mapping[str, object], ...]
     ledger_readable: bool
@@ -148,13 +152,18 @@ def material(
     *,
     document: dict[str, object] | None = None,
     log: str = f"{JOINED}\n{LEFT}\n",
+    client_log: str = "",
     identities: Mapping[str, str] | None = None,
     username: str = USERNAME,
     events: tuple[Mapping[str, object], ...] = (),
     ledger_readable: bool = True,
 ) -> _Material:
     return ASSERTER_MODULE.RunMaterial(
+        kin_id="kin-01",
+        run_id=RUN_ID,
+        overlay=None,
         run_document=run_document() if document is None else document,
+        client_log=client_log,
         ledger_events=events,
         ledger_readable=ledger_readable,
         server_log=log,
@@ -185,7 +194,7 @@ def test_a_run_that_did_everything_the_case_asks_for_holds() -> None:
 def test_the_reviewed_case_names_only_assertions_the_asserter_performs() -> None:
     """A name in a manifest and a name in the registry have to be one name."""
 
-    for path in (REVIEWED_CASE, OBSERVE_ONLY_CASE, MOVEMENT_CASE):
+    for path in (REVIEWED_CASE, OBSERVE_ONLY_CASE, MOVEMENT_CASE, LOST_RUNTIME_CASE):
         declared = cast(dict[str, object], json.loads(path.read_text(encoding="utf-8")))[
             "assertions"
         ]
@@ -460,6 +469,123 @@ def test_a_hold_that_was_never_released_is_named() -> None:
     )
 
     assert "the_lease_expired_and_was_released:NO_RELEASE_RECORDED" in verdict.failures
+
+
+# The line a real run's Bridge wrote when its Core was killed, verbatim from the
+# client's own log. This is the L5 evidence: nobody on Core's side was left to
+# record anything.
+IPC_LOSS = "bridge released 1 input(s) after IPC_LOST"
+
+# A stopped Kin, as the server reported it: it moved, then it did not.
+STOPPED_READINGS = (
+    "has the following entity data: [-4.5d, -60.0d, 5.636875278936468d]\n"
+    "has the following entity data: [-4.5d, -60.0d, 26.390491106420708d]\n"
+    "has the following entity data: [-4.5d, -60.0d, 26.399332810280036d]\n"
+    "has the following entity data: [-4.5d, -60.0d, 26.399332810280036d]\n"
+)
+
+
+def lost_runtime_case() -> dict[str, object]:
+    return cast(dict[str, object], json.loads(LOST_RUNTIME_CASE.read_text(encoding="utf-8")))
+
+
+def killed(**overrides: object) -> _Material:
+    """A run whose Core was killed: no run document, and the ledger is the record."""
+
+    arguments: dict[str, object] = {
+        "document": {},
+        "log": STOPPED_READINGS,
+        "client_log": IPC_LOSS,
+        "events": (event("PlayableEstablished"), LEASE),
+    }
+    arguments.update(overrides)
+    return material(**arguments)  # type: ignore[arg-type]
+
+
+def test_a_kin_that_let_go_when_its_runtime_died_holds() -> None:
+    verdict = ASSERTER_MODULE.evaluate(lost_runtime_case(), killed())
+
+    assert verdict.result == "PASS"
+    assert verdict.observed == verdict.expected
+    assert verdict.failures == ()
+
+
+@pytest.mark.parametrize(
+    ("client_log", "reason"),
+    [
+        ("", "NO_CLIENT_LOG"),
+        ("bridge held 1 input(s)\n", "RELEASE_NOT_LOGGED"),
+        (
+            "bridge released 1 input(s) after CORE_REQUEST\n",
+            "RELEASED_FOR_ANOTHER_REASON:CORE_REQUEST",
+        ),
+        ("bridge released 0 input(s) after IPC_LOST\n", "HELD_NOTHING_WHEN_THE_RUNTIME_WENT_AWAY"),
+    ],
+)
+def test_a_release_that_is_not_the_runtime_going_away_is_named(
+    client_log: str, reason: str
+) -> None:
+    """The reason is the check: only a lost runtime is a lost runtime."""
+
+    verdict = ASSERTER_MODULE.evaluate(lost_runtime_case(), killed(client_log=client_log))
+
+    assert f"the_bridge_released_the_input_when_the_ipc_was_lost:{reason}" in verdict.failures
+
+
+def test_the_release_is_found_among_other_releases() -> None:
+    """A run whose lease expired first and whose runtime died after has both."""
+
+    log = (
+        "bridge released 1 input(s) after CORE_REQUEST\nbridge released 1 input(s) after IPC_LOST\n"
+    )
+
+    verdict = ASSERTER_MODULE.evaluate(lost_runtime_case(), killed(client_log=log))
+
+    assert "the_bridge_released_the_input_when_the_ipc_was_lost" in verdict.observed
+
+
+def test_a_kin_still_walking_after_its_runtime_died_is_caught() -> None:
+    """The failure this case exists for: keys that were never released."""
+
+    still_walking = STOPPED_READINGS.replace(
+        "has the following entity data: [-4.5d, -60.0d, 26.399332810280036d]\n"
+        "has the following entity data: [-4.5d, -60.0d, 26.399332810280036d]\n",
+        "has the following entity data: [-4.5d, -60.0d, 26.399332810280036d]\n"
+        "has the following entity data: [-4.5d, -60.0d, 33.0d]\n",
+    )
+
+    verdict = ASSERTER_MODULE.evaluate(lost_runtime_case(), killed(log=still_walking))
+
+    assert (
+        "the_server_saw_the_kin_stop_after_the_move:STILL_MOVING_AFTER_THE_RUNTIME_WENT_AWAY"
+        in verdict.failures
+    )
+
+
+def test_a_kin_that_left_while_still_moving_is_not_still_holding_keys() -> None:
+    """Measured: the kill lands mid-stride, so the last two readings differ.
+
+    A client that has left the game is not holding keys either, and the harness
+    waits on the same either-or for the same reason.
+    """
+
+    left_mid_stride = (
+        "has the following entity data: [2.5d, -60.0d, 4.5d]\n"
+        "has the following entity data: [2.5d, -60.0d, 22.804278381990635d]\n" + LEFT + "\n"
+    )
+
+    verdict = ASSERTER_MODULE.evaluate(lost_runtime_case(), killed(log=left_mid_stride))
+
+    assert verdict.result == "PASS"
+    assert verdict.observed == verdict.expected
+
+
+def test_a_kin_that_never_moved_did_not_stop() -> None:
+    verdict = ASSERTER_MODULE.evaluate(
+        lost_runtime_case(), killed(log="has the following entity data: [-4.5d, -60.0d, 5.0d]\n")
+    )
+
+    assert verdict.failures == ("the_server_saw_the_kin_stop_after_the_move:NO_SERVER_READINGS",)
 
 
 def test_a_kin_that_never_joined_fails_every_assertion_that_needs_it() -> None:

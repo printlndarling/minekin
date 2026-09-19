@@ -93,6 +93,12 @@ IMPLEMENTATIONS: dict[str, Implementation] = {
     "the_bridge_carried_the_input_out": _runtime("the_bridge_carried_the_input_out"),
     "the_server_saw_the_kin_move": _runtime("the_server_saw_the_kin_move"),
     "the_lease_expired_and_was_released": _runtime("the_lease_expired_and_was_released"),
+    "the_bridge_released_the_input_when_the_ipc_was_lost": _runtime(
+        "the_bridge_released_the_input_when_the_ipc_was_lost"
+    ),
+    "the_server_saw_the_kin_stop_after_the_move": _runtime(
+        "the_server_saw_the_kin_stop_after_the_move"
+    ),
 }
 
 

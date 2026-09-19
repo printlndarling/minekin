@@ -178,7 +178,7 @@ HOST世界保存/恢复另需 `HOSTCOMMIT-001…110` 证据；它验证默认维
 4. `CORE-030`：LAN join；端口变化、host 退出和重新进入。
 5. `CORE-040`：最小合法 move/look/use；Bridge trace 与 server truth 都能解释结果。（2026-09-20 状态：`use` 尚未接线，`look` 已有实现但本用例只覆盖 **move** 那条链——因此 `tests/fixtures/cases/core-040.json` 目前是 **mandatory: false**，它的证据登记在册但不参与晋级门禁。把 `use` 接上并让本用例覆盖全部三种动作之后才应当改为 mandatory。）
 6. `CORE-050`：握手前、JOIN前、首快照前的输入全部被拒绝。
-7. `CORE-060`：逐个强杀 Runtime、Launcher、client、server；验证 lease、松键、回收和重验。
+7. `CORE-060`：逐个强杀 Runtime、Launcher、client、server；验证 lease、松键、回收和重验。（2026-09-20 状态：只有**强杀 Core** 这一种已经有用例（`tests/fixtures/cases/core-060.json`，判据是账本里的 lease + 客户端日志里 Bridge 的 `IPC_LOST` 松键 + 服务端读数停住），另外三种进程与"回收/重验"尚未覆盖，因此该用例目前是 **mandatory: false**：它的证据登记在册但不参与晋级门禁。四种故障都覆盖之后才应当改为 mandatory。）
 8. `CORE-070`：断线/半帧/慢消费者/事件洪水；有界背压且无危险重放。
 9. `CORE-080`：故意向 oracle 放置 Kin 未看见的事实；检查所有 Runtime/Memory/模型输入均不存在该事实。
 10. `CORE-090`：正常退出与崩溃恢复；同一 `kin_id`，瞬时状态失效，世界状态重新观察。

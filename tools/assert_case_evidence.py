@@ -33,7 +33,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
 
-from minekin_core.cli.init import DATABASE_NAME, kin_directory
+from minekin_core.cli.init import DATABASE_NAME, KIN_DIRECTORY, kin_directory, run_root
+from minekin_core.cli.session import session_overlay_path
 from minekin_core.domain.ids import KinId
 from minekin_core.domain.offline_identity import offline_player_uuid
 
@@ -50,6 +51,7 @@ RUN_DOCUMENT_KEY = "run"
 
 # The reviewed session event types this module needs to name. They are the
 # ledger's vocabulary, and a case that reads Core's own record has to speak it.
+PROCESS_STARTED = "SessionProcessStarted"
 HELLO_ACCEPTED = "BridgeHelloAccepted"
 JOIN_OBSERVED = "JoinObserved"
 PLAYABLE_ESTABLISHED = "PlayableEstablished"
@@ -60,6 +62,12 @@ INPUT_RELEASED = "InputReleased"
 #: simply ran out records.
 MOVE_CAPABILITY = "control.move.v1"
 TIMEOUT = "TIMEOUT"
+
+#: The reason the Bridge records when the runtime it was talking to went away,
+#: and the line it writes when it lets go. Measured, from a run whose Core was
+#: killed: `bridge released 1 input(s) after IPC_LOST`.
+IPC_LOST = "IPC_LOST"
+_BRIDGE_RELEASE = re.compile(r"released (\d+) input\(s\) after ([A-Z_]+)")
 
 #: What counts as having walked. Measured: vanilla survival walking is about 4.3
 #: blocks per second, and the thing this has to tell a step apart from is a shove
@@ -151,7 +159,17 @@ class RunMaterial:
     one allowed to say what the game did.
     """
 
+    #: Which run this is. Read from the document when there is one and from the
+    #: ledger when there is not, so both kinds of run are named the same way.
+    kin_id: str
+    run_id: str
+    #: Where the client kept its game directory, which is where its logs are:
+    #: from the document when it says, and from the ledger's own record of the
+    #: session it started otherwise.
+    overlay: Path | None
     run_document: Mapping[str, object]
+    #: What the client wrote, which is where the Bridge's own lines are.
+    client_log: str
     #: This run's ledger events, in the order they were recorded.
     ledger_events: tuple[Mapping[str, object], ...]
     #: False when there is no readable ledger at all. Assertions that need one say
@@ -188,41 +206,93 @@ class RunMaterial:
         return None if found is None else found.start()
 
 
+def _ledger_run(events: Sequence[Mapping[str, object]], kin: str) -> Mapping[str, object]:
+    """What one ledger row says about the run that wrote it."""
+
+    for event in events:
+        if event.get("event_type") == PROCESS_STARTED:
+            return payload(event)
+    return {}
+
+
+def _overlay_for(data_root: Path, kin: str, events: Sequence[Mapping[str, object]]) -> Path | None:
+    """Where a run's client kept its own logs, from the ledger's own record.
+
+    The session and generation come out of the run's first event, which is the
+    launcher's own account of what it started. A run whose Core was killed has no
+    document to say where its overlay was, and the ledger is the record that
+    survived it.
+    """
+
+    started = _ledger_run(events, kin)
+    session_id, generation = started.get("session_id"), started.get("generation")
+    if (
+        not isinstance(session_id, str)
+        or isinstance(generation, bool)
+        or not isinstance(generation, int)
+    ):
+        return None
+    return session_overlay_path(run_root(data_root, KinId(kin)), session_id, generation)
+
+
 def read_run_material(
     *,
-    run_document: Path,
+    run_document: Path | None,
     data_root: Path,
     server_directory: Path | None,
     username: str,
+    run_id: str | None = None,
 ) -> RunMaterial:
     """Read a finished run's material, refusing anything that is not readable.
 
-    The ledger is looked up from the data root by the identity the run document
-    carries, and a missing database is *not* an error here: a case that never
-    needs Core's own record must still be judgeable on a host where the ledger is
-    gone. What it must never be is indistinguishable from a ledger that was read
-    and had nothing in it — hence `ledger_readable`, which the assertions that
-    need one check before reporting that they saw nothing.
+    A run is named either by the document Core printed at its end or by its run
+    id, and the second exists because a run whose Core was killed never printed
+    one: the whole point of that case is that nothing was left to print. What the
+    document would have said about the run's identity is then read from the
+    ledger, which is Core's own record of the same run up to the moment it
+    stopped being able to write.
+
+    The ledger is looked up from the data root, and a missing database is *not*
+    an error here: a case that never needs Core's own record must still be
+    judgeable on a host where the ledger is gone. What it must never be is
+    indistinguishable from a ledger that was read and had nothing in it — hence
+    `ledger_readable`, which the assertions that need one check before reporting
+    that they saw nothing.
     """
 
-    try:
-        document = json.loads(run_document.read_bytes())
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
-        raise Unreadable(f"{run_document} is not readable run document JSON: {error}") from error
-    if not isinstance(document, dict):
-        raise Unreadable(f"{run_document} is not a run document object")
-    run = cast(dict[str, object], document)
+    run: dict[str, object] = {}
+    if run_document is not None:
+        try:
+            document = json.loads(run_document.read_bytes())
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
+            raise Unreadable(
+                f"{run_document} is not readable run document JSON: {error}"
+            ) from error
+        if not isinstance(document, dict):
+            raise Unreadable(f"{run_document} is not a run document object")
+        run = cast(dict[str, object], document)
 
-    kin, identifier = run.get("kin_id"), run.get("run_id")
-    if not isinstance(kin, str) or not isinstance(identifier, str):
-        raise Unreadable(f"{run_document} names no run to look up in the ledger")
+    kin_value, identifier_value = run.get("kin_id"), run.get("run_id")
+    named_run = identifier_value if isinstance(identifier_value, str) else ""
+    if not named_run:
+        named_run = run_id if run_id is not None else ""
+    kin = kin_value if isinstance(kin_value, str) else ""
+    if not kin:
+        held = sorted(
+            path.name
+            for path in (data_root / KIN_DIRECTORY).glob("*")
+            if (path / DATABASE_NAME).is_file()
+        )
+        kin = held[0] if len(held) == 1 else ""
+    if not kin or not named_run:
+        raise Unreadable("no run is named: neither a run document nor a run id")
 
     events: list[Mapping[str, object]] = []
     readable = False
     database = kin_directory(data_root, KinId(kin)) / DATABASE_NAME
     if database.is_file():
         try:
-            events = [cast(Mapping[str, object], row) for row in ledger_rows(database, identifier)]
+            events = [cast(Mapping[str, object], row) for row in ledger_rows(database, named_run)]
         except sqlite3.Error as error:
             raise Unreadable(f"{database} cannot be read for this run: {error}") from error
         readable = True
@@ -230,6 +300,23 @@ def read_run_material(
     # A run with no world to join has no server at all, which is a fact about the
     # run rather than a reason it cannot be judged — so there is no server
     # directory to name, and nothing to read from one.
+    overlay_value = run.get("overlay")
+    overlay = (
+        Path(overlay_value)
+        if isinstance(overlay_value, str) and overlay_value
+        else _overlay_for(data_root, kin, events)
+    )
+
+    # The Bridge's own account of what it did lives in the client's output, and
+    # for a run whose Core was killed that is the only place the release appears:
+    # there is nobody left on Core's side to have recorded it.
+    client_log = ""
+    if overlay is not None:
+        for name in ("stdout.log", "latest.log"):
+            candidate = overlay / "logs" / name
+            if candidate.is_file():
+                client_log += candidate.read_text(encoding="utf-8", errors="replace")
+
     server_log = ""
     log_path = None if server_directory is None else server_directory / "server.log"
     if log_path is not None and log_path.is_file():
@@ -256,7 +343,11 @@ def read_run_material(
                 identities[name] = identifier
 
     return RunMaterial(
+        kin_id=kin,
+        run_id=named_run,
+        overlay=overlay,
         run_document=run,
+        client_log=client_log,
         ledger_events=tuple(events),
         ledger_readable=readable,
         server_log=server_log,
@@ -477,6 +568,57 @@ def the_lease_expired_and_was_released(material: RunMaterial) -> str | None:
     return None
 
 
+def the_bridge_released_the_input_when_the_ipc_was_lost(material: RunMaterial) -> str | None:
+    """The client's own line, because Core was not there to write one.
+
+    Measured in a real run whose Core was killed: `bridge released 1 input(s)
+    after IPC_LOST`. The *reason* is what this checks: a release after
+    `CORE_REQUEST` is the lease expiring while Core is alive, and one after
+    `LEFT_PLAYABLE` is the session ending. Only a lost runtime is a lost runtime.
+
+    The count matters too — "released nothing after IPC_LOST" is the Bridge
+    saying it was holding nothing, which would make the letting go vacuous.
+    """
+
+    if not material.client_log:
+        return "NO_CLIENT_LOG"
+    releases = _BRIDGE_RELEASE.findall(material.client_log)
+    if not releases:
+        return "RELEASE_NOT_LOGGED"
+    reasons = {reason for _, reason in releases}
+    if IPC_LOST not in reasons:
+        return f"RELEASED_FOR_ANOTHER_REASON:{','.join(sorted(reasons))}"
+    if not any(int(count) > 0 for count, reason in releases if reason == IPC_LOST):
+        return "HELD_NOTHING_WHEN_THE_RUNTIME_WENT_AWAY"
+    return None
+
+
+def the_server_saw_the_kin_stop_after_the_move(material: RunMaterial) -> str | None:
+    """The world's answer: it moved, and then it was not moving.
+
+    Both halves are required. A Kin that never moved did not stop, and a Kin
+    still moving with nothing left to be holding it is the failure this case
+    exists to rule out — the keys that were never released.
+
+    Two readings that agree is the ordinary shape, and a measured run showed the
+    other one: the kill lands mid-stride, the client leaves, and the last two
+    readings differ because there was never a reading after the stop. A client
+    that has left the game is not holding keys either, so a leave counts — the
+    same rule the harness waits on, for the same reason.
+    """
+
+    positions = probe_readings(material.server_log, 3)
+    if len(positions) < 2:
+        return "NO_SERVER_READINGS"
+    first, last = positions[0], positions[-1]
+    moved = ((last[0] - first[0]) ** 2 + (last[2] - first[2]) ** 2) ** 0.5
+    if moved < MINIMUM_STEP_BLOCKS:
+        return f"NEVER_MOVED:{moved:.2f}"
+    if positions[-2] != positions[-1] and material.leave_line() is None:
+        return "STILL_MOVING_AFTER_THE_RUNTIME_WENT_AWAY"
+    return None
+
+
 #: Every assertion a case manifest may name, and what performs it. A name that is
 #: not here cannot be judged, which the verdict reports rather than passing over.
 ASSERTIONS: dict[str, Callable[[RunMaterial], str | None]] = {
@@ -489,6 +631,10 @@ ASSERTIONS: dict[str, Callable[[RunMaterial], str | None]] = {
     "the_bridge_carried_the_input_out": the_bridge_carried_the_input_out,
     "the_server_saw_the_kin_move": the_server_saw_the_kin_move,
     "the_lease_expired_and_was_released": the_lease_expired_and_was_released,
+    "the_bridge_released_the_input_when_the_ipc_was_lost": (
+        the_bridge_released_the_input_when_the_ipc_was_lost
+    ),
+    "the_server_saw_the_kin_stop_after_the_move": the_server_saw_the_kin_stop_after_the_move,
 }
 
 
@@ -567,7 +713,17 @@ def main(argv: list[str] | None = None) -> int:
         description="Judge one finished run's evidence against the case it was run for."
     )
     parser.add_argument("--case", type=Path, required=True, help="the case manifest to judge by")
-    parser.add_argument("--run-document", type=Path, required=True)
+    parser.add_argument(
+        "--run-document",
+        type=Path,
+        default=None,
+        help="what Core printed at the end; absent for a run that never printed one",
+    )
+    parser.add_argument(
+        "--run-id",
+        default=None,
+        help="names the run when there is no document, as a killed Core leaves none",
+    )
     parser.add_argument("--data-root", type=Path, required=True)
     parser.add_argument(
         "--server-directory",
@@ -588,6 +744,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         material = read_run_material(
             run_document=args.run_document,
+            run_id=args.run_id,
             data_root=args.data_root,
             server_directory=args.server_directory,
             username=args.username,
