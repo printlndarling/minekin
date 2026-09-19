@@ -26,6 +26,11 @@ public final class BoundedChannel<T> {
         return accepted;
     }
 
+    /** Blocking consumption is reserved for daemon workers; producers never wait. */
+    public T take() throws InterruptedException {
+        return queue.take();
+    }
+
     /** Drop queued work and guarantee one terminal safety message is next. */
     public synchronized void replaceWith(T value) {
         Objects.requireNonNull(value, "value");

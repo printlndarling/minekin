@@ -1,9 +1,13 @@
 package org.minekin.bridge.runtime;
 
 import io.minekin.protocol.v1.ConnectWorld;
+import io.minekin.protocol.v1.AdmissionFailureReason;
+import io.minekin.protocol.v1.ConnectionLifecycle;
+import io.minekin.protocol.v1.ConnectionPhase;
 import io.minekin.protocol.v1.ResourcePackPolicy;
 import io.netty.channel.ChannelFuture;
 import java.util.Map;
+import java.util.function.Predicate;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.client.gui.screen.TitleScreen;
@@ -17,12 +21,17 @@ import org.minekin.bridge.mixin.ConnectScreenAccessor;
 /** Executes already-validated admission commands only from the client tick. */
 public final class ClientAdmissionController {
     private final BridgePhaseMachine phases;
+    private final Predicate<ConnectionLifecycle> lifecycleSink;
     private long activeGeneration;
+    private String activeProfileId;
+    private String activeProfileRevision;
     private ConnectScreen activeScreen;
     private Screen parentScreen;
 
-    public ClientAdmissionController(BridgePhaseMachine phases) {
+    public ClientAdmissionController(
+            BridgePhaseMachine phases, Predicate<ConnectionLifecycle> lifecycleSink) {
         this.phases = java.util.Objects.requireNonNull(phases, "phases");
+        this.lifecycleSink = java.util.Objects.requireNonNull(lifecycleSink, "lifecycleSink");
     }
 
     public void handle(MinecraftClient client, BridgeIpcWorker.ClientMessage message) {
@@ -54,6 +63,8 @@ public final class ClientAdmissionController {
         } finally {
             activeScreen = null;
             parentScreen = null;
+            activeProfileId = null;
+            activeProfileRevision = null;
         }
     }
 
@@ -73,8 +84,14 @@ public final class ClientAdmissionController {
         server.setResourcePackPolicy(resourcePackPolicy(command.getResourcePackPolicy()));
         parentScreen = client.currentScreen != null ? client.currentScreen : new TitleScreen();
         activeGeneration = command.getGeneration();
+        activeProfileId = command.getServerProfileId();
+        activeProfileRevision = command.getServerProfileRevision();
         phases.transition(BridgePhaseMachine.Phase.CONNECTING_WORLD);
         try {
+            publish(
+                    ConnectionPhase.CONNECTION_PHASE_RESOLVING,
+                    AdmissionFailureReason.ADMISSION_FAILURE_REASON_UNSPECIFIED,
+                    false);
             ConnectScreen.connect(
                     parentScreen,
                     client,
@@ -89,7 +106,11 @@ public final class ClientAdmissionController {
         } catch (RuntimeException error) {
             activeGeneration = 0;
             activeScreen = null;
-            phases.transition(BridgePhaseMachine.Phase.OBSERVE_ONLY);
+            activeProfileId = null;
+            activeProfileRevision = null;
+            if (phases.phase() == BridgePhaseMachine.Phase.CONNECTING_WORLD) {
+                phases.transition(BridgePhaseMachine.Phase.OBSERVE_ONLY);
+            }
             throw error;
         }
     }
@@ -102,11 +123,44 @@ public final class ClientAdmissionController {
         // and IPC-side rule for late callbacks.
         activeGeneration = 0;
         cancelVanilla(client);
+        publish(
+                generation,
+                ConnectionPhase.CONNECTION_PHASE_CANCELLED,
+                AdmissionFailureReason.ADMISSION_FAILURE_REASON_CANCELLED,
+                true);
         activeScreen = null;
         parentScreen = null;
+        activeProfileId = null;
+        activeProfileRevision = null;
         if (phases.phase() == BridgePhaseMachine.Phase.CONNECTING_WORLD
                 || phases.phase() == BridgePhaseMachine.Phase.PLAYABLE) {
             phases.transition(BridgePhaseMachine.Phase.OBSERVE_ONLY);
+        }
+    }
+
+    private void publish(
+            ConnectionPhase phase, AdmissionFailureReason failureReason, boolean terminal) {
+        publish(activeGeneration, phase, failureReason, terminal);
+    }
+
+    private void publish(
+            long generation,
+            ConnectionPhase phase,
+            AdmissionFailureReason failureReason,
+            boolean terminal) {
+        if (generation == 0 || activeProfileId == null || activeProfileRevision == null) {
+            throw new IllegalStateException("connection lifecycle has no active profile binding");
+        }
+        ConnectionLifecycle lifecycle = ConnectionLifecycle.newBuilder()
+                .setGeneration(generation)
+                .setServerProfileId(activeProfileId)
+                .setServerProfileRevision(activeProfileRevision)
+                .setPhase(phase)
+                .setFailureReason(failureReason)
+                .setTerminal(terminal)
+                .build();
+        if (!lifecycleSink.test(lifecycle)) {
+            throw new IllegalStateException("connection lifecycle event was rejected");
         }
     }
 

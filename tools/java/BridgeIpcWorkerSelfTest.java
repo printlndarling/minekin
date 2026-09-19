@@ -1,9 +1,12 @@
 import com.google.protobuf.ByteString;
+import io.minekin.protocol.v1.AdmissionFailureReason;
 import io.minekin.protocol.v1.BridgeBootstrapDescriptor;
 import io.minekin.protocol.v1.BridgeHello;
 import io.minekin.protocol.v1.Capability;
 import io.minekin.protocol.v1.Channel;
 import io.minekin.protocol.v1.ConnectWorld;
+import io.minekin.protocol.v1.ConnectionLifecycle;
+import io.minekin.protocol.v1.ConnectionPhase;
 import io.minekin.protocol.v1.CoreHello;
 import io.minekin.protocol.v1.EndpointTransport;
 import io.minekin.protocol.v1.Envelope;
@@ -22,6 +25,7 @@ import java.time.Duration;
 import java.util.HexFormat;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import org.minekin.bridge.protocol.BootstrapDescriptorAdapter;
 import org.minekin.bridge.protocol.FramedEnvelopeChannel;
@@ -33,6 +37,28 @@ import org.minekin.bridge.runtime.BridgePhaseMachine;
 public final class BridgeIpcWorkerSelfTest {
     private static final int MAX_FRAME_BYTES = 1_048_576;
     private static final String DIGEST = "cd".repeat(32);
+    private static final String PROFILE_ID = "p0-controlled";
+    private static final String PROFILE_REVISION = "ab".repeat(32);
+
+    /**
+     * The lifecycle events the worker must carry, in order: two progress phases,
+     * which also prove the event sequence advances, and a terminal cancellation
+     * that carries its own reason.
+     */
+    private static final ConnectionLifecycle[] PUBLISHED_LIFECYCLES = {
+        lifecycle(
+                ConnectionPhase.CONNECTION_PHASE_RESOLVING,
+                AdmissionFailureReason.ADMISSION_FAILURE_REASON_UNSPECIFIED,
+                false),
+        lifecycle(
+                ConnectionPhase.CONNECTION_PHASE_PLAYABLE,
+                AdmissionFailureReason.ADMISSION_FAILURE_REASON_UNSPECIFIED,
+                false),
+        lifecycle(
+                ConnectionPhase.CONNECTION_PHASE_CANCELLED,
+                AdmissionFailureReason.ADMISSION_FAILURE_REASON_CANCELLED,
+                true),
+    };
 
     private BridgeIpcWorkerSelfTest() {}
 
@@ -47,9 +73,16 @@ public final class BridgeIpcWorkerSelfTest {
             Files.write(descriptorPath, descriptor.toByteArray());
 
             CountDownLatch releaseServer = new CountDownLatch(1);
+            CountDownLatch eventsDelivered = new CountDownLatch(1);
             AtomicReference<Throwable> serverFailure = new AtomicReference<>();
             Thread serverThread = new Thread(
-                    () -> serve(controlServer, eventServer, descriptor, releaseServer, serverFailure),
+                    () -> serve(
+                            controlServer,
+                            eventServer,
+                            descriptor,
+                            releaseServer,
+                            eventsDelivered,
+                            serverFailure),
                     "minekin-test-runtime");
             serverThread.start();
 
@@ -71,6 +104,9 @@ public final class BridgeIpcWorkerSelfTest {
                 assert command instanceof BridgeIpcWorker.ConnectCommand;
                 assert ((BridgeIpcWorker.ConnectCommand) command).value().getGeneration() == 1;
                 assert Files.notExists(descriptorPath);
+                assertLifecycleAdmission(worker);
+                assert eventsDelivered.await(4, TimeUnit.SECONDS)
+                        : "the worker did not deliver the published lifecycle events";
             } finally {
                 releaseServer.countDown();
                 serverThread.join(3_000);
@@ -88,11 +124,14 @@ public final class BridgeIpcWorkerSelfTest {
             ServerSocketChannel eventServer,
             BridgeBootstrapDescriptor descriptor,
             CountDownLatch release,
+            CountDownLatch eventsDelivered,
             AtomicReference<Throwable> failure) {
         try (SocketChannel controlSocket = controlServer.accept();
                 SocketChannel eventSocket = eventServer.accept()) {
             FramedEnvelopeChannel control = new FramedEnvelopeChannel(
                     controlSocket, controlSocket, Channel.CHANNEL_CONTROL, MAX_FRAME_BYTES);
+            FramedEnvelopeChannel events = new FramedEnvelopeChannel(
+                    eventSocket, eventSocket, Channel.CHANNEL_EVENT, MAX_FRAME_BYTES);
             Envelope bridgeEnvelope = control.read();
             assert bridgeEnvelope.getMessageType().equals(BridgeIpcWorker.BRIDGE_HELLO_TYPE);
             BridgeHello bridgeHello = BridgeHello.parseFrom(bridgeEnvelope.getPayload());
@@ -141,10 +180,90 @@ public final class BridgeIpcWorkerSelfTest {
                     .setDeadlineMonotonicNs(1)
                     .build();
             control.write(envelope(3, BridgeIpcWorker.CONNECT_WORLD_TYPE, connect.toByteString()));
+            for (int index = 0; index < PUBLISHED_LIFECYCLES.length; index++) {
+                Envelope lifecycleEnvelope = events.read();
+                assert lifecycleEnvelope.getChannel() == Channel.CHANNEL_EVENT
+                        : "lifecycle left the event channel";
+                assert lifecycleEnvelope.getMessageType().equals(BridgeIpcWorker.CONNECTION_LIFECYCLE_TYPE);
+                assert lifecycleEnvelope.getSequence() == index + 1
+                        : "event channel sequence must start at 1 and advance by one";
+                assert ConnectionLifecycle.parseFrom(lifecycleEnvelope.getPayload())
+                                .equals(PUBLISHED_LIFECYCLES[index])
+                        : "lifecycle payload was altered in transit";
+            }
+            eventsDelivered.countDown();
             release.await();
         } catch (Throwable error) {
             failure.set(error);
         }
+    }
+
+    /**
+     * Publishes every accepted lifecycle shape and pins the refused ones. A
+     * refused lifecycle must not reach the event channel at all, so the rejected
+     * count stays at zero for each refusal: refusal is not a delivery failure.
+     */
+    private static void assertLifecycleAdmission(BridgeIpcWorker worker) {
+        for (ConnectionLifecycle accepted : PUBLISHED_LIFECYCLES) {
+            assert worker.publishLifecycle(accepted) : "a valid lifecycle was refused";
+        }
+        assert !worker.publishLifecycle(lifecycle(
+                ConnectionPhase.CONNECTION_PHASE_UNSPECIFIED,
+                AdmissionFailureReason.ADMISSION_FAILURE_REASON_UNSPECIFIED,
+                false));
+        assert !worker.publishLifecycle(lifecycle(
+                        ConnectionPhase.CONNECTION_PHASE_DISCONNECTED,
+                        AdmissionFailureReason.ADMISSION_FAILURE_REASON_UNSPECIFIED,
+                        false))
+                : "a terminal phase must declare itself terminal";
+        assert !worker.publishLifecycle(lifecycle(
+                        ConnectionPhase.CONNECTION_PHASE_RESOLVING,
+                        AdmissionFailureReason.ADMISSION_FAILURE_REASON_DNS_FAILED,
+                        false))
+                : "a failure reason does not belong on a progress phase";
+        assert !worker.publishLifecycle(lifecycle(
+                        ConnectionPhase.CONNECTION_PHASE_FAILED,
+                        AdmissionFailureReason.ADMISSION_FAILURE_REASON_UNSPECIFIED,
+                        true))
+                : "a failure must name a reason";
+        assert !worker.publishLifecycle(lifecycle(
+                        ConnectionPhase.CONNECTION_PHASE_CANCELLED,
+                        AdmissionFailureReason.ADMISSION_FAILURE_REASON_WHITELIST_REJECTED,
+                        true))
+                : "cancellation may not borrow an unrelated failure reason";
+        assert !worker.publishLifecycle(ConnectionLifecycle.newBuilder()
+                .setGeneration(1)
+                .setServerProfileId(" ")
+                .setServerProfileRevision(PROFILE_REVISION)
+                .setPhase(ConnectionPhase.CONNECTION_PHASE_RESOLVING)
+                .build());
+        assert !worker.publishLifecycle(ConnectionLifecycle.newBuilder()
+                .setGeneration(1)
+                .setServerProfileId(PROFILE_ID)
+                .setServerProfileRevision(PROFILE_REVISION.toUpperCase(java.util.Locale.ROOT))
+                .setPhase(ConnectionPhase.CONNECTION_PHASE_RESOLVING)
+                .build())
+                : "a profile revision is a lowercase SHA-256 digest";
+        assert !worker.publishLifecycle(ConnectionLifecycle.newBuilder()
+                .setServerProfileId(PROFILE_ID)
+                .setServerProfileRevision(PROFILE_REVISION)
+                .setPhase(ConnectionPhase.CONNECTION_PHASE_RESOLVING)
+                .build())
+                : "a lifecycle without a connection generation names nothing";
+        assert worker.rejectedMessageCount() == 0
+                : "a refused lifecycle must not occupy the must-deliver outbox";
+    }
+
+    private static ConnectionLifecycle lifecycle(
+            ConnectionPhase phase, AdmissionFailureReason reason, boolean terminal) {
+        return ConnectionLifecycle.newBuilder()
+                .setGeneration(1)
+                .setServerProfileId(PROFILE_ID)
+                .setServerProfileRevision(PROFILE_REVISION)
+                .setPhase(phase)
+                .setFailureReason(reason)
+                .setTerminal(terminal)
+                .build();
     }
 
     private static BridgeIpcWorker.ClientMessage awaitMessage(

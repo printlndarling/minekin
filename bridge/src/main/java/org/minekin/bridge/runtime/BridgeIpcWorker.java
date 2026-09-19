@@ -1,10 +1,13 @@
 package org.minekin.bridge.runtime;
 
 import com.google.protobuf.ByteString;
+import io.minekin.protocol.v1.AdmissionFailureReason;
 import io.minekin.protocol.v1.BridgeBootstrapDescriptor;
 import io.minekin.protocol.v1.CancelConnection;
 import io.minekin.protocol.v1.Channel;
 import io.minekin.protocol.v1.ConnectWorld;
+import io.minekin.protocol.v1.ConnectionLifecycle;
+import io.minekin.protocol.v1.ConnectionPhase;
 import io.minekin.protocol.v1.CoreHello;
 import io.minekin.protocol.v1.Envelope;
 import io.minekin.protocol.v1.Heartbeat;
@@ -32,6 +35,7 @@ public final class BridgeIpcWorker implements AutoCloseable {
     public static final String HEARTBEAT_TYPE = "minekin.v1.Heartbeat";
     public static final String CONNECT_WORLD_TYPE = "minekin.v1.ConnectWorld";
     public static final String CANCEL_CONNECTION_TYPE = "minekin.v1.CancelConnection";
+    public static final String CONNECTION_LIFECYCLE_TYPE = "minekin.v1.ConnectionLifecycle";
     private static final long MONOTONIC_ORIGIN = System.nanoTime();
 
     private final Path descriptorPath;
@@ -39,10 +43,12 @@ public final class BridgeIpcWorker implements AutoCloseable {
     private final Duration handshakeTimeout;
     private final BridgePhaseMachine phases;
     private final BoundedChannel<ClientMessage> clientInbox;
+    private final BoundedChannel<ConnectionLifecycle> eventOutbox;
     private final AdmissionCommandGate admissionCommands = new AdmissionCommandGate();
     private final AtomicBoolean started = new AtomicBoolean();
     private final AtomicBoolean stopping = new AtomicBoolean();
     private volatile Thread thread;
+    private volatile Thread eventThread;
     private volatile NioEnvelopeChannel control;
     private volatile NioEnvelopeChannel event;
 
@@ -57,6 +63,7 @@ public final class BridgeIpcWorker implements AutoCloseable {
         this.handshakeTimeout = requirePositive(handshakeTimeout, "handshakeTimeout");
         this.phases = java.util.Objects.requireNonNull(phases, "phases");
         clientInbox = new BoundedChannel<>(inboxCapacity);
+        eventOutbox = new BoundedChannel<>(inboxCapacity);
     }
 
     /** Starts exactly once and returns without descriptor or socket I/O. */
@@ -79,7 +86,20 @@ public final class BridgeIpcWorker implements AutoCloseable {
     }
 
     public long rejectedMessageCount() {
-        return clientInbox.rejectedCount();
+        return clientInbox.rejectedCount() + eventOutbox.rejectedCount();
+    }
+
+    /** Non-blocking client-thread handoff for must-deliver lifecycle events. */
+    public boolean publishLifecycle(ConnectionLifecycle lifecycle) {
+        java.util.Objects.requireNonNull(lifecycle, "lifecycle");
+        if (stopping.get() || !started.get() || event == null || !validLifecycle(lifecycle)) {
+            return false;
+        }
+        if (!eventOutbox.offer(lifecycle)) {
+            failClosed();
+            return false;
+        }
+        return true;
     }
 
     @Override
@@ -90,6 +110,10 @@ public final class BridgeIpcWorker implements AutoCloseable {
         Thread worker = thread;
         if (worker != null) {
             worker.interrupt();
+        }
+        Thread writer = eventThread;
+        if (writer != null) {
+            writer.interrupt();
         }
     }
 
@@ -104,11 +128,11 @@ public final class BridgeIpcWorker implements AutoCloseable {
             event = connect(
                     descriptor.endpoints().event(), Channel.CHANNEL_EVENT, descriptor.maxFrameBytes());
             HeartbeatState heartbeat = handshake(descriptor);
+            startEventWriter(descriptor);
             heartbeatLoop(descriptor, heartbeat);
         } catch (Exception error) {
             if (!stopping.get()) {
-                phases.safeStop();
-                clientInbox.replaceWith(Notice.SAFE_STOP);
+                failClosed();
             }
         } finally {
             closeQuietly(control);
@@ -134,6 +158,7 @@ public final class BridgeIpcWorker implements AutoCloseable {
         Envelope bridgeHello = envelope(
                 descriptor,
                 BRIDGE_HELLO_TYPE,
+                Channel.CHANNEL_CONTROL,
                 1,
                 BootstrapDescriptorAdapter.toProto(handshake.bridgeHello()).toByteString());
         control.write(bridgeHello, handshakeTimeout);
@@ -169,6 +194,42 @@ public final class BridgeIpcWorker implements AutoCloseable {
                 gate,
                 Duration.ofMillis(Math.multiplyExact(coreHello.getHeartbeatIntervalMs(), 3L)),
                 accepted.acceptedCapabilities());
+    }
+
+    private void startEventWriter(BootstrapDescriptorAdapter.AdaptedDescriptor descriptor) {
+        Thread writer = new Thread(() -> eventWriterLoop(descriptor), "minekin-bridge-events");
+        writer.setDaemon(true);
+        eventThread = writer;
+        writer.start();
+    }
+
+    private void eventWriterLoop(BootstrapDescriptorAdapter.AdaptedDescriptor descriptor) {
+        long sequence = 1;
+        try {
+            while (!stopping.get()) {
+                ConnectionLifecycle lifecycle = eventOutbox.take();
+                Envelope outbound = envelope(
+                        descriptor,
+                        CONNECTION_LIFECYCLE_TYPE,
+                        Channel.CHANNEL_EVENT,
+                        sequence,
+                        lifecycle.toByteString());
+                event.write(outbound, handshakeTimeout);
+                if (sequence == Long.MAX_VALUE) {
+                    throw new IOException("event sequence exhausted the P0 signed range");
+                }
+                sequence++;
+            }
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            if (!stopping.get()) {
+                failClosed();
+            }
+        } catch (Exception error) {
+            if (!stopping.get()) {
+                failClosed();
+            }
+        }
     }
 
     private void heartbeatLoop(
@@ -210,6 +271,7 @@ public final class BridgeIpcWorker implements AutoCloseable {
     private static Envelope envelope(
             BootstrapDescriptorAdapter.AdaptedDescriptor descriptor,
             String messageType,
+            Channel channel,
             long sequence,
             ByteString payload) {
         HandshakeGate.Expected expected = descriptor.expected();
@@ -218,7 +280,7 @@ public final class BridgeIpcWorker implements AutoCloseable {
                         .setMajor(expected.protocolMajor())
                         .setMinor(expected.protocolMinor()))
                 .setMessageType(messageType)
-                .setChannel(Channel.CHANNEL_CONTROL)
+                .setChannel(channel)
                 .setSequence(sequence)
                 .setKinId(expected.kinId())
                 .setSessionId(expected.sessionId())
@@ -227,6 +289,52 @@ public final class BridgeIpcWorker implements AutoCloseable {
                 .setMonotonicNs(monotonicNow())
                 .setPayload(payload)
                 .build();
+    }
+
+    private static boolean validLifecycle(ConnectionLifecycle lifecycle) {
+        if (lifecycle.getGeneration() == 0
+                || lifecycle.getServerProfileId().isBlank()
+                || !lifecycle.getServerProfileRevision().matches("[0-9a-f]{64}")
+                || lifecycle.getPhase() == ConnectionPhase.CONNECTION_PHASE_UNSPECIFIED) {
+            return false;
+        }
+        boolean terminalPhase = switch (lifecycle.getPhase()) {
+            case CONNECTION_PHASE_DISCONNECTED,
+                    CONNECTION_PHASE_FAILED,
+                    CONNECTION_PHASE_CANCELLED -> true;
+            default -> false;
+        };
+        if (terminalPhase != lifecycle.getTerminal()) {
+            return false;
+        }
+        // Core classifies on the phase and the reason together, so a reason that
+        // does not belong to the phase is a contradiction, not extra detail.
+        AdmissionFailureReason reason = lifecycle.getFailureReason();
+        return switch (lifecycle.getPhase()) {
+            case CONNECTION_PHASE_FAILED ->
+                    reason != AdmissionFailureReason.ADMISSION_FAILURE_REASON_UNSPECIFIED;
+            case CONNECTION_PHASE_CANCELLED ->
+                    reason == AdmissionFailureReason.ADMISSION_FAILURE_REASON_UNSPECIFIED
+                            || reason
+                                    == AdmissionFailureReason.ADMISSION_FAILURE_REASON_CANCELLED;
+            default -> reason == AdmissionFailureReason.ADMISSION_FAILURE_REASON_UNSPECIFIED;
+        };
+    }
+
+    private void failClosed() {
+        phases.safeStop();
+        clientInbox.replaceWith(Notice.SAFE_STOP);
+        stopping.set(true);
+        closeQuietly(control);
+        closeQuietly(event);
+        Thread controlWorker = thread;
+        if (controlWorker != null && controlWorker != Thread.currentThread()) {
+            controlWorker.interrupt();
+        }
+        Thread writer = eventThread;
+        if (writer != null && writer != Thread.currentThread()) {
+            writer.interrupt();
+        }
     }
 
     private static Duration requirePositive(Duration value, String name) {

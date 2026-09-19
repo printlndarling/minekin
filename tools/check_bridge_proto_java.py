@@ -42,8 +42,11 @@ public final class ClientLifecycleEvents {
 """,
     "org/minekin/bridge/runtime/ClientAdmissionController.java": """\
 package org.minekin.bridge.runtime;
+import io.minekin.protocol.v1.ConnectionLifecycle;
+import java.util.function.Predicate;
 public final class ClientAdmissionController {
-    public ClientAdmissionController(BridgePhaseMachine phases) {}
+    public ClientAdmissionController(
+            BridgePhaseMachine phases, Predicate<ConnectionLifecycle> lifecycleSink) {}
     public void handle(Object client, BridgeIpcWorker.ClientMessage message) {}
     public void safeStop(Object client) {}
 }

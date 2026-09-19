@@ -38,7 +38,7 @@
       "kind": "bridge",
       "verification": "build_required",
       "source": "workspace:bridge",
-      "source_digest": "40664fab37469172395bd3e673b3eb9dcc881f28e9043e1d10b8eb8c7b2cb8e2",
+      "source_digest": "80da5758216217184533eafd92d8a0d0c9a33827449d0bdbb23567eb71ca5649",
       "license": "NOASSERTION"
     }
   ]

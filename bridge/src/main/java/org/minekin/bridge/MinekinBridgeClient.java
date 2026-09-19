@@ -27,13 +27,14 @@ public final class MinekinBridgeClient implements ClientModInitializer {
         }
 
         BridgePhaseMachine phases = new BridgePhaseMachine();
-        ClientAdmissionController controller = new ClientAdmissionController(phases);
         BridgeIpcWorker created = new BridgeIpcWorker(
                 Path.of(descriptor),
                 Duration.ofSeconds(5),
                 Duration.ofSeconds(5),
                 16,
                 phases);
+        ClientAdmissionController controller =
+                new ClientAdmissionController(phases, created::publishLifecycle);
         ClientTickEvents.END_CLIENT_TICK.register(
                 client -> created.drainClientMessages(
                         MAX_NOTICES_PER_TICK,
