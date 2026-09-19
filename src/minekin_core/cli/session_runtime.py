@@ -69,6 +69,14 @@ class SessionRun:
     actions_refused: int = 0
     release_failed: bool = False
     input_refusal: str = ""
+    #: The reason Core abandoned a connection attempt, empty when it abandoned
+    #: none. Recorded on the document for the same reason `input_refusal` is: §5
+    #: names no event for "the attempt was given up on", and inventing a ledger
+    #: fact would put a word in the contract that the contract does not have.
+    connection_cancelled: str = ""
+    #: Whether the cancel could not be delivered. Its own flag rather than the
+    #: release's: they are two different things Core owed the Bridge.
+    connection_cancel_failed: bool = False
 
     def as_dict(self) -> dict[str, object]:
         return {
@@ -105,6 +113,10 @@ class SessionRun:
             # ledger, because a refusal means no release is ever sent and the
             # release is what would have carried it.
             "input_refusal": self.input_refusal,
+            # What Core decided about an attempt that outlived its own deadline,
+            # in the wire enum's words. Empty when no attempt was abandoned.
+            "connection_cancelled": self.connection_cancelled,
+            "connection_cancel_failed": self.connection_cancel_failed,
         }
 
 
@@ -119,6 +131,8 @@ class _Progress:
     actions_applied: int = 0
     actions_refused: int = 0
     release_failed: bool = False
+    connection_cancelled: str = ""
+    connection_cancel_failed: bool = False
 
 
 async def supervise_session(
@@ -135,6 +149,8 @@ async def supervise_session(
     on_wind_down: Callable[[], Awaitable[None]] | None = None,
     until_input_release: Callable[[], Awaitable[object]] | None = None,
     on_input_release: Callable[[], Awaitable[None]] | None = None,
+    until_connection_deadline: Callable[[], Awaitable[object]] | None = None,
+    on_connection_deadline: Callable[[], Awaitable[None]] | None = None,
     recorded: RecordedSessionMaterial | None = None,
 ) -> SessionRun:
     """Wait for the handshake, follow the Bridge, and stop when the client does.
@@ -163,6 +179,13 @@ async def supervise_session(
     task, because a task started inside a callback is a task nobody cancels —
     and this one has to be cancelled, or a run that has ended would still be
     scheduled to act.
+
+    `until_connection_deadline` and `on_connection_deadline` are the same shape
+    for the same reason: a connection attempt carries its own deadline, and the
+    side that issued it is the side that knows when it has passed. What it does
+    about that is not this module's decision either — but nothing about it ends
+    the run, and that is what the two branches have in common: each fires, is
+    answered, and then the session carries on.
 
     `on_wind_down` is the last chance to speak to the Bridge: it runs after the
     generation is closed and before the transport is, which is the only order in
@@ -209,21 +232,22 @@ async def supervise_session(
                 ),
                 name="minekin-bridge-events",
             )
-            client = asyncio.create_task(
-                _client_exited(until_client_exit), name="minekin-client-exit"
-            )
-            # Not a way for the run to end: a lease lapsing is one more thing that
-            # happens during a session, so this task is in the wait set but not in
-            # the race below — the runtime does what was asked and goes back to
-            # waiting, which is why the wait is a loop.
-            release = None
+            client = asyncio.create_task(_awaited(until_client_exit), name="minekin-client-exit")
+            # Branches that fire without ending the run: each is a moment the
+            # caller owns, and the runtime does what it asks and goes back to
+            # waiting — which is why the wait is a loop rather than a race.
+            branches: dict[asyncio.Task[None], Callable[[], Awaitable[None]]] = {}
             if until_input_release is not None and on_input_release is not None:
-                release = asyncio.create_task(
-                    _client_exited(until_input_release), name="minekin-input-release"
-                )
-            watched: set[asyncio.Task[None]] = {reader, client}
-            if release is not None:
-                watched.add(release)
+                branches[
+                    asyncio.create_task(_awaited(until_input_release), name="minekin-input-release")
+                ] = on_input_release
+            if until_connection_deadline is not None and on_connection_deadline is not None:
+                branches[
+                    asyncio.create_task(
+                        _awaited(until_connection_deadline), name="minekin-connection-deadline"
+                    )
+                ] = on_connection_deadline
+            watched: set[asyncio.Task[None]] = {reader, client, *branches}
             try:
                 while True:
                     finished, _ = await asyncio.wait(watched, return_when=asyncio.FIRST_COMPLETED)
@@ -233,30 +257,29 @@ async def supervise_session(
                     # thing it asked for, then keep supervising. The task is dropped
                     # from the set because it is done, and a done task left in the
                     # set would make the very next wait return immediately.
-                    assert release is not None
-                    watched.discard(release)
-                    try:
-                        await on_input_release()  # type: ignore[misc]
-                    except (OSError, RuntimeError):
-                        # The wind-down's rule, for the same reason: the Bridge
-                        # releases everything it holds when the channel goes, so a
-                        # release Core cannot deliver is recorded, not raised. A
-                        # transport that has already gone must not turn into a run
-                        # that failed for an unrelated reason.
-                        progress.release_failed = True
+                    for task in [item for item in finished if item in branches]:
+                        watched.discard(task)
+                        answer = branches[task]
+                        try:
+                            await answer()
+                        except (OSError, RuntimeError):
+                            # The wind-down's rule, for the same reason: the Bridge
+                            # releases everything it holds when the channel goes, so
+                            # a command Core cannot deliver is recorded, not raised.
+                            # A transport that has already gone must not turn into a
+                            # run that failed for an unrelated reason.
+                            if answer is on_input_release:
+                                progress.release_failed = True
+                            else:
+                                progress.connection_cancel_failed = True
             finally:
-                for task in (reader, client, release):
-                    if task is not None:
-                        task.cancel()
-                # A cancelled client watcher may be blocked in a thread the caller
-                # owns; gather with return_exceptions so this wait cannot hang or
-                # raise before the transport is closed.
-                await asyncio.gather(
-                    reader,
-                    client,
-                    *(item for item in (release,) if item is not None),
-                    return_exceptions=True,
-                )
+                branches_done = list(branches)
+                for task in (reader, client, *branches_done):
+                    task.cancel()
+                # A cancelled watcher may be blocked in a thread the caller owns;
+                # gather with return_exceptions so this wait cannot hang or raise
+                # before the transport is closed.
+                await asyncio.gather(reader, client, *branches_done, return_exceptions=True)
 
             if reader in finished:
                 error = reader.exception()
@@ -297,10 +320,15 @@ async def supervise_session(
     return _report(outcome, session, connection_state, progress)
 
 
-async def _client_exited(until_client_exit: Callable[[], Awaitable[object]]) -> None:
-    """Adapt the caller's awaitable to the `None` this module waits on."""
+async def _awaited(moment: Callable[[], Awaitable[object]]) -> None:
+    """Adapt a caller's awaitable to the `None` this module waits on.
 
-    await until_client_exit()
+    The caller owns *when* its moment arrives — a client exiting, a lease
+    lapsing, a deadline passing — and returns something this module has no use
+    for. Only the timing is shared, so only the timing is adapted.
+    """
+
+    await moment()
 
 
 async def _authenticate(host: BridgeIpcHost, timeout: float) -> SessionOutcome | None:
@@ -451,4 +479,6 @@ def _report(
         actions_applied=progress.actions_applied,
         actions_refused=progress.actions_refused,
         release_failed=progress.release_failed,
+        connection_cancelled=progress.connection_cancelled,
+        connection_cancel_failed=progress.connection_cancel_failed,
     )

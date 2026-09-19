@@ -33,6 +33,7 @@ from bridge_peer import (  # type: ignore[import-not-found]
 )
 from minekin_core.adapters.bridge.ipc import (
     BRIDGE_HELLO_TYPE,
+    CANCEL_CONNECTION_TYPE,
     CONNECT_WORLD_TYPE,
     INITIAL_OBSERVATION_TYPE,
     BridgeSession,
@@ -548,6 +549,100 @@ def test_a_named_server_profile_becomes_one_connect_command(
     # never exits: the symptom was the interpreter hanging after every test had
     # passed, with no failing assertion to point at it.
     assert [thread.name for thread in threading.enumerate() if "sqlite-writer" in thread.name] == []
+
+
+def test_an_attempt_that_outlives_its_deadline_is_cancelled_by_core(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    """Core stops meaning an attempt when the deadline it sent passes.
+
+    The deadline already rides inside `ConnectWorld` so the Bridge can refuse a
+    command that is stale by the time it reads one. This is the other half, and
+    nothing did it before: a client sitting in a black hole left Core waiting for
+    a world that was never coming. The session must *not* end because of it —
+    cancelling an attempt is one more thing that happens during a run.
+    """
+
+    root = ready_data_root(tmp_path, monkeypatch)
+    process = LiveProcess()
+    supervisor = live_supervisor(process, descriptor_path(tmp_path), [])
+    database = root / "kin" / "kin-01" / "kin.sqlite3"
+
+    async def scenario() -> tuple[
+        SessionRun, control_pb2.CancelConnection, control_pb2.ConnectWorld
+    ]:
+        running = asyncio.create_task(
+            start_and_supervise(
+                root=root,
+                profile=PROFILE,
+                java_executable=JAVA,
+                session_id=SESSION_ID,
+                generation=GENERATION,
+                supervisor_factory=lambda _logs: supervisor,
+                handshake_timeout=5.0,
+                exit_poll_s=0.01,
+                # Short enough that the test waits rather than sleeps, and long
+                # enough that the connect command is on the wire first.
+                connection_timeout=0.3,
+                server_profile=SERVER_PROFILE,
+            )
+        )
+        path = descriptor_path(tmp_path)
+        await _wait_until(path.is_file)
+        descriptor = session_pb2.BridgeBootstrapDescriptor.FromString(path.read_bytes())
+        bridge = BridgeSession(
+            kin_id=descriptor.kin_id,
+            session_id=descriptor.session_id,
+            generation=descriptor.generation,
+            client_instance_id=descriptor.client_instance_id,
+            bundle_digest=descriptor.bundle_digest,
+            bridge_digest=descriptor.bridge_digest,
+            launch_nonce=descriptor.launch_nonce,
+            session_key=descriptor.session_key,
+        )
+        control_reader, control_writer = await connect(descriptor, envelope_pb2.CHANNEL_CONTROL)
+        _event_reader, event_writer = await connect(descriptor, envelope_pb2.CHANNEL_EVENT)
+        await write_frame(
+            control_writer,
+            envelope(
+                bridge,
+                BRIDGE_HELLO_TYPE,
+                envelope_pb2.CHANNEL_CONTROL,
+                1,
+                hello(bridge).SerializeToString(deterministic=True),
+            ),
+        )
+        await asyncio.wait_for(read_frame(control_reader), 5)
+
+        connect_frame = await _wait_for_control_message(control_reader, CONNECT_WORLD_TYPE)
+        # No lifecycle report at all: the attempt is still in flight, which is
+        # the only state in which a deadline can pass.
+        cancel_frame = await _wait_for_control_message(control_reader, CANCEL_CONNECTION_TYPE)
+
+        process.exited = True
+        _launch, run = await asyncio.wait_for(running, 10)
+        await close_writers(control_writer, event_writer)
+        return (
+            run,
+            control_pb2.CancelConnection.FromString(cancel_frame.payload),
+            control_pb2.ConnectWorld.FromString(connect_frame.payload),
+        )
+
+    run, cancel, connect_command = asyncio.run(scenario())
+
+    # The cancel names the attempt it is about: a generation that did not match
+    # would be Core cancelling something else.
+    assert cancel.generation == connect_command.generation
+    assert cancel.reason == control_pb2.CONNECTION_CANCEL_REASON_TIMEOUT
+    assert cancel.request_id
+
+    assert run.connection_cancelled == "TIMEOUT"
+    assert run.connection_cancel_failed is False
+    # The session carried on: the client is what ends a run, not a deadline.
+    assert run.outcome is SessionOutcome.CLIENT_EXITED
+    assert run.events_applied == 0
+    interrupted = [row for row in _ledger_rows(database) if row[0] == SESSION_INTERRUPTED]
+    assert interrupted == []
 
 
 def test_a_session_with_no_server_profile_is_never_told_to_connect(

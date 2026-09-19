@@ -255,6 +255,8 @@ async def _supervise(
     on_wind_down: Callable[[], Awaitable[None]] | None = None,
     until_input_release: Callable[[], Awaitable[object]] | None = None,
     on_input_release: Callable[[], Awaitable[None]] | None = None,
+    until_connection_deadline: Callable[[], Awaitable[object]] | None = None,
+    on_connection_deadline: Callable[[], Awaitable[None]] | None = None,
 ) -> SessionRun:
     return await asyncio.wait_for(
         supervise_session(
@@ -268,6 +270,8 @@ async def _supervise(
             on_wind_down=on_wind_down,
             until_input_release=until_input_release,
             on_input_release=on_input_release,
+            until_connection_deadline=until_connection_deadline,
+            on_connection_deadline=on_connection_deadline,
         ),
         timeout,
     )
@@ -688,6 +692,93 @@ def test_the_wind_down_hook_can_still_reach_the_bridge(tmp_path: Path) -> None:
         await running
 
         assert spoke == [True]
+        assert run.release_failed is False
+
+    asyncio.run(scenario())
+
+
+def test_a_connection_deadline_that_fires_does_not_end_the_run(tmp_path: Path) -> None:
+    """The branch the runtime owns: a moment arrives, it is answered, the run goes on."""
+
+    async def scenario() -> None:
+        bridge = session()
+        host = BridgeIpcHost(bridge)
+        descriptor = await host.prepare(tmp_path / "descriptor.pb")
+        machine, connections = _in_handshake()
+        exit_event = asyncio.Event()
+        peer = Peer(descriptor, bridge)
+        answered: list[bool] = []
+
+        async def deadline_passed() -> None:
+            return None
+
+        async def cancel_it() -> None:
+            answered.append(True)
+
+        async def client() -> None:
+            await _drive_to_playable(peer, machine)
+            # The deadline fired before the client left, and the run is still
+            # here to see it: that is the whole claim.
+            while not answered:
+                await asyncio.sleep(0.01)
+            exit_event.set()
+            await peer.close()
+
+        running = asyncio.create_task(client())
+        run = await _supervise(
+            host,
+            machine,
+            connections,
+            exit_event=exit_event,
+            until_connection_deadline=deadline_passed,
+            on_connection_deadline=cancel_it,
+        )
+        await running
+
+        assert answered == [True]
+        assert run.outcome is SessionOutcome.CLIENT_EXITED
+        assert run.connection_cancel_failed is False
+
+    asyncio.run(scenario())
+
+
+def test_a_cancel_that_cannot_be_delivered_is_recorded_rather_than_raised(
+    tmp_path: Path,
+) -> None:
+    """Its own flag: a release and a cancel are two different things Core owed."""
+
+    async def scenario() -> None:
+        bridge = session()
+        host = BridgeIpcHost(bridge)
+        descriptor = await host.prepare(tmp_path / "descriptor.pb")
+        machine, connections = _in_handshake()
+        exit_event = asyncio.Event()
+        peer = Peer(descriptor, bridge)
+
+        async def deadline_passed() -> None:
+            return None
+
+        async def failing_cancel() -> None:
+            raise OSError("the transport went first")
+
+        async def client() -> None:
+            await _drive_to_playable(peer, machine)
+            exit_event.set()
+            await peer.close()
+
+        running = asyncio.create_task(client())
+        run = await _supervise(
+            host,
+            machine,
+            connections,
+            exit_event=exit_event,
+            until_connection_deadline=deadline_passed,
+            on_connection_deadline=failing_cancel,
+        )
+        await running
+
+        assert run.outcome is SessionOutcome.CLIENT_EXITED
+        assert run.connection_cancel_failed is True
         assert run.release_failed is False
 
     asyncio.run(scenario())

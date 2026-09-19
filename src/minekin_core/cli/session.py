@@ -21,6 +21,7 @@ from google.protobuf.message import Message
 from minekin_core.adapters.bridge.bootstrap import bridge_session_for, descriptor_path
 from minekin_core.adapters.bridge.ipc import (
     ADMISSION_CAPABILITY,
+    CANCEL_CONNECTION_TYPE,
     CONNECT_WORLD_TYPE,
     LOOK_CAPABILITY,
     LOOK_INPUT_TYPE,
@@ -142,9 +143,14 @@ DEFAULT_EXIT_POLL_S = 0.2
 
 # How long a requested connection may take before Core stops meaning it. The
 # value rides inside `ConnectWorld` so the Bridge can refuse a command that is
-# already stale when it reads it; Core sending `CancelConnection(TIMEOUT)` once
-# the deadline passes is a further step and is not wired here.
+# already stale when it reads it, and `on_connection_deadline` below sends
+# `CancelConnection(TIMEOUT)` when it passes: the same deadline, held by both
+# sides, because the side that issued it is the side that knows when it passed.
 DEFAULT_CONNECTION_TIMEOUT_S = 30.0
+
+# The wire enum's word for "this attempt ran out of time", without its prefix:
+# the run document records stable tokens, and the prefix belongs to the wire.
+CONNECTION_CANCEL_TIMEOUT = "TIMEOUT"
 
 # The profile's word for a resource-pack policy, and the wire enum it means.
 # Both spellings are reviewed; nothing else is admitted, because an unrecognised
@@ -878,16 +884,67 @@ async def start_and_supervise(
             # Bound to the generation the command goes out under, because that is
             # the generation the Bridge gates the plan against.
             plan.arbiter = InputArbiter(attempt.generation)
+        # Kept here rather than recomputed later: the deadline that rides inside
+        # the command is the same deadline Core holds itself to, and two
+        # computations of it would be two deadlines.
+        attempt_deadline[0] = Deadline.after(
+            MonotonicInstant(monotonic_ns()),
+            int(connection_timeout * 1_000_000_000),
+        ).monotonic_ns
         command = connect_world_command(
             target,
             request_id=OpaqueId.new().value,
             generation=attempt.generation.value,
-            deadline_monotonic_ns=Deadline.after(
-                MonotonicInstant(monotonic_ns()),
-                int(connection_timeout * 1_000_000_000),
-            ).monotonic_ns,
+            deadline_monotonic_ns=attempt_deadline[0],
         )
         await host.send_control(CONNECT_WORLD_TYPE, command)
+
+    async def until_connection_deadline() -> None:
+        """Wait out the attempt's own deadline, if an attempt was made at all."""
+
+        if attempt_deadline[0] is None:
+            # No attempt, no deadline: this waits for something that will never
+            # come, which is a promise rather than a poll, and it is cancelled
+            # with the rest when the run ends.
+            await asyncio.Event().wait()
+            return
+        remaining = attempt_deadline[0] - monotonic_ns()
+        if remaining > 0:
+            await asyncio.sleep(remaining / 1_000_000_000)
+
+    async def on_connection_deadline() -> None:
+        """Core stops meaning the attempt, and says so on the wire.
+
+        The deadline rides inside `ConnectWorld` so the Bridge can refuse a
+        command that is already stale by the time it reads one. This is the other
+        half of the same deadline, and until now nothing did it: Core sent a
+        deadline and then waited forever for a client that might be sitting in a
+        black hole.
+
+        The generation is closed *after* the cancel goes out, so the Bridge's
+        answer — a `CANCELLED` phase, or nothing at all — cannot move a session
+        that has already stopped meaning the attempt. Closing it is the same act
+        the wind-down performs, for the same reason.
+        """
+
+        active = connections.active
+        if active is None or not active.in_flight:
+            # An attempt that already ended needs no cancelling, and one that
+            # never started leaves nothing to cancel.
+            return
+        await host.send_control(
+            CANCEL_CONNECTION_TYPE,
+            control_pb2.CancelConnection(
+                request_id=OpaqueId.new().value,
+                generation=int(active.generation),
+                reason=control_pb2.CONNECTION_CANCEL_REASON_TIMEOUT,
+            ),
+        )
+        connections.close(active.generation)
+        # Kept for the run document, which is replaced into after the supervisor
+        # returns: the value belongs to the run, and only this caller knows it —
+        # the same shape `input_refusal` has, for the same reason.
+        cancelled[0] = CONNECTION_CANCEL_TIMEOUT
 
     async def on_playable() -> None:
         """Ask for this run's input, under one lease, once the session may be driven."""
@@ -1059,6 +1116,11 @@ async def start_and_supervise(
     # against is the generation the command was sent under, and there is only
     # one place that knows both.
     connections = ConnectionGenerations()
+    # Two cells rather than locals because the hooks below close over them: the
+    # deadline of the attempt that was actually started, and the reason Core
+    # abandoned one — both are facts only this caller holds.
+    attempt_deadline: list[int | None] = [None]
+    cancelled: list[str] = [""]
 
     run = await supervise_session(
         host=host,
@@ -1075,8 +1137,17 @@ async def start_and_supervise(
         # watcher that never completes is a task that exists to be cancelled.
         until_input_release=None if plan is None else until_input_release,
         on_input_release=None if plan is None else on_input_release,
+        # Only when a world was named: with no attempt there is no deadline, and
+        # a watcher that never completes is a task that exists to be cancelled.
+        until_connection_deadline=None if target is None else until_connection_deadline,
+        on_connection_deadline=None if target is None else on_connection_deadline,
         recorded=prepared.recorded,
     )
+    if cancelled[0]:
+        # The same shape `input_refusal` has: only this caller knows Core gave up
+        # on the attempt, and the run document is where a fact with no ledger
+        # event of its own lives.
+        run = replace(run, connection_cancelled=cancelled[0])
     if plan is not None and plan.refusal:
         # Only this caller knows why the input was never taken: the runtime sees
         # commands and answers, not the arbiter's reasons. Recorded on the run

@@ -108,6 +108,16 @@ class ConnectionAttempt:
         if not _SHA256.fullmatch(self.server_profile_revision):
             raise ValueError("server_profile_revision must be a lowercase SHA-256 digest")
 
+    @property
+    def in_flight(self) -> bool:
+        """Whether this attempt has not reached an ending yet.
+
+        Asked of the same `_TERMINAL` set the transition table uses, so "still
+        going" means one thing in this domain rather than two.
+        """
+
+        return self.state not in _TERMINAL
+
 
 @dataclass(frozen=True, slots=True)
 class CallbackDecision:
