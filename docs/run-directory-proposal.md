@@ -67,7 +67,7 @@ $MINEKIN_HOME/
 - 多 Kin 的根共享与配额。
 - `session start` 的进程监管（PID identity、接管/终止判定）。数据根只是把它解锁，不替它做决定。
 - Windows 与 Linux 的路径差异：只要求绝对路径，两边都成立。
-- **证据封存的时机**：本提案只定 bundle 住在哪、怎么被找到，不定一次运行在什么时刻、由谁把哪些工件封进去（`session start` 自己封、还是 orchestrator 封，取决于运行时用例的断言谓词语义尚未定的那一半）。仓库自检类用例（`W00-CONTRACT-001` 这种根本没启动客户端的）不能套用为运行时设计的 manifest 形状，因此没有为它们伪造 launcher 摘要。
+- **证据封存的时机与主体**：已定（2026-09-20）。封存是**编排侧**的事，不是 Core 的：`minekin session start` 只产出 run document 与账本，而"这次运行是哪个 case"只有编排者知道——Core 既不该读用例定义，也不该读服务端的日志与 `usercache.json`（那是真值，产品一个字节都不许看见）。因此 harness 在会话结束之后调用 `tools/seal_run_evidence.py`，由它判、收集、封。Core 里**没有**任何封存路径，这不是遗漏而是边界。仍未定的是仓库自检类用例（没有启动过任何东西的那些）的 evidence 该长什么样——运行时那套形状对它们不成立。
 
 ## 何时应当推翻本提案
 

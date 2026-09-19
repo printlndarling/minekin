@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import re
 import stat
 from collections.abc import Mapping, Sequence
@@ -174,10 +173,27 @@ def _set_writable(directory: Path, writable: bool) -> None:
 
 
 def _is_sealed(directory: Path) -> bool:
+    """Whether every file in the bundle is marked read-only.
+
+    Asked of the mode bits rather than of `os.access`, which answers a different
+    question: permission bits do not apply to a process running as root, so
+    `os.access` reports every file writable there and a genuinely sealed bundle
+    would be reported as open. Measured in the runner container, where the seal
+    is applied as uid 0: the files are mode 400 and `os.access` says writable.
+    The modes are what the seal *is*; who is asking is a separate matter.
+    """
+
     files = [path for path in directory.rglob("*") if path.is_file()]
     if not files:
         return False
-    return all(not os.access(path, os.W_OK) for path in files)
+    for path in files:
+        try:
+            mode = path.stat().st_mode
+        except OSError:
+            return False
+        if mode & (stat.S_IWUSR | stat.S_IWGRP | stat.S_IWOTH):
+            return False
+    return True
 
 
 def verify_bundle(directory: Path) -> BundleVerification:

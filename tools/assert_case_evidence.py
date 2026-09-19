@@ -179,11 +179,19 @@ def first_snapshot_admitted(material: RunMaterial) -> str | None:
 
 
 def leave_after_join_observed(material: RunMaterial) -> str | None:
-    """The Kin left the world, after having joined it, at the run's own ending.
+    """The Kin left the world, after having joined it.
 
     Ordered rather than merely present: a leave recorded before the join is a
     different event — a stale line, or a log that is not this run's — and
     counting it would let a run that never ended pass by accident.
+
+    The server's line is the whole of it, and the first version that also
+    demanded Core report `CLIENT_EXITED` was asserting the harness rather than
+    the Kin: measured, the harness ends a session by terminating the client, so
+    the IPC channel closes before Core can see the client's own exit and Core
+    records `BRIDGE_LOST`. That is Core's verdict on how the run was ended, not
+    on whether the Kin left the game, and the contract asks for the departure the
+    *server* observed.
     """
 
     joined = material.join_line()
@@ -194,9 +202,6 @@ def leave_after_join_observed(material: RunMaterial) -> str | None:
         return "LEAVE_NOT_LOGGED"
     if left < joined:
         return "LEAVE_BEFORE_JOIN"
-    outcome = _text(material.run(), "outcome")
-    if outcome != "CLIENT_EXITED":
-        return f"OUTCOME_NOT_A_CLEAN_EXIT:{outcome}"
     return None
 
 

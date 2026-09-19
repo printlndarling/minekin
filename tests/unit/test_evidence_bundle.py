@@ -160,6 +160,27 @@ def test_unsealing_makes_the_bundle_writable_again(bundle_dir: Path) -> None:
     assert not verify_bundle(bundle_dir).sealed
 
 
+def test_the_read_only_answer_does_not_depend_on_who_is_asking(
+    bundle_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Permission bits do not apply to root, and `os.access` says so.
+
+    Measured in the runner container: the seal is applied as uid 0, the files are
+    mode 400, and `os.access(.., W_OK)` reports them writable — so asking whether
+    a bundle is sealed through it reported every genuinely sealed bundle as open.
+    The modes are what the seal is; who is asking is a separate matter.
+    """
+
+    write_bundle(bundle_dir, manifest(), artifacts())
+
+    def root_may_write(_path: object, _mode: int) -> bool:
+        return True
+
+    monkeypatch.setattr("os.access", root_may_write)
+
+    assert verify_bundle(bundle_dir).sealed
+
+
 def test_a_bundle_is_never_written_over(bundle_dir: Path) -> None:
     write_bundle(bundle_dir, manifest(), artifacts(), seal=False)
 
@@ -224,6 +245,41 @@ def test_a_pass_without_a_comparison_is_not_sealable(bundle_dir: Path) -> None:
     assert EvidenceViolation.RESULT_NEEDS_ASSERTIONS in manifest(assertions=empty).violations()
     with pytest.raises(MinekinError, match="RESULT_NEEDS_ASSERTIONS"):
         write_bundle(bundle_dir, manifest(assertions=empty), artifacts())
+
+
+def test_a_failure_that_observed_nothing_is_the_evidence_that_must_survive(
+    bundle_dir: Path,
+) -> None:
+    """Measured: a run that failed every assertion of CORE-020 could not be sealed.
+
+    `FAIL` is not a claim about how a run went — it is a claim that it did not
+    meet its case, and its reasons are what carry it. Requiring a non-empty
+    `observed` list of it refused to seal exactly the runs whose evidence matters
+    most.
+    """
+
+    nothing_seen = Assertions(
+        expected=("server_observed_join_identity",),
+        observed=(),
+        failures=("server_observed_join_identity:JOIN_NOT_LOGGED",),
+    )
+
+    written = write_bundle(
+        bundle_dir, manifest(result=EvidenceResult.FAIL, assertions=nothing_seen), artifacts()
+    )
+
+    assert written.manifest.result is EvidenceResult.FAIL
+    assert verify_bundle(bundle_dir).verified
+
+
+def test_a_pass_that_observed_nothing_is_still_not_sealable() -> None:
+    """The guard the rule exists for: nothing seen cannot be a pass."""
+
+    nothing_seen = Assertions(expected=("server_observed_join_identity",), observed=(), failures=())
+
+    assert (
+        EvidenceViolation.RESULT_NEEDS_ASSERTIONS in manifest(assertions=nothing_seen).violations()
+    )
 
 
 def test_an_incomplete_bundle_without_a_comparison_is_sealable(bundle_dir: Path) -> None:

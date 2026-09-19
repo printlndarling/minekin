@@ -26,6 +26,11 @@ look="${MINEKIN_DOMAIN_LOOK:-}"
 kill_core="${MINEKIN_DOMAIN_KILL_CORE:-}"
 no_server="${MINEKIN_DOMAIN_NO_SERVER:-}"
 still="${MINEKIN_DOMAIN_STILL:-}"
+# The reviewed case this run is an execution of, if it is one. Naming it is what
+# turns a run into evidence: the sealer attributes the bundle to a case
+# definition and judges the case's assertions, and it does neither for a run
+# nobody said was a case. Unset means nothing about this run changes.
+case_id="${MINEKIN_DOMAIN_CASE:-}"
 # How often the server is asked about the Kin. A look is over within a second
 # of the join, so a run that wants a reading on both sides of it asks more
 # often than the default — the pair is what shows a heading changed.
@@ -35,12 +40,22 @@ runs=/data/server-runs
 
 # What this run was asked to do, read from the command that was given to it: the
 # harness waits for what the session was told to do, not for what the operator
-# happened to export as well.
+# happened to export as well. The two profiles come out the same way, because
+# sealing needs to name the documents this run was actually given rather than
+# the ones this script would have chosen.
 hold_requested=0
+profile=""
+server_profile=""
+previous=""
 for argument in "$@"; do
     case "${argument}" in
         --hold-forward-seconds) hold_requested=1 ;;
     esac
+    case "${previous}" in
+        --profile) profile="${argument}" ;;
+        --server-profile) server_profile="${argument}" ;;
+    esac
+    previous="${argument}"
 done
 
 # Empty means "the world is as vanilla generated it", which is what every run
@@ -149,7 +164,7 @@ fi
 # the client's stderr said `X connection to :99 broken`.
 set +e
 xvfb-run -a --server-args="-screen 0 1280x720x24" \
-    python -m minekin_core "$@" &
+    python -m minekin_core "$@" >/tmp/domain-session.json &
 session_pid=$!
 set -e
 
@@ -489,4 +504,97 @@ wait "${session_pid}"
 status=$?
 set -e
 printf 'domain: session exited %s\n' "${status}" >&2
+
+# The run document is what Core says it did, and it is the only place Core's own
+# verdict on the first snapshot exists. It was captured to a file so that it can
+# be judged and sealed; it is printed here so that reading the container's output
+# still shows it, which is what the operator had before it was captured.
+printf 'domain: the run document said ' >&2
+tr -d '\n' </tmp/domain-session.json >&2 || true
+printf '\n' >&2
+
+# Sealing, which is what makes this a case run rather than a run.
+#
+# The leave has to be in the server's log before the case can be judged, and the
+# server writes it a moment after the client's socket goes: waited for rather
+# than assumed, because a seal that fails on a race would report the run as
+# unproven. Bounded, and the seal happens either way — a run the server never saw
+# leave is a fact the verdict should carry, not a reason to stop.
+if [[ -n "${case_id}" ]]; then
+    for _ in $(seq 1 30); do
+        if grep -q "${player} left the game" "${server_directory}/server.log" 2>/dev/null; then
+            break
+        fi
+        sleep 1
+    done
+
+    # The renderer is measured rather than assumed, and it is measured under the
+    # same wrapper the session ran under: this is the software rasteriser the
+    # container actually has, not the one its documentation mentions.
+    renderer="unmeasured"
+    if command -v glxinfo >/dev/null 2>&1; then
+        measured=$(xvfb-run -a --server-args="-screen 0 1280x720x24" glxinfo -B 2>/dev/null |
+            sed -n 's/^OpenGL renderer string: //p' | head -1 || true)
+        if [ -n "${measured}" ]; then
+            renderer="${measured}"
+        fi
+    fi
+
+    case_file="/src/tests/fixtures/cases/$(printf '%s' "${case_id}" | tr '[:upper:]' '[:lower:]').json"
+    printf 'domain: sealing run evidence for case %s\n' "${case_id}" >&2
+    set +e
+    python /src/tools/seal_run_evidence.py \
+        --data-root /data \
+        --case "${case_file}" \
+        --profile "${profile}" \
+        --server-profile "${server_profile}" \
+        --run-document /tmp/domain-session.json \
+        --server-directory "${server_directory}" \
+        --server-jar /server/server.jar \
+        --username "${player}" \
+        --renderer-display "${renderer}" \
+        --session-argv "$@" >/tmp/domain-seal.json 2>/tmp/domain-seal.err
+    sealed=$?
+    set -e
+    if [ "${sealed}" -eq 2 ]; then
+        printf 'domain: the run could not be sealed: ' >&2
+        tr -d '\n' </tmp/domain-seal.err >&2 || true
+        printf '\n' >&2
+        status=1
+    else
+        tr -d '\n' </tmp/domain-seal.json >&2 || true
+        printf '\n' >&2
+        verdict=$(python -c 'import json;print(json.load(open("/tmp/domain-seal.json"))["result"])' 2>/dev/null || true)
+        run_id=$(python -c 'import json;print(json.load(open("/tmp/domain-seal.json"))["run_id"])' 2>/dev/null || true)
+        printf 'domain: the case verdict is %s\n' "${verdict}" >&2
+
+        # And the bundle is read back through the command that exists to read it,
+        # so what this prints is the answer an operator would get later rather
+        # than a restatement of what the sealer just did.
+        set +e
+        python -m minekin_core evidence verify "${run_id}" >/tmp/domain-verify.json 2>&1
+        verified=$?
+        set -e
+        printf 'domain: evidence verify said ' >&2
+        tr -d '\n' </tmp/domain-verify.json >&2 || true
+        printf '\n' >&2
+        if [ "${verified}" -ne 0 ]; then
+            printf 'domain: the sealed bundle does not verify\n' >&2
+            status=1
+        fi
+        if [ "${verdict}" != "PASS" ]; then
+            printf 'domain: case %s did not hold for this run\n' "${case_id}" >&2
+            status=1
+        elif [ "${verified}" -eq 0 ]; then
+            # A case run's exit status is the case's answer rather than the
+            # session's, because that is the question that was asked. The
+            # session's own status is 14 here and always has been: the harness
+            # ends a session by terminating the client, so Core records
+            # `BRIDGE_LOST`, which maps to IPC_PROTOCOL. Printing it and exiting
+            # on it are two different things, and only one of them is useful.
+            status=0
+        fi
+    fi
+fi
+
 exit "${status}"

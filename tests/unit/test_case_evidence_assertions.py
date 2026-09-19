@@ -227,12 +227,20 @@ def test_a_leave_logged_before_the_join_is_not_this_run_s_end() -> None:
     assert "leave_after_join_observed:LEAVE_BEFORE_JOIN" in verdict.failures
 
 
-def test_an_ending_that_is_not_a_clean_exit_says_which_one_it_was() -> None:
+def test_the_departure_is_the_server_s_fact_and_not_core_s_verdict_on_the_ending() -> None:
+    """Measured: the harness ends a session by terminating the client.
+
+    The IPC channel closes before Core can see the client's own exit, so a run
+    the harness ended normally records `BRIDGE_LOST`. An assertion that demanded
+    `CLIENT_EXITED` was asserting the harness's method, not the Kin's departure.
+    """
+
     document = run_document(outcome="BRIDGE_LOST")
 
     verdict = ASSERTER_MODULE.evaluate(reviewed_case(), material(document=document))
 
-    assert "leave_after_join_observed:OUTCOME_NOT_A_CLEAN_EXIT:BRIDGE_LOST" in verdict.failures
+    assert verdict.result == "PASS"
+    assert "leave_after_join_observed" in verdict.observed
 
 
 def test_an_assertion_nothing_implements_makes_the_whole_verdict_incomplete() -> None:

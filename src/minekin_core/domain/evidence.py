@@ -126,10 +126,18 @@ class EvidenceManifest:
         if not all(_SHA256.fullmatch(record.sha256) for record in self.artifacts):
             found.add(EvidenceViolation.INVALID_DIGEST)
 
+        # A result that claims something needs a comparison behind it: `PASS` and
+        # `AMBIGUOUS` say how a run went, and a bundle that lists nothing it
+        # expected and nothing it saw has not established that. `FAIL` and
+        # `INCOMPLETE` are not claims of that kind — a failure is justified by its
+        # reasons, and "incomplete" is the answer that asserts nothing. Asking for
+        # a non-empty `observed` list from a failure was the difference between
+        # sealing a run whose every assertion failed and sealing none of it, and
+        # measured: the run that failed all three of CORE-020's assertions could
+        # not be sealed at all, which is exactly the evidence that must survive.
+        claims = self.result in {EvidenceResult.PASS, EvidenceResult.AMBIGUOUS}
         has_comparison = bool(self.assertions.expected) and bool(self.assertions.observed)
-        if not has_comparison and self.result is not EvidenceResult.INCOMPLETE:
-            # A bundle that records no expected/observed comparison has proven
-            # nothing, whatever else it contains.
+        if claims and not has_comparison:
             found.add(EvidenceViolation.RESULT_NEEDS_ASSERTIONS)
         if self.result is EvidenceResult.PASS and self.assertions.failures:
             found.add(EvidenceViolation.PASS_WITH_FAILURES)
