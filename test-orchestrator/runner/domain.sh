@@ -85,6 +85,12 @@ not_whitelisted="${MINEKIN_DOMAIN_NOT_WHITELISTED:-}"
 # is a block the ray cannot miss at any distance — one the Kin walks into and
 # stops against, which is also the walk-and-stop this harness waits for.
 use_target="${MINEKIN_DOMAIN_USE_TARGET:-}"
+# A session that is meant to *host*: the client is put in a world it owns and asked to
+# publish it to LAN. The port is named rather than chosen by the client, because the
+# point of publishing is that something else can be pointed at it — and a client that
+# chooses its own port reports it only in a run document that is printed at the end.
+open_lan="${MINEKIN_DOMAIN_OPEN_LAN:-}"
+lan_port="${MINEKIN_DOMAIN_LAN_PORT:-25570}"
 # How often the server is asked about the Kin. A look is over within a second
 # of the join, so a run that wants a reading on both sides of it asks more
 # often than the default — the pair is what shows a heading changed.
@@ -390,8 +396,16 @@ fi
 # the client through a path that has nothing to do with the session. Measured —
 # the client's stderr said `X connection to :99 broken`.
 set +e
+# The logs that exist before this session starts. A host run has to watch the client's
+# own log (see the wait below), and the newest log on disk is the one the *last* run
+# wrote — which is a mistake this harness has already made once in another form.
+logs_before=$(ls /data/kin/*/run/session/*/generation-*/logs/latest.log 2>/dev/null | sort)
+lan_args=()
+if [ -n "${open_lan}" ]; then
+    lan_args=(--open-lan --open-lan-port "${lan_port}")
+fi
 xvfb-run -a --server-args="-screen 0 1280x720x24" \
-    python -m minekin_core "$@" >/tmp/domain-session.json &
+    python -m minekin_core "$@" "${lan_args[@]}" >/tmp/domain-session.json &
 session_pid=$!
 if ! read -r session_starttime_ticks session_pid_namespace_inode \
         <<<"$(read_process_identity "${session_pid}" 2>/dev/null)" ||
@@ -417,7 +431,15 @@ set -e
 # downstream — the run id, the fault record's attribution, the seal — would then be
 # about a different run. So the number of candidates is checked, and anything other
 # than exactly one fails closed rather than guessing.
-ledgers=(/data/kin/*/kin.sqlite3)
+# A root with several Kin needs one named, and the selector is the same one the CLI
+# reads — a scenario with a second Kin in it (the one that joins a hosted world) has
+# two ledgers by construction.
+kin_selector="${MINEKIN_KIN_ID:-}"
+if [ -n "${kin_selector}" ]; then
+    ledgers=("/data/kin/${kin_selector}/kin.sqlite3")
+else
+    ledgers=(/data/kin/*/kin.sqlite3)
+fi
 if [ "${#ledgers[@]}" -ne 1 ] || [ ! -f "${ledgers[0]}" ]; then
     printf 'domain: this run cannot name its ledger (found %s), so nothing here can be attributed\n' \
         "${#ledgers[@]}" >&2
@@ -533,6 +555,35 @@ elif [ -n "${black_hole}" ]; then
         printf 'domain: the client dialled the black hole and got nothing\n' >&2
     else
         printf 'domain: nothing ever connected to the black hole\n' >&2
+    fi
+elif [ -n "${open_lan}" ]; then
+    # A run that publishes a world waits for the world to be published, and it has to
+    # read the *client's* log to do it. That is not a shortcut: publishing is not one of
+    # §5's session events, so Core records it on the run document rather than in the
+    # ledger, and the run document is printed when the session ends. While the session is
+    # running, the client's own log is the only place the fact exists — and the only
+    # overlays looked at are the ones that were not there before this run started.
+    deadline=$((SECONDS + seconds))
+    published=0
+    latest=""
+    for _ in $(seq 1 "${seconds}"); do
+        kill -0 "${session_pid}" 2>/dev/null || break
+        [ "${SECONDS}" -lt "${deadline}" ] || break
+        candidate=$(comm -13 <(printf '%s\n' "${logs_before}") \
+            <(ls /data/kin/*/run/session/*/generation-*/logs/latest.log 2>/dev/null | sort) |
+            head -1)
+        if [ -n "${candidate}" ] &&
+            grep -q "Started serving on ${lan_port}" "${candidate}" 2>/dev/null; then
+            latest="${candidate}"
+            published=1
+            break
+        fi
+        sleep 1
+    done
+    if [ "${published}" -eq 1 ]; then
+        printf 'domain: the world is published on %s (%s)\n' "${lan_port}" "${latest}" >&2
+    else
+        printf 'domain: nothing was published on %s within %ss\n' "${lan_port}" "${seconds}" >&2
     fi
 elif [ -z "${server_profile}" ]; then
     # A run with no world to join never becomes playable, and waiting for it

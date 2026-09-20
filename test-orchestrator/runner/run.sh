@@ -94,7 +94,7 @@ if [[ "${1:-}" == "domain" ]]; then
         -e MINEKIN_DOMAIN_CASE
         -e MINEKIN_DOMAIN_BLACK_HOLE
         -e MINEKIN_DOMAIN_NOT_WHITELISTED
-        -e MINEKIN_DOMAIN_USE_TARGET
+        -e MINEKIN_DOMAIN_USE_TARGET -e MINEKIN_DOMAIN_OPEN_LAN -e MINEKIN_DOMAIN_LAN_PORT
         -e MINEKIN_DOMAIN_SECONDS)
     if [[ "${world}" -eq 1 ]]; then
         EXTRA_ARGS+=(-v "${SERVER_JAR}:/server/server.jar:ro")
@@ -150,6 +150,7 @@ exec docker run --rm \
     "${EXTRA_ARGS[@]}" \
     -e MINEKIN_HOME=/data \
     -e MINEKIN_USERNAME="${USERNAME}" \
+    -e MINEKIN_KIN_ID \
     -e PYTHONPATH=/src/src \
     -e LD_LIBRARY_PATH=/opt/sqlite/lib \
     -w /src \

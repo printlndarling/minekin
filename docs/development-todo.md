@@ -630,6 +630,11 @@
     "把它换成「最新写入的那个」之后，证据立刻就在手边了。**下次要读某个客户端的日志，先确认读的是哪一次运行。**\n"
     "  - **仍然没有的**：harness 还没有 `--open-lan`/`--open-lan-port` 开关（这一轮仍然是在 runner 里直接调 CLI + 一份临时脚本：第二个 Kin、拷贝出来的 store、按选定端口生成的 profile），所以 L3 还**不是一个可封存的 case**；"
     "joiner 在这一轮里被史莱姆杀了（没人开的 Kin 会死，又一次），而「宿主用的快照必须是不动的 Kin 不会死的那种」仍然没定。\n"
+- [x] **宿主场景进了受支持的 harness 路径，不再靠临时脚本。** `MINEKIN_DOMAIN_OPEN_LAN=1` + `MINEKIN_DOMAIN_LAN_PORT=N` 让 harness 给会话加上 `--open-lan --open-lan-port N`，并**等世界真的被开出去**。实测走的 `run.sh domain`（不是 `--shell`）：`domain: the world is published on 25570 (…/logs/latest.log)`，而 run document 里 `lan_publication: {phase: LAN_OPENED, port: 25570}` 与 `world_snapshot: kinworld` 都在。
+  - **这个等待必须读客户端的日志，而这不是抄近路**：harness 的等待一律建在**账本**上，而「世界被开出去了」**不是 §5 的会话事件**——按本仓库一贯的规矩它落在 run document 上，而 document 是会话结束才打印的。会话还在跑的时候，这件事**只存在于客户端自己的日志里**。这条不对称因此被写进注释，而不是被绕过。
+  - **顺带拆掉了一个挡住多 Kin 场景的门**：harness 原来要求数据根里**恰好一个 Kin**（`ledgers=(/data/kin/*/kin.sqlite3)` 加 fail-closed 检查——它自己注释说清了为什么：`head -1` 会把一个 Kin 的库读成另一个的）。而「有第二个 Kin 连进来」这种场景天然有两个账本，所以现在可以用 `MINEKIN_KIN_ID` 指名（`run.sh` 也把它透传进容器），指名之外仍然 fail-closed。
+  - **踩了一个本仓库已经写下来的坑**：用 Python 在 Windows 上改写 `domain.sh` 把行尾变成了 CRLF，容器里立刻是 `#!/usr/bin/env bash\r` 找不到。`.gitattributes` 里 `*.sh text eol=lf` 那条的注释**正是这件事**——它甚至写了「`bash -n` 仍会说语法没问题」，而这次确实如此。改成 LF 就好；记下来是因为它花掉了一轮。
+  - **L3 仍然不是一个可封存的 case**：没有 case fixture、没有对应的断言谓词，而且**join 那一半还需要两个会话**（harness 现在是「一个会话 + 可选 dedicated server」的形状）。下一步是这两件：先给「宿主把世界开出去」一个 case（断言读客户端日志那行与 run document），再让 harness 支持第二个会话来加入。
 - [ ] **要真去开一次 LAN，缺的是模块而不是调用**：契约把这件事放在独立的 `bridge-host-control`（创建/加载/保存/LAN/关闭的窄 adapter），并明令 `bridge-client-core` 与观察/导航模块**不得**引用 `IntegratedServer`、`getServer()` 或 `net.minecraft.server..`——而 `bridge-host-control` 现在还不存在。所以下一步是**先把这个窄 adapter 建出来**（连同它自己的源码依赖门禁、构建产物门禁），再谈"发一条命令让它开 LAN"。**刻意不先做的**：在没有那个模块的时候从别处临时反射调用一次——那正好是契约禁止的那条路，而且量出来的东西不能代表 adapter 建好之后的形状。
 
 ## W70 之后
