@@ -553,6 +553,51 @@ def the_run_says_which_world_it_hosted(material: RunMaterial) -> str | None:
     return None
 
 
+#: The lines the *integrated server* writes when a player arrives or leaves. A hosting
+#: client's log carries them, because the server runs inside that client: which is why
+#: a hosted world's account can be read from the material the run already keeps, with no
+#: second copy of anybody's words.
+_OTHER_JOINED = re.compile(r"\[Server thread/INFO\]: (\w+) joined the game")
+_OTHER_LEFT = re.compile(r"\[Server thread/INFO\]: (\w+) left the game")
+
+
+def _other_names(material: RunMaterial, pattern: re.Pattern[str]) -> tuple[str, ...]:
+    """Every name a line names, except this run's own Kin."""
+
+    return tuple(name for name in pattern.findall(material.client_log) if name != material.username)
+
+
+def another_kin_joined_the_world_this_run_hosted(material: RunMaterial) -> str | None:
+    """Somebody other than this Kin arrived in the world this run was hosting.
+
+    The world's account, and only the world can give it: a client cannot say whether
+    another player arrived. It also requires that this run published a world at all —
+    composed from the assertion that checks it rather than restated, so the two cannot
+    drift apart.
+    """
+
+    if core_was_told_the_world_was_published(material) is not None:
+        return "THIS_RUN_DID_NOT_PUBLISH_A_WORLD"
+    if not _other_names(material, _OTHER_JOINED):
+        return "NO_OTHER_KIN_EVER_JOINED"
+    return None
+
+
+def the_world_saw_that_kin_leave_again(material: RunMaterial) -> str | None:
+    """Everyone who arrived in this world also left it.
+
+    A visitor still connected when the run ends is a different fact from one that came
+    and went, and only the world knows which happened.
+    """
+
+    arrived = set(_other_names(material, _OTHER_JOINED))
+    departed = set(_other_names(material, _OTHER_LEFT))
+    still_there = sorted(arrived - departed)
+    if still_there:
+        return f"STILL_IN_THE_WORLD:{','.join(still_there)}"
+    return None
+
+
 def core_was_told_the_world_was_published(material: RunMaterial) -> str | None:
     """Core's own record says the Kin's world is published, and on which port.
 
@@ -1584,6 +1629,10 @@ ASSERTIONS: dict[str, Callable[[RunMaterial], str | None]] = {
     "first_snapshot_admitted": first_snapshot_admitted,
     "the_run_says_which_world_it_hosted": the_run_says_which_world_it_hosted,
     "core_was_told_the_world_was_published": core_was_told_the_world_was_published,
+    "another_kin_joined_the_world_this_run_hosted": (
+        another_kin_joined_the_world_this_run_hosted
+    ),
+    "the_world_saw_that_kin_leave_again": the_world_saw_that_kin_leave_again,
     "the_client_published_the_world_on_the_port_it_was_given": (
         the_client_published_the_world_on_the_port_it_was_given
     ),

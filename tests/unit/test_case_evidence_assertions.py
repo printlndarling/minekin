@@ -2457,3 +2457,55 @@ def test_the_world_and_the_address_it_is_reachable_at_are_two_facts() -> None:
     )
     assert "the_run_says_which_world_it_hosted" not in str(unpublished.failures)
     assert unnamed.failures == ("the_run_says_which_world_it_hosted:NO_WORLD_SNAPSHOT_RECORDED",)
+
+
+# --- HOST-040: a second client joins the world this one hosts -------------------
+HOST_JOIN_CASE = CASES / "host-040.json"
+HOST_JOINED = f"{JOINED}\n[21:17:35] [Server thread/INFO]: Kin2 joined the game\n"
+HOST_WITH_A_VISITOR = f"{HOST_JOINED}[21:17:39] [Server thread/INFO]: Kin2 left the game\n"
+
+
+def join_case() -> dict[str, object]:
+    return cast(dict[str, object], json.loads(HOST_JOIN_CASE.read_text(encoding="utf-8")))
+
+
+def test_a_visitor_that_arrived_and_left_holds() -> None:
+    verdict = ASSERTER_MODULE.evaluate(join_case(), hosted_world(client_log=HOST_WITH_A_VISITOR))
+
+    assert verdict.result == "PASS"
+    assert verdict.observed == verdict.expected
+
+
+@pytest.mark.parametrize(
+    ("client_log", "reasons"),
+    [
+        # Nobody else ever arrived, which is what a world nobody could reach looks like.
+        (f"{JOINED}\n", ("another_kin_joined_the_world_this_run_hosted:NO_OTHER_KIN_EVER_JOINED",)),
+        # And a visitor still in the world when the run ended is a different fact.
+        (
+            HOST_JOINED,
+            ("the_world_saw_that_kin_leave_again:STILL_IN_THE_WORLD:Kin2",),
+        ),
+    ],
+)
+def test_a_world_without_a_visitor_does_not_hold(
+    client_log: str, reasons: tuple[str, ...]
+) -> None:
+    verdict = ASSERTER_MODULE.evaluate(join_case(), hosted_world(client_log=client_log))
+
+    assert verdict.result == "FAIL"
+    assert verdict.failures == reasons
+
+
+def test_the_kins_own_arrival_is_not_somebody_elses() -> None:
+    """The world logs this Kin joining too, and that is not a visitor.
+
+    The username is what separates them, which is why the assertion takes the run's own
+    name out of the list rather than counting lines.
+    """
+
+    own = f"{JOINED}\n"
+
+    assert ASSERTER_MODULE.ASSERTIONS["another_kin_joined_the_world_this_run_hosted"](
+        hosted_world(client_log=own)
+    ) == "NO_OTHER_KIN_EVER_JOINED"

@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "case_id": "HOST-040",
+  "work_package": "W90",
+  "mandatory": false,
+  "inputs": [
+    "tests/fixtures/runtime-input/bundle-p0-core-1.21.4.json",
+    "tests/fixtures/saves/kinworld"
+  ],
+  "assertions": [
+    "the_run_says_which_world_it_hosted",
+    "core_was_told_the_world_was_published",
+    "another_kin_joined_the_world_this_run_hosted",
+    "the_world_saw_that_kin_leave_again"
+  ]
+}
