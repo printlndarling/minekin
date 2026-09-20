@@ -30,6 +30,8 @@ MINEKIN_SERVER_JAR=<path> MINEKIN_DOMAIN_PROBE=Kin MINEKIN_DOMAIN_KILL_SERVER=1 
 MINEKIN_SERVER_JAR=<path> MINEKIN_DOMAIN_PROBE=Kin MINEKIN_DOMAIN_SILENCE=1 \
     bash test-orchestrator/runner/run.sh domain session start --profile <bundle> --server-profile <profile> \
         --hold-forward-seconds 60
+MINEKIN_SERVER_JAR=<path> MINEKIN_DOMAIN_SOAK_SECONDS=600 MINEKIN_DOMAIN_SOAK_INTERVAL=10 \
+    bash test-orchestrator/runner/run.sh domain session start --profile <bundle> --server-profile <profile>
 MINEKIN_SERVER_JAR=<path> MINEKIN_DOMAIN_NO_SERVER=1 \
     bash test-orchestrator/runner/run.sh domain session start --profile <bundle> --server-profile <profile>
 bash test-orchestrator/runner/run.sh --shell 'glxinfo -B'   # or any other command
@@ -83,6 +85,14 @@ The exit code is the session's own outcome, and `14` is `BRIDGE_LOST`: the
 harness stopped the client, so the Bridge went with it. A run that did everything
 asked of it therefore ends non-zero, which is the harness's doing and not the
 run's — the document is what says how the run went.
+
+`MINEKIN_DOMAIN_SOAK_SECONDS` requests a bounded L6 resource baseline. While the
+session remains playable, the runner samples the client and server JVMs from
+`/proc` every `MINEKIN_DOMAIN_SOAK_INTERVAL` seconds and reports RSS range,
+first/last RSS, and peak thread count for both. A baseline fails closed if the
+session ends early or either JVM is never sampled. Durations are whole seconds;
+the duration must be non-negative and the interval must be positive. Zero
+duration (the default) disables the soak.
 
 Two signals were involved in getting there and both were wrong in the same way —
 looking like they worked:

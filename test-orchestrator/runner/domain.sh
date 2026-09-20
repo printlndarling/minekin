@@ -30,6 +30,25 @@ kill_core="${MINEKIN_DOMAIN_KILL_CORE:-}"
 kill_server="${MINEKIN_DOMAIN_KILL_SERVER:-}"
 no_server="${MINEKIN_DOMAIN_NO_SERVER:-}"
 still="${MINEKIN_DOMAIN_STILL:-}"
+# A bounded soak: how long the session is left running, and how often the two
+# processes are sampled. Zero means no soak, which is what every run before this
+# did — a soak is a thing a run asks for, not a thing every run pays for.
+soak_seconds="${MINEKIN_DOMAIN_SOAK_SECONDS:-0}"
+soak_interval="${MINEKIN_DOMAIN_SOAK_INTERVAL:-10}"
+case "${soak_seconds}" in
+    ''|*[!0-9]*)
+        printf 'domain: MINEKIN_DOMAIN_SOAK_SECONDS must be a non-negative integer, got %q\n' \
+            "${soak_seconds}" >&2
+        exit 2
+        ;;
+esac
+case "${soak_interval}" in
+    ''|*[!0-9]*|0)
+        printf 'domain: MINEKIN_DOMAIN_SOAK_INTERVAL must be a positive integer, got %q\n' \
+            "${soak_interval}" >&2
+        exit 2
+        ;;
+esac
 # The reviewed case this run is an execution of, if it is one. Naming it is what
 # turns a run into evidence: the sealer attributes the bundle to a case
 # definition and judges the case's assertions, and it does neither for a run
@@ -770,6 +789,120 @@ if [[ -n "${still}" ]]; then
     else
         printf 'domain: the Kin was never seen in the world\n' >&2
     fi
+fi
+
+# A bounded soak: the session is left running for a stated length of time, and the
+# two processes it is made of are sampled while it runs. What this is for is the
+# contract's L6 baseline — sustained operation with resources *reported* rather
+# than promised — and it is a run rather than a case because the contract says so
+# in as many words: no human baseline exists yet, so nothing here sets a
+# threshold, and the numbers are reported as measurements.
+#
+# Sampled from /proc rather than asked of the JVM. A process asked about its own
+# memory is a process reporting its own opinion, and this has to be readable even
+# from a client that is too unhealthy to answer.
+if [ "${soak_seconds}" -gt 0 ]; then
+    soak_file=/tmp/domain-soak.txt
+    : > "${soak_file}"
+    sample() {
+        # One line per process per round: the label, the resident size in KB and
+        # the thread count, as the kernel holds them.
+        [ -n "$1" ] && [ -r "/proc/$1/status" ] || return 1
+        awk -v label="$2" '/^VmRSS:/ { rss = $2 } /^Threads:/ { threads = $2 }
+             END {
+                 if (rss == "" || threads == "") exit 1
+                 printf "%s %s %s\n", label, rss, threads
+             }' "/proc/$1/status" 2>/dev/null >> "${soak_file}"
+    }
+    # Name the JVM, not a launcher's first child. Both halves can have wrappers,
+    # and a JVM may start after the soak begins, so discovery is repeated until
+    # each sample rather than turning an early empty lookup into a whole empty
+    # baseline.
+    find_java_descendant() {
+        local root="$1"
+        local found=""
+        local child
+        local candidate
+        if [ "$(cat "/proc/${root}/comm" 2>/dev/null || true)" = "java" ]; then
+            found="${root}"
+        fi
+        for child in $(pgrep -P "${root}" 2>/dev/null || true); do
+            candidate=$(find_java_descendant "${child}")
+            if [ -n "${candidate}" ]; then
+                found="${candidate}"
+            fi
+        done
+        printf '%s' "${found}"
+    }
+
+    printf 'domain: soaking for %ss at %ss intervals\n' \
+        "${soak_seconds}" "${soak_interval}" >&2
+    client_samples=0
+    server_samples=0
+    soak_interrupted=0
+    sample_failed=0
+    deadline=$((SECONDS + soak_seconds))
+    while [ "${SECONDS}" -lt "${deadline}" ]; do
+        if ! kill -0 "${session_pid}" 2>/dev/null; then
+            soak_interrupted=1
+            break
+        fi
+        client_process=$(find_java_descendant "${session_pid}")
+        world_process=$(find_java_descendant "${server_pid}")
+        if sample "${client_process}" client; then
+            client_samples=$((client_samples + 1))
+        else
+            sample_failed=1
+        fi
+        if sample "${world_process}" server; then
+            server_samples=$((server_samples + 1))
+        else
+            sample_failed=1
+        fi
+        remaining=$((deadline - SECONDS))
+        nap="${soak_interval}"
+        if [ "${nap}" -gt "${remaining}" ]; then
+            nap="${remaining}"
+        fi
+        if [ "${nap}" -gt 0 ]; then
+            sleep "${nap}"
+        fi
+    done
+    # A process can disappear during the final sleep, after the last sample but
+    # before the deadline. It still did not survive the requested baseline.
+    final_client_process=$(find_java_descendant "${session_pid}")
+    final_world_process=$(find_java_descendant "${server_pid}")
+    if ! kill -0 "${session_pid}" 2>/dev/null || \
+            [ -z "${final_client_process}" ] || [ -z "${final_world_process}" ]; then
+        soak_interrupted=1
+    fi
+    if [ "${soak_interrupted}" -eq 1 ]; then
+        printf 'domain: the session ended before the requested soak duration elapsed\n' >&2
+        injection_failed=1
+    fi
+    if [ "${sample_failed}" -eq 1 ] || \
+            [ "${client_samples}" -eq 0 ] || [ "${server_samples}" -eq 0 ]; then
+        printf 'domain: the soak did not sample both JVMs on every pass (client=%s, server=%s)\n' \
+            "${client_samples}" "${server_samples}" >&2
+        injection_failed=1
+    fi
+    for label in client server; do
+        awk -v label="${label}" '
+            $1 == label {
+                n += 1; rss[n] = $2
+                if (n == 1 || $2 < low) low = $2
+                if (n == 1 || $2 > high) high = $2
+                if ($3 > threads) threads = $3
+            }
+            END {
+                if (n == 0) {
+                    printf "domain: %s was never sampled\n", label
+                    exit 1
+                }
+                printf "domain: %s RSS %.0f MB at first, %.0f MB at last, %.0f..%.0f MB over %d samples, %d threads at most\n",
+                       label, rss[1] / 1024, rss[n] / 1024, low / 1024, high / 1024, n, threads
+            }' "${soak_file}" >&2 || true
+    done
 fi
 
 printf 'domain: stopping the session\n' >&2

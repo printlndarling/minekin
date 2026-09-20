@@ -86,3 +86,19 @@ def test_every_deadline_loop_gives_the_clock_a_chance_to_advance() -> None:
         )
         checked += 1
     assert checked, "no wait loops found; this test is looking at the wrong file"
+
+
+def test_the_domain_soak_is_bounded_and_fails_closed() -> None:
+    """A requested baseline must measure both JVMs for the requested duration."""
+
+    text = (RUNNER / "domain.sh").read_text(encoding="utf-8")
+
+    assert 'case "${soak_seconds}" in' in text
+    assert "MINEKIN_DOMAIN_SOAK_SECONDS must be a non-negative integer" in text
+    assert 'case "${soak_interval}" in' in text
+    assert "MINEKIN_DOMAIN_SOAK_INTERVAL must be a positive integer" in text
+    assert "soak_interrupted=1" in text
+    assert "final_client_process=" in text
+    assert "final_world_process=" in text
+    assert 'if [ "${sample_failed}" -eq 1 ] || \\' in text
+    assert "the soak did not sample both JVMs on every pass" in text
