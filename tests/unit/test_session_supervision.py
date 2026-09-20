@@ -43,7 +43,7 @@ from minekin_core.adapters.bridge.ipc import (
     USE_INPUT_TYPE,
     BridgeSession,
 )
-from minekin_core.adapters.launcher.saves import world_snapshot_digest
+from minekin_core.adapters.launcher.saves import settings_digest, world_snapshot_digest
 from minekin_core.adapters.launcher.server_profile import load_server_profile
 from minekin_core.adapters.launcher.supervisor import ProcessSupervisor
 from minekin_core.adapters.sqlite.connection import connect_reader
@@ -1418,6 +1418,10 @@ def test_a_host_session_enters_the_world_it_was_given(tmp_path: Path, monkeypatc
     assert run.world_snapshot == {
         "level_name": "prepared-world",
         "digest": world_snapshot_digest(save),
+        # The world's own settings, hashed apart from its terrain: a bundle needs to
+        # name what a run started from, and a world with no server profile behind it
+        # has `level.dat` instead of a server configuration.
+        "settings_digest": settings_digest(save),
     }
     assert run.as_dict()["world_snapshot"] == run.world_snapshot
     assert all(

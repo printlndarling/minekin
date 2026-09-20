@@ -35,6 +35,7 @@ import re
 import subprocess
 import sys
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import cast
@@ -43,7 +44,7 @@ from minekin_core.adapters.evidence.bundle import write_bundle
 from minekin_core.adapters.evidence.promotion import load_case_manifest
 from minekin_core.adapters.launcher.launch_plan import build_launch_plan, find_workspace_root
 from minekin_core.adapters.launcher.recipe import BRIDGE_JAR_SHA256
-from minekin_core.adapters.launcher.server_profile import load_server_profile
+from minekin_core.adapters.launcher.server_profile import ServerProfile, load_server_profile
 from minekin_core.cli.evidence import bundle_directory
 from minekin_core.cli.init import run_root
 from minekin_core.domain.evidence import (
@@ -81,7 +82,10 @@ ASSERTER = Path(__file__).with_name("assert_case_evidence.py")
 #: The world a dedicated server run creates. A LAN run would have to say so; the
 #: contract admits exactly these two, and "dedicated" is what the harness this
 #: seals for starts.
+#: The three kinds the contract names. `none` says the run had no world at all; a
+#: Kin-hosted integrated world is `lan`, whether or not it was published.
 DEDICATED = "dedicated"
+LAN = "lan"
 
 _SEED = re.compile(r"^level-seed=(.*)$", re.MULTILINE)
 
@@ -295,6 +299,67 @@ def assertions_from(report: Mapping[str, object]) -> Assertions:
     )
 
 
+@dataclass(frozen=True, slots=True)
+class _WorldRecord:
+    """What the bundle says about the world this run had, and where it came from."""
+
+    kind: str
+    config_digest: str
+    name: str
+
+
+def _world_record(
+    target: ServerProfile | None,
+    server_directory: Path | None,
+    run_document: Mapping[str, object],
+    username: str,
+) -> _WorldRecord:
+    """The world block, from the strongest thing the run can say about its world.
+
+    Three cases, and the third is the one that used to be wrong: a dedicated server
+    (the profile's revision and the world the server generated), a world the Kin
+    hosted in its own client (there is a snapshot on the document, and `level.dat` is
+    what a world with no server profile behind it has instead of a server
+    configuration), and no world at all.
+
+    Measured before it was written: a run in which the Kin was in `kinworld` and
+    published it on 25570 sealed as `kind: "none"` with the digest of nothing, because
+    the guard below looks for a *connection* and a host has none. A bundle that
+    describes a world nobody visited is bad; one that denies a world the Kin lived in
+    is worse, because the run's own record next to it says otherwise.
+    """
+
+    if target is not None:
+        return _WorldRecord(
+            kind=DEDICATED,
+            config_digest=target.revision,
+            name=NO_WORLD if server_directory is None else world_seed(server_directory),
+        )
+
+    raw = run_document.get(RUN_DOCUMENT_KEY)
+    section: Mapping[str, object] = (
+        cast(Mapping[str, object], raw) if isinstance(raw, Mapping) else {}
+    )
+    snapshot = section.get("world_snapshot")
+    if not isinstance(snapshot, Mapping):
+        return _WorldRecord(kind=NO_WORLD, config_digest=EMPTY_DOCUMENT_SHA256, name=NO_WORLD)
+    hosted = cast(Mapping[str, object], snapshot)
+    settings = hosted.get("settings_digest")
+    if not isinstance(settings, str) or len(settings) != 64:
+        # Refused rather than filled in with the snapshot digest: the two fields mean
+        # different things, and a run recorded with one standing in for the other is a
+        # record nobody can separate later.
+        raise Unsealable(
+            "the run hosted a world but its document does not name the world's settings"
+        )
+    digest = hosted.get("digest")
+    return _WorldRecord(
+        kind=LAN,
+        config_digest=settings,
+        name=digest if isinstance(digest, str) else NO_WORLD,
+    )
+
+
 def build_manifest(
     *,
     case: Path,
@@ -308,6 +373,7 @@ def build_manifest(
     renderer_display: str,
     java: Path | None,
     workspace_root: Path,
+    run_document: Mapping[str, object],
 ) -> EvidenceManifest:
     """Assemble the manifest from what was measured, refusing what was not.
 
@@ -322,6 +388,7 @@ def build_manifest(
     plan = build_launch_plan(profile, workspace_root=workspace_root)
     bundle = cast(Mapping[str, object], plan["bundle"])
     target = None if server_profile is None else load_server_profile(server_profile)
+    world = _world_record(target, server_directory, run_document, username)
     facts = host_facts(java, renderer_display)
     result = str(verdict.get("result", ""))
     if result not in {item.value for item in EvidenceResult}:
@@ -334,7 +401,7 @@ def build_manifest(
         launch_plan_digest=str(plan["plan_sha256"]),
         bridge_digest=BRIDGE_JAR_SHA256,
         protocol_schema_digest=protocol_schema_digest(workspace_root),
-        server_config_digest=EMPTY_DOCUMENT_SHA256 if target is None else target.revision,
+        server_config_digest=world.config_digest,
         minecraft=str(bundle["minecraft"]),
         loader=str(bundle["fabric_loader"]),
         fabric_api=str(bundle["fabric_api"]),
@@ -344,10 +411,8 @@ def build_manifest(
         java_runtime=facts.java_runtime,
         cpu_memory=facts.cpu_memory,
         renderer_display=facts.renderer_display,
-        world_kind=NO_WORLD if target is None else DEDICATED,
-        seed_or_snapshot_id=(
-            NO_WORLD if server_directory is None else world_seed(server_directory)
-        ),
+        world_kind=world.kind,
+        seed_or_snapshot_id=world.name,
         configured_profile=profile_reference(profile),
         server_observed_name_uuid=(
             "" if server_directory is None else server_observed_identity(server_directory, username)
@@ -504,6 +569,7 @@ def seal(
     moment = now if now is not None else datetime.now(UTC)
 
     manifest = build_manifest(
+        run_document=run_document,
         case=case,
         profile=profile,
         server_profile=server_profile,

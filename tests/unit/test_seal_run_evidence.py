@@ -25,6 +25,7 @@ import pytest
 from fault_support import fault_record
 from minekin_core.adapters.evidence.bundle import unseal_bundle, verify_bundle
 from minekin_core.adapters.evidence.promotion import load_case_manifest
+from minekin_core.adapters.launcher.server_profile import load_server_profile
 from minekin_core.adapters.sqlite.connection import connect_writer
 from minekin_core.adapters.sqlite.session_log import (
     HELLO_ACCEPTED,
@@ -734,3 +735,90 @@ def test_a_bundle_may_not_call_a_world_it_joined_no_world(tmp_path: Path) -> Non
             server_directory=None,
             username=USERNAME,
         )
+
+
+# --- what the bundle says about the world a run had -----------------------------
+SETTINGS_DIGEST = "b7b5c62b1d0a44f1cbb0a4d5f5a5b6a2b2e0a9a1f4f7c2d3e4a5b6c7d8e9f0a1"
+SNAPSHOT_DIGEST = "aac62c39872dd515dcb0d062a4b8ba5a5c6a333f29a4e1833e1d12686339be15"
+
+
+def hosted_run(**overrides: object) -> dict[str, object]:
+    """A run document for a session the Kin hosted rather than joined.
+
+    No connection at all: a Kin in its own world has nothing to connect to, which is
+    exactly the shape the old guard could not tell from "this run had no world".
+    """
+
+    document: dict[str, object] = {
+        "schema_version": 1,
+        "status": "started",
+        "kin_id": str(KIN),
+        "run_id": RUN_ID,
+        "overlay": "/data/kin/kin-01/run/session/session-01/generation-1",
+        "run": {
+            "schema_version": 1,
+            "status": "ended",
+            "outcome": "BRIDGE_LOST",
+            "session_state": "STOPPED",
+            "connection_state": None,
+            "snapshots_admitted": 0,
+            "world_snapshot": {
+                "level_name": "kinworld",
+                "digest": SNAPSHOT_DIGEST,
+                "settings_digest": SETTINGS_DIGEST,
+            },
+            "lan_publication": {"phase": "LAN_OPENED", "port": 25570},
+        },
+    }
+    document.update(overrides)
+    return document
+
+
+def test_a_world_the_kin_hosted_is_not_recorded_as_no_world() -> None:
+    """The bug this exists for: a hosted world sealed as `kind: none`.
+
+    Measured: the guard that refuses to call a joined world "none" looks for a
+    *connection*, and a Kin in its own world has none — so the bundle denied a world
+    the run's own document recorded, with the digest of nothing where a world's
+    configuration belongs.
+    """
+
+    record = SEALER._world_record(None, None, hosted_run(), USERNAME)
+
+    assert record.kind == "lan"
+    assert record.name == SNAPSHOT_DIGEST
+    assert record.config_digest == SETTINGS_DIGEST
+
+
+def test_a_run_with_no_world_at_all_is_still_recorded_as_none() -> None:
+    """The negative control: the old behaviour is right for a run that had no world."""
+
+    record = SEALER._world_record(None, None, {"run": {"connection_state": None}}, USERNAME)
+
+    assert record.kind == "none"
+    assert record.name == "none"
+    assert record.config_digest == SEALER.EMPTY_DOCUMENT_SHA256
+
+
+def test_a_hosted_world_without_its_settings_is_refused_rather_than_guessed() -> None:
+    """The two fields mean different things, so one cannot stand in for the other."""
+
+    document = hosted_run()
+    cast(dict[str, object], document["run"])["world_snapshot"] = {
+        "level_name": "kinworld",
+        "digest": SNAPSHOT_DIGEST,
+    }
+
+    with pytest.raises(SEALER.Unsealable, match="does not name the world's settings"):
+        SEALER._world_record(None, None, document, USERNAME)
+
+
+def test_a_dedicated_run_still_records_the_profile_and_the_world_it_generated() -> None:
+    """The path that already worked, pinned so the new one cannot displace it."""
+
+    profile = load_server_profile(SERVER_PROFILE)
+
+    record = SEALER._world_record(profile, None, {}, USERNAME)
+
+    assert record.kind == "dedicated"
+    assert record.config_digest == profile.revision

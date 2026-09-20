@@ -24,6 +24,7 @@ from minekin_core.adapters.launcher.saves import (
     player_data_path,
     saves_directory,
     seed_world,
+    settings_digest,
     world_snapshot_digest,
 )
 from minekin_core.domain.errors import ErrorCategory, MinekinError, Retryability
@@ -306,3 +307,29 @@ def test_a_world_that_holds_someone_else_is_still_a_world_to_seed(tmp_path: Path
 
     assert player_data_path(destination, other).is_file()
     assert not player_data_path(destination, PLAYER).exists()
+
+
+def test_the_settings_digest_names_the_settings_and_not_the_terrain(tmp_path: Path) -> None:
+    """Two saves that differ only in terrain have the same settings.
+
+    Which is the whole reason this is hashed apart from the snapshot: a bundle says
+    what a run started from, and the part of that which a case wants reproduced is
+    the difficulty, the game rules and the generator — not the blocks.
+    """
+
+    save = _world(tmp_path)
+    before = settings_digest(save)
+    (save / "region" / "r.0.0.mca").write_bytes(b"different region bytes\n")
+
+    assert settings_digest(save) == before
+
+    (save / LEVEL_DAT).write_bytes(b"a different level.dat\n")
+
+    assert settings_digest(save) != before
+
+
+def test_a_directory_with_no_level_has_no_settings(tmp_path: Path) -> None:
+    (tmp_path / "not-a-world").mkdir()
+
+    with pytest.raises(MinekinError, match=f"no {LEVEL_DAT}"):
+        settings_digest(tmp_path / "not-a-world")

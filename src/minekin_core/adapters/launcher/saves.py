@@ -109,6 +109,23 @@ def player_data_path(save: Path, player: uuid.UUID) -> Path:
     return save / PLAYER_DATA_DIRECTORY / f"{player}.dat"
 
 
+def settings_digest(save: Path) -> str:
+    """A name for the world's own configuration, as it was handed over.
+
+    `level.dat` holds what a world *is* rather than what is in it — difficulty, game
+    rules, the generator settings, whether commands are allowed — and for a world with
+    no server profile behind it that is the closest thing there is to a server
+    configuration. It is hashed apart from the snapshot so a bundle can name the
+    settings without the terrain: a case that wants the same starting conditions wants
+    both, and only one of them changes when a run walks around.
+    """
+
+    path = save / LEVEL_DAT
+    if not path.is_file():
+        raise _reject(f"{save} is not a world: it has no {LEVEL_DAT}")
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
 def seed_world(
     *, overlay: Path, save: Path, level_name: str, player: uuid.UUID
 ) -> tuple[Path, str]:

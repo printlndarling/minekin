@@ -61,7 +61,12 @@ from minekin_core.adapters.launcher.orphans import (
 )
 from minekin_core.adapters.launcher.process import ClientProcessSpec, build_process_spec
 from minekin_core.adapters.launcher.recipe import require_built_bridge
-from minekin_core.adapters.launcher.saves import LEVEL_DAT, player_data_path, seed_world
+from minekin_core.adapters.launcher.saves import (
+    LEVEL_DAT,
+    player_data_path,
+    seed_world,
+    settings_digest,
+)
 from minekin_core.adapters.launcher.server_profile import ServerProfile, load_server_profile
 from minekin_core.adapters.launcher.supervisor import ProcessIdentity, ProcessSupervisor
 from minekin_core.adapters.sqlite.connection import connect_reader
@@ -599,7 +604,13 @@ async def prepare_session_async(
             level_name=world_name,
             player=identity.material.uuid,
         )
-        world_snapshot = {"level_name": world_name, "digest": digest}
+        world_snapshot = {
+            "level_name": world_name,
+            "digest": digest,
+            # The world's own settings, so a bundle can say what a run started
+            # from when there is no server profile to say it.
+            "settings_digest": settings_digest(world_save),
+        }
 
     run_id = RunId.new().value
     client_instance_id = ClientInstanceId.new().value
