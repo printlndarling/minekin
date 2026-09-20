@@ -10,12 +10,14 @@ import pytest
 
 from minekin_core import bootstrap as bootstrap_module
 from minekin_core.adapters.launcher.artifacts import ArtifactStore, SessionOverlayStore
+from minekin_core.adapters.launcher.orphans import Liveness
 from minekin_core.adapters.launcher.supervisor import ProcessSupervisor
 from minekin_core.application.ports.clock import FakeClock
 from minekin_core.bootstrap import main, run
 from minekin_core.cli import session as session_module
 from minekin_core.cli.init import initialise_identity
 from minekin_core.cli.session import (
+    SessionLaunch,
     database_for,
     require_launchable,
     require_store_complete,
@@ -436,3 +438,176 @@ def test_a_start_with_no_ledger_says_so(
 
     assert code == int(ExitCode.CONFIG)
     assert "run `minekin init` first" in document["message"]
+
+
+def _ready_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """A data root whose store is complete, so only the world can refuse."""
+
+    root = initialised(tmp_path)
+    _, artifact = fabricated()
+    monkeypatch.setattr(session_module, "build_launch_plan", fake_plan)
+    stand_in_for_the_built_workspace(monkeypatch)
+    ArtifactStore(tmp_path / "kin" / "kin-01" / "run" / "artifact-store").install(
+        artifact, io.BytesIO(PAYLOAD)
+    )
+    return root
+
+
+def _save(tmp_path: Path, *, level_dat: bool = True) -> Path:
+    save = tmp_path / "prepared-world"
+    save.mkdir()
+    if level_dat:
+        (save / "level.dat").write_bytes(b"a level.dat\n")
+    return save
+
+
+def test_a_world_name_with_no_save_behind_it_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A name with nothing behind it is not a world, and the refusal comes first."""
+
+    root = _ready_root(tmp_path, monkeypatch)
+
+    with pytest.raises(MinekinError, match="--world-save says which one") as raised:
+        start_session(
+            root=root,
+            profile=PROFILE,
+            java_executable=Path("/usr/bin/java"),
+            session_id="session-01",
+            generation=1,
+            supervisor_factory=stub_supervisor,
+            world_name="prepared-world",
+        )
+
+    assert raised.value.exit_code is ExitCode.CONFIG
+    assert not (tmp_path / "kin" / "kin-01" / "run" / "session" / "session-01").exists()
+
+
+def test_a_save_with_no_name_to_give_it_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = _ready_root(tmp_path, monkeypatch)
+
+    with pytest.raises(MinekinError, match="not enterable"):
+        start_session(
+            root=root,
+            profile=PROFILE,
+            java_executable=Path("/usr/bin/java"),
+            session_id="session-01",
+            generation=1,
+            supervisor_factory=stub_supervisor,
+            world_save=_save(tmp_path),
+        )
+
+    assert not (tmp_path / "kin" / "kin-01" / "run" / "session" / "session-01").exists()
+
+
+def test_a_save_that_is_not_a_world_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Checked before anything is created: an overlay is not where this is discovered."""
+
+    root = _ready_root(tmp_path, monkeypatch)
+
+    with pytest.raises(MinekinError, match=r"has no level\.dat"):
+        start_session(
+            root=root,
+            profile=PROFILE,
+            java_executable=Path("/usr/bin/java"),
+            session_id="session-01",
+            generation=1,
+            supervisor_factory=stub_supervisor,
+            world_save=_save(tmp_path, level_dat=False),
+            world_name="prepared-world",
+        )
+
+    assert not (tmp_path / "kin" / "kin-01" / "run" / "session" / "session-01").exists()
+
+
+def test_a_world_is_placed_in_the_overlay_a_host_will_run_in(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The game directory is the overlay, so this is the only place vanilla will look."""
+
+    root = _ready_root(tmp_path, monkeypatch)
+    save = _save(tmp_path)
+
+    launch = start_session(
+        root=root,
+        profile=PROFILE,
+        java_executable=Path("/usr/bin/java"),
+        session_id="session-01",
+        generation=1,
+        supervisor_factory=stub_supervisor,
+        world_save=save,
+        world_name="prepared-world",
+    )
+
+    overlay = Path(launch.overlay)
+    assert overlay == session_overlay_path(tmp_path / "kin" / "kin-01" / "run", "session-01", 1)
+    assert (overlay / "saves" / "prepared-world" / "level.dat").is_file()
+
+
+def test_two_generations_of_a_session_each_get_their_own_copy(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Overlays are per generation, so generation 2 is a fresh world, not the played one.
+
+    Generation 1's client is reported gone rather than resolved for real, so the
+    second start is not refused by the orphan guard: what is under test here is
+    which world each generation's game directory holds.
+    """
+
+    root = _ready_root(tmp_path, monkeypatch)
+    save = _save(tmp_path)
+
+    def gone(_pid: int) -> Liveness:
+        return Liveness.GONE
+
+    def start(generation: int) -> SessionLaunch:
+        return start_session(
+            root=root,
+            profile=PROFILE,
+            java_executable=Path("/usr/bin/java"),
+            session_id="session-01",
+            generation=generation,
+            supervisor_factory=stub_supervisor,
+            probe=gone,
+            world_save=save,
+            world_name="prepared-world",
+        )
+
+    first = start(1)
+    # Generation 1's overlay is where the client played, so the world in it is no
+    # longer the one that was handed over.
+    (Path(first.overlay) / "saves" / "prepared-world" / "level.dat").write_bytes(b"played in\n")
+
+    second = start(2)
+
+    second_world = Path(second.overlay) / "saves" / "prepared-world" / "level.dat"
+    assert Path(second.overlay) != Path(first.overlay)
+    assert second_world.read_bytes() == b"a level.dat\n"
+
+
+def test_a_world_save_that_is_not_there_is_named_as_a_missing_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A typo'd path is not a directory that happens to be missing a file."""
+
+    root = _ready_root(tmp_path, monkeypatch)
+    missing = tmp_path / "no-such-world"
+
+    with pytest.raises(MinekinError, match="is not a directory to seed a world from") as raised:
+        start_session(
+            root=root,
+            profile=PROFILE,
+            java_executable=Path("/usr/bin/java"),
+            session_id="session-01",
+            generation=1,
+            supervisor_factory=stub_supervisor,
+            world_save=missing,
+            world_name="prepared-world",
+        )
+
+    assert str(missing) in raised.value.safe_message
+    assert not (tmp_path / "kin" / "kin-01" / "run" / "session" / "session-01").exists()

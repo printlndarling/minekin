@@ -19,7 +19,7 @@ quietly looks exactly like a session where nothing is happening.
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
 
@@ -77,6 +77,13 @@ class SessionRun:
     #: Whether the cancel could not be delivered. Its own flag rather than the
     #: release's: they are two different things Core owed the Bridge.
     connection_cancel_failed: bool = False
+    #: The world this run put in the client's game directory, when it put one
+    #: there: the level it was told to enter and a digest of the bytes as they
+    #: were handed over. §5 names no session event for "a world was placed here"
+    #: — it is a fact about the launch rather than about the session — so it lives
+    #: on the document, and it is the name the contract asks a host's world to
+    #: have ("seed_or_snapshot_id") rather than a description of one.
+    world_snapshot: Mapping[str, object] | None = None
 
     def as_dict(self) -> dict[str, object]:
         return {
@@ -117,6 +124,9 @@ class SessionRun:
             # in the wire enum's words. Empty when no attempt was abandoned.
             "connection_cancelled": self.connection_cancelled,
             "connection_cancel_failed": self.connection_cancel_failed,
+            # Which world this run seeded, if any: null rather than an empty
+            # object, because a run that seeded nothing has no world to name.
+            "world_snapshot": (None if self.world_snapshot is None else dict(self.world_snapshot)),
         }
 
 

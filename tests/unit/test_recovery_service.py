@@ -201,7 +201,12 @@ def test_a_started_session_reports_what_reconciliation_did(
     plan, artifact = fabricated()
     stand_in_for_the_built_workspace(monkeypatch)
 
-    def this_plan(_profile: Path, *, workspace_root: Path | None = None) -> dict[str, Any]:
+    def this_plan(
+        _profile: Path,
+        *,
+        workspace_root: Path | None = None,
+        world_name: str | None = None,
+    ) -> dict[str, Any]:
         return plan
 
     monkeypatch.setattr(session_module, "build_launch_plan", this_plan)
@@ -254,7 +259,12 @@ def _ready_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     plan, artifact = fabricated()
     stand_in_for_the_built_workspace(monkeypatch)
 
-    def this_plan(_profile: Path, *, workspace_root: Path | None = None) -> dict[str, Any]:
+    def this_plan(
+        _profile: Path,
+        *,
+        workspace_root: Path | None = None,
+        world_name: str | None = None,
+    ) -> dict[str, Any]:
         return plan
 
     monkeypatch.setattr(session_module, "build_launch_plan", this_plan)

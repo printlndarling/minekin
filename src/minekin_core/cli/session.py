@@ -59,6 +59,7 @@ from minekin_core.adapters.launcher.orphans import (
 )
 from minekin_core.adapters.launcher.process import ClientProcessSpec, build_process_spec
 from minekin_core.adapters.launcher.recipe import require_built_bridge
+from minekin_core.adapters.launcher.saves import LEVEL_DAT, seed_world
 from minekin_core.adapters.launcher.server_profile import ServerProfile, load_server_profile
 from minekin_core.adapters.launcher.supervisor import ProcessIdentity, ProcessSupervisor
 from minekin_core.adapters.sqlite.connection import connect_reader
@@ -348,6 +349,10 @@ class PreparedSession:
     #: resolved arguments rather than re-derived — the first snapshot is checked
     #: against it, so a value encoded in the wrong slot is caught there.
     recorded: RecordedSessionMaterial | None = None
+    #: The world this launch placed in the client's game directory, when it
+    #: placed one: the level it will enter and the digest of the bytes it was
+    #: given. None for every run that is not a host.
+    world_snapshot: dict[str, str] | None = None
 
 
 def start_session(
@@ -363,6 +368,8 @@ def start_session(
     event_log: SessionEventLog | None = None,
     probe: Callable[[int], Liveness] = default_probe,
     cmdline: Callable[[int], bytes | None] = default_cmdline,
+    world_save: Path | None = None,
+    world_name: str | None = None,
 ) -> SessionLaunch:
     """Read the identity, prove readiness, then create the overlay and start."""
 
@@ -379,6 +386,8 @@ def start_session(
             event_log=event_log,
             probe=probe,
             cmdline=cmdline,
+            world_save=world_save,
+            world_name=world_name,
         )
     )
 
@@ -397,6 +406,8 @@ def prepare_session(
     probe: Callable[[int], Liveness] = default_probe,
     cmdline: Callable[[int], bytes | None] = default_cmdline,
     host_bridge: bool = False,
+    world_save: Path | None = None,
+    world_name: str | None = None,
 ) -> PreparedSession:
     """Prepare a launch, for a caller that is not already running a loop."""
 
@@ -414,6 +425,8 @@ def prepare_session(
             probe=probe,
             cmdline=cmdline,
             host_bridge=host_bridge,
+            world_save=world_save,
+            world_name=world_name,
         )
     )
 
@@ -432,6 +445,8 @@ async def prepare_session_async(
     probe: Callable[[int], Liveness] = default_probe,
     cmdline: Callable[[int], bytes | None] = default_cmdline,
     host_bridge: bool = False,
+    world_save: Path | None = None,
+    world_name: str | None = None,
 ) -> PreparedSession:
     """Everything a launch needs, with the overlay already created and nothing started.
 
@@ -459,8 +474,23 @@ async def prepare_session_async(
     # than left for a later start to pick up.
     recovery = await reconcile_outbox_async(database, clock=SystemClock())
 
+    # A world save without a name to give it, or a name with nothing to seed, is
+    # an operator error and is refused before anything is created — the same rule
+    # the readiness checks follow, because a run that has already built an overlay
+    # should not be the thing that discovers one.
+    if world_name is not None and world_save is None:
+        raise _reject("--world-name names a world to seed; --world-save says which one")
+    if world_save is not None and world_name is None:
+        raise _reject("--world-save needs --world-name: a world with no name is not enterable")
+    # Listed separately rather than folded into the check below, so a path that
+    # does not exist is not reported as a directory that is missing a file.
+    if world_save is not None and not world_save.is_dir():
+        raise _reject(f"{world_save} is not a directory to seed a world from")
+    if world_save is not None and not (world_save / LEVEL_DAT).is_file():
+        raise _reject(f"{world_save} is not a world: it has no {LEVEL_DAT}")
+
     runs = run_root(root, kin_id)
-    plan = build_launch_plan(profile)
+    plan = build_launch_plan(profile, world_name=world_name)
     require_launchable(plan)
     require_store_complete(plan, ArtifactStore(runs / "artifact-store"))
     # The recipe pins the jar the reviewed source builds, so the launch asks the
@@ -507,6 +537,16 @@ async def prepare_session_async(
         store=ArtifactStore(runs / "artifact-store"),
     )
 
+    # The world a host session opens has to be in the client's game directory
+    # before the client looks, which is now: the overlay exists and nothing has
+    # started. It is the same shape as the mods and the assets above, and it is
+    # what makes a session able to *host* at all — a client at the title screen is
+    # running no integrated server for anything to join.
+    world_snapshot: dict[str, str] | None = None
+    if world_save is not None and world_name is not None:
+        _, digest = seed_world(overlay=overlay, save=world_save, level_name=world_name)
+        world_snapshot = {"level_name": world_name, "digest": digest}
+
     run_id = RunId.new().value
     client_instance_id = ClientInstanceId.new().value
     bridge_session: BridgeSession | None = None
@@ -548,6 +588,7 @@ async def prepare_session_async(
         bridge_session=bridge_session,
         bridge_descriptor=descriptor,
         recorded=recorded_material(candidate, spec.argv),
+        world_snapshot=world_snapshot,
     )
 
 
@@ -777,6 +818,8 @@ async def start_and_supervise(
     hold_at: str = HOLD_AT_PLAYABLE,
     look_yaw_degrees: float | None = None,
     look_pitch_degrees: float | None = None,
+    world_save: Path | None = None,
+    world_name: str | None = None,
 ) -> tuple[SessionLaunch, SessionRun]:
     """Start a managed session with a live Bridge and stay with it until it ends.
 
@@ -816,6 +859,8 @@ async def start_and_supervise(
         probe=probe,
         cmdline=cmdline,
         host_bridge=True,
+        world_save=world_save,
+        world_name=world_name,
     )
     if prepared.bridge_session is None or prepared.bridge_descriptor is None:
         raise _reject("the session was prepared without a Bridge session to host")
@@ -1259,6 +1304,11 @@ async def start_and_supervise(
         # on the attempt, and the run document is where a fact with no ledger
         # event of its own lives.
         run = replace(run, connection_cancelled=cancelled[0])
+    if prepared.world_snapshot is not None:
+        # This caller is the only one that knows a world was placed in the
+        # client's game directory, and the run document is where a fact with no
+        # ledger event of its own lives.
+        run = replace(run, world_snapshot=prepared.world_snapshot)
     if plan is not None and plan.refusal:
         # Only this caller knows why the input was never taken: the runtime sees
         # commands and answers, not the arbiter's reasons. Recorded on the run

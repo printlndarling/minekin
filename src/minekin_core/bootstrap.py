@@ -138,6 +138,8 @@ def run(
                 look_pitch_degrees=(
                     None if args.look_pitch_degrees is None else float(args.look_pitch_degrees)
                 ),
+                world_save=(None if args.world_save is None else Path(args.world_save)),
+                world_name=(None if args.world_name is None else str(args.world_name)),
             )
         )
         _emit({**launch.as_dict(), "run": run.as_dict()}, stdout)

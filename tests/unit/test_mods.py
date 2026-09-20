@@ -201,7 +201,12 @@ def test_a_started_session_finds_its_mods_in_the_overlay(
     store.install(api, io.BytesIO(API_BYTES))
     plan["fixed_mods"] = _plan(tmp_path, api_sha1=api.sha1)["fixed_mods"]
 
-    def this_plan(_profile: Path, *, workspace_root: Path | None = None) -> dict[str, Any]:
+    def this_plan(
+        _profile: Path,
+        *,
+        workspace_root: Path | None = None,
+        world_name: str | None = None,
+    ) -> dict[str, Any]:
         return plan
 
     def built_bridge(_root: Path) -> Path:

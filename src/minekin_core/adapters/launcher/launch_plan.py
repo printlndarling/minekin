@@ -17,6 +17,7 @@ from minekin_core.adapters.launcher.metadata import (
     load_pinned_metadata,
 )
 from minekin_core.adapters.launcher.recipe import validate_bundle_recipe
+from minekin_core.adapters.launcher.saves import level_name_is_usable
 from minekin_core.domain.errors import ErrorCategory, MinekinError, Retryability
 
 _PLACEHOLDER = re.compile(r"^\$\{([a-zA-Z0-9_]+)\}$")
@@ -38,10 +39,16 @@ SESSION_OVERLAY_PATH: str = "session/"
 SESSION_NATIVES_PATH: str = "session/natives"
 
 
-def _reject(message: str) -> MinekinError:
-    return MinekinError(
-        "launcher.plan", "build", ErrorCategory.SUPPLY_CHAIN, Retryability.OPERATOR_ACTION, message
-    )
+def _reject(message: str, category: ErrorCategory = ErrorCategory.SUPPLY_CHAIN) -> MinekinError:
+    """A plan that cannot be built. Supply chain by default; CONFIG for bad inputs.
+
+    The category is not decoration: it is the exit code, and the same bad level
+    name is refused here and in `launcher.saves`. Two categories for one input
+    would mean two exit codes for it, decided by which check happened to run
+    first.
+    """
+
+    return MinekinError("launcher.plan", "build", category, Retryability.OPERATOR_ACTION, message)
 
 
 def find_workspace_root(start: Path) -> Path:
@@ -92,6 +99,36 @@ def _store_path(artifact: Artifact) -> str:
     return store_relative_path(artifact)
 
 
+#: The reviewed client argument that enters a singleplayer world without a menu.
+#: Measured against the pinned 1.21.4 client: `RunArgs$QuickPlay` carries a
+#: `singleplayer` field beside `multiplayer`, `realms` and `path`, and the
+#: argument names are Mojang's own (`--quickPlaySingleplayer <level id>`).
+QUICK_PLAY_SINGLEPLAYER = "--quickPlaySingleplayer"
+
+
+def _game_argument_template(
+    arguments: tuple[str, ...], world_name: str | None
+) -> list[dict[str, str]]:
+    """The metadata's game arguments, plus the world this run is asked to enter."""
+
+    template = _typed_arguments(arguments)
+    if world_name is None:
+        return template
+    # Refused rather than escaped, for two reasons that are not the same one:
+    # this becomes an argv element, so a name that could be read as another
+    # option is not a name this client may accept; and it also names the level
+    # `saves/` will hold, so the rule that decides that is asked rather than
+    # restated here. A plan that promised `--quickPlaySingleplayer a/b` would be
+    # naming a launch that cannot be what it says.
+    if world_name.startswith("-") or not level_name_is_usable(world_name):
+        raise _reject(f"{world_name!r} is not a usable level name to enter", ErrorCategory.CONFIG)
+    return [
+        *template,
+        {"kind": "literal", "value": QUICK_PLAY_SINGLEPLAYER},
+        {"kind": "literal", "value": world_name},
+    ]
+
+
 def _typed_arguments(arguments: tuple[str, ...]) -> list[dict[str, str]]:
     result: list[dict[str, str]] = []
     for argument in arguments:
@@ -105,7 +142,22 @@ def _typed_arguments(arguments: tuple[str, ...]) -> list[dict[str, str]]:
     return result
 
 
-def build_launch_plan(profile_path: Path, *, workspace_root: Path | None = None) -> dict[str, Any]:
+def build_launch_plan(
+    profile_path: Path,
+    *,
+    workspace_root: Path | None = None,
+    world_name: str | None = None,
+) -> dict[str, Any]:
+    """The reviewed plan for one managed client, plus what this run asks of it.
+
+    `world_name` is the one thing a caller may add to the reviewed metadata's game
+    arguments: it makes the client enter that singleplayer world instead of
+    stopping at the title screen, which is what a session that is meant to host a
+    LAN world needs — a client at the title screen is running no integrated
+    server for anything to join. It is a *literal* in the plan's own template, so
+    the plan still says exactly which command line it will produce, and the plan's
+    digest therefore names the launch rather than the scenario that asked for it.
+    """
     profile_path = profile_path.resolve()
     workspace_root = workspace_root or find_workspace_root(Path(__file__).resolve())
     recipe_audit = validate_bundle_recipe(profile_path, workspace_root)
@@ -194,7 +246,7 @@ def build_launch_plan(profile_path: Path, *, workspace_root: Path | None = None)
         "artifacts": [asdict(item) | {"store_path": _store_path(item)} for item in artifacts],
         "runtime": {
             "jvm_args": jvm_args,
-            "game_arg_template": _typed_arguments(metadata.game_arguments),
+            "game_arg_template": _game_argument_template(metadata.game_arguments, world_name),
             "classpath": classpath,
             "native_artifacts": native_artifacts,
             "native_extract_excludes": ["META-INF/"],

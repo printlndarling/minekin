@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 from collections.abc import Sequence
+from pathlib import Path
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -134,6 +135,28 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         metavar="DEGREES",
         help="tilt the view this far (positive is up) once the session is playable",
+    )
+    # A world to place in this client's game directory, and the level name to
+    # give it. Both, or neither: a save with no name is not enterable, and a name
+    # with nothing behind it is not a world. This is what a session that is meant
+    # to *host* an integrated world needs — vanilla finds its worlds in
+    # `saves/<level>` inside the game directory, and the game directory is this
+    # session's overlay.
+    session_start.add_argument(
+        "--world-save",
+        type=Path,
+        default=None,
+        metavar="PATH",
+        help="a prepared save to seed into this session's game directory (needs --world-name)",
+    )
+    session_start.add_argument(
+        "--world-name",
+        default=None,
+        metavar="LEVEL",
+        help=(
+            "the level name to seed and enter; the client starts in that world "
+            "rather than at the title screen (needs --world-save)"
+        ),
     )
     session_commands.add_parser("status", help="read the current projection")
     session_commands.add_parser("stop", help="idempotently stop the current session")

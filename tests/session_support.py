@@ -122,7 +122,12 @@ def stand_in_for_the_built_workspace(monkeypatch: Any) -> None:
     monkeypatch.setattr(session_module, "materialise_assets", assets)
 
 
-def fake_plan(_profile: Path, *, workspace_root: Path | None = None) -> dict[str, Any]:
+def fake_plan(
+    _profile: Path,
+    *,
+    workspace_root: Path | None = None,
+    world_name: str | None = None,
+) -> dict[str, Any]:
     """Stand in for the reviewed profile, whose bundle is not launchable yet."""
 
     return fabricated()[0]

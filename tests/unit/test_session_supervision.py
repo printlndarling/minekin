@@ -41,6 +41,7 @@ from minekin_core.adapters.bridge.ipc import (
     USE_INPUT_TYPE,
     BridgeSession,
 )
+from minekin_core.adapters.launcher.saves import world_snapshot_digest
 from minekin_core.adapters.launcher.server_profile import load_server_profile
 from minekin_core.adapters.launcher.supervisor import ProcessSupervisor
 from minekin_core.adapters.sqlite.connection import connect_reader
@@ -56,6 +57,7 @@ from minekin_core.adapters.sqlite.session_log import (
     SESSION_INTERRUPTED,
 )
 from minekin_core.application.ports.clock import FakeClock
+from minekin_core.cli import session as session_module
 from minekin_core.cli.session import (
     IPC_DIRECTORY,
     SessionLaunch,
@@ -1340,3 +1342,113 @@ def test_a_deadline_does_not_cancel_a_world_the_kin_is_already_in(
     assert run.connection_state is ConnectionState.PLAYABLE
     kinds = [row[0] for row in _ledger_rows(database)]
     assert kinds[-1] == CLIENT_EXITED
+
+
+def _prepared_world(tmp_path: Path) -> Path:
+    """A save the way an operator hands one over: a level and the terrain beside it."""
+
+    save = tmp_path / "prepared-world"
+    (save / "region").mkdir(parents=True)
+    (save / "level.dat").write_bytes(b"a level.dat\n")
+    (save / "region" / "r.0.0.mca").write_bytes(b"region bytes\n")
+    return save
+
+
+def test_a_host_session_enters_the_world_it_was_given(tmp_path: Path, monkeypatch: Any) -> None:
+    """The wiring, end to end: seeded into the overlay, named on the run, passed to the client.
+
+    All three have to hold at once for the session to be a host. A world that is
+    seeded but never entered is a client at the title screen, and a client told
+    to enter a world it was never given is a client that fails to start — so the
+    test asserts the world is on disk *and* on the command line *and* in the run
+    document, rather than any one of those being taken for the others.
+    """
+
+    root = ready_data_root(tmp_path, monkeypatch)
+    save = _prepared_world(tmp_path)
+    process = LiveProcess()
+    asked: list[str | None] = []
+
+    def recording_plan(
+        _profile: Path, *, workspace_root: Path | None = None, world_name: str | None = None
+    ) -> dict[str, Any]:
+        asked.append(world_name)
+        return fabricated()[0]
+
+    # `ready_data_root` stands the plan in for the reviewed bundle, which this
+    # host cannot launch. What is recorded here is what the *session* asked the
+    # plan builder for; that a name becomes two argv elements is asserted against
+    # the real plan in `test_offline_session`.
+    monkeypatch.setattr(session_module, "build_launch_plan", recording_plan)
+    supervisor = live_supervisor(process, descriptor_path(tmp_path), [])
+
+    async def scenario() -> SessionRun:
+        _launch, run = await asyncio.wait_for(
+            start_and_supervise(
+                root=root,
+                profile=PROFILE,
+                java_executable=JAVA,
+                session_id=SESSION_ID,
+                generation=GENERATION,
+                supervisor_factory=lambda _logs: supervisor,
+                handshake_timeout=0.2,
+                exit_poll_s=0.01,
+                world_save=save,
+                world_name="prepared-world",
+            ),
+            10,
+        )
+        return run
+
+    run = asyncio.run(scenario())
+
+    overlay = session_overlay_path(run_root(tmp_path), SESSION_ID, GENERATION)
+    seeded = overlay / "saves" / "prepared-world"
+    assert (seeded / "level.dat").read_bytes() == b"a level.dat\n"
+    assert (seeded / "region" / "r.0.0.mca").read_bytes() == b"region bytes\n"
+
+    # The launch was asked for a client that enters that world, rather than the
+    # seeded world and the launch being two unrelated things that both happened.
+    assert asked == ["prepared-world"]
+
+    # The name is the bytes as they were handed over, and the run document is
+    # where a fact with no ledger event of its own lives.
+    assert run.world_snapshot == {
+        "level_name": "prepared-world",
+        "digest": world_snapshot_digest(save),
+    }
+    assert run.as_dict()["world_snapshot"] == run.world_snapshot
+    assert all(
+        row[0] != JOIN_OBSERVED for row in _ledger_rows(root / "kin" / "kin-01" / "kin.sqlite3")
+    )
+
+
+def test_a_session_with_no_world_records_no_world(tmp_path: Path, monkeypatch: Any) -> None:
+    """Null rather than an empty object: a run that seeded nothing has no world to name."""
+
+    root = ready_data_root(tmp_path, monkeypatch)
+    process = LiveProcess()
+    supervisor = live_supervisor(process, descriptor_path(tmp_path), [])
+
+    async def scenario() -> SessionRun:
+        _launch, run = await asyncio.wait_for(
+            start_and_supervise(
+                root=root,
+                profile=PROFILE,
+                java_executable=JAVA,
+                session_id=SESSION_ID,
+                generation=GENERATION,
+                supervisor_factory=lambda _logs: supervisor,
+                handshake_timeout=0.2,
+                exit_poll_s=0.01,
+            ),
+            10,
+        )
+        return run
+
+    run = asyncio.run(scenario())
+
+    assert run.world_snapshot is None
+    assert run.as_dict()["world_snapshot"] is None
+    overlay = session_overlay_path(run_root(tmp_path), SESSION_ID, GENERATION)
+    assert not (overlay / "saves").exists()

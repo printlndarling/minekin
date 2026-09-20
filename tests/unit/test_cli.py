@@ -63,6 +63,33 @@ def test_session_start_can_name_the_saved_world_to_join() -> None:
     assert parsed.server_profile == "server.json"
 
 
+def test_session_start_naming_no_world_is_exactly_what_it_used_to_be() -> None:
+    """The world to seed is additive too: absent means "nothing was placed here"."""
+
+    parsed = parse_args(["session", "start", "--profile", "profile.json"])
+
+    assert parsed.world_save is None
+    assert parsed.world_name is None
+
+
+def test_session_start_can_name_the_world_to_seed_and_enter() -> None:
+    parsed = parse_args(
+        [
+            "session",
+            "start",
+            "--profile",
+            "profile.json",
+            "--world-save",
+            "prepared-world",
+            "--world-name",
+            "prepared-world",
+        ]
+    )
+
+    assert parsed.world_save == Path("prepared-world")
+    assert parsed.world_name == "prepared-world"
+
+
 @pytest.mark.parametrize(
     "argv",
     [

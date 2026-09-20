@@ -214,3 +214,23 @@ def test_session_errors_are_classified_as_session_failures() -> None:
 
     assert raised.value.category is ErrorCategory.SESSION
     assert raised.value.exit_code == 16
+
+
+def test_a_world_to_enter_becomes_two_argv_elements_of_its_own() -> None:
+    """`--quickPlaySingleplayer <level>`, never one element and never a shell word.
+
+    The level name is a value this Kin is asked to enter, so it must not be able
+    to arrive as a flag; keeping the flag and the value separate is what makes
+    that true by construction rather than by quoting.
+    """
+
+    plan = build_launch_plan(PROFILE, world_name="prepared-world")
+    argv = resolve_game_arguments(
+        parse_game_argument_template(plan["runtime"]["game_arg_template"]),
+        material=material(),
+        candidate=OFF_A,
+        environment=game_environment(plan),
+    )
+
+    assert argv[-2:] == ["--quickPlaySingleplayer", "prepared-world"]
+    assert "--quickPlaySingleplayer" in argv

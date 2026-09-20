@@ -11,7 +11,7 @@ from minekin_core.adapters.launcher.launch_plan import build_launch_plan, find_w
 from minekin_core.adapters.launcher.metadata import Artifact
 from minekin_core.adapters.launcher.recipe import source_tree_sha256
 from minekin_core.bootstrap import run
-from minekin_core.domain.errors import ExitCode, MinekinError
+from minekin_core.domain.errors import ErrorCategory, ExitCode, MinekinError
 
 PROFILE = Path(__file__).parents[1] / "fixtures" / "runtime-input" / "bundle-p0-core-1.21.4.json"
 
@@ -195,3 +195,63 @@ def test_a_binary_file_is_hashed_byte_for_byte(tmp_path: Path) -> None:
     artifact.write_bytes(b"PK\x03\x04\x00\x00\n")
 
     assert source_tree_sha256(tree) != with_crlf
+
+
+def test_a_plan_with_no_world_to_enter_is_the_plan_it_always_was() -> None:
+    """The world argument is additive: absent means "leave the client at the menu"."""
+
+    assert build_launch_plan(PROFILE, world_name=None) == build_launch_plan(PROFILE)
+
+
+def test_naming_a_world_adds_the_argument_that_enters_it() -> None:
+    """`--quickPlaySingleplayer <level>` is how a client starts inside a world.
+
+    A client at the title screen is running no integrated server, so a session
+    that is meant to *host* has nothing to publish until it is in a world. Both
+    parts are literals of the plan's own template rather than session values: the
+    plan is what says which command line will run.
+    """
+
+    named = build_launch_plan(PROFILE, world_name="prepared-world")
+    plain = build_launch_plan(PROFILE)
+    template = named["runtime"]["game_arg_template"]
+
+    assert template[:-2] == plain["runtime"]["game_arg_template"]
+    assert template[-2:] == [
+        {"kind": "literal", "value": "--quickPlaySingleplayer"},
+        {"kind": "literal", "value": "prepared-world"},
+    ]
+    # A plan that runs a different command line is a different plan.
+    assert named["plan_sha256"] != plain["plan_sha256"]
+
+
+def test_a_world_name_may_not_be_empty() -> None:
+    with pytest.raises(MinekinError, match="not a usable level name") as raised:
+        build_launch_plan(PROFILE, world_name="")
+
+    assert raised.value.category is ErrorCategory.CONFIG
+
+
+@pytest.mark.parametrize("name", ["-Djava.class.path=elsewhere", "--username", "-"])
+def test_a_world_name_that_reads_as_an_option_is_refused(name: str) -> None:
+    """Refused rather than escaped: it becomes an argv element of its own."""
+
+    with pytest.raises(MinekinError, match="not a usable level name"):
+        build_launch_plan(PROFILE, world_name=name)
+
+
+@pytest.mark.parametrize("name", ["..", "world/elsewhere", "world\\elsewhere", " world"])
+def test_a_world_name_that_is_not_a_directory_name_is_refused(name: str) -> None:
+    """The same rule `saves/` applies, asked rather than restated.
+
+    A plan is a promise about which command line will run, so promising one that
+    enters a level nobody could have seeded is a plan that cannot be kept.
+    """
+
+    with pytest.raises(MinekinError, match="not a usable level name"):
+        build_launch_plan(PROFILE, world_name=name)
+
+
+def test_a_world_name_with_a_nul_is_refused() -> None:
+    with pytest.raises(MinekinError, match="not a usable level name"):
+        build_launch_plan(PROFILE, world_name="world\0more")
