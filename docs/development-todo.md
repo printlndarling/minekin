@@ -562,6 +562,14 @@
 - [x] **跟着量到的第二件事：一个「没人开的」Kin 会在十几秒内被史莱姆杀死。** 干净存档那两轮都是同一结果——`Kin joined the game` 之后约 12 秒 `Kin was slain by Slime`。这不是缺陷，是**那个快照的属性**：来源世界的 `server.properties` 是 `gamemode=survival`、`difficulty=normal`、`spawn-monsters=true`，而 Kin 站在那里没有任何东西驱动它。所以「宿主用的干净快照」不只是「没有玩家历史」，还得是**一个不动的 Kin 不会死**的世界——这条要求落在快照上而不在启动器上，**具体取哪一档（和平 / `doMobSpawning=false` / 创造 / 围一圈）还没有定，也没有测**。
 - [ ] **宿主接下来要回答的两件事**（都没有答案，且都不该猜）：**（一）** 现在这个宿主 Kin **处在一个 Core 不知道、也没有准入过的世界里**——Bridge 对一次自己没被要求过的连接拒不上报（`bridge saw CONNECTION_PHASE_LOGIN_NEGOTIATING with no generation of ours active; not reported`），账本里只有 `SessionProcessStarted` 与 `BridgeHelloAccepted`。要让宿主成为一个可被监督的会话，`ConnectWorld` 那条路之外需要一个「Kin 自己开的世界的准入」，它的首快照从哪来、由谁判。**（二）** 没有窗口管理器时窗口从不获得焦点，而单机世界在失焦时**暂停**；这次运行里世界确实在跑（`Preparing spawn area`、`Kin joined the game`、史莱姆真的把它杀了），但「它会不会在某一代上因为焦点而停住」没有测过，`pauseOnLostFocus` 也还没有被碰。
 
+- [x] **开 LAN（`openToLan`）这一步的三条未知，能从固定 jar 里静态读出来的那半读完了。** 契约把执行线程、端口绑定、完成判据列在「仍待原型冻结」里，现在各有一个**可复现**的答案（对固定 jar 的 `hje.class` 与 `asf.class` 跑 `javap -p -c`），而**运行那半一条都没测**，所以它没有被划掉，而是被改成「静态已知、运行待测」：
+  - **线程 = client thread**：方法体里三处触达 `MinecraftClient`（含客户端玩家的 profile 与权限级），不是能从 IPC worker 线程随手调的 server 方法。
+  - **完成判据 = 返回 `true`**：`ServerNetworkIo.bind(null, port)` 在 try 内同步绑定，返回时 accept 线程已经起来了。
+  - **端口会骗人**：它把**请求的**端口打进日志（`Started serving on {}`）并原样存进 `getServerPort()` 返回的那个字段——请求 `0` 时两处都说 `0`；真正绑到的端口只能从 `NetworkIo.getAddress()` 读，契约要的「实际动态端口」在那里。
+  - **失败无声**：整个方法体罩在 `catch (IOException)` 里，catch 只 `return false`，**一行日志都没有**。所以「开 LAN 失败」在客户端日志里根本查不到，只能由 Bridge 自己说（`HOST_LAN_OPEN_FAILED` 是唯一会说这件事的地方）。
+  - **它自己就在改权威状态**（游戏模式、cheats、宿主玩家权限级），这条要算进 `HOSTCTL-010` 的门禁，而不是只盯着提案入口。
+- [ ] **要真去开一次 LAN，缺的是模块而不是调用**：契约把这件事放在独立的 `bridge-host-control`（创建/加载/保存/LAN/关闭的窄 adapter），并明令 `bridge-client-core` 与观察/导航模块**不得**引用 `IntegratedServer`、`getServer()` 或 `net.minecraft.server..`——而 `bridge-host-control` 现在还不存在。所以下一步是**先把这个窄 adapter 建出来**（连同它自己的源码依赖门禁、构建产物门禁），再谈"发一条命令让它开 LAN"。**刻意不先做的**：在没有那个模块的时候从别处临时反射调用一次——那正好是契约禁止的那条路，而且量出来的东西不能代表 adapter 建好之后的形状。
+
 ## W70 之后
 
 - [ ] W80：独立 `p0-nav-exp` 导航实验；核验输入冲突、隐藏真值与 SBOM/许可。

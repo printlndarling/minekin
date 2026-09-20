@@ -220,7 +220,13 @@ HOST_RECOVERY_REQUIRED
 - 固定 bundle 中 `WORLD_PRESET -> WorldPresets.DEFAULT -> WorldPreset.createDimensionsRegistryHolder()`候选链已找到，仍须编译/运行核对签名、三维度摘要及 datapack lifecycle；
 - `createAndStart`异步阶段的真实 client-thread/callback顺序；
 - `saveAll`、玩家数据保存、disconnect、server stop和 session close 的最小无损顺序；
-- `openToLan`实际执行线程、端口绑定与完成判据；
+- `openToLan`实际执行线程、端口绑定与完成判据；（2026-09-21：**能从固定 jar 里静态读出来的那半已经冻结，运行那半仍未做。** 类是被混淆的 `hje`（`extends net.minecraft.server.MinecraftServer`），签名 `openToLan(GameMode, boolean cheatsAllowed, int port) -> boolean`；以下每条都对 `hje.class` 与 `asf.class`（`ServerNetworkIo`）跑 `javap -p -c` 读出来的，可复现：
+  - **线程：client thread。** 方法体里三处触达 `MinecraftClient`（`flk.aU()`、`flk.L().w()`，以及客户端玩家 `gkx` 的 profile 与权限级 `gkx.a(int)`），另有 `getPlayerManager().setCheatsAllowed(..)`。它不是可以从 IPC worker 线程随手调的 server 方法。
+  - **完成判据：返回 `true`。** `getNetworkIo().bind(null, port)` 在 try 内**同步**绑定，返回之后 accept 线程（`hjh`）已经 `start()`；所以"绑定完成了没有"就是这一句返回值，不需要另设等待。
+  - **端口是会骗人的。** 它 `LOGGER.info("Started serving on {}", port)`，并把**同一个请求值**存进 `getServerPort()` 返回的那个字段。请求 `0`（让系统挑）时两处都会说 `0`。真正绑到的端口只能从 `getNetworkIo().getAddress()`（`asf.a()` 返回 `SocketAddress`）读——契约要的"实际动态端口"在那边，不在日志里。
+  - **失败是无声的。** 整个方法体罩在一张 `catch (IOException)` 里（异常表 `0..164 -> 165`），catch 只做 `return false`，**一行日志都不打**。"开 LAN 失败"因此在客户端日志里没有任何痕迹；`HOST_LAN_OPEN_FAILED` 不是礼貌，它是唯一会说这件事的地方。
+  - **它顺带改权威状态**：设置游戏模式字段、放开 cheats、抬高宿主玩家的权限级。这与 `HOSTCTL-010` 直接相关——开 LAN 这个动作自己就在动有效档，所以"聊天/网页不得越权改档"的门禁要把这条路径也算进去，而不是只盯着提案入口。
+  - **仍未做的**：真实线程名/时间线与 `isOnThread` 结果、端口实际绑到哪里、以及一次失败的 `openToLan` 在真实运行里长什么样——这些要等 `bridge-host-control` 里那个 adapter 真的存在之后才量得到。**静态读出来的东西不能当成运行证据**，这也是它留在这里而不是被划掉的原因；
 - class/mixin/access-widener扫描器的实现工具和映射名归一化；
 - integrated-server canary fixture怎样在不污染 Kin数据面的测试域中注入。
 
