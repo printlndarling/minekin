@@ -33,6 +33,7 @@ OBSERVE_ONLY_CASE = CASES / "core-010.json"
 MOVEMENT_CASE = CASES / "core-040.json"
 LOST_RUNTIME_CASE = CASES / "core-060.json"
 LOST_SERVER_CASE = CASES / "core-060-server-001.json"
+LOST_CLIENT_CASE = CASES / "core-060-client-001.json"
 BLACK_HOLE_CASE = CASES / "admit-110.json"
 REFUSED_CASE = CASES / "admit-100.json"
 RUN_ID = "5c1f9a7b2d3e4f6089abcdef01234567"
@@ -232,6 +233,7 @@ def test_the_reviewed_case_names_only_assertions_the_asserter_performs() -> None
         REFUSED_EARLY_CASE,
         LOST_RUNTIME_CASE,
         LOST_SERVER_CASE,
+        LOST_CLIENT_CASE,
         BLACK_HOLE_CASE,
         REFUSED_CASE,
     ):
@@ -1381,6 +1383,118 @@ def test_the_bridge_must_release_held_input_because_play_ended(
     verdict = ASSERTER_MODULE.evaluate(lost_server_case(), killed_server(client_log=client_log))
 
     assert f"the_bridge_released_input_when_play_ended:{reason}" in verdict.failures
+
+
+# The client boundary, from the run that measured it: the ledger is
+# `SessionProcessStarted → BridgeHelloAccepted → JoinObserved → PlayableEstablished
+# → InputLeaseGranted{control.move.v1} → InputReleased{EXPLICIT} →
+# SessionInterrupted{outcome: BRIDGE_LOST}`, and the server logged the Kin leaving.
+#
+# The release is Core's own event and cannot be the Bridge's: the Bridge is a mod
+# inside the process that was killed. Measured once with the Kin dead a second
+# before the kill — a slime got it — which is why nothing here depends on the Kin
+# being alive when the client dies.
+def lost_client_case() -> dict[str, object]:
+    return cast(dict[str, object], json.loads(LOST_CLIENT_CASE.read_text(encoding="utf-8")))
+
+
+def killed_client(**overrides: object) -> _Material:
+    definition = load_case_manifest(LOST_CLIENT_CASE)
+    record = fault_record(
+        case_version=definition.digest,
+        case={"case_id": definition.case_id},
+        target={"role": "client_jvm"},
+        supervisor={"role": "client_jvm_root"},
+    )
+    arguments: dict[str, object] = {
+        # The world is what the server's own log says it is, so the join and the
+        # leave are the measured lines and not a paraphrase of them.
+        "log": f"{JOINED}\n{LEFT}\n",
+        "events": (
+            STARTED,
+            event("BridgeHelloAccepted"),
+            event("JoinObserved", phase="JOIN_SEEN"),
+            event("PlayableEstablished", phase="PLAYABLE"),
+            LEASE,
+            event("InputReleased", had_lease=True, reason="EXPLICIT"),
+            event("SessionInterrupted", outcome="BRIDGE_LOST"),
+        ),
+        "fault_injection": record,
+    }
+    arguments.update(overrides)
+    return material(**arguments)  # type: ignore[arg-type]
+
+
+def test_a_confirmed_client_kill_with_a_session_ending_holds() -> None:
+    verdict = ASSERTER_MODULE.evaluate(lost_client_case(), killed_client())
+
+    assert verdict.result == "PASS"
+    assert verdict.observed == verdict.expected
+    assert verdict.failures == ()
+
+
+def test_a_client_kill_record_must_be_exactly_attributed_and_confirmed() -> None:
+    base = cast(dict[str, object], killed_client().fault_injection)
+    target = dict(cast(Mapping[str, object], base["target"]))
+    target["role"] = "server_jvm"
+    base["target"] = target
+
+    verdict = ASSERTER_MODULE.evaluate(lost_client_case(), killed_client(fault_injection=base))
+
+    assert "client_jvm_sigkill_was_confirmed:WRONG_TARGET_ROLE:server_jvm" in verdict.failures
+
+
+@pytest.mark.parametrize(
+    ("events", "reason"),
+    [
+        (
+            (STARTED, event("PlayableEstablished"), LEASE),
+            "NO_WORLD_LOSS_RECORDED",
+        ),
+        (
+            (
+                STARTED,
+                event("SessionInterrupted", outcome="BRIDGE_LOST"),
+                event("PlayableEstablished"),
+                LEASE,
+            ),
+            "SESSION_ENDING_BEFORE_THE_LEASE",
+        ),
+        (
+            (
+                event("PlayableEstablished"),
+                LEASE,
+                event("SessionInterrupted", outcome="BRIDGE_LOST"),
+            ),
+            "NO_SESSION_ATTRIBUTION_IN_LEDGER",
+        ),
+        (
+            (STARTED, event("PlayableEstablished")),
+            "NO_MOVE_LEASE_FOR_KILLED_SESSION",
+        ),
+    ],
+)
+def test_a_client_kill_needs_a_session_that_ended_after_the_lease(
+    events: tuple[Mapping[str, object], ...], reason: str
+) -> None:
+    verdict = ASSERTER_MODULE.evaluate(lost_client_case(), killed_client(events=events))
+
+    assert f"the_ledger_recorded_the_session_ending:{reason}" in verdict.failures
+
+
+def test_an_unreadable_ledger_cannot_bind_a_client_kill_to_a_session() -> None:
+    verdict = ASSERTER_MODULE.evaluate(lost_client_case(), killed_client(ledger_readable=False))
+
+    assert "client_jvm_sigkill_was_confirmed:LEDGER_UNREADABLE" in verdict.failures
+    assert "the_ledger_recorded_the_session_ending:LEDGER_UNREADABLE" in verdict.failures
+
+
+def test_a_client_kill_still_needs_the_world_to_have_seen_the_kin_leave() -> None:
+    """The process being gone is half of it; the world noticing is the other half."""
+
+    verdict = ASSERTER_MODULE.evaluate(lost_client_case(), killed_client(log=f"{JOINED}\n"))
+
+    assert "leave_after_join_observed:LEAVE_NOT_LOGGED" in verdict.failures
 
 
 # The run a black hole produced: the attempt reached LOGIN_NEGOTIATING and stayed

@@ -27,6 +27,9 @@ MINEKIN_SERVER_JAR=<path> MINEKIN_DOMAIN_PROBE=Kin MINEKIN_DOMAIN_STILL=1 \
 MINEKIN_SERVER_JAR=<path> MINEKIN_DOMAIN_PROBE=Kin MINEKIN_DOMAIN_KILL_SERVER=1 \
     bash test-orchestrator/runner/run.sh domain session start --profile <bundle> --server-profile <profile> \
         --hold-forward-seconds 60
+MINEKIN_SERVER_JAR=<path> MINEKIN_DOMAIN_PROBE=Kin MINEKIN_DOMAIN_KILL_CLIENT=1 \
+    bash test-orchestrator/runner/run.sh domain session start --profile <bundle> --server-profile <profile> \
+        --hold-forward-seconds 60
 MINEKIN_SERVER_JAR=<path> MINEKIN_DOMAIN_PROBE=Kin MINEKIN_DOMAIN_SILENCE=1 \
     bash test-orchestrator/runner/run.sh domain session start --profile <bundle> --server-profile <profile> \
         --hold-forward-seconds 60
@@ -786,6 +789,50 @@ Two defects were found by this injection, and neither was visible from the code:
 Neither fix changes the evidence already on file: the deadline only matters for a
 session that stays in a world for more than thirty seconds, and CORE-040's hold is
 eight seconds while CORE-050 never reaches a world at all.
+
+### When the client is killed
+
+`MINEKIN_DOMAIN_KILL_CLIENT=1` kills the managed client's JVM while the Kin is
+walking. This is the one boundary where nothing inside the killed process can
+report anything: the Bridge is a mod *in that JVM*, so the release log the other
+two boundaries read cannot exist here, and both witnesses are the survivors' —
+the runtime's, and the world's.
+
+```text
+$ MINEKIN_SERVER_JAR=… MINEKIN_DOMAIN_PROBE=Kin MINEKIN_DOMAIN_KILL_CLIENT=1 \
+      bash test-orchestrator/runner/run.sh domain \
+      session start --profile … --server-profile … --hold-forward-seconds 60
+domain: the client has been killed; the keys died with the process
+domain: Core recorded SessionInterrupted after its client was killed
+ledger   SessionProcessStarted → BridgeHelloAccepted → JoinObserved →
+         PlayableEstablished → InputLeaseGranted{control.move.v1} →
+         InputReleased{EXPLICIT} → SessionInterrupted{outcome: "BRIDGE_LOST"}
+server   Kin joined the game … Kin lost connection: Disconnected … Kin left the game
+```
+
+The ledger's ending is an **interruption with an outcome and no phase**, and that
+is a measured race rather than a chosen wording: the client's socket closes as the
+process dies, so the event reader sees the end of the transport before the process
+watcher sees the exit, and the runtime concludes `BRIDGE_LOST`. Both conclusions
+are true of the same event; a case that asserted either one would be asserting
+which thread woke first, so `CORE-060-CLIENT-001` asks only for an ending bound to
+this session and after the lease.
+
+Two record-shape defects were found here, both of which had made a real client
+unrecordable:
+
+* **A real client's command line holds empty elements, and the record demanded
+  every element be non-empty.** The frozen offline launch passes an empty option
+  value as its *own* element (`--clientId` followed by an empty one) rather than
+  letting the option's absence mean it. `_target_is_usable` and the schema both
+  required non-empty, so no client identity could ever be written.
+* **A refusal that had already read the target carried it into the record, and was
+  validated like any other.** So the empty-element rule turned every such refusal
+  into a bare `INVALID_TARGET`: the reason the helper actually had — for instance
+  that the root identity changed between the look and the signal — was replaced by
+  a complaint about the record's shape, and the harness's log said nothing useful.
+  Fixing the first fixed the second; both are pinned by tests, and reverting the
+  fix turns both red.
 
 ### The record a fault leaves, and what it cannot prove
 

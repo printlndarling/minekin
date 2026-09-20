@@ -130,6 +130,8 @@ IMPLEMENTATIONS: dict[str, Implementation] = {
         "runtime_controller_sigkill_was_confirmed"
     ),
     "server_jvm_sigkill_was_confirmed": _runtime("server_jvm_sigkill_was_confirmed"),
+    "client_jvm_sigkill_was_confirmed": _runtime("client_jvm_sigkill_was_confirmed"),
+    "the_ledger_recorded_the_session_ending": _runtime("the_ledger_recorded_the_session_ending"),
     "the_server_log_has_no_graceful_shutdown": _runtime("the_server_log_has_no_graceful_shutdown"),
     "the_ledger_recorded_world_loss": _runtime("the_ledger_recorded_world_loss"),
     "the_bridge_released_input_when_play_ended": _runtime(

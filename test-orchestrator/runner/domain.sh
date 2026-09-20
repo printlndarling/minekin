@@ -28,6 +28,12 @@ kill_core="${MINEKIN_DOMAIN_KILL_CORE:-}"
 # kick, which is the server *saying* goodbye: a killed server says nothing, and
 # the client learns of it only because its socket stopped working.
 kill_server="${MINEKIN_DOMAIN_KILL_SERVER:-}"
+# The client killed rather than the runtime or the world. This is the boundary
+# where the keys die with the process: the Bridge is a mod inside the client, so
+# nothing in that JVM is left to release a key or to report a phase. What the run
+# has to show is therefore a fact about the *runtime* noticing its own client is
+# gone, and a fact about the world seeing the Kin leave.
+kill_client="${MINEKIN_DOMAIN_KILL_CLIENT:-}"
 no_server="${MINEKIN_DOMAIN_NO_SERVER:-}"
 still="${MINEKIN_DOMAIN_STILL:-}"
 # A bounded soak: how long the session is left running, and how often the two
@@ -98,7 +104,15 @@ fi
 # of them: there would be no way to say later which of the two the record is.
 fault_path=/tmp/domain-fault-injection.json
 fault_role=""
-if [[ -n "${kill_core}" && -n "${kill_server}" ]]; then
+# Counted rather than compared two at a time, because there are three boundaries
+# now and a pairwise guard would let the third one pair up with neither.
+faults=0
+for requested in "${kill_core}" "${kill_server}" "${kill_client}"; do
+    if [ -n "${requested}" ]; then
+        faults=$((faults + 1))
+    fi
+done
+if [ "${faults}" -gt 1 ]; then
     printf 'domain: this run asks for two faults at once; one run seals one record\n' >&2
     exit 2
 fi
@@ -870,6 +884,60 @@ if [[ -n "${kill_server}" ]]; then
             printf 'domain: Core recorded the session ending when the world went away\n' >&2
         else
             printf 'domain: the session never recorded an interruption after the server died\n' >&2
+        fi
+    fi
+fi
+
+# The client killed, which is the one boundary where nothing inside the killed
+# process can report anything: the Bridge is a mod in that JVM, so the release
+# log the other two boundaries read cannot exist here. The target is the JVM the
+# runtime started, found from the same root the runtime is found from — both are
+# descendants of this script's session pid, and the role's own command line is
+# what tells them apart.
+if [[ -n "${kill_client}" ]]; then
+    deadline=$((SECONDS + seconds))
+    killed=0
+    for _ in $(seq 1 "${seconds}"); do
+        kill -0 "${session_pid}" 2>/dev/null || break
+        [ "${SECONDS}" -lt "${deadline}" ] || break
+        # While the Kin is in the world and walking, and for the same measured
+        # reason as the other waits: `SECONDS` does not advance while the loop
+        # spins through commands that take no time.
+        if [ "$(horizontal_positions | sort -u | wc -l)" -lt 2 ]; then
+            sleep 1
+            continue
+        fi
+        if inject_fault "${session_pid}" "client_jvm" \
+                "${session_starttime_ticks}" "${session_pid_namespace_inode}"; then
+            killed=1
+            printf 'domain: the client has been killed; the keys died with the process\n' >&2
+        fi
+        break
+    done
+    if [ "${killed}" -eq 0 ]; then
+        printf 'domain: the client was never killed, so this run proves nothing about a client that died\n' >&2
+        injection_failed=1
+    else
+        # Which of Core's two records this run produced is measured rather than
+        # assumed: the runtime can conclude its client exited, or it can find the
+        # transport gone first and call that a lost Bridge. Both are the runtime
+        # reacting to a client that is no longer there, and which one happened is
+        # what the case is written against — so it is read and said out loud.
+        recorded=""
+        for _ in $(seq 1 "${seconds}"); do
+            [ "${SECONDS}" -lt "${deadline}" ] || break
+            recorded=$(/opt/sqlite/bin/sqlite3 "${ledger}" \
+                "select event_type from event where position > ${baseline} and event_type in ('ClientProcessExited','SessionInterrupted') order by position limit 1;" \
+                2>/dev/null || true)
+            if [ -n "${recorded}" ]; then
+                break
+            fi
+            sleep 1
+        done
+        if [ -n "${recorded}" ]; then
+            printf 'domain: Core recorded %s after its client was killed\n' "${recorded}" >&2
+        else
+            printf 'domain: the runtime recorded nothing after its client was killed\n' >&2
         fi
     fi
 fi

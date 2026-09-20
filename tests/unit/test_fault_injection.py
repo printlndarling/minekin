@@ -61,6 +61,28 @@ def as_json(document: object) -> Any:
     return json.loads(json.dumps(document))
 
 
+#: A real client's command line, abbreviated to the parts that matter here: the
+#: Fabric main class as its own element, and the empty option values the frozen
+#: offline launch passes beside their options.
+CLIENT_ARGV = [
+    "/opt/java/openjdk/bin/java",
+    "-Djava.library.path=/data/session/generation-1/natives",
+    "-cp",
+    "/data/artifact-store/blobs/sha1/aa/a.jar:/data/bundle/b.jar",
+    "net.fabricmc.loader.impl.launch.knot.KnotClient",
+    "--username",
+    "Kin",
+    "--uuid",
+    "8f40376bc23f3ef1b5535564eea75639",
+    "--accessToken",
+    "0",
+    "--clientId",
+    "",
+    "--xuid",
+    "",
+]
+
+
 def target() -> dict[str, object]:
     executable = "/usr/bin/python3.12"
     argv = ["python", "-m", "minekin_core", "session", "start"]
@@ -164,6 +186,59 @@ def test_a_kill_that_never_landed_is_a_legal_document_too() -> None:
     """One that did not happen is still recorded: the absence is the evidence."""
 
     assert codes(not_injected()) == ()
+
+
+def test_an_empty_argv_element_is_part_of_a_usable_identity() -> None:
+    """Measured on a real client: an empty option value is its own argv element.
+
+    The launcher's rule is that an empty value travels beside its option rather
+    than as an absent one, so the managed client's command line really does hold
+    empty elements. Requiring every element to be non-empty made that process —
+    and every refusal that named it — impossible to record.
+    """
+
+    document = with_argv(CLIENT_ARGV)
+
+    assert codes(document) == ()
+    assert list(schema_validator().iter_errors(as_json(document))) == []
+
+
+def test_a_refusal_that_names_a_target_is_a_record_like_any_other() -> None:
+    """The reader asked for the reason for refusing, and it was being lost.
+
+    A refusal that has already read the target's identity carries it — so the
+    document is validated before it is written, and anything invalid in that
+    identity turns "the identity changed before the signal" into a bare
+    "INVALID_TARGET" that never reaches the harness's log. Measured: that is
+    exactly what a client kill produced, so the reason never got out.
+    """
+
+    client = cast(dict[str, object], with_argv(CLIENT_ARGV)["target"])
+    refused = not_injected(
+        target=client,
+        reasons=["ROOT_IDENTITY_CHANGED_BEFORE_SIGNAL"],
+    )
+
+    assert codes(refused) == ()
+    assert list(schema_validator().iter_errors(as_json(refused))) == []
+
+
+def with_argv(argv: list[str]) -> dict[str, object]:
+    """The sample kill with another command line, its digest recomputed."""
+
+    document = copy.deepcopy(sample())
+    section = cast(dict[str, object], document["target"])
+    section["cmdline"] = argv
+    section["identity_digest"] = hashlib.sha256(
+        (cast(str, section["exe_path"]) + "\0" + "\0".join(argv)).encode("utf-8")
+    ).hexdigest()
+    return document
+
+
+def schema_validator() -> Draft202012Validator:
+    """The frozen schema as a validator, built where it is used."""
+
+    return Draft202012Validator(json.loads(SCHEMA.read_text(encoding="utf-8")))
 
 
 def test_the_schema_file_describes_the_record_the_reader_accepts() -> None:

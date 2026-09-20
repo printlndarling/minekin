@@ -36,12 +36,17 @@ from typing import cast
 
 SCHEMA_VERSION = 1
 
-#: The two processes a fault injection may target. `runtime_controller` is the
-#: CLI that holds the runtime and the launcher in one process — this repository
-#: has no separate launcher — and `server_jvm` is the dedicated server.
+#: The processes a fault injection may target. `runtime_controller` is the CLI
+#: that holds the runtime and the launcher in one process — this repository has
+#: no separate launcher — `server_jvm` is the dedicated server, and `client_jvm`
+#: is the managed Minecraft client the Fabric Bridge runs inside. The last one is
+#: its own boundary rather than a second way of naming the runtime: when the
+#: client dies, the Bridge dies with it, so nothing in that process is left to
+#: release a key or to report a phase.
 RUNTIME_CONTROLLER = "runtime_controller"
 SERVER_JVM = "server_jvm"
-ROLES = (RUNTIME_CONTROLLER, SERVER_JVM)
+CLIENT_JVM = "client_jvm"
+ROLES = (RUNTIME_CONTROLLER, SERVER_JVM, CLIENT_JVM)
 
 #: What became of the attempt. Only `INJECTED` means the fault happened.
 INJECTED = "INJECTED"
@@ -73,7 +78,18 @@ SIGNAL_RESULTS = (DELIVERED, FAILED)
 
 RUNTIME_CONTROLLER_ROOT = "runtime_controller_root"
 SERVER_JVM_ROOT = "server_jvm_root"
-SUPERVISOR_ROLES = (RUNTIME_CONTROLLER_ROOT, SERVER_JVM_ROOT)
+CLIENT_JVM_ROOT = "client_jvm_root"
+SUPERVISOR_ROLES = (RUNTIME_CONTROLLER_ROOT, SERVER_JVM_ROOT, CLIENT_JVM_ROOT)
+
+#: Which supervisor role belongs to which target role. Defined once because both
+#: ends use it — the helper builds a record from it and the reader checks a record
+#: against it — and two copies of a pairing is two chances to disagree about the
+#: process a record is actually about.
+SUPERVISOR_FOR_ROLE = {
+    RUNTIME_CONTROLLER: RUNTIME_CONTROLLER_ROOT,
+    SERVER_JVM: SERVER_JVM_ROOT,
+    CLIENT_JVM: CLIENT_JVM_ROOT,
+}
 
 #: The product's own rule for an opaque identifier, so a run named here is named
 #: the way the ledger names it.
@@ -243,7 +259,15 @@ def _target_is_usable(value: object) -> bool:
         and bool(exe_path)
         and argv is not None
         and bool(argv)
-        and all(_text(item) is not None and bool(cast(str, item)) for item in argv)
+        # An argv element may be empty, and a real client's is: the frozen
+        # offline launch passes an empty value as its own element (`--clientId`
+        # followed by an empty one), which is exactly what the launcher contract
+        # requires so that an empty value cannot be mistaken for an absent
+        # option. Requiring every element to be non-empty made a real client's
+        # identity unrecordable — and, because a refusal that names a target is
+        # also validated before it is written, it made the reason for refusing
+        # unrecordable too.
+        and all(_text(item) is not None for item in argv)
         and digest is not None
         and _HEX64.fullmatch(digest) is not None
         and digest == calculated_digest
@@ -356,12 +380,7 @@ def _outcome_violations(record: Mapping[str, object]) -> frozenset[str]:
     if target is not None and supervisor is not None:
         target_role = _text(target.get("role"))
         expected_supervisor = (
-            {
-                RUNTIME_CONTROLLER: RUNTIME_CONTROLLER_ROOT,
-                SERVER_JVM: SERVER_JVM_ROOT,
-            }.get(target_role)
-            if target_role is not None
-            else None
+            SUPERVISOR_FOR_ROLE.get(target_role) if target_role is not None else None
         )
         if expected_supervisor is not None and supervisor.get("role") != expected_supervisor:
             found.add("SUPERVISOR_ROLE_MISMATCH")

@@ -37,6 +37,7 @@ GENERATION = 1
 ROOT_PID = 4200
 CLI_PID = 4242
 JVM_PID = 4300
+CLIENT_PID = 4320
 
 
 def load(name: str) -> ModuleType:
@@ -182,6 +183,39 @@ def server_procs() -> dict[int, dict[str, object]]:
     }
 
 
+def session_procs() -> dict[int, dict[str, object]]:
+    """One managed session: the wrapper, the runtime under it, and the client.
+
+    The client is a child of the runtime, which is how the real launch works —
+    the CLI builds the plan and spawns the JVM itself — so both roles are found
+    under the same root. That is the shape that makes the two predicates matter:
+    a role that matched "a Java process under the session wrapper" would find the
+    client when asked for the server, and vice versa.
+    """
+
+    procs = build_procs()
+    procs[CLIENT_PID] = {
+        "stat": stat_line(CLIENT_PID, "java", CLI_PID, 5551300),
+        "cmdline": [
+            "/opt/java/bin/java",
+            "-Djava.library.path=/data/session/natives",
+            "-cp",
+            "/data/artifact-store/blobs/sha1/aa/a.jar:/data/bundle/x.jar",
+            "net.fabricmc.loader.impl.launch.knot.KnotClient",
+            "--username",
+            "Kin",
+            "--gameDir",
+            "/data/session/game",
+        ],
+        "exe": "/opt/java/bin/java",
+        "ns": "pid:[4026531836]",
+        "children": [],
+        "starttime": 5551300,
+    }
+    cast(list[int], procs[CLI_PID]["children"]).append(CLIENT_PID)
+    return procs
+
+
 def ledger_for(tmp_path: Path, kin: str = KIN_ID) -> Path:
     directory = tmp_path / kin
     directory.mkdir(parents=True, exist_ok=True)
@@ -229,7 +263,7 @@ def inject(
         dict[str, object],
         HELPER.inject(
             root_pid=root_pid,
-            root_starttime_ticks=5551000 if role == "runtime_controller" else 5552000,
+            root_starttime_ticks=5552000 if role == "server_jvm" else 5551000,
             root_pid_namespace_inode="pid:[4026531836]",
             role=role,
             case_id=case_id,
@@ -329,6 +363,81 @@ def test_an_unrelated_java_family_process_is_not_the_server(argv: list[str]) -> 
     procs[JVM_PID]["exe"] = f"/opt/java/bin/{argv[0]}"
 
     assert HELPER.find_candidates(FakeProcfs(procs), ROOT_PID, "server_jvm") == ()
+
+
+def test_the_client_is_the_jvm_the_runtime_started() -> None:
+    found = HELPER.find_candidates(FakeProcfs(session_procs()), ROOT_PID, "client_jvm")
+
+    assert found == (CLIENT_PID,)
+
+
+def test_one_session_subtree_yields_each_role_exactly_once() -> None:
+    """Both roles live under the same wrapper, so the predicates have to be exact.
+
+    A role described as "the Java process under the session" would answer the
+    wrong question here: the client is a JVM and so is the runtime's own Python
+    process is not — but the server predicate would match nothing while a loose
+    client predicate would also match the server, and either way the helper would
+    be reporting a kill of whichever one it happened to name.
+    """
+
+    procs = FakeProcfs(session_procs())
+
+    assert HELPER.find_candidates(procs, ROOT_PID, "runtime_controller") == (CLI_PID,)
+    assert HELPER.find_candidates(procs, ROOT_PID, "client_jvm") == (CLIENT_PID,)
+
+
+def test_the_server_jvm_is_not_the_client() -> None:
+    """The dedicated server is a JVM too; the main class is what tells them apart."""
+
+    procs = server_procs()
+
+    assert HELPER.find_candidates(FakeProcfs(procs), ROOT_PID, "client_jvm") == ()
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [
+        # The dedicated server: a JVM, launched from a jar, not a client.
+        ["java", "-Xmx2G", "-jar", "/server/server.jar", "nogui"],
+        # A JVM running something else entirely.
+        ["java", "com.example.Unrelated"],
+        # The client's main class as part of another argument is not the client.
+        ["java", "-Dminekin.main=net.fabricmc.loader.impl.launch.knot.KnotClient", "-jar", "x.jar"],
+        # The right name in the right place, but not a JVM at all.
+        ["python", "net.fabricmc.loader.impl.launch.knot.KnotClient"],
+    ],
+)
+def test_an_unrelated_process_is_not_the_client(argv: list[str]) -> None:
+    procs = session_procs()
+    procs[CLIENT_PID]["cmdline"] = argv
+    procs[CLIENT_PID]["exe"] = f"/opt/bin/{Path(argv[0]).name}"
+
+    assert HELPER.find_candidates(FakeProcfs(procs), ROOT_PID, "client_jvm") == ()
+
+
+def test_the_client_kill_is_recorded_as_its_own_role_and_supervisor(tmp_path: Path) -> None:
+    """The record names the client as the target, not the runtime it runs under."""
+
+    procfs = FakeProcfs(session_procs())
+    signalled: list[int] = []
+
+    def kill(pid: int) -> str | None:
+        signalled.append(pid)
+        del procfs.processes[pid]
+        return None
+
+    document = inject(procfs, tmp_path, role="client_jvm", kill=kill)
+
+    assert signalled == [CLIENT_PID]
+    assert outcome(document) == "INJECTED"
+    assert target_of(document)["role"] == "client_jvm"
+    assert target_of(document)["comm"] == "java"
+    supervisor = cast(Mapping[str, object], document["supervisor"])
+    assert supervisor["role"] == "client_jvm_root"
+    # The runtime is untouched: it is the process that has to notice.
+    assert CLI_PID in procfs.processes
+    assert RECORD.validate(document) == ()
 
 
 def test_two_runtimes_are_ambiguous_rather_than_the_first_one() -> None:

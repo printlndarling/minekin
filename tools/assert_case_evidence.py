@@ -46,6 +46,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import fault_injection
 from fault_injection import (
+    CLIENT_JVM,
     DELIVERED,
     IDENTITY_DISAPPEARED,
     INJECTED,
@@ -867,6 +868,18 @@ def server_jvm_sigkill_was_confirmed(material: RunMaterial) -> str | None:
     return _confirmed_sigkill(material, expected_role=SERVER_JVM, require_session=True)
 
 
+def client_jvm_sigkill_was_confirmed(material: RunMaterial) -> str | None:
+    """The helper delivered SIGKILL to this run's exact client JVM identity.
+
+    The client is the boundary where the Bridge dies with the target, so unlike
+    the runtime and the server cases there is no release log in the killed
+    process to read afterwards. This record is the part that says a *named*
+    process died rather than that a channel went quiet.
+    """
+
+    return _confirmed_sigkill(material, expected_role=CLIENT_JVM, require_session=True)
+
+
 def the_server_log_has_no_graceful_shutdown(material: RunMaterial) -> str | None:
     """The server's own log ended without either vanilla shutdown marker."""
 
@@ -878,13 +891,20 @@ def the_server_log_has_no_graceful_shutdown(material: RunMaterial) -> str | None
     return None
 
 
-def the_ledger_recorded_world_loss(material: RunMaterial) -> str | None:
-    """The killed session held move input in a playable world, then lost it.
+def _killed_session_witnesses(
+    material: RunMaterial,
+) -> tuple[tuple[str, int], tuple[int, ...], tuple[int, ...], tuple[tuple[int, str], ...]] | str:
+    """What the ledger says about a session that was killed while holding input.
 
-    The three witnesses are deliberately bound to the fault record's ledger
-    session and ordered.  Otherwise one generation's kill could borrow another
-    generation's world loss, or a lease granted after the disconnect could make
-    it look as though input was held when the server died.
+    One implementation because two cases read the same facts out of the same
+    ledger: which session this run was, that it was in a world, that it held a
+    move lease, and where it recorded the ending. The binding is what must not
+    drift — every witness has to belong to the *same* session coordinate, or one
+    generation's kill could borrow another generation's world loss. What each
+    case then requires of those witnesses is its own: the server boundary wants
+    the world-loss phase, the client boundary wants an ending of any kind.
+
+    Returns the coordinate and the four index lists, or the reason it cannot.
     """
 
     if not material.ledger_readable:
@@ -892,29 +912,44 @@ def the_ledger_recorded_world_loss(material: RunMaterial) -> str | None:
     session = _ledger_session(material)
     if session is None:
         return "NO_SESSION_ATTRIBUTION_IN_LEDGER"
-    playable = [
+    playable = tuple(
         index
         for index, item in enumerate(material.ledger_events)
         if item.get("event_type") == PLAYABLE_ESTABLISHED and _belongs_to_session(item, session)
-    ]
+    )
     if not playable:
         return "NO_PLAYABLE_WORLD_RECORDED"
-    leases = [
+    leases = tuple(
         index
         for index, item in enumerate(material.ledger_events)
         if item.get("event_type") == INPUT_LEASE_GRANTED
         and _belongs_to_session(item, session)
         and payload(item).get("capability") == MOVE_CAPABILITY
-    ]
+    )
     if not leases:
         return "NO_MOVE_LEASE_FOR_KILLED_SESSION"
-    interrupted = [
+    interrupted = tuple(
         (index, str(payload(item).get("phase")))
         for index, item in enumerate(material.ledger_events)
         if item.get("event_type") == SESSION_INTERRUPTED and _belongs_to_session(item, session)
-    ]
+    )
     if not interrupted:
         return "NO_WORLD_LOSS_RECORDED"
+    return session, playable, leases, interrupted
+
+
+def the_ledger_recorded_world_loss(material: RunMaterial) -> str | None:
+    """The killed session held move input in a playable world, then lost it.
+
+    The world loss is a `DISCONNECTED` phase: the server ended the session. A
+    lease granted after the disconnect would make it look as though input was
+    held when the server died, so the three are ordered and not merely present.
+    """
+
+    witnesses = _killed_session_witnesses(material)
+    if isinstance(witnesses, str):
+        return witnesses
+    _, playable, leases, interrupted = witnesses
     disconnected = [index for index, phase in interrupted if phase == "DISCONNECTED"]
     if not disconnected:
         phases = ",".join(sorted({phase for _, phase in interrupted}))
@@ -926,6 +961,26 @@ def the_ledger_recorded_world_loss(material: RunMaterial) -> str | None:
         for lost in disconnected
     ):
         return "WORLD_LOSS_SEQUENCE_INVALID"
+    return None
+
+
+def the_ledger_recorded_the_session_ending(material: RunMaterial) -> str | None:
+    """The runtime noticed its client was gone, in its own record.
+
+    This is the half a killed *client* needs and a killed *server* does not: the
+    process holding the input is gone, so Core is the only one left that can say
+    the session ended. Which event it writes is not prescribed — measured, the
+    transport-lost path wins the race against the process watcher and Core
+    records an interruption with the outcome `BRIDGE_LOST` — so this asks for an
+    ending bound to this session, after the lease that was already granted.
+    """
+
+    witnesses = _killed_session_witnesses(material)
+    if isinstance(witnesses, str):
+        return witnesses
+    _, _, leases, interrupted = witnesses
+    if not any(leased < index for leased in leases for index, _ in interrupted):
+        return "SESSION_ENDING_BEFORE_THE_LEASE"
     return None
 
 
@@ -1204,6 +1259,8 @@ ASSERTIONS: dict[str, Callable[[RunMaterial], str | None]] = {
     "the_server_saw_the_kin_stop_after_the_move": the_server_saw_the_kin_stop_after_the_move,
     "runtime_controller_sigkill_was_confirmed": runtime_controller_sigkill_was_confirmed,
     "server_jvm_sigkill_was_confirmed": server_jvm_sigkill_was_confirmed,
+    "client_jvm_sigkill_was_confirmed": client_jvm_sigkill_was_confirmed,
+    "the_ledger_recorded_the_session_ending": the_ledger_recorded_the_session_ending,
     "the_server_log_has_no_graceful_shutdown": the_server_log_has_no_graceful_shutdown,
     "the_ledger_recorded_world_loss": the_ledger_recorded_world_loss,
     "the_bridge_released_input_when_play_ended": the_bridge_released_input_when_play_ended,

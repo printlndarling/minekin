@@ -59,6 +59,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import fault_injection
 from fault_injection import (
     AMBIGUOUS,
+    CLIENT_JVM,
     DELIVERED,
     FAILED,
     IDENTITY_DISAPPEARED,
@@ -68,9 +69,10 @@ from fault_injection import (
     PROC_ENTRY_ABSENT,
     PROC_PID_REUSED,
     PROC_STATE_ZOMBIE,
+    ROLES,
     RUNTIME_CONTROLLER,
-    SERVER_JVM,
     SIGKILL,
+    SUPERVISOR_FOR_ROLE,
     FaultInjectionError,
 )
 
@@ -92,8 +94,10 @@ MAX_DESCENDANTS = 4096
 #: that fails on the test host would leave those decisions untested.
 SIGKILL_NUMBER = 9
 
-#: The role a supervisor play in the record, from the role of its target.
-_SUPERVISOR_ROLE = {RUNTIME_CONTROLLER: "runtime_controller_root", SERVER_JVM: "server_jvm_root"}
+#: The role a supervisor plays in the record, from the role of its target. The
+#: pairing itself lives with the record's vocabulary, because the reader checks a
+#: record against the same map this writes it from.
+_SUPERVISOR_ROLE = SUPERVISOR_FOR_ROLE
 
 #: What an observation of the target found. `ALIVE` is not in the record's
 #: vocabulary: it is the state that keeps the poll going.
@@ -386,11 +390,38 @@ def _is_server_jvm(argv: Sequence[str], exe_path: str) -> bool:
     return is_java and launches_server
 
 
+#: Where the managed client's main class sits in its argv: `process.py` builds the
+#: command line as `(*jvm_args, main_class, *game_args)`, so the Fabric entrypoint
+#: is always an argv element of its own rather than a fragment of one. The plan
+#: itself pins this name (`metadata.FABRIC_MAIN_CLASS`), so matching it here is
+#: matching the same reviewed constant the launcher uses.
+CLIENT_MAIN_CLASS = "net.fabricmc.loader.impl.launch.knot.KnotClient"
+
+
+def _is_client_jvm(argv: Sequence[str], exe_path: str) -> bool:
+    """The managed Minecraft client — the JVM the Fabric Bridge runs inside.
+
+    Distinguished from the dedicated server by the main class rather than by the
+    absence of `-jar`: the two are both `java` processes under different roots,
+    and a predicate that said "java and not the server" would match anything else
+    Java-shaped that happened to be in the subtree.
+    """
+
+    names = [Path(exe_path).name] if exe_path else []
+    if argv:
+        names.append(Path(argv[0]).name)
+    if not any(name in ("java", "javaw") for name in names):
+        return False
+    return CLIENT_MAIN_CLASS in argv
+
+
 def identity_matches_role(identity: ProcIdentity, role: str) -> bool:
     """Apply the role predicate to one already captured identity snapshot."""
 
     if role == RUNTIME_CONTROLLER:
         return _is_runtime_controller(identity.cmdline)
+    if role == CLIENT_JVM:
+        return _is_client_jvm(identity.cmdline, identity.exe_path)
     return _is_server_jvm(identity.cmdline, identity.exe_path)
 
 
@@ -403,6 +434,11 @@ def matches_role(procfs: Procfs, pid: int, role: str) -> bool:
         # never reads an identity: the target's identity is read exactly twice,
         # once to record it and once to re-check it before the signal.
         return _is_runtime_controller(argv)
+    if role == CLIENT_JVM:
+        # The client's predicate needs the executable name as well, so this reads
+        # one link — and only to ask whether the process is a JVM at all. The
+        # identity that is recorded and re-checked is still read separately.
+        return _is_client_jvm(argv, procfs.read_link(pid, "exe") or "")
     return _is_server_jvm(argv, procfs.read_link(pid, "exe") or "")
 
 
@@ -894,7 +930,7 @@ def _inject_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--root-pid", type=int, required=True)
     parser.add_argument("--root-starttime-ticks", type=int, required=True)
     parser.add_argument("--root-pid-namespace-inode", required=True)
-    parser.add_argument("--role", choices=[RUNTIME_CONTROLLER, SERVER_JVM], required=True)
+    parser.add_argument("--role", choices=list(ROLES), required=True)
     parser.add_argument("--case", default="", help="the reviewed case, or empty for none")
     parser.add_argument("--case-file", type=Path, default=None)
     parser.add_argument("--ledger", type=Path, required=True)
