@@ -48,7 +48,9 @@ from minekin_core.adapters.launcher.server_profile import ServerProfile, load_se
 from minekin_core.cli.evidence import bundle_directory
 from minekin_core.cli.init import run_root
 from minekin_core.domain.evidence import (
+    DEDICATED_WORLD,
     EMPTY_DOCUMENT_SHA256,
+    LAN_WORLD,
     NO_WORLD,
     Assertions,
     EvidenceManifest,
@@ -82,10 +84,11 @@ ASSERTER = Path(__file__).with_name("assert_case_evidence.py")
 #: The world a dedicated server run creates. A LAN run would have to say so; the
 #: contract admits exactly these two, and "dedicated" is what the harness this
 #: seals for starts.
-#: The three kinds the contract names. `none` says the run had no world at all; a
-#: Kin-hosted integrated world is `lan`, whether or not it was published.
-DEDICATED = "dedicated"
-LAN = "lan"
+#: The contract's kind names, asked for rather than restated: the domain owns the
+#: vocabulary of what a bundle may say, and a second copy here would be a second place
+#: to change when it grows a kind.
+DEDICATED = DEDICATED_WORLD
+LAN = LAN_WORLD
 
 _SEED = re.compile(r"^level-seed=(.*)$", re.MULTILINE)
 
@@ -353,11 +356,15 @@ def _world_record(
             "the run hosted a world but its document does not name the world's settings"
         )
     digest = hosted.get("digest")
-    return _WorldRecord(
-        kind=LAN,
-        config_digest=settings,
-        name=digest if isinstance(digest, str) else NO_WORLD,
-    )
+    if not isinstance(digest, str) or len(digest) != 64:
+        # The same rule as the settings above, for the other field: a real kind with
+        # `none` where the world's name belongs is the escape hatch the contract warns
+        # about, and it is refused here rather than sealed into a bundle that says a
+        # world was published and cannot say which.
+        raise Unsealable(
+            "the run hosted a world but its document does not name the world's bytes"
+        )
+    return _WorldRecord(kind=LAN, config_digest=settings, name=digest)
 
 
 def build_manifest(

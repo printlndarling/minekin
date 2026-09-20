@@ -822,3 +822,20 @@ def test_a_dedicated_run_still_records_the_profile_and_the_world_it_generated() 
 
     assert record.kind == "dedicated"
     assert record.config_digest == profile.revision
+
+
+def test_a_hosted_world_whose_bytes_are_not_named_is_refused() -> None:
+    """`lan` with no world named is the escape hatch the contract warns about.
+
+    The same rule as the settings above, for the other field: a bundle that says a
+    world was published and cannot say which one is a bundle nobody can reproduce.
+    """
+
+    document = hosted_run()
+    cast(dict[str, object], document["run"])["world_snapshot"] = {
+        "level_name": "kinworld",
+        "settings_digest": SETTINGS_DIGEST,
+    }
+
+    with pytest.raises(SEALER.Unsealable, match="does not name the world's bytes"):
+        SEALER._world_record(None, None, document, USERNAME)

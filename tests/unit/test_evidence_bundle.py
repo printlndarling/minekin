@@ -287,7 +287,11 @@ def test_a_pass_that_observed_nothing_is_still_not_sealable() -> None:
 def test_a_run_that_joined_no_world_records_the_absence_and_seals(bundle_dir: Path) -> None:
     """The contract's third kind: what a run with no server at all leaves behind."""
 
-    without_a_world = manifest(world_kind=NO_WORLD, server_config_digest=EMPTY_DOCUMENT_SHA256)
+    without_a_world = manifest(
+        world_kind=NO_WORLD,
+        server_config_digest=EMPTY_DOCUMENT_SHA256,
+        seed_or_snapshot_id=NO_WORLD,
+    )
 
     written = write_bundle(bundle_dir, without_a_world, artifacts())
 
@@ -311,8 +315,28 @@ def test_a_world_record_that_contradicts_itself_is_refused() -> None:
         EvidenceViolation.WORLD_RECORD_INCONSISTENT
         in manifest(server_config_digest=EMPTY_DOCUMENT_SHA256).violations()
     )
+    # A real kind with no world named is the same escape hatch wearing the other
+    # field: a bundle that says a world was published and cannot say which.
+    assert (
+        EvidenceViolation.WORLD_RECORD_INCONSISTENT
+        in manifest(seed_or_snapshot_id=NO_WORLD).violations()
+    )
     # And the plain case is not a violation.
     assert EvidenceViolation.WORLD_RECORD_INCONSISTENT not in manifest().violations()
+
+
+def test_a_world_kind_the_contract_does_not_name_is_refused() -> None:
+    """The field looks closed and is not: it is free text until something checks it.
+
+    A kind nobody can classify is a bundle whose world block cannot be compared with
+    anything — including with another bundle of the same case.
+    """
+
+    for unknown in ("LAN", "lan_hosted", "", "none "):
+        violations = manifest(world_kind=unknown).violations()
+
+        assert EvidenceViolation.WORLD_KIND_UNKNOWN in violations, unknown
+    assert EvidenceViolation.WORLD_KIND_UNKNOWN not in manifest().violations()
 
 
 def test_an_incomplete_bundle_without_a_comparison_is_sealable(bundle_dir: Path) -> None:

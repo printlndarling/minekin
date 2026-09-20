@@ -653,6 +653,11 @@
   - **顺手补了一个冻结规则的口子**：`tests/fixtures/manifest.sha256` 原来只冻结 `**/*.json`，二进制世界**没有任何 pin**；而且它的摘要函数对**所有**文件做 CRLF→LF 归一化——对一个 gzip blob 做那种事，等于让摘要回答「这次 checkout 是不是在 Windows 上做的」而不是「这是不是那个世界」。现在 `tests/fixtures/saves/**/*.dat` 进冻结集，并且**摘要按原字节算**（不是合法 UTF-8 就不归一化）——这正是仓库里 Bridge 源码树当年用后缀白名单踩过的那个坑，所以照它的说法写进了注释。
   - **fixture 旁边有一份 README** 说明它是什么、为什么能只有 1.6 KiB、以及**怎么重新生成**（跑一次受控服务端，取它生成世界的 `level.dat`）：重新生成意味着**换一份 fixture 和一个新 pin，而不是就地改**。case 的 `inputs` 也把它列上了。
   - **仍然开着的**：`world.kind` 的取值没有按契约的三个名字校验（只查「是不是 none」）；`HOST-030` 的 `work_package: W90` 仍是占位；join 那一半（第二个会话）还没有 harness 形状。
+- [x] **世界块那条「看起来是枚举、其实是自由文本」的口子堵上了，两个方向的逃逸口都拒绝。** `world.kind` 原来只有「是不是 `none`」被检查——写成 `LAN`、`lan_hosted`、`"none "` 都照封不误，而这样的 bundle 的世界**没人能分类**，也就没法与任何东西比较（包括同一个 case 的另一份 bundle）。现在契约的三个名字（`dedicated`/`lan`/`none`）进了 domain（`WORLD_KINDS`），不认识的 kind 报 `WORLD_KIND_UNKNOWN`；封存端也从 domain **问**这三个名字而不是自己重述一遍。
+  - **第二个逃逸口是同一形状的另一个字段**：`seed_or_snapshot_id` 原来只跟着 `kind` 走，于是 `kind: lan` 配 `seed_or_snapshot_id: none` 能封出一份「说了有世界、却说不清是哪个世界」的证据。现在这条字段与配置摘要用同一条规则——`none` 与 `kind: none` **互为充要**，两个字段任一不合就 `WORLD_RECORD_INCONSISTENT`。封存端这边更早一步：宿主世界**必须在文档里被指名**（`digest` 是 64 位十六进制），否则**拒绝封存**，而不是拿 `none` 顶上。
+  - **新规则立刻抓到了一处测试里的不一致**：`test_a_run_that_joined_no_world_records_the_absence_and_seals` 原来构造的是「`kind: none` 但 `seed_or_snapshot_id: snapshot-01`」——一份自相矛盾的 no-world bundle，而它此前一直是绿的。这正是这条不变式该干的事。
+  - **实测**：1380 条测试、ruff/format/pyright、fixture digests 全绿；用仓库里那份世界 fixture 重跑 `HOST-030` 仍然 `the case verdict is PASS`（更严的规则没有误伤生产路径）。
+  - **仍然开着的**：`HOST-030` 的 `work_package: W90` 是占位；join 那一半（第二个会话）还没有 harness 形状；宿主用的世界 fixture 虽然进了仓库，但它**只在受控服务端里验过**（`level.dat` 单文件成世界这件事量过），没有一条断言在读 `server_config_digest` 是否等于那份 fixture 的摘要。
 - [ ] **要真去开一次 LAN，缺的是模块而不是调用**：契约把这件事放在独立的 `bridge-host-control`（创建/加载/保存/LAN/关闭的窄 adapter），并明令 `bridge-client-core` 与观察/导航模块**不得**引用 `IntegratedServer`、`getServer()` 或 `net.minecraft.server..`——而 `bridge-host-control` 现在还不存在。所以下一步是**先把这个窄 adapter 建出来**（连同它自己的源码依赖门禁、构建产物门禁），再谈"发一条命令让它开 LAN"。**刻意不先做的**：在没有那个模块的时候从别处临时反射调用一次——那正好是契约禁止的那条路，而且量出来的东西不能代表 adapter 建好之后的形状。
 
 ## W70 之后

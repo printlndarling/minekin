@@ -16,11 +16,20 @@ from typing import Final
 
 EVIDENCE_SCHEMA: Final[str] = "minekin.p0.evidence.v1"
 
+#: The kinds the validation contract names, and the whole of what a bundle may say
+#: about the world it had. A dedicated server, an integrated world the Kin hosted or
+#: joined, and no world at all. Anything else is a record nobody can read back: the
+#: field would be free text that merely looks closed.
+DEDICATED_WORLD: Final[str] = "dedicated"
+LAN_WORLD: Final[str] = "lan"
+
 #: What a run that joined no world records where a server configuration would go.
 #: It is the digest of the empty document: still a valid digest, so it cannot be
 #: confused with the failure of a *missing* digest, and impossible to produce from
 #: any real configuration. See the validation contract, `world.kind: "none"`.
 NO_WORLD: Final[str] = "none"
+
+WORLD_KINDS: Final = (DEDICATED_WORLD, LAN_WORLD, NO_WORLD)
 EMPTY_DOCUMENT_SHA256: Final[str] = (
     "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 )
@@ -48,6 +57,7 @@ class EvidenceViolation(StrEnum):
     PASS_WITH_FAILURES = "PASS_WITH_FAILURES"
     FAILURE_WITHOUT_REASON = "FAILURE_WITHOUT_REASON"
     WORLD_RECORD_INCONSISTENT = "WORLD_RECORD_INCONSISTENT"
+    WORLD_KIND_UNKNOWN = "WORLD_KIND_UNKNOWN"
 
 
 @dataclass(frozen=True, slots=True)
@@ -149,13 +159,22 @@ class EvidenceManifest:
         has_comparison = bool(self.assertions.expected) and bool(self.assertions.observed)
         if claims and not has_comparison:
             found.add(EvidenceViolation.RESULT_NEEDS_ASSERTIONS)
-        # `kind: "none"` says this run joined no world at all, and then the only
-        # digest it may carry is the digest of nothing — and the other way round,
-        # so a real kind cannot borrow the empty digest to sidestep the
-        # server-configuration requirement. A value that could be paired with
-        # anything would be an escape hatch rather than a record of absence.
+        # The kind is one of three names the contract fixes. An unrecognised one is
+        # refused rather than carried: a bundle whose world nobody can classify is a
+        # bundle whose world block cannot be compared with anything.
+        if self.world_kind not in WORLD_KINDS:
+            found.add(EvidenceViolation.WORLD_KIND_UNKNOWN)
+        # `kind: "none"` says this run had no world at all, and then the only digest it
+        # may carry is the digest of nothing while its seed-or-snapshot name is `none`
+        # — and the other way round, so a real kind cannot borrow either to sidestep
+        # the world requirements. A value that could be paired with anything would be
+        # an escape hatch rather than a record of absence, and that goes for the name
+        # of the world as much as for its configuration: `lan` with no world named is
+        # a claim that something was published and nothing can be said about it.
         absent = self.server_config_digest == EMPTY_DOCUMENT_SHA256
-        if (self.world_kind == NO_WORLD) != absent:
+        no_kind = self.world_kind == NO_WORLD
+        unnamed = self.seed_or_snapshot_id == NO_WORLD
+        if (no_kind != absent) or (no_kind != unnamed):
             found.add(EvidenceViolation.WORLD_RECORD_INCONSISTENT)
 
         if self.result is EvidenceResult.PASS and self.assertions.failures:
