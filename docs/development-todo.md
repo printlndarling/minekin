@@ -658,6 +658,12 @@
   - **新规则立刻抓到了一处测试里的不一致**：`test_a_run_that_joined_no_world_records_the_absence_and_seals` 原来构造的是「`kind: none` 但 `seed_or_snapshot_id: snapshot-01`」——一份自相矛盾的 no-world bundle，而它此前一直是绿的。这正是这条不变式该干的事。
   - **实测**：1380 条测试、ruff/format/pyright、fixture digests 全绿；用仓库里那份世界 fixture 重跑 `HOST-030` 仍然 `the case verdict is PASS`（更严的规则没有误伤生产路径）。
   - **仍然开着的**：`HOST-030` 的 `work_package: W90` 是占位；join 那一半（第二个会话）还没有 harness 形状；宿主用的世界 fixture 虽然进了仓库，但它**只在受控服务端里验过**（`level.dat` 单文件成世界这件事量过），没有一条断言在读 `server_config_digest` 是否等于那份 fixture 的摘要。
+- [x] **harness 现在能同时跑两个客户端：一个 Kin 开世界，另一个 Kin 连进去——而「到了」和「看见了」被区分开了。** `MINEKIN_DOMAIN_JOIN=<kin-id>`（用户名由 `MINEKIN_DOMAIN_JOIN_USERNAME` 给，默认 `Kin2`）：harness 先备好第二个 Kin 的环境（`init` 出这个 Kin、把宿主的 artifact store **拷**给它——store 拒绝软链、profile 按被指名端口生成），等宿主把世界开出去，再在第二个 X display 上起第二个会话，然后**等两件事**：宿主的世界听见它到了、以及**它自己的账本**说首快照被准入。实测：
+  `domain: the world is published on 25570` → `domain: the world heard Kin2 arrive` → `domain: Kin2 admitted its first snapshot of that world` → `domain: the joining client ended with {'connection_state': 'PLAYABLE', 'snapshots_admitted': 1, 'entities_admitted': 14}`，而宿主的日志里 `Kin2 joined the game` / `lost connection` / `Kin2 left the game` 三行齐全（joiner 先停，所以世界对「离开」有话说）。
+  - **这一步自己顶出来两条，都是「等待等错了东西」**：
+    - **「世界听见它到了」不等于「那个客户端能看见了」**：只等前者就停，某轮 joiner 以 `PLAY_INIT`、`snapshots_admitted: 0` 结束——契约要的是首快照被准入，所以现在还要等 joiner **自己账本**里的 `PlayableEstablished`。
+    - **而那条账本查询第一版写漏了范围**：`select ... where event_type='PlayableEstablished' limit 1` 读的是**整条账本**，于是它命中了**这个 Kin 更早一次运行**留下的行——harness 宣布「它准入了首快照」，而同一个客户端自己的 run document 说 `snapshots_admitted: 0`。**两份记录当场对不上，这才是发现它的方式**。修法与 harness 其他等待一致：启动前先记下账本最大 `position`，查询加 `position > baseline`。这与本文件里早就写下的那条教训是同一个形状（「`head -1` 会把一个 Kin 的库读成另一个的」），只是这次错在**同一条账本的不同运行之间**。
+  - **仍然没有的**：**L3 还不是可封存的 case**。harness 一份 bundle 只封一次运行，而这一轮有**两份** run document（宿主与 joiner），「case 说的是哪一份、世界的账从哪来」是个要先定的设计问题（候选：以 joiner 为 case 的运行，用宿主的日志/`usercache.json` 当「世界那一侧」的第三方账——但 sealer 现在只认 dedicated server 的目录形状）。`HOST-030` 的 `work_package: W90` 仍是占位。
 - [ ] **要真去开一次 LAN，缺的是模块而不是调用**：契约把这件事放在独立的 `bridge-host-control`（创建/加载/保存/LAN/关闭的窄 adapter），并明令 `bridge-client-core` 与观察/导航模块**不得**引用 `IntegratedServer`、`getServer()` 或 `net.minecraft.server..`——而 `bridge-host-control` 现在还不存在。所以下一步是**先把这个窄 adapter 建出来**（连同它自己的源码依赖门禁、构建产物门禁），再谈"发一条命令让它开 LAN"。**刻意不先做的**：在没有那个模块的时候从别处临时反射调用一次——那正好是契约禁止的那条路，而且量出来的东西不能代表 adapter 建好之后的形状。
 
 ## W70 之后

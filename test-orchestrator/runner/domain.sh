@@ -91,6 +91,15 @@ use_target="${MINEKIN_DOMAIN_USE_TARGET:-}"
 # chooses its own port reports it only in a run document that is printed at the end.
 open_lan="${MINEKIN_DOMAIN_OPEN_LAN:-}"
 lan_port="${MINEKIN_DOMAIN_LAN_PORT:-25570}"
+# A second managed client that joins the world the first one published. It is a second
+# *Kin* and not a second session of the same one, because the identity is the username:
+# the same Kin arriving twice is a duplicate login the server kicks.
+#
+# The port has to be named for this to mean anything: the joining client is configured
+# by a server profile whose port is a literal, and a port the hosting client chose for
+# itself is only reported in a run document printed when that run has ended.
+joiner="${MINEKIN_DOMAIN_JOIN:-}"
+join_username="${MINEKIN_DOMAIN_JOIN_USERNAME:-Kin2}"
 # How often the server is asked about the Kin. A look is over within a second
 # of the join, so a run that wants a reading on both sides of it asks more
 # often than the default — the pair is what shows a heading changed.
@@ -396,6 +405,160 @@ fi
 # the client through a path that has nothing to do with the session. Measured —
 # the client's stderr said `X connection to :99 broken`.
 set +e
+# The second client's environment, before anything starts: its Kin, its artifact store,
+# and the profile it will dial. All three are preparation rather than the run — the
+# second Kin exists so its identity differs from the host's, and the store is a *copy*
+# because the store refuses to have its root be a symlink, so linking it is not an
+# option the fixture gets to take.
+join_ready=0
+if [ -n "${joiner}" ]; then
+    if [ -z "${open_lan}" ]; then
+        printf 'domain: a joiner needs a world to join; set MINEKIN_DOMAIN_OPEN_LAN=1\n' >&2
+        exit 2
+    fi
+    # Named rather than picked: with a second Kin in the root, "the first directory"
+    # is a coin toss, and copying the wrong store would surface as a missing artifact
+    # much later in the run.
+    host_kin="${MINEKIN_KIN_ID:-}"
+    if [ -z "${host_kin}" ]; then
+        printf 'domain: a joining run must name the hosting Kin (MINEKIN_KIN_ID)\n' >&2
+        exit 2
+    fi
+    if [ ! -d "/data/kin/${joiner}" ]; then
+        if ! MINEKIN_USERNAME="${join_username}" python -m minekin_core init \
+            --kin-id "${joiner}" >>/tmp/domain-join-setup.log 2>&1; then
+            printf 'domain: could not create the joining Kin %s (see /tmp/domain-join-setup.log)\n' \
+                "${joiner}" >&2
+            exit 2
+        fi
+        printf 'domain: the joining Kin %s was created as %s\n' "${joiner}" "${join_username}" >&2
+    fi
+    mkdir -p "/data/kin/${joiner}/run"
+    if [ -L "/data/kin/${joiner}/run/artifact-store" ]; then
+        # Left by an attempt that linked it; `-d` follows a link, so the copy below
+        # would be skipped and the refusal would come back looking like the same bug.
+        rm -f "/data/kin/${joiner}/run/artifact-store"
+    fi
+    if [ ! -d "/data/kin/${joiner}/run/artifact-store" ]; then
+        cp -a "/data/kin/${host_kin}/run/artifact-store" \
+            "/data/kin/${joiner}/run/artifact-store" ||
+            {
+                printf 'domain: could not give the joining Kin an artifact store\n' >&2
+                exit 2
+            }
+    fi
+    python - "${lan_port}" /tmp/domain-join-profile.json <<'PY'
+import json
+import sys
+
+port, path = int(sys.argv[1]), sys.argv[2]
+profile = {
+    "schema_version": 1,
+    "profile_id": "p0-lan-host-fixture",
+    "host": "127.0.0.1",
+    "port": port,
+    "auth_mode": "offline",
+    "minecraft_version": "1.21.4",
+    "visibility": "isolated_test_only",
+    "resource_pack_policy": "deny",
+}
+with open(path, "w", encoding="utf-8") as document:
+    document.write(json.dumps(profile, indent=2) + "\n")
+PY
+    join_ready=1
+fi
+
+# Start the second client against the world the first one published, and wait for the
+# *world* to say somebody arrived. The joiner's own document is what that client
+# believes happened; the hosting client's server thread is the side that cannot be
+# talked into it, and that is the fact L3 is about — one real client joining another's
+# published world.
+join_the_published_world() {
+    local host_log="$1"
+    local before
+    local overlay
+    local joined=0
+    local deadline
+    local baseline
+    local recorded
+    local playable
+    before=$(ls "/data/kin/${joiner}/run/session/" 2>/dev/null | sort)
+    # Where the joining Kin's ledger stood before this client started. Every wait in
+    # this harness reads only its own run, and this one learned why the hard way: an
+    # unscoped query found the `PlayableEstablished` of an *earlier* run of the same
+    # Kin, so the harness announced a first snapshot the joining client's own document
+    # said it had never admitted.
+    baseline=$(/opt/sqlite/bin/sqlite3 "/data/kin/${joiner}/kin.sqlite3" \
+        "select coalesce(max(position), 0) from event;" 2>/dev/null || echo 0)
+    baseline=${baseline:-0}
+    xvfb-run -a --server-args="-screen 0 1280x720x24" \
+        env MINEKIN_KIN_ID="${joiner}" python -m minekin_core session start \
+        --profile "${profile}" \
+        --server-profile /tmp/domain-join-profile.json \
+        >/tmp/domain-join-session.json 2>/tmp/domain-join-session.err &
+    joiner_pid=$!
+    deadline=$((SECONDS + seconds))
+    for _ in $(seq 1 "${seconds}"); do
+        kill -0 "${joiner_pid}" 2>/dev/null || break
+        [ "${SECONDS}" -lt "${deadline}" ] || break
+        if grep -q "${join_username} joined the game" "${host_log}" 2>/dev/null; then
+            joined=1
+            break
+        fi
+        sleep 1
+    done
+    if [ "${joined}" -eq 1 ]; then
+        printf 'domain: the world heard %s arrive\n' "${join_username}" >&2
+    else
+        printf 'domain: %s never arrived within %ss\n' "${join_username}" "${seconds}" >&2
+        tr -d '\n' </tmp/domain-join-session.err >&2 || true
+        printf '\n' >&2
+    fi
+    # Being *playable* is the joining client's own conclusion about the first snapshot
+    # it admitted, and the ledger is where this harness reads conclusions. Measured:
+    # stopping as soon as the world heard the arrival ended one run at `PLAY_INIT` with
+    # no snapshot admitted at all, which is the difference between arriving somewhere
+    # and being able to see it.
+    deadline=$((SECONDS + seconds))
+    playable=0
+    for _ in $(seq 1 "${seconds}"); do
+        [ "${SECONDS}" -lt "${deadline}" ] || break
+        recorded=$(/opt/sqlite/bin/sqlite3 "/data/kin/${joiner}/kin.sqlite3" \
+            "select 1 from event where position > ${baseline} and \
+event_type='PlayableEstablished' limit 1;" \
+            2>/dev/null || true)
+        if [ -n "${recorded}" ]; then
+            playable=1
+            break
+        fi
+        sleep 1
+    done
+    if [ "${playable}" -eq 1 ]; then
+        printf 'domain: %s admitted its first snapshot of that world\n' "${join_username}" >&2
+    else
+        printf 'domain: %s arrived but never became playable within %ss\n' \
+            "${join_username}" "${seconds}" >&2
+    fi
+    # What the joining client itself reports, read from the overlay this run created
+    # rather than from the newest one on disk.
+    overlay=""
+    for _ in $(seq 1 30); do
+        fresh=$(comm -13 <(printf '%s\n' "${before}") \
+            <(ls "/data/kin/${joiner}/run/session/" 2>/dev/null | sort) | head -1)
+        if [ -n "${fresh}" ]; then
+            candidate="/data/kin/${joiner}/run/session/${fresh}/generation-1"
+            [ -f "${candidate}/logs/latest.log" ] && { overlay="${candidate}"; break; }
+        fi
+        sleep 1
+    done
+    if [ -n "${overlay}" ]; then
+        printf 'domain: the joining client reports:\n' >&2
+        grep -E "CONNECTION_PHASE_JOIN_SEEN|knows of [0-9]+ entity candidate" \
+            "${overlay}/logs/latest.log" 2>/dev/null | tail -3 |
+            sed 's/^/domain:   /' >&2 || true
+    fi
+}
+
 # The logs that exist before this session starts. A host run has to watch the client's
 # own log (see the wait below), and the newest log on disk is the one the *last* run
 # wrote — which is a mistake this harness has already made once in another form.
@@ -582,6 +745,9 @@ elif [ -n "${open_lan}" ]; then
     done
     if [ "${published}" -eq 1 ]; then
         printf 'domain: the world is published on %s (%s)\n' "${lan_port}" "${latest}" >&2
+        if [ "${join_ready}" -eq 1 ]; then
+            join_the_published_world "${latest}"
+        fi
     else
         printf 'domain: nothing was published on %s within %ss\n' "${lan_port}" "${seconds}" >&2
     fi
@@ -1211,6 +1377,39 @@ printf 'domain: stopping the session\n' >&2
 # Its answer is kept in the log rather than discarded. A stop that did nothing is
 # the difference between "the session ended by itself" and "the harness failed to
 # end it", and those two look identical from the outside.
+# The joining client is stopped first, so the world that hosted it has something to say
+# about its leaving: a visitor still connected when the host goes is a different fact
+# from one that left.
+if [ -n "${joiner_pid:-}" ]; then
+    MINEKIN_KIN_ID="${joiner}" python -m minekin_core session stop \
+        >/tmp/domain-join-stop.json 2>&1 || true
+    for _ in $(seq 1 60); do
+        kill -0 "${joiner_pid}" 2>/dev/null || break
+        sleep 1
+    done
+    kill -0 "${joiner_pid}" 2>/dev/null && kill -TERM "${joiner_pid}" 2>/dev/null || true
+    wait "${joiner_pid}" 2>/dev/null || true
+    printf 'domain: the joining session has stopped\n' >&2
+    # What that client's own run document says, printed here because the document is
+    # written when its session ends and it lives in this container's /tmp: the harness
+    # seals one run per bundle, and which of the two runs a case is about is a
+    # question for the case rather than for this script.
+    if [ -s /tmp/domain-join-session.json ]; then
+        python - /tmp/domain-join-session.json <<'PY' >&2 || true
+import json
+import sys
+
+document = json.load(open(sys.argv[1], encoding="utf-8"))
+run = document["run"]
+facts = {
+    key: run.get(key)
+    for key in ("outcome", "connection_state", "snapshots_admitted", "entities_admitted")
+}
+print(f"domain: the joining client ended with {facts}")
+PY
+    fi
+fi
+
 python -m minekin_core session stop >/tmp/domain-stop.log 2>&1 || true
 printf 'domain: session stop said ' >&2
 tr -d '\n' </tmp/domain-stop.log >&2 || true

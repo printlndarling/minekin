@@ -95,6 +95,7 @@ if [[ "${1:-}" == "domain" ]]; then
         -e MINEKIN_DOMAIN_BLACK_HOLE
         -e MINEKIN_DOMAIN_NOT_WHITELISTED
         -e MINEKIN_DOMAIN_USE_TARGET -e MINEKIN_DOMAIN_OPEN_LAN -e MINEKIN_DOMAIN_LAN_PORT
+        -e MINEKIN_DOMAIN_JOIN -e MINEKIN_DOMAIN_JOIN_USERNAME
         -e MINEKIN_DOMAIN_SECONDS)
     if [[ "${world}" -eq 1 ]]; then
         EXTRA_ARGS+=(-v "${SERVER_JAR}:/server/server.jar:ro")
