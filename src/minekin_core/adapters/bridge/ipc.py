@@ -584,8 +584,12 @@ def _write_descriptor_once(path: Path, descriptor: session_pb2.BridgeBootstrapDe
     path = path.resolve()
     path.parent.mkdir(parents=True, exist_ok=True)
     flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
-    if hasattr(os, "O_BINARY"):
-        flags |= os.O_BINARY
+    # Windows needs `O_BINARY` so the C runtime does not translate line endings in a
+    # descriptor written through `os.open`; Linux has neither the flag nor the problem.
+    # Looked up rather than referenced, because the attribute only exists on Windows —
+    # and the strict typing gate runs on Linux, where `os.O_BINARY` is not a name at
+    # all, so `hasattr` guards the runtime and does nothing for the reader.
+    flags |= getattr(os, "O_BINARY", 0)
     descriptor_bytes = descriptor.SerializeToString(deterministic=True)
     descriptor_fd = os.open(path, flags, 0o600)
     try:
