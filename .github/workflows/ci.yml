@@ -58,6 +58,8 @@ jobs:
       - uses: astral-sh/setup-uv@v6
       - name: Verify pinned Bridge scaffold without downloading Minecraft
         run: uv run --no-project python tools/check_bridge_scaffold.py
+      - name: Refuse server state outside the Bridge's host adapter
+        run: uv run --no-project python tools/check_bridge_host_boundary.py
       - name: Run the dependency-free Bridge protocol and adapter checks
         run: |
           javac -version

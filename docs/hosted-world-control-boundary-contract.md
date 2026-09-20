@@ -174,7 +174,7 @@ Dashboard需要玩家可见人物信息时，优先使用 client网络处理器/
 
 ### 四道门禁
 
-1. **源码依赖门禁**：模块/source set分离，禁止 server包 imports；host-control维护精确 allowlist而非整个 server包。
+1. **源码依赖门禁**：模块/source set分离，禁止 server包 imports；host-control维护精确 allowlist而非整个 server包。（2026-09-21：**这一道已实现**，`tools/check_bridge_host_boundary.py`，进 CI 的 `bridge-static` 与本地门禁清单。它按允许清单分两层：`ServerWorld`/`ServerLevel`/`ServerPlayerEntity`/`PlayerManager`/`ServerChunkManager`/`NbtIo`/`LevelStorage` 与反射逃逸（`java.lang.reflect`、`MethodHandles`、`Class.forName`、`setAccessible`、`Unsafe`）**连适配器也不许碰**——一个能读背包的适配器就是把边界挪开而不是关掉；`getServer()`、`IntegratedServer`、`MinecraftServer`、`net.minecraft.server.` 只许 `org/minekin/bridge/host` 用，而且**适配器里也不许通配导入**（允许清单点名类型，通配永远不必回答「到底需要哪几个」）。扫描前先抹掉注释并保留行号，否则写在 javadoc 里的规则会把它自己判成违规——这条有用例。**第 2 道（构建产物门禁）仍未实现**，见下。
 2. **构建产物门禁**：扫描 class constant pool/调用引用、mixin JSON、access widener、entrypoint和打包依赖；出现 denylisted owner/method或生产 test probe即构建失败。
 3. **运行时路由门禁**：每个 DTO带 `information_class=PLAYER_EQUIVALENT|MANAGEMENT_ONLY|TEST_ORACLE`；只有第一类能进入人物认知路径。
 4. **黑盒泄漏门禁**：在 server侧放置客户端不可见的实体、方块、容器和玩家位置 canary；检索 Bridge IPC、Runtime事件、Memory、prompt、工具参数和 Dashboard API。任何未授权命中均失败。
@@ -227,7 +227,7 @@ HOST_RECOVERY_REQUIRED
   - **失败是无声的。** 整个方法体罩在一张 `catch (IOException)` 里（异常表 `0..164 -> 165`），catch 只做 `return false`，**一行日志都不打**。"开 LAN 失败"因此在客户端日志里没有任何痕迹；`HOST_LAN_OPEN_FAILED` 不是礼貌，它是唯一会说这件事的地方。
   - **它顺带改权威状态**：设置游戏模式字段、放开 cheats、抬高宿主玩家的权限级。这与 `HOSTCTL-010` 直接相关——开 LAN 这个动作自己就在动有效档，所以"聊天/网页不得越权改档"的门禁要把这条路径也算进去，而不是只盯着提案入口。
   - **仍未做的**：真实线程名/时间线与 `isOnThread` 结果、端口实际绑到哪里、以及一次失败的 `openToLan` 在真实运行里长什么样——这些要等 `bridge-host-control` 里那个 adapter 真的存在之后才量得到。**静态读出来的东西不能当成运行证据**，这也是它留在这里而不是被划掉的原因；
-- class/mixin/access-widener扫描器的实现工具和映射名归一化；
+- class/mixin/access-widener扫描器的实现工具和映射名归一化；（2026-09-21 区分：**第 1 道门禁——源码依赖——已经实现**（`tools/check_bridge_host_boundary.py`），它管的是「谁能写出这些名字」；**第 2 道门禁——构建产物扫描——仍未实现**，它管的是「编出来的 class 常量池里有没有这些引用、mixin JSON/access widener/entrypoint/打包依赖里有没有生产 test probe」。两者不能互相代替：源码门禁看不见依赖树带进来的东西，产物门禁看不见一行被注释掉的意图。映射名归一化也仍未做。）
 - integrated-server canary fixture怎样在不污染 Kin数据面的测试域中注入。
 
 这些是明确实验项，不是无依据承诺。它们不阻断先完成 `JOIN_REMOTE p0-core`；当前项目仍未进入正式开发。

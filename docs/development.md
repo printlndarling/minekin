@@ -36,6 +36,7 @@ Bridge 协议与适配器可在无 Gradle、无 Minecraft 的情况下验证。�
 
 ```text
 uv run --no-project python tools/check_bridge_scaffold.py
+uv run --no-project python tools/check_bridge_host_boundary.py
 uv run --no-project python tools/check_bridge_protocol.py
 uv run --no-project python tools/check_bridge_proto_java.py
 ```

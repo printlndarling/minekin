@@ -572,6 +572,10 @@
   - **失败无声**：整个方法体罩在 `catch (IOException)` 里，catch 只 `return false`，**一行日志都没有**。所以「开 LAN 失败」在客户端日志里根本查不到，只能由 Bridge 自己说（`HOST_LAN_OPEN_FAILED` 是唯一会说这件事的地方）。
   - **它自己就在改权威状态**（游戏模式、cheats、宿主玩家权限级），这条要算进 `HOSTCTL-010` 的门禁，而不是只盯着提案入口。
 - [ ] **宿主仍未回答的一件事**：这个宿主 Kin 处在一个 Core 不知道、也没有准入过的世界里（见上一条末尾）。要让宿主成为一个可被监督的会话，`ConnectWorld` 那条路之外需要一个「Kin 自己开的世界的准入」，它的首快照从哪来、由谁判，都还没有答案。
+- [x] **契约的四道门禁里，第 1 道（源码依赖门禁）做出来了，而且它先于它要守的模块存在。** `tools/check_bridge_host_boundary.py` 扫 `bridge/src/main/java` 的**生产**源码，按两层允许清单判：`getServer()`、`IntegratedServer`、`MinecraftServer`、`net.minecraft.server.` 只许 `org/minekin/bridge/host` 用；`ServerWorld`/`ServerLevel`/`ServerPlayerEntity`/`PlayerManager`/`ServerChunkManager`/`NbtIo`/`LevelStorage` 与反射逃逸（`java.lang.reflect`、`MethodHandles`、`Class.forName`、`setAccessible`、`Unsafe`）**连适配器也不许碰**——一个能读背包的适配器只是把边界挪开而不是关掉；适配器里也**不许通配导入**。它进了 CI 的 `bridge-static` 与 `docs/development.md` 的本地门禁清单。
+  - **先于模块存在是有意的，而且端到端验过**：门禁和它要守的代码同一次落地，就没人见过它拦下东西。所以先对今天的真树跑——Bridge 现有 29 个生产文件里 `IntegratedServer|getServer()|net.minecraft.server|net.minecraft.class_` 命中数 **0**，门禁 OK；然后往真树里放一个必然违规的 `LeakProbe.java`，门禁报出 `LeakProbe.java:5 getServer()`、`:6 PlayerManager`、`:6 IntegratedServer` 并 `exit 1`；删掉它又回到 OK。**这条红/绿是这一步的主要证据**，它证的是「门禁真的在看这棵树」，而不是「工具单测通过」。
+  - **两条是给门禁自己的用例**：适配器**可以**指名 `IntegratedServer`（否则它拒绝的正是要做的活），以及**注释里写规则不算违规**（一条会因为「你解释了它」而误报的门禁，教人删掉解释）；抹注释后行号仍对得上也有一条。
+  - **它不代替第 2 道门禁**：源码门禁看不见依赖树带进来的东西（class 常量池、mixin JSON、access widener、entrypoint、打包依赖），那一道仍未实现；契约里「仍待原型冻结」那一条因此被改写成区分两者，而不是被划掉。
 - [ ] **要真去开一次 LAN，缺的是模块而不是调用**：契约把这件事放在独立的 `bridge-host-control`（创建/加载/保存/LAN/关闭的窄 adapter），并明令 `bridge-client-core` 与观察/导航模块**不得**引用 `IntegratedServer`、`getServer()` 或 `net.minecraft.server..`——而 `bridge-host-control` 现在还不存在。所以下一步是**先把这个窄 adapter 建出来**（连同它自己的源码依赖门禁、构建产物门禁），再谈"发一条命令让它开 LAN"。**刻意不先做的**：在没有那个模块的时候从别处临时反射调用一次——那正好是契约禁止的那条路，而且量出来的东西不能代表 adapter 建好之后的形状。
 
 ## W70 之后
