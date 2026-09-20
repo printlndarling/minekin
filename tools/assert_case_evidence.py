@@ -46,10 +46,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import fault_injection
 from fault_injection import (
+    DELIVERED,
     IDENTITY_DISAPPEARED,
     INJECTED,
     NO_METHOD,
     RUNTIME_CONTROLLER,
+    SERVER_JVM,
     SIGKILL,
     FaultInjectionError,
 )
@@ -99,6 +101,7 @@ _BRIDGE_PRESS = re.compile(r"bridge (?:pressed [\w.]+|applied \w+: holding \[[^\
 #: killed: `bridge released 1 input(s) after IPC_LOST`.
 IPC_LOST = "IPC_LOST"
 _BRIDGE_RELEASE = re.compile(r"released (\d+) input\(s\) after ([A-Z_]+)")
+_PLAY_ENDED_RELEASE = re.compile(r"released (\d+) input\(s\) after LEFT_PLAYABLE \(PLAY_ENDED\)")
 
 #: What the Bridge writes when it acts on a cancel. Measured in a run against a
 #: black hole, after the attempt reached `LOGIN_NEGOTIATING` and stayed there.
@@ -708,40 +711,67 @@ def _positive(value: object) -> int | None:
     return value
 
 
-def _ledger_session(material: RunMaterial) -> tuple[str, int] | None:
-    """The session and generation this run's first ledger row recorded, if it did."""
+def _coordinate(value: object) -> int | None:
+    """A session generation, whichever side of the ledger it was read from.
 
-    for recorded in material.recorded(PROCESS_STARTED):
-        session, generation = (
-            payload(recorded).get("session_id"),
-            payload(recorded).get("generation"),
-        )
-        if isinstance(session, str) and session and _positive(generation) is not None:
-            return session, cast(int, generation)
+    The row's own `generation` column is TEXT — a uint64 does not fit SQLite's
+    signed INTEGER, so the writer stores decimal text — while the payload carries
+    the same fact as a JSON number. Comparing them as they arrive would never
+    match once, so every real run would look unattributed while the unit tests,
+    which hand-build rows with an int, stayed green. The two spellings are one
+    fact, and this is the one place that knows it.
+    """
+
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return _positive(value)
+    if isinstance(value, str) and value.isascii() and value.isdigit():
+        return _positive(int(value))
     return None
 
 
-def runtime_controller_sigkill_was_confirmed(material: RunMaterial) -> str | None:
-    """The fault the harness injected, as a fact about a process rather than a claim.
+def _ledger_session(material: RunMaterial) -> tuple[str, int] | None:
+    """The session and generation this run's first ledger row recorded, if it did.
 
-    This is the one assertion in the case that is about the *harness* rather than
-    about the Kin or the world, and it is here precisely because the harness used
-    to lie about it. A run that says it killed the runtime has to have said so in
-    a record that names one process uniquely, names it as the runtime, records a
-    `SIGKILL` that was delivered, and reports the recorded identity leaving
-    `/proc` afterwards. Anything less — no record, another role, another signal,
-    an unconfirmed death — is a run that proves nothing about a lost runtime, and
-    the reason names which.
+    The row carries the coordinate twice — its own columns and the payload — and
+    both copies have to agree, because a row whose two copies disagree does not
+    say which session it belongs to.
+    """
 
-    What it does *not* ask for is a wait status: the helper is not the parent of
-    what it kills, so it cannot have one, and a record claiming one is refused
-    rather than accepted.
+    for recorded in material.recorded(PROCESS_STARTED):
+        recorded_payload = payload(recorded)
+        session = recorded_payload.get("session_id")
+        generation = _coordinate(recorded_payload.get("generation"))
+        if (
+            isinstance(session, str)
+            and session
+            and generation is not None
+            and recorded.get("session_id") == session
+            and _coordinate(recorded.get("generation")) == generation
+        ):
+            return session, generation
+    return None
 
-    The record's attribution is cross-checked against the run's own material, so
-    a kill recorded for another run cannot be presented as this one's. The ledger
-    supplies the session and generation when it carries them; when it does not,
-    there is nothing to cross against and that half is left alone rather than
-    guessed at.
+
+def _belongs_to_session(event: Mapping[str, object], session: tuple[str, int]) -> bool:
+    """Whether a ledger row is attributed to the exact session coordinate."""
+
+    return (event.get("session_id"), _coordinate(event.get("generation"))) == session
+
+
+def _confirmed_sigkill(
+    material: RunMaterial, *, expected_role: str, require_session: bool
+) -> str | None:
+    """Cross-check one SIGKILL record against the run that presents it.
+
+    Runtime and server runs use the same signed vocabulary and attribution.  The
+    role is the only distinction; keeping the checks here makes it impossible for
+    one role to quietly accept a weaker meaning of SIGKILL than the other.
+
+    A server-kill run requires the ledger session coordinate: unlike the legacy
+    runtime case, it was designed after structured fault attribution existed and
+    has no reason to accept an unbound session/generation pair.
     """
 
     record = material.fault_injection
@@ -760,13 +790,17 @@ def runtime_controller_sigkill_was_confirmed(material: RunMaterial) -> str | Non
     if target is None:
         return "NO_TARGET"
     role = target.get("role")
-    if role != RUNTIME_CONTROLLER:
+    if role != expected_role:
         return f"WRONG_TARGET_ROLE:{role}"
 
     signal = _object(record.get("signal"))
     name = None if signal is None else signal.get("name")
     if name != SIGKILL:
         return f"NOT_A_SIGKILL:{name}"
+    if signal is None or signal.get("number") != 9:
+        return f"WRONG_SIGKILL_NUMBER:{None if signal is None else signal.get('number')}"
+    if signal.get("result") != DELIVERED:
+        return f"SIGKILL_WAS_NOT_DELIVERED:{signal.get('result')}"
 
     outcome = record.get("outcome")
     if outcome != INJECTED:
@@ -799,6 +833,8 @@ def runtime_controller_sigkill_was_confirmed(material: RunMaterial) -> str | Non
         # against; without it the attribution is only the record's own word.
         return "LEDGER_UNREADABLE"
     recorded_session = _ledger_session(material)
+    if require_session and recorded_session is None:
+        return "NO_SESSION_ATTRIBUTION_IN_LEDGER"
     if (
         recorded_session is not None
         and (
@@ -811,6 +847,103 @@ def runtime_controller_sigkill_was_confirmed(material: RunMaterial) -> str | Non
             "FAULT_RECORD_IS_ANOTHER_SESSION:"
             f"{attribution.get('session_id')}/{attribution.get('generation')}"
         )
+    return None
+
+
+def runtime_controller_sigkill_was_confirmed(material: RunMaterial) -> str | None:
+    """The harness confirmed that this run's runtime-controller identity died.
+
+    This is about the harness rather than the Kin or world, and exists because an
+    older harness used to report a kill that never occurred.  The helper is not
+    the target's parent, so a claimed wait status is rejected.
+    """
+
+    return _confirmed_sigkill(material, expected_role=RUNTIME_CONTROLLER, require_session=False)
+
+
+def server_jvm_sigkill_was_confirmed(material: RunMaterial) -> str | None:
+    """The helper delivered SIGKILL to this run's exact server JVM identity."""
+
+    return _confirmed_sigkill(material, expected_role=SERVER_JVM, require_session=True)
+
+
+def the_server_log_has_no_graceful_shutdown(material: RunMaterial) -> str | None:
+    """The server's own log ended without either vanilla shutdown marker."""
+
+    if not material.server_log:
+        return "NO_SERVER_LOG"
+    for marker in ("Stopping the server", "All dimensions are saved"):
+        if marker in material.server_log:
+            return f"GRACEFUL_SHUTDOWN_LOGGED:{marker}"
+    return None
+
+
+def the_ledger_recorded_world_loss(material: RunMaterial) -> str | None:
+    """The killed session held move input in a playable world, then lost it.
+
+    The three witnesses are deliberately bound to the fault record's ledger
+    session and ordered.  Otherwise one generation's kill could borrow another
+    generation's world loss, or a lease granted after the disconnect could make
+    it look as though input was held when the server died.
+    """
+
+    if not material.ledger_readable:
+        return "LEDGER_UNREADABLE"
+    session = _ledger_session(material)
+    if session is None:
+        return "NO_SESSION_ATTRIBUTION_IN_LEDGER"
+    playable = [
+        index
+        for index, item in enumerate(material.ledger_events)
+        if item.get("event_type") == PLAYABLE_ESTABLISHED and _belongs_to_session(item, session)
+    ]
+    if not playable:
+        return "NO_PLAYABLE_WORLD_RECORDED"
+    leases = [
+        index
+        for index, item in enumerate(material.ledger_events)
+        if item.get("event_type") == INPUT_LEASE_GRANTED
+        and _belongs_to_session(item, session)
+        and payload(item).get("capability") == MOVE_CAPABILITY
+    ]
+    if not leases:
+        return "NO_MOVE_LEASE_FOR_KILLED_SESSION"
+    interrupted = [
+        (index, str(payload(item).get("phase")))
+        for index, item in enumerate(material.ledger_events)
+        if item.get("event_type") == SESSION_INTERRUPTED and _belongs_to_session(item, session)
+    ]
+    if not interrupted:
+        return "NO_WORLD_LOSS_RECORDED"
+    disconnected = [index for index, phase in interrupted if phase == "DISCONNECTED"]
+    if not disconnected:
+        phases = ",".join(sorted({phase for _, phase in interrupted}))
+        return f"INTERRUPTED_WITHOUT_WORLD_LOSS:{phases}"
+    if not any(
+        established < leased < lost
+        for established in playable
+        for leased in leases
+        for lost in disconnected
+    ):
+        return "WORLD_LOSS_SEQUENCE_INVALID"
+    return None
+
+
+def the_bridge_released_input_when_play_ended(material: RunMaterial) -> str | None:
+    """The client released a nonzero hold because it left playable state."""
+
+    if not material.client_log:
+        return "NO_CLIENT_LOG"
+    releases = _BRIDGE_RELEASE.findall(material.client_log)
+    if not releases:
+        return "RELEASE_NOT_LOGGED"
+    if not any(reason == "LEFT_PLAYABLE" for _, reason in releases):
+        return "NO_LEFT_PLAYABLE_RELEASE"
+    play_ended = _PLAY_ENDED_RELEASE.findall(material.client_log)
+    if not play_ended:
+        return "NO_PLAY_ENDED_RELEASE"
+    if not any(int(count) > 0 for count in play_ended):
+        return "HELD_NOTHING_WHEN_PLAY_ENDED"
     return None
 
 
@@ -1070,6 +1203,10 @@ ASSERTIONS: dict[str, Callable[[RunMaterial], str | None]] = {
     ),
     "the_server_saw_the_kin_stop_after_the_move": the_server_saw_the_kin_stop_after_the_move,
     "runtime_controller_sigkill_was_confirmed": runtime_controller_sigkill_was_confirmed,
+    "server_jvm_sigkill_was_confirmed": server_jvm_sigkill_was_confirmed,
+    "the_server_log_has_no_graceful_shutdown": the_server_log_has_no_graceful_shutdown,
+    "the_ledger_recorded_world_loss": the_ledger_recorded_world_loss,
+    "the_bridge_released_input_when_play_ended": the_bridge_released_input_when_play_ended,
     "the_attempt_was_abandoned_at_its_deadline": the_attempt_was_abandoned_at_its_deadline,
     "no_world_was_joined": no_world_was_joined,
     "the_cancel_reached_the_client_and_was_acted_on": (

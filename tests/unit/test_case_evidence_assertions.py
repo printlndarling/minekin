@@ -32,6 +32,7 @@ REVIEWED_CASE = CASES / "core-020.json"
 OBSERVE_ONLY_CASE = CASES / "core-010.json"
 MOVEMENT_CASE = CASES / "core-040.json"
 LOST_RUNTIME_CASE = CASES / "core-060.json"
+LOST_SERVER_CASE = CASES / "core-060-server-001.json"
 BLACK_HOLE_CASE = CASES / "admit-110.json"
 REFUSED_CASE = CASES / "admit-100.json"
 RUN_ID = "5c1f9a7b2d3e4f6089abcdef01234567"
@@ -147,12 +148,28 @@ def run_document(**run_overrides: object) -> dict[str, object]:
     }
 
 
-def event(event_type: str, **payload: object) -> Mapping[str, object]:
-    """One ledger row, carrying the fields a case reads."""
+def event(
+    event_type: str,
+    *,
+    row_session_id: str = "session-01",
+    row_generation: int | str = 1,
+    **payload: object,
+) -> Mapping[str, object]:
+    """One ledger row, carrying the fields a case reads.
+
+    The generation column is written as text, which is what the ledger really
+    holds — the writer stores the decimal string because a uint64 does not fit
+    SQLite's signed INTEGER — while the payload of the rows that carry a
+    coordinate holds the number. A fixture that wrote both as ints would let a
+    cross-check comparing them as they arrive pass here and match nothing on a
+    real run.
+    """
 
     return {
         "event_type": event_type,
         "run_id": RUN_ID,
+        "session_id": row_session_id,
+        "generation": str(row_generation),
         "payload_json": json.dumps(payload, sort_keys=True),
     }
 
@@ -214,6 +231,7 @@ def test_the_reviewed_case_names_only_assertions_the_asserter_performs() -> None
         MOVEMENT_CASE,
         REFUSED_EARLY_CASE,
         LOST_RUNTIME_CASE,
+        LOST_SERVER_CASE,
         BLACK_HOLE_CASE,
         REFUSED_CASE,
     ):
@@ -1057,6 +1075,312 @@ def test_a_wait_status_is_not_something_a_record_may_claim() -> None:
     assert "runtime_controller_sigkill_was_confirmed:CLAIMED_A_WAIT_STATUS_IT_CANNOT_HAVE" in cast(
         tuple[str, ...], verdict["failures"]
     )
+
+
+# The three independent witnesses a real server kill leaves behind: the server
+# log ends without vanilla's shutdown lines, Core records the playable world
+# becoming disconnected, and the Bridge releases what it held before reporting
+# that the play connection ended.
+ABRUPT_SERVER_LOG = f"{JOINED}\n[19:28:30] [Server thread/INFO]: [Kin: 26.4d]\n"
+PLAY_ENDED_RELEASE = "bridge released 1 input(s) after LEFT_PLAYABLE (PLAY_ENDED)"
+
+#: The row that names the session this run belongs to. Every witness the server
+#: case reads is bound to that coordinate, so a ledger without it cannot say
+#: which session was killed — and that is its own failure, tested on its own.
+STARTED = event("SessionProcessStarted", session_id="session-01", generation=1)
+
+
+def lost_server_case() -> dict[str, object]:
+    return cast(dict[str, object], json.loads(LOST_SERVER_CASE.read_text(encoding="utf-8")))
+
+
+def killed_server(**overrides: object) -> _Material:
+    definition = load_case_manifest(LOST_SERVER_CASE)
+    record = fault_record(
+        case_version=definition.digest,
+        case={"case_id": definition.case_id},
+        target={"role": "server_jvm"},
+        supervisor={"role": "server_jvm_root"},
+    )
+    arguments: dict[str, object] = {
+        "document": run_document(connection_state="DISCONNECTED"),
+        "log": ABRUPT_SERVER_LOG,
+        "client_log": PLAY_ENDED_RELEASE,
+        "events": (
+            STARTED,
+            event("PlayableEstablished"),
+            LEASE,
+            event("SessionInterrupted", phase="DISCONNECTED"),
+        ),
+        "fault_injection": record,
+    }
+    arguments.update(overrides)
+    return material(**arguments)  # type: ignore[arg-type]
+
+
+def test_a_confirmed_server_kill_with_world_loss_and_release_holds() -> None:
+    verdict = ASSERTER_MODULE.evaluate(lost_server_case(), killed_server())
+
+    assert verdict.result == "PASS"
+    assert verdict.observed == verdict.expected
+    assert verdict.failures == ()
+
+
+@pytest.mark.parametrize(
+    ("overrides", "reason"),
+    [
+        ({"case": {"case_id": "CORE-060"}}, "FAULT_RECORD_IS_ANOTHER_CASE:CORE-060"),
+        (
+            {"case": {"case_version": "0" * 64}},
+            "FAULT_RECORD_IS_ANOTHER_CASE_VERSION:" + "0" * 64,
+        ),
+        ({"target": {"role": "runtime_controller"}}, "WRONG_TARGET_ROLE:runtime_controller"),
+        (
+            {"signal": {"name": "SIGTERM", "number": 15, "result": "DELIVERED"}},
+            "NOT_A_SIGKILL:SIGTERM",
+        ),
+        ({"signal": {"number": 15}}, "WRONG_SIGKILL_NUMBER:15"),
+        ({"signal": {"result": "FAILED"}}, "SIGKILL_WAS_NOT_DELIVERED:FAILED"),
+        ({"outcome": "AMBIGUOUS"}, "NOT_INJECTED:AMBIGUOUS"),
+        (
+            {"confirmation_strength": "NONE", "confirmation": None},
+            "CONFIRMATION_NOT_IDENTITY_DISAPPEARED:NONE",
+        ),
+        (
+            {"confirmation": {"wait_status_available": True}},
+            "CLAIMED_A_WAIT_STATUS_IT_CANNOT_HAVE",
+        ),
+        ({"attribution": {"run_id": "0" * 32}}, "FAULT_RECORD_IS_ANOTHER_RUN:" + "0" * 32),
+        ({"attribution": {"kin_id": "kin-02"}}, "FAULT_RECORD_IS_ANOTHER_KIN:kin-02"),
+        (
+            {"attribution": {"session_id": "session-02"}},
+            "FAULT_RECORD_IS_ANOTHER_SESSION:session-02/1",
+        ),
+        (
+            {"attribution": {"generation": 2}},
+            "FAULT_RECORD_IS_ANOTHER_SESSION:session-01/2",
+        ),
+    ],
+)
+def test_a_server_kill_record_must_be_exactly_attributed_and_confirmed(
+    overrides: dict[str, object], reason: str
+) -> None:
+    base = cast(dict[str, object], killed_server().fault_injection)
+    for key, value in overrides.items():
+        if isinstance(value, Mapping) and isinstance(base.get(key), Mapping):
+            section = dict(cast(Mapping[str, object], base[key]))
+            section.update(cast(Mapping[str, object], value))
+            base[key] = section
+        else:
+            base[key] = value
+
+    verdict = ASSERTER_MODULE.evaluate(lost_server_case(), killed_server(fault_injection=base))
+
+    assert verdict.result == "FAIL"
+    assert f"server_jvm_sigkill_was_confirmed:{reason}" in verdict.failures
+
+
+def test_a_server_kill_requires_ledger_session_attribution() -> None:
+    verdict = ASSERTER_MODULE.evaluate(
+        lost_server_case(),
+        killed_server(
+            events=(
+                event("PlayableEstablished"),
+                LEASE,
+                event("SessionInterrupted", phase="DISCONNECTED"),
+            )
+        ),
+    )
+
+    assert "server_jvm_sigkill_was_confirmed:NO_SESSION_ATTRIBUTION_IN_LEDGER" in verdict.failures
+
+
+def test_an_unreadable_ledger_cannot_bind_a_server_kill_to_a_session() -> None:
+    verdict = ASSERTER_MODULE.evaluate(lost_server_case(), killed_server(ledger_readable=False))
+
+    assert "server_jvm_sigkill_was_confirmed:LEDGER_UNREADABLE" in verdict.failures
+    assert "the_ledger_recorded_world_loss:LEDGER_UNREADABLE" in verdict.failures
+
+
+def test_a_generation_is_the_same_generation_in_both_of_its_spellings() -> None:
+    """The row's column is text and the payload's number is one fact.
+
+    Measured against the writer rather than assumed: `event_store` stores
+    `str(generation)` because a uint64 does not fit SQLite's signed INTEGER, and
+    the payload of the row that carries the coordinate holds the number. A
+    cross-check comparing the two as they arrive would match nothing on a real
+    run and report every one of them as unattributed, so both spellings are
+    pinned here against the same session.
+    """
+
+    rows = (
+        event("SessionProcessStarted", row_generation="1", session_id="session-01", generation=1),
+        event("PlayableEstablished", row_generation="1"),
+        event("InputLeaseGranted", row_generation="1", capability="control.move.v1"),
+        event("SessionInterrupted", row_generation="1", phase="DISCONNECTED"),
+    )
+
+    verdict = ASSERTER_MODULE.evaluate(lost_server_case(), killed_server(events=rows))
+
+    assert verdict.result == "PASS"
+    assert "the_ledger_recorded_world_loss" not in " ".join(verdict.failures)
+
+
+def test_a_row_whose_column_contradicts_its_payload_attributes_to_neither() -> None:
+    """The coordinate written twice has to agree with itself, or it names nothing."""
+
+    verdict = ASSERTER_MODULE.evaluate(
+        lost_server_case(),
+        killed_server(
+            events=(
+                event(
+                    "SessionProcessStarted",
+                    row_session_id="session-02",
+                    session_id="session-01",
+                    generation=1,
+                ),
+                event("PlayableEstablished"),
+                LEASE,
+                event("SessionInterrupted", phase="DISCONNECTED"),
+            )
+        ),
+    )
+
+    assert "server_jvm_sigkill_was_confirmed:NO_SESSION_ATTRIBUTION_IN_LEDGER" in verdict.failures
+    assert "the_ledger_recorded_world_loss:NO_SESSION_ATTRIBUTION_IN_LEDGER" in verdict.failures
+
+
+@pytest.mark.parametrize("marker", ["Stopping the server", "All dimensions are saved"])
+def test_a_graceful_server_shutdown_is_not_a_kill_run(marker: str) -> None:
+    verdict = ASSERTER_MODULE.evaluate(
+        lost_server_case(), killed_server(log=f"{ABRUPT_SERVER_LOG}{marker}\n")
+    )
+
+    assert f"the_server_log_has_no_graceful_shutdown:GRACEFUL_SHUTDOWN_LOGGED:{marker}" in (
+        verdict.failures
+    )
+
+
+def test_an_absent_server_log_cannot_prove_an_abrupt_shutdown() -> None:
+    verdict = ASSERTER_MODULE.evaluate(lost_server_case(), killed_server(log=""))
+
+    assert "the_server_log_has_no_graceful_shutdown:NO_SERVER_LOG" in verdict.failures
+
+
+@pytest.mark.parametrize(
+    ("events", "reason"),
+    [
+        ((STARTED,), "NO_PLAYABLE_WORLD_RECORDED"),
+        ((STARTED, event("PlayableEstablished"), LEASE), "NO_WORLD_LOSS_RECORDED"),
+        (
+            (
+                STARTED,
+                event("PlayableEstablished"),
+                event("SessionInterrupted", phase="DISCONNECTED"),
+            ),
+            "NO_MOVE_LEASE_FOR_KILLED_SESSION",
+        ),
+        (
+            (
+                STARTED,
+                event("PlayableEstablished"),
+                LEASE,
+                event("SessionInterrupted", phase="FAILED"),
+            ),
+            "INTERRUPTED_WITHOUT_WORLD_LOSS:FAILED",
+        ),
+        (
+            (
+                STARTED,
+                event("SessionInterrupted", phase="DISCONNECTED"),
+                event("PlayableEstablished"),
+                LEASE,
+            ),
+            "WORLD_LOSS_SEQUENCE_INVALID",
+        ),
+        (
+            (
+                STARTED,
+                event("PlayableEstablished"),
+                event("SessionInterrupted", phase="DISCONNECTED"),
+                LEASE,
+            ),
+            "WORLD_LOSS_SEQUENCE_INVALID",
+        ),
+    ],
+)
+def test_the_ledger_must_record_the_playable_world_being_lost(
+    events: tuple[Mapping[str, object], ...], reason: str
+) -> None:
+    verdict = ASSERTER_MODULE.evaluate(lost_server_case(), killed_server(events=events))
+
+    assert f"the_ledger_recorded_world_loss:{reason}" in verdict.failures
+
+
+@pytest.mark.parametrize(
+    "mismatched_event",
+    [
+        event("PlayableEstablished", row_session_id="session-02"),
+        event("InputLeaseGranted", row_generation=2, capability="control.move.v1"),
+        event(
+            "SessionInterrupted",
+            row_session_id="session-02",
+            phase="DISCONNECTED",
+        ),
+    ],
+)
+def test_server_kill_witnesses_must_belong_to_the_killed_session(
+    mismatched_event: Mapping[str, object],
+) -> None:
+    event_type = str(mismatched_event["event_type"])
+    matching = {
+        "PlayableEstablished": event("PlayableEstablished"),
+        "InputLeaseGranted": LEASE,
+        "SessionInterrupted": event("SessionInterrupted", phase="DISCONNECTED"),
+    }
+    matching[event_type] = mismatched_event
+    verdict = ASSERTER_MODULE.evaluate(
+        lost_server_case(),
+        killed_server(
+            events=(
+                STARTED,
+                matching["PlayableEstablished"],
+                matching["InputLeaseGranted"],
+                matching["SessionInterrupted"],
+            )
+        ),
+    )
+
+    assert any(
+        failure.startswith("the_ledger_recorded_world_loss:") for failure in verdict.failures
+    )
+
+
+@pytest.mark.parametrize(
+    ("client_log", "reason"),
+    [
+        ("", "NO_CLIENT_LOG"),
+        ("bridge held 1 input(s)\n", "RELEASE_NOT_LOGGED"),
+        (
+            "bridge released 1 input(s) after IPC_LOST\n",
+            "NO_LEFT_PLAYABLE_RELEASE",
+        ),
+        (
+            "bridge released 1 input(s) after LEFT_PLAYABLE (GUI_OPENED)\n",
+            "NO_PLAY_ENDED_RELEASE",
+        ),
+        (
+            "bridge released 0 input(s) after LEFT_PLAYABLE (PLAY_ENDED)\n",
+            "HELD_NOTHING_WHEN_PLAY_ENDED",
+        ),
+    ],
+)
+def test_the_bridge_must_release_held_input_because_play_ended(
+    client_log: str, reason: str
+) -> None:
+    verdict = ASSERTER_MODULE.evaluate(lost_server_case(), killed_server(client_log=client_log))
+
+    assert f"the_bridge_released_input_when_play_ended:{reason}" in verdict.failures
 
 
 # The run a black hole produced: the attempt reached LOGIN_NEGOTIATING and stayed

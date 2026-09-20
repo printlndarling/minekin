@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "case_id": "CORE-060-SERVER-001",
+  "work_package": "W70",
+  "mandatory": false,
+  "inputs": [
+    "tests/fixtures/runtime-input/bundle-p0-core-1.21.4.json",
+    "tests/fixtures/runtime-input/controlled-offline-server.json"
+  ],
+  "assertions": [
+    "move_input_was_leased",
+    "server_jvm_sigkill_was_confirmed",
+    "the_server_log_has_no_graceful_shutdown",
+    "the_ledger_recorded_world_loss",
+    "the_bridge_released_input_when_play_ended"
+  ]
+}

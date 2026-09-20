@@ -129,6 +129,12 @@ IMPLEMENTATIONS: dict[str, Implementation] = {
     "runtime_controller_sigkill_was_confirmed": _runtime(
         "runtime_controller_sigkill_was_confirmed"
     ),
+    "server_jvm_sigkill_was_confirmed": _runtime("server_jvm_sigkill_was_confirmed"),
+    "the_server_log_has_no_graceful_shutdown": _runtime("the_server_log_has_no_graceful_shutdown"),
+    "the_ledger_recorded_world_loss": _runtime("the_ledger_recorded_world_loss"),
+    "the_bridge_released_input_when_play_ended": _runtime(
+        "the_bridge_released_input_when_play_ended"
+    ),
     "the_attempt_was_abandoned_at_its_deadline": _runtime(
         "the_attempt_was_abandoned_at_its_deadline"
     ),
