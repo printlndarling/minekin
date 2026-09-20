@@ -611,3 +611,30 @@ def test_a_world_save_that_is_not_there_is_named_as_a_missing_directory(
 
     assert str(missing) in raised.value.safe_message
     assert not (tmp_path / "kin" / "kin-01" / "run" / "session" / "session-01").exists()
+
+
+def test_a_started_session_is_not_a_first_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The overlay is a fresh game directory, and a first run stops at onboarding.
+
+    Vanilla shows the accessibility screen for a directory that has never been run,
+    and that screen is in front of everything else — including a world this session
+    was asked to enter. Measured in the runner: without this file the client's log
+    ends at the texture atlases and the seeded world is never touched.
+    """
+
+    root = _ready_root(tmp_path, monkeypatch)
+
+    launch = start_session(
+        root=root,
+        profile=PROFILE,
+        java_executable=Path("/usr/bin/java"),
+        session_id="session-01",
+        generation=1,
+        supervisor_factory=stub_supervisor,
+    )
+
+    options = Path(launch.overlay) / "options.txt"
+    assert options.is_file()
+    assert "onboardAccessibility:true" in options.read_text(encoding="utf-8")

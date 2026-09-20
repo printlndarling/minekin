@@ -36,6 +36,7 @@ from minekin_core.adapters.bridge.ipc import (
 )
 from minekin_core.adapters.launcher.artifacts import ArtifactStore, SessionOverlayStore
 from minekin_core.adapters.launcher.assets import materialise_assets
+from minekin_core.adapters.launcher.game_options import prepare_game_options
 from minekin_core.adapters.launcher.launch_plan import (
     artifacts_from_plan,
     build_launch_plan,
@@ -506,6 +507,12 @@ async def prepare_session_async(
     if overlay != session_overlay_path(runs, session_id, generation):
         # The supervisor's log directory was named from this path already.
         raise _reject("the session overlay was created somewhere unexpected")
+
+    # A fresh game directory is a first run, and vanilla's first run shows the
+    # accessibility onboarding screen before anything else — before the title
+    # screen, and before any world it was asked to enter. One file is what makes
+    # the directory not a first run.
+    prepare_game_options(overlay)
 
     # The overlay is the client's game directory, so the fixed mods go into its
     # mods/ before the client can start looking for them.
