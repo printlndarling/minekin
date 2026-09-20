@@ -28,6 +28,7 @@ from minekin_core.cli.session import (
 from minekin_core.config import USERNAME_VARIABLE
 from minekin_core.domain.errors import ErrorCategory, ExitCode, MinekinError
 from minekin_core.domain.ids import KinId
+from minekin_core.domain.offline_identity import offline_player_uuid
 from session_support import (
     PAYLOAD,
     PROFILE,
@@ -638,3 +639,37 @@ def test_a_started_session_is_not_a_first_run(
     options = Path(launch.overlay) / "options.txt"
     assert options.is_file()
     assert "onboardAccessibility:true" in options.read_text(encoding="utf-8")
+
+
+def test_a_world_this_kin_is_already_in_is_refused_before_anything_is_created(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A world a Kin has been in holds them as that run left them.
+
+    Measured: a save from an earlier run carried a dead Kin, the client went
+    straight to the death screen, and the run looked like a run — so this is
+    refused at the operator's own moment rather than discovered in a world.
+    """
+
+    root = _ready_root(tmp_path, monkeypatch)
+    save = _save(tmp_path)
+    history = save / "playerdata" / f"{offline_player_uuid('Kin')}.dat"
+    history.parent.mkdir()
+    history.write_bytes(b"health zero\n")
+
+    with pytest.raises(MinekinError, match="already holds this Kin") as raised:
+        start_session(
+            root=root,
+            profile=PROFILE,
+            java_executable=Path("/usr/bin/java"),
+            session_id="session-01",
+            generation=1,
+            supervisor_factory=stub_supervisor,
+            world_save=save,
+            world_name="prepared-world",
+        )
+
+    assert raised.value.exit_code is ExitCode.CONFIG
+    # Nothing was created, including the overlay: the refusal is made where the
+    # operator can still change their mind about the world.
+    assert not (tmp_path / "kin" / "kin-01" / "run" / "session" / "session-01").exists()

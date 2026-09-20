@@ -11,19 +11,26 @@ bytes that were handed over.
 from __future__ import annotations
 
 import os
+import uuid
 from pathlib import Path
 
 import pytest
 
 from minekin_core.adapters.launcher.saves import (
     LEVEL_DAT,
+    PLAYER_DATA_DIRECTORY,
     SAVES_DIRECTORY,
     level_name_is_usable,
+    player_data_path,
     saves_directory,
     seed_world,
     world_snapshot_digest,
 )
 from minekin_core.domain.errors import ErrorCategory, MinekinError, Retryability
+
+#: The Kin this world is being seeded for. Which player it is does not matter; that
+#: it is *this* player's state the world may not already hold is the rule.
+PLAYER = uuid.UUID("8f40376b-c23f-3ef1-b553-5564eea75639")
 
 
 def _world(tmp_path: Path, *, seed_level: bytes = b"a level.dat\n") -> Path:
@@ -122,7 +129,9 @@ def test_seeding_places_the_world_where_the_client_looks(tmp_path: Path) -> None
     overlay = tmp_path / "overlay"
     overlay.mkdir()
 
-    destination, digest = seed_world(overlay=overlay, save=save, level_name="prepared-world")
+    destination, digest = seed_world(
+        overlay=overlay, save=save, player=PLAYER, level_name="prepared-world"
+    )
 
     assert destination == overlay / SAVES_DIRECTORY / "prepared-world"
     assert (destination / LEVEL_DAT).read_bytes() == b"a level.dat\n"
@@ -145,7 +154,9 @@ def test_the_name_is_the_bytes_as_they_were_handed_over(tmp_path: Path) -> None:
     overlay.mkdir()
     seeded = world_snapshot_digest(save)
 
-    destination, digest = seed_world(overlay=overlay, save=save, level_name="prepared-world")
+    destination, digest = seed_world(
+        overlay=overlay, save=save, player=PLAYER, level_name="prepared-world"
+    )
     (destination / "region" / "r.0.0.mca").write_bytes(b"played in\n")
     (destination / LEVEL_DAT).write_bytes(b"rewritten\n")
 
@@ -159,7 +170,7 @@ def test_seeding_leaves_the_source_alone(tmp_path: Path) -> None:
     overlay.mkdir()
     before = world_snapshot_digest(save)
 
-    seed_world(overlay=overlay, save=save, level_name="prepared-world")
+    seed_world(overlay=overlay, save=save, player=PLAYER, level_name="prepared-world")
 
     assert world_snapshot_digest(save) == before
 
@@ -171,7 +182,7 @@ def test_nothing_is_left_staged_in_the_saves_directory(tmp_path: Path) -> None:
     overlay = tmp_path / "overlay"
     overlay.mkdir()
 
-    seed_world(overlay=overlay, save=save, level_name="prepared-world")
+    seed_world(overlay=overlay, save=save, player=PLAYER, level_name="prepared-world")
 
     assert [path.name for path in saves_directory(overlay).iterdir()] == ["prepared-world"]
 
@@ -183,7 +194,7 @@ def test_a_save_without_a_level_is_not_a_world(tmp_path: Path) -> None:
     overlay.mkdir()
 
     with pytest.raises(MinekinError, match=f"no {LEVEL_DAT}"):
-        seed_world(overlay=overlay, save=save, level_name="prepared-world")
+        seed_world(overlay=overlay, save=save, player=PLAYER, level_name="prepared-world")
 
 
 def test_a_source_that_is_not_a_directory_is_refused(tmp_path: Path) -> None:
@@ -193,7 +204,7 @@ def test_a_source_that_is_not_a_directory_is_refused(tmp_path: Path) -> None:
     overlay.mkdir()
 
     with pytest.raises(MinekinError, match="not a directory to seed from"):
-        seed_world(overlay=overlay, save=save, level_name="prepared-world")
+        seed_world(overlay=overlay, save=save, player=PLAYER, level_name="prepared-world")
 
 
 def test_an_unusable_level_name_is_refused_before_anything_is_copied(tmp_path: Path) -> None:
@@ -202,7 +213,7 @@ def test_an_unusable_level_name_is_refused_before_anything_is_copied(tmp_path: P
     overlay.mkdir()
 
     with pytest.raises(MinekinError, match="not a usable level name"):
-        seed_world(overlay=overlay, save=save, level_name="../elsewhere")
+        seed_world(overlay=overlay, save=save, player=PLAYER, level_name="../elsewhere")
 
     assert not (overlay / SAVES_DIRECTORY).exists()
 
@@ -213,10 +224,10 @@ def test_a_saves_directory_that_already_holds_this_level_is_refused(tmp_path: Pa
     save = _world(tmp_path)
     overlay = tmp_path / "overlay"
     overlay.mkdir()
-    seed_world(overlay=overlay, save=save, level_name="prepared-world")
+    seed_world(overlay=overlay, save=save, player=PLAYER, level_name="prepared-world")
 
     with pytest.raises(MinekinError, match="already holds a world"):
-        seed_world(overlay=overlay, save=save, level_name="prepared-world")
+        seed_world(overlay=overlay, save=save, player=PLAYER, level_name="prepared-world")
 
     # The world that was already there is untouched by the attempt.
     assert (overlay / SAVES_DIRECTORY / "prepared-world" / LEVEL_DAT).read_bytes() == (
@@ -233,11 +244,65 @@ def test_the_digest_is_over_bytes_a_reader_could_reproduce(tmp_path: Path) -> No
     overlay_one.mkdir()
     overlay_two.mkdir()
 
-    _, first = seed_world(overlay=overlay_one, save=save, level_name="world")
+    _, first = seed_world(overlay=overlay_one, save=save, player=PLAYER, level_name="world")
     # A second copy, written later, of a source whose mtimes have moved on.
     for path in sorted(save.rglob("*")):
         if path.is_file():
             os.utime(path, (1_700_000_000, 1_700_000_000))
-    _, second = seed_world(overlay=overlay_two, save=save, level_name="world")
+    _, second = seed_world(overlay=overlay_two, save=save, player=PLAYER, level_name="world")
 
     assert first == second
+
+
+def test_the_player_state_of_one_kin_is_where_vanilla_keeps_it(tmp_path: Path) -> None:
+    save = tmp_path / "prepared-world"
+
+    assert player_data_path(save, PLAYER) == save / PLAYER_DATA_DIRECTORY / f"{PLAYER}.dat"
+
+
+def test_a_world_that_already_holds_this_kin_is_not_a_clean_start(tmp_path: Path) -> None:
+    """Measured: the client loads such a Kin *as that run left them*.
+
+    A world taken from an earlier run carried `Health 0` and a non-zero
+    `DeathTime`; the client went straight to the death screen, and its log had no
+    death in it because no death happened. Nothing else about the run looked
+    wrong, which is the whole difficulty.
+    """
+
+    save = _world(tmp_path)
+    player_data_path(save, PLAYER).parent.mkdir()
+    player_data_path(save, PLAYER).write_bytes(b"health zero\n")
+    overlay = tmp_path / "overlay"
+    overlay.mkdir()
+
+    with pytest.raises(MinekinError, match="already holds this Kin") as raised:
+        seed_world(overlay=overlay, save=save, player=PLAYER, level_name="prepared-world")
+
+    # The message names the very file, so the operator can find what to take out
+    # of the world rather than being told that something about it is wrong.
+    assert f"{PLAYER}.dat" in raised.value.safe_message
+    # Refused before the copy, so the overlay is not left holding half a world.
+    assert not (overlay / SAVES_DIRECTORY).exists()
+
+
+def test_a_world_that_holds_someone_else_is_still_a_world_to_seed(tmp_path: Path) -> None:
+    """The negative control: the rule is about *this* Kin, not about the directory.
+
+    A world other players have been in is exactly what a shared snapshot looks
+    like, and refusing it would turn a rule about one Kin's state into a rule
+    about worlds.
+    """
+
+    save = _world(tmp_path)
+    other = uuid.UUID("11111111-2222-3333-4444-555555555555")
+    player_data_path(save, other).parent.mkdir()
+    player_data_path(save, other).write_bytes(b"someone else\n")
+    overlay = tmp_path / "overlay"
+    overlay.mkdir()
+
+    destination, _ = seed_world(
+        overlay=overlay, save=save, player=PLAYER, level_name="prepared-world"
+    )
+
+    assert player_data_path(destination, other).is_file()
+    assert not player_data_path(destination, PLAYER).exists()

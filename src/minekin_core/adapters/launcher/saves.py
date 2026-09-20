@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import hashlib
 import shutil
+import uuid
 from pathlib import Path
 
 from minekin_core.domain.errors import ErrorCategory, MinekinError, Retryability
@@ -33,6 +34,11 @@ LEVEL_DAT = "level.dat"
 
 #: Where vanilla keeps its worlds inside the game directory.
 SAVES_DIRECTORY = "saves"
+
+#: Where vanilla keeps each player's own state inside a world — position, health,
+#: inventory, whether they are dead. A world that has one for a player is a world
+#: that player has been in, and loading it puts them back where they left.
+PLAYER_DATA_DIRECTORY = "playerdata"
 
 _WORKING = ".seeding"
 
@@ -93,13 +99,33 @@ def world_snapshot_digest(save: Path) -> str:
     return hashlib.sha256("".join(lines).encode("utf-8")).hexdigest()
 
 
-def seed_world(*, overlay: Path, save: Path, level_name: str) -> tuple[Path, str]:
+def player_data_path(save: Path, player: uuid.UUID) -> Path:
+    """Where vanilla keeps one player's state inside this world.
+
+    Existence is the whole signal, and it is enough: a world holding this file for
+    a player is a world that player has been in, whatever the file then says.
+    """
+
+    return save / PLAYER_DATA_DIRECTORY / f"{player}.dat"
+
+
+def seed_world(
+    *, overlay: Path, save: Path, level_name: str, player: uuid.UUID
+) -> tuple[Path, str]:
     """Copy one prepared save into the overlay's `saves/`, and name its bytes.
 
     Placed through a staging directory inside `saves/` and renamed into position,
     for the same reason the artifact store stages: a reader that sees the
     directory must see all of it, and vanilla checks for `level.dat` the moment
     it looks at a level.
+
+    `player` is the Kin this world is being seeded for, and a world that already
+    holds their state is refused. That is measured rather than cautious: a world
+    taken from an earlier run carried `Health 0` and a non-zero `DeathTime`, and
+    the client loaded the Kin *dead* — it went straight to the death screen with
+    no death in its log, because no death happened. The run looked like a run. A
+    world a Kin has been in is not the "clean snapshot" every case is required to
+    start from, and what it would silently load is the Kin as they were left.
     """
 
     if not level_name_is_usable(level_name):
@@ -109,6 +135,14 @@ def seed_world(*, overlay: Path, save: Path, level_name: str) -> tuple[Path, str
         raise _reject(f"{save} is not a directory to seed from")
     if not (source / LEVEL_DAT).is_file():
         raise _reject(f"{save} is not a world: it has no {LEVEL_DAT}")
+    history = player_data_path(source, player)
+    if history.is_file():
+        raise _reject(
+            f"{save} already holds this Kin ({history.name}), so it is not a clean "
+            f"world to start from: the client would load this Kin exactly as that "
+            f"run left them — left dead, loaded dead — instead of at the start of "
+            f"this one"
+        )
 
     saves = saves_directory(overlay)
     saves.mkdir(parents=True, exist_ok=True)

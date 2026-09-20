@@ -60,7 +60,7 @@ from minekin_core.adapters.launcher.orphans import (
 )
 from minekin_core.adapters.launcher.process import ClientProcessSpec, build_process_spec
 from minekin_core.adapters.launcher.recipe import require_built_bridge
-from minekin_core.adapters.launcher.saves import LEVEL_DAT, seed_world
+from minekin_core.adapters.launcher.saves import LEVEL_DAT, player_data_path, seed_world
 from minekin_core.adapters.launcher.server_profile import ServerProfile, load_server_profile
 from minekin_core.adapters.launcher.supervisor import ProcessIdentity, ProcessSupervisor
 from minekin_core.adapters.sqlite.connection import connect_reader
@@ -489,6 +489,14 @@ async def prepare_session_async(
         raise _reject(f"{world_save} is not a directory to seed a world from")
     if world_save is not None and not (world_save / LEVEL_DAT).is_file():
         raise _reject(f"{world_save} is not a world: it has no {LEVEL_DAT}")
+    # The same predicate `seed_world` applies, asked here so that a world which is
+    # not a clean start is refused before an overlay exists rather than after one
+    # is built. One rule, two moments.
+    if world_save is not None and player_data_path(world_save, identity.material.uuid).is_file():
+        raise _reject(
+            f"{world_save} already holds this Kin, so it is not a clean world to "
+            f"start from; it would load this Kin as that run left them"
+        )
 
     runs = run_root(root, kin_id)
     plan = build_launch_plan(profile, world_name=world_name)
@@ -551,7 +559,12 @@ async def prepare_session_async(
     # running no integrated server for anything to join.
     world_snapshot: dict[str, str] | None = None
     if world_save is not None and world_name is not None:
-        _, digest = seed_world(overlay=overlay, save=world_save, level_name=world_name)
+        _, digest = seed_world(
+            overlay=overlay,
+            save=world_save,
+            level_name=world_name,
+            player=identity.material.uuid,
+        )
         world_snapshot = {"level_name": world_name, "digest": digest}
 
     run_id = RunId.new().value

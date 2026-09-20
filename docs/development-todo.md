@@ -548,14 +548,19 @@
   - 一个**不存在**的 `--world-save` 路径被报成「不是世界：它没有 level.dat」——把「没有这个目录」说成「目录里缺文件」。
   - 计划原来重述了一条比 `saves/` **更弱**的规则，于是它会承诺 `--quickPlaySingleplayer a/b` 这个谁也种不出来的 level。现在它问 `level_name_is_usable`，两条路对同一个名字给同一个答案。
 - [x] **51 条新测试**：种世界的规则与它的各种拒绝（含摘要取的是源字节、目的地已有世界即拒、staging 不留痕）、计划多加的那两个 literal、CLI 层的两条二选一拒绝，以及一次真实的 `start_and_supervise`——它**同时**断言世界在盘上、在 run document 里被指名、并且被会话向计划构造器要过，而不是让其中任何一个替代另外两个。run document 那处接线做过变异验证：去掉它，那条用例立刻变红。
-- [ ] **还没有一次运行真的这样进过世界。** 种子与进入这条路由单测和替身 supervisor 覆盖，真客户端还没跑过——容器里的那一轮（真客户端、真存档、读客户端日志确认它进了那个 level）是下一步。**刻意不做的**：`openToLan` 本身、驱动它的 harness 场景，以及封存端的 `world.kind`（它现在只认 `dedicated` 与 `none`，LAN/宿主运行在那里还没有形状；在运行存在之前先编一个形状，就是在编那次运行）。
+- [x] **这一次运行真的进过世界了，而且进不去的那两个原因都是量出来的**（先是「全新游戏目录 = 首次运行」，见下一条；再是「种下去的世界带着一个死掉的 Kin」，见上一条）。**仍然刻意不做的**：`openToLan` 本身、驱动它的 harness 场景，以及封存端的 `world.kind`（它现在只认 `dedicated` 与 `none`，LAN/宿主运行在那里还没有形状；在运行存在之前先编一个形状，就是在编那次运行）。
 
 - [x] **一个「全新的游戏目录」是一次首次运行，而首次运行到不了世界——这才是种子世界进不去的那个原因。** 实测（受控 runner、真客户端）：`--quickPlaySingleplayer kinworld` 被客户端接受、世界也真的躺在 overlay 的 `saves/kinworld` 里，而客户端**停在 vanilla 的辅助功能首次运行页**（"Welcome to Minecraft! Would you like to enable the Narrator…?"）上：跑 100–150 秒都不进世界，`latest.log` 停在一片贴图集之后**再没有一行**，种子世界里所有文件的 mtime 都还是种下去的那一刻，账本里一条连接事件都没有。日志既不报错也不提示——这正是它值得被写下来的原因。**这一步是靠截图定下来的**：标题页、提示页与首次运行页在 `latest.log` 里长得一模一样，只有把同一个 X 显示画下来才分得开。
   - **闸门是 `options.txt` 存在与否，不是那个选项的值**（两条对照实测）：没有 `options.txt` → 停在那页、世界永不载入；只有一行 `narrator:0` 的 `options.txt` → 世界载入（`Preparing start region for dimension minecraft:overworld` → `Loaded 38 advancements`）。`onboardAccessibility:true` 仍然写进去，因为那是**把这件事说真的**选项（没有人会替它按 Continue），而不是因为它是闸门。
   - 修法：`session start` 在 overlay 建好后、客户端启动前放一份最小 `options.txt`（`launcher.game_options`），**已存在就不覆盖**——那份文件是客户端的，跨代替换等于替它把设置拿走。它和 mods/assets/世界是同一种东西：客户端会去看、而全新游戏目录里不可能有的那一份状态。
   - **端到端实测**（同一个受控 runner，走真实 `session start` 命令行）：客户端进世界了——客户端日志里 `Kin joined the game` 与 `Loaded 38 advancements`、世界文件被写、截图上就是那个世界。**截图上是「You Died!」**：Kin 一进去就死了。这是量到的事实而不是解释，死因还没查。
   - **顺手量到一件与契约有关的事**：Bridge 对一次自己没被要求过的连接**拒不上报**——客户端日志是 `bridge saw CONNECTION_PHASE_LOGIN_NEGOTIATING with no generation of ours active; not reported`，账本里因此只有 `SessionProcessStarted` 与 `BridgeHelloAccepted`，没有 `JoinObserved`、也没有 `PlayableEstablished`。于是现在这个宿主 Kin **处在一个 Core 不知道、也没有准入过的世界里**：没有租约、没有首快照、没有监督。这是下一步，而不是一个可以当成完成的形状。
-- [ ] **宿主接下来要回答的三件事**（都还没有答案，且都不该猜）：**（一）** 世界里那个 Kin 目前对 Core 不存在——要让宿主成为一个可被监督的会话，`ConnectWorld` 那条路之外需要一个「Kin 自己开的世界的准入」，它的首快照从哪来、由谁判；**（二）** Kin 一进世界就死，死因未查（种子世界来自 dedicated server 的那一次运行，`playerdata/` 里带着 Kin 上一次的位置）；**（三）** 没有窗口管理器时窗口从不获得焦点，而单机世界在失焦时**暂停**——这次运行里世界确实在跑（`Preparing spawn area`、`Kin joined the game`），但「它会不会在某一代上因为焦点而停住」没有测过，`pauseOnLostFocus` 也还没有被碰。
+- [x] **种下去的那个世界带着一个已经死掉的 Kin，而这次运行看起来完全正常。** 第一轮端到端实测里 Kin 一进世界就停在「You Died!」上，而**客户端日志里一条死亡都没有**——因为没有发生死亡。从存档里读出来的事实是：那份 `playerdata/<uuid>.dat` 是 **`Health 0` 且 `DeathTime` 非零**（它是从上一次「服务端杀掉 Kin」的运行里拷出来的），客户端于是把 Kin **照着那次运行离开时的样子**加载进来：左边死着，右边进来就死着。
+  - **修法是一条规则、两个时刻**：`saves.player_data_path(save, player)` 是那条谓词（这个世界里有没有**这个** Kin 的状态），`seed_world` 与 `prepare_session_async` 各自问它一次——前者在复制之前，后者在**建 overlay 之前**，因为已经建好的 overlay 不该是发现它的地方。消息点名那个文件，操作者据此知道该从世界里拿掉什么。
+  - **要有反面对照，否则「有 playerdata 就拒」也能让测试通过**：别人的 playerdata 仍然照种不误——一份被别的玩家玩过的世界正是共享快照该有的样子，把这条规则从「一个 Kin 的状态」变成「世界的属性」就错了。
+  - **容器里两条实测**：脏存档（`/data/prepared-world`）→ `exit 10`、`CONFIG`、消息点名 `8f40376b-…-5564eea75639.dat`，什么都没建；干净存档（同样一份世界，去掉 `playerdata/`）→ Kin **活着**进世界，在世界出生点 `(-8.5, -60.0, 7.5)`，世界真的在跑。
+- [x] **跟着量到的第二件事：一个「没人开的」Kin 会在十几秒内被史莱姆杀死。** 干净存档那两轮都是同一结果——`Kin joined the game` 之后约 12 秒 `Kin was slain by Slime`。这不是缺陷，是**那个快照的属性**：来源世界的 `server.properties` 是 `gamemode=survival`、`difficulty=normal`、`spawn-monsters=true`，而 Kin 站在那里没有任何东西驱动它。所以「宿主用的干净快照」不只是「没有玩家历史」，还得是**一个不动的 Kin 不会死**的世界——这条要求落在快照上而不在启动器上，**具体取哪一档（和平 / `doMobSpawning=false` / 创造 / 围一圈）还没有定，也没有测**。
+- [ ] **宿主接下来要回答的两件事**（都没有答案，且都不该猜）：**（一）** 现在这个宿主 Kin **处在一个 Core 不知道、也没有准入过的世界里**——Bridge 对一次自己没被要求过的连接拒不上报（`bridge saw CONNECTION_PHASE_LOGIN_NEGOTIATING with no generation of ours active; not reported`），账本里只有 `SessionProcessStarted` 与 `BridgeHelloAccepted`。要让宿主成为一个可被监督的会话，`ConnectWorld` 那条路之外需要一个「Kin 自己开的世界的准入」，它的首快照从哪来、由谁判。**（二）** 没有窗口管理器时窗口从不获得焦点，而单机世界在失焦时**暂停**；这次运行里世界确实在跑（`Preparing spawn area`、`Kin joined the game`、史莱姆真的把它杀了），但「它会不会在某一代上因为焦点而停住」没有测过，`pauseOnLostFocus` 也还没有被碰。
 
 ## W70 之后
 
