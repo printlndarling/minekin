@@ -4,26 +4,21 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import java.net.InetSocketAddress;
-import java.net.SocketAddress;
-import java.net.UnixDomainSocketAddress;
 import org.junit.jupiter.api.Test;
 
 /**
- * The rule for turning "it said yes" into "here is where it is".
+ * The two shapes a publication may take, and the invariant that keeps them apart.
  *
- * <p>These are the reads that decide what goes on the wire, and the trap is specific:
- * the port the client reports is the port that was requested, so a world published on
- * an operating-system-chosen port reports {@code 0}. Answering the client's word here
- * would put a published world with no address on the wire — a success that cannot be
- * joined, indistinguishable from one that works until somebody tries.
+ * <p>The rule this record exists for: a publication that says it opened must name a
+ * port, and one that did not must say why and name none. It is the one thing here that
+ * a caller cannot get wrong quietly — "published on port 0" is a world nobody can join
+ * that reads on the wire exactly like one they can.
  */
 final class LanPublicationTest {
 
     @Test
-    void aBoundAddressWithAPortIsWhereTheWorldIs() {
-        LanPublication publication =
-                LanPublication.of(new InetSocketAddress("127.0.0.1", 25565));
+    void aPublicationNamesThePortItIsPublishedOn() {
+        LanPublication publication = LanPublication.published(25565);
 
         assertTrue(publication.opened());
         assertEquals(25565, publication.boundPort());
@@ -31,34 +26,12 @@ final class LanPublicationTest {
     }
 
     @Test
-    void anOperatingSystemChosenPortTheSocketDoesNotNameIsNotAPublication() {
-        // What `getServerPort()` and the client's own log say when the requested port
-        // was zero. The socket is listening somewhere; this read does not know where.
-        LanPublication publication = LanPublication.of(new InetSocketAddress("127.0.0.1", 0));
-
-        assertEquals(false, publication.opened());
-        assertEquals(LanRefusal.NO_BOUND_ADDRESS, publication.refusal());
-    }
-
-    @Test
-    void anAddressThatIsNotAnInternetAddressIsNotAPublication() {
-        SocketAddress unix = UnixDomainSocketAddress.of("/tmp/minekin.sock");
-
-        assertEquals(LanRefusal.NO_BOUND_ADDRESS, LanPublication.of(unix).refusal());
-    }
-
-    @Test
-    void anAbsentAddressIsNotAPublication() {
-        assertEquals(LanRefusal.NO_BOUND_ADDRESS, LanPublication.of(null).refusal());
-    }
-
-    @Test
-    void aPublicationThatSaysItOpenedMustNameAPort() {
+    void aPublicationWithoutAPortIsRefusedRatherThanReported() {
+        // What `getServerPort()` and the client's own log say when the request was zero.
+        // The socket is listening somewhere; this read does not know where, and a
+        // success that cannot name an address is worse than a failure.
         assertThrows(IllegalArgumentException.class, () -> LanPublication.published(0));
         assertThrows(IllegalArgumentException.class, () -> LanPublication.published(70000));
-        assertThrows(
-                IllegalArgumentException.class,
-                () -> new LanPublication(true, 25565, LanRefusal.BIND_FAILED));
     }
 
     @Test
@@ -67,11 +40,17 @@ final class LanPublicationTest {
         assertThrows(
                 IllegalArgumentException.class,
                 () -> new LanPublication(false, 25565, LanRefusal.NOT_HOSTING));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new LanPublication(true, 25565, LanRefusal.BIND_FAILED));
     }
 
     @Test
     void aRefusalNamesAReasonFromTheClosedSet() {
-        assertEquals(LanRefusal.BIND_FAILED, LanPublication.refused(LanRefusal.BIND_FAILED).refusal());
+        LanPublication refusal = LanPublication.refused(LanRefusal.BIND_FAILED);
+
+        assertEquals(LanRefusal.BIND_FAILED, refusal.refusal());
+        assertEquals(0, refusal.boundPort());
         assertEquals(3, LanRefusal.values().length);
     }
 }

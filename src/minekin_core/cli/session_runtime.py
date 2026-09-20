@@ -416,7 +416,7 @@ async def _read_events(
                 progress.actions_refused += 1
             continue
         if isinstance(message, observation_pb2.HostLifecycle):
-            reported = _lan_publication(message)
+            reported = lan_publication(message)
             if reported is None:
                 # A phase this build does not know is not a fact it may record:
                 # "published on port X" is what a joiner acts on.
@@ -485,7 +485,7 @@ async def _admit_first_snapshot(
         await on_connection(decision.current_state, "")
 
 
-def _lan_publication(lifecycle: observation_pb2.HostLifecycle) -> dict[str, object] | None:
+def lan_publication(lifecycle: observation_pb2.HostLifecycle) -> dict[str, object] | None:
     """The Bridge's report as the run document keeps it, or None if it says nothing.
 
     The phase travels as the wire enum's own word without its prefix, the way the

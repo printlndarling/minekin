@@ -1,5 +1,7 @@
 package org.minekin.bridge.host;
 
+import java.io.IOException;
+import java.net.ServerSocket;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.server.integrated.IntegratedServer;
 import org.slf4j.Logger;
@@ -50,7 +52,12 @@ public final class IntegratedServerControl implements HostControl {
                     "whether a client is hosting may only be asked on the client thread");
         }
         IntegratedServer server = client.getServer();
-        return server != null && !server.isRemote();
+        // Having a server is not the same fact as being in it. Measured in the runner:
+        // the integrated server starts at :56 and the player joins at :59, and a
+        // publication attempted in between threw inside the client's own call, because
+        // that call reads the client's player and the player was still null. The
+        // precondition for publishing is a Kin in the world, so that is what is asked.
+        return server != null && !server.isRemote() && client.player != null;
     }
 
     @Override
@@ -67,13 +74,45 @@ public final class IntegratedServerControl implements HostControl {
         // world's game mode alone and `false` withholds cheats. Everything that could
         // raise either would have to be a new field, which is a decision for a reviewed
         // change rather than a value that arrives from outside.
-        if (!server.openToLan(null, false, requestedPort)) {
+        // The port has to be chosen *before* the call, because 1.21.4 offers no way to
+        // read the one it bound: `getServerPort()` returns whatever was asked for, and
+        // the only address-returning method on the network object (`bindLocal()`)
+        // binds a separate local channel rather than reporting where the world is.
+        // Measured, after a run that published a world nobody could name: the client
+        // logged `Started serving on 0` while the socket was listening somewhere else.
+        int port = requestedPort != 0 ? requestedPort : freePort();
+        if (port == 0) {
+            return refuse(LanRefusal.NO_BOUND_ADDRESS);
+        }
+        if (!server.openToLan(null, false, port)) {
             // Worth saying out loud: the client catches its own IOException and returns
             // false without logging anything at all, so a bind that failed leaves no
             // trace in its log. This line is the only record it happened.
             return refuse(LanRefusal.BIND_FAILED);
         }
-        return LanPublication.of(server.getNetworkIo().bindLocal());
+        // Now that the port was named rather than chosen by the system, the server's own
+        // answer is the truth: it stores the port it was asked for, and it was asked for
+        // this one.
+        return server.getServerPort() > 0
+                ? LanPublication.published(server.getServerPort())
+                : LanPublication.refused(LanRefusal.NO_BOUND_ADDRESS);
+    }
+
+    /**
+     * A port nothing is using at this moment, as the operating system sees it.
+     *
+     * <p>Asking and letting go is what every tool does, and the gap between letting go
+     * and binding is real: somebody else can take it. That case comes back as a bind
+     * failure rather than as a wrong answer, which is the property that matters — this
+     * is not a guarantee, it is a choice made honestly in advance.
+     */
+    static int freePort() {
+        try (ServerSocket socket = new ServerSocket(0)) {
+            return socket.getLocalPort();
+        } catch (IOException error) {
+            LOGGER.warn("bridge could not find a free port to publish on", error);
+            return 0;
+        }
     }
 
     private static LanPublication refuse(LanRefusal refusal) {

@@ -1,21 +1,19 @@
 package org.minekin.bridge.host;
 
-import java.net.InetSocketAddress;
-import java.net.SocketAddress;
-
 /**
  * Where a world ended up reachable, or that it did not.
  *
- * <p>Reading the port is the part of publishing that is easy to get wrong, so it is
- * the part that lives on its own and can be tested. The client's own log line
- * ({@code Started serving on {}}) and {@code IntegratedServer.getServerPort()} both
- * report the port that was <em>asked for</em>: measured in 1.21.4, the value is
- * stored as it was passed in. Ask for zero — let the operating system choose — and
- * both say {@code 0}, while the world is actually listening somewhere else. A
- * publication built from those reads would be a success that names no address, which
- * is worse than a failure, because it looks like one.
- *
- * <p>The port that exists is the one on the socket, so that is what is read.
+ * <p>Naming the port is the part of publishing that is easy to get wrong, so it is the
+ * part that lives on its own. The client's log line ({@code Started serving on {}}) and
+ * {@code IntegratedServer.getServerPort()} both report the port that was <em>asked
+ * for</em> — measured in 1.21.4, the value is stored as it was passed in — and nothing
+ * public reports the one it bound: asking for zero makes both say {@code 0} while the
+ * world listens somewhere else, and the one method that returns an address
+ * ({@code ServerNetworkIo.bindLocal()}) binds a separate local channel rather than
+ * describing that socket. So a port is chosen before the call and named into it, which
+ * is what the game's own "Open to LAN" screen does; a publication that cannot name a
+ * port is a refusal rather than a success, because a success nobody can join looks
+ * like one.
  *
  * @param opened whether the world is published
  * @param boundPort the port it is reachable on, and 0 when it is not published
@@ -42,24 +40,5 @@ public record LanPublication(boolean opened, int boundPort, LanRefusal refusal) 
 
     public static LanPublication refused(LanRefusal refusal) {
         return new LanPublication(false, 0, refusal);
-    }
-
-    /**
-     * The publication a bound address describes, if it describes one.
-     *
-     * <p>A socket address that is not an {@link InetSocketAddress}, one with no port,
-     * or one whose port is zero, cannot be joined by anybody: this is where "the call
-     * said yes" stops being the same question as "the world is reachable", and where
-     * answering the first when only the second matters would put a lie on the wire.
-     */
-    public static LanPublication of(SocketAddress bound) {
-        if (!(bound instanceof InetSocketAddress address)) {
-            return refused(LanRefusal.NO_BOUND_ADDRESS);
-        }
-        int port = address.getPort();
-        if (port <= 0) {
-            return refused(LanRefusal.NO_BOUND_ADDRESS);
-        }
-        return published(port);
     }
 }

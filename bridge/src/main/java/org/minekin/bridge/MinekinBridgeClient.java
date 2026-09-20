@@ -78,6 +78,11 @@ public final class MinekinBridgeClient implements ClientModInitializer {
                     try {
                         hostController.tick(client);
                     } catch (RuntimeException error) {
+                        // Said out loud before stopping: the fault path logs the reason
+                        // it stopped and not the cause, and this one cost a whole run's
+                        // worth of guessing. The exception that stops a client is the
+                        // most useful line in its log.
+                        LOGGER.error("bridge could not ask the client to publish its world", error);
                         stopSafely(
                                 client,
                                 controller,

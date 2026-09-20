@@ -7,9 +7,7 @@ a fact, because "published on port X" is a claim somebody will act on.
 
 from __future__ import annotations
 
-import pytest
-
-from minekin_core.cli.session_runtime import _lan_publication
+from minekin_core.cli.session_runtime import lan_publication
 from minekin_core.generated.minekin.v1 import observation_pb2
 
 
@@ -21,7 +19,7 @@ def test_a_publicationIsRecordedByItsPhaseAndItsPort() -> None:
         bound_port=54321,
     )
 
-    assert _lan_publication(lifecycle) == {"phase": "LAN_OPENED", "port": 54321}
+    assert lan_publication(lifecycle) == {"phase": "LAN_OPENED", "port": 54321}
 
 
 def test_aFailureIsRecordedWithoutAPort() -> None:
@@ -32,16 +30,19 @@ def test_aFailureIsRecordedWithoutAPort() -> None:
         bound_port=0,
     )
 
-    assert _lan_publication(lifecycle) == {"phase": "LAN_OPEN_FAILED", "port": 0}
+    assert lan_publication(lifecycle) == {"phase": "LAN_OPEN_FAILED", "port": 0}
 
 
-@pytest.mark.parametrize(
-    "phase",
-    [observation_pb2.HOST_PHASE_UNSPECIFIED, 99],
-)
-def test_aPhaseThisBuildCannotNameIsNotAFact(phase: int) -> None:
-    """An unspecified or unknown phase yields nothing, rather than a guessed token."""
+def test_aPhaseThisBuildCannotNameIsNotAFact() -> None:
+    """A phase the table does not hold yields nothing, rather than a guessed token.
 
-    lifecycle = observation_pb2.HostLifecycle(request_id="lan-1", generation=1, phase=phase)
+    The table is closed, so this covers everything outside it — including a phase a
+    future Bridge might send, which protobuf would hand over as an unknown number and
+    which this would then refuse to record.
+    """
 
-    assert _lan_publication(lifecycle) is None
+    lifecycle = observation_pb2.HostLifecycle(
+        request_id="lan-1", generation=1, phase=observation_pb2.HOST_PHASE_UNSPECIFIED
+    )
+
+    assert lan_publication(lifecycle) is None
