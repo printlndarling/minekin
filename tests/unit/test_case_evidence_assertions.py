@@ -20,6 +20,9 @@ from typing import Protocol, cast
 
 import pytest
 
+from fault_support import fault_record
+from minekin_core.adapters.evidence.promotion import load_case_manifest
+from minekin_core.adapters.sqlite.connection import connect_writer
 from minekin_core.domain.offline_identity import offline_player_uuid
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
@@ -52,6 +55,9 @@ class _Material(Protocol):
     server_log: str
     server_identities: Mapping[str, str]
     username: str
+    #: The record the harness wrote when it killed a process, or None when this
+    #: run injected no fault. Judged with the rest rather than beside it.
+    fault_injection: Mapping[str, object] | None
 
 
 class _Verdict(Protocol):
@@ -163,6 +169,7 @@ def material(
     username: str = USERNAME,
     events: tuple[Mapping[str, object], ...] = (),
     ledger_readable: bool = True,
+    fault_injection: Mapping[str, object] | None = None,
 ) -> _Material:
     return ASSERTER_MODULE.RunMaterial(
         kin_id="kin-01",
@@ -175,6 +182,7 @@ def material(
         server_log=log,
         server_identities={USERNAME: RECORDED_UUID} if identities is None else identities,
         username=username,
+        fault_injection=fault_injection,
     )
 
 
@@ -796,13 +804,20 @@ def lost_runtime_case() -> dict[str, object]:
 
 
 def killed(**overrides: object) -> _Material:
-    """A run whose Core was killed: no run document, and the ledger is the record."""
+    """A run whose Core was killed: no run document, and the ledger is the record.
+
+    The fault record is part of the shape rather than an extra: a run of this case
+    is a run whose runtime was killed, and since the case was reviewed it has had
+    to say so in a record the helper wrote. Every mutation test below starts from
+    this and breaks one field of it.
+    """
 
     arguments: dict[str, object] = {
         "document": {},
         "log": STOPPED_READINGS,
         "client_log": IPC_LOSS,
         "events": (event("PlayableEstablished"), LEASE),
+        "fault_injection": fault_record(case_version=load_case_manifest(LOST_RUNTIME_CASE).digest),
     }
     arguments.update(overrides)
     return material(**arguments)  # type: ignore[arg-type]
@@ -892,6 +907,156 @@ def test_a_kin_that_never_moved_did_not_stop() -> None:
     )
 
     assert verdict.failures == ("the_server_saw_the_kin_stop_after_the_move:NO_SERVER_READINGS",)
+
+
+# The record shape itself lives in one place, `tests/fault_support.py`, because
+# the sealer reads the same shape from the other end.
+
+
+def sigkill_was_confirmed(**overrides: object) -> dict[str, object]:
+    """The same kill, judged: the assertion's own name, and its reasons."""
+
+    verdict = ASSERTER_MODULE.evaluate(
+        lost_runtime_case(),
+        killed(
+            fault_injection=fault_record(
+                case_version=load_case_manifest(LOST_RUNTIME_CASE).digest, **overrides
+            )
+        ),
+    )
+    return {
+        "result": verdict.result,
+        "observed": verdict.observed,
+        "failures": verdict.failures,
+    }
+
+
+def test_a_confirmed_runtime_kill_is_the_injection_the_case_asks_for() -> None:
+    """One kill, and the three things it left behind: a lease, a release, a stop.
+
+    The fault record is judged *with* the rest rather than beside it: the case's
+    answer is the conjunction, so a run that let go of its keys without a
+    confirmed kill is not a run whose runtime died.
+    """
+
+    verdict = ASSERTER_MODULE.evaluate(
+        lost_runtime_case(),
+        killed(
+            fault_injection=fault_record(case_version=load_case_manifest(LOST_RUNTIME_CASE).digest)
+        ),
+    )
+
+    assert verdict.result == "PASS"
+    assert verdict.observed == verdict.expected
+    assert verdict.failures == ()
+    assert "runtime_controller_sigkill_was_confirmed" in verdict.observed
+
+
+@pytest.mark.parametrize(
+    ("overrides", "reason"),
+    [
+        ({"case": {"case_id": "CORE-999"}}, "FAULT_RECORD_IS_ANOTHER_CASE:CORE-999"),
+        (
+            {"case": {"case_version": "0" * 64}},
+            "FAULT_RECORD_IS_ANOTHER_CASE_VERSION:" + "0" * 64,
+        ),
+        ({"target": {"role": "server_jvm"}}, "WRONG_TARGET_ROLE:server_jvm"),
+        (
+            {"signal": {"name": "SIGTERM", "number": 15, "result": "DELIVERED", "error": None}},
+            "NOT_A_SIGKILL:SIGTERM",
+        ),
+        ({"outcome": "AMBIGUOUS"}, "NOT_INJECTED:AMBIGUOUS"),
+        ({"outcome": "NOT_INJECTED"}, "NOT_INJECTED:NOT_INJECTED"),
+        (
+            {"confirmation_strength": "NONE", "confirmation": None},
+            "CONFIRMATION_NOT_IDENTITY_DISAPPEARED:NONE",
+        ),
+        (
+            {"confirmation": {"method": "NONE", "observations": 0}},
+            "NOTHING_CONFIRMED_THE_TARGET_DIED",
+        ),
+    ],
+)
+def test_a_kill_that_is_not_the_one_the_case_asks_for_is_named(
+    overrides: dict[str, object], reason: str
+) -> None:
+    """The reason is the check: every way of *not* confirming a kill is separate."""
+
+    verdict = sigkill_was_confirmed(**overrides)
+
+    assert verdict["result"] == "FAIL"
+    assert f"runtime_controller_sigkill_was_confirmed:{reason}" in cast(
+        tuple[str, ...], verdict["failures"]
+    )
+
+
+def test_a_record_that_names_another_run_is_not_this_run_s_kill() -> None:
+    """The record and the ledger have to be about the same run, not just a kill."""
+
+    verdict = sigkill_was_confirmed(attribution={"run_id": "0" * 32})
+
+    assert verdict["result"] == "FAIL"
+    assert (
+        "runtime_controller_sigkill_was_confirmed:FAULT_RECORD_IS_ANOTHER_RUN:" + "0" * 32
+        in cast(tuple[str, ...], verdict["failures"])
+    )
+
+
+def test_a_kill_with_no_record_at_all_is_not_a_confirmed_kill() -> None:
+    """A kill run that sealed no record has proven the kill only by assertion.
+
+    Which is what this case used to do: the harness said it killed the runtime and
+    the readings were read as if it had.
+    """
+
+    verdict = ASSERTER_MODULE.evaluate(lost_runtime_case(), killed(fault_injection=None))
+
+    assert verdict.result == "FAIL"
+    assert verdict.failures == (
+        "runtime_controller_sigkill_was_confirmed:NO_FAULT_INJECTION_RECORD",
+    )
+
+
+def test_a_record_about_another_session_is_not_this_run_s_kill() -> None:
+    """The ledger is what the session half of the attribution is checked against."""
+
+    verdict = ASSERTER_MODULE.evaluate(
+        lost_runtime_case(),
+        killed(
+            events=(
+                event("SessionProcessStarted", session_id="session-01", generation=1),
+                event("PlayableEstablished"),
+                LEASE,
+            ),
+            fault_injection=fault_record(
+                case_version=load_case_manifest(LOST_RUNTIME_CASE).digest,
+                attribution={"session_id": "session-99"},
+            ),
+        ),
+    )
+
+    assert verdict.result == "FAIL"
+    assert (
+        "runtime_controller_sigkill_was_confirmed:"
+        "FAULT_RECORD_IS_ANOTHER_SESSION:session-99/1" in verdict.failures
+    )
+
+
+def test_a_wait_status_is_not_something_a_record_may_claim() -> None:
+    """The helper is not the parent, so it cannot have reaped what it killed."""
+
+    verdict = sigkill_was_confirmed(
+        confirmation={
+            "method": "PROC_ENTRY_ABSENT",
+            "observations": 1,
+            "wait_status_available": True,
+        }
+    )
+
+    assert verdict["result"] == "FAIL"
+    assert "runtime_controller_sigkill_was_confirmed:CLAIMED_A_WAIT_STATUS_IT_CANNOT_HAVE" in cast(
+        tuple[str, ...], verdict["failures"]
+    )
 
 
 # The run a black hole produced: the attempt reached LOGIN_NEGOTIATING and stayed
@@ -1208,6 +1373,96 @@ def test_the_command_exits_unjudged_when_the_material_is_unreadable(tmp_path: Pa
 
     assert result.returncode == ASSERTER_MODULE.EXIT_UNJUDGED
     assert json.loads(result.stderr)["status"] == "unreadable"
+
+
+FAULT_ONLY_CASE: dict[str, object] = {
+    "schema_version": 1,
+    "case_id": "CORE-060",
+    "work_package": "W70",
+    "mandatory": False,
+    "inputs": [],
+    "assertions": ["runtime_controller_sigkill_was_confirmed"],
+}
+
+
+def fault_case(tmp_path: Path) -> Path:
+    """A case that asks for the fault record and nothing else."""
+
+    path = tmp_path / "fault-only.json"
+    path.write_text(json.dumps(FAULT_ONLY_CASE), encoding="utf-8")
+    return path
+
+
+def ledger_for(tmp_path: Path) -> Path:
+    """A real ledger with no events in it, so the material can be read at all."""
+
+    directory = tmp_path / "kin" / "kin-01"
+    directory.mkdir(parents=True, exist_ok=True)
+    database = directory / "kin.sqlite3"
+    connect_writer(database).close()
+    return database
+
+
+def test_the_fault_record_travels_by_path_and_as_text_the_same_way(tmp_path: Path) -> None:
+    """Two ways to hand it over, one judgement: the sealer uses the second.
+
+    The sealer reads the file once, seals those bytes and passes the same text to
+    the asserter, so the judgement cannot be about a file that changed in between.
+    Both routes have to reach the same answer for that to mean anything.
+    """
+
+    run = write_material(tmp_path, run_document(), f"{JOINED}\n{LEFT}\n")
+    ledger_for(tmp_path)
+    record = tmp_path / "fault-injection.json"
+    case_path = fault_case(tmp_path)
+    record.write_text(
+        json.dumps(fault_record(case_version=load_case_manifest(case_path).digest)),
+        encoding="utf-8",
+    )
+    base = [
+        "--case",
+        str(case_path),
+        *arguments_for(tmp_path, run)[2:],
+    ]
+
+    by_path = run_cli(*base, "--fault-injection", str(record))
+    by_text = run_cli(*base, "--fault-injection-json", record.read_text(encoding="utf-8"))
+    both = run_cli(*base, "--fault-injection", str(record), "--fault-injection-json", "{}")
+
+    assert by_path.returncode == ASSERTER_MODULE.EXIT_HELD, by_path.stderr
+    assert json.loads(by_path.stdout)["result"] == "PASS"
+    assert by_text.stdout == by_path.stdout
+    assert both.returncode == ASSERTER_MODULE.EXIT_UNJUDGED
+
+
+def test_the_command_refuses_a_fault_record_a_reader_would_refuse(tmp_path: Path) -> None:
+    """The judged document and the sealed one go through one reader."""
+
+    run = write_material(tmp_path, run_document(), f"{JOINED}\n{LEFT}\n")
+    ledger_for(tmp_path)
+    record = tmp_path / "fault-injection.json"
+    case_path = fault_case(tmp_path)
+    broken = fault_record(case_version=load_case_manifest(case_path).digest)
+    broken["outcome"] = "MAYBE"
+    record.write_text(json.dumps(broken), encoding="utf-8")
+
+    result = run_cli(
+        "--case",
+        str(case_path),
+        "--run-document",
+        str(run),
+        "--data-root",
+        str(tmp_path),
+        "--server-directory",
+        str(tmp_path),
+        "--username",
+        USERNAME,
+        "--fault-injection",
+        str(record),
+    )
+
+    assert result.returncode == ASSERTER_MODULE.EXIT_UNJUDGED
+    assert "INVALID_OUTCOME" in result.stderr
 
 
 def test_the_registry_and_the_asserter_name_the_same_assertions() -> None:

@@ -124,6 +124,11 @@ IMPLEMENTATIONS: dict[str, Implementation] = {
     "the_server_saw_the_kin_stop_after_the_move": _runtime(
         "the_server_saw_the_kin_stop_after_the_move"
     ),
+    # CORE-060's own half: the fault the harness injected, evidenced by the record
+    # the helper writes rather than by the harness saying it happened.
+    "runtime_controller_sigkill_was_confirmed": _runtime(
+        "runtime_controller_sigkill_was_confirmed"
+    ),
     "the_attempt_was_abandoned_at_its_deadline": _runtime(
         "the_attempt_was_abandoned_at_its_deadline"
     ),

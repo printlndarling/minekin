@@ -102,3 +102,49 @@ def test_the_domain_soak_is_bounded_and_fails_closed() -> None:
     assert "final_world_process=" in text
     assert 'if [ "${sample_failed}" -eq 1 ] || \\' in text
     assert "the soak did not sample both JVMs on every pass" in text
+
+
+def test_the_kill_paths_name_their_target_instead_of_guessing() -> None:
+    """The two faults used to be aimed by a pattern match over the container.
+
+    `pkill -f "minekin_core session start"` matched any Core in the container —
+    including the `session stop` this script itself runs later — and
+    `pgrep -P <tool> | head -1` named the tool's first child, which is not the
+    JVM. Neither could say which process it had killed, so neither could be
+    evidence that one had died.
+    """
+
+    text = (RUNNER / "domain.sh").read_text(encoding="utf-8")
+
+    assert 'pkill -KILL -f "minekin_core session start"' not in text
+    assert 'pgrep -P "${server_pid}"' not in text
+    # The helper is what both faults go through, and its record is what the sealer
+    # is given: a kill that is not recorded is not evidence of a kill.
+    assert 'inject_fault "${session_pid}" "runtime_controller"' in text
+    assert 'inject_fault "${server_pid}" "server_jvm"' in text
+    assert "tools/inject_fault.py inject" in text
+    assert "tools/inject_fault.py annotate" in text
+    assert "--fault-injection" in text
+    # A second fault in one run would leave two records and one sealable name.
+    assert "this run asks for two faults at once" in text
+
+
+def test_the_kill_paths_read_the_ledger_they_are_told_about() -> None:
+    """One Kin's database must not be read as another's.
+
+    The ledger is where the run id, the Kin and the session come from, and every
+    answer downstream is about whichever one was read. Taking the first of a glob
+    silently picks one of several; the count is checked instead.
+    """
+
+    text = (RUNNER / "domain.sh").read_text(encoding="utf-8")
+
+    assert "ls -1 /data/kin/*/kin.sqlite3" not in text
+    assert "ledgers=(/data/kin/*/kin.sqlite3)" in text
+    assert 'if [ "${#ledgers[@]}" -ne 1 ]' in text
+    assert "this run cannot name its ledger" in text
+    # The run's own identity, read from the ledger rather than invented for the
+    # record the helper writes.
+    assert "SessionProcessStarted" in text
+    assert "--kin-id" in text
+    assert "--session-id" in text

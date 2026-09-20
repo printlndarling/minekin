@@ -605,7 +605,8 @@ $ MINEKIN_SERVER_JAR=… MINEKIN_DOMAIN_PROBE=Kin MINEKIN_DOMAIN_KILL_CORE=1 \
       bash test-orchestrator/runner/run.sh domain session start --profile … --server-profile … \
       --hold-forward-seconds 60
 domain: the session is playable
-domain: Core has been killed; the Bridge should let go
+domain: the fault helper said {"outcome": "INJECTED", "record": "/tmp/domain-fault-injection.json", …}
+domain: the runtime is gone; the Bridge should let go
 domain: the Kin left the game after Core died
 client   [19:00:55] bridge applied ce6f8f83…: holding [move.forward]
 client   [19:00:58] bridge is failing closed (IPC_LOST); the client will be stopped by its next tick
@@ -616,7 +617,9 @@ ledger   InputLeaseGranted                                   (and nothing after 
 
 The ledger stopping at the grant is the point of the run: `InputReleased` is
 Core's event, and Core was not there to write it, so the absent line is itself
-the evidence that something else lifted the keys.
+the evidence that something else lifted the keys. Which process was killed, and
+how its death was confirmed, is in the sealed record — see
+[the record a fault leaves](#the-record-a-fault-leaves-and-what-it-cannot-prove).
 
 The two switches also draw a line the contract draws but nothing had measured:
 **silence** releases the keys and the client keeps running, because the peer may
@@ -762,11 +765,15 @@ Two defects were found by this injection, and neither was visible from the code:
   *tool*, and the JVM — its child — lived on; the SIGTERM the container sends on
   exit then let the tool run its own clean-stop path, so the world was saved and
   rewritten while the harness printed `the world is gone`. Measured twice: the
-  "killed" runs ended their server log with `All dimensions are saved`. It now
-  kills the JVM that `pgrep -P` names, and then *verifies*: the process is gone and
-  the log holds no shutdown, or the run fails as an injection that did not happen.
-  This is the second time this repository has been caught by that shape — the
-  first was `kill -INT` being a no-op for a background job.
+  "killed" runs ended their server log with `All dimensions are saved`. The first
+  fix named the JVM with `pgrep -P`, which was its own guess — it names the tool's
+  first child, not the dedicated server JVM. The wrapper/tool identity is now
+  captured when the runner starts it and rechecked before traversal and signal;
+  the JVM is derived from that exact `/proc` subtree and must be the only
+  `java -jar /server/server.jar` process there, and the
+  helper confirms the recorded identity left `/proc` before the run is allowed to
+  call it killed. This is the second time this repository has been caught by that
+  shape — the first was `kill -INT` being a no-op for a background job.
 * **Core cancelled a world the Kin was already in.** Any session that stayed
   `PLAYABLE` for longer than the connection timeout — thirty seconds by default —
   had its connection cancelled: the deadline asked `attempt.in_flight`, which means
@@ -779,6 +786,71 @@ Two defects were found by this injection, and neither was visible from the code:
 Neither fix changes the evidence already on file: the deadline only matters for a
 session that stays in a world for more than thirty seconds, and CORE-040's hold is
 eight seconds while CORE-050 never reaches a world at all.
+
+### The record a fault leaves, and what it cannot prove
+
+Both kill paths now go through `tools/inject_fault.py`, and the reason is that
+neither of the two ways this was done before could say *which process* it had
+killed. `pkill -f "minekin_core session start"` searches every process in the
+container — a second session's runtime, or the `session stop` this script runs
+later, is as good a match as the one the run means — and `pgrep -P <tool> |
+head -1` names the tool's first child, which is not the JVM. A fault injection
+that cannot name its target has not injected anything, so the target is now
+*derived* rather than searched for:
+
+* the run hands over a pid it already holds — the session wrapper, or the server
+  tool — and the helper walks that process's descendants in `/proc`;
+* exactly one of them must match the role's own command line
+  (`python -m minekin_core session start` under the wrapper; the one `java`
+  process under the server tool). **Zero is a refusal and more than one is a
+  refusal, and a refusal never signals anything**;
+* the pid's identity is recorded before the signal — its start time from
+  `/proc/<pid>/stat`, its pid namespace, its resolved executable, its argv — and
+  re-read immediately before signalling, so a pid that died and was reissued in
+  between is a refusal too, not a signal aimed at somebody else;
+* after `SIGKILL` the helper watches for that recorded identity to leave `/proc`.
+  A bare pid is not an identity and is never treated as one: a pid that came back
+  with a **different start time** is reported as a reused pid, which is a
+  confirmation, because it means the process that had the old identity is gone.
+
+What the helper *cannot* prove is written down rather than papered over. It is not
+the parent of the process it kills, so there is no `waitpid` to call: it has no
+exit status and no termination signal to report, and its
+`confirmation_strength` is always `IDENTITY_DISAPPEARED` — never `WAIT_STATUS`,
+which is reserved for a helper that really is the parent and is **refused** by the
+reader today. Timestamps are recorded from `CLOCK_MONOTONIC` because a reader
+wants to know when things happened; they are not what makes the confirmation a
+confirmation. The bounded poll and the observation that ended it are.
+
+The record is `fault-injection.json`, written to `/tmp` and handed to the sealer
+with `--fault-injection`. The sealer reads it once, refuses it if it is not a
+record this repository accepts (a symlink, a bad enum, a confirmation stamped
+before the attempt), passes exactly those bytes to the judge, and seals the same
+bytes as an artifact — so the verdict and the bundle cannot be about two different
+readings of one file. CORE-060 now asks for
+`runtime_controller_sigkill_was_confirmed` *in addition to* the lease, the
+`IPC_LOST` release and the server's readings, and the four are adjudicated as one
+conjunction: a run that let go of its keys without a confirmed kill is not a run
+whose runtime died.
+
+Two limits are worth stating plainly:
+
+* **A server kill is recorded but not yet judged.** The helper produces a
+  `server_jvm` record, the schema and the reader accept it, and the sealer seals
+  it — but no reviewed case asks for one, so this phase claims nothing about the
+  server half of the contract's four kills. There is also no supervisor exit
+  status in that record: the server tool is still running when the seal happens,
+  and a status nobody waited for would be an invented number rather than an absent
+  one.
+* **Two faults still name their target the old way.** `MINEKIN_DOMAIN_SILENCE`
+  (`pkill -STOP -f`) and the soak sampler's JVM discovery (`pgrep -P` recursion)
+  are not kill paths and were left alone. They pause and they sample; neither
+  claims to have killed anything, and neither is evidence of a death.
+
+The case's assertion list changed, so its digest did — which means every
+`CORE-060` bundle sealed before this is **legacy partial**: still sealed, still
+verifiable, and no longer evidence for the reviewed case, exactly as
+`CASE_VERSION_MISMATCH` says when promotion reads it.
 
 ### When the keyboard stops being the world's
 

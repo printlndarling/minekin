@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import importlib
 import json
+import stat
 import sys
 from collections.abc import Iterator
 from pathlib import Path
@@ -21,7 +22,9 @@ from typing import Any, cast
 
 import pytest
 
+from fault_support import fault_record
 from minekin_core.adapters.evidence.bundle import unseal_bundle, verify_bundle
+from minekin_core.adapters.evidence.promotion import load_case_manifest
 from minekin_core.adapters.sqlite.connection import connect_writer
 from minekin_core.adapters.sqlite.session_log import (
     HELLO_ACCEPTED,
@@ -413,6 +416,193 @@ def test_a_run_that_joined_no_world_seals_the_absence_of_one(tmp_path: Path) -> 
     assert manifest["identity"]["server_observed_name_uuid"] == ""
     assert "server/server.log" not in {record["path"] for record in manifest["artifacts"]}
     assert verify_bundle(data_root / "kin" / str(KIN) / "run" / "evidence" / RUN_ID).verified
+
+
+# A case whose only assertion is the fault record. The CORE-060 run fixture is
+# heavier than this test needs — a lease, a lost IPC release and two server
+# readings — and what is under test here is where the record goes, not what the
+# rest of that case proves.
+FAULT_CASE: dict[str, object] = {
+    "schema_version": 1,
+    "case_id": "CORE-060",
+    "work_package": "W70",
+    "mandatory": False,
+    "inputs": [],
+    "assertions": ["runtime_controller_sigkill_was_confirmed"],
+}
+
+
+def fault_case(tmp_path: Path) -> Path:
+    path = tmp_path / "core-060-partial.json"
+    path.write_text(json.dumps(FAULT_CASE), encoding="utf-8")
+    return path
+
+
+def fault_record_file(
+    tmp_path: Path, *, case: Path = CASE, **overrides: object
+) -> tuple[Path, bytes]:
+    """A record on disk, and the exact bytes it holds."""
+
+    path = tmp_path / "fault-injection.json"
+    written = (
+        json.dumps(
+            fault_record(case_version=load_case_manifest(case).digest, **overrides),
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n"
+    ).encode("utf-8")
+    path.write_bytes(written)
+    return path, written
+
+
+def test_a_kill_run_seals_the_record_that_confirms_it(
+    finished_run: tuple[Path, Path, Path], tmp_path: Path
+) -> None:
+    """The record is evidence, so it is sealed beside the run rather than kept."""
+
+    data_root, server, document = finished_run
+    case = fault_case(tmp_path)
+    record, written = fault_record_file(tmp_path, case=case)
+
+    report = seal_it(
+        data_root,
+        server,
+        document,
+        case=case,
+        fault_injection_path=record,
+    )
+
+    assert report["result"] == "PASS", report["failures"]
+    assert "fault-injection.json" in cast(list[str], report["artifacts"])
+    bundle = data_root / "kin" / str(KIN) / "run" / "evidence" / RUN_ID
+    assert (bundle / "fault-injection.json").read_bytes() == written
+    assert verify_bundle(bundle).verified
+
+
+def test_the_judge_is_given_the_bytes_that_are_sealed_rather_than_the_path(
+    finished_run: tuple[Path, Path, Path], tmp_path: Path
+) -> None:
+    """One reading of the file, used twice: as the judgement and as the artifact.
+
+    The sealer hands the asserter the text rather than the path, so a record that
+    changed between the two would not be judged as one thing and sealed as
+    another — which is the whole reason the flag is not simply forwarded.
+    """
+
+    data_root, server, document = finished_run
+    case = fault_case(tmp_path)
+    _, written = fault_record_file(tmp_path, case=case)
+    text = written.decode("utf-8")
+
+    verdict = SEALER.run_asserter(
+        case=case,
+        run_document=document,
+        run_id=None,
+        data_root=data_root,
+        server_directory=server,
+        username=USERNAME,
+        fault_injection=text,
+    )
+
+    assert verdict["result"] == "PASS", verdict["failures"]
+    sealed = SEALER.collect_artifacts(
+        overlay=None,
+        server_directory=None,
+        run_document=b"",
+        fault_injection=written,
+        orchestrator={},
+    )
+    assert sealed["fault-injection.json"] == written
+    assert sealed["fault-injection.json"].decode("utf-8") == text
+
+
+def test_a_record_a_reader_would_refuse_stops_the_seal(
+    finished_run: tuple[Path, Path, Path], tmp_path: Path
+) -> None:
+    """A record that is not one is not something to seal and hope about."""
+
+    data_root, server, document = finished_run
+    case = fault_case(tmp_path)
+    record, _ = fault_record_file(tmp_path, case=case, outcome="MAYBE")
+
+    with pytest.raises(SEALER.Unsealable, match="cannot be sealed"):
+        seal_it(
+            data_root,
+            server,
+            document,
+            case=case,
+            fault_injection_path=record,
+        )
+
+    assert not (data_root / "kin" / str(KIN) / "run" / "evidence" / RUN_ID).exists()
+
+
+class _Link:
+    """A `lstat` answer that says "symlink", whatever the host allows."""
+
+    st_mode = stat.S_IFLNK | 0o777
+
+
+def _symlink_lstat(self: Path) -> _Link:
+    return _Link()
+
+
+def test_a_symlinked_record_stops_the_seal(
+    finished_run: tuple[Path, Path, Path], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    data_root, server, document = finished_run
+    case = fault_case(tmp_path)
+    record, _ = fault_record_file(tmp_path, case=case)
+    monkeypatch.setattr("pathlib.Path.lstat", _symlink_lstat)
+
+    with pytest.raises(SEALER.Unsealable, match="SYMLINK"):
+        seal_it(
+            data_root,
+            server,
+            document,
+            case=case,
+            fault_injection_path=record,
+        )
+
+
+def test_a_case_that_demands_a_confirmed_kill_fails_without_one(
+    finished_run: tuple[Path, Path, Path], tmp_path: Path
+) -> None:
+    """The assertion is judged with the rest, so its failure is the run's verdict."""
+
+    data_root, server, document = finished_run
+
+    report = seal_it(data_root, server, document, case=fault_case(tmp_path))
+
+    assert report["result"] == "FAIL"
+    assert cast(list[str], report["failures"]) == [
+        "runtime_controller_sigkill_was_confirmed:NO_FAULT_INJECTION_RECORD"
+    ]
+    assert verify_bundle(data_root / "kin" / str(KIN) / "run" / "evidence" / RUN_ID).verified
+
+
+def test_a_fault_record_about_another_run_cannot_stand_for_this_one(
+    finished_run: tuple[Path, Path, Path], tmp_path: Path
+) -> None:
+    """Sealing it is allowed; counting it for this run is not."""
+
+    data_root, server, document = finished_run
+    case = fault_case(tmp_path)
+    record, _ = fault_record_file(tmp_path, case=case, attribution={"run_id": "0" * 32})
+
+    report = seal_it(
+        data_root,
+        server,
+        document,
+        case=case,
+        fault_injection_path=record,
+    )
+
+    assert report["result"] == "FAIL"
+    assert cast(list[str], report["failures"]) == [
+        "runtime_controller_sigkill_was_confirmed:FAULT_RECORD_IS_ANOTHER_RUN:" + "0" * 32
+    ]
 
 
 def test_a_bundle_may_not_call_a_world_it_joined_no_world(tmp_path: Path) -> None:

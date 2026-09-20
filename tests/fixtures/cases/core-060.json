@@ -9,6 +9,7 @@
   ],
   "assertions": [
     "move_input_was_leased",
+    "runtime_controller_sigkill_was_confirmed",
     "the_bridge_released_the_input_when_the_ipc_was_lost",
     "the_server_saw_the_kin_stop_after_the_move"
   ]

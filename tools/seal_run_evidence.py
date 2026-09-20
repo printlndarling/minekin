@@ -61,6 +61,7 @@ from minekin_core.domain.ids import KinId
 # for the two to disagree about which events belong to this run.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import fault_injection
 from assert_case_evidence import (
     PLAYABLE_ESTABLISHED,
     RUN_DOCUMENT_KEY,
@@ -166,6 +167,7 @@ def collect_artifacts(
     overlay: Path | None,
     server_directory: Path | None,
     run_document: bytes,
+    fault_injection: bytes,
     orchestrator: Mapping[str, object],
 ) -> dict[str, bytes]:
     """Every artifact this run left, under names a reader can recognise."""
@@ -180,6 +182,10 @@ def collect_artifacts(
         # killed leaves no document, and an empty file would read as one that
         # said nothing rather than as one that never existed.
         found["run-document.json"] = run_document
+    if fault_injection:
+        # The bytes the asserter was given, not a second reading of the file: the
+        # verdict and the artifact have to be the same snapshot of the record.
+        found["fault-injection.json"] = fault_injection
     # The client's own output, where the Bridge's lines are: sealing the whole
     # stream rather than a filtered selection means a reader can check any
     # selection against it rather than having to trust one.
@@ -205,9 +211,15 @@ def run_asserter(
     server_directory: Path | None,
     username: str,
     run_id: str | None = None,
+    fault_injection: str | None = None,
     python: str = sys.executable,
 ) -> dict[str, object]:
-    """The case's verdict, from the one module that judges rather than writes."""
+    """The case's verdict, from the one module that judges rather than writes.
+
+    The fault record travels as text rather than as a path, because this side has
+    already read it once: the same bytes are sealed as an artifact, so the verdict
+    and the bundle cannot be about two different readings of one file.
+    """
 
     arguments = [
         python,
@@ -225,6 +237,8 @@ def run_asserter(
         arguments += ["--run-document", str(run_document)]
     if server_directory is not None:
         arguments += ["--server-directory", str(server_directory)]
+    if fault_injection is not None:
+        arguments += ["--fault-injection-json", fault_injection]
     completed = subprocess.run(
         arguments,
         capture_output=True,
@@ -363,6 +377,7 @@ def seal(
     renderer_display: str = "unmeasured",
     session_argv: Sequence[str] = (),
     secrets: Sequence[str] = (),
+    fault_injection_path: Path | None = None,
     workspace_root: Path | None = None,
     now: datetime | None = None,
 ) -> dict[str, object]:
@@ -373,10 +388,25 @@ def seal(
     the reason the second way exists at all. Everything the document would have
     said about the run's identity is then taken from the ledger, the record that
     survived the kill.
+
+    A run that injected a fault names the record of it here. The record is read
+    once, refused if it is not one, and then used twice — as the text the judge is
+    given and as the bytes sealed — so the two are the same snapshot rather than
+    two readings of a file that may have changed in between.
     """
 
     if (run_document_path is None) == (run_id is None):
         raise Unsealable("name the run either by its document or by its run id, not both")
+
+    fault_injection_bytes = b""
+    fault_injection_text: str | None = None
+    if fault_injection_path is not None:
+        try:
+            record = fault_injection.read_record(fault_injection_path)
+        except fault_injection.FaultInjectionError as error:
+            raise Unsealable(f"the fault record cannot be sealed: {error}") from error
+        fault_injection_bytes = record.raw
+        fault_injection_text = record.raw.decode("utf-8")
 
     raw = b""
     run_document: dict[str, object] = {}
@@ -399,6 +429,7 @@ def seal(
         data_root=data_root,
         server_directory=server_directory,
         username=username,
+        fault_injection=fault_injection_text,
     )
     material = read_run_material(
         run_document=run_document_path,
@@ -445,6 +476,7 @@ def seal(
         overlay=material.overlay,
         server_directory=server_directory,
         run_document=raw,
+        fault_injection=fault_injection_bytes,
         orchestrator=orchestrator_trace(
             case=case,
             run_id=identifier,
@@ -511,6 +543,15 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--java", type=Path, default=None)
     parser.add_argument("--renderer-display", default="unmeasured")
     parser.add_argument(
+        "--fault-injection",
+        type=Path,
+        default=None,
+        help=(
+            "the harness's record of the fault it injected; read once, judged and "
+            "sealed as one snapshot"
+        ),
+    )
+    parser.add_argument(
         "--secret-env",
         action="append",
         default=[],
@@ -540,6 +581,7 @@ def main(argv: list[str] | None = None) -> int:
             java=args.java,
             renderer_display=args.renderer_display,
             session_argv=args.session_argv,
+            fault_injection_path=args.fault_injection,
             secrets=secrets,
         )
     except Unsealable as error:

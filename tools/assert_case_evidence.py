@@ -29,14 +29,30 @@ import re
 import sqlite3
 import sys
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import cast
 
 from minekin_core.cli.init import DATABASE_NAME, KIN_DIRECTORY, kin_directory, run_root
 from minekin_core.cli.session import session_overlay_path
+from minekin_core.domain.cases import parse_case_manifest
 from minekin_core.domain.ids import KinId
 from minekin_core.domain.offline_identity import offline_player_uuid
+
+# The record's reader lives beside this file, and this is the module that judges
+# it. One reader, so the shape a record is sealed in and the shape it is judged by
+# cannot be two dialects of the same idea.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import fault_injection
+from fault_injection import (
+    IDENTITY_DISAPPEARED,
+    INJECTED,
+    NO_METHOD,
+    RUNTIME_CONTROLLER,
+    SIGKILL,
+    FaultInjectionError,
+)
 
 EXIT_HELD = 0
 EXIT_FAILED = 1
@@ -222,6 +238,16 @@ class RunMaterial:
     #: client's own claim about who it is is not evidence of who the server saw.
     server_identities: Mapping[str, str]
     username: str
+    #: The record the harness wrote when it killed a process, or None for a run
+    #: that injected no fault. Read once and carried, so a case about a fault is
+    #: judged against the same bytes that were sealed rather than against a file
+    #: that may have been rewritten in between.
+    fault_injection: Mapping[str, object] | None = None
+    #: The reviewed case being evaluated.  `evaluate` fills these from the same
+    #: manifest that declares the assertions, so a trace attributed to another
+    #: case (or another revision of this case) cannot satisfy this one.
+    expected_case_id: str | None = None
+    expected_case_version: str | None = None
 
     def recorded(self, event_type: str) -> tuple[Mapping[str, object], ...]:
         """Every event of one type this run recorded."""
@@ -284,6 +310,7 @@ def read_run_material(
     server_directory: Path | None,
     username: str,
     run_id: str | None = None,
+    fault_injection: Mapping[str, object] | None = None,
 ) -> RunMaterial:
     """Read a finished run's material, refusing anything that is not readable.
 
@@ -395,6 +422,7 @@ def read_run_material(
         server_log=server_log,
         server_identities=identities,
         username=username,
+        fault_injection=fault_injection,
     )
 
 
@@ -670,6 +698,122 @@ def the_server_saw_the_kin_stop_after_the_move(material: RunMaterial) -> str | N
     return None
 
 
+def _object(value: object) -> Mapping[str, object] | None:
+    return cast(Mapping[str, object], value) if isinstance(value, Mapping) else None
+
+
+def _positive(value: object) -> int | None:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        return None
+    return value
+
+
+def _ledger_session(material: RunMaterial) -> tuple[str, int] | None:
+    """The session and generation this run's first ledger row recorded, if it did."""
+
+    for recorded in material.recorded(PROCESS_STARTED):
+        session, generation = (
+            payload(recorded).get("session_id"),
+            payload(recorded).get("generation"),
+        )
+        if isinstance(session, str) and session and _positive(generation) is not None:
+            return session, cast(int, generation)
+    return None
+
+
+def runtime_controller_sigkill_was_confirmed(material: RunMaterial) -> str | None:
+    """The fault the harness injected, as a fact about a process rather than a claim.
+
+    This is the one assertion in the case that is about the *harness* rather than
+    about the Kin or the world, and it is here precisely because the harness used
+    to lie about it. A run that says it killed the runtime has to have said so in
+    a record that names one process uniquely, names it as the runtime, records a
+    `SIGKILL` that was delivered, and reports the recorded identity leaving
+    `/proc` afterwards. Anything less — no record, another role, another signal,
+    an unconfirmed death — is a run that proves nothing about a lost runtime, and
+    the reason names which.
+
+    What it does *not* ask for is a wait status: the helper is not the parent of
+    what it kills, so it cannot have one, and a record claiming one is refused
+    rather than accepted.
+
+    The record's attribution is cross-checked against the run's own material, so
+    a kill recorded for another run cannot be presented as this one's. The ledger
+    supplies the session and generation when it carries them; when it does not,
+    there is nothing to cross against and that half is left alone rather than
+    guessed at.
+    """
+
+    record = material.fault_injection
+    if record is None:
+        return "NO_FAULT_INJECTION_RECORD"
+
+    case = _object(record.get("case"))
+    if case is None:
+        return "NO_CASE_ATTRIBUTION"
+    if case.get("case_id") != material.expected_case_id:
+        return f"FAULT_RECORD_IS_ANOTHER_CASE:{case.get('case_id')}"
+    if case.get("case_version") != material.expected_case_version:
+        return f"FAULT_RECORD_IS_ANOTHER_CASE_VERSION:{case.get('case_version')}"
+
+    target = _object(record.get("target"))
+    if target is None:
+        return "NO_TARGET"
+    role = target.get("role")
+    if role != RUNTIME_CONTROLLER:
+        return f"WRONG_TARGET_ROLE:{role}"
+
+    signal = _object(record.get("signal"))
+    name = None if signal is None else signal.get("name")
+    if name != SIGKILL:
+        return f"NOT_A_SIGKILL:{name}"
+
+    outcome = record.get("outcome")
+    if outcome != INJECTED:
+        return f"NOT_INJECTED:{outcome}"
+
+    strength = record.get("confirmation_strength")
+    if strength != IDENTITY_DISAPPEARED:
+        return f"CONFIRMATION_NOT_IDENTITY_DISAPPEARED:{strength}"
+
+    confirmation = _object(record.get("confirmation"))
+    method = None if confirmation is None else confirmation.get("method")
+    observations = None if confirmation is None else confirmation.get("observations")
+    if method in (None, NO_METHOD) or _positive(observations) is None:
+        return "NOTHING_CONFIRMED_THE_TARGET_DIED"
+    if confirmation is not None and confirmation.get("wait_status_available") is not False:
+        # The helper is not the parent, so a wait status is not something it can
+        # have observed. Accepting one would be accepting the false claim this
+        # whole record exists to prevent.
+        return "CLAIMED_A_WAIT_STATUS_IT_CANNOT_HAVE"
+
+    attribution = _object(record.get("attribution"))
+    if attribution is None:
+        return "NO_ATTRIBUTION"
+    if attribution.get("run_id") != material.run_id:
+        return f"FAULT_RECORD_IS_ANOTHER_RUN:{attribution.get('run_id')}"
+    if attribution.get("kin_id") != material.kin_id:
+        return f"FAULT_RECORD_IS_ANOTHER_KIN:{attribution.get('kin_id')}"
+    if not material.ledger_readable:
+        # The ledger is what the run id, the kin and the session were cross-checked
+        # against; without it the attribution is only the record's own word.
+        return "LEDGER_UNREADABLE"
+    recorded_session = _ledger_session(material)
+    if (
+        recorded_session is not None
+        and (
+            attribution.get("session_id"),
+            attribution.get("generation"),
+        )
+        != recorded_session
+    ):
+        return (
+            "FAULT_RECORD_IS_ANOTHER_SESSION:"
+            f"{attribution.get('session_id')}/{attribution.get('generation')}"
+        )
+    return None
+
+
 def the_attempt_was_abandoned_at_its_deadline(material: RunMaterial) -> str | None:
     """Core gave up on the attempt, in Core's own words, for its own reason.
 
@@ -925,6 +1069,7 @@ ASSERTIONS: dict[str, Callable[[RunMaterial], str | None]] = {
         the_bridge_released_the_input_when_the_ipc_was_lost
     ),
     "the_server_saw_the_kin_stop_after_the_move": the_server_saw_the_kin_stop_after_the_move,
+    "runtime_controller_sigkill_was_confirmed": runtime_controller_sigkill_was_confirmed,
     "the_attempt_was_abandoned_at_its_deadline": the_attempt_was_abandoned_at_its_deadline,
     "no_world_was_joined": no_world_was_joined,
     "the_cancel_reached_the_client_and_was_acted_on": (
@@ -985,6 +1130,13 @@ def declared_assertions(case: Mapping[str, object]) -> tuple[str, ...]:
 def evaluate(case: Mapping[str, object], material: RunMaterial) -> Verdict:
     """Evaluate every assertion the case declares against one run's material."""
 
+    definition, _ = parse_case_manifest(dict(case))
+    if definition is not None:
+        material = replace(
+            material,
+            expected_case_id=definition.case_id,
+            expected_case_version=definition.digest,
+        )
     expected = declared_assertions(case)
     observed: list[str] = []
     failures: list[str] = []
@@ -1037,7 +1189,33 @@ def main(argv: list[str] | None = None) -> int:
         help="the server run's directory; absent for a run that joined no world",
     )
     parser.add_argument("--username", required=True)
+    parser.add_argument(
+        "--fault-injection",
+        type=Path,
+        default=None,
+        help="the harness's record of the fault it injected, when it injected one",
+    )
+    parser.add_argument(
+        "--fault-injection-json",
+        default=None,
+        help=(
+            "the same record as text, which is how the sealer hands over the exact "
+            "snapshot it is about to seal rather than a path it read twice"
+        ),
+    )
     args = parser.parse_args(argv)
+
+    if args.fault_injection is not None and args.fault_injection_json is not None:
+        return _reject("name the fault record by its path or by its text, not both")
+    try:
+        if args.fault_injection is not None:
+            fault_injection_record = fault_injection.read_record(args.fault_injection).document
+        elif args.fault_injection_json is not None:
+            fault_injection_record = fault_injection.parse_record(args.fault_injection_json)
+        else:
+            fault_injection_record = None
+    except FaultInjectionError as error:
+        return _reject(str(error))
 
     try:
         case = json.loads(args.case.read_bytes())
@@ -1053,6 +1231,7 @@ def main(argv: list[str] | None = None) -> int:
             data_root=args.data_root,
             server_directory=args.server_directory,
             username=args.username,
+            fault_injection=fault_injection_record,
         )
         verdict = evaluate(cast(Mapping[str, object], case), material)
     except Unreadable as error:

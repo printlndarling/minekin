@@ -85,6 +85,100 @@ silenced=0
 injection_failed=0
 runs=/data/server-runs
 
+# The reviewed case, as a file, named once here rather than at the point of
+# sealing: the fault helper cross-checks the case it is told about against this
+# file, so the two have to be the same file.
+case_file=""
+if [ -n "${case_id}" ]; then
+    case_file="/src/tests/fixtures/cases/$(printf '%s' "${case_id}" | tr '[:upper:]' '[:lower:]').json"
+fi
+
+# The record of the fault this run injected. One run seals one record, so a run
+# that asks for two faults at once is refused rather than allowed to report one
+# of them: there would be no way to say later which of the two the record is.
+fault_path=/tmp/domain-fault-injection.json
+fault_role=""
+if [[ -n "${kill_core}" && -n "${kill_server}" ]]; then
+    printf 'domain: this run asks for two faults at once; one run seals one record\n' >&2
+    exit 2
+fi
+
+# Capture a process identity when this runner still owns the pid it just
+# started.  Passing only the pid later would let a dead wrapper's reused number
+# become the trust root for an unrelated /proc subtree.
+read_process_identity() {
+    python - "$1" <<'PY'
+import os
+import sys
+from pathlib import Path
+
+pid = int(sys.argv[1])
+raw = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8", errors="strict")
+closing = raw.rfind(")")
+if closing < 0:
+    raise SystemExit(2)
+fields = raw[closing + 2 :].split()
+if len(fields) < 20:
+    raise SystemExit(2)
+print(fields[19], os.readlink(f"/proc/{pid}/ns/pid"))
+PY
+}
+
+# Kill this run's own process, and keep the record that says so.
+#
+# The target is named, not searched for. Every way this used to be done here
+# guessed: `pkill -f "minekin_core session start"` matched any Core in the
+# container — including the `session stop` this script runs later — and
+# `pgrep -P <tool> | head -1` assumed the tool's first child was the JVM. Neither
+# could say which process it had killed, so neither could be evidence. The helper
+# is given a pid this run already holds and refuses unless exactly one of that
+# process's descendants is the role's own command line; it re-reads the identity
+# before signalling, and it watches for that identity to leave /proc afterwards.
+#
+# Anything other than a confirmed kill fails the run. `set +e` around the call
+# because the helper's own exit status is a result to read, not a crash to die on.
+inject_fault() {
+    local root_pid="$1"
+    local role="$2"
+    local root_starttime_ticks="$3"
+    local root_pid_namespace_inode="$4"
+    set +e
+    python /src/tools/inject_fault.py inject \
+        --root-pid "${root_pid}" \
+        --root-starttime-ticks "${root_starttime_ticks}" \
+        --root-pid-namespace-inode "${root_pid_namespace_inode}" \
+        --role "${role}" \
+        --case "${case_id}" \
+        --case-file "${case_file}" \
+        --ledger "${ledger}" \
+        --kin-id "${kin_id}" \
+        --run-id "${run_id}" \
+        --session-id "${session_id}" \
+        --generation "${generation}" \
+        --record "${fault_path}" >/tmp/domain-fault-injection.log 2>&1
+    local helper_status=$?
+    set -e
+    printf 'domain: the fault helper said ' >&2
+    tr -d '\n' </tmp/domain-fault-injection.log >&2 || true
+    printf '\n' >&2
+    if [ "${helper_status}" -ne 0 ] || [ ! -s "${fault_path}" ]; then
+        printf 'domain: the fault could not be recorded, so nothing here can be attributed\n' >&2
+        return 1
+    fi
+    local outcome
+    outcome=$(python -c 'import json,sys;print(json.load(open(sys.argv[1]))["outcome"])' \
+        "${fault_path}" 2>/dev/null || true)
+    if [ "${outcome}" != "INJECTED" ]; then
+        printf 'domain: the fault was not injected (%s): ' "${outcome:-unreadable}" >&2
+        python -c 'import json,sys;print(",".join(json.load(open(sys.argv[1]))["reasons"]))' \
+            "${fault_path}" >&2 2>/dev/null || true
+        printf '\n' >&2
+        return 1
+    fi
+    fault_role="${role}"
+    return 0
+}
+
 # What this run was asked to do, read from the command that was given to it: the
 # harness waits for what the session was told to do, not for what the operator
 # happened to export as well. The two profiles come out the same way, because
@@ -153,6 +247,8 @@ fi
 # the harness unable to say which kind of run this was — the session's own
 # arguments say it, and everything below reads them.
 server_pid=""
+server_starttime_ticks=""
+server_pid_namespace_inode=""
 server_directory=""
 stop_the_server() {
     # SIGTERM, not SIGINT. A background job of a non-interactive shell inherits
@@ -209,6 +305,15 @@ elif [ -n "${server_profile}" ]; then
     printf 'domain: server run directory %s\n' "${server_directory}" >&2
 else
     printf 'domain: no server profile; this run joins no world\n' >&2
+fi
+
+if [ -n "${server_pid}" ]; then
+    if ! read -r server_starttime_ticks server_pid_namespace_inode \
+            <<<"$(read_process_identity "${server_pid}" 2>/dev/null)" ||
+            [ -z "${server_starttime_ticks}" ] || [ -z "${server_pid_namespace_inode}" ]; then
+        printf 'domain: the server supervisor identity could not be captured\n' >&2
+        exit 2
+    fi
 fi
 
 # The client is not started until the server says it is ready. A refused
@@ -269,6 +374,12 @@ set +e
 xvfb-run -a --server-args="-screen 0 1280x720x24" \
     python -m minekin_core "$@" >/tmp/domain-session.json &
 session_pid=$!
+if ! read -r session_starttime_ticks session_pid_namespace_inode \
+        <<<"$(read_process_identity "${session_pid}" 2>/dev/null)" ||
+        [ -z "${session_starttime_ticks}" ] || [ -z "${session_pid_namespace_inode}" ]; then
+    printf 'domain: the session supervisor identity could not be captured\n' >&2
+    exit 2
+fi
 set -e
 
 # The wait is for the join, not for a duration: a clock long enough for this
@@ -281,7 +392,27 @@ set -e
 # milliseconds — so the last-event test is true for a window too small to poll,
 # and the first version of this spent its whole budget waiting for a state the
 # ledger had already recorded. Measured.
-ledger=$(ls -1 /data/kin/*/kin.sqlite3 2>/dev/null | head -1)
+# The ledger is where every fact below comes from, so a run may only ever read its
+# own. Taking the first of a glob was how one Kin's database could be read as
+# another's: `head -1` over several candidates silently picks one, and everything
+# downstream — the run id, the fault record's attribution, the seal — would then be
+# about a different run. So the number of candidates is checked, and anything other
+# than exactly one fails closed rather than guessing.
+ledgers=(/data/kin/*/kin.sqlite3)
+if [ "${#ledgers[@]}" -ne 1 ] || [ ! -f "${ledgers[0]}" ]; then
+    printf 'domain: this run cannot name its ledger (found %s), so nothing here can be attributed\n' \
+        "${#ledgers[@]}" >&2
+    exit 2
+fi
+ledger="${ledgers[0]}"
+# The run's own attribution — the Kin, the session and the generation — comes from
+# the ledger's *rows* below, once the run id is known, and is empty until then. It
+# is deliberately not read from the path the database sits at: the helper compares
+# the two, and a ledger filed under one Kin whose rows say another is not evidence
+# for either.
+kin_id=""
+session_id=""
+generation=""
 read_position() {
     /opt/sqlite/bin/sqlite3 "${ledger}" 'select coalesce(max(position), 0) from event;' 2>/dev/null ||
         true
@@ -452,6 +583,22 @@ run_id=$(/opt/sqlite/bin/sqlite3 "${ledger}" \
     2>/dev/null || true)
 printf 'domain: this run is %s\n' "${run_id}" >&2
 
+# The Kin, session and generation this run is in, from the same record and read the
+# same way. A fault record has to name the run it is about, and both the helper and
+# the sealer cross-check that attribution — so a value invented here would be caught
+# rather than quietly accepted. A value that cannot be read is left empty (or zero,
+# for the generation), which the helper refuses to record: the run still ends with a
+# reason rather than a record naming a Kin or a session that never existed.
+attribution=$(/opt/sqlite/bin/sqlite3 -separator ' ' "${ledger}" \
+    "select coalesce(kin_id,''), coalesce(json_extract(payload_json,'\$.session_id'),''), \
+            coalesce(json_extract(payload_json,'\$.generation'),'') \
+     from event where run_id='${run_id}' and event_type='SessionProcessStarted' \
+     order by position limit 1;" 2>/dev/null || true)
+read -r kin_id session_id generation <<<"${attribution}" || true
+case "${generation}" in
+    ''|*[!0-9]*) generation=0 ;;
+esac
+
 # The Bridge's own watchdog, which is the guarantee that keys come up even when
 # nobody is left to ask. §12 puts it in the process holding the keys, and it needs
 # nobody's permission; the Core-side watchdog is the second layer. So the run
@@ -598,11 +745,16 @@ if [[ -n "${kill_core}" ]]; then
             sleep 1
             continue
         fi
-        if pkill -KILL -f "minekin_core session start"; then
+        # The runtime is a grandchild of the pid this script holds — `xvfb-run`
+        # and the X server are between them — so it is named by its command line
+        # within that subtree rather than by being the wrapper's first child.
+        if inject_fault "${session_pid}" "runtime_controller" \
+                "${session_starttime_ticks}" "${session_pid_namespace_inode}"; then
             killed=1
-            printf 'domain: Core has been killed; the Bridge should let go\n' >&2
+            printf 'domain: the runtime is gone; the Bridge should let go\n' >&2
         else
-            printf 'domain: could not find Core to kill it\n' >&2
+            printf 'domain: the runtime was not killed, so this run proves nothing about a lost runtime\n' >&2
+            injection_failed=1
         fi
         break
     done
@@ -673,24 +825,18 @@ if [[ -n "${kill_server}" ]]; then
         # handling turned into the clean stop it performs on SIGTERM, so the world
         # was saved and rewritten while the harness printed "the world is gone".
         # Measured twice: the server log ended with `All dimensions are saved`, in
-        # a run that claimed to have killed it. The tool spawns java directly, so
-        # its child is the server and nothing else is.
-        world=$(pgrep -P "${server_pid}" 2>/dev/null | head -1)
-        if [ -n "${world}" ] && kill -KILL "${world}" 2>/dev/null; then
+        # a run that claimed to have killed it.
+        #
+        # The JVM is the one `java` process under the tool, and the helper refuses
+        # unless that is exactly one process: `pgrep -P <tool> | head -1` named the
+        # tool's first child, which is not the same claim.
+        if inject_fault "${server_pid}" "server_jvm" \
+                "${server_starttime_ticks}" "${server_pid_namespace_inode}"; then
             killed=1
-            # Verified rather than assumed: the injection is the whole point of the
-            # run, and one that did not happen must not read like one that did.
-            for _ in $(seq 1 10); do
-                kill -0 "${world}" 2>/dev/null || break
-                sleep 0.2
-            done
-            if kill -0 "${world}" 2>/dev/null; then
-                printf 'domain: the server process survived the kill\n' >&2
-                killed=0
-            elif grep -q "Stopping the server" "${server_directory}/server.log" 2>/dev/null; then
+            if grep -q "Stopping the server" "${server_directory}/server.log" 2>/dev/null; then
                 # A killed server gets no chance to write its own shutdown, so this
                 # line in its log means it stopped rather than died — whatever the
-                # kill signal did.
+                # signal did. A second opinion on the helper's own confirmation.
                 printf 'domain: the server wrote its own shutdown, so it stopped rather than died\n' >&2
                 killed=0
             else
@@ -941,6 +1087,29 @@ status=$?
 set -e
 printf 'domain: session exited %s\n' "${status}" >&2
 
+# What the supervisor the runtime was found under exited with, now that this script
+# — which is the one that waited for it — can say. The helper cannot: it is not the
+# supervisor's parent, so it has no `waitpid` to read a status from, and its record
+# says the status was not observed until this fills it in. The server half is not
+# annotated here because its supervisor is still running when the seal happens, and
+# a status nobody waited for would be an invented number rather than an absent one.
+if [ "${fault_role}" = "runtime_controller" ] && [ -s "${fault_path}" ]; then
+    set +e
+    python /src/tools/inject_fault.py annotate \
+        --record "${fault_path}" \
+        --supervisor-pid "${session_pid}" \
+        --supervisor-exit-status "${status}" >/tmp/domain-fault-annotate.log 2>&1
+    annotated=$?
+    set -e
+    printf 'domain: the fault record was annotated ' >&2
+    tr -d '\n' </tmp/domain-fault-annotate.log >&2 || true
+    printf '\n' >&2
+    if [ "${annotated}" -ne 0 ]; then
+        printf 'domain: the fault record annotation failed, so the run cannot claim complete fault evidence\n' >&2
+        injection_failed=1
+    fi
+fi
+
 # The run document is what Core says it did, and it is the only place Core's own
 # verdict on the first snapshot exists. It was captured to a file so that it can
 # be judged and sealed; it is printed here so that reading the container's output
@@ -999,7 +1168,6 @@ if [[ -n "${case_id}" ]]; then
         fi
     fi
 
-    case_file="/src/tests/fixtures/cases/$(printf '%s' "${case_id}" | tr '[:upper:]' '[:lower:]').json"
     printf 'domain: sealing run evidence for case %s\n' "${case_id}" >&2
     set +e
     # Named by the document Core printed, or by its run id when there is none —
@@ -1008,12 +1176,19 @@ if [[ -n "${case_id}" ]]; then
     if [ ! -s /tmp/domain-session.json ]; then
         named_run=(--run-id "${run_id}")
     fi
+    # The record of the fault this run injected, when it injected one. It is named
+    # by its path and read once by the sealer, which seals the same bytes it judged.
+    fault_args=()
+    if [ -s "${fault_path}" ]; then
+        fault_args=(--fault-injection "${fault_path}")
+    fi
     python /src/tools/seal_run_evidence.py \
         --data-root /data \
         --case "${case_file}" \
         --profile "${profile}" \
         "${world_args[@]}" \
         "${named_run[@]}" \
+        "${fault_args[@]}" \
         --username "${player}" \
         --renderer-display "${renderer}" \
         --session-argv "$@" >/tmp/domain-seal.json 2>/tmp/domain-seal.err
