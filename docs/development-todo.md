@@ -559,8 +559,10 @@
   - **修法是一条规则、两个时刻**：`saves.player_data_path(save, player)` 是那条谓词（这个世界里有没有**这个** Kin 的状态），`seed_world` 与 `prepare_session_async` 各自问它一次——前者在复制之前，后者在**建 overlay 之前**，因为已经建好的 overlay 不该是发现它的地方。消息点名那个文件，操作者据此知道该从世界里拿掉什么。
   - **要有反面对照，否则「有 playerdata 就拒」也能让测试通过**：别人的 playerdata 仍然照种不误——一份被别的玩家玩过的世界正是共享快照该有的样子，把这条规则从「一个 Kin 的状态」变成「世界的属性」就错了。
   - **容器里两条实测**：脏存档（`/data/prepared-world`）→ `exit 10`、`CONFIG`、消息点名 `8f40376b-…-5564eea75639.dat`，什么都没建；干净存档（同样一份世界，去掉 `playerdata/`）→ Kin **活着**进世界，在世界出生点 `(-8.5, -60.0, 7.5)`，世界真的在跑。
-- [x] **跟着量到的第二件事：一个「没人开的」Kin 会在十几秒内被史莱姆杀死。** 干净存档那两轮都是同一结果——`Kin joined the game` 之后约 12 秒 `Kin was slain by Slime`。这不是缺陷，是**那个快照的属性**：来源世界的 `server.properties` 是 `gamemode=survival`、`difficulty=normal`、`spawn-monsters=true`，而 Kin 站在那里没有任何东西驱动它。所以「宿主用的干净快照」不只是「没有玩家历史」，还得是**一个不动的 Kin 不会死**的世界——这条要求落在快照上而不在启动器上，**具体取哪一档（和平 / `doMobSpawning=false` / 创造 / 围一圈）还没有定，也没有测**。
-- [ ] **宿主接下来要回答的两件事**（都没有答案，且都不该猜）：**（一）** 现在这个宿主 Kin **处在一个 Core 不知道、也没有准入过的世界里**——Bridge 对一次自己没被要求过的连接拒不上报（`bridge saw CONNECTION_PHASE_LOGIN_NEGOTIATING with no generation of ours active; not reported`），账本里只有 `SessionProcessStarted` 与 `BridgeHelloAccepted`。要让宿主成为一个可被监督的会话，`ConnectWorld` 那条路之外需要一个「Kin 自己开的世界的准入」，它的首快照从哪来、由谁判。**（二）** 没有窗口管理器时窗口从不获得焦点，而单机世界在失焦时**暂停**；这次运行里世界确实在跑（`Preparing spawn area`、`Kin joined the game`、史莱姆真的把它杀了），但「它会不会在某一代上因为焦点而停住」没有测过，`pauseOnLostFocus` 也还没有被碰。
+- [x] **跟着量到的第二件事：一个「没人开的」Kin 会在十几秒内被史莱姆杀死，三轮三次都是同一结果。**（干净存档两轮 + 7 分钟长跑一轮，每次都是 `Kin joined the game` 之后约 12 秒 `Kin was slain by Slime`。）这不是缺陷，是**那个快照的属性**：来源世界的 `server.properties` 是 `gamemode=survival`、`difficulty=normal`、`spawn-monsters=true`，而 Kin 站在那里没有任何东西驱动它。所以「宿主用的干净快照」不只是「没有玩家历史」，还得是**一个不动的 Kin 不会死**的世界——这条要求落在快照上而不在启动器上，**具体取哪一档（和平 / `doMobSpawning=false` / 创造 / 围一圈）还没有定，也没有测**。**7 分钟那一轮另外证明了一件事**：Kin 死了以后世界照跑不误——死亡界面**不**暂停单机世界（12 秒时死，6000 刻的自动保存落在 420 秒后）。
+- [x] **世界不会因为没人看它而停下来——7 分钟长跑把这件量出来了，`pauseOnLostFocus` 因此不需要碰。** 上一条把「失焦会不会暂停单机世界」列为未测，这是它的答案，而且答案不是靠推理来的：受控 runner 里没有窗口管理器（窗口从来没有获得过焦点），世界从 join 起跑满整个窗口——**6000 刻（正好是自动保存的间隔）落在 join 之后 420 秒**，文件 `level.dat` 的 mtime 就写在那一刻，之后才被停。Kin 在 12 秒就死了、死亡界面整轮都挂着，所以这同时排掉了「死亡界面暂停世界」这一条。
+  - **一句话说清楚它量到了什么、没量到什么**：量到的是「这个窗口里至少 6000 刻、平均不慢于 14.3 刻/秒，且没有任何一次长暂停能从这个界面上看出来」；**没量到的是瞬时 tick rate**——6000 刻 / 420 秒既可能是全程约 14.3 TPS，也可能是 20 TPS 加一段停顿，平均值本身分不开这两种。所以**正在另跑一轮按分钟采样、拿两次自动保存之间的（刻数, mtime）直接算速率**；如果它给出的数与「全程连续」不符，这一行要按它改，而不是留着现在这个说法。
+  - **顺带一提它没有改变的事**：这一轮账本里仍然只有三条事件（`SessionProcessStarted`、`BridgeHelloAccepted`、`SessionInterrupted`），run document 的 `connection_state` 是 `null`、`snapshots_admitted` 是 0——世界跑了 7 分钟，而 Core 全程不知道它存在。
 
 - [x] **开 LAN（`openToLan`）这一步的三条未知，能从固定 jar 里静态读出来的那半读完了。** 契约把执行线程、端口绑定、完成判据列在「仍待原型冻结」里，现在各有一个**可复现**的答案（对固定 jar 的 `hje.class` 与 `asf.class` 跑 `javap -p -c`），而**运行那半一条都没测**，所以它没有被划掉，而是被改成「静态已知、运行待测」：
   - **线程 = client thread**：方法体里三处触达 `MinecraftClient`（含客户端玩家的 profile 与权限级），不是能从 IPC worker 线程随手调的 server 方法。
@@ -568,6 +570,7 @@
   - **端口会骗人**：它把**请求的**端口打进日志（`Started serving on {}`）并原样存进 `getServerPort()` 返回的那个字段——请求 `0` 时两处都说 `0`；真正绑到的端口只能从 `NetworkIo.getAddress()` 读，契约要的「实际动态端口」在那里。
   - **失败无声**：整个方法体罩在 `catch (IOException)` 里，catch 只 `return false`，**一行日志都没有**。所以「开 LAN 失败」在客户端日志里根本查不到，只能由 Bridge 自己说（`HOST_LAN_OPEN_FAILED` 是唯一会说这件事的地方）。
   - **它自己就在改权威状态**（游戏模式、cheats、宿主玩家权限级），这条要算进 `HOSTCTL-010` 的门禁，而不是只盯着提案入口。
+- [ ] **宿主仍未回答的一件事**：这个宿主 Kin 处在一个 Core 不知道、也没有准入过的世界里（见上一条末尾）。要让宿主成为一个可被监督的会话，`ConnectWorld` 那条路之外需要一个「Kin 自己开的世界的准入」，它的首快照从哪来、由谁判，都还没有答案。
 - [ ] **要真去开一次 LAN，缺的是模块而不是调用**：契约把这件事放在独立的 `bridge-host-control`（创建/加载/保存/LAN/关闭的窄 adapter），并明令 `bridge-client-core` 与观察/导航模块**不得**引用 `IntegratedServer`、`getServer()` 或 `net.minecraft.server..`——而 `bridge-host-control` 现在还不存在。所以下一步是**先把这个窄 adapter 建出来**（连同它自己的源码依赖门禁、构建产物门禁），再谈"发一条命令让它开 LAN"。**刻意不先做的**：在没有那个模块的时候从别处临时反射调用一次——那正好是契约禁止的那条路，而且量出来的东西不能代表 adapter 建好之后的形状。
 
 ## W70 之后
