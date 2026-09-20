@@ -24,7 +24,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from minekin_core.adapters.evidence.bundle import verify_bundle
+from minekin_core.adapters.evidence.bundle import verify_addressed_bundle
 from minekin_core.cli.init import KIN_DIRECTORY, RUN_DIRECTORY
 from minekin_core.domain.errors import ErrorCategory, MinekinError, Retryability
 from minekin_core.domain.ids import RunId
@@ -37,11 +37,6 @@ EVIDENCE_DIRECTORY = "evidence"
 #: putting it under a Kin would mean naming one, and which Kin a repository check
 #: belongs to is not a question that has an answer.
 REPO_EVIDENCE_DIRECTORY = "repo-evidence"
-
-#: The one violation this layer adds. The rest come from the bundle library, and
-#: a mismatch here is the reason they cannot be trusted: the directory name is
-#: how a bundle is attributed to a run at all.
-RUN_ID_MISMATCH = "RUN_ID_MISMATCH"
 
 
 def _reject(message: str) -> MinekinError:
@@ -159,20 +154,15 @@ def verify_run(root: Path, run_id: str) -> RunVerification:
 
     identifier = _checked_run_id(run_id)
     directory = locate_bundle(root, identifier)
-    verification = verify_bundle(directory)
+    verification = verify_addressed_bundle(directory)
     manifest = verification.manifest
-    violations = verification.violations
-    if manifest is not None and manifest.test_run_id != identifier:
-        # The directory is the attribution, so a bundle that names a different
-        # run is evidence for that run and not this one, whatever it contains.
-        violations = tuple(sorted({*violations, RUN_ID_MISMATCH}))
     return RunVerification(
         run_id=identifier,
         directory=str(directory),
-        verified=not violations,
+        verified=verification.verified,
         sealed=verification.sealed,
         bundle_digest=verification.bundle_digest,
         result=None if manifest is None else manifest.result.value,
         artifacts=0 if manifest is None else len(manifest.artifacts),
-        violations=violations,
+        violations=verification.violations,
     )

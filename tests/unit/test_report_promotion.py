@@ -23,7 +23,7 @@ import pytest
 
 from minekin_core.adapters.evidence.bundle import unseal_bundle, write_bundle
 from minekin_core.adapters.evidence.promotion import load_case_registry
-from minekin_core.cli.evidence import bundle_directory
+from minekin_core.cli.evidence import bundle_directory, repository_bundle_directory
 from minekin_core.cli.init import run_root
 from minekin_core.domain.evidence import Assertions, EvidenceManifest, EvidenceResult
 from minekin_core.domain.ids import KinId
@@ -58,13 +58,15 @@ def reviewed(case_id: str) -> Any:
     return load_case_registry(CASES).by_id()[case_id]
 
 
-def manifest_for(case_id: str, *, result: EvidenceResult = EvidenceResult.PASS) -> EvidenceManifest:
+def manifest_for(
+    case_id: str, *, result: EvidenceResult = EvidenceResult.PASS, run_id: str = RUN_ID
+) -> EvidenceManifest:
     case = reviewed(case_id)
     assertions = Assertions(expected=("a",), observed=("a",), failures=())
     if result is EvidenceResult.FAIL:
         assertions = Assertions(expected=("a",), observed=(), failures=("a:NOT_SEEN",))
     return EvidenceManifest(
-        test_run_id=RUN_ID,
+        test_run_id=run_id,
         case_id=case.case_id,
         case_version=case.digest,
         result=result,
@@ -88,6 +90,27 @@ def manifest_for(case_id: str, *, result: EvidenceResult = EvidenceResult.PASS) 
     )
 
 
+def seal_at(
+    directory: Path,
+    *,
+    case_id: str = "CORE-020",
+    run_id: str = RUN_ID,
+    result: EvidenceResult = EvidenceResult.PASS,
+    case_version: str | None = None,
+) -> Path:
+    """Seal a bundle at an address the caller chooses.
+
+    `run_id` is what the manifest claims, which is deliberately not the
+    directory name in the tests about a bundle that names a different run.
+    """
+
+    manifest = manifest_for(case_id, result=result, run_id=run_id)
+    if case_version is not None:
+        manifest = replace(manifest, case_version=case_version)
+    write_bundle(directory, manifest, {"server/server.log": b"Kin joined\n"})
+    return directory
+
+
 def seal(
     data_root: Path,
     run_id: str,
@@ -96,12 +119,13 @@ def seal(
     result: EvidenceResult = EvidenceResult.PASS,
     case_version: str | None = None,
 ) -> Path:
-    directory = bundle_directory(run_root(data_root, KIN), run_id)
-    manifest = manifest_for(case_id, result=result)
-    if case_version is not None:
-        manifest = replace(manifest, case_version=case_version)
-    write_bundle(directory, manifest, {"server/server.log": b"Kin joined\n"})
-    return directory
+    return seal_at(
+        bundle_directory(run_root(data_root, KIN), run_id),
+        case_id=case_id,
+        run_id=run_id,
+        result=result,
+        case_version=case_version,
+    )
 
 
 def test_a_verified_pass_is_what_promotes_a_work_package(tmp_path: Path) -> None:
@@ -193,6 +217,81 @@ def test_a_failure_alone_is_not_a_pass(tmp_path: Path) -> None:
     assert document["status"] == "blocked"
     assert document["evidence"]["unverified"] == []
     assert document["work_packages"]["W40"]["blocks"] == ["EVIDENCE_IS_NOT_A_PASS"]
+
+
+def test_a_bundle_naming_another_run_is_not_evidence_for_the_name_it_sits_under(
+    tmp_path: Path,
+) -> None:
+    """The directory name is the attribution, so a mismatch is a violation."""
+
+    directory = bundle_directory(run_root(tmp_path, KIN), RUN_ID)
+    seal_at(directory, run_id="0" * 32)
+
+    document = cast(dict[str, Any], PROMOTION.report(data_root=tmp_path, gated="W40"))
+
+    assert document["status"] == "blocked"
+    assert document["evidence"]["unverified"] == [RUN_ID]
+    listed = {entry["run_id"]: entry for entry in document["evidence"]["bundles"]}
+    assert listed[RUN_ID]["verified"] is False
+    assert listed[RUN_ID]["violations"] == ["RUN_ID_MISMATCH"]
+    assert document["work_packages"]["W40"]["blocking_cases"] == ["CORE-020"]
+    assert document["work_packages"]["W40"]["blocks"] == ["EVIDENCE_NOT_VERIFIED"]
+
+
+def test_a_mismatch_neither_hides_a_matching_pass_nor_is_hidden_by_it(tmp_path: Path) -> None:
+    """A mismatch stays visible without changing the satisfying-candidate rule."""
+
+    stray = "0" * 32
+    seal_at(bundle_directory(run_root(tmp_path, KIN), stray), run_id=RUN_ID)
+    seal(tmp_path, RUN_ID)
+
+    document = cast(dict[str, Any], PROMOTION.report(data_root=tmp_path, gated="W40"))
+
+    assert document["evidence"]["count"] == 2
+    assert document["evidence"]["unverified"] == [stray]
+    listed = {entry["run_id"]: entry for entry in document["evidence"]["bundles"]}
+    assert listed[stray]["result"] == "PASS"
+    assert listed[stray]["violations"] == ["RUN_ID_MISMATCH"]
+    assert listed[RUN_ID]["verified"] is True
+    assert document["work_packages"]["W40"]["promotable"] is True
+    assert document["work_packages"]["W40"]["blocks"] == ["EVIDENCE_NOT_VERIFIED"]
+
+
+@pytest.mark.parametrize("duplicate_in", ["another-kin", "the-repository"])
+def test_one_run_id_in_two_roots_is_refused_rather_than_picked_between(
+    tmp_path: Path, duplicate_in: str
+) -> None:
+    """A duplicate run id is an ambiguity, never a last-writer-wins choice."""
+
+    seal(tmp_path, RUN_ID)
+    second = (
+        bundle_directory(run_root(tmp_path, KinId("kin-02")), RUN_ID)
+        if duplicate_in == "another-kin"
+        else repository_bundle_directory(tmp_path, RUN_ID)
+    )
+    seal_at(second)
+
+    with pytest.raises(PROMOTION.Unusable, match=f"{RUN_ID} has bundles in"):
+        PROMOTION.report(data_root=tmp_path, gated="W40")
+
+
+def test_the_command_refuses_a_run_id_that_appears_twice(tmp_path: Path) -> None:
+    seal(tmp_path, RUN_ID)
+    seal_at(bundle_directory(run_root(tmp_path, KinId("kin-02")), RUN_ID))
+
+    result = run_cli("--data-root", str(tmp_path), "--work-package", "W40")
+
+    assert result.returncode == PROMOTION.EXIT_UNUSABLE
+    assert json.loads(result.stderr)["status"] == "unusable"
+
+
+def test_an_incomplete_duplicate_run_directory_cannot_hide_beside_a_pass(tmp_path: Path) -> None:
+    seal(tmp_path, RUN_ID)
+    incomplete = bundle_directory(run_root(tmp_path, KinId("kin-02")), RUN_ID)
+    incomplete.mkdir(parents=True)
+
+    with pytest.raises(PROMOTION.Unusable, match=f"{RUN_ID} has bundles in"):
+        PROMOTION.report(data_root=tmp_path, gated="W40")
 
 
 def test_a_bundle_that_cannot_be_read_is_named(tmp_path: Path) -> None:

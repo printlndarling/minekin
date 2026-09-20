@@ -18,6 +18,14 @@ emptier than it is. And a bundle whose read-only bits were restored is reported
 as unsealed but is not a blocker on its own: the digest is the guarantee and the
 mode is a courtesy, which is the position `evidence verify` already takes.
 
+A bundle is also held to the name of the directory it sits in, and one run id
+found in two roots is refused rather than chosen between. The directory name is
+the attribution — the one address a run id alone can produce — so a manifest
+naming a different run is that run's evidence, and two directories under one name
+mean one of them is not what it says it is. Both are answered the way
+`evidence verify` answers them, from the same code and with the same violation
+string, because two spellings of one rule are two answers to one question.
+
 Every bundle in the data root is offered as evidence, not just the passing ones.
 A failing run keeps its evidence and a repaired case is re-run rather than
 edited, so a case that failed once and passed later has both bundles on disk —
@@ -36,7 +44,7 @@ from pathlib import Path
 from minekin_core.adapters.evidence.bundle import (
     MANIFEST_NAME,
     BundleVerification,
-    verify_bundle,
+    verify_addressed_bundle,
 )
 from minekin_core.adapters.evidence.promotion import case_evidence, load_case_registry
 from minekin_core.cli.evidence import candidate_roots
@@ -105,10 +113,18 @@ class EvidenceOnDisk:
 
 
 def discover(data_root: Path) -> EvidenceOnDisk:
-    """Every evidence bundle under the data root, verified as it is found."""
+    """Every evidence bundle under the data root, verified as it is found.
+
+    One run id names one bundle, so two roots holding a directory of the same
+    name is the collision `evidence verify` already refuses to guess between: a
+    run id is a UUID, and a collision means one of the two is not what it says it
+    is. Keeping whichever root was walked last would attribute one run's evidence
+    to another, so the question is not asked at all rather than answered wrongly.
+    """
 
     verifications: dict[str, BundleVerification] = {}
     unreadable: list[str] = []
+    addressed: dict[str, Path] = {}
     for root in candidate_roots(data_root):
         # An evidence root that is not there holds nothing: the repository's is
         # absent on a host that has only ever run sessions, and a Kin's is absent
@@ -116,12 +132,24 @@ def discover(data_root: Path) -> EvidenceOnDisk:
         if not root.is_dir():
             continue
         for directory in sorted(path for path in root.iterdir() if path.is_dir()):
+            first = addressed.get(directory.name)
+            first_is_bundle = first is not None and (first / MANIFEST_NAME).is_file()
+            this_is_bundle = (directory / MANIFEST_NAME).is_file()
+            if first is not None and (first_is_bundle or this_is_bundle):
+                raise Unusable(
+                    f"{directory.name} has bundles in {first} and {directory}; "
+                    "a run id names one bundle, so no report can be read from this root"
+                )
+            addressed.setdefault(directory.name, directory)
             # A directory that is not a bundle is not this command's business —
             # the evidence root is a plain directory and anything may live in it.
-            if not (directory / MANIFEST_NAME).is_file():
+            # It is still remembered above, because the same run-id name beside
+            # a real bundle is an attribution collision even when this copy is
+            # incomplete.
+            if not this_is_bundle:
                 continue
             try:
-                verifications[directory.name] = verify_bundle(directory)
+                verifications[directory.name] = verify_addressed_bundle(directory)
             except MinekinError as error:
                 unreadable.append(f"{directory.name}: {error.safe_message}")
     return EvidenceOnDisk(verifications=verifications, unreadable=tuple(sorted(unreadable)))

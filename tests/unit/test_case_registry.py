@@ -342,6 +342,38 @@ def test_a_sealed_pass_bundle_promotes_its_case(bundles: Path) -> None:
     assert verdict.promotable, verdict.as_document()
 
 
+def test_a_bundle_that_names_another_run_does_not_promote_its_case(bundles: Path) -> None:
+    """The directory name is the attribution in this path too, not only in verify."""
+
+    definition = load_case_manifest(W00_CASE)
+    seal(bundles, "run-01", definition, EvidenceResult.PASS)
+    (bundles / "run-01").rename(bundles / "run-02")
+
+    verdict = evaluate_case_promotion(
+        CaseRegistry(cases=(definition,)), [bundles / "run-02"], work_package="W00"
+    )
+
+    assert not verdict.promotable
+    assert verdict.blocks == (PromotionBlock.EVIDENCE_NOT_VERIFIED,)
+
+
+def test_two_bundle_directories_with_one_run_id_are_refused(tmp_path: Path) -> None:
+    definition = load_case_manifest(W00_CASE)
+    left = tmp_path / "left"
+    right = tmp_path / "right"
+    left.mkdir()
+    right.mkdir()
+    seal(left, "run-01", definition, EvidenceResult.PASS)
+    seal(right, "run-01", definition, EvidenceResult.PASS)
+
+    with pytest.raises(MinekinError, match="run-01 names more than one evidence bundle"):
+        evaluate_case_promotion(
+            CaseRegistry(cases=(definition,)),
+            [left / "run-01", right / "run-01"],
+            work_package="W00",
+        )
+
+
 def test_a_tampered_bundle_stops_its_case_from_promoting(bundles: Path) -> None:
     definition = load_case_manifest(W00_CASE)
     seal(bundles, "run-01", definition, EvidenceResult.PASS)

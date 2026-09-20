@@ -7,7 +7,7 @@ from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import cast
 
-from minekin_core.adapters.evidence.bundle import BundleVerification, verify_bundle
+from minekin_core.adapters.evidence.bundle import BundleVerification, verify_addressed_bundle
 from minekin_core.domain.cases import (
     CaseEvidence,
     CaseManifest,
@@ -87,5 +87,10 @@ def evaluate_case_promotion(
 
     verifications: dict[str, BundleVerification] = {}
     for directory in bundle_directories:
-        verifications[directory.name] = verify_bundle(directory)
+        if directory.name in verifications:
+            raise _reject(
+                f"run id {directory.name} names more than one evidence bundle; "
+                "promotion cannot choose between them"
+            )
+        verifications[directory.name] = verify_addressed_bundle(directory)
     return evaluate_promotion(registry.for_work_package(work_package), case_evidence(verifications))

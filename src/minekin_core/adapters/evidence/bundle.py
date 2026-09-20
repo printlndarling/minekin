@@ -33,6 +33,12 @@ MANIFEST_NAME = "manifest.json"
 DIGEST_NAME = "bundle.sha256"
 BUNDLE_FILES = frozenset({MANIFEST_NAME, DIGEST_NAME})
 
+#: The one violation added on top of a bundle's own account of itself. The
+#: directory name is how a bundle is attributed to a run at all — it is the only
+#: address a run id alone can produce — so a manifest naming a different run is
+#: not evidence for the name it sits under, whatever it contains.
+RUN_ID_MISMATCH = "RUN_ID_MISMATCH"
+
 
 def _reject(message: str) -> MinekinError:
     return MinekinError(
@@ -246,6 +252,25 @@ def verify_bundle(directory: Path) -> BundleVerification:
         manifest=manifest,
         bundle_digest=bundle_digest,
         sealed=_is_sealed(directory),
+    )
+
+
+def verify_addressed_bundle(directory: Path) -> BundleVerification:
+    """Verify a bundle and hold it to the name of the directory it sits in.
+
+    Asking for the mismatch here rather than once per caller is what keeps
+    `evidence verify` and the promotion report from disagreeing about the same
+    bundle, and keeps the violation a single string instead of two that drift.
+    """
+
+    verification = verify_bundle(directory)
+    manifest = verification.manifest
+    if manifest is None or manifest.test_run_id == directory.name:
+        return verification
+    return replace(
+        verification,
+        verified=False,
+        violations=tuple(sorted({*verification.violations, RUN_ID_MISMATCH})),
     )
 
 
