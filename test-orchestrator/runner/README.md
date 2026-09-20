@@ -1008,3 +1008,32 @@ That used to be recorded as `{"phase":"DISCONNECTED"}` — a session the server
 threw out, written down as one that stopped on its own. A disconnect *without* a
 reason is a session that ended; one *with* a reason is a session the server
 ended.
+
+## When the log cannot answer the question: photograph the display
+
+`latest.log` cannot tell some screens apart, and the difference between them can be
+the whole question. Measured while making a session able to host: a title screen, a
+quick-play error notice and vanilla's first-run accessibility screen all leave the
+log ending at the same texture-atlas lines, with no error and nothing after them —
+and only one of the three means the client is where the run thinks it is.
+
+The runner image has no screenshot tool. When the log is not enough, add one to a
+throwaway image rather than to the runner — it exists to answer a question, and an
+image that is rebuilt for a look should not be the one the runs are pinned to:
+
+```text
+bash -c 'cat > .tmp/Dockerfile.screenshot <<EOF
+FROM minekin-runner:local
+RUN apt-get update && apt-get install -y --no-install-recommends imagemagick x11-apps \
+ && rm -rf /var/lib/apt/lists/*
+EOF'
+docker build -f .tmp/Dockerfile.screenshot -t minekin-runner-shots:local .
+MINEKIN_RUNNER_IMAGE=minekin-runner-shots:local \
+    bash test-orchestrator/runner/run.sh --shell 'bash /src/.tmp/my-experiment.sh'
+```
+
+Start `Xvfb` in the experiment rather than letting `xvfb-run` do it (`Xvfb :78
+-screen 0 1280x720x24 &`, then `export DISPLAY=:78`), so that `import -window root`
+photographs the same display the client is drawing. `.tmp/` is never committed, so
+the image and the script are scratch: what is worth keeping is the picture, and the
+fact that a picture was needed.
