@@ -230,3 +230,36 @@ def test_the_declared_package_is_what_decides_the_allowance(tmp_path: Path) -> N
 
     assert result.returncode == 1
     assert "sits in org.minekin.bridge.runtime" in result.stderr
+
+
+def test_the_adapters_own_name_is_not_the_server_type(tmp_path: Path) -> None:
+    """`IntegratedServerControl` contains `IntegratedServer` and is not it.
+
+    The runtime has to name the adapter — that is the seam — so a gate that matched
+    the marker as a substring would refuse the wiring it exists to allow. This was not
+    hypothetical: the first version of the gate fired on the host controller.
+    """
+
+    sources = _tree(
+        tmp_path,
+        {CORE: "class A { IntegratedServerControl control; HostControl host; }\n"},
+    )
+
+    result = _run(sources)
+
+    assert result.returncode == 0, result.stderr
+
+
+def test_the_server_type_itself_is_still_refused_wherever_it_is_written(tmp_path: Path) -> None:
+    """The negative control for the rule above: precision is not permission."""
+
+    sources = _tree(
+        tmp_path,
+        {CORE: "class A { IntegratedServer server; void a() { b.getServer(); } }\n"},
+    )
+
+    result = _run(sources)
+
+    assert result.returncode == 1
+    assert "IntegratedServer" in result.stderr
+    assert "getServer()" in result.stderr

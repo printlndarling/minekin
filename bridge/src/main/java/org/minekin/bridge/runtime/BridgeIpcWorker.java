@@ -13,9 +13,12 @@ import io.minekin.protocol.v1.ConnectionPhase;
 import io.minekin.protocol.v1.CoreHello;
 import io.minekin.protocol.v1.Envelope;
 import io.minekin.protocol.v1.Heartbeat;
+import io.minekin.protocol.v1.HostLifecycle;
+import io.minekin.protocol.v1.HostPhase;
 import io.minekin.protocol.v1.InitialObservation;
 import io.minekin.protocol.v1.LookInput;
 import io.minekin.protocol.v1.MoveInput;
+import io.minekin.protocol.v1.OpenLan;
 import io.minekin.protocol.v1.ProtocolVersion;
 import io.minekin.protocol.v1.ReleaseAllInputs;
 import io.minekin.protocol.v1.UseInput;
@@ -55,6 +58,8 @@ public final class BridgeIpcWorker implements AutoCloseable {
     public static final String LOOK_INPUT_TYPE = "minekin.v1.LookInput";
     public static final String USE_INPUT_TYPE = "minekin.v1.UseInput";
     public static final String ACTION_RESULT_TYPE = "minekin.v1.ActionResult";
+    public static final String OPEN_LAN_TYPE = "minekin.v1.OpenLan";
+    public static final String HOST_LIFECYCLE_TYPE = "minekin.v1.HostLifecycle";
     private static final Logger LOGGER = LoggerFactory.getLogger("minekin-bridge");
     /**
      * How many heartbeat intervals of silence the Bridge tolerates before it lets go of
@@ -345,6 +350,41 @@ public final class BridgeIpcWorker implements AutoCloseable {
         }
     }
 
+    /**
+     * Non-blocking client-thread handoff for the host lifecycle, on the same outbox
+     * as everything else the Bridge must deliver.
+     *
+     * <p>Validity is checked here rather than at the call site because the invariants
+     * are the ones that make the event readable: a phase the wire does not define,
+     * a generation nobody is in, and a port that is present on a failure or absent on
+     * a publication are each a message Core would have to guess about.
+     */
+    public boolean publishHostLifecycle(HostLifecycle lifecycle) {
+        java.util.Objects.requireNonNull(lifecycle, "lifecycle");
+        boolean opened = lifecycle.getPhase() == HostPhase.HOST_PHASE_LAN_OPENED;
+        boolean named = lifecycle.getBoundPort() > 0 && lifecycle.getBoundPort() <= 65535;
+        if (stopping.get()
+                || !started.get()
+                || event == null
+                || lifecycle.getRequestId().isBlank()
+                || lifecycle.getGeneration() == 0
+                || lifecycle.getPhase() == HostPhase.HOST_PHASE_UNSPECIFIED
+                || lifecycle.getPhase() == HostPhase.UNRECOGNIZED
+                || opened != named) {
+            LOGGER.warn("bridge dropped a host lifecycle report: {}", lifecycle.getPhase());
+            return false;
+        }
+        if (!eventOutbox.offer(new EventMessage(HOST_LIFECYCLE_TYPE, lifecycle))) {
+            LOGGER.error(
+                    "bridge event outbox is full ({} held), failing closed on {}",
+                    eventOutbox.size(),
+                    lifecycle.getPhase());
+            failClosed();
+            return false;
+        }
+        return true;
+    }
+
     /** Non-blocking client-thread handoff for must-deliver lifecycle events. */
     public boolean publishLifecycle(ConnectionLifecycle lifecycle) {
         java.util.Objects.requireNonNull(lifecycle, "lifecycle");
@@ -495,6 +535,7 @@ public final class BridgeIpcWorker implements AutoCloseable {
                         HEARTBEAT_TYPE,
                         CONNECT_WORLD_TYPE,
                         CANCEL_CONNECTION_TYPE,
+                        OPEN_LAN_TYPE,
                         RELEASE_ALL_INPUTS_TYPE,
                         MOVE_INPUT_TYPE,
                         LOOK_INPUT_TYPE,
@@ -651,6 +692,20 @@ public final class BridgeIpcWorker implements AutoCloseable {
                 if (!clientInbox.offer(new UseCommand(command))) {
                     throw new IOException("client inbox is full for UseInput");
                 }
+            } else if (OPEN_LAN_TYPE.equals(envelope.getMessageType())) {
+                OpenLan command = OpenLan.parseFrom(envelope.getPayload());
+                validateOpenLanDeadline(command, envelope.getMonotonicNs());
+                if (!state.capabilities().contains(HandshakeGate.HOST_LAN_CAPABILITY)) {
+                    // Refused rather than dropped, for the same reason an input
+                    // without its capability is: a Core that believes it can publish
+                    // a world it never negotiated for has a bug, and this is where
+                    // the bug becomes visible instead of silent.
+                    throw new IOException("OpenLan arrived without the host capability");
+                }
+                observeCoreMessage();
+                if (!clientInbox.offer(new OpenLanCommand(command))) {
+                    throw new IOException("client inbox is full for OpenLan");
+                }
             } else if (CANCEL_CONNECTION_TYPE.equals(envelope.getMessageType())) {
                 CancelConnection command = CancelConnection.parseFrom(envelope.getPayload());
                 admissionCommands.acceptCancel(command, state.capabilities());
@@ -772,6 +827,18 @@ public final class BridgeIpcWorker implements AutoCloseable {
      * exists to prevent: it would put a client in a world nobody is waiting
      * for, under a generation Core no longer tracks.
      */
+    static void validateOpenLanDeadline(OpenLan command, long receivedAtNanos) throws IOException {
+        long remaining;
+        try {
+            remaining = Math.subtractExact(command.getDeadlineMonotonicNs(), receivedAtNanos);
+        } catch (ArithmeticException overflow) {
+            throw new IOException("OpenLan deadline is not a usable duration");
+        }
+        if (remaining <= 0) {
+            throw new IOException("OpenLan expired before the client could act on it");
+        }
+    }
+
     static void validateConnectDeadline(ConnectWorld command, long receivedAtNanos) throws IOException {
         long remaining;
         try {
@@ -1004,6 +1071,7 @@ public final class BridgeIpcWorker implements AutoCloseable {
             permits Notice,
                     ConnectCommand,
                     CancelCommand,
+                    OpenLanCommand,
                     ReleaseCommand,
                     MoveCommand,
                     LookCommand,
@@ -1017,6 +1085,15 @@ public final class BridgeIpcWorker implements AutoCloseable {
     public record ConnectCommand(ConnectWorld value) implements ClientMessage {}
 
     public record CancelCommand(CancelConnection value) implements ClientMessage {}
+
+    /**
+     * A command to publish the world this client is hosting.
+     *
+     * <p>Its own type rather than another field on an existing one: what it asks for
+     * is a lifecycle change to the server in this process, which is the one thing the
+     * boundary contract lets an adapter do and nothing else may.
+     */
+    public record OpenLanCommand(OpenLan value) implements ClientMessage {}
 
     public record ReleaseCommand(ReleaseAllInputs value) implements ClientMessage {}
 

@@ -19,6 +19,7 @@ import org.minekin.bridge.input.VanillaViewSink;
 import org.minekin.bridge.runtime.BridgeIpcWorker;
 import org.minekin.bridge.runtime.BridgePhaseMachine;
 import org.minekin.bridge.runtime.ClientAdmissionController;
+import org.minekin.bridge.runtime.HostController;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -51,13 +52,15 @@ public final class MinekinBridgeClient implements ClientModInitializer {
                 new VanillaViewSink());
         ClientAdmissionController controller = new ClientAdmissionController(
                 phases, created::publishLifecycle, created::publishObservation);
+        HostController hostController = new HostController(created::publishHostLifecycle);
         ClientTickEvents.END_CLIENT_TICK.register(
                 client -> {
                     created.drainClientMessages(
                             MAX_NOTICES_PER_TICK,
                             message -> {
                                 try {
-                                    if (!created.handleInputMessage(message)) {
+                                    if (!created.handleInputMessage(message)
+                                            && !hostController.handle(client, message)) {
                                         controller.handle(client, message);
                                     }
                                 } catch (RuntimeException error) {
@@ -68,6 +71,19 @@ public final class MinekinBridgeClient implements ClientModInitializer {
                                             BridgeInputController.ReleaseReason.BRIDGE_FAULT);
                                 }
                             });
+                    // A command to publish a world that had none when it arrived is
+                    // waiting for one; this is the tick it finds out. The same tick that
+                    // drains the inbox, so the order commands arrived in is the order
+                    // they are acted on.
+                    try {
+                        hostController.tick(client);
+                    } catch (RuntimeException error) {
+                        stopSafely(
+                                client,
+                                controller,
+                                created,
+                                BridgeInputController.ReleaseReason.BRIDGE_FAULT);
+                    }
                     // The input watchdog's clock. Ticking it from the client thread is the
                     // whole reason it exists beside the heartbeat loop: that loop cannot
                     // notice its own thread being wedged, and this can.

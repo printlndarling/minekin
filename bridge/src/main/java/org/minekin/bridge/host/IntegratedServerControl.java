@@ -29,7 +29,7 @@ import org.slf4j.LoggerFactory;
  * survival, non-hardcore, normal difficulty and no commands, and a Kin that could
  * publish its world with cheats on would have been handed a way around it.
  */
-public final class IntegratedServerControl {
+public final class IntegratedServerControl implements HostControl {
 
     private static final Logger LOGGER = LoggerFactory.getLogger("minekin-bridge");
 
@@ -43,7 +43,18 @@ public final class IntegratedServerControl {
      * A caller that wants this from the IPC worker submits it to the client thread,
      * which is what the contract's no-circular-wait rule is about.
      */
-    public LanPublication openToLan(MinecraftClient client, int requestedPort) {
+    @Override
+    public boolean isHosting(MinecraftClient client) {
+        if (!client.isOnThread()) {
+            throw new IllegalStateException(
+                    "whether a client is hosting may only be asked on the client thread");
+        }
+        IntegratedServer server = client.getServer();
+        return server != null && !server.isRemote();
+    }
+
+    @Override
+    public LanPublication publish(MinecraftClient client, int requestedPort) {
         if (!client.isOnThread()) {
             throw new IllegalStateException(
                     "a world may only be published on the client thread");

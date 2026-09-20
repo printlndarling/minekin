@@ -108,6 +108,22 @@ def _without_comments(text: str) -> str:
     )
 
 
+def _names(line: str, marker: str) -> bool:
+    """Whether this line *names* the marker, rather than merely containing it.
+
+    A bare type name has to match as an identifier: `IntegratedServer` is the server
+    type, while `IntegratedServerControl` is the adapter in this repository that wraps
+    it, and the runtime naming the adapter is the seam working rather than the rule
+    being broken. Markers that are not identifiers — a package prefix, a call with its
+    parentheses, a dotted reflection class — are matched as they are, because there are
+    no boundaries to get wrong.
+    """
+
+    if not marker.replace("_", "").isalnum():
+        return marker in line
+    return re.search(rf"(?<![A-Za-z0-9_]){re.escape(marker)}(?![A-Za-z0-9_])", line) is not None
+
+
 def violations(sources: Path) -> list[str]:
     """Every denied reference, as `path:line: marker — the rule that denies it`.
 
@@ -144,7 +160,7 @@ def violations(sources: Path) -> list[str]:
             if not host:
                 denied.update(DENIED_OUTSIDE_HOST)
             for marker, reason in denied.items():
-                if marker in line:
+                if _names(line, marker):
                     found.append(f"{relative}:{number}: {marker} — {reason}")
     return found
 
