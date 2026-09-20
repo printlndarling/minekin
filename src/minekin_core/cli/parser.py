@@ -169,6 +169,18 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="ask the client to publish the world it is hosting, once it is in it",
     )
+    # The port a host publishes on, when the operator needs to know it in advance.
+    # Zero — the default — lets the Bridge choose one and report it, which is right
+    # for hosting and useless for a fixture: the joining client's server profile
+    # names a fixed port, so the only way a second client can be pointed at this
+    # world is for the port to be chosen before either client starts.
+    session_start.add_argument(
+        "--open-lan-port",
+        type=int,
+        default=0,
+        metavar="PORT",
+        help="publish on this port instead of letting the client choose one",
+    )
     session_commands.add_parser("status", help="read the current projection")
     session_commands.add_parser("stop", help="idempotently stop the current session")
 

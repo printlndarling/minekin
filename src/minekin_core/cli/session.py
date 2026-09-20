@@ -179,9 +179,10 @@ def open_lan_command(
 ) -> control_pb2.OpenLan:
     """The one command that asks a proved client to publish the world it hosts.
 
-    `port` is zero, which asks the operating system to choose one. That is not a
-    placeholder: the answer carries the port the world actually landed on, and a
-    caller that named a port would be choosing a number it cannot check is free.
+    `port` is usually zero, which asks the client to choose one and report it. A
+    fixture names one instead, because the client that is going to *join* needs a
+    server profile with a fixed port and neither client can be configured from the
+    other's report.
     There is no field for cheats and none for the game mode, here or on the wire,
     because publishing grants both and the policy is that a command may not raise
     either — the policy is enforced by there being nothing to set.
@@ -190,6 +191,8 @@ def open_lan_command(
     other side because the envelope carrying it is stamped from the same clock.
     """
 
+    if not 0 <= port <= 65535:
+        raise _reject(f"{port} is not a port: 0 asks the client to choose, 1-65535 names one")
     return control_pb2.OpenLan(
         request_id=request_id,
         generation=generation,
@@ -873,6 +876,7 @@ async def start_and_supervise(
     world_name: str | None = None,
     open_lan: bool = False,
     open_lan_timeout: float = DEFAULT_LAN_OPEN_TIMEOUT_S,
+    open_lan_port: int = 0,
 ) -> tuple[SessionLaunch, SessionRun]:
     """Start a managed session with a live Bridge and stay with it until it ends.
 
@@ -1040,6 +1044,7 @@ async def start_and_supervise(
                 open_lan_command(
                     request_id=OpaqueId.new().value,
                     generation=generation,
+                    port=open_lan_port,
                     deadline_monotonic_ns=Deadline.after(
                         MonotonicInstant(monotonic_ns()),
                         int(open_lan_timeout * 1_000_000_000),

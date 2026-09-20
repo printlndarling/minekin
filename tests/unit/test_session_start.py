@@ -673,3 +673,20 @@ def test_a_world_this_kin_is_already_in_is_refused_before_anything_is_created(
     # Nothing was created, including the overlay: the refusal is made where the
     # operator can still change their mind about the world.
     assert not (tmp_path / "kin" / "kin-01" / "run" / "session" / "session-01").exists()
+
+
+def test_the_port_a_host_publishes_on_is_either_named_or_chosen_by_the_client() -> None:
+    """A number that is not a port is refused here rather than sent and refused there."""
+
+    from minekin_core.cli.session import open_lan_command
+
+    command = open_lan_command(
+        request_id="lan-1", generation=1, deadline_monotonic_ns=1, port=25570
+    )
+
+    assert command.port == 25570
+    assert command.generation == 1
+    for bad in (-1, 65536):
+        with pytest.raises(MinekinError, match="is not a port") as raised:
+            open_lan_command(request_id="lan-1", generation=1, deadline_monotonic_ns=1, port=bad)
+        assert raised.value.exit_code is ExitCode.CONFIG

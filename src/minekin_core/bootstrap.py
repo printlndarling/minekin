@@ -141,6 +141,7 @@ def run(
                 world_save=(None if args.world_save is None else Path(args.world_save)),
                 world_name=(None if args.world_name is None else str(args.world_name)),
                 open_lan=bool(args.open_lan),
+                open_lan_port=int(args.open_lan_port),
             )
         )
         _emit({**launch.as_dict(), "run": run.as_dict()}, stdout)

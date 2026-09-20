@@ -86,6 +86,18 @@ def test_session_start_publishes_only_when_asked() -> None:
     )
 
 
+def test_session_start_can_name_the_port_it_publishes_on() -> None:
+    """Zero asks the client to choose; a fixture names one so a joiner can be pointed."""
+
+    assert parse_args(["session", "start", "--profile", "p.json"]).open_lan_port == 0
+    assert (
+        parse_args(
+            ["session", "start", "--profile", "p.json", "--open-lan-port", "25570"]
+        ).open_lan_port
+        == 25570
+    )
+
+
 def test_session_start_can_name_the_world_to_seed_and_enter() -> None:
     parsed = parse_args(
         [
