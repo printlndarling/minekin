@@ -131,6 +131,7 @@ def test_everything_is_gated_on_by_default_and_the_missing_cases_are_named(
         "CORE-010",
         "CORE-040",
         "CORE-050",
+        "CORE-070",
         "W00-CONTRACT-001",
     ]
     assert document["overall"]["blocks"] == ["CASE_WITHOUT_EVIDENCE"]
@@ -231,6 +232,7 @@ def test_no_evidence_at_all_names_the_cases_that_are_missing(tmp_path: Path) -> 
         "CORE-020",
         "CORE-040",
         "CORE-050",
+        "CORE-070",
         "W00-CONTRACT-001",
     ]
 

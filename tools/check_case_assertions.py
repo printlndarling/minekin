@@ -84,6 +84,31 @@ IMPLEMENTATIONS: dict[str, Implementation] = {
         "tests/contract/test_fixture_boundaries.py"
         "::test_product_build_and_import_boundaries_exclude_oracle",
     ),
+    # CORE-070's channel-level claims. They are performed by tests rather than by
+    # the runtime asserter because that is where the subject is: a half frame, an
+    # oversize frame and a flood are things a *channel* does, and the one side
+    # that can be driven into them on demand is a test peer rather than a real
+    # Bridge. The disconnect half of the same case is a run, and is evidenced by
+    # runs: ADMIT-110 and CORE-060 both end a session from the other side.
+    "a_frame_that_stops_halfway_is_refused": Implementation(
+        "pytest",
+        "tests/contract/test_bridge_ipc_host.py::test_a_frame_that_stops_halfway_is_refused",
+    ),
+    "an_oversize_frame_is_rejected_before_it_is_allocated": Implementation(
+        "pytest",
+        "tests/contract/test_bridge_ipc_host.py"
+        "::test_oversize_frame_header_is_rejected_before_allocation",
+    ),
+    "a_flood_of_events_fails_closed_rather_than_dropping_them": Implementation(
+        "pytest",
+        "tests/contract/test_bridge_ipc_host.py"
+        "::test_a_flood_of_events_fails_closed_rather_than_dropping_them",
+    ),
+    "no_input_is_replayed_after_an_ambiguous_disconnect": Implementation(
+        "pytest",
+        "tests/unit/test_session_supervision.py"
+        "::test_no_input_is_replayed_after_an_ambiguous_disconnect",
+    ),
     "server_observed_join_identity": _runtime("server_observed_join_identity"),
     "first_snapshot_admitted": _runtime("first_snapshot_admitted"),
     "leave_after_join_observed": _runtime("leave_after_join_observed"),

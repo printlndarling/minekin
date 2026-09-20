@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "case_id": "CORE-070",
+  "work_package": "W60",
+  "mandatory": true,
+  "inputs": [
+    "src/minekin_core/adapters/bridge/ipc.py",
+    "bridge/src/main/java/org/minekin/bridge/runtime/BoundedChannel.java"
+  ],
+  "assertions": [
+    "a_frame_that_stops_halfway_is_refused",
+    "an_oversize_frame_is_rejected_before_it_is_allocated",
+    "a_flood_of_events_fails_closed_rather_than_dropping_them",
+    "no_input_is_replayed_after_an_ambiguous_disconnect"
+  ]
+}

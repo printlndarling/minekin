@@ -558,3 +558,95 @@ def test_reported_phases_drive_the_generation_gated_attempt(tmp_path: Path) -> N
         await close_writers(control_writer, event_writer)
 
     asyncio.run(scenario())
+
+
+def test_a_frame_that_stops_halfway_is_refused(tmp_path: Path) -> None:
+    """A half frame is a broken channel, not a shorter message.
+
+    The length header is the only thing that says how long a frame is, so a
+    channel that ends inside one has to be read as a fault. A reader that returned
+    what it had would hand a truncated protobuf upstream, and a truncated protobuf
+    parses as a *different message* far more often than it fails to parse — which
+    is the difference between a channel that is down and a channel that is lying.
+    """
+
+    async def scenario() -> None:
+        host = BridgeIpcHost(session())
+        descriptor = await host.prepare(tmp_path / "descriptor.pb")
+        _control_reader, control_writer = await connect(descriptor, envelope_pb2.CHANNEL_CONTROL)
+        _event_reader, event_writer = await connect(descriptor, envelope_pb2.CHANNEL_EVENT)
+
+        control_writer.write(struct.pack(">I", 256) + b"\x00" * 16)
+        await control_writer.drain()
+        control_writer.close()
+
+        with pytest.raises(IpcProtocolError, match="partial frame"):
+            await host.authenticate()
+
+        await host.close()
+        await close_writers(control_writer, event_writer)
+
+    asyncio.run(scenario())
+
+
+def test_a_flood_of_events_fails_closed_rather_than_dropping_them(tmp_path: Path) -> None:
+    """A consumer that cannot keep up is told so, and is not handed stale state.
+
+    The queue is bounded, so a Bridge that floods it is a fault rather than a
+    memory problem — and what the bound does with the overflow is the part worth
+    pinning. It throws away what was buffered and leaves one error behind, because
+    a consumer that went on reading would otherwise act on observations from
+    before the gap without ever learning that there was one. That is the same
+    shape a slow consumer gets: a slow consumer *is* a flood from the other side.
+    """
+
+    async def scenario() -> None:
+        bridge_session = session()
+        host = BridgeIpcHost(bridge_session, event_queue_capacity=2)
+        descriptor = await host.prepare(tmp_path / "descriptor.pb")
+        control_reader, control_writer = await connect(descriptor, envelope_pb2.CHANNEL_CONTROL)
+        _event_reader, event_writer = await connect(descriptor, envelope_pb2.CHANNEL_EVENT)
+        await write_frame(
+            control_writer,
+            envelope(
+                bridge_session,
+                BRIDGE_HELLO_TYPE,
+                envelope_pb2.CHANNEL_CONTROL,
+                1,
+                hello(bridge_session).SerializeToString(deterministic=True),
+            ),
+        )
+        await host.authenticate()
+        await asyncio.wait_for(read_frame(control_reader), 1)
+
+        lifecycle = observation_pb2.ConnectionLifecycle(
+            generation=bridge_session.generation,
+            server_profile_id="local-test",
+            server_profile_revision="c" * 64,
+            phase=observation_pb2.CONNECTION_PHASE_RESOLVING,
+        )
+        for sequence in range(1, 9):
+            await write_frame(
+                event_writer,
+                envelope(
+                    bridge_session,
+                    CONNECTION_LIFECYCLE_TYPE,
+                    envelope_pb2.CHANNEL_EVENT,
+                    sequence,
+                    lifecycle.SerializeToString(deterministic=True),
+                ),
+            )
+
+        # Two events fit; the third does not, and what the consumer can read
+        # afterwards is the error rather than the two that were waiting.
+        delivered = 0
+        with pytest.raises(IpcProtocolError, match="event queue overflowed"):
+            for _ in range(16):
+                await host.receive_event()
+                delivered += 1
+        assert delivered <= 2
+
+        await host.close()
+        await close_writers(control_writer, event_writer)
+
+    asyncio.run(scenario())

@@ -36,6 +36,9 @@ from minekin_core.adapters.bridge.ipc import (
     CANCEL_CONNECTION_TYPE,
     CONNECT_WORLD_TYPE,
     INITIAL_OBSERVATION_TYPE,
+    LOOK_INPUT_TYPE,
+    MOVE_INPUT_TYPE,
+    USE_INPUT_TYPE,
     BridgeSession,
 )
 from minekin_core.adapters.launcher.server_profile import load_server_profile
@@ -1075,3 +1078,156 @@ def test_asking_when_to_hold_without_a_hold_is_refused(tmp_path: Path, monkeypat
                 hold_at="join",
             )
         )
+
+
+async def _control_types_after(
+    reader: asyncio.StreamReader, *, quiet_for: float = 0.2, limit: int = 32
+) -> list[str]:
+    """Every control message type until the channel has been quiet for a while.
+
+    "Nothing more was sent" is a claim about absence, so it needs a window: the
+    window is the quiet, and the limit is there so a channel that never goes quiet
+    ends the test rather than hanging it.
+    """
+
+    seen: list[str] = []
+    for _ in range(limit):
+        try:
+            frame = await asyncio.wait_for(read_frame(reader), quiet_for)
+        except TimeoutError:
+            break
+        seen.append(frame.message_type)
+    return seen
+
+
+def test_no_input_is_replayed_after_an_ambiguous_disconnect(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    """The dangerous-replay invariant: a command sent once is never sent again.
+
+    The Bridge reports that the world is gone while the lease is still Core's to
+    hold, and the report carries no failure reason — which is the ambiguous case
+    by this repository's own rule: a disconnect *with* a reason is a session the
+    server ended, and one without is a session that ended. Core cannot tell from
+    it whether the last command arrived, and the safe answer to that is to stop
+    meaning it: the lease is withdrawn, and the command is not repeated. A
+    replayed move or use is an action taken twice on a world that may already have
+    acted on the first one.
+    """
+
+    root = ready_data_root(tmp_path, monkeypatch)
+    process = LiveProcess()
+    supervisor = live_supervisor(process, descriptor_path(tmp_path), [])
+    database = root / "kin" / "kin-01" / "kin.sqlite3"
+
+    async def scenario() -> tuple[SessionRun, list[str]]:
+        running = asyncio.create_task(
+            start_and_supervise(
+                root=root,
+                profile=PROFILE,
+                java_executable=JAVA,
+                session_id=SESSION_ID,
+                generation=GENERATION,
+                supervisor_factory=lambda _logs: supervisor,
+                handshake_timeout=5.0,
+                exit_poll_s=0.01,
+                server_profile=SERVER_PROFILE,
+                hold_forward=30.0,
+            )
+        )
+        path = descriptor_path(root)
+        await _wait_until(path.is_file)
+        descriptor = session_pb2.BridgeBootstrapDescriptor.FromString(path.read_bytes())
+        bridge = BridgeSession(
+            kin_id=descriptor.kin_id,
+            session_id=descriptor.session_id,
+            generation=descriptor.generation,
+            client_instance_id=descriptor.client_instance_id,
+            bundle_digest=descriptor.bundle_digest,
+            bridge_digest=descriptor.bridge_digest,
+            launch_nonce=descriptor.launch_nonce,
+            session_key=descriptor.session_key,
+        )
+        control_reader, control_writer = await connect(descriptor, envelope_pb2.CHANNEL_CONTROL)
+        _event_reader, event_writer = await connect(descriptor, envelope_pb2.CHANNEL_EVENT)
+        await write_frame(
+            control_writer,
+            envelope(
+                bridge,
+                BRIDGE_HELLO_TYPE,
+                envelope_pb2.CHANNEL_CONTROL,
+                1,
+                hello(bridge).SerializeToString(deterministic=True),
+            ),
+        )
+        await asyncio.wait_for(read_frame(control_reader), 5)
+        connect_frame = await _wait_for_control_message(control_reader, CONNECT_WORLD_TYPE)
+        command = control_pb2.ConnectWorld.FromString(connect_frame.payload)
+
+        for sequence, phase in enumerate(CONNECTED_PHASES, start=1):
+            await write_frame(
+                event_writer,
+                envelope(
+                    bridge,
+                    CONNECTION_LIFECYCLE_TYPE,
+                    envelope_pb2.CHANNEL_EVENT,
+                    sequence,
+                    _lifecycle(bridge, command, phase).SerializeToString(deterministic=True),
+                ),
+            )
+        await write_frame(
+            event_writer,
+            envelope(
+                bridge,
+                INITIAL_OBSERVATION_TYPE,
+                envelope_pb2.CHANNEL_EVENT,
+                len(CONNECTED_PHASES) + 1,
+                first_snapshot(
+                    generation=bridge.generation, material=_material(root)
+                ).SerializeToString(deterministic=True),
+            ),
+        )
+        await _wait_until(
+            lambda: any(row[0] == PLAYABLE_ESTABLISHED for row in _ledger_rows(database))
+        )
+
+        # The lease's own command, which is the one that must never be repeated.
+        await _wait_for_control_message(control_reader, MOVE_INPUT_TYPE)
+
+        # The world goes away, with nothing said about why.
+        await write_frame(
+            event_writer,
+            envelope(
+                bridge,
+                CONNECTION_LIFECYCLE_TYPE,
+                envelope_pb2.CHANNEL_EVENT,
+                len(CONNECTED_PHASES) + 2,
+                observation_pb2.ConnectionLifecycle(
+                    generation=bridge.generation,
+                    server_profile_id=command.server_profile_id,
+                    server_profile_revision=command.server_profile_revision,
+                    phase=observation_pb2.CONNECTION_PHASE_DISCONNECTED,
+                    failure_reason=observation_pb2.ADMISSION_FAILURE_REASON_UNSPECIFIED,
+                    terminal=True,
+                ).SerializeToString(deterministic=True),
+            ),
+        )
+        await _wait_until(
+            lambda: any(row[0] == SESSION_INTERRUPTED for row in _ledger_rows(database))
+        )
+
+        seen = await _control_types_after(control_reader)
+        process.exited = True
+        _launch, run = await asyncio.wait_for(running, 10)
+        await close_writers(control_writer, event_writer)
+        return run, seen
+
+    run, seen = asyncio.run(scenario())
+
+    inputs = {MOVE_INPUT_TYPE, LOOK_INPUT_TYPE, USE_INPUT_TYPE}
+    assert [kind for kind in seen if kind in inputs] == []
+    # The lease was real — otherwise "nothing was replayed" would be true of a run
+    # that never sent anything in the first place.
+    kinds = [row[0] for row in _ledger_rows(database)]
+    assert INPUT_LEASE_GRANTED in kinds
+    assert run.outcome is SessionOutcome.CLIENT_EXITED

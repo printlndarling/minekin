@@ -418,6 +418,17 @@
   - **一次失败教会的另一件事**：把 fixture 从 `mandatory: false` 改成 `true` 之后，**已封存的两份 PASS 证据立刻不再满足门禁**（`CASE_VERSION_MISMATCH`）——因为 case version 覆盖的是用例**定义**，`mandatory` 是定义的一部分。这不是缺陷，是规则在起作用：证据必须对着**它当时那份定义**被判。重跑一次之后就对了，而这也是这个仓库一贯的做法（旧 FAIL 不删、不手改）。
   - **顺带把三个 fixture 的行尾统一了**：`core-040.json`、`admit-110.json`、`core-050.json` 在 Windows 上被 `write_text` 写成了 CRLF（工作区字节与 git 存的不一致，而摘要门禁按规范化后的字节判，所以谁也没红）。现在工作区就是 LF，等于 git 存的那份；三份的摘要都没变，说明之前那份摘要本来就是规范化后的值——**这条纪律与 `.gitattributes` 里那条 `*.sh text eol=lf` 是同一件事**。
 
+- [x] **`CORE-070` 有证据了，而且它顺便让整道门禁第一次整体变绿。** 契约这一条要的是「断线/半帧/慢消费者/事件洪水；有界背压且无危险重放」——四条断言**都由测试执行**，因为这里的主体是**通道**：半帧、超限帧、洪水都是端能对通道做的事，而唯一能被按需驱动到那些状态的端是测试对端（真 Bridge 不会替我们发半帧）。用例 `tests/fixtures/cases/core-070.json`，`mandatory: true`：
+  - `a_frame_that_stops_halfway_is_refused`：长度头说 256 字节、通道只送到 16 —— 必须按**故障**读，不能按"短读"读。理由写在断言里：被截断的 protobuf 更常见的结果是**解析成另一个消息**，而不是解析失败，那是"通道坏了"与"通道在撒谎"的差别。
+  - `an_oversize_frame_is_rejected_before_it_is_allocated`：超过协商上限的长度头在**分配之前**就被拒（既有的那条用例被这个用例名引用，而不是重写一遍）。
+  - `a_flood_of_events_fails_closed_rather_than_dropping_them`：把队列上限设成 2、再灌 8 条事件 → 消费者接下来读到的是 `event queue overflowed`，而**不是**溢出之前缓存的那两条。这条规则的另一面就是"慢消费者"：慢消费者就是反方向的洪水。
+  - `no_input_is_replayed_after_an_ambiguous_disconnect`：把会话驱动到 playable、lease 真的发出去（`MoveInput` 到对端）、然后世界消失且报告**没有**失败原因——本仓库自己的判据是「带原因是服务端结束了会话，不带原因是会话自己结束了」，所以 Core 无法知道最后那条命令是否到达；安全的答案是**不再重复它**。断言之外还核对了 lease 确实存在（否则"什么也没重发"对一个从未发过的运行也成立）。
+  - **做过变异验证**：临时在断线时把那条命令重发一次，这条用例立刻变红；还原后即绿。这一条值得，因为它证的是"没有发生的事"，而没有发生的事最容易写出一条永远为真的断言。
+  - **实测（仓库自检类）**：`run_repo_case.py --case core-070.json` → 四条全部 `held: true`、`result: PASS`、退出码 0；`seal_repo_case.py` 把它的 bundle 封进数据卷的 `repo-evidence/<run-id>/`（4 件工件：用例定义、判决、被检查的夹具摘要清单、orchestrator trace）、`result: PASS`。
+  - **顺带把整体门禁跑绿了**：把 `W00-CONTRACT-001` 的仓库自检 bundle 也按同样的方式封进**同一个数据根**，再跑一次 `report_promotion.py --data-root /data` → **`status: promotable`、`overall.promotable: true`、`blocking_cases: []`**，四个工作包（W00/W20/W40/W60）全部 promotable，20 份 bundle。`overall.blocks` 里仍列着 `CASE_VERSION_MISMATCH` 与 `EVIDENCE_IS_NOT_A_PASS`——那是**登记册里每一份候选**的理由集合，包含早先的 FAIL 包与旧 case version 的包，所以它是"这些理由有主"，不是"这道门禁还挡着"。
+  - **这个"绿"要说清楚它绿在哪一层**（与上一条同样的边界）：它说的是**登记册里那些 mandatory case 都有 PASS 证据**了，也就是 W00-CONTRACT-001、CORE-010、CORE-020、CORE-040、CORE-050、CORE-070 六个。契约要的 `p0-core: tested` 还差 L3（LAN）、L5 的其余故障注入、以及 L6 baseline，所以**不能**把这个结果读成"P0 已经 tested"。
+  - **这一步的边界**：Bridge 侧同一个有界队列（Java `BoundedChannel`）**不在这个用例里**——仓库自检类用例能驱动的只有 python 侧，Java 侧那部分由 `bridge/` 自己的测试与离线编译门禁覆盖，但**没有**一个用例断言它，如实记在这里而不是假装覆盖到了。
+
 ## W70：恢复与证据晋级
 
 - [x] **杀 Core 那条路一直在"报告一次没发生过的故障注入"，而且报告得很像成功。** 想给 L5（`CORE-060`）取证时先量了一次杀 Core 的运行，结果有两处不对劲：**存在 run document**（被 SIGKILL 的 CLI 不可能打印任何东西），而客户端日志里**没有** `IPC_LOST` 的松键记录。于是给那个循环加了一条临时打印，实测结果是 `DEBUG kill loop at 32s: distinct=0` **连续 90 次、`SECONDS` 一直停在 32**——原因很简单也很要命：那个循环**没有 `sleep`**，而它的预算是用 `SECONDS` 算的；`SECONDS` 在命令不耗时的自旋里根本不前进，于是"150 秒的等待"在毫秒内跑完并放弃。接着**下面那个等待**（它有 sleep）看到 Kin 停住了——那是 hold 到期自然停的——于是打印 `the server saw the Kin stop after Core died`。也就是说：**一个没有注入故障的运行，被报告成了注入成功的运行**，而它的证据（停住的读数）本来就会出现。
