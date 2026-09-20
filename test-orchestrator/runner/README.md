@@ -97,6 +97,39 @@ session ends early or either JVM is never sampled. Durations are whole seconds;
 the duration must be non-negative and the interval must be positive. Zero
 duration (the default) disables the soak.
 
+Naming a case makes it evidence rather than a report to the terminal:
+
+```text
+$ MINEKIN_SERVER_JAR=… MINEKIN_DOMAIN_CASE=CORE-100 \
+      MINEKIN_DOMAIN_SOAK_SECONDS=600 MINEKIN_DOMAIN_SOAK_INTERVAL=10 \
+      bash test-orchestrator/runner/run.sh domain \
+      session start --profile … --server-profile …
+domain: soaking for 600s at 10s intervals
+domain: client RSS 1585 MB at first, 1603 MB at last, 1584..1618 MB over 62 samples, 115 threads at most
+domain: the case verdict is PASS
+```
+
+Each sample carries how far into the soak the look happened, which is what makes
+the samples a timeline rather than a bag of numbers: the summary says what the
+run was asked for and whether it finished, and the samples say how far the
+measurement actually reaches. Both are sealed (`soak-samples.txt`,
+`soak-summary.json`) and both are judged — a soak that stopped early, or one that
+stopped sampling a process halfway, fails the case rather than reporting a
+shorter baseline.
+
+The distribution is reported from the sealed bytes, not from a live file:
+
+```text
+$ uv run python tools/report_soak.py --data-root .tmp/data --run-id <run-id>
+{"case_id": "CORE-100", "percentile_method": "nearest-rank", "requested_seconds": 600,
+ "status": "reported", "processes": {"client": {"rss_mb": {"p50": 1607.0, "p95": 1611.0, "p99": 1618.0}}, …}}
+```
+
+It reports and does not judge: no human baseline exists yet, so a threshold here
+would be inventing the number the baseline exists to measure. RSS and thread
+counts are what this sampler observes; FPS, TPS, GC and queue depths have no
+source in this repository yet and are listed in the contract as still to come.
+
 Two signals were involved in getting there and both were wrong in the same way —
 looking like they worked:
 

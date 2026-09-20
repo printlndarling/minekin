@@ -168,6 +168,8 @@ def collect_artifacts(
     server_directory: Path | None,
     run_document: bytes,
     fault_injection: bytes,
+    soak_samples: bytes,
+    soak_summary: bytes,
     orchestrator: Mapping[str, object],
 ) -> dict[str, bytes]:
     """Every artifact this run left, under names a reader can recognise."""
@@ -186,6 +188,13 @@ def collect_artifacts(
         # The bytes the asserter was given, not a second reading of the file: the
         # verdict and the artifact have to be the same snapshot of the record.
         found["fault-injection.json"] = fault_injection
+    if soak_samples:
+        # A soak's numbers are the measurement, and they belong with the run that
+        # measured them: printed to a terminal they are a claim about a run, and
+        # sealed they are what the claim rests on.
+        found["soak-samples.txt"] = soak_samples
+    if soak_summary:
+        found["soak-summary.json"] = soak_summary
     # The client's own output, where the Bridge's lines are: sealing the whole
     # stream rather than a filtered selection means a reader can check any
     # selection against it rather than having to trust one.
@@ -212,6 +221,8 @@ def run_asserter(
     username: str,
     run_id: str | None = None,
     fault_injection: str | None = None,
+    soak_samples: str | None = None,
+    soak_summary: str | None = None,
     python: str = sys.executable,
 ) -> dict[str, object]:
     """The case's verdict, from the one module that judges rather than writes.
@@ -239,6 +250,11 @@ def run_asserter(
         arguments += ["--server-directory", str(server_directory)]
     if fault_injection is not None:
         arguments += ["--fault-injection-json", fault_injection]
+    # The soak travels the same way, for the same reason.
+    if soak_samples is not None:
+        arguments += ["--soak-samples-json", soak_samples]
+    if soak_summary is not None:
+        arguments += ["--soak-summary-json", soak_summary]
     completed = subprocess.run(
         arguments,
         capture_output=True,
@@ -378,6 +394,8 @@ def seal(
     session_argv: Sequence[str] = (),
     secrets: Sequence[str] = (),
     fault_injection_path: Path | None = None,
+    soak_samples_path: Path | None = None,
+    soak_summary_path: Path | None = None,
     workspace_root: Path | None = None,
     now: datetime | None = None,
 ) -> dict[str, object]:
@@ -408,6 +426,28 @@ def seal(
         fault_injection_bytes = record.raw
         fault_injection_text = record.raw.decode("utf-8")
 
+    soak_samples_bytes = b""
+    soak_samples_text: str | None = None
+    if soak_samples_path is not None:
+        try:
+            soak_samples_bytes = soak_samples_path.read_bytes()
+            soak_samples_text = soak_samples_bytes.decode("utf-8")
+        except (OSError, UnicodeDecodeError) as error:
+            raise Unsealable(f"the soak samples cannot be sealed: {error}") from error
+    soak_summary_bytes = b""
+    soak_summary_text: str | None = None
+    soak_summary_document: dict[str, object] | None = None
+    if soak_summary_path is not None:
+        try:
+            soak_summary_bytes = soak_summary_path.read_bytes()
+            parsed_summary = json.loads(soak_summary_bytes)
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
+            raise Unsealable(f"the soak summary cannot be sealed: {error}") from error
+        if not isinstance(parsed_summary, dict):
+            raise Unsealable(f"{soak_summary_path} is not a soak summary object")
+        soak_summary_document = cast(dict[str, object], parsed_summary)
+        soak_summary_text = soak_summary_bytes.decode("utf-8")
+
     raw = b""
     run_document: dict[str, object] = {}
     if run_document_path is not None:
@@ -430,6 +470,8 @@ def seal(
         server_directory=server_directory,
         username=username,
         fault_injection=fault_injection_text,
+        soak_samples=soak_samples_text,
+        soak_summary=soak_summary_text,
     )
     material = read_run_material(
         run_document=run_document_path,
@@ -437,6 +479,8 @@ def seal(
         data_root=data_root,
         server_directory=server_directory,
         username=username,
+        soak_samples=soak_samples_text or "",
+        soak_summary=soak_summary_document,
     )
 
     if server_profile is None:
@@ -477,6 +521,8 @@ def seal(
         server_directory=server_directory,
         run_document=raw,
         fault_injection=fault_injection_bytes,
+        soak_samples=soak_samples_bytes,
+        soak_summary=soak_summary_bytes,
         orchestrator=orchestrator_trace(
             case=case,
             run_id=identifier,
@@ -557,6 +603,18 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     parser.add_argument(
+        "--soak-samples",
+        type=Path,
+        default=None,
+        help="a bounded soak's samples; read once, judged and sealed as one snapshot",
+    )
+    parser.add_argument(
+        "--soak-summary",
+        type=Path,
+        default=None,
+        help="what the soak was asked for and whether it finished",
+    )
+    parser.add_argument(
         "--secret-env",
         action="append",
         default=[],
@@ -587,6 +645,8 @@ def main(argv: list[str] | None = None) -> int:
             renderer_display=args.renderer_display,
             session_argv=args.session_argv,
             fault_injection_path=args.fault_injection,
+            soak_samples_path=args.soak_samples,
+            soak_summary_path=args.soak_summary,
             secrets=secrets,
         )
     except Unsealable as error:

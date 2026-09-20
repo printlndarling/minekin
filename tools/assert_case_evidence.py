@@ -287,6 +287,11 @@ class RunMaterial:
     #: judged against the same bytes that were sealed rather than against a file
     #: that may have been rewritten in between.
     fault_injection: Mapping[str, object] | None = None
+    #: A bounded soak's samples, exactly as the harness wrote them, and the record
+    #: of what it was asked for. Empty for a run that did not soak — which is not
+    #: the same shape as a soak that produced nothing.
+    soak_samples: str = ""
+    soak_summary: Mapping[str, object] | None = None
     #: The reviewed case being evaluated.  `evaluate` fills these from the same
     #: manifest that declares the assertions, so a trace attributed to another
     #: case (or another revision of this case) cannot satisfy this one.
@@ -355,6 +360,8 @@ def read_run_material(
     username: str,
     run_id: str | None = None,
     fault_injection: Mapping[str, object] | None = None,
+    soak_samples: str = "",
+    soak_summary: Mapping[str, object] | None = None,
 ) -> RunMaterial:
     """Read a finished run's material, refusing anything that is not readable.
 
@@ -477,6 +484,8 @@ def read_run_material(
         server_identities=identities,
         username=username,
         fault_injection=fault_injection,
+        soak_samples=soak_samples,
+        soak_summary=soak_summary,
     )
 
 
@@ -1156,6 +1165,102 @@ def the_restart_reconciled_before_it_started(material: RunMaterial) -> str | Non
     return None
 
 
+def _soak_samples(material: RunMaterial) -> tuple[tuple[str, int, int, int], ...] | None:
+    """The samples a bounded soak wrote, as (label, rss_kb, threads, elapsed_s).
+
+    A line that does not parse is not a sample, and a soak whose file holds lines
+    that do not parse is one whose measurement cannot be read at all — the caller
+    distinguishes "no soak happened" from "the soak's numbers are not readable",
+    because only the first is a legitimate reason for a case not to see any.
+    """
+
+    if not material.soak_samples.strip():
+        return None
+    samples: list[tuple[str, int, int, int]] = []
+    for line in material.soak_samples.splitlines():
+        fields = line.split()
+        if not fields:
+            continue
+        if len(fields) != 4 or fields[0] not in ("client", "server"):
+            return None
+        try:
+            samples.append((fields[0], int(fields[1]), int(fields[2]), int(fields[3])))
+        except ValueError:
+            return None
+    return tuple(samples)
+
+
+def the_soak_held_for_the_duration_it_was_asked_for(material: RunMaterial) -> str | None:
+    """The run was asked for a bounded soak, and the measurement covers it.
+
+    Both halves are read, and neither stands in for the other: the record says
+    what the harness was asked to do and whether it finished, and the samples say
+    how far into the soak they actually reach. A soak that stopped early leaves
+    samples that stop early — which is the thing a baseline cannot hide, since
+    "we ran for ten minutes" is exactly the claim that would otherwise be the
+    harness's own word.
+
+    The tolerance is one interval: the last look lands before the deadline is
+    reached, so requiring the final second exactly would fail every honest run.
+    """
+
+    summary = _object(material.soak_summary)
+    if summary is None:
+        return "NO_SOAK_SUMMARY"
+    requested = _positive(summary.get("requested_seconds"))
+    interval = _positive(summary.get("interval_seconds"))
+    if requested is None or interval is None:
+        return "SOAK_SUMMARY_INCOMPLETE"
+    if summary.get("ended_early") is True:
+        return "SOAK_ENDED_EARLY"
+    samples = _soak_samples(material)
+    if samples is None:
+        return "NO_SOAK_SAMPLES"
+    reached = max(elapsed for _, _, _, elapsed in samples)
+    if reached + interval < requested:
+        return f"SOAK_SHORTER_THAN_REQUESTED:{reached}/{requested}"
+    return None
+
+
+def both_jvms_were_sampled_throughout_the_soak(material: RunMaterial) -> str | None:
+    """Both processes were looked at, on the whole length of the soak.
+
+    Counted per label rather than in total: a client sampled once at the start
+    and a server sampled fifty times is fifty-one samples and not a baseline of
+    two processes. The count is also what makes a missing process visible — a JVM
+    that died halfway leaves its label short, which is the failure a soak exists
+    to catch.
+
+    Two samples is the floor because one reading is a number and not a span.
+    """
+
+    summary = _object(material.soak_summary)
+    if summary is None:
+        return "NO_SOAK_SUMMARY"
+    samples = _soak_samples(material)
+    if samples is None:
+        return "NO_SOAK_SAMPLES"
+    counts = {
+        label: sum(1 for sample in samples if sample[0] == label) for label in ("client", "server")
+    }
+    if not counts["client"]:
+        return "CLIENT_WAS_NEVER_SAMPLED"
+    if not counts["server"]:
+        return "SERVER_WAS_NEVER_SAMPLED"
+    minimum = min(counts["client"], counts["server"])
+    if minimum < 2:
+        return f"TOO_FEW_SAMPLES:{counts['client']}/{counts['server']}"
+    # Both processes have to reach the end of the soak, not merely to appear in
+    # it: one that stopped being sampled halfway is one that stopped being there.
+    interval = _positive(summary.get("interval_seconds"))
+    reached = max(elapsed for _, _, _, elapsed in samples)
+    for label in ("client", "server"):
+        last = max(elapsed for name, _, _, elapsed in samples if name == label)
+        if interval is not None and last + 2 * interval < reached:
+            return f"{label.upper()}_STOPPED_BEING_SAMPLED:{last}/{reached}"
+    return None
+
+
 def the_attempt_was_abandoned_at_its_deadline(material: RunMaterial) -> str | None:
     """Core gave up on the attempt, in Core's own words, for its own reason.
 
@@ -1416,6 +1521,10 @@ ASSERTIONS: dict[str, Callable[[RunMaterial], str | None]] = {
     "client_jvm_sigkill_was_confirmed": client_jvm_sigkill_was_confirmed,
     "the_ledger_recorded_the_session_ending": the_ledger_recorded_the_session_ending,
     "the_previous_run_left_the_kin_holding_input": the_previous_run_left_the_kin_holding_input,
+    "the_soak_held_for_the_duration_it_was_asked_for": (
+        the_soak_held_for_the_duration_it_was_asked_for
+    ),
+    "both_jvms_were_sampled_throughout_the_soak": both_jvms_were_sampled_throughout_the_soak,
     "the_restart_runs_as_a_new_session": the_restart_runs_as_a_new_session,
     "the_restart_reconciled_before_it_started": the_restart_reconciled_before_it_started,
     "the_server_log_has_no_graceful_shutdown": the_server_log_has_no_graceful_shutdown,
@@ -1554,6 +1663,28 @@ def main(argv: list[str] | None = None) -> int:
             "snapshot it is about to seal rather than a path it read twice"
         ),
     )
+    parser.add_argument(
+        "--soak-samples",
+        type=Path,
+        default=None,
+        help="a bounded soak's samples, as the harness wrote them",
+    )
+    parser.add_argument(
+        "--soak-samples-json",
+        default=None,
+        help="the same samples as text, for the sealer's snapshot of what it seals",
+    )
+    parser.add_argument(
+        "--soak-summary",
+        type=Path,
+        default=None,
+        help="what the harness was asked to soak and what it did",
+    )
+    parser.add_argument(
+        "--soak-summary-json",
+        default=None,
+        help="the same summary as text, for the sealer's snapshot of what it seals",
+    )
     args = parser.parse_args(argv)
 
     if args.fault_injection is not None and args.fault_injection_json is not None:
@@ -1567,6 +1698,34 @@ def main(argv: list[str] | None = None) -> int:
             fault_injection_record = None
     except FaultInjectionError as error:
         return _reject(str(error))
+
+    if args.soak_samples is not None and args.soak_samples_json is not None:
+        return _reject("name the soak's samples by their path or by their text, not both")
+    if args.soak_summary is not None and args.soak_summary_json is not None:
+        return _reject("name the soak's summary by its path or by its text, not both")
+    soak_samples = ""
+    if args.soak_samples is not None:
+        try:
+            soak_samples = args.soak_samples.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError) as error:
+            return _reject(f"{args.soak_samples} is not readable soak samples: {error}")
+    elif args.soak_samples_json is not None:
+        soak_samples = args.soak_samples_json
+    soak_summary: Mapping[str, object] | None = None
+    summary_text = args.soak_summary_json
+    if args.soak_summary is not None:
+        try:
+            summary_text = args.soak_summary.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError) as error:
+            return _reject(f"{args.soak_summary} is not a readable soak summary: {error}")
+    if summary_text is not None:
+        try:
+            parsed = json.loads(summary_text)
+        except json.JSONDecodeError as error:
+            return _reject(f"the soak summary is not readable JSON: {error}")
+        if not isinstance(parsed, Mapping):
+            return _reject("the soak summary is not an object")
+        soak_summary = cast(Mapping[str, object], parsed)
 
     try:
         case = json.loads(args.case.read_bytes())
@@ -1583,6 +1742,8 @@ def main(argv: list[str] | None = None) -> int:
             server_directory=args.server_directory,
             username=args.username,
             fault_injection=fault_injection_record,
+            soak_samples=soak_samples,
+            soak_summary=soak_summary,
         )
         verdict = evaluate(cast(Mapping[str, object], case), material)
     except Unreadable as error:

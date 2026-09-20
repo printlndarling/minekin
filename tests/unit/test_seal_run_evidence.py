@@ -587,10 +587,45 @@ def test_the_judge_is_given_the_bytes_that_are_sealed_rather_than_the_path(
         server_directory=None,
         run_document=b"",
         fault_injection=written,
+        soak_samples=b"",
+        soak_summary=b"",
         orchestrator={},
     )
     assert sealed["fault-injection.json"] == written
     assert sealed["fault-injection.json"].decode("utf-8") == text
+
+
+def test_a_soak_is_judged_and_sealed_from_the_same_bytes() -> None:
+    """The same rule as the fault record, for the same reason: one reading.
+
+    A soak is a measurement, and a measurement quoted from a live file is a claim
+    about one — the distribution has to be computed from what the bundle holds.
+    """
+
+    samples = "client 512000 40 0\nclient 514048 41 600\nserver 921600 30 0\n"
+    summary = json.dumps(
+        {
+            "schema_version": 1,
+            "requested_seconds": 600,
+            "interval_seconds": 10,
+            "samples": {"client": 2, "server": 1},
+            "ended_early": False,
+            "failed_samples": False,
+        }
+    )
+
+    sealed = SEALER.collect_artifacts(
+        overlay=None,
+        server_directory=None,
+        run_document=b"",
+        fault_injection=b"",
+        soak_samples=samples.encode("utf-8"),
+        soak_summary=summary.encode("utf-8"),
+        orchestrator={},
+    )
+
+    assert sealed["soak-samples.txt"].decode("utf-8") == samples
+    assert json.loads(sealed["soak-summary.json"])["requested_seconds"] == 600
 
 
 def test_a_record_a_reader_would_refuse_stops_the_seal(

@@ -150,11 +150,13 @@ L1 的要证内容是"真客户端到主菜单、握手完成、仍是 `OBSERVE_
 | L5 Failure Safety | 断 IPC、杀 Runtime/client/server、慢消费者、旧 generation、重连均安全 | 松键、撤 lease、无旧对象/危险动作重放 |
 | L6 Soak/Resource | 有界持续运行并报告资源与延迟分布 | P50/P95/P99、队列/GC/FPS/TPS/RSS；阈值先测后定 |
 
+L6 的基线**已有第一轮证据**（2026-09-20，用例 `CORE-100`，见下方用例清单第 14 条）：受控域里 600 秒 / 间隔 10 秒，真客户端 + 真原版服务端、`llvmpipe` 软件渲染，两个 JVM 各 62 个 `/proc` 样本。**报告什么、由谁报告**：`tools/report_soak.py` 只读**已封存**的 bundle（先校验摘要），算出 per-process 的 min/first/last/**P50/P95/P99**/max RSS 与线程峰值，并写明百分位方法（nearest-rank）。**本轮数字**：client P50 1607 MB / P95 1611 / P99 1618 / max 1618，线程峰值 115；server P50 912 / P95 913 / P99 913 / max 913 MB，线程峰值 78。**没有测的**：FPS/TPS/GC/队列深度在本仓库没有来源（采样器只读 `/proc`），GPU 渲染档没有跑。**没有人设阈值**：契约说「阈值先测后定」，所以这一轮只报告。
+
 上述 L3 只证明 Kin 客户端能加入**另一宿主**开放的 LAN 世界。Kin 自己创建/恢复存档并开放 LAN 是独立的 `host-integrated`晋级面，必须同时按[自建世界存储生命周期](hosted-world-storage-lifecycle-contract.md)的 HOST 用例与[自建世界控制边界](hosted-world-control-boundary-contract.md)的 HOSTCTL 用例另取证；其 Bridge 变体记为 `p0-host-exp`。它不属于 `p0-core`由 candidate 升为 tested 的前置条件，也不能反向借用 L3 结果声称 host tested。
 
 HOST世界保存/恢复另需 `HOSTCOMMIT-001…110` 证据；它验证默认维度、玩家/世界双保存、JointResumeToken、回滚/分叉和唯一Current World激活。缺少该组证据时，`p0-host-exp`不能标记host lifecycle tested。
 
-`p0-core: tested`至少要求 L0–L5 全部 mandatory case 有 PASS evidence，并完成一轮有明确时长和环境的 L6 baseline；性能数字没有人类基线前只报告、不凭空设“优秀”阈值，但下列安全不变量没有宽限。
+`p0-core: tested`至少要求 L0–L5 全部 mandatory case 有 PASS evidence，并完成一轮有明确时长和环境的 L6 baseline（2026-09-20：这一轮已跑并封存，见 L6 行的说明与用例清单第 14 条；证据在 `kin/<kin_id>/run/evidence/<run-id>/` 里，含 `soak-samples.txt` 与 `soak-summary.json`）；性能数字没有人类基线前只报告、不凭空设“优秀”阈值，但下列安全不变量没有宽限。
 
 ## 硬失败不变量
 
@@ -185,6 +187,7 @@ HOST世界保存/恢复另需 `HOSTCOMMIT-001…110` 证据；它验证默认维
 11. `ADMIT-001…110`：验证可信 profile、host/port与SRV、地址策略、正常客户端 login/JOIN/首快照、资源包门禁、取消/晚回调、重连和离线身份映射；TCP连接、INIT或 screen状态不得单独判成功。（2026-09-20 状态：`ADMIT-100` 被定义为**服务端拒绝**这一条——目标启动并接受登录握手，然后在白名单上说不——判据是两处记录都说同一件事：账本里 `phase: FAILED` 配 `…WHITELIST_REJECTED` 这个类别，客户端日志里 Bridge 自己那行分类；`ADMIT-110` 是**这一组里的另一条**——「目标接受连接却从不回应时，Core 在自己的 deadline 上放弃这次尝试，并且这件事到达了客户端」——用例文件 `tests/fixtures/cases/admit-110.json`，目前 `mandatory: false`，因为这一组其余部分还没有定义。）
 12. `ADMIT-120`：服务端 oracle 放置身份/位置 canary；只允许在 run结束后由验收器交叉核对，不得进入 Runtime、Memory、prompt或行动路径。
 13. `NAV-EXP-010`：只在 core tested 后运行，核 Baritone mixin、输入仲裁、取消尾部和隐藏真值越界；单独给 `candidate/tested/quarantine`。
+14. `CORE-100`：**L6 的有界 soak baseline**——一轮有明确时长的持续运行，报告两个进程的资源分布，而不是通过某个性能阈值。（2026-09-20 状态：**已有用例 `tests/fixtures/cases/core-100.json` 与一轮真实运行的 bundle，`mandatory: false`**——它证的是「这轮测量本身成立」，不是「性能合格」，所以它不该像行为用例那样点亮门禁。三条断言都读被封存的证据：世界是被准入过的（`first_snapshot_admitted`）、这次 soak 真的覆盖了它被要求的时长（summary 没提前结束 **且** 样本的时刻实际跨到那里，容差一个采样间隔）、两个 JVM **各自**从头到尾都被采到（一个中途不再出现的进程就是中途不在了）。harness 写 `soak-samples.txt`（`label rss_kb threads elapsed_seconds`）与 `soak-summary.json`（要求了什么、有没有提前结束），sealer 与验收器读**同一份快照**并封存它；`tools/report_soak.py` 从封存字节算出 P50/P95/P99 与线程峰值。**本轮**：600 秒 / 10 秒间隔、62 个样本/进程、跨度 594 秒、PASS、`verified: true`。**未做的**：FPS/TPS/GC/队列深度没有来源，GPU 档没跑，阈值仍然没有——按契约「先测后定」。）
 
 失败用例保留完整 evidence。修复后用新 build/case version 重跑，不把旧 FAIL 删除，也不手工改为 PASS。
 

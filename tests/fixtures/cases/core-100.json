@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "case_id": "CORE-100",
+  "work_package": "W70",
+  "mandatory": false,
+  "inputs": [
+    "tests/fixtures/runtime-input/bundle-p0-core-1.21.4.json",
+    "tests/fixtures/runtime-input/controlled-offline-server.json"
+  ],
+  "assertions": [
+    "first_snapshot_admitted",
+    "the_soak_held_for_the_duration_it_was_asked_for",
+    "both_jvms_were_sampled_throughout_the_soak"
+  ]
+}

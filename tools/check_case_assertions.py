@@ -135,6 +135,13 @@ IMPLEMENTATIONS: dict[str, Implementation] = {
     "the_previous_run_left_the_kin_holding_input": _runtime(
         "the_previous_run_left_the_kin_holding_input"
     ),
+    # L6's baseline: the measurement's own integrity, and the world it was taken in.
+    "the_soak_held_for_the_duration_it_was_asked_for": _runtime(
+        "the_soak_held_for_the_duration_it_was_asked_for"
+    ),
+    "both_jvms_were_sampled_throughout_the_soak": _runtime(
+        "both_jvms_were_sampled_throughout_the_soak"
+    ),
     "the_restart_runs_as_a_new_session": _runtime("the_restart_runs_as_a_new_session"),
     "the_restart_reconciled_before_it_started": _runtime(
         "the_restart_reconciled_before_it_started"

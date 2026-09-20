@@ -41,6 +41,11 @@ still="${MINEKIN_DOMAIN_STILL:-}"
 # did — a soak is a thing a run asks for, not a thing every run pays for.
 soak_seconds="${MINEKIN_DOMAIN_SOAK_SECONDS:-0}"
 soak_interval="${MINEKIN_DOMAIN_SOAK_INTERVAL:-10}"
+#: Where a soak's measurement and its request are written, named here rather than
+#: inside the soak so the sealer can ask for them by the same names whether or not
+#: this run soaked. Only a soak run leaves files here.
+soak_file=/tmp/domain-soak.txt
+soak_summary=/tmp/domain-soak.json
 case "${soak_seconds}" in
     ''|*[!0-9]*)
         printf 'domain: MINEKIN_DOMAIN_SOAK_SECONDS must be a non-negative integer, got %q\n' \
@@ -1016,16 +1021,18 @@ fi
 # memory is a process reporting its own opinion, and this has to be readable even
 # from a client that is too unhealthy to answer.
 if [ "${soak_seconds}" -gt 0 ]; then
-    soak_file=/tmp/domain-soak.txt
     : > "${soak_file}"
     sample() {
-        # One line per process per round: the label, the resident size in KB and
-        # the thread count, as the kernel holds them.
+        # One line per process per round: the label, the resident size in KB, the
+        # thread count and how far into the soak this look happened, all as the
+        # kernel holds them. The elapsed second is what makes the sample a
+        # *timeline* rather than a bag of numbers: a set of readings with no
+        # times cannot say whether they span the interval that was asked for.
         [ -n "$1" ] && [ -r "/proc/$1/status" ] || return 1
-        awk -v label="$2" '/^VmRSS:/ { rss = $2 } /^Threads:/ { threads = $2 }
+        awk -v label="$2" -v elapsed="$3" '/^VmRSS:/ { rss = $2 } /^Threads:/ { threads = $2 }
              END {
                  if (rss == "" || threads == "") exit 1
-                 printf "%s %s %s\n", label, rss, threads
+                 printf "%s %s %s %s\n", label, rss, threads, elapsed
              }' "/proc/$1/status" 2>/dev/null >> "${soak_file}"
     }
     # Name the JVM, not a launcher's first child. Both halves can have wrappers,
@@ -1055,20 +1062,22 @@ if [ "${soak_seconds}" -gt 0 ]; then
     server_samples=0
     soak_interrupted=0
     sample_failed=0
+    soak_started=${SECONDS}
     deadline=$((SECONDS + soak_seconds))
     while [ "${SECONDS}" -lt "${deadline}" ]; do
         if ! kill -0 "${session_pid}" 2>/dev/null; then
             soak_interrupted=1
             break
         fi
+        elapsed=$((SECONDS - soak_started))
         client_process=$(find_java_descendant "${session_pid}")
         world_process=$(find_java_descendant "${server_pid}")
-        if sample "${client_process}" client; then
+        if sample "${client_process}" client "${elapsed}"; then
             client_samples=$((client_samples + 1))
         else
             sample_failed=1
         fi
-        if sample "${world_process}" server; then
+        if sample "${world_process}" server "${elapsed}"; then
             server_samples=$((server_samples + 1))
         else
             sample_failed=1
@@ -1117,6 +1126,28 @@ if [ "${soak_seconds}" -gt 0 ]; then
                        label, rss[1] / 1024, rss[n] / 1024, low / 1024, high / 1024, n, threads
             }' "${soak_file}" >&2 || true
     done
+    # What the harness was asked for and what it did, written where the sealer can
+    # read it. The samples above are the measurement; this is the request, and the
+    # two are checked against each other rather than one standing in for the other.
+    python - "${soak_summary}" "${soak_seconds}" "${soak_interval}" \
+        "${client_samples}" "${server_samples}" "${soak_interrupted}" "${sample_failed}" <<'PY'
+import json
+import sys
+
+path, seconds, interval, client, server, interrupted, failed = sys.argv[1:8]
+document = {
+    "schema_version": 1,
+    "requested_seconds": int(seconds),
+    "interval_seconds": int(interval),
+    "passes": min(int(client), int(server)),
+    "samples": {"client": int(client), "server": int(server)},
+    "ended_early": interrupted == "1",
+    "failed_samples": failed == "1",
+}
+with open(path, "w", encoding="utf-8") as stream:
+    json.dump(document, stream, sort_keys=True)
+    stream.write("\n")
+PY
 fi
 
 printf 'domain: stopping the session\n' >&2
@@ -1250,6 +1281,13 @@ if [[ -n "${case_id}" ]]; then
     if [ -s "${fault_path}" ]; then
         fault_args=(--fault-injection "${fault_path}")
     fi
+    # The soak's own measurement and the request it answers, when this run soaked.
+    # Same rule as the fault record: named by path, read once, and the bytes that
+    # were judged are the bytes that are sealed.
+    soak_args=()
+    if [ -s "${soak_summary}" ]; then
+        soak_args=(--soak-samples "${soak_file}" --soak-summary "${soak_summary}")
+    fi
     python /src/tools/seal_run_evidence.py \
         --data-root /data \
         --case "${case_file}" \
@@ -1257,6 +1295,7 @@ if [[ -n "${case_id}" ]]; then
         "${world_args[@]}" \
         "${named_run[@]}" \
         "${fault_args[@]}" \
+        "${soak_args[@]}" \
         --username "${player}" \
         --renderer-display "${renderer}" \
         --session-argv "$@" >/tmp/domain-seal.json 2>/tmp/domain-seal.err

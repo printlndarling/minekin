@@ -35,6 +35,7 @@ LOST_RUNTIME_CASE = CASES / "core-060.json"
 LOST_SERVER_CASE = CASES / "core-060-server-001.json"
 LOST_CLIENT_CASE = CASES / "core-060-client-001.json"
 RESTART_CASE = CASES / "core-090.json"
+SOAK_CASE = CASES / "core-100.json"
 #: The session the run before the restart wrote under. Every witness the restart
 #: case reads about the crash is bound to it.
 DEAD_SESSION = "session-00"
@@ -193,8 +194,10 @@ def material(
     ledger_readable: bool = True,
     previous: tuple[str, tuple[Mapping[str, object], ...]] = ("", ()),
     fault_injection: Mapping[str, object] | None = None,
+    soak: tuple[str, Mapping[str, object] | None] = ("", None),
 ) -> _Material:
     previous_run_id, previous_run_events = previous
+    soak_samples, soak_summary = soak
     return ASSERTER_MODULE.RunMaterial(
         kin_id="kin-01",
         run_id=RUN_ID,
@@ -209,6 +212,8 @@ def material(
         server_identities={USERNAME: RECORDED_UUID} if identities is None else identities,
         username=username,
         fault_injection=fault_injection,
+        soak_samples=soak_samples,
+        soak_summary=soak_summary,
     )
 
 
@@ -243,6 +248,7 @@ def test_the_reviewed_case_names_only_assertions_the_asserter_performs() -> None
         LOST_SERVER_CASE,
         LOST_CLIENT_CASE,
         RESTART_CASE,
+        SOAK_CASE,
         BLACK_HOLE_CASE,
         REFUSED_CASE,
     ):
@@ -2215,3 +2221,121 @@ def test_a_restart_that_never_asked_is_still_not_a_kin_that_was_never_driven() -
         failure.startswith("the_server_saw_the_kin_arrive_and_never_move:")
         for failure in verdict.failures
     )
+
+
+# The L6 baseline: a bounded soak in a world that was admitted and stayed. The
+# samples are the sampler's own shape — label, RSS in KB, threads, and how far
+# into the soak the look happened — and the summary is what the harness was asked
+# for. Neither is trusted for the other's job: the summary says what was asked,
+# the samples say how far the measurement actually reaches.
+SOAK_SECONDS = 600
+SOAK_INTERVAL = 10
+
+
+def soak_case() -> dict[str, object]:
+    return cast(dict[str, object], json.loads(SOAK_CASE.read_text(encoding="utf-8")))
+
+
+def soak_summary(**overrides: object) -> dict[str, object]:
+    document: dict[str, object] = {
+        "schema_version": 1,
+        "requested_seconds": SOAK_SECONDS,
+        "interval_seconds": SOAK_INTERVAL,
+        "passes": 61,
+        "samples": {"client": 61, "server": 61},
+        "ended_early": False,
+        "failed_samples": False,
+    }
+    document.update(overrides)
+    return document
+
+
+def soak_lines(client: int = 61, server: int = 61, span: int = SOAK_SECONDS) -> str:
+    """Samples for both processes, spread over `span` seconds."""
+
+    lines: list[str] = []
+    for label, count in (("client", client), ("server", server)):
+        for index in range(count):
+            elapsed = 0 if count == 1 else round(index * span / (count - 1))
+            lines.append(f"{label} {520000 + index * 128} {40 + index % 3} {elapsed}")
+    return "\n".join(lines) + "\n"
+
+
+def soaked(**overrides: object) -> _Material:
+    arguments: dict[str, object] = {
+        "document": run_document(snapshots_admitted=1, connection_state="PLAYABLE"),
+        "events": (STARTED, event("PlayableEstablished", phase="PLAYABLE")),
+        "soak": (soak_lines(), soak_summary()),
+    }
+    arguments.update(overrides)
+    return material(**arguments)  # type: ignore[arg-type]
+
+
+def test_a_bounded_soak_of_a_verified_world_holds() -> None:
+    verdict = ASSERTER_MODULE.evaluate(soak_case(), soaked())
+
+    assert verdict.result == "PASS"
+    assert verdict.observed == verdict.expected
+    assert verdict.failures == ()
+
+
+@pytest.mark.parametrize(
+    ("soak", "reason"),
+    [
+        (("", None), "the_soak_held_for_the_duration_it_was_asked_for:NO_SOAK_SUMMARY"),
+        (
+            (soak_lines(), soak_summary(ended_early=True)),
+            "the_soak_held_for_the_duration_it_was_asked_for:SOAK_ENDED_EARLY",
+        ),
+        (
+            (soak_lines(span=300), soak_summary()),
+            "the_soak_held_for_the_duration_it_was_asked_for:SOAK_SHORTER_THAN_REQUESTED:300/600",
+        ),
+        (
+            ("client 1 2 3\nclient 1 2 3\n", soak_summary()),
+            "both_jvms_were_sampled_throughout_the_soak:SERVER_WAS_NEVER_SAMPLED",
+        ),
+        (
+            ("server 1 2 3\nserver 1 2 3\n", soak_summary()),
+            "both_jvms_were_sampled_throughout_the_soak:CLIENT_WAS_NEVER_SAMPLED",
+        ),
+        (
+            ("client 1 2 0\nserver 1 2 0\n", soak_summary()),
+            "both_jvms_were_sampled_throughout_the_soak:TOO_FEW_SAMPLES:1/1",
+        ),
+        (
+            (soak_lines() + "not a sample line\n", soak_summary()),
+            "the_soak_held_for_the_duration_it_was_asked_for:NO_SOAK_SAMPLES",
+        ),
+    ],
+)
+def test_a_soak_that_did_not_measure_what_it_claims_does_not_hold(
+    soak: tuple[str, Mapping[str, object] | None], reason: str
+) -> None:
+    verdict = ASSERTER_MODULE.evaluate(soak_case(), soaked(soak=soak))
+
+    assert reason in verdict.failures
+
+
+def test_a_process_that_stopped_being_sampled_is_not_a_baseline_of_it() -> None:
+    """It appeared in the soak and then it was gone — which is the failure L6 catches."""
+
+    lines = "".join(f"client 520000 40 {index * 10}\n" for index in range(30)) + "".join(
+        f"server 900000 30 {index * 10}\n" for index in range(61)
+    )
+
+    verdict = ASSERTER_MODULE.evaluate(soak_case(), soaked(soak=(lines, soak_summary())))
+
+    assert "both_jvms_were_sampled_throughout_the_soak:CLIENT_STOPPED_BEING_SAMPLED:290/600" in (
+        verdict.failures
+    )
+
+
+def test_a_soak_of_a_world_that_was_never_verified_is_not_a_baseline() -> None:
+    """The session has to have been in an admitted world for its resources to mean anything."""
+
+    verdict = ASSERTER_MODULE.evaluate(
+        soak_case(), soaked(document=run_document(snapshots_admitted=0, connection_state=""))
+    )
+
+    assert any(failure.startswith("first_snapshot_admitted:") for failure in verdict.failures)
