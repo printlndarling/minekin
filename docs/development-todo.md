@@ -611,6 +611,11 @@
   - **待验证的猜测（明确写成猜测）**：连接是在 Bridge 完成握手时立刻发起的，而**那时客户端还在加载资源**——joiner 的贴图集行就夹在这次尝试中间；相比之下 L2 那几轮之所以没事，是因为 dedicated server 要 ~30 秒才 ready，客户端反而先加载完了。两个客户端抢 IO 让 joiner 的加载慢于自己的握手，这个竞态才露出来。下一步是让准入路径**等客户端过了初始加载再发起连接**（一个判据 + 有界的等待），然后重跑这一轮；若仍然失败，就去开客户端 DEBUG 把真正的理由取出来。
   - **两条踩到的规矩，都是它们该有的样子**：给第二个 Kin 分享 artifact store **不能靠软链**——store 自己拒绝把根做成软链（内容寻址的缓存一旦能被指到别处，寻址就没有意义了），只能**拷贝**；还有：建了第二个 Kin 之后数据根就不再唯一，`session start`/`stop` **两个客户端都必须显式指名自己的 Kin**（`MINEKIN_KIN_ID`），否则连宿主那一侧都会以「这个根里有多个 Kin」被拒——第一次跑就是这么失败的。
   - 顺带：这一轮里宿主的 Kin 被一只僵尸杀了（`Kin was slain by Zombie`）——「没人开的 Kin 会在十几秒内死」这件事又多了一个样本，宿主用的快照仍然必须是**不动的 Kin 不会死**的那种。
+- [x] **「连接发得太早了」这个猜测被实测推翻了——而推翻它靠的是把状态打出来，不是再想一遍。** 上一条把 joiner 登录失败归因为「Bridge 在客户端还在加载时就发起连接」，于是做了对应的改动：`ClientAdmissionController` 现在**扣住**一条 `ConnectWorld`，在客户端就绪的那一 tick 上才真正开始（新增 `tickConnect`，取消时把扣住的那条丢掉），判据用的是 **vanilla 自己的 `isFinishedLoading()`**，并且把它做成接缝（因为问它要读 Minecraft，而围着它的判断不需要）。
+  - **第一次重跑「毫无变化」，因为判据根本没触发**：我最初用的是 `currentScreen != null`，而**加载期间那个屏幕已经存在**，所以扣留从未发生。这不是「猜测被证实」，是「猜测压根没被测试到」——一条不改变可观测行为的改动，不能算验证。
+  - **换成 `isFinishedLoading()` 并把它连同屏幕、overlay 一起打进日志之后，答案直接写在了日志里**：`bridge asked vanilla to connect to 127.0.0.1:25570 for generation 1 (finishedLoading=true, screen=class_442, overlay=class_425)`——**客户端是完全加载完的**。所以「太早」不是原因，这个猜测到此为止（改动留着：在一个还没加载完的客户端上发起连接本身是危险的，而且这次正是它把状态打了出来）。
+  - **失败形状现在描述得很清楚，而且排掉了两种解释**：joiner 进 `LOGIN_NEGOTIATING`；**宿主的服务端按名字记下了来客**（`Kin2 (/127.0.0.1:42280)`）然后 `lost connection: Disconnected`；服务端没有任何拒绝记录；客户端侧的分类是「一次没有理由包的断开」。从 jar 里读到的 `ServerHandshakeNetworkHandler` 说明：**transfer 被拒**（`multiplayer.disconnect.transfers_disabled`）和**版本不符**都会**带理由**发出去——所以这两种都不是它。（而且 transfer 那条本仓库早就量过并修好了：cookie storage 传 null 而不是空对象。）
+  - **下一步是把真正的理由取出来**，两条路：给一次运行开客户端 DEBUG（log4j 配置是钉住的 artifact，需要先说清怎么临时换而不动 pin），或者从 jar 里读 `ServerLoginNetworkHandler` 的登录期拒绝路径，找出一条**不发理由包**的。**不该再猜第三次**——这一轮的教训就是猜错的代价是把一整轮时间花在了一个不改变任何可观测行为的改动上。
 - [ ] **要真去开一次 LAN，缺的是模块而不是调用**：契约把这件事放在独立的 `bridge-host-control`（创建/加载/保存/LAN/关闭的窄 adapter），并明令 `bridge-client-core` 与观察/导航模块**不得**引用 `IntegratedServer`、`getServer()` 或 `net.minecraft.server..`——而 `bridge-host-control` 现在还不存在。所以下一步是**先把这个窄 adapter 建出来**（连同它自己的源码依赖门禁、构建产物门禁），再谈"发一条命令让它开 LAN"。**刻意不先做的**：在没有那个模块的时候从别处临时反射调用一次——那正好是契约禁止的那条路，而且量出来的东西不能代表 adapter 建好之后的形状。
 
 ## W70 之后

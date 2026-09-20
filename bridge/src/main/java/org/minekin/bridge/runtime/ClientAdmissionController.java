@@ -32,6 +32,15 @@ public final class ClientAdmissionController {
     private ConnectScreen activeScreen;
     private Screen parentScreen;
     private boolean snapshotPending;
+    /**
+     * A connection this Bridge was asked for while the client was still starting.
+     *
+     * <p>Held rather than refused, and started on the first tick the client is loaded
+     * enough for it — the same shape as the snapshot deferral below, and for the same
+     * reason: what is missing is not permission but readiness, and the caller's own
+     * deadline is what bounds the wait.
+     */
+    private ConnectWorld pendingConnect;
     private int ticksSinceJoin;
     private int lastProbeCount = -1;
 
@@ -45,13 +54,50 @@ public final class ClientAdmissionController {
      */
     static final int SNAPSHOT_DEFERRAL_LIMIT_TICKS = 100;
 
+    private final Predicate<MinecraftClient> readyToConnect;
+
     public ClientAdmissionController(
             BridgePhaseMachine phases,
             Predicate<ConnectionLifecycle> lifecycleSink,
             Predicate<InitialObservation> observationSink) {
+        this(phases, lifecycleSink, observationSink, ClientAdmissionController::clientIsLoaded);
+    }
+
+    /**
+     * The same, with the client-readiness question supplied.
+     *
+     * <p>Asking it reads Minecraft, and everything decided around it does not, which is
+     * why it is a seam: the rule this holds — a command that arrives before the client
+     * is ready waits instead of failing — can then be tested without a client.
+     */
+    public ClientAdmissionController(
+            BridgePhaseMachine phases,
+            Predicate<ConnectionLifecycle> lifecycleSink,
+            Predicate<InitialObservation> observationSink,
+            Predicate<MinecraftClient> readyToConnect) {
         this.phases = java.util.Objects.requireNonNull(phases, "phases");
         this.lifecycleSink = java.util.Objects.requireNonNull(lifecycleSink, "lifecycleSink");
         this.observationSink = java.util.Objects.requireNonNull(observationSink, "observationSink");
+        this.readyToConnect = java.util.Objects.requireNonNull(readyToConnect, "readyToConnect");
+    }
+
+    /**
+     * Whether the client has finished starting up.
+     *
+     * <p>A client with no screen is a client that is still loading: vanilla installs the
+     * title screen when it is done, and until then there is nothing for a connection to
+     * belong to. Measured: a join attempt made in that window reached the *other*
+     * client's server — which logged the incoming player by name — and then the socket
+     * closed with no reason on either side, which is what the client does to a
+     * connection whose screen is replaced under it.
+     */
+    static boolean clientIsLoaded(MinecraftClient client) {
+        // Vanilla's own word for it, rather than a predicate assembled from two
+        // accessors: a client whose resources are still loading is a client that cannot
+        // yet have a connection. Measured the hard way — a first attempt at this tested
+        // `currentScreen != null`, which is already true during the load, so the hold
+        // never fired and the failure looked unchanged.
+        return client.isFinishedLoading();
     }
 
     public void handle(MinecraftClient client, BridgeIpcWorker.ClientMessage message) {
@@ -397,16 +443,36 @@ public final class ClientAdmissionController {
             throw new IllegalStateException("client is not ready for a new connection generation");
         }
 
+        beginGeneration(command);
+        pendingConnect = command;
+        startWhenReady(client);
+    }
+
+    /** One client tick: a held command gets its turn once the client is loaded enough. */
+    public void tickConnect(MinecraftClient client) {
+        java.util.Objects.requireNonNull(client, "client");
+        startWhenReady(client);
+    }
+
+    private void startWhenReady(MinecraftClient client) {
+        ConnectWorld command = pendingConnect;
+        if (command == null || !readyToConnect.test(client)) {
+            return;
+        }
+        pendingConnect = null;
         ServerAddress address = new ServerAddress(command.getOriginalHost(), command.getPort());
         ServerInfo server = new ServerInfo(
                 command.getServerProfileId(), address.toString(), ServerInfo.ServerType.OTHER);
         server.setResourcePackPolicy(resourcePackPolicy(command.getResourcePackPolicy()));
         parentScreen = client.currentScreen != null ? client.currentScreen : new TitleScreen();
-        beginGeneration(command);
         LOGGER.info(
-                "bridge asked vanilla to connect to {} for generation {}",
+                "bridge asked vanilla to connect to {} for generation {} (finishedLoading={}, "
+                        + "screen={}, overlay={})",
                 address,
-                command.getGeneration());
+                command.getGeneration(),
+                client.isFinishedLoading(),
+                client.currentScreen == null ? "none" : client.currentScreen.getClass().getSimpleName(),
+                client.getOverlay() == null ? "none" : client.getOverlay().getClass().getSimpleName());
         try {
             publish(
                     ConnectionPhase.CONNECTION_PHASE_RESOLVING,
@@ -452,6 +518,7 @@ public final class ClientAdmissionController {
         // Invalidate before touching the vanilla connection, mirroring the Core
         // and IPC-side rule for late callbacks.
         activeGeneration = 0;
+        pendingConnect = null;
         cancelVanilla(client);
         publish(
                 generation,

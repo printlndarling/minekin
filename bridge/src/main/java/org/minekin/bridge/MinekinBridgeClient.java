@@ -75,6 +75,18 @@ public final class MinekinBridgeClient implements ClientModInitializer {
                     // waiting for one; this is the tick it finds out. The same tick that
                     // drains the inbox, so the order commands arrived in is the order
                     // they are acted on.
+                    // A connection that arrived while the client was still starting waits
+                    // here for the tick that it is loaded enough to begin.
+                    try {
+                        controller.tickConnect(client);
+                    } catch (RuntimeException error) {
+                        LOGGER.error("bridge could not begin a held connection", error);
+                        stopSafely(
+                                client,
+                                controller,
+                                created,
+                                BridgeInputController.ReleaseReason.BRIDGE_FAULT);
+                    }
                     try {
                         hostController.tick(client);
                     } catch (RuntimeException error) {
