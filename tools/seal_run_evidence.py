@@ -490,6 +490,11 @@ def seal(
     # reading, serialised, so the bundle cannot hold a different set of events
     # from the one the verdict was reached on.
     artifacts["bridge-trace.jsonl"] = timeline_bytes(material.ledger_events)
+    # And when this run followed another one in the same ledger, that run's rows
+    # travel with it. A case about a restart reads them, and a judgement whose
+    # material is only half inside the bundle is one nobody else can reproduce.
+    if material.previous_run_id:
+        artifacts["previous-run-trace.jsonl"] = timeline_bytes(material.previous_run_events)
 
     directory = bundle_directory(run_root(data_root, kin_id), identifier)
     sealed = write_bundle(directory, manifest, artifacts, secrets=secrets)

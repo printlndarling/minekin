@@ -84,6 +84,11 @@ INPUT_REFUSED = "InputRefused"
 MOVE_CAPABILITY = "control.move.v1"
 TIMEOUT = "TIMEOUT"
 
+#: What reconciliation reports when it finished and nothing was left to decide.
+#: The word is the producer's (`RecoveryReport.as_dict`), named here rather than
+#: spelled out at the comparison so the two cannot drift apart quietly.
+RECONCILED = "reconciled"
+
 #: The arbiter's own word for "this session has not admitted a snapshot, so it may
 #: not be driven", and the connection phase a run is in when that is the answer:
 #: it has joined, and it is not playable. The pair is what makes "asked too early"
@@ -205,10 +210,39 @@ def timeline_bytes(events: Sequence[Mapping[str, object]]) -> bytes:
     )
 
 
-def ledger_timeline(database: Path, run_id: str) -> bytes:
-    """This run's events, exported as they were recorded."""
+def previous_run_rows(database: Path, run_id: str) -> tuple[str, list[dict[str, object]]]:
+    """The run this one followed in the same ledger, and that run's events.
 
-    return timeline_bytes(ledger_rows(database, run_id))
+    A restart is only a restart because something ran before it, and the ledger is
+    where that is: the run whose last row sits immediately before this run's first.
+    Order is the ledger's own `position` and never a clock — the ledger is the one
+    record of the order its rows were written in.
+
+    Returns an empty name when this run is the first for its Kin, or when the
+    ledger holds nothing for it at all: "there was nothing before this" and "this
+    run is not in the ledger" are different failures, and the caller already has
+    `ledger_readable` for the second.
+    """
+
+    connection = sqlite3.connect(f"file:{database.as_posix()}?mode=ro", uri=True)
+    connection.row_factory = sqlite3.Row
+    try:
+        found = connection.execute(
+            "SELECT run_id FROM event WHERE position < "
+            "(SELECT MIN(position) FROM event WHERE run_id = ?) "
+            "ORDER BY position DESC LIMIT 1",
+            (run_id,),
+        ).fetchone()
+        if found is None:
+            return "", []
+        previous = str(found["run_id"])
+        rows = connection.execute(
+            f"SELECT {_LEDGER_COLUMNS} FROM event WHERE run_id = ? ORDER BY position",
+            (previous,),
+        ).fetchall()
+    finally:
+        connection.close()
+    return previous, [dict(row) for row in rows]
 
 
 @dataclass(frozen=True, slots=True)
@@ -237,6 +271,12 @@ class RunMaterial:
     #: False when there is no readable ledger at all. Assertions that need one say
     #: so rather than reading an empty list as "this never happened".
     ledger_readable: bool
+    #: The run this one followed in the same Kin's ledger, and that run's events.
+    #: A case about a restart reads what the crash left behind, and this is where
+    #: that is: without it, a restart cannot be told from a first run that merely
+    #: looks quiet. Empty when this run is the Kin's first.
+    previous_run_id: str
+    previous_run_events: tuple[Mapping[str, object], ...]
     server_log: str
     #: The name-to-UUID map the *server* wrote when somebody logged in. The
     #: client's own claim about who it is is not evidence of who the server saw.
@@ -362,10 +402,18 @@ def read_run_material(
 
     events: list[Mapping[str, object]] = []
     readable = False
+    previous_id = ""
+    previous_events: list[Mapping[str, object]] = []
     database = kin_directory(data_root, KinId(kin)) / DATABASE_NAME
     if database.is_file():
         try:
             events = [cast(Mapping[str, object], row) for row in ledger_rows(database, named_run)]
+            # Read in the same breath as this run's own rows, from the same
+            # ledger: the two are one reading of one file, and a case that asks
+            # what came before this run is asking about that file, not about a
+            # second source that could disagree with it.
+            previous_id, before = previous_run_rows(database, named_run)
+            previous_events = [cast(Mapping[str, object], row) for row in before]
         except sqlite3.Error as error:
             raise Unreadable(f"{database} cannot be read for this run: {error}") from error
         readable = True
@@ -423,6 +471,8 @@ def read_run_material(
         client_log=client_log,
         ledger_events=tuple(events),
         ledger_readable=readable,
+        previous_run_id=previous_id,
+        previous_run_events=tuple(previous_events),
         server_log=server_log,
         server_identities=identities,
         username=username,
@@ -732,15 +782,20 @@ def _coordinate(value: object) -> int | None:
     return None
 
 
-def _ledger_session(material: RunMaterial) -> tuple[str, int] | None:
-    """The session and generation this run's first ledger row recorded, if it did.
+def _session_from(events: Sequence[Mapping[str, object]]) -> tuple[str, int] | None:
+    """The session and generation the first row that carries one recorded.
 
     The row carries the coordinate twice — its own columns and the payload — and
     both copies have to agree, because a row whose two copies disagree does not
     say which session it belongs to.
+
+    Takes rows rather than material because the same question is asked of two row
+    sets: this run's, and the run this one followed.
     """
 
-    for recorded in material.recorded(PROCESS_STARTED):
+    for recorded in events:
+        if recorded.get("event_type") != PROCESS_STARTED:
+            continue
         recorded_payload = payload(recorded)
         session = recorded_payload.get("session_id")
         generation = _coordinate(recorded_payload.get("generation"))
@@ -753,6 +808,12 @@ def _ledger_session(material: RunMaterial) -> tuple[str, int] | None:
         ):
             return session, generation
     return None
+
+
+def _ledger_session(material: RunMaterial) -> tuple[str, int] | None:
+    """The session and generation this run's ledger recorded, if it did."""
+
+    return _session_from(material.ledger_events)
 
 
 def _belongs_to_session(event: Mapping[str, object], session: tuple[str, int]) -> bool:
@@ -999,6 +1060,99 @@ def the_bridge_released_input_when_play_ended(material: RunMaterial) -> str | No
         return "NO_PLAY_ENDED_RELEASE"
     if not any(int(count) > 0 for count in play_ended):
         return "HELD_NOTHING_WHEN_PLAY_ENDED"
+    return None
+
+
+def the_previous_run_left_the_kin_holding_input(material: RunMaterial) -> str | None:
+    """The run before this one granted a move lease and never released it.
+
+    A restart is evidence about a recovery only if there was something to recover
+    from, and this is what a crash leaves in the record: a runtime that died with
+    input still held. It is read from the same ledger as everything else — a Kin
+    has one ledger across all its runs — rather than from the harness saying it
+    crashed something, so a restart that merely followed an ordinary exit cannot
+    pass by looking quiet.
+
+    The absent release is the substance and not an oversight: `InputReleased` is
+    Core's own event, and a Core that had written one would have been alive to
+    write the rest of the run too.
+    """
+
+    if not material.ledger_readable:
+        return "LEDGER_UNREADABLE"
+    if not material.previous_run_id:
+        return "NO_PREVIOUS_RUN"
+    leases = [
+        index
+        for index, item in enumerate(material.previous_run_events)
+        if item.get("event_type") == INPUT_LEASE_GRANTED
+        and payload(item).get("capability") == MOVE_CAPABILITY
+    ]
+    if not leases:
+        return "PREVIOUS_RUN_GRANTED_NO_MOVE_LEASE"
+    releases = [
+        index
+        for index, item in enumerate(material.previous_run_events)
+        if item.get("event_type") == INPUT_RELEASED
+    ]
+    if any(released > leased for leased in leases for released in releases):
+        return "PREVIOUS_RUN_RELEASED_ITS_INPUT"
+    return None
+
+
+def the_restart_runs_as_a_new_session(material: RunMaterial) -> str | None:
+    """This run is a new session rather than the dead one resumed.
+
+    §7's transient state — the session, its generation, and the lease that hangs
+    off them — does not survive a run, and the record says so: this run names a
+    different session than the run before it. A restart that reused the dead
+    session's coordinate would be claiming to continue something that ended.
+    """
+
+    if not material.ledger_readable:
+        return "LEDGER_UNREADABLE"
+    if not material.previous_run_id:
+        return "NO_PREVIOUS_RUN"
+    session = _ledger_session(material)
+    if session is None:
+        return "NO_SESSION_ATTRIBUTION_IN_LEDGER"
+    before = _session_from(material.previous_run_events)
+    if before is None:
+        return "PREVIOUS_RUN_HAS_NO_SESSION_ATTRIBUTION"
+    if before == session:
+        return f"SAME_SESSION_AS_THE_DEAD_RUN:{session[0]}"
+    return None
+
+
+def the_restart_reconciled_before_it_started(material: RunMaterial) -> str | None:
+    """The runtime read its outbox and settled it before anything else happened.
+
+    §13 puts reconciliation before the first side effect, and §8's outbox is why:
+    an effect that was recorded and never settled is one nobody can reconcile
+    afterwards. Measured on a crash that lands after the world is up, the report
+    is `{"invalidated": [], "waiting": [], "status": "reconciled"}` — the hold the
+    dead run left was never an *unsettled* effect, so there was nothing for the
+    restart to undo.
+
+    `invalidated` is deliberately not required to be empty: entries there would be
+    the restart closing out effects it must never replay, which is the report
+    working, not failing. What is required is that nothing is still waiting to be
+    looked at in the world, because a restart that begins on top of that answered
+    a question about the world by not asking it.
+    """
+
+    recovery = _object(material.run_document.get("recovery"))
+    if recovery is None:
+        return "NO_RECOVERY_REPORT"
+    status = recovery.get("status")
+    if status != RECONCILED:
+        return f"NOT_RECONCILED:{status}"
+    waiting = recovery.get("waiting")
+    if not isinstance(waiting, list):
+        return "RECOVERY_WAITING_IS_NOT_A_LIST"
+    held = cast(list[object], waiting)
+    if held:
+        return f"EFFECTS_STILL_WAITING:{len(held)}"
     return None
 
 
@@ -1261,6 +1415,9 @@ ASSERTIONS: dict[str, Callable[[RunMaterial], str | None]] = {
     "server_jvm_sigkill_was_confirmed": server_jvm_sigkill_was_confirmed,
     "client_jvm_sigkill_was_confirmed": client_jvm_sigkill_was_confirmed,
     "the_ledger_recorded_the_session_ending": the_ledger_recorded_the_session_ending,
+    "the_previous_run_left_the_kin_holding_input": the_previous_run_left_the_kin_holding_input,
+    "the_restart_runs_as_a_new_session": the_restart_runs_as_a_new_session,
+    "the_restart_reconciled_before_it_started": the_restart_reconciled_before_it_started,
     "the_server_log_has_no_graceful_shutdown": the_server_log_has_no_graceful_shutdown,
     "the_ledger_recorded_world_loss": the_ledger_recorded_world_loss,
     "the_bridge_released_input_when_play_ended": the_bridge_released_input_when_play_ended,

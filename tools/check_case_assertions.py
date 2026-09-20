@@ -132,6 +132,13 @@ IMPLEMENTATIONS: dict[str, Implementation] = {
     "server_jvm_sigkill_was_confirmed": _runtime("server_jvm_sigkill_was_confirmed"),
     "client_jvm_sigkill_was_confirmed": _runtime("client_jvm_sigkill_was_confirmed"),
     "the_ledger_recorded_the_session_ending": _runtime("the_ledger_recorded_the_session_ending"),
+    "the_previous_run_left_the_kin_holding_input": _runtime(
+        "the_previous_run_left_the_kin_holding_input"
+    ),
+    "the_restart_runs_as_a_new_session": _runtime("the_restart_runs_as_a_new_session"),
+    "the_restart_reconciled_before_it_started": _runtime(
+        "the_restart_reconciled_before_it_started"
+    ),
     "the_server_log_has_no_graceful_shutdown": _runtime("the_server_log_has_no_graceful_shutdown"),
     "the_ledger_recorded_world_loss": _runtime("the_ledger_recorded_world_loss"),
     "the_bridge_released_input_when_play_ended": _runtime(

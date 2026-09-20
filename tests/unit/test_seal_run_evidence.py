@@ -28,6 +28,7 @@ from minekin_core.adapters.evidence.promotion import load_case_manifest
 from minekin_core.adapters.sqlite.connection import connect_writer
 from minekin_core.adapters.sqlite.session_log import (
     HELLO_ACCEPTED,
+    INPUT_LEASE_GRANTED,
     PLAYABLE_ESTABLISHED,
     SessionEventLog,
 )
@@ -114,14 +115,34 @@ def run_document(overlay: Path) -> dict[str, object]:
 
 
 def write_ledger(
-    data_root: Path, events: tuple[str, ...] = (HELLO_ACCEPTED, PLAYABLE_ESTABLISHED)
+    data_root: Path,
+    events: tuple[str, ...] = (HELLO_ACCEPTED, PLAYABLE_ESTABLISHED),
+    prior_run_id: str = "",
 ) -> Path:
-    """A real ledger, written by the real event log."""
+    """A real ledger, written by the real event log.
+
+    `prior_run_id` writes a run *before* this one — the crash a restart follows —
+    which is the shape a case about recovery reads.
+    """
 
     database = data_root / "kin" / str(KIN) / "kin.sqlite3"
     database.parent.mkdir(parents=True, exist_ok=True)
     connect_writer(database).close()
     log = SessionEventLog(database, clock=SystemClock())
+    if prior_run_id:
+        for event_type in (HELLO_ACCEPTED, PLAYABLE_ESTABLISHED, INPUT_LEASE_GRANTED):
+            asyncio.run(
+                log.record_session_event(
+                    event_type=event_type,
+                    kin_id=str(KIN),
+                    run_id=prior_run_id,
+                    session_id="the-dead-session",
+                    generation=1,
+                    payload={},
+                    source=EventSource.CORE,
+                    trust_class=TrustClass.CORE,
+                )
+            )
     for event_type in events:
         asyncio.run(
             log.record_session_event(
@@ -151,12 +172,15 @@ def write_ledger(
     return database
 
 
-@pytest.fixture
-def finished_run(tmp_path: Path) -> tuple[Path, Path, Path]:
-    """A data root, a server directory, and the run document that describes them."""
+def finished_run_in(tmp_path: Path, **ledger: object) -> tuple[Path, Path, Path]:
+    """A data root, a server directory, and the run document that describes them.
+
+    `**ledger` goes to `write_ledger`, which is how a test asks for a run that
+    followed another one.
+    """
 
     data_root = tmp_path / "data"
-    write_ledger(data_root)
+    write_ledger(data_root, **ledger)  # type: ignore[arg-type]
     overlay = data_root / "kin" / str(KIN) / "run" / "session" / SESSION_ID / "generation-1"
     (overlay / "logs").mkdir(parents=True)
     (overlay / "logs" / "stdout.log").write_text(
@@ -174,6 +198,13 @@ def finished_run(tmp_path: Path) -> tuple[Path, Path, Path]:
     path = tmp_path / "session.json"
     path.write_text(json.dumps(run_document(overlay)), encoding="utf-8")
     return data_root, server, path
+
+
+@pytest.fixture
+def finished_run(tmp_path: Path) -> tuple[Path, Path, Path]:
+    """A data root, a server directory, and the run document that describes them."""
+
+    return finished_run_in(tmp_path)
 
 
 def seal_it(
@@ -273,6 +304,51 @@ def test_the_ledger_export_is_this_run_s_timeline_and_nothing_else(
     # come through, and the payload hash it rests on comes with them.
     assert [line["position"] for line in lines] == sorted(line["position"] for line in lines)
     assert all(len(line["payload_hash"]) == 64 for line in lines)
+
+
+def test_a_run_that_followed_another_carries_the_run_before_it(tmp_path: Path) -> None:
+    """A case about a restart reads the crash, so the bundle has to hold it.
+
+    The judgement is reached on the same reading of the ledger that this export
+    is made from, and a bundle that held only half of that reading would be one
+    nobody else could reproduce.
+    """
+
+    dead_run = "b" * 32
+    data_root, server, document = finished_run_in(tmp_path, prior_run_id=dead_run)
+
+    report = seal_it(data_root, server, document)
+
+    assert "previous-run-trace.jsonl" in cast(list[str], report["artifacts"])
+    lines = [
+        json.loads(line)
+        for line in (
+            data_root / "kin" / str(KIN) / "run" / "evidence" / RUN_ID / "previous-run-trace.jsonl"
+        )
+        .read_text(encoding="utf-8")
+        .splitlines()
+    ]
+    assert [line["event_type"] for line in lines] == [
+        HELLO_ACCEPTED,
+        PLAYABLE_ESTABLISHED,
+        INPUT_LEASE_GRANTED,
+    ]
+    assert {line["run_id"] for line in lines} == {dead_run}
+
+
+def test_a_first_run_has_nothing_before_it_to_carry(
+    finished_run: tuple[Path, Path, Path],
+) -> None:
+    """An artifact that says "the run before this one" would be naming nothing."""
+
+    data_root, server, document = finished_run
+
+    report = seal_it(data_root, server, document)
+
+    assert "previous-run-trace.jsonl" not in cast(list[str], report["artifacts"])
+    assert not (
+        data_root / "kin" / str(KIN) / "run" / "evidence" / RUN_ID / "previous-run-trace.jsonl"
+    ).exists()
 
 
 def test_the_artifacts_include_the_client_s_own_output_and_the_server_s(

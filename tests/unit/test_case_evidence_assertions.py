@@ -34,6 +34,10 @@ MOVEMENT_CASE = CASES / "core-040.json"
 LOST_RUNTIME_CASE = CASES / "core-060.json"
 LOST_SERVER_CASE = CASES / "core-060-server-001.json"
 LOST_CLIENT_CASE = CASES / "core-060-client-001.json"
+RESTART_CASE = CASES / "core-090.json"
+#: The session the run before the restart wrote under. Every witness the restart
+#: case reads about the crash is bound to it.
+DEAD_SESSION = "session-00"
 BLACK_HOLE_CASE = CASES / "admit-110.json"
 REFUSED_CASE = CASES / "admit-100.json"
 RUN_ID = "5c1f9a7b2d3e4f6089abcdef01234567"
@@ -187,8 +191,10 @@ def material(
     username: str = USERNAME,
     events: tuple[Mapping[str, object], ...] = (),
     ledger_readable: bool = True,
+    previous: tuple[str, tuple[Mapping[str, object], ...]] = ("", ()),
     fault_injection: Mapping[str, object] | None = None,
 ) -> _Material:
+    previous_run_id, previous_run_events = previous
     return ASSERTER_MODULE.RunMaterial(
         kin_id="kin-01",
         run_id=RUN_ID,
@@ -197,6 +203,8 @@ def material(
         client_log=client_log,
         ledger_events=events,
         ledger_readable=ledger_readable,
+        previous_run_id=previous_run_id,
+        previous_run_events=previous_run_events,
         server_log=log,
         server_identities={USERNAME: RECORDED_UUID} if identities is None else identities,
         username=username,
@@ -234,6 +242,7 @@ def test_the_reviewed_case_names_only_assertions_the_asserter_performs() -> None
         LOST_RUNTIME_CASE,
         LOST_SERVER_CASE,
         LOST_CLIENT_CASE,
+        RESTART_CASE,
         BLACK_HOLE_CASE,
         REFUSED_CASE,
     ):
@@ -2053,3 +2062,156 @@ def test_one_reading_is_a_place_and_not_a_stillness() -> None:
     verdict = ASSERTER_MODULE.evaluate(refused_early_case(), asked_too_early(log=one))
 
     assert "the_server_saw_the_kin_arrive_and_never_move:NO_SERVER_READINGS" in verdict.failures
+
+
+# The restart half of CORE-090: a crash run whose ledger stops at the lease, then
+# this run. Measured on the pair, the dead run's rows are
+# `SessionProcessStarted → BridgeHelloAccepted → JoinObserved → PlayableEstablished
+# → InputLeaseGranted{control.move.v1}` and nothing after them — no release, and no
+# interruption, because the Core that would have written either was killed. The
+# restart gets its own session, admits a new snapshot, asks for nothing, and the
+# world reads the same position twice.
+def restart_case() -> dict[str, object]:
+    return cast(dict[str, object], json.loads(RESTART_CASE.read_text(encoding="utf-8")))
+
+
+def the_dead_run() -> tuple[Mapping[str, object], ...]:
+    """What the run before the restart wrote, as the ledger recorded it."""
+
+    return (
+        event(
+            "SessionProcessStarted",
+            row_session_id=DEAD_SESSION,
+            session_id=DEAD_SESSION,
+            generation=1,
+        ),
+        event("BridgeHelloAccepted", row_session_id=DEAD_SESSION),
+        event("JoinObserved", row_session_id=DEAD_SESSION, phase="JOIN_SEEN"),
+        event("PlayableEstablished", row_session_id=DEAD_SESSION, phase="PLAYABLE"),
+        event("InputLeaseGranted", row_session_id=DEAD_SESSION, capability="control.move.v1"),
+    )
+
+
+def restarted(**overrides: object) -> _Material:
+    """The run that started after the crash."""
+
+    arguments: dict[str, object] = {
+        "document": run_document(
+            actions_applied=0,
+            actions_refused=0,
+            snapshots_admitted=1,
+            connection_state="PLAYABLE",
+        ),
+        "log": STILL_READINGS,
+        "events": (
+            STARTED,
+            event("BridgeHelloAccepted"),
+            event("JoinObserved", phase="JOIN_SEEN"),
+            event("PlayableEstablished", phase="PLAYABLE"),
+            event("SessionInterrupted", outcome="BRIDGE_LOST"),
+        ),
+        "previous": ("d" * 32, the_dead_run()),
+    }
+    arguments.update(overrides)
+    return material(**arguments)  # type: ignore[arg-type]
+
+
+def test_a_restart_after_a_crash_holds() -> None:
+    verdict = ASSERTER_MODULE.evaluate(restart_case(), restarted())
+
+    assert verdict.result == "PASS"
+    assert verdict.observed == verdict.expected
+    assert verdict.failures == ()
+
+
+def test_a_restart_without_a_run_before_it_is_not_a_recovery() -> None:
+    """The crash is what the case is about, and the ledger is where it is read."""
+
+    verdict = ASSERTER_MODULE.evaluate(restart_case(), restarted(previous=("", ())))
+
+    assert "the_previous_run_left_the_kin_holding_input:NO_PREVIOUS_RUN" in verdict.failures
+    assert "the_restart_runs_as_a_new_session:NO_PREVIOUS_RUN" in verdict.failures
+
+
+def test_a_previous_run_that_ended_cleanly_is_not_a_crash() -> None:
+    quiet = (
+        *the_dead_run(),
+        event("InputReleased", row_session_id=DEAD_SESSION, had_lease=True, reason="EXPLICIT"),
+        event("SessionInterrupted", row_session_id=DEAD_SESSION, outcome="BRIDGE_LOST"),
+    )
+
+    verdict = ASSERTER_MODULE.evaluate(restart_case(), restarted(previous=("d" * 32, quiet)))
+
+    assert "the_previous_run_left_the_kin_holding_input:PREVIOUS_RUN_RELEASED_ITS_INPUT" in (
+        verdict.failures
+    )
+
+
+def test_a_previous_run_that_never_held_input_is_not_a_crash_mid_hold() -> None:
+    never_held = tuple(row for row in the_dead_run() if row["event_type"] != "InputLeaseGranted")
+
+    verdict = ASSERTER_MODULE.evaluate(restart_case(), restarted(previous=("d" * 32, never_held)))
+
+    assert "the_previous_run_left_the_kin_holding_input:PREVIOUS_RUN_GRANTED_NO_MOVE_LEASE" in (
+        verdict.failures
+    )
+
+
+def test_a_restart_that_reused_the_dead_session_is_not_a_restart() -> None:
+    """§7's transient state does not survive a run, and the coordinate says so."""
+
+    replayed = tuple(dict(row, session_id=DEAD_SESSION) for row in restarted().ledger_events)
+    replayed = tuple(
+        dict(row, payload_json=json.dumps({"session_id": DEAD_SESSION, "generation": 1}))
+        if row["event_type"] == "SessionProcessStarted"
+        else row
+        for row in replayed
+    )
+
+    verdict = ASSERTER_MODULE.evaluate(restart_case(), restarted(events=replayed))
+
+    assert f"the_restart_runs_as_a_new_session:SAME_SESSION_AS_THE_DEAD_RUN:{DEAD_SESSION}" in (
+        verdict.failures
+    )
+
+
+@pytest.mark.parametrize(
+    ("recovery", "reason"),
+    [
+        (None, "NO_RECOVERY_REPORT"),
+        ({"status": "pending", "invalidated": [], "waiting": []}, "NOT_RECONCILED:pending"),
+        (
+            {"status": "reconciled", "invalidated": [], "waiting": "none"},
+            "RECOVERY_WAITING_IS_NOT_A_LIST",
+        ),
+        (
+            {"status": "reconciled", "invalidated": [], "waiting": ["effect-1"]},
+            "EFFECTS_STILL_WAITING:1",
+        ),
+    ],
+)
+def test_the_restart_must_have_reconciled_before_it_started(recovery: object, reason: str) -> None:
+    document = run_document(
+        actions_applied=0, actions_refused=0, snapshots_admitted=1, connection_state="PLAYABLE"
+    )
+    if recovery is None:
+        del document["recovery"]
+    else:
+        document["recovery"] = recovery
+
+    verdict = ASSERTER_MODULE.evaluate(restart_case(), restarted(document=document))
+
+    assert f"the_restart_reconciled_before_it_started:{reason}" in verdict.failures
+
+
+def test_a_restart_that_never_asked_is_still_not_a_kin_that_was_never_driven() -> None:
+    """The stillness is the world's fact, so a world that moved the Kin fails it."""
+
+    walked = STILL_READINGS + "has the following entity data: [-6.5d, -60.0d, 21.5d]\n"
+
+    verdict = ASSERTER_MODULE.evaluate(restart_case(), restarted(log=walked))
+
+    assert any(
+        failure.startswith("the_server_saw_the_kin_arrive_and_never_move:")
+        for failure in verdict.failures
+    )

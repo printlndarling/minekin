@@ -642,15 +642,27 @@ $ MINEKIN_SERVER_JAR=… MINEKIN_DOMAIN_PROBE=Kin MINEKIN_DOMAIN_KILL_CORE=1 \
       bash test-orchestrator/runner/run.sh domain session start --profile … --server-profile … \
       --hold-forward-seconds 60                       # the Kin is walking when Core dies
 $ MINEKIN_SERVER_JAR=… MINEKIN_DOMAIN_PROBE=Kin MINEKIN_DOMAIN_STILL=1 \
+      MINEKIN_DOMAIN_CASE=CORE-090 \
       bash test-orchestrator/runner/run.sh domain session start --profile … --server-profile …
 domain: the session is playable
 domain: the Kin moved 0.000 blocks across 12 readings and did not walk
+domain: the case verdict is PASS
 run      "actions_applied": 0, "snapshots_admitted": 1, "recovery": {"invalidated": [], "waiting": []}
 ```
 
 The second run admits a **new** snapshot, so the world state is re-verified rather
 than reused, and it asks for nothing — yet the Kin, which the first run left
 walking, does not move a block. Nothing the dead run asked for survives it.
+
+Naming `CORE-090` on that second run is what makes it evidence, and it is why the
+bundle carries one artifact the others do not: `previous-run-trace.jsonl`, the rows
+of the run that came before this one, read from the same ledger by the same
+reading the verdict was reached on. A case about a restart reads the crash — the
+dead run's rows stop at `InputLeaseGranted` with neither a release nor an
+interruption, because the Core that would have written either was killed — and a
+judgement whose material is only half inside the bundle is one nobody else can
+reproduce. The run names in the two artifacts are therefore expected to differ:
+`bridge-trace.jsonl` is this run's, and the previous one's is the crash's.
 
 Stillness is measured by distance and not by equality, because the world is not
 empty: a summoned pig that wanders into the Kin shoves it, and a Kin shoved 1.5
