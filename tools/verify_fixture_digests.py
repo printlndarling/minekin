@@ -15,14 +15,26 @@ FROZEN_PATTERNS = (
     "schemas/*.json",
     "src/minekin_core/adapters/sqlite/**/*.sql",
     "tests/fixtures/**/*.json",
+    "tests/fixtures/saves/**/*.dat",
     "tests/oracle/canary.json",
 )
 
 
 def _normalized_bytes(path: Path) -> bytes:
-    """Hash repository text canonically so Windows and Linux agree."""
+    """Hash repository text canonically so Windows and Linux agree.
 
-    return path.read_bytes().replace(b"\r\n", b"\n")
+    Text only. A fixture that is not text is hashed as it lies: normalising a gzipped
+    world would make the digest answer "was this checkout done on Windows?" instead of
+    "is this the world the case started from?", which is the mistake the Bridge source
+    tree made once with a suffix whitelist.
+    """
+
+    raw = path.read_bytes()
+    try:
+        raw.decode("utf-8")
+    except UnicodeDecodeError:
+        return raw
+    return raw.replace(b"\r\n", b"\n")
 
 
 def _expected_paths() -> set[str]:

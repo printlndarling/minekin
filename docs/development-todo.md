@@ -648,6 +648,11 @@
   - **实测**（重跑 `HOST-030` 并重新封存）：`the case verdict is PASS`、`evidence verify` 报 `verified: true, sealed: true, violations: []`，而 bundle 里现在是
     `world: {"kind": "lan", "seed_or_snapshot_id": "aac62c39…（快照摘要）", "server_config_digest": "3bdd4aff…（level.dat 摘要）"}`。
   - **仍然开着的两件小事**：`world.kind` 的取值**没有任何地方按契约的三个名字校验**（写成 `LAN` 或手误也照样封进去，只有「是不是 none」被管）；`HOST-030` 的 `work_package: W90` 仍是占位。另外宿主用的那份「准备好的存档」目前是 harness 从更早一次服务端运行的世界拷来的，**还不是仓库里可复核的 fixture**——这一条会影响 case 的可复现性。
+- [x] **宿主用的世界现在是一份仓库里的 fixture（1.6 KiB），不再是「容器里某一次服务端运行的世界」。** 上一轮记下的可复现性缺口是：harness 从 `/data/server-runs/run-97/world` 拷一份世界，`run-97` 在别的机器上不存在，而且到底是哪一次也不可复核。**先量了一件事再动手**：Minecraft 的 save 通常是一个目录，但让目录成为世界的只有 `level.dat` ——它带着关卡名、难度、是否允许命令和生成器设置（平原地形、固定种子 `minekin-p0-controlled`）。**实测**：只用这一个文件当存档，受管理客户端照样进世界并把它开在 25570 上。所以世界可以是 **`tests/fixtures/saves/kinworld/level.dat`，1,636 字节**，而不是曾经那份 5.3 MiB。
+  - **为什么要提交二进制而不是每次生成**：按种子现生成的世界**每次都不是同一个世界**（`LastPlayed` 一动摘要就变），而 case 要的正是「它开始时的那个世界能被指名」。提交进来的字节永远一样，于是 `server_config_digest` 指向的是**仓库里那份文件**——实测新一轮封存：`world: {"kind": "lan", "seed_or_snapshot_id": "5c14c563…", "server_config_digest": "3bdd4aff…"}`，而 `3bdd4aff…` 就是那份 fixture 的摘要。
+  - **顺手补了一个冻结规则的口子**：`tests/fixtures/manifest.sha256` 原来只冻结 `**/*.json`，二进制世界**没有任何 pin**；而且它的摘要函数对**所有**文件做 CRLF→LF 归一化——对一个 gzip blob 做那种事，等于让摘要回答「这次 checkout 是不是在 Windows 上做的」而不是「这是不是那个世界」。现在 `tests/fixtures/saves/**/*.dat` 进冻结集，并且**摘要按原字节算**（不是合法 UTF-8 就不归一化）——这正是仓库里 Bridge 源码树当年用后缀白名单踩过的那个坑，所以照它的说法写进了注释。
+  - **fixture 旁边有一份 README** 说明它是什么、为什么能只有 1.6 KiB、以及**怎么重新生成**（跑一次受控服务端，取它生成世界的 `level.dat`）：重新生成意味着**换一份 fixture 和一个新 pin，而不是就地改**。case 的 `inputs` 也把它列上了。
+  - **仍然开着的**：`world.kind` 的取值没有按契约的三个名字校验（只查「是不是 none」）；`HOST-030` 的 `work_package: W90` 仍是占位；join 那一半（第二个会话）还没有 harness 形状。
 - [ ] **要真去开一次 LAN，缺的是模块而不是调用**：契约把这件事放在独立的 `bridge-host-control`（创建/加载/保存/LAN/关闭的窄 adapter），并明令 `bridge-client-core` 与观察/导航模块**不得**引用 `IntegratedServer`、`getServer()` 或 `net.minecraft.server..`——而 `bridge-host-control` 现在还不存在。所以下一步是**先把这个窄 adapter 建出来**（连同它自己的源码依赖门禁、构建产物门禁），再谈"发一条命令让它开 LAN"。**刻意不先做的**：在没有那个模块的时候从别处临时反射调用一次——那正好是契约禁止的那条路，而且量出来的东西不能代表 adapter 建好之后的形状。
 
 ## W70 之后
