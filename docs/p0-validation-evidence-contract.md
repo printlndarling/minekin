@@ -209,7 +209,7 @@ stateDiagram-v2
 ## 仍待原型冻结
 
 - vanilla console 输出的稳定解析格式，以及必要断言应使用控制台查询还是停服后的世界只读快照；
-- integrated-world host 的自动准备与干净 snapshot 恢复方法；
+- integrated-world host 的自动准备与干净 snapshot 恢复方法；（2026-09-21：**自动准备这半定了，并有测试**——`session start --world-save PATH --world-name LEVEL` 把操作者给的存档种进 overlay 的 `saves/<level>`，并让客户端用 `--quickPlaySingleplayer <level>` 进去，run document 以 `world_snapshot`（level 名 + 交出去的那些字节的摘要）命名这个世界的**身份**而不是描述它。**快照恢复那半仍未定**：恢复要回到的是「这次运行开始时的世界」还是「某个被指名的快照」，以及**谁来断言世界真的回去了**，都还没有答案——而后者才是契约真正要的。另：`world.kind` 目前只有 `dedicated`/`lan`/`none` 三个取值，一个**宿主**运行该记哪一个、它的 `server_config_digest` 与 `seed_or_snapshot_id` 从哪来，要等那一轮运行真跑出来再定。）
 - Linux 软件渲染/GPU 两档的 L6 时长和资源基线；
 - 真值防回流的 OS 权限、网络策略与自动 taint 测试实现；
 - fixture player 是否首轮用人工操作的第二客户端，还是另一个严格脚本化受管理客户端；
