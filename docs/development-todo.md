@@ -429,6 +429,13 @@
   - **这个"绿"要说清楚它绿在哪一层**（与上一条同样的边界）：它说的是**登记册里那些 mandatory case 都有 PASS 证据**了，也就是 W00-CONTRACT-001、CORE-010、CORE-020、CORE-040、CORE-050、CORE-070 六个。契约要的 `p0-core: tested` 还差 L3（LAN）、L5 的其余故障注入、以及 L6 baseline，所以**不能**把这个结果读成"P0 已经 tested"。
   - **这一步的边界**：Bridge 侧同一个有界队列（Java `BoundedChannel`）**不在这个用例里**——仓库自检类用例能驱动的只有 python 侧，Java 侧那部分由 `bridge/` 自己的测试与离线编译门禁覆盖，但**没有**一个用例断言它，如实记在这里而不是假装覆盖到了。
 
+- [x] **强杀 server 这次真的杀对了，而且它抓到两个真缺陷——这正是故障注入存在的理由。** 新增 `MINEKIN_DOMAIN_KILL_SERVER=1`：世界在 Kin 正在走的时候被杀掉。第一版和第二版都**报成了成功**，而真相是两件不同的事：
+  - **缺陷一：harness 杀错了进程。** `kill -KILL "${server_pid}"` 杀的是**服务端工具**，而 JVM 是它的子进程、继续活着；之后容器退出时那条 `SIGTERM` 让工具走完它自己的"干净停止"路径，于是世界被保存、被重写，而 harness 打印的是 `the world is gone`。实测两次：被"杀掉"的那一轮，服务端日志以 `All dimensions are saved` 结尾。现在杀的是 `pgrep -P "${server_pid}"` 找到的**那个 JVM**，并且**验尸**：进程真的没了、日志里也没有 `Stopping the server`，才算注入成功（否则 `injection_failed=1`）。**这是同一个教训的第二次**——第一次是 `kill -INT` 对后台作业是空操作，而脚本以为它停了服务器。
+  - **缺陷二（产品侧，已修）：连接 deadline 会取消一个 Kin 已经在里面的世界。** 触发条件很普通：**在同一个世界里待超过 30 秒**（默认 `--connection-timeout-seconds`）。`on_connection_deadline` 的判据是 `attempt.in_flight`，而 `in_flight` 的定义是"没到终态"，`PLAYABLE` 不是终态——于是一个**已经到达世界**的尝试被判为"还在等世界"，Core 就发 `CancelConnection`，把一个健康的连接关掉了。更糟的是取消会清掉 Bridge 用来归属后续报告的 generation，于是**世界的死亡变得无法上报**。修法是域里新增 `ConnectionAttempt.reached_world`（只有 PLAYABLE 为真）并在 deadline 分支上拒绝取消它；两条测试：一条驱动到 PLAYABLE 再等过 deadline（断言没有 `CancelConnection`、`connection_cancelled` 为空、会话仍在 `PLAYABLE`），另一条是既有的"从没到达世界的尝试仍会被取消"。**做过变异验证**：把那条守卫改成恒假，新用例立刻变红，旧的仍然绿。
+  - **修好之后的实测**（`--hold-forward-seconds 60`，域里真跑）：服务端日志停在半句上（`Kin has the following entity data: …`）、`Stopping the server` **0 次**；客户端 `bridge reporting CONNECTION_PHASE_DISCONNECTED for generation 1 (terminal=true, reason=…UNSPECIFIED)` 然后 `bridge released 1 input(s) after LEFT_PLAYABLE (PLAY_ENDED)`；账本 `InputLeaseGranted → SessionInterrupted{phase: "DISCONNECTED"}` **没有 reason**——这正是域里那条规则：带原因是服务端结束了会话，不带原因是会话自己结束了。bundle 已封存、可验。
+  - **两个修复都不影响已有证据**：deadline 那条只在"待在世界里超过 30 秒"时才可能改变结果，而 CORE-040 的 hold 是 8 秒、CORE-050 是**被拒绝**的（根本没有世界），所以它们那几份 bundle 的结论不受影响；这一点写在这里而不是默默假设。
+  - **仍未做、且这一步明确暴露的结构问题**：契约要的是**四种**进程逐个强杀，而晋级规则是「某个 case id 有**任何一份**满足的 bundle」，一次运行只经历一种故障——所以四种故障的断言**不可能同时成立**，`CORE-060` 因此卡在 `mandatory: false`。它需要的是「一个用例可以要求多份 bundle，每种故障一份」的规则，那是一个**尚未做的设计决定**（W70 待办里已经挂了第三次）。另外记下来：本仓库里 **Runtime 与 Launcher 是同一个进程**（CLI 既持有运行时又启动客户端），所以四种强杀在这里只有三种是不同的故障。
+
 ## W70：恢复与证据晋级
 
 - [x] **杀 Core 那条路一直在"报告一次没发生过的故障注入"，而且报告得很像成功。** 想给 L5（`CORE-060`）取证时先量了一次杀 Core 的运行，结果有两处不对劲：**存在 run document**（被 SIGKILL 的 CLI 不可能打印任何东西），而客户端日志里**没有** `IPC_LOST` 的松键记录。于是给那个循环加了一条临时打印，实测结果是 `DEBUG kill loop at 32s: distinct=0` **连续 90 次、`SECONDS` 一直停在 32**——原因很简单也很要命：那个循环**没有 `sleep`**，而它的预算是用 `SECONDS` 算的；`SECONDS` 在命令不耗时的自旋里根本不前进，于是"150 秒的等待"在毫秒内跑完并放弃。接着**下面那个等待**（它有 sleep）看到 Kin 停住了——那是 hold 到期自然停的——于是打印 `the server saw the Kin stop after Core died`。也就是说：**一个没有注入故障的运行，被报告成了注入成功的运行**，而它的证据（停住的读数）本来就会出现。
@@ -442,6 +449,7 @@
   - **它仍不是 `mandatory`**：契约的 CORE-060 要的是**逐个强杀 Runtime、Launcher、client、server** 四种，而这条只覆盖了 Core 一种；"回收/重验"也没有覆盖。同 CORE-040，理由写在契约自己的 CORE-060 条目里，证据登记在册但不参与门禁。
 
 - [ ] 对账未决 outbox，失效历史 generation/lease，防止危险动作重放。
+- [ ] **一个用例可以要求多份 bundle（每种故障一份）**：`CORE-060` 要的是四种进程逐个强杀，而晋级规则是「某个 case id 有任何一份满足的 bundle」——一次运行只经历一种故障，所以四种故障的断言不可能同时成立，那个用例因此只能是 `mandatory: false`。要么放宽规则（一个 case 声明它需要哪几份证据、每份对应哪种场景），要么把每种故障拆成独立的 case id；两个都是设计决定，不是顺手能补的。
 - [x] **崩溃之后的重启：同一个 `kin_id` 再起一次，世界状态重新验证，而死掉那次让它做的事一件都不留。** 这一条按「两次运行」来验，因为数据卷跨容器保留，所以两次运行共用同一本账：
   - **A（崩溃）**：Kin 走着的时候 `SIGKILL` 掉 Core（`MINEKIN_DOMAIN_KILL_CORE=1`）——套接字关闭，Bridge 以 `IPC_LOST` 松键并停掉客户端（上一批测过的那条路）；
   - **B（重启）**：同一条命令再跑一次，不给任何输入（`MINEKIN_DOMAIN_STILL=1`）。**实测**：`connection_state: PLAYABLE` 且 `snapshots_admitted: 1`——一次**新的**快照被准入，世界状态是重新验证的而不是沿用的；`actions_applied: 0`（这次运行什么都没要求）；服务端自己报出 **10 次以上读数里位移 0.000 格**——上一批结束的时候 Kin 正在走，重启之后它一步都没动。`recovery` 块如实地说它这次**无事可做**：`{"invalidated": [], "waiting": [], "status": "reconciled"}`，因为崩溃发生在启动早已 settle 之后。

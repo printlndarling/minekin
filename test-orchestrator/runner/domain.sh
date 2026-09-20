@@ -24,6 +24,10 @@ kick="${MINEKIN_DOMAIN_KICK:-}"
 silence="${MINEKIN_DOMAIN_SILENCE:-}"
 look="${MINEKIN_DOMAIN_LOOK:-}"
 kill_core="${MINEKIN_DOMAIN_KILL_CORE:-}"
+# The world killed outright, while the Kin is in it. A different fault from a
+# kick, which is the server *saying* goodbye: a killed server says nothing, and
+# the client learns of it only because its socket stopped working.
+kill_server="${MINEKIN_DOMAIN_KILL_SERVER:-}"
 no_server="${MINEKIN_DOMAIN_NO_SERVER:-}"
 still="${MINEKIN_DOMAIN_STILL:-}"
 # The reviewed case this run is an execution of, if it is one. Naming it is what
@@ -479,7 +483,7 @@ fi
 if [ "${hold_at}" = "join" ]; then
     printf 'domain: this run asks for its hold at the join, so it is refused and there is no walk to wait for\n' >&2
 fi
-if [[ -n "${probe}" && "${hold_requested}" -eq 1 && -z "${kill_core}" && "${hold_at}" != "join" ]]; then
+if [[ -n "${probe}" && "${hold_requested}" -eq 1 && -z "${kill_core}" && -z "${kill_server}" && "${hold_at}" != "join" ]]; then
     walked=0
     deadline=$((SECONDS + seconds))
     for _ in $(seq 1 "${seconds}"); do
@@ -623,6 +627,85 @@ if [[ -n "${kill_core}" ]]; then
         printf 'domain: the Kin left the game after the Core was killed\n' >&2
     else
         printf 'domain: the server saw the Kin stop after the Core was killed\n' >&2
+    fi
+fi
+
+# The world killed rather than ended. A kick is the server *saying* goodbye; this
+# is the server saying nothing at all, and the client learning of it from a socket
+# that stopped working. What the Bridge must do is the same either way — let go of
+# what it holds — but the run has to be able to show that the world really died
+# rather than stopped: a server that was killed never writes its own shutdown, and
+# a server that stopped does.
+if [[ -n "${kill_server}" ]]; then
+    deadline=$((SECONDS + seconds))
+    killed=0
+    for _ in $(seq 1 "${seconds}"); do
+        kill -0 "${session_pid}" 2>/dev/null || break
+        [ "${SECONDS}" -lt "${deadline}" ] || break
+        # While the Kin is in the world and walking — the same `sleep 1` the other
+        # waits need, for the same measured reason: `SECONDS` does not advance
+        # while a loop spins through commands that take no time.
+        if [ "$(horizontal_positions | sort -u | wc -l)" -lt 2 ]; then
+            sleep 1
+            continue
+        fi
+        # The JVM, not the tool that started it. `server_pid` is the tool, and the
+        # first version of this killed *that* — which the tool's own signal
+        # handling turned into the clean stop it performs on SIGTERM, so the world
+        # was saved and rewritten while the harness printed "the world is gone".
+        # Measured twice: the server log ended with `All dimensions are saved`, in
+        # a run that claimed to have killed it. The tool spawns java directly, so
+        # its child is the server and nothing else is.
+        world=$(pgrep -P "${server_pid}" 2>/dev/null | head -1)
+        if [ -n "${world}" ] && kill -KILL "${world}" 2>/dev/null; then
+            killed=1
+            # Verified rather than assumed: the injection is the whole point of the
+            # run, and one that did not happen must not read like one that did.
+            for _ in $(seq 1 10); do
+                kill -0 "${world}" 2>/dev/null || break
+                sleep 0.2
+            done
+            if kill -0 "${world}" 2>/dev/null; then
+                printf 'domain: the server process survived the kill\n' >&2
+                killed=0
+            elif grep -q "Stopping the server" "${server_directory}/server.log" 2>/dev/null; then
+                # A killed server gets no chance to write its own shutdown, so this
+                # line in its log means it stopped rather than died — whatever the
+                # kill signal did.
+                printf 'domain: the server wrote its own shutdown, so it stopped rather than died\n' >&2
+                killed=0
+            else
+                printf 'domain: the server has been killed; the world is gone\n' >&2
+            fi
+        fi
+        break
+    done
+    if [ "${killed}" -eq 0 ]; then
+        # Same rule as the other fault injections: one that did not happen proves
+        # nothing, and the run is failed rather than left looking like the rest.
+        printf 'domain: the server was never killed, so this run proves nothing about a world that died\n' >&2
+        injection_failed=1
+    else
+        # Core's own record of the world going away. Waited for rather than
+        # assumed, because "the session ended" is the fact this run exists to
+        # produce and a run that never reaches it has not produced it.
+        ended=0
+        for _ in $(seq 1 "${seconds}"); do
+            [ "${SECONDS}" -lt "${deadline}" ] || break
+            recorded=$(/opt/sqlite/bin/sqlite3 "${ledger}" \
+                "select 1 from event where position > ${baseline} and event_type='SessionInterrupted' limit 1;" \
+                2>/dev/null || true)
+            if [ -n "${recorded}" ]; then
+                ended=1
+                break
+            fi
+            sleep 1
+        done
+        if [ "${ended}" -eq 1 ]; then
+            printf 'domain: Core recorded the session ending when the world went away\n' >&2
+        else
+            printf 'domain: the session never recorded an interruption after the server died\n' >&2
+        fi
     fi
 fi
 

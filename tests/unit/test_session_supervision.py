@@ -1231,3 +1231,112 @@ def test_no_input_is_replayed_after_an_ambiguous_disconnect(
     kinds = [row[0] for row in _ledger_rows(database)]
     assert INPUT_LEASE_GRANTED in kinds
     assert run.outcome is SessionOutcome.CLIENT_EXITED
+
+
+def test_a_deadline_does_not_cancel_a_world_the_kin_is_already_in(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    """The deadline bounds how long a world may take to arrive, and nothing else.
+
+    Found by a fault injection rather than by reading: the default thirty seconds
+    expires while a Kin is walking, and the cancel that followed closed a healthy
+    connection — and, because a cancel clears the generation the Bridge needs to
+    attribute a later report, it also made the world's own death unreportable. An
+    attempt at PLAYABLE is neither finished nor unfinished; it has stopped being
+    an attempt.
+    """
+
+    root = ready_data_root(tmp_path, monkeypatch)
+    process = LiveProcess()
+    supervisor = live_supervisor(process, descriptor_path(tmp_path), [])
+    database = root / "kin" / "kin-01" / "kin.sqlite3"
+
+    async def scenario() -> tuple[SessionRun, list[str]]:
+        running = asyncio.create_task(
+            start_and_supervise(
+                root=root,
+                profile=PROFILE,
+                java_executable=JAVA,
+                session_id=SESSION_ID,
+                generation=GENERATION,
+                supervisor_factory=lambda _logs: supervisor,
+                handshake_timeout=5.0,
+                exit_poll_s=0.01,
+                server_profile=SERVER_PROFILE,
+                # Short enough to pass while the test waits; the world is reached
+                # long before it, which is the whole point.
+                connection_timeout=0.3,
+            )
+        )
+        path = descriptor_path(root)
+        await _wait_until(path.is_file)
+        descriptor = session_pb2.BridgeBootstrapDescriptor.FromString(path.read_bytes())
+        bridge = BridgeSession(
+            kin_id=descriptor.kin_id,
+            session_id=descriptor.session_id,
+            generation=descriptor.generation,
+            client_instance_id=descriptor.client_instance_id,
+            bundle_digest=descriptor.bundle_digest,
+            bridge_digest=descriptor.bridge_digest,
+            launch_nonce=descriptor.launch_nonce,
+            session_key=descriptor.session_key,
+        )
+        control_reader, control_writer = await connect(descriptor, envelope_pb2.CHANNEL_CONTROL)
+        _event_reader, event_writer = await connect(descriptor, envelope_pb2.CHANNEL_EVENT)
+        await write_frame(
+            control_writer,
+            envelope(
+                bridge,
+                BRIDGE_HELLO_TYPE,
+                envelope_pb2.CHANNEL_CONTROL,
+                1,
+                hello(bridge).SerializeToString(deterministic=True),
+            ),
+        )
+        await asyncio.wait_for(read_frame(control_reader), 5)
+        connect_frame = await _wait_for_control_message(control_reader, CONNECT_WORLD_TYPE)
+        command = control_pb2.ConnectWorld.FromString(connect_frame.payload)
+        for sequence, phase in enumerate(CONNECTED_PHASES, start=1):
+            await write_frame(
+                event_writer,
+                envelope(
+                    bridge,
+                    CONNECTION_LIFECYCLE_TYPE,
+                    envelope_pb2.CHANNEL_EVENT,
+                    sequence,
+                    _lifecycle(bridge, command, phase).SerializeToString(deterministic=True),
+                ),
+            )
+        await write_frame(
+            event_writer,
+            envelope(
+                bridge,
+                INITIAL_OBSERVATION_TYPE,
+                envelope_pb2.CHANNEL_EVENT,
+                len(CONNECTED_PHASES) + 1,
+                first_snapshot(
+                    generation=bridge.generation, material=_material(root)
+                ).SerializeToString(deterministic=True),
+            ),
+        )
+        await _wait_until(
+            lambda: any(row[0] == PLAYABLE_ESTABLISHED for row in _ledger_rows(database))
+        )
+        # Well past the deadline, which is what the run is about.
+        await asyncio.sleep(0.6)
+
+        seen = await _control_types_after(control_reader)
+        process.exited = True
+        _launch, run = await asyncio.wait_for(running, 10)
+        await close_writers(control_writer, event_writer)
+        return run, seen
+
+    run, seen = asyncio.run(scenario())
+
+    assert CANCEL_CONNECTION_TYPE not in seen
+    assert run.connection_cancelled == ""
+    # And the session is still in the world it reached, which is what the cancel
+    # would have taken away.
+    assert run.connection_state is ConnectionState.PLAYABLE
+    kinds = [row[0] for row in _ledger_rows(database)]
+    assert kinds[-1] == CLIENT_EXITED

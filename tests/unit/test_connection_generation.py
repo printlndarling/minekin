@@ -221,3 +221,39 @@ def test_a_disconnect_is_closed_explicitly_before_the_next_generation() -> None:
     assert closed.disposition is CallbackDisposition.CLOSED
     assert closed.previous_state is ConnectionState.DISCONNECTED
     assert reconnected.generation == Generation(2)
+
+
+def test_only_a_world_reached_counts_as_having_reached_a_world() -> None:
+    """The distinction a deadline needs, and the one `in_flight` does not make.
+
+    Every phase before PLAYABLE is still an attempt at one, and every phase after
+    it is a session that has stopped being an attempt — so "still in flight" is
+    true of both ends of that and the deadline cannot be asked of it.
+    """
+
+    connections = ConnectionGenerations()
+    attempt = connections.begin(PROFILE, REVISION)
+    assert connections.active is not None
+    assert connections.active.reached_world is False
+
+    for signal in (
+        ConnectionSignal.RESOLUTION_STARTED,
+        ConnectionSignal.ENDPOINT_ALLOWED,
+        ConnectionSignal.LOGIN_ACCEPTED,
+        ConnectionSignal.JOIN_OBSERVED,
+    ):
+        connections.apply(attempt.generation, signal)
+        assert connections.active is not None
+        assert connections.active.reached_world is False
+
+    connections.apply(attempt.generation, ConnectionSignal.SNAPSHOT_ACCEPTED)
+    assert connections.active is not None
+    assert connections.active.reached_world is True
+    # And it is still "in flight" by the other rule, which is exactly why the
+    # deadline cannot use that one.
+    assert connections.active.in_flight is True
+
+    connections.apply(attempt.generation, ConnectionSignal.DISCONNECTED)
+    assert connections.active is not None
+    assert connections.active.reached_world is False
+    assert connections.active.in_flight is False

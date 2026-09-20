@@ -118,6 +118,20 @@ class ConnectionAttempt:
 
         return self.state not in _TERMINAL
 
+    @property
+    def reached_world(self) -> bool:
+        """Whether this attempt got as far as a world the Kin could be driven in.
+
+        The distinction `in_flight` does not make, and the one a deadline needs:
+        an attempt at PLAYABLE is neither finished nor unfinished — it has stopped
+        being an attempt. A deadline that bounds *how long the world may take to
+        arrive* has nothing left to bound once it has, and a cancel sent then
+        closes a connection the Kin is using, which is the opposite of giving up
+        on one that never came.
+        """
+
+        return self.state is ConnectionState.PLAYABLE
+
 
 @dataclass(frozen=True, slots=True)
 class CallbackDecision:

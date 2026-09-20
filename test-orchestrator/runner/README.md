@@ -24,6 +24,9 @@ MINEKIN_SERVER_JAR=<path> MINEKIN_DOMAIN_PROBE=Kin MINEKIN_DOMAIN_USE_TARGET=1 \
 MINEKIN_SERVER_JAR=<path> MINEKIN_DOMAIN_PROBE=Kin MINEKIN_DOMAIN_STILL=1 \
     bash test-orchestrator/runner/run.sh domain session start --profile <bundle> --server-profile <profile> \
         --hold-forward-seconds 30 --hold-at join
+MINEKIN_SERVER_JAR=<path> MINEKIN_DOMAIN_PROBE=Kin MINEKIN_DOMAIN_KILL_SERVER=1 \
+    bash test-orchestrator/runner/run.sh domain session start --profile <bundle> --server-profile <profile> \
+        --hold-forward-seconds 60
 MINEKIN_SERVER_JAR=<path> MINEKIN_DOMAIN_PROBE=Kin MINEKIN_DOMAIN_SILENCE=1 \
     bash test-orchestrator/runner/run.sh domain session start --profile <bundle> --server-profile <profile> \
         --hold-forward-seconds 60
@@ -716,6 +719,56 @@ bindings anywhere but the client thread. Releasing inline therefore threw
 error handling turned into a stopped client — on the one path that exists to let
 go of the keys. The release is now dispatched with `client.execute(...)`, and the
 sink's assertion is what caught it rather than a run that merely looked wrong.
+
+### When the world is killed rather than ended
+
+`MINEKIN_DOMAIN_KILL_SERVER=1` kills the world while the Kin is walking in it. A
+kick is the server *saying* goodbye; this is the server saying nothing, and the
+client learning of it from a socket that stopped working.
+
+```text
+$ MINEKIN_SERVER_JAR=… MINEKIN_DOMAIN_PROBE=Kin MINEKIN_DOMAIN_KILL_SERVER=1 \
+      bash test-orchestrator/runner/run.sh domain \
+      session start --profile … --server-profile … --hold-forward-seconds 60
+domain: the server has been killed; the world is gone
+domain: Core recorded the session ending when the world went away
+server   Kin joined the game
+server   Kin has the following entity data: [-0.5d, -60.0d, 10.99d]      ← and then nothing
+client   bridge reporting CONNECTION_PHASE_DISCONNECTED for generation 1 (terminal=true, …UNSPECIFIED)
+client   bridge released 1 input(s) after LEFT_PLAYABLE (PLAY_ENDED)
+ledger   InputLeaseGranted → SessionInterrupted{phase: "DISCONNECTED"}
+```
+
+Two things are read from the world's own side, and both matter. The server log
+**stops mid-sentence** and holds **no** `Stopping the server`: a server that was
+killed gets no chance to write its own shutdown, and one that stopped does. And
+the ledger's interruption carries **no reason**, which is this repository's rule
+for the ambiguity: a disconnect *with* a reason is a session the server ended, and
+one without is a session that ended.
+
+Two defects were found by this injection, and neither was visible from the code:
+
+* **The harness killed the wrong process.** `kill -KILL "${server_pid}"` killed the
+  *tool*, and the JVM — its child — lived on; the SIGTERM the container sends on
+  exit then let the tool run its own clean-stop path, so the world was saved and
+  rewritten while the harness printed `the world is gone`. Measured twice: the
+  "killed" runs ended their server log with `All dimensions are saved`. It now
+  kills the JVM that `pgrep -P` names, and then *verifies*: the process is gone and
+  the log holds no shutdown, or the run fails as an injection that did not happen.
+  This is the second time this repository has been caught by that shape — the
+  first was `kill -INT` being a no-op for a background job.
+* **Core cancelled a world the Kin was already in.** Any session that stayed
+  `PLAYABLE` for longer than the connection timeout — thirty seconds by default —
+  had its connection cancelled: the deadline asked `attempt.in_flight`, which means
+  "not terminal", and `PLAYABLE` is not a terminal state, so an attempt that had
+  *reached* a world was read as one still waiting for one. Worse, a cancel clears
+  the generation the Bridge needs to attribute a later report, so the world's own
+  death became unreportable. `ConnectionAttempt.reached_world` now says what
+  `in_flight` cannot, and the deadline refuses to cancel it.
+
+Neither fix changes the evidence already on file: the deadline only matters for a
+session that stays in a world for more than thirty seconds, and CORE-040's hold is
+eight seconds while CORE-050 never reaches a world at all.
 
 ### When the keyboard stops being the world's
 

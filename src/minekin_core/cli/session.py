@@ -986,6 +986,16 @@ async def start_and_supervise(
             # An attempt that already ended needs no cancelling, and one that
             # never started leaves nothing to cancel.
             return
+        if active.reached_world:
+            # An attempt that got as far as a world has nothing left for a
+            # deadline to bound: what it was waiting for happened. Cancelling here
+            # would close a connection the Kin is using. Measured, and it is why
+            # this is here rather than in the deadline's arithmetic: the default
+            # thirty seconds expires while a Kin is walking, and the cancel that
+            # followed did two things — it closed a healthy connection, and
+            # because a cancel clears the generation the Bridge needs to attribute
+            # a later report, it also made the world's own death unreportable.
+            return
         await host.send_control(
             CANCEL_CONNECTION_TYPE,
             control_pb2.CancelConnection(
