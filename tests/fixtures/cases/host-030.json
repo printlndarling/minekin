@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "case_id": "HOST-030",
+  "work_package": "W90",
+  "mandatory": false,
+  "inputs": [
+    "tests/fixtures/runtime-input/bundle-p0-core-1.21.4.json"
+  ],
+  "assertions": [
+    "the_run_says_which_world_it_hosted",
+    "core_was_told_the_world_was_published",
+    "the_client_published_the_world_on_the_port_it_was_given"
+  ]
+}

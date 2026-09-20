@@ -520,6 +520,83 @@ def server_observed_join_identity(material: RunMaterial) -> str | None:
     return None
 
 
+#: The client's own line when it publishes a world. The number is the port it was
+#: asked for — measured: 1.21.4 stores the request and reports it back — which is why
+#: the run's record of the port is checked against this line rather than trusted.
+_SERVING = re.compile(r"Started serving on (\d+)")
+
+
+def _lan_publication(run: Mapping[str, object]) -> Mapping[str, object] | None:
+    value = run.get("lan_publication")
+    return cast("Mapping[str, object]", value) if isinstance(value, Mapping) else None
+
+
+def the_run_says_which_world_it_hosted(material: RunMaterial) -> str | None:
+    """Core's record names the world the Kin was placed in, by its bytes.
+
+    The other half of HOST-030's "the local world and the LAN result are two facts":
+    the address it is reachable at is one of them, and which world it is, is the other.
+    A run that published something without this block is a run where nobody can say
+    what was published.
+    """
+
+    raw = material.run().get("world_snapshot")
+    if not isinstance(raw, Mapping):
+        return "NO_WORLD_SNAPSHOT_RECORDED"
+    snapshot = cast("Mapping[str, object]", raw)
+    name = snapshot.get("level_name")
+    if not isinstance(name, str) or not name.strip():
+        return "WORLD_SNAPSHOT_HAS_NO_LEVEL_NAME"
+    digest = snapshot.get("digest")
+    if not isinstance(digest, str) or len(digest) != 64:
+        return f"WORLD_SNAPSHOT_IS_NOT_A_DIGEST:{digest!r}"
+    return None
+
+
+def core_was_told_the_world_was_published(material: RunMaterial) -> str | None:
+    """Core's own record says the Kin's world is published, and on which port.
+
+    The run document rather than the ledger, and deliberately: publishing is not one of
+    §5's session events, so it has nowhere else to be. It sits beside `world_snapshot`
+    rather than inside it — the world that was hosted and the address it is reachable at
+    are two facts, which is what the contract asks HOST-030 to keep apart.
+    """
+
+    publication = _lan_publication(material.run())
+    if publication is None:
+        return "NO_LAN_PUBLICATION_RECORDED"
+    phase = publication.get("phase")
+    if phase != "LAN_OPENED":
+        return f"LAN_NOT_OPENED:{phase}"
+    port = publication.get("port")
+    if isinstance(port, bool) or not isinstance(port, int) or not 1 <= port <= 65535:
+        return f"LAN_PORT_IS_NOT_A_PORT:{port}"
+    return None
+
+
+def the_client_published_the_world_on_the_port_it_was_given(material: RunMaterial) -> str | None:
+    """What the client wrote and what Core recorded name the same port.
+
+    Two accounts of one fact that do not know about each other: the line the client
+    logged when it bound, and the port the Bridge reported back over the wire. This is
+    the assertion that would have caught the bug this feature was built through — the
+    first version asked the client for a system-chosen port, so its log said `0` while
+    Core recorded where the world really was, and only a run showed the difference.
+    """
+
+    publication = _lan_publication(material.run())
+    if publication is None:
+        return "NO_LAN_PUBLICATION_RECORDED"
+    recorded = publication.get("port")
+    found = _SERVING.search(material.client_log)
+    if found is None:
+        return "CLIENT_NEVER_SAID_IT_WAS_SERVING"
+    served = int(found.group(1))
+    if served != recorded:
+        return f"PORT_MISMATCH:client={served},core={recorded}"
+    return None
+
+
 def first_snapshot_admitted(material: RunMaterial) -> str | None:
     """Core admitted a first authoritative snapshot of a world the Kin joined.
 
@@ -1505,6 +1582,11 @@ def the_server_saw_the_kin_arrive_and_never_move(material: RunMaterial) -> str |
 ASSERTIONS: dict[str, Callable[[RunMaterial], str | None]] = {
     "server_observed_join_identity": server_observed_join_identity,
     "first_snapshot_admitted": first_snapshot_admitted,
+    "the_run_says_which_world_it_hosted": the_run_says_which_world_it_hosted,
+    "core_was_told_the_world_was_published": core_was_told_the_world_was_published,
+    "the_client_published_the_world_on_the_port_it_was_given": (
+        the_client_published_the_world_on_the_port_it_was_given
+    ),
     "leave_after_join_observed": leave_after_join_observed,
     "handshake_accepted_by_core": handshake_accepted_by_core,
     "stayed_observe_only": stayed_observe_only,

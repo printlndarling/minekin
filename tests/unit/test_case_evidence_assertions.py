@@ -16,7 +16,7 @@ import sys
 from collections.abc import Callable, Mapping
 from pathlib import Path
 from types import ModuleType
-from typing import Protocol, cast
+from typing import Any, Protocol, cast
 
 import pytest
 
@@ -2339,3 +2339,121 @@ def test_a_soak_of_a_world_that_was_never_verified_is_not_a_baseline() -> None:
     )
 
     assert any(failure.startswith("first_snapshot_admitted:") for failure in verdict.failures)
+
+
+# --- HOST-030: a Kin publishes the world it is hosting -------------------------
+HOST_CASE = CASES / "host-030.json"
+# The line the client wrote in the runner when it bound the port it was given.
+SERVED_ON = "[20:19:39] [Render thread/INFO]: Started serving on 25570"
+LEVEL_DIGEST = "aac62c39872dd515dcb0d062a4b8ba5a5c6a333f29a4e1833e1d12686339be15"
+
+
+def host_case() -> dict[str, object]:
+    return cast(dict[str, object], json.loads(HOST_CASE.read_text(encoding="utf-8")))
+
+
+#: Distinguishes "this case did not say" from "this case says there is none".
+_UNSET = object()
+
+
+def hosted_world(
+    *,
+    publication: object = _UNSET,
+    client_log: str = SERVED_ON,
+    world: object = _UNSET,
+) -> _Material:
+    """A run that hosted a world, with whatever the case is about varied."""
+
+    if publication is _UNSET:
+        publication = {"phase": "LAN_OPENED", "port": 25570}
+    if world is _UNSET:
+        world = {"level_name": "kinworld", "digest": LEVEL_DIGEST}
+    return material(
+        document=run_document(lan_publication=publication, world_snapshot=world),
+        client_log=client_log,
+    )
+
+
+def test_a_published_world_holds() -> None:
+    verdict = ASSERTER_MODULE.evaluate(host_case(), hosted_world())
+
+    assert verdict.result == "PASS"
+    assert verdict.observed == verdict.expected
+    assert verdict.failures == ()
+
+
+@pytest.mark.parametrize(
+    ("hosted", "reasons"),
+    [
+        (
+            # Nothing was recorded at all, so neither account exists.
+            {"publication": None},
+            (
+                "core_was_told_the_world_was_published:NO_LAN_PUBLICATION_RECORDED",
+                "the_client_published_the_world_on_the_port_it_was_given:"
+                "NO_LAN_PUBLICATION_RECORDED",
+            ),
+        ),
+        (
+            {"publication": {"phase": "LAN_OPEN_FAILED", "port": 0}},
+            (
+                "core_was_told_the_world_was_published:LAN_NOT_OPENED:LAN_OPEN_FAILED",
+                "the_client_published_the_world_on_the_port_it_was_given:"
+                "PORT_MISMATCH:client=25570,core=0",
+            ),
+        ),
+        (
+            {"publication": {"phase": "LAN_OPENED", "port": 0}},
+            (
+                "core_was_told_the_world_was_published:LAN_PORT_IS_NOT_A_PORT:0",
+                "the_client_published_the_world_on_the_port_it_was_given:"
+                "PORT_MISMATCH:client=25570,core=0",
+            ),
+        ),
+        (
+            {"client_log": "[19:54:53] [Render thread/INFO]: Connecting to 127.0.0.1, 25570"},
+            (
+                "the_client_published_the_world_on_the_port_it_was_given:"
+                "CLIENT_NEVER_SAID_IT_WAS_SERVING",
+            ),
+        ),
+        (
+            # What the first version of this feature produced: the client chose its own
+            # port, so its log said 0 while Core recorded where the world really was.
+            {"client_log": "[20:19:39] [Render thread/INFO]: Started serving on 0"},
+            (
+                "the_client_published_the_world_on_the_port_it_was_given:"
+                "PORT_MISMATCH:client=0,core=25570",
+            ),
+        ),
+    ],
+)
+def test_a_world_that_was_not_published_does_not_hold(
+    hosted: dict[str, Any], reasons: tuple[str, ...]
+) -> None:
+    verdict = ASSERTER_MODULE.evaluate(host_case(), hosted_world(**hosted))
+
+    assert verdict.result == "FAIL"
+    assert verdict.failures == reasons
+
+
+def test_the_world_and_the_address_it_is_reachable_at_are_two_facts() -> None:
+    """HOST-030 asks for the local world and the LAN result to be kept apart.
+
+    Each half fails on its own: a world nobody published fails the publication
+    assertions while the world is still named, and a publication that names no world
+    fails the other one. Neither block can stand in for the other.
+    """
+
+    unpublished = ASSERTER_MODULE.evaluate(
+        host_case(), hosted_world(publication={"phase": "LAN_OPEN_FAILED", "port": 0})
+    )
+    unnamed = ASSERTER_MODULE.evaluate(host_case(), hosted_world(world=None))
+
+    assert unpublished.failures == (
+        "core_was_told_the_world_was_published:LAN_NOT_OPENED:LAN_OPEN_FAILED",
+        "the_client_published_the_world_on_the_port_it_was_given:"
+        "PORT_MISMATCH:client=25570,core=0",
+    )
+    assert "the_run_says_which_world_it_hosted" not in str(unpublished.failures)
+    assert unnamed.failures == ("the_run_says_which_world_it_hosted:NO_WORLD_SNAPSHOT_RECORDED",)

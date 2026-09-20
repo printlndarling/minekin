@@ -111,6 +111,13 @@ IMPLEMENTATIONS: dict[str, Implementation] = {
     ),
     "server_observed_join_identity": _runtime("server_observed_join_identity"),
     "first_snapshot_admitted": _runtime("first_snapshot_admitted"),
+    "the_run_says_which_world_it_hosted": _runtime("the_run_says_which_world_it_hosted"),
+    "core_was_told_the_world_was_published": _runtime(
+        "core_was_told_the_world_was_published"
+    ),
+    "the_client_published_the_world_on_the_port_it_was_given": _runtime(
+        "the_client_published_the_world_on_the_port_it_was_given"
+    ),
     "leave_after_join_observed": _runtime("leave_after_join_observed"),
     "handshake_accepted_by_core": _runtime("handshake_accepted_by_core"),
     "stayed_observe_only": _runtime("stayed_observe_only"),
