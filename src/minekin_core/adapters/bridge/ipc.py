@@ -84,12 +84,14 @@ _CONTROL_TYPES: Final = {
     MOVE_INPUT_TYPE: control_pb2.MoveInput,
     LOOK_INPUT_TYPE: control_pb2.LookInput,
     USE_INPUT_TYPE: control_pb2.UseInput,
+    OPEN_LAN_TYPE: control_pb2.OpenLan,
     HEARTBEAT_TYPE: session_pb2.Heartbeat,
 }
 _SENDABLE_CONTROL_TYPES: Final = frozenset(_CONTROL_TYPES) - {HEARTBEAT_TYPE}
 _EVENT_TYPES: Final = {
     CONNECTION_LIFECYCLE_TYPE: observation_pb2.ConnectionLifecycle,
     INITIAL_OBSERVATION_TYPE: observation_pb2.InitialObservation,
+    HOST_LIFECYCLE_TYPE: observation_pb2.HostLifecycle,
     ACTION_RESULT_TYPE: control_pb2.ActionResult,
 }
 
@@ -326,6 +328,10 @@ class BridgeIpcHost:
             raise RuntimeError("use capability was not negotiated")
         if message_type == LOOK_INPUT_TYPE and LOOK_CAPABILITY not in self.session.capabilities:
             raise RuntimeError("look capability was not negotiated")
+        if message_type == OPEN_LAN_TYPE and HOST_LAN_CAPABILITY not in self.session.capabilities:
+            # Publishing a world is a lifecycle change to the server in the client's
+            # own process, so it is gated like an input skill rather than assumed.
+            raise RuntimeError("host capability was not negotiated")
         await self._send_control(message_type, message)
 
     async def receive_event(self) -> BridgeEvent:

@@ -72,6 +72,20 @@ def test_session_start_naming_no_world_is_exactly_what_it_used_to_be() -> None:
     assert parsed.world_name is None
 
 
+def test_session_start_publishes_only_when_asked() -> None:
+    """Hosting is an intent, not a side effect of being in a world.
+
+    Publishing is a lifecycle change to the server in the client's own process —
+    measured to grant the host cheats and a permission level — so it is asked for
+    rather than done whenever a world happened to be seeded.
+    """
+
+    assert parse_args(["session", "start", "--profile", "profile.json"]).open_lan is False
+    assert (
+        parse_args(["session", "start", "--profile", "profile.json", "--open-lan"]).open_lan is True
+    )
+
+
 def test_session_start_can_name_the_world_to_seed_and_enter() -> None:
     parsed = parse_args(
         [

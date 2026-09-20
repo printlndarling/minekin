@@ -17,6 +17,7 @@ import asyncio
 import json
 import sqlite3
 import threading
+import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any, cast
@@ -38,6 +39,7 @@ from minekin_core.adapters.bridge.ipc import (
     INITIAL_OBSERVATION_TYPE,
     LOOK_INPUT_TYPE,
     MOVE_INPUT_TYPE,
+    OPEN_LAN_TYPE,
     USE_INPUT_TYPE,
     BridgeSession,
 )
@@ -1452,3 +1454,139 @@ def test_a_session_with_no_world_records_no_world(tmp_path: Path, monkeypatch: A
     assert run.as_dict()["world_snapshot"] is None
     overlay = session_overlay_path(run_root(tmp_path), SESSION_ID, GENERATION)
     assert not (overlay / "saves").exists()
+
+
+def test_a_host_session_asks_the_client_to_publish_its_world(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    """The command is sent, and it asks for a port rather than naming one.
+
+    Core cannot know which port is free on the host, and the answer comes back on the
+    event channel; asking for a specific number would be choosing one it cannot check.
+    The deadline is Core's own, in the same monotonic clock the envelope is stamped
+    from, so the two sides mean the same instant by it.
+    """
+
+    root = ready_data_root(tmp_path, monkeypatch)
+    process = LiveProcess()
+    supervisor = live_supervisor(process, descriptor_path(tmp_path), [])
+    before = time.monotonic_ns()
+
+    async def scenario() -> control_pb2.OpenLan:
+        running = asyncio.create_task(
+            start_and_supervise(
+                root=root,
+                profile=PROFILE,
+                java_executable=JAVA,
+                session_id=SESSION_ID,
+                generation=GENERATION,
+                supervisor_factory=lambda _logs: supervisor,
+                handshake_timeout=5.0,
+                exit_poll_s=0.01,
+                open_lan=True,
+                open_lan_timeout=30.0,
+            )
+        )
+        path = descriptor_path(tmp_path)
+        await _wait_until(path.is_file)
+        descriptor = session_pb2.BridgeBootstrapDescriptor.FromString(path.read_bytes())
+        bridge = BridgeSession(
+            kin_id=descriptor.kin_id,
+            session_id=descriptor.session_id,
+            generation=descriptor.generation,
+            client_instance_id=descriptor.client_instance_id,
+            bundle_digest=descriptor.bundle_digest,
+            bridge_digest=descriptor.bridge_digest,
+            launch_nonce=descriptor.launch_nonce,
+            session_key=descriptor.session_key,
+        )
+        control_reader, control_writer = await connect(descriptor, envelope_pb2.CHANNEL_CONTROL)
+        _event_reader, event_writer = await connect(descriptor, envelope_pb2.CHANNEL_EVENT)
+        await write_frame(
+            control_writer,
+            envelope(
+                bridge,
+                BRIDGE_HELLO_TYPE,
+                envelope_pb2.CHANNEL_CONTROL,
+                1,
+                hello(bridge).SerializeToString(deterministic=True),
+            ),
+        )
+        await asyncio.wait_for(read_frame(control_reader), 5)
+
+        frame = await _wait_for_control_message(control_reader, OPEN_LAN_TYPE)
+        command = control_pb2.OpenLan.FromString(frame.payload)
+
+        process.exited = True
+        await asyncio.wait_for(running, 10)
+        await close_writers(control_writer, event_writer)
+        return command
+
+    command = asyncio.run(scenario())
+
+    # Zero means "let the operating system choose", and the answer carries where it
+    # landed: the client's own getter reports what was asked for, not what was bound.
+    assert command.port == 0
+    assert command.generation == GENERATION
+    assert command.request_id
+    assert before < command.deadline_monotonic_ns <= before + 31_000_000_000
+
+
+def test_a_session_that_was_not_asked_to_host_does_not_ask(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    """The negative control: hosting is an intent, not a side effect of having a world."""
+
+    root = ready_data_root(tmp_path, monkeypatch)
+    process = LiveProcess()
+    supervisor = live_supervisor(process, descriptor_path(tmp_path), [])
+    seen: list[str] = []
+
+    async def scenario() -> None:
+        running = asyncio.create_task(
+            start_and_supervise(
+                root=root,
+                profile=PROFILE,
+                java_executable=JAVA,
+                session_id=SESSION_ID,
+                generation=GENERATION,
+                supervisor_factory=lambda _logs: supervisor,
+                handshake_timeout=5.0,
+                exit_poll_s=0.01,
+            )
+        )
+        path = descriptor_path(tmp_path)
+        await _wait_until(path.is_file)
+        descriptor = session_pb2.BridgeBootstrapDescriptor.FromString(path.read_bytes())
+        bridge = BridgeSession(
+            kin_id=descriptor.kin_id,
+            session_id=descriptor.session_id,
+            generation=descriptor.generation,
+            client_instance_id=descriptor.client_instance_id,
+            bundle_digest=descriptor.bundle_digest,
+            bridge_digest=descriptor.bridge_digest,
+            launch_nonce=descriptor.launch_nonce,
+            session_key=descriptor.session_key,
+        )
+        control_reader, control_writer = await connect(descriptor, envelope_pb2.CHANNEL_CONTROL)
+        _event_reader, event_writer = await connect(descriptor, envelope_pb2.CHANNEL_EVENT)
+        await write_frame(
+            control_writer,
+            envelope(
+                bridge,
+                BRIDGE_HELLO_TYPE,
+                envelope_pb2.CHANNEL_CONTROL,
+                1,
+                hello(bridge).SerializeToString(deterministic=True),
+            ),
+        )
+        await asyncio.wait_for(read_frame(control_reader), 5)
+        seen.extend(await _control_types_after(control_reader, quiet_for=1.0))
+
+        process.exited = True
+        await asyncio.wait_for(running, 10)
+        await close_writers(control_writer, event_writer)
+
+    asyncio.run(scenario())
+
+    assert OPEN_LAN_TYPE not in seen

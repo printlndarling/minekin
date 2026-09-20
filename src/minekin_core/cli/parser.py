@@ -158,6 +158,17 @@ def build_parser() -> argparse.ArgumentParser:
             "rather than at the title screen (needs --world-save)"
         ),
     )
+    # A session that is meant to *host*: the client is in a world (see --world-save)
+    # and Core asks the Bridge to publish it. Asked for rather than done whenever a
+    # world was seeded, because publishing is a lifecycle change to the server in the
+    # client's own process — measured to grant the host cheats and a permission level
+    # — and an operator's intent to host is a different thing from an operator's
+    # intent to be in a world.
+    session_start.add_argument(
+        "--open-lan",
+        action="store_true",
+        help="ask the client to publish the world it is hosting, once it is in it",
+    )
     session_commands.add_parser("status", help="read the current projection")
     session_commands.add_parser("stop", help="idempotently stop the current session")
 

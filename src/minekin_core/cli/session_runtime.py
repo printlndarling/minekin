@@ -84,6 +84,11 @@ class SessionRun:
     #: on the document, and it is the name the contract asks a host's world to
     #: have ("seed_or_snapshot_id") rather than a description of one.
     world_snapshot: Mapping[str, object] | None = None
+    #: What the Bridge last said about publishing the world this Kin hosts: the
+    #: contract's phase and the port it named, or null for a run that never asked.
+    #: A fact about the world rather than about the session, so it lives on the
+    #: document beside the snapshot and not in the ledger.
+    lan_publication: Mapping[str, object] | None = None
 
     def as_dict(self) -> dict[str, object]:
         return {
@@ -127,7 +132,21 @@ class SessionRun:
             # Which world this run seeded, if any: null rather than an empty
             # object, because a run that seeded nothing has no world to name.
             "world_snapshot": (None if self.world_snapshot is None else dict(self.world_snapshot)),
+            # What the Bridge said about publishing this Kin's world, and null for
+            # every run that never asked it to. The port is the fact a joiner needs
+            # and the phase is whether there is one to join.
+            "lan_publication": (
+                None if self.lan_publication is None else dict(self.lan_publication)
+            ),
         }
+
+
+#: The contract's host event set, as the run document spells it. Closed on purpose:
+#: a phase Core cannot name is a report it must count rather than believe.
+_LAN_PHASES: dict[int, str] = {
+    observation_pb2.HOST_PHASE_LAN_OPENED: "LAN_OPENED",
+    observation_pb2.HOST_PHASE_LAN_OPEN_FAILED: "LAN_OPEN_FAILED",
+}
 
 
 @dataclass(slots=True)
@@ -143,6 +162,10 @@ class _Progress:
     release_failed: bool = False
     connection_cancelled: str = ""
     connection_cancel_failed: bool = False
+    #: The last thing the Bridge said about publishing the world this Kin hosts.
+    #: A report rather than a command's echo: it arrives when it arrives, and an
+    #: attempt is answered by the outcome it ends in.
+    lan_publication: Mapping[str, object] | None = None
 
 
 async def supervise_session(
@@ -392,6 +415,15 @@ async def _read_events(
             else:
                 progress.actions_refused += 1
             continue
+        if isinstance(message, observation_pb2.HostLifecycle):
+            reported = _lan_publication(message)
+            if reported is None:
+                # A phase this build does not know is not a fact it may record:
+                # "published on port X" is what a joiner acts on.
+                progress.ignored += 1
+            else:
+                progress.lan_publication = reported
+            continue
         if not isinstance(message, observation_pb2.ConnectionLifecycle):
             # Counted rather than dropped silently: an event type this build
             # does not act on is a fact about the run, not noise.
@@ -453,6 +485,20 @@ async def _admit_first_snapshot(
         await on_connection(decision.current_state, "")
 
 
+def _lan_publication(lifecycle: observation_pb2.HostLifecycle) -> dict[str, object] | None:
+    """The Bridge's report as the run document keeps it, or None if it says nothing.
+
+    The phase travels as the wire enum's own word without its prefix, the way the
+    connection phases do: a stable token that does not change when somebody renames
+    an enum value's spelling.
+    """
+
+    phase = _LAN_PHASES.get(lifecycle.phase)
+    if phase is None:
+        return None
+    return {"phase": phase, "port": int(lifecycle.bound_port)}
+
+
 def _wind_down(session: SessionStateMachine, *, failed: bool) -> None:
     """Leave the session in §7's outlets, in the only order the table allows.
 
@@ -491,4 +537,5 @@ def _report(
         release_failed=progress.release_failed,
         connection_cancelled=progress.connection_cancelled,
         connection_cancel_failed=progress.connection_cancel_failed,
+        lan_publication=progress.lan_publication,
     )

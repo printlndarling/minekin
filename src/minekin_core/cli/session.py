@@ -27,6 +27,7 @@ from minekin_core.adapters.bridge.ipc import (
     LOOK_INPUT_TYPE,
     MOVE_CAPABILITY,
     MOVE_INPUT_TYPE,
+    OPEN_LAN_TYPE,
     RELEASE_ALL_INPUTS_TYPE,
     USE_CAPABILITY,
     USE_INPUT_TYPE,
@@ -158,6 +159,12 @@ DEFAULT_CONNECTION_TIMEOUT_S = 30.0
 # the run document records stable tokens, and the prefix belongs to the wire.
 CONNECTION_CANCEL_TIMEOUT = "TIMEOUT"
 
+# How long the client has to get into the world it was asked to host before Core
+# stops asking. The Bridge holds the command until the world exists, so this is a
+# bound on how long a client may take to enter a world it was launched into, not on
+# how long a bind takes.
+DEFAULT_LAN_OPEN_TIMEOUT_S = 60.0
+
 # The profile's word for a resource-pack policy, and the wire enum it means.
 # Both spellings are reviewed; nothing else is admitted, because an unrecognised
 # policy silently mapped to "deny" would be a policy the operator did not choose.
@@ -165,6 +172,30 @@ _RESOURCE_PACK_POLICIES: dict[str, control_pb2.ResourcePackPolicy] = {
     "deny": control_pb2.RESOURCE_PACK_POLICY_DENY,
     "prompt": control_pb2.RESOURCE_PACK_POLICY_PROMPT,
 }
+
+
+def open_lan_command(
+    *, request_id: str, generation: int, deadline_monotonic_ns: int, port: int = 0
+) -> control_pb2.OpenLan:
+    """The one command that asks a proved client to publish the world it hosts.
+
+    `port` is zero, which asks the operating system to choose one. That is not a
+    placeholder: the answer carries the port the world actually landed on, and a
+    caller that named a port would be choosing a number it cannot check is free.
+    There is no field for cheats and none for the game mode, here or on the wire,
+    because publishing grants both and the policy is that a command may not raise
+    either — the policy is enforced by there being nothing to set.
+
+    The deadline is in this process's monotonic clock, and it means something on the
+    other side because the envelope carrying it is stamped from the same clock.
+    """
+
+    return control_pb2.OpenLan(
+        request_id=request_id,
+        generation=generation,
+        port=port,
+        deadline_monotonic_ns=deadline_monotonic_ns,
+    )
 
 
 def connect_world_command(
@@ -840,6 +871,8 @@ async def start_and_supervise(
     look_pitch_degrees: float | None = None,
     world_save: Path | None = None,
     world_name: str | None = None,
+    open_lan: bool = False,
+    open_lan_timeout: float = DEFAULT_LAN_OPEN_TIMEOUT_S,
 ) -> tuple[SessionLaunch, SessionRun]:
     """Start a managed session with a live Bridge and stay with it until it ends.
 
@@ -995,6 +1028,24 @@ async def start_and_supervise(
         reports will be gated against, which is what turns them from `UNBOUND`
         into applied facts.
         """
+
+        if open_lan:
+            # Asked at the menu, before a single report has arrived, and held by the
+            # Bridge until the client is in its world: the two do not arrive in a
+            # fixed order, and the command carries the deadline for the difference.
+            # The session's own generation, because hosting is not an attempt at a
+            # connection — a host has nothing to attempt.
+            await host.send_control(
+                OPEN_LAN_TYPE,
+                open_lan_command(
+                    request_id=OpaqueId.new().value,
+                    generation=generation,
+                    deadline_monotonic_ns=Deadline.after(
+                        MonotonicInstant(monotonic_ns()),
+                        int(open_lan_timeout * 1_000_000_000),
+                    ).monotonic_ns,
+                ),
+            )
 
         if target is None:
             return
