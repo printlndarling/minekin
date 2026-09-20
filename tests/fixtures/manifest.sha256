@@ -12,7 +12,7 @@ c6c2b564eea111185671de5f5067cc3075f8e019344cc90f23cf9176b9cf41ad  proto/minekin/
 76312a8053c3b4a921ad4cf4b2ddf7f1b785ca5ac2429e817a764fad8e46476e  proto/minekin/v1/fault.proto
 f93e9463b763b0798ce0c1a944867e4325666161a900abfd9bd486912c3ae92d  proto/minekin/v1/observation.proto
 f35bfb5585f5ccc64e085f582e14e236506e30d6ba009d23909bfbc63e860ad9  proto/minekin/v1/session.proto
-7db7c366d88286adc67e8302e38f357f17c4d7d44f5e8b2017fda5993f50cb92  tests/fixtures/runtime-input/bundle-p0-core-1.21.4.json
+f900f839296a3a17450cdd7fa06648389634a0b46ccd9292d2c77f442926b302  tests/fixtures/runtime-input/bundle-p0-core-1.21.4.json
 ee722d8bb2727b833920ce67ef37ea9d6e7fe217e1d83296192f49c4b44db4f9  tests/fixtures/runtime-input/controlled-offline-server.json
 0a98274326de0b3f52f8354e0166d810401c29e6a98e006288d70f23a4f8d7bf  tests/fixtures/cases/w00-contract-001.json
 4f79b0862140d2f46ead0261df77f6aba5e84357c7e3e207358149e0df903237  tests/fixtures/cases/core-020.json

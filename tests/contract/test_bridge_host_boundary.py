@@ -183,3 +183,50 @@ def test_a_missing_source_tree_is_not_reported_as_a_pass(tmp_path: Path) -> None
 
     assert result.returncode == 2
     assert "not a directory" in result.stderr
+
+
+def test_a_file_whose_package_and_directory_disagree_is_refused(tmp_path: Path) -> None:
+    """A move that leaves the `package` line alone still compiles into that package.
+
+    Which module a file belongs to is what it declares, and `javac` never required
+    that to match the directory. A gate that read only the path could be walked
+    around by a file that declares the adapter's package while sitting somewhere
+    else — so disagreement is a violation whichever way round it is.
+    """
+
+    sources = _tree(
+        tmp_path,
+        {
+            CORE: "package org.minekin.bridge.host;\nclass A { }\n",
+            ADAPTER: "package org.minekin.bridge.runtime;\nclass B { }\n",
+        },
+    )
+
+    result = _run(sources)
+
+    assert result.returncode == 1
+    assert "declares package org.minekin.bridge.host" in result.stderr
+    assert "declares package org.minekin.bridge.runtime" in result.stderr
+
+
+def test_the_declared_package_is_what_decides_the_allowance(tmp_path: Path) -> None:
+    """Both halves at once: the mismatch is reported *and* the reference is caught.
+
+    The smuggled file is not quietly granted the allowance on its way to being
+    reported for the wrong directory.
+    """
+
+    sources = _tree(
+        tmp_path,
+        {
+            CORE: (
+                "package org.minekin.bridge.host;\n"
+                "class A { void a(MinecraftClient c) { c.getServer(); } }\n"
+            )
+        },
+    )
+
+    result = _run(sources)
+
+    assert result.returncode == 1
+    assert "sits in org.minekin.bridge.runtime" in result.stderr

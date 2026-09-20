@@ -38,9 +38,10 @@ from pathlib import Path
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 BRIDGE_SOURCES = REPOSITORY_ROOT / "bridge" / "src" / "main" / "java"
 
-#: The package the contract allows to hold the lifecycle adapter, as a path
-#: fragment. Nothing else may name the server.
-HOST_PACKAGE = "org/minekin/bridge/host"
+#: The package the contract allows to hold the lifecycle adapter. Nothing else may
+#: name the server. Written as a package rather than a path because that is what a
+#: file declares and what the allowance is keyed on.
+HOST_PACKAGE = "org.minekin.bridge.host"
 
 #: Forbidden in every file, with the reason each one is on the list.
 DENIED_ALWAYS: dict[str, str] = {
@@ -76,8 +77,16 @@ _LINE_COMMENT = re.compile(r"//.*$")
 _BLOCK_COMMENT = re.compile(r"/\*.*?\*/", re.DOTALL)
 
 
-def _is_host(path: Path) -> bool:
-    return HOST_PACKAGE in path.as_posix()
+_PACKAGE = re.compile(r"^\s*package\s+([\w.]+)\s*;", re.MULTILINE)
+
+
+def _declared_package(text: str) -> str:
+    match = _PACKAGE.search(text)
+    return match.group(1) if match else ""
+
+
+def _directory_package(path: Path, sources: Path) -> str:
+    return ".".join(path.relative_to(sources).with_suffix("").parts[:-1])
 
 
 def _without_comments(text: str) -> str:
@@ -100,13 +109,29 @@ def _without_comments(text: str) -> str:
 
 
 def violations(sources: Path) -> list[str]:
-    """Every denied reference, as `path:line: marker — the rule that denies it`."""
+    """Every denied reference, as `path:line: marker — the rule that denies it`.
+
+    Which module a file belongs to is the *declared package*, not the directory it
+    sits in. `javac` does not require the two to agree — move a file one directory
+    over, leave its `package` line alone, and it still compiles into the package it
+    names — so a gate that read only the path could be walked around by a file that
+    declares the adapter's package while living somewhere else. Where they disagree
+    the file is a violation in its own right, whichever way round it is.
+    """
 
     found: list[str] = []
     for path in sorted(sources.rglob("*.java")):
         text = _without_comments(path.read_text(encoding="utf-8"))
-        host = _is_host(path)
         relative = path.relative_to(sources)
+        declared = _declared_package(text)
+        expected = _directory_package(path, sources)
+        if declared and declared != expected:
+            found.append(
+                f"{relative}: declares package {declared} and sits in {expected} — a "
+                "file whose package and directory disagree is how code gets past a "
+                "rule that reads one of them"
+            )
+        host = (declared or expected) == HOST_PACKAGE
         for number, line in enumerate(text.splitlines(), start=1):
             if WILDCARD_SERVER_IMPORT.match(line):
                 found.append(

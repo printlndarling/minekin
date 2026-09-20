@@ -168,7 +168,7 @@ bridge-test-probes       仅测试构建；生产 bundle不存在
 - `LevelStorage`/save path/NBT/region文件读取；
 - 反射、MethodHandles、Unsafe或动态脚本绕过以上规则。
 
-`bridge-host-control`可以引用 loader、storage session和极少的 server lifecycle方法，但不能引用 server world/entity/chunk/inventory/player-manager查询。其生产输出只允许：生命周期状态、成功/失败码、请求/实际 LAN端口、保存结果、时间、profile/bundle/world/session标识和审计引用。
+`bridge-host-control`可以引用 loader、storage session和极少的 server lifecycle方法，但不能引用 server world/entity/chunk/inventory/player-manager查询。（2026-09-21：这个包**已存在**——`org.minekin.bridge.host` 里的 `IntegratedServerControl` 目前只做一件事，把客户端正在跑的世界开出去，并回答它在哪个端口上；`LanPublication` 承载那条规则：客户端日志与 `getServerPort()` 报告的都是**被请求的**端口，所以能命名的端口只能从 socket 地址读，读不出来就是失败而不是「0 号端口上的成功」。命令通道尚未接，因此它还没有调用方。）其生产输出只允许：生命周期状态、成功/失败码、请求/实际 LAN端口、保存结果、时间、profile/bundle/world/session标识和审计引用。
 
 Dashboard需要玩家可见人物信息时，优先使用 client网络处理器/tab/chat可见来源；管理面若以后确需服务端连接计数，必须标为 `management_only`，并从类型系统和路由上禁止进入 Observation/Belief/Memory/Planner/LLM。
 
