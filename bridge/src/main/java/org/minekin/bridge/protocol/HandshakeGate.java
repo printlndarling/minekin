@@ -30,6 +30,12 @@ public final class HandshakeGate {
     // And using what is in front of it: the capability that lets a Kin act on the
     // world rather than only move through it.
     public static final String USE_CAPABILITY = "control.use.v1";
+    // And publishing the world this client is hosting. Not an input skill, so not
+    // named like one: it is the one lifecycle operation on the integrated server
+    // that the boundary contract lets the Bridge's host adapter reach for, and a
+    // client can be steerable, turnable and able to use things without being able
+    // to host anything at all.
+    public static final String HOST_LAN_CAPABILITY = "host.lan.v1";
     public static final int MIN_FRAME_BYTES = 1024;
     public static final int MAX_FRAME_BYTES = 16 * 1024 * 1024;
 

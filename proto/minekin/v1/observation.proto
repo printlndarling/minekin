@@ -41,6 +41,25 @@ enum AdmissionFailureReason {
 
 // Server-supplied text is deliberately absent. The Bridge maps it to a stable
 // reason and may keep redacted diagnostics outside the product event payload.
+enum HostPhase {
+  HOST_PHASE_UNSPECIFIED = 0;
+  HOST_PHASE_LAN_OPENED = 1;
+  HOST_PHASE_LAN_OPEN_FAILED = 2;
+}
+
+// What happened to a world the Kin is hosting, reported by the Bridge. The contract's
+// event set has one failure and puts the reason in the Bridge's local log, so this
+// carries the outcome and never the client's own words for it.
+message HostLifecycle {
+  string request_id = 1;
+  uint64 generation = 2;
+  HostPhase phase = 3;
+  // The port the world is reachable on, and zero when it is not published. Zero is
+  // never an address: a reader that joins it would be joining nothing, which is why
+  // the publication rule on the Bridge side refuses to report one.
+  uint32 bound_port = 4;
+}
+
 message ConnectionLifecycle {
   uint64 generation = 1;
   string server_profile_id = 2;

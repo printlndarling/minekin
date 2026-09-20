@@ -38,6 +38,12 @@ class AdmissionFailureReason(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     ADMISSION_FAILURE_REASON_CONTROL_LOST: _ClassVar[AdmissionFailureReason]
     ADMISSION_FAILURE_REASON_CANCELLED: _ClassVar[AdmissionFailureReason]
     ADMISSION_FAILURE_REASON_INTERNAL_INVARIANT: _ClassVar[AdmissionFailureReason]
+
+class HostPhase(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+    __slots__ = ()
+    HOST_PHASE_UNSPECIFIED: _ClassVar[HostPhase]
+    HOST_PHASE_LAN_OPENED: _ClassVar[HostPhase]
+    HOST_PHASE_LAN_OPEN_FAILED: _ClassVar[HostPhase]
 CONNECTION_PHASE_UNSPECIFIED: ConnectionPhase
 CONNECTION_PHASE_RESOLVING: ConnectionPhase
 CONNECTION_PHASE_LOGIN_NEGOTIATING: ConnectionPhase
@@ -63,6 +69,21 @@ ADMISSION_FAILURE_REASON_UNEXPECTED_DISCONNECT: AdmissionFailureReason
 ADMISSION_FAILURE_REASON_CONTROL_LOST: AdmissionFailureReason
 ADMISSION_FAILURE_REASON_CANCELLED: AdmissionFailureReason
 ADMISSION_FAILURE_REASON_INTERNAL_INVARIANT: AdmissionFailureReason
+HOST_PHASE_UNSPECIFIED: HostPhase
+HOST_PHASE_LAN_OPENED: HostPhase
+HOST_PHASE_LAN_OPEN_FAILED: HostPhase
+
+class HostLifecycle(_message.Message):
+    __slots__ = ("request_id", "generation", "phase", "bound_port")
+    REQUEST_ID_FIELD_NUMBER: _ClassVar[int]
+    GENERATION_FIELD_NUMBER: _ClassVar[int]
+    PHASE_FIELD_NUMBER: _ClassVar[int]
+    BOUND_PORT_FIELD_NUMBER: _ClassVar[int]
+    request_id: str
+    generation: int
+    phase: HostPhase
+    bound_port: int
+    def __init__(self, request_id: _Optional[str] = ..., generation: _Optional[int] = ..., phase: _Optional[_Union[HostPhase, str]] = ..., bound_port: _Optional[int] = ...) -> None: ...
 
 class ConnectionLifecycle(_message.Message):
     __slots__ = ("generation", "server_profile_id", "server_profile_revision", "phase", "failure_reason", "terminal")

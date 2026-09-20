@@ -30,6 +30,7 @@ from minekin_core.adapters.bridge.ipc import (
     CORE_HELLO_TYPE,
     HANDSHAKE_CAPABILITY,
     HEARTBEAT_TYPE,
+    HOST_LAN_CAPABILITY,
     LOOK_CAPABILITY,
     LOOK_INPUT_TYPE,
     MOVE_CAPABILITY,
@@ -97,6 +98,10 @@ def test_loopback_handshake_heartbeat_commands_and_events(tmp_path: Path) -> Non
             MOVE_CAPABILITY,
             LOOK_CAPABILITY,
             USE_CAPABILITY,
+            # Publishing the world this client hosts is a capability like the others,
+            # and it is advertised rather than assumed for the same reason: a Bridge
+            # that cannot host must be able to say so before it is asked to.
+            HOST_LAN_CAPABILITY,
         }
 
         control_reader, control_writer = await connect(descriptor, envelope_pb2.CHANNEL_CONTROL)

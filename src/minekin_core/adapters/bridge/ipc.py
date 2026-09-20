@@ -44,6 +44,12 @@ LOOK_CAPABILITY: Final = "control.look.v1"
 # and that is the capability that lets a Kin act on the world rather than only
 # move through it.
 USE_CAPABILITY: Final = "control.use.v1"
+# Publishing the world the client is hosting is not an input skill and is not
+# named like one: it is a lifecycle operation on the server in this same process,
+# which is why it is the one capability the boundary contract lets the Bridge's
+# host adapter touch. It is negotiated like the others, because a client can be
+# steerable, turnable and able to use things without being able to host at all.
+HOST_LAN_CAPABILITY: Final = "host.lan.v1"
 MOVEMENT_CAPABILITIES: Final = frozenset(
     {"move.forward", "move.back", "move.left", "move.right", "move.jump", "move.sneak"}
 )
@@ -57,6 +63,8 @@ HEARTBEAT_TYPE: Final = "minekin.v1.Heartbeat"
 CONNECT_WORLD_TYPE: Final = "minekin.v1.ConnectWorld"
 CANCEL_CONNECTION_TYPE: Final = "minekin.v1.CancelConnection"
 CONNECTION_LIFECYCLE_TYPE: Final = "minekin.v1.ConnectionLifecycle"
+OPEN_LAN_TYPE: Final = "minekin.v1.OpenLan"
+HOST_LIFECYCLE_TYPE: Final = "minekin.v1.HostLifecycle"
 RELEASE_ALL_INPUTS_TYPE: Final = "minekin.v1.ReleaseAllInputs"
 MOVE_INPUT_TYPE: Final = "minekin.v1.MoveInput"
 LOOK_INPUT_TYPE: Final = "minekin.v1.LookInput"
@@ -107,6 +115,7 @@ class BridgeSession:
             MOVE_CAPABILITY,
             LOOK_CAPABILITY,
             USE_CAPABILITY,
+            HOST_LAN_CAPABILITY,
         }
     )
     max_frame_bytes: int = DEFAULT_MAX_FRAME_BYTES

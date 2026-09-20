@@ -114,3 +114,24 @@ message ActionResult {
   string reason_code = 4;
   string evidence_ref = 5;
 }
+
+// Core may send this only after handshake and capability negotiation, and only to a
+// client that is in a world it hosts.
+//
+// There is deliberately no field for cheats and none for the game mode. Publishing a
+// world grants both — measured against 1.21.4, the client's own call raises the host
+// player's permission level and allows commands — while the host policy says neither
+// may be raised by a command. The strongest form of that rule is a field that does
+// not exist, rather than a value the Bridge is expected to refuse.
+message OpenLan {
+  string request_id = 1;
+  uint64 generation = 2;
+  // The port to ask for, or zero to let the operating system choose one.
+  //
+  // The answer carries the port that was actually bound, because this one is not it:
+  // the client's own `Started serving on {}` line and its `getServerPort()` both
+  // report the value that was requested, so asking for zero makes both say zero while
+  // the world listens somewhere else.
+  uint32 port = 3;
+  uint64 deadline_monotonic_ns = 4;
+}

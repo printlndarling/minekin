@@ -178,3 +178,15 @@ class ActionResult(_message.Message):
     reason_code: str
     evidence_ref: str
     def __init__(self, action_id: _Optional[str] = ..., generation: _Optional[int] = ..., status: _Optional[_Union[ActionStatus, str]] = ..., reason_code: _Optional[str] = ..., evidence_ref: _Optional[str] = ...) -> None: ...
+
+class OpenLan(_message.Message):
+    __slots__ = ("request_id", "generation", "port", "deadline_monotonic_ns")
+    REQUEST_ID_FIELD_NUMBER: _ClassVar[int]
+    GENERATION_FIELD_NUMBER: _ClassVar[int]
+    PORT_FIELD_NUMBER: _ClassVar[int]
+    DEADLINE_MONOTONIC_NS_FIELD_NUMBER: _ClassVar[int]
+    request_id: str
+    generation: int
+    port: int
+    deadline_monotonic_ns: int
+    def __init__(self, request_id: _Optional[str] = ..., generation: _Optional[int] = ..., port: _Optional[int] = ..., deadline_monotonic_ns: _Optional[int] = ...) -> None: ...
