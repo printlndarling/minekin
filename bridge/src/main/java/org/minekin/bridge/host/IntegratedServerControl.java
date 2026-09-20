@@ -74,6 +74,22 @@ public final class IntegratedServerControl implements HostControl {
         // world's game mode alone and `false` withholds cheats. Everything that could
         // raise either would have to be a new field, which is a decision for a reviewed
         // change rather than a value that arrives from outside.
+        // A world that is published authenticates its joiners, and that is vanilla's own
+        // choice: `IntegratedServer.setupServer` calls `setOnlineMode(true)` at startup,
+        // right before it generates the keypair the encryption uses. Measured twice over
+        // — read out of the 1.21.4 bytecode, and then observed: an offline managed client
+        // dialling the published port was answered with `Failed to log in: Invalid
+        // session`, and the second Kin never arrived.
+        //
+        // Every other join in this project is offline — the controlled dedicated server
+        // builds its properties from the reviewed profile's `auth_mode`, and the P0
+        // identity is an offline one — so a world the Kin hosts has to be in the same
+        // online-ness as the world a Kin joins, or hosting is a capability only clients
+        // with Microsoft accounts can use. This is a lifecycle call on the server, which
+        // is exactly what this adapter is for, and it happens before the port is bound
+        // so no joiner can arrive under the old mode.
+        server.setOnlineMode(false);
+
         // The port has to be chosen *before* the call, because 1.21.4 offers no way to
         // read the one it bound: `getServerPort()` returns whatever was asked for, and
         // the only address-returning method on the network object (`bindLocal()`)
