@@ -168,7 +168,7 @@ bridge-test-probes       仅测试构建；生产 bundle不存在
 - `LevelStorage`/save path/NBT/region文件读取；
 - 反射、MethodHandles、Unsafe或动态脚本绕过以上规则。
 
-`bridge-host-control`可以引用 loader、storage session和极少的 server lifecycle方法，但不能引用 server world/entity/chunk/inventory/player-manager查询。（2026-09-21：这个包**已存在**——`org.minekin.bridge.host` 里的 `IntegratedServerControl` 目前只做一件事，把客户端正在跑的世界开出去，并回答它在哪个端口上；`LanPublication` 承载那条规则：客户端日志与 `getServerPort()` 报告的都是**被请求的**端口，所以能命名的端口只能从 socket 地址读，读不出来就是失败而不是「0 号端口上的成功」。命令通道尚未接，因此它还没有调用方。）其生产输出只允许：生命周期状态、成功/失败码、请求/实际 LAN端口、保存结果、时间、profile/bundle/world/session标识和审计引用。
+`bridge-host-control`可以引用 loader、storage session和极少的 server lifecycle方法，但不能引用 server world/entity/chunk/inventory/player-manager查询。（2026-09-21：这个包**已存在**——`org.minekin.bridge.host` 里的 `IntegratedServerControl` 目前只做一件事，把客户端正在跑的世界开出去，并回答它在哪个端口上；`LanPublication` 承载那条规则：客户端日志与 `getServerPort()` 报告的都是**被请求的**端口，所以能命名的端口只能从 socket 地址读，读不出来就是失败而不是「0 号端口上的成功」。命令通道已接（`HostController` 持有 `OpenLan` 直到世界存在，每代只发布一次），并且已经有一次真实运行走到头：`HOST-030`/`HOST-040` 与 `CORE-030` 都以它为准封存。真实的线程名与时间线仍未量。）其生产输出只允许：生命周期状态、成功/失败码、请求/实际 LAN端口、保存结果、时间、profile/bundle/world/session标识和审计引用。
 
 Dashboard需要玩家可见人物信息时，优先使用 client网络处理器/tab/chat可见来源；管理面若以后确需服务端连接计数，必须标为 `management_only`，并从类型系统和路由上禁止进入 Observation/Belief/Memory/Planner/LLM。
 
@@ -226,7 +226,7 @@ HOST_RECOVERY_REQUIRED
   - **端口是会骗人的。** 它 `LOGGER.info("Started serving on {}", port)`，并把**同一个请求值**存进 `getServerPort()` 返回的那个字段。请求 `0`（让系统挑）时两处都会说 `0`。真正绑到的端口只能从 `getNetworkIo().getAddress()`（`asf.a()` 返回 `SocketAddress`）读——契约要的"实际动态端口"在那边，不在日志里。
   - **失败是无声的。** 整个方法体罩在一张 `catch (IOException)` 里（异常表 `0..164 -> 165`），catch 只做 `return false`，**一行日志都不打**。"开 LAN 失败"因此在客户端日志里没有任何痕迹；`HOST_LAN_OPEN_FAILED` 不是礼貌，它是唯一会说这件事的地方。
   - **它顺带改权威状态**：设置游戏模式字段、放开 cheats、抬高宿主玩家的权限级。这与 `HOSTCTL-010` 直接相关——开 LAN 这个动作自己就在动有效档，所以"聊天/网页不得越权改档"的门禁要把这条路径也算进去，而不是只盯着提案入口。
-  - **仍未做的**：真实线程名/时间线与 `isOnThread` 结果、端口实际绑到哪里、以及一次失败的 `openToLan` 在真实运行里长什么样——这些要等 `bridge-host-control` 里那个 adapter 真的存在之后才量得到。**静态读出来的东西不能当成运行证据**，这也是它留在这里而不是被划掉的原因；
+  - **仍未做的**：真实线程名/时间线与 `isOnThread` 结果、以及一次失败的 `openToLan` 在真实运行里长什么样。端口实际绑到哪里已经量到了，但不是从这里量的：它从内核的 listener 表里读出来（IPv4 与 IPv6 两张表都要读，Java 把通配地址绑在 IPv6 上），这条留在这里的剩余理由是**静态读出来的东西不能当成运行证据**；
 - class/mixin/access-widener扫描器的实现工具和映射名归一化；（2026-09-21 区分：**第 1 道门禁——源码依赖——已经实现**（`tools/check_bridge_host_boundary.py`），它管的是「谁能写出这些名字」；**第 2 道门禁——构建产物扫描——仍未实现**，它管的是「编出来的 class 常量池里有没有这些引用、mixin JSON/access widener/entrypoint/打包依赖里有没有生产 test probe」。两者不能互相代替：源码门禁看不见依赖树带进来的东西，产物门禁看不见一行被注释掉的意图。映射名归一化也仍未做。）
 - integrated-server canary fixture怎样在不污染 Kin数据面的测试域中注入。
 

@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "case_id": "CORE-030",
+  "work_package": "W90",
+  "mandatory": false,
+  "inputs": [
+    "tests/fixtures/runtime-input/bundle-p0-core-1.21.4.json",
+    "tests/fixtures/saves/kinworld"
+  ],
+  "assertions": [
+    "the_first_snapshot_of_the_world_it_dialled_was_admitted"
+  ]
+}

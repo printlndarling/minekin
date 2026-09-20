@@ -315,15 +315,17 @@ def _world_record(
     target: ServerProfile | None,
     server_directory: Path | None,
     run_document: Mapping[str, object],
+    world_run_document: Mapping[str, object],
     username: str,
 ) -> _WorldRecord:
     """The world block, from the strongest thing the run can say about its world.
 
-    Three cases, and the third is the one that used to be wrong: a dedicated server
-    (the profile's revision and the world the server generated), a world the Kin
-    hosted in its own client (there is a snapshot on the document, and `level.dat` is
-    what a world with no server profile behind it has instead of a server
-    configuration), and no world at all.
+    Four cases, in the order they are decided. A world this run hosted itself, which
+    its own snapshot names. A world *another* run hosted and this one joined, which
+    that run's document names — the joining client has no snapshot of its own, and a
+    bundle for it would otherwise say it joined a world it cannot name. A dedicated
+    server, where the profile is the configuration and the server's own directory has
+    the seed. And no world at all.
 
     Measured before it was written: a run in which the Kin was in `kinworld` and
     published it on 25570 sealed as `kind: "none"` with the digest of nothing, because
@@ -332,6 +334,14 @@ def _world_record(
     is worse, because the run's own record next to it says otherwise.
     """
 
+    hosted = _snapshot_of(run_document)
+    if hosted is not None:
+        return _hosted_record(hosted, "the run hosted a world")
+
+    joined = _snapshot_of(world_run_document)
+    if joined is not None:
+        return _hosted_record(joined, "the run that hosted this world")
+
     if target is not None:
         return _WorldRecord(
             kind=DEDICATED,
@@ -339,31 +349,41 @@ def _world_record(
             name=NO_WORLD if server_directory is None else world_seed(server_directory),
         )
 
-    raw = run_document.get(RUN_DOCUMENT_KEY)
+    if world_run_document:
+        # A document was given for the world this run joined, and it does not say which
+        # world that was. Refused rather than recorded as `none`: the caller said there
+        # was a world, and a bundle that then denies one is the same lie as before.
+        raise Unsealable("the run that hosted this world did not record a world of its own")
+    return _WorldRecord(kind=NO_WORLD, config_digest=EMPTY_DOCUMENT_SHA256, name=NO_WORLD)
+
+
+def _snapshot_of(document: Mapping[str, object]) -> Mapping[str, object] | None:
+    """The world snapshot a run document carries, or None when it has none."""
+
+    raw = document.get(RUN_DOCUMENT_KEY)
     section: Mapping[str, object] = (
         cast(Mapping[str, object], raw) if isinstance(raw, Mapping) else {}
     )
     snapshot = section.get("world_snapshot")
-    if not isinstance(snapshot, Mapping):
-        return _WorldRecord(kind=NO_WORLD, config_digest=EMPTY_DOCUMENT_SHA256, name=NO_WORLD)
-    hosted = cast(Mapping[str, object], snapshot)
+    return cast("Mapping[str, object]", snapshot) if isinstance(snapshot, Mapping) else None
+
+
+def _hosted_record(hosted: Mapping[str, object], whose: str) -> _WorldRecord:
+    """One hosted world's block, from the digests its own run recorded."""
+
     settings = hosted.get("settings_digest")
     if not isinstance(settings, str) or len(settings) != 64:
         # Refused rather than filled in with the snapshot digest: the two fields mean
         # different things, and a run recorded with one standing in for the other is a
         # record nobody can separate later.
-        raise Unsealable(
-            "the run hosted a world but its document does not name the world's settings"
-        )
+        raise Unsealable(f"{whose}, but its document does not name the world's settings")
     digest = hosted.get("digest")
     if not isinstance(digest, str) or len(digest) != 64:
         # The same rule as the settings above, for the other field: a real kind with
         # `none` where the world's name belongs is the escape hatch the contract warns
         # about, and it is refused here rather than sealed into a bundle that says a
         # world was published and cannot say which.
-        raise Unsealable(
-            "the run hosted a world but its document does not name the world's bytes"
-        )
+        raise Unsealable(f"{whose}, but its document does not name the world's bytes")
     return _WorldRecord(kind=LAN, config_digest=settings, name=digest)
 
 
@@ -381,21 +401,26 @@ def build_manifest(
     java: Path | None,
     workspace_root: Path,
     run_document: Mapping[str, object],
+    world_run_document: Mapping[str, object],
 ) -> EvidenceManifest:
     """Assemble the manifest from what was measured, refusing what was not.
 
-    A run with no server profile is a run that joined no world, and it records
+    A run with no server profile and no world run named has no world, and it records
     that rather than borrowing the closest word that fits: the contract's third
     kind, with the digest of nothing where a server configuration would go. What
     it must never do is say `dedicated` because the field is required — a bundle
     that describes a world nobody visited is worse than one that describes none.
+
+    "No server profile" is not by itself "no world", though: a client that joined a
+    world another Kin hosted has no profile either, and the world it was in is named
+    by that Kin's run document. The world block is decided there, in `_world_record`.
     """
 
     definition = load_case_manifest(case)
     plan = build_launch_plan(profile, workspace_root=workspace_root)
     bundle = cast(Mapping[str, object], plan["bundle"])
     target = None if server_profile is None else load_server_profile(server_profile)
-    world = _world_record(target, server_directory, run_document, username)
+    world = _world_record(target, server_directory, run_document, world_run_document, username)
     facts = host_facts(java, renderer_display)
     result = str(verdict.get("result", ""))
     if result not in {item.value for item in EvidenceResult}:
@@ -458,6 +483,7 @@ def seal(
     server_profile: Path | None,
     run_document_path: Path | None,
     server_directory: Path | None,
+    world_run_document_path: Path | None = None,
     username: str,
     run_id: str | None = None,
     server_jar: Path | None = None,
@@ -534,6 +560,23 @@ def seal(
             raise Unsealable(f"{run_document_path} is not a run document object")
         run_document = cast(dict[str, object], document)
 
+    # The run that hosted the world this one joined, when there is one. Read the same
+    # way and for the same reason: a hosted world's identity is recorded on the run
+    # that hosted it, and a joining client cannot report a snapshot it never took.
+    world_run_raw = b""
+    world_run_document: dict[str, object] = {}
+    if world_run_document_path is not None:
+        try:
+            world_run_raw = world_run_document_path.read_bytes()
+            hosted = json.loads(world_run_raw)
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
+            raise Unsealable(
+                f"{world_run_document_path} is not a readable run document: {error}"
+            ) from error
+        if not isinstance(hosted, dict):
+            raise Unsealable(f"{world_run_document_path} is not a run document object")
+        world_run_document = cast(dict[str, object], hosted)
+
     verdict = run_asserter(
         case=case,
         run_document=run_document_path,
@@ -555,10 +598,16 @@ def seal(
         soak_summary=soak_summary_document,
     )
 
-    if server_profile is None:
+    if server_profile is None and world_run_document_path is None:
         # A manifest that says "no world" while the record shows a world would be
         # a lie about the run. The document says so when there is one, and the
         # ledger — the record that survives a killed Core — says so otherwise.
+        #
+        # A run that names the world it joined is exempt, and that is the point: the
+        # world's identity comes from the run that hosted it, so a connection is
+        # explained rather than unexplained. Without that input this guard is what
+        # refuses a join, which is exactly what it did before the hosting run could be
+        # named.
         section = run_document.get(RUN_DOCUMENT_KEY)
         run: Mapping[str, object] = (
             cast(Mapping[str, object], section) if isinstance(section, Mapping) else {}
@@ -577,6 +626,7 @@ def seal(
 
     manifest = build_manifest(
         run_document=run_document,
+        world_run_document=world_run_document,
         case=case,
         profile=profile,
         server_profile=server_profile,
@@ -614,6 +664,13 @@ def seal(
     # material is only half inside the bundle is one nobody else can reproduce.
     if material.previous_run_id:
         artifacts["previous-run-trace.jsonl"] = timeline_bytes(material.previous_run_events)
+    # And when this run's world is one another run hosted, that run's document travels
+    # with it. The world block names the world with digests *that* run measured, and a
+    # bundle asserting a name while carrying nothing that shows where the name came
+    # from is a claim a reader cannot check — the same rule as everything else here,
+    # applied to the one field that comes from outside this run.
+    if world_run_raw:
+        artifacts["host-run-document.json"] = world_run_raw
 
     directory = bundle_directory(run_root(data_root, kin_id), identifier)
     sealed = write_bundle(directory, manifest, artifacts, secrets=secrets)
@@ -661,6 +718,16 @@ def main(argv: list[str] | None = None) -> int:
         type=Path,
         default=None,
         help="the server run's directory; absent when there was no server",
+    )
+    parser.add_argument(
+        "--world-run-document",
+        type=Path,
+        default=None,
+        help=(
+            "the run that hosted the world this one joined: another Kin's own run "
+            "document, which is where a hosted world's identity is recorded. Absent "
+            "for a run in a world of its own"
+        ),
     )
     parser.add_argument("--username", required=True)
     parser.add_argument("--server-jar", type=Path, default=None)
@@ -710,6 +777,7 @@ def main(argv: list[str] | None = None) -> int:
             profile=args.profile,
             server_profile=args.server_profile,
             run_document_path=args.run_document,
+            world_run_document_path=args.world_run_document,
             run_id=args.run_id,
             server_directory=args.server_directory,
             username=args.username,

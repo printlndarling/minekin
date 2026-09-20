@@ -567,6 +567,47 @@ def _other_names(material: RunMaterial, pattern: re.Pattern[str]) -> tuple[str, 
     return tuple(name for name in pattern.findall(material.client_log) if name != material.username)
 
 
+#: The line the Bridge writes when it asks vanilla to dial an address, which carries
+#: the host and port the profile named. It is the only place a joining client's own log
+#: says what it connected to.
+_DIALLED = re.compile(r"bridge asked vanilla to connect to (\S+):(\d+) for generation (\d+)")
+
+
+def the_first_snapshot_of_the_world_it_dialled_was_admitted(
+    material: RunMaterial,
+) -> str | None:
+    """Core admitted a first authoritative snapshot of the address this client dialled.
+
+    Both halves come from the joining client's own material: the address from the line
+    the Bridge wrote when it asked vanilla to connect, and the admission from the run
+    document. Only a loopback literal is accepted, because that is the only kind of
+    address the frozen profile schema admits — a run that dialled anything else is not
+    this case, whatever it then admitted.
+
+    What the *world* saw is a different claim and a different run's: `HOST-040` is where
+    the world answers for itself, because only the world can.
+    """
+
+    found = _DIALLED.search(material.client_log)
+    if found is None:
+        return "NO_CONNECTION_WAS_DIALLED"
+    host, port, _generation = found.groups()
+    if host not in {"127.0.0.1", "::1"}:
+        return f"DIALLED_SOMETHING_BUT_A_LOOPBACK_LITERAL:{host}"
+    if int(port) < 1:
+        return f"DIALLED_A_PORT_THAT_IS_NOT_ONE:{port}"
+    run = material.run()
+    admitted = _integer(run, "snapshots_admitted")
+    if admitted is None:
+        return "SNAPSHOT_COUNT_MISSING"
+    if admitted < 1:
+        return f"NO_SNAPSHOT_WAS_ADMITTED:{admitted}"
+    state = _text(run, "connection_state")
+    if state != "PLAYABLE":
+        return f"NEVER_BECAME_PLAYABLE:{state}"
+    return None
+
+
 def another_kin_joined_the_world_this_run_hosted(material: RunMaterial) -> str | None:
     """Somebody other than this Kin arrived in the world this run was hosting.
 
@@ -1629,9 +1670,10 @@ ASSERTIONS: dict[str, Callable[[RunMaterial], str | None]] = {
     "first_snapshot_admitted": first_snapshot_admitted,
     "the_run_says_which_world_it_hosted": the_run_says_which_world_it_hosted,
     "core_was_told_the_world_was_published": core_was_told_the_world_was_published,
-    "another_kin_joined_the_world_this_run_hosted": (
-        another_kin_joined_the_world_this_run_hosted
+    "the_first_snapshot_of_the_world_it_dialled_was_admitted": (
+        the_first_snapshot_of_the_world_it_dialled_was_admitted
     ),
+    "another_kin_joined_the_world_this_run_hosted": (another_kin_joined_the_world_this_run_hosted),
     "the_world_saw_that_kin_leave_again": the_world_saw_that_kin_leave_again,
     "the_client_published_the_world_on_the_port_it_was_given": (
         the_client_published_the_world_on_the_port_it_was_given

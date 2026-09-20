@@ -100,6 +100,19 @@ lan_port="${MINEKIN_DOMAIN_LAN_PORT:-25570}"
 # itself is only reported in a run document printed when that run has ended.
 joiner="${MINEKIN_DOMAIN_JOIN:-}"
 join_username="${MINEKIN_DOMAIN_JOIN_USERNAME:-Kin2}"
+# Which of the two runs a joining run's case is about. The harness seals one run per
+# bundle, and a run with a second client in it has two: the hosting session (whose
+# document is what every other case is judged on) and the joining one. Named rather
+# than guessed from the case id, because a case id is not a switch and a second
+# spelling of one would be a silent wrong answer.
+case_on="${MINEKIN_DOMAIN_CASE_ON:-host}"
+case "${case_on}" in
+    host|joiner) : ;;
+    *)
+        printf 'domain: MINEKIN_DOMAIN_CASE_ON must be host or joiner, got %q\n' "${case_on}" >&2
+        exit 2
+        ;;
+esac
 # How often the server is asked about the Kin. A look is over within a second
 # of the join, so a run that wants a reading on both sides of it asks more
 # often than the default — the pair is what shows a heading changed.
@@ -1521,8 +1534,29 @@ if [[ -n "${case_id}" ]]; then
     set +e
     # Named by the document Core printed, or by its run id when there is none —
     # which is exactly the killed-Core case, where the absence is the point.
-    named_run=(--run-document /tmp/domain-session.json)
-    if [ ! -s /tmp/domain-session.json ]; then
+    subject_document=/tmp/domain-session.json
+    subject_username="${player}"
+    world_run_args=()
+    if [ "${case_on}" = "joiner" ]; then
+        # The case is about the client that joined, so its document is the run's own
+        # record — and the world it joined is named by the run that hosted it, which is
+        # the only place a hosted world's identity was measured. A joining client has no
+        # snapshot of its own to report.
+        if [ "${join_ready}" -ne 1 ]; then
+            printf 'domain: this case is about a joining run, and this run had no joiner\n' >&2
+            exit 2
+        fi
+        subject_document=/tmp/domain-join-session.json
+        subject_username="${join_username}"
+        world_run_args=(--world-run-document /tmp/domain-session.json)
+        # And this run's own world inputs are dropped, deliberately: a dedicated server
+        # profile is a *different* kind of world, and leaving it named would let a join
+        # with an unreadable host document fall back to recording one that never ran
+        # rather than being refused.
+        world_args=()
+    fi
+    named_run=(--run-document "${subject_document}")
+    if [ ! -s "${subject_document}" ]; then
         named_run=(--run-id "${run_id}")
     fi
     # The record of the fault this run injected, when it injected one. It is named
@@ -1544,9 +1578,10 @@ if [[ -n "${case_id}" ]]; then
         --profile "${profile}" \
         "${world_args[@]}" \
         "${named_run[@]}" \
+        "${world_run_args[@]}" \
         "${fault_args[@]}" \
         "${soak_args[@]}" \
-        --username "${player}" \
+        --username "${subject_username}" \
         --renderer-display "${renderer}" \
         --session-argv "$@" >/tmp/domain-seal.json 2>/tmp/domain-seal.err
     sealed=$?

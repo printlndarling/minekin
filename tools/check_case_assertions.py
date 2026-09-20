@@ -112,13 +112,14 @@ IMPLEMENTATIONS: dict[str, Implementation] = {
     "server_observed_join_identity": _runtime("server_observed_join_identity"),
     "first_snapshot_admitted": _runtime("first_snapshot_admitted"),
     "the_run_says_which_world_it_hosted": _runtime("the_run_says_which_world_it_hosted"),
+    "the_first_snapshot_of_the_world_it_dialled_was_admitted": _runtime(
+        "the_first_snapshot_of_the_world_it_dialled_was_admitted"
+    ),
     "another_kin_joined_the_world_this_run_hosted": _runtime(
         "another_kin_joined_the_world_this_run_hosted"
     ),
     "the_world_saw_that_kin_leave_again": _runtime("the_world_saw_that_kin_leave_again"),
-    "core_was_told_the_world_was_published": _runtime(
-        "core_was_told_the_world_was_published"
-    ),
+    "core_was_told_the_world_was_published": _runtime("core_was_told_the_world_was_published"),
     "the_client_published_the_world_on_the_port_it_was_given": _runtime(
         "the_client_published_the_world_on_the_port_it_was_given"
     ),

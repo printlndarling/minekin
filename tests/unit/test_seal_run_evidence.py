@@ -464,6 +464,37 @@ def no_world_document(overlay: Path) -> dict[str, object]:
     return document
 
 
+# The case a joining client is judged by: its own first snapshot, admitted.
+JOIN_CASE = REPOSITORY_ROOT / "tests" / "fixtures" / "cases" / "core-030.json"
+
+
+def joined_run(tmp_path: Path) -> tuple[Path, Path]:
+    """A run in which this Kin joined a world another Kin was hosting.
+
+    The shape that made the old guard wrong: no server profile to read the world out
+    of, and a record that plainly shows one — the address the Bridge dialled, in the
+    client's own log, and the snapshot Core admitted.
+    """
+
+    data_root = tmp_path / "joined" / "data"
+    write_ledger(data_root, events=(HELLO_ACCEPTED, PLAYABLE_ESTABLISHED))
+    overlay = data_root / "kin" / str(KIN) / "run" / "session" / SESSION_ID / "generation-1"
+    (overlay / "logs").mkdir(parents=True)
+    (overlay / "logs" / "stdout.log").write_text(
+        '<log4j:Event logger="minekin-bridge" level="INFO"><log4j:Message><![CDATA['
+        "bridge asked vanilla to connect to 127.0.0.1:25570 for generation 1 "
+        "(finishedLoading=true, screen=none, overlay=none)"
+        "]]></log4j:Message></log4j:Event>\n",
+        encoding="utf-8",
+    )
+    document = run_document(overlay)
+    run = cast(dict[str, object], document["run"])
+    run.update({"connection_state": "PLAYABLE", "snapshots_admitted": 1})
+    path = tmp_path / "joined" / "session.json"
+    path.write_text(json.dumps(document), encoding="utf-8")
+    return data_root, path
+
+
 def test_a_run_that_joined_no_world_seals_the_absence_of_one(tmp_path: Path) -> None:
     """The contract's third kind, because the other two would be a claim about
     a world nobody visited."""
@@ -492,6 +523,9 @@ def test_a_run_that_joined_no_world_seals_the_absence_of_one(tmp_path: Path) -> 
     assert manifest["bundle"]["server_jar_sha1"] == ""
     assert manifest["identity"]["server_observed_name_uuid"] == ""
     assert "server/server.log" not in {record["path"] for record in manifest["artifacts"]}
+    # No world joined means no hosting run to carry, which is not the same as a
+    # hosting run whose document happened to be empty.
+    assert "host-run-document.json" not in {record["path"] for record in manifest["artifacts"]}
     assert verify_bundle(data_root / "kin" / str(KIN) / "run" / "evidence" / RUN_ID).verified
 
 
@@ -737,6 +771,69 @@ def test_a_bundle_may_not_call_a_world_it_joined_no_world(tmp_path: Path) -> Non
         )
 
 
+def test_the_same_run_seals_once_the_world_it_joined_is_named(tmp_path: Path) -> None:
+    """The guard above, with the one thing it was missing: the world's name.
+
+    A client that joined another Kin's world has no server profile either, and it
+    shows exactly the record the guard refuses — a connection and an admitted
+    snapshot. What separates it from the lie is that the world it was in is named,
+    by the run that hosted it. Measured: without this the joining client's own run
+    could not be sealed at all (CORE-030, the first real join).
+    """
+
+    data_root, document = joined_run(tmp_path)
+    hosted = tmp_path / "host-session.json"
+    hosted.write_text(json.dumps(hosted_run()), encoding="utf-8")
+
+    report = SEALER.seal(
+        data_root=data_root,
+        case=JOIN_CASE,
+        profile=PROFILE,
+        server_profile=None,
+        run_document_path=document,
+        server_directory=None,
+        world_run_document_path=hosted,
+        username=USERNAME,
+    )
+
+    assert report["result"] == "PASS"
+    manifest = json.loads(
+        (data_root / "kin" / str(KIN) / "run" / "evidence" / RUN_ID / "manifest.json").read_bytes()
+    )
+    assert manifest["world"] == {
+        "kind": "lan",
+        "server_config_digest": SETTINGS_DIGEST,
+        "seed_or_snapshot_id": SNAPSHOT_DIGEST,
+    }
+    # And the document those digests came from travels with the bundle: a reader can
+    # check the world block against the run that measured it without hunting for it.
+    sealed = data_root / "kin" / str(KIN) / "run" / "evidence" / RUN_ID
+    host_document = json.loads((sealed / "host-run-document.json").read_bytes())
+    assert host_document["run"]["world_snapshot"]["digest"] == SNAPSHOT_DIGEST
+    assert host_document["run"]["world_snapshot"]["settings_digest"] == SETTINGS_DIGEST
+    assert verify_bundle(sealed).verified
+
+
+def test_a_world_run_that_is_not_a_document_stops_the_seal(tmp_path: Path) -> None:
+    """The exemption is an input, so it is read like one: unreadable is refused."""
+
+    data_root, document = joined_run(tmp_path)
+    hosted = tmp_path / "host-session.json"
+    hosted.write_text("[]", encoding="utf-8")
+
+    with pytest.raises(SEALER.Unsealable, match="is not a run document object"):
+        SEALER.seal(
+            data_root=data_root,
+            case=JOIN_CASE,
+            profile=PROFILE,
+            server_profile=None,
+            run_document_path=document,
+            server_directory=None,
+            world_run_document_path=hosted,
+            username=USERNAME,
+        )
+
+
 # --- what the bundle says about the world a run had -----------------------------
 SETTINGS_DIGEST = "b7b5c62b1d0a44f1cbb0a4d5f5a5b6a2b2e0a9a1f4f7c2d3e4a5b6c7d8e9f0a1"
 SNAPSHOT_DIGEST = "aac62c39872dd515dcb0d062a4b8ba5a5c6a333f29a4e1833e1d12686339be15"
@@ -783,7 +880,7 @@ def test_a_world_the_kin_hosted_is_not_recorded_as_no_world() -> None:
     configuration belongs.
     """
 
-    record = SEALER._world_record(None, None, hosted_run(), USERNAME)
+    record = SEALER._world_record(None, None, hosted_run(), {}, USERNAME)
 
     assert record.kind == "lan"
     assert record.name == SNAPSHOT_DIGEST
@@ -793,7 +890,7 @@ def test_a_world_the_kin_hosted_is_not_recorded_as_no_world() -> None:
 def test_a_run_with_no_world_at_all_is_still_recorded_as_none() -> None:
     """The negative control: the old behaviour is right for a run that had no world."""
 
-    record = SEALER._world_record(None, None, {"run": {"connection_state": None}}, USERNAME)
+    record = SEALER._world_record(None, None, {"run": {"connection_state": None}}, {}, USERNAME)
 
     assert record.kind == "none"
     assert record.name == "none"
@@ -810,7 +907,7 @@ def test_a_hosted_world_without_its_settings_is_refused_rather_than_guessed() ->
     }
 
     with pytest.raises(SEALER.Unsealable, match="does not name the world's settings"):
-        SEALER._world_record(None, None, document, USERNAME)
+        SEALER._world_record(None, None, document, {}, USERNAME)
 
 
 def test_a_dedicated_run_still_records_the_profile_and_the_world_it_generated() -> None:
@@ -818,7 +915,7 @@ def test_a_dedicated_run_still_records_the_profile_and_the_world_it_generated() 
 
     profile = load_server_profile(SERVER_PROFILE)
 
-    record = SEALER._world_record(profile, None, {}, USERNAME)
+    record = SEALER._world_record(profile, None, {}, {}, USERNAME)
 
     assert record.kind == "dedicated"
     assert record.config_digest == profile.revision
@@ -838,4 +935,39 @@ def test_a_hosted_world_whose_bytes_are_not_named_is_refused() -> None:
     }
 
     with pytest.raises(SEALER.Unsealable, match="does not name the world's bytes"):
-        SEALER._world_record(None, None, document, USERNAME)
+        SEALER._world_record(None, None, document, {}, USERNAME)
+
+
+def test_a_run_that_joined_another_runs_world_is_named_by_that_runs_document() -> None:
+    """The joining client has no snapshot of its own, and the world's identity is
+    recorded where it was measured: on the run that hosted it.
+
+    Without this a bundle for a join could only say it joined *a* world, and the
+    alternative — refusing to name one — is the escape hatch the contract closes.
+    """
+
+    record = SEALER._world_record(None, None, {"run": {}}, hosted_run(), USERNAME)
+
+    assert record.kind == "lan"
+    assert record.name == SNAPSHOT_DIGEST
+    assert record.config_digest == SETTINGS_DIGEST
+
+
+def test_a_world_run_that_recorded_no_world_is_refused_rather_than_called_none() -> None:
+    """Saying there is a world and then recording none is the same lie as before."""
+
+    with pytest.raises(SEALER.Unsealable, match="did not record a world of its own"):
+        SEALER._world_record(None, None, {"run": {}}, {"run": {}}, USERNAME)
+
+
+def test_a_run_in_its_own_world_is_not_read_as_a_join() -> None:
+    """Precedence: the snapshot on this run's own document wins.
+
+    A host that also carries a world document (it should not, but the fields are
+    independent) must still be recorded as the world it seeded, not as somebody
+    else's.
+    """
+
+    record = SEALER._world_record(None, None, hosted_run(), {"run": {}}, USERNAME)
+
+    assert record.name == SNAPSHOT_DIGEST

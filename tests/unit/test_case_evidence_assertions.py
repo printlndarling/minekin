@@ -2452,8 +2452,7 @@ def test_the_world_and_the_address_it_is_reachable_at_are_two_facts() -> None:
 
     assert unpublished.failures == (
         "core_was_told_the_world_was_published:LAN_NOT_OPENED:LAN_OPEN_FAILED",
-        "the_client_published_the_world_on_the_port_it_was_given:"
-        "PORT_MISMATCH:client=25570,core=0",
+        "the_client_published_the_world_on_the_port_it_was_given:PORT_MISMATCH:client=25570,core=0",
     )
     assert "the_run_says_which_world_it_hosted" not in str(unpublished.failures)
     assert unnamed.failures == ("the_run_says_which_world_it_hosted:NO_WORLD_SNAPSHOT_RECORDED",)
@@ -2488,9 +2487,7 @@ def test_a_visitor_that_arrived_and_left_holds() -> None:
         ),
     ],
 )
-def test_a_world_without_a_visitor_does_not_hold(
-    client_log: str, reasons: tuple[str, ...]
-) -> None:
+def test_a_world_without_a_visitor_does_not_hold(client_log: str, reasons: tuple[str, ...]) -> None:
     verdict = ASSERTER_MODULE.evaluate(join_case(), hosted_world(client_log=client_log))
 
     assert verdict.result == "FAIL"
@@ -2506,6 +2503,9 @@ def test_the_kins_own_arrival_is_not_somebody_elses() -> None:
 
     own = f"{JOINED}\n"
 
-    assert ASSERTER_MODULE.ASSERTIONS["another_kin_joined_the_world_this_run_hosted"](
-        hosted_world(client_log=own)
-    ) == "NO_OTHER_KIN_EVER_JOINED"
+    assert (
+        ASSERTER_MODULE.ASSERTIONS["another_kin_joined_the_world_this_run_hosted"](
+            hosted_world(client_log=own)
+        )
+        == "NO_OTHER_KIN_EVER_JOINED"
+    )
