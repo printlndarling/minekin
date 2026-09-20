@@ -616,6 +616,20 @@
   - **换成 `isFinishedLoading()` 并把它连同屏幕、overlay 一起打进日志之后，答案直接写在了日志里**：`bridge asked vanilla to connect to 127.0.0.1:25570 for generation 1 (finishedLoading=true, screen=class_442, overlay=class_425)`——**客户端是完全加载完的**。所以「太早」不是原因，这个猜测到此为止（改动留着：在一个还没加载完的客户端上发起连接本身是危险的，而且这次正是它把状态打了出来）。
   - **失败形状现在描述得很清楚，而且排掉了两种解释**：joiner 进 `LOGIN_NEGOTIATING`；**宿主的服务端按名字记下了来客**（`Kin2 (/127.0.0.1:42280)`）然后 `lost connection: Disconnected`；服务端没有任何拒绝记录；客户端侧的分类是「一次没有理由包的断开」。从 jar 里读到的 `ServerHandshakeNetworkHandler` 说明：**transfer 被拒**（`multiplayer.disconnect.transfers_disabled`）和**版本不符**都会**带理由**发出去——所以这两种都不是它。（而且 transfer 那条本仓库早就量过并修好了：cookie storage 传 null 而不是空对象。）
   - **下一步是把真正的理由取出来**，两条路：给一次运行开客户端 DEBUG（log4j 配置是钉住的 artifact，需要先说清怎么临时换而不动 pin），或者从 jar 里读 `ServerLoginNetworkHandler` 的登录期拒绝路径，找出一条**不发理由包**的。**不该再猜第三次**——这一轮的教训就是猜错的代价是把一整轮时间花在了一个不改变任何可观测行为的改动上。
+    "- [x] **原因找到了，而且不是猜的：vanilla 的 integrated server 自己把 online mode 打开，所以 Kin 开的世界会**认证**来客——而 P0 的客户端是离线的。**"
+    "静态读出来的：`IntegratedServer.setupServer()` 在打完 `Starting integrated minecraft server version {}` 之后立刻 `setOnlineMode(true)`（紧接着 `generateKeyPair()`，那把密钥就是给加密用的）。"
+    "于是 joiner 收到的不是「没有理由的断开」，而是**一条有理由的断开**：`bridge observed a login disconnect: Failed to log in: Invalid session`。"
+    "**每一条别的 P0 加入路径都是离线的**（受控 dedicated server 的 `online-mode` 由 profile 的 `auth_mode` 生成），所以一个离线受管理客户端根本进不去 Kin 自己开的 LAN 世界。\n"
+    "  - **修法在适配器的职责之内**：`MinecraftServer.setOnlineMode(false)` 是公开的 server 生命周期调用，正是 `bridge-host-control` 存在的那一类；它在**绑定端口之前**执行，所以不会有 joiner 在旧模式下来到。"
+    "**这是一条政策决定，值得在有了 host profile 之后回头重看**：宿主的 LAN 世界从此不认证来客——理由是 P0 整个域都是离线的（受控服务端按 profile 走，身份是离线身份），而契约明说 Microsoft 认证不是首版离线/LAN 路径的能力。\n"
+    "- [x] **于是「一个 Kin 加入另一个 Kin 开的 LAN 世界」这件事，第一次真的成了——两边各自的记录互相对上。**\n"
+    "  - **宿主侧**：`lan_publication: {phase: LAN_OPENED, port: 25570}`、世界 `kinworld`，而**它自己的服务端**记下了来客与离开：`Kin2 joined the game` →（`Kin2 was slain by Slime`）→ `Kin2 lost connection: Disconnected` + `Kin2 left the game`。\n"
+    "  - **joiner 侧**：`connection_state: PLAYABLE`、`snapshots_admitted: 1`、`entities_admitted: 18`、`events_applied: 5`，Bridge 的相位走到 `PLAY_INIT → JOIN_SEEN`，并报出 `bridge knows of 19/25/27 entity candidate(s)`。"
+    "也就是**首快照被准入、Kin 在世界里能动**——这正是 L3 要的那件事。\n"
+    "  - **这一步的教训里有一条是我自己工具的**：`Invalid session` 那行其实**早就在日志里**，只是我前面的几轮一直在读**错的 overlay**——脚本用「目录里的第一条」当 joiner 的目录，读到的是上一轮的旧目录。"
+    "把它换成「最新写入的那个」之后，证据立刻就在手边了。**下次要读某个客户端的日志，先确认读的是哪一次运行。**\n"
+    "  - **仍然没有的**：harness 还没有 `--open-lan`/`--open-lan-port` 开关（这一轮仍然是在 runner 里直接调 CLI + 一份临时脚本：第二个 Kin、拷贝出来的 store、按选定端口生成的 profile），所以 L3 还**不是一个可封存的 case**；"
+    "joiner 在这一轮里被史莱姆杀了（没人开的 Kin 会死，又一次），而「宿主用的快照必须是不动的 Kin 不会死的那种」仍然没定。\n"
 - [ ] **要真去开一次 LAN，缺的是模块而不是调用**：契约把这件事放在独立的 `bridge-host-control`（创建/加载/保存/LAN/关闭的窄 adapter），并明令 `bridge-client-core` 与观察/导航模块**不得**引用 `IntegratedServer`、`getServer()` 或 `net.minecraft.server..`——而 `bridge-host-control` 现在还不存在。所以下一步是**先把这个窄 adapter 建出来**（连同它自己的源码依赖门禁、构建产物门禁），再谈"发一条命令让它开 LAN"。**刻意不先做的**：在没有那个模块的时候从别处临时反射调用一次——那正好是契约禁止的那条路，而且量出来的东西不能代表 adapter 建好之后的形状。
 
 ## W70 之后
