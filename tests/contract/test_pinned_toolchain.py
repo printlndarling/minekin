@@ -65,8 +65,18 @@ def test_every_installed_action_verifies_the_download() -> None:
 
 
 def test_the_buf_cli_version_is_the_reviewed_one() -> None:
-    """Lint and format rules move between releases, and their output is a gate."""
+    """Lint and format rules move between releases, and their output is a gate.
+
+    The bare version is the reviewed one, and the missing `v` is the part of this
+    that was measured: the action builds its download URL as
+    `.../download/v${version}/...`, so `v1.50.0` asks GitHub for a release named
+    `vv1.50.0` and the job dies on a 404 before `buf` runs at all.
+    """
 
     pinned = [line.strip() for line in step_block("bufbuild/buf-action@") if "version:" in line]
 
-    assert pinned == ["version: v1.50.0"], pinned
+    assert pinned == ["version: 1.50.0"], pinned
+    assert not pinned[0].removeprefix("version:").strip().startswith("v"), (
+        "the buf action prefixes the version with `v` itself; a `v` here is a "
+        "request for a release whose name has two of them"
+    )

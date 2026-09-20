@@ -62,12 +62,29 @@ public final class ClientAdmissionController {
     public void handle(MinecraftClient client, BridgeIpcWorker.ClientMessage message) {}
     public void safeStop(MinecraftClient client) {}
     public void collectSnapshotWhenPlayable(MinecraftClient client) {}
+    public void tickConnect(MinecraftClient client) {}
     public void reportPendingConnectFailure() {}
     public void loginNegotiating() {}
     public void playInit() {}
     public void joinSeen() {}
     public void loginFailed() {}
     public void playEnded() {}
+}
+""",
+    # The host adapter's one implementation, stubbed because it is the one file that
+    # reads server state (`IntegratedServer`) and the whole point of `HostControl` is
+    # that nothing else does. Everything above it — the interface, the publication
+    # record and its refusal vocabulary, and the controller that decides *when* to ask
+    # — is compiled for real, so the seam is type-checked rather than assumed.
+    "org/minekin/bridge/host/IntegratedServerControl.java": """\
+package org.minekin.bridge.host;
+import net.minecraft.client.MinecraftClient;
+public final class IntegratedServerControl implements HostControl {
+    public IntegratedServerControl() {}
+    @Override public boolean isHosting(MinecraftClient client) { return false; }
+    @Override public LanPublication publish(MinecraftClient client, int requestedPort) {
+        return LanPublication.refused(LanRefusal.NOT_HOSTING);
+    }
 }
 """,
     # The phases only the client can observe. Stubbed with the real listener
@@ -214,6 +231,14 @@ ADAPTER_SOURCES = (
     ROOT / "bridge/src/main/java/org/minekin/bridge/runtime/BridgePhaseMachine.java",
     ROOT / "bridge/src/main/java/org/minekin/bridge/runtime/BoundedChannel.java",
     ROOT / "bridge/src/main/java/org/minekin/bridge/runtime/BridgeIpcWorker.java",
+    # Publishing the world a client hosts: the seam, its result vocabulary, and the
+    # controller that decides when to ask. `IntegratedServerControl` — the only
+    # implementation, and the only file allowed to read server state — is stubbed
+    # above, which is what makes the rest of this compilable without Minecraft.
+    ROOT / "bridge/src/main/java/org/minekin/bridge/host/HostControl.java",
+    ROOT / "bridge/src/main/java/org/minekin/bridge/host/LanPublication.java",
+    ROOT / "bridge/src/main/java/org/minekin/bridge/host/LanRefusal.java",
+    ROOT / "bridge/src/main/java/org/minekin/bridge/runtime/HostController.java",
     ROOT / "bridge/src/main/java/org/minekin/bridge/input/BridgeInputController.java",
     ROOT / "bridge/src/main/java/org/minekin/bridge/input/InputOwnership.java",
     ROOT / "bridge/src/main/java/org/minekin/bridge/input/InputWatchdog.java",

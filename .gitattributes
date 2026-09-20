@@ -11,3 +11,11 @@
 # `gradlew` is the same shape and is executed inside the Linux container too.
 *.sh text eol=lf
 gradlew text eol=lf
+
+# The protos are the same story with a different symptom. `buf format --diff
+# --exit-code` is a CI gate, and on a Windows checkout with `core.autocrlf=true`
+# every line of `observation.proto` reads as changed while the committed blob is
+# already formatted — so the gate looks red locally, is green in CI, and the
+# difference is nothing either of them can see. Pin the line endings so the answer
+# is the same in both places.
+*.proto text eol=lf

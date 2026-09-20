@@ -10,14 +10,6 @@ import json
 from pathlib import Path
 
 import pytest
-from session_support import (  # type: ignore[import-not-found]
-    PROFILE,
-    kin_root,
-    ready_data_root,
-    refusing_supervisor,
-    run_root,
-    stub_supervisor,
-)
 
 from minekin_core.adapters.launcher.artifacts import ArtifactStore
 from minekin_core.adapters.launcher.orphans import MARKER_NAME, Liveness, session_claims
@@ -28,6 +20,14 @@ from minekin_core.cli.session import database_for, session_overlay_path, start_s
 from minekin_core.cli.status import read_status
 from minekin_core.domain.errors import MinekinError
 from minekin_core.domain.ids import KinId
+from session_support import (  # type: ignore[import-not-found]
+    PROFILE,
+    kin_root,
+    ready_data_root,
+    refusing_supervisor,
+    run_root,
+    stub_supervisor,
+)
 
 KIN_ID = KinId("kin-01")
 

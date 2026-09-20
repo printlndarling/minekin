@@ -37,7 +37,11 @@ jobs:
           # Pinning the action pins the action, not the CLI it downloads. Lint
           # rules and format output change between Buf releases, so an unpinned
           # CLI can turn this gate red without a change to this repository.
-          version: v1.50.0
+          #
+          # No leading `v` here, and that is not a typo: the action builds the
+          # download URL as `.../download/v${version}/...`, so `v1.50.0` asked for
+          # a release named `vv1.50.0` and the job died on a 404 before `buf` ran.
+          version: 1.50.0
           # From the release's own sha256.txt. The action downloads the plain
           # `buf-Linux-x86_64`, not the tarball, so this is that entry. Every
           # other artifact this repository fetches is digest-verified; the CLI

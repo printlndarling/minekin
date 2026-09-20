@@ -54,5 +54,23 @@ extend-exclude = ["src/minekin_core/generated"]
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
 
+[tool.ruff.lint.isort]
+# Stated rather than inferred from the `src` roots above. Inference is not the same
+# answer on Windows and Linux for this repository — the same import block is `I001`
+# on one and clean on the other, measured both ways with the same ruff version — and
+# a lint gate that reads differently on the machine that writes the code and the one
+# that gates it is worse than no gate. The list is the modules this repository owns:
+# the package under `src`, and the helpers the tests and tools import by bare name.
+known-first-party = [
+    "assert_case_evidence",
+    "bridge_peer",
+    "check_case_assertions",
+    "evidence_provenance",
+    "fault_injection",
+    "fault_support",
+    "minekin_core",
+    "session_support",
+]
+
 [tool.ruff.format]
 quote-style = "double"
