@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "case_id": "HOST-010",
+  "work_package": "host-integrated",
+  "mandatory": false,
+  "inputs": [],
+  "assertion_digests": {
+    "a_lease_whose_owner_could_not_be_checked_is_not_reclaimed": "3a76369d93b5dcff2763d7c2a51f17fc77596b54f0cc791b2340ec19929bd8c2",
+    "a_lease_whose_owner_is_gone_is_reclaimed_rather_than_refused": "b9d4140e5c4fa94e8c6a5e68f0d7fd5ec693719f10b93fd630f962c28fa81cae",
+    "a_lock_file_that_cannot_be_read_is_not_a_free_lock": "055e57f7a5aa08bbd2237c408ffba52bbd35da827af6d21390a56bfb371f8c1a",
+    "a_save_open_in_another_process_is_refused": "6e49c6f17f40ab16ca840060479f9b98f875a14cbe6965575204473f48846e23",
+    "a_second_run_is_refused_while_the_first_is_alive": "850a86d9f0d8eebe790204bd91335be5c2c06d59cd565824b50353f1adbe107f"
+  },
+  "assertions": [
+    "a_second_run_is_refused_while_the_first_is_alive",
+    "a_save_open_in_another_process_is_refused",
+    "a_lease_whose_owner_is_gone_is_reclaimed_rather_than_refused",
+    "a_lease_whose_owner_could_not_be_checked_is_not_reclaimed",
+    "a_lock_file_that_cannot_be_read_is_not_a_free_lock"
+  ]
+}

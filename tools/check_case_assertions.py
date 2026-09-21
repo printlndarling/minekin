@@ -376,6 +376,31 @@ IMPLEMENTATIONS: dict[str, Implementation] = {
         "pytest",
         "tests/unit/test_hosted_store.py::test_a_save_path_outside_the_data_root_is_refused",
     ),
+    # HOST-010: the two locks one hosted world needs, and the race they settle. All
+    # five are the rule about what an observation means; the real half — two actual
+    # processes racing for one world — needs a run, so `mandatory` stays false.
+    "a_second_run_is_refused_while_the_first_is_alive": Implementation(
+        "pytest",
+        "tests/unit/test_world_locking.py::test_a_second_run_is_refused_while_the_first_is_alive",
+    ),
+    "a_save_open_in_another_process_is_refused": Implementation(
+        "pytest",
+        "tests/unit/test_world_locking.py::test_a_save_open_in_another_process_is_refused",
+    ),
+    "a_lease_whose_owner_is_gone_is_reclaimed_rather_than_refused": Implementation(
+        "pytest",
+        "tests/unit/test_world_locking.py"
+        "::test_a_lease_whose_owner_is_gone_is_reclaimed_rather_than_refused",
+    ),
+    "a_lease_whose_owner_could_not_be_checked_is_not_reclaimed": Implementation(
+        "pytest",
+        "tests/unit/test_world_locking.py"
+        "::test_a_lease_whose_owner_could_not_be_checked_is_not_reclaimed",
+    ),
+    "a_lock_file_that_cannot_be_read_is_not_a_free_lock": Implementation(
+        "pytest",
+        "tests/unit/test_world_locking.py::test_a_lock_file_that_cannot_be_read_is_not_a_free_lock",
+    ),
     # HOST-060 and HOST-070: the two clauses of the storage contract's backup
     # section that are about paths — a verified backup is not replaced, and a
     # restore writes a new copy rather than into the tree it is restoring from.
