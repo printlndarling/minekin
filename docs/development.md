@@ -32,7 +32,10 @@ uv run pytest
 uv run python tools/check_boundaries.py
 uv run python tools/check_case_assertions.py
 uv run python tools/verify_fixture_digests.py
+uv run python tools/check_workflow_pins.py
 ```
+
+`.github/workflows/` 里的每个 action 都钉在**它那个 release 指向的 commit** 上，release 号写在旁边当注释（`uses: actions/checkout@fbc6f399… # v5`）。tag 是它的所有者能移动的名字，而这个仓库对其它一切取来的东西都做摘要核验（Gradle wrapper、服务端 jar、Bridge jar、buf CLI、夹具、用例判据），action 是同一类东西——外部代码，带着本仓库的凭据运行。`check_workflow_pins.py` 拒绝没钉的，也拒绝**钉了却不说出自哪个 release 的**：一个没人能追溯回 release 的裸 SHA 是没人能复核的钉。换 pin 与换其它 pin 一样是一次评审动作——读 release 的 diff、解析 tag、一次提交里同时改 SHA 和注释。
 
 ## 复核一份封存好的证据
 

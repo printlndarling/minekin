@@ -7,6 +7,18 @@ on:
 permissions:
   contents: read
 
+# Every action is pinned to the commit its release tag pointed at, with the release
+# kept beside it as a comment. A tag can be moved — by the upstream project, or by
+# anyone who gets into it — and this repository digest-verifies everything else it
+# fetches: the Gradle wrapper, the server jar, the Bridge jar, the buf CLI, the
+# fixtures. An action is another way to run somebody else's code with this
+# repository's credentials, so it is pinned the same way.
+#
+# Renewing one is the same deliberate act as renewing any other pin here: read the
+# release's diff, resolve the tag, and change both the SHA and the comment in one
+# reviewed commit. `tools/check_workflow_pins.py` refuses a workflow that is not
+# pinned this way, and refuses a pin whose release comment is missing — a bare SHA
+# nobody can trace back to a release is a pin nobody can review.
 jobs:
   python:
     runs-on: ubuntu-latest
@@ -25,8 +37,8 @@ jobs:
       UV_PYTHON_PREFERENCE: only-managed
       UV_PYTHON: "3.12"
     steps:
-      - uses: actions/checkout@v5
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6
         with:
           enable-cache: true
       - run: uv sync --locked --dev
@@ -37,6 +49,7 @@ jobs:
       - run: uv run python tools/check_boundaries.py
       - run: uv run python tools/check_case_assertions.py
       - run: uv run python tools/verify_fixture_digests.py
+      - run: uv run python tools/check_workflow_pins.py
       - run: uv build --wheel
       - run: uv run python tools/check_wheel_boundary.py dist/*.whl
       - run: uv run minekin --help
@@ -44,8 +57,8 @@ jobs:
   protocol:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
-      - uses: bufbuild/buf-action@v1.5.0
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: bufbuild/buf-action@8c6a16e16f12ba20b6470afa9c2ba9b5ba8c97c3 # v1.5.0
         with:
           setup_only: true
           # Pinning the action pins the action, not the CLI it downloads. Lint
@@ -72,8 +85,8 @@ jobs:
   bridge-static:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6
       - name: Verify pinned Bridge scaffold without downloading Minecraft
         run: uv run --no-project python tools/check_bridge_scaffold.py
       - name: Refuse server state outside the Bridge's host adapter
