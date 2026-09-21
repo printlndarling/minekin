@@ -14,6 +14,7 @@ from minekin_core.domain.cases import (
     CaseManifest,
     CaseRegistry,
     PromotionVerdict,
+    ReJudge,
     evaluate_promotion,
     parse_case_manifest,
 )
@@ -103,9 +104,20 @@ def load_case_registry(directory: Path) -> CaseRegistry:
     return registry
 
 
-def case_evidence(verifications: Mapping[str, BundleVerification]) -> tuple[CaseEvidence, ...]:
-    """Read what each verified bundle claims, without deciding anything yet."""
+def case_evidence(
+    verifications: Mapping[str, BundleVerification],
+    re_judged: Mapping[str, ReJudge] | None = None,
+) -> tuple[CaseEvidence, ...]:
+    """Read what each verified bundle claims, without deciding anything yet.
 
+    `re_judged` is what a caller that reached these bundles' verdicts a second time
+    found. It is a parameter with no default answer of its own, because this module
+    cannot re-judge: the assertions are test-domain code and importing them here
+    would put them in the shipped package. A bundle nobody names is reported as
+    `NOT_ATTEMPTED`, which the promotion rule does not treat as agreement.
+    """
+
+    outcomes = re_judged or {}
     collected: list[CaseEvidence] = []
     for run_id, verification in sorted(verifications.items()):
         manifest = verification.manifest
@@ -117,6 +129,7 @@ def case_evidence(verifications: Mapping[str, BundleVerification]) -> tuple[Case
                 case_version=manifest.case_version,
                 verified=verification.verified,
                 passed=manifest.result is EvidenceResult.PASS,
+                re_judged=outcomes.get(run_id, ReJudge.NOT_ATTEMPTED),
             )
         )
     return tuple(collected)

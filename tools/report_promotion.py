@@ -18,6 +18,21 @@ emptier than it is. And a bundle whose read-only bits were restored is reported
 as unsealed but is not a blocker on its own: the digest is the guarantee and the
 mode is a courtesy, which is the position `evidence verify` already takes.
 
+A third thing is deliberate too, and it is the one this report does that nothing
+else can. Verifying a bundle proves its bytes did not move; it says nothing about
+whether those bytes support the verdict written over them, and a manifest rewritten
+to claim a pass — `failures` cleared, `observed` filled in from `expected`,
+`result` set to PASS, and the digest file regenerated beside it — verifies clean.
+So every bundle that verifies is re-judged here, and one whose second reading
+disagrees does not promote its package (`EVIDENCE_DISAGREES_WITH_ITS_BYTES`). This
+is the only caller that can do it: the assertions are test-domain code, which is
+why reaching a verdict again is a separate tool and not a step inside
+`minekin evidence verify`. A bundle no verdict could be reached from is reported
+with its reason rather than treated as either agreement or disagreement — it is a
+gap in the reading, not a fact about the bytes, and a bundle cannot be pushed into
+that state by editing it, because removing an artifact a manifest declares, or
+leaving one it does not, is already a verification failure.
+
 A bundle is also held to the name of the directory it sits in, and one run id
 found in two roots is refused rather than chosen between. The directory name is
 the attribution — the one address a run id alone can produce — so a manifest
@@ -38,8 +53,9 @@ import argparse
 import json
 import sys
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
+from typing import cast
 
 from minekin_core.adapters.evidence.bundle import (
     MANIFEST_NAME,
@@ -48,11 +64,25 @@ from minekin_core.adapters.evidence.bundle import (
 )
 from minekin_core.adapters.evidence.promotion import case_evidence, load_case_registry
 from minekin_core.cli.evidence import candidate_roots
-from minekin_core.domain.cases import CaseRegistry, PromotionVerdict, evaluate_promotion
+from minekin_core.domain.cases import (
+    CaseRegistry,
+    PromotionVerdict,
+    ReJudge,
+    evaluate_promotion,
+)
 from minekin_core.domain.errors import MinekinError
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 CASES = REPOSITORY_ROOT / "tests" / "fixtures" / "cases"
+
+# The re-judge lives beside this file, and this is the only report that can run it:
+# the assertions are test-domain code, so the product's own verification must not
+# import them — which is why reaching a verdict again is a separate tool and not a
+# step inside `minekin evidence verify`.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from assert_case_evidence import Unreadable  # noqa: E402
+from rejudge_evidence import Unresolvable, rejudge  # noqa: E402
 
 EXIT_PROMOTABLE = 0
 EXIT_BLOCKED = 1
@@ -61,6 +91,16 @@ EXIT_UNUSABLE = 2
 
 class Unusable(Exception):
     """The question cannot be asked of what was given."""
+
+
+def no_outcomes() -> dict[str, ReJudge]:
+    """Typed empties, so a default and a missing answer are the same shape."""
+
+    return {}
+
+
+def no_reasons() -> dict[str, str]:
+    return {}
 
 
 @dataclass(frozen=True, slots=True)
@@ -72,6 +112,14 @@ class EvidenceOnDisk:
     #: than dropped: a report that hides what it could not read is worse than one
     #: that says it could not read something.
     unreadable: tuple[str, ...]
+    #: What reaching each bundle's verdict a second time came to, and why when it
+    #: came to nothing. A digest proves the bytes did not move; it does not prove
+    #: those bytes support the verdict written over them, so a rewritten manifest
+    #: with a regenerated digest checks out. This is that second reading, done here
+    #: because this is the only place that can do it: the assertions are test-domain
+    #: code, and the product's own verification must not import them.
+    re_judged: Mapping[str, ReJudge] = field(default_factory=no_outcomes)
+    re_judge_reasons: Mapping[str, str] = field(default_factory=no_reasons)
 
     @property
     def unverified(self) -> tuple[str, ...]:
@@ -107,12 +155,17 @@ class EvidenceOnDisk:
                     "verified": item.verified,
                     "sealed": item.sealed,
                     "violations": list(item.violations),
+                    # Reported per bundle for the reason the blocks are named per
+                    # package: "this one disagreed" is only actionable if the reader
+                    # can see which one, and what it disagreed about.
+                    "re_judged": self.re_judged.get(run_id, ReJudge.NOT_ATTEMPTED).value,
+                    "re_judge_reason": self.re_judge_reasons.get(run_id, ""),
                 }
             )
         return entries
 
 
-def discover(data_root: Path) -> EvidenceOnDisk:
+def discover(data_root: Path, cases_dir: Path = CASES) -> EvidenceOnDisk:
     """Every evidence bundle under the data root, verified as it is found.
 
     One run id names one bundle, so two roots holding a directory of the same
@@ -120,11 +173,19 @@ def discover(data_root: Path) -> EvidenceOnDisk:
     run id is a UUID, and a collision means one of the two is not what it says it
     is. Keeping whichever root was walked last would attribute one run's evidence
     to another, so the question is not asked at all rather than answered wrongly.
+
+    A bundle that verified is then re-judged, here, because this is the last place
+    that can: `minekin evidence verify` deliberately cannot, and a rewritten verdict
+    with a regenerated digest passes it. A bundle that does not verify is not
+    re-judged — there are no bytes to be right or wrong about — and it is already
+    reported as a blocker for the reason it failed.
     """
 
     verifications: dict[str, BundleVerification] = {}
     unreadable: list[str] = []
     addressed: dict[str, Path] = {}
+    outcomes: dict[str, ReJudge] = {}
+    reasons: dict[str, str] = {}
     for root in candidate_roots(data_root):
         # An evidence root that is not there holds nothing: the repository's is
         # absent on a host that has only ever run sessions, and a Kin's is absent
@@ -152,7 +213,30 @@ def discover(data_root: Path) -> EvidenceOnDisk:
                 verifications[directory.name] = verify_addressed_bundle(directory)
             except MinekinError as error:
                 unreadable.append(f"{directory.name}: {error.safe_message}")
-    return EvidenceOnDisk(verifications=verifications, unreadable=tuple(sorted(unreadable)))
+                continue
+            if verifications[directory.name].verified:
+                outcome, reason = _re_judge(directory, cases_dir)
+                outcomes[directory.name] = outcome
+                if reason:
+                    reasons[directory.name] = reason
+    return EvidenceOnDisk(
+        verifications=verifications,
+        unreadable=tuple(sorted(unreadable)),
+        re_judged=outcomes,
+        re_judge_reasons=reasons,
+    )
+
+
+def _re_judge(directory: Path, cases_dir: Path) -> tuple[ReJudge, str]:
+    """Reach one verified bundle's verdict again, and say why when it cannot."""
+
+    try:
+        report = rejudge(directory, cases_dir)
+    except (Unresolvable, Unreadable) as error:
+        return ReJudge.UNJUDGED, str(error)
+    if report["disagreements"]:
+        return ReJudge.DISAGREES, "; ".join(cast(list[str], report["disagreements"]))
+    return ReJudge.AGREES, ""
 
 
 def _verdict_document(verdict: PromotionVerdict) -> dict[str, object]:
@@ -173,7 +257,7 @@ def report_work_packages(
     """
 
     packages = sorted({case.work_package for case in registry.mandatory_cases()})
-    claims = case_evidence(evidence.verifications)
+    claims = case_evidence(evidence.verifications, evidence.re_judged)
     return {
         package: _verdict_document(evaluate_promotion(registry.mandatory_cases(package), claims))
         for package in packages
@@ -192,10 +276,13 @@ def report(
     if gated is not None and not registry.mandatory_cases(gated):
         raise Unusable(f"{cases_dir} holds no mandatory case for {gated}")
 
-    evidence = discover(data_root)
+    evidence = discover(data_root, cases_dir)
     packages = report_work_packages(registry, evidence)
     overall = _verdict_document(
-        evaluate_promotion(list(registry.mandatory_cases()), case_evidence(evidence.verifications))
+        evaluate_promotion(
+            list(registry.mandatory_cases()),
+            case_evidence(evidence.verifications, evidence.re_judged),
+        )
     )
     gate = packages.get(gated, {}) if gated is not None else overall
     return {

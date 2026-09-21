@@ -53,7 +53,37 @@ class PromotionBlock(StrEnum):
     EVIDENCE_NOT_VERIFIED = "EVIDENCE_NOT_VERIFIED"
     EVIDENCE_IS_NOT_A_PASS = "EVIDENCE_IS_NOT_A_PASS"
     CASE_VERSION_MISMATCH = "CASE_VERSION_MISMATCH"
+    EVIDENCE_DISAGREES_WITH_ITS_BYTES = "EVIDENCE_DISAGREES_WITH_ITS_BYTES"
     NO_MANDATORY_CASES = "NO_MANDATORY_CASES"
+
+
+class ReJudge(StrEnum):
+    """What came of reaching a sealed bundle's verdict a second time.
+
+    A digest proves the bytes did not move. It does not prove that those bytes
+    support the verdict written over them, so a bundle whose manifest was rewritten
+    — `failures` cleared, `observed` filled in from `expected`, `result` set to PASS,
+    and the digest file regenerated — verifies clean. This is that second reading.
+
+    Only `DISAGREES` blocks, and the distinction is deliberate: it is a positive
+    finding that the bytes contradict the verdict, which is a fact about the bundle.
+    `UNJUDGED` is a fact about the reader — a bundle sealed before its inputs were
+    recorded, or one damaged in a way the assertions cannot read — and is reported
+    with its reason rather than treated as agreement. Removing the inputs from a
+    bundle does not reach this state: dropping a declared artifact, or leaving one
+    undeclared, is caught by verification, so this is not a road out of the gate.
+    """
+
+    AGREES = "AGREES"
+    DISAGREES = "DISAGREES"
+    #: Attempted and no verdict could be reached. Not the same as agreeing, and not
+    #: the same as disagreeing: the bundle is silent rather than contradicted.
+    UNJUDGED = "UNJUDGED"
+    #: Nobody asked. Stated rather than defaulted, because the producers are not
+    #: equivalent: the adapter that verifies a bundle cannot re-judge it — the
+    #: assertions are test-domain code — and the report that can says so by naming
+    #: this value per bundle.
+    NOT_ATTEMPTED = "NOT_ATTEMPTED"
 
 
 @dataclass(frozen=True, slots=True)
@@ -248,6 +278,10 @@ class CaseEvidence:
     case_version: str
     verified: bool
     passed: bool
+    #: Required, so that every producer says what it did rather than inheriting an
+    #: answer. `NOT_ATTEMPTED` is what a caller that cannot re-judge reports, and it
+    #: is why the rule below can only be enforced by a caller that can.
+    re_judged: ReJudge
 
 
 @dataclass(frozen=True, slots=True)
@@ -270,8 +304,16 @@ def evaluate_promotion(
     """Decide whether a work package may be called tested.
 
     Only mandatory cases gate. A bundle has to have verified, have recorded a
-    pass, name this case, and have been produced against this version of the case
-    definition; anything less leaves the case blocking.
+    pass, name this case, have been produced against this version of the case
+    definition, and — when the caller was able to reach its verdict a second time —
+    have that second reading agree. Anything less leaves the case blocking.
+
+    The last of those is the one this rule cannot enforce on its own: reaching a
+    verdict again needs the assertions, which are test-domain code, so a caller that
+    cannot do it reports `NOT_ATTEMPTED` and is not blocked by it. That is a real
+    limit and it is stated here rather than hidden behind a default — the report a
+    person acts on does re-judge, and `NOT_ATTEMPTED` in it would be a caller that
+    skipped a step, not a bundle that failed one.
     """
 
     mandatory = [case for case in cases if case.mandatory]
@@ -302,6 +344,9 @@ def evaluate_promotion(
                 continue
             if not item.passed:
                 blocks.add(PromotionBlock.EVIDENCE_IS_NOT_A_PASS)
+                continue
+            if item.re_judged is ReJudge.DISAGREES:
+                blocks.add(PromotionBlock.EVIDENCE_DISAGREES_WITH_ITS_BYTES)
                 continue
             satisfied = True
         if not satisfied:

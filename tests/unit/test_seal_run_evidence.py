@@ -82,6 +82,7 @@ def sealed_tool(name: str = "seal_run_evidence") -> Any:
 SEALER = sealed_tool()
 ASSERTER = sealed_tool("assert_case_evidence")
 REJUDGE = sealed_tool("rejudge_evidence")
+REPORT = sealed_tool("report_promotion")
 
 
 @pytest.fixture(autouse=True)
@@ -1424,3 +1425,54 @@ def test_a_bundle_without_the_judges_inputs_cannot_be_re_judged(
 
     with pytest.raises(ASSERTER.Unreadable, match="does not record the inputs"):
         ASSERTER.read_sealed_material(bundle)
+
+
+def test_the_promotion_report_re_judges_each_bundle_it_counts(
+    finished_run: tuple[Path, Path, Path],
+) -> None:
+    """The report is the only caller that can, so it is the one that does."""
+
+    data_root, server, document = finished_run
+    seal_it(data_root, server, document)
+
+    report = REPORT.report(data_root=data_root, cases_dir=CASE.parent, gated="W40")
+
+    bundles = cast(list[dict[str, object]], report["evidence"]["bundles"])
+    assert [item["re_judged"] for item in bundles] == ["AGREES"]
+    assert report["status"] == "promotable"
+
+
+def test_the_promotion_report_refuses_a_verdict_the_bytes_do_not_support(
+    finished_run: tuple[Path, Path, Path],
+) -> None:
+    """The point of the whole step: such a bundle must not promote a package.
+
+    The run fails — the server's log never says the Kin joined — and the manifest is
+    rewritten to claim every assertion held. The bundle verifies, so nothing before
+    the re-judge can refuse it, and `W40`'s only mandatory case is this one.
+    """
+
+    data_root, server, document = finished_run
+    (server / "server.log").write_text(
+        "[20:39:01] [Server thread/INFO]: Done (0.512s)!\n", encoding="utf-8"
+    )
+    seal_it(data_root, server, document)
+    bundle = bundle_of(data_root)
+
+    def claim_a_pass(manifest: dict[str, Any]) -> None:
+        manifest["assertions"]["failures"] = []
+        manifest["assertions"]["observed"] = manifest["assertions"]["expected"]
+        manifest["result"] = "PASS"
+
+    tamper_with_the_verdict(bundle, claim_a_pass)
+
+    report = REPORT.report(data_root=data_root, cases_dir=CASE.parent, gated="W40")
+
+    packages = cast(dict[str, dict[str, object]], report["work_packages"])
+    assert report["status"] == "blocked"
+    assert "EVIDENCE_DISAGREES_WITH_ITS_BYTES" in cast(list[str], packages["W40"]["blocks"])
+    assert packages["W40"]["blocking_cases"] == ["CORE-020"]
+    listed = cast(list[dict[str, object]], report["evidence"]["bundles"])
+    assert listed[0]["verified"] is True
+    assert listed[0]["re_judged"] == "DISAGREES"
+    assert "RESULT:" in cast(str, listed[0]["re_judge_reason"])

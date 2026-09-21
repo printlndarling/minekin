@@ -19,6 +19,7 @@ from minekin_core.domain.cases import (
     CaseRegistry,
     CaseViolation,
     PromotionBlock,
+    ReJudge,
     evaluate_promotion,
     parse_case_manifest,
 )
@@ -273,13 +274,56 @@ def evidence(
     *,
     verified: bool = True,
     passed: bool = True,
+    re_judged: ReJudge = ReJudge.AGREES,
 ) -> CaseEvidence:
     return CaseEvidence(
         case_id=case_id,
         case_version=case_version,
         verified=verified,
         passed=passed,
+        re_judged=re_judged,
     )
+
+
+def test_evidence_whose_bytes_contradict_its_verdict_does_not_promote() -> None:
+    """A digest proves the bytes did not move; it says nothing about what they mean.
+
+    A manifest rewritten to claim a pass, with the digest file regenerated beside it,
+    verifies clean — so `verified`, `passed` and the version all hold and the only
+    thing that can refuse it is reaching the verdict again from the sealed bytes.
+    """
+
+    definition = case()
+
+    verdict = evaluate_promotion(
+        [definition],
+        [evidence(case_version=definition.digest, re_judged=ReJudge.DISAGREES)],
+    )
+
+    assert not verdict.promotable
+    assert verdict.blocks == (PromotionBlock.EVIDENCE_DISAGREES_WITH_ITS_BYTES,)
+    assert verdict.blocking_cases == (definition.case_id,)
+
+
+def test_a_bundle_nobody_could_re_judge_is_not_treated_as_disagreeing() -> None:
+    """The negative control: silence is not contradiction, and it is not agreement.
+
+    `UNJUDGED` is a fact about the reader — a bundle sealed before its inputs were
+    recorded — and it is reported with its reason rather than blocking. What keeps
+    this from being a road out of the gate is that removing a bundle's inputs is
+    caught by verification, not by this: a declared artifact that is gone, or a file
+    the manifest does not declare, are both already blockers.
+    """
+
+    definition = case()
+
+    for outcome in (ReJudge.UNJUDGED, ReJudge.NOT_ATTEMPTED):
+        verdict = evaluate_promotion(
+            [definition], [evidence(case_version=definition.digest, re_judged=outcome)]
+        )
+
+        assert verdict.promotable, outcome
+        assert PromotionBlock.EVIDENCE_DISAGREES_WITH_ITS_BYTES not in verdict.blocks
 
 
 def test_every_mandatory_case_with_a_verified_pass_promotes() -> None:
