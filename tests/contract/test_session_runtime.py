@@ -734,6 +734,67 @@ def test_a_management_report_does_not_become_what_the_kin_knows(tmp_path: Path) 
     asyncio.run(scenario())
 
 
+def test_a_refused_snapshot_is_never_the_basis_for_a_lease(tmp_path: Path) -> None:
+    """The negative half of the first-snapshot gate, pinned where it can be pinned.
+
+    The contract's gate is "a first snapshot that fails grants no lease", and its
+    two halves are already measured separately: the admission filter refuses the
+    snapshot with its reasons (the test above), and the arbiter refuses input before
+    the world is playable (CORE-040's `input_was_refused_before_the_world_was_playable`,
+    measured in a real run). What this adds is the composition: with only a refused
+    snapshot, the session never reaches PLAYABLE, so the hook that presents an input
+    plan — the one that asks the arbiter for a lease — is never reached at all. The
+    run that would need the arbiter to refuse cannot be reached.
+
+    What it still cannot say is that a *real* client can hand over an identity-less
+    snapshot; there is no switch for that in the domain, which is why the item stays
+    open.
+    """
+
+    async def scenario() -> None:
+        bridge = session()
+        host = BridgeIpcHost(bridge)
+        descriptor = await host.prepare(tmp_path / "descriptor.pb")
+        machine, connections = _in_handshake()
+        exit_event = asyncio.Event()
+        peer = Peer(descriptor, bridge)
+        offered: list[bool] = []
+
+        async def client() -> None:
+            await peer.prove()
+            for phase in (
+                observation_pb2.CONNECTION_PHASE_RESOLVING,
+                observation_pb2.CONNECTION_PHASE_LOGIN_NEGOTIATING,
+                observation_pb2.CONNECTION_PHASE_PLAY_INIT,
+                observation_pb2.CONNECTION_PHASE_JOIN_SEEN,
+            ):
+                await peer.report(phase)
+                await _wait_until(lambda: machine.state is not SessionState.CONNECTING)
+            # The only snapshot this session ever gets, and it does not describe the
+            # identity the launch recorded.
+            await peer.snapshot_without_identity(tick=1)
+            await asyncio.sleep(0.05)
+            # Seen, and not verified: the state the gate exists to keep it in.
+            assert machine.state is SessionState.JOINED_UNVERIFIED
+            exit_event.set()
+            await peer.close()
+
+        running = asyncio.create_task(client())
+        run = await _supervise(
+            host, machine, connections, exit_event=exit_event, on_playable=lambda: _note(offered)
+        )
+        await running
+
+        document = run.as_dict()
+
+        assert offered == [], "nothing asked for input, so nothing could be granted a lease"
+        assert run.snapshots_admitted == 0
+        assert run.snapshot_rejections, "the refusal is reported rather than silent"
+        assert document["actions_applied"] == 0 and document["actions_refused"] == 0
+
+    asyncio.run(scenario())
+
+
 def test_a_lan_failure_does_not_end_the_session_or_name_a_port(tmp_path: Path) -> None:
     """HOST-030's second half: being in a world and publishing it are two facts.
 
