@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://minekin.local/schemas/world-create.v1.json",
+  "title": "Minekin effective world creation profile v1",
+  "description": "The immutable, digestable profile a Kin's proposal is resolved into. Every value here is fixed by the P0 policy table in the hosted-world control boundary contract: a proposal that asks for anything else is refused, not quietly resolved to this.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "schema", "proposal_id", "bundle_id", "storage_slot", "level", "generator", "provenance", "effective_digest"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "schema": {"const": "minekin.world-create.v1"},
+    "proposal_id": {"type": "string", "minLength": 1},
+    "bundle_id": {"type": "string", "minLength": 1},
+    "storage_slot": {"type": "string", "minLength": 1},
+    "level": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["game_mode", "hardcore", "difficulty", "allow_commands", "game_rules_profile", "data_configuration"],
+      "properties": {
+        "game_mode": {"const": "survival"},
+        "hardcore": {"const": false},
+        "difficulty": {"const": "normal"},
+        "allow_commands": {"const": false},
+        "game_rules_profile": {"const": "vanilla-default-1.21.4"},
+        "data_configuration": {"const": "vanilla-stable-1.21.4"}
+      }
+    },
+    "generator": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["preset", "seed_mode", "seed_secret_ref", "generate_structures", "bonus_chest"],
+      "properties": {
+        "preset": {"const": "minecraft:normal"},
+        "seed_mode": {"const": "random"},
+        "seed_secret_ref": {"type": "null"},
+        "generate_structures": {"const": true},
+        "bonus_chest": {"const": false}
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kin_proposal_digest", "host_policy_revision", "baseline_revision"],
+      "properties": {
+        "kin_proposal_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "host_policy_revision": {"type": "string", "minLength": 1},
+        "baseline_revision": {"type": "string", "minLength": 1}
+      }
+    },
+    "effective_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  }
+}

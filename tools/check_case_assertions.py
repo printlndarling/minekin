@@ -277,6 +277,26 @@ IMPLEMENTATIONS: dict[str, Implementation] = {
     "the_server_saw_the_kin_arrive_and_never_move": _runtime(
         "the_server_saw_the_kin_arrive_and_never_move"
     ),
+    # HOSTCTL-001/010: the world-creation profile. Their subject is a pure function of
+    # a proposal and the policy, so the subject of each claim is a test — the same
+    # arrangement CORE-070 uses, and for the same reason: a client would add nothing
+    # to a claim about what a digest covers or what a refusal says.
+    "a_second_synthesis_produces_the_same_effective_profile": Implementation(
+        "pytest",
+        "tests/unit/test_world_creation.py::test_a_second_synthesis_produces_the_same_effective_profile",
+    ),
+    "the_display_name_does_not_name_the_storage_slot": Implementation(
+        "pytest",
+        "tests/unit/test_world_creation.py::test_the_display_name_does_not_name_the_storage_slot",
+    ),
+    "a_proposal_outside_the_p0_archetype_is_refused": Implementation(
+        "pytest",
+        "tests/unit/test_world_creation.py::test_a_proposal_outside_the_p0_archetype_is_refused",
+    ),
+    "the_refusal_names_what_the_proposal_asked_for": Implementation(
+        "pytest",
+        "tests/unit/test_world_creation.py::test_the_refusal_names_what_the_proposal_asked_for",
+    ),
 }
 
 

@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "proposal_id": "proposal-p0-0001",
+  "kin_id": "kin-01",
+  "reason": "wants a world that keeps going between sessions",
+  "display_name": "Kinworld",
+  "desired_style": "ordinary_survival",
+  "preferences": {"difficulty": "normal", "seed_mode": "random"},
+  "evidence_refs": ["goal:settle"]
+}

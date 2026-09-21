@@ -199,8 +199,10 @@ HOST_RECOVERY_REQUIRED
 
 ## 必测用例
 
-1. `HOSTCTL-001`：同一 Kin提案经 baseline/policy生成 canonical effective profile；重跑 digest一致，显示名不控制目录。
-2. `HOSTCTL-010`：聊天/网页要求 creative、cheats、keepInventory、固定 seed或 datapack；均不能越权修改有效档。
+1. `HOSTCTL-001`：同一 Kin提案经 baseline/policy生成 canonical effective profile；重跑 digest一致，显示名不控制目录。（2026-09-22：**这一条已定义、有实现、跑得动**。用例是 `tests/fixtures/cases/hostctl-001.json`，两条断言由 `tests/unit/test_world_creation.py` 里同名的两个测试执行——判据是纯函数，客户端加不了任何东西，这条与 CORE-070 用的是同一个安排。`mandatory` 仍是 `false`，理由见下。）
+2. `HOSTCTL-010`：聊天/网页要求 creative、cheats、keepInventory、固定 seed或 datapack；均不能越权修改有效档。（2026-09-22：**同样已定义并跑得动**，`tests/fixtures/cases/hostctl-010.json`。两条断言：越出 P0 档的提案被**拒绝**而不是被悄悄解决成另一个世界；拒绝必须点名**哪个字段、被要求的是什么**。cheats / keepInventory / datapack 走的是最强的那条路——**提案里没有这些字段**，所以它们是 `UNKNOWN_FIELD`，而不是"桥会拒绝一个值"。）
+
+**为什么这两条先做，以及为什么它们还不足以点亮这个面**：它们的主体是**纯函数**（提案 + 策略 → 可摘要的档），所以既不需要客户端也不需要容器；契约的其余用例（`HOSTCTL-020…090`）要么需要真实线程证据、要么需要 canary 服务端，而 `HOST-001…100` 一条都还没有定义。晋级规则说的是"**每一个 mandatory 用例**都有 PASS evidence"——把这两条标成 mandatory 会让 `host-integrated` 报 `promotable`，而契约要求的是整套 `HOST`/`HOSTCTL` 证据。**一个在残缺用例集上给出的"可晋级"就是一句假话**，所以它们留 `mandatory: false`：判据跑着（CI 里就绿），证据也能封（见下），但这个面**还不算有门禁**。
 3. `HOSTCTL-020`：client thread之外调用 create/load；adapter拒绝或正确排队，并记录真实线程证据。
 4. `HOSTCTL-030`：server thread之外请求 save/open LAN；经 executor执行，client/server互不循环等待。
 5. `HOSTCTL-040`：从 server thread触发 stop；验证不会以 `waitForShutdown=true`自锁。

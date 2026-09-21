@@ -1,0 +1,28 @@
+{
+  "bundle_id": "p0-core-1.21.4",
+  "effective_digest": "a49a01135c78d4d22095ce7da6d22280e9a10bc60b5465e615934c7dcdb59afc",
+  "generator": {
+    "bonus_chest": false,
+    "generate_structures": true,
+    "preset": "minecraft:normal",
+    "seed_mode": "random",
+    "seed_secret_ref": null
+  },
+  "level": {
+    "allow_commands": false,
+    "data_configuration": "vanilla-stable-1.21.4",
+    "difficulty": "normal",
+    "game_mode": "survival",
+    "game_rules_profile": "vanilla-default-1.21.4",
+    "hardcore": false
+  },
+  "proposal_id": "proposal-p0-0001",
+  "provenance": {
+    "baseline_revision": "vanilla-default-1.21.4",
+    "host_policy_revision": "p0-host-policy.v1",
+    "kin_proposal_digest": "56ba7ae444acbf84d0fc989555a9b60b1b68deabfd1e542a214a4ae3d38ca00c"
+  },
+  "schema": "minekin.world-create.v1",
+  "schema_version": 1,
+  "storage_slot": "world-kin-01-proposal-p0-0001"
+}

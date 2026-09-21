@@ -40,6 +40,10 @@ def test_runtime_fixtures_conform_to_their_json_schemas() -> None:
         ("bundle-manifest.schema.json", "runtime-input/bundle-p0-core-1.21.4.json"),
         ("server-profile.schema.json", "runtime-input/controlled-offline-server.json"),
         ("case-manifest.schema.json", "cases/w00-contract-001.json"),
+        # The world-creation profile: the shape the P0 policy table freezes, and a
+        # profile generated from the proposal fixture beside it. The pair is what
+        # makes the schema load-bearing rather than a document about a shape.
+        ("world-create.schema.json", "runtime-input/world-create-p0.json"),
     )
     for schema_name, fixture_name in pairs:
         schema = json.loads((REPOSITORY_ROOT / "schemas" / schema_name).read_text(encoding="utf-8"))

@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "case_id": "HOSTCTL-010",
+  "work_package": "host-integrated",
+  "mandatory": false,
+  "inputs": [
+    "schemas/world-create.schema.json",
+    "tests/fixtures/runtime-input/world-create-proposal-p0.json",
+    "tests/fixtures/runtime-input/world-create-p0.json"
+  ],
+  "assertion_digests": {
+    "a_proposal_outside_the_p0_archetype_is_refused": "4f479f14b53c5247b53c271e41ced7edf2ebd6144699919328f447c7bc49ffd4",
+    "the_refusal_names_what_the_proposal_asked_for": "3c1d49e7dfbf4c4899db9b1cdab38a5d37fbf1f5279fe0ed3d8d00b875cfb41d"
+  },
+  "assertions": [
+    "a_proposal_outside_the_p0_archetype_is_refused",
+    "the_refusal_names_what_the_proposal_asked_for"
+  ]
+}

@@ -240,7 +240,10 @@ def test_recording_writes_what_the_check_then_accepts(tmp_path: Path) -> None:
     recorded = run_tool("--record", "--cases-dir", str(cases))
 
     assert recorded.returncode == 0, recorded.stderr
-    assert "recorded 16 case(s)" in recorded.stdout
+    # Not a hard-coded count: a case added to the repository is not a reason for this
+    # test to fail, and the count is the thing that changes most often.
+    expected_cases = len(list(CASES.glob("*.json")))
+    assert f"recorded {expected_cases} case(s)" in recorded.stdout
     assert run_tool("--cases-dir", str(cases)).returncode == 0
     # And recording again changes nothing, so a renew is a no-op when nothing moved.
     before = stale.read_bytes()

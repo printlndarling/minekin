@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "case_id": "HOSTCTL-001",
+  "work_package": "host-integrated",
+  "mandatory": false,
+  "inputs": [
+    "schemas/world-create.schema.json",
+    "tests/fixtures/runtime-input/world-create-proposal-p0.json",
+    "tests/fixtures/runtime-input/world-create-p0.json"
+  ],
+  "assertion_digests": {
+    "a_second_synthesis_produces_the_same_effective_profile": "0d968d03cc41155f9aecf594d9f6fbba01f2cc41f04591a5a1fd93f927188218",
+    "the_display_name_does_not_name_the_storage_slot": "7d26385d9f402e45466e32c476956db7086280e1128c910c3e52ab7b228cdbd2"
+  },
+  "assertions": [
+    "a_second_synthesis_produces_the_same_effective_profile",
+    "the_display_name_does_not_name_the_storage_slot"
+  ]
+}
