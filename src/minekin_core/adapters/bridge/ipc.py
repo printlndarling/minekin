@@ -94,6 +94,11 @@ _EVENT_TYPES: Final = {
     HOST_LIFECYCLE_TYPE: observation_pb2.HostLifecycle,
     ACTION_RESULT_TYPE: control_pb2.ActionResult,
 }
+#: The DTOs the Bridge may report, published rather than left private because it
+#: is protocol surface: `domain/information_class.py` decides what may reach the
+#: Kin's mind one message type at a time, and the test that binds the two has to
+#: be able to name this set to say "every one of these has a class".
+INBOUND_EVENT_TYPES: Final[frozenset[str]] = frozenset(_EVENT_TYPES)
 
 
 class IpcProtocolError(RuntimeError):

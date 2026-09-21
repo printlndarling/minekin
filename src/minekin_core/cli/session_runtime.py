@@ -31,6 +31,7 @@ from minekin_core.domain.connection import (
     ConnectionGenerations,
     ConnectionState,
 )
+from minekin_core.domain.information_class import admit_to_cognition
 from minekin_core.domain.session_material import RecordedSessionMaterial
 from minekin_core.domain.session_state import (
     SessionState,
@@ -90,6 +91,16 @@ class SessionRun:
     #: document beside the snapshot and not in the ledger.
     lan_publication: Mapping[str, object] | None = None
 
+    #: The class of the information this run let the Kin perceive, empty when it
+    #: perceived none. The contract's third gate says only player-equivalent
+    #: information reaches the Kin's own mind; recording the class on the document
+    #: is what makes that a fact about a run rather than a claim about the code.
+    perceived_information_class: str = ""
+    #: What was refused entry to the cognition path, by reason. A management-only
+    #: DTO being counted here is the gate working: the control side reported
+    #: something and the Kin's model of the world did not take it in.
+    cognition_refusals: Mapping[str, int] = field(default_factory=dict[str, int])
+
     def as_dict(self) -> dict[str, object]:
         return {
             "schema_version": 1,
@@ -138,6 +149,13 @@ class SessionRun:
             "lan_publication": (
                 None if self.lan_publication is None else dict(self.lan_publication)
             ),
+            # What the Kin was allowed to know, in the gate's own words, and what
+            # the gate kept out of its model of the world. Recorded rather than
+            # assumed: "only player-equivalent information reached the mind" is the
+            # kind of statement that stays true in the code and stops being true in
+            # the runs, and this is the field that would show it.
+            "perceived_information_class": self.perceived_information_class,
+            "cognition_refusals": dict(self.cognition_refusals),
         }
 
 
@@ -166,6 +184,11 @@ class _Progress:
     #: A report rather than a command's echo: it arrives when it arrives, and an
     #: attempt is answered by the outcome it ends in.
     lan_publication: Mapping[str, object] | None = None
+    #: The class of what the Kin perceived, and why anything else was kept out of
+    #: its model of the world. The gate runs on every event, so these are facts
+    #: about the run rather than about the code path that happened to be taken.
+    perceived_information_class: str = ""
+    cognition_refusals: dict[str, int] = field(default_factory=dict[str, int])
 
 
 async def supervise_session(
@@ -394,10 +417,35 @@ async def _read_events(
     while True:
         event = await host.receive_event()
         message = event.message
+        # The contract's third gate, asked before anything is done with the payload.
+        # What the Kin may know is decided by the type the sender declared and not
+        # by the shape of the bytes, because a management DTO's own bytes decode as
+        # an observation — `tests/unit/test_information_class.py` holds that pair —
+        # so a router that recognised observations by their shape would let the
+        # control side's reading of the world become the Kin's own.
+        #
+        # A refusal is counted rather than dropped. Management-only information is
+        # still handled below, because Core needs it to report on the world this Kin
+        # hosts; what the refusal records is that the Kin's model of the world did
+        # not take it in.
+        knowledge = admit_to_cognition(event.envelope.message_type)
+        if knowledge.refusal is not None:
+            reason = knowledge.refusal.value
+            progress.cognition_refusals[reason] = progress.cognition_refusals.get(reason, 0) + 1
         if isinstance(message, observation_pb2.InitialObservation):
-            await _admit_first_snapshot(
+            if not knowledge.admitted:
+                # Unreachable through the table as it stands, and kept because the
+                # table is editable: reclassifying the first snapshot must silence
+                # the Kin's perception rather than quietly feed it something else.
+                continue
+            perceived = await _admit_first_snapshot(
                 message, session, connections, progress, on_connection, recorded
             )
+            # The class is recorded only for a snapshot the filter admitted, so the
+            # document says what the Kin was actually allowed to know rather than
+            # what it was offered.
+            if perceived and knowledge.information_class is not None:
+                progress.perceived_information_class = knowledge.information_class.value
             # Once, and on the transition rather than on the state: a second
             # snapshot is not a second session starting to walk, and a hook that
             # fired per snapshot would send the command again each time.
@@ -451,7 +499,7 @@ async def _admit_first_snapshot(
     progress: _Progress,
     on_connection: Callable[[ConnectionState, str], Awaitable[None]] | None,
     recorded: RecordedSessionMaterial | None,
-) -> None:
+) -> bool:
     """Let an admitted snapshot, and not a Bridge's word, make an attempt playable.
 
     The contract puts the acceptance here: the Bridge sends the first
@@ -459,12 +507,17 @@ async def _admit_first_snapshot(
     PLAYABLE. A snapshot that is not admitted changes nothing and yields no
     entities — it is counted with its reasons rather than dropped, because "the
     Kin could not see" and "the Kin saw nothing" are different facts about a run.
+
+    Returns whether the perception filter admitted the snapshot, which is the one
+    thing the caller needs to know about what the Kin perceived. It is not the same
+    question as whether the attempt advanced: a snapshot can be admitted and still
+    not move an attempt whose generation has closed.
     """
 
     attempt = connections.active
     if attempt is None or recorded is None:
         progress.ignored += 1
-        return
+        return False
     admission = admit_first_snapshot(snapshot, generation=attempt.generation, recorded=recorded)
     # Counted either way: the filter runs whether or not the snapshot is admitted,
     # and "the Kin proposed six things and could confirm two" is evidence about
@@ -472,17 +525,18 @@ async def _admit_first_snapshot(
     progress.entities_rejected += len(admission.visible_world.rejected)
     if not admission.admitted:
         progress.snapshot_rejections.update(reason.value for reason in admission.reasons)
-        return
+        return False
     decision = accept_snapshot(connections, attempt.generation)
     if decision.disposition is not CallbackDisposition.ADVANCED or decision.current_state is None:
         progress.ignored += 1
-        return
+        return True
     progress.applied += 1
     progress.snapshots_admitted += 1
     progress.entities_admitted += len(admission.visible_world.accepted)
     advance_for_connection(session, decision)
     if on_connection is not None:
         await on_connection(decision.current_state, "")
+    return True
 
 
 def lan_publication(lifecycle: observation_pb2.HostLifecycle) -> dict[str, object] | None:
@@ -538,4 +592,6 @@ def _report(
         connection_cancelled=progress.connection_cancelled,
         connection_cancel_failed=progress.connection_cancel_failed,
         lan_publication=progress.lan_publication,
+        perceived_information_class=progress.perceived_information_class,
+        cognition_refusals=dict(progress.cognition_refusals),
     )

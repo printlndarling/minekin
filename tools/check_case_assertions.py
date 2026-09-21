@@ -308,6 +308,30 @@ IMPLEMENTATIONS: dict[str, Implementation] = {
         "pytest",
         "tests/unit/test_hosted_world.py::test_a_second_creation_in_one_epoch_is_refused",
     ),
+    # HOSTCTL-070: the third gate — only player-equivalent information reaches the
+    # Kin's own mind. Two of the four are about the class table and one is about the
+    # bytes it refuses; the fourth is the only one that goes through the real IPC
+    # loopback, because "the gate exists" and "the runtime asks it" are different
+    # claims and the case is about the second.
+    "a_management_dto_is_refused_however_observation_shaped_its_bytes_are": Implementation(
+        "pytest",
+        "tests/unit/test_information_class.py"
+        "::test_a_management_dto_is_refused_however_observation_shaped_its_bytes_are",
+    ),
+    "an_unclassified_server_side_dto_is_refused_rather_than_defaulted": Implementation(
+        "pytest",
+        "tests/unit/test_information_class.py"
+        "::test_an_unclassified_server_side_dto_is_refused_rather_than_defaulted",
+    ),
+    "every_inbound_dto_carries_exactly_one_class": Implementation(
+        "pytest",
+        "tests/unit/test_information_class.py::test_every_inbound_dto_carries_exactly_one_class",
+    ),
+    "a_management_report_does_not_become_what_the_kin_knows": Implementation(
+        "pytest",
+        "tests/contract/test_session_runtime.py"
+        "::test_a_management_report_does_not_become_what_the_kin_knows",
+    ),
     # HOSTCOMMIT-110: the three ways a world's identity is decided. Each assertion is
     # the rule the commit-recovery contract states for one observed change, and the
     # subject of all three is a pure function of a record and an observation.

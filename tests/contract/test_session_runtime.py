@@ -29,6 +29,7 @@ from minekin_core.adapters.bridge.ipc import (
     ACTION_RESULT_TYPE,
     BRIDGE_HELLO_TYPE,
     CONNECTION_LIFECYCLE_TYPE,
+    HOST_LIFECYCLE_TYPE,
     INITIAL_OBSERVATION_TYPE,
     RELEASE_ALL_INPUTS_TYPE,
     BridgeIpcHost,
@@ -191,6 +192,32 @@ class Peer:
                 envelope_pb2.CHANNEL_EVENT,
                 self.sequence,
                 lifecycle.SerializeToString(deterministic=True),
+            ),
+        )
+
+    async def report_lan(self, *, port: int) -> None:
+        """Host-control's report that the world this Kin hosts is published.
+
+        The management side's own output, produced by the side that is allowed to
+        read server truth in order to manage the world — which is why gate 3 does
+        not let it become what the Kin knows.
+        """
+
+        assert self.event_writer is not None
+        self.sequence += 1
+        await write_frame(
+            self.event_writer,
+            envelope(
+                self.bridge,
+                HOST_LIFECYCLE_TYPE,
+                envelope_pb2.CHANNEL_EVENT,
+                self.sequence,
+                observation_pb2.HostLifecycle(
+                    request_id="open-lan-1",
+                    generation=1,
+                    phase=observation_pb2.HOST_PHASE_LAN_OPENED,
+                    bound_port=port,
+                ).SerializeToString(deterministic=True),
             ),
         )
 
@@ -655,6 +682,47 @@ def test_an_action_result_is_counted_as_the_bridge_answered(tmp_path: Path) -> N
         document = run.as_dict()
         assert document["actions_applied"] == 1
         assert document["input_release_failed"] is False
+
+    asyncio.run(scenario())
+
+
+def test_a_management_report_does_not_become_what_the_kin_knows(tmp_path: Path) -> None:
+    """Gate 3, wired: the control side's output is refused the Kin's model of the world.
+
+    Both classes travel in this run, and the document says which one the Kin was
+    allowed to know. The management report is *not* dropped — Core needs it to
+    report on the world this Kin hosts, and the run keeps the port — so the claim
+    is not that nothing happened. It is that the cognition path took in only the
+    snapshot, and that what it refused was counted where a reader can see it.
+    """
+
+    async def scenario() -> None:
+        bridge = session()
+        host = BridgeIpcHost(bridge)
+        descriptor = await host.prepare(tmp_path / "descriptor.pb")
+        machine, connections = _in_handshake()
+        exit_event = asyncio.Event()
+        peer = Peer(descriptor, bridge)
+
+        async def client() -> None:
+            await _drive_to_playable(peer, machine)
+            await peer.report_lan(port=25565)
+            await asyncio.sleep(0.05)
+            exit_event.set()
+            await peer.close()
+
+        running = asyncio.create_task(client())
+        run = await _supervise(host, machine, connections, exit_event=exit_event)
+        await running
+
+        document = run.as_dict()
+
+        # What the Kin perceived: the snapshot, and nothing else.
+        assert document["perceived_information_class"] == "PLAYER_EQUIVALENT"
+        assert document["cognition_refusals"] == {"MANAGEMENT_ONLY_DTO": 1}
+        # And the report still reached the document, as a fact about the world
+        # rather than as something the Kin knows.
+        assert document["lan_publication"] == {"phase": "LAN_OPENED", "port": 25565}
 
     asyncio.run(scenario())
 

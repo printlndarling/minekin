@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "case_id": "HOSTCTL-070",
+  "work_package": "host-integrated",
+  "mandatory": false,
+  "inputs": [],
+  "assertion_digests": {
+    "a_management_dto_is_refused_however_observation_shaped_its_bytes_are": "b17556b30004343431fdb7b859e8dca31fa89313cb55a5cf85d92752b375fbf6",
+    "a_management_report_does_not_become_what_the_kin_knows": "9c6972fdb1737398788347462b0379d465dc76d354bbc5d922679b89f369894b",
+    "an_unclassified_server_side_dto_is_refused_rather_than_defaulted": "bf2c0dfec4ae1e5a11b87ef596d37524e2369360e15838b68ceed08509d483ad",
+    "every_inbound_dto_carries_exactly_one_class": "91e8bf9edb99d1ce020e6eb9b6512f71dd80715a7b1d4bdffbd2a18440a04c55"
+  },
+  "assertions": [
+    "a_management_dto_is_refused_however_observation_shaped_its_bytes_are",
+    "an_unclassified_server_side_dto_is_refused_rather_than_defaulted",
+    "every_inbound_dto_carries_exactly_one_class",
+    "a_management_report_does_not_become_what_the_kin_knows"
+  ]
+}
