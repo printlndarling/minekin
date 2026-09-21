@@ -202,7 +202,8 @@ def main(argv: list[str] | None = None) -> int:
     print(json.dumps(report, sort_keys=True, indent=2))
     print(
         f"Rejudge evidence: OK ({report['case_id']} at {report['case_version']} — these bytes "
-        "produce the verdict the bundle records)"
+        "produce the verdict the bundle records)",
+        file=sys.stderr,
     )
     return EXIT_AGREES
 

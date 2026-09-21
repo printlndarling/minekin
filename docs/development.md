@@ -44,6 +44,15 @@ uv run --no-project python tools/rejudge_evidence.py <bundle 目录>
 
 它要求三件事各查各的：bundle 自己站得住、它点名的用例仍是**封存时那一版**、以及从封存字节重判出来的判决（result / expected / observed / failures 逐项）与记录一致。退出码 0 一致、1 不一致、2 判不了（字节站不住、用例版本搬了家、或 bundle 里没有判官当时的输入）。一份被改写过的 manifest——清空 `failures`、把 `observed` 填成 `expected`、`result` 改成 `PASS`，再重新生成 `bundle.sha256`——**能**通过 `evidence verify`，这一条能拒它。
 
+把一份事件流重新过一遍会话状态机、再与它自称应当产生的投影比对：
+
+```text
+uv run --no-project python tools/replay_evidence.py --fixture tests/fixtures/replay/session-preparing.v1.json
+uv run --no-project python tools/replay_evidence.py <bundle 目录>
+```
+
+`--fixture` 是完整的检查：事件逐个核对 `payload_hash`、状态按 `domain/session_state.py` 那张冻结的迁移表折叠、结果与 fixture 自己的 `expected_projection` 相比。**bundle 那条路今天会拒绝**，而且拒绝本身就是结论：Core 的账本记的是「发生了什么」（`PlayableEstablished`、`JoinObserved`……），**不记**「会话走到了哪个状态」，所以一次真实运行的时间线里没有可折叠的东西。从事件名反推状态会是**对记录者的猜测伪装成检查**，而且 run document 已经记下了状态机真正到达的状态。等账本开始记迁移，这条路自己就会开始工作。
+
 Bridge 协议与适配器可在无 Gradle、无 Minecraft 的情况下验证。第一条只编译协议内核；第二条从 Maven Central 按 SHA-1 校验下载固定 protoc 与 javalite，再编译 W20 适配器并跑自测。两条都只要求本机 JDK：
 
 ```text
