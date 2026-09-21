@@ -10,6 +10,20 @@ permissions:
 jobs:
   python:
     runs-on: ubuntu-latest
+    env:
+      # The interpreter is part of this repository's pinned toolchain, because its
+      # SQLite is. `connect_writer` refuses a runtime outside the validated WAL
+      # safety set, and the runner's `/usr/bin/python3` links the distribution's
+      # SQLite, which is older than that set — so the suite fails on the runner for
+      # a reason that has nothing to do with the commit under test, while passing on
+      # every machine whose `uv sync` made the venv from a managed interpreter.
+      #
+      # Both halves are needed: `only-managed` says where the interpreter comes from
+      # (uv's builds carry their own SQLite; the distribution's does not), and the
+      # version says which one — 3.12, which is what `target-version` and
+      # `pythonVersion` already name for ruff and pyright.
+      UV_PYTHON_PREFERENCE: only-managed
+      UV_PYTHON: "3.12"
     steps:
       - uses: actions/checkout@v5
       - uses: astral-sh/setup-uv@v6

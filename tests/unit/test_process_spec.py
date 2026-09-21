@@ -151,13 +151,32 @@ def test_an_argument_that_really_names_the_host_minecraft_directory_is_refused()
         spec(document)
 
 
-@pytest.mark.parametrize("path", ["/etc/passwd", "../outside/game", "elsewhere/game"])
+@pytest.mark.parametrize("path", ["../outside/game", "elsewhere/game"])
 def test_an_environment_path_outside_the_reviewed_prefixes_is_refused(path: str) -> None:
     document = copy.deepcopy(plan())
     document["runtime"]["game_dir"] = path
 
     with pytest.raises(MinekinError, match=r"run-root|outside the reviewed"):
         spec(document)
+
+
+def test_an_absolute_path_is_refused_by_the_rule_that_comes_first() -> None:
+    """A game directory that is absolute, in a shape both platforms agree about.
+
+    This case used to be spelled `/etc/passwd`, which is absolute on Linux and
+    drive-relative on Windows — so the same string reached two different rules and
+    the test asserted a sentence only one platform produces. `Path.cwd()` is absolute
+    everywhere, which is what makes this the absolute-path case; a path that escapes
+    the run root without being absolute is the one above.
+    """
+
+    document = copy.deepcopy(plan())
+    document["runtime"]["game_dir"] = str(Path.cwd())
+
+    with pytest.raises(MinekinError, match="not a plan-relative path") as raised:
+        spec(document)
+
+    assert raised.value.category is ErrorCategory.CONFIG
 
 
 def test_a_relative_run_root_is_refused() -> None:
