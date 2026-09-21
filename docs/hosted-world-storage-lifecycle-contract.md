@@ -220,7 +220,7 @@ Kin是世界主人不等于全知管理员：
 
 1. `HOST-001`：全新 data root创建固定 profile世界；本地 JOIN、首保存、重启重进。
 2. `HOST-010`：同一 world双启动竞争；Supervisor/vanilla锁只允许一方。
-3. `HOST-020`：save path symlink、`..`、其他 Kin路径和越界 bind；全部拒绝。
+3. `HOST-020`：save path symlink、`..`、其他 Kin路径和越界 bind；全部拒绝。（2026-09-22：**策略那一半实现了**，`adapters/launcher/hosted_store.py`：布局（`kin/<kin_id>/hosted-worlds/<hosted_world_id>/{manifest.yaml,save/,checkpoints/,backups/}`）与准入判决都在那里，用例 `HOST-020` 六条断言，`run_repo_case.py` 跑出 `PASS`（六条全 `held`）。两处值得记下：**(一) 拒绝走的是"沿路径往上找 symlink"而不是 `Path.resolve()` 一次**——契约禁止 `createSessionWithoutSymlinkCheck`，而一个 symlink 祖先 resolve 出来的正是客户端会写进去的那个目录，两条路径在客户端看来没有区别；因此"发现 symlink"排在"canonical path 越界"之前报，**哪个原因先报本身是答案的一部分**（否则操作者会去找一个其实拼写正确的路径）。**(二) id 现在和 level name 守同一条规则，理由是量出来的**：`OpaqueId` 允许 `:`，而 Windows 上路径段里的 `:` 是盘符——`'a:b'` 接到 data root 上得到的不是 `<data>/a:b` 而是 `a:b`（**data root 整个没了**），`'C:foo'` 则变成 `foo`（两个 id 会同指一个目录）。规则与 `saves.level_name_is_usable` 共用一份，没有第二处拼写。**仍未做的是这条的另一半**：契约把 Windows/Linux 的最终挂载策略留给原型比较，所以「一个 bind 把存储挂进会话目录」这件事**还没有可测的对象**；本模块是两种策略都要用的那半——无论怎么挂，canonical path 都要留在该 `kin_id/hosted_world_id` 根内。）
 4. `HOST-030`：端口正常/占用/被防火墙阻断；本地世界与 LAN结果分开。
 5. `HOST-040`：第二个真实客户端加入、游玩、离开、host提示后关闭。
 6. `HOST-050`：保存前、保存中、保存后分别强杀 client/JVM/机器；恢复不重放动作。

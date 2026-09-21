@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "case_id": "HOST-020",
+  "work_package": "host-integrated",
+  "mandatory": false,
+  "inputs": [],
+  "assertion_digests": {
+    "a_save_path_outside_the_data_root_is_refused": "ad2d8ee5d0dd21056e28dc8f97fdcb14c20737c37934af6f23d4c71e4ecfecd0",
+    "a_symlinked_ancestor_is_refused_however_canonical_the_result_is": "1275d884dfcdb481a3c48ebc563c26534bd5d51bd5e4b814c09836797e206bb4",
+    "a_symlinked_save_directory_is_refused": "30a9659cbe1a89afd51d14bd421ac6befbcea5d2cf2808e0e2194e0d23267cf5",
+    "an_identifier_that_is_not_a_plain_directory_name_is_refused": "864333e87689047f44b8c0265a510e97ac4c61bf206256024e1b07abbb7dfc62",
+    "another_kins_area_is_refused": "4f2faca53c3fd75830f4dcfc333581e7390dbcff0b28dcb754824ccc0fa77060",
+    "the_layout_is_the_one_the_contract_fixes": "ec5c31dd19d02868663d6f1f95732ad5150a2c7e89890589ad7a0bd2ed89548b"
+  },
+  "assertions": [
+    "the_layout_is_the_one_the_contract_fixes",
+    "an_identifier_that_is_not_a_plain_directory_name_is_refused",
+    "a_symlinked_save_directory_is_refused",
+    "a_symlinked_ancestor_is_refused_however_canonical_the_result_is",
+    "another_kins_area_is_refused",
+    "a_save_path_outside_the_data_root_is_refused"
+  ]
+}

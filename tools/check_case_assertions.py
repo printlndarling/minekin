@@ -332,6 +332,38 @@ IMPLEMENTATIONS: dict[str, Implementation] = {
         "tests/contract/test_session_runtime.py"
         "::test_a_management_report_does_not_become_what_the_kin_knows",
     ),
+    # HOST-020: the save-path policy, one assertion per clause the contract names —
+    # a symlinked save path, `..`, another Kin's path, and a path that leaves the
+    # data root — plus the layout those clauses are about. The subject is a pure
+    # path rule over a real directory tree, so none of them needs a client; what the
+    # case cannot claim yet is the mounting strategy, which the contract leaves
+    # unfrozen.
+    "the_layout_is_the_one_the_contract_fixes": Implementation(
+        "pytest",
+        "tests/unit/test_hosted_store.py::test_the_layout_is_the_one_the_contract_fixes",
+    ),
+    "an_identifier_that_is_not_a_plain_directory_name_is_refused": Implementation(
+        "pytest",
+        "tests/unit/test_hosted_store.py"
+        "::test_an_identifier_that_is_not_a_plain_directory_name_is_refused",
+    ),
+    "a_symlinked_save_directory_is_refused": Implementation(
+        "pytest",
+        "tests/unit/test_hosted_store.py::test_a_symlinked_save_directory_is_refused",
+    ),
+    "a_symlinked_ancestor_is_refused_however_canonical_the_result_is": Implementation(
+        "pytest",
+        "tests/unit/test_hosted_store.py"
+        "::test_a_symlinked_ancestor_is_refused_however_canonical_the_result_is",
+    ),
+    "another_kins_area_is_refused": Implementation(
+        "pytest",
+        "tests/unit/test_hosted_store.py::test_another_kins_area_is_refused",
+    ),
+    "a_save_path_outside_the_data_root_is_refused": Implementation(
+        "pytest",
+        "tests/unit/test_hosted_store.py::test_a_save_path_outside_the_data_root_is_refused",
+    ),
     # HOSTCOMMIT-110: the three ways a world's identity is decided. Each assertion is
     # the rule the commit-recovery contract states for one observed change, and the
     # subject of all three is a pure function of a record and an observation.
