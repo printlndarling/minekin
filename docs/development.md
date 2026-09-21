@@ -95,6 +95,10 @@ cd bridge
 ./gradlew help --write-verification-metadata sha256
 ```
 
+`verification-metadata.xml` 要**同时**记下每个平台会解析到的那一套摘要，而不是「生成它的那台机器」的那一套。按平台分类的依赖今天有九个：`jtracy-1.0.29-natives-*.jar` 与八个 `lwjgl-3.3.3-natives-*.jar`，Windows 与 Linux 两套都在里面（八个 lwjgl 的摘要对着 Maven Central 公布的 SHA-1 核过，jtracy 对着 Mojang 的 1.21.4 version manifest 核过）。补录的方法是在容器里按上面第二条生成、把文件取出来比对：Gradle 是**合并**而不是重写，所以 diff 应当只有新增行——第一次补 Linux 那九条时是 +27 行、−0 行。macOS 仍缺条目：没有人在那个平台上构建过，不凭猜测补。
+
+这道门禁有一条**已知的、与代码无关的红**：Loom 给 remap 出来的依赖 jar 的每个 zip 条目盖上那次 remap 的时间戳，而元数据记的正是当时那一批字节，所以**干净检出上 `./gradlew check` 会在 `:compileJava` 失败**（报五十个 `net_fabricmc_yarn_*` 未核验），本机与容器都一样——它只可能对着生成元数据时那个 `bridge/.gradle` 缓存通过。严格模式在编译类路径就中止，所以运行时 natives 那一类问题反而看不见；想一次看全就用 `--dependency-verification=lenient`（只报不拦，构建照旧完成）。怎么处理是开发 TODO 里那条未决项。
+
 普通 CI 不下载 Minecraft 资产或启动图形客户端；真实 Fabric/Minecraft 矩阵只在受控 runner 执行并产出 evidence。
 
 ## 包边界
