@@ -105,7 +105,7 @@ cd bridge
 
 `verification-metadata.xml` 要**同时**记下每个平台会解析到的那一套摘要，而不是「生成它的那台机器」的那一套。按平台分类的依赖今天有九个：`jtracy-1.0.29-natives-*.jar` 与八个 `lwjgl-3.3.3-natives-*.jar`，Windows 与 Linux 两套都在里面（八个 lwjgl 的摘要对着 Maven Central 公布的 SHA-1 核过，jtracy 对着 Mojang 的 1.21.4 version manifest 核过）。补录的方法是在容器里按上面第二条生成、把文件取出来比对：Gradle 是**合并**而不是重写，所以 diff 应当只有新增行——第一次补 Linux 那九条时是 +27 行、−0 行。macOS 仍缺条目：没有人在那个平台上构建过，不凭猜测补。
 
-这道门禁有一条**已知的、与代码无关的红**：Loom 给 remap 出来的依赖 jar 的每个 zip 条目盖上那次 remap 的时间戳，而元数据记的正是当时那一批字节，所以**干净检出上 `./gradlew check` 会在 `:compileJava` 失败**（报五十个 `net_fabricmc_yarn_*` 未核验），本机与容器都一样——它只可能对着生成元数据时那个 `bridge/.gradle` 缓存通过。严格模式在编译类路径就中止，所以运行时 natives 那一类问题反而看不见；想一次看全就用 `--dependency-verification=lenient`（只报不拦，构建照旧完成）。怎么处理是开发 TODO 里那条未决项。
+Loom 给 remap 出来的依赖 jar 的每个 zip 条目盖上那次 remap 的时间戳，所以本地工件记下来的摘要**任何一次新构建都满足不了**——包括记下它的那台机器。这两类工件因此进了 `<trusted-artifacts>`（`net_fabricmc_yarn_.*` 与 `minecraft-merged-.*`，都是 Loom 自己合成的命名空间，没有人能在真实仓库里发布它们），而**被抓取的东西一条都没放宽**：映射、Minecraft 的 jar、Fabric API 与 loader、每个 native 照旧逐条核验，`verify-metadata` 仍是 `true`。豁免名单由 `check_bridge_scaffold.py` **逐字钉住**，加宽必须是一次有意的改动。实测：把 `bridge/.gradle` 与 `bridge/build` 挪走之后冷构建 `BUILD SUCCESSFUL`（此前同样条件下是 50 条 `failed verification`）。两个陷阱值得记住，因为都属于「看着配好了、其实什么都没验」：`<trusted-artifacts>` **必须在 `<configuration>` 里面**（放成兄弟节点时 Gradle 拒绝整个文件），而模式**默认按字面量匹配**，要当正则用必须写 `regex="true"`。想一次看全未核验项时仍然可以用 `--dependency-verification=lenient`（只报不拦）。
 
 普通 CI 不下载 Minecraft 资产或启动图形客户端；真实 Fabric/Minecraft 矩阵只在受控 runner 执行并产出 evidence。
 

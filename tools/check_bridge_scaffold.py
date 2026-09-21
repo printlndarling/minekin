@@ -3,10 +3,32 @@
 from __future__ import annotations
 
 import json
+import xml.etree.ElementTree as ElementTree
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 BRIDGE = ROOT / "bridge"
+
+#: The XML namespace Gradle's verification metadata is written in.
+VERIFICATION_NAMESPACE = "https://schema.gradle.org/dependency-verification"
+
+#: What Gradle's dependency verification is told *not* to verify, as an exact set.
+#:
+#: Loom synthesizes both namespaces and writes every zip entry in a remapped
+#: dependency jar with the time of that remap, so a recorded digest for one can
+#: never be satisfied by a fresh build — on any platform, including the machine that
+#: recorded it. A control that can only ever fail is not a control, and the honest
+#: configuration is to trust what is *built* while everything *fetched* stays
+#: verified: the mappings, the Minecraft jars, Fabric's API and loader, and every
+#: native.
+#:
+#: Checked as an exact set rather than as "at least these strings appear", because
+#: widening it trusts artifacts without verifying them and that is the change this
+#: guard exists to make visible.
+TRUSTED_ARTIFACTS: tuple[dict[str, str], ...] = (
+    {"group": "net_fabricmc_yarn_.*", "regex": "true"},
+    {"group": "net.minecraft", "name": "minecraft-merged-.*", "regex": "true"},
+)
 
 
 def require_text(path: Path, expected: tuple[str, ...]) -> None:
@@ -14,6 +36,29 @@ def require_text(path: Path, expected: tuple[str, ...]) -> None:
     missing = [item for item in expected if item not in text]
     if missing:
         raise SystemExit(f"{path.relative_to(ROOT)} is missing pins: {', '.join(missing)}")
+
+
+def check_verification_metadata() -> None:
+    """Verification stays on, and the list of things exempt from it does not grow.
+
+    Two assertions rather than one. The first is that the metadata is still a
+    *verification* metadata file: a change that relaxed both at once would leave the
+    trusted list looking unchanged while nothing was verified at all.
+    """
+
+    root = ElementTree.parse(BRIDGE / "gradle" / "verification-metadata.xml").getroot()
+    verifying = root.find(f".//{{{VERIFICATION_NAMESPACE}}}verify-metadata")
+    if verifying is None or (verifying.text or "").strip() != "true":
+        raise SystemExit("dependency verification must stay on for the Bridge build")
+
+    found = [dict(element.attrib) for element in root.iter(f"{{{VERIFICATION_NAMESPACE}}}trust")]
+    expected = [dict(entry) for entry in TRUSTED_ARTIFACTS]
+    if found != expected:
+        raise SystemExit(
+            "the exemptions from dependency verification are not the reviewed ones: "
+            f"{found!r} rather than {expected!r}; everything on this list is trusted "
+            "without being verified, so widening it is a deliberate change"
+        )
 
 
 def main() -> None:
@@ -51,6 +96,7 @@ def main() -> None:
         ),
     )
     require_text(BRIDGE / "settings-gradle.lockfile", ("empty=incomingCatalogForLibs0",))
+    check_verification_metadata()
     require_text(
         BRIDGE / "gradle" / "verification-metadata.xml",
         (

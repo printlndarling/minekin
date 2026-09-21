@@ -3,6 +3,35 @@
    <configuration>
       <verify-metadata>true</verify-metadata>
       <verify-signatures>false</verify-signatures>
+      <!--
+        Two namespaces are Loom's own rather than a repository's, and their digests
+        cannot be pinned to anything: Loom writes every zip entry in a remapped
+        dependency jar with the time of that remap, so a re-remap produces different
+        bytes for identical content. Recording digests for them does not verify
+        anything — it makes every fresh build fail, on any platform, including the
+        machine that recorded them. So they are trusted, and what stays verified is
+        what is actually fetched: the Yarn mappings, the Minecraft client and server
+        jars, Fabric's API and loader, and every native, all by digest as before.
+
+        Two details below are load-bearing, and both were measured rather than
+        assumed. This element must sit under `configuration`: as a sibling, Gradle
+        refuses the file and the build fails with a message about the metadata rather
+        than about dependencies. And the patterns are matched *literally* unless
+        `regex="true"` says otherwise — the first version used `net_fabricmc_yarn_*`,
+        which as a literal matched no group at all, so the file looked configured and
+        verified exactly what it had before.
+
+        The two scopes are Loom's own: `net_fabricmc_yarn_.*` is the prefix it
+        synthesizes from the mapping id, and `minecraft-merged-.*` is a name it
+        synthesizes from the remap inputs. Neither namespace can be published to a
+        real repository, because nobody else owns it. A pattern that could match a
+        fetched artifact would be a different change, and not one to make by widening
+        these two.
+      -->
+      <trusted-artifacts>
+         <trust group="net_fabricmc_yarn_.*" regex="true"/>
+         <trust group="net.minecraft" name="minecraft-merged-.*" regex="true"/>
+      </trusted-artifacts>
    </configuration>
    <components>
       <component group="com.fasterxml" name="oss-parent" version="43">
