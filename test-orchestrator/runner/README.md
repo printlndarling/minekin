@@ -35,12 +35,22 @@ MINEKIN_SERVER_JAR=<path> MINEKIN_DOMAIN_PROBE=Kin MINEKIN_DOMAIN_SILENCE=1 \
         --hold-forward-seconds 60
 MINEKIN_SERVER_JAR=<path> MINEKIN_DOMAIN_SOAK_SECONDS=600 MINEKIN_DOMAIN_SOAK_INTERVAL=10 \
     bash test-orchestrator/runner/run.sh domain session start --profile <bundle> --server-profile <profile>
+MINEKIN_SERVER_JAR=<path> MINEKIN_DOMAIN_RESOURCE_PACK=1     bash test-orchestrator/runner/run.sh domain session start --profile <bundle> --server-profile <profile>
 MINEKIN_SERVER_JAR=<path> MINEKIN_DOMAIN_ONLINE_MODE=true \
     bash test-orchestrator/runner/run.sh domain session start --profile <bundle> --server-profile <profile>
 MINEKIN_SERVER_JAR=<path> MINEKIN_DOMAIN_NO_SERVER=1 \
     bash test-orchestrator/runner/run.sh domain session start --profile <bundle> --server-profile <profile>
 bash test-orchestrator/runner/run.sh --shell 'glxinfo -B'   # or any other command
 ```
+
+### A server that requires a pack, and a client that refuses one
+
+`MINEKIN_DOMAIN_RESOURCE_PACK=1` builds a resource pack, serves it on loopback, and
+tells the server to require it — while the profile's `resource_pack_policy` is `deny`.
+The pack is built rather than checked in, and built with fixed timestamps, because the
+URL handed to the server carries its sha1: a pack rebuilt from the clock would be a
+different scenario every run. A server that required a pack nobody could fetch would
+be a different case again, so the harness serves it itself, one path and nothing else.
 
 ### A server that requires sessions, and a client that does not
 

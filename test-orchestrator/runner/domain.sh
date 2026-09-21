@@ -80,6 +80,11 @@ not_whitelisted="${MINEKIN_DOMAIN_NOT_WHITELISTED:-}"
 # the profile's auth_mode, so no other run can produce this, and the case exists to
 # watch the refusal be classified as AUTH_MODE_MISMATCH rather than worked around.
 online_mode="${MINEKIN_DOMAIN_ONLINE_MODE:-}"
+# A server that requires a resource pack while the profile's policy is to refuse one.
+# The pack is built and served by the harness itself, on loopback, and its sha1 goes
+# into the server's settings — so the refusal is the client's policy meeting the
+# server's requirement, and not a pack that could not be fetched.
+resource_pack="${MINEKIN_DOMAIN_RESOURCE_PACK:-}"
 # A block three in front of the Kin, and the server asked what state it is in. A
 # use that changes nothing is a key held at nothing, so the scene puts something
 # in front that can change and the reading is the server's own.
@@ -342,6 +347,10 @@ elif [ -n "${server_profile}" ]; then
     if [ -n "${not_whitelisted}" ]; then
         allow_args=()
     fi
+    pack_args=()
+    if [ -n "${resource_pack}" ]; then
+        pack_args=(--resource-pack)
+    fi
     online_args=()
     case "${online_mode}" in
         true) online_args=(--online-mode) ;;
@@ -358,7 +367,7 @@ elif [ -n "${server_profile}" ]; then
         --jar /server/server.jar \
         --accept-eula \
         "${allow_args[@]}" \
-        "${online_args[@]}" \
+        "${online_args[@]}"         "${pack_args[@]}" \
         "${summon_args[@]}" \
         "${probe_args[@]}" \
         "${kill_args[@]}" \

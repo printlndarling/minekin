@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
+import hashlib
 import importlib
+import io
 import json
 import signal
 import subprocess
 import sys
+import urllib.error
+import urllib.request
+import zipfile
 from pathlib import Path
 from types import ModuleType
 from typing import Protocol, cast
@@ -20,12 +25,37 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 TOOL = "tools/run_controlled_server.py"
 
 
+class _ServedPack(Protocol):
+    url: str
+    sha1: str
+
+
+class _PackServer(Protocol):
+    # Declared so the tests can construct one through the module: a protocol with no
+    # constructor would type the call as taking no arguments.
+    def __init__(self, payload: bytes) -> None: ...
+
+    @property
+    def served(self) -> _ServedPack: ...
+    def start(self) -> None: ...
+    def stop(self) -> None: ...
+
+
 class _Runner(Protocol):
     PROFILE: Path
+    RESOURCE_PACK_FORMAT: int
+    ResourcePackServer: type[_PackServer]
 
     def properties_for(
-        self, profile: ServerProfile, *, level_seed: str, online_mode: bool | None = None
+        self,
+        profile: ServerProfile,
+        *,
+        level_seed: str,
+        online_mode: bool | None = None,
+        resource_pack: _ServedPack | None = None,
     ) -> dict[str, str]: ...
+
+    def resource_pack_zip(self) -> bytes: ...
 
     def write_configuration(
         self,
@@ -77,6 +107,83 @@ def test_server_properties_are_private_vanilla_survival() -> None:
     # A domain exists to be connected to, and vanilla's default of 60 seconds
     # pauses it while it waits — a paused server stops processing connections.
     assert properties["pause-when-empty-seconds"] == "0"
+
+
+def test_the_served_pack_is_the_same_bytes_every_time() -> None:
+    """Two runs must be one scenario.
+
+    The URL handed to the server carries the pack's SHA-1, so a pack built with the
+    time of the build would make every run a slightly different one, and the digest
+    the client is asked to verify would move with the clock. That is the lesson the
+    Bridge jar already taught about zip entries.
+    """
+
+    first = RUNNER.resource_pack_zip()
+    second = RUNNER.resource_pack_zip()
+
+    assert first == second
+    # And the property that makes it true, rather than the symptom: two builds in the
+    # same second are equal even when the timestamp is "now", so equality alone would
+    # pass a pack that moved with the clock between two runs a second apart.
+    with zipfile.ZipFile(io.BytesIO(first)) as archive:
+        assert [entry.date_time for entry in archive.infolist()] == [(1980, 1, 1, 0, 0, 0)]
+
+
+def test_the_served_pack_is_one_a_client_can_read() -> None:
+    """A pack a client cannot parse would be refused for the wrong reason."""
+
+    with zipfile.ZipFile(io.BytesIO(RUNNER.resource_pack_zip())) as archive:
+        assert archive.namelist() == ["pack.mcmeta"]
+        document = json.loads(archive.read("pack.mcmeta"))
+
+    assert document["pack"]["pack_format"] == RUNNER.RESOURCE_PACK_FORMAT
+
+
+def test_the_pack_is_served_at_one_path_and_nothing_else_is() -> None:
+    """One pack, one path: otherwise "the client fetched the pack" and "the client
+    fetched something" are the same observation, and the case cannot say which of the
+    two happened."""
+
+    server = RUNNER.ResourcePackServer(RUNNER.resource_pack_zip())
+    server.start()
+    try:
+        served = server.served
+        with urllib.request.urlopen(served.url, timeout=5) as response:
+            fetched = response.read()
+
+        assert fetched == RUNNER.resource_pack_zip()
+        assert hashlib.sha1(fetched).hexdigest() == served.sha1
+
+        with pytest.raises(urllib.error.HTTPError) as refused:
+            urllib.request.urlopen(served.url.replace("pack.zip", "other.zip"), timeout=5)
+        assert refused.value.code == 404
+    finally:
+        server.stop()
+
+
+def test_requiring_a_pack_changes_exactly_the_three_settings() -> None:
+    """The scenario is three settings, not a different server."""
+
+    profile = load_server_profile(RUNNER.PROFILE)
+    server = RUNNER.ResourcePackServer(RUNNER.resource_pack_zip())
+    server.start()
+    try:
+        served = server.served
+        without = RUNNER.properties_for(profile, level_seed="fixed-seed")
+        with_pack = RUNNER.properties_for(profile, level_seed="fixed-seed", resource_pack=served)
+    finally:
+        server.stop()
+
+    assert without["require-resource-pack"] == "false"
+    assert without["resource-pack"] == "" and without["resource-pack-sha1"] == ""
+    assert with_pack["require-resource-pack"] == "true"
+    assert with_pack["resource-pack"] == served.url
+    assert with_pack["resource-pack-sha1"] == hashlib.sha1(RUNNER.resource_pack_zip()).hexdigest()
+    assert {key for key in without if without[key] != with_pack[key]} == {
+        "require-resource-pack",
+        "resource-pack",
+        "resource-pack-sha1",
+    }
 
 
 def test_an_offline_profile_can_meet_a_server_that_requires_sessions() -> None:

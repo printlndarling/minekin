@@ -14,12 +14,17 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import io
 import json
 import re
 import signal
 import subprocess
 import sys
+import threading
 import time
+import zipfile
+from dataclasses import dataclass
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import BinaryIO
 
@@ -51,8 +56,106 @@ READY_MARKER = "Done ("
 DEFAULT_READY_TIMEOUT_S = 240.0
 
 
+#: The pack a case serves when it wants the client to *refuse* one. Built rather than
+#: checked in, and built with a fixed timestamp on every entry: the URL handed to the
+#: server carries the pack's SHA-1, so two runs that produced different bytes would be
+#: two different scenarios. That is the lesson the Bridge jar already taught — a zip
+#: written with the time of the write cannot be pinned to anything.
+RESOURCE_PACK_NAME = "minekin-domain-pack.zip"
+#: 1.21.4's resource pack format. Named rather than inlined because it moves with the
+#: Minecraft version, and the frozen baseline is one version.
+RESOURCE_PACK_FORMAT = 46
+
+
+@dataclass(frozen=True, slots=True)
+class ServedResourcePack:
+    """Where a pack is being served, and what a client should find there."""
+
+    url: str
+    sha1: str
+
+
+def resource_pack_zip() -> bytes:
+    """The smallest thing a client will accept as a resource pack."""
+
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+        entry = zipfile.ZipInfo("pack.mcmeta", date_time=(1980, 1, 1, 0, 0, 0))
+        entry.compress_type = zipfile.ZIP_DEFLATED
+        archive.writestr(
+            entry,
+            json.dumps(
+                {
+                    "pack": {
+                        "pack_format": RESOURCE_PACK_FORMAT,
+                        "description": "Minekin controlled test domain",
+                    }
+                },
+                sort_keys=True,
+            ).encode("utf-8"),
+        )
+    return buffer.getvalue()
+
+
+class ResourcePackServer:
+    """Serves one pack, on loopback, at one path, until it is stopped.
+
+    Vanilla fetches a required resource pack over HTTP, so a domain that wants a
+    client to refuse one has to serve it from somewhere. One path and one pack: a
+    server that answered any path would make "the client fetched the pack" and "the
+    client fetched something" the same observation.
+    """
+
+    def __init__(self, payload: bytes) -> None:
+        self._payload = payload
+        self._server = ThreadingHTTPServer(("127.0.0.1", 0), self._handler())
+        self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
+
+    def _handler(self) -> type[BaseHTTPRequestHandler]:
+        payload = self._payload
+
+        class Handler(BaseHTTPRequestHandler):
+            def do_GET(self) -> None:
+                if self.path != f"/{RESOURCE_PACK_NAME}":
+                    self.send_error(404)
+                    return
+                self.send_response(200)
+                self.send_header("Content-Type", "application/zip")
+                self.send_header("Content-Length", str(len(payload)))
+                self.end_headers()
+                self.wfile.write(payload)
+
+            # The base class's own signature, name and all: an override that narrowed
+            # it would not be the method http.server calls.
+            def log_message(self, format: str, *args: object) -> None:
+                # The run's log is the harness's record of the session, and a client
+                # fetching a pack it is about to refuse is not an event in it.
+                return
+
+        return Handler
+
+    @property
+    def served(self) -> ServedResourcePack:
+        port = int(self._server.server_address[1])
+        return ServedResourcePack(
+            url=f"http://127.0.0.1:{port}/{RESOURCE_PACK_NAME}",
+            sha1=hashlib.sha1(self._payload).hexdigest(),
+        )
+
+    def start(self) -> None:
+        self._thread.start()
+
+    def stop(self) -> None:
+        self._server.shutdown()
+        self._server.server_close()
+
+
 def properties_for(
-    profile: object, *, level_seed: str, online_mode: bool | None = None
+    profile: object,
+    *,
+    level_seed: str,
+    online_mode: bool | None = None,
+    resource_pack: ServedResourcePack | None = None,
 ) -> dict[str, str]:
     """The server settings the frozen profile implies, plus one refusal to imply.
 
@@ -74,6 +177,12 @@ def properties_for(
         "online-mode": (
             derived_online_mode if online_mode is None else ("true" if online_mode else "false")
         ),
+        # A pack the client is required to have, served by this harness for the case
+        # where the profile's policy is to refuse one. Empty when nothing is served,
+        # which is what every other run has.
+        "require-resource-pack": "true" if resource_pack is not None else "false",
+        "resource-pack": "" if resource_pack is None else resource_pack.url,
+        "resource-pack-sha1": "" if resource_pack is None else resource_pack.sha1,
         "server-ip": profile.host,
         "server-port": str(profile.port),
         "gamemode": "survival",
@@ -482,6 +591,15 @@ def main() -> int:
         help="how often the position probe is asked (default 5)",
     )
     parser.add_argument(
+        "--resource-pack",
+        action="store_true",
+        help=(
+            "serve a resource pack and require it, so a client whose profile policy is "
+            "to refuse one is refused by the server; the pack is built here and served "
+            "on loopback, and its sha1 goes into the server's settings"
+        ),
+    )
+    parser.add_argument(
         "--online-mode",
         action=argparse.BooleanOptionalAction,
         default=None,
@@ -523,7 +641,17 @@ def main() -> int:
     from minekin_core.config import java_executable
 
     profile = load_server_profile(PROFILE)
-    properties = properties_for(profile, level_seed=FIXED_WORLD_SEED, online_mode=args.online_mode)
+    profile = load_server_profile(PROFILE)
+    pack_server: ResourcePackServer | None = None
+    if args.resource_pack:
+        pack_server = ResourcePackServer(resource_pack_zip())
+        pack_server.start()
+    properties = properties_for(
+        profile,
+        level_seed=FIXED_WORLD_SEED,
+        online_mode=args.online_mode,
+        resource_pack=None if pack_server is None else pack_server.served,
+    )
     verify_jar(args.jar)
     write_configuration(
         args.directory,
@@ -691,6 +819,8 @@ def main() -> int:
                 return process.returncode
         finally:
             stop(process)
+            if pack_server is not None:
+                pack_server.stop()
 
     print(f"Controlled server: OK (ready, then stopped; {log} holds the run)")
     return 0
