@@ -32,6 +32,7 @@ import sys
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Final
 
 from minekin_core.adapters.evidence.promotion import load_case_registry
 from minekin_core.domain.cases import CaseManifest
@@ -80,7 +81,7 @@ class Implementation:
     def missing_reason(self, root: Path) -> str | None:
         """Why this implementation cannot be found, or None when it is there."""
 
-        if self.kind not in {"tool", "pytest"}:
+        if self.kind not in IMPLEMENTATION_KINDS:
             return f"unknown implementation kind {self.kind!r}"
         file_name, _, test_name = self.target.partition("::")
         if not (root / file_name).is_file():
@@ -148,9 +149,20 @@ def recorded_digests(
 #: case declares is performed by one function in it, named after the assertion.
 RUNTIME_ASSERTER = "tools/assert_case_evidence.py"
 
+#: The kinds an implementation may have, and which judge performs each.
+#:
+#: `tool` and `pytest` are performed by `tools/run_repo_case.py`: it runs a tool's
+#: file with no arguments, or one test node. `runtime` is performed by the asserter
+#: above, against material from a run this repository has to have made, so that
+#: runner has nothing to run — and saying so is this kind's whole purpose. Before it
+#: existed, a runtime assertion was registered as a `tool`, and the runner invoked
+#: the asserter with no `--case` and no `--run`: it died on an argparse usage error
+#: and four assertions of a case that had not failed were reported as failures.
+IMPLEMENTATION_KINDS: Final[frozenset[str]] = frozenset({"tool", "pytest", "runtime"})
+
 
 def _runtime(name: str) -> Implementation:
-    return Implementation("tool", RUNTIME_ASSERTER, symbol=name)
+    return Implementation("runtime", RUNTIME_ASSERTER, symbol=name)
 
 
 # The names a case may rely on. A case naming anything else is a case whose

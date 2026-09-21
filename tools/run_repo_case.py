@@ -34,7 +34,7 @@ from typing import cast
 # `python tools/run_repo_case.py` or imported as `tools.run_repo_case`.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from check_case_assertions import IMPLEMENTATIONS, Implementation
+from check_case_assertions import IMPLEMENTATION_KINDS, IMPLEMENTATIONS, Implementation
 from minekin_core.domain.ids import RunId
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
@@ -47,6 +47,12 @@ EXIT_UNRUNNABLE = 2
 #: what went wrong, and not the whole log: an artifact carries the whole thing.
 DETAIL_LIMIT = 400
 DEFAULT_TIMEOUT_SECONDS = 900
+
+#: The kinds *this* runner performs. A `runtime` assertion is performed by the
+#: run-material asserter against a sealed bundle, so there is no command here that
+#: would check it and nothing to run: it is reported as not performed rather than
+#: failed, which is what keeps a case's verdict honest at both ends.
+PERFORMABLE_KINDS = IMPLEMENTATION_KINDS - {"runtime"}
 
 
 class Unrunnable(Exception):
@@ -91,6 +97,12 @@ class RepoVerdict:
     #: the bundle is sealed at the address that name gives.
     run_id: str
     checks: tuple[CheckOutcome, ...]
+    #: Assertions this *runner* did not perform: names nothing implements, targets
+    #: that are not there, and assertions another judge performs. The `runtime` kind
+    #: is the third of those — it needs a finished run's material — and the word is
+    #: about this judge rather than about the repository, which is the meaning the
+    #: evidence asserter already gives it. It is what makes the verdict INCOMPLETE
+    #: instead of failed.
     unimplemented: tuple[str, ...]
 
     @property
@@ -139,6 +151,11 @@ def command_for(
 ) -> tuple[str, ...]:
     """The command that performs one registered assertion."""
 
+    if implementation.kind not in PERFORMABLE_KINDS:
+        raise Unrunnable(
+            f"a {implementation.kind} assertion is not performed by this runner: "
+            f"{implementation.target} needs the material it judges"
+        )
     if implementation.kind == "tool":
         return (python, str(root / implementation.target))
     file_name, _, test_name = implementation.target.partition("::")
@@ -251,6 +268,16 @@ def run_case(
     for name in declared_assertions(case):
         implementation = registry.get(name)
         if implementation is None:
+            unimplemented.append(name)
+            continue
+        if implementation.kind not in PERFORMABLE_KINDS:
+            # This case is judged by another judge. Reporting it as unimplemented is
+            # the shared vocabulary for "this one could not check it" — the same word
+            # the asserter uses for an assertion it has no function for — and it makes
+            # the verdict INCOMPLETE, which is what a case nobody here can judge
+            # should say. Before this kind existed the asserter was invoked with the
+            # arguments it needs missing, and four assertions that had not failed
+            # were reported as failures.
             unimplemented.append(name)
             continue
         missing = implementation.missing_reason(root)

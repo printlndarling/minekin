@@ -21,6 +21,8 @@ import pytest
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 TOOL = REPOSITORY_ROOT / "tools" / "run_repo_case.py"
 REVIEWED_CASE = REPOSITORY_ROOT / "tests" / "fixtures" / "cases" / "w00-contract-001.json"
+#: A case whose assertions are the run-material asserter's, not this runner's.
+RUNTIME_CASE = REPOSITORY_ROOT / "tests" / "fixtures" / "cases" / "host-030.json"
 
 
 def load_tool() -> ModuleType:
@@ -93,6 +95,39 @@ def test_an_assertion_nothing_implements_is_not_a_failure(root: Path) -> None:
     assert verdict.unimplemented == ("nobody",)
     assert verdict.failures == ("nobody:NO_IMPLEMENTATION",)
     assert verdict.observed == ("ok",)
+
+
+def test_an_assertion_another_judge_performs_is_not_run_here(root: Path) -> None:
+    """A runtime assertion has no command here: it needs a finished run's material.
+
+    Reported as unimplemented rather than failed, which is the difference between
+    "this runner cannot judge this case" and "this case is broken". The registry
+    says which judge performs it; before the kind existed, the asserter was invoked
+    with the arguments it needs missing and its usage error was reported as a
+    failure of a case that had not failed.
+    """
+
+    judges = {
+        "hosted": RUNNER.Implementation("runtime", "tools/assert_case_evidence.py", symbol="hosted")
+    }
+
+    verdict = RUNNER.run_case(case(("hosted",)), registry=judges, root=root)
+
+    assert verdict.result == "INCOMPLETE"
+    assert verdict.unimplemented == ("hosted",)
+    assert verdict.checks == (), "nothing was run, so nothing reported a failure"
+    assert verdict.failures == ("hosted:NO_IMPLEMENTATION",)
+
+
+def test_the_runner_refuses_to_build_a_command_for_another_judges_assertion(root: Path) -> None:
+    """Asking for one is an error rather than an empty command line."""
+
+    implementation = RUNNER.Implementation(
+        "runtime", "tools/assert_case_evidence.py", symbol="hosted"
+    )
+
+    with pytest.raises(RUNNER.Unrunnable, match="not performed by this runner"):
+        RUNNER.command_for(implementation, root=root)
 
 
 def test_a_target_that_is_not_there_is_not_run_at_all(root: Path) -> None:
@@ -208,4 +243,34 @@ def test_the_command_exits_by_what_it_found(root: Path) -> None:
         "fixture_digests_match_manifest",
         "runtime_input_does_not_reference_oracle",
         "product_package_does_not_import_test_orchestrator",
+    }
+
+
+def test_a_runtime_case_is_unrunnable_here_rather_than_failing() -> None:
+    """The real registry and a real case: HOST-030 is judged by the other judge.
+
+    End to end through the command line, because *which* judge performs an
+    assertion is a property of the registry rather than of the runner — a registry
+    that drifted back to calling these `tool` would invoke the asserter with no
+    `--case` and no `--run`, and this case would be reported as failed again with an
+    argparse usage error for a detail.
+    """
+
+    result = subprocess.run(
+        [sys.executable, str(TOOL), "--case", str(RUNTIME_CASE)],
+        cwd=REPOSITORY_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == RUNNER.EXIT_UNRUNNABLE, result.stderr
+    document = json.loads(result.stdout)
+    assert document["result"] == "INCOMPLETE"
+    assert document["checks"] == [], "nothing here can perform a run-material assertion"
+    assert set(cast(list[str], document["unimplemented"])) == {
+        "the_run_says_which_world_it_hosted",
+        "the_world_this_run_had_is_the_one_the_case_names",
+        "core_was_told_the_world_was_published",
+        "the_client_published_the_world_on_the_port_it_was_given",
     }
