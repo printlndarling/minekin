@@ -7,6 +7,12 @@
     "tests/fixtures/runtime-input/bundle-p0-core-1.21.4.json",
     "tests/fixtures/runtime-input/controlled-offline-server.json"
   ],
+  "assertion_digests": {
+    "client_jvm_sigkill_was_confirmed": "d6d8acfb520b492cccb6c1a7565f396d182432f1277d68e6cc16b0843eca00ad",
+    "leave_after_join_observed": "cbcb053cb0a362a6bff5e5b116bc1c002970ba91845b52741c1242549fa5c62c",
+    "move_input_was_leased": "e1ec3b7cc22434b1a0b5a0a5895ea3cec72f98d048c6abbe13edd8712f1a1747",
+    "the_ledger_recorded_the_session_ending": "641eab37defe84abed0119783aa3621cdec7eee0ec185e560fd03ea25e2e17e8"
+  },
   "assertions": [
     "move_input_was_leased",
     "client_jvm_sigkill_was_confirmed",

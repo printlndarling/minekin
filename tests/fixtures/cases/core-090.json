@@ -7,6 +7,13 @@
     "tests/fixtures/runtime-input/bundle-p0-core-1.21.4.json",
     "tests/fixtures/runtime-input/controlled-offline-server.json"
   ],
+  "assertion_digests": {
+    "first_snapshot_admitted": "720a4db1b8bfb3be911c7beb4fe3b0c405353b4569cdcb8f16b5391c56e72472",
+    "the_previous_run_left_the_kin_holding_input": "4f2a3db1a707d45e069987d52e5d6d694034bcd3689244bcefc054dabe2daf7b",
+    "the_restart_reconciled_before_it_started": "d3e555891226abd41fed9dd6dcce61492f0fb0e95d16e7506ca42427d4b006d2",
+    "the_restart_runs_as_a_new_session": "1b248b139296ca5bcfaddd288295020dbea63a6419a21f7e4d3a194ba4167e2f",
+    "the_server_saw_the_kin_arrive_and_never_move": "5e09c999ff050deee5e291ec3a6325bacfa5daf9f1e228d355cd0ef3f852afa3"
+  },
   "assertions": [
     "first_snapshot_admitted",
     "the_server_saw_the_kin_arrive_and_never_move",

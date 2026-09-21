@@ -7,6 +7,13 @@
     "tests/fixtures/runtime-input/bundle-p0-core-1.21.4.json",
     "tests/fixtures/runtime-input/controlled-offline-server.json"
   ],
+  "assertion_digests": {
+    "move_input_was_leased": "e1ec3b7cc22434b1a0b5a0a5895ea3cec72f98d048c6abbe13edd8712f1a1747",
+    "server_jvm_sigkill_was_confirmed": "489d64619af3461930045da96004203c8a9fa7085bcf4cc3cbd31e936e5368ef",
+    "the_bridge_released_input_when_play_ended": "8a21555af7918ba08d9dd5eb082b268bb7cf0429bf1cd2689c5b2870358b2216",
+    "the_ledger_recorded_world_loss": "d7cd35db98a21f7fa0a025dc8ece3548db655915f82cddc421bbcc07a3d7d05f",
+    "the_server_log_has_no_graceful_shutdown": "801c54ce64e1bb1c3b9e13428f44952d2109aad527ccd5ee365f001200ff0177"
+  },
   "assertions": [
     "move_input_was_leased",
     "server_jvm_sigkill_was_confirmed",

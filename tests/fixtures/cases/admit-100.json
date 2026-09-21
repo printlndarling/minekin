@@ -7,6 +7,11 @@
     "tests/fixtures/runtime-input/bundle-p0-core-1.21.4.json",
     "tests/fixtures/runtime-input/controlled-offline-server.json"
   ],
+  "assertion_digests": {
+    "no_world_was_joined": "ef8c58247cb73ad18aaa6cb9149d567e0d09c6be4459940026189d54059cd2db",
+    "the_bridge_classified_the_refusal": "6ddd1ab75e2daa97f4075750fd7a72c471fe99bdf7241908f9944edae9cb7890",
+    "the_refusal_was_classified_in_the_ledger": "12ea7b0d87c440ebeec5f106a1c7620a6e78f0e61e23326e8055fa7918fe485b"
+  },
   "assertions": [
     "the_refusal_was_classified_in_the_ledger",
     "the_bridge_classified_the_refusal",

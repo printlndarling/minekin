@@ -27,7 +27,7 @@ _WORK_PACKAGE = re.compile(r"^W[0-9]{2}$")
 _REQUIRED_KEYS = frozenset(
     {"schema_version", "case_id", "work_package", "mandatory", "inputs", "assertions"}
 )
-_OPTIONAL_KEYS = frozenset({"input_digests", "oracle_inputs"})
+_OPTIONAL_KEYS = frozenset({"input_digests", "assertion_digests", "oracle_inputs"})
 
 
 class CaseViolation(StrEnum):
@@ -41,6 +41,7 @@ class CaseViolation(StrEnum):
     INVALID_MANDATORY = "INVALID_MANDATORY"
     INVALID_STRING_LIST = "INVALID_STRING_LIST"
     INVALID_INPUT_DIGESTS = "INVALID_INPUT_DIGESTS"
+    INVALID_ASSERTION_DIGESTS = "INVALID_ASSERTION_DIGESTS"
     NO_ASSERTIONS = "NO_ASSERTIONS"
     NOT_AN_OBJECT = "NOT_AN_OBJECT"
 
@@ -67,6 +68,13 @@ class CaseManifest:
     assertions: tuple[str, ...]
     oracle_inputs: tuple[str, ...]
     digest: str
+    #: Assertion name -> the digest of the source that performs it, recorded by the
+    #: case rather than derived here. It sits in the manifest because the manifest is
+    #: what `digest` — the case version a bundle is checked against — is taken over:
+    #: a case version that covered only the *names* of its assertions was a version
+    #: that could mean two different checks. Empty when a case has not recorded any,
+    #: which the case-assertion gate reports rather than this parser refusing.
+    assertion_digests: tuple[tuple[str, str], ...] = ()
 
     @property
     def reads_oracle(self) -> bool:
@@ -81,6 +89,7 @@ class CaseManifest:
             "inputs": list(self.inputs),
             "input_digests": dict(self.input_digests),
             "assertions": list(self.assertions),
+            "assertion_digests": dict(self.assertion_digests),
             "oracle_inputs": list(self.oracle_inputs),
             "digest": self.digest,
         }
@@ -103,19 +112,26 @@ def _strings(document: Mapping[str, object], key: str) -> tuple[str, ...] | None
     return tuple(cast(str, item) for item in items)
 
 
-def _input_digests(document: Mapping[str, object]) -> tuple[tuple[str, str], ...] | None:
-    """Return the reviewed input pins, or None when the optional map is malformed."""
+def _digest_map(document: Mapping[str, object], key: str) -> tuple[tuple[str, str], ...] | None:
+    """Return a reviewed map of name -> digest, or None when the optional field is malformed.
 
-    value = document.get("input_digests", {})
+    One reader for both maps rather than two that agree today: `input_digests` pins the
+    bytes outside the case that it means, and `assertion_digests` pins the source that
+    performs it. They are the same shape with the same requirement — a name and a
+    lowercase sha256 — and a rule copied for the second one is a rule that is already
+    drifting from the first.
+    """
+
+    value = document.get(key, {})
     if not isinstance(value, Mapping):
         return None
     items = cast(Mapping[object, object], value)
     if not all(
-        isinstance(path, str)
-        and bool(path)
+        isinstance(name, str)
+        and bool(name)
         and isinstance(digest, str)
         and re.fullmatch(r"[0-9a-f]{64}", digest) is not None
-        for path, digest in items.items()
+        for name, digest in items.items()
     ):
         return None
     return tuple(sorted(cast(Mapping[str, str], value).items()))
@@ -152,7 +168,8 @@ def parse_case_manifest(
         found.add(CaseViolation.INVALID_MANDATORY)
 
     inputs = _strings(document, "inputs")
-    input_digests = _input_digests(document)
+    input_digests = _digest_map(document, "input_digests")
+    assertion_digests = _digest_map(document, "assertion_digests")
     assertions = _strings(document, "assertions")
     # `oracle_inputs` is optional, so absence means "reads no oracle"; only a
     # present-but-malformed value is an error.
@@ -165,6 +182,9 @@ def parse_case_manifest(
     if input_digests is None:
         found.add(CaseViolation.INVALID_INPUT_DIGESTS)
         input_digests = ()
+    if assertion_digests is None:
+        found.add(CaseViolation.INVALID_ASSERTION_DIGESTS)
+        assertion_digests = ()
     if not assertions:
         # The schema requires at least one assertion; a case that asserts nothing
         # cannot pass or fail and so cannot gate anything.
@@ -185,6 +205,7 @@ def parse_case_manifest(
             digest=hashlib.sha256(
                 json.dumps(document, sort_keys=True, separators=(",", ":")).encode()
             ).hexdigest(),
+            assertion_digests=assertion_digests,
         ),
         (),
     )

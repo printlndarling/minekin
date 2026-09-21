@@ -105,6 +105,54 @@ def test_malformed_reviewed_input_digests_are_refused(input_digests: object) -> 
     assert CaseViolation.INVALID_INPUT_DIGESTS in violations
 
 
+def test_recorded_assertion_digests_are_part_of_the_case_definition() -> None:
+    """The whole point of recording them: the case version has to cover the criteria.
+
+    A version that moved only when the list of assertion *names* changed is a version
+    that can name two different checks, which is how a bundle sealed under one gets
+    promoted as evidence for the other.
+    """
+
+    recorded = {"stayed_observe_only": "b" * 64}
+    parsed = case(assertion_digests=recorded)
+
+    assert parsed.assertion_digests == (("stayed_observe_only", "b" * 64),)
+    assert parsed.as_document()["assertion_digests"] == recorded
+    assert parsed.digest != case().digest
+    assert parsed.digest != case(assertion_digests={"stayed_observe_only": "c" * 64}).digest
+
+
+@pytest.mark.parametrize(
+    "assertion_digests",
+    [
+        [],
+        {"": "a" * 64},
+        {"stayed_observe_only": "not-a-digest"},
+        {"stayed_observe_only": 1},
+    ],
+)
+def test_malformed_recorded_assertion_digests_are_refused(assertion_digests: object) -> None:
+    parsed, violations = parse_case_manifest(document(assertion_digests=assertion_digests))
+
+    assert parsed is None
+    assert CaseViolation.INVALID_ASSERTION_DIGESTS in violations
+
+
+def test_a_case_without_recorded_assertion_digests_still_parses() -> None:
+    """Absence is the gate's business, not the parser's.
+
+    A case that recorded nothing is refused by `check_case_assertions`, which can say
+    *what* is missing; refusing it here as a malformed manifest would report a case
+    that has simply not been recorded yet as one that is wrong.
+    """
+
+    parsed, violations = parse_case_manifest(document())
+
+    assert violations == ()
+    assert parsed is not None
+    assert parsed.assertion_digests == ()
+
+
 def test_independent_case_violations_are_reported_together() -> None:
     parsed, violations = parse_case_manifest(document(input_digests=[], assertions=[]))
 

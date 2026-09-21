@@ -11,17 +11,38 @@ because running them is the orchestrator's job and belongs with the runtime case
 that need a client. What it guarantees is that the names a case relies on point at
 something that exists, so a rename breaks this check instead of silently orphaning
 an assertion.
+
+It also pins *which* implementation each name pointed at, because a name that
+still resolves is not the same thing as the same check. That hole was found the
+way these usually are: `leave_after_join_observed` was rewritten from "Core
+reported a clean exit" to "the server's own line is what counts", and no manifest
+digest moved — one case version, two different criteria, and a bundle sealed under
+the first promoted as evidence for the second. So each case records the digest of
+the source that performs each of its assertions, inside the manifest, which is
+what makes `case_version` cover the criteria rather than only their names.
 """
 
 from __future__ import annotations
 
 import argparse
+import ast
+import hashlib
+import re
 import sys
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
+from minekin_core.adapters.evidence.promotion import load_case_registry
+from minekin_core.domain.cases import CaseManifest
+
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 CASES = REPOSITORY_ROOT / "tests" / "fixtures" / "cases"
+
+#: The field each case records those digests in. The same shape as `input_digests`,
+#: for the same reason: a case that names something outside itself says which bytes
+#: outside itself it means.
+DIGESTS_FIELD = "assertion_digests"
 
 
 @dataclass(frozen=True, slots=True)
@@ -36,25 +57,91 @@ class Implementation:
     #: registered and unperformed.
     symbol: str = ""
 
+    def source(self, root: Path) -> str | None:
+        """The reviewed text of what performs this assertion, or None when it is gone.
+
+        The whole file when the target performs one assertion and nothing narrower can
+        be named, the function otherwise. Taken verbatim, docstring included: a
+        rewording of what an assertion means is a change to the thing a case version
+        claims to cover, and a digest that skipped prose would be a digest that called
+        two different statements of the same check equal.
+        """
+
+        file_name = self.target.partition("::")[0]
+        path = root / file_name
+        if not path.is_file():
+            return None
+        text = path.read_text(encoding="utf-8")
+        symbol = self.symbol or (self.target.partition("::")[2] if self.kind == "pytest" else "")
+        if not symbol:
+            return text
+        return _function_source(text, symbol)
+
     def missing_reason(self, root: Path) -> str | None:
         """Why this implementation cannot be found, or None when it is there."""
 
-        if self.kind == "tool":
-            path = root / self.target
-            if not path.is_file():
-                return f"{self.target} does not exist"
-            if self.symbol and f"def {self.symbol}(" not in path.read_text(encoding="utf-8"):
-                return f"{self.target} has no {self.symbol}"
+        if self.kind not in {"tool", "pytest"}:
+            return f"unknown implementation kind {self.kind!r}"
+        file_name, _, test_name = self.target.partition("::")
+        if not (root / file_name).is_file():
+            return f"{file_name} does not exist"
+        if self.source(root) is None:
+            return f"{file_name} has no {self.symbol or test_name}"
+        return None
+
+
+def _function_source(text: str, symbol: str) -> str | None:
+    """One top-level function's source, from its decorators down to its last line."""
+
+    try:
+        tree = ast.parse(text)
+    except SyntaxError:
+        return None
+    for node in tree.body:
+        if not isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef) or node.name != symbol:
+            continue
+        if node.end_lineno is None:  # pragma: no cover - every parsed node has one
             return None
-        if self.kind == "pytest":
-            file_name, _, test_name = self.target.partition("::")
-            path = root / file_name
-            if not path.is_file():
-                return f"{file_name} does not exist"
-            if f"def {test_name}(" not in path.read_text(encoding="utf-8"):
-                return f"{file_name} has no {test_name}"
-            return None
-        return f"unknown implementation kind {self.kind!r}"
+        # From the first decorator rather than from `def`: a parametrisation is part
+        # of what the test covers, so it is part of what the case version names.
+        first = min([node.lineno, *(decorator.lineno for decorator in node.decorator_list)])
+        return "\n".join(text.splitlines()[first - 1 : node.end_lineno])
+    return None
+
+
+def implementation_digest(implementation: Implementation, root: Path) -> str | None:
+    """The digest a case records for one assertion's implementation.
+
+    Normalised to LF, because one function checked out on Windows and on Linux is one
+    function: hashing the bytes as they lie would make the digest answer "which
+    platform recorded this" instead of "is this the implementation that was reviewed".
+    """
+
+    source = implementation.source(root)
+    if source is None:
+        return None
+    return hashlib.sha256(source.replace("\r\n", "\n").encode("utf-8")).hexdigest()
+
+
+def recorded_digests(
+    assertions: Sequence[str], registry: Mapping[str, Implementation], root: Path
+) -> dict[str, str]:
+    """What each of these assertion names currently resolves to, by name.
+
+    A name this registry does not know, or one whose implementation cannot be read,
+    is left out rather than given a placeholder: the caller reports those separately,
+    and a placeholder in the map would be a digest that matches nothing on purpose.
+    """
+
+    found: dict[str, str] = {}
+    for name in assertions:
+        implementation = registry.get(name)
+        if implementation is None:
+            continue
+        digest = implementation_digest(implementation, root)
+        if digest is not None:
+            found[name] = digest
+    return found
 
 
 #: The tool that judges a finished run's evidence. Every assertion a *runtime*
@@ -196,19 +283,119 @@ IMPLEMENTATIONS: dict[str, Implementation] = {
 def violations(
     cases_dir: Path, *, registry: dict[str, Implementation], root: Path = REPOSITORY_ROOT
 ) -> list[str]:
-    from minekin_core.adapters.evidence.promotion import load_case_registry
-
     errors: list[str] = []
-    registry_module = load_case_registry(cases_dir)
-    for case in registry_module.cases:
+    for case in load_case_registry(cases_dir).cases:
         for assertion in case.assertions:
             if assertion not in registry:
                 errors.append(f"{case.case_id}: names an assertion nothing implements: {assertion}")
+        errors.extend(_digest_violations(case, registry, root))
     for name, implementation in sorted(registry.items()):
         reason = implementation.missing_reason(root)
         if reason is not None:
             errors.append(f"{name}: {reason}")
     return errors
+
+
+def _digest_violations(
+    case: CaseManifest, registry: Mapping[str, Implementation], root: Path
+) -> list[str]:
+    """Whether this case's version covers the implementations it says it relies on.
+
+    Every case currently resolves, so a missing map entry and a moved digest are both
+    errors rather than one being excused by the other: a case that recorded nothing is
+    a case whose version says nothing about its criteria, and that is the hole this
+    field exists to close, not a state to tolerate.
+    """
+
+    recorded = dict(case.assertion_digests)
+    current = recorded_digests(case.assertions, registry, root)
+    if len(current) != len(case.assertions):
+        # The unresolvable names are already reported by name above; a digest
+        # comparison against them would be a second report of the same thing.
+        return []
+    errors: list[str] = []
+    for name in sorted(set(recorded) - set(current)):
+        errors.append(
+            f"{case.case_id}: {DIGESTS_FIELD} carries {name}, which this case does not name — "
+            "an entry nothing asserts is an entry nobody reviewed"
+        )
+    for name in sorted(current):
+        if name not in recorded:
+            errors.append(
+                f"{case.case_id}: {DIGESTS_FIELD} has no entry for {name} — a case whose version "
+                "does not cover the implementation it names can mean two things"
+            )
+        elif recorded[name] != current[name]:
+            errors.append(
+                f"{case.case_id}: {name} is implemented by {current[name]} and recorded as "
+                f"{recorded[name]} — the criteria moved under a version that did not; "
+                "re-record with --record once the change has been reviewed"
+            )
+    return errors
+
+
+def _record(cases_dir: Path, registry: Mapping[str, Implementation], root: Path) -> int:
+    """Write each case's current implementation digests back into its manifest.
+
+    The fixtures are edited in place, one inserted key each, rather than re-rendered
+    from the parsed document: re-rendering would reflow every case in the repository
+    and bury a one-line change to the criteria inside a whole-file diff. What the
+    insertion keeps is everything the file already said, including its own spacing.
+    """
+
+    written = 0
+    for case in load_case_registry(cases_dir).cases:
+        current = recorded_digests(case.assertions, registry, root)
+        if len(current) != len(case.assertions):
+            print(
+                f"{case.case_id}: an assertion does not resolve; nothing recorded", file=sys.stderr
+            )
+            return 1
+        path = _case_path(cases_dir, case.case_id)
+        if path is None:
+            print(f"{case.case_id}: no case file to record into", file=sys.stderr)
+            return 1
+        path.write_bytes(_with_recorded_digests(path.read_bytes(), current).encode("utf-8"))
+        written += 1
+    print(f"Case assertion implementations: recorded {written} case(s)")
+    return 0
+
+
+def _case_path(cases_dir: Path, case_id: str) -> Path | None:
+    for path in sorted(cases_dir.glob("*.json")):
+        if f'"{case_id}"' in path.read_text(encoding="utf-8"):
+            return path
+    return None
+
+
+def _with_recorded_digests(raw: bytes, digests: Mapping[str, str]) -> str:
+    """The file's own text with its `assertion_digests` block replaced or inserted.
+
+    The leading whitespace is part of what is matched rather than part of what is
+    written. Writing it while matching from the quote leaves the file's own indent in
+    place and adds another, so each renew would shift the key two spaces to the right —
+    a mistake that is invisible on the first record and wrong on the second.
+    """
+
+    text = raw.decode("utf-8")
+    # The file's own convention. A block recorded with `\\n` into a CRLF file would be
+    # the one mixed-ending region in it, which is a diff nobody asked for.
+    newline = "\r\n" if "\r\n" in text else "\n"
+    existing = re.compile(
+        rf'^(?P<indent>[ \t]*)"{DIGESTS_FIELD}"\s*:\s*\{{[^}}]*\}}', re.MULTILINE | re.DOTALL
+    )
+    match = existing.search(text)
+    inserting = match is None
+    if match is None:
+        match = re.compile(r'^(?P<indent>[ \t]*)"assertions"\s*:', re.MULTILINE).search(text)
+    if match is None:
+        raise SystemExit(f"cannot find where to record {DIGESTS_FIELD}")
+    indent = match.group("indent")
+    rows = f",{newline}".join(f'{indent}  "{name}": "{digests[name]}"' for name in sorted(digests))
+    block = f'{indent}"{DIGESTS_FIELD}": {{{newline}{rows}{newline}{indent}}}'
+    if inserting:
+        return f"{text[: match.start()]}{block},{newline}{text[match.start() :]}"
+    return f"{text[: match.start()]}{block}{text[match.end() :]}"
 
 
 def main() -> int:
@@ -220,7 +407,14 @@ def main() -> int:
         default=REPOSITORY_ROOT,
         help="where the implementations are looked for; the repository by default",
     )
+    parser.add_argument(
+        "--record",
+        action="store_true",
+        help="write each case's current implementation digests into its manifest",
+    )
     args = parser.parse_args()
+    if args.record:
+        return _record(args.cases_dir, IMPLEMENTATIONS, args.root)
     errors = violations(args.cases_dir, registry=IMPLEMENTATIONS, root=args.root)
     if errors:
         print("\n".join(errors), file=sys.stderr)

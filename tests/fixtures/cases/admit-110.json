@@ -7,6 +7,11 @@
     "tests/fixtures/runtime-input/bundle-p0-core-1.21.4.json",
     "tests/fixtures/runtime-input/controlled-offline-server.json"
   ],
+  "assertion_digests": {
+    "no_world_was_joined": "ef8c58247cb73ad18aaa6cb9149d567e0d09c6be4459940026189d54059cd2db",
+    "the_attempt_was_abandoned_at_its_deadline": "dff2629ded2fac20194ea7ad6df019ba857679e1b8f80a1050b7e4717feaf141",
+    "the_cancel_reached_the_client_and_was_acted_on": "660c94655d6e91a456c8f2f45916c22fd493b30979d16f1cfaeedcd07f6aa8d7"
+  },
   "assertions": [
     "the_attempt_was_abandoned_at_its_deadline",
     "no_world_was_joined",

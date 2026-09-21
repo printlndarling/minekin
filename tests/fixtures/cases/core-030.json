@@ -10,6 +10,10 @@
   "input_digests": {
     "tests/fixtures/saves/kinworld/level.dat": "3bdd4affd45b65b90dbb7cd25ae34581b6beaf42edcf2324f63f187b5023c00c"
   },
+  "assertion_digests": {
+    "the_first_snapshot_of_the_world_it_dialled_was_admitted": "22277140a3aeff5be55930a0f18dfa6a2ecff77cb1e9b3af08da8242a1b4411f",
+    "the_world_this_run_joined_is_the_one_the_case_names": "cd08f24de3243618c1d6f14217c0932e6ab0888c945403286c9210d5148f1a47"
+  },
   "assertions": [
     "the_first_snapshot_of_the_world_it_dialled_was_admitted",
     "the_world_this_run_joined_is_the_one_the_case_names"

@@ -10,6 +10,13 @@
   "input_digests": {
     "tests/fixtures/saves/kinworld/level.dat": "3bdd4affd45b65b90dbb7cd25ae34581b6beaf42edcf2324f63f187b5023c00c"
   },
+  "assertion_digests": {
+    "another_kin_joined_the_world_this_run_hosted": "30613f33a0a7cb4ad6e77aaafcef6065c7c05a602a230b2f6afdad47c8f5d5ba",
+    "core_was_told_the_world_was_published": "9191de15a9ac6f99da60beed1216b85ead6cf7dfa7b3cfebf41bcf098c017c46",
+    "the_run_says_which_world_it_hosted": "b78fe572705dee570df401a97c4a1b05f1c222b3be4396965953e0958b9aba1c",
+    "the_world_saw_that_kin_leave_again": "f89f34c124bd4a3dc740baf2d14d424efc0bf4a78628cdbae9411e22b159dab3",
+    "the_world_this_run_had_is_the_one_the_case_names": "bfe4fd4cede580ce412d827aebdffc235a1e7a40f7264a692a9a73e19f727db2"
+  },
   "assertions": [
     "the_run_says_which_world_it_hosted",
     "the_world_this_run_had_is_the_one_the_case_names",
