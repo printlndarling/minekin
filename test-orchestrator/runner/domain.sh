@@ -75,6 +75,11 @@ black_hole="${MINEKIN_DOMAIN_BLACK_HOLE:-}"
 # failure where the client gets all the way into the login handshake and the
 # *server* is what says no.
 not_whitelisted="${MINEKIN_DOMAIN_NOT_WHITELISTED:-}"
+# A server that requires session verification while our client authenticates offline.
+# The two disagree here on purpose: the tool derives the server's online-mode from
+# the profile's auth_mode, so no other run can produce this, and the case exists to
+# watch the refusal be classified as AUTH_MODE_MISMATCH rather than worked around.
+online_mode="${MINEKIN_DOMAIN_ONLINE_MODE:-}"
 # A block three in front of the Kin, and the server asked what state it is in. A
 # use that changes nothing is a key held at nothing, so the scene puts something
 # in front that can change and the reading is the server's own.
@@ -337,11 +342,23 @@ elif [ -n "${server_profile}" ]; then
     if [ -n "${not_whitelisted}" ]; then
         allow_args=()
     fi
+    online_args=()
+    case "${online_mode}" in
+        true) online_args=(--online-mode) ;;
+        false) online_args=(--no-online-mode) ;;
+        "") ;;
+        *)
+            printf 'domain: MINEKIN_DOMAIN_ONLINE_MODE must be true or false, not %s
+'                 "${online_mode}" >&2
+            exit 2
+            ;;
+    esac
     python /src/tools/run_controlled_server.py \
         --directory "${server_directory}" \
         --jar /server/server.jar \
         --accept-eula \
         "${allow_args[@]}" \
+        "${online_args[@]}" \
         "${summon_args[@]}" \
         "${probe_args[@]}" \
         "${kill_args[@]}" \

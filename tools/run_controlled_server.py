@@ -51,14 +51,29 @@ READY_MARKER = "Done ("
 DEFAULT_READY_TIMEOUT_S = 240.0
 
 
-def properties_for(profile: object, *, level_seed: str) -> dict[str, str]:
-    """The server settings the frozen profile implies, and nothing it does not."""
+def properties_for(
+    profile: object, *, level_seed: str, online_mode: bool | None = None
+) -> dict[str, str]:
+    """The server settings the frozen profile implies, plus one refusal to imply.
+
+    `online-mode` is derived from the profile's `auth_mode`, which describes how *our*
+    client authenticates, because a controlled run wants the two to agree. The
+    override exists for the one case that needs them to disagree: an offline client
+    dialling a server that requires session verification, which the supply-chain
+    contract says must end in `AUTH_MODE_MISMATCH` and must never be worked around.
+    The switch is here rather than in the profile because the product deliberately has
+    no online-mode admission path: the point of that case is that the client cannot
+    satisfy the server, not that it should try.
+    """
 
     from minekin_core.adapters.launcher.server_profile import ServerProfile
 
     assert isinstance(profile, ServerProfile)
+    derived_online_mode = "false" if profile.auth_mode == "offline" else "true"
     return {
-        "online-mode": "false" if profile.auth_mode == "offline" else "true",
+        "online-mode": (
+            derived_online_mode if online_mode is None else ("true" if online_mode else "false")
+        ),
         "server-ip": profile.host,
         "server-port": str(profile.port),
         "gamemode": "survival",
@@ -467,6 +482,17 @@ def main() -> int:
         help="how often the position probe is asked (default 5)",
     )
     parser.add_argument(
+        "--online-mode",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help=(
+            "force the server's online-mode instead of deriving it from the profile; "
+            "a case uses this to make an offline client meet a server that requires "
+            "session verification, which must end in AUTH_MODE_MISMATCH. Omit to "
+            "derive it from the profile, as every other run does"
+        ),
+    )
+    parser.add_argument(
         "--allow-player",
         action="append",
         default=[],
@@ -497,7 +523,7 @@ def main() -> int:
     from minekin_core.config import java_executable
 
     profile = load_server_profile(PROFILE)
-    properties = properties_for(profile, level_seed=FIXED_WORLD_SEED)
+    properties = properties_for(profile, level_seed=FIXED_WORLD_SEED, online_mode=args.online_mode)
     verify_jar(args.jar)
     write_configuration(
         args.directory,

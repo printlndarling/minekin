@@ -35,10 +35,24 @@ MINEKIN_SERVER_JAR=<path> MINEKIN_DOMAIN_PROBE=Kin MINEKIN_DOMAIN_SILENCE=1 \
         --hold-forward-seconds 60
 MINEKIN_SERVER_JAR=<path> MINEKIN_DOMAIN_SOAK_SECONDS=600 MINEKIN_DOMAIN_SOAK_INTERVAL=10 \
     bash test-orchestrator/runner/run.sh domain session start --profile <bundle> --server-profile <profile>
+MINEKIN_SERVER_JAR=<path> MINEKIN_DOMAIN_ONLINE_MODE=true \
+    bash test-orchestrator/runner/run.sh domain session start --profile <bundle> --server-profile <profile>
 MINEKIN_SERVER_JAR=<path> MINEKIN_DOMAIN_NO_SERVER=1 \
     bash test-orchestrator/runner/run.sh domain session start --profile <bundle> --server-profile <profile>
 bash test-orchestrator/runner/run.sh --shell 'glxinfo -B'   # or any other command
 ```
+
+### A server that requires sessions, and a client that does not
+
+`MINEKIN_DOMAIN_ONLINE_MODE=true` starts the server with `online-mode=true` while the
+profile still authenticates offline. Every other run derives the server's
+`online-mode` from the profile's `auth_mode`, so the two always agree — which is
+exactly why this scenario needs a switch rather than a profile: the case is an offline
+identity meeting a server that demands session verification, and the contract says the
+outcome is `AUTH_MODE_MISMATCH`, recorded and not worked around. `false` is accepted
+too, and anything else stops the run rather than guessing. The product deliberately
+has no online-mode admission path, so the disagreement is created on the server the
+case starts, and only there.
 
 ## The whole domain in one container
 

@@ -23,7 +23,9 @@ TOOL = "tools/run_controlled_server.py"
 class _Runner(Protocol):
     PROFILE: Path
 
-    def properties_for(self, profile: ServerProfile, *, level_seed: str) -> dict[str, str]: ...
+    def properties_for(
+        self, profile: ServerProfile, *, level_seed: str, online_mode: bool | None = None
+    ) -> dict[str, str]: ...
 
     def write_configuration(
         self,
@@ -75,6 +77,29 @@ def test_server_properties_are_private_vanilla_survival() -> None:
     # A domain exists to be connected to, and vanilla's default of 60 seconds
     # pauses it while it waits — a paused server stops processing connections.
     assert properties["pause-when-empty-seconds"] == "0"
+
+
+def test_an_offline_profile_can_meet_a_server_that_requires_sessions() -> None:
+    """The one case where the two must disagree, and the switch that allows it.
+
+    `online-mode` is derived from the profile's `auth_mode` so that every other run
+    has the two agreeing — and that is also why no other run can produce the mismatch
+    the contract asks to be classified as `AUTH_MODE_MISMATCH`. The product
+    deliberately has no online-mode admission path, so the override belongs here, on
+    the server the case starts, rather than in anything a profile can say.
+    """
+
+    profile = load_server_profile(RUNNER.PROFILE)
+
+    derived = RUNNER.properties_for(profile, level_seed="fixed-seed")
+    forced = RUNNER.properties_for(profile, level_seed="fixed-seed", online_mode=True)
+    refused = RUNNER.properties_for(profile, level_seed="fixed-seed", online_mode=False)
+
+    assert derived["online-mode"] == "false", "this profile authenticates offline"
+    assert forced["online-mode"] == "true"
+    assert refused["online-mode"] == "false"
+    # One setting, not a different server: everything else is what the profile implies.
+    assert {key for key in derived if derived[key] != forced[key]} == {"online-mode"}
 
 
 def test_configuration_whitelists_only_named_offline_players(tmp_path: Path) -> None:
