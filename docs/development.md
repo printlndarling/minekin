@@ -35,6 +35,14 @@ uv run python tools/verify_fixture_digests.py
 uv run python tools/check_workflow_pins.py
 ```
 
+Python 侧的协议生成物是**提交进仓库**的（它们要进 wheel），所以改 `.proto` 之后必须重跑生成器；CI 会重跑一遍并 `git diff --exit-code`，用提交的字节与冻结的 schema 对账：
+
+```text
+uv run python tools/generate_protos.py --buf <buf 可执行文件>
+```
+
+两个实测细节。**（一）`--buf` 要给绝对路径**：Windows 上 `subprocess` 的 `CreateProcess` 不认相对路径，传一个仓库内的相对路径会报 `FileNotFoundError`——一个与原因毫无关系的错误（与 `MSYS_NO_PATHCONV` 那条同一类：错的样子指着别的地方）。**（二）要用仓库钉住的那个 buf 版本**（CI 的 `protocol` job 里写着，含该 release 的 sha256）。本机没有它时，从那个 release 取本平台的二进制，并**先核 release 自己的 `sha256.txt`**：清单里的 Linux 条目必须与仓库 pin 的摘要逐位相同——对得上，才说明这份清单确实是那个 release 的，同一份清单里其它平台的条目也才可信，再用它核你下载到的那一个。生成物本身由 CI 复核，所以本机的 buf 是一次工具使用，不是一个新的 pin。
+
 `.github/workflows/` 里的每个 action 都钉在**它那个 release 指向的 commit** 上，release 号写在旁边当注释（`uses: actions/checkout@fbc6f399… # v5`）。tag 是它的所有者能移动的名字，而这个仓库对其它一切取来的东西都做摘要核验（Gradle wrapper、服务端 jar、Bridge jar、buf CLI、夹具、用例判据），action 是同一类东西——外部代码，带着本仓库的凭据运行。`check_workflow_pins.py` 拒绝没钉的，也拒绝**钉了却不说出自哪个 release 的**：一个没人能追溯回 release 的裸 SHA 是没人能复核的钉。换 pin 与换其它 pin 一样是一次评审动作——读 release 的 diff、解析 tag、一次提交里同时改 SHA 和注释。
 
 ## 复核一份封存好的证据

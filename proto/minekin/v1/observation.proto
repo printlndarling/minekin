@@ -37,6 +37,14 @@ enum AdmissionFailureReason {
   ADMISSION_FAILURE_REASON_CONTROL_LOST = 13;
   ADMISSION_FAILURE_REASON_CANCELLED = 14;
   ADMISSION_FAILURE_REASON_INTERNAL_INVARIANT = 15;
+  // A connection that was attempted and refused: the address resolved, the policy
+  // allowed it, and nothing was listening on the other end. Its own value rather
+  // than `ADDRESS_INVALID`, which belongs to the admission contract's parse/resolve
+  // stage and means no connection was created at all — a refusal is proof that one
+  // was, and that is what the client's own log says ("Connection refused"). A
+  // reason code that files a refusal under resolve tells a reader of the ledger
+  // something about the world that nobody observed.
+  ADMISSION_FAILURE_REASON_CONNECTION_REFUSED = 16;
 }
 
 // Server-supplied text is deliberately absent. The Bridge maps it to a stable

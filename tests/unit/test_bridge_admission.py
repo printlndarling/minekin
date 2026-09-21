@@ -30,7 +30,20 @@ FAILED = observation_pb2.CONNECTION_PHASE_FAILED
 NO_REASON = observation_pb2.ADMISSION_FAILURE_REASON_UNSPECIFIED
 WHITELIST_REJECTED = observation_pb2.ADMISSION_FAILURE_REASON_WHITELIST_REJECTED
 DNS_FAILED = observation_pb2.ADMISSION_FAILURE_REASON_DNS_FAILED
+CONNECTION_REFUSED = observation_pb2.ADMISSION_FAILURE_REASON_CONNECTION_REFUSED
 CANCELLED_REASON = observation_pb2.ADMISSION_FAILURE_REASON_CANCELLED
+
+#: The reasons whose necessary action, in the admission contract's table, is "no
+#: connection is created" — the parse/resolve stage. A refusal can never be one of
+#: them, so the test below holds the classification against this set rather than
+#: only against its own name.
+NO_CONNECTION_CREATED = frozenset(
+    {
+        observation_pb2.ADMISSION_FAILURE_REASON_ADDRESS_INVALID,
+        DNS_FAILED,
+        observation_pb2.ADMISSION_FAILURE_REASON_ADDRESS_POLICY_BLOCKED,
+    }
+)
 
 # The phases the Bridge reports. PLAYABLE is deliberately not one of them:
 # it is Core's conclusion about a snapshot it admitted, not a phase a Bridge
@@ -120,6 +133,29 @@ def test_a_reason_is_carried_through_as_a_stable_token() -> None:
     assert outcome.failure_reason == "ADMISSION_FAILURE_REASON_WHITELIST_REJECTED"
     assert connections.active is not None
     assert connections.active.state is ConnectionState.FAILED
+
+
+def test_a_refused_connection_is_a_tcp_stage_failure_and_not_a_resolve_one() -> None:
+    """The one failure class this repository can produce locally, end to end.
+
+    Every other reason in the table needs a server or a resolver to happen at all,
+    but a refusal is what a loopback port with nothing listening produces — and it
+    is the class whose token was wrong until it was given its own value. The
+    assertion is written against the contract's own stage list, so it fails if the
+    refusal is ever filed back under a reason that means "no connection was
+    created": a refusal is what came back from a connection that was made.
+    """
+
+    connections = ConnectionGenerations()
+    connections.begin(PROFILE, REVISION)
+
+    outcome = apply_lifecycle(connections, report(FAILED, reason=CONNECTION_REFUSED))
+
+    assert outcome.disposition is LifecycleDisposition.APPLIED
+    assert outcome.decision is not None
+    assert outcome.decision.disposition is CallbackDisposition.FAILED
+    assert outcome.failure_reason == "ADMISSION_FAILURE_REASON_CONNECTION_REFUSED"
+    assert CONNECTION_REFUSED not in NO_CONNECTION_CREATED
 
 
 def test_a_disconnect_is_applied_without_a_reason() -> None:

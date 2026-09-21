@@ -113,10 +113,12 @@ TCP connect、ConnectScreen状态文字、ping 成功、`ClientPlayNetworkHandle
 | 阶段 | 稳定分类示例 | 必要动作 |
 | --- | --- | --- |
 | parse/resolve | `ADDRESS_INVALID`、`DNS_FAILED`、`ADDRESS_POLICY_BLOCKED` | 不创建连接；封存解析证据 |
-| TCP/login | `CONNECT_TIMEOUT`、`PROTOCOL_MISMATCH`、`AUTH_MODE_MISMATCH` | 取消当前 channel/future；不猜账号模式 |
+| TCP/login | `CONNECT_TIMEOUT`、`CONNECTION_REFUSED`、`PROTOCOL_MISMATCH`、`AUTH_MODE_MISMATCH` | 取消当前 channel/future；不猜账号模式 |
 | admission | `WHITELIST_REJECTED`、`DUPLICATE_LOGIN`、`RESOURCE_PACK_BLOCKED` | 不授 lease；保留服务端文本为不可信诊断数据 |
 | post-JOIN | `FIRST_SNAPSHOT_TIMEOUT`、`WORLD_BINDING_MISMATCH` | 松键、撤 lease、断开当前 generation |
 | runtime | `UNEXPECTED_DISCONNECT`、`CONTROL_LOST` | 先撤 lease/松键，再由 Session Manager按有界策略决定重连 |
+
+（2026-09-22：**`CONNECTION_REFUSED` 是补进去的，而在这之前「连接被拒」被记成了 `ADDRESS_INVALID`。** 那不是命名偏好，是**分类落进了错的阶段**：`ADDRESS_INVALID` 属于上面 parse/resolve 那一行，而那一行的必要动作是「不创建连接」——连接被拒恰恰证明**连接被创建过**（地址解析成功、策略放行、对端没人在听），客户端自己的日志也是这么说的（`Connection refused: localhost/127.0.0.1:25565`）。后果不是抽象的：一次真实运行（`MINEKIN_DOMAIN_NO_SERVER=1`，端口上什么都没有）在账本里留下的是 `SessionInterrupted{"phase":"FAILED","reason":"ADMISSION_FAILURE_REASON_ADDRESS_INVALID"}`，读账本的人会得到「地址无效／根本没拨出去」这个**没有人观测到**的结论，而且它会和 `ADDRESS_POLICY_BLOCKED` 并排出现，看起来像这个客户端拒绝了一个它其实拨过的地址。`ADMIT-030` 要的是三类「分类不同」——三类当时确实是三个不同的值，但其中一个说的是另一件事。现在 `ConnectFailure` 把 `ConnectException` 映到 `CONNECTION_REFUSED`，Java 与 Core 各有一条用例把「拒绝不属于 parse/resolve 那一组」钉住。**这次改动移动了 Bridge 的 jar 摘要**（枚举是打进 jar 的），所以 recipe 的 pin 与用例夹具一并续期；跨平台可复现重新核过。**那两条实测记录里写的仍是 `ADDRESS_INVALID`，它没有变成错的**——那是这次分类改动之前的输出。）
 
 断开请求先使 generation失效，再在 client thread取消连接/关闭 network handler。任何不确定断线后都不得自动重放 attack、use、GUI transaction 或未完成目标。重连成功后必须重新 JOIN、重建 world context、重观测并重新授 lease。
 

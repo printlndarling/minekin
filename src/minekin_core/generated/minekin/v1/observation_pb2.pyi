@@ -38,6 +38,7 @@ class AdmissionFailureReason(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     ADMISSION_FAILURE_REASON_CONTROL_LOST: _ClassVar[AdmissionFailureReason]
     ADMISSION_FAILURE_REASON_CANCELLED: _ClassVar[AdmissionFailureReason]
     ADMISSION_FAILURE_REASON_INTERNAL_INVARIANT: _ClassVar[AdmissionFailureReason]
+    ADMISSION_FAILURE_REASON_CONNECTION_REFUSED: _ClassVar[AdmissionFailureReason]
 
 class HostPhase(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     __slots__ = ()
@@ -69,6 +70,7 @@ ADMISSION_FAILURE_REASON_UNEXPECTED_DISCONNECT: AdmissionFailureReason
 ADMISSION_FAILURE_REASON_CONTROL_LOST: AdmissionFailureReason
 ADMISSION_FAILURE_REASON_CANCELLED: AdmissionFailureReason
 ADMISSION_FAILURE_REASON_INTERNAL_INVARIANT: AdmissionFailureReason
+ADMISSION_FAILURE_REASON_CONNECTION_REFUSED: AdmissionFailureReason
 HOST_PHASE_UNSPECIFIED: HostPhase
 HOST_PHASE_LAN_OPENED: HostPhase
 HOST_PHASE_LAN_OPEN_FAILED: HostPhase
