@@ -30,7 +30,19 @@ uv run ruff format --check .
 uv run pyright
 uv run pytest
 uv run python tools/check_boundaries.py
+uv run python tools/check_case_assertions.py
+uv run python tools/verify_fixture_digests.py
 ```
+
+## 复核一份封存好的证据
+
+`minekin evidence verify <run-id>` 回答的是「字节还是那些字节」。它**不**回答「这些字节是否真的支持写在它们上面的那个判决」——判据（断言）属于测试域，产品代码不该 import `tools/`，所以那件事由测试域里的一个工具来做，对着同一个 bundle：
+
+```text
+uv run --no-project python tools/rejudge_evidence.py <bundle 目录>
+```
+
+它要求三件事各查各的：bundle 自己站得住、它点名的用例仍是**封存时那一版**、以及从封存字节重判出来的判决（result / expected / observed / failures 逐项）与记录一致。退出码 0 一致、1 不一致、2 判不了（字节站不住、用例版本搬了家、或 bundle 里没有判官当时的输入）。一份被改写过的 manifest——清空 `failures`、把 `observed` 填成 `expected`、`result` 改成 `PASS`，再重新生成 `bundle.sha256`——**能**通过 `evidence verify`，这一条能拒它。
 
 Bridge 协议与适配器可在无 Gradle、无 Minecraft 的情况下验证。第一条只编译协议内核；第二条从 Maven Central 按 SHA-1 校验下载固定 protoc 与 javalite，再编译 W20 适配器并跑自测。两条都只要求本机 JDK：
 

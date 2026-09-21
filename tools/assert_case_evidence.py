@@ -492,18 +492,10 @@ def read_run_material(
     identities: dict[str, str] = {}
     if cache_path is not None and cache_path.is_file():
         try:
-            entries = json.loads(cache_path.read_bytes())
-        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
-            raise Unreadable(f"{cache_path} is not readable JSON: {error}") from error
-        if not isinstance(entries, list):
-            raise Unreadable(f"{cache_path} is not a list of identities")
-        for entry in cast(list[object], entries):
-            if not isinstance(entry, Mapping):
-                continue
-            item = cast(Mapping[str, object], entry)
-            name, identifier = item.get("name"), item.get("uuid")
-            if isinstance(name, str) and isinstance(identifier, str):
-                identities[name] = identifier
+            cache = cache_path.read_bytes()
+        except OSError as error:
+            raise Unreadable(f"{cache_path} cannot be read: {error}") from error
+        identities = read_identity_cache(cache, cache_path)
 
     return RunMaterial(
         kin_id=kin,
@@ -522,6 +514,191 @@ def read_run_material(
         fault_injection=fault_injection,
         soak_samples=soak_samples,
         soak_summary=soak_summary,
+    )
+
+
+# ---------------------------------------------------------------------------
+# The same material, read back out of a sealed bundle
+# ---------------------------------------------------------------------------
+
+#: The names a bundle holds a run's material under. Declared here, where the reading
+#: of that material lives, and imported by the sealer rather than spelled again: a
+#: sealer that wrote a name the reader did not know would not fail, it would read as
+#: "this run had none of that", which is a different and quieter answer.
+ASSERTER_INPUTS = "asserter-inputs.json"
+RUN_DOCUMENT_ARTIFACT = "run-document.json"
+LEDGER_TIMELINE_ARTIFACT = "bridge-trace.jsonl"
+PREVIOUS_TIMELINE_ARTIFACT = "previous-run-trace.jsonl"
+HOST_RUN_DOCUMENT_ARTIFACT = "host-run-document.json"
+FAULT_RECORD_ARTIFACT = "fault-injection.json"
+SOAK_SAMPLES_ARTIFACT = "soak-samples.txt"
+SOAK_SUMMARY_ARTIFACT = "soak-summary.json"
+SERVER_LOG_ARTIFACT = "server/server.log"
+SERVER_IDENTITIES_ARTIFACT = "server/usercache.json"
+#: Every client stream a bundle keeps. The judge reads `CLIENT_LOG_ARTIFACTS` out of
+#: them and not all of them: stderr carries the JVM's complaints rather than the
+#: Bridge's account, so it is sealed for a reader to consult and not read into the
+#: log a verdict rests on.
+CLIENT_STREAM_ARTIFACTS = ("client/stdout.log", "client/stderr.log", "client/latest.log")
+#: In the order `read_run_material` concatenates them. The client's account is what
+#: the bundle keeps, and the judge that reached the sealed verdict read exactly this
+#: string — reading them the other way round would be a different string.
+CLIENT_LOG_ARTIFACTS = ("client/stdout.log", "client/latest.log")
+
+
+def asserter_inputs_bytes(material: RunMaterial, *, username: str) -> bytes:
+    """What the judge was given, in the one shape a re-judge can be handed it in."""
+
+    return (
+        json.dumps(
+            {
+                "schema_version": 1,
+                "kin_id": material.kin_id,
+                "run_id": material.run_id,
+                "username": username,
+                "previous_run_id": material.previous_run_id,
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n"
+    ).encode("utf-8")
+
+
+def _sealed(directory: Path, name: str) -> str | None:
+    """A sealed text artifact, or None when the bundle does not hold it at all."""
+
+    path = directory / name
+    return path.read_text(encoding="utf-8", errors="replace") if path.is_file() else None
+
+
+def _sealed_bytes(directory: Path, name: str) -> bytes | None:
+    """A sealed artifact as the bytes it is, for the ones that are not free text.
+
+    A user cache is JSON, and reading it with replacement characters would turn a
+    file this judge cannot parse into one it parses to something else.
+    """
+
+    path = directory / name
+    return path.read_bytes() if path.is_file() else None
+
+
+def read_identity_cache(cache: bytes, source: Path) -> dict[str, str]:
+    """The name-to-UUID map the *server* wrote, from the bytes of its user cache.
+
+    One reader for both ways in — the server directory a run left behind, and the
+    copy a bundle sealed — because the client's own claim about who it is is not
+    evidence of who the server saw, and two readings of that cache that disagreed
+    would be two answers to that one question.
+    """
+
+    try:
+        entries = json.loads(cache)
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise Unreadable(f"{source} is not readable JSON: {error}") from error
+    if not isinstance(entries, list):
+        raise Unreadable(f"{source} is not a list of identities")
+    found: dict[str, str] = {}
+    for entry in cast(list[object], entries):
+        if not isinstance(entry, Mapping):
+            continue
+        item = cast(Mapping[str, object], entry)
+        name, identifier = item.get("name"), item.get("uuid")
+        if isinstance(name, str) and isinstance(identifier, str):
+            found[name] = identifier
+    return found
+
+
+def _sealed_json(directory: Path, name: str) -> Mapping[str, object] | None:
+    text = _sealed(directory, name)
+    if text is None:
+        return None
+    try:
+        document = json.loads(text)
+    except json.JSONDecodeError as error:
+        raise Unreadable(f"{directory / name} is not readable JSON: {error}") from error
+    if not isinstance(document, Mapping):
+        raise Unreadable(f"{directory / name} is not an object")
+    return cast(Mapping[str, object], document)
+
+
+def _sealed_events(directory: Path, name: str) -> tuple[Mapping[str, object], ...]:
+    """A sealed timeline, back as the rows it was written from."""
+
+    text = _sealed(directory, name)
+    if text is None:
+        return ()
+    events: list[Mapping[str, object]] = []
+    for line in text.splitlines():
+        if not line.strip():
+            continue
+        try:
+            row = json.loads(line)
+        except json.JSONDecodeError as error:
+            raise Unreadable(f"{directory / name} has a line that is not JSON: {error}") from error
+        if not isinstance(row, Mapping):
+            raise Unreadable(f"{directory / name} has a line that is not an event object")
+        events.append(cast(Mapping[str, object], row))
+    return tuple(events)
+
+
+def read_sealed_material(directory: Path) -> RunMaterial:
+    """Read a sealed bundle's material, so its verdict can be reached a second time.
+
+    Every field comes from an artifact the sealer wrote, under the name it wrote it,
+    read the way `read_run_material` read it on the machine the run happened on — the
+    two client logs concatenated in the same order, the identity cache parsed by the
+    same rule. Anything else would not be a second opinion on one judgement, it would
+    be a judgement of a slightly different question.
+
+    The one input that has no artifact is the overlay path, and it is not needed: what
+    the assertions read out of the client's game directory is its logs, and those are
+    sealed under their own names. `overlay` is therefore None, which is the same thing
+    a run whose game directory is gone reports.
+    """
+
+    inputs = _sealed_json(directory, ASSERTER_INPUTS)
+    if inputs is None:
+        raise Unreadable(
+            f"{directory} does not record the inputs its judgement was made with "
+            f"({ASSERTER_INPUTS}) — a re-judge would have to guess them, and a guess "
+            "is not a second reading of the same question"
+        )
+    run_document = _sealed_json(directory, RUN_DOCUMENT_ARTIFACT)
+    client_log = "".join(
+        text
+        for text in (_sealed(directory, name) for name in CLIENT_LOG_ARTIFACTS)
+        if text is not None
+    )
+    identities: dict[str, str] = {}
+    cache = _sealed_bytes(directory, SERVER_IDENTITIES_ARTIFACT)
+    if cache is not None:
+        identities = read_identity_cache(cache, directory / SERVER_IDENTITIES_ARTIFACT)
+
+    def text_of(key: str, default: str = "") -> str:
+        value = inputs.get(key)
+        return value if isinstance(value, str) else default
+
+    timeline = _sealed(directory, LEDGER_TIMELINE_ARTIFACT)
+    return RunMaterial(
+        kin_id=text_of("kin_id"),
+        run_id=text_of("run_id"),
+        overlay=None,
+        run_document=run_document if run_document is not None else {},
+        client_log=client_log,
+        ledger_events=_sealed_events(directory, LEDGER_TIMELINE_ARTIFACT),
+        # Presence, not emptiness: a bundle with no timeline is one that says nothing
+        # about Core's own record, which is not the same as a timeline with no events.
+        ledger_readable=timeline is not None,
+        previous_run_id=text_of("previous_run_id"),
+        previous_run_events=_sealed_events(directory, PREVIOUS_TIMELINE_ARTIFACT),
+        server_log=_sealed(directory, SERVER_LOG_ARTIFACT) or "",
+        server_identities=identities,
+        username=text_of("username"),
+        world_run_document=_sealed_json(directory, HOST_RUN_DOCUMENT_ARTIFACT),
+        fault_injection=_sealed_json(directory, FAULT_RECORD_ARTIFACT),
+        soak_samples=_sealed(directory, SOAK_SAMPLES_ARTIFACT) or "",
+        soak_summary=_sealed_json(directory, SOAK_SUMMARY_ARTIFACT),
     )
 
 

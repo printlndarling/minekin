@@ -66,8 +66,19 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import fault_injection
 from assert_case_evidence import (
+    ASSERTER_INPUTS,
+    CLIENT_STREAM_ARTIFACTS,
+    FAULT_RECORD_ARTIFACT,
+    HOST_RUN_DOCUMENT_ARTIFACT,
     PLAYABLE_ESTABLISHED,
+    PREVIOUS_TIMELINE_ARTIFACT,
+    RUN_DOCUMENT_ARTIFACT,
     RUN_DOCUMENT_KEY,
+    SERVER_IDENTITIES_ARTIFACT,
+    SERVER_LOG_ARTIFACT,
+    SOAK_SAMPLES_ARTIFACT,
+    SOAK_SUMMARY_ARTIFACT,
+    asserter_inputs_bytes,
     is_digest,
     read_run_material,
     timeline_bytes,
@@ -181,7 +192,12 @@ def collect_artifacts(
     soak_summary: bytes,
     orchestrator: Mapping[str, object],
 ) -> dict[str, bytes]:
-    """Every artifact this run left, under names a reader can recognise."""
+    """Every artifact this run left, under names a reader can recognise.
+
+    The names come from the asserter, which is where the reading of them lives: a
+    sealer that wrote a name the reader did not know would not fail, it would read as
+    "this run had none of that".
+    """
 
     found: dict[str, bytes] = {
         "orchestrator-trace.json": (
@@ -192,31 +208,30 @@ def collect_artifacts(
         # Absent rather than empty when there was none: a run whose Core was
         # killed leaves no document, and an empty file would read as one that
         # said nothing rather than as one that never existed.
-        found["run-document.json"] = run_document
+        found[RUN_DOCUMENT_ARTIFACT] = run_document
     if fault_injection:
         # The bytes the asserter was given, not a second reading of the file: the
         # verdict and the artifact have to be the same snapshot of the record.
-        found["fault-injection.json"] = fault_injection
+        found[FAULT_RECORD_ARTIFACT] = fault_injection
     if soak_samples:
         # A soak's numbers are the measurement, and they belong with the run that
         # measured them: printed to a terminal they are a claim about a run, and
         # sealed they are what the claim rests on.
-        found["soak-samples.txt"] = soak_samples
+        found[SOAK_SAMPLES_ARTIFACT] = soak_samples
     if soak_summary:
-        found["soak-summary.json"] = soak_summary
+        found[SOAK_SUMMARY_ARTIFACT] = soak_summary
     # The client's own output, where the Bridge's lines are: sealing the whole
     # stream rather than a filtered selection means a reader can check any
     # selection against it rather than having to trust one.
     if overlay is not None:
-        _artifact(overlay / "logs" / "stdout.log", "client/stdout.log", found)
-        _artifact(overlay / "logs" / "stderr.log", "client/stderr.log", found)
-        _artifact(overlay / "logs" / "latest.log", "client/latest.log", found)
+        for name in CLIENT_STREAM_ARTIFACTS:
+            _artifact(overlay / "logs" / name.rsplit("/", 1)[-1], name, found)
         for report in sorted((overlay / "crash-reports").glob("*")):
             if report.is_file():
                 _artifact(report, f"client/crash-reports/{report.name}", found)
     if server_directory is not None:
-        _artifact(server_directory / "server.log", "server/server.log", found)
-        _artifact(server_directory / "usercache.json", "server/usercache.json", found)
+        _artifact(server_directory / "server.log", SERVER_LOG_ARTIFACT, found)
+        _artifact(server_directory / "usercache.json", SERVER_IDENTITIES_ARTIFACT, found)
         _artifact(server_directory / "server.properties", "server/server.properties", found)
     return found
 
@@ -676,18 +691,25 @@ def seal(
     # reading, serialised, so the bundle cannot hold a different set of events
     # from the one the verdict was reached on.
     artifacts["bridge-trace.jsonl"] = timeline_bytes(material.ledger_events)
+    # What the judge was *given*, as opposed to what it read. A verdict can be reached
+    # a second time only from the same inputs, and three of them are not in any
+    # document: the name the server saw, which Kin this run belongs to, and which run
+    # came before it — a run whose Core was killed never wrote the document that would
+    # have said. Without this a re-judge would be answering a question slightly
+    # different from the one the bundle records an answer to.
+    artifacts[ASSERTER_INPUTS] = asserter_inputs_bytes(material, username=username)
     # And when this run followed another one in the same ledger, that run's rows
     # travel with it. A case about a restart reads them, and a judgement whose
     # material is only half inside the bundle is one nobody else can reproduce.
     if material.previous_run_id:
-        artifacts["previous-run-trace.jsonl"] = timeline_bytes(material.previous_run_events)
+        artifacts[PREVIOUS_TIMELINE_ARTIFACT] = timeline_bytes(material.previous_run_events)
     # And when this run's world is one another run hosted, that run's document travels
     # with it. The world block names the world with digests *that* run measured, and a
     # bundle asserting a name while carrying nothing that shows where the name came
     # from is a claim a reader cannot check — the same rule as everything else here,
     # applied to the one field that comes from outside this run.
     if world_run_raw:
-        artifacts["host-run-document.json"] = world_run_raw
+        artifacts[HOST_RUN_DOCUMENT_ARTIFACT] = world_run_raw
 
     directory = bundle_directory(run_root(data_root, kin_id), identifier)
     sealed = write_bundle(directory, manifest, artifacts, secrets=secrets)

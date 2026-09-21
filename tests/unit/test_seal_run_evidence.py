@@ -15,6 +15,7 @@ import asyncio
 import hashlib
 import importlib
 import json
+import shutil
 import stat
 import sys
 from collections.abc import Iterator
@@ -70,15 +71,17 @@ SERVER_LOG = (
 )
 
 
-def sealed_tool() -> Any:
+def sealed_tool(name: str = "seal_run_evidence") -> Any:
     sys.path.insert(0, str(REPOSITORY_ROOT))
     try:
-        return importlib.import_module("tools.seal_run_evidence")
+        return importlib.import_module(f"tools.{name}")
     finally:
         sys.path.remove(str(REPOSITORY_ROOT))
 
 
 SEALER = sealed_tool()
+ASSERTER = sealed_tool("assert_case_evidence")
+REJUDGE = sealed_tool("rejudge_evidence")
 
 
 @pytest.fixture(autouse=True)
@@ -366,6 +369,7 @@ def test_the_artifacts_include_the_client_s_own_output_and_the_server_s(
     report = seal_it(data_root, server, document)
 
     assert set(cast(list[str], report["artifacts"])) == {
+        "asserter-inputs.json",
         "bridge-trace.jsonl",
         "client/stdout.log",
         "orchestrator-trace.json",
@@ -374,6 +378,30 @@ def test_the_artifacts_include_the_client_s_own_output_and_the_server_s(
         "server/server.properties",
         "server/usercache.json",
     }
+
+
+def test_the_bundle_records_the_inputs_the_judgement_was_made_with(
+    finished_run: tuple[Path, Path, Path],
+) -> None:
+    """A verdict can be reached a second time only from the same inputs.
+
+    Which Kin, which run, which name the server saw and which run came before are not
+    in any document — a run whose Core was killed never wrote the one that would have
+    said — so a bundle that did not record them could be re-judged only by guessing.
+    """
+
+    data_root, server, document = finished_run
+
+    seal_it(data_root, server, document)
+
+    sealed = data_root / "kin" / str(KIN) / "run" / "evidence" / RUN_ID / "asserter-inputs.json"
+    assert sealed.is_file()
+    recorded = json.loads(sealed.read_bytes())
+
+    assert recorded["schema_version"] == 1
+    assert recorded["run_id"] == RUN_ID
+    assert recorded["kin_id"] == str(KIN)
+    assert recorded["username"] == USERNAME
 
 
 def test_a_run_that_fails_its_case_is_still_sealed(
@@ -1200,3 +1228,199 @@ def test_a_run_in_its_own_world_is_not_read_as_a_join() -> None:
     record = SEALER._world_record(None, None, hosted_run(), {"run": {}}, USERNAME)
 
     assert record.name == SNAPSHOT_DIGEST
+
+
+# ---------------------------------------------------------------------------
+# Reading a sealed bundle back, and reaching its verdict a second time
+# ---------------------------------------------------------------------------
+
+
+def bundle_of(data_root: Path) -> Path:
+    return data_root / "kin" / str(KIN) / "run" / "evidence" / RUN_ID
+
+
+def tamper_with_the_verdict(bundle: Path, edit: Any) -> None:
+    """Change the sealed verdict and make the bundle hold up again.
+
+    Regenerating the digest file is not cheating — it is what the attack looks like.
+    A reader who can change the manifest can change the digest beside it, and the
+    question this test asks is which of the two checks catches that.
+    """
+
+    unseal_bundle(bundle)
+    manifest = json.loads((bundle / "manifest.json").read_bytes())
+    edit(manifest)
+    payload = json.dumps(
+        manifest, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+    ).encode()
+    (bundle / "manifest.json").write_bytes(payload)
+    (bundle / "bundle.sha256").write_text(
+        f"{hashlib.sha256(payload).hexdigest()}\n", encoding="ascii"
+    )
+
+
+def test_a_sealed_bundle_re_judged_produces_the_verdict_it_records(
+    finished_run: tuple[Path, Path, Path],
+) -> None:
+    """The whole claim: these bytes, judged again, answer what the bundle says they did."""
+
+    data_root, server, document = finished_run
+    sealed = seal_it(data_root, server, document)
+    assert sealed["result"] == "PASS"
+    bundle = bundle_of(data_root)
+    manifest = json.loads((bundle / "manifest.json").read_bytes())["assertions"]
+
+    report = REJUDGE.rejudge(bundle, CASE.parent)
+
+    assert report["disagreements"] == []
+    assert report["recorded"] == {
+        "result": "PASS",
+        "expected": manifest["expected"],
+        "observed": manifest["observed"],
+        "failures": [],
+    }
+    assert report["recorded"] == {
+        "result": report["re_judged"]["result"],
+        "expected": report["re_judged"]["expected"],
+        "observed": report["re_judged"]["observed"],
+        "failures": report["re_judged"]["failures"],
+    }
+
+
+def test_the_sealed_material_is_the_material_the_verdict_was_reached_on(
+    finished_run: tuple[Path, Path, Path],
+) -> None:
+    """A re-judge is a second opinion only if it is handed the same reading.
+
+    Every field the judge sees has to survive the round trip through the bundle —
+    including the client's two streams, concatenated in the order the judge read
+    them, and the ledger's rows, which are sealed as a timeline rather than as the
+    database they came out of.
+    """
+
+    data_root, server, document = finished_run
+    seal_it(data_root, server, document)
+    live = ASSERTER.read_run_material(
+        run_document=document,
+        data_root=data_root,
+        server_directory=server,
+        username=USERNAME,
+    )
+
+    sealed = ASSERTER.read_sealed_material(bundle_of(data_root))
+
+    assert sealed.kin_id == live.kin_id
+    assert sealed.run_id == live.run_id
+    assert sealed.username == live.username
+    assert sealed.previous_run_id == live.previous_run_id
+    assert sealed.run_document == live.run_document
+    assert sealed.client_log == live.client_log
+    assert sealed.ledger_events == live.ledger_events
+    assert sealed.ledger_readable == live.ledger_readable
+    assert sealed.server_log == live.server_log
+    assert sealed.server_identities == live.server_identities
+    # The one field that is deliberately not carried: a path into the machine the run
+    # happened on. What the assertions read out of that directory is its logs, and
+    # those are sealed under their own names.
+    assert sealed.overlay is None
+
+
+def test_a_verdict_the_bytes_do_not_produce_is_caught(
+    finished_run: tuple[Path, Path, Path],
+) -> None:
+    """The hole this exists to close, and the check it closes it against.
+
+    Dropping one observed assertion leaves a manifest that is still a valid PASS with
+    a non-empty observation list, and regenerating the digest makes it verify. So
+    `verify_bundle` says yes to a bundle whose verdict the bytes do not support, and
+    the re-judge is what says no.
+    """
+
+    data_root, server, document = finished_run
+    seal_it(data_root, server, document)
+    bundle = bundle_of(data_root)
+
+    def drop_one_observation(manifest: dict[str, Any]) -> None:
+        observed = manifest["assertions"]["observed"]
+        assert len(observed) > 1
+        manifest["assertions"]["observed"] = observed[:-1]
+
+    tamper_with_the_verdict(bundle, drop_one_observation)
+
+    assert verify_bundle(bundle).verified, "the tampered bundle still verifies — that is the hole"
+    report = REJUDGE.rejudge(bundle, CASE.parent)
+
+    assert report["disagreements"], report
+    assert any(item.startswith("OBSERVED:") for item in report["disagreements"])
+
+
+def test_a_claimed_pass_over_a_failing_run_is_caught(
+    finished_run: tuple[Path, Path, Path],
+) -> None:
+    """The same hole at its most useful: a verdict rewritten to look like a pass.
+
+    The run here genuinely fails — the server's log never says the Kin joined, so the
+    identity assertion cannot hold — and the tamper rewrites the manifest to claim
+    every assertion held. Regenerating the digest makes it verify; the re-judge is
+    what says the bytes never supported that.
+    """
+
+    data_root, server, document = finished_run
+    (server / "server.log").write_text(
+        "[20:39:01] [Server thread/INFO]: Done (0.512s)!\n", encoding="utf-8"
+    )
+    sealed = seal_it(data_root, server, document)
+    assert sealed["result"] == "FAIL"
+    bundle = bundle_of(data_root)
+
+    def claim_a_pass(manifest: dict[str, Any]) -> None:
+        manifest["assertions"]["failures"] = []
+        manifest["assertions"]["observed"] = manifest["assertions"]["expected"]
+        manifest["result"] = "PASS"
+
+    tamper_with_the_verdict(bundle, claim_a_pass)
+
+    assert verify_bundle(bundle).verified, "the tampered bundle still verifies — that is the hole"
+    report = REJUDGE.rejudge(bundle, CASE.parent)
+
+    assert report["recorded"]["result"] == "PASS"
+    assert report["re_judged"]["result"] == "FAIL"
+    assert any(item.startswith("RESULT:") for item in report["disagreements"]), report
+
+
+def test_a_bundle_sealed_against_another_case_version_cannot_be_re_judged(
+    tmp_path: Path, finished_run: tuple[Path, Path, Path]
+) -> None:
+    """The criteria moved, so the recorded verdict answers a question nobody asks now.
+
+    Refusing is the point: re-judging it against today's case would produce a
+    disagreement and read as a tampered bundle, when what happened is that the case
+    changed. A version mismatch is a different answer from a mismatch of verdicts.
+    """
+
+    data_root, server, document = finished_run
+    seal_it(data_root, server, document)
+    cases = tmp_path / "cases"
+    shutil.copytree(CASE.parent, cases)
+    moved = cases / "core-020.json"
+    case_document = json.loads(moved.read_text(encoding="utf-8"))
+    case_document["assertion_digests"] = dict.fromkeys(case_document["assertions"], "0" * 64)
+    moved.write_text(json.dumps(case_document), encoding="utf-8")
+
+    with pytest.raises(REJUDGE.Unresolvable, match="the criteria moved"):
+        REJUDGE.rejudge(bundle_of(data_root), cases)
+
+
+def test_a_bundle_without_the_judges_inputs_cannot_be_re_judged(
+    finished_run: tuple[Path, Path, Path],
+) -> None:
+    """Without them a re-judge would be guessing, and a guess is not a second reading."""
+
+    data_root, server, document = finished_run
+    seal_it(data_root, server, document)
+    bundle = bundle_of(data_root)
+    unseal_bundle(bundle)
+    (bundle / "asserter-inputs.json").unlink()
+
+    with pytest.raises(ASSERTER.Unreadable, match="does not record the inputs"):
+        ASSERTER.read_sealed_material(bundle)
