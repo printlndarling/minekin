@@ -434,7 +434,22 @@ def test_start_session_records_the_client_it_started(
 def test_the_cli_surfaces_an_unresolved_client(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """The orphan refusal reaches the operator as a PROCESS exit code, not a crash."""
+    """The orphan refusal reaches the operator as a PROCESS exit code, not a crash.
+
+    What makes this client unresolved is the platform, not the marker: on Windows the
+    probe declines to answer for every PID, so a start has to refuse and name it.
+    Where the platform can answer, the same marker names a PID that is genuinely gone
+    or reused — both of which the contract calls gone — and the start is then allowed,
+    correctly. So this is Windows only, and the refusal itself is covered on every
+    platform by `test_an_unresolved_claim_refuses_a_new_start`, which injects the
+    answer. The CLI-level version of it on POSIX would have to launch a client to
+    reach the same branch, which is a real run rather than a unit test.
+    """
+
+    import os
+
+    if os.name == "posix":
+        pytest.skip("this platform can answer the question, so this client is not unresolved")
 
     ready_data_root(tmp_path, monkeypatch)
     monkeypatch.setattr("minekin_core.bootstrap.build_launch_plan", fake_plan)
@@ -624,7 +639,20 @@ def test_the_cli_reports_a_kin_with_nothing_to_stop(
 def test_the_cli_reports_a_client_it_could_not_stop(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Not being able to prove identity is not success; it is a PROCESS failure."""
+    """Not being able to prove identity is not success; it is a PROCESS failure.
+
+    A platform that cannot answer is what makes this client unresolved — on Windows
+    the probe declines for every PID, so a marker naming 4242 is one the CLI has to
+    surface rather than quietly succeed on. Where the platform can answer, the same
+    marker is a finished run and stopping it is the idempotent success the test above
+    describes; that half is the test below, which is why neither is a weakened
+    version of the other.
+    """
+
+    import os
+
+    if os.name == "posix":
+        pytest.skip("this platform can answer the question, so this client is not unresolved")
 
     marked(tmp_path)
     monkeypatch.setenv("MINEKIN_HOME", str(tmp_path))
@@ -634,3 +662,36 @@ def test_the_cli_reports_a_client_it_could_not_stop(
 
     assert code == int(ExitCode.PROCESS)
     assert json.loads(stdout.getvalue())["unresolved"] == [4242]
+
+
+def test_the_cli_does_not_call_a_client_gone_here_unresolved(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The other answer the same marker gets where the platform can be asked.
+
+    `marked` records PID 4242 with a command line whose digest is a placeholder, so
+    the two possible readings are "that PID is not running" and "something else holds
+    it now" — and the contract calls both gone, because a live PID whose command line
+    is provably not ours is a finished run rather than an unresolved one. Nothing is
+    silently assumed: the proof is what decides, and on this platform it can be had.
+
+    Deliberately not a weakened copy of the test above. The Windows case is the one
+    where the CLI must refuse; this is the one where it must not, and a test that
+    accepted either answer would be a test of neither.
+    """
+
+    import os
+
+    if os.name != "posix":
+        pytest.skip("this platform cannot answer the question, so it can never say gone")
+
+    marked(tmp_path)
+    monkeypatch.setenv("MINEKIN_HOME", str(tmp_path))
+    stdout = io.StringIO()
+
+    code = run(["session", "stop"], stdout=stdout, stderr=io.StringIO())
+
+    document = json.loads(stdout.getvalue())
+    assert document["unresolved"] == []
+    assert document["status"] == "stopped"
+    assert code == int(ExitCode.OK)
