@@ -86,6 +86,8 @@ cd bridge
 ./gradlew check
 ```
 
+`./gradlew check` **需要 PATH 上有 Python 解释器**：`checkHostBoundaryArtifacts` 把产物门禁接进了 `check`，而那道门禁是一个 Python 脚本。它按 `python3` 再 `python` 的顺序找（裸 Ubuntu 只有前者、Windows 通常只有后者），也认 `-PgatePython=<命令>` 这个属性。找不到时它会**先打一行 warning 说明原因和补救办法，再失败**——不是静默跳过：一道跳过的门禁与没有门禁是同一件事，而这个契约要的正是「构建必须失败」。**这也是为什么容器里那条构建命令要装 `python3`、并且要把 `tools/` 一起拷进去**（门禁与被守卫的模块分居两处，见开发 TODO 里那条实测）。
+
 当前锁定工作流分两步：版本目录固定直接依赖，Gradle dependency locking 固定解析图。Java 21 环境第一次解析依赖后须生成并评审 lockfile 与 verification metadata，禁止把未评审的自动更新与功能变更混在同一提交：
 
 ```text

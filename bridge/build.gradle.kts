@@ -114,11 +114,36 @@ dependencyLocking {
 // task wired into `check` is that sentence made executable rather than one more script
 // a reviewer is asked to remember.
 //
-// The interpreter is named by the `gatePython` property because this build is driven
-// by hand on two platforms: `-PgatePython="uv run python"` is what the repository's own
-// gates use, and a bare `python` on PATH is what most machines have.
+// The interpreter is found rather than named, and both names are tried: a bare Ubuntu
+// has `python3` and no `python`, while a Windows install has `python` and often no
+// `python3`. The first version of this task named `python` alone, and the container
+// build this repository uses to check the jar's digest on a second platform failed with
+// "A problem occurred starting process 'command 'python''" — which names neither the
+// gate nor the reason. `PATH` is read through the provider API so the configuration
+// cache tracks it instead of caching one machine's toolchain into the build.
+fun interpreterOnPath(name: String): File? {
+    val path: String = providers.environmentVariable("PATH").orNull ?: return null
+    return path.split(File.pathSeparator)
+        .asSequence()
+        .map { File(it, name) }
+        .flatMap { candidate -> sequenceOf(candidate, File(candidate.parentFile, "${candidate.name}.exe")) }
+        .firstOrNull { it.isFile }
+}
+
+val namedInterpreter: String? = findProperty("gatePython") as String?
+val foundInterpreter: File? = interpreterOnPath("python3") ?: interpreterOnPath("python")
 val gatePython: List<String> =
-    ((findProperty("gatePython") as String?) ?: "python").split(" ").filter { it.isNotBlank() }
+    when {
+        namedInterpreter != null -> namedInterpreter.split(" ").filter { it.isNotBlank() }
+        foundInterpreter != null -> listOf(foundInterpreter.absolutePath)
+        else -> {
+            logger.warn(
+                "no python3 or python on PATH: the host-boundary artifact gate cannot run, "
+                    + "so `check` will fail. Name an interpreter with -PgatePython=<command>."
+            )
+            listOf("python3")
+        }
+    }
 val gateArtifact = layout.buildDirectory.file("libs/minekin-bridge-$modVersion.jar")
 // This project is its own Gradle root — `bridge/settings.gradle.kts` — so `rootProject`
 // is `bridge/` and the repository is one directory above it. Asked for as the parent of
