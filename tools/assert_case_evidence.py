@@ -24,15 +24,17 @@ same answer as "failed" — it is the answer that says nothing was checked.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import sqlite3
 import sys
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import cast
 
+from minekin_core.adapters.launcher.saves import LEVEL_DAT
 from minekin_core.cli.init import DATABASE_NAME, KIN_DIRECTORY, kin_directory, run_root
 from minekin_core.cli.session import session_overlay_path
 from minekin_core.domain.cases import parse_case_manifest
@@ -56,6 +58,12 @@ from fault_injection import (
     SIGKILL,
     FaultInjectionError,
 )
+from verify_fixture_digests import ManifestError, frozen_digests
+
+#: This repository, so a case's declared inputs can be resolved and a fixture's
+#: *reviewed* digest can be asked for. The tool lives in `tools/` and is run from the
+#: source tree, which is the same assumption `seal_run_evidence` makes.
+REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 
 EXIT_HELD = 0
 EXIT_FAILED = 1
@@ -297,6 +305,14 @@ class RunMaterial:
     #: case (or another revision of this case) cannot satisfy this one.
     expected_case_id: str | None = None
     expected_case_version: str | None = None
+    #: What the case says it needs, filled by `evaluate` from the case itself. An
+    #: assertion that compares the run against something in the repository — a
+    #: fixture the case starts from — has to be told which one by the case, and this
+    #: is the only place that statement lives.
+    case_inputs: tuple[str, ...] = ()
+    #: Reviewed content pins declared by the case. These are part of the case JSON,
+    #: and therefore of `case_version`; changing an input invalidates old evidence.
+    case_input_digests: tuple[tuple[str, str], ...] = ()
 
     def recorded(self, event_type: str) -> tuple[Mapping[str, object], ...]:
         """Every event of one type this run recorded."""
@@ -550,6 +566,74 @@ def the_run_says_which_world_it_hosted(material: RunMaterial) -> str | None:
     digest = snapshot.get("digest")
     if not isinstance(digest, str) or len(digest) != 64:
         return f"WORLD_SNAPSHOT_IS_NOT_A_DIGEST:{digest!r}"
+    return None
+
+
+#: Where the repository keeps the world fixtures a case may start from. A case that
+#: names one is saying which world its run began in, and that is a claim the run's own
+#: world block can be held to.
+FROZEN_WORLDS_PREFIX = "tests/fixtures/saves/"
+
+
+def the_world_this_run_had_is_the_one_the_case_names(material: RunMaterial) -> str | None:
+    """The world a case starts from is a fixture in this repository, and the run agrees.
+
+    A world block that names a digest is a claim about bytes nobody can look up. The
+    other end of the comparison belongs in the case, which is why a case declares the
+    world it starts from: that turns `settings_digest` into something checkable rather
+    than something to be believed.
+
+    The digest it is checked against is the one in the frozen manifest, not one
+    recomputed from the file. That is the whole difference between a check and a
+    tautology — a fixture whose bytes changed without the manifest changing has to
+    fail here, and a file compared against itself never can.
+
+    The case names the world *directory*, because that is what a run is handed, and
+    what is frozen under it is its `level.dat`: the directory itself grows region files
+    while a run walks around, so two runs of the same case produce different
+    directories by design, while the file that makes the directory a world is the one
+    the run records as that world's configuration. Asking the product for that file's
+    name rather than spelling it here keeps the two from drifting apart.
+    """
+
+    snapshot = material.run().get("world_snapshot")
+    if not isinstance(snapshot, Mapping):
+        return "THIS_RUN_RECORDED_NO_WORLD_OF_ITS_OWN"
+    settings = cast("Mapping[str, object]", snapshot).get("settings_digest")
+    if not isinstance(settings, str) or len(settings) != 64:
+        return f"THE_WORLD_SETTINGS_ARE_NOT_A_DIGEST:{settings!r}"
+
+    # A list, not a tuple: `len(named) > 1` below cannot narrow a tuple's empty case
+    # away — pyright keeps `tuple[()]` in the union and calls the index an error — and
+    # the shape of a local variable is not worth a typing argument.
+    named = [path for path in material.case_inputs if path.startswith(FROZEN_WORLDS_PREFIX)]
+    if not named:
+        return "THE_CASE_NAMES_NO_WORLD_FIXTURE"
+    if len(named) > 1:
+        # Which of them the run started from would be a guess, and a guess here is the
+        # answer this assertion exists to not give.
+        return f"THE_CASE_NAMES_MORE_THAN_ONE_WORLD:{','.join(sorted(named))}"
+    fixture = f"{named[0].rstrip('/')}/{LEVEL_DAT}"
+    declared = dict(material.case_input_digests).get(fixture)
+    if declared is None:
+        return f"THE_CASE_DOES_NOT_PIN_THE_WORLD_FIXTURE:{fixture}"
+    try:
+        reviewed = frozen_digests().get(fixture)
+    except ManifestError as error:
+        return f"THE_FROZEN_FIXTURE_MANIFEST_IS_INVALID:{error}"
+    if reviewed is None:
+        return f"THE_WORLD_FIXTURE_IS_NOT_FROZEN:{fixture}"
+    on_disk = REPOSITORY_ROOT.joinpath(*PurePosixPath(fixture).parts)
+    try:
+        on_disk.resolve(strict=False).relative_to(REPOSITORY_ROOT.resolve(strict=True))
+    except (OSError, ValueError):
+        return f"THE_WORLD_FIXTURE_ESCAPES_THE_REPOSITORY:{fixture}"
+    if not on_disk.is_file() or hashlib.sha256(on_disk.read_bytes()).hexdigest() != reviewed:
+        return f"THE_WORLD_FIXTURE_IS_NOT_THE_BYTES_THAT_WERE_REVIEWED:{fixture}"
+    if declared != reviewed:
+        return f"THE_CASE_PINS_ANOTHER_WORLD_FIXTURE:{declared}"
+    if settings != declared:
+        return f"THE_RUN_STARTED_FROM_ANOTHER_WORLD:{settings}"
     return None
 
 
@@ -1669,6 +1753,9 @@ ASSERTIONS: dict[str, Callable[[RunMaterial], str | None]] = {
     "server_observed_join_identity": server_observed_join_identity,
     "first_snapshot_admitted": first_snapshot_admitted,
     "the_run_says_which_world_it_hosted": the_run_says_which_world_it_hosted,
+    "the_world_this_run_had_is_the_one_the_case_names": (
+        the_world_this_run_had_is_the_one_the_case_names
+    ),
     "core_was_told_the_world_was_published": core_was_told_the_world_was_published,
     "the_first_snapshot_of_the_world_it_dialled_was_admitted": (
         the_first_snapshot_of_the_world_it_dialled_was_admitted
@@ -1760,10 +1847,42 @@ def declared_assertions(case: Mapping[str, object]) -> tuple[str, ...]:
     return tuple(str(item) for item in cast(list[object], value))
 
 
+def declared_inputs(case: Mapping[str, object]) -> tuple[str, ...]:
+    """The inputs a case manifest declares, which is where it names its fixtures.
+
+    Not `Unreadable` when absent: a case with no inputs is a case that starts from
+    nothing in particular, and an assertion that needs one says so itself.
+    """
+
+    value = case.get("inputs")
+    if not isinstance(value, list):
+        return ()
+    return tuple(str(item) for item in cast(list[object], value))
+
+
+def declared_input_digests(case: Mapping[str, object]) -> tuple[tuple[str, str], ...]:
+    """The content pins that make mutable input bytes part of the case version."""
+
+    value = case.get("input_digests")
+    if not isinstance(value, Mapping):
+        return ()
+    return tuple(
+        sorted(
+            (str(path), str(digest))
+            for path, digest in cast(Mapping[object, object], value).items()
+        )
+    )
+
+
 def evaluate(case: Mapping[str, object], material: RunMaterial) -> Verdict:
     """Evaluate every assertion the case declares against one run's material."""
 
     definition, _ = parse_case_manifest(dict(case))
+    material = replace(
+        material,
+        case_inputs=declared_inputs(case),
+        case_input_digests=declared_input_digests(case),
+    )
     if definition is not None:
         material = replace(
             material,

@@ -7,8 +7,12 @@
     "tests/fixtures/runtime-input/bundle-p0-core-1.21.4.json",
     "tests/fixtures/saves/kinworld"
   ],
+  "input_digests": {
+    "tests/fixtures/saves/kinworld/level.dat": "3bdd4affd45b65b90dbb7cd25ae34581b6beaf42edcf2324f63f187b5023c00c"
+  },
   "assertions": [
     "the_run_says_which_world_it_hosted",
+    "the_world_this_run_had_is_the_one_the_case_names",
     "core_was_told_the_world_was_published",
     "another_kin_joined_the_world_this_run_hosted",
     "the_world_saw_that_kin_leave_again"

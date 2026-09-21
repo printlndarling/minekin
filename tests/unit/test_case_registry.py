@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from collections.abc import Iterator
 from pathlib import Path
@@ -78,6 +79,40 @@ def test_a_case_digest_names_its_own_definition() -> None:
 
     assert first.digest == second.digest
     assert case(assertions=["something_else"]).digest != first.digest
+    assert case(input_digests={"fixture.bin": "a" * 64}).digest != first.digest
+
+
+def test_reviewed_input_digests_are_part_of_the_case_definition() -> None:
+    parsed = case(input_digests={"fixture.bin": "a" * 64})
+
+    assert parsed.input_digests == (("fixture.bin", "a" * 64),)
+    assert parsed.as_document()["input_digests"] == {"fixture.bin": "a" * 64}
+
+
+@pytest.mark.parametrize(
+    "input_digests",
+    [
+        [],
+        {"": "a" * 64},
+        {"fixture.bin": "not-a-digest"},
+        {"fixture.bin": 1},
+    ],
+)
+def test_malformed_reviewed_input_digests_are_refused(input_digests: object) -> None:
+    parsed, violations = parse_case_manifest(document(input_digests=input_digests))
+
+    assert parsed is None
+    assert CaseViolation.INVALID_INPUT_DIGESTS in violations
+
+
+def test_independent_case_violations_are_reported_together() -> None:
+    parsed, violations = parse_case_manifest(document(input_digests=[], assertions=[]))
+
+    assert parsed is None
+    assert violations == (
+        CaseViolation.INVALID_INPUT_DIGESTS,
+        CaseViolation.NO_ASSERTIONS,
+    )
 
 
 def test_the_registry_reads_a_directory_of_cases() -> None:
@@ -340,6 +375,42 @@ def test_a_sealed_pass_bundle_promotes_its_case(bundles: Path) -> None:
     )
 
     assert verdict.promotable, verdict.as_document()
+
+
+def test_changing_a_reviewed_input_pin_makes_old_evidence_stale(bundles: Path) -> None:
+    """Fixture bytes are part of the case version, not mutable ambient state."""
+
+    previous = case(input_digests={"fixture.bin": "a" * 64})
+    current = case(input_digests={"fixture.bin": "b" * 64})
+    seal(bundles, "run-01", previous, EvidenceResult.PASS)
+
+    verdict = evaluate_case_promotion(
+        CaseRegistry(cases=(current,)), [bundles / "run-01"], work_package="W50"
+    )
+
+    assert not verdict.promotable
+    assert verdict.blocks == (PromotionBlock.CASE_VERSION_MISMATCH,)
+
+
+def test_registry_loading_rejects_changed_input_bytes_when_the_case_pin_was_forgotten(
+    tmp_path: Path,
+) -> None:
+    """Updating ambient fixture state cannot preserve an old case version."""
+
+    fixture = tmp_path / "tests" / "fixtures" / "saves" / "world" / "level.dat"
+    fixture.parent.mkdir(parents=True)
+    fixture.write_bytes(b"world-b")
+    definition = document(
+        inputs=["tests/fixtures/saves/world"],
+        input_digests={
+            "tests/fixtures/saves/world/level.dat": hashlib.sha256(b"world-a").hexdigest()
+        },
+    )
+    case_path = tmp_path / "case.json"
+    case_path.write_text(json.dumps(definition), encoding="utf-8")
+
+    with pytest.raises(MinekinError, match="input digest mismatch"):
+        load_case_manifest(case_path, input_root=tmp_path)
 
 
 def test_a_bundle_that_names_another_run_does_not_promote_its_case(bundles: Path) -> None:

@@ -2346,6 +2346,12 @@ HOST_CASE = CASES / "host-030.json"
 # The line the client wrote in the runner when it bound the port it was given.
 SERVED_ON = "[20:19:39] [Render thread/INFO]: Started serving on 25570"
 LEVEL_DIGEST = "aac62c39872dd515dcb0d062a4b8ba5a5c6a333f29a4e1833e1d12686339be15"
+#: The digest of the frozen world this case starts from: the run records it over
+#: `tests/fixtures/saves/kinworld/level.dat`, and the assertion that checks it reads
+#: the frozen manifest. Spelled out rather than hashed here on purpose — a fixture
+#: whose bytes changed without this constant changing has to be a failure, and a test
+#: that recomputed the digest would agree with whatever it found.
+LEVEL_SETTINGS_DIGEST = "3bdd4affd45b65b90dbb7cd25ae34581b6beaf42edcf2324f63f187b5023c00c"
 
 
 def host_case() -> dict[str, object]:
@@ -2367,7 +2373,11 @@ def hosted_world(
     if publication is _UNSET:
         publication = {"phase": "LAN_OPENED", "port": 25570}
     if world is _UNSET:
-        world = {"level_name": "kinworld", "digest": LEVEL_DIGEST}
+        world = {
+            "level_name": "kinworld",
+            "digest": LEVEL_DIGEST,
+            "settings_digest": LEVEL_SETTINGS_DIGEST,
+        }
     return material(
         document=run_document(lan_publication=publication, world_snapshot=world),
         client_log=client_log,
@@ -2455,7 +2465,133 @@ def test_the_world_and_the_address_it_is_reachable_at_are_two_facts() -> None:
         "the_client_published_the_world_on_the_port_it_was_given:PORT_MISMATCH:client=25570,core=0",
     )
     assert "the_run_says_which_world_it_hosted" not in str(unpublished.failures)
-    assert unnamed.failures == ("the_run_says_which_world_it_hosted:NO_WORLD_SNAPSHOT_RECORDED",)
+    # Both world assertions fail on a run that recorded none, and both are right to:
+    # the run says nothing about which world it hosted *and* nothing that matches the
+    # world the case starts from. The second one is not implied by the first — a run
+    # can name a world that is not this case's, which is the next block of tests.
+    assert unnamed.failures == (
+        "the_run_says_which_world_it_hosted:NO_WORLD_SNAPSHOT_RECORDED",
+        "the_world_this_run_had_is_the_one_the_case_names:THIS_RUN_RECORDED_NO_WORLD_OF_ITS_OWN",
+    )
+
+
+def test_a_world_that_is_not_the_case_s_own_is_refused() -> None:
+    """The point of naming the fixture in the case: another world is another run.
+
+    Measured with the assertion rather than argued: the world block below is
+    perfectly well-formed, names a level, and is the wrong world.
+    """
+
+    elsewhere = {
+        "level_name": "kinworld",
+        "digest": LEVEL_DIGEST,
+        "settings_digest": "0" * 64,
+    }
+
+    verdict = ASSERTER_MODULE.evaluate(host_case(), hosted_world(world=elsewhere))
+
+    assert verdict.failures == (
+        "the_world_this_run_had_is_the_one_the_case_names:THE_RUN_STARTED_FROM_ANOTHER_WORLD:"
+        + "0" * 64,
+    )
+
+
+def test_a_world_without_its_settings_is_not_this_case_s_world() -> None:
+    """The field the comparison rests on is required, not optional.
+
+    A run that names a level and a snapshot digest but not the configuration digest
+    cannot be checked against a fixture at all, so it fails here rather than passing
+    for having said something.
+    """
+
+    without_settings = {"level_name": "kinworld", "digest": LEVEL_DIGEST}
+
+    verdict = ASSERTER_MODULE.evaluate(host_case(), hosted_world(world=without_settings))
+
+    assert verdict.failures == (
+        "the_world_this_run_had_is_the_one_the_case_names:THE_WORLD_SETTINGS_ARE_NOT_A_DIGEST:None",
+    )
+
+
+@pytest.mark.parametrize(
+    ("inputs", "reason"),
+    [
+        # The case this assertion is written for is the one that names a world.
+        (
+            ["tests/fixtures/runtime-input/bundle-p0-core-1.21.4.json"],
+            "THE_CASE_NAMES_NO_WORLD_FIXTURE",
+        ),
+        # Named, and nothing in the manifest says what it was reviewed as.
+        (
+            ["tests/fixtures/saves/nowhere"],
+            "THE_CASE_DOES_NOT_PIN_THE_WORLD_FIXTURE:tests/fixtures/saves/nowhere/level.dat",
+        ),
+        # Two of them, and which one this run started from would be a guess.
+        (
+            ["tests/fixtures/saves/kinworld", "tests/fixtures/saves/also-here"],
+            "THE_CASE_NAMES_MORE_THAN_ONE_WORLD:"
+            "tests/fixtures/saves/also-here,tests/fixtures/saves/kinworld",
+        ),
+    ],
+)
+def test_a_case_that_does_not_name_one_frozen_world_is_refused(
+    inputs: list[str], reason: str
+) -> None:
+    """Every way of not naming one world fails, and says which way it was.
+
+    A well-formed world block is not enough on its own: the case has to name the world
+    it starts from, that world has to be one the manifest frozen, and it has to be one,
+    not several. The assertion is only worth having if the case cannot quietly leave
+    the comparison out.
+    """
+
+    case = host_case()
+    case["inputs"] = inputs
+
+    verdict = ASSERTER_MODULE.evaluate(case, hosted_world())
+
+    assert verdict.failures == (f"the_world_this_run_had_is_the_one_the_case_names:{reason}",)
+
+
+def test_a_fixture_that_is_not_the_bytes_that_were_reviewed_is_refused(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The check is against the manifest, so a fixture that moved is a failure.
+
+    This is the branch that separates a check from a tautology: read the digest off
+    the file and it always agrees with itself, which is why the comparison value comes
+    from the frozen manifest instead.
+    """
+
+    monkeypatch.setattr(
+        ASSERTER_MODULE,
+        "frozen_digests",
+        lambda: {
+            "tests/fixtures/saves/kinworld/level.dat": "0" * 64,
+        },
+    )
+
+    verdict = ASSERTER_MODULE.evaluate(host_case(), hosted_world())
+
+    assert verdict.failures == (
+        "the_world_this_run_had_is_the_one_the_case_names:"
+        "THE_WORLD_FIXTURE_IS_NOT_THE_BYTES_THAT_WERE_REVIEWED:"
+        "tests/fixtures/saves/kinworld/level.dat",
+    )
+
+
+def test_the_case_pin_must_equal_the_reviewed_world_digest() -> None:
+    case = host_case()
+    case["input_digests"] = {
+        "tests/fixtures/saves/kinworld/level.dat": "0" * 64,
+    }
+
+    verdict = ASSERTER_MODULE.evaluate(case, hosted_world())
+
+    assert verdict.failures == (
+        "the_world_this_run_had_is_the_one_the_case_names:"
+        "THE_CASE_PINS_ANOTHER_WORLD_FIXTURE:" + "0" * 64,
+    )
 
 
 # --- HOST-040: a second client joins the world this one hosts -------------------

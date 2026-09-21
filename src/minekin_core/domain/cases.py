@@ -27,7 +27,7 @@ _WORK_PACKAGE = re.compile(r"^W[0-9]{2}$")
 _REQUIRED_KEYS = frozenset(
     {"schema_version", "case_id", "work_package", "mandatory", "inputs", "assertions"}
 )
-_OPTIONAL_KEYS = frozenset({"oracle_inputs"})
+_OPTIONAL_KEYS = frozenset({"input_digests", "oracle_inputs"})
 
 
 class CaseViolation(StrEnum):
@@ -40,6 +40,7 @@ class CaseViolation(StrEnum):
     INVALID_WORK_PACKAGE = "INVALID_WORK_PACKAGE"
     INVALID_MANDATORY = "INVALID_MANDATORY"
     INVALID_STRING_LIST = "INVALID_STRING_LIST"
+    INVALID_INPUT_DIGESTS = "INVALID_INPUT_DIGESTS"
     NO_ASSERTIONS = "NO_ASSERTIONS"
     NOT_AN_OBJECT = "NOT_AN_OBJECT"
 
@@ -62,6 +63,7 @@ class CaseManifest:
     work_package: str
     mandatory: bool
     inputs: tuple[str, ...]
+    input_digests: tuple[tuple[str, str], ...]
     assertions: tuple[str, ...]
     oracle_inputs: tuple[str, ...]
     digest: str
@@ -77,6 +79,7 @@ class CaseManifest:
             "work_package": self.work_package,
             "mandatory": self.mandatory,
             "inputs": list(self.inputs),
+            "input_digests": dict(self.input_digests),
             "assertions": list(self.assertions),
             "oracle_inputs": list(self.oracle_inputs),
             "digest": self.digest,
@@ -98,6 +101,24 @@ def _strings(document: Mapping[str, object], key: str) -> tuple[str, ...] | None
     if not all(isinstance(item, str) for item in items):
         return None
     return tuple(cast(str, item) for item in items)
+
+
+def _input_digests(document: Mapping[str, object]) -> tuple[tuple[str, str], ...] | None:
+    """Return the reviewed input pins, or None when the optional map is malformed."""
+
+    value = document.get("input_digests", {})
+    if not isinstance(value, Mapping):
+        return None
+    items = cast(Mapping[object, object], value)
+    if not all(
+        isinstance(path, str)
+        and bool(path)
+        and isinstance(digest, str)
+        and re.fullmatch(r"[0-9a-f]{64}", digest) is not None
+        for path, digest in items.items()
+    ):
+        return None
+    return tuple(sorted(cast(Mapping[str, str], value).items()))
 
 
 def parse_case_manifest(
@@ -131,6 +152,7 @@ def parse_case_manifest(
         found.add(CaseViolation.INVALID_MANDATORY)
 
     inputs = _strings(document, "inputs")
+    input_digests = _input_digests(document)
     assertions = _strings(document, "assertions")
     # `oracle_inputs` is optional, so absence means "reads no oracle"; only a
     # present-but-malformed value is an error.
@@ -140,7 +162,10 @@ def parse_case_manifest(
         inputs = inputs or ()
         oracle_inputs = oracle_inputs or ()
         assertions = assertions or ()
-    elif not assertions:
+    if input_digests is None:
+        found.add(CaseViolation.INVALID_INPUT_DIGESTS)
+        input_digests = ()
+    if not assertions:
         # The schema requires at least one assertion; a case that asserts nothing
         # cannot pass or fail and so cannot gate anything.
         found.add(CaseViolation.NO_ASSERTIONS)
@@ -154,6 +179,7 @@ def parse_case_manifest(
             work_package=cast(str, work_package),
             mandatory=cast(bool, mandatory),
             inputs=inputs,
+            input_digests=input_digests,
             assertions=assertions,
             oracle_inputs=oracle_inputs,
             digest=hashlib.sha256(

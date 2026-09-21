@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from collections.abc import Iterable, Mapping
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import cast
 
 from minekin_core.adapters.evidence.bundle import BundleVerification, verify_addressed_bundle
@@ -19,6 +20,8 @@ from minekin_core.domain.cases import (
 from minekin_core.domain.errors import ErrorCategory, MinekinError, Retryability
 from minekin_core.domain.evidence import EvidenceResult
 
+REPOSITORY_ROOT = Path(__file__).resolve().parents[4]
+
 
 def _reject(message: str) -> MinekinError:
     return MinekinError(
@@ -26,7 +29,48 @@ def _reject(message: str) -> MinekinError:
     )
 
 
-def load_case_manifest(path: Path) -> CaseManifest:
+def _validate_input_digests(case: CaseManifest, *, input_root: Path) -> None:
+    """Keep reviewed input bytes and their case-version pins inseparable.
+
+    Promotion loads the case registry before comparing bundle versions. Verifying
+    pins here means changing an input while forgetting its case JSON cannot leave
+    an old PASS promotable merely because a separate fixture gate was not run.
+    """
+
+    root = input_root.resolve(strict=True)
+    declared_inputs = tuple(PurePosixPath(item) for item in case.inputs)
+    for raw_path, expected in case.input_digests:
+        logical = PurePosixPath(raw_path)
+        if (
+            logical.is_absolute()
+            or ".." in logical.parts
+            or "\\" in raw_path
+            or logical.as_posix() != raw_path
+        ):
+            raise _reject(f"case {case.case_id} has unsafe input digest path {raw_path!r}")
+        if not any(
+            logical == declared or logical.is_relative_to(declared) for declared in declared_inputs
+        ):
+            raise _reject(
+                f"case {case.case_id} pins {raw_path}, which is not inside a declared input"
+            )
+        candidate = root.joinpath(*logical.parts)
+        try:
+            resolved = candidate.resolve(strict=True)
+            resolved.relative_to(root)
+        except (OSError, ValueError) as error:
+            raise _reject(f"case {case.case_id} pinned input is unavailable: {raw_path}") from error
+        if not resolved.is_file():
+            raise _reject(f"case {case.case_id} pinned input is not a file: {raw_path}")
+        actual = hashlib.sha256(resolved.read_bytes()).hexdigest()
+        if actual != expected:
+            raise _reject(
+                f"case {case.case_id} input digest mismatch for {raw_path}: "
+                f"expected {expected}, got {actual}"
+            )
+
+
+def load_case_manifest(path: Path, *, input_root: Path = REPOSITORY_ROOT) -> CaseManifest:
     """Load and validate one case manifest, reporting every violation at once."""
 
     try:
@@ -40,6 +84,7 @@ def load_case_manifest(path: Path) -> CaseManifest:
         raise _reject(
             f"{path} is not a usable case: " + ", ".join(item.value for item in violations)
         )
+    _validate_input_digests(case, input_root=input_root)
     return case
 
 

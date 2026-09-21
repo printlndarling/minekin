@@ -112,6 +112,9 @@ IMPLEMENTATIONS: dict[str, Implementation] = {
     "server_observed_join_identity": _runtime("server_observed_join_identity"),
     "first_snapshot_admitted": _runtime("first_snapshot_admitted"),
     "the_run_says_which_world_it_hosted": _runtime("the_run_says_which_world_it_hosted"),
+    "the_world_this_run_had_is_the_one_the_case_names": _runtime(
+        "the_world_this_run_had_is_the_one_the_case_names"
+    ),
     "the_first_snapshot_of_the_world_it_dialled_was_admitted": _runtime(
         "the_first_snapshot_of_the_world_it_dialled_was_admitted"
     ),

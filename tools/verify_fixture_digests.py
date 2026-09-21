@@ -20,6 +20,10 @@ FROZEN_PATTERNS = (
 )
 
 
+class ManifestError(ValueError):
+    """The frozen-fixture manifest cannot be interpreted unambiguously."""
+
+
 def _normalized_bytes(path: Path) -> bytes:
     """Hash repository text canonically so Windows and Linux agree.
 
@@ -46,10 +50,19 @@ def _expected_paths() -> set[str]:
     }
 
 
-def violations() -> list[str]:
+def parse_manifest(manifest: Path | None = None) -> tuple[dict[str, tuple[int, str]], list[str]]:
+    """The manifest's usable entries, by logical path, and the lines that are not.
+
+    One reader for one file. The digest a caller gets is the one that was
+    *reviewed* rather than one recomputed from the file on disk: asking a fixture
+    whether it still matches itself is not a question worth answering, and a
+    comparison against the reviewed value is the only kind that can fail.
+    """
+
+    manifest = MANIFEST if manifest is None else manifest
+    entries: dict[str, tuple[int, str]] = {}
     errors: list[str] = []
-    listed: set[str] = set()
-    for line_number, line in enumerate(MANIFEST.read_text(encoding="utf-8").splitlines(), 1):
+    for line_number, line in enumerate(manifest.read_text(encoding="utf-8").splitlines(), 1):
         if not line or line.startswith("#"):
             continue
         try:
@@ -57,12 +70,51 @@ def violations() -> list[str]:
         except ValueError:
             errors.append(f"manifest.sha256:{line_number}: malformed line")
             continue
+        if len(expected) != 64 or any(
+            character not in "0123456789abcdef" for character in expected
+        ):
+            errors.append(f"manifest.sha256:{line_number}: malformed digest {expected!r}")
+            continue
         logical_path = PurePosixPath(raw_path)
-        if logical_path.is_absolute() or ".." in logical_path.parts:
+        canonical_path = logical_path.as_posix()
+        if (
+            logical_path.is_absolute()
+            or ".." in logical_path.parts
+            or "\\" in raw_path
+            or raw_path != canonical_path
+        ):
             errors.append(f"manifest.sha256:{line_number}: unsafe path {raw_path!r}")
             continue
-        listed.add(logical_path.as_posix())
-        path = REPOSITORY_ROOT.joinpath(*logical_path.parts)
+        previous = entries.get(canonical_path)
+        if previous is not None:
+            errors.append(
+                f"manifest.sha256:{line_number}: duplicate path {canonical_path!r} "
+                f"(first listed on line {previous[0]})"
+            )
+            continue
+        entries[canonical_path] = (line_number, expected)
+    return entries, errors
+
+
+def frozen_digests() -> dict[str, str]:
+    """Every path the manifest freezes, and the digest it records for it.
+
+    Public because "is this file still the one that was reviewed" is a question more
+    than this gate asks: evidence that names a fixture has to be able to compare
+    against the reviewed digest, and it must not keep its own copy of how to read
+    the manifest to do it.
+    """
+
+    entries, errors = parse_manifest()
+    if errors:
+        raise ManifestError("; ".join(errors))
+    return {path: digest for path, (_line, digest) in entries.items()}
+
+
+def violations() -> list[str]:
+    entries, errors = parse_manifest()
+    for raw_path, (line_number, expected) in entries.items():
+        path = REPOSITORY_ROOT.joinpath(*PurePosixPath(raw_path).parts)
         if not path.is_file():
             errors.append(f"manifest.sha256:{line_number}: missing {raw_path}")
             continue
@@ -72,6 +124,7 @@ def violations() -> list[str]:
                 f"manifest.sha256:{line_number}: digest mismatch for {raw_path}: "
                 f"expected {expected}, got {actual}"
             )
+    listed = set(entries)
     missing = _expected_paths() - listed
     extra = listed - _expected_paths()
     errors.extend(f"manifest.sha256: unlisted frozen file {path}" for path in sorted(missing))

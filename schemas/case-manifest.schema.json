@@ -11,6 +11,11 @@
     "work_package": {"type": "string", "pattern": "^W[0-9]{2}$"},
     "mandatory": {"type": "boolean"},
     "inputs": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+    "input_digests": {
+      "type": "object",
+      "propertyNames": {"minLength": 1},
+      "additionalProperties": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+    },
     "assertions": {"type": "array", "minItems": 1, "items": {"type": "string"}, "uniqueItems": true},
     "oracle_inputs": {"type": "array", "items": {"type": "string"}, "uniqueItems": true}
   }
