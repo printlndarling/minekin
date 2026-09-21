@@ -225,7 +225,7 @@ PlayerMind只收到：
 9. `HOSTCOMMIT-080`：复制同一save为两个独立世界；必须产生不同hosted_world_id且计划/资产不串线。
 10. `HOSTCOMMIT-090`：hosted A→remote B→hosted A；任一时刻只有一个ACTIVE Current World Capsule。
 11. `HOSTCOMMIT-100`：SQLite clean事务失败但世界关闭成功，以及反向组合；恢复决策与双水位一致。
-12. `HOSTCOMMIT-110`：同名重建、同地址换档、LAN端口改变；分别得出新世界、待审查和同世界。
+12. `HOSTCOMMIT-110`：同名重建、同地址换档、LAN端口改变；分别得出新世界、待审查和同世界。（2026-09-22：**这一条做了**——用例 `tests/fixtures/cases/hostcommit-110.json`，三条断言各对应上面三种观察之一，由 `tests/unit/test_world_identity.py` 里同名的三个测试执行。判据是 `domain/world_identity.py`：**上面六条规则逐条**落成一次判断（普通重启同世界同 epoch、回滚同世界新 epoch、复制成两个世界、同名重建新世界新 context、端口改变不动身份、同地址换档进入 review），每条各自有一个 outcome。**两条反向规则做成了字段层面的**：显示名与 seed/level name/MOTD/玩家名/目录名都不是键，所以它们**不是 `WorldLineage` 的字段**——有一条用例直接钉住这张字段清单，因为「端口不属于身份」这句话只能活到有人为它加一个字段为止。）
 
 ## 仍待真客户端原型冻结
 

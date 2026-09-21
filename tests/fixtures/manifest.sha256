@@ -45,3 +45,4 @@ d5735406f57260d9a88527b8a9d5c0e5e726ad1a6c9d3b6bab9ae939554cc159  tests/fixtures
 eb6586984f43e0a1a696c6daffab04dd4aa453f381275abdad5bb6ed895999d7  tests/fixtures/runtime-input/world-create-p0.json
 935743f13bfdbc6ca21a8b5d77e5733a8d6e267b1dd2bc4a66f8427c7d3b8669  tests/fixtures/runtime-input/world-create-proposal-p0.json
 253b1e0dfc006803c57b3dd0fdd3085772d897068420d0996d0ddf0f1e8035a9  tests/fixtures/cases/hostctl-050.json
+50f173e34224ec67842b23cc8ea5c843ab9a67044800dbb907d2e5669aa771ef  tests/fixtures/cases/hostcommit-110.json

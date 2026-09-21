@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "case_id": "HOSTCOMMIT-110",
+  "work_package": "host-integrated",
+  "mandatory": false,
+  "inputs": [],
+  "assertion_digests": {
+    "a_lan_port_change_does_not_move_the_identity": "3bd41515b32941235c9c6fef4b5839671e09b726e599817fb73beedb50c88b87",
+    "an_address_that_holds_another_save_is_not_decided_here": "a93dabe003e7f01b5036fca69d01a3d488bf1533bf05564d34e7b2a0226050f5",
+    "rebuilding_a_name_makes_a_new_world": "f74491ad50ec95c7f20def9f5babc9cca591e3494d3ab1e7b521e175fd92393f"
+  },
+  "assertions": [
+    "rebuilding_a_name_makes_a_new_world",
+    "an_address_that_holds_another_save_is_not_decided_here",
+    "a_lan_port_change_does_not_move_the_identity"
+  ]
+}

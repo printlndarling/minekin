@@ -308,6 +308,21 @@ IMPLEMENTATIONS: dict[str, Implementation] = {
         "pytest",
         "tests/unit/test_hosted_world.py::test_a_second_creation_in_one_epoch_is_refused",
     ),
+    # HOSTCOMMIT-110: the three ways a world's identity is decided. Each assertion is
+    # the rule the commit-recovery contract states for one observed change, and the
+    # subject of all three is a pure function of a record and an observation.
+    "rebuilding_a_name_makes_a_new_world": Implementation(
+        "pytest",
+        "tests/unit/test_world_identity.py::test_rebuilding_a_name_makes_a_new_world",
+    ),
+    "an_address_that_holds_another_save_is_not_decided_here": Implementation(
+        "pytest",
+        "tests/unit/test_world_identity.py::test_an_address_that_holds_another_save_is_not_decided_here",
+    ),
+    "a_lan_port_change_does_not_move_the_identity": Implementation(
+        "pytest",
+        "tests/unit/test_world_identity.py::test_a_lan_port_change_does_not_move_the_identity",
+    ),
 }
 
 

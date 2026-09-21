@@ -828,6 +828,15 @@
   - **上一节的判据门禁第二次响了，而且两次都对**：我为了去掉私有依赖改了 `a_second_creation_in_one_epoch_is_refused`，`check_case_assertions` 立刻报 `the criteria moved under a version that did not`，`hostctl-050` 必须重录。**连续两步都是它先发现的**——这就是那一节做它的意义。
   - **实测（本轮只到本地锁定环境）**：ruff check/format、pyright（strict，0 errors）、`check_boundaries`、`check_case_assertions`（从 54 变 **56** 条注册断言）、`verify_fixture_digests`、`check_workflow_pins`，全量 pytest（**1590 通过 / 2 skipped**，新增 14 条），以及三条 host 用例的 `run_repo_case`。**没有跑真实 Minecraft**，也没接受 EULA；pin 只动了两处（新 case 与它自己的重录）。
   - **仍然开着的**：这条用例的**真实一半**——延迟回调由 Bridge 真正发出、跨一次真实 generation 返回（要真客户端）；`admit()` 还没有检查完成里带的 `profile_digest`（世界记录里已经有这个字段，但还没有东西在完成里送它，所以现在不验而不是假装验了）；`HOST-001…100` 一条都还没有定义。
+- [x] **`HOSTCOMMIT-110`：什么使一个世界是同一个世界——第四条 host 类用例，而这条守的是"两个世界被悄悄并成一个"。** 契约在提交/恢复那一份里把这件事写成**六条规则**（普通重启、回滚、复制成两个世界、同名重建、端口改变、同地址换档），这一节把它们逐条落成判断，并给出各自的结论。
+  - **为什么这条值得做**：其余五条规则都是"什么时候是新世界"，而这五条里最危险的两条是**反向**的——**显示名不能合并两个世界**，**seed / level name / MOTD / 玩家名 / 目录名也都不能单独当主键**。把删掉又重建的世界当成同一个，等于把新世界的背包配上旧世界的地图；这不是数据错误，是人物事实错误。
+  - **两条反向规则做成了字段层面，而不是校验层面**：既然这些都不是键，它们就**不是 `WorldLineage` 的字段**。并且有一条用例**直接钉住那张字段清单**——「端口不属于身份」这句话只能活到有人为它加一个字段为止，所以这句话由一个断言守着，而不是由一段注释守着。这与这一路反复用的"能力不是靠校验拿掉的，是靠没有入口"是同一条。
+  - **六条规则 = 六种结论，各自命名**：`UNCHANGED`（重启、端口改变）、`SAME_WORLD_NEW_EPOCH`（回滚）、`NEW_WORLD`（复制，仍是关于这个世界）、`NEW_WORLD_AND_CONTEXT`（同名重建，只有名字相同）、`REVIEW`（同地址换档——**地址不是身份**，契约明写，所以这里不下判断，返回的是一条 lineage 都没有）。回滚的 epoch 由 `Generation.next()` 推出来，不由调用方给：这是唯一一条"同一个世界的两个时代"的规则。
+  - **加了两条关于"参数"的拒绝，都是静默失败那一族**：`MISSING_NEW_IDENTITY`（这次变更会产生新世界，却没给身份——**不能替它造一个**，造出来的世界没人能再找到）与 `UNEXPECTED_NEW_IDENTITY`（这次变更不产生新世界，却给了身份——**被丢掉的那个参数**会让调用方以为自己建了什么）。两条都有用例，后者还按变更逐条参数化了。
+  - **一个我自己写错的不变式，被它自己的测试当场拒了**：`__post_init__` 一开始检查"父 epoch 必须小于本 epoch"。对回滚成立（两个数都是同一个世界的时代），对**复制/重建是假的**——fork 的父 epoch 属于一个在这个身份下已经不存在的世界，两个世界的计数器不可比。这条检查把一个**合法的 fork** 拒绝了。**删掉它，并把"为什么故意不检查"写在代码里**，另加一条用例（"从别处来的世界会说出来"）防止它再回来。这正是"写下不变式"这件事的代价与价值：写错的那一条被自己的测试抓住了。
+  - **端到端**：`run_repo_case.py --case tests/fixtures/cases/hostcommit-110.json` → `exit 0`、`result: PASS`、三条断言全 `observed`（本地，不碰 Minecraft）。**宿主的四条用例现在都跑得动**（`HOSTCTL-001/010/050`、`HOSTCOMMIT-110`），`mandatory` 仍全是 `false`，理由同前两节。
+  - **实测（本轮只到本地锁定环境）**：ruff check/format、pyright（strict，0 errors）、`check_boundaries`、`check_case_assertions`（从 56 变 **59** 条注册断言）、`verify_fixture_digests`、`check_workflow_pins`，全量 pytest（**1605 通过 / 2 skipped**，新增 14 条），以及四条 host 用例的 `run_repo_case`。**没有跑真实 Minecraft**，也没接受 EULA；pin 只动了两处（新 case 与它自己的重录）。
+  - **仍然开着的**：契约里紧挨着的**切换激活门**（`STAGED → OBSERVING → RECONCILED → ACTIVE`，「只有一个 Current World Capsule 可以标 ACTIVE」，即 `HOSTCOMMIT-090`）**还没做**——它与这一节是同一个主题的下一半，而且同样是纯域、同样有出处；另外 `HOSTCOMMIT-070`（回滚后事实失效并等待重验）需要"哪些事实失效"的定义，那份定义在**心智侧**（`player-mind`/记忆），本仓库还没有。那份**候选**正常关闭状态机（`ACTIVE → QUIESCING → … → CLEAN`）**刻意没做**：契约自己写着"第4～6步的真实调用先后…必须由真客户端 trace冻结"，所以它现在是一条**候选**，把它冻结成表就等于假装已经有那些 trace。
 ## W70 之后
 
 - [ ] W80：独立 `p0-nav-exp` 导航实验；核验输入冲突、隐藏真值与 SBOM/许可。
