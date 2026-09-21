@@ -68,8 +68,10 @@ import fault_injection
 from assert_case_evidence import (
     PLAYABLE_ESTABLISHED,
     RUN_DOCUMENT_KEY,
+    is_digest,
     read_run_material,
     timeline_bytes,
+    world_snapshot,
 )
 from evidence_provenance import host_facts, profile_reference, protocol_schema_digest
 
@@ -230,6 +232,7 @@ def run_asserter(
     fault_injection: str | None = None,
     soak_samples: str | None = None,
     soak_summary: str | None = None,
+    world_run_document: str | None = None,
     python: str = sys.executable,
 ) -> dict[str, object]:
     """The case's verdict, from the one module that judges rather than writes.
@@ -237,6 +240,12 @@ def run_asserter(
     The fault record travels as text rather than as a path, because this side has
     already read it once: the same bytes are sealed as an artifact, so the verdict
     and the bundle cannot be about two different readings of one file.
+
+    The document of the run that hosted a joined world travels the same way, and for
+    the same reason — except that for this one the path is not merely redundant, it is
+    the wrong input: the join case's whole subject is the world *that* document names,
+    and an asserter free to open the path again would be free to judge a document
+    nobody sealed.
     """
 
     arguments = [
@@ -255,6 +264,8 @@ def run_asserter(
         arguments += ["--run-document", str(run_document)]
     if server_directory is not None:
         arguments += ["--server-directory", str(server_directory)]
+    if world_run_document is not None:
+        arguments += ["--world-run-document-json", world_run_document]
     if fault_injection is not None:
         arguments += ["--fault-injection-json", fault_injection]
     # The soak travels the same way, for the same reason.
@@ -315,7 +326,7 @@ def _world_record(
     target: ServerProfile | None,
     server_directory: Path | None,
     run_document: Mapping[str, object],
-    world_run_document: Mapping[str, object],
+    world_run_document: Mapping[str, object] | None,
     username: str,
 ) -> _WorldRecord:
     """The world block, from the strongest thing the run can say about its world.
@@ -327,19 +338,30 @@ def _world_record(
     server, where the profile is the configuration and the server's own directory has
     the seed. And no world at all.
 
-    Measured before it was written: a run in which the Kin was in `kinworld` and
-    published it on 25570 sealed as `kind: "none"` with the digest of nothing, because
-    the guard below looks for a *connection* and a host has none. A bundle that
-    describes a world nobody visited is bad; one that denies a world the Kin lived in
-    is worse, because the run's own record next to it says otherwise.
+    `world_run_document` is None when no such document was given and the mapping that
+    was given otherwise, *including an empty one*. The difference is the whole of this
+    guard: an empty document is a caller who said there was a world and handed over
+    nothing, and treating it as "not given" would seal `kind: none` beside the artifact
+    of the document that failed to name one. Measured: a run in which the Kin was in
+    `kinworld` and published it on 25570 sealed as `kind: "none"` with the digest of
+    nothing, because the guard below looks for a *connection* and a host has none. A
+    bundle that describes a world nobody visited is bad; one that denies a world the
+    Kin lived in is worse, because the run's own record next to it says otherwise.
     """
 
-    hosted = _snapshot_of(run_document)
+    hosted = world_snapshot(run_document)
     if hosted is not None:
         return _hosted_record(hosted, "the run hosted a world")
 
-    joined = _snapshot_of(world_run_document)
-    if joined is not None:
+    if world_run_document is not None:
+        joined = world_snapshot(world_run_document)
+        if joined is None:
+            # A document was given for the world this run joined, and it does not say
+            # which world that was. Refused rather than recorded as `none`: the caller
+            # said there was a world, and a bundle that then denies one is the same lie
+            # as before. This is also why an empty document cannot reach the branch
+            # below: "given and says nothing" is not "not given".
+            raise Unsealable("the run that hosted this world did not record a world of its own")
         return _hosted_record(joined, "the run that hosted this world")
 
     if target is not None:
@@ -349,36 +371,20 @@ def _world_record(
             name=NO_WORLD if server_directory is None else world_seed(server_directory),
         )
 
-    if world_run_document:
-        # A document was given for the world this run joined, and it does not say which
-        # world that was. Refused rather than recorded as `none`: the caller said there
-        # was a world, and a bundle that then denies one is the same lie as before.
-        raise Unsealable("the run that hosted this world did not record a world of its own")
     return _WorldRecord(kind=NO_WORLD, config_digest=EMPTY_DOCUMENT_SHA256, name=NO_WORLD)
-
-
-def _snapshot_of(document: Mapping[str, object]) -> Mapping[str, object] | None:
-    """The world snapshot a run document carries, or None when it has none."""
-
-    raw = document.get(RUN_DOCUMENT_KEY)
-    section: Mapping[str, object] = (
-        cast(Mapping[str, object], raw) if isinstance(raw, Mapping) else {}
-    )
-    snapshot = section.get("world_snapshot")
-    return cast("Mapping[str, object]", snapshot) if isinstance(snapshot, Mapping) else None
 
 
 def _hosted_record(hosted: Mapping[str, object], whose: str) -> _WorldRecord:
     """One hosted world's block, from the digests its own run recorded."""
 
     settings = hosted.get("settings_digest")
-    if not isinstance(settings, str) or len(settings) != 64:
+    if not is_digest(settings):
         # Refused rather than filled in with the snapshot digest: the two fields mean
         # different things, and a run recorded with one standing in for the other is a
         # record nobody can separate later.
         raise Unsealable(f"{whose}, but its document does not name the world's settings")
     digest = hosted.get("digest")
-    if not isinstance(digest, str) or len(digest) != 64:
+    if not is_digest(digest):
         # The same rule as the settings above, for the other field: a real kind with
         # `none` where the world's name belongs is the escape hatch the contract warns
         # about, and it is refused here rather than sealed into a bundle that says a
@@ -401,7 +407,7 @@ def build_manifest(
     java: Path | None,
     workspace_root: Path,
     run_document: Mapping[str, object],
-    world_run_document: Mapping[str, object],
+    world_run_document: Mapping[str, object] | None,
 ) -> EvidenceManifest:
     """Assemble the manifest from what was measured, refusing what was not.
 
@@ -563,12 +569,22 @@ def seal(
     # The run that hosted the world this one joined, when there is one. Read the same
     # way and for the same reason: a hosted world's identity is recorded on the run
     # that hosted it, and a joining client cannot report a snapshot it never took.
+    #
+    # Read *once*, into bytes that are both judged and sealed: the asserter is given
+    # the text these bytes decode to rather than the path, so the verdict cannot be
+    # reached on a document that was rewritten between the reading and the judgement.
+    # Strict UTF-8, and that is not a restriction in practice: a run document is what
+    # Core printed, which is `json.dumps`' ASCII by default and is UTF-8 wherever it
+    # is not — and a document that cannot be handed to the judge as text is one this
+    # cannot hand over at all.
     world_run_raw = b""
-    world_run_document: dict[str, object] = {}
+    world_run_text: str | None = None
+    world_run_document: dict[str, object] | None = None
     if world_run_document_path is not None:
         try:
             world_run_raw = world_run_document_path.read_bytes()
-            hosted = json.loads(world_run_raw)
+            world_run_text = world_run_raw.decode("utf-8")
+            hosted = json.loads(world_run_text)
         except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
             raise Unsealable(
                 f"{world_run_document_path} is not a readable run document: {error}"
@@ -587,6 +603,7 @@ def seal(
         fault_injection=fault_injection_text,
         soak_samples=soak_samples_text,
         soak_summary=soak_summary_text,
+        world_run_document=world_run_text,
     )
     material = read_run_material(
         run_document=run_document_path,

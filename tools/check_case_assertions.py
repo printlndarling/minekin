@@ -115,6 +115,9 @@ IMPLEMENTATIONS: dict[str, Implementation] = {
     "the_world_this_run_had_is_the_one_the_case_names": _runtime(
         "the_world_this_run_had_is_the_one_the_case_names"
     ),
+    "the_world_this_run_joined_is_the_one_the_case_names": _runtime(
+        "the_world_this_run_joined_is_the_one_the_case_names"
+    ),
     "the_first_snapshot_of_the_world_it_dialled_was_admitted": _runtime(
         "the_first_snapshot_of_the_world_it_dialled_was_admitted"
     ),

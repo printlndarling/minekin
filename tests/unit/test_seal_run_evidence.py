@@ -12,6 +12,7 @@ not about Minecraft.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import importlib
 import json
 import stat
@@ -48,6 +49,11 @@ OBSERVE_ONLY_CASE = REPOSITORY_ROOT / "tests" / "fixtures" / "cases" / "core-010
 RUN_ID = "5c1f9a7b2d3e4f6089abcdef01234567"
 SESSION_ID = "f030bbeadf464c188c2921ede35e4c9f"
 KIN = KinId("kin-01")
+#: The Kin that hosted the world CORE-030's client joined, and that run's own id. A
+#: host document is another run's account, so it is another Kin's run: the assertion
+#: refuses a document that names this run's own Kin as its host.
+OTHER_KIN = KinId("kin-02")
+OTHER_KIN_RUN_ID = "9a1c2b3d4e5f60718293a4b5c6d7e8f9"
 USERNAME = "Kin"
 RECORDED_UUID = "8f40376b-c23f-3ef1-b553-5564eea75639"
 
@@ -783,7 +789,7 @@ def test_the_same_run_seals_once_the_world_it_joined_is_named(tmp_path: Path) ->
 
     data_root, document = joined_run(tmp_path)
     hosted = tmp_path / "host-session.json"
-    hosted.write_text(json.dumps(hosted_run()), encoding="utf-8")
+    hosted.write_text(json.dumps(hosting_run()), encoding="utf-8")
 
     report = SEALER.seal(
         data_root=data_root,
@@ -802,7 +808,7 @@ def test_the_same_run_seals_once_the_world_it_joined_is_named(tmp_path: Path) ->
     )
     assert manifest["world"] == {
         "kind": "lan",
-        "server_config_digest": SETTINGS_DIGEST,
+        "server_config_digest": FROZEN_WORLD_SETTINGS,
         "seed_or_snapshot_id": SNAPSHOT_DIGEST,
     }
     # And the document those digests came from travels with the bundle: a reader can
@@ -810,8 +816,156 @@ def test_the_same_run_seals_once_the_world_it_joined_is_named(tmp_path: Path) ->
     sealed = data_root / "kin" / str(KIN) / "run" / "evidence" / RUN_ID
     host_document = json.loads((sealed / "host-run-document.json").read_bytes())
     assert host_document["run"]["world_snapshot"]["digest"] == SNAPSHOT_DIGEST
-    assert host_document["run"]["world_snapshot"]["settings_digest"] == SETTINGS_DIGEST
+    assert host_document["run"]["world_snapshot"]["settings_digest"] == FROZEN_WORLD_SETTINGS
+    # The hosting run's document is sealed *beside* this run's own, under its own name.
+    # Two documents, two artifacts: a reader who wants to know what this run's Core
+    # recorded must not be handed somebody else's account.
+    assert json.loads((sealed / "run-document.json").read_bytes())["run_id"] == RUN_ID
+    assert host_document["run_id"] == OTHER_KIN_RUN_ID
     assert verify_bundle(sealed).verified
+
+
+def test_the_judge_is_given_the_host_document_the_sealer_read(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """One reading, not two: the file is replaced after it is read, and nothing moves.
+
+    This is the seam the whole case rests on. The sealer hands the asserter the text
+    it read — never the path — so the verdict, the manifest's world block and the
+    sealed artifact are one reading of one file. A second reader would have been free
+    to see a different document, and this is how that would look.
+    """
+
+    data_root, document = joined_run(tmp_path)
+    hosted = tmp_path / "host-session.json"
+    original = json.dumps(hosting_run())
+    hosted.write_text(original, encoding="utf-8")
+
+    # The document that would make the verdict FAIL, were it read a second time: the
+    # same shape, a different world, and the same port.
+    replaced = json.dumps(hosting_run(world_settings="0" * 64))
+    handed: dict[str, object] = {}
+    real = SEALER.run_asserter
+
+    def replacing(**arguments: Any) -> dict[str, object]:
+        handed.update(arguments)
+        hosted.write_text(replaced, encoding="utf-8")
+        return real(**arguments)
+
+    monkeypatch.setattr(SEALER, "run_asserter", replacing)
+    report = SEALER.seal(
+        data_root=data_root,
+        case=JOIN_CASE,
+        profile=PROFILE,
+        server_profile=None,
+        run_document_path=document,
+        server_directory=None,
+        world_run_document_path=hosted,
+        username=USERNAME,
+    )
+
+    # The judge was handed text, and it is the text of the document that was read.
+    assert handed["world_run_document"] == original
+    assert "world_run_document_path" not in handed
+    sealed = data_root / "kin" / str(KIN) / "run" / "evidence" / RUN_ID
+    assert report["result"] == "PASS"
+    assert (sealed / "host-run-document.json").read_text(encoding="utf-8") == original
+
+
+def test_one_bad_host_document_is_the_same_document_in_all_three_places(tmp_path: Path) -> None:
+    """The artifact, the manifest's world block and the verdict read one document.
+
+    Measured with a host document that is well-formed, names a world, and names
+    another one: the world block it records is that other world, the artifact sealed
+    beside it is the document that said so, and the verdict is the failure that
+    document deserves. A bundle can carry the wrong world and say so; what it must
+    never do is carry one document and be judged on another.
+    """
+
+    data_root, document = joined_run(tmp_path)
+    hosted = tmp_path / "host-session.json"
+    elsewhere = hosting_run(world_settings="0" * 64)
+    hosted.write_text(json.dumps(elsewhere), encoding="utf-8")
+
+    report = SEALER.seal(
+        data_root=data_root,
+        case=JOIN_CASE,
+        profile=PROFILE,
+        server_profile=None,
+        run_document_path=document,
+        server_directory=None,
+        world_run_document_path=hosted,
+        username=USERNAME,
+    )
+
+    assert report["result"] == "FAIL"
+    assert cast(list[str], report["failures"]) == [
+        "the_world_this_run_joined_is_the_one_the_case_names:"
+        "THE_WORLD_THIS_RUN_JOINED_IS_ANOTHER_WORLD:" + "0" * 64
+    ]
+    sealed = data_root / "kin" / str(KIN) / "run" / "evidence" / RUN_ID
+    manifest = json.loads((sealed / "manifest.json").read_bytes())
+    assert manifest["world"] == {
+        "kind": "lan",
+        "server_config_digest": "0" * 64,
+        "seed_or_snapshot_id": SNAPSHOT_DIGEST,
+    }
+    assert (
+        json.loads((sealed / "host-run-document.json").read_bytes())["run"]["world_snapshot"][
+            "settings_digest"
+        ]
+        == "0" * 64
+    )
+    # A failed case keeps its evidence, and the evidence still verifies: what failed is
+    # the run, not the sealing of it.
+    assert verify_bundle(sealed).verified
+
+
+def test_a_host_document_swapped_for_another_world_is_caught(tmp_path: Path) -> None:
+    """The bundle is read back against itself, so the world block cannot be rewritten.
+
+    The attack this closes: keep a passing bundle and replace the hosting run's
+    document with one that names another world. The artifact's own digest is in the
+    manifest, so the document cannot change without that digest changing — and the
+    manifest's digest is in `bundle.sha256`, so the world block cannot be rewritten to
+    match without the bundle digest changing too.
+    """
+
+    data_root, document = joined_run(tmp_path)
+    hosted = tmp_path / "host-session.json"
+    hosted.write_text(json.dumps(hosting_run()), encoding="utf-8")
+    SEALER.seal(
+        data_root=data_root,
+        case=JOIN_CASE,
+        profile=PROFILE,
+        server_profile=None,
+        run_document_path=document,
+        server_directory=None,
+        world_run_document_path=hosted,
+        username=USERNAME,
+    )
+    sealed = data_root / "kin" / str(KIN) / "run" / "evidence" / RUN_ID
+    unseal_bundle(sealed)
+    (sealed / "host-run-document.json").write_text(
+        json.dumps(hosting_run(world_settings="0" * 64)), encoding="utf-8"
+    )
+
+    assert verify_bundle(sealed).violations == ("ARTIFACT_DIGEST_MISMATCH:host-run-document.json",)
+
+    # And rewriting the manifest to accept the new bytes is rewriting the bundle: the
+    # digest `bundle.sha256` holds is the manifest's, which is the whole point of it.
+    manifest_path = sealed / "manifest.json"
+    manifest = json.loads(manifest_path.read_bytes())
+    digest = hashlib.sha256((sealed / "host-run-document.json").read_bytes()).hexdigest()
+    records = cast(list[dict[str, object]], manifest["artifacts"])
+    for record in records:
+        if record["path"] == "host-run-document.json":
+            record["sha256"] = digest
+    manifest_path.write_bytes(
+        json.dumps(manifest, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    )
+
+    assert "BUNDLE_DIGEST_MISMATCH" in verify_bundle(sealed).violations
 
 
 def test_a_world_run_that_is_not_a_document_stops_the_seal(tmp_path: Path) -> None:
@@ -837,6 +991,30 @@ def test_a_world_run_that_is_not_a_document_stops_the_seal(tmp_path: Path) -> No
 # --- what the bundle says about the world a run had -----------------------------
 SETTINGS_DIGEST = "b7b5c62b1d0a44f1cbb0a4d5f5a5b6a2b2e0a9a1f4f7c2d3e4a5b6c7d8e9f0a1"
 SNAPSHOT_DIGEST = "aac62c39872dd515dcb0d062a4b8ba5a5c6a333f29a4e1833e1d12686339be15"
+#: The digest of the world fixture CORE-030 starts from — `level.dat`'s own SHA-256,
+#: as `tests/fixtures/manifest.sha256` records it. Spelled out rather than recomputed
+#: here, for the reason the asserter's tests give: a fixture whose bytes changed
+#: without this constant changing has to be a failure, and a digest taken from the
+#: file would agree with whatever it found.
+FROZEN_WORLD_SETTINGS = "3bdd4affd45b65b90dbb7cd25ae34581b6beaf42edcf2324f63f187b5023c00c"
+
+
+def hosting_run(*, world_settings: str = FROZEN_WORLD_SETTINGS) -> dict[str, object]:
+    """The run that hosted the world CORE-030's client joined.
+
+    Every part of it is something the join case binds to, and the assertion refuses
+    each on its own: the world is the fixture the case names, it was published on the
+    port the joining client dialled, and the run that published it is not the run that
+    joined. A document built for this case has to be all three.
+    """
+
+    document = hosted_run(kin_id=str(OTHER_KIN), run_id=OTHER_KIN_RUN_ID)
+    cast(dict[str, object], document["run"])["world_snapshot"] = {
+        "level_name": "kinworld",
+        "digest": SNAPSHOT_DIGEST,
+        "settings_digest": world_settings,
+    }
+    return document
 
 
 def hosted_run(**overrides: object) -> dict[str, object]:
@@ -880,7 +1058,7 @@ def test_a_world_the_kin_hosted_is_not_recorded_as_no_world() -> None:
     configuration belongs.
     """
 
-    record = SEALER._world_record(None, None, hosted_run(), {}, USERNAME)
+    record = SEALER._world_record(None, None, hosted_run(), None, USERNAME)
 
     assert record.kind == "lan"
     assert record.name == SNAPSHOT_DIGEST
@@ -890,7 +1068,7 @@ def test_a_world_the_kin_hosted_is_not_recorded_as_no_world() -> None:
 def test_a_run_with_no_world_at_all_is_still_recorded_as_none() -> None:
     """The negative control: the old behaviour is right for a run that had no world."""
 
-    record = SEALER._world_record(None, None, {"run": {"connection_state": None}}, {}, USERNAME)
+    record = SEALER._world_record(None, None, {"run": {"connection_state": None}}, None, USERNAME)
 
     assert record.kind == "none"
     assert record.name == "none"
@@ -907,7 +1085,7 @@ def test_a_hosted_world_without_its_settings_is_refused_rather_than_guessed() ->
     }
 
     with pytest.raises(SEALER.Unsealable, match="does not name the world's settings"):
-        SEALER._world_record(None, None, document, {}, USERNAME)
+        SEALER._world_record(None, None, document, None, USERNAME)
 
 
 def test_a_dedicated_run_still_records_the_profile_and_the_world_it_generated() -> None:
@@ -915,7 +1093,7 @@ def test_a_dedicated_run_still_records_the_profile_and_the_world_it_generated() 
 
     profile = load_server_profile(SERVER_PROFILE)
 
-    record = SEALER._world_record(profile, None, {}, {}, USERNAME)
+    record = SEALER._world_record(profile, None, {}, None, USERNAME)
 
     assert record.kind == "dedicated"
     assert record.config_digest == profile.revision
@@ -935,7 +1113,7 @@ def test_a_hosted_world_whose_bytes_are_not_named_is_refused() -> None:
     }
 
     with pytest.raises(SEALER.Unsealable, match="does not name the world's bytes"):
-        SEALER._world_record(None, None, document, {}, USERNAME)
+        SEALER._world_record(None, None, document, None, USERNAME)
 
 
 def test_a_run_that_joined_another_runs_world_is_named_by_that_runs_document() -> None:
@@ -958,6 +1136,57 @@ def test_a_world_run_that_recorded_no_world_is_refused_rather_than_called_none()
 
     with pytest.raises(SEALER.Unsealable, match="did not record a world of its own"):
         SEALER._world_record(None, None, {"run": {}}, {"run": {}}, USERNAME)
+
+
+def test_a_host_document_that_was_given_and_says_nothing_is_not_the_absence_of_one() -> None:
+    """The difference between an empty document and None is the whole of this guard.
+
+    Measured false positive: a host document that is literally `{}` was read by
+    truthiness, so `_world_record` fell through to `kind: none` — beside the artifact
+    of the very document that failed to name a world, in a run whose own record says
+    it was in one (`PLAYABLE`, an admitted snapshot). The caller handed over a document;
+    "it says nothing" is a refusal, not "there was nothing to hand over", and only the
+    second is allowed to reach the no-world branch.
+    """
+
+    joined = {"run": {"connection_state": "PLAYABLE", "snapshots_admitted": 1}}
+
+    with pytest.raises(SEALER.Unsealable, match="did not record a world of its own"):
+        SEALER._world_record(None, None, joined, {}, USERNAME)
+
+    # The negative control in the same breath: with no document given, the same empty
+    # record is still the third kind, which is what a run that joined nothing has.
+    assert SEALER._world_record(None, None, {"run": {}}, None, USERNAME).kind == "none"
+
+
+def test_a_run_that_joined_a_world_the_case_does_not_name_cannot_seal_as_none(
+    tmp_path: Path,
+) -> None:
+    """The same hole the other way round: through `seal`, with the run's own record.
+
+    The guard in `seal` is satisfied by *naming* a host document, so an empty one used
+    to walk past it and produce a `kind: none` bundle for a run whose document reports
+    a connection and an admitted snapshot. Refused now, and refused before anything is
+    written: a bundle that denies a world the run lived in is worse than no bundle.
+    """
+
+    data_root, document = joined_run(tmp_path)
+    hosted = tmp_path / "empty-host-session.json"
+    hosted.write_text("{}", encoding="utf-8")
+
+    with pytest.raises(SEALER.Unsealable, match="did not record a world of its own"):
+        SEALER.seal(
+            data_root=data_root,
+            case=JOIN_CASE,
+            profile=PROFILE,
+            server_profile=None,
+            run_document_path=document,
+            server_directory=None,
+            world_run_document_path=hosted,
+            username=USERNAME,
+        )
+
+    assert not (data_root / "kin" / str(KIN) / "run" / "evidence" / RUN_ID).exists()
 
 
 def test_a_run_in_its_own_world_is_not_read_as_a_join() -> None:

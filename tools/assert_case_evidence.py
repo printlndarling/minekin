@@ -5,6 +5,11 @@ server's own user cache, and Core's own run document. The case's declared
 assertions are then evaluated against them, and the verdict is a list of names —
 which were expected, which were seen, and which were expected and not seen.
 
+A case about a run that joined somebody else's world needs a fourth thing: the
+document of the run that hosted it. That one is not read here. It arrives as text
+from whoever read it, exactly as the fault record does, so the judgement and the
+artifact sealed beside it are one reading of one file rather than two.
+
 This is a tool rather than product code because of what it reads. The server log
 and `usercache.json` are server truth, and the validation contract puts them
 outside every product path: the managed client is never allowed to learn what
@@ -32,7 +37,7 @@ import sys
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path, PurePosixPath
-from typing import cast
+from typing import TypeGuard, cast
 
 from minekin_core.adapters.launcher.saves import LEVEL_DAT
 from minekin_core.cli.init import DATABASE_NAME, KIN_DIRECTORY, kin_directory, run_root
@@ -290,6 +295,14 @@ class RunMaterial:
     #: client's own claim about who it is is not evidence of who the server saw.
     server_identities: Mapping[str, str]
     username: str
+    #: The run that hosted the world this one joined, as the reader that handed it
+    #: over read it — one reading of the bytes, not a path this could open again.
+    #: A joining client takes no snapshot of its own, so the world it was in is
+    #: recorded on the run that hosted it, and this is where that account enters
+    #: the judgement. `None` means exactly "no such document was given"; a document
+    #: that was given and records no world is a different thing, and an assertion
+    #: reports it rather than reading it as the same absence.
+    world_run_document: Mapping[str, object] | None = None
     #: The record the harness wrote when it killed a process, or None for a run
     #: that injected no fault. Read once and carried, so a case about a fault is
     #: judged against the same bytes that were sealed rather than against a file
@@ -378,6 +391,7 @@ def read_run_material(
     fault_injection: Mapping[str, object] | None = None,
     soak_samples: str = "",
     soak_summary: Mapping[str, object] | None = None,
+    world_run_document: Mapping[str, object] | None = None,
 ) -> RunMaterial:
     """Read a finished run's material, refusing anything that is not readable.
 
@@ -394,6 +408,11 @@ def read_run_material(
     indistinguishable from a ledger that was read and had nothing in it — hence
     `ledger_readable`, which the assertions that need one check before reporting
     that they saw nothing.
+
+    The one input that is *not* read here is the document of the run that hosted a
+    world this one joined: it arrives already read, for the reason the fault record
+    does. Whoever read it also seals it, and a second reading is a second chance for
+    the verdict and the artifact to be about different bytes.
     """
 
     run: dict[str, object] = {}
@@ -499,6 +518,7 @@ def read_run_material(
         server_log=server_log,
         server_identities=identities,
         username=username,
+        world_run_document=world_run_document,
         fault_injection=fault_injection,
         soak_samples=soak_samples,
         soak_summary=soak_summary,
@@ -515,6 +535,40 @@ def _integer(run: Mapping[str, object], key: str) -> int | None:
 def _text(run: Mapping[str, object], key: str) -> str | None:
     value = run.get(key)
     return value if isinstance(value, str) else None
+
+
+def is_digest(value: object) -> TypeGuard[str]:
+    """Whether a value is a content digest, as every producer here writes one.
+
+    Sixty-four lowercase hex characters. A length check alone admits `"z" * 64`, and
+    a field that is not a digest cannot be compared against one: the comparison it
+    would lose is the only thing that makes the field worth reading. A `TypeGuard`
+    for the same reason — a caller that has asked this question has a string, and
+    every caller here needs one.
+    """
+
+    return (
+        isinstance(value, str)
+        and len(value) == 64
+        and all(character in "0123456789abcdef" for character in value)
+    )
+
+
+def world_snapshot(document: Mapping[str, object]) -> Mapping[str, object] | None:
+    """The world block a run document carries, or None when it carries none.
+
+    One reader for one field, deliberately shared with the sealer: the sealer decides
+    which run's world block names the bundle's world with this, and the assertions are
+    held to the same reading. A second reader would be a second place for the two to
+    disagree about which document said what.
+    """
+
+    raw = document.get(RUN_DOCUMENT_KEY)
+    section: Mapping[str, object] = (
+        cast(Mapping[str, object], raw) if isinstance(raw, Mapping) else {}
+    )
+    snapshot = section.get("world_snapshot")
+    return cast("Mapping[str, object]", snapshot) if isinstance(snapshot, Mapping) else None
 
 
 def server_observed_join_identity(material: RunMaterial) -> str | None:
@@ -547,6 +601,16 @@ def _lan_publication(run: Mapping[str, object]) -> Mapping[str, object] | None:
     return cast("Mapping[str, object]", value) if isinstance(value, Mapping) else None
 
 
+def _is_port(value: object) -> bool:
+    """Whether a value is an address a world could be reachable at.
+
+    Not `bool`: `True` is an integer in Python, and a record that wrote a flag where
+    a port belongs is a record nobody can connect to.
+    """
+
+    return not isinstance(value, bool) and isinstance(value, int) and 1 <= value <= 65535
+
+
 def the_run_says_which_world_it_hosted(material: RunMaterial) -> str | None:
     """Core's record names the world the Kin was placed in, by its bytes.
 
@@ -564,7 +628,7 @@ def the_run_says_which_world_it_hosted(material: RunMaterial) -> str | None:
     if not isinstance(name, str) or not name.strip():
         return "WORLD_SNAPSHOT_HAS_NO_LEVEL_NAME"
     digest = snapshot.get("digest")
-    if not isinstance(digest, str) or len(digest) != 64:
+    if not is_digest(digest):
         return f"WORLD_SNAPSHOT_IS_NOT_A_DIGEST:{digest!r}"
     return None
 
@@ -575,6 +639,53 @@ def the_run_says_which_world_it_hosted(material: RunMaterial) -> str | None:
 FROZEN_WORLDS_PREFIX = "tests/fixtures/saves/"
 
 
+def _the_frozen_world_the_case_names(material: RunMaterial) -> tuple[str | None, str | None]:
+    """The settings digest the case pins for the world it starts from, or why not.
+
+    The other end of every world comparison, in one place: which fixture the case
+    names, what the reviewed manifest froze it as, and whether the bytes on disk are
+    still those bytes. Two assertions ask this question — one of the world a run
+    hosted and one of the world it joined — and a second copy of the rule would be a
+    second place for the case version to mean something different.
+
+    The digest is the one in the frozen manifest, not one recomputed from the file.
+    That is the whole difference between a check and a tautology — a fixture whose
+    bytes changed without the manifest changing has to fail here, and a file compared
+    against itself never can.
+    """
+
+    # A list, not a tuple: `len(named) > 1` below cannot narrow a tuple's empty case
+    # away — pyright keeps `tuple[()]` in the union and calls the index an error — and
+    # the shape of a local variable is not worth a typing argument.
+    named = [path for path in material.case_inputs if path.startswith(FROZEN_WORLDS_PREFIX)]
+    if not named:
+        return None, "THE_CASE_NAMES_NO_WORLD_FIXTURE"
+    if len(named) > 1:
+        # Which of them the run started from would be a guess, and a guess here is the
+        # answer this rule exists to not give.
+        return None, f"THE_CASE_NAMES_MORE_THAN_ONE_WORLD:{','.join(sorted(named))}"
+    fixture = f"{named[0].rstrip('/')}/{LEVEL_DAT}"
+    declared = dict(material.case_input_digests).get(fixture)
+    if declared is None:
+        return None, f"THE_CASE_DOES_NOT_PIN_THE_WORLD_FIXTURE:{fixture}"
+    try:
+        reviewed = frozen_digests().get(fixture)
+    except ManifestError as error:
+        return None, f"THE_FROZEN_FIXTURE_MANIFEST_IS_INVALID:{error}"
+    if reviewed is None:
+        return None, f"THE_WORLD_FIXTURE_IS_NOT_FROZEN:{fixture}"
+    on_disk = REPOSITORY_ROOT.joinpath(*PurePosixPath(fixture).parts)
+    try:
+        on_disk.resolve(strict=False).relative_to(REPOSITORY_ROOT.resolve(strict=True))
+    except (OSError, ValueError):
+        return None, f"THE_WORLD_FIXTURE_ESCAPES_THE_REPOSITORY:{fixture}"
+    if not on_disk.is_file() or hashlib.sha256(on_disk.read_bytes()).hexdigest() != reviewed:
+        return None, f"THE_WORLD_FIXTURE_IS_NOT_THE_BYTES_THAT_WERE_REVIEWED:{fixture}"
+    if declared != reviewed:
+        return None, f"THE_CASE_PINS_ANOTHER_WORLD_FIXTURE:{declared}"
+    return declared, None
+
+
 def the_world_this_run_had_is_the_one_the_case_names(material: RunMaterial) -> str | None:
     """The world a case starts from is a fixture in this repository, and the run agrees.
 
@@ -583,10 +694,11 @@ def the_world_this_run_had_is_the_one_the_case_names(material: RunMaterial) -> s
     world it starts from: that turns `settings_digest` into something checkable rather
     than something to be believed.
 
-    The digest it is checked against is the one in the frozen manifest, not one
-    recomputed from the file. That is the whole difference between a check and a
-    tautology — a fixture whose bytes changed without the manifest changing has to
-    fail here, and a file compared against itself never can.
+    This is the half for a run that *hosted* its world: the block is on its own
+    document, because that is where the launcher wrote what it placed in the client's
+    game directory. A run that joined somebody else's world has no such block, and the
+    other half — `the_world_this_run_joined_is_the_one_the_case_names` — is where that
+    account is held to the same rule.
 
     The case names the world *directory*, because that is what a run is handed, and
     what is frozen under it is its `level.dat`: the directory itself grows region files
@@ -600,40 +712,118 @@ def the_world_this_run_had_is_the_one_the_case_names(material: RunMaterial) -> s
     if not isinstance(snapshot, Mapping):
         return "THIS_RUN_RECORDED_NO_WORLD_OF_ITS_OWN"
     settings = cast("Mapping[str, object]", snapshot).get("settings_digest")
-    if not isinstance(settings, str) or len(settings) != 64:
+    if not is_digest(settings):
         return f"THE_WORLD_SETTINGS_ARE_NOT_A_DIGEST:{settings!r}"
 
-    # A list, not a tuple: `len(named) > 1` below cannot narrow a tuple's empty case
-    # away — pyright keeps `tuple[()]` in the union and calls the index an error — and
-    # the shape of a local variable is not worth a typing argument.
-    named = [path for path in material.case_inputs if path.startswith(FROZEN_WORLDS_PREFIX)]
-    if not named:
-        return "THE_CASE_NAMES_NO_WORLD_FIXTURE"
-    if len(named) > 1:
-        # Which of them the run started from would be a guess, and a guess here is the
-        # answer this assertion exists to not give.
-        return f"THE_CASE_NAMES_MORE_THAN_ONE_WORLD:{','.join(sorted(named))}"
-    fixture = f"{named[0].rstrip('/')}/{LEVEL_DAT}"
-    declared = dict(material.case_input_digests).get(fixture)
-    if declared is None:
-        return f"THE_CASE_DOES_NOT_PIN_THE_WORLD_FIXTURE:{fixture}"
-    try:
-        reviewed = frozen_digests().get(fixture)
-    except ManifestError as error:
-        return f"THE_FROZEN_FIXTURE_MANIFEST_IS_INVALID:{error}"
-    if reviewed is None:
-        return f"THE_WORLD_FIXTURE_IS_NOT_FROZEN:{fixture}"
-    on_disk = REPOSITORY_ROOT.joinpath(*PurePosixPath(fixture).parts)
-    try:
-        on_disk.resolve(strict=False).relative_to(REPOSITORY_ROOT.resolve(strict=True))
-    except (OSError, ValueError):
-        return f"THE_WORLD_FIXTURE_ESCAPES_THE_REPOSITORY:{fixture}"
-    if not on_disk.is_file() or hashlib.sha256(on_disk.read_bytes()).hexdigest() != reviewed:
-        return f"THE_WORLD_FIXTURE_IS_NOT_THE_BYTES_THAT_WERE_REVIEWED:{fixture}"
-    if declared != reviewed:
-        return f"THE_CASE_PINS_ANOTHER_WORLD_FIXTURE:{declared}"
-    if settings != declared:
+    pinned, reason = _the_frozen_world_the_case_names(material)
+    if reason is not None:
+        return reason
+    if settings != pinned:
         return f"THE_RUN_STARTED_FROM_ANOTHER_WORLD:{settings}"
+    return None
+
+
+def the_world_this_run_joined_is_the_one_the_case_names(material: RunMaterial) -> str | None:
+    """The world this client joined is the case's world, and it is the one it dialled.
+
+    The joining half of the same claim, and the one that could not be made before: a
+    client that joined somebody else's world takes no snapshot of its own, so nothing
+    on its document names the world it was in. What names it is the *hosting* run's
+    document — the same bytes the sealer reads to write the bundle's world block — and
+    this holds that account to the case instead of recording it.
+
+    Four things about that document have to agree, and each is a way of being wrong on
+    its own:
+
+    - the world's settings are the ones the case pins, by the same rule the hosted
+      half uses (the fixture the case names, the manifest's reviewed digest, the
+      bytes on disk, and the case's own pin, all four equal);
+    - both digests are present and are digests: a block that names the settings and
+      not the bytes is refused rather than completed from the other field;
+    - the hosting run published its world (`LAN_OPENED`), because a world nobody
+      opened is not a world anybody joined;
+    - it published it on the port this client dialled, which is the only address the
+      joining client's own record has. The two runs never see each other; the port is
+      the one fact they can both be held to.
+
+    And the document has to be *another* run's, on both halves of what names a run: a
+    host document naming this Kin is a substitution — this run's own document, or
+    another run of the same Kin — rather than the account of a world this one joined,
+    and the same Kin cannot be hosting the world it is inside. The run id is held to
+    the same rule, because a document naming some other Kin and this run is that same
+    substitution with one field edited. Either field missing, or of another kind, is
+    refused rather than passed over: an identity that is not there is not an identity
+    that differs.
+
+    What this cannot separate is two different hosting runs that used the same frozen
+    world and published it on the same port: from these two documents they are the
+    same account. That is a limit of what either run recorded, not a gap in the
+    comparison, and the case's other assertions are what say the world had this client
+    in it.
+
+    And the sealer's own world block is deliberately not one of the inputs. It is
+    *derived from* the verdict this produces, so a judgement handed that block would be
+    checking the bundle against itself; the two ends here are another run's bytes and
+    the case's pin, neither of which this run wrote. What the two must share is the
+    reader — `world_snapshot`, imported rather than copied — so the name in the bundle
+    and the name this checks cannot become two dialects of the same field.
+    """
+
+    host = material.world_run_document
+    if host is None:
+        return "THE_RUN_THAT_HOSTED_THIS_WORLD_WAS_NOT_GIVEN"
+
+    # Both fields, required and required to be *another* run's. A document that names
+    # no Kin, or no run, is nobody's account — and the comparisons below are only
+    # worth making against an identity that is really there. An absent or empty id
+    # used to fall straight through them, which is the shape a substitution takes.
+    host_kin = host.get("kin_id")
+    if not isinstance(host_kin, str) or not host_kin:
+        return f"THE_HOST_RUN_HAS_NO_KIN_ID:{host_kin!r}"
+    if host_kin == material.kin_id:
+        return f"THE_HOST_RUN_IS_THE_SAME_KIN_AS_THIS_RUN:{host_kin}"
+    host_run = host.get("run_id")
+    if not isinstance(host_run, str) or not host_run:
+        return f"THE_HOST_RUN_HAS_NO_RUN_ID:{host_run!r}"
+    if host_run == material.run_id:
+        return f"THE_HOST_RUN_IS_THE_SAME_RUN_AS_THIS_RUN:{host_run}"
+
+    snapshot = world_snapshot(host)
+    if snapshot is None:
+        return "THE_HOST_RUN_RECORDED_NO_WORLD_OF_ITS_OWN"
+    settings = snapshot.get("settings_digest")
+    if not is_digest(settings):
+        return f"THE_HOST_WORLD_SETTINGS_ARE_NOT_A_DIGEST:{settings!r}"
+    digest = snapshot.get("digest")
+    if not is_digest(digest):
+        return f"THE_HOST_WORLD_BYTES_ARE_NOT_A_DIGEST:{digest!r}"
+
+    pinned, reason = _the_frozen_world_the_case_names(material)
+    if reason is not None:
+        return reason
+    if settings != pinned:
+        return f"THE_WORLD_THIS_RUN_JOINED_IS_ANOTHER_WORLD:{settings}"
+
+    section = host.get(RUN_DOCUMENT_KEY)
+    hosted: Mapping[str, object] = (
+        cast(Mapping[str, object], section) if isinstance(section, Mapping) else {}
+    )
+    publication = _lan_publication(hosted)
+    if publication is None:
+        return "NO_LAN_PUBLICATION_RECORDED"
+    phase = publication.get("phase")
+    if phase != "LAN_OPENED":
+        return f"LAN_NOT_OPENED:{phase}"
+    published = publication.get("port")
+    if not _is_port(published):
+        return f"LAN_PORT_IS_NOT_A_PORT:{published}"
+
+    found = _DIALLED.search(material.client_log)
+    if found is None:
+        return "THE_CLIENT_NEVER_DIALLED_A_PORT"
+    dialled = int(found.group(2))
+    if dialled != published:
+        return f"THE_WORLD_WAS_PUBLISHED_ON_ANOTHER_PORT:host={published},dialled={dialled}"
     return None
 
 
@@ -739,7 +929,7 @@ def core_was_told_the_world_was_published(material: RunMaterial) -> str | None:
     if phase != "LAN_OPENED":
         return f"LAN_NOT_OPENED:{phase}"
     port = publication.get("port")
-    if isinstance(port, bool) or not isinstance(port, int) or not 1 <= port <= 65535:
+    if not _is_port(port):
         return f"LAN_PORT_IS_NOT_A_PORT:{port}"
     return None
 
@@ -1756,6 +1946,9 @@ ASSERTIONS: dict[str, Callable[[RunMaterial], str | None]] = {
     "the_world_this_run_had_is_the_one_the_case_names": (
         the_world_this_run_had_is_the_one_the_case_names
     ),
+    "the_world_this_run_joined_is_the_one_the_case_names": (
+        the_world_this_run_joined_is_the_one_the_case_names
+    ),
     "core_was_told_the_world_was_published": core_was_told_the_world_was_published,
     "the_first_snapshot_of_the_world_it_dialled_was_admitted": (
         the_first_snapshot_of_the_world_it_dialled_was_admitted
@@ -1942,6 +2135,23 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--username", required=True)
     parser.add_argument(
+        "--world-run-document",
+        type=Path,
+        default=None,
+        help=(
+            "the run that hosted the world this one joined: another Kin's own run "
+            "document, which is where a hosted world's identity was measured"
+        ),
+    )
+    parser.add_argument(
+        "--world-run-document-json",
+        default=None,
+        help=(
+            "the same document as text, which is how the sealer hands over the exact "
+            "snapshot it is about to seal rather than a path it read twice"
+        ),
+    )
+    parser.add_argument(
         "--fault-injection",
         type=Path,
         default=None,
@@ -2019,6 +2229,28 @@ def main(argv: list[str] | None = None) -> int:
             return _reject("the soak summary is not an object")
         soak_summary = cast(Mapping[str, object], parsed)
 
+    if args.world_run_document is not None and args.world_run_document_json is not None:
+        return _reject("name the hosting run's document by its path or by its text, not both")
+    world_text = args.world_run_document_json
+    if args.world_run_document is not None:
+        try:
+            # Decoded from the bytes rather than read as text, so both ways in hand
+            # over the same string: the sealer's side of this is a decode of the bytes
+            # it seals, and a rule that had one of them strip carriage returns would
+            # make the two disagree about a document neither of them wrote.
+            world_text = args.world_run_document.read_bytes().decode("utf-8")
+        except (OSError, UnicodeDecodeError) as error:
+            return _reject(f"{args.world_run_document} is not a readable run document: {error}")
+    world_run_document: Mapping[str, object] | None = None
+    if world_text is not None:
+        try:
+            hosted = json.loads(world_text)
+        except json.JSONDecodeError as error:
+            return _reject(f"the hosting run's document is not readable JSON: {error}")
+        if not isinstance(hosted, Mapping):
+            return _reject("the hosting run's document is not a run document object")
+        world_run_document = cast(Mapping[str, object], hosted)
+
     try:
         case = json.loads(args.case.read_bytes())
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
@@ -2036,6 +2268,7 @@ def main(argv: list[str] | None = None) -> int:
             fault_injection=fault_injection_record,
             soak_samples=soak_samples,
             soak_summary=soak_summary,
+            world_run_document=world_run_document,
         )
         verdict = evaluate(cast(Mapping[str, object], case), material)
     except Unreadable as error:

@@ -62,6 +62,9 @@ class _Material(Protocol):
     server_log: str
     server_identities: Mapping[str, str]
     username: str
+    #: The document of the run that hosted a world this one joined, already read:
+    #: None when none was given, which is not the same as one that names no world.
+    world_run_document: Mapping[str, object] | None
     #: The record the harness wrote when it killed a process, or None when this
     #: run injected no fault. Judged with the rest rather than beside it.
     fault_injection: Mapping[str, object] | None
@@ -195,6 +198,7 @@ def material(
     previous: tuple[str, tuple[Mapping[str, object], ...]] = ("", ()),
     fault_injection: Mapping[str, object] | None = None,
     soak: tuple[str, Mapping[str, object] | None] = ("", None),
+    world_run_document: Mapping[str, object] | None = None,
 ) -> _Material:
     previous_run_id, previous_run_events = previous
     soak_samples, soak_summary = soak
@@ -214,6 +218,7 @@ def material(
         fault_injection=fault_injection,
         soak_samples=soak_samples,
         soak_summary=soak_summary,
+        world_run_document=world_run_document,
     )
 
 
@@ -2645,3 +2650,505 @@ def test_the_kins_own_arrival_is_not_somebody_elses() -> None:
         )
         == "NO_OTHER_KIN_EVER_JOINED"
     )
+
+
+# --- CORE-030: the world the joining client was in ------------------------------
+#: The line the Bridge wrote in the runner, measured: CORE-030's real run dialled the
+#: port the hosting run had published. It is the only place this client's own record
+#: says where it went.
+DIALLED = (
+    "bridge asked vanilla to connect to 127.0.0.1:25570 for generation 1 "
+    "(finishedLoading=true, screen=none, overlay=none)"
+)
+HOST_PORT = 25570
+#: The id of the run that hosted the world, which is not this run's id: a host
+#: document is another run's account, and the bundle seals both side by side.
+HOST_RUN_ID = "9a1c2b3d4e5f60718293a4b5c6d7e8f9"
+#: An identity of the wrong kind — a number where an id belongs. Truthy and not a
+#: string, so it is turned away by the type and by nothing else.
+WRONG_KIND_ID = 12345
+CORE_JOIN_CASE = CASES / "core-030.json"
+
+
+def core_join_case() -> dict[str, object]:
+    return cast(dict[str, object], json.loads(CORE_JOIN_CASE.read_text(encoding="utf-8")))
+
+
+def host_document(
+    *,
+    kin_id: object = "kin-02",
+    run_id: object = HOST_RUN_ID,
+    world: object = _UNSET,
+    publication: object = _UNSET,
+) -> dict[str, object]:
+    """Another Kin's run document: the run that hosted the world this one joined.
+
+    Shaped like the real thing — the world block and the LAN phase on the `run`
+    section, where `session_runtime` writes both — with every part of it variable, so
+    a test can break exactly one of the things the assertion binds.
+
+    The two identity fields are `object` for the same reason `world` is: a test has to
+    be able to put a value of the wrong *kind* there, which is a shape the assertion
+    meets in the wild and treats as its own way of being wrong. A field that is absent
+    altogether is a different shape again, and `without_keys` below is how a test
+    builds it — passing `None` here would only ever say "present and null".
+    """
+
+    if world is _UNSET:
+        world = {
+            "level_name": "kinworld",
+            "digest": LEVEL_DIGEST,
+            "settings_digest": LEVEL_SETTINGS_DIGEST,
+        }
+    if publication is _UNSET:
+        publication = {"phase": "LAN_OPENED", "port": HOST_PORT}
+    return {
+        "schema_version": 1,
+        "status": "started",
+        "kin_id": kin_id,
+        "run_id": run_id,
+        "run": {
+            "schema_version": 1,
+            "status": "ended",
+            "world_snapshot": world,
+            "lan_publication": publication,
+        },
+    }
+
+
+def without_keys(document: Mapping[str, object], *keys: str) -> dict[str, object]:
+    """The same document with whole fields taken off it, rather than nulled.
+
+    The distinction the assertion is closed against: a host document with no `kin_id`
+    key at all is a different document from one that carries `"kin_id": null`, and a
+    reader that answered `.get` with the default would read the two as the same
+    absence.
+    """
+
+    return {key: value for key, value in document.items() if key not in keys}
+
+
+def joined_world(
+    *,
+    world_run_document: object = _UNSET,
+    client_log: str = DIALLED,
+) -> _Material:
+    """A run in which this Kin joined another Kin's world.
+
+    Its own document carries no world block at all, which is what a joining client's
+    document really looks like: the world it was in belongs to the run that hosted it.
+    `_UNSET` is what separates "this test did not say" from "there is no host
+    document", which is the distinction the assertion itself is built on — and typing
+    the parameter as `object` is the shape this file already uses for inputs a caller
+    varies across a whole union of wrong shapes.
+    """
+
+    host = (
+        host_document()
+        if world_run_document is _UNSET
+        else cast("Mapping[str, object] | None", world_run_document)
+    )
+    return material(document=run_document(), client_log=client_log, world_run_document=host)
+
+
+def test_the_join_case_holds_when_the_host_names_the_case_s_world() -> None:
+    verdict = ASSERTER_MODULE.evaluate(core_join_case(), joined_world())
+
+    assert verdict.result == "PASS"
+    assert verdict.observed == (
+        "the_first_snapshot_of_the_world_it_dialled_was_admitted",
+        "the_world_this_run_joined_is_the_one_the_case_names",
+    )
+    assert verdict.failures == ()
+
+
+#: The assertion this block of tests is about, spelled once. Every expected failure
+#: below is this name and the reason its own line produced — exactly the shape the
+#: case's verdict holds, rather than something this file reassembles.
+JOINED_WORLD_ASSERTION = "the_world_this_run_joined_is_the_one_the_case_names"
+
+
+@pytest.mark.parametrize(
+    ("overrides", "failures"),
+    [
+        # No host document at all: a case that asks this question of a run that cannot
+        # answer it has proven nothing.
+        (
+            {"world_run_document": None},
+            (f"{JOINED_WORLD_ASSERTION}:THE_RUN_THAT_HOSTED_THIS_WORLD_WAS_NOT_GIVEN",),
+        ),
+        # This run's own document handed over as the host's. A join has no world block
+        # of its own, so nothing here names a world this client was in.
+        (
+            {"world_run_document": run_document()},
+            (f"{JOINED_WORLD_ASSERTION}:THE_HOST_RUN_IS_THE_SAME_KIN_AS_THIS_RUN:kin-01",),
+        ),
+        # The two fields that name a run, read closed: for each of them, absent,
+        # present with a value of another kind, empty, and this run's own. A document
+        # that names no run is nobody's account, and one that names *this* run is not
+        # an account of a world this run joined — an absent or empty id used to fall
+        # through the comparison and pass, which is exactly the shape a substitution
+        # takes.
+        (
+            {"world_run_document": without_keys(host_document(), "kin_id")},
+            (f"{JOINED_WORLD_ASSERTION}:THE_HOST_RUN_HAS_NO_KIN_ID:None",),
+        ),
+        # Truthy, and not a string: a reader that only asked whether the field was
+        # empty would let this one through as an identity.
+        (
+            {"world_run_document": host_document(kin_id=WRONG_KIND_ID)},
+            (f"{JOINED_WORLD_ASSERTION}:THE_HOST_RUN_HAS_NO_KIN_ID:{WRONG_KIND_ID!r}",),
+        ),
+        (
+            {"world_run_document": host_document(kin_id="")},
+            (f"{JOINED_WORLD_ASSERTION}:THE_HOST_RUN_HAS_NO_KIN_ID:''",),
+        ),
+        (
+            {"world_run_document": host_document(kin_id="kin-01")},
+            (f"{JOINED_WORLD_ASSERTION}:THE_HOST_RUN_IS_THE_SAME_KIN_AS_THIS_RUN:kin-01",),
+        ),
+        (
+            {"world_run_document": without_keys(host_document(), "run_id")},
+            (f"{JOINED_WORLD_ASSERTION}:THE_HOST_RUN_HAS_NO_RUN_ID:None",),
+        ),
+        (
+            {"world_run_document": host_document(run_id=WRONG_KIND_ID)},
+            (f"{JOINED_WORLD_ASSERTION}:THE_HOST_RUN_HAS_NO_RUN_ID:{WRONG_KIND_ID!r}",),
+        ),
+        (
+            {"world_run_document": host_document(run_id="")},
+            (f"{JOINED_WORLD_ASSERTION}:THE_HOST_RUN_HAS_NO_RUN_ID:''",),
+        ),
+        # Another Kin's name over this run's id — the same substitution as the two
+        # lines above, with only the Kin field edited, so only the run id can catch it.
+        (
+            {"world_run_document": host_document(run_id=RUN_ID)},
+            (f"{JOINED_WORLD_ASSERTION}:THE_HOST_RUN_IS_THE_SAME_RUN_AS_THIS_RUN:{RUN_ID}",),
+        ),
+        # Another Kin's document that records no world: given, and says nothing.
+        (
+            {"world_run_document": host_document(world=None)},
+            (f"{JOINED_WORLD_ASSERTION}:THE_HOST_RUN_RECORDED_NO_WORLD_OF_ITS_OWN",),
+        ),
+        (
+            {"world_run_document": {"kin_id": "kin-02", "run_id": HOST_RUN_ID, "run": {}}},
+            (f"{JOINED_WORLD_ASSERTION}:THE_HOST_RUN_RECORDED_NO_WORLD_OF_ITS_OWN",),
+        ),
+        # The world's settings are what the case pins, so a block without them cannot
+        # be checked against a fixture at all.
+        (
+            {
+                "world_run_document": host_document(
+                    world={"level_name": "kinworld", "digest": LEVEL_DIGEST}
+                )
+            },
+            (f"{JOINED_WORLD_ASSERTION}:THE_HOST_WORLD_SETTINGS_ARE_NOT_A_DIGEST:None",),
+        ),
+        # Sixty-four characters is not a digest, and this field is only worth reading
+        # because it is compared against one.
+        (
+            {
+                "world_run_document": host_document(
+                    world={
+                        "level_name": "kinworld",
+                        "digest": LEVEL_DIGEST,
+                        "settings_digest": "z" * 64,
+                    }
+                )
+            },
+            (f"{JOINED_WORLD_ASSERTION}:THE_HOST_WORLD_SETTINGS_ARE_NOT_A_DIGEST:{'z' * 64!r}",),
+        ),
+        # And the other field is required rather than completed from the settings.
+        (
+            {
+                "world_run_document": host_document(
+                    world={
+                        "level_name": "kinworld",
+                        "settings_digest": LEVEL_SETTINGS_DIGEST,
+                    }
+                )
+            },
+            (f"{JOINED_WORLD_ASSERTION}:THE_HOST_WORLD_BYTES_ARE_NOT_A_DIGEST:None",),
+        ),
+        # A well-formed world block that is another world: the whole point of naming
+        # the fixture in the case.
+        (
+            {
+                "world_run_document": host_document(
+                    world={
+                        "level_name": "kinworld",
+                        "digest": LEVEL_DIGEST,
+                        "settings_digest": "0" * 64,
+                    }
+                )
+            },
+            (f"{JOINED_WORLD_ASSERTION}:THE_WORLD_THIS_RUN_JOINED_IS_ANOTHER_WORLD:" + "0" * 64,),
+        ),
+        # A world nobody opened is not a world anybody joined.
+        (
+            {
+                "world_run_document": host_document(
+                    publication={"phase": "LAN_OPEN_FAILED", "port": 0}
+                )
+            },
+            (f"{JOINED_WORLD_ASSERTION}:LAN_NOT_OPENED:LAN_OPEN_FAILED",),
+        ),
+        (
+            {"world_run_document": host_document(publication=None)},
+            (f"{JOINED_WORLD_ASSERTION}:NO_LAN_PUBLICATION_RECORDED",),
+        ),
+        (
+            {"world_run_document": host_document(publication={"phase": "LAN_OPENED", "port": 0})},
+            (f"{JOINED_WORLD_ASSERTION}:LAN_PORT_IS_NOT_A_PORT:0",),
+        ),
+        # Published, and somewhere else: the port is the one fact both runs can be
+        # held to, because neither of them saw the other.
+        (
+            {
+                "world_run_document": host_document(
+                    publication={"phase": "LAN_OPENED", "port": 25565}
+                )
+            },
+            (
+                f"{JOINED_WORLD_ASSERTION}:THE_WORLD_WAS_PUBLISHED_ON_ANOTHER_PORT:"
+                "host=25565,dialled=25570",
+            ),
+        ),
+        # A run whose own record never says where it went cannot be bound to anything —
+        # and the other half of the case fails with it, which is listed rather than
+        # filtered: what the joined half says has to be readable next to it.
+        (
+            {"client_log": ""},
+            (
+                "the_first_snapshot_of_the_world_it_dialled_was_admitted:NO_CONNECTION_WAS_DIALLED",
+                f"{JOINED_WORLD_ASSERTION}:THE_CLIENT_NEVER_DIALLED_A_PORT",
+            ),
+        ),
+    ],
+)
+def test_a_join_that_cannot_be_bound_to_the_case_s_world_does_not_hold(
+    overrides: dict[str, Any], failures: tuple[str, ...]
+) -> None:
+    """Every way of failing on its own, measured through the real entry point."""
+
+    verdict = ASSERTER_MODULE.evaluate(core_join_case(), joined_world(**overrides))
+
+    assert verdict.result == "FAIL"
+    assert verdict.failures == failures
+
+
+def test_the_join_case_names_the_world_it_starts_from() -> None:
+    """The case is the other end of the comparison, so it has to name one world.
+
+    The same rule HOST-030 is held to, read from the same place: the joined half of the
+    claim is checkable only because the case says which world the run began in and pins
+    its bytes. Without that the assertion would compare a digest against nothing.
+    """
+
+    case = core_join_case()
+
+    assert case["inputs"] == [
+        "tests/fixtures/runtime-input/bundle-p0-core-1.21.4.json",
+        "tests/fixtures/saves/kinworld",
+    ]
+    assert case["input_digests"] == {
+        "tests/fixtures/saves/kinworld/level.dat": LEVEL_SETTINGS_DIGEST
+    }
+
+
+@pytest.mark.parametrize(
+    ("change", "reason"),
+    [
+        # The case this assertion is written for is the one that names a world.
+        (
+            {"inputs": ["tests/fixtures/runtime-input/bundle-p0-core-1.21.4.json"]},
+            "THE_CASE_NAMES_NO_WORLD_FIXTURE",
+        ),
+        (
+            {"inputs": ["tests/fixtures/saves/nowhere"]},
+            "THE_CASE_DOES_NOT_PIN_THE_WORLD_FIXTURE:tests/fixtures/saves/nowhere/level.dat",
+        ),
+        (
+            {"inputs": ["tests/fixtures/saves/kinworld", "tests/fixtures/saves/also-here"]},
+            "THE_CASE_NAMES_MORE_THAN_ONE_WORLD:"
+            "tests/fixtures/saves/also-here,tests/fixtures/saves/kinworld",
+        ),
+        # The pin and the reviewed manifest disagree: a fixture changed without the
+        # case changing, which is what the pin exists to catch.
+        (
+            {"input_digests": {"tests/fixtures/saves/kinworld/level.dat": "0" * 64}},
+            "THE_CASE_PINS_ANOTHER_WORLD_FIXTURE:" + "0" * 64,
+        ),
+    ],
+)
+def test_both_world_assertions_read_one_case(change: dict[str, object], reason: str) -> None:
+    """One rule for "which world does this case name", asked by both halves.
+
+    The run below both hosted a world and carried the document of the run it joined,
+    which is the shape where both assertions reach the case — and the reason they give
+    has to be one reason, spelled the same way. A second parser for the case's own
+    recipe would be a second place for the case version to mean something else, and
+    this is the test that would go red first.
+    """
+
+    case = core_join_case()
+    case["assertions"] = [
+        "the_world_this_run_had_is_the_one_the_case_names",
+        "the_world_this_run_joined_is_the_one_the_case_names",
+    ]
+    case.update(change)
+
+    verdict = ASSERTER_MODULE.evaluate(case, hosting_and_joined_world())
+
+    assert verdict.failures == (
+        f"the_world_this_run_had_is_the_one_the_case_names:{reason}",
+        f"the_world_this_run_joined_is_the_one_the_case_names:{reason}",
+    )
+
+
+def hosting_and_joined_world() -> _Material:
+    """A run that hosted a world of its own *and* carries the document it joined.
+
+    Not a run anybody wants to have: it is the one shape where both world assertions
+    reach the case's recipe, which is what the two tests below are about. The sealer
+    records such a run as the world it hosted (its own block wins).
+    """
+
+    return material(
+        document=run_document(
+            world_snapshot={
+                "level_name": "kinworld",
+                "digest": LEVEL_DIGEST,
+                "settings_digest": LEVEL_SETTINGS_DIGEST,
+            }
+        ),
+        client_log=DIALLED,
+        world_run_document=host_document(),
+    )
+
+
+def test_a_world_fixture_that_moved_is_refused_by_both_world_assertions(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The comparison is against the manifest, so it can fail — for both halves.
+
+    Read the digest off the file and every one of these agrees with itself; the value
+    comes from the frozen manifest instead, which is the difference between a check
+    and a tautology.
+    """
+
+    monkeypatch.setattr(
+        ASSERTER_MODULE,
+        "frozen_digests",
+        lambda: {"tests/fixtures/saves/kinworld/level.dat": "0" * 64},
+    )
+    case = core_join_case()
+    case["assertions"] = [
+        "the_world_this_run_had_is_the_one_the_case_names",
+        "the_world_this_run_joined_is_the_one_the_case_names",
+    ]
+
+    verdict = ASSERTER_MODULE.evaluate(case, hosting_and_joined_world())
+
+    moved = (
+        "THE_WORLD_FIXTURE_IS_NOT_THE_BYTES_THAT_WERE_REVIEWED:"
+        "tests/fixtures/saves/kinworld/level.dat"
+    )
+    assert verdict.failures == (
+        f"the_world_this_run_had_is_the_one_the_case_names:{moved}",
+        f"the_world_this_run_joined_is_the_one_the_case_names:{moved}",
+    )
+
+
+def test_the_join_case_names_only_assertions_the_tool_performs() -> None:
+    """A case naming an assertion nothing performs would look like coverage."""
+
+    asserted = set(cast(list[str], core_join_case()["assertions"]))
+
+    assert asserted <= set(ASSERTER_MODULE.ASSERTIONS)
+    assert asserted <= set(CHECKER.IMPLEMENTATIONS)
+
+
+# --- the same document, handed over two ways ------------------------------------
+def join_cli_arguments(tmp_path: Path, run: Path) -> list[str]:
+    """The join case, judged from the command line, with no server of its own."""
+
+    return [
+        "--case",
+        str(CORE_JOIN_CASE),
+        "--run-document",
+        str(run),
+        "--data-root",
+        str(tmp_path),
+        "--username",
+        USERNAME,
+    ]
+
+
+def join_material(tmp_path: Path) -> Path:
+    """A joining run's own document, with the line its Bridge wrote in its own log."""
+
+    overlay = tmp_path / "overlay"
+    (overlay / "logs").mkdir(parents=True)
+    (overlay / "logs" / "stdout.log").write_text(DIALLED, encoding="utf-8")
+    document = run_document()
+    # The overlay is a fact about the launch rather than about the session, so it sits
+    # at the top of the document and not inside the `run` block — which is where a
+    # client's own log is found, and the only place its dialled port is written.
+    document["overlay"] = str(overlay)
+    return write_material(tmp_path, document, f"{JOINED}\n{LEFT}\n")
+
+
+def test_the_host_document_travels_by_path_and_as_text_the_same_way(tmp_path: Path) -> None:
+    """Two ways to hand it over, one judgement: the sealer uses the second.
+
+    The sealer reads the file once, seals those bytes and passes the same text to the
+    asserter, so the verdict cannot be about a document that changed in between. Both
+    routes have to reach the same answer — the same file, text for text — or that
+    would mean nothing.
+    """
+
+    run = join_material(tmp_path)
+    ledger_for(tmp_path)
+    hosted = tmp_path / "host-session.json"
+    hosted.write_text(json.dumps(host_document()), encoding="utf-8")
+
+    by_path = run_cli(*join_cli_arguments(tmp_path, run), "--world-run-document", str(hosted))
+    by_text = run_cli(
+        *join_cli_arguments(tmp_path, run),
+        "--world-run-document-json",
+        hosted.read_text(encoding="utf-8"),
+    )
+
+    assert by_path.returncode == ASSERTER_MODULE.EXIT_HELD, by_path.stderr
+    assert json.loads(by_path.stdout)["result"] == "PASS"
+    assert by_text.stdout == by_path.stdout
+
+
+@pytest.mark.parametrize(
+    ("written", "extra_json", "message"),
+    [
+        # Both ways at once: naming one document twice is not naming it.
+        ("{}", "{}", "by its path or by its text, not both"),
+        # Given, and not a document at all. Unreadable is not the same answer as "the
+        # world it joined is not this case's": one is "nothing was checked", the other
+        # is "this was checked and failed".
+        ("[]", None, "is not a run document object"),
+        ("not json", None, "is not readable JSON"),
+    ],
+)
+def test_a_host_document_that_cannot_be_read_is_not_judged(
+    tmp_path: Path, written: str, extra_json: str | None, message: str
+) -> None:
+    run = join_material(tmp_path)
+    ledger_for(tmp_path)
+    named = tmp_path / "host-session.json"
+    named.write_text(written, encoding="utf-8")
+    extra = ["--world-run-document", str(named)]
+    if extra_json is not None:
+        extra += ["--world-run-document-json", extra_json]
+
+    result = run_cli(*join_cli_arguments(tmp_path, run), *extra)
+
+    assert result.returncode == ASSERTER_MODULE.EXIT_UNJUDGED
+    assert message in result.stderr
