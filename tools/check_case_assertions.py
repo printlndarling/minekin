@@ -323,6 +323,12 @@ IMPLEMENTATIONS: dict[str, Implementation] = {
         "pytest",
         "tests/unit/test_world_identity.py::test_a_lan_port_change_does_not_move_the_identity",
     ),
+    # HOSTCOMMIT-090: hosted A, remote B, hosted A, with at most one world current at
+    # every step. The subject is the gate's own record, so the assertion is a test.
+    "switching_worlds_keeps_exactly_one_current_at_a_time": Implementation(
+        "pytest",
+        "tests/unit/test_world_activation.py::test_switching_worlds_keeps_exactly_one_current_at_a_time",
+    ),
 }
 
 

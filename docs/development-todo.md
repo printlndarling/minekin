@@ -837,6 +837,15 @@
   - **端到端**：`run_repo_case.py --case tests/fixtures/cases/hostcommit-110.json` → `exit 0`、`result: PASS`、三条断言全 `observed`（本地，不碰 Minecraft）。**宿主的四条用例现在都跑得动**（`HOSTCTL-001/010/050`、`HOSTCOMMIT-110`），`mandatory` 仍全是 `false`，理由同前两节。
   - **实测（本轮只到本地锁定环境）**：ruff check/format、pyright（strict，0 errors）、`check_boundaries`、`check_case_assertions`（从 56 变 **59** 条注册断言）、`verify_fixture_digests`、`check_workflow_pins`，全量 pytest（**1605 通过 / 2 skipped**，新增 14 条），以及四条 host 用例的 `run_repo_case`。**没有跑真实 Minecraft**，也没接受 EULA；pin 只动了两处（新 case 与它自己的重录）。
   - **仍然开着的**：契约里紧挨着的**切换激活门**（`STAGED → OBSERVING → RECONCILED → ACTIVE`，「只有一个 Current World Capsule 可以标 ACTIVE」，即 `HOSTCOMMIT-090`）**还没做**——它与这一节是同一个主题的下一半，而且同样是纯域、同样有出处；另外 `HOSTCOMMIT-070`（回滚后事实失效并等待重验）需要"哪些事实失效"的定义，那份定义在**心智侧**（`player-mind`/记忆），本仓库还没有。那份**候选**正常关闭状态机（`ACTIVE → QUIESCING → … → CLEAN`）**刻意没做**：契约自己写着"第4～6步的真实调用先后…必须由真客户端 trace冻结"，所以它现在是一条**候选**，把它冻结成表就等于假装已经有那些 trace。
+- [x] **`HOSTCOMMIT-090`：任一时刻只有一个"当前世界"——第五条 host 类用例，而这条守的是这一步之前没有任何东西守着的那个不变式。** 契约的切换激活门是四条规则加一条阶梯（`STAGED → OBSERVING → RECONCILED → ACTIVE`），这一节把四条规则各落成一个操作。
+  - **为什么"至多一个当前世界"值得一个模块**：这句话在两条代码路径各自以为自己是那条激活路径之前一直成立，而它失败的样子**不是崩溃**——是一个人物的背包在一个世界里、计划在另一个世界里。所以它被做成**双重结构保证**：只有一个调用能产生 `ACTIVE`，且它只能从 `RECONCILED` 产生，于是"两个当前世界"这份记录**用这套 API 造不出来**。`current()` 还是拒绝它，理由写在函数里：**这种记录只可能从别处来**（一个文件、另一个版本），而那正是矛盾会出现的地方——两个里挑一个就是把一个世界的事实安到另一个头上。
+  - **第 5 条是这一步里最容易被做错、也最值得写下来的一条**：一次失败的切换留下的是**没有**当前世界，而那是**正确状态**而不是错误。身处两个世界之间的 Kin，计划是挂起的；坚持"必须恰好有一个当前世界"的代码只能靠**编**一个出来。所以 `suspended()` 是一个可以正常返回 True 的函数，而不是一个被当作异常的断言——这与我这一路反复用的"沉默不是同意"是同一件事的两面：**没有当前世界不等于当前世界是上一个**。
+  - **第 2 条拒绝时点名坐标**：JOIN 必须与预期的 server profile / bundle / session / generation 一致（`world_context_id` 与 `world_epoch` 也一并查），而拒绝的 outcome **带上是哪个字段、观察到的是什么、期望是什么**。理由是操作可读性：一个**没人能据此行动的**停机会一直停下去，「证据不符」四个字不够。六个坐标各有一条参数化用例。
+  - **第 3 条做成了阶梯的形状而不是一次检查**：只能逐级，所以「没被确认过的世界不能成为人物事实所绑定的现实」不靠一条规则去记得——它**没有别的路**。用例两条：`reconcile`/`activate` 都拒 `STAGED`，`activate` 拒 `OBSERVING`。
+  - **HOSTCOMMIT-090 的断言写成了"每一步都查"而不是"看终态"**：hosted A → remote B → hosted A，每一步断言不变式。理由与上面第一条相同——这个规则要防的是一个**中间时刻**，而只看终态的测试会在那个时刻已经发生之后变绿。往返两个方向都走了，因为单向规则会把回来的那半做错。
+  - **端到端**：`run_repo_case.py --case tests/fixtures/cases/hostcommit-090.json` → `exit 0`、`result: PASS`、断言 `observed`（本地，不碰 Minecraft）。**宿主的五条用例现在都跑得动**（`HOSTCTL-001/010/050`、`HOSTCOMMIT-090/110`），`mandatory` 仍全是 `false`，理由同前几节。
+  - **实测（本轮只到本地锁定环境）**：ruff check/format、pyright（strict，0 errors）、`check_boundaries`、`check_case_assertions`（从 59 变 **60** 条注册断言）、`verify_fixture_digests`、`check_workflow_pins`，全量 pytest（**1617 通过 / 2 skipped**，新增 12 条），以及五条 host 用例的 `run_repo_case`。**没有跑真实 Minecraft**，也没接受 EULA；pin 只动了两处（新 case 与它自己的重录）。
+  - **仍然开着的**：`HOSTCOMMIT-070`（回滚后事实失效并等待重验）需要"哪些事实失效"的定义，那份定义在**心智侧**，本仓库还没有；`HOSTCOMMIT-010/020/030/040/050/060/100` 都要真实保存/强杀/双水位证据；那份**候选**正常关闭状态机仍然**刻意没做**（契约写着要真客户端 trace 才能冻结）。宿主域里**有出处、又不需要客户端**的部分，到这一条为止基本做完了——下一步要么是 Bridge 那一侧（Java，需要真客户端验证），要么是等真客户端回来跑那 13 条。
 ## W70 之后
 
 - [ ] W80：独立 `p0-nav-exp` 导航实验；核验输入冲突、隐藏真值与 SBOM/许可。

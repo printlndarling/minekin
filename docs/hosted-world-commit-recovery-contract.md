@@ -223,7 +223,7 @@ PlayerMind只收到：
 7. `HOSTCOMMIT-060`：冷备发布前强杀；原世界可继续，临时备份不可被选为最近好备份。
 8. `HOSTCOMMIT-070`：回滚到旧checkpoint；同Kin/同hosted world、新epoch，回滚后事实失效并等待重验。
 9. `HOSTCOMMIT-080`：复制同一save为两个独立世界；必须产生不同hosted_world_id且计划/资产不串线。
-10. `HOSTCOMMIT-090`：hosted A→remote B→hosted A；任一时刻只有一个ACTIVE Current World Capsule。
+10. `HOSTCOMMIT-090`：hosted A→remote B→hosted A；任一时刻只有一个ACTIVE Current World Capsule。（2026-09-22：**这一条做了**——用例 `tests/fixtures/cases/hostcommit-090.json`，断言由 `tests/unit/test_world_activation.py` 里那个同名测试执行，而它**每一步都断言不变式**而不是只看最后的状态：这个规则要防的不是一个错的终态，而是中间某一刻**两个世界同时是当前**——人物的背包在其中一个、计划在另一个。判据是 `domain/world_activation.py`：**上面五条规则各自一个操作**（`observe` 查 JOIN 与预期是否一致并**点名是哪个坐标**不一致、`reconcile`、`activate`、`release`），阶梯是 `STAGED → OBSERVING → RECONCILED → ACTIVE` 且**只能逐级**，所以「没被确认过的世界不能成为人物事实所绑定的现实」是结构保证而不是检查。**第 4 条做成了两重的**：只有一个调用能产生 ACTIVE，且只能从 RECONCILED 产生，所以「两个当前世界」这份记录**用这套 API 造不出来**；`current()` 仍然拒绝它——因为那种记录只可能从**别处**来（一个文件、另一个版本），而那正是矛盾会出现的地方。**第 5 条是刻意让它合法的**：一次失败的切换留下的是**没有**当前世界（`suspended`），而不是错误——身处两个世界之间的 Kin 计划是挂起的，坚持「必须恰好有一个当前世界」的代码只能靠**编**一个出来。）
 11. `HOSTCOMMIT-100`：SQLite clean事务失败但世界关闭成功，以及反向组合；恢复决策与双水位一致。
 12. `HOSTCOMMIT-110`：同名重建、同地址换档、LAN端口改变；分别得出新世界、待审查和同世界。（2026-09-22：**这一条做了**——用例 `tests/fixtures/cases/hostcommit-110.json`，三条断言各对应上面三种观察之一，由 `tests/unit/test_world_identity.py` 里同名的三个测试执行。判据是 `domain/world_identity.py`：**上面六条规则逐条**落成一次判断（普通重启同世界同 epoch、回滚同世界新 epoch、复制成两个世界、同名重建新世界新 context、端口改变不动身份、同地址换档进入 review），每条各自有一个 outcome。**两条反向规则做成了字段层面的**：显示名与 seed/level name/MOTD/玩家名/目录名都不是键，所以它们**不是 `WorldLineage` 的字段**——有一条用例直接钉住这张字段清单，因为「端口不属于身份」这句话只能活到有人为它加一个字段为止。）
 

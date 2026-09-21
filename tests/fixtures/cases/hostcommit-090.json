@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "case_id": "HOSTCOMMIT-090",
+  "work_package": "host-integrated",
+  "mandatory": false,
+  "inputs": [],
+  "assertion_digests": {
+    "switching_worlds_keeps_exactly_one_current_at_a_time": "72b9e44cd29e4fd3fbcbd31d6e487372ce14d8ee1f2f39ec4276d2bc542b2e82"
+  },
+  "assertions": ["switching_worlds_keeps_exactly_one_current_at_a_time"]
+}
