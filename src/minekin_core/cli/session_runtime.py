@@ -31,6 +31,11 @@ from minekin_core.domain.connection import (
     ConnectionGenerations,
     ConnectionState,
 )
+from minekin_core.domain.host_publication import (
+    HostPublicationDecision,
+    HostPublicationPhase,
+    host_publication,
+)
 from minekin_core.domain.information_class import admit_to_cognition
 from minekin_core.domain.session_material import RecordedSessionMaterial
 from minekin_core.domain.session_state import (
@@ -100,6 +105,10 @@ class SessionRun:
     #: DTO being counted here is the gate working: the control side reported
     #: something and the Kin's model of the world did not take it in.
     cognition_refusals: Mapping[str, int] = field(default_factory=dict[str, int])
+    #: Host lifecycle reports that were not recorded, by reason. A report saying the
+    #: world is published on a port that is not one is the shape a joiner acts on, so
+    #: "it arrived and was refused" is a fact about the run rather than silence.
+    host_report_refusals: Mapping[str, int] = field(default_factory=dict[str, int])
 
     def as_dict(self) -> dict[str, object]:
         return {
@@ -156,14 +165,20 @@ class SessionRun:
             # the runs, and this is the field that would show it.
             "perceived_information_class": self.perceived_information_class,
             "cognition_refusals": dict(self.cognition_refusals),
+            # What the Bridge reported about publishing this Kin's world and Core
+            # refused to record, by reason. Empty for a run whose reports were all
+            # coherent, which is the usual case and not the same as "no report".
+            "host_report_refusals": dict(self.host_report_refusals),
         }
 
 
 #: The contract's host event set, as the run document spells it. Closed on purpose:
-#: a phase Core cannot name is a report it must count rather than believe.
-_LAN_PHASES: dict[int, str] = {
-    observation_pb2.HOST_PHASE_LAN_OPENED: "LAN_OPENED",
-    observation_pb2.HOST_PHASE_LAN_OPEN_FAILED: "LAN_OPEN_FAILED",
+#: a phase Core cannot name is a report it must count rather than believe. The wire
+#: numbers are lifted to `domain/host_publication.py`'s tokens here and nowhere else,
+#: so the rule about ports is stated without a wire number in it.
+_LAN_PHASES: dict[int, HostPublicationPhase] = {
+    observation_pb2.HOST_PHASE_LAN_OPENED: HostPublicationPhase.LAN_OPENED,
+    observation_pb2.HOST_PHASE_LAN_OPEN_FAILED: HostPublicationPhase.LAN_OPEN_FAILED,
 }
 
 
@@ -189,6 +204,10 @@ class _Progress:
     #: about the run rather than about the code path that happened to be taken.
     perceived_information_class: str = ""
     cognition_refusals: dict[str, int] = field(default_factory=dict[str, int])
+    #: Host lifecycle reports that were not recorded, by reason. A report saying the
+    #: world is published on a port that is not one is the shape a joiner would act
+    #: on, so it is a fact about the run that it arrived and was refused.
+    host_report_refusals: dict[str, int] = field(default_factory=dict[str, int])
 
 
 async def supervise_session(
@@ -464,13 +483,17 @@ async def _read_events(
                 progress.actions_refused += 1
             continue
         if isinstance(message, observation_pb2.HostLifecycle):
-            reported = lan_publication(message)
-            if reported is None:
-                # A phase this build does not know is not a fact it may record:
-                # "published on port X" is what a joiner acts on.
-                progress.ignored += 1
+            publication = lan_publication(message)
+            if publication.recorded is None:
+                # Counted by reason rather than folded into "ignored": a report this
+                # build could not record is either a phase it cannot name or a port
+                # that is not one, and those are different findings about the Bridge.
+                reason = str(publication.refusal)
+                progress.host_report_refusals[reason] = (
+                    progress.host_report_refusals.get(reason, 0) + 1
+                )
             else:
-                progress.lan_publication = reported
+                progress.lan_publication = publication.recorded.as_document()
             continue
         if not isinstance(message, observation_pb2.ConnectionLifecycle):
             # Counted rather than dropped silently: an event type this build
@@ -539,18 +562,19 @@ async def _admit_first_snapshot(
     return True
 
 
-def lan_publication(lifecycle: observation_pb2.HostLifecycle) -> dict[str, object] | None:
-    """The Bridge's report as the run document keeps it, or None if it says nothing.
+def lan_publication(lifecycle: observation_pb2.HostLifecycle) -> HostPublicationDecision:
+    """The Bridge's report as the run document may keep it, or why it may not.
 
-    The phase travels as the wire enum's own word without its prefix, the way the
-    connection phases do: a stable token that does not change when somebody renames
-    an enum value's spelling.
+    The phase travels as a stable token rather than as the wire enum's spelling, the
+    way the connection phases do, so that renaming an enum value cannot silently
+    change a fact about a world. The decision itself — including the two refusals a
+    report can earn on the reading side — is
+    `domain/host_publication.host_publication`'s.
     """
 
-    phase = _LAN_PHASES.get(lifecycle.phase)
-    if phase is None:
-        return None
-    return {"phase": phase, "port": int(lifecycle.bound_port)}
+    return host_publication(
+        phase=_LAN_PHASES.get(lifecycle.phase), bound_port=int(lifecycle.bound_port)
+    )
 
 
 def _wind_down(session: SessionStateMachine, *, failed: bool) -> None:
@@ -594,4 +618,5 @@ def _report(
         lan_publication=progress.lan_publication,
         perceived_information_class=progress.perceived_information_class,
         cognition_refusals=dict(progress.cognition_refusals),
+        host_report_refusals=dict(progress.host_report_refusals),
     )

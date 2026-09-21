@@ -195,12 +195,19 @@ class Peer:
             ),
         )
 
-    async def report_lan(self, *, port: int) -> None:
-        """Host-control's report that the world this Kin hosts is published.
+    async def report_lan(
+        self,
+        *,
+        port: int = 0,
+        phase: observation_pb2.HostPhase = observation_pb2.HOST_PHASE_LAN_OPENED,
+    ) -> None:
+        """Host-control's report about publishing the world this Kin hosts.
 
         The management side's own output, produced by the side that is allowed to
         read server truth in order to manage the world — which is why gate 3 does
-        not let it become what the Kin knows.
+        not let it become what the Kin knows. The phase is what a caller varies:
+        the contract has one failure for this event, and what Core does with an
+        incoherent report is a different question from what a Bridge sends.
         """
 
         assert self.event_writer is not None
@@ -215,7 +222,7 @@ class Peer:
                 observation_pb2.HostLifecycle(
                     request_id="open-lan-1",
                     generation=1,
-                    phase=observation_pb2.HOST_PHASE_LAN_OPENED,
+                    phase=phase,
                     bound_port=port,
                 ).SerializeToString(deterministic=True),
             ),
@@ -723,6 +730,89 @@ def test_a_management_report_does_not_become_what_the_kin_knows(tmp_path: Path) 
         # And the report still reached the document, as a fact about the world
         # rather than as something the Kin knows.
         assert document["lan_publication"] == {"phase": "LAN_OPENED", "port": 25565}
+
+    asyncio.run(scenario())
+
+
+def test_a_lan_failure_does_not_end_the_session_or_name_a_port(tmp_path: Path) -> None:
+    """HOST-030's second half: being in a world and publishing it are two facts.
+
+    The contract makes "the LAN attempt failed" a separate outcome from "the local
+    world started", and the run document is where that separation has to be visible.
+    A run whose publish failed goes on to be playable and ends when the client
+    leaves — and the publication record carries no port, because a failure that
+    named one would claim both that nothing is listening and that something is.
+    """
+
+    async def scenario() -> None:
+        bridge = session()
+        host = BridgeIpcHost(bridge)
+        descriptor = await host.prepare(tmp_path / "descriptor.pb")
+        machine, connections = _in_handshake()
+        exit_event = asyncio.Event()
+        peer = Peer(descriptor, bridge)
+
+        async def client() -> None:
+            await _drive_to_playable(peer, machine)
+            await peer.report_lan(phase=observation_pb2.HOST_PHASE_LAN_OPEN_FAILED)
+            await asyncio.sleep(0.05)
+            exit_event.set()
+            await peer.close()
+
+        running = asyncio.create_task(client())
+        run = await _supervise(host, machine, connections, exit_event=exit_event)
+        await running
+
+        document = run.as_dict()
+
+        assert document["lan_publication"] == {"phase": "LAN_OPEN_FAILED", "port": None}
+        assert document["host_report_refusals"] == {}, "a coherent failure is recorded"
+        # The session went on: the failure was about publishing, not about the world
+        # the Kin is in. It was in a playable world before the report arrived, and it
+        # ended the way an ordinary run ends — because the client left.
+        assert document["snapshots_admitted"] == 1
+        assert document["connection_state"] == "PLAYABLE"
+        assert run.outcome is SessionOutcome.CLIENT_EXITED
+        assert document["session_state"] == "STOPPED"
+
+    asyncio.run(scenario())
+
+
+def test_a_publication_that_names_no_address_is_counted_rather_than_recorded(
+    tmp_path: Path,
+) -> None:
+    """The writer's side of the rule the joiner's asserter already enforces.
+
+    The Bridge refuses to report this (`LanPublication` has tests of its own), and
+    the report arrives over a boundary the contract treats as fallible. The run
+    document is what a joiner reads, so "published on port 0" must not reach it —
+    and the refusal has to be visible, because a report nobody recorded and a report
+    that never arrived look identical from outside.
+    """
+
+    async def scenario() -> None:
+        bridge = session()
+        host = BridgeIpcHost(bridge)
+        descriptor = await host.prepare(tmp_path / "descriptor.pb")
+        machine, connections = _in_handshake()
+        exit_event = asyncio.Event()
+        peer = Peer(descriptor, bridge)
+
+        async def client() -> None:
+            await _drive_to_playable(peer, machine)
+            await peer.report_lan(port=0)
+            await asyncio.sleep(0.05)
+            exit_event.set()
+            await peer.close()
+
+        running = asyncio.create_task(client())
+        run = await _supervise(host, machine, connections, exit_event=exit_event)
+        await running
+
+        document = run.as_dict()
+
+        assert document["lan_publication"] is None
+        assert document["host_report_refusals"] == {"PORT_NOT_AN_ADDRESS": 1}
 
     asyncio.run(scenario())
 

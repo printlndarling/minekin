@@ -43,6 +43,7 @@ from minekin_core.adapters.launcher.saves import LEVEL_DAT
 from minekin_core.cli.init import DATABASE_NAME, KIN_DIRECTORY, kin_directory, run_root
 from minekin_core.cli.session import session_overlay_path
 from minekin_core.domain.cases import parse_case_manifest
+from minekin_core.domain.host_publication import MAX_PORT
 from minekin_core.domain.ids import KinId
 from minekin_core.domain.offline_identity import offline_player_uuid
 
@@ -785,7 +786,11 @@ def _is_port(value: object) -> bool:
     a port belongs is a record nobody can connect to.
     """
 
-    return not isinstance(value, bool) and isinstance(value, int) and 1 <= value <= 65535
+    # The bound comes from the domain rule rather than being written again here:
+    # the writer refuses to record anything outside it
+    # (`domain/host_publication.py`), and a reader with its own number would
+    # eventually disagree with the writer about which ports are addresses.
+    return not isinstance(value, bool) and isinstance(value, int) and 1 <= value <= MAX_PORT
 
 
 def the_run_says_which_world_it_hosted(material: RunMaterial) -> str | None:
