@@ -1,31 +1,15 @@
 """Fail the build when the Bridge's client core reaches for the server.
 
-The host boundary contract splits the Bridge into a client core and a narrow
-host-control adapter, and gives the reason: the integrated server runs in this same
-JVM, so the only thing between a Kin's perception and the server's own truth is
-which types the code is allowed to name. A rule that lives only in a document is a
-rule that holds until it is inconvenient; this is the same rule as a gate.
+A rule that lives only in a document is a rule that holds until it is inconvenient;
+this is the same rule as a gate. It reads the sources, which is one of the two ways
+that rule can be broken — the other one, what the compiler leaves behind, is
+`check_bridge_artifacts.py`. The vocabulary both of them enforce lives in
+`bridge_host_rules.py` so the two cannot drift apart.
 
-Two tiers, because the two modules are not asking for the same thing:
-
-- `DENIED_ALWAYS` — what is *in* the world (worlds, entities, players, chunks,
-  inventories), the save files, and the reflection escapes that would turn any of
-  those rules into a formality. Forbidden everywhere, adapter included: an adapter
-  that can read a player's inventory is a second road for server truth into the
-  product, which is the thing the boundary exists to prevent.
-- `DENIED_OUTSIDE_HOST` — the door to the server and the server type itself.
-  Opening a world to LAN is a lifecycle call and the contract gives the adapter
-  that job; any other file naming `IntegratedServer` or calling `getServer()` is
-  reaching past the boundary, and that is what this catches.
-
-Wildcard imports of the server package are refused even inside the adapter: the
-contract asks for a precise allowlist rather than the whole package, and "which
-types does this actually need" is a question a wildcard never has to answer.
-
-Only production sources are scanned (`bridge/src/main/java`). Test probes *are*
+This gate only looks at production sources (`bridge/src/main/java`). Test probes *are*
 allowed to touch server state — that is how the black-box canary gate checks that
-nothing else does — and keeping them out of the shipped artifact is the build
-gate's job, not this one's.
+nothing else does — and keeping them out of the shipped artifact is the build gate's
+job, not this one's.
 """
 
 from __future__ import annotations
@@ -38,39 +22,17 @@ from pathlib import Path
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 BRIDGE_SOURCES = REPOSITORY_ROOT / "bridge" / "src" / "main" / "java"
 
-#: The package the contract allows to hold the lifecycle adapter. Nothing else may
-#: name the server. Written as a package rather than a path because that is what a
-#: file declares and what the allowance is keyed on.
-HOST_PACKAGE = "org.minekin.bridge.host"
+# The vocabulary lives beside this file, and this is one of the two gates that
+# enforces it. One declaration, so the names a person is allowed to write and the
+# names a compiler is allowed to leave behind cannot become two rules.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-#: Forbidden in every file, with the reason each one is on the list.
-DENIED_ALWAYS: dict[str, str] = {
-    "ServerWorld": "a server world is what is in the world, not what happened to the client",
-    "ServerLevel": "a server level is what is in the world, not what happened to the client",
-    "ServerPlayerEntity": "server-side player state is the oracle's truth, not the Kin's",
-    "PlayerManager": "the player list is server truth the Kin cannot see",
-    "ServerChunkManager": "chunk state behind the client's view is hidden truth",
-    "ServerEntityManager": "entities the client cannot see are hidden truth",
-    "NbtIo": "reading save files is reading the world from behind the client",
-    "LevelStorage": "the save's own storage is not something the client may open",
-    "java.lang.reflect": "reflection makes every rule above a formality",
-    "java.lang.invoke.MethodHandles": "method handles make every rule above a formality",
-    "Class.forName": "looking a class up by name is reflection with a string",
-    "setAccessible": "opening a member for access is how reflection gets around this list",
-    "sun.misc.Unsafe": "unsafe access makes every rule above a formality",
-}
-
-#: Forbidden everywhere except the host adapter.
-DENIED_OUTSIDE_HOST: dict[str, str] = {
-    "getServer()": "the door to the integrated server belongs to the lifecycle adapter",
-    "MinecraftServer": "the server type belongs to the lifecycle adapter",
-    "IntegratedServer": "the integrated server type belongs to the lifecycle adapter",
-    "net.minecraft.server.": "the server package belongs to the lifecycle adapter, by allowlist",
-}
-
-#: Refused in every file, adapter included: a precise allowlist is not a wildcard.
-WILDCARD_SERVER_IMPORT = re.compile(
-    r"^\s*import\s+(static\s+)?net\.minecraft\.server\.[\w.]*\*\s*;"
+from bridge_host_rules import (  # noqa: E402
+    DENIED_ALWAYS,
+    DENIED_OUTSIDE_HOST,
+    HOST_PACKAGE,
+    WILDCARD_SERVER_IMPORT,
+    is_identifier,
 )
 
 _LINE_COMMENT = re.compile(r"//.*$")
@@ -111,15 +73,11 @@ def _without_comments(text: str) -> str:
 def _names(line: str, marker: str) -> bool:
     """Whether this line *names* the marker, rather than merely containing it.
 
-    A bare type name has to match as an identifier: `IntegratedServer` is the server
-    type, while `IntegratedServerControl` is the adapter in this repository that wraps
-    it, and the runtime naming the adapter is the seam working rather than the rule
-    being broken. Markers that are not identifiers — a package prefix, a call with its
-    parentheses, a dotted reflection class — are matched as they are, because there are
-    no boundaries to get wrong.
+    Identifier markers are matched as identifiers (`is_identifier` says which those
+    are); everything else is matched as it is.
     """
 
-    if not marker.replace("_", "").isalnum():
+    if not is_identifier(marker):
         return marker in line
     return re.search(rf"(?<![A-Za-z0-9_]){re.escape(marker)}(?![A-Za-z0-9_])", line) is not None
 

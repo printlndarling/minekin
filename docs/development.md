@@ -41,6 +41,19 @@ uv run --no-project python tools/check_bridge_protocol.py
 uv run --no-project python tools/check_bridge_proto_java.py
 ```
 
+`check_bridge_host_boundary.py` 与 `check_bridge_artifacts.py` 是**同一条边的两道门禁**，词汇表在 `tools/bridge_host_rules.py` 里只声明一次：前者读源码（谁被允许写这些名字），后者读构建产物（编出来的 class 常量池、mixin JSON、access widener、entrypoint 与打包依赖里有没有这些引用）。产物门禁**需要产物**，因此它跟着构建走——已接进 Gradle 的 `check`（`./gradlew check` 会因违规而失败，这正是契约要的「构建必须失败」），要单独跑一次：
+
+```text
+uv run --no-project python tools/check_bridge_artifacts.py --artifact bridge/build/libs/minekin-bridge-0.0.0.jar
+```
+
+两种产物都认：Gradle remap 过的 jar（intermediary 名字）与 `check_bridge_proto_java.py` 桩编译出的 classes 目录（Yarn 名字）。名字表 `bridge/host-boundary-names.json` 由固定 Yarn 构建推导而来，所以两种拼写都能认；Yarn 版本升级时必须重推：
+
+```text
+uv run --no-project python tools/check_bridge_artifacts.py --derive-names \
+  --mappings <loom cache>/1.21.4/net.fabricmc.yarn.<version>-v2/mappings.tiny
+```
+
 Bridge 必须用 Java 21。仓库中的 wrapper 配置不会在检出时下载 Minecraft 或 Gradle 工件；首次执行下列命令才会解析候选依赖：
 
 ```text

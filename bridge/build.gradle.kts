@@ -96,3 +96,58 @@ tasks.test {
 dependencyLocking {
     lockAllConfigurations()
 }
+
+// ---------------------------------------------------------------------------
+// The host boundary's second gate
+// ---------------------------------------------------------------------------
+
+// The hosted-world control boundary contract asks for four gates, and two of them are
+// over the same rule from two sides: `check_bridge_host_boundary.py` reads the sources
+// and says which names a person may write, and `check_bridge_artifacts.py` reads what
+// the build produced and says whether any of it reaches the server anyway — in a
+// constant pool, a descriptor, the mixin configuration, the access widener, the
+// entrypoint, or a packed dependency.
+//
+// The first runs in CI's `bridge-static` job, over a source tree. The second cannot:
+// it needs the artifact, and the only place the artifact exists is where the build
+// ran. So it runs here. The contract's wording for this gate is "构建必须失败", and a
+// task wired into `check` is that sentence made executable rather than one more script
+// a reviewer is asked to remember.
+//
+// The interpreter is named by the `gatePython` property because this build is driven
+// by hand on two platforms: `-PgatePython="uv run python"` is what the repository's own
+// gates use, and a bare `python` on PATH is what most machines have.
+val gatePython: List<String> =
+    ((findProperty("gatePython") as String?) ?: "python").split(" ").filter { it.isNotBlank() }
+val gateArtifact = layout.buildDirectory.file("libs/minekin-bridge-$modVersion.jar")
+// This project is its own Gradle root — `bridge/settings.gradle.kts` — so `rootProject`
+// is `bridge/` and the repository is one directory above it. Asked for as the parent of
+// the project directory rather than as `..`, because a gate that walks up from wherever
+// it happens to be run is how a path stops pointing at the repository.
+val repositoryRoot = rootProject.layout.projectDirectory.asFile.parentFile
+val gateScript = File(repositoryRoot, "tools/check_bridge_artifacts.py")
+val gateNames = File(repositoryRoot, "bridge/host-boundary-names.json")
+
+val checkHostBoundaryArtifacts by tasks.registering(Exec::class) {
+    group = "verification"
+    description = "Refuse server state in what the compiler produced, not only in the sources"
+    dependsOn(tasks.named("remapJar"))
+    inputs.files(gateScript, gateNames)
+    // Declared so the gate re-runs when the jar changes, and so a build that has not
+    // made one yet cannot report the boundary held over an artifact that is not there.
+    inputs.file(gateArtifact)
+    // Resolved at configuration time: the configuration cache cannot read a provider
+    // from inside a task action, which is the same reason `modVersion` is captured above.
+    commandLine(
+        *gatePython.toTypedArray(),
+        gateScript.absolutePath,
+        "--artifact",
+        gateArtifact.get().asFile.absolutePath,
+        "--names",
+        gateNames.absolutePath,
+    )
+}
+
+tasks.named("check") {
+    dependsOn(checkHostBoundaryArtifacts)
+}
