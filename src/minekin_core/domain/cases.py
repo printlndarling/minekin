@@ -18,12 +18,41 @@ import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import cast
+from typing import Final, cast
 
 CASE_SCHEMA_VERSION = 1
 
 _CASE_ID = re.compile(r"^[A-Z][A-Z0-9-]+-[0-9]{3}$")
-_WORK_PACKAGE = re.compile(r"^W[0-9]{2}$")
+#: Every work package a case may name, and nothing else.
+#:
+#: Two kinds of name. `W00`-`W80` are the phases of the core slice, which is what the
+#: roadmap numbers. The other three are the surfaces the validation contract grades
+#: *independently*: `p0-core` for the slice itself, `p0-nav-exp` for the navigation
+#: experiment, `host-integrated` for the world a Kin hosts. They are separate grades on
+#: purpose — the contract is explicit that a host result must not be borrowed to claim
+#: the core passed, or the other way round — so a case says which grade it is evidence
+#: for, and a case that evidences a level spanning phases (L3's LAN join is built on no
+#: single phase) names the surface rather than a phase number that is not its own.
+#:
+#: This replaced a placeholder. Those cases said `W90`, which named nothing: the
+#: roadmap stops at W80 and the host work is graded as `host-integrated`, so a reader
+#: of a bundle could not tell what package its evidence belonged to — or check that
+#: against anything. A closed list is what makes "which package is this?" answerable,
+#: and it is why `W90` now fails rather than being accepted as a shape.
+WORK_PACKAGES: Final[tuple[str, ...]] = (
+    "W00",
+    "W10",
+    "W20",
+    "W30",
+    "W40",
+    "W50",
+    "W60",
+    "W70",
+    "W80",
+    "p0-core",
+    "p0-nav-exp",
+    "host-integrated",
+)
 _REQUIRED_KEYS = frozenset(
     {"schema_version", "case_id", "work_package", "mandatory", "inputs", "assertions"}
 )
@@ -188,7 +217,7 @@ def parse_case_manifest(
         found.add(CaseViolation.INVALID_CASE_ID)
 
     work_package = document.get("work_package")
-    if not isinstance(work_package, str) or not _WORK_PACKAGE.fullmatch(work_package):
+    if not isinstance(work_package, str) or work_package not in WORK_PACKAGES:
         found.add(CaseViolation.INVALID_WORK_PACKAGE)
 
     mandatory = document.get("mandatory")

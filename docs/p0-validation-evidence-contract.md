@@ -158,6 +158,8 @@ L6 的基线**已有第一轮证据**（2026-09-20，用例 `CORE-100`，见下�
 
 上述 L3 只证明 Kin 客户端能加入**另一宿主**开放的 LAN 世界。Kin 自己创建/恢复存档并开放 LAN 是独立的 `host-integrated`晋级面，必须同时按[自建世界存储生命周期](hosted-world-storage-lifecycle-contract.md)的 HOST 用例与[自建世界控制边界](hosted-world-control-boundary-contract.md)的 HOSTCTL 用例另取证；其 Bridge 变体记为 `p0-host-exp`。它不属于 `p0-core`由 candidate 升为 tested 的前置条件，也不能反向借用 L3 结果声称 host tested。
 
+**用例的 `work_package` 是一份**闭集**，而三份 host 相关的用例此前写着 `W90`——那不是任何东西。**（2026-09-22。路线图到 `W80` 为止（`p0-nav-exp`），而 host 面按上面这段是独立的 `host-integrated` 晋级面；于是 `W90` 只满足"形如 `W\d\d`"这条形状检查，读者读一份 bundle 时**说不出**它的证据属于哪个包，也**没有东西可以核对**这个说法。现在词汇表是 `W00`-`W80` 加上本文与[决策记录](decisions.md)已经命名的那三个独立晋级面：`p0-core`、`p0-nav-exp`、`host-integrated`。**为什么要两种名字**：`W00`-`W80` 是 core 切片内部的阶段，而 L3（LAN join）**不属于任何单一阶段**——它是 core 阶梯上的一级，建在 W70 之上但不属于它——所以它写自己为之作证的**面**（`p0-core`），而不是借一个不属于它的阶段号。`HOST-030`/`HOST-040` 写 `host-integrated`。域里的 `WORK_PACKAGES` 与 `schemas/case-manifest.schema.json` 的 `enum` 是同一份清单，并有一条用例钉住两者相等——两份清单就是两套词汇，而其中一份会漂移。
+
 HOST世界保存/恢复另需 `HOSTCOMMIT-001…110` 证据；它验证默认维度、玩家/世界双保存、JointResumeToken、回滚/分叉和唯一Current World激活。缺少该组证据时，`p0-host-exp`不能标记host lifecycle tested。
 
 `p0-core: tested`至少要求 L0–L5 全部 mandatory case 有 PASS evidence，并完成一轮有明确时长和环境的 L6 baseline（2026-09-20：这一轮已跑并封存，见 L6 行的说明与用例清单第 14 条；证据在 `kin/<kin_id>/run/evidence/<run-id>/` 里，含 `soak-samples.txt` 与 `soak-summary.json`）；性能数字没有人类基线前只报告、不凭空设“优秀”阈值，但下列安全不变量没有宽限。

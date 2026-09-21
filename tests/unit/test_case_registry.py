@@ -14,6 +14,7 @@ from minekin_core.adapters.evidence.promotion import (
     load_case_registry,
 )
 from minekin_core.domain.cases import (
+    WORK_PACKAGES,
     CaseEvidence,
     CaseManifest,
     CaseRegistry,
@@ -162,6 +163,55 @@ def test_independent_case_violations_are_reported_together() -> None:
         CaseViolation.INVALID_INPUT_DIGESTS,
         CaseViolation.NO_ASSERTIONS,
     )
+
+
+def test_the_work_package_vocabulary_is_closed() -> None:
+    """`W90` named nothing: the roadmap stops at W80 and the host surface is elsewhere.
+
+    A package that does not exist is worse than a missing one — a reader of a bundle
+    could not tell what its evidence belonged to, and there was nothing to check the
+    answer against — so a name outside the vocabulary is refused rather than shaped.
+    """
+
+    parsed, violations = parse_case_manifest(document(work_package="W90"))
+
+    assert parsed is None
+    assert violations == (CaseViolation.INVALID_WORK_PACKAGE,)
+
+
+@pytest.mark.parametrize("package", WORK_PACKAGES)
+def test_every_named_work_package_is_accepted(package: str) -> None:
+    """The negative control: the vocabulary is closed, not merely narrow."""
+
+    parsed, violations = parse_case_manifest(document(work_package=package))
+
+    assert violations == (), violations
+    assert parsed is not None
+    assert parsed.work_package == package
+
+
+def test_the_schema_and_the_domain_name_the_same_work_packages() -> None:
+    """Two lists of one vocabulary are two vocabularies, and one of them would drift.
+
+    The schema is what a fixture is validated against and the domain is what promotion
+    groups by, so a package added to one and not the other would be a case that
+    validates and then belongs to nothing.
+    """
+
+    schema = json.loads(
+        (REPOSITORY_ROOT / "schemas" / "case-manifest.schema.json").read_text(encoding="utf-8")
+    )
+
+    assert schema["properties"]["work_package"]["enum"] == list(WORK_PACKAGES)
+
+
+def test_every_reviewed_case_names_a_work_package_that_exists() -> None:
+    """The reviewed cases are the reason the vocabulary exists, so they have to fit it."""
+
+    registry = load_case_registry(CASES)
+
+    assert {case.work_package for case in registry.cases} <= set(WORK_PACKAGES)
+    assert "W90" not in {case.work_package for case in registry.cases}
 
 
 def test_the_registry_reads_a_directory_of_cases() -> None:

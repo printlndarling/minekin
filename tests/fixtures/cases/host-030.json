@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "case_id": "HOST-030",
-  "work_package": "W90",
+  "work_package": "host-integrated",
   "mandatory": false,
   "inputs": [
     "tests/fixtures/runtime-input/bundle-p0-core-1.21.4.json",
