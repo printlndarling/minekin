@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "case_id": "HOST-060",
+  "work_package": "host-integrated",
+  "mandatory": false,
+  "inputs": [],
+  "assertion_digests": {
+    "a_backup_is_built_beside_its_target_and_published_by_a_rename": "d531f403fb63be683e22c8bd4e3df59a80990161b68ca77caefe15fd1ecb6c3f",
+    "a_verified_backup_is_not_replaced": "5ed92e2452bd1134d37b8a4f713c61b8b950a233f8cf55e2f9fbbcd190a9f53b",
+    "an_unverified_leftover_may_be_replaced": "90d722f1395934c1048a3eb0a3d9d30dd6b24d9fcde7872cfceae98f39cfe02b"
+  },
+  "assertions": [
+    "a_backup_is_built_beside_its_target_and_published_by_a_rename",
+    "a_verified_backup_is_not_replaced",
+    "an_unverified_leftover_may_be_replaced"
+  ]
+}

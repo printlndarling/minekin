@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "case_id": "HOST-070",
+  "work_package": "host-integrated",
+  "mandatory": false,
+  "inputs": [],
+  "assertion_digests": {
+    "a_restore_into_a_new_world_is_admitted": "da42df9fc3f30cf3ee80e1afe3586a654d23c48c8fd8537c33b58dac8f2dc450",
+    "restoring_inside_the_source_is_refused": "38e5140dd60e689d2d86d7923558a75e8339c286b7412410ed9dc90899312dc8",
+    "the_most_specific_refusal_is_the_one_reported": "929a2cd819cf5b0e196d4aa800405cb0df4815007af279a35a7e42fc5c3364cf"
+  },
+  "assertions": [
+    "a_restore_into_a_new_world_is_admitted",
+    "restoring_inside_the_source_is_refused",
+    "the_most_specific_refusal_is_the_one_reported"
+  ]
+}

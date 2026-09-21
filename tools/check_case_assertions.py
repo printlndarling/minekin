@@ -376,6 +376,37 @@ IMPLEMENTATIONS: dict[str, Implementation] = {
         "pytest",
         "tests/unit/test_hosted_store.py::test_a_save_path_outside_the_data_root_is_refused",
     ),
+    # HOST-060 and HOST-070: the two clauses of the storage contract's backup
+    # section that are about paths — a verified backup is not replaced, and a
+    # restore writes a new copy rather than into the tree it is restoring from.
+    # Both cases are half-covered on purpose: their other clauses (a disk that is
+    # full, a restore that is actually entered and spot-checked) need a real client,
+    # so `mandatory` stays false and the reason is on the contract's own entries.
+    "a_backup_is_built_beside_its_target_and_published_by_a_rename": Implementation(
+        "pytest",
+        "tests/unit/test_hosted_backup.py"
+        "::test_a_backup_is_built_beside_its_target_and_published_by_a_rename",
+    ),
+    "a_verified_backup_is_not_replaced": Implementation(
+        "pytest",
+        "tests/unit/test_hosted_backup.py::test_a_verified_backup_is_not_replaced",
+    ),
+    "an_unverified_leftover_may_be_replaced": Implementation(
+        "pytest",
+        "tests/unit/test_hosted_backup.py::test_an_unverified_leftover_may_be_replaced",
+    ),
+    "a_restore_into_a_new_world_is_admitted": Implementation(
+        "pytest",
+        "tests/unit/test_hosted_backup.py::test_a_restore_into_a_new_world_is_admitted",
+    ),
+    "restoring_inside_the_source_is_refused": Implementation(
+        "pytest",
+        "tests/unit/test_hosted_backup.py::test_restoring_inside_the_source_is_refused",
+    ),
+    "the_most_specific_refusal_is_the_one_reported": Implementation(
+        "pytest",
+        "tests/unit/test_hosted_backup.py::test_the_most_specific_refusal_is_the_one_reported",
+    ),
     # HOSTCOMMIT-110: the three ways a world's identity is decided. Each assertion is
     # the rule the commit-recovery contract states for one observed change, and the
     # subject of all three is a pure function of a record and an observation.
