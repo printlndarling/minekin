@@ -818,6 +818,16 @@
   - **测试新增 3 条**（`test_world_creation.py` 16 → 19）：槽在**六组对抗性标识符**下都被启动器的谓词接受（含冒号、`%`、空格、非 ASCII、128 字符长 id），且不以 `-` 开头；两个只差一个禁用字符的合法 id 得到**不同**的槽（朴素替换写法会撞的那个反例）；以及指名另一个 Kin 的提案被 `KIN_MISMATCH` 拒绝。
   - **实测（本轮只到本地锁定环境）**：ruff check/format、pyright（strict，0 errors）、`check_boundaries`、`check_case_assertions`（54 条注册）、`verify_fixture_digests`、`check_workflow_pins`、全量 pytest（**1577 通过 / 2 skipped**），以及两条 host 用例的 `run_repo_case` 端到端。**没有跑真实 Minecraft**，也没接受 EULA。
   - **仍然开着的**：`synthesize` 仍是一个**纯函数**——它不知道也不检查"这份档对应的存档目录是不是已经存在"，而重复建档（契约的 `HOSTCTL-050`："不得…重复建档"）是下一个能只在域里做的东西；再往后就要跨到 Bridge 那一侧（`HOSTCTL-020/030/040` 要真实线程证据，`HOST-001…100` 要真客户端）。
+- [x] **`HOSTCTL-050` 的域那一半：宿主世界的创建/关闭生命周期，以及"谁可以推动它"——第三条 host 用例，判据是纯函数。** 这一条此前一行都没有；现在有一张表、一条准入规则和两条断言。
+  - **状态表不是设计的，是抄的**：存储生命周期契约里 `## 创建状态机` 那张 mermaid 图就是权威（`REQUESTED → PREPARED → LOCKED → CREATING → HOST_PLAYABLE → LAN_OPEN → QUIESCING → SAVING → CLOSED`，加 `QUARANTINED` 与 `RECOVERY_REQUIRED` 两条出口）。`domain/hosted_world.py` 的表**逐边**对应它，一条不多。**这正是上一节那条界限的反面**：那一节我拒绝为宿主面凭空设计状态机，这一节照图实现——同一件事，一个没有出处的规格不能做，一个有出处的规格应该做。
+  - **准入规则来自另一份契约**：控制边界契约对每条 host 命令的完成都要求重验 `session_id + generation + world_epoch + expected_state`，并写明被取消的创建、失败的资源包加载、未决的警告或**过期回调**「都不能伪造成功」。所以 `admit()` 先查四个坐标（顺序按"说了多少"排：别的会话 → 这个世界的过去 → 这个世界的现在被什么改了 → 发送者看的是另一个时刻），每个坐标**各有自己的 disposition**——"为什么被拒"才是操作者问的问题，一个 `REJECTED` 答不了。
+  - **两个拒绝是这一步存在的理由，而不是顺手加的检查**：`STALE_COMPLETION` 是**常态而非异例**（launcher 比客户端快，上一代的完成落在这一代开始之后就是真实运行的样子）；`DUPLICATE_CREATION` 被**点名**而不是留给表去报"非法迁移"——「你不许从 LAN_OPEN 跳到 CREATING」与「这个世界已经存在」是两句不同的话，而后者是 Kin 需要被告知的。契约的原文就是"不得重复建档"。
+  - **一条被自己的测试顶出来的、关于"定义"的修正**：`settled` 我一开始写成一张表（`{CLOSED, QUARANTINED}`），并为它写了一条性质测试——"settled 就是**没有信号能推动它**"。测试立刻在 `RECOVERY_REQUIRED` 上红了：图里它**也没有出口**（恢复恰恰是机器之外的人要做的决定），而那张手写表说它不是 settled。**一条列出来的定义就是图的第二份陈述，而它第一次被比较就漂了**，所以现在 `settled` 由图**推导**（`not any((state, signal) in 表)`），不再可能漂。
+  - **测试改成只走公开面，而且因此更强**：第一版用了模块的私有表与私有集合，被 pyright 的 `reportPrivateUsage` 拦下——拦得对：**读表的测试会随着表说什么而通过**，而那正是唯一值得检查的东西。现在可达性是**沿 `admit` 自己**走出来的（对每个状态×信号问一次，谁被推进就是可达的），`has_a_world` 则被验成"在这个状态下第二次创建会不会被判重复"——**两条定义各自被验成同一个问题的两次提问**。
+  - **端到端**：`run_repo_case.py --case tests/fixtures/cases/hostctl-050.json` → `exit 0`、`result: PASS`、两条断言全 `observed`（本地，不碰 Minecraft）。加上前两条，宿主的**三条**用例现在都跑得动；`mandatory` 仍是 `false`，理由与上一节相同（契约要的是一整套 `HOST`/`HOSTCTL` 证据）。
+  - **上一节的判据门禁第二次响了，而且两次都对**：我为了去掉私有依赖改了 `a_second_creation_in_one_epoch_is_refused`，`check_case_assertions` 立刻报 `the criteria moved under a version that did not`，`hostctl-050` 必须重录。**连续两步都是它先发现的**——这就是那一节做它的意义。
+  - **实测（本轮只到本地锁定环境）**：ruff check/format、pyright（strict，0 errors）、`check_boundaries`、`check_case_assertions`（从 54 变 **56** 条注册断言）、`verify_fixture_digests`、`check_workflow_pins`，全量 pytest（**1590 通过 / 2 skipped**，新增 14 条），以及三条 host 用例的 `run_repo_case`。**没有跑真实 Minecraft**，也没接受 EULA；pin 只动了两处（新 case 与它自己的重录）。
+  - **仍然开着的**：这条用例的**真实一半**——延迟回调由 Bridge 真正发出、跨一次真实 generation 返回（要真客户端）；`admit()` 还没有检查完成里带的 `profile_digest`（世界记录里已经有这个字段，但还没有东西在完成里送它，所以现在不验而不是假装验了）；`HOST-001…100` 一条都还没有定义。
 ## W70 之后
 
 - [ ] W80：独立 `p0-nav-exp` 导航实验；核验输入冲突、隐藏真值与 SBOM/许可。

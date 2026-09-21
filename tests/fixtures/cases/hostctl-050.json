@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "case_id": "HOSTCTL-050",
+  "work_package": "host-integrated",
+  "mandatory": false,
+  "inputs": [],
+  "assertion_digests": {
+    "a_completion_from_the_previous_generation_cannot_move_the_world": "4105ef104af54a97391b754a5b47798ba93f84213c9d2ac189ea4ac628fa39af",
+    "a_second_creation_in_one_epoch_is_refused": "e9330b25b5574731ff1689bf3d0de492db507eb55eafacc69fd74a84f9511945"
+  },
+  "assertions": [
+    "a_completion_from_the_previous_generation_cannot_move_the_world",
+    "a_second_creation_in_one_epoch_is_refused"
+  ]
+}

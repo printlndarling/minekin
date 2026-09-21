@@ -297,6 +297,17 @@ IMPLEMENTATIONS: dict[str, Implementation] = {
         "pytest",
         "tests/unit/test_world_creation.py::test_the_refusal_names_what_the_proposal_asked_for",
     ),
+    # HOSTCTL-050: what a host command's completion may move. The subject is the
+    # admission rule, which is a pure function of the world and the completion — the
+    # real late callback is the Bridge's half and is not what these two claim.
+    "a_completion_from_the_previous_generation_cannot_move_the_world": Implementation(
+        "pytest",
+        "tests/unit/test_hosted_world.py::test_a_completion_from_the_previous_generation_cannot_move_the_world",
+    ),
+    "a_second_creation_in_one_epoch_is_refused": Implementation(
+        "pytest",
+        "tests/unit/test_hosted_world.py::test_a_second_creation_in_one_epoch_is_refused",
+    ),
 }
 
 

@@ -212,7 +212,7 @@ HOST_RECOVERY_REQUIRED
 3. `HOSTCTL-020`：client thread之外调用 create/load；adapter拒绝或正确排队，并记录真实线程证据。
 4. `HOSTCTL-030`：server thread之外请求 save/open LAN；经 executor执行，client/server互不循环等待。
 5. `HOSTCTL-040`：从 server thread触发 stop；验证不会以 `waitForShutdown=true`自锁。
-6. `HOSTCTL-050`：延迟旧 create/save callback跨 generation返回；不得推进当前状态或重复建档。
+6. `HOSTCTL-050`：延迟旧 create/save callback跨 generation返回；不得推进当前状态或重复建档。（2026-09-22：**域这一半做了**——用例 `tests/fixtures/cases/hostctl-050.json`，两条断言由 `tests/unit/test_hosted_world.py` 里同名的两个测试执行：旧 generation 的完成**不能推动世界**（返回的是同一个记录，不是被改了一半的），同一 epoch 里的**第二次创建被点名拒绝**（`DUPLICATE_CREATION`，而不是笼统的"非法迁移"）。判据是 `domain/hosted_world.py` 里那张**照存储生命周期契约的状态图逐边抄下来**的表，加上"四个坐标逐个重验"的准入规则（`session_id`/`generation`/`world_epoch`/`expected_state`，各有一个 disposition，因为"为什么被拒"才是操作者要问的）。**仍未做的是这条的真实一半**：那个延迟回调由 Bridge 真正发出、跨一次真实 generation 返回——那需要真客户端，本轮没有跑。所以这条的 `mandatory` 仍是 `false`。
 7. `HOSTCTL-060`：对 core/nav源码、class、mixin和 access widener注入 `getServer`/`ServerWorld`引用；构建必须失败。
 8. `HOSTCTL-070`：host-control尝试输出 server entity/player/inventory DTO；schema/路由门禁拒绝。
 9. `HOSTCTL-080`：墙后实体、未见容器、远处玩家坐标、seed和 save path canary；Bridge/Runtime/Memory/prompt中命中数必须为零。
