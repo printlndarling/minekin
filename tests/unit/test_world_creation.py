@@ -19,6 +19,7 @@ from pathlib import Path
 
 import pytest
 
+from minekin_core.adapters.launcher.saves import level_name_is_usable
 from minekin_core.domain.world_creation import (
     P0_BUNDLE_ID,
     P0_STYLE,
@@ -37,15 +38,24 @@ PROPOSAL = (
 PROFILE = REPOSITORY_ROOT / "tests" / "fixtures" / "runtime-input" / "world-create-p0.json"
 
 
-def accepted(document: dict[str, object] | None = None) -> Proposal:
-    parsed, found = parse_proposal(document if document is not None else proposal_document())
+#: The Kin that submitted the proposals below. A proposal does not get to decide who
+#: it is from, so it is passed beside the document rather than read out of it.
+SENDER = "kin-1"
+
+
+def accepted(document: dict[str, object] | None = None, *, kin_id: str = SENDER) -> Proposal:
+    parsed, found = parse_proposal(
+        document if document is not None else proposal_document(), kin_id=kin_id
+    )
     assert found == (), found
     assert parsed is not None
     return parsed
 
 
-def refused(document: dict[str, object]) -> tuple[WorldCreationRefusal, ...]:
-    parsed, found = parse_proposal(document)
+def refused(
+    document: dict[str, object], *, kin_id: str = SENDER
+) -> tuple[WorldCreationRefusal, ...]:
+    parsed, found = parse_proposal(document, kin_id=kin_id)
 
     assert parsed is None, "a proposal that should have been refused was accepted"
     return tuple(refusal.code for refusal in found)
@@ -65,7 +75,7 @@ def test_the_generated_profile_is_the_reviewed_one() -> None:
     would pass while the other drifted.
     """
 
-    proposal = accepted(json.loads(PROPOSAL.read_text(encoding="utf-8")))
+    proposal = accepted(json.loads(PROPOSAL.read_text(encoding="utf-8")), kin_id="kin-01")
     reviewed = json.loads(PROFILE.read_text(encoding="utf-8"))
 
     assert synthesize(proposal).as_document() == reviewed
@@ -121,6 +131,59 @@ def test_the_display_name_does_not_name_the_storage_slot() -> None:
     assert synthesize(named).storage_slot == synthesize(renamed).storage_slot
     assert synthesize(named).proposal_digest != synthesize(renamed).proposal_digest
     assert synthesize(named).digest != synthesize(renamed).digest
+
+
+def test_the_storage_slot_is_a_name_the_launcher_accepts() -> None:
+    """The slot becomes a directory under `saves/`, so it has to be one the launcher takes.
+
+    This is two rules that have to agree, and they did not: `OpaqueId` permits a colon
+    — it is deliberately path-independent — while a level name refuses one. So a Kin
+    with a perfectly valid id produced a world name the launcher would not accept, and
+    nothing would say so until the run was already under way. The check is the
+    launcher's own predicate rather than a second copy of it.
+    """
+
+    for kin_id, proposal_id in (
+        ("kin-01", "proposal-1"),
+        ("kin:01", "proposal-1"),
+        ("kin%3A01", "proposal%2F1"),
+        ("a b", "proposal-1"),
+        ("ünïcode", "proposal-1"),
+        ("k" * 128, "p" * 128),
+    ):
+        slot = synthesize(
+            accepted(proposal_document(kin_id=kin_id, proposal_id=proposal_id), kin_id=kin_id)
+        ).storage_slot
+
+        assert level_name_is_usable(slot), (kin_id, proposal_id, slot)
+        # The launcher's other rule: a name beginning with `-` would be read as a flag.
+        assert not slot.startswith("-")
+
+
+def test_two_identifiers_that_differ_do_not_share_a_slot() -> None:
+    """Percent-encoding rather than substitution, and this is the reason.
+
+    Replacing each forbidden character with a safe one maps both of these to the same
+    slot, and two Kin sharing a world is a worse failure than an unreadable directory.
+    """
+
+    first = synthesize(accepted(proposal_document(kin_id="kin:01"), kin_id="kin:01"))
+    second = synthesize(accepted(proposal_document(kin_id="kin%3A01"), kin_id="kin%3A01"))
+
+    assert first.storage_slot != second.storage_slot
+
+
+def test_a_proposal_naming_another_kin_is_refused() -> None:
+    """A proposal is untrusted content, and the slot is built from this field.
+
+    Chat and the web can put a proposal forward, so a Kin that could name the Kin in it
+    could aim at somebody else's world — and the profile would be built without anyone
+    noticing. The gateway knows who submitted it; the document does not get a vote.
+    """
+
+    assert refused(proposal_document(kin_id="kin-2"), kin_id="kin-1") == (
+        WorldCreationRefusal.KIN_MISMATCH,
+    )
 
 
 def test_the_slot_is_the_kins_and_the_systems_and_nothing_the_kin_writes() -> None:
@@ -186,7 +249,9 @@ def test_the_refusal_names_what_the_proposal_asked_for() -> None:
     different proposal rather than into a guess about what was wrong.
     """
 
-    parsed, found = parse_proposal(proposal_document(desired_style="creative_builder"))
+    parsed, found = parse_proposal(
+        proposal_document(desired_style="creative_builder"), kin_id=SENDER
+    )
 
     assert parsed is None
     assert [refusal.field for refusal in found] == ["desired_style"]

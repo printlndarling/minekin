@@ -10,12 +10,11 @@ this.
 The rule that gives this module its shape is the last line of the contract's policy
 table: a combination that has not been tested may be refused with the reason named, or
 sent to a dedicated experiment, but must never be quietly resolved into a different
-world. (The contract says it in Chinese; the source here stays in one language.) So the
-P0 archetype
-is checked at *parse* time and anything outside it is refused with the field and the
-value that was asked for. What comes out of the parser is a `Proposal`, and a
-`Proposal` is by construction something the P0 archetype can honour — which is why
-`synthesize` cannot fail and has nothing to refuse.
+world. (The contract says it in Chinese; the source here stays in one language.) So
+the P0 archetype is checked at *parse* time and anything outside it is refused with
+the field and the value that was asked for. What comes out of the parser is a
+`Proposal`, and a `Proposal` is by construction something the P0 archetype can honour
+— which is why `synthesize` cannot fail and has nothing to refuse.
 
 Two consequences worth stating because they are what the contract is buying:
 
@@ -34,6 +33,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
@@ -114,6 +114,11 @@ class WorldCreationRefusal(StrEnum):
     SCHEMA_VERSION_UNSUPPORTED = "SCHEMA_VERSION_UNSUPPORTED"
     INVALID_STRING = "INVALID_STRING"
     INVALID_PREFERENCES = "INVALID_PREFERENCES"
+    #: The proposal names a different Kin than the one that submitted it. A proposal
+    #: is untrusted content — chat and the web can put one forward — and the storage
+    #: slot is built from this field, so taking the proposal at its word would let one
+    #: Kin aim at another's world.
+    KIN_MISMATCH = "KIN_MISMATCH"
     STYLE_NOT_P0 = "STYLE_NOT_P0"
     DIFFICULTY_NOT_P0 = "DIFFICULTY_NOT_P0"
     SEED_MODE_NOT_P0 = "SEED_MODE_NOT_P0"
@@ -247,12 +252,20 @@ def _preferences(document: Mapping[str, object], found: list[Refusal]) -> tuple[
 
 def parse_proposal(
     document: object,
+    *,
+    kin_id: str,
 ) -> tuple[Proposal | None, tuple[Refusal, ...]]:
     """Read a proposal, refusing anything the P0 archetype cannot honour.
 
     The refusals are returned rather than raised, and *all* of them: a proposal that
     asks for three untested things should say so once rather than one at a time, and a
     caller that wants to explain the refusal to the Kin needs the whole list.
+
+    `kin_id` is the Kin that actually submitted this, which the gateway knows and the
+    document does not get to decide. It is required rather than optional because a
+    proposal without an owner is not a proposal, and because the field it checks is the
+    one the world's directory is named from: a caller that could omit the check could
+    also build a profile pointing at somebody else's world.
     """
 
     found: list[Refusal] = []
@@ -287,6 +300,8 @@ def parse_proposal(
         )
 
     difficulty, seed_mode = _preferences(document, found)
+    if texts["kin_id"] and texts["kin_id"] != kin_id:
+        found.append(Refusal(WorldCreationRefusal.KIN_MISMATCH, "kin_id", texts["kin_id"]))
     if texts["desired_style"] and texts["desired_style"] != P0_STYLE:
         found.append(
             Refusal(WorldCreationRefusal.STYLE_NOT_P0, "desired_style", texts["desired_style"])
@@ -310,6 +325,33 @@ def parse_proposal(
     )
 
 
+#: What a slot may be built from. A slot becomes a path segment under `saves/`, and
+#: the launcher refuses a name holding a separator, a NUL, a drive colon, or one that
+#: is not itself once stripped.
+_SLOT_SAFE = re.compile(r"[A-Za-z0-9._-]")
+
+
+def _slot_segment(value: str) -> str:
+    """One identifier as a path segment: total, and injective.
+
+    Percent-encoding rather than substitution, and both halves of that are deliberate.
+    *Total*, because identifiers are checked against a wider character set than a level
+    name allows — `OpaqueId` permits a colon precisely because it is path-independent —
+    so joining them straight in can build a name the launcher will not accept, and it
+    can do it for a *legitimate* id rather than a hostile one. That is how this was
+    found: `kin:01` is a valid Kin and `world-kin:01-…` is not a name of a world.
+    *Injective*, because substituting a safe character for each forbidden one would map
+    two identifiers onto one slot — `kin:01` and `kin%3A01` are both valid — and two
+    Kin sharing a world is a worse failure than an unreadable directory. `%` is encoded
+    itself, so the mapping reverses and no two identifiers share a slot.
+    """
+
+    return "".join(
+        chr(byte) if _SLOT_SAFE.fullmatch(chr(byte)) else f"%{byte:02X}"
+        for byte in value.encode("utf-8")
+    )
+
+
 def storage_slot_for(proposal: Proposal) -> str:
     """The slot this proposal's world lives in, named by the system and not by the Kin.
 
@@ -319,7 +361,7 @@ def storage_slot_for(proposal: Proposal) -> str:
     something a rename should be able to move.
     """
 
-    return f"world-{proposal.kin_id}-{proposal.proposal_id}"
+    return f"world-{_slot_segment(proposal.kin_id)}-{_slot_segment(proposal.proposal_id)}"
 
 
 def synthesize(proposal: Proposal, *, bundle_id: str = P0_BUNDLE_ID) -> EffectiveProfile:
@@ -370,8 +412,8 @@ def proposal_document(**overrides: object) -> dict[str, object]:
     return merged
 
 
-def refusals(proposal: Mapping[str, object]) -> Sequence[Refusal]:
+def refusals(proposal: Mapping[str, object], *, kin_id: str) -> Sequence[Refusal]:
     """The refusals a proposal draws, empty when it conforms."""
 
-    _parsed, found = parse_proposal(proposal)
+    _parsed, found = parse_proposal(proposal, kin_id=kin_id)
     return found

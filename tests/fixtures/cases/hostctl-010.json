@@ -10,7 +10,7 @@
   ],
   "assertion_digests": {
     "a_proposal_outside_the_p0_archetype_is_refused": "4f479f14b53c5247b53c271e41ced7edf2ebd6144699919328f447c7bc49ffd4",
-    "the_refusal_names_what_the_proposal_asked_for": "3c1d49e7dfbf4c4899db9b1cdab38a5d37fbf1f5279fe0ed3d8d00b875cfb41d"
+    "the_refusal_names_what_the_proposal_asked_for": "79fa8b383bf137b68c0025a9ede88bfe9263a857917bf503170dbc9c47c7542b"
   },
   "assertions": [
     "a_proposal_outside_the_p0_archetype_is_refused",
