@@ -1021,6 +1021,19 @@
   - **实测（本轮：本地）**：全量 pytest **1839 passed / 2 skipped**（+1，正是新加的那条），Ruff check/format、Pyright（strict，0 errors）、`check_boundaries`、case assertions（120 条注册）、fixture digests、workflow pins、`git diff --check` 全绿；`check_boundaries.py` 在门禁矩阵与 CI 的 `python` job 里，所以这条规则**在 CI 上也跑**。
   - **仍然开着的**：这条规则只核「名字解析得到」，**不核声明是否完整**——一个用例只声明了它需要的一半依赖，门禁不会知道；那要靠读者与评审，不是机械判据。
 
+- [x] **REAL-P0-CAMPAIGN-001 的前两个场景，按 README 里那条命令跑，会**跑出一个没发生过的场景**并封出一份看起来正常的 bundle。** 起因是拿上一轮的教训去用：读机器读数。这次读的是「harness 认哪些旋钮」与「wrapper 把它们递进去哪些」，两份清单**逐名对照**。
+  - **差集正好是两个名字**：`domain.sh` 读 26 个 `MINEKIN_DOMAIN_*`，`run.sh` 只递 24 个，缺的是 **`MINEKIN_DOMAIN_ONLINE_MODE`** 与 **`MINEKIN_DOMAIN_RESOURCE_PACK`**。`docker run` 只能靠**点名**传递环境变量，所以这两个在容器里是空的；而 `domain.sh` 用的是 `${VAR:-}` 加「空即没被要求」的分支——**空值与「操作者没要求」走同一条路**。于是：服务端不会开 online-mode、也不会要求资源包，运行照常完成、照常封存，而**这份 bundle 是给一个从未发生的场景作证的**。
+  - **为什么这两个偏偏最要命。** 执行计划把 `REAL-P0-CAMPAIGN-001` 的 `order` 写成「online-mode mismatch → resource-pack refusal → 首快照负向 → …」——**它们是前两个**。而 `domain.sh` 在 `online_mode` 上面那几行注释自己写着为什么这两个不能用别的方式造出来：「the tool derives the server's online-mode from the profile's `auth_mode`, so **no other run can produce this**」。也就是说：**这个旋钮是唯一能产生第一号场景的东西，而它到不了容器**。
+  - **更糟的是它被文档化了。** `test-orchestrator/runner/README.md` 把两条命令逐字列在可复制的命令清单里（第 38、39 行），另有两节散文分别解释它们做什么。`development-todo.md:313` 也记着这件事的全过程：先确认「harness 造不出场景」是真正的障碍（而不是产品侧缺能力），然后**两半都做掉了**——服务端工具加了 `--online-mode/--no-online-mode` 覆盖（默认仍从 profile 推导，并有 `tests/contract/test_controlled_server_runner.py` 钉住「一个设置动、别的都不动」）、`resource_pack_zip()` 与 `ResourcePackServer` 也做了——那一条最后写的是「**两条用例现在都只差一次真实运行**」。**那句话对容器内部是真的，对「README 里那条命令」是假的**：命令跑得通，只是没有测到它说要测的东西。第 3 步（wrapper）当时谁都没回头看。
+  - **为什么已有的门禁没拦住它。** `test_runner_scripts.py` 当时只查**脚本内部**那一半（`local="${ENV:-...}"` 读了之后有没有被用），那个 `MINEKIN_DOMAIN_SUMMON` 的旧账就是这么被抓住的。而「harness 读的、wrapper 没递」是**跨进程边界**的同一个失效，**没有任何东西在看**。`test_controlled_server_runner.py` 也看不到它：它直接测 `run_controlled_server.py`，从不经过 `run.sh`。
+  - **修的是 wrapper，不是文档。** `run.sh` 的 `-e` 清单补上这两个名字，并且**刻意放在 `BLACK_HOLE` 与 `NOT_WHITELISTED` 旁边**——这四个是一组（四个负向场景），一个只递三个的 wrapper 比一个都不递更坏；顺带写下了为什么：被丢掉的旋钮不会让运行变红，只会让它作证一件没发生的事。
+  - **补的守卫是那条跨边界的另一半**，落在同一个文件里、紧挨着旧的那条：`test_every_knob_the_harness_reads_is_one_the_wrapper_hands_it`，`domain.sh` 里 `${MINEKIN_DOMAIN_*}` 的集合必须与 `run.sh` 里 `-e MINEKIN_DOMAIN_*` 的集合**双向相等**（两个方向是两种故障：读了不递＝场景没跑成；递了没人读＝一个看起来受支持其实没人理的旋钮），并且先断言集合非空，否则这条检查会在 runner 改名之后空转通过。
+  - **变异两处，第一处就是决定性的那种。** ①**把原始 bug 原样放回去**（删掉那两行 `-e`）→ 新用例红——也就是说这条守卫**真的能抓住我刚修的这个问题**，不是事后补的装饰；②递一个没人读的名字（`MINEKIN_DOMAIN_IMAGINARY`）→ 新用例红。两次都原样还原。
+  - **顺带看见仓库自己的一道门禁在工作**：变异②那次我用 `write_text` 时漏了 `newline="
+"`，Windows 上写出 CRLF，于是 `test_scripts_are_lf_and_keep_an_executable_shebang[run.sh]` **同时红了**——那道 CRLF 门禁是有效的，而且它和这一条正好是同一个文件里的互补守卫。
+  - **实测（本轮：静态 + 本地）**：两份清单现在 **26 == 26、双向零差集**；`bash -n` 对两个脚本都通过；全量 pytest **1840 passed / 2 skipped**（+1，正是新加的那条），Ruff、Pyright（strict，0 errors）、boundaries、case assertions、fixture digests、workflow pins 与 `git diff --check` 全绿。**没有跑 Minecraft，没有接受 EULA**——本轮**没有**真的去跑那两个场景，所以「修好了」这句话的证据是**静态的**：清单相等 + 守卫能抓住原 bug。真正的证明要一次真实运行。
+  - **仍然开着的**：这两个场景现在**只差一次真实运行**——而这句话这次是对**README 里那条命令**也成立的。另外这一轮的发现说明一件事：harness 的旋钮有三个地方要同时改（`domain.sh` 读、`run.sh` 递、README 写），**只有前两处现在被机械绑住了**，README 与它们之间仍然靠人。
+
 ## W70 之后
 
 - [ ] W80：独立 `p0-nav-exp` 导航实验；核验输入冲突、隐藏真值与 SBOM/许可。

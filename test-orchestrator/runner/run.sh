@@ -94,6 +94,14 @@ if [[ "${1:-}" == "domain" ]]; then
         -e MINEKIN_DOMAIN_CASE
         -e MINEKIN_DOMAIN_BLACK_HOLE
         -e MINEKIN_DOMAIN_NOT_WHITELISTED
+        # The other two refusal scenarios, and they belong here rather than appended
+        # somewhere else: these four are one set, and a wrapper that forwards three of
+        # them is worse than one that forwards none. `domain.sh` reads a knob that
+        # never arrives as empty and takes its "not asked for" branch, so the run
+        # completes, seals a bundle, and is evidence for a scenario that never
+        # happened — which is the one failure this project treats as worse than red.
+        -e MINEKIN_DOMAIN_ONLINE_MODE
+        -e MINEKIN_DOMAIN_RESOURCE_PACK
         -e MINEKIN_DOMAIN_USE_TARGET -e MINEKIN_DOMAIN_OPEN_LAN -e MINEKIN_DOMAIN_LAN_PORT
         -e MINEKIN_DOMAIN_JOIN -e MINEKIN_DOMAIN_JOIN_USERNAME
         -e MINEKIN_DOMAIN_CASE_ON

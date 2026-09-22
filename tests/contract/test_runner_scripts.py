@@ -57,6 +57,43 @@ def test_every_forwarded_environment_variable_is_actually_used(script: Path) -> 
     assert not dead, f"{script.name} reads and never passes on: {dead}"
 
 
+def test_every_knob_the_harness_reads_is_one_the_wrapper_hands_it() -> None:
+    """The other half of the same failure, one process boundary out.
+
+    The test above catches a knob read inside a script and then dropped. This catches
+    the one that never reaches the script at all: `docker run` passes an environment
+    through only by naming it, so a knob `domain.sh` reads and `run.sh` does not name
+    arrives **empty** — and `domain.sh` reads an absent knob as "not asked for", which
+    is the same branch it takes when nobody asked for it.
+
+    That failure is worse than the one above, because the run it produces is not red.
+    It completes, seals a bundle and is evidence for a scenario that never happened:
+    `MINEKIN_DOMAIN_ONLINE_MODE` is the only way to produce an online-mode mismatch
+    (the tool derives the server's mode from the profile otherwise), so a dropped knob
+    there is a bundle asserting a refusal the client was never able to make.
+
+    Both directions, because they are different faults: a knob read and not delivered
+    is a scenario that silently did not run, and one delivered and never read is a
+    name the wrapper offers that nothing honours.
+    """
+
+    harness = (RUNNER / "domain.sh").read_text(encoding="utf-8")
+    wrapper = (RUNNER / "run.sh").read_text(encoding="utf-8")
+
+    read = set(re.findall(r"\$\{(MINEKIN_DOMAIN_[A-Z_]+)", harness))
+    delivered = set(re.findall(r"-e\s+(MINEKIN_DOMAIN_[A-Z_]+)", wrapper))
+
+    # A parse that found nothing would make both comparisons below vacuous, and this
+    # is the one check that would keep passing if the runner were renamed.
+    assert read, "no domain knobs found in domain.sh; this check would pass vacuously"
+    assert read - delivered == set(), (
+        f"domain.sh reads these and run.sh never delivers them: {sorted(read - delivered)}"
+    )
+    assert delivered - read == set(), (
+        f"run.sh delivers these and nothing reads them: {sorted(delivered - read)}"
+    )
+
+
 def test_every_deadline_loop_gives_the_clock_a_chance_to_advance() -> None:
     """A budget measured in `SECONDS` around a body with no `sleep` is not a budget.
 
