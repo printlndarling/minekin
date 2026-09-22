@@ -92,7 +92,7 @@ uv run --frozen python tools/report_cases.py
 ### OFFLINE-CANDIDATE-001 — 第二个离线候选跑不起来
 
 - `status`: `DONE`
-- `completion_commit`: 见本次 push
+- `completion_commit`: `34bef0cd8d715d691fa65d79296081f16436d3c3`
 - `decision`（**执行者自行拍下的一条，理由如下**）：本卡要动的是产品 CLI 表面，而本文的
   「不可变边界」写着生产代码只在**当前 `NEXT` 明确允许**或**修复主干回归**时可改。这一条
   两者都不是——它是**新增表面**。**拍板的依据是用户反复给出的明确指令**（「自动选择最佳
