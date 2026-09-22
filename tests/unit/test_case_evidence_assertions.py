@@ -1151,6 +1151,13 @@ def test_a_confirmed_server_kill_with_world_loss_and_release_holds() -> None:
 @pytest.mark.parametrize(
     ("overrides", "reason"),
     [
+        # A whole section missing, rather than a field wrong inside one. The record
+        # is a cross-check of what was killed against the run that presents it, and a
+        # section that is not there is the one shape the per-field rows above cannot
+        # reach: they all start from a record that names a case, a target and a run.
+        ({"case": None}, "NO_CASE_ATTRIBUTION"),
+        ({"target": None}, "NO_TARGET"),
+        ({"attribution": None}, "NO_ATTRIBUTION"),
         ({"case": {"case_id": "CORE-060"}}, "FAULT_RECORD_IS_ANOTHER_CASE:CORE-060"),
         (
             {"case": {"case_version": "0" * 64}},
@@ -3237,5 +3244,53 @@ def test_a_world_digest_that_is_not_a_digest_is_refused() -> None:
 
     assert any(
         failure.startswith("the_run_says_which_world_it_hosted:WORLD_SNAPSHOT_IS_NOT_A_DIGEST")
+        for failure in verdict.failures
+    )
+
+
+def test_a_world_that_was_never_published_has_no_other_kin_in_it() -> None:
+    """The assertion's other branch is "nobody else joined"; this is "there was no
+    world to join".
+
+    Both refuse, and only one was tested. The difference matters to a reader: a run
+    that published nothing and saw nobody is not a run where the second half was
+    checked, and this branch is the one that says so before looking for the join.
+
+    The case is HOST-040 because that is the one that asks this question; HOST-030
+    asks its own four and never declares this assertion at all.
+    """
+
+    verdict = ASSERTER_MODULE.evaluate(join_case(), hosted_world(publication=None))
+
+    assert any(
+        failure.startswith(
+            "another_kin_joined_the_world_this_run_hosted:THIS_RUN_DID_NOT_PUBLISH_A_WORLD"
+        )
+        for failure in verdict.failures
+    )
+
+
+def test_a_previous_run_with_no_session_attribution_is_not_a_session() -> None:
+    """The tested branch is this run's ledger carrying no session; this is the run
+    before it carrying none.
+
+    The restart case reads the crash out of the *previous* run's events, so a
+    previous run whose rows say nothing about which session they belong to is a
+    crash this assertion cannot speak about — which is a refusal, not an absence of
+    one.
+    """
+
+    unattributed = (
+        event("BridgeHelloAccepted"),
+        event("PlayableEstablished", phase="PLAYABLE"),
+        event("InputLeaseGranted", capability="control.move.v1"),
+    )
+
+    verdict = ASSERTER_MODULE.evaluate(restart_case(), restarted(previous=("d" * 32, unattributed)))
+
+    assert any(
+        failure.startswith(
+            "the_restart_runs_as_a_new_session:PREVIOUS_RUN_HAS_NO_SESSION_ATTRIBUTION"
+        )
         for failure in verdict.failures
     )
