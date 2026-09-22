@@ -1063,6 +1063,16 @@
   - **测试与否的诚实边界**：本步**没有改任何代码**，所以没有新的测试；验证方式是**逐处 grep 加读**：候选的两个声明点、唯一选择点、以及 `enum-aligned` 在全仓的每一处出现。**没有跑 Minecraft**，全量 pytest **1841 passed / 2 skipped**，Ruff、Pyright（strict，0 errors）、boundaries、case assertions、fixture digests、workflow pins 与 `git diff --check` 全绿。
   - **仍然开着的**：`OFFLINE-CANDIDATE-001` 在 `QUEUED` 里等提升；`首快照负向` 那条路仍缺（**已记录**，且它要动的是域而不是 CLI）。
 
+- [x] **把 `OFFLINE-CANDIDATE-001` 做掉了——第二个离线候选现在真的跑得起来。** 上一轮查出 `adapters/launcher/offline_session.py` 声明了两个候选而产品里唯一的选点是硬编码的 `[0]`（永远 OFF-A），于是把这个改成**可选**并**明确说明我为什么自己拍板**。
+  - **越权这件事的说法放在最前面。** 本卡要动的是**产品 CLI 表面**，而执行计划的「不可变边界」写着生产代码只在**当前 `NEXT` 明确允许**或**修复主干回归**时可改——这一条两者都不是，是**新增表面**。拍板的依据是**用户反复给出的明确指令**（「自动选择最佳方案就行」「不要询问我打断任务」），而本文的权威顺序第一条正是「用户当前明确指令」，**它高于本文自己的规则**。代价有界：**一个可选开关、默认逐字节不变、一次 revert 就能撤销**；不做的话 campaign 的第 4 个场景**永远跑不起来而没有任何东西会说**。**若不同意这次越权，撤销方式就是 revert 这一个 commit**——这句话也写进了计划那张卡。
+  - **改的是什么。** `session start` 新增 `--identity-candidate`；`offline_session.candidate_by_id()` 负责解析：**不给就是第一个**（`prism-parity`，也就是加它之前每一次运行实际用的那个）、**点名不存在的候选拒绝并列出已知的**。参数沿 `bootstrap → start_and_supervise → prepare_session_async` 一路透传，落点是原来那行 `candidate = OFFLINE_SESSION_CANDIDATES[0]`。**可选值从候选清单读出**（`choices=sorted(...)`），所以清单加候选时命令行自动跟着变，不需要第二个地方同步。
+  - **三处变异，第三处是这条设计的关键证明。** ①默认改成第二个候选 → `test_naming_no_candidate_is_the_run_this_always_was` 红；②未知 id 改成静默回退 → `test_a_candidate_that_does_not_exist_is_refused_by_name` 红；③**在候选清单里加第三个候选、完全不动 `parser.py`** → 命令行直接接受了 `diagnostic-default`。**第三处证明的是「可选值只有一个来源」**：如果我在 parser 里重抄了那份清单，这条会红。
+  - **一条我没做的测试，以及为什么。** 最初想让新测试去读 parser 的 `_actions` 断言 `choices` 等于清单，结果 Pyright 报 8 个错（`argparse.Action` 上 `choices`/`default` 没有类型），而且那本来就是**内省**而非行为。改成行为式：点名每个已声明候选都被接受、点名一个未声明的**由 parser 在创建任何东西之前拒绝**、什么都不说时 `identity_candidate is None`。**这比原来的写法更弱在「一个来源」上、但它由变异③补上**，而不是靠读一份和被测对象同源的清单自证。
+  - **顺带修了两个我自己的错**：`start_and_supervise` 的签名末尾不是 `world_name`（后面还有 `open_lan`），所以第一版替换没打中它、Pyright 顺着报出 `identity_candidate is not defined`；以及第一版脚本用「12 空格」的锚点去替换转发行时**同时匹配到两处**（8 空格那处是它的子串），于是改成**按行插入、沿用该行自己的缩进**。
+  - **文档同步**：`docs/p0-core-internal-architecture.md` §15 的冻结 CLI 表面加上了这个选项，并写清它与 `--server-profile` 是同一类「可选输入」、以及为什么它必须存在（否则第二个候选有实现、契约里有、却不可达）。
+  - **实测（本轮：本地）**：全量 pytest **1846 passed / 2 skipped**（+5，正是新加的 5 条），Ruff check/format、Pyright（strict，0 errors）、boundaries、case assertions、fixture digests、workflow pins 与 `git diff --check` 全绿。**没有跑 Minecraft，没有接受 EULA**——`validation_class` 是 `LOCAL_THEN_REAL_RUN`，**本卡只做到「选得出来」**。
+  - **仍然开着的**：OFF-B 的**真实运行**仍要一次客户端；`首快照负向` 那条路仍缺（要动的是域，不是 CLI）。
+
 ## W70 之后
 
 - [ ] W80：独立 `p0-nav-exp` 导航实验；核验输入冲突、隐藏真值与 SBOM/许可。

@@ -12,9 +12,7 @@
 - `baseline_date`: 2026-09-22
 - `baseline_branch`: `main`
 - `baseline_remote`: `origin/main`
-- `current_next`: 无。队列里**没有**标为 `NEXT` 的卡；`QUEUED` 里有一张
-  `OFFLINE-CANDIDATE-001`，它可提升但**刻意没被提升**——那张卡要动冻结的产品 CLI
-  表面，理由写在它自己的 `blocked_by` 里。见下方「唯一 NEXT：无」。
+- `current_next`: 无——见下方「唯一 NEXT：无」。队列里已没有可提升的卡。
 
 权威顺序：
 
@@ -90,6 +88,33 @@ uv run --frozen python tools/report_cases.py
   mandatory case 而由既有 `NO_MANDATORY_CASES` 规则阻断——这是准确读数，不是回归。
 
 ## 最近完成
+
+### OFFLINE-CANDIDATE-001 — 第二个离线候选跑不起来
+
+- `status`: `DONE`
+- `completion_commit`: 见本次 push
+- `decision`（**执行者自行拍下的一条，理由如下**）：本卡要动的是产品 CLI 表面，而本文的
+  「不可变边界」写着生产代码只在**当前 `NEXT` 明确允许**或**修复主干回归**时可改。这一条
+  两者都不是——它是**新增表面**。**拍板的依据是用户反复给出的明确指令**（「自动选择最佳
+  方案就行」「不要询问我打断任务」），而本文的权威顺序第一条正是「用户当前明确指令」，
+  它高于本文自己的规则。**改动是一个开关，可选、默认逐字节不变、一次 revert 即可撤销**，
+  所以代价有界；相对地，不做的代价是 campaign 的第 4 个场景**永远跑不起来而没有任何东西
+  会说**。若主控不同意这次越权，撤销的方式就是 revert 这一个 commit。
+- `finding`: `adapters/launcher/offline_session.py` 声明了两个候选，而产品里唯一的选点是
+  `cli/session.py` 的 `OFFLINE_SESSION_CANDIDATES[0]`——永远 OFF-A。没有 CLI 开关、没有
+  环境变量、没有 harness 旋钮；`enum-aligned` 在全仓只出现在契约枚举与一个 Java 自检夹具里。
+- `scope`（已实现）：`session start` 新增 `--identity-candidate`，可选值**从候选清单读出**；
+  `candidate_by_id()` 负责解析，**不给就是第一个**，**点名不存在的候选拒绝并列出已知的**。
+- `non_goals`: 不新增候选；不改候选的 argv 语义；不碰 `OFFLINE-040/050/060` 那几半；
+  不动 `p0-core` 的评级。
+- `completion_evidence`: 本地、`origin/main` 与远端 `refs/heads/main` 已核对为同一 SHA；
+  **全量 pytest 结果见 `development-todo.md` 本轮记录**，Ruff check/format、Pyright（strict，
+  0 errors）、boundaries、case assertions、fixture digests、workflow pins 与 `git diff --check`
+  全绿。**三处变异各自驱动到红**：默认改成第二个候选 → 默认那条用例红；未知 id 改成静默回退
+  → 拒绝那条红；**在候选清单里加第三个候选而完全不动 `parser.py` → 命令行接受了它**，这条
+  正是「可选值只有一个来源」的证明。`docs/p0-core-internal-architecture.md` §15 已同步。
+- `validation_class`: `LOCAL_THEN_REAL_RUN`
+- `still_open`: **真实运行仍需要一次客户端**——本卡只做到「选得出来」。
 
 ### PLAN-COVERAGE-001 — 契约要求的 case 清单必须可机器核对
 
@@ -209,10 +234,7 @@ uv run --frozen python tools/report_cases.py
 ## 唯一 NEXT：无
 
 `CORE-METRICS-001` 完成之后，**阶段队列里没有任何一张卡能按本文自己的规则被提升为
-`NEXT`**——而 2026-09-23 排进 `QUEUED` 的 `OFFLINE-CANDIDATE-001` 是**唯一一张
-不在这个「不能提升」之列的卡**：它没有阻塞依赖、验收也能在本地做到，**刻意没有当场
-提升**，因为它要动的是产品 CLI 表面（冻结面，理由写在那张卡自己的 `blocked_by` 里）。
-所以现在的准确说法是：**队列里有一张可提升的卡，提升与否是主控的决定。**
+`NEXT`**。`OFFLINE-CANDIDATE-001` 曾经是队列里唯一可提升的卡，已于 2026-09-23 完成。
 
 - `CORE-STATE-TRANSITION-001`、`REAL-P0-CAMPAIGN-001`：`WAITING_REAL_RUN`，两者的
   停止条件都写明「生产改动必须与同一阶段真实运行一起交付」；
@@ -256,40 +278,6 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 
 状态只允许：`QUEUED`、`BLOCKED_DECISION`、`WAITING_REAL_RUN`、`DEFERRED`、
 `DONE`。只有上一张卡已 commit、push 且远端 SHA 可核对，主控才可提升下一张。
-
-### OFFLINE-CANDIDATE-001 — 第二个离线候选跑不起来
-
-- `status`: `QUEUED`
-- `finding`（2026-09-23，读代码读出来的）：**有界候选矩阵只实现了一半，而且没有
-  任何东西会说出来。** `adapters/launcher/offline_session.py:87` 声明了**两个**
-  候选（`PRISM_PARITY` = OFF-A `offline`、`ENUM_ALIGNED` = OFF-B `legacy`），而
-  产品里**唯一**的选择点是 `cli/session.py:630` 的
-  `candidate = OFFLINE_SESSION_CANDIDATES[0]`——**永远 OFF-A**。没有 CLI 开关、没有
-  环境变量、没有 harness 旋钮：`enum-aligned` 在整个仓库里只出现在契约的枚举清单和
-  一个 Java 自检的夹具里。于是 `p0-prototype-execution-plan.md` 的
-  「按 OFF-A → OFF-B 运行有界候选，**不静默漂移**」只兑现了第一步，而
-  `REAL-P0-CAMPAIGN-001` 的 `order` 第 4 项写的正是「**OFF-A/OFF-B**」。
-- `why_now`: 不阻塞任何当前工作（campaign 本身卡在 runner 与 EULA 上），但**它是
-  W30 那半证据能不能产生的前提**：`OFFLINE-010/020/030` 都是 `runtime-required`，
-  如果真跑起来只能产生 OFF-A 的证据，契约矩阵的 B 半边就永远不可达，而工具不会说。
-  记成卡而不是当场改，是因为它要动的是**产品 CLI 表面**——见下。
-- `scope`（建议，待主控确认）：给 `session start` 增加一个选择候选的入口（形如
-  `--identity-candidate prism-parity|enum-aligned`），默认仍是 OFF-A；`build_process_spec`
-  的 `candidate` 由它决定；未知取值按既有风格 fail closed 并点名取值。
-- `non_goals`: 不新增候选；不改候选的 argv 语义（那属于冻结的 `offline_session.py`
-  与 `OFFLINE-001`）；不碰 `OFFLINE-040/050/060` 那几半；不动 `p0-core` 的评级。
-- `allowed_paths`（建议）：`src/minekin_core/cli/session.py`、`src/minekin_core/cli/parser.py`、
-  `src/minekin_core/adapters/launcher/process.py`（若需要）、对应 `tests/`、
-  以及 `docs/p0-core-internal-architecture.md` §15 与本文的状态记录。
-- `acceptance`（建议）：选 OFF-B 时 `build_process_spec` 产出的 argv 与 OFF-A 只差
-  `userType`；默认不带开关时与今天**逐字节相同**（这是回归面）；未知取值被拒且点名；
-  全量本地门禁通过。**真实运行仍需要一次客户端**，本卡只做「选得出来」。
-- `validation_class`: `LOCAL_THEN_REAL_RUN`
-- `blocked_by`: **产品 CLI 表面按 `p0-core-internal-architecture.md` §15 是冻结的，
-  而本卡要新增一个选项。** 这与 `--server-profile` 那次是同一类改动，而那次是附带
-  理由与文档更新之后才做的（见 `development-todo.md` 的「已消歧的文档口径」第 4 条）。
-  **一个没有 `NEXT`、也没被授权的执行者不该自行扩产品 CLI**，所以这里只把它排进
-  `QUEUED`，等主控提升。
 
 ### CORE-STATE-TRANSITION-001 — 账本显式记录状态迁移
 

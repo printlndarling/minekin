@@ -6,6 +6,8 @@ import argparse
 from collections.abc import Sequence
 from pathlib import Path
 
+from minekin_core.adapters.launcher.offline_session import OFFLINE_SESSION_CANDIDATES
+
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
@@ -180,6 +182,19 @@ def build_parser() -> argparse.ArgumentParser:
         default=0,
         metavar="PORT",
         help="publish on this port instead of letting the client choose one",
+    )
+    # Which of the reviewed offline candidates this run launches with. Absent is
+    # the first — `prism-parity` — which is what every run used before there was a
+    # way to choose, so a run that does not ask is byte-for-byte the run it was.
+    # The choices come from the candidate list rather than being written out here:
+    # a second copy of that vocabulary is a copy that can disagree with it, and the
+    # matrix is the offline-session contract's, not this file's.
+    session_start.add_argument(
+        "--identity-candidate",
+        choices=sorted(candidate.candidate_id for candidate in OFFLINE_SESSION_CANDIDATES),
+        default=None,
+        metavar="CANDIDATE",
+        help="which reviewed offline identity candidate to launch with",
     )
     session_commands.add_parser("status", help="read the current projection")
     session_commands.add_parser("stop", help="idempotently stop the current session")

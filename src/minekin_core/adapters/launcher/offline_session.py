@@ -86,6 +86,30 @@ ENUM_ALIGNED = SessionCandidate(
 
 OFFLINE_SESSION_CANDIDATES: Final[tuple[SessionCandidate, ...]] = (PRISM_PARITY, ENUM_ALIGNED)
 
+
+def candidate_by_id(candidate_id: str | None) -> SessionCandidate:
+    """The candidate an operator named, or the first one when they named none.
+
+    Absent means the first — `prism-parity`, the candidate every session launched
+    with before there was a way to choose — so a run that does not ask for one is
+    the run it always was.
+
+    An id matching nothing is refused rather than falling back, and the refusal
+    names what it knows. Falling back is the failure this whole matrix exists to
+    make visible: a run that asked for OFF-B and silently got OFF-A would produce
+    a sealed bundle for a scenario that did not happen, and every check between
+    here and that bundle would pass.
+    """
+
+    if candidate_id is None:
+        return OFFLINE_SESSION_CANDIDATES[0]
+    for candidate in OFFLINE_SESSION_CANDIDATES:
+        if candidate.candidate_id == candidate_id:
+            return candidate
+    known = ", ".join(item.candidate_id for item in OFFLINE_SESSION_CANDIDATES)
+    raise ValueError(f"unknown identity candidate {candidate_id!r}; known candidates: {known}")
+
+
 # Placeholders whose value is allowed to be empty, and only when the candidate
 # says so. Everything else must resolve to a non-empty argument.
 EMPTY_CAPABLE_PLACEHOLDERS: Final[frozenset[str]] = frozenset({"clientid", "auth_xuid"})

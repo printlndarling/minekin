@@ -15,11 +15,13 @@ from minekin_core.adapters.launcher.offline_session import (
     LiteralArgument,
     PlaceholderArgument,
     SessionCandidate,
+    candidate_by_id,
     candidate_document,
     parse_game_argument_template,
     resolve_game_arguments,
     session_argument_values,
 )
+from minekin_core.cli.parser import build_parser
 from minekin_core.domain.errors import ErrorCategory, MinekinError
 from minekin_core.domain.ids import OpaqueId
 from minekin_core.domain.offline_identity import OfflineIdentityMaterial
@@ -234,3 +236,104 @@ def test_a_world_to_enter_becomes_two_argv_elements_of_its_own() -> None:
 
     assert argv[-2:] == ["--quickPlaySingleplayer", "prepared-world"]
     assert "--quickPlaySingleplayer" in argv
+
+
+# ---------------------------------------------------------------------------
+# Choosing a candidate
+# ---------------------------------------------------------------------------
+#
+# The matrix declares two candidates. Until there was a way to name one, every
+# session launched the first, so OFF-B existed in the code and in the contract and
+# could not be run — which is the failure these tests are about: the absence of a
+# scenario is silent, and a run that asked for OFF-B and got OFF-A would seal a
+# bundle for something that did not happen.
+
+
+def test_naming_no_candidate_is_the_run_this_always_was() -> None:
+    """Absent means the first, and byte-for-byte the argv that produced it."""
+
+    assert candidate_by_id(None) is OFF_A
+    assert arguments(candidate_by_id(None)) == arguments(OFF_A)
+
+
+def test_the_two_candidates_differ_only_in_the_account_type() -> None:
+    """OFF-B is the contract's "only change `userType`" — asserted, not assumed.
+
+    A candidate that moved something else would be a second variable, and the
+    comparison between the two runs would no longer be about the account type.
+    """
+
+    off_a, off_b = arguments(OFF_A), arguments(OFF_B)
+
+    assert len(off_a) == len(off_b)
+    differing = [
+        index for index, (left, right) in enumerate(zip(off_a, off_b, strict=True)) if left != right
+    ]
+    assert len(differing) == 1
+    assert off_a[differing[0] - 1] == "--userType"
+    assert (off_a[differing[0]], off_b[differing[0]]) == ("offline", "legacy")
+
+
+def test_naming_a_candidate_selects_that_one() -> None:
+    assert candidate_by_id("prism-parity") is OFF_A
+    assert candidate_by_id("enum-aligned") is OFF_B
+
+
+def test_a_candidate_that_does_not_exist_is_refused_by_name() -> None:
+    """Refused rather than falling back, and the refusal says what it knows.
+
+    Falling back is the specific failure this option exists to end: a run that
+    asked for OFF-B and quietly launched OFF-A would produce evidence for a
+    scenario that did not happen, and nothing downstream could tell.
+    """
+
+    with pytest.raises(ValueError) as raised:
+        candidate_by_id("offline-with-cheats")
+
+    assert "offline-with-cheats" in str(raised.value)
+    for candidate in OFFLINE_SESSION_CANDIDATES:
+        assert candidate.candidate_id in str(raised.value)
+
+
+def test_every_declared_candidate_is_one_the_command_accepts() -> None:
+    """The option's vocabulary is the matrix's, checked from the command's side.
+
+    Asserted as behaviour rather than by reading the parser's actions: what matters
+    is that naming a declared candidate is accepted, that naming an undeclared one is
+    refused *by the parser* before anything is created, and that saying nothing stays
+    saying nothing. That a third candidate would appear here without this file
+    changing is the mutation this test was written against, not something a
+    comparison of two lists written in one place could show.
+    """
+
+    parser = build_parser()
+
+    for candidate in OFFLINE_SESSION_CANDIDATES:
+        parsed = parser.parse_args(
+            [
+                "session",
+                "start",
+                "--profile",
+                "profile.json",
+                "--identity-candidate",
+                candidate.candidate_id,
+            ]
+        )
+        assert parsed.identity_candidate == candidate.candidate_id
+
+    with pytest.raises(SystemExit):
+        parser.parse_args(
+            [
+                "session",
+                "start",
+                "--profile",
+                "profile.json",
+                "--identity-candidate",
+                "offline-with-cheats",
+            ]
+        )
+
+    assert (
+        parser.parse_args(["session", "start", "--profile", "profile.json"]).identity_candidate
+        is None
+    )

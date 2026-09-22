@@ -348,7 +348,7 @@ minekin init --kin-id ...
 minekin doctor
 minekin bundle verify --profile ...
 minekin launch-plan --profile ... --dry-run
-minekin session start --profile ... [--server-profile ...]
+minekin session start --profile ... [--server-profile ...] [--identity-candidate ...]
 minekin session status
 minekin session stop
 minekin evidence verify <run-id>
@@ -356,6 +356,14 @@ minekin replay <evidence-dir>
 ```
 
 `--server-profile` 是可选的第二个输入文档：不给就与加它之前逐字相同（客户端启动、证明自己、停在主菜单），给了就在握手之后由 Core 发出 `ConnectWorld`，把客户端接到那份已评审的、不可变的 Server Profile 上。它没有做成独立动词（`session connect`），因为会话只在本进程托管期间可达，而客户端只有一个 Bridge 对。
+
+`--identity-candidate` 选的是**已经冻结**的那个离线候选矩阵里的哪一个：不给就是第一个
+（`prism-parity`，也就是加这个选项之前每一次运行实际用的那个，逐字节相同），给了就按点名
+的那个启动。**候选只有两个且都在 `adapters/launcher/offline_session.py` 里声明**，选项的可选值
+从那份声明的清单读出而不是在这里重抄一遍。它的用处是让**第二个**候选真的跑得起来：在这之前
+产品里唯一的选点是硬编码的 `[0]`，于是 OFF-B 有实现、契约里有、却永远不可达，而没有任何东西
+会说——一个点名了 OFF-B 却静默跑了 OFF-A 的运行会为一件没发生的事封出证据。点名一个不存在的
+候选由 parser 在创建任何东西之前拒绝。
 
 `doctor` 只诊断，不修复或下载；`dry-run` 不启动 Java；`status` 读取 projection；`stop` 可重复；任何 destructive cleanup 都不属于隐式启动流程。
 

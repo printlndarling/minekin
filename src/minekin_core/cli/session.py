@@ -46,7 +46,7 @@ from minekin_core.adapters.launcher.launch_plan import (
 from minekin_core.adapters.launcher.mods import install_fixed_mods
 from minekin_core.adapters.launcher.natives import materialise_natives
 from minekin_core.adapters.launcher.offline_session import (
-    OFFLINE_SESSION_CANDIDATES,
+    candidate_by_id,
     recorded_material,
 )
 from minekin_core.adapters.launcher.orphans import (
@@ -410,6 +410,7 @@ def start_session(
     cmdline: Callable[[int], bytes | None] = default_cmdline,
     world_save: Path | None = None,
     world_name: str | None = None,
+    identity_candidate: str | None = None,
 ) -> SessionLaunch:
     """Read the identity, prove readiness, then create the overlay and start."""
 
@@ -428,6 +429,7 @@ def start_session(
             cmdline=cmdline,
             world_save=world_save,
             world_name=world_name,
+            identity_candidate=identity_candidate,
         )
     )
 
@@ -448,6 +450,7 @@ def prepare_session(
     host_bridge: bool = False,
     world_save: Path | None = None,
     world_name: str | None = None,
+    identity_candidate: str | None = None,
 ) -> PreparedSession:
     """Prepare a launch, for a caller that is not already running a loop."""
 
@@ -467,6 +470,7 @@ def prepare_session(
             host_bridge=host_bridge,
             world_save=world_save,
             world_name=world_name,
+            identity_candidate=identity_candidate,
         )
     )
 
@@ -487,6 +491,7 @@ async def prepare_session_async(
     host_bridge: bool = False,
     world_save: Path | None = None,
     world_name: str | None = None,
+    identity_candidate: str | None = None,
 ) -> PreparedSession:
     """Everything a launch needs, with the overlay already created and nothing started.
 
@@ -627,7 +632,12 @@ async def prepare_session_async(
         descriptor = descriptor_path(overlay / IPC_DIRECTORY)
 
     supervisor = supervisor_factory(overlay / "logs")
-    candidate = OFFLINE_SESSION_CANDIDATES[0]
+    # Which reviewed candidate this run is testing. Absent is the first, which is
+    # what every run used before the option existed; an id that matches nothing is
+    # refused by `candidate_by_id` rather than falling back, because a run that
+    # asked for OFF-B and silently got OFF-A would seal a bundle for a scenario
+    # that did not happen.
+    candidate = candidate_by_id(identity_candidate)
     spec = build_process_spec(
         plan,
         run_root=runs,
@@ -885,6 +895,7 @@ async def start_and_supervise(
     look_pitch_degrees: float | None = None,
     world_save: Path | None = None,
     world_name: str | None = None,
+    identity_candidate: str | None = None,
     open_lan: bool = False,
     open_lan_timeout: float = DEFAULT_LAN_OPEN_TIMEOUT_S,
     open_lan_port: int = 0,
@@ -929,6 +940,7 @@ async def start_and_supervise(
         host_bridge=True,
         world_save=world_save,
         world_name=world_name,
+        identity_candidate=identity_candidate,
     )
     if prepared.bridge_session is None or prepared.bridge_descriptor is None:
         raise _reject("the session was prepared without a Bridge session to host")
