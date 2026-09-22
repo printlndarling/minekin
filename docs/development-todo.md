@@ -1003,6 +1003,15 @@
   - **实测（本轮：本地 + Docker）**：全量 pytest **1836 passed / 2 skipped**（比上一轮 +3），Ruff check/format、Pyright（strict，0 errors）、`check_boundaries`（`cli` 引 `adapters.launcher` 是允许的方向）、case assertions、fixture digests、workflow pins 与 `git diff --check` 全绿；容器的 `run.sh doctor` 五项全绿。**没有跑 Minecraft，没有接受 EULA。**
   - **仍然开着的**：`doctor` 检查的仍是**环境**，它不知道这个镜像里的 Xvfb/GL 是否真的能给出 3.2 core（README 里那条 `glxinfo -B` 是手动的），也不知道 runner 之外的宿主；本轮只补了「这个仓库在这台机器上找得到吗」这一项，而它恰好是 runner 挂载契约失效时最先坏的那一项。
 
+- [x] **`HOSTCTL-060` 登记完成——而它是「队列空了」这句话底下一直漏着的那一条。** 我先前说过两次「剩下的 missing 全是 `runtime-required`，所以本地没有可做的活」，**那是错的**：机器读数里当时就有 **1 条 `local-only`**，`HOSTCTL-060`。inventory 一直按 `validation_class` 把这件事写清楚了，是我拿执行计划那张**不分 local/runtime 的表**代替了读数——而那张表的 `HOSTCTL` 行里，`060` 和旁边五条看起来一模一样。**同一个「文档不会注意到自己过期」的毛病，这次长在我自己的结论上。**
+  - **契约要的是什么。** `hosted-world-control-boundary-contract.md` 第 7 条：「对 core/nav 源码、class、mixin 和 access widener 注入 `getServer`/`ServerWorld` 引用；**构建必须失败**」。四个注入面，加一句关于构建的话——**没有真实运行那半**，所以 inventory 判它 `local-only` 是对的。
+  - **四个面里有三个已经实现、有负向测试，只是没有 case 去认领**（与 `CASE-CORE-001` 同一形状）：源码面 `test_bridge_host_boundary.py::test_a_client_file_that_calls_get_server_is_refused`、class 面 `test_bridge_artifact_gate.py::test_a_server_type_outside_the_adapter_is_refused`、access widener 面 `::test_an_access_widener_naming_server_state_is_refused`。**mixin 面当时没有测试**——门禁的规则是「服务端状态只能在 host 适配器里」，一条通用规则本来就会覆盖 mixin，但契约把 mixin 单独列出来是有道理的：**它是这里唯一被写来注入到别人字节码里跑的类**，不该只靠通用规则兜着。补了 `test_a_server_reference_in_a_mixin_is_refused`，另加负向对照 `test_a_mixin_that_names_no_server_state_is_left_alone`——否则「拒绝 mixin」和「拒绝服务端状态」读起来是同一句话。
+  - **「构建必须失败」那一句当时谁也保证不了。** `checkHostBoundaryArtifacts` 确实接在 `check` 上（`build.gradle.kts`），但**没有任何东西钉住这个接线**：删掉 `tasks.named("check") { dependsOn(...) }` 之后，产物门禁照样能手工跑通，而每一次构建都不再跑它——契约那句话就静默失效。修法是把两个字符串加进 `check_bridge_scaffold.py` 对 `build.gradle.kts` 的逐字 pin 列表（那个工具本来就在钉这个文件），于是**每次门禁运行都在核对接线还在**。
+  - **`mandatory` 保持 `false`，这是跟着家族走而不是随手定的。** `host-integrated` 这个面今天一组用例全是 `mandatory: false`，**包括同样 `local-only` 且早已登记的 `HOSTCTL-001` 与 `HOSTCTL-010`**；本文有一条明写的告诫：把这个面变成门禁要的是真实运行，不是把某一半标成 mandatory。所以这条只补**存在性**（inventory 核的是 presence），`mandatory` 仍按家族既有约定。
+  - **变异两处，外加一次「我的测试是不是空洞」的自查。** ①把产物门禁报告服务端类型引用那段去掉 → `run_repo_case` 对 `HOSTCTL-060` 退出码 **1**，class 与 mixin 两条断言同时红，还原后回 0；②删掉 Gradle 接线 → scaffold 门禁报 `is missing pins: dependsOn(checkHostBoundaryArtifacts)`，还原即绿；③新加的两条 mixin 测试一条断言拒绝、一条断言放行，所以规则收窄或放宽都会红。
+  - **实测（本轮：本地）**：`run_repo_case.py --case tests/fixtures/cases/hostctl-060.json` → `result: PASS`、**5/5**、`failures: []`、`unimplemented: []`、退出码 0；`report_cases.py` 从 **34 present / 38 missing** 变成 **35 / 37**，`local-only` 那一类的缺失**清零**（逐条验过：37 条全是 `runtime-required`）；全量 pytest **1838 passed / 2 skipped**，Ruff check/format、Pyright（strict，0 errors）、`check_boundaries`、case assertions（120 条注册）、fixture digests、workflow pins 与 `git diff --check` 全绿。**没有跑 Minecraft，没有接受 EULA。**
+  - **仍然开着的**：`host-integrated` 仍是 15 present / 18 missing 且 `satisfied: false`——要变成有门禁还差 `HOST-001…100` 与其余 `HOSTCTL`/`HOSTCOMMIT` 的真实运行，这一条没变。**全仓 37 条 missing 现在全部要真实运行。**
+
 ## W70 之后
 
 - [ ] W80：独立 `p0-nav-exp` 导航实验；核验输入冲突、隐藏真值与 SBOM/许可。

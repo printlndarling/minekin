@@ -350,6 +350,36 @@ IMPLEMENTATIONS: dict[str, Implementation] = {
         "pytest",
         "tests/unit/test_hosted_world.py::test_a_second_creation_in_one_epoch_is_refused",
     ),
+    # HOSTCTL-060: the control boundary's four injection surfaces, and the build
+    # clause that makes them a gate rather than a report. Three of the four are the
+    # artifact gate's own negative tests; the mixin one is there because a mixin is
+    # the only class here written to run inside someone else's bytecode, so it is a
+    # place to state separately rather than leave to the general rule. The fifth is
+    # the scaffold gate, which pins that `check` depends on the artifact gate — the
+    # sentence "the build must fail" is about that attachment and about nothing else.
+    "a_server_reference_in_bridge_source_is_refused": Implementation(
+        "pytest",
+        "tests/contract/test_bridge_host_boundary.py"
+        "::test_a_client_file_that_calls_get_server_is_refused",
+    ),
+    "a_server_type_in_a_compiled_class_is_refused": Implementation(
+        "pytest",
+        "tests/contract/test_bridge_artifact_gate.py"
+        "::test_a_server_type_outside_the_adapter_is_refused",
+    ),
+    "a_server_reference_in_a_mixin_is_refused": Implementation(
+        "pytest",
+        "tests/contract/test_bridge_artifact_gate.py"
+        "::test_a_server_reference_in_a_mixin_is_refused",
+    ),
+    "an_access_widener_naming_server_state_is_refused": Implementation(
+        "pytest",
+        "tests/contract/test_bridge_artifact_gate.py"
+        "::test_an_access_widener_naming_server_state_is_refused",
+    ),
+    "the_build_runs_the_artifact_gate_so_a_violation_fails_it": Implementation(
+        "tool", "tools/check_bridge_scaffold.py"
+    ),
     # HOSTCTL-070: the third gate — only player-equivalent information reaches the
     # Kin's own mind. Two of the four are about the class table and one is about the
     # bytes it refuses; the fourth is the only one that goes through the real IPC

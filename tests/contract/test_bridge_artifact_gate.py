@@ -274,6 +274,50 @@ def test_what_is_in_the_world_is_refused_even_in_the_adapter(tmp_path: Path) -> 
     assert SERVER_WORLD[0] in result.stderr
 
 
+def test_a_server_reference_in_a_mixin_is_refused(tmp_path: Path) -> None:
+    """A mixin is one of the four places the control-boundary contract names, not a detail.
+
+    It is the only class here written to be injected into someone else's types — it
+    runs inside vanilla's own bytecode — so it is the one place where naming server
+    state would not merely read the world but sit inside the code that holds it. The
+    configuration in this bundle is valid and points at the mod's own package, so what
+    is being refused is the reference and nothing else.
+    """
+
+    entries = with_one(
+        "org/minekin/bridge/mixin/ServerLeakMixin.class",
+        class_file(
+            "org/minekin/bridge/mixin/ServerLeakMixin",
+            types=[INTEGRATED_SERVER[0]],
+        ),
+    )
+
+    result = scan(jar(tmp_path, entries))
+
+    assert result.returncode == 1
+    assert INTEGRATED_SERVER[0] in result.stderr
+    assert "IntegratedServer" in result.stderr
+
+
+def test_a_mixin_that_names_no_server_state_is_left_alone(tmp_path: Path) -> None:
+    """The negative control: the rule is about the reference, not about mixing in.
+
+    A gate that refused every mixin would refuse the mechanism the Bridge is built
+    on, and the whole boundary would have to be read as "no mixins" instead of as
+    "no server state".
+    """
+
+    entries = with_one(
+        "org/minekin/bridge/mixin/HarmlessMixin.class",
+        class_file(
+            "org/minekin/bridge/mixin/HarmlessMixin",
+            calls=[("net/minecraft/class_310", UNSEEN_METHOD)],
+        ),
+    )
+
+    assert scan(jar(tmp_path, entries)).returncode == 0
+
+
 def test_one_reference_is_reported_once(tmp_path: Path) -> None:
     """The server package covers every server type, so `class_1132` is denied twice.
 

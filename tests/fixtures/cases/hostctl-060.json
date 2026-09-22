@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "case_id": "HOSTCTL-060",
+  "work_package": "host-integrated",
+  "mandatory": false,
+  "inputs": [
+    "tools/bridge_host_rules.py",
+    "bridge/build.gradle.kts",
+    "bridge/host-boundary-names.json"
+  ],
+  "assertion_digests": {
+    "a_server_reference_in_a_mixin_is_refused": "7e691763c6ada0f867c467d0a8e86dc5a9cb5ee00c5b3a84d19abab328b3668f",
+    "a_server_reference_in_bridge_source_is_refused": "aa6e3fcffb48589816f29d2104e8063939ca5f25171b347ac8abaa7e28a6b1e4",
+    "a_server_type_in_a_compiled_class_is_refused": "d4a8a93580b0668f6be9edc3813afc5848ae6c010690aa1809ab09d3bc574ef9",
+    "an_access_widener_naming_server_state_is_refused": "36661d14900b4975cc5e9b7ee42fc7b212b1af5def996f56d3efb285ec3efa5c",
+    "the_build_runs_the_artifact_gate_so_a_violation_fails_it": "5d7fc1103c9994f1d67a8932a741a22f2dd7e524d80c67b3036c76709df281dc"
+  },
+  "assertions": [
+    "a_server_reference_in_bridge_source_is_refused",
+    "a_server_type_in_a_compiled_class_is_refused",
+    "a_server_reference_in_a_mixin_is_refused",
+    "an_access_widener_naming_server_state_is_refused",
+    "the_build_runs_the_artifact_gate_so_a_violation_fails_it"
+  ]
+}

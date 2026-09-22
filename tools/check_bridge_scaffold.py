@@ -86,6 +86,15 @@ def main() -> None:
             "alias(libs.plugins.protobuf)",
             'srcDir("../proto")',
             'option("lite")',
+            # The control-boundary contract's sixth case is a sentence about the
+            # build: server state injected into the sources, a class, a mixin or an
+            # access widener must make the *build* fail. The gate that decides that
+            # has to be attached to `check` for the sentence to be true, and an
+            # attachment nothing pins is an attachment somebody can delete in a
+            # commit that looks like a build tweak — leaving the artifact gate
+            # passing when it is run by hand and absent from every build.
+            "checkHostBoundaryArtifacts",
+            "dependsOn(checkHostBoundaryArtifacts)",
         ),
     )
     require_text(

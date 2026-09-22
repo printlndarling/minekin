@@ -69,10 +69,15 @@ uv run --frozen python tools/check_case_assertions.py
 uv run --frozen python tools/report_cases.py
 ```
 
-- required-case inventory v1：**72 required / 34 present / 38 missing**，按 gate 读出：
+- required-case inventory v1：**72 required / 35 present / 37 missing**，按 gate 读出：
   `W00` 1、`W10` 1、`W20` 1、`W30` 11、`W40` 12、`W50` 3、`W60` 3、`W70` 5、
-  `p0-core` 38、`p0-nav-exp` 1、`host-integrated` 33；按证据种类 `local-only` 7、
-  `runtime-required` 65；已登记但不 gating 的 27 条；
+  `p0-core` 38、`p0-nav-exp` 1、`host-integrated` 33（present 15 / missing 18）；按证据
+  种类 `local-only` 7、`runtime-required` 65；已登记但不 gating 的 27 条；
+- **`local-only` 那一类已经没有缺口了**（2026-09-23，`HOSTCTL-060` 登记之后）。这条值得
+  单独写出来，因为本文先前说错过它：`CASE-CORE-001` 完成时这里写过一句「剩下 38 条
+  全是 `runtime-required`」——**那是错的**，机器读数里当时就有 1 条 `local-only`
+  （`HOSTCTL-060`），而 inventory 的 `validation_class` 一直是判据，本文那句是以表代
+  读数。**今天 missing 的 37 条全部是 `runtime-required`，这是命令读出来的**，不是推的。
 - 这份 missing 与本文下方“已知缺失 case（规划视图）”那张表逐族一致，但由机器读出；
 - 尚未冻结编号的族按缺口报出：`PERSIST`（`PlanningGap`，不拦任何门）；
 - 每道 gate 只按**自己**的 required set 判证据与前置条件，所以 HOST/NAV 的洞不阻塞
@@ -210,6 +215,12 @@ uv run --frozen python tools/report_cases.py
   `PROCESS-RECOVERY-001`：`BLOCKED_DECISION`，要先冻结决策再写代码；
 - `HOST/W80+`：`DEFERRED`，前置阶段未完成。
 
+**队列之外还有一类曾经存在、现在没有了**：契约要求而仓库没有的 case 里，
+`local-only` 的那一类（2026-09-23 `HOSTCTL-060` 登记后清零——它曾是最后一条）。
+这类缺口不是卡，本文没有为它编号，所以「队列空了」这句话从未把它算进去；**它当时
+是能本地补的**，而本文先前的读数把它和 37 条 `runtime-required` 混为一谈。**现在的
+读数是：missing 37 条全部 `runtime-required`，也就是没有任何一条能靠本地工作补上。**
+
 这不是「没有工作可做」，而是**剩下的每一件都卡在被明确写下的门禁上**：要么需要
 受控 runner 与用户对 EULA 的授权（`REAL-P0-CAMPAIGN-001` 的前置），要么需要用户
 先对一个设计问题做决定。按「越权即停止」的规则，这里不自行发明新卡，也不把某个
@@ -320,8 +331,11 @@ uv run --frozen python tools/report_cases.py
 
 这张表是规划输入，不是 required-case inventory 的实现；`PLAN-COVERAGE-001`
 完成后以机器报告为准。**当前实现候选**的 `tools/report_cases.py` 的
-`requirements` 段与下表逐族一致（同为 38 条缺失），但由机器读出、按 gate 组织，
-并额外区分每条要求的是 `local-only` 还是 `runtime-required`。
+`requirements` 段与下表逐族一致（同为 37 条缺失），但由机器读出、按 gate 组织，
+并额外区分每条要求的是 `local-only` 还是 `runtime-required`。**这张表没有那种区分，
+而它曾经因此把人带偏**：表里 `HOSTCTL` 行的 `060` 与其余各行看不出差别，机器读数里
+它是唯一一条 `local-only`——也就是唯一一条不需要真实运行就能补上的。**要看某一族
+缺的是不是本地能补的，读 inventory 的 `validation_class`，不要读这张表。**
 
 | 族 | 当前 contract 要求但 fixture 缺失 |
 | --- | --- |
@@ -329,7 +343,7 @@ uv run --frozen python tools/report_cases.py
 | ADMIT | 001, 010, 020, 030, 040, 050, 060, 090, 120 |
 | OFFLINE | 010, 020, 030, 060, 070, 080, 090, 100 |
 | HOST | 001, 090, 100 |
-| HOSTCTL | 020, 030, 040, 060, 080, 090 |
+| HOSTCTL | 020, 030, 040, 080, 090 |
 | HOSTCOMMIT | 001, 010, 020, 030, 040, 050, 060, 070, 080, 100 |
 | NAV | NAV-EXP-010 |
 
