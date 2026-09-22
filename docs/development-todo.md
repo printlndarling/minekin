@@ -1156,6 +1156,14 @@
   - **追踪自己也有盲点，写在这里**：`sys.settrace` 只看本进程。`test_seal_run_evidence.py` 会**以子进程**调用判官，那条路径追不到。所以「从未执行」在方法上是**提名**、不是判决——**这 10 条之所以能下结论，是因为它们各自被变异确认过**，不是因为追踪说它们没跑。**审计工具已入库为 `tools/trace_reason_branches.py`**，一条命令即可重推：`uv run --frozen python tools/trace_reason_branches.py`（约 3 分钟，它在自己的进程里跑全量并打印「从未执行」的那几行）。
   - **实测（本轮：本地）**：全量 pytest **1866 passed / 2 skipped**（追踪运行 182s），Ruff check/format、Pyright（strict，0 errors）、boundaries、case assertions（120 条注册）、fixture digests、workflow pins 与 `git diff --check` 全绿；10 处 `pass` 变异全量跑一次，除 digest 门禁外全绿，还原后 `git diff --stat tools/` 为空。**没有跑 Minecraft，本轮改动是文档加一个新的审计工具 `tools/trace_reason_branches.py`（判官一行都没改）。**
   - **仍然开着的**：**上面那 10 条**各要一条测试，其中 6 条 `LEDGER_UNREADABLE` 是同一个形状（用**声明了该断言的那个 case** 配 `ledger_readable=False` 走一遍）。**这是逐分支变异的替代品，比它便宜得多，而且这一次是逐分支的。** 仍然是本仓库里明确属于测试域、不需要任何决定的活。
+- [x] **把上一轮量出来的 10 条「从未执行」全部补上——追踪读数从 144/154 变成 154/154，判官的每一条拒绝分支都至少响过一次。** 10 条各一条测试，**每一个都单独变异确认**：把那一行换成 `pass`，各自只驱动**自己那一条**测试红，没有连带，还原后 `tools/` 逐字节不变。
+  - **6 条 `LEDGER_UNREADABLE` 用一个形状解决**：它们在 4 个 case 里（CORE-040/ADMIT-100/CORE-050/CORE-090），但缺的是同一件事。写了一个助手 `with_no_ledger_to_read(built)` ——**拿该 case 自己的 helper 先造出一个「本来就成立」的材料，再用 `dataclasses.replace` 只翻 `ledger_readable` 一个字段**。这样做的理由写进了 docstring：**判决只可能出在那个字段上**，手搓一份材料则会把「拒绝」和「材料本来就缺别的」混在一起。一次参数化跑 6 行，读数从 6 条降到 0。
+  - **另外 4 条各自是「记录在、但答不了这个问题」**，与已测的邻居成对：`the_server_saw_the_kin_turn:NO_SERVER_READINGS`（**只有一次朝向读数**——一次读数是方向，不是方向变了；已有的是「有两次朝向读数但没有转向」`NO_TURN_OBSERVED`）；`the_server_saw_the_kin_arrive_and_never_move:JOIN_NOT_LOGGED`（**读数在、join 行不在**——服务器答过，但没有任何东西说它答的是这个 Kin；已有的是「只有一次读数」）；`the_bridge_never_pressed_a_key:NO_CLIENT_LOG`（**客户端一行日志都没有**，与「有日志但没有按下任何键」是两回事）；`the_restart_runs_as_a_new_session:NO_SESSION_ATTRIBUTION_IN_LEDGER`（**这一次运行的 process-start 行不在**，所以没有坐标可拿去和崩溃那次比——**注意这与前面修掉的「上一次运行的归属缺失」是同一函数里的两条不同分支**）。
+  - **这一步的判据是工具给的，不是我看出来的**：`tools/trace_reason_branches.py` 的读数在补测试前后是 10 → 0，而且**它自己会打印那句警告**——「读数为 0 不等于覆盖」——所以补完必须再变异。**10 处变异 10 中，且每处只红一条**，这条读数才算数。
+  - **顺带说明追踪的盲点在这里为什么无害**：`sys.settrace` 看不到子进程，而 `test_seal_run_evidence.py` 是以子进程调用判官的。但**确认用的是变异、不是追踪**：如果真有子进程观察到这 10 条，neuter 之后那次全量里就会有测试红——结果是全绿，所以**盲点不会把「有覆盖」误判成「没覆盖」**。这也正是「追踪提名、变异判决」这个分工的价值。
+  - **不能过度声称的地方，写清楚**：「154/154 都响过」**不等于**「154 条各自都被变异验证过」。这一轮和前面几轮**逐条变异确认的约 26 条**是审计提名出来的那些；**其余约 128 条是「会响」但没逐条变异过**。**完整的 154 路变异扫描没有做过**，它比追踪贵得多（约 154 次测试运行），价值在于把「这条分支会走到」升级成「这条分支的判决内容被验证过」。**这是一件仍然开着的、不需要任何决定的活**，但优先级已经低于这件事本身带来的收益。
+  - **实测（本轮：本地）**：全量 pytest **1876 passed / 2 skipped**（+10，正是新加的 6 行参数化 + 4 条），Ruff check/format、Pyright（strict，0 errors）、boundaries、case assertions（120 条注册）、fixture digests、workflow pins 与 `git diff --check` 全绿；**10 处 `pass` 变异各自只红一条**，还原后 `git diff --stat tools/` 为空。**没有跑 Minecraft，本轮只有测试文件一个改动。**
+  - **仍然开着的**：154 路完整变异扫描（可选、不需要决定）；以及本文档其余各处记着的、**需要用户决定或真实运行**的那些条目（契约拆分、runner+EULA、判据缺口）。
 
 ## W70 之后
 

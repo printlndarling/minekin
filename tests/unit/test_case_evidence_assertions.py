@@ -9,6 +9,7 @@ that invented its own shapes would pass while the asserter read nothing.
 
 from __future__ import annotations
 
+import dataclasses
 import importlib
 import json
 import subprocess
@@ -530,6 +531,25 @@ def test_a_turn_the_server_never_saw_is_named() -> None:
     )
 
     assert verdict.failures == ("the_server_saw_the_kin_turn:NO_TURN_OBSERVED",)
+
+
+def test_a_turn_nobody_answered_for_is_not_a_turn() -> None:
+    """Two headings are what "it turned" is a claim about.
+
+    One heading is a direction and not a change of direction — the same rule the
+    walk is held to, read from the world's own answers rather than from the case.
+    """
+
+    one_heading = (
+        "has the following entity data: [-7.5d, -60.0d, 4.5d]\n"
+        "has the following entity data: [45.0f, 0.0f]\n"
+    )
+
+    verdict = ASSERTER_MODULE.evaluate(
+        movement_case(), material(log=one_heading, events=(LEASE, RELEASE))
+    )
+
+    assert "the_server_saw_the_kin_turn:NO_SERVER_READINGS" in verdict.failures
 
 
 def test_a_lever_that_was_never_pulled_is_named() -> None:
@@ -2144,6 +2164,34 @@ def test_one_reading_is_a_place_and_not_a_stillness() -> None:
     assert "the_server_saw_the_kin_arrive_and_never_move:NO_SERVER_READINGS" in verdict.failures
 
 
+def test_readings_with_no_join_line_are_not_a_world_this_kin_was_in() -> None:
+    """Stillness is claimed about a world this Kin arrived in.
+
+    The same readings with the join line taken off are a different record: the
+    server answered about something, and nothing says it answered about this Kin —
+    so the absence of movement cannot be read as this Kin standing still.
+    """
+
+    no_join = STILL_READINGS.replace(JOINED + "\n", "")
+
+    verdict = ASSERTER_MODULE.evaluate(refused_early_case(), asked_too_early(log=no_join))
+
+    assert "the_server_saw_the_kin_arrive_and_never_move:JOIN_NOT_LOGGED" in verdict.failures
+
+
+def test_no_client_log_at_all_is_not_a_client_that_pressed_nothing() -> None:
+    """Core's refusal is Core's account; this half needs the client's own.
+
+    A client that wrote no log is a client nobody can ask — which is a different
+    fact from one that wrote a log with no presses in it, and only the second of
+    those is evidence that nothing was held.
+    """
+
+    verdict = ASSERTER_MODULE.evaluate(refused_early_case(), asked_too_early(client_log=""))
+
+    assert "the_bridge_never_pressed_a_key:NO_CLIENT_LOG" in verdict.failures
+
+
 # The restart half of CORE-090: a crash run whose ledger stops at the lease, then
 # this run. Measured on the pair, the dead run's rows are
 # `SessionProcessStarted → BridgeHelloAccepted → JoinObserved → PlayableEstablished
@@ -2202,6 +2250,76 @@ def test_a_restart_after_a_crash_holds() -> None:
     assert verdict.result == "PASS"
     assert verdict.observed == verdict.expected
     assert verdict.failures == ()
+
+
+def test_a_run_whose_ledger_names_no_session_cannot_be_compared_to_the_crash() -> None:
+    """Both coordinates are needed, and this run's is the one that is missing.
+
+    The dead run's session is read out of its own process-start row; when this run's
+    ledger carries no such row there is nothing to compare the dead one against. A
+    refusal is the honest answer — reading it as a restart would claim the session
+    changed on the strength of a record that never named one.
+    """
+
+    verdict = ASSERTER_MODULE.evaluate(
+        restart_case(),
+        restarted(
+            events=(
+                event("BridgeHelloAccepted"),
+                event("JoinObserved", phase="JOIN_SEEN"),
+                event("PlayableEstablished", phase="PLAYABLE"),
+                event("SessionInterrupted", outcome="BRIDGE_LOST"),
+            )
+        ),
+    )
+
+    assert "the_restart_runs_as_a_new_session:NO_SESSION_ATTRIBUTION_IN_LEDGER" in verdict.failures
+
+
+def with_no_ledger_to_read(built: _Material) -> _Material:
+    """The same run, with nothing to read the ledger from.
+
+    Built from a material that already holds rather than assembled by hand, so the
+    verdict can only be about the one field — and `replace` is what makes this work
+    across four cases at once: the helpers disagree about what a run looks like, and
+    agree about the record being unreadable. The cast is because this file names the
+    asserter's material structurally, and `replace` needs the class behind it.
+    """
+
+    return cast(_Material, dataclasses.replace(cast(Any, built), ledger_readable=False))
+
+
+@pytest.mark.parametrize(
+    ("case", "build", "assertion"),
+    [
+        (movement_case, walked, "the_lease_expired_and_was_released"),
+        (refused_case, refused, "the_refusal_was_classified_in_the_ledger"),
+        (
+            refused_early_case,
+            asked_too_early,
+            "input_was_refused_before_the_world_was_playable",
+        ),
+        (refused_early_case, asked_too_early, "no_lease_was_granted"),
+        (restart_case, restarted, "the_previous_run_left_the_kin_holding_input"),
+        (restart_case, restarted, "the_restart_runs_as_a_new_session"),
+    ],
+)
+def test_a_ledger_that_cannot_be_read_is_not_a_ledger_that_says_nothing(
+    case: Callable[[], dict[str, object]],
+    build: Callable[[], _Material],
+    assertion: str,
+) -> None:
+    """Six assertions whose first act is to refuse a ledger nobody can read.
+
+    One shape, six functions across four cases, and every one of them was reached
+    only through runs whose ledgers could be read — so the refusal itself had never
+    been exercised. It is worth exercising because an empty ledger and no ledger at
+    all are the same thing to anything that reads the rows and counts them.
+    """
+
+    verdict = ASSERTER_MODULE.evaluate(case(), with_no_ledger_to_read(build()))
+
+    assert f"{assertion}:LEDGER_UNREADABLE" in verdict.failures
 
 
 def test_a_restart_without_a_run_before_it_is_not_a_recovery() -> None:
