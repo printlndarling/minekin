@@ -12,7 +12,7 @@
 - `baseline_date`: 2026-09-22
 - `baseline_branch`: `main`
 - `baseline_remote`: `origin/main`
-- `current_next`: `CASE-CORE-001`
+- `current_next`: `CORE-METRICS-001`
 
 权威顺序：
 
@@ -68,7 +68,7 @@ uv run --frozen python tools/check_case_assertions.py
 uv run --frozen python tools/report_cases.py
 ```
 
-- required-case inventory v1：**72 required / 33 present / 39 missing**，按 gate 读出：
+- required-case inventory v1：**72 required / 34 present / 38 missing**，按 gate 读出：
   `W00` 1、`W10` 1、`W20` 1、`W30` 11、`W40` 12、`W50` 3、`W60` 3、`W70` 5、
   `p0-core` 38、`p0-nav-exp` 1、`host-integrated` 33；按证据种类 `local-only` 7、
   `runtime-required` 65；已登记但不 gating 的 27 条；
@@ -78,8 +78,8 @@ uv run --frozen python tools/report_cases.py
   `W40`；promotion 对不完整的 required set fail closed
   （`REQUIRED_CASE_NOT_REGISTERED`、`REQUIRED_CASE_MISATTRIBUTED`）。
   `mandatory: false` 仍作为独立诊断维度报告，不被 inventory 偷偷改写；因此今天
-  `W00`、`W20`、`W60`、`W70` 四道的 case set 是齐的，其中 W70 仍因没有 mandatory
-  case 而由既有 `NO_MANDATORY_CASES` 规则阻断——这是准确读数，不是回归。
+  `W00`、`W10`、`W20`、`W60`、`W70` 五道的 case set 是齐的，其中 W70 仍因没有
+  mandatory case 而由既有 `NO_MANDATORY_CASES` 规则阻断——这是准确读数，不是回归。
 
 ## 最近完成
 
@@ -155,32 +155,43 @@ uv run --frozen python tools/report_cases.py
   时稳定返回语义不完整，integrity 错误为 STORAGE、语义不完整为 SESSION；只读。
 - `validation_class`: `LOCAL`
 
-## 唯一 NEXT
-
 ### CASE-CORE-001 — 给已有供应链判据建立必需 case
 
-- `status`: `NEXT`
+- `status`: `DONE`
+- `completion_commit`: `9b2d53913950d038213d4fbe9763ce31eaa44129`
+- `completion_evidence`: 本地、`origin/main` 与远端 `refs/heads/main` 已核对为同一 SHA；
+  1810 passed / 2 skipped，Ruff、Pyright、boundaries、115 条 case assertions、fixture
+  digests、workflow pins 与 `git diff --check` 全绿。三条被点名的变异各自驱动到红：
+  改坏 `validate_bundle_recipe` 的 Fabric API 摘要比较、把 Bridge artifact gate 的
+  打包依赖摘要比较短路、把 `BundleStore.verify` 的工件摘要比较短路，三次都先让
+  `run_repo_case` 对 CORE-001 判 FAIL，再原样还原。删掉 `core-001.json` 后报告点名
+  `CORE-001` missing、`W10` 由 `satisfied: true` 变为 `false`，promotion 以
+  `REQUIRED_CASE_NOT_REGISTERED` fail closed——同一次读数里 `W00` 与
+  `host-integrated` 不变。**没有改 `src/`、没有跑 Minecraft、没有接受 EULA。**
 - `depends_on`: `PLAN-COVERAGE-001`
 - `scope`: 复用 bundle recipe、artifact store 与 Bridge artifact gate 的既有判据，
   新增 CORE-001 case 与 assertion digest，不重写已有检查。
 - `acceptance`: repo case runner PASS；摘要篡改、未知 mod、artifact gate 变异各自失败；
   fixture digest 更新可复核。
 - `validation_class`: `LOCAL`
+- `commit_intent`: `feat(cases): give the supply chain its required case`
 
-## 阶段队列
-
-状态只允许：`QUEUED`、`BLOCKED_DECISION`、`WAITING_REAL_RUN`、`DEFERRED`、
-`DONE`。只有上一张卡已 commit、push 且远端 SHA 可核对，主控才可提升下一张。
+## 唯一 NEXT
 
 ### CORE-METRICS-001 — W20 tick/render 可测量性
 
-- `status`: `QUEUED`
+- `status`: `NEXT`
 - `depends_on`: `CORE-REPLAY-CLI-001`
 - `scope`: 只增加预算采样所需的最小 Bridge/proto 字段、聚合与 evidence 形状。
 - `non_goals`: 本地数据不得冒充真实 P50/P95/P99；不在本任务设阈值。
 - `acceptance`: 本地/Java/Docker 门禁证明采样非阻塞、有界、可封存；真实 percentile
   仍由后续 runner campaign 验收。
 - `validation_class`: `LOCAL_THEN_REAL_RUN`
+
+## 阶段队列
+
+状态只允许：`QUEUED`、`BLOCKED_DECISION`、`WAITING_REAL_RUN`、`DEFERRED`、
+`DONE`。只有上一张卡已 commit、push 且远端 SHA 可核对，主控才可提升下一张。
 
 ### CORE-STATE-TRANSITION-001 — 账本显式记录状态迁移
 
@@ -238,12 +249,12 @@ uv run --frozen python tools/report_cases.py
 
 这张表是规划输入，不是 required-case inventory 的实现；`PLAN-COVERAGE-001`
 完成后以机器报告为准。**当前实现候选**的 `tools/report_cases.py` 的
-`requirements` 段与下表逐族一致（同为 39 条缺失），但由机器读出、按 gate 组织，
+`requirements` 段与下表逐族一致（同为 38 条缺失），但由机器读出、按 gate 组织，
 并额外区分每条要求的是 `local-only` 还是 `runtime-required`。
 
 | 族 | 当前 contract 要求但 fixture 缺失 |
 | --- | --- |
-| CORE | 001, 080 |
+| CORE | 080 |
 | ADMIT | 001, 010, 020, 030, 040, 050, 060, 090, 120 |
 | OFFLINE | 010, 020, 030, 060, 070, 080, 090, 100 |
 | HOST | 001, 090, 100 |
