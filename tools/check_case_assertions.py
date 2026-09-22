@@ -376,6 +376,62 @@ IMPLEMENTATIONS: dict[str, Implementation] = {
         "pytest",
         "tests/unit/test_hosted_store.py::test_a_save_path_outside_the_data_root_is_refused",
     ),
+    # W30's first three cases: the offline session's argv chain, the identity encoding
+    # it has to match, and the shape of an empty credential. All three are pure
+    # functions of the frozen candidate matrix, so every assertion is a test — and the
+    # run-material halves of OFFLINE-010/020/030/060… are what the family still waits
+    # for, which is why each case below is `mandatory: false`.
+    "test_frozen_candidates_use_the_public_token_and_explicit_empty_options": Implementation(
+        "pytest",
+        "tests/unit/test_offline_session.py"
+        "::test_frozen_candidates_use_the_public_token_and_explicit_empty_options",
+    ),
+    "test_offline_argv_keeps_the_empty_client_credentials_as_their_own_elements": Implementation(
+        "pytest",
+        "tests/unit/test_offline_session.py"
+        "::test_offline_argv_keeps_the_empty_client_credentials_as_their_own_elements",
+    ),
+    "test_no_argument_survives_as_a_literal_placeholder": Implementation(
+        "pytest",
+        "tests/unit/test_offline_session.py::test_no_argument_survives_as_a_literal_placeholder",
+    ),
+    "test_every_frozen_candidate_resolves_the_full_reviewed_template": Implementation(
+        "pytest",
+        "tests/unit/test_offline_session.py"
+        "::test_every_frozen_candidate_resolves_the_full_reviewed_template",
+    ),
+    "test_an_unknown_placeholder_is_rejected_rather_than_emptied": Implementation(
+        "pytest",
+        "tests/unit/test_offline_session.py::test_an_unknown_placeholder_is_rejected_rather_than_emptied",
+    ),
+    "test_canonical_uuid_encoding_is_available_for_the_off_c_comparison": Implementation(
+        "pytest",
+        "tests/unit/test_offline_session.py"
+        "::test_canonical_uuid_encoding_is_available_for_the_off_c_comparison",
+    ),
+    "test_the_id128_argv_and_a_canonical_report_are_the_same_identity": Implementation(
+        "pytest",
+        "tests/unit/test_session_material.py"
+        "::test_the_id128_argv_and_a_canonical_report_are_the_same_identity",
+    ),
+    "test_an_uppercase_report_uuid_is_still_the_same_identity": Implementation(
+        "pytest",
+        "tests/unit/test_session_material.py"
+        "::test_an_uppercase_report_uuid_is_still_the_same_identity",
+    ),
+    "test_an_empty_value_must_stay_attached_to_an_option_flag": Implementation(
+        "pytest",
+        "tests/unit/test_offline_session.py::test_an_empty_value_must_stay_attached_to_an_option_flag",
+    ),
+    "test_an_empty_environment_value_is_refused_before_it_reaches_argv": Implementation(
+        "pytest",
+        "tests/unit/test_offline_session.py"
+        "::test_an_empty_environment_value_is_refused_before_it_reaches_argv",
+    ),
+    "test_candidate_document_reports_presence_without_values": Implementation(
+        "pytest",
+        "tests/unit/test_offline_session.py::test_candidate_document_reports_presence_without_values",
+    ),
     # HOST-010: the two locks one hosted world needs, and the race they settle. All
     # five are the rule about what an observation means; the real half — two actual
     # processes racing for one world — needs a run, so `mandatory` stays false.

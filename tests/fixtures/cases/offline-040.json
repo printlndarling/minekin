@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "case_id": "OFFLINE-040",
+  "work_package": "W30",
+  "mandatory": false,
+  "inputs": [],
+  "assertion_digests": {
+    "test_an_uppercase_report_uuid_is_still_the_same_identity": "b0a50cc05be1e748cc82461e8a8dccfb9f67310d5dd3e34d99c8bd62ffba6b03",
+    "test_canonical_uuid_encoding_is_available_for_the_off_c_comparison": "3f851ed0090bfd43d12fca62197f94a26ff21e088832ac85cd01e6aa47027abe",
+    "test_the_id128_argv_and_a_canonical_report_are_the_same_identity": "c460e96951aad6acbe72a4f9c31214d2a27f85a780c929308c97aa2ee1c9103f"
+  },
+  "assertions": [
+    "test_canonical_uuid_encoding_is_available_for_the_off_c_comparison",
+    "test_the_id128_argv_and_a_canonical_report_are_the_same_identity",
+    "test_an_uppercase_report_uuid_is_still_the_same_identity"
+  ]
+}

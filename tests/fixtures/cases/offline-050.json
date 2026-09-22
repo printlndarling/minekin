@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "case_id": "OFFLINE-050",
+  "work_package": "W30",
+  "mandatory": false,
+  "inputs": [],
+  "assertion_digests": {
+    "test_an_empty_environment_value_is_refused_before_it_reaches_argv": "23cffb2cb19d2a6d2d97c0ea37ed7a33c1b5491ba54aa9165797e1a58b7eca4b",
+    "test_an_empty_value_must_stay_attached_to_an_option_flag": "cc387413b38e768fbffe950960e1179bda57e950b3386fb753c79fd270ccc112",
+    "test_candidate_document_reports_presence_without_values": "3f6e14eb3779fbcaab92c5297d71e37bbf02ed44909aff163266aa0a28e72f00"
+  },
+  "assertions": [
+    "test_an_empty_value_must_stay_attached_to_an_option_flag",
+    "test_an_empty_environment_value_is_refused_before_it_reaches_argv",
+    "test_candidate_document_reports_presence_without_values"
+  ]
+}

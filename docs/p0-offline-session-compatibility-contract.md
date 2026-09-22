@@ -139,12 +139,12 @@ credential_values_exposed = false
 
 | Case | 场景 | 断言 |
 | --- | --- | --- |
-| OFFLINE-001 | 核对Prism固定commit的参数替换与Launcher传递链 | clientId/xuid静态期望均为显式空argv值；dry-run无字面占位符或参数错位；记录源码commit，不复制GPL代码 |
+| OFFLINE-001 | 核对Prism固定commit的参数替换与Launcher传递链 | clientId/xuid静态期望均为显式空argv值；dry-run无字面占位符或参数错位；记录源码commit，不复制GPL代码 **（2026-09-22：已定义、跑得动——`tests/fixtures/cases/offline-001.json`，五条断言全部由 `tests/unit/test_offline_session.py` 的现有用例执行，`run_repo_case.py` 跑出 `PASS` 5/5。第三条（记录源码 commit、不复制 GPL 代码）是做法说明而不是判据，契约自己写着 Prism 是「对照实现」；这一条因此没有断言。`mandatory` 仍是 `false`，因为同一个族的 010/020/030/060/070/080/090 要真实启动与入服证据。）** |
 | OFFLINE-010 | OFF-A启动到Bridge | 记录实际Session AccountType与警告；不预设结果 |
 | OFFLINE-020 | OFF-B启动到Bridge | 与A使用相同非userType材料，可比较 |
 | OFFLINE-030 | A/B分别加入受控offline-mode服 | JOIN+首快照+服务端身份证据完整 |
-| OFFLINE-040 | UUID Id128/canonical比较 | 只接受解析稳定且服务端映射可解释的格式 |
-| OFFLINE-050 | clientId/xuid空值/sentinel | 无argv错位；Session presence符合预期 |
+| OFFLINE-040 | UUID Id128/canonical比较 | 只接受解析稳定且服务端映射可解释的格式 **（2026-09-22：已定义、跑得动——`tests/fixtures/cases/offline-040.json`，三条断言：canonical 编码可用，且 **argv 里的 id128 与一个 canonical 上报、以及一个大写上报都与记录的身份相同**（`tests/unit/test_offline_session.py` 与 `tests/unit/test_session_material.py`）。「服务端映射可解释」那一半属运行材料，故 `mandatory` 仍为 `false`。）** |
+| OFFLINE-050 | clientId/xuid空值/sentinel | 无argv错位；Session presence符合预期 **（2026-09-22：已定义、跑得动——`tests/fixtures/cases/offline-050.json`，三条断言都是*声明*那一侧：空值必须仍挂在自己的 option 上（否则下一个 flag 会被吞成它的值）、空的环境变量在到达 argv 之前就被拒、候选文档报 presence 而不报值。「Session presence 符合预期」要的是**真实 Session 的**presence（Bridge 上报的那一份），所以那半边仍在运行材料那一边；非空 sentinel 对照契约也写明只在真实启动产生可归因失败时才跑。）** |
 | OFFLINE-060 | OFF-D/OFF-N | 默认/未知类型行为可检测，不误晋级 |
 | OFFLINE-070 | 同名双登录、改名、大小写变化 | 冲突/新revision分类正确，不合并人格根 |
 | OFFLINE-080 | online-mode、白名单和封禁 | 分类分别为认证/准入失败，不循环换身份 |

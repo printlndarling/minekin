@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "case_id": "OFFLINE-001",
+  "work_package": "W30",
+  "mandatory": false,
+  "inputs": [],
+  "assertion_digests": {
+    "test_an_unknown_placeholder_is_rejected_rather_than_emptied": "de6796d2737257b65c748b603514705fc986f4ae28fb3297953f3a53218ce06b",
+    "test_every_frozen_candidate_resolves_the_full_reviewed_template": "d01bfc43ee4b4442ad0c4320a99fee997eeb3a78e98e65b7fdc69a57dad65a44",
+    "test_frozen_candidates_use_the_public_token_and_explicit_empty_options": "0d4557aa584f194d1ee16126de28ea9167d1a23e4de6bebb8f5cb1f4a1a38a1a",
+    "test_no_argument_survives_as_a_literal_placeholder": "5f246d0d3ac334c5b0bec6939c1fa5411f66aa10d184e3465116a55294ddd639",
+    "test_offline_argv_keeps_the_empty_client_credentials_as_their_own_elements": "55b4d5353c11cc88554f6b16280c9609ef50ba5320eb32c7ae260b48ec54ec23"
+  },
+  "assertions": [
+    "test_frozen_candidates_use_the_public_token_and_explicit_empty_options",
+    "test_offline_argv_keeps_the_empty_client_credentials_as_their_own_elements",
+    "test_no_argument_survives_as_a_literal_placeholder",
+    "test_every_frozen_candidate_resolves_the_full_reviewed_template",
+    "test_an_unknown_placeholder_is_rejected_rather_than_emptied"
+  ]
+}
