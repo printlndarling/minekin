@@ -215,11 +215,18 @@ uv run --frozen python tools/report_cases.py
   `PROCESS-RECOVERY-001`：`BLOCKED_DECISION`，要先冻结决策再写代码；
 - `HOST/W80+`：`DEFERRED`，前置阶段未完成。
 
-**队列之外还有一类曾经存在、现在没有了**：契约要求而仓库没有的 case 里，
-`local-only` 的那一类（2026-09-23 `HOSTCTL-060` 登记后清零——它曾是最后一条）。
-这类缺口不是卡，本文没有为它编号，所以「队列空了」这句话从未把它算进去；**它当时
-是能本地补的**，而本文先前的读数把它和 37 条 `runtime-required` 混为一谈。**现在的
-读数是：missing 37 条全部 `runtime-required`，也就是没有任何一条能靠本地工作补上。**
+**队列之外还有第二类，2026-09-23 才发现并做掉**：**证据生产也不是卡**。`local-only`
+的 required case 只差一份**封存的 PASS bundle**，而 `tools/seal_repo_case.py` 不需要
+Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-001` 当时留给后人的
+那一半。做了 `CORE-001` 与 `W00-CONTRACT-001` 两份之后，**`W00` 与 `W10` 两道门都
+变成 `promotable`**（`blocks: []`、`requirement.satisfied: true`），而用机器读数问
+一遍「哪些门的 required set 整组都是 `local-only`」，答案正好是这两道——其余的道
+要么要真客户端（`W20`、`W60`），要么缺 1～18 条运行时用例，要么一条 mandatory case
+都没有（`W70`）。**所以本地证据生产能关死的门只有这两道，已经关死了。**
+
+这也说明本文先前那句「没有任何一张卡能提升」是对的、而**「没有本地能做的活」是错的**——
+同一类错误（拿文档对状态的描述代替机器读数）在这个项目里已经出现两次，第八步那次
+是 missing 集合的分类。**判断「还有没有可做的」，要看机器读数，不要看本文的措辞。**
 
 这不是「没有工作可做」，而是**剩下的每一件都卡在被明确写下的门禁上**：要么需要
 受控 runner 与用户对 EULA 的授权（`REAL-P0-CAMPAIGN-001` 的前置），要么需要用户
