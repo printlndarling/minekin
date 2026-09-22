@@ -1173,6 +1173,21 @@
   - **工具入库，但它和追踪工具不是一个危险级别**：`tools/trace_reason_branches.py` **只读**；这一个**就地改一个受版本控制的源文件**。所以它**拒绝在判官有未提交改动时启动**（出事时 `git checkout --` 一定是条活路），在 `finally` 里还原并**验证还原成功**，失败就大声报错退出。这两条都写在它的模块 docstring 里。
   - **这一步之后这个面算是关死了（就本地证据能关到的程度）**：**每条分支都响过**（追踪 154/154），**每条理由的原话都被某个测试钉住**（本轮 154/154）。两句话是两件事，两边都测了。
   - **实测（本轮：本地）**：全量 pytest **1876 passed / 2 skipped**，Ruff check/format、Pyright（strict，0 errors）、boundaries、case assertions（120 条注册）、fixture digests、workflow pins 与 `git diff --check` 全绿；入库后的工具**自己复现了读数**（154/154，跑完 `git diff --stat tools/assert_case_evidence.py` 为空）。**没有跑 Minecraft，本轮改动是文档加一个新的审计工具。**
+- [x] **把这一轮之前从没跑过的门禁跑了一遍（四道 Bridge 静态门 + JDK 21 的 Gradle 门），并且量出**计划里那条 Gradle 命令本身验不动**：同一棵源码、三条命令、三条都打印 `BUILD SUCCESSFUL`，而只有第三条真的编译并跑了 Java 测试。** 已改掉计划里那一行。**门禁读数：四道 Bridge 门全 OK，Gradle 强制重跑 15/15 执行、`Bridge artifacts: OK`，冷构建的 jar 与 pin 逐字节相同。**
+  - **先纠正一个我自己的预期**：我本来准备把「CI 里没有 Gradle 这一步」当成新发现写下来。**它已经是记录过的事**：`development-todo.md` 里写着「普通 CI 仍不下载 Minecraft 资产，所以不进 CI」，另一处写着「CI 只在 3 个 job 上把关，真正的 Bridge 编译（Gradle、JDK 21）与全部真实运行仍然只在本地/容器里跑过」。CI 的 `bridge-static` job 跑的**正是**我刚跑的这四道 Python 门（`check_bridge_scaffold` / `_host_boundary` / `_protocol` / `_proto_java`），一条 Gradle 都没有。**所以这不是缺陷，是一条已知的、把 Minecraft 资产挡在 CI 之外的选择**——记在这里是因为我差点把已记录的事当成新发现。
+  - **真正量出来的东西是那条命令不够**。同一棵树，三条命令：
+
+    | 命令 | 任务 | `:test` 跑了吗 |
+    |---|---|---|
+    | `./gradlew check` | `1 executed, 14 up-to-date` | **没有**（`:compileJava`、`:test`、`:remapJar` 全在 up-to-date 里） |
+    | `./gradlew clean check` | `12 executed, 4 from cache` | **没有**——`:test` 正是那 4 个 `FROM-CACHE` 之一（`bridge/gradle.properties` 里 `org.gradle.caching=true`） |
+    | `./gradlew check --rerun-tasks` | `15 executed` | **跑了** |
+
+    **三条都返回 `BUILD SUCCESSFUL`。** 所以按计划原来那句「运行 Gradle `check`」执行，**可以在一次都没编译、一次都没跑 Java 测试的情况下拿到绿灯**。这不是「UP-TO-DATE 一般不可靠」——Gradle 的增量与 build cache 都按输入哈希判断，通常是对的；**是这个仓库自己已经吃过一次它判断错的亏**：删掉探针源码后 `jar`/`remapJar` 仍报 UP-TO-DATE，`build/libs` 里留着带 `LeakProbe.class` 的旧 jar，是产物门禁把它挡下的（`development-todo.md` 里记着）。**当一条命令已经有过说谎的记录，它作为门禁的读数就只能靠「真的执行过」。**
+  - **冷构建复现 pin**：`clean check` 之后 jar 是 `49af3b6f…` / 1,305,495，与 `BRIDGE_JAR_SHA256` / `BRIDGE_JAR_SIZE` **逐字节相同**；产物门禁自己打印 `Bridge artifacts: OK (… against Yarn 1.21.4+build.8; no server state in the constant pools, mixins, access widener, entrypoint or packed jars)`。**这一条是本轮唯一新增的「Bridge 侧确实验过」的证据**，此前只在本会话之外的记录里出现过。
+  - **修改**：计划门禁矩阵那一行从「运行 Gradle `check`」改成「运行 Gradle `check --rerun-tasks`」，并把上面三条读数、`org.gradle.caching=true`、LeakProbe 那次事故和冷构建的 jar 读数一起写在旁边。**这是把一个验不动的门禁改成验得动的**，不是新增范围。
+  - **实测（本轮：本地 + JDK 21）**：全量 pytest **1876 passed / 2 skipped**，Ruff check/format、Pyright（strict，0 errors）、boundaries、case assertions（120 条注册）、fixture digests、workflow pins 与 `git diff --check` 全绿；四道 Bridge 静态门全 OK；Gradle `check --rerun-tasks`（JDK 21.0.12.1，15/15 执行）与 `clean check` 均 `BUILD SUCCESSFUL`。**没有跑 Minecraft**（这四道门的名字里就写着「without downloading Minecraft」），**也没有把本地绿灯说成真实运行**。
+  - **仍然开着的**：真实运行与四个决策，与前述各条相同；本轮没有改变它们的状态。
 
 ## W70 之后
 

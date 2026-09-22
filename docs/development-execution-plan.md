@@ -508,9 +508,24 @@ uv run --no-project python tools/check_bridge_protocol.py
 uv run --no-project python tools/check_bridge_proto_java.py
 ```
 
-并使用 Java 21 运行 Gradle `check`；涉及平台构建、Gradle 或 runner 时再做 Docker
-验证。涉及生命周期、客户端线程、callback 时序、故障恢复或真实指标的任务必须有
-real-run evidence，本地绿灯只能证明本地层。
+并使用 Java 21 运行 Gradle `check --rerun-tasks`。**`--rerun-tasks` 不是可选项**，
+2026-09-23 在同一棵源码上量过三条命令，**三条都打印 `BUILD SUCCESSFUL`**：
+
+```text
+./gradlew check                    -> 15 actionable tasks: 1 executed, 14 up-to-date
+./gradlew clean check              -> 16 actionable tasks: 12 executed, 4 from cache
+./gradlew check --rerun-tasks      -> 15 actionable tasks: 15 executed
+```
+
+第一条里 `:compileJava`、`:test`、`:remapJar` 全在 up-to-date 中；第二条把 4 个任务交给
+**build cache**（`bridge/gradle.properties` 里 `org.gradle.caching=true`），而 **`:test`
+正是那 4 个 FROM-CACHE 之一**。**只有第三条能说「Java 测试跑过并通过」**——所以读到
+`UP-TO-DATE` 就当绿，在这条门禁上不是保守，是没验。本仓库已经吃过一次增量判断错的亏：
+删掉探针源码后 `jar`/`remapJar` 仍报 UP-TO-DATE，`build/libs` 里留着带 `LeakProbe.class`
+的旧 jar，是产物门禁把它挡下的（见 `development-todo.md`）。
+冷构建复现 pin 的读数：`clean check` 后 jar 为 `49af3b6f…` / 1,305,495，与 `BRIDGE_JAR_SHA256`
+逐字节相同。涉及平台构建、Gradle 或 runner 时再做 Docker 验证。涉及生命周期、客户端线程、
+callback 时序、故障恢复或真实指标的任务必须有 real-run evidence，本地绿灯只能证明本地层。
 
 ## Commit 与 push 协议
 
