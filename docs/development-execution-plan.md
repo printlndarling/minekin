@@ -405,7 +405,7 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 **（甲）事实记了、只是没人断言**——只要在测试域写断言，不需要动产品：`ADMIT-030`/`040`/`050`
 要的分类住在账本行的 **`reason`** 字段里（`on_connection` 写的 payload 是
 `{"phase": …, "reason": …}`，注释写明那 `reason` 就是「Bridge 的稳定分类」），
-`the_refusal_was_classified_in_the_ledger` 正是读它，只是**把值写死成了 `WHITELIST_REJECTED`**；
+`the_refusal_was_classified_in_the_ledger` 正是读它，只是**把值写死成了 `WHITELIST_REJECTED`**——但其中两条按现编号写不出来，见本节末尾；
 `ADMIT-060` 的「没授 lease」由 `no_lease_was_granted` 承担。
 **（乙）事实根本没记**——那就不是写断言，而是要决定**一次运行必须多记什么**，属产品改动：
 `ADMIT-010`/`020` 要的「连了哪个 profile / 解析到什么 endpoint」**在线缆上是有的**
@@ -413,6 +413,21 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 **但 Core 写进账本的那一行只剩 `phase` 与 `reason`**，profile 在这一步被丢掉了；
 `ADMIT-090` 要的「人格没被重建」在账本**现有的十个事件类型**里没有任何一个承载；
 `ADMIT-120` 要的 canary containment 在运行材料里没有来源。
+**2026-09-23 第二次更正：（甲）那三条里，两条按现在的编号写不出来。** `ADMIT-030` 的
+「必须证明」是「**三类**失败分类不同且无无限重试」（无 DNS、拒绝连接、超时），`ADMIT-050` 是
+「白名单/封禁/**重名**」——**两条各自把三个互斥场景塞进一个 case id**。而 promotion 对一个
+case id 是 **any-satisfying-bundle**：读 `evaluate_promotion` 可见，第一份满足的候选就把该 case
+判为满足。后果与契约自己为 `CORE-060` 写下的一模一样：**「既不可能由一份 bundle 满足，也不能
+保证每种故障各有一份」**——一份只跑了「连接被拒」的 bundle 会让整条用例读起来是覆盖的，而
+「三类分类不同」从来没被证明过。契约对 `CORE-060` 的处置是**按边界拆成独立 case id**
+（`CORE-060` / `-CLIENT-001` / `-SERVER-001`），而**那个拆法是契约自己的注记授权的**。
+`ADMIT-030`/`050` **没有任何这样的注记**，所以拆它们等于**改契约的编号**——这是 inventory 的
+编号从哪来决定的：`domain/cases.py` 的清单逐条引用契约，凭空加号就是它一直拒绝做的事。
+**因此这两条今天的状态不是「可以开工」，而是「先要有契约层面的拆分决定」。**
+`ADMIT-040` 是这三条里**唯一单场景**的（online-mode 目标 + offline 身份），前半是转写
+（契约点名 `AUTH_MODE_MISMATCH`）；**后半「不自动启用账号适配器」仍缺判据**——「只尝试了一次」
+是个**代理**（账本里 `SessionInterrupted` 的条数可以数），而代理正是这里不该悄悄选的东西。
+
 **这个区分是一次差点写错的更正的产物**：我一度以为 (乙) 里的 profile 是「记了没断言」，
 因为线缆上确实有它——查到 `on_connection` 的 payload 才发现它止步于账本那一行。
 
