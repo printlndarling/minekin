@@ -28,6 +28,7 @@ import pytest
 from minekin_core.adapters.bridge.ipc import INBOUND_EVENT_TYPES
 from minekin_core.domain.information_class import (
     ACTION_RESULT,
+    BUDGET_WINDOW,
     CONNECTION_LIFECYCLE,
     DTO_INFORMATION_CLASSES,
     HOST_LIFECYCLE,
@@ -47,6 +48,11 @@ REVIEWED_CLASSES = {
     CONNECTION_LIFECYCLE: InformationClass.PLAYER_EQUIVALENT,
     ACTION_RESULT: InformationClass.PLAYER_EQUIVALENT,
     HOST_LIFECYCLE: InformationClass.MANAGEMENT_ONLY,
+    # The Bridge's own callback cost. Management-only for a different reason than
+    # the hosting status is: nobody could have seen it by playing, and it is a
+    # measurement of this repository's machinery rather than of anything in the
+    # world. It belongs in evidence and not in the Kin's model of where it is.
+    BUDGET_WINDOW: InformationClass.MANAGEMENT_ONLY,
 }
 
 

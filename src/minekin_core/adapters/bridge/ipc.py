@@ -71,6 +71,7 @@ LOOK_INPUT_TYPE: Final = "minekin.v1.LookInput"
 USE_INPUT_TYPE: Final = "minekin.v1.UseInput"
 INITIAL_OBSERVATION_TYPE: Final = "minekin.v1.InitialObservation"
 ACTION_RESULT_TYPE: Final = "minekin.v1.ActionResult"
+BUDGET_WINDOW_TYPE: Final = "minekin.v1.CallbackBudgetWindow"
 _UINT64_MAX: Final = (1 << 64) - 1
 # The admitted control message types, each with the protobuf class that carries
 # it. One table rather than a set plus a second lookup, because two lists of the
@@ -93,6 +94,7 @@ _EVENT_TYPES: Final = {
     INITIAL_OBSERVATION_TYPE: observation_pb2.InitialObservation,
     HOST_LIFECYCLE_TYPE: observation_pb2.HostLifecycle,
     ACTION_RESULT_TYPE: control_pb2.ActionResult,
+    BUDGET_WINDOW_TYPE: observation_pb2.CallbackBudgetWindow,
 }
 #: The DTOs the Bridge may report, published rather than left private because it
 #: is protocol surface: `domain/information_class.py` decides what may reach the

@@ -36,9 +36,16 @@ from minekin_core.adapters.sqlite.session_log import (
     SessionEventLog,
 )
 from minekin_core.adapters.system.clock import SystemClock
+from minekin_core.domain.budget import (
+    INTERVAL_LABEL,
+    TICK_LABEL,
+    BudgetLedger,
+    read_window,
+)
 from minekin_core.domain.events import EventSource, TrustClass
 from minekin_core.domain.evidence import EMPTY_DOCUMENT_SHA256, NO_WORLD
 from minekin_core.domain.ids import KinId
+from minekin_core.generated.minekin.v1 import observation_pb2
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 PROFILE = REPOSITORY_ROOT / "tests" / "fixtures" / "runtime-input" / "bundle-p0-core-1.21.4.json"
@@ -1486,3 +1493,57 @@ def test_the_promotion_report_refuses_a_verdict_the_bytes_do_not_support(
     assert listed[0]["verified"] is True
     assert listed[0]["re_judged"] == "DISAGREES"
     assert "RESULT:" in cast(str, listed[0]["re_judge_reason"])
+
+
+def test_the_callback_budget_is_part_of_the_sealed_record(
+    finished_run: tuple[Path, Path, Path],
+) -> None:
+    """What the Bridge's callbacks cost travels as evidence, which means it seals.
+
+    The run document is where a run's account of itself lives, so the budget's shape
+    belongs there rather than in a file of its own — and the question a test has to
+    answer is not whether a new key can be written. It is whether a bundle carrying it
+    still verifies, and whether the aggregate read back is the one the run reached
+    rather than something re-derived at the far end.
+
+    Built from real wire messages, so the shape under test is the one the Bridge
+    sends and not a hand-written approximation of it.
+    """
+
+    data_root, server, document = finished_run
+    ledger = BudgetLedger()
+    for label in (TICK_LABEL, INTERVAL_LABEL):
+        for window in (1, 2, 4):
+            reported, refusal = read_window(
+                observation_pb2.CallbackBudgetWindow(
+                    label=label,
+                    window=window,
+                    opened_at_nanos=window * 10_000_000_000,
+                    recorded=100,
+                    micros=range(100),
+                )
+            )
+            assert refusal is None
+            assert reported is not None
+            ledger.observe(reported)
+
+    payload = cast(dict[str, Any], json.loads(document.read_bytes()))
+    payload["run"]["budgets"] = ledger.as_document()
+    document.write_text(json.dumps(payload), encoding="utf-8")
+
+    report = seal_it(data_root, server, document)
+
+    assert report["status"] == "sealed"
+    bundle = data_root / "kin" / str(KIN) / "run" / "evidence" / RUN_ID
+    assert verify_bundle(bundle).verified
+    sealed = cast(dict[str, Any], json.loads((bundle / "run-document.json").read_bytes()))
+    budgets = sealed["run"]["budgets"]
+
+    assert budgets["percentile_method"] == "nearest-rank"
+    assert budgets["received_windows"] == 6
+    # Window 3 never arrived, and the bundle says so by ordinal rather than by count:
+    # the manifest protects these bytes, so a hole here is as tamper-evident as any
+    # other claim the run made about itself.
+    assert budgets["series"][TICK_LABEL]["missing_windows"] == [3]
+    assert budgets["series"][TICK_LABEL]["recorded_samples"] == 300
+    assert budgets["series"][INTERVAL_LABEL]["missing_windows"] == [3]

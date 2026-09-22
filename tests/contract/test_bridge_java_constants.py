@@ -19,6 +19,7 @@ from pathlib import Path
 
 from minekin_core.adapters.bridge import ipc
 from minekin_core.adapters.launcher import process
+from minekin_core.domain import budget
 
 BRIDGE_ROOT = Path(__file__).resolve().parents[2] / "bridge" / "src" / "main" / "java"
 WORKER = BRIDGE_ROOT / "org" / "minekin" / "bridge" / "runtime" / "BridgeIpcWorker.java"
@@ -26,8 +27,10 @@ CLIENT = BRIDGE_ROOT / "org" / "minekin" / "bridge" / "MinekinBridgeClient.java"
 INPUT_CONTROLLER = (
     BRIDGE_ROOT / "org" / "minekin" / "bridge" / "input" / "BridgeInputController.java"
 )
+METRICS = BRIDGE_ROOT / "org" / "minekin" / "bridge" / "runtime" / "BridgeMetrics.java"
 
 _TYPE_CONSTANT = re.compile(r'String\s+(\w+_TYPE)\s*=\s*"([^"]+)"')
+_LABEL_CONSTANT = re.compile(r'String\s+(\w+_LABEL)\s*=\s*"([^"]+)"')
 _ENVIRONMENT_CONSTANT = re.compile(r'String\s+(\w*ENVIRONMENT_VARIABLE)\s*=\s*"([^"]+)"')
 _INPUT_CAPABILITY = re.compile(r'public static final String\s+\w+\s*=\s*"(move\.[^"]+)"')
 
@@ -63,3 +66,20 @@ def test_the_movement_capability_vocabulary_is_shared() -> None:
 
     assert declared
     assert declared == ipc.MOVEMENT_CAPABILITIES
+
+
+def test_the_budget_series_labels_are_spelled_the_same_on_both_sides() -> None:
+    """The run document files these under the Bridge's own words.
+
+    Core decides what a label means — the aggregate for a series is keyed by it and a
+    label it does not know is refused — so a rename on the Java side alone would not
+    fail anything. It would make every window arrive as an unknown label, and the run
+    document would read as a Bridge that reported nothing, which is a shape the
+    refusal path is designed to be distinguishable from and would not be.
+    """
+
+    declared = _constants(METRICS, _LABEL_CONSTANT)
+
+    assert declared, f"no label constants found in {METRICS}"
+    assert declared == {"TICK_LABEL": budget.TICK_LABEL, "INTERVAL_LABEL": budget.INTERVAL_LABEL}
+    assert set(declared.values()) == set(budget.BUDGET_LABELS)

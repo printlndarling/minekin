@@ -5,6 +5,7 @@ import io.minekin.protocol.v1.ActionResult;
 import io.minekin.protocol.v1.ActionStatus;
 import io.minekin.protocol.v1.AdmissionFailureReason;
 import io.minekin.protocol.v1.BridgeBootstrapDescriptor;
+import io.minekin.protocol.v1.CallbackBudgetWindow;
 import io.minekin.protocol.v1.CancelConnection;
 import io.minekin.protocol.v1.Channel;
 import io.minekin.protocol.v1.ConnectWorld;
@@ -60,6 +61,7 @@ public final class BridgeIpcWorker implements AutoCloseable {
     public static final String ACTION_RESULT_TYPE = "minekin.v1.ActionResult";
     public static final String OPEN_LAN_TYPE = "minekin.v1.OpenLan";
     public static final String HOST_LIFECYCLE_TYPE = "minekin.v1.HostLifecycle";
+    public static final String BUDGET_WINDOW_TYPE = "minekin.v1.CallbackBudgetWindow";
     private static final Logger LOGGER = LoggerFactory.getLogger("minekin-bridge");
     /**
      * How many heartbeat intervals of silence the Bridge tolerates before it lets go of
@@ -449,6 +451,38 @@ public final class BridgeIpcWorker implements AutoCloseable {
                     eventOutbox.size(),
                     result.getActionId());
             failClosed();
+            return false;
+        }
+        return true;
+    }
+
+    /**
+     * The Bridge's own callback budget over one window — the one report it may drop.
+     *
+     * <p>Every other publisher here fails closed when the outbox is full, and each
+     * time the reason is the same in kind: a lifecycle phase, a first snapshot and an
+     * action result are things the session cannot proceed correctly without. A budget
+     * window is the opposite case. It is a measurement of the Bridge, and stopping a
+     * client because a measurement of the Bridge could not be delivered would make
+     * the sampler the cause of the fault it exists to detect.
+     *
+     * <p>So a window the outbox had no room for is dropped and logged, and a reader
+     * still sees that it happened: `window` is assigned when the window closes rather
+     * than when it is published, so the delivered windows carry a hole exactly where
+     * the dropped one was. That is a fact in the evidence rather than a counter that
+     * would have to survive the same full outbox it is reporting on.
+     */
+    public boolean publishBudgetWindow(CallbackBudgetWindow window) {
+        java.util.Objects.requireNonNull(window, "window");
+        if (stopping.get() || !started.get() || event == null) {
+            return false;
+        }
+        if (!eventOutbox.offer(new EventMessage(BUDGET_WINDOW_TYPE, window))) {
+            LOGGER.warn(
+                    "bridge dropped the {} budget window {}: the event outbox is full ({} held)",
+                    window.getLabel(),
+                    window.getWindow(),
+                    eventOutbox.size());
             return false;
         }
         return true;

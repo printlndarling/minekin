@@ -26,6 +26,7 @@ from enum import StrEnum
 from minekin_core.adapters.bridge.admission import accept_snapshot, apply_lifecycle
 from minekin_core.adapters.bridge.ipc import BridgeIpcHost, IpcProtocolError
 from minekin_core.adapters.bridge.perception import admit_first_snapshot
+from minekin_core.domain.budget import BudgetLedger, read_window
 from minekin_core.domain.connection import (
     CallbackDisposition,
     ConnectionGenerations,
@@ -109,6 +110,11 @@ class SessionRun:
     #: world is published on a port that is not one is the shape a joiner acts on, so
     #: "it arrived and was refused" is a fact about the run rather than silence.
     host_report_refusals: Mapping[str, int] = field(default_factory=dict[str, int])
+    #: What the Bridge's own callbacks cost, aggregated as the windows arrive. The
+    #: contract asks the prototype to record callback wall time and its P50/P95/P99;
+    #: this is where that measurement stops being a log line and becomes evidence the
+    #: bundle can be verified against.
+    budgets: Mapping[str, object] = field(default_factory=dict[str, object])
 
     def as_dict(self) -> dict[str, object]:
         return {
@@ -169,6 +175,11 @@ class SessionRun:
             # refused to record, by reason. Empty for a run whose reports were all
             # coherent, which is the usual case and not the same as "no report".
             "host_report_refusals": dict(self.host_report_refusals),
+            # What the Bridge's own callbacks cost this run. Aggregated rather than
+            # raw, so the document does not grow with how long the Kin ran, and
+            # carrying the windows that did not arrive as ordinals rather than as a
+            # count, so a dropped window is visible in the evidence itself.
+            "budgets": dict(self.budgets),
         }
 
 
@@ -208,6 +219,10 @@ class _Progress:
     #: world is published on a port that is not one is the shape a joiner would act
     #: on, so it is a fact about the run that it arrived and was refused.
     host_report_refusals: dict[str, int] = field(default_factory=dict[str, int])
+    #: The Bridge's own callback budget, folded window by window as it arrives. A
+    #: ledger rather than a list because what the document keeps of it is bounded:
+    #: one aggregate per label, one ordinal per window that never made it.
+    budgets: BudgetLedger = field(default_factory=BudgetLedger)
 
 
 async def supervise_session(
@@ -495,6 +510,18 @@ async def _read_events(
             else:
                 progress.lan_publication = publication.recorded.as_document()
             continue
+        if isinstance(message, observation_pb2.CallbackBudgetWindow):
+            # The Bridge's own cost, reported on a cadence rather than per tick. It
+            # is judged before it is recorded for the reason every other report here
+            # is: a window this build cannot read is a fact about the run, and once
+            # it is folded into a series that fact is indistinguishable from a
+            # number somebody measured.
+            window, refusal = read_window(message)
+            if refusal is not None:
+                progress.budgets.refuse(refusal)
+            elif window is not None:
+                progress.budgets.observe(window)
+            continue
         if not isinstance(message, observation_pb2.ConnectionLifecycle):
             # Counted rather than dropped silently: an event type this build
             # does not act on is a fact about the run, not noise.
@@ -619,4 +646,5 @@ def _report(
         perceived_information_class=progress.perceived_information_class,
         cognition_refusals=dict(progress.cognition_refusals),
         host_report_refusals=dict(progress.host_report_refusals),
+        budgets=progress.budgets.as_document(),
     )

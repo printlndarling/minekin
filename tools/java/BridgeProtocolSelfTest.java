@@ -6,7 +6,9 @@ import java.util.function.Function;
 import org.minekin.bridge.protocol.FrameCodec;
 import org.minekin.bridge.protocol.HandshakeGate;
 import org.minekin.bridge.runtime.BoundedChannel;
+import org.minekin.bridge.runtime.BridgeMetrics;
 import org.minekin.bridge.runtime.BridgePhaseMachine;
+import org.minekin.bridge.runtime.CallbackBudget;
 
 public final class BridgeProtocolSelfTest {
     private static final Set<String> BASELINE_CAPABILITIES =
@@ -22,6 +24,125 @@ public final class BridgeProtocolSelfTest {
         handshakeIsSingleUseAndIdentityBound();
         wrongNonceProtocolAndCapabilitiesAreRejected();
         handshakeBoundsAdmitOnlyTheAcceptedRange();
+        budgetsAreBoundedAndKeepTheNewest();
+        aClockThatWentBackwardsMeasuresNothing();
+        recordingStaysBoundedWorkWhateverItIsGiven();
+        metricsSampleBothSeriesOverOneWindow();
+        aWindowThatOutranItsRingSaysSo();
+        aWindowThatWasNotDeliveredStillConsumesItsNumber();
+    }
+
+    /**
+     * The budget's whole memory is its ring, for a long run as much as a short one.
+     *
+     * <p>A million samples into a budget of four is the shape of every run: the
+     * retention stays at the capacity and the newest are the ones kept, because the
+     * tail is where a stall shows up.
+     */
+    private static void budgetsAreBoundedAndKeepTheNewest() {
+        CallbackBudget budget = new CallbackBudget(4);
+        require(budget.capacity() == 4, "the capacity is what was asked for");
+        for (int sample = 1; sample <= 1_000_000; sample++) {
+            budget.record(sample);
+        }
+        CallbackBudget.Window window = budget.take();
+        require(window.recorded() == 1_000_000, "every sample is counted");
+        require(window.nanos().length == 4, "retention is the capacity, not the count");
+        require(
+                java.util.Arrays.equals(
+                        window.nanos(), new long[] {999_997L, 999_998L, 999_999L, 1_000_000L}),
+                "the newest samples are the ones kept");
+        require(budget.take().nanos().length == 0, "a taken window begins a new one");
+    }
+
+    private static void aClockThatWentBackwardsMeasuresNothing() {
+        CallbackBudget budget = new CallbackBudget(2);
+        budget.record(-1);
+
+        require(budget.take().recorded() == 0, "a negative duration is refused, not stored");
+    }
+
+    /**
+     * The record path is bounded work, and this is a guard on that rather than a
+     * measurement of it.
+     *
+     * <p>A million array writes take a few milliseconds, so the margin below is three
+     * orders of magnitude wide and cannot flake. What it would catch is the thing that
+     * would actually matter: a {@code record} that started doing I/O, taking a lock or
+     * allocating would not stay inside it — and that is the one way this class could
+     * become the stall it exists to detect.
+     *
+     * <p>What is <em>not</em> claimed here is the end-to-end one. That the client
+     * thread is never held up by this needs a real client, and the contract says so:
+     * the prototype records the budget, and a run campaign is what judges it.
+     */
+    private static void recordingStaysBoundedWorkWhateverItIsGiven() {
+        CallbackBudget budget = new CallbackBudget(4096);
+        long startedAt = System.nanoTime();
+        for (int sample = 0; sample < 1_000_000; sample++) {
+            budget.record(sample);
+        }
+        long elapsedMillis = (System.nanoTime() - startedAt) / 1_000_000L;
+
+        require(
+                elapsedMillis < 5_000,
+                "a million samples do not take five seconds: " + elapsedMillis + "ms");
+        require(budget.capacity() == 4096, "and the memory did not grow with them");
+    }
+
+    private static void metricsSampleBothSeriesOverOneWindow() {
+        BridgeMetrics metrics = new BridgeMetrics(8, 1_000L);
+        require(!metrics.recordTick(1, 0), "the first tick opens a window");
+        require(!metrics.recordTick(1, 400), "a window is not closed early");
+        require(metrics.recordTick(1, 1_000), "a window closes at its cadence");
+
+        List<BridgeMetrics.Snapshot> windows = metrics.takeWindows();
+        require(windows.size() == 2, "one window per series");
+        BridgeMetrics.Snapshot tick = windows.get(0);
+        BridgeMetrics.Snapshot interval = windows.get(1);
+        require(tick.label().equals(BridgeMetrics.TICK_LABEL), "the tick series");
+        require(interval.label().equals(BridgeMetrics.INTERVAL_LABEL), "the interval series");
+        require(tick.window() == 1 && interval.window() == 1, "both carry one window number");
+        require(tick.nanos().length == 3, "three ticks in the window");
+        require(
+                interval.nanos().length == 2,
+                "the first tick has no predecessor, so it contributes no interval");
+        require(
+                interval.nanos()[0] == 400 && interval.nanos()[1] == 600,
+                "an interval is the period from one tick to the next");
+    }
+
+    private static void aWindowThatOutranItsRingSaysSo() {
+        BridgeMetrics metrics = new BridgeMetrics(2, 999L);
+        for (int tick = 0; tick <= 999; tick++) {
+            metrics.recordTick(1, tick);
+        }
+
+        List<BridgeMetrics.Snapshot> windows = metrics.takeWindows();
+
+        require(windows.get(0).recorded() == 1_000, "every tick is counted");
+        require(windows.get(0).nanos().length == 2, "and two of them are still held");
+    }
+
+    /**
+     * A window consumes its number when it closes, not when it is delivered.
+     *
+     * <p>This is the whole mechanism behind a hole in the evidence: the one report the
+     * Bridge is allowed to drop is its own budget, and a reader must still be able to
+     * see that it was built. Numbers 1 and 3 with no 2 say exactly that.
+     */
+    private static void aWindowThatWasNotDeliveredStillConsumesItsNumber() {
+        BridgeMetrics metrics = new BridgeMetrics(4, 100L);
+        metrics.recordTick(1, 0);
+        metrics.recordTick(1, 100);
+        List<BridgeMetrics.Snapshot> built = metrics.takeWindows();
+        require(built.get(0).window() == 1, "the first window is number one");
+
+        metrics.recordTick(1, 200);
+        List<BridgeMetrics.Snapshot> next = metrics.takeWindows();
+
+        require(next.get(0).window() == 2, "the ordinal advances with no delivery in between");
+        require(metrics.windowCount() == 2, "and closed windows are counted whether or not sent");
     }
 
     private static void framingIsNetworkOrderAndIncremental() {

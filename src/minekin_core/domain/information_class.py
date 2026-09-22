@@ -43,6 +43,7 @@ CONNECTION_LIFECYCLE: Final = "minekin.v1.ConnectionLifecycle"
 INITIAL_OBSERVATION: Final = "minekin.v1.InitialObservation"
 HOST_LIFECYCLE: Final = "minekin.v1.HostLifecycle"
 ACTION_RESULT: Final = "minekin.v1.ActionResult"
+BUDGET_WINDOW: Final = "minekin.v1.CallbackBudgetWindow"
 
 
 class InformationClass(StrEnum):
@@ -73,14 +74,16 @@ class InformationClass(StrEnum):
 #:
 #: The three player-equivalent entries carry no world state: a connection phase,
 #: a snapshot already filtered by `domain/perception.py`, and the disposition of
-#: the Kin's own action. The management-only entry is the control side's report
-#: about the machinery that publishes a hosted world — the Kin meets the world it
-#: hosts by being in it, not by reading the hosting status.
+#: the Kin's own action. The two management-only entries are the control side's
+#: reports about the machinery — the hosting status of a world, and how long the
+#: Bridge's own callbacks took. The Kin meets the world it hosts by being in it, and
+#: it meets its own client's cost by the client being fast, not by reading either.
 DTO_INFORMATION_CLASSES: Final[dict[str, InformationClass]] = {
     CONNECTION_LIFECYCLE: InformationClass.PLAYER_EQUIVALENT,
     INITIAL_OBSERVATION: InformationClass.PLAYER_EQUIVALENT,
     ACTION_RESULT: InformationClass.PLAYER_EQUIVALENT,
     HOST_LIFECYCLE: InformationClass.MANAGEMENT_ONLY,
+    BUDGET_WINDOW: InformationClass.MANAGEMENT_ONLY,
 }
 
 

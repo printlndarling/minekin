@@ -12,7 +12,9 @@ SOURCES = (
     ROOT / "bridge/src/main/java/org/minekin/bridge/protocol/FrameCodec.java",
     ROOT / "bridge/src/main/java/org/minekin/bridge/protocol/HandshakeGate.java",
     ROOT / "bridge/src/main/java/org/minekin/bridge/runtime/BoundedChannel.java",
+    ROOT / "bridge/src/main/java/org/minekin/bridge/runtime/BridgeMetrics.java",
     ROOT / "bridge/src/main/java/org/minekin/bridge/runtime/BridgePhaseMachine.java",
+    ROOT / "bridge/src/main/java/org/minekin/bridge/runtime/CallbackBudget.java",
     ROOT / "tools/java/BridgeProtocolSelfTest.java",
 )
 

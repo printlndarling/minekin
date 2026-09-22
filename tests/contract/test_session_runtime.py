@@ -12,7 +12,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Awaitable, Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
@@ -28,6 +28,7 @@ from bridge_peer import (  # type: ignore[import-not-found]
 from minekin_core.adapters.bridge.ipc import (
     ACTION_RESULT_TYPE,
     BRIDGE_HELLO_TYPE,
+    BUDGET_WINDOW_TYPE,
     CONNECTION_LIFECYCLE_TYPE,
     HOST_LIFECYCLE_TYPE,
     INITIAL_OBSERVATION_TYPE,
@@ -224,6 +225,40 @@ class Peer:
                     generation=1,
                     phase=phase,
                     bound_port=port,
+                ).SerializeToString(deterministic=True),
+            ),
+        )
+
+    async def report_budget(
+        self,
+        *,
+        label: str = "tick",
+        window: int = 1,
+        recorded: int = 3,
+        micros: tuple[int, ...] = (100, 200, 300),
+    ) -> None:
+        """One window of the Bridge's own callback budget, as the wire carries it.
+
+        The Bridge's report about itself rather than about the world, which is what
+        gate 3 makes management-only: a reader of the run learns what the callbacks
+        cost and learns nothing about where the Kin was.
+        """
+
+        assert self.event_writer is not None
+        self.sequence += 1
+        await write_frame(
+            self.event_writer,
+            envelope(
+                self.bridge,
+                BUDGET_WINDOW_TYPE,
+                envelope_pb2.CHANNEL_EVENT,
+                self.sequence,
+                observation_pb2.CallbackBudgetWindow(
+                    label=label,
+                    window=window,
+                    opened_at_nanos=window * 10_000_000_000,
+                    recorded=recorded,
+                    micros=list(micros),
                 ).SerializeToString(deterministic=True),
             ),
         )
@@ -730,6 +765,87 @@ def test_a_management_report_does_not_become_what_the_kin_knows(tmp_path: Path) 
         # And the report still reached the document, as a fact about the world
         # rather than as something the Kin knows.
         assert document["lan_publication"] == {"phase": "LAN_OPENED", "port": 25565}
+
+    asyncio.run(scenario())
+
+
+def test_the_bridges_own_callback_cost_reaches_the_run_document(tmp_path: Path) -> None:
+    """W20's measurement, taken from the wire and filed as evidence it can be checked in.
+
+    The contract asks the prototype to record callback wall time and its P50/P95/P99,
+    and the stop condition for this phase is tick/render stutter — which is a claim
+    nobody can make without the numbers. What this checks is that the numbers have
+    somewhere to arrive and a shape to arrive in, and it is deliberately the whole of
+    what it checks: no threshold is asserted, because the contract says thresholds
+    come after a measurement and this is the measurement being made possible.
+
+    Two facts about the run are asserted here and neither is about the Bridge's code.
+    A window that never arrived is a hole in the ordinals, and a series this build
+    cannot name is a refusal rather than a series — and both are visible in the
+    document rather than inferred from it.
+    """
+
+    async def scenario() -> None:
+        bridge = session()
+        host = BridgeIpcHost(bridge)
+        descriptor = await host.prepare(tmp_path / "descriptor.pb")
+        machine, connections = _in_handshake()
+        exit_event = asyncio.Event()
+        peer = Peer(descriptor, bridge)
+
+        async def client() -> None:
+            await _drive_to_playable(peer, machine)
+            for label in ("tick", "tick_interval"):
+                for window in (1, 2, 3):
+                    await peer.report_budget(
+                        label=label,
+                        window=window,
+                        recorded=100,
+                        micros=tuple(range(100)),
+                    )
+            # Window 4 is built by the Bridge and never delivered, which is what a full
+            # outbox leaves behind. Window 5 is the next one it did deliver.
+            await peer.report_budget(label="tick", window=5, recorded=1, micros=(4_000,))
+            await peer.report_budget(label="tick_interval", window=5, recorded=1, micros=(50_000,))
+            # A label this build has never heard of.
+            await peer.report_budget(label="render", window=5)
+            await asyncio.sleep(0.05)
+            exit_event.set()
+            await peer.close()
+
+        running = asyncio.create_task(client())
+        run = await _supervise(host, machine, connections, exit_event=exit_event)
+        await running
+
+        document = run.as_dict()
+        budgets = cast(dict[str, Any], document["budgets"])
+        by_label = cast(dict[str, dict[str, Any]], budgets["series"])
+        tick = by_label["tick"]
+        interval = by_label["tick_interval"]
+
+        assert budgets["percentile_method"] == "nearest-rank"
+        # Four windows for each of the two series arrived; the eighth report named a
+        # series this build does not know and is a refusal instead of a series.
+        assert budgets["received_windows"] == 8
+        assert budgets["report_refusals"] == {"UNKNOWN_LABEL": 1}
+        # Window 4 is missing from both series, and that is the whole evidence that the
+        # Bridge built it: the ordinals are taken when a window closes, not when it is
+        # published, so the delivered ones carry a hole exactly where it was.
+        assert tick["missing_windows"] == [4]
+        assert interval["missing_windows"] == [4]
+        # Three hundreds of samples plus the one from window 5.
+        assert tick["recorded_samples"] == 301
+        # Nearest-rank over 0..99 three times over, then the single large sample:
+        # ceil(0.50 * 301) = 151, so index 150 is 50.
+        assert tick["p50"] == 50
+        assert tick["maximum_micros"] == 4_000
+        assert interval["maximum_micros"] == 50_000
+        # The cost of the Bridge's own callbacks did not become what the Kin knows. It
+        # is a measurement of this repository's machinery, so it is management-only,
+        # and the count is of the gate refusing rather than of a router dropping them.
+        # Nine reports travelled and every one of them was refused the Kin's model.
+        assert document["perceived_information_class"] == "PLAYER_EQUIVALENT"
+        assert document["cognition_refusals"] == {"MANAGEMENT_ONLY_DTO": 9}
 
     asyncio.run(scenario())
 

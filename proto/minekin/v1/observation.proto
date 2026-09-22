@@ -77,6 +77,47 @@ message ConnectionLifecycle {
   bool terminal = 6;
 }
 
+// The Bridge's own cost on the client thread over one window.
+//
+// The prototype contract asks for callback wall time and its P50/P95/P99, and the
+// same contract forbids the IPC path from stalling the client thread — so the
+// measurement has to be taken where the callback runs and reported from where the
+// channel is. This is the wire between those two.
+//
+// It is timing of the Bridge's own work and not of the world, which is what the
+// reading side's class table says about it: `MANAGEMENT_ONLY`, inadmissible to the
+// Kin's own model of the world. Knowing how long a callback took is knowing about
+// the machinery.
+//
+// Both fields below are bounded. `micros` can never hold more than the series'
+// capacity, which is a constant of the build, so a window's encoded size is bounded
+// by construction and no run can grow it.
+message CallbackBudgetWindow {
+  // Which series this is: the Bridge's own callback body, or the client's tick
+  // period — the time from one tick to the next, which is where a stall of any
+  // origin shows up. Closed on the reading side: a label this build cannot name is
+  // a report it counts rather than believes.
+  string label = 1;
+  // 1-based, and taken when the window closes rather than when it is published. A
+  // reader holding windows 1, 2 and 4 can therefore see that 3 existed and did not
+  // arrive; a counter travelling in a later message would be a second place for one
+  // fact, and would be lost entirely if the run ended first.
+  uint64 window = 2;
+  // The Bridge's own clock when the window opened. Comparable with the other windows
+  // of the same run and with nothing else, the same rule every deadline on this wire
+  // already lives under.
+  uint64 opened_at_nanos = 3;
+  // How many samples arrived in this window. When it is larger than the retained
+  // list below, the series outran the memory reserved for it — which a reader can
+  // see rather than infer, and which is not the same as a quiet window.
+  uint64 recorded = 4;
+  // The retained samples in record order, in microseconds. Microseconds because a
+  // callback budget is measured in them and a nanosecond count would spend four
+  // bytes of every sample on precision no reader of this asks for.
+  repeated uint32 micros = 5;
+  reserved 6 to 10;
+}
+
 message SelfState {
   float health = 1;
   float max_health = 2;

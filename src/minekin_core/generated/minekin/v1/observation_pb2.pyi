@@ -103,6 +103,20 @@ class ConnectionLifecycle(_message.Message):
     terminal: bool
     def __init__(self, generation: _Optional[int] = ..., server_profile_id: _Optional[str] = ..., server_profile_revision: _Optional[str] = ..., phase: _Optional[_Union[ConnectionPhase, str]] = ..., failure_reason: _Optional[_Union[AdmissionFailureReason, str]] = ..., terminal: bool = ...) -> None: ...
 
+class CallbackBudgetWindow(_message.Message):
+    __slots__ = ("label", "window", "opened_at_nanos", "recorded", "micros")
+    LABEL_FIELD_NUMBER: _ClassVar[int]
+    WINDOW_FIELD_NUMBER: _ClassVar[int]
+    OPENED_AT_NANOS_FIELD_NUMBER: _ClassVar[int]
+    RECORDED_FIELD_NUMBER: _ClassVar[int]
+    MICROS_FIELD_NUMBER: _ClassVar[int]
+    label: str
+    window: int
+    opened_at_nanos: int
+    recorded: int
+    micros: _containers.RepeatedScalarFieldContainer[int]
+    def __init__(self, label: _Optional[str] = ..., window: _Optional[int] = ..., opened_at_nanos: _Optional[int] = ..., recorded: _Optional[int] = ..., micros: _Optional[_Iterable[int]] = ...) -> None: ...
+
 class SelfState(_message.Message):
     __slots__ = ("health", "max_health", "food", "saturation", "on_ground", "alive", "current_screen")
     HEALTH_FIELD_NUMBER: _ClassVar[int]

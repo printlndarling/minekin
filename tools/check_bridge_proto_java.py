@@ -231,6 +231,12 @@ ADAPTER_SOURCES = (
     ROOT / "bridge/src/main/java/org/minekin/bridge/runtime/BridgePhaseMachine.java",
     ROOT / "bridge/src/main/java/org/minekin/bridge/runtime/BoundedChannel.java",
     ROOT / "bridge/src/main/java/org/minekin/bridge/runtime/BridgeIpcWorker.java",
+    # The callback budget: the series that holds it and the two windows the client
+    # tick hands over. Compiled here with the rest, so the one class the tick calls
+    # per frame is checked against the generated protocol types like every other
+    # file that names them.
+    ROOT / "bridge/src/main/java/org/minekin/bridge/runtime/BridgeMetrics.java",
+    ROOT / "bridge/src/main/java/org/minekin/bridge/runtime/CallbackBudget.java",
     # Publishing the world a client hosts: the seam, its result vocabulary, and the
     # controller that decides when to ask. `IntegratedServerControl` — the only
     # implementation, and the only file allowed to read server state — is stubbed

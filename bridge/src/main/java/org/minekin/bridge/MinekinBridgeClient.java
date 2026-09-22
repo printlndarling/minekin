@@ -2,6 +2,7 @@ package org.minekin.bridge;
 
 import java.nio.file.Path;
 import java.time.Duration;
+import io.minekin.protocol.v1.CallbackBudgetWindow;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientLifecycleEvents;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
@@ -17,6 +18,7 @@ import org.minekin.bridge.input.BridgeInputController;
 import org.minekin.bridge.input.VanillaKeySink;
 import org.minekin.bridge.input.VanillaViewSink;
 import org.minekin.bridge.runtime.BridgeIpcWorker;
+import org.minekin.bridge.runtime.BridgeMetrics;
 import org.minekin.bridge.runtime.BridgePhaseMachine;
 import org.minekin.bridge.runtime.ClientAdmissionController;
 import org.minekin.bridge.runtime.HostController;
@@ -53,8 +55,14 @@ public final class MinekinBridgeClient implements ClientModInitializer {
         ClientAdmissionController controller = new ClientAdmissionController(
                 phases, created::publishLifecycle, created::publishObservation);
         HostController hostController = new HostController(created::publishHostLifecycle);
+        // The budget's subject is this callback, so its clock brackets the callback
+        // and nothing else. Constructed here rather than reached for globally because
+        // it is per-client: two clients in one JVM would be two budgets, and there is
+        // one.
+        BridgeMetrics metrics = BridgeMetrics.withDefaults();
         ClientTickEvents.END_CLIENT_TICK.register(
                 client -> {
+                    long tickOpenedAtNanos = System.nanoTime();
                     created.drainClientMessages(
                             MAX_NOTICES_PER_TICK,
                             message -> {
@@ -151,6 +159,11 @@ public final class MinekinBridgeClient implements ClientModInitializer {
                                 created,
                                 BridgeInputController.ReleaseReason.BRIDGE_FAULT);
                     }
+                    // Last, so the recorded cost is the whole callback: this is what
+                    // the mod adds to the client's frame, and taking it anywhere else
+                    // would be measuring part of the work and reporting it as all of
+                    // it. Nothing below this line may be added without moving it.
+                    recordTickCost(created, metrics, tickOpenedAtNanos);
                 });
         ClientLifecycleEvents.CLIENT_STOPPING.register(client -> stopSafely(
                 client, controller, created, BridgeInputController.ReleaseReason.SHUTDOWN));
@@ -252,6 +265,60 @@ public final class MinekinBridgeClient implements ClientModInitializer {
             LOGGER.error("bridge fault while handling a client event", error);
             stopSafely(client, controller, worker, BridgeInputController.ReleaseReason.BRIDGE_FAULT);
         }
+    }
+
+    /**
+     * The largest sample the wire can carry, in microseconds.
+     *
+     * <p>{@code uint32} microseconds is about seventy-one minutes, and a tick that
+     * long cannot happen in a process that is still running. The clamp is here rather
+     * than left to protobuf because the alternative on this path is an exception
+     * thrown from the client tick, which stops the client — the sampler becoming the
+     * fault it exists to measure. A sample already at this ceiling is a fact about the
+     * run that dwarfs anything a distribution of it could add.
+     */
+    private static final long MAX_SAMPLE_MICROS = 0xFFFFFFFFL;
+
+    /**
+     * Records the cost of one client-tick callback, and publishes any window it closed.
+     *
+     * <p>Publishing is best-effort and deliberately cannot stop the client: a window
+     * the outbox had no room for is dropped by the worker, which logs it, and the gap
+     * it leaves in the window numbers is how a reader sees that it happened.
+     *
+     * <p>The window's samples are read out here, on the tick that closes it, rather
+     * than per tick: {@code record} is the allocation-free half and this is the half
+     * that builds a message, so a window every ten seconds means a message every ten
+     * seconds and no garbage at twenty ticks a second.
+     */
+    private static void recordTickCost(
+            BridgeIpcWorker worker, BridgeMetrics metrics, long tickOpenedAtNanos) {
+        if (!metrics.recordTick(System.nanoTime() - tickOpenedAtNanos, tickOpenedAtNanos)) {
+            return;
+        }
+        for (BridgeMetrics.Snapshot snapshot : metrics.takeWindows()) {
+            worker.publishBudgetWindow(budgetWindow(snapshot));
+        }
+    }
+
+    /**
+     * One series' window, as the wire spells it.
+     *
+     * <p>The cast is protobuf's own unsigned encoding — a {@code uint32} accessor takes
+     * an {@code int} and the bits are the value — so the ceiling survives the round
+     * trip as the number it is rather than as a negative one.
+     */
+    private static CallbackBudgetWindow budgetWindow(BridgeMetrics.Snapshot snapshot) {
+        CallbackBudgetWindow.Builder window =
+                CallbackBudgetWindow.newBuilder()
+                        .setLabel(snapshot.label())
+                        .setWindow(snapshot.window())
+                        .setOpenedAtNanos(snapshot.openedAtNanos())
+                        .setRecorded(snapshot.recorded());
+        for (long nanos : snapshot.nanos()) {
+            window.addMicros((int) Math.min(nanos / 1_000L, MAX_SAMPLE_MICROS));
+        }
+        return window.build();
     }
 
     private static void stopSafely(
