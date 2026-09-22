@@ -49,6 +49,39 @@ def test_unknown_mod_is_rejected(tmp_path: Path) -> None:
         validate_bundle_recipe(candidate, ROOT)
 
 
+@pytest.mark.parametrize(
+    ("artifact_name", "field"),
+    [
+        ("fabric-api", "digest"),
+        ("minekin-bridge", "digest"),
+        ("minekin-bridge", "source_digest"),
+    ],
+)
+def test_any_tampered_recipe_digest_is_rejected(
+    tmp_path: Path, artifact_name: str, field: str
+) -> None:
+    """Every digest the reviewed recipe carries is enforced, not decorative.
+
+    One parametrisation per digest, so "tampering with any digest is refused" is a
+    claim about the list rather than about one field of it: a value nothing reads
+    can disagree with what is actually fetched or built without anything noticing,
+    and that is the same shape `test_an_unreviewed_fabric_pin_is_rejected` exists
+    for one section over.
+    """
+
+    recipe = json.loads(PROFILE.read_bytes())
+    artifact = next(item for item in recipe["artifacts"] if item["name"] == artifact_name)
+    digest = artifact[field]
+    artifact[field] = ("0" if digest[0] != "0" else "1") + digest[1:]
+    candidate = tmp_path / "recipe.json"
+    candidate.write_text(json.dumps(recipe), encoding="utf-8")
+
+    with pytest.raises(MinekinError) as raised:
+        validate_bundle_recipe(candidate, ROOT)
+
+    assert raised.value.category is ErrorCategory.SUPPLY_CHAIN
+
+
 def test_bundle_verify_cli_is_read_only() -> None:
     from io import StringIO
 

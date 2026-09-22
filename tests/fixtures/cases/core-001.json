@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "case_id": "CORE-001",
+  "work_package": "W10",
+  "mandatory": true,
+  "inputs": [
+    "tests/fixtures/runtime-input/bundle-p0-core-1.21.4.json",
+    "bridge/gradle.lockfile",
+    "bridge/host-boundary-names.json"
+  ],
+  "assertion_digests": {
+    "a_bridge_artifact_under_an_unreviewed_dependency_digest_is_rejected": "66219b31182c3ff14e62dcfa5993c2183554910f55305111e42ddb6f9eaa1c73",
+    "inserting_an_unknown_mod_is_rejected": "091166c80d517bea654d210fd71d4ef832c0b723ef64440faa73a5f97aacfeb5",
+    "tampering_with_a_published_bundle_is_rejected": "6b605c6ff6555cc7dce6412936e7162f5b9d4d4cc42237a4b1788ab7159cfcc5",
+    "tampering_with_any_recipe_digest_is_rejected": "522a8a221b8d45a5161efa81ad2a2778964a0a8769e0678b731d705b109f7717",
+    "the_fixed_bundle_recipe_is_the_reviewed_one": "ae19685ed198977002c88745dca4cdfd4a5d64f2474f87d70540d183a9f22559"
+  },
+  "assertions": [
+    "the_fixed_bundle_recipe_is_the_reviewed_one",
+    "tampering_with_any_recipe_digest_is_rejected",
+    "inserting_an_unknown_mod_is_rejected",
+    "tampering_with_a_published_bundle_is_rejected",
+    "a_bridge_artifact_under_an_unreviewed_dependency_digest_is_rejected"
+  ]
+}

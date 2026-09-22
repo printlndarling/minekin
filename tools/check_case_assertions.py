@@ -183,6 +183,36 @@ IMPLEMENTATIONS: dict[str, Implementation] = {
         "tests/contract/test_fixture_boundaries.py"
         "::test_product_build_and_import_boundaries_exclude_oracle",
     ),
+    # CORE-001: the fixed artifact/bundle manifest, and what tampering with it does.
+    # Every one of the five is already performed by a check this repository had —
+    # the recipe validator, the content-addressed bundle store, and the compiled
+    # Bridge artifact gate — so the case names them rather than growing a second
+    # implementation of any of the three. That is the whole of what a *repository*
+    # case can be: the reviewed manifest is a file, and the negative mutations are
+    # tests, because a mutation is something a check is driven into rather than
+    # something a run of the product produces.
+    "the_fixed_bundle_recipe_is_the_reviewed_one": Implementation(
+        "pytest",
+        "tests/unit/test_bundle_recipe.py::test_fixed_mod_recipe_validates_source_identity",
+    ),
+    "tampering_with_any_recipe_digest_is_rejected": Implementation(
+        "pytest",
+        "tests/unit/test_bundle_recipe.py::test_any_tampered_recipe_digest_is_rejected",
+    ),
+    "inserting_an_unknown_mod_is_rejected": Implementation(
+        "pytest",
+        "tests/unit/test_bundle_recipe.py::test_unknown_mod_is_rejected",
+    ),
+    "tampering_with_a_published_bundle_is_rejected": Implementation(
+        "pytest",
+        "tests/unit/test_artifact_store.py"
+        "::test_bundle_verification_detects_tampering_and_undeclared_files",
+    ),
+    "a_bridge_artifact_under_an_unreviewed_dependency_digest_is_rejected": Implementation(
+        "pytest",
+        "tests/contract/test_bridge_artifact_gate.py"
+        "::test_a_reviewed_dependency_under_another_digest_is_refused",
+    ),
     # CORE-070's channel-level claims. They are performed by tests rather than by
     # the runtime asserter because that is where the subject is: a half frame, an
     # oversize frame and a flood are things a *channel* does, and the one side
