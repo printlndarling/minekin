@@ -1731,13 +1731,18 @@ def test_a_run_document_without_its_run_section_cannot_be_judged() -> None:
 @pytest.mark.parametrize(
     ("snapshots", "state", "reason"),
     [
+        # The count is not there at all. This is a different fact from a count of
+        # zero, and it is the one a document written before the counter existed
+        # carries — so the assertion names the missing count rather than reading it
+        # as nothing admitted.
+        (None, "PLAYABLE", "SNAPSHOT_COUNT_MISSING"),
         (0, "PLAYABLE", "NO_SNAPSHOT_ADMITTED"),
         (1, "CONNECTING", "CONNECTION_NOT_PLAYABLE:CONNECTING"),
         (1, None, "CONNECTION_NOT_PLAYABLE:None"),
     ],
 )
 def test_a_join_without_an_admitted_first_snapshot_is_not_a_join(
-    snapshots: int, state: str | None, reason: str
+    snapshots: int | None, state: str | None, reason: str
 ) -> None:
     document = run_document(snapshots_admitted=snapshots, connection_state=state)
 
@@ -2755,6 +2760,7 @@ def without_keys(document: Mapping[str, object], *keys: str) -> dict[str, object
 
 def joined_world(
     *,
+    document: object = _UNSET,
     world_run_document: object = _UNSET,
     client_log: str = DIALLED,
 ) -> _Material:
@@ -2765,7 +2771,9 @@ def joined_world(
     `_UNSET` is what separates "this test did not say" from "there is no host
     document", which is the distinction the assertion itself is built on — and typing
     the parameter as `object` is the shape this file already uses for inputs a caller
-    varies across a whole union of wrong shapes.
+    varies across a whole union of wrong shapes. `document` is the same idea one run
+    over: the joining client's own account, whose admission the first-snapshot
+    assertion reads.
     """
 
     host = (
@@ -2773,7 +2781,8 @@ def joined_world(
         if world_run_document is _UNSET
         else cast("Mapping[str, object] | None", world_run_document)
     )
-    return material(document=run_document(), client_log=client_log, world_run_document=host)
+    run = run_document() if document is _UNSET else cast("dict[str, object]", document)
+    return material(document=run, client_log=client_log, world_run_document=host)
 
 
 def test_the_join_case_holds_when_the_host_names_the_case_s_world() -> None:
@@ -2785,6 +2794,94 @@ def test_the_join_case_holds_when_the_host_names_the_case_s_world() -> None:
         "the_world_this_run_joined_is_the_one_the_case_names",
     )
     assert verdict.failures == ()
+
+
+#: The other half of the join, spelled once for the tests below: what this client's
+#: own record says about the address it dialled and the snapshot it was admitted into.
+FIRST_SNAPSHOT_ASSERTION = "the_first_snapshot_of_the_world_it_dialled_was_admitted"
+
+
+def dialled(*, host: str = "127.0.0.1", port: int | str = HOST_PORT) -> str:
+    """The Bridge's own line, with the address under test put inside it.
+
+    The shape is the measured one, not a paraphrase: the assertion reads host, port
+    and generation out of this exact wording, so a test that wrote its own sentence
+    would be exercising a parser that has never met a real log.
+    `test_the_measured_line_is_what_this_helper_builds` is what holds that claim up.
+    """
+
+    return (
+        f"bridge asked vanilla to connect to {host}:{port} for generation 1 "
+        "(finishedLoading=true, screen=none, overlay=none)"
+    )
+
+
+def run_document_without(*keys: str) -> dict[str, object]:
+    """A run document with whole fields taken off its `run` block, rather than nulled.
+
+    The same distinction `without_keys` draws one level up: a block carrying no
+    `snapshots_admitted` key at all is a different document from one carrying zero,
+    and only the second of those is a run that admitted nothing.
+    """
+
+    document = run_document()
+    document["run"] = without_keys(cast(Mapping[str, object], document["run"]), *keys)
+    return document
+
+
+def test_the_measured_line_is_what_this_helper_builds() -> None:
+    """`DIALLED` was measured off a real run, and this is what keeps it the same line.
+
+    Without this the helper above could drift into its own fiction while every test
+    using it kept passing — the line and the thing it is supposed to be a copy of are
+    only the same line as long as something says so.
+    """
+
+    assert dialled() == DIALLED
+    assert dialled(host="::1") == DIALLED.replace("127.0.0.1", "::1")
+
+
+@pytest.mark.parametrize(
+    ("client_log", "reason"),
+    [
+        # The frozen profile admits a loopback literal and nothing else, so a client
+        # that reached an address on the network is not this case — whatever it went
+        # on to be admitted into.
+        (dialled(host="192.168.1.4"), "DIALLED_SOMETHING_BUT_A_LOOPBACK_LITERAL:192.168.1.4"),
+        (dialled(host="localhost"), "DIALLED_SOMETHING_BUT_A_LOOPBACK_LITERAL:localhost"),
+        # A port that is not one: `0` is what a listener that never bound writes, and
+        # the assertion's subject is an address that was actually dialled.
+        (dialled(port=0), "DIALLED_A_PORT_THAT_IS_NOT_ONE:0"),
+    ],
+)
+def test_the_address_it_dialled_must_be_a_loopback_literal_and_a_port(
+    client_log: str, reason: str
+) -> None:
+    verdict = ASSERTER_MODULE.evaluate(core_join_case(), joined_world(client_log=client_log))
+
+    assert f"{FIRST_SNAPSHOT_ASSERTION}:{reason}" in verdict.failures
+
+
+@pytest.mark.parametrize(
+    ("document", "reason"),
+    [
+        # Admitted and never counted: the count is absent, which is not the same fact
+        # as a count of zero — a document written before the counter existed reads
+        # this way, and so does a partial write.
+        (run_document_without("snapshots_admitted"), "SNAPSHOT_COUNT_MISSING"),
+        # Counted, and the count is nothing.
+        (run_document(snapshots_admitted=0), "NO_SNAPSHOT_WAS_ADMITTED:0"),
+        # A snapshot was admitted and the session never became playable: a client
+        # still dialling, which is not a world anybody was in.
+        (run_document(connection_state="CONNECTING"), "NEVER_BECAME_PLAYABLE:CONNECTING"),
+    ],
+)
+def test_an_admitted_snapshot_must_be_counted_and_playable(
+    document: dict[str, object], reason: str
+) -> None:
+    verdict = ASSERTER_MODULE.evaluate(core_join_case(), joined_world(document=document))
+
+    assert f"{FIRST_SNAPSHOT_ASSERTION}:{reason}" in verdict.failures
 
 
 #: The assertion this block of tests is about, spelled once. Every expected failure
