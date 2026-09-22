@@ -219,8 +219,13 @@ def test_the_registry_reads_a_directory_of_cases() -> None:
 
     assert registry.by_id()["W00-CONTRACT-001"].mandatory
     assert registry.for_work_package("W00") != ()
-    assert registry.for_work_package("W50") == ()
     assert registry.duplicate_ids() == ()
+    # Grouping is the property; "some package happens to be empty" is not. The line
+    # here used to be `for_work_package("W50") == ()`, which was true when written and
+    # became false the moment W50 got its first case — a test that pinned a transient
+    # fact while reading as a test of the grouping.
+    for case in registry.cases:
+        assert case in registry.for_work_package(case.work_package), case.case_id
 
 
 @pytest.mark.parametrize(

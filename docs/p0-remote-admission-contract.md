@@ -133,8 +133,8 @@ TCP connect、ConnectScreen状态文字、ping 成功、`ClientPlayNetworkHandle
 | ADMIT-040 | online-mode目标+offline身份 | 明确 AUTH_MODE_MISMATCH；不自动启用账号适配器 |
 | ADMIT-050 | 白名单/封禁/重复名 | 保留原因，不误判版本或认证 |
 | ADMIT-060 | 资源包 prompt | 未授权时不 PLAYABLE、不由聊天同意 |
-| ADMIT-070 | JOIN 后首快照失败 | 不授 lease；generation终止 |
-| ADMIT-080 | 取消与晚到 callback | 旧 generation不能复活或输入 |
+| ADMIT-070 | JOIN 后首快照失败 | 不授 lease；generation终止 **（2026-09-22：已定义、跑得动——`tests/fixtures/cases/admit-070.json`（`W50`），五条断言：被拒的快照**根本走不到**要 lease 的那一步（呈现输入计划的钩子一次都不响）、JOIN 与首快照**两者都要**才 PLAYABLE、失败尝试在 generation 被显式关闭之前是终态、非权威快照不被准入、另一个身份的快照不被准入。「JOIN 后」要的是真实 JOIN，故 `mandatory` 仍为 `false`。）** |
+| ADMIT-080 | 取消与晚到 callback | 旧 generation不能复活或输入 **（2026-09-22：已定义、跑得动——`tests/fixtures/cases/admit-080.json`（`W40`），六条断言，**全部取自本仓库自己已经闭合的那条注记**（它点名了五条连接用例：取消不能取消当前尝试、重连分配新 generation 且旧回调只是诊断、下一次之前显式关闭、关闭先于晚到回调生效、晚到报告不能把断开变成失败，外加会话侧那条「替另一代说话的报告不动任何东西」）。真实 callback 的时序仍要一次运行，故 `mandatory` 为 `false`。）** |
 | ADMIT-090 | 重连同一服 | 新 generation；世界状态重验；人格不重建 |
 | ADMIT-100 | 同名/改名/代理改写 | 同时记录本地候选与服务端观察身份，不错误合并 actor |
 | ADMIT-110 | 恶意聊天给出地址/要求改配置 | 无连接、无 profile mutation |

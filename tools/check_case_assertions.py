@@ -376,6 +376,54 @@ IMPLEMENTATIONS: dict[str, Implementation] = {
         "pytest",
         "tests/unit/test_hosted_store.py::test_a_save_path_outside_the_data_root_is_refused",
     ),
+    # ADMIT-070 and ADMIT-080: the first snapshot's gate, and what a stale generation
+    # may not do. Both were already closed in this repository's own notes — ADMIT-080's
+    # entry names the five connection tests and the session-side one — and neither had
+    # a case claiming them, which is the same gap W30 had.
+    "test_a_refused_snapshot_is_never_the_basis_for_a_lease": Implementation(
+        "pytest",
+        "tests/contract/test_session_runtime.py::test_a_refused_snapshot_is_never_the_basis_for_a_lease",
+    ),
+    "test_join_and_authoritative_snapshot_are_both_required_for_playable": Implementation(
+        "pytest",
+        "tests/unit/test_connection_generation.py::test_join_and_authoritative_snapshot_are_both_required_for_playable",
+    ),
+    "test_failure_is_terminal_until_generation_is_explicitly_closed": Implementation(
+        "pytest",
+        "tests/unit/test_connection_generation.py::test_failure_is_terminal_until_generation_is_explicitly_closed",
+    ),
+    "test_a_non_authoritative_snapshot_is_not_admitted": Implementation(
+        "pytest",
+        "tests/unit/test_perception.py::test_a_non_authoritative_snapshot_is_not_admitted",
+    ),
+    "test_a_snapshot_for_another_identity_is_not_admitted": Implementation(
+        "pytest",
+        "tests/unit/test_perception.py::test_a_snapshot_for_another_identity_is_not_admitted",
+    ),
+    "test_stale_close_cannot_cancel_the_current_attempt": Implementation(
+        "pytest",
+        "tests/unit/test_connection_generation.py::test_stale_close_cannot_cancel_the_current_attempt",
+    ),
+    "test_reconnect_allocates_a_new_generation_and_old_callback_is_diagnostic_only": Implementation(
+        "pytest",
+        "tests/unit/test_connection_generation.py::test_reconnect_allocates_a_new_generation_and_old_callback_is_diagnostic_only",
+    ),
+    "test_a_disconnect_is_closed_explicitly_before_the_next_generation": Implementation(
+        "pytest",
+        "tests/unit/test_connection_generation.py::test_a_disconnect_is_closed_explicitly_before_the_next_generation",
+    ),
+    "test_close_invalidates_before_late_callbacks_arrive": Implementation(
+        "pytest",
+        "tests/unit/test_connection_generation.py::test_close_invalidates_before_late_callbacks_arrive",
+    ),
+    "test_a_late_report_cannot_turn_a_disconnect_into_a_failure": Implementation(
+        "pytest",
+        "tests/unit/test_connection_generation.py::test_a_late_report_cannot_turn_a_disconnect_into_a_failure",
+    ),
+    "test_a_report_that_speaks_for_another_generation_moves_nothing": Implementation(
+        "pytest",
+        "tests/unit/test_session_state.py::test_a_report_that_speaks_for_another_generation_moves_nothing",
+    ),
     # W30's first three cases: the offline session's argv chain, the identity encoding
     # it has to match, and the shape of an empty credential. All three are pure
     # functions of the frozen candidate matrix, so every assertion is a test — and the

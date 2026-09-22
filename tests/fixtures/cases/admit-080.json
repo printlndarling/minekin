@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "case_id": "ADMIT-080",
+  "work_package": "W40",
+  "mandatory": false,
+  "inputs": [],
+  "assertion_digests": {
+    "test_a_disconnect_is_closed_explicitly_before_the_next_generation": "63c66a0d388eec25cf76e1d6a08b64314313a870b5327d94f5775294ab363440",
+    "test_a_late_report_cannot_turn_a_disconnect_into_a_failure": "ef0aa5b4d739cc665f59215ae68d400d8e4740652be562dd222c64c89b8c80fa",
+    "test_a_report_that_speaks_for_another_generation_moves_nothing": "e2cfcb3f736bc7a4b88e6e3a6bf36a666b707f18b482944fe838b9a794f19770",
+    "test_close_invalidates_before_late_callbacks_arrive": "7d53e4d726c946fe4f2fa5a5eb5d448a2ce526ed1d713995d2e213a7fe4c2d35",
+    "test_reconnect_allocates_a_new_generation_and_old_callback_is_diagnostic_only": "f49847532bdf2210080c1b4f8869d0eed0317eb38a8ff81e2bf5fd8467d1ac93",
+    "test_stale_close_cannot_cancel_the_current_attempt": "12a162555bae3659ecf78916f652882f844606f2fb295d2c1d30144e6dda02e8"
+  },
+  "assertions": [
+    "test_stale_close_cannot_cancel_the_current_attempt",
+    "test_reconnect_allocates_a_new_generation_and_old_callback_is_diagnostic_only",
+    "test_a_disconnect_is_closed_explicitly_before_the_next_generation",
+    "test_close_invalidates_before_late_callbacks_arrive",
+    "test_a_late_report_cannot_turn_a_disconnect_into_a_failure",
+    "test_a_report_that_speaks_for_another_generation_moves_nothing"
+  ]
+}
