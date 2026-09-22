@@ -12,7 +12,7 @@
 - `baseline_date`: 2026-09-22
 - `baseline_branch`: `main`
 - `baseline_remote`: `origin/main`
-- `current_next`: `CORE-REPLAY-CLI-001`
+- `current_next`: `CASE-CORE-001`
 
 权威顺序：
 
@@ -138,11 +138,13 @@ uv run --frozen python tools/report_cases.py
   - 实现要求改变 promotion 的“证据通过”语义而不仅是补全 required-set 前置门。
 - `commit_intent`: `feat(cases): make required coverage explicit`
 
-## 唯一 NEXT
-
 ### CORE-REPLAY-CLI-001 — 接通冻结的产品 CLI
 
-- `status`: `NEXT`
+- `status`: `DONE`
+- `completion_commit`: `de79a2bb09cca57dc70267495b108a1655a90e35`
+- `completion_evidence`: 本地、`origin/main` 与远端 `refs/heads/main` 已核对为同一 SHA；
+  1807 passed / 2 skipped，Ruff、Pyright、boundaries、case assertions、fixture
+  digests、workflow pins 与 `git diff --check` 全绿；规格与工程双审查最终无发现。
 - `depends_on`: `PLAN-COVERAGE-001`
 - `scope`: 将 parser 已冻结的 `minekin replay <EVIDENCE_DIR>` 接入产品入口；
   产品 CLI 与 standalone tool 经同一个深模块读取 sealed/addressed bundle。
@@ -153,20 +155,22 @@ uv run --frozen python tools/report_cases.py
   时稳定返回语义不完整，integrity 错误为 STORAGE、语义不完整为 SESSION；只读。
 - `validation_class`: `LOCAL`
 
-## 阶段队列
-
-状态只允许：`QUEUED`、`BLOCKED_DECISION`、`WAITING_REAL_RUN`、`DEFERRED`、
-`DONE`。只有上一张卡已 commit、push 且远端 SHA 可核对，主控才可提升下一张。
+## 唯一 NEXT
 
 ### CASE-CORE-001 — 给已有供应链判据建立必需 case
 
-- `status`: `QUEUED`
+- `status`: `NEXT`
 - `depends_on`: `PLAN-COVERAGE-001`
 - `scope`: 复用 bundle recipe、artifact store 与 Bridge artifact gate 的既有判据，
   新增 CORE-001 case 与 assertion digest，不重写已有检查。
 - `acceptance`: repo case runner PASS；摘要篡改、未知 mod、artifact gate 变异各自失败；
   fixture digest 更新可复核。
 - `validation_class`: `LOCAL`
+
+## 阶段队列
+
+状态只允许：`QUEUED`、`BLOCKED_DECISION`、`WAITING_REAL_RUN`、`DEFERRED`、
+`DONE`。只有上一张卡已 commit、push 且远端 SHA 可核对，主控才可提升下一张。
 
 ### CORE-METRICS-001 — W20 tick/render 可测量性
 
