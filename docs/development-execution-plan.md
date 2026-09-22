@@ -12,7 +12,7 @@
 - `baseline_date`: 2026-09-22
 - `baseline_branch`: `main`
 - `baseline_remote`: `origin/main`
-- `current_next`: `CORE-METRICS-001`
+- `current_next`: 无——见下方「唯一 NEXT：无」。队列里已没有可本地执行的卡。
 
 权威顺序：
 
@@ -176,17 +176,50 @@ uv run --frozen python tools/report_cases.py
 - `validation_class`: `LOCAL`
 - `commit_intent`: `feat(cases): give the supply chain its required case`
 
-## 唯一 NEXT
-
 ### CORE-METRICS-001 — W20 tick/render 可测量性
 
-- `status`: `NEXT`
+- `status`: `DONE`
+- `completion_commit`: `1e43a9941787f27f96334515dd55c6fb657d7c09`
+- `completion_evidence`: 本地、`origin/main` 与远端 `refs/heads/main` 已核对为同一 SHA；
+  1829 passed / 2 skipped，Ruff、Pyright、boundaries、115 条 case assertions、fixture
+  digests、workflow pins、四条 Bridge scaffold 门禁与 `git diff --check` 全绿；Bridge
+  的 Gradle `build`（JDK 21）绿，并含产物门禁 `Bridge artifacts: OK`。**三处独立的
+  变异各自驱动到红**：把窗口序号改成不再推进 → Java 自检在
+  `aWindowThatWasNotDeliveredStillConsumesItsNumber` 报错；把 ring 的保留计数改成不
+  封顶 → 在 `budgetsAreBoundedAndKeepTheNewest` 报错；把预算窗口的信息类别改成
+  `PLAYER_EQUIVALENT` → 类别表与端到端用例双双变红；把 `publishBudgetWindow` 改成
+  溢出即 `failClosed`（以及反向：让一个生命周期 publisher 不再 fail closed）→
+  预算纪律用例两个方向各红一次。全部原样还原，`src/` 与 `tools/` 事后核对零残留。
 - `depends_on`: `CORE-REPLAY-CLI-001`
 - `scope`: 只增加预算采样所需的最小 Bridge/proto 字段、聚合与 evidence 形状。
 - `non_goals`: 本地数据不得冒充真实 P50/P95/P99；不在本任务设阈值。
 - `acceptance`: 本地/Java/Docker 门禁证明采样非阻塞、有界、可封存；真实 percentile
   仍由后续 runner campaign 验收。
 - `validation_class`: `LOCAL_THEN_REAL_RUN`
+- `commit_intent`: `feat(bridge): make the callback budget measurable`
+
+## 唯一 NEXT：无
+
+`CORE-METRICS-001` 是队列里最后一张可本地执行的卡。它完成之后，**阶段队列里
+没有任何一张卡能按本文自己的规则被提升为 `NEXT`**：
+
+- `CORE-STATE-TRANSITION-001`、`REAL-P0-CAMPAIGN-001`：`WAITING_REAL_RUN`，两者的
+  停止条件都写明「生产改动必须与同一阶段真实运行一起交付」；
+- `HOST-ADMISSION-DESIGN-001`、`OPERATIONS-RETENTION-001`、`EVIDENCE-SEQUENCE-001`、
+  `PROCESS-RECOVERY-001`：`BLOCKED_DECISION`，要先冻结决策再写代码；
+- `HOST/W80+`：`DEFERRED`，前置阶段未完成。
+
+这不是「没有工作可做」，而是**剩下的每一件都卡在被明确写下的门禁上**：要么需要
+受控 runner 与用户对 EULA 的授权（`REAL-P0-CAMPAIGN-001` 的前置），要么需要用户
+先对一个设计问题做决定。按「越权即停止」的规则，这里不自行发明新卡，也不把某个
+真实运行缺口改写成本地任务来制造进度。
+
+解除方式有三种，每一种都要用户或真实运行，不需要本文发明范围：
+
+1. 对四张 `BLOCKED_DECISION` 卡中的任意一张给出决定，它随即变成 `QUEUED → NEXT`；
+2. 提供受控 runner 与 EULA 授权，`CORE-STATE-TRANSITION-001` 与
+   `REAL-P0-CAMPAIGN-001` 即可执行；
+3. 另行指定一张新卡（先入 `QUEUED`，按本文规则提升）。
 
 ## 阶段队列
 
