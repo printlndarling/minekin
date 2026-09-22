@@ -777,10 +777,17 @@ def test_an_input_with_no_lease_at_all_is_named() -> None:
 
 @pytest.mark.parametrize(
     ("applied", "refused", "reason"),
-    [(0, 0, "NOTHING_WAS_APPLIED"), (1, 2, "ACTIONS_REFUSED:2")],
+    [
+        # The counts are not readable at all. `_integer` answers None for an absent
+        # field and for a null one alike, so this row stands for both shapes: a
+        # document written before Core counted actions, and a partial write.
+        (None, 0, "ACTION_COUNTS_MISSING"),
+        (0, 0, "NOTHING_WAS_APPLIED"),
+        (1, 2, "ACTIONS_REFUSED:2"),
+    ],
 )
 def test_what_the_bridge_did_with_the_command_is_what_is_reported(
-    applied: int, refused: int, reason: str
+    applied: int | None, refused: int | None, reason: str
 ) -> None:
     verdict = ASSERTER_MODULE.evaluate(
         movement_case(),
@@ -941,12 +948,26 @@ def test_a_kin_that_left_while_still_moving_is_not_still_holding_keys() -> None:
     assert verdict.observed == verdict.expected
 
 
-def test_a_kin_that_never_moved_did_not_stop() -> None:
-    verdict = ASSERTER_MODULE.evaluate(
-        lost_runtime_case(), killed(log="has the following entity data: [-4.5d, -60.0d, 5.0d]\n")
-    )
+@pytest.mark.parametrize(
+    ("server_log", "reason"),
+    [
+        # One reading: the world never said where this Kin was twice, so it cannot be
+        # asked whether it moved. A log that cannot answer is not a Kin that stood
+        # still.
+        ("has the following entity data: [-4.5d, -60.0d, 5.0d]\n", "NO_SERVER_READINGS"),
+        # Two readings that agree: it stood still, and the world says so — which is
+        # still not the "moved and then stopped" this case is about.
+        (
+            "has the following entity data: [-4.5d, -60.0d, 5.0d]\n"
+            "has the following entity data: [-4.5d, -60.0d, 5.0d]\n",
+            "NEVER_MOVED:0.00",
+        ),
+    ],
+)
+def test_a_kin_that_never_moved_did_not_stop(server_log: str, reason: str) -> None:
+    verdict = ASSERTER_MODULE.evaluate(lost_runtime_case(), killed(log=server_log))
 
-    assert verdict.failures == ("the_server_saw_the_kin_stop_after_the_move:NO_SERVER_READINGS",)
+    assert verdict.failures == (f"the_server_saw_the_kin_stop_after_the_move:{reason}",)
 
 
 # The record shape itself lives in one place, `tests/fault_support.py`, because
@@ -1566,6 +1587,24 @@ def test_an_attempt_abandoned_for_something_else_is_named(cancelled: str, reason
     )
 
     assert f"the_attempt_was_abandoned_at_its_deadline:{reason}" in verdict.failures
+
+
+def test_a_document_that_never_recorded_a_cancellation_is_not_a_deadline() -> None:
+    """The field is absent, not empty: what a document written before Core recorded
+    why a connection ended looks like.
+
+    Reading that absence as "no attempt was abandoned" would turn a missing record
+    into a satisfied clause, which is the substitution this assertion exists to
+    refuse — so the absent shape gets its own reason rather than the empty one's.
+    """
+
+    document = document_without(
+        no_world_document(connection_cancelled="TIMEOUT"), "connection_cancelled"
+    )
+
+    verdict = ASSERTER_MODULE.evaluate(black_hole_case(), never_answered(document=document))
+
+    assert "the_attempt_was_abandoned_at_its_deadline:NO_CONNECTION_RECORD" in verdict.failures
 
 
 @pytest.mark.parametrize(
@@ -2816,17 +2855,17 @@ def dialled(*, host: str = "127.0.0.1", port: int | str = HOST_PORT) -> str:
     )
 
 
-def run_document_without(*keys: str) -> dict[str, object]:
-    """A run document with whole fields taken off its `run` block, rather than nulled.
+def document_without(document: dict[str, object], *keys: str) -> dict[str, object]:
+    """A document with whole fields taken off its `run` block, rather than nulled.
 
     The same distinction `without_keys` draws one level up: a block carrying no
     `snapshots_admitted` key at all is a different document from one carrying zero,
-    and only the second of those is a run that admitted nothing.
+    and only the second of those is a run that admitted nothing. Taking a `document`
+    rather than building one keeps this usable on the measured shapes too — the
+    document a session that never reached a world prints, for instance.
     """
 
-    document = run_document()
-    document["run"] = without_keys(cast(Mapping[str, object], document["run"]), *keys)
-    return document
+    return {**document, "run": without_keys(cast(Mapping[str, object], document["run"]), *keys)}
 
 
 def test_the_measured_line_is_what_this_helper_builds() -> None:
@@ -2868,7 +2907,7 @@ def test_the_address_it_dialled_must_be_a_loopback_literal_and_a_port(
         # Admitted and never counted: the count is absent, which is not the same fact
         # as a count of zero — a document written before the counter existed reads
         # this way, and so does a partial write.
-        (run_document_without("snapshots_admitted"), "SNAPSHOT_COUNT_MISSING"),
+        (document_without(run_document(), "snapshots_admitted"), "SNAPSHOT_COUNT_MISSING"),
         # Counted, and the count is nothing.
         (run_document(snapshots_admitted=0), "NO_SNAPSHOT_WAS_ADMITTED:0"),
         # A snapshot was admitted and the session never became playable: a client
