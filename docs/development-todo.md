@@ -959,6 +959,13 @@
   - **仍然开着的**：真实的 P50/P95/P99 要一次真实运行（这条卡本来就是 `LOCAL_THEN_RUN`，现在缺的只剩运行）；render 回调耗时仍未被直接测量（上面写了理由）；阈值仍然没有（契约「先测后定」）；本轮**没有**加读取端工具——聚合已经落在 run document 里，谁要读它就是一个读者的事，在还没有 case 消费它之前加一个工具就是多一份没有消费者的表面。
   - **顺带确认了一件对整条路线重要的事：队列到这里空了。** 执行计划的阶段队列里，剩下的卡全是 `WAITING_REAL_RUN`（2 张）、`BLOCKED_DECISION`（4 张）或 `DEFERRED`（1 张）——**没有一张能按计划自己的规则提升为 `NEXT`**。所以本轮把 `current_next` 记成「无」并写明三种解除方式，而不是发明一张新卡来制造进度：这不是没有工作，是剩下的每一件都卡在被明确写下的门禁上（受控 runner + EULA 授权，或用户先做一个设计决定）。
 
+- [x] **队列空之前先查了一遍「是不是还有别人没做完的活」，答案是没有，而且这次是量出来的不是一个印象。** 主工作树之外有 9 个 `worktree-*` 分支目录，是先前几轮留在 `.claude/worktrees/` 的。逐条核过之后结论是**全部都是过期的快照，没有一份是未落地的成果**，证据有三层，每一层都能重推：
+  - **两个有提交的分支是逐字节重复的**：`plan-coverage-001`（`c864666`）与 `core-replay-cli-001`（`266b22c`）用 `git diff` 对着 main 上同名的落地提交 `6863be9` 与 `de79a2b` 比，**两边树完全相同**——那些工作是被重新提交进 main 的，不是靠合并。
+  - **其余七个的基点都是 main 的祖先**，逐个 `git merge-base --is-ancestor` 验过；而 main 在这些基点之后，**在同样的文件上**还有许多更晚的提交（例：`promotion-fail-closed` 动 `promotion.py`/`report_promotion.py`，而 main 上 `917f215 feat(evidence): a bundle whose bytes contradict its verdict cannot promote` 正是那件事；`launcher-liveness-fix` 动 `orphans.py`/`status.py`，两者**已经与 main 逐字节相同**）。所以那些 `git status` 里看着像"改动"的东西，是 main 走得更远之后的落后，不是没做的工作。
+  - **一个反例式的教训**：一开始想用「把工作树的 patch 反向应用到 main，成功即表示已落地」来判，结果**九份全部"失败"**——连我自己刚落地过的 `case-core-001` 都失败，因为 main 后来大改过那些文件。这说明那个判据太钝，会把"main 前进过"误报成"工作没落地"。真正能分辨的是**逐文件比对**（工作树的新文件与 main 逐字节相同）加**基点祖先性**加**main 是否在同样的文件上有更晚的提交**，这三条一起才说得清。**没有删除任何工作树**：它们是别的执行者留下的，删不属于本轮范围，路径记在 `git worktree list` 里。
+  - **顺带更正了本文一条过期的事实，因为它是量出来的**：执行计划的「不可变边界」原文写着「CI 当前没有额度，不作为本阶段完成证据」——**已经过期**。实测最近 12 次 run 全绿，最新一次 3 个 job 共 37 步全部执行，其中 `protocol` job 会跑 `buf lint`、`buf format --diff` 与「Verify checked-in Python protobufs」，也就是**protobuf 与提交进仓库的生成物有一道独立于本地门禁的核对**（这正好是我上一轮改过 proto 的东西）。更正只改了事实那一半；**政策那一半原样保留**：完成证据仍来自本地与 Docker，因为 CI 同样跑不了 Minecraft。
+  - **实测（本轮：只读 + CI 查询）**：`git worktree list`、9 个工作树的 `git status`/`git diff --stat main`、2 次 `git diff <branch-commit> <main-commit>`、4 次 `git merge-base --is-ancestor`、以及 GitHub REST 的 run/job/step 三段查询。**没有改任何代码**，本轮只改了执行计划里那条过期事实与本条记录。
+
 ## W70 之后
 
 - [ ] W80：独立 `p0-nav-exp` 导航实验；核验输入冲突、隐藏真值与 SBOM/许可。

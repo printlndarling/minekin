@@ -35,7 +35,8 @@
   `P0_CORE_TESTED`。本地单测不能替代真实客户端、真实线程、真实故障或真实
   Minecraft 生命周期证据。
 - 不接受 Mojang EULA，不替用户执行需要该授权的运行。
-- CI 当前没有额度，不作为本阶段完成证据；优先本地与 Docker 验证。
+- **CI 在跑，而且它不是走过场；但它仍不是本阶段的完成证据。**（2026-09-23 更正：这一条原文写的是「CI 当前没有额度」，那已经过期了。实测最近 12 次 run 全绿，最新一次 3 个 job `bridge-static`/`python`/`protocol` 共 37 步全部执行——包括 `buf lint`、`buf format --diff` 与「Verify checked-in Python protobufs」，也就是说 protobuf 与提交进仓库的生成物有一道**独立于本地门禁**的核对。）保留的仍是那条政策：完成证据来自本地与 Docker，因为 CI 同样跑不了 Minecraft，而上面那条「本地单测不能替代真实客户端证据」不会因为 CI 绿了而改变。反向也成立——CI 红是真信号，不是噪声，不要按它没额度处理。
+
 - HOST 与 W80+ 默认冻结。只有当前 `NEXT` 明确允许，或修复主干回归时，才可
   修改其生产代码。
 
@@ -213,6 +214,13 @@ uv run --frozen python tools/report_cases.py
 受控 runner 与用户对 EULA 的授权（`REAL-P0-CAMPAIGN-001` 的前置），要么需要用户
 先对一个设计问题做决定。按「越权即停止」的规则，这里不自行发明新卡，也不把某个
 真实运行缺口改写成本地任务来制造进度。
+
+**这个「空」是查过的，不是没看。**（2026-09-23）`.claude/worktrees/` 下另有一个
+执行者留下的 9 个 `worktree-*` 目录，逐条核过之后**没有一份是未落地的成果**：两个
+有提交的分支与 main 上同名的落地提交**树完全相同**，其余七个的基点都是 main 的
+祖先且 main 在同样的文件上有更晚的提交，其中若干文件（`orphans.py`、`status.py`、
+`cli/replay.py`、`bundle.py`、`cli/evidence.py`）已经与 main **逐字节相同**。核对
+方法与被证伪的那个判据都记在 `development-todo.md` 里，可以重推。
 
 解除方式有三种，每一种都要用户或真实运行，不需要本文发明范围：
 
