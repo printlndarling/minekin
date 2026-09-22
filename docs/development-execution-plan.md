@@ -395,6 +395,33 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 
 其中很多必须真实运行；“缺 fixture”不等于“可以用本地测试补成完成”。
 
+### 剩下八条 ADMIT：逐条缺什么（2026-09-23 的读数，可重推）
+
+登记 `ADMIT-001` 时把「其余八条能不能照做」逐条查了一遍。**结论是每一条都至少缺一个可观测事实**，
+而不是缺几行代码——所以这是一份**判据工作单**，不是一份补 case 清单。判据来源是两处：契约
+`docs/p0-remote-admission-contract.md` 的「必须证明」列，以及本仓库**现有 42 条 `runtime`
+断言**（`check_case_assertions.IMPLEMENTATIONS` 里 kind 为 `runtime` 的那些，用一条命令可列全）。
+
+| case | 契约的「必须证明」 | 现有断言 | 缺什么 |
+| --- | --- | --- | --- |
+| ADMIT-010 | 不扫描局域网；只连已保存 profile | 无 | **「只连了哪几个地址」在运行材料里没有来源**——没有任何断言读地址时间线 |
+| ADMIT-020 | 保存原始地址与实际 endpoint；重定向仍过策略 | 无 | 同上：SRV 解析结果与原始地址的对照不在材料里 |
+| ADMIT-030 | 三类失败分类不同且无无限重试 | **部分**：`the_attempt_was_abandoned_at_its_deadline` 管「有界」（但它现在被 `ADMIT-110` 认领） | 三类各自的分类断言；`the_refusal_was_classified_in_the_ledger` **把 `WHITELIST_REJECTED` 写死**，接不住 `DNS_FAILED`/`CONNECTION_REFUSED`/`CONNECT_TIMEOUT` |
+| ADMIT-040 | 明确 AUTH_MODE_MISMATCH；不自动启用账号适配器 | **一半**：`no_world_was_joined` 能说「没进世界」 | 前半要把 `AUTH_MODE_MISMATCH` 那条分类写成断言（契约点名了这个值，属转写）；**后半没有可观测事实**——「没有悄悄换用在线账号」不是「没进世界」的同义词 |
+| ADMIT-050 | 白名单/封禁/重复名；保留原因，不误判版本或认证 | **一半但已被认领**：白名单那一对（`the_refusal_was_classified_in_the_ledger` + `the_bridge_classified_the_refusal`）**已由 `ADMIT-100` 拿着** | 封禁与重名两类各自的分类；以及「不误判成版本/认证」这条**否定**判据 |
+| ADMIT-060 | 资源包未授权时不 PLAYABLE、不由聊天同意 | **一半**：`no_lease_was_granted` 能说「没授 lease」（它现在由 `CORE-050` 认领；共用是允许的，但用它之后这一条自己的判据仍然只剩一半） | 「聊天不是授权来源」在运行材料里没有来源 |
+| ADMIT-090 | 新 generation；世界状态重验；人格不重建 | **三分之二**：`the_restart_runs_as_a_new_session`、`the_restart_reconciled_before_it_started` 都在（两者为 `CORE-090` 写的，共用是允许的） | **「人格不重建」没有断言**——身份连续性今天没有任何一条判据 |
+| ADMIT-120 | oracle 身份/坐标 canary 不进入 Runtime/Memory/prompt/行动路径 | 无运行时断言（`runtime_input_does_not_reference_oracle` 是**仓库自检**类，不是运行材料类） | 运行期那半**整条缺失** |
+
+**一条顺带查出来的契约冲突，已经影响上面 `ADMIT-050` 那一行**：`ADMIT-100` 在
+**两份契约里是两件事**——`p0-remote-admission-contract.md` 说它是「同名/改名/代理改写 ｜
+同时记录本地候选与服务端观察身份，不错误合并 actor」（身份），而
+`p0-validation-evidence-contract.md` 说它是「**服务端拒绝**……白名单上说不」（拒绝分类）。
+`domain/cases.py` 的注记早就记着这两份契约对 `ADMIT-100`/`ADMIT-110`「disagree about what
+those two scenarios *are*」，而**现有 fixture 跟的是后者**。所以 `ADMIT-050` 想复用那对断言时
+会撞上「同一个判据被两个 case 认领、而两个 case 的场景不同」。**这不是新问题，是那个已记录的
+冲突第一次产生实际影响**；谁写 `ADMIT-050` 之前得先把它解掉。
+
 ## 阻塞分类
 
 - `LOCAL`: 可在当前机器完整实现并验证。

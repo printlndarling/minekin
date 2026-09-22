@@ -1083,6 +1083,14 @@
   - **实测（本轮：本地）**：读数从 **35 present / 37 missing** 变成 **36 / 36**；`W40` 由 present 4 / missing 8 变成 **5 / 7**；`ADMIT` 缺失由 9 条降到 8 条；全量 pytest **1846 passed / 2 skipped**（修完那条之后重新跑的数），Ruff check/format、Pyright（strict，0 errors）、boundaries、case assertions（120 条注册）、fixture digests、workflow pins 与 `git diff --check` 全绿。**没有跑 Minecraft，没有接受 EULA**——`ADMIT-001` 是 `runtime-required`，本轮只做到「它可以被封存了」。
   - **仍然开着的**：八条 ADMIT 要先有判据（上面逐条列了缺什么）；`W40` 仍 `satisfied: false`，离有门禁还差 7 条。
 
+- [x] **把「剩下八条 ADMIT 缺什么」逐条量成了一张工作单——而量出来的结论比上一步那句更具体：每条都至少缺一个**可观测事实**。** 上一步我写下「其余八条要先把判据写成断言」；这一步去验它，顺手用一条命令把**现有 42 条 `runtime` 断言**列全，再逐条对着契约的「必须证明」列比对。
+  - **结论表**（写进执行计划，可重推）：`ADMIT-010`/`020` **一条都不沾**（「只连了哪几个地址」「SRV 原始地址与 endpoint」在运行材料里没有来源）；`ADMIT-030` 部分（`the_attempt_was_abandoned_at_its_deadline` 管有界，但它现在由 `ADMIT-110` 认领；三类分类接不住，因为 `the_refusal_was_classified_in_the_ledger` **把 `WHITELIST_REJECTED` 写死**）；`ADMIT-040` 一半（前半要把契约点名的 `AUTH_MODE_MISMATCH` 转写成断言，**后半「不悄悄换用在线账号」没有可观测事实**——那不是「没进世界」的同义词）；`ADMIT-050` 一半但**已被认领**；`ADMIT-060` 一半（`no_lease_was_granted`，由 `CORE-050` 认领）；`ADMIT-090` 三分之二（两条 restart 断言都在、都是 `CORE-090` 的，「人格不重建」**没有任何判据**）；`ADMIT-120` **运行期那半整条缺失**。
+  - **顺带查出一处契约冲突，而它第一次产生了实际影响。** `ADMIT-100` 在**两份契约里是两件事**：admission 契约说它是「同名/改名/代理改写 ｜ 同时记录本地候选与服务端观察身份」（身份），validation 契约说它是「**服务端拒绝**……白名单上说不」（拒绝分类）。`domain/cases.py` 的注记早就记着这两份契约对 `ADMIT-100`/`ADMIT-110`「disagree about what those two scenarios *are*」，**现有 fixture 跟的是后者**。于是 `ADMIT-050` 想复用白名单那一对时会撞上「同一判据被两个场景不同的 case 认领」。**这不是新问题，是那个已记录的冲突第一次挡在具体的下一步前面**——谁写 `ADMIT-050` 之前得先解掉它。
+  - **每条可机械验的都验了**，没有只凭读：42 条 runtime 断言由注册表读出（我第一版 grep 漏掉了多行的 `_runtime(` 写法，所以改用工具本身的读数）；`the_attempt_was_abandoned_at_its_deadline` 确由 `ADMIT-110` 认领、两条 restart 断言确由 `CORE-090` 认领、`no_lease_was_granted` 确由 `CORE-050` 认领；`runtime_input_does_not_reference_oracle` 的 kind 是 `pytest` 而不是 `runtime`。**我自己的查询也出过一次错**：想找「关于地址的断言」时用了子串 `host`，它匹配到了 `hosted`——所以那一条的结论是靠**通读断言名单**得出的，不是靠那次查询。
+  - **本轮没有改任何代码、没有登记 case**，所以交付物是一份**判据工作单**而不是新 fixture：余下八条各自缺什么，现在是一张能照着做的表，而不是八句「以后再说」。
+  - **实测（本轮：本地）**：全量 pytest **1846 passed / 2 skipped**，Ruff check/format、Pyright（strict，0 errors）、boundaries、case assertions、fixture digests、workflow pins 与 `git diff --check` 全绿。
+  - **仍然开着的**：那张表本身；以及它标出的两件事——**八条各缺一个可观测事实**，其中「人格不重建」「聊天不是授权来源」「不扫描局域网」「SRV 与 endpoint」都还没有任何来源；`ADMIT-050` 之前要先解掉 `ADMIT-100` 的契约冲突。
+
 ## W70 之后
 
 - [ ] W80：独立 `p0-nav-exp` 导航实验；核验输入冲突、隐藏真值与 SBOM/许可。
