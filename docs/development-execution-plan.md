@@ -12,7 +12,7 @@
 - `baseline_date`: 2026-09-22
 - `baseline_branch`: `main`
 - `baseline_remote`: `origin/main`
-- `current_next`: `PLAN-COVERAGE-001`
+- `current_next`: `CORE-REPLAY-CLI-001`
 
 权威顺序：
 
@@ -81,11 +81,15 @@ uv run --frozen python tools/report_cases.py
   `W00`、`W20`、`W60`、`W70` 四道的 case set 是齐的，其中 W70 仍因没有 mandatory
   case 而由既有 `NO_MANDATORY_CASES` 规则阻断——这是准确读数，不是回归。
 
-## 唯一 NEXT
+## 最近完成
 
 ### PLAN-COVERAGE-001 — 契约要求的 case 清单必须可机器核对
 
-- `status`: `NEXT`
+- `status`: `DONE`
+- `completion_commit`: `6863be919ba0b80756091cf4d15952c64142710f`
+- `completion_evidence`: 本地、`origin/main` 与远端 `refs/heads/main` 已核对为同一 SHA；
+  1762 passed / 2 skipped，Ruff、Pyright、boundaries、case assertions、fixture
+  digests、workflow pins 与 `git diff --check` 全绿。
 - `why_now`: 当前 `report_cases.py` 与 `check_case_assertions.py` 只遍历已有 fixture。
   如果 contract 要求的 case 完全缺失，报告仍会显示 0 unimplemented，promotion
   也可能在残缺 case 集上给出假阳性。继续补 case 前必须先堵住这个缺口。
@@ -134,14 +138,11 @@ uv run --frozen python tools/report_cases.py
   - 实现要求改变 promotion 的“证据通过”语义而不仅是补全 required-set 前置门。
 - `commit_intent`: `feat(cases): make required coverage explicit`
 
-## 阶段队列
-
-状态只允许：`QUEUED`、`BLOCKED_DECISION`、`WAITING_REAL_RUN`、`DEFERRED`、
-`DONE`。只有上一张卡已 commit、push 且远端 SHA 可核对，主控才可提升下一张。
+## 唯一 NEXT
 
 ### CORE-REPLAY-CLI-001 — 接通冻结的产品 CLI
 
-- `status`: `QUEUED`
+- `status`: `NEXT`
 - `depends_on`: `PLAN-COVERAGE-001`
 - `scope`: 将 parser 已冻结的 `minekin replay <EVIDENCE_DIR>` 接入产品入口；
   产品 CLI 与 standalone tool 经同一个深模块读取 sealed/addressed bundle。
@@ -151,6 +152,11 @@ uv run --frozen python tools/report_cases.py
   UTF-8/JSON、空行、重复 key、非有限数、未声明/篡改 trace；旧 bundle 缺状态迁移
   时稳定返回语义不完整，integrity 错误为 STORAGE、语义不完整为 SESSION；只读。
 - `validation_class`: `LOCAL`
+
+## 阶段队列
+
+状态只允许：`QUEUED`、`BLOCKED_DECISION`、`WAITING_REAL_RUN`、`DEFERRED`、
+`DONE`。只有上一张卡已 commit、push 且远端 SHA 可核对，主控才可提升下一张。
 
 ### CASE-CORE-001 — 给已有供应链判据建立必需 case
 
