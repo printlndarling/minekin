@@ -1,4 +1,12 @@
-"""Fail CI when P0 package imports violate the frozen dependency direction."""
+"""Fail CI when P0 package imports violate the frozen dependency direction.
+
+Three things, and they are all seams a linter cannot see: which layer may import
+which, that product code and the Bridge carry no reference to the test oracle, and
+that a case manifest's declarations are about something real — the oracle on its own
+side of the line, and every declared input resolving to a file. The last of those is
+the one that was missing: a declaration nothing checks is a promise, and this
+repository's answer to that has always been to check the declaration instead.
+"""
 
 from __future__ import annotations
 
@@ -7,7 +15,7 @@ import ast
 import json
 import sys
 import tomllib
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import cast
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
@@ -116,6 +124,18 @@ def _case_manifest_errors(cases_dir: Path) -> list[str]:
 
     The product validates a case manifest's shape; only this side is allowed to
     know that an oracle exists at all, so the boundary rule lives here.
+
+    Three rules, and they are all about the same thing: what a case *declares* it
+    depends on has to mean something. The first two keep the oracle on its own side
+    of the line — an ordinary input may not name it, and an oracle input may not be
+    anything else. The third is the one that was missing, and it is the oldest hole
+    of the three: a declared input is a name, and nothing checked that the name
+    resolves. A case could name a fixture that was renamed, moved or deleted and
+    still read as covered — the same failure `check_case_assertions.py` was written
+    for one field over, where the names a case relies on are tied to something that
+    exists. Pathed the way the promotion loader paths `input_digests`, because two
+    readers of one manifest disagreeing about what a relative path is would be a
+    third hole rather than a fix.
     """
 
     errors: list[str] = []
@@ -144,7 +164,31 @@ def _case_manifest_errors(cases_dir: Path) -> list[str]:
                 errors.append(
                     f"{relative}: an oracle input is outside {ORACLE_DIRECTORY}: {entry!r}"
                 )
+        for entry in (*cast(list[object], inputs), *cast(list[object], oracle_inputs)):
+            errors.extend(_declared_input_errors(relative, str(entry)))
     return errors
+
+
+def _declared_input_errors(relative: str, declared: str) -> list[str]:
+    """Why one declared input is not something a case can depend on.
+
+    A glob is allowed, because a case about every schema is a real case and
+    `schemas/*.schema.json` says that better than a list that goes stale. What is
+    not allowed is one that matches nothing: the declaration would then be about no
+    file at all, and the case would keep passing while its subject was gone.
+    """
+
+    logical = PurePosixPath(declared)
+    if (
+        logical.is_absolute()
+        or ".." in logical.parts
+        or "\\" in declared
+        or logical.as_posix() != declared
+    ):
+        return [f"{relative}: a declared input is not a repository-relative path: {declared!r}"]
+    if not any(REPOSITORY_ROOT.glob(declared)):
+        return [f"{relative}: a declared input matches nothing: {declared!r}"]
+    return []
 
 
 def main() -> int:

@@ -1012,6 +1012,15 @@
   - **实测（本轮：本地）**：`run_repo_case.py --case tests/fixtures/cases/hostctl-060.json` → `result: PASS`、**5/5**、`failures: []`、`unimplemented: []`、退出码 0；`report_cases.py` 从 **34 present / 38 missing** 变成 **35 / 37**，`local-only` 那一类的缺失**清零**（逐条验过：37 条全是 `runtime-required`）；全量 pytest **1838 passed / 2 skipped**，Ruff check/format、Pyright（strict，0 errors）、`check_boundaries`、case assertions（120 条注册）、fixture digests、workflow pins 与 `git diff --check` 全绿。**没有跑 Minecraft，没有接受 EULA。**
   - **仍然开着的**：`host-integrated` 仍是 15 present / 18 missing 且 `satisfied: false`——要变成有门禁还差 `HOST-001…100` 与其余 `HOSTCTL`/`HOSTCOMMIT` 的真实运行，这一条没变。**全仓 37 条 missing 现在全部要真实运行。**
 
+- [x] **上一轮那条教训用了一遍：读机器读数，不要读散文——这次读的是 `inputs`，结果把一条「声明没人核」的老洞补上了。** `HOSTCTL-060` 那一步的教训是「我用执行计划那张表代替了 inventory 的 `validation_class`」。所以这一轮把 case manifest 里**我还从没系统读过的那个字段**过了一遍：35 份用例声明了 **44 条 `inputs`**，逐条按 glob 解析——**全部解析得到**，没有漂移。
+  - **但「全都对」不等于「有人核」。** 逐条读代码之后确认：`check_boundaries.py::_case_manifest_errors` 本来只管两条规则——普通 `inputs` 不许引用 oracle、`oracle_inputs` 必须在 `tests/oracle/` 下——**两条都不问路径存不存在**。于是 case 可以声明一个被改名、搬走或删掉的夹具，**它照样读起来是「有覆盖」的**。这与 `check_case_assertions.py` 存在的理由**是同一句话**，只是换了一个字段：那边管的是「用例依赖的断言名要指向存在的东西」，这边管的是「用例依赖的输入名要指向存在的东西」，而**后者当时只是承诺**。这个仓库对「声明」的一贯做法是把声明本身核掉（`oracle_inputs` 的注释原话就是「the declaration itself is checked instead of being taken as a promise」），`inputs` 是漏掉的那一个。
+  - **补的规则三条，落在同一个走过 manifest 的循环里**：①解析得到——**允许 glob**（一个关于「全部 schema」的用例用 `schemas/*.schema.json` 比一份会过期的清单说得更准），但**glob 一个都匹配不到就拒绝**，那说明它的对象没了；②必须是仓库相对路径——绝对路径、`..`、反斜杠、非规范写法一律拒绝，**判法与 `promotion.py::_validate_input_digests` 对 `input_digests` 的判法逐条相同**（两个读者对「什么是相对路径」给出两个答案，本身就是第三个洞）；③同一条规则**也覆盖 `oracle_inputs`**，因为它同样是声明。
+  - **顺带修了一处名不副实**：`check_boundaries.py` 的模块 docstring 只写着「Fail CI when P0 package imports violate the frozen dependency direction」，而它其实早就在管 oracle 那两条边界规则了。现在写成它实际做的三件事。
+  - **诚实地说：今天一条都不红。** 44 条输入全部解析得到，所以这条规则**现在抓不到任何东西**——它的价值在于**以后**：夹具改名或搬走时，用例不会继续「看起来有覆盖」。这与 `check_workflow_pins.py` 加进来时的处境一样，而那类门禁正是这个仓库反复在做的事。
+  - **两处变异各自驱动到红**：①把存在性检查去掉 → 新用例红；②只去掉路径安全那半、保留存在性 → 同一条用例仍红（说明两半都在被验）。
+  - **实测（本轮：本地）**：全量 pytest **1839 passed / 2 skipped**（+1，正是新加的那条），Ruff check/format、Pyright（strict，0 errors）、`check_boundaries`、case assertions（120 条注册）、fixture digests、workflow pins、`git diff --check` 全绿；`check_boundaries.py` 在门禁矩阵与 CI 的 `python` job 里，所以这条规则**在 CI 上也跑**。
+  - **仍然开着的**：这条规则只核「名字解析得到」，**不核声明是否完整**——一个用例只声明了它需要的一半依赖，门禁不会知道；那要靠读者与评审，不是机械判据。
+
 ## W70 之后
 
 - [ ] W80：独立 `p0-nav-exp` 导航实验；核验输入冲突、隐藏真值与 SBOM/许可。

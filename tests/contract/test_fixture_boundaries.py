@@ -125,3 +125,71 @@ def test_case_manifest_oracle_boundary_is_enforced(tmp_path: Path) -> None:
     assert "a declared input references the oracle" in result.stderr
     assert "outside tests/oracle/" in result.stderr
     assert "good.json" not in result.stderr
+
+
+def test_a_declared_input_that_resolves_to_nothing_is_refused(tmp_path: Path) -> None:
+    """A declaration nothing checks is a promise, and this one was a promise.
+
+    A case names what it depends on, and until this rule nothing asked whether those
+    names pointed at anything: a fixture that was renamed, moved or deleted left the
+    case reading as covered while its subject was gone. That is the failure
+    `check_case_assertions.py` was written for one field over, and the rule here is
+    the same shape — the names a case relies on have to resolve.
+
+    A glob is allowed, because a case about every schema is a real case and
+    `schemas/*.schema.json` says that better than a list that goes stale. A glob that
+    matches nothing is not: it is a declaration about no file at all, and it is
+    refused for the same reason a plain name that is missing is.
+    """
+
+    base: dict[str, object] = {
+        "schema_version": 1,
+        "case_id": "TEST-001",
+        "work_package": "W40",
+        "mandatory": False,
+        "assertions": ["an_assertion"],
+    }
+    (tmp_path / "gone.json").write_text(
+        json.dumps({**base, "inputs": ["tests/fixtures/runtime-input/gone.json"]}),
+        encoding="utf-8",
+    )
+    (tmp_path / "empty-glob.json").write_text(
+        json.dumps({**base, "inputs": ["tests/fixtures/runtime-input/*.nope"]}),
+        encoding="utf-8",
+    )
+    (tmp_path / "escaping.json").write_text(
+        json.dumps({**base, "inputs": ["../outside.json"]}), encoding="utf-8"
+    )
+    (tmp_path / "oracle-gone.json").write_text(
+        json.dumps({**base, "inputs": [], "oracle_inputs": ["tests/oracle/gone.json"]}),
+        encoding="utf-8",
+    )
+    (tmp_path / "good.json").write_text(
+        json.dumps(
+            {
+                **base,
+                "inputs": ["tests/fixtures/runtime-input/*.json"],
+                "oracle_inputs": ["tests/oracle/canary.json"],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = subprocess.run(
+        [sys.executable, "tools/check_boundaries.py", "--cases-dir", str(tmp_path)],
+        cwd=REPOSITORY_ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 1
+    assert "a declared input matches nothing" in result.stderr
+    assert "not a repository-relative path" in result.stderr
+    assert "gone.json" in result.stderr
+    assert "empty-glob.json" in result.stderr
+    assert "escaping.json" in result.stderr
+    # An oracle input is a declared input too, so the same rule reaches it.
+    assert "oracle-gone.json" in result.stderr
+    # And the case whose declarations all resolve is not named.
+    assert "good.json" not in result.stderr
