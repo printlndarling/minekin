@@ -1,8 +1,12 @@
 # 开发 TODO 与执行门禁
 
-更新：2026-09-20。
+更新：2026-09-22。
 
 本文把现有设计文档转换为可执行开发队列。若本文与专项契约冲突，以更新且更具体的契约为准；P0 的实现入口是 [P0 核心原型执行计划](p0-prototype-execution-plan.md)与 [P0 core 内部架构](p0-core-internal-architecture.md)。
+
+> 当前任务领取、依赖、允许修改面、门禁与 commit/push 边界，以
+> [开发执行控制计划](development-execution-plan.md)为准。本文保留历史调查与实测账，
+> 不再作为 Claude 自行选择下一任务的入口。
 
 ## 执行原则
 

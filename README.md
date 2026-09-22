@@ -48,6 +48,8 @@ flowchart TD
 ## 仓库文档
 
 - [P0 开发环境与工程门禁](docs/development.md)：Python/Java 固定基线、本地命令、依赖锁与包边界。
+- [开发执行控制计划](docs/development-execution-plan.md)：当前唯一 `NEXT`、阶段依赖、允许修改面、验证与 commit/push 协议。
+- [开发 TODO 与执行门禁](docs/development-todo.md)：详细调查、实测记录与历史任务账；当前任务以执行控制计划为准。
 - [ADR 0001：P0 两进程模块化单体](docs/adr/0001-p0-modular-monolith.md)：不引入 Web、ORM、Agent 框架和多 Python 服务的原因。
 
 - [架构与数据边界](docs/architecture.md)：模块职责、时延目标、感知约束和紧急控制。
