@@ -1091,6 +1091,13 @@
   - **实测（本轮：本地）**：全量 pytest **1846 passed / 2 skipped**，Ruff check/format、Pyright（strict，0 errors）、boundaries、case assertions、fixture digests、workflow pins 与 `git diff --check` 全绿。
   - **仍然开着的**：那张表本身；以及它标出的两件事——**八条各缺一个可观测事实**，其中「人格不重建」「聊天不是授权来源」「不扫描局域网」「SRV 与 endpoint」都还没有任何来源；`ADMIT-050` 之前要先解掉 `ADMIT-100` 的契约冲突。
 
+- [x] **去验上一步自己写下的结论，结果发现那张表把**两种完全不同**的缺法混成了一类——而分开之后，八条里有一半其实只是**写断言**。** 上一步我说「每一条都至少缺一个可观测事实」。这句话把「事实记了但没人断言」和「事实根本没记」说成了同一件事，而两者的代价差一个数量级：前者在测试域里解决，后者要先决定**一次运行必须多记什么**。
+  - **（甲）记了、只是没人断言**：`ADMIT-030`/`040`/`050` 要的那些失败分类，**就住在账本行的 `reason` 字段里**——`on_connection` 写的 payload 是 `{"phase": …, "reason": …}`，注释写明那个 `reason` 是「Bridge 的稳定分类」，而 `the_refusal_was_classified_in_the_ledger` 正是读它，**只是把值写死成了 `WHITELIST_REJECTED`**。所以这三条要的不是新事实，是一条不写死值的断言。`ADMIT-060` 的「没授 lease」由 `no_lease_was_granted` 承担，同类。
+  - **（乙）根本没记**：`ADMIT-010`/`020` 要的「连了哪个 profile / 解析到什么 endpoint」；`ADMIT-090` 要的「人格没被重建」（账本**现有的十个事件类型**里没有一个承载身份/人格）；`ADMIT-120` 要的 canary containment。这些不是补断言，是**产品要在运行里多记一个事实**——那是决定，不是几行代码。
+  - **这个区分是一次差点写错的更正换来的，值得记下来。** 我先扫到线缆上 `ConnectionLifecycle` **确实带着** `server_profile_id` 与 `revision`（`session.py:239-240`），差一点就把 `ADMIT-010` 从「没记」改成「记了没断言」。去查 `on_connection` 的 payload 才发现：**它止步于写账本那一行**——payload 只有 `phase` 和 `reason`，profile 在那里被丢掉。**所以我的原结论对、正准备写的更正才是错的。** 这与第 12/13 步那两次（尾斜杠、`tail` 的退出码）是同一类：**一个探针只走到边界的一半就下结论**。这次的教训更窄也更可操作：**先问「这个事实在哪一层被写下来」，再问「有没有人读它」。**
+  - **实测（本轮：读代码 + 本地门禁）**：账本事件类型从 `adapters/sqlite/session_log.py` 逐个读出（**共十个**，无身份/人格类）；`on_connection` 的 payload 与 `session.py:239` 的线缆字段逐处对照；`runtime_input_does_not_reference_oracle` 的 kind 确认为 `pytest`。全量 pytest **1846 passed / 2 skipped**，Ruff check/format、Pyright（strict，0 errors）、boundaries、case assertions、fixture digests、workflow pins 与 `git diff --check` 全绿。**本轮只改文档**：更正执行计划里那张表并把它拆成两类，没有改代码、没有登记 case。
+  - **仍然开着的**：（甲）那半是**测试域能直接做的**——`ADMIT-030`/`040`/`050` 各需要一条不写死值的分类断言，这是一个可以开工的活；（乙）那半要有人决定「运行要不要多记 profile/endpoint、身份连续性、canary containment」。
+
 ## W70 之后
 
 - [ ] W80：独立 `p0-nav-exp` 导航实验；核验输入冲突、隐藏真值与 SBOM/许可。

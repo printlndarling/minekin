@@ -397,20 +397,34 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 
 ### 剩下八条 ADMIT：逐条缺什么（2026-09-23 的读数，可重推）
 
-登记 `ADMIT-001` 时把「其余八条能不能照做」逐条查了一遍。**结论是每一条都至少缺一个可观测事实**，
-而不是缺几行代码——所以这是一份**判据工作单**，不是一份补 case 清单。判据来源是两处：契约
+登记 `ADMIT-001` 时把「其余八条能不能照做」逐条查了一遍。判据来源是两处：契约
 `docs/p0-remote-admission-contract.md` 的「必须证明」列，以及本仓库**现有 42 条 `runtime`
 断言**（`check_case_assertions.IMPLEMENTATIONS` 里 kind 为 `runtime` 的那些，用一条命令可列全）。
 
+**2026-09-23 更正：这八条不是同一种缺法，而分成两类，代价差一个数量级。**
+**（甲）事实记了、只是没人断言**——只要在测试域写断言，不需要动产品：`ADMIT-030`/`040`/`050`
+要的分类住在账本行的 **`reason`** 字段里（`on_connection` 写的 payload 是
+`{"phase": …, "reason": …}`，注释写明那 `reason` 就是「Bridge 的稳定分类」），
+`the_refusal_was_classified_in_the_ledger` 正是读它，只是**把值写死成了 `WHITELIST_REJECTED`**；
+`ADMIT-060` 的「没授 lease」由 `no_lease_was_granted` 承担。
+**（乙）事实根本没记**——那就不是写断言，而是要决定**一次运行必须多记什么**，属产品改动：
+`ADMIT-010`/`020` 要的「连了哪个 profile / 解析到什么 endpoint」**在线缆上是有的**
+（`session.py` 把 `server_profile_id` 与 `revision` 放进 `ConnectionLifecycle`），
+**但 Core 写进账本的那一行只剩 `phase` 与 `reason`**，profile 在这一步被丢掉了；
+`ADMIT-090` 要的「人格没被重建」在账本**现有的十个事件类型**里没有任何一个承载；
+`ADMIT-120` 要的 canary containment 在运行材料里没有来源。
+**这个区分是一次差点写错的更正的产物**：我一度以为 (乙) 里的 profile 是「记了没断言」，
+因为线缆上确实有它——查到 `on_connection` 的 payload 才发现它止步于账本那一行。
+
 | case | 契约的「必须证明」 | 现有断言 | 缺什么 |
 | --- | --- | --- | --- |
-| ADMIT-010 | 不扫描局域网；只连已保存 profile | 无 | **「只连了哪几个地址」在运行材料里没有来源**——没有任何断言读地址时间线 |
-| ADMIT-020 | 保存原始地址与实际 endpoint；重定向仍过策略 | 无 | 同上：SRV 解析结果与原始地址的对照不在材料里 |
-| ADMIT-030 | 三类失败分类不同且无无限重试 | **部分**：`the_attempt_was_abandoned_at_its_deadline` 管「有界」（但它现在被 `ADMIT-110` 认领） | 三类各自的分类断言；`the_refusal_was_classified_in_the_ledger` **把 `WHITELIST_REJECTED` 写死**，接不住 `DNS_FAILED`/`CONNECTION_REFUSED`/`CONNECT_TIMEOUT` |
+| ADMIT-010 | 不扫描局域网；只连已保存 profile | 无 | **（乙）**线缆上每个 `ConnectionLifecycle` 都带 `server_profile_id`，但账本那一行只剩 `phase`/`reason`——profile 在写账本时被丢掉 |
+| ADMIT-020 | 保存原始地址与实际 endpoint；重定向仍过策略 | 无 | **（乙）**同上，且 SRV 解析结果在任何一层都没有记录 |
+| ADMIT-030 | 三类失败分类不同且无无限重试 | **部分**：`the_attempt_was_abandoned_at_its_deadline` 管「有界」（由 `ADMIT-110` 认领） | **（甲）**三个分类**都在账本的 `reason` 里**，缺的是断言——现有那条把值写死了 |
 | ADMIT-040 | 明确 AUTH_MODE_MISMATCH；不自动启用账号适配器 | **一半**：`no_world_was_joined` 能说「没进世界」 | 前半要把 `AUTH_MODE_MISMATCH` 那条分类写成断言（契约点名了这个值，属转写）；**后半没有可观测事实**——「没有悄悄换用在线账号」不是「没进世界」的同义词 |
 | ADMIT-050 | 白名单/封禁/重复名；保留原因，不误判版本或认证 | **一半但已被认领**：白名单那一对（`the_refusal_was_classified_in_the_ledger` + `the_bridge_classified_the_refusal`）**已由 `ADMIT-100` 拿着** | 封禁与重名两类各自的分类；以及「不误判成版本/认证」这条**否定**判据 |
 | ADMIT-060 | 资源包未授权时不 PLAYABLE、不由聊天同意 | **一半**：`no_lease_was_granted` 能说「没授 lease」（它现在由 `CORE-050` 认领；共用是允许的，但用它之后这一条自己的判据仍然只剩一半） | 「聊天不是授权来源」在运行材料里没有来源 |
-| ADMIT-090 | 新 generation；世界状态重验；人格不重建 | **三分之二**：`the_restart_runs_as_a_new_session`、`the_restart_reconciled_before_it_started` 都在（两者为 `CORE-090` 写的，共用是允许的） | **「人格不重建」没有断言**——身份连续性今天没有任何一条判据 |
+| ADMIT-090 | 新 generation；世界状态重验；人格不重建 | **三分之二**：`the_restart_runs_as_a_new_session`、`the_restart_reconciled_before_it_started` 都在（两者为 `CORE-090` 写的，共用是允许的） | **（乙）**账本现有的十个事件类型里**没有一个承载身份/人格**，所以「没有重建」今天无从观测 |
 | ADMIT-120 | oracle 身份/坐标 canary 不进入 Runtime/Memory/prompt/行动路径 | 无运行时断言（`runtime_input_does_not_reference_oracle` 是**仓库自检**类，不是运行材料类） | 运行期那半**整条缺失** |
 
 **一条顺带查出来的契约冲突，已经影响上面 `ADMIT-050` 那一行**：`ADMIT-100` 在
