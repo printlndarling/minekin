@@ -3170,3 +3170,72 @@ def test_a_host_document_that_cannot_be_read_is_not_judged(
 
     assert result.returncode == ASSERTER_MODULE.EXIT_UNJUDGED
     assert message in result.stderr
+
+
+# ---------------------------------------------------------------------------
+# The refusal branches that had no test
+# ---------------------------------------------------------------------------
+#
+# Every assertion here refuses on more than one condition, and covering an
+# assertion is not the same as covering its conditions: an audit of the asserter's
+# returns against this file found reasons that had never once been produced. The
+# first one is why the rest are listed: `the_bridge_classified_the_refusal` had one
+# test, and it exercised "there is no client log" — the branch a real run cannot
+# reach, because the client always writes one — while the branch a run does reach
+# had none.
+
+
+def test_a_summary_that_does_not_say_what_was_asked_is_incomplete() -> None:
+    """Absent and unreadable are different, and only one of them was tested.
+
+    A summary that omits or zeroes the request is not a soak that ran short: it is a
+    soak whose target cannot be read at all, which is why this says "incomplete"
+    rather than measuring a span against nothing.
+    """
+
+    verdict = ASSERTER_MODULE.evaluate(
+        soak_case(), soaked(soak=(soak_lines(), soak_summary(requested_seconds=0)))
+    )
+
+    assert any(
+        failure.startswith(
+            "the_soak_held_for_the_duration_it_was_asked_for:SOAK_SUMMARY_INCOMPLETE"
+        )
+        for failure in verdict.failures
+    )
+
+
+def test_a_world_record_with_no_level_name_is_not_the_world_it_hosted() -> None:
+    """The record exists and does not say which world, which is the shape a partial
+    write leaves behind. The tested branch was the absent record; this is the one that
+    reads as a world and names none.
+    """
+
+    verdict = ASSERTER_MODULE.evaluate(
+        host_case(),
+        hosted_world(world={"digest": LEVEL_DIGEST, "settings_digest": LEVEL_SETTINGS_DIGEST}),
+    )
+
+    assert any(
+        failure.startswith("the_run_says_which_world_it_hosted:WORLD_SNAPSHOT_HAS_NO_LEVEL_NAME")
+        for failure in verdict.failures
+    )
+
+
+def test_a_world_digest_that_is_not_a_digest_is_refused() -> None:
+    """A name with something else where the digest goes.
+
+    The assertion's subject is what the run *says* about the world, so a field present
+    and not a digest is the case it exists for: reading it as a world would make this
+    assertion agree with any string.
+    """
+
+    verdict = ASSERTER_MODULE.evaluate(
+        host_case(),
+        hosted_world(world={"level_name": "kinworld", "digest": "not-a-digest"}),
+    )
+
+    assert any(
+        failure.startswith("the_run_says_which_world_it_hosted:WORLD_SNAPSHOT_IS_NOT_A_DIGEST")
+        for failure in verdict.failures
+    )
