@@ -55,14 +55,23 @@ uv run --no-project python tools/rejudge_evidence.py <bundle 目录>
 
 它要求三件事各查各的：bundle 自己站得住、它点名的用例仍是**封存时那一版**、以及从封存字节重判出来的判决（result / expected / observed / failures 逐项）与记录一致。退出码 0 一致、1 不一致、2 判不了（字节站不住、用例版本搬了家、或 bundle 里没有判官当时的输入）。一份被改写过的 manifest——清空 `failures`、把 `observed` 填成 `expected`、`result` 改成 `PASS`，再重新生成 `bundle.sha256`——**能**通过 `evidence verify`，这一条能拒它。
 
-把一份事件流重新过一遍会话状态机、再与它自称应当产生的投影比对：
+把一份事件流重新过一遍会话状态机、再与它自称应当产生的投影比对。产品入口是冻结的那条命令，测试域另有一个工具；两条路读同一份封存 bundle 用的是**同一个深模块**（`adapters/evidence/trace.py`）：
 
 ```text
-uv run --no-project python tools/replay_evidence.py --fixture tests/fixtures/replay/session-preparing.v1.json
+uv run minekin replay <evidence-dir>
 uv run --no-project python tools/replay_evidence.py <bundle 目录>
+uv run --no-project python tools/replay_evidence.py --fixture tests/fixtures/replay/session-preparing.v1.json
 ```
 
-`--fixture` 是完整的检查：事件逐个核对 `payload_hash`、状态按 `domain/session_state.py` 那张冻结的迁移表折叠、结果与 fixture 自己的 `expected_projection` 相比。**bundle 那条路今天会拒绝**，而且拒绝本身就是结论：Core 的账本记的是「发生了什么」（`PlayableEstablished`、`JoinObserved`……），**不记**「会话走到了哪个状态」，所以一次真实运行的时间线里没有可折叠的东西。从事件名反推状态会是**对记录者的猜测伪装成检查**，而且 run document 已经记下了状态机真正到达的状态。等账本开始记迁移，这条路自己就会开始工作。
+`--fixture` 是完整的检查：事件逐个核对 `payload_hash`、状态按 `domain/session_state.py` 那张冻结的迁移表折叠、结果与 fixture 自己的 `expected_projection` 相比。
+
+bundle 那条路读的是**声明过的那一份**时间线，顺序是设计的一部分：先按 manifest 与 `bundle.sha256` 校验整个 bundle；再按 manifest 为 `bridge-trace.jsonl` 声明的**大小与摘要**读它，被校验的字节就是被解析的字节；然后才严格解析——UTF-8、一行一个 JSON 对象、空行、重复 key、未配对 surrogate、`NaN`/`Infinity`/`1e400` 这类非有限数一律拒绝。时间线封的是 SQLite 行，所以再严格读取每行的 `payload_json`，并以事件存储的同一条 canonical JSON 规则复核 `payload_hash`；最后才由 domain 把认证后的 payload 里的迁移折叠过状态机。分类只有两种，也必须是两种：字节不是封存时的字节、有没有声明的文件、或行内 payload 摘要自相矛盾，是 `STORAGE`；字节与内部摘要都站得住而它不是一段会话历史，是 `SESSION`。**哪一类由 domain 判**（`domain/replay.py` 那张表），adapter 只负责读文件、严格解析，然后把 domain 的规则串起来——它不定义会话语义。声明的大小只有这条路查：整包那一趟认为摘要已经蕴含长度，所以一个长度写错的 manifest 只有这里会拒，而且拒在解析之前。
+
+**今天真实运行落到的正是后者那个稳定答案**：Core 的账本记的是「发生了什么」（`PlayableEstablished`、`JoinObserved`……），也**不记**「会话从哪个状态走到哪个状态」，所以一次真实运行的时间线里没有可折叠的东西，`minekin replay` 会稳定返回 `semantic_incomplete` / `NO_STATE_TRANSITIONS`。
+
+一次迁移只从真实账本行的**认证 payload 里显式写出的 `from`/`to`** 读出来：两个字段都要有（只写一半是拒绝，不是补全），`from` 要与状态机当前状态一致（不一致说明记录与机器对不上，按 `TIMELINE_JUMPED` 拒，而不是照单全收），再按冻结表走到 `to`。普通事件行**不会**因为没有状态被拒——它不是一次迁移，只是一次没有迁移可折的记录。**不从事件名猜状态，也不把 W00 fixture 的 `payload.state` 方言当成账本格式**：那个方言只属于 `--fixture` 那条测试域的路，同一批行封进 bundle 就是普通事件，答案是稳定的 `NO_STATE_TRANSITIONS`。等账本开始记迁移（`CORE-STATE-TRANSITION-001`），这条路自己就会开始投影。
+
+`tools/replay_evidence.py` 保留它自己的退出码 0/1/2；上面那两种分类在报告里的 `category` 字段，而 `minekin replay` 的退出码就是分类本身（`STORAGE` 12、`SESSION` 16）。
 
 Bridge 协议与适配器可在无 Gradle、无 Minecraft 的情况下验证。第一条只编译协议内核；第二条从 Maven Central 按 SHA-1 校验下载固定 protoc 与 javalite，再编译 W20 适配器并跑自测。两条都只要求本机 JDK：
 

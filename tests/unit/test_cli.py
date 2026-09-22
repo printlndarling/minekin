@@ -116,24 +116,30 @@ def test_session_start_can_name_the_world_to_seed_and_enter() -> None:
     assert parsed.world_name == "prepared-world"
 
 
-@pytest.mark.parametrize(
-    "argv",
-    [
-        # `evidence verify` left this list when it got an implementation; the
-        # ones left here are still frozen with nowhere to dispatch to.
-        ["replay", "missing-evidence"],
-    ],
-)
-def test_w00_placeholders_fail_without_touching_path_arguments(
-    argv: list[str], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+def test_replay_is_dispatched_rather_than_placeheld(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """The last frozen command with nowhere to dispatch to, and the rule it was keeping.
+
+    `evidence verify` left the placeholder list when it got an implementation, and
+    `replay` was the entry left in it. What that test was really asserting — a path
+    argument this cannot use is an answer rather than a side effect — is asserted here
+    rather than dropped along with the placeholder. `NOT_A_BUNDLE` is that answer: there
+    is material at that path and it is not a bundle, so the classification is storage.
+    """
+
     monkeypatch.chdir(tmp_path)
     stdout = io.StringIO()
     stderr = io.StringIO()
 
-    assert run(argv, stdout=stdout, stderr=stderr) == ExitCode.USAGE
-    assert stdout.getvalue() == ""
-    assert json.loads(stderr.getvalue())["status"] == "not_implemented"
+    assert run(["replay", "missing-evidence"], stdout=stdout, stderr=stderr) == ExitCode.STORAGE
+
+    report = json.loads(stdout.getvalue())
+    assert report["command"] == "replay"
+    assert report["status"] == "invalid"
+    assert report["category"] == "STORAGE"
+    assert report["reason"] == "NOT_A_BUNDLE"
+    assert stderr.getvalue() == ""
     assert list(tmp_path.iterdir()) == []
 
 

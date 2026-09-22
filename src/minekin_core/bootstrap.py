@@ -10,6 +10,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import TextIO
 
+from minekin_core.adapters.evidence.trace import replay_sealed_bundle
 from minekin_core.adapters.launcher.launch_plan import build_launch_plan
 from minekin_core.adapters.system.clock import SystemClock
 from minekin_core.cli.doctor import diagnose
@@ -182,6 +183,16 @@ def run(
         verification = verify_run(data_root(), args.run_id)
         _emit(verification.as_dict(), stdout)
         return int(ExitCode.OK if verification.verified else ExitCode.STORAGE)
+
+    if args.command == "replay":
+        # Which of the two rejections this was is the report's own answer: a bundle
+        # whose bytes are not the ones that were sealed is a STORAGE problem, and a
+        # bundle that holds up and records no session history is a SESSION one. The
+        # exit code is the category, so a script can branch on it without reading the
+        # document — and the reading itself is not this file's, it is the adapter's.
+        replay = replay_sealed_bundle(Path(args.evidence_dir))
+        _emit({**replay.as_dict(), "command": _command_name(args)}, stdout)
+        return int(replay.exit_code)
 
     command = _command_name(args)
     _emit(

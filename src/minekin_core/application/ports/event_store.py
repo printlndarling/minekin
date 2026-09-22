@@ -8,6 +8,8 @@ performed cannot be separated by a process crash.
 
 from __future__ import annotations
 
+import hashlib
+import json
 from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
@@ -15,6 +17,20 @@ from typing import Protocol, runtime_checkable
 from minekin_core.domain.events import EventSource, TrustClass
 
 JsonValue = None | bool | int | float | str | list["JsonValue"] | dict[str, "JsonValue"]
+
+
+def canonical_json(value: JsonValue) -> str:
+    """The event-store contract's one canonical spelling of a JSON payload."""
+
+    return json.dumps(
+        value, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False
+    )
+
+
+def payload_digest(value: JsonValue) -> str:
+    """The digest stored beside an event payload, independent of its adapter."""
+
+    return hashlib.sha256(canonical_json(value).encode("utf-8")).hexdigest()
 
 
 @dataclass(frozen=True, slots=True)

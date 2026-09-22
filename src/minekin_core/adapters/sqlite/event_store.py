@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import json
 import sqlite3
 from collections.abc import Iterable
@@ -15,22 +14,14 @@ from minekin_core.application.ports.event_store import (
     JsonValue,
     OutboxItem,
     Projection,
+    canonical_json,
+    payload_digest,
 )
 from minekin_core.domain.errors import ErrorCategory, MinekinError, Retryability
 from minekin_core.domain.events import EventSource, TrustClass
 
 from .connection import connect_reader
 from .writer import SQLiteWriter
-
-
-def canonical_json(value: JsonValue) -> str:
-    return json.dumps(
-        value, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False
-    )
-
-
-def payload_digest(value: JsonValue) -> str:
-    return hashlib.sha256(canonical_json(value).encode("utf-8")).hexdigest()
 
 
 class SQLiteEventStore:

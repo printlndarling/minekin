@@ -39,6 +39,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path, PurePosixPath
 from typing import TypeGuard, cast
 
+from minekin_core.adapters.evidence.trace import LEDGER_TIMELINE_ARTIFACT
 from minekin_core.adapters.launcher.saves import LEVEL_DAT
 from minekin_core.cli.init import DATABASE_NAME, KIN_DIRECTORY, kin_directory, run_root
 from minekin_core.cli.session import session_overlay_path
@@ -526,9 +527,13 @@ def read_run_material(
 #: of that material lives, and imported by the sealer rather than spelled again: a
 #: sealer that wrote a name the reader did not know would not fail, it would read as
 #: "this run had none of that", which is a different and quieter answer.
+#:
+#: The timeline is the one exception, and it moved rather than being declared twice:
+#: `minekin replay <evidence-dir>` reads it too, and the product cannot import a tool,
+#: so `LEDGER_TIMELINE_ARTIFACT` is declared where that reading lives and imported
+#: here. One spelling, in whichever side of the boundary has to own it.
 ASSERTER_INPUTS = "asserter-inputs.json"
 RUN_DOCUMENT_ARTIFACT = "run-document.json"
-LEDGER_TIMELINE_ARTIFACT = "bridge-trace.jsonl"
 PREVIOUS_TIMELINE_ARTIFACT = "previous-run-trace.jsonl"
 HOST_RUN_DOCUMENT_ARTIFACT = "host-run-document.json"
 FAULT_RECORD_ARTIFACT = "fault-injection.json"

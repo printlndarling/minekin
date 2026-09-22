@@ -14,13 +14,14 @@ from minekin_core.adapters.sqlite.connection import (
     connect_reader,
     supports_multi_connection_wal,
 )
-from minekin_core.adapters.sqlite.event_store import SQLiteEventStore, payload_digest
+from minekin_core.adapters.sqlite.event_store import SQLiteEventStore
 from minekin_core.adapters.sqlite.writer import SQLiteWriter, WriteDeadlineExceeded
 from minekin_core.application.ports.event_store import (
     EventEnvelope,
     JsonValue,
     OutboxItem,
     Projection,
+    payload_digest,
 )
 from minekin_core.domain.errors import ErrorCategory, MinekinError
 from minekin_core.domain.events import EventSource, TrustClass

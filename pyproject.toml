@@ -64,6 +64,7 @@ select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
 known-first-party = [
     "assert_case_evidence",
     "bridge_peer",
+    "bundle_support",
     "check_case_assertions",
     "evidence_provenance",
     "fault_injection",

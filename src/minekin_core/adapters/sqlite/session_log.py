@@ -27,10 +27,10 @@ import asyncio
 from pathlib import Path
 from typing import Any
 
-from minekin_core.adapters.sqlite.event_store import SQLiteEventStore, payload_digest
+from minekin_core.adapters.sqlite.event_store import SQLiteEventStore
 from minekin_core.adapters.sqlite.writer import SQLiteWriter
 from minekin_core.application.ports.clock import Clock
-from minekin_core.application.ports.event_store import EventEnvelope, OutboxItem
+from minekin_core.application.ports.event_store import EventEnvelope, OutboxItem, payload_digest
 from minekin_core.application.recovery_service import (
     RecoveryReport,
     reconcile_pending_outbox,

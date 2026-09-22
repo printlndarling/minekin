@@ -7,19 +7,22 @@ it is a complete check: the stream is read, each event's payload is held to the 
 recorded beside it, the states are folded through the frozen machine, and the result is
 compared with what the fixture says it should be. That fixture has been frozen since
 W00 and read by nothing; this is its consumer, which is what "commit the fixture and
-its expectation first, then the implementation" was waiting for.
+its expectation first, then the implementation" was waiting for. A fixture is a
+repository artifact, so this path is test tooling and stays here.
 
 An **evidence bundle** carries a timeline — Core's own ledger events, sealed as
-`bridge-trace.jsonl` — and replaying it can only project what those rows actually say.
-They record what happened, not which state the machine moved to, so a real run's
-timeline has no states in it and this refuses rather than deriving a mapping from event
-names to states. That mapping would be a guess about the recorder wearing the shape of
-a check, and the run document already records the state the machine reached. This is
-the finding the todo was missing, and it is a finding about what Core records rather
-than about what a projector can do.
+`bridge-trace.jsonl` — and reading it is the same act `minekin replay <evidence-dir>`
+performs, so it is the same code: `replay_sealed_bundle` in the product, which verifies
+the bundle against the size and digest the manifest declares for its timeline before
+parsing a byte of it. A real run's rows record what happened; a move is read only from a
+row that states one explicitly (`from`/`to`), so a bundle sealed before the ledger
+recorded transitions has nothing in it to fold — reported as the stable
+`semantic_incomplete` result, not as a guess about what the event names must have meant.
 
-Exit codes: 0 the projection is what was expected, 1 it is not, 2 nothing could be
-projected (and the reason is printed).
+The exit codes here stay this tool's own (0 projected, 1 the stream does not produce
+the projection, 2 nothing could be projected). Which of the two kinds of refusal it
+was is in the report, as `category`: `STORAGE` when the bytes are not the bytes that
+were sealed, `SESSION` when they are and do not amount to a session history.
 """
 
 from __future__ import annotations
@@ -33,17 +36,17 @@ from typing import cast
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 
-# The reading of a sealed timeline lives beside this file, and the projector lives in
+# The reading of a sealed timeline lives in the product, and the projector lives in
 # the domain. Imported rather than restated: a second spelling of an artifact name
 # would read as "this run had no timeline" instead of failing.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from assert_case_evidence import LEDGER_TIMELINE_ARTIFACT  # noqa: E402
-from minekin_core.adapters.sqlite.event_store import payload_digest  # noqa: E402
-from minekin_core.application.ports.event_store import JsonValue  # noqa: E402
+from minekin_core.adapters.evidence.trace import replay_sealed_bundle  # noqa: E402
+from minekin_core.application.ports.event_store import JsonValue, payload_digest  # noqa: E402
 from minekin_core.domain.replay import (  # noqa: E402
     IllegalSessionTransition,
     ReplayRefused,
+    ReplayStatus,
     SessionProjection,
     project_session,
 )
@@ -131,41 +134,60 @@ def replay_fixture(path: Path) -> dict[str, object]:
 
 
 def replay_bundle(directory: Path) -> dict[str, object]:
-    """Replay a sealed bundle's own timeline, or say why it cannot be replayed."""
+    """Read a sealed bundle's own timeline, through the reading the product uses."""
 
-    timeline = directory / LEDGER_TIMELINE_ARTIFACT
-    if not timeline.is_file():
-        raise ReplayRefused(
-            f"{directory} holds no {LEDGER_TIMELINE_ARTIFACT} — there is no event stream "
-            "here to replay"
-        )
-    rows = [
-        _object(json.loads(line), f"{timeline} line {number}")
-        for number, line in enumerate(timeline.read_text(encoding="utf-8").splitlines(), start=1)
-        if line.strip()
-    ]
-    # Named here rather than left to the projector's refusal, because this is the
-    # finding: a real ledger records what happened, not which state the machine moved
-    # to, so a run's timeline has nothing in it to fold.
-    if not any(
-        isinstance(row.get("payload"), Mapping)
-        and isinstance(cast(Mapping[str, object], row["payload"]).get("state"), str)
-        for row in rows
-    ):
-        raise ReplayRefused(
-            f"{directory} sealed {len(rows)} event(s) and none of them records a session "
-            "state — the ledger says what happened, not where the session went, so this "
-            "timeline cannot be projected and no mapping from event names to states is "
-            "derived to make it look as though it could"
-        )
-    projection = project_session(rows)
     return {
-        "schema_version": 1,
+        **replay_sealed_bundle(directory).as_dict(),
         "command": "replay evidence",
         "source": str(directory),
-        "events": len(rows),
-        "projected": projection.as_document(),
     }
+
+
+def _refused(message: str) -> int:
+    print(
+        json.dumps({"schema_version": 1, "status": "unreplayable", "message": message}),
+        file=sys.stderr,
+    )
+    return EXIT_UNREPLAYABLE
+
+
+def _report_fixture(path: Path) -> int:
+    try:
+        report = replay_fixture(path)
+    except (ReplayRefused, IllegalSessionTransition) as error:
+        return _refused(str(error))
+    print(json.dumps(report, sort_keys=True, indent=2))
+    found = cast(list[str], report["disagreements"])
+    if found:
+        for item in found:
+            print(item, file=sys.stderr)
+        print(
+            f"replay evidence: the stream does not produce the projection ({len(found)} part(s))",
+            file=sys.stderr,
+        )
+        return EXIT_DISAGREES
+    print(
+        f"Replay evidence: OK ({report['source']} projects to what it says it should)",
+        file=sys.stderr,
+    )
+    return EXIT_AGREES
+
+
+def _report_bundle(directory: Path) -> int:
+    report = replay_bundle(directory)
+    print(json.dumps(report, sort_keys=True, indent=2))
+    if report["status"] != ReplayStatus.PROJECTED.value:
+        print(
+            f"replay evidence: nothing could be projected [{report['category']}] "
+            f"{report['reason']}: {report['message']}",
+            file=sys.stderr,
+        )
+        return EXIT_UNREPLAYABLE
+    print(
+        f"Replay evidence: OK ({report['source']} projects {report['events']} event(s))",
+        file=sys.stderr,
+    )
+    return EXIT_AGREES
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -187,44 +209,10 @@ def main(argv: list[str] | None = None) -> int:
     )
     arguments = parser.parse_args(argv)
     if (arguments.bundle is None) == (arguments.fixture is None):
-        print(
-            json.dumps(
-                {
-                    "schema_version": 1,
-                    "status": "unreplayable",
-                    "message": "give exactly one of a bundle directory or --fixture",
-                }
-            ),
-            file=sys.stderr,
-        )
-        return EXIT_UNREPLAYABLE
-    try:
-        report = (
-            replay_fixture(arguments.fixture)
-            if arguments.fixture is not None
-            else replay_bundle(arguments.bundle)
-        )
-    except (ReplayRefused, IllegalSessionTransition) as error:
-        print(
-            json.dumps({"schema_version": 1, "status": "unreplayable", "message": str(error)}),
-            file=sys.stderr,
-        )
-        return EXIT_UNREPLAYABLE
-    print(json.dumps(report, sort_keys=True, indent=2))
-    found = cast(list[str], report.get("disagreements", []))
-    if found:
-        for item in found:
-            print(item, file=sys.stderr)
-        print(
-            f"replay evidence: the stream does not produce the projection ({len(found)} part(s))",
-            file=sys.stderr,
-        )
-        return EXIT_DISAGREES
-    print(
-        f"Replay evidence: OK ({report['source']} projects to what it says it should)",
-        file=sys.stderr,
-    )
-    return EXIT_AGREES
+        return _refused("give exactly one of a bundle directory or --fixture")
+    if arguments.fixture is not None:
+        return _report_fixture(arguments.fixture)
+    return _report_bundle(arguments.bundle)
 
 
 if __name__ == "__main__":

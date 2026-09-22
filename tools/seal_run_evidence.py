@@ -70,6 +70,7 @@ from assert_case_evidence import (
     CLIENT_STREAM_ARTIFACTS,
     FAULT_RECORD_ARTIFACT,
     HOST_RUN_DOCUMENT_ARTIFACT,
+    LEDGER_TIMELINE_ARTIFACT,
     PLAYABLE_ESTABLISHED,
     PREVIOUS_TIMELINE_ARTIFACT,
     RUN_DOCUMENT_ARTIFACT,
@@ -690,7 +691,7 @@ def seal(
     # The timeline sealed here is literally what the judge read: this is the same
     # reading, serialised, so the bundle cannot hold a different set of events
     # from the one the verdict was reached on.
-    artifacts["bridge-trace.jsonl"] = timeline_bytes(material.ledger_events)
+    artifacts[LEDGER_TIMELINE_ARTIFACT] = timeline_bytes(material.ledger_events)
     # What the judge was *given*, as opposed to what it read. A verdict can be reached
     # a second time only from the same inputs, and three of them are not in any
     # document: the name the server saw, which Kin this run belongs to, and which run
