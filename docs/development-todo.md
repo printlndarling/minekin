@@ -972,6 +972,14 @@
   - **那为什么没有就这么改掉：因为它的代价落在你的机器上，而收益只是一个瞬时红的门禁。** 这台机器正是把清华设成默认的那台，所以把锁改成 pypi.org 之后，**本机 `uv sync --locked` 反而会拒绝**——实测 `uv lock --check` 与 `uv sync --locked` 都会报「lockfile needs to be updated」，因为 uv 认为锁与**当前配置的** index 不符。再往前一步的正确修法是**在 `pyproject.toml` 里显式声明本项目的 index**（项目级配置优先于用户级），那样锁与 `--locked` 在两边都成立——但那等于**把你的镜像选择在这个仓库里关掉**，而那个选择大概是为了你所在网络的下载速度甚至可达性。**这个取舍我不替你决定**：(a) 想让 CI 不再依赖第三方镜像，就在 `pyproject.toml` 里把 index 钉成 pypi.org（一条声明 + 一次重录，18 个包版本与摘要都不动）；(b) 想留着镜像，那就接受 CI 偶尔因为镜像 403 而红一次，重跑即可——本次就是这么处理的。本轮**没有改 `uv.lock`**（改完又原样还原，`git status` 干净），因为 (a) 的代价我看不到而你看到。
   - **实测（本轮：只读 + CI 查询与重跑）**：`grep` 锁文件与 workflow 计数、读 `%APPDATA%\uv\uv.toml`、`curl` 同一 URL 前后两次（403 → 200）、`uv lock --default-index` 后的逐包版本与 sha256 集合比对、`uv lock --check` / `uv sync --locked` 的行为、以及 GitHub REST 的 run/job/step 与 `rerun-failed-jobs`。**没有改任何代码与依赖**，本轮只加了本条记录。**重跑后 `6ecd0b5` 三个 job 全绿。**
 
+- [x] **把「队列是空的」这个结论又验了一遍，这次是冲着"计划写错了"去的——上一轮那条过期的 CI 声明说明计划里的状态字段也可能过期。结论：没有过期，六张剩余卡各自卡在它写明的理由上。** 逐张核过，每一条都能重推：
+  - **`CORE-STATE-TRANSITION-001`（WAITING_REAL_RUN）**：停止理由写的是「强杀时最后一条迁移是否落账不能由 mock 证明」——与 `docs/persistence-recovery-contract.md` 的同一件事一致，**没有任何本地判据能替代它**。
+  - **`REAL-P0-CAMPAIGN-001`（WAITING_REAL_RUN）**：前置写明需要受控 runner 与用户对 EULA 的授权，两者都不在仓库里。
+  - **`HOST-ADMISSION-DESIGN-001`（BLOCKED_DECISION）**：这条**不是没读过，而是读到过底**——`development-todo.md:675` 已经给出了两侧各一道闸的具体位置（`ClientAdmissionController.collectSnapshotWhenPlayable` 在 `activeGeneration == 0` 时直接返回，而 `beginGeneration` 全仓库只有 `ConnectWorld` 一个调用点；Core 侧 `_admit_first_snapshot` 要求 `connections.active`），并明确写下**任何一侧的冻结都要先有真客户端 trace，凭现在知道的去改就是把猜测写成表**。所以它属于「等运行」而不是「等设计」。
+  - **`EVIDENCE-SEQUENCE-001`（BLOCKED_DECISION）**：它的主语是「Registry 如何分配单调 `attempt_sequence`」——而**这个 Registry 在代码里不存在**（全仓库唯一的 registry 是 *case* registry `domain/cases.py`，那是另一件事，它枚举用例而不是登记 bundle）。给一个还没造出来的组件的字段定语义，等于先发明组件再倒推它的约束。现有语义是**刻意保留**的，`development-todo.md:638` 记着：没有可信顺序字段，就按「一份满足即满足」判，按时间戳或目录名取最新都是猜。
+  - **`OPERATIONS-RETENTION-001` / `PROCESS-RECOVERY-001`（BLOCKED_DECISION）**：前者的保留期在 `docs/decisions.md` 的「默认执行决议」表里被明确划给 **Dashboard 原型校准**（那是 P2，`HOST/W80+` 之下）；后者的解除条件自己写着要**在受控 runner 上取得真实残留事件流**。——两张都要么属于被冻结的阶段，要么要真实运行。
+- [x] **所以本轮没有产生代码改动，这是刻意的一步而不是空转。** 先验「队列空了是不是因为计划写旧了」，再逐张确认每张卡的阻塞理由**在今天的代码与契约里仍然成立**。把这件事写下来是为了让下一个人不必再查一遍：**要往下走，缺的不是本地工作量，而是三种输入之一**——①对四张 `BLOCKED_DECISION` 中任意一张给出决定（`HOST-ADMISSION-DESIGN-001` 与 `PROCESS-RECOVERY-001` 还需要真实运行才能真正关闭，另外两张给决定即可）；②受控 runner + EULA 授权（解锁两张 `WAITING_REAL_RUN`，也是让上一轮那套 tick 预算真正产出 P50/P95/P99 的前提）；③另行指定一张新卡（先入 `QUEUED`）。**在拿到其中之一之前，任何"继续"都只能是发明范围**，而执行计划自己在「Claude 调度包」里把这条写成硬要求（第 376 行：「发现规格缺口时停止并报告，不自行设计新范围」）。
+
 ## W70 之后
 
 - [ ] W80：独立 `p0-nav-exp` 导航实验；核验输入冲突、隐藏真值与 SBOM/许可。
