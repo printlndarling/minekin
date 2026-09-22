@@ -1666,6 +1666,24 @@ def test_a_category_that_reached_core_without_the_bridge_making_it_is_not_eviden
     assert verdict.failures == ("the_bridge_classified_the_refusal:NO_CLIENT_LOG",)
 
 
+def test_a_client_log_that_does_not_classify_it_is_not_evidence_that_it_did() -> None:
+    """The branch above is the defensive one; this is the one a real run reaches.
+
+    `the_bridge_classified_the_refusal` refuses twice: when there is no client log
+    at all, and when there is one that does not carry the Bridge's own line. Only
+    the first was ever exercised, and it is the one a run cannot produce — the
+    client always writes a log. The second is what a Bridge that saw a refusal and
+    never classified it actually leaves behind, which is exactly the fact this
+    assertion exists to notice.
+    """
+
+    log = "[19:28:12] [Render thread/INFO]: [minekin-bridge] nothing about a refusal\n"
+
+    verdict = ASSERTER_MODULE.evaluate(refused_case(), refused(client_log=log))
+
+    assert verdict.failures == ("the_bridge_classified_the_refusal:THE_BRIDGE_DID_NOT_CLASSIFY_IT",)
+
+
 def test_a_kin_that_never_joined_fails_every_assertion_that_needs_it() -> None:
     log = '[19:28:12] [Server thread/INFO]: Done (0.512s)! For help, type "help"\n'
 

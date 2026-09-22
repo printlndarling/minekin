@@ -1108,6 +1108,16 @@
   - **实测（本轮：读代码 + 本地门禁）**：`evaluate_promotion` 的满足语义逐行读过；契约对 `CORE-060` 的拆分注记逐字引用过（含那句「既不可能由一份 bundle 满足，也不能保证每种故障各有一份」）；全量 pytest **1846 passed / 2 skipped**，Ruff check/format、Pyright（strict，0 errors）、boundaries、case assertions、fixture digests、workflow pins 与 `git diff --check` 全绿。**本轮只改文档**，没有改代码、没有登记 case。
   - **仍然开着的**：`ADMIT-030`/`050` 需要**契约层面的拆分决定**（拆成三个 case id 各一场景，像 `CORE-060` 那样），这是用户的决定；`ADMIT-040` 需要决定后半用什么判据（或者接受「只尝试一次」这个代理并写明它是代理）。
 
+- [x] **换了个问题问，问出这个仓库最忌讳的那一类东西：判官自己的**失败分支**有 15 条从来没被测过——而其中至少一条，**被测的是防御性的那半，真正会发生的这半没人碰**。** 前几轮都在找「缺哪个 case」；这一轮问的是「**现有 42 条 runtime 断言，每一条定义的 PASS 有没有被证明会拒绝错的东西**」。
+  - **怎么量的（可重推）**：从 `tools/assert_case_evidence.py` 用 `ast` 把 42 条断言的每个 `return` 字符串取出来（纯字面量与 f-string 的前缀各算一条），再逐个去 `tests/unit/test_case_evidence_assertions.py` 里找——测试不直接调断言函数，而是读 `verdict.failures` 里 `"<名字>:<原因>"` 这个形状，所以「在某处出现过」就是「有测试断言过这条拒绝」。**读数：129 条不同的失败原因，其中 15 条在测试里从未出现。**
+  - **第一次量错了，值得记**：我先按「名字 + `is None` 在同一行」去数，结果 42 条全是 0/0——因为测试根本不那样写。**这是这一轮第三次探针先出错**（前两次是尾斜杠、`tail` 的退出码），所以这次我没有拿错数去下结论，而是先去读了一个真实的测试长什么样。
+  - **修掉的那一条，正是「测错了半边」。** `the_bridge_classified_the_refusal` 有两条拒绝分支：`NO_CLIENT_LOG`（完全没有客户端日志）与 `THE_BRIDGE_DID_NOT_CLASSIFY_IT`（有日志、但没有 Bridge 那行分类）。**唯一被测的是前者**——而前者是**真实运行产生不出来的**（客户端总会写日志）。后者才是「Bridge 看见了拒绝却没分类」留下的事实，也就是这条断言存在的全部理由。补了 `test_a_client_log_that_does_not_classify_it_is_not_evidence_that_it_did`，**变异验证**：把那个分支从实现里删掉 → 新测试立刻红；还原即绿。
+  - **剩下 14 条列在这里当工作单**（每一条都是「这个理由没有测试让它的分支真的响一次」）：`another_kin_joined_the_world_this_run_hosted:THIS_RUN_DID_NOT_PUBLISH_A_WORLD`、`first_snapshot_admitted:SNAPSHOT_COUNT_MISSING`、`the_attempt_was_abandoned_at_its_deadline:NO_CONNECTION_RECORD`、`the_bridge_carried_the_input_out:ACTION_COUNTS_MISSING`、`the_first_snapshot_of_the_world_it_dialled_was_admitted` 的 **五条**（`DIALLED_A_PORT_THAT_IS_NOT_ONE`/`DIALLED_SOMETHING_BUT_A_LOOPBACK_LITERAL`/`NEVER_BECAME_PLAYABLE`/`NO_SNAPSHOT_WAS_ADMITTED`/`SNAPSHOT_COUNT_MISSING`）、`the_restart_runs_as_a_new_session:PREVIOUS_RUN_HAS_NO_SESSION_ATTRIBUTION`、`the_run_says_which_world_it_hosted` 的两条（`WORLD_SNAPSHOT_HAS_NO_LEVEL_NAME`/`WORLD_SNAPSHOT_IS_NOT_A_DIGEST`）、`the_server_saw_the_kin_stop_after_the_move:NEVER_MOVED`、`the_soak_held_for_the_duration_it_was_asked_for:SOAK_SUMMARY_INCOMPLETE`、`the_world_this_run_joined_is_the_one_the_case_names:THE_WORLD_WAS_PUBLISHED_ON_ANOTHER_PORT`。
+  - **这不是「都有测试」那种假缺口**：42 条断言**每一条都至少有一条拒绝测试**（我先量了这个，读数是 42/42）——缺的是**逐条分支**的覆盖，粒度更细，所以量出来的东西不一样。两句都对，但它们说的不是同一件事，我把两句都留着。
+  - **为什么这属于本仓库最忌讳的一类**：`check_case_assertions.py` 自己的 docstring 写着它的存在理由——「a name that still resolves is not the same thing as the same check」。这里是同一句话往下走一层：**一个签名还在、名字还解析得到的拒绝分支，不等于一个验证过的拒绝。** 一条从没响过的分支可以是写错的，而它一旦响就是某次真实运行的判决。
+  - **实测（本轮：本地）**：全量 pytest **1847 passed / 2 skipped**（+1，正是新加的那条），Ruff check/format、Pyright（strict，0 errors）、boundaries、case assertions（120 条注册）、fixture digests、workflow pins 与 `git diff --check` 全绿；变异一次驱动到红并原样还原（`git diff --stat tools/` 为空）。**没有跑 Minecraft**。
+  - **仍然开着的**：上面那 14 条分支各要一条负向测试。**这一条是本轮之后仍然明确属于测试域、不需要任何决定的活**——与前面几步那些「要先有契约/产品决定」的条目不是同一类。
+
 ## W70 之后
 
 - [ ] W80：独立 `p0-nav-exp` 导航实验；核验输入冲突、隐藏真值与 SBOM/许可。
