@@ -10,12 +10,17 @@ import subprocess
 import sys
 from collections.abc import Callable, Sequence
 from dataclasses import asdict, dataclass
+from pathlib import Path
 from typing import Protocol
 
+from minekin_core.adapters.launcher import launch_plan
+from minekin_core.adapters.launcher.launch_plan import find_workspace_root
 from minekin_core.adapters.sqlite.connection import supports_multi_connection_wal
 from minekin_core.config import P0_REQUIREMENTS, RuntimeRequirements
+from minekin_core.domain.errors import MinekinError
 
 _JAVA_VERSION = re.compile(r'(?:java|openjdk) version "(?P<major>\d+)(?:[.]|\")')
+_WHITESPACE = re.compile(r"\s+")
 
 
 @dataclass(frozen=True, slots=True)
@@ -139,11 +144,48 @@ def _java_check(
     )
 
 
+def _workspace_check(start: Path | None = None) -> DiagnosticCheck:
+    """Whether the checkout this product needs is where the product looks for it.
+
+    The controlled runner mounts the repository read-only rather than installing a
+    wheel, and the reason is written down where that is done: `find_workspace_root`
+    needs `bridge/` and `proto/` beside the source, and an installed wheel does not
+    carry them. So a host can have this project's Python, Java, protobuf and SQLite
+    all correct — every other check here green — and still be unable to start a
+    session, because the checkout is not where the product looks for it.
+
+    That failure used to appear only at `session start`, after a client had been
+    launched, and it is exactly the shape a diagnostic exists to remove: the
+    environment says yes and the thing the environment is for says no. Asked from
+    the same place the product asks it, so that a check which passes here cannot
+    pass while `build_launch_plan` would refuse.
+    """
+
+    origin = Path(launch_plan.__file__).resolve() if start is None else start
+    try:
+        root = find_workspace_root(origin)
+    except MinekinError as error:
+        return DiagnosticCheck("workspace", False, _one_line(error.safe_message))
+    return DiagnosticCheck("workspace", True, f"workspace at {root}")
+
+
+def _one_line(message: str) -> str:
+    """A refusal on one line, because the report is a list of summaries.
+
+    The message itself is not shortened: it is the part that says which marker is
+    missing and why a wheel cannot substitute for it, and a check that fails without
+    saying what to do about it is only half a check.
+    """
+
+    return _WHITESPACE.sub(" ", message).strip()
+
+
 def diagnose(
     requirements: RuntimeRequirements = P0_REQUIREMENTS,
     *,
     which: Callable[[str], str | None] = shutil.which,
     run: CommandRunner = _run_command,
+    workspace_start: Path | None = None,
 ) -> DoctorReport:
     """Inspect the host without changing it or contacting the network."""
 
@@ -153,5 +195,6 @@ def diagnose(
             _java_check(requirements, which=which, run=run),
             _protobuf_check(requirements),
             _sqlite_check(),
+            _workspace_check(workspace_start),
         )
     )

@@ -6,9 +6,11 @@ import sqlite3
 import subprocess
 from collections.abc import Sequence
 from pathlib import Path
+from typing import Any
 
 import pytest
 
+from minekin_core.adapters.launcher.launch_plan import find_workspace_root
 from minekin_core.adapters.sqlite.connection import SQLiteCompatibilityError
 from minekin_core.bootstrap import main, run
 from minekin_core.cli.doctor import diagnose
@@ -194,7 +196,13 @@ def test_doctor_is_read_only_and_reports_requirements(
 
     report = diagnose(RuntimeRequirements(), which=lambda _name: "/read-only/java", run=fake_run)
     assert report.ok
-    assert {check.name for check in report.checks} == {"python", "java", "protobuf", "sqlite"}
+    assert {check.name for check in report.checks} == {
+        "python",
+        "java",
+        "protobuf",
+        "sqlite",
+        "workspace",
+    }
     assert list(tmp_path.iterdir()) == []
 
 
@@ -271,3 +279,90 @@ def test_a_foreign_database_is_reported_rather_than_redacted(
 
     assert code == int(ExitCode.STORAGE)
     assert "not a Minekin ledger" in document["message"]
+
+
+# ---------------------------------------------------------------------------
+# The checkout the runner exists to provide
+# ---------------------------------------------------------------------------
+
+
+def workspace_check(start: Path) -> Any:
+    """The workspace line of a real report, with the host kept out of it.
+
+    Asked through `diagnose` rather than by calling the check directly: what a reader
+    of a doctor report acts on is the report, and a test that reached past it would
+    keep passing if the check stopped being wired into one. `which` returns nothing so
+    the java check answers without running anything, and `run` refuses rather than
+    shells out — a workspace test that quietly depended on the host's JDK would be a
+    different test on every machine.
+    """
+
+    def refuse(*_arguments: Any, **_keywords: Any) -> Any:
+        raise AssertionError("the workspace check must not run a subprocess")
+
+    report = diagnose(
+        RuntimeRequirements(), which=lambda _name: None, run=refuse, workspace_start=start
+    )
+    return next(check for check in report.checks if check.name == "workspace")
+
+
+def test_a_healthy_host_is_not_a_host_that_can_start_a_session(tmp_path: Path) -> None:
+    """The other checks can all be green on a machine that cannot run this.
+
+    The controlled runner mounts the repository read-only instead of installing a
+    wheel, and the reason is written where that is done: finding the workspace needs
+    `bridge/` and `proto/` beside the source. So "python, java, protobuf and sqlite are
+    right" is not the same claim as "this host can launch a client", and a diagnostic
+    that reported only the first would be answering a question nobody asked while the
+    real one went unanswered until a session was already under way.
+    """
+
+    lonely = tmp_path / "site-packages" / "minekin_core"
+    lonely.mkdir(parents=True)
+
+    check = workspace_check(lonely)
+
+    assert check.name == "workspace"
+    assert check.ok is False
+    # The refusal says what is missing and what to do about it, on one line, because
+    # the report is a list of one-line summaries.
+    assert "no Minekin workspace found" in check.summary
+    assert "which an installed wheel does not carry" in check.summary
+    assert "\n" not in check.summary
+
+
+def test_the_workspace_check_asks_the_question_the_planner_asks(tmp_path: Path) -> None:
+    """A check that could pass while `build_launch_plan` refuses is worse than none.
+
+    Both markers are required and one of them is not enough, so this builds the
+    half-present tree the check has to be unhappy about rather than only the empty one.
+    """
+
+    half = tmp_path / "checkout" / "src" / "minekin_core"
+    half.mkdir(parents=True)
+    (tmp_path / "checkout" / "bridge").mkdir()
+
+    assert workspace_check(half).ok is False
+    with pytest.raises(MinekinError, match="no Minekin workspace found"):
+        find_workspace_root(half)
+
+    (tmp_path / "checkout" / "proto").mkdir()
+
+    assert workspace_check(half).ok is True
+    assert find_workspace_root(half) == tmp_path / "checkout"
+
+
+def test_the_workspace_check_reads_the_checkout_without_changing_it(tmp_path: Path) -> None:
+    """Doctor is read-only, and that is a property of the new check too."""
+
+    root = tmp_path / "checkout"
+    (root / "src" / "minekin_core").mkdir(parents=True)
+    (root / "bridge").mkdir()
+    (root / "proto").mkdir()
+    before = sorted(path.relative_to(root).as_posix() for path in root.rglob("*"))
+
+    check = workspace_check(root / "src" / "minekin_core")
+
+    assert check.ok is True
+    assert check.summary == f"workspace at {root}"
+    assert sorted(path.relative_to(root).as_posix() for path in root.rglob("*")) == before

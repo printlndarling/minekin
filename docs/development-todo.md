@@ -995,6 +995,14 @@
   - **实测（本轮：本地）**：全量 pytest **1833 passed / 2 skipped**（比上一轮 +4，正是新加的四条），Ruff check/format、Pyright（strict，0 errors）、boundaries、case assertions、fixture digests、workflow pins 与 `git diff --check` 全绿。**没有跑 Minecraft、没有接受 EULA、没有改 promotion 的语义**。
   - **仍然开着的**：`EVIDENCE-SEQUENCE-001` 本身仍是 `BLOCKED_DECISION`——我只把两种修法都要的证据**露出来**了，没有替它选；`attempt_sequence` 与 supersession 一行都没写。
 
+- [x] **`doctor` 一直会在一台「起不了会话」的机器上报 `ok`——因为它的四项检查全是**环境**，没有一项是**这台机器要跑的东西**到底在不在。** 受控 runner 存在的理由是它**只读挂载仓库**而不是装 wheel，而理由写在挂载那一段：`find_workspace_root` 需要 `bridge/` 与 `proto/` 与源码并列，**装好的 wheel 不带它们**。于是 Python、Java、protobuf、SQLite 全对的机器上，`minekin doctor` 可以一路绿，而 `session start` 会在**客户端已经起来之后**失败。这正是诊断该消灭的形状：环境说可以，而环境为之存在的那个东西说不可以。
+  - **补上的那一项检查是 `workspace`，而且它是照着产品自己的问法问的。** `cli/doctor.py` 新增第五项：从 `launch_plan.__file__` 起（**与 `build_launch_plan` 完全同一个起点**，见 `launch_plan.py:162`）调 `find_workspace_root`，通过就报出根路径，不通过就把那句拒绝**压成一行**放进报告——保留原文，因为它说的正是「缺哪个标记、以及为什么 wheel 代替不了它」。**关键性质是忠诚**：一道能在 `build_launch_plan` 会拒绝时仍然通过的检查，比没有检查更坏；所以有用例构造**只缺一个标记**的半成品树，断言检查与 `find_workspace_root` **同时**拒绝。
+  - **容器里验过，而且这正是它该被验的地方**：`bash test-orchestrator/runner/run.sh doctor` 现在报五项全绿，`workspace at /src`——runner 把仓库挂在 `/src`，检查找到的就是它。本机则是 `workspace at C:\Users\darling\Documents\agent_work\minekin`。（本机 `java` 那一项报 `Java 27 (required: 21)` 而失败，这是**既有的、已知的**本机事实：JDK 21 在 `D:\env\jdk-21.0.12.1` 而不在 PATH 上；容器里是 21，所以那一项绿。不是本轮引入的。）
+  - **顺带把上一轮那处没做过的 Docker 验证补上了，结果是干净的。** 上一步改了 proto 并重生了 Python 生成物，但**只在本地验过**；容器里 protobuf 是 6.33.6，与本地未必同版本，而「本地绿、容器红」正是这一层最典型的失效。实测：容器里 `import minekin_core` 与 `observation_pb2` 都通过，新的 `CallbackBudgetWindow` 往返出的字节是 `0a047469636b100120022a020304`（字段 1 `"tick"`、字段 2 `1`、字段 4 `2`、字段 5 `[3,4]`，逐字段对得上），产品 CLI `--help` 打印出七个动词，`evidence verify` 给的是结构化错误而不是 traceback。**没有发现问题**——如实记成验证，而不是记成成果。
+  - **两处变异，第二次比第一次更有价值。** （一）让检查恒为通过 → 两条用例红；（二）**把检查从报告里摘掉**（不再接进 `diagnose`）→ **四条**用例红。第二次的差别是本轮改测试方式的理由：一开始我直接 import 私有函数 `_workspace_check`，Pyright 立刻以 `reportPrivateUsage` 报错，而那条报错指向的是更好的写法——**通过 `diagnose` 这个公开面去问**，于是一个「检查写了但没接线」的改动也会红，而直接调函数的测试永远看不见它。
+  - **实测（本轮：本地 + Docker）**：全量 pytest **1836 passed / 2 skipped**（比上一轮 +3），Ruff check/format、Pyright（strict，0 errors）、`check_boundaries`（`cli` 引 `adapters.launcher` 是允许的方向）、case assertions、fixture digests、workflow pins 与 `git diff --check` 全绿；容器的 `run.sh doctor` 五项全绿。**没有跑 Minecraft，没有接受 EULA。**
+  - **仍然开着的**：`doctor` 检查的仍是**环境**，它不知道这个镜像里的 Xvfb/GL 是否真的能给出 3.2 core（README 里那条 `glxinfo -B` 是手动的），也不知道 runner 之外的宿主；本轮只补了「这个仓库在这台机器上找得到吗」这一项，而它恰好是 runner 挂载契约失效时最先坏的那一项。
+
 ## W70 之后
 
 - [ ] W80：独立 `p0-nav-exp` 导航实验；核验输入冲突、隐藏真值与 SBOM/许可。
