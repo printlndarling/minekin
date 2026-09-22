@@ -1073,6 +1073,16 @@
   - **实测（本轮：本地）**：全量 pytest **1846 passed / 2 skipped**（+5，正是新加的 5 条），Ruff check/format、Pyright（strict，0 errors）、boundaries、case assertions、fixture digests、workflow pins 与 `git diff --check` 全绿。**没有跑 Minecraft，没有接受 EULA**——`validation_class` 是 `LOCAL_THEN_REAL_RUN`，**本卡只做到「选得出来」**。
   - **仍然开着的**：OFF-B 的**真实运行**仍要一次客户端；`首快照负向` 那条路仍缺（要动的是域，不是 CLI）。
 
+- [x] **`ADMIT-001` 登记完成——同时量清楚了一件事：剩下八条 ADMIT 不是「缺几行代码」，而是「先要决定判据由谁写」。** 起因是问了一个结构性的问题：campaign 想「批量关闭真实运行缺口」，但**一次运行只能对着一个已经存在的 case 封存**（`seal_run_evidence.py` 要 `--case`），而 37 条 required 里 36 条连 fixture 都没有。所以缺的不只是运行，是**能让运行被封存的那个东西**。
+  - **`ADMIT-001` 用的是既有判据，所以它只是「认领」而不是「发明」。** 契约那一行写的是「`host:port`受控 offline-mode服 ｜ 走正常客户端路径，JOIN+首快照后才 PLAYABLE」——而这正好是两条**已在 `CORE-020` 上验过**的断言：`first_snapshot_admitted`（JOIN 行存在 + `snapshots_admitted >= 1` + `connection_state == PLAYABLE`，实现读过了）与 `server_observed_join_identity`（服务端自己那份记录，也就是「正常客户端路径」的独立证据）。这正是契约给 `ADMIT-070`/`ADMIT-080` 用过的那条路（那两条的注记写着「全部取自本仓库自己已经闭合的那条注记」）。没有新增断言、没有改 `src/`。
+  - **`mandatory` 保持 `false`，而且这不是随手定的**：契约给 `ADMIT-070`/`ADMIT-080` 的注记明写它们「已定义、跑得动」而 `mandatory` **仍为 false**；整个 ADMIT 家族（含已登记的 070/080/100/110）都是 false。所以这条跟着家族走，只补**存在性**。
+  - **一个独立的旁证**：录进去的两条 digest 与 `CORE-020` 里同名断言**逐位相同**（`720a4db1…`、`3e0bca8c…`）——两个 case 说的是同一份实现，这是机器给的确认，不是我的描述。
+  - **剩下八条为什么不能照做，逐条查过**：`the_refusal_was_classified_in_the_ledger` **把 `WHITELIST_REJECTED` 写死在函数体里**（还配一个模块级 `REFUSAL_LINE`），所以 `ADMIT-040`（要 `AUTH_MODE_MISMATCH`）与 `ADMIT-050`（封禁/重名）**用不了它**，除非把那条断言参数化或另写一条；`ADMIT-010`（不扫描局域网）、`ADMIT-020`（SRV 原始地址与实际 endpoint、重定向仍过策略）、`ADMIT-060`（资源包未授权时不 PLAYABLE、不由聊天同意）、`ADMIT-120`（canary 不进入 Runtime/Memory/prompt/行动路径）今天**根本没有对应断言**。**写一条新断言就是给一次真实运行定义「PASS 是什么意思」**，这是本仓库里最该由人拍的一类东西——所以本轮**只登记能认领的那一条**，其余写成计划里的发现，不做。
+  - **两处变异各自驱动到红**：①删掉 `admit-001.json` → 报告点名 `ADMIT-001` missing、`W40` 的 missing 由 7 回到 8；②把录下的 `first_snapshot_admitted` 摘要改成全零 → `check_case_assertions` 红，报文逐字说明「实现是 `720a4db1…` 而记录是 `0000…`，判据在一个没动的版本下移动了」——也就是那两个 digest 是**吃劲的**，不是装饰。
+  - **登记这条 case 把一条既有用例打红了，而红得对。** `test_a_hole_in_another_surface_does_not_block_a_phase` 断言的是「一道 gate 只按自己的 case 判」，而它当时**拿 `ADMIT-001` 当「W40 缺的那条」的例子**——`ADMIT-001` 一被登记，`assert "ADMIT-001" in w40["requirement"]["absent"]` 立刻失败。**这是我自己写的一句还没测就写下的结论的代价**：我先在下面写了「全量 pytest 1846 全绿」，然后才去跑，跑出来是 `1 failed, 1845 passed`。修法不是换个名字继续钉，而是**把那个例子改成推导出来的**（取 W40 absent 的集合，断言它非空、且其中没有任何 HOST/NAV 前缀的 case），并把这个来历写进 docstring——**钉一个具体 id 当例子，正是 case 报告当初被写出来要消灭的那种手工维护**，只是挪了一个文件。变异验证：把断言改成「HOST-001 也在 W40 的 absent 里」→ 这条立刻红，说明它仍在校那条真正的性质。
+  - **实测（本轮：本地）**：读数从 **35 present / 37 missing** 变成 **36 / 36**；`W40` 由 present 4 / missing 8 变成 **5 / 7**；`ADMIT` 缺失由 9 条降到 8 条；全量 pytest **1846 passed / 2 skipped**（修完那条之后重新跑的数），Ruff check/format、Pyright（strict，0 errors）、boundaries、case assertions（120 条注册）、fixture digests、workflow pins 与 `git diff --check` 全绿。**没有跑 Minecraft，没有接受 EULA**——`ADMIT-001` 是 `runtime-required`，本轮只做到「它可以被封存了」。
+  - **仍然开着的**：八条 ADMIT 要先有判据（上面逐条列了缺什么）；`W40` 仍 `satisfied: false`，离有门禁还差 7 条。
+
 ## W70 之后
 
 - [ ] W80：独立 `p0-nav-exp` 导航实验；核验输入冲突、隐藏真值与 SBOM/许可。

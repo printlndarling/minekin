@@ -61,3 +61,4 @@ d759eb18b26b973fe12ed78e23bd52a364affb5e97ed37b125d809e6509ea47e  tests/fixtures
 4f950be2efb2fd96478abcc5fbcd97df6e07db1989a6792726db8530ac51e390  tests/fixtures/cases/host-080.json
 5315a5f7cafad611e79512211f13f958330fa1158cf834c02dd0558142956197  tests/fixtures/cases/core-001.json
 625108cd25256802a3fb155c03a670a1697666162e0a15ac31fe0c34ea98bc10  tests/fixtures/cases/hostctl-060.json
+a92fe2eefe2bbfa5f9d7be19b4aa97f7e3e31eb688ad5220badcdf14788b6778  tests/fixtures/cases/admit-001.json

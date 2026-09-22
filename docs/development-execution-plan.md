@@ -69,10 +69,22 @@ uv run --frozen python tools/check_case_assertions.py
 uv run --frozen python tools/report_cases.py
 ```
 
-- required-case inventory v1：**72 required / 35 present / 37 missing**，按 gate 读出：
+- required-case inventory v1：**72 required / 36 present / 36 missing**，按 gate 读出：
   `W00` 1、`W10` 1、`W20` 1、`W30` 11、`W40` 12、`W50` 3、`W60` 3、`W70` 5、
-  `p0-core` 38、`p0-nav-exp` 1、`host-integrated` 33（present 15 / missing 18）；按证据
+  `p0-core` 38、`p0-nav-exp` 1、`host-integrated` 33（present 15 / missing 18）、`W40` 12
+  （present 5 / missing 7）；按证据
   种类 `local-only` 7、`runtime-required` 65；已登记但不 gating 的 27 条；
+- **九条 ADMIT 里只有一条能靠既有判据关掉**（2026-09-23，`ADMIT-001` 登记之后；这
+  一条与前一条是同一个做法：契约的行只给场景与「必须证明」，能关的是那些**判据已经以断言
+  形式存在**的）。`ADMIT-001` 的「走正常客户端路径，JOIN+首快照后才 PLAYABLE」正好就是
+  `first_snapshot_admitted`（JOIN 行存在 + `snapshots_admitted >= 1` + `connection_state ==
+  PLAYABLE`）加 `server_observed_join_identity`（服务端自己的那份记录），两条都已在
+  `CORE-020` 上验过，所以它只是**认领**既有判据。**其余八条都要先把判据写成断言**：最典型的是
+  `the_refusal_was_classified_in_the_ledger` **把 `WHITELIST_REJECTED` 写死在函数里**，因此
+  `ADMIT-040`（要 `AUTH_MODE_MISMATCH`）与 `ADMIT-050`（封禁/重名）用不了它；`ADMIT-010`（不
+  扫描局域网）、`ADMIT-020`（SRV 原始地址与 endpoint）、`ADMIT-060`（资源包未授权）、
+  `ADMIT-120`（canary 不回流）今天**没有任何断言**对应。**这是一件要不要做、由谁做的决定，
+  不是缺几行代码**——每写一条新断言就是给一个运行定义一个 PASS 的含义。
 - **`local-only` 那一类已经没有缺口了**（2026-09-23，`HOSTCTL-060` 登记之后）。这条值得
   单独写出来，因为本文先前说错过它：`CASE-CORE-001` 完成时这里写过一句「剩下 38 条
   全是 `runtime-required`」——**那是错的**，机器读数里当时就有 1 条 `local-only`
@@ -365,7 +377,7 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 
 这张表是规划输入，不是 required-case inventory 的实现；`PLAN-COVERAGE-001`
 完成后以机器报告为准。**当前实现候选**的 `tools/report_cases.py` 的
-`requirements` 段与下表逐族一致（同为 37 条缺失），但由机器读出、按 gate 组织，
+`requirements` 段与下表逐族一致（同为 36 条缺失），但由机器读出、按 gate 组织，
 并额外区分每条要求的是 `local-only` 还是 `runtime-required`。**这张表没有那种区分，
 而它曾经因此把人带偏**：表里 `HOSTCTL` 行的 `060` 与其余各行看不出差别，机器读数里
 它是唯一一条 `local-only`——也就是唯一一条不需要真实运行就能补上的。**要看某一族
@@ -374,7 +386,7 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 | 族 | 当前 contract 要求但 fixture 缺失 |
 | --- | --- |
 | CORE | 080 |
-| ADMIT | 001, 010, 020, 030, 040, 050, 060, 090, 120 |
+| ADMIT | 010, 020, 030, 040, 050, 060, 090, 120 |
 | OFFLINE | 010, 020, 030, 060, 070, 080, 090, 100 |
 | HOST | 001, 090, 100 |
 | HOSTCTL | 020, 030, 040, 080, 090 |

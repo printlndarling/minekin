@@ -486,15 +486,19 @@ def test_a_hole_in_another_surface_does_not_block_a_phase(tmp_path: Path) -> Non
     is a phase of the core slice. Judged against everything at once, every gate would
     be blocked by whichever surface is least finished, and a per-gate answer would
     stop saying anything about the gate.
+
+    Which case stands for "a hole in W40" is derived rather than named. It was named,
+    and the day that case was written this test failed — a pinned example is the same
+    staleness the case report was written to stop maintaining by hand, one file over.
     """
 
     document = cast(dict[str, Any], PROMOTION.report(data_root=tmp_path))
     w40 = cast(dict[str, Any], document["work_packages"]["W40"])
     host = cast(dict[str, Any], document["work_packages"]["host-integrated"])
 
-    assert "ADMIT-001" in w40["requirement"]["absent"]
-    assert "HOST-001" not in w40["requirement"]["absent"]
-    assert "NAV-EXP-010" not in w40["requirement"]["absent"]
+    missing_from_w40 = set(cast(list[str], w40["requirement"]["absent"]))
+    assert missing_from_w40, "this test needs a W40 case the repository does not hold"
+    assert {case for case in missing_from_w40 if case.startswith(("HOST", "NAV"))} == set()
     assert "HOST-001" in host["requirement"]["absent"]
     assert "CORE-020" not in host["requirement"]["absent"]
 
