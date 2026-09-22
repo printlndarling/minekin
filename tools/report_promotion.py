@@ -55,6 +55,21 @@ cases that are missing or filed under the wrong work package block the inventory
 half. A present non-mandatory case remains a diagnostic rather than being silently
 rewritten as mandatory; a gate with no mandatory cases is still reported and is
 refused by the existing `NO_MANDATORY_CASES` evidence rule.
+
+There is a second thing it could not see, and it also now says so. Every rule above
+compares a bundle against the *case* it claims — the case id, the case version, the
+verdict — and none of them asks which *build* the run was made from. So a PASS sealed
+before a fix satisfies a gate for the build on disk today, which is the opposite of
+what the validation contract's re-run rule is for: a failure is kept and a repaired
+case is run again, and "run again" only means something if the evidence says which
+build it came from. This report now names, per bundle, the reviewed plan it launched
+from and whether that is the plan this checkout would launch from.
+
+**It is a diagnostic and it does not gate.** How evidence from an earlier build is
+superseded is `EVIDENCE-SEQUENCE-001`, an open decision with more than one defensible
+answer, and a report that quietly enforced one would be making that decision by
+accident. `gates_promotion` says so in the document rather than leaving it to whoever
+reads the verdict.
 """
 
 from __future__ import annotations
@@ -73,6 +88,7 @@ from minekin_core.adapters.evidence.bundle import (
     verify_addressed_bundle,
 )
 from minekin_core.adapters.evidence.promotion import case_evidence, load_case_registry
+from minekin_core.adapters.launcher.launch_plan import build_launch_plan
 from minekin_core.cli.evidence import candidate_roots
 from minekin_core.domain.cases import (
     REQUIRED_CASES,
@@ -88,6 +104,12 @@ from minekin_core.domain.errors import MinekinError
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 CASES = REPOSITORY_ROOT / "tests" / "fixtures" / "cases"
+#: The frozen bundle recipe. Its plan digest is the only honest answer to "which
+#: build is this evidence from?", and building that plan is cheap: `build_launch_plan`
+#: reads the Bridge *source tree*, not a built jar — whether the jar exists is a
+#: question for start time, which is why a machine that has never run Gradle can
+#: still say which build its evidence belongs to.
+RECIPE = REPOSITORY_ROOT / "tests" / "fixtures" / "runtime-input" / "bundle-p0-core-1.21.4.json"
 
 # The re-judge lives beside this file, and this is the only report that can run it:
 # the assertions are test-domain code, so the product's own verification must not
@@ -105,6 +127,31 @@ EXIT_UNUSABLE = 2
 
 class Unusable(Exception):
     """The question cannot be asked of what was given."""
+
+
+def repository_build() -> tuple[str | None, str]:
+    """The plan digest this checkout would launch, or why it could not be built.
+
+    `None` is not a digest and it is not a mismatch. A report that could not build
+    the plan has no opinion about which build a bundle came from, and reporting
+    "does not match" there would be answering a question nobody asked — the same
+    distinction `ReJudge.UNJUDGED` draws about a verdict a reader could not reach.
+
+    The digest is path-independent, which is what makes the comparison mean
+    anything across the machines this project runs on: it is over the plan's own
+    relative paths and the Bridge source tree's *contents*, so the same source
+    produces it from the repository, from a copy of it, and from inside the
+    container. Measured, not assumed.
+    """
+
+    try:
+        plan = build_launch_plan(RECIPE)
+    except (MinekinError, OSError, ValueError, KeyError, ArithmeticError) as error:
+        return None, f"{type(error).__name__}: {error}"
+    digest = plan.get("plan_sha256")
+    if not isinstance(digest, str) or not digest:
+        return None, "the plan carries no digest"
+    return digest, ""
 
 
 def no_outcomes() -> dict[str, ReJudge]:
@@ -147,7 +194,7 @@ class EvidenceOnDisk:
             sorted(run_id for run_id, item in self.verifications.items() if not item.sealed)
         )
 
-    def as_documents(self) -> list[dict[str, object]]:
+    def as_documents(self, *, repository_build: str | None = None) -> list[dict[str, object]]:
         """Every bundle, as the report lists them.
 
         Listed one by one rather than only counted, because the verdict's blocks
@@ -155,11 +202,18 @@ class EvidenceOnDisk:
         promotable while its blocks list still names a reason, and that reason
         belongs to some earlier run. Saying which bundle contributed what is the
         difference between reading that and guessing at it.
+
+        Each entry also carries the build it was sealed from. Promotion does not
+        gate on that yet — the decision about how evidence is superseded is still
+        open — but a report that never says it leaves a reader unable to tell
+        whether a PASS means anything about the code on disk today, which is the
+        one thing the validation contract's re-run rule is about.
         """
 
         entries: list[dict[str, object]] = []
         for run_id, item in sorted(self.verifications.items()):
             manifest = item.manifest
+            sealed_from = None if manifest is None else manifest.launch_plan_digest
             entries.append(
                 {
                     "run_id": run_id,
@@ -169,6 +223,18 @@ class EvidenceOnDisk:
                     "verified": item.verified,
                     "sealed": item.sealed,
                     "violations": list(item.violations),
+                    # Which reviewed plan this run launched from, and which Bridge
+                    # source it carried. Both are the bundle's own claim about itself.
+                    "launch_plan_digest": sealed_from,
+                    "bridge_digest": None if manifest is None else manifest.bridge_digest,
+                    # None when either side cannot answer: this checkout could not
+                    # build a plan, or the bundle records no plan digest. Neither is
+                    # "came from somewhere else".
+                    "from_repository_build": (
+                        None
+                        if repository_build is None or sealed_from is None
+                        else sealed_from == repository_build
+                    ),
                     # Reported per bundle for the reason the blocks are named per
                     # package: "this one disagreed" is only actionable if the reader
                     # can see which one, and what it disagreed about.
@@ -321,6 +387,8 @@ def _report_with_inventory(
 
     registry = load_case_registry(cases_dir)
     evidence = discover(data_root, cases_dir)
+    build, build_reason = repository_build()
+    bundles = evidence.as_documents(repository_build=build)
     packages = _report_work_packages(registry, evidence, required=required)
     overall = _verdict_document(
         evaluate_promotion(
@@ -336,10 +404,29 @@ def _report_with_inventory(
         "data_root": str(data_root),
         "evidence": {
             "count": len(evidence.verifications),
-            "bundles": evidence.as_documents(),
+            "bundles": bundles,
             "unverified": list(evidence.unverified),
             "unsealed": list(evidence.unsealed),
             "unreadable": list(evidence.unreadable),
+            # Which of the bundles were sealed from the build this checkout would
+            # launch. Named rather than counted, for the same reason the blocks are:
+            # "one of these is stale" is only actionable with the ids.
+            "from_another_build": [
+                cast(str, entry["run_id"])
+                for entry in bundles
+                if entry["from_repository_build"] is False
+            ],
+        },
+        # The build this report is comparing against, and an explicit statement that
+        # nothing above was decided by it. The decision about how evidence from an
+        # earlier build is superseded is still open, and a report that quietly
+        # enforced one would be making that decision by accident.
+        "repository_build": {
+            "recipe": str(RECIPE.relative_to(REPOSITORY_ROOT).as_posix()),
+            "plan_sha256": build,
+            "readable": build is not None,
+            "reason": build_reason,
+            "gates_promotion": False,
         },
         "work_packages": packages,
         "overall": overall,

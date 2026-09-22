@@ -98,7 +98,11 @@ def reviewed(case_id: str) -> Any:
 
 
 def manifest_for(
-    case_id: str, *, result: EvidenceResult = EvidenceResult.PASS, run_id: str = RUN_ID
+    case_id: str,
+    *,
+    result: EvidenceResult = EvidenceResult.PASS,
+    run_id: str = RUN_ID,
+    launch_plan_digest: str = DIGEST,
 ) -> EvidenceManifest:
     case = reviewed(case_id)
     assertions = Assertions(expected=("a",), observed=("a",), failures=())
@@ -109,7 +113,7 @@ def manifest_for(
         case_id=case.case_id,
         case_version=case.digest,
         result=result,
-        launch_plan_digest=DIGEST,
+        launch_plan_digest=launch_plan_digest,
         bridge_digest="c" * 64,
         protocol_schema_digest="d" * 64,
         server_config_digest="e" * 64,
@@ -136,14 +140,20 @@ def seal_at(
     run_id: str = RUN_ID,
     result: EvidenceResult = EvidenceResult.PASS,
     case_version: str | None = None,
+    launch_plan_digest: str = DIGEST,
 ) -> Path:
     """Seal a bundle at an address the caller chooses.
 
     `run_id` is what the manifest claims, which is deliberately not the
     directory name in the tests about a bundle that names a different run.
+    `launch_plan_digest` is which build the run was made from, and the default is
+    a digest no build produces so that the tests which do not care about the build
+    diagnostic say the same thing as before it existed.
     """
 
-    manifest = manifest_for(case_id, result=result, run_id=run_id)
+    manifest = manifest_for(
+        case_id, result=result, run_id=run_id, launch_plan_digest=launch_plan_digest
+    )
     if case_version is not None:
         manifest = replace(manifest, case_version=case_version)
     write_bundle(directory, manifest, {"server/server.log": b"Kin joined\n"})
@@ -157,6 +167,7 @@ def seal(
     case_id: str = CASE_ID,
     result: EvidenceResult = EvidenceResult.PASS,
     case_version: str | None = None,
+    launch_plan_digest: str = DIGEST,
 ) -> Path:
     return seal_at(
         bundle_directory(run_root(data_root, KIN), run_id),
@@ -164,6 +175,7 @@ def seal(
         run_id=run_id,
         result=result,
         case_version=case_version,
+        launch_plan_digest=launch_plan_digest,
     )
 
 
@@ -573,3 +585,97 @@ def test_an_unknown_required_id_refuses_promotion(tmp_path: Path) -> None:
 def test_the_public_report_does_not_allow_callers_to_replace_the_inventory(tmp_path: Path) -> None:
     with pytest.raises(TypeError, match="unexpected keyword argument 'required'"):
         PROMOTION.report(data_root=tmp_path, required=REQUIRED_CASES)
+
+
+# ---------------------------------------------------------------------------
+# Which build the evidence came from
+# ---------------------------------------------------------------------------
+#
+# Every rule above compares a bundle against the *case* it claims and none of them
+# asks which *build* the run was made from, so a PASS sealed before a fix satisfies a
+# gate for the build on disk today. The report now says which build each bundle came
+# from. It does not gate on it: how an earlier build's evidence is superseded is an
+# open decision, and a report that enforced one of the answers would be making that
+# decision by accident.
+
+
+def test_a_bundle_says_which_build_it_was_sealed_from(tmp_path: Path) -> None:
+    """The comparison is against the plan this checkout would launch, measured."""
+
+    build, reason = PROMOTION.repository_build()
+    assert build is not None, reason
+    seal(tmp_path, RUN_ID, launch_plan_digest=build)
+
+    document = cast(dict[str, Any], bundle_report(CASE_ID, data_root=tmp_path))
+
+    listed = cast(list[dict[str, Any]], document["evidence"]["bundles"])
+    assert listed[0]["launch_plan_digest"] == build
+    assert listed[0]["from_repository_build"] is True
+    assert document["evidence"]["from_another_build"] == []
+    assert document["repository_build"]["plan_sha256"] == build
+
+
+def test_a_bundle_from_another_build_is_named_rather_than_counted(tmp_path: Path) -> None:
+    """Evidence from a build that is not this one is the thing a reader has to see."""
+
+    seal(tmp_path, RUN_ID)
+
+    document = cast(dict[str, Any], bundle_report(CASE_ID, data_root=tmp_path))
+
+    listed = cast(list[dict[str, Any]], document["evidence"]["bundles"])
+    assert listed[0]["from_repository_build"] is False
+    assert document["evidence"]["from_another_build"] == [RUN_ID]
+
+
+def test_the_build_diagnostic_does_not_decide_the_verdict(tmp_path: Path) -> None:
+    """The whole point of calling it a diagnostic: same evidence, same verdict.
+
+    Asserted as a comparison against the matching case rather than as a fixed
+    expected status, so that if promotion ever does start gating on this, the failure
+    is here and says which of the two readings changed.
+    """
+
+    build, reason = PROMOTION.repository_build()
+    assert build is not None, reason
+    seal(tmp_path / "same", RUN_ID, launch_plan_digest=build)
+    seal(tmp_path / "other", RUN_ID)
+
+    matching = cast(
+        dict[str, Any], bundle_report(CASE_ID, data_root=tmp_path / "same", gated="W40")
+    )
+    stale = cast(dict[str, Any], bundle_report(CASE_ID, data_root=tmp_path / "other", gated="W40"))
+
+    assert matching["status"] == stale["status"] == "promotable"
+    assert matching["work_packages"]["W40"]["promotable"] is True
+    assert stale["work_packages"]["W40"]["promotable"] is True
+    assert stale["evidence"]["from_another_build"] == [RUN_ID]
+    # And the report says, in the document, that this reading decided none of it.
+    assert stale["repository_build"]["gates_promotion"] is False
+
+
+def test_a_report_that_cannot_build_the_plan_says_so_rather_than_mismatching(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An unanswerable question is not the answer "came from somewhere else".
+
+    A checkout where the recipe cannot be read has no opinion about which build a
+    bundle came from, and reporting a mismatch there would be inventing one. This is
+    the same distinction `UNJUDGED` draws about a verdict a reader could not reach.
+    """
+
+    def refuse(_path: Path) -> dict[str, Any]:
+        raise ValueError("the recipe is not readable in this checkout")
+
+    monkeypatch.setattr(PROMOTION, "build_launch_plan", refuse)
+    seal(tmp_path, RUN_ID)
+
+    document = cast(dict[str, Any], bundle_report(CASE_ID, data_root=tmp_path, gated="W40"))
+
+    listed = cast(list[dict[str, Any]], document["evidence"]["bundles"])
+    assert document["repository_build"]["readable"] is False
+    assert document["repository_build"]["plan_sha256"] is None
+    assert "not readable" in cast(str, document["repository_build"]["reason"])
+    assert listed[0]["from_repository_build"] is None
+    # None is not False, so nothing is claimed to be from another build either.
+    assert document["evidence"]["from_another_build"] == []
+    assert document["work_packages"]["W40"]["promotable"] is True

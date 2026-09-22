@@ -272,6 +272,36 @@ uv run --frozen python tools/report_cases.py
 - `question`: Registry 如何分配单调 `attempt_sequence`，如何记录 supersession，
   旧 bundle 如何兼容。
 - `constraint`: 不得按 mtime、目录名或 wall clock 猜“最新”。
+- `finding`（2026-09-23，读代码量出来的，不是设计）：**晋级今天完全不问证据出自哪个
+  build。** `evaluate_promotion` 逐份候选只比 case 身份、case version、是否
+  verified、是否 PASS、re-judge 是否同意——`launch_plan_digest` / `bridge_digest`
+  只在**一次运行内部**被比较（`BridgeHello` 对 descriptor），**没有任何地方**把它
+  与「当前 build」比。后果：一次**修复之前**封的 PASS，会满足**今天磁盘上这个
+  build** 的门禁；这与验证契约自己的重跑规则（失败保留、修复后用新 build 重跑）和
+  `REAL-P0-CAMPAIGN-001` 的验收句（「**当前 build** 与当前 case version 的 sealed
+  bundle」）都相反。**已经做掉的那一半**：`tools/report_promotion.py` 现在逐份
+  bundle 报出 `launch_plan_digest`、`bridge_digest` 与 `from_repository_build`，并
+  列出 `from_another_build` 的 run id——**这是诊断，不是门禁**，文档里明写
+  `gates_promotion: false`，而且有一条用例断言「同一次读数下，来自另一个 build 的
+  PASS 与来自当前 build 的 PASS 得到**同一份判决**」。（`plan_sha256` 与路径无关，
+  这一点是**量过**的：仓库里与一份拷贝到别处的树算出来同一个 digest。）
+- `decision`（**未冻结，待主控/用户拍**）：两条路都说得通，代价不同——
+  **（甲）按 build 绑定**：证据必须来自当前 build，否则 `EVIDENCE_FROM_ANOTHER_BUILD`
+  拦截。它直接实现那句验收话，但会让**每一次** Bridge/recipe 改动作废**全部**已有
+  证据（包括那些与改动无关的 case），代价是每次改 Bridge 都要重跑一整轮。
+  **（乙）按单调序号 supersession**：封存端为该 case 分配 `attempt_sequence`（= 同
+  case 已有最大值 + 1，无时钟、无目录名），并显式记录它取代哪一份；promotion 只认
+  序号最大的那一份。它更接近这张卡原本的措辞，也让「修复后重跑」自然生效，但需要
+  回答「最大那份是 FAIL 时该不该挡住一份更早的 PASS」（我倾向**该挡**，否则重跑没
+  有意义），而那正是**语义改动**。
+  **我的建议是乙**，因为它不惩罚与改动无关的 case，而且 `attempt_sequence` 是两种
+  路都要用的东西。**但这是设计决定，按本计划的规则必须先冻结再写代码**，所以本文
+  只把它写成提案，没有实现——上面那半诊断是两种路都要的公共前提。
+- `completion_evidence`（仅诊断那半）：`tools/report_promotion.py` 与
+  `tests/unit/test_report_promotion.py`；全量 pytest 1833 passed / 2 skipped，
+  Ruff、Pyright、boundaries、case assertions、fixture digests、workflow pins 与
+  `git diff --check` 全绿；两处变异各自驱动到红（把比较恒真 → 两条用例红；**让诊断
+  去 gate** → 13 条用例红，正好证明这棵树期待 promotion 语义不变）。
 
 ### PROCESS-RECOVERY-001 — 残留进程的自动处置
 

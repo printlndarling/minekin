@@ -986,6 +986,15 @@
   - **同时确认了几条仍然成立的**，免得只报坏消息：`synthesize()` 仍是纯函数、签名只有 `(proposal, *, bundle_id)`，不检查存档目录是否已存在（契约 `HOSTCTL-050` 的「不得重复建档」仍空着）；`profile_digest` 只在 `domain/hosted_world.py:179` 有字段，**没有任何地方送它或校验它**；`CORE-080` 仍是 `CORE` 族唯一缺口、`W10` 仍只差一份封存的 PASS bundle；产物门禁仍**不在** CI 里（CI 只有 3 个 job 的源码树检查）。
   - **实测（本轮：只读 + 本地门禁）**：`grep`/`sed` 读树与文档、`run_repo_case.py --case tests/fixtures/cases/hostcommit-090.json`、`report_cases.py` 读 `W10` 与 `CORE` 族的缺失集、`domain.sh`/`run.sh`/`seal_run_evidence.py` 的逐处定位；全量 pytest **1829 passed / 2 skipped**，Ruff、Pyright、boundaries、case assertions、fixture digests、workflow pins、`git diff --check` 全绿。**本轮只改文档**：两处带日期的更正加本条，**没有改任何代码、夹具或门禁**。
 
+- [x] **去实现那张被我推了两轮的卡时，先读代码把它的接缝摸清——结果摸出一个它自己没写、但比它写的更硬的问题：晋级从不问证据出自哪个 build。** `EVIDENCE-SEQUENCE-001` 问的是「Registry 怎么分配单调 `attempt_sequence`、怎么记 supersession、旧 bundle 怎么兼容」。读下去发现：`evaluate_promotion` 对每一份候选只比 case 身份、case version、`verified`、`passed`、re-judge 是否同意——**`launch_plan_digest` 与 `bridge_digest` 只在一次运行内部被比较**（`BridgeIpcHost` 拿 `BridgeHello` 对 descriptor），全仓库**没有任何地方**把它们和「当前 build」比。
+  - **为什么这是个真问题而不是整洁问题。** 验证契约写的是「失败运行保留完整 evidence。修复后用新 build/case version 重跑，不把旧 FAIL 删除」；`REAL-P0-CAMPAIGN-001` 的验收句写的是「**当前 build** 与当前 case version 的 sealed bundle」。两句都假定证据与 build 绑定，而机制只实现了 case 那一半：**修复之前封的一份 PASS，会满足今天磁盘上这个 build 的门禁**，而重跑出来的 FAIL 完全不会把它挤掉。
+  - **做的只是两种修法都要的那个公共前提，而且它是诊断不是门禁。** `tools/report_promotion.py` 现在逐份 bundle 报出 `launch_plan_digest`、`bridge_digest`、`from_repository_build`，并列出 `from_another_build` 的 run id；文档里明写 `repository_build.gates_promotion: false`。**这个边界是刻意的**：`EVIDENCE-SEQUENCE-001` 有两条都说得通的路（**甲**按 build 绑定：证据必须出自当前 build，代价是每一次 Bridge/recipe 改动作废全部已有证据、每次都要重跑一整轮；**乙**按单调序号 supersession：封存端分配 `attempt_sequence`、显式记录取代关系、promotion 只认序号最大的那份——更贴近本卡原措辞，代价是要回答「最大那份是 FAIL 时该不该挡住更早的 PASS」，我倾向该挡），**两条路都还没有被冻结**，所以让报告悄悄执行其中一条就等于替项目做了这个决定。提案连同建议写在执行计划那张卡里。
+  - **「是不是同一个 build」这件事本身是量过的，不是推的。** 比的是 `plan_sha256`，而它必须与路径无关（Bridge 跨进程拿它做握手比对），所以我把它**真的量了一遍**：在仓库里算一次，再把 `bridge/`+`fixtures` 拷到 `.tmp/planprobe/` 另算一次，两次都是 `c02413801e3675eff3b12d3bcfcc4e0ca7f583a1091da53dffa295d3d216669f`，而 `bridge_source_sha256` 都是 `e17885bd…`（与上一步续期后的 pin 一致）。**没有这一步，这个比较就是无意义的**——一个随机器变的 digest 比出来的「不同」全是噪声。
+  - **`None` 不等于 `False`，这一点单独有一条用例。** 一个算不出 plan 的检出（recipe 读不到）对「这份证据出自哪个 build」**没有意见**，报「不匹配」就是凭空造一个答案——与 `ReJudge.UNJUDGED` 是同一条区分。用例把 `build_launch_plan` 打挂，断言 `readable: false`、`plan_sha256: None`、`from_repository_build: None`、`from_another_build` 为空，而且**判决不变**。
+  - **两处变异各自驱动到红，方向是相反的，正好把边界钉住。** （一）把比较改成恒真 → 「另一 build 被点名」与「诊断不决定判决」两条红；（二）**让诊断去 gate**（见 `from_another_build` 非空就 blocked）→ **13 条用例红**，也就是说这棵树确实期待 promotion 语义不变。两处都原样还原，`git diff --stat` 只有预期的 +89/−2。
+  - **实测（本轮：本地）**：全量 pytest **1833 passed / 2 skipped**（比上一轮 +4，正是新加的四条），Ruff check/format、Pyright（strict，0 errors）、boundaries、case assertions、fixture digests、workflow pins 与 `git diff --check` 全绿。**没有跑 Minecraft、没有接受 EULA、没有改 promotion 的语义**。
+  - **仍然开着的**：`EVIDENCE-SEQUENCE-001` 本身仍是 `BLOCKED_DECISION`——我只把两种修法都要的证据**露出来**了，没有替它选；`attempt_sequence` 与 supersession 一行都没写。
+
 ## W70 之后
 
 - [ ] W80：独立 `p0-nav-exp` 导航实验；核验输入冲突、隐藏真值与 SBOM/许可。
