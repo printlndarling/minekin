@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "case_id": "HOST-080",
+  "work_package": "host-integrated",
+  "mandatory": false,
+  "inputs": [],
+  "assertion_digests": {
+    "test_a_record_with_two_current_worlds_is_refused_rather_than_picked_between": "66f6547d7ab8e6ab41ca8a4f3a8722bcaaf77cfe9d293751aa8a93079b99a02a",
+    "test_a_second_world_cannot_become_current_while_one_is": "fe2ec2ddd7cd49c3922a254316d580b6df3d0620d6ce61484f91f25b8d658660",
+    "test_a_switch_that_does_not_finish_leaves_nothing_current": "f1097a332f7dbd5adcf28383f4b743c3f98b7c30f18d2cdd94d91df0d3007971",
+    "test_switching_worlds_keeps_exactly_one_current_at_a_time": "72b9e44cd29e4fd3fbcbd31d6e487372ce14d8ee1f2f39ec4276d2bc542b2e82"
+  },
+  "assertions": [
+    "test_switching_worlds_keeps_exactly_one_current_at_a_time",
+    "test_a_second_world_cannot_become_current_while_one_is",
+    "test_a_switch_that_does_not_finish_leaves_nothing_current",
+    "test_a_record_with_two_current_worlds_is_refused_rather_than_picked_between"
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "case_id": "HOST-050",
+  "work_package": "host-integrated",
+  "mandatory": false,
+  "inputs": [],
+  "assertion_digests": {
+    "test_an_effect_that_may_never_be_replayed_is_not_retried_later_either": "e097dd29a2c7b6668452c88b6f6db92ec854451c0c526d9e014be94c7600690e",
+    "test_only_the_idempotent_effects_are_replayable": "5e7f1b2e1602170de7556bca14155db9bc2e01e3d992b9590ff1b7be99c68e16",
+    "test_the_fixtures_three_expectations_are_what_the_policy_does": "28d9f734e859423d4a27571633933fd3164d02c0300283c34eead37049513195"
+  },
+  "assertions": [
+    "test_only_the_idempotent_effects_are_replayable",
+    "test_an_effect_that_may_never_be_replayed_is_not_retried_later_either",
+    "test_the_fixtures_three_expectations_are_what_the_policy_does"
+  ]
+}

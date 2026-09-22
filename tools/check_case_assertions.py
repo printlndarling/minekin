@@ -424,6 +424,37 @@ IMPLEMENTATIONS: dict[str, Implementation] = {
         "pytest",
         "tests/unit/test_session_state.py::test_a_report_that_speaks_for_another_generation_moves_nothing",
     ),
+    # HOST-050 and HOST-080: the recovery policy's no-replay half, and the world
+    # switch's at-most-one-current half. Both criteria are the contract's own and
+    # both are already implemented; what they lacked was a case claiming them.
+    "test_only_the_idempotent_effects_are_replayable": Implementation(
+        "pytest",
+        "tests/unit/test_recovery.py::test_only_the_idempotent_effects_are_replayable",
+    ),
+    "test_an_effect_that_may_never_be_replayed_is_not_retried_later_either": Implementation(
+        "pytest",
+        "tests/unit/test_recovery.py::test_an_effect_that_may_never_be_replayed_is_not_retried_later_either",
+    ),
+    "test_the_fixtures_three_expectations_are_what_the_policy_does": Implementation(
+        "pytest",
+        "tests/unit/test_recovery.py::test_the_fixtures_three_expectations_are_what_the_policy_does",
+    ),
+    "test_switching_worlds_keeps_exactly_one_current_at_a_time": Implementation(
+        "pytest",
+        "tests/unit/test_world_activation.py::test_switching_worlds_keeps_exactly_one_current_at_a_time",
+    ),
+    "test_a_second_world_cannot_become_current_while_one_is": Implementation(
+        "pytest",
+        "tests/unit/test_world_activation.py::test_a_second_world_cannot_become_current_while_one_is",
+    ),
+    "test_a_switch_that_does_not_finish_leaves_nothing_current": Implementation(
+        "pytest",
+        "tests/unit/test_world_activation.py::test_a_switch_that_does_not_finish_leaves_nothing_current",
+    ),
+    "test_a_record_with_two_current_worlds_is_refused_rather_than_picked_between": Implementation(
+        "pytest",
+        "tests/unit/test_world_activation.py::test_a_record_with_two_current_worlds_is_refused_rather_than_picked_between",
+    ),
     # W30's first three cases: the offline session's argv chain, the identity encoding
     # it has to match, and the shape of an empty credential. All three are pure
     # functions of the frozen candidate matrix, so every assertion is a test — and the
