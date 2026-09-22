@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import importlib
 import json
+import shutil
 import subprocess
 import sys
 from collections.abc import Iterator
@@ -25,6 +26,12 @@ from minekin_core.adapters.evidence.bundle import unseal_bundle, write_bundle
 from minekin_core.adapters.evidence.promotion import load_case_registry
 from minekin_core.cli.evidence import bundle_directory, repository_bundle_directory
 from minekin_core.cli.init import run_root
+from minekin_core.domain.cases import (
+    REQUIRED_CASES,
+    REQUIRED_GATES,
+    RequiredCase,
+    ValidationClass,
+)
 from minekin_core.domain.evidence import Assertions, EvidenceManifest, EvidenceResult
 from minekin_core.domain.ids import KinId
 
@@ -34,6 +41,8 @@ CASES = REPOSITORY_ROOT / "tests" / "fixtures" / "cases"
 KIN = KinId("kin-01")
 DIGEST = "a" * 64
 RUN_ID = "5c1f9a7b2d3e4f6089abcdef01234567"
+#: The case every bundle below is sealed for, and so the case the gate requires.
+CASE_ID = "CORE-020"
 
 
 def load_tool() -> ModuleType:
@@ -45,6 +54,36 @@ def load_tool() -> ModuleType:
 
 
 PROMOTION = load_tool()
+
+
+def gate_inventory(*case_ids: str) -> tuple[RequiredCase, ...]:
+    """An inventory whose gates require exactly these cases and nothing else."""
+
+    entries: list[RequiredCase] = []
+    for case_id in case_ids:
+        case = reviewed(case_id)
+        entries.append(
+            RequiredCase(
+                case_id,
+                case.work_package,
+                (case.work_package,),
+                ValidationClass.RUNTIME_REQUIRED,
+                "docs/nowhere.md",
+            )
+        )
+    return tuple(entries)
+
+
+def bundle_report(case_id: str, **arguments: Any) -> Any:
+    """The report, asked about one bundle rather than about a repository-wide case set.
+
+    A gate is judged against what the inventory requires of it, so a test about what
+    the report does with a bundle states the gate too: the case it seals, and nothing
+    else. Whether the rest of the contract's case set exists is a separate question,
+    and the section at the end of this file is where it is asked.
+    """
+
+    return PROMOTION._report_with_inventory(required=gate_inventory(case_id), **arguments)
 
 
 @pytest.fixture(autouse=True)
@@ -93,7 +132,7 @@ def manifest_for(
 def seal_at(
     directory: Path,
     *,
-    case_id: str = "CORE-020",
+    case_id: str = CASE_ID,
     run_id: str = RUN_ID,
     result: EvidenceResult = EvidenceResult.PASS,
     case_version: str | None = None,
@@ -115,7 +154,7 @@ def seal(
     data_root: Path,
     run_id: str,
     *,
-    case_id: str = "CORE-020",
+    case_id: str = CASE_ID,
     result: EvidenceResult = EvidenceResult.PASS,
     case_version: str | None = None,
 ) -> Path:
@@ -131,7 +170,7 @@ def seal(
 def test_a_verified_pass_is_what_promotes_a_work_package(tmp_path: Path) -> None:
     seal(tmp_path, RUN_ID)
 
-    document = cast(dict[str, Any], PROMOTION.report(data_root=tmp_path, gated="W40"))
+    document = cast(dict[str, Any], bundle_report(CASE_ID, data_root=tmp_path, gated="W40"))
 
     assert document["status"] == "promotable"
     assert document["work_packages"]["W40"]["promotable"] is True
@@ -139,28 +178,24 @@ def test_a_verified_pass_is_what_promotes_a_work_package(tmp_path: Path) -> None
     assert document["gated"] == "W40"
 
 
-def test_everything_is_gated_on_by_default_and_the_missing_cases_are_named(
-    tmp_path: Path,
-) -> None:
+def test_the_default_gate_is_every_gate_and_it_names_what_is_missing(tmp_path: Path) -> None:
     """One case in one package is not this repository being tested."""
 
     seal(tmp_path, RUN_ID)
 
     document = cast(dict[str, Any], PROMOTION.report(data_root=tmp_path))
+    overall = cast(dict[str, Any], document["overall"])
 
     assert document["status"] == "blocked"
     assert document["gated"] is None
-    # Named in the registry's own order, which is the order of the files.
-    assert sorted(document["overall"]["blocking_cases"]) == [
-        "CORE-010",
-        "CORE-040",
-        "CORE-050",
-        "CORE-070",
-        "W00-CONTRACT-001",
-    ]
-    assert document["overall"]["blocks"] == ["CASE_WITHOUT_EVIDENCE"]
-    # The package that does have evidence is still reported as promotable.
-    assert document["work_packages"]["W40"]["promotable"] is True
+    assert overall["requirement"]["gates"] == list(REQUIRED_GATES)
+    assert overall["requirement"]["satisfied"] is False
+    assert {"CORE-001", "HOST-001", "NAV-EXP-010"} <= set(overall["blocking_cases"])
+    assert "CASE_WITHOUT_EVIDENCE" in overall["blocks"]
+    # The gate that does have evidence is still reported on its own.
+    assert set(document["work_packages"]["W40"]["requirement"]["absent"]) < set(
+        overall["requirement"]["absent"]
+    )
 
 
 def test_a_tampered_bundle_blocks_and_is_named_rather_than_dropped(tmp_path: Path) -> None:
@@ -168,7 +203,7 @@ def test_a_tampered_bundle_blocks_and_is_named_rather_than_dropped(tmp_path: Pat
     unseal_bundle(directory)
     (directory / "server" / "server.log").write_bytes(b"Kin never joined\n")
 
-    document = cast(dict[str, Any], PROMOTION.report(data_root=tmp_path, gated="W40"))
+    document = cast(dict[str, Any], bundle_report(CASE_ID, data_root=tmp_path, gated="W40"))
 
     assert document["status"] == "blocked"
     assert document["evidence"]["unverified"] == [RUN_ID]
@@ -181,7 +216,7 @@ def test_evidence_from_a_stale_case_version_does_not_count(tmp_path: Path) -> No
 
     seal(tmp_path, RUN_ID, case_version="0" * 64)
 
-    document = cast(dict[str, Any], PROMOTION.report(data_root=tmp_path, gated="W40"))
+    document = cast(dict[str, Any], bundle_report(CASE_ID, data_root=tmp_path, gated="W40"))
 
     assert document["status"] == "blocked"
     assert document["work_packages"]["W40"]["blocks"] == ["CASE_VERSION_MISMATCH"]
@@ -194,7 +229,7 @@ def test_a_failed_run_does_not_block_a_later_pass(tmp_path: Path) -> None:
     seal(tmp_path, failed_run, result=EvidenceResult.FAIL)
     seal(tmp_path, RUN_ID)
 
-    document = cast(dict[str, Any], PROMOTION.report(data_root=tmp_path, gated="W40"))
+    document = cast(dict[str, Any], bundle_report(CASE_ID, data_root=tmp_path, gated="W40"))
 
     assert document["evidence"]["count"] == 2
     assert document["status"] == "promotable"
@@ -212,7 +247,7 @@ def test_a_failed_run_does_not_block_a_later_pass(tmp_path: Path) -> None:
 def test_a_failure_alone_is_not_a_pass(tmp_path: Path) -> None:
     seal(tmp_path, RUN_ID, result=EvidenceResult.FAIL)
 
-    document = cast(dict[str, Any], PROMOTION.report(data_root=tmp_path, gated="W40"))
+    document = cast(dict[str, Any], bundle_report(CASE_ID, data_root=tmp_path, gated="W40"))
 
     assert document["status"] == "blocked"
     assert document["evidence"]["unverified"] == []
@@ -227,7 +262,7 @@ def test_a_bundle_naming_another_run_is_not_evidence_for_the_name_it_sits_under(
     directory = bundle_directory(run_root(tmp_path, KIN), RUN_ID)
     seal_at(directory, run_id="0" * 32)
 
-    document = cast(dict[str, Any], PROMOTION.report(data_root=tmp_path, gated="W40"))
+    document = cast(dict[str, Any], bundle_report(CASE_ID, data_root=tmp_path, gated="W40"))
 
     assert document["status"] == "blocked"
     assert document["evidence"]["unverified"] == [RUN_ID]
@@ -245,7 +280,7 @@ def test_a_mismatch_neither_hides_a_matching_pass_nor_is_hidden_by_it(tmp_path: 
     seal_at(bundle_directory(run_root(tmp_path, KIN), stray), run_id=RUN_ID)
     seal(tmp_path, RUN_ID)
 
-    document = cast(dict[str, Any], PROMOTION.report(data_root=tmp_path, gated="W40"))
+    document = cast(dict[str, Any], bundle_report(CASE_ID, data_root=tmp_path, gated="W40"))
 
     assert document["evidence"]["count"] == 2
     assert document["evidence"]["unverified"] == [stray]
@@ -272,7 +307,7 @@ def test_one_run_id_in_two_roots_is_refused_rather_than_picked_between(
     seal_at(second)
 
     with pytest.raises(PROMOTION.Unusable, match=f"{RUN_ID} has bundles in"):
-        PROMOTION.report(data_root=tmp_path, gated="W40")
+        bundle_report(CASE_ID, data_root=tmp_path, gated="W40")
 
 
 def test_the_command_refuses_a_run_id_that_appears_twice(tmp_path: Path) -> None:
@@ -291,7 +326,7 @@ def test_an_incomplete_duplicate_run_directory_cannot_hide_beside_a_pass(tmp_pat
     incomplete.mkdir(parents=True)
 
     with pytest.raises(PROMOTION.Unusable, match=f"{RUN_ID} has bundles in"):
-        PROMOTION.report(data_root=tmp_path, gated="W40")
+        bundle_report(CASE_ID, data_root=tmp_path, gated="W40")
 
 
 def test_a_bundle_that_cannot_be_read_is_named(tmp_path: Path) -> None:
@@ -302,7 +337,7 @@ def test_a_bundle_that_cannot_be_read_is_named(tmp_path: Path) -> None:
     (directory / "manifest.json").write_text("{ not json", encoding="utf-8")
     (directory / "bundle.sha256").write_text("0" * 64 + "\n", encoding="ascii")
 
-    document = cast(dict[str, Any], PROMOTION.report(data_root=tmp_path, gated="W40"))
+    document = cast(dict[str, Any], bundle_report(CASE_ID, data_root=tmp_path, gated="W40"))
 
     assert document["status"] == "blocked"
     assert len(document["evidence"]["unreadable"]) == 1
@@ -314,31 +349,39 @@ def test_a_directory_that_is_not_a_bundle_is_not_evidence(tmp_path: Path) -> Non
     (evidence / "scratch").mkdir(parents=True)
     (evidence / "scratch" / "notes.txt").write_text("not a bundle", encoding="utf-8")
 
-    document = cast(dict[str, Any], PROMOTION.report(data_root=tmp_path, gated="W40"))
+    document = cast(dict[str, Any], bundle_report(CASE_ID, data_root=tmp_path, gated="W40"))
 
     assert document["evidence"]["count"] == 0
     assert document["evidence"]["bundles"] == []
     assert document["evidence"]["unreadable"] == []
 
 
-def test_no_evidence_at_all_names_the_cases_that_are_missing(tmp_path: Path) -> None:
+def test_no_evidence_at_all_still_names_every_missing_case(tmp_path: Path) -> None:
+    """That a case has no bundle and that it does not exist are both named, together."""
+
     document = cast(dict[str, Any], PROMOTION.report(data_root=tmp_path))
+    overall = cast(dict[str, Any], document["overall"])
+    absent = set(cast(list[str], overall["requirement"]["absent"]))
 
     assert document["status"] == "blocked"
     assert document["evidence"]["count"] == 0
-    assert sorted(document["overall"]["blocking_cases"]) == [
-        "CORE-010",
-        "CORE-020",
-        "CORE-040",
-        "CORE-050",
-        "CORE-070",
-        "W00-CONTRACT-001",
-    ]
+    assert absent
+    assert absent <= set(cast(list[str], overall["blocking_cases"]))
+    assert "CASE_WITHOUT_EVIDENCE" in cast(list[str], overall["blocks"])
 
 
-def test_gating_on_a_package_with_no_cases_is_refused(tmp_path: Path) -> None:
-    with pytest.raises(PROMOTION.Unusable, match="no mandatory case for W99"):
-        PROMOTION.report(data_root=tmp_path, gated="W99")
+def test_gating_on_a_name_no_gate_has_is_refused(tmp_path: Path) -> None:
+    """`W80` is a work package and not a gate: NAV is graded as `p0-nav-exp`.
+
+    Refused rather than answered as "nothing to gate on", because a gate that does
+    not exist has no case set to be complete, and a report that returned one anyway
+    would be reporting coverage over a name nothing is filed under.
+    """
+
+    with pytest.raises(PROMOTION.Unusable, match="not a gate"):
+        bundle_report(CASE_ID, data_root=tmp_path, gated="W99")
+    with pytest.raises(PROMOTION.Unusable, match="not a gate"):
+        bundle_report(CASE_ID, data_root=tmp_path, gated="W80")
 
 
 def test_an_unsealed_bundle_is_reported_but_is_not_a_blocker_on_its_own(
@@ -349,7 +392,7 @@ def test_an_unsealed_bundle_is_reported_but_is_not_a_blocker_on_its_own(
     directory = seal(tmp_path, RUN_ID)
     unseal_bundle(directory)
 
-    document = cast(dict[str, Any], PROMOTION.report(data_root=tmp_path, gated="W40"))
+    document = cast(dict[str, Any], bundle_report(CASE_ID, data_root=tmp_path, gated="W40"))
 
     assert document["evidence"]["unsealed"] == [RUN_ID]
     assert document["status"] == "promotable"
@@ -365,20 +408,168 @@ def run_cli(*arguments: str) -> subprocess.CompletedProcess[str]:
     )
 
 
-def test_the_command_exits_zero_only_when_the_gate_is_met(tmp_path: Path) -> None:
+def test_the_command_gates_the_evidence_and_the_gate_together(tmp_path: Path) -> None:
+    """One sealed, verified, passing bundle is not enough for exit zero any more.
+
+    W40's own mandatory case is satisfied here — the evidence rule has nothing to say
+    — and the command still exits blocked, which is what the requirement reading is
+    for: the gate requires twelve cases, four of them exist, and "promotable" over
+    that would be a sentence about a slice nobody has measured.
+    """
+
     seal(tmp_path, RUN_ID)
 
-    promotable = run_cli("--data-root", str(tmp_path), "--work-package", "W40")
-    blocked = run_cli("--data-root", str(tmp_path))
+    gated = run_cli("--data-root", str(tmp_path), "--work-package", "W40")
+    everything = run_cli("--data-root", str(tmp_path))
+    document = json.loads(gated.stdout)
 
-    assert promotable.returncode == PROMOTION.EXIT_PROMOTABLE
-    assert json.loads(promotable.stdout)["status"] == "promotable"
-    assert blocked.returncode == PROMOTION.EXIT_BLOCKED
-    assert json.loads(blocked.stdout)["status"] == "blocked"
+    assert gated.returncode == PROMOTION.EXIT_BLOCKED
+    assert everything.returncode == PROMOTION.EXIT_BLOCKED
+    assert document["status"] == "blocked"
+    assert document["work_packages"]["W40"]["promotable"] is False
+    assert document["work_packages"]["W40"]["blocks"] == ["REQUIRED_CASE_NOT_REGISTERED"]
+
+
+def test_the_command_exits_zero_for_a_promotable_verdict(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The exit-zero path itself, which no gate in this repository reaches yet.
+
+    Left to the day a gate's case set closes, the mapping from a promotable verdict to
+    status 0 would be a line nothing had ever run. Pinned against the command's own
+    reading of the document instead.
+    """
+
+    def promotable(**_arguments: object) -> dict[str, object]:
+        return {"schema_version": 1, "status": "promotable"}
+
+    monkeypatch.setattr(PROMOTION, "report", promotable)
+
+    assert PROMOTION.main(["--data-root", "."]) == PROMOTION.EXIT_PROMOTABLE
+    assert json.loads(capsys.readouterr().out)["status"] == "promotable"
 
 
 def test_the_command_refuses_a_package_it_cannot_gate(tmp_path: Path) -> None:
+    """`W99` is not a work package and `W80` is not a gate; neither can be asked."""
+
     result = run_cli("--data-root", str(tmp_path), "--work-package", "W99")
 
     assert result.returncode == PROMOTION.EXIT_UNUSABLE
     assert json.loads(result.stderr)["status"] == "unusable"
+
+
+# ---------------------------------------------------------------------------
+# The case set a gate is judged against
+# ---------------------------------------------------------------------------
+#
+# Everything above asks what a bundle has to be. These ask the other question, and
+# the one the report could not previously answer at all: what each gate requires,
+# read against the registry it is judged with.
+
+
+def test_a_hole_in_another_surface_does_not_block_a_phase(tmp_path: Path) -> None:
+    """A gate is judged against its own cases, not against the repository's.
+
+    The host surface and the navigation experiment are far from complete and neither
+    is a phase of the core slice. Judged against everything at once, every gate would
+    be blocked by whichever surface is least finished, and a per-gate answer would
+    stop saying anything about the gate.
+    """
+
+    document = cast(dict[str, Any], PROMOTION.report(data_root=tmp_path))
+    w40 = cast(dict[str, Any], document["work_packages"]["W40"])
+    host = cast(dict[str, Any], document["work_packages"]["host-integrated"])
+
+    assert "ADMIT-001" in w40["requirement"]["absent"]
+    assert "HOST-001" not in w40["requirement"]["absent"]
+    assert "NAV-EXP-010" not in w40["requirement"]["absent"]
+    assert "HOST-001" in host["requirement"]["absent"]
+    assert "CORE-020" not in host["requirement"]["absent"]
+
+
+def test_a_gate_whose_cases_are_all_declared_not_to_gate_is_reported_separately(
+    tmp_path: Path,
+) -> None:
+    """Everything present, nothing gating: what an existence check reads as coverage.
+
+    W70 requires five cases and the repository holds all five, so a reading that
+    stopped at "is it there" would call this gate satisfied. Every one of them is
+    `mandatory: false`, so no evidence rule has anything to ask about — and the gate
+    is blocked rather than reported as having nothing to gate on.
+    """
+
+    document = cast(dict[str, Any], PROMOTION.report(data_root=tmp_path))
+    w70 = cast(dict[str, Any], document["work_packages"]["W70"])
+
+    assert w70["requirement"]["absent"] == []
+    assert w70["requirement"]["misattributed"] == []
+    assert w70["requirement"]["satisfied"] is True
+    assert w70["requirement"]["non_mandatory"] == [
+        "CORE-060",
+        "CORE-060-CLIENT-001",
+        "CORE-060-SERVER-001",
+        "CORE-090",
+        "CORE-100",
+    ]
+    assert w70["blocks"] == ["NO_MANDATORY_CASES"]
+    assert w70["promotable"] is False
+
+
+def test_deleting_a_required_case_blocks_only_the_gates_that_require_it(
+    tmp_path: Path,
+) -> None:
+    """The negative mutation, at the report's own level: `W40` and not `W60`."""
+
+    cases = tmp_path / "cases"
+    shutil.copytree(CASES, cases)
+    (cases / "core-020.json").unlink()
+    seal(tmp_path / "data", RUN_ID)
+
+    document = cast(dict[str, Any], PROMOTION.report(data_root=tmp_path / "data", cases_dir=cases))
+    packages = cast(dict[str, dict[str, Any]], document["work_packages"])
+
+    assert "CORE-020" in packages["W40"]["requirement"]["absent"]
+    assert "CORE-020" not in packages["W60"]["requirement"]["absent"]
+    assert packages["W60"]["requirement"]["satisfied"] is True
+
+
+def test_a_required_case_filed_under_another_work_package_blocks_its_gate(
+    tmp_path: Path,
+) -> None:
+    """A case that moved between gates passes the wrong question, so it blocks."""
+
+    cases = tmp_path / "cases"
+    shutil.copytree(CASES, cases)
+    fixture = cases / "core-020.json"
+    moved = json.loads(fixture.read_text(encoding="utf-8"))
+    moved["work_package"] = "W60"
+    fixture.write_text(json.dumps(moved, indent=2) + "\n", encoding="utf-8")
+
+    document = cast(dict[str, Any], PROMOTION.report(data_root=tmp_path, cases_dir=cases))
+    w40 = cast(dict[str, Any], document["work_packages"]["W40"])
+
+    assert w40["requirement"]["misattributed"] == ["CORE-020"]
+    assert "CORE-020" not in w40["requirement"]["absent"]
+    assert "REQUIRED_CASE_MISATTRIBUTED" in w40["blocks"]
+    assert "CORE-020" in w40["blocking_cases"]
+
+
+def test_an_inventory_that_cannot_be_read_refuses_rather_than_answering(tmp_path: Path) -> None:
+    """Two entries for one case is two answers about what that case requires."""
+
+    with pytest.raises(PROMOTION.Unusable, match="DUPLICATE_CASE_ID"):
+        PROMOTION._report_with_inventory(
+            data_root=tmp_path, required=(*REQUIRED_CASES, REQUIRED_CASES[0])
+        )
+
+
+def test_an_unknown_required_id_refuses_promotion(tmp_path: Path) -> None:
+    unknown = replace(REQUIRED_CASES[0], case_id="CORE-999")
+
+    with pytest.raises(PROMOTION.Unusable, match="UNKNOWN_CASE_ID"):
+        PROMOTION._report_with_inventory(data_root=tmp_path, required=(*REQUIRED_CASES, unknown))
+
+
+def test_the_public_report_does_not_allow_callers_to_replace_the_inventory(tmp_path: Path) -> None:
+    with pytest.raises(TypeError, match="unexpected keyword argument 'required'"):
+        PROMOTION.report(data_root=tmp_path, required=REQUIRED_CASES)

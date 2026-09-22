@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import shutil
 from collections.abc import Iterator
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -14,6 +16,8 @@ from minekin_core.adapters.evidence.promotion import (
     load_case_registry,
 )
 from minekin_core.domain.cases import (
+    REQUIRED_CASES,
+    REQUIRED_GATES,
     WORK_PACKAGES,
     CaseEvidence,
     CaseManifest,
@@ -21,8 +25,13 @@ from minekin_core.domain.cases import (
     CaseViolation,
     PromotionBlock,
     ReJudge,
+    RequiredCase,
+    RequiredCaseViolation,
+    ValidationClass,
     evaluate_promotion,
     parse_case_manifest,
+    required_case_violations,
+    required_for_gates,
 )
 from minekin_core.domain.errors import ErrorCategory, MinekinError
 from minekin_core.domain.evidence import Assertions, EvidenceManifest, EvidenceResult
@@ -527,12 +536,22 @@ def test_a_sealed_pass_bundle_promotes_its_case(bundles: Path) -> None:
 def test_changing_a_reviewed_input_pin_makes_old_evidence_stale(bundles: Path) -> None:
     """Fixture bytes are part of the case version, not mutable ambient state."""
 
-    previous = case(input_digests={"fixture.bin": "a" * 64})
-    current = case(input_digests={"fixture.bin": "b" * 64})
+    previous = case(
+        case_id="W00-CONTRACT-001",
+        work_package="W00",
+        input_digests={"fixture.bin": "a" * 64},
+    )
+    current = case(
+        case_id="W00-CONTRACT-001",
+        work_package="W00",
+        input_digests={"fixture.bin": "b" * 64},
+    )
     seal(bundles, "run-01", previous, EvidenceResult.PASS)
 
     verdict = evaluate_case_promotion(
-        CaseRegistry(cases=(current,)), [bundles / "run-01"], work_package="W50"
+        CaseRegistry(cases=(current,)),
+        [bundles / "run-01"],
+        work_package="W00",
     )
 
     assert not verdict.promotable
@@ -617,3 +636,268 @@ def test_an_incomplete_bundle_leaves_its_case_blocking(bundles: Path) -> None:
     assert not verdict.promotable
     assert verdict.blocks == (PromotionBlock.EVIDENCE_IS_NOT_A_PASS,)
     assert verdict.blocking_cases == ("W00-CONTRACT-001",)
+
+
+# ---------------------------------------------------------------------------
+# What the contracts require, and what a gate reads out of it
+# ---------------------------------------------------------------------------
+#
+# Every rule above reads the registry, so every one of them is silent about a case
+# nobody wrote. These are about the other reading — the inventory — and about the one
+# property that makes a gate's requirement a view over it rather than a list of files.
+
+
+def test_the_reviewed_inventory_is_usable_as_written() -> None:
+    identifiers = [entry.case_id for entry in REQUIRED_CASES]
+
+    assert required_case_violations() == ()
+    assert len(identifiers) == len(set(identifiers))
+
+
+def inventory_for(*cases: CaseManifest) -> tuple[RequiredCase, ...]:
+    """An inventory whose gates require exactly these cases and nothing else.
+
+    A gate is judged against what the inventory requires of it, so a test about what a
+    bundle has to be still has to state the gate. An empty inventory would not be a
+    narrower question — it would be a gate that requires no cases, which is a different
+    registry entirely.
+    """
+
+    return tuple(
+        RequiredCase(
+            case.case_id,
+            case.work_package,
+            (case.work_package,),
+            ValidationClass.LOCAL_ONLY,
+            "docs/nowhere.md",
+        )
+        for case in cases
+    )
+
+
+def test_every_gate_is_a_work_package_and_none_of_them_is_empty() -> None:
+    """A gate that required nothing would be a name that reads as coverage."""
+
+    assert set(REQUIRED_GATES) <= set(WORK_PACKAGES)
+    for gate in REQUIRED_GATES:
+        assert required_for_gates((gate,)), gate
+    for entry in REQUIRED_CASES:
+        assert entry.expected_work_package in REQUIRED_GATES, entry.case_id
+
+
+@pytest.mark.parametrize(
+    ("entry", "expected"),
+    [
+        (
+            RequiredCase(
+                "core-001", "W40", ("W40",), ValidationClass.RUNTIME_REQUIRED, "docs/nowhere.md"
+            ),
+            RequiredCaseViolation.INVALID_CASE_ID,
+        ),
+        (
+            RequiredCase(
+                "CORE-999", "W40", ("W40",), ValidationClass.RUNTIME_REQUIRED, "docs/nowhere.md"
+            ),
+            RequiredCaseViolation.UNKNOWN_CASE_ID,
+        ),
+        (
+            RequiredCase(
+                "CORE-999", "W40", ("W99",), ValidationClass.RUNTIME_REQUIRED, "docs/nowhere.md"
+            ),
+            RequiredCaseViolation.UNKNOWN_GATE,
+        ),
+        (
+            RequiredCase(
+                "CORE-999", "W99", ("W40",), ValidationClass.RUNTIME_REQUIRED, "docs/nowhere.md"
+            ),
+            RequiredCaseViolation.UNKNOWN_PACKAGE,
+        ),
+        (
+            RequiredCase(
+                "CORE-999", "W40", (), ValidationClass.RUNTIME_REQUIRED, "docs/nowhere.md"
+            ),
+            RequiredCaseViolation.EMPTY_REQUIRED_FOR,
+        ),
+    ],
+)
+def test_an_entry_the_inventory_cannot_hold_is_refused_and_named(
+    entry: RequiredCase, expected: RequiredCaseViolation
+) -> None:
+    """Well-formed is not the same as holdable, which is why the two vocabularies close.
+
+    `CORE-999` is a perfectly shaped identifier, so nothing but the closed lists
+    refuses the entries that name `W99` — and a name outside them is what a typo in
+    this table looks like.
+    """
+
+    violations = required_case_violations((*REQUIRED_CASES, entry))
+
+    assert expected in [reason for reason, _ in violations]
+    assert any(entry.case_id in subject for _, subject in violations)
+
+
+def test_a_required_case_named_twice_is_refused_and_named() -> None:
+    """One case with two answers about what it needs is not an inventory."""
+
+    assert required_case_violations((*REQUIRED_CASES, REQUIRED_CASES[0])) == (
+        (RequiredCaseViolation.DUPLICATE_CASE_ID, REQUIRED_CASES[0].case_id),
+    )
+
+
+def test_a_gate_is_read_from_membership_and_not_from_a_work_package() -> None:
+    """The membership side of the same property: what each gate asks for.
+
+    `p0-core` is every phase's cases plus `CORE-030`; a phase requires its own cases
+    and the slice's, and nothing else. `CORE-030` names no single phase, so it is
+    required by the slice and by no phase at all.
+    """
+
+    registry = load_case_registry(CASES)
+    w40 = registry.requirement("W40")
+    w40_names = {*w40.absent, *w40.misattributed, *w40.non_mandatory}
+    by_slice = {entry.case_id for entry in required_for_gates(("p0-core",))}
+    by_phases = {
+        entry.case_id
+        for entry in required_for_gates(
+            tuple(gate for gate in REQUIRED_GATES if gate.startswith("W"))
+        )
+    }
+
+    assert "HOST-001" in registry.requirement("host-integrated").absent
+    assert "NAV-EXP-010" in registry.requirement("p0-nav-exp").absent
+    assert not any(name.startswith(("HOST", "NAV")) for name in w40_names)
+    assert registry.requirement("W60").absent == ()
+    assert "CORE-030" in by_slice
+    assert "CORE-030" not in by_phases
+    assert len(by_slice) > len(by_phases)
+
+
+def test_deleting_a_required_case_blocks_only_the_gates_that_require_it(
+    tmp_path: Path,
+) -> None:
+    """The negative mutation and the scoping, in one reading.
+
+    `CORE-020` is required by `W40` and by `p0-core`, and not by W60 — whose gate is
+    still satisfied afterwards, which is the difference between a gate and "the
+    repository at once".
+    """
+
+    cases = tmp_path / "cases"
+    shutil.copytree(CASES, cases)
+    (cases / "core-020.json").unlink()
+    registry = load_case_registry(cases)
+
+    assert "CORE-020" in registry.requirement("W40").absent
+    assert "CORE-020" in registry.requirement("p0-core").absent
+    assert registry.requirement("W60").satisfied is True
+    assert "CORE-020" in {entry.case_id for entry in required_for_gates(("p0-core",))}
+    assert "CORE-020" not in {entry.case_id for entry in required_for_gates(("W60",))}
+
+
+def test_a_required_case_that_is_not_mandatory_is_reported_separately() -> None:
+    """Required presence and mandatory evidence remain different questions.
+
+    Every case is registered here and every one of them is declared not to gate, so
+    the evidence rule has nothing to ask about at all: there are no mandatory cases.
+    The requirement reports the distinction; the existing no-mandatory rule is what
+    blocks the evidence verdict, without silently rewriting every required case.
+    """
+
+    held = load_case_registry(CASES)
+    registry = CaseRegistry(
+        cases=tuple(replace(case, mandatory=False) for case in held.required_cases("W60"))
+    )
+    requirement = registry.requirement("W60")
+
+    assert requirement.absent == ()
+    assert requirement.satisfied is True
+    assert set(requirement.non_mandatory) == {case.case_id for case in registry.cases}
+
+    verdict = evaluate_promotion(registry.cases, [], requirement=requirement)
+
+    assert not verdict.promotable
+    assert verdict.blocks == (PromotionBlock.NO_MANDATORY_CASES,)
+    assert verdict.blocking_cases == ()
+
+
+def test_an_unknown_gate_is_refused_at_the_domain_seam() -> None:
+    with pytest.raises(ValueError, match="unknown required-case gate"):
+        CaseRegistry(cases=()).requirement("W99")
+
+
+def test_a_required_case_filed_under_another_work_package_blocks_its_gate() -> None:
+    """A case filed elsewhere has moved between gates and passes a question nobody asked."""
+
+    held = load_case_registry(CASES)
+    moved = CaseRegistry(
+        cases=tuple(
+            replace(case, work_package="W60") if case.case_id == "CORE-020" else case
+            for case in held.required_cases("W40")
+        )
+    )
+    requirement = moved.requirement("W40")
+
+    assert requirement.misattributed == ("CORE-020",)
+    assert "CORE-020" not in requirement.absent
+
+    verdict = evaluate_promotion(moved.cases, [], requirement=requirement)
+
+    assert PromotionBlock.REQUIRED_CASE_MISATTRIBUTED in verdict.blocks
+    assert "CORE-020" in verdict.blocking_cases
+
+
+def test_the_evidence_rule_stands_alone_when_no_requirement_is_given() -> None:
+    """What every test above this section asks, and what makes that an answer.
+
+    The requirement is a separate question from the evidence rule, and a verdict that
+    carries `None` says it was never asked — rather than inheriting "the case set is
+    complete" from a default.
+    """
+
+    definition = case()
+
+    verdict = evaluate_promotion([definition], [evidence(case_version=definition.digest)])
+
+    assert verdict.promotable
+    assert verdict.blocks == ()
+    assert verdict.requirement is None
+    assert verdict.as_document()["requirement"] is None
+
+
+def test_the_adapter_reads_both_halves_of_the_question_from_the_gate(bundles: Path) -> None:
+    """Fail closed without the caller asking for anything.
+
+    A bundle that satisfies everything the evidence rule checks, judged against a gate
+    whose required cases nobody wrote: the verdict refuses, and names what is missing
+    rather than only that something is.
+    """
+
+    definition = case()
+    seal(bundles, "run-01", definition, EvidenceResult.PASS)
+    registry = CaseRegistry(cases=(definition,))
+
+    verdict = evaluate_case_promotion(registry, [bundles / "run-01"], work_package="W50")
+
+    assert not verdict.promotable
+    assert verdict.requirement is not None
+    assert verdict.requirement.absent == ("ADMIT-070", "ADMIT-120", "CORE-080")
+    assert PromotionBlock.REQUIRED_CASE_NOT_REGISTERED in verdict.blocks
+
+
+def test_the_adapter_refuses_a_name_outside_the_frozen_gate_domain() -> None:
+    with pytest.raises(MinekinError, match="unknown required-case gate"):
+        evaluate_case_promotion(CaseRegistry(cases=()), [], work_package="W99")
+
+
+@pytest.mark.parametrize(
+    "required",
+    [
+        (*REQUIRED_CASES, REQUIRED_CASES[0]),
+        (*REQUIRED_CASES, replace(REQUIRED_CASES[0], case_id="CORE-999")),
+    ],
+)
+def test_an_unusable_inventory_is_refused_before_a_gate_can_read_it(
+    required: tuple[RequiredCase, ...],
+) -> None:
+    with pytest.raises(ValueError, match="required-case inventory is not usable"):
+        CaseRegistry(cases=()).requirement("W40", required=required)

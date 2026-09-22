@@ -45,6 +45,16 @@ Every bundle in the data root is offered as evidence, not just the passing ones.
 A failing run keeps its evidence and a repaired case is re-run rather than
 edited, so a case that failed once and passed later has both bundles on disk —
 and the rule that decides takes the satisfying one.
+
+What this cannot see, and now says so, is a case that is not there. Every reading
+above walks the registry, so the answer it gives is about the cases somebody wrote:
+"every mandatory case passed" is a true sentence about an incomplete case set, and
+it is the sentence that turns a promotion gate into a certificate for work nobody
+did. So each gate is judged against what the inventory requires of it — required
+cases that are missing or filed under the wrong work package block the inventory
+half. A present non-mandatory case remains a diagnostic rather than being silently
+rewritten as mandatory; a gate with no mandatory cases is still reported and is
+refused by the existing `NO_MANDATORY_CASES` evidence rule.
 """
 
 from __future__ import annotations
@@ -52,7 +62,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import cast
@@ -65,10 +75,14 @@ from minekin_core.adapters.evidence.bundle import (
 from minekin_core.adapters.evidence.promotion import case_evidence, load_case_registry
 from minekin_core.cli.evidence import candidate_roots
 from minekin_core.domain.cases import (
+    REQUIRED_CASES,
+    REQUIRED_GATES,
     CaseRegistry,
     PromotionVerdict,
     ReJudge,
+    RequiredCase,
     evaluate_promotion,
+    required_case_violations,
 )
 from minekin_core.domain.errors import MinekinError
 
@@ -243,45 +257,76 @@ def _verdict_document(verdict: PromotionVerdict) -> dict[str, object]:
     return verdict.as_document()
 
 
-def report_work_packages(
-    registry: CaseRegistry, evidence: EvidenceOnDisk
+def _report_work_packages(
+    registry: CaseRegistry,
+    evidence: EvidenceOnDisk,
+    *,
+    required: Sequence[RequiredCase] = REQUIRED_CASES,
 ) -> dict[str, dict[str, object]]:
-    """One verdict per work package the registry has mandatory cases for.
+    """One verdict per gate, in the order the gates are frozen.
+
+    Every gate is reported, not only the ones with mandatory cases: a gate whose
+    cases are all present and declared not to gate has no mandatory case to evaluate,
+    and "nothing to gate on" is a state a report most needs to show rather than skip.
 
     The bundles are verified once, here, and the verdicts are computed from that
-    reading. `adapters.evidence.promotion.evaluate_case_promotion` takes
-    directories and verifies them itself, which is the right shape for a caller
-    that has nothing else to say about a bundle — but it raises on one it cannot
-    read, and a report that stops at the first unreadable directory cannot name
-    it as the reason a package is blocked.
+    reading. `adapters.evidence.promotion.evaluate_case_promotion` takes directories
+    and verifies them itself, which is the right shape for a caller that has nothing
+    else to say about a bundle — but it raises on one it cannot read, and a report
+    that stops at the first unreadable directory cannot name it as the reason a gate
+    is blocked.
+
+    Which cases a gate is judged on comes from the gate, not from a work-package
+    grouping of the registry: that is what keeps a hole in the host surface from
+    blocking a phase of the core slice, and the other way round.
     """
 
-    packages = sorted({case.work_package for case in registry.mandatory_cases()})
     claims = case_evidence(evidence.verifications, evidence.re_judged)
     return {
-        package: _verdict_document(evaluate_promotion(registry.mandatory_cases(package), claims))
-        for package in packages
+        gate: _verdict_document(
+            evaluate_promotion(
+                registry.required_cases(gate, required=required),
+                claims,
+                requirement=registry.requirement(gate, required=required),
+            )
+        )
+        for gate in REQUIRED_GATES
     }
 
 
-def report(
+def _report_with_inventory(
     *,
     data_root: Path,
     cases_dir: Path = CASES,
     gated: str | None = None,
+    required: Sequence[RequiredCase] = REQUIRED_CASES,
 ) -> dict[str, object]:
-    """Whether the evidence on disk promotes the named package, or everything."""
+    """Whether the evidence on disk promotes the named gate, or every gate at once.
+
+    An inventory that cannot be read is refused rather than gated with. Both answers
+    are fail-closed and they are not the same answer: a missing case is a fact this
+    report exists to state, while an inventory holding a repeated or out-of-vocabulary
+    identifier is a question that cannot be asked — and either way the verdict that
+    came out of it would look exactly like one that had been checked.
+    """
+
+    violations = required_case_violations(required)
+    if violations:
+        raise Unusable(
+            "the required-case inventory is not usable: "
+            + ", ".join(f"{reason.value} ({subject})" for reason, subject in violations)
+        )
+    if gated is not None and gated not in REQUIRED_GATES:
+        raise Unusable(f"{gated} is not a gate this repository requires cases for")
 
     registry = load_case_registry(cases_dir)
-    if gated is not None and not registry.mandatory_cases(gated):
-        raise Unusable(f"{cases_dir} holds no mandatory case for {gated}")
-
     evidence = discover(data_root, cases_dir)
-    packages = report_work_packages(registry, evidence)
+    packages = _report_work_packages(registry, evidence, required=required)
     overall = _verdict_document(
         evaluate_promotion(
-            list(registry.mandatory_cases()),
+            registry.required_cases(*REQUIRED_GATES, required=required),
             case_evidence(evidence.verifications, evidence.re_judged),
+            requirement=registry.requirement(*REQUIRED_GATES, required=required),
         )
     )
     gate = packages.get(gated, {}) if gated is not None else overall
@@ -301,6 +346,24 @@ def report(
         "gated": gated,
         "status": "promotable" if gate.get("promotable") else "blocked",
     }
+
+
+def report(
+    *, data_root: Path, cases_dir: Path = CASES, gated: str | None = None
+) -> dict[str, object]:
+    """Gate evidence against the repository's complete reviewed inventory.
+
+    The inventory is intentionally not a public override: a production caller may
+    choose a gate, not redefine what that gate requires. Focused tests use the
+    private inventory-aware seam above to isolate evidence behavior.
+    """
+
+    return _report_with_inventory(
+        data_root=data_root,
+        cases_dir=cases_dir,
+        gated=gated,
+        required=REQUIRED_CASES,
+    )
 
 
 def main(argv: list[str] | None = None) -> int:

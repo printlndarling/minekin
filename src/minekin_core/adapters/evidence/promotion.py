@@ -141,7 +141,17 @@ def evaluate_case_promotion(
     *,
     work_package: str,
 ) -> PromotionVerdict:
-    """The promotion check: verified bundles against a work package's mandatory cases."""
+    """The promotion check: verified bundles against one gate's required cases.
+
+    The gate decides both halves of the question — which cases are judged, and what
+    the case set has to look like for the answer to mean anything — so this reads
+    both from the registry rather than taking a set of cases from its caller. A caller
+    that chose the cases itself could ask about a work package while judging another
+    one's cases, which is how a gate comes to pass on evidence it does not require.
+
+    The reviewed inventory is not injectable here: this is the production gate. A
+    caller asking the narrower evidence-only question uses the domain rule directly.
+    """
 
     verifications: dict[str, BundleVerification] = {}
     for directory in bundle_directories:
@@ -151,4 +161,9 @@ def evaluate_case_promotion(
                 "promotion cannot choose between them"
             )
         verifications[directory.name] = verify_addressed_bundle(directory)
-    return evaluate_promotion(registry.for_work_package(work_package), case_evidence(verifications))
+    try:
+        cases = registry.required_cases(work_package)
+        requirement = registry.requirement(work_package)
+    except ValueError as error:
+        raise _reject(str(error)) from error
+    return evaluate_promotion(cases, case_evidence(verifications), requirement=requirement)

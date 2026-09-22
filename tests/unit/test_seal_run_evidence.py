@@ -1430,16 +1430,24 @@ def test_a_bundle_without_the_judges_inputs_cannot_be_re_judged(
 def test_the_promotion_report_re_judges_each_bundle_it_counts(
     finished_run: tuple[Path, Path, Path],
 ) -> None:
-    """The report is the only caller that can, so it is the one that does."""
+    """The report is the only caller that can, so it is the one that does.
+
+    The gate is judged against the real requirement, so one sealed bundle cannot make
+    `W40` promotable — eleven of the twelve cases it requires are not answered for.
+    What this asks is the narrower thing the report is uniquely able to do: reach the
+    sealed verdict a second time.
+    """
 
     data_root, server, document = finished_run
     seal_it(data_root, server, document)
 
     report = REPORT.report(data_root=data_root, cases_dir=CASE.parent, gated="W40")
+    requirement = cast(dict[str, object], report["work_packages"]["W40"]["requirement"])
 
     bundles = cast(list[dict[str, object]], report["evidence"]["bundles"])
     assert [item["re_judged"] for item in bundles] == ["AGREES"]
-    assert report["status"] == "promotable"
+    assert requirement["satisfied"] is False
+    assert report["status"] == "blocked"
 
 
 def test_the_promotion_report_refuses_a_verdict_the_bytes_do_not_support(
@@ -1471,7 +1479,9 @@ def test_the_promotion_report_refuses_a_verdict_the_bytes_do_not_support(
     packages = cast(dict[str, dict[str, object]], report["work_packages"])
     assert report["status"] == "blocked"
     assert "EVIDENCE_DISAGREES_WITH_ITS_BYTES" in cast(list[str], packages["W40"]["blocks"])
-    assert packages["W40"]["blocking_cases"] == ["CORE-020"]
+    # Among the cases the gate is still missing, the one this bundle claims to be is
+    # the one the disagreement is about.
+    assert "CORE-020" in cast(list[str], packages["W40"]["blocking_cases"])
     listed = cast(list[dict[str, object]], report["evidence"]["bundles"])
     assert listed[0]["verified"] is True
     assert listed[0]["re_judged"] == "DISAGREES"

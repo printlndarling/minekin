@@ -59,8 +59,27 @@ uv run --frozen python tools/check_case_assertions.py
 - 本次规划基线的本地验证为 1722 passed / 2 skipped，加 Ruff、Pyright、
   boundaries、case assertions、fixture digests、workflow pins 与 Bridge scaffold。
 
-这些数字只描述“已经登记的 case”，不证明 contract 要求的 case 已登记完整。
-当前工具正缺少这一层，这就是唯一 `NEXT`。
+这些数字只描述“已经登记的 case”，不证明 contract 要求的 case 已登记完整——
+规划时工具正缺少这一层，那也是 `PLAN-COVERAGE-001` 的来源。
+
+该卡实现之后，同一层有了自己的读数，同样从命令重新生成：
+
+```text
+uv run --frozen python tools/report_cases.py
+```
+
+- required-case inventory v1：**72 required / 33 present / 39 missing**，按 gate 读出：
+  `W00` 1、`W10` 1、`W20` 1、`W30` 11、`W40` 12、`W50` 3、`W60` 3、`W70` 5、
+  `p0-core` 38、`p0-nav-exp` 1、`host-integrated` 33；按证据种类 `local-only` 7、
+  `runtime-required` 65；已登记但不 gating 的 27 条；
+- 这份 missing 与本文下方“已知缺失 case（规划视图）”那张表逐族一致，但由机器读出；
+- 尚未冻结编号的族按缺口报出：`PERSIST`（`PlanningGap`，不拦任何门）；
+- 每道 gate 只按**自己**的 required set 判证据与前置条件，所以 HOST/NAV 的洞不阻塞
+  `W40`；promotion 对不完整的 required set fail closed
+  （`REQUIRED_CASE_NOT_REGISTERED`、`REQUIRED_CASE_MISATTRIBUTED`）。
+  `mandatory: false` 仍作为独立诊断维度报告，不被 inventory 偷偷改写；因此今天
+  `W00`、`W20`、`W60`、`W70` 四道的 case set 是齐的，其中 W70 仍因没有 mandatory
+  case 而由既有 `NO_MANDATORY_CASES` 规则阻断——这是准确读数，不是回归。
 
 ## 唯一 NEXT
 
@@ -208,7 +227,9 @@ uv run --frozen python tools/check_case_assertions.py
 ## 已知缺失 case（规划视图）
 
 这张表是规划输入，不是 required-case inventory 的实现；`PLAN-COVERAGE-001`
-完成后以机器报告为准。
+完成后以机器报告为准。**当前实现候选**的 `tools/report_cases.py` 的
+`requirements` 段与下表逐族一致（同为 39 条缺失），但由机器读出、按 gate 组织，
+并额外区分每条要求的是 `local-only` 还是 `runtime-required`。
 
 | 族 | 当前 contract 要求但 fixture 缺失 |
 | --- | --- |
