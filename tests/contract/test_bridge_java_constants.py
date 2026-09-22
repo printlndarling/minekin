@@ -28,9 +28,11 @@ INPUT_CONTROLLER = (
     BRIDGE_ROOT / "org" / "minekin" / "bridge" / "input" / "BridgeInputController.java"
 )
 METRICS = BRIDGE_ROOT / "org" / "minekin" / "bridge" / "runtime" / "BridgeMetrics.java"
+HANDSHAKE_GATE = BRIDGE_ROOT / "org" / "minekin" / "bridge" / "protocol" / "HandshakeGate.java"
 
 _TYPE_CONSTANT = re.compile(r'String\s+(\w+_TYPE)\s*=\s*"([^"]+)"')
 _LABEL_CONSTANT = re.compile(r'String\s+(\w+_LABEL)\s*=\s*"([^"]+)"')
+_CAPABILITY = re.compile(r'String\s+(\w+_CAPABILITY)\s*=\s*"([^"]+)"')
 _ENVIRONMENT_CONSTANT = re.compile(r'String\s+(\w*ENVIRONMENT_VARIABLE)\s*=\s*"([^"]+)"')
 _INPUT_CAPABILITY = re.compile(r'public static final String\s+\w+\s*=\s*"(move\.[^"]+)"')
 
@@ -83,3 +85,43 @@ def test_the_budget_series_labels_are_spelled_the_same_on_both_sides() -> None:
     assert declared, f"no label constants found in {METRICS}"
     assert declared == {"TICK_LABEL": budget.TICK_LABEL, "INTERVAL_LABEL": budget.INTERVAL_LABEL}
     assert set(declared.values()) == set(budget.BUDGET_LABELS)
+
+
+def test_the_capability_vocabulary_is_spelled_the_same_on_both_sides() -> None:
+    """What may be negotiated, and the names two processes have to agree on first.
+
+    Capabilities are how this pair agrees what may happen at all: Core offers a set,
+    the Bridge accepts a subset, and every command is then gated on the capability
+    that covers it. So a rename on one side alone is not a cosmetic drift — Core
+    offers something the Bridge never accepts, or the Bridge refuses a command it had
+    already negotiated, and both arrive as a protocol violation rather than as a
+    rename. That is the failure this file exists for, and it was covered for message
+    types and for the movement flags but not for the six identifiers themselves.
+
+    Compared by constant *name* rather than as two sets of strings, because a name is
+    what says which capability moved: `{"a","b"} != {"a","c"}` says something
+    differs, and `LOOK_CAPABILITY: ('control.look.v1', 'control.look.v2')` says which.
+    """
+
+    declared = _constants(HANDSHAKE_GATE, _CAPABILITY)
+
+    assert declared, f"no capability constants found in {HANDSHAKE_GATE}"
+    mismatches = {
+        name: (value, getattr(ipc, name, None))
+        for name, value in declared.items()
+        if getattr(ipc, name, None) != value
+    }
+    assert not mismatches, f"Java and Python disagree about {mismatches}"
+    # Both directions, because they are different faults: one side naming a capability
+    # the other never heard of, and a capability one side dropped while the other kept
+    # offering it. The second is invisible to the comparison above, which only walks
+    # what the Java side declares.
+    from_python = {
+        name
+        for name in dir(ipc)
+        if name.endswith("_CAPABILITY") and isinstance(getattr(ipc, name), str)
+    }
+    assert from_python, "no capability constants found in ipc.py; this check would pass"
+    assert from_python == set(declared), (
+        f"one side names capabilities the other does not: {sorted(from_python ^ set(declared))}"
+    )

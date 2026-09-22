@@ -1034,6 +1034,16 @@
   - **实测（本轮：静态 + 本地）**：两份清单现在 **26 == 26、双向零差集**；`bash -n` 对两个脚本都通过；全量 pytest **1840 passed / 2 skipped**（+1，正是新加的那条），Ruff、Pyright（strict，0 errors）、boundaries、case assertions、fixture digests、workflow pins 与 `git diff --check` 全绿。**没有跑 Minecraft，没有接受 EULA**——本轮**没有**真的去跑那两个场景，所以「修好了」这句话的证据是**静态的**：清单相等 + 守卫能抓住原 bug。真正的证明要一次真实运行。
   - **仍然开着的**：这两个场景现在**只差一次真实运行**——而这句话这次是对**README 里那条命令**也成立的。另外这一轮的发现说明一件事：harness 的旋钮有三个地方要同时改（`domain.sh` 读、`run.sh` 递、README 写），**只有前两处现在被机械绑住了**，README 与它们之间仍然靠人。
 
+- [x] **把上一轮那个镜头（「边界两边是不是在说同一个名字」）转向**能力名**——六个 capability 标识符，一边定义、一边使用，**没有任何东西比过它们**。** `HandshakeGate.java` 是 Bridge 唯一声明 capability 的地方：`session.handshake.v1`、`admission.connect.v1`、`control.move.v1`、`control.look.v1`、`control.use.v1`、`host.lan.v1`；`ipc.py` 里是逐字相同的六个（Core 从它 import，`session.py` 的 `wanted` 集合就是这么搭起来的，所以 Core 侧只有一个来源）。
+  - **洞的形状**：唯一一条 capability 绑定扫的是**另一个文件**里的 `move.*`——`_INPUT_CAPABILITY` 从 `BridgeInputController.java` 抓 `"move.forward"` 那六个**子能力**，绑到 `ipc.MOVEMENT_CAPABILITIES`。那是对的、也仍然有用，但它管的是「一个能力里的六个方向」，**六个能力标识符本身从来没被比过**。`test_bridge_java_constants.py` 覆盖了消息类型（`*_TYPE`）与那六个方向，**中间的六行是空的**。
+  - **为什么这比一般的命名漂移严重**：capability 是这两个进程「允许发生什么」的全部约定——Core 报一组、Bridge 接受一个子集、之后每条命令都按覆盖它的那个 capability 放行。所以单边改名不是外观问题：要么 Core 报了一个 Bridge 永远不接受的能力，要么 Bridge 拒了一条**已经协商过**的命令，而两者到达时的样子都是「协议违规」而不是「有人改了名字」。**而这个文件自己的 docstring 早就写着这正是那类「本地复现不出来的失效」**：「a rename on the Java side alone stays invisible until a real client fails to start. That is the one failure this repository cannot reproduce locally, so it is worth a check that reads both sources and compares them.」——那句话当时只兑现了三分之二。
+  - **补的绑定按**常量名**逐条比，而不是比两个字符串集合**。理由是报错要说得出**动的是哪一个**：`{"a","b"} != {"a","c"}` 只说「有东西不一样」，而 `LOOK_CAPABILITY: ('control.look.v1', 'control.look.v2')` 直接点名。**并且双向**：Java 声明的集合与 Python 声明的集合必须相等——一个方向是「一边报了个对方没听说过的能力」，反方向是「一边删了、另一边还在提供」，而**反方向对上面的逐名比较是不可见的**（那只走 Java 声明过的东西）。两头都先断言非空，否则 runner/文件改名之后这条检查会空转通过。
+  - **诚实地说：这次也没有漂移。** 两边今天逐字相同，所以这条绑定**现在抓不到任何东西**——与上一步的 `inputs` 一样，是防将来的。**但它比上一步那条更值**：`inputs` 那条防的是一个用例的声明走样，这条防的是**唯一一类本地证明不了的失效**（真客户端才会暴露），而它恰好落在两个进程都硬编码字符串的那条缝上。
+  - **三处变异全部驱动到红**：①Java 把 `control.look.v1` 改成 `v2`（值变了）；②Java 删掉 `HOST_LAN_CAPABILITY`（一边少了）；③Python 加了 `REFLEX_CAPABILITY` 而 Java 没有（另一边多了）。三次都只红这一条，还原即绿。
+  - **顺带记一条容易误读的东西**：`observation.lifecycle.v1` 这个像是协议词汇的名字**只出现在 `tools/java/BridgeProtocolSelfTest.java` 里**（两处，都是那个自检自己的夹具），产品两侧都没有它。它是自检用来喂 `HandshakeGate` 的一组任意能力，**不是真实能力**；写在这里免得下一个人把它当协议表面去追。
+  - **实测（本轮：本地）**：全量 pytest **1841 passed / 2 skipped**（+1，正是新加的那条），Ruff check/format、Pyright（strict，0 errors）、boundaries、case assertions、fixture digests、workflow pins 与 `git diff --check` 全绿。**没有跑 Minecraft，没有接受 EULA。**
+  - **仍然开着的**：这条绑定读的是**源码里的常量**，不是行为——它说得出两个进程把同一件事叫同一个名字，说不出 Bridge 真的处理了那条消息（那条边界在这个文件的 docstring 里也写着）。真正的验证仍要真客户端。
+
 ## W70 之后
 
 - [ ] W80：独立 `p0-nav-exp` 导航实验；核验输入冲突、隐藏真值与 SBOM/许可。
