@@ -1055,6 +1055,14 @@
   - **实测（本轮：本地 + 容器读取）**：两份 bundle 由产品命令独立验签；`report_promotion` 对 `W00`/`W10` 报 promotable；全量 pytest **1841 passed / 2 skipped**，Ruff、Pyright（strict，0 errors）、boundaries、case assertions、fixture digests、workflow pins 与 `git diff --check` 全绿。**没有跑 Minecraft，没有接受 EULA。**
   - **仍然开着的**：`p0-core` 的 18 条、`host-integrated` 的 18 条、以及 `W20`/`W60` 那几次被记账字段作废的真实运行——后者要么重跑，要么等一个「判据未变就不作废」的机制，而后者是设计决定（属于 `EVIDENCE-SEQUENCE-001` 那一类）。
 
+- [x] **把上一步那个镜头从「旋钮递没递进去」推到「有没有旋钮」——于是发现：有界候选矩阵只实现了一半，而没有任何东西会说。** 上一步查的是已存在的 harness 旋钮有没有被 wrapper 递进容器；这一步改问一个更前面的问题：`REAL-P0-CAMPAIGN-001` 的 `order` 八项**各自有没有一条能产生它的路**。
+  - **逐项对照的结果**：`online-mode mismatch` → `MINEKIN_DOMAIN_ONLINE_MODE` ✓（上一步刚接上）、`resource-pack refusal` → `MINEKIN_DOMAIN_RESOURCE_PACK` ✓、`首快照负向` → **没有路**（`development-todo.md` 早已记着：「要让真客户端交出一份报不出身份的快照，域里还没有这个开关」，是已知项）、`crash/outbox 窗口` → `KILL_CORE` ✓、`tick/render 采样` → `SOAK_SECONDS` ✓、`promotion report` → 工具 ✓。**剩下 `OFF-A/OFF-B` 这一项，查出来是新的。**
+  - **`OFF-B` 跑不起来，而且这不是「没做」，是「做了但接不上」**：`adapters/launcher/offline_session.py:87` 声明了**两个**候选（`PRISM_PARITY` = OFF-A `offline`、`ENUM_ALIGNED` = OFF-B `legacy`），而产品里**唯一**的选择点是 `cli/session.py:630` 的 `candidate = OFFLINE_SESSION_CANDIDATES[0]`——**永远 OFF-A**。整个仓库里 `enum-aligned` 只出现在契约的枚举清单和一个 Java 自检的夹具里：**没有 CLI 开关、没有环境变量、没有 harness 旋钮**。所以 `p0-prototype-execution-plan.md` 那句「按 OFF-A → OFF-B 运行有界候选，**不静默漂移**」只兑现了第一步，而 campaign 的 `order` 第 4 项写的正是「**OFF-A/OFF-B**」。
+  - **为什么记成卡而不是当场改。** 修法很小（给 `session start` 一个选候选的入口，默认仍是 OFF-A），但它动的是**产品 CLI 表面**——那在 `p0-core-internal-architecture.md` §15 里是**冻结**的，而本文的「不可变边界」写着生产代码只有在**当前 `NEXT` 明确允许**或**修复主干回归**时才可改。这里两者都不是：这是一项**新表面**，不是回归。`--server-profile` 那次也是同一类改动，而它当时是附带理由与文档更新之后才做的（见本文「已消歧的文档口径」第 4 条）。**所以排进 `QUEUED` 并写清 `blocked_by`，等主控提升**——第七步我在 `doctor` 上加只读检查时说过「这类没有卡授权的生产代码改动，你要是不愿意我就只在 TODO 里做」，那次的改动是既有命令内部的只读检查，**这次是产品对外接口，规模不同，不能拿同一次默认当授权**。
+  - **不阻塞任何当前工作，但它是 W30 那半证据的前提。** campaign 本身卡在 runner 与 EULA 上；可一旦真跑起来，`OFFLINE-010/020/030`（都 `runtime-required`）**只能产生 OFF-A 的证据**，契约矩阵的 B 半边永远不可达，而工具不会说——这与上一步那个旋钮是同一种失效：**缺失是静默的**。
+  - **测试与否的诚实边界**：本步**没有改任何代码**，所以没有新的测试；验证方式是**逐处 grep 加读**：候选的两个声明点、唯一选择点、以及 `enum-aligned` 在全仓的每一处出现。**没有跑 Minecraft**，全量 pytest **1841 passed / 2 skipped**，Ruff、Pyright（strict，0 errors）、boundaries、case assertions、fixture digests、workflow pins 与 `git diff --check` 全绿。
+  - **仍然开着的**：`OFFLINE-CANDIDATE-001` 在 `QUEUED` 里等提升；`首快照负向` 那条路仍缺（**已记录**，且它要动的是域而不是 CLI）。
+
 ## W70 之后
 
 - [ ] W80：独立 `p0-nav-exp` 导航实验；核验输入冲突、隐藏真值与 SBOM/许可。
