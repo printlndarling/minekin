@@ -651,6 +651,13 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
   是测试域封存（`ADMIT-060-CASE-001`）的直接前置，也是 campaign 第 2 个场景缺的唯一
   一份产品事实；阶段队列里其余未闭合卡仍需用户先拍板。
 - `depends_on`: `ADMIT-060-EVIDENCE-DESIGN-001`
+- `shape_decision` (2026-09-23，实施前定): 不新增 observation 消息，在既有
+  `ConnectionLifecycle` 上加一个具名字段；Bridge 只在本代**建立连接的那一条**上报
+  （`CONNECTION_PHASE_RESOLVING`）里命名它，值取自交付给原版连接路径的 `ServerInfo`
+  读回，不是命令回显。Core 对**每一条具名的、且被门接受的**报告写一行账本事实
+  （Bridge / BRIDGE_FILTERED），不去重也不聚合——具名两次就是两行，那正是契约
+  「同一 run 没有第二个策略值」要读的形状。未具名的报告不写行，因此旧 Bridge 不会
+  凭空造出事实。
 - `why_now`: 契约第 3 项判据要求「放上线缆的策略」是产品事实，而今天账本里没有任何
   一行承载它。`ConnectWorld.resource_pack_policy` 只存在于 Core→Bridge 的命令方向，
   Bridge 侧唯一使用点是 `ClientAdmissionController` 里 `server.setResourcePackPolicy(...)`
@@ -671,6 +678,8 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
   - `bridge/src/test/java/org/minekin/bridge/runtime/ClientAdmissionControllerTest.java`
   - `src/minekin_core/adapters/bridge/admission.py`
   - `src/minekin_core/cli/session_runtime.py`
+  - `src/minekin_core/cli/session.py` (the recorder that turns one accepted report into
+    one ledger row, and the `record_session_event` call site that names its source)
   - `src/minekin_core/adapters/sqlite/session_log.py`
   - `tests/unit/test_bridge_admission.py`
   - `tests/unit/test_generated_protocol.py`
