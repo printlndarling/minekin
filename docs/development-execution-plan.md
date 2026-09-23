@@ -439,7 +439,7 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
   1. sequential and concurrent sealers on the same case receive unique monotonic sequences; different cases sequence independently; explicit supersession chain is validated;
   2. crash/failure injection at reservation, bundle staging/publication, and registry completion never allows an older PASS to satisfy behind a newer pending/failed/corrupt attempt; retry gets a new higher sequence;
   3. promotion only evaluates the highest registered attempt per mandatory case; wrong case/run/sequence, duplicate sequence, missing bundle, unreadable latest, or manifest/index mismatch blocks; legacy bundles preserve prior behavior only when no sequenced attempt exists;
-  4. verified latest PASS promotes; latest FAIL, INCOMPLETE, unverified, or UNJUDGED latest blocks even if an older PASS exists; old bundles are byte-for-byte unchanged;
+  4. verified latest PASS promotes; latest FAIL, INCOMPLETE, unverified, or corrupt latest blocks even if an older PASS exists. `UNJUDGED` remains diagnostic only, matching the existing evidence contract (it is a reader limitation, not contradictory evidence); old bundles are byte-for-byte unchanged;
   5. existing evidence verify/rejudge/replay and all local gates pass; add no runtime requirement.
 - `validation_class`: `LOCAL`
 - `commit_intent`: `feat(evidence): sequence and supersede case attempts`
