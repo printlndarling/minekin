@@ -12,7 +12,7 @@
 - `baseline_date`: 2026-09-22
 - `baseline_branch`: `main`
 - `baseline_remote`: `origin/main`
-- `current_next`: `ADMIT-040-CLASSIFICATION-001`
+- `current_next`: `REAL-P0-CAMPAIGN-001`
 
 权威顺序：
 
@@ -377,12 +377,14 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 
 ### REAL-P0-CAMPAIGN-001 — 批量关闭真实运行缺口
 
-- `status`: `BLOCKED_REGRESSION`
-- `blocked_by`: `ADMIT-040-CLASSIFICATION-001`。受控 Docker 诊断运行
+- `status`: `NEXT`
+- `regression_history`: `ADMIT-040-CLASSIFICATION-001` 曾阻断首场景；受控 Docker 诊断运行
   `fdef1d7192dd480db6aed1c5e7e493dd` 在离线身份连接 `online-mode=true`
   原版服务器时，客户端日志出现 `Failed to log in: Invalid session (Try restarting your game and the launcher)`，
   但 Core 的 `SessionInterrupted` 记录了 `ADMISSION_FAILURE_REASON_UNEXPECTED_DISCONNECT`；
-  专项契约要求 `AUTH_MODE_MISMATCH`。该次运行只作诊断，未封为 ADMIT-040 PASS。
+  专项契约要求 `AUTH_MODE_MISMATCH`。修复 commit `dd992b1fb2a85d8220e9345cfd7844a8f6c2f255`
+  已推送；复跑 `fbb9d4787a3743afa868a804c3c586ec` 的 ledger 确认为
+  `AUTH_MODE_MISMATCH`。两次均只作诊断，未封为 ADMIT-040 PASS。
 - `depends_on`: `CORE-METRICS-001`、可用 artifact store、受控 runner 与用户 EULA 授权
 - `order`: online-mode mismatch → resource-pack refusal → 首快照负向 → OFF-A/OFF-B
   → crash/outbox 窗口 → tick/render 采样 → CORE/OFFLINE/ADMIT promotion report。
@@ -414,7 +416,7 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 
 ### ADMIT-040-CLASSIFICATION-001 — 识别原版在线认证拒绝的真实文案
 
-- `status`: `NEXT`
+- `status`: `DONE`
 - `baseline_sha`: `63bf428e4d78dbb38c9bbf38be2f8fc5c55054dd`
 - `promotion_reason`: 新卡已先以 `QUEUED` 登记并推送；这是阻断当前唯一
   campaign 首个场景的真实分类回归，按“更高优先级回归”规则提升为 `NEXT`。
@@ -466,6 +468,19 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 - `compile_stub_amendment` (2026-09-23): Gradle 15/15 门禁和真实 Docker 正/负
   场景已通过；独立的 `check_bridge_proto_java.py` 因其手写 Controller API stub
   缺少三个新方法而编译失败。只同步该 stub 的方法签名，保持独立编译门禁有效。
+- `completion_commit`: `dd992b1fb2a85d8220e9345cfd7844a8f6c2f255`，已推送到
+  `origin/main` 与当前分支，远端 SHA 已核对。
+- `completion_evidence`: 定向 JUnit 先因缺少 handler 交接方法编译失败，修复后通过；
+  Gradle `check --rerun-tasks` 使用 JDK 21.0.12.1，15/15 执行、`BUILD SUCCESSFUL`；
+  全量 pytest 1903 passed / 2 skipped，Ruff check/format、Pyright 0、boundaries、
+  120 条 case assertions、fixture digest、workflow pins、四道 Bridge 独立门禁均通过。
+  真实 Docker 负向 run `fbb9d4787a3743afa868a804c3c586ec` 的 Core ledger 记录
+  `AUTH_MODE_MISMATCH`；默认离线正向 run `5507cb8b92e848a6a3b36aece7872840`
+  的受控服务端 `online-mode=false`，服务端记录 Kin JOIN，Core 记录
+  `PlayableEstablished` 且首快照准入 1 次；白名单负向 run
+  `cc2cfb7f69554f0989dbea695938a194` 保持 `WHITELIST_REJECTED`。
+  三次 runner 均在停掉承载 Bridge 的客户端时以既有 `BRIDGE_LOST`/exit 14 结束；
+  分类证据来自退出后的持久 ledger。未运行 CI，未把诊断运行写作正式 ADMIT-040 PASS。
 
 ### HOST-ADMISSION-DESIGN-001 — 宿主世界会话坐标来源
 

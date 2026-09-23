@@ -1269,7 +1269,7 @@
     强杀场景记录 `INJECTED`（reasons 为空）且 Core 写入 `SessionInterrupted`。runner 两次
     outcome 都是 `BRIDGE_LOST`、exit 14——这是关闭/杀死承载 Bridge 的客户端后的既定结果，
     如实保留，没有改写成 `CLIENT_EXITED`。CI 未运行。
-- [ ] **REAL-P0-CAMPAIGN-001（被准入分类回归阻断）**：前置现在齐备（`CORE-METRICS-001` DONE、
+- [ ] **REAL-P0-CAMPAIGN-001（当前唯一 NEXT）**：前置现在齐备（`CORE-METRICS-001` DONE、
   受控 Docker runner 与 artifact store 可用、EULA 已由用户确认）。campaign 先按执行计划顺序
   做 online-mode mismatch、resource-pack refusal、first-snapshot negative、OFF-A/OFF-B、
   crash/outbox、tick/render sampling，再对 CORE/OFFLINE/ADMIT 跑 verify/rejudge/replay/
@@ -1279,12 +1279,19 @@
     `runtime-required`。PERSIST case ID 尚未冻结，HOST 相关设计卡仍是 `BLOCKED_DECISION`，
     因此不得猜编号或把 campaign 结果外推为 HOST/PERSIST 已完成。
 
-- [ ] **ADMIT-040-CLASSIFICATION-001（当前唯一 NEXT）**：`REAL-P0-CAMPAIGN-001`
+- [x] **ADMIT-040-CLASSIFICATION-001（已完成，commit `dd992b1` 已推送）**：`REAL-P0-CAMPAIGN-001`
   首个受控诊断运行 `fdef1d7192dd480db6aed1c5e7e493dd` 中，离线身份遇到原版
   `online-mode=true` 的真实客户端拒绝文案为 `Failed to log in: Invalid session
   (Try restarting your game and the launcher)`；Bridge/Core 目前记录
   `ADMISSION_FAILURE_REASON_UNEXPECTED_DISCONNECT`，但专项契约要求
-  `AUTH_MODE_MISMATCH`。先按执行计划修复这个小范围分类回归并复跑。
+  `AUTH_MODE_MISMATCH`。真实原因是 Fabric 的网络线程断线事件先于原版
+  `onDisconnected` 的渲染线程原因回调；Bridge 现在按同一 login handler 关联
+  两者，在 client tick 上报终态，且将真实 `Invalid session` 文案归入认证模式不匹配。
+  新负向 run `fbb9d4787a3743afa868a804c3c586ec` 在持久 ledger 中得到
+  `AUTH_MODE_MISMATCH`；默认离线正向 run `5507cb8b92e848a6a3b36aece7872840`
+  有服务端 JOIN、`PlayableEstablished` 与首快照准入；白名单负向 run
+  `cc2cfb7f69554f0989dbea695938a194` 仍是 `WHITELIST_REJECTED`。
+  JDK 21 Gradle 15/15 任务、Python 1903 passed / 2 skipped 与全部本地门禁通过。
   默认受控服务器继续由 `auth_mode: offline` 得出 `online-mode=false`，保持可接受
   离线身份的正常路径；负向在线模式只用于诊断。ADMIT-040 的正式 case fixture 与
   “不自动启用账号适配器”的可观测判据仍未冻结，不能凭这次诊断标 PASS。
