@@ -114,11 +114,18 @@ def test_a_restart_is_a_new_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
     assert first.run_id != second.run_id
     rows = ledger_rows(tmp_path)
     assert [row["event_type"] for row in rows] == [
+        "AuthPolicyFrozen",
         "SessionProcessStarted",
+        "AuthPolicyFrozen",
         "SessionProcessStarted",
     ]
-    assert [row["run_id"] for row in rows] == [first.run_id, second.run_id]
-    assert [row["sequence"] for row in rows] == ["1", "1"]
+    assert [row["run_id"] for row in rows] == [
+        first.run_id,
+        first.run_id,
+        second.run_id,
+        second.run_id,
+    ]
+    assert [row["sequence"] for row in rows] == ["1", "2", "1", "2"]
 
 
 def test_each_restart_reads_a_fresh_marker(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -164,7 +171,9 @@ def test_a_failed_start_leaves_its_own_record(
     started(tmp_path, "session-02")
 
     assert [row["event_type"] for row in ledger_rows(tmp_path)] == [
+        "AuthPolicyFrozen",
         "SessionProcessFailed",
+        "AuthPolicyFrozen",
         "SessionProcessStarted",
     ]
 
@@ -216,7 +225,7 @@ def test_status_reports_every_recorded_session(
     report = read_status(tmp_path, probe=gone)
 
     assert [client.session_id for client in report.clients] == ["session-01", "session-02"]
-    assert report.ledger.events_recorded == 2
+    assert report.ledger.events_recorded == 4
     assert report.ledger.last_event_type == "SessionProcessStarted"
 
 

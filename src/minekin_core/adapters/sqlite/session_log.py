@@ -42,6 +42,7 @@ from minekin_core.domain.recovery import RecoveryAction, recovery_action
 
 PROCESS_STARTED = "SessionProcessStarted"
 PROCESS_FAILED = "SessionProcessFailed"
+AUTH_POLICY_FROZEN = "AuthPolicyFrozen"
 
 # The facts a supervised session produces, by the names §5 of the internal
 # architecture gives them. Closed set: a typo in an event name is otherwise
@@ -64,6 +65,7 @@ SESSION_EVENT_TYPES = frozenset(
     {
         PROCESS_STARTED,
         PROCESS_FAILED,
+        AUTH_POLICY_FROZEN,
         HELLO_ACCEPTED,
         JOIN_OBSERVED,
         PLAYABLE_ESTABLISHED,
@@ -281,6 +283,13 @@ class SessionEventLog:
             await writer.start()
             store = SQLiteEventStore(self._database, writer)
             existing = await store.read_all()
+            if event_type == AUTH_POLICY_FROZEN:
+                run_events = (event for event in existing if event.run_id == run_id)
+                if any(
+                    event.event_type in {AUTH_POLICY_FROZEN, PROCESS_STARTED, PROCESS_FAILED}
+                    for event in run_events
+                ):
+                    raise ValueError("auth policy must be frozen once before this run starts")
             envelope = EventEnvelope(
                 event_id=EventId.new().value,
                 event_type=event_type,

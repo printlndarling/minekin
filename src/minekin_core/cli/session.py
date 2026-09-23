@@ -72,6 +72,7 @@ from minekin_core.adapters.launcher.supervisor import ProcessIdentity, ProcessSu
 from minekin_core.adapters.sqlite.connection import connect_reader
 from minekin_core.adapters.sqlite.identity_store import read_identity_root
 from minekin_core.adapters.sqlite.session_log import (
+    AUTH_POLICY_FROZEN,
     CLIENT_EXITED,
     HELLO_ACCEPTED,
     INPUT_LEASE_GRANTED,
@@ -93,6 +94,7 @@ from minekin_core.cli.session_runtime import (
     advance_session,
     supervise_session,
 )
+from minekin_core.domain.auth_policy import AuthPolicy
 from minekin_core.domain.connection import ConnectionGenerations, ConnectionState
 from minekin_core.domain.errors import ErrorCategory, MinekinError, Retryability
 from minekin_core.domain.events import EventSource, TrustClass
@@ -388,6 +390,7 @@ class PreparedSession:
     spec: ClientProcessSpec
     supervisor: ProcessSupervisor
     ledger: SessionEventLog
+    auth_policy: AuthPolicy
     recovery: RecoveryReport = NOTHING_TO_RECONCILE
     bridge_session: BridgeSession | None = None
     bridge_descriptor: Path | None = None
@@ -457,6 +460,7 @@ def prepare_session(
     world_save: Path | None = None,
     world_name: str | None = None,
     identity_candidate: str | None = None,
+    auth_policy: AuthPolicy | None = None,
 ) -> PreparedSession:
     """Prepare a launch, for a caller that is not already running a loop."""
 
@@ -477,6 +481,7 @@ def prepare_session(
             world_save=world_save,
             world_name=world_name,
             identity_candidate=identity_candidate,
+            auth_policy=auth_policy,
         )
     )
 
@@ -498,6 +503,7 @@ async def prepare_session_async(
     world_save: Path | None = None,
     world_name: str | None = None,
     identity_candidate: str | None = None,
+    auth_policy: AuthPolicy | None = None,
 ) -> PreparedSession:
     """Everything a launch needs, with the overlay already created and nothing started.
 
@@ -643,6 +649,8 @@ async def prepare_session_async(
     # refused by `candidate_by_id` rather than falling back, because a run that
     # asked for OFF-B and silently got OFF-A would seal a bundle for a scenario
     # that did not happen.
+    policy = auth_policy if auth_policy is not None else AuthPolicy()
+    policy.require_offline_launch()
     candidate = candidate_by_id(identity_candidate)
     spec = build_process_spec(
         plan,
@@ -665,6 +673,7 @@ async def prepare_session_async(
         spec=spec,
         supervisor=supervisor,
         ledger=ledger,
+        auth_policy=policy,
         recovery=recovery,
         bridge_session=bridge_session,
         bridge_descriptor=descriptor,
@@ -686,6 +695,20 @@ async def launch_prepared_async(prepared: PreparedSession) -> SessionLaunch:
     this point are operator errors rather than run outcomes, so they leave no
     entry: a run only begins once a process does.
     """
+
+    # The same immutable policy that admitted the offline process specification
+    # is committed before that process exists. A failed spawn still has a policy
+    # fact, while an earlier preparation refusal has no run to attribute one to.
+    await prepared.ledger.record_session_event(
+        event_type=AUTH_POLICY_FROZEN,
+        kin_id=prepared.kin_id,
+        run_id=prepared.run_id,
+        session_id=prepared.session_id,
+        generation=prepared.generation,
+        payload=prepared.auth_policy.as_event_payload(),
+        source=EventSource.CORE,
+        trust_class=TrustClass.CORE,
+    )
 
     # §8: the intent is committed before the effect is attempted, so a crash in
     # between leaves something on the ledger to reconcile. The key is the run,
@@ -946,6 +969,11 @@ async def start_and_supervise(
         world_save=world_save,
         world_name=world_name,
         identity_candidate=identity_candidate,
+        auth_policy=(
+            AuthPolicy.from_profile(profile_id=target.profile_id, revision=target.revision)
+            if target is not None
+            else AuthPolicy()
+        ),
     )
     if prepared.bridge_session is None or prepared.bridge_descriptor is None:
         raise _reject("the session was prepared without a Bridge session to host")

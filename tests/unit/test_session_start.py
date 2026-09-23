@@ -322,7 +322,8 @@ def stored_events(database_path: Path) -> list[dict[str, object]]:
     connection.row_factory = sqlite3.Row
     try:
         rows = connection.execute(
-            "SELECT event_type, run_id, session_id, payload_json FROM event ORDER BY position"
+            "SELECT event_type, run_id, session_id, source, trust_class, payload_json "
+            "FROM event ORDER BY position"
         ).fetchall()
     finally:
         connection.close()
@@ -349,9 +350,17 @@ def test_a_started_event_reaches_the_ledger(
     )
 
     rows = stored_events(database_for(root, KIN_ID))
-    assert [row["event_type"] for row in rows] == ["SessionProcessStarted"]
-    assert rows[0]["run_id"] == launch.run_id
-    assert rows[0]["session_id"] == "session-01"
+    assert [row["event_type"] for row in rows] == ["AuthPolicyFrozen", "SessionProcessStarted"]
+    assert all(row["run_id"] == launch.run_id for row in rows)
+    assert all(row["session_id"] == "session-01" for row in rows)
+    assert rows[0]["source"] == "CORE"
+    assert rows[0]["trust_class"] == "CORE"
+    assert json.loads(str(rows[0]["payload_json"])) == {
+        "auth_mode": "offline",
+        "online_adapter_enabled": False,
+        "server_profile_id": None,
+        "server_profile_revision": None,
+    }
 
 
 def test_a_failed_start_records_a_failure_and_still_raises(
@@ -383,8 +392,8 @@ def test_a_failed_start_records_a_failure_and_still_raises(
         )
 
     rows = stored_events(database_for(root, KIN_ID))
-    assert [row["event_type"] for row in rows] == ["SessionProcessFailed"]
-    assert json.loads(str(rows[0]["payload_json"]))["category"] == "PROCESS"
+    assert [row["event_type"] for row in rows] == ["AuthPolicyFrozen", "SessionProcessFailed"]
+    assert json.loads(str(rows[1]["payload_json"]))["category"] == "PROCESS"
 
 
 def test_a_refusal_before_the_launcher_leaves_no_ledger_entry(

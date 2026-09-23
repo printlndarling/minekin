@@ -49,6 +49,7 @@ from minekin_core.adapters.launcher.supervisor import ProcessSupervisor
 from minekin_core.adapters.sqlite.connection import connect_reader
 from minekin_core.adapters.sqlite.identity_store import read_identity_root
 from minekin_core.adapters.sqlite.session_log import (
+    AUTH_POLICY_FROZEN,
     CLIENT_EXITED,
     HELLO_ACCEPTED,
     INPUT_LEASE_GRANTED,
@@ -326,6 +327,7 @@ def test_session_start_records_what_the_run_observed(tmp_path: Path, monkeypatch
     assert run.outcome is SessionOutcome.CLIENT_EXITED
     rows = _ledger_rows(database)
     assert [row for row in rows if row[0] != SESSION_STATE_TRANSITIONED] == [
+        (AUTH_POLICY_FROZEN, "CORE", "CORE"),
         (PROCESS_STARTED, "LAUNCHER", "LAUNCHER"),
         # Core verified the proof, so acceptance is Core's own conclusion.
         (HELLO_ACCEPTED, "CORE", "CORE"),
@@ -384,6 +386,7 @@ def test_a_handshake_that_never_completes_is_recorded_as_an_interruption(
     assert run.outcome is SessionOutcome.HANDSHAKE_TIMEOUT
     rows = _ledger_rows(database)
     assert [row[0] for row in rows if row[0] != SESSION_STATE_TRANSITIONED] == [
+        AUTH_POLICY_FROZEN,
         PROCESS_STARTED,
         SESSION_INTERRUPTED,
     ]
@@ -583,6 +586,7 @@ def test_a_named_server_profile_becomes_one_connect_command(
     assert run.outcome is SessionOutcome.CLIENT_EXITED
     rows = _ledger_rows(database)
     assert [row[0] for row in rows if row[0] != SESSION_STATE_TRANSITIONED] == [
+        AUTH_POLICY_FROZEN,
         PROCESS_STARTED,
         HELLO_ACCEPTED,
         JOIN_OBSERVED,
@@ -594,8 +598,8 @@ def test_a_named_server_profile_becomes_one_connect_command(
     # recorded as Core's. §6 says a trust class may not be self-declared, and
     # naming the Bridge as the source of Core's verdict would be exactly that.
     observed_rows = [row for row in rows if row[0] != SESSION_STATE_TRANSITIONED]
-    assert observed_rows[2] == (JOIN_OBSERVED, "BRIDGE", "BRIDGE_FILTERED")
-    assert observed_rows[3] == (PLAYABLE_ESTABLISHED, "CORE", "CORE")
+    assert observed_rows[3] == (JOIN_OBSERVED, "BRIDGE", "BRIDGE_FILTERED")
+    assert observed_rows[4] == (PLAYABLE_ESTABLISHED, "CORE", "CORE")
     # These two writes come from the event reader, which the session cancels on
     # its way out — the first writes the runtime had ever made from a task that
     # gets cancelled. A writer interrupted mid-close used to strand its
@@ -774,6 +778,7 @@ def test_a_session_with_no_server_profile_is_never_told_to_connect(
     assert run.connection_state is None
     assert run.events_applied == 0
     assert [row[0] for row in _ledger_rows(database) if row[0] != SESSION_STATE_TRANSITIONED] == [
+        AUTH_POLICY_FROZEN,
         PROCESS_STARTED,
         HELLO_ACCEPTED,
         CLIENT_EXITED,
@@ -943,6 +948,26 @@ def test_a_rejected_login_reaches_the_ledger_with_its_category(
     asyncio.run(scenario())
 
     payloads = _ledger_payloads(database)
+    connection = sqlite3.connect(database)
+    try:
+        policy_rows = connection.execute(
+            "SELECT position, source, trust_class, payload_json FROM event "
+            "WHERE event_type='AuthPolicyFrozen'"
+        ).fetchall()
+        process_position = connection.execute(
+            "SELECT position FROM event WHERE event_type='SessionProcessStarted'"
+        ).fetchone()
+    finally:
+        connection.close()
+    assert len(policy_rows) == 1
+    assert process_position is not None and policy_rows[0][0] < process_position[0]
+    assert policy_rows[0][1:3] == ("CORE", "CORE")
+    assert json.loads(policy_rows[0][3]) == {
+        "auth_mode": "offline",
+        "online_adapter_enabled": False,
+        "server_profile_id": load_server_profile(SERVER_PROFILE).profile_id,
+        "server_profile_revision": load_server_profile(SERVER_PROFILE).revision,
+    }
     interrupted = next(row for row in payloads if json.loads(row).get("phase") == "FAILED")
     assert json.loads(interrupted) == {
         "phase": "FAILED",

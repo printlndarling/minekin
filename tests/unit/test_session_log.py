@@ -10,6 +10,7 @@ import pytest
 
 from minekin_core.adapters.sqlite.connection import connect_reader
 from minekin_core.adapters.sqlite.session_log import (
+    AUTH_POLICY_FROZEN,
     PROCESS_FAILED,
     PROCESS_STARTED,
     SessionEventLog,
@@ -82,6 +83,43 @@ def test_a_started_event_is_recorded_with_its_hash(tmp_path: Path) -> None:
     canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
     assert rows[0]["payload_hash"] == hashlib.sha256(canonical.encode("utf-8")).hexdigest()
     assert envelope.event_type == PROCESS_STARTED
+
+
+def test_auth_policy_cannot_be_frozen_twice_or_after_process_start(tmp_path: Path) -> None:
+    ledger = log(tmp_path)
+
+    def freeze(run_id: str) -> None:
+        asyncio.run(
+            ledger.record_session_event(
+                event_type=AUTH_POLICY_FROZEN,
+                kin_id="kin-01",
+                run_id=run_id,
+                session_id="session-01",
+                generation=1,
+                payload={"auth_mode": "offline", "online_adapter_enabled": False},
+                source=EventSource.CORE,
+                trust_class=TrustClass.CORE,
+            )
+        )
+
+    freeze("run-01")
+    with pytest.raises(ValueError, match="frozen once"):
+        freeze("run-01")
+
+    ledger.record_process_started(
+        kin_id="kin-01",
+        run_id="run-02",
+        session_id="session-01",
+        generation=1,
+        client_instance_id="client-01",
+        argv_digest="a" * 64,
+    )
+    with pytest.raises(ValueError, match="before this run starts"):
+        freeze("run-02")
+    assert [row["event_type"] for row in stored(database(tmp_path))] == [
+        AUTH_POLICY_FROZEN,
+        PROCESS_STARTED,
+    ]
 
 
 def test_the_sequence_continues_within_one_run(tmp_path: Path) -> None:
