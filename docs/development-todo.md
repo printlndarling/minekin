@@ -1441,12 +1441,64 @@
     `server-resource-packs/` 目录列表、runner 资源包场景的等待分支，以及把 login 停顿
     分类成 `RESOURCE_PACK_BLOCKED` 这件单独的产品决定。CI 未作为完成证据。
 
-- [ ] **ADMIT-060-CASE-001（当前唯一 NEXT，基线 `e75b011`）**：测试域那半边——sealer
-  另封本代客户端的 `server-resource-packs/` 目录列表（读一次、判与封同字节），
-  `tests/fixtures/cases/admit-060.json` 的断言逐条覆盖契约四项（每项至少一个反例必须
-  失败），runner 只在资源包场景走新的等待分支，四读（verify/rejudge/replay/promotion）
-  一致才写 DONE。产品线已经不再缺事实：第 3 项判据读的就是上面那行
-  `ResourcePackPolicyApplied`。
+- [x] **ADMIT-060-CASE-001（已完成，commit `420bb88` + 修复 `e906e92` 均已推送，基线
+  `e75b011`）**：测试域那半边已按专项契约的四项判据封成可复判的正式用例。
+  - 封存端：本代客户端的 `server-resource-packs/` 读一次、判与封同字节，封为
+    `client/server-resource-packs.json`（每文件的 name/bytes/sha256，不含包字节）；
+    **「目录不存在」与「目录存在且为空」保持为两个不同答案**（`present:false` → 判官
+    读不出列表 → `NO_CLIENT_PACK_LISTING`；`present:true`+`entries:[]` → 判据成立），
+    目录里出现 symlink 时封存直接停（`Unsealable`）。
+  - 判官：`the_server_this_run_required_a_resource_pack`（服务端自己的
+    `server.properties` 要求包、URL 落在 `AddressPolicy.p0_loopback()`、sha1 是 40 hex、
+    端口与 motd 指向这份 sealed profile）、
+    `the_sealed_profile_refused_the_resource_pack`（`resource_pack_policy` 为 `deny` 且
+    规范化 `revision` 等于进程启动前 `AuthPolicyFrozen` 的 `server_profile_revision`）、
+    `the_resource_pack_policy_that_went_on_the_wire_is_the_frozen_one`（本 run 那条
+    `ResourcePackPolicyApplied` 是 `BRIDGE`/`BRIDGE_FILTERED`、值与 profile 相同且**只有
+    一个值**）、`the_client_never_downloaded_the_pack`（目录为空且无 JOIN/PLAYABLE/快照/
+    lease），与 `no_world_was_joined`/`no_lease_was_granted` 一起登记为 `ADMIT-060`
+    （`W40`、`mandatory: false`）。
+  - 反例逐个 FAIL：包需求 9 条、profile 一致性 6 条、线缆 5 条（含被忽略成 `prompt`、
+    出现 `deny,prompt` 两个值）、客户端列表 2 条，另有「**只有超时**时两条否定断言成立而
+    四项判据全红」（契约的「超时不算拒绝」被写成可执行的一条）与
+    loopback 只作为他主机 userinfo 的那条。
+  - runner：`domain.sh` 新增 `ADMIT-060` 等待分支，等的是账本里那条 `deny` 策略事实而不是
+    `PLAYABLE`，且资源包场景与 Server Profile 缺一就直接退出 2（不封一个没发生的场景）。
+  - **真实受控 Docker `deny` 运行**（当前 build、同镜像）：run
+    `7bc740ea4cde4e1aaff074bb64850348` / session `79eec2b3078e43f782f7b5ff00defe58` /
+    服务端 `run-117` → 13 件工件、`result: PASS`、`failures: []`、`attempt_sequence: 2`、
+    bundle `ca61b64b86b13b0d55528f2f2604825f973c313ba7adaa91fcefe3a2cb29ddcc`、
+    `case_version 8ee31d23f3a0e82a1f2ccd28a2666880b32aec6ac06af271e207873262e3cdb2`。
+    **四读一致**：`evidence verify` → `verified/sealed/13 件/violations: []`；
+    `rejudge_evidence.py` → `agrees`（6/6 observed）；`minekin replay` 与
+    `replay_evidence.py` → 同一 bundle 14 事件投影到 `STOPPED`、0 violations；
+    `report_promotion.py --data-root /data --work-package W40` →
+    `PASS/verified/sealed/AGREES/from_repository_build: true`，`bridge_digest ecff5a59…`
+    与配方 pin 相同、`launch_plan_digest 6b81fa7d…` 与当前 build 相同。W40 的阻塞项仍是
+    `ADMIT-010/020/030/050/090` 与 `CORE-020` 的旧 case version，**没有**
+    `EVIDENCE_DISAGREES_WITH_ITS_BYTES`。campaign `scenario_progress` 自此为 **2/7**。
+  - **第 1 次尝试如实留档**：run `3c17aa78a838486391634e69d9f8ea98`（bundle `259cc93d…`）
+    封存为 `FAIL`，原因是判据 1 的**读侧缺陷**——Java 的 `Properties.store` 把值里的冒号
+    写成 `\:`，判官连 `\` 一起当地址读，于是 loopback 上的包被报成「不在 P0  admits 的地址」。
+    本地 300 多条断言当时全绿，因为 fixture 写的是**未转义**形状，也就是任何真实运行都不会
+    产生的形状。`e906e92` 改为按 `Properties.load` 的语义解转义、fixture 换成真实形状并补
+    一条 userinfo 反例；对那份旧 bundle 复判给出 `disagrees` +
+    `RESULT:recorded=FAIL,re-judged=PASS`，**旧记录不追认、不覆盖**，promotion 报告里 attempt 1
+    仍列 `FAIL`/`DISAGREES`，attempt 2 以 `supersedes_run_id` 指向它。
+  - 读数：全量 pytest **1991 passed / 2 skipped**（本卡 +37 条、读侧修复再 +1 条）、
+    Ruff check/format、Pyright 在被改文件 0 errors、包边界、
+    129 条 case assertions（`--record` 只动新 fixture）、fixture digests、workflow pins、
+    wheel oracle 边界、`bash -n` 全绿。未跑 CI。
+  - **`mandatory` 仍是 `false`**：契约其余 ADMIT 场景未齐，这一条不点亮任何 gate。
+
+- [ ] **ADMIT-070-EVIDENCE-DESIGN-001（当前唯一 NEXT，登记于 `b176b63`）**：campaign
+  `order` 的第 3 个场景（JOIN 后首快照失败，契约点名 `ADMIT-070`，fixture
+  `tests/fixtures/cases/admit-070.json` 五条断言已在）判据冻结。要回答的是：一次真实的
+  「JOIN 之后首个权威快照被拒」在现有运行材料里说得出什么——run document 的
+  `snapshot_rejections`/`entities_rejected` 与账本的 `SessionInterrupted` 够不够把
+  「不授 lease」与「generation 终止」说成同 run 事实；让**首**快照真失败要不要新的产品
+  观测点或 runner knob。停止条件：只能由超时读出来时停在 `BLOCKED_EVIDENCE`，不把空数组
+  读成拒绝。
 
 - [x] **ADMIT-040-CLASSIFICATION-001（已完成，commit `dd992b1` 已推送）**：`REAL-P0-CAMPAIGN-001`
   首个受控诊断运行 `fdef1d7192dd480db6aed1c5e7e493dd` 中，离线身份遇到原版
