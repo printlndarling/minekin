@@ -13,8 +13,11 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
+import shutil
 import stat
+import tempfile
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -133,16 +136,29 @@ def write_bundle(
         raise _reject("evidence manifest contains a credential literal and cannot be sealed")
     bundle_digest = _sha256(manifest_bytes)
 
-    directory.mkdir(parents=True, exist_ok=True)
-    for relative, payload in prepared:
-        target = directory / relative
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(payload)
-    (directory / MANIFEST_NAME).write_bytes(manifest_bytes)
-    (directory / DIGEST_NAME).write_text(f"{bundle_digest}\n", encoding="ascii")
-
-    if seal:
-        _set_writable(directory, False)
+    directory.parent.mkdir(parents=True, exist_ok=True)
+    staging = Path(tempfile.mkdtemp(prefix=f".{directory.name}.", dir=directory.parent))
+    try:
+        for relative, payload in prepared:
+            target = staging / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(payload)
+        (staging / MANIFEST_NAME).write_bytes(manifest_bytes)
+        (staging / DIGEST_NAME).write_text(f"{bundle_digest}\n", encoding="ascii")
+        if directory.exists():
+            if any(directory.iterdir()):
+                raise _reject(
+                    f"{directory} already holds a bundle; a corrected result is a new run, "
+                    "not an edit"
+                )
+            directory.rmdir()
+        os.replace(staging, directory)
+        if seal:
+            _set_writable(directory, False)
+    except BaseException:
+        if staging.exists():
+            shutil.rmtree(staging, ignore_errors=True)
+        raise
     return EvidenceBundle(
         directory=directory, manifest=sealed_manifest, bundle_digest=bundle_digest
     )
@@ -309,6 +325,18 @@ def _parse_manifest(document: dict[str, object]) -> EvidenceManifest:
     world = _section(document, "world")
     identity = _section(document, "identity")
     assertions = _section(document, "assertions")
+    attempt_sequence: int | None = None
+    supersedes_run_id: str | None = None
+    if "attempt" in document:
+        attempt = _section(document, "attempt")
+        sequence = attempt.get("sequence")
+        supersedes = attempt.get("supersedes_run_id")
+        if isinstance(sequence, bool) or not isinstance(sequence, int) or sequence < 1:
+            raise _reject("evidence attempt sequence must be a positive integer")
+        if supersedes is not None and (not isinstance(supersedes, str) or not supersedes):
+            raise _reject("evidence superseded run id must be a non-empty string or null")
+        attempt_sequence = sequence
+        supersedes_run_id = supersedes
 
     artifacts_value = document.get("artifacts")
     if not isinstance(artifacts_value, list):
@@ -352,4 +380,6 @@ def _parse_manifest(document: dict[str, object]) -> EvidenceManifest:
         configured_profile=_text(identity, "configured_profile"),
         server_observed_name_uuid=_text(identity, "server_observed_name_uuid"),
         artifacts=tuple(records),
+        attempt_sequence=attempt_sequence,
+        supersedes_run_id=supersedes_run_id,
     )

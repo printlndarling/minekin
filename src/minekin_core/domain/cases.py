@@ -815,6 +815,9 @@ class CaseEvidence:
     #: answer. `NOT_ATTEMPTED` is what a caller that cannot re-judge reports, and it
     #: is why the rule below can only be enforced by a caller that can.
     re_judged: ReJudge
+    run_id: str = ""
+    attempt_sequence: int | None = None
+    supersedes_run_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -900,6 +903,10 @@ def evaluate_promotion(
             blocking.append(case.case_id)
             blocks.add(PromotionBlock.CASE_WITHOUT_EVIDENCE)
             continue
+        sequenced = [item for item in candidates if item.attempt_sequence is not None]
+        if sequenced:
+            highest = max(cast(int, item.attempt_sequence) for item in sequenced)
+            candidates = [item for item in sequenced if item.attempt_sequence == highest]
         satisfied = False
         for item in candidates:
             if item.case_version != case.digest:

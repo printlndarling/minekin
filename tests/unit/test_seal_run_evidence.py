@@ -42,6 +42,7 @@ from minekin_core.domain.budget import (
     BudgetLedger,
     read_window,
 )
+from minekin_core.domain.errors import MinekinError
 from minekin_core.domain.events import EventSource, TrustClass
 from minekin_core.domain.evidence import EMPTY_DOCUMENT_SHA256, NO_WORLD
 from minekin_core.domain.ids import KinId
@@ -440,7 +441,7 @@ def test_a_run_id_is_never_sealed_twice(finished_run: tuple[Path, Path, Path]) -
     data_root, server, document = finished_run
     seal_it(data_root, server, document)
 
-    with pytest.raises(Exception, match="already holds a bundle"):
+    with pytest.raises(MinekinError, match="already has an evidence attempt"):
         seal_it(data_root, server, document)
 
 

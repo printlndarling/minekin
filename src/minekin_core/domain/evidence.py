@@ -58,6 +58,7 @@ class EvidenceViolation(StrEnum):
     FAILURE_WITHOUT_REASON = "FAILURE_WITHOUT_REASON"
     WORLD_RECORD_INCONSISTENT = "WORLD_RECORD_INCONSISTENT"
     WORLD_KIND_UNKNOWN = "WORLD_KIND_UNKNOWN"
+    ATTEMPT_INVALID = "ATTEMPT_INVALID"
 
 
 @dataclass(frozen=True, slots=True)
@@ -117,6 +118,8 @@ class EvidenceManifest:
     configured_profile: str
     server_observed_name_uuid: str
     artifacts: tuple[ArtifactRecord, ...] = ()
+    attempt_sequence: int | None = None
+    supersedes_run_id: str | None = None
 
     def violations(self) -> tuple[EvidenceViolation, ...]:
         """Everything that stops this manifest from being sealed or trusted."""
@@ -145,6 +148,18 @@ class EvidenceManifest:
             found.add(EvidenceViolation.INVALID_DIGEST)
         if not all(_SHA256.fullmatch(record.sha256) for record in self.artifacts):
             found.add(EvidenceViolation.INVALID_DIGEST)
+        if self.attempt_sequence is not None:
+            if (
+                self.attempt_sequence < 1
+                or (self.attempt_sequence == 1 and self.supersedes_run_id is not None)
+                or (
+                    self.attempt_sequence > 1
+                    and (self.supersedes_run_id is None or not self.supersedes_run_id.strip())
+                )
+            ):
+                found.add(EvidenceViolation.ATTEMPT_INVALID)
+        elif self.supersedes_run_id is not None:
+            found.add(EvidenceViolation.ATTEMPT_INVALID)
 
         # A result that claims something needs a comparison behind it: `PASS` and
         # `AMBIGUOUS` say how a run went, and a bundle that lists nothing it
@@ -189,6 +204,16 @@ class EvidenceManifest:
             "test_run_id": self.test_run_id,
             "case_id": self.case_id,
             "case_version": self.case_version,
+            **(
+                {}
+                if self.attempt_sequence is None
+                else {
+                    "attempt": {
+                        "sequence": self.attempt_sequence,
+                        "supersedes_run_id": self.supersedes_run_id,
+                    }
+                }
+            ),
             "result": self.result.value,
             "bundle": {
                 "launch_plan_digest": self.launch_plan_digest,

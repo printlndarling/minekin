@@ -87,6 +87,48 @@ def test_a_complete_pass_bundle_is_sealed_and_verifies(bundle_dir: Path) -> None
     assert verification.bundle_digest == written.bundle_digest
 
 
+def test_a_sequenced_bundle_roundtrips_its_supersession_link(bundle_dir: Path) -> None:
+    written = write_bundle(
+        bundle_dir,
+        manifest(attempt_sequence=2, supersedes_run_id="run-previous"),
+        artifacts(),
+    )
+
+    verification = verify_bundle(bundle_dir)
+
+    assert verification.verified
+    assert verification.manifest == written.manifest
+    assert verification.manifest is not None
+    assert verification.manifest.attempt_sequence == 2
+    assert verification.manifest.supersedes_run_id == "run-previous"
+
+
+def test_a_sequence_cannot_name_a_missing_predecessor(bundle_dir: Path) -> None:
+    with pytest.raises(MinekinError, match="ATTEMPT_INVALID"):
+        write_bundle(
+            bundle_dir,
+            manifest(attempt_sequence=2, supersedes_run_id=None),
+            artifacts(),
+        )
+
+
+def test_bundle_publication_leaves_no_partial_target_on_rename_failure(
+    bundle_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import minekin_core.adapters.evidence.bundle as bundle_module
+
+    def fail_rename(_source: Path, _target: Path) -> None:
+        raise OSError("injected publication failure")
+
+    monkeypatch.setattr(bundle_module.os, "replace", fail_rename)
+
+    with pytest.raises(OSError, match="injected publication failure"):
+        write_bundle(bundle_dir, manifest(), artifacts())
+
+    assert not bundle_dir.exists()
+    assert list(bundle_dir.parent.iterdir()) == []
+
+
 def test_every_artifact_is_recorded_with_its_digest_and_size(bundle_dir: Path) -> None:
     written = write_bundle(bundle_dir, manifest(), artifacts())
 

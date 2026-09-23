@@ -43,8 +43,10 @@ string, because two spellings of one rule are two answers to one question.
 
 Every bundle in the data root is offered as evidence, not just the passing ones.
 A failing run keeps its evidence and a repaired case is re-run rather than
-edited, so a case that failed once and passed later has both bundles on disk —
-and the rule that decides takes the satisfying one.
+edited. Sequenced runs are ordered by the durable attempt registry, so only the
+latest attempt decides; a later failure cannot be hidden by an earlier PASS.
+Unsequenced legacy bundles keep the former any-satisfying rule only until that
+case receives its first sequenced attempt.
 
 What this cannot see, and now says so, is a case that is not there. Every reading
 above walks the registry, so the answer it gives is about the cases somebody wrote:
@@ -65,11 +67,9 @@ case is run again, and "run again" only means something if the evidence says whi
 build it came from. This report now names, per bundle, the reviewed plan it launched
 from and whether that is the plan this checkout would launch from.
 
-**It is a diagnostic and it does not gate.** How evidence from an earlier build is
-superseded is `EVIDENCE-SEQUENCE-001`, an open decision with more than one defensible
-answer, and a report that quietly enforced one would be making that decision by
-accident. `gates_promotion` says so in the document rather than leaving it to whoever
-reads the verdict.
+**Build identity is diagnostic and does not gate.** Evidence ordering is now
+determined by each case's attempt registry; `gates_promotion` remains false for the
+repository-build comparison specifically.
 """
 
 from __future__ import annotations
@@ -82,17 +82,23 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import cast
 
+from minekin_core.adapters.evidence.attempt_registry import Attempt, read_attempts
 from minekin_core.adapters.evidence.bundle import (
     MANIFEST_NAME,
     BundleVerification,
     verify_addressed_bundle,
 )
-from minekin_core.adapters.evidence.promotion import case_evidence, load_case_registry
+from minekin_core.adapters.evidence.promotion import (
+    case_evidence,
+    latest_attempt_evidence,
+    load_case_registry,
+)
 from minekin_core.adapters.launcher.launch_plan import build_launch_plan
-from minekin_core.cli.evidence import candidate_roots
+from minekin_core.cli.evidence import attempt_registry_path, candidate_roots
 from minekin_core.domain.cases import (
     REQUIRED_CASES,
     REQUIRED_GATES,
+    CaseEvidence,
     CaseRegistry,
     PromotionVerdict,
     ReJudge,
@@ -181,6 +187,7 @@ class EvidenceOnDisk:
     #: code, and the product's own verification must not import them.
     re_judged: Mapping[str, ReJudge] = field(default_factory=no_outcomes)
     re_judge_reasons: Mapping[str, str] = field(default_factory=no_reasons)
+    attempts: tuple[Attempt, ...] = ()
 
     @property
     def unverified(self) -> tuple[str, ...]:
@@ -219,6 +226,8 @@ class EvidenceOnDisk:
                     "run_id": run_id,
                     "case_id": None if manifest is None else manifest.case_id,
                     "case_version": None if manifest is None else manifest.case_version,
+                    "attempt_sequence": None if manifest is None else manifest.attempt_sequence,
+                    "supersedes_run_id": None if manifest is None else manifest.supersedes_run_id,
                     "result": None if manifest is None else manifest.result.value,
                     "verified": item.verified,
                     "sealed": item.sealed,
@@ -299,11 +308,54 @@ def discover(data_root: Path, cases_dir: Path = CASES) -> EvidenceOnDisk:
                 outcomes[directory.name] = outcome
                 if reason:
                     reasons[directory.name] = reason
+    registry_path = attempt_registry_path(data_root)
+    attempts = read_attempts(registry_path) if registry_path.exists() else ()
+    attempt_by_run = {attempt.run_id: attempt for attempt in attempts}
+    if not registry_path.exists() and any(
+        item.manifest is not None and item.manifest.attempt_sequence is not None
+        for item in verifications.values()
+    ):
+        raise Unusable("sequenced evidence exists without its attempt registry")
+    unreadable_run_ids = {item.partition(":")[0] for item in unreadable}
+    if attempts and unreadable_run_ids - set(attempt_by_run):
+        raise Unusable("unreadable bundle is not attributable to the attempt registry")
+    if (
+        not attempts
+        and unreadable
+        and any(
+            item.manifest is not None and item.manifest.result.value == "PASS"
+            for item in verifications.values()
+        )
+    ):
+        raise Unusable(
+            "cannot establish whether unreadable evidence supersedes a legacy PASS "
+            "without its registry"
+        )
+    for run_id, verification in verifications.items():
+        manifest = verification.manifest
+        if manifest is None or manifest.attempt_sequence is None:
+            continue
+        attempt = attempt_by_run.get(run_id)
+        if attempt is None or (
+            attempt.case_id != manifest.case_id
+            or attempt.sequence != manifest.attempt_sequence
+            or attempt.supersedes_run_id != manifest.supersedes_run_id
+        ):
+            raise Unusable(f"{run_id}: bundle attempt metadata disagrees with the attempt registry")
     return EvidenceOnDisk(
         verifications=verifications,
         unreadable=tuple(sorted(unreadable)),
         re_judged=outcomes,
         re_judge_reasons=reasons,
+        attempts=attempts,
+    )
+
+
+def _promotion_evidence(evidence: EvidenceOnDisk) -> tuple[CaseEvidence, ...]:
+    """Use only each case's latest durable attempt; legacy is pre-sequence only."""
+
+    return latest_attempt_evidence(
+        case_evidence(evidence.verifications, evidence.re_judged), evidence.attempts
     )
 
 
@@ -347,7 +399,7 @@ def _report_work_packages(
     blocking a phase of the core slice, and the other way round.
     """
 
-    claims = case_evidence(evidence.verifications, evidence.re_judged)
+    claims = _promotion_evidence(evidence)
     return {
         gate: _verdict_document(
             evaluate_promotion(
@@ -393,7 +445,7 @@ def _report_with_inventory(
     overall = _verdict_document(
         evaluate_promotion(
             registry.required_cases(*REQUIRED_GATES, required=required),
-            case_evidence(evidence.verifications, evidence.re_judged),
+            _promotion_evidence(evidence),
             requirement=registry.requirement(*REQUIRED_GATES, required=required),
         )
     )
@@ -405,6 +457,16 @@ def _report_with_inventory(
         "evidence": {
             "count": len(evidence.verifications),
             "bundles": bundles,
+            "attempts": [
+                {
+                    "case_id": item.case_id,
+                    "run_id": item.run_id,
+                    "sequence": item.sequence,
+                    "supersedes_run_id": item.supersedes_run_id,
+                    "status": item.status,
+                }
+                for item in evidence.attempts
+            ],
             "unverified": list(evidence.unverified),
             "unsealed": list(evidence.unsealed),
             "unreadable": list(evidence.unreadable),
@@ -418,9 +480,8 @@ def _report_with_inventory(
             ],
         },
         # The build this report is comparing against, and an explicit statement that
-        # nothing above was decided by it. The decision about how evidence from an
-        # earlier build is superseded is still open, and a report that quietly
-        # enforced one would be making that decision by accident.
+        # build identity is diagnostic only. Per-case attempt ordering is reported
+        # separately from this build comparison.
         "repository_build": {
             "recipe": str(RECIPE.relative_to(REPOSITORY_ROOT).as_posix()),
             "plan_sha256": build,

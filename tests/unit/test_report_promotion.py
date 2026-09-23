@@ -9,9 +9,11 @@ exists.
 
 from __future__ import annotations
 
+import hashlib
 import importlib
 import json
 import shutil
+import sqlite3
 import subprocess
 import sys
 from collections.abc import Iterator
@@ -22,9 +24,14 @@ from typing import Any, cast
 
 import pytest
 
+from minekin_core.adapters.evidence.attempt_registry import mark_sealed, reserve_attempt
 from minekin_core.adapters.evidence.bundle import unseal_bundle, write_bundle
 from minekin_core.adapters.evidence.promotion import load_case_registry
-from minekin_core.cli.evidence import bundle_directory, repository_bundle_directory
+from minekin_core.cli.evidence import (
+    attempt_registry_path,
+    bundle_directory,
+    repository_bundle_directory,
+)
 from minekin_core.cli.init import run_root
 from minekin_core.domain.cases import (
     REQUIRED_CASES,
@@ -32,6 +39,7 @@ from minekin_core.domain.cases import (
     RequiredCase,
     ValidationClass,
 )
+from minekin_core.domain.errors import MinekinError
 from minekin_core.domain.evidence import Assertions, EvidenceManifest, EvidenceResult
 from minekin_core.domain.ids import KinId
 
@@ -179,6 +187,24 @@ def seal(
     )
 
 
+def seal_sequenced(
+    data_root: Path,
+    run_id: str,
+    *,
+    result: EvidenceResult = EvidenceResult.PASS,
+) -> Path:
+    attempt = reserve_attempt(attempt_registry_path(data_root), case_id=CASE_ID, run_id=run_id)
+    manifest = replace(
+        manifest_for(CASE_ID, result=result, run_id=run_id),
+        attempt_sequence=attempt.sequence,
+        supersedes_run_id=attempt.supersedes_run_id,
+    )
+    directory = bundle_directory(run_root(data_root, KIN), run_id)
+    write_bundle(directory, manifest, {"server/server.log": b"Kin joined\n"})
+    mark_sealed(attempt_registry_path(data_root), attempt)
+    return directory
+
+
 def test_a_verified_pass_is_what_promotes_a_work_package(tmp_path: Path) -> None:
     seal(tmp_path, RUN_ID)
 
@@ -188,6 +214,115 @@ def test_a_verified_pass_is_what_promotes_a_work_package(tmp_path: Path) -> None
     assert document["work_packages"]["W40"]["promotable"] is True
     assert document["work_packages"]["W40"]["blocking_cases"] == []
     assert document["gated"] == "W40"
+
+
+def test_newer_sequenced_fail_blocks_older_sequenced_pass(tmp_path: Path) -> None:
+    seal_sequenced(tmp_path, RUN_ID)
+    seal_sequenced(tmp_path, "6c1f9a7b2d3e4f6089abcdef01234567", result=EvidenceResult.FAIL)
+
+    document = cast(dict[str, Any], bundle_report(CASE_ID, data_root=tmp_path, gated="W40"))
+
+    assert document["status"] == "blocked"
+    assert document["work_packages"]["W40"]["blocking_cases"] == [CASE_ID]
+    assert "EVIDENCE_IS_NOT_A_PASS" in document["work_packages"]["W40"]["blocks"]
+
+
+def test_latest_sequenced_pass_promotes_after_older_failure(tmp_path: Path) -> None:
+    seal_sequenced(tmp_path, RUN_ID, result=EvidenceResult.FAIL)
+    seal_sequenced(tmp_path, "ac1f9a7b2d3e4f6089abcdef01234567")
+
+    document = cast(dict[str, Any], bundle_report(CASE_ID, data_root=tmp_path, gated="W40"))
+
+    assert document["status"] == "promotable"
+    assert document["work_packages"]["W40"]["blocking_cases"] == []
+
+
+def test_pending_attempt_blocks_legacy_pass_instead_of_falling_back(tmp_path: Path) -> None:
+    seal(tmp_path, RUN_ID)
+    reserve_attempt(
+        attempt_registry_path(tmp_path),
+        case_id=CASE_ID,
+        run_id="7c1f9a7b2d3e4f6089abcdef01234567",
+    )
+
+    document = cast(dict[str, Any], bundle_report(CASE_ID, data_root=tmp_path, gated="W40"))
+
+    assert document["status"] == "blocked"
+    assert document["work_packages"]["W40"]["blocking_cases"] == [CASE_ID]
+
+
+def test_corrupt_latest_bundle_blocks_older_pass(tmp_path: Path) -> None:
+    seal_sequenced(tmp_path, RUN_ID)
+    latest = seal_sequenced(tmp_path, "8c1f9a7b2d3e4f6089abcdef01234567")
+    unseal_bundle(latest)
+    (latest / "manifest.json").write_text("not json", encoding="utf-8")
+
+    document = cast(dict[str, Any], bundle_report(CASE_ID, data_root=tmp_path, gated="W40"))
+
+    assert document["status"] == "blocked"
+    assert document["work_packages"]["W40"]["blocking_cases"] == [CASE_ID]
+
+
+def test_missing_latest_bundle_blocks_older_pass(tmp_path: Path) -> None:
+    seal_sequenced(tmp_path, RUN_ID)
+    latest = seal_sequenced(tmp_path, "ed1f9a7b2d3e4f6089abcdef01234567")
+    latest.rename(tmp_path / "missing-latest")
+
+    document = cast(dict[str, Any], bundle_report(CASE_ID, data_root=tmp_path, gated="W40"))
+
+    assert document["status"] == "blocked"
+    assert document["work_packages"]["W40"]["blocking_cases"] == [CASE_ID]
+
+
+def test_unverified_latest_attempt_blocks_older_pass(tmp_path: Path) -> None:
+    seal_sequenced(tmp_path, RUN_ID)
+    latest = seal_sequenced(tmp_path, "9c1f9a7b2d3e4f6089abcdef01234567")
+    unseal_bundle(latest)
+    (latest / "server" / "server.log").write_text("tampered\n", encoding="utf-8")
+
+    document = cast(dict[str, Any], bundle_report(CASE_ID, data_root=tmp_path, gated="W40"))
+
+    assert document["status"] == "blocked"
+    assert "EVIDENCE_NOT_VERIFIED" in document["work_packages"]["W40"]["blocks"]
+
+
+def test_corrupt_registry_chain_fails_closed(tmp_path: Path) -> None:
+    seal_sequenced(tmp_path, RUN_ID)
+    database = attempt_registry_path(tmp_path)
+    with sqlite3.connect(database) as connection:
+        connection.execute("UPDATE attempts SET supersedes_run_id = 'forged'")
+
+    with pytest.raises(MinekinError, match="supersession chain is corrupt"):
+        bundle_report(CASE_ID, data_root=tmp_path, gated="W40")
+
+
+def test_bundle_registry_supersession_mismatch_fails_closed(tmp_path: Path) -> None:
+    seal_sequenced(tmp_path, RUN_ID)
+    latest = seal_sequenced(tmp_path, "bc1f9a7b2d3e4f6089abcdef01234567")
+    unseal_bundle(latest)
+    manifest_path = latest / "manifest.json"
+    document = json.loads(manifest_path.read_bytes())
+    document["attempt"]["supersedes_run_id"] = "forged-run"
+    payload = json.dumps(
+        document, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+    ).encode()
+    manifest_path.write_bytes(payload)
+    (latest / "bundle.sha256").write_text(hashlib.sha256(payload).hexdigest() + "\n")
+
+    with pytest.raises(PROMOTION.Unusable, match="disagrees with the attempt registry"):
+        bundle_report(CASE_ID, data_root=tmp_path, gated="W40")
+
+
+def test_sequenced_bundle_without_its_registry_is_unusable(tmp_path: Path) -> None:
+    directory = bundle_directory(run_root(tmp_path, KIN), RUN_ID)
+    write_bundle(
+        directory,
+        replace(manifest_for(CASE_ID), attempt_sequence=1),
+        {"server/server.log": b"Kin joined\n"},
+    )
+
+    with pytest.raises(PROMOTION.Unusable, match="without its attempt registry"):
+        bundle_report(CASE_ID, data_root=tmp_path, gated="W40")
 
 
 def test_the_default_gate_is_every_gate_and_it_names_what_is_missing(tmp_path: Path) -> None:
@@ -354,6 +489,17 @@ def test_a_bundle_that_cannot_be_read_is_named(tmp_path: Path) -> None:
     assert document["status"] == "blocked"
     assert len(document["evidence"]["unreadable"]) == 1
     assert document["evidence"]["unreadable"][0].startswith(f"{RUN_ID}: ")
+
+
+def test_unreadable_bundle_without_registry_cannot_hide_after_legacy_pass(tmp_path: Path) -> None:
+    seal(tmp_path, RUN_ID)
+    unreadable = bundle_directory(run_root(tmp_path, KIN), "dc1f9a7b2d3e4f6089abcdef01234567")
+    unreadable.mkdir(parents=True)
+    (unreadable / "manifest.json").write_text("not json", encoding="utf-8")
+    (unreadable / "bundle.sha256").write_text("0" * 64, encoding="ascii")
+
+    with pytest.raises(PROMOTION.Unusable, match="cannot establish whether unreadable evidence"):
+        bundle_report(CASE_ID, data_root=tmp_path, gated="W40")
 
 
 def test_a_directory_that_is_not_a_bundle_is_not_evidence(tmp_path: Path) -> None:

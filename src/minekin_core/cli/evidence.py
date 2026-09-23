@@ -37,6 +37,7 @@ EVIDENCE_DIRECTORY = "evidence"
 #: putting it under a Kin would mean naming one, and which Kin a repository check
 #: belongs to is not a question that has an answer.
 REPO_EVIDENCE_DIRECTORY = "repo-evidence"
+ATTEMPT_REGISTRY_NAME = "evidence-attempts.sqlite3"
 
 
 def _reject(message: str) -> MinekinError:
@@ -61,6 +62,12 @@ def repository_root(root: Path) -> Path:
     """Where the repository's own checks seal their evidence."""
 
     return root / REPO_EVIDENCE_DIRECTORY
+
+
+def attempt_registry_path(root: Path) -> Path:
+    """One sequence registry shared by Kin and repository evidence roots."""
+
+    return root / ATTEMPT_REGISTRY_NAME
 
 
 def repository_bundle_directory(root: Path, run_id: str) -> Path:

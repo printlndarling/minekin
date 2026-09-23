@@ -8,6 +8,7 @@ from collections.abc import Iterable, Mapping
 from pathlib import Path, PurePosixPath
 from typing import cast
 
+from minekin_core.adapters.evidence.attempt_registry import Attempt, read_attempts
 from minekin_core.adapters.evidence.bundle import BundleVerification, verify_addressed_bundle
 from minekin_core.domain.cases import (
     CaseEvidence,
@@ -148,9 +149,56 @@ def case_evidence(
                 verified=verification.verified,
                 passed=manifest.result is EvidenceResult.PASS,
                 re_judged=outcomes.get(run_id, ReJudge.NOT_ATTEMPTED),
+                run_id=run_id,
+                attempt_sequence=manifest.attempt_sequence,
+                supersedes_run_id=manifest.supersedes_run_id,
             )
         )
     return tuple(collected)
+
+
+def latest_attempt_evidence(
+    claims: Iterable[CaseEvidence], attempts: Iterable[Attempt]
+) -> tuple[CaseEvidence, ...]:
+    """Replace legacy any-pass evidence with each case's latest indexed attempt."""
+
+    all_claims = tuple(claims)
+    grouped: dict[str, list[Attempt]] = {}
+    for attempt in attempts:
+        grouped.setdefault(attempt.case_id, []).append(attempt)
+    if not grouped:
+        return all_claims
+    legacy = [
+        claim
+        for claim in all_claims
+        if claim.case_id not in grouped and claim.attempt_sequence is None
+    ]
+    claims_by_run = {claim.run_id: claim for claim in all_claims}
+    selected: list[CaseEvidence] = []
+    for case_id, items in grouped.items():
+        latest = max(items, key=lambda item: item.sequence)
+        claim = claims_by_run.get(latest.run_id)
+        if (
+            latest.status != "SEALED"
+            or claim is None
+            or claim.attempt_sequence != latest.sequence
+            or claim.supersedes_run_id != latest.supersedes_run_id
+        ):
+            selected.append(
+                CaseEvidence(
+                    case_id=case_id,
+                    case_version="",
+                    verified=False,
+                    passed=False,
+                    re_judged=ReJudge.NOT_ATTEMPTED,
+                    run_id=latest.run_id,
+                    attempt_sequence=latest.sequence,
+                    supersedes_run_id=latest.supersedes_run_id,
+                )
+            )
+        else:
+            selected.append(claim)
+    return tuple([*legacy, *selected])
 
 
 def evaluate_case_promotion(
@@ -158,6 +206,7 @@ def evaluate_case_promotion(
     bundle_directories: Iterable[Path],
     *,
     work_package: str,
+    attempt_registry: Path | None = None,
 ) -> PromotionVerdict:
     """The promotion check: verified bundles against one gate's required cases.
 
@@ -179,9 +228,27 @@ def evaluate_case_promotion(
                 "promotion cannot choose between them"
             )
         verifications[directory.name] = verify_addressed_bundle(directory)
+    attempts = read_attempts(attempt_registry) if attempt_registry is not None else ()
+    attempt_by_run = {attempt.run_id: attempt for attempt in attempts}
+    for run_id, verification in verifications.items():
+        manifest = verification.manifest
+        if manifest is None or manifest.attempt_sequence is None:
+            continue
+        attempt = attempt_by_run.get(run_id)
+        if (
+            attempt_registry is None
+            or attempt is None
+            or (
+                attempt.case_id != manifest.case_id
+                or attempt.sequence != manifest.attempt_sequence
+                or attempt.supersedes_run_id != manifest.supersedes_run_id
+            )
+        ):
+            raise _reject(f"bundle {run_id} has no matching durable attempt registry entry")
+    claims = latest_attempt_evidence(case_evidence(verifications), attempts)
     try:
         cases = registry.required_cases(work_package)
         requirement = registry.requirement(work_package)
     except ValueError as error:
         raise _reject(str(error)) from error
-    return evaluate_promotion(cases, case_evidence(verifications), requirement=requirement)
+    return evaluate_promotion(cases, claims, requirement=requirement)

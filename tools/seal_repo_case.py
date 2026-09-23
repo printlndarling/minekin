@@ -29,16 +29,17 @@ import json
 import os
 import sys
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import cast
 
+from minekin_core.adapters.evidence.attempt_registry import mark_sealed, reserve_attempt
 from minekin_core.adapters.evidence.bundle import write_bundle
 from minekin_core.adapters.evidence.promotion import load_case_manifest
 from minekin_core.adapters.launcher.launch_plan import build_launch_plan, find_workspace_root
 from minekin_core.adapters.launcher.recipe import BRIDGE_JAR_SHA256
-from minekin_core.cli.evidence import repository_bundle_directory
+from minekin_core.cli.evidence import attempt_registry_path, repository_bundle_directory
 from minekin_core.domain.evidence import (
     EMPTY_DOCUMENT_SHA256,
     NO_WORLD,
@@ -242,7 +243,16 @@ def seal(
         orchestrator=orchestrator_trace(verdict=verdict, now=moment),
     )
     directory = repository_bundle_directory(data_root, verdict.run_id)
+    attempt = reserve_attempt(
+        attempt_registry_path(data_root), case_id=manifest.case_id, run_id=verdict.run_id
+    )
+    manifest = replace(
+        manifest,
+        attempt_sequence=attempt.sequence,
+        supersedes_run_id=attempt.supersedes_run_id,
+    )
     sealed = write_bundle(directory, manifest, artifacts, secrets=secrets)
+    mark_sealed(attempt_registry_path(data_root), attempt)
     return {
         "schema_version": 1,
         "command": "seal repo case evidence",
@@ -250,6 +260,7 @@ def seal(
         "run_id": verdict.run_id,
         "case_id": manifest.case_id,
         "case_version": manifest.case_version,
+        "attempt_sequence": attempt.sequence,
         "result": manifest.result.value,
         "evidence_directory": str(sealed.directory),
         "bundle_digest": sealed.bundle_digest,
