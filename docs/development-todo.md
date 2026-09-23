@@ -1306,9 +1306,59 @@
   `c3b7d7a3fa684c279627f394613adadb` 在 offline-mode 下达到 PLAYABLE 并接纳
   首快照。两条都先写策略事件；诊断 run 尚非 ADMIT-040 的正式封证。
 
-- [ ] **ADMIT-040-CASE-001（当前唯一 NEXT）**：按专项契约封存同一 run 的
-  服务端配置、Profile、冻结策略、拒绝分类与未入服事实，编写可复判断言及
-  反例测试；使用本地受控运行产出正式 `ADMIT-040` bundle，不借 CI 额度。
+- [x] **ADMIT-040-CASE-001（commit `0f9a3fd` 已推送）**：按专项契约把同一 run 的五项
+  事实封成可复判的正式用例。判官（`tools/assert_case_evidence.py`）新增
+  `the_server_this_run_met_required_online_authentication`、
+  `the_offline_auth_policy_was_frozen_before_the_client_started`、
+  `the_frozen_policy_names_the_profile_this_run_dialled`、
+  `the_auth_mode_mismatch_was_classified_in_the_ledger`、
+  `the_refusal_left_the_run_on_one_policy_and_one_process`，与既有
+  `no_world_was_joined` 一起登记为 `ADMIT-040`（W40，`mandatory: false`）；
+  封存端读一次经验证的 Server Profile 并把**同一段字节**封为
+  `trusted/server-profile.json`，与服务端自己写的 `server.properties` 交叉核对
+  （`online-mode` / `server-port` / `motd` 点名该 Profile）。账本顺序只认 `position`，
+  不认 mtime 或行数。反例逐个 FAIL：服务端实际离线、没写 online-mode、端口或 motd
+  不指向这份 Profile、缺/双份/晚于进程启动的策略事件、归属不是 CORE/CORE、
+  `auth_mode` 非 offline、在线适配器没记为禁用、profile id 或 revision 与封存件不同、
+  revision 不是摘要、缺分类行、分类行是 Core 自报而非 Bridge 过滤、拒绝后又多一条
+  策略或第二次启动、以及准入快照或 `PLAYABLE` 冒充本用例。产品拒收的 Profile 让封存
+  直接停（`Unsealable`），改写过的判决让晋级拒绝。runner 在这个场景等的是 ledger 里
+  那条分类，不是 `PLAYABLE`。
+  - **当前 build 的真实受控运行**（kin-01，服务端 `online-mode=true`，离线身份）：
+    run `6b5856d57dee4052b2ffba3ff9e3459e`、session `fc6fa5cd564b4864b0ee8bcf158aabf4`，
+    `attempt_sequence: 1`，bundle digest
+    `46565ef26d78106215d996f64870b95bb9a3fb97d653f3d1e7cf0e9c9ef2e736`，
+    case version `ec49f61caf2d351969f8ebc61718fa8c64a6af86eb3f238101b06b3bed56c73b`，
+    verdict `PASS`（6/6 observed、`failures: []`、12 件工件）。运行文档读数
+    `connection_state: FAILED`、`snapshots_admitted: 0`、`entities_admitted: 0`、
+    `actions_applied: 0`、`world_snapshot: null`；退出码 14 仍是 harness 终止客户端的
+    既有 teardown，不作为判决依据。三份独立读数：`minekin evidence verify` →
+    `verified: true, sealed: true, artifacts: 12, violations: []`；
+    `tools/rejudge_evidence.py` → `status: agrees`（result/expected/observed/failures
+    逐项与封存记录相同）；`minekin replay` 与 `tools/replay_evidence.py` 同一 bundle →
+    14 条事件投影到 `STOPPED`（`last_event_position: 13`）。
+    `tools/report_promotion.py --data-root /data` 里这份是
+    `verified/sealed/PASS/re_judged: AGREES/from_repository_build: true/attempt 1`，
+    `launch_plan_digest` 与当前 build 的 `plan_sha256` 相同、`bridge_digest` 与配方 pin
+    相同；整体仍 `blocked`，W40 的阻塞项只剩其余 required case 与 `CORE-020` 的旧
+    case version，**没有** `EVIDENCE_DISAGREES_WITH_ITS_BYTES`。
+  - **正向回归（入服路径没退化）**：同镜像同 build 的 `ADMIT-001` 真实运行
+    `68b232492bc1474fba1816705164a4d3` 达到 `PLAYABLE`、首快照准入 1 次，同样封出
+    12 件工件（含 `trusted/server-profile.json`），verdict `PASS`、bundle
+    `26da2ed17c3d4c5c5295c4642136c65d437213059f5dddd22874428685625abb`、
+    `re_judged: AGREES`。
+  - 读数：全量 pytest **1948 passed / 2 skipped**；case assertions 125 条注册、
+    `report_cases.py` 37 cases / 139 assertion
+    references、inventory 72 required / **37 present / 35 missing**（W40 缺 6、
+    p0-core 缺 16）；Ruff check/format、Pyright 0 errors、boundaries、fixture digests、
+    workflow pins 与 `git diff --check` 通过。未跑 CI，未把旧诊断 run 追认为 PASS。
+  - **`mandatory` 仍是 `false`**：契约的其余 ADMIT 场景未齐，这一条不点亮任何 gate。
+
+- [ ] **ADMIT-060-EVIDENCE-DESIGN-001（已登记为 `QUEUED`）**：campaign `order` 的第 2 个
+  场景（资源包拒绝）。缺的不是运行而是判据——「未授权时不 PLAYABLE」有材料，
+  「不由聊天同意」在现有 sealed 运行材料里没有任何承载事实，`no_lease_was_granted`
+  说的是「没授 lease」，不是那句的同义词。harness 那半边已具备
+  （`MINEKIN_DOMAIN_RESOURCE_PACK=1`）。
 
 - [x] **ADMIT-040-CLASSIFICATION-001（已完成，commit `dd992b1` 已推送）**：`REAL-P0-CAMPAIGN-001`
   首个受控诊断运行 `fdef1d7192dd480db6aed1c5e7e493dd` 中，离线身份遇到原版

@@ -378,10 +378,13 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 ### REAL-P0-CAMPAIGN-001 — 批量关闭真实运行缺口
 
 - `status`: `BLOCKED_EVIDENCE`
-- `blocked_by`: `ADMIT-040-EVIDENCE-DESIGN-001`。首场景已有真实分类结果，
-  但 `ADMIT-040` 缺正式 fixture，且契约的“不自动启用账号适配器”在现有 sealed
-  run material 中没有直接可验证事实。`SessionProcessStarted` 只有一条是“没重启”
-  的代理，不能证明同一进程没有切换认证方式；按本卡步骤 2 停在判据设计。
+- `blocked_by`: `ADMIT-060-EVIDENCE-DESIGN-001`。`order` 的第 1 个场景（在线认证拒绝）
+  已由 `ADMIT-040-CASE-001` 正式封证并在当前 build 上 verify/rejudge/replay/promotion
+  四读一致；第 2 个场景（资源包拒绝）缺的不是运行而是判据——「不由聊天同意」在现有
+  sealed 材料里没有承载事实，按本卡步骤 2 停在判据设计，不把 `no_lease_was_granted`
+  当作它的替代。
+- `scenario_progress`: 1/7 场景已封为正式 case（`ADMIT-040`，run
+  `6b5856d57dee4052b2ffba3ff9e3459e`，bundle `46565ef2…`，attempt 1，PASS/AGREES）。
 - `regression_history`: `ADMIT-040-CLASSIFICATION-001` 曾阻断首场景；受控 Docker 诊断运行
   `fdef1d7192dd480db6aed1c5e7e493dd` 在离线身份连接 `online-mode=true`
   原版服务器时，客户端日志出现 `Failed to log in: Invalid session (Try restarting your game and the launcher)`，
@@ -407,10 +410,11 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
   4. 每完成一个场景立即登记 run ID、attempt sequence、bundle digest、case verdict、
      promotion 变化与失败原因，再进入下一个场景；只在 required inventory 和 promotion
      均满足 acceptance 后将 campaign 标为 DONE。
-- `current_inventory_snapshot` (2026-09-23): `report_cases.py` reports 72 required,
-  36 present and 36 missing; W00/W10/W20/W60/W70 are satisfied, W30 misses 8, W40
-  misses 7, W50 misses 2, host-integrated misses 18, and p0-core misses 17 (overlap
-  across gates is intentional). The remaining missing requirements are
+- `current_inventory_snapshot` (2026-09-23，`ADMIT-040` 登记之后重推)：`report_cases.py`
+  reports 72 required, 37 present and 35 missing over 37 cases / 139 assertion
+  references (125 registered implementations); W00/W10/W20/W60/W70 are satisfied, W30
+  misses 8, W40 misses 6, W50 misses 2, host-integrated misses 18, and p0-core misses 16
+  (overlap across gates is intentional). The remaining missing requirements are
   `runtime-required`; PERSIST case IDs remain explicitly unfrozen. Do not infer that
   this campaign can close HOST or PERSIST while their separate design decisions remain
   blocked.
@@ -509,7 +513,7 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 
 ### ADMIT-040-CASE-001 — 封存并复判在线认证拒绝用例
 
-- `status`: `NEXT`
+- `status`: `DONE`
 - `baseline_sha`: `0d7b41e9e7c92400f8bcae303e1c2f2f755a739f`
 - `promotion_reason`: 产品可信策略事件已在负/正两条真实运行中核对并推送；
   当前 campaign 的下一阻断项是把同 run 交叉证据封成可复判的正式 case。
@@ -539,6 +543,77 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 - `commit_intent`: `feat(evidence): seal ADMIT-040 auth mismatch case`
 - `stop_conditions`: 如果 sealed 材料不足以区分上述反例，停止在判据/材料层，
   不用空值或日志字串猜一个 PASS。
+- `completion_commit`: `0f9a3fdc49de02ab7ab6da1f7a0132633bad5b26`（判官、封存端、
+  fixture 与用例本体），已推送到 `origin/codex/core-state-transition`；本文档的
+  状态提交与其后的提升提交一起 fast-forward `origin/main`。
+- `completion_evidence`: 判官新增五条同 run 交叉断言并在 `check_case_assertions.py`
+  注册（125 条）；封存端读一次经验证 Server Profile 并把原样字节封为
+  `trusted/server-profile.json`，与服务端自己写的 `server.properties` 同 bundle 核对。
+  反例覆盖：服务端实际离线/没写 online-mode、端口与 motd 不指向该 Profile、缺/双份/
+  晚于进程启动的策略事件、非 CORE 归属、`auth_mode` 非 offline、在线适配器未记为禁用、
+  profile id/revision 不同或缺摘要、缺分类行、分类归属错、拒绝后再启动、准入快照或
+  `PLAYABLE` 冒充本用例，逐条 FAIL（`tests/unit/test_case_evidence_assertions.py`）；
+  产品拒收的 Profile 与伪造判决分别由 `test_seal_run_evidence.py` 与 runner 契约钉住。
+  **当前 build 的真实受控运行**（kin-01、`online-mode=true`、离线身份）：
+  run `6b5856d57dee4052b2ffba3ff9e3459e` / session `fc6fa5cd564b4864b0ee8bcf158aabf4`，
+  runner 在 ledger 上等 `AUTH_MODE_MISMATCH` 分类而非 `PLAYABLE`
+  （`domain: the session recorded the expected auth mismatch`），随后 `seal` 报
+  `result: PASS`、`failures: []`、12 件工件、`attempt_sequence: 1`、
+  bundle digest `46565ef26d78106215d996f64870b95bb9a3fb97d653f3d1e7cf0e9c9ef2e736`、
+  case version `ec49f61caf2d351969f8ebc61718fa8c64a6af86eb3f238101b06b3bed56c73b`；
+  该 run 的文档读数是 `connection_state: FAILED`、`snapshots_admitted: 0`、
+  `entities_admitted: 0`、`actions_applied: 0`、`world_snapshot: null`，退出码 14
+  仍只是 harness 终止客户端的既有结果。三份独立读数：`minekin evidence verify`
+  → `verified: true, sealed: true, artifacts: 12, violations: []`；
+  `tools/rejudge_evidence.py` → `status: agrees`（expected/observed/failures/result
+  逐项与封存记录相同）；`minekin replay` 与 `tools/replay_evidence.py` → 同一 bundle
+  的 14 条事件投影为 `STOPPED`（`last_event_position: 13`，
+  trace sha256 `05289911d17d822bb24554aae082b0a844569957410bf95e9312921b81c538dd`）。
+  `tools/report_promotion.py --data-root /data` 里这份 bundle 是
+  `verified: true, sealed: true, re_judged: AGREES, result: PASS, attempt_sequence: 1,
+  from_repository_build: true`，其 `launch_plan_digest` 等于当前 build 的
+  `repository_build.plan_sha256`（`7d494810…`）、`bridge_digest` 等于配方 pin 的
+  `9a30cdb7…`；整体仍是 `blocked`，W40 的阻塞项只有其余 6 条未登记的 required case 与
+  `CORE-020` 的旧 case version，**没有** `EVIDENCE_DISAGREES_WITH_ITS_BYTES`。
+  正向回归：同镜像同 build 的 `ADMIT-001` 真实运行 `68b232492bc1474fba1816705164a4d3`
+  达到 `PLAYABLE`、首快照准入 1 次，并同样封出 12 件工件（含
+  `trusted/server-profile.json`）、verdict `PASS`、bundle digest
+  `26da2ed17c3d4c5c5295c4642136c65d437213059f5dddd22874428685625abb`、
+  `re_judged: AGREES`——新的封存步骤没有让入服路径退化。
+  本地全量门禁：pytest 1948 passed / 2 skipped，Ruff check/format、Pyright 0 errors、
+  boundaries、case assertions（125 条注册）、fixture digests、workflow pins 与
+  `git diff --check` 通过。未跑 CI。`ADMIT-040` 的
+  `mandatory` 仍为 `false`：契约那一层的其余 ADMIT 场景未齐，这一条不点亮任何 gate。
+- `next_after_done`: `ADMIT-060-EVIDENCE-DESIGN-001`（campaign `order` 的第 2 个场景）。
+
+### ADMIT-060-EVIDENCE-DESIGN-001 — 冻结资源包拒绝场景的完整判据
+
+- `status`: `QUEUED`
+- `depends_on`: `REAL-P0-CAMPAIGN-001` 的 `order` 第 2 项，以及已 DONE 的
+  `ADMIT-040-CASE-001`（首场景的判据与封存形状在此复用）。
+- `why_now`: campaign 首场景现已正式封证。下一项按 `order` 是资源包拒绝
+  （`ADMIT-060`），而本文「剩下八条 ADMIT」一节量过它的缺法：**判据只写了一半**。
+  「未授权时不 PLAYABLE」有运行材料；「不由聊天同意」在现有 sealed 材料里
+  **没有任何承载事实**——`no_lease_was_granted` 说的是「没授 lease」，与
+  「授权不是从聊天应答里来的」不是同一句话。harness 那半边已具备
+  （`MINEKIN_DOMAIN_RESOURCE_PACK=1`、服务端自造并自发包）。
+- `question`: 这一条要证明的两件事各自的**可信来源**是什么，第二件是否需要一个
+  最小观测点（客户端对资源包请求的应答及其来源），以及该观测点属产品账本事实
+  还是测试域运行材料。
+- `allowed_paths`:
+  - `docs/p0-remote-admission-contract.md`
+  - `docs/development-execution-plan.md`
+  - `docs/development-todo.md`
+- `forbidden_paths`: 产品代码、测试域判官、case fixtures/registry、runner、proto、CI。
+- `non_goals`: 本卡不封 evidence、不改资源包语义、不声称 `ADMIT-060` PASS，
+  不把「没进世界」或「没授 lease」当作「不是由聊天同意」的替代证据。
+- `acceptance`: 文档把两件事分别写成可观测事实，给每一项指定可信来源、sealed
+  artifact、可复判断言与至少一个能揭露假阳性的反例；若某一项现有材料不可证，
+  写明需要增加的最小产品/测试域观测点，并生成下一张有精确范围的实现卡。
+- `validation_class`: `LOCAL`
+- `commit_intent`: `docs(admission): freeze resource pack refusal evidence criteria`
+- `stop_conditions`: 如果「授权来源」无法在不泄露资源包内容、不引入在线准入路径的
+  前提下归属于同一 run，停在设计缺口并记录，不做容易误报 PASS 的 fixture。
 
 ### ADMIT-040-CLASSIFICATION-001 — 识别原版在线认证拒绝的真实文案
 
@@ -708,7 +783,7 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 
 这张表是规划输入，不是 required-case inventory 的实现；`PLAN-COVERAGE-001`
 完成后以机器报告为准。**当前实现候选**的 `tools/report_cases.py` 的
-`requirements` 段与下表逐族一致（同为 36 条缺失），但由机器读出、按 gate 组织，
+`requirements` 段与下表逐族一致（同为 35 条缺失），但由机器读出、按 gate 组织，
 并额外区分每条要求的是 `local-only` 还是 `runtime-required`。**这张表没有那种区分，
 而它曾经因此把人带偏**：表里 `HOSTCTL` 行的 `060` 与其余各行看不出差别，机器读数里
 它是唯一一条 `local-only`——也就是唯一一条不需要真实运行就能补上的。**要看某一族
@@ -717,7 +792,7 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 | 族 | 当前 contract 要求但 fixture 缺失 |
 | --- | --- |
 | CORE | 080 |
-| ADMIT | 010, 020, 030, 040, 050, 060, 090, 120 |
+| ADMIT | 010, 020, 030, 050, 060, 090, 120 |
 | OFFLINE | 010, 020, 030, 060, 070, 080, 090, 100 |
 | HOST | 001, 090, 100 |
 | HOSTCTL | 020, 030, 040, 080, 090 |
@@ -727,6 +802,11 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 其中很多必须真实运行；“缺 fixture”不等于“可以用本地测试补成完成”。
 
 ### 剩下八条 ADMIT：逐条缺什么（2026-09-23 的读数，可重推）
+
+**2026-09-23 第二次更新：这一节写下后，`ADMIT-040` 已经按它自己的路径闭合**
+（判据设计 → 产品可信事件 → 正式 case），所以「八条」今天读作**七条**；下表那一行
+已就地更正，其余七行的缺法未变。**这一节仍有价值的地方是它把「缺断言」与「缺事实」
+分成两类**——`ADMIT-060` 现在卡的正是后一类。
 
 登记 `ADMIT-001` 时把「其余八条能不能照做」逐条查了一遍。判据来源是两处：契约
 `docs/p0-remote-admission-contract.md` 的「必须证明」列，以及本仓库**现有 42 条 `runtime`
@@ -767,7 +847,7 @@ case id 是 **any-satisfying-bundle**：读 `evaluate_promotion` 可见，第一
 | ADMIT-010 | 不扫描局域网；只连已保存 profile | 无 | **（乙）**线缆上每个 `ConnectionLifecycle` 都带 `server_profile_id`，但账本那一行只剩 `phase`/`reason`——profile 在写账本时被丢掉 |
 | ADMIT-020 | 保存原始地址与实际 endpoint；重定向仍过策略 | 无 | **（乙）**同上，且 SRV 解析结果在任何一层都没有记录 |
 | ADMIT-030 | 三类失败分类不同且无无限重试 | **部分**：`the_attempt_was_abandoned_at_its_deadline` 管「有界」（由 `ADMIT-110` 认领） | **（甲）**三个分类**都在账本的 `reason` 里**，缺的是断言——现有那条把值写死了 |
-| ADMIT-040 | 明确 AUTH_MODE_MISMATCH；不自动启用账号适配器 | **一半**：`no_world_was_joined` 能说「没进世界」 | 前半要把 `AUTH_MODE_MISMATCH` 那条分类写成断言（契约点名了这个值，属转写）；**后半没有可观测事实**——「没有悄悄换用在线账号」不是「没进世界」的同义词 |
+| ADMIT-040 | 明确 AUTH_MODE_MISMATCH；不自动启用账号适配器 | ~~一半：`no_world_was_joined` 能说「没进世界」~~ **2026-09-23 已闭合**：前半是 `the_auth_mode_mismatch_was_classified_in_the_ledger`，后半由 `AuthPolicyFrozen`（CORE/CORE，进程启动前）+ 两条「拒绝后只有一份策略、一次启动」的断言承担 | 无——见 `ADMIT-040-CASE-001` 的 `completion_evidence`。「只启动一个进程」仍然不是证据，它只是同 bundle 里的一个附带事实 |
 | ADMIT-050 | 白名单/封禁/重复名；保留原因，不误判版本或认证 | **一半但已被认领**：白名单那一对（`the_refusal_was_classified_in_the_ledger` + `the_bridge_classified_the_refusal`）**已由 `ADMIT-100` 拿着** | 封禁与重名两类各自的分类；以及「不误判成版本/认证」这条**否定**判据 |
 | ADMIT-060 | 资源包未授权时不 PLAYABLE、不由聊天同意 | **一半**：`no_lease_was_granted` 能说「没授 lease」（它现在由 `CORE-050` 认领；共用是允许的，但用它之后这一条自己的判据仍然只剩一半） | 「聊天不是授权来源」在运行材料里没有来源 |
 | ADMIT-090 | 新 generation；世界状态重验；人格不重建 | **三分之二**：`the_restart_runs_as_a_new_session`、`the_restart_reconciled_before_it_started` 都在（两者为 `CORE-090` 写的，共用是允许的） | **（乙）**账本现有的十个事件类型里**没有一个承载身份/人格**，所以「没有重建」今天无从观测 |
