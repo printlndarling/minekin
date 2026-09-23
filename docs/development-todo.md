@@ -1283,7 +1283,7 @@
     没有 sealed run material 可直接复判。一个 `SessionProcessStarted` 只能证明没重启，
     不能证明同一进程没有换认证方式。当前按 campaign 步骤 2 停在证据设计。
 
-- [ ] **ADMIT-040-EVIDENCE-DESIGN-001（当前唯一 NEXT）**：冻结第一个真实场景的完整
+- [x] **ADMIT-040-EVIDENCE-DESIGN-001（commit `103b9bc` 已推送）**：冻结第一个真实场景的完整
   判据与可信材料来源；确认何种产品/测试域观测点能证明离线策略维持到拒绝终态，
   同时不泄露 token。给后续实现卡精确范围，不凭“只尝试一次”代理宣布 PASS。
   - 设计已收敛到 Core 的不可变离线策略与 `AuthPolicyFrozen`（CORE/CORE）：
@@ -1295,6 +1295,12 @@
   - 后续两张实现卡已在执行计划排队：`AUTH-POLICY-EVENT-001` 先落产品事件与
     真实诊断，`ADMIT-040-CASE-001` 再封存 Profile/服务器配置、写判官与 fixture，
     用当前 build 跑正式 bundle。两卡均不得改在线登录语义。
+  - 文档阶段全量 pytest 1903 passed / 2 skipped，Ruff、Pyright、边界、120 条
+    断言注册、fixture 摘要与 workflow pins 均通过。未跑新 Minecraft 场景。
+
+- [ ] **AUTH-POLICY-EVENT-001（当前唯一 NEXT）**：让实际离线启动路径与
+  `AuthPolicyFrozen` 共享同一个不可变策略对象；每个 run 在进程启动前写
+  CORE/CORE 策略事件，再用受控在线拒绝与默认离线入服两种真实运行核对。
 
 - [x] **ADMIT-040-CLASSIFICATION-001（已完成，commit `dd992b1` 已推送）**：`REAL-P0-CAMPAIGN-001`
   首个受控诊断运行 `fdef1d7192dd480db6aed1c5e7e493dd` 中，离线身份遇到原版

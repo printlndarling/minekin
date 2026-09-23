@@ -12,7 +12,7 @@
 - `baseline_date`: 2026-09-22
 - `baseline_branch`: `main`
 - `baseline_remote`: `origin/main`
-- `current_next`: `ADMIT-040-EVIDENCE-DESIGN-001`
+- `current_next`: `AUTH-POLICY-EVENT-001`
 
 权威顺序：
 
@@ -420,7 +420,7 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 
 ### ADMIT-040-EVIDENCE-DESIGN-001 — 冻结离线身份遇在线认证拒绝的完整判据
 
-- `status`: `NEXT`
+- `status`: `DONE`
 - `baseline_sha`: `03132e6c1ea7978a9c35798130fce8b3531802cd`
 - `promotion_reason`: 新卡已先以 `QUEUED` 登记并推送；它是当前 campaign
   首场景不能正式封证的直接阻断项，现提升为唯一 `NEXT`。
@@ -455,10 +455,20 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
   Profile 离线、冻结事件、Bridge 过滤后的失败原因、未入服及未重绑定/重启。
   缺事件、revision 不同、服务端实际离线、额外在线策略选择或第二次启动均
   应 FAIL。旧 run 无冻结事件，不追认 PASS。细节已写入专项契约。
+- `completion_commit`: `103b9bc94b01da81f9d7c0dc6061275ba227262d`，已推送
+  到 `origin/main` 和当前分支，远端 SHA 已核对。
+- `completion_evidence`: 两份专项契约写明四项同 run 判据、可信来源、sealed
+  artifacts、不可变策略约束及五类假阳性反例；两张精确范围实现卡已排队。
+  文档阶段本地 pytest 1903 passed / 2 skipped，Ruff check/format、Pyright 0、
+  boundaries、case assertions 120、fixture digest、workflow pins 与 diff check
+  通过。没有运行 CI 或新的 Minecraft 场景，也没有把旧诊断 run 宣称 PASS。
 
 ### AUTH-POLICY-EVENT-001 — 让 P0 离线认证策略成为可信账本事实
 
-- `status`: `QUEUED`
+- `status`: `NEXT`
+- `baseline_sha`: `103b9bc94b01da81f9d7c0dc6061275ba227262d`
+- `promotion_reason`: 设计卡 DONE 且已推送，当前 campaign 首场景缺少的第一份
+  产品可信事实就是不可变认证策略事件，故提升为唯一 `NEXT`。
 - `depends_on`: `ADMIT-040-EVIDENCE-DESIGN-001`
 - `allowed_paths`:
   - `src/minekin_core/domain/auth_policy.py` (new immutable policy)
