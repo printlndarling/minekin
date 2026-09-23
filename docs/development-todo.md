@@ -1286,6 +1286,15 @@
 - [ ] **ADMIT-040-EVIDENCE-DESIGN-001（当前唯一 NEXT）**：冻结第一个真实场景的完整
   判据与可信材料来源；确认何种产品/测试域观测点能证明离线策略维持到拒绝终态，
   同时不泄露 token。给后续实现卡精确范围，不凭“只尝试一次”代理宣布 PASS。
+  - 设计已收敛到 Core 的不可变离线策略与 `AuthPolicyFrozen`（CORE/CORE）：
+    事件在连接前绑定同一 run/generation、经验证 Profile id/revision、
+    `auth_mode=offline` 和 `online_adapter_enabled=false`。P0 没有在线适配器/重绑定 API；
+    改认证方式需运行者改 profile 并另起 run。判官再以 sealed 服务端
+    `server.properties`、经验证 Profile、ledger 失败分类与未入服事实交叉核对。
+    这套判据与反例已写入 `p0-remote-admission-contract.md`，旧诊断 run 不补判。
+  - 后续两张实现卡已在执行计划排队：`AUTH-POLICY-EVENT-001` 先落产品事件与
+    真实诊断，`ADMIT-040-CASE-001` 再封存 Profile/服务器配置、写判官与 fixture，
+    用当前 build 跑正式 bundle。两卡均不得改在线登录语义。
 
 - [x] **ADMIT-040-CLASSIFICATION-001（已完成，commit `dd992b1` 已推送）**：`REAL-P0-CAMPAIGN-001`
   首个受控诊断运行 `fdef1d7192dd480db6aed1c5e7e493dd` 中，离线身份遇到原版

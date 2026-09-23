@@ -142,6 +142,43 @@ TCP connect、ConnectScreen状态文字、ping 成功、`ClientPlayNetworkHandle
 
 每个 case 归档 LaunchPlan脱敏摘要、Server Profile revision、地址解析时间线、Bridge事件、服务端 oracle时间线、首快照 schema/digest、按键/lease状态和最终分类。服务端观察信息只在 run 结束后由验收器离线交叉核对。
 
+### ADMIT-040 的可复判证据边界
+
+这条是**拒绝**场景：受控原版服自己保存的 `server.properties` 必须显示
+`online-mode=true`，Kin 的可信 Server Profile 必须仍是 `auth_mode: offline`。
+仅凭客户端连接失败、一次 `SessionProcessStarted` 或“没有进世界”都不能推断认证
+策略没被自动改动。后两项分别只说明没有重启、没有成功入服。
+
+P0 采用一次会话一份不可变认证策略的约束：Core 从经验证的 Server Profile
+构造策略（无目标的主菜单 run 使用默认离线策略），在启动该 generation 的客户端前
+记录 `AuthPolicyFrozen`，至少包含
+`auth_mode=offline`、`online_adapter_enabled=false`、profile id/revision 和
+generation；该策略对象在本 run 内不能重绑定，改变认证方式只能由运行者显式
+修改 profile 并启动新 run。当前 P0 的 profile loader 只接受 `offline`，
+在线账号适配器尚未实现；以后引入适配器必须通过同一策略边界并扩充事件，
+不能让“没有新事件”独自充当未启用的证明。无目标时 profile id/revision
+为空，`ADMIT-040` 必须要求非空。事件不含 token、用户名或认证正文。
+
+正式 `ADMIT-040` 的一份 sealed bundle 必须同时复判四项事实：
+
+1. 服务端独立的 `server/server.properties` 证明本次世界要求在线验证，且与
+   sealed Server Profile revision 对应；离线服上的普通断线不能满足此项。
+2. Core ledger 中本 run、本 generation 恰有一条早于连接的可信
+   `AuthPolicyFrozen`，值为离线且在线适配器关闭；缺事件、字段不全、profile
+   revision 不同或任何后续重绑定均失败。产品侧测试必须证明策略不能在同一
+   run 内变更，不能仅让事件自报“已冻结”。
+3. 同一 ledger 中 Bridge 过滤后的 `SessionInterrupted` 同时记录
+   `phase=FAILED` 与 `AUTH_MODE_MISMATCH`；没有 JOIN、PLAYABLE 或准入快照。
+4. 失败终态前后没有第二次认证策略选择或客户端重启；此项与第 2 项的策略
+   不可变约束一起证明未自动切换，而不是把进程数本身当作证明。
+
+Sealer 已封存服务端配置与 ledger timeline；实施时让判官从同一份材料读取，
+并补上策略事件、profile revision 的可信对照。故意把服务端改回
+`online-mode=false`、删掉策略事件、改其 revision、注入在线策略重绑定，
+或保留正确分类却启动第二个客户端，均必须使对应断言失败。旧诊断 run
+`fbb9d4787a3743afa868a804c3c586ec` 没有策略事件，只能作回归线索，
+不能追认成正式 PASS。
+
 ## 必须由 P0 实验冻结的参数
 
 - `LEGACY`候选 account type 与各 game-argument sentinel 的实际可启动组合；

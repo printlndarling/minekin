@@ -445,6 +445,75 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 - `commit_intent`: `docs(admission): freeze auth mismatch evidence criteria`
 - `stop_conditions`: 如果无法指定不泄露令牌且可归属同一 run 的认证策略观测点，
   停在设计缺口，不创建容易误报 PASS 的 fixture。
+- `design_decision` (2026-09-23): 同一 run 的可信 Core 策略对象从经验证的
+  `ServerProfile` 构建，P0 只允许 `offline`，没有在线适配器或策略重绑定 API；
+  在启动/连接之前写 `AuthPolicyFrozen`（CORE/CORE，run/session/generation，
+  `auth_mode=offline`、`online_adapter_enabled=false`、profile id/revision）。
+  这是一个由不可变策略对象执行的正向约束，不拿“没有第二个进程”单独冒充
+  未切换认证。Sealer 另封经验证的 Server Profile 与服务器自己写的
+  `server.properties`；ADMIT-040 同一 bundle 必须交叉核对服务端在线认证、
+  Profile 离线、冻结事件、Bridge 过滤后的失败原因、未入服及未重绑定/重启。
+  缺事件、revision 不同、服务端实际离线、额外在线策略选择或第二次启动均
+  应 FAIL。旧 run 无冻结事件，不追认 PASS。细节已写入专项契约。
+
+### AUTH-POLICY-EVENT-001 — 让 P0 离线认证策略成为可信账本事实
+
+- `status`: `QUEUED`
+- `depends_on`: `ADMIT-040-EVIDENCE-DESIGN-001`
+- `allowed_paths`:
+  - `src/minekin_core/domain/auth_policy.py` (new immutable policy)
+  - `src/minekin_core/adapters/sqlite/session_log.py`
+  - `src/minekin_core/cli/session.py`
+  - `tests/unit/test_session_start.py`
+  - `tests/unit/test_session_supervision.py`
+  - `tests/unit/test_session_log.py`
+  - `tests/unit/test_auth_policy.py` (new)
+  - `tests/unit/test_replay_trace.py`
+  - `docs/development-execution-plan.md`
+  - `docs/development-todo.md`
+- `forbidden_paths`: Bridge/proto、测试域判官/runner/fixture、在线账号适配器、CI。
+- `non_goals`: 不实现 Microsoft 认证，不修改受控服务器开关，不称 ADMIT-040 PASS。
+- `acceptance`: 受验证 Server Profile 生成不可变离线策略，无目标 run 取默认
+  离线策略；实际离线进程规格与账本事件必须使用同一个策略对象；同一 run 中 Core
+  在启动客户端前持久写唯一 `AuthPolicyFrozen`（CORE/CORE，profile id/revision、
+  generation、offline、adapter disabled），拒绝策略变更或在线 profile；
+  旧事件 replay 兼容，单测覆盖重复/越序与不泄露凭据；本地全量门禁通过；
+  受控在线认证负向诊断的新 run 真实 ledger 包含上述事件且仍分类
+  `AUTH_MODE_MISMATCH`，默认离线正向入服不退化。
+- `validation_class`: `LOCAL_THEN_REAL_RUN`
+- `commit_intent`: `feat(session): freeze offline auth policy in ledger`
+- `stop_conditions`: 若同一 run 的策略无法由可信 Profile 与实际启动路径共同
+  约束，停止并修正专项契约，不能只写一个自报字段。
+
+### ADMIT-040-CASE-001 — 封存并复判在线认证拒绝用例
+
+- `status`: `QUEUED`
+- `depends_on`: `AUTH-POLICY-EVENT-001`
+- `allowed_paths`:
+  - `tools/seal_run_evidence.py`
+  - `tools/assert_case_evidence.py`
+  - `tools/check_case_assertions.py`
+  - `test-orchestrator/runner/domain.sh`
+  - `tests/fixtures/cases/admit-040.json` (new)
+  - `tests/fixtures/manifest.sha256`
+  - `tests/unit/test_case_evidence_assertions.py`
+  - `tests/unit/test_seal_run_evidence.py`
+  - `tests/contract/test_runner_scripts.py`
+  - `docs/development-execution-plan.md`
+  - `docs/development-todo.md`
+- `forbidden_paths`: 产品认证/连接代码、Bridge/proto、其他 case 的判据、CI。
+- `non_goals`: 不把旧诊断 run 升格为正式证据，不以进程数替代策略不可变性，
+  不把离线身份接入 `online-mode=true` 服务器。
+- `acceptance`: case fixture 只认契约的四项事实；服务端配置与经验证 Profile
+  原样作为 sealed artifacts，判官本地及 hermetic rejudge 读同一材料；
+  反例变异（服务端实际离线、Profile/revision 不同、缺/改策略事件、在线重绑定、
+  额外启动、缺分类）逐个 FAIL；runner 在该拒绝场景等待失败事件而非 PLAYABLE；
+  当前 build 真实运行 seal 后 evidence verify、rejudge、适用 replay 与 promotion
+  一致，并记录 attempt sequence、bundle digest 和 verdict。完整本地门禁通过。
+- `validation_class`: `LOCAL_THEN_REAL_RUN`
+- `commit_intent`: `feat(evidence): seal ADMIT-040 auth mismatch case`
+- `stop_conditions`: 如果 sealed 材料不足以区分上述反例，停止在判据/材料层，
+  不用空值或日志字串猜一个 PASS。
 
 ### ADMIT-040-CLASSIFICATION-001 — 识别原版在线认证拒绝的真实文案
 
