@@ -479,6 +479,7 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
   - `tests/unit/test_session_log.py`
   - `tests/unit/test_auth_policy.py` (new)
   - `tests/unit/test_replay_trace.py`
+  - `tests/unit/test_restart_semantics.py` (existing exact event-count/order assertions affected by the new pre-spawn fact)
   - `docs/development-execution-plan.md`
   - `docs/development-todo.md`
 - `forbidden_paths`: Bridge/proto、测试域判官/runner/fixture、在线账号适配器、CI。
