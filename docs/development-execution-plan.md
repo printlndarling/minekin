@@ -427,6 +427,8 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
   - `src/minekin_core/adapters/launcher/recipe.py` (Bridge JAR SHA-256 and byte size only)
   - `tests/fixtures/runtime-input/bundle-p0-core-1.21.4.json` (Bridge artifact SHA-256,
     byte size and source tree digest only)
+  - `tests/fixtures/cases/core-001.json` (bundle recipe input digest only)
+  - `tests/fixtures/manifest.sha256` (changed fixture digest entries only)
   - `docs/development-execution-plan.md`
   - `docs/development-todo.md`
 - `forbidden_paths`: protobuf/枚举及生成物、其他分类器或 mixin、runner、
@@ -445,7 +447,9 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 - `scope_amendment` (2026-09-23): 首次 Bridge 全量 Java 门禁通过后，Python 全量
   pytest 有 140 个失败，首个 trace 为 `Bridge source tree digest differs from the
   bundle recipe`。这些测试共用受审配方；Bridge 源码变更必须重算源码/JAR pin，原卡
-  漏列了两个 pin 文件。只开放上述精确字段，不扩大认证行为或 case 判据。
+  漏列了两个 pin 文件。更新配方后，`pytest -x` 又准确显示 `CORE-001` 的配方输入
+  digest 不匹配；冻结 fixture 清单也绑定配方和 CORE-001。新增两个精确 pin 路径；
+  只开放上述字段，不扩大认证行为或 case 判据。
 
 ### HOST-ADMISSION-DESIGN-001 — 宿主世界会话坐标来源
 
