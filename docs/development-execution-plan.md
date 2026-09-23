@@ -809,6 +809,39 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
   DONE），不写这条断言、不用「只连过一次」替代；若受控运行只在超时上区分得出，
   停在 `BLOCKED_EVIDENCE` 并记录，不封一个只证明超时的 bundle。
 
+### ADMIT-070-EVIDENCE-DESIGN-001 — 冻结 JOIN 后首快照失败场景的完整判据
+
+- `status`: `QUEUED`
+- `registered`: 2026-09-24（campaign `order` 的第 3 个场景；本卡只排队，判据尚未冻结）
+- `depends_on`: `ADMIT-060-CASE-001`（「profile 冻结 + 线缆事实 + 同 run 运行材料」这一
+  封存形状在此复用）。
+- `why_now`: `order` 的前两个场景（在线认证拒绝、资源包拒绝）已各自正式封证。第三个
+  「首快照负向」在契约里点名的是 `ADMIT-070`（「JOIN 后首快照失败 ｜ 不授 lease；
+  generation 终止」），其 fixture `tests/fixtures/cases/admit-070.json`（`W50`，契约注记
+  写明五条断言）已经存在，且那句注记自己写着「JOIN 后」那一半属运行材料。缺的不是编号
+  也不是断言名字，是把那五条逐条指到**一次真实拒绝运行**的可信来源。
+- `question`: 一次「JOIN 之后、首个权威快照被拒」的运行在现有材料里说得出什么——run
+  document 已有的 `snapshot_rejections` 与 `entities_rejected`、账本的
+  `SessionInterrupted`，是否足以把「不授 lease」与「generation 终止」说成同一 run 的
+  事实；要让**首**快照真的失败，需要的是服务端工具的一个新 knob、Bridge 的一个新上报，
+  还是两者都不必（现有 `MINEKIN_DOMAIN_SILENCE` 与 probe 那两条形状够不够）；若不必，
+  这条判据与 `ADMIT-110` 的有界放弃之间怎么分界。
+- `allowed_paths`:
+  - `docs/p0-remote-admission-contract.md`
+  - `docs/development-execution-plan.md`
+  - `docs/development-todo.md`
+- `forbidden_paths`: 产品代码、测试域判官、case fixtures/registry、runner、proto、CI。
+- `non_goals`: 不封 evidence、不改快照语义、不声称 `ADMIT-070` PASS，不把「45 秒没
+  PLAYABLE」或「没进世界」当作「首快照被拒」的替代证据。
+- `acceptance`: 五条断言逐条写成可观测事实，各指定可信来源与 sealed 工件，每项至少一个
+  能揭露假阳性的反例；明确该场景是否需要新的产品观测点或 runner knob——需要则生成精确
+  范围的实现卡，不需要则写明现有材料为什么足够。
+- `validation_class`: `LOCAL`
+- `commit_intent`: `docs(admission): freeze first-snapshot refusal evidence criteria`
+- `stop_conditions`: 如果「首快照被拒」在现有运行材料里只能由超时读出（没有任何一层记下
+  被拒的那一份快照），停在 `BLOCKED_EVIDENCE` 并记录，不把 `snapshot_rejections` 那个空
+  数组读成拒绝。
+
 ### ADMIT-040-CLASSIFICATION-001 — 识别原版在线认证拒绝的真实文案
 
 - `status`: `DONE`
