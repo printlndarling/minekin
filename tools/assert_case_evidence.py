@@ -2278,12 +2278,41 @@ def the_server_saw_the_kin_arrive_and_never_move(material: RunMaterial) -> str |
     return None
 
 
+#: The escapes `Properties.load` resolves in a value. Anything else after a backslash
+#: is that character on its own, which is why `\uXXXX` reads here as `uXXXX`: a value
+#: that cannot be parsed as an address then fails the criterion rather than passing a
+#: host this file invents for it.
+_PROPERTY_ESCAPES = {"n": "\n", "t": "\t", "r": "\r", "f": "\f"}
+
+
+def _unescape_property(value: str) -> str:
+    characters: list[str] = []
+    index = 0
+    while index < len(value):
+        char = value[index]
+        index += 1
+        if char != "\\":
+            characters.append(char)
+            continue
+        if index >= len(value):
+            break
+        escaped = value[index]
+        index += 1
+        characters.append(_PROPERTY_ESCAPES.get(escaped, escaped))
+    return "".join(characters)
+
+
 def _properties_value(text: str, key: str) -> str | None:
-    """One key of a Java properties file, as the server wrote it.
+    r"""One key of a Java properties file, as the server wrote it.
 
     The server rewrites this file itself, so a key that appears twice is not a
     comment to be reasoned about — it is a file this case cannot read an answer out
     of, and the caller reports the absence it measured.
+
+    The value is returned unescaped, because that is what the server meant by it: a
+    `Properties.store` writes `http\://127.0.0.1\:37669/p.zip`, and a reader that kept
+    the backslashes would call that address neither a URL nor a loopback one — a real
+    run's demand read as no demand at all.
     """
 
     found: str | None = None
@@ -2294,7 +2323,7 @@ def _properties_value(text: str, key: str) -> str | None:
             continue
         if found is not None:
             return None
-        found = stripped[len(prefix) :].strip()
+        found = _unescape_property(stripped[len(prefix) :].strip())
     return found
 
 

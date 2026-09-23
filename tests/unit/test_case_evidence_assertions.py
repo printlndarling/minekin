@@ -4182,7 +4182,12 @@ RESOURCE_PACK_CASE = CASES / "admit-060.json"
 #: byte string. The URL and the digest below are the shapes `run_controlled_server`
 #: writes into its own `server.properties`, and vanilla refuses to start with a
 #: `resource-pack-sha1` that is not 40 hex, so this is not a shape only a fixture has.
-PACK_URL = "http://127.0.0.1:25580/p0-required-pack.zip"
+#: The value is written the way the file actually holds it — a sealed
+#: `server.properties` from a real run reads
+#: `resource-pack=http\://127.0.0.1\:37669/minekin-domain-pack.zip`, because
+#: `Properties.store` escapes the colon in a value, and a fixture that kept the plain
+#: URL would be exercising a reader no run will ever feed.
+ESCAPED_PACK_URL = r"http\://127.0.0.1\:25580/p0-required-pack.zip"
 PACK_SHA1 = "1a7b4e0f92c3d58e6b17f04a2c9d38e15b6f0a72"
 
 #: Written as the server writes it. `online-mode=false` deliberately: this scenario is
@@ -4193,7 +4198,7 @@ DEMANDING_SERVER_PROPERTIES = (
     "online-mode=false\n"
     f"server-port={PROFILE_PORT}\n"
     "require-resource-pack=true\n"
-    f"resource-pack={PACK_URL}\n"
+    f"resource-pack={ESCAPED_PACK_URL}\n"
     f"resource-pack-sha1={PACK_SHA1}\n"
 )
 
@@ -4361,7 +4366,7 @@ PACK_DEMAND_MUTATIONS: tuple[tuple[str, Mapping[str, Any], str], ...] = (
         "a required pack with nothing to fetch",
         {
             "server_properties": DEMANDING_SERVER_PROPERTIES.replace(
-                f"resource-pack={PACK_URL}\n", ""
+                f"resource-pack={ESCAPED_PACK_URL}\n", ""
             )
         },
         "the_server_this_run_required_a_resource_pack:SERVER_NAMES_NO_RESOURCE_PACK_URL",
@@ -4370,11 +4375,22 @@ PACK_DEMAND_MUTATIONS: tuple[tuple[str, Mapping[str, Any], str], ...] = (
         "a pack served from outside the only addresses P0 admits",
         {
             "server_properties": DEMANDING_SERVER_PROPERTIES.replace(
-                PACK_URL, "http://10.0.0.5/p0-required-pack.zip"
+                ESCAPED_PACK_URL, r"http\://10.0.0.5\:80/p0-required-pack.zip"
             )
         },
         "the_server_this_run_required_a_resource_pack:SERVER_RESOURCE_PACK_URL_NOT_LOOPBACK:"
-        "http://10.0.0.5/p0-required-pack.zip",
+        "http://10.0.0.5:80/p0-required-pack.zip",
+    ),
+    (
+        "a loopback address used only as the password of another host",
+        {
+            "server_properties": DEMANDING_SERVER_PROPERTIES.replace(
+                ESCAPED_PACK_URL,
+                r"http\://127.0.0.1\:25580@pack.example/p0-required-pack.zip",
+            )
+        },
+        "the_server_this_run_required_a_resource_pack:SERVER_RESOURCE_PACK_URL_NOT_LOOPBACK:"
+        "http://127.0.0.1:25580@pack.example/p0-required-pack.zip",
     ),
     (
         "a pack whose digest is not a digest, so a client cannot check it",
