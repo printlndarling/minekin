@@ -12,7 +12,7 @@
 - `baseline_date`: 2026-09-22
 - `baseline_branch`: `main`
 - `baseline_remote`: `origin/main`
-- `current_next`: `ADMIT-060-EVIDENCE-DESIGN-001`
+- `current_next`: `ADMIT-060-WIRE-POLICY-001`
 
 权威顺序：
 
@@ -378,13 +378,15 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 ### REAL-P0-CAMPAIGN-001 — 批量关闭真实运行缺口
 
 - `status`: `BLOCKED_EVIDENCE`
-- `blocked_by`: `ADMIT-060-EVIDENCE-DESIGN-001`。`order` 的第 1 个场景（在线认证拒绝）
+- `blocked_by`: `ADMIT-060-WIRE-POLICY-001`。`order` 的第 1 个场景（在线认证拒绝）
   已由 `ADMIT-040-CASE-001` 正式封证并在当前 build 上 verify/rejudge/replay/promotion
-  四读一致；第 2 个场景（资源包拒绝）缺的不是运行而是判据——「不由聊天同意」在现有
-  sealed 材料里没有承载事实，按本卡步骤 2 停在判据设计，不把 `no_lease_was_granted`
-  当作它的替代。
+  四读一致；第 2 个场景（资源包拒绝）的判据已在 `ADMIT-060-EVIDENCE-DESIGN-001` 冻结
+  （含「超时不算拒绝」与「不要求 `RESOURCE_PACK_BLOCKED`」两条边界），现在缺的是该卡
+  指名的那一份产品事实——本 generation 实际放上线缆的资源包策略——以及随后的封存。
 - `scenario_progress`: 1/7 场景已封为正式 case（`ADMIT-040`，run
   `6b5856d57dee4052b2ffba3ff9e3459e`，bundle `46565ef2…`，attempt 1，PASS/AGREES）。
+  第 2 个场景有一次只作诊断的受控运行
+  `a114949bf0204a2e8021ec5d02583b4b`（未封存，不追认 PASS）。
 - `regression_history`: `ADMIT-040-CLASSIFICATION-001` 曾阻断首场景；受控 Docker 诊断运行
   `fdef1d7192dd480db6aed1c5e7e493dd` 在离线身份连接 `online-mode=true`
   原版服务器时，客户端日志出现 `Failed to log in: Invalid session (Try restarting your game and the launcher)`，
@@ -588,7 +590,7 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 
 ### ADMIT-060-EVIDENCE-DESIGN-001 — 冻结资源包拒绝场景的完整判据
 
-- `status`: `NEXT`
+- `status`: `DONE`
 - `baseline_sha`: `d0a5d9e`（登记本卡的提交；实现判据前以此为准）
 - `promotion_reason`: 新卡已先以 `QUEUED` 登记并推送（`d0a5d9e`）。它是
   `REAL-P0-CAMPAIGN-001` 按 `order` 的下一个场景的直接阻断项，且阶段队列里
@@ -630,10 +632,24 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
   交付给原版连接路径的 `ServerInfo`（读回），不接受命令回显，否则一个忽略
   `resource_pack_policy` 的构建会产出形状相同的 bundle 并通过。四项同 run 判据、
   sealed 工件、逐一反例与「超时不算拒绝」已写入专项契约；两张精确范围实现卡排队。
+- `completion_commit`: `49466dc`（`docs(admission): freeze resource pack refusal evidence
+  criteria`），已推送到当前分支与 `origin/main`，远端 SHA 已核对。
+- `completion_evidence`: 专项契约新增「ADMIT-060 的可复判证据边界（2026-09-23 冻结）」
+  一节：四项同 run 判据各自的来源与 sealed 工件、逐条反例、「超时不算拒绝」、诊断 run
+  不追认 PASS 的处置；本文登记两张实现卡并就地更正 ADMIT-060 的缺法一行。文档阶段全量
+  本地门禁：pytest 1948 passed / 2 skipped、Ruff check/format、Pyright 0 errors、
+  boundaries、case assertions 125 条注册、fixture digests、workflow pins、
+  `git diff --check` 通过。未跑 CI，未封存 bundle，除那次诊断运行外没有新的 Minecraft
+  场景。
+- `next_after_done`: `ADMIT-060-WIRE-POLICY-001`（同一场景缺的那一份产品事实）。
 
 ### ADMIT-060-WIRE-POLICY-001 — 让本代连接实际应用的资源包策略成为可信产品事实
 
-- `status`: `QUEUED`
+- `status`: `NEXT`
+- `baseline_sha`: `49466dc`（判据冻结的提交；实现以此为准）
+- `promotion_reason`: 设计卡 DONE 且已推送，两张实现卡先以 `QUEUED` 登记。产品观测点
+  是测试域封存（`ADMIT-060-CASE-001`）的直接前置，也是 campaign 第 2 个场景缺的唯一
+  一份产品事实；阶段队列里其余未闭合卡仍需用户先拍板。
 - `depends_on`: `ADMIT-060-EVIDENCE-DESIGN-001`
 - `why_now`: 契约第 3 项判据要求「放上线缆的策略」是产品事实，而今天账本里没有任何
   一行承载它。`ConnectWorld.resource_pack_policy` 只存在于 Core→Bridge 的命令方向，

@@ -1354,7 +1354,7 @@
     workflow pins 与 `git diff --check` 通过。未跑 CI，未把旧诊断 run 追认为 PASS。
   - **`mandatory` 仍是 `false`**：契约的其余 ADMIT 场景未齐，这一条不点亮任何 gate。
 
-- [ ] **ADMIT-060-EVIDENCE-DESIGN-001（当前唯一 NEXT，先以 `QUEUED` 登记于 `d0a5d9e`）**：
+- [x] **ADMIT-060-EVIDENCE-DESIGN-001（已完成，判据内容提交 `49466dc` 已推送）**：
   campaign `order` 的第 2 个
   场景（资源包拒绝）。缺的不是运行而是判据——「未授权时不 PLAYABLE」有材料，
   「不由聊天同意」在现有 sealed 运行材料里没有任何承载事实，`no_lease_was_granted`
@@ -1394,6 +1394,16 @@
   - 排队的两张精确范围实现卡：`ADMIT-060-WIRE-POLICY-001`（产品：线缆策略事实）与
     `ADMIT-060-CASE-001`（测试域：封存 + 断言 + fixture + runner 资源包等待分支）。
   - 诊断 run 早于第 3、4 项的观测点存在，不追认为 `ADMIT-060` 的 PASS。
+  - 完成读数：文档阶段全量本地门禁 pytest **1948 passed / 2 skipped**、Ruff
+    check/format、Pyright 0 errors、boundaries、case assertions 125 条注册、fixture
+    digests、workflow pins、`git diff --check` 通过；未跑 CI、未封存 bundle。
+
+- [ ] **ADMIT-060-WIRE-POLICY-001（当前唯一 NEXT，判据冻结于 `49466dc`）**：产品侧最小
+  观测点——Bridge 把它为本 generation 实际应用到 `ServerInfo` 上的资源包策略报回 Core，
+  Core 以带 Bridge 来源的账本事实持久化（每 generation 至多一条、值不重复、payload 只有
+  策略枚举名）。停止条件写在卡里：若只能靠回显 Core 自己发出的命令得到该值，就停在设计
+  缺口，不用自报字段冒充线缆事实。本卡**不**引入 `RESOURCE_PACK_BLOCKED` 分类，也不封
+  `ADMIT-060` bundle；其后的 `ADMIT-060-CASE-001` 才做封存与断言。
 
 - [x] **ADMIT-040-CLASSIFICATION-001（已完成，commit `dd992b1` 已推送）**：`REAL-P0-CAMPAIGN-001`
   首个受控诊断运行 `fdef1d7192dd480db6aed1c5e7e493dd` 中，离线身份遇到原版
