@@ -427,6 +427,8 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
   - `bridge/src/main/java/org/minekin/bridge/mixin/LoginDisconnectMixin.java`
   - `bridge/src/main/java/org/minekin/bridge/MinekinBridgeClient.java` (login disconnect
     event wiring and client tick only)
+  - `tools/check_bridge_proto_java.py` (ClientAdmissionController compile stub
+    method signatures only)
   - `src/minekin_core/adapters/launcher/recipe.py` (Bridge JAR SHA-256 and byte size only)
   - `tests/fixtures/runtime-input/bundle-p0-core-1.21.4.json` (Bridge artifact SHA-256,
     byte size and source tree digest only)
@@ -461,6 +463,9 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
   的 packet-hook 记录。故分类器已有文案也来不及使用。开放上述两个精确 wiring
   文件，须把 Fabric login DISCONNECT 与 vanilla `onDisconnected` 的同一 handler
   关联后再报终态；旧 handler 晚到不得污染新 generation。重新构建后重算全部 pin。
+- `compile_stub_amendment` (2026-09-23): Gradle 15/15 门禁和真实 Docker 正/负
+  场景已通过；独立的 `check_bridge_proto_java.py` 因其手写 Controller API stub
+  缺少三个新方法而编译失败。只同步该 stub 的方法签名，保持独立编译门禁有效。
 
 ### HOST-ADMISSION-DESIGN-001 — 宿主世界会话坐标来源
 
