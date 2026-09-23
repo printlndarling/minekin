@@ -57,6 +57,7 @@ from minekin_core.adapters.sqlite.session_log import (
     PLAYABLE_ESTABLISHED,
     PROCESS_STARTED,
     SESSION_INTERRUPTED,
+    SESSION_STATE_TRANSITIONED,
 )
 from minekin_core.application.ports.clock import FakeClock
 from minekin_core.cli import session as session_module
@@ -70,6 +71,7 @@ from minekin_core.cli.session_runtime import SessionOutcome, SessionRun
 from minekin_core.domain.connection import ConnectionState
 from minekin_core.domain.errors import MinekinError
 from minekin_core.domain.offline_identity import OfflineIdentityMaterial
+from minekin_core.domain.replay import explicit_transitions, project_transitions
 from minekin_core.domain.session_state import SessionState
 from minekin_core.generated.minekin.v1 import (
     control_pb2,
@@ -246,6 +248,22 @@ def _ledger_rows(database: Path) -> list[tuple[str, str, str]]:
     return [(str(row[0]), str(row[1]), str(row[2])) for row in rows]
 
 
+def _ledger_transitions(database: Path) -> list[tuple[str, str]]:
+    connection = sqlite3.connect(database)
+    try:
+        rows = connection.execute(
+            "SELECT payload_json FROM event WHERE event_type = ? ORDER BY position",
+            (SESSION_STATE_TRANSITIONED,),
+        ).fetchall()
+    finally:
+        connection.close()
+    transitions: list[tuple[str, str]] = []
+    for (encoded,) in rows:
+        payload = cast(dict[str, str], json.loads(str(encoded)))
+        transitions.append((payload["from"], payload["to"]))
+    return transitions
+
+
 def test_session_start_records_what_the_run_observed(tmp_path: Path, monkeypatch: Any) -> None:
     """§7: the service that decides a transition is the one that persists it."""
 
@@ -306,12 +324,35 @@ def test_session_start_records_what_the_run_observed(tmp_path: Path, monkeypatch
     run = asyncio.run(scenario())
 
     assert run.outcome is SessionOutcome.CLIENT_EXITED
-    assert _ledger_rows(database) == [
+    rows = _ledger_rows(database)
+    assert [row for row in rows if row[0] != SESSION_STATE_TRANSITIONED] == [
         (PROCESS_STARTED, "LAUNCHER", "LAUNCHER"),
         # Core verified the proof, so acceptance is Core's own conclusion.
         (HELLO_ACCEPTED, "CORE", "CORE"),
         (CLIENT_EXITED, "CORE", "CORE"),
     ]
+    assert _ledger_transitions(database) == [
+        ("STOPPED", "PREPARING"),
+        ("PREPARING", "STARTING_CLIENT"),
+        ("STARTING_CLIENT", "WAITING_BRIDGE"),
+        ("WAITING_BRIDGE", "HANDSHAKING"),
+        ("HANDSHAKING", "READY_MENU"),
+        ("READY_MENU", "STOPPING"),
+        ("STOPPING", "STOPPED"),
+    ]
+    assert sum(row[0] == SESSION_STATE_TRANSITIONED for row in rows) == len(
+        _ledger_transitions(database)
+    )
+    connection = sqlite3.connect(database)
+    try:
+        ledger_payloads = [
+            json.loads(str(payload))
+            for (payload,) in connection.execute("SELECT payload_json FROM event ORDER BY position")
+        ]
+    finally:
+        connection.close()
+    projection = project_transitions(explicit_transitions(ledger_payloads))
+    assert projection.state is SessionState.STOPPED
 
 
 def test_a_handshake_that_never_completes_is_recorded_as_an_interruption(
@@ -342,7 +383,10 @@ def test_a_handshake_that_never_completes_is_recorded_as_an_interruption(
 
     assert run.outcome is SessionOutcome.HANDSHAKE_TIMEOUT
     rows = _ledger_rows(database)
-    assert [row[0] for row in rows] == [PROCESS_STARTED, SESSION_INTERRUPTED]
+    assert [row[0] for row in rows if row[0] != SESSION_STATE_TRANSITIONED] == [
+        PROCESS_STARTED,
+        SESSION_INTERRUPTED,
+    ]
     # No hello was ever accepted, so none may be claimed.
     assert all(row[0] != HELLO_ACCEPTED for row in rows)
 
@@ -538,7 +582,7 @@ def test_a_named_server_profile_becomes_one_connect_command(
     assert run.connection_state is ConnectionState.PLAYABLE
     assert run.outcome is SessionOutcome.CLIENT_EXITED
     rows = _ledger_rows(database)
-    assert [row[0] for row in rows] == [
+    assert [row[0] for row in rows if row[0] != SESSION_STATE_TRANSITIONED] == [
         PROCESS_STARTED,
         HELLO_ACCEPTED,
         JOIN_OBSERVED,
@@ -549,8 +593,9 @@ def test_a_named_server_profile_becomes_one_connect_command(
     # playable is Core's own conclusion from a snapshot it admitted, so it is
     # recorded as Core's. §6 says a trust class may not be self-declared, and
     # naming the Bridge as the source of Core's verdict would be exactly that.
-    assert rows[2] == (JOIN_OBSERVED, "BRIDGE", "BRIDGE_FILTERED")
-    assert rows[3] == (PLAYABLE_ESTABLISHED, "CORE", "CORE")
+    observed_rows = [row for row in rows if row[0] != SESSION_STATE_TRANSITIONED]
+    assert observed_rows[2] == (JOIN_OBSERVED, "BRIDGE", "BRIDGE_FILTERED")
+    assert observed_rows[3] == (PLAYABLE_ESTABLISHED, "CORE", "CORE")
     # These two writes come from the event reader, which the session cancels on
     # its way out — the first writes the runtime had ever made from a task that
     # gets cancelled. A writer interrupted mid-close used to strand its
@@ -728,7 +773,7 @@ def test_a_session_with_no_server_profile_is_never_told_to_connect(
     assert CONNECT_WORLD_TYPE not in seen
     assert run.connection_state is None
     assert run.events_applied == 0
-    assert [row[0] for row in _ledger_rows(database)] == [
+    assert [row[0] for row in _ledger_rows(database) if row[0] != SESSION_STATE_TRANSITIONED] == [
         PROCESS_STARTED,
         HELLO_ACCEPTED,
         CLIENT_EXITED,
@@ -886,7 +931,11 @@ def test_a_rejected_login_reaches_the_ledger_with_its_category(
                     lifecycle.SerializeToString(deterministic=True),
                 ),
             )
-        await _wait_until(lambda: any("FAILED" in row for row in _ledger_payloads(database)))
+        await _wait_until(
+            lambda: any(
+                json.loads(row).get("phase") == "FAILED" for row in _ledger_payloads(database)
+            )
+        )
         process.exited = True
         await asyncio.wait_for(running, 10)
         await close_writers(control_writer, event_writer)
@@ -894,7 +943,7 @@ def test_a_rejected_login_reaches_the_ledger_with_its_category(
     asyncio.run(scenario())
 
     payloads = _ledger_payloads(database)
-    interrupted = next(row for row in payloads if "FAILED" in row)
+    interrupted = next(row for row in payloads if json.loads(row).get("phase") == "FAILED")
     assert json.loads(interrupted) == {
         "phase": "FAILED",
         "reason": "ADMISSION_FAILURE_REASON_WHITELIST_REJECTED",

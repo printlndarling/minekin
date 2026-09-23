@@ -1,5 +1,8 @@
+import asyncio
+
 import pytest
 
+from minekin_core.cli.session_runtime import advance_session
 from minekin_core.domain.connection import CallbackDecision, CallbackDisposition, ConnectionState
 from minekin_core.domain.ids import Generation
 from minekin_core.domain.session_state import (
@@ -215,3 +218,30 @@ def test_a_closed_connection_has_no_session_state_to_imply() -> None:
 
     assert moved is None
     assert machine.state is SessionState.READY_MENU
+
+
+def test_durable_transition_append_precedes_the_in_memory_move() -> None:
+    machine = SessionStateMachine()
+    observed: list[tuple[SessionState, SessionState, SessionState]] = []
+
+    async def record(source: SessionState, target: SessionState) -> None:
+        observed.append((source, target, machine.state))
+
+    asyncio.run(advance_session(machine, SessionState.PREPARING, record))
+
+    assert observed == [(SessionState.STOPPED, SessionState.PREPARING, SessionState.STOPPED)]
+    assert machine.state is SessionState.PREPARING
+
+
+def test_illegal_transition_is_rejected_before_any_ledger_append() -> None:
+    machine = SessionStateMachine()
+    recorded: list[tuple[SessionState, SessionState]] = []
+
+    async def record(source: SessionState, target: SessionState) -> None:
+        recorded.append((source, target))
+
+    with pytest.raises(IllegalSessionTransition):
+        asyncio.run(advance_session(machine, SessionState.PLAYABLE, record))
+
+    assert recorded == []
+    assert machine.state is SessionState.STOPPED

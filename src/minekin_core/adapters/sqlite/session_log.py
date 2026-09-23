@@ -58,6 +58,7 @@ INPUT_RELEASED = "InputReleased"
 INPUT_REFUSED = "InputRefused"
 SESSION_INTERRUPTED = "SessionInterrupted"
 CLIENT_EXITED = "ClientProcessExited"
+SESSION_STATE_TRANSITIONED = "SessionStateTransitioned"
 
 SESSION_EVENT_TYPES = frozenset(
     {
@@ -71,6 +72,7 @@ SESSION_EVENT_TYPES = frozenset(
         INPUT_REFUSED,
         SESSION_INTERRUPTED,
         CLIENT_EXITED,
+        SESSION_STATE_TRANSITIONED,
     }
 )
 

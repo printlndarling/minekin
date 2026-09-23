@@ -80,13 +80,19 @@ from minekin_core.adapters.sqlite.session_log import (
     JOIN_OBSERVED,
     PLAYABLE_ESTABLISHED,
     SESSION_INTERRUPTED,
+    SESSION_STATE_TRANSITIONED,
     SessionEventLog,
     reconcile_outbox_async,
 )
 from minekin_core.adapters.system.clock import SystemClock
 from minekin_core.application.recovery_service import RecoveryReport
 from minekin_core.cli.init import DATABASE_NAME, KIN_DIRECTORY, kin_directory, run_root
-from minekin_core.cli.session_runtime import SessionOutcome, SessionRun, supervise_session
+from minekin_core.cli.session_runtime import (
+    SessionOutcome,
+    SessionRun,
+    advance_session,
+    supervise_session,
+)
 from minekin_core.domain.connection import ConnectionGenerations, ConnectionState
 from minekin_core.domain.errors import ErrorCategory, MinekinError, Retryability
 from minekin_core.domain.events import EventSource, TrustClass
@@ -924,7 +930,6 @@ async def start_and_supervise(
         target = load_server_profile(server_profile)
 
     session = SessionStateMachine()
-    session.advance(SessionState.PREPARING)
     prepared = await prepare_session_async(
         root=root,
         profile=profile,
@@ -944,6 +949,23 @@ async def start_and_supervise(
     )
     if prepared.bridge_session is None or prepared.bridge_descriptor is None:
         raise _reject("the session was prepared without a Bridge session to host")
+
+    async def record_transition(source: SessionState, target: SessionState) -> None:
+        await prepared.ledger.record_session_event(
+            event_type=SESSION_STATE_TRANSITIONED,
+            kin_id=prepared.kin_id,
+            run_id=prepared.run_id,
+            session_id=prepared.session_id,
+            generation=prepared.generation,
+            payload={"from": source.value, "to": target.value},
+            source=EventSource.CORE,
+            trust_class=TrustClass.CORE,
+        )
+
+    # Preparation must succeed before a durable session identity exists. Record
+    # the beginning of the managed lifecycle immediately after the ledger is
+    # available, then persist every later move at its validated transition seam.
+    await advance_session(session, SessionState.PREPARING, record_transition)
     # Bound to a local for the closures below: the guard above has established it,
     # and a closure reading the attribute again is a read a checker cannot narrow.
     bridge_session = prepared.bridge_session
@@ -1013,15 +1035,15 @@ async def start_and_supervise(
                 + ", so the client cannot be driven"
             )
 
-    session.advance(SessionState.STARTING_CLIENT)
+    await advance_session(session, SessionState.STARTING_CLIENT, record_transition)
     host = BridgeIpcHost(prepared.bridge_session)
     # Written before the spawn: the client reads it during its own startup, and
     # a client that finds no descriptor refuses to come up at all.
     await host.prepare(prepared.bridge_descriptor)
 
     launch = await launch_prepared_async(prepared)
-    session.advance(SessionState.WAITING_BRIDGE)
-    session.advance(SessionState.HANDSHAKING)
+    await advance_session(session, SessionState.WAITING_BRIDGE, record_transition)
+    await advance_session(session, SessionState.HANDSHAKING, record_transition)
 
     async def record(
         event_type: str,
@@ -1386,6 +1408,7 @@ async def start_and_supervise(
         on_handshake=on_handshake,
         on_ready=on_ready,
         on_connection=on_connection,
+        on_transition=record_transition,
         on_playable=on_playable,
         on_wind_down=on_wind_down,
         # Only when a hold was asked for: with no lease there is no moment, and a

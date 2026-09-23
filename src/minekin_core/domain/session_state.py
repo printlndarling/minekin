@@ -89,6 +89,17 @@ class SessionStateMachine:
     def can_advance(self, target: SessionState) -> bool:
         return can_transition(self.state, target)
 
+    def validate_advance(self, target: SessionState) -> SessionState:
+        """Validate a move before its caller persists the corresponding fact.
+
+        The returned state is the exact source that must be recorded with the
+        target. Callers that await durable I/O between validation and ``advance``
+        must still apply the move synchronously immediately after that I/O.
+        """
+
+        require_transition(self.state, target)
+        return self.state
+
     def advance(self, target: SessionState) -> SessionState:
         require_transition(self.state, target)
         previous = self.state
@@ -150,9 +161,25 @@ def advance_for_connection(
     the disagreement.
     """
 
+    target = connection_transition_target(machine, decision)
+    if target is None:
+        return None
+    return machine.advance(target)
+
+
+def connection_transition_target(
+    machine: SessionStateMachine, decision: CallbackDecision
+) -> SessionState | None:
+    """Return the validated target implied by a connection decision, if any.
+
+    This keeps the generation/disposition rules in the domain while allowing the
+    runtime to durably record the move before applying it to the mutable machine.
+    """
+
     if decision.disposition not in _DECIDES_FOR_SESSION:
         return None
     target = session_state_for_connection(decision.current_state)
     if target is None or target is machine.state:
         return None
-    return machine.advance(target)
+    machine.validate_advance(target)
+    return target

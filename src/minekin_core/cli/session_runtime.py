@@ -42,7 +42,7 @@ from minekin_core.domain.session_material import RecordedSessionMaterial
 from minekin_core.domain.session_state import (
     SessionState,
     SessionStateMachine,
-    advance_for_connection,
+    connection_transition_target,
 )
 from minekin_core.generated.minekin.v1 import control_pb2, observation_pb2
 
@@ -50,6 +50,7 @@ from minekin_core.generated.minekin.v1 import control_pb2, observation_pb2
 # stale generation is what a reconnect leaves behind and says nothing about the
 # connection the session is actually in.
 _REPORTED_DISPOSITIONS = frozenset({CallbackDisposition.ADVANCED, CallbackDisposition.FAILED})
+TransitionRecorder = Callable[[SessionState, SessionState], Awaitable[None]]
 
 
 class SessionOutcome(StrEnum):
@@ -235,6 +236,7 @@ async def supervise_session(
     on_handshake: Callable[[], Awaitable[None]] | None = None,
     on_ready: Callable[[], Awaitable[None]] | None = None,
     on_connection: Callable[[ConnectionState, str], Awaitable[None]] | None = None,
+    on_transition: TransitionRecorder | None = None,
     on_playable: Callable[[], Awaitable[None]] | None = None,
     on_wind_down: Callable[[], Awaitable[None]] | None = None,
     until_input_release: Callable[[], Awaitable[object]] | None = None,
@@ -305,12 +307,12 @@ async def supervise_session(
     try:
         failure = await _authenticate(host, handshake_timeout)
         if failure is not None:
-            _wind_down(session, failed=True)
+            await _wind_down(session, failed=True, on_transition=on_transition)
             outcome = failure
         else:
             if on_handshake is not None:
                 await on_handshake()
-            session.advance(SessionState.READY_MENU)
+            await advance_session(session, SessionState.READY_MENU, on_transition)
             # Before the reader starts, so a command that provokes an immediate
             # report cannot race the task that is supposed to read it.
             if on_ready is not None:
@@ -318,7 +320,14 @@ async def supervise_session(
 
             reader = asyncio.create_task(
                 _read_events(
-                    host, session, connections, progress, on_connection, on_playable, recorded
+                    host,
+                    session,
+                    connections,
+                    progress,
+                    on_connection,
+                    on_transition,
+                    on_playable,
+                    recorded,
                 ),
                 name="minekin-bridge-events",
             )
@@ -378,7 +387,7 @@ async def supervise_session(
                     # bug in this process and must not be folded into a network
                     # outcome, so it propagates and the CLI reports an internal
                     # invariant.
-                    _wind_down(session, failed=True)
+                    await _wind_down(session, failed=True, on_transition=on_transition)
                     outcome = SessionOutcome.BRIDGE_LOST
                 elif error is not None:
                     # A payload, state-machine, or callback failure is a Core
@@ -388,7 +397,7 @@ async def supervise_session(
                 else:
                     raise RuntimeError("Bridge event reader stopped without a terminal outcome")
             else:
-                _wind_down(session, failed=False)
+                await _wind_down(session, failed=False, on_transition=on_transition)
                 outcome = SessionOutcome.CLIENT_EXITED
     finally:
         # §13: invalidate the generation before the transport stops, so a late
@@ -442,6 +451,7 @@ async def _read_events(
     connections: ConnectionGenerations,
     progress: _Progress,
     on_connection: Callable[[ConnectionState, str], Awaitable[None]] | None,
+    on_transition: TransitionRecorder | None,
     on_playable: Callable[[], Awaitable[None]] | None,
     recorded: RecordedSessionMaterial | None,
 ) -> None:
@@ -473,7 +483,13 @@ async def _read_events(
                 # the Kin's perception rather than quietly feed it something else.
                 continue
             perceived = await _admit_first_snapshot(
-                message, session, connections, progress, on_connection, recorded
+                message,
+                session,
+                connections,
+                progress,
+                on_connection,
+                on_transition,
+                recorded,
             )
             # The class is recorded only for a snapshot the filter admitted, so the
             # document says what the Kin was actually allowed to know rather than
@@ -533,7 +549,9 @@ async def _read_events(
         decision = outcome.decision
         if decision is None:
             continue
-        advance_for_connection(session, decision)
+        target = connection_transition_target(session, decision)
+        if target is not None:
+            await advance_session(session, target, on_transition)
         if (
             on_connection is not None
             and decision.disposition in _REPORTED_DISPOSITIONS
@@ -548,6 +566,7 @@ async def _admit_first_snapshot(
     connections: ConnectionGenerations,
     progress: _Progress,
     on_connection: Callable[[ConnectionState, str], Awaitable[None]] | None,
+    on_transition: TransitionRecorder | None,
     recorded: RecordedSessionMaterial | None,
 ) -> bool:
     """Let an admitted snapshot, and not a Bridge's word, make an attempt playable.
@@ -583,7 +602,7 @@ async def _admit_first_snapshot(
     progress.applied += 1
     progress.snapshots_admitted += 1
     progress.entities_admitted += len(admission.visible_world.accepted)
-    advance_for_connection(session, decision)
+    await advance_session(session, SessionState.PLAYABLE, on_transition)
     if on_connection is not None:
         await on_connection(decision.current_state, "")
     return True
@@ -604,7 +623,12 @@ def lan_publication(lifecycle: observation_pb2.HostLifecycle) -> HostPublication
     )
 
 
-def _wind_down(session: SessionStateMachine, *, failed: bool) -> None:
+async def _wind_down(
+    session: SessionStateMachine,
+    *,
+    failed: bool,
+    on_transition: TransitionRecorder | None,
+) -> None:
     """Leave the session in §7's outlets, in the only order the table allows.
 
     A Bridge lost while the session is merely at the menu is not a failure: the
@@ -614,11 +638,36 @@ def _wind_down(session: SessionStateMachine, *, failed: bool) -> None:
     """
 
     if failed and session.can_advance(SessionState.FAILED):
-        session.advance(SessionState.FAILED)
+        await advance_session(session, SessionState.FAILED, on_transition)
     if session.can_advance(SessionState.STOPPING):
-        session.advance(SessionState.STOPPING)
+        await advance_session(session, SessionState.STOPPING, on_transition)
     if session.can_advance(SessionState.STOPPED):
-        session.advance(SessionState.STOPPED)
+        await advance_session(session, SessionState.STOPPED, on_transition)
+
+
+async def advance_session(
+    session: SessionStateMachine,
+    target: SessionState,
+    on_transition: TransitionRecorder | None,
+) -> SessionState:
+    """Persist a validated transition before applying it in memory.
+
+    Shielding the append closes the cancellation window: if cancellation arrives
+    after SQLite commits, the in-memory machine is advanced before cancellation
+    propagates, so a durable fact never describes a move this process skipped.
+    """
+
+    source = session.validate_advance(target)
+    if on_transition is not None:
+        append = asyncio.ensure_future(on_transition(source, target))
+        try:
+            await asyncio.shield(append)
+        except asyncio.CancelledError:
+            await append
+            session.advance(target)
+            raise
+    session.advance(target)
+    return source
 
 
 def _report(
