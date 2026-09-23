@@ -697,7 +697,33 @@ reported_yaws() {
 baseline=$(read_position)
 baseline=${baseline:-0}
 playable=0
-if [ -n "${not_whitelisted}" ]; then
+if [ "${case_id}" = "ADMIT-040" ]; then
+    # This case is a refusal, not a world-entry test. Only the classified
+    # Bridge-filtered fact from this run ends the wait; a generic disconnect
+    # would hide the exact regression this case exists to detect.
+    if [ "${online_mode}" != "true" ] || [ -z "${server_profile}" ]; then
+        printf 'domain: ADMIT-040 requires an online-mode server and an offline Server Profile\n' >&2
+        exit 2
+    fi
+    deadline=$((SECONDS + seconds))
+    for _ in $(seq 1 "${seconds}"); do
+        kill -0 "${session_pid}" 2>/dev/null || break
+        [ "${SECONDS}" -lt "${deadline}" ] || break
+        recorded=$(/opt/sqlite/bin/sqlite3 "${ledger}" \
+            "select 1 from event where position > ${baseline} and event_type='SessionInterrupted' and source='BRIDGE' and trust_class='BRIDGE_FILTERED' and json_extract(payload_json,'\$.phase')='FAILED' and json_extract(payload_json,'\$.reason')='ADMISSION_FAILURE_REASON_AUTH_MODE_MISMATCH' limit 1;" \
+            2>/dev/null || true)
+        if [ -n "${recorded}" ]; then
+            playable=1
+            break
+        fi
+        sleep 1
+    done
+    if [ "${playable}" -eq 1 ]; then
+        printf 'domain: the session recorded the expected auth mismatch\n' >&2
+    else
+        printf 'domain: no classified auth mismatch was recorded within %ss\n' "${seconds}" >&2
+    fi
+elif [ -n "${not_whitelisted}" ]; then
     # What this run is about is a refusal, and the refusal is a ledger fact: the
     # Bridge classifies the login failure and Core records the phase and the
     # reason together. Waiting for a world this run will never join would spend
@@ -852,7 +878,7 @@ fi
 
 # Which run this is, from the ledger rather than from the document: a run whose
 # Core is killed never prints one, and the ledger is the record that survives it.
-# The first event this run recorded is the launcher's own account of starting it.
+# The first event may be Core's pre-spawn authentication policy fact.
 run_id=$(/opt/sqlite/bin/sqlite3 "${ledger}" \
     "select run_id from event where position > ${baseline} order by position limit 1;" \
     2>/dev/null || true)

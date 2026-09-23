@@ -386,7 +386,47 @@ def test_the_artifacts_include_the_client_s_own_output_and_the_server_s(
         "server/server.log",
         "server/server.properties",
         "server/usercache.json",
+        "trusted/server-profile.json",
     }
+
+
+def test_the_sealed_server_profile_is_the_one_the_product_validated(
+    finished_run: tuple[Path, Path, Path],
+) -> None:
+    """What the bundle says the run was pointed at, in the server's own words' file.
+
+    A profile sealed as the operator wrote it and judged as the loader read it would
+    be two documents, and `ADMIT-040` rests on there being one: the sealed revision is
+    what the frozen policy event is compared against.
+    """
+
+    data_root, server, document = finished_run
+    profile = load_server_profile(SERVER_PROFILE)
+
+    seal_it(data_root, server, document)
+
+    sealed = json.loads(
+        (bundle_of(data_root) / "trusted" / "server-profile.json").read_text(encoding="utf-8")
+    )
+    assert sealed == profile.as_document()
+    assert sealed["revision"] == profile.revision
+    assert sealed["auth_mode"] == "offline"
+
+
+def test_a_server_profile_the_product_refuses_stops_the_seal(
+    finished_run: tuple[Path, Path, Path], tmp_path: Path
+) -> None:
+    """An unvalidatable target cannot be sealed as a trusted one."""
+
+    data_root, server, document = finished_run
+    rejected = tmp_path / "lan-scan.json"
+    rejected.write_text(
+        SERVER_PROFILE.read_text(encoding="utf-8").replace("127.0.0.1", "192.168.1.20"),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(SEALER.Unsealable, match="is not a Server Profile the product accepts"):
+        seal_it(data_root, server, document, server_profile=rejected)
 
 
 def test_the_bundle_records_the_inputs_the_judgement_was_made_with(

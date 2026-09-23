@@ -48,6 +48,7 @@ from minekin_core.adapters.launcher.recipe import BRIDGE_JAR_SHA256
 from minekin_core.adapters.launcher.server_profile import ServerProfile, load_server_profile
 from minekin_core.cli.evidence import attempt_registry_path, bundle_directory
 from minekin_core.cli.init import run_root
+from minekin_core.domain.errors import MinekinError
 from minekin_core.domain.evidence import (
     DEDICATED_WORLD,
     EMPTY_DOCUMENT_SHA256,
@@ -78,6 +79,8 @@ from assert_case_evidence import (
     RUN_DOCUMENT_KEY,
     SERVER_IDENTITIES_ARTIFACT,
     SERVER_LOG_ARTIFACT,
+    SERVER_PROFILE_ARTIFACT,
+    SERVER_PROPERTIES_ARTIFACT,
     SOAK_SAMPLES_ARTIFACT,
     SOAK_SUMMARY_ARTIFACT,
     asserter_inputs_bytes,
@@ -193,6 +196,7 @@ def collect_artifacts(
     soak_samples: bytes,
     soak_summary: bytes,
     orchestrator: Mapping[str, object],
+    server_profile: bytes = b"",
 ) -> dict[str, bytes]:
     """Every artifact this run left, under names a reader can recognise.
 
@@ -222,6 +226,11 @@ def collect_artifacts(
         found[SOAK_SAMPLES_ARTIFACT] = soak_samples
     if soak_summary:
         found[SOAK_SUMMARY_ARTIFACT] = soak_summary
+    if server_profile:
+        # The target this run was pointed at, as the product's loader validated it.
+        # Sealed rather than restated: a bundle that claimed "offline profile" in
+        # prose would be one more thing for a reader to take on trust.
+        found[SERVER_PROFILE_ARTIFACT] = server_profile
     # The client's own output, where the Bridge's lines are: sealing the whole
     # stream rather than a filtered selection means a reader can check any
     # selection against it rather than having to trust one.
@@ -234,7 +243,7 @@ def collect_artifacts(
     if server_directory is not None:
         _artifact(server_directory / "server.log", SERVER_LOG_ARTIFACT, found)
         _artifact(server_directory / "usercache.json", SERVER_IDENTITIES_ARTIFACT, found)
-        _artifact(server_directory / "server.properties", "server/server.properties", found)
+        _artifact(server_directory / "server.properties", SERVER_PROPERTIES_ARTIFACT, found)
     return found
 
 
@@ -250,6 +259,7 @@ def run_asserter(
     soak_samples: str | None = None,
     soak_summary: str | None = None,
     world_run_document: str | None = None,
+    server_profile_document: str | None = None,
     python: str = sys.executable,
 ) -> dict[str, object]:
     """The case's verdict, from the one module that judges rather than writes.
@@ -290,6 +300,8 @@ def run_asserter(
         arguments += ["--soak-samples-json", soak_samples]
     if soak_summary is not None:
         arguments += ["--soak-summary-json", soak_summary]
+    if server_profile_document is not None:
+        arguments += ["--server-profile-document-json", server_profile_document]
     completed = subprocess.run(
         arguments,
         capture_output=True,
@@ -610,6 +622,24 @@ def seal(
             raise Unsealable(f"{world_run_document_path} is not a run document object")
         world_run_document = cast(dict[str, object], hosted)
 
+    # The trusted target, validated once by the product's own loader. The text the
+    # judge is handed decodes to the bytes that are sealed: read twice, a profile is
+    # two files, and this run's whole subject is which authentication strategy the
+    # operator had actually saved.
+    server_profile_bytes = b""
+    server_profile_text: str | None = None
+    if server_profile is not None:
+        try:
+            validated_profile = load_server_profile(server_profile)
+        except MinekinError as error:
+            raise Unsealable(
+                f"{server_profile} is not a Server Profile the product accepts: {error}"
+            ) from error
+        server_profile_bytes = (
+            json.dumps(validated_profile.as_document(), indent=2, sort_keys=True) + "\n"
+        ).encode("utf-8")
+        server_profile_text = server_profile_bytes.decode("utf-8")
+
     verdict = run_asserter(
         case=case,
         run_document=run_document_path,
@@ -621,6 +651,7 @@ def seal(
         soak_samples=soak_samples_text,
         soak_summary=soak_summary_text,
         world_run_document=world_run_text,
+        server_profile_document=server_profile_text,
     )
     material = read_run_material(
         run_document=run_document_path,
@@ -680,6 +711,7 @@ def seal(
         fault_injection=fault_injection_bytes,
         soak_samples=soak_samples_bytes,
         soak_summary=soak_summary_bytes,
+        server_profile=server_profile_bytes,
         orchestrator=orchestrator_trace(
             case=case,
             run_id=identifier,

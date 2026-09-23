@@ -136,6 +136,22 @@ CANCEL_LINE = "bridge is cancelling the client's connection"
 WHITELIST_REJECTED = "ADMISSION_FAILURE_REASON_WHITELIST_REJECTED"
 REFUSAL_LINE = f"bridge classified the login failure as {WHITELIST_REJECTED}"
 
+#: What the Bridge gives an offline identity that met a server demanding session
+#: verification, and the event Core writes before that identity ever reaches a
+#: socket: the one immutable authentication choice of this run. The contract names
+#: both (`p0-remote-admission-contract.md` § "ADMIT-040 的可复判证据边界"), and the
+#: pair is what makes "the strategy was never switched" a fact rather than an
+#: inference from how many processes ran.
+AUTH_MODE_MISMATCH = "ADMISSION_FAILURE_REASON_AUTH_MODE_MISMATCH"
+AUTH_POLICY_FROZEN = "AuthPolicyFrozen"
+
+#: The two keys of the server's own properties file that this case reads. `motd` is
+#: not a greeting: the controlled server writes the trusted profile's id into it, so
+#: it is what ties a sealed `online-mode=true` to the world this run dialled.
+SERVER_ONLINE_MODE_KEY = "online-mode"
+SERVER_PORT_KEY = "server-port"
+SERVER_MOTD_KEY = "motd"
+
 #: What counts as having walked. Measured: vanilla survival walking is about 4.3
 #: blocks per second, and the thing this has to tell a step apart from is a shove
 #: — a summoned pig wandering into the Kin moves it well under a block, so the
@@ -315,6 +331,15 @@ class RunMaterial:
     #: the same shape as a soak that produced nothing.
     soak_samples: str = ""
     soak_summary: Mapping[str, object] | None = None
+    #: What the server itself wrote into its own `server.properties`. The server
+    #: rewrites this file, so it is the server's account of what it demanded, not a
+    #: restatement of what the harness asked it to run as. Empty means no such file
+    #: was in this run's server directory at all.
+    server_properties: str = ""
+    #: The trusted Server Profile *as Core's loader validated it*, handed over as
+    #: already-read bytes. `None` means this run named no profile; a profile that was
+    #: named but says nothing is a different answer and reports itself as such.
+    server_profile: Mapping[str, object] | None = None
     #: The reviewed case being evaluated.  `evaluate` fills these from the same
     #: manifest that declares the assertions, so a trace attributed to another
     #: case (or another revision of this case) cannot satisfy this one.
@@ -394,6 +419,7 @@ def read_run_material(
     soak_samples: str = "",
     soak_summary: Mapping[str, object] | None = None,
     world_run_document: Mapping[str, object] | None = None,
+    server_profile: Mapping[str, object] | None = None,
 ) -> RunMaterial:
     """Read a finished run's material, refusing anything that is not readable.
 
@@ -499,6 +525,14 @@ def read_run_material(
             raise Unreadable(f"{cache_path} cannot be read: {error}") from error
         identities = read_identity_cache(cache, cache_path)
 
+    properties_path = None if server_directory is None else server_directory / "server.properties"
+    server_properties = ""
+    if properties_path is not None and properties_path.is_file():
+        try:
+            server_properties = properties_path.read_text(encoding="utf-8", errors="replace")
+        except OSError as error:
+            raise Unreadable(f"{properties_path} cannot be read: {error}") from error
+
     return RunMaterial(
         kin_id=kin,
         run_id=named_run,
@@ -516,6 +550,8 @@ def read_run_material(
         fault_injection=fault_injection,
         soak_samples=soak_samples,
         soak_summary=soak_summary,
+        server_properties=server_properties,
+        server_profile=server_profile,
     )
 
 
@@ -541,6 +577,11 @@ SOAK_SAMPLES_ARTIFACT = "soak-samples.txt"
 SOAK_SUMMARY_ARTIFACT = "soak-summary.json"
 SERVER_LOG_ARTIFACT = "server/server.log"
 SERVER_IDENTITIES_ARTIFACT = "server/usercache.json"
+SERVER_PROPERTIES_ARTIFACT = "server/server.properties"
+#: The trusted target as Core's own loader validated it. Under `trusted/` rather than
+#: `server/` on purpose: the server did not write this file, the operator did, and the
+#: two answers must not come from one directory that suggests one source.
+SERVER_PROFILE_ARTIFACT = "trusted/server-profile.json"
 #: Every client stream a bundle keeps. The judge reads `CLIENT_LOG_ARTIFACTS` out of
 #: them and not all of them: stderr carries the JVM's complaints rather than the
 #: Bridge's account, so it is sealed for a reader to consult and not read into the
@@ -705,6 +746,8 @@ def read_sealed_material(directory: Path) -> RunMaterial:
         fault_injection=_sealed_json(directory, FAULT_RECORD_ARTIFACT),
         soak_samples=_sealed(directory, SOAK_SAMPLES_ARTIFACT) or "",
         soak_summary=_sealed_json(directory, SOAK_SUMMARY_ARTIFACT),
+        server_properties=_sealed(directory, SERVER_PROPERTIES_ARTIFACT) or "",
+        server_profile=_sealed_json(directory, SERVER_PROFILE_ARTIFACT),
     )
 
 
@@ -2124,6 +2167,201 @@ def the_server_saw_the_kin_arrive_and_never_move(material: RunMaterial) -> str |
     return None
 
 
+def _properties_value(text: str, key: str) -> str | None:
+    """One key of a Java properties file, as the server wrote it.
+
+    The server rewrites this file itself, so a key that appears twice is not a
+    comment to be reasoned about — it is a file this case cannot read an answer out
+    of, and the caller reports the absence it measured.
+    """
+
+    found: str | None = None
+    prefix = f"{key}="
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped.startswith(prefix):
+            continue
+        if found is not None:
+            return None
+        found = stripped[len(prefix) :].strip()
+    return found
+
+
+def _position(event: Mapping[str, object]) -> int | None:
+    """Where one row sits in the ledger's own order.
+
+    Order is the ledger's `position` column and never a clock or a row count: a
+    sealed timeline that lost it says nothing about what happened first, and an
+    assertion about "before the client started" must fail rather than guess.
+    """
+
+    value = event.get("position")
+    if isinstance(value, bool) or not isinstance(value, int):
+        return None
+    return value
+
+
+def the_server_this_run_met_required_online_authentication(material: RunMaterial) -> str | None:
+    """The world this run dialled demanded session verification, in its own file.
+
+    The server's `server.properties` is the only place that says what the *server*
+    required, and the contract refuses every substitute for it: a client-side failure
+    text says what the client met, and a harness setting says what someone asked for.
+    The same file has to belong to the world the trusted profile names, or an
+    online-mode server from another run would do just as well — so the port and the
+    profile id the harness wrote into the message of the day are compared too.
+    """
+
+    if not material.server_properties:
+        return "NO_SERVER_PROPERTIES"
+    if material.server_profile is None:
+        return "NO_SEALED_SERVER_PROFILE"
+    online = _properties_value(material.server_properties, SERVER_ONLINE_MODE_KEY)
+    if online is None:
+        return "SERVER_PROPERTIES_SAY_NOTHING_ABOUT_ONLINE_MODE"
+    if online != "true":
+        return f"SERVER_ONLINE_MODE:{online}"
+    port = _properties_value(material.server_properties, SERVER_PORT_KEY)
+    profile_port = material.server_profile.get("port")
+    if port is None or port != str(profile_port):
+        return f"SERVER_PORT_DIFFERS_FROM_PROFILE:{port}"
+    motd = _properties_value(material.server_properties, SERVER_MOTD_KEY)
+    profile_id = _text(material.server_profile, "profile_id")
+    if motd is None or profile_id is None or profile_id not in motd:
+        return "SERVER_MOTD_DOES_NAME_THE_SEALED_PROFILE"
+    return None
+
+
+def the_offline_auth_policy_was_frozen_before_the_client_started(
+    material: RunMaterial,
+) -> str | None:
+    """Core recorded this run's one authentication choice before anything ran.
+
+    This is the fact that lets the refusal be read as *offline identity met online
+    authentication* rather than as a disconnect of unknown cause. It is Core's own
+    word (CORE/CORE), it carries the profile this run was pointed at, and it precedes
+    the process it governed — so the strategy was written down while it still could
+    have been changed, which is what makes a later change visible as a change.
+    """
+
+    if not material.ledger_readable:
+        return "LEDGER_UNREADABLE"
+    rows: list[Mapping[str, object]] = list(material.recorded(AUTH_POLICY_FROZEN))
+    if not rows:
+        return "NO_FROZEN_POLICY_EVENT"
+    if len(rows) > 1:
+        return "POLICY_FROZEN_MORE_THAN_ONCE"
+    event = rows[0]
+    if event.get("source") != "CORE" or event.get("trust_class") != "CORE":
+        return f"POLICY_EVENT_NOT_CORE:{event.get('source')}/{event.get('trust_class')}"
+    seen = payload(event)
+    if seen.get("auth_mode") != "offline":
+        return f"POLICY_AUTH_MODE:{seen.get('auth_mode')}"
+    if seen.get("online_adapter_enabled") is not False:
+        return "ONLINE_ADAPTER_NOT_RECORDED_AS_DISABLED"
+    if not isinstance(seen.get("server_profile_id"), str) or not seen.get("server_profile_id"):
+        return "POLICY_PROFILE_ID_MISSING"
+    if not is_digest(seen.get("server_profile_revision")):
+        return "POLICY_PROFILE_REVISION_NOT_A_DIGEST"
+    started = material.recorded(PROCESS_STARTED)
+    if not started:
+        return "NO_PROCESS_START_TO_ORDER_AGAINST"
+    frozen_position, started_position = _position(event), _position(started[0])
+    if frozen_position is None or started_position is None:
+        return "LEDGER_ORDER_NOT_RECORDED"
+    if frozen_position >= started_position:
+        return "POLICY_FROZEN_AFTER_THE_PROCESS_STARTED"
+    if event.get("session_id") != started[0].get("session_id"):
+        return "POLICY_EVENT_OF_ANOTHER_SESSION"
+    if str(event.get("generation")) != str(started[0].get("generation")):
+        return "POLICY_EVENT_OF_ANOTHER_GENERATION"
+    return None
+
+
+def the_frozen_policy_names_the_profile_this_run_dialled(material: RunMaterial) -> str | None:
+    """The recorded choice is the choice this run's trusted target implies.
+
+    An `offline` field in an event only says what the event claimed. Compared against
+    the profile the operator saved — validated by the product's own loader, then
+    sealed as it was validated — it says the run was pointed at an offline-identity
+    target and froze that, which is the half of the case the client's failure text
+    cannot carry.
+    """
+
+    if material.server_profile is None:
+        return "NO_SEALED_SERVER_PROFILE"
+    if _text(material.server_profile, "auth_mode") != "offline":
+        return "SEALED_PROFILE_IS_NOT_OFFLINE"
+    revision = material.server_profile.get("revision")
+    if not is_digest(revision):
+        return "SEALED_PROFILE_REVISION_NOT_A_DIGEST"
+    frozen = material.recorded(AUTH_POLICY_FROZEN)
+    if len(frozen) != 1:
+        return "POLICY_EVENT_NOT_UNIQUE"
+    seen = payload(frozen[0])
+    if seen.get("server_profile_id") != _text(material.server_profile, "profile_id"):
+        return "POLICY_PROFILE_ID_DIFFERS"
+    if seen.get("server_profile_revision") != revision:
+        return "POLICY_PROFILE_REVISION_DIFFERS"
+    return None
+
+
+def the_auth_mode_mismatch_was_classified_in_the_ledger(material: RunMaterial) -> str | None:
+    """The refusal reached Core as an authentication mismatch, not as a drop.
+
+    The whitelist assertion above cannot stand in for this one: it compares against
+    the one category that scenario produced. Here the phase and the category have to
+    arrive together on a row the Bridge filtered, because a plain disconnect and an
+    auth mismatch are the two answers this case exists to tell apart.
+    """
+
+    if not material.ledger_readable:
+        return "LEDGER_UNREADABLE"
+    for event in material.recorded(SESSION_INTERRUPTED):
+        seen = payload(event)
+        if (
+            seen.get("phase") == "FAILED"
+            and seen.get("reason") == AUTH_MODE_MISMATCH
+            and event.get("source") == "BRIDGE"
+            and event.get("trust_class") == "BRIDGE_FILTERED"
+        ):
+            return None
+    return "NO_CLASSIFIED_AUTH_MODE_MISMATCH"
+
+
+def the_refusal_left_the_run_on_one_policy_and_one_process(material: RunMaterial) -> str | None:
+    """Nothing re-chose the strategy or restarted the client after the refusal.
+
+    On its own a process count proves only that nothing restarted, and the contract
+    says out loud not to accept that as the whole proof. Paired with the single frozen
+    policy above it is the other half: the run recorded one choice before it started,
+    and after the refusal it recorded neither a second choice nor a second client.
+    """
+
+    if not material.ledger_readable:
+        return "LEDGER_UNREADABLE"
+    refusals = [
+        event
+        for event in material.recorded(SESSION_INTERRUPTED)
+        if payload(event).get("reason") == AUTH_MODE_MISMATCH
+    ]
+    if not refusals:
+        return "NO_AUTH_MODE_REFUSAL_TO_ORDER_AGAINST"
+    terminal = refusals[0]
+    terminal_position = _position(terminal)
+    if terminal_position is None:
+        return "LEDGER_ORDER_NOT_RECORDED"
+    if len(material.recorded(AUTH_POLICY_FROZEN)) > 1:
+        return "POLICY_FROZEN_MORE_THAN_ONCE"
+    if len(material.recorded(PROCESS_STARTED)) > 1:
+        return "CLIENT_STARTED_MORE_THAN_ONCE"
+    for event in (*material.recorded(AUTH_POLICY_FROZEN), *material.recorded(PROCESS_STARTED)):
+        later = _position(event)
+        if later is not None and later > terminal_position:
+            return f"PROCESS_OR_POLICY_ROW_AFTER_THE_REFUSAL:{event.get('event_type')}"
+    return None
+
+
 #: Every assertion a case manifest may name, and what performs it. A name that is
 #: not here cannot be judged, which the verdict reports rather than passing over.
 ASSERTIONS: dict[str, Callable[[RunMaterial], str | None]] = {
@@ -2185,6 +2423,21 @@ ASSERTIONS: dict[str, Callable[[RunMaterial], str | None]] = {
     "no_lease_was_granted": no_lease_was_granted,
     "the_bridge_never_pressed_a_key": the_bridge_never_pressed_a_key,
     "the_server_saw_the_kin_arrive_and_never_move": (the_server_saw_the_kin_arrive_and_never_move),
+    "the_server_this_run_met_required_online_authentication": (
+        the_server_this_run_met_required_online_authentication
+    ),
+    "the_offline_auth_policy_was_frozen_before_the_client_started": (
+        the_offline_auth_policy_was_frozen_before_the_client_started
+    ),
+    "the_frozen_policy_names_the_profile_this_run_dialled": (
+        the_frozen_policy_names_the_profile_this_run_dialled
+    ),
+    "the_auth_mode_mismatch_was_classified_in_the_ledger": (
+        the_auth_mode_mismatch_was_classified_in_the_ledger
+    ),
+    "the_refusal_left_the_run_on_one_policy_and_one_process": (
+        the_refusal_left_the_run_on_one_policy_and_one_process
+    ),
 }
 
 
@@ -2339,6 +2592,15 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     parser.add_argument(
+        "--server-profile-document-json",
+        default=None,
+        help=(
+            "the trusted Server Profile as the product's loader validated it: the "
+            "sealer hands over the same object it is about to seal rather than a path "
+            "it would have to trust itself again"
+        ),
+    )
+    parser.add_argument(
         "--fault-injection",
         type=Path,
         default=None,
@@ -2438,6 +2700,16 @@ def main(argv: list[str] | None = None) -> int:
             return _reject("the hosting run's document is not a run document object")
         world_run_document = cast(Mapping[str, object], hosted)
 
+    server_profile_document: Mapping[str, object] | None = None
+    if args.server_profile_document_json is not None:
+        try:
+            validated = json.loads(args.server_profile_document_json)
+        except json.JSONDecodeError as error:
+            return _reject(f"the trusted Server Profile is not readable JSON: {error}")
+        if not isinstance(validated, Mapping):
+            return _reject("the trusted Server Profile is not a profile object")
+        server_profile_document = cast(Mapping[str, object], validated)
+
     try:
         case = json.loads(args.case.read_bytes())
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
@@ -2456,6 +2728,7 @@ def main(argv: list[str] | None = None) -> int:
             soak_samples=soak_samples,
             soak_summary=soak_summary,
             world_run_document=world_run_document,
+            server_profile=server_profile_document,
         )
         verdict = evaluate(cast(Mapping[str, object], case), material)
     except Unreadable as error:

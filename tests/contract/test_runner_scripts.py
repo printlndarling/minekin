@@ -185,3 +185,35 @@ def test_the_kill_paths_read_the_ledger_they_are_told_about() -> None:
     assert "SessionProcessStarted" in text
     assert "--kin-id" in text
     assert "--session-id" in text
+
+
+def test_the_auth_mismatch_wait_reads_the_classification_and_not_the_exit() -> None:
+    """`ADMIT-040` ends its wait on the fact the case is about, or it says so.
+
+    The refusal is a ledger row the Bridge filtered, and nothing else the run leaves
+    behind distinguishes it from a connection that dropped for a reason nobody
+    classified: the client exits either way, and the server's log says nothing about
+    the mode it demanded. So the wait asks for the phase, the category and the
+    provenance together, within this run's own rows, and refuses to run at all when
+    the harness did not start an online-mode server against an offline profile.
+    """
+
+    text = (RUNNER / "domain.sh").read_text(encoding="utf-8")
+
+    assert 'if [ "${case_id}" = "ADMIT-040" ]; then' in text
+    assert (
+        "printf 'domain: ADMIT-040 requires an online-mode server and an offline Server "
+        "Profile\\n'" in text
+    )
+    # The predicate: this run's rows only, and the classified refusal only.
+    assert "position > ${baseline} and event_type='SessionInterrupted'" in text
+    assert "source='BRIDGE' and trust_class='BRIDGE_FILTERED'" in text
+    assert "json_extract(payload_json,'\\$.phase')='FAILED'" in text
+    assert (
+        "json_extract(payload_json,'\\$.reason')"
+        "='ADMISSION_FAILURE_REASON_AUTH_MODE_MISMATCH'" in text
+    )
+    # A generic `FAILED` is what the whitelist branch asks for, and the auth mismatch
+    # branch may not fall back to it: that is the regression this case exists to catch.
+    assert text.count("payload_json like '%FAILED%'") == 1
+    assert "no classified auth mismatch was recorded within" in text

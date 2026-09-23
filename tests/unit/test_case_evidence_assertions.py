@@ -23,6 +23,7 @@ import pytest
 
 from fault_support import fault_record
 from minekin_core.adapters.evidence.promotion import load_case_manifest
+from minekin_core.adapters.launcher.server_profile import load_server_profile
 from minekin_core.adapters.sqlite.connection import connect_writer
 from minekin_core.domain.offline_identity import offline_player_uuid
 
@@ -42,6 +43,8 @@ SOAK_CASE = CASES / "core-100.json"
 DEAD_SESSION = "session-00"
 BLACK_HOLE_CASE = CASES / "admit-110.json"
 REFUSED_CASE = CASES / "admit-100.json"
+AUTH_MISMATCH_CASE = CASES / "admit-040.json"
+RUNTIME_INPUT = REPOSITORY_ROOT / "tests" / "fixtures" / "runtime-input"
 RUN_ID = "5c1f9a7b2d3e4f6089abcdef01234567"
 USERNAME = "Kin"
 # The UUID a real run's server recorded for this name, read back from the
@@ -163,6 +166,9 @@ def event(
     *,
     row_session_id: str = "session-01",
     row_generation: int | str = 1,
+    source: str | None = None,
+    trust_class: str | None = None,
+    position: int | None = None,
     **payload: object,
 ) -> Mapping[str, object]:
     """One ledger row, carrying the fields a case reads.
@@ -173,15 +179,29 @@ def event(
     coordinate holds the number. A fixture that wrote both as ints would let a
     cross-check comparing them as they arrive pass here and match nothing on a
     real run.
+
+    The three columns a case reads to *order* and *attribute* a row — `position`,
+    `source`, `trust_class` — stay absent unless asked for, since a row that
+    carries none of them is what the older cases were written against. A case
+    that says "before the client started" or "as the Bridge filtered it" names
+    them, and then refuses a run whose timeline lost them rather than reading an
+    absent column as a disagreement.
     """
 
-    return {
+    row: dict[str, object] = {
         "event_type": event_type,
         "run_id": RUN_ID,
         "session_id": row_session_id,
         "generation": str(row_generation),
         "payload_json": json.dumps(payload, sort_keys=True),
     }
+    if source is not None:
+        row["source"] = source
+    if trust_class is not None:
+        row["trust_class"] = trust_class
+    if position is not None:
+        row["position"] = position
+    return row
 
 
 HANDSHAKE = "BridgeHelloAccepted"
@@ -200,6 +220,8 @@ def material(
     fault_injection: Mapping[str, object] | None = None,
     soak: tuple[str, Mapping[str, object] | None] = ("", None),
     world_run_document: Mapping[str, object] | None = None,
+    server_properties: str = "",
+    server_profile: Mapping[str, object] | None = None,
 ) -> _Material:
     previous_run_id, previous_run_events = previous
     soak_samples, soak_summary = soak
@@ -220,6 +242,8 @@ def material(
         soak_samples=soak_samples,
         soak_summary=soak_summary,
         world_run_document=world_run_document,
+        server_properties=server_properties,
+        server_profile=server_profile,
     )
 
 
@@ -3547,4 +3571,595 @@ def test_a_previous_run_with_no_session_attribution_is_not_a_session() -> None:
             "the_restart_runs_as_a_new_session:PREVIOUS_RUN_HAS_NO_SESSION_ATTRIBUTION"
         )
         for failure in verdict.failures
+    )
+
+
+# ---------------------------------------------------------------------------
+# ADMIT-040: an offline identity that met a server demanding online authentication
+# ---------------------------------------------------------------------------
+
+#: The trusted target, as Core's own loader validated it. The case is about an
+#: offline-identity client, so the profile is the offline one the runner is given;
+#: what makes this a refusal rather than a join is what the *server* wrote down.
+TRUSTED_PROFILE = load_server_profile(
+    RUNTIME_INPUT / "controlled-offline-server.json"
+).as_document()
+PROFILE_ID = cast(str, TRUSTED_PROFILE["profile_id"])
+PROFILE_REVISION = cast(str, TRUSTED_PROFILE["revision"])
+PROFILE_PORT = cast(int, TRUSTED_PROFILE["port"])
+
+POLICY_FROZEN = "AuthPolicyFrozen"
+PROCESS_STARTED = "SessionProcessStarted"
+INTERRUPTED = "SessionInterrupted"
+AUTH_MODE_MISMATCH = "ADMISSION_FAILURE_REASON_AUTH_MODE_MISMATCH"
+
+#: Written the way the controlled harness leaves it: the server's own `online-mode`
+#: answer, the port from the profile it was built for, and the message of the day the
+#: harness stamps with that profile's id so a reader can bind this directory to the
+#: target it belongs to.
+ONLINE_SERVER_PROPERTIES = (
+    f"motd=minekin P0 controlled server {PROFILE_ID}\n"
+    "online-mode=true\n"
+    f"server-port={PROFILE_PORT}\n"
+)
+
+
+def auth_mismatch_case() -> dict[str, object]:
+    return cast(dict[str, object], json.loads(AUTH_MISMATCH_CASE.read_text(encoding="utf-8")))
+
+
+def policy_row(
+    *,
+    position: int | None = 1,
+    source: str = "CORE",
+    trust_class: str = "CORE",
+    row_session_id: str = "session-01",
+    auth_mode: str = "offline",
+    online_adapter_enabled: bool = False,
+    profile_id: str = PROFILE_ID,
+    revision: str = PROFILE_REVISION,
+) -> Mapping[str, object]:
+    """Core's own record of the one authentication choice this run was allowed.
+
+    The column names are the ledger's and the payload keys are `AuthPolicy`'s, spelled
+    as the product writes them: an assertion that compared a fixture's invention would
+    hold here and match nothing on a run.
+    """
+
+    return event(
+        POLICY_FROZEN,
+        row_session_id=row_session_id,
+        source=source,
+        trust_class=trust_class,
+        position=position,
+        auth_mode=auth_mode,
+        online_adapter_enabled=online_adapter_enabled,
+        server_profile_id=profile_id,
+        server_profile_revision=revision,
+    )
+
+
+def client_row(*, position: int | None = 2) -> Mapping[str, object]:
+    return event(PROCESS_STARTED, position=position, source="CORE", trust_class="CORE")
+
+
+def mismatch_row(
+    *,
+    position: int | None = 3,
+    source: str = "BRIDGE",
+    trust_class: str = "BRIDGE_FILTERED",
+    phase: str = "FAILED",
+    reason: str = AUTH_MODE_MISMATCH,
+) -> Mapping[str, object]:
+    return event(
+        INTERRUPTED,
+        source=source,
+        trust_class=trust_class,
+        position=position,
+        phase=phase,
+        reason=reason,
+    )
+
+
+def refused_by_online_authentication(**overrides: object) -> _Material:
+    """The run the case describes: refused at the login, and nothing after it.
+
+    The events carry the ledger's own `position`, because that is the column a real
+    sealed timeline carries and the only thing that says which came first.
+    """
+
+    arguments: dict[str, object] = {
+        "document": run_document(
+            connection_state="FAILED", snapshots_admitted=0, outcome="BRIDGE_LOST"
+        ),
+        "log": "",
+        "identities": {},
+        "server_properties": ONLINE_SERVER_PROPERTIES,
+        "server_profile": TRUSTED_PROFILE,
+        "events": (policy_row(), client_row(), mismatch_row()),
+    }
+    arguments.update(overrides)
+    return material(**arguments)  # type: ignore[arg-type]
+
+
+def without_positions(*rows: Mapping[str, object]) -> tuple[Mapping[str, object], ...]:
+    """The same timeline with the ledger's order column gone."""
+
+    return tuple({key: value for key, value in row.items() if key != "position"} for row in rows)
+
+
+def test_an_offline_identity_met_by_an_online_server_holds() -> None:
+    verdict = ASSERTER_MODULE.evaluate(auth_mismatch_case(), refused_by_online_authentication())
+
+    assert verdict.result == "PASS"
+    assert verdict.observed == verdict.expected
+    assert verdict.failures == ()
+
+
+def test_a_refused_attempt_is_not_a_world_this_run_was_in() -> None:
+    verdict = ASSERTER_MODULE.evaluate(auth_mismatch_case(), refused_by_online_authentication())
+
+    assert "no_world_was_joined" in verdict.observed
+
+
+ONLINE_MODE_MUTATIONS: tuple[tuple[str, Mapping[str, object], str], ...] = (
+    (
+        "the server ran offline, so nothing refused this identity",
+        {"server_properties": "online-mode=false\n"},
+        "the_server_this_run_met_required_online_authentication:SERVER_ONLINE_MODE:false",
+    ),
+    (
+        "no server directory at all: the claim has no source",
+        {"server_properties": ""},
+        "the_server_this_run_met_required_online_authentication:NO_SERVER_PROPERTIES",
+    ),
+    (
+        "a properties file that never mentions the mode",
+        {"server_properties": "motd=minekin P0 controlled server\n"},
+        "the_server_this_run_met_required_online_authentication:"
+        "SERVER_PROPERTIES_SAY_NOTHING_ABOUT_ONLINE_MODE",
+    ),
+    (
+        "an online server from another run, named by nothing",
+        {"server_profile": None},
+        "the_server_this_run_met_required_online_authentication:NO_SEALED_SERVER_PROFILE",
+    ),
+    (
+        "a server answering on another port than the trusted target names",
+        {
+            "server_properties": ONLINE_SERVER_PROPERTIES.replace(
+                f"server-port={PROFILE_PORT}", "server-port=25599"
+            )
+        },
+        "the_server_this_run_met_required_online_authentication:"
+        "SERVER_PORT_DIFFERS_FROM_PROFILE:25599",
+    ),
+    (
+        "a server that does not say which profile it was built for",
+        {
+            "server_properties": (
+                f"online-mode=true\nserver-port={PROFILE_PORT}\nmotd=some other world\n"
+            )
+        },
+        "the_server_this_run_met_required_online_authentication:"
+        "SERVER_MOTD_DOES_NAME_THE_SEALED_PROFILE",
+    ),
+)
+
+
+@pytest.mark.parametrize(
+    "why, change, reason",
+    ONLINE_MODE_MUTATIONS,
+    ids=[name for name, _, _ in ONLINE_MODE_MUTATIONS],
+)
+def test_what_the_server_required_comes_from_the_server_alone(
+    why: str, change: Mapping[str, Any], reason: str
+) -> None:
+    """Every substitute the contract refuses, refused here too.
+
+    A client-side failure text, a harness setting, or another run's server directory
+    would each let this case be satisfied by something that never demanded online
+    authentication of *this* run. The one exception is the port and the message of the
+    day, which are not the mode and are compared only to bind this file to the profile
+    the operator saved.
+    """
+
+    verdict = ASSERTER_MODULE.evaluate(
+        auth_mismatch_case(), refused_by_online_authentication(**change)
+    )
+
+    assert reason in verdict.failures, why
+
+
+def test_a_run_with_no_recorded_choice_says_nothing_about_what_it_chose() -> None:
+    verdict = ASSERTER_MODULE.evaluate(
+        auth_mismatch_case(),
+        refused_by_online_authentication(events=(client_row(position=1), mismatch_row(position=2))),
+    )
+
+    assert (
+        "the_offline_auth_policy_was_frozen_before_the_client_started:NO_FROZEN_POLICY_EVENT"
+        in (verdict.failures)
+    )
+
+
+def test_a_strategy_recorded_twice_is_not_one_choice() -> None:
+    """The freeze is the point at which this run could still have been changed.
+
+    Two of them is a run that changed its mind, which is the thing this case's
+    contract says must not be provable by a process count alone.
+    """
+
+    verdict = ASSERTER_MODULE.evaluate(
+        auth_mismatch_case(),
+        refused_by_online_authentication(
+            events=(
+                policy_row(position=1),
+                policy_row(position=2, revision="a" * 64),
+                client_row(position=3),
+                mismatch_row(position=4),
+            )
+        ),
+    )
+
+    assert (
+        "the_offline_auth_policy_was_frozen_before_the_client_started:POLICY_FROZEN_MORE_THAN_ONCE"
+        in (verdict.failures)
+    )
+    assert "the_frozen_policy_names_the_profile_this_run_dialled:POLICY_EVENT_NOT_UNIQUE" in (
+        verdict.failures
+    )
+
+
+def test_a_policy_the_bridge_reported_is_not_core_s_choice() -> None:
+    """The row has to be the product's own word, not a filtered echo of something else."""
+
+    verdict = ASSERTER_MODULE.evaluate(
+        auth_mismatch_case(),
+        refused_by_online_authentication(
+            events=(
+                policy_row(source="BRIDGE", trust_class="BRIDGE_FILTERED"),
+                client_row(),
+                mismatch_row(),
+            )
+        ),
+    )
+
+    assert (
+        "the_offline_auth_policy_was_frozen_before_the_client_started:"
+        "POLICY_EVENT_NOT_CORE:BRIDGE/BRIDGE_FILTERED" in verdict.failures
+    )
+
+
+POLICY_PAYLOAD_MUTATIONS: tuple[tuple[str, Mapping[str, Any], str], ...] = (
+    (
+        "an online strategy, claimed",
+        {"auth_mode": "online"},
+        "the_offline_auth_policy_was_frozen_before_the_client_started:POLICY_AUTH_MODE:online",
+    ),
+    (
+        "an online adapter left enabled",
+        {"online_adapter_enabled": True},
+        "the_offline_auth_policy_was_frozen_before_the_client_started:"
+        "ONLINE_ADAPTER_NOT_RECORDED_AS_DISABLED",
+    ),
+    (
+        "no target named at all",
+        {"profile_id": ""},
+        "the_offline_auth_policy_was_frozen_before_the_client_started:POLICY_PROFILE_ID_MISSING",
+    ),
+    (
+        "a revision that is not a digest, so it pins nothing",
+        {"revision": "v3"},
+        "the_offline_auth_policy_was_frozen_before_the_client_started:"
+        "POLICY_PROFILE_REVISION_NOT_A_DIGEST",
+    ),
+)
+
+
+@pytest.mark.parametrize(
+    "why, change, reason",
+    POLICY_PAYLOAD_MUTATIONS,
+    ids=[name for name, _, _ in POLICY_PAYLOAD_MUTATIONS],
+)
+def test_what_the_policy_claimed_is_checked_as_it_was_written(
+    why: str, change: Mapping[str, Any], reason: str
+) -> None:
+    verdict = ASSERTER_MODULE.evaluate(
+        auth_mismatch_case(),
+        refused_by_online_authentication(
+            events=(policy_row(**change), client_row(), mismatch_row())
+        ),
+    )
+
+    assert reason in verdict.failures, why
+
+
+def test_a_choice_written_after_the_client_started_could_still_have_changed() -> None:
+    verdict = ASSERTER_MODULE.evaluate(
+        auth_mismatch_case(),
+        refused_by_online_authentication(
+            events=(client_row(position=1), policy_row(position=2), mismatch_row(position=3))
+        ),
+    )
+
+    assert (
+        "the_offline_auth_policy_was_frozen_before_the_client_started:"
+        "POLICY_FROZEN_AFTER_THE_PROCESS_STARTED" in verdict.failures
+    )
+
+
+def test_a_client_that_never_started_leaves_the_choice_unordered() -> None:
+    verdict = ASSERTER_MODULE.evaluate(
+        auth_mismatch_case(),
+        refused_by_online_authentication(events=(policy_row(), mismatch_row(position=2))),
+    )
+
+    assert (
+        "the_offline_auth_policy_was_frozen_before_the_client_started:NO_PROCESS_START_TO_ORDER_AGAINST"
+        in (verdict.failures)
+    )
+
+
+def test_a_timeline_that_lost_its_order_cannot_say_what_came_first() -> None:
+    """Measured against a real bundle, this row shape is what a trace reads as.
+
+    `position` is the ledger's own sequence. A sealed timeline without it could be
+    ordered by wall clock or by row count, and the contract says neither is this
+    run's order — so the assertion refuses rather than reading the file's layout as
+    the run's sequence.
+    """
+
+    verdict = ASSERTER_MODULE.evaluate(
+        auth_mismatch_case(),
+        refused_by_online_authentication(
+            events=without_positions(policy_row(), client_row(), mismatch_row())
+        ),
+    )
+
+    assert (
+        "the_offline_auth_policy_was_frozen_before_the_client_started:LEDGER_ORDER_NOT_RECORDED"
+        in (verdict.failures)
+    )
+    assert "the_refusal_left_the_run_on_one_policy_and_one_process:LEDGER_ORDER_NOT_RECORDED" in (
+        verdict.failures
+    )
+
+
+def test_a_policy_of_another_session_is_not_this_run_s_choice() -> None:
+    verdict = ASSERTER_MODULE.evaluate(
+        auth_mismatch_case(),
+        refused_by_online_authentication(
+            events=(
+                policy_row(row_session_id="session-00"),
+                client_row(),
+                mismatch_row(),
+            )
+        ),
+    )
+
+    assert (
+        "the_offline_auth_policy_was_frozen_before_the_client_started:POLICY_EVENT_OF_ANOTHER_SESSION"
+        in (verdict.failures)
+    )
+
+
+def test_a_policy_that_names_another_profile_is_a_different_target() -> None:
+    """The offline claim has to be about the server this run dialled, not any offline one."""
+
+    verdict = ASSERTER_MODULE.evaluate(
+        auth_mismatch_case(),
+        refused_by_online_authentication(
+            events=(policy_row(profile_id="another-server"), client_row(), mismatch_row())
+        ),
+    )
+
+    assert "the_frozen_policy_names_the_profile_this_run_dialled:POLICY_PROFILE_ID_DIFFERS" in (
+        verdict.failures
+    )
+
+
+def test_a_policy_that_names_another_revision_of_the_profile_is_the_old_choice() -> None:
+    verdict = ASSERTER_MODULE.evaluate(
+        auth_mismatch_case(),
+        refused_by_online_authentication(
+            events=(policy_row(revision="b" * 64), client_row(), mismatch_row())
+        ),
+    )
+
+    assert (
+        "the_frozen_policy_names_the_profile_this_run_dialled:POLICY_PROFILE_REVISION_DIFFERS"
+        in (verdict.failures)
+    )
+
+
+def test_a_target_that_is_not_an_offline_one_is_not_this_case() -> None:
+    """The other half of the correspondence: what the operator saved, read back.
+
+    An `offline` field in an event only says what the event claimed. The sealed
+    profile is what the product's loader accepted, and if it names an online target
+    there was no offline identity for a online-authentication server to refuse.
+    """
+
+    online = {**TRUSTED_PROFILE, "auth_mode": "online"}
+
+    verdict = ASSERTER_MODULE.evaluate(
+        auth_mismatch_case(), refused_by_online_authentication(server_profile=online)
+    )
+
+    assert "the_frozen_policy_names_the_profile_this_run_dialled:SEALED_PROFILE_IS_NOT_OFFLINE" in (
+        verdict.failures
+    )
+
+
+def test_a_profile_whose_revision_is_not_a_digest_pins_nothing() -> None:
+    verdict = ASSERTER_MODULE.evaluate(
+        auth_mismatch_case(),
+        refused_by_online_authentication(server_profile={**TRUSTED_PROFILE, "revision": "latest"}),
+    )
+
+    assert (
+        "the_frozen_policy_names_the_profile_this_run_dialled:SEALED_PROFILE_REVISION_NOT_A_DIGEST"
+        in verdict.failures
+    )
+
+
+def test_a_plain_disconnect_is_not_an_authentication_mismatch() -> None:
+    """The two answers this case exists to tell apart, told apart on the record.
+
+    The same phase and the same row, with the category missing or different, is a run
+    that lost its connection for some reason nobody classified.
+    """
+
+    verdict = ASSERTER_MODULE.evaluate(
+        auth_mismatch_case(),
+        refused_by_online_authentication(
+            events=(policy_row(), client_row(), mismatch_row(reason=""))
+        ),
+    )
+
+    assert (
+        "the_auth_mode_mismatch_was_classified_in_the_ledger:NO_CLASSIFIED_AUTH_MODE_MISMATCH"
+        in (verdict.failures)
+    )
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"phase": "DISCONNECTED"},
+        {"source": "CORE", "trust_class": "CORE"},
+        {"source": "CORE", "trust_class": "BRIDGE_FILTERED"},
+    ],
+    ids=["wrong phase", "core s own row", "half filtered"],
+)
+def test_only_the_bridge_s_filtered_category_classifies_the_refusal(
+    change: Mapping[str, Any],
+) -> None:
+    """Phase, category and provenance arrive together or they say nothing.
+
+    The whitelist case reads phase and category alone, because for that scenario
+    provenance was settled elsewhere. Here the row has to be the Bridge's, filtered:
+    Core restating a category is not the Bridge having recognised one.
+    """
+
+    verdict = ASSERTER_MODULE.evaluate(
+        auth_mismatch_case(),
+        refused_by_online_authentication(
+            events=(policy_row(), client_row(), mismatch_row(**change))
+        ),
+    )
+
+    assert (
+        "the_auth_mode_mismatch_was_classified_in_the_ledger:NO_CLASSIFIED_AUTH_MODE_MISMATCH"
+        in (verdict.failures)
+    )
+
+
+def test_a_run_that_started_a_second_client_after_the_refusal_made_a_second_attempt() -> None:
+    """One start, placed after the refusal, is the restart the contract forbids.
+
+    The count alone would call this a single attempt, which is why the order is
+    checked against the refusal's own row rather than against how many starts there
+    were.
+    """
+
+    verdict = ASSERTER_MODULE.evaluate(
+        auth_mismatch_case(),
+        refused_by_online_authentication(
+            events=(policy_row(position=1), mismatch_row(position=2), client_row(position=3))
+        ),
+    )
+
+    assert (
+        "the_refusal_left_the_run_on_one_policy_and_one_process:"
+        "PROCESS_OR_POLICY_ROW_AFTER_THE_REFUSAL:SessionProcessStarted" in verdict.failures
+    )
+
+
+def test_a_run_that_froze_a_second_policy_after_the_refusal_re_chose_the_strategy() -> None:
+    """The silent online re-bind, on the record.
+
+    Nothing was added to the ledger for a second client: this run started once, was
+    refused, and then wrote down a different authentication choice. That is the case
+    the single freeze before the start exists to make visible.
+    """
+
+    verdict = ASSERTER_MODULE.evaluate(
+        auth_mismatch_case(),
+        refused_by_online_authentication(
+            events=(mismatch_row(position=1), policy_row(position=2), client_row(position=3))
+        ),
+    )
+
+    assert (
+        "the_refusal_left_the_run_on_one_policy_and_one_process:"
+        "PROCESS_OR_POLICY_ROW_AFTER_THE_REFUSAL:AuthPolicyFrozen" in verdict.failures
+    )
+
+
+def test_two_clients_started_is_two_attempts_even_before_the_refusal() -> None:
+    verdict = ASSERTER_MODULE.evaluate(
+        auth_mismatch_case(),
+        refused_by_online_authentication(
+            events=(
+                policy_row(position=1),
+                client_row(position=2),
+                client_row(position=3),
+                mismatch_row(position=4),
+            )
+        ),
+    )
+
+    assert (
+        "the_refusal_left_the_run_on_one_policy_and_one_process:CLIENT_STARTED_MORE_THAN_ONCE"
+        in (verdict.failures)
+    )
+
+
+@pytest.mark.parametrize(
+    ("change", "reason"),
+    [
+        (
+            {"connection_state": "PLAYABLE", "snapshots_admitted": 1},
+            "no_world_was_joined:SNAPSHOT_ADMITTED",
+        ),
+        (
+            {"connection_state": "PLAYABLE", "snapshots_admitted": 0},
+            "no_world_was_joined:CONNECTION_STATE:PLAYABLE",
+        ),
+    ],
+    ids=["a snapshot admitted", "a state that claims the world"],
+)
+def test_a_run_that_got_in_is_not_this_case(change: Mapping[str, Any], reason: str) -> None:
+    """Every other fact can hold and the case still is not this one.
+
+    The refusal is what the case is about, so a run that reached the world despite the
+    online mode is a different finding — and this is the assertion that says so, rather
+    than a verdict that reads a join as a stronger form of the same answer.
+    """
+
+    verdict = ASSERTER_MODULE.evaluate(
+        auth_mismatch_case(),
+        refused_by_online_authentication(document=run_document(outcome="CLIENT_EXITED", **change)),
+    )
+
+    assert reason in verdict.failures
+
+
+def test_a_ledger_that_cannot_be_read_is_not_a_ledger_that_recorded_nothing() -> None:
+    """The difference between a run that recorded no policy and one whose records are gone."""
+
+    verdict = ASSERTER_MODULE.evaluate(
+        auth_mismatch_case(), refused_by_online_authentication(ledger_readable=False, events=())
+    )
+
+    assert "the_offline_auth_policy_was_frozen_before_the_client_started:LEDGER_UNREADABLE" in (
+        verdict.failures
+    )
+    assert "the_auth_mode_mismatch_was_classified_in_the_ledger:LEDGER_UNREADABLE" in (
+        verdict.failures
+    )
+    assert "the_refusal_left_the_run_on_one_policy_and_one_process:LEDGER_UNREADABLE" in (
+        verdict.failures
     )

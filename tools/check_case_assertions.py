@@ -308,6 +308,25 @@ IMPLEMENTATIONS: dict[str, Implementation] = {
     "the_refusal_was_classified_in_the_ledger": _runtime(
         "the_refusal_was_classified_in_the_ledger"
     ),
+    # ADMIT-040: the four facts the admission contract names for an offline identity
+    # that met a server demanding session verification. Each is its own runtime
+    # assertion rather than a wider version of the whitelist pair above, because that
+    # one compares against the category the whitelist scenario produced.
+    "the_server_this_run_met_required_online_authentication": _runtime(
+        "the_server_this_run_met_required_online_authentication"
+    ),
+    "the_offline_auth_policy_was_frozen_before_the_client_started": _runtime(
+        "the_offline_auth_policy_was_frozen_before_the_client_started"
+    ),
+    "the_frozen_policy_names_the_profile_this_run_dialled": _runtime(
+        "the_frozen_policy_names_the_profile_this_run_dialled"
+    ),
+    "the_auth_mode_mismatch_was_classified_in_the_ledger": _runtime(
+        "the_auth_mode_mismatch_was_classified_in_the_ledger"
+    ),
+    "the_refusal_left_the_run_on_one_policy_and_one_process": _runtime(
+        "the_refusal_left_the_run_on_one_policy_and_one_process"
+    ),
     "the_bridge_classified_the_refusal": _runtime("the_bridge_classified_the_refusal"),
     "the_server_saw_the_kin_turn": _runtime("the_server_saw_the_kin_turn"),
     "the_server_saw_the_block_change": _runtime("the_server_saw_the_block_change"),

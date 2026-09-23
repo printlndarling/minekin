@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "case_id": "ADMIT-040",
+  "work_package": "W40",
+  "mandatory": false,
+  "inputs": [
+    "tests/fixtures/runtime-input/bundle-p0-core-1.21.4.json",
+    "tests/fixtures/runtime-input/controlled-offline-server.json"
+  ],
+  "assertion_digests": {
+    "no_world_was_joined": "ef8c58247cb73ad18aaa6cb9149d567e0d09c6be4459940026189d54059cd2db",
+    "the_auth_mode_mismatch_was_classified_in_the_ledger": "7c4e670f8feb62621521eac40f7be11eead260e7d95e2942b9508da74499bfdc",
+    "the_frozen_policy_names_the_profile_this_run_dialled": "5f0a41bdc0f38a8c3f17824b49061d94d8618205990a94339e2d631de46d7e46",
+    "the_offline_auth_policy_was_frozen_before_the_client_started": "773af314e1b59319d268c307911ed07bd678dd74026f663072f1d48904117e4a",
+    "the_refusal_left_the_run_on_one_policy_and_one_process": "3c6017ad70bb8b8b1e82831f6018019875ab2285715b022544476b367f08e268",
+    "the_server_this_run_met_required_online_authentication": "71359592ec8a4769e9314593bc699140292bd392380c8b6e7cb74d33069685c4"
+  },
+  "assertions": [
+    "the_server_this_run_met_required_online_authentication",
+    "the_offline_auth_policy_was_frozen_before_the_client_started",
+    "the_frozen_policy_names_the_profile_this_run_dialled",
+    "the_auth_mode_mismatch_was_classified_in_the_ledger",
+    "the_refusal_left_the_run_on_one_policy_and_one_process",
+    "no_world_was_joined"
+  ]
+}
