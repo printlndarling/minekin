@@ -424,6 +424,9 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 - `allowed_paths`:
   - `bridge/src/main/java/org/minekin/bridge/runtime/ClientAdmissionController.java`
   - `bridge/src/test/java/org/minekin/bridge/runtime/ClientAdmissionControllerTest.java`
+  - `bridge/src/main/java/org/minekin/bridge/mixin/LoginDisconnectMixin.java`
+  - `bridge/src/main/java/org/minekin/bridge/MinekinBridgeClient.java` (login disconnect
+    event wiring and client tick only)
   - `src/minekin_core/adapters/launcher/recipe.py` (Bridge JAR SHA-256 and byte size only)
   - `tests/fixtures/runtime-input/bundle-p0-core-1.21.4.json` (Bridge artifact SHA-256,
     byte size and source tree digest only)
@@ -431,7 +434,7 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
   - `tests/fixtures/manifest.sha256` (changed fixture digest entries only)
   - `docs/development-execution-plan.md`
   - `docs/development-todo.md`
-- `forbidden_paths`: protobuf/枚举及生成物、其他分类器或 mixin、runner、
+- `forbidden_paths`: protobuf/枚举及生成物、其他 mixin、runner、
   case registry/assertions、CI 配置及无关生产代码。
 - `non_goals`: 不改变默认离线身份策略，不绕过在线认证，不自动启用账号适配器，
   不伪造 ADMIT-040 的正式 PASS；该 case 的后半判据与 fixture 仍需单独冻结。
@@ -450,6 +453,14 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
   漏列了两个 pin 文件。更新配方后，`pytest -x` 又准确显示 `CORE-001` 的配方输入
   digest 不匹配；冻结 fixture 清单也绑定配方和 CORE-001。新增两个精确 pin 路径；
   只开放上述字段，不扩大认证行为或 case 判据。
+- `runtime_root_cause` (2026-09-23): 重建的 overlay JAR SHA-256 与新 pin 一致，
+  但受控复跑 `5fdf18637dd2482f95b031f94d52c4c7` 仍报 `UNEXPECTED_DISCONNECT`。
+  同一客户端日志中，网络线程先写 `bridge classified the login failure as
+  ...UNEXPECTED_DISCONNECT`，渲染线程随后写 `bridge observed a login disconnect:
+  Failed to log in: Invalid session ...`；没有 `onDisconnect ... from the server`
+  的 packet-hook 记录。故分类器已有文案也来不及使用。开放上述两个精确 wiring
+  文件，须把 Fabric login DISCONNECT 与 vanilla `onDisconnected` 的同一 handler
+  关联后再报终态；旧 handler 晚到不得污染新 generation。重新构建后重算全部 pin。
 
 ### HOST-ADMISSION-DESIGN-001 — 宿主世界会话坐标来源
 
