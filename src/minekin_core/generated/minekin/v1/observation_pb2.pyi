@@ -1,3 +1,4 @@
+from minekin_core.generated.minekin.v1 import control_pb2 as _control_pb2
 from minekin_core.generated.minekin.v1 import session_pb2 as _session_pb2
 from google.protobuf.internal import containers as _containers
 from google.protobuf.internal import enum_type_wrapper as _enum_type_wrapper
@@ -88,20 +89,22 @@ class HostLifecycle(_message.Message):
     def __init__(self, request_id: _Optional[str] = ..., generation: _Optional[int] = ..., phase: _Optional[_Union[HostPhase, str]] = ..., bound_port: _Optional[int] = ...) -> None: ...
 
 class ConnectionLifecycle(_message.Message):
-    __slots__ = ("generation", "server_profile_id", "server_profile_revision", "phase", "failure_reason", "terminal")
+    __slots__ = ("generation", "server_profile_id", "server_profile_revision", "phase", "failure_reason", "terminal", "applied_resource_pack_policy")
     GENERATION_FIELD_NUMBER: _ClassVar[int]
     SERVER_PROFILE_ID_FIELD_NUMBER: _ClassVar[int]
     SERVER_PROFILE_REVISION_FIELD_NUMBER: _ClassVar[int]
     PHASE_FIELD_NUMBER: _ClassVar[int]
     FAILURE_REASON_FIELD_NUMBER: _ClassVar[int]
     TERMINAL_FIELD_NUMBER: _ClassVar[int]
+    APPLIED_RESOURCE_PACK_POLICY_FIELD_NUMBER: _ClassVar[int]
     generation: int
     server_profile_id: str
     server_profile_revision: str
     phase: ConnectionPhase
     failure_reason: AdmissionFailureReason
     terminal: bool
-    def __init__(self, generation: _Optional[int] = ..., server_profile_id: _Optional[str] = ..., server_profile_revision: _Optional[str] = ..., phase: _Optional[_Union[ConnectionPhase, str]] = ..., failure_reason: _Optional[_Union[AdmissionFailureReason, str]] = ..., terminal: bool = ...) -> None: ...
+    applied_resource_pack_policy: _control_pb2.ResourcePackPolicy
+    def __init__(self, generation: _Optional[int] = ..., server_profile_id: _Optional[str] = ..., server_profile_revision: _Optional[str] = ..., phase: _Optional[_Union[ConnectionPhase, str]] = ..., failure_reason: _Optional[_Union[AdmissionFailureReason, str]] = ..., terminal: bool = ..., applied_resource_pack_policy: _Optional[_Union[_control_pb2.ResourcePackPolicy, str]] = ...) -> None: ...
 
 class CallbackBudgetWindow(_message.Message):
     __slots__ = ("label", "window", "opened_at_nanos", "recorded", "micros")

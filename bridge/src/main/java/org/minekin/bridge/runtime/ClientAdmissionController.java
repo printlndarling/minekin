@@ -520,6 +520,10 @@ public final class ClientAdmissionController {
         ServerInfo server = new ServerInfo(
                 command.getServerProfileId(), address.toString(), ServerInfo.ServerType.OTHER);
         server.setResourcePackPolicy(resourcePackPolicy(command.getResourcePackPolicy()));
+        // Read back rather than echoed: what this generation will ask the world for
+        // is whatever the record handed to the vanilla connect path now says, so a
+        // build that applied something else reports that something else.
+        ServerInfo.ResourcePackPolicy appliedPackPolicy = server.getResourcePackPolicy();
         parentScreen = client.currentScreen != null ? client.currentScreen : new TitleScreen();
         LOGGER.info(
                 "bridge asked vanilla to connect to {} for generation {} (finishedLoading={}, "
@@ -531,9 +535,11 @@ public final class ClientAdmissionController {
                 client.getOverlay() == null ? "none" : client.getOverlay().getClass().getSimpleName());
         try {
             publish(
+                    activeGeneration,
                     ConnectionPhase.CONNECTION_PHASE_RESOLVING,
                     AdmissionFailureReason.ADMISSION_FAILURE_REASON_UNSPECIFIED,
-                    false);
+                    false,
+                    reportedResourcePackPolicy(appliedPackPolicy));
             ConnectScreen.connect(
                     parentScreen,
                     client,
@@ -598,6 +604,20 @@ public final class ClientAdmissionController {
             ConnectionPhase phase,
             AdmissionFailureReason failureReason,
             boolean terminal) {
+        publish(
+                generation,
+                phase,
+                failureReason,
+                terminal,
+                ResourcePackPolicy.RESOURCE_PACK_POLICY_UNSPECIFIED);
+    }
+
+    private void publish(
+            long generation,
+            ConnectionPhase phase,
+            AdmissionFailureReason failureReason,
+            boolean terminal,
+            ResourcePackPolicy appliedResourcePackPolicy) {
         if (generation == 0 || activeProfileId == null || activeProfileRevision == null) {
             throw new IllegalStateException("connection lifecycle has no active profile binding");
         }
@@ -608,6 +628,7 @@ public final class ClientAdmissionController {
                 .setPhase(phase)
                 .setFailureReason(failureReason)
                 .setTerminal(terminal)
+                .setAppliedResourcePackPolicy(appliedResourcePackPolicy)
                 .build();
         if (!lifecycleSink.test(lifecycle)) {
             throw new IllegalStateException("connection lifecycle event was rejected");
@@ -653,6 +674,23 @@ public final class ClientAdmissionController {
             case RESOURCE_PACK_POLICY_DENY -> ServerInfo.ResourcePackPolicy.DISABLED;
             case RESOURCE_PACK_POLICY_PROMPT -> ServerInfo.ResourcePackPolicy.PROMPT;
             default -> throw new IllegalArgumentException("resource pack policy is not actionable");
+        };
+    }
+
+    /**
+     * The policy of the record vanilla is connecting with, in the wire's own words.
+     *
+     * <p>It is the reverse of {@link #resourcePackPolicy} on purpose: the two together
+     * are what makes the report a reading rather than a restatement, and a default
+     * here is a policy this build cannot name on the wire, which is a fact about the
+     * client rather than a value to guess at.
+     */
+    static ResourcePackPolicy reportedResourcePackPolicy(ServerInfo.ResourcePackPolicy policy) {
+        return switch (policy) {
+            case DISABLED -> ResourcePackPolicy.RESOURCE_PACK_POLICY_DENY;
+            case PROMPT -> ResourcePackPolicy.RESOURCE_PACK_POLICY_PROMPT;
+            default -> throw new IllegalStateException(
+                    "vanilla resource pack policy is not reportable");
         };
     }
 }

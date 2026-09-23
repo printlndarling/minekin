@@ -22,6 +22,7 @@ import io.minekin.protocol.v1.MoveInput;
 import io.minekin.protocol.v1.OpenLan;
 import io.minekin.protocol.v1.ProtocolVersion;
 import io.minekin.protocol.v1.ReleaseAllInputs;
+import io.minekin.protocol.v1.ResourcePackPolicy;
 import io.minekin.protocol.v1.UseInput;
 import java.io.IOException;
 import java.net.SocketTimeoutException;
@@ -782,7 +783,12 @@ public final class BridgeIpcWorker implements AutoCloseable {
                 || !lifecycle.getServerProfileRevision().matches("[0-9a-f]{64}")
                 || lifecycle.getPhase() == ConnectionPhase.CONNECTION_PHASE_UNSPECIFIED
                 || lifecycle.getPhase() == ConnectionPhase.UNRECOGNIZED
-                || lifecycle.getFailureReason() == AdmissionFailureReason.UNRECOGNIZED) {
+                || lifecycle.getFailureReason() == AdmissionFailureReason.UNRECOGNIZED
+                // Same rule as the reason: a policy this build cannot name is not a
+                // value to send and let Core guess about. UNSPECIFIED means "this
+                // report says nothing about a policy", which is its own legitimate
+                // message, so only UNRECOGNIZED is refused here.
+                || lifecycle.getAppliedResourcePackPolicy() == ResourcePackPolicy.UNRECOGNIZED) {
             return false;
         }
         boolean terminalPhase = switch (lifecycle.getPhase()) {

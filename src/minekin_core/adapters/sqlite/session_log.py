@@ -58,6 +58,12 @@ INPUT_RELEASED = "InputReleased"
 #: single field would keep only the last answer.
 INPUT_REFUSED = "InputRefused"
 SESSION_INTERRUPTED = "SessionInterrupted"
+#: Which resource-pack policy the connection of one generation was actually created
+#: with, as the Bridge read it off the record it handed to the client. Its own event
+#: rather than a field on the run document, because the document keeps one answer per
+#: name and this is a fact per attempt: every value a run reported is a row, so a
+#: reader can see two of them rather than being shown only the last.
+RESOURCE_PACK_POLICY_APPLIED = "ResourcePackPolicyApplied"
 CLIENT_EXITED = "ClientProcessExited"
 SESSION_STATE_TRANSITIONED = "SessionStateTransitioned"
 
@@ -73,6 +79,7 @@ SESSION_EVENT_TYPES = frozenset(
         INPUT_RELEASED,
         INPUT_REFUSED,
         SESSION_INTERRUPTED,
+        RESOURCE_PACK_POLICY_APPLIED,
         CLIENT_EXITED,
         SESSION_STATE_TRANSITIONED,
     }

@@ -25,7 +25,7 @@ from minekin_core.domain.connection import (
     ConnectionSignal,
 )
 from minekin_core.domain.ids import Generation
-from minekin_core.generated.minekin.v1 import observation_pb2
+from minekin_core.generated.minekin.v1 import control_pb2, observation_pb2
 
 # Cancellation is not a phase that advances anything: the Bridge has already
 # invalidated that generation, so Core closes its own copy of the attempt.
@@ -52,6 +52,19 @@ _PHASE_SIGNALS: Final[MappingProxyType[int, ConnectionSignal]] = MappingProxyTyp
 
 _NO_REASON: Final[int] = observation_pb2.ADMISSION_FAILURE_REASON_UNSPECIFIED
 _CANCELLED: Final[int] = observation_pb2.ADMISSION_FAILURE_REASON_CANCELLED
+#: A report that names no resource-pack policy. It is the absent case rather than
+#: a value: an older Bridge, or a phase that did not create a connection, says
+#: nothing here and must not be read as "deny".
+_NO_POLICY: Final[int] = control_pb2.RESOURCE_PACK_POLICY_UNSPECIFIED
+#: The policies this build can say on the wire, as the ledger spells them — the same
+#: two lowercase tokens a trusted Server Profile uses, so the judge compares the
+#: record it sealed with the fact this run reported and needs no third vocabulary.
+_POLICY_TOKENS: Final[MappingProxyType[int, str]] = MappingProxyType(
+    {
+        control_pb2.RESOURCE_PACK_POLICY_DENY: "deny",
+        control_pb2.RESOURCE_PACK_POLICY_PROMPT: "prompt",
+    }
+)
 _KNOWN_PHASES: Final[frozenset[int]] = frozenset(observation_pb2.ConnectionPhase.values())
 _KNOWN_REASONS: Final[frozenset[int]] = frozenset(observation_pb2.AdmissionFailureReason.values())
 _TERMINAL_PHASES: Final[frozenset[int]] = frozenset(
@@ -73,6 +86,10 @@ class LifecycleDisposition(StrEnum):
     FOREIGN_PROFILE = "FOREIGN_PROFILE"
     UNKNOWN_PHASE = "UNKNOWN_PHASE"
     UNKNOWN_REASON = "UNKNOWN_REASON"
+    #: The report named a resource-pack policy this build cannot say. Its phase
+    #: may be perfectly readable, but a report that cannot be read in one part is
+    #: not a report whose other parts are known good.
+    UNKNOWN_POLICY = "UNKNOWN_POLICY"
     MISPAIRED_REASON = "MISPAIRED_REASON"
     INVALID_GENERATION = "INVALID_GENERATION"
 
@@ -82,6 +99,10 @@ class AdmissionOutcome:
     disposition: LifecycleDisposition
     decision: CallbackDecision | None = None
     failure_reason: str = ""
+    #: The resource-pack policy the report named, as the ledger spells it. Empty
+    #: when the report named none, which is the ordinary case: only the report
+    #: that created a connection carries one.
+    resource_pack_policy: str = ""
 
     @property
     def accepted(self) -> bool:
@@ -104,6 +125,9 @@ def apply_lifecycle(
         return AdmissionOutcome(LifecycleDisposition.UNKNOWN_REASON)
     if not _reason_belongs_to_phase(phase, reason, lifecycle.terminal):
         return AdmissionOutcome(LifecycleDisposition.MISPAIRED_REASON)
+    policy = _policy_token(lifecycle.applied_resource_pack_policy)
+    if policy is None:
+        return AdmissionOutcome(LifecycleDisposition.UNKNOWN_POLICY)
     try:
         # The report's own generation, never the active one: a late report from
         # a closed generation is expected, and reading it as current is how a
@@ -126,17 +150,19 @@ def apply_lifecycle(
             LifecycleDisposition.CLOSED,
             connections.close(generation),
             _reason_token(reason),
+            policy,
         )
 
     if phase == PLAYABLE_PHASE:
         # Known, checked, and deliberately not acted on: see `PLAYABLE_PHASE`.
-        return AdmissionOutcome(LifecycleDisposition.WITHHELD, None, _reason_token(reason))
+        return AdmissionOutcome(LifecycleDisposition.WITHHELD, None, _reason_token(reason), policy)
 
     decision = connections.apply(generation, _PHASE_SIGNALS[phase])
     return AdmissionOutcome(
         LifecycleDisposition.APPLIED,
         decision,
         _reason_token(reason),
+        policy,
     )
 
 
@@ -174,3 +200,16 @@ def _reason_token(reason: int) -> str:
     if reason == _NO_REASON:
         return ""
     return observation_pb2.AdmissionFailureReason.Name(reason)
+
+
+def _policy_token(policy: int) -> str | None:
+    """The report's resource-pack policy as a ledger token, or why it has none.
+
+    `None` is a refusal: a value this build cannot name is not a policy to guess
+    at, and recording a guess would put a fact about the client's connection in
+    the ledger that nobody reported.
+    """
+
+    if policy == _NO_POLICY:
+        return ""
+    return _POLICY_TOKENS.get(policy)

@@ -57,6 +57,7 @@ from minekin_core.adapters.sqlite.session_log import (
     JOIN_OBSERVED,
     PLAYABLE_ESTABLISHED,
     PROCESS_STARTED,
+    RESOURCE_PACK_POLICY_APPLIED,
     SESSION_INTERRUPTED,
     SESSION_STATE_TRANSITIONED,
 )
@@ -450,12 +451,18 @@ def _lifecycle(
     bridge: BridgeSession,
     command: control_pb2.ConnectWorld,
     phase: observation_pb2.ConnectionPhase,
+    *,
+    policy: control_pb2.ResourcePackPolicy | None = None,
 ) -> observation_pb2.ConnectionLifecycle:
     """One phase report, naming the profile the command named.
 
     A report that named another profile would be describing somebody else's
     connection, and Core refusing it is the point of the binding — so the fake
     client here echoes back what it was actually told, the way a real one would.
+
+    `policy` is the exception to that echo: the resource-pack policy a real Bridge
+    reports is the one it read off the server record it built, so the fake names
+    one only when the scenario says it did, and nothing otherwise.
     """
 
     return observation_pb2.ConnectionLifecycle(
@@ -465,6 +472,9 @@ def _lifecycle(
         phase=phase,
         failure_reason=observation_pb2.ADMISSION_FAILURE_REASON_UNSPECIFIED,
         terminal=False,
+        applied_resource_pack_policy=(
+            control_pb2.RESOURCE_PACK_POLICY_UNSPECIFIED if policy is None else policy
+        ),
     )
 
 
@@ -531,6 +541,11 @@ def test_a_named_server_profile_becomes_one_connect_command(
         command = control_pb2.ConnectWorld.FromString(frame.payload)
 
         for sequence, phase in enumerate(CONNECTED_PHASES, start=1):
+            # The policy is named on the one report that created the connection,
+            # which is the phase a real Bridge reads it back at. The value here is
+            # the fake's own reading rather than a copy of the command's; what
+            # Core made of it is asserted against the profile below.
+            read_back = control_pb2.RESOURCE_PACK_POLICY_DENY if sequence == 1 else None
             await write_frame(
                 event_writer,
                 envelope(
@@ -538,7 +553,9 @@ def test_a_named_server_profile_becomes_one_connect_command(
                     CONNECTION_LIFECYCLE_TYPE,
                     envelope_pb2.CHANNEL_EVENT,
                     sequence,
-                    _lifecycle(bridge, command, phase).SerializeToString(deterministic=True),
+                    _lifecycle(bridge, command, phase, policy=read_back).SerializeToString(
+                        deterministic=True
+                    ),
                 ),
             )
 
@@ -589,6 +606,7 @@ def test_a_named_server_profile_becomes_one_connect_command(
         AUTH_POLICY_FROZEN,
         PROCESS_STARTED,
         HELLO_ACCEPTED,
+        RESOURCE_PACK_POLICY_APPLIED,
         JOIN_OBSERVED,
         PLAYABLE_ESTABLISHED,
         CLIENT_EXITED,
@@ -598,8 +616,17 @@ def test_a_named_server_profile_becomes_one_connect_command(
     # recorded as Core's. §6 says a trust class may not be self-declared, and
     # naming the Bridge as the source of Core's verdict would be exactly that.
     observed_rows = [row for row in rows if row[0] != SESSION_STATE_TRANSITIONED]
-    assert observed_rows[3] == (JOIN_OBSERVED, "BRIDGE", "BRIDGE_FILTERED")
-    assert observed_rows[4] == (PLAYABLE_ESTABLISHED, "CORE", "CORE")
+    assert observed_rows[3] == (RESOURCE_PACK_POLICY_APPLIED, "BRIDGE", "BRIDGE_FILTERED")
+    assert observed_rows[4] == (JOIN_OBSERVED, "BRIDGE", "BRIDGE_FILTERED")
+    assert observed_rows[5] == (PLAYABLE_ESTABLISHED, "CORE", "CORE")
+    # The stored fact is the one the Bridge named, and it is compared against the
+    # profile rather than against the command Core sent: a run that connected with
+    # a different policy has to show that, which is the whole reason the field
+    # exists. One row per named report, with no merging, so the run's own answers
+    # stay readable instead of being reduced to a verdict here.
+    assert _ledger_payloads_of(database, RESOURCE_PACK_POLICY_APPLIED) == [
+        {"generation": GENERATION, "resource_pack_policy": profile.resource_pack_policy}
+    ]
     # These two writes come from the event reader, which the session cancels on
     # its way out — the first writes the runtime had ever made from a task that
     # gets cancelled. A writer interrupted mid-close used to strand its
@@ -837,6 +864,20 @@ def _ledger_payloads(database: Path) -> list[str]:
     finally:
         connection.close()
     return [str(row[0]) for row in rows]
+
+
+def _ledger_payloads_of(database: Path, event_type: str) -> list[dict[str, Any]]:
+    """The parsed payloads of one event type, in the order the ledger holds them."""
+
+    connection = sqlite3.connect(database)
+    try:
+        rows = connection.execute(
+            "SELECT payload_json FROM event WHERE event_type = ? ORDER BY position",
+            (event_type,),
+        ).fetchall()
+    finally:
+        connection.close()
+    return [cast(dict[str, Any], json.loads(str(row[0]))) for row in rows]
 
 
 def test_a_rejected_login_reaches_the_ledger_with_its_category(

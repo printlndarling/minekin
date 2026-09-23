@@ -14,7 +14,7 @@ from minekin_core.domain.connection import (
     ConnectionState,
 )
 from minekin_core.domain.ids import Generation, OpaqueId
-from minekin_core.generated.minekin.v1 import observation_pb2
+from minekin_core.generated.minekin.v1 import control_pb2, observation_pb2
 
 PROFILE = OpaqueId("p0-controlled-offline-loopback")
 REVISION = "a" * 64
@@ -60,6 +60,7 @@ def report(
     terminal: bool | None = None,
     profile_id: str = str(PROFILE),
     revision: str = REVISION,
+    policy: int = control_pb2.RESOURCE_PACK_POLICY_UNSPECIFIED,
 ) -> observation_pb2.ConnectionLifecycle:
     return observation_pb2.ConnectionLifecycle(
         generation=generation,
@@ -68,6 +69,7 @@ def report(
         phase=phase,  # type: ignore[arg-type]
         failure_reason=reason,  # type: ignore[arg-type]
         terminal=phase in TERMINAL_PHASES if terminal is None else terminal,
+        applied_resource_pack_policy=policy,  # type: ignore[arg-type]
     )
 
 
@@ -306,5 +308,87 @@ def test_a_late_report_from_the_previous_generation_cannot_move_the_new_one() ->
     assert late.decision is not None
     assert late.decision.disposition is CallbackDisposition.STALE_GENERATION
     assert not late.decision.changed_state
+    assert connections.active is not None
+    assert connections.active.state is ConnectionState.REQUEST_ACCEPTED
+
+
+@pytest.mark.parametrize(
+    ("wire_policy", "token"),
+    [
+        (control_pb2.RESOURCE_PACK_POLICY_DENY, "deny"),
+        (control_pb2.RESOURCE_PACK_POLICY_PROMPT, "prompt"),
+    ],
+)
+def test_a_named_resource_pack_policy_is_carried_through_as_a_stable_token(
+    wire_policy: int,
+    token: str,
+) -> None:
+    """The policy reaches Core as the ledger's own spelling, not as a re-derivation.
+
+    `deny` and `prompt` are the two tokens a trusted Server Profile uses, so the
+    judge can compare the profile it sealed with the fact this run reported
+    without a third vocabulary that could drift from both.
+    """
+
+    connections = ConnectionGenerations()
+    connections.begin(PROFILE, REVISION)
+
+    outcome = apply_lifecycle(connections, report(RESOLVING, policy=wire_policy))
+
+    assert outcome.disposition is LifecycleDisposition.APPLIED
+    assert outcome.resource_pack_policy == token
+
+
+def test_a_report_that_names_no_resource_pack_policy_says_nothing_about_one() -> None:
+    """The absent case is a phase that did not create a connection, not "deny".
+
+    Every phase after the first names nothing, and a Bridge from before this
+    field existed names nothing at all. Reading either as a policy would put a
+    fact about the client's connection in the ledger that nobody reported.
+    """
+
+    connections = ConnectionGenerations()
+    connections.begin(PROFILE, REVISION)
+
+    unnamed = apply_lifecycle(connections, report(LOGIN_NEGOTIATING))
+
+    assert unnamed.disposition is LifecycleDisposition.APPLIED
+    assert unnamed.resource_pack_policy == ""
+
+
+def test_a_resource_pack_policy_is_carried_by_every_report_that_names_one() -> None:
+    """No dedupe here: two reports that name a policy are two facts.
+
+    An attempt normally names its policy once, but a run that reported two
+    different values must show both rather than keep whichever Core saw first.
+    Deciding what a pair of values means is the reader's job; silently merging
+    them would be Core's opinion.
+    """
+
+    connections = ConnectionGenerations()
+    connections.begin(PROFILE, REVISION)
+
+    first = apply_lifecycle(
+        connections, report(RESOLVING, policy=control_pb2.RESOURCE_PACK_POLICY_DENY)
+    )
+    second = apply_lifecycle(
+        connections, report(LOGIN_NEGOTIATING, policy=control_pb2.RESOURCE_PACK_POLICY_PROMPT)
+    )
+
+    assert first.resource_pack_policy == "deny"
+    assert second.resource_pack_policy == "prompt"
+
+
+def test_an_unknown_resource_pack_policy_is_rejected_before_state_changes() -> None:
+    """A report this build cannot read in one part is not readable in the others."""
+
+    connections = ConnectionGenerations()
+    connections.begin(PROFILE, REVISION)
+
+    outcome = apply_lifecycle(connections, report(RESOLVING, policy=123_456))
+
+    assert outcome.disposition is LifecycleDisposition.UNKNOWN_POLICY
+    assert outcome.decision is None
+    assert outcome.resource_pack_policy == ""
     assert connections.active is not None
     assert connections.active.state is ConnectionState.REQUEST_ACCEPTED

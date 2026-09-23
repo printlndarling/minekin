@@ -88,6 +88,7 @@ def test_connection_lifecycle_has_stable_failure_reasons_but_no_server_text() ->
         "phase": 4,
         "failure_reason": 5,
         "terminal": 6,
+        "applied_resource_pack_policy": 7,
     }
     assert "ADMISSION_FAILURE_REASON_WHITELIST_REJECTED" in reasons
     assert "ADMISSION_FAILURE_REASON_RESOURCE_PACK_BLOCKED" in reasons

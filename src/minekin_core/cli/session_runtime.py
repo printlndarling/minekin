@@ -238,6 +238,7 @@ async def supervise_session(
     on_connection: Callable[[ConnectionState, str], Awaitable[None]] | None = None,
     on_transition: TransitionRecorder | None = None,
     on_playable: Callable[[], Awaitable[None]] | None = None,
+    on_resource_pack_policy: Callable[[int, str], Awaitable[None]] | None = None,
     on_wind_down: Callable[[], Awaitable[None]] | None = None,
     until_input_release: Callable[[], Awaitable[object]] | None = None,
     on_input_release: Callable[[], Awaitable[None]] | None = None,
@@ -263,6 +264,12 @@ async def supervise_session(
     send one, because which movement, under which lease and for how long are all
     decisions this module has no inputs for. It is awaited in the reader, so it is
     a command being sent rather than something being waited for.
+
+    `on_resource_pack_policy` runs for every accepted report that names the
+    resource-pack policy its connection was created with. The runtime does not
+    decide what that fact is worth or where it is kept — it is the Bridge's word
+    about the client's own connection, and only the caller can say which source to
+    record it under.
 
     `until_input_release` completes when the caller's authorisation to drive the
     client should end, and `on_input_release` is what it does about that. The
@@ -328,6 +335,7 @@ async def supervise_session(
                     on_transition,
                     on_playable,
                     recorded,
+                    on_resource_pack_policy,
                 ),
                 name="minekin-bridge-events",
             )
@@ -454,6 +462,7 @@ async def _read_events(
     on_transition: TransitionRecorder | None,
     on_playable: Callable[[], Awaitable[None]] | None,
     recorded: RecordedSessionMaterial | None,
+    on_resource_pack_policy: Callable[[int, str], Awaitable[None]] | None = None,
 ) -> None:
     """Apply every reported phase until the channel ends or the run is cancelled."""
 
@@ -546,6 +555,15 @@ async def _read_events(
         outcome = apply_lifecycle(connections, message)
         if outcome.accepted:
             progress.applied += 1
+        if (
+            outcome.accepted
+            and outcome.resource_pack_policy
+            and on_resource_pack_policy is not None
+        ):
+            # The Bridge's own word about the record its client connected with,
+            # handed over before anything else is done with the report: a later
+            # branch that stops at `decision is None` would otherwise drop it.
+            await on_resource_pack_policy(int(message.generation), outcome.resource_pack_policy)
         decision = outcome.decision
         if decision is None:
             continue

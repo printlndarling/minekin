@@ -2,6 +2,7 @@ syntax = "proto3";
 
 package minekin.v1;
 
+import "minekin/v1/control.proto";
 import "minekin/v1/session.proto";
 
 option java_multiple_files = true;
@@ -75,6 +76,13 @@ message ConnectionLifecycle {
   ConnectionPhase phase = 4;
   AdmissionFailureReason failure_reason = 5;
   bool terminal = 6;
+  // Which resource-pack policy this generation's connection was actually created
+  // with, named by the Bridge and not by the command it was given: the value is
+  // read back off the server record handed to the vanilla connect path. A report
+  // that leaves it UNSPECIFIED says nothing, so an older Bridge cannot invent a
+  // fact, and a build that ignores the policy it was asked for reports the value
+  // it applied instead of hiding it.
+  ResourcePackPolicy applied_resource_pack_policy = 7;
 }
 
 // The Bridge's own cost on the client thread over one window.

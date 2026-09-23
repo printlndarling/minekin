@@ -8,8 +8,10 @@ import io.minekin.protocol.v1.ConnectWorld;
 import io.minekin.protocol.v1.ConnectionLifecycle;
 import io.minekin.protocol.v1.ConnectionPhase;
 import io.minekin.protocol.v1.InitialObservation;
+import io.minekin.protocol.v1.ResourcePackPolicy;
 import java.util.ArrayList;
 import java.util.List;
+import net.minecraft.client.network.ServerInfo;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -99,7 +101,30 @@ final class ClientAdmissionControllerTest {
                     AdmissionFailureReason.ADMISSION_FAILURE_REASON_UNSPECIFIED,
                     lifecycle.getFailureReason());
             assertTrue(!lifecycle.getTerminal(), "only an ending is terminal");
+            // Only the report that creates the connection has a policy to name. A
+            // later phase that named one would be reporting a second opinion about
+            // the same server record, and Core records every value it is given.
+            assertEquals(
+                    ResourcePackPolicy.RESOURCE_PACK_POLICY_UNSPECIFIED,
+                    lifecycle.getAppliedResourcePackPolicy(),
+                    "a phase after the connection was created names no policy");
         }
+    }
+
+    @Test
+    void thePolicyVanillaConnectsWithIsReportedInItsOwnWireWords() {
+        // The two names are the whole vocabulary this build can read off a server
+        // record and put on the wire. They are asserted against the record's own
+        // enum rather than a literal so the pairing cannot be re-labelled in one
+        // place only.
+        assertEquals(
+                ResourcePackPolicy.RESOURCE_PACK_POLICY_DENY,
+                ClientAdmissionController.reportedResourcePackPolicy(
+                        ServerInfo.ResourcePackPolicy.DISABLED));
+        assertEquals(
+                ResourcePackPolicy.RESOURCE_PACK_POLICY_PROMPT,
+                ClientAdmissionController.reportedResourcePackPolicy(
+                        ServerInfo.ResourcePackPolicy.PROMPT));
     }
 
     @Test

@@ -80,6 +80,7 @@ from minekin_core.adapters.sqlite.session_log import (
     INPUT_RELEASED,
     JOIN_OBSERVED,
     PLAYABLE_ESTABLISHED,
+    RESOURCE_PACK_POLICY_APPLIED,
     SESSION_INTERRUPTED,
     SESSION_STATE_TRANSITIONED,
     SessionEventLog,
@@ -1413,6 +1414,18 @@ async def start_and_supervise(
             # request for input made before there was anything to drive.
             await present_the_plan(state.value)
 
+    async def on_resource_pack_policy(generation: int, policy: str) -> None:
+        await record(
+            RESOURCE_PACK_POLICY_APPLIED,
+            {"generation": generation, "resource_pack_policy": policy},
+            # The Bridge read this off the record its own client connected with, so
+            # it is the Bridge's filtered word and not Core's inference from the
+            # command Core sent: the whole point of the row is that a build which
+            # applied something else would have to report that something else.
+            source=EventSource.BRIDGE,
+            trust_class=TrustClass.BRIDGE_FILTERED,
+        )
+
     async def until_client_exit() -> None:
         while prepared.supervisor.running():
             await asyncio.sleep(exit_poll_s)
@@ -1438,6 +1451,7 @@ async def start_and_supervise(
         on_connection=on_connection,
         on_transition=record_transition,
         on_playable=on_playable,
+        on_resource_pack_policy=on_resource_pack_policy,
         on_wind_down=on_wind_down,
         # Only when a hold was asked for: with no lease there is no moment, and a
         # watcher that never completes is a task that exists to be cancelled.
