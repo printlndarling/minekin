@@ -64,7 +64,10 @@ public final class ClientAdmissionController {
     public void collectSnapshotWhenPlayable(MinecraftClient client) {}
     public void tickConnect(MinecraftClient client) {}
     public void reportPendingConnectFailure() {}
+    public void reportPendingLoginFailure() {}
     public void loginNegotiating() {}
+    public void loginNegotiating(Object handler) {}
+    public void loginFailurePending(Object handler) {}
     public void playInit() {}
     public void joinSeen() {}
     public void loginFailed() {}

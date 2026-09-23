@@ -134,11 +134,12 @@ public final class MinekinBridgeClient implements ClientModInitializer {
                                 created,
                                 BridgeInputController.ReleaseReason.BRIDGE_FAULT);
                     }
-                    // A connection the client gave up on, classified on the thread
-                    // that caught it. Nothing else fires for one: the failure happens
-                    // before a login handler exists.
+                    // Finish pending connection failures and login failures on the
+                    // client tick. The latter waits for vanilla's reason callback,
+                    // which can arrive after Fabric's network-thread disconnect event.
                     try {
                         controller.reportPendingConnectFailure();
+                        controller.reportPendingLoginFailure();
                     } catch (RuntimeException error) {
                         stopSafely(
                                 client,
@@ -179,9 +180,9 @@ public final class MinekinBridgeClient implements ClientModInitializer {
         // would come out of the packet handler, so a fault here stops the Bridge
         // the same way a fault on the tick does.
         ClientLoginConnectionEvents.INIT.register((handler, client) -> observe(
-                client, controller, created, controller::loginNegotiating));
+                client, controller, created, () -> controller.loginNegotiating(handler)));
         ClientLoginConnectionEvents.DISCONNECT.register((handler, client) -> observe(
-                client, controller, created, controller::loginFailed));
+                client, controller, created, () -> controller.loginFailurePending(handler)));
         ClientPlayConnectionEvents.INIT.register((handler, client) -> observe(
                 client, controller, created, controller::playInit));
         ClientPlayConnectionEvents.JOIN.register((handler, sender, client) -> observe(

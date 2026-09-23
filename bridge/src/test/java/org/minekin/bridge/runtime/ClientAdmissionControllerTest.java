@@ -117,6 +117,52 @@ final class ClientAdmissionControllerTest {
     }
 
     @Test
+    void aLoginFailureWaitsForTheReasonFromItsOwnHandler() {
+        Object handler = new Object();
+        beginAttempt();
+        controller.loginNegotiating(handler);
+        reported.clear();
+
+        controller.loginFailurePending(handler);
+        controller.reportPendingLoginFailure();
+        assertTrue(reported.isEmpty(), "the network event arrives before vanilla's reason callback");
+
+        ClientAdmissionController.rememberLoginDisconnected(
+                handler, "Failed to log in: Invalid session (Try restarting your game and the launcher)");
+        controller.reportPendingLoginFailure();
+        ConnectionLifecycle lifecycle = only();
+        assertEquals(ConnectionPhase.CONNECTION_PHASE_FAILED, lifecycle.getPhase());
+        assertEquals(
+                AdmissionFailureReason.ADMISSION_FAILURE_REASON_AUTH_MODE_MISMATCH,
+                lifecycle.getFailureReason());
+        assertTrue(lifecycle.getTerminal());
+    }
+
+    @Test
+    void aLateReasonFromAnotherHandlerCannotFinishTheCurrentLogin() {
+        Object oldHandler = new Object();
+        Object currentHandler = new Object();
+        beginAttempt();
+        controller.loginNegotiating(oldHandler);
+        controller.loginFailed();
+        reported.clear();
+
+        beginAttempt();
+        controller.loginNegotiating(currentHandler);
+        reported.clear();
+        controller.loginFailurePending(currentHandler);
+        ClientAdmissionController.rememberLoginDisconnected(oldHandler, "Invalid session");
+        controller.reportPendingLoginFailure();
+        assertTrue(reported.isEmpty(), "another connection's reason cannot finish this one");
+
+        ClientAdmissionController.rememberLoginDisconnected(currentHandler, "Server is restarting");
+        controller.reportPendingLoginFailure();
+        assertEquals(
+                AdmissionFailureReason.ADMISSION_FAILURE_REASON_UNEXPECTED_DISCONNECT,
+                only().getFailureReason());
+    }
+
+    @Test
     void aPlaySessionThatEndsIsADisconnectAndCarriesNoReason() {
         beginAttempt();
         controller.playInit();
@@ -201,6 +247,10 @@ final class ClientAdmissionControllerTest {
                 ClientAdmissionController.classifyDisconnect(
                         "Failed to verify username!"));
         assertEquals(
+                AdmissionFailureReason.ADMISSION_FAILURE_REASON_AUTH_MODE_MISMATCH,
+                ClientAdmissionController.classifyDisconnect(
+                        "Failed to log in: Invalid session (Try restarting your game and the launcher)"));
+        assertEquals(
                 AdmissionFailureReason.ADMISSION_FAILURE_REASON_PROTOCOL_MISMATCH,
                 ClientAdmissionController.classifyDisconnect("Outdated server!"));
     }
@@ -222,8 +272,8 @@ final class ClientAdmissionControllerTest {
 
     @Test
     void aReasonIsClassifiedOnceAndThenForgotten() {
-        ClientAdmissionController.rememberDisconnectReason("You are not white-listed on this server!");
         beginAttempt();
+        ClientAdmissionController.rememberDisconnectReason("You are not white-listed on this server!");
         controller.loginFailed();
 
         assertEquals(

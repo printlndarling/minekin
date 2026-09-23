@@ -20,13 +20,12 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
  * the reason exists only on a screen nobody is looking at.
  *
  * <p>Two hooks, because they answer different questions. {@code onDisconnect}
- * sees the packet the server actually sent, which is the only source of a
- * *classifiable* reason, and it runs before Fabric's own disconnect event — so
- * the reason is in hand by the time the controller reports the failure.
- * {@code onDisconnected} sees the end of the connection whatever caused it, and
- * carries a reason for a refusal that never reached a server at all. Both log
- * locally: the contract forbids a server's words from entering a product
- * payload, and allows them somewhere local instead.
+ * sees the packet the server actually sent. {@code onDisconnected} sees the end
+ * whatever caused it, including client-side session verification failures that
+ * did not arrive as a login disconnect packet. Fabric's disconnect event can
+ * fire first on the network thread, so the controller waits for this final
+ * callback's reason before reporting failure on the client tick. Both log
+ * locally: server words cannot enter a product payload.
  */
 @Mixin(ClientLoginNetworkHandler.class)
 public abstract class LoginDisconnectMixin {
@@ -42,6 +41,8 @@ public abstract class LoginDisconnectMixin {
 
     @Inject(method = "onDisconnected", at = @At("HEAD"))
     private void minekin$recordDisconnectReason(DisconnectionInfo info, CallbackInfo callback) {
-        LOGGER.warn("bridge observed a login disconnect: {}", info.reason().getString());
+        String reason = info.reason().getString();
+        LOGGER.warn("bridge observed a login disconnect: {}", reason);
+        ClientAdmissionController.rememberLoginDisconnected(this, reason);
     }
 }

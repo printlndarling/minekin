@@ -7,7 +7,10 @@ import io.minekin.protocol.v1.ConnectionPhase;
 import io.minekin.protocol.v1.InitialObservation;
 import io.minekin.protocol.v1.ResourcePackPolicy;
 import io.netty.channel.ChannelFuture;
+import java.util.Collections;
 import java.util.Locale;
+import java.util.Map;
+import java.util.WeakHashMap;
 import java.util.function.Predicate;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.screen.Screen;
@@ -32,6 +35,10 @@ public final class ClientAdmissionController {
     private ConnectScreen activeScreen;
     private Screen parentScreen;
     private boolean snapshotPending;
+    private volatile Object activeLoginHandler;
+    private volatile Object pendingLoginHandler;
+    private static final Map<Object, String> completedLoginReasons =
+            Collections.synchronizedMap(new WeakHashMap<>());
     /**
      * A connection this Bridge was asked for while the client was still starting.
      *
@@ -149,6 +156,15 @@ public final class ClientAdmissionController {
                 false);
     }
 
+    /** Bind vanilla's login handler to the generation that began this connection. */
+    public void loginNegotiating(Object handler) {
+        java.util.Objects.requireNonNull(handler, "handler");
+        if (activeGeneration != 0) {
+            activeLoginHandler = handler;
+        }
+        loginNegotiating();
+    }
+
     /** The play network handler exists: the server completed the login handshake. */
     public void playInit() {
         report(
@@ -256,6 +272,36 @@ public final class ClientAdmissionController {
         report(ConnectionPhase.CONNECTION_PHASE_FAILED, reason, true);
     }
 
+    /** The Fabric event can precede vanilla's callback carrying the reason. */
+    public void loginFailurePending(Object handler) {
+        if (activeGeneration != 0 && handler == activeLoginHandler) {
+            pendingLoginHandler = handler;
+        }
+    }
+
+    /** Called on the client tick after vanilla has finished this handler's disconnect. */
+    public void reportPendingLoginFailure() {
+        Object handler = pendingLoginHandler;
+        if (handler == null || activeGeneration == 0 || handler != activeLoginHandler) {
+            return;
+        }
+        String reason = completedLoginReasons.remove(handler);
+        if (reason == null) {
+            return;
+        }
+        pendingLoginHandler = null;
+        takeDisconnectReason();
+        AdmissionFailureReason classified = classifyDisconnect(reason);
+        LOGGER.info("bridge classified the login failure as {}", classified);
+        report(ConnectionPhase.CONNECTION_PHASE_FAILED, classified, true);
+    }
+
+    /** The handler key prevents a late callback from another attempt supplying this one's reason. */
+    public static void rememberLoginDisconnected(Object handler, String reason) {
+        completedLoginReasons.put(
+                java.util.Objects.requireNonNull(handler, "handler"), reason == null ? "" : reason);
+    }
+
     /**
      * The reason a server gave for ending a connection, held between the packet
      * that carried it and the report that classifies it.
@@ -301,7 +347,9 @@ public final class ClientAdmissionController {
         if (text.contains("already connected") || text.contains("logged in from another location")) {
             return AdmissionFailureReason.ADMISSION_FAILURE_REASON_DUPLICATE_LOGIN;
         }
-        if (text.contains("failed to verify username") || text.contains("not authenticated")) {
+        if (text.contains("failed to verify username")
+                || text.contains("not authenticated")
+                || text.contains("invalid session")) {
             return AdmissionFailureReason.ADMISSION_FAILURE_REASON_AUTH_MODE_MISMATCH;
         }
         if (text.contains("outdated server") || text.contains("outdated client")) {
@@ -407,6 +455,11 @@ public final class ClientAdmissionController {
     }
 
     private void clearGeneration() {
+        if (activeLoginHandler != null) {
+            completedLoginReasons.remove(activeLoginHandler);
+        }
+        activeLoginHandler = null;
+        pendingLoginHandler = null;
         activeScreen = null;
         parentScreen = null;
         activeProfileId = null;
@@ -427,6 +480,9 @@ public final class ClientAdmissionController {
      * generation lives here, and none of it needs Minecraft.
      */
     void beginGeneration(ConnectWorld command) {
+        takeDisconnectReason();
+        activeLoginHandler = null;
+        pendingLoginHandler = null;
         activeGeneration = command.getGeneration();
         activeProfileId = command.getServerProfileId();
         activeProfileRevision = command.getServerProfileRevision();
