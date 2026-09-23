@@ -1398,12 +1398,55 @@
     check/format、Pyright 0 errors、boundaries、case assertions 125 条注册、fixture
     digests、workflow pins、`git diff --check` 通过；未跑 CI、未封存 bundle。
 
-- [ ] **ADMIT-060-WIRE-POLICY-001（当前唯一 NEXT，判据冻结于 `49466dc`）**：产品侧最小
-  观测点——Bridge 把它为本 generation 实际应用到 `ServerInfo` 上的资源包策略报回 Core，
-  Core 以带 Bridge 来源的账本事实持久化（每 generation 至多一条、值不重复、payload 只有
-  策略枚举名）。停止条件写在卡里：若只能靠回显 Core 自己发出的命令得到该值，就停在设计
-  缺口，不用自报字段冒充线缆事实。本卡**不**引入 `RESOURCE_PACK_BLOCKED` 分类，也不封
-  `ADMIT-060` bundle；其后的 `ADMIT-060-CASE-001` 才做封存与断言。
+- [x] **ADMIT-060-WIRE-POLICY-001（已完成，commit `e75b011` 已推送，判据冻结于
+  `49466dc`）**：产品侧最小观测点已落地。`ConnectionLifecycle` 加一个具名字段
+  `applied_resource_pack_policy = 7`（类型取 `control.proto` 的 `ResourcePackPolicy`），
+  Bridge 只在本代**建立连接的那一条**上报（`CONNECTION_PHASE_RESOLVING`）里命名它，值
+  从交付给原版连接路径的 `ServerInfo.getResourcePackPolicy()` **读回**，不是命令回显；
+  Core 对每一条具名且被门接受的报告写一行 `ResourcePackPolicyApplied`
+  （`BRIDGE` / `BRIDGE_FILTERED`，payload 只有 `{"generation": N,
+  "resource_pack_policy": "deny"}`），不去重也不聚合；未具名的报告不写行，所以旧 Bridge
+  不会凭空造出事实。两端各自拒不可命名的值：Java 侧 `validLifecycle` 拒绝
+  `ResourcePackPolicy.UNRECOGNIZED`，Python 侧 admission 门以
+  `LifecycleDisposition.UNKNOWN_POLICY` 在改状态之前拒，形状与既有 reason 门一致。
+  - 卡里的 `question` 已在 `design_decision` 记账：取「每条 lifecycle 报告带一个字段」，
+    不新增每 generation 的专门事件——专门事件承载的信息与「本代那条报告具名与否」相同，
+    却多一个消息类型、一道独立的门和一处 replay 兼容面。
+  - 两条停止条件都没触发：该值确实读得回来（定向 JUnit
+    `thePolicyVanillaConnectsWithIsReportedInItsOwnWireWords` 钉住 `DISABLED→deny`、
+    `PROMPT→prompt`，因此「命令被忽略成另一个值」与「命令回显」两种构建给出不同读数），
+    也不需要新增 `AdmissionFailureReason` 或改动 `prompt` 语义。
+  - 完成读数（本地）：pytest **1953 passed / 2 skipped**（本卡 +5 条）、Ruff check/format、
+    Pyright 0 errors、boundaries、case assertions 125 条注册、fixture digests、workflow
+    pins、`git diff --check` 与五道 Bridge 静态/协议门全绿；Java 针对性套件在 Linux 容器
+    与本机 JDK 21 各 **88 条全绿**，jar
+    `ecff5a598bda3a5055755cbbf04251d33c464b3764267b7b479917a2a8dce9c7` / 1307584 字节两平台
+    逐字节相同；pin 链按门逐级 renewal（`recipe.py` → bundle fixture → `core-001.json`
+    的 `input_digests` → `manifest.sha256`）。
+  - 完成读数（真实受控 Docker，两条都是**未封存诊断**，不追认 PASS）：拒绝侧 run
+    `b1ace69e610c4c04a942281add8bd69b` / session `4a0543d748da41eb8db421eb8455daf3` /
+    服务端 `run-114`（`require-resource-pack=true`、loopback URL、
+    `resource-pack-sha1=a351bd3668e6fc47c0c9bb8da95ca6e1fb64638f`）账本 position 899 恰好
+    一行该事实、值为冻结 profile 的 `deny`，落在 `READY_MENU→CONNECTING` 之间，其后
+    `CONNECTING→FAILED`；默认离线正向 run `8516151dab664d8692c3bf7ab3288859` / session
+    `9569a9afd046415e84f7d9ff878d9a1c` / `run-115`（`require-resource-pack=false`）同样
+    恰好一行（position 913），随后 `JoinObserved`→`PlayableEstablished`、
+    `connection_state: PLAYABLE`、`snapshots_admitted: 1`——**入服没有退化**。
+    更早的 `a114949bf0204a2e8021ec5d02583b4b`（本卡之前的 build）仍是 0 行。
+  - 旧封存件的兼容是真量过的，不是推断：ADMIT-040 的 bundle
+    `46565ef26d78106215d996f64870b95bb9a3fb97d653f3d1e7cf0e9c9ef2e736` 在新 build 上
+    `rejudge` 仍 `agrees` / `PASS`（6 条 expected 全部 observed），`replay evidence` 仍
+    投影 14 事件、末态 `STOPPED`、0 violations。
+  - 仍然开着的（本卡不做的）：`ADMIT-060` 的正式 fixture、sealer 封
+    `server-resource-packs/` 目录列表、runner 资源包场景的等待分支，以及把 login 停顿
+    分类成 `RESOURCE_PACK_BLOCKED` 这件单独的产品决定。CI 未作为完成证据。
+
+- [ ] **ADMIT-060-CASE-001（当前唯一 NEXT，基线 `e75b011`）**：测试域那半边——sealer
+  另封本代客户端的 `server-resource-packs/` 目录列表（读一次、判与封同字节），
+  `tests/fixtures/cases/admit-060.json` 的断言逐条覆盖契约四项（每项至少一个反例必须
+  失败），runner 只在资源包场景走新的等待分支，四读（verify/rejudge/replay/promotion）
+  一致才写 DONE。产品线已经不再缺事实：第 3 项判据读的就是上面那行
+  `ResourcePackPolicyApplied`。
 
 - [x] **ADMIT-040-CLASSIFICATION-001（已完成，commit `dd992b1` 已推送）**：`REAL-P0-CAMPAIGN-001`
   首个受控诊断运行 `fdef1d7192dd480db6aed1c5e7e493dd` 中，离线身份遇到原版

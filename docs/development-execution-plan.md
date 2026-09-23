@@ -12,7 +12,7 @@
 - `baseline_date`: 2026-09-22
 - `baseline_branch`: `main`
 - `baseline_remote`: `origin/main`
-- `current_next`: `ADMIT-060-WIRE-POLICY-001`
+- `current_next`: `ADMIT-060-CASE-001`
 
 权威顺序：
 
@@ -378,15 +378,20 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 ### REAL-P0-CAMPAIGN-001 — 批量关闭真实运行缺口
 
 - `status`: `BLOCKED_EVIDENCE`
-- `blocked_by`: `ADMIT-060-WIRE-POLICY-001`。`order` 的第 1 个场景（在线认证拒绝）
+- `blocked_by`: `ADMIT-060-CASE-001`。`order` 的第 1 个场景（在线认证拒绝）
   已由 `ADMIT-040-CASE-001` 正式封证并在当前 build 上 verify/rejudge/replay/promotion
   四读一致；第 2 个场景（资源包拒绝）的判据已在 `ADMIT-060-EVIDENCE-DESIGN-001` 冻结
-  （含「超时不算拒绝」与「不要求 `RESOURCE_PACK_BLOCKED`」两条边界），现在缺的是该卡
-  指名的那一份产品事实——本 generation 实际放上线缆的资源包策略——以及随后的封存。
+  （含「超时不算拒绝」与「不要求 `RESOURCE_PACK_BLOCKED`」两条边界），该卡指名的产品
+  事实也已由 `ADMIT-060-WIRE-POLICY-001` 落地并在两条真实受控 run 里各读到一行，
+  现在只剩封存与复判那一步。
 - `scenario_progress`: 1/7 场景已封为正式 case（`ADMIT-040`，run
   `6b5856d57dee4052b2ffba3ff9e3459e`，bundle `46565ef2…`，attempt 1，PASS/AGREES）。
   第 2 个场景有一次只作诊断的受控运行
   `a114949bf0204a2e8021ec5d02583b4b`（未封存，不追认 PASS）。
+  2026-09-24 补：同一场景另有两条**未封存的诊断** run，都是 `deny` 线缆事实落地后的
+  读数——`b1ace69e610c4c04a942281add8bd69b`（拒绝侧，`run-114`）与
+  `8516151dab664d8692c3bf7ab3288859`（默认离线正向，`run-115`，到达 `PLAYABLE`）。
+  它们只证明观测点存在，不证明该用例 PASS，也不进 `ADMIT-060` 的 bundle。
 - `regression_history`: `ADMIT-040-CLASSIFICATION-001` 曾阻断首场景；受控 Docker 诊断运行
   `fdef1d7192dd480db6aed1c5e7e493dd` 在离线身份连接 `online-mode=true`
   原版服务器时，客户端日志出现 `Failed to log in: Invalid session (Try restarting your game and the launcher)`，
@@ -645,7 +650,7 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 
 ### ADMIT-060-WIRE-POLICY-001 — 让本代连接实际应用的资源包策略成为可信产品事实
 
-- `status`: `NEXT`
+- `status`: `DONE`
 - `baseline_sha`: `49466dc`（判据冻结的提交；实现以此为准）
 - `promotion_reason`: 设计卡 DONE 且已推送，两张实现卡先以 `QUEUED` 登记。产品观测点
   是测试域封存（`ADMIT-060-CASE-001`）的直接前置，也是 campaign 第 2 个场景缺的唯一
@@ -658,6 +663,13 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
   （Bridge / BRIDGE_FILTERED），不去重也不聚合——具名两次就是两行，那正是契约
   「同一 run 没有第二个策略值」要读的形状。未具名的报告不写行，因此旧 Bridge 不会
   凭空造出事实。
+- `design_decision`（实施时定，回答本卡 `question`）: 取「每条 lifecycle 报告都带一个
+  字段」这一支，不新增每 generation 的专门事件。判据两问都成立：一次 run 里同一个策略值
+  只出现一次，因为 Bridge 只在 `CONNECTION_PHASE_RESOLVING` 那一具名，两行账本在同一
+  `position` 区间里可数；断言按 generation 读到，因为 `ResourcePackPolicyApplied` 的
+  payload 就是 `{"generation": N, "resource_pack_policy": "deny"}`，与报告自带的
+  generation 同源。专门事件被否掉的实质理由是它承载的信息与「本代那条报告具名与否」完全
+  相同，却要多一个消息类型、一道独立的门和一处新的 replay 兼容面。
 - `why_now`: 契约第 3 项判据要求「放上线缆的策略」是产品事实，而今天账本里没有任何
   一行承载它。`ConnectWorld.resource_pack_policy` 只存在于 Core→Bridge 的命令方向，
   Bridge 侧唯一使用点是 `ClientAdmissionController` 里 `server.setResourcePackPolicy(...)`
@@ -718,11 +730,49 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
   实际应用的值），停止并把结论写回专项契约——自报字段正是本观测点要排除的假阳性，
   不以它冒充线缆事实；若需要新增 `AdmissionFailureReason` 或改动 `prompt` 语义才能
   报出该值，也停止。
+- `completion_commit`: `e75b011665a7090dc1c4ac00ede682367c1aae24`（已推送；本地
+  HEAD、`origin/codex/core-state-transition` 与 `origin/main` 核对为同一 SHA）
+- `completion_evidence`: 两条停止条件都没触发——该值确实由 Bridge 从交给原版连接路径的
+  `ServerInfo.getResourcePackPolicy()` 读回（定向 JUnit `thePolicyVanillaConnectsWithIsReportedInItsOwnWireWords`
+  钉住 `DISABLED→deny`、`PROMPT→prompt`，即「命令被忽略成另一个值」会报出另一个读数，
+  回显则不可能），且没有新增 `AdmissionFailureReason` 成员、没有改 `prompt` 语义。
+  全部门禁：1953 passed / 2 skipped（本卡 +5 条），Ruff check+format、Pyright 0 errors、
+  boundaries、case assertions 125、fixture digests、workflow pins、`git diff --check`
+  与五道 Bridge 静态/协议门全绿；Java 针对性套件在 Linux 容器与本机 JDK 21 各 88 条全绿，
+  jar `ecff5a598bda3a5055755cbbf04251d33c464b3764267b7b479917a2a8dce9c7` / 1307584 字节
+  两平台逐字节相同，pin 链（`recipe.py` → bundle fixture → `core-001.json` 的
+  `input_digests` → `manifest.sha256`）按门逐级 renewal。
+  真实受控读数（两条都是**未封存的诊断 run**，不追认 PASS）：
+  拒绝侧 run `b1ace69e610c4c04a942281add8bd69b` / session `4a0543d748da41eb8db421eb8455daf3`
+  / 服务端 `run-114`（`require-resource-pack=true`、loopback URL、
+  `resource-pack-sha1=a351bd3668e6fc47c0c9bb8da95ca6e1fb64638f`），账本 position 899 恰好
+  一行 `ResourcePackPolicyApplied`、`BRIDGE`/`BRIDGE_FILTERED`、
+  `{"generation":1,"resource_pack_policy":"deny"}`，落在 `READY_MENU→CONNECTING` 之间，
+  其后 `CONNECTING→FAILED`；正向侧 run `8516151dab664d8692c3bf7ab3288859` / session
+  `9569a9afd046415e84f7d9ff878d9a1c` / `run-115`（`require-resource-pack=false`）同样
+  恰好一行（position 913）且值等于冻结 profile 的 `deny`，随后 `JoinObserved` →
+  `PlayableEstablished`，`connection_state: PLAYABLE`、`snapshots_admitted: 1`——入服没有
+  退化。两条 run 各只有一行该事实，旧诊断 run `a114949bf0204a2e8021ec5d02583b4b`（本卡
+  之前的 build）仍是 0 行，没有被凭空补出。旧封存件的兼容用真数据量过：ADMIT-040 的
+  bundle `46565ef26d78106215d996f64870b95bb9a3fb97d653f3d1e7cf0e9c9ef2e736` 在新 build 上
+  `rejudge` 仍 `agrees`/`PASS`（6/6 观测），`replay evidence` 仍投影出 14 事件、
+  末态 `STOPPED`、0 violations。CI 未作为完成证据（本卡只以本地 + Docker 读数收口）。
+- `scope_notes`: allowed 路径里 `test_schema_golden.py`、`test_session_log.py`、
+  `test_replay.py`、`test_replay_trace.py`、`test_restart_semantics.py`、
+  `test_auth_policy.py`、`tools/check_bridge_proto_java.py` 最终无需改动即通过——新事实
+  是纯追加，既没动 schema 也没动重启后的事件计数断言；记录于此是因为「允许改」不等于
+  「改了」，事后核对范围要看这里。
+- `next_after_done`: `ADMIT-060-CASE-001`（拿本卡这份产品事实去封存并复判该场景）。
 
 ### ADMIT-060-CASE-001 — 封存并复判资源包拒绝用例
 
-- `status`: `QUEUED`
+- `status`: `NEXT`
+- `baseline_sha`: `e75b011`（线缆策略事实落地的提交；封存与断言以此为准）
 - `depends_on`: `ADMIT-060-WIRE-POLICY-001`
+- `promotion_reason`: 依赖已 DONE 并推送（同一 `ResourcePackPolicyApplied` 事实在两条
+  真实受控 run 里各出现一行、值等于冻结 profile，旧封存件 rejudge/replay 读数不变），
+  campaign 第 2 个场景自此只缺测试域那半边：`server-resource-packs/` 工件与 `ADMIT-060`
+  fixture。停止条件里「产品侧无承载事实」那一支已经不再成立。
 - `why_now`: 契约的四项同 run 判据已全部指到具体来源，其中第 1、2、4 项只缺测试域
   的封存与断言：`server.properties` 与 sealed Server Profile 在 `ADMIT-040-CASE-001`
   已经封好并可复用，缺的是客户端 `server-resource-packs/` 目录列表这件新工件，以及
@@ -994,7 +1044,7 @@ case id 是 **any-satisfying-bundle**：读 `evaluate_promotion` 可见，第一
 | ADMIT-030 | 三类失败分类不同且无无限重试 | **部分**：`the_attempt_was_abandoned_at_its_deadline` 管「有界」（由 `ADMIT-110` 认领） | **（甲）**三个分类**都在账本的 `reason` 里**，缺的是断言——现有那条把值写死了 |
 | ADMIT-040 | 明确 AUTH_MODE_MISMATCH；不自动启用账号适配器 | ~~一半：`no_world_was_joined` 能说「没进世界」~~ **2026-09-23 已闭合**：前半是 `the_auth_mode_mismatch_was_classified_in_the_ledger`，后半由 `AuthPolicyFrozen`（CORE/CORE，进程启动前）+ 两条「拒绝后只有一份策略、一次启动」的断言承担 | 无——见 `ADMIT-040-CASE-001` 的 `completion_evidence`。「只启动一个进程」仍然不是证据，它只是同 bundle 里的一个附带事实 |
 | ADMIT-050 | 白名单/封禁/重复名；保留原因，不误判版本或认证 | **一半但已被认领**：白名单那一对（`the_refusal_was_classified_in_the_ledger` + `the_bridge_classified_the_refusal`）**已由 `ADMIT-100` 拿着** | 封禁与重名两类各自的分类；以及「不误判成版本/认证」这条**否定**判据 |
-| ADMIT-060 | 资源包未授权时不 PLAYABLE、不由聊天同意 | **一半**：`no_lease_was_granted` 能说「没授 lease」（它现在由 `CORE-050` 认领；共用是允许的，但用它之后这一条自己的判据仍然只剩一半） | **2026-09-23 判据已冻结**（专项契约「ADMIT-060 的可复判证据边界」）：缺的两件都已指名——**（乙）**本 generation 实际放上线缆的资源包策略没有产品事实承载，**(甲/测试域)** 客户端 `server-resource-packs/` 目录列表没有被 sealer 封进 bundle。「聊天不是授权来源」改写为「同意只有一个来源」，由 profile revision + 冻结事件承担，不再要求聊天侧的否定观察 |
+| ADMIT-060 | 资源包未授权时不 PLAYABLE、不由聊天同意 | **一半**：`no_lease_was_granted` 能说「没授 lease」（它现在由 `CORE-050` 认领；共用是允许的，但用它之后这一条自己的判据仍然只剩一半） | **2026-09-23 判据已冻结**（专项契约「ADMIT-060 的可复判证据边界」）：缺的两件都已指名——**（乙）**本 generation 实际放上线缆的资源包策略没有产品事实承载，**(甲/测试域)** 客户端 `server-resource-packs/` 目录列表没有被 sealer 封进 bundle。「聊天不是授权来源」改写为「同意只有一个来源」，由 profile revision + 冻结事件承担，不再要求聊天侧的否定观察。**2026-09-24（乙）已闭合**：`ResourcePackPolicyApplied`（BRIDGE / BRIDGE_FILTERED，payload 只有 generation 与策略枚举名）在两条真实受控 run 里各读到恰好一行、值等于冻结 profile 的 `deny`，见 `ADMIT-060-WIRE-POLICY-001` 的 `completion_evidence`；该场景自此只缺（甲）那一份测试域工件 |
 | ADMIT-090 | 新 generation；世界状态重验；人格不重建 | **三分之二**：`the_restart_runs_as_a_new_session`、`the_restart_reconciled_before_it_started` 都在（两者为 `CORE-090` 写的，共用是允许的） | **（乙）**账本现有的十个事件类型里**没有一个承载身份/人格**，所以「没有重建」今天无从观测 |
 | ADMIT-120 | oracle 身份/坐标 canary 不进入 Runtime/Memory/prompt/行动路径 | 无运行时断言（`runtime_input_does_not_reference_oracle` 是**仓库自检**类，不是运行材料类） | 运行期那半**整条缺失** |
 
