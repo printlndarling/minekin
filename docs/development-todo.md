@@ -1220,8 +1220,10 @@
 - [ ] **`CASE-CORE-001-INPUT-PINS`：`CORE-001` 已声明的 recipe、Gradle lock 与
   host-boundary name table 还没有进入 `input_digests`。** 这会让输入字节变化但
   assertion 源码不变时 case version 保持不变，旧 W10 PASS 可能继续满足新清单。
-  按 `development-execution-plan.md` 的唯一 NEXT 处理：钉住三个当前摘要，逐项做
-  fail-closed/version-mismatch 变异验证，完成前不推进 evidence sequencing。
+  **规格复核补充**：三份输入都是文本，loader 目前按工作树原始字节核 pin；Windows
+  autocrlf 与 Linux LF 会制造不同摘要。按唯一 NEXT 卡先统一成 UTF-8 文本 LF
+  规范化摘要（二进制仍逐字节），再钉住三个当前输入，逐项验证 fail-closed、跨平台
+  等价与 version-mismatch；完成前不推进 evidence sequencing。
 
 ## W70 之后
 

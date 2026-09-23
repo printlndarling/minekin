@@ -256,21 +256,25 @@ uv run --frozen python tools/report_cases.py
   `CASE_VERSION_MISMATCH`，不能由新 checkout 重新解释旧证据。
 - `depends_on`: `CASE-CORE-001`
 - `scope`: 只给 `CORE-001` 已声明的三个输入记录 SHA-256，并更新该 case 的 fixture
-  digest；不改供应链判据、不改产品代码、不重封 PASS bundle。
+  digest；loader 对 UTF-8 文本以 LF 规范化后摘要、对二进制保留原始字节，保证
+  Windows/Linux checkout 对同一输入给出同一版本；不改供应链判据、不重封 PASS bundle。
 - `allowed_paths`:
   - `tests/fixtures/cases/core-001.json`
   - `tests/fixtures/manifest.sha256`
+  - `src/minekin_core/adapters/evidence/promotion.py`（仅 input digest 的跨平台规范化）
   - 针对 case input pin/version 行为的测试（仅在现有门禁不能证明验收项时）
   - 本计划与 `development-todo.md` 的状态记录
 - `forbidden_paths`:
-  - `src/`、`bridge/`、`proto/`、`generated/`
+  - 除上方精确列出的 case loader 外，其余 `src/`；以及 `bridge/`、`proto/`、`generated/`
   - 现有供应链断言实现与 assertion registry
   - evidence bundle、runner 数据根与 promotion 语义
 - `acceptance`:
-  1. `CORE-001.input_digests` 精确覆盖它声明的三个非 glob 输入，当前字节逐项匹配；
+  1. `CORE-001.input_digests` 精确覆盖它声明的三个非 glob 输入，按文本 LF 规范化后
+     逐项匹配；二进制仍按原字节摘要；
   2. 分别变异任一输入而不更新 case JSON 时，`load_case_manifest` 以及使用它的封存/
      promotion registry load 在执行断言或采信证据前 fail closed；更新 pin 后 case
-     version 必须不同，旧 bundle 因 `CASE_VERSION_MISMATCH` 不得满足 W10；
+  version 必须不同，旧 bundle 因 `CASE_VERSION_MISMATCH` 不得满足 W10；同一文本
+  输入仅改变 LF/CRLF 表示时摘要与 case version 保持一致；
   3. `run_repo_case` PASS，fixture、case assertion、boundary 与全量本地门禁通过；
   4. 不接受 EULA、不运行 Minecraft、不把旧 bundle 重写为新版本。
 - `validation_class`: `LOCAL`
