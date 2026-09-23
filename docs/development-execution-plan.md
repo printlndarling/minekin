@@ -12,7 +12,7 @@
 - `baseline_date`: 2026-09-22
 - `baseline_branch`: `main`
 - `baseline_remote`: `origin/main`
-- `current_next`: `CASE-CORE-001-INPUT-PINS`
+- `current_next`: `EVIDENCE-SEQUENCE-001`
 
 权威顺序：
 
@@ -247,7 +247,7 @@ uv run --frozen python tools/report_cases.py
 
 ### CASE-CORE-001-INPUT-PINS — 让供应链输入变化必然移动 case version
 
-- `status`: `NEXT`
+- `status`: `DONE`
 - `why_now`: 对已完成的 `CASE-CORE-001` 做独立复核时发现：fixture 已声明 recipe、
   Gradle lock 与 host-boundary name table 为 `inputs`，却没有把其字节写入
   `input_digests`。因此三者与全局 pin 一起更新后，只要断言函数没改，case version
@@ -281,10 +281,11 @@ uv run --frozen python tools/report_cases.py
 - `commit_intent`: `fix(cases): bind CORE-001 to its reviewed inputs`
 - `stop_conditions`: 任一声明输入并非判据的一部分，或现有 case loader 无法在不改变
   promotion 语义的情况下验证 pin；遇到时停止并回到规格复核。
+- `completion_commit`: `453d2fb93dd6612f5cdab003605f2f22e499d280` (pushed to `origin/main`; remote SHA verified)
+- `completion_evidence`: full pytest 1884 passed / 2 skipped; CORE-001 repo case PASS (5/5); case assertions (120), fixture digests, boundaries, workflow pins, Ruff, Pyright and `git diff --check` passed. Three declared inputs are pinned; text pins normalize CRLF/LF; changed inputs fail closed; binary pin behavior preserved. No Minecraft execution on this card.
 
-这张回归卡完成后，阶段队列仍只剩 `WAITING_REAL_RUN`、`BLOCKED_DECISION` 与
-`DEFERRED` 项；主控随后冻结 `EVIDENCE-SEQUENCE-001` 的一个方案，再将其提升为
-唯一 `NEXT`，Claude 不得从历史 TODO 自选别的任务。
+这张回归卡已完成并推送。主控已按用户授权冻结 `EVIDENCE-SEQUENCE-001` 的方案乙，
+它是当前唯一 `NEXT`；Claude 不得从历史 TODO 自选别的任务。
 
 **队列之外还有第二类，2026-09-23 才发现并做掉**：**证据生产也不是卡**。`local-only`
 的 required case 只差一份**封存的 PASS bundle**，而 `tools/seal_repo_case.py` 不需要
@@ -345,10 +346,11 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 
 ### CASE-CORE-001-INPUT-PINS — CORE-001 输入版本绑定回归
 
-- `status`: `NEXT`
+- `status`: `DONE`
 - `depends_on`: `CASE-CORE-001`
 - `scope`: 与上方唯一 NEXT 卡完全相同；本段只保留它在阶段队列中的位置。
-- `next_after_done`: 由主控冻结 `EVIDENCE-SEQUENCE-001` 决策并另行提升，不自动领取。
+- `completion_commit`: `453d2fb93dd6612f5cdab003605f2f22e499d280` (pushed to `origin/main`; remote SHA verified)
+- `next_after_done`: `EVIDENCE-SEQUENCE-001`
 
 ### CORE-STATE-TRANSITION-001 — 账本显式记录状态迁移
 
@@ -384,7 +386,7 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 
 ### EVIDENCE-SEQUENCE-001 — 最新 evidence 与 supersession
 
-- `status`: `BLOCKED_DECISION`
+- `status`: `NEXT`
 - `question`: Registry 如何分配单调 `attempt_sequence`，如何记录 supersession，
   旧 bundle 如何兼容。
 - `constraint`: 不得按 mtime、目录名或 wall clock 猜“最新”。
@@ -401,7 +403,7 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
   `gates_promotion: false`，而且有一条用例断言「同一次读数下，来自另一个 build 的
   PASS 与来自当前 build 的 PASS 得到**同一份判决**」。（`plan_sha256` 与路径无关，
   这一点是**量过**的：仓库里与一份拷贝到别处的树算出来同一个 digest。）
-- `decision`（**未冻结，待主控/用户拍**）：两条路都说得通，代价不同——
+- `decision`（主控按执行者授权冻结；后续可由用户明确推翻）：选择**乙，按单调序号 supersession**。两条路都说得通，代价不同——
   **（甲）按 build 绑定**：证据必须来自当前 build，否则 `EVIDENCE_FROM_ANOTHER_BUILD`
   拦截。它直接实现那句验收话，但会让**每一次** Bridge/recipe 改动作废**全部**已有
   证据（包括那些与改动无关的 case），代价是每次改 Bridge 都要重跑一整轮。
@@ -410,9 +412,16 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
   序号最大的那一份。它更接近这张卡原本的措辞，也让「修复后重跑」自然生效，但需要
   回答「最大那份是 FAIL 时该不该挡住一份更早的 PASS」（我倾向**该挡**，否则重跑没
   有意义），而那正是**语义改动**。
-  **我的建议是乙**，因为它不惩罚与改动无关的 case，而且 `attempt_sequence` 是两种
-  路都要用的东西。**但这是设计决定，按本计划的规则必须先冻结再写代码**，所以本文
-  只把它写成提案，没有实现——上面那半诊断是两种路都要的公共前提。
+  **冻结语义**：封存端基于同 case 现有最大序号分配 `attempt_sequence = max + 1`
+  （首份为 1），写入被新 bundle 取代的先前 bundle 标识；promotion 只评估当前最高序号。
+  若最新 attempt 是 FAIL、unverified、缺失或结构损坏，旧 PASS 不得回退满足门禁；这保留
+  “修复后重跑”的意义。序号按 case 独立、在同一个封存原子操作中分配并写入；并发封存
+  必须冲突失败/重试，不能分配重复序号。旧 bundle 无序号时只允许在显式 legacy policy
+  下兼容；不得用 mtime、目录名或 wall clock 推导先后。实施卡仍须先定义并测试并发锁/原子
+  持久化、损坏记录与 legacy 默认策略，超出卡片则停下，不自行拓宽。
+  **为何冻结乙**：它不因不相关 Bridge/recipe 改动废弃全部 case 证据，并且直接支持
+  “失败后重跑，最新失败阻断旧 PASS”这一既有验收意图。
+- `scope_for_next`: implement the frozen sequencing decision above; do not add build binding or infer ordering from timestamps/paths.
 - `completion_evidence`（仅诊断那半）：`tools/report_promotion.py` 与
   `tests/unit/test_report_promotion.py`；全量 pytest 1833 passed / 2 skipped，
   Ruff、Pyright、boundaries、case assertions、fixture digests、workflow pins 与

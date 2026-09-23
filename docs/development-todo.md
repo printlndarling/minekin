@@ -1217,13 +1217,15 @@
   - **实测（本轮：本地 + 容器 + GitHub REST）**：100 次运行（`main`，2026-09-20 → 2026-09-23）逐条量过运行级时长，>20 分钟者 1 次（即上面那次）；其中 75 次的 `python` job 逐条量过 job 级时长，全部 1.8～2.7 分钟、全部 success；卡住那次 job 的完整日志（639,445 字节、7,073 行）取回来读过。容器内 `doctor` 五条全过。本地全量 pytest、Ruff check/format、Pyright（strict，0 errors）、boundaries、case assertions、fixture digests、workflow pins 与 `git diff --check` 全绿。**没有跑 Minecraft，也没有接受 EULA。**
   - **仍然开着的**：真实运行与四个决策，状态未变；上一条建议（CI 超时）是有依据、但需要有人定值的决定。
 
-- [ ] **`CASE-CORE-001-INPUT-PINS`：`CORE-001` 已声明的 recipe、Gradle lock 与
+- [x] **`CASE-CORE-001-INPUT-PINS`：`CORE-001` 已声明的 recipe、Gradle lock 与
   host-boundary name table 还没有进入 `input_digests`。** 这会让输入字节变化但
   assertion 源码不变时 case version 保持不变，旧 W10 PASS 可能继续满足新清单。
   **规格复核补充**：三份输入都是文本，loader 目前按工作树原始字节核 pin；Windows
   autocrlf 与 Linux LF 会制造不同摘要。按唯一 NEXT 卡先统一成 UTF-8 文本 LF
   规范化摘要（二进制仍逐字节），再钉住三个当前输入，逐项验证 fail-closed、跨平台
   等价与 version-mismatch；完成前不推进 evidence sequencing。
+  - **完成（2026-09-23，commit `453d2fb`，已推送且远端 SHA 核对一致）**：CORE-001 三项输入 pin 已加入，UTF-8 文本按 LF 规范化、不可解码二进制保持原始字节；每项输入变异不更新 pin 均由 loader 拒绝，LF/CRLF 版本一致，既有 case-version mismatch 测试证明旧证据不能复用。全量 pytest **1884 passed / 2 skipped**；CORE-001 case **5/5 PASS**；120 assertions、fixture digests、boundaries、workflow pins、Ruff、Pyright 与 `git diff --check` 全绿。按该卡范围没有启动 Minecraft。
+  - **下一卡冻结（2026-09-23）**：EVIDENCE-SEQUENCE-001 选方案乙（每 case 单调 attempt sequence + 显式 supersession）；只评估最高序号，最新失败/未验证/损坏时旧 PASS 不回退。封存分配需原子化，并发不得重复序号；旧 bundle 不推导序号，legacy 兼容策略必须显式。详情以 `development-execution-plan.md` 为准。
 
 ## W70 之后
 
