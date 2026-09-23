@@ -133,7 +133,7 @@ TCP connect、ConnectScreen状态文字、ping 成功、`ClientPlayNetworkHandle
 | ADMIT-040 | online-mode目标+offline身份 | 明确 AUTH_MODE_MISMATCH；不自动启用账号适配器 |
 | ADMIT-050 | 白名单/封禁/重复名 | 保留原因，不误判版本或认证 |
 | ADMIT-060 | 资源包 prompt | 未授权时不 PLAYABLE、不由聊天同意 |
-| ADMIT-070 | JOIN 后首快照失败 | 不授 lease；generation终止 **（2026-09-22：已定义、跑得动——`tests/fixtures/cases/admit-070.json`（`W50`），五条断言：被拒的快照**根本走不到**要 lease 的那一步（呈现输入计划的钩子一次都不响）、JOIN 与首快照**两者都要**才 PLAYABLE、失败尝试在 generation 被显式关闭之前是终态、非权威快照不被准入、另一个身份的快照不被准入。「JOIN 后」要的是真实 JOIN，故 `mandatory` 仍为 `false`。）** |
+| ADMIT-070 | JOIN 后首快照失败 | 不授 lease；generation终止 **（2026-09-22：已定义——`tests/fixtures/cases/admit-070.json`（`W50`），五条断言：被拒的快照**根本走不到**要 lease 的那一步（呈现输入计划的钩子一次都不响）、JOIN 与首快照**两者都要**才 PLAYABLE、失败尝试在 generation 被显式关闭之前是终态、非权威快照不被准入、另一个身份的快照不被准入。2026-09-24：上一版在这里写的「跑得动」撤回——那五条全部登记为 `pytest`，测的是域内过滤器，其中「非权威」「另一身份」两条靠伪造 IPC 消息成立；真实客户端说不出自己是谁时 Bridge **不发**快照而不是发一份残缺的（见「ADMIT-070 的可复判证据边界」第 4 段），数据卷 36 份真实运行文档的 `snapshot_rejections` 全为空。判据已冻结，封证需先有注入点。`mandatory` 仍为 `false`。）** |
 | ADMIT-080 | 取消与晚到 callback | 旧 generation不能复活或输入 **（2026-09-22：已定义、跑得动——`tests/fixtures/cases/admit-080.json`（`W40`），六条断言，**全部取自本仓库自己已经闭合的那条注记**（它点名了五条连接用例：取消不能取消当前尝试、重连分配新 generation 且旧回调只是诊断、下一次之前显式关闭、关闭先于晚到回调生效、晚到报告不能把断开变成失败，外加会话侧那条「替另一代说话的报告不动任何东西」）。真实 callback 的时序仍要一次运行，故 `mandatory` 为 `false`。）** |
 | ADMIT-090 | 重连同一服 | 新 generation；世界状态重验；人格不重建 |
 | ADMIT-100 | 同名/改名/代理改写 | 同时记录本地候选与服务端观察身份，不错误合并 actor |
@@ -239,6 +239,114 @@ sealed profile 与冻结 revision 不同或事件缺失（第 2 项）、线缆�
 
 诊断 run `a114949bf0204a2e8021ec5d02583b4b` 早于第 3、4 项的观测点存在，只能作
 回归线索，不能追认为 `ADMIT-060` 的 PASS。
+
+### ADMIT-070 的可复判证据边界（2026-09-24 冻结）
+
+这条是 `order` 上的第三个**拒绝**场景，拒绝的位置在 JOIN 之后：客户端已经进了世界，Core
+却不放行它的第一份权威快照——因此不 PLAYABLE、不授 lease，本 generation 终止。它与前两条
+有一个方向上的区别，先说清再写判据：`ADMIT-040`/`ADMIT-060` 要的是**没有**进世界，
+`ADMIT-070` 要的是**已经**进了世界。同一条 `no_world_was_joined` 在前两条里是判据，在这条里
+是反例——本用例的运行材料必须含有一条 Bridge 报出的 `JoinObserved`。
+
+**本卡的冻结来自逐层读数，不来自一次运行**（本卡只允许改文档）。量到的形状是：
+
+1. 一份被拒的快照在产品侧**确实有一层记录**：Core 的准入过滤器把理由写进 run document——
+   `snapshots_admitted` 只数放行成功的那几份，`snapshot_rejections` 是本 run 全部被拒快照的
+   `SnapshotReason` 枚举名并集（`src/minekin_core/cli/session_runtime.py:611-615`、`:704`；
+   理由集合成形于 `src/minekin_core/domain/perception.py:299-311`）。sealer 已把该文档封为
+   `run-document.json`，判官经 `material.run()` 读它。**所以本条不是「只能由超时读出」。**
+2. 但**账本在那条路上什么都不写**：`PlayableEstablished` 只由放行成功后的那一次
+   `advance_session(…, PLAYABLE)`（`session_runtime.py:623`，状态到事件的映射在
+   `src/minekin_core/cli/session.py:134-136`）产生，拒绝分支只更新上面两个计数就返回。
+   于是「不授 lease」在这条路径上的表现是账本里**缺少** `InputLeaseGranted`——缺失不是事实，
+   判据必须另外要求下面第 2 项那个**有判决的**拒绝。
+3. 五个 `SnapshotReason` 在**当前构建与当前 runner 之下，一次真实受控运行一个都触发不了**：
+   - `NOT_AUTHORITATIVE` ← `snapshot.authoritative`，Bridge 写死 `.setAuthoritative(true)`
+     （`bridge/src/main/java/org/minekin/bridge/runtime/ClientSnapshot.java:80`）。
+   - `GENERATION_MISMATCH` ← `snapshot.generation` 对活跃 attempt 的 generation；Bridge 回的
+     正是 Core 发 `ConnectWorld` 时给它的那一个（`ClientAdmissionController.java:250`），同源。
+   - `SESSION_MATERIAL_MISMATCH` ← `snapshot.session_identity`（`client.getSession()` 的
+     username 与 uuid，`ClientSnapshot.java:56-59,84,174-187`）对 `RecordedSessionMaterial`，
+     而后者是**从解析后的启动 argv 读回来的**
+     （`src/minekin_core/adapters/launcher/offline_session.py:247,255-275`）；两个离线候选只差
+     `--userType`，而比较只看 username 与规范化 uuid
+     （`src/minekin_core/domain/session_material.py:114-128`），两边同源。
+   - `SELF_STATE_INCOHERENT`／`INVENTORY_INVALID` ← `snapshot.self.*` 与
+     `snapshot.inventory.revision`，全部取自活客户端状态，且 revision 是
+     `Math.max(1, client.world.getTime())`（`ClientSnapshot.java:66,119`），永不为 0。
+4. 决定性的一点在 Bridge 的取舍上：**它说不出自己是谁时不发一份有毛病的快照，而是不发**
+   （`ClientSnapshot.java:52-60` 在 player/world/uuid/username 任一无效时 `return null`；
+   `ClientAdmissionController.java:249-253` 因此只留下一行客户端日志
+   `bridge could not describe itself, so no first snapshot was sent`，并把 `snapshotPending`
+   关掉、不再重试）。本地那五条断言里靠伪造 IPC 消息钉住的「一份没有身份的快照」，在真实
+   客户端上的形状是**根本没有快照**。
+5. 现存 knob 没有一个碰到上述任何字段：`MINEKIN_DOMAIN_*`
+   （`test-orchestrator/runner/domain.sh:18-129`）与 `tools/run_controlled_server.py` 的
+   `--summon/--allow-player/--online-mode/--resource-pack/--kill-player/--kick-player/
+   --probe-player/--use-target` 改的是服务端世界、白名单、线缆策略与进程；
+   `MINEKIN_DOMAIN_SILENCE`（`domain.sh:24,939`）SIGSTOP 的是 Core；
+   `tools/fault_injection.py:46-49` 的三个角色只有 `runtime_controller/server_jvm/client_jvm`，
+   也就是只能让一个进程消失。
+6. 这不是推测：**数据卷里 36 份真实运行文档的 `snapshot_rejections` 全是空数组**，同一批文档里
+   `connection_cancelled: "TIMEOUT"` 出现 3 次、`entities_rejected` 非零出现 1 次。写理由的那一层
+   在真实运行里会被写出来（实体过滤器就写过），从来没有发生过的是「快照被拒」这件事本身。
+
+于是今天的运行材料里，「JOIN 后首快照失败」唯一可读出的形状与 `ADMIT-110` 的有界放弃
+**完全重合**：JOIN 之后什么都没有，直到 Core 按自己的 deadline 放弃该 attempt，run document
+写下 `connection_cancelled: "TIMEOUT"`——判官的 `the_attempt_was_abandoned_at_its_deadline`
+读的就是这一个字段。契约失败表 post-JOIN 那一行点名的 `FIRST_SNAPSHOT_TIMEOUT` 与
+`WORLD_BINDING_MISMATCH` 在 proto 里有枚举值（`proto/minekin/v1/observation.proto:35-36`），
+但**没有任何一层发出它们**——与 `ADMIT-060` 冻结时的 `RESOURCE_PACK_BLOCKED` 同形，所以本条
+判据同样不得要求一条真实运行从未产生过的分类值。
+
+正式 `ADMIT-070` 的一份 sealed bundle 必须同时复判五项事实（逐条对应
+`tests/fixtures/cases/admit-070.json` 已登记的那五条断言——注意它们目前**全部**登记为
+`pytest` 类，即对域内过滤器的本地测试（`tools/check_case_assertions.py:476-495`），下面是它们
+在一份真实拒绝运行里的对应事实）：
+
+1. **确实进了世界**（`test_join_and_authoritative_snapshot_are_both_required_for_playable`）：
+   同一 ledger 有一条 `JoinObserved`（`BRIDGE`/`BRIDGE_FILTERED`），run document 的
+   `connection_state` 不是 `PLAYABLE`，`snapshots_admitted` 为 0。缺 JOIN 的运行是
+   `ADMIT-040`/`ADMIT-060` 的形状，不是这条。
+2. **被拒是有判决的被拒**（`test_a_non_authoritative_snapshot_is_not_admitted`、
+   `test_a_snapshot_for_another_identity_is_not_admitted`，以及
+   `test_a_refused_snapshot_is_never_the_basis_for_a_lease` 的拒绝半边）：`run-document.json` 的
+   `snapshot_rejections` 非空，其中**出现本用例点名的那一个 `SnapshotReason` 枚举名**（不是
+   「非空即可」），且 `snapshots_admitted` 仍为 0。
+3. **没有 lease 也没有 PLAYABLE**（同一断言的 lease 半边）：同一 ledger 无 `InputLeaseGranted`
+   （复用 `no_lease_was_granted`）、无 `PlayableEstablished`。本地那条断言说的「呈现输入计划的
+   钩子一次都不响」，在运行材料里只能由第 1、2 项在场加这两项缺失来说，不能由缺说。
+4. **本 generation 终止了**（`test_failure_is_terminal_until_generation_is_explicitly_closed`）：
+   run document 的 `connection_cancelled`/`connection_state`/`outcome` 说的是这一代被放弃或失败，
+   其后同一 run 不再出现 `JoinObserved`/`PlayableEstablished` 迁移；一代不终止的运行不是本场景。
+5. **拒绝的正文不越界**：`snapshot_rejections` 只到 `SnapshotReason` 这一层，判官不得要求文档里
+   没有的东西（`IntegrityViolation` 的具体条目今天不落文档），也不得把客户端日志那行 warn 当作
+   被拒事实——那是不可信诊断文本，而且它说的是「没发」，不是「被拒」。
+
+反例逐项必须让对应判据失败：只有超时（`snapshot_rejections: []` 且
+`connection_cancelled: "TIMEOUT"` → 第 2 项红，那正是 `ADMIT-110` 已经在读的运行）；
+`snapshot_rejections` 非空而 `snapshots_admitted ≥ 1`（并集字段能说「拒过一份」，说不了「首份
+被拒」→ 第 2 项红）；`entities_rejected > 0` 而快照放行（实体过滤器不是快照闸门 → 第 2 项红）；
+login 阶段就失败、没有 `JoinObserved`（→ 第 1 项红）；出现过 `InputLeaseGranted` 或
+`PlayableEstablished`（→ 第 3 项红）；同一 run 之后又起新 generation 并进到 `PLAYABLE`
+（→ 第 4 项红）；`snapshot_rejections` 字段缺失或不是字符串列表（→ 第 2 项读作不可判定，
+**不得**当作空数组，也不得当作拒绝）。
+
+**结论：封这条证据需要一个新的观测点，而且它必须落在 Bridge 的上报侧，不是判官的推断。**
+缺的那件事与 `ADMIT-060` 同形：本 generation 的第一份快照被 Core 拒了、理由是 X——而今天没有
+任何真实运行能把 X 写进文档。最小形状是：runner 明确要求时，Bridge 把该代第一份快照按
+`authoritative=false` 发出，Core 的过滤器照旧自己判决——被拒的仍是 **Core** 的决定，注入只
+制造了 Core 需要拒绝的那一种输入。两条看似更省事的路必须写清为什么不走：**改
+`RecordedSessionMaterial` 去凑一个 `SESSION_MATERIAL_MISMATCH`，等于让记录说谎，而那条断言测的
+正是记录与客户端是否同源**；伪造 `self`/inventory 数值则要让 Bridge 编一组客户端从未有过的 HUD
+数，那是产品替运行编造事实。`GENERATION_MISMATCH` 的诚实形状是晚到的上一代回调，属 `ADMIT-080`
+的时序场景，本条不认领。所以实现卡 `ADMIT-070-REFUSAL-INJECTION-001`（已在执行计划里以
+`QUEUED` 登记）的范围只有 `NOT_AUTHORITATIVE` 一个理由；其余四个理由的运行时对应继续由本地
+`pytest` 覆盖，并在本节的读数记录里记名为「尚无真实形状」。
+
+`ADMIT-070` 的 `mandatory` 仍为 `false`：本卡只冻结判据，不声称任何运行 PASS，也不封 evidence。
+在注入点落地之前，`REAL-P0-CAMPAIGN-001` 的第 3 个场景停在 `BLOCKED_EVIDENCE`，理由是**发生不了**
+而不是**读不出**——这两者的区别就是上面第 1、6 两段。
 
 ## 必须由 P0 实验冻结的参数
 
