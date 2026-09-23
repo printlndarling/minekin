@@ -20,8 +20,8 @@ subprocess.
 
 **This tool rewrites a tracked source file in place, one line at a time.** It
 refuses to start unless that file is committed as it stands, and it puts the
-original back in a `finally` before reporting, checking that the restore took. The
-way back from a hard kill is `git checkout -- tools/assert_case_evidence.py`.
+original back in a `finally` before reporting, checking byte for byte that the
+restore took. The way back from a hard kill is `git checkout -- tools/assert_case_evidence.py`.
 
 Usage:
 
@@ -183,14 +183,19 @@ def require_clean() -> None:
 
 def main() -> int:
     require_clean()
-    original = SRC.read_text(encoding="utf-8")
+    # Bytes, not text, on both ends. `write_text` translates every "\n" to the
+    # platform's separator, so on Windows the file would come back as CRLF — and
+    # reading it back through the same translation would hide that, which makes
+    # "the restore took" a claim about what the file says and not about its bytes.
+    original = SRC.read_bytes()
+    text = original.decode("utf-8")
     unchecked: list[Refusal] = []
     checked = 0
     try:
         targets: list[Refusal] = []
-        for refusal in refusals(original):
+        for refusal in refusals(text):
             try:
-                compile(corrupt(original, refusal), str(SRC), "exec")
+                compile(corrupt(text, refusal), str(SRC), "exec")
             except SyntaxError as error:
                 # A mutation that will not parse says nothing about any test, so it
                 # is reported rather than counted as "nothing objected".
@@ -202,7 +207,7 @@ def main() -> int:
             pending = targets if phase == 1 else list(unchecked)
             unchecked = []
             for refusal in pending:
-                SRC.write_text(corrupt(original, refusal), encoding="utf-8")
+                SRC.write_bytes(corrupt(text, refusal).encode("utf-8"))
                 reds = run(files)
                 if reds:
                     checked += 1
@@ -219,13 +224,13 @@ def main() -> int:
             if phase == 1:
                 print(f"\nphase 1: {checked} checked, {len(unchecked)} to re-check\n", flush=True)
     finally:
-        SRC.write_text(original, encoding="utf-8")
-        if SRC.read_text(encoding="utf-8") != original:
+        SRC.write_bytes(original)
+        if SRC.read_bytes() != original:
             raise SystemExit(
                 "RESTORE FAILED: recover with `git checkout -- tools/assert_case_evidence.py`"
             )
         print(
-            f"\n{checked} of {len(refusals(original))} refusals are asserted on by a test;"
+            f"\n{checked} of {len(refusals(text))} refusals are asserted on by a test;"
             f" {len(unchecked)} are not."
         )
     return 0 if not unchecked else 1

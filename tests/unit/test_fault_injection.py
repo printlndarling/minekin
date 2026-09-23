@@ -266,6 +266,18 @@ def test_the_schema_file_describes_the_record_the_reader_accepts() -> None:
         (changed(attempted_at_monotonic_ns="soon"), "INVALID_CLOCK"),
         ({**sample(), "extra": 1}, "UNKNOWN_FIELD"),
         ({key: value for key, value in sample().items() if key != "signal"}, "MISSING_FIELD"),
+        # A case section that is present, names its case, and carries a version
+        # that is not a digest. Well shaped, so this is once more a rule about the
+        # value: a version nothing can be compared against is not a version.
+        (nested(changed(), "case", case_version="not-a-digest"), "INVALID_CASE"),
+        # The section is present and well shaped, so this is the reader's own rule
+        # rather than the schema's: a generation starts at one, and attribution to
+        # generation zero names a run that never existed.
+        (nested(changed(), "attribution", generation=0), "INVALID_ATTRIBUTION"),
+        # A signal that says it was delivered and also says why it failed. The two
+        # fields are one claim — `_signal_is_usable` holds them together — and a
+        # record carrying both contradicts itself about the same moment.
+        (nested(changed(), "signal", error="EPERM"), "INVALID_SIGNAL"),
     ],
 )
 def test_a_malformed_record_is_refused_by_code(document: dict[str, object], code: str) -> None:
@@ -281,6 +293,12 @@ def structural_mutations() -> list[dict[str, object]]:
         changed(attempted_at_monotonic_ns="soon"),
         {**sample(), "extra": 1},
         {key: value for key, value in sample().items() if key != "signal"},
+        # These three carry rules the reader enforces on values rather than on
+        # structure, and the schema can speak to them too — measured, it refuses
+        # all three — so they belong in the agreement this test is about.
+        nested(changed(), "case", case_version="not-a-digest"),
+        nested(changed(), "attribution", generation=0),
+        nested(changed(), "signal", error="EPERM"),
     ]
 
 

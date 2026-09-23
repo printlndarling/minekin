@@ -1188,6 +1188,18 @@
   - **修改**：计划门禁矩阵那一行从「运行 Gradle `check`」改成「运行 Gradle `check --rerun-tasks`」，并把上面三条读数、`org.gradle.caching=true`、LeakProbe 那次事故和冷构建的 jar 读数一起写在旁边。**这是把一个验不动的门禁改成验得动的**，不是新增范围。
   - **实测（本轮：本地 + JDK 21）**：全量 pytest **1876 passed / 2 skipped**，Ruff check/format、Pyright（strict，0 errors）、boundaries、case assertions（120 条注册）、fixture digests、workflow pins 与 `git diff --check` 全绿；四道 Bridge 静态门全 OK；Gradle `check --rerun-tasks`（JDK 21.0.12.1，15/15 执行）与 `clean check` 均 `BUILD SUCCESSFUL`。**没有跑 Minecraft**（这四道门的名字里就写着「without downloading Minecraft」），**也没有把本地绿灯说成真实运行**。
   - **仍然开着的**：真实运行与四个决策，与前述各条相同；本轮没有改变它们的状态。
+- [x] **把上一轮那个问题问到第二个判官身上（`tools/fault_injection.py` 的 20 条校验码），逐条变异扫描之后：20/20 都有测试盯住。但过程中抓到的是**三件事**，而最值钱的一件是**文本判据反过来也骗人**：它说 `INVALID_CASE` 被测过——**那是 `CaseViolation.INVALID_CASE_ID` 里的子串，来自另一个模块的另一个枚举**。** 顺手修掉上一轮入库的工具里一个我刚写的缺陷。
+  - **怎么问的**：拿同一个问题去量别的 fail-closed 模块——「这个模块能吐出的每一条拒绝，有没有测试盯过它」。**先跑的仍然只是粗探针（文本搜索）**，当时就写明它粗：这个会话里文本搜索**两个方向都错过**（f-string 折行→已覆盖的看成本覆盖；同名兄弟→没覆盖的看成已覆盖）。它提名了三个（`fault_injection.py` 两条、`inject_fault.py` 一条）。**按本会话立下的规矩：文本搜索只许提名，判决必须靠变异。**
+  - **第一轮变异（对全量 1876 条测试跑）**：`INVALID_ATTRIBUTION` 改名 → **0 红**，`INVALID_SIGNAL` 改名 → **0 红**。确认两条真的没被验过。**这一次文本搜索是对的**——但结论不是从它那里来的。
+  - **然后我把 20 条**全部**扫了一遍**，于是抓到了反方向的那一件：`INVALID_CASE` 被文本判据判成「已覆盖」，**而它对四个观察者文件全跑一遍也是 0 红**。原因是 `grep` 命中的是 `tests/unit/test_case_registry.py` 里的 `CaseViolation.INVALID_CASE_ID` 与 `RequiredCaseViolation.INVALID_CASE_ID`——**`INVALID_CASE` 只是另一个模块里另一个标识符的子串**。这一条是本轮最有价值的读数：**文本判据的假阳性不是理论，它在同一个文件上刚刚发生过一次，而且方向和我预期相反。**
+  - **补的三条，各自是一条真实的坏记录**：`INVALID_CASE` 用 `nested(changed(), "case", case_version="not-a-digest")`——section 在、case_id 也在，**版本不是摘要，就等于没有可比对的版本**；`INVALID_ATTRIBUTION` 用 `nested(..., "attribution", generation=0)`——**归因给第 0 代就是归因给一个不存在的运行**（reader 自己的规则：generation 从 1 起）；`INVALID_SIGNAL` 用 `nested(..., "signal", error="EPERM")`——**「已投递」和「它为什么失败」同时写着**，两个字段本是同一件事的两半。
+  - **三条都同时进了 `structural_mutations()`**：那个测试问「reader 拒绝的，schema 是否也拒绝」。**实测三份文档都被 schema 拒绝**（各 1 条 error），所以这是**加强**那个一致性测试，不是把它变松。而它们在 `structural_mutations()` 里**不会**因为改名而红，**且本来就不该红**——那个测试断言的是「`codes(...)` 非空」，改名后仍非空。**两条测试问的不是同一件事，这正好被变异凸显出来。**
+  - **重扫的读数：20/20**。三处变异各自只红自己那一行（`document6-INVALID_CASE`、`document7-INVALID_ATTRIBUTION`、`document8-INVALID_SIGNAL`）。
+  - **探针提名的第三条是我自己的假阳性，如实记下**：`inject_fault.py` 的 `EUNKNOWN` 是 `errno.errorcode.get(error.errno or 0, "EUNKNOWN")`——**一个查表失败时的兜底标签，不是拒绝分支**。探针那行的启发式里 `error.errno` 含 "error" 就被算进来了。**没有东西要修，写在这里是为了让下一个人不要来「修」它。**
+  - **顺手修掉上一轮入库的工具里一个我自己写的缺陷**：`tools/verify_reason_assertions.py` 的还原用 `write_text`，在 Windows 上会把每个 `\n` 翻译成平台分隔符——**文件被还原成 CRLF**；更糟的是**读回来走的是同一个翻译**，所以它那句「已检查还原成功」比较的是「文件说了什么」而不是「文件的字节」。现在两端都用 bytes，docstring 也改成 "byte for byte"。**直接验证**：该文件本来有 **2471 个 CRLF**，改一次再还原后仍是 2471 个、逐字节相同。**并用它重跑了一遍全量验证：154/154、0 条没有，判官逐字节不变。**
+  - **探针的副作用，如实记**：中途那个临时脚本还原时把 `tools/fault_injection.py` 的行尾翻成了 CRLF（git 只报 `modified`、`git diff` 却空——**这正是行尾差异的签名**）。用 `git checkout --` 还原，确认内容与索引一致、工作树干净。**没有内容被改坏，也没有把行尾翻转带进提交**；后来这个临时脚本也改成按 bytes 还原了。
+  - **实测（本轮：本地）**：`tests/unit/test_fault_injection.py` **45 passed**（+3），全量 pytest、Ruff check/format、Pyright（strict，0 errors）、boundaries、case assertions、fixture digests、workflow pins 与 `git diff --check` 全绿；20 条码逐条变异扫描 **20/20**，临时脚本跑完 `tools/fault_injection.py` 逐字节还原；工具重跑一遍 **154/154** 且判官逐字节不变。**没有跑 Minecraft。**
+  - **仍然开着的**：真实运行与四个决策，状态未变。
 
 ## W70 之后
 
