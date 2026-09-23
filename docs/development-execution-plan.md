@@ -12,7 +12,7 @@
 - `baseline_date`: 2026-09-22
 - `baseline_branch`: `main`
 - `baseline_remote`: `origin/main`
-- `current_next`: `none` (classification regression triage; queued card below)
+- `current_next`: `ADMIT-040-CLASSIFICATION-001`
 
 权威顺序：
 
@@ -414,7 +414,10 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 
 ### ADMIT-040-CLASSIFICATION-001 — 识别原版在线认证拒绝的真实文案
 
-- `status`: `QUEUED`
+- `status`: `NEXT`
+- `baseline_sha`: `63bf428e4d78dbb38c9bbf38be2f8fc5c55054dd`
+- `promotion_reason`: 新卡已先以 `QUEUED` 登记并推送；这是阻断当前唯一
+  campaign 首个场景的真实分类回归，按“更高优先级回归”规则提升为 `NEXT`。
 - `why_now`: 上述真实诊断已证明 Bridge 把 `Invalid session` 错报为普通断线，
   直接阻断 `REAL-P0-CAMPAIGN-001` 的第一个场景。此卡作为回归修复插队；
   先登记为 `QUEUED`，由主控在基线与范围核对后提升为唯一 `NEXT`。
