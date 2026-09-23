@@ -12,7 +12,7 @@
 - `baseline_date`: 2026-09-22
 - `baseline_branch`: `main`
 - `baseline_remote`: `origin/main`
-- `current_next`: `EVIDENCE-SEQUENCE-001`
+- `current_next`: `CORE-STATE-TRANSITION-001`
 
 权威顺序：
 
@@ -34,7 +34,7 @@
 - 失败运行只追加、不覆盖；没有真实 evidence 不得写成 `PASS`、`tested` 或
   `P0_CORE_TESTED`。本地单测不能替代真实客户端、真实线程、真实故障或真实
   Minecraft 生命周期证据。
-- 不接受 Mojang EULA，不替用户执行需要该授权的运行。
+- Mojang EULA 已由用户确认接受（2026-09-23）；执行者不得替用户代选接受，但只可在唯一 `NEXT` 卡明确要求时运行相应受控场景，不把该确认外推到其他服务器/用途。
 - **CI 在跑，而且它不是走过场；但它仍不是本阶段的完成证据。**（2026-09-23 更正：这一条原文写的是「CI 当前没有额度」，那已经过期了。实测最近 12 次 run 全绿，最新一次 3 个 job `bridge-static`/`python`/`protocol` 共 37 步全部执行——包括 `buf lint`、`buf format --diff` 与「Verify checked-in Python protobufs」，也就是说 protobuf 与提交进仓库的生成物有一道**独立于本地门禁**的核对。）保留的仍是那条政策：完成证据来自本地与 Docker，因为 CI 同样跑不了 Minecraft，而上面那条「本地单测不能替代真实客户端证据」不会因为 CI 绿了而改变。反向也成立——CI 红是真信号，不是噪声，不要按它没额度处理。**这条在 2026-09-23 被自己用了一次**：一个纯文档提交红在 `uv sync --locked` 上，查下去发现是 `uv.lock` 把 92 个包钉在一台机器用户级配置里的第三方镜像上，而那个镜像会瞬时 403——信号指向的是一条仓库里没写、CI 却每次依赖的供应链，不是噪声。细节与两条候选修法见 `development-todo.md`。
 
 - HOST 与 W80+ 默认冻结。只有当前 `NEXT` 明确允许，或修复主干回归时，才可
@@ -354,12 +354,24 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 
 ### CORE-STATE-TRANSITION-001 — 账本显式记录状态迁移
 
-- `status`: `WAITING_REAL_RUN`
+- `status`: `NEXT`
 - `depends_on`: `CORE-REPLAY-CLI-001`
 - `scope`: 每次合法 session transition 记录显式 from/to 事实，使新 bundle 可 replay。
 - `stop_reason`: 该改动横跨真实客户端生命周期与异步账本；强杀时最后一条迁移是否
   落账不能由 mock 证明。
 - `unblock_condition`: 可使用受控 runner，且能在变更后运行正常退出与强杀场景。
+- `allowed_paths`:
+  - `src/minekin_core/domain/session_state.py` (retain the frozen transition table; expose a validated transition seam only)
+  - `src/minekin_core/cli/session.py` and `src/minekin_core/cli/session_runtime.py` (persist each applied move through the run ledger)
+  - `src/minekin_core/adapters/sqlite/session_log.py` (register and validate the reviewed transition event)
+  - `src/minekin_core/domain/replay.py` only if needed to consume the existing from/to payload contract
+  - focused tests for legal/illegal transitions, append ordering, replay and controlled-run crash windows
+  - this plan and `development-todo.md` status only
+- `forbidden_paths`: Bridge/proto/generated; transition-table semantics; unrelated session/admission/input behavior; case IDs/contracts; evidence attempt sequencing; CI workflows.
+- `acceptance`: each transition actually applied by Core has exactly one durable ledger fact containing `from` and `to`; illegal transitions write none; replay returns the last persisted state and rejects illegal/inconsistent moves; normal-exit and forced-stop controlled Docker runs prove committed transition rows survive client termination; all local repository gates pass.
+- `validation_class`: `LOCAL_THEN_REAL_RUN`
+- `commit_intent`: `feat(session): persist explicit state transitions`
+- `stop_conditions`: if durable-write ordering changes runtime behavior or the forced-stop run cannot distinguish a persisted transition from an inferred one, stop and refine this card before broadening scope.
 
 ### REAL-P0-CAMPAIGN-001 — 批量关闭真实运行缺口
 
@@ -386,7 +398,7 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 
 ### EVIDENCE-SEQUENCE-001 — 最新 evidence 与 supersession
 
-- `status`: `NEXT`
+- `status`: `DONE`
 - `question`: Registry 如何分配单调 `attempt_sequence`，如何记录 supersession，
   旧 bundle 如何兼容。
 - `constraint`: 不得按 mtime、目录名或 wall clock 猜“最新”。
@@ -423,7 +435,7 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
   目录名或 wall clock 推导先后。
   **为何冻结乙**：它不因不相关 Bridge/recipe 改动废弃全部 case 证据，并且直接支持
   “失败后重跑，最新失败阻断旧 PASS”这一既有验收意图。
-- `scope_for_next`: implement the frozen sequencing decision above; do not add build binding or infer ordering from timestamps/paths.
+- `scope`: implement the frozen sequencing decision above; do not add build binding or infer ordering from timestamps/paths.
 - `implementation_scope`: add one SQLite attempt registry at the supplied evidence data root, shared by repository and Kin bundle producers; use `BEGIN IMMEDIATE` to assign per-case monotonic sequence and explicit `supersedes_run_id`; persist a `PENDING` reservation before touching bundle output, then mark `SEALED` only after a complete bundle is atomically published. A pending latest row is a blocking attempt (never fall back); later retry receives a higher sequence and explicitly supersedes it. Promotion cross-checks registry rows against addressed bundle manifests, and any missing registry for sequenced bundles, duplicate/gapped/conflicting chain, path collision, unreadable/corrupt latest attempt, or registry/bundle disagreement fails closed for that case. Legacy manifests with no sequence retain the existing any-satisfying-bundle behavior only until a sequenced attempt exists for that case; after that, legacy bundles cannot satisfy it. No timestamp/path ordering and no in-place rewrite of sealed legacy bundles.
 - `allowed_paths`:
   - `src/minekin_core/domain/evidence.py` (typed optional attempt fields and validation)
@@ -449,6 +461,9 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
   Ruff、Pyright、boundaries、case assertions、fixture digests、workflow pins 与
   `git diff --check` 全绿；两处变异各自驱动到红（把比较恒真 → 两条用例红；**让诊断
   去 gate** → 13 条用例红，正好证明这棵树期待 promotion 语义不变）。
+- `completion_commit`: `488f0ba1ff256024134b3410caa6a58bbf3e68fa` (pushed to `origin/main`; remote SHA verified)
+- `completion_evidence`: full pytest 1901 passed / 2 skipped; latest targeted suite 83 passed after final read-only registry hardening; Ruff check/format, Pyright, boundaries, 120 case assertions, fixture digests, workflow pins, CORE-001 runner case 5/5 and `git diff --check` passed. No CI or Minecraft run.
+- `next_after_done`: `CORE-STATE-TRANSITION-001`
 
 ### PROCESS-RECOVERY-001 — 残留进程的自动处置
 
