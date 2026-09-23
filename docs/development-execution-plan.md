@@ -424,6 +424,9 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 - `allowed_paths`:
   - `bridge/src/main/java/org/minekin/bridge/runtime/ClientAdmissionController.java`
   - `bridge/src/test/java/org/minekin/bridge/runtime/ClientAdmissionControllerTest.java`
+  - `src/minekin_core/adapters/launcher/recipe.py` (Bridge JAR SHA-256 and byte size only)
+  - `tests/fixtures/runtime-input/bundle-p0-core-1.21.4.json` (Bridge artifact SHA-256,
+    byte size and source tree digest only)
   - `docs/development-execution-plan.md`
   - `docs/development-todo.md`
 - `forbidden_paths`: protobuf/枚举及生成物、其他分类器或 mixin、runner、
@@ -432,12 +435,17 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
   不伪造 ADMIT-040 的正式 PASS；该 case 的后半判据与 fixture 仍需单独冻结。
 - `acceptance`: `Invalid session` 的真实客户端拒绝文案归入 `AUTH_MODE_MISMATCH`；
   未知文案仍归入 `UNEXPECTED_DISCONNECT`；Java 针对性测试与本地全量门禁通过；
+  更新源码和 JAR 的受审 pin（只取当前重建产物），保持配方验证通过；
   重新构建的受控 Docker 在线认证负向运行在 Core ledger 中记录 `AUTH_MODE_MISMATCH`；
   正常离线身份对离线服仍可 JOIN、产生首快照。
 - `validation_class`: `LOCAL_THEN_REAL_RUN`
 - `commit_intent`: `fix(admission): classify vanilla invalid-session refusal`
 - `stop_conditions`: 若真实断线理由不再包含可辨识的认证文案，或修复需要协议/策略
   扩张，则停止并更新契约，不作宽泛的字符串猜测。
+- `scope_amendment` (2026-09-23): 首次 Bridge 全量 Java 门禁通过后，Python 全量
+  pytest 有 140 个失败，首个 trace 为 `Bridge source tree digest differs from the
+  bundle recipe`。这些测试共用受审配方；Bridge 源码变更必须重算源码/JAR pin，原卡
+  漏列了两个 pin 文件。只开放上述精确字段，不扩大认证行为或 case 判据。
 
 ### HOST-ADMISSION-DESIGN-001 — 宿主世界会话坐标来源
 
