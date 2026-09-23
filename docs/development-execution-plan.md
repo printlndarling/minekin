@@ -12,7 +12,7 @@
 - `baseline_date`: 2026-09-22
 - `baseline_branch`: `main`
 - `baseline_remote`: `origin/main`
-- `current_next`: `none` (ADMIT-040 evidence design triage; queued card below)
+- `current_next`: `ADMIT-040-EVIDENCE-DESIGN-001`
 
 权威顺序：
 
@@ -420,7 +420,10 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 
 ### ADMIT-040-EVIDENCE-DESIGN-001 — 冻结离线身份遇在线认证拒绝的完整判据
 
-- `status`: `QUEUED`
+- `status`: `NEXT`
+- `baseline_sha`: `03132e6c1ea7978a9c35798130fce8b3531802cd`
+- `promotion_reason`: 新卡已先以 `QUEUED` 登记并推送；它是当前 campaign
+  首场景不能正式封证的直接阻断项，现提升为唯一 `NEXT`。
 - `why_now`: 当前 build 的受控负向运行 `fbb9d4787a3743afa868a804c3c586ec`
   在 Core ledger 中正确记录 `AUTH_MODE_MISMATCH`，但库存仍报 `ADMIT-040`
   missing。现有 assertion 只覆盖“没进世界”或写死白名单分类；“没有自动启用账号

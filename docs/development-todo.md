@@ -1283,7 +1283,7 @@
     没有 sealed run material 可直接复判。一个 `SessionProcessStarted` 只能证明没重启，
     不能证明同一进程没有换认证方式。当前按 campaign 步骤 2 停在证据设计。
 
-- [ ] **ADMIT-040-EVIDENCE-DESIGN-001（已排队）**：冻结第一个真实场景的完整
+- [ ] **ADMIT-040-EVIDENCE-DESIGN-001（当前唯一 NEXT）**：冻结第一个真实场景的完整
   判据与可信材料来源；确认何种产品/测试域观测点能证明离线策略维持到拒绝终态，
   同时不泄露 token。给后续实现卡精确范围，不凭“只尝试一次”代理宣布 PASS。
 
