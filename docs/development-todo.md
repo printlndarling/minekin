@@ -1246,3 +1246,35 @@
 2. P0 core 没有模型或网页工具；W00–W70 只实现来源、trust、脱敏与 oracle 隔离基础。完整 `INJECT-001…120` 在 PlayerMind/工具层进入后执行。
 3. Xvfb 可作为真实客户端启动环境，但 FFmpeg/Live View 不进入 P0 core。
 4. `session start` 多了一个**可选**的 `--server-profile PATH`（§15 的 CLI 最小表面里没有它）。这是对**已有动词**加一个输入文档，不是新增动词：`minekin session start --profile ...` 仍然逐字有效且行为不变（客户端起来、证明自己、停在主菜单），给了 `--server-profile` 才在握手之后发出 `ConnectWorld`。不新增动词的理由是形状本身——`session connect` 要求会话在**另一个进程**里还活着，而客户端只有一个 Bridge 对，会话也只在本进程托管期间可达；要支持那种形状，得先让会话可被第二个进程接管，那是另一件事。CLI 表面若要与本文一致，应当把 §15 的清单改成「最小集」而不是「闭集」，或显式列出这一项。
+
+## 2026-09-23 推进记录
+
+- [x] **CORE-STATE-TRANSITION-001：ledger 显式记录每次 session 状态迁移**（代码 commit
+  `14acde7f63bb7a9584a63e7c163780d2cbd84dea`，已推送并合并到 `origin/main`；远端 SHA 已核对）。
+  - 增加唯一事件 `SessionStateTransitioned`，payload 显式为 `{from, to}`；event source/trust
+    均为 `CORE`。冻结迁移表未改；domain 提供校验 seam 与 connection-decision target，实际
+    迁移统一先持久化、再同步推进状态机。SQLite append 遇 cancellation 时会等 append 完成、
+    同步应用该迁移后再传播 cancellation，避免账本领先内存状态。
+  - 非法迁移在写入 ledger 前拒绝；单测验证 append 发生时机器仍处于源状态。runtime wiring
+    将完整 ledger payloads 交给现有 replay projector，最终状态与最后持久迁移一致；现有非法
+    跳转及 from 不一致拒绝逻辑保持原样。
+  - **最终版全量 pytest：1903 passed / 2 skipped**。Ruff check/format、Pyright（0 errors）、
+    boundaries、case assertions（120）、fixture digests、workflow pins、4 道 Bridge 静态/协议
+    门禁均通过。用 `D:\env\jdk-21.0.12.1` 执行 `./gradlew check --rerun-tasks`：15/15 tasks
+    执行，`BUILD SUCCESSFUL`。
+  - **最终版受控 Docker 实跑**：runner doctor 五项全绿；正常 `session stop` run
+    `f1db5741c9d049f7872c72d1872ac458`，强制 kill-client run
+    `dd872210b53c4da1ab834ac539dd2aa0`。两个容器都退出后，从持久 SQLite volume 再读到各自
+    11 条唯一迁移：每条 `{from,to}` 连续衔接，source/trust 为 CORE/CORE，最终到 STOPPED；
+    强杀场景记录 `INJECTED`（reasons 为空）且 Core 写入 `SessionInterrupted`。runner 两次
+    outcome 都是 `BRIDGE_LOST`、exit 14——这是关闭/杀死承载 Bridge 的客户端后的既定结果，
+    如实保留，没有改写成 `CLIENT_EXITED`。CI 未运行。
+- [ ] **REAL-P0-CAMPAIGN-001（当前唯一 NEXT）**：前置现在齐备（`CORE-METRICS-001` DONE、
+  受控 Docker runner 与 artifact store 可用、EULA 已由用户确认）。campaign 先按执行计划顺序
+  做 online-mode mismatch、resource-pack refusal、first-snapshot negative、OFF-A/OFF-B、
+  crash/outbox、tick/render sampling，再对 CORE/OFFLINE/ADMIT 跑 verify/rejudge/replay/
+  promotion。只接受当前 build + 当前 case version + 最新 attempt 的 bundle。
+  - 刚读过的 `report_cases.py` 基线：72 required，36 present、36 missing；W30 缺 8、W40 缺 7、
+    W50 缺 2、host-integrated 缺 18、p0-core 缺 17（各 gate 有重叠）；当前缺口全为
+    `runtime-required`。PERSIST case ID 尚未冻结，HOST 相关设计卡仍是 `BLOCKED_DECISION`，
+    因此不得猜编号或把 campaign 结果外推为 HOST/PERSIST 已完成。

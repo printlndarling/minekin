@@ -12,7 +12,7 @@
 - `baseline_date`: 2026-09-22
 - `baseline_branch`: `main`
 - `baseline_remote`: `origin/main`
-- `current_next`: `CORE-STATE-TRANSITION-001`
+- `current_next`: `REAL-P0-CAMPAIGN-001`
 
 权威顺序：
 
@@ -354,7 +354,7 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 
 ### CORE-STATE-TRANSITION-001 — 账本显式记录状态迁移
 
-- `status`: `NEXT`
+- `status`: `DONE`
 - `depends_on`: `CORE-REPLAY-CLI-001`
 - `scope`: 每次合法 session transition 记录显式 from/to 事实，使新 bundle 可 replay。
 - `stop_reason`: 该改动横跨真实客户端生命周期与异步账本；强杀时最后一条迁移是否
@@ -372,15 +372,40 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 - `validation_class`: `LOCAL_THEN_REAL_RUN`
 - `commit_intent`: `feat(session): persist explicit state transitions`
 - `stop_conditions`: if durable-write ordering changes runtime behavior or the forced-stop run cannot distinguish a persisted transition from an inferred one, stop and refine this card before broadening scope.
+- `completion_commit`: `14acde7f63bb7a9584a63e7c163780d2cbd84dea` (pushed to `origin/main`; local, tracking and remote SHA verified)
+- `completion_evidence`: 1903 passed / 2 skipped; Ruff check/format, Pyright (0 errors), boundaries, case assertions (120), fixture digests, workflow pins, four Bridge static/protocol gates, and `./gradlew check --rerun-tasks` on JDK 21.0.12.1 (15 tasks, BUILD SUCCESSFUL). Docker runner doctor passed all five checks. Two final-build domain runs completed: graceful `session stop` run `f1db5741c9d049f7872c72d1872ac458` and forced client JVM kill run `dd872210b53c4da1ab834ac539dd2aa0`; after both containers exited, SQLite showed exactly 11 `SessionStateTransitioned` rows per run, all `CORE/CORE`, with each `from` matching the prior `to` and both ending at `STOPPED`. The forced run's fault helper recorded `INJECTED` with no reasons and Core recorded `SessionInterrupted`. Both runner commands reported `BRIDGE_LOST` (exit 14), the existing controlled-runner teardown outcome after the Bridge process disappears; neither is represented as `CLIENT_EXITED`. Unit wiring replay projected a real session ledger to its persisted final state; illegal transition and append-order tests passed. CI was not run.
 
 ### REAL-P0-CAMPAIGN-001 — 批量关闭真实运行缺口
 
-- `status`: `WAITING_REAL_RUN`
+- `status`: `NEXT`
 - `depends_on`: `CORE-METRICS-001`、可用 artifact store、受控 runner 与用户 EULA 授权
 - `order`: online-mode mismatch → resource-pack refusal → 首快照负向 → OFF-A/OFF-B
   → crash/outbox 窗口 → tick/render 采样 → CORE/OFFLINE/ADMIT promotion report。
 - `acceptance`: 当前 build 与当前 case version 的 sealed bundle；verify、rejudge、
   replay（能 replay 的部分）和 promotion 报告一致。
+- `execution_steps`:
+  1. 每个 scenario 开始前保存当前 required-case inventory、build/artifact 身份与
+     case version；只从机器报告读取 `runtime-required` 缺口，不把 `not-gating` case
+     或本地结果算作 campaign PASS。
+  2. 严格按 `order` 单场景执行；每次运行写入独立 run/attempt，不覆盖失败运行，也不
+     把既有 PASS 当成当前 build 的证据。先补足 scenario 所需的 runner knob、profile
+     或判据映射；映射未由 contract/fixture 明确时先停在计划更新，不猜 case ID。
+  3. 每一份 bundle 都用产品命令 `evidence verify`、测试域 `rejudge_evidence.py`，
+     以及适用的 `minekin replay` / `replay_evidence.py` 检查；将结果与
+     `report_promotion.py` 按当前 build、case version 和最新 attempt 交叉核对。
+  4. 每完成一个场景立即登记 run ID、attempt sequence、bundle digest、case verdict、
+     promotion 变化与失败原因，再进入下一个场景；只在 required inventory 和 promotion
+     均满足 acceptance 后将 campaign 标为 DONE。
+- `current_inventory_snapshot` (2026-09-23): `report_cases.py` reports 72 required,
+  36 present and 36 missing; W00/W10/W20/W60/W70 are satisfied, W30 misses 8, W40
+  misses 7, W50 misses 2, host-integrated misses 18, and p0-core misses 17 (overlap
+  across gates is intentional). The remaining missing requirements are
+  `runtime-required`; PERSIST case IDs remain explicitly unfrozen. Do not infer that
+  this campaign can close HOST or PERSIST while their separate design decisions remain
+  blocked.
+- `unblock_evidence`: controlled runner image built locally; Docker `doctor` all five
+  checks passed; pinned Minecraft 1.21.4 server jar is available and SHA-1 verified;
+  user-confirmed Mojang EULA acceptance is recorded above. The prerequisite is satisfied.
 
 ### HOST-ADMISSION-DESIGN-001 — 宿主世界会话坐标来源
 
