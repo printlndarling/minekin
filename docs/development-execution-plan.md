@@ -12,7 +12,7 @@
 - `baseline_date`: 2026-09-22
 - `baseline_branch`: `main`
 - `baseline_remote`: `origin/main`
-- `current_next`: `REAL-P0-CAMPAIGN-001`
+- `current_next`: `none` (classification regression triage; queued card below)
 
 权威顺序：
 
@@ -377,7 +377,12 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 
 ### REAL-P0-CAMPAIGN-001 — 批量关闭真实运行缺口
 
-- `status`: `NEXT`
+- `status`: `BLOCKED_REGRESSION`
+- `blocked_by`: `ADMIT-040-CLASSIFICATION-001`。受控 Docker 诊断运行
+  `fdef1d7192dd480db6aed1c5e7e493dd` 在离线身份连接 `online-mode=true`
+  原版服务器时，客户端日志出现 `Failed to log in: Invalid session (Try restarting your game and the launcher)`，
+  但 Core 的 `SessionInterrupted` 记录了 `ADMISSION_FAILURE_REASON_UNEXPECTED_DISCONNECT`；
+  专项契约要求 `AUTH_MODE_MISMATCH`。该次运行只作诊断，未封为 ADMIT-040 PASS。
 - `depends_on`: `CORE-METRICS-001`、可用 artifact store、受控 runner 与用户 EULA 授权
 - `order`: online-mode mismatch → resource-pack refusal → 首快照负向 → OFF-A/OFF-B
   → crash/outbox 窗口 → tick/render 采样 → CORE/OFFLINE/ADMIT promotion report。
@@ -406,6 +411,30 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 - `unblock_evidence`: controlled runner image built locally; Docker `doctor` all five
   checks passed; pinned Minecraft 1.21.4 server jar is available and SHA-1 verified;
   user-confirmed Mojang EULA acceptance is recorded above. The prerequisite is satisfied.
+
+### ADMIT-040-CLASSIFICATION-001 — 识别原版在线认证拒绝的真实文案
+
+- `status`: `QUEUED`
+- `why_now`: 上述真实诊断已证明 Bridge 把 `Invalid session` 错报为普通断线，
+  直接阻断 `REAL-P0-CAMPAIGN-001` 的第一个场景。此卡作为回归修复插队；
+  先登记为 `QUEUED`，由主控在基线与范围核对后提升为唯一 `NEXT`。
+- `allowed_paths`:
+  - `bridge/src/main/java/org/minekin/bridge/runtime/ClientAdmissionController.java`
+  - `bridge/src/test/java/org/minekin/bridge/runtime/ClientAdmissionControllerTest.java`
+  - `docs/development-execution-plan.md`
+  - `docs/development-todo.md`
+- `forbidden_paths`: protobuf/枚举及生成物、其他分类器或 mixin、runner、
+  case registry/assertions、CI 配置及无关生产代码。
+- `non_goals`: 不改变默认离线身份策略，不绕过在线认证，不自动启用账号适配器，
+  不伪造 ADMIT-040 的正式 PASS；该 case 的后半判据与 fixture 仍需单独冻结。
+- `acceptance`: `Invalid session` 的真实客户端拒绝文案归入 `AUTH_MODE_MISMATCH`；
+  未知文案仍归入 `UNEXPECTED_DISCONNECT`；Java 针对性测试与本地全量门禁通过；
+  重新构建的受控 Docker 在线认证负向运行在 Core ledger 中记录 `AUTH_MODE_MISMATCH`；
+  正常离线身份对离线服仍可 JOIN、产生首快照。
+- `validation_class`: `LOCAL_THEN_REAL_RUN`
+- `commit_intent`: `fix(admission): classify vanilla invalid-session refusal`
+- `stop_conditions`: 若真实断线理由不再包含可辨识的认证文案，或修复需要协议/策略
+  扩张，则停止并更新契约，不作宽泛的字符串猜测。
 
 ### HOST-ADMISSION-DESIGN-001 — 宿主世界会话坐标来源
 
