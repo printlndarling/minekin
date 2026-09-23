@@ -268,9 +268,9 @@ uv run --frozen python tools/report_cases.py
   - evidence bundle、runner 数据根与 promotion 语义
 - `acceptance`:
   1. `CORE-001.input_digests` 精确覆盖它声明的三个非 glob 输入，当前字节逐项匹配；
-  2. 分别变异任一输入而不更新 case JSON 时，`load_case_manifest`/case runner 在执行
-     断言前 fail closed；更新 pin 后 case version 必须不同，旧 bundle 因
-     `CASE_VERSION_MISMATCH` 不得满足 W10；
+  2. 分别变异任一输入而不更新 case JSON 时，`load_case_manifest` 以及使用它的封存/
+     promotion registry load 在执行断言或采信证据前 fail closed；更新 pin 后 case
+     version 必须不同，旧 bundle 因 `CASE_VERSION_MISMATCH` 不得满足 W10；
   3. `run_repo_case` PASS，fixture、case assertion、boundary 与全量本地门禁通过；
   4. 不接受 EULA、不运行 Minecraft、不把旧 bundle 重写为新版本。
 - `validation_class`: `LOCAL`
