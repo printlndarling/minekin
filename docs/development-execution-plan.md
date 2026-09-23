@@ -12,7 +12,7 @@
 - `baseline_date`: 2026-09-22
 - `baseline_branch`: `main`
 - `baseline_remote`: `origin/main`
-- `current_next`: 无——见下方「唯一 NEXT：无」。队列里已没有可提升的卡。
+- `current_next`: `CASE-CORE-001-INPUT-PINS`
 
 权威顺序：
 
@@ -243,16 +243,44 @@ uv run --frozen python tools/report_cases.py
 - `validation_class`: `LOCAL_THEN_REAL_RUN`
 - `commit_intent`: `feat(bridge): make the callback budget measurable`
 
-## 唯一 NEXT：无
+## 唯一 NEXT
 
-`CORE-METRICS-001` 完成之后，**阶段队列里没有任何一张卡能按本文自己的规则被提升为
-`NEXT`**。`OFFLINE-CANDIDATE-001` 曾经是队列里唯一可提升的卡，已于 2026-09-23 完成。
+### CASE-CORE-001-INPUT-PINS — 让供应链输入变化必然移动 case version
 
-- `CORE-STATE-TRANSITION-001`、`REAL-P0-CAMPAIGN-001`：`WAITING_REAL_RUN`，两者的
-  停止条件都写明「生产改动必须与同一阶段真实运行一起交付」；
-- `HOST-ADMISSION-DESIGN-001`、`OPERATIONS-RETENTION-001`、`EVIDENCE-SEQUENCE-001`、
-  `PROCESS-RECOVERY-001`：`BLOCKED_DECISION`，要先冻结决策再写代码；
-- `HOST/W80+`：`DEFERRED`，前置阶段未完成。
+- `status`: `NEXT`
+- `why_now`: 对已完成的 `CASE-CORE-001` 做独立复核时发现：fixture 已声明 recipe、
+  Gradle lock 与 host-boundary name table 为 `inputs`，却没有把其字节写入
+  `input_digests`。因此三者与全局 pin 一起更新后，只要断言函数没改，case version
+  就不动；旧供应链清单上的 sealed PASS 仍可能满足新的 mandatory W10。这与本仓库
+  已在世界 fixture 上冻结的规则相反：外部输入变化必须先造成
+  `CASE_VERSION_MISMATCH`，不能由新 checkout 重新解释旧证据。
+- `depends_on`: `CASE-CORE-001`
+- `scope`: 只给 `CORE-001` 已声明的三个输入记录 SHA-256，并更新该 case 的 fixture
+  digest；不改供应链判据、不改产品代码、不重封 PASS bundle。
+- `allowed_paths`:
+  - `tests/fixtures/cases/core-001.json`
+  - `tests/fixtures/manifest.sha256`
+  - 针对 case input pin/version 行为的测试（仅在现有门禁不能证明验收项时）
+  - 本计划与 `development-todo.md` 的状态记录
+- `forbidden_paths`:
+  - `src/`、`bridge/`、`proto/`、`generated/`
+  - 现有供应链断言实现与 assertion registry
+  - evidence bundle、runner 数据根与 promotion 语义
+- `acceptance`:
+  1. `CORE-001.input_digests` 精确覆盖它声明的三个非 glob 输入，当前字节逐项匹配；
+  2. 分别变异任一输入而不更新 case JSON 时，`load_case_manifest`/case runner 在执行
+     断言前 fail closed；更新 pin 后 case version 必须不同，旧 bundle 因
+     `CASE_VERSION_MISMATCH` 不得满足 W10；
+  3. `run_repo_case` PASS，fixture、case assertion、boundary 与全量本地门禁通过；
+  4. 不接受 EULA、不运行 Minecraft、不把旧 bundle 重写为新版本。
+- `validation_class`: `LOCAL`
+- `commit_intent`: `fix(cases): bind CORE-001 to its reviewed inputs`
+- `stop_conditions`: 任一声明输入并非判据的一部分，或现有 case loader 无法在不改变
+  promotion 语义的情况下验证 pin；遇到时停止并回到规格复核。
+
+这张回归卡完成后，阶段队列仍只剩 `WAITING_REAL_RUN`、`BLOCKED_DECISION` 与
+`DEFERRED` 项；主控随后冻结 `EVIDENCE-SEQUENCE-001` 的一个方案，再将其提升为
+唯一 `NEXT`，Claude 不得从历史 TODO 自选别的任务。
 
 **队列之外还有第二类，2026-09-23 才发现并做掉**：**证据生产也不是卡**。`local-only`
 的 required case 只差一份**封存的 PASS bundle**，而 `tools/seal_repo_case.py` 不需要
@@ -310,6 +338,13 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 
 状态只允许：`QUEUED`、`BLOCKED_DECISION`、`WAITING_REAL_RUN`、`DEFERRED`、
 `DONE`。只有上一张卡已 commit、push 且远端 SHA 可核对，主控才可提升下一张。
+
+### CASE-CORE-001-INPUT-PINS — CORE-001 输入版本绑定回归
+
+- `status`: `NEXT`
+- `depends_on`: `CASE-CORE-001`
+- `scope`: 与上方唯一 NEXT 卡完全相同；本段只保留它在阶段队列中的位置。
+- `next_after_done`: 由主控冻结 `EVIDENCE-SEQUENCE-001` 决策并另行提升，不自动领取。
 
 ### CORE-STATE-TRANSITION-001 — 账本显式记录状态迁移
 

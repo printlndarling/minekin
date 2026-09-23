@@ -1217,6 +1217,12 @@
   - **实测（本轮：本地 + 容器 + GitHub REST）**：100 次运行（`main`，2026-09-20 → 2026-09-23）逐条量过运行级时长，>20 分钟者 1 次（即上面那次）；其中 75 次的 `python` job 逐条量过 job 级时长，全部 1.8～2.7 分钟、全部 success；卡住那次 job 的完整日志（639,445 字节、7,073 行）取回来读过。容器内 `doctor` 五条全过。本地全量 pytest、Ruff check/format、Pyright（strict，0 errors）、boundaries、case assertions、fixture digests、workflow pins 与 `git diff --check` 全绿。**没有跑 Minecraft，也没有接受 EULA。**
   - **仍然开着的**：真实运行与四个决策，状态未变；上一条建议（CI 超时）是有依据、但需要有人定值的决定。
 
+- [ ] **`CASE-CORE-001-INPUT-PINS`：`CORE-001` 已声明的 recipe、Gradle lock 与
+  host-boundary name table 还没有进入 `input_digests`。** 这会让输入字节变化但
+  assertion 源码不变时 case version 保持不变，旧 W10 PASS 可能继续满足新清单。
+  按 `development-execution-plan.md` 的唯一 NEXT 处理：钉住三个当前摘要，逐项做
+  fail-closed/version-mismatch 变异验证，完成前不推进 evidence sequencing。
+
 ## W70 之后
 
 - [ ] W80：独立 `p0-nav-exp` 导航实验；核验输入冲突、隐藏真值与 SBOM/许可。
