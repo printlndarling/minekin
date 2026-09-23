@@ -1298,9 +1298,17 @@
   - 文档阶段全量 pytest 1903 passed / 2 skipped，Ruff、Pyright、边界、120 条
     断言注册、fixture 摘要与 workflow pins 均通过。未跑新 Minecraft 场景。
 
-- [ ] **AUTH-POLICY-EVENT-001（当前唯一 NEXT）**：让实际离线启动路径与
-  `AuthPolicyFrozen` 共享同一个不可变策略对象；每个 run 在进程启动前写
-  CORE/CORE 策略事件，再用受控在线拒绝与默认离线入服两种真实运行核对。
+- [x] **AUTH-POLICY-EVENT-001（commit `0d7b41e` 已推送）**：实际离线启动路径与
+  `AuthPolicyFrozen` 共享同一个不可变策略对象；每个 run 在进程启动前写唯一
+  CORE/CORE 策略事件。全量 pytest 1912 passed / 2 skipped；真实负向 run
+  `f136163a648246f6af0f899f0a71e181` 在服务端 online-mode=true 下保留
+  `AUTH_MODE_MISMATCH` 且未入服，真实正向 run
+  `c3b7d7a3fa684c279627f394613adadb` 在 offline-mode 下达到 PLAYABLE 并接纳
+  首快照。两条都先写策略事件；诊断 run 尚非 ADMIT-040 的正式封证。
+
+- [ ] **ADMIT-040-CASE-001（当前唯一 NEXT）**：按专项契约封存同一 run 的
+  服务端配置、Profile、冻结策略、拒绝分类与未入服事实，编写可复判断言及
+  反例测试；使用本地受控运行产出正式 `ADMIT-040` bundle，不借 CI 额度。
 
 - [x] **ADMIT-040-CLASSIFICATION-001（已完成，commit `dd992b1` 已推送）**：`REAL-P0-CAMPAIGN-001`
   首个受控诊断运行 `fdef1d7192dd480db6aed1c5e7e493dd` 中，离线身份遇到原版

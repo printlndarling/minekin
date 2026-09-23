@@ -12,7 +12,7 @@
 - `baseline_date`: 2026-09-22
 - `baseline_branch`: `main`
 - `baseline_remote`: `origin/main`
-- `current_next`: `AUTH-POLICY-EVENT-001`
+- `current_next`: `ADMIT-040-CASE-001`
 
 权威顺序：
 
@@ -465,7 +465,7 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 
 ### AUTH-POLICY-EVENT-001 — 让 P0 离线认证策略成为可信账本事实
 
-- `status`: `NEXT`
+- `status`: `DONE`
 - `baseline_sha`: `103b9bc94b01da81f9d7c0dc6061275ba227262d`
 - `promotion_reason`: 设计卡 DONE 且已推送，当前 campaign 首场景缺少的第一份
   产品可信事实就是不可变认证策略事件，故提升为唯一 `NEXT`。
@@ -495,10 +495,24 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 - `commit_intent`: `feat(session): freeze offline auth policy in ledger`
 - `stop_conditions`: 若同一 run 的策略无法由可信 Profile 与实际启动路径共同
   约束，停止并修正专项契约，不能只写一个自报字段。
+- `completion_commit`: `0d7b41e9e7c92400f8bcae303e1c2f2f755a739f`，已推送
+  到 `origin/main` 与当前分支，远端 SHA 已核对。
+- `completion_evidence`: Core 在进程启动前从同一个不可变 `AuthPolicy` 写唯一
+  `AuthPolicyFrozen`（CORE/CORE）；Profile id/revision 与离线策略同源，无在线
+  适配器或重绑定路径。全量本地 pytest 1912 passed / 2 skipped，Ruff check/format、
+  Pyright、边界、case assertions、fixture digest、workflow pins 与 diff check 通过。
+  受控负向 run `f136163a648246f6af0f899f0a71e181` 的服务端 `online-mode=true`，
+  ledger 先冻结 offline 策略，后记录 `AUTH_MODE_MISMATCH`，无 JOIN/PLAYABLE；
+  正向 run `c3b7d7a3fa684c279627f394613adadb` 的服务端 `online-mode=false`，
+  ledger 先冻结策略，后有 JOIN、PLAYABLE 与 1 份准入快照。两次 runner 由停止
+  客户端产生退出码 14；未据此宣称正式 case PASS。
 
 ### ADMIT-040-CASE-001 — 封存并复判在线认证拒绝用例
 
-- `status`: `QUEUED`
+- `status`: `NEXT`
+- `baseline_sha`: `0d7b41e9e7c92400f8bcae303e1c2f2f755a739f`
+- `promotion_reason`: 产品可信策略事件已在负/正两条真实运行中核对并推送；
+  当前 campaign 的下一阻断项是把同 run 交叉证据封成可复判的正式 case。
 - `depends_on`: `AUTH-POLICY-EVENT-001`
 - `allowed_paths`:
   - `tools/seal_run_evidence.py`
