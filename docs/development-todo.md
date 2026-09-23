@@ -1354,7 +1354,8 @@
     workflow pins 与 `git diff --check` 通过。未跑 CI，未把旧诊断 run 追认为 PASS。
   - **`mandatory` 仍是 `false`**：契约的其余 ADMIT 场景未齐，这一条不点亮任何 gate。
 
-- [ ] **ADMIT-060-EVIDENCE-DESIGN-001（已登记为 `QUEUED`）**：campaign `order` 的第 2 个
+- [ ] **ADMIT-060-EVIDENCE-DESIGN-001（当前唯一 NEXT，先以 `QUEUED` 登记于 `d0a5d9e`）**：
+  campaign `order` 的第 2 个
   场景（资源包拒绝）。缺的不是运行而是判据——「未授权时不 PLAYABLE」有材料，
   「不由聊天同意」在现有 sealed 运行材料里没有任何承载事实，`no_lease_was_granted`
   说的是「没授 lease」，不是那句的同义词。harness 那半边已具备

@@ -12,7 +12,7 @@
 - `baseline_date`: 2026-09-22
 - `baseline_branch`: `main`
 - `baseline_remote`: `origin/main`
-- `current_next`: `ADMIT-040-CASE-001`
+- `current_next`: `ADMIT-060-EVIDENCE-DESIGN-001`
 
 权威顺序：
 
@@ -588,9 +588,14 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 
 ### ADMIT-060-EVIDENCE-DESIGN-001 — 冻结资源包拒绝场景的完整判据
 
-- `status`: `QUEUED`
-- `depends_on`: `REAL-P0-CAMPAIGN-001` 的 `order` 第 2 项，以及已 DONE 的
-  `ADMIT-040-CASE-001`（首场景的判据与封存形状在此复用）。
+- `status`: `NEXT`
+- `baseline_sha`: `d0a5d9e`（登记本卡的提交；实现判据前以此为准）
+- `promotion_reason`: 新卡已先以 `QUEUED` 登记并推送（`d0a5d9e`）。它是
+  `REAL-P0-CAMPAIGN-001` 按 `order` 的下一个场景的直接阻断项，且阶段队列里
+  其余未闭合的卡都要先由用户拍板（`HOST-ADMISSION-DESIGN-001`、
+  `OPERATIONS-RETENTION-001`、`PROCESS-RECOVERY-001` 是 `BLOCKED_DECISION`，
+  `HOST/W80+` 是 `DEFERRED`），所以提升它不是插队。
+- `depends_on`: `ADMIT-040-CASE-001`（首场景的判据与封存形状在此复用）。
 - `why_now`: campaign 首场景现已正式封证。下一项按 `order` 是资源包拒绝
   （`ADMIT-060`），而本文「剩下八条 ADMIT」一节量过它的缺法：**判据只写了一半**。
   「未授权时不 PLAYABLE」有运行材料；「不由聊天同意」在现有 sealed 材料里
