@@ -1361,6 +1361,40 @@
   说的是「没授 lease」，不是那句的同义词。harness 那半边已具备
   （`MINEKIN_DOMAIN_RESOURCE_PACK=1`）。
 
+  - **判据冻结前的一次真实测量（受控 runner，只作诊断，不封存）**：
+    设 `MINEKIN_DOMAIN_RESOURCE_PACK=1`、profile
+    `p0-controlled-offline-loopback`（`resource_pack_policy: deny`）、服务端 run-112，
+    run `a114949bf0204a2e8021ec5d02583b4b`、session `e1c91d061176482d8f447153df081469`。
+    读到的形状是**客户端停在 login 协商，两侧都没把这件事说成资源包**：
+    run document `connection_state: LOGIN_NEGOTIATING`、`snapshots_admitted: 0`、
+    `world_snapshot: null`；ledger 只有 `CONNECTING → FAILED` 迁移与终止时 Core 自报的
+    `SessionInterrupted{outcome: BRIDGE_LOST}`（CORE/CORE），**没有** Bridge 过滤后的
+    `phase=FAILED` 分类，所以 `ADMISSION_FAILURE_REASON_RESOURCE_PACK_BLOCKED` 在这条
+    路径上从未产生；客户端 `logs/latest.log` 末行是
+    `bridge reporting CONNECTION_PHASE_LOGIN_NEGOTIATING for generation 1
+    (terminal=false, reason=ADMISSION_FAILURE_REASON_UNSPECIFIED)`；服务端只写
+    `... name=Kin ... lost connection: Disconnected`；客户端 `server-resource-packs/`
+    为空；`server.properties` 为 `require-resource-pack=true` +
+    `resource-pack=http://127.0.0.1:45123/minekin-domain-pack.zip` +
+    `resource-pack-sha1=a351bd3668e6fc47c0c9bb8da95ca6e1fb64638f`。
+  - **由此定下的两条判据边界**：`ADMIT-060` 在 P0 **不**要求分类后的
+    `RESOURCE_PACK_BLOCKED`（要求一条没有任何真实运行产生过的事实等于替产品编答案，
+    正是 `Invalid session` 曾被记成 `UNEXPECTED_DISCONNECT` 那类错；是否分类留给产品侧
+    单独决定）；**超时不算拒绝**——第 4 项不能只靠「45 秒没 PLAYABLE」，第 1～3 项必须
+    同时成立。
+  - **「不由聊天同意」重写为「同意只有一个来源」**：P0 的 IPC 协议里没有聊天消息面，
+    所以那句在运行材料里没有也不该有对应的否定观察。可证的是 profile 的规范化
+    `revision` 已含 `resource_pack_policy`、并由 `AuthPolicyFrozen` 绑定到本 run；
+    缺的只有「本 generation 实际放上线缆的那个策略值」。缺它时的假阳性说得出来：一个
+    只读 `auth_mode`、把 `resource_pack_policy` 忽略成 `prompt` 的构建会产出形状完全
+    相同的 bundle 并通过——所以补的必须是产品事实，且取自 Bridge 交付给原版连接路径的
+    `ServerInfo`（读回），不接受命令回显。
+  - 四项同 run 判据、可信来源、sealed 工件（含新的客户端 `server-resource-packs/`
+    目录列表）、逐一反例已写入专项契约「ADMIT-060 的可复判证据边界（2026-09-23 冻结）」。
+  - 排队的两张精确范围实现卡：`ADMIT-060-WIRE-POLICY-001`（产品：线缆策略事实）与
+    `ADMIT-060-CASE-001`（测试域：封存 + 断言 + fixture + runner 资源包等待分支）。
+  - 诊断 run 早于第 3、4 项的观测点存在，不追认为 `ADMIT-060` 的 PASS。
+
 - [x] **ADMIT-040-CLASSIFICATION-001（已完成，commit `dd992b1` 已推送）**：`REAL-P0-CAMPAIGN-001`
   首个受控诊断运行 `fdef1d7192dd480db6aed1c5e7e493dd` 中，离线身份遇到原版
   `online-mode=true` 的真实客户端拒绝文案为 `Failed to log in: Invalid session

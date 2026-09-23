@@ -179,6 +179,67 @@ Sealer 已封存服务端配置与 ledger timeline；实施时让判官从同一
 `fbb9d4787a3743afa868a804c3c586ec` 没有策略事件，只能作回归线索，
 不能追认成正式 PASS。
 
+### ADMIT-060 的可复判证据边界（2026-09-23 冻结）
+
+这条同样是**拒绝**场景，但它拒绝的位置在 login 阶段：受控原版服自己写的
+`server.properties` 必须显示 `require-resource-pack=true` 且带 loopback 的
+`resource-pack` URL 与 `resource-pack-sha1`，Kin 的可信 Server Profile 必须仍是
+`resource_pack_policy: deny`。**一次超时的登录、一条“没进世界”的记录、或客户端日志
+里没出现资源包字样，都不能单独充当本用例的证明**：前两项与“对端没人监听”“版本不匹配”
+的运行材料形状相同，最后一项只是缺证据的证据。
+
+本卡冻结判据前量过一次真实诊断（受控 runner，`MINEKIN_DOMAIN_RESOURCE_PACK=1`，
+profile 为 `p0-controlled-offline-loopback`，policy `deny`，服务端 run-112，
+run `a114949bf0204a2e8021ec5d02583b4b`、session `e1c91d061176482d8f447153df081469`），
+读到的形状是：**客户端停在 login 协商里，没有任何一侧把这件事说成资源包**。
+run document 为 `connection_state: LOGIN_NEGOTIATING`、`snapshots_admitted: 0`、
+`entities_admitted: 0`、`actions_applied: 0`、`world_snapshot: null`；ledger 只有
+`CONNECTING → FAILED` 的迁移与终止时 Core 自报的 `SessionInterrupted{outcome:
+BRIDGE_LOST}`，**没有** Bridge 过滤后的 `phase=FAILED` 分类，因此
+`ADMISSION_FAILURE_REASON_RESOURCE_PACK_BLOCKED` 今天在这条路径上从不产生；
+客户端自己的日志停在 `bridge reporting CONNECTION_PHASE_LOGIN_NEGOTIATING`，
+之后再无一行；服务端只写了 `... name=Kin ... lost connection: Disconnected`。
+
+这条实测结论直接约束判据：**`ADMIT-060` 在 P0 不能要求一条分类后的
+`RESOURCE_PACK_BLOCKED`**，因为要求一条今天没有任何真实运行产生过的事实，等于用
+判据替产品编一个它还没说的答案（这正是 `ADMIT-040-CLASSIFICATION-001` 之前
+`Invalid session` 被记成 `UNEXPECTED_DISCONNECT` 的那类错）。是否要把这个停顿分类成
+`RESOURCE_PACK_BLOCKED`，是**产品侧的单独决定**，不属于本用例的封证。
+
+“不由聊天同意”这一半不能写成一条聊天侧的否定观察：P0 的 IPC 协议里**根本没有
+聊天消息面**（`proto/` 与 Bridge 侧对 chat 的引用为零），所以“这次运行没有从聊天
+取得同意”在运行材料里没有、也不该有一个对应事实。它可以被证明的那个意思是
+**同意只有一个来源**，而那个来源在启动前就固定：profile 的 `revision` 是
+`resource_pack_policy` 也在内的规范化 JSON 摘要（`server_profile.py` 的
+`_REQUIRED_KEYS` 与 `revision=sha256(canonical)`），而这条 revision 已经由
+`AuthPolicyFrozen` 绑定到本 run、本 generation。于是缺的那一环是明确的、最小的：
+**本 generation 实际上到线缆上的那个策略值没有被记下来**。缺它时的假阳性说得出来：
+一个只读 `auth_mode`、把 `resource_pack_policy` 忽略成 `prompt` 的构建，会产出与本用例
+形状完全相同的 bundle 并通过——所以补的必须是产品事实，不是判官的猜测。
+
+正式 `ADMIT-060` 的一份 sealed bundle 必须同时复判四项事实：
+
+1. 服务端独立的 `server/server.properties` 证明这次世界要求资源包（`require-resource-pack=true`
+   且带 `resource-pack`/`resource-pack-sha1`），且其端口与 motd 与 sealed Server Profile
+   对应——与 `ADMIT-040` 同一件工件、同一种对照，不能只靠“客户端连不上”推断。
+2. sealed Server Profile 原样字节里 `resource_pack_policy` 是本用例要求的值，且其
+   规范化摘要等于同一 ledger 中早于进程启动的那条 `AuthPolicyFrozen` 的
+   `server_profile_revision`；profile 不同、revision 不符或没有冻结事件均失败。
+3. 同一 run 的产品事实表明**放上线缆的策略**就是第 2 项那一个（新的最小观测点，见上），
+   且该 run 内没有第二个策略值；不接受“只发过一次连接”作为替代。
+4. 这一代客户端**没有把包取下来、也没有进世界**：sealer 另封的客户端
+   `server-resource-packs/` 目录列表为空（诊断中已实测为空），且无 JOIN、无
+   `PlayableEstablished`、无准入快照、无 input lease。目录里出现包文件即失败。
+
+反例逐项必须让对应断言失败：服务端 `require-resource-pack=false`（第 1 项）、
+sealed profile 与冻结 revision 不同或事件缺失（第 2 项）、线缆策略与 profile 不同
+或同一 run 出现第二个值（第 3 项）、客户端目录里已有下载的包、或运行确实进了世界
+（第 4 项）。**超时不算拒绝**：判据不接受“45 秒后仍然没 PLAYABLE”作为第 4 项的
+充分条件，第 1～3 项必须同时成立，否则一次断网/DNS 故障就能封出这条用例的 PASS。
+
+诊断 run `a114949bf0204a2e8021ec5d02583b4b` 早于第 3、4 项的观测点存在，只能作
+回归线索，不能追认为 `ADMIT-060` 的 PASS。
+
 ## 必须由 P0 实验冻结的参数
 
 - `LEGACY`候选 account type 与各 game-argument sentinel 的实际可启动组合；
