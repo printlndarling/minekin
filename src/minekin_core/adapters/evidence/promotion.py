@@ -30,6 +30,24 @@ def _reject(message: str) -> MinekinError:
     )
 
 
+def _input_sha256(path: Path) -> str:
+    """Hash text inputs canonically across checkouts, and binary inputs as stored.
+
+    A case version is reviewed source state, not a report about whether Git checked
+    it out with CRLF or LF. Match the fixture manifest's existing UTF-8 rule while
+    keeping non-text evidence byte-for-byte significant.
+    """
+
+    payload = path.read_bytes()
+    try:
+        payload.decode("utf-8")
+    except UnicodeDecodeError:
+        pass
+    else:
+        payload = payload.replace(b"\r\n", b"\n")
+    return hashlib.sha256(payload).hexdigest()
+
+
 def _validate_input_digests(case: CaseManifest, *, input_root: Path) -> None:
     """Keep reviewed input bytes and their case-version pins inseparable.
 
@@ -63,7 +81,7 @@ def _validate_input_digests(case: CaseManifest, *, input_root: Path) -> None:
             raise _reject(f"case {case.case_id} pinned input is unavailable: {raw_path}") from error
         if not resolved.is_file():
             raise _reject(f"case {case.case_id} pinned input is not a file: {raw_path}")
-        actual = hashlib.sha256(resolved.read_bytes()).hexdigest()
+        actual = _input_sha256(resolved)
         if actual != expected:
             raise _reject(
                 f"case {case.case_id} input digest mismatch for {raw_path}: "

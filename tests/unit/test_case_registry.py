@@ -579,6 +579,90 @@ def test_registry_loading_rejects_changed_input_bytes_when_the_case_pin_was_forg
         load_case_manifest(case_path, input_root=tmp_path)
 
 
+@pytest.mark.parametrize(
+    "input_path",
+    [
+        "tests/fixtures/runtime-input/bundle-p0-core-1.21.4.json",
+        "bridge/gradle.lockfile",
+        "bridge/host-boundary-names.json",
+    ],
+)
+def test_core_001_rejects_each_changed_reviewed_input(tmp_path: Path, input_path: str) -> None:
+    """Each declared supply-chain input is checked before a case version is trusted."""
+
+    case_path = tmp_path / "tests" / "fixtures" / "cases" / "core-001.json"
+    case_path.parent.mkdir(parents=True)
+    case_path.write_bytes((REPOSITORY_ROOT / "tests/fixtures/cases/core-001.json").read_bytes())
+    for declared in (
+        "tests/fixtures/runtime-input/bundle-p0-core-1.21.4.json",
+        "bridge/gradle.lockfile",
+        "bridge/host-boundary-names.json",
+    ):
+        source = REPOSITORY_ROOT / declared
+        target = tmp_path / declared
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(source.read_bytes())
+
+    changed = tmp_path / input_path
+    changed.write_bytes(changed.read_bytes() + b"\nchanged without a pin update\n")
+
+    with pytest.raises(MinekinError, match=f"input digest mismatch for {input_path}"):
+        load_case_manifest(case_path, input_root=tmp_path)
+
+
+def test_core_001_text_input_pins_ignore_checkout_line_endings(tmp_path: Path) -> None:
+    """LF and CRLF checkouts retain one reviewed case version."""
+
+    case_path = tmp_path / "tests" / "fixtures" / "cases" / "core-001.json"
+    case_path.parent.mkdir(parents=True)
+    case_path.write_bytes((REPOSITORY_ROOT / "tests/fixtures/cases/core-001.json").read_bytes())
+    for declared in (
+        "tests/fixtures/runtime-input/bundle-p0-core-1.21.4.json",
+        "bridge/gradle.lockfile",
+        "bridge/host-boundary-names.json",
+    ):
+        source = REPOSITORY_ROOT / declared
+        target = tmp_path / declared
+        target.parent.mkdir(parents=True, exist_ok=True)
+        payload = source.read_bytes()
+        target.write_bytes(payload.replace(b"\r\n", b"\n"))
+
+    lf_version = load_case_manifest(case_path, input_root=tmp_path).digest
+    for declared in (
+        "tests/fixtures/runtime-input/bundle-p0-core-1.21.4.json",
+        "bridge/gradle.lockfile",
+        "bridge/host-boundary-names.json",
+    ):
+        target = tmp_path / declared
+        target.write_bytes(target.read_bytes().replace(b"\n", b"\r\n"))
+
+    crlf_version = load_case_manifest(case_path, input_root=tmp_path).digest
+
+    assert crlf_version == lf_version
+    case_definition = load_case_manifest(case_path, input_root=tmp_path)
+    assert set(dict(case_definition.input_digests)) == set(case_definition.inputs)
+
+
+def test_binary_input_digest_keeps_line_ending_bytes(tmp_path: Path) -> None:
+    payload = b"\xffbinary\r\nbytes"
+    path = tmp_path / "binary.dat"
+    path.write_bytes(payload)
+    case_path = tmp_path / "case.json"
+    case_path.write_text(
+        json.dumps(
+            document(
+                inputs=["binary.dat"],
+                input_digests={"binary.dat": hashlib.sha256(payload).hexdigest()},
+            )
+        ),
+        encoding="utf-8",
+    )
+
+    loaded = load_case_manifest(case_path, input_root=tmp_path)
+
+    assert dict(loaded.input_digests) == {"binary.dat": hashlib.sha256(payload).hexdigest()}
+
+
 def test_a_bundle_that_names_another_run_does_not_promote_its_case(bundles: Path) -> None:
     """The directory name is the attribution in this path too, not only in verify."""
 

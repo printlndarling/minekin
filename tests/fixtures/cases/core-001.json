@@ -8,6 +8,11 @@
     "bridge/gradle.lockfile",
     "bridge/host-boundary-names.json"
   ],
+  "input_digests": {
+    "tests/fixtures/runtime-input/bundle-p0-core-1.21.4.json": "e7862e447187d58a1d14da00ec9f2a05837bffd18dc790823a25c1b6bae09dbc",
+    "bridge/gradle.lockfile": "279e01b80d30f3d1ba495ae03a61e7ffb33130c346f442113c9d6c3ac73b359f",
+    "bridge/host-boundary-names.json": "709dfff8127e65436715ce879d0f0b3a749de83fa46f205ccaec3dee049bb320"
+  },
   "assertion_digests": {
     "a_bridge_artifact_under_an_unreviewed_dependency_digest_is_rejected": "66219b31182c3ff14e62dcfa5993c2183554910f55305111e42ddb6f9eaa1c73",
     "inserting_an_unknown_mod_is_rejected": "091166c80d517bea654d210fd71d4ef832c0b723ef64440faa73a5f97aacfeb5",
