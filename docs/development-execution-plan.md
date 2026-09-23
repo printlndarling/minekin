@@ -12,7 +12,7 @@
 - `baseline_date`: 2026-09-22
 - `baseline_branch`: `main`
 - `baseline_remote`: `origin/main`
-- `current_next`: `REAL-P0-CAMPAIGN-001`
+- `current_next`: `none` (ADMIT-040 evidence design triage; queued card below)
 
 权威顺序：
 
@@ -377,7 +377,11 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 
 ### REAL-P0-CAMPAIGN-001 — 批量关闭真实运行缺口
 
-- `status`: `NEXT`
+- `status`: `BLOCKED_EVIDENCE`
+- `blocked_by`: `ADMIT-040-EVIDENCE-DESIGN-001`。首场景已有真实分类结果，
+  但 `ADMIT-040` 缺正式 fixture，且契约的“不自动启用账号适配器”在现有 sealed
+  run material 中没有直接可验证事实。`SessionProcessStarted` 只有一条是“没重启”
+  的代理，不能证明同一进程没有切换认证方式；按本卡步骤 2 停在判据设计。
 - `regression_history`: `ADMIT-040-CLASSIFICATION-001` 曾阻断首场景；受控 Docker 诊断运行
   `fdef1d7192dd480db6aed1c5e7e493dd` 在离线身份连接 `online-mode=true`
   原版服务器时，客户端日志出现 `Failed to log in: Invalid session (Try restarting your game and the launcher)`，
@@ -413,6 +417,31 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 - `unblock_evidence`: controlled runner image built locally; Docker `doctor` all five
   checks passed; pinned Minecraft 1.21.4 server jar is available and SHA-1 verified;
   user-confirmed Mojang EULA acceptance is recorded above. The prerequisite is satisfied.
+
+### ADMIT-040-EVIDENCE-DESIGN-001 — 冻结离线身份遇在线认证拒绝的完整判据
+
+- `status`: `QUEUED`
+- `why_now`: 当前 build 的受控负向运行 `fbb9d4787a3743afa868a804c3c586ec`
+  在 Core ledger 中正确记录 `AUTH_MODE_MISMATCH`，但库存仍报 `ADMIT-040`
+  missing。现有 assertion 只覆盖“没进世界”或写死白名单分类；“没有自动启用账号
+  适配器”没有同一 run 可复判的材料，不能借单次进程数补成 PASS。
+- `allowed_paths`:
+  - `docs/p0-remote-admission-contract.md`
+  - `docs/p0-launch-plan-contract.md`
+  - `docs/development-execution-plan.md`
+  - `docs/development-todo.md`
+- `forbidden_paths`: 产品代码、测试域判官、case fixtures/registry、runner、proto、CI。
+- `non_goals`: 本卡不封 evidence、不改账号认证行为、不声称 ADMIT-040 PASS，
+  不把 `online-mode=true` 变成离线身份可入服的目标。
+- `acceptance`: 文档明确区分 Core ledger 中的 `AUTH_MODE_MISMATCH`、服务端确实
+  要求在线认证、启动身份确实是离线策略，以及拒绝后不自动启用在线适配器；给每一项
+  指定可信来源、sealed artifact、可复判断言和至少一个能揭露假阳性的反例。
+  若其中一项现有材料不可证，写明需要增加的最小产品/测试域观测点，并生成下一张
+  有精确范围的实现卡；不得把“只启动一个进程”或“没进世界”当作替代证据。
+- `validation_class`: `LOCAL`
+- `commit_intent`: `docs(admission): freeze auth mismatch evidence criteria`
+- `stop_conditions`: 如果无法指定不泄露令牌且可归属同一 run 的认证策略观测点，
+  停在设计缺口，不创建容易误报 PASS 的 fixture。
 
 ### ADMIT-040-CLASSIFICATION-001 — 识别原版在线认证拒绝的真实文案
 

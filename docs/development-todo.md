@@ -1269,7 +1269,7 @@
     强杀场景记录 `INJECTED`（reasons 为空）且 Core 写入 `SessionInterrupted`。runner 两次
     outcome 都是 `BRIDGE_LOST`、exit 14——这是关闭/杀死承载 Bridge 的客户端后的既定结果，
     如实保留，没有改写成 `CLIENT_EXITED`。CI 未运行。
-- [ ] **REAL-P0-CAMPAIGN-001（当前唯一 NEXT）**：前置现在齐备（`CORE-METRICS-001` DONE、
+- [ ] **REAL-P0-CAMPAIGN-001（首场景证据判据待冻结）**：前置现在齐备（`CORE-METRICS-001` DONE、
   受控 Docker runner 与 artifact store 可用、EULA 已由用户确认）。campaign 先按执行计划顺序
   做 online-mode mismatch、resource-pack refusal、first-snapshot negative、OFF-A/OFF-B、
   crash/outbox、tick/render sampling，再对 CORE/OFFLINE/ADMIT 跑 verify/rejudge/replay/
@@ -1278,6 +1278,14 @@
     W50 缺 2、host-integrated 缺 18、p0-core 缺 17（各 gate 有重叠）；当前缺口全为
     `runtime-required`。PERSIST case ID 尚未冻结，HOST 相关设计卡仍是 `BLOCKED_DECISION`，
     因此不得猜编号或把 campaign 结果外推为 HOST/PERSIST 已完成。
+  - 2026-09-23 当前 build 的受控 `online-mode=true` 负向诊断已得到
+    `AUTH_MODE_MISMATCH`，但 `ADMIT-040` 仍缺 fixture；“不自动启用账号适配器”
+    没有 sealed run material 可直接复判。一个 `SessionProcessStarted` 只能证明没重启，
+    不能证明同一进程没有换认证方式。当前按 campaign 步骤 2 停在证据设计。
+
+- [ ] **ADMIT-040-EVIDENCE-DESIGN-001（已排队）**：冻结第一个真实场景的完整
+  判据与可信材料来源；确认何种产品/测试域观测点能证明离线策略维持到拒绝终态，
+  同时不泄露 token。给后续实现卡精确范围，不凭“只尝试一次”代理宣布 PASS。
 
 - [x] **ADMIT-040-CLASSIFICATION-001（已完成，commit `dd992b1` 已推送）**：`REAL-P0-CAMPAIGN-001`
   首个受控诊断运行 `fdef1d7192dd480db6aed1c5e7e493dd` 中，离线身份遇到原版
