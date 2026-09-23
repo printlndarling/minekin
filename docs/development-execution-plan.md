@@ -416,12 +416,34 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
   （首份为 1），写入被新 bundle 取代的先前 bundle 标识；promotion 只评估当前最高序号。
   若最新 attempt 是 FAIL、unverified、缺失或结构损坏，旧 PASS 不得回退满足门禁；这保留
   “修复后重跑”的意义。序号按 case 独立、在同一个封存原子操作中分配并写入；并发封存
-  必须冲突失败/重试，不能分配重复序号。旧 bundle 无序号时只允许在显式 legacy policy
-  下兼容；不得用 mtime、目录名或 wall clock 推导先后。实施卡仍须先定义并测试并发锁/原子
-  持久化、损坏记录与 legacy 默认策略，超出卡片则停下，不自行拓宽。
+  必须冲突失败/重试，不能分配重复序号。attempt registry 先持久化 `PENDING` reservation，
+  bundle 完整原子发布后才标为 `SEALED`；中间崩溃让 pending attempt 保持最高并阻断旧 PASS，
+  后续 retry 另领更高序号。旧 bundle 无序号时，仅在该 case 尚无 sequenced attempt 时按
+  既有 any-satisfying 规则兼容；一旦有新 attempt，legacy 证据即被 supersede。不得用 mtime、
+  目录名或 wall clock 推导先后。
   **为何冻结乙**：它不因不相关 Bridge/recipe 改动废弃全部 case 证据，并且直接支持
   “失败后重跑，最新失败阻断旧 PASS”这一既有验收意图。
 - `scope_for_next`: implement the frozen sequencing decision above; do not add build binding or infer ordering from timestamps/paths.
+- `implementation_scope`: add one SQLite attempt registry at the supplied evidence data root, shared by repository and Kin bundle producers; use `BEGIN IMMEDIATE` to assign per-case monotonic sequence and explicit `supersedes_run_id`; persist a `PENDING` reservation before touching bundle output, then mark `SEALED` only after a complete bundle is atomically published. A pending latest row is a blocking attempt (never fall back); later retry receives a higher sequence and explicitly supersedes it. Promotion cross-checks registry rows against addressed bundle manifests, and any missing registry for sequenced bundles, duplicate/gapped/conflicting chain, path collision, unreadable/corrupt latest attempt, or registry/bundle disagreement fails closed for that case. Legacy manifests with no sequence retain the existing any-satisfying-bundle behavior only until a sequenced attempt exists for that case; after that, legacy bundles cannot satisfy it. No timestamp/path ordering and no in-place rewrite of sealed legacy bundles.
+- `allowed_paths`:
+  - `src/minekin_core/domain/evidence.py` (typed optional attempt fields and validation)
+  - `src/minekin_core/adapters/evidence/attempt_registry.py` (new SQLite state machine)
+  - `src/minekin_core/adapters/evidence/bundle.py` (atomic publication support)
+  - `src/minekin_core/adapters/evidence/promotion.py`
+  - `src/minekin_core/cli/evidence.py` (data-root registry location)
+  - `tools/seal_run_evidence.py`, `tools/seal_repo_case.py`, `tools/report_promotion.py`
+  - focused evidence, registry, promotion, sealing and report tests
+  - this plan and `development-todo.md` status only
+- `forbidden_paths`: Bridge/proto/generated/runtime lifecycle; changes to assertion meaning, case versions, build-binding policy, EULA/runtime execution; migration or rewrite of existing sealed bundles; unrelated retention/recovery/host decisions.
+- `acceptance`:
+  1. sequential and concurrent sealers on the same case receive unique monotonic sequences; different cases sequence independently; explicit supersession chain is validated;
+  2. crash/failure injection at reservation, bundle staging/publication, and registry completion never allows an older PASS to satisfy behind a newer pending/failed/corrupt attempt; retry gets a new higher sequence;
+  3. promotion only evaluates the highest registered attempt per mandatory case; wrong case/run/sequence, duplicate sequence, missing bundle, unreadable latest, or manifest/index mismatch blocks; legacy bundles preserve prior behavior only when no sequenced attempt exists;
+  4. verified latest PASS promotes; latest FAIL, INCOMPLETE, unverified, or UNJUDGED latest blocks even if an older PASS exists; old bundles are byte-for-byte unchanged;
+  5. existing evidence verify/rejudge/replay and all local gates pass; add no runtime requirement.
+- `validation_class`: `LOCAL`
+- `commit_intent`: `feat(evidence): sequence and supersede case attempts`
+- `stop_conditions`: if safe atomic bundle publication or an unambiguous shared data-root registry cannot be implemented without broad changes to evidence-root layout, stop and report before editing outside this allowlist.
 - `completion_evidence`（仅诊断那半）：`tools/report_promotion.py` 与
   `tests/unit/test_report_promotion.py`；全量 pytest 1833 passed / 2 skipped，
   Ruff、Pyright、boundaries、case assertions、fixture digests、workflow pins 与
