@@ -69,6 +69,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import fault_injection
 from assert_case_evidence import (
     ASSERTER_INPUTS,
+    CLIENT_PACK_LISTING_ARTIFACT,
     CLIENT_STREAM_ARTIFACTS,
     FAULT_RECORD_ARTIFACT,
     HOST_RUN_DOCUMENT_ARTIFACT,
@@ -197,6 +198,7 @@ def collect_artifacts(
     soak_summary: bytes,
     orchestrator: Mapping[str, object],
     server_profile: bytes = b"",
+    client_pack_listing: bytes = b"",
 ) -> dict[str, bytes]:
     """Every artifact this run left, under names a reader can recognise.
 
@@ -231,6 +233,12 @@ def collect_artifacts(
         # Sealed rather than restated: a bundle that claimed "offline profile" in
         # prose would be one more thing for a reader to take on trust.
         found[SERVER_PROFILE_ARTIFACT] = server_profile
+    if client_pack_listing:
+        # The one reading the judge made of the client's pack directory, sealed as
+        # it was read. Walking the directory again here would seal a second answer
+        # to "what had the client downloaded", and the two could differ by whatever
+        # the game wrote in between.
+        found[CLIENT_PACK_LISTING_ARTIFACT] = client_pack_listing
     # The client's own output, where the Bridge's lines are: sealing the whole
     # stream rather than a filtered selection means a reader can check any
     # selection against it rather than having to trust one.
@@ -712,6 +720,7 @@ def seal(
         soak_samples=soak_samples_bytes,
         soak_summary=soak_summary_bytes,
         server_profile=server_profile_bytes,
+        client_pack_listing=material.client_pack_listing.encode("utf-8"),
         orchestrator=orchestrator_trace(
             case=case,
             run_id=identifier,

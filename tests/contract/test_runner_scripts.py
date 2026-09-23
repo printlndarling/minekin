@@ -217,3 +217,34 @@ def test_the_auth_mismatch_wait_reads_the_classification_and_not_the_exit() -> N
     # branch may not fall back to it: that is the regression this case exists to catch.
     assert text.count("payload_json like '%FAILED%'") == 1
     assert "no classified auth mismatch was recorded within" in text
+
+
+def test_the_resource_pack_wait_reads_the_policy_that_went_on_the_wire() -> None:
+    """`ADMIT-060` ends its wait on the one line this case is about.
+
+    A client that will not take a required pack says nothing: it sits in the login
+    negotiation until Core's own deadline, which is the shape a dropped connection has
+    too. The one thing that distinguishes the run is the row the Bridge reported about
+    the policy the connection was made with, so the wait asks for that row — by its
+    value, since a build that let the policy fall through to `prompt` would have written
+    a row as well — and refuses to run at all when the harness served no pack.
+    """
+
+    text = (RUNNER / "domain.sh").read_text(encoding="utf-8")
+
+    assert 'elif [ "${case_id}" = "ADMIT-060" ]; then' in text
+    assert (
+        "printf 'domain: ADMIT-060 requires a served resource pack and an offline Server "
+        "Profile\\n'" in text
+    )
+    # The predicate is the one the case asserts: this run's rows only, the Bridge's own
+    # filtered report, and the value the frozen profile named.
+    assert "position > ${baseline} and event_type='ResourcePackPolicyApplied'" in text
+    assert (
+        "event_type='ResourcePackPolicyApplied' and source='BRIDGE' "
+        "and trust_class='BRIDGE_FILTERED'" in text
+    )
+    assert "json_extract(payload_json,'\\$.resource_pack_policy')='deny'" in text
+    assert "no denied resource pack policy was recorded within" in text
+    # Existence is not the wait's question, so the row is not asked for unnamed.
+    assert "json_extract(payload_json,'\\$.resource_pack_policy') is not null" not in text

@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "case_id": "ADMIT-060",
+  "work_package": "W40",
+  "mandatory": false,
+  "inputs": [
+    "tests/fixtures/runtime-input/bundle-p0-core-1.21.4.json",
+    "tests/fixtures/runtime-input/controlled-offline-server.json"
+  ],
+  "assertion_digests": {
+    "no_lease_was_granted": "83c53f9e5293072f2d04cebb71d1eb3d3e9628e89000c6cdb7eb5d3163018006",
+    "no_world_was_joined": "ef8c58247cb73ad18aaa6cb9149d567e0d09c6be4459940026189d54059cd2db",
+    "the_client_never_downloaded_the_pack": "dfa8c2de0db4a9d31e7121d9f7f1d018cf0323f0e70c1e99ebde1f21f0a0f481",
+    "the_resource_pack_policy_that_went_on_the_wire_is_the_frozen_one": "78657702937d6fb1c616dc0a98da3a62abf80e594e67e55e2ae96659261935ae",
+    "the_sealed_profile_refused_the_resource_pack": "69cf0a55f006cd6f3cd8770e65f0f8465fbd2e5ec2077c1d8a1ca687fee617d8",
+    "the_server_this_run_required_a_resource_pack": "7bff7783c3f7b8fbd4a8fd653ebf3bd0e9beb3efd88fcacccd9be7d09c27138b"
+  },
+  "assertions": [
+    "the_server_this_run_required_a_resource_pack",
+    "the_sealed_profile_refused_the_resource_pack",
+    "the_resource_pack_policy_that_went_on_the_wire_is_the_frozen_one",
+    "the_client_never_downloaded_the_pack",
+    "no_world_was_joined",
+    "no_lease_was_granted"
+  ]
+}

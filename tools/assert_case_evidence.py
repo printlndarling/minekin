@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import ipaddress
 import json
 import re
 import sqlite3
@@ -38,11 +39,13 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path, PurePosixPath
 from typing import TypeGuard, cast
+from urllib.parse import urlsplit
 
 from minekin_core.adapters.evidence.trace import LEDGER_TIMELINE_ARTIFACT
 from minekin_core.adapters.launcher.saves import LEVEL_DAT
 from minekin_core.cli.init import DATABASE_NAME, KIN_DIRECTORY, kin_directory, run_root
 from minekin_core.cli.session import session_overlay_path
+from minekin_core.domain.admission import AddressPolicy
 from minekin_core.domain.cases import parse_case_manifest
 from minekin_core.domain.host_publication import MAX_PORT
 from minekin_core.domain.ids import KinId
@@ -144,6 +147,25 @@ REFUSAL_LINE = f"bridge classified the login failure as {WHITELIST_REJECTED}"
 #: inference from how many processes ran.
 AUTH_MODE_MISMATCH = "ADMISSION_FAILURE_REASON_AUTH_MODE_MISMATCH"
 AUTH_POLICY_FROZEN = "AuthPolicyFrozen"
+
+#: What a refusal at the resource pack has to be read from instead: the server's own
+#: three settings, the policy the trusted profile carries, and the product fact the
+#: Bridge reports for the connection it actually made. The contract names all three
+#: (`p0-remote-admission-contract.md` § "ADMIT-060 的可复判证据边界"), and refuses the
+#: substitutes — a stalled login, a run that joined nothing, and a client log with no
+#: pack line in it are all shapes a disconnected server produces too.
+SERVER_REQUIRE_PACK_KEY = "require-resource-pack"
+SERVER_PACK_URL_KEY = "resource-pack"
+SERVER_PACK_SHA1_KEY = "resource-pack-sha1"
+PROFILE_PACK_POLICY_KEY = "resource_pack_policy"
+#: The ledger fact the Bridge reports for the connection it created, and the one
+#: policy this case's profile names. Both are read, never assumed: a build that
+#: ignored the policy it was asked for has to show up as a different value here.
+RESOURCE_PACK_POLICY_APPLIED = "ResourcePackPolicyApplied"
+REFUSED_PACK_POLICY = "deny"
+#: A sha1 as vanilla writes one: forty lowercase hex digits, and nothing that vague
+#: as "a non-empty string". An empty value would satisfy the latter and prove nothing.
+_SHA1 = re.compile(r"[0-9a-f]{40}")
 
 #: The two keys of the server's own properties file that this case reads. `motd` is
 #: not a greeting: the controlled server writes the trusted profile's id into it, so
@@ -340,6 +362,10 @@ class RunMaterial:
     #: already-read bytes. `None` means this run named no profile; a profile that was
     #: named but says nothing is a different answer and reports itself as such.
     server_profile: Mapping[str, object] | None = None
+    #: What the client's own pack directory held, as one canonical listing document
+    #: (`pack_listing_bytes`). Empty means the run left no game directory to list,
+    #: which an assertion reports rather than reading as "nothing was downloaded".
+    client_pack_listing: str = ""
     #: The reviewed case being evaluated.  `evaluate` fills these from the same
     #: manifest that declares the assertions, so a trace attributed to another
     #: case (or another revision of this case) cannot satisfy this one.
@@ -552,6 +578,7 @@ def read_run_material(
         soak_summary=soak_summary,
         server_properties=server_properties,
         server_profile=server_profile,
+        client_pack_listing=pack_listing_bytes(overlay).decode("utf-8"),
     )
 
 
@@ -591,6 +618,14 @@ CLIENT_STREAM_ARTIFACTS = ("client/stdout.log", "client/stderr.log", "client/lat
 #: the bundle keeps, and the judge that reached the sealed verdict read exactly this
 #: string — reading them the other way round would be a different string.
 CLIENT_LOG_ARTIFACTS = ("client/stdout.log", "client/latest.log")
+#: The listing of the directory vanilla drops a required server pack into, as the
+#: client's own game directory held it at the end of the run. Sealed rather than
+#: quoted: "the client never took the pack down" is a claim about a directory, and a
+#: bundle that carried only the verdict would leave a reader to take that on trust.
+CLIENT_PACK_LISTING_ARTIFACT = "client/server-resource-packs.json"
+#: The directory's name inside the overlay, spelled once here because both the
+#: reading and the assertion have to agree about which directory was listed.
+CLIENT_PACK_DIRECTORY = "server-resource-packs"
 
 
 def asserter_inputs_bytes(material: RunMaterial, *, username: str) -> bytes:
@@ -656,6 +691,79 @@ def read_identity_cache(cache: bytes, source: Path) -> dict[str, str]:
     return found
 
 
+def pack_listing_bytes(overlay: Path | None) -> bytes:
+    """What the client's pack directory held, read once as one canonical document.
+
+    The directory is the one vanilla writes a *required* server pack into after the
+    client agrees to it, so an empty listing is the client's own side of "this run
+    never took the pack down" — and it is read here, once, so the bytes the verdict
+    was reached on are the bytes sealed. A listing read twice is two directories.
+
+    The content of a pack file is not sealed; its name, size and digest are. A reader
+    who wants the bytes can ask for them from the run, and a bundle that carried every
+    downloaded pack would be a bundle that quietly grew.
+    """
+
+    if overlay is None:
+        return b""
+    directory = overlay / CLIENT_PACK_DIRECTORY
+    present = directory.is_dir()
+    entries: list[dict[str, object]] = []
+    if present:
+        for path in sorted(directory.rglob("*")):
+            if path.is_symlink():
+                raise Unreadable(f"{path} is a symlink, and a listing cannot say what it holds")
+            if not path.is_file():
+                continue
+            try:
+                content = path.read_bytes()
+            except OSError as error:
+                raise Unreadable(f"{path} cannot be read: {error}") from error
+            entries.append(
+                {
+                    "name": path.relative_to(directory).as_posix(),
+                    "bytes": len(content),
+                    "sha256": hashlib.sha256(content).hexdigest(),
+                }
+            )
+    document = {
+        "schema_version": 1,
+        "directory": CLIENT_PACK_DIRECTORY,
+        "present": present,
+        "entries": entries,
+    }
+    return (json.dumps(document, indent=2, sort_keys=True) + "\n").encode("utf-8")
+
+
+def pack_listing_entries(text: str) -> tuple[Mapping[str, object], ...] | None:
+    """The listed files of a sealed or freshly read listing, or None if unreadable.
+
+    `None` and an empty tuple are different answers and stay different: the first is
+    "this run says nothing about its pack directory", the second is "the directory was
+    there and held nothing".
+    """
+
+    if not text:
+        return None
+    try:
+        document = json.loads(text)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(document, Mapping):
+        return None
+    listing = cast(Mapping[str, object], document)
+    if listing.get("present") is not True:
+        return None
+    entries = listing.get("entries")
+    if not isinstance(entries, list):
+        return None
+    listed: list[Mapping[str, object]] = []
+    for item in cast("list[object]", entries):
+        if isinstance(item, Mapping):
+            listed.append(cast(Mapping[str, object], item))
+    return tuple(listed)
+
+
 def _sealed_json(directory: Path, name: str) -> Mapping[str, object] | None:
     text = _sealed(directory, name)
     if text is None:
@@ -699,9 +807,11 @@ def read_sealed_material(directory: Path) -> RunMaterial:
     be a judgement of a slightly different question.
 
     The one input that has no artifact is the overlay path, and it is not needed: what
-    the assertions read out of the client's game directory is its logs, and those are
-    sealed under their own names. `overlay` is therefore None, which is the same thing
-    a run whose game directory is gone reports.
+    the assertions read out of the client's game directory is its logs and its pack
+    directory, and both are sealed under their own names — the listing as the one
+    reading that was judged, not as a second walk of a directory that may have moved
+    since. `overlay` is therefore None, which is the same thing a run whose game
+    directory is gone reports.
     """
 
     inputs = _sealed_json(directory, ASSERTER_INPUTS)
@@ -748,6 +858,7 @@ def read_sealed_material(directory: Path) -> RunMaterial:
         soak_summary=_sealed_json(directory, SOAK_SUMMARY_ARTIFACT),
         server_properties=_sealed(directory, SERVER_PROPERTIES_ARTIFACT) or "",
         server_profile=_sealed_json(directory, SERVER_PROFILE_ARTIFACT),
+        client_pack_listing=_sealed(directory, CLIENT_PACK_LISTING_ARTIFACT) or "",
     )
 
 
@@ -2362,6 +2473,155 @@ def the_refusal_left_the_run_on_one_policy_and_one_process(material: RunMaterial
     return None
 
 
+def _pack_url_is_p0_loopback(url: str) -> bool:
+    """Whether a `server.properties` pack URL points at a literal P0 admits.
+
+    The host alone, not the host and port: what the criterion asks is that the pack
+    would have been fetched from loopback, and the two literals the frozen P0 address
+    policy names are the answer to that. Reusing the policy rather than a copy of its
+    networks is what keeps this from becoming a second definition of "loopback" that
+    the product's own admission rule can drift away from.
+    """
+
+    try:
+        host = urlsplit(url).hostname
+        if host is None:
+            return False
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    return any(address in network for network in AddressPolicy.p0_loopback().allowed_networks)
+
+
+def the_server_this_run_required_a_resource_pack(material: RunMaterial) -> str | None:
+    """The world this run dialled demanded a pack, in the server's own file.
+
+    Same shape as the online-mode assertion above and for the same reason: the
+    server rewrites `server.properties` itself, so what it says about
+    `require-resource-pack` is the only account of what the *world* asked for. A
+    URL alone is not enough — a pack with no digest is one a client cannot check,
+    which is a different scenario than the one being refused — and the port and
+    motd tie this file to the profile the run was pointed at, so a demanding
+    server from another run cannot stand in.
+    """
+
+    if not material.server_properties:
+        return "NO_SERVER_PROPERTIES"
+    if material.server_profile is None:
+        return "NO_SEALED_SERVER_PROFILE"
+    required = _properties_value(material.server_properties, SERVER_REQUIRE_PACK_KEY)
+    if required is None:
+        return "SERVER_PROPERTIES_SAY_NOTHING_ABOUT_A_RESOURCE_PACK"
+    if required != "true":
+        return f"SERVER_REQUIRE_RESOURCE_PACK:{required}"
+    url = _properties_value(material.server_properties, SERVER_PACK_URL_KEY)
+    if url is None or not url:
+        return "SERVER_NAMES_NO_RESOURCE_PACK_URL"
+    if not _pack_url_is_p0_loopback(url):
+        return f"SERVER_RESOURCE_PACK_URL_NOT_LOOPBACK:{url}"
+    sha1 = _properties_value(material.server_properties, SERVER_PACK_SHA1_KEY)
+    if sha1 is None or not _SHA1.fullmatch(sha1):
+        return f"SERVER_RESOURCE_PACK_SHA1_NOT_A_SHA1:{sha1}"
+    port = _properties_value(material.server_properties, SERVER_PORT_KEY)
+    if port is None or port != str(material.server_profile.get("port")):
+        return f"SERVER_PORT_DIFFERS_FROM_PROFILE:{port}"
+    motd = _properties_value(material.server_properties, SERVER_MOTD_KEY)
+    profile_id = _text(material.server_profile, "profile_id")
+    if motd is None or profile_id is None or profile_id not in motd:
+        return "SERVER_MOTD_DOES_NAME_THE_SEALED_PROFILE"
+    return None
+
+
+def the_sealed_profile_refused_the_resource_pack(material: RunMaterial) -> str | None:
+    """The consent this run could give was fixed to refusal, before anything ran.
+
+    "Never agreed via chat" has no fact behind it in P0 — the protocol has no chat
+    surface at all — so what the contract asks for instead is that agreement has
+    exactly one source. That source is the profile's `resource_pack_policy`, whose
+    canonical digest is the `revision` the pre-spawn `AuthPolicyFrozen` row already
+    binds to this run: change the policy, or freeze a different profile, and the
+    two stop matching.
+    """
+
+    if material.server_profile is None:
+        return "NO_SEALED_SERVER_PROFILE"
+    policy = material.server_profile.get(PROFILE_PACK_POLICY_KEY)
+    if policy != REFUSED_PACK_POLICY:
+        return f"SEALED_PROFILE_RESOURCE_PACK_POLICY:{policy}"
+    revision = material.server_profile.get("revision")
+    if not is_digest(revision):
+        return "SEALED_PROFILE_REVISION_NOT_A_DIGEST"
+    frozen = material.recorded(AUTH_POLICY_FROZEN)
+    if len(frozen) != 1:
+        return "POLICY_EVENT_NOT_UNIQUE"
+    seen = payload(frozen[0])
+    if seen.get("server_profile_id") != _text(material.server_profile, "profile_id"):
+        return "POLICY_PROFILE_ID_DIFFERS"
+    if seen.get("server_profile_revision") != revision:
+        return "POLICY_PROFILE_REVISION_DIFFERS"
+    return None
+
+
+def the_resource_pack_policy_that_went_on_the_wire_is_the_frozen_one(
+    material: RunMaterial,
+) -> str | None:
+    """The connection was made with the refused policy, in the Bridge's own words.
+
+    This is the half nothing else can carry. A profile that says `deny` and a
+    server that demands a pack are both readable without the client's policy
+    meaning anything at all, so the fact asked for is the one the Bridge names
+    after creating the connection — a row it reported, not a command Core sent.
+    A second value in the same run is the failure this exists to catch, which is
+    why the distinct values are what is collected rather than a count.
+    """
+
+    if not material.ledger_readable:
+        return "LEDGER_UNREADABLE"
+    if material.server_profile is None:
+        return "NO_SEALED_SERVER_PROFILE"
+    rows = material.recorded(RESOURCE_PACK_POLICY_APPLIED)
+    if not rows:
+        return "NO_RESOURCE_PACK_POLICY_FACT"
+    session = _ledger_session(material)
+    named: set[str] = set()
+    for event in rows:
+        source = event.get("source")
+        trust_class = event.get("trust_class")
+        if source != "BRIDGE" or trust_class != "BRIDGE_FILTERED":
+            return f"RESOURCE_PACK_POLICY_EVENT_NOT_BRIDGE:{source}/{trust_class}"
+        if session is not None and not _belongs_to_session(event, session):
+            return "RESOURCE_PACK_POLICY_ROW_OF_ANOTHER_SESSION"
+        policy = payload(event).get(PROFILE_PACK_POLICY_KEY)
+        if not isinstance(policy, str) or not policy:
+            return f"RESOURCE_PACK_POLICY_UNNAMED:{policy}"
+        named.add(policy)
+    if named != {material.server_profile.get(PROFILE_PACK_POLICY_KEY)}:
+        return f"RESOURCE_PACK_POLICY_ON_THE_WIRE:{','.join(sorted(named))}"
+    return None
+
+
+def the_client_never_downloaded_the_pack(material: RunMaterial) -> str | None:
+    """The client's own pack directory stayed empty.
+
+    The server demanded a pack, so a client that agreed to it would have written
+    it here — which makes an empty directory the client's side of the refusal, and
+    a file in it the refutation. The other two halves of this criterion (nothing
+    was joined, no input was ever leased) are the case's `no_world_was_joined` and
+    `no_lease_was_granted`, named there rather than repeated here, because a
+    criterion covered by three assertions is one a reader can check assertion by
+    assertion instead of taking on trust from one big function.
+    """
+
+    entries = pack_listing_entries(material.client_pack_listing)
+    if entries is None:
+        return "NO_CLIENT_PACK_LISTING"
+    if entries:
+        return "CLIENT_PACK_DIRECTORY_NOT_EMPTY:" + ",".join(
+            sorted(str(entry.get("name")) for entry in entries)
+        )
+    return None
+
+
 #: Every assertion a case manifest may name, and what performs it. A name that is
 #: not here cannot be judged, which the verdict reports rather than passing over.
 ASSERTIONS: dict[str, Callable[[RunMaterial], str | None]] = {
@@ -2438,6 +2698,12 @@ ASSERTIONS: dict[str, Callable[[RunMaterial], str | None]] = {
     "the_refusal_left_the_run_on_one_policy_and_one_process": (
         the_refusal_left_the_run_on_one_policy_and_one_process
     ),
+    "the_server_this_run_required_a_resource_pack": (the_server_this_run_required_a_resource_pack),
+    "the_sealed_profile_refused_the_resource_pack": (the_sealed_profile_refused_the_resource_pack),
+    "the_resource_pack_policy_that_went_on_the_wire_is_the_frozen_one": (
+        the_resource_pack_policy_that_went_on_the_wire_is_the_frozen_one
+    ),
+    "the_client_never_downloaded_the_pack": the_client_never_downloaded_the_pack,
 }
 
 

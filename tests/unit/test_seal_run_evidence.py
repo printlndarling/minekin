@@ -381,6 +381,7 @@ def test_the_artifacts_include_the_client_s_own_output_and_the_server_s(
         "asserter-inputs.json",
         "bridge-trace.jsonl",
         "client/stdout.log",
+        "client/server-resource-packs.json",
         "orchestrator-trace.json",
         "run-document.json",
         "server/server.log",
@@ -1349,12 +1350,7 @@ def test_the_sealed_material_is_the_material_the_verdict_was_reached_on(
 
     data_root, server, document = finished_run
     seal_it(data_root, server, document)
-    live = ASSERTER.read_run_material(
-        run_document=document,
-        data_root=data_root,
-        server_directory=server,
-        username=USERNAME,
-    )
+    live = material_of(data_root, server, document)
 
     sealed = ASSERTER.read_sealed_material(bundle_of(data_root))
 
@@ -1368,6 +1364,7 @@ def test_the_sealed_material_is_the_material_the_verdict_was_reached_on(
     assert sealed.ledger_readable == live.ledger_readable
     assert sealed.server_log == live.server_log
     assert sealed.server_identities == live.server_identities
+    assert sealed.client_pack_listing == live.client_pack_listing
     # The one field that is deliberately not carried: a path into the machine the run
     # happened on. What the assertions read out of that directory is its logs, and
     # those are sealed under their own names.
@@ -1588,3 +1585,151 @@ def test_the_callback_budget_is_part_of_the_sealed_record(
     assert budgets["series"][TICK_LABEL]["missing_windows"] == [3]
     assert budgets["series"][TICK_LABEL]["recorded_samples"] == 300
     assert budgets["series"][INTERVAL_LABEL]["missing_windows"] == [3]
+
+
+# ---------------------------------------------------------------------------
+# The client's pack directory: one reading, sealed as it was made
+# ---------------------------------------------------------------------------
+
+
+def overlay_of(data_root: Path) -> Path:
+    """The generation directory the finished run's document names."""
+
+    return data_root / "kin" / str(KIN) / "run" / "session" / SESSION_ID / "generation-1"
+
+
+def pack_dir_of(data_root: Path) -> Path:
+    """Where vanilla puts a pack the client agreed to take down."""
+
+    return overlay_of(data_root) / "server-resource-packs"
+
+
+def material_of(data_root: Path, server: Path, document: Path) -> Any:
+    """What the judge reads out of a run directory, before anything is sealed."""
+
+    return ASSERTER.read_run_material(
+        run_document=document,
+        data_root=data_root,
+        server_directory=server,
+        username=USERNAME,
+    )
+
+
+def sealed_pack_listing(bundle: Path) -> dict[str, Any]:
+    """The listing a sealed bundle carries."""
+
+    return cast(
+        dict[str, Any],
+        json.loads((bundle / "client" / "server-resource-packs.json").read_text(encoding="utf-8")),
+    )
+
+
+def test_an_empty_pack_directory_is_sealed_as_empty(tmp_path: Path) -> None:
+    """`present: true` with nothing in it is a fact, and it has to travel.
+
+    Half of what `ADMIT-060` asks of the client is that its own directory stayed empty.
+    An artifact dropped because the directory was empty would leave the bundle saying
+    nothing about the one thing the case asks it to say, and the reader could not tell
+    that run from one whose client never looked.
+    """
+
+    data_root, server, document = finished_run_in(tmp_path)
+    pack_dir_of(data_root).mkdir(parents=True)
+
+    report = seal_it(data_root, server, document)
+
+    assert "client/server-resource-packs.json" in cast(list[str], report["artifacts"])
+    sealed = sealed_pack_listing(bundle_of(data_root))
+    assert sealed["present"] is True
+    assert sealed["entries"] == []
+    assert sealed["directory"] == "server-resource-packs"
+
+
+def test_a_pack_the_client_took_down_is_sealed_by_name_and_not_by_bytes(
+    tmp_path: Path,
+) -> None:
+    """What the bundle records is that a pack arrived, in the client's own directory.
+
+    The pack's bytes are megabytes the operator can ask for from the run, and a bundle
+    that carried every downloaded pack would be a bundle that quietly grew. The name,
+    size and digest are what the judgement reads, so those are what is sealed.
+    """
+
+    data_root, server, document = finished_run_in(tmp_path)
+    pack = pack_dir_of(data_root)
+    (pack / "sub").mkdir(parents=True)
+    content = b"PK\x03\x04 the pack the world required"
+    (pack / "p0-required-pack.zip").write_bytes(content)
+    (pack / "sub" / "pack.mcmeta").write_bytes(b"{}")
+
+    live = material_of(data_root, server, document)
+    seal_it(data_root, server, document)
+
+    sealed = sealed_pack_listing(bundle_of(data_root))
+    assert [(str(e["name"]), int(e["bytes"])) for e in sealed["entries"]] == [
+        ("p0-required-pack.zip", len(content)),
+        ("sub/pack.mcmeta", 2),
+    ]
+    assert sealed["entries"][0]["sha256"] == hashlib.sha256(content).hexdigest()
+    # The bytes the verdict was reached on, not a second walk of the directory.
+    assert (
+        bundle_of(data_root) / "client" / "server-resource-packs.json"
+    ).read_bytes() == live.client_pack_listing.encode("utf-8")
+    assert ASSERTER.pack_listing_entries(
+        ASSERTER.read_sealed_material(bundle_of(data_root)).client_pack_listing
+    ) == tuple(sealed["entries"])
+
+
+def test_a_run_with_no_pack_directory_is_not_a_run_with_an_empty_one(
+    tmp_path: Path,
+) -> None:
+    """The two absences the contract keeps apart, kept apart through the seal.
+
+    A run whose client never got that far has no such directory to list. Sealing
+    `entries: []` for it would hand an `ADMIT-060` reader a fact that was never observed,
+    so the listing carries whether the directory was there at all, and the reader's two
+    different answers — nothing said, and said-empty — survive the round trip.
+    """
+
+    data_root, server, document = finished_run_in(tmp_path)
+    elsewhere = tmp_path / "empty"
+    elsewhere.mkdir()
+    empty_root, empty_server, empty_document = finished_run_in(elsewhere)
+    pack_dir_of(empty_root).mkdir(parents=True)
+
+    seal_it(data_root, server, document)
+    seal_it(empty_root, empty_server, empty_document)
+
+    assert sealed_pack_listing(bundle_of(data_root))["present"] is False
+    assert sealed_pack_listing(bundle_of(empty_root))["present"] is True
+    says_nothing = ASSERTER.pack_listing_entries(
+        ASSERTER.read_sealed_material(bundle_of(data_root)).client_pack_listing
+    )
+    holds_nothing = ASSERTER.pack_listing_entries(
+        ASSERTER.read_sealed_material(bundle_of(empty_root)).client_pack_listing
+    )
+    assert says_nothing is None
+    assert holds_nothing == ()
+
+
+def test_a_pack_directory_the_judge_cannot_read_stops_the_seal(tmp_path: Path) -> None:
+    """A listing that could not be made is not a listing that came out empty.
+
+    A symlink is the shape that makes that difference load-bearing: the file it points
+    at is outside the directory, so the listing cannot say what the client downloaded.
+    The reader refuses, and since the sealer judges through that reader it refuses too —
+    there is no bundle to read a `present: true` out of.
+    """
+
+    data_root, server, document = finished_run_in(tmp_path)
+    pack = pack_dir_of(data_root)
+    pack.mkdir(parents=True)
+    outside = tmp_path / "outside.zip"
+    outside.write_bytes(b"not in this directory")
+    try:
+        (pack / "linked.zip").symlink_to(outside)
+    except OSError:
+        pytest.skip("this platform will not let a test make a symlink")
+
+    with pytest.raises(SEALER.Unsealable, match="symlink"):
+        seal_it(data_root, server, document)

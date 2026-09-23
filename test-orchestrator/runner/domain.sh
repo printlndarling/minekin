@@ -723,6 +723,39 @@ if [ "${case_id}" = "ADMIT-040" ]; then
     else
         printf 'domain: no classified auth mismatch was recorded within %ss\n' "${seconds}" >&2
     fi
+elif [ "${case_id}" = "ADMIT-060" ]; then
+    # What this run exists to say is one line: the policy the connection was actually
+    # made with. The client then sits in the login negotiation — a required pack it
+    # will not take is not a refusal anybody announces — so waiting for the world, or
+    # for the 45 seconds to run out, would end this run with a timeout on its face and
+    # the fact itself unread.
+    #
+    # Asked for by value rather than by existence, because the value is the whole
+    # question: a build that let `resource_pack_policy` fall through to `prompt` would
+    # record a row, and the wait would be wrong to call that the run saying what this
+    # case asks it to say.
+    if [ -z "${resource_pack}" ] || [ -z "${server_profile}" ]; then
+        printf 'domain: ADMIT-060 requires a served resource pack and an offline Server Profile\n' >&2
+        exit 2
+    fi
+    deadline=$((SECONDS + seconds))
+    for _ in $(seq 1 "${seconds}"); do
+        kill -0 "${session_pid}" 2>/dev/null || break
+        [ "${SECONDS}" -lt "${deadline}" ] || break
+        recorded=$(/opt/sqlite/bin/sqlite3 "${ledger}" \
+            "select 1 from event where position > ${baseline} and event_type='ResourcePackPolicyApplied' and source='BRIDGE' and trust_class='BRIDGE_FILTERED' and json_extract(payload_json,'\$.resource_pack_policy')='deny' limit 1;" \
+            2>/dev/null || true)
+        if [ -n "${recorded}" ]; then
+            playable=1
+            break
+        fi
+        sleep 1
+    done
+    if [ "${playable}" -eq 1 ]; then
+        printf 'domain: the session recorded the denied resource pack policy it put on the wire\n' >&2
+    else
+        printf 'domain: no denied resource pack policy was recorded within %ss\n' "${seconds}" >&2
+    fi
 elif [ -n "${not_whitelisted}" ]; then
     # What this run is about is a refusal, and the refusal is a ledger fact: the
     # Bridge classifies the login failure and Core records the phase and the

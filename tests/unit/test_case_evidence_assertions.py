@@ -10,6 +10,7 @@ that invented its own shapes would pass while the asserter read nothing.
 from __future__ import annotations
 
 import dataclasses
+import hashlib
 import importlib
 import json
 import subprocess
@@ -95,6 +96,8 @@ class _Asserter(Protocol):
     #: because it is how this module reads a position or a rotation, and a case
     #: about a turn reads the other one.
     def probe_readings(self, log: str, components: int) -> tuple[tuple[float, ...], ...]: ...
+
+    def pack_listing_bytes(self, overlay: Path | None) -> bytes: ...
 
     def evaluate(self, case: Mapping[str, object], material: _Material) -> _Verdict: ...
 
@@ -222,6 +225,7 @@ def material(
     world_run_document: Mapping[str, object] | None = None,
     server_properties: str = "",
     server_profile: Mapping[str, object] | None = None,
+    client_pack_listing: str = "",
 ) -> _Material:
     previous_run_id, previous_run_events = previous
     soak_samples, soak_summary = soak
@@ -244,6 +248,7 @@ def material(
         world_run_document=world_run_document,
         server_properties=server_properties,
         server_profile=server_profile,
+        client_pack_listing=client_pack_listing,
     )
 
 
@@ -281,6 +286,8 @@ def test_the_reviewed_case_names_only_assertions_the_asserter_performs() -> None
         SOAK_CASE,
         BLACK_HOLE_CASE,
         REFUSED_CASE,
+        AUTH_MISMATCH_CASE,
+        RESOURCE_PACK_CASE,
     ):
         declared = cast(dict[str, object], json.loads(path.read_text(encoding="utf-8")))[
             "assertions"
@@ -4163,3 +4170,545 @@ def test_a_ledger_that_cannot_be_read_is_not_a_ledger_that_recorded_nothing() ->
     assert "the_refusal_left_the_run_on_one_policy_and_one_process:LEDGER_UNREADABLE" in (
         verdict.failures
     )
+
+
+# ---------------------------------------------------------------------------
+# ADMIT-060: a Kin whose profile refused the resource pack a world demanded
+# ---------------------------------------------------------------------------
+
+RESOURCE_PACK_CASE = CASES / "admit-060.json"
+
+#: Where the controlled harness serves the pack it requires: loopback, one path, one
+#: byte string. The URL and the digest below are the shapes `run_controlled_server`
+#: writes into its own `server.properties`, and vanilla refuses to start with a
+#: `resource-pack-sha1` that is not 40 hex, so this is not a shape only a fixture has.
+PACK_URL = "http://127.0.0.1:25580/p0-required-pack.zip"
+PACK_SHA1 = "1a7b4e0f92c3d58e6b17f04a2c9d38e15b6f0a72"
+
+#: Written as the server writes it. `online-mode=false` deliberately: this scenario is
+#: not the authentication mismatch, and a run refused for both reasons at once would
+#: judge the same facts for two different cases.
+DEMANDING_SERVER_PROPERTIES = (
+    f"motd=minekin P0 controlled server {PROFILE_ID}\n"
+    "online-mode=false\n"
+    f"server-port={PROFILE_PORT}\n"
+    "require-resource-pack=true\n"
+    f"resource-pack={PACK_URL}\n"
+    f"resource-pack-sha1={PACK_SHA1}\n"
+)
+
+PACK_POLICY_APPLIED = "ResourcePackPolicyApplied"
+
+
+def resource_pack_case() -> dict[str, object]:
+    return cast(dict[str, object], json.loads(RESOURCE_PACK_CASE.read_text(encoding="utf-8")))
+
+
+def pack_listing(*entries: tuple[str, bytes]) -> str:
+    """The client's pack directory, as the judge's reader describes it.
+
+    Hand-built rather than read from a directory, because these fixtures are assembled
+    at import time inside a parametrised table where there is no temporary directory to
+    read. `test_the_listing_the_judge_writes_is_the_one_this_file_fixtures` keeps the
+    two spellings honest against a real directory.
+    """
+
+    document = {
+        "schema_version": 1,
+        "directory": "server-resource-packs",
+        "present": True,
+        "entries": [
+            {
+                "name": name,
+                "bytes": len(content),
+                "sha256": hashlib.sha256(content).hexdigest(),
+            }
+            for name, content in sorted(entries)
+        ],
+    }
+    return json.dumps(document, indent=2, sort_keys=True) + "\n"
+
+
+#: The one pack this scenario serves: a name the harness gives it and the bytes behind
+#: that name. A fixture listing and a directory written from the same pair, so the two
+#: can be compared.
+PACK_FILE = ("p0-required-pack.zip", b"the pack the world required")
+
+
+def started_with_session(*, position: int = 2) -> Mapping[str, object]:
+    """The client's start, carrying its own session coordinate.
+
+    The product anchors a session in this row: the columns and the payload both name
+    it. The wire assertion below binds a policy row to a session, and it can only do
+    that against a start row that says which session it is.
+    """
+
+    return event(
+        PROCESS_STARTED,
+        source="CORE",
+        trust_class="CORE",
+        position=position,
+        session_id="session-01",
+        generation=1,
+    )
+
+
+def pack_policy_row(
+    *,
+    position: int | None = 3,
+    source: str = "BRIDGE",
+    trust_class: str = "BRIDGE_FILTERED",
+    policy: object = "deny",
+    row_session_id: str = "session-01",
+    row_generation: int = 1,
+) -> Mapping[str, object]:
+    """What the Bridge reported the connection was actually made with.
+
+    Payload keys are the product's: a generation number and one policy string. The
+    generation column is the decimal text the ledger really holds, as everywhere else
+    in this file.
+    """
+
+    return event(
+        PACK_POLICY_APPLIED,
+        row_session_id=row_session_id,
+        row_generation=row_generation,
+        source=source,
+        trust_class=trust_class,
+        position=position,
+        generation=1,
+        resource_pack_policy=policy,
+    )
+
+
+def lease_row(*, position: int | None = 4) -> Mapping[str, object]:
+    return event(
+        INPUT_LEASED,
+        source="CORE",
+        trust_class="CORE",
+        position=position,
+        capability="control.move.v1",
+    )
+
+
+def denied_resource_pack(**overrides: object) -> _Material:
+    """The run the case describes: demanded, refused, and nothing downloaded.
+
+    `LOGIN_NEGOTIATING` is where a client that will not take a pack stops, measured on
+    the diagnostic run the contract records: the world is never joined, and the client
+    is not refused in words either.
+    """
+
+    arguments: dict[str, object] = {
+        "document": run_document(
+            connection_state="LOGIN_NEGOTIATING", snapshots_admitted=0, outcome="CLIENT_EXITED"
+        ),
+        "log": "",
+        "identities": {},
+        "server_properties": DEMANDING_SERVER_PROPERTIES,
+        "server_profile": TRUSTED_PROFILE,
+        "events": (policy_row(), started_with_session(), pack_policy_row()),
+        "client_pack_listing": pack_listing(),
+    }
+    arguments.update(overrides)
+    return material(**arguments)  # type: ignore[arg-type]
+
+
+def test_a_required_pack_that_was_refused_holds() -> None:
+    verdict = ASSERTER_MODULE.evaluate(resource_pack_case(), denied_resource_pack())
+
+    assert verdict.result == "PASS"
+    assert verdict.observed == verdict.expected
+    assert verdict.failures == ()
+
+
+def test_which_world_demanded_a_pack_is_read_from_the_server_alone() -> None:
+    """Every one of the four criteria is its own assertion, so each can fail alone."""
+
+    verdict = ASSERTER_MODULE.evaluate(resource_pack_case(), denied_resource_pack())
+
+    for name in (
+        "the_server_this_run_required_a_resource_pack",
+        "the_sealed_profile_refused_the_resource_pack",
+        "the_resource_pack_policy_that_went_on_the_wire_is_the_frozen_one",
+        "the_client_never_downloaded_the_pack",
+    ):
+        assert name in verdict.observed
+
+
+PACK_DEMAND_MUTATIONS: tuple[tuple[str, Mapping[str, Any], str], ...] = (
+    (
+        "the world asked for no pack, so nothing was refused",
+        {
+            "server_properties": DEMANDING_SERVER_PROPERTIES.replace(
+                "require-resource-pack=true", "require-resource-pack=false"
+            )
+        },
+        "the_server_this_run_required_a_resource_pack:SERVER_REQUIRE_RESOURCE_PACK:false",
+    ),
+    (
+        "a properties file that never mentions packs at all",
+        {"server_properties": f"online-mode=false\nserver-port={PROFILE_PORT}\n"},
+        "the_server_this_run_required_a_resource_pack:"
+        "SERVER_PROPERTIES_SAY_NOTHING_ABOUT_A_RESOURCE_PACK",
+    ),
+    (
+        "no server directory: the demand has no source",
+        {"server_properties": ""},
+        "the_server_this_run_required_a_resource_pack:NO_SERVER_PROPERTIES",
+    ),
+    (
+        "a required pack with nothing to fetch",
+        {
+            "server_properties": DEMANDING_SERVER_PROPERTIES.replace(
+                f"resource-pack={PACK_URL}\n", ""
+            )
+        },
+        "the_server_this_run_required_a_resource_pack:SERVER_NAMES_NO_RESOURCE_PACK_URL",
+    ),
+    (
+        "a pack served from outside the only addresses P0 admits",
+        {
+            "server_properties": DEMANDING_SERVER_PROPERTIES.replace(
+                PACK_URL, "http://10.0.0.5/p0-required-pack.zip"
+            )
+        },
+        "the_server_this_run_required_a_resource_pack:SERVER_RESOURCE_PACK_URL_NOT_LOOPBACK:"
+        "http://10.0.0.5/p0-required-pack.zip",
+    ),
+    (
+        "a pack whose digest is not a digest, so a client cannot check it",
+        {"server_properties": DEMANDING_SERVER_PROPERTIES.replace(PACK_SHA1, "latest")},
+        "the_server_this_run_required_a_resource_pack:SERVER_RESOURCE_PACK_SHA1_NOT_A_SHA1:latest",
+    ),
+    (
+        "a demanding server on another port than the trusted target names",
+        {
+            "server_properties": DEMANDING_SERVER_PROPERTIES.replace(
+                f"server-port={PROFILE_PORT}", "server-port=25599"
+            )
+        },
+        "the_server_this_run_required_a_resource_pack:SERVER_PORT_DIFFERS_FROM_PROFILE:25599",
+    ),
+    (
+        "a demanding server that does not say which profile it was built for",
+        {"server_properties": DEMANDING_SERVER_PROPERTIES.replace(PROFILE_ID, "some other world")},
+        "the_server_this_run_required_a_resource_pack:SERVER_MOTD_DOES_NAME_THE_SEALED_PROFILE",
+    ),
+    (
+        "an online server from another run, named by nothing",
+        {"server_profile": None},
+        "the_server_this_run_required_a_resource_pack:NO_SEALED_SERVER_PROFILE",
+    ),
+)
+
+
+@pytest.mark.parametrize(
+    "why, change, reason",
+    PACK_DEMAND_MUTATIONS,
+    ids=[name for name, _, _ in PACK_DEMAND_MUTATIONS],
+)
+def test_a_demand_of_a_pack_comes_from_the_server_and_nowhere_else(
+    why: str, change: Mapping[str, Any], reason: str
+) -> None:
+    verdict = ASSERTER_MODULE.evaluate(resource_pack_case(), denied_resource_pack(**change))
+
+    assert reason in verdict.failures, why
+
+
+PROFILE_CONSENT_MUTATIONS: tuple[tuple[str, Mapping[str, Any], str], ...] = (
+    (
+        "a profile that would have been asked, not refused",
+        {"server_profile": {**TRUSTED_PROFILE, "resource_pack_policy": "prompt"}},
+        "the_sealed_profile_refused_the_resource_pack:SEALED_PROFILE_RESOURCE_PACK_POLICY:prompt",
+    ),
+    (
+        "a profile that would have taken the pack",
+        {"server_profile": {**TRUSTED_PROFILE, "resource_pack_policy": "allow"}},
+        "the_sealed_profile_refused_the_resource_pack:SEALED_PROFILE_RESOURCE_PACK_POLICY:allow",
+    ),
+    (
+        "nothing frozen before the client started",
+        {"events": (started_with_session(), pack_policy_row(position=3))},
+        "the_sealed_profile_refused_the_resource_pack:POLICY_EVENT_NOT_UNIQUE",
+    ),
+    (
+        "a consent frozen twice, so one of them is not this run's",
+        {
+            "events": (
+                policy_row(position=1),
+                policy_row(position=2, revision="a" * 64),
+                started_with_session(position=3),
+                pack_policy_row(position=4),
+            )
+        },
+        "the_sealed_profile_refused_the_resource_pack:POLICY_EVENT_NOT_UNIQUE",
+    ),
+    (
+        "a freeze about another target",
+        {
+            "events": (
+                policy_row(profile_id="another-server"),
+                started_with_session(),
+                pack_policy_row(),
+            )
+        },
+        "the_sealed_profile_refused_the_resource_pack:POLICY_PROFILE_ID_DIFFERS",
+    ),
+    (
+        "a freeze of an older revision of the same target",
+        {
+            "events": (
+                policy_row(revision="b" * 64),
+                started_with_session(),
+                pack_policy_row(),
+            )
+        },
+        "the_sealed_profile_refused_the_resource_pack:POLICY_PROFILE_REVISION_DIFFERS",
+    ),
+)
+
+
+@pytest.mark.parametrize(
+    "why, change, reason",
+    PROFILE_CONSENT_MUTATIONS,
+    ids=[name for name, _, _ in PROFILE_CONSENT_MUTATIONS],
+)
+def test_the_refusal_was_agreed_in_advance_and_not_in_passing(
+    why: str, change: Mapping[str, Any], reason: str
+) -> None:
+    """Consent has one source, and that source is the frozen profile.
+
+    The contract refuses a chat-side observation for this half — P0's protocol has no
+    chat surface at all — and asks instead that the policy the run could act on was
+    fixed before the process existed, by a digest the freeze event already binds.
+    """
+
+    verdict = ASSERTER_MODULE.evaluate(resource_pack_case(), denied_resource_pack(**change))
+
+    assert reason in verdict.failures, why
+
+
+def test_a_policy_the_profile_names_and_the_connection_never_uses_is_not_evidence() -> None:
+    """The exact false positive the contract names, reproduced.
+
+    A build that reads `auth_mode` and lets `resource_pack_policy` fall through to
+    something else produces a bundle of this case's shape — the server demanding, the
+    profile denying, the client never joining — with no wire-side fact at all. That run
+    has to fail, and it fails on the one assertion nothing else in the case covers.
+    """
+
+    verdict = ASSERTER_MODULE.evaluate(
+        resource_pack_case(),
+        denied_resource_pack(events=(policy_row(), started_with_session())),
+    )
+
+    assert (
+        "the_resource_pack_policy_that_went_on_the_wire_is_the_frozen_one:"
+        "NO_RESOURCE_PACK_POLICY_FACT" in verdict.failures
+    )
+
+
+WIRE_POLICY_MUTATIONS: tuple[tuple[str, tuple[Mapping[str, object], ...], str], ...] = (
+    (
+        "the client put up no gate, because it was going to accept",
+        (policy_row(), started_with_session(), pack_policy_row(policy="prompt")),
+        "the_resource_pack_policy_that_went_on_the_wire_is_the_frozen_one:"
+        "RESOURCE_PACK_POLICY_ON_THE_WIRE:prompt",
+    ),
+    (
+        "two attempts, two policies, one run",
+        (
+            policy_row(),
+            started_with_session(),
+            pack_policy_row(position=3, policy="deny"),
+            pack_policy_row(position=4, policy="prompt"),
+        ),
+        "the_resource_pack_policy_that_went_on_the_wire_is_the_frozen_one:"
+        "RESOURCE_PACK_POLICY_ON_THE_WIRE:deny,prompt",
+    ),
+    (
+        "Core restating a policy rather than the Bridge reporting one",
+        (
+            policy_row(),
+            started_with_session(),
+            pack_policy_row(source="CORE", trust_class="CORE"),
+        ),
+        "the_resource_pack_policy_that_went_on_the_wire_is_the_frozen_one:"
+        "RESOURCE_PACK_POLICY_EVENT_NOT_BRIDGE:CORE/CORE",
+    ),
+    (
+        "a policy row that names no value",
+        (policy_row(), started_with_session(), pack_policy_row(policy=None)),
+        "the_resource_pack_policy_that_went_on_the_wire_is_the_frozen_one:"
+        "RESOURCE_PACK_POLICY_UNNAMED:None",
+    ),
+    (
+        "the policy of another session in the same kin directory",
+        (
+            policy_row(),
+            started_with_session(),
+            pack_policy_row(row_session_id="session-00"),
+        ),
+        "the_resource_pack_policy_that_went_on_the_wire_is_the_frozen_one:"
+        "RESOURCE_PACK_POLICY_ROW_OF_ANOTHER_SESSION",
+    ),
+)
+
+
+@pytest.mark.parametrize(
+    "why, rows, reason",
+    WIRE_POLICY_MUTATIONS,
+    ids=[name for name, _, _ in WIRE_POLICY_MUTATIONS],
+)
+def test_only_the_policy_the_bridge_reported_went_on_the_wire(
+    why: str, rows: tuple[Mapping[str, object], ...], reason: str
+) -> None:
+    verdict = ASSERTER_MODULE.evaluate(resource_pack_case(), denied_resource_pack(events=rows))
+
+    assert reason in verdict.failures, why
+
+
+def test_a_run_that_never_reported_a_policy_is_not_a_run_refused_by_one() -> None:
+    verdict = ASSERTER_MODULE.evaluate(
+        resource_pack_case(), denied_resource_pack(ledger_readable=False, events=())
+    )
+
+    assert (
+        "the_resource_pack_policy_that_went_on_the_wire_is_the_frozen_one:LEDGER_UNREADABLE"
+        in verdict.failures
+    )
+
+
+CLIENT_PACK_LISTING_MUTATIONS: tuple[tuple[str, str, str], ...] = (
+    (
+        "the client took the pack down",
+        pack_listing(PACK_FILE),
+        "the_client_never_downloaded_the_pack:CLIENT_PACK_DIRECTORY_NOT_EMPTY:p0-required-pack.zip",
+    ),
+    (
+        "nothing read the directory, so nothing is known about it",
+        "",
+        "the_client_never_downloaded_the_pack:NO_CLIENT_PACK_LISTING",
+    ),
+)
+
+
+@pytest.mark.parametrize(
+    "why, listing, reason",
+    CLIENT_PACK_LISTING_MUTATIONS,
+    ids=[name for name, _, _ in CLIENT_PACK_LISTING_MUTATIONS],
+)
+def test_the_client_s_own_directory_is_the_client_s_side_of_the_refusal(
+    why: str, listing: str, reason: str
+) -> None:
+    verdict = ASSERTER_MODULE.evaluate(
+        resource_pack_case(), denied_resource_pack(client_pack_listing=listing)
+    )
+
+    assert reason in verdict.failures, why
+
+
+def test_a_directory_that_was_never_created_says_nothing_either() -> None:
+    """`present: false` is not the same record as an empty directory, and is not held."""
+
+    verdict = ASSERTER_MODULE.evaluate(
+        resource_pack_case(),
+        denied_resource_pack(
+            client_pack_listing=json.dumps(
+                {"schema_version": 1, "directory": "server-resource-packs", "present": False}
+            )
+        ),
+    )
+
+    assert "the_client_never_downloaded_the_pack:NO_CLIENT_PACK_LISTING" in verdict.failures
+
+
+def test_the_listing_the_judge_writes_is_the_one_this_file_fixtures(tmp_path: Path) -> None:
+    """The hand-built fixture above has to be the reader's own document.
+
+    Otherwise every listing test in this section would be judging a shape no run can
+    produce, and the assertion it exercises would hold here and read
+    `NO_CLIENT_PACK_LISTING` on a real bundle.
+    """
+
+    directory = tmp_path / "server-resource-packs"
+    directory.mkdir()
+    name, content = PACK_FILE
+    (directory / name).write_bytes(content)
+    empty_overlay = tmp_path / "empty"
+    (empty_overlay / "server-resource-packs").mkdir(parents=True)
+
+    written = ASSERTER_MODULE.pack_listing_bytes(directory.parent).decode("utf-8")
+
+    assert json.loads(written) == json.loads(pack_listing(PACK_FILE))
+    empty = json.loads(ASSERTER_MODULE.pack_listing_bytes(empty_overlay).decode("utf-8"))
+    assert empty["entries"] == []
+    assert empty["present"] is True
+    assert ASSERTER_MODULE.pack_listing_bytes(None) == b""
+
+
+@pytest.mark.parametrize(
+    "why, change, reason",
+    [
+        (
+            "the run joined the world after all",
+            {"document": run_document(connection_state="PLAYABLE", snapshots_admitted=1)},
+            "no_world_was_joined:SNAPSHOT_ADMITTED",
+        ),
+        (
+            "the run says it is in the world",
+            {"document": run_document(connection_state="PLAYABLE", snapshots_admitted=0)},
+            "no_world_was_joined:CONNECTION_STATE:PLAYABLE",
+        ),
+        (
+            "the Kin was driven, so no pack was refused by anyone",
+            {"events": (policy_row(), started_with_session(), pack_policy_row(), lease_row())},
+            "no_lease_was_granted:LEASE_GRANTED:control.move.v1",
+        ),
+    ],
+    ids=["a snapshot admitted", "a state that claims the world", "a lease granted"],
+)
+def test_a_run_that_got_into_the_demanded_world_is_not_this_case(
+    why: str, change: Mapping[str, Any], reason: str
+) -> None:
+    """The other two halves of the fourth criterion, named where they already live.
+
+    A timeout on its own is the thing this case refuses to accept, so these assertions
+    are what separates "the login stalled" from "the pack was refused": the first three
+    criteria have to hold alongside them.
+    """
+
+    verdict = ASSERTER_MODULE.evaluate(resource_pack_case(), denied_resource_pack(**change))
+
+    assert reason in verdict.failures, why
+
+
+def test_a_timeout_is_not_a_refusal_without_the_rest_of_the_record() -> None:
+    """Nothing in this case is proved by the absence of a playable world.
+
+    Strip the demand, the consent and the wire fact and leave a run that joined
+    nothing: the two assertions that only ask that nothing happened still hold, and the
+    four that name why it happened all fail. That asymmetry is the contract's reason for
+    asking all four from one sealed bundle rather than one of them from a session that
+    ran out of time.
+    """
+
+    verdict = ASSERTER_MODULE.evaluate(
+        resource_pack_case(),
+        denied_resource_pack(
+            server_properties="",
+            server_profile=None,
+            events=(),
+            client_pack_listing="",
+        ),
+    )
+
+    assert verdict.result == "FAIL"
+    assert set(verdict.observed) == {"no_world_was_joined", "no_lease_was_granted"}
+    assert {failure.split(":", 1)[0] for failure in verdict.failures} == {
+        "the_server_this_run_required_a_resource_pack",
+        "the_sealed_profile_refused_the_resource_pack",
+        "the_resource_pack_policy_that_went_on_the_wire_is_the_frozen_one",
+        "the_client_never_downloaded_the_pack",
+    }

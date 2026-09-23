@@ -327,6 +327,20 @@ IMPLEMENTATIONS: dict[str, Implementation] = {
     "the_refusal_left_the_run_on_one_policy_and_one_process": _runtime(
         "the_refusal_left_the_run_on_one_policy_and_one_process"
     ),
+    # ADMIT-060: the four facts the contract names for a server that demands a pack
+    # the profile refuses. The last of the four is where the case is decided: the
+    # first three say the two sides disagreed, and only the client's own directory
+    # says the disagreement ended with nothing downloaded.
+    "the_server_this_run_required_a_resource_pack": _runtime(
+        "the_server_this_run_required_a_resource_pack"
+    ),
+    "the_sealed_profile_refused_the_resource_pack": _runtime(
+        "the_sealed_profile_refused_the_resource_pack"
+    ),
+    "the_resource_pack_policy_that_went_on_the_wire_is_the_frozen_one": _runtime(
+        "the_resource_pack_policy_that_went_on_the_wire_is_the_frozen_one"
+    ),
+    "the_client_never_downloaded_the_pack": _runtime("the_client_never_downloaded_the_pack"),
     "the_bridge_classified_the_refusal": _runtime("the_bridge_classified_the_refusal"),
     "the_server_saw_the_kin_turn": _runtime("the_server_saw_the_kin_turn"),
     "the_server_saw_the_block_change": _runtime("the_server_saw_the_block_change"),
