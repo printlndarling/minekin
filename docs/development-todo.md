@@ -819,7 +819,7 @@
   - **推上去之后 `protocol` 与 `bridge-static` 两个 job 直接绿了，`python` 又往前走了一步，停在 pyright 上——而这次它抓到的是真的**：`ipc.py` 里 `os.O_BINARY` 在 Windows 上有、在 Linux 上**这个名字根本不存在**，于是 Linux 的严格模式报 `reportAttributeAccessIssue`（本地 Windows pyright 永远是干净的，所以本地看不见）。运行时那行本来就有 `hasattr` 守卫、**没有真的坏**——坏的是「守卫只对运行时有效，对读代码的人和类型检查器都没有」。改成 `getattr(os, "O_BINARY", 0)`（与 `tools/fault_injection.py` 里同一行同一个写法），并**在 Linux 容器里量了两件事再动手**：守卫写法确实复现 CI 那 4 条、`getattr` 写法在 Linux 是 0 条；Windows 侧同样 0 条。这就是「同一份源码在两台机器上答案不同」的第三次出现，这一次不是工具的问题，而是只有一台机器能看见的**平台专属名字**。
   - **pyright 过了之后 pytest 这一关露出第四件、也是最大的一件：CI 的 Python 不是这台机器上的那个。** 日志里写着 `Using CPython 3.12.3 interpreter at: /usr/bin/python3`——**发行版的**解释器，链的是发行版的 SQLite（3.45.1），而 `connect_writer` 只接受「已验证的多连接 WAL 安全集」（≥3.51.3 或两个列出的 backport）。也就是说：CI 会在一个与本仓库自己钉住的运行时**不同的**运行时上跑测试，红在一个没有提交选过的原因上；本机 `uv sync` 建的 venv 用的是 uv 托管解释器、自带 SQLite **3.53.1**，所以本地永远是绿的。修法是把解释器也按工具链钉住（`UV_PYTHON_PREFERENCE: only-managed` + `UV_PYTHON: 3.12`，与 ruff 的 `target-version`、pyright 的 `pythonVersion` 同一个版本），并且**在契约测试里把这条规则写下来**（`test_pinned_toolchain.py`：job 的 env 必须钉这两项，外加一条「正在跑测试的这个解释器本身必须被账本接受」——这样选错解释器的人得到的是一行说明，而不是满屏看起来各不相同的存储报错）。**在 Linux 容器里复核过**：加这两项之后 uv 建出的解释器是 python 3.12.13 + SQLite 3.53.1，整套 1383 通过。
   - **同一次 Linux 全量跑还找出一个只在 Linux 成立的测试期望**：`test_an_environment_path_outside_the_reviewed_prefixes_is_refused[/etc/passwd]` 在 Linux 报的是 `not a plan-relative path`，而它断言的是 `run-root|outside the reviewed`。原因是 `/etc/passwd` **在 Linux 是绝对路径、在 Windows 不是**——同一个字符串落到两条不同的规则上，而那条断言只会被其中一台机器满足。改法不是放宽正则，而是把两件事分开：逃出 run-root 的**相对**路径留在原参数里（两台机器同一条规则），绝对路径另立一条用例并用 `Path.cwd()`（两台都绝对）来断言第一条规则。Windows 26 通过、Linux 26 通过。
-  - **还没定论的**：`python` job 的 pytest 在 runner 上跑了 **90 分钟以上仍未结束**（本机 112 秒，容器里最坏情况 29 分钟）。不能排除是 runner 慢，但也不能排除有测试在那边真的卡住——这一条**如实留开**，等 CI 自己给出结论，没有拿「本地全绿」冒充它。
+  - **还没定论的**：`python` job 的 pytest 在 runner 上跑了 **90 分钟以上仍未结束**（本机 112 秒，容器里最坏情况 29 分钟）。不能排除是 runner 慢，但也不能排除有测试在那边真的卡住——这一条**如实留开**，等 CI 自己给出结论，没有拿「本地全绿」冒充它。**（2026-09-23 更正：那次运行的日志取到了，机制在下面——pytest 33.82 秒就打印汇总并结束，那 90 分钟是这个 job 没有退出，不是测试卡住；见本文件最新一条。）**
 - [x] **`python` job 只剩两条红，而这两条是**同一件事**：测试把「这台机器答不上来」当成了通用事实。** 上一条留下的问题（pytest 在 runner 上跑 90 分钟不结束）**现在已经没有疑问**：同一个 job，钉住解释器之后是 **86 秒**跑完（`2 failed, 1388 passed, 2 skipped in 86.35s`），两次运行之间只多了那个 env 钉住和两条测试改动。**相关关系是量出来的，机制没有**——只写到这一层，没有编一个解释。
   - **两条红都在 `test_orphans.py`**，断言的都是 `ExitCode.PROCESS`(13)：一条得 20（`session start` 没有被拦下，反而真的起了一个会话，最后 `HANDSHAKE_TIMEOUT`），一条得 0（`session stop` 报了成功、什么都没 unresolved）。**契约本来就写清楚了两种平台各自该发生什么**（`orphans.py` 模块开头）：*「命令行能被证明不是我们的活 PID 就是已经结束的，start 可以继续；命令行读不出来的才叫 unresolved，这时 start 拒绝，因为『大概没了』不是再往世界里塞一个玩家的理由。」* Windows 的 `os.kill(pid,0)` 对已回收的进程仍然报「在」，所以它**根本答不了**，于是每个 marker 都是 unresolved、两条断言都成立；Linux 能答，而那两条用例记的 PID 4242 要么不存在、要么被别的东西占了——**两种读法按契约都算「结束」**，于是 CLI 正确地放行/报成功。**这两条用例把 Windows 的答案写成了通用答案。**
   - **修法不是放宽断言，而是把「哪台机器」写进用例**（与这个文件本来就有的一条 `test_the_default_probe_refuses_to_guess_on_a_platform_it_cannot_ask` 同一个写法）：拦不下客户端那一条改成只在答不上来的平台跑，并把「另一半由 `test_an_unresolved_claim_refuses_a_new_start` 用注入的探针在**所有**平台覆盖」写进 docstring（CLI 级要在 POSIX 上走到同一分支，得真的拉起一个客户端——那是真实运行，不是单测）。
@@ -1200,6 +1200,22 @@
   - **探针的副作用，如实记**：中途那个临时脚本还原时把 `tools/fault_injection.py` 的行尾翻成了 CRLF（git 只报 `modified`、`git diff` 却空——**这正是行尾差异的签名**）。用 `git checkout --` 还原，确认内容与索引一致、工作树干净。**没有内容被改坏，也没有把行尾翻转带进提交**；后来这个临时脚本也改成按 bytes 还原了。
   - **实测（本轮：本地）**：`tests/unit/test_fault_injection.py` **45 passed**（+3），全量 pytest、Ruff check/format、Pyright（strict，0 errors）、boundaries、case assertions、fixture digests、workflow pins 与 `git diff --check` 全绿；20 条码逐条变异扫描 **20/20**，临时脚本跑完 `tools/fault_injection.py` 逐字节还原；工具重跑一遍 **154/154** 且判官逐字节不变。**没有跑 Minecraft。**
   - **仍然开着的**：真实运行与四个决策，状态未变。
+- [x] **把那条「pytest 在 runner 上跑 90 分钟不结束」的**机制**取到了，而它顺带更正了这条记录自己的措辞：pytest 没有跑 90 分钟——它 33.82 秒就正常结束了，**90 分钟是它结束之后那个 job 没有退出**。** 证据是那次运行自己的日志，不用推断。
+  - **定位**：全仓库（`main`，2026-09-20 起 100 次运行）**只有一次**超过 20 分钟的运行——`run 35542081847`、sha `7d2b1fe`、2026-09-20T22:34Z、结论 `cancelled`、**89.8 分钟**；其中 `bridge-static` 0.2 分钟成功、`protocol` 0.1 分钟成功，**`python` 89.8 分钟被取消**，卡住的那一步就是 `Run uv run pytest`。其余 75 次逐条量过（25 + 50），`python` job 全在 **1.8～2.7 分钟**、全部 success，**没有一次超过 20 分钟**。
+  - **日志里那两行是相邻的**，这就是机制：
+
+    ```text
+    2026-09-20T22:35:07.7206391Z =========== 144 failed, 1227 passed, 2 skipped, 17 errors in 33.82s ============
+    2026-09-21T00:03:50.6397136Z ##[error]The operation was canceled.
+    ```
+
+    **pytest 打印了汇总行就结束了**（33.82 秒），**之后 88.7 分钟一行输出都没有**，直到被取消；而取消时的清理动作里 GitHub 终止了两个**仍然活着**的进程：`Terminate orphan process: pid (2439) (uv)` 与 `pid (2442) (pytest)`。
+  - **所以能说的和不能说的分清楚**：**能说**——这一次里**没有任何测试卡住**，pytest 的收集与执行都跑完了（`144 failed / 1227 passed`，那还是一次红运行）；卡住的是**那一步的进程树没有退出**。**不能说**——它的成因。上面那两个被终止的进程（`uv` 与 `pytest` 都还活着）**与「某个子进程握着这一步的 stdout 不放、于是步骤一直等 EOF」这个形状一致**，但那是**形状相符**，不是机制成立；**这里只写到这一层，不编解释**——这条记录上一次就是这么要求自己的。
+  - **这更正了什么**：原文写「`python` job 的 pytest 在 runner 上跑了 **90 分钟以上仍未结束**」，而按日志，**pytest 33.82 秒就结束了**；九十多分钟是**job** 没结束。同一条记录后面那半（「钉住解释器之后 86 秒跑完」）与本次读数**一致**——今天这个 job 稳定在 1.8～2.7 分钟。
+  - **一个建议，留给用户决定，不在本步做**：这一次的代价是**白烧 89.8 分钟**才被取消（GitHub 默认 job 上限是 6 小时）。给 `python` job 加 `timeout-minutes` 能把「不退出」变成**有界的红**——本仓库对服务端退出、队列、inbox 都要求有界，这里是同一类问题。**但没有本步就改 CI**：超时值是个判断（CI 上实测约 2 分钟，日志里容器最坏 29 分钟），定小了会在慢 runner 上制造假红，而定值这件事不该由我替别人拍。**如果要改，依据就是上面这三个读数。**
+  - **本步顺带补上的 docker 读数（此前只有本机读数）**：`bash test-orchestrator/runner/run.sh doctor` 在 `minekin-runner:local` 容器里跑通，**五条检查全 OK**——`python` Python 3.12.3、`java` Java 21 (required: 21)、`protobuf` 6.33.6、`sqlite` SQLite 3.53.4（multi-connection WAL safety gate）、`workspace` workspace at /src，`status: ok`、退出码 0。**`workspace` 那条正是本会话早先加进 `doctor` 的检查，这是它第一次在 Linux 上被验到**；镜像里**没有 pytest**（Dockerfile 明说只带 CLI 需要的那一个运行时依赖），所以仓库自检类用例**不在**容器里跑，这一条与记录一致、本次实测再次确认。
+  - **实测（本轮：本地 + 容器 + GitHub REST）**：100 次运行（`main`，2026-09-20 → 2026-09-23）逐条量过运行级时长，>20 分钟者 1 次（即上面那次）；其中 75 次的 `python` job 逐条量过 job 级时长，全部 1.8～2.7 分钟、全部 success；卡住那次 job 的完整日志（639,445 字节、7,073 行）取回来读过。容器内 `doctor` 五条全过。本地全量 pytest、Ruff check/format、Pyright（strict，0 errors）、boundaries、case assertions、fixture digests、workflow pins 与 `git diff --check` 全绿。**没有跑 Minecraft，也没有接受 EULA。**
+  - **仍然开着的**：真实运行与四个决策，状态未变；上一条建议（CI 超时）是有依据、但需要有人定值的决定。
 
 ## W70 之后
 
