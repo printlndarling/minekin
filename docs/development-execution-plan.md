@@ -12,7 +12,11 @@
 - `baseline_date`: 2026-09-22
 - `baseline_branch`: `main`
 - `baseline_remote`: `origin/main`
-- `current_next`: `ADMIT-070-EVIDENCE-DESIGN-001`
+- `current_next`: `NONE_PROMOTABLE`。`ADMIT-070-EVIDENCE-DESIGN-001` 已 DONE；`order`
+  第 3 个场景的下一步是 `ADMIT-070-REFUSAL-INJECTION-001`，本 commit 只以 `QUEUED`
+  登记它，提升由主控在后续 commit 决定（它要改 Bridge 产品码，不属测试域）。其余未闭合卡
+  仍是 `HOST-ADMISSION-DESIGN-001`/`OPERATIONS-RETENTION-001`/`PROCESS-RECOVERY-001`
+  三项 `BLOCKED_DECISION` 与 `HOST/W80+` 的 `DEFERRED`，都要用户先拍板。
 
 权威顺序：
 
@@ -378,12 +382,14 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 ### REAL-P0-CAMPAIGN-001 — 批量关闭真实运行缺口
 
 - `status`: `BLOCKED_EVIDENCE`
-- `blocked_by`: `ADMIT-070-EVIDENCE-DESIGN-001`。`order` 的第 1 个场景（在线认证拒绝）
-  已由 `ADMIT-040-CASE-001` 正式封证；第 2 个场景（资源包拒绝）已由 `ADMIT-060-CASE-001`
-  在当前 build 上封出 `PASS`/`AGREES` 的正式 bundle 并四读一致，其判据、反例与
-  「超时不算拒绝」的处置都在专项契约与那张卡里。第 3 个场景（JOIN 后首快照失败，
-  契约点名 `ADMIT-070`）今天缺的是判据冻结：它的五条断言在现有运行材料里各指向哪里、
-  要让**首**快照真失败需不需要新的观测点或 runner knob，都还没写下来。
+- `blocked_by`: `ADMIT-070-REFUSAL-INJECTION-001`（`QUEUED`）。`order` 的第 1 个场景（在线认证拒绝）
+  与第 2 个场景（资源包拒绝）已各自封出当前 build 上 `PASS`/`AGREES` 的正式 bundle 并四读一致。
+  第 3 个场景（JOIN 后首快照失败）的判据已由 `ADMIT-070-EVIDENCE-DESIGN-001` 冻结在专项契约里，
+  冻结的结论是：**这一条停在 `BLOCKED_EVIDENCE` 的原因不是读不出，而是发生不了**——被拒快照的
+  理由确实会写进 run document 的 `snapshot_rejections`（读数那一层在真实运行里会工作，
+  `entities_rejected` 就写过），但五个 `SnapshotReason` 在当前构建与当前 runner 下一个都触发
+  不了，数据卷 36 份真实运行文档该字段全为空。缺的是让 Bridge 在该代第一份快照上按
+  `authoritative=false` 上报的一个测试域注入点，即本 `blocked_by` 那张卡。
 - `scenario_progress`: 2/7 场景已封为正式 case。第 1 个：`ADMIT-040`，run
   `6b5856d57dee4052b2ffba3ff9e3459e`，bundle `46565ef2…`，attempt 1，PASS/AGREES。
   第 2 个：`ADMIT-060`，run `7bc740ea4cde4e1aaff074bb64850348`，bundle
@@ -853,7 +859,7 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 
 ### ADMIT-070-EVIDENCE-DESIGN-001 — 冻结 JOIN 后首快照失败场景的完整判据
 
-- `status`: `NEXT`
+- `status`: `DONE`
 - `registered`: 2026-09-24（campaign `order` 的第 3 个场景；本卡只排队，判据尚未冻结）
 - `promotion_reason`: 依赖 `ADMIT-060-CASE-001` 已 DONE 并推送（真实 `deny` 运行封出
   `PASS`/`AGREES` 的 bundle，四读一致），且它是 `order` 上唯一下一项——其余未闭合的卡都要
@@ -887,6 +893,90 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 - `stop_conditions`: 如果「首快照被拒」在现有运行材料里只能由超时读出（没有任何一层记下
   被拒的那一份快照），停在 `BLOCKED_EVIDENCE` 并记录，不把 `snapshot_rejections` 那个空
   数组读成拒绝。
+
+- `completion_commit`: `a7983c39599852c1a1c59423ce9eb67db07d417c`
+  （`docs(admission): freeze first-snapshot refusal evidence criteria`），已推送，本地 HEAD、
+  跟踪分支与远端 SHA 核对相同。
+- `completion_evidence`: 专项契约新增「ADMIT-070 的可复判证据边界（2026-09-24 冻结）」一节，
+  把 `tests/fixtures/cases/admit-070.json` 那五条断言（**全部登记为 `pytest` 类**，
+  `tools/check_case_assertions.py:476-495`）逐条写成一次真实拒绝运行里的五项事实，各指名来源与
+  sealed 工件：`JoinObserved`（BRIDGE/BRIDGE_FILTERED，`cli/session.py:135`）在场而
+  `connection_state` 非 `PLAYABLE`；`run-document.json` 的 `snapshot_rejections` 里出现**本用例
+  点名的那一个** `SnapshotReason`（不接受「非空即可」）且 `snapshots_admitted: 0`；无
+  `InputLeaseGranted`（复用 `no_lease_was_granted`）与无 `PlayableEstablished`；本代终止且其后
+  不再进 `JOIN_SEEN`/`PLAYABLE`；判官不得要求文档里没有的正文（`IntegrityViolation` 不落文档），
+  也不得把客户端那行 warn 当被拒事实。反例逐条指名了要判红的判据：只有超时
+  （`connection_cancelled: "TIMEOUT"`，即 `ADMIT-110` 已在读的那次运行）、并集字段说得出「拒过
+  一份」而说不出「首份被拒」（`snapshots_admitted ≥ 1`）、`entities_rejected` 非零（实体闸门不是
+  快照闸门）、没有 `JoinObserved`、出现过 lease 或 PLAYABLE、之后又起新 generation 进了世界、
+  以及字段缺失/类型不对时读作不可判定而不当空数组。
+  **需要新观测点这一问有确定答案**：需要，且在 Bridge 上报侧。五个理由逐条量过来源——
+  `authoritative` 写死 `true`（`ClientSnapshot.java:80`）、`generation` 回的就是 Core 发给
+  `ConnectWorld` 的那个值（`ClientAdmissionController.java:250`）、session 身份两端同源
+  （`ClientSnapshot.java:56-59,84` 对 `offline_session.py:247,255-275`，比较只看 username 与
+  规范化 uuid）、self/inventory 全取活客户端状态且 revision 为
+  `Math.max(1, world.getTime())`（`ClientSnapshot.java:66,119`）；关键是 Bridge 说不出自己是谁时
+  **不发**而不是发一份残缺的（`ClientSnapshot.java:52-60` +
+  `ClientAdmissionController.java:249-253` 的一行 warn），所以本地靠伪造 IPC 钉住的那两条在真实
+  客户端上没有对应形状。现存 knob 逐条排除（`domain.sh:18-129` 的 `MINEKIN_DOMAIN_*`、
+  `run_controlled_server.py` 的世界/白名单/线缆 flag、`MINEKIN_DOMAIN_SILENCE` 停的是 Core、
+  `tools/fault_injection.py:46-49` 只会让一个进程消失）。实测读数：数据卷 36 份真实运行文档
+  `snapshot_rejections` 全为 `[]`，同批里 `connection_cancelled: "TIMEOUT"` 3 次、
+  `entities_rejected` 非零 1 次——写理由的那一层会工作，没发生过的是被拒本身。
+  顺带量到 `FIRST_SNAPSHOT_TIMEOUT` 与 `WORLD_BINDING_MISMATCH` 在 proto 里有枚举值
+  （`observation.proto:35-36`）而**没有任何一层发出**，故判据不要求它们，与 `ADMIT-060` 拒绝
+  `RESOURCE_PACK_BLOCKED` 同形。`tests/contract/test_case_coverage.py` 4 passed；
+  `git diff --check` clean。本卡未跑全量门禁（只改文档，未动码、夹具或判官）。
+- `next_after_done`: `ADMIT-070-REFUSAL-INJECTION-001`（本卡判据所要求的注入点；登记为
+  `QUEUED`，提升与否由主控决定）。第 3 个场景在其落地并跑出一条真实拒绝运行之前停在
+  `BLOCKED_EVIDENCE`。封那条 bundle 时还需补一件本卡只记名的要求：**注入必须在 bundle 里说得出来**
+  （现有 `fault-injection.json` 通道是唯一合适的地方），否则一份 PASS 分不清「Core 拒了一份自称
+  非权威的快照」与「客户端真的发了这么一份」。
+
+### ADMIT-070-REFUSAL-INJECTION-001 — 让首快照能被报成 Core 会拒的样子
+
+- `status`: `QUEUED`
+- `registered`: 2026-09-24（由 `ADMIT-070-EVIDENCE-DESIGN-001` 冻结的判据指名需要；本卡只登记，
+  未提升）
+- `depends_on`: `ADMIT-070-EVIDENCE-DESIGN-001`（判据、反例与「只有 `NOT_AUTHORITATIVE` 在范围内」
+  的取舍都在那一节里）。
+- `question`: 一个默认关断的开关怎么从 runner 走到 Bridge——客户端 JVM 的环境变量能否由受控
+  runner 设、被 `adapters/launcher/process.py` 原样继承给子进程、再由 Bridge 读到（这样 Core 不必
+  新增任何概念）；还是必须走 `control.proto` 的一条命令（那是协议扩张，本卡不承担）。以及这份
+  注入怎么在 bundle 里说得出自己：`fault-injection.json` 现在的记录形状容不容得下一类
+  「Bridge 被要求这样上报」的事实。
+- `why_now`: campaign `order` 第 3 个场景的唯一阻塞项。`execution_steps` 第 2 条本来就要求「先补足
+  scenario 所需的 runner knob」，而这一个 knob 现有材料里一个都不够（判据卡的读数记录逐条排除了）。
+- `allowed_paths`:
+  - `bridge/src/main/java/org/minekin/bridge/runtime/ClientSnapshot.java`（`authoritative` 由
+    入参决定，默认仍为 `true`）
+  - `bridge/src/main/java/org/minekin/bridge/runtime/ClientAdmissionController.java`（读那个开关，
+    且只在被明确要求时对**本代第一份**快照生效）
+  - `bridge/src/test/java/org/minekin/bridge/runtime/ClientAdmissionControllerTest.java`
+  - `src/minekin_core/adapters/launcher/process.py`（仅当环境变量继承需要显式放行时）
+  - `tools/fault_injection.py` 与 `tools/inject_fault.py`（记录类别，不改既有三种进程角色语义）
+  - `test-orchestrator/runner/domain.sh` 与 `test-orchestrator/runner/run.sh`（把开关传给一个场景）
+  - `src/minekin_core/adapters/launcher/recipe.py`、
+    `tests/fixtures/runtime-input/bundle-p0-core-1.21.4.json`、`tests/fixtures/cases/core-001.json`、
+    `tests/fixtures/manifest.sha256`（Bridge 变更后重算并续期这些 pin）
+  - `tools/check_bridge_proto_java.py`（只同步编译桩的方法签名）
+  - `docs/development-execution-plan.md`、`docs/development-todo.md`
+- `forbidden_paths`: `proto/` 与生成物、`src/minekin_core/domain/perception.py` 的判定语义、
+  `RecordedSessionMaterial` 的构造（不许让记录说谎）、case fixtures 与 assertions registry、
+  判官、CI 配置。
+- `non_goals`: 不封 `ADMIT-070` 的 evidence（那是后续的 `ADMIT-070-CASE-001`）、不注入
+  `SESSION_MATERIAL_MISMATCH`/`SELF_STATE_INCOHERENT`/`INVENTORY_INVALID`/`GENERATION_MISMATCH`
+  四个理由、不引入新的 `SnapshotReason`、不声称任何真实客户端会自发非权威快照。
+- `acceptance`: 开关默认关；未设开关时一次真实受控运行的第一份快照仍 `authoritative=true` 并照常
+  放行（正向不回归）；设了开关时 Core 的 `snapshot_rejections` 里出现 `NOT_AUTHORITATIVE` 且
+  `snapshots_admitted: 0`、账本无 `PlayableEstablished`/`InputLeaseGranted`；注入这一事实能从同一
+  bundle 的 `fault-injection.json` 读出来；Java 定向测试 + 全量本地门禁 + 受审 pin 续期全绿；
+  一次真实受控 Docker 运行产出上述两份材料（正向与注入）并只作诊断，不封 bundle。
+- `validation_class`: `LOCAL_THEN_REAL_RUN`
+- `commit_intent`: `feat(bridge): allow an explicitly requested non-authoritative first snapshot`
+- `stop_conditions`: 若开关只能靠 `control.proto` 的一条新命令到达 Bridge，或注入无法在同一 bundle
+  里说出自己（`fault-injection.json` 装不下这类事实且没有别的测试域通道），停在该卡并把第 3 个
+  场景继续留在 `BLOCKED_EVIDENCE`——不得为了跑得出证据而把一条产品事件写成客户端没有的样子。
 
 ### ADMIT-040-CLASSIFICATION-001 — 识别原版在线认证拒绝的真实文案
 

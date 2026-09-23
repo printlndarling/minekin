@@ -1491,14 +1491,42 @@
     wheel oracle 边界、`bash -n` 全绿。未跑 CI。
   - **`mandatory` 仍是 `false`**：契约其余 ADMIT 场景未齐，这一条不点亮任何 gate。
 
-- [ ] **ADMIT-070-EVIDENCE-DESIGN-001（当前唯一 NEXT，登记于 `b176b63`）**：campaign
-  `order` 的第 3 个场景（JOIN 后首快照失败，契约点名 `ADMIT-070`，fixture
-  `tests/fixtures/cases/admit-070.json` 五条断言已在）判据冻结。要回答的是：一次真实的
-  「JOIN 之后首个权威快照被拒」在现有运行材料里说得出什么——run document 的
-  `snapshot_rejections`/`entities_rejected` 与账本的 `SessionInterrupted` 够不够把
-  「不授 lease」与「generation 终止」说成同 run 事实；让**首**快照真失败要不要新的产品
-  观测点或 runner knob。停止条件：只能由超时读出来时停在 `BLOCKED_EVIDENCE`，不把空数组
-  读成拒绝。
+- [x] **ADMIT-070-EVIDENCE-DESIGN-001（已完成，commit `a7983c3` 已推送）**：campaign `order`
+  第 3 个场景（JOIN 后首快照失败）的判据已冻结在专项契约新增的「ADMIT-070 的可复判证据边界
+  （2026-09-24 冻结）」一节。
+  - 五条断言（`tests/fixtures/cases/admit-070.json` 里**全部登记为 `pytest` 类**，即今天只测域内
+    过滤器）逐条写成一次真实拒绝运行里的五项事实，各指名可信来源与 sealed 工件：同一 ledger 有
+    `JoinObserved`（BRIDGE/BRIDGE_FILTERED）且 run document 的 `connection_state` 非 `PLAYABLE`、
+    `snapshots_admitted: 0`；`run-document.json` 的 `snapshot_rejections` 里出现**本用例点名的那一个**
+    `SnapshotReason`（不接受「非空即可」）；无 `InputLeaseGranted`（复用 `no_lease_was_granted`）
+    且无 `PlayableEstablished`；本 generation 终止且其后不再进世界；判官不得要求文档里没有的正文
+    （`IntegrityViolation` 不落文档），也不得把客户端那行 warn 当作被拒事实。
+  - 反例逐条指名要判红的判据：只有超时（`connection_cancelled: "TIMEOUT"`，那正是 `ADMIT-110`
+    已经在读的运行）、拒过一份但首份放行（并集字段说不了「首」）、`entities_rejected` 非零（实体
+    闸门不是快照闸门）、没有 `JoinObserved`、出现过 lease 或 PLAYABLE、之后又起新 generation 进了
+    世界、字段缺失或类型不对时读作不可判定而不当空数组。
+  - **本卡要回答的那一问有确定答案：需要新的观测点，而且它在 Bridge 的上报侧。** 五个理由的取值
+    来源逐条量过——`authoritative` 写死 `true`（`ClientSnapshot.java:80`）、`generation` 回的是
+    Core 给出去的那个值、身份两端同源（record 从解析后的 argv 读回）、self/inventory 全取活客户端
+    状态；决定性的是 Bridge 说不出自己是谁时**不发**快照而不是发一份残缺的
+    （`ClientSnapshot.java:52-60` + `ClientAdmissionController.java:249-253`）。现存 knob 逐条排除
+    （`MINEKIN_DOMAIN_*`、服务端工具的 flag、`SILENCE` 停的是 Core、fault 注入只会让进程消失）。
+    `FIRST_SNAPSHOT_TIMEOUT`/`WORLD_BINDING_MISMATCH` 有 proto 枚举值而没有任何一层发出，故判据不
+    要求它们——与 `ADMIT-060` 拒绝要求 `RESOURCE_PACK_BLOCKED` 同形。
+  - 实测读数：数据卷 **36 份**真实运行文档的 `snapshot_rejections` 全为 `[]`，同批里
+    `connection_cancelled: "TIMEOUT"` 3 次、`entities_rejected` 非零 1 次。所以第 3 个场景停在
+    `BLOCKED_EVIDENCE` 的原因是**发生不了**，不是**读不出**；写理由那一层在真实运行里会工作。
+  - 契约表格 ADMIT-070 行 2026-09-22 写的「跑得动」在本卡撤回（那五条靠伪造 IPC 消息成立）。
+  - 本卡只改文档：未跑一次真实运行、未封 evidence、未动判官或夹具。
+    `tests/contract/test_case_coverage.py` 4 passed、`git diff --check` clean。
+    `mandatory` 仍为 `false`，不点亮任何 gate。
+
+- [ ] **ADMIT-070-REFUSAL-INJECTION-001（`QUEUED`，尚未提升）**：把首快照报成 Core 会拒的样子——
+  一个默认关断的开关让 Bridge 对本代**第一份**快照上报 `authoritative=false`，Core 的过滤器照旧
+  自己判决；注入事实必须从同一 bundle 的 `fault-injection.json` 读得出；不设开关时正向不回归。
+  范围、Bridge pin 续期清单与停止条件（开关只能靠新 proto 命令到达、或注入说不出自己 → 停）见
+  执行计划里那张卡。提升它之前 campaign 第 3 个场景保持 `BLOCKED_EVIDENCE`，
+  `current_next` 因此是 `NONE_PROMOTABLE`。
 
 - [x] **ADMIT-040-CLASSIFICATION-001（已完成，commit `dd992b1` 已推送）**：`REAL-P0-CAMPAIGN-001`
   首个受控诊断运行 `fdef1d7192dd480db6aed1c5e7e493dd` 中，离线身份遇到原版
