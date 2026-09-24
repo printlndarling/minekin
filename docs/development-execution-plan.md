@@ -3222,6 +3222,29 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
   **授权**：本文件「不可变边界」允许在修复主干回归时动冻结区，故此项按该条执行；同时把
   `tests/unit/test_report_promotion.py` 写进 V03 允许路径，使两份文档一致。**不据此主张任何
   V03 交付为 `tested`**，CI 转绿也仍不是 Minecraft 验收证据。本卡据实仍 `NEXT`、未 `DONE`。
+  **续（同一修复的 CI 实测，同日内）**：`1ab1d96` 推到工作分支与 `main` 后，在浏览器里逐 job 读了
+  run #448/#449：三个 job 全绿，`python` 用时 2m9s、其中 “Run uv run pytest” 1m31s 成功。值得单独
+  记一笔的是**它后面那六步**——`check_boundaries`、`check_case_assertions`、`verify_fixture_digests`、
+  `check_workflow_pins`、`uv build --wheel`、`check_wheel_boundary`、`minekin --help`——在 run 423
+  起的每一次红里都是 `skipped`，也就是说**自 V01 起仓库的 wheel 边界与 fixture 摘要两道门在 CI 上
+  一次也没跑过**；现在它们第一次真的执行并通过。Linux 侧另在 `minekin-runner:local` 容器内以 uid 1000
+  对同一文件做了改前/改后对照：`1 failed, 40 passed` → `41 passed`；本地 Windows 全量
+  `2319 passed / 2 skipped`、ruff/format/pyright/boundaries/case assertions/workflow pins/fixture
+  digests/`git diff --check` 全绿。**仍不据此主张任何 V03 交付为 `tested`。**
+  **续（范围修订：1.20.1 Bridge 取顶层独立 source root，同日内）**：承接上一节的耦合取证，把拟议
+  方案**甲**登记进本卡允许路径——**新增顶层 `bridge-1201/` 自成一体的 Gradle 工程**（与 `bridge/`
+  同构：`settings.gradle.kts`、`build.gradle.kts`、`gradle/libs.versions.toml`、
+  `gradle/verification-metadata.xml`、`gradle.lockfile`、wrapper、`src/`、`resources`、
+  `host-boundary-names.json`），1.20.1 的适配源**只**落在那里；**`bridge/` 一字不改**，因为它的
+  source tree 摘要已被 1.21.4 已封 recipe 钉死。随之允许的是把「Bridge 身份」从硬编码单 root
+  泛化成按 recipe 命名的 root：`adapters/launcher/recipe.py`（`BRIDGE_JAR_RELATIVE_PATH`、
+  `source: workspace:<root>`、`source_digest` 的 root 选择）、`tools/check_bridge_scaffold.py`、
+  `tools/check_bridge_host_boundary.py`、`tools/check_bridge_artifacts.py`、
+  `tools/check_bridge_protocol.py`、`tools/check_bridge_proto_java.py`、`tools/check_boundaries.py`
+  的 `BRIDGE_ROOT`，以及 CI `bridge-static` job 相应地按 root 各跑一遍。**禁区不变**：不改 1.21.4
+  的任何 pin/源码/已封 bundle，不把 1.20.1 jar 冒名成 1.21.4 的 digest，不因新增 root 就放宽
+  host-boundary 名单。此修订只解锁本卡既定的下一步（隔离构建产出可复判的 1.20.1 Bridge jar 并回填
+  candidate recipe），不改本卡 `non_goals`、不预支 V04 的入服验收。
 
 ### HOST-ADMISSION-DESIGN-001 — 宿主世界会话坐标来源
 

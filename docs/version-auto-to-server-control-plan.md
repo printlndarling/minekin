@@ -179,6 +179,14 @@ bundle id 与结果；旧代回调不能推进新代。`BLOCKED` 不自动回退
   **主干回归例外（2026-09-25 补）**：`tests/unit/test_report_promotion.py` 一项——CI 自 run 423 起
   红在封存 bundle 目录的 rename 上，根因与判归见主执行计划 V03 `progress_record`；只改测试的模拟
   手法（rename 前 `unseal_bundle`），不改封存语义、不改判据。
+- **范围修订（2026-09-25，登记后生效）**：1.20.1 Bridge 取**顶层独立 source root `bridge-1201/`**
+  （与 `bridge/` 同构、自成一体的 Loom 工程），1.20.1 适配源只落该 root，`bridge/` 一字不改——因为
+  1.21.4 已封 recipe 把 `source_digest = source_tree_sha256(workspace/bridge)` 钉死，往 `bridge/`
+  里加任何源都会改 1.21.4 的 source identity。据此允许把 Bridge 身份从单一硬编码 root 泛化为按
+  recipe 命名的 root：`adapters/launcher/recipe.py` 与 `tools/check_bridge_{scaffold,host_boundary,
+  artifacts,protocol,proto_java}.py`、`tools/check_boundaries.py` 的 `BRIDGE_ROOT`，CI `bridge-static`
+  按 root 各跑一遍。禁区分外不变：不改 1.21.4 的 pin/源码/已封 bundle，不冒名 digest，不放宽
+  host-boundary 名单。取证与理由见主执行计划 V03 `progress_record`。
 - **验收**：隔离构建/`check --rerun-tasks`、源码/产物 digest、依赖锁、SBOM/许可、Bridge
   协议/能力清单均可复判；1.21.4 全套回归无漂移；新产物仍仅 `candidate`。
 - **停止**：元数据无可靠摘要、关键 Mod/映射无可审组合、Bridge hook 需超出当前能力契约、

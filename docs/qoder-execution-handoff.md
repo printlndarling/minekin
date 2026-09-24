@@ -1,14 +1,22 @@
 # Qoder 临时执行交接（2026-09-24）
 
-> **最新交接点（`17e74b8` 之后，2026-09-24）**：以下 ADMIT-070 起步任务和阶段说明是
+> **最新交接点（2026-09-25，跨版本路线执行中）**：唯一 `NEXT` 是
+> `VERSION-BUNDLE-1201-001`（V03），**不是**下文 ADMIT-070 起步卡，也不是 V01/V02（两者已 `DONE`）。
+> V03 已交付：1.20.1 官方供应链核对、launcher 侧无漂移泛化（recipe/metadata/launch_plan/schema +
+> candidate recipe fixture 端到端 `bundle verify`）、隔离 1.20.1 编译取证（4 个 mixin 类需版本适配，
+> 15 个 compile error 已留材料）、以及 `bridge/` source-digest 耦合取证。**下一步**是按已登记的
+> 范围修订新建顶层 `bridge-1201/` 独立 Loom 工程并泛化 Bridge 身份的命名 root，产出可复判的
+> 1.20.1 Bridge jar 后回填 candidate recipe——`bridge/` 一字不改。
+> **主干回归已修**：CI 的 `python` job 自 run 423 起一直红在一个跨平台测试上（封存 bundle 目录在
+> Linux 不可 rename），`1ab1d96` 起 run #448/#449 三 job 全绿，被它挡住的六道门第一次真的跑过。
+> **每次 push 后必须在浏览器里逐 job 读 Actions 结果**，不能只看本地门禁——这条被自己违反过一次。
+> 以下 ADMIT-070 起步任务和阶段说明是
 > 当时的历史执行路线，**不是当前领取任务的授权**。七个已排定的 P0 campaign 场景
 > 已走完（`scenario_progress 7/7`），但 [`development-execution-plan.md`](development-execution-plan.md)
 > 的晋级总账仍把整体判为 `BLOCKED/INCOMPLETE`：74 个 required case 中 31 个尚未登记，
 > 且已有证据中有旧 build 与版本不匹配项。用户随后明确把跨版本路线排为优先项；
 > 设计卡 `VERSION-AUTO-DESIGN-001` 已交付
-> [跨版本连续执行计划](version-auto-to-server-control-plan.md)。本次收卡提交只把第一张实现卡
-> `VERSION-REMOTE-PROFILE-001` 已由 `2c4e600` 先登记为 `QUEUED`，随后独立提升为唯一
-> `NEXT`；现在仅可实现这张卡允许的 profile/schema/地址策略，不授权直接连接公网服。
+> [跨版本连续执行计划](version-auto-to-server-control-plan.md)。
 > Qoder 应按下文恢复步骤核对 Git、机器报告和
 > 封存证据；不得从本文件的旧阶段标题或历史 TODO 自行挑选其它 `NEXT`，也不得
 > 把“七个场景完成”写成 P0 晋级完成。最新读数与待决项以主执行计划顶部及
