@@ -202,13 +202,31 @@ HOST世界保存/恢复另需 `HOSTCOMMIT-001…110` 证据；它验证默认维
 
 | 窗口 | 承载 case id | 判据读什么 | 当前 harness 可否真跑 | 当前 build 上的证据 |
 | --- | --- | --- | --- | --- |
-| Runtime（Core）强杀后松键 | `CORE-060` | 故障记录 `target: runtime_controller` + Bridge 松键 + 服务端读数 | 可（`MINEKIN_DOMAIN_KILL_CORE`，`domain.sh:26/1233`） | **无**（只有旧 build 的 PASS/FAIL） |
+| Runtime（Core）强杀后松键 | `CORE-060` | 故障记录 `target: runtime_controller` + Bridge 松键 + 服务端读数 | 开关在（`MINEKIN_DOMAIN_KILL_CORE`，`domain.sh:26/1233`），**注入真做得到，封存通道当场是断的**（见下面那条 2026-09-24 修订） | **无**（只有旧 build 的 PASS/FAIL） |
 | client JVM 强杀 | `CORE-060-CLIENT-001` | 同上，目标 `client_jvm`，账本记 session 结束 | 可（`MINEKIN_DOMAIN_KILL_CLIENT`，`domain.sh:36/1389`） | **无**（同上） |
 | server JVM 强杀 | `CORE-060-SERVER-001` | 目标 `server_jvm`、`/proc` 身份消失、无 `Stopping the server` | 可（`MINEKIN_DOMAIN_KILL_SERVER`，`domain.sh:30/1316`） | **无**（同上） |
 | 崩溃后重启重验（瞬时状态失效、世界重新观察） | `CORE-090` | 本次 run document + 同账本上一条 run 的事件行（`previous-run-trace.jsonl`）+ `recovery` 块 | 可（两连跑：先 `MINEKIN_DOMAIN_KILL_CORE=1`，紧接着 `MINEKIN_DOMAIN_CASE=CORE-090 MINEKIN_DOMAIN_STILL=1`） | **无**（同上） |
 | 正常退出 | `CORE-020` 的 `leave_after_join_observed`（也出现在 `CORE-060-CLIENT-001` 的断言集里） | 客户端日志与服务端读数 | 可 | **无**（旧 build 的 PASS） |
 | **intent 已写、效果未 settle**（崩溃落在启动窗口）留下的 pending outbox | 没有 case id，也不该有 | `session start` 在**尝试效果之前**写 `START_CLIENT`；这一半**只能**由真 SQLite + 故障注入单测构造 | **按构造打不中**（见下） | 本地证据：`tests/unit/test_recovery_service.py`（`:236` 真 `sqlite3.connect`、`:339` 真 `SessionEventLog(...).open_effect(...)`），按下面的口径标，不伪装成真实运行 |
 
+- **runtime 那一格为什么从「可」改成「开关在、封存通道断」**（2026-09-24 开跑当场读数，
+  `CRASH-OUTBOX-RESEAL-001` 因此修订了自己的范围）：冻结那句「可」读的是「有 case id、有断言、有开关」，
+  第一次真跑把第四件事也问了一遍——**封存通道能不能把这次 run 收下来**。答案是否：注入成功
+  （`INJECTED`、session 退出 137、服务端目录 `run-133`），sealer 却报
+  `exit 2 / unsealed：/tmp/domain-session.json is not a readable run document`（run id
+  `3e7ac6124d3549598ad85259d2b8b54f`，**卷上没有它的 bundle**，因此既无 FAIL 可留也无事可撤）。
+  机制是 `domain.sh:1886-1889` 用「捕获文件有没有字节」回答「Core 打没打出自己的文档」，而 session 跑在
+  `xvfb-run` 里、`/usr/bin/xvfb-run:184` 是 `"$@" 2>&1`：被杀的是 `xvfb-run` 的孩子，死讯 `Killed` 就落在
+  文档那条流上。三次容器内只读探针把它钉死：只杀内层 python → 文档 7 字节 `Killed`、包装器自身 stderr
+  0 字节；同一个孩子不过包装器直接杀 → 两路各 0 字节（死讯压根不进数据流）；按命令行把包装器与孩子一起
+  杀（`a818a62` 之前那句全局 `pkill -f "minekin_core session start"` 的形状，那串参数同时出现在
+  `xvfb-run` 自己的命令行里）→ 文档 0 字节，`07e68af` 设计的 `--run-id` 回落照原意生效。
+  **所以这是 `a818a62` 的副作用**：那次把杀法从「按命令行猜」换成「按身份只杀孙进程」，归因对了，
+  代价是从此没有一份被杀的 Core 封得上——而那条回落通道只有这个窗口用得上，所以那四天里没人碰到。
+  修法不改判据也不改杀法（改回 `pkill` 会撞上 `tests/contract/test_runner_scripts.py:156`），只把守卫
+  换成「文件里是不是一份可解析的 JSON 对象」，认不出就按账本里的 `run_id`（`domain.sh:1075`）命名这次
+  run 并说出来。`CORE-090` 那一行的两连跑里被杀的是**不承载 case 的第一次**，第二次的 Core 活着、文档
+  正常，故不受此影响。这一格要等 `CORE-060` 真封出 `PASS` 才改回「可」，不提前。
 - **启动窗口为什么打不中**（冻结时逐行读过，不是引用的旧结论）：意图写在
   `src/minekin_core/cli/session.py:719-721`（`open_effect(effect_type=START_CLIENT, …)`，
   排在 `supervisor.start(...)`（同一文件 `:723`）**之前**），settle 在成功路径 `:750`、失败路径 `:734`。

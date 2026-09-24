@@ -2097,6 +2097,30 @@
     `ADMIT-070-RECORD-SCHEMA-001` 继续 `QUEUED` 且不排进这条链；HOST/PERSIST/retention/
     process-recovery 仍等主控决策。公网测试服本轮未使用，也仍不能作判据端。
 
+- [ ] **CRASH-OUTBOX-RESEAL-001（进行中，当前唯一 NEXT）**：campaign `order` 第 5 个场景的
+  **真实重封**——五个已定义窗口各在当前 build 上封一份 bundle。
+  - **环境已就位**：`minekin-runner:local` 镜像按 Dockerfile 重建完成（镜像 id `fed4a143f2e4`），
+    `minekin-runner-data` 卷原样保留（旧的五份 PASS 与那份 FAIL 一个没动，登记前照其复核了五对
+    `case_version` 与两个旧 `bridge_digest`）。
+  - **第一次 `CORE-060` attempt 封不上**（run id `3e7ac6124d3549598ad85259d2b8b54f`）：注入成功
+    （`INJECTED`、session 退出 137），sealer 报 `exit 2 / unsealed`——
+    `/tmp/domain-session.json is not a readable run document`。**这次没有 bundle**，卷上无物可留可撤。
+  - **读数**：`domain.sh:1886-1889` 用「文件有没有字节」回答「Core 打没打出文档」；session 跑在
+    `xvfb-run` 里，其 `/usr/bin/xvfb-run:184` 是 `"$@" 2>&1`，于是被 SIGKILL 的 runtime controller 的
+    死讯 `Killed` 落在文档同一条流上。三次容器内只读探针（`.tmp/killed_stdout_probe.sh`）：只杀内层
+    python → 文档 7 字节 `Killed`、包装器 stderr 0 字节；不过包装器直接杀同一个孩子 → 两路各 0 字节；
+    按命令行同时杀包装器与孩子（`a818a62` 之前 `pkill -f` 的形状）→ 文档 0 字节，回落 `--run-id` 生效。
+    即：死讯进文档流的条件是**包装器活得比孩子久**，而 `a818a62` 把杀法从「连包装器一起杀」换成
+    「按身份只杀孙进程」之后，`07e68af` 那条「Core 被杀也能封存」的通道再没走通过——它服务的正是
+    这个窗口。
+  - **已修订范围**（`stop_conditions` ②，2026-09-24 纪律：先修订范围再动手）：放开
+    `test-orchestrator/runner/domain.sh` 的那一条守卫与 `tests/contract/test_runner_scripts.py`
+    的一条断言；故障注入、目标选择、`:1250` 等待条件、判据与 `tools/`、`src/` 仍在禁地。修法是
+    「按能不能解析成 JSON 对象来认文档，认不出就用账本 run id 命名这次 run 并说出来」；不改回
+    `pkill`，因为那会撤掉身份绑定并撞上 `test_runner_scripts.py:156`。`case_version` 不动（判官源码
+    未改），`from_repository_build` 不受影响（它比的是启动计划 + Bridge 源码树，不含 runner）。
+  - **下一步**：先写红的契约断言，再改守卫，跑门禁，然后把五个窗口逐个跑成真实 bundle。
+
 ## 记录：文档脱敏与卡片范围纪律（2026-09-24，用户指示）
 
 - **触发**：主控指出两处问题。① 已推送的计划/开发记录里写入了用户自备的公网测试服完整地址

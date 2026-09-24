@@ -21,8 +21,13 @@
   那份逐窗口表在契约的「crash / outbox / restart 窗口的可封边界」一节）：五个窗口都有 case id、断言与
   runner 开关，缺的只是当前 build 上的 attempt；第六个窗口——崩溃落在「`START_CLIENT` 意图已写、效果
   还没 settle」之间——按构造打不中（`domain.sh:1250` 等的是「不同横坐标数 ≥2」，而那段区间在产品代码
-  内部），归本地证据，**不在**本卡里。本卡 `allowed_paths` 只有文档：重封不改代码；它的第一步是重建
-  本机已缺失的 `minekin-runner:local` 镜像，`minekin-runner-data` 卷原样保留、旧 bundle 一个不清。
+  内部），归本地证据，**不在**本卡里。本机已缺失的 `minekin-runner:local` 镜像重建完成（`fed4a143f2e4`），
+  `minekin-runner-data` 卷原样保留、旧 bundle 一个不清。
+  **本卡的 `allowed_paths` 已在开跑后修订过一次**：`CORE-060` 的第一次 attempt 注入成功却封不上，
+  触发 `stop_conditions` ②——runtime 强杀这一窗口的**封存通道**在当前 harness 上是断的，要修
+  `test-orchestrator/runner/domain.sh` 那一条守卫。修法与三次读数记在卡里的 `scope_amendment_2026-09-24`；
+  修订只放开那一个脚本与 `tests/contract/test_runner_scripts.py`，`src/`、`tools/`、产品恢复策略与旧
+  bundle 仍然禁地。
   （那张冻结卡由 `d33c236` 提升为唯一 `NEXT`、`bd0448a` 登记；
   它之前的 `OFFLINE-030-CASE-FILENAME-001` 在 `7c8c412` 收为 `DONE`：`-001` 子 case 找不回 fixture
   那个阻断在 fixture 侧改名解掉，两个子 id 各封一份 `PASS`、四读一致，`domain.sh` 一字未动。）
@@ -2075,15 +2080,63 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
   按契约是**要留着**的。
 - `why_now`: 它是 `order` 第 5 个场景当下唯一的入口，且前一张卡已经把「要不要重封」这个判断从猜测
   换成了读数（五案 `from_repository_build: false`、五对 `case_version` 全移动）。
-- `allowed_paths`: 只允许改 `docs/development-execution-plan.md`、
+- `allowed_paths`: `docs/development-execution-plan.md`、
   `docs/p0-validation-evidence-contract.md`（第 7/10 条与那份冻结表里的状态注记）、
-  `docs/development-todo.md`、`docs/qoder-execution-handoff.md`（阶段 D 的完成状态）。真实 bundle 落在
+  `docs/development-todo.md`、`docs/qoder-execution-handoff.md`（阶段 D 的完成状态），
+  以及 `scope_amendment_2026-09-24` 依 `stop_conditions` ② 放开的两个测试域文件：
+  `test-orchestrator/runner/domain.sh`（只改「怎样认出封存现场那份 run document」这一条守卫，
+  不动故障注入、目标选择、等待条件与判据读取）与 `tests/contract/test_runner_scripts.py`
+  （为那条守卫加一条契约断言）。真实 bundle 落在
   数据卷 `/data/kin/kin-01/run/evidence/<run_id>/`，不进仓库。
-- `forbidden_paths`: `src/`、`tools/`、`test-orchestrator/`、`tests/`（含任何 case fixture 与 digest
-  登记表）——重封**不需要**改代码，改了就说明冻结的读数不成立，要先回到文档面处理；任何旧 bundle
+- `forbidden_paths`: `src/`、`tools/`、`tests/` 内除上面点名的那一份契约测试以外的任何文件
+  （含任何 case fixture 与 digest 登记表）——判据面改了就说明冻结的读数不成立，要先回到文档面处理；
+  `domain.sh` 内的故障注入与目标选择（`inject_fault`、`read_process_identity`、`:1250` 那条等待条件）
+  不得改动：那是 `a818a62` 用身份绑定换掉全局 `pkill` 的成果，也是
+  `tests/contract/test_runner_scripts.py:156` 钉住的断言；任何旧 bundle
   （上面那五份 PASS 与那份保留的 FAIL）不得改写、重判或删除；`CORE-090`/`CORE-020`/`CORE-060*` 的
   `mandatory` 不得翻转；产品恢复策略（`application/recovery_service.py`、`domain/recovery.py`）不得触碰；
   `Launcher` 不得当成第四个独立进程。
+- `scope_amendment_2026-09-24`: 开跑后第一次 `CORE-060` 真实运行（run id
+  `3e7ac6124d3549598ad85259d2b8b54f`，服务端目录 `run-133`）**注入成功而封存失败**：故障记录
+  `{"outcome": "INJECTED"…}`、「domain: the runtime is gone; the Bridge should let go」、session 退出 137
+  都在，随后是 `domain: the run document said Killed` 与
+  `domain: the run could not be sealed (exit 2): {"message": "/tmp/domain-session.json is not a readable
+  run document: Expecting value: line 1 column 1 (char 0)", "status": "unsealed"}`。
+  这次 attempt **没有留下 bundle**（`evidence/<run_id>/` 下没有该目录），所以卷上既无要保留的 FAIL、
+  也无需撤回的东西；它是诊断，不是证据。
+  - **缺口在哪**（`domain.sh:1886-1889`）：封存时「这次 run 有没有 Core 自己打出的文档」是按
+    `[ ! -s "${subject_document}" ]` 判的——文件有字节就算有文档。而 session 是包在 `xvfb-run` 里跑的
+    （`domain.sh:733-734`），`/usr/bin/xvfb-run:184` 是 `"$@" 2>&1`：Core 的 stderr 与它的 stdout 汇进
+    同一个文件。runtime controller 被 SIGKILL 时，写进那个文件的不是 Core 的话，而是包装器报告孩子死讯
+    的那一行。于是守卫把「一行死讯」当成「一份文档」交给 sealer，sealer 照实拒绝。
+  - **三次读数**（`.tmp/killed_stdout_probe.sh`，容器内，只读）：① 只杀内层 python（当前 helper 的做法）
+    → 文档文件 7 字节 `Killed`、`xvfb-run` 自己的 stderr 0 字节；② 同一个孩子不过包装器直接杀 →
+    stdout/stderr 各 0 字节，死讯根本不出现在数据流里；③ 按命令行模式同时杀包装器与孩子（`a818a62` 之前
+    那句 `pkill -KILL -f "minekin_core session start"` 的形状）→ 文档文件 0 字节，守卫如期回落到
+    `--run-id`。**结论**：死讯要落到文档流里，前提是**包装器活得比孩子久**；`a818a62` 把全局 `pkill`
+    （连 `xvfb-run` 一起杀，命令行里带着同一串参数）换成按身份只杀孙进程，这一步做对了归因，副作用是
+    从此没有一份被杀 Core 的 run 封得上——`07e68af` 那条「Core 被杀也能封存」的回落通道自那以后再没被
+    走到过，因为那是它唯一的服务对象。
+  - **为什么不是回到 `pkill`**：那会撤掉 `a818a62` 的身份绑定，并且直接撞上
+    `tests/contract/test_runner_scripts.py:156` 钉着的那条「不得用全局 `pkill` 猜目标」的断言。也是
+    同一理由不把 kill 改回打包装器：那证的就不是 runtime controller 这个身份死了。
+  - **修法（一次一条规则）**：守卫从「文件有没有字节」改成「文件里是不是一份能解析成对象的 JSON」；
+    不是文档时按 `--run-id` 命名这次 run（`run_id` 从账本第一手事件读出，`domain.sh:1075`——正是
+    `07e68af` 设计的那条回落），并把这件事**说出来**而不是静默降级。同一规则也用于 joiner 分支那份
+    host 文档吗？不：那一份的失败方式是「拒绝封存」而非回落（`domain.sh:1880-1883` 的理由仍然成立），
+    且五个窗口没有一个是 joiner 承载的，本卡不动它，遗留记在下面。
+  - **对判据无影响**：`CORE-060` 那四条断言读的是故障记录、账本、bridge trace 与服务端日志
+    （`runtime_controller_sigkill_was_confirmed` → `_confirmed_sigkill(..., require_session=False)`，
+    `tools/assert_case_evidence.py:1789-1797`），run document 缺席时封存工件里就不写它
+    （`07e68af`：absent 不等于 empty），rejudge 侧读不到该工件时以 `{}` 进材料
+    （`tools/assert_case_evidence.py:910/930`）。判官源码没动 ⇒ `case_version` 不动。
+  - **对本卡的核心比对无影响**：`from_repository_build` 比的是 `launch_plan_digest`，而它盖的是启动计划
+    的相对路径与 Bridge 源码树内容（`tools/report_promotion.py:138-160`、`:242-246`），不含
+    `test-orchestrator/`。改这条守卫不会让已封的 bundle 变成「另一个 build」，也不会让本卡要求的
+    `faeec4a9df83abb9…` 变成两个值。
+  - **修订之后仍然留下的**：`domain.sh:1879` 那份 `--world-run-document` 仍按字节无条件交给 sealer，
+    所以「host 的 Core 被杀 + joiner 承载 case」这一形状依旧封不上（本卡五窗不落在它上面，且它属于
+    `CORE-030` 的场景）；另起卡时才动。
 - `non_goals`: 不为「崩溃落在启动窗口」的 pending outbox 造真实运行（冻结已归本地证据）；不做第 6/7
   个场景；不改判据、不加断言；不为了多份报告重复已封的 OFF-A/OFF-B。
 - `acceptance`: ① 五个 case id 各有一份**本 build** 的真实 bundle：`bridge_digest`
@@ -2095,8 +2148,11 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
   「当前 build 上的证据」逐行改成实际 run/bundle digest；④ 若某一窗口真跑失败：保留 FAIL bundle、
   分类、如实写进契约与计划，不重判、不在旧 bundle 上修补，退出码 14（`BRIDGE_LOST` 收尾）不充当判决；
   ⑤ 五案齐后 campaign 第 5 个场景记为已封（`scenario_progress` 5/7），启动窗口那一半继续按
-  「本地证据 + 按构造打不中」表述。
-- `validation_class`: `REAL_RUN`（受控 Docker 域内的真实故障注入）。
+  「本地证据 + 按构造打不中」表述；⑥ 那条守卫的修法以**真实封存**为准：契约断言先红后绿只是不让它
+  再被无声改回去，`CORE-060` 那份 `PASS` bundle（`--run-id` 命名、无 run-document 工件、四读一致）
+  才是「通道又通了」的证据。冻结表 runtime 那一行的「当前 harness 可否真跑」据此从「开关在、通道断」
+  改回「可」，并把 `a818a62` 之后没有一份被杀 Core 的 run 封得上这件事留在表下。
+- `validation_class`: `LOCAL_THEN_REAL_RUN`（修订后：先一条契约断言与一次本地门禁，再五份真实运行）。
 - `stop_conditions`: ① 若某窗口在真跑时暴露出**产品侧**回归（例如 Bridge 未松键、账本没有
   `SessionInterrupted`、重启后世界没重新观察），停下：保留 FAIL、分类、报告主控，不靠重试换一个颜色；
   ② 若需要改 `forbidden_paths` 里任何文件才能封上（例如某件工件在当前 build 上根本读不出来），
