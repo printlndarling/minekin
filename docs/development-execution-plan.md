@@ -1300,7 +1300,9 @@ callback 时序、故障恢复或真实指标的任务必须有 real-run evidenc
 
 - 一张 task card 对应一个可逆 commit；不得把下一阶段“顺手”带入。
 - Claude 默认只在隔离 worktree 改动，不直接 commit/push；主控完成规格与工程双审查、
-  允许路径核对和本地门禁后再移植。
+  允许路径核对和本地门禁后再移植。2026-09-24 的 Qoder 临时连续执行是
+  [条件式例外](qoder-execution-handoff.md#连续推进的授权边界)：每卡必须自行完成同等
+  两轴审查与门禁、按卡 commit/push，不能把旧 Claude 流程的权限假定带进来。
 - commit message 除主题外必须记录：
 
 ```text
@@ -1337,7 +1339,12 @@ spec/standards 双审查；越过允许路径的改动拒收，不以“顺便�
 
 ## 任务状态变更规则
 
-只有主控可修改 `current_next` 与任务状态：
+默认只有主控可修改 `current_next` 与任务状态。用户 2026-09-24 要求 Qoder
+依照一份长程文档连续推进、避免每完成一小节重新请求编写计划，因此将
+[`qoder-execution-handoff.md`](qoder-execution-handoff.md) 的 campaign 顺序内
+**六项同时满足的机械流转**条件式委托给 Qoder；专项契约冲突、新产品策略、
+`BLOCKED_DECISION`、HOST/W80+、PERSIST、扩大禁止路径均不在委托内。
+委托流转仍须逐条满足下列规则：
 
 1. `NEXT → DONE`：实现、门禁、commit、push、远端 SHA 五项齐全；
 2. `NEXT → BLOCKED_*`：发现 task card 已写明的停止条件，并记录证据；
