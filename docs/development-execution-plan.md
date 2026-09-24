@@ -12,11 +12,15 @@
 - `baseline_date`: 2026-09-22
 - `baseline_branch`: `main`
 - `baseline_remote`: `origin/main`
-- `current_next`: `VERSION-LOCAL-1201-001`（`93d30f3` 登记 `QUEUED`，本提交单独提升为唯一
-  `NEXT`；`VERSION-BUNDLE-1201-001` 已 `DONE` 并推送）。
+- `current_next`: `VERSION-RESOLVER-001`（V05，`c90bc51` 登记 `QUEUED`，本提交单独提升为唯一 `NEXT`；
+  `VERSION-LOCAL-1201-001` 已 `DONE` 收卡 `55e9bce` 并推送）。
   用户在七场景总账后明确把“自动识别服务器版本 → 准备匹配客户端 → 入服并完成简单控制”排为优先路线；
   `VERSION-AUTO-DESIGN-001` 已交付[跨版本连续执行计划](version-auto-to-server-control-plan.md)。
-- `last_checkpoint`: **有界自主 P0 campaign 已走到需用户拍板的边界；用户现已选择跨版本路线**——上一轮把
+- `last_checkpoint`: **跨版本路线走到 V05**——V04 `VERSION-LOCAL-1201-001` 已于 `55e9bce` 收为 `DONE`：
+  四案（`V1201-010/020/040/070`）各一次真实运行、独立封证、四读一致，四条反例（错误版本、错误 Bridge、
+  认证策略拒绝、旧 generation）在 1.20.1 上各自成立，`tested` 的精确组合与未证清单分别记在
+  `tested_registration_decision` 与 `not_established_v04`。`tested` 的机器可读登记**没有**在 V04 落地
+  （理由与后果见该格），其承载即本卡 V05 的清单文件。**上一轮**把
   `REAL-P0-CAMPAIGN-001.order` 第 7 也是最后一个场景（阶段 F 晋级总账）的只读卡 `P0-PROMOTION-LEDGER-001`
   收为 `DONE`（`532446e` 登记 `QUEUED`、`28876e3` 提升 `NEXT`）。`scenario_progress 6/7→7/7`——七个 `order`
   场景全部走完。**但 campaign 总体如实为 `BLOCKED/INCOMPLETE`，不标 `DONE`**：机器
@@ -3663,9 +3667,9 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 
 ### VERSION-RESOLVER-001 — 只从 reviewed tested 清单选包
 
-- `status`: `QUEUED`（本提交登记，紧随 V04 收卡 `55e9bce`。提升须另开提交：本卡的输入正是 V04 那
-  四份封证与 `tested_registration_decision`。）
-- `baseline_sha`: `55e9bce`（V04 收卡提交，已推送并核对两 ref）。
+- `status`: `NEXT`（`c90bc51` 登记 `QUEUED`，本提交单独提升为唯一 `NEXT`；当前无第二张 `NEXT`）。
+- `baseline_sha`: `c90bc51`（本卡 `QUEUED` 登记提交，紧随 V04 收卡 `55e9bce`，两者均已推送并核对两
+  ref）。领取时实际 checkout = 本提升提交。
 - `depends_on`: `VERSION-SERVER-PROBE-001`（V02 的 observation 形状）、`VERSION-LOCAL-1201-001`
   （V04 的 `tested` 判据与精确组合）；下游 `VERSION-INSTALLER-001`（V06）只装本卡选出的清单条目、
   `VERSION-SESSION-SWITCH-001`（V07）把选择接进入服路径。

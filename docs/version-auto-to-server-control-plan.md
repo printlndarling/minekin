@@ -107,7 +107,7 @@ bundle id 与结果；旧代回调不能推进新代。`BLOCKED` 不自动回退
 | V02 | `VERSION-SERVER-PROBE-001` | `DONE` | 只读 DNS/SRV/status 与归因 | V01 |
 | V03 | `VERSION-BUNDLE-1201-001` | `DONE` | 独立 1.20.1 candidate 构建、pin、SBOM | D |
 | V04 | `VERSION-LOCAL-1201-001` | `DONE`（`tested` 判据成立；registry 承载属 V05） | 受控 1.20.1 真服/真客户端验收到 `tested` | V01,V03 |
-| V05 | `VERSION-RESOLVER-001` | `QUEUED` | catalog / tested registry / 歧义阻断 | V02,V04 |
+| V05 | `VERSION-RESOLVER-001` | `NEXT`（由主计划提升） | catalog / tested registry / 歧义阻断 | V02,V04 |
 | V06 | `VERSION-INSTALLER-001` | `QUEUED` | 缺缓存自动安全安装与原子发布 | V03,V05 |
 | V07 | `VERSION-SESSION-SWITCH-001` | `QUEUED` | 自动选包、停止旧代、启动新代 | V01,V05,V06 |
 | V08 | `VERSION-REMOTE-SMOKE-001` | `QUEUED` | 用户目标只读探测及非破坏性入服 | V07 |
@@ -237,6 +237,10 @@ bundle id 与结果；旧代回调不能推进新代。`BLOCKED` 不自动回退
   pinned id 也必须匹配当前目标和 tested 约束。变 registry 字节会移动决策版本。
 - **停止**：协议共享版本的优先级不能由既有契约唯一确定时不新增默认排序；
   候选冲突进入 `NEEDS_PIN`，必要时交用户决定。
+- **现况**（2026-09-25，`NEXT`，由主计划 `c90bc51`+提升提交登记）：本卡领取前先读主执行计划 V05 卡的
+  `registry_carrier_decision` 与 `open_semantics` 两格——清单必须是**新增的被审文件**而不是改动 V03
+  已封存 candidate 的 `status` 字节（那会移动 fixture digest 与 `case_version`，把 V04 刚封的四读打成
+  `UNJUDGED`）；"recipe 算不算 tested"不能唯一确定，本路线取更窄的一读并逐条引用 evidence。
 
 ### V06 `VERSION-INSTALLER-001`：缺缓存时自动安全准备
 
