@@ -15,6 +15,8 @@
 - `current_next`: `ADMIT-070-REFUSAL-INJECTION-001`（本 commit 提升，见该卡 `promotion_reason`）。
   其余未闭合卡仍是 `HOST-ADMISSION-DESIGN-001`/`OPERATIONS-RETENTION-001`/`PROCESS-RECOVERY-001`
   三项 `BLOCKED_DECISION` 与 `HOST/W80+` 的 `DEFERRED`，都要用户先拍板。
+- `temporary_executor_handoff`: [Qoder 执行交接](qoder-execution-handoff.md)；
+  执行者只实现当前唯一 `NEXT` 并交付证据，主控独占任务状态与下一卡提升。
 
 权威顺序：
 
