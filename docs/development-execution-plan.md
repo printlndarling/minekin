@@ -12,17 +12,18 @@
 - `baseline_date`: 2026-09-22
 - `baseline_branch`: `main`
 - `baseline_remote`: `origin/main`
-- `current_next`: 上一次交接把 `OFFLINE-IDENTITY-LEDGER-FACT-001` 提升为唯一 `NEXT`，本 commit 记录它
-  已 `DONE`（交付 `ec8fb15`，Core 已把身份比对记成自己的账本行）。顺序表的下一张
-  `OFFLINE-IDENTITY-CASE-001` 早已作为 `QUEUED` 登记，提升为唯一 `NEXT` 写在紧随的下一个 commit 里，
-  以满足交接第 1、6 项；其后再依次是 `OFFLINE-IDENTITY-RUN-001`。其余未闭合卡仍是
+- `current_next`: `OFFLINE-IDENTITY-CASE-001`（`order` 第 4 个场景的第二张：把契约冻结的五条判据写成
+  判官断言与 case fixture）。上一张 `OFFLINE-IDENTITY-LEDGER-FACT-001` 已完成交接六项并 `DONE`
+  （交付 `ec8fb15`，收卡 `f897451`）。本卡自 `4d2beb7` 起就已作为 `QUEUED` 登记在案，由本 commit 提升
+  为唯一 `NEXT`，满足交接第 1、6 项「新卡先 `QUEUED`，不得直接 `NEXT`」。其后是
+  `OFFLINE-IDENTITY-RUN-001`（仍 `QUEUED`）。其余未闭合卡仍是
   `HOST-ADMISSION-DESIGN-001`/`OPERATIONS-RETENTION-001`/`PROCESS-RECOVERY-001`
   三项 `BLOCKED_DECISION` 与 `HOST/W80+` 的 `DEFERRED`，都要用户先拍板。
 - `temporary_executor_handoff`: [Qoder 执行交接](qoder-execution-handoff.md)；
   执行者只实现当前唯一 `NEXT` 并交付证据，主控独占任务状态与下一卡提升。
-  2026-09-24：该文档正文的「当前唯一执行卡」一节仍写着 `ADMIT-070-REFUSAL-INJECTION-001`，
-  它的阶段 A 已 `DONE`、阶段 B 即当前 `NEXT`；那份文档不在那两卡的 `allowed_paths` 里，
-  故未改，以本文 `current_next` 为准。
+  2026-09-24：该文档正文的「当前唯一执行卡」一节仍写着 `ADMIT-070-REFUSAL-INJECTION-001`，而那张与
+  其后的 `ADMIT-070-CASE-001` 都已 `DONE`；那份文档不在 `OFFLINE-IDENTITY-*` 三张卡的
+  `allowed_paths` 里，故未改，以本文 `current_next` 为准。
 
 权威顺序：
 
@@ -388,8 +389,8 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 ### REAL-P0-CAMPAIGN-001 — 批量关闭真实运行缺口
 
 - `status`: `BLOCKED_EVIDENCE`
-- `blocked_by`: `OFFLINE-IDENTITY-LEDGER-FACT-001`（`DONE`，`ec8fb15`）→ `OFFLINE-IDENTITY-CASE-001` →
-  `OFFLINE-IDENTITY-RUN-001`（后两张仍 `QUEUED`，都由已 `DONE` 的
+- `blocked_by`: `OFFLINE-IDENTITY-LEDGER-FACT-001`（`DONE`，`ec8fb15`）→ `OFFLINE-IDENTITY-CASE-001`
+  （`NEXT`）→ `OFFLINE-IDENTITY-RUN-001`（仍 `QUEUED`，都由已 `DONE` 的
   `OFFLINE-IDENTITY-EVIDENCE-DESIGN-001` 登记）。`order` 的第 1 个场景
   （在线认证拒绝）、第 2 个场景（资源包拒绝）与第 3 个场景（JOIN 后首快照失败）已各自在当前
   build 上封出 `PASS`/`AGREES` 的正式 bundle 并四读一致。第 3 个场景的判据由
@@ -1499,7 +1500,11 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 
 ### OFFLINE-IDENTITY-CASE-001 — 把 OFFLINE-010/020/030 的判据写进判官与 fixture
 
-- `status`: `QUEUED`；不替换当前唯一 `NEXT`。
+- `status`: `NEXT`（`4d2beb7` 登记为 `QUEUED`，本次按交接第 1、6 项提升；当前计划里没有第二张 `NEXT`）
+- `promotion_reason`: 顺序已满足——先 `QUEUED` 登记并推送，再在紧随的 commit 提升，中间没有插入别的
+  未授权工作。前置 `OFFLINE-IDENTITY-LEDGER-FACT-001` 已 `DONE`（`ec8fb15`）且判据 2/3/4 要读的字段
+  已在真实账本里读出过；入口门禁全绿；它是 `OFFLINE-IDENTITY-RUN-001` 的前置，判据先落地才封得出证据。
+- `baseline_sha`: `f897451470c01baf8b7c469fd8354ff0e85ec305`
 - `question`: 契约冻结的五条判据在 `tools/assert_case_evidence.py` 里各由哪条断言承载，`OFFLINE-030`
   的父/子拆分在 registry、fixture、digest 与 `check_case_assertions.py` 注册项上具体怎么落地。
 - `depends_on`: `OFFLINE-IDENTITY-LEDGER-FACT-001`（判据 2/3/4 要读的字段先存在。它交付的是
