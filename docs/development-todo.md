@@ -1747,3 +1747,46 @@
     → `OFFLINE-IDENTITY-RUN-001` 三张按第 1 项先登记为 `QUEUED`，提升为唯一 `NEXT` 写在紧随的下一个
     commit；`REAL-P0-CAMPAIGN-001.blocked_by` 从设计卡改指这三张（第 4 个场景仍未封证，
     `scenario_progress` 保持 3/7）；`ADMIT-070-RECORD-SCHEMA-001` 继续 `QUEUED`。
+
+- [x] **OFFLINE-IDENTITY-LEDGER-FACT-001（已完成，交付 `ec8fb15` 已推送，卡已 `NEXT → DONE`）**：
+  让 Core 把首快照上已经得出的身份比对结论记成自己的一条账本行。
+  - **交接第 1 项的形状**：本卡在 `4d2beb7` 以 `QUEUED` 登记并推送，`1f85155` 才提升为唯一 `NEXT`；
+    产品代码与测试在 `ec8fb15`，收卡与本条记录在它之后的这个 docs commit 里。
+  - **交付前的事实核对**：`compare_session_material` 的结论一直在算，算完就丢——它落在
+    `SnapshotAdmission.session`，除了转成 `SESSION_MATERIAL_MISMATCH` 这一个否定形状外无人读取。
+    因此本卡不改比较语义、不动 `adapters/bridge/admission.py`，只在结论还带着一手材料的地方把它接出去。
+  - **四段接缝（整条沿用 `ResourcePackPolicyApplied` 的形状）**：`domain/session_material.py` 新增
+    `identity_ledger_record(recorded, reported, verdict)` 导出稳定字段名；
+    `cli/session_runtime.py` 新增可选回调 `on_session_identity(generation, record)`，在
+    `_admit_first_snapshot` 算出 admission 之后、按 verdict 行动之前触发；`cli/session.py` 记成
+    `SessionIdentityCompared`，`source`/`trust_class` 都是 `CORE`；事件名进
+    `adapters/sqlite/session_log.py` 的封闭集合（现 14 个名字）。payload 为判据 2 的七个观测字段加
+    `matched`/`mismatches`，CLI 再补 `session_id`/`generation`；不含 argv 文本、不含凭据正文。
+  - **acceptance ⑤ 的两次受控诊断（不封证）**：`--identity-candidate enum-aligned` 的 run
+    `6fbc61e47f4743cd9de10ee21f71f1f9`（`event.pos=1113`）与默认的 run
+    `c2dea6ce3bc14652b0f9f1bab98d3969`（`pos=1132`）各出一行 `SessionIdentityCompared`，都夹在
+    `JoinObserved` 与 `PlayableEstablished` 之间、都 `CORE/CORE`、都 `matched: true`。两次只差一处
+    观测：`observed_account_type` 分别为 `"LEGACY"` 与 `""`，而 `identity_candidate_id` 分别跟着
+    本次命令行读出 `enum-aligned` / `prism-parity`。归因与观测不是互为抄写——判据 1 那个「把 argv 里
+    的词抄进观测字段」的反例，在真实运行里被这两行直接排除。两次都以 `BRIDGE_LOST`／退出码 14 收尾
+    （受控停客户端，按既有政策不作判据）。
+  - **旧证据没漂**：同 build 读 ADMIT-070 attempt 2 bundle（`2a128d0d…` / `88ccc9df…`）——
+    `evidence verify` `PASS`、`rejudge_evidence.py` `agrees`/`PASS`、两个 `replay` 读者
+    `events: 16` / `violations: []`、`trace_sha256` 不变。断言源未改，`case_version` 未移动。
+  - **两轴自审**：规范轴发现并如实登记一处偏差——卡面 `scope` 写「一行一代」，实现是
+    **一次首快照比对一行**（契约测试同一 generation 出三行）。不改实现去凑那句话，因为同代里
+    「先被拒、后被接受」正是必须两行都在的形状；改为把「判据要自己指定读哪一行」写进
+    `OFFLINE-IDENTITY-CASE-001.depends_on`，沿用 `ec082f3` 的 closure-row 教训。实现轴：
+    `git show --stat ec8fb15` 只有 4 份产品文件 + 3 份测试；`proto/`、Bridge Java、
+    `adapters/launcher/offline_session.py`、case registry、`tests/fixtures/**`、既有断言源与 CI
+    未动；`BridgeHelloAccepted`/`SessionStateTransitioned` 的 payload 保持原样（本卡 `non_goals`）；
+    `OFFLINE-010/020/030` 的 `mandatory` 仍 `false`。
+  - **门禁（原始摘要）**：`uv run --frozen pytest -q` → 2076 passed / 2 skipped in 227.32s（+5：
+    身份记录单元四条、运行时链接一条；两个 skip 是既有平台跳过）；Ruff check 干净、
+    `ruff format --check` 304 files already formatted；Pyright 0 errors；fixture digests OK、
+    case assertions OK (134 registered)、workflow pins OK、boundaries OK。
+  - **状态流转**：本卡 `NEXT → DONE`；`OFFLINE-IDENTITY-CASE-001` 已登记为 `QUEUED`，提升为唯一
+    `NEXT` 写在紧随的下一个 commit；`OFFLINE-IDENTITY-RUN-001` 继续 `QUEUED`，
+    `ADMIT-070-RECORD-SCHEMA-001` 继续 `QUEUED`；`REAL-P0-CAMPAIGN-001.blocked_by` 改指后两张，
+    `scenario_progress` 保持 3/7。本地 HEAD、`refs/heads/codex/core-state-transition` 与
+    `refs/heads/main` 对 `ec8fb15` 核对相同。

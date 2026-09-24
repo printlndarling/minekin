@@ -12,10 +12,10 @@
 - `baseline_date`: 2026-09-22
 - `baseline_branch`: `main`
 - `baseline_remote`: `origin/main`
-- `current_next`: `OFFLINE-IDENTITY-LEDGER-FACT-001`（`order` 第 4 个场景三张实现卡的第一张：让 Core
-  把已经得出的身份比对结论记成自己的账本行）。上一张 `OFFLINE-IDENTITY-EVIDENCE-DESIGN-001` 已完成
-  交接六项并 `DONE`（判据冻结 `308f38a`，收卡 `4d2beb7`）；本卡先在 `4d2beb7` 以 `QUEUED` 登记，
-  由紧随的这一次交付按交接第 1、6 项提升为唯一 `NEXT`。其余未闭合卡仍是
+- `current_next`: 上一次交接把 `OFFLINE-IDENTITY-LEDGER-FACT-001` 提升为唯一 `NEXT`，本 commit 记录它
+  已 `DONE`（交付 `ec8fb15`，Core 已把身份比对记成自己的账本行）。顺序表的下一张
+  `OFFLINE-IDENTITY-CASE-001` 早已作为 `QUEUED` 登记，提升为唯一 `NEXT` 写在紧随的下一个 commit 里，
+  以满足交接第 1、6 项；其后再依次是 `OFFLINE-IDENTITY-RUN-001`。其余未闭合卡仍是
   `HOST-ADMISSION-DESIGN-001`/`OPERATIONS-RETENTION-001`/`PROCESS-RECOVERY-001`
   三项 `BLOCKED_DECISION` 与 `HOST/W80+` 的 `DEFERRED`，都要用户先拍板。
 - `temporary_executor_handoff`: [Qoder 执行交接](qoder-execution-handoff.md)；
@@ -388,8 +388,8 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 ### REAL-P0-CAMPAIGN-001 — 批量关闭真实运行缺口
 
 - `status`: `BLOCKED_EVIDENCE`
-- `blocked_by`: `OFFLINE-IDENTITY-LEDGER-FACT-001` → `OFFLINE-IDENTITY-CASE-001` →
-  `OFFLINE-IDENTITY-RUN-001`（三张 `QUEUED`，都由已 `DONE` 的
+- `blocked_by`: `OFFLINE-IDENTITY-LEDGER-FACT-001`（`DONE`，`ec8fb15`）→ `OFFLINE-IDENTITY-CASE-001` →
+  `OFFLINE-IDENTITY-RUN-001`（后两张仍 `QUEUED`，都由已 `DONE` 的
   `OFFLINE-IDENTITY-EVIDENCE-DESIGN-001` 登记）。`order` 的第 1 个场景
   （在线认证拒绝）、第 2 个场景（资源包拒绝）与第 3 个场景（JOIN 后首快照失败）已各自在当前
   build 上封出 `PASS`/`AGREES` 的正式 bundle 并四读一致。第 3 个场景的判据由
@@ -1379,7 +1379,7 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 
 ### OFFLINE-IDENTITY-LEDGER-FACT-001 — 让 Core 把身份比对结论记成自己的账本行
 
-- `status`: `NEXT`（`4d2beb7` 登记为 `QUEUED`，本次交付按交接第 1、6 项提升）
+- `status`: `DONE`（`4d2beb7` 登记为 `QUEUED`，`1f85155` 提升为唯一 `NEXT`，2026-09-24 交付完成）
 - `promotion_reason`: 交接第 1 项要求的顺序已满足——先 `QUEUED` 登记并推送，再在紧随的交付里提升，
   两次推送之间没有插入别的未授权工作。入口条件也齐：判据已由 `OFFLINE-IDENTITY-EVIDENCE-DESIGN-001`
   冻结在专项契约（payload 的最小字段集与反例都写死了），本地门禁全绿，且它是其后两张卡的前置
@@ -1418,13 +1418,93 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 - `stop_conditions`: 若发现必须让 Bridge 上报候选名才能冻结判据，停在 `BLOCKED_DECISION`（那是
   `proto/` 与产品策略，不属本卡）；若新增行必然移动既有 case 的 `case_version`，停下如实登记，
   不靠重写 `manifest.sha256` 过关。
+- `completion_commit`: `ec8fb1506d127f2dfde850bbcbab685471b264a2`（产品代码与三份测试全在这一条；
+  本节与 TODO 记录是紧随的收卡 commit，提升下一卡再往后一条——写下本节时那两次推送尚未发生）。
+  已推到 `refs/heads/codex/core-state-transition` 与 `refs/heads/main`，`git ls-remote` 读到两条都等于
+  上面那个 sha。
+- `completion_evidence`:
+  - **实现形状（沿 `ResourcePackPolicyApplied` 那条链，四段各自落在一处）**：
+    `domain/session_material.py` 末尾新增 `identity_ledger_record(recorded, reported, verdict)`，
+    只把已有结论导出成稳定字段名，`compare_session_material` 一个字节没改；
+    `cli/session_runtime.py` 新增可选回调 `on_session_identity(generation, record)`，在
+    `_admit_first_snapshot` 里**算出 admission 之后、按 verdict 行动之前**触发，因此为一侧非身份原因
+    被拒的快照同样交出比对；`cli/session.py` 的 `on_session_identity` 把它记成
+    `SESSION_IDENTITY_COMPARED`，`source=EventSource.CORE` / `trust_class=TrustClass.CORE`；
+    `adapters/sqlite/session_log.py` 新增事件名并进 `SESSION_EVENT_TYPES`（封闭集合现为 14 个名字）。
+    没有改 `adapters/bridge/admission.py`：结论已在 `SnapshotAdmission.session` 里，多一跳是绕路。
+  - **payload 字段（判据 2 的七个观测字段逐字沿用，另加两格结论与两格定位）**：
+    `identity_candidate_id`、`session_username`、`session_uuid`、`observed_account_type`、
+    `client_id_present`、`xuid_present`、`credential_values_exposed`、`matched`、`mismatches`，
+    CLI 记录器再补 `session_id` 与 `generation`，共 11 个键。UUID 保留上报时的编码形式，因为
+    「到达的是哪种形式」正是 `OFFLINE-040` 要问的问题。
+  - **`acceptance` 逐条**：
+    ① 名字在封闭集合内且两格都是 `CORE`——`tests/unit/test_session_supervision.py` 的全量账本断言把
+    `(SESSION_IDENTITY_COMPARED, "CORE", "CORE")` 钉在 `JOIN_OBSERVED` 与 `PLAYABLE_ESTABLISHED` 之间。
+    ② 字段名与判据 2 逐字对得上，且「矛盾形状有测试」——契约测试钉住一份 `matched=False` 的记录，其
+    `mismatches` 恰为 `["report_incomplete","username","uuid"]`（漏报的字段与因此对不上的字段同时出现，
+    不被归并成一个原因）；单元侧另有
+    `test_a_refused_comparison_is_recorded_as_plainly_as_an_agreeing_one`。
+    ③ credential 正文键在任何路径上都不出现——`test_the_record_has_no_field_that_could_hold_a_credential_body`
+    把键集钉成**集合相等**而不是子串规则，将来一个新名字带进 token 也会红。
+    ④ 比较语义不变、旧 bundle 仍能 `replay` 且 `violations: []`——本 build 下对 ADMIT-070 attempt 2
+    bundle（run `2a128d0dd30b4932b88ada6d0032d40c`，digest `88ccc9dfc820…`）读数：
+    `evidence verify` → `result: PASS` / `verified: true` / `violations: []`，
+    `rejudge_evidence.py` → `status: agrees` / `result: PASS`，
+    `python -m minekin_core replay` 与 `tools/replay_evidence.py` → 都 `status: projected`、
+    `events: 16`、`trace_sha256 cf724e39aa69…`、`violations: []`。判官断言源未改，`case_version` 未移动。
+    ⑤ 见下面「受控诊断读数」。
+  - **受控诊断读数（交接第 2 项；两次都不作 case 封证，`MINEKIN_DOMAIN_CASE` 未设）**：
+    run `6fbc61e47f4743cd9de10ee21f71f1f9` / session `e7a5a1feff45490685a7e75a4832f027`
+    （服务端目录 `run-127`，命令行 `--identity-candidate enum-aligned`）与 run
+    `c2dea6ce3bc14652b0f9f1bab98d3969` / session `f2b689e7c7ff44feba4f5ca3c81b02e2`
+    （`run-128`，不带该参数即默认 `prism-parity`）。两次都到达 `PLAYABLE`、
+    `snapshots_admitted: 1`、`snapshot_rejections: []`，各自主动停客户端后以 `BRIDGE_LOST` / 退出码 14
+    收场（按既有政策，14 不是判据）。`/data/kin/kin-01/kin.sqlite3` 的 `event` 表里各有一行
+    `SessionIdentityCompared`（`pos=1113` 与 `pos=1132`），两次都夹在 `JoinObserved` 与
+    `PlayableEstablished` 之间，`source=CORE` / `trust_class=CORE`：
+    `enum-aligned` 那次是 `{"identity_candidate_id":"enum-aligned","observed_account_type":"LEGACY",
+    "session_username":"Kin","session_uuid":"8f40376b-c23f-3ef1-b553-5564eea75639","matched":true,
+    "mismatches":[],"client_id_present":false,"xuid_present":false,"credential_values_exposed":false}`；
+    `prism-parity` 那次除 `identity_candidate_id` 外材料相同，而 `observed_account_type` 是 `""`。
+    归因跟着本次启动的 argv 走（默认与显式各读出自己的候选名），观测字段跟着客户端上报走（同一次
+    差异里 `LEGACY` 与 `""` 不同名），两格不是互为抄写——这正是判据 1 反例「把 argv 里的词抄进观测字段」
+    要排除的形状。argv 本身只以 `argv_digest` 落账（`8a01f2f0de7c…` 那次的 `SessionProcessStarted`），
+    文本没进任何行。
+  - **两轴自审**：规范轴发现一处必须写清的偏差——本卡 `scope` 原文写「一行一代」，实现是
+    **一次首快照比对一行**（契约测试里同一 generation 出三行）。这不是放宽：同一代里先被拒后被接受
+    正是要留两行的形状，压成一行会丢掉「第一次读到了什么」。判据落点因此继承 `ADMIT-070` 那条教训
+    （`ec082f3` 的「closure criterion 要读真的那一行」），已写进下一卡的 `depends_on`。实现轴自审：
+    只动了 `allowed_paths` 里的四份产品文件与三份测试；`proto/`、`bridge/src/main/java/**`、
+    `adapters/launcher/offline_session.py`、case registry、`tests/fixtures/cases/**`、既有断言源与 CI
+    一个字节未改（`git show --stat ec8fb15` 只有 7 个文件）；`BridgeHelloAccepted` 与
+    `SessionStateTransitioned` 的 payload 保持原样，属本卡 `non_goals`；未封任何 evidence，
+    `OFFLINE-010/020/030` 的 `mandatory` 仍为 `false`。
+  - **门禁（原始摘要，最终树）**：`uv run --frozen pytest -q` → **2076 passed / 2 skipped in 227.32s**
+    （较基线 +5：`test_session_material.py` 四条、`test_session_runtime.py` 一条；两个 skip 仍是既有的
+    平台跳过 `test_orphans.py:686`、`test_silent_listener.py:123`）；Ruff check 无输出；
+    `ruff format --check` → 304 files already formatted；Pyright 0 errors / 0 warnings / 0 informations；
+    `verify_fixture_digests.py` → W00 schema and fixture digests: OK；`check_case_assertions.py` →
+    OK (134 registered)；`check_workflow_pins.py` → OK；`check_boundaries.py` → OK。
+    `check_wheel_boundary.py` 仍需 CI 构建的 wheel（既有本地缺口）。
+  - **已验证**：新行在真实 Fabric 客户端 + 真实 Bridge + 真实 SQLite 账本里确实出现且只按本次启动归因；
+    旧 bundle 的四种读数在新 build 下不改判；回调在拒绝路径上同样触发（契约层）；键集不含可容纳凭据
+    正文的名字（单元层）。
+  - **未验证 / 遗留**：契约判据作为**断言**去读这一行（属 `OFFLINE-IDENTITY-CASE-001`）；OFF-A/OFF-B
+    各自在新 build 上的封证 bundle（属 `OFFLINE-IDENTITY-RUN-001`）；`OFFLINE-030` 父子拆分所需的
+    registry/fixture 改动与随之移动的 `offline-030` `case_version`（本卡按 `forbidden_paths` 未动）；
+    Linux 上逐字节复现 Bridge jar 仍欠。
+- `next_after_done`: `OFFLINE-IDENTITY-CASE-001`（`order` 第 4 个场景的第二张：把判据写进判官与
+  fixture）。本卡 DONE 时它已作为 `QUEUED` 登记在案，提升为唯一 `NEXT` 写在紧随的下一个 commit 里，
+  以满足交接第 1、6 项「新卡先 `QUEUED`，不得直接 `NEXT`」。
 
 ### OFFLINE-IDENTITY-CASE-001 — 把 OFFLINE-010/020/030 的判据写进判官与 fixture
 
 - `status`: `QUEUED`；不替换当前唯一 `NEXT`。
 - `question`: 契约冻结的五条判据在 `tools/assert_case_evidence.py` 里各由哪条断言承载，`OFFLINE-030`
   的父/子拆分在 registry、fixture、digest 与 `check_case_assertions.py` 注册项上具体怎么落地。
-- `depends_on`: `OFFLINE-IDENTITY-LEDGER-FACT-001`（判据 2/3/4 要读的字段先存在）；
+- `depends_on`: `OFFLINE-IDENTITY-LEDGER-FACT-001`（判据 2/3/4 要读的字段先存在。它交付的是
+  **一次首快照比对一行**、不是一行一代，所以判据必须自己指定读哪一行——沿用 `ADMIT-070` 那条
+  「closure criterion 要读真的那一行」的教训 `ec082f3`）；
   `OFFLINE-IDENTITY-EVIDENCE-DESIGN-001`（判据文本、反例、拆分与假阳性测试都在那一节）。
 - `scope`: 先在 `tests/unit/test_case_evidence_assertions.py` 写出反例表（含契约列出的
   「把 argv 里的 `offline`/`legacy` 抄进观测字段冒充观测」「credential 正文键出现即失败」
