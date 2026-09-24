@@ -18,7 +18,7 @@ import json
 import shutil
 import stat
 import sys
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from pathlib import Path
 from typing import Any, cast
 
@@ -468,10 +468,12 @@ def test_a_run_that_fails_its_case_is_still_sealed(
 
     assert report["status"] == "sealed"
     assert report["result"] == "FAIL"
+    # In the case's own declaration order, not alphabetically: a re-judge compares these
+    # item by item, and core-020 declares its first check as `server_observed_join_identity`.
     assert cast(list[str], report["failures"]) == [
+        "server_observed_join_identity:JOIN_NOT_LOGGED",
         "first_snapshot_admitted:JOIN_NOT_LOGGED",
         "leave_after_join_observed:JOIN_NOT_LOGGED",
-        "server_observed_join_identity:JOIN_NOT_LOGGED",
     ]
     assert verify_bundle(data_root / "kin" / str(KIN) / "run" / "evidence" / RUN_ID).verified
 
@@ -1651,7 +1653,12 @@ def pack_dir_of(data_root: Path) -> Path:
     return overlay_of(data_root) / "server-resource-packs"
 
 
-def material_of(data_root: Path, server: Path, document: Path) -> Any:
+def material_of(
+    data_root: Path,
+    server: Path,
+    document: Path,
+    session_argv: Sequence[str] | None = None,
+) -> Any:
     """What the judge reads out of a run directory, before anything is sealed."""
 
     return ASSERTER.read_run_material(
@@ -1659,6 +1666,7 @@ def material_of(data_root: Path, server: Path, document: Path) -> Any:
         data_root=data_root,
         server_directory=server,
         username=USERNAME,
+        session_argv=session_argv,
     )
 
 
@@ -1780,3 +1788,166 @@ def test_a_pack_directory_the_judge_cannot_read_stops_the_seal(tmp_path: Path) -
 
     with pytest.raises(SEALER.Unsealable, match="symlink"):
         seal_it(data_root, server, document)
+
+
+# ---------------------------------------------------------------------------
+# The launch arguments: one reading, handed to both the live judgement and the
+# bundle. `OFFLINE-010`'s attribution criterion asks which candidate this run
+# started, and the only record of that is the argv the harness itself used, so
+# the answer has to survive the seal unchanged.
+# ---------------------------------------------------------------------------
+
+OFFLINE_CASE = REPOSITORY_ROOT / "tests" / "fixtures" / "cases" / "offline-010.json"
+ATTRIBUTION = "this_run_started_the_identity_candidate_the_case_names"
+#: The candidate `OFFLINE-010` asks about, and the one `OFFLINE-020` asks about, as an
+#: operator would actually put them on a command line.
+OFF_A_LAUNCH = ("session", "start", "--profile", "p0-core", "--identity-candidate", "prism-parity")
+OFF_B_LAUNCH = (*OFF_A_LAUNCH[:-1], "enum-aligned")
+#: A launch that asked for nothing: the launcher takes its first column, so an
+#: attribution has to refuse it rather than read it as this one.
+UNNAMED_LAUNCH = ("session", "start", "--profile", "p0-core")
+
+
+def sealed_trace(bundle: Path) -> dict[str, Any]:
+    """The harness's own account, as the bundle holds it."""
+
+    return cast(
+        dict[str, Any],
+        json.loads((bundle / ASSERTER.ORCHESTRATOR_TRACE_ARTIFACT).read_bytes()),
+    )
+
+
+def attribution_failure(verdict: dict[str, object]) -> str | None:
+    """The one refusal this section is about, out of a verdict's list."""
+
+    for failure in cast(list[str], verdict["failures"]):
+        if failure.startswith(f"{ATTRIBUTION}:"):
+            return failure
+    return None
+
+
+def test_the_argv_the_seal_writes_is_the_argv_the_live_judgement_reads(
+    tmp_path: Path,
+) -> None:
+    """One argv, two readers, no copy in between.
+
+    The sealer is the only place that holds the command line as a fact rather than as a
+    claim, so the live reading and the sealed one have to be the same text. A second
+    account of it — one the sealer kept beside the trace — would be a second thing that
+    could drift, which is what this check exists to make impossible.
+    """
+
+    data_root, server, document = finished_run_in(tmp_path)
+
+    live = material_of(data_root, server, document, session_argv=OFF_A_LAUNCH)
+    seal_it(data_root, server, document, case=OFFLINE_CASE, session_argv=OFF_A_LAUNCH)
+    bundle = bundle_of(data_root)
+
+    assert live.session_argv == OFF_A_LAUNCH
+    assert ASSERTER.read_sealed_material(bundle).session_argv == live.session_argv
+    assert tuple(sealed_trace(bundle)["session_argv"]) == live.session_argv
+
+
+def test_the_live_judge_can_refuse_a_launch_on_the_argv_it_was_handed(
+    finished_run: tuple[Path, Path, Path],
+) -> None:
+    """The judgement at the seal is made with that argv, not just the record of it.
+
+    Three launches, three different answers from the same run: the right column, the
+    wrong one, and none at all. The trace could carry any of them while the judge saw
+    nothing, and the bundle would then hold a verdict that was never reached on the
+    material it was sealed with.
+    """
+
+    data_root, server, document = finished_run
+
+    asked = SEALER.run_asserter(
+        case=OFFLINE_CASE,
+        run_document=document,
+        run_id=None,
+        data_root=data_root,
+        server_directory=server,
+        username=USERNAME,
+        session_argv=OFF_A_LAUNCH,
+    )
+    other = SEALER.run_asserter(
+        case=OFFLINE_CASE,
+        run_document=document,
+        run_id=None,
+        data_root=data_root,
+        server_directory=server,
+        username=USERNAME,
+        session_argv=OFF_B_LAUNCH,
+    )
+    silent = SEALER.run_asserter(
+        case=OFFLINE_CASE,
+        run_document=document,
+        run_id=None,
+        data_root=data_root,
+        server_directory=server,
+        username=USERNAME,
+        session_argv=UNNAMED_LAUNCH,
+    )
+
+    # The run here never recorded an identity row, so a launch that asked for the right
+    # column still has to be refused — for the reason that only the argv says so.
+    assert attribution_failure(asked) == f"{ATTRIBUTION}:CORE_NAMED_NO_CANDIDATE"
+    assert attribution_failure(other) == f"{ATTRIBUTION}:ARGV_NAMES:enum-aligned"
+    assert attribution_failure(silent) == f"{ATTRIBUTION}:CANDIDATE_NOT_NAMED_IN_ARGV"
+
+
+def test_a_seal_that_never_saw_an_argv_says_so_the_same_way_twice(
+    tmp_path: Path,
+) -> None:
+    """Nothing recorded stays one answer across the two readings.
+
+    A caller that passes no argv is the sealer's own default, and the bundle it writes
+    carries an empty list. Both readers have to land on `nothing was recorded` rather
+    than one of them calling it `an argv that named no candidate`: the second is what a
+    launch that really did ask for the launcher's default looks like, and an attribution
+    that cannot tell the two apart stops being able to refuse the one it exists to
+    refuse.
+    """
+
+    data_root, server, document = finished_run_in(tmp_path)
+
+    live = material_of(data_root, server, document)
+    seal_it(data_root, server, document, case=OFFLINE_CASE)
+    bundle = bundle_of(data_root)
+
+    assert sealed_trace(bundle)["session_argv"] == []
+    assert live.session_argv is None
+    # Not the default standing in for itself: an empty command line is the same absence.
+    assert material_of(data_root, server, document, session_argv=()).session_argv is None
+    assert ASSERTER.read_sealed_material(bundle).session_argv is None
+    unasked = ASSERTER.evaluate(
+        json.loads(OFFLINE_CASE.read_bytes()),
+        ASSERTER.read_sealed_material(bundle),
+    )
+    assert attribution_failure(unasked.as_document()) == f"{ATTRIBUTION}:LAUNCH_ARGV_UNRECORDED"
+
+
+def test_an_offline_launch_judged_live_and_re_judged_disagrees_about_nothing(
+    tmp_path: Path,
+) -> None:
+    """The card's claim in one line: the seal's verdict is what the bundle re-says.
+
+    The run here records no identity row, so the case fails on both readings — that is
+    not the point. The point is which half refuses: the live judgement used to see no
+    argv at all and stop at `LAUNCH_ARGV_UNRECORDED`, while the same bundle re-judged
+    read the trace and got as far as Core's missing row. A bundle whose two readings
+    disagree about *how* it failed is a bundle nobody can re-judge.
+    """
+
+    data_root, server, document = finished_run_in(tmp_path)
+
+    sealed = seal_it(data_root, server, document, case=OFFLINE_CASE, session_argv=OFF_A_LAUNCH)
+    assert sealed["result"] == "FAIL", sealed
+
+    report = REJUDGE.rejudge(bundle_of(data_root), CASE.parent)
+
+    assert report["disagreements"] == [], "\n".join(report["disagreements"])
+    # Item by item, not as sets: the recorded verdict is a list, and re-judging it means
+    # reproducing that list in the same order.
+    assert cast(list[str], report["re_judged"]["failures"]) == cast(list[str], sealed["failures"])
+    assert len(cast(list[str], sealed["failures"])) > 1

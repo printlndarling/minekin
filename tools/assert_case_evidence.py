@@ -476,6 +476,20 @@ def _overlay_for(data_root: Path, kin: str, events: Sequence[Mapping[str, object
     return session_overlay_path(run_root(data_root, KinId(kin)), session_id, generation)
 
 
+def recorded_argv(values: Sequence[str] | None) -> tuple[str, ...] | None:
+    """One argv, read the same way whichever hand it came from.
+
+    Two ways in: the sealer's own argument at the judgement, and the field a sealed
+    trace carries at a re-judge. Both go through here, because the difference the
+    attribution refuses on is between *nothing was recorded* and *a command line was
+    recorded and chose nothing* — and an empty sequence would answer one of those on
+    one read and the other on the second, which is a bundle that cannot be re-judged.
+    """
+
+    recorded = tuple(values) if values is not None else ()
+    return recorded or None
+
+
 def read_run_material(
     *,
     run_document: Path | None,
@@ -488,6 +502,7 @@ def read_run_material(
     soak_summary: Mapping[str, object] | None = None,
     world_run_document: Mapping[str, object] | None = None,
     server_profile: Mapping[str, object] | None = None,
+    session_argv: Sequence[str] | None = None,
 ) -> RunMaterial:
     """Read a finished run's material, refusing anything that is not readable.
 
@@ -509,6 +524,11 @@ def read_run_material(
     world this one joined: it arrives already read, for the reason the fault record
     does. Whoever read it also seals it, and a second reading is a second chance for
     the verdict and the artifact to be about different bytes.
+
+    The launch arguments arrive the same way — handed over, not read — and go through
+    `recorded_argv`, which is the rule the sealed trace is read by too. An attribution
+    rests on them, so the judgement at the seal and the re-judge of what that seal wrote
+    have to hold one answer rather than two spellings of it.
     """
 
     run: dict[str, object] = {}
@@ -621,6 +641,7 @@ def read_run_material(
         server_properties=server_properties,
         server_profile=server_profile,
         client_pack_listing=pack_listing_bytes(overlay).decode("utf-8"),
+        session_argv=recorded_argv(session_argv),
     )
 
 
@@ -690,7 +711,7 @@ def _trace_argv(trace: Mapping[str, object] | None) -> tuple[str, ...] | None:
         isinstance(item, str) for item in cast("list[object]", argv)
     ):
         return None
-    return tuple(cast("list[str]", argv))
+    return recorded_argv(cast("list[str]", argv))
 
 
 def asserter_inputs_bytes(material: RunMaterial, *, username: str) -> bytes:
@@ -3671,7 +3692,28 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="the same summary as text, for the sealer's snapshot of what it seals",
     )
+    parser.add_argument(
+        "--session-argv-json",
+        default=None,
+        help=(
+            "the command line this run's session was started with, as the trace the "
+            "sealer is about to write will hold it: which candidate the operator asked "
+            "for is recorded nowhere else"
+        ),
+    )
     args = parser.parse_args(argv)
+
+    session_argv: Sequence[str] | None = None
+    if args.session_argv_json is not None:
+        try:
+            launched = json.loads(args.session_argv_json)
+        except json.JSONDecodeError as error:
+            return _reject(f"the session's command line is not readable JSON: {error}")
+        if not isinstance(launched, list) or not all(
+            isinstance(item, str) for item in cast("list[object]", launched)
+        ):
+            return _reject("the session's command line is not a list of arguments")
+        session_argv = cast("list[str]", launched)
 
     if args.fault_injection is not None and args.fault_injection_json is not None:
         return _reject("name the fault record by its path or by its text, not both")
@@ -3764,6 +3806,7 @@ def main(argv: list[str] | None = None) -> int:
             soak_summary=soak_summary,
             world_run_document=world_run_document,
             server_profile=server_profile_document,
+            session_argv=session_argv,
         )
         verdict = evaluate(cast(Mapping[str, object], case), material)
     except Unreadable as error:

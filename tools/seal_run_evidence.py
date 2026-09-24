@@ -268,6 +268,7 @@ def run_asserter(
     soak_summary: str | None = None,
     world_run_document: str | None = None,
     server_profile_document: str | None = None,
+    session_argv: Sequence[str] | None = None,
     python: str = sys.executable,
 ) -> dict[str, object]:
     """The case's verdict, from the one module that judges rather than writes.
@@ -281,6 +282,11 @@ def run_asserter(
     the wrong input: the join case's whole subject is the world *that* document names,
     and an asserter free to open the path again would be free to judge a document
     nobody sealed.
+
+    The command line goes the same route, and it is the one input with no path to name:
+    nothing on disk holds it but the trace this seal is about to write. A judge that
+    never saw it would refuse an attribution on `nothing was recorded` while the bundle
+    it just wrote said which candidate was asked for.
     """
 
     arguments = [
@@ -310,6 +316,8 @@ def run_asserter(
         arguments += ["--soak-summary-json", soak_summary]
     if server_profile_document is not None:
         arguments += ["--server-profile-document-json", server_profile_document]
+    if session_argv is not None:
+        arguments += ["--session-argv-json", json.dumps(list(session_argv))]
     completed = subprocess.run(
         arguments,
         capture_output=True,
@@ -339,6 +347,13 @@ def assertions_from(report: Mapping[str, object]) -> Assertions:
     An assertion the asserter cannot perform is recorded as a failure of a
     distinct kind rather than dropped: a case that named a check nothing runs has
     to look different from one whose checks all held.
+
+    The order is the judge's own, not an alphabetical one. `observed` was always kept
+    that way, and a re-judge compares these lists item by item — so a sorted copy here
+    is a bundle whose recorded verdict its own bytes cannot reproduce as soon as two
+    checks fail at once. Sorting was hiding that: single-failure bundles agreed either
+    way, and the disagreement only appears on a case whose criteria refuse together,
+    which is what an offline attribution does when the run recorded nothing.
     """
 
     failures = _strings(report, "failures")
@@ -346,7 +361,7 @@ def assertions_from(report: Mapping[str, object]) -> Assertions:
     return Assertions(
         expected=tuple(_strings(report, "expected")),
         observed=tuple(_strings(report, "observed")),
-        failures=tuple(sorted(failures)),
+        failures=tuple(failures),
     )
 
 
@@ -660,6 +675,7 @@ def seal(
         soak_summary=soak_summary_text,
         world_run_document=world_run_text,
         server_profile_document=server_profile_text,
+        session_argv=session_argv,
     )
     material = read_run_material(
         run_document=run_document_path,
@@ -669,6 +685,7 @@ def seal(
         username=username,
         soak_samples=soak_samples_text or "",
         soak_summary=soak_summary_document,
+        session_argv=session_argv,
     )
 
     if server_profile is None and world_run_document_path is None:
