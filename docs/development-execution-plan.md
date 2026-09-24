@@ -3700,6 +3700,65 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 - `validation_class`: `UNIT_AND_CONTRACT`——纯领域决策，不要求真实入服；跨版本闭环属 V07/V08。
 - `stop_conditions`: 协议共享版本时的优先级无法由既有契约唯一确定时**不新增默认排序**，候选冲突进
   `NEEDS_PIN`；需要产品拍板（例如是否承认 `recipe` 即 `tested`）时停在此处记录，不自行选一个。
+- `delivery_record_v05`（实现提交）：产物是新纯领域模块
+  `src/minekin_core/domain/version_resolution.py`（`BundleStatus`、
+  `ResolutionStatus = RESOLVED|NEEDS_PIN|UNSUPPORTED|STALE_PROBE`、16 个 `ResolutionReason` token、
+  严格 loader、`resolve`；只依赖 stdlib 与 `minekin_core.domain.*`，`check_boundaries` 通过），
+  新增被审清单 `tests/fixtures/registry/reviewed-tested-bundles.json`（canonical 字节摘要
+  `d9e4823b80f5ab0ed41f21448209517b260732d9bd9b13a231ec20b93d6270c7`，以**新增行**登记进
+  `tests/fixtures/manifest.sha256`，既有 82 行一字未动），以及 `tests/unit/test_version_resolution.py`
+  44 条。承载选择：清单按 recipe fixture 的既有形状**以路径传入**，不做包内数据——`pyproject.toml`
+  只打包 `src/minekin_core`，且 `src/` 下今天没有任何 JSON，本卡不为此开 package-data 先例。
+- `open_semantics_closure`: 按登记时的更窄一读闭合。两条 `tested` 各自引用**同一 build** 的独立封证
+  （1.20.1 → V04 四案；1.21.4 → 它在当前 build 上的 12 案），并且由 loader 机械强制：任一 evidence 的
+  `bridge_digest`/`launch_plan_digest` 与条目不符即 `EVIDENCE_BUILD_MISMATCH` 拒载，`tested` 条目引用
+  非 `PASS` 或无引用即拒载。**没有**读 recipe fixture 的 `status` 字段，也**没有**把 `recipe` 解释成
+  `tested`——反向测试断言两份 recipe 至今仍自称 `candidate`/`recipe`。
+- `measured_inputs_v05`: 协议号来自真实只读探测而非查表——1.21.4 → `protocol:769`（V02 实测），
+  1.20.1 → `protocol:763` 且 `version_text:"1.20.1"`（本卡在受控 vanilla 1.20.1 服上以
+  `enable-status=true` 临时启动后实测，材料在 `.tmp/v05-probe-1201.log`，未写入任何私有地址）。
+- `progress_record_1_new_1214_sealing`: 1.21.4 当前 build 的握手格此前只有旧 build 证据，本卡补一次
+  真实运行——`MINEKIN_KIN_ID=kin-01 MINEKIN_DOMAIN_CASE=CORE-010 bash test-orchestrator/runner/run.sh
+  domain session start --profile tests/fixtures/runtime-input/bundle-p0-core-1.21.4.json` → run
+  `e22cacf088284598ad1928d426cc3a71`、bundle `6e0fc4fa635b5130f7090f1e727c1ccd6fef629b85ca2a3569d408b9bf31e48e`、
+  attempt 1 `SEALED`、结果 `PASS`，四读一致（`evidence verify` 通过、rejudge `AGREES` 且
+  `from_repository_build: true`、replay projected / 11 events / `STOPPED`），断言为
+  `handshake_accepted_by_core` + `stayed_observe_only`；该运行全程只读握手，不含任何 use/交互动作。
+- `counterexamples_v05`（每种一个稳定类别，且都不再试登）：未知协议 → `UNSUPPORTED` +
+  `PROTOCOL_UNREGISTERED`；一对多 → `NEEDS_PIN` + `CANDIDATES_AMBIGUOUS`，并以**清单顺序反转结果相同**
+  证明没有默认排序；多版本代理 → `NEEDS_PIN` + `MULTI_VERSION_PROXY`，只有协议一致的 pin 才判
+  `RESOLVED`；目标歧义 → `NEEDS_PIN` + `TARGET_AMBIGUOUS`（pin 不回答“问的是哪个端点”）；伪造展示文本
+  → `NEEDS_PIN` + `DISPLAY_TEXT_CONTRADICTS`；缺当前 OS/arch 构件 → `UNSUPPORTED` +
+  `OS_ARCH_UNAVAILABLE`；条目非 `tested` → `NEEDS_PIN` + `ENTRY_NOT_TESTED`；已 `quarantined` →
+  `NEEDS_PIN` + `ENTRY_QUARANTINED`，pin 亦不得越过（`PIN_NOT_TESTED`）；解析过期 → `STALE_PROBE` +
+  `PROBE_STALE`（pin 不覆盖，`pin_applied:false`）；无响应/超时/畸形/超大 → `STALE_PROBE` +
+  `PROBE_NOT_OBSERVED`；地址策略拒绝 → `NEEDS_PIN` + `PROBE_REFUSED_BY_POLICY`（bundle pin 不重新授权
+  地址）；`OBSERVED` 却无协议号 → `STALE_PROBE` + `PROTOCOL_UNOBSERVED`。loader 另拒：重复 `bundle_id`、
+  非小写十六进制摘要、越界的 `recipe_path`、非 `offline` 认证模式、未知状态词。
+- `pin_rules_v05`: pin 必须存在、是 `tested`、协议与展示文本都与观测一致、且有当前 OS/arch 构件，
+  否则分别为 `PIN_UNKNOWN` / `PIN_NOT_TESTED` / `PIN_CONTRADICTS_TARGET` / `PIN_ARCH_UNAVAILABLE`。
+- `decision_revision_v05`: `registry_revision` 是清单字节的 canonical-JSON SHA-256，并写进每张决策
+  文档；测试改一个字节（把某条目协议号 763→764）即证 revision 移动、决策随之从 `RESOLVED` 变
+  `UNSUPPORTED`，同一份字节两次加载 revision 相同。
+- `capability_scope_v05`: 条目的 `capabilities` 恰为被引案断言的并集（测试双向核对，不多不少）——
+  1.20.1 15 个 token、1.21.4 31 个；`gaps` 与 `capabilities` 强制不相交并逐条命名。1.20.1 的缺口：
+  崩溃恢复 / 离线身份账本 / 重启对账 / soak 四族未在该 build 封证、use-target 方块变化、stop 阶段
+  显式松键、Windows 架构、recipe 自述 JDK 17 与实测 Java 21 的差、真实远程目标。1.21.4 的缺口：
+  `CORE_040_UNSEALED_ON_THIS_BUILD`（服务端观测的转向 + 受限移动 + 租约到期只在旧 build 封过）、
+  use-target、stop 阶段松键、Windows 架构、远程目标。
+- `gates_v05`（交付提交前的本地锁定环境实测）：`uv run --frozen pytest -q` 全量 **2403 passed /
+  2 skipped**（两条 skip 都是本平台的既有局限，与本卡无关）；本卡定向 44 passed；`ruff check` 通过、
+  `ruff format --check` 对两处新文件报 already formatted；`pyright` 严格 **0 errors, 0 warnings**；
+  `check_boundaries`（domain 层不引 application/adapters/cli）、`check_case_assertions`（139 registered）、
+  `check_workflow_pins`、`verify_fixture_digests`（新行计入、既有 82 行未动）、`verify_supply_chain`
+  （6 个 pin 仍匹配）各为 OK；`git diff --check` 干净。**这些是静态与单元门禁，不是 Minecraft 验收**：
+  本卡的真实运行只有 `progress_record_1_new_1214_sealing` 那一次受控握手与 `measured_inputs_v05`
+  的只读探测。
+- `not_tested`: 未把解析接进 `session start`（V07）、未做任何下载/安装（V06）、未对**真实远程** 1.20.1
+  目标做解析（V08）；除 `NEEDS_PIN`/`UNSUPPORTED`/`STALE_PROBE` 之外不存在“兜底选一个”的路径；
+  CLI 尚无 resolver 入口（那属 V07 的接线面）。
+- `next_after_done`: `VERSION-INSTALLER-001`（V06）——主计划今天还没有 V06 卡片正文，须先 `QUEUED`
+  登记、再在下一次独立提交提升。
 
 ### VERSION-BRIDGE-IDENTITY-001 — BridgeHello 版本声明配对修复
 

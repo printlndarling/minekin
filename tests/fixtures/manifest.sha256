@@ -80,3 +80,4 @@ a92fe2eefe2bbfa5f9d7be19b4aa97f7e3e31eb688ad5220badcdf14788b6778  tests/fixtures
 e848db79574bc9c6b912a7930f55c307ff89fff8d3bb1ed82af59d0345aa8b78  tests/fixtures/cases/v1201-020.json
 93932a7e2f80a9dad6865c64e10dd17e7dad6d8ec7ea99e250ba11525b221862  tests/fixtures/cases/v1201-040.json
 3278ad2980efc3b473e0f96d614d0ad0df0a6c191365769af48a603574da8712  tests/fixtures/cases/v1201-070.json
+d9e4823b80f5ab0ed41f21448209517b260732d9bd9b13a231ec20b93d6270c7  tests/fixtures/registry/reviewed-tested-bundles.json

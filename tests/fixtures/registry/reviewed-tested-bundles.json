@@ -1,0 +1,249 @@
+{
+  "schema_version": 1,
+  "kind": "reviewed-bundle-registry",
+  "notes": "The only bundles this project launches against without an operator pin. An entry is `tested` because the runs it cites were each sealed and independently re-judged on the exact bridge and launch plan the entry names; it is not `tested` because a recipe fixture describes itself that way, and a citation to an older build is not accepted. `capabilities` are the assertion tokens the cited cases prove, one for one, and `gaps` name the holes a launch must not assume closed. The protocol ids are measured status responses of the controlled targets, not a looked-up listing. The 1.20.1 entry declares java_major 21 because that is the runtime its sealing used; its recipe declares 17, and RUNNER_JDK_17_UNSEALED records that the recipe's own number has never been the proven one.",
+  "entries": [
+    {
+      "bundle_id": "1.20.1-linux-x86_64-offline-java21",
+      "status": "tested",
+      "version_text": "1.20.1",
+      "protocol": 763,
+      "os_arch": "linux-x86_64",
+      "java_major": 21,
+      "bridge_digest": "9e162d8359a886394ddd80db87477d9196ef3d2972e7a4d942df54a2f1e349bc",
+      "launch_plan_digest": "ac40316094dda001c2333bdaea00f886609a58982153b085f276d91d750db8bc",
+      "recipe_path": "tests/fixtures/runtime-input/bundle-candidate-1.20.1.json",
+      "recipe_digest": "f552b92aa9322b3cd2ff23fc0e927ff4b430e7d24974808e41341f412542c3bb",
+      "auth_mode": "offline",
+      "capabilities": [
+        "a_refused_first_snapshot_became_no_lease_and_no_playable",
+        "first_snapshot_admitted",
+        "handshake_accepted_by_core",
+        "leave_after_join_observed",
+        "move_input_was_leased",
+        "server_observed_join_identity",
+        "stayed_observe_only",
+        "the_bridge_carried_the_input_out",
+        "the_first_snapshot_was_refused_by_the_reason_the_case_names",
+        "the_lease_expired_and_was_released",
+        "the_refusal_was_asked_of_this_run",
+        "the_refused_generation_was_closed_and_never_reopened",
+        "the_server_saw_the_kin_move",
+        "the_server_saw_the_kin_turn",
+        "this_run_joined_a_world_it_was_never_told_it_could_play"
+      ],
+      "gaps": [
+        "CRASH_RECOVERY_CASES",
+        "OFFLINE_IDENTITY_LEDGER_CASES",
+        "REMOTE_TARGET",
+        "RESTART_RECONCILIATION_CASES",
+        "RUNNER_JDK_17_UNSEALED",
+        "SOAK_CASES",
+        "STOP_PHASE_EXPLICIT_KEY_RELEASE",
+        "USE_TARGET_BLOCK_CHANGE",
+        "WINDOWS_OS_ARCH"
+      ],
+      "evidence": [
+        {
+          "case_id": "V1201-010",
+          "run_id": "bc203c0ed4004a0d9ba3604d2a51d910",
+          "bundle_digest": "13471d2f9b9e337392b86b25a80d574d45eae761c21d91a5b348c1729cdd890f",
+          "bridge_digest": "9e162d8359a886394ddd80db87477d9196ef3d2972e7a4d942df54a2f1e349bc",
+          "launch_plan_digest": "ac40316094dda001c2333bdaea00f886609a58982153b085f276d91d750db8bc",
+          "result": "PASS",
+          "attempt": 2
+        },
+        {
+          "case_id": "V1201-020",
+          "run_id": "87229052d24f4772a512dee497bab29c",
+          "bundle_digest": "6dd17bd6b41251fe39fb0f6ca6386334dc4c9ebd0a89ca00082b260999dbd84e",
+          "bridge_digest": "9e162d8359a886394ddd80db87477d9196ef3d2972e7a4d942df54a2f1e349bc",
+          "launch_plan_digest": "ac40316094dda001c2333bdaea00f886609a58982153b085f276d91d750db8bc",
+          "result": "PASS",
+          "attempt": 1
+        },
+        {
+          "case_id": "V1201-040",
+          "run_id": "f4cc67ae130d4aef9b6fef00801c0e2f",
+          "bundle_digest": "3d0ebebe28050ea0ce9c35e4f7a32c7e173d28103f6b0c5f30041b02e88b1a56",
+          "bridge_digest": "9e162d8359a886394ddd80db87477d9196ef3d2972e7a4d942df54a2f1e349bc",
+          "launch_plan_digest": "ac40316094dda001c2333bdaea00f886609a58982153b085f276d91d750db8bc",
+          "result": "PASS",
+          "attempt": 1
+        },
+        {
+          "case_id": "V1201-070",
+          "run_id": "5b1cbef5162d40a68789324c80d1363c",
+          "bundle_digest": "46aa3f00b42da484720e925110509a40cdb49ce955f85779066ce11434911156",
+          "bridge_digest": "9e162d8359a886394ddd80db87477d9196ef3d2972e7a4d942df54a2f1e349bc",
+          "launch_plan_digest": "ac40316094dda001c2333bdaea00f886609a58982153b085f276d91d750db8bc",
+          "result": "PASS",
+          "attempt": 1
+        }
+      ]
+    },
+    {
+      "bundle_id": "1.21.4-linux-x86_64-offline-java21",
+      "status": "tested",
+      "version_text": "1.21.4",
+      "protocol": 769,
+      "os_arch": "linux-x86_64",
+      "java_major": 21,
+      "bridge_digest": "faeec4a9df83abb9ca0404863e04d20cfd87ac0f3afd5e74b6858e3e15372f55",
+      "launch_plan_digest": "9e0e0ccca9d0a589a38a3f3be40ddbf957f71a51cffe08caf5436153954bfea4",
+      "recipe_path": "tests/fixtures/runtime-input/bundle-p0-core-1.21.4.json",
+      "recipe_digest": "bb45606023cea201bf8cb66ee35dfcfa136c428a8eb8bfff90c864499d5dcf72",
+      "auth_mode": "offline",
+      "capabilities": [
+        "a_refused_first_snapshot_became_no_lease_and_no_playable",
+        "both_jvms_were_sampled_throughout_the_soak",
+        "client_jvm_sigkill_was_confirmed",
+        "core_recorded_the_identity_it_compared",
+        "first_snapshot_admitted",
+        "handshake_accepted_by_core",
+        "leave_after_join_observed",
+        "move_input_was_leased",
+        "runtime_controller_sigkill_was_confirmed",
+        "server_jvm_sigkill_was_confirmed",
+        "server_observed_join_identity",
+        "stayed_observe_only",
+        "the_account_type_was_recorded_as_an_observation",
+        "the_bridge_released_input_when_play_ended",
+        "the_bridge_released_the_input_when_the_ipc_was_lost",
+        "the_first_snapshot_was_refused_by_the_reason_the_case_names",
+        "the_ledger_recorded_the_session_ending",
+        "the_ledger_recorded_world_loss",
+        "the_offline_identity_joined_and_the_server_agrees",
+        "the_previous_run_left_the_kin_holding_input",
+        "the_refusal_was_asked_of_this_run",
+        "the_refused_generation_was_closed_and_never_reopened",
+        "the_reported_session_is_the_identity_this_run_launched_with",
+        "the_restart_reconciled_before_it_started",
+        "the_restart_runs_as_a_new_session",
+        "the_server_log_has_no_graceful_shutdown",
+        "the_server_saw_the_kin_arrive_and_never_move",
+        "the_server_saw_the_kin_stop_after_the_move",
+        "the_soak_held_for_the_duration_it_was_asked_for",
+        "this_run_joined_a_world_it_was_never_told_it_could_play",
+        "this_run_started_the_identity_candidate_the_case_names"
+      ],
+      "gaps": [
+        "CORE_040_UNSEALED_ON_THIS_BUILD",
+        "REMOTE_TARGET",
+        "STOP_PHASE_EXPLICIT_KEY_RELEASE",
+        "USE_TARGET_BLOCK_CHANGE",
+        "WINDOWS_OS_ARCH"
+      ],
+      "evidence": [
+        {
+          "case_id": "ADMIT-070",
+          "run_id": "2a128d0dd30b4932b88ada6d0032d40c",
+          "bundle_digest": "88ccc9dfc8202deef484eb00c5f45137f0a11f64f04a0597027887d47b5e537e",
+          "bridge_digest": "faeec4a9df83abb9ca0404863e04d20cfd87ac0f3afd5e74b6858e3e15372f55",
+          "launch_plan_digest": "9e0e0ccca9d0a589a38a3f3be40ddbf957f71a51cffe08caf5436153954bfea4",
+          "result": "PASS",
+          "attempt": 2
+        },
+        {
+          "case_id": "CORE-010",
+          "run_id": "e22cacf088284598ad1928d426cc3a71",
+          "bundle_digest": "6e0fc4fa635b5130f7090f1e727c1ccd6fef629b85ca2a3569d408b9bf31e48e",
+          "bridge_digest": "faeec4a9df83abb9ca0404863e04d20cfd87ac0f3afd5e74b6858e3e15372f55",
+          "launch_plan_digest": "9e0e0ccca9d0a589a38a3f3be40ddbf957f71a51cffe08caf5436153954bfea4",
+          "result": "PASS",
+          "attempt": 1
+        },
+        {
+          "case_id": "CORE-020",
+          "run_id": "8a72dcdf9e9c4fd190860d16a5d1bf1f",
+          "bundle_digest": "3c4b04894069df5bf99afb17afd68a5acd80812282c82b2ba07e1b7539e89d8e",
+          "bridge_digest": "faeec4a9df83abb9ca0404863e04d20cfd87ac0f3afd5e74b6858e3e15372f55",
+          "launch_plan_digest": "9e0e0ccca9d0a589a38a3f3be40ddbf957f71a51cffe08caf5436153954bfea4",
+          "result": "PASS",
+          "attempt": 1
+        },
+        {
+          "case_id": "CORE-060",
+          "run_id": "7fc0671eabca4430885017613977779c",
+          "bundle_digest": "3876c335306f21e154ea20dfa09340dc5a542c0d19c8acefd93f4c94dff8ed80",
+          "bridge_digest": "faeec4a9df83abb9ca0404863e04d20cfd87ac0f3afd5e74b6858e3e15372f55",
+          "launch_plan_digest": "9e0e0ccca9d0a589a38a3f3be40ddbf957f71a51cffe08caf5436153954bfea4",
+          "result": "PASS",
+          "attempt": 3
+        },
+        {
+          "case_id": "CORE-060-CLIENT-001",
+          "run_id": "c89f5d3582e74250b27cf4a034314c0a",
+          "bundle_digest": "8b0691b7919ad5f3ea21c3e43e612fe50a40c1e14784aa14e410d82cab026ab0",
+          "bridge_digest": "faeec4a9df83abb9ca0404863e04d20cfd87ac0f3afd5e74b6858e3e15372f55",
+          "launch_plan_digest": "9e0e0ccca9d0a589a38a3f3be40ddbf957f71a51cffe08caf5436153954bfea4",
+          "result": "PASS",
+          "attempt": 1
+        },
+        {
+          "case_id": "CORE-060-SERVER-001",
+          "run_id": "f4365a50077647babda76cec90164093",
+          "bundle_digest": "75a15ccc3a8d17dbe591e876d7687d2323136810ff8f247713d5dac8bf254fc1",
+          "bridge_digest": "faeec4a9df83abb9ca0404863e04d20cfd87ac0f3afd5e74b6858e3e15372f55",
+          "launch_plan_digest": "9e0e0ccca9d0a589a38a3f3be40ddbf957f71a51cffe08caf5436153954bfea4",
+          "result": "PASS",
+          "attempt": 1
+        },
+        {
+          "case_id": "CORE-090",
+          "run_id": "3e94d49aace44b00924efeb1bb83c1da",
+          "bundle_digest": "8bda01b52ae2bbfec5b83fb978f931cb28a7bf78668ef4b88e81235e3d077739",
+          "bridge_digest": "faeec4a9df83abb9ca0404863e04d20cfd87ac0f3afd5e74b6858e3e15372f55",
+          "launch_plan_digest": "9e0e0ccca9d0a589a38a3f3be40ddbf957f71a51cffe08caf5436153954bfea4",
+          "result": "PASS",
+          "attempt": 1
+        },
+        {
+          "case_id": "CORE-100",
+          "run_id": "8367f741124d4132835eeb3d85833d46",
+          "bundle_digest": "1b2a58e9cc371d236b959b7e3507678d04506b6c32b875a5ce7ebd9f20c749e2",
+          "bridge_digest": "faeec4a9df83abb9ca0404863e04d20cfd87ac0f3afd5e74b6858e3e15372f55",
+          "launch_plan_digest": "9e0e0ccca9d0a589a38a3f3be40ddbf957f71a51cffe08caf5436153954bfea4",
+          "result": "PASS",
+          "attempt": 1
+        },
+        {
+          "case_id": "OFFLINE-010",
+          "run_id": "f2ecb728df754826abf4a052be138a2d",
+          "bundle_digest": "184d636cf028cd05eaf61ca36706ad8aa4576780c4c01e041f07c6f82728ed20",
+          "bridge_digest": "faeec4a9df83abb9ca0404863e04d20cfd87ac0f3afd5e74b6858e3e15372f55",
+          "launch_plan_digest": "9e0e0ccca9d0a589a38a3f3be40ddbf957f71a51cffe08caf5436153954bfea4",
+          "result": "PASS",
+          "attempt": 1
+        },
+        {
+          "case_id": "OFFLINE-020",
+          "run_id": "3d5606ced37849e3b17a4c418fa33ab4",
+          "bundle_digest": "ff68f67d51ba15afc35efafd89ca8781f31b0a02ed60ea9d9a10b9a2d7de45d8",
+          "bridge_digest": "faeec4a9df83abb9ca0404863e04d20cfd87ac0f3afd5e74b6858e3e15372f55",
+          "launch_plan_digest": "9e0e0ccca9d0a589a38a3f3be40ddbf957f71a51cffe08caf5436153954bfea4",
+          "result": "PASS",
+          "attempt": 1
+        },
+        {
+          "case_id": "OFFLINE-030-ENUM-ALIGNED-001",
+          "run_id": "cb5e2119845e41868c28e5aeb1370ce3",
+          "bundle_digest": "b90cb29b664a872133ffec208634723e37330c357f8876390b17eee2093ee90e",
+          "bridge_digest": "faeec4a9df83abb9ca0404863e04d20cfd87ac0f3afd5e74b6858e3e15372f55",
+          "launch_plan_digest": "9e0e0ccca9d0a589a38a3f3be40ddbf957f71a51cffe08caf5436153954bfea4",
+          "result": "PASS",
+          "attempt": 1
+        },
+        {
+          "case_id": "OFFLINE-030-PRISM-PARITY-001",
+          "run_id": "ee9d5ad3d57344da8452069102e27216",
+          "bundle_digest": "cdb8e53f67d54d5171b2d23741a20d5351bb59c1c7136ffa2f3a53c5d4734295",
+          "bridge_digest": "faeec4a9df83abb9ca0404863e04d20cfd87ac0f3afd5e74b6858e3e15372f55",
+          "launch_plan_digest": "9e0e0ccca9d0a589a38a3f3be40ddbf957f71a51cffe08caf5436153954bfea4",
+          "result": "PASS",
+          "attempt": 1
+        }
+      ]
+    }
+  ]
+}
