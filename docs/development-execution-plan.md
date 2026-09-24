@@ -12,13 +12,16 @@
 - `baseline_date`: 2026-09-22
 - `baseline_branch`: `main`
 - `baseline_remote`: `origin/main`
-- `current_next`: 上一轮交接把 `OFFLINE-IDENTITY-SEALED-ARGV-001` 提升为唯一 `NEXT`，本 commit 记录它
-  已 `DONE`（交付 `d8348a3`：sealer 把那份 argv 同时交给 live 判读与 bundle，两条读路共用
-  `recorded_argv` 一条归一规则）。顺序表的下一张 `OFFLINE-IDENTITY-RUN-001` 早已作为 `QUEUED` 登记，
-  提升为唯一 `NEXT` 写在紧随的下一个 commit 里，以满足交接第 1、6 项「先 `QUEUED`、再在紧随的
-  commit 提升」。本卡验收 ① 的**真实运行那一半**没有在这张卡里兑现——那张卡的 `non_goals` 就写明
-  「不在本卡封 OFF-A/OFF-B 证据」，而 runner 里至今没有 OFFLINE 场景分支——它随下一张卡的头一次真实
-  封证一起检查，提升那张卡时把这条检查写进它的 `acceptance`。
+- `current_next`: `OFFLINE-IDENTITY-RUN-001`——`OFFLINE-010` 与 `OFFLINE-020` 两列各封一份真实证据，
+  四个读者一致。顺序表的前两张都已 `DONE`（`OFFLINE-IDENTITY-CASE-001` 交付 `2a84bbd`／收卡
+  `1a77d40`；`OFFLINE-IDENTITY-SEALED-ARGV-001` 交付 `d8348a3`／收卡 `07cd0d7`），本卡在此前就已作为
+  `QUEUED` 登记并推送，因此这次提升满足交接第 1、6 项的「先 `QUEUED`、再在紧随的 commit 提升」。
+  它是 `OFFLINE-IDENTITY-*` 这条链的最后一张：判据先存在、那份 argv 先交进 live 判读，才封得出两侧
+  同读一份材料的证据。收卡 `07cd0d7` 欠下的那一半验收——判据 ① 在**一次真实受控运行**上 live 判读
+  与 rejudge 同结论——已随本次提升写进本卡 `acceptance`，不在文档里当作已完成。
+  提升时同时记下本卡面对的现实阻碍：runner 里至今没有 OFFLINE 场景分支（`domain.sh` 中
+  `identity-candidate`、`offline-0` 的 grep 均为空），而本卡 `forbidden_paths` 不许改 runner 的等待与
+  封存逻辑，取舍见卡片 `why_now`。
   `ADMIT-070-RECORD-SCHEMA-001` 也还是 `QUEUED`，但它自己写明
   不是任何封证卡的下一张，因此不排进这条链。其余未闭合卡仍是
   `HOST-ADMISSION-DESIGN-001`/`OPERATIONS-RETENTION-001`/`PROCESS-RECOVERY-001`
@@ -405,7 +408,7 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 - `status`: `BLOCKED_EVIDENCE`
 - `blocked_by`: `OFFLINE-IDENTITY-LEDGER-FACT-001`（`DONE`，`ec8fb15`）→ `OFFLINE-IDENTITY-CASE-001`
   （`DONE`，`2a84bbd`）→ `OFFLINE-IDENTITY-SEALED-ARGV-001`（`DONE`，`d8348a3`）→
-  `OFFLINE-IDENTITY-RUN-001`（仍 `QUEUED`，提升在紧随的 commit，
+  `OFFLINE-IDENTITY-RUN-001`（现唯一 `NEXT`，由本 commit 提升，
   都由已 `DONE` 的
   `OFFLINE-IDENTITY-EVIDENCE-DESIGN-001` 与 `OFFLINE-IDENTITY-CASE-001` 登记）。`order` 的第 1 个场景
   （在线认证拒绝）、第 2 个场景（资源包拒绝）与第 3 个场景（JOIN 后首快照失败）已各自在当前
@@ -1626,12 +1629,31 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 
 ### OFFLINE-IDENTITY-RUN-001 — 两次受控运行：OFF-A 与 OFF-B 各自封证并四读一致
 
-- `status`: `QUEUED`；不替换当前唯一 `NEXT`。
+- `status`: `NEXT`（在 `9ffe980` 之前就已是 `QUEUED` 并推送；收卡 `OFFLINE-IDENTITY-SEALED-ARGV-001`
+  的 `07cd0d7` 之后由本 commit 提升为唯一 `NEXT`，当前计划里没有第二张 `NEXT`）
+- `promotion_reason`: 顺序已满足——本卡先以 `QUEUED` 登记并推送，前置 `CASE-001`（`2a84bbd`）与
+  `SEALED-ARGV-001`（`d8348a3`）都在提升之前交付并收卡，中间没有插入别的未授权工作。入口门禁全绿
+  （`2144 passed / 2 skipped`、case assertions 139 registered、Pyright 0 errors）。
+  `SEALED-ARGV-001` 收卡时欠下的那一半验收 ①——判据 ① 在一次真实受控运行上的 live 判读与 rejudge
+  同结论——由本卡承接，已写进下面的 `acceptance`。
+- `baseline_sha`: `07cd0d7dd8d5798af42f344e88eb4344235c3961`
+- `why_now`: 这条链的最后一张：判据先存在（`CASE-001`）、那份 argv 先交进 live 判读
+  （`SEALED-ARGV-001`），现在才谈得上封出「两个读者同读一份材料」的真实证据。
+  **提升时同时记下本卡面对的一个阻碍**：`depends_on` 里那句「同一 runner、同一 domain 场景」在今天
+  并不成立——`test-orchestrator/runner/domain.sh` 里没有任何 OFFLINE 场景分支（`identity-candidate`
+  与 `offline-0` 两项 grep 均为空），而本卡 `forbidden_paths` 不许改 runner 的等待与封存逻辑。
+  本卡第一步因此按 `allowed_paths` 允许的形状走：在受控 loopback 环境里直接起 Core
+  （带上 `--identity-candidate <列>`），再用现成 CLI 封存——`tools/seal_run_evidence.py` 早就收
+  `--session-argv`，`SEALED-ARGV-001` 之后它会把它一并交给判官——全程不改脚本。若这条直路走不通
+  （例如没有 runner 的等待分支就读不到入服那一侧的事实），**不顺手改 runner**：按「先修订卡片范围
+  再动手」那条纪律另起一张 runner 场景分支的前置卡、以 `QUEUED` 登记并推送，再回到本卡。
 - `question`: 在同一个受控离线服务端、同一份封存通道上，`--identity-candidate prism-parity` 与
   `--identity-candidate enum-aligned` 各封出一份 `PASS`/`AGREES` 的 bundle，需要哪些运行形状与读数。
-- `depends_on`: `OFFLINE-IDENTITY-CASE-001`（判据与 fixture 先存在）；
-  `OFFLINE-IDENTITY-SEALED-ARGV-001`（live 判读要把 argv 交给判官，见下）；`ADMIT-070-CASE-001`
-  （同一 runner、同一 domain 场景与同一「两次独立 run 各自封证」的封存通道）。
+- `depends_on`: `OFFLINE-IDENTITY-CASE-001`（`DONE`，`2a84bbd`：判据与 fixture 先存在）；
+  `OFFLINE-IDENTITY-SEALED-ARGV-001`（`DONE`，`d8348a3`：live 判读要把 argv 交给判官，见下）；
+  `ADMIT-070-CASE-001`
+  （同一 runner、同一 domain 场景与同一「两次独立 run 各自封证」的封存通道——OFFLINE 场景分支本身
+  并不在这张已 `DONE` 的卡里，见 `why_now`）。
 - `scope`: 两跑各领新 `run_id`/attempt，各自 `evidence verify` → `rejudge` → 两个 `replay` →
   `report_promotion`，并把 `observed_account_type` 的**实际值**如实记录（不预设、不为「A 与 B 应该
   不同/相同」而重跑挑数据）；OFF-B 无法启动或身份不可归因时保留真实失败。
@@ -1644,8 +1666,12 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
   `REJECTED`，不得作为目标或 oracle，也不得向它发送任何凭据）。
 - `non_goals`: 不挑「比较好」的候选、不决定 OFF-C/OFF-D/非空 sentinel 是否跑（契约规定只有真实启动
   产生可归因失败时才跑）、不宣布 OFFLINE 族整体完成（`060/070/080/090/100` 不在本卡）。
-- `acceptance`: 两份 bundle 的 case 身份/version/`verified`/`passed`/re-judge/replay/promotion 四个
-  读者一致，且各自满足契约判据 1/2/3/5；两列对照结果写回契约由人读，不做成单份 bundle 的判据。
+- `acceptance`: ① 两份 bundle 的 case 身份/version/`verified`/`passed`/re-judge/replay/promotion 四个
+  读者一致，且各自满足契约判据 1/2/3/5；② 从 `SEALED-ARGV-001` 承接的那一半验收：头一次真实封证上，
+  判据 ① 在**封存现场的 live 判读**与对该 bundle 的 **rejudge** 给出同一结论——既不是
+  `LAUNCH_ARGV_UNRECORDED`（那说明 argv 没交进去），也不是两侧给出不同的拒绝理由（那说明两条读路
+  又分叉了）；这一条要在两列上各自成立，缺一列就如实记一半；两列对照结果写回契约由人读，不做成单份
+  bundle 的判据。
 - `validation_class`: `REAL_RUN`。
 - `stop_conditions`: 同一外部阻断连续三次重现则记 `BLOCKED_EVIDENCE` 并停在该分支；任一候选被封成
   `PASS` 而另一候选失败时，只报告一半通过，不合并宣称 `OFFLINE-030` 完成。
