@@ -3423,6 +3423,26 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
   **不改判据凑 PASS，不把一次成功运行写成整版本 tested**。只有全部验收项成立后，才把
   **精确的** 1.20.1 Linux/arch 组合登记为 `tested`。
 
+### VERSION-BRIDGE-IDENTITY-001 — BridgeHello 版本声明配对修复
+
+- `status`: `QUEUED`（本提交登记，来自 V04 卡 `bridge_hello_version_defect` 的实测。提升须另开
+  提交，且必须排在 V04 之后：本卡会让 V03 已封存的 1.20.1 candidate 摘要失效并需要重新封存。）
+- `depends_on`: `VERSION-BUNDLE-1201-001`（两套 root 与其摘要）、`VERSION-LOCAL-1201-001`
+  （在当前写死常量下取得的闭环证据——它先成立，本卡才有东西可替换）。
+- `question`: 能否让 Core 按**本次会话**的 recipe 校验 `BridgeHello` 的
+  `minecraft_version`/`fabric_loader_version`，并让两个 Bridge root 声明各自**真实**运行的版本
+  （1.20.1 root 实际为 loader `0.19.5`），同时保持 1.21.4 既有路径的证明上下文逐字节不变？
+- `scope`: `adapters/bridge/ipc.py`（期望值取自 `BridgeSession` 而非字面量）、
+  `adapters/bridge/bootstrap.py`（版本从已审 plan 取，缺失即拒）、`bridge/` 与 `bridge-1201/` 的
+  hello 常量与 `Expected` 校验、重新构建并封存 1.20.1 candidate（新 `source_tree_sha256` 与 jar
+  摘要）、对应 case/fixture 与文档。
+- `non_goals`: 不放宽其它握手字段；不为“兼容任意版本”接受未知声明；不动
+  Player-Equivalent / lease / 准入判据；不连接用户真实远程服。
+- `validation_class`: 静态门 + 各一次 1.21.4 与 1.20.1 握手真跑（两侧都要正例，外加“声明与
+  recipe 不符即拒”的反例）。
+- `stop_conditions`: 若客户端运行时读不到真实 loader 版本，或必须改动已冻结的 1.21.4 产物摘要
+  才能过——保留材料并报告，不静默替换 candidate，不把“两侧都写死另一个常量”当作修复。
+
 ### HOST-ADMISSION-DESIGN-001 — 宿主世界会话坐标来源
 
 - `status`: `BLOCKED_DECISION`
