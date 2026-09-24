@@ -223,6 +223,51 @@ def test_every_reviewed_case_names_a_work_package_that_exists() -> None:
     assert "W90" not in {case.work_package for case in registry.cases}
 
 
+def test_every_reviewed_case_is_filed_under_the_name_its_id_derives() -> None:
+    """The runner finds a case's fixture by lowercasing the id it was handed.
+
+    That is one line of shell and no lookup table, so it holds only while every
+    fixture is filed under the name its own declared id derives. The two
+    `OFFLINE-030-*-001` children broke it: both cases were registered and required,
+    and neither could be run — a request naming one pointed at a file that is not
+    there, which the harness reports as an unreadable case rather than as a verdict.
+    """
+
+    misplaced = [
+        (path.name, case.case_id)
+        for path in sorted(CASES.glob("*.json"))
+        if (case := load_case_manifest(path)).case_id.lower() + ".json" != path.name
+    ]
+
+    assert misplaced == []
+
+
+def test_a_case_with_no_fixture_is_reported_absent_rather_than_judged_from_nothing(
+    tmp_path: Path,
+) -> None:
+    """What the derivation answers when there is nothing to derive to.
+
+    Deleting one child's fixture is the shape the offline children were in for every
+    run that asked for them: the name derives, the file is not there. Every other
+    question in this module is asked of a case that is present, so a case nobody
+    filed would pass them by not being asked — `requirement()` is the one that has an
+    answer either way, which is why the absence is asserted through it.
+    """
+
+    child = "OFFLINE-030-ENUM-ALIGNED-001"
+    cases = tmp_path / "cases"
+    shutil.copytree(CASES, cases)
+    holder = next(
+        path for path in sorted(cases.glob("*.json")) if load_case_manifest(path).case_id == child
+    )
+    holder.unlink()
+
+    registry = load_case_registry(cases)
+
+    assert child not in registry.by_id()
+    assert child in registry.requirement("W30").absent
+
+
 def test_the_registry_reads_a_directory_of_cases() -> None:
     registry = load_case_registry(CASES)
 

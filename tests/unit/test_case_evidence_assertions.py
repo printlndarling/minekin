@@ -5402,8 +5402,8 @@ OFF_B = "enum-aligned"
 OFFLINE_LAUNCH_A_CASE = CASES / "offline-010.json"
 OFFLINE_LAUNCH_B_CASE = CASES / "offline-020.json"
 OFFLINE_JOIN_CASE = CASES / "offline-030.json"
-OFFLINE_JOIN_A_CASE = CASES / "offline-030-prism-parity.json"
-OFFLINE_JOIN_B_CASE = CASES / "offline-030-enum-aligned.json"
+OFFLINE_JOIN_A_CASE = CASES / "offline-030-prism-parity-001.json"
+OFFLINE_JOIN_B_CASE = CASES / "offline-030-enum-aligned-001.json"
 
 OFFLINE_CASES = (
     OFFLINE_LAUNCH_A_CASE,
