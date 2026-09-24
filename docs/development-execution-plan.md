@@ -12,18 +12,23 @@
 - `baseline_date`: 2026-09-22
 - `baseline_branch`: `main`
 - `baseline_remote`: `origin/main`
-- `current_next`: `OFFLINE-030-CASE-FILENAME-001`——由本 commit 从 `QUEUED` 提升为唯一 `NEXT`
-  （前一张 `OFFLINE-IDENTITY-RUN-001` 在 `5267399` 收为 `DONE` 并推送，本 commit 之前计划里没有 `NEXT`，
-  满足交接第 1、6 项的顺序）。它解的是 `OFFLINE-030` 判据 5 唯一的阻断：`domain.sh:172` 用 case id
-  小写当 fixture 文件名，于是 `OFFLINE-030-PRISM-PARITY-001` 会去找 `offline-030-prism-parity-001.json`，
-  而 registry 那侧登记的真实文件叫 `offline-030-prism-parity.json`（本次提升前对物复核过：
-  `tests/fixtures/cases/` 下只有 `offline-030.json`、`offline-030-prism-parity.json`、
-  `offline-030-enum-aligned.json` 三份，`cases.py:346-348` 却列着带 `-001` 的三个 id）。
+- `current_next`: `OFFLINE-030-CASE-FILENAME-001`——本条 commit 正在收的卡：它把 `OFFLINE-030`
+  判据 5 唯一的阻断（`-001` 后缀的 case id 找不回自己的 fixture）在 **fixture 侧改名**上解掉，
+  两个子 id 各封出一份真实 `PASS` bundle、四个读者一致，`domain.sh` 一字未动。它收为 `DONE`，
+  同时如实记下父 `OFFLINE-030` 以自己的 id 仍没有 bundle（细节在卡片 `recorded_limits` ①）；
+  本条 commit 之后计划里没有 `NEXT`。
+  （前一张 `OFFLINE-030-CASE-FILENAME-001` 由 `277e601` 从 `QUEUED` 提升为唯一 `NEXT`：阻断是
+  `domain.sh:172` 用 case id 小写当 fixture 文件名，于是 `OFFLINE-030-PRISM-PARITY-001` 会去找
+  `offline-030-prism-parity-001.json`，而当时 registry 那侧登记的真实文件叫 `offline-030-prism-parity.json`。
   卡片把出路写成二选一（runner 侧解析 / fixture 改名），登记时倾向**前者**，理由是「改名会移动已登记
   fixture 的 `case_version`」。那条理由在本卡动手前被读掉了：`src/minekin_core/domain/cases.py:731-733`
   的 `case_version` 取的是 fixture **文档内容**的 sha256，文件名不参与，而两份子 fixture 的 `inputs` 为空、
   内容里也不钉自己的路径——改名不动 `case_version`，也就动不了任何已封存 bundle 的可判读性。因此本卡
-  选择**改名**那条，卡片的 `allowed_paths` 已按此修订，runner 侧解析划掉；改动范围与依据见该卡。
+  选择**改名**那条，卡片的 `allowed_paths` 已按此修订（`2d56a07`），runner 侧解析划掉；改动范围与依据见该卡。）
+  紧随的两个 commit 各做一件事：先以 `QUEUED` 登记 campaign `order` 第 5 个场景（crash/outbox 窗口）
+  的证据设计卡 `CRASH-OUTBOX-EVIDENCE-DESIGN-001`（先例：`ADMIT-070-EVIDENCE-DESIGN-001`、
+  `OFFLINE-IDENTITY-EVIDENCE-DESIGN-001`），再把那一张提升为唯一 `NEXT`——登记的同一 commit 不直接
+  写 `NEXT`，以满足交接第 1 项。在那之前没有别的已登记卡排在这条链上。
   `ADMIT-070-RECORD-SCHEMA-001` 也还是 `QUEUED`，但它自己写明
   不是任何封证卡的下一张，因此不排进这条链。其余未闭合卡仍是
   `HOST-ADMISSION-DESIGN-001`/`OPERATIONS-RETENTION-001`/`PROCESS-RECOVERY-001`
@@ -423,14 +428,15 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
   runner 显式要求、由测试域记录——已由 `ADMIT-070-REFUSAL-INJECTION-001`（`DONE`）交付并在两次
   真实受控诊断上读出；封证由 `ADMIT-070-CASE-001`（`DONE`）完成，停在 `BLOCKED_EVIDENCE` 的
   理由自此消失。
-  **第 4 个场景（OFF-A/OFF-B）现在仍挡住本战役，且挡住的只剩判据 5**：`OFFLINE-IDENTITY-RUN-001`
+  **第 4 个场景（OFF-A/OFF-B）的四个判据现在全部有了真实 bundle**：`OFFLINE-IDENTITY-RUN-001`
   已把 `OFFLINE-010`/`OFFLINE-020` 两列各封出一份 `PASS` bundle（判据 1/2/3/4 逐条在真字节上过），
-  但契约判据 5（A/B 分别加入）落在 `OFFLINE-030` 父 case 与两个 `OFFLINE-030-*-001` 子 case 上，
-  而那三个 id 目前**封不进 harness**——`domain.sh` 把 case id 直接小写当 fixture 文件名，`-001` 后缀
-  不 round-trip。阻断的实测记录与「不就地 hack」的取舍写在那张卡的 `unmet_acceptance`，
-  解它的卡是 `OFFLINE-030-CASE-FILENAME-001`（登记后已提升为唯一 `NEXT`）。本战役因此还是 `BLOCKED_EVIDENCE`，
-  且第 5/6/7 个场景（crash/outbox 窗口、tick/render 采样、promotion report）一概未动。
-- `scenario_progress`: 3/7 场景已完整封为正式 case，第 4 个场景两列各封一份 `PASS`、只剩判据 5。第 1 个：`ADMIT-040`，run
+  判据 5 落在 `OFFLINE-030-PRISM-PARITY-001`/`OFFLINE-030-ENUM-ALIGNED-001` 两个子 case 上，此前
+  因 `domain.sh` 把 case id 直接小写当 fixture 文件名、`-001` 后缀不 round-trip 而**封不进 harness**；
+  那个阻断由 `OFFLINE-030-CASE-FILENAME-001`（`DONE`）在 fixture 侧改名解掉，两列各封一份 `PASS`。
+  本战役仍停在 `BLOCKED_EVIDENCE`，但**挡住的不再是第 4 个场景**：第 5/6/7 个场景（crash/outbox
+  窗口、tick/render 采样、promotion report）一概未动，且第 5 个场景目前没有登记任何卡。
+- `scenario_progress`: 4/7 场景已封为正式 case，且第 4 个场景的五条契约判据现在都有真实 bundle
+  （父 id 自身的署名边界见本节末）。第 1 个：`ADMIT-040`，run
   `6b5856d57dee4052b2ffba3ff9e3459e`，bundle `46565ef2…`，attempt 1，PASS/AGREES。
   第 2 个：`ADMIT-060`，run `7bc740ea4cde4e1aaff074bb64850348`，bundle
   `ca61b64b86b13b0d55528f2f2604825f973c313ba7adaa91fcefe3a2cb29ddcc`，attempt 2
@@ -455,8 +461,16 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
   `OFFLINE-020` run `3d5606ced37849e3b17a4c418fa33ab4`
   （bundle `ff68f67d51ba15afc35efafd89ca8781f31b0a02ed60ea9d9a10b9a2d7de45d8`）。
   两列的 `observed_account_type` 分别是空串与 `LEGACY`（如实记录，不预设，也不为对照好看而重跑）。
-  这一行**不含判据 5**——`OFFLINE-030` 父 case 与两个 `-001` 子 case 到现在仍然没有 bundle，
-  原因见 `blocked_by` 末段与 `OFFLINE-030-CASE-FILENAME-001`。
+  这一行**现在也含判据 5**：`OFFLINE-030-PRISM-PARITY-001` run `ee9d5ad3d57344da8452069102e27216`
+  （bundle `cdb8e53f67d54d5171b2d23741a20d5351bb59c1c7136ffa2f3a53c5d4734295`）与
+  `OFFLINE-030-ENUM-ALIGNED-001` run `cb5e2119845e41868c28e5aeb1370ce3`
+  （bundle `b90cb29b664a872133ffec208634723e37330c357f8876390b17eee2093ee90e`），attempt 各 1、
+  `supersedes_run_id: null`、同一 `bridge_digest`/`launch_plan_digest`、四读一致（细节在
+  `OFFLINE-030-CASE-FILENAME-001` 的 `completion_evidence`）。**一处如实保留的边界**：父
+  `OFFLINE-030` 以自己的 id 仍然没有 bundle——它那一半（离线身份在 `online-mode=false` 专服入服、
+  服务端身份与离线推导一致）已在两份子 bundle 内逐条判过，但没有一份材料以父 id 署名，
+  `report_promotion.py` 里也查不到 `case_id: OFFLINE-030` 的条目。所以「4/7」读作**契约五条判据
+  在真字节上全部有证据**，不读作「第 4 个场景的每个 case id 各自封过一份」。
 - `regression_history`: `ADMIT-040-CLASSIFICATION-001` 曾阻断首场景；受控 Docker 诊断运行
   `fdef1d7192dd480db6aed1c5e7e493dd` 在离线身份连接 `online-mode=true`
   原版服务器时，客户端日志出现 `Failed to log in: Invalid session (Try restarting your game and the launcher)`，
@@ -1775,7 +1789,8 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 
 ### OFFLINE-030-CASE-FILENAME-001 — 让 `-001` 子 case 的 id 能被 harness 找回自己的 fixture
 
-- `status`: `NEXT`（在 `5267399` 以 `QUEUED` 登记并推送，由紧随的本 commit 提升为唯一 `NEXT`）
+- `status`: `DONE`（`5267399` 以 `QUEUED` 登记并推送，由 `277e601` 提升为唯一 `NEXT`；范围修订在
+  `2d56a07`，交付在 `cf9b387`，本 commit 收卡，2026-09-24）
 - `promotion_reason`: 顺序已满足——登记它的那张卡（`OFFLINE-IDENTITY-RUN-001`）在 `5267399` 收卡并
   推到两条 ref，本 commit 之前计划里没有 `NEXT`，中间没有插入别的未授权工作。入口门禁全绿
   （`verify_fixture_digests.py`/`check_case_assertions.py` 139 registered/`check_boundaries.py`/
@@ -1822,7 +1837,87 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
   「找不到」而**不是**静默指向一个空文件（正是 `domain.sh:172` 现在会做的事，本卡按选定的路不给它加机制）。
 - `validation_class`: `REAL_RUN`。
 - `stop_conditions`: 若两条路都要动 registry 语义（即 `cases.py` 里 id 与 fixture 的关系本身要说清），
-  停下并向主控请求决策，不自行选一条。
+  停下并向主控请求决策，不自行选一条。**未触发**：选定的路（fixture 改名）不碰 registry 语义，
+  `cases.py` 一字未改，id 与 fixture 的关系仍由那份小写约定表达。
+- `completion_commit`: `2d56a07`（动手前修订卡片范围：把 `allowed_paths` 从「二选一」写成
+  选定的 fixture 侧改名，并记下翻转到时的依据为何不成立）+ `cf9b387`（交付）。
+- `completion_evidence`:
+  - **改动路径全在修订后的 `allowed_paths` 内**：`tests/fixtures/cases/offline-030-prism-parity.json` →
+    `offline-030-prism-parity-001.json`、`tests/fixtures/cases/offline-030-enum-aligned.json` →
+    `offline-030-enum-aligned-001.json`（两份都是 `git mv`，`similarity index 100%`，内容字节未改）、
+    `tests/fixtures/manifest.sha256`（只有那两行的路径字段变了）、
+    `tests/unit/test_case_registry.py`（两条新测试）、
+    `tests/unit/test_case_evidence_assertions.py`（只换 `:5405-5406` 两个常量）、
+    以及 `docs/development-execution-plan.md`/`docs/development-todo.md`/本契约。**未改**：
+    `test-orchestrator/runner/domain.sh`、`src/minekin_core/`（含 `cases.py`）、任何 case id、
+    任何 `mandatory` 字段、任何旧 bundle。
+  - **验收 ②（改名不动证据，实测）**：改名前后分别用 `load_case_manifest(...).digest` 读同一份内容，
+    得到的 `case_version` 逐字相同——OFF-A 子 case `229750d9f27555bc5c75065d504ee08e7c98c43ea22f403c2f4725a76688ece7`、
+    OFF-B 子 case `377aa638e36a20cf3c81cd11b23eafebf70c4f61040a6be004a4d688b95db870`，与随后真跑封出的
+    两份 bundle 里的 `case_version` 字段一致（见下）。`manifest.sha256` 那两行的 digest 值不变
+    （`84ed4701d123d505…`/`2cda33aff35c6ad0…`），漏改即 `verify_fixture_digests.py` 会同时报
+    `unlisted frozen file` 与 `stale entry`；它在本次收卡门禁里报 `OK`。
+  - **验收 ③（把约定钉住的测试，红→绿）**：`test_every_reviewed_case_is_filed_under_the_name_its_id_derives`
+    在改名**前**跑过一次，结果为 `1 failed, 2 passed`（失败项正是那两份 `offline-030-*` 文件）；改名后绿。
+    `test_a_case_with_no_fixture_is_reported_absent_rather_than_judged_from_nothing` 把另一半年报清楚：
+    把一个 required 子 id 的 fixture 从目录里搬走，registry 读作 `child not in registry.by_id()` 且它出现在
+    `registry.requirement("W30").absent` 里——即「找不到」，不是静默指向一个空文件。
+  - **验收 ①（两个子 id 各封一份 `PASS`，四读一致）**：都在当前 reviewed build 上真跑真封，
+    attempt 均为 1、`supersedes_run_id: null`。
+    OFF-A/`OFFLINE-030-PRISM-PARITY-001`：run `ee9d5ad3d57344da8452069102e27216`、
+    session `7696999c3d1143ad80c4e154e7239f8f`、server 目录 `run-131`、
+    `argv_digest 2c328d39ccbc8469…`、bundle `cdb8e53f67d54d5171b2d23741a20d5351bb59c1c7136ffa2f3a53c5d4734295`。
+    OFF-B/`OFFLINE-030-ENUM-ALIGNED-001`：run `cb5e2119845e41868c28e5aeb1370ce3`、
+    session `0f0850c198ed4e8ba3b6473c4a74e04c`、server 目录 `run-132`、
+    `argv_digest 528c4981e6065c15…`、bundle `b90cb29b664a872133ffec208634723e37330c357f8876390b17eee2093ee90e`。
+    两份都：封存现场 `result PASS`、`failures []`、四条断言 expected==observed、13 件工件、
+    `verified: true`、`violations []`。四个读者：① 封存现场判读（上列）；② `tools/rejudge_evidence.py`
+    `status: None`、`disagreements: []`，重判结果仍 `PASS` 且四条断言齐；③ replay 两路都 exit 0、
+    各投影 19 个事件（`python -m minekin_core replay` 与 `tools/replay_evidence.py`，bundle digest 与封存一致）；
+    ④ `tools/report_promotion.py --work-package W30` 里两条 case 各读作
+    `result PASS`、`sealed: true`、`verified: true`、`re_judged: AGREES`（`re_judge_reason` 空）、
+    `from_repository_build: true`、`attempt_sequence 1`，且 `bridge_digest faeec4a9df83abb9ca0404863e04d20cfd87ac0f3afd5e74b6858e3e15372f55`、
+    `launch_plan_digest 9e0e0ccca9d0a589a38a3f3be40ddbf957f71a51cffe08caf5436153954bfea4` 与
+    `OFFLINE-010`/`OFFLINE-020` 那两列同一。该报告对 W30 整体仍 exit 1，因为包里还有未封的 case，
+    不是这两条的 verdict。
+  - **判据 5 要的两端身份证据在同一份 bundle 内各自可读**（不是跨 run 拼出来的）：服务端侧
+    `online-mode=false`、`Kin joined the game`、usercache `Kin/8f40376b-c23f-3ef1-b553-5564eea75639`；
+    客户端侧 `connection_state PLAYABLE`、`snapshots_admitted 1`、`snapshot_rejections []`。
+    封存材料里 `identity.configured_profile` 两列都是 `bundle-p0-core-1.21.4.json#bb45606023cea201`、
+    `server_observed_name_uuid` 都是 `Kin/8f40376b-…`。
+  - **退出码语义**：两次 `run.sh domain` 都以 14（`BRIDGE_LOST`，run document 里
+    `outcome: BRIDGE_LOST`、`session_state: STOPPED`）结束，那是 harness 主动停客户端造成的，
+    不是任一 bundle 的 verdict；verdict 只来自 seal 报告与四个读者。
+  - **反例在真字节上跑过**（不是测试构造的假材料）：`OFFLINE-030-PRISM-PARITY-001` 的 case 判 OFF-B 那份
+    bundle → `FAIL this_run_started_the_identity_candidate_the_case_names:ARGV_NAMES:enum-aligned`，
+    反向 → `…:ARGV_NAMES:prism-parity`；把同一份材料的 `session_argv` 换成 `None` 再判 →
+    `FAIL …:LAUNCH_ARGV_UNRECORDED`。这三条与 `RUN-001` 那两列的反例形状一致，说明改名没有把归因判据
+    变成永真。
+  - **本地门禁**（收卡时在当前工作树重跑，含本次文档改动）：`uv run --frozen pytest -q` →
+    `2146 passed / 2 skipped in 316.19s`；`ruff check . -q` exit 0；`ruff format --check .` →
+    `304 files already formatted`；`pyright` → `0 errors, 0 warnings, 0 informations`；
+    `verify_fixture_digests.py` → `W00 schema and fixture digests: OK`；`check_case_assertions.py` →
+    `OK (139 registered)`（改名移动过的 digest 数为 0）；`check_boundaries.py` OK；
+    `check_workflow_pins.py` OK；`git diff --check` 干净。
+  - **两轴自审**：规范轴——本次仅有 `git mv`、两行路径、两个常量与测试/文档，依赖方向未变
+    （`check_boundaries.py` 绿），无新增抽象；规格轴——契约的迁移语义写着「没有既有 case id 被改名、
+    被删除或被重新编号」，本次一个 id 都没动，动的只是承载它的文件名，因此 `OFFLINE-001/010/020/040/050`
+    的 fixture 与 digest 行逐字未变。发现的唯一自审问题是登记卡片时那条「改名会移动 `case_version`」
+    的前提本身读错（`cases.py:731-733` 的 digest 只看 manifest 内容），已在动手前以 `2d56a07` 显式
+    纠正并记录，而不是静默换路。
+- `recorded_limits`: ① 父 `OFFLINE-030` 以自己的 id **仍没有 bundle**：它唯一那条断言已在两份子 bundle
+  里逐条判过，再封一份只是同一材料的子集，本卡因此没有为它跑第三次；`report_promotion.py` 里查不到
+  `case_id: OFFLINE-030` 的条目，这是事实而不是工具缺陷。② `domain.sh` 的小写派生规则没有被 Python 侧
+  镜像（那会造第二份真相）；约定测试钉的是 fixture 目录的命名，若将来 runner 的派生规则要变，仍需
+  在 runner 自己的范围内做。③ 改名后 `offline-030-*` 两个子 case 的历史 bundle 本来就不存在，所以
+  这次没有任何旧证据要读作 `UNJUDGED`；若将来某个已封 case 的文件名再动，这条前提不再成立，要重新核。
+  ④ Linux 上逐字节复现当前 Bridge jar 仍欠（既有遗留，与本卡无关）。
+- `next_after_done`: 本卡收完后，campaign `order` 的下一个场景是**第 5 个（crash/outbox 窗口）**，
+  而计划里**没有**任何已登记的卡覆盖它。按交接第 1 项（新卡先 `QUEUED`、不得直接 `NEXT`），
+  紧随的两个 commit 各做一件事：登记 `CRASH-OUTBOX-EVIDENCE-DESIGN-001`（`QUEUED`），然后把它
+  提升为唯一 `NEXT`。该卡的产物是判据冻结，不是封证；先例是 `ADMIT-070-EVIDENCE-DESIGN-001` 与
+  `OFFLINE-IDENTITY-EVIDENCE-DESIGN-001`。`ADMIT-070-RECORD-SCHEMA-001` 仍 `QUEUED` 且自述不在
+  这条链上；`VERSION-AUTO-DESIGN-001` 与 HOST/PERSIST 一族仍需主控决策，未排入。
 
 ### OFFLINE-IDENTITY-SEALED-ARGV-001 — 让封存时的 live 判读也拿到那份 argv
 
