@@ -2539,8 +2539,28 @@
   case assertions(139)、fixture digests、workflow pins、`git diff --check` 全绿
   （`.tmp/v04-gate-chain-2.log`）；案文档修订后三道受影响门重跑仍绿。CI `f90d95d` 的 run #473/#472
   三 job 全 Success（浏览器逐条看过，注解只有 Node 20 弃用与 runner 镜像迁移提示）。
-- **仍未测（不把任一写成已过）**：三案在 1.20.1 上的**反例**（版本不符 / Bridge 摘要不符 / 认证模式
-  不符）未单独封证；`V1201-040` 那次运行文档里 `input_release_failed: true`（停止阶段命令送不进已
+- **仍未测（不把任一写成已过）**：`V1201-040` 那次运行文档里 `input_release_failed: true`（停止阶段命令送不进已
   消失的通道），故只声明"lease 到期松键被记账"，不声明停止阶段显式松键送达；1.20.1 的 use-target
   方块变化未证；IPC hello 的版本声明仍写死（`VERSION-BRIDGE-IDENTITY-001` 保持 `QUEUED`），本卡全部
   证据不引用该字段；未连接用户真实远程服。
+
+## V04 反例与 CI 补读（2026-09-25，受控 runner / Docker / Linux）
+
+- **反例已实测**（脚本 `.tmp/v04-counterexamples-3.sh`、日志 `.tmp/v04-counterexamples-3.log`）：
+  五条准入反例在 `session start` 上全部 **exit 17 / ADMISSION / launcher.profile**，1–2 秒返回
+  （早于任何客户端拉起），消息逐条不同名：allowlist 写 `1.21.4`、`auth_mode: online`、host 改
+  `192.0.2.1`（TEST-NET-1，不指向真实主机）、allowlist 两项、`version_policy.mode: deny_all`。
+  Bridge 摘要反例（recipe `artifacts[1].digest` 改全零）在 `bundle verify` 与
+  `launch-plan --dry-run` 上双双 **exit 11 / SUPPLY_CHAIN / launcher.recipe**。
+- **成对控制**：未改动的 1.20.1 目标被同一准入门判 accepted（`127.0.0.1:25566`/`offline`）；
+  未改动的 1.20.1 recipe 被 `bundle verify` 判 `valid_recipe`、exit 0、plan `ac40316094dd…`。
+  五份改动物各自 sha256 记在日志 F 段。
+- **失败材料保留**：前两次尝试（`.tmp/v04-counterexamples.log`、`-2.log`）的报错在我自己的脚本里
+  ——臆造 `session start --kin-id`、`bundle verify <path>`，以及 JSON 改写助手对字典键调用
+  `int()` 把文档截断成"不是可读 UTF-8 JSON"。它们不是关于门的证据，一条也没记成通过。
+- **CI 补读**（浏览器逐条看过）：`bc80299` → #474/#475 成功；`3b512ee` → #476/#477 成功，#477 三
+  job 为 python 2m35s / protocol 7s / bridge-static 15s，注解只有 Node 20 弃用与 runner 镜像迁移
+  提示。历史失败 #460（`b3531a2`，22s）是 python job 在 `Run uv sync --locked --dev` 步骤失败
+  （lockfile 与 pyproject 不同步），protocol/bridge-static 通过；#461 起连续为绿。
+- **反例不证明的事**：非回环地址可加入（第 ③ 条恰恰拒绝它，属 HOST 准入卡的产品决策）；
+  `BridgeHello` 版本字段正确性（属 `VERSION-BRIDGE-IDENTITY-001`）。

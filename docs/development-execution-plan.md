@@ -3485,11 +3485,11 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
   **139 项断言实现一字未动**：新案的摘要与 1.21.4 对应案逐项相同（如
   `first_snapshot_admitted` 两侧同为 `720a4db1b8bf…`），差异只在 case 文档本身即 `case_version`。
   ⑩**封证路径的版本化已完成，逐项封证与四读也已完成**（见 ⑪⑫）。本条原来的"尚未做"清单现在
-  只剩三项：`domain/world_creation.py` 与 `cli/bootstrap` 的 bundle 标识是否仍单版本——三案的真跑
+  只剩两项：`domain/world_creation.py` 与 `cli/bootstrap` 的 bundle 标识是否仍单版本——三案的真跑
   没有碰到这条路径（受控专服不是 HOST 世界），所以本卡**不**据推断改动它，只把它留在未验证列表上；
-  runner 镜像的 JDK 17 备选（⑦ 量到镜像自带的 Java 21 能起 1.20.1 客户端，故这不是阻断）；
-  以及三案各自的**反例**（版本不符即拒、Bridge 摘要不符即拒、认证模式不符即拒），
-  它们与 ⑫ 的正例是同一道门的两侧，尚未在 1.20.1 上单独封证。
+  runner 镜像的 JDK 17 备选（⑦ 量到镜像自带的 Java 21 能起 1.20.1 客户端，故这不是阻断）。
+  三案各自的**反例**（版本不符即拒、Bridge 摘要不符即拒、认证模式不符即拒）已在 1.20.1 上单独
+  实测，见 ⑮。
 - `seal_path_versioning`（2026-09-25）：`tools/seal_run_evidence.py` 改走会话与受控工装同一道
   `load_session_server_profile()` 准入门，Bridge 摘要按启动版本取 `recipe.bridge_identity(...)`
   （`f90d95d`，已推送并核对两 ref）；`tools/report_promotion.py` 的 build 对照改为**按 bundle 自述
@@ -3540,6 +3540,35 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
   digests、case assertions、boundaries）仍全绿。CI（`f90d95d` 的 run #473/#472）三个 job
   python/protocol/bridge-static 全 Success，注解只有 Node 20 弃用与 ubuntu-latest 迁移提示；
   CI 不作为本卡验收证据，只是回归信号。
+- `progress_record_15_counterexamples`（2026-09-25，受控 runner / Docker / Linux，真实 CLI 实测）：
+  与 ⑫ 的正例成对，本卡在 1.20.1 上把这道门的另一侧也量了一遍（脚本
+  `.tmp/v04-counterexamples-3.sh`、日志 `.tmp/v04-counterexamples-3.log`；前两次尝试
+  `.tmp/v04-counterexamples.log`/`-2.log` 的失败在我自己的脚本里——臆造的 `--kin-id` 参数与
+  写坏 JSON 的改写助手——它们不构成关于门的任何证据，故不记为通过）。**控制**：未改动的
+  `controlled-offline-server-1.20.1.json` 被同一个 `load_session_server_profile(...,
+  minecraft_version="1.20.1")` 判为 accepted（`127.0.0.1:25566`、`offline`）；未改动的
+  `bundle-candidate-1.20.1.json` 被 `bundle verify` 判为 `valid_recipe`、exit 0、plan
+  `ac40316094dd…`。五条准入反例各自在 `session start` 里以 **exit 17 / ADMISSION /
+  launcher.profile** 拒绝，且都在 **1–2 秒**内返回——真实 1.20.1 会话到主菜单要几分钟，故这
+  些拒绝发生在任何客户端被拉起之前：①allowlist 只写 `1.21.4` → "the session launches Minecraft
+  1.20.1, the target allows 1.21.4"；②`auth_mode: online` → "v2 profiles have no online-mode
+  admission path"；③host 改成 `192.0.2.1`（TEST-NET-1 文档地址，不指向任何真实主机，也不需要
+  网络可达即可判定）→ "a managed session may only join a loopback target; remote joining needs
+  its own authorization card"；④allowlist 两项 → "…must allow exactly one version, this one
+  lists 1.20.1, 1.21.4"；⑤`version_policy.mode: deny_all` → "server profile version_policy mode
+  is not reviewed"。供应链反例：把 recipe 里 `artifacts[1].digest`（minekin-bridge）改成全零，
+  `bundle verify` 与 `launch-plan --dry-run` 双双 **exit 11 / SUPPLY_CHAIN / launcher.recipe**
+  → "candidate Bridge jar pin is not the reviewed build of the 1.20.1 root"。五份改动物各自
+  的 sha256 记在同一日志 F 段，便于复算"拒的是哪份字节"。
+  **这些反例证明的范围**：准入门与摘要门在 1.20.1 上仍会拒，且拒得有名有姓；它们**不**证明
+  非回环地址可以加入（③恰恰重申了它不能，那是 HOST 准入卡的产品决策），也**不**覆盖
+  `BridgeHello` 的版本字段（仍属 `VERSION-BRIDGE-IDENTITY-001`）。
+- `progress_record_16_ci_readings`（2026-09-25，浏览器逐条读过）：`bc80299` 的 run #474（工作分支）
+  与 #475（main）、`3b512ee` 的 #476/#477 全部成功；#477 的三个 job 时长为 python 2m35s、
+  protocol 7s、bridge-static 15s，注解只有 Node 20 弃用与 ubuntu-latest 迁移提示两类。历史失败
+  #460（`b3531a2`，工作分支，22s）在浏览器里读到原因：python job 在 `Run uv sync --locked --dev`
+  这一步失败（lockfile 与 pyproject 不同步），protocol 与 bridge-static 通过——它不是测试失败，
+  且从 #461 起本仓 CI 连续为绿。这些仍是回归信号，不是本卡的 Minecraft 验收证据。
 - `server_supply_chain`（2026-09-25 实测，来自 Mojang 官方 `version_manifest_v2` → 1.20.1 条目）：
   dedicated server `sha1 84194a2f286ef7c14ed7ce0090dba59902951553` / 47,791,053B，
   `piston-data.mojang.com/v1/objects/84194a2f…/server.jar`；client `sha1 0c3ec587af28e5a785c0b4a7b8a30f9a8f78f838`
