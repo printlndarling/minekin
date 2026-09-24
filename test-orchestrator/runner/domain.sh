@@ -1808,6 +1808,30 @@ PY
     fi
 fi
 
+# Whether a captured stdout file holds Core's own run document.
+#
+# Having bytes is not the same question, and confusing the two cost a run: the
+# session is launched inside `xvfb-run`, whose own last command is `"$@" 2>&1`, so
+# when this harness kills the runtime controller — that wrapper's child — the death
+# notice arrives on the stream the document is captured from and leaves seven bytes
+# that say nothing about what Core did. Handing such a file to the sealer as a
+# document makes it refuse the whole run, and a killed Core is exactly the run whose
+# absence of a document is the point. An unparseable file is therefore reported as
+# *no document*, which is the branch `--run-id` below was written for.
+holds_run_document() {
+    python - "$1" <<'PY'
+import json
+import sys
+
+try:
+    with open(sys.argv[1], encoding="utf-8") as handle:
+        document = json.loads(handle.read())
+except (OSError, ValueError):
+    raise SystemExit(1)
+raise SystemExit(0 if isinstance(document, dict) else 1)
+PY
+}
+
 # Sealing, which is what makes this a case run rather than a run.
 #
 # The leave has to be in the server's log before the case can be judged, and the
@@ -1884,7 +1908,11 @@ if [[ -n "${case_id}" ]]; then
         world_args=()
     fi
     named_run=(--run-document "${subject_document}")
-    if [ ! -s "${subject_document}" ]; then
+    if ! holds_run_document "${subject_document}"; then
+        # Said out loud, because a bundle sealed from a run with no document has to be
+        # tellable in the transcript from a seal that quietly stopped looking for one.
+        printf 'domain: %s holds no run document, so this run is named by its ledger id\n' \
+            "${subject_document}" >&2
         named_run=(--run-id "${run_id}")
     fi
     # The record of the fault this run injected, when it injected one. It is named

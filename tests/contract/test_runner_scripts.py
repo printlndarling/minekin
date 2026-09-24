@@ -306,3 +306,44 @@ def test_the_first_snapshot_refusal_is_asked_for_by_value_and_judged_by_core() -
     # "no problems" merely because the block never ran.
     assert 'print("domain: Core refused this run\'s first snapshot as asked")' in text
     assert 'elif [ -s "${request_path}" ]; then' in text
+
+
+def test_a_run_whose_core_was_killed_is_still_named_by_the_ledger() -> None:
+    """A killed Core prints nothing, and the wrapper's notice is not a run document.
+
+    The seal branch used to ask "does the captured file have any bytes?" when the
+    question is "did Core print its own document?". Those are different questions
+    because the session runs inside `xvfb-run`, whose own command line is
+    `"$@" 2>&1`: when the runtime controller — that wrapper's child — is SIGKILLed,
+    the death notice arrives on the captured stream and leaves seven bytes that say
+    nothing about what Core did. The guard then handed `Killed` to the sealer, which
+    refused it, and the run could not be sealed at all. Measured in the container:
+    killing only the inner python left the document file at exactly `Killed` and the
+    wrapper's own stderr empty; killing the same child with no wrapper left both
+    streams empty; and killing the wrapper together with the child — the shape the
+    global `pkill -f` had before the identity binding — left the document file empty,
+    which is why the fallback below had never been exercised since.
+
+    The fix keeps the fault injection alone: the target is still named by identity,
+    because naming it any other way would make `runtime_controller_sigkill_was_confirmed`
+    assert a kill the harness never attributed.
+    """
+
+    text = (RUNNER / "domain.sh").read_text(encoding="utf-8")
+
+    # Emptiness is no longer the test the seal branch applies to that file.
+    assert '[ ! -s "${subject_document}" ]' not in text
+    # What it asks instead: is this Core's own run document, i.e. JSON that is an
+    # object. A scalar or a notice parses as nothing, and "nothing" is the answer.
+    assert "holds_run_document() {" in text
+    assert 'if ! holds_run_document "${subject_document}"; then' in text
+    assert "isinstance(document, dict)" in text
+    # A file that is not a document leaves the run unnamed by document, named by the
+    # id this run's own first ledger row carries.
+    assert "named_run=(--run-id" in text
+    # And the downgrade is said out loud: a bundle sealed without a document has to
+    # be tellable, in the transcript, from a seal that quietly stopped looking.
+    assert "holds no run document" in text
+    # The kill itself is untouched: identity-bound, through the helper.
+    assert 'inject_fault "${session_pid}" "runtime_controller"' in text
+    assert 'pkill -KILL -f "minekin_core session start"' not in text
