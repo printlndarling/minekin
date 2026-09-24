@@ -3402,6 +3402,36 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
   仍禁：`bridge/` 与 `bridge-1201/` 的源码（若真跑暴露版本适配缺陷，先回到本卡再修订一次）、
   任何已封 bundle 与旧 evidence、`domain/admission.py` 的无条件禁区、Player-Equivalent/lease/准入
   判据、在线认证、用户真实远程服。触及冻结产品语义时按停止条件另开卡，不在本卡顺手放宽。
+- `fixture_version_contract_amendment`（2026-09-25，写码前登记）：本卡要提交仓库里**第一份 committed v2
+  fixture**（`tests/fixtures/runtime-input/controlled-offline-server-1.20.1.json`），而冻结门
+  `tests/contract/test_fixture_boundaries.py::test_all_json_contracts_are_parseable_and_versioned`
+  写的是「schema/launcher 之外的每份 fixture 都是 `schema_version == 1`」。冲突不是理论上的：加入该
+  fixture 后 `uv run pytest -q` 实测 `2 failed, 2351 passed, 2 skipped`——除了门本身，还有把这条门当作
+  check 的仓库案 `W00-CONTRACT-001`（`tools/run_repo_case.py` 输出
+  `"result":"FAIL","failures":["schemas_are_versioned:CHECK_FAILED:exit 1"]`）。根因在 V01：它已提交
+  `schemas/server-profile-v2.schema.json` 与 v2 加载器，却没有提交任何 v2 fixture，所以这道门从未被迫
+  表态。**修订不放宽判据，反而更严**：fixture 声明的版本必须是**某份已提交 schema 以 `const` 冻结的
+  值**（今天为 1 与 2），因此任何没有 schema 支撑的版本仍被拒；同时给新 fixture 在
+  `test_runtime_fixtures_conform_to_their_json_schemas` 里补一条对 v2 schema 的 conformance pair，让它被
+  真正校验而不是被豁免。`W00-CONTRACT-001` 的 `schemas_are_versioned` check 一字不改，仍在案里跑。
+  据此本卡额外允许改：`tests/contract/test_fixture_boundaries.py`（仅上述两处的版本口径）及其对应测试。
+- `progress_record`（2026-09-25，仍 `NEXT`，未收卡）：
+  ①**会话准入路径**已交付（`3203dbf`，两 ref 已核对）：`server_profile.load_session_server_profile()`
+  按 `schema_version` 分发，v1 分支一字未改、仍把版本与所启动 recipe 对照；v2 只在
+  `is_loopback ∧ auth_mode=offline ∧ allowed_versions 恰一项且等于启动版本` 时被接受，其余以明确理由拒绝。
+  `cli/session.py` 新增 `launched_minecraft_version()` 从 launcher profile 自述取版本，并以两份真实
+  bundle fixture（1.21.4 与 1.20.1 candidate）作正例对照。新增 13 项定向测试。这仍只是**准入**，不是
+  入服证据。
+  ②**受控服务端工装按版本键入**（本次提交）：`tools/run_controlled_server.py` 引入
+  `SERVER_RECIPES`（`1.21.4`：jar sha1 `4707d00e…`/56,880,250B、资源包格式 46；`1.20.1`：sha1
+  `84194a2f…`/47,791,053B、格式 `None`），原来的单版本常量全部撤掉；新增 `--version` 选单，
+  且 profile 改为经 `load_session_server_profile` 读取——工装起不了产品不肯连的服务端；未评审资源包
+  格式的版本的 `--resource-pack` 请求按 `deferred_within_card` fail closed 并报明原因。配套 3 项
+  contract 测试（两份 recipe 各自可加载、profile_id/端口互不相同、无格式即拒）。
+  ③**尚未做**（本卡仍 `NEXT`、未 `tested`）：其余工装与产品 pin 的版本化（`verify_supply_chain.py`、
+  `fetch_bundle.py`、`report_promotion.py`、`check_case_assertions.py`、`world_creation.py`/
+  `cli/bootstrap` 的 bundle 标识）、runner 镜像的 JDK 17 与版本旋钮、1.20.1 新 case 清单与断言摘要、
+  自证式的 1.20.1 入服开关确认、以及 Docker 里那次真实闭环与逐项独立封证 + 四读。
 - `server_supply_chain`（2026-09-25 实测，来自 Mojang 官方 `version_manifest_v2` → 1.20.1 条目）：
   dedicated server `sha1 84194a2f286ef7c14ed7ce0090dba59902951553` / 47,791,053B，
   `piston-data.mojang.com/v1/objects/84194a2f…/server.jar`；client `sha1 0c3ec587af28e5a785c0b4a7b8a30f9a8f78f838`
