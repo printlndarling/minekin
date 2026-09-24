@@ -107,8 +107,8 @@ bundle id 与结果；旧代回调不能推进新代。`BLOCKED` 不自动回退
 | V02 | `VERSION-SERVER-PROBE-001` | `DONE` | 只读 DNS/SRV/status 与归因 | V01 |
 | V03 | `VERSION-BUNDLE-1201-001` | `DONE` | 独立 1.20.1 candidate 构建、pin、SBOM | D |
 | V04 | `VERSION-LOCAL-1201-001` | `DONE`（`tested` 判据成立；registry 承载属 V05） | 受控 1.20.1 真服/真客户端验收到 `tested` | V01,V03 |
-| V05 | `VERSION-RESOLVER-001` | `NEXT`（由主计划提升） | catalog / tested registry / 歧义阻断 | V02,V04 |
-| V06 | `VERSION-INSTALLER-001` | `QUEUED` | 缺缓存自动安全安装与原子发布 | V03,V05 |
+| V05 | `VERSION-RESOLVER-001` | `DONE`（清单承载与解析边界已落地） | catalog / tested registry / 歧义阻断 | V02,V04 |
+| V06 | `VERSION-INSTALLER-001` | 待登记（主计划尚无卡片正文） | 缺缓存自动安全安装与原子发布 | V03,V05 |
 | V07 | `VERSION-SESSION-SWITCH-001` | `QUEUED` | 自动选包、停止旧代、启动新代 | V01,V05,V06 |
 | V08 | `VERSION-REMOTE-SMOKE-001` | `QUEUED` | 用户目标只读探测及非破坏性入服 | V07 |
 | V09 | `VERSION-SIMPLE-CONTROL-001` | `QUEUED` | 目标服一次 look/move/release 闭环 | V08 |
@@ -237,10 +237,18 @@ bundle id 与结果；旧代回调不能推进新代。`BLOCKED` 不自动回退
   pinned id 也必须匹配当前目标和 tested 约束。变 registry 字节会移动决策版本。
 - **停止**：协议共享版本的优先级不能由既有契约唯一确定时不新增默认排序；
   候选冲突进入 `NEEDS_PIN`，必要时交用户决定。
-- **现况**（2026-09-25，`NEXT`，由主计划 `c90bc51`+提升提交登记）：本卡领取前先读主执行计划 V05 卡的
-  `registry_carrier_decision` 与 `open_semantics` 两格——清单必须是**新增的被审文件**而不是改动 V03
-  已封存 candidate 的 `status` 字节（那会移动 fixture digest 与 `case_version`，把 V04 刚封的四读打成
-  `UNJUDGED`）；"recipe 算不算 tested"不能唯一确定，本路线取更窄的一读并逐条引用 evidence。
+- **现况**（2026-09-25 收卡，`DONE`；登记 `c90bc51`、提升 `b9f7e2d`、交付 `f70fddc`）：验收线成立。
+  解析边界是新纯领域模块 `src/minekin_core/domain/version_resolution.py`，清单是**新增的被审文件**
+  `tests/fixtures/registry/reviewed-tested-bundles.json`（摘要 `d9e4823b80f5…`，以新增行进 fixture
+  manifest）——**没有**改动 V03 已封存 candidate 的 `status` 字节，两份 recipe 至今仍自称
+  `candidate`/`recipe`（有反向测试断言这件事）。1.20.1 与 1.21.4 各自选到唯一 `tested` bundle，且各自
+  引用**同一 build** 的独立封证；跨 build 引用、非 `PASS` 引用与无引用的 `tested` 条目由 loader 机械拒载，
+  所以"旧 build 证据称为 tested"现在是代码约束而不是判据口号。未知协议/一对多/多版本代理/目标歧义/
+  伪造展示文本/缺当前 OS·arch/非 `tested`/`quarantined`/过期探测/策略拒绝/无协议号共 12 类反例各有
+  一个稳定类别，且都不再试登；协议共享版本时**没有**新增默认排序，冲突进 `NEEDS_PIN`。改一个清单字节
+  即移动 `registry_revision` 并改变决策。**本卡未证**：未接入 `session start`（V07）、零下载零安装（V06）、
+  未对真实远程目标解析（V08）、CLI 无 resolver 入口。逐格账在目
+  `development-execution-plan.md` 的 V05 卡（`delivery_record_v05`…`ci_read_v05`）。
 
 ### V06 `VERSION-INSTALLER-001`：缺缓存时自动安全准备
 

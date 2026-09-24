@@ -1,23 +1,25 @@
 # Qoder 临时执行交接（2026-09-24）
 
-> **最新交接点（2026-09-25，跨版本路线执行中）**：唯一 `NEXT` 是
-> `VERSION-LOCAL-1201-001`（V04，`93d30f3` 登记、本提交提升），**不是**下文 ADMIT-070 起步卡，
-> 也不是 V01/V02/V03（三者已 `DONE`）。V03 交付了什么：1.20.1 官方供应链核对、launcher 侧无漂移
-> 泛化（recipe/metadata/launch_plan/schema + candidate recipe 端到端 `bundle verify`）、按已登记
-> 范围修订新建的顶层独立 `bridge-1201/` Loom 工程（四处 1.20.1 类迁移已适配，jar sha256
-> `9e162d83…`/1,308,469B，四次构建逐字节相同）、Bridge 身份泛化为按 root 命名、六道静态门两 root
-> 各跑一遍；`bridge/` 与 1.21.4 pin **一字未改**、无漂移。**V03 没有证明的事**：1.20.1 客户端从未
-> 启动、从未入服，`launchable` 不等于验收，本卡零项 `tested`。
-> **V04 只做一件事**：在隔离的 1.20.1 `online-mode=false` 专服上，用离线身份把 V03 candidate 跑成
-> 真实闭环（握手→入服→同代权威首快照→look/有界 move/release→服务端 name/UUID/位移→断连松键→
-> 正常停止），配错误版本/错误 Bridge/认证策略/旧 generation 四个反例，每个 required 结果独立封证
-> 四读；全部成立才把**精确的** 1.20.1 Linux/arch 组合登记 `tested`。硬前置与未决点写在主计划
-> V04 卡的 `known_preconditions`（含 1.20.1 入服开关尚未核实这一条）。**不复用** 1.21.4 的 case
-> version/证据，不改用户服，不连接用户真实远程服（属 V08）。
-> **主干回归已修**：CI 的 `python` job 自 run 423 起一直红在一个跨平台测试上（封存 bundle 目录在
-> Linux 不可 rename），`1ab1d96` 起 run #448/#449 三 job 全绿，被它挡住的六道门第一次真的跑过。
-> **每次 push 后必须在浏览器里逐 job 读 Actions 结果**，不能只看本地门禁——这条被自己违反过一次；
-> V03 交付提交已按此读过 run #452（工作分支）与 #453（`main`）的全部三 job 与步骤列表。
+> **最新交接点（2026-09-25，跨版本路线执行中）**：**此刻没有 `NEXT` 可领。**
+> `VERSION-RESOLVER-001`（V05）已收为 `DONE`（登记 `c90bc51` → 提升 `b9f7e2d` → 交付 `f70fddc` →
+> 本提交收卡），下一张 `VERSION-INSTALLER-001`（V06）在主执行计划里**还没有卡片正文**：它必须先被
+> `QUEUED` 登记，再在**另一次独立提交**里提升为唯一 `NEXT`。在那之前不得自行领取 V06，也不得回到
+> 下文 ADMIT-070 起步卡或 V01–V04（四者均已 `DONE`）。
+> **V05 交付了什么**：纯领域解析边界 `src/minekin_core/domain/version_resolution.py`（只依赖 stdlib 与
+> `minekin_core.domain.*`）、**新增**的被审清单 `tests/fixtures/registry/reviewed-tested-bundles.json`
+> （摘要 `d9e4823b80f5…`，以新增行进 `tests/fixtures/manifest.sha256`，既有 82 行一字未动）、44 条
+> 单元/契约测试。`tested` 从此有了机器可读承载：1.20.1 与 1.21.4 各自以**同一 build** 的独立封证被选中
+> （1.20.1 → V04 四案；1.21.4 → 当前 build 的 12 案，本卡补封了握手格 `CORE-010`），而跨 build 引用、
+> 非 `PASS` 引用、无引用的 `tested` 条目由 loader 直接拒载——"旧 build 证据称为 tested"这条禁令现在是
+> 代码而不是口号。**没有**读 recipe fixture 的 `status` 字段，两份 recipe 至今仍自称 `candidate`/`recipe`。
+> 协议号来自真实只读探测（1.21.4 → 769；1.20.1 → 763，在受控 vanilla 服上实测），清单里没有任何目标地址。
+> **V05 没有证明的事**：解析未接进 `session start`（属 V07）、零下载零安装（属 V06）、没对**真实远程**
+> 1.20.1 目标解析过（属 V08）、CLI 没有 resolver 入口；`launchable`/`RESOLVED` 都不等于验收。
+> **CI 已按规矩在浏览器里逐 job 读过**：`f70fddc` 两 ref 一致，`main` run **#491** 三 job 全绿且逐步骤
+> 打开过（`python` 20 步含 pytest 1m54s、`protocol` buf 三检、`bridge-static` 8 步），工作分支 run
+> **#490** 同 commit 在列表页读到成功；#491 的 2 warnings/3 notices 全是 GitHub 平台公告（Node 20 弃用、
+> runner-images #14748），不是本仓库的红灯。**CI 不是 Minecraft 验收证据**，Minecraft 侧真实运行只有
+> 受控 runner 里那一次只读握手。
 > 以下 ADMIT-070 起步任务和阶段说明是
 > 当时的历史执行路线，**不是当前领取任务的授权**。七个已排定的 P0 campaign 场景
 > 已走完（`scenario_progress 7/7`），但 [`development-execution-plan.md`](development-execution-plan.md)

@@ -12,15 +12,23 @@
 - `baseline_date`: 2026-09-22
 - `baseline_branch`: `main`
 - `baseline_remote`: `origin/main`
-- `current_next`: `VERSION-RESOLVER-001`（V05，`c90bc51` 登记 `QUEUED`，本提交单独提升为唯一 `NEXT`；
-  `VERSION-LOCAL-1201-001` 已 `DONE` 收卡 `55e9bce` 并推送）。
+- `current_next`: **本提交起暂无 `NEXT`**——`VERSION-RESOLVER-001`（V05）已在本提交收为 `DONE`
+  （登记 `c90bc51`、提升 `b9f7e2d`、交付 `f70fddc`），而下一张 `VERSION-INSTALLER-001`（V06）在主计划里
+  还没有卡片正文，须先以 `QUEUED` 登记、再在**另一次独立提交**提升；在那之前任何执行者都不得自行领取
+  V06 或其它卡。
   用户在七场景总账后明确把“自动识别服务器版本 → 准备匹配客户端 → 入服并完成简单控制”排为优先路线；
   `VERSION-AUTO-DESIGN-001` 已交付[跨版本连续执行计划](version-auto-to-server-control-plan.md)。
-- `last_checkpoint`: **跨版本路线走到 V05**——V04 `VERSION-LOCAL-1201-001` 已于 `55e9bce` 收为 `DONE`：
+- `last_checkpoint`: **跨版本路线走到 V05 收卡**——V05 `VERSION-RESOLVER-001` 交付的是纯领域解析边界：
+  新模块 `src/minekin_core/domain/version_resolution.py` + 新增被审清单
+  `tests/fixtures/registry/reviewed-tested-bundles.json`（摘要 `d9e4823b80f5…`，以**新增行**进
+  `tests/fixtures/manifest.sha256`，既有 82 行未动）+ 44 条单元/契约测试。`tested` 从此有了机器可读承载，
+  且由 loader 强制"证据必须来自同一 build"（跨 build 引用直接拒载），1.20.1 与 1.21.4 各自选到唯一
+  bundle；歧义/代理/过期/非 tested 全部落到稳定失败类别，没有默认排序。**V05 没有证明的事**：解析未接入
+  `session start`（V07）、没有任何下载/安装（V06）、没有对真实远程目标解析过（V08）。**上一轮**把
+  `VERSION-LOCAL-1201-001`（V04）于 `55e9bce` 收为 `DONE`：
   四案（`V1201-010/020/040/070`）各一次真实运行、独立封证、四读一致，四条反例（错误版本、错误 Bridge、
   认证策略拒绝、旧 generation）在 1.20.1 上各自成立，`tested` 的精确组合与未证清单分别记在
-  `tested_registration_decision` 与 `not_established_v04`。`tested` 的机器可读登记**没有**在 V04 落地
-  （理由与后果见该格），其承载即本卡 V05 的清单文件。**上一轮**把
+  `tested_registration_decision` 与 `not_established_v04`。**更早**把
   `REAL-P0-CAMPAIGN-001.order` 第 7 也是最后一个场景（阶段 F 晋级总账）的只读卡 `P0-PROMOTION-LEDGER-001`
   收为 `DONE`（`532446e` 登记 `QUEUED`、`28876e3` 提升 `NEXT`）。`scenario_progress 6/7→7/7`——七个 `order`
   场景全部走完。**但 campaign 总体如实为 `BLOCKED/INCOMPLETE`，不标 `DONE`**：机器
@@ -3667,7 +3675,8 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 
 ### VERSION-RESOLVER-001 — 只从 reviewed tested 清单选包
 
-- `status`: `NEXT`（`c90bc51` 登记 `QUEUED`，本提交单独提升为唯一 `NEXT`；当前无第二张 `NEXT`）。
+- `status`: `DONE`（`c90bc51` 登记 `QUEUED`、`b9f7e2d` 提升为唯一 `NEXT`、实现与清单交付 `f70fddc`、
+  本提交收卡。当前无第二张 `NEXT`）。
 - `baseline_sha`: `c90bc51`（本卡 `QUEUED` 登记提交，紧随 V04 收卡 `55e9bce`，两者均已推送并核对两
   ref）。领取时实际 checkout = 本提升提交。
 - `depends_on`: `VERSION-SERVER-PROBE-001`（V02 的 observation 形状）、`VERSION-LOCAL-1201-001`
@@ -3754,6 +3763,19 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
   （6 个 pin 仍匹配）各为 OK；`git diff --check` 干净。**这些是静态与单元门禁，不是 Minecraft 验收**：
   本卡的真实运行只有 `progress_record_1_new_1214_sealing` 那一次受控握手与 `measured_inputs_v05`
   的只读探测。
+- `ci_read_v05`（交付提交 `f70fddc` 推送后，在浏览器里逐 job 逐步骤读过）：两 ref 都到
+  `f70fddcc6a671edadc3c69f7533e142e87ecb417`；`main` 上 run **#491** 总时长 2m41s、`Success`，三个 job
+  逐个打开读过——`python` 2m38s 全部 20 个步骤绿（checkout/setup-uv 均按 commit 引用、`uv sync --locked
+  --dev`、`ruff check`、`ruff format --check`、`pyright`、`pytest` 1m54s、`check_boundaries`、
+  `check_case_assertions`、`verify_fixture_digests`、`check_workflow_pins`、`uv build --wheel`、
+  `check_wheel_boundary`、`minekin --help`）；`protocol` 6s 绿（`buf build/lint/format` + 校验仓库内
+  Python protobuf 生成物）；`bridge-static` 17s 绿（含"不下载 Minecraft 只核对 Bridge 脚手架"、
+  "服务端状态不得越出 Bridge host adapter"、无依赖的 Bridge 协议与 adapter 检查）。工作分支 run
+  **#490** 同一 commit，在 Actions 列表页读到 `completed successfully`，未逐步骤重开。**注解如实**：
+  #491 共 2 warnings / 3 notices，全是 GitHub 平台自身的公告（Node 20 runner 弃用 changelog、
+  runner-images issue 14748），不是本仓库的失败或告警。**CI 不是 Minecraft 验收证据**——本卡的真实
+  运行读数只有 `progress_record_1_new_1214_sealing` 与 `measured_inputs_v05`；`verify_supply_chain`
+  不在 CI 三个 job 里，它由本地锁定环境那一次读数承担（见 `gates_v05`）。
 - `not_tested`: 未把解析接进 `session start`（V07）、未做任何下载/安装（V06）、未对**真实远程** 1.20.1
   目标做解析（V08）；除 `NEEDS_PIN`/`UNSUPPORTED`/`STALE_PROBE` 之外不存在“兜底选一个”的路径；
   CLI 尚无 resolver 入口（那属 V07 的接线面）。
