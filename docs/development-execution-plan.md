@@ -12,11 +12,11 @@
 - `baseline_date`: 2026-09-22
 - `baseline_branch`: `main`
 - `baseline_remote`: `origin/main`
-- `current_next`: `VERSION-SERVER-PROBE-001`（上一提交登记 `QUEUED`，本提交单独提升；
-  `VERSION-REMOTE-PROFILE-001` 已 `DONE` 并推送）。
-  用户在七场景总账后明确把“自动识别服务器版本 → 准备匹配客户端 → 入服并完成简单控制”排为优先路线；
-  `VERSION-AUTO-DESIGN-001` 已交付[跨版本连续执行计划](version-auto-to-server-control-plan.md)，
-  `VERSION-REMOTE-PROFILE-001` 已由 `2c4e600` 先登记 `QUEUED`、`36764e8` 单独提升为唯一 `NEXT`。
+- `current_next`: 暂无（V02 `VERSION-SERVER-PROBE-001` 已由本提交收为 `DONE`；V03
+  `VERSION-BUNDLE-1201-001` 尚未登记，需先 `QUEUED` 登记、再独立提交提升为唯一 `NEXT`）。
+  前一提升链：`VERSION-REMOTE-PROFILE-001`（V01）已 `DONE`，V02 由 `0b52f43` 登记、
+  `1e00b0d` 提升。用户在七场景总账后明确把“自动识别服务器版本 → 准备匹配客户端 → 入服并完成简单控制”排为优先路线；
+  `VERSION-AUTO-DESIGN-001` 已交付[跨版本连续执行计划](version-auto-to-server-control-plan.md)。
 - `last_checkpoint`: **有界自主 P0 campaign 已走到需用户拍板的边界；用户现已选择跨版本路线**——上一轮把
   `REAL-P0-CAMPAIGN-001.order` 第 7 也是最后一个场景（阶段 F 晋级总账）的只读卡 `P0-PROMOTION-LEDGER-001`
   收为 `DONE`（`532446e` 登记 `QUEUED`、`28876e3` 提升 `NEXT`）。`scenario_progress 6/7→7/7`——七个 `order`
@@ -3045,28 +3045,51 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 
 ### VERSION-SERVER-PROBE-001 — 只读、可归因的版本探测
 
-- `status`: `NEXT`（`0b52f43` 登记 `QUEUED`，本提交单独提升；当前无第二张 `NEXT`）。
+- `status`: `DONE`（`0b52f43` 登记 `QUEUED`、`1e00b0d` 提升 `NEXT`；本提交收卡）。
 - `promotion_reason`: V01 已交付受信目标与单地址策略；探测是先于任何入服的唯一读-only 步骤。
-- `baseline_sha`: `9e61bfd`（V01 收卡提交，已推送并核对两远端）。
+- `baseline_sha`: `9e61bfd`（V01 收卡提交，已推送并核对两远端）。领取时实际 checkout =
+  `c10731a`（入口路径修正提交，本地与两远端一致、工作树干净）。
 - `depends_on`: `VERSION-REMOTE-PROFILE-001`；下游 `VERSION-RESOLVER-001` 消费本卡观测。
 - `question`: 如何对有字节/时间上限的 DNS/SRV 与 Server List Ping 取得能归因到同一 run 的
   版本观测，并让解析后的端点重新通过 V01 的单地址策略？
-- `entry_paths_amendment`（2026-09-24，实现前登记）：只读 `server probe` 入口按本仓库既有
-  CLI 形状需要落到 `src/minekin_core/cli/parser.py`、新 `src/minekin_core/cli/server_probe.py`
-  与 `src/minekin_core/bootstrap.py` 的一个分发分支（仅 dispatch，不改其它命令）。
-  除此之外不新增允许路径；`bridge/`、`proto/`、`tools/`、已封 bundle 仍禁改。
+- `entry_paths_amendment`（2026-09-24，实现前登记，提交 `c10731a`）：只读 `server probe`
+  入口按本仓库既有 CLI 形状需要落到 `src/minekin_core/cli/parser.py`、新
+  `src/minekin_core/cli/server_probe.py` 与 `src/minekin_core/bootstrap.py` 的一个分发
+  分支（仅 dispatch，不改其它命令）。除此之外不新增允许路径；`bridge/`、`proto/`、
+  `tools/`、已封 bundle 仍禁改。
 - `scope`、`allowed_paths`、`forbidden_paths`、反例与验收：见
-  [连续执行计划的 V02 卡](version-auto-to-server-control-plan.md)。要点：新
-  `adapters/launcher/server_probe.py` 与 `domain/version_probe.py`、只读 `server probe`
-  CLI 入口、fake adapter 覆盖无 SRV/重定向/关闭 ping/超时/畸形超大响应/伪造文本/
-  缺协议号/代理多版本/DNS 重绑定/TTL 过期；不建 Session/JVM/lease，不连未授权目标。
-- `non_goals`: 不登录、不猜版本轮试、不把一次 ping 写成"服务端 1.20.1 已证实"；
-  不公开运行者地址（日志用脱敏目标引用）。
-- `validation_class`: `LOCAL` + 受控真实只读探测（本地受控 1.21.4 服；V01 的 loopback
-  fixture 可作真实探针对象）。用户远程目标的首次真实探测属 V08 授权范围。
-- `stop_conditions`: 目标不响应或信号矛盾 → `NEEDS_PIN`/阻断；需换端口扫描或尝试登录
-  才能"推进"时立即停下报告。
-- `next_after_done`: `VERSION-BUNDLE-1201-001`（V03，仍 `QUEUED`；顺序提升）。
+  [连续执行计划的 V02 卡](version-auto-to-server-control-plan.md)。
+- `implementation_record`: 新 `domain/version_probe.py` 定义 `ProbeOutcome`（OBSERVED/
+  NO_RESPONSE/TIMEOUT/MALFORMED/OVERSIZE/AMBIGUOUS/CACHE_EXPIRED/POLICY_REFUSAL）、
+  字节/文本上限、可回显网段的 `endpoint_ref` 脱敏助手与 `ProbeObservation.as_document`。新
+  `adapters/launcher/server_probe.py`：`TargetResolver`/`StatusTransport` 两条窄协议 +
+  默认 `SavedAddressResolver`（不做任何查询，诚实回显保存的字面量）；varint 帧的
+  `build_handshake`/`build_status_request`/`status_json_from_packet`；`SocketStatusTransport`
+  带字节与时间上限；`parse_status_payload` 逐字段 fail-closed；`probe_profile` 在**连接之前**
+  用 `decide_endpoint` 对解析后的端点重新判定，多候选/过期/重定向分别落 AMBIGUOUS/
+  CACHE_EXPIRED/POLICY_REFUSAL。只读入口 `cli/server_probe.py` 先 peek `schema_version`
+  再按 v1/v2 严格加载，`bootstrap` 一个分发分支（OBSERVED→ExitCode.OK，否则 ADMISSION=17）。
+  **未改 v1 会话启动路径，探针不建 Session/JVM/lease，也不登录。**
+- `counterexamples_driven`: fake resolver/transport 覆盖 SRV 重定向与 DNS 重绑定（越策略
+  端点在 fetch 前被拒且断言 transport 未被调用）、多候选=AMBIGUOUS、TTL 过期=CACHE_EXPIRED、
+  拒绝/关闭=NO_RESPONSE、超时=TIMEOUT、非 JSON/伪造文本/缺协议号=MALFORMED、代理
+  多版本=AMBIGUOUS 且保留原始值、私有地址只以 `profile:<id>` 回显、帧内 packet id 错误/
+  字符串截断=ProbeMalformed；CLI 层覆盖 v1/v2 分发、无 schema_version 与未知版本被拒、
+  仅 OBSERVED 退出 0。
+- `gates`: 定向 33 项（`test_server_probe.py` + `test_server_probe_cli.py`）全绿；全量
+  `2307 passed / 2 skipped`（skip 为既有平台限制项）；Ruff check/format、Pyright 0 errors、
+  boundaries、case assertions(139)、fixture digests、workflow pins、`git diff --check` 全绿。
+- `completion_evidence`: 真实只读探针（受控 vanilla 1.21.4 服，`.tmp` 内以 `enable-status=true`
+  临时启动、不触冻结 harness/profile）返回 OBSERVED：`protocol:769, version_text:"1.21.4"`、
+  `endpoint:"127.0.0.1:25565"`、`profile_revision` 为固定摘要、解析链 saved→as-saved→payload:126、
+  exit 0；对无监听回环端口返回 NO_RESPONSE（`detail:"the endpoint refused the connection"`、
+  链止于 as-saved、exit 17）。两枚观测目标均为回环，未泄露任何私有地址。真实 1.20.1 目标
+  探测按主卡 `validation_class` 属 V08 授权范围。
+- `not_tested`: 未对**用户真实远程 1.20.1 目标**做首次只读探测（本卡 validation_class 明确
+  推迟至 V08）；未接入 dnspython/SRV 真实解析（默认 resolver 不查询，重绑定/重定向以 fake
+  取证）；一次成功 ping 仅记为“观测到 1.21.4/协议号”，**不**称任何目标为 tested/PASS，
+  也不据 ping 断言认证模式。
+- `next_after_done`: `VERSION-BUNDLE-1201-001`（V03，仍 `QUEUED`；先 `QUEUED` 登记再独立提升）。
 
 ### HOST-ADMISSION-DESIGN-001 — 宿主世界会话坐标来源
 

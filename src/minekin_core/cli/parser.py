@@ -199,6 +199,21 @@ def build_parser() -> argparse.ArgumentParser:
     session_commands.add_parser("status", help="read the current projection")
     session_commands.add_parser("stop", help="idempotently stop the current session")
 
+    server_parser = commands.add_parser("server", help="inspect a saved server target")
+    server_commands = server_parser.add_subparsers(dest="server_command", required=True)
+    server_probe = server_commands.add_parser(
+        "probe",
+        help="read-only Server List Ping against one saved profile (no session, no login)",
+    )
+    server_probe.add_argument("--server-profile", required=True, metavar="PATH")
+    server_probe.add_argument(
+        "--timeout-seconds",
+        type=float,
+        default=5.0,
+        metavar="SECONDS",
+        help="how long to wait for one status frame before giving up",
+    )
+
     evidence_parser = commands.add_parser("evidence", help="inspect run evidence")
     evidence_commands = evidence_parser.add_subparsers(dest="evidence_command", required=True)
     evidence_verify = evidence_commands.add_parser("verify", help="verify one evidence run")

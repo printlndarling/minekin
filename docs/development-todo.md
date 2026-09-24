@@ -2451,3 +2451,30 @@
   fixture 放进 `runtime-input/`，被冻结边界 `test_fixture_boundaries.py`（非 schemas JSON
   必须 v1）与 `run_repo_case` 的 W00 合同判红——按既有惯例移到 `tests/fixtures/launcher/`
   后两处恢复绿；两次红灯与修复都在本条留痕，未放宽任何判据。
+
+## V02 只读探测实现现场（2026-09-25，Qoder 临时执行者）
+
+- **接手现场**：领取 V02 时 checkout = `c10731a`（入口路径修正提交），本地与 `origin/main` /
+  `origin/codex/core-state-transition` 一致、工作树干净。收卡时 HEAD 仍是该提交、改动全为 V02 允许路径。
+- **允许路径核对**：产品改动只落在新 `domain/version_probe.py` 与新
+  `adapters/launcher/server_probe.py`（V02 卡内两条允许路径）；只读入口按 `c10731a` 登记的
+  `entry_paths_amendment` 落在 `cli/parser.py`、新 `cli/server_probe.py`、`bootstrap.py` 一个分发分支。
+  新增两份定向测试；未触碰 `bridge/`、`proto/`、`tools/`、任何已封 bundle，也未改 v1 会话启动路径
+  （仍只消费 v1，本卡不产生游戏连接）。
+- **red→green 留痕（未放宽判据）**：首次真实探针返回 MALFORMED（payload:128、非 UTF-8 JSON）——
+  根因是 transport 交回整帧 packet body 而 parse 只期望裸 JSON。补公开助手
+  `status_json_from_packet` 先剥 packet-id（须 0x00）与字符串长度两道 varint，重探即 OBSERVED；
+  并新增单元用例锁死该修复（不只信一次真实运行）。契约层一度报 `reportPrivateUsage`
+  （测试导入 `_`-private varint 助手）：改为公开 `status_json_from_packet`、framing 用例手工
+  构造 `bytes((0x00, len(doc)))`，不导出私有符号。
+- **门禁（收卡细节见主计划卡 `gates`）**：定向 33 项全绿；全量 `2307 passed / 2 skipped`（skip 为
+  既有平台限制项）；Ruff check/format、Pyright 0 errors、boundaries、case assertions(139)、
+  fixture digests、workflow pins、`git diff --check` 全绿。
+- **真实只读证据（两枚，均回环、无地址泄露）**：受控 vanilla 1.21.4（`.tmp/v02probe` 临时
+  `enable-status=true` 直启 jar，不触冻结 harness/profile）→ OBSERVED
+  `protocol:769, version_text:"1.21.4", endpoint:"127.0.0.1:25565"`、链 saved→as-saved→payload:126、exit 0；
+  无监听回环端口 → NO_RESPONSE（`the endpoint refused the connection`、链止于 as-saved、exit 17）。
+  探针不建 Session/JVM/lease、不登录；一次成功 ping 只记为“观测到 1.21.4/协议号”，**不**称任何目标 tested/PASS。
+- **未测项（如实保留）**：未对用户真实远程 1.20.1 目标做首次探测（本卡 `validation_class` 明确推迟至 V08）；
+  未接入 dnspython/SRV 真实解析（默认 resolver 不查询，重绑定/重定向以 fake 取证）。
+- **下一步**：V03 `VERSION-BUNDLE-1201-001` 仍 `QUEUED`，需先本提交后单独登记、再独立提升为唯一 `NEXT`。

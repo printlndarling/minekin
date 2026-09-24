@@ -17,6 +17,7 @@ from minekin_core.cli.doctor import diagnose
 from minekin_core.cli.evidence import verify_run
 from minekin_core.cli.init import initialise_identity
 from minekin_core.cli.parser import parse_args
+from minekin_core.cli.server_probe import probe_exit_ok, run_probe
 from minekin_core.cli.session import (
     DEFAULT_CONNECTION_TIMEOUT_S,
     start_and_supervise,
@@ -56,7 +57,7 @@ def _exit_code_for(run: SessionRun) -> ExitCode:
 
 def _command_name(args: argparse.Namespace) -> str:
     parts = [str(args.command)]
-    for attribute in ("bundle_command", "session_command", "evidence_command"):
+    for attribute in ("bundle_command", "session_command", "server_command", "evidence_command"):
         value = getattr(args, attribute, None)
         if value is not None:
             parts.append(str(value))
@@ -178,6 +179,18 @@ def run(
             stdout,
         )
         return int(ExitCode.OK)
+
+    if args.command == "server" and args.server_command == "probe":
+        # A probe's answer is an observation, not a failure: an endpoint that
+        # refused, timed out or contradicted itself still gets a document on
+        # stdout. The exit code only says whether a version was actually read —
+        # anything else is an admission problem a script branches on.
+        observation = run_probe(
+            Path(args.server_profile),
+            timeout_s=float(args.timeout_seconds),
+        )
+        _emit({**observation.as_document(), "command": _command_name(args)}, stdout)
+        return int(ExitCode.OK if probe_exit_ok(observation) else ExitCode.ADMISSION)
 
     if args.command == "evidence" and args.evidence_command == "verify":
         # Whether a bundle holds up is not a reason the command failed, so it
