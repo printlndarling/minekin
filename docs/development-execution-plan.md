@@ -3043,6 +3043,27 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
   分属 V02/V03/V04 及以后，本卡不预支其证据。
 - `next_after_done`: `VERSION-SERVER-PROBE-001`，必须先 `QUEUED` 登记并独立提升。
 
+### VERSION-SERVER-PROBE-001 — 只读、可归因的版本探测
+
+- `status`: `QUEUED`（本提交登记；按纪律由下一提交单独提升为 `NEXT`）。
+- `promotion_reason`: V01 已交付受信目标与单地址策略；探测是先于任何入服的唯一读-only 步骤。
+- `baseline_sha`: `9e61bfd`（V01 收卡提交，已推送并核对两远端）。
+- `depends_on`: `VERSION-REMOTE-PROFILE-001`；下游 `VERSION-RESOLVER-001` 消费本卡观测。
+- `question`: 如何对有字节/时间上限的 DNS/SRV 与 Server List Ping 取得能归因到同一 run 的
+  版本观测，并让解析后的端点重新通过 V01 的单地址策略？
+- `scope`、`allowed_paths`、`forbidden_paths`、反例与验收：见
+  [连续执行计划的 V02 卡](version-auto-to-server-control-plan.md)。要点：新
+  `adapters/launcher/server_probe.py` 与 `domain/version_probe.py`、只读 `server probe`
+  CLI 入口、fake adapter 覆盖无 SRV/重定向/关闭 ping/超时/畸形超大响应/伪造文本/
+  缺协议号/代理多版本/DNS 重绑定/TTL 过期；不建 Session/JVM/lease，不连未授权目标。
+- `non_goals`: 不登录、不猜版本轮试、不把一次 ping 写成"服务端 1.20.1 已证实"；
+  不公开运行者地址（日志用脱敏目标引用）。
+- `validation_class`: `LOCAL` + 受控真实只读探测（本地受控 1.21.4 服；V01 的 loopback
+  fixture 可作真实探针对象）。用户远程目标的首次真实探测属 V08 授权范围。
+- `stop_conditions`: 目标不响应或信号矛盾 → `NEEDS_PIN`/阻断；需换端口扫描或尝试登录
+  才能"推进"时立即停下报告。
+- `next_after_done`: `VERSION-BUNDLE-1201-001`（V03，仍 `QUEUED`；顺序提升）。
+
 ### HOST-ADMISSION-DESIGN-001 — 宿主世界会话坐标来源
 
 - `status`: `BLOCKED_DECISION`
