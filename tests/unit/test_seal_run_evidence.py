@@ -27,7 +27,14 @@ import pytest
 from fault_support import fault_record, request_record
 from minekin_core.adapters.evidence.bundle import unseal_bundle, verify_bundle
 from minekin_core.adapters.evidence.promotion import load_case_manifest
-from minekin_core.adapters.launcher.server_profile import load_server_profile
+from minekin_core.adapters.launcher.recipe import (
+    BRIDGE_1201_JAR_SHA256,
+    BRIDGE_JAR_SHA256,
+)
+from minekin_core.adapters.launcher.server_profile import (
+    load_server_profile,
+    load_session_server_profile,
+)
 from minekin_core.adapters.sqlite.connection import connect_writer
 from minekin_core.adapters.sqlite.session_log import (
     HELLO_ACCEPTED,
@@ -55,6 +62,20 @@ SERVER_PROFILE = (
 )
 CASE = REPOSITORY_ROOT / "tests" / "fixtures" / "cases" / "core-020.json"
 OBSERVE_ONLY_CASE = REPOSITORY_ROOT / "tests" / "fixtures" / "cases" / "core-010.json"
+#: The 1.20.1 candidate's own three reviewed inputs: a bundle, a managed v2 target, and
+#: the case that judges a join of that pair. Used as the positive control that sealing
+#: attributes a run to the version it actually launched rather than to one constant.
+CANDIDATE_PROFILE = (
+    REPOSITORY_ROOT / "tests" / "fixtures" / "runtime-input" / "bundle-candidate-1.20.1.json"
+)
+CANDIDATE_SERVER_PROFILE = (
+    REPOSITORY_ROOT
+    / "tests"
+    / "fixtures"
+    / "runtime-input"
+    / "controlled-offline-server-1.20.1.json"
+)
+CANDIDATE_CASE = REPOSITORY_ROOT / "tests" / "fixtures" / "cases" / "v1201-020.json"
 RUN_ID = "5c1f9a7b2d3e4f6089abcdef01234567"
 SESSION_ID = "f030bbeadf464c188c2921ede35e4c9f"
 KIN = KinId("kin-01")
@@ -300,6 +321,87 @@ def test_the_manifest_s_digests_are_the_ones_that_were_measured(
     assert manifest["identity"]["server_observed_name_uuid"] == f"{USERNAME}/{RECORDED_UUID}"
     # The profile is named without saying where it lives on this host.
     assert str(REPOSITORY_ROOT) not in manifest["identity"]["configured_profile"]
+
+
+def a_1_20_1_run(tmp_path: Path) -> tuple[Path, Path, Path]:
+    """The same fabricated run, told about the version it actually launched."""
+
+    data_root, server, document = finished_run_in(tmp_path)
+    (server / "server.log").write_text(SERVER_LOG.replace("1.21.4", "1.20.1"), encoding="utf-8")
+    return data_root, server, document
+
+
+def test_a_1_20_1_run_seals_the_bridge_and_target_of_its_own_version(tmp_path: Path) -> None:
+    """Each bundle must name the build this run carried, not one pinned constant.
+
+    The sealing path read every target through v1's field set and wrote the 1.21.4
+    Bridge jar into every manifest, so a 1.20.1 run could either not seal at all or
+    seal a claim about a build it never launched. Both are mis-attribution rather than
+    a relaxed criterion, and the control is the pair with the 1.21.4 test above: that
+    one still records the 1.21.4 jar, this one records the 1.20.1 jar.
+    """
+
+    data_root, server, document = a_1_20_1_run(tmp_path)
+
+    report = seal_it(
+        data_root,
+        server,
+        document,
+        case=CANDIDATE_CASE,
+        profile=CANDIDATE_PROFILE,
+        server_profile=CANDIDATE_SERVER_PROFILE,
+    )
+
+    manifest = json.loads((bundle_of(data_root) / "manifest.json").read_bytes())
+    assert report["result"] == "PASS"
+    assert manifest["case_id"] == "V1201-020"
+    assert manifest["bundle"]["minecraft"] == "1.20.1"
+    assert manifest["bundle"]["loader"] == "0.19.5"
+    assert manifest["bundle"]["bridge_digest"] == BRIDGE_1201_JAR_SHA256
+    assert manifest["bundle"]["bridge_digest"] != BRIDGE_JAR_SHA256
+
+    target = load_session_server_profile(CANDIDATE_SERVER_PROFILE, minecraft_version="1.20.1")
+    assert manifest["world"]["server_config_digest"] == target.revision
+    sealed_profile = json.loads(
+        (bundle_of(data_root) / "trusted" / "server-profile.json").read_text(encoding="utf-8")
+    )
+    assert sealed_profile == target.as_document()
+    assert sealed_profile["schema_version"] == 2
+
+
+def test_a_1_20_1_run_cannot_seal_a_target_pinned_to_another_version(tmp_path: Path) -> None:
+    """The misjoin is refused at the sealing door, whatever the schema of the target.
+
+    A bundle that sealed a 1.20.1 client against a target the product would not let it
+    join would attribute the run to a connection it could not have made — and the same
+    rule holds for the v1 document, whose version comparison is the one V04 kept.
+    """
+
+    data_root, server, document = a_1_20_1_run(tmp_path)
+    v2_mismatch = tmp_path / "target-1214.json"
+    v2_mismatch.write_text(
+        CANDIDATE_SERVER_PROFILE.read_text(encoding="utf-8").replace('"1.20.1"', '"1.21.4"'),
+        encoding="utf-8",
+    )
+    with pytest.raises(SEALER.Unsealable, match=r"the target allows 1\.21\.4"):
+        seal_it(
+            data_root,
+            server,
+            document,
+            case=CANDIDATE_CASE,
+            profile=CANDIDATE_PROFILE,
+            server_profile=v2_mismatch,
+        )
+
+    with pytest.raises(SEALER.Unsealable, match=r"the profile pins 1\.21\.4"):
+        seal_it(
+            data_root,
+            server,
+            document,
+            case=CANDIDATE_CASE,
+            profile=CANDIDATE_PROFILE,
+            server_profile=SERVER_PROFILE,
+        )
 
 
 def test_the_ledger_export_is_this_run_s_timeline_and_nothing_else(

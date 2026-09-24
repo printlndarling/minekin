@@ -213,6 +213,12 @@ bundle id 与结果；旧代回调不能推进新代。`BLOCKED` 不自动回退
   全部成立后才在 reviewed registry 中把**精确的** 1.20.1 Linux/arch 组合升为 `tested`。
 - **停止**：不能安全启动/入服、没有服务端 oracle、身份观测与声明不符、或必须放宽
   Player-Equivalent/lease 语义时保留 `FAIL`，停在 candidate；不要改判据凑 PASS。
+- **现况**（2026-09-25，随主执行计划；本卡仍 `NEXT`、未 `tested`）：上表是交接快照，实际状态以
+  `development-execution-plan.md` 的 V04 卡为准。已成立的：1.20.1 candidate 在受控 runner 里真实入服
+  并在第 1 代达到 `PLAYABLE`＋同代权威首快照，服务端独立记到 name/离线 UUID 与干净停止；三个 1.20.1
+  case（`V1201-010/020/040`）已立、断言实现与 1.21.4 逐项相同。尚未成立的：**逐项独立封证 + 四读**
+  ——封证工装当时仍按单版本读 profile 与 Bridge 摘要，已在卡内以 `allowed_paths_amendment_2` 登记后
+  修正；错误版本/错误 Bridge/认证拒绝等反例也还没跑。
 
 ### V05 `VERSION-RESOLVER-001`：只从 tested 清单选包
 

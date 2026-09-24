@@ -3402,6 +3402,18 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
   仍禁：`bridge/` 与 `bridge-1201/` 的源码（若真跑暴露版本适配缺陷，先回到本卡再修订一次）、
   任何已封 bundle 与旧 evidence、`domain/admission.py` 的无条件禁区、Player-Equivalent/lease/准入
   判据、在线认证、用户真实远程服。触及冻结产品语义时按停止条件另开卡，不在本卡顺手放宽。
+- `allowed_paths_amendment_2`（2026-09-25，领取后、写码前登记；由真实运行暴露，不是预先设想的缺口）：
+  第一次真实的 1.20.1 闭环（卷内 run `2571c622c9ef438daf1592388dc6c827`、`43cf584a306e43af851a220afed3b202`）
+  证明了入服路径可跑，也同时暴露**封证路径**仍然单版本：`tools/seal_run_evidence.py` 报
+  `…/controlled-offline-server-1.20.1.json is not a Server Profile the product accepts: server profile
+  has unreviewed fields: target_authorization, version_policy`（exit 2，`status: unsealed`）。根因是它
+  只调 `load_server_profile`（v1 字段集），而会话与受控服务端工装已经改走按 `schema_version` 分发的
+  `load_session_server_profile`；同一文件还把 `bridge_digest=BRIDGE_JAR_SHA256`（1.21.4 的 jar 摘要）
+  写进**任何**版本的 bundle，尽管它手里已经有 `plan["bundle"]["minecraft"]`。两者都是跨版本的错误归因，
+  不是判据放宽。据此本卡额外允许改：`tools/seal_run_evidence.py`（profile 改走同一道准入门、
+  bridge 摘要按启动版本取 `recipe.bridge_identity(...)`、`_world_record` 的形参随之放宽到
+  `SessionServerProfile`）与 `tools/assert_case_evidence.py` 中确需同步处，及其对应 unit/contract 测试。
+  仍禁：任何已封存 bundle 与旧 evidence、`bridge/` 与 `bridge-1201/` 源码、准入判据本身。
 - `fixture_version_contract_amendment`（2026-09-25，写码前登记）：本卡要提交仓库里**第一份 committed v2
   fixture**（`tests/fixtures/runtime-input/controlled-offline-server-1.20.1.json`），而冻结门
   `tests/contract/test_fixture_boundaries.py::test_all_json_contracts_are_parseable_and_versioned`
@@ -3443,10 +3455,40 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
   与 `b3efa8ee…` 本来就不一致。全量本地门禁：`2353 passed / 2 skipped`（改动前那次是
   `2 failed / 2351 passed`，两处失败都是这条门与其仓库案）、ruff check/format、pyright 0 errors、
   boundaries/case assertions/fixture digests/workflow pins/`git diff --check` 全绿。
-  ⑤**尚未做**（本卡仍 `NEXT`、未 `tested`）：其余工装与产品 pin 的版本化（`verify_supply_chain.py`、
-  `fetch_bundle.py`、`report_promotion.py`、`check_case_assertions.py`、`world_creation.py`/
-  `cli/bootstrap` 的 bundle 标识）、runner 镜像的 JDK 17 与版本旋钮、1.20.1 新 case 清单与断言摘要、
-  自证式的 1.20.1 入服开关确认、以及 Docker 里那次真实闭环与逐项独立封证 + 四读。
+  ⑤**供应链门按版本键入**（`9919c41`，已推送并核对两 ref）：`tools/verify_supply_chain.py` 不再拿
+  1.21.4 的一套 pin 去量所有版本，而是跟随 bundle 自述的 Minecraft 版本选 pin，并对未评审版本明确
+  拒绝而不是套用邻近值。
+  ⑥**1.20.1 客户端字节齐备**（`tools/fetch_bundle.py` 实测无需按版本改：它已按 bundle 清单取物）：
+  `kin-01` 的 store 补到 `missing: 0`，本轮新取 **3444 个工件 / 637,098,384 字节**、`failed: []`。
+  这只证明“跑得起来的材料齐了”，不是任何验收结论。
+  ⑦**第一次真实的 1.20.1 入服闭环**（受控 runner，Docker/Linux，server 目录 `/data/server-runs/run-144`
+  与 `run-145`）：managed 客户端在 runner 镜像自带的 **Java 21** 下起得来（`config.java_executable`
+  没有启动期版本门，只有 `cli/doctor.py` 比 major——这一点现在是量出来的而不是假设），入到隔离的
+  1.20.1 `online-mode=false` 专服，第 1 代就到 `PLAYABLE`：run `2571c622c9ef438daf1592388dc6c827`
+  记 `connection_state: PLAYABLE`、`snapshots_admitted: 1`、`snapshot_rejections: []`、
+  `entities_admitted: 13`、`perceived_information_class: PLAYER_EQUIVALENT`、`session stop` 返回
+  `status: stopped, unresolved: []`、退出码 0；run `43cf584a306e43af851a220afed3b202` 同形（13/9 实体）。
+  服务端侧独立记到 `[20:28:55] Kin joined the game` / `[20:30:41] Kin joined the game` 与
+  `Stopping the server`，`usercache.json` 里的离线 UUID 两次都是
+  `8f40376b-c23f-3ef1-b553-5564eea75639`。这些是**入服与首快照**的证据，**不是**本卡验收结论：两次
+  都还没封成 bundle（见 ⑨），look/move/release 与断连松键也还没逐项封证。
+  ⑧**入服开关自证**（解决 `known_preconditions` ②）：入服不是 launcher 的 `--quickPlaySingleplayer`，
+  而是 Core 通过控制通道发出的 Bridge `ConnectWorld`（`cli/parser.py:47` 收 `--server-profile`、
+  `cli/session.py:1080` 发出、`proto/minekin/v1/control.proto:18`）。⑦ 里 1.20.1 客户端在未使用任何
+  quickPlay 参数的情况下完成入服，就是这条路径在 1.20.1 上成立的自证；`known_preconditions` ② 的
+  无效字符串探针结论随之作废。
+  ⑨**1.20.1 case 清单已立并被真实运行触发**：新增 `tests/fixtures/cases/v1201-010.json`（W20，
+  主菜单握手 + 仅观察）、`v1201-020.json`（W40，服务端见到的入服身份 + 同代首快照 + 入服后离开）、
+  `v1201-040.json`（W60，转向/有界移动/lease 到期松键，**不含** `the_server_saw_the_block_change`——
+  1.20.1 的 use-target 路径本卡未证），三份均 `mandatory: false`（不推动任何 work package 的提升），
+  `manifest.sha256` 补三行、`verify_fixture_digests.py` 复算 OK。`check_case_assertions.py` 登记的
+  **139 项断言实现一字未动**：新案的摘要与 1.21.4 对应案逐项相同（如
+  `first_snapshot_admitted` 两侧同为 `720a4db1b8bf…`），差异只在 case 文档本身即 `case_version`。
+  ⑩**尚未做**（本卡仍 `NEXT`、未 `tested`）：封证路径的版本化（`allowed_paths_amendment_2` 范围内：
+  `tools/seal_run_evidence.py` 与 `report_promotion.py` 的 per-recipe plan 摘要、
+  `world_creation.py`/`cli/bootstrap` 的 bundle 标识）、V1201 三案的**逐项独立封证 + 四读**（⑦ 那两次
+  运行当场封证被拒，原文见 `allowed_paths_amendment_2`，失败材料保留在 `.tmp/v04-domain-1201-join.log`
+  与 `.tmp/v04-domain-1201-020.log`，未在卷内留下 bundle）、runner 镜像的 JDK 17 备选。
 - `server_supply_chain`（2026-09-25 实测，来自 Mojang 官方 `version_manifest_v2` → 1.20.1 条目）：
   dedicated server `sha1 84194a2f286ef7c14ed7ce0090dba59902951553` / 47,791,053B，
   `piston-data.mojang.com/v1/objects/84194a2f…/server.jar`；client `sha1 0c3ec587af28e5a785c0b4a7b8a30f9a8f78f838`
@@ -3457,7 +3499,8 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
   本卡在 `.tmp/v03build` 的 loom 缓存里对两份 yarn 映射 merged jar 做过字符串探测，1.21.4 侧
   作为对照也读到空，说明探针本身无效（`unzip -p '*.class'` 没把常量池喂给 grep），因此**不**据此
   断言 1.20.1 缺该参数；V04 要用能自证的方法（先让 1.21.4 对照出数）确定入服开关，或改走
-  主菜单→多人游戏→直连的等价自动化并记录差异；③V03 未做过的 1.20.1 运行时能力协商与 Linux 侧
+  主菜单→多人游戏→直连的等价自动化并记录差异；**（已由 `progress_record` ⑧ 闭合：入服开关是 Bridge
+  `ConnectWorld`，与 quickPlay 无关，1.20.1 真实入服即为自证，本条的无效探针作废。）**③V03 未做过的 1.20.1 运行时能力协商与 Linux 侧
   产物门在本卡被真实构建/运行触发。
 - `non_goals`: 不连接用户真实远程服（属 V08）、不推断或放宽认证策略、不把任意 OS/arch 组合
   泛化成“全平台 tested”、不做 resolver/installer（属 V05/V06）。

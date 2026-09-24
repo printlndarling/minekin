@@ -44,10 +44,14 @@ from minekin_core.adapters.evidence.attempt_registry import mark_sealed, reserve
 from minekin_core.adapters.evidence.bundle import write_bundle
 from minekin_core.adapters.evidence.promotion import load_case_manifest
 from minekin_core.adapters.launcher.launch_plan import build_launch_plan, find_workspace_root
-from minekin_core.adapters.launcher.recipe import BRIDGE_JAR_SHA256
-from minekin_core.adapters.launcher.server_profile import ServerProfile, load_server_profile
+from minekin_core.adapters.launcher.recipe import bridge_identity
+from minekin_core.adapters.launcher.server_profile import (
+    SessionServerProfile,
+    load_session_server_profile,
+)
 from minekin_core.cli.evidence import attempt_registry_path, bundle_directory
 from minekin_core.cli.init import run_root
+from minekin_core.cli.session import launched_minecraft_version
 from minekin_core.domain.errors import MinekinError
 from minekin_core.domain.evidence import (
     DEDICATED_WORLD,
@@ -382,7 +386,7 @@ class _WorldRecord:
 
 
 def _world_record(
-    target: ServerProfile | None,
+    target: SessionServerProfile | None,
     server_directory: Path | None,
     run_document: Mapping[str, object],
     world_run_document: Mapping[str, object] | None,
@@ -484,8 +488,19 @@ def build_manifest(
     definition = load_case_manifest(case)
     plan = build_launch_plan(profile, workspace_root=workspace_root)
     bundle = cast(Mapping[str, object], plan["bundle"])
-    target = None if server_profile is None else load_server_profile(server_profile)
+    launched_version = str(bundle["minecraft"])
+    target = (
+        None
+        if server_profile is None
+        else load_session_server_profile(server_profile, minecraft_version=launched_version)
+    )
     world = _world_record(target, server_directory, run_document, world_run_document, username)
+    try:
+        bridge_jar_sha256 = bridge_identity(launched_version).jar_sha256
+    except MinekinError as error:
+        raise Unsealable(
+            f"no reviewed Bridge jar can be attributed to Minecraft {launched_version}: {error}"
+        ) from error
     facts = host_facts(java, renderer_display)
     result = str(verdict.get("result", ""))
     if result not in {item.value for item in EvidenceResult}:
@@ -496,10 +511,10 @@ def build_manifest(
         case_version=definition.digest,
         result=EvidenceResult(result),
         launch_plan_digest=str(plan["plan_sha256"]),
-        bridge_digest=BRIDGE_JAR_SHA256,
+        bridge_digest=bridge_jar_sha256,
         protocol_schema_digest=protocol_schema_digest(workspace_root),
         server_config_digest=world.config_digest,
-        minecraft=str(bundle["minecraft"]),
+        minecraft=launched_version,
         loader=str(bundle["fabric_loader"]),
         fabric_api=str(bundle["fabric_api"]),
         assertions=assertions_from(verdict),
@@ -655,15 +670,23 @@ def seal(
             raise Unsealable(f"{world_run_document_path} is not a run document object")
         world_run_document = cast(dict[str, object], hosted)
 
-    # The trusted target, validated once by the product's own loader. The text the
-    # judge is handed decodes to the bytes that are sealed: read twice, a profile is
-    # two files, and this run's whole subject is which authentication strategy the
+    # The trusted target, validated once by the product's own session door. The text
+    # the judge is handed decodes to the bytes that are sealed: read twice, a profile
+    # is two files, and this run's whole subject is which authentication strategy the
     # operator had actually saved.
+    #
+    # The door is the one a session would have gone through, and the version it is
+    # checked against is the one this launch plan carries: sealing a run on evidence
+    # of a target the product would not have let that client join would attribute the
+    # run to a connection it could not have made.
     server_profile_bytes = b""
     server_profile_text: str | None = None
     if server_profile is not None:
         try:
-            validated_profile = load_server_profile(server_profile)
+            validated_profile = load_session_server_profile(
+                server_profile,
+                minecraft_version=launched_minecraft_version(profile),
+            )
         except MinekinError as error:
             raise Unsealable(
                 f"{server_profile} is not a Server Profile the product accepts: {error}"
