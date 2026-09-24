@@ -3428,7 +3428,22 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
   且 profile 改为经 `load_session_server_profile` 读取——工装起不了产品不肯连的服务端；未评审资源包
   格式的版本的 `--resource-pack` 请求按 `deferred_within_card` fail closed 并报明原因。配套 3 项
   contract 测试（两份 recipe 各自可加载、profile_id/端口互不相同、无格式即拒）。
-  ③**尚未做**（本卡仍 `NEXT`、未 `tested`）：其余工装与产品 pin 的版本化（`verify_supply_chain.py`、
+  ④**版本门改动的实际代价**（同日内，随上一条一并交付）：门改后 `check_case_assertions.py` 报
+  `schemas_are_versioned` 的实现摘要 `590b07bcd5a8…` 与登记值不符，`--record` 后新值为
+  `b0298c844cd1…`，W00 案的 `case_version` 随之从 `ac1612991edf…` 变成 `c59b9636646e…`（`digest` 覆盖整份
+  case 文档，所以改动判据必然推动案版本——机制按设计生效）。本机重跑 `run_repo_case.py` 得
+  `PASS`（run `7467f753ec0346f68091724422f66d0e`、四条检查全 held），`seal_repo_case.py` 封存 8 件工件
+  （bundle `0b991bdbeae1…`、`case_version c59b9636…`），再用产品自己的 `minekin evidence verify` 独立复看
+  为 `status: verified, sealed: true, result: PASS`。**未**把这份 bundle 迁入活动数据卷：试过
+  `cp` 进 `minekin-runner-data`，`report_promotion.py` 立即报
+  `unusable: bundle attempt metadata disagrees with the attempt registry`（attempt 台账与 bundle 不是一回事，
+  只搬目录就是伪造归因），因此已删除该副本、卷内只留原有两份，重封若要进台账必须在卷内一次完成。
+  卷内那份旧 W00 封证（run `5d12b151…`）的 `re_judge_reason` 现读作「sealed against `b3efa8ee…`，
+  现在是 `c59b9636…`——criteria moved」；这不是本卡造成的：改动之前该案当前版本是 `ac161299…`，
+  与 `b3efa8ee…` 本来就不一致。全量本地门禁：`2353 passed / 2 skipped`（改动前那次是
+  `2 failed / 2351 passed`，两处失败都是这条门与其仓库案）、ruff check/format、pyright 0 errors、
+  boundaries/case assertions/fixture digests/workflow pins/`git diff --check` 全绿。
+  ⑤**尚未做**（本卡仍 `NEXT`、未 `tested`）：其余工装与产品 pin 的版本化（`verify_supply_chain.py`、
   `fetch_bundle.py`、`report_promotion.py`、`check_case_assertions.py`、`world_creation.py`/
   `cli/bootstrap` 的 bundle 标识）、runner 镜像的 JDK 17 与版本旋钮、1.20.1 新 case 清单与断言摘要、
   自证式的 1.20.1 入服开关确认、以及 Docker 里那次真实闭环与逐项独立封证 + 四读。
