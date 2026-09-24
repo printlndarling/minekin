@@ -1521,12 +1521,20 @@
     `tests/contract/test_case_coverage.py` 4 passed、`git diff --check` clean。
     `mandatory` 仍为 `false`，不点亮任何 gate。
 
-- [ ] **ADMIT-070-REFUSAL-INJECTION-001（`QUEUED`，尚未提升）**：把首快照报成 Core 会拒的样子——
-  一个默认关断的开关让 Bridge 对本代**第一份**快照上报 `authoritative=false`，Core 的过滤器照旧
-  自己判决；注入事实必须从同一 bundle 的 `fault-injection.json` 读得出；不设开关时正向不回归。
-  范围、Bridge pin 续期清单与停止条件（开关只能靠新 proto 命令到达、或注入说不出自己 → 停）见
-  执行计划里那张卡。提升它之前 campaign 第 3 个场景保持 `BLOCKED_EVIDENCE`，
-  `current_next` 因此是 `NONE_PROMOTABLE`。
+- [ ] **ADMIT-070-REFUSAL-INJECTION-001（当前唯一 NEXT，提升于 2026-09-24）**：把首快照报成 Core
+  会拒的样子——一个默认关断的开关让 Bridge 对本代**第一份**快照上报 `authoritative=false`，Core
+  的过滤器照旧自己判决；注入事实必须从同一 bundle 的 `fault-injection.json` 读得出；不设开关时
+  正向不回归。范围、Bridge pin 续期清单与停止条件（开关只能靠新 proto 命令到达、或注入说不出
+  自己 → 停）见执行计划里那张卡。
+  - 提升由运行者 2026-09-24 的选择「实现注入点（Bridge 改动）」作出。它改的是产品码（与
+    `ADMIT-060-WIRE-POLICY-001` 同形），所以本卡先只以 `QUEUED` 登记、再单独一个 commit 提升。
+  - 提升前量过的接缝：客户端环境是封闭的，宿主能借给它的名字只有
+    `src/minekin_core/config.py:37` 的 `FORWARDED_VARIABLES`（`bootstrap.py:121` →
+    `client_environment(forward=…)`），Bridge 侧读 env 已有 `MINEKIN_BRIDGE_DESCRIPTOR` 先例。
+    所以开关不必走 `control.proto`，卡的第一条停止条件不成立。
+  - 由此产生的 `scope_amendment`：放行点是 `config.py`（连带 `tests/unit/test_init.py` 一条定向
+    断言），不是卡上原写的 `process.py`——后者按自身条件保持不动。
+  - campaign 第 3 个场景在本卡落地并跑出一条真实拒绝运行之前保持 `BLOCKED_EVIDENCE`。
 
 - [x] **ADMIT-040-CLASSIFICATION-001（已完成，commit `dd992b1` 已推送）**：`REAL-P0-CAMPAIGN-001`
   首个受控诊断运行 `fdef1d7192dd480db6aed1c5e7e493dd` 中，离线身份遇到原版

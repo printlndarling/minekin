@@ -12,10 +12,8 @@
 - `baseline_date`: 2026-09-22
 - `baseline_branch`: `main`
 - `baseline_remote`: `origin/main`
-- `current_next`: `NONE_PROMOTABLE`。`ADMIT-070-EVIDENCE-DESIGN-001` 已 DONE；`order`
-  第 3 个场景的下一步是 `ADMIT-070-REFUSAL-INJECTION-001`，本 commit 只以 `QUEUED`
-  登记它，提升由主控在后续 commit 决定（它要改 Bridge 产品码，不属测试域）。其余未闭合卡
-  仍是 `HOST-ADMISSION-DESIGN-001`/`OPERATIONS-RETENTION-001`/`PROCESS-RECOVERY-001`
+- `current_next`: `ADMIT-070-REFUSAL-INJECTION-001`（本 commit 提升，见该卡 `promotion_reason`）。
+  其余未闭合卡仍是 `HOST-ADMISSION-DESIGN-001`/`OPERATIONS-RETENTION-001`/`PROCESS-RECOVERY-001`
   三项 `BLOCKED_DECISION` 与 `HOST/W80+` 的 `DEFERRED`，都要用户先拍板。
 
 权威顺序：
@@ -382,14 +380,15 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 ### REAL-P0-CAMPAIGN-001 — 批量关闭真实运行缺口
 
 - `status`: `BLOCKED_EVIDENCE`
-- `blocked_by`: `ADMIT-070-REFUSAL-INJECTION-001`（`QUEUED`）。`order` 的第 1 个场景（在线认证拒绝）
+- `blocked_by`: `ADMIT-070-REFUSAL-INJECTION-001`（`NEXT`）。`order` 的第 1 个场景（在线认证拒绝）
   与第 2 个场景（资源包拒绝）已各自封出当前 build 上 `PASS`/`AGREES` 的正式 bundle 并四读一致。
   第 3 个场景（JOIN 后首快照失败）的判据已由 `ADMIT-070-EVIDENCE-DESIGN-001` 冻结在专项契约里，
   冻结的结论是：**这一条停在 `BLOCKED_EVIDENCE` 的原因不是读不出，而是发生不了**——被拒快照的
   理由确实会写进 run document 的 `snapshot_rejections`（读数那一层在真实运行里会工作，
   `entities_rejected` 就写过），但五个 `SnapshotReason` 在当前构建与当前 runner 下一个都触发
   不了，数据卷 36 份真实运行文档该字段全为空。缺的是让 Bridge 在该代第一份快照上按
-  `authoritative=false` 上报的一个测试域注入点，即本 `blocked_by` 那张卡。
+  `authoritative=false` 上报的一个**默认关断的产品侧开关**（由 runner 显式要求、由测试域记录），
+  即本 `blocked_by` 那张卡。
 - `scenario_progress`: 2/7 场景已封为正式 case。第 1 个：`ADMIT-040`，run
   `6b5856d57dee4052b2ffba3ff9e3459e`，bundle `46565ef2…`，attempt 1，PASS/AGREES。
   第 2 个：`ADMIT-060`，run `7bc740ea4cde4e1aaff074bb64850348`，bundle
@@ -935,9 +934,19 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 
 ### ADMIT-070-REFUSAL-INJECTION-001 — 让首快照能被报成 Core 会拒的样子
 
-- `status`: `QUEUED`
-- `registered`: 2026-09-24（由 `ADMIT-070-EVIDENCE-DESIGN-001` 冻结的判据指名需要；本卡只登记，
-  未提升）
+- `status`: `NEXT`
+- `baseline_sha`: `a9448ecf8d7345e54d04b3f9218db7b327c3b9a1`
+- `registered`: 2026-09-24（由 `ADMIT-070-EVIDENCE-DESIGN-001` 冻结的判据指名需要；登记时为 `QUEUED`）
+- `promotion_reason`: 运行者 2026-09-24 明确选择「实现注入点（Bridge 改动）」，并在提升前量过本卡
+  `question` 的前半：客户端环境是封闭的，`bootstrap.py:121` 把 `config.forwarded_environment()` 交给
+  `client_environment(forward=…)`，而那份清单就是 `config.py:37` 的 `FORWARDED_VARIABLES`；Bridge 侧
+  已有 `System.getenv` 读 `MINEKIN_BRIDGE_DESCRIPTOR` 的先例（`MinekinBridgeClient.java:30,41`）。
+  因此开关能走环境变量，`stop_conditions` 里「只能靠 `control.proto` 新命令」那一支不成立，本卡
+  可执行。
+- `scope_amendment`: 由上面那次读数得出——env 继承**不需要**改
+  `src/minekin_core/adapters/launcher/process.py`（它原样转发清单里的名字），需要的是把变量名放进
+  `src/minekin_core/config.py` 的 `FORWARDED_VARIABLES`。该文件因此进入 `allowed_paths`，而
+  `process.py` 那一条按自身条件（「仅当需要显式放行时」）保持不动。
 - `depends_on`: `ADMIT-070-EVIDENCE-DESIGN-001`（判据、反例与「只有 `NOT_AUTHORITATIVE` 在范围内」
   的取舍都在那一节里）。
 - `question`: 一个默认关断的开关怎么从 runner 走到 Bridge——客户端 JVM 的环境变量能否由受控
@@ -954,6 +963,9 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
     且只在被明确要求时对**本代第一份**快照生效）
   - `bridge/src/test/java/org/minekin/bridge/runtime/ClientAdmissionControllerTest.java`
   - `src/minekin_core/adapters/launcher/process.py`（仅当环境变量继承需要显式放行时）
+  - `src/minekin_core/config.py`（`FORWARDED_VARIABLES` 是宿主 → 客户端 JVM 的唯一清单；见
+    `scope_amendment`）
+  - `tests/unit/test_init.py`（只为该清单补一条定向断言，不动其他 config 语义）
   - `tools/fault_injection.py` 与 `tools/inject_fault.py`（记录类别，不改既有三种进程角色语义）
   - `test-orchestrator/runner/domain.sh` 与 `test-orchestrator/runner/run.sh`（把开关传给一个场景）
   - `src/minekin_core/adapters/launcher/recipe.py`、
