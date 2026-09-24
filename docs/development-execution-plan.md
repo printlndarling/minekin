@@ -3169,6 +3169,23 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
   `_game_argument_template` 的 `--quickPlaySingleplayer`（那是 1.20.2+ 参数、1.20.1 无）——真入服
   建计划时才需处理，留待 V04。**仍未做**：隔离 1.20.1 Loom 构建产出真实 Bridge jar（本卡收口的
   真跑停止点，需 Docker runner 与可能的版本适配 hook）。本卡据实仍 `NEXT`、未 `DONE`、未 `tested`。
+  **续（隔离 1.20.1 编译取证，同日内）**：把 `bridge/`+`proto/` 复制到 gitignored
+  `.tmp/v03build/`，仅替换 `libs.versions.toml` 为许可矩阵核对过的 1.20.1 值，用本机 Java 21 跑
+  `./gradlew --no-daemon -Dorg.gradle.dependency.verification=off compileJava`（一次性 probe 关
+  校验，因 scratch 副本仍带 1.21.4 的 `verification-metadata.xml`；正式 candidate 须补 yarn/
+  intermediary/loader sidecar pin）。首次未关校验时构建在 `:mappings` 依赖校验处即失败
+  （`DependencyVerificationException`，未触及编译）；关校验后真实下载并反编译/remap 1.20.1，
+  `compileJava` 报 **15 个「找不到符号/程序包不存在」**，全部落在 4 处 1.20.2–1.20.5 间迁移/新增的
+  MC 客户端类：`ConnectScreen`（1.20.1 无 `.multiplayer` 子包）、`ClientCommonNetworkHandler`+
+  `packet.s2c.common.DisconnectS2CPacket`（1.20.2 才有）、`DisconnectionInfo`（约 1.20.5）、
+  `client.session.Session`（1.20.1 在 `net.minecraft.client`）——即 `CommonDisconnectMixin`/
+  `ConnectScreenAccessor`「Mixin has no targets」、`MinekinBridgeClient`/`ClientAdmissionController`/
+  `LoginDisconnectMixin`/`ClientSnapshot` 无法解析。结论：1.20.1 candidate 确需**版本适配 hook**
+  （同一观测面的按版本类名/包/签名切换），属本卡允许路径、非产品决策禁区，也**不**因能编就算
+  tested。取证详见 [版本许可矩阵](version-license-matrix.md)「可构建性评估」节，失败日志保留在
+  `.tmp/v03build/v03compile.log`（gitignored）。**下一步**：为四处 divergent 类落 1.20.1 适配源集
+  并让隔离工程 `compileJava`/`check --rerun-tasks` 过、产出 1.20.1 Bridge jar，再回填 candidate
+  recipe 的 Bridge digest。本卡据实仍 `NEXT`、未 `DONE`、未 `tested`。
 
 ### HOST-ADMISSION-DESIGN-001 — 宿主世界会话坐标来源
 

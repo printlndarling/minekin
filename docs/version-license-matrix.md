@@ -35,15 +35,36 @@
   MC 1.21.4 / Loader 0.16.9 / API 0.119.4+1.21.4 / Yarn 1.21.4+build.8，且启用
   `dependencyLocking` 与 `check` 里挂的构建产物边界门（`tools/check_bridge_artifacts.py`）。
   1.20.1 要么参数化 loom 版本、要么建第二个显式 target，并触发真实 1.20.1 反编译/remap。
-- Bridge 的 mixin/hook 是按映射版本写的，能否不改源码即在 1.20.1 编译**未验证**——这正是本卡
-  `stop_conditions` 点名的「Bridge hook 需超出当前能力契约」风险，须在真实隔离构建时取证，
-  失败材料保留、不猜过。
+- Bridge 的 mixin/hook 是按 1.21.4 映射写的，**已在隔离 1.20.1 工程实测：不改源码无法编译**。
+  把 `bridge/` + `proto/` 复制到 gitignored `.tmp/v03build/`、仅把 `libs.versions.toml` 的
+  minecraft/yarn/loader/fabric-api 换成上表已核对的 1.20.1 值，用本机 Java 21 跑
+  `./gradlew --no-daemon -Dorg.gradle.dependency.verification=off compileJava`
+  （scratch 副本仍带 1.21.4 的 `verification-metadata.xml`，故只在这份一次性 probe 里关校验；
+  真正 commit 的 candidate 须补齐 yarn/intermediary/loader 的 sidecar pin，见上表摘要）。
+  下载并对 1.20.1 反编译/remap 后，`compileJava` 出 **15 个「找不到符号/程序包不存在」错误**，
+  全部源于 4 处 MC 客户端类在 **1.20.2–1.20.5 之间迁移或新增**，1.20.1 里不存在或换了包：
+  1. `net.minecraft.client.gui.screen.multiplayer.ConnectScreen`——1.20.1 该类在
+     `net.minecraft.client.gui.screen` 下（`.multiplayer` 子包是 1.20.2 才拆出的），影响
+     `MinekinBridgeClient`、`ClientAdmissionController`、`ConnectScreenAccessor`（后者报
+     「Mixin has no targets」）；
+  2. `net.minecraft.client.network.ClientCommonNetworkHandler` 与
+     `net.minecraft.network.packet.s2c.common.DisconnectS2CPacket`——1.20.2 才有 common
+     handler/`s2c.common` 包，影响 `CommonDisconnectMixin`（「Mixin has no targets」）；
+  3. `net.minecraft.network.DisconnectionInfo`——约 1.20.5 引入，影响 `LoginDisconnectMixin`；
+  4. `net.minecraft.client.session.Session`——1.20.1 的 `Session` 在 `net.minecraft.client`
+     下（`.session` 子包未存在），影响 `ClientSnapshot`。
+  这不是「超出能力契约」的产品决策，而是本卡允许路径点名的「确需版本适配的 hook」：四处仍是
+  同一观测面（连接失败/登出原因/登录断开会话），只是 1.20.1 的类名/包/方法签名不同。失败材料
+  （`.tmp/v03build/v03compile.log`）保留、不猜过，也不据此称 1.20.1 可构建或 tested。
 - 启动器侧 `recipe.py`、`metadata.py`、`schemas/bundle-manifest.schema.json` 及约 15 个测试把
   1.21.4 身份（版本/ loader / api / java / libraries 数 / native 数 / asset 对象数 / classpath 数）
   做成常量或 `const`。**在不产生 1.21.4 漂移的前提下**把它们改成按版本键入的 pin 表，是
   让 1.20.1 candidate recipe 通过校验的前置 LOCAL 项，仍在本卡允许路径内，此提交不做。
-- 因此本卡**尚未收 `DONE`**：已完成的是官方供应链逐项核对与可构建性/停止点取证，剩余是
-  无漂移泛化 + 隔离构建 + candidate recipe fixture/门禁；真实入服属 V04。以上任何一项都未、
+- 因此本卡**尚未收 `DONE`**：已完成官方供应链逐项核对、可构建性实测取证（上述 1.20.1 编译
+  失败），以及启动器侧无漂移泛化（`recipe.py`/`metadata.py`/`launch_plan.py`/
+  `bundle-manifest.schema.json` 按版本键入 pin，candidate recipe fixture 端到端 `bundle verify`
+  通过）；剩余是 **Bridge 的 1.20.1 target 版本适配 hook**（上述 4 处类迁移的按版本源集/
+  目标切换）与隔离构建产出可复判的 1.20.1 Bridge jar；真实入服属 V04。以上任何一项都未、
   也不会被记为 `tested`/PASS。
 
 ## 首批支持级别
