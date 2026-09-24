@@ -12,8 +12,8 @@
 - `baseline_date`: 2026-09-22
 - `baseline_branch`: `main`
 - `baseline_remote`: `origin/main`
-- `current_next`: `VERSION-BUNDLE-1201-001`（上一提交 `930223a` 登记 `QUEUED`，本提交单独提升为
-  唯一 `NEXT`；`VERSION-SERVER-PROBE-001` 已 `DONE` 并推送）。
+- `current_next`: 无（本提交把 `VERSION-BUNDLE-1201-001` 收为 `DONE`；下一张
+  `VERSION-LOCAL-1201-001` 须先在独立提交登记 `QUEUED`，再由下一次提交提升为唯一 `NEXT`）。
   用户在七场景总账后明确把“自动识别服务器版本 → 准备匹配客户端 → 入服并完成简单控制”排为优先路线；
   `VERSION-AUTO-DESIGN-001` 已交付[跨版本连续执行计划](version-auto-to-server-control-plan.md)。
 - `last_checkpoint`: **有界自主 P0 campaign 已走到需用户拍板的边界；用户现已选择跨版本路线**——上一轮把
@@ -3092,11 +3092,13 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 
 ### VERSION-BUNDLE-1201-001 — 1.20.1 第二套独立 candidate
 
-- `status`: `NEXT`（`930223a` 登记 `QUEUED`，本提交单独提升；当前无第二张 `NEXT`）。
+- `status`: `DONE`（`930223a` 登记 `QUEUED`、`cdbdc95` 提升 `NEXT`、`0510591` 交付；本提交收卡，
+  收卡不改判据、不新增产物）。
 - `promotion_reason`: V02 只读探测已 `DONE`；跨版本路线的下一步是先有可复判、仅 `candidate`
   的 1.20.1 bundle，之后才能进 V04 受控真服证明。
 - `baseline_sha`: `930223a`（V03 `QUEUED` 登记提交，已推送并核对两远端）。领取时实际
-  checkout = `cdbdc95`（提升提交，本地与两远端一致、工作树干净）。
+  checkout = `cdbdc95`（提升提交，本地与两远端一致、工作树干净）；交付提交 = `0510591`
+  （已推送，工作分支与 `main` 的远端 SHA 均核对该值）。
 - `depends_on`: `VERSION-SERVER-PROBE-001`（V02 已交付只读探测）；下游 `VERSION-LOCAL-1201-001`（V04）
   先在受控真服证明本卡 candidate。
 - `question`: 如何在不覆写 1.21.4 既有 recipe/Bridge JAR 的前提下，从官方元数据核对并构建一套
@@ -3316,6 +3318,30 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
     还是 `build_required`」——该文件不在本卡允许路径内，故未改，登记为后续；⑥Bridge 的协议/能力清单
     泛化后**没有做过 1.20.1 的运行时能力协商**（协议门只核静态清单）。以上任何一条都不构成本卡收口的
     反例，但没有一条被算作已验证。
+- `gates`（交付提交 `0510591` 实测）：全量 `2327 passed / 2 skipped`（两条 skip 是既有平台限制项），
+  Pyright `0 errors`，Ruff check + format、`check_boundaries`、`check_case_assertions`（139 条登记）、
+  `verify_fixture_digests`、`check_workflow_pins`、`check_bridge_scaffold`（`OK (2 root(s))`）、
+  `check_bridge_protocol`（两 root 各一行）、`check_bridge_proto_java`、`check_bridge_artifacts`
+  （1.21.4 与 1.20.1 各一次，后者读数 `against Yarn 1.20.1+build.10`）、
+  `check_bridge_host_boundary`（两 root 各一次）、`git diff --check` 全绿。CI 在同一提交上两侧都绿且
+  **在浏览器里逐 job 读过**：工作分支 run #452（36045478768）与 `main` run #453（36045486235）的
+  `python`/`protocol`/`bridge-static` 三 job 全成功，`python` job 18 步含六道旧被主干回归挡住的门禁
+  全部绿勾；注释区只有 Node.js 20 弃用与 runner-images 两条 infra notice，与本卡无关。
+  CI 只作代码门禁复判，**不作 Minecraft 验收证据**。
+- `completion_evidence`: `bridge-1201/build/libs/minekin-bridge-1201-0.0.0.jar` =
+  sha256 `9e162d83…` / 1,308,469B，四次真实构建（Windows 严格构建、容器冷缓存记录、容器强制校验构建、
+  `check --rerun-tasks`）逐字节相同；source tree 摘要 `b5a817dd…`。1.21.4 侧无漂移：`bridge/`
+  `git status` 干净、source tree 摘要仍 `507f708d…`、jar 仍 `faeec4a9…`/1,308,525B。真实 CLI
+  `minekin bundle verify` 对 `bundle-p0-core-1.21.4.json` 与 `bundle-candidate-1.20.1.json` 都出
+  `valid_recipe` / `launchable: true` / `blockers: []`。
+- `not_tested`: **1.20.1 客户端从未启动、从未入服**；`launchable` 只说明计划里没有未构建工件，
+  不是验收结论，本卡没有任何一项记为 `tested`/PASS。其余未测项（Linux 侧由 Gradle 自己触发产物门、
+  1.20.1 的 `--quickPlaySingleplayer` 替代与就绪谓词、1.20.1 运行时能力协商、
+  `check_bridge_proto_java` 的 stub 只覆盖 1.21.4 root、`adapters/bridge/bootstrap.py` 里那句过期
+  docstring）逐条记在上面的 `progress_record`。
+- `next_after_done`: `VERSION-LOCAL-1201-001`（V04，`QUEUED`；先登记再独立提升）。V04 的前置本卡已
+  备好，但它自己还要求一个隔离的 1.20.1 `online-mode=false` 专服与独立 real-run bundle，且**不复用**
+  1.21.4 的 case version/证据；`HOST-ADMISSION-DESIGN-001` 等 `BLOCKED_DECISION` 仍等用户拍板。
 
 ### HOST-ADMISSION-DESIGN-001 — 宿主世界会话坐标来源
 

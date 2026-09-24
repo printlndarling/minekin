@@ -2478,3 +2478,32 @@
 - **未测项（如实保留）**：未对用户真实远程 1.20.1 目标做首次探测（本卡 `validation_class` 明确推迟至 V08）；
   未接入 dnspython/SRV 真实解析（默认 resolver 不查询，重绑定/重定向以 fake 取证）。
 - **下一步**：V03 `VERSION-BUNDLE-1201-001` 仍 `QUEUED`，需先本提交后单独登记、再独立提升为唯一 `NEXT`。
+
+## V03 交付与收口现场（2026-09-25，Qoder 临时执行者）
+
+- **接手现场**：本地 HEAD = `origin/main` = `origin/codex/core-state-transition` = `35babf2`，工作树
+  除本卡进行中的改动外无他人未提交内容。主计划唯一 `NEXT` = `VERSION-BUNDLE-1201-001`（与交接预期一致）。
+- **交付**：`0510591`（工作分支与 `main` 的远端 SHA 已核对为同一值）。内容 = 顶层独立
+  `bridge-1201/` Loom 工程（64 个文件，与 `bridge/` 同形状；`build/`、`.gradle/` 全被忽略，
+  `git status bridge/` 干净）+ launcher 侧 Bridge 身份按版本命名 root 泛化 + candidate recipe 回填
+  真实 jar 摘要 + 五道 `tools/check_bridge_*`/`check_boundaries` 按 root 各跑 + CI `bridge-static`
+  对两个 root 的源集各跑一次 host-boundary 门。
+- **判据前移的那一条（不藏着）**：`HOSTCTL-060` 的一条断言钉的是
+  `tools/check_bridge_scaffold.py` 的全文摘要，泛化这道门必然移动它。按既有 `--record` 机制重登记后
+  `5d7fc110… → 29ab71b4…`、case 文件摘要 `625108cd… → 2368ae21…`，`tests/fixtures/manifest.sha256`
+  同步。**后果**：`HOSTCTL-060` 的 `case_version` 前移，旧版本封的东西不算这一版的证据。仓库内除散文/
+  契约文档外没有引用其旧 case version 的已封 bundle（该 case `local-only`、`mandatory: false`），故本卡
+  不重封 bundle；1.21.4 的门内 pin 字符串逐条保留，没有借泛化放宽任何一条。
+- **产物可复现是建出来的**：`9e162d83…`/1,308,469B 在 Windows 严格构建、容器冷缓存记录构建、容器
+  强制依赖校验构建、`check --rerun-tasks`（11 任务全重跑、含 `test`）四次逐字节相同；一次容器构建因
+  `libraries.minecraft.net` TLS 抖动失败（`.tmp/v03docker4.log` 保留），重试成功——网络证据，不是校验证据。
+- **读数**：全量 pytest `2327 passed / 2 skipped`，Pyright `0 errors`，Ruff check/format、boundaries、
+  case assertions(139)、fixture digests、workflow pins、两道 root 的 scaffold/protocol/artifact/
+  host-boundary 门、`git diff --check` 全绿；真实 CLI `bundle verify` 对 1.21.4 与 1.20.1 都出
+  `valid_recipe`/`launchable: true`/`blockers: []`。
+- **仍未测（不把任一写成已过）**：1.20.1 客户端从未启动、从未入服；`launchable` 只是 recipe 层事实；
+  Linux 上由 Gradle 自己触发产物门未测（镜像内无 python）；`--quickPlaySingleplayer` 在 1.20.1 的替代与
+  就绪谓词留给 V04；`check_bridge_proto_java` 的 stub 只覆盖 1.21.4 root；
+  `adapters/bridge/bootstrap.py` 里「Bridge JAR 还不能 pin」那句 docstring 已过期，因不在本卡允许路径而未改。
+- **下一步**：V03 本提交收 `DONE`；`VERSION-LOCAL-1201-001`（V04）需先在独立提交登记 `QUEUED`，
+  再由下一次提交提升为唯一 `NEXT`。
