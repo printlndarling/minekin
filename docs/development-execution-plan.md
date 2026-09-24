@@ -12,18 +12,19 @@
 - `baseline_date`: 2026-09-22
 - `baseline_branch`: `main`
 - `baseline_remote`: `origin/main`
-- `current_next`: `TICK-RENDER-SOAK-EVIDENCE-DESIGN-001`——`096bd68` 以 `QUEUED` 登记、本 commit 依交接
-  「连续推进」第 6 项提升为唯一 `NEXT`。**判据尚未冻结**：本卡是 campaign 第 6 个场景（tick/render 采样）
-  的证据设计入口，冻结表与后续实现卡的登记是它作为 `NEXT` 的交付。
-  **它为何是下一张**：`order` 前五个场景已逐个按冻结判据封证——刚收口的第 5 个（crash/outbox 窗口）由
-  `CRASH-OUTBOX-ALIVE-DISPLAY-001`（`f90abc8`，一次真实 `CORE-060` runtime-kill run `7fc0671e…`/bundle
-  `3876c335…`/attempt 3 封 `PASS`、四读一致、`case_version` `d1ea32d8b705…` 与 `bridge_digest`
-  `faeec4a9df83abb9…` 均未变、`client/stderr.log` 已空、那行 `bridge released 1 input(s) after IPC_LOST`
-  由 Render thread 真写出）交出最后一格，前置卡 `CRASH-OUTBOX-RESEAL-001` 随之 `BLOCKED_EVIDENCE`（4/5）→
-  `DONE`（5/5），`scenario_progress` 记 **5/7**。第 6 场景此前无卡（冻结卡 `CRASH-OUTBOX-EVIDENCE-DESIGN-001`
-  明确「不做第 6/7 个场景的设计」），故先 `QUEUED` 登记、再依委托提升，登记与提升分两个 commit，中间无未授权工作。
-  **上一张卡（`CRASH-OUTBOX-ALIVE-DISPLAY-001`）历史**：`94c3af0` 以 `QUEUED` 登记（登记时不写 `NEXT`）、
-  `9a283ac` 提升为唯一 `NEXT`；它要做的只有一件事——把 X 显示与 Core 的生死脱钩（harness 自己起并持有 Xvfb、
+- `current_next`: **本 commit 无 `NEXT`**——`TICK-RENDER-SOAK-EVIDENCE-DESIGN-001` 的判据冻结交付完成收为
+  `DONE`：第 6 场景（tick/render + L6 soak）当前-build 上要闭合的**真实读数只有 `CORE-100`**（三条断言，
+  `mandatory: false`），其「可信来源 → sealed artifact → 判官字段 → 反例」逐条写回本节；tick/render callback
+  预算**机制**已在 `CORE-METRICS-001`（`1e43a99`）域内落地，真实侧只作**报告**（不设 case、不设阈值、不造
+  FPS/TPS/GC/队列深度/GPU 读数）。冻结不要求改采样产品代码，三条 `stop_conditions` 未触发。**下一张卡以
+  `QUEUED` 登记、不得直接 `NEXT`**：`TICK-RENDER-SOAK-RUN-001`（当前 build 上受控 bounded-soak 真实运行 +
+  量旧 baseline 当前-build 读数 + 封 `CORE-100` 新 attempt + 四读 + `report_soak` 报告），**紧随的 commit
+  依交接「连续推进」第 6 项把它提升为唯一 `NEXT`**。`scenario_progress` 仍记 **5/7**——第 6 场景的真实封证
+  在下一张卡兑现，冻结本身不产生 PASS。**本卡（`TICK-RENDER-SOAK-EVIDENCE-DESIGN-001`）历史**：`096bd68` 以
+  `QUEUED` 登记、`26a7543` 提升为唯一 `NEXT`、本 commit 交付冻结并收 `DONE`。**上一张交付卡**
+  `CRASH-OUTBOX-ALIVE-DISPLAY-001`（`f90abc8`）交出 crash/outbox 第 5 场景最后一格，前置
+  `CRASH-OUTBOX-RESEAL-001` 随之 `DONE`（5/5）。`CRASH-OUTBOX-ALIVE-DISPLAY-001` 由 `94c3af0` 以 `QUEUED`
+  登记、`9a283ac` 提升为唯一 `NEXT`；它要做的只有一件事——把 X 显示与 Core 的生死脱钩（harness 自己起并持有 Xvfb、
   `session` 只继承 `DISPLAY`、Core 挪到普通 `sh -c` 包装之下仍是 `session_pid` 的后代），使客户端 tick 那句
   `bridge released N input(s) after IPC_LOST` 有机会真被写出来；`src/`/`bridge/`/`proto/`/`tools/`、故障注入、
   目标选择、`domain.sh:1250` 等待条件、任何 fixture/digest/`mandatory`、已封 bundle 全在禁地，一字未动。
@@ -2549,8 +2550,9 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 
 ### TICK-RENDER-SOAK-EVIDENCE-DESIGN-001 — 冻结 tick/render 采样与 L6 soak 场景的可复判证据边界
 
-- `status`: `NEXT`（`096bd68` 以 `QUEUED` 登记、本 commit 依交接「连续推进」第 6 项提升为唯一 `NEXT`；
-  **判据尚未冻结**——冻结是本卡作为 `NEXT` 的执行交付，见 `question`）
+- `status`: `DONE`（`096bd68` 以 `QUEUED` 登记、`26a7543` 提升为唯一 `NEXT`、本 commit 交付其冻结：
+  判据表已写下、下游真实 soak 实现卡 `TICK-RENDER-SOAK-RUN-001` 以 `QUEUED` 登记。冻结是本卡的交付，
+  **真实 600 秒运行与封证不在本卡**，见 `next_after_done`）
 - `promotion_reason`: 顺序已满足——登记它的 `096bd68` 同时把 `CRASH-OUTBOX-ALIVE-DISPLAY-001` 与
   `CRASH-OUTBOX-RESEAL-001` 收为 `DONE`、`scenario_progress` 记 5/7，登记那次 commit 之后计划里无 `NEXT`，
   中间没插入别的未授权工作；`order` 第 6 场景此前没有任何卡，本卡是其唯一入口。提升前门禁全绿
@@ -2565,24 +2567,81 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 - `why_now`: `order` 的前五个场景已按冻结判据逐个封证；第 6 个是唯一还没被任何卡认领、又不需产品新决策的
   下一项（tick/render + soak 的采样面已在 current build 上被 scenario 5 复用过多遍）。它是**证据设计卡**，
   不引入新的产品行为。
-- `question`（待提升后冻结）：campaign 第 6 个场景（tick/render 采样）在当前 reviewed build 上**要封什么
-  才算闭合**。需逐条量过并写回本节：① `CORE-100` 的三条断言（首快照被准入、soak 真覆盖被要求的时长且样本
-  时刻实际跨到那里、两个 JVM 各自从头到尾被采到）在 current build 上是否只需一次新 attempt，还是本 build 的
-  Bridge/采样路径相对 2026-09-20 那轮已变、必须重跑；② tick/render callback 预算窗口（`CORE-METRICS-001`
-  落地的 `publishBudgetWindow`）要不要一份真实受控运行的封存读数，还是它的判据本就是 `pytest`/Java 域内、
-  真实 run 只提供窗口/采样覆盖/缺口的**报告**而非阈值；③ FPS/TPS/GC/队列深度与 GPU 档在契约无来源、无阈值
-  ——本场景只报「该轮测量完整/不完整」及实测值，不宣称「性能合格」，不自行设阈值。**这些是待冻结的候选，
-  不是已成立的结论。**
-- `scope_初判`: 预计只读契约 `p0-validation-evidence-contract.md` 的 L6 一节 + `CORE-100`/`CORE-METRICS-001`
-  的现有登记，产出冻结表（每种读数 → 可信来源 → sealed artifact → 判官字段 → 反例），并按交接为真实
-  soak/budget 运行另登记实现卡；不重复 600 秒 soak「为了多一份报告」。
-- `non_goals`: 不设性能阈值、不把 GPU/未采样指标伪装成已测、不为本场景改采样产品代码（若发现必须改，
-  按 `stop_conditions` 停下）；不替 `PROCESS-RECOVERY-001`/`HOST`/`OPERATIONS-RETENTION` 做产品决策。
-- `stop_conditions`（登记时先挂，冻结时细化）：① 若冻结判据要求改 `src/`/`bridge/`/`tools/` 的采样实现或
-  新增产品恢复策略，先停下修订范围或另起卡；② 若真实 soak/budget 运行连续三次遇到同一不可消除的外部阻断，
-  记 `BLOCKED_EVIDENCE` 并报告；③ 若某指标被判官要求而契约无来源，只报「该轮测量不完整」，不造读数。
-- `next_after_done`: 判据冻结后，按冻结表登记第 6 场景的**实现/封证卡**（受控真实运行 + seal + 四读），
-  再按 `order` 进入第 7 个场景（CORE/OFFLINE/ADMIT promotion report 总账）。
+- `question`（提升后已冻结，见 `freeze`）：campaign 第 6 个场景（tick/render 采样 + L6 soak）在当前 reviewed
+  build 上**要封什么才算闭合**——原三问的逐条结论落在下面 `freeze` 表里。
+- `freeze`（本卡交付；**只冻结判据与读数归属，不封任何 bundle、不跑 600 秒**）：
+
+  第 6 场景在契约（`p0-validation-evidence-contract.md` L6 行 + 用例清单第 14 条）里是「有界持续运行并报告
+  资源与延迟分布，阈值先测后定」。它在当前 build 上要闭合的**真实读数只有一处：`CORE-100`（L6 有界 soak，
+  三条断言，`mandatory: false`）**；tick/render callback 预算**机制**已在 `CORE-METRICS-001`（`1e43a99`，
+  `LOCAL_THEN_REAL_RUN`）的域内落地，其 `acceptance` 明写「真实 percentile 仍由后续 runner campaign 验收」，
+  故真实侧只作**报告**，不设 case、不设阈值。
+
+  | 读数 | 可信来源 | sealed artifact | 判官字段（`tools/assert_case_evidence.py`） | 反例（须各自驱动到 FAIL） |
+  | --- | --- | --- | --- | --- |
+  | 首快照被准入（`CORE-100` 断言①） | Core run document 的准入快照 + `BRIDGE_FILTERED` 的 join 行 | bundle 里既有的 run document / ledger 工件 | `first_snapshot_admitted`：join 与「快照被准入」两半都要，缺任一即拒 | 无 join 的快照；join 了但快照未准入；用超时推断冒充准入 |
+  | soak 覆盖被要求的时长（断言②） | runner 写的 summary（`requested_seconds`/`interval_seconds`/`ended_early`）+ samples 的实际 `elapsed` | `soak-summary.json` + `soak-samples.txt` | `the_soak_held_for_the_duration_it_was_asked_for`：summary 完整、`ended_early≠true`、`max(elapsed)+interval≥requested` | 没有 summary；summary 不完整；`ended_early=true`；样本提前停（`SOAK_SHORTER_THAN_REQUESTED`） |
+  | 两个 JVM 各自从头到尾被采（断言③） | samples 每行 `(label,rss_kb,threads,elapsed)` | `soak-samples.txt` | `both_jvms_were_sampled_throughout_the_soak`：client/server 各 ≥2 样本、各自末次 `elapsed` 达 `reached-2*interval` | 某一 JVM 从未被采；某 JVM 仅 1 样本；某 JVM 中途停采（`*_STOPPED_BEING_SAMPLED`） |
+  | tick/render callback 预算窗口 | `publishBudgetWindow` 的窗口序号/ring 聚合（`CORE-METRICS-001` 落地的字段/聚合/evidence 形状）；真实侧只在同一受控 soak run 里观察窗口是否推进、覆盖与缺口 | 本轮已封的 core/client 工件；**不新增 case fixture、不新增判据** | **无判官字段**（不新增、不设阈值）；只由 `tools/report_soak.py` 从**已验摘要的封存 bundle** 算 per-process min/first/last/**P50/P95/P99**/max RSS 与线程峰值（nearest-rank），并注明窗口/采样覆盖/缺口 | 报告把 P50/P95/P99 说成「性能合格」；对 FPS/TPS/GC/队列深度/GPU 造读数（契约无来源）；为「多一份报告」重复跑 600 秒以外的空 soak |
+
+  **当前-build 判定（原问①）**：`2026-09-20` 那轮 L6 baseline **早于**当前 reviewed build——自 2026-09-20 起
+  `bridge/` 大量变动（含 `1e43a99` 预算、显示/IPC、`dd992b1`/`e75b011`/`eeac5b0` 认证与快照分类），且
+  case-version 绑定已改为「覆盖 criteria 而非仅名字」（`13967fa`）。使 5 份旧 crash bundle 读作 `UNJUDGED`
+  的**同一条每-build 四读规则** ⇒ 预期该 baseline 对当前 build 亦读 `UNJUDGED`。**此为预期，非本卡实测**：
+  `CORE-100` 的 `mandatory: false`，它不 gate promotion，但 campaign `order` 第 6 场景要一份当前-build 的 L6
+  baseline 读数。故闭合方式是**在当前 build 上跑一次新 attempt 封 `CORE-100`**，旧 baseline bundle 原样保留、
+  不重写；实现卡须先在当前 build 上量一次旧 baseline 的实际读数（记 `UNJUDGED`/或仍 `AGREES`），再封新 attempt。
+
+  **冻结的三条 stop_conditions 细化**：① 冻结**不要求**改 `src/`/`bridge/`/`tools/` 的采样实现——预算机制
+  `CORE-METRICS-001` 已域内落地，本场景只消费；若真实 soak run 连预算窗口都无法暴露到可报告，记
+  `BLOCKED_EVIDENCE` 并报告，**不新增产品代码**。② 真实 600 秒 soak 连续三次同一不可消除外部阻断 ⇒
+  `BLOCKED_EVIDENCE` 报告。③ 契约无来源的指标（FPS/TPS/GC/队列深度/GPU）只报「该轮测量不完整」，
+  不造读数、不自行设阈值。**未触发任何停卡条件**（冻结本身是判据工作）。
+- `acceptance`: ① 上面 `freeze` 表把三种真实读数各自的「可信来源 → sealed artifact → 判官字段 → 反例」逐条
+  写清，且不引入新判据/新 case；② 明确 tick/render 预算在真实侧只报告不设阈值；③ 下游真实 soak 封证以
+  `TICK-RENDER-SOAK-RUN-001` 一张 `QUEUED` 卡登记，本卡不跑 600 秒；④ 只动计划与本 TODO，全量门禁相对
+  上一绿基线无变化。
+- `validation_class`: `LOCAL`（纯证据设计冻结；真实运行在下一张卡）。
+- `completion_commit`: 本 commit（只改 `docs/development-execution-plan.md`、`docs/development-todo.md`）。
+- `next_after_done`: `TICK-RENDER-SOAK-RUN-001`（当前 build 上受控 bounded-soak 真实运行 + 量旧 baseline 的
+  当前-build 读数 + 封 `CORE-100` 新 attempt + 四读一致 + `report_soak` 报告预算/RSS 覆盖）。它交付后按
+  `order` 进入第 7 个场景（CORE/OFFLINE/ADMIT promotion 总账）。
+
+### TICK-RENDER-SOAK-RUN-001 — 在当前 build 上封一次 L6 有界 soak 并报告预算/RSS 覆盖
+
+- `status`: `QUEUED`（本 commit 依 `TICK-RENDER-SOAK-EVIDENCE-DESIGN-001` 的冻结表登记；**只排队，不直接
+  `NEXT`**，依交接「连续推进」第 1、6 项由紧随的 commit 提升）
+- `registered`: 2026-09-24，由 `TICK-RENDER-SOAK-EVIDENCE-DESIGN-001` 冻结触发；它是 `order` 第 6 场景的
+  真实封证实现卡。
+- `depends_on`: `TICK-RENDER-SOAK-EVIDENCE-DESIGN-001`（判据先冻结，本卡才有对象）；`CORE-100`
+  （`tests/fixtures/cases/core-100.json`，三条断言）；`CRASH-OUTBOX-RESEAL-001`（同一条 current-build 封存通道，
+  `f90abc8`）。
+- `question`: 在当前 reviewed build 上跑一次受控 bounded-soak（`MINEKIN_DOMAIN_SOAK_SECONDS` /
+  `MINEKIN_DOMAIN_SOAK_INTERVAL` 已存在的 knob），封 `CORE-100`，并把 tick/render 预算窗口的覆盖/RSS 分布
+  如实报告，四读一致——怎样做到**不新增判据、不设阈值、不重写旧 baseline**？
+- `scope`: ① 先对 `2026-09-20` 旧 baseline bundle 在当前 build 上量一次读数（`evidence verify` /
+  `report_promotion`），如实记 `UNJUDGED` 或仍 `AGREES`，**不重写**；② 在当前 build 上跑一次受控 soak
+  （建议沿用 baseline 的 600 秒 / 间隔 10 秒档，`llvmpipe` 软件渲染，两个 JVM），分配**新 attempt**，封
+  `CORE-100`；③ `tools/report_soak.py` 从**已验摘要的封存 bundle**算 per-process min/first/last/P50/P95/P99/
+  max RSS 与线程峰值（nearest-rank），报告里写要求时长、间隔、样本数、是否提前终止、失败样本，并对
+  FPS/TPS/GC/队列深度/GPU 标「未测/该轮不完整」；④ tick/render 预算窗口只报覆盖与缺口，不设阈值。
+- `allowed_paths`: `test-orchestrator/runner/domain.sh`（仅当 soak 分支需要读同一 current-build 通道的小修，
+  冻结表未要求改采样语义）、封存/报告读路（`tools/report_soak.py`、`tools/seal_run_evidence.py`、
+  `tools/assert_case_evidence.py`）**若**发现真实 run 无法把 `soak-samples.txt`/`soak-summary.json` 封进 bundle 才允许动，
+  且须先按 `stop_conditions` 修订范围；`docs/development-execution-plan.md`、`docs/development-todo.md`。
+- `forbidden_paths`: `src/`/`bridge/`/`proto/`/`tools/` 的采样实现语义、case registry 与 `mandatory` 翻转、
+  `CORE-100` 三条断言的判据字节、旧 baseline bundle 与任何既有 sealed bundle。
+- `non_goals`: 不设性能阈值、不测 GPU 档、不为 FPS/TPS/GC/队列深度造来源、不重复 600 秒「多一份报告」、
+  不封第 7 场景的 promotion 总账。
+- `acceptance`: ① `CORE-100` 在当前 build 上有一份新 attempt 的 `PASS` bundle，三条断言逐条来自封存字节；
+  ② verify / rejudge / 适用 replay / promotion 四读一致；③ 旧 baseline 读数已如实量并保留、未被改写；
+  ④ `report_soak` 输出标明窗口、采样覆盖与缺口，未测指标如实标不完整；⑤ 全量门禁绿。
+- `validation_class`: `LOCAL_THEN_REAL_RUN`。
+- `stop_conditions`: ① 若封存通道今天根本不能把 soak 两份工件写进 bundle，需动 `tools/`/`bridge/` 采样面 ⇒ 先停下
+  修订本卡范围或另起卡（不在本卡偷偷扩范围）；② 真实 soak 连续三次同一不可消除外部阻断 ⇒ `BLOCKED_EVIDENCE`
+  并报告；③ 某判官字段要求而契约无来源 ⇒ 只报「该轮测量不完整」，不造读数。
+- `next_after_done`: 判据冻结的真实封证完成后，按 `order` 登记/提升第 7 场景（`CORE/OFFLINE/ADMIT` promotion
+  总账，阶段 F）的卡。
 
 ### OFFLINE-IDENTITY-SEALED-ARGV-001 — 让封存时的 live 判读也拿到那份 argv
 

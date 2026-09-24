@@ -2256,6 +2256,42 @@
       `scenario_progress 4/7→5/7`。`order` 第 6 场景（tick/render 采样）此前无卡，本 commit 以
       `TICK-RENDER-SOAK-EVIDENCE-DESIGN-001`（`QUEUED`）登记入口，紧随 commit 提升为 `NEXT`。
 
+- [x] **TICK-RENDER-SOAK-EVIDENCE-DESIGN-001（`DONE`，冻结交付 commit；`096bd68` 登记 `QUEUED`、
+  `26a7543` 提升 `NEXT`）**：冻结 campaign `order` 第 6 个场景（tick/render + L6 soak）在当前 reviewed
+  build 上「要封什么才算闭合」。**冻结本身不封 bundle、不跑 600 秒、不改采样产品代码**——真实封证交给它
+  当场登记的 `TICK-RENDER-SOAK-RUN-001`。
+  - **第 6 场景当前-build 上要闭合的真实读数只有 `CORE-100`**（L6 有界 soak，`tests/fixtures/cases/core-100.json`
+    三条断言、`mandatory: false`）。三条断言的「可信来源 → sealed artifact → 判官字段 → 反例」已在计划本节
+    `freeze` 表逐条写下：`first_snapshot_admitted`（run document 的准入快照 + `BRIDGE_FILTERED` join 行，
+    两半都要）、`the_soak_held_for_the_duration_it_was_asked_for`（`soak-summary.json` 的 requested/interval/
+    ended_early + `soak-samples.txt` 的实际 elapsed，容差一个间隔）、`both_jvms_were_sampled_throughout_the_soak`
+    （两 label 各 ≥2 样本、各自末次撑到 `reached-2*interval`）。每条已有负向变异用例。
+  - **tick/render callback 预算的机制已在 `CORE-METRICS-001`（`1e43a99`，`LOCAL_THEN_REAL_RUN`）域内落地**，其
+    `acceptance` 明写「真实 percentile 仍由后续 runner campaign 验收」。故第 6 场景真实侧对预算**只作报告**：
+    `tools/report_soak.py` 从**已验摘要的封存 bundle**算 per-process min/first/last/P50/P95/P99/max RSS 与
+    线程峰值（nearest-rank），注明窗口/采样覆盖与缺口。**不新增 case、不新增判据、不设性能阈值**；FPS/TPS/GC/
+    队列深度/GPU 契约无来源，只标「该轮不完整」，不造读数（契约 L6 行 + 阶段 E 的口径）。
+  - **当前-build 判定**：`2026-09-20` 那轮 baseline **早于**当前 reviewed build（此后 `bridge/` 大量变动，含
+    `1e43a99`/`dd992b1`/`e75b011`/`eeac5b0`，且 case-version 绑定改为覆盖 criteria `13967fa`）。使 5 份旧 crash
+    bundle 读 `UNJUDGED` 的**同一条每-build 四读规则** ⇒ 预期旧 baseline 对当前 build 亦 `UNJUDGED`（**预期，
+    非本卡实测**）。`CORE-100` `mandatory:false` 不 gate promotion，但第 6 场景要一份当前-build 的 L6 baseline
+    读数 ⇒ 闭合方式是在当前 build 上跑新 attempt 封 `CORE-100`，旧 baseline 原样保留、不重写。
+  - **状态流转**：本卡 `NEXT → DONE`（冻结为交付）；`scenario_progress` 仍 **5/7**（第 6 场景真实封证在下一张卡）；
+    本 commit 以 `QUEUED` 登记 `TICK-RENDER-SOAK-RUN-001`，紧随 commit 提升为唯一 `NEXT`。三条 `stop_conditions`
+    未触发。`allowed_paths` 只有计划与本 TODO，未碰 `src/`/`bridge/`/`proto/`/`tools/`、任何 fixture/digest、旧 bundle。
+  - **门禁**：纯文档改动，相对上一绿基线（`26a7543`：`2159 passed / 2 skipped`、case assertions 139 registered、
+    fixture digests、workflow pins 全绿）无代码变化；本 commit 复核 `git diff --check` 干净、case/fixture/pins
+    静态门禁原样绿。
+
+- [ ] **TICK-RENDER-SOAK-RUN-001（`QUEUED`，campaign 第 6 场景的真实封证实现卡）**：在当前 build 上跑一次受控
+  bounded-soak（`MINEKIN_DOMAIN_SOAK_SECONDS`/`MINEKIN_DOMAIN_SOAK_INTERVAL`，建议沿 baseline 的 600 秒 / 间隔
+  10 秒、`llvmpipe` 软件渲染、两个 JVM），封 `CORE-100` 新 attempt、四读一致，并用 `report_soak` 报告预算/RSS
+  覆盖。**先**对 `2026-09-20` 旧 baseline bundle 在当前 build 上量一次实际读数（记 `UNJUDGED`/或仍 `AGREES`）、
+  不重写，**再**跑新 attempt。`non_goals`：不设阈值、不测 GPU、不为未采样指标造来源、不重复 600 秒「多一份
+  报告」。`stop_conditions`：① 封存通道今天不能把 soak 两份工件写进 bundle（需动采样面）⇒ 先停下修订范围；
+  ② 真实 soak 连续三次同一不可消除外部阻断 ⇒ `BLOCKED_EVIDENCE`；③ 判官要而契约无来源的指标只报不完整。
+  `next_after_done`：按 `order` 进入第 7 场景（CORE/OFFLINE/ADMIT promotion 总账，阶段 F）。
+
 - [x] **CRASH-OUTBOX-SEALED-KIN-001（已完成，交付 `2160989`）**：让「没有文档的一次 run」也能明白地
   说出它属于哪个 Kin。`CRASH-OUTBOX-RESEAL-001` 第二次真实 attempt 当场发现的封存面阻断，是 campaign
   第 5 个场景当下唯一的硬阻断（`c75865b` 登记 `QUEUED`、`3427e43` 提升为 `NEXT`；交付
