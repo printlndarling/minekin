@@ -12,12 +12,14 @@
 - `baseline_date`: 2026-09-22
 - `baseline_branch`: `main`
 - `baseline_remote`: `origin/main`
-- `current_next`: `OFFLINE-IDENTITY-SEALED-ARGV-001`——让封存当时的 live 判读也拿到那份 argv。
-  顺序表的前一张 `OFFLINE-IDENTITY-CASE-001` 已 `DONE`（交付 `2a84bbd`，收卡 `1a77d40`），本卡
-  此前已作为 `QUEUED` 登记并推送，因此这次提升满足交接第 1、6 项的「先 `QUEUED`、再在紧随的
-  commit 提升」。它是 `OFFLINE-IDENTITY-RUN-001` 的前置：判据 ① 今天只在**复判**这条读路上成立
-  （sealer 在 `tools/seal_run_evidence.py:664` 没把 `session_argv` 交给 `read_run_material`），
-  两次真实封证之前要把这一格补上。`ADMIT-070-RECORD-SCHEMA-001` 也还是 `QUEUED`，但它自己写明
+- `current_next`: 上一轮交接把 `OFFLINE-IDENTITY-SEALED-ARGV-001` 提升为唯一 `NEXT`，本 commit 记录它
+  已 `DONE`（交付 `d8348a3`：sealer 把那份 argv 同时交给 live 判读与 bundle，两条读路共用
+  `recorded_argv` 一条归一规则）。顺序表的下一张 `OFFLINE-IDENTITY-RUN-001` 早已作为 `QUEUED` 登记，
+  提升为唯一 `NEXT` 写在紧随的下一个 commit 里，以满足交接第 1、6 项「先 `QUEUED`、再在紧随的
+  commit 提升」。本卡验收 ① 的**真实运行那一半**没有在这张卡里兑现——那张卡的 `non_goals` 就写明
+  「不在本卡封 OFF-A/OFF-B 证据」，而 runner 里至今没有 OFFLINE 场景分支——它随下一张卡的头一次真实
+  封证一起检查，提升那张卡时把这条检查写进它的 `acceptance`。
+  `ADMIT-070-RECORD-SCHEMA-001` 也还是 `QUEUED`，但它自己写明
   不是任何封证卡的下一张，因此不排进这条链。其余未闭合卡仍是
   `HOST-ADMISSION-DESIGN-001`/`OPERATIONS-RETENTION-001`/`PROCESS-RECOVERY-001`
   三项 `BLOCKED_DECISION` 与 `HOST/W80+` 的 `DEFERRED`，都要用户先拍板。
@@ -402,8 +404,8 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 
 - `status`: `BLOCKED_EVIDENCE`
 - `blocked_by`: `OFFLINE-IDENTITY-LEDGER-FACT-001`（`DONE`，`ec8fb15`）→ `OFFLINE-IDENTITY-CASE-001`
-  （`DONE`，`2a84bbd`）→ `OFFLINE-IDENTITY-SEALED-ARGV-001`（现唯一 `NEXT`，`1a77d40` 之后提升）→
-  `OFFLINE-IDENTITY-RUN-001`（仍 `QUEUED`，
+  （`DONE`，`2a84bbd`）→ `OFFLINE-IDENTITY-SEALED-ARGV-001`（`DONE`，`d8348a3`）→
+  `OFFLINE-IDENTITY-RUN-001`（仍 `QUEUED`，提升在紧随的 commit，
   都由已 `DONE` 的
   `OFFLINE-IDENTITY-EVIDENCE-DESIGN-001` 与 `OFFLINE-IDENTITY-CASE-001` 登记）。`order` 的第 1 个场景
   （在线认证拒绝）、第 2 个场景（资源包拒绝）与第 3 个场景（JOIN 后首快照失败）已各自在当前
@@ -1650,8 +1652,8 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 
 ### OFFLINE-IDENTITY-SEALED-ARGV-001 — 让封存时的 live 判读也拿到那份 argv
 
-- `status`: `NEXT`（`9ffe980` 登记为 `QUEUED`，收卡 `OFFLINE-IDENTITY-CASE-001` 的 `1a77d40` 之后
-  由本 commit 提升；当前计划里没有第二张 `NEXT`）
+- `status`: `DONE`（`9ffe980` 登记为 `QUEUED`，收卡 `OFFLINE-IDENTITY-CASE-001` 的 `1a77d40` 之后
+  由 `58c9d8f` 提升为唯一 `NEXT`，2026-09-24 交付完成）
 - `promotion_reason`: 顺序已满足——本卡在 `9ffe980`（当时唯一 `NEXT` 是 `CASE-001`）以 `QUEUED`
   登记并推送，随后 `CASE-001` 交付（`2a84bbd`）与收卡（`1a77d40`）都在提升之前，中间没有插入别的
   未授权工作。它是 `OFFLINE-IDENTITY-RUN-001` 的前置：不补上 live 侧那一格 argv，两次真实封证里
@@ -1682,6 +1684,66 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 - `validation_class`: `LOCAL_THEN_REAL_RUN`。
 - `stop_conditions`: 若 `orchestrator-trace.json` 在 live 侧根本不可读（写入发生在判读之后），停在
   该卡并把顺序问题记为 `BLOCKED_EVIDENCE`，不得改为让 sealer 凭记忆重造 argv。
+- `completion_commit`: `d8348a37addc6f75f726e7f473080d1037e96a8c`（只改三份文件：
+  `tools/seal_run_evidence.py`、`tools/assert_case_evidence.py`、`tests/unit/test_seal_run_evidence.py`；
+  已推到 `refs/heads/codex/core-state-transition` 与 `refs/heads/main`，`git ls-remote` 读到两条都等于
+  上面那个 sha。本节与 TODO 记录是紧随的收卡 commit，提升下一卡再往后一条）。
+- `completion_evidence`:
+  - **交接的形状**：`seal()` 的 `session_argv` 只有一个来源——它就是 `orchestrator_trace(...)`
+    往 `session_argv` 字段里写的那一份（`tools/seal_run_evidence.py:745`）。本卡把同一个变量在
+    `:678` 交给 `run_asserter`、在 `:688` 交给 `read_run_material`，因此 live 判读拿到的与 bundle
+    里封存的不是两份需要保持同步的记载，而是同一份 list 的两个去向：没有做第二份真相，也没有让
+    sealer 凭记忆重造 argv。
+  - **顺序问题的实际形状**：判读发生在 trace 写出**之前**，所以「live 侧读不到那份 JSON」这条阻断
+    从一开始就不是靠改顺序解决的——判官不需要那个文件，sealer 手上已经有它要装进去的内容。
+    `stop_conditions` 因此未触发，也没有记 `BLOCKED_EVIDENCE`。
+  - **一份 argv，一条归一规则**：新增 `recorded_argv`（`tools/assert_case_evidence.py:479`），
+    `read_run_material` 的入参与 `_trace_argv` 读出封存 trace 时都走它。规则是「空 ⇒ `None`」，
+    于是 `seal()` 的默认 `()`、封存下来的 `session_argv: []`、以及根本没有 trace 三种情形，在两条
+    读路上都读成「什么都没记下来」⇒ `LAUNCH_ARGV_UNRECORDED`，而不是一侧 `None`、一侧空元组。
+    `_trace_argv` 的 docstring 原本就写着这层意思，代码此前没做到；本卡把它做到。
+  - **交接通道**：判官 CLI 新增 `--session-argv-json`（不是 `REMAINDER`，因此不要求放在最后），
+    非 JSON / 非字符串列表一律 `_reject`，判不出就不封。`run_asserter` 只在 `session_argv` 不为
+    `None` 时带上这一面旗。
+  - **验收 ②（本地即终态）**：`test_a_seal_that_never_saw_an_argv_says_so_the_same_way_twice` ——
+    封下来的 trace 里 `session_argv` 是 `[]`，live 的 `read_run_material(..., session_argv=())`
+    与 `read_sealed_material(bundle)` 都读出 `None`，判据 ① 两侧同为
+    `{ATTRIBUTION}:LAUNCH_ARGV_UNRECORDED`。
+  - **验收 ① 的本地那一半**：`test_the_argv_the_seal_writes_is_the_argv_the_live_judgement_reads`
+    钉住三处逐字相同（live 字段 = 封存读路 = trace 工件）；
+    `test_the_live_judge_can_refuse_a_launch_on_the_argv_it_was_handed` 用**真的**
+    `SEALER.run_asserter`（子进程，走那条 JSON 旗）对同一个 run 拿三种命令行判出三种答案：
+    对的一列 ⇒ `CORE_NAMED_NO_CANDIDATE`（这个 run 没记身份行，点名对了也仍要拒）、
+    另一列 ⇒ `ARGV_NAMES:enum-aligned`、没点名 ⇒ `CANDIDATE_NOT_NAMED_IN_ARGV`；
+    `test_an_offline_launch_judged_live_and_re_judged_disagrees_about_nothing` 封 OFFLINE-010 后
+    用 `REJUDGE.rejudge` 读出 `disagreements == []`，并逐条（不是按集合）比 for failures。
+  - **顺手挖出的第二个缺陷**：`assertions_from` 把 failures 排了序，而 `rejudge_evidence.disagreements`
+    是**按位置**比 `expected`/`observed`/`failures` 的。单条失败两种写法一样，所以这个缺陷一直藏着；
+    一次判据 ① 的封证有两条以上同时拒绝，才露出 `FAILURES:recorded=<字母序>,re-judged=<声明序>`——
+    一 bundle 的封存 verdict 用它自己的字节复现不出来。修法是去掉那次 `sorted()`（`observed` 从来
+    就没排过序）。已核对影响面：`.tmp/data` 下现存 bundle 里**没有任何一份**记录了 2 条以上失败
+    （脚本扫过全部 `manifest.json`），PASS bundle 的 failures 为空，因此没有旧证据被这次改动改变读数；
+    需要改的期望只有一处——`tests/unit/test_seal_run_evidence.py` 里钉住 core-020 三条失败的那张，
+    按 `offline`/`core-020` 的实际声明顺序
+    （`server_observed_join_identity` → `first_snapshot_admitted` → `leave_after_join_observed`）重写。
+    判据字节未动：`tools/check_case_assertions.py` 仍是 139 registered，`verify_fixture_digests.py` 全绿。
+  - **验收 ③**：`uv run --frozen pytest -q` = `2144 passed, 2 skipped in 276.75s`（本卡新增 4 个测试
+    函数，2140 → 2144；两处 platform skip 与既有基线同因）；`ruff check . -q`、`ruff format --check .`
+    （304 份文件）全清；`pyright` 0 errors / 0 warnings；`check_case_assertions.py` OK（139 registered）、
+    `verify_fixture_digests.py` `W00 schema and fixture digests: OK`、`check_boundaries.py` OK、
+    `check_workflow_pins.py` OK、`git diff --check` 干净。
+  - **未验证 / 留下的限制**：
+    1. 验收 ① 的**真实受控运行**那一半不在本卡兑现——本卡 `non_goals` 就写明「不在本卡封
+       OFF-A/OFF-B 证据」，且 `test-orchestrator/runner/domain.sh` 里今天没有任何 OFFLINE 场景分支
+       （grep `identity-candidate` / `offline-0` 为空）。这条检查随 `OFFLINE-IDENTITY-RUN-001` 的头一次
+       真实封证执行，提升该卡时写进它的 `acceptance`，不在这里当作已完成。
+    2. runner 早已在 `domain.sh:1923` 用 `--session-argv "$@"` 把命令行交给 sealer，所以本卡没碰
+       runner。但同一份脚本在 `:734` 以 `python -m minekin_core "$@" "${lan_args[@]}"` 启动 Core：
+       脚本自己追加的 LAN 连接参数不在这份 argv 里。封进去的是「操作者那一段命令行」，不是进程的
+       完整 argv。判据 ① 问的恰是「操作者点名了哪一列」，因此这个形状够用；如实记下，留待真实封证
+       时对照。
+- `next_after_done`: `OFFLINE-IDENTITY-RUN-001`（OFF-A 与 OFF-B 各自封证并四读一致；它同时承接本卡
+  验收 ① 的真实运行那一半）。
 
 ### ADMIT-040-CLASSIFICATION-001 — 识别原版在线认证拒绝的真实文案
 

@@ -1852,6 +1852,63 @@
     `scenario_progress` 保持 3/7。本地 HEAD、`refs/heads/codex/core-state-transition` 与
     `refs/heads/main` 对 `2a84bbd` 核对相同。
 
+- [x] **OFFLINE-IDENTITY-SEALED-ARGV-001（已完成，交付 `d8348a3` 已推送，卡已 `NEXT → DONE`）**：
+  让封存当时的 live 判读也拿到那份 argv，判据 ① 才在封存现场与复判现场读成同一件事。
+  - **交接第 1 项的形状**：本卡在 `9ffe980` 以 `QUEUED` 登记并推送，`58c9d8f`（上一卡收卡的紧随
+    commit）才提升为唯一 `NEXT`；改动在 `d8348a3`，收卡与本条记录在它之后的 docs commit 里。
+    `allowed_paths` 是 `tools/seal_run_evidence.py`、`tools/assert_case_evidence.py`（只加入参）、
+    `tests/unit/test_seal_run_evidence.py` 加两份文档——交付只碰这三份代码/测试文件
+    （+236 / −5），runner、fixture、bundle、产品代码一律无改动，`git status` 可核。
+  - **为什么不产生第二份真相**：`seal()` 里那份 `session_argv` 与 `orchestrator_trace(...)` 往
+    `session_argv` 字段写进去的是**同一个变量**（`tools/seal_run_evidence.py:745`）。本卡把这个变量
+    在 `:678` 交给 `run_asserter`、在 `:688` 交给 `read_run_material`，于是 live 判读与 bundle 各自
+    取用的是同一份，中间没有一份需要保持同步的副本。判据 ① 因此第一次在封存现场拿到了它一直在问的
+    那件事：操作者点名了哪一列。
+  - **一条归一规则，两处收口**：新增 `recorded_argv`（`tools/assert_case_evidence.py:479`），
+    `read_run_material` 的入参与 `_trace_argv` 都走它，规则是「空 ⇒ `None`」。这让
+    `seal()` 的默认 `()`、封存下来的 `[]`、根本没有 trace 三种情形在两条读路上都读成「什么都没记下」
+    ⇒ `LAUNCH_ARGV_UNRECORDED`。`_trace_argv` 的 docstring 早就写了这层意思而代码没做到，本卡顺手
+    把两者对齐——不改判据语义，只把「未记录」与「记录了但没选」这条已冻结的区分补全到 live 侧。
+  - **交接通道**：判官 CLI 新增 `--session-argv-json`（普通 JSON 旗，不是 `REMAINDER`，因此不要求
+    放最后），非 JSON 或非字符串列表直接 `_reject`——判不出就不封，而不是按空 argv 判过去。
+  - **四条新测试各钉住什么**：① `test_the_argv_the_seal_writes_is_the_argv_the_live_judgement_reads`
+    ——三处逐字相同（live 字段 = 封存读路 = trace 工件）；②
+    `test_the_live_judge_can_refuse_a_launch_on_the_argv_it_was_handed`——用**真的** `run_asserter`
+    子进程对同一个 run 判出三种不同拒绝：点名对列 ⇒ `CORE_NAMED_NO_CANDIDATE`（这个 run 没记身份行，
+    点名对了也还得拒）、点名另一列 ⇒ `ARGV_NAMES:enum-aligned`、没点名 ⇒
+    `CANDIDATE_NOT_NAMED_IN_ARGV`；③ `test_a_seal_that_never_saw_an_argv_says_so_the_same_way_twice`
+    ——验收 ② 本体：两侧同判 `LAUNCH_ARGV_UNRECORDED`；④
+    `test_an_offline_launch_judged_live_and_re_judged_disagrees_about_nothing`——封 OFFLINE-010 后
+    `REJUDGE.rejudge` 读 `disagreements == []`，并把 failures 按位置（不是按集合）比相等且确有多条。
+  - **第 ④ 条测试顺手挖出的第二个缺陷**：`assertions_from` 对 failures 做了 `sorted()`，而
+    `rejudge_evidence.disagreements` 是按**位置**比 `expected`/`observed`/`failures` 的。单条失败两种
+    写法看不出差别，所以这缺陷一直藏着；一次 OFFLINE-010 封证有两条判据一起拒绝，就露出
+    `FAILURES:recorded=<字母序>,re-judged=<声明序>`——一份 bundle 的封存 verdict 用它自己的字节复现
+    不出来。修法：去掉那次排序（`observed` 从来没排过，判据字节不动）。影响面已核对：`.tmp/data` 下
+    现存 bundle 中没有一份记录了 2 条以上失败（脚本扫全部 `manifest.json` 返回 0），PASS bundle 的
+    failures 为空，所以没有旧证据因这次改动改变读数；要改的期望只有 core-020 那三条失败一处，按
+    fixture 的实际声明顺序重写并写明理由。
+  - **门禁（原始摘要）**：`uv run --frozen pytest -q` → `2144 passed / 2 skipped in 276.75s`
+    （本卡新增 4 个测试函数，2140 → 2144；两处 skip 是既有平台跳过）；`ruff check . -q` 干净、
+    `ruff format --check .` 304 份文件干净（新测试里一处换行由 `ruff format` 收干后单文件重跑 57
+    passed）；Pyright `0 errors, 0 warnings, 0 informations`；`check_case_assertions.py` OK
+    （139 registered，与上一卡相同 ⇒ 判据字节没动）、`verify_fixture_digests.py`
+    `W00 schema and fixture digests: OK`、`check_boundaries.py` OK、`check_workflow_pins.py` OK、
+    `git diff --check` 干净。
+  - **未验证**：验收 ① 的**真实受控运行**那一半未在本卡兑现——本卡 `non_goals` 写明「不在本卡封
+    OFF-A/OFF-B 证据」，且 `domain.sh` 里至今没有 OFFLINE 场景分支（grep `identity-candidate`、
+    `offline-0` 均为空）。这条检查随 `OFFLINE-IDENTITY-RUN-001` 的头一次真实封证执行，提升那张卡时
+    写进它的 `acceptance`。另记一条形状限制：runner 早已在 `domain.sh:1923` 用 `--session-argv "$@"`
+    把命令行交给 sealer（所以本卡不需要动 runner），但同一脚本 `:734` 以
+    `python -m minekin_core "$@" "${lan_args[@]}"` 启动 Core，脚本自己追加的 LAN 连接参数不在这份
+    argv 里——封存的是「操作者那一段命令行」而非进程完整 argv；判据 ① 问的恰是前者，够用，如实记下。
+    新 Bridge jar 字节的 Linux 逐字节复现仍遗留；公网测试服本轮未使用，也仍不能作判据端。
+  - **状态流转**：本卡 `NEXT → DONE`；`OFFLINE-IDENTITY-RUN-001` 提升为唯一 `NEXT` 写在紧随的下一个
+    commit（它的 `depends_on` 就是本卡），`ADMIT-070-RECORD-SCHEMA-001` 继续 `QUEUED` 且不排进这条链；
+    `REAL-P0-CAMPAIGN-001.blocked_by` 链上本卡已标 `DONE（d8348a3）`，只剩 `RUN-001` 一张；
+    `scenario_progress` 保持 3/7。本地 HEAD、`refs/heads/codex/core-state-transition` 与
+    `refs/heads/main` 对 `d8348a3` 核对相同。
+
 ## 记录：文档脱敏与卡片范围纪律（2026-09-24，用户指示）
 
 - **触发**：主控指出两处问题。① 已推送的计划/开发记录里写入了用户自备的公网测试服完整地址
