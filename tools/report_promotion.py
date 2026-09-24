@@ -65,7 +65,10 @@ before a fix satisfies a gate for the build on disk today, which is the opposite
 what the validation contract's re-run rule is for: a failure is kept and a repaired
 case is run again, and "run again" only means something if the evidence says which
 build it came from. This report now names, per bundle, the reviewed plan it launched
-from and whether that is the plan this checkout would launch from.
+from and whether that is the plan this checkout would launch from *for that bundle's
+own Minecraft version*. One recipe cannot answer that: with two reviewed versions on
+disk, comparing every bundle against the 1.21.4 plan calls the honest 1.20.1 evidence
+stale, and a diagnostic that is wrong in that direction is worse than none.
 
 **Build identity is diagnostic and does not gate.** Evidence ordering is now
 determined by each case's attempt registry; `gates_promotion` remains false for the
@@ -110,12 +113,6 @@ from minekin_core.domain.errors import MinekinError
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 CASES = REPOSITORY_ROOT / "tests" / "fixtures" / "cases"
-#: The frozen bundle recipe. Its plan digest is the only honest answer to "which
-#: build is this evidence from?", and building that plan is cheap: `build_launch_plan`
-#: reads the Bridge *source tree*, not a built jar — whether the jar exists is a
-#: question for start time, which is why a machine that has never run Gradle can
-#: still say which build its evidence belongs to.
-RECIPE = REPOSITORY_ROOT / "tests" / "fixtures" / "runtime-input" / "bundle-p0-core-1.21.4.json"
 
 # The re-judge lives beside this file, and this is the only report that can run it:
 # the assertions are test-domain code, so the product's own verification must not
@@ -125,6 +122,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from assert_case_evidence import Unreadable  # noqa: E402
 from rejudge_evidence import Unresolvable, rejudge  # noqa: E402
+from verify_supply_chain import reviewed_stacks  # noqa: E402
 
 EXIT_PROMOTABLE = 0
 EXIT_BLOCKED = 1
@@ -135,29 +133,93 @@ class Unusable(Exception):
     """The question cannot be asked of what was given."""
 
 
-def repository_build() -> tuple[str | None, str]:
-    """The plan digest this checkout would launch, or why it could not be built.
+@dataclass(frozen=True, slots=True)
+class RecipeBuild:
+    """Which build this checkout would launch for one reviewed Minecraft version.
 
-    `None` is not a digest and it is not a mismatch. A report that could not build
-    the plan has no opinion about which build a bundle came from, and reporting
-    "does not match" there would be answering a question nobody asked — the same
-    distinction `ReJudge.UNJUDGED` draws about a verdict a reader could not reach.
-
-    The digest is path-independent, which is what makes the comparison mean
-    anything across the machines this project runs on: it is over the plan's own
+    A plan digest is the honest answer to "which build is this evidence from?", and
+    building that plan is cheap: `build_launch_plan` reads the Bridge *source tree*,
+    not a built jar — whether the jar exists is a question for start time, which is
+    why a machine that has never run Gradle can still say which build its evidence
+    belongs to. The digest is path-independent, which is what makes the comparison
+    mean anything across the machines this project runs on: it is over the plan's own
     relative paths and the Bridge source tree's *contents*, so the same source
     produces it from the repository, from a copy of it, and from inside the
     container. Measured, not assumed.
+
+    `plan_sha256` is None when the plan could not be built, and None is not a digest
+    and not a mismatch either — see `_build_agrees`.
     """
 
-    try:
-        plan = build_launch_plan(RECIPE)
-    except (MinekinError, OSError, ValueError, KeyError, ArithmeticError) as error:
-        return None, f"{type(error).__name__}: {error}"
-    digest = plan.get("plan_sha256")
-    if not isinstance(digest, str) or not digest:
-        return None, "the plan carries no digest"
-    return digest, ""
+    minecraft: str
+    recipe: Path
+    plan_sha256: str | None
+    reason: str
+
+    def as_document(self) -> dict[str, object]:
+        return {
+            "minecraft": self.minecraft,
+            "recipe": self.recipe.relative_to(REPOSITORY_ROOT).as_posix(),
+            "plan_sha256": self.plan_sha256,
+            "readable": self.plan_sha256 is not None,
+            "reason": self.reason,
+        }
+
+
+def repository_builds() -> tuple[RecipeBuild, ...]:
+    """One entry per Minecraft version this checkout has a reviewed recipe for.
+
+    The versions come from `verify_supply_chain.reviewed_stacks()` rather than from a
+    table here: that tool is the one place that says which bundle recipe is reviewed
+    for which version, and a second list would be a claim that can disagree with it.
+    """
+
+    builds: list[RecipeBuild] = []
+    for minecraft, stack in sorted(reviewed_stacks().items()):
+        try:
+            plan = build_launch_plan(stack.bundle_profile)
+        except (MinekinError, OSError, ValueError, KeyError, ArithmeticError) as error:
+            builds.append(
+                RecipeBuild(
+                    minecraft=minecraft,
+                    recipe=stack.bundle_profile,
+                    plan_sha256=None,
+                    reason=f"{type(error).__name__}: {error}",
+                )
+            )
+            continue
+        digest = plan.get("plan_sha256")
+        usable = isinstance(digest, str) and bool(digest)
+        builds.append(
+            RecipeBuild(
+                minecraft=minecraft,
+                recipe=stack.bundle_profile,
+                plan_sha256=digest if usable else None,
+                reason="" if usable else "the plan carries no digest",
+            )
+        )
+    return tuple(builds)
+
+
+def _build_agrees(
+    plans: Mapping[str, str], claimed_version: str | None, sealed_from: str | None
+) -> bool | None:
+    """Whether a bundle came from the build this checkout would launch for its version.
+
+    `None` whenever either side cannot answer: this checkout could not build that
+    version's plan, the bundle records no plan digest, or the bundle names a version
+    nothing here has a recipe for. A report that could not ask the question has no
+    opinion about the answer, and reporting "does not match" there would be
+    inventing a mismatch — the same distinction `ReJudge.UNJUDGED` draws about a
+    verdict a reader could not reach.
+    """
+
+    if sealed_from is None or claimed_version is None:
+        return None
+    matching = plans.get(claimed_version)
+    if matching is None:
+        return None
+    return sealed_from == matching
 
 
 def no_outcomes() -> dict[str, ReJudge]:
@@ -201,7 +263,9 @@ class EvidenceOnDisk:
             sorted(run_id for run_id, item in self.verifications.items() if not item.sealed)
         )
 
-    def as_documents(self, *, repository_build: str | None = None) -> list[dict[str, object]]:
+    def as_documents(
+        self, *, repository_builds: Sequence[RecipeBuild] = ()
+    ) -> list[dict[str, object]]:
         """Every bundle, as the report lists them.
 
         Listed one by one rather than only counted, because the verdict's blocks
@@ -217,10 +281,16 @@ class EvidenceOnDisk:
         one thing the validation contract's re-run rule is about.
         """
 
+        readable_plans = {
+            build.minecraft: build.plan_sha256
+            for build in repository_builds
+            if build.plan_sha256 is not None
+        }
         entries: list[dict[str, object]] = []
         for run_id, item in sorted(self.verifications.items()):
             manifest = item.manifest
             sealed_from = None if manifest is None else manifest.launch_plan_digest
+            claimed_version = None if manifest is None else manifest.minecraft
             entries.append(
                 {
                     "run_id": run_id,
@@ -233,16 +303,17 @@ class EvidenceOnDisk:
                     "sealed": item.sealed,
                     "violations": list(item.violations),
                     # Which reviewed plan this run launched from, and which Bridge
-                    # source it carried. Both are the bundle's own claim about itself.
+                    # source it carried. Both are the bundle's own claim about itself,
+                    # and the version claim is what selects the plan to compare it to.
                     "launch_plan_digest": sealed_from,
                     "bridge_digest": None if manifest is None else manifest.bridge_digest,
+                    "minecraft": claimed_version,
                     # None when either side cannot answer: this checkout could not
-                    # build a plan, or the bundle records no plan digest. Neither is
-                    # "came from somewhere else".
-                    "from_repository_build": (
-                        None
-                        if repository_build is None or sealed_from is None
-                        else sealed_from == repository_build
+                    # build a plan for that version, the bundle records no plan
+                    # digest, or nothing here has a recipe for the version the bundle
+                    # names. None of those is "came from somewhere else".
+                    "from_repository_build": _build_agrees(
+                        readable_plans, claimed_version, sealed_from
                     ),
                     # Reported per bundle for the reason the blocks are named per
                     # package: "this one disagreed" is only actionable if the reader
@@ -439,8 +510,8 @@ def _report_with_inventory(
 
     registry = load_case_registry(cases_dir)
     evidence = discover(data_root, cases_dir)
-    build, build_reason = repository_build()
-    bundles = evidence.as_documents(repository_build=build)
+    builds = repository_builds()
+    bundles = evidence.as_documents(repository_builds=builds)
     packages = _report_work_packages(registry, evidence, required=required)
     overall = _verdict_document(
         evaluate_promotion(
@@ -479,14 +550,16 @@ def _report_with_inventory(
                 if entry["from_repository_build"] is False
             ],
         },
-        # The build this report is comparing against, and an explicit statement that
-        # build identity is diagnostic only. Per-case attempt ordering is reported
-        # separately from this build comparison.
+        # The build this report is comparing against: one entry per reviewed version,
+        # because a bundle is only comparable to the plan its own version launches
+        # from. `unreadable` names the versions whose plan could not be built here —
+        # for those the comparison says nothing, and an empty list is the answer
+        # "every version was asked about", not "nothing disagreed". An explicit
+        # statement that build identity is diagnostic only travels with it; per-case
+        # attempt ordering is reported separately from this build comparison.
         "repository_build": {
-            "recipe": str(RECIPE.relative_to(REPOSITORY_ROOT).as_posix()),
-            "plan_sha256": build,
-            "readable": build is not None,
-            "reason": build_reason,
+            "builds": [build.as_document() for build in builds],
+            "unreadable": [build.minecraft for build in builds if build.plan_sha256 is None],
             "gates_promotion": False,
         },
         "work_packages": packages,

@@ -111,6 +111,7 @@ def manifest_for(
     result: EvidenceResult = EvidenceResult.PASS,
     run_id: str = RUN_ID,
     launch_plan_digest: str = DIGEST,
+    minecraft: str = "1.21.4",
 ) -> EvidenceManifest:
     case = reviewed(case_id)
     assertions = Assertions(expected=("a",), observed=("a",), failures=())
@@ -125,9 +126,9 @@ def manifest_for(
         bridge_digest="c" * 64,
         protocol_schema_digest="d" * 64,
         server_config_digest="e" * 64,
-        minecraft="1.21.4",
-        loader="0.16.9",
-        fabric_api="0.119.4+1.21.4",
+        minecraft=minecraft,
+        loader="0.16.9" if minecraft == "1.21.4" else "0.19.5",
+        fabric_api="0.119.4+1.21.4" if minecraft == "1.21.4" else "0.92.12+1.20.1",
         assertions=assertions,
         server_jar_sha1="4707d00eb834b446575d89a61a11b5d548d8c001",
         os_kernel="Linux 6.8",
@@ -149,6 +150,7 @@ def seal_at(
     result: EvidenceResult = EvidenceResult.PASS,
     case_version: str | None = None,
     launch_plan_digest: str = DIGEST,
+    minecraft: str = "1.21.4",
 ) -> Path:
     """Seal a bundle at an address the caller chooses.
 
@@ -160,7 +162,11 @@ def seal_at(
     """
 
     manifest = manifest_for(
-        case_id, result=result, run_id=run_id, launch_plan_digest=launch_plan_digest
+        case_id,
+        result=result,
+        run_id=run_id,
+        launch_plan_digest=launch_plan_digest,
+        minecraft=minecraft,
     )
     if case_version is not None:
         manifest = replace(manifest, case_version=case_version)
@@ -176,6 +182,7 @@ def seal(
     result: EvidenceResult = EvidenceResult.PASS,
     case_version: str | None = None,
     launch_plan_digest: str = DIGEST,
+    minecraft: str = "1.21.4",
 ) -> Path:
     return seal_at(
         bundle_directory(run_root(data_root, KIN), run_id),
@@ -184,6 +191,7 @@ def seal(
         result=result,
         case_version=case_version,
         launch_plan_digest=launch_plan_digest,
+        minecraft=minecraft,
     )
 
 
@@ -752,22 +760,93 @@ def test_the_public_report_does_not_allow_callers_to_replace_the_inventory(tmp_p
 # from. It does not gate on it: how an earlier build's evidence is superseded is an
 # open decision, and a report that enforced one of the answers would be making that
 # decision by accident.
+#
+# And it asks per Minecraft version, because with two reviewed versions on disk one
+# plan cannot be the yardstick for both: measuring a 1.20.1 bundle against the
+# 1.21.4 plan calls honest evidence stale, and a diagnostic that is confidently wrong
+# is worse than one that is missing. That is not hypothetical — the first real 1.20.1
+# bundle (run `87229052d24f4772a512dee497bab29c`) was listed under
+# `from_another_build` by the single-recipe report.
 
 
-def test_a_bundle_says_which_build_it_was_sealed_from(tmp_path: Path) -> None:
-    """The comparison is against the plan this checkout would launch, measured."""
+#: A case that exists on disk for the second reviewed version. Which case is beside
+#: the point; what matters is that the report reads the version off the bundle.
+CASE_1201 = "V1201-020"
+RUN_ID_1201 = "7c1f9a7b2d3e4f6089abcdef01234567"
 
-    build, reason = PROMOTION.repository_build()
-    assert build is not None, reason
-    seal(tmp_path, RUN_ID, launch_plan_digest=build)
+
+def plan_of(minecraft: str) -> str:
+    """The plan digest this checkout builds for one reviewed version, measured.
+
+    Asserted rather than defaulted: a hardcoded digest here would keep passing after
+    the plan moved, which is the very drift this comparison exists to catch.
+    """
+
+    for build in PROMOTION.repository_builds():
+        if build.minecraft == minecraft:
+            assert build.plan_sha256 is not None, build.reason
+            return build.plan_sha256
+    raise AssertionError(f"no reviewed recipe names Minecraft {minecraft}")
+
+
+def listed_by_run(document: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    return {cast(str, entry["run_id"]): entry for entry in document["evidence"]["bundles"]}
+
+
+def test_two_versions_are_each_compared_to_their_own_plan(tmp_path: Path) -> None:
+    """One bundle per reviewed version, both from the build they name.
+
+    The digests come from this checkout, so this is a comparison against a measured
+    plan rather than against a number written into a test.
+    """
+
+    build_1214 = plan_of("1.21.4")
+    build_1201 = plan_of("1.20.1")
+    assert build_1201 != build_1214, "the two versions build one plan, so nothing is compared"
+    seal(tmp_path, RUN_ID, launch_plan_digest=build_1214)
+    seal(
+        tmp_path,
+        RUN_ID_1201,
+        case_id=CASE_1201,
+        minecraft="1.20.1",
+        launch_plan_digest=build_1201,
+    )
 
     document = cast(dict[str, Any], bundle_report(CASE_ID, data_root=tmp_path))
 
-    listed = cast(list[dict[str, Any]], document["evidence"]["bundles"])
-    assert listed[0]["launch_plan_digest"] == build
-    assert listed[0]["from_repository_build"] is True
+    listed = listed_by_run(document)
+    assert listed[RUN_ID]["minecraft"] == "1.21.4"
+    assert listed[RUN_ID]["from_repository_build"] is True
+    assert listed[RUN_ID_1201]["minecraft"] == "1.20.1"
+    assert listed[RUN_ID_1201]["from_repository_build"] is True
     assert document["evidence"]["from_another_build"] == []
-    assert document["repository_build"]["plan_sha256"] == build
+    # And the report says which recipe it measured each version against.
+    recipes = cast(list[dict[str, Any]], document["repository_build"]["builds"])
+    assert {entry["minecraft"]: entry["plan_sha256"] for entry in recipes} == {
+        "1.21.4": build_1214,
+        "1.20.1": build_1201,
+    }
+
+
+def test_a_bundle_carries_the_other_version_s_plan_is_called_out(tmp_path: Path) -> None:
+    """The forgery direction the per-version comparison makes visible.
+
+    A 1.20.1 bundle that records the 1.21.4 plan digest is not evidence about a
+    1.20.1 build, and under the old single-recipe report it read as a perfect match.
+    """
+
+    seal(
+        tmp_path,
+        RUN_ID_1201,
+        case_id=CASE_1201,
+        minecraft="1.20.1",
+        launch_plan_digest=plan_of("1.21.4"),
+    )
+
+    document = cast(dict[str, Any], bundle_report(CASE_ID, data_root=tmp_path))
+
+    assert listed_by_run(document)[RUN_ID_1201]["from_repository_build"] is False
+    assert document["evidence"]["from_another_build"] == [RUN_ID_1201]
 
 
 def test_a_bundle_from_another_build_is_named_rather_than_counted(tmp_path: Path) -> None:
@@ -782,6 +861,22 @@ def test_a_bundle_from_another_build_is_named_rather_than_counted(tmp_path: Path
     assert document["evidence"]["from_another_build"] == [RUN_ID]
 
 
+def test_a_version_with_no_recipe_here_is_not_called_foreign(tmp_path: Path) -> None:
+    """A question this checkout cannot ask is not the answer "came from elsewhere".
+
+    Nothing here has a reviewed recipe for 1.19.2, so the report has no plan to
+    compare such a bundle against — and `None`, unlike `False`, keeps it out of the
+    stale list.
+    """
+
+    seal(tmp_path, RUN_ID, minecraft="1.19.2")
+
+    document = cast(dict[str, Any], bundle_report(CASE_ID, data_root=tmp_path))
+
+    assert listed_by_run(document)[RUN_ID]["from_repository_build"] is None
+    assert document["evidence"]["from_another_build"] == []
+
+
 def test_the_build_diagnostic_does_not_decide_the_verdict(tmp_path: Path) -> None:
     """The whole point of calling it a diagnostic: same evidence, same verdict.
 
@@ -790,9 +885,7 @@ def test_the_build_diagnostic_does_not_decide_the_verdict(tmp_path: Path) -> Non
     is here and says which of the two readings changed.
     """
 
-    build, reason = PROMOTION.repository_build()
-    assert build is not None, reason
-    seal(tmp_path / "same", RUN_ID, launch_plan_digest=build)
+    seal(tmp_path / "same", RUN_ID, launch_plan_digest=plan_of("1.21.4"))
     seal(tmp_path / "other", RUN_ID)
 
     matching = cast(
@@ -808,29 +901,52 @@ def test_the_build_diagnostic_does_not_decide_the_verdict(tmp_path: Path) -> Non
     assert stale["repository_build"]["gates_promotion"] is False
 
 
-def test_a_report_that_cannot_build_the_plan_says_so_rather_than_mismatching(
+def test_a_report_that_cannot_build_one_version_s_plan_says_so_rather_than_mismatching(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """An unanswerable question is not the answer "came from somewhere else".
 
-    A checkout where the recipe cannot be read has no opinion about which build a
-    bundle came from, and reporting a mismatch there would be inventing one. This is
-    the same distinction `UNJUDGED` draws about a verdict a reader could not reach.
+    Only the 1.20.1 recipe is unreadable here, and that shape is the point: the
+    per-version reading survives the failure, so the 1.21.4 bundle is still compared
+    and the 1.20.1 bundle is answered with `None`. This is the same distinction
+    `UNJUDGED` draws about a verdict a reader could not reach.
     """
 
-    def refuse(_path: Path) -> dict[str, Any]:
-        raise ValueError("the recipe is not readable in this checkout")
+    real = PROMOTION.build_launch_plan
 
-    monkeypatch.setattr(PROMOTION, "build_launch_plan", refuse)
-    seal(tmp_path, RUN_ID)
+    def refuse_one_version(path: Path, **arguments: Any) -> dict[str, Any]:
+        if "1.20.1" in str(path):
+            raise ValueError("the recipe is not readable in this checkout")
+        return real(path, **arguments)
+
+    # Both digests are measured before the refusal is in place: sealing a bundle
+    # with a digest is the point, and a bundle cannot be sealed with an answer the
+    # report is no longer able to give.
+    build_1214 = plan_of("1.21.4")
+    build_1201 = plan_of("1.20.1")
+    monkeypatch.setattr(PROMOTION, "build_launch_plan", refuse_one_version)
+    seal(tmp_path, RUN_ID, launch_plan_digest=build_1214)
+    seal(
+        tmp_path,
+        RUN_ID_1201,
+        case_id=CASE_1201,
+        minecraft="1.20.1",
+        launch_plan_digest=build_1201,
+    )
 
     document = cast(dict[str, Any], bundle_report(CASE_ID, data_root=tmp_path, gated="W40"))
 
-    listed = cast(list[dict[str, Any]], document["evidence"]["bundles"])
-    assert document["repository_build"]["readable"] is False
-    assert document["repository_build"]["plan_sha256"] is None
-    assert "not readable" in cast(str, document["repository_build"]["reason"])
-    assert listed[0]["from_repository_build"] is None
-    # None is not False, so nothing is claimed to be from another build either.
+    recipes = cast(list[dict[str, Any]], document["repository_build"]["builds"])
+    by_version = {cast(str, entry["minecraft"]): entry for entry in recipes}
+    assert by_version["1.20.1"]["readable"] is False
+    assert by_version["1.20.1"]["plan_sha256"] is None
+    assert "not readable" in cast(str, by_version["1.20.1"]["reason"])
+    assert by_version["1.21.4"]["readable"] is True
+    assert document["repository_build"]["unreadable"] == ["1.20.1"]
+
+    listed = listed_by_run(document)
+    assert listed[RUN_ID]["from_repository_build"] is True
+    assert listed[RUN_ID_1201]["from_repository_build"] is None
+    # None is not False, so the bundle with no answer is not claimed stale either.
     assert document["evidence"]["from_another_build"] == []
     assert document["work_packages"]["W40"]["promotable"] is True
