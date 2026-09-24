@@ -1015,6 +1015,39 @@ def test_a_request_the_client_does_not_carry_says_which_look_failed(
     assert effect["pid"] is None
     assert effect["starttime_ticks"] is None
     assert document["reasons"] == ["REQUEST_NOT_IN_CLIENT_ENVIRON"]
+    # What the run looked for, and nothing beyond it: the asked-for pair is the only
+    # thing absent here, because no other value of that name was ever checked for.
+    assert f"{REQUEST_VARIABLE}=1" in str(effect["detail"])
+    assert "any other value" not in str(effect["detail"])
+    assert RECORD.validate(document) == ()
+
+
+def test_a_carrier_that_vanishes_before_its_identity_is_read_is_not_an_effect(
+    tmp_path: Path,
+) -> None:
+    """The name was in an environ, and that is still not enough to say who held it."""
+
+    procs = client_procs({CLIENT_PID: [f"{REQUEST_VARIABLE}=1"]})
+    procfs = FakeProcfs(procs)
+
+    def hook(pid: int, name: str) -> None:
+        if pid == CLIENT_PID and name == "stat":
+            del procfs.processes[pid]
+
+    procfs.hook = hook
+
+    document = request(procfs, tmp_path)
+
+    effect = cast(Mapping[str, object], document["effect"])
+    assert effect["observed"] is False
+    assert effect["method"] == "NOT_OBSERVED"
+    assert effect["pid"] is None
+    assert effect["starttime_ticks"] is None
+    # The pid is named in the sentence and left out of the fields: the run says which
+    # process it stopped being able to describe, and does not describe it as a carrier.
+    assert str(CLIENT_PID) in str(effect["detail"])
+    assert document["reasons"] == ["CLIENT_IDENTITY_UNREADABLE"]
+    # Not attributing an ask is not the same as writing a record no reader accepts.
     assert RECORD.validate(document) == ()
 
 

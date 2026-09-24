@@ -1015,16 +1015,31 @@ def record_request(
             )
         elif not carriers:
             reasons.append("REQUEST_NOT_IN_CLIENT_ENVIRON")
+            # Only the asked-for pair is claimed absent. Whether the name is there
+            # with some other value was not looked at, and a detail that said it
+            # wasn't would be a second fact the run does not have.
             detail = (
-                f"the managed client JVM below pid {root_pid} carries neither"
-                f" {variable}={value} nor any other value of that name"
+                f"none of the {len(candidates)} managed client JVMs below pid"
+                f" {root_pid} carries {variable}={value} in its own environ"
             )
         else:
-            carrier = carriers[0]
-            identity = read_identity(procfs, carrier)
-            starttime = None if identity is None else identity.starttime_ticks
-            observed = starttime is not None
-            detail = f"the managed client JVM at pid {carrier} carries {variable}={value}"
+            found = carriers[0]
+            identity = read_identity(procfs, found)
+            if identity is None:
+                # The name was in an environ and the process is no longer readable to
+                # say which process that was, so nothing is carried over into the
+                # record: an effect that did not hold says so by being empty, not by
+                # naming a pid this run cannot finish describing.
+                reasons.append("CLIENT_IDENTITY_UNREADABLE")
+                detail = (
+                    f"pid {found} carried {variable}={value} in its environ, but its"
+                    " identity could not be read, so the ask is not attributed to it"
+                )
+            else:
+                carrier = found
+                starttime = identity.starttime_ticks
+                observed = True
+                detail = f"the managed client JVM at pid {carrier} carries {variable}={value}"
     return fault_injection.request_document(
         subject=subject,
         value=value,

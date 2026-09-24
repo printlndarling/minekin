@@ -139,7 +139,7 @@ def request_record(
         detail=(
             f"the managed client JVM at pid {CLIENT_PID} carries {REQUEST_VARIABLE}={value}"
             if observed
-            else f"the managed client JVM below this run's root carries no {REQUEST_VARIABLE}"
+            else f"no managed client JVM below this run's root carries {REQUEST_VARIABLE}={value}"
         ),
         attempted_at_monotonic_ns=1_700_000_000_123,
         recorded_at_monotonic_ns=1_700_000_000_500,

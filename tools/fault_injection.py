@@ -2,9 +2,10 @@
 
 A fault injection is the one place in this repository where the harness ends a
 process it does not own, so the record of it has to carry its own proof: which
-run it was part of, which process was chosen, what was signalled, and how the
-death was confirmed. Anything less makes "the runtime was killed" a claim about
-the harness's intentions rather than a fact about a process.
+run it was part of, which process was chosen, what identity that process had,
+what was signalled, and how the death was confirmed. Anything less makes "the
+runtime was killed" a claim about the harness's intentions rather than a fact
+about a process.
 
 The one thing this helper can *not* produce is a wait status. It is not the
 parent of the process it kills — the process was started by the session wrapper,
@@ -108,10 +109,13 @@ ENVIRONMENT_VARIABLE_FOR_SUBJECT = {
 }
 
 #: How the effect of a request was seen. The helper reads the environment of the
-#: process the harness launched — which is the process the managed client JVM is
-#: started *from*, so the name is inherited rather than merely intended. That is a
-#: fact about a `/proc` entry, not about a log line: the record says the ask got
-#: that far, and Core's own run document says what it did with it.
+#: managed client JVM itself — a descendant of the process the harness launched,
+#: found by its own command line rather than assumed from being below it — so what
+#: the record states is that the name reached the JVM that would have to honour it,
+#: which is the far end of the host → Core → JVM forwarding chain rather than the
+#: host's own intention. That is a fact about a `/proc` entry, not about a log line:
+#: the record says the ask got that far, and Core's own run document says what it
+#: did with it.
 PROC_CHILD_ENVIRON = "PROC_CHILD_ENVIRON"
 NOT_OBSERVED = "NOT_OBSERVED"
 REQUEST_EFFECT_METHODS = (PROC_CHILD_ENVIRON, NOT_OBSERVED)
