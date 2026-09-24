@@ -3343,6 +3343,36 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
   备好，但它自己还要求一个隔离的 1.20.1 `online-mode=false` 专服与独立 real-run bundle，且**不复用**
   1.21.4 的 case version/证据；`HOST-ADMISSION-DESIGN-001` 等 `BLOCKED_DECISION` 仍等用户拍板。
 
+### VERSION-LOCAL-1201-001 — 在受控 1.20.1 真服证明 candidate
+
+- `status`: `QUEUED`（本提交登记；提升为唯一 `NEXT` 将在下一提交单独进行，当前无第二张 `NEXT`）。
+- `depends_on`: `VERSION-REMOTE-PROFILE-001`（V01 的 v2 profile 与单地址策略）、
+  `VERSION-BUNDLE-1201-001`（V03 已交付可复判 candidate）；下游 `VERSION-RESOLVER-001`（V05）
+  只从本卡产出的 `tested` 清单里选包。
+- `question`: V03 的 1.20.1 candidate 在**真实** 1.20.1 `online-mode=false` 专服上能否完成
+  握手→入服→同代权威首快照→look/有界 move/release→断连松键→正常停止的闭环，并且每一步都有
+  独立可复判的服务端侧证据？
+- `scope`、`allowed_paths`、`forbidden_paths`、反例与验收：见
+  [连续执行计划的 V04 卡](version-auto-to-server-control-plan.md)。要点：1.20.1 的测试域 server
+  profile/runner 配置、版本化 case/断言/fixture、仅为版本适配必要的 Bridge/launcher 修复、
+  进度/契约文档。**不复用** 1.21.4 的 case version 与证据，不覆盖旧 evidence，不改用户服；
+  修复若触及冻结产品语义（Player-Equivalent、lease、准入判据）先另开卡。
+- `known_preconditions`: ①一个隔离的 1.20.1 专服（`online-mode=false`，独立目录，不碰 V01/V02
+  登记的受控目标）；②1.20.1 能否沿用 1.21.4 的 `--quickPlaySingleplayer` 入服路径**尚未核实**——
+  本卡在 `.tmp/v03build` 的 loom 缓存里对两份 yarn 映射 merged jar 做过字符串探测，1.21.4 侧
+  作为对照也读到空，说明探针本身无效（`unzip -p '*.class'` 没把常量池喂给 grep），因此**不**据此
+  断言 1.20.1 缺该参数；V04 要用能自证的方法（先让 1.21.4 对照出数）确定入服开关，或改走
+  主菜单→多人游戏→直连的等价自动化并记录差异；③V03 未做过的 1.20.1 运行时能力协商与 Linux 侧
+  产物门在本卡被真实构建/运行触发。
+- `non_goals`: 不连接用户真实远程服（属 V08）、不推断或放宽认证策略、不把任意 OS/arch 组合
+  泛化成“全平台 tested”、不做 resolver/installer（属 V05/V06）。
+- `validation_class`: `REAL_RUN_ONLY`——本地静态门与 CI 都不构成本卡验收；每个 required 结果
+  必须由一次真实运行独立封证并四读复判。
+- `stop_conditions`: 不能安全启动/入服、没有服务端 oracle、身份观测与声明不符、或必须放宽
+  Player-Equivalent/lease 语义才能过——保留 `FAIL` 与失败材料、停在 `candidate` 并报告；
+  **不改判据凑 PASS，不把一次成功运行写成整版本 tested**。只有全部验收项成立后，才把
+  **精确的** 1.20.1 Linux/arch 组合登记为 `tested`。
+
 ### HOST-ADMISSION-DESIGN-001 — 宿主世界会话坐标来源
 
 - `status`: `BLOCKED_DECISION`
