@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "case_id": "V1201-070",
+  "work_package": "W50",
+  "mandatory": false,
+  "inputs": [
+    "tests/fixtures/runtime-input/bundle-candidate-1.20.1.json",
+    "tests/fixtures/runtime-input/controlled-offline-server-1.20.1.json"
+  ],
+  "assertion_digests": {
+    "a_refused_first_snapshot_became_no_lease_and_no_playable": "147171a8432adaf483693bf1fc755a7ea13bdb9f9c5dc6e9626ea44ec5730c5a",
+    "the_first_snapshot_was_refused_by_the_reason_the_case_names": "718d7ccc4d3c41ba38d15b4041140bfd19f9ef8ecda9c0b1276e7e61e96d3b10",
+    "the_refusal_was_asked_of_this_run": "cc0b2f4bba7ce5cc5fa40921bf1e700f78d90119fdc1c1fcdffb232ee5a05a5d",
+    "the_refused_generation_was_closed_and_never_reopened": "83792e0bb00872c2535164d86a1aabd69354084a5d8b17dcf2a9d3a515c26c30",
+    "this_run_joined_a_world_it_was_never_told_it_could_play": "533de814713f5dab27ea3d845e23e482abc826267fad65ba323c4034e91ef2b2"
+  },
+  "assertions": [
+    "this_run_joined_a_world_it_was_never_told_it_could_play",
+    "the_first_snapshot_was_refused_by_the_reason_the_case_names",
+    "a_refused_first_snapshot_became_no_lease_and_no_playable",
+    "the_refused_generation_was_closed_and_never_reopened",
+    "the_refusal_was_asked_of_this_run"
+  ]
+}
