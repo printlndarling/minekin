@@ -195,6 +195,56 @@ HOST世界保存/恢复另需 `HOSTCOMMIT-001…110` 证据；它验证默认维
 13. `NAV-EXP-010`：只在 core tested 后运行，核 Baritone mixin、输入仲裁、取消尾部和隐藏真值越界；单独给 `candidate/tested/quarantine`。
 14. `CORE-100`：**L6 的有界 soak baseline**——一轮有明确时长的持续运行，报告两个进程的资源分布，而不是通过某个性能阈值。（2026-09-20 状态：**已有用例 `tests/fixtures/cases/core-100.json` 与一轮真实运行的 bundle，`mandatory: false`**——它证的是「这轮测量本身成立」，不是「性能合格」，所以它不该像行为用例那样点亮门禁。三条断言都读被封存的证据：世界是被准入过的（`first_snapshot_admitted`）、这次 soak 真的覆盖了它被要求的时长（summary 没提前结束 **且** 样本的时刻实际跨到那里，容差一个采样间隔）、两个 JVM **各自**从头到尾都被采到（一个中途不再出现的进程就是中途不在了）。harness 写 `soak-samples.txt`（`label rss_kb threads elapsed_seconds`）与 `soak-summary.json`（要求了什么、有没有提前结束），sealer 与验收器读**同一份快照**并封存它；`tools/report_soak.py` 从封存字节算出 P50/P95/P99 与线程峰值。**本轮**：600 秒 / 10 秒间隔、62 个样本/进程、跨度 594 秒、PASS、`verified: true`。**未做的**：FPS/TPS/GC/队列深度没有来源，GPU 档没跑，阈值仍然没有——按契约「先测后定」。）
 
+### crash / outbox / restart 窗口的可封边界（2026-09-24 冻结，`CRASH-OUTBOX-EVIDENCE-DESIGN-001`）
+
+上面第 7 与第 10 条合起来要求的是**几个互斥的故障窗口**，不是一条用例。逐窗口给出「由哪个 case id
+承载、读哪些已封存工件、当前 harness 能不能真跑出来、当前 build 上有没有证据」四件事：
+
+| 窗口 | 承载 case id | 判据读什么 | 当前 harness 可否真跑 | 当前 build 上的证据 |
+| --- | --- | --- | --- | --- |
+| Runtime（Core）强杀后松键 | `CORE-060` | 故障记录 `target: runtime_controller` + Bridge 松键 + 服务端读数 | 可（`MINEKIN_DOMAIN_KILL_CORE`，`domain.sh:26/1233`） | **无**（只有旧 build 的 PASS/FAIL） |
+| client JVM 强杀 | `CORE-060-CLIENT-001` | 同上，目标 `client_jvm`，账本记 session 结束 | 可（`MINEKIN_DOMAIN_KILL_CLIENT`，`domain.sh:36/1389`） | **无**（同上） |
+| server JVM 强杀 | `CORE-060-SERVER-001` | 目标 `server_jvm`、`/proc` 身份消失、无 `Stopping the server` | 可（`MINEKIN_DOMAIN_KILL_SERVER`，`domain.sh:30/1316`） | **无**（同上） |
+| 崩溃后重启重验（瞬时状态失效、世界重新观察） | `CORE-090` | 本次 run document + 同账本上一条 run 的事件行（`previous-run-trace.jsonl`）+ `recovery` 块 | 可（两连跑：先 `MINEKIN_DOMAIN_KILL_CORE=1`，紧接着 `MINEKIN_DOMAIN_CASE=CORE-090 MINEKIN_DOMAIN_STILL=1`） | **无**（同上） |
+| 正常退出 | `CORE-020` 的 `leave_after_join_observed`（也出现在 `CORE-060-CLIENT-001` 的断言集里） | 客户端日志与服务端读数 | 可 | **无**（旧 build 的 PASS） |
+| **intent 已写、效果未 settle**（崩溃落在启动窗口）留下的 pending outbox | 没有 case id，也不该有 | `session start` 在**尝试效果之前**写 `START_CLIENT`；这一半**只能**由真 SQLite + 故障注入单测构造 | **按构造打不中**（见下） | 本地证据：`tests/unit/test_recovery_service.py`（`:236` 真 `sqlite3.connect`、`:339` 真 `SessionEventLog(...).open_effect(...)`），按下面的口径标，不伪装成真实运行 |
+
+- **启动窗口为什么打不中**（冻结时逐行读过，不是引用的旧结论）：意图写在
+  `src/minekin_core/cli/session.py:719-721`（`open_effect(effect_type=START_CLIENT, …)`，
+  排在 `supervisor.start(...)`（同一文件 `:723`）**之前**），settle 在成功路径 `:750`、失败路径 `:734`。
+  `test-orchestrator/runner/domain.sh` 的强杀块在 `:1233-1266`，它自己等到
+  `:1250` 那个条件成立才动手——服务端探针的**不同横坐标数 ≥ 2**，也就是「已到 playable 且 Kin 真的走过」
+  之后；`--hold-at join`（`domain.sh:365/378`）并不暂停任何进程，它只是让 Core 在 `JOIN_SEEN` 提前索要
+  输入租约并被拒（那正是 `CORE-050` 要读的证据），`JOIN_SEEN` 同样远在 spawn+settle 之后。
+  曾经加过的 `KILL_CORE=early` 在代码里**零残留**（全仓 `early` 只命中文档），与它被删掉的记录一致。
+  **冻结结论**：这一半归本地证据。要让它成为真实运行的证据，需要的是把崩溃精确放进 `open_effect` 与
+  `supervisor.start` 之间那几行——那段区间在**产品代码内部**，因此**不存在**「只在 `domain.sh` 里加一次
+  等待」的干净改法：可行的两条候选，一条是在产品代码里插停顿/分支（**禁止**：为了封证改被测物），
+  另一条是从外部把被生成的可执行文件本身拖慢（唯一由外部命名的句柄是 `MINEKIN_JAVA`，
+  `src/minekin_core/config.py:21`，它在 `bootstrap.py:113` 被解析成运行期要 spawn 的那个文件——但它是否
+  只影响客户端那一侧、慢 spawn 会不会同时改掉这轮所观察的东西，本卡**未实测**）。任何一种都要先另起卡
+  并先实测，再谈封证；在本卡里它仍是本地证据。
+- **旧 bundle 一律不追认**：数据卷上这五个 case 各有一份 `PASS`
+  （`CORE-060` run `6b6dcdf7e1c4479b8b84a8a226d84aa0`、`CORE-060-SERVER-001` run
+  `652043a63c024dd2909ef970114eb1b3`、`CORE-060-CLIENT-001` run `e00f28511e3c475799eed32c259fea9e`、
+  `CORE-090` run `c993c80118bb4c45be59d7d0c80d05ef`、`CORE-020` run `79ac9a14e6b948e49348f928e3bd45ca`；
+  另有一份保留的旧 `CORE-060` `FAIL` run `6d4bf5ebba0f4528841359d1d595a8c3`），但它们**没有一份在当前
+  reviewed build 上**：`tools/report_promotion.py` 对它们一律给
+  `from_repository_build: false`，`bridge_digest` 是 `580daa9332e9f9b9…` 或 `f02741f58b0b20d0…`，
+  而本 build 是 `faeec4a9df83abb9ca0404863e04d20cfd87ac0f3afd5e74b6858e3e15372f55`。
+  并且这五个 case 的 `case_version` 全部移动过（fixture 里钉的是判官源码的 digest，判官这些年长了
+  新断言）：`CORE-060` `30ac59a0641b…`→`d1ea32d8b705…`、`CORE-060-SERVER-001`
+  `d4850165e578…`→`50ca1ae2e22d…`、`CORE-060-CLIENT-001` `e8d03e1b4a26…`→`dc85eb043861…`、
+  `CORE-090` `4b0ba8550622…`→`88fa467d8896…`、`CORE-020` `090c8253e6b8…`→`7c01d11ed1e9…`。
+  所以旧 bundle 对着今天的 case version 读作 `UNJUDGED`（上面那份报告里这五案的
+  `re_judge_reason` 逐字如此：「the criteria moved, so the recorded verdict answers a question this
+  repository no longer asks」），**原样留着**：不重判为 PASS、不改写、不拿它充当本场景的闭合。
+- **本场景因此缺的是「在当前 build 上重封」，不是「没有定义」**：case id、断言、runner 开关、
+  封存通道都齐（`RUN-001`/`OFFLINE-010` 已把同一条通道走过四遍），缺的只是 attempt 序号。
+  登记它的卡是 `CRASH-OUTBOX-RESEAL-001`。
+- **不属于本场景的事**：`mandatory` 翻转（第 10 条那条「正常退出 + 崩溃恢复」的门禁点亮，
+  按契约自己的读法属 promotion 场景）、将 Launcher 当作第四个独立进程、以及上面那句产品侧改动。
+
 失败用例保留完整 evidence。修复后用新 build/case version 重跑，不把旧 FAIL 删除，也不手工改为 PASS。
 
 ## Candidate → Tested 状态机
