@@ -12,10 +12,9 @@
 - `baseline_date`: 2026-09-22
 - `baseline_branch`: `main`
 - `baseline_remote`: `origin/main`
-- `current_next`: 暂无（V02 `VERSION-SERVER-PROBE-001` 已由本提交收为 `DONE`；V03
-  `VERSION-BUNDLE-1201-001` 尚未登记，需先 `QUEUED` 登记、再独立提交提升为唯一 `NEXT`）。
-  前一提升链：`VERSION-REMOTE-PROFILE-001`（V01）已 `DONE`，V02 由 `0b52f43` 登记、
-  `1e00b0d` 提升。用户在七场景总账后明确把“自动识别服务器版本 → 准备匹配客户端 → 入服并完成简单控制”排为优先路线；
+- `current_next`: `VERSION-BUNDLE-1201-001`（上一提交 `930223a` 登记 `QUEUED`，本提交单独提升为
+  唯一 `NEXT`；`VERSION-SERVER-PROBE-001` 已 `DONE` 并推送）。
+  用户在七场景总账后明确把“自动识别服务器版本 → 准备匹配客户端 → 入服并完成简单控制”排为优先路线；
   `VERSION-AUTO-DESIGN-001` 已交付[跨版本连续执行计划](version-auto-to-server-control-plan.md)。
 - `last_checkpoint`: **有界自主 P0 campaign 已走到需用户拍板的边界；用户现已选择跨版本路线**——上一轮把
   `REAL-P0-CAMPAIGN-001.order` 第 7 也是最后一个场景（阶段 F 晋级总账）的只读卡 `P0-PROMOTION-LEDGER-001`
@@ -3093,7 +3092,10 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 
 ### VERSION-BUNDLE-1201-001 — 1.20.1 第二套独立 candidate
 
-- `status`: `QUEUED`（本提交登记；提升为唯一 `NEXT` 将在下一提交单独进行，当前无第二张 `NEXT`）。
+- `status`: `NEXT`（`930223a` 登记 `QUEUED`，本提交单独提升；当前无第二张 `NEXT`）。
+- `promotion_reason`: V02 只读探测已 `DONE`；跨版本路线的下一步是先有可复判、仅 `candidate`
+  的 1.20.1 bundle，之后才能进 V04 受控真服证明。
+- `baseline_sha`: `930223a`（V03 `QUEUED` 登记提交，已推送并核对两远端）。领取时另记实际 checkout SHA。
 - `depends_on`: `VERSION-SERVER-PROBE-001`（V02 已交付只读探测）；下游 `VERSION-LOCAL-1201-001`（V04）
   先在受控真服证明本卡 candidate。
 - `question`: 如何在不覆写 1.21.4 既有 recipe/Bridge JAR 的前提下，从官方元数据核对并构建一套
