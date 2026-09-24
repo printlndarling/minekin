@@ -3091,6 +3091,26 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
   也不据 ping 断言认证模式。
 - `next_after_done`: `VERSION-BUNDLE-1201-001`（V03，仍 `QUEUED`；先 `QUEUED` 登记再独立提升）。
 
+### VERSION-BUNDLE-1201-001 — 1.20.1 第二套独立 candidate
+
+- `status`: `QUEUED`（本提交登记；提升为唯一 `NEXT` 将在下一提交单独进行，当前无第二张 `NEXT`）。
+- `depends_on`: `VERSION-SERVER-PROBE-001`（V02 已交付只读探测）；下游 `VERSION-LOCAL-1201-001`（V04）
+  先在受控真服证明本卡 candidate。
+- `question`: 如何在不覆写 1.21.4 既有 recipe/Bridge JAR 的前提下，从官方元数据核对并构建一套
+  独立、可复判、仅标 `candidate` 的 1.20.1 客户端 bundle（含 Bridge target）？
+- `scope`、`allowed_paths`、`forbidden_paths`、反例与验收：见
+  [连续执行计划的 V03 卡](version-auto-to-server-control-plan.md)。要点：核对 1.20.1 的 Java、
+  Fabric Loader/API、Yarn/映射、client/libraries/assets/natives 与许可证；`bridge/` 显式 1.20.1
+  target/build 配置与确需的版本适配 hook；泛化 `adapters/launcher/{metadata,recipe,launch_plan,mods}.py`；
+  新 `tests/fixtures/runtime-input/` 1.20.1 recipe 与元数据 pin；`docs/version-license-matrix.md`
+  与供应链记录。不覆写已封 bundle，不把测试域 jar 放进产品镜像。
+- `non_goals`: 不连接任何游戏服、不做入服验收（属 V04/V08）；不把 candidate 冒称 tested；
+  不在已有 JVM 热换版本；不循环试遍版本。
+- `validation_class`: `DOCS_THEN_LOCAL_THEN_REAL_RUN`——本卡先做可构建性与供应链核对，
+  真实 1.20.1 入服证明属后续 V04 卡，本卡不封 `tested`。
+- `stop_conditions`: 元数据无可靠摘要、关键 Mod/映射无可审组合、Bridge hook 超出当前能力契约、
+  或 Java/OS 目标不明时，列选项与证据并停下报告；**不可“编得过”就把组合设为 `tested`**。
+
 ### HOST-ADMISSION-DESIGN-001 — 宿主世界会话坐标来源
 
 - `status`: `BLOCKED_DECISION`
