@@ -176,6 +176,9 @@ bundle id 与结果；旧代回调不能推进新代。`BLOCKED` 不自动回退
   `src/minekin_core/adapters/launcher/{metadata,recipe,launch_plan,mods}.py` 的必要泛化，
   `tests/fixtures/runtime-input/` 新 1.20.1 recipe 与元数据 pin、Gradle/Bridge/launcher 定向测试、
   `docs/version-license-matrix.md` 与供应链记录。不得改已封 bundle 或把测试域 jar 放进产品镜像。
+  **主干回归例外（2026-09-25 补）**：`tests/unit/test_report_promotion.py` 一项——CI 自 run 423 起
+  红在封存 bundle 目录的 rename 上，根因与判归见主执行计划 V03 `progress_record`；只改测试的模拟
+  手法（rename 前 `unseal_bundle`），不改封存语义、不改判据。
 - **验收**：隔离构建/`check --rerun-tasks`、源码/产物 digest、依赖锁、SBOM/许可、Bridge
   协议/能力清单均可复判；1.21.4 全套回归无漂移；新产物仍仅 `candidate`。
 - **停止**：元数据无可靠摘要、关键 Mod/映射无可审组合、Bridge hook 需超出当前能力契约、

@@ -3202,6 +3202,26 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
   边界门契约，属需先登记**范围修订**的结构决策，本提交不动产品代码、不改 1.21.4、不建 `bridge-1201/`，
   仅把耦合事实与两选项（甲：顶层独立模块并泛化 recipe/门；乙：per-version 源集共用 `bridge/` 但会
   改 1.21.4 digest → 违禁）留证并取甲为拟议方案。本卡据实仍 `NEXT`、未 `DONE`、未 `tested`。
+  **续（主干回归取证：封存 bundle 目录在 Linux 上不可 rename，同日内）**：先前若干次 push 只看了
+  本地门禁就报绿，**CI 实际自 run 423 起持续红**（`main` 与 `codex/core-state-transition` 都红到
+  run 447）。这次按 job 逐个在浏览器里读了日志：`protocol`、`bridge-static` 两个 job 全绿，只有
+  `python` job 的 “Run uv run pytest” 失败，读数 `1 failed, 2315 passed, 5 skipped in 108.24s`，
+  唯一失败项 `tests/unit/test_report_promotion.py::test_missing_latest_bundle_blocks_older_pass`，
+  抛在 `pathlib.py:1363` 的 `os.rename`：`PermissionError: [Errno 13] Permission denied:
+  '…/kin-01/run/evidence/ed1f9a7b…' -> '…/missing-latest'`。**根因是量出来的，不是猜的**：在
+  `minekin-runner:local` 容器里以 `--user 1000:1000`（非 root，否则 DAC 位不生效）跑
+  `.tmp/probe_rename.py`（gitignored），按 `write_bundle` 的真实顺序 stage→`os.replace`→
+  `_set_writable(False)` 造出 bundle 目录 mode `0500`、其父 `evidence` 目录 `0755`，随后
+  `Path.rename` 与 `os.replace` **都**返回 EACCES，而先 `chmod 0755` 再 rename 就成功——Linux
+  重命名一个目录需要对该目录本身可写（要改它的 `..`），Windows 的只读属性不阻止这一步，所以本地
+  `2319 passed` 全绿、CI 独红，属跨平台测试缺陷而非生产缺陷。**判归**：`_set_writable` 把封存目录
+  压成不可写是正确的（那正是「不再往已封 bundle 里增删条目」这道保护），`unseal_bundle` 的文档也
+  明写解除封存是为 retention 与 deletion 准备的；错在测试——它要模拟「注册表称已封、地址上没有
+  bundle」，却直接 rename 了封存目录，而同文件相邻两项（corrupt/unverified latest）都先
+  `unseal_bundle` 再动。修法因此落在测试侧：rename 前解除封存，语义不变、判据不变、不改生产代码。
+  **授权**：本文件「不可变边界」允许在修复主干回归时动冻结区，故此项按该条执行；同时把
+  `tests/unit/test_report_promotion.py` 写进 V03 允许路径，使两份文档一致。**不据此主张任何
+  V03 交付为 `tested`**，CI 转绿也仍不是 Minecraft 验收证据。本卡据实仍 `NEXT`、未 `DONE`。
 
 ### HOST-ADMISSION-DESIGN-001 — 宿主世界会话坐标来源
 
