@@ -202,7 +202,7 @@ HOST世界保存/恢复另需 `HOSTCOMMIT-001…110` 证据；它验证默认维
 
 | 窗口 | 承载 case id | 判据读什么 | 当前 harness 可否真跑 | 当前 build 上的证据 |
 | --- | --- | --- | --- | --- |
-| Runtime（Core）强杀后松键 | `CORE-060` | 故障记录 `target: runtime_controller` + Bridge 松键 + 服务端读数 | 开关在（`MINEKIN_DOMAIN_KILL_CORE`，`domain.sh:26/1233`），**注入真做得到，封存通道当场是断的**（见下面那条 2026-09-24 修订） | **无**（只有旧 build 的 PASS/FAIL） |
+| Runtime（Core）强杀后松键 | `CORE-060` | 故障记录 `target: runtime_controller` + Bridge 松键 + 服务端读数 | 开关在（`MINEKIN_DOMAIN_KILL_CORE`，`domain.sh:26/1233`），注入真做得到；**封存通道曾当场是断的，两格已分别由 `431ba84` 与 `2160989` 修好，现在封得上**——这一格仍不算「可」，因为当前 build 上还没有一份 `PASS`（见下面那条 2026-09-24 修订） | **有 1 份，判据 `FAIL`**：run `08f206bfaed94e4f9a22aed82c1c24d6`（`RELEASE_NOT_LOGGED` + `NEVER_MOVED:0.10`）。旧 build 的 PASS/FAIL 不追认 |
 | client JVM 强杀 | `CORE-060-CLIENT-001` | 同上，目标 `client_jvm`，账本记 session 结束 | 可（`MINEKIN_DOMAIN_KILL_CLIENT`，`domain.sh:36/1389`） | **无**（同上） |
 | server JVM 强杀 | `CORE-060-SERVER-001` | 目标 `server_jvm`、`/proc` 身份消失、无 `Stopping the server` | 可（`MINEKIN_DOMAIN_KILL_SERVER`，`domain.sh:30/1316`） | **无**（同上） |
 | 崩溃后重启重验（瞬时状态失效、世界重新观察） | `CORE-090` | 本次 run document + 同账本上一条 run 的事件行（`previous-run-trace.jsonl`）+ `recovery` 块 | 可（两连跑：先 `MINEKIN_DOMAIN_KILL_CORE=1`，紧接着 `MINEKIN_DOMAIN_CASE=CORE-090 MINEKIN_DOMAIN_STILL=1`） | **无**（同上） |
@@ -236,6 +236,26 @@ HOST世界保存/恢复另需 `HOSTCOMMIT-001…110` 证据；它验证默认维
   `07e68af` 成立、在此刻不成立。因此这一格的修法不在 runner 里而在封存面：把 `domain.sh:1086-1092`
   **已经从账本读出的** `kin_id` 明白地告诉 sealer（只在没有文档时；文档说出 Kin 时以文档为准），归
   前置卡 `CRASH-OUTBOX-SEALED-KIN-001`。
+  - **两格都修好了：这一窗口的封存通道当场重新走通，而判据给了 `FAIL`**（2026-09-24，前置卡交付
+    `2160989` 之后的真实一轮，run id `08f206bfaed94e4f9a22aed82c1c24d6`）。transcript 是
+    `session exited 137` → `the run document said Killed` →
+    `domain: /tmp/domain-session.json holds no run document, so this run is named by its ledger id`，
+    然后 `status: sealed`、`attempt_sequence: 1`、bundle 落在
+    `/data/kin/kin-01/run/evidence/08f206bf…`。只读探针（`.tmp/kin060_bundle_probe.sh`）逐件数过：
+    15 件工件里**没有**任何 run-document 工件（`orchestrator-trace.json` 是 harness 自己的），
+    `asserter-inputs.json` 说 `kin_id: kin-01`；卷上仍是 `kin-01`/`kin-02` 两个都持账本，所以那份 bundle
+    **只可能**来自新名字通路，不是旧「恰好一个」读路顺带答对。四读一致：sealer `FAIL`、
+    `evidence verify` `verified: true, sealed: true, violations: []`、`rejudge_evidence.py`
+    `status: agrees`（Kin 从封存的 asserter 输入读回，不再问卷）、`report_promotion.py`
+    `from_repository_build: true` + `bridge_digest: faeec4a9df83abb9…` + `re_judged: AGREES`。
+    **判据读数**：`move_input_was_leased` 与 `runtime_controller_sigkill_was_confirmed` 两条
+    `observed`（强杀确实注入并归属对了），两条失败
+    `the_bridge_released_the_input_when_the_ipc_was_lost:RELEASE_NOT_LOGGED` 与
+    `the_server_saw_the_kin_stop_after_the_move:NEVER_MOVED:0.10`。同一次运行里 harness 自己说的是
+    `the runtime is gone; the Bridge should let go` 与 `the Kin left the game after the Core was
+    killed`——两边读的不是同一份字节，而**判读那两条失败落在哪件工件上属 `CRASH-OUTBOX-RESEAL-001`**，
+    本卡只负责把通道修通并如实收下 `FAIL`。按上面那条口径，这一格仍然要等 `CORE-060` 真封出 `PASS`
+    才改回「可」；「有没有当前-build 证据」这一列现在填的是这份 `FAIL`，不是「无」。
 - **启动窗口为什么打不中**（冻结时逐行读过，不是引用的旧结论）：意图写在
   `src/minekin_core/cli/session.py:719-721`（`open_effect(effect_type=START_CLIENT, …)`，
   排在 `supervisor.start(...)`（同一文件 `:723`）**之前**），settle 在成功路径 `:750`、失败路径 `:734`。

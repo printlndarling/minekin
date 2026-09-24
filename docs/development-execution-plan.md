@@ -12,17 +12,23 @@
 - `baseline_date`: 2026-09-22
 - `baseline_branch`: `main`
 - `baseline_remote`: `origin/main`
-- `current_next`: `CRASH-OUTBOX-SEALED-KIN-001`——由本 commit 从 `QUEUED` 提升为唯一 `NEXT`（登记在
-  `c75865b`，那一条 commit 只写 `QUEUED`、没写 `NEXT`，满足交接第 1 项；提升前计划里没有 `NEXT`，
-  中间没有插入别的未授权工作）。它是 campaign `order` 第 5 个场景当下唯一的硬阻断：一次 Core 被杀的
-  run 只剩账本里的 `run_id` 可命名，而封存面在文档没说出 Kin 时**从数据卷的目录结构猜**它属于哪个
-  Kin（`tools/assert_case_evidence.py:551-557` 要 `<data-root>/kin/*` 里恰好一个持有数据库的目录），
-  卷上今天是 `kin-01`/`kin-02` 两个，于是那条 run 一份 bundle 也封不出来。修法是把 `domain.sh`
-  **已经从账本读出的** `kin_id` 明白地交给封存面（文档说出 Kin 时仍以文档为准），并把那句把两件事
-  混在一起的报错拆开。本卡不封第 5 个场景的任何 bundle。
-  它的前一张 `CRASH-OUTBOX-RESEAL-001` 因此记 `BLOCKED_EVIDENCE`（登记 `a1be5fb`、提升 `b158d59`；
-  两次真跑各停在一格：runner 认文档的守卫已由 `431ba84` 修好，第二格即本卡），五个窗口**一份 bundle
-  都还没封**，在本卡 `DONE` 之后回到 `NEXT`。
+- `current_next`: **本条 commit 之后为空**——`CRASH-OUTBOX-SEALED-KIN-001` 由本 commit 收为 `DONE`
+  （交付 `2160989`，已推送两条 ref），紧随的一条 `docs(plan): advance` commit 把
+  `CRASH-OUTBOX-RESEAL-001` 从 `BLOCKED_EVIDENCE` 提升回唯一 `NEXT`。这张卡挡了 campaign `order`
+  第 5 个场景两格中的第二格：一次 Core 被杀的 run 只剩账本里的 `run_id` 可命名，而封存面在文档没说出
+  Kin 时**从数据卷的目录结构猜**它属于哪个 Kin（`tools/assert_case_evidence.py:551-557` 要
+  `<data-root>/kin/*` 里恰好一个持有数据库的目录），卷上今天是 `kin-01`/`kin-02` 两个（`2160989`
+  当场又数了一遍，两个都持有 `kin.sqlite3`），于是那条 run 一份 bundle 也封不出来。修完之后的实测：
+  真实被杀 Core 的一轮 `CORE-060`（run id `08f206bfaed94e4f9a22aed82c1c24d6`）**封下来了**，bundle 里
+  **没有** run-document 工件（15 件，逐个列过），`asserter-inputs.json` 说出 `kin_id: kin-01`，
+  `evidence verify` 报 `verified: true, sealed: true, violations: []`，`rejudge_evidence.py` 报
+  `status: agrees`，`report_promotion.py` 里它是当前 build 上第一份 `from_repository_build: true` +
+  `bridge_digest: faeec4a9df83abb9…` 的 `CORE-060`。判据给的 `result` 是 **`FAIL`**（两条：
+  `RELEASE_NOT_LOGGED`、`NEVER_MOVED:0.10`）——本卡不要求 `PASS`（那是 RESEAL 的活），这一行读数原样交给
+  它。本卡没封第 5 个场景的任何**其它** bundle。
+  它的前一张 `CRASH-OUTBOX-RESEAL-001`（登记 `a1be5fb`、提升 `b158d59`）两次真跑各停在一格：runner 认文档
+  的守卫已由 `431ba84` 修好，第二格即本卡；它现在五个窗口**一份 PASS bundle 都还没有**，本卡 `DONE`
+  之后回到 `NEXT`。
   **上一条 `NEXT` 的来历**：`CRASH-OUTBOX-RESEAL-001` 是第 5 个场景（五个故障窗口）的真实重封卡，
   读数来自冻结卡 `CRASH-OUTBOX-EVIDENCE-DESIGN-001`（交付 `72aec3e`、收卡 `a1be5fb`，那份逐窗口表在
   契约的「crash / outbox / restart 窗口的可封边界」一节）；本机镜像已重建（`fed4a143f2e4`），
@@ -32,12 +38,6 @@
   bundle 仍在它的禁地。第六个窗口——崩溃落在「`START_CLIENT` 意图已写、效果还没 settle」之间——按
   构造打不中（`domain.sh:1250` 等的是「不同横坐标数 ≥2」，而那段区间在产品代码内部），归本地证据。
   （那张冻结卡由 `d33c236` 提升为唯一 `NEXT`、`bd0448a` 登记；
-  它之前的 `OFFLINE-030-CASE-FILENAME-001` 在 `7c8c412` 收为 `DONE`：`-001` 子 case 找不回 fixture
-  那个阻断在 fixture 侧改名解掉，两个子 id 各封一份 `PASS`、四读一致，`domain.sh` 一字未动。）
-  `ADMIT-070-RECORD-SCHEMA-001` 也还是 `QUEUED`，但它自己写明
-  不是任何封证卡的下一张，因此不排进这条链。其余未闭合卡仍是
-  `HOST-ADMISSION-DESIGN-001`/`OPERATIONS-RETENTION-001`/`PROCESS-RECOVERY-001`
-  三项 `BLOCKED_DECISION` 与 `HOST/W80+` 的 `DEFERRED`，都要用户先拍板。
   它之前的 `OFFLINE-030-CASE-FILENAME-001` 在 `7c8c412` 收为 `DONE`：`-001` 子 case 找不回 fixture
   那个阻断在 fixture 侧改名解掉，两个子 id 各封一份 `PASS`、四读一致，`domain.sh` 一字未动。）
   `ADMIT-070-RECORD-SCHEMA-001` 也还是 `QUEUED`，但它自己写明
@@ -2061,12 +2061,45 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 
 ### CRASH-OUTBOX-SEALED-KIN-001 — 让「没有文档的一次 run」也能说出它属于哪个 Kin
 
-- `status`: `NEXT`（`c75865b` 以 `QUEUED` 登记并推送，由紧随的本 commit 提升为唯一 `NEXT`；
-  `CRASH-OUTBOX-RESEAL-001` 在此期间记 `BLOCKED_EVIDENCE`，本卡 `DONE` 之后它回到 `NEXT`）。
+- `status`: `DONE`（`c75865b` 以 `QUEUED` 登记并推送、`3427e43` 提升为唯一 `NEXT`；交付 `2160989`
+  `fix(tools): name the Kin of a run that left no document`，已推送 `codex/core-state-transition` 与
+  `main` 两条 ref，`git ls-remote` 核对均为 `2160989a3dc882292bbd76ff8a9d2e10832a5ca5`。出口门禁全绿：
+  full pytest `2158 passed / 2 skipped in 266.18s`（登记时 2147，本卡新增 11 条）、`ruff check` exit 0、
+  `ruff format --check` `304 files already formatted`、Pyright `0 errors, 0 warnings, 0 informations`、
+  boundaries OK、case assertions `OK (139 registered)`、fixture digests OK、workflow pins OK、
+  `git diff --check` 干净（只有 Windows checkout 的 CRLF 提示，diff 里无换行符改写）。
   登记 commit 纯文档，入口门禁全绿：full pytest
   `2147 passed / 2 skipped in 323.89s`、`ruff check` exit 0、`ruff format --check` `304 files already
   formatted`、Pyright `0 errors, 0 warnings, 0 informations`、boundaries OK、case assertions
   `OK (139 registered)`、fixture digests OK、workflow pins OK、`git diff --check` 干净）
+- `acceptance_readings`: ① **真实被杀 Core 的运行封得下来**——`CORE-060`，run id
+  `08f206bfaed94e4f9a22aed82c1c24d6`，`MINEKIN_DOMAIN_KILL_CORE=1 MINEKIN_DOMAIN_PROBE=Kin
+  MINEKIN_DOMAIN_PROBE_SECONDS=1 --hold-forward-seconds 60`（`MINEKIN_KIN_ID=kin-01` 显式给出，卷上有
+  两个 Kin）。transcript 走到那条回落并只说了该说的：`session exited 137` →
+  `the run document said Killed` → `domain: /tmp/domain-session.json holds no run document, so this run
+  is named by its ledger id`（**没有**「没有 Kin」那句，因为名字传到了）。封存结果
+  `status: sealed`、`attempt_sequence: 1`、bundle 落在
+  `/data/kin/kin-01/run/evidence/08f206bf…`；只读探针数出 15 件工件、其中**没有**任何 run-document
+  工件（`orchestrator-trace.json` 是 harness 自己的），`asserter-inputs.json` 说出
+  `kin_id: kin-01` / `run_id: 08f206bf…` / `previous_run_id: 082e0f04…`。判据给出
+  `result: FAIL`（`RELEASE_NOT_LOGGED`、`NEVER_MOVED:0.10`）——本卡不要求 PASS，两读数原样交 RESEAL。
+  另外三读：`evidence verify` → `verified: true, sealed: true, violations: []`；
+  `rejudge_evidence.py` → `status: agrees`（**从 `asserter-inputs.json` 取回 Kin**，不去问卷）；
+  `report_promotion.py` → 这一份是当前 build 上第一份 `from_repository_build: true` 且
+  `bridge_digest: faeec4a9df83abb9…` 的 `CORE-060`，`re_judged: AGREES`。
+  ② 文档与传入名字同时存在且不一致时按文档为准：`test_the_document_s_own_kin_is_the_one_that_is_read_when_both_are_given`
+  与 `test_the_document_s_own_kin_is_the_name_a_handed_one_cannot_overrule`（判官侧与封存侧各一条）。
+  ③ 两句话各有测试：`test_a_run_that_nothing_names_is_still_refused_for_the_run`（缺 run）与
+  `test_an_ambiguous_volume_with_no_name_anywhere_refuses_by_naming_the_kin` /
+  `test_the_command_refuses_an_unnamed_kin_and_says_which_name_is_missing`（缺 Kin，且断言报错里
+  **不再**出现「run id」）。④ `case_version` 一个没动：`check_case_assertions.py` 仍
+  `OK (139 registered)`、`verify_fixture_digests.py` 仍 OK，`CORE-060` 的 `d1ea32d8b705…` 与真跑封出的
+  manifest 一致。⑤ 门禁见上。卷上那份单 Kin 回落也没被撤：
+  `test_one_kin_on_the_volume_is_still_read_without_anyone_naming_it` 钉着它。
+- `stop_conditions_outcome`: 三条都没触发——没有要求更新任何 `case_version`（①）；Kin 只有**一份**记载：
+  runner 从账本读，判官解析一次，`asserter-inputs.json` 封存那一次的结果，rejudge 读回它
+  （②，`tools/rejudge_evidence.py` 因此一字未改，故不在本卡范围内也没去改）；`kin-02` 目录与它两份
+  bundle 没被触碰，也没需要触碰（③）。
 - `promotion_reason`: 顺序已满足——登记它的 `c75865b` 只写 `QUEUED`、没写 `NEXT`，本 commit 之前计划里
   没有 `NEXT`，中间没有插入别的未授权工作。它挡在 campaign 第 5 个场景上：`CORE-060` 的第二次真实
   attempt（run id `082e0f0420fc426ca8156bc9d5c91d11`）已经把 `--run-id` 那条回落走到，剩下的就是这一格。
@@ -2125,7 +2158,10 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 - `status`: `BLOCKED_EVIDENCE`（`a1be5fb` 登记 `QUEUED`、`b158d59` 提升为唯一 `NEXT`；执行到第一次
   真实运行时依 `stop_conditions` ② 两次停下——第一次是 runner 认文档的守卫，已由 `431ba84` 修好（与登记
   本卡的 commit 一同推送），范围修订 `ad51045` 先落在文档面；第二次是封存面命名 Kin 的前提，另起前置卡
-  `CRASH-OUTBOX-SEALED-KIN-001`。本卡在那张卡 `DONE` 之后回到 `NEXT`，五个窗口一个都还没封）
+  `CRASH-OUTBOX-SEALED-KIN-001`。**那张前置卡已由本 commit 收为 `DONE`（交付 `2160989`），本卡的阻断已清**，
+  紧随的 `docs(plan): advance` commit 把它提升回唯一 `NEXT`。五个窗口现在**有一份 bundle**（前置卡验收
+  ① 那次真实被杀 Core 的运行，`CORE-060` run `08f206bfaed94e4f9a22aed82c1c24d6`，判据 `FAIL`），
+  其余四份仍待本卡封）
 - `promotion_reason`: 顺序已满足——登记它的那张 commit（`a1be5fb`）同时把 `CRASH-OUTBOX-EVIDENCE-DESIGN-001`
   收为 `DONE` 并推到两条 ref，`a1be5fb` 只写 `QUEUED`、没写 `NEXT`，本 commit 之前计划里没有 `NEXT`，
   中间没有插入别的未授权工作。入口门禁在登记时全绿（full pytest `2146 passed / 2 skipped in 518.56s`、
@@ -2138,6 +2174,24 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
   `blocked_by: 无`，前置是 `431ba84` 已经修好的那条 runner 守卫）。原先记的
   `CRASH-OUTBOX-EVIDENCE-DESIGN-001` 已 `DONE`（交付 `72aec3e`、收卡 `a1be5fb`：六个窗口的承载 case、
   读的工件、harness 开关与「旧 bundle 不追认」的口径都已冻结）
+- `handover_from_CRASH-OUTBOX-SEALED-KIN-001`: 前置卡当场量到三件事，本卡直接用，不必再撞一遍。
+  ① **封存通道在两个 Kin 的卷上真的通了**，形状见那张卡的 `acceptance_readings`；重封 `CORE-060` 时
+  `MINEKIN_KIN_ID` 必须显式给（`domain.sh` 只把它读进账本那一步的名字传下去，不会替你猜）。
+  ② **一份没有 run document 的 bundle 判得了什么，是有上限的**：`RunMaterial.run()`
+  （`tools/assert_case_evidence.py:433-436`）在没有文档时抛
+  `Unreadable("the run document carries no run section")`，所以**任何读文档的断言在被杀的这次 run 上都
+  拿不到读数**。用 AST 逐条量过 `CORE-060` 的四条断言，**没有一条**读 `run` / `run_document`，所以这一
+  个窗口是可判的；反过来说，别把读文档的 case（例如 `CORE-020` 那类）挂到被杀的 run 上，那会判成
+  `UNJUDGED` 而不是 FAIL。
+  ③ **`CORE-060` 第一份当前-build bundle 的两条 `FAIL` 是真读数**：`move_input_was_leased` 与
+  `runtime_controller_sigkill_was_confirmed` 两条 `observed`，`the_bridge_released_the_input_when_the_ipc_was_lost`
+  报 `RELEASE_NOT_LOGGED`、`the_server_saw_the_kin_stop_after_the_move` 报 `NEVER_MOVED:0.10`——而
+  harness 自己那两句是 `the runtime is gone; the Bridge should let go` 和
+  `the Kin left the game after the Core was killed`（注入确实发生在「动过」之后，因为它的等待条件是
+  不同横坐标数 ≥2）。也就是说：判据读的两样东西（客户端松键日志、服务端横坐标跨度）与 harness 读的
+  不是同一份字节，本卡要先弄清它们各自落在哪个工件里，再决定是取新一轮 attempt 还是按
+  `stop_conditions` 停下——**不许改判据、不许改杀法去凑 `PASS`**。旧的那份 `PASS`（`6b6dcdf7…`，旧
+  build）不追认，也不动。
 - `baseline_sha`: `a1be5fbb55d870f7f5d98a3450cf0364b9318712`
 - `question`: campaign `order` 第 5 个场景（crash/outbox 窗口）**在当前 reviewed build 上封齐**。
   冻结已经给出：五个已定义窗口都有 case id、断言与 runner 开关，缺的只是 attempt——所以本卡的问题不是

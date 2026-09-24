@@ -2097,9 +2097,10 @@
     `ADMIT-070-RECORD-SCHEMA-001` 继续 `QUEUED` 且不排进这条链；HOST/PERSIST/retention/
     process-recovery 仍等主控决策。公网测试服本轮未使用，也仍不能作判据端。
 
-- [ ] **CRASH-OUTBOX-RESEAL-001（已依 `stop_conditions` ② 停下，记 `BLOCKED_EVIDENCE`）**：campaign
+- [ ] **CRASH-OUTBOX-RESEAL-001（前置阻断已清，等下一 commit 提升回 `NEXT`）**：campaign
   `order` 第 5 个场景的**真实重封**——五个已定义窗口各在当前 build 上封一份 bundle。前置是本卡当场
-  发现的第二个封存面阻断，已另起 `CRASH-OUTBOX-SEALED-KIN-001`；五个窗口**一份都没封**。
+  发现的第二个封存面阻断，已另起 `CRASH-OUTBOX-SEALED-KIN-001` 并交付（`2160989`）；五个窗口现在有
+  **一份**当前-build bundle（`CORE-060` run `08f206bf…`，判据 `FAIL`），**PASS 一份也没有**。
   - **环境已就位**：`minekin-runner:local` 镜像按 Dockerfile 重建完成（镜像 id `fed4a143f2e4`），
     `minekin-runner-data` 卷原样保留（旧的五份 PASS 与那份 FAIL 一个没动，登记前照其复核了五对
     `case_version` 与两个旧 `bridge_digest`）。
@@ -2134,26 +2135,71 @@
     未改），`from_repository_build` 不受影响（它比的是启动计划 + Bridge 源码树，不含 runner）。
   - **第二格不在本卡范围内**：修它要动 `tools/`（封存面），那是本卡禁地。按同一条纪律另起前置卡
     `CRASH-OUTBOX-SEALED-KIN-001`，本卡因此 `BLOCKED_EVIDENCE`。
-  - **下一步**：等前置卡 `DONE`（那时一次真实的被杀 Core 运行封得下来，且不动任何 `case_version`），
-    本卡回到 `NEXT`，再把五个窗口逐个跑成真实 bundle。
+  - **前置卡已 `DONE`（交付 `2160989`），本卡的阻断已清**：那一格修完后，**第三次真实 `CORE-060`
+    attempt（run id `08f206bfaed94e4f9a22aed82c1c24d6`）封下来了** —— 也就是说「被杀的 Core 没有文档
+    也能封存」这条通道在当前 build 上重新走通，并且是在卷上有两个 Kin 的前提下走通的。它的判据结果是
+    `FAIL`（`RELEASE_NOT_LOGGED`、`NEVER_MOVED:0.10`），四读一致（sealer/verify/rejudge/promotion 都报
+    同一份，`from_repository_build: true`）。所以本卡现在**有 1 份当前-build bundle，但 5 个窗口一份
+    PASS 都还没有**：`CORE-060` 要拿到 PASS 才算契约那一格恢复「可」。
+  - **下一步**：本卡回到 `NEXT`（紧随的 commit 提升），先把上面那两条 `FAIL` 的**读数来源**弄清楚——
+    判据读的是客户端日志里的松键行与服务端读数里的横坐标跨度，harness 的等待条件读的是同一份服务端
+    日志的「不同横坐标数 ≥2」，两者不同源，所以要按工件逐一定位；**不改判据、不改杀法去凑 PASS**。
+    其余四案（`CORE-060-CLIENT-001`、`CORE-060-SERVER-001`、`CORE-090` 两连跑、`CORE-020`）各跑真运行，
+    重封一律走新 attempt，旧 bundle 一个不动。
 
-- [ ] **CRASH-OUTBOX-SEALED-KIN-001（进行中，当前唯一 NEXT）**：让「没有文档的一次 run」也能明白地
+- [x] **CRASH-OUTBOX-SEALED-KIN-001（已完成，交付 `2160989`）**：让「没有文档的一次 run」也能明白地
   说出它属于哪个 Kin。`CRASH-OUTBOX-RESEAL-001` 第二次真实 attempt 当场发现的封存面阻断，是 campaign
-  第 5 个场景当下唯一的硬阻断（`c75865b` 登记 `QUEUED`、紧随的 commit 提升为 `NEXT`）。
+  第 5 个场景当下唯一的硬阻断（`c75865b` 登记 `QUEUED`、`3427e43` 提升为 `NEXT`；交付
+  `2160989 fix(tools): name the Kin of a run that left no document`，已推 `codex/core-state-transition`
+  与 `main`，`git ls-remote` 核对为 `2160989a3dc882292bbd76ff8a9d2e10832a5ca5`）。
   - **问题**：`tools/assert_case_evidence.py:551-557` 在 run 文档没说出 `kin_id` 时，凭数据卷的目录
     结构猜——要求 `<data-root>/kin/*` 里恰好一个目录持有 `kin.sqlite3`。卷上现在有 `kin-01`/`kin-02`
     两个，那个前提不再成立；而 `:558` 那句合并报错把「缺 Kin」说成「缺 run id」，两件事都没缺。
   - **修法（一条读路，不做第二份真相）**：`domain.sh:1086-1092` 已经从账本里这次 run 的行读出
     `kin_id`（脚本 `:764-767` 并写明归因刻意不从数据库路径读）。把那份**已经测出来**的名字沿
     `OFFLINE-IDENTITY-SEALED-ARGV-001` 给 `session_argv` 的同一形状传下去：`seal()` 与
-    `read_run_material` 各接一个可选 `kin_id`，只在文档没说出 Kin 时用它，文档说出时以文档为准；
-    同时把 `:558` 拆成「没命名 run」与「没命名 Kin」两句话。runner 只在确实没有文档的那条分支上传。
-  - **不动判据面**：`check_case_assertions.py` 的 digest 按**断言实现那个函数**的源码算
-    （`_function_source`，`:94-124`），`read_run_material` 不是任何断言的实现，故改完 139 条登记与
-    fixture digests 应原样绿——不绿就说明碰到了判据实现，按 `stop_conditions` ① 停下。
-  - **禁止**：清掉 `kin-02` 让旧读路通过（那是证据）；sealer 与 asserter 各存一份 Kin 记载。
-  - 验收、范围与停机条件见 [主执行计划](development-execution-plan.md) 该卡一节。本卡不封第 5 个场景
-    的任何 bundle。
+    `read_run_material` 各接一个可选 `kin_id`（CLI 两侧各一个 `--kin-id`），只在文档没说出 Kin 时用它，
+    文档说出时以文档为准；同时把 `:558` 拆成「没命名 run」与「没命名 Kin」两句话。runner 只在确实没有
+    文档的那条分支上传，并且**名字读不出来时不编一个**：另说一句、退回只给 `--run-id`。
+    `tools/rejudge_evidence.py` 一字未改——它读的是封进去的 `asserter-inputs.json`，那里本来就有
+    `kin_id`，所以卷上只有一个 Kin 这件事**不需要**第二处记载；这也是 `stop_conditions` ② 没触发的原因。
+  - **真实运行（验收 ①，一轮真跑）**：`CORE-060`，`MINEKIN_KIN_ID=kin-01 MINEKIN_DOMAIN_CASE=CORE-060
+    MINEKIN_DOMAIN_KILL_CORE=1 MINEKIN_DOMAIN_PROBE=Kin MINEKIN_DOMAIN_PROBE_SECONDS=1` +
+    `--hold-forward-seconds 60`，run id `08f206bfaed94e4f9a22aed82c1c24d6`。transcript：
+    `session exited 137` → `the run document said Killed` →
+    `domain: /tmp/domain-session.json holds no run document, so this run is named by its ledger id`，
+    **没有**「this run has no Kin in its own rows」那一句（名字确实传到了）。封存
+    `status: sealed`、`attempt_sequence: 1`、`evidence_directory:
+    /data/kin/kin-01/run/evidence/08f206bf…`。只读探针（`.tmp/kin060_bundle_probe.sh`）：bundle 共 15 件
+    工件、**没有任何 run-document 文件**（`orchestrator-trace.json` 是 harness 自己的），
+    `asserter-inputs.json` 说 `kin_id: kin-01` / `run_id: 08f206bf…` / `previous_run_id: 082e0f04…`，
+    卷上仍是 `kin-01`/`kin-02` 两个都持有 ledger ——**旧那条「恰好一个」的读路这一次给不出答案**，
+    所以这份 bundle 是这条修法的正面证明，不是顺带成功的。四读：sealer `FAIL` →
+    `evidence verify` `verified: true, sealed: true, violations: []` → `rejudge_evidence.py`
+    `status: agrees` → `report_promotion.py` 该份 `from_repository_build: true`、
+    `bridge_digest: faeec4a9df83abb9…`、`re_judged: AGREES`、`attempt_sequence: 1`。
+  - **判据给出的是 `FAIL`，本卡照实收下**：`observed` 的是 `move_input_was_leased` 与
+    `runtime_controller_sigkill_was_confirmed`；两条失败
+    `the_bridge_released_the_input_when_the_ipc_was_lost:RELEASE_NOT_LOGGED` 与
+    `the_server_saw_the_kin_stop_after_the_move:NEVER_MOVED:0.10`。本卡不要求 PASS（契约里那一格写明要
+    等 `CORE-060` 真封出 PASS 才改回「可」），两条读数原样写进 `CRASH-OUTBOX-RESEAL-001` 的
+    `handover_from_CRASH-OUTBOX-SEALED-KIN-001`，不追认、不重试掩盖。
+  - **顺带量到的一条上限（交给 RESEAL，不必再撞）**：`RunMaterial.run()`
+    （`tools/assert_case_evidence.py:433-436`）在没有文档时抛 `the run document carries no run section`，
+    所以**读文档的断言在被杀的 run 上拿不到读数**。用 AST 逐条查过 `CORE-060` 的四条断言，没有一条读
+    `run`/`run_document`，故这一窗口可判（本轮 `result: FAIL` 而非 `UNJUDGED` 就是现场证据）。
+  - **`case_version` 一个没动**（验收 ④）：`check_case_assertions.py` 到改完仍是 `OK (139 registered)`、
+    `verify_fixture_digests.py` 仍 OK，`CORE-060` 仍是 `d1ea32d8b705…`。`read_run_material` 不是任何断言
+    的实现，digest 按函数源码算（`_function_source`，`:94-124`），所以 `stop_conditions` ① 未触发。
+  - **测试**：判官侧新增 7 条（含「文档自己的 Kin 赢过传入的名字」「卷上歧义时报的是 Kin 而不是 run id」
+    「单 Kin 回落仍然读得到」与两条 CLI 形状）；封存侧新增 3 条（含一条真把 document 删掉、在两份 Kin
+    的卷上封存并 `verify_bundle` + `rejudge` 全绿的）；runner 契约新增 1 条钉住
+    `named_run=(--run-id "${run_id}" --kin-id "${kin_id}")` 与那句「没有 Kin」。
+    定向 3 个文件 `504 passed in 63.45s`；全量 `2158 passed / 2 skipped in 266.18s`。
+    Pyright 抓到一处真实的形状问题：`seal()` 里原有一行把 `kin_id` 从 str 参数改绑成 `KinId`，
+    参数名与已解析的名字是两个东西，解析后的那个改名 `kin`（它才是 bundle 地址）。
+  - **状态流转**：本卡 `NEXT → DONE`；`CRASH-OUTBOX-RESEAL-001` 的阻断已清，由紧随的 commit 提升回
+    唯一 `NEXT`。本卡没封第 5 个场景的任何**其它** bundle。
 
 ## 记录：文档脱敏与卡片范围纪律（2026-09-24，用户指示）
 
