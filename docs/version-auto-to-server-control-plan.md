@@ -108,7 +108,7 @@ bundle id 与结果；旧代回调不能推进新代。`BLOCKED` 不自动回退
 | V03 | `VERSION-BUNDLE-1201-001` | `DONE` | 独立 1.20.1 candidate 构建、pin、SBOM | D |
 | V04 | `VERSION-LOCAL-1201-001` | `DONE`（`tested` 判据成立；registry 承载属 V05） | 受控 1.20.1 真服/真客户端验收到 `tested` | V01,V03 |
 | V05 | `VERSION-RESOLVER-001` | `DONE`（清单承载与解析边界已落地） | catalog / tested registry / 歧义阻断 | V02,V04 |
-| V06 | `VERSION-INSTALLER-001` | `QUEUED`（主计划已登记正文，提升另开提交） | 缺缓存自动安全安装与原子发布 | V03,V05 |
+| V06 | `VERSION-INSTALLER-001` | `NEXT`（由主计划提升） | 缺缓存自动安全安装与原子发布 | V03,V05 |
 | V07 | `VERSION-SESSION-SWITCH-001` | `QUEUED` | 自动选包、停止旧代、启动新代 | V01,V05,V06 |
 | V08 | `VERSION-REMOTE-SMOKE-001` | `QUEUED` | 用户目标只读探测及非破坏性入服 | V07 |
 | V09 | `VERSION-SIMPLE-CONTROL-001` | `QUEUED` | 目标服一次 look/move/release 闭环 | V08 |
@@ -262,7 +262,7 @@ bundle id 与结果；旧代回调不能推进新代。`BLOCKED` 不自动回退
   可启动半成品；受保护运行中 bundle/native 不被回收。镜像不含 Mojang 客户端。
 - **停止**：可信上游无法提供可核验材料或需要向第三方镜像回退时停止并记录来源；
   不把“下载成功”当作 capability/tested 证据。
-- **现况**（2026-09-25，`QUEUED`，由主执行计划本路线 V05 收卡后的登记提交写下正文）：领取前先读主计划
+- **现况**（2026-09-25，`NEXT`，正文由 `d8ca02d` 登记、本提交提升）：领取前先读主计划
   V06 卡的 `measured_state_v06`、`store_root_decision` 与 `open_semantics_v06` 三格。实测到的现状是：
   暂存+`os.replace`+隔离的原子写、逐构件 `verify`、请求前的预算拒绝**今天已经存在**，而
   `provision_bundle`/`ArtifactFetcher` 在 `src/` 内**零调用者**、`bundle` 子命令只有 `verify`、

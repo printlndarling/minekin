@@ -12,13 +12,13 @@
 - `baseline_date`: 2026-09-22
 - `baseline_branch`: `main`
 - `baseline_remote`: `origin/main`
-- `current_next`: **暂无 `NEXT`**——`VERSION-RESOLVER-001`（V05）已收为 `DONE`
-  （登记 `c90bc51`、提升 `b9f7e2d`、交付 `f70fddc`、收卡 `6a8e79e`）；下一张
-  `VERSION-INSTALLER-001`（V06）由本提交以 `QUEUED` 登记卡片正文，提升为唯一 `NEXT` 须由**下一次独立
-  提交**完成。在那之前任何执行者都不得自行领取 V06 或其它卡。
+- `current_next`: `VERSION-INSTALLER-001`（V06，`d8ca02d` 登记 `QUEUED`，本提交单独提升为唯一 `NEXT`；
+  `VERSION-RESOLVER-001` 已 `DONE` 收卡 `6a8e79e`，两 ref 均已核对）。
   用户在七场景总账后明确把“自动识别服务器版本 → 准备匹配客户端 → 入服并完成简单控制”排为优先路线；
   `VERSION-AUTO-DESIGN-001` 已交付[跨版本连续执行计划](version-auto-to-server-control-plan.md)。
-- `last_checkpoint`: **跨版本路线走到 V05 收卡**——V05 `VERSION-RESOLVER-001` 交付的是纯领域解析边界：
+- `last_checkpoint`: **跨版本路线走到 V06 领取**——唯一 `NEXT` 现为 `VERSION-INSTALLER-001`（V06），
+  其正文与实测现状（`measured_state_v06`/`store_root_decision`/`open_semantics_v06`）在 `d8ca02d` 写下。
+  **上一张** V05 `VERSION-RESOLVER-001` 交付的是纯领域解析边界：
   新模块 `src/minekin_core/domain/version_resolution.py` + 新增被审清单
   `tests/fixtures/registry/reviewed-tested-bundles.json`（摘要 `d9e4823b80f5…`，以**新增行**进
   `tests/fixtures/manifest.sha256`，既有 82 行未动）+ 44 条单元/契约测试。`tested` 从此有了机器可读承载，
@@ -3784,9 +3784,9 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 
 ### VERSION-INSTALLER-001 — 缺缓存时把已审组合安全装齐
 
-- `status`: `QUEUED`（本提交登记，V05 收卡 `6a8e79e` 之后。提升须**另开一次独立提交**，且领取者
-  必须先闭合下面 `open_semantics_v06` 三格，不得就地改冻结件绕过。）
-- `baseline_sha`: `6a8e79e`（V05 收卡提交，两 ref 已核对）。领取时实际 checkout = 本卡提升提交。
+- `status`: `NEXT`（`d8ca02d` 登记 `QUEUED`，本提交单独提升为唯一 `NEXT`；当前无第二张 `NEXT`）。
+- `baseline_sha`: `d8ca02d`（本卡 `QUEUED` 登记提交，紧随 V05 收卡 `6a8e79e`，两者均已推送并核对两
+  ref）。领取时实际 checkout = 本提升提交。
 - `depends_on`: `VERSION-BUNDLE-1201-001`（V03 的两套 recipe/pin 与 launch plan 形状）、
   `VERSION-RESOLVER-001`（V05 的清单条目是本卡唯一合法的安装输入）；下游
   `VERSION-SESSION-SWITCH-001`（V07）把"先装后启"接进自动路径。

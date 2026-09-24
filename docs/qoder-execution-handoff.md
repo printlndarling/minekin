@@ -1,20 +1,26 @@
 # Qoder 临时执行交接（2026-09-24）
 
-> **最新交接点（2026-09-25，跨版本路线执行中）**：**此刻没有 `NEXT` 可领。**
-> `VERSION-RESOLVER-001`（V05）已收为 `DONE`（登记 `c90bc51` → 提升 `b9f7e2d` → 交付 `f70fddc` →
-> 收卡 `6a8e79e`），下一张 `VERSION-INSTALLER-001`（V06）已在主执行计划里以 `QUEUED` 登记正文，
-> **提升为唯一 `NEXT` 是下一次独立提交的事**；在那之前不得自行领取 V06，也不得回到
-> 下文 ADMIT-070 起步卡或 V01–V04（四者均已 `DONE`）。
+> **最新交接点（2026-09-25，跨版本路线执行中）**：唯一 `NEXT` 是
+> `VERSION-INSTALLER-001`（V06，`d8ca02d` 登记、本提交提升），**不是**下文 ADMIT-070 起步卡，
+> 也不是 V01–V05（五者均已 `DONE`；V05 交付 `f70fddc`、收卡 `6a8e79e`）。
 > **V05 交付了什么**：纯领域解析边界 `src/minekin_core/domain/version_resolution.py`（只依赖 stdlib 与
 > `minekin_core.domain.*`）、**新增**的被审清单 `tests/fixtures/registry/reviewed-tested-bundles.json`
 > （摘要 `d9e4823b80f5…`，以新增行进 `tests/fixtures/manifest.sha256`，既有 82 行一字未动）、44 条
 > 单元/契约测试。`tested` 从此有了机器可读承载：1.20.1 与 1.21.4 各自以**同一 build** 的独立封证被选中
-> （1.20.1 → V04 四案；1.21.4 → 当前 build 的 12 案，本卡补封了握手格 `CORE-010`），而跨 build 引用、
+> （1.20.1 → V04 四案；1.21.4 → 当前 build 的 12 案，V05 补封了握手格 `CORE-010`），而跨 build 引用、
 > 非 `PASS` 引用、无引用的 `tested` 条目由 loader 直接拒载——"旧 build 证据称为 tested"这条禁令现在是
 > 代码而不是口号。**没有**读 recipe fixture 的 `status` 字段，两份 recipe 至今仍自称 `candidate`/`recipe`。
-> 协议号来自真实只读探测（1.21.4 → 769；1.20.1 → 763，在受控 vanilla 服上实测），清单里没有任何目标地址。
+> 清单里的协议号来自真实只读探测（1.21.4 → 769；1.20.1 → 763，在受控 vanilla 服上实测），清单本身不含
+> 任何目标地址。
 > **V05 没有证明的事**：解析未接进 `session start`（属 V07）、零下载零安装（属 V06）、没对**真实远程**
-> 1.20.1 目标解析过（属 V08）、CLI 没有 resolver 入口；`launchable`/`RESOLVED` 都不等于验收。
+> 1.20.1 目标解析过（属 V08）、CLI 无 resolver 入口；`RESOLVED` 不等于验收。
+> **V06 只做一件事**：把 V05 选出的一个 `tested` 条目，在**空缓存**里装到 `session start` 的完整性门真的
+> 通过，并证明任何中断（断网、size/sha 不符、磁盘满、rename 失败、并发同 digest、已装件被篡改）都不留下
+> 可启动的半成品；净增量是**一个有类别的显式安装入口**——暂存+`os.replace`+隔离、请求前预算拒绝、逐构件
+> `verify` 今天**已存在**，`provision_bundle`/`ArtifactFetcher` 在 `src/` 内**零调用者**、`bundle` 只有
+> `verify`，所以不要重写下载器。领取前必读主计划 V06 卡的 `measured_state_v06`、`store_root_decision`
+> （store 根按 Kin 划分，改它会移动已封存 plan 的路径字段——**不改**）与 `open_semantics_v06` 三格。
+> 真实下载约 1 GB 级，属**本地/受控 runner 的真实运行**，CI 不证；不把"下载成功"写成 `tested`。
 > **CI 已按规矩在浏览器里逐 job 读过**：`f70fddc` 两 ref 一致，`main` run **#491** 三 job 全绿且逐步骤
 > 打开过（`python` 20 步含 pytest 1m54s、`protocol` buf 三检、`bridge-static` 8 步），工作分支 run
 > **#490** 同 commit 在列表页读到成功；#491 的 2 warnings/3 notices 全是 GitHub 平台公告（Node 20 弃用、
