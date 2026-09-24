@@ -3095,7 +3095,8 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 - `status`: `NEXT`（`930223a` 登记 `QUEUED`，本提交单独提升；当前无第二张 `NEXT`）。
 - `promotion_reason`: V02 只读探测已 `DONE`；跨版本路线的下一步是先有可复判、仅 `candidate`
   的 1.20.1 bundle，之后才能进 V04 受控真服证明。
-- `baseline_sha`: `930223a`（V03 `QUEUED` 登记提交，已推送并核对两远端）。领取时另记实际 checkout SHA。
+- `baseline_sha`: `930223a`（V03 `QUEUED` 登记提交，已推送并核对两远端）。领取时实际
+  checkout = `cdbdc95`（提升提交，本地与两远端一致、工作树干净）。
 - `depends_on`: `VERSION-SERVER-PROBE-001`（V02 已交付只读探测）；下游 `VERSION-LOCAL-1201-001`（V04）
   先在受控真服证明本卡 candidate。
 - `question`: 如何在不覆写 1.21.4 既有 recipe/Bridge JAR 的前提下，从官方元数据核对并构建一套
@@ -3112,6 +3113,18 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
   真实 1.20.1 入服证明属后续 V04 卡，本卡不封 `tested`。
 - `stop_conditions`: 元数据无可靠摘要、关键 Mod/映射无可审组合、Bridge hook 超出当前能力契约、
   或 Java/OS 目标不明时，列选项与证据并停下报告；**不可“编得过”就把组合设为 `tested`**。
+- `progress_record`（2026-09-25，仍 `NEXT`，未收卡）：官方供应链逐项核对已完成并写入
+  [版本许可矩阵](version-license-matrix.md)「1.20.1 candidate 供应链核对」节——均从上游现取现算：
+  Mojang 1.20.1 JSON sha1 `599695fe…`（下载后 `sha1sum` 复算一致）、client.jar sha1 `0c3ec587…`/23,028,853B、
+  asset-index id 5 sha1 `78fe335e…`、java major 17、88 libraries；Fabric Loader 1.20.1 最新 stable `0.19.5`
+  （jar sha1 `ff9e65cf…`）、intermediary `97d0bff9…`、Yarn `1.20.1+build.10`、Fabric API `0.92.12+1.20.1`
+  （sha1 sidecar `3e9cdd3e…` 复算一致、自算 sha256 `4197ff4f…`/2,137,232B、Apache-2.0）。
+  同节还留下**可构建性/停止点**取证：Bridge 是锁到 1.21.4 的单模块 Loom（`libs.versions.toml` +
+  `dependencyLocking` + 构建期产物边界门），mixin/hook 能否不改源码在 1.20.1 编译**未验证**；
+  `recipe.py`/`metadata.py`/`bundle-manifest.schema.json`/约 15 测试把 1.21.4 身份做成常量，
+  需无漂移泛化后 1.20.1 candidate recipe 才能过校验。**尚未做**：无漂移 pin 表泛化、隔离 1.20.1
+  Loom 构建、candidate recipe fixture + 门禁、Bridge 1.20.1 target；真实入服属 V04。以上任一项
+  均未、也不会被记为 `tested`/PASS。
 
 ### HOST-ADMISSION-DESIGN-001 — 宿主世界会话坐标来源
 
