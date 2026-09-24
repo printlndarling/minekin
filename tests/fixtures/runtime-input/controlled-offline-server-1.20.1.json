@@ -1,0 +1,16 @@
+{
+  "schema_version": 2,
+  "profile_id": "p0-controlled-offline-loopback-1201",
+  "host": "127.0.0.1",
+  "port": 25566,
+  "auth_mode": "offline",
+  "version_policy": {
+    "mode": "explicit_allowlist",
+    "allowed_versions": ["1.20.1"]
+  },
+  "resource_pack_policy": "deny",
+  "target_authorization": {
+    "granted_by": "operator-local",
+    "basis": "Loopback-only controlled test domain for the 1.20.1 candidate: the operator authorized this harness's own 127.0.0.1 endpoint for the V04 real run. No remote address is named or admitted here."
+  }
+}

@@ -18,7 +18,10 @@ from typing import Protocol, cast
 
 import pytest
 
-from minekin_core.adapters.launcher.server_profile import ServerProfile, load_server_profile
+from minekin_core.adapters.launcher.server_profile import (
+    SessionServerProfile,
+    load_session_server_profile,
+)
 from minekin_core.domain.offline_identity import offline_player_uuid
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
@@ -41,21 +44,29 @@ class _PackServer(Protocol):
     def stop(self) -> None: ...
 
 
+class _Recipe(Protocol):
+    version: str
+    profile: Path
+    jar_sha1: str
+    jar_size: int
+    resource_pack_format: int | None
+
+
 class _Runner(Protocol):
-    PROFILE: Path
-    RESOURCE_PACK_FORMAT: int
+    SERVER_RECIPES: dict[str, _Recipe]
+    DEFAULT_SERVER_VERSION: str
     ResourcePackServer: type[_PackServer]
 
     def properties_for(
         self,
-        profile: ServerProfile,
+        profile: SessionServerProfile,
         *,
         level_seed: str,
         online_mode: bool | None = None,
         resource_pack: _ServedPack | None = None,
     ) -> dict[str, str]: ...
 
-    def resource_pack_zip(self) -> bytes: ...
+    def resource_pack_zip(self, pack_format: int) -> bytes: ...
 
     def write_configuration(
         self,
@@ -65,7 +76,7 @@ class _Runner(Protocol):
         allowed_players: tuple[str, ...],
     ) -> None: ...
 
-    def verify_jar(self, path: Path) -> None: ...
+    def verify_jar(self, path: Path, recipe: _Recipe) -> None: ...
 
     def summon_command(self, entity_type: str) -> str: ...
     def position_probe_command(self, player: str) -> str: ...
@@ -87,9 +98,21 @@ def _load_runner() -> _Runner:
 
 RUNNER = _load_runner()
 
+#: The default recipe is the one every existing case names.
+RECIPE = RUNNER.SERVER_RECIPES[RUNNER.DEFAULT_SERVER_VERSION]
+#: Reviewed for this recipe alone; the other recipe has no reviewed pack format, which
+#: is what `test_a_recipe_without_a_reviewed_pack_format_refuses_a_pack` holds.
+PACK_FORMAT = cast("int", RECIPE.resource_pack_format)
+
+
+def reviewed_profile() -> SessionServerProfile:
+    """The default recipe's server, read through the door a session joins through."""
+
+    return load_session_server_profile(RECIPE.profile, minecraft_version=RECIPE.version)
+
 
 def test_server_properties_are_private_vanilla_survival() -> None:
-    properties = RUNNER.properties_for(load_server_profile(RUNNER.PROFILE), level_seed="fixed-seed")
+    properties = RUNNER.properties_for(reviewed_profile(), level_seed="fixed-seed")
 
     assert properties["server-ip"] == "127.0.0.1"
     assert properties["online-mode"] == "false"
@@ -118,8 +141,8 @@ def test_the_served_pack_is_the_same_bytes_every_time() -> None:
     Bridge jar already taught about zip entries.
     """
 
-    first = RUNNER.resource_pack_zip()
-    second = RUNNER.resource_pack_zip()
+    first = RUNNER.resource_pack_zip(PACK_FORMAT)
+    second = RUNNER.resource_pack_zip(PACK_FORMAT)
 
     assert first == second
     # And the property that makes it true, rather than the symptom: two builds in the
@@ -132,11 +155,11 @@ def test_the_served_pack_is_the_same_bytes_every_time() -> None:
 def test_the_served_pack_is_one_a_client_can_read() -> None:
     """A pack a client cannot parse would be refused for the wrong reason."""
 
-    with zipfile.ZipFile(io.BytesIO(RUNNER.resource_pack_zip())) as archive:
+    with zipfile.ZipFile(io.BytesIO(RUNNER.resource_pack_zip(PACK_FORMAT))) as archive:
         assert archive.namelist() == ["pack.mcmeta"]
         document = json.loads(archive.read("pack.mcmeta"))
 
-    assert document["pack"]["pack_format"] == RUNNER.RESOURCE_PACK_FORMAT
+    assert document["pack"]["pack_format"] == PACK_FORMAT
 
 
 def test_the_pack_is_served_at_one_path_and_nothing_else_is() -> None:
@@ -144,14 +167,14 @@ def test_the_pack_is_served_at_one_path_and_nothing_else_is() -> None:
     fetched something" are the same observation, and the case cannot say which of the
     two happened."""
 
-    server = RUNNER.ResourcePackServer(RUNNER.resource_pack_zip())
+    server = RUNNER.ResourcePackServer(RUNNER.resource_pack_zip(PACK_FORMAT))
     server.start()
     try:
         served = server.served
         with urllib.request.urlopen(served.url, timeout=5) as response:
             fetched = response.read()
 
-        assert fetched == RUNNER.resource_pack_zip()
+        assert fetched == RUNNER.resource_pack_zip(PACK_FORMAT)
         assert hashlib.sha1(fetched).hexdigest() == served.sha1
 
         with pytest.raises(urllib.error.HTTPError) as refused:
@@ -164,8 +187,9 @@ def test_the_pack_is_served_at_one_path_and_nothing_else_is() -> None:
 def test_requiring_a_pack_changes_exactly_the_three_settings() -> None:
     """The scenario is three settings, not a different server."""
 
-    profile = load_server_profile(RUNNER.PROFILE)
-    server = RUNNER.ResourcePackServer(RUNNER.resource_pack_zip())
+    profile = reviewed_profile()
+    archive = RUNNER.resource_pack_zip(PACK_FORMAT)
+    server = RUNNER.ResourcePackServer(archive)
     server.start()
     try:
         served = server.served
@@ -178,7 +202,7 @@ def test_requiring_a_pack_changes_exactly_the_three_settings() -> None:
     assert without["resource-pack"] == "" and without["resource-pack-sha1"] == ""
     assert with_pack["require-resource-pack"] == "true"
     assert with_pack["resource-pack"] == served.url
-    assert with_pack["resource-pack-sha1"] == hashlib.sha1(RUNNER.resource_pack_zip()).hexdigest()
+    assert with_pack["resource-pack-sha1"] == hashlib.sha1(archive).hexdigest()
     assert {key for key in without if without[key] != with_pack[key]} == {
         "require-resource-pack",
         "resource-pack",
@@ -196,7 +220,7 @@ def test_an_offline_profile_can_meet_a_server_that_requires_sessions() -> None:
     the server the case starts, rather than in anything a profile can say.
     """
 
-    profile = load_server_profile(RUNNER.PROFILE)
+    profile = reviewed_profile()
 
     derived = RUNNER.properties_for(profile, level_seed="fixed-seed")
     forced = RUNNER.properties_for(profile, level_seed="fixed-seed", online_mode=True)
@@ -214,7 +238,7 @@ def test_configuration_whitelists_only_named_offline_players(tmp_path: Path) -> 
 
     RUNNER.write_configuration(
         directory,
-        RUNNER.properties_for(load_server_profile(RUNNER.PROFILE), level_seed="fixed-seed"),
+        RUNNER.properties_for(reviewed_profile(), level_seed="fixed-seed"),
         allowed_players=("Kin_One", "Fixture2", "Kin_One"),
     )
 
@@ -253,7 +277,7 @@ def test_unpinned_server_jar_is_rejected_before_launch(tmp_path: Path) -> None:
     jar.write_bytes(b"not minecraft")
 
     with pytest.raises(SystemExit, match="not the pinned artifact"):
-        RUNNER.verify_jar(jar)
+        RUNNER.verify_jar(jar, RECIPE)
 
 
 def test_eula_must_be_explicit_before_the_directory_is_created(tmp_path: Path) -> None:
@@ -360,3 +384,46 @@ def test_the_tool_takes_a_clean_stop_from_sigterm(
 
     with pytest.raises(KeyboardInterrupt):
         RUNNER.request_clean_stop(signal.SIGTERM, None)
+
+
+def test_each_reviewed_version_has_its_own_recipe() -> None:
+    """A second version is a second review, not a reused constant."""
+
+    assert set(RUNNER.SERVER_RECIPES) == {"1.21.4", "1.20.1"}
+    assert RUNNER.DEFAULT_SERVER_VERSION == "1.21.4"
+
+    recipes = [RUNNER.SERVER_RECIPES[version] for version in sorted(RUNNER.SERVER_RECIPES)]
+    assert {recipe.jar_sha1 for recipe in recipes} == {recipe.jar_sha1 for recipe in recipes}, (
+        "each recipe names its own digest"
+    )
+    assert len({recipe.jar_sha1 for recipe in recipes}) == len(recipes)
+    assert len({recipe.profile for recipe in recipes}) == len(recipes)
+
+
+def test_the_1201_recipe_is_a_loopback_offline_target_for_its_own_version() -> None:
+    recipe = RUNNER.SERVER_RECIPES["1.20.1"]
+    profile = load_session_server_profile(recipe.profile, minecraft_version=recipe.version)
+
+    assert profile.auth_mode == "offline"
+    assert profile.is_loopback
+    assert profile.host == "127.0.0.1"
+    other = RUNNER.SERVER_RECIPES["1.21.4"]
+    frozen = load_session_server_profile(other.profile, minecraft_version=other.version)
+    # A separate run, not the same server under a new name: two recipes that share a
+    # port cannot both be up, and a shared profile would have left one version's
+    # pin driving the other's launch.
+    assert profile.port != frozen.port
+    assert (profile.profile_id, frozen.profile_id) == (
+        "p0-controlled-offline-loopback-1201",
+        "p0-controlled-offline-loopback",
+    )
+    properties = RUNNER.properties_for(profile, level_seed="fixed-seed")
+    assert properties["online-mode"] == "false"
+    assert properties["server-ip"] == "127.0.0.1"
+    assert properties["server-port"] == str(profile.port)
+
+
+def test_a_recipe_without_a_reviewed_pack_format_refuses_a_pack() -> None:
+    """No number is borrowed across versions: an unreviewed format is a refusal."""
+
+    assert RUNNER.SERVER_RECIPES["1.20.1"].resource_pack_format is None

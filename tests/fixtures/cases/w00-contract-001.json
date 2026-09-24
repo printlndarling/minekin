@@ -12,7 +12,7 @@
     "fixture_digests_match_manifest": "aacdc5642c3be41b9874444f6f3d9a6fd8adfdb50c7231ea7627acf42c86ea43",
     "product_package_does_not_import_test_orchestrator": "5c07f1aa8c5003c7dbce22d2c71de815c59da5f527c5a07ccf75a3954f9da63b",
     "runtime_input_does_not_reference_oracle": "626cf52014ef9bacc502359537cf4ad0c42b6ef52ca501e44fd5e16cc961fa79",
-    "schemas_are_versioned": "590b07bcd5a85fb40929d98f3ba9f8feb8d798e4c9baf15e014542369c3bb667"
+    "schemas_are_versioned": "b0298c844cd1731cb0b38ead321ebcffae00d28a1e1fc8e5f0ccb7fa43f6a718"
   },
   "assertions": [
     "schemas_are_versioned",

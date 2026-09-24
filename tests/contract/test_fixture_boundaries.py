@@ -23,16 +23,39 @@ def test_frozen_fixture_digests_match() -> None:
     assert result.returncode == 0, result.stderr
 
 
+def _contract_versions_frozen_by_schemas() -> set[int]:
+    """The document versions a committed schema freezes with `const`.
+
+    This gate used to read "version 1", which held only because nothing else had a
+    schema: V01 committed a v2 server-profile schema and loader without committing a
+    v2 document to validate against, so the two never had to agree. Deriving the set
+    keeps an unreviewed version refused while letting a fixture declare a version some
+    schema actually freezes.
+    """
+
+    versions: set[int] = set()
+    for path in sorted((REPOSITORY_ROOT / "schemas").glob("*.json")):
+        schema = json.loads(path.read_text(encoding="utf-8"))
+        frozen = schema.get("properties", {}).get("schema_version", {}).get("const")
+        if isinstance(frozen, int) and not isinstance(frozen, bool):
+            versions.add(frozen)
+    return versions
+
+
 def test_all_json_contracts_are_parseable_and_versioned() -> None:
     paths = [
         *sorted((REPOSITORY_ROOT / "schemas").glob("*.json")),
         *sorted((REPOSITORY_ROOT / "tests" / "fixtures").rglob("*.json")),
     ]
     assert paths
+    reviewed = _contract_versions_frozen_by_schemas()
+    # The set is pinned rather than merely read, so that widening what any schema
+    # freezes shows up here as a review that has to be written down.
+    assert reviewed == {1, 2}
     for path in paths:
         value = json.loads(path.read_text(encoding="utf-8"))
         if path.parent.name != "schemas" and "launcher" not in path.parts:
-            assert value["schema_version"] == 1, path
+            assert value["schema_version"] in reviewed, path
 
 
 def test_runtime_fixtures_conform_to_their_json_schemas() -> None:
@@ -42,6 +65,12 @@ def test_runtime_fixtures_conform_to_their_json_schemas() -> None:
         # combination is what the schema now keys its identity consts off.
         ("bundle-manifest.schema.json", "runtime-input/bundle-candidate-1.20.1.json"),
         ("server-profile.schema.json", "runtime-input/controlled-offline-server.json"),
+        # The 1.20.1 join target is a v2 document, and the version gate above only
+        # lets it exist because this pair checks it against the schema it claims.
+        (
+            "server-profile-v2.schema.json",
+            "runtime-input/controlled-offline-server-1.20.1.json",
+        ),
         ("case-manifest.schema.json", "cases/w00-contract-001.json"),
         # The world-creation profile: the shape the P0 policy table freezes, and a
         # profile generated from the proposal fixture beside it. The pair is what

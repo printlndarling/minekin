@@ -1,9 +1,15 @@
-"""Start the pinned vanilla server exactly as the frozen profile describes it.
+"""Start a pinned vanilla server exactly as the reviewed profile describes it.
 
-The controlled test domain is a vanilla 1.21.4 dedicated server on loopback with
-`online-mode=false`, and the profile fixture says so. This runs it: it verifies the
+The controlled test domain is a vanilla dedicated server on loopback with
+`online-mode=false`, and a profile fixture says so. This runs it: it verifies the
 pinned jar, writes the settings the profile implies, starts the JVM, waits for the
 server to report itself ready, and stops it again.
+
+Which server that is is keyed by `--version`, and each key is its own reviewed
+recipe: the profile it implies, the jar bytes it pins, and the resource-pack
+format it accepts. A version nobody has reviewed has no entry, and a version whose
+pack format nobody has checked refuses a pack rather than being handed a number
+carried over from another version.
 
 It exists because the server half of the controlled environment needs nothing but
 Java, unlike the client half. What it does *not* do is accept the EULA on anyone's
@@ -29,11 +35,60 @@ from pathlib import Path
 from typing import BinaryIO
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
-PROFILE = (
-    REPOSITORY_ROOT / "tests" / "fixtures" / "runtime-input" / "controlled-offline-server.json"
-)
-SERVER_SHA1 = "4707d00eb834b446575d89a61a11b5d548d8c001"
-SERVER_SIZE = 56_880_250
+
+
+@dataclass(frozen=True, slots=True)
+class ServerRecipe:
+    """One reviewed version's controlled server: what it is, and what it pins.
+
+    The profile is read through the same admission door a session reads its join
+    target through, so a harness cannot start a server the product would refuse to
+    connect to: the version, the loopback address and the offline auth mode are
+    checked by the loader rather than assumed here.
+    """
+
+    version: str
+    profile: Path
+    jar_sha1: str
+    jar_size: int
+    #: What this version's server tells a client its resource pack is formatted as.
+    #: `None` means nobody has reviewed it, so a run that asks for a pack is refused
+    #: rather than given the number another version happens to use.
+    resource_pack_format: int | None
+
+
+#: The reviewed server recipes, keyed by the Minecraft version they serve. Adding an
+#: entry is a review, not a default: the jar digest and the pack format both have to
+#: be measured for that version.
+SERVER_RECIPES: dict[str, ServerRecipe] = {
+    "1.21.4": ServerRecipe(
+        version="1.21.4",
+        profile=(
+            REPOSITORY_ROOT
+            / "tests"
+            / "fixtures"
+            / "runtime-input"
+            / "controlled-offline-server.json"
+        ),
+        jar_sha1="4707d00eb834b446575d89a61a11b5d548d8c001",
+        jar_size=56_880_250,
+        resource_pack_format=46,
+    ),
+    "1.20.1": ServerRecipe(
+        version="1.20.1",
+        profile=(
+            REPOSITORY_ROOT
+            / "tests"
+            / "fixtures"
+            / "runtime-input"
+            / "controlled-offline-server-1.20.1.json"
+        ),
+        jar_sha1="84194a2f286ef7c14ed7ce0090dba59902951553",
+        jar_size=47_791_053,
+        resource_pack_format=None,
+    ),
+}
+DEFAULT_SERVER_VERSION = "1.21.4"
 
 # The world is fixed rather than random so that a run is reproducible, and flat so
 # that generating it costs nothing on a machine that is not a runner.
@@ -62,9 +117,6 @@ DEFAULT_READY_TIMEOUT_S = 240.0
 #: two different scenarios. That is the lesson the Bridge jar already taught — a zip
 #: written with the time of the write cannot be pinned to anything.
 RESOURCE_PACK_NAME = "minekin-domain-pack.zip"
-#: 1.21.4's resource pack format. Named rather than inlined because it moves with the
-#: Minecraft version, and the frozen baseline is one version.
-RESOURCE_PACK_FORMAT = 46
 
 
 @dataclass(frozen=True, slots=True)
@@ -75,7 +127,7 @@ class ServedResourcePack:
     sha1: str
 
 
-def resource_pack_zip() -> bytes:
+def resource_pack_zip(pack_format: int) -> bytes:
     """The smallest thing a client will accept as a resource pack."""
 
     buffer = io.BytesIO()
@@ -87,7 +139,7 @@ def resource_pack_zip() -> bytes:
             json.dumps(
                 {
                     "pack": {
-                        "pack_format": RESOURCE_PACK_FORMAT,
+                        "pack_format": pack_format,
                         "description": "Minekin controlled test domain",
                     }
                 },
@@ -169,9 +221,9 @@ def properties_for(
     satisfy the server, not that it should try.
     """
 
-    from minekin_core.adapters.launcher.server_profile import ServerProfile
+    from minekin_core.adapters.launcher.server_profile import SessionServerProfile
 
-    assert isinstance(profile, ServerProfile)
+    assert isinstance(profile, SessionServerProfile)
     derived_online_mode = "false" if profile.auth_mode == "offline" else "true"
     return {
         "online-mode": (
@@ -497,15 +549,17 @@ def _sha1(stream: BinaryIO) -> str:
     return digest.hexdigest()
 
 
-def verify_jar(path: Path) -> None:
+def verify_jar(path: Path, recipe: ServerRecipe) -> None:
+    """The jar must be the bytes this version's recipe pins, or nothing starts."""
+
     if not path.is_file():
         raise SystemExit(f"{path} is missing; download the pinned server jar first")
-    if path.stat().st_size != SERVER_SIZE:
-        raise SystemExit("the server jar is not the pinned artifact")
+    if path.stat().st_size != recipe.jar_size:
+        raise SystemExit(f"the {recipe.version} server jar is not the pinned artifact")
     with path.open("rb") as stream:
         digest = _sha1(stream)
-    if digest != SERVER_SHA1:
-        raise SystemExit("the server jar is not the pinned artifact")
+    if digest != recipe.jar_sha1:
+        raise SystemExit(f"the {recipe.version} server jar is not the pinned artifact")
 
 
 def wait_for_ready(log: Path, process: subprocess.Popen[bytes], timeout_s: float) -> bool:
@@ -545,6 +599,15 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--directory", type=Path, required=True)
     parser.add_argument("--jar", type=Path, required=True)
+    parser.add_argument(
+        "--version",
+        choices=sorted(SERVER_RECIPES),
+        default=DEFAULT_SERVER_VERSION,
+        help=(
+            "which reviewed server recipe to run: it picks the profile, the pinned jar "
+            f"digest and the resource-pack format (default: {DEFAULT_SERVER_VERSION})"
+        ),
+    )
     parser.add_argument("--accept-eula", action="store_true")
     parser.add_argument("--ready-timeout", type=float, default=DEFAULT_READY_TIMEOUT_S)
     parser.add_argument("--keep-running", action="store_true")
@@ -637,14 +700,24 @@ def main() -> int:
     for stop_signal in (signal.SIGINT, signal.SIGTERM):
         signal.signal(stop_signal, request_clean_stop)
 
-    from minekin_core.adapters.launcher.server_profile import load_server_profile
+    from minekin_core.adapters.launcher.server_profile import load_session_server_profile
     from minekin_core.config import java_executable
 
-    profile = load_server_profile(PROFILE)
-    profile = load_server_profile(PROFILE)
+    recipe = SERVER_RECIPES[args.version]
+    # The same admission door the session joins through, so this harness cannot start
+    # a server the product would refuse to connect to.
+    profile = load_session_server_profile(recipe.profile, minecraft_version=recipe.version)
     pack_server: ResourcePackServer | None = None
     if args.resource_pack:
-        pack_server = ResourcePackServer(resource_pack_zip())
+        if recipe.resource_pack_format is None:
+            print(
+                f"the resource pack format for Minecraft {recipe.version} has not been"
+                " reviewed; refusing to serve a pack with a number borrowed from another"
+                " version",
+                file=sys.stderr,
+            )
+            return 2
+        pack_server = ResourcePackServer(resource_pack_zip(recipe.resource_pack_format))
         pack_server.start()
     properties = properties_for(
         profile,
@@ -652,7 +725,7 @@ def main() -> int:
         online_mode=args.online_mode,
         resource_pack=None if pack_server is None else pack_server.served,
     )
-    verify_jar(args.jar)
+    verify_jar(args.jar, recipe)
     write_configuration(
         args.directory,
         properties,
