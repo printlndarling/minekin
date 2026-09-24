@@ -12,10 +12,10 @@
 - `baseline_date`: 2026-09-22
 - `baseline_branch`: `main`
 - `baseline_remote`: `origin/main`
-- `current_next`: **无（设计卡收口与下一卡提升之间的登记提交）**。用户在七场景总账后
+- `current_next`: `VERSION-REMOTE-PROFILE-001`。用户在七场景总账后
   明确把“自动识别服务器版本 → 准备匹配客户端 → 入服并完成简单控制”排为优先路线；
   `VERSION-AUTO-DESIGN-001` 已交付[跨版本连续执行计划](version-auto-to-server-control-plan.md)，
-  `VERSION-REMOTE-PROFILE-001` 本提交先登记 `QUEUED`，须在**紧随的独立提交**提升为唯一 `NEXT`。
+  `VERSION-REMOTE-PROFILE-001` 已由 `2c4e600` 先登记 `QUEUED`，本提交单独提升为唯一 `NEXT`。
 - `last_checkpoint`: **有界自主 P0 campaign 已走到需用户拍板的边界；用户现已选择跨版本路线**——上一轮把
   `REAL-P0-CAMPAIGN-001.order` 第 7 也是最后一个场景（阶段 F 晋级总账）的只读卡 `P0-PROMOTION-LEDGER-001`
   收为 `DONE`（`532446e` 登记 `QUEUED`、`28876e3` 提升 `NEXT`）。`scenario_progress 6/7→7/7`——七个 `order`
@@ -2989,12 +2989,17 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
   安全安装、切服、目标服入服到 look/move/release 分成 V01–V10 十张依赖明确的卡；
   原卡要求的 probe、bundle、resolver/installer、remote-profile、E2E 五类均有对应卡。
   每张含输入输出、允许路径、反例/失败分类、门禁、停止条件；没有产品代码改动、没有连接用户服，
-  未把 1.20.1、任意公网目标或 overall P0 晋级标为 tested/PASS。
+  未把 1.20.1、任意公网目标或 overall P0 晋级标为 tested/PASS。全量本地门禁
+  `2159 passed / 2 skipped`、Ruff/Pyright/boundaries/case assertions/fixture digests/workflow pins/
+  `git diff --check` 全绿。
+- `completion_commit`: `2c4e600`（已推送并核对远端两个分支）。
 - `next_after_done`: `VERSION-REMOTE-PROFILE-001`（此时仅 `QUEUED`；下一提交单独提升）。
 
 ### VERSION-REMOTE-PROFILE-001 — 让运行者保存一个明确授权的远程目标
 
-- `status`: `QUEUED`；从设计卡交付中登记，不在同一提交直接 `NEXT`。
+- `status`: `NEXT`（`2c4e600` 先以 `QUEUED` 登记并推送，本提交单独提升；当前无第二张 `NEXT`）。
+- `promotion_reason`: 用户已明确 1.20.1 私有测试目标与跨版本优先级；探测必须先有可信
+  Server Profile，而本卡仅改 schema/地址策略，不发送游戏连接。
 - `baseline_sha`: `94ad677`（设计卡提升时的已推送基线；领取本卡时另记实际 checkout SHA）。
 - `depends_on`: `VERSION-AUTO-DESIGN-001`；下游 `VERSION-SERVER-PROBE-001` 必须先有受信目标。
 - `question`: 如何在 v1 loopback/1.21.4 原样回归的同时，用 v2 profile 表达用户明确批准的

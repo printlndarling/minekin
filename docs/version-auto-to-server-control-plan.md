@@ -103,7 +103,7 @@ bundle id 与结果；旧代回调不能推进新代。`BLOCKED` 不自动回退
 | 顺序 | ID | 初始状态 | 交付里程碑 | 前置 |
 | --- | --- | --- | --- | --- |
 | D | `VERSION-AUTO-DESIGN-001` | `DONE`（本次设计交付） | 本路线、反例和停机边界冻结 | 用户已指定优先级 |
-| V01 | `VERSION-REMOTE-PROFILE-001` | `QUEUED` | 受信目标 v2 / 显式远端地址策略 | D |
+| V01 | `VERSION-REMOTE-PROFILE-001` | `NEXT`（由主计划提升） | 受信目标 v2 / 显式远端地址策略 | D |
 | V02 | `VERSION-SERVER-PROBE-001` | `QUEUED` | 只读 DNS/SRV/status 与归因 | V01 |
 | V03 | `VERSION-BUNDLE-1201-001` | `QUEUED` | 独立 1.20.1 candidate 构建、pin、SBOM | D |
 | V04 | `VERSION-LOCAL-1201-001` | `QUEUED` | 受控 1.20.1 真服/真客户端验收到 `tested` | V01,V03 |

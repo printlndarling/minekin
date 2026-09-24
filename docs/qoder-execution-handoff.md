@@ -7,8 +7,9 @@
 > 且已有证据中有旧 build 与版本不匹配项。用户随后明确把跨版本路线排为优先项；
 > 设计卡 `VERSION-AUTO-DESIGN-001` 已交付
 > [跨版本连续执行计划](version-auto-to-server-control-plan.md)。本次收卡提交只把第一张实现卡
-> `VERSION-REMOTE-PROFILE-001` 登记为 `QUEUED`，紧随的独立提交才可提升为唯一 `NEXT`；
-> 在提升之前不授权改产品代码或连接公网服。Qoder 应按下文恢复步骤核对 Git、机器报告和
+> `VERSION-REMOTE-PROFILE-001` 已由 `2c4e600` 先登记为 `QUEUED`，随后独立提升为唯一
+> `NEXT`；现在仅可实现这张卡允许的 profile/schema/地址策略，不授权直接连接公网服。
+> Qoder 应按下文恢复步骤核对 Git、机器报告和
 > 封存证据；不得从本文件的旧阶段标题或历史 TODO 自行挑选其它 `NEXT`，也不得
 > 把“七个场景完成”写成 P0 晋级完成。最新读数与待决项以主执行计划顶部及
 > `P0-PROMOTION-LEDGER-001` 为准。
