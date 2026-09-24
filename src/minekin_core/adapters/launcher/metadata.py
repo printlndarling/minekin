@@ -27,6 +27,62 @@ ASSET_INDEX_SHA1 = "8d07e20a532738f3ee13392a23871abb5927fd79"
 # client as ${version_type}, so it is validated rather than passed through.
 VERSION_TYPE = "release"
 
+
+@dataclass(frozen=True, slots=True)
+class VersionPins:
+    """The per-version identities the metadata parser enforces.
+
+    Everything the 1.21.4 parser hardcoded is gathered here and keyed by version,
+    so adding a reviewed candidate is adding a row rather than editing the
+    validation. The defaults still resolve to 1.21.4, so an unqualified call is
+    provably the same parse it always was.
+    """
+
+    metadata_sha1: str
+    java_major: int
+    base_main_class: str
+    fabric_main_class: str
+    fabric_loader: str
+    asset_index_sha1: str
+    version_type: str
+    source_library_count: int
+
+
+# 1.20.1 is the second candidate (V03). Its digests were re-read from the pinned
+# upstream documents (piston-meta 1.20.1.json / asset-index 5.json) and the two
+# Fabric libs the profile ships without a checksum came from their Maven .sha1
+# sidecars, recorded in _FABRIC_CHECKSUM_REGISTRY below.
+_PINS: dict[str, VersionPins] = {
+    MINECRAFT_VERSION: VersionPins(
+        metadata_sha1=VERSION_METADATA_SHA1,
+        java_major=JAVA_MAJOR,
+        base_main_class=BASE_MAIN_CLASS,
+        fabric_main_class=FABRIC_MAIN_CLASS,
+        fabric_loader=FABRIC_LOADER,
+        asset_index_sha1=ASSET_INDEX_SHA1,
+        version_type=VERSION_TYPE,
+        source_library_count=113,
+    ),
+    "1.20.1": VersionPins(
+        metadata_sha1="599695fee750ab157846886c6e69583003f22d07",
+        java_major=17,
+        base_main_class=BASE_MAIN_CLASS,
+        fabric_main_class=FABRIC_MAIN_CLASS,
+        fabric_loader="0.19.5",
+        asset_index_sha1="78fe335ef048443d060bc53ace10bb0f41af7d50",
+        version_type=VERSION_TYPE,
+        source_library_count=88,
+    ),
+}
+
+
+def _pins_for(version: str) -> VersionPins:
+    pins = _PINS.get(version)
+    if pins is None:
+        raise _reject("no reviewed metadata pins for this version", context={"version": version})
+    return pins
+
+
 _SHA1 = re.compile(r"^[0-9a-f]{40}$")
 _KNOWN_OS_NAMES = frozenset({"linux", "osx", "windows"})
 _KNOWN_RULE_FEATURES = frozenset(
@@ -177,6 +233,10 @@ class PinnedMetadata:
 _FABRIC_CHECKSUM_REGISTRY = {
     "net.fabricmc:intermediary:1.21.4": ("de610a8c6216662541bf345ba07ab8d099e1ec25", 701826),
     "net.fabricmc:fabric-loader:0.16.9": ("7eaa23079ac1569963e488054db124c7eb984f05", 1387357),
+    # The 1.20.1 profile ships these two without a checksum sidecar, exactly as
+    # 1.21.4's does; these are their .jar.sha1 and Content-Length from maven.fabricmc.net.
+    "net.fabricmc:intermediary:1.20.1": ("97d0bff94981e37bd7a4362deee53c9a84e3fb21", 573365),
+    "net.fabricmc:fabric-loader:0.19.5": ("ff9e65cffca4a67f31523e1807fe0855940fcbfa", 1984980),
 }
 
 
@@ -307,17 +367,18 @@ def _artifact(
     )
 
 
-def _validate_manifest(raw: bytes) -> None:
+def _validate_manifest(raw: bytes, *, version: str, pins: VersionPins) -> None:
     manifest = _load_json(raw, "version manifest")
     matches: list[dict[str, Any]] = []
     for item in _array(manifest.get("versions"), "version manifest.versions"):
         entry = _object(item, "version manifest entry")
-        if entry.get("id") == MINECRAFT_VERSION:
+        if entry.get("id") == version:
             matches.append(entry)
     if len(matches) != 1:
         raise _reject("version manifest must contain exactly one pinned version")
     entry = matches[0]
-    if entry.get("sha1") != VERSION_METADATA_SHA1 or entry.get("url") != VERSION_METADATA_URL:
+    url = f"https://piston-meta.mojang.com/v1/packages/{pins.metadata_sha1}/{version}.json"
+    if entry.get("sha1") != pins.metadata_sha1 or entry.get("url") != url:
         raise _reject("version manifest does not match the pinned metadata identity")
 
 
@@ -328,37 +389,39 @@ def parse_pinned_metadata(
     asset_index_raw: bytes,
     *,
     target: TargetPlatform,
+    version: str = MINECRAFT_VERSION,
 ) -> PinnedMetadata:
     """Validate pinned upstream responses and resolve the target-specific base plan."""
 
-    _validate_manifest(manifest_raw)
+    pins = _pins_for(version)
+    _validate_manifest(manifest_raw, version=version, pins=pins)
     actual_sha1 = hashlib.sha1(version_raw).hexdigest()
-    if actual_sha1 != VERSION_METADATA_SHA1:
+    if actual_sha1 != pins.metadata_sha1:
         raise _reject(
             "version metadata digest does not match the pinned SHA-1",
             context={"actual_sha1": actual_sha1},
         )
-    version = _load_json(version_raw, "version metadata")
-    if version.get("id") != MINECRAFT_VERSION:
+    version_document = _load_json(version_raw, "version metadata")
+    if version_document.get("id") != version:
         raise _reject("version metadata id does not match the bundle recipe")
-    if version.get("type") != VERSION_TYPE:
+    if version_document.get("type") != pins.version_type:
         raise _reject("version metadata type is not the reviewed release channel")
-    java = _object(version.get("javaVersion"), "javaVersion")
-    if _integer(java.get("majorVersion"), "javaVersion.majorVersion") != JAVA_MAJOR:
+    java = _object(version_document.get("javaVersion"), "javaVersion")
+    if _integer(java.get("majorVersion"), "javaVersion.majorVersion") != pins.java_major:
         raise _reject("version metadata requires an unexpected Java major")
-    if version.get("mainClass") != BASE_MAIN_CLASS:
+    if version_document.get("mainClass") != pins.base_main_class:
         raise _reject("base main class is not the reviewed entrypoint")
 
-    downloads = _object(version.get("downloads"), "downloads")
+    downloads = _object(version_document.get("downloads"), "downloads")
     client = _artifact(
         downloads.get("client"),
-        "com.mojang:minecraft:1.21.4",
+        f"com.mojang:minecraft:{version}",
         "client",
-        default_path="versions/1.21.4/1.21.4.jar",
+        default_path=f"versions/{version}/{version}.jar",
     )
-    assets = _object(version.get("assetIndex"), "assetIndex")
+    assets = _object(version_document.get("assetIndex"), "assetIndex")
     asset_index_id = _text(assets.get("id"), "assetIndex.id")
-    if assets.get("sha1") != ASSET_INDEX_SHA1:
+    if assets.get("sha1") != pins.asset_index_sha1:
         raise _reject("asset index identity differs from the reviewed response")
     asset_index = _artifact(
         assets,
@@ -366,7 +429,7 @@ def parse_pinned_metadata(
         "asset-index",
         default_path=f"assets/indexes/{asset_index_id}.json",
     )
-    if hashlib.sha1(asset_index_raw).hexdigest() != ASSET_INDEX_SHA1:
+    if hashlib.sha1(asset_index_raw).hexdigest() != pins.asset_index_sha1:
         raise _reject("asset index digest does not match the pinned SHA-1")
     asset_index_document = _load_json(asset_index_raw, "asset index")
     asset_values = _object(asset_index_document.get("objects"), "asset index.objects")
@@ -392,7 +455,7 @@ def parse_pinned_metadata(
     if total_asset_size != _integer(assets.get("totalSize"), "assetIndex.totalSize"):
         raise _reject("asset index total size differs from version metadata")
 
-    logging = _object(version.get("logging"), "logging")
+    logging = _object(version_document.get("logging"), "logging")
     logging_client = _object(logging.get("client"), "logging.client")
     if logging_client.get("type") != "log4j2-xml":
         raise _reject("logging configuration type is not reviewed")
@@ -408,8 +471,8 @@ def parse_pinned_metadata(
     if logging_argument != "-Dlog4j.configurationFile=${path}":
         raise _reject("logging JVM argument is not the reviewed template")
 
-    source_libraries = _array(version.get("libraries"), "libraries")
-    if len(source_libraries) != 113:
+    source_libraries = _array(version_document.get("libraries"), "libraries")
+    if len(source_libraries) != pins.source_library_count:
         raise _reject(
             "version metadata library count differs from the reviewed response",
             context={"library_count": len(source_libraries)},
@@ -424,14 +487,14 @@ def parse_pinned_metadata(
         kind = "native" if ":natives-" in coordinate else "library"
         libraries.append(_artifact(library_downloads.get("artifact"), coordinate, kind))
 
-    arguments = _object(version.get("arguments"), "arguments")
+    arguments = _object(version_document.get("arguments"), "arguments")
     jvm_arguments = _arguments(arguments.get("jvm"), target, "arguments.jvm")
     game_arguments = _arguments(arguments.get("game"), target, "arguments.game")
 
     fabric = _load_json(fabric_raw, "Fabric profile")
-    if fabric.get("inheritsFrom") != MINECRAFT_VERSION:
+    if fabric.get("inheritsFrom") != version:
         raise _reject("Fabric profile inheritance does not match the pinned Minecraft version")
-    if fabric.get("mainClass") != FABRIC_MAIN_CLASS:
+    if fabric.get("mainClass") != pins.fabric_main_class:
         raise _reject("Fabric profile main class is not the reviewed Knot client")
     fabric_library_entries = [
         _object(item, "Fabric library")
@@ -440,20 +503,20 @@ def parse_pinned_metadata(
     coordinates = tuple(
         _text(item.get("name"), "Fabric library.name") for item in fabric_library_entries
     )
-    if f"net.fabricmc:fabric-loader:{FABRIC_LOADER}" not in coordinates:
+    if f"net.fabricmc:fabric-loader:{pins.fabric_loader}" not in coordinates:
         raise _reject("Fabric profile does not contain the pinned loader")
-    if f"net.fabricmc:intermediary:{MINECRAFT_VERSION}" not in coordinates:
+    if f"net.fabricmc:intermediary:{version}" not in coordinates:
         raise _reject("Fabric profile does not contain the pinned intermediary mappings")
     fabric_arguments = _object(fabric.get("arguments"), "Fabric arguments")
     jvm_arguments += _arguments(fabric_arguments.get("jvm", []), target, "Fabric arguments.jvm")
     game_arguments += _arguments(fabric_arguments.get("game", []), target, "Fabric arguments.game")
 
     return PinnedMetadata(
-        version=MINECRAFT_VERSION,
-        version_type=VERSION_TYPE,
-        java_major=JAVA_MAJOR,
-        base_main_class=BASE_MAIN_CLASS,
-        fabric_main_class=FABRIC_MAIN_CLASS,
+        version=version,
+        version_type=pins.version_type,
+        java_major=pins.java_major,
+        base_main_class=pins.base_main_class,
+        fabric_main_class=pins.fabric_main_class,
         asset_index_id=asset_index_id,
         client=client,
         asset_index=asset_index,
@@ -478,6 +541,7 @@ def load_pinned_metadata(
     asset_index_path: Path,
     *,
     target: TargetPlatform,
+    version: str = MINECRAFT_VERSION,
 ) -> PinnedMetadata:
     return parse_pinned_metadata(
         manifest_path.read_bytes(),
@@ -485,4 +549,5 @@ def load_pinned_metadata(
         fabric_path.read_bytes(),
         asset_index_path.read_bytes(),
         target=target,
+        version=version,
     )

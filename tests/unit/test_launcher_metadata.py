@@ -160,3 +160,69 @@ def test_a_native_is_a_build_of_the_library_it_overrides() -> None:
     )
 
     assert library_key(native) == "org.lwjgl:lwjgl"
+
+
+def test_pinned_metadata_resolves_the_reviewed_1201_candidate() -> None:
+    """The 1.20.1 candidate parses against its own pins, not 1.21.4's.
+
+    Every figure here was read from the pinned upstream documents and the two
+    Fabric libs the profile ships without a checksum resolve through the
+    registry to their Maven .jar.sha1 digests.
+    """
+
+    metadata = load_pinned_metadata(
+        FIXTURES / "version_manifest_v2.json",
+        FIXTURES / "1.20.1.json",
+        FIXTURES / "fabric-loader-0.19.5.json",
+        FIXTURES / "asset-index-5.json",
+        target=TARGET,
+        version="1.20.1",
+    )
+
+    assert metadata.version == "1.20.1"
+    assert metadata.java_major == 17
+    assert metadata.client.sha1 == "0c3ec587af28e5a785c0b4a7b8a30f9a8f78f838"
+    assert metadata.asset_index_id == "5"
+    assert metadata.asset_index.sha1 == "78fe335ef048443d060bc53ace10bb0f41af7d50"
+    assert len(metadata.asset_objects) == 3598
+    assert sum(item.size for item in metadata.asset_objects) == 650_534_850
+    assert metadata.source_library_count == 88
+    assert len(metadata.libraries) == 52
+    assert sum(item.kind == "native" for item in metadata.libraries) == 7
+    assert len(metadata.fabric_coordinates) == 8
+
+    by_coordinate = {item.coordinate: item for item in metadata.fabric_libraries}
+    assert by_coordinate["net.fabricmc:intermediary:1.20.1"].sha1 == (
+        "97d0bff94981e37bd7a4362deee53c9a84e3fb21"
+    )
+    assert by_coordinate["net.fabricmc:intermediary:1.20.1"].size == 573365
+    assert by_coordinate["net.fabricmc:fabric-loader:0.19.5"].sha1 == (
+        "ff9e65cffca4a67f31523e1807fe0855940fcbfa"
+    )
+    assert by_coordinate["net.fabricmc:fabric-loader:0.19.5"].size == 1984980
+
+
+def test_1201_metadata_fails_closed_against_a_mismatched_digest() -> None:
+    """Feeding the 1.21.4 bytes to the 1.20.1 pins is refused, not quietly accepted."""
+
+    with pytest.raises(MinekinError, match="digest does not match the pinned SHA-1"):
+        parse_pinned_metadata(
+            _raw("version_manifest_v2.json"),
+            _raw("1.21.4.json"),
+            _raw("fabric-loader-0.19.5.json"),
+            _raw("asset-index-5.json"),
+            target=TARGET,
+            version="1.20.1",
+        )
+
+
+def test_an_unreviewed_version_has_no_pins() -> None:
+    with pytest.raises(MinekinError, match="no reviewed metadata pins"):
+        parse_pinned_metadata(
+            _raw("version_manifest_v2.json"),
+            _raw("1.20.1.json"),
+            _raw("fabric-loader-0.19.5.json"),
+            _raw("asset-index-5.json"),
+            target=TARGET,
+            version="1.19.2",
+        )
