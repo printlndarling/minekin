@@ -3345,7 +3345,11 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 
 ### VERSION-LOCAL-1201-001 — 在受控 1.20.1 真服证明 candidate
 
-- `status`: `NEXT`（`93d30f3` 登记 `QUEUED`，本提交单独提升为唯一 `NEXT`；当前无第二张 `NEXT`）。
+- `status`: `DONE`（`93d30f3` 登记 `QUEUED`、`caa8576` 提升为唯一 `NEXT`；代码/案交付依次为
+  `3203dbf`（会话准入）、`3058481`+`d37b54f`（fixture 门与受控工装按版本键入）、`9919c41`（供应链门
+  跟随 bundle）、`d21546d`（三案清单）、`f90d95d`+`bc80299`（封证与报告按版本取 recipe）、
+  `3b512ee`（案文档自相矛盾的修订）、`b1d06ad`（第四条反例的案）；进度记录为 `79c0bfb`、`c2db1df`。
+  本提交收卡：只核对验收账与未证清单，**不**新增判据、**不**改动已封存 bundle）。
 - `promotion_reason`: V03 已 `DONE` 并交付可复判的 1.20.1 candidate（`0510591`）；跨版本路线的
   下一步只能在受控真服上证明它——探测（V02）与构建（V03）都不产生入服证据，V05 的 `tested`
   清单又以本卡结果为唯一来源。
@@ -3597,6 +3601,44 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
   **这条案证明的范围**：1.20.1 上，被拒的首快照不会成为 lease 或 `PLAYABLE` 的根据，那一代被关掉且
   没有重开，且拒绝的**理由**是案所指名的那个。它**不**证明真实服务端会自己送出不权威首快照（这条
   路径只能靠客户端侧上报构造，机制见 `domain.sh` 里该旋钮的注释），也不涉及远程服与在线认证。
+- `acceptance_ledger_v04`（收卡核对，2026-09-25，逐条对照设计卡 V04 的验收线）：
+  ①**真实 client + Bridge 主菜单握手** → `V1201-010` run `bc203c0ed400…`、bundle `13471d2f9b9e…`、
+  attempt 2，`handshake_accepted_by_core` 与 `stayed_observe_only` 双 held，四读一致。
+  ②**离线 Session 可归因** + ③**JOIN 与同代权威首快照** → `V1201-020` run `87229052d24f…`、bundle
+  `6dd17bd6b412…`、attempt 1，服务端侧独立记到 `Kin/8f40376b-c23f-3ef1-b553-5564eea75639`。
+  ④**look / 有界 move / release** + ⑤**服务端 name/UUID/位移** → `V1201-040` run `f4cc67ae130d…`、
+  bundle `3d0ebebe2805…`、attempt 1，五条 held（授权：`--look-yaw-degrees 45 --hold-forward-seconds 2`）。
+  ⑥**断连松键及正常停止** → 同上的 `the_lease_expired_and_was_released`（ledger reason `TIMEOUT`）与
+  四次运行的 `session_state: STOPPED`/`replay` 投影 `STOPPED`；**停止阶段的显式松键送达不在这一条里**
+  （见 `not_established_v04` ①）。⑦**四条反例** → 错误版本 / 认证策略拒绝 / 非回环 / allowlist 多项 /
+  未评审 version_policy 各以 exit 17 `ADMISSION` 拒（⑮），错误 Bridge 摘要以 exit 11 `SUPPLY_CHAIN` 拒
+  （⑮），旧 generation 以独立案 `V1201-070` 的真实拒绝运行封证（⑰）。⑧**每个 required 结果独立封证
+  四读** → 四案各自一次运行、各自 bundle、各自 `verify`/`rejudge`/两份 `replay`/`report_promotion` 读数，
+  无一处借用另一案的证据。收卡前本地门禁在含本文改动的当前工作树重跑：`2359 passed / 2 skipped`、
+  ruff check 与 format 干净、`git diff --check` 干净（`.tmp/v04-gate-chain-3.log`）；CI 不作为本卡验收证据。
+- `tested_registration_decision`（收卡决定，2026-09-25）：验收线全部成立，故**允许**登记的精确组合是
+  **Minecraft 1.20.1 / `linux-x86_64` / runner 镜像自带 Java 21 / `bridge-1201` 摘要
+  `9e162d8359a8…` / 启动计划 `ac40316094dd…`**——仅此组合，不含"1.20.1 全平台"、不含 Windows 侧、
+  不含未量的 use-target 路径。本卡**不**就地把它写进机器可读状态：仓库今天没有 reviewed tested registry
+  文件（`schemas/bundle-manifest.schema.json` 有 `tested` 枚举，而两份 recipe fixture 的 `status` 分别是
+  `candidate` 与 `recipe`，即该状态在代码里无人读、也无清单可写）。把 `bundle-candidate-1.20.1.json` 的
+  `status` 改成 `tested` 会改动 V03 已封存 candidate 的字节 → fixture digest 变 → 本卡四份 bundle 的
+  recipe 对照与 `case_version` 一起移动 → 刚封的四读全变 `UNJUDGED`，且
+  `recipe._candidate_1201_audit` 的 `candidate` 分支不再命中。那是"改状态凑结论"，本卡的禁地。
+  registry 的承载属 V05 的允许路径（`domain/version_resolution.py` + reviewed bundle registry
+  loader/清单），V05 据本卡这四份封证登记；本卡的产出是**判据成立 + 精确组合有名有姓**，不是
+  "registry 已更新"。
+- `not_established_v04`（如实带走的未证清单，一条都不写成已过）：①**停止阶段显式松键送达**——
+  `V1201-040` 运行文档 `input_release_failed: true` 与 `outcome: BRIDGE_LOST` 同现，已消失的通道不改变
+  运行归因（`session_runtime.py:385-392`），故只声明 lease 到期松键被记账、服务端见到停下；
+  ②**1.20.1 的 use-target 方块变化**——`V1201-040` 未声明 `the_server_saw_the_block_change`，未跑；
+  ③**`BridgeHello` 版本字段的真实性**——两侧写死（见 `bridge_hello_version_defect`），
+  `VERSION-BRIDGE-IDENTITY-001` 保持 `QUEUED`，本卡所有证据不引用该字段；
+  ④**`domain/world_creation.py` 与 `cli/bootstrap` 的 bundle 标识是否仍单版本**——受控专服不经 HOST
+  世界路径，未触发也未证，不据推断改动；⑤**runner 镜像的 JDK 17 备选**——量到自带 Java 21 能起 1.20.1
+  客户端，未装 17；⑥**任何远程服/用户真实服**——属 V08 授权范围。
+- `next_after_done`: `VERSION-RESOLVER-001`（V05，`QUEUED`；依计划先登记再独立提升）。本卡的
+  `tested` 判据是它的输入，缺了它 V05 只能返回 `NEEDS_PIN`。
 - `server_supply_chain`（2026-09-25 实测，来自 Mojang 官方 `version_manifest_v2` → 1.20.1 条目）：
   dedicated server `sha1 84194a2f286ef7c14ed7ce0090dba59902951553` / 47,791,053B，
   `piston-data.mojang.com/v1/objects/84194a2f…/server.jar`；client `sha1 0c3ec587af28e5a785c0b4a7b8a30f9a8f78f838`

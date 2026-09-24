@@ -2524,6 +2524,7 @@
   | `V1201-010`（PASS） | `bc203c0ed4004a0d9ba3604d2a51d910` | `13471d2f9b9e337392b86b25a80d574d45eae761c21d91a5b348c1729cdd890f` | 2 | verify PASS / rejudge `agrees` / replay 11 事件→`STOPPED` / `from_repository_build true` |
   | `V1201-020`（PASS） | `87229052d24f4772a512dee497bab29c` | `6dd17bd6b41251fe39fb0f6ca6386334dc4c9ebd0a89ca00082b260999dbd84e` | 1 | verify PASS / rejudge `agrees` / replay 19 事件→`STOPPED` / 同上 |
   | `V1201-040`（PASS） | `f4cc67ae130d4aef9b6fef00801c0e2f` | `3d0ebebe28050ea0ce9c35e4f7a32c7e173d28103f6b0c5f30041b02e88b1a56` | 1 | verify PASS / rejudge `agrees` / replay 22 事件→`STOPPED` / 同上 |
+  | `V1201-070`（PASS） | `5b1cbef5162d40a68789324c80d1363c` | `46aa3f00b42da484720e925110509a40cdb49ce955f85779066ce11434911156` | 1 | verify PASS / rejudge `agrees` / replay 17 事件→`STOPPED` / 同上 |
 
   服务端目录依次为 `run-147`（020）、`run-148`（010 FAIL）、`run-149`（040）；010 的 PASS 那次无服务端
   目录（仅观察运行不入服，`domain: no server profile; this run joins no world`）。
@@ -2583,3 +2584,10 @@
   `session exited 0`（1.21.4 为 14）。
 - **本条不证明**：真实服务端会自行送出不权威首快照（该路径只能经客户端上报构造）；与远程服、
   在线认证、HOST 准入无关。
+- **收卡（`VERSION-LOCAL-1201-001` → `DONE`）**：验收线八格逐条核对见主计划 `acceptance_ledger_v04`；
+  未证清单见 `not_established_v04`（停止阶段显式松键送达、use-target 方块、`BridgeHello` 版本真实性、
+  HOST 世界 bundle 标识、runner JDK 17、远程服）。`tested` 的精确组合已在 `tested_registration_decision`
+  写明并**允许**登记，但机器可读登记不在本卡落地：仓库无 reviewed tested registry 文件，改 V03 已封存
+  candidate 的 `status` 字节会移动 fixture digest 与 `case_version`、把四读打成 `UNJUDGED`。承载属 V05。
+  收卡前门禁：`2359 passed / 2 skipped`、ruff check/format 干净、`git diff --check` 干净
+  （`.tmp/v04-gate-chain-3.log`）。
