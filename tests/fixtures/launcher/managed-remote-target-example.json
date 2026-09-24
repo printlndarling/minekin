@@ -1,0 +1,16 @@
+{
+  "schema_version": 2,
+  "profile_id": "managed-remote-example-docu",
+  "host": "198.51.100.20",
+  "port": 25565,
+  "auth_mode": "offline",
+  "version_policy": {
+    "mode": "explicit_allowlist",
+    "allowed_versions": ["1.20.1"]
+  },
+  "resource_pack_policy": "deny",
+  "target_authorization": {
+    "granted_by": "operator-local",
+    "basis": "Documentation TEST-NET-1 address standing in for the operator's private 1.20.1 offline-mode test server; the real endpoint lives only in the untracked private profile."
+  }
+}

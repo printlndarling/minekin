@@ -118,3 +118,47 @@ def test_the_address_is_normalized_rather_than_echoed() -> None:
 def test_a_policy_must_allow_something() -> None:
     with pytest.raises(ValueError, match="at least one network"):
         AddressPolicy(())
+
+
+def test_an_explicit_policy_admits_only_its_own_address() -> None:
+    policy = AddressPolicy.for_explicit_target("198.51.100.20")
+
+    assert decide_endpoint(policy, "198.51.100.20", 25565).allowed
+    refused = decide_endpoint(policy, "198.51.100.21", 25565)
+    assert not refused.allowed
+    assert refused.reasons == (AddressReason.OUTSIDE_POLICY,)
+
+
+def test_an_explicit_policy_needs_a_literal_not_a_name() -> None:
+    with pytest.raises(ValueError, match="IP literal"):
+        AddressPolicy.for_explicit_target("play.example.org")
+
+
+def test_a_v6_mapped_variant_of_the_target_is_outside_a_v4_policy() -> None:
+    """Address-family confusion: same bytes, different family, no admission."""
+
+    policy = AddressPolicy.for_explicit_target("198.51.100.20")
+
+    assert not decide_endpoint(policy, "::ffff:c633:6414", 25565).allowed
+
+
+def test_an_ipv6_target_policy_is_a_single_host() -> None:
+    policy = AddressPolicy.for_explicit_target("2001:db8::1")
+
+    assert decide_endpoint(policy, "2001:db8::1", 25565).allowed
+    assert not decide_endpoint(policy, "2001:db8::2", 25565).allowed
+
+
+@pytest.mark.parametrize(
+    "host", ["169.254.169.254", "fe80::1", "0.0.0.0", "::", "224.0.0.1", "ff02::1"]
+)
+def test_the_unconditional_blocks_hold_even_when_saved_as_the_explicit_target(
+    host: str,
+) -> None:
+    """An operator cannot pin the metadata address even to themselves."""
+
+    policy = AddressPolicy.for_explicit_target(host)
+    decision = decide_endpoint(policy, host, 25565)
+
+    assert not decision.allowed
+    assert decision.reasons != (AddressReason.OUTSIDE_POLICY,)

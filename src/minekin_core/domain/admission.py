@@ -72,6 +72,21 @@ class AddressPolicy:
 
         return cls((ipaddress.ip_network("127.0.0.1/32"), ipaddress.ip_network("::1/128")))
 
+    @classmethod
+    def for_explicit_target(cls, host: str) -> AddressPolicy:
+        """One saved literal target and nothing else: a /32 or /128, never a family wildcard.
+
+        A resolved endpoint is checked against this after the fact, so a name that
+        rebinds or an SRV record that redirects must return to the exact saved
+        address family and value to be admitted.
+        """
+
+        candidate = _parse_literal(host)
+        if candidate is None:
+            raise ValueError("an explicit target policy needs an IP literal")
+        width = 32 if candidate.version == 4 else 128
+        return cls((ipaddress.ip_network(f"{candidate}/{width}"),))
+
 
 @dataclass(frozen=True, slots=True)
 class EndpointDecision:

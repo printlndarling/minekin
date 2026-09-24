@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://minekin.local/schemas/server-profile.v2.json",
+  "title": "Minekin managed remote server profile v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "profile_id", "host", "port", "auth_mode", "version_policy", "resource_pack_policy", "target_authorization"],
+  "properties": {
+    "schema_version": {"const": 2},
+    "profile_id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]+$"},
+    "host": {"type": "string", "pattern": "^[0-9a-fA-F:.]+$"},
+    "port": {"type": "integer", "minimum": 1, "maximum": 65535},
+    "auth_mode": {"const": "offline"},
+    "version_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "allowed_versions"],
+      "properties": {
+        "mode": {"const": "explicit_allowlist"},
+        "allowed_versions": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+(\\.[0-9]+)?$"}
+        }
+      }
+    },
+    "pinned_bundle_id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]+$"},
+    "resource_pack_policy": {"enum": ["deny", "prompt"]},
+    "target_authorization": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["granted_by", "basis"],
+      "properties": {
+        "granted_by": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]+$"},
+        "basis": {"type": "string", "minLength": 4}
+      }
+    }
+  }
+}
