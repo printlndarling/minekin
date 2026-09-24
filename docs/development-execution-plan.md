@@ -17,8 +17,9 @@
   受控 600 秒 / 间隔 10 秒 bounded-soak、封 `CORE-100` 新 attempt（run `8367f741…`、bundle `1b2a58e9…`、
   `result PASS`）、四读一致（verify / rejudge / replay / promotion）、`report_soak` 如实报告预算/RSS 覆盖且不设阈值，
   旧 baseline `e3a99202…` 只量不改（读到 `UNJUDGED`、原样保留），全量 `2159 passed / 2 skipped`。
-  `scenario_progress 5/7→6/7`。依 `order` 第 7 场景（`CORE/OFFLINE/ADMIT` promotion 总账，阶段 F）的卡**尚未登记**，
-  故本 commit 不虚构一张尚不存在的卡当 `NEXT`；下一 commit 按「连续推进」先以 `QUEUED` 登记、再提升为唯一 `NEXT`。
+  `scenario_progress 5/7→6/7`。`order` 第 7 场景（`CORE/OFFLINE/ADMIT` promotion 总账，阶段 F）的卡
+  `P0-PROMOTION-LEDGER-001` 已在本 commit 以 `QUEUED` 登记（只读晋级总账，不新增判据、不再封证、不宣布 campaign
+  `DONE`）；紧随的 commit 才把它提升为唯一 `NEXT`，本 commit 计划里无 `NEXT`。
   第 6 场景判据表由冻结卡 `TICK-RENDER-SOAK-EVIDENCE-DESIGN-001`（`096bd68` 登记 `QUEUED`、`26a7543` 提升 `NEXT`、
   `6717d2e` 冻结收 `DONE`）写下。**上一批交付卡**：crash/outbox 第 5 场景由 `CRASH-OUTBOX-ALIVE-DISPLAY-001`（`f90abc8`）与前置
   `CRASH-OUTBOX-RESEAL-001`（`DONE` 5/5）收口，`scenario_progress 4/7→5/7`。`ALIVE-DISPLAY` 只做一件事——把
@@ -2676,6 +2677,45 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
   - **三条 `stop_conditions` 均未触发**：封存通道把 soak 两份工件写进了 bundle（未动 `tools/`/`bridge/` 采样面）；
     一次真跑即封上（无连续三次外部阻断）；预算字段有 run 文档来源（未出现「契约无来源」）。
 - `completion_commit`: 本次收卡 commit（纯文档）。
+
+### P0-PROMOTION-LEDGER-001 — 封一次 campaign 的 CORE/OFFLINE/ADMIT 晋级总账
+
+- `status`: `QUEUED`（依 `order` 第 7 场景（阶段 F：`CORE/OFFLINE/ADMIT` promotion 总账）在本 commit 登记；
+  紧随的 commit 才提升为唯一 `NEXT`，本 commit 不直接 `NEXT`）
+- `registered`: 2026-09-24，由第 6 场景真实封证卡 `TICK-RENDER-SOAK-RUN-001` 收 `DONE` 触发；它是
+  `REAL-P0-CAMPAIGN-001.order` 的最后一个场景。
+- `depends_on`: 前六个场景各自封好的 bundle——`ADMIT-040`/`ADMIT-060`/`ADMIT-070`、
+  `OFFLINE-010`/`OFFLINE-020`/`OFFLINE-030`（两子）、crash 窗口的 `CORE-020`/`CORE-060`（含两子）/`CORE-090`、
+  第 6 场景的 `CORE-100`；读路工具 `tools/report_cases.py`、`tools/report_promotion.py`。
+- `question`: 把七个 `order` 场景已封的 bundle 与机器 required-case inventory 汇成一张晋级总账——每个 gate 的
+  present/missing、最新 attempt、PASS/FAIL/INCOMPLETE、case version/摘要、与当前 build 的关系、阻断原因，
+  并把 `AGREES`/`UNJUDGED`/`DISAGREES` 分清楚——怎样做到**不新增判据/case/阈值、不再封任何 bundle、不重写任何
+  既有 bundle**，并且**在 72 required 仍有 `runtime-required` 缺口时不把 `REAL-P0-CAMPAIGN-001` 宣布为 `DONE`**？
+- `scope`: ① 只读重跑 `uv run --frozen python tools/report_cases.py` 与
+  `uv run --frozen python tools/report_promotion.py --data-root <绝对 data-root>`，以**机器读数**为准记录
+  required/present/missing（不抄本文陈旧计数）；② 汇总七场景各自已录的四读结果（verify / rejudge / 适用 replay /
+  promotion），逐案标最新 attempt、`case_version`、`bridge_digest`、`from_repository_build` 与 PASS/AGREES；
+  ③ 把仍缺的 required-case 族按机器 inventory 逐条列出并标各自阻断原因（需新断言 / 需产品决策 / 未冻结编号 /
+  host-integrated / `PERSIST` `PlanningGap`），不凭例举编号计数、不静默丢弃；④ 明确写出 campaign 总体状态。
+- `allowed_paths`: 仅 `docs/development-execution-plan.md`、`docs/development-todo.md`（记录总账）；
+  `tools/report_cases.py`、`tools/report_promotion.py` 的**只读调用**。
+- `forbidden_paths`: `src/`/`bridge/`/`proto/`/`tools/` 的任何代码改动；新增 case fixture/断言/registry/
+  `mandatory` 翻转；封任何新 bundle；改写/删除/追加任何既有 sealed bundle 或旧 baseline；替用户决定
+  HOST/PERSIST/未冻结 ADMIT 的缺口。
+- `non_goals`: 不关闭 72 required 清单、不补任何新断言、不做 HOST/PERSIST/`ADMIT-010/020/…` 的产品决策、
+  不设性能阈值、不把 campaign 标 `DONE`。
+- `acceptance`: ① 计划里有一份完整总账表：每场景列 run id / bundle digest / attempt / verdict / `case_version` /
+  build 关系 / 四读状态；② `report_cases.py` 的 required/present/missing 以当前机器读数重录（非本文旧值）；
+  ③ 每一个仍缺的 required-case 族都按机器 inventory 列出并附阻断原因，无遗漏；④ `REAL-P0-CAMPAIGN-001`
+  总体如实记为「第 7 场景（总账）已交付，但 campaign 仍 `BLOCKED/INCOMPLETE`」——因 `runtime-required` 缺口未封，
+  **不**记 `DONE`；⑤ 全量门禁绿，且未触碰任何既有 sealed bundle。
+- `validation_class`: `LOCAL`（对已封证据 + 机器 inventory 的只读汇总；不跑新的真实 run、不再封证）。
+- `stop_conditions`: ① 若总账要求新增断言/case 或再封 bundle ⇒ 停下修订范围或另起逐案卡（不在本卡扩范围）；
+  ② 若要求对 HOST/PERSIST/未冻结 ADMIT 拍板 ⇒ `BLOCKED_DECISION`，不猜编号；③ 若 `report_cases.py` inventory
+  与各卡已录证据不一致 ⇒ 如实记录冲突，不改写封存证据来「对齐」。
+- `next_after_done`: 总账交付后，`REAL-P0-CAMPAIGN-001` 剩下的只有需产品决策的 `runtime-required` 逐案缺口
+  （HOST / PERSIST / 未冻结 ADMIT），全部为 `BLOCKED_DECISION`/`DEFERRED`；有界自主 P0 工作到此耗尽——交付
+  阻断清单与门禁现状即诚实的阶段终点（阶段 G/H），不擅自宣布整个项目完成。
 
 ### OFFLINE-IDENTITY-SEALED-ARGV-001 — 让封存时的 live 判读也拿到那份 argv
 

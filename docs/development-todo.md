@@ -2307,6 +2307,19 @@
     设阈值；FPS/TPS/GC/队列深度/GPU 无来源，如实标不完整。全量门禁 `2159 passed / 2 skipped`。三条
     `stop_conditions` 均未触发。
 
+- [ ] **P0-PROMOTION-LEDGER-001（`QUEUED`，campaign 第 7 场景 = 阶段 F 晋级总账；本 commit 登记）**：把七个
+  `order` 场景已封的 bundle 与机器 required-case inventory 汇成一张 CORE/OFFLINE/ADMIT 晋级总账。只读重跑
+  `tools/report_cases.py` 与 `tools/report_promotion.py`，逐 gate 记 present/missing、最新 attempt、
+  PASS/FAIL/INCOMPLETE、case version/摘要、与当前 build 关系、阻断原因，并把 AGREES/UNJUDGED/DISAGREES 分清；
+  仍缺的 required-case 族按机器 inventory 逐条列出并标阻断原因（需新断言 / 需产品决策 / 未冻结编号 /
+  host-integrated / `PERSIST` PlanningGap）。**不新增判据/case/阈值、不再封 bundle、不重写既有 bundle**；
+  在 72 required 仍有 `runtime-required` 缺口时**不把 `REAL-P0-CAMPAIGN-001` 宣布 `DONE`**，如实记为
+  「第 7 场景（总账）已交付、campaign 总体仍 BLOCKED/INCOMPLETE」。`validation_class` LOCAL。
+  `stop_conditions`：① 需新断言/case 或再封 ⇒ 停下属另起逐案卡；② 需对 HOST/PERSIST/未冻结 ADMIT 拍板 ⇒
+  `BLOCKED_DECISION` 不猜；③ inventory 与已录证据不一致 ⇒ 如实记冲突不改封存证据。
+  `next_after_done`：剩下的只有需产品决策的 `runtime-required` 缺口（全 BLOCKED_DECISION/DEFERRED），有界自主
+  P0 工作到此耗尽——交付阻断清单即诚实阶段终点。
+
 - [x] **CRASH-OUTBOX-SEALED-KIN-001（已完成，交付 `2160989`）**：让「没有文档的一次 run」也能明白地
   说出它属于哪个 Kin。`CRASH-OUTBOX-RESEAL-001` 第二次真实 attempt 当场发现的封存面阻断，是 campaign
   第 5 个场景当下唯一的硬阻断（`c75865b` 登记 `QUEUED`、`3427e43` 提升为 `NEXT`；交付
