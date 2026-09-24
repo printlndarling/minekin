@@ -12,10 +12,10 @@
 - `baseline_date`: 2026-09-22
 - `baseline_branch`: `main`
 - `baseline_remote`: `origin/main`
-- `current_next`: **本提交起暂无 `NEXT`**——`VERSION-RESOLVER-001`（V05）已在本提交收为 `DONE`
-  （登记 `c90bc51`、提升 `b9f7e2d`、交付 `f70fddc`），而下一张 `VERSION-INSTALLER-001`（V06）在主计划里
-  还没有卡片正文，须先以 `QUEUED` 登记、再在**另一次独立提交**提升；在那之前任何执行者都不得自行领取
-  V06 或其它卡。
+- `current_next`: **暂无 `NEXT`**——`VERSION-RESOLVER-001`（V05）已收为 `DONE`
+  （登记 `c90bc51`、提升 `b9f7e2d`、交付 `f70fddc`、收卡 `6a8e79e`）；下一张
+  `VERSION-INSTALLER-001`（V06）由本提交以 `QUEUED` 登记卡片正文，提升为唯一 `NEXT` 须由**下一次独立
+  提交**完成。在那之前任何执行者都不得自行领取 V06 或其它卡。
   用户在七场景总账后明确把“自动识别服务器版本 → 准备匹配客户端 → 入服并完成简单控制”排为优先路线；
   `VERSION-AUTO-DESIGN-001` 已交付[跨版本连续执行计划](version-auto-to-server-control-plan.md)。
 - `last_checkpoint`: **跨版本路线走到 V05 收卡**——V05 `VERSION-RESOLVER-001` 交付的是纯领域解析边界：
@@ -3781,6 +3781,66 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
   CLI 尚无 resolver 入口（那属 V07 的接线面）。
 - `next_after_done`: `VERSION-INSTALLER-001`（V06）——主计划今天还没有 V06 卡片正文，须先 `QUEUED`
   登记、再在下一次独立提交提升。
+
+### VERSION-INSTALLER-001 — 缺缓存时把已审组合安全装齐
+
+- `status`: `QUEUED`（本提交登记，V05 收卡 `6a8e79e` 之后。提升须**另开一次独立提交**，且领取者
+  必须先闭合下面 `open_semantics_v06` 三格，不得就地改冻结件绕过。）
+- `baseline_sha`: `6a8e79e`（V05 收卡提交，两 ref 已核对）。领取时实际 checkout = 本卡提升提交。
+- `depends_on`: `VERSION-BUNDLE-1201-001`（V03 的两套 recipe/pin 与 launch plan 形状）、
+  `VERSION-RESOLVER-001`（V05 的清单条目是本卡唯一合法的安装输入）；下游
+  `VERSION-SESSION-SWITCH-001`（V07）把"先装后启"接进自动路径。
+- `question`: 给定 V05 选出的一个 `tested` 条目，能否在**空缓存**里把该组合的构件装到
+  `session start` 的完整性门真的通过，并且任何中断（断网、hash/size 不符、磁盘满、rename 失败、
+  进程被杀）都**不留下可启动的半成品**？
+- `scope` 与 `allowed_paths`（显式清单）：
+  `src/minekin_core/adapters/launcher/{artifacts,fetch,provision,launch_plan}.py`、
+  CLI 的 `bundle` 子命令面（`src/minekin_core/cli/parser.py` 与其 `bundle` 分派处，新增
+  `bundle install` 一类的显式入口）、`tests/unit/test_{artifact_store,artifact_fetch,provision}.py`、
+  新增的 installer 定向测试、supply-chain 契约与**匿名** fixture、进度文档。
+- `forbidden_paths`: 任何已封存 bundle/recipe/metadata/launch_plan 字节与
+  `tests/fixtures/manifest.sha256` 既有行、V05 清单 `tests/fixtures/registry/reviewed-tested-bundles.json`
+  的字节（本卡**读**它，不写 `tested`）、`session start` 的自动接线（V07）、
+  `domain/admission.py` 与地址策略、Bridge 两处 root、`proto/`、宿主 `.minecraft`。
+  不从 status/MOTD URL 取任何构件；不引入第三方镜像回退。
+- `measured_state_v06`（登记时对当前代码的实测，不是推测）：
+  `ArtifactStore` 只有 `path_for/verify/install` 三个公开方法，`install` 已经是
+  `.staging/<uuid>/payload.part` + `fsync` + `os.replace` + 落定后置只读，摘要或大小不符时整个事务目录
+  `os.replace` 进 `quarantine/`，同名竞争走 `FileExistsError → verify`；**仓库今天没有任何删除/GC API**
+  （`_remove_tree` 只服务于暂存清理），所以"运行中构件不被回收"目前不是一个需要防护的风险，而是一条
+  需要**保持**的现状。`ArtifactFetcher` 是 stdlib `urllib`，重定向前后都校验只允许 HTTPS、URL 不得带凭据，
+  **没有主机允许列表**（完整性由 pin 的摘要承担，不是由 hostname），传输错误重试、完整性拒绝不重试。
+  `provision_bundle` 只吃内存里的 plan mapping，先按 `max_bytes` 在**发出任何请求之前**拒绝，
+  不写 ready 标记（就绪由逐构件 `verify` 重新导出）。`cli/session.py:364 require_store_complete` 在
+  `session start` 路径上逐构件 `verify`，缺任何一件就在 `session.py:379` 以 `SUPPLY_CHAIN` 拒绝，
+  消息是"fetch them before starting a session"；`provision_bundle` 与 `ArtifactFetcher` 在 `src/` 内
+  **零调用者**，今天只能经 `tools/fetch_bundle.py` 驱动。`bundle` 子命令今天只有 `verify --profile`。
+- `store_root_decision`（登记时先写明，免得领取者就地改布局）：store 根是
+  `run_root(root, kin_id) / "artifact-store"`，即**每个 Kin 一份**（`cli/init.py:58`、
+  `cli/session.py:563`），launch plan 里的 `store_path` 相对该根。跨 Kin 共享缓存在内容寻址下是安全的，
+  但它会移动 plan 的路径字段，从而让 V03/V04 已封存的 recipe 与四读失效——**本卡不改根**，
+  每个 Kin 一份副本的代价如实记在这里；要合并缓存须另开卡并由用户拍板。
+- `open_semantics_v06`（领取时须先逐格闭合，不能靠默认值）：
+  1. `bundle install` 的默认 `max_bytes` 预算：现有 `tools/fetch_bundle.py` 把预算作为参数传入，
+     CLI 入口若自带一个宽到"永不拒绝"的默认值，等于把 `tests/contract/test_supply_chain_budget.py`
+     那条"请求之前就拒绝"的门禁变成摆设。取哪个默认值不能由既有契约唯一确定——按更窄的一读：
+     **无默认，缺失即拒**，除非领取时能找到既有契约支撑某个具体数字。
+  2. "空缓存可安装两套各自受审组合"要求真实下载 Mojang/Fabric 构件（约 1 GB 级）。这是**本地/受控
+     runner 的真实运行**，不是 CI 能证的（CI 三 job 今天不跑 `verify_supply_chain`）。若取不到可核验
+     材料，按停止条件保留失败材料并报告，不得把"下载成功"写成 `tested` 或 capability 证据。
+  3. 半成品不可启动这条已经由内容寻址 + 逐构件 `verify` 成立，本卡**不新增** ready 标记；若要新增，
+     那是新的状态载体，须先说明它比"每次重新 verify"多挡住了什么。
+- `counterexamples`: 下载中断、size 不符、sha 不符、上游失联/超时、重定向到非 HTTPS、URL 带凭据、
+  磁盘满（预算拒绝与写失败两条路径分别证）、原子 rename 失败、并发同 digest、已装缓存被就地篡改后
+  复用、清单条目与实际 recipe 摘要不一致、非 `tested` 条目要求安装。每种一个稳定类别，且失败后
+  `session start` 仍必须拒绝（不得因为装到一半就放行）。
+- `validation_class`: `UNIT_AND_CONTRACT` + 一次受控真实安装（空缓存装齐一个组合，随后
+  `session start` 的完整性门通过）。Minecraft 进程本身不属本卡（V07）。
+- `stop_conditions`: 需要引入第三方镜像或放宽来源才能装成时停并记录来源；需要改 store 根、
+  改已封存 recipe 字节、或动 `session start` 接线时停（分别属用户决策 / V07）；
+  装不上就报失败，不以"部分构件到位"充当通过。
+- `next_after_done`: 提升本卡为唯一 `NEXT` 由下一次独立提交完成；本卡之后是
+  `VERSION-SESSION-SWITCH-001`（V07，设计卡已有正文，主计划尚无）。
 
 ### VERSION-BRIDGE-IDENTITY-001 — BridgeHello 版本声明配对修复
 

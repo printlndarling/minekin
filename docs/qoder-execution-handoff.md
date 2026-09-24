@@ -2,8 +2,8 @@
 
 > **最新交接点（2026-09-25，跨版本路线执行中）**：**此刻没有 `NEXT` 可领。**
 > `VERSION-RESOLVER-001`（V05）已收为 `DONE`（登记 `c90bc51` → 提升 `b9f7e2d` → 交付 `f70fddc` →
-> 本提交收卡），下一张 `VERSION-INSTALLER-001`（V06）在主执行计划里**还没有卡片正文**：它必须先被
-> `QUEUED` 登记，再在**另一次独立提交**里提升为唯一 `NEXT`。在那之前不得自行领取 V06，也不得回到
+> 收卡 `6a8e79e`），下一张 `VERSION-INSTALLER-001`（V06）已在主执行计划里以 `QUEUED` 登记正文，
+> **提升为唯一 `NEXT` 是下一次独立提交的事**；在那之前不得自行领取 V06，也不得回到
 > 下文 ADMIT-070 起步卡或 V01–V04（四者均已 `DONE`）。
 > **V05 交付了什么**：纯领域解析边界 `src/minekin_core/domain/version_resolution.py`（只依赖 stdlib 与
 > `minekin_core.domain.*`）、**新增**的被审清单 `tests/fixtures/registry/reviewed-tested-bundles.json`
