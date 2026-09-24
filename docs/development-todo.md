@@ -1578,7 +1578,8 @@
   离线身份的正常路径；负向在线模式只用于诊断。ADMIT-040 的正式 case fixture 与
   “不自动启用账号适配器”的可观测判据仍未冻结，不能凭这次诊断标 PASS。
 
-- [ ] **ADMIT-070-REFUSAL-INJECTION-001（实现与诊断完成，卡仍为 `NEXT`）**：让「Kin 的
+- [x] **ADMIT-070-REFUSAL-INJECTION-001（已完成，实现 `eeac5b0` + 两轴自审修复 `8498084`
+  均已推送，卡已 `NEXT → DONE`）**：让「Kin 的
   第一份快照被报成 Core 会拒的样子」成为一条**能被要求、能被记录、能被同一 run 说出口**的
   事。四件事各自独立可验：①Bridge 一个默认关断的开关
   `MINEKIN_BRIDGE_NON_AUTHORITATIVE_FIRST_SNAPSHOT`，只对本代**第一份**、且真的交出去的快照
@@ -1639,3 +1640,22 @@
     `test_the_frozen_schema_still_describes_the_kill_record_only` 显式钉住。用户给出的公网测试服
     `159.138.62.207:25565` 本卡未使用，也不能作判据端（`AddressPolicy.p0_loopback()` 为 loopback
     only，`online-mode=false` 的服产生不了 `AUTH_MODE_MISMATCH`）。
+  - **两轴自审改了三处文字与一处分支（`8498084`，`fix(tools): stop a request record from
+    claiming more than it saw`）**：①`record_request` 在 environ 命中之后、身份读取之前碰上进程
+    消失时，会写 `observed: false` 却把 pid 留在 `effect` 里且 `reasons` 为空——正是本模块
+    `validate()` 自己会拒的形状（`NOT_OBSERVED` 要求 pid/starttime 皆空、未观察必须给理由），
+    真撞上会让封存失败；现在报 `CLIENT_IDENTITY_UNREADABLE` 并清空 pid，另加一条在两次读取之间
+    抽走该进程的定向测试。②「请求没到」的 detail 原写「该名的任何值都不存在」，而代码只查过被
+    要求的那一对，属多报一个没做过的检查；改为只说那一对与被查了几个 JVM，测试同时钉住不再退回。
+    ③`PROC_CHILD_ENVIRON` 的注释把机制说成从被启动进程*继承*，实际是按命令行在后代里认出客户端
+    JVM 后读它自己的 environ——这个差别就是这条记录的全部价值（宿主打算转发 ≠ 那个 JVM 收到）。
+    查过而**不是**缺陷的：记录里的 pid 确实是客户端 JVM（`find_candidates` 只收命令行匹配
+    java + 客户端主类的严格后代），判官与封存端一行未动。修复后门禁：pytest **2018 passed /
+    2 skipped**、fault/judge/sealer 定向 165 passed、Ruff check/format 干净、被改四文件 pyright
+    0 errors、digests/case assertions/boundaries/workflow pins 全绿、`git diff --check` 干净；该
+    提交不含 `bridge/` 与 `test-orchestrator/` 改动，故 Gradle 与 `bash -n` 沿用上一次的绿色读数。
+  - **状态流转**：本卡 `NEXT → DONE`（`completion_commit` 两个 SHA、`self_review` 全部写在执行
+    计划该卡里），`current_next` 现为交接阶段 B 的 `ADMIT-070-CASE-001`（登记与提升同批，理由写在
+    该卡 `registered`/`promotion_reason`）；`ADMIT-070-RECORD-SCHEMA-001` 继续 `QUEUED`，因为封存
+    与复判都不读那份 schema。本地 HEAD、`origin/codex/core-state-transition`、`origin/main` 三者
+    对 `8498084` 核对相同。

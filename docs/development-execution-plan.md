@@ -12,11 +12,15 @@
 - `baseline_date`: 2026-09-22
 - `baseline_branch`: `main`
 - `baseline_remote`: `origin/main`
-- `current_next`: `ADMIT-070-REFUSAL-INJECTION-001`（本 commit 提升，见该卡 `promotion_reason`）。
+- `current_next`: `ADMIT-070-CASE-001`（上一张 `ADMIT-070-REFUSAL-INJECTION-001` 已按交接六项
+  完成并 `DONE`；本卡由交接阶段 B 授权登记后提升，见其 `registered`/`promotion_reason`）。
   其余未闭合卡仍是 `HOST-ADMISSION-DESIGN-001`/`OPERATIONS-RETENTION-001`/`PROCESS-RECOVERY-001`
   三项 `BLOCKED_DECISION` 与 `HOST/W80+` 的 `DEFERRED`，都要用户先拍板。
 - `temporary_executor_handoff`: [Qoder 执行交接](qoder-execution-handoff.md)；
   执行者只实现当前唯一 `NEXT` 并交付证据，主控独占任务状态与下一卡提升。
+  2026-09-24：该文档正文的「当前唯一执行卡」一节仍写着 `ADMIT-070-REFUSAL-INJECTION-001`，
+  它的阶段 A 已 `DONE`、阶段 B 即当前 `NEXT`；那份文档不在那两卡的 `allowed_paths` 里，
+  故未改，以本文 `current_next` 为准。
 
 权威顺序：
 
@@ -382,15 +386,16 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 ### REAL-P0-CAMPAIGN-001 — 批量关闭真实运行缺口
 
 - `status`: `BLOCKED_EVIDENCE`
-- `blocked_by`: `ADMIT-070-REFUSAL-INJECTION-001`（`NEXT`）。`order` 的第 1 个场景（在线认证拒绝）
+- `blocked_by`: `ADMIT-070-CASE-001`（`NEXT`）。`order` 的第 1 个场景（在线认证拒绝）
   与第 2 个场景（资源包拒绝）已各自封出当前 build 上 `PASS`/`AGREES` 的正式 bundle 并四读一致。
   第 3 个场景（JOIN 后首快照失败）的判据已由 `ADMIT-070-EVIDENCE-DESIGN-001` 冻结在专项契约里，
   冻结的结论是：**这一条停在 `BLOCKED_EVIDENCE` 的原因不是读不出，而是发生不了**——被拒快照的
   理由确实会写进 run document 的 `snapshot_rejections`（读数那一层在真实运行里会工作，
   `entities_rejected` 就写过），但五个 `SnapshotReason` 在当前构建与当前 runner 下一个都触发
-  不了，数据卷 36 份真实运行文档该字段全为空。缺的是让 Bridge 在该代第一份快照上按
-  `authoritative=false` 上报的一个**默认关断的产品侧开关**（由 runner 显式要求、由测试域记录），
-  即本 `blocked_by` 那张卡。
+  不了，数据卷 36 份真实运行文档该字段全为空。缺的那件——让 Bridge 在该代第一份快照上按
+  `authoritative=false` 上报、默认关断、由 runner 显式要求、由测试域记录——已由
+  `ADMIT-070-REFUSAL-INJECTION-001`（`DONE`）交付并在两次真实受控诊断上读出；自此本场景
+  只缺封证，也就是 `ADMIT-070-CASE-001`。
 - `scenario_progress`: 2/7 场景已封为正式 case。第 1 个：`ADMIT-040`，run
   `6b5856d57dee4052b2ffba3ff9e3459e`，bundle `46565ef2…`，attempt 1，PASS/AGREES。
   第 2 个：`ADMIT-060`，run `7bc740ea4cde4e1aaff074bb64850348`，bundle
@@ -936,7 +941,7 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 
 ### ADMIT-070-REFUSAL-INJECTION-001 — 让首快照能被报成 Core 会拒的样子
 
-- `status`: `NEXT`
+- `status`: `DONE`
 - `baseline_sha`: `a9448ecf8d7345e54d04b3f9218db7b327c3b9a1`
 - `registered`: 2026-09-24（由 `ADMIT-070-EVIDENCE-DESIGN-001` 冻结的判据指名需要；登记时为 `QUEUED`）
 - `promotion_reason`: 运行者 2026-09-24 明确选择「实现注入点（Bridge 改动）」，并在提升前量过本卡
@@ -1058,11 +1063,112 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 - `stop_conditions`: 若开关只能靠 `control.proto` 的一条新命令到达 Bridge，或注入无法在同一 bundle
   里说出自己（`fault-injection.json` 装不下这类事实且没有别的测试域通道），停在该卡并把第 3 个
   场景继续留在 `BLOCKED_EVIDENCE`——不得为了跑得出证据而把一条产品事件写成客户端没有的样子。
+  两支都没有触发：开关走的是既有的转发清单，注入走的是既有的记录通道。
+- `completion_commit`: `eeac5b0bb1e597c4f8b1a0aa84f58ddee0d286b7`
+  （`feat(bridge): allow an explicitly requested non-authoritative first snapshot`）与其后按下面
+  `self_review` 修记录的 `8498084a836fadfe9f1ec56b36b579900987fc16`
+  （`fix(tools): stop a request record from claiming more than it saw`）。两次都已推，本地 HEAD、
+  `origin/codex/core-state-transition` 与 `origin/main` 三个 SHA 逐一核对相同（`git ls-remote`）。
+- `self_review`: 两轴自审在 `eeac5b0` 之后做，结论与修复都落在 `8498084`。
+  - **对专项契约（Spec）**：`acceptance` 五支逐条回到读数——默认关断（正向 run
+    `97fcfa14…` 仍 `PLAYABLE`/1 准入/0 拒绝）、设开关那支（`db5671d9…` 的
+    `NOT_AUTHORITATIVE`/0 准入/无 `PlayableEstablished`）、注入事实同一通道可读回（`domain.sh`
+    里用封存器唯一的读取入口打印该类记录）、Java 定向测试 + 全量门禁 + pin 续期、两次真实受控
+    运行只作诊断。`forbidden_paths` 逐条按提交的 21 个文件核对：`proto/` 与生成物、
+    `domain/perception.py`、`RecordedSessionMaterial`、判官、case fixtures 与 assertions
+    registry、CI 都不在其中；超出 `allowed_paths` 的六个测试文件已由
+    `scope_amendment_2026-09-24` 记名，`src/minekin_core/config.py` 由 `scope_amendment` 记名。
+  - **对设计（Standards）**：依赖方向没有新增边——`tools/` 不 import 产品包，产品侧只在
+    `FORWARDED_VARIABLES` 加一个名字且 Core 从不读它的值（不新增概念，判定语义原样）；`/proc`
+    的 environ 只有 `_environ()` 一处读，请求类与 kill 类共用同一 `validate()` 分派，没有第二份
+    形状规则；判官与封存器一行未动，因此「请求记录不能满足 sigkill 断言」是由既有断言把守而不是
+    由新写的分支把守。
+  - **发现并修复的三处**：①`record_request` 在 environ 命中之后、身份读取之前遇到进程消失时，
+    会写下 `observed: false` 却把 pid 留在 effect 里且 `reasons` 为空——那是该模块自己的
+    `validate()` 会拒的形状（`NOT_OBSERVED` 要求 pid/starttime 皆空，且未观察必须给理由），真实
+    撞上会让封存直接失败，现在报 `CLIENT_IDENTITY_UNREADABLE` 并清空 pid，配一条在两次读取之间
+    抽走该进程的定向测试；②「请求没到」那条 detail 原文声称客户端环境里**该名的任何值**都不存在，
+    而代码只查过被要求的那一对，等于多报一个没做过的检查，现改为只说被要求的那一对与查了几个
+    JVM，并由测试钉住不再退回原措辞；③`PROC_CHILD_ENVIRON` 的注释把机制写成从被启动进程
+    *继承*，实际是按命令行在后代里找到客户端 JVM 后读它**自己的** environ——这个区别正是这条记录
+    的全部价值（宿主打算转发 ≠ 那个 JVM 收到了），注释与模块 docstring 一并改回准确。
+  - **查过不是缺陷的**：记录里的 pid 确实是客户端 JVM 而非其宿主（`find_candidates` 只接受
+    命令行匹配 java + 客户端主类的**严格后代**）；runner 判据块把「通过」说出来这件事本身由
+    `tests/contract/test_runner_scripts.py` 钉住，避免以沉默充当证据。
+  - **修复后的门禁**：全量 pytest **2018 passed / 2 skipped**（跳过项仍是两处平台限制）、
+    定向 fault/judge/sealer 165 passed、ruff check 与 format 干净、被改四个文件 pyright 0 errors、
+    `verify_fixture_digests`/`check_case_assertions`(129)/`check_boundaries`/`check_workflow_pins`
+    干净、`git diff --check` 干净。该提交不含 `bridge/` 与 `test-orchestrator/` 改动，故 Gradle
+    与 `bash -n` 沿用在 `eeac5b0` 上的绿色读数。
+  - **仍未闭合**：冻结 schema 仍只描述 kill 一类（`ADMIT-070-RECORD-SCHEMA-001`）；本卡的两次
+    运行是诊断，正式 bundle 属 `ADMIT-070-CASE-001`；新 jar 字节的 Linux 逐字节复现未做。
+- `next_after_done`: `ADMIT-070-CASE-001`（`order` 第 3 个场景的封存与复判）。
+
+### ADMIT-070-CASE-001 — 封存并复判首快照拒绝用例
+
+- `status`: `NEXT`（登记与提升写在同一次交付里，依据与理由见下面两条）
+- `baseline_sha`: `8498084a836fadfe9f1ec56b36b579900987fc16`
+- `registered`: 2026-09-24。交接文档阶段 B 的原文顺序就是「先登记 `ADMIT-070-CASE-001` 为
+  `QUEUED`，……再按条件授权提升为唯一 `NEXT`」，而它的前置 `ADMIT-070-REFUSAL-INJECTION-001`
+  已在同一 build 上完成六项门禁与两次真实诊断并推送，所以本卡不是凭空提级：登记与提升之间
+  没有插入任何未被授权的工作。
+- `promotion_reason`: campaign `order` 第 3 个场景今天只缺封证。注入点已落地且被两次真实
+  受控运行验证（正向 `97fcfa14…` 到 `PLAYABLE`/1 准入，注入 `db5671d9…` 到
+  `NOT_AUTHORITATIVE`/0 准入/无 `PlayableEstablished`），记录通道能在同一 run 里被封存器
+  读回；判据已由 `ADMIT-070-EVIDENCE-DESIGN-001` 冻结在专项契约「ADMIT-070 的可复判证据边界」
+  五项里。`ADMIT-070-RECORD-SCHEMA-001` 不是本位的下一张：封存与复判都不读那份 schema
+  （只有 `tests/unit/test_fault_injection.py` 读它），它是被测试钉住的结构缺口，留在 `QUEUED`。
+- `question`: 一份真实拒绝运行要封哪些工件、`ADMIT-070` 的五条既有断言（全是 `pytest` 域内
+  断言）如何与运行材料对应而不被同名冒充，以及「注入说过」这件事在 bundle 里由哪条断言把守。
+- `allowed_paths`:
+  - `tools/assert_case_evidence.py`（新增运行材料断言；不改 `ADMIT-040`/`ADMIT-060` 既有判据语义）
+  - `tools/seal_run_evidence.py`（仅当本场景需要的工件尚未进通道时）
+  - `tools/check_case_assertions.py`（`--record` 登记新断言）
+  - `tests/fixtures/cases/admit-070.json`（`W50`、`mandatory: false` 不变；断言集与
+    `assertion_digests`、`inputs` 随真实材料更新）
+  - `tests/fixtures/manifest.sha256`
+  - `tests/unit/test_case_evidence_assertions.py`、`tests/unit/test_seal_run_evidence.py`
+  - `tests/contract/test_runner_scripts.py`、`tests/contract/test_case_coverage.py`
+  - `test-orchestrator/runner/domain.sh`（`ADMIT-070` 场景的等待/封存分支）与
+    `test-orchestrator/runner/run.sh`（仅当需要转发既有 knob）
+  - `docs/development-execution-plan.md`、`docs/development-todo.md`
+- `forbidden_paths`: 产品代码与 `proto/`/Bridge（注入点已由上一卡交付，本卡不为跑通封存而
+  再改产品语义）、`domain/perception.py` 判定语义、`RecordedSessionMaterial` 构造、case registry
+  编号与 `mandatory` 翻转、`schemas/fault-injection.schema.json` 与 `w00-contract-001.json`
+  （那是 `ADMIT-070-RECORD-SCHEMA-001` 的范围）、CI。
+- `scope`: 专项契约五项逐条落到「可信来源 → sealed artifact → 判官字段 → 反例」——
+  ①确实进了世界：同 run ledger 的 `JoinObserved`（`BRIDGE`/`BRIDGE_FILTERED`）+ run document
+  `connection_state != PLAYABLE` 且 `snapshots_admitted == 0`；②被拒是有判决的被拒：
+  `run-document.json` 的 `snapshot_rejections` **含 `NOT_AUTHORITATIVE` 这一个枚举名**
+  （非空即可不算）且 0 准入；③无 lease 无 PLAYABLE：复用 `no_lease_was_granted` 与
+  `PlayableEstablished` 缺席，且必须写在①②在场之上（缺失不单独成事实）；④本代终止：
+  `connection_cancelled`/`outcome` 说这一代已放弃，其后同 run 不再出现 JOIN/PLAYABLE 迁移；
+  ⑤注入在 bundle 里说得出自己：`fault-injection.json` 的 `CLIENT_REPORT_REQUEST` 记录归因到
+  同一 run/session/generation、`request.asked` 为真、`effect.observed` 为真——没有它这份
+  PASS 分不清「Core 拒了一份被要求谎报的快照」与「客户端真的自发谎报」。
+- `non_goals`: 不认领另外四个 `SnapshotReason` 的运行时形状、不要求 proto 里从未被发出的
+  `FIRST_SNAPSHOT_TIMEOUT`/`WORLD_BINDING_MISMATCH`、不把客户端日志那行 warn 当被拒事实、
+  不把「45 秒没 PLAYABLE」当拒绝、不改 `ADMIT-070` 的域内 pytest 断言来迁就运行材料、
+  不把上一卡的两次诊断运行追认为 PASS。
+- `acceptance`: 断言与反例逐条红（只有超时、`snapshot_rejections` 非空但已有准入、
+  仅 `entities_rejected` 非零、login 前就失败无 `JoinObserved`、出现过 lease 或 PLAYABLE、
+  同 run 之后新代到 PLAYABLE、`snapshot_rejections` 字段缺失或类型不对、没有注入归因记录）；
+  `check_case_assertions --record` 与 fixture digest 更新且不改既有 case version；全量本地门禁绿；
+  在当前 build 上先各重跑一次正向与注入诊断，再封正式 run（新 attempt，失败件原样保留），
+  `evidence verify` / `rejudge_evidence.py` / 适用的 `replay` / `report_promotion.py` 四读一致，
+  并记录 run ID、attempt、bundle digest、case version 与 promotion 读数后才可 `DONE`。
+- `validation_class`: `LOCAL_THEN_REAL_RUN`
+- `commit_intent`: `feat(evidence): seal first-snapshot refusal case`
+- `stop_conditions`: 若封存通道里拿不出注入工件，本卡停在 `FAIL`/`BLOCKED_EVIDENCE` 并记名，
+  不靠 Bridge 日志补判；若同一 build 的真实注入运行读不出 `NOT_AUTHORITATIVE`（即上一卡的
+  读数在当前 build 上不可重现），停在该卡并如实封存失败运行，不换判据、不改产品语义凑绿。
 
 ### ADMIT-070-RECORD-SCHEMA-001 — 让封存的 schema 也说得出报告请求记录
 
-- `status`: `QUEUED`；不替换当前唯一 `NEXT`（`ADMIT-070-REFUSAL-INJECTION-001` 的
-  `completion_evidence` 就是登记本卡的原因）。
+- `status`: `QUEUED`；不替换当前唯一 `NEXT`（本卡由 `ADMIT-070-REFUSAL-INJECTION-001` 的
+  `completion_evidence` 登记，而 `order` 第 3 个场景的封证 `ADMIT-070-CASE-001` 排在它前面：
+  封存与复判都不读这份 schema，只有 `tests/unit/test_fault_injection.py` 读它，所以它是被测试
+  钉住的结构缺口而不是封证的前置）。
 - `why_now`: 上一条卡给 `fault-injection.json` 加了第二类记录（`CLIENT_REPORT_REQUEST`），
   而 `schemas/fault-injection.schema.json` 仍只描述 SIGKILL 那一种。这不是遗漏而是被钉住的
   缺口：`tests/unit/test_fault_injection.py::test_the_frozen_schema_still_describes_the_kill_record_only`
