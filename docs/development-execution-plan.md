@@ -12,9 +12,10 @@
 - `baseline_date`: 2026-09-22
 - `baseline_branch`: `main`
 - `baseline_remote`: `origin/main`
-- `current_next`: 暂无唯一 `NEXT`：`ADMIT-070-CASE-001` 已按交接六项完成并 `DONE`，它的下一张
-  `OFFLINE-IDENTITY-EVIDENCE-DESIGN-001` 依交接第 1 项先登记为 `QUEUED`，提升写在紧随的下一个
-  commit 里（`order` 第 4 个场景的入口条件已成立）。其余未闭合卡仍是
+- `current_next`: `OFFLINE-IDENTITY-EVIDENCE-DESIGN-001`（交接阶段 C 的证据设计卡，`order` 第 4 个
+  场景）。上一张 `ADMIT-070-CASE-001` 已完成交接六项并 `DONE`；本卡先以 `QUEUED` 登记在
+  `e0d92c3`，由紧随的这一次交付按交接第 1、6 项提升为唯一 `NEXT`，入口条件与理由写在该卡
+  `registered`。其余未闭合卡仍是
   `HOST-ADMISSION-DESIGN-001`/`OPERATIONS-RETENTION-001`/`PROCESS-RECOVERY-001`
   三项 `BLOCKED_DECISION` 与 `HOST/W80+` 的 `DEFERRED`，都要用户先拍板。
 - `temporary_executor_handoff`: [Qoder 执行交接](qoder-execution-handoff.md)；
@@ -387,7 +388,7 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 ### REAL-P0-CAMPAIGN-001 — 批量关闭真实运行缺口
 
 - `status`: `BLOCKED_EVIDENCE`
-- `blocked_by`: `OFFLINE-IDENTITY-EVIDENCE-DESIGN-001`（`QUEUED`，即将提升）。`order` 的第 1 个场景
+- `blocked_by`: `OFFLINE-IDENTITY-EVIDENCE-DESIGN-001`（`NEXT`）。`order` 的第 1 个场景
   （在线认证拒绝）、第 2 个场景（资源包拒绝）与第 3 个场景（JOIN 后首快照失败）已各自在当前
   build 上封出 `PASS`/`AGREES` 的正式 bundle 并四读一致。第 3 个场景的判据由
   `ADMIT-070-EVIDENCE-DESIGN-001` 冻结在专项契约里，冻结的结论是：**这一条停在 `BLOCKED_EVIDENCE`
@@ -1283,11 +1284,16 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 
 ### OFFLINE-IDENTITY-EVIDENCE-DESIGN-001 — 冻结 OFF-A/OFF-B 身份候选的可复判证据边界
 
-- `status`: `QUEUED`（交接第 1 项：新卡先 `QUEUED`，不得直接 `NEXT`；提升写在紧随的下一个 commit）
+- `status`: `NEXT`（`e0d92c3` 登记为 `QUEUED`，本次交付按交接第 1、6 项提升；提升理由见
+  `promotion_reason`）
 - `baseline_sha`: `ec082f3e749f14a21b7d7574252849bb929c6fbe`
 - `registered`: 2026-09-24，由 `ADMIT-070-CASE-001` 的 `DONE` 触发：`order` 的前三个场景
   （在线认证拒绝 → 资源包拒绝 → 首快照负向）已各自在当前 build 上封出 `PASS`/`AGREES`
   的正式 bundle 并四读一致，交接阶段 C 的入口条件「ADMIT-070 正式 case 可复判」自此成立。
+- `promotion_reason`: 交接第 6 项要求的顺序——先登记 `QUEUED` 并推送，再在下一张交付里提升——
+  已在 `e0d92c3` 满足；两次推送之间没有插入任何未被授权的工作。提升条件也齐：`order` 前三场景
+  四读一致、本地门禁全绿、两轴自审已记录，且本卡是设计卡（`LOCAL_ONLY`），不要求新的真实运行，
+  也就没有可被高估的运行读数。
 - `question`: OFF-A（`prism-parity`）与 OFF-B（`enum-aligned`）各自要封哪些工件才算
   OFFLINE-010/020/030 被证明，OFFLINE-030 的「A/B 分别加入」在「一个 run 只启动一个候选」
   的事实下由什么结构承载（两份材料还是一个 case 两个子 case），以及哪些判据必须由两次
