@@ -11,7 +11,16 @@ from pathlib import Path
 from typing import TextIO
 
 from minekin_core.adapters.evidence.trace import replay_sealed_bundle
+from minekin_core.adapters.launcher.artifacts import STORE_DIRECTORY, ArtifactStore
+from minekin_core.adapters.launcher.fetch import ArtifactFetcher
 from minekin_core.adapters.launcher.launch_plan import build_launch_plan
+from minekin_core.adapters.launcher.provision import (
+    missing_artifacts,
+    plan_fetch_set,
+    provision_bundle,
+    require_reviewed_plan,
+    reviewed_entry,
+)
 from minekin_core.adapters.system.clock import SystemClock
 from minekin_core.cli.doctor import diagnose
 from minekin_core.cli.evidence import verify_run
@@ -20,6 +29,8 @@ from minekin_core.cli.parser import parse_args
 from minekin_core.cli.server_probe import probe_exit_ok, run_probe
 from minekin_core.cli.session import (
     DEFAULT_CONNECTION_TIMEOUT_S,
+    run_root,
+    select_kin,
     start_and_supervise,
     stop_session,
 )
@@ -66,6 +77,66 @@ def _command_name(args: argparse.Namespace) -> str:
 
 def _emit(value: object, stream: TextIO) -> None:
     print(json.dumps(value, sort_keys=True), file=stream)
+
+
+def _install_store_root(explicit: str | None) -> Path:
+    """The store `session start` will read, unless one is named outright.
+
+    One store root per Kin, because that is where the plan's store paths live
+    today; an install into a different root would fill a cache nothing reads.
+    """
+
+    if explicit is not None:
+        return Path(explicit).resolve()
+    root = data_root()
+    return run_root(root, select_kin(root, kin_selector())) / STORE_DIRECTORY
+
+
+def _bundle_install(args: argparse.Namespace, *, stdout: TextIO, stderr: TextIO) -> int:
+    """Fetch one reviewed tested entry into the store, under an explicit budget."""
+
+    entry = reviewed_entry(Path(args.registry), str(args.bundle_id))
+    root = _install_store_root(args.store)
+    store = ArtifactStore(root)
+    plan = require_reviewed_plan(entry)
+    artifacts = plan_fetch_set(plan)
+    missing = missing_artifacts(plan, store)
+
+    # The job is reported before it is paid for, and the same document comes back
+    # either way, so a refusal names the plan it was refusing.
+    summary: dict[str, object] = {
+        "schema_version": 1,
+        "command": _command_name(args),
+        "bundle_id": entry.bundle_id,
+        "store": str(root),
+        "plan_sha256": plan["plan_sha256"],
+        "artifacts": len(artifacts),
+        "missing": len(missing),
+        "missing_bytes": sum(artifact.size for artifact in missing),
+        "max_bytes": int(args.max_bytes),
+        "jobs": int(args.jobs),
+    }
+    if args.dry_run:
+        _emit({**summary, "status": "planned"}, stdout)
+        return int(ExitCode.OK)
+
+    quiet = bool(args.quiet)
+
+    def progress(done: int, total: int) -> None:
+        # stdout stays one document; a run of thousands of artifacts is long
+        # enough that it has to be legible while it happens.
+        if not quiet and (done == total or done % 100 == 0):
+            print(f"fetching {done}/{total}", file=stderr, flush=True)
+
+    report = provision_bundle(
+        plan,
+        store,
+        fetcher=ArtifactFetcher(store, jobs=int(args.jobs)),
+        max_bytes=int(args.max_bytes),
+        on_progress=progress,
+    )
+    _emit({**summary, **report.as_dict()}, stdout)
+    return int(ExitCode.OK if report.complete else ExitCode.SUPPLY_CHAIN)
 
 
 def run(
@@ -179,6 +250,9 @@ def run(
             stdout,
         )
         return int(ExitCode.OK)
+
+    if args.command == "bundle" and args.bundle_command == "install":
+        return _bundle_install(args, stdout=stdout, stderr=stderr)
 
     if args.command == "server" and args.server_command == "probe":
         # A probe's answer is an observation, not a failure: an endpoint that

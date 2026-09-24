@@ -6,6 +6,7 @@ import argparse
 from collections.abc import Sequence
 from pathlib import Path
 
+from minekin_core.adapters.launcher.fetch import DEFAULT_JOBS
 from minekin_core.adapters.launcher.offline_session import OFFLINE_SESSION_CANDIDATES
 
 
@@ -25,6 +26,24 @@ def build_parser() -> argparse.ArgumentParser:
     bundle_commands = bundle_parser.add_subparsers(dest="bundle_command", required=True)
     bundle_verify = bundle_commands.add_parser("verify", help="verify a bundle profile")
     bundle_verify.add_argument("--profile", required=True, metavar="PATH")
+    # Filling the artifact store is the one `bundle` verb that writes, so it is
+    # explicit about its authority and its cost: the registry document it reads,
+    # the single entry it installs, and the byte budget it may spend. There is no
+    # default budget here on purpose — the number is what the operator authorises.
+    bundle_install = bundle_commands.add_parser(
+        "install", help="fetch one reviewed tested bundle into the artifact store"
+    )
+    bundle_install.add_argument("--registry", required=True, metavar="PATH")
+    bundle_install.add_argument("--bundle-id", required=True, metavar="BUNDLE_ID")
+    bundle_install.add_argument("--max-bytes", required=True, type=int, metavar="N")
+    bundle_install.add_argument(
+        "--store", default=None, metavar="PATH", help="store root; defaults to this Kin's"
+    )
+    bundle_install.add_argument(
+        "--dry-run", action="store_true", help="report the job without fetching anything"
+    )
+    bundle_install.add_argument("--jobs", type=int, default=DEFAULT_JOBS, metavar="N")
+    bundle_install.add_argument("--quiet", action="store_true", help="do not report progress")
 
     launch_plan = commands.add_parser("launch-plan", help="construct a client launch plan")
     launch_plan.add_argument("--profile", required=True, metavar="PATH")

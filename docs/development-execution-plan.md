@@ -3838,8 +3838,9 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 - `semantics_frozen_v06`（领取时按量出来的数字闭合上面三格；此后本卡不再接受就地改默认值）：
   1. **无默认预算**。`tests/contract/test_supply_chain_budget.py` 通篇没有出现任何默认预算数字，
      它只固定"请求之前就拒绝"和按版本规划字节两件事，所以既有契约无法支撑任何具体数字——按更窄
-     的一读冻结：核心函数取必填的正整数 `max_bytes`，CLI 的 `bundle install` 把 `--max-bytes` 设为
-     必填参数，缺失即 `USAGE`/`CONFIG` 拒绝且在发任何请求之前。
+     的一读冻结：CLI 的 `bundle install` 把 `--max-bytes` 设为**必填参数**，缺失由 argparse 以
+     `USAGE` 拒绝，且在发任何请求之前；`provision_bundle` 已有的可选 `max_bytes` 保持不变，它只服务
+     既有的 `tools/fetch_bundle.py` 驱动（那是工具入口，不是产品入口）。
      领取时量出的规模（供操作者选数，不构成默认）：1.20.1 完整 plan 为 **3,639 个构件 /
      738,432,269 字节**（按 kind 分布 asset 3,575、library 53、native 7，另有 client、asset-index、
      logging、mod 各 1）；1.21.4 为 **4,120 / 523,788,383 字节**；`verify_supply_chain --version
