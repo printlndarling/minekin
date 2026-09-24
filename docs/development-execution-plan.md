@@ -3796,7 +3796,8 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 - `scope` 与 `allowed_paths`（显式清单）：
   `src/minekin_core/adapters/launcher/{artifacts,fetch,provision,launch_plan}.py`、
   CLI 的 `bundle` 子命令面（`src/minekin_core/cli/parser.py` 与其 `bundle` 分派处，新增
-  `bundle install` 一类的显式入口）、`tests/unit/test_{artifact_store,artifact_fetch,provision}.py`、
+  `bundle install` 一类的显式入口；分派处实测在 `src/minekin_core/bootstrap.py`，见下面
+  `allowed_paths_revision_v06`）、`tests/unit/test_{artifact_store,artifact_fetch,provision}.py`、
   新增的 installer 定向测试、supply-chain 契约与**匿名** fixture、进度文档。
 - `forbidden_paths`: 任何已封存 bundle/recipe/metadata/launch_plan 字节与
   `tests/fixtures/manifest.sha256` 既有行、V05 清单 `tests/fixtures/registry/reviewed-tested-bundles.json`
@@ -3820,6 +3821,10 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
   `cli/session.py:563`），launch plan 里的 `store_path` 相对该根。跨 Kin 共享缓存在内容寻址下是安全的，
   但它会移动 plan 的路径字段，从而让 V03/V04 已封存的 recipe 与四读失效——**本卡不改根**，
   每个 Kin 一份副本的代价如实记在这里；要合并缓存须另开卡并由用户拍板。
+- `allowed_paths_revision_v06`（领取时先改范围再写代码，不事后追认）：原措辞只写了
+  “CLI 的 `bundle` 子命令面（`cli/parser.py` 与其 `bundle` 分派处）”，而分派处实测在
+  `src/minekin_core/bootstrap.py:169`（`bundle verify` 的唯一处理点）。本提交把该文件**点名**进
+  允许路径，且只允许动它的 `bundle` 分派分支与相应 import；`session start` 接线仍在禁止路径里。
 - `open_semantics_v06`（领取时须先逐格闭合，不能靠默认值）：
   1. `bundle install` 的默认 `max_bytes` 预算：现有 `tools/fetch_bundle.py` 把预算作为参数传入，
      CLI 入口若自带一个宽到"永不拒绝"的默认值，等于把 `tests/contract/test_supply_chain_budget.py`
@@ -3830,6 +3835,26 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
      材料，按停止条件保留失败材料并报告，不得把"下载成功"写成 `tested` 或 capability 证据。
   3. 半成品不可启动这条已经由内容寻址 + 逐构件 `verify` 成立，本卡**不新增** ready 标记；若要新增，
      那是新的状态载体，须先说明它比"每次重新 verify"多挡住了什么。
+- `semantics_frozen_v06`（领取时按量出来的数字闭合上面三格；此后本卡不再接受就地改默认值）：
+  1. **无默认预算**。`tests/contract/test_supply_chain_budget.py` 通篇没有出现任何默认预算数字，
+     它只固定"请求之前就拒绝"和按版本规划字节两件事，所以既有契约无法支撑任何具体数字——按更窄
+     的一读冻结：核心函数取必填的正整数 `max_bytes`，CLI 的 `bundle install` 把 `--max-bytes` 设为
+     必填参数，缺失即 `USAGE`/`CONFIG` 拒绝且在发任何请求之前。
+     领取时量出的规模（供操作者选数，不构成默认）：1.20.1 完整 plan 为 **3,639 个构件 /
+     738,432,269 字节**（按 kind 分布 asset 3,575、library 53、native 7，另有 client、asset-index、
+     logging、mod 各 1）；1.21.4 为 **4,120 / 523,788,383 字节**；`verify_supply_chain --version
+     1.20.1` 只规划 **2,587,377 字节**。
+  2. **真实安装在受控 runner 上做，且"下载完成"永远不写成 `tested`**。已核对 `minekin-runner:local`
+     出站网络可用（Mojang `version_manifest_v2.json` 真实返回最新 release），因此本卡的受控运行
+     可执行；证据按"装齐后 `require_store_complete` 通过"记录，遗留给 V07 的 Minecraft 进程验收
+     明说。清单条目与实际 recipe 摘要一致性也已量过：1.20.1 的 `recipe_digest f552b92aa9322b3c…`
+     等于 `tests/fixtures/manifest.sha256` 第 22 行、launch plan 摘要 `ac40316094dda001…` 与条目一致。
+  3. **不新增 ready 标记**。就绪仍由逐构件 `verify` 每次重新导出；`install_reviewed_bundle` 只加
+     "装之前先按清单摘要核对 recipe 与 bridge/launch-plan 摘要"这一层门，不引入新的状态载体。
+     另外如实记录一条可测性边界：假传输层不可能造出与受审 pin 逐字节相符的内容，所以"空缓存装齐"
+     这条正向路径只能由上面那次受控真实运行证明；单元测试覆盖入口拒绝（条目不在清单、非
+     `tested`、recipe/plan/bridge 摘要不符、预算缺失或非正）、预算拒绝时零请求、以及安装失败后
+     `session start` 的完整性门仍拒绝。
 - `counterexamples`: 下载中断、size 不符、sha 不符、上游失联/超时、重定向到非 HTTPS、URL 带凭据、
   磁盘满（预算拒绝与写失败两条路径分别证）、原子 rename 失败、并发同 digest、已装缓存被就地篡改后
   复用、清单条目与实际 recipe 摘要不一致、非 `tested` 条目要求安装。每种一个稳定类别，且失败后
