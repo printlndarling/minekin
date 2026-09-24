@@ -42,9 +42,8 @@
   三项 `BLOCKED_DECISION` 与 `HOST/W80+` 的 `DEFERRED`，都要用户先拍板。
 - `temporary_executor_handoff`: [Qoder 执行交接](qoder-execution-handoff.md)；
   执行者只实现当前唯一 `NEXT` 并交付证据，主控独占任务状态与下一卡提升。
-  2026-09-24：该文档正文的「当前唯一执行卡」一节仍写着 `ADMIT-070-REFUSAL-INJECTION-001`，而那张与
-  其后的 `ADMIT-070-CASE-001` 都已 `DONE`；那份文档不在 `OFFLINE-IDENTITY-*` 三张卡的
-  `allowed_paths` 里，故未改，以本文 `current_next` 为准。
+  2026-09-24：交接文档顶部已补最新停机点；其 ADMIT-070 起步卡与后续阶段正文作为历史路线保留，
+  不得覆盖本文当前 `current_next` 为“无”的判定。
 
 权威顺序：
 

@@ -1,5 +1,15 @@
 # Qoder 临时执行交接（2026-09-24）
 
+> **最新交接点（`ed0db6d`，2026-09-24）**：以下 ADMIT-070 起步任务和阶段说明是
+> 当时的历史执行路线，**不是当前领取任务的授权**。七个已排定的 P0 campaign 场景
+> 已走完（`scenario_progress 7/7`），但 [`development-execution-plan.md`](development-execution-plan.md)
+> 的晋级总账仍把整体判为 `BLOCKED/INCOMPLETE`：74 个 required case 中 31 个尚未登记，
+> 且已有证据中有旧 build 与版本不匹配项。当前 `current_next` 为**无**；Qoder 应按下文
+> 恢复步骤核对 Git、机器报告和封存证据，然后停在产品决策边界，等待主控/用户
+> 明确下一张卡。不得从本文件的旧阶段标题或历史 TODO 自行挑选新 `NEXT`，也不得
+> 把“七个场景完成”写成 P0 晋级完成。最新读数与待决项以主执行计划顶部及
+> `P0-PROMOTION-LEDGER-001` 为准。
+
 本文件是主控对临时执行者的**连续执行手册**，不替代
 [`development-execution-plan.md`](development-execution-plan.md) 的唯一 `NEXT`、
 [`p0-remote-admission-contract.md`](p0-remote-admission-contract.md) 的判据或用户指令。
@@ -32,12 +42,12 @@
   `25a9868`，两者差 7 个已提交阶段；主控随后把两端 fast-forward 到
   `77b345f` 并核对远端 SHA。这段是已修复的流程故障，不是今日还应重复推送的指令。
 
-## 当前唯一执行卡：ADMIT-070-REFUSAL-INJECTION-001
+## 历史起步卡（已完成）：ADMIT-070-REFUSAL-INJECTION-001
 
-Qoder 当前只处理执行计划该卡列明的 `allowed_paths`；通过下文连续推进门槛后，
-才按长程路线领取下一阶段。不要同时做
-`ADMIT-070-CASE-001`、HOST/PERSIST、CI 或认证方式扩展。你不是唯一在代码库工作的
-执行者；保留其他人的改动，不要 reset、stash、覆盖或改写既有 sealed bundle。
+下列步骤记录当时 Qoder 只处理该卡 `allowed_paths` 的起步约束，**现已执行完毕，
+不得据此重新领取 ADMIT-070**。当时不允许同时做 `ADMIT-070-CASE-001`、
+HOST/PERSIST、CI 或认证方式扩展。保留其他人的改动，不要 reset、stash、覆盖或
+改写既有 sealed bundle；这些工作树与证据保护规则仍然有效。
 
 1. **收紧开关语义。** `unset`、`0`、`false` 均保持原有首快照流程，且 runner
    不进入拒绝等待；只有 `1`/`true` 进入注入路径。`run.sh` 显式转发该 knob，
