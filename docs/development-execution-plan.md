@@ -12,8 +12,8 @@
 - `baseline_date`: 2026-09-22
 - `baseline_branch`: `main`
 - `baseline_remote`: `origin/main`
-- `current_next`: 无（本提交把 `VERSION-REMOTE-PROFILE-001` 收为 `DONE`；下一张
-  `VERSION-SERVER-PROBE-001` 须先在独立提交登记 `QUEUED`，再由下一次提交提升为唯一 `NEXT`）。
+- `current_next`: `VERSION-SERVER-PROBE-001`（上一提交登记 `QUEUED`，本提交单独提升；
+  `VERSION-REMOTE-PROFILE-001` 已 `DONE` 并推送）。
   用户在七场景总账后明确把“自动识别服务器版本 → 准备匹配客户端 → 入服并完成简单控制”排为优先路线；
   `VERSION-AUTO-DESIGN-001` 已交付[跨版本连续执行计划](version-auto-to-server-control-plan.md)，
   `VERSION-REMOTE-PROFILE-001` 已由 `2c4e600` 先登记 `QUEUED`、`36764e8` 单独提升为唯一 `NEXT`。
@@ -3045,7 +3045,7 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 
 ### VERSION-SERVER-PROBE-001 — 只读、可归因的版本探测
 
-- `status`: `QUEUED`（本提交登记；按纪律由下一提交单独提升为 `NEXT`）。
+- `status`: `NEXT`（`0b52f43` 登记 `QUEUED`，本提交单独提升；当前无第二张 `NEXT`）。
 - `promotion_reason`: V01 已交付受信目标与单地址策略；探测是先于任何入服的唯一读-only 步骤。
 - `baseline_sha`: `9e61bfd`（V01 收卡提交，已推送并核对两远端）。
 - `depends_on`: `VERSION-REMOTE-PROFILE-001`；下游 `VERSION-RESOLVER-001` 消费本卡观测。
