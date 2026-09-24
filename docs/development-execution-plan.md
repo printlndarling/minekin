@@ -12,17 +12,17 @@
 - `baseline_date`: 2026-09-22
 - `baseline_branch`: `main`
 - `baseline_remote`: `origin/main`
-- `current_next`: **本 commit 无 `NEXT`**——`CRASH-OUTBOX-ALIVE-DISPLAY-001` 交付完成收为 `DONE`
-  （`f90abc8`，一次真实 `CORE-060` runtime-kill run `7fc0671e…`/bundle `3876c335…`/attempt 3 封 `PASS`、
-  四读一致、`case_version` `d1ea32d8b705…` 与 `bridge_digest` `faeec4a9df83abb9…` 均未变、
-  `client/stderr.log` 已空、那行 `bridge released 1 input(s) after IPC_LOST` 由 Render thread 真写出），
-  前置卡 `CRASH-OUTBOX-RESEAL-001` 随之从 `BLOCKED_EVIDENCE`（4/5）升为 `DONE`（5/5），campaign 第 5 个场景
-  `scenario_progress` 记 **5/7**。顺序已满足：ALIVE-DISPLAY 交付的正是 RESEAL 缺的最后一格，两案同批收口，
-  中间无未授权工作。**下一张卡以 `QUEUED` 登记、不得直接 `NEXT`**：`order` 第 5 个场景之后是第 6 个
-  （tick/render 采样），而它此前没有任何卡（冻结卡 `CRASH-OUTBOX-EVIDENCE-DESIGN-001` 明确「不做第 6/7 个
-  场景的设计」）。故本 commit 登记 `TICK-RENDER-SOAK-EVIDENCE-DESIGN-001`（`QUEUED`，只排队、判据尚未冻结），
-  **紧随的 commit 依交接「连续推进」第 6 项把它提升为唯一 `NEXT`**。
-  **本卡（`CRASH-OUTBOX-ALIVE-DISPLAY-001`）历史**：`94c3af0` 以 `QUEUED` 登记（登记时不写 `NEXT`）、
+- `current_next`: `TICK-RENDER-SOAK-EVIDENCE-DESIGN-001`——`096bd68` 以 `QUEUED` 登记、本 commit 依交接
+  「连续推进」第 6 项提升为唯一 `NEXT`。**判据尚未冻结**：本卡是 campaign 第 6 个场景（tick/render 采样）
+  的证据设计入口，冻结表与后续实现卡的登记是它作为 `NEXT` 的交付。
+  **它为何是下一张**：`order` 前五个场景已逐个按冻结判据封证——刚收口的第 5 个（crash/outbox 窗口）由
+  `CRASH-OUTBOX-ALIVE-DISPLAY-001`（`f90abc8`，一次真实 `CORE-060` runtime-kill run `7fc0671e…`/bundle
+  `3876c335…`/attempt 3 封 `PASS`、四读一致、`case_version` `d1ea32d8b705…` 与 `bridge_digest`
+  `faeec4a9df83abb9…` 均未变、`client/stderr.log` 已空、那行 `bridge released 1 input(s) after IPC_LOST`
+  由 Render thread 真写出）交出最后一格，前置卡 `CRASH-OUTBOX-RESEAL-001` 随之 `BLOCKED_EVIDENCE`（4/5）→
+  `DONE`（5/5），`scenario_progress` 记 **5/7**。第 6 场景此前无卡（冻结卡 `CRASH-OUTBOX-EVIDENCE-DESIGN-001`
+  明确「不做第 6/7 个场景的设计」），故先 `QUEUED` 登记、再依委托提升，登记与提升分两个 commit，中间无未授权工作。
+  **上一张卡（`CRASH-OUTBOX-ALIVE-DISPLAY-001`）历史**：`94c3af0` 以 `QUEUED` 登记（登记时不写 `NEXT`）、
   `9a283ac` 提升为唯一 `NEXT`；它要做的只有一件事——把 X 显示与 Core 的生死脱钩（harness 自己起并持有 Xvfb、
   `session` 只继承 `DISPLAY`、Core 挪到普通 `sh -c` 包装之下仍是 `session_pid` 的后代），使客户端 tick 那句
   `bridge released N input(s) after IPC_LOST` 有机会真被写出来；`src/`/`bridge/`/`proto/`/`tools/`、故障注入、
@@ -2549,9 +2549,12 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 
 ### TICK-RENDER-SOAK-EVIDENCE-DESIGN-001 — 冻结 tick/render 采样与 L6 soak 场景的可复判证据边界
 
-- `status`: `QUEUED`（本 commit 登记；**只排队，判据尚未冻结**。依交接「连续推进」第 1、6 项，登记那次
-  commit 不写 `NEXT`——本 commit 收掉 `CRASH-OUTBOX-ALIVE-DISPLAY-001` 与 `CRASH-OUTBOX-RESEAL-001` 后
-  计划里无 `NEXT`，紧随的 commit 依同一委托把它提升为唯一 `NEXT`）
+- `status`: `NEXT`（`096bd68` 以 `QUEUED` 登记、本 commit 依交接「连续推进」第 6 项提升为唯一 `NEXT`；
+  **判据尚未冻结**——冻结是本卡作为 `NEXT` 的执行交付，见 `question`）
+- `promotion_reason`: 顺序已满足——登记它的 `096bd68` 同时把 `CRASH-OUTBOX-ALIVE-DISPLAY-001` 与
+  `CRASH-OUTBOX-RESEAL-001` 收为 `DONE`、`scenario_progress` 记 5/7，登记那次 commit 之后计划里无 `NEXT`，
+  中间没插入别的未授权工作；`order` 第 6 场景此前没有任何卡，本卡是其唯一入口。提升前门禁全绿
+  （`2159 passed / 2 skipped`、case assertions `139 registered`、fixture digests、workflow pins 原样绿）。
 - `registered`: 2026-09-24，由 campaign `order` 第 5 个场景（crash/outbox 窗口）封齐 5/7 触发；它是 `order`
   第 6 个场景（tick/render 采样）当下唯一的入口，因为该场景此前没有任何卡（冻结卡
   `CRASH-OUTBOX-EVIDENCE-DESIGN-001` 明确「不做第 6/7 个场景的设计」）。
