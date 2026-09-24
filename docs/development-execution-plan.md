@@ -12,13 +12,13 @@
 - `baseline_date`: 2026-09-22
 - `baseline_branch`: `main`
 - `baseline_remote`: `origin/main`
-- `current_next`: 上一轮交接把 `OFFLINE-IDENTITY-CASE-001` 提升为唯一 `NEXT`，本 commit 记录它已
-  `DONE`（交付 `2a84bbd`，契约冻结的五条判据各有判官断言，`OFFLINE-030` 的两个子 id 已进 required
-  清单）。顺序表的下一张 `OFFLINE-IDENTITY-SEALED-ARGV-001` 早已作为 `QUEUED` 登记，提升为唯一
-  `NEXT` 写在紧随的下一个 commit 里，以满足交接第 1、6 项「先 `QUEUED`、再在紧随的 commit 提升」；
-  其后再依次是 `OFFLINE-IDENTITY-RUN-001`（同一顺序链的最后一张：两次受控运行各自封证并四读一致）。
-  另有一张 `ADMIT-070-RECORD-SCHEMA-001` 也还是 `QUEUED`，但它自己写明不是任何封证卡的下一张，
-  因此不排进这条链。其余未闭合卡仍是
+- `current_next`: `OFFLINE-IDENTITY-SEALED-ARGV-001`——让封存当时的 live 判读也拿到那份 argv。
+  顺序表的前一张 `OFFLINE-IDENTITY-CASE-001` 已 `DONE`（交付 `2a84bbd`，收卡 `1a77d40`），本卡
+  此前已作为 `QUEUED` 登记并推送，因此这次提升满足交接第 1、6 项的「先 `QUEUED`、再在紧随的
+  commit 提升」。它是 `OFFLINE-IDENTITY-RUN-001` 的前置：判据 ① 今天只在**复判**这条读路上成立
+  （sealer 在 `tools/seal_run_evidence.py:664` 没把 `session_argv` 交给 `read_run_material`），
+  两次真实封证之前要把这一格补上。`ADMIT-070-RECORD-SCHEMA-001` 也还是 `QUEUED`，但它自己写明
+  不是任何封证卡的下一张，因此不排进这条链。其余未闭合卡仍是
   `HOST-ADMISSION-DESIGN-001`/`OPERATIONS-RETENTION-001`/`PROCESS-RECOVERY-001`
   三项 `BLOCKED_DECISION` 与 `HOST/W80+` 的 `DEFERRED`，都要用户先拍板。
 - `temporary_executor_handoff`: [Qoder 执行交接](qoder-execution-handoff.md)；
@@ -402,7 +402,8 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 
 - `status`: `BLOCKED_EVIDENCE`
 - `blocked_by`: `OFFLINE-IDENTITY-LEDGER-FACT-001`（`DONE`，`ec8fb15`）→ `OFFLINE-IDENTITY-CASE-001`
-  （`DONE`，`2a84bbd`）→ `OFFLINE-IDENTITY-SEALED-ARGV-001`（`QUEUED`）→ `OFFLINE-IDENTITY-RUN-001`（仍 `QUEUED`，
+  （`DONE`，`2a84bbd`）→ `OFFLINE-IDENTITY-SEALED-ARGV-001`（现唯一 `NEXT`，`1a77d40` 之后提升）→
+  `OFFLINE-IDENTITY-RUN-001`（仍 `QUEUED`，
   都由已 `DONE` 的
   `OFFLINE-IDENTITY-EVIDENCE-DESIGN-001` 与 `OFFLINE-IDENTITY-CASE-001` 登记）。`order` 的第 1 个场景
   （在线认证拒绝）、第 2 个场景（资源包拒绝）与第 3 个场景（JOIN 后首快照失败）已各自在当前
@@ -1649,13 +1650,19 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 
 ### OFFLINE-IDENTITY-SEALED-ARGV-001 — 让封存时的 live 判读也拿到那份 argv
 
-- `status`: `QUEUED`；不替换当前唯一 `NEXT`（由 `OFFLINE-IDENTITY-CASE-001` 在实现判据 ① 时发现并
-  按 2026-09-24 主控确立的「先修订卡片范围再动手」登记，而不是在本卡里顺手改掉）。
+- `status`: `NEXT`（`9ffe980` 登记为 `QUEUED`，收卡 `OFFLINE-IDENTITY-CASE-001` 的 `1a77d40` 之后
+  由本 commit 提升；当前计划里没有第二张 `NEXT`）
+- `promotion_reason`: 顺序已满足——本卡在 `9ffe980`（当时唯一 `NEXT` 是 `CASE-001`）以 `QUEUED`
+  登记并推送，随后 `CASE-001` 交付（`2a84bbd`）与收卡（`1a77d40`）都在提升之前，中间没有插入别的
+  未授权工作。它是 `OFFLINE-IDENTITY-RUN-001` 的前置：不补上 live 侧那一格 argv，两次真实封证里
+  判据 ① 在封存现场会读到 `LAUNCH_ARGV_UNRECORDED`，只有 rejudge 那条读路成立。
+  入口门禁全绿（`2140 passed / 2 skipped`、case assertions 139 registered、Pyright 0）。
+- `baseline_sha`: `1a77d40fa56e4c6bbc76a4a6cab408f35e3ab46a`
 - `question`: `tools/seal_run_evidence.py:664` 把 run 交给 `read_run_material` 时没有传
   `session_argv`，而判据 ① 需要它。封存现场要怎样把这份 argv 交进 live 判读，才与 rejudge 从
   `orchestrator-trace.json` 读出的完全是同一份？
 - `depends_on`: `OFFLINE-IDENTITY-CASE-001`（判据先存在，这张卡才有对象）。
-- `why_now`: 本卡（`CASE-001`）的判据 ① 在**封存后**的读路上已经闭合——`collect_artifacts` 早就把
+- `why_now`: `CASE-001` 的判据 ① 在**封存后**的读路上已经闭合——`collect_artifacts` 早就把
   `orchestrator-trace.json` 写进 bundle，判官从 bundle 目录读得到。缺口只在**封存当时**那一次判读：
   `read_run_material` 的签名没有 `session_argv` 参数，sealer 也没有传。补齐要动
   `tools/seal_run_evidence.py`，它在 `CASE-001` 的 `allowed_paths` 之外，故另立此卡。缺口按
