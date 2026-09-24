@@ -12,22 +12,32 @@
 - `baseline_date`: 2026-09-22
 - `baseline_branch`: `main`
 - `baseline_remote`: `origin/main`
-- `current_next`: 本 commit 之前唯一 `NEXT` 是 `CRASH-OUTBOX-RESEAL-001`（登记 `a1be5fb`、提升 `b158d59`）；
-  本 commit 不提升任何卡，只做两件事：把新发现的第二个封存面阻断登记为前置卡
-  `CRASH-OUTBOX-SEALED-KIN-001`（`QUEUED`），并把 `CRASH-OUTBOX-RESEAL-001` 记为
-  `BLOCKED_EVIDENCE`。紧随的 commit 把前者提升为唯一 `NEXT`。
-  **RESEAL 为什么停下**：它是 campaign `order` 第 5 个场景（五个故障窗口）的真实重封卡，读数来自冻结卡
-  `CRASH-OUTBOX-EVIDENCE-DESIGN-001`（交付 `72aec3e`、收卡 `a1be5fb`）；本机镜像已重建（`fed4a143f2e4`），
-  `minekin-runner-data` 卷原样保留、旧 bundle 一个不清。`CORE-060` 的第一次真实尝试注入了真做得到、
-  却封不上，依 `stop_conditions` ② 停了两次：
-  ① runner 那条「文件非空就算 run 文档」的守卫在 Core 被杀时误判——已由 `431ba84` 修好（与本次登记一同
-  推送），修的范围先落在文档面（`ad51045`）；
-  ② 修好后当场重现的第二格：封存面在文档没说出 Kin 时**从数据卷目录结构猜**（`tools/assert_case_evidence.py:551-557`
-  要求 `<data-root>/kin/*` 里恰好一个持有数据库的目录），而卷上现在有 `kin-01`/`kin-02` 两个，于是那条
-  run 封不下来，报错还把「缺 Kin」盖在「缺 run id」那句话里。这一格归新卡
-  `CRASH-OUTBOX-SEALED-KIN-001`。RESEAL 五个窗口一份 bundle 都还没封，其范围修订与读数记在卡里
-  （`scope_amendment_2026-09-24`）与契约的「crash / outbox / restart 窗口的可封边界」一节。
+- `current_next`: `CRASH-OUTBOX-SEALED-KIN-001`——由本 commit 从 `QUEUED` 提升为唯一 `NEXT`（登记在
+  `c75865b`，那一条 commit 只写 `QUEUED`、没写 `NEXT`，满足交接第 1 项；提升前计划里没有 `NEXT`，
+  中间没有插入别的未授权工作）。它是 campaign `order` 第 5 个场景当下唯一的硬阻断：一次 Core 被杀的
+  run 只剩账本里的 `run_id` 可命名，而封存面在文档没说出 Kin 时**从数据卷的目录结构猜**它属于哪个
+  Kin（`tools/assert_case_evidence.py:551-557` 要 `<data-root>/kin/*` 里恰好一个持有数据库的目录），
+  卷上今天是 `kin-01`/`kin-02` 两个，于是那条 run 一份 bundle 也封不出来。修法是把 `domain.sh`
+  **已经从账本读出的** `kin_id` 明白地交给封存面（文档说出 Kin 时仍以文档为准），并把那句把两件事
+  混在一起的报错拆开。本卡不封第 5 个场景的任何 bundle。
+  它的前一张 `CRASH-OUTBOX-RESEAL-001` 因此记 `BLOCKED_EVIDENCE`（登记 `a1be5fb`、提升 `b158d59`；
+  两次真跑各停在一格：runner 认文档的守卫已由 `431ba84` 修好，第二格即本卡），五个窗口**一份 bundle
+  都还没封**，在本卡 `DONE` 之后回到 `NEXT`。
+  **上一条 `NEXT` 的来历**：`CRASH-OUTBOX-RESEAL-001` 是第 5 个场景（五个故障窗口）的真实重封卡，
+  读数来自冻结卡 `CRASH-OUTBOX-EVIDENCE-DESIGN-001`（交付 `72aec3e`、收卡 `a1be5fb`，那份逐窗口表在
+  契约的「crash / outbox / restart 窗口的可封边界」一节）；本机镜像已重建（`fed4a143f2e4`），
+  `minekin-runner-data` 卷原样保留、旧 bundle 一个不清。它的 `allowed_paths` 在开跑后修订过一次
+  （`ad51045`，只放开 `test-orchestrator/runner/domain.sh` 与 `tests/contract/test_runner_scripts.py`），
+  修法与三次探针读数记在该卡的 `scope_amendment_2026-09-24`；`src/`、`tools/`、产品恢复策略与旧
+  bundle 仍在它的禁地。第六个窗口——崩溃落在「`START_CLIENT` 意图已写、效果还没 settle」之间——按
+  构造打不中（`domain.sh:1250` 等的是「不同横坐标数 ≥2」，而那段区间在产品代码内部），归本地证据。
   （那张冻结卡由 `d33c236` 提升为唯一 `NEXT`、`bd0448a` 登记；
+  它之前的 `OFFLINE-030-CASE-FILENAME-001` 在 `7c8c412` 收为 `DONE`：`-001` 子 case 找不回 fixture
+  那个阻断在 fixture 侧改名解掉，两个子 id 各封一份 `PASS`、四读一致，`domain.sh` 一字未动。）
+  `ADMIT-070-RECORD-SCHEMA-001` 也还是 `QUEUED`，但它自己写明
+  不是任何封证卡的下一张，因此不排进这条链。其余未闭合卡仍是
+  `HOST-ADMISSION-DESIGN-001`/`OPERATIONS-RETENTION-001`/`PROCESS-RECOVERY-001`
+  三项 `BLOCKED_DECISION` 与 `HOST/W80+` 的 `DEFERRED`，都要用户先拍板。
   它之前的 `OFFLINE-030-CASE-FILENAME-001` 在 `7c8c412` 收为 `DONE`：`-001` 子 case 找不回 fixture
   那个阻断在 fixture 侧改名解掉，两个子 id 各封一份 `PASS`、四读一致，`domain.sh` 一字未动。）
   `ADMIT-070-RECORD-SCHEMA-001` 也还是 `QUEUED`，但它自己写明
@@ -2051,12 +2061,16 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 
 ### CRASH-OUTBOX-SEALED-KIN-001 — 让「没有文档的一次 run」也能说出它属于哪个 Kin
 
-- `status`: `QUEUED`（本 commit 登记；紧随的 commit 提升为唯一 `NEXT`，`CRASH-OUTBOX-RESEAL-001`
-  在此期间记 `BLOCKED_EVIDENCE`）。登记 commit 纯文档，入口门禁全绿：full pytest
+- `status`: `NEXT`（`c75865b` 以 `QUEUED` 登记并推送，由紧随的本 commit 提升为唯一 `NEXT`；
+  `CRASH-OUTBOX-RESEAL-001` 在此期间记 `BLOCKED_EVIDENCE`，本卡 `DONE` 之后它回到 `NEXT`）。
+  登记 commit 纯文档，入口门禁全绿：full pytest
   `2147 passed / 2 skipped in 323.89s`、`ruff check` exit 0、`ruff format --check` `304 files already
   formatted`、Pyright `0 errors, 0 warnings, 0 informations`、boundaries OK、case assertions
   `OK (139 registered)`、fixture digests OK、workflow pins OK、`git diff --check` 干净）
-- `registered`: 本 commit（那次登记的短 sha 由紧随的提升 commit 记录）
+- `promotion_reason`: 顺序已满足——登记它的 `c75865b` 只写 `QUEUED`、没写 `NEXT`，本 commit 之前计划里
+  没有 `NEXT`，中间没有插入别的未授权工作。它挡在 campaign 第 5 个场景上：`CORE-060` 的第二次真实
+  attempt（run id `082e0f0420fc426ca8156bc9d5c91d11`）已经把 `--run-id` 那条回落走到，剩下的就是这一格。
+- `registered`: `c75865b`（`QUEUED`）
 - `baseline_sha`: `431ba840e74390e50b823f9fe6e5bc912949e54c`
 - `blocked_by`: 无
 - `question`: 一次被杀掉 Core 的 run 只剩账本里那个 `run_id` 可命名，而封存面**从数据卷的目录结构**
@@ -2103,6 +2117,8 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
   更新任何 `case_version`：停下——那意味着碰到的是判据实现而不是命名入参，需要先回文档面处理；
   ② 若要做到「只在没有文档时用这个名字」必须让 sealer 与 asserter 各存一份 Kin 的记载：停下，
   不做第二份真相；③ 若要清掉 `kin-02` 才能让旧读路通过：拒绝，那是证据不是缓存。
+- `next_after_done`: `CRASH-OUTBOX-RESEAL-001` 回到唯一 `NEXT`（campaign 第 5 个场景的真实重封；
+  其后的第 6/7 个场景各自还需要设计卡，未排入本链）。
 
 ### CRASH-OUTBOX-RESEAL-001 — 把五个故障窗口在 current build 上重封
 

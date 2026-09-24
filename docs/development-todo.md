@@ -2137,9 +2137,9 @@
   - **下一步**：等前置卡 `DONE`（那时一次真实的被杀 Core 运行封得下来，且不动任何 `case_version`），
     本卡回到 `NEXT`，再把五个窗口逐个跑成真实 bundle。
 
-- [ ] **CRASH-OUTBOX-SEALED-KIN-001（本 commit 登记，`QUEUED`）**：让「没有文档的一次 run」也能明白地
+- [ ] **CRASH-OUTBOX-SEALED-KIN-001（进行中，当前唯一 NEXT）**：让「没有文档的一次 run」也能明白地
   说出它属于哪个 Kin。`CRASH-OUTBOX-RESEAL-001` 第二次真实 attempt 当场发现的封存面阻断，是 campaign
-  第 5 个场景当下唯一的硬阻断。
+  第 5 个场景当下唯一的硬阻断（`c75865b` 登记 `QUEUED`、紧随的 commit 提升为 `NEXT`）。
   - **问题**：`tools/assert_case_evidence.py:551-557` 在 run 文档没说出 `kin_id` 时，凭数据卷的目录
     结构猜——要求 `<data-root>/kin/*` 里恰好一个目录持有 `kin.sqlite3`。卷上现在有 `kin-01`/`kin-02`
     两个，那个前提不再成立；而 `:558` 那句合并报错把「缺 Kin」说成「缺 run id」，两件事都没缺。
