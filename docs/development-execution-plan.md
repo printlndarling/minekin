@@ -12,18 +12,18 @@
 - `baseline_date`: 2026-09-22
 - `baseline_branch`: `main`
 - `baseline_remote`: `origin/main`
-- `current_next`: 本 commit 之后计划里**没有** `NEXT`。它收掉 `CRASH-OUTBOX-EVIDENCE-DESIGN-001`
-  （冻结在 `72aec3e`，收卡在本 commit）：那张 campaign 第 5 个场景的判据卡交出的不是封证，而是一份
-  逐窗口的读数——五个已定义的故障窗口（`CORE-060` 的 runtime 边界、`CORE-060-CLIENT-001`、
-  `CORE-060-SERVER-001`、`CORE-090` 的两连跑、`CORE-020` 的正常退出）都有 case id、有断言、有
-  runner 开关，但**没有一份 bundle 在当前 reviewed build 上**（五案的 `from_repository_build` 全为
-  `false`、bridge digest 不是本 build、五对 `case_version` 全部移动过，读作 `UNJUDGED` 且原样保留）；
-  第六个窗口——崩溃落在「`START_CLIENT` 意图已写、效果还没 settle」之间——按构造打不中，因为
-  `domain.sh:1250` 那个等待条件要的是「不同横坐标数 ≥2」，而那段区间在产品代码内部；它归本地证据，
-  要变成真实运行得先测一条未验证的路，冻结拒绝为封证在产品代码里插停顿。本 commit 因此当场登记
-  `CRASH-OUTBOX-RESEAL-001`（`QUEUED`，纯真实运行卡，`allowed_paths` 只有文档），紧随的 commit 把它
-  提升为唯一 `NEXT`。
-  （前一张 `CRASH-OUTBOX-EVIDENCE-DESIGN-001` 由 `d33c236` 提升为唯一 `NEXT`、`bd0448a` 登记；
+- `current_next`: `CRASH-OUTBOX-RESEAL-001`——由本 commit 从 `QUEUED` 提升为唯一 `NEXT`（登记在
+  `a1be5fb`，登记的那一条 commit 没有同时写 `NEXT`，满足交接第 1 项；提升前计划里没有 `NEXT`，中间
+  没有插入别的未授权工作）。它是 campaign `order` 第 5 个场景的**真实重封**卡：把五个已定义窗口
+  （`CORE-060` 的 runtime 强杀、`CORE-060-CLIENT-001`、`CORE-060-SERVER-001`、`CORE-090` 的两连跑、
+  `CORE-020` 的正常退出）各自跑成一份**当前 build** 的 bundle，四读一致、`from_repository_build: true`。
+  它的读数来自前一张冻结卡 `CRASH-OUTBOX-EVIDENCE-DESIGN-001`（交付 `72aec3e`、收卡 `a1be5fb`，
+  那份逐窗口表在契约的「crash / outbox / restart 窗口的可封边界」一节）：五个窗口都有 case id、断言与
+  runner 开关，缺的只是当前 build 上的 attempt；第六个窗口——崩溃落在「`START_CLIENT` 意图已写、效果
+  还没 settle」之间——按构造打不中（`domain.sh:1250` 等的是「不同横坐标数 ≥2」，而那段区间在产品代码
+  内部），归本地证据，**不在**本卡里。本卡 `allowed_paths` 只有文档：重封不改代码；它的第一步是重建
+  本机已缺失的 `minekin-runner:local` 镜像，`minekin-runner-data` 卷原样保留、旧 bundle 一个不清。
+  （那张冻结卡由 `d33c236` 提升为唯一 `NEXT`、`bd0448a` 登记；
   它之前的 `OFFLINE-030-CASE-FILENAME-001` 在 `7c8c412` 收为 `DONE`：`-001` 子 case 找不回 fixture
   那个阻断在 fixture 侧改名解掉，两个子 id 各封一份 `PASS`、四读一致，`domain.sh` 一字未动。）
   `ADMIT-070-RECORD-SCHEMA-001` 也还是 `QUEUED`，但它自己写明
@@ -2047,12 +2047,18 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 
 ### CRASH-OUTBOX-RESEAL-001 — 把五个故障窗口在 current build 上重封
 
-- `status`: `QUEUED`（本 commit 登记，未提升；按交接第 1 项，提升要等紧随的下一个 commit）
-- `registered`: 本 commit（`CRASH-OUTBOX-EVIDENCE-DESIGN-001` 收卡的同一个 commit）
-- `promotion_reason`: 待定——本卡登记时不写 `NEXT`。
-- `blocked_by`: `CRASH-OUTBOX-EVIDENCE-DESIGN-001`（`DONE`，冻结在 `72aec3e`）。它的冻结是本卡的
-  前提读数：六个窗口各自的承载 case、读的工件、harness 开关，以及「旧 bundle 一律不追认」这条口径。
-- `baseline_sha`: `72aec3e5852782627a6e563edf6b4ba7957c7dee`
+- `status`: `NEXT`（`a1be5fb` 以 `QUEUED` 登记并推送，由紧随的本 commit 提升为唯一 `NEXT`）
+- `promotion_reason`: 顺序已满足——登记它的那张 commit（`a1be5fb`）同时把 `CRASH-OUTBOX-EVIDENCE-DESIGN-001`
+  收为 `DONE` 并推到两条 ref，`a1be5fb` 只写 `QUEUED`、没写 `NEXT`，本 commit 之前计划里没有 `NEXT`，
+  中间没有插入别的未授权工作。入口门禁在登记时全绿（full pytest `2146 passed / 2 skipped in 518.56s`、
+  ruff check/format、Pyright 0 errors、boundaries、case assertions 139 registered、fixture digests、
+  workflow pins、`git diff --check` 干净）。它是 campaign `order` 第 5 个场景当下唯一的入口：冻结卡
+  已给出该场景的逐窗口读数，五个窗口都只缺当前 build 上的 attempt。本机需要先从 Dockerfile 重建
+  `minekin-runner:local` 镜像（数据卷 `minekin-runner-data` 仍在，不动它），这是交付步骤，不是决策点。
+- `registered`: `a1be5fb`（`QUEUED`）
+- `blocked_by`: 无（前置卡 `CRASH-OUTBOX-EVIDENCE-DESIGN-001` 已 `DONE`，交付 `72aec3e`、收卡 `a1be5fb`：
+  六个窗口的承载 case、读的工件、harness 开关与「旧 bundle 不追认」的口径都已冻结）
+- `baseline_sha`: `a1be5fbb55d870f7f5d98a3450cf0364b9318712`
 - `question`: campaign `order` 第 5 个场景（crash/outbox 窗口）**在当前 reviewed build 上封齐**。
   冻结已经给出：五个已定义窗口都有 case id、断言与 runner 开关，缺的只是 attempt——所以本卡的问题不是
   「怎么证」，而是「把这五个窗口各跑成真 bundle，四读一致」。逐案各一次真实受控运行：
