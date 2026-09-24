@@ -44,6 +44,27 @@ BRIDGE_JAR_SHA256 = "faeec4a9df83abb9ca0404863e04d20cfd87ac0f3afd5e74b6858e3e153
 BRIDGE_JAR_SIZE = 1_308_525
 BRIDGE_JAR_RELATIVE_PATH = "bridge/build/libs/minekin-bridge-0.0.0.jar"
 
+# The second, not-yet-built bundle. These are the reviewed pins for Minecraft
+# 1.20.1, each one re-fetched and re-hashed from its authoritative upstream
+# (see `docs/version-license-matrix.md`), not copied from the 1.21.4 stack. They
+# describe a *candidate* only: no 1.20.1 Bridge jar has been built, so the
+# recipe treats the Bridge as `build_required` and the bundle as non-launchable.
+# Reaching `tested` needs the isolated Loom build and the real cross-version
+# acceptance in later cards; nothing here asserts that has happened.
+MINECRAFT_1201_VERSION = "1.20.1"
+MINECRAFT_1201_METADATA_SHA1 = "599695fee750ab157846886c6e69583003f22d07"
+MINECRAFT_1201_JAVA_MAJOR = 17
+FABRIC_LOADER_1201 = "0.19.5"
+FABRIC_API_1201_VERSION = "0.92.12+1.20.1"
+FABRIC_YARN_1201 = "1.20.1+build.10"
+FABRIC_API_1201_URL = (
+    "https://maven.fabricmc.net/net/fabricmc/fabric-api/fabric-api/"
+    "0.92.12+1.20.1/fabric-api-0.92.12+1.20.1.jar"
+)
+FABRIC_API_1201_SIZE = 2_137_232
+FABRIC_API_1201_SHA256 = "4197ff4fbdac13cffccd267c1bc59e9fbabb2b5683a9d5f8023f4b5ea16a1c1e"
+FABRIC_API_1201_SHA1 = "3e9cdd3e2f827ca9a259df9eb8e31949437b6bd4"
+
 
 def _reject(message: str) -> MinekinError:
     return MinekinError(
@@ -141,6 +162,91 @@ def _objects(value: object, field: str) -> list[dict[str, Any]]:
     return result
 
 
+def _candidate_1201_audit(profile: dict[str, Any], workspace_root: Path) -> RecipeAudit | None:
+    """Validate a reviewed 1.20.1 *candidate* recipe, or return None if it is not one.
+
+    The candidate is honest about what has not happened: no 1.20.1 Bridge jar is
+    pinned because none has been built, so the Bridge artifact must say
+    `build_required` and the audit carries that blocker. It is therefore never
+    launchable, and nothing here claims `tested`.
+    """
+
+    version_section = profile.get("minecraft")
+    if not isinstance(version_section, dict) or (
+        cast(dict[str, object], version_section).get("version") != MINECRAFT_1201_VERSION
+    ):
+        return None
+
+    expected_pins = (
+        ("minecraft", "version", MINECRAFT_1201_VERSION),
+        ("runtime", "java_major", MINECRAFT_1201_JAVA_MAJOR),
+        ("fabric", "loader", FABRIC_LOADER_1201),
+        ("fabric", "api", FABRIC_API_1201_VERSION),
+        ("fabric", "yarn", FABRIC_YARN_1201),
+    )
+    for section_name, field, expected in expected_pins:
+        section = profile.get(section_name)
+        if not isinstance(section, dict):
+            raise _reject(f"bundle recipe {section_name} must be an object")
+        if cast(dict[str, object], section).get(field) != expected:
+            raise _reject(f"bundle recipe {section_name}.{field} is not the reviewed value")
+
+    artifacts = _objects(profile.get("artifacts"), "artifacts")
+    by_name: dict[str, dict[str, Any]] = {}
+    for artifact in artifacts:
+        name = artifact.get("name")
+        if not isinstance(name, str) or name in by_name:
+            raise _reject("bundle recipe artifact names must be unique strings")
+        by_name[name] = artifact
+    if set(by_name) != {"fabric-api", "minekin-bridge"}:
+        raise _reject("bundle recipe fixed mod set is not exactly p0-core")
+
+    fabric_api = by_name["fabric-api"]
+    required_api = {
+        "kind": "mod",
+        "verification": "sha256",
+        "digest": FABRIC_API_1201_SHA256,
+        "size": FABRIC_API_1201_SIZE,
+        "source": FABRIC_API_1201_URL,
+        "license": "Apache-2.0",
+    }
+    if any(fabric_api.get(key) != expected for key, expected in required_api.items()):
+        raise _reject("Fabric API artifact identity is not the reviewed release")
+
+    bridge = by_name["minekin-bridge"]
+    if any(
+        bridge.get(key) != expected
+        for key, expected in {
+            "kind": "bridge",
+            "verification": "build_required",
+            "source": "workspace:bridge",
+            "license": "NOASSERTION",
+        }.items()
+    ):
+        raise _reject("candidate Bridge must be declared as build_required, not a pinned jar")
+    if "digest" in bridge or "size" in bridge:
+        raise _reject("an unbuilt candidate Bridge cannot pin a jar digest or size")
+
+    bundle_name = profile.get("bundle_name")
+    if not isinstance(bundle_name, str) or not bundle_name:
+        raise _reject("bundle_name is required")
+    return RecipeAudit(
+        bundle_name=bundle_name,
+        fixed_mods=(
+            FixedMod(
+                name="fabric-api",
+                kind="mod",
+                sha256=FABRIC_API_1201_SHA256,
+                size=FABRIC_API_1201_SIZE,
+                source=FABRIC_API_1201_URL,
+                sha1=FABRIC_API_1201_SHA1,
+            ),
+        ),
+        bridge_source_sha256=source_tree_sha256(workspace_root / "bridge"),
+        blockers=("minekin-bridge: build required",),
+    )
+
+
 def validate_bundle_recipe(profile_path: Path, workspace_root: Path) -> RecipeAudit:
     try:
         value = json.loads(profile_path.read_bytes())
@@ -149,6 +255,9 @@ def validate_bundle_recipe(profile_path: Path, workspace_root: Path) -> RecipeAu
     if not isinstance(value, dict):
         raise _reject("bundle recipe must be an object")
     profile = cast(dict[str, Any], value)
+    candidate = _candidate_1201_audit(profile, workspace_root)
+    if candidate is not None:
+        return candidate
     expected_pins = (
         ("minecraft", "version", "1.21.4"),
         ("runtime", "java_major", 21),

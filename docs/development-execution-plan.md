@@ -3125,6 +3125,18 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
   需无漂移泛化后 1.20.1 candidate recipe 才能过校验。**尚未做**：无漂移 pin 表泛化、隔离 1.20.1
   Loom 构建、candidate recipe fixture + 门禁、Bridge 1.20.1 target；真实入服属 V04。以上任一项
   均未、也不会被记为 `tested`/PASS。
+  **续（recipe 校验层，同日内）**：`adapters/launcher/recipe.py` 现按 Minecraft 版本分派——
+  新增 `_candidate_1201_audit`，把已核对的 1.20.1 pins（java 17、loader 0.19.5、api
+  0.92.12+1.20.1 sha256 `4197ff4f…`、yarn 1.20.1+build.10）作为**只读 candidate** 校验：
+  Bridge 必须是 `build_required` 且**不得**pin 未构建 jar 的 digest/size，audit 带
+  `blockers=("minekin-bridge: build required",)`、fixed_mods 只含 fabric-api；1.21.4 分支代码
+  与消息**一字未改**（纯增量分派）。新增 7 项定向测试（candidate 非可启动、未构建 jar 被拒、
+  伪造 fabric/api/loader pin 与篡改 api digest 被拒）。全量门禁 `2314 passed / 2 skipped`
+  （较 V02 的 2307 只多这 7 项，无 1.21.4 漂移）；ruff/format/pyright/boundaries/case
+  assertions/workflow pins/`git diff --check` 全绿。**仍未做**：`metadata.py`/`launch_plan.py`/
+  `bundle-manifest.schema.json` 的无漂移泛化 + 1.20.1 元数据 fixture，使 candidate 能过
+  `bundle verify`（它经 `build_launch_plan` 会触及 1.21.4 常量锁定的 `load_pinned_metadata`）；
+  以及隔离 Loom 构建产出真实 1.20.1 Bridge jar。本卡据实仍 `NEXT`、未 `DONE`、未 `tested`。
 
 ### HOST-ADMISSION-DESIGN-001 — 宿主世界会话坐标来源
 

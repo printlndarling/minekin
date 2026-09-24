@@ -206,3 +206,94 @@ def test_a_bridge_jar_of_the_right_size_but_the_wrong_bytes_is_refused(tmp_path:
         require_built_bridge(tmp_path)
 
     assert raised.value.category is ErrorCategory.SUPPLY_CHAIN
+
+
+def _candidate_1201() -> dict[str, object]:
+    """A faithful 1.20.1 candidate recipe: reviewed pins, unbuilt Bridge."""
+
+    return {
+        "schema_version": 1,
+        "bundle_name": "p0-core-1.20.1-linux-x86_64",
+        "status": "candidate",
+        "launchable": False,
+        "minecraft": {
+            "version": recipe_module.MINECRAFT_1201_VERSION,
+            "version_metadata_sha1": recipe_module.MINECRAFT_1201_METADATA_SHA1,
+        },
+        "runtime": {"java_major": 17, "os_arch": "linux-x86_64"},
+        "fabric": {
+            "loader": recipe_module.FABRIC_LOADER_1201,
+            "api": recipe_module.FABRIC_API_1201_VERSION,
+            "yarn": recipe_module.FABRIC_YARN_1201,
+        },
+        "artifacts": [
+            {
+                "name": "fabric-api",
+                "kind": "mod",
+                "verification": "sha256",
+                "digest": recipe_module.FABRIC_API_1201_SHA256,
+                "size": recipe_module.FABRIC_API_1201_SIZE,
+                "source": recipe_module.FABRIC_API_1201_URL,
+                "license": "Apache-2.0",
+            },
+            {
+                "name": "minekin-bridge",
+                "kind": "bridge",
+                "verification": "build_required",
+                "source": "workspace:bridge",
+                "license": "NOASSERTION",
+            },
+        ],
+    }
+
+
+def _write_candidate(tmp_path: Path, recipe: dict[str, object]) -> Path:
+    path = tmp_path / "recipe-1.20.1.json"
+    path.write_text(json.dumps(recipe), encoding="utf-8")
+    return path
+
+
+def test_a_1201_candidate_recipe_validates_as_non_launchable(tmp_path: Path) -> None:
+    audit = validate_bundle_recipe(_write_candidate(tmp_path, _candidate_1201()), ROOT)
+    # Only the fetched mod is a fixed artifact; the Bridge has no build yet.
+    assert [mod.name for mod in audit.fixed_mods] == ["fabric-api"]
+    assert audit.fixed_mods[0].sha256 == recipe_module.FABRIC_API_1201_SHA256
+    # The unbuilt Bridge is recorded as a blocker, so this candidate is never launchable.
+    assert audit.blockers == ("minekin-bridge: build required",)
+    # Provenance of the source the future 1.20.1 jar must come from is still captured.
+    assert len(audit.bridge_source_sha256) == 64
+
+
+def test_a_candidate_bridge_cannot_pin_an_unbuilt_jar(tmp_path: Path) -> None:
+    recipe = _candidate_1201()
+    bridge = next(a for a in recipe["artifacts"] if a["name"] == "minekin-bridge")  # type: ignore[index]
+    bridge["digest"] = "0" * 64  # type: ignore[index]
+    with pytest.raises(MinekinError, match="unbuilt candidate Bridge cannot pin"):
+        validate_bundle_recipe(_write_candidate(tmp_path, recipe), ROOT)
+
+
+def test_a_candidate_bridge_declared_as_built_is_rejected(tmp_path: Path) -> None:
+    recipe = _candidate_1201()
+    bridge = next(a for a in recipe["artifacts"] if a["name"] == "minekin-bridge")  # type: ignore[index]
+    bridge["verification"] = "sha256"  # type: ignore[index]
+    with pytest.raises(MinekinError, match="build_required"):
+        validate_bundle_recipe(_write_candidate(tmp_path, recipe), ROOT)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [("yarn", "1.20.1+build.99"), ("api", "0.92.13+1.20.1"), ("loader", "0.16.9")],
+)
+def test_an_unreviewed_1201_fabric_pin_is_rejected(tmp_path: Path, field: str, value: str) -> None:
+    recipe = _candidate_1201()
+    recipe["fabric"][field] = value  # type: ignore[index]
+    with pytest.raises(MinekinError, match=f"fabric.{field} is not the reviewed value"):
+        validate_bundle_recipe(_write_candidate(tmp_path, recipe), ROOT)
+
+
+def test_a_tampered_1201_fabric_api_digest_is_rejected(tmp_path: Path) -> None:
+    recipe = _candidate_1201()
+    api = next(a for a in recipe["artifacts"] if a["name"] == "fabric-api")  # type: ignore[index]
+    api["digest"] = "0" * 64  # type: ignore[index]
+    with pytest.raises(MinekinError, match="Fabric API artifact identity"):
+        validate_bundle_recipe(_write_candidate(tmp_path, recipe), ROOT)
