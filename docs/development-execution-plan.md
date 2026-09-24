@@ -3137,6 +3137,22 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
   `bundle-manifest.schema.json` 的无漂移泛化 + 1.20.1 元数据 fixture，使 candidate 能过
   `bundle verify`（它经 `build_launch_plan` 会触及 1.21.4 常量锁定的 `load_pinned_metadata`）；
   以及隔离 Loom 构建产出真实 1.20.1 Bridge jar。本卡据实仍 `NEXT`、未 `DONE`、未 `tested`。
+  **续（metadata 解析层，同日内）**：`adapters/launcher/metadata.py` 现按版本键控 pin——新增
+  `VersionPins` 表与默认 `version="1.21.4"` 参数，把原先硬编码的 metadata sha1、java major、
+  libraries 计数、asset-index sha1、loader 坐标与 client 坐标/路径全部改为查表；1.21.4 分支
+  解析结果**一字未变**（既有元数据测试原样通过）。新增三份权威 1.20.1 fixture
+  （`version_manifest` 下的 `1.20.1.json` sha1 `599695fe…`、`asset-index-5.json` sha1 `78fe335e…`、
+  `fabric-loader-0.19.5.json`）并登记进 `tests/fixtures/manifest.sha256`；profile 不带校验和的
+  intermediary:1.20.1、fabric-loader:0.19.5 经 `_FABRIC_CHECKSUM_REGISTRY` 落到其 Maven
+  `.jar.sha1`（`97d0bff9…`/573,365B、`ff9e65cf…`/1,984,980B，均为现取 sidecar）。新增 3 项目标测试：
+  按 1.20.1 pin 解析（java 17、88→52 过滤后 libraries、7 natives、3598 objects、650,534,850B，
+  全部为量得值）、喂错版本字节 fail-closed、无 pin 版本被拒。全量门禁 `2317 passed / 2 skipped`
+  （较 recipe 层的 2314 只多这 3 项，无 1.21.4 漂移）；ruff/format/pyright/boundaries/case
+  assertions/workflow pins/fixture digests/`git diff --check` 全绿。**仍未做**：`launch_plan.py` 传
+  版本进 `load_pinned_metadata` + `bundle-manifest.schema.json` 泛化 + committed candidate recipe
+  fixture，使 `bundle verify` 端到端跑出非可启动的 1.20.1 plan（含 `_game_argument_template` 的
+  `--quickPlaySingleplayer` 是 1.20.2+、1.20.1 无此参数的适配）；以及隔离 Loom 构建产出真实
+  1.20.1 Bridge jar。本卡据实仍 `NEXT`、未 `DONE`、未 `tested`。
 
 ### HOST-ADMISSION-DESIGN-001 — 宿主世界会话坐标来源
 
