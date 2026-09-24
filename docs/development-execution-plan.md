@@ -12,13 +12,15 @@
 - `baseline_date`: 2026-09-22
 - `baseline_branch`: `main`
 - `baseline_remote`: `origin/main`
-- `current_next`: `TICK-RENDER-SOAK-RUN-001`——冻结卡 `TICK-RENDER-SOAK-EVIDENCE-DESIGN-001` 交付（`6717d2e`）
-  把它以 `QUEUED` 登记，本 commit 依交接「连续推进」第 6 项提升为唯一 `NEXT`。它是 campaign 第 6 场景（tick/render
-  + L6 soak）的**真实封证实现卡**：在当前 reviewed build 上跑一次受控 bounded-soak、封 `CORE-100` 新 attempt、
-  四读一致，并用 `report_soak` 如实报告预算/RSS 覆盖（**不设阈值、不造 FPS/TPS/GC/队列深度/GPU 读数、不重写
-  旧 baseline**）。`scenario_progress` 仍记 **5/7**——第 6 场景的真实封证由本卡兑现。**上一张交付卡**
-  `TICK-RENDER-SOAK-EVIDENCE-DESIGN-001`（`096bd68` 登记 `QUEUED`、`26a7543` 提升 `NEXT`、`6717d2e` 冻结收
-  `DONE`）把第 6 场景判据表写下。crash/outbox 第 5 场景由 `CRASH-OUTBOX-ALIVE-DISPLAY-001`（`f90abc8`）与前置
+- `current_next`: **无**——本 commit 把 campaign 第 6 场景（tick/render + L6 soak）的真实封证卡
+  `TICK-RENDER-SOAK-RUN-001` 收为 `DONE`（`9f3946d` 提升为 `NEXT`，本轮交付完成）：在当前 reviewed build 上跑完
+  受控 600 秒 / 间隔 10 秒 bounded-soak、封 `CORE-100` 新 attempt（run `8367f741…`、bundle `1b2a58e9…`、
+  `result PASS`）、四读一致（verify / rejudge / replay / promotion）、`report_soak` 如实报告预算/RSS 覆盖且不设阈值，
+  旧 baseline `e3a99202…` 只量不改（读到 `UNJUDGED`、原样保留），全量 `2159 passed / 2 skipped`。
+  `scenario_progress 5/7→6/7`。依 `order` 第 7 场景（`CORE/OFFLINE/ADMIT` promotion 总账，阶段 F）的卡**尚未登记**，
+  故本 commit 不虚构一张尚不存在的卡当 `NEXT`；下一 commit 按「连续推进」先以 `QUEUED` 登记、再提升为唯一 `NEXT`。
+  第 6 场景判据表由冻结卡 `TICK-RENDER-SOAK-EVIDENCE-DESIGN-001`（`096bd68` 登记 `QUEUED`、`26a7543` 提升 `NEXT`、
+  `6717d2e` 冻结收 `DONE`）写下。**上一批交付卡**：crash/outbox 第 5 场景由 `CRASH-OUTBOX-ALIVE-DISPLAY-001`（`f90abc8`）与前置
   `CRASH-OUTBOX-RESEAL-001`（`DONE` 5/5）收口，`scenario_progress 4/7→5/7`。`ALIVE-DISPLAY` 只做一件事——把
   X 显示与 Core 的生死脱钩（harness 自己起并持有 Xvfb、
   `session` 只继承 `DISPLAY`、Core 挪到普通 `sh -c` 包装之下仍是 `session_pid` 的后代），使客户端 tick 那句
@@ -439,7 +441,11 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
   解掉显示与 Core 生死脱钩的硬阻断），四读一致；旧 build 上那五份 bundle 对今天的 `case_version` 读作
   `UNJUDGED`，连同两份 runtime `FAIL` 按冻结口径原样保留、不追认。启动窗口那一半（未 settle 的 effect
   intent）按冻结记为本地证据，不在真实 run 里插停顿。第 6/7 个场景在此之前没有任何卡。
-- `scenario_progress`: 5/7 场景已封为正式 case。第 5 个（crash/outbox 窗口）在 current reviewed build 上
+- `scenario_progress`: 6/7 场景已封为正式 case。第 6 个（tick/render + L6 bounded-soak）在当前 reviewed
+  build 上封 `CORE-100`（run `8367f741124d4132835eeb3d85833d46`、bundle `1b2a58e9cc371d23…`、attempt 1、
+  `case_version d6e94bbc93ff1666…`、`bridge_digest faeec4a9df83abb9…`、`result PASS`、四读一致；受控 600s/10s、
+  `ended_early: false`、client/server 各 56 样本，`report_soak` 只报覆盖不设阈值；旧 `2026-09-20` baseline
+  `e3a99202…` 只量不改、在当前 build 读作 `re_judged: UNJUDGED`）。第 5 个（crash/outbox 窗口）在 current reviewed build 上
   五案齐、`bridge_digest` 全为 `faeec4a9df83abb9…`：`CORE-060`（runtime，run `7fc0671eabca4430885017613977779c`、
   bundle `3876c335…`、attempt 3、`case_version` `d1ea32d8b705…`）、`CORE-060-CLIENT-001`（`c89f5d35…`）、
   `CORE-060-SERVER-001`（`f4365a50…`）、`CORE-090` 两连跑（`3e94d49a…`）、`CORE-020`（`8a72dcdf…`）。此前
@@ -2605,8 +2611,7 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 
 ### TICK-RENDER-SOAK-RUN-001 — 在当前 build 上封一次 L6 有界 soak 并报告预算/RSS 覆盖
 
-- `status`: `NEXT`（本 commit 登记那张冻结卡的紧随后一条，依交接「连续推进」第 6 项从 `QUEUED` 提升为唯一
-  `NEXT`）
+- `status`: `DONE`（`9f3946d` 提升为唯一 `NEXT`，2026-09-24 真实封证交付完成；四读一致、全量门禁绿）
 - `promotion_reason`: 顺序已满足——登记它的 commit（冻结卡 `TICK-RENDER-SOAK-EVIDENCE-DESIGN-001` 交付，
   `6717d2e`）同时把该冻结卡收为 `DONE`，登记那次 commit 之后计划里无 `NEXT`，中间没插入别的未授权工作；它是
   `order` 第 6 场景冻结表点名的唯一真实封证实现卡。提升前静态门禁全绿（case assertions 139 registered、fixture
@@ -2643,6 +2648,34 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
   并报告；③ 某判官字段要求而契约无来源 ⇒ 只报「该轮测量不完整」，不造读数。
 - `next_after_done`: 判据冻结的真实封证完成后，按 `order` 登记/提升第 7 场景（`CORE/OFFLINE/ADMIT` promotion
   总账，阶段 F）的卡。
+- `completion_evidence`:
+  - **旧 baseline 只量不改（验收 ③）**：`2026-09-20` 那份 baseline bundle（`e3a99202…`）在当前 build 上经
+    `report_promotion` 读到 `re_judged: UNJUDGED`（判据字节随 case_version 移动），旧 PASS 字节原样保留、未重写、
+    未追加新 attempt。
+  - **当前 build 真实 soak 封证（验收 ①）**：受控 bounded-soak 600 秒 / 间隔 10 秒、`llvmpipe` 软件渲染、两个
+    JVM、分配新 attempt，封 `CORE-100`。run id `8367f741124d4132835eeb3d85833d46`，
+    `evidence_directory /data/kin/kin-01/run/evidence/8367f741124d4132835eeb3d85833d46`，`attempt_sequence 1`，
+    `status sealed`，15 件工件（含 `soak-samples.txt`、`soak-summary.json`），`bundle_digest
+    1b2a58e9cc371d236b959b7e3507678d04506b6c32b875a5ce7ebd9f20c749e2`，`case_version
+    d6e94bbc93ff1666eb1a9d631dcc94d08d0f9c4ff3d02ca8b503ab39090af451`，`result PASS`，三条断言逐条来自封存字节。
+  - **四读一致（验收 ②）**：① `evidence verify` → `verified: true / sealed: true / violations: []`；②
+    `rejudge_evidence` → `status: agrees`，三条 expected==observed、`failures: []`；③ `replay`（`python -m
+    minekin_core replay` 与 `tools/replay_evidence.py`）→ `status: projected / violations: []`，终态 STOPPED，
+    `trace_sha256 a6e4dee0…`；④ `report_promotion` → 该 bundle `PASS/verified/sealed`、`from_repository_build:
+    true`、`re_judged: AGREES`，bridge_digest `faeec4a9df83abb9ca0404863e04d20cfd87ac0f3afd5e74b6858e3e15372f55`，
+    attempt `SEALED`。
+  - **report_soak 覆盖与缺口（验收 ④）**：`status: reported`、`verdict: PASS`、600s/10s、`ended_early: false`。
+    client 56 样本、`last_elapsed 594`，RSS P50 1550.8 / P95 1553.2 / P99 1553.2 / max 1553.2 MB，线程 94–113；
+    server 56 样本、`last_elapsed 594`，RSS P50 870.6 / P95 871.3 / P99 871.4 / max 871.4 MB，线程 53–74
+    （nearest-rank）。tick/render 预算窗口只报覆盖不设阈值：run 文档捕获 tick 窗口 56（p50 2µs / p95 13 / p99 22 /
+    max 20929µs，`missing_windows: []`）、tick_interval 窗口 56（p50 50662µs / p95 67029 / p99 67406，`missing:
+    []`）、`received_windows 112`、`connection_state PLAYABLE`、`snapshots_admitted 1`；FPS/TPS/GC/队列深度/GPU
+    无来源，如实标「未测/该轮不完整」，未声称性能合格。
+  - **全量门禁绿（验收 ⑤）**：本轮无代码改动，全量 pytest `2159 passed / 2 skipped`（相对 `9f3946d`/`26a7543`
+    无变化），case assertions 139 registered、fixture digests、boundaries、workflow pins、`git diff --check` 干净。
+  - **三条 `stop_conditions` 均未触发**：封存通道把 soak 两份工件写进了 bundle（未动 `tools/`/`bridge/` 采样面）；
+    一次真跑即封上（无连续三次外部阻断）；预算字段有 run 文档来源（未出现「契约无来源」）。
+- `completion_commit`: 本次收卡 commit（纯文档）。
 
 ### OFFLINE-IDENTITY-SEALED-ARGV-001 — 让封存时的 live 判读也拿到那份 argv
 

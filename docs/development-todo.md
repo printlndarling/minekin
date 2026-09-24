@@ -2283,8 +2283,8 @@
     fixture digests、workflow pins 全绿）无代码变化；本 commit 复核 `git diff --check` 干净、case/fixture/pins
     静态门禁原样绿。
 
-- [ ] **TICK-RENDER-SOAK-RUN-001（`NEXT`，campaign 第 6 场景的真实封证实现卡；`6717d2e` 登记 `QUEUED`、紧随
-  commit 提升 `NEXT`）**：在当前 build 上跑一次受控
+- [x] **TICK-RENDER-SOAK-RUN-001（已完成，campaign 第 6 场景的真实封证实现卡；`6717d2e` 登记 `QUEUED`、`9f3946d`
+  提升 `NEXT`，本轮交付）**：在当前 build 上跑一次受控
   bounded-soak（`MINEKIN_DOMAIN_SOAK_SECONDS`/`MINEKIN_DOMAIN_SOAK_INTERVAL`，建议沿 baseline 的 600 秒 / 间隔
   10 秒、`llvmpipe` 软件渲染、两个 JVM），封 `CORE-100` 新 attempt、四读一致，并用 `report_soak` 报告预算/RSS
   覆盖。**先**对 `2026-09-20` 旧 baseline bundle 在当前 build 上量一次实际读数（记 `UNJUDGED`/或仍 `AGREES`）、
@@ -2292,6 +2292,20 @@
   报告」。`stop_conditions`：① 封存通道今天不能把 soak 两份工件写进 bundle（需动采样面）⇒ 先停下修订范围；
   ② 真实 soak 连续三次同一不可消除外部阻断 ⇒ `BLOCKED_EVIDENCE`；③ 判官要而契约无来源的指标只报不完整。
   `next_after_done`：按 `order` 进入第 7 场景（CORE/OFFLINE/ADMIT promotion 总账，阶段 F）。
+  - **交付（本轮真实封证）**：旧 baseline `e3a99202…` 先在当前 build 量得 `re_judged: UNJUDGED`（判据字节随
+    case_version 移动），PASS 字节原样保留、未重写、未追新 attempt。随后受控 600 秒 / 间隔 10 秒 `llvmpipe`
+    两 JVM soak，封 `CORE-100` 新 attempt：run `8367f741124d4132835eeb3d85833d46`、
+    `evidence_directory /data/kin/kin-01/run/evidence/8367f741…`、`attempt_sequence 1`、`status sealed`、15 件
+    工件（含 `soak-samples.txt`/`soak-summary.json`）、`bundle_digest 1b2a58e9cc371d23…`、`case_version
+    d6e94bbc93ff1666…`、`result PASS`。四读一致：`evidence verify` `verified/sealed true`、`violations []`；
+    `rejudge_evidence` `status: agrees`（三条 expected==observed）；`replay`（产品 + 测试域）`status: projected`、
+    `violations []`、终态 STOPPED；`report_promotion` 该 bundle `PASS/verified/sealed`、`from_repository_build:
+    true`、`re_judged: AGREES`、`bridge_digest faeec4a9df83abb9…`、attempt `SEALED`。`report_soak`：`status
+    reported`、600s/10s、`ended_early: false`，client 56 样本 last 594、RSS P50 1550.8/P95 1553.2/P99 1553.2/max
+    1553.2 MB、线程 94–113；server 56 样本 last 594、RSS P50 870.6/P95 871.3/P99 871.4/max 871.4 MB（nearest-rank）；
+    tick 窗口 56（p50 2µs/p95 13/p99 22/max 20929µs）、tick_interval 窗口 56、`received_windows 112`，只报覆盖不
+    设阈值；FPS/TPS/GC/队列深度/GPU 无来源，如实标不完整。全量门禁 `2159 passed / 2 skipped`。三条
+    `stop_conditions` 均未触发。
 
 - [x] **CRASH-OUTBOX-SEALED-KIN-001（已完成，交付 `2160989`）**：让「没有文档的一次 run」也能明白地
   说出它属于哪个 Kin。`CRASH-OUTBOX-RESEAL-001` 第二次真实 attempt 当场发现的封存面阻断，是 campaign
