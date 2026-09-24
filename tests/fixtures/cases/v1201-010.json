@@ -4,8 +4,7 @@
   "work_package": "W20",
   "mandatory": false,
   "inputs": [
-    "tests/fixtures/runtime-input/bundle-candidate-1.20.1.json",
-    "tests/fixtures/runtime-input/controlled-offline-server-1.20.1.json"
+    "tests/fixtures/runtime-input/bundle-candidate-1.20.1.json"
   ],
   "assertion_digests": {
     "handshake_accepted_by_core": "03fe229ec2fea14e7d9a61371c063a41b4227c3cc7f8eea2b5ecc635671ad08e",

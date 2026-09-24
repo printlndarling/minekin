@@ -3484,11 +3484,62 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
   `manifest.sha256` 补三行、`verify_fixture_digests.py` 复算 OK。`check_case_assertions.py` 登记的
   **139 项断言实现一字未动**：新案的摘要与 1.21.4 对应案逐项相同（如
   `first_snapshot_admitted` 两侧同为 `720a4db1b8bf…`），差异只在 case 文档本身即 `case_version`。
-  ⑩**尚未做**（本卡仍 `NEXT`、未 `tested`）：封证路径的版本化（`allowed_paths_amendment_2` 范围内：
-  `tools/seal_run_evidence.py` 与 `report_promotion.py` 的 per-recipe plan 摘要、
-  `world_creation.py`/`cli/bootstrap` 的 bundle 标识）、V1201 三案的**逐项独立封证 + 四读**（⑦ 那两次
-  运行当场封证被拒，原文见 `allowed_paths_amendment_2`，失败材料保留在 `.tmp/v04-domain-1201-join.log`
-  与 `.tmp/v04-domain-1201-020.log`，未在卷内留下 bundle）、runner 镜像的 JDK 17 备选。
+  ⑩**封证路径的版本化已完成，逐项封证与四读也已完成**（见 ⑪⑫）。本条原来的"尚未做"清单现在
+  只剩三项：`domain/world_creation.py` 与 `cli/bootstrap` 的 bundle 标识是否仍单版本——三案的真跑
+  没有碰到这条路径（受控专服不是 HOST 世界），所以本卡**不**据推断改动它，只把它留在未验证列表上；
+  runner 镜像的 JDK 17 备选（⑦ 量到镜像自带的 Java 21 能起 1.20.1 客户端，故这不是阻断）；
+  以及三案各自的**反例**（版本不符即拒、Bridge 摘要不符即拒、认证模式不符即拒），
+  它们与 ⑫ 的正例是同一道门的两侧，尚未在 1.20.1 上单独封证。
+- `seal_path_versioning`（2026-09-25）：`tools/seal_run_evidence.py` 改走会话与受控工装同一道
+  `load_session_server_profile()` 准入门，Bridge 摘要按启动版本取 `recipe.bridge_identity(...)`
+  （`f90d95d`，已推送并核对两 ref）；`tools/report_promotion.py` 的 build 对照改为**按 bundle 自述
+  的 Minecraft 版本**取该版本自己的 recipe（`bc80299`）。后者不是理论缺口：卷内第一份真实的 1.20.1
+  bundle 被单 recipe 的旧报告列进 `from_another_build`，即把诚实的 1.20.1 证据误判为"出自另一个
+  build、请重跑"。修复后同一份报告对三案的 `from_repository_build` 全为 `true`，且
+  `repository_build.builds` 两条都 `readable: true`（1.20.1 `ac40316094dd…`、1.21.4
+  `9e0e0ccca9d0…`），`gates_promotion` 仍为 `false`——build 身份照旧只是诊断，不推动任何晋级。
+- `progress_record_11_ledger_naming`（2026-09-25，实测）：数据卷里既存 `kin-01` 又存 hosted-join
+  场景留下的 `kin-02`，`domain.sh` 的账本计数检查按设计 fail closed 并报
+  `this run cannot name its ledger (found 2)`（run-146，exit 2，材料
+  `.tmp/v04-domain-1201-020-seal.log`）。这不是缺陷，是"拒绝替执行者猜"的判据；解法是**显式命名**
+  `MINEKIN_KIN_ID=kin-01`（`run.sh` 转发该变量，非 join 运行里它只选账本）。此后本卡每次真跑都带上
+  它，失败运行只追加不覆盖。
+- `progress_record_12_three_cases_sealed`（2026-09-25，受控 runner / Docker / Linux，全部四读一致）：
+  ①**V1201-010**（W20 主菜单握手 + 仅观察）run `bc203c0ed4004a0d9ba3604d2a51d910`、bundle
+  `13471d2f9b9e…`、attempt 序列 **2**，`handshake_accepted_by_core` 与 `stayed_observe_only` 双双
+  held，`evidence verify` `verified/sealed/PASS`、`rejudge` `agrees`、`replay` 11 事件投影到
+  `STOPPED`；运行文档里 `connection_state: null`、`snapshots_admitted: 0`、`entities_admitted: 0`，
+  即"仅观察"是真的没入服。②**V1201-020**（W40 入服身份 + 同代首快照 + 入服后离开）run
+  `87229052d24f4772a512dee497bab29c`、bundle `6dd17bd6b412…`、attempt 1，三断言全 held，19 事件投影
+  `STOPPED`，manifest 自述 `minecraft 1.20.1`、`bridge_digest 9e162d8359a8…`、
+  `launch_plan_digest ac40316094dd…`、`server_jar_sha1 84194a2f…`、
+  `identity.server_observed_name_uuid Kin/8f40376b-c23f-3ef1-b553-5564eea75639`。③**V1201-040**
+  （W60 转向 + 有界移动 + lease 到期松键）run `f4cc67ae130d4aef9b6fef00801c0e2f`、bundle
+  `3d0ebebe2805…`、attempt 1，`move_input_was_leased`、`the_bridge_carried_the_input_out`、
+  `the_server_saw_the_kin_move`、`the_lease_expired_and_was_released`（ledger 里 release 的
+  reason 是 TIMEOUT，不是断连）、`the_server_saw_the_kin_turn` 五条全 held，22 事件投影 `STOPPED`；
+  本次以 `--look-yaw-degrees 45 --hold-forward-seconds 2` 授权，服务端侧另记到"walk and stop"、
+  高度变化 0.00 格。这些是**一次授权范围内的小幅转向/短时移动/松键**的证据，不含方块变化，也不含
+  任意远程服。
+  ④同 run 文档里 `input_release_failed: true` 与 `outcome: BRIDGE_LOST` 同现：松键命令在停止阶段
+  送不进已经消失的通道（`session_runtime.py:385-392` 的既有规则：已消失的 transport 不把运行判成
+  别的原因）。本卡据此只声明"lease 到期时的松键被记账且服务端见到停下"，**不**声明"停止阶段的
+  显式松键命令成功送达"。
+- `progress_record_13_case_document_correction`（2026-09-25，改文档而非改判据）：V1201-010 第一次
+  真跑（run `e0f497107aa14fbcbff939c4548c37a1`、bundle `7bf45e22593f…`、attempt 1）判
+  `FAIL / stayed_observe_only:JOINED_A_WORLD`。根因不是判据太严，是**案文档自己矛盾**：它把受控
+  服务端 profile 列成 inputs，而 `stayed_observe_only` 要求这一次运行根本不入服（对应 1.21.4 的
+  `CORE-010` 只列 bundle）。据此把该案的 inputs 收敛为只列 1.20.1 candidate，`manifest.sha256`
+  相应改成 `69e6bb24178a…`，`case_version` 由 `1f4c3663173a…` 变成 `d9446f648807…`；两条断言实现
+  与其摘要一字未动（`verify_fixture_digests`/`check_case_assertions` 复算 OK）。旧的 FAIL bundle
+  保留在活动卷内，第四读如实报 `UNJUDGED`、理由"判据移动了"。attempt 序列按设计把 2 当作该案当前
+  答案，1 不被删除也不被冒充。
+- `progress_record_14_gates`（2026-09-25）：本报告段改动前的全量本地门禁为 `2359 passed / 2 skipped`、
+  ruff check/format 干净、pyright 0 errors、boundaries/case assertions/fixture digests/workflow pins/
+  `git diff --check` 全绿（`.tmp/v04-gate-chain-2.log`）；案文档修订后重跑三项受影响的门（fixture
+  digests、case assertions、boundaries）仍全绿。CI（`f90d95d` 的 run #473/#472）三个 job
+  python/protocol/bridge-static 全 Success，注解只有 Node 20 弃用与 ubuntu-latest 迁移提示；
+  CI 不作为本卡验收证据，只是回归信号。
 - `server_supply_chain`（2026-09-25 实测，来自 Mojang 官方 `version_manifest_v2` → 1.20.1 条目）：
   dedicated server `sha1 84194a2f286ef7c14ed7ce0090dba59902951553` / 47,791,053B，
   `piston-data.mojang.com/v1/objects/84194a2f…/server.jar`；client `sha1 0c3ec587af28e5a785c0b4a7b8a30f9a8f78f838`

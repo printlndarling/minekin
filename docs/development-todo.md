@@ -2507,3 +2507,40 @@
   `adapters/bridge/bootstrap.py` 里「Bridge JAR 还不能 pin」那句 docstring 已过期，因不在本卡允许路径而未改。
 - **下一步**：V03 本提交收 `DONE`；`VERSION-LOCAL-1201-001`（V04）需先在独立提交登记 `QUEUED`，
   再由下一次提交提升为唯一 `NEXT`。
+
+## V04 卷内封证现场（2026-09-25，Qoder 临时执行者；数据卷 `minekin-runner-data`，账本 `kin-01`）
+
+- **接手现场**：本地 HEAD = `origin/main` = `origin/codex/core-state-transition` = `f90d95d`；
+  唯一 `NEXT` = `VERSION-LOCAL-1201-001`。
+- **第一次封证被自己的账本门挡住（保留原样）**：run-146 `raw_exit=2`、
+  `domain: this run cannot name its ledger (found 2)`（`.tmp/v04-domain-1201-020-seal.log`）。
+  卷内除了 `kin-01` 还有 hosted-join 场景留下的 `kin-02`，`domain.sh` 按设计拒绝替执行者选账。
+  处置是**显式命名**而不是搬动/删除任何账本：此后每次真跑带 `MINEKIN_KIN_ID=kin-01`。
+- **三案的 run / bundle / attempt（每次一个 case，attempt 序列由 durable registry 分配）**：
+
+  | case | run id | bundle digest | attempt | 四读 |
+  | --- | --- | --- | --- | --- |
+  | `V1201-010`（FAIL，判据未变、案文档矛盾） | `e0f497107aa14fbcbff939c4548c37a1` | `7bf45e22593fd680f8455793f0b44ea104979c1ac6f1bb790bfea72eb16d4289` | 1 | verify `verified/sealed/FAIL`；第四读 `UNJUDGED`（case version 已移动） |
+  | `V1201-010`（PASS） | `bc203c0ed4004a0d9ba3604d2a51d910` | `13471d2f9b9e337392b86b25a80d574d45eae761c21d91a5b348c1729cdd890f` | 2 | verify PASS / rejudge `agrees` / replay 11 事件→`STOPPED` / `from_repository_build true` |
+  | `V1201-020`（PASS） | `87229052d24f4772a512dee497bab29c` | `6dd17bd6b41251fe39fb0f6ca6386334dc4c9ebd0a89ca00082b260999dbd84e` | 1 | verify PASS / rejudge `agrees` / replay 19 事件→`STOPPED` / 同上 |
+  | `V1201-040`（PASS） | `f4cc67ae130d4aef9b6fef00801c0e2f` | `3d0ebebe28050ea0ce9c35e4f7a32c7e173d28103f6b0c5f30041b02e88b1a56` | 1 | verify PASS / rejudge `agrees` / replay 22 事件→`STOPPED` / 同上 |
+
+  服务端目录依次为 `run-147`（020）、`run-148`（010 FAIL）、`run-149`（040）；010 的 PASS 那次无服务端
+  目录（仅观察运行不入服，`domain: no server profile; this run joins no world`）。
+- **案文档的自相矛盾（改文档，不改判据）**：`v1201-010.json` 把受控服务端 profile 列进 `inputs`，
+  而它自己的 `stayed_observe_only` 要求这次运行不入服。收敛为只列 `bundle-candidate-1.20.1.json`；
+  `manifest.sha256` 该行 `f712b354… → 69e6bb24…`，`case_version` `1f4c3663173a… → d9446f648807…`。
+  两条断言实现的摘要与 1.21.4 的 `CORE-010` 逐项相同，未动一行。
+- **第四读暴露的假阴性（已单独修复并推送）**：单 recipe 的 `report_promotion.py` 把第一份真实 1.20.1
+  bundle 列进 `from_another_build`。改为按 bundle 自述版本取 recipe 后，三案 `from_repository_build`
+  全为 `true`，`repository_build.builds` 两条 readable（`ac40316094dd…` / `9e0e0ccca9d0…`），
+  `gates_promotion` 仍 `false`。
+- **读数**：全量本地门禁 `2359 passed / 2 skipped`、ruff check/format、pyright 0 errors、boundaries、
+  case assertions(139)、fixture digests、workflow pins、`git diff --check` 全绿
+  （`.tmp/v04-gate-chain-2.log`）；案文档修订后三道受影响门重跑仍绿。CI `f90d95d` 的 run #473/#472
+  三 job 全 Success（浏览器逐条看过，注解只有 Node 20 弃用与 runner 镜像迁移提示）。
+- **仍未测（不把任一写成已过）**：三案在 1.20.1 上的**反例**（版本不符 / Bridge 摘要不符 / 认证模式
+  不符）未单独封证；`V1201-040` 那次运行文档里 `input_release_failed: true`（停止阶段命令送不进已
+  消失的通道），故只声明"lease 到期松键被记账"，不声明停止阶段显式松键送达；1.20.1 的 use-target
+  方块变化未证；IPC hello 的版本声明仍写死（`VERSION-BRIDGE-IDENTITY-001` 保持 `QUEUED`），本卡全部
+  证据不引用该字段；未连接用户真实远程服。
