@@ -12,11 +12,13 @@
 - `baseline_date`: 2026-09-22
 - `baseline_branch`: `main`
 - `baseline_remote`: `origin/main`
-- `current_next`: `OFFLINE-IDENTITY-CASE-001`（`order` 第 4 个场景的第二张：把契约冻结的五条判据写成
-  判官断言与 case fixture）。上一张 `OFFLINE-IDENTITY-LEDGER-FACT-001` 已完成交接六项并 `DONE`
-  （交付 `ec8fb15`，收卡 `f897451`）。本卡自 `4d2beb7` 起就已作为 `QUEUED` 登记在案，由本 commit 提升
-  为唯一 `NEXT`，满足交接第 1、6 项「新卡先 `QUEUED`，不得直接 `NEXT`」。其后是
-  `OFFLINE-IDENTITY-RUN-001`（仍 `QUEUED`）。其余未闭合卡仍是
+- `current_next`: 上一轮交接把 `OFFLINE-IDENTITY-CASE-001` 提升为唯一 `NEXT`，本 commit 记录它已
+  `DONE`（交付 `2a84bbd`，契约冻结的五条判据各有判官断言，`OFFLINE-030` 的两个子 id 已进 required
+  清单）。顺序表的下一张 `OFFLINE-IDENTITY-SEALED-ARGV-001` 早已作为 `QUEUED` 登记，提升为唯一
+  `NEXT` 写在紧随的下一个 commit 里，以满足交接第 1、6 项「先 `QUEUED`、再在紧随的 commit 提升」；
+  其后再依次是 `OFFLINE-IDENTITY-RUN-001`（同一顺序链的最后一张：两次受控运行各自封证并四读一致）。
+  另有一张 `ADMIT-070-RECORD-SCHEMA-001` 也还是 `QUEUED`，但它自己写明不是任何封证卡的下一张，
+  因此不排进这条链。其余未闭合卡仍是
   `HOST-ADMISSION-DESIGN-001`/`OPERATIONS-RETENTION-001`/`PROCESS-RECOVERY-001`
   三项 `BLOCKED_DECISION` 与 `HOST/W80+` 的 `DEFERRED`，都要用户先拍板。
 - `temporary_executor_handoff`: [Qoder 执行交接](qoder-execution-handoff.md)；
@@ -400,7 +402,7 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 
 - `status`: `BLOCKED_EVIDENCE`
 - `blocked_by`: `OFFLINE-IDENTITY-LEDGER-FACT-001`（`DONE`，`ec8fb15`）→ `OFFLINE-IDENTITY-CASE-001`
-  （`NEXT`）→ `OFFLINE-IDENTITY-SEALED-ARGV-001`（`QUEUED`）→ `OFFLINE-IDENTITY-RUN-001`（仍 `QUEUED`，
+  （`DONE`，`2a84bbd`）→ `OFFLINE-IDENTITY-SEALED-ARGV-001`（`QUEUED`）→ `OFFLINE-IDENTITY-RUN-001`（仍 `QUEUED`，
   都由已 `DONE` 的
   `OFFLINE-IDENTITY-EVIDENCE-DESIGN-001` 与 `OFFLINE-IDENTITY-CASE-001` 登记）。`order` 的第 1 个场景
   （在线认证拒绝）、第 2 个场景（资源包拒绝）与第 3 个场景（JOIN 后首快照失败）已各自在当前
@@ -1512,7 +1514,7 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 
 ### OFFLINE-IDENTITY-CASE-001 — 把 OFFLINE-010/020/030 的判据写进判官与 fixture
 
-- `status`: `NEXT`（`4d2beb7` 登记为 `QUEUED`，本次按交接第 1、6 项提升；当前计划里没有第二张 `NEXT`）
+- `status`: `DONE`（`4d2beb7` 登记为 `QUEUED`，`ad8d482` 提升为唯一 `NEXT`，2026-09-24 交付完成）
 - `promotion_reason`: 顺序已满足——先 `QUEUED` 登记并推送，再在紧随的 commit 提升，中间没有插入别的
   未授权工作。前置 `OFFLINE-IDENTITY-LEDGER-FACT-001` 已 `DONE`（`ec8fb15`）且判据 2/3/4 要读的字段
   已在真实账本里读出过；入口门禁全绿；它是 `OFFLINE-IDENTITY-RUN-001` 的前置，判据先落地才封得出证据。
@@ -1550,6 +1552,74 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 - `validation_class`: `LOCAL_GATES`。
 - `stop_conditions`: 若拆分与既有 inventory 测试的假设冲突到必须改别的 case，停下记录冲突；
   若某条判据在当前读数形状下无法写成不返工的断言，保留判据缺口并向主控请求决策，不放宽判据。
+- `completion_commit`: `2a84bbdb8aee20ce93d3b4bf65371237e1097336`（五条断言、五份 fixture、两个 required
+  id、`check_case_assertions.py` 注册项、`manifest.sha256` 五行与契约 Case set 注记全在这一条；本节与
+  TODO 记录是紧随的收卡 commit，提升下一卡再往后一条——写下本节时那两次推送尚未发生）。已推到
+  `refs/heads/codex/core-state-transition` 与 `refs/heads/main`，`git ls-remote` 读到两条都等于上面那个 sha。
+- `completion_evidence`:
+  - **五条判据 → 五条断言，一字对应**：判据 1 `this_run_started_the_identity_candidate_the_case_names`、
+    2 `core_recorded_the_identity_it_compared`、3 `the_reported_session_is_the_identity_this_run_launched_with`、
+    4 `the_account_type_was_recorded_as_an_observation`、5 `the_offline_identity_joined_and_the_server_agrees`。
+    分发即拆分：`OFFLINE-010`/`OFFLINE-020` 各拿 1/2/3/4（候选无关的第 5 条不在这里，那要一次入服），
+    `OFFLINE-030` 只拿 5，两个子 id 各拿 1/2/3/5。父 fixture 的断言集合里没有 1，所以「一份 bundle
+    同时证明两列分别加入」在 registry 这一层就读不出来。
+  - **判据 1 的两半**：argv 侧读 `orchestrator-trace.json` 里的 `session_argv`（新常量
+    `ORCHESTRATOR_TRACE_ARTIFACT`），Core 侧读 `SessionIdentityCompared` 的 `identity_candidate_id`。
+    四种「问不出是哪一列」各有自己的拒绝：整份 bundle 没封存 trace ⇒ `LAUNCH_ARGV_UNRECORDED`；
+    argv 里没点名 ⇒ `CANDIDATE_NOT_NAMED_IN_ARGV`（`candidate_by_id(None)` 回退到第一列，所以没点名
+    不等于不知道，而是等于默认值——归因必须拒它）；点名两次 ⇒ `CANDIDATE_NAMED_TWICE_IN_ARGV`；
+    点了不存在的候选 ⇒ `CANDIDATE_NOT_REVIEWED`。trace 缺席与 argv 空是两回事，这一点由
+    `test_a_bundle_that_sealed_no_trace_recorded_no_argv_rather_than_an_empty_one` 钉住。
+  - **判据 2/3/4 共用同一个「读哪几行」的答案**（`_identity_comparisons`）：前置卡交付的是一行一次
+    比对，所以读全部行并要求逐格一致（`ROWS_DISAGREE`）；`position/session_id/generation` 刻意不进
+    比较元组——同一 session 的两次比对正是只在这三格上不同。单行内部 `matched` 与 `mismatches` 互证
+    （`ROW_CONTRADICTS_ITSELF`），credential 正文键出现即 `CREDENTIAL_BODY_KEY:<key>`（键名取自产品的
+    `SECRET_CLASSIFICATION`，值是什么都不影响拒绝）。
+  - **判据 4 只问记录在不在**：`LEGACY` 与空串在这里同样绿，哪一列真会得到什么是那两次运行要回答的。
+    它拒的是抄来的字——该行点名的候选的 `--userType` 原词出现在观测字段里判
+    `ACCOUNT_TYPE_COPIED_FROM_THE_LAUNCH_ARGUMENT:<word>`，而另一列的原词仍是合法观测（OFF-A 上报
+    `legacy` 是它在说实话）。整格缺失时它答 `ACCOUNT_TYPE_NOT_RECORDED` 而不是 `OBSERVATION_FIELD_MISSING`：
+    缺口正是它的发现，2/3 那两条读同一形状时才仍按结构损坏拒绝。
+  - **`acceptance` 逐条**：
+    ① 五份 fixture 各跑得出一份可判读的 `run_repo_case.py` 结果：`INCOMPLETE` + 每条断言
+    `NO_IMPLEMENTATION`，与 `ADMIT-070` 同形——运行材料判据在纯仓库运行下的正确读数就是「这里没有
+    跑得动的东西」，不是判据缺失。
+    ② 四条拆分假阳性测试先红后绿，且证明了一份 OFF-A bundle 逐条喂给 OFF-B 归因判据必须失败：
+    `test_one_columns_bundle_cannot_answer_the_other_columns_attribution`、
+    `test_the_parent_join_case_asserts_nothing_about_which_column_was_launched`、
+    `test_both_children_are_required_and_one_of_them_is_still_missing_without_the_other`、
+    `test_each_child_carries_a_case_version_of_its_own`。
+    ③ `offline-030.json` 在本次登记之前**不存在**（交付前的 `9ffe980` 上
+      `git log 9ffe980 -- tests/fixtures/cases/offline-030.json` 为空），所以这一行从来没有 bundle，它
+      `case_version` 的移动没有历史证据要读作 `UNJUDGED`。这条
+    验收因此是空转成立的，如实记下，不用它冒充防回归。
+    ④ 两个子 id 现在同时在 `REQUIRED_CASES` 与契约里逐字出现（`CORE-060` 的先例照搬），
+    `report_cases.py` 的 `present` 含两者、各自 `unregistered: []`，`missing` 里已无 OFFLINE-010/020/030；
+    W30 的 inventory 现为 13 required / 8 present / 5 missing（缺的是 060-100）。
+    ⑤ 全量门禁：`uv run --frozen pytest -q` 2140 passed / 2 skipped（两个既有平台性 skip）、
+    ruff check 与 format --check 干净、pyright 0 errors、case assertions OK（139 registered）、
+    fixture digests OK、boundaries OK、workflow pins OK、`git diff --check` 干净。本卡新增 19 个测试
+    函数：五条判据各自的反例表、credential 正文键的参数化、跨列归因与父子 fixture 的防回归、
+    外加读路与封存通道的两条；参数化展开后比上一卡基线多收 64 条用例（2076 → 2140）。收卡时重跑
+    可复现的三件：`tools/check_case_assertions.py`（139 registered）、fixture digests 与五份
+    fixture 的 `run_repo_case.py`——后者逐份返回 `INCOMPLETE` / 每条断言 `NO_IMPLEMENTATION`
+    （没有真实 bundle 可读，正是预期的拒绝形状）。
+  - **未闭合与限制**：
+    - **live 侧仍缺那一格 argv**：`tools/seal_run_evidence.py:664` 把 run 交给 `read_run_material` 时
+      不传 `session_argv`，所以判据 1 今天只在**复判**这条读路上成立，封存现场的 live 判读会读到
+      `LAUNCH_ARGV_UNRECORDED`。本卡按 2026-09-24 确立的纪律没有顺手改它（那张卡把它列进
+      `forbidden_paths`），而是登记成 `OFFLINE-IDENTITY-SEALED-ARGV-001`。
+    - **一次已经避免的越界**：实现中一度让 `ADMIT-070` 的
+      `the_first_snapshot_was_refused_by_the_reason_the_case_names` 改用新的共用 helper 读
+      `snapshot_rejections`，`--record` 随即移动了 `tests/fixtures/cases/admit-070.json` 的
+      `assertion_digests`——那会让已封的 ADMIT-070 `PASS` bundle 在 `rejudge` 下变成不可判
+      （`tools/rejudge_evidence.py:130` 拿 `case_version` 比对）。断言本体已恢复原样，共享 helper
+      只服务新判据，理由写进了 helper 的 docstring：**sealed 案例的断言函数体本身就是版本化的证据**。
+      核对方式是收卡前 `git status` 里 `tests/fixtures/cases/admit-*.json` 一律无改动。
+    - 五条判据从未见过真实 bundle（本卡 `non_goals`），`OFFLINE-010/020/030` 及两个子 id 的
+      `mandatory` 全部仍为 `false`；`evidence/` 下没有新增、修改或重封任何 bundle。
+- `next_after_done`: `OFFLINE-IDENTITY-SEALED-ARGV-001`（把那份 argv 交进 live 判读，判据 1 才在封存
+  现场成立）→ `OFFLINE-IDENTITY-RUN-001`（OFF-A 与 OFF-B 各自封证并四读一致）。
 
 ### OFFLINE-IDENTITY-RUN-001 — 两次受控运行：OFF-A 与 OFF-B 各自封证并四读一致
 

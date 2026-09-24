@@ -1793,6 +1793,65 @@
     `scenario_progress` 保持 3/7。本地 HEAD、`refs/heads/codex/core-state-transition` 与
     `refs/heads/main` 对 `ec8fb15` 核对相同。
 
+- [x] **OFFLINE-IDENTITY-CASE-001（已完成，交付 `2a84bbd` 已推送，卡已 `NEXT → DONE`）**：
+  把契约冻结的五条 OFFLINE-010/020/030 判据写成判官里的断言，并把 `OFFLINE-030` 的父/子拆分落到
+  registry、fixture、digest 与注册项上。
+  - **交接第 1 项的形状**：本卡在 `4d2beb7` 以 `QUEUED` 登记并推送，`ad8d482` 才提升为唯一 `NEXT`；
+    判官实现与测试在 `2a84bbd`，收卡与本条记录在它之后的这个 docs commit 里。前置卡
+    `OFFLINE-IDENTITY-LEDGER-FACT-001`（`ec8fb15`）交付的是**一次首快照比对一行**、不是一行一代，
+    所以判据自己指定读哪一行，没有依赖那个不成立的假设。
+  - **五条判据 → 五条断言**（`tools/assert_case_evidence.py`，+453 行）：判据 1
+    `this_run_started_the_identity_candidate_the_case_names` 读封存的 `orchestrator-trace.json`
+    （新常量 `ORCHESTRATOR_TRACE_ARTIFACT` → `RunMaterial.session_argv`）；判据 2
+    `core_recorded_the_identity_it_compared`、判据 3
+    `the_reported_session_is_the_identity_this_run_launched_with`、判据 4
+    `the_account_type_was_recorded_as_an_observation` 共用 `_identity_comparisons` 的读行规则；判据 5
+    `the_offline_identity_joined_and_the_server_agrees` 只问服务端那一侧，因而留在父 case。
+  - **判据 1 的两半与四种拒绝**：argv 没点名候选 ⇒ `CANDIDATE_NOT_NAMED_IN_ARGV`（`candidate_by_id(None)`
+    回退到第一列，"没点名"实际等于默认值，归因必须拒它）、点名两次 ⇒
+    `CANDIDATE_NAMED_TWICE_IN_ARGV`、点了不存在的候选 ⇒ `CANDIDATE_NOT_REVIEWED`、trace 压根没封
+    ⇒ `LAUNCH_ARGV_UNRECORDED`。最后一种与「封了但 argv 为空」是两回事，由
+    `test_a_bundle_that_sealed_no_trace_recorded_no_argv_rather_than_an_empty_one` 钉住；
+    `None` 与 `()` 在 material 里是两个字段值，不是巧合。
+  - **判据 2/3/4 的共享形状**：`position/session_id/generation` 刻意不进比较元组——同一 session 的
+    两次比对正是只在这三格上不同，因此读全部行并要求逐格一致（`ROWS_DISAGREE`）；单行内
+    `matched` 与 `mismatches` 互为印证（`ROW_CONTRADICTS_ITSELF`，判据 2 第一轮跑出 24 条红的就是
+    把空列表读成了 `False`）；credential 正文键出现即 `CREDENTIAL_BODY_KEY:<key>`，键名直接取自产品侧
+    `SECRET_CLASSIFICATION` 而不是在判官里重抄一份。判据 4 只问记录在不在：整格缺失时它答
+    `ACCOUNT_TYPE_NOT_RECORDED`（缺口就是它的发现），2/3 读同一形状时仍按结构损坏拒绝——这条翻译
+    只在判据 4 内部做，不塞进共享闸门。
+  - **拆分落地**：`src/minekin_core/domain/cases.py` 只新增 `OFFLINE-030-PRISM-PARITY-001` /
+    `OFFLINE-030-ENUM-ALIGNED-001` 两个 id（照 `CORE-060` 先例，不改名、不删除、不重编号）；
+    `offline-010/020.json` 与两个子 fixture 挂 1/2/3/4（子 case 再挂 5），`offline-030.json`
+    只挂 5——所以一份 bundle 永远答不了两列；`tools/check_case_assertions.py` 注册 5 条
+    （134 → 139），`tests/fixtures/manifest.sha256` 加 5 行。
+  - **一次已经避免的越界（本轮最重要的教训）**：实现中一度让 `ADMIT-070` 的
+    `the_first_snapshot_was_refused_by_the_reason_the_case_names` 改用新的共用 helper 读
+    `snapshot_rejections`，`tools/check_case_assertions.py --record` 随即移动了
+    `tests/fixtures/cases/admit-070.json` 的 `assertion_digests`（`718d7ccc…` → `8194f472…`）。
+    digest 取的是**断言函数的源码文本**，`tools/rejudge_evidence.py:130` 拿 `case_version` 比对，
+    于是那次改动会让已封的 ADMIT-070 `PASS` bundle 复判为不可判。断言本体已恢复原样，共享 helper
+    只服务新判据，理由写进了 helper 的 docstring。收卡前的核对方式：`git status` 里
+    `tests/fixtures/cases/admit-*.json` 与其余既有 fixture 一律无改动。
+  - **门禁（原始摘要）**：`uv run --frozen pytest -q` → 2140 passed / 2 skipped in 311.44s
+    （本卡新增 19 个测试函数，参数化展开后比上一卡基线多 64 条；两个 skip 是既有平台跳过）；
+    Ruff check 干净、`ruff format --check` 干净；Pyright 0 errors（补 `_Asserter` Protocol 的
+    `ASSERTER_INPUTS`/`ORCHESTRATOR_TRACE_ARTIFACT`/`read_sealed_material` 三个成员，
+    两次多余的 `cast` 被 `reportUnnecessaryCast` 退回后删除）；case assertions OK (139 registered)、
+    fixture digests OK、workflow pins OK、boundaries OK、`git diff --check` 干净。收卡时重跑
+    五份 fixture 的 `run_repo_case.py`：逐份 `INCOMPLETE` + 每条断言 `NO_IMPLEMENTATION`，
+    预期分布与注册一致（父 `offline-030` 只有一条）。
+  - **未验证**：五条判据从未见过真实 bundle（本卡 `non_goals`），`OFFLINE-010/020/030` 与两个子 id
+    的 `mandatory` 全部仍 `false`，`evidence/` 下没有新增、修改或重封任何 bundle；live 侧的 argv
+    hand-off 未做（见下）；新 Bridge jar 字节的 Linux 逐字节复现仍遗留；公网测试服本轮未使用，
+    也仍不能作判据端（地址只记在本地未跟踪文件里）。
+  - **状态流转**：本卡 `NEXT → DONE`；`OFFLINE-IDENTITY-SEALED-ARGV-001` 提升为唯一 `NEXT` 写在紧随的
+    下一个 commit（它的 `depends_on` 就是本卡），`OFFLINE-IDENTITY-RUN-001` 继续 `QUEUED`；
+    `REAL-P0-CAMPAIGN-001.blocked_by` 链里本卡已标 `DONE（2a84bbd）`，链上还剩那两张；
+    `ADMIT-070-RECORD-SCHEMA-001` 继续 `QUEUED`，它自己写明不是任何封证卡的下一张，因此不排进这条链；
+    `scenario_progress` 保持 3/7。本地 HEAD、`refs/heads/codex/core-state-transition` 与
+    `refs/heads/main` 对 `2a84bbd` 核对相同。
+
 ## 记录：文档脱敏与卡片范围纪律（2026-09-24，用户指示）
 
 - **触发**：主控指出两处问题。① 已推送的计划/开发记录里写入了用户自备的公网测试服完整地址
