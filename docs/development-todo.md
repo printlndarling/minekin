@@ -1577,3 +1577,65 @@
   默认受控服务器继续由 `auth_mode: offline` 得出 `online-mode=false`，保持可接受
   离线身份的正常路径；负向在线模式只用于诊断。ADMIT-040 的正式 case fixture 与
   “不自动启用账号适配器”的可观测判据仍未冻结，不能凭这次诊断标 PASS。
+
+- [ ] **ADMIT-070-REFUSAL-INJECTION-001（实现与诊断完成，卡仍为 `NEXT`）**：让「Kin 的
+  第一份快照被报成 Core 会拒的样子」成为一条**能被要求、能被记录、能被同一 run 说出口**的
+  事。四件事各自独立可验：①Bridge 一个默认关断的开关
+  `MINEKIN_BRIDGE_NON_AUTHORITATIVE_FIRST_SNAPSHOT`，只对本代**第一份**、且真的交出去的快照
+  把 `authoritative` 写成 `false`（`ClientSnapshot` 由入参决定，默认仍是 `true`）；②变量名进
+  `config.FORWARDED_VARIABLES`——那是宿主 → 客户端 JVM 的唯一清单，`process.py` 原样继承，
+  不需要放行；③runner 的 knob `MINEKIN_DOMAIN_REFUSE_FIRST_SNAPSHOT` **按值**进入拒绝路径
+  （显式 `0`/`false` 走正常路径），`run.sh` 转发它；④注入事实走
+  `fault-injection.json` 那一条既有通道，作为第二类记录 `CLIENT_REPORT_REQUEST`——
+  它带 `request`（被要求什么）与 `effect`（看到了什么），不带任何 kill 字段。
+  - **换掉了那条日志行判据**。原先等待的是客户端日志里的一句话，而那句话既可以在快照根本没
+    送到 IPC 时被说出来，也可以因日志轮转而消失。现在两条读数都来自本 run 留下的东西：Core 自己的
+    run document（`snapshot_rejections` 恰含 `NOT_AUTHORITATIVE`、`snapshots_admitted: 0`）与
+    本 run 的 ledger（有 `JoinObserved`，无 `PlayableEstablished`/`InputLeaseGranted`）。等待仍走
+    账本而不是日志。
+  - **「请求」与「生效」分开记，且生效以 `/proc` 为凭**：`effect.method` 是
+    `PROC_CHILD_ENVIRON`——在本代客户端 JVM 还活着时读它自己的
+    `/proc/<pid>/environ`，看到那个名字等于那个值才算生效；看不到写
+    `REQUEST_NOT_IN_CLIENT_ENVIRON`，两个候选写 `CLIENT_JVM_AMBIGUOUS`，root 认不出写
+    `ROOT_NOT_FOUND`/`ROOT_IDENTITY_MISMATCH`。`asked` 由 value 派生而不是由参数给，因为那是手写
+    文档最容易往 flattering 方向写错的字段。
+  - **判官与封存端一处未动**：`seal_run_evidence.py` 仍用 `fault_injection.read_record` 读一次、
+    把同一批字节封成 `fault-injection.json`；`assert_case_evidence._confirmed_sigkill()` 仍要求
+    真实的 target/SIGKILL/`INJECTED`，所以一条请求记录**不可能**冒充一次进程被杀——这一点由
+    `tests/unit/test_seal_run_evidence.py` 直接判一条 `FAIL` 来证明，而不是靠注释。
+  - **完成读数**：pytest **2017 passed / 2 skipped**（本卡新增的定向用例分布在上面那四件事各自的
+    测试文件里）、Ruff check/format 干净、
+    boundaries、case assertions 129 条注册、fixture digests、workflow pins、`verify_supply_chain`、
+    `bash -n` 全绿；Bridge 五项静态检查绿；JDK 21 `./gradlew build check --rerun-tasks` 17 任务
+    全部执行。交接文档记的 33 红灯全部消失。Pyright 仍有 3 条 `test_report_soak.py` 的既存
+    `approx` 部分未知（该文件本卡未触碰、与 HEAD 一致）。
+  - **受审 pin 续期（旧 → 新）**：jar `ecff5a59…` / `1_307_584` → `faeec4a9df83abb9…` /
+    `1_308_525`；Bridge source tree `1b1103dd…` → `507f708dc4e3028a…`；bundle fixture 自身
+    `c3a19927…` → `bb45606023cea201…`（CORE-001 的 input digest 同值）；`core-001.json` 自身
+    `c26cb0b5…` → `4f2fc11f8c65de48…`；`manifest.sha256` 两行随动。红灯是靠重建 + 续期消失的，
+    没有任何一处校验被放宽。
+  - **两次真受控 Docker 诊断（只作诊断，未封 bundle）**：正向 run
+    `97fcfa1460d1407b9e94e34e12934ab5`（session `dd55afb9…`、gen 1、服务端目录
+    `/data/server-runs/run-118`）到 `PLAYABLE`、`snapshots_admitted: 1`、`snapshot_rejections: []`，
+    账本 951–968 有 `JoinObserved`(962) 与 `PlayableEstablished`(964)。注入 run
+    `db5671d970f943aa8540fd50191ecd92`（session `d623a3c1…`、gen 1、`run-120`）JOIN 之后
+    `snapshot_rejections: ["NOT_AUTHORITATIVE"]`、`snapshots_admitted: 0`、`entities_admitted: 0`，
+    账本 985–1000 有 `JoinObserved`(996) 而**无** `PlayableEstablished`、**无**
+    `InputLeaseGranted`；同一次 run 里 `domain.sh` 用封存器的那个读取入口把记录读回并打印
+    （归因到同一 run/session/generation，`effect.detail` 命名的 pid 207 正是同一次 `session stop`
+    终止的那个）。两次都以 `BRIDGE_LOST`/exit 14 结束——harness 主动停客户端，按 `runner/README.md`
+    是设计语义。第一次注入 run `785fcd4d…`（`run-119`）形状相同，跑在判据块还没把「通过」说出口
+    之前，因此重跑一次留下可读的通过行。
+  - **一条附注，免得判据被高估**：`InputLeaseGranted` 在正向 run 的账本里也不存在（那一轮没人请求
+    输入）。所以拒绝轮那条「没有 lease」的判据靠的是它与 `PlayableEstablished` **一起**缺席，而不是
+    单看一条本来就不会出现的行。
+  - **未测与后续**：新 jar 字节只在 Windows（JDK 21.0.12.1+1-LTS-4）构建过，旧 pin 注释里那次
+    「Windows 与 Linux 构建出同一份 jar」的复现验证**没有**对新字节重做，`recipe.py` 的注释已按此
+    改写、不再替新字节声称两平台；`check_wheel_boundary.py` 需要 CI 产出的 wheel，本地未跑；本卡按
+    non_goals 未封任何 bundle，`ADMIT-070` 的 PASS 证据属于后续 `ADMIT-070-CASE-001`。缺口已登记为
+    `ADMIT-070-RECORD-SCHEMA-001`（`QUEUED`）：`schemas/fault-injection.schema.json` 仍只描述
+    SIGKILL 那一种记录，而它在 `w00-contract-001` 的 `inputs`（`schemas/*.schema.json`）里，改它
+    等于给一张无关的 case 重新定版——这条一致性与本卡的边界冲突，故另起一卡，并由
+    `test_the_frozen_schema_still_describes_the_kill_record_only` 显式钉住。用户给出的公网测试服
+    `159.138.62.207:25565` 本卡未使用，也不能作判据端（`AddressPolicy.p0_loopback()` 为 loopback
+    only，`online-mode=false` 的服产生不了 `AUTH_MODE_MISMATCH`）。

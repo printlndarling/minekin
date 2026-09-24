@@ -85,6 +85,36 @@ online_mode="${MINEKIN_DOMAIN_ONLINE_MODE:-}"
 # into the server's settings — so the refusal is the client's policy meeting the
 # server's requirement, and not a pack that could not be fetched.
 resource_pack="${MINEKIN_DOMAIN_RESOURCE_PACK:-}"
+# Ask the client to report this generation's first snapshot as not authoritative, so
+# that Core's own boundary filter has a snapshot to refuse (`ADMIT-070`).
+#
+# The scenario cannot be produced any other way, and that is the measured fact this
+# knob exists because of: across every run document the reviewed builds left behind,
+# the field holding refusals was empty — the Bridge withholds a snapshot it cannot
+# stand behind rather than sending a weaker one, so no real server, profile or timing
+# makes a first snapshot arrive as `authoritative=false`.
+#
+# The refusal itself stays Core's decision. This harness only lends the client JVM a
+# name; Core reads nothing out of its value, and unset means the run reports exactly
+# what it reported before.
+refuse_first_snapshot="${MINEKIN_DOMAIN_REFUSE_FIRST_SNAPSHOT:-}"
+case "${refuse_first_snapshot}" in
+    "" | 0 | false | 1 | true) : ;;
+    *)
+        printf 'domain: MINEKIN_DOMAIN_REFUSE_FIRST_SNAPSHOT must be 1/true or 0/false, got %q\n' \
+            "${refuse_first_snapshot}" >&2
+        exit 2
+        ;;
+esac
+# Cast to a number, because a run explicitly told `0` and a run told nothing are
+# the same request — and `[ -n ]` read them as two different ones. An operator who
+# wrote `0` asked for the ordinary first snapshot; putting that run on the refusal
+# path, waiting for a join that will not be refused and recording a request nobody
+# made, would be the harness answering a question nobody asked.
+refusal_asked=0
+case "${refuse_first_snapshot}" in
+    1 | true) refusal_asked=1 ;;
+esac
 # A block three in front of the Kin, and the server asked what state it is in. A
 # use that changes nothing is a key held at nothing, so the scene puts something
 # in front that can change and the reading is the server's own.
@@ -157,6 +187,15 @@ for requested in "${kill_core}" "${kill_server}" "${kill_client}"; do
 done
 if [ "${faults}" -gt 1 ]; then
     printf 'domain: this run asks for two faults at once; one run seals one record\n' >&2
+    exit 2
+fi
+# The same rule covers the report request, because it travels through the same
+# artifact: a run that both killed a process and asked the client to report a
+# weaker snapshot would seal one of the two, and there is no way to say afterwards
+# which. Refused here, while the run can still be told apart from its result.
+request_path=/tmp/domain-injection-request.json
+if [ "${refusal_asked}" -eq 1 ] && [ "${faults}" -ge 1 ]; then
+    printf 'domain: this run asks for a refused snapshot and a killed process; one run seals one record\n' >&2
     exit 2
 fi
 
@@ -233,6 +272,83 @@ inject_fault() {
         return 1
     fi
     fault_role="${role}"
+    return 0
+}
+
+# Record that this run asked the client to report a weaker first snapshot, and
+# whether the live client JVM actually carries that name.
+#
+# This is not `inject_fault` with a different role, and keeping it separate is the
+# point: nothing here ends a process, so there is no signal, no disappearance and
+# no supervisor exit status to attest. Filing the request as a kill record would be
+# the harness claiming a strength it did not observe. What it *can* attest is the
+# request itself and its effect, read from `/proc/<client JVM>/environ` — a fact
+# about a process, not about a line in a log — which is why the call has to happen
+# while the client is alive.
+record_refusal_request() {
+    local root_pid="$1"
+    local root_starttime_ticks="$2"
+    local root_pid_namespace_inode="$3"
+    set +e
+    python /src/tools/inject_fault.py request \
+        --root-pid "${root_pid}" \
+        --root-starttime-ticks "${root_starttime_ticks}" \
+        --root-pid-namespace-inode "${root_pid_namespace_inode}" \
+        --subject BRIDGE_FIRST_SNAPSHOT_AUTHORITY \
+        --value "${refuse_first_snapshot}" \
+        --case "${case_id}" \
+        --case-file "${case_file}" \
+        --ledger "${ledger}" \
+        --kin-id "${kin_id}" \
+        --run-id "${run_id}" \
+        --session-id "${session_id}" \
+        --generation "${generation}" \
+        --record "${request_path}" >/tmp/domain-injection-request.log 2>&1
+    local helper_status=$?
+    set -e
+    printf 'domain: the report request helper said ' >&2
+    tr -d '\n' </tmp/domain-injection-request.log >&2 || true
+    printf '\n' >&2
+    if [ "${helper_status}" -ne 0 ] || [ ! -s "${request_path}" ]; then
+        printf 'domain: the injection could not be recorded, so nothing here can be attributed\n' >&2
+        return 1
+    fi
+    local observed
+    observed=$(python -c 'import json,sys;print(json.load(open(sys.argv[1]))["effect"]["observed"])' \
+        "${request_path}" 2>/dev/null || true)
+    if [ "${observed}" != "True" ]; then
+        printf 'domain: the name did not reach the client JVM (%s): ' "${observed:-unreadable}" >&2
+        python -c 'import json,sys;print(",".join(json.load(open(sys.argv[1]))["reasons"]))' \
+            "${request_path}" >&2 2>/dev/null || true
+        printf '\n' >&2
+        return 1
+    fi
+    # Read back through the reader the sealer itself uses, not merely parsed. A
+    # record this harness could write but that channel could not read would be
+    # evidence nobody can judge, and the run would only find that out when the
+    # bundle was already sealed.
+    if ! python - "${request_path}" <<'PY' >&2
+import json
+import sys
+from pathlib import Path
+
+sys.path.insert(0, "/src/tools")
+
+import fault_injection
+
+document = fault_injection.read_record(Path(sys.argv[1])).document
+print("domain: the sealing channel reads this record back as")
+print(
+    json.dumps(
+        {key: document[key] for key in ("category", "request", "effect", "attribution")},
+        sort_keys=True,
+    )
+)
+PY
+    then
+        printf 'domain: the injection record could not be read back as a record\n' >&2
+        return 1
+    fi
     return 0
 }
 
@@ -606,8 +722,16 @@ lan_args=()
 if [ -n "${open_lan}" ]; then
     lan_args=(--open-lan --open-lan-port "${lan_port}")
 fi
+# Lent to the session supervisor's environment, which is the only route the managed
+# client JVM has to a name the host set: Core hands the client nothing it has not
+# been given in `config.FORWARDED_VARIABLES`, and this is the one such name whose
+# value Core never looks at.
+client_env=()
+if [ "${refusal_asked}" -eq 1 ]; then
+    client_env=(env MINEKIN_BRIDGE_NON_AUTHORITATIVE_FIRST_SNAPSHOT="${refuse_first_snapshot}")
+fi
 xvfb-run -a --server-args="-screen 0 1280x720x24" \
-    python -m minekin_core "$@" "${lan_args[@]}" >/tmp/domain-session.json &
+    "${client_env[@]}" python -m minekin_core "$@" "${lan_args[@]}" >/tmp/domain-session.json &
 session_pid=$!
 if ! read -r session_starttime_ticks session_pid_namespace_inode \
         <<<"$(read_process_identity "${session_pid}" 2>/dev/null)" ||
@@ -755,6 +879,42 @@ elif [ "${case_id}" = "ADMIT-060" ]; then
         printf 'domain: the session recorded the denied resource pack policy it put on the wire\n' >&2
     else
         printf 'domain: no denied resource pack policy was recorded within %ss\n' "${seconds}" >&2
+    fi
+elif [ "${refusal_asked}" -eq 1 ]; then
+    # The wait ends on the join, and the verdict comes later from Core's own record.
+    # The client's log line was the first version's oracle here, and it is the wrong
+    # kind: a Bridge that said the sentence about a snapshot that never reached IPC
+    # satisfied it, and a run whose Core really refused a snapshot could miss it to a
+    # log rotation. It was also read by taking `head -1` over *every* Kin's newest
+    # log, which is the same mistake this harness has already made once on the ledger
+    # — a second client in the container could answer for the first one.
+    #
+    # What has to happen before anything can be refused is the join, and that is a
+    # ledger row: `JoinObserved`. Waiting for it keeps the run's timing honest
+    # without making the log load-bearing, and the refusal itself is judged below,
+    # once the run document exists.
+    deadline=$((SECONDS + seconds))
+    refusal_join_seen=0
+    for _ in $(seq 1 "${seconds}"); do
+        kill -0 "${session_pid}" 2>/dev/null || break
+        [ "${SECONDS}" -lt "${deadline}" ] || break
+        recorded=$(/opt/sqlite/bin/sqlite3 "${ledger}" \
+            "select 1 from event where position > ${baseline} and event_type='JoinObserved' limit 1;" \
+            2>/dev/null || true)
+        if [ -n "${recorded}" ]; then
+            refusal_join_seen=1
+            break
+        fi
+        sleep 1
+    done
+    if [ "${refusal_join_seen}" -eq 1 ]; then
+        printf 'domain: the Kin joined; Core now has a first snapshot to accept or refuse\n' >&2
+    else
+        # The run asked for something that never got as far as being refused, and it
+        # must not exit like one that was: a bare timeout here reads as "Core refused
+        # a snapshot", which is a conclusion nobody reached.
+        printf 'domain: no join was recorded within %ss, so no first snapshot could be refused\n' "${seconds}" >&2
+        injection_failed=1
     fi
 elif [ -n "${not_whitelisted}" ]; then
     # What this run is about is a refusal, and the refusal is a ledger fact: the
@@ -932,6 +1092,18 @@ read -r kin_id session_id generation <<<"${attribution}" || true
 case "${generation}" in
     ''|*[!0-9]*) generation=0 ;;
 esac
+
+# The report request is recorded here — after the attribution, because a record
+# naming no run is refused by both the helper and the sealer, and before anything
+# ends the client, because the fact it cites is that process's live environment.
+# There is nothing to wait for beyond this: a run that could not say it asked is
+# not a refusal, it is a harness failure, and it is failed as one.
+if [ "${refusal_asked}" -eq 1 ]; then
+    if ! record_refusal_request "${session_pid}" "${session_starttime_ticks}" \
+            "${session_pid_namespace_inode}"; then
+        injection_failed=1
+    fi
+fi
 
 # The Bridge's own watchdog, which is the guarantee that keys come up even when
 # nobody is left to ask. §12 puts it in the process holding the keys, and it needs
@@ -1565,6 +1737,77 @@ printf 'domain: the run document said ' >&2
 tr -d '\n' </tmp/domain-session.json >&2 || true
 printf '\n' >&2
 
+# What a refusal run has to end up saying, judged from the two records the run
+# leaves behind rather than from anything the client printed about itself. The
+# distinction it exists to make is the one a log line cannot make: a snapshot the
+# Bridge handed over and Core refused, versus a run where nothing was refused at
+# all. Core's own run document holds the refusal, and the ledger holds whether the
+# Kin was ever told it could play.
+if [ "${refusal_asked}" -eq 1 ]; then
+    set +e
+    python - /tmp/domain-session.json "${ledger}" "${baseline}" <<'PY' >&2
+import json
+import sqlite3
+import sys
+
+document_path, ledger_path, baseline = sys.argv[1], sys.argv[2], int(sys.argv[3])
+try:
+    with open(document_path, encoding="utf-8") as handle:
+        document = json.load(handle)
+except (OSError, ValueError) as error:
+    print(f"domain: the run document cannot be read ({error})")
+    raise SystemExit(1)
+run = document.get("run")
+if not isinstance(run, dict):
+    print("domain: the run document has no run section")
+    raise SystemExit(1)
+
+problems = []
+rejections = run.get("snapshot_rejections")
+if not isinstance(rejections, list):
+    # Absent or malformed is not "nothing was refused" — it is unreadable, and the
+    # difference is what the run's exit code would otherwise paper over.
+    problems.append("SNAPSHOT_REJECTIONS_UNREADABLE")
+elif "NOT_AUTHORITATIVE" not in rejections:
+    problems.append(f"NOT_AUTHORITATIVE_NOT_RECORDED:{rejections}")
+admitted = run.get("snapshots_admitted")
+if admitted != 0:
+    problems.append(f"SNAPSHOTS_ADMITTED:{admitted}")
+
+connection = sqlite3.connect(ledger_path)
+try:
+    def counted(event_type: str) -> int:
+        row = connection.execute(
+            "select count(*) from event where position > ? and event_type = ?",
+            (baseline, event_type),
+        ).fetchone()
+        return int(row[0])
+
+    if counted("JoinObserved") == 0:
+        problems.append("NO_JOIN_RECORDED")
+    if counted("PlayableEstablished") > 0:
+        problems.append("PLAYABLEESTABLISHED_WITH_A_REFUSAL")
+    if counted("InputLeaseGranted") > 0:
+        problems.append("INPUTLEASEGRANTED_WITH_A_REFUSAL")
+finally:
+    connection.close()
+
+for problem in problems:
+    print(f"domain: the first snapshot was not refused as asked ({problem})")
+if not problems:
+    # Said out loud rather than left as silence: a judgement block that only
+    # speaks when it is unhappy cannot be told apart, in a transcript, from a
+    # block that never ran.
+    print("domain: Core refused this run's first snapshot as asked")
+raise SystemExit(1 if problems else 0)
+PY
+    judged=$?
+    set -e
+    if [ "${judged}" -ne 0 ]; then
+        injection_failed=1
+    fi
+fi
+
 # Sealing, which is what makes this a case run rather than a run.
 #
 # The leave has to be in the server's log before the case can be judged, and the
@@ -1646,9 +1889,18 @@ if [[ -n "${case_id}" ]]; then
     fi
     # The record of the fault this run injected, when it injected one. It is named
     # by its path and read once by the sealer, which seals the same bytes it judged.
+    #
+    # A report request travels through the same channel and the same artifact name,
+    # because it is the same kind of fact — what the harness did to this run — and
+    # the guard above makes sure only one of the two can be here at a time. It is
+    # sealed as its own bytes: the sealer validates the record it is about to seal,
+    # so a PASS bundle cannot be read as "Core refused a snapshot the client only
+    # claimed to have sent" once the request is in it.
     fault_args=()
     if [ -s "${fault_path}" ]; then
         fault_args=(--fault-injection "${fault_path}")
+    elif [ -s "${request_path}" ]; then
+        fault_args=(--fault-injection "${request_path}")
     fi
     # The soak's own measurement and the request it answers, when this run soaked.
     # Same rule as the fault record: named by path, read once, and the bytes that

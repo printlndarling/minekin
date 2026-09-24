@@ -17,6 +17,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+from minekin_core import config
 from minekin_core.adapters.bridge import ipc
 from minekin_core.adapters.launcher import process
 from minekin_core.domain import budget
@@ -24,6 +25,9 @@ from minekin_core.domain import budget
 BRIDGE_ROOT = Path(__file__).resolve().parents[2] / "bridge" / "src" / "main" / "java"
 WORKER = BRIDGE_ROOT / "org" / "minekin" / "bridge" / "runtime" / "BridgeIpcWorker.java"
 CLIENT = BRIDGE_ROOT / "org" / "minekin" / "bridge" / "MinekinBridgeClient.java"
+ADMISSION_CONTROLLER = (
+    BRIDGE_ROOT / "org" / "minekin" / "bridge" / "runtime" / "ClientAdmissionController.java"
+)
 INPUT_CONTROLLER = (
     BRIDGE_ROOT / "org" / "minekin" / "bridge" / "input" / "BridgeInputController.java"
 )
@@ -61,6 +65,28 @@ def test_the_descriptor_variable_the_bridge_reads_is_the_one_core_sets() -> None
 
     assert declared, f"no environment variable constants found in {CLIENT}"
     assert set(declared.values()) == {process.BRIDGE_DESCRIPTOR_VARIABLE}
+
+
+def test_the_first_snapshot_request_core_lends_is_the_one_the_bridge_reads() -> None:
+    """The one variable whose *value* Core never looks at, and why that needs a pin.
+
+    `ADMIT-070` asks for a first snapshot Core refuses, and the only route from the
+    runner to the client JVM is the forwarded list — the launcher hands the client no
+    other environment. So the two spellings have to agree, and one side drifting is
+    not a crash: the Bridge reads nothing, reports `authoritative=true`, and a run
+    somebody set up to show a refusal shows an ordinary admission instead. A name
+    missing from the list is the same fault in the other direction, and it is checked
+    here because nothing else in the product reads the name it lends.
+    """
+
+    declared = _constants(ADMISSION_CONTROLLER, _ENVIRONMENT_CONSTANT)
+
+    assert declared == {
+        "NON_AUTHORITATIVE_FIRST_SNAPSHOT_ENVIRONMENT_VARIABLE": (
+            config.BRIDGE_NON_AUTHORITATIVE_FIRST_SNAPSHOT_VARIABLE
+        )
+    }
+    assert config.BRIDGE_NON_AUTHORITATIVE_FIRST_SNAPSHOT_VARIABLE in config.FORWARDED_VARIABLES
 
 
 def test_the_movement_capability_vocabulary_is_shared() -> None:

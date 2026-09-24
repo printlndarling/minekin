@@ -37,10 +37,10 @@
       "name": "minekin-bridge",
       "kind": "bridge",
       "verification": "sha256",
-      "digest": "ecff5a598bda3a5055755cbbf04251d33c464b3764267b7b479917a2a8dce9c7",
-      "size": 1307584,
+      "digest": "faeec4a9df83abb9ca0404863e04d20cfd87ac0f3afd5e74b6858e3e15372f55",
+      "size": 1308525,
       "source": "workspace:bridge",
-      "source_digest": "1b1103dd8b747dca1db79fd19d9998e477f9a77d53bc2c8cbdcce4000ea19f27",
+      "source_digest": "507f708dc4e3028ab90b5503ed34aac66ba77f6657904eba4533525b53a4d229",
       "license": "NOASSERTION"
     }
   ]

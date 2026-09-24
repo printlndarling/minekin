@@ -24,7 +24,8 @@ import org.minekin.bridge.protocol.SessionIdentityReportAdapter;
 import org.minekin.bridge.protocol.SessionIdentityReportAdapter.ObservedSession;
 
 /**
- * The first authoritative snapshot: what this client can honestly say about itself.
+ * The first snapshot: what this client can say about itself, with the authority its
+ * caller says it has.
  *
  * <p>It carries the client's own state and the entities this client can confirm
  * it can see. The contract is explicit that a snapshot "does not thereby open
@@ -48,8 +49,14 @@ public final class ClientSnapshot {
      * <p>Null rather than an exception: a session whose identity material is
      * missing is a session that cannot become playable, which the run reports,
      * and it is not a reason to stop a client that is otherwise running fine.
+     *
+     * <p>`authoritative` is the caller's word and not this class's. The value that
+     * decides whether Core may make a session playable is carried from the
+     * construction rather than edited afterwards, so the observation a run reads is
+     * the one the client built.
      */
-    public static InitialObservation collect(MinecraftClient client, long generation) {
+    public static InitialObservation collect(
+            MinecraftClient client, long generation, boolean authoritative) {
         ClientPlayerEntity player = client.player;
         if (player == null || client.world == null) {
             return null;
@@ -77,7 +84,7 @@ public final class ClientSnapshot {
         return InitialObservation.newBuilder()
                 .setGeneration(generation)
                 .setGameTick(tick)
-                .setAuthoritative(true)
+                .setAuthoritative(authoritative)
                 .setSelf(selfState(client, player))
                 .setInventory(inventory(player, tick))
                 .addAllVisibleEntities(visible)

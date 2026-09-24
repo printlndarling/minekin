@@ -2,10 +2,9 @@
 
 A fault injection is the one place in this repository where the harness ends a
 process it does not own, so the record of it has to carry its own proof: which
-run it was part of, which process was chosen, what identity that process had,
-what was signalled, and how the death was confirmed. Anything less makes "the
-runtime was killed" a claim about the harness's intentions rather than a fact
-about a process.
+run it was part of, which process was chosen, what was signalled, and how the
+death was confirmed. Anything less makes "the runtime was killed" a claim about
+the harness's intentions rather than a fact about a process.
 
 The one thing this helper can *not* produce is a wait status. It is not the
 parent of the process it kills — the process was started by the session wrapper,
@@ -15,6 +14,17 @@ the recorded pid *and* its start time leave `/proc`, and `WAIT_STATUS` is
 reserved for a future helper that really is the parent. This module refuses a
 document that claims the stronger one, rather than leaving the distinction to a
 reader's good faith.
+
+Two kinds of record live here, told apart by `category`, and a record with no
+`category` at all is the first kind — which is what every sealed bundle written
+before the second kind existed holds. The second is a *request* the harness made
+of a process it does not end: `ADMIT-070` asks the client to report one snapshot
+as not authoritative, and the thing to be evidenced is that the ask reached the
+process, not that a process died. It keeps its own field names rather than
+borrowing `target`, `signal` and `confirmation`, because those three say
+"something was killed", and a record that said it about a snapshot report would
+be the one kind of lie this file exists to make impossible. Both kinds share the
+one-read discipline, because both are sealed as `fault-injection.json`.
 
 Nothing here imports the product: this is orchestration, and the record is
 evidence about the harness. `tools/` is where it belongs.
@@ -81,6 +91,38 @@ SERVER_JVM_ROOT = "server_jvm_root"
 CLIENT_JVM_ROOT = "client_jvm_root"
 SUPERVISOR_ROLES = (RUNTIME_CONTROLLER_ROOT, SERVER_JVM_ROOT, CLIENT_JVM_ROOT)
 
+#: The two kinds of record this file can hold. A record that names no `category`
+#: is a `PROCESS_SIGKILL` one, which is what every bundle sealed before the second
+#: kind existed says — so reading those keeps meaning exactly what it meant.
+PROCESS_SIGKILL = "PROCESS_SIGKILL"
+CLIENT_REPORT_REQUEST = "CLIENT_REPORT_REQUEST"
+CATEGORIES = (PROCESS_SIGKILL, CLIENT_REPORT_REQUEST)
+
+#: The one request the second kind can be about, and the name it travels as. Stated
+#: here as a pair rather than as two free strings because a record that named one
+#: subject with another subject's variable would be a record about nothing.
+BRIDGE_FIRST_SNAPSHOT_AUTHORITY = "BRIDGE_FIRST_SNAPSHOT_AUTHORITY"
+NON_AUTHORITATIVE_FIRST_SNAPSHOT_VARIABLE = "MINEKIN_BRIDGE_NON_AUTHORITATIVE_FIRST_SNAPSHOT"
+ENVIRONMENT_VARIABLE_FOR_SUBJECT = {
+    BRIDGE_FIRST_SNAPSHOT_AUTHORITY: NON_AUTHORITATIVE_FIRST_SNAPSHOT_VARIABLE
+}
+
+#: How the effect of a request was seen. The helper reads the environment of the
+#: process the harness launched — which is the process the managed client JVM is
+#: started *from*, so the name is inherited rather than merely intended. That is a
+#: fact about a `/proc` entry, not about a log line: the record says the ask got
+#: that far, and Core's own run document says what it did with it.
+PROC_CHILD_ENVIRON = "PROC_CHILD_ENVIRON"
+NOT_OBSERVED = "NOT_OBSERVED"
+REQUEST_EFFECT_METHODS = (PROC_CHILD_ENVIRON, NOT_OBSERVED)
+
+#: The spellings of a yes and of a no, and nothing else. `None` for a value outside
+#: both lists, which is the case the product's own Bridge also refuses loudly: an
+#: injection switch whose meaning a reader has to guess is how a run ends up being
+#: evidence for a scenario nobody asked for.
+YES_VALUES = ("1", "true")
+NO_VALUES = ("", "0", "false")
+
 #: Which supervisor role belongs to which target role. Defined once because both
 #: ends use it — the helper builds a record from it and the reader checks a record
 #: against it — and two copies of a pairing is two chances to disagree about the
@@ -118,6 +160,26 @@ _KEYS = frozenset(
     }
 )
 _ATTRIBUTION_KEYS = frozenset({"kin_id", "run_id", "session_id", "generation"})
+#: The keys of a request record, which shares only its attribution with a kill
+#: record. `target`, `signal`, `confirmation` and `supervisor` are absent on
+#: purpose: a snapshot report has no process that died, no pid whose disappearance
+#: could be watched, and no supervisor whose exit status could be waited for, so
+#: filling those in for a request would say something untrue about a run.
+_REQUEST_KEYS = frozenset(
+    {
+        "schema_version",
+        "category",
+        "case",
+        "attribution",
+        "request",
+        "effect",
+        "reasons",
+        "attempted_at_monotonic_ns",
+        "recorded_at_monotonic_ns",
+    }
+)
+_REQUEST_SECTION_KEYS = frozenset({"subject", "environment_variable", "value", "asked"})
+_EFFECT_KEYS = frozenset({"observed", "method", "pid", "starttime_ticks", "detail"})
 _TARGET_KEYS = frozenset(
     {
         "role",
@@ -420,6 +482,89 @@ def _outcome_violations(record: Mapping[str, object]) -> frozenset[str]:
     return frozenset(found)
 
 
+def yes_or_no(value: object) -> bool | None:
+    """What a switch's value means, or None when it means neither a yes nor a no.
+
+    Both ends of the record use this — the writer, so that a `0` cannot be filed as
+    an injection, and the reader, so that a document cannot say `asked: true` about
+    a value that says no. Kept here rather than in the caller because the answer has
+    to be the same on both sides of that hand-off.
+    """
+
+    if not isinstance(value, str):
+        return None
+    text = value.strip().lower()
+    if text in YES_VALUES:
+        return True
+    if text in NO_VALUES:
+        return False
+    return None
+
+
+def _request_is_usable(value: object) -> bool:
+    section = _section(value, _REQUEST_SECTION_KEYS)
+    if section is None:
+        return False
+    subject = _text(section["subject"])
+    if subject not in ENVIRONMENT_VARIABLE_FOR_SUBJECT:
+        return False
+    if _text(section["environment_variable"]) != ENVIRONMENT_VARIABLE_FOR_SUBJECT[subject]:
+        return False
+    meaning = yes_or_no(section["value"])
+    asked = section["asked"]
+    return meaning is not None and isinstance(asked, bool) and asked is meaning
+
+
+def _effect_is_usable(value: object) -> bool:
+    section = _section(value, _EFFECT_KEYS)
+    if section is None:
+        return False
+    observed = section["observed"]
+    method, detail = _text(section["method"]), _text(section["detail"])
+    if not isinstance(observed, bool) or method not in REQUEST_EFFECT_METHODS:
+        return False
+    # The sentence the effect is told in is required either way: an observation that
+    # saw nothing still has to say what it looked for and failed to find.
+    if detail is None or not detail:
+        return False
+    pid, starttime = _integer(section["pid"]), _integer(section["starttime_ticks"])
+    if observed:
+        return (
+            method == PROC_CHILD_ENVIRON
+            and pid is not None
+            and pid > 1
+            and starttime is not None
+            and starttime >= 0
+        )
+    return method == NOT_OBSERVED and pid is None and starttime is None
+
+
+def _request_violations(record: Mapping[str, object]) -> frozenset[str]:
+    """The rules that tie what was asked to what was seen, for a request record.
+
+    The kill rules cannot stand in for these: `INJECTED` there means a process is
+    gone, and nothing here claims that. What this states instead is that an effect
+    presupposes a request — `asked: false` beside `observed: true` is the exact
+    false positive the reviewed scenario would otherwise allow, because it is how a
+    run handed `0` would read as one handed `1`.
+    """
+
+    found: set[str] = set()
+    request = _object(record.get("request"))
+    effect = _object(record.get("effect"))
+    listed = _list_of_text(record.get("reasons")) or []
+    if request is not None and effect is not None:
+        asked = request.get("asked") is True
+        observed = effect.get("observed") is True
+        if observed and not asked:
+            found.add("EFFECT_WITHOUT_REQUEST")
+        if observed and listed:
+            found.add("REASONS_NOT_FOR_THIS_OUTCOME")
+        if not observed and not listed:
+            found.add("REASONS_MISSING")
+    return frozenset(found)
+
+
 def validate(document: object) -> tuple[str, ...]:
     """Every rule the record must satisfy, as codes naming what is wrong.
 
@@ -433,9 +578,25 @@ def validate(document: object) -> tuple[str, ...]:
     record = cast(Mapping[str, object], document)
     found: set[str] = set()
 
-    if set(record) - _KEYS:
+    # A record that names no category is a kill record, and reading one is exactly
+    # what it was before request records existed. The explicit spelling is accepted
+    # so that a writer can say which kind it wrote instead of leaning on absence.
+    declared = record.get("category")
+    is_request = declared == CLIENT_REPORT_REQUEST
+    if declared is not None and declared not in CATEGORIES:
+        found.add("INVALID_CATEGORY")
+    if is_request:
+        keys: frozenset[str] = _REQUEST_KEYS
+    elif declared is None:
+        keys = _KEYS
+    else:
+        # A kill record may name its category, but only the request record carries
+        # it as a field of its own.
+        keys = _KEYS | frozenset({"category"})
+
+    if set(record) - keys:
         found.add("UNKNOWN_FIELD")
-    if _KEYS - set(record):
+    if keys - set(record):
         found.add("MISSING_FIELD")
     if not (_is_int(record.get("schema_version")) and record["schema_version"] == SCHEMA_VERSION):
         found.add("SCHEMA_VERSION_UNSUPPORTED")
@@ -443,10 +604,27 @@ def validate(document: object) -> tuple[str, ...]:
         found.add("INVALID_CASE")
     if not _attribution_is_usable(record.get("attribution")):
         found.add("INVALID_ATTRIBUTION")
-    if record.get("target") is not None and not _target_is_usable(record.get("target")):
-        found.add("INVALID_TARGET")
     if not _reasons_are_usable(record.get("reasons")):
         found.add("INVALID_REASONS")
+
+    attempted = _integer(record.get("attempted_at_monotonic_ns"))
+    recorded = _integer(record.get("recorded_at_monotonic_ns"))
+    clock_ordered = (
+        attempted is not None and attempted >= 0 and recorded is not None and recorded >= attempted
+    )
+    if not clock_ordered:
+        found.add("INVALID_CLOCK")
+
+    if is_request:
+        if not _request_is_usable(record.get("request")):
+            found.add("INVALID_REQUEST")
+        if not _effect_is_usable(record.get("effect")):
+            found.add("INVALID_EFFECT")
+        found |= _request_violations(record)
+        return tuple(sorted(found))
+
+    if record.get("target") is not None and not _target_is_usable(record.get("target")):
+        found.add("INVALID_TARGET")
     if not _confirmation_is_usable(record.get("confirmation")):
         found.add("INVALID_CONFIRMATION")
     if not _supervisor_is_usable(record.get("supervisor")):
@@ -457,11 +635,7 @@ def validate(document: object) -> tuple[str, ...]:
     if not _signal_is_usable(record.get("signal")):
         found.add("INVALID_SIGNAL")
 
-    attempted = _integer(record.get("attempted_at_monotonic_ns"))
-    recorded = _integer(record.get("recorded_at_monotonic_ns"))
-    if attempted is None or attempted < 0 or recorded is None or recorded < attempted:
-        found.add("INVALID_CLOCK")
-    else:
+    if clock_ordered and attempted is not None and recorded is not None:
         confirmed = record.get("confirmed_at_monotonic_ns", None)
         if confirmed is not None:
             confirmed_at = _integer(confirmed)
@@ -470,6 +644,62 @@ def validate(document: object) -> tuple[str, ...]:
 
     found |= _outcome_violations(record)
     return tuple(sorted(found))
+
+
+def request_document(
+    *,
+    subject: str,
+    value: str,
+    attribution: Mapping[str, object],
+    observed: bool,
+    pid: int | None,
+    starttime_ticks: int | None,
+    detail: str,
+    attempted_at_monotonic_ns: int,
+    recorded_at_monotonic_ns: int,
+    reasons: tuple[str, ...] = (),
+    case: Mapping[str, object] | None = None,
+) -> dict[str, object]:
+    """One request record, built in the shape this module's reader accepts.
+
+    The writer derives `asked` from the value and the method from whether anything
+    was seen, rather than taking either as an argument: those two are the fields a
+    hand-written document would most plausibly get wrong in the flattering
+    direction, and a builder that lets a caller state them independently is a
+    builder that lets a run claim an injection it was not asked for. The
+    attribution is the helper's own section rather than four arguments, because
+    what makes a run nameable is the ledger's question, not this file's.
+    """
+
+    meaning = yes_or_no(value)
+    if meaning is None:
+        raise FaultInjectionError(f"INVALID_VALUE: {value!r} names neither a yes nor a no")
+    environment_variable = ENVIRONMENT_VARIABLE_FOR_SUBJECT.get(subject)
+    if environment_variable is None:
+        raise FaultInjectionError(f"UNKNOWN_SUBJECT: {subject} is not a request this tool knows")
+    method = PROC_CHILD_ENVIRON if observed else NOT_OBSERVED
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "category": CLIENT_REPORT_REQUEST,
+        "case": case,
+        "attribution": dict(attribution),
+        "request": {
+            "subject": subject,
+            "environment_variable": environment_variable,
+            "value": value,
+            "asked": meaning,
+        },
+        "effect": {
+            "observed": observed,
+            "method": method,
+            "pid": pid,
+            "starttime_ticks": starttime_ticks,
+            "detail": detail,
+        },
+        "reasons": list(reasons),
+        "attempted_at_monotonic_ns": attempted_at_monotonic_ns,
+        "recorded_at_monotonic_ns": recorded_at_monotonic_ns,
+    }
 
 
 def dump_record(document: Mapping[str, object]) -> bytes:

@@ -949,6 +949,14 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
   `src/minekin_core/adapters/launcher/process.py`（它原样转发清单里的名字），需要的是把变量名放进
   `src/minekin_core/config.py` 的 `FORWARDED_VARIABLES`。该文件因此进入 `allowed_paths`，而
   `process.py` 那一条按自身条件（「仅当需要显式放行时」）保持不动。
+- `scope_amendment_2026-09-24`: 实现期间为改动的每一半各补了定向测试，落在 `allowed_paths` 之外的
+  六个测试文件：`tests/contract/test_runner_scripts.py`（knob 按值生效、`run.sh` 转发它、oracle 不再
+  读客户端日志、记录经同一封存通道读回）、`tests/contract/test_bridge_java_constants.py`（转发的变量名
+  与 Java 常量钉在一起）、`tests/unit/test_inject_fault.py`（`request` 子命令的五种观察与往返）、
+  `tests/unit/test_fault_injection.py`（第二类记录的形状规则与十条反例）、`tests/fault_support.py`
+  （两种记录共用的样例）、`tests/unit/test_seal_run_evidence.py`（请求记录 byte-for-byte 进 bundle、
+  且不能满足 sigkill 断言）。这些都不在 `forbidden_paths` 里（那里禁的是 case fixtures 与 assertions
+  registry），但确实超出登记的 `allowed_paths`，故在此记名而不是默认无人在意。
 - `depends_on`: `ADMIT-070-EVIDENCE-DESIGN-001`（判据、反例与「只有 `NOT_AUTHORITATIVE` 在范围内」
   的取舍都在那一节里）。
 - `question`: 一个默认关断的开关怎么从 runner 走到 Bridge——客户端 JVM 的环境变量能否由受控
@@ -986,11 +994,103 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
   `snapshots_admitted: 0`、账本无 `PlayableEstablished`/`InputLeaseGranted`；注入这一事实能从同一
   bundle 的 `fault-injection.json` 读出来；Java 定向测试 + 全量本地门禁 + 受审 pin 续期全绿；
   一次真实受控 Docker 运行产出上述两份材料（正向与注入）并只作诊断，不封 bundle。
+- `completion_evidence`: 2026-09-24 实现与两次受控诊断完成，`status` 仍留 `NEXT` 等主控提升。
+  - **门禁**：`pytest -q` 全量 **2017 passed / 2 skipped**（跳过项是 `test_orphans.py:686` 需要
+    `/proc` 才能回答「已消失」、`test_silent_listener.py:123` 的 Windows terminate 不是信号，均为
+    平台限制而非本卡缺口）；ruff check 与 format 干净；`git diff --check` 干净；
+    `verify_fixture_digests`、`check_case_assertions`（129 条已登记）、`check_boundaries`、
+    `check_workflow_pins`、`verify_supply_chain`、`bash -n`（两个 runner 脚本）全绿；
+    `check_bridge_artifacts`/`host_boundary`/`protocol`/`proto_java`/`scaffold` 全绿；
+    JDK 21 `./gradlew build check --rerun-tasks` 为 BUILD SUCCESSFUL、17 tasks executed（无
+    `UP-TO-DATE`/`FROM-CACHE`）。交接文档记录的 33 红灯全部消失：32 条 digest 因果（未续期 pin +
+    `run.sh` 未转发 knob）与其余同因失败一起由续期与转发解决。
+  - **pyright 的既存红灯**：`tests/unit/test_report_soak.py:158,217` 的 3 条
+    `Type of "approx" is partially unknown` 在本卡未触碰该文件的情况下仍然存在（该文件工作树与
+    HEAD 一致），按既存问题记名，不在本卡顺手改。
+  - **受审 pin 续期（旧 → 新）**：`recipe.py` 的 `BRIDGE_JAR_SHA256`
+    `ecff5a598bda3a5055755cbbf04251d33c464b3764267b7b479917a2a8dce9c7` →
+    `faeec4a9df83abb9ca0404863e04d20cfd87ac0f3afd5e74b6858e3e15372f55`，`BRIDGE_JAR_SIZE`
+    `1_307_584` → `1_308_525`；bundle fixture 里 minekin-bridge 的 digest/size 同步，
+    `source_digest` `1b1103dd8b747dca1db79fd19d9998e477f9a77d53bc2c8cbdcce4000ea19f27` →
+    `507f708dc4e3028ab90b5503ed34aac66ba77f6657904eba4533525b53a4d229`；
+    `tests/fixtures/runtime-input/bundle-p0-core-1.21.4.json` 自身
+    `c3a19927687bd00e749231e47e86b0d3c8cc0f801bcfb224e270c776d9166829` →
+    `bb45606023cea201bf8cb66ee35dfcfa136c428a8eb8bfff90c864499d5dcf72`（CORE-001 的 input digest
+    同值）；`tests/fixtures/cases/core-001.json` 自身
+    `c26cb0b514c1f5b35cd46c7ad7af761813846626d6ce78f52e7332e442d624a3` →
+    `4f2fc11f8c65de4861568d3b3b744d58c904010fa8284777586ef7f3f7457564`；`manifest.sha256` 两行随动。
+    未放宽任何校验：digest 红灯是靠重建 + 续期消失的。
+  - **正向诊断（未设开关，默认关断不回归）**：run `97fcfa1460d1407b9e94e34e12934ab5` /
+    session `dd55afb9435840fdad93cea5e399671e` / generation 1 / 服务端目录
+    `/data/server-runs/run-118`。run document：`connection_state: PLAYABLE`、
+    `snapshots_admitted: 1`、`snapshot_rejections: []`、`entities_admitted: 16`、
+    `outcome: BRIDGE_LOST`。同 run 的 ledger（position 951–968）有 `JoinObserved`（962，
+    `BRIDGE`/`BRIDGE_FILTERED`）与 `PlayableEstablished`（964）。退出码 14＝harness 主动停掉承载
+    Bridge 的客户端，按 `runner/README.md` 的既有语义，不是失败。
+  - **注入诊断（`MINEKIN_DOMAIN_REFUSE_FIRST_SNAPSHOT=1`）**：run
+    `db5671d970f943aa8540fd50191ecd92` / session `d623a3c135b544d4ac0c92a2756b8892` /
+    generation 1 / 服务端目录 `/data/server-runs/run-120`（形状相同的第一次
+    `785fcd4d9d3e4ac3bb7ed3e657708dcb` / `bb2f7da12b5d401db9b1a4dd1b983b48` / run-119，在判据块
+    还没把「通过」说出来之前跑的，故重跑一次留可读数）。run document：`connection_state: JOIN_SEEN`、
+    `snapshots_admitted: 0`、`snapshot_rejections: ["NOT_AUTHORITATIVE"]`、`entities_admitted: 0`、
+    `outcome: BRIDGE_LOST`；同 run 的 ledger（position 985–1000）有 `JoinObserved`（996）而
+    **无** `PlayableEstablished`、**无** `InputLeaseGranted`；runner 判据块打印
+    `domain: Core refused this run's first snapshot as asked`；退出码同为 14。
+  - **注入事实能被同一封存通道读回**：同一次 run 里 helper 写下
+    `{"observed": true, "reasons": [], "status": "recorded"}` 之后，`domain.sh` 改用
+    `fault_injection.read_record`（封存器唯一的那个读取入口）把记录读回来并打进转写：
+    `category: CLIENT_REPORT_REQUEST`、`effect.method: PROC_CHILD_ENVIRON`、
+    `effect.observed: true`、`effect.detail: the managed client JVM at pid 207 carries …=1`、
+    `request.asked: true`，归因到同一 run/session/generation，而那个 pid 正是同一次
+    `session stop` 终止的进程。byte-for-byte 进 bundle、以及请求记录不能满足 sigkill 断言，
+    由 `tests/unit/test_seal_run_evidence.py` 那两条证明。
+  - **一条 ledger 的诚实附注**：`InputLeaseGranted` 在正向 run 的 ledger 里也不存在——那一轮没人
+    请求过输入，所以「拒绝轮没有 lease」这条判据靠的是它**与** `PlayableEstablished` 一起缺席，
+    而不是单靠一条本来就不会出现的行。
+  - **未测**：新的 jar 字节只在 Windows（JDK 21.0.12.1+1-LTS-4）上构建过；旧 pin 的「Windows 与
+    Linux x86_64 构建出同一份 jar」那次复现验证没有对新字节重做，`recipe.py` 的注释已按此改写，
+    不再替新字节声称两平台。`check_wheel_boundary.py` 需要一个 wheel 参数（CI 构建后才有），本地
+    未跑。本卡按 non_goals 未封任何 bundle：两次注入诊断与一次正向诊断只留在数据根的 run 目录与
+    ledger 里，`ADMIT-070` 的 PASS bundle 属于后续的 `ADMIT-070-CASE-001`。公网测试服
+    `159.138.62.207:25565` 未被使用（`AddressPolicy.p0_loopback()` 与本卡的判据需求都不允许它）。
 - `validation_class`: `LOCAL_THEN_REAL_RUN`
 - `commit_intent`: `feat(bridge): allow an explicitly requested non-authoritative first snapshot`
 - `stop_conditions`: 若开关只能靠 `control.proto` 的一条新命令到达 Bridge，或注入无法在同一 bundle
   里说出自己（`fault-injection.json` 装不下这类事实且没有别的测试域通道），停在该卡并把第 3 个
   场景继续留在 `BLOCKED_EVIDENCE`——不得为了跑得出证据而把一条产品事件写成客户端没有的样子。
+
+### ADMIT-070-RECORD-SCHEMA-001 — 让封存的 schema 也说得出报告请求记录
+
+- `status`: `QUEUED`；不替换当前唯一 `NEXT`（`ADMIT-070-REFUSAL-INJECTION-001` 的
+  `completion_evidence` 就是登记本卡的原因）。
+- `why_now`: 上一条卡给 `fault-injection.json` 加了第二类记录（`CLIENT_REPORT_REQUEST`），
+  而 `schemas/fault-injection.schema.json` 仍只描述 SIGKILL 那一种。这不是遗漏而是被钉住的
+  缺口：`tests/unit/test_fault_injection.py::test_the_frozen_schema_still_describes_the_kill_record_only`
+  显式断言一条请求记录**会**被 schema 拒绝。之所以不当场改，是因为该文件在
+  `tests/fixtures/cases/w00-contract-001.json` 的 `inputs`（`schemas/*.schema.json`）里，
+  动它 = 给一张与本场景无关的 case 重新定版；而 case fixtures 是那张卡的 `forbidden_paths`。
+- `allowed_paths`: `schemas/fault-injection.schema.json`、
+  `tests/fixtures/cases/w00-contract-001.json`（只随 `case_version` 重签）、
+  `tests/fixtures/manifest.sha256`（第 6 行随 schema 动）、
+  `tests/unit/test_fault_injection.py`（把钉住缺口的那条改成两类的对齐断言）、
+  `tests/unit/test_seal_run_evidence.py` 与 `tests/fault_support.py`（仅在需要样例时）、
+  `docs/development-execution-plan.md`、`docs/development-todo.md`。
+- `forbidden_paths`: 判官 `tools/assert_case_evidence.py`、`tools/fault_injection.py` 的读取规则
+  （reader 是契约，schema 是它的书写形式，改的方向只能反过来）、产品 `src/minekin_core`、
+  Bridge、runner、`proto/`、CI。
+- `scope`: 让 schema 对两类记录分别给出 required/`oneOf`，并把
+  `test_the_schema_refuses_everything_the_reader_refuses_structurally` 那套「reader 拒的 schema
+  也拒」的覆盖扩到请求类（含 `EFFECT_WITHOUT_REQUEST`、`INVALID_CATEGORY`、`INVALID_ATTRIBUTION`
+  与 `asked` 由 value 派生这几条 reader 已有的规则）。
+- `non_goals`: 不新增第三类记录、不改 `CLIENT_REPORT_REQUEST` 已冻结的字段语义、不为让 schema
+  通过而放宽 reader 的任何一条规则、不重新解释 SIGKILL 类的既有字段。
+- `acceptance`: schema 与 reader 在两类记录的全部结构反例上一致；`check_workflow_pins` 与
+  `verify_fixture_digests` 绿；`w00-contract-001` 的新旧 `case_version` 与 `manifest.sha256`
+  新旧行在交付记录里列明；本地全量门禁绿（本卡无真实运行要求）。
+- `validation_class`: `LOCAL_ONLY`
+- `stop_conditions`: 若 `jsonschema`（测试期依赖，draft 2020-12）无法在不往 reader 里加规则的
+  前提下表达两类的判别，停在该卡并报告：宁可让 schema 继续只描述一类、由测试记名缺口，也不能
+  让写下来的契约与执行它的读取器各说各话。
 
 ### ADMIT-040-CLASSIFICATION-001 — 识别原版在线认证拒绝的真实文案
 

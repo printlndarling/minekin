@@ -98,6 +98,12 @@ class FakeProcfs:
         if name == "cmdline":
             argv = cast(list[str], entry.get("cmdline", []))
             return b"\0".join(item.encode() for item in argv) + (b"\0" if argv else b"")
+        if name == "environ":
+            # The real file has no entry for a process nobody gave an environment,
+            # and an empty one for a process that has one but nothing in it; the
+            # difference is not worth modelling here.
+            items = cast(list[str], entry.get("environ", []))
+            return b"\0".join(item.encode() for item in items) + (b"\0" if items else b"")
         return None
 
     def read_link(self, pid: int, name: str) -> str | None:
@@ -913,3 +919,183 @@ def test_the_helper_never_reaches_for_a_process_outside_the_tree_it_was_given(
 
     assert found == (CLI_PID,)
     assert str(stranger) not in found
+
+
+#: The name the Bridge reads, spelled here rather than inline so that a test that
+#: asks whether it arrived is asking about the same string the product declares.
+REQUEST_VARIABLE = "MINEKIN_BRIDGE_NON_AUTHORITATIVE_FIRST_SNAPSHOT"
+SUBJECT = "BRIDGE_FIRST_SNAPSHOT_AUTHORITY"
+
+
+def client_procs(environ: Mapping[int, list[str]] | None = None) -> dict[int, dict[str, object]]:
+    """The session subtree with each process's own environment hung on it."""
+
+    procs = session_procs()
+    for pid, items in (environ or {}).items():
+        procs[pid]["environ"] = list(items)
+    return procs
+
+
+def request(
+    procfs: FakeProcfs,
+    tmp_path: Path,
+    *,
+    value: str = "1",
+    subject: str = SUBJECT,
+    root_pid: int = ROOT_PID,
+    ledger: Path | None = None,
+    case_id: str = CASE_ID,
+    case_file: Path | None = CASE,
+) -> dict[str, object]:
+    return cast(
+        dict[str, object],
+        HELPER.record_request(
+            root_pid=root_pid,
+            root_starttime_ticks=5551000,
+            root_pid_namespace_inode="pid:[4026531836]",
+            subject=subject,
+            value=value,
+            case_id=case_id,
+            case_file=case_file,
+            ledger=ledger if ledger is not None else ledger_for(tmp_path),
+            kin_id=KIN_ID,
+            run_id=RUN_ID,
+            session_id=SESSION_ID,
+            generation=GENERATION,
+            procfs=procfs,
+            monotonic_ns=Clock(),
+        ),
+    )
+
+
+def test_a_request_the_client_carries_is_recorded_as_an_effect(
+    tmp_path: Path,
+) -> None:
+    """The effect is read out of `/proc`, not out of what the client printed."""
+
+    procs = client_procs({CLIENT_PID: ["PATH=/usr/bin", f"{REQUEST_VARIABLE}=1"]})
+
+    document = request(FakeProcfs(procs), tmp_path)
+
+    assert document["category"] == "CLIENT_REPORT_REQUEST"
+    assert document["request"] == {
+        "subject": SUBJECT,
+        "environment_variable": REQUEST_VARIABLE,
+        "value": "1",
+        "asked": True,
+    }
+    effect = cast(Mapping[str, object], document["effect"])
+    assert effect["observed"] is True
+    assert effect["method"] == "PROC_CHILD_ENVIRON"
+    assert effect["pid"] == CLIENT_PID
+    assert effect["starttime_ticks"] == 5551300
+    assert str(REQUEST_VARIABLE) in str(effect["detail"])
+    assert document["reasons"] == []
+    # A record a reader would refuse is not a record.
+    assert RECORD.validate(document) == ()
+    # And it is not a kill: the fields that would claim one are absent, not empty.
+    assert "target" not in document
+    assert "signal" not in document
+    assert "outcome" not in document
+    assert "confirmation_strength" not in document
+
+
+def test_a_request_the_client_does_not_carry_says_which_look_failed(
+    tmp_path: Path,
+) -> None:
+    """A request that did not arrive is recordable, and it is not an effect."""
+
+    procs = client_procs({CLIENT_PID: ["PATH=/usr/bin"]})
+
+    document = request(FakeProcfs(procs), tmp_path)
+
+    effect = cast(Mapping[str, object], document["effect"])
+    assert effect["observed"] is False
+    assert effect["method"] == "NOT_OBSERVED"
+    assert effect["pid"] is None
+    assert effect["starttime_ticks"] is None
+    assert document["reasons"] == ["REQUEST_NOT_IN_CLIENT_ENVIRON"]
+    assert RECORD.validate(document) == ()
+
+
+def test_a_second_client_carrying_the_name_is_too_many_to_attribute(
+    tmp_path: Path,
+) -> None:
+    """The hosting-and-joining shape must not credit one client with the other's name."""
+
+    procs = client_procs({CLIENT_PID: [f"{REQUEST_VARIABLE}=1"]})
+    second = CLIENT_PID + 10
+    procs[second] = {
+        "stat": stat_line(second, "java", CLI_PID, 5551400),
+        "cmdline": ["/opt/java/bin/java", "net.fabricmc.loader.impl.launch.knot.KnotClient"],
+        "exe": "/opt/java/bin/java",
+        "ns": "pid:[4026531836]",
+        "children": [],
+        "starttime": 5551400,
+        "environ": [f"{REQUEST_VARIABLE}=1"],
+    }
+    cast(list[int], procs[CLI_PID]["children"]).append(second)
+
+    document = request(FakeProcfs(procs), tmp_path)
+
+    assert document["reasons"] == ["CLIENT_JVM_AMBIGUOUS"]
+    effect = cast(Mapping[str, object], document["effect"])
+    assert effect["observed"] is False
+    assert RECORD.validate(document) == ()
+
+
+def test_a_request_is_not_hunted_for_on_a_run_that_cannot_be_named(
+    tmp_path: Path,
+) -> None:
+    """An observation attributed to no tree is filed under a tree by mistake."""
+
+    procs = client_procs({CLIENT_PID: [f"{REQUEST_VARIABLE}=1"]})
+
+    document = request(FakeProcfs(procs), tmp_path, root_pid=999999)
+
+    assert "ROOT_NOT_FOUND" in cast(list[str], document["reasons"])
+    effect = cast(Mapping[str, object], document["effect"])
+    assert effect["observed"] is False
+    # Said in the record, not only implied by the absence: the environment of a
+    # client that exists was never looked inside, and that is not the same story as
+    # looking and not finding.
+    assert "not looked for" in str(effect["detail"])
+
+
+def test_a_request_for_a_subject_this_tool_does_not_know_is_refused(
+    tmp_path: Path,
+) -> None:
+    """The subject picks the variable, so an unknown one picks nothing to check.
+
+    The error is named from the helper's own namespace: `inject_fault.py` imports
+    `fault_injection` as a sibling module, which is a different module object from
+    the `tools.fault_injection` this suite loads, and a test that compared the two
+    classes would fail for that reason rather than for a reason worth knowing.
+    """
+
+    procs = client_procs({CLIENT_PID: [f"{REQUEST_VARIABLE}=1"]})
+
+    with pytest.raises(HELPER.fault_injection.FaultInjectionError, match="UNKNOWN_SUBJECT"):
+        request(FakeProcfs(procs), tmp_path, subject="SOMETHING_ELSE")
+
+
+def test_a_request_record_round_trips_through_the_channel_that_seals_it(
+    tmp_path: Path,
+) -> None:
+    """The record the helper builds is the record the sealer's reader accepts.
+
+    `read_record` is the exact call `seal_run_evidence.py` makes on the file this
+    run writes, including the symlink and swap refusals. Going through it here is
+    what lets a request be said in the bundle rather than in the run's console
+    output, which is the requirement the frozen criteria put on this scenario.
+    """
+
+    procs = client_procs({CLIENT_PID: [f"{REQUEST_VARIABLE}=1"]})
+    document = request(FakeProcfs(procs), tmp_path)
+    path = tmp_path / "fault-injection.json"
+
+    RECORD.write_record(path, document)
+    read = RECORD.read_record(path)
+
+    assert read.document == document
+    assert read.raw == RECORD.dump_record(document)

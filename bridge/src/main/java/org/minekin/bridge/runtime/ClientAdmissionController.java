@@ -61,6 +61,26 @@ public final class ClientAdmissionController {
      */
     static final int SNAPSHOT_DEFERRAL_LIMIT_TICKS = 100;
 
+    /**
+     * The one variable that may ask this Bridge to report its first snapshot as not
+     * authoritative.
+     *
+     * <p>It is a diagnostic request about what this client *says*, not about what it
+     * has: the snapshot's content is collected the same way either way, and the field
+     * decides only whether Core's boundary filter may treat the session as playable.
+     * `ADMIT-070` needs a first snapshot that Core refuses, and no client produces one
+     * on its own — measured across the reviewed builds, the Bridge withholds a snapshot
+     * it cannot stand behind rather than sending a weaker one.
+     *
+     * <p>It reaches the client JVM the only way a host fact can: named in
+     * `minekin_core.config.FORWARDED_VARIABLES` and handed over by the launcher, which
+     * gives the client no other environment. Absent means off, so a run nobody asked
+     * for a refusal is reported exactly as it used to be.
+     */
+    static final String NON_AUTHORITATIVE_FIRST_SNAPSHOT_ENVIRONMENT_VARIABLE =
+            "MINEKIN_BRIDGE_NON_AUTHORITATIVE_FIRST_SNAPSHOT";
+
+    private final boolean firstSnapshotNonAuthoritative;
     private final Predicate<MinecraftClient> readyToConnect;
 
     public ClientAdmissionController(
@@ -82,10 +102,62 @@ public final class ClientAdmissionController {
             Predicate<ConnectionLifecycle> lifecycleSink,
             Predicate<InitialObservation> observationSink,
             Predicate<MinecraftClient> readyToConnect) {
+        this(
+                phases,
+                lifecycleSink,
+                observationSink,
+                readyToConnect,
+                firstSnapshotAskedNonAuthoritative(System.getenv()));
+    }
+
+    /**
+     * The same, with the snapshot request already read.
+     *
+     * <p>Package-private because it is the fully-specified one: reading the host's
+     * environment is the job of the constructor above, and the rule that says which
+     * authority the first snapshot carries can then be exercised without a client and
+     * without editing the environment of the process that runs the tests.
+     */
+    ClientAdmissionController(
+            BridgePhaseMachine phases,
+            Predicate<ConnectionLifecycle> lifecycleSink,
+            Predicate<InitialObservation> observationSink,
+            Predicate<MinecraftClient> readyToConnect,
+            boolean firstSnapshotNonAuthoritative) {
         this.phases = java.util.Objects.requireNonNull(phases, "phases");
         this.lifecycleSink = java.util.Objects.requireNonNull(lifecycleSink, "lifecycleSink");
         this.observationSink = java.util.Objects.requireNonNull(observationSink, "observationSink");
         this.readyToConnect = java.util.Objects.requireNonNull(readyToConnect, "readyToConnect");
+        this.firstSnapshotNonAuthoritative = firstSnapshotNonAuthoritative;
+    }
+
+    /**
+     * What the host's environment asks this Bridge to report, with nothing read.
+     *
+     * <p>A value that is neither yes nor no throws rather than being guessed at. This
+     * switch is the difference between a run that shows a refusal and one that does not,
+     * and a build that silently read `ture` as "off" would produce an ordinary run that
+     * somebody had believed otherwise — the failure this repository keeps paying for.
+     */
+    static boolean firstSnapshotAskedNonAuthoritative(Map<String, String> environment) {
+        String value =
+                environment.get(NON_AUTHORITATIVE_FIRST_SNAPSHOT_ENVIRONMENT_VARIABLE);
+        if (value == null) {
+            return false;
+        }
+        return switch (value.trim().toLowerCase(Locale.ROOT)) {
+            case "", "0", "false" -> false;
+            case "1", "true" -> true;
+            default -> throw new IllegalStateException(
+                    NON_AUTHORITATIVE_FIRST_SNAPSHOT_ENVIRONMENT_VARIABLE
+                            + " names neither a yes nor a no: "
+                            + value);
+        };
+    }
+
+    /** The authority this generation's first snapshot is reported with. */
+    boolean firstSnapshotIsAuthoritative() {
+        return !firstSnapshotNonAuthoritative;
     }
 
     /**
@@ -247,13 +319,28 @@ public final class ClientAdmissionController {
                     screen.getClass().getSimpleName());
         }
         snapshotPending = false;
-        InitialObservation snapshot = ClientSnapshot.collect(client, activeGeneration);
+        InitialObservation snapshot =
+                ClientSnapshot.collect(
+                        client, activeGeneration, firstSnapshotIsAuthoritative());
         if (snapshot == null) {
             LOGGER.warn("bridge could not describe itself, so no first snapshot was sent");
             return;
         }
         if (!observationSink.test(snapshot)) {
             LOGGER.warn("bridge could not hand the first snapshot to the worker");
+            return;
+        }
+        if (firstSnapshotNonAuthoritative) {
+            // Said only now, because the sentence is about a snapshot that left. Printed
+            // before `collect` it would also appear for a client that described nothing
+            // and for one whose write failed — and this line is the corroboration a
+            // reader uses to tell an asked-for refusal apart from a client that claimed it
+            // on its own, so it has to be true of a report rather than of an intention.
+            LOGGER.warn(
+                    "bridge reported generation {}'s first snapshot with authoritative=false"
+                            + " because {} asked for that; Core decides what it means",
+                    activeGeneration,
+                    NON_AUTHORITATIVE_FIRST_SNAPSHOT_ENVIRONMENT_VARIABLE);
         }
     }
 

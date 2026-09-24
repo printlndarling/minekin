@@ -248,3 +248,61 @@ def test_the_resource_pack_wait_reads_the_policy_that_went_on_the_wire() -> None
     assert "no denied resource pack policy was recorded within" in text
     # Existence is not the wait's question, so the row is not asked for unnamed.
     assert "json_extract(payload_json,'\\$.resource_pack_policy') is not null" not in text
+
+
+def test_the_first_snapshot_refusal_is_asked_for_by_value_and_judged_by_core() -> None:
+    """`ADMIT-070`'s injection knob is a boolean, and its success is Core's verdict.
+
+    Two false positives this branch has to be unable to produce. The first is a run
+    that was told `0` reading as a run that asked to be refused: a `[ -n ]` test
+    makes an explicit `0` non-empty, so the harness waits for a refusal, records a
+    request nobody made, and hands the operator a shape that looks like the scenario.
+    The second is a run that ends its wait on what the client *printed*: a Bridge can
+    say a sentence about a snapshot that never reached the IPC socket, and a log can
+    rotate, while Core's own run document is the only record of what it refused. So
+    the knob is cast with a `case`, the wait ends on this run's join row, and the
+    outcome is judged from the run document and the ledger afterwards.
+    """
+
+    text = (RUNNER / "domain.sh").read_text(encoding="utf-8")
+    wrapper = (RUNNER / "run.sh").read_text(encoding="utf-8")
+
+    # The value is validated, and an unusable one stops the run rather than becoming
+    # a default.
+    assert 'refuse_first_snapshot="${MINEKIN_DOMAIN_REFUSE_FIRST_SNAPSHOT:-}"' in text
+    assert '"" | 0 | false | 1 | true) : ;;' in text
+    assert "MINEKIN_DOMAIN_REFUSE_FIRST_SNAPSHOT must be 1/true or 0/false" in text
+    # And it is cast by name, not by emptiness.
+    assert "refusal_asked=0" in text
+    assert "    1 | true) refusal_asked=1 ;;\nesac" in text
+    assert '[ -n "${refuse_first_snapshot}" ]' not in text
+    # The wrapper hands the knob over, or the branch below is dead code.
+    assert "-e MINEKIN_DOMAIN_REFUSE_FIRST_SNAPSHOT" in wrapper
+    # The client only ever gets the name when the run asked for it.
+    assert 'if [ "${refusal_asked}" -eq 1 ]; then\n    client_env=(' in text
+    # One run, one record: a kill and a report request cannot share a bundle.
+    assert 'if [ "${refusal_asked}" -eq 1 ] && [ "${faults}" -ge 1 ]; then' in text
+    # The wait is the join, in this run's rows.
+    assert 'elif [ "${refusal_asked}" -eq 1 ]; then' in text
+    assert "position > ${baseline} and event_type='JoinObserved' limit 1;" in text
+    assert "no join was recorded within" in text
+    # The client's sentence is not the oracle, and its log is not guessed at.
+    assert "first snapshot with authoritative=false" not in text
+    # The request is recorded as a request, through the helper's own mode, and the
+    # run fails unless the name was seen in the live client JVM's environment.
+    assert "python /src/tools/inject_fault.py request \\" in text
+    assert "--subject BRIDGE_FIRST_SNAPSHOT_AUTHORITY" in text
+    assert 'json.load(open(sys.argv[1]))["effect"]["observed"]' in text
+    # And the record is read back, in that same run, through the reader the sealer
+    # uses — so the disclosure is shown to be judgeable rather than merely written.
+    assert "import fault_injection" in text
+    assert "fault_injection.read_record(Path(sys.argv[1])).document" in text
+    # And what it is judged on is Core's refusal and the ledger's silence.
+    assert '"NOT_AUTHORITATIVE" not in rejections' in text
+    assert 'problems.append(f"SNAPSHOTS_ADMITTED:{admitted}")' in text
+    assert 'if counted("PlayableEstablished") > 0' in text
+    assert 'if counted("InputLeaseGranted") > 0' in text
+    # The judgement also says when it is happy, so a transcript cannot be read as
+    # "no problems" merely because the block never ran.
+    assert 'print("domain: Core refused this run\'s first snapshot as asked")' in text
+    assert 'elif [ -s "${request_path}" ]; then' in text

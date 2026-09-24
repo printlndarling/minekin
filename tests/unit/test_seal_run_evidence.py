@@ -24,7 +24,7 @@ from typing import Any, cast
 
 import pytest
 
-from fault_support import fault_record
+from fault_support import fault_record, request_record
 from minekin_core.adapters.evidence.bundle import unseal_bundle, verify_bundle
 from minekin_core.adapters.evidence.promotion import load_case_manifest
 from minekin_core.adapters.launcher.server_profile import load_server_profile
@@ -672,6 +672,53 @@ def test_a_kill_run_seals_the_record_that_confirms_it(
     assert "fault-injection.json" in cast(list[str], report["artifacts"])
     bundle = data_root / "kin" / str(KIN) / "run" / "evidence" / RUN_ID
     assert (bundle / "fault-injection.json").read_bytes() == written
+    assert verify_bundle(bundle).verified
+
+
+def test_a_report_request_travels_the_same_channel_and_is_not_read_as_a_kill(
+    finished_run: tuple[Path, Path, Path], tmp_path: Path
+) -> None:
+    """The injection a refusal run can say, and the run it still is not.
+
+    The scenario needs the request in the bundle: without it, a PASS cannot be told
+    apart from a client that sent a weak snapshot nobody asked for. So the record
+    goes through `--fault-injection`, under the same artifact name, and is sealed as
+    the bytes that were judged — which is what the reviewer of a real run reads.
+
+    What it does *not* get is a kill's verdict. The case under test here asserts
+    `runtime_controller_sigkill_was_confirmed`, and a request record has no target,
+    no signal and no disappearance to confirm, so the seal is a FAIL that still
+    carries the record. A document that could be filed into this channel and read as
+    either kind would make the two scenarios indistinguishable, and the seal would be
+    the place that quiet mistake happened.
+    """
+
+    data_root, server, document = finished_run
+    case = fault_case(tmp_path)
+    record_path = tmp_path / "fault-injection.json"
+    written = (
+        json.dumps(
+            request_record(case_version=load_case_manifest(case).digest), indent=2, sort_keys=True
+        )
+        + "\n"
+    ).encode("utf-8")
+    record_path.write_bytes(written)
+
+    report = seal_it(
+        data_root,
+        server,
+        document,
+        case=case,
+        fault_injection_path=record_path,
+    )
+
+    bundle = data_root / "kin" / str(KIN) / "run" / "evidence" / RUN_ID
+    assert report["result"] == "FAIL", report
+    assert (bundle / "fault-injection.json").read_bytes() == written
+    assert any(
+        "sigkill" in str(failure).lower() or "FAULT" in str(failure)
+        for failure in cast(list[object], report["failures"])
+    ), report["failures"]
     assert verify_bundle(bundle).verified
 
 

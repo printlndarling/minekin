@@ -538,3 +538,157 @@ def test_a_run_that_names_no_case_records_that_rather_than_borrowing_one() -> No
     """A kill run nobody attributed to a case has no case version to claim."""
 
     assert codes(changed(case=None)) == ()
+
+
+#: The name the Bridge reads, and the subject that names it. Spelled in full rather
+#: than imported, so that a constant renamed on one side is caught here.
+SUBJECT = "BRIDGE_FIRST_SNAPSHOT_AUTHORITY"
+REQUEST_VARIABLE = "MINEKIN_BRIDGE_NON_AUTHORITATIVE_FIRST_SNAPSHOT"
+
+
+def request_sample(**overrides: object) -> dict[str, object]:
+    """A request record as the helper builds one, with its fields replaced whole."""
+
+    document = cast(
+        dict[str, object],
+        RECORD.request_document(
+            subject=SUBJECT,
+            value="1",
+            attribution=copy.deepcopy(sample()["attribution"]),
+            observed=True,
+            pid=4320,
+            starttime_ticks=5551300,
+            detail="the managed client JVM at pid 4320 carries the name",
+            attempted_at_monotonic_ns=1_700_000_000_123,
+            recorded_at_monotonic_ns=1_700_000_000_500,
+            case={"case_id": CASE_ID, "case_version": DIGEST},
+        ),
+    )
+    document.update(overrides)
+    return document
+
+
+def test_a_report_request_is_a_record_of_its_own_kind() -> None:
+    """The reader accepts a request without borrowing a kill's vocabulary.
+
+    The record carries no `outcome`, no `signal` and no `confirmation_strength`, and
+    that absence is the disclosure: the strongest thing a request can say is that a
+    live process's environment held a name. A run that needed a stronger sounding
+    document to seal its injection would have to write one, and there is no field
+    here for it to write into.
+    """
+
+    document = request_sample()
+
+    assert document["category"] == "CLIENT_REPORT_REQUEST"
+    assert codes(document) == ()
+    assert not {"outcome", "signal", "confirmation_strength", "target", "confirmation"} & set(
+        document
+    )
+
+
+def test_a_request_that_was_not_asked_for_cannot_report_an_effect() -> None:
+    """The exact false positive the scenario would otherwise allow.
+
+    A run handed the knob `0`, watched nothing, and is reading as a run that asked
+    Core to refuse a snapshot. `asked` and `observed` are the two claims, and the
+    second cannot stand without the first.
+    """
+
+    document = nested(request_sample(), "request", value="0", asked=False)
+
+    assert codes(document) == ("EFFECT_WITHOUT_REQUEST",)
+
+
+@pytest.mark.parametrize(
+    ("document", "code"),
+    [
+        # An effect that also lists reasons is a run that saw the name and could not
+        # say which client carried it. The two fields are one claim.
+        (request_sample(reasons=["CLIENT_JVM_AMBIGUOUS"]), "REASONS_NOT_FOR_THIS_OUTCOME"),
+        # Nothing was seen, and the record says nothing about why not.
+        (
+            nested(request_sample(), "effect", observed=False, method="NOT_OBSERVED"),
+            "REASONS_MISSING",
+        ),
+        # The subject and the variable are one pairing, checked rather than trusted.
+        (
+            nested(request_sample(), "request", environment_variable="SOMETHING_OTHER"),
+            "INVALID_REQUEST",
+        ),
+        # A value the Bridge would not read, beside an `asked` that reads it anyway.
+        (nested(request_sample(), "request", value="yes-please"), "INVALID_REQUEST"),
+        # An effect that names a method it did not use, and one that names no pid.
+        (nested(request_sample(), "effect", method="NOT_OBSERVED"), "INVALID_EFFECT"),
+        (nested(request_sample(), "effect", pid=None), "INVALID_EFFECT"),
+        # An effect that saw nothing and cannot say what it looked for.
+        (nested(request_sample(), "effect", detail=""), "INVALID_EFFECT"),
+        # A request dressed as a kill, and a kill missing a third of itself.
+        ({**request_sample(), "target": target()}, "UNKNOWN_FIELD"),
+        (
+            {key: value for key, value in request_sample().items() if key != "effect"},
+            "MISSING_FIELD",
+        ),
+        (request_sample(category="MAYBE"), "INVALID_CATEGORY"),
+        (nested(request_sample(), "attribution", generation=0), "INVALID_ATTRIBUTION"),
+    ],
+)
+def test_a_malformed_request_record_is_refused_by_code(
+    document: dict[str, object], code: str
+) -> None:
+    assert code in codes(document)
+
+
+def test_a_kill_record_may_name_its_category_without_changing_what_it_claims() -> None:
+    """The field is a label on both kinds, so an explicit one is not a new claim.
+
+    Absence still means a kill record — that is what every reviewed bundle on the
+    volume holds — and the pair of shapes is what the reader agrees on: a kill that
+    says so validates, and so does one that says nothing.
+    """
+
+    assert codes(changed(category="PROCESS_SIGKILL")) == ()
+    assert codes(sample()) == ()
+
+
+def test_the_builder_derives_the_claims_it_would_most_easily_get_wrong() -> None:
+    """A caller states the value and what was seen, never what they mean.
+
+    `asked` comes from the value and the effect's method from whether anything was
+    observed, so the two fields a hand-written document would most plausibly flatter
+    are not offered to it. A value that is neither a yes nor a no is refused rather
+    than defaulted, because defaulting it would make an unusable knob an injection.
+    """
+
+    with pytest.raises(RECORD.FaultInjectionError, match="INVALID_VALUE"):
+        RECORD.request_document(
+            subject=SUBJECT,
+            value="maybe",
+            attribution=copy.deepcopy(sample()["attribution"]),
+            observed=False,
+            pid=None,
+            starttime_ticks=None,
+            detail="nothing was looked for",
+            attempted_at_monotonic_ns=1,
+            recorded_at_monotonic_ns=2,
+            reasons=("INVALID_VALUE:maybe",),
+        )
+
+
+def test_the_frozen_schema_still_describes_the_kill_record_only() -> None:
+    """Where the two descriptions of this artifact part company, and why.
+
+    `schemas/fault-injection.schema.json` is a reviewed input digest: it is one of
+    the `inputs` of `w00-contract-001`, so editing it changes that case's
+    `case_version` and re-versions a case this scenario has no business touching. So
+    the schema describes the SIGKILL record, the reader describes both, and this test
+    is the statement that the gap is known rather than missed — a request record is
+    refused by the schema today, on purpose. Renewing the schema is its own card.
+    """
+
+    schema = json.loads(SCHEMA.read_text(encoding="utf-8"))
+    validator = Draft202012Validator(schema)
+
+    assert codes(request_sample()) == ()
+    assert list(validator.iter_errors(as_json(request_sample()))) != []
+    assert list(validator.iter_errors(as_json(sample()))) == []

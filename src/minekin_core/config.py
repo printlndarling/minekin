@@ -34,7 +34,25 @@ KIN_VARIABLE = "MINEKIN_KIN_ID"
 # `DISPLAY` forwarded, GLFW is refused by the X server and says something that
 # does not mention authentication at all: "Failed to initialize GLFW, errors:
 # GLFW error during init: [0x1000E] Failed to detect any supported platform".
-FORWARDED_VARIABLES: tuple[str, ...] = ("DISPLAY", "XAUTHORITY")
+#
+# The last name is a different kind of thing from the first two, and it is here
+# because this list is the only channel that reaches the client JVM: it is not a
+# fact about the host but a request the operator makes for one run, asking the
+# Bridge to report this generation's first snapshot with `authoritative=false` so
+# that Core's own filter has something to refuse (`ADMIT-070`). Core neither reads
+# nor acts on its value — it only lends the name — and a build with the variable
+# absent behaves exactly as it did before. The Bridge reads it, says so in its own
+# log, and the alternative (a new command on the wire to ask the client to lie
+# about itself) is a permanent protocol surface standing in for a diagnostic.
+BRIDGE_NON_AUTHORITATIVE_FIRST_SNAPSHOT_VARIABLE: str = (
+    "MINEKIN_BRIDGE_NON_AUTHORITATIVE_FIRST_SNAPSHOT"
+)
+
+FORWARDED_VARIABLES: tuple[str, ...] = (
+    "DISPLAY",
+    "XAUTHORITY",
+    BRIDGE_NON_AUTHORITATIVE_FIRST_SNAPSHOT_VARIABLE,
+)
 
 
 def _reject(message: str) -> MinekinError:

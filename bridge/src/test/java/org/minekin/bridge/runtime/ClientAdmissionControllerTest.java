@@ -1,6 +1,8 @@
 package org.minekin.bridge.runtime;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.minekin.protocol.v1.AdmissionFailureReason;
@@ -11,6 +13,7 @@ import io.minekin.protocol.v1.InitialObservation;
 import io.minekin.protocol.v1.ResourcePackPolicy;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import net.minecraft.client.network.ServerInfo;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -21,7 +24,9 @@ import org.junit.jupiter.api.Test;
  * <p>The client fires these events for every server it talks to, so the rule that
  * matters is not "which phase does this event mean" but "is this generation still
  * ours to speak for". Both halves are decided here without a client: what needs
- * Minecraft is starting a connection, not believing one.
+ * Minecraft is starting a connection, not believing one. The same goes for which
+ * authority a first snapshot is reported with — reading that request is a decision,
+ * and the snapshot it will be attached to is the part that needs the client.
  */
 final class ClientAdmissionControllerTest {
 
@@ -313,6 +318,68 @@ final class ClientAdmissionControllerTest {
         assertEquals(
                 AdmissionFailureReason.ADMISSION_FAILURE_REASON_UNEXPECTED_DISCONNECT,
                 only().getFailureReason());
+    }
+
+    @Test
+    void aClientNobodyAskedForARefusalReportsItsFirstSnapshotAsAuthoritative() {
+        // The default is the whole reason this switch is allowed to exist: a run in
+        // which nobody named the variable reports exactly what it reported before.
+        assertFalse(
+                ClientAdmissionController.firstSnapshotAskedNonAuthoritative(Map.of()),
+                "an absent variable is not a request");
+        assertTrue(withoutTheRequest().firstSnapshotIsAuthoritative());
+    }
+
+    @Test
+    void theSnapshotRequestIsReadFromTheVariableThatNamesIt() {
+        String name = ClientAdmissionController.NON_AUTHORITATIVE_FIRST_SNAPSHOT_ENVIRONMENT_VARIABLE;
+
+        assertTrue(
+                ClientAdmissionController.firstSnapshotAskedNonAuthoritative(Map.of(name, "1")));
+        assertTrue(
+                ClientAdmissionController.firstSnapshotAskedNonAuthoritative(Map.of(name, " TRUE ")));
+        // An explicit no and nothing at all are the same instruction, and so is a
+        // variable set to empty — the rule the forwarded display already follows.
+        assertFalse(
+                ClientAdmissionController.firstSnapshotAskedNonAuthoritative(Map.of(name, "false")));
+        assertFalse(
+                ClientAdmissionController.firstSnapshotAskedNonAuthoritative(Map.of(name, "0")));
+        assertFalse(
+                ClientAdmissionController.firstSnapshotAskedNonAuthoritative(Map.of(name, "")));
+        // Anything else is neither, and a build that read `ture` as "off" would
+        // produce an ordinary run somebody had believed was a refusal.
+        IllegalStateException error =
+                assertThrows(
+                        IllegalStateException.class,
+                        () ->
+                                ClientAdmissionController.firstSnapshotAskedNonAuthoritative(
+                                        Map.of(name, "ture")));
+        assertTrue(
+                error.getMessage().contains(name),
+                "a refusal that does not name the variable it refused cannot be fixed");
+    }
+
+    @Test
+    void onlyThatRequestChangesWhatTheFirstSnapshotClaimsAboutItself() {
+        // Which authority the first snapshot is reported with is decided here and not
+        // in the collector, so the one field Core's filter reads has one source. What
+        // the field does to a session — no lease, generation ended — is the product's
+        // own rule, and a real run is where that pairing is proven.
+        assertTrue(withoutTheRequest().firstSnapshotIsAuthoritative());
+        assertFalse(withTheRequest().firstSnapshotIsAuthoritative());
+    }
+
+    private ClientAdmissionController withoutTheRequest() {
+        return withRequest(false);
+    }
+
+    private ClientAdmissionController withRequest(boolean nonAuthoritative) {
+        return new ClientAdmissionController(
+                phases, lifecycle -> true, observation -> true, client -> true, nonAuthoritative);
+    }
+
+    private ClientAdmissionController withTheRequest() {
+        return withRequest(true);
     }
 
 }

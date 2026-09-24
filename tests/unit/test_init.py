@@ -14,6 +14,7 @@ from minekin_core.application.ports.clock import FakeClock
 from minekin_core.bootstrap import main, run
 from minekin_core.cli.init import DATABASE_NAME, RUN_DIRECTORY, initialise_identity
 from minekin_core.config import (
+    BRIDGE_NON_AUTHORITATIVE_FIRST_SNAPSHOT_VARIABLE,
     DATA_ROOT_VARIABLE,
     USERNAME_VARIABLE,
     configured_username,
@@ -72,6 +73,20 @@ def test_the_host_facts_lent_to_a_client_are_the_named_ones() -> None:
 
 def test_a_host_with_no_display_lends_nothing() -> None:
     assert forwarded_environment({}) == {}
+
+
+def test_the_first_snapshot_request_is_lent_and_not_read() -> None:
+    """The one forwarded name whose value Core never looks at.
+
+    It is a request to the Bridge about what the Bridge says, and the verdict on it
+    is Core's snapshot filter — deciding the same thing in both halves would be two
+    answers to one question, and the run document would not say which one it holds.
+    Being absent is therefore the same as it was before this name existed.
+    """
+
+    assert forwarded_environment({BRIDGE_NON_AUTHORITATIVE_FIRST_SNAPSHOT_VARIABLE: "1"}) == {
+        BRIDGE_NON_AUTHORITATIVE_FIRST_SNAPSHOT_VARIABLE: "1"
+    }
 
 
 def test_the_display_and_its_credential_are_forwarded_together() -> None:

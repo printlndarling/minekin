@@ -926,11 +926,151 @@ def real_kill(pid: int) -> str | None:
     return None
 
 
+def _environ(procfs: Procfs, pid: int) -> tuple[str, ...]:
+    """The environment one process was started with, as the kernel holds it.
+
+    Read from `/proc` rather than from this process's own view: the ask this records
+    was handed to a *child*, and the child's environ is the one place that says
+    whether it arrived. An entry may be `NAME` with no `=`; splitting on the first
+    `=` keeps that distinguishable from `NAME=`.
+    """
+
+    raw = procfs.read_bytes(pid, "environ")
+    if raw is None:
+        return ()
+    return tuple(item.decode("utf-8", errors="replace") for item in raw.split(b"\0") if item)
+
+
+def record_request(
+    *,
+    root_pid: int,
+    root_starttime_ticks: int,
+    root_pid_namespace_inode: str,
+    subject: str,
+    value: str,
+    case_id: str,
+    case_file: Path | None,
+    ledger: Path,
+    kin_id: str,
+    run_id: str,
+    session_id: str,
+    generation: int,
+    procfs: Procfs,
+    monotonic_ns: Callable[[], int] = time.monotonic_ns,
+) -> dict[str, object]:
+    """Record that this run handed the client JVM a report-shaping request.
+
+    Nothing is killed here, so nothing about a death is claimed: the observation is
+    that the managed client's own environment holds the name with the value that was
+    asked for. One carrier and one carrier only — a second client JVM in the same
+    container is the joining-hosting shape, and a request that could not say which
+    client received it would be a request attributed to nothing.
+    """
+
+    reasons: list[str] = []
+    attempted = monotonic_ns()
+    case = _case_section(case_id, case_file, reasons)
+    attribution = _attribution(
+        ledger=ledger,
+        kin_id=kin_id,
+        run_id=run_id,
+        session_id=session_id,
+        generation=generation,
+        reasons=reasons,
+    )
+    variable = fault_injection.ENVIRONMENT_VARIABLE_FOR_SUBJECT.get(subject)
+    if variable is None:
+        reasons.append(f"UNKNOWN_SUBJECT:{subject}")
+        variable = ""
+    root = read_identity(procfs, root_pid)
+    if root is None:
+        reasons.append("ROOT_NOT_FOUND")
+    elif (
+        root.starttime_ticks != root_starttime_ticks
+        or root.pid_namespace_inode != root_pid_namespace_inode
+    ):
+        reasons.append("ROOT_IDENTITY_MISMATCH")
+
+    observed = False
+    carrier: int | None = None
+    starttime: int | None = None
+    if reasons:
+        # Nothing is looked up on a run that cannot be named, for the same reason a
+        # kill is not signalled on one: an observation attributed to a run that does
+        # not exist would be filed under it all the same.
+        detail = "the request was not looked for, because this run could not name its tree"
+    else:
+        candidates = find_candidates(procfs, root_pid, CLIENT_JVM)
+        carriers = tuple(
+            pid for pid in candidates if f"{variable}={value}" in _environ(procfs, pid)
+        )
+        if not candidates:
+            reasons.append("CLIENT_JVM_NOT_FOUND")
+            detail = f"no managed client JVM was below pid {root_pid} to look inside"
+        elif len(carriers) > 1:
+            reasons.append("CLIENT_JVM_AMBIGUOUS")
+            detail = (
+                f"{len(carriers)} managed client JVMs carried {variable}={value},"
+                " so the request cannot be attributed to one of them"
+            )
+        elif not carriers:
+            reasons.append("REQUEST_NOT_IN_CLIENT_ENVIRON")
+            detail = (
+                f"the managed client JVM below pid {root_pid} carries neither"
+                f" {variable}={value} nor any other value of that name"
+            )
+        else:
+            carrier = carriers[0]
+            identity = read_identity(procfs, carrier)
+            starttime = None if identity is None else identity.starttime_ticks
+            observed = starttime is not None
+            detail = f"the managed client JVM at pid {carrier} carries {variable}={value}"
+    return fault_injection.request_document(
+        subject=subject,
+        value=value,
+        attribution=attribution,
+        observed=observed,
+        pid=carrier,
+        starttime_ticks=starttime,
+        detail=detail,
+        attempted_at_monotonic_ns=attempted,
+        recorded_at_monotonic_ns=monotonic_ns(),
+        reasons=tuple(reasons),
+        case=case,
+    )
+
+
 def _inject_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--root-pid", type=int, required=True)
     parser.add_argument("--root-starttime-ticks", type=int, required=True)
     parser.add_argument("--root-pid-namespace-inode", required=True)
     parser.add_argument("--role", choices=list(ROLES), required=True)
+    parser.add_argument("--case", default="", help="the reviewed case, or empty for none")
+    parser.add_argument("--case-file", type=Path, default=None)
+    parser.add_argument("--ledger", type=Path, required=True)
+    parser.add_argument("--kin-id", required=True)
+    parser.add_argument("--run-id", required=True)
+    parser.add_argument("--session-id", required=True)
+    parser.add_argument("--generation", type=int, required=True)
+    parser.add_argument("--record", type=Path, required=True)
+
+
+def _request_arguments(parser: argparse.ArgumentParser) -> None:
+    """The arguments of a request record: an injection with nothing signalled."""
+
+    parser.add_argument("--root-pid", type=int, required=True)
+    parser.add_argument("--root-starttime-ticks", type=int, required=True)
+    parser.add_argument("--root-pid-namespace-inode", required=True)
+    parser.add_argument(
+        "--subject",
+        choices=sorted(fault_injection.ENVIRONMENT_VARIABLE_FOR_SUBJECT),
+        required=True,
+    )
+    parser.add_argument(
+        "--value",
+        required=True,
+        help="the knob's own text; the record states what it means, not whether it was set",
+    )
     parser.add_argument("--case", default="", help="the reviewed case, or empty for none")
     parser.add_argument("--case-file", type=Path, default=None)
     parser.add_argument("--ledger", type=Path, required=True)
@@ -947,6 +1087,12 @@ def main(argv: list[str] | None = None) -> int:
     )
     modes = parser.add_subparsers(dest="mode", required=True)
     _inject_arguments(modes.add_parser("inject", help="find the target, kill it, record it"))
+    _request_arguments(
+        modes.add_parser(
+            "request",
+            help="record a report-shaping request this run handed the managed client JVM",
+        )
+    )
     annotate_parser = modes.add_parser("annotate", help="record the supervisor's exit status")
     annotate_parser.add_argument("--record", type=Path, required=True)
     annotate_parser.add_argument("--supervisor-pid", type=int, default=None)
@@ -988,23 +1134,40 @@ def main(argv: list[str] | None = None) -> int:
                 file=sys.stderr,
             )
             return 2
-        document = inject(
-            root_pid=args.root_pid,
-            root_starttime_ticks=args.root_starttime_ticks,
-            root_pid_namespace_inode=args.root_pid_namespace_inode,
-            role=args.role,
-            case_id=args.case,
-            case_file=args.case_file,
-            ledger=args.ledger,
-            kin_id=args.kin_id,
-            run_id=args.run_id,
-            session_id=args.session_id,
-            generation=args.generation,
-            procfs=RealProcfs(),
-            kill=real_kill,
-            monotonic_ns=time.monotonic_ns,
-            sleep=time.sleep,
-        )
+        if args.mode == "request":
+            document = record_request(
+                root_pid=args.root_pid,
+                root_starttime_ticks=args.root_starttime_ticks,
+                root_pid_namespace_inode=args.root_pid_namespace_inode,
+                subject=args.subject,
+                value=args.value,
+                case_id=args.case,
+                case_file=args.case_file,
+                ledger=args.ledger,
+                kin_id=args.kin_id,
+                run_id=args.run_id,
+                session_id=args.session_id,
+                generation=args.generation,
+                procfs=RealProcfs(),
+            )
+        else:
+            document = inject(
+                root_pid=args.root_pid,
+                root_starttime_ticks=args.root_starttime_ticks,
+                root_pid_namespace_inode=args.root_pid_namespace_inode,
+                role=args.role,
+                case_id=args.case,
+                case_file=args.case_file,
+                ledger=args.ledger,
+                kin_id=args.kin_id,
+                run_id=args.run_id,
+                session_id=args.session_id,
+                generation=args.generation,
+                procfs=RealProcfs(),
+                kill=real_kill,
+                monotonic_ns=time.monotonic_ns,
+                sleep=time.sleep,
+            )
         fault_injection.write_record(args.record, document)
     except FaultInjectionError as error:
         print(
@@ -1013,17 +1176,20 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 2
 
-    print(
-        json.dumps(
-            {
-                "status": "recorded",
-                "record": str(args.record),
-                "outcome": document["outcome"],
-                "reasons": document["reasons"],
-            },
-            sort_keys=True,
-        )
-    )
+    summary: dict[str, object] = {
+        "status": "recorded",
+        "record": str(args.record),
+        "reasons": document["reasons"],
+    }
+    # `outcome` is a kill record's word — it says what became of a signal — and a
+    # request record has none, so printing one for the other would put a field in
+    # the harness's own output that the sealed document deliberately does not have.
+    if document.get("category") != fault_injection.CLIENT_REPORT_REQUEST:
+        summary["outcome"] = document["outcome"]
+    else:
+        effect = document["effect"]
+        summary["observed"] = effect["observed"] if isinstance(effect, Mapping) else None
+    print(json.dumps(summary, sort_keys=True))
     return 0
 
 
