@@ -2307,7 +2307,8 @@
     设阈值；FPS/TPS/GC/队列深度/GPU 无来源，如实标不完整。全量门禁 `2159 passed / 2 skipped`。三条
     `stop_conditions` 均未触发。
 
-- [ ] **P0-PROMOTION-LEDGER-001（`QUEUED`，campaign 第 7 场景 = 阶段 F 晋级总账；本 commit 登记）**：把七个
+- [ ] **P0-PROMOTION-LEDGER-001（`NEXT`，campaign 第 7 场景 = 阶段 F 晋级总账；`532446e` 登记 `QUEUED`、紧随
+  commit 提升 `NEXT`）**：把七个
   `order` 场景已封的 bundle 与机器 required-case inventory 汇成一张 CORE/OFFLINE/ADMIT 晋级总账。只读重跑
   `tools/report_cases.py` 与 `tools/report_promotion.py`，逐 gate 记 present/missing、最新 attempt、
   PASS/FAIL/INCOMPLETE、case version/摘要、与当前 build 关系、阻断原因，并把 AGREES/UNJUDGED/DISAGREES 分清；

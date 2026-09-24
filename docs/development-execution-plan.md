@@ -12,23 +12,24 @@
 - `baseline_date`: 2026-09-22
 - `baseline_branch`: `main`
 - `baseline_remote`: `origin/main`
-- `current_next`: **无**——本 commit 把 campaign 第 6 场景（tick/render + L6 soak）的真实封证卡
-  `TICK-RENDER-SOAK-RUN-001` 收为 `DONE`（`9f3946d` 提升为 `NEXT`，本轮交付完成）：在当前 reviewed build 上跑完
-  受控 600 秒 / 间隔 10 秒 bounded-soak、封 `CORE-100` 新 attempt（run `8367f741…`、bundle `1b2a58e9…`、
-  `result PASS`）、四读一致（verify / rejudge / replay / promotion）、`report_soak` 如实报告预算/RSS 覆盖且不设阈值，
-  旧 baseline `e3a99202…` 只量不改（读到 `UNJUDGED`、原样保留），全量 `2159 passed / 2 skipped`。
-  `scenario_progress 5/7→6/7`。`order` 第 7 场景（`CORE/OFFLINE/ADMIT` promotion 总账，阶段 F）的卡
-  `P0-PROMOTION-LEDGER-001` 已在本 commit 以 `QUEUED` 登记（只读晋级总账，不新增判据、不再封证、不宣布 campaign
-  `DONE`）；紧随的 commit 才把它提升为唯一 `NEXT`，本 commit 计划里无 `NEXT`。
-  第 6 场景判据表由冻结卡 `TICK-RENDER-SOAK-EVIDENCE-DESIGN-001`（`096bd68` 登记 `QUEUED`、`26a7543` 提升 `NEXT`、
-  `6717d2e` 冻结收 `DONE`）写下。**上一批交付卡**：crash/outbox 第 5 场景由 `CRASH-OUTBOX-ALIVE-DISPLAY-001`（`f90abc8`）与前置
+- `current_next`: `P0-PROMOTION-LEDGER-001`——`REAL-P0-CAMPAIGN-001.order` 第 7 也是最后一个场景（阶段 F：
+  `CORE/OFFLINE/ADMIT` 晋级总账）。`532446e` 以 `QUEUED` 登记，本 commit 依「连续推进」提升为唯一 `NEXT`。它是
+  一张**只读汇总卡**：把七场景已封 bundle 与机器 required-case inventory 汇成总账（每 gate present/missing、最新
+  attempt、PASS/FAIL/INCOMPLETE、version、build 关系、阻断原因，AGREES/UNJUDGED/DISAGREES 分清），仍缺的
+  required-case 族按机器读数逐条列阻断原因；**不新增判据/case/阈值、不再封 bundle、不重写既有 bundle**，且在
+  `runtime-required` 有缺口时**不把 campaign 宣布 `DONE`**。**上一批交付**：第 6 场景（tick/render + L6 soak）的
+  真实封证卡 `TICK-RENDER-SOAK-RUN-001`（`9f3946d` 提升、`a26a51a` 收 `DONE`）在当前 build 封了 `CORE-100` 新 attempt
+  （run `8367f741…`、bundle `1b2a58e9…`、`result PASS`、四读一致、`report_soak` 只报覆盖、旧 baseline `e3a99202…`
+  只量不改读作 `UNJUDGED`），`scenario_progress 5/7→6/7`。第 6 场景判据表由冻结卡
+  `TICK-RENDER-SOAK-EVIDENCE-DESIGN-001`（`096bd68` 登记 `QUEUED`、`26a7543` 提升 `NEXT`、
+  `6717d2e` 冻结收 `DONE`）写下。**再往前**：crash/outbox 第 5 场景由 `CRASH-OUTBOX-ALIVE-DISPLAY-001`（`f90abc8`）与前置
   `CRASH-OUTBOX-RESEAL-001`（`DONE` 5/5）收口，`scenario_progress 4/7→5/7`。`ALIVE-DISPLAY` 只做一件事——把
   X 显示与 Core 的生死脱钩（harness 自己起并持有 Xvfb、
   `session` 只继承 `DISPLAY`、Core 挪到普通 `sh -c` 包装之下仍是 `session_pid` 的后代），使客户端 tick 那句
   `bridge released N input(s) after IPC_LOST` 有机会真被写出来；`src/`/`bridge/`/`proto/`/`tools/`、故障注入、
   目标选择、`domain.sh:1250` 等待条件、任何 fixture/digest/`mandatory`、已封 bundle 全在禁地，一字未动。
   三条 `stop_conditions`（产品侧回归 / 需动 forbidden_paths / 落到进程接管）均未触发。
-  **再往前**：`CRASH-OUTBOX-SEALED-KIN-001` 收为 `DONE`（登记 `c75865b`、提升 `3427e43`、交付 `2160989`、
+  **更早**：`CRASH-OUTBOX-SEALED-KIN-001` 收为 `DONE`（登记 `c75865b`、提升 `3427e43`、交付 `2160989`、
   收卡 `acb2572`）修的是「没有文档的一次 run 属于哪个 Kin」。冻结卡 `CRASH-OUTBOX-EVIDENCE-DESIGN-001`
   （交付 `72aec3e`、收卡 `a1be5fb`）给出六个窗口的逐格读数，那份表在契约的「crash / outbox / restart 窗口的
   可封边界」一节。`minekin-runner:local` 镜像 `fed4a143f2e4`、`minekin-runner-data` 卷原样保留。
@@ -2680,8 +2681,11 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 
 ### P0-PROMOTION-LEDGER-001 — 封一次 campaign 的 CORE/OFFLINE/ADMIT 晋级总账
 
-- `status`: `QUEUED`（依 `order` 第 7 场景（阶段 F：`CORE/OFFLINE/ADMIT` promotion 总账）在本 commit 登记；
-  紧随的 commit 才提升为唯一 `NEXT`，本 commit 不直接 `NEXT`）
+- `status`: `NEXT`（`532446e` 登记为 `QUEUED`，本 commit 依交接「连续推进」把它提升为唯一 `NEXT`）
+- `promotion_reason`: 顺序已满足——登记它的 commit（`532446e`）之后计划里无 `NEXT`，中间没插入别的未授权工作；
+  它是 `REAL-P0-CAMPAIGN-001.order` 的第 7 个也是最后一个场景（阶段 F 晋级总账）。上一张真实封证卡
+  `TICK-RENDER-SOAK-RUN-001` 已在 `a26a51a` 收 `DONE`（`scenario_progress 6/7`）。提升前为纯文档改动，
+  `git diff --check` 干净，代码 registries 未变。
 - `registered`: 2026-09-24，由第 6 场景真实封证卡 `TICK-RENDER-SOAK-RUN-001` 收 `DONE` 触发；它是
   `REAL-P0-CAMPAIGN-001.order` 的最后一个场景。
 - `depends_on`: 前六个场景各自封好的 bundle——`ADMIT-040`/`ADMIT-060`/`ADMIT-070`、
