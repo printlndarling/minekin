@@ -2097,7 +2097,7 @@
     `ADMIT-070-RECORD-SCHEMA-001` 继续 `QUEUED` 且不排进这条链；HOST/PERSIST/retention/
     process-recovery 仍等主控决策。公网测试服本轮未使用，也仍不能作判据端。
 
-- [ ] **CRASH-OUTBOX-RESEAL-001（当前唯一 NEXT）**：campaign
+- [ ] **CRASH-OUTBOX-RESEAL-001（`BLOCKED_EVIDENCE` 4/5，campaign 第 5 场景不记为已封）**：campaign
   `order` 第 5 个场景的**真实重封**——五个已定义窗口各在当前 build 上封一份 bundle。前置是本卡当场
   发现的第二个封存面阻断，已另起 `CRASH-OUTBOX-SEALED-KIN-001` 并交付（`2160989`）；五个窗口现在有
   **两份**当前-build bundle（`CORE-060` run `08f206bf…` `attempt 1`、run `412b874b…` `attempt 2`，都判
@@ -2213,8 +2213,8 @@
       「Bridge 没松键」的判决，而是「杀 Core 时把 X 显示一起带走，客户端再没有 tick 写那行日志」——
       两者能分开的实验已由 `CRASH-OUTBOX-ALIVE-DISPLAY-001`（`QUEUED`）接走，本卡不改 runner。
 
-- [ ] **CRASH-OUTBOX-ALIVE-DISPLAY-001（`QUEUED`，2026-09-24 由 `CRASH-OUTBOX-RESEAL-001` 的两轮
-  attempt 当场登记）**：让 Core 的死不再带走客户端的显示。它挡的是**五个窗口里 runtime 那一格**
+- [ ] **CRASH-OUTBOX-ALIVE-DISPLAY-001（当前唯一 NEXT，2026-09-24 由 `CRASH-OUTBOX-RESEAL-001` 收为
+  `BLOCKED_EVIDENCE` 后从 `QUEUED` 提升；它本身由 RESEAL 的两轮 attempt 当场登记）**：让 Core 的死不再带走客户端的显示。它挡的是**五个窗口里 runtime 那一格**
   （`CORE-060` 的 `RELEASE_NOT_LOGGED`），不挡另外四案，所以登记为 `QUEUED`、唯一 `NEXT` 仍是
   `CRASH-OUTBOX-RESEAL-001`。
   - **问题**：松键由客户端的下一次 tick 写出（`BridgeIpcWorker.java:1038-1056` → `:249-254` → `:822-837`），
@@ -2306,3 +2306,23 @@
   就够，但 `tools/seal_run_evidence.py:664` 那次 live 判读没把 argv 交给 `read_run_material`，而
   该文件在本卡 `allowed_paths` 之外——按上面第二条纪律，另起前置卡而不是顺手改。本卡的
   `stop_conditions` 会把这个缺口如实记下。
+
+## 恢复记录：crash 场景状态对齐（2026-09-24，Qoder 临时执行者）
+
+- **接手现场**：本地 HEAD = `origin/main` = `origin/codex/core-state-transition` = `b5d4a9e`，工作树干净、
+  无他人未提交改动，三处 integrity 门禁（case assertions 139 registered、fixture digests、workflow pins）绿。
+- **对齐的动作（纯文档）**：`b5d4a9e` 已写下 `CRASH-OUTBOX-RESEAL-001` 的 `window_run_decision_2026-09-24`
+  ——四案各封 `PASS`、runtime 那格 `BLOCKED_EVIDENCE`（4/5），但没同步状态字段。本次只把
+  `status` / `current_next` 与那条已提交的判决对齐：`CRASH-OUTBOX-RESEAL-001` `NEXT → BLOCKED_EVIDENCE（4/5）`，
+  前置卡 `CRASH-OUTBOX-ALIVE-DISPLAY-001` `QUEUED → NEXT`。未引入新判断、未动任何代码或 bundle。
+  campaign 第 5 场景 `scenario_progress` 仍 `4/7`。
+- **机器 inventory（沿用本卡已提交读数，未重跑）**：`minekin-runner:local` 镜像 `fed4a143f2e4`、
+  `minekin-runner-data` 卷原样；四份当前-build `PASS`（`c89f5d35…`/`f4365a50…`/`3e94d49a…`/`8a72dcdf…`）、
+  两份 `CORE-060` `FAIL`（`08f206bf…`/`412b874b…`）都在卷上不动。
+- **下一步**：`CRASH-OUTBOX-ALIVE-DISPLAY-001` 是真实实现卡——把 X 显示与 Core 生死脱钩（harness 起并持有
+  Xvfb、`session` 只继承 `DISPLAY`），改 `domain.sh` 显示包装点 + `test_runner_scripts.py` 契约断言，再一次
+  真实 `CORE-060` attempt 验那行 `bridge released N input(s) after IPC_LOST`（`N>0`）真出现并封 `PASS`、四读一致。
+- **stop condition（开工前需满足/警惕）**：① 若解耦显示必须动 `forbidden_paths`（`tools/` 或产品码）→ 先停下
+  修订范围或另起卡；② 若办法落到「harness 替客户端重启/接管残留进程」→ 属 `PROCESS-RECOVERY-001` 的
+  `BLOCKED_DECISION`，立即停下请主控决策；③ 若显示确实活过 Core 而那一行仍不出现 → 是产品侧回归，保留
+  `FAIL`、分类、停下报告主控，不改判据或杀法换颜色。
