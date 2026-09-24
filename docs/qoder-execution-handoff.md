@@ -1,16 +1,19 @@
 # Qoder 临时执行交接（2026-09-24）
 
-> **最新交接点（2026-09-25，跨版本路线执行中）**：`VERSION-BUNDLE-1201-001`（V03）已 `DONE`
-> （`930223a` 登记 → `cdbdc95` 提升 → `0510591` 交付），因此主执行计划的 `current_next` 现为**无**；
-> 下文 ADMIT-070 起步卡与 V01/V02 都不是当前任务。**下一步只有一件**：在独立提交把
-> `VERSION-LOCAL-1201-001`（V04）登记为 `QUEUED`，再由**下一次**提交提升为唯一 `NEXT`。
-> V03 交付了什么：1.20.1 官方供应链核对、launcher 侧无漂移泛化（recipe/metadata/launch_plan/schema +
-> candidate recipe 端到端 `bundle verify`）、按已登记范围修订新建的顶层独立 `bridge-1201/` Loom 工程
-> （四处 1.20.1 类迁移已适配，jar sha256 `9e162d83…`/1,308,469B，四次构建逐字节相同）、Bridge 身份
-> 泛化为按 root 命名、六道静态门两 root 各跑一遍；`bridge/` 与 1.21.4 pin **一字未改**、无漂移。
-> **V03 没有证明的事**：1.20.1 客户端从未启动、从未入服，`launchable` 不等于验收，本卡零项 `tested`。
-> V04 的硬前置：隔离的 1.20.1 `online-mode=false` 专服、离线身份、独立 real-run bundle 与**不复用**
-> 1.21.4 的 case version/证据，以及 1.20.1 下 `--quickPlaySingleplayer` 的替代与就绪谓词。
+> **最新交接点（2026-09-25，跨版本路线执行中）**：唯一 `NEXT` 是
+> `VERSION-LOCAL-1201-001`（V04，`93d30f3` 登记、本提交提升），**不是**下文 ADMIT-070 起步卡，
+> 也不是 V01/V02/V03（三者已 `DONE`）。V03 交付了什么：1.20.1 官方供应链核对、launcher 侧无漂移
+> 泛化（recipe/metadata/launch_plan/schema + candidate recipe 端到端 `bundle verify`）、按已登记
+> 范围修订新建的顶层独立 `bridge-1201/` Loom 工程（四处 1.20.1 类迁移已适配，jar sha256
+> `9e162d83…`/1,308,469B，四次构建逐字节相同）、Bridge 身份泛化为按 root 命名、六道静态门两 root
+> 各跑一遍；`bridge/` 与 1.21.4 pin **一字未改**、无漂移。**V03 没有证明的事**：1.20.1 客户端从未
+> 启动、从未入服，`launchable` 不等于验收，本卡零项 `tested`。
+> **V04 只做一件事**：在隔离的 1.20.1 `online-mode=false` 专服上，用离线身份把 V03 candidate 跑成
+> 真实闭环（握手→入服→同代权威首快照→look/有界 move/release→服务端 name/UUID/位移→断连松键→
+> 正常停止），配错误版本/错误 Bridge/认证策略/旧 generation 四个反例，每个 required 结果独立封证
+> 四读；全部成立才把**精确的** 1.20.1 Linux/arch 组合登记 `tested`。硬前置与未决点写在主计划
+> V04 卡的 `known_preconditions`（含 1.20.1 入服开关尚未核实这一条）。**不复用** 1.21.4 的 case
+> version/证据，不改用户服，不连接用户真实远程服（属 V08）。
 > **主干回归已修**：CI 的 `python` job 自 run 423 起一直红在一个跨平台测试上（封存 bundle 目录在
 > Linux 不可 rename），`1ab1d96` 起 run #448/#449 三 job 全绿，被它挡住的六道门第一次真的跑过。
 > **每次 push 后必须在浏览器里逐 job 读 Actions 结果**，不能只看本地门禁——这条被自己违反过一次；

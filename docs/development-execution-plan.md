@@ -12,8 +12,8 @@
 - `baseline_date`: 2026-09-22
 - `baseline_branch`: `main`
 - `baseline_remote`: `origin/main`
-- `current_next`: 无（本提交把 `VERSION-BUNDLE-1201-001` 收为 `DONE`；下一张
-  `VERSION-LOCAL-1201-001` 须先在独立提交登记 `QUEUED`，再由下一次提交提升为唯一 `NEXT`）。
+- `current_next`: `VERSION-LOCAL-1201-001`（`93d30f3` 登记 `QUEUED`，本提交单独提升为唯一
+  `NEXT`；`VERSION-BUNDLE-1201-001` 已 `DONE` 并推送）。
   用户在七场景总账后明确把“自动识别服务器版本 → 准备匹配客户端 → 入服并完成简单控制”排为优先路线；
   `VERSION-AUTO-DESIGN-001` 已交付[跨版本连续执行计划](version-auto-to-server-control-plan.md)。
 - `last_checkpoint`: **有界自主 P0 campaign 已走到需用户拍板的边界；用户现已选择跨版本路线**——上一轮把
@@ -3345,7 +3345,12 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 
 ### VERSION-LOCAL-1201-001 — 在受控 1.20.1 真服证明 candidate
 
-- `status`: `QUEUED`（本提交登记；提升为唯一 `NEXT` 将在下一提交单独进行，当前无第二张 `NEXT`）。
+- `status`: `NEXT`（`93d30f3` 登记 `QUEUED`，本提交单独提升为唯一 `NEXT`；当前无第二张 `NEXT`）。
+- `promotion_reason`: V03 已 `DONE` 并交付可复判的 1.20.1 candidate（`0510591`）；跨版本路线的
+  下一步只能在受控真服上证明它——探测（V02）与构建（V03）都不产生入服证据，V05 的 `tested`
+  清单又以本卡结果为唯一来源。
+- `baseline_sha`: `93d30f3`（V04 `QUEUED` 登记提交，已推送并核对两 ref）。领取时实际 checkout =
+  本提升提交（本地与 `main`/工作分支一致、工作树干净）。
 - `depends_on`: `VERSION-REMOTE-PROFILE-001`（V01 的 v2 profile 与单地址策略）、
   `VERSION-BUNDLE-1201-001`（V03 已交付可复判 candidate）；下游 `VERSION-RESOLVER-001`（V05）
   只从本卡产出的 `tested` 清单里选包。
