@@ -90,6 +90,7 @@ RUN_DOCUMENT_KEY = "run"
 # ledger's vocabulary, and a case that reads Core's own record has to speak it.
 PROCESS_STARTED = "SessionProcessStarted"
 SESSION_INTERRUPTED = "SessionInterrupted"
+SESSION_STATE_TRANSITIONED = "SessionStateTransitioned"
 HELLO_ACCEPTED = "BridgeHelloAccepted"
 JOIN_OBSERVED = "JoinObserved"
 PLAYABLE_ESTABLISHED = "PlayableEstablished"
@@ -113,6 +114,21 @@ RECONCILED = "reconciled"
 #: a fact about a run rather than a reading of its intent.
 NOT_PLAYABLE = "NOT_PLAYABLE"
 JOIN_SEEN_PHASE = "JOIN_SEEN"
+
+#: The one `SnapshotReason` `ADMIT-070` asks Core to reach, spelled the way the run
+#: document spells it — the enum's value, written by `SessionRun.as_document`, not a
+#: name matched loosely against text. The injection has exactly one honest shape on a
+#: real client (`authoritative=false`), and the other four reasons stay where they
+#: are: covered by the domain's own tests, with no runtime shape yet.
+NOT_AUTHORITATIVE = "NOT_AUTHORITATIVE"
+
+#: What the harness may ask of the client, and the name that ask travels as. Both
+#: are read from the record's own module rather than restated here: a judgement that
+#: carried its own copy of either would pass on a record about a different request.
+FIRST_SNAPSHOT_AUTHORITY_SUBJECT = fault_injection.BRIDGE_FIRST_SNAPSHOT_AUTHORITY
+FIRST_SNAPSHOT_REQUEST_VARIABLE = fault_injection.ENVIRONMENT_VARIABLE_FOR_SUBJECT[
+    FIRST_SNAPSHOT_AUTHORITY_SUBJECT
+]
 
 #: What the Bridge writes when it acts on an input at all. Measured on real runs:
 #: `bridge pressed use.hand` and `bridge applied 0047d1b8…: holding [move.forward]`
@@ -2651,6 +2667,226 @@ def the_client_never_downloaded_the_pack(material: RunMaterial) -> str | None:
     return None
 
 
+def this_run_joined_a_world_it_was_never_told_it_could_play(material: RunMaterial) -> str | None:
+    """The Kin reached the world, and Core never said it might play in it.
+
+    `ADMIT-070`'s shape is the reverse of `ADMIT-040` and `ADMIT-060`, which ask the
+    same field for the opposite answer: those two are about a client that never got
+    in, and this one is about a client that did. The join is asked of the Bridge —
+    `JoinObserved` is the row it earns by reporting its own client's arrival, and a
+    socket or a screen state is not a join — and "never told it could play" is asked
+    of Core's document, where an admitted snapshot would have left a count.
+    """
+
+    if not material.ledger_readable:
+        return "LEDGER_UNREADABLE"
+    joins = material.recorded(JOIN_OBSERVED)
+    if not joins:
+        return "NO_JOIN_RECORDED"
+    for event in joins:
+        source, trust_class = event.get("source"), event.get("trust_class")
+        if source != "BRIDGE" or trust_class != "BRIDGE_FILTERED":
+            return f"JOIN_NOT_THE_BRIDGES_WORD:{source}/{trust_class}"
+    run = material.run()
+    admitted = _integer(run, "snapshots_admitted")
+    if admitted is None:
+        return "SNAPSHOT_COUNT_MISSING"
+    if admitted:
+        return f"SNAPSHOT_ADMITTED:{admitted}"
+    if _text(run, "connection_state") == "PLAYABLE":
+        return "CONNECTION_CLAIMS_PLAYABLE"
+    return None
+
+
+def the_first_snapshot_was_refused_by_the_reason_the_case_names(
+    material: RunMaterial,
+) -> str | None:
+    """Core wrote down *why* it refused, and this case names that reason.
+
+    "The list is not empty" is not this criterion. `snapshot_rejections` is the union
+    over every refusal in the run, so a run that admitted its first snapshot and
+    refused a later one — or one that refused only entities, which are counted
+    separately — has a non-empty list too. What pins the refusal to the first
+    snapshot is the pair: the named reason present, and nothing admitted.
+    """
+
+    run = material.run()
+    recorded = run.get("snapshot_rejections")
+    if not isinstance(recorded, list):
+        # A missing field or a word where a list belongs is not "nothing was refused"
+        # — that is the answer of an empty list — and it is not a refusal either. It is
+        # a document this criterion cannot be read out of, and the run says so.
+        return "SNAPSHOT_REJECTIONS_UNREADABLE"
+    rejections: list[str] = []
+    for item in cast("list[object]", recorded):
+        if not isinstance(item, str):
+            # One member that is not a reason makes the whole list unreadable rather
+            # than ignorable: a reader that skipped it could skip the named one too.
+            return "SNAPSHOT_REJECTIONS_UNREADABLE"
+        rejections.append(item)
+    if NOT_AUTHORITATIVE not in rejections:
+        return f"NOT_AUTHORITATIVE_NOT_RECORDED:{','.join(rejections) or 'nothing'}"
+    admitted = _integer(run, "snapshots_admitted")
+    if admitted is None:
+        return "SNAPSHOT_COUNT_MISSING"
+    if admitted:
+        return f"SNAPSHOTS_ADMITTED_WITH_A_REFUSAL:{admitted}"
+    return None
+
+
+def a_refused_first_snapshot_became_no_lease_and_no_playable(material: RunMaterial) -> str | None:
+    """The refusal leased nothing and made nothing playable — read on top of the refusal.
+
+    Two absences cannot stand by themselves: a session that never reached a client
+    has no lease and no playable row either, so a bare "nothing was granted" would be
+    satisfied by every run that did not happen. The two presence facts come first and
+    their reason is reported through this one, because "this run is not the scenario"
+    and "this run refused to lease anything" are different answers even though both
+    are green-looking.
+    """
+
+    for name, prerequisite in (
+        ("the_world_was_joined", this_run_joined_a_world_it_was_never_told_it_could_play),
+        (
+            "the_first_snapshot_was_refused",
+            the_first_snapshot_was_refused_by_the_reason_the_case_names,
+        ),
+    ):
+        reason = prerequisite(material)
+        if reason is not None:
+            return f"PRESUPPOSES_{name}:{reason}"
+    reason = no_lease_was_granted(material)
+    if reason is not None:
+        return reason
+    if material.has(PLAYABLE_ESTABLISHED):
+        return "PLAYABLE_ESTABLISHED_WITH_A_REFUSAL"
+    return None
+
+
+def the_refused_generation_was_closed_and_never_reopened(material: RunMaterial) -> str | None:
+    """The generation that was refused ended, and nothing reopened it.
+
+    Measured on a real refusal run, the ledger ends `JOINED_UNVERIFIED → FAILED →
+    STOPPING → STOPPED`, and the transition to `FAILED` is Core's own row: it is what
+    "this generation is over, while still not playable" looks like in the record.
+
+    Two fields the contract offers as alternatives are deliberately not asked for.
+    `connection_cancelled` is empty on this scenario — Core abandoned no attempt, it
+    refused a snapshot the attempt had already delivered — and `outcome` is
+    `BRIDGE_LOST` on every run this harness seals, healthy ones included, because the
+    harness ends a session by terminating the client. Either would be a criterion the
+    positive control passes too, and a criterion the control passes is not a criterion.
+    """
+
+    if not material.ledger_readable:
+        return "LEDGER_UNREADABLE"
+    joins = [event for event in material.ledger_events if event.get("event_type") == JOIN_OBSERVED]
+    if len(joins) != 1:
+        # Zero joins is the wrong scenario, and two joins are the contract's own
+        # counter-example: a new attempt that reached the world after this one.
+        return f"JOINS_RECORDED:{len(joins)}"
+    if material.has(PLAYABLE_ESTABLISHED):
+        return "GENERATION_REOPENED_TO_PLAYABLE"
+    joined_at = _position(joins[0])
+    if joined_at is None:
+        # "After the join" is a claim about order, and order is the ledger's column.
+        return "LEDGER_ORDER_NOT_RECORDED"
+    closed = False
+    for event in material.ledger_events:
+        if event.get("event_type") != SESSION_STATE_TRANSITIONED:
+            continue
+        if payload(event).get("to") != "FAILED":
+            continue
+        ended_at = _position(event)
+        if ended_at is not None and ended_at > joined_at:
+            closed = True
+    if not closed:
+        return "GENERATION_LEFT_OPEN"
+    return None
+
+
+def the_refusal_was_asked_of_this_run(material: RunMaterial) -> str | None:
+    """The bundle says out loud that the harness asked for this refusal.
+
+    Without this, a PASS could not tell "Core refused a snapshot the client was told
+    to misreport" apart from "the client misreported on its own", and only the first
+    is a scenario anyone can re-run. The record is the harness writing about itself,
+    so it is read the way the kill record is: attributed to this exact run, kin,
+    session and generation, and trusted only as far as its own effect field says it
+    looked — which is that the name reached the client JVM's environment, a fact about
+    a `/proc` entry. That the snapshot then arrived and was refused is Core's document's
+    claim, asserted above rather than inferred from here.
+    """
+
+    record = material.fault_injection
+    if record is None:
+        return "NO_INJECTION_REQUEST_RECORD"
+    category = record.get("category")
+    if category != fault_injection.CLIENT_REPORT_REQUEST:
+        # A kill record is a different fact, and a run that killed its client cannot
+        # be read as one that asked it to lie about a snapshot.
+        return f"NOT_A_REQUEST_RECORD:{category}"
+
+    case = _object(record.get("case"))
+    if case is None:
+        return "NO_CASE_ATTRIBUTION"
+    if case.get("case_id") != material.expected_case_id:
+        return f"REQUEST_RECORD_IS_ANOTHER_CASE:{case.get('case_id')}"
+    if case.get("case_version") != material.expected_case_version:
+        return f"REQUEST_RECORD_IS_ANOTHER_CASE_VERSION:{case.get('case_version')}"
+
+    request = _object(record.get("request"))
+    if request is None:
+        return "NO_REQUEST_SECTION"
+    subject = request.get("subject")
+    if subject != FIRST_SNAPSHOT_AUTHORITY_SUBJECT:
+        return f"REQUEST_IS_ANOTHER_SUBJECT:{subject}"
+    variable = request.get("environment_variable")
+    if variable != FIRST_SNAPSHOT_REQUEST_VARIABLE:
+        return f"REQUEST_IS_ANOTHER_VARIABLE:{variable}"
+    asked = request.get("asked")
+    if asked is not True:
+        # The writer derives this from the value rather than taking it as an
+        # argument, so a record that says it was not asked for is a record of a run
+        # that left the switch off — an honest one, and not this scenario.
+        return f"THE_REFUSAL_WAS_NOT_ASKED_FOR:{asked}"
+
+    effect = _object(record.get("effect"))
+    if effect is None:
+        return "NO_EFFECT_SECTION"
+    observed = effect.get("observed")
+    if observed is not True:
+        return f"THE_ASK_DID_NOT_REACH_THE_CLIENT:{effect.get('method')}"
+    method = effect.get("method")
+    if method != fault_injection.PROC_CHILD_ENVIRON:
+        return f"REQUEST_EFFECT_METHOD:{method}"
+    if _positive(effect.get("pid")) is None:
+        return "REQUEST_EFFECT_HAS_NO_PID"
+    if _integer(effect, "starttime_ticks") is None:
+        return "REQUEST_EFFECT_HAS_NO_START_TIME"
+
+    attribution = _object(record.get("attribution"))
+    if attribution is None:
+        return "NO_ATTRIBUTION"
+    if attribution.get("run_id") != material.run_id:
+        return f"REQUEST_RECORD_IS_ANOTHER_RUN:{attribution.get('run_id')}"
+    if attribution.get("kin_id") != material.kin_id:
+        return f"REQUEST_RECORD_IS_ANOTHER_KIN:{attribution.get('kin_id')}"
+    if not material.ledger_readable:
+        # Without the ledger the session pair below is the record's own word about
+        # which generation it belongs to, which is the claim being checked.
+        return "LEDGER_UNREADABLE"
+    recorded = _ledger_session(material)
+    if recorded is None:
+        return "NO_SESSION_ATTRIBUTION_IN_LEDGER"
+    if (attribution.get("session_id"), attribution.get("generation")) != recorded:
+        return (
+            "REQUEST_RECORD_IS_ANOTHER_SESSION:"
+            f"{attribution.get('session_id')}/{attribution.get('generation')}"
+        )
+    return None
+
+
 #: Every assertion a case manifest may name, and what performs it. A name that is
 #: not here cannot be judged, which the verdict reports rather than passing over.
 ASSERTIONS: dict[str, Callable[[RunMaterial], str | None]] = {
@@ -2733,6 +2969,23 @@ ASSERTIONS: dict[str, Callable[[RunMaterial], str | None]] = {
         the_resource_pack_policy_that_went_on_the_wire_is_the_frozen_one
     ),
     "the_client_never_downloaded_the_pack": the_client_never_downloaded_the_pack,
+    # ADMIT-070: the five facts a sealed refusal run has to carry, in the order the
+    # contract lists them. The first two are the scenario, the third is its
+    # consequence and is written on top of them, the fourth says the generation ended
+    # rather than stalled, and the fifth is the harness admitting it caused this.
+    "this_run_joined_a_world_it_was_never_told_it_could_play": (
+        this_run_joined_a_world_it_was_never_told_it_could_play
+    ),
+    "the_first_snapshot_was_refused_by_the_reason_the_case_names": (
+        the_first_snapshot_was_refused_by_the_reason_the_case_names
+    ),
+    "a_refused_first_snapshot_became_no_lease_and_no_playable": (
+        a_refused_first_snapshot_became_no_lease_and_no_playable
+    ),
+    "the_refused_generation_was_closed_and_never_reopened": (
+        the_refused_generation_was_closed_and_never_reopened
+    ),
+    "the_refusal_was_asked_of_this_run": the_refusal_was_asked_of_this_run,
 }
 
 

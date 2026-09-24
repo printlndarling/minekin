@@ -3,19 +3,22 @@
   "case_id": "ADMIT-070",
   "work_package": "W50",
   "mandatory": false,
-  "inputs": [],
+  "inputs": [
+    "tests/fixtures/runtime-input/bundle-p0-core-1.21.4.json",
+    "tests/fixtures/runtime-input/controlled-offline-server.json"
+  ],
   "assertion_digests": {
-    "test_a_non_authoritative_snapshot_is_not_admitted": "aeb10317df2010f61ef32d730e532e8da296fe0405ebc5b420bf9479070e24df",
-    "test_a_refused_snapshot_is_never_the_basis_for_a_lease": "b724600060a380d9236da749f5139cfe5204153b120f3a45ac4119ddf486bf74",
-    "test_a_snapshot_for_another_identity_is_not_admitted": "dba7b90d2861ff7ac8ede53cdb5110c833d68f111797f9769f8b59fa96d52249",
-    "test_failure_is_terminal_until_generation_is_explicitly_closed": "68ac487e736e32d73d0b8a1e83480a734ad2c0d6d87d0cc8a5ecd021c7da40b2",
-    "test_join_and_authoritative_snapshot_are_both_required_for_playable": "316bef9247f036ab1110b2dd82fafccb0b31b458d4aac7757e4157bd77429335"
+    "a_refused_first_snapshot_became_no_lease_and_no_playable": "147171a8432adaf483693bf1fc755a7ea13bdb9f9c5dc6e9626ea44ec5730c5a",
+    "the_first_snapshot_was_refused_by_the_reason_the_case_names": "bd940a6d2f2fc1c06adde31ea64b9e9f19963e75766271e150e6632f080b5714",
+    "the_refusal_was_asked_of_this_run": "cc0b2f4bba7ce5cc5fa40921bf1e700f78d90119fdc1c1fcdffb232ee5a05a5d",
+    "the_refused_generation_was_closed_and_never_reopened": "986656cba84f54d8eb123f1fb3845e1447ce40147a40a52815a8c2d01e1d6c85",
+    "this_run_joined_a_world_it_was_never_told_it_could_play": "e078a8ecdca9a0f2f8c3179ac69b91a4ef0c5099cb27db46e44c9f391e248549"
   },
   "assertions": [
-    "test_a_refused_snapshot_is_never_the_basis_for_a_lease",
-    "test_join_and_authoritative_snapshot_are_both_required_for_playable",
-    "test_failure_is_terminal_until_generation_is_explicitly_closed",
-    "test_a_non_authoritative_snapshot_is_not_admitted",
-    "test_a_snapshot_for_another_identity_is_not_admitted"
+    "this_run_joined_a_world_it_was_never_told_it_could_play",
+    "the_first_snapshot_was_refused_by_the_reason_the_case_names",
+    "a_refused_first_snapshot_became_no_lease_and_no_playable",
+    "the_refused_generation_was_closed_and_never_reopened",
+    "the_refusal_was_asked_of_this_run"
   ]
 }

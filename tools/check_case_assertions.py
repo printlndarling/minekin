@@ -341,6 +341,24 @@ IMPLEMENTATIONS: dict[str, Implementation] = {
         "the_resource_pack_policy_that_went_on_the_wire_is_the_frozen_one"
     ),
     "the_client_never_downloaded_the_pack": _runtime("the_client_never_downloaded_the_pack"),
+    # ADMIT-070: the five facts a sealed first-snapshot refusal run has to carry. The
+    # case used to name the five domain tests below, which is a different claim: those
+    # check the filter in a test fixture, and a sealed bundle cannot be judged by them
+    # because a run performs no pytest. Both sets stand — the domain tests keep
+    # exercising the filter's semantics, and these read what one real refusal left.
+    "this_run_joined_a_world_it_was_never_told_it_could_play": _runtime(
+        "this_run_joined_a_world_it_was_never_told_it_could_play"
+    ),
+    "the_first_snapshot_was_refused_by_the_reason_the_case_names": _runtime(
+        "the_first_snapshot_was_refused_by_the_reason_the_case_names"
+    ),
+    "a_refused_first_snapshot_became_no_lease_and_no_playable": _runtime(
+        "a_refused_first_snapshot_became_no_lease_and_no_playable"
+    ),
+    "the_refused_generation_was_closed_and_never_reopened": _runtime(
+        "the_refused_generation_was_closed_and_never_reopened"
+    ),
+    "the_refusal_was_asked_of_this_run": _runtime("the_refusal_was_asked_of_this_run"),
     "the_bridge_classified_the_refusal": _runtime("the_bridge_classified_the_refusal"),
     "the_server_saw_the_kin_turn": _runtime("the_server_saw_the_kin_turn"),
     "the_server_saw_the_block_change": _runtime("the_server_saw_the_block_change"),

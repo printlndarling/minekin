@@ -22,7 +22,7 @@ from typing import Any, Protocol, cast
 
 import pytest
 
-from fault_support import fault_record
+from fault_support import fault_record, request_record
 from minekin_core.adapters.evidence.promotion import load_case_manifest
 from minekin_core.adapters.launcher.server_profile import load_server_profile
 from minekin_core.adapters.sqlite.connection import connect_writer
@@ -4728,3 +4728,579 @@ def test_a_timeout_is_not_a_refusal_without_the_rest_of_the_record() -> None:
         "the_resource_pack_policy_that_went_on_the_wire_is_the_frozen_one",
         "the_client_never_downloaded_the_pack",
     }
+
+
+# ---------------------------------------------------------------------------
+# ADMIT-070: the first snapshot arrived, and Core refused it as not authoritative.
+# ---------------------------------------------------------------------------
+
+REFUSED_SNAPSHOT_CASE = CASES / "admit-070.json"
+
+#: The line the Bridge writes when it has handed over a snapshot it was told to
+#: misreport, quoted from `ClientAdmissionController` rather than invented. It is here
+#: for the one test that needs it: the client's own account of the switch is
+#: corroboration for a human reader and evidence for nobody, so a fixture with this
+#: line in it has to fail the case just as hard as one without it.
+BRIDGE_REPORTED_NON_AUTHORITATIVE_LINE = (
+    "bridge reported generation 1's first snapshot with authoritative=false because "
+    "MINEKIN_BRIDGE_NON_AUTHORITATIVE_FIRST_SNAPSHOT asked for that; Core decides "
+    "what it means"
+)
+
+#: The five names `ADMIT-070` declares, in the order the contract's criteria read.
+JOINED_NOT_PLAYABLE = "this_run_joined_a_world_it_was_never_told_it_could_play"
+FIRST_SNAPSHOT_REFUSED = "the_first_snapshot_was_refused_by_the_reason_the_case_names"
+REFUSAL_LEASED_NOTHING = "a_refused_first_snapshot_became_no_lease_and_no_playable"
+GENERATION_CLOSED = "the_refused_generation_was_closed_and_never_reopened"
+REFUSAL_WAS_ASKED = "the_refusal_was_asked_of_this_run"
+
+PLAYABLE = "PlayableEstablished"
+STATE_TRANSITIONED = "SessionStateTransitioned"
+#: A run id that is not this run's, for the record that has to belong to somebody else.
+ANOTHER_RUN = "0" * 32
+
+
+def refused_run(**overrides: object) -> dict[str, object]:
+    """Core's document for a run that refused the first snapshot it was handed.
+
+    `JOIN_SEEN` is the phase measured on the real injected run: the client is in the
+    world as far as the Bridge can tell, and Core has never admitted what would let it
+    call that playable.
+    """
+
+    arguments: dict[str, object] = {
+        "connection_state": "JOIN_SEEN",
+        "snapshots_admitted": 0,
+        "snapshot_rejections": ["NOT_AUTHORITATIVE"],
+        "outcome": "BRIDGE_LOST",
+    }
+    arguments.update(overrides)
+    return run_document(**arguments)
+
+
+def join_row(
+    *, position: int | None = 3, source: str = "BRIDGE", trust_class: str = "BRIDGE_FILTERED"
+) -> Mapping[str, object]:
+    """The Bridge's own word that its client reached the world."""
+
+    return event(JOIN_OBSERVED, source=source, trust_class=trust_class, position=position)
+
+
+def playable_row(*, position: int | None = 5) -> Mapping[str, object]:
+    return event(PLAYABLE, source="CORE", trust_class="CORE", position=position)
+
+
+def generation_failed_row(*, position: int | None = 4) -> Mapping[str, object]:
+    """Core's row for a generation that ended while still not playable.
+
+    The payload keys are the product's, and `from` is spelled as a dict entry because
+    Python reserves it as an argument name. Measured on the refusal run's ledger, which
+    ends `JOINED_UNVERIFIED → FAILED → STOPPING → STOPPED`.
+    """
+
+    return event(
+        STATE_TRANSITIONED,
+        source="CORE",
+        trust_class="CORE",
+        position=position,
+        **{"from": "JOINED_UNVERIFIED", "to": "FAILED"},
+    )
+
+
+def refusal_request(**overrides: object) -> dict[str, object]:
+    """What `tools/inject_fault.py request` wrote for this case.
+
+    The builder is the writer's own, so the two fields a hand-made record would most
+    plausibly flatter — whether the switch was asked for, and how the client's side of
+    it was seen — are derived rather than stated. The version is this manifest's
+    digest, which is what binds a record of a refusal to *this* definition of the case.
+    """
+
+    arguments: dict[str, object] = {
+        "case_version": load_case_manifest(REFUSED_SNAPSHOT_CASE).digest,
+        "case": {"case_id": "ADMIT-070"},
+    }
+    arguments.update(overrides)
+    return request_record(**arguments)  # type: ignore[arg-type]
+
+
+def refused_snapshot(**overrides: object) -> _Material:
+    """The run the case describes: in the world, refused, closed, and asked for by name."""
+
+    arguments: dict[str, object] = {
+        "document": refused_run(),
+        "log": f"{JOINED}\n",
+        "client_log": f"{BRIDGE_REPORTED_NON_AUTHORITATIVE_LINE}\n",
+        "events": (policy_row(), started_with_session(), join_row(), generation_failed_row()),
+        "fault_injection": refusal_request(),
+    }
+    arguments.update(overrides)
+    return material(**arguments)  # type: ignore[arg-type]
+
+
+def refused_snapshot_case() -> dict[str, object]:
+    return cast(dict[str, object], json.loads(REFUSED_SNAPSHOT_CASE.read_text(encoding="utf-8")))
+
+
+def refusal_reason(name: str, **arguments: object) -> str | None:
+    """One criterion's answer about a run, held apart from the rest of the verdict.
+
+    Each of the five is asked on its own because the case's whole point is that they
+    are separate facts: a table that judged a run by its full verdict could hide a
+    criterion that never fails, and a criterion that never fails judges nothing.
+
+    The run goes through `evaluate` rather than straight to the assertion, because that
+    is where a material learns which case it is being judged under — a criterion that
+    reads the case's id and version has to be shown one, or every record in the table
+    below would look like it belonged to somebody else.
+    """
+
+    run = refused_snapshot(**arguments)  # type: ignore[arg-type]
+    verdict = ASSERTER_MODULE.evaluate(refused_snapshot_case(), run)
+    prefix = f"{name}:"
+    for failure in verdict.failures:
+        if failure.startswith(prefix):
+            return failure[len(prefix) :]
+    return None
+
+
+def test_a_refused_first_snapshot_holds() -> None:
+    verdict = ASSERTER_MODULE.evaluate(refused_snapshot_case(), refused_snapshot())
+
+    assert verdict.result == "PASS"
+    assert verdict.observed == verdict.expected
+    assert verdict.failures == ()
+    assert verdict.unimplemented == ()
+
+
+def test_a_case_about_a_refused_run_is_not_closed_by_a_test_about_the_filter() -> None:
+    """Why `ADMIT-070` declares run-material names and not the five pytest ones.
+
+    The domain tests that cover the same rule in prose — `test_a_refused_snapshot_is_
+    never_the_basis_for_a_lease` and its four neighbours — pass a filter a fixture
+    constructed. A sealed bundle holds no pytest run, so a manifest that named them
+    would report a real refusal as `INCOMPLETE`: not failed, and not judged either.
+    """
+
+    named_for_tests = {
+        **refused_snapshot_case(),
+        "assertions": ["test_a_refused_snapshot_is_never_the_basis_for_a_lease"],
+    }
+    verdict = ASSERTER_MODULE.evaluate(named_for_tests, refused_snapshot())
+
+    assert verdict.unimplemented == ("test_a_refused_snapshot_is_never_the_basis_for_a_lease",)
+    assert verdict.result == "INCOMPLETE"
+
+
+JOINED_NOT_PLAYABLE_COUNTEREXAMPLES: tuple[tuple[str, Mapping[str, Any], str], ...] = (
+    (
+        "the client never got in, so this is another scenario",
+        {"events": (policy_row(), started_with_session(), generation_failed_row())},
+        "NO_JOIN_RECORDED",
+    ),
+    (
+        "a join nobody reported from the client side",
+        {
+            "events": (
+                policy_row(),
+                started_with_session(),
+                join_row(source="CORE", trust_class="CORE"),
+                generation_failed_row(),
+            )
+        },
+        "JOIN_NOT_THE_BRIDGES_WORD:CORE/CORE",
+    ),
+    (
+        "a snapshot was admitted after all",
+        {"document": refused_run(snapshots_admitted=1)},
+        "SNAPSHOT_ADMITTED:1",
+    ),
+    (
+        "the document calls the session playable",
+        {"document": refused_run(connection_state="PLAYABLE")},
+        "CONNECTION_CLAIMS_PLAYABLE",
+    ),
+    (
+        "the document says nothing about admitted snapshots",
+        {"document": document_without(refused_run(), "snapshots_admitted")},
+        "SNAPSHOT_COUNT_MISSING",
+    ),
+    (
+        "the ledger could not be read at all",
+        {"ledger_readable": False},
+        "LEDGER_UNREADABLE",
+    ),
+)
+
+
+@pytest.mark.parametrize(
+    "why, change, reason",
+    JOINED_NOT_PLAYABLE_COUNTEREXAMPLES,
+    ids=[why for why, _, _ in JOINED_NOT_PLAYABLE_COUNTEREXAMPLES],
+)
+def test_a_run_that_got_into_a_world_it_was_told_to_play_is_not_this_case(
+    why: str, change: Mapping[str, Any], reason: str
+) -> None:
+    assert refusal_reason(JOINED_NOT_PLAYABLE, **change) == reason  # type: ignore[arg-type]
+
+
+FIRST_SNAPSHOT_REFUSED_COUNTEREXAMPLES: tuple[tuple[str, Mapping[str, Any], str], ...] = (
+    (
+        "nothing was refused",
+        {"document": refused_run(snapshot_rejections=[])},
+        "NOT_AUTHORITATIVE_NOT_RECORDED:nothing",
+    ),
+    (
+        "what was refused was a handshake timeout, not a snapshot",
+        {"document": refused_run(snapshot_rejections=["HANDSHAKE_TIMEOUT"])},
+        "NOT_AUTHORITATIVE_NOT_RECORDED:HANDSHAKE_TIMEOUT",
+    ),
+    (
+        "only entities were refused, which are counted elsewhere",
+        {"document": refused_run(snapshot_rejections=[], entities_rejected=3)},
+        "NOT_AUTHORITATIVE_NOT_RECORDED:nothing",
+    ),
+    (
+        "the refusal came after snapshots had been admitted",
+        {"document": refused_run(snapshots_admitted=2)},
+        "SNAPSHOTS_ADMITTED_WITH_A_REFUSAL:2",
+    ),
+    (
+        "the field is absent, which is not the same as empty",
+        {"document": document_without(refused_run(), "snapshot_rejections")},
+        "SNAPSHOT_REJECTIONS_UNREADABLE",
+    ),
+    (
+        "the field is a word rather than a list",
+        {"document": refused_run(snapshot_rejections="NOT_AUTHORITATIVE")},
+        "SNAPSHOT_REJECTIONS_UNREADABLE",
+    ),
+    (
+        "the list holds something that is not a reason",
+        {"document": refused_run(snapshot_rejections=["NOT_AUTHORITATIVE", 4])},
+        "SNAPSHOT_REJECTIONS_UNREADABLE",
+    ),
+    (
+        "the named reason is there and the admitted count is not",
+        {"document": document_without(refused_run(), "snapshots_admitted")},
+        "SNAPSHOT_COUNT_MISSING",
+    ),
+)
+
+
+@pytest.mark.parametrize(
+    "why, change, reason",
+    FIRST_SNAPSHOT_REFUSED_COUNTEREXAMPLES,
+    ids=[why for why, _, _ in FIRST_SNAPSHOT_REFUSED_COUNTEREXAMPLES],
+)
+def test_a_refusal_this_case_cannot_read_is_not_the_named_refusal(
+    why: str, change: Mapping[str, Any], reason: str
+) -> None:
+    assert refusal_reason(FIRST_SNAPSHOT_REFUSED, **change) == reason  # type: ignore[arg-type]
+
+
+def test_the_clients_own_words_are_not_the_refusal() -> None:
+    """The Bridge may say it misreported; only Core's document says it was refused.
+
+    The client's line is about an environment variable it was handed, and a client that
+    claimed the same thing on its own would print it just as loudly. The criterion reads
+    `snapshot_rejections`, so stripping that field leaves the line in the log and the
+    criterion unsatisfied.
+    """
+
+    assert (
+        refusal_reason(FIRST_SNAPSHOT_REFUSED, document=refused_run(snapshot_rejections=[]))
+        == "NOT_AUTHORITATIVE_NOT_RECORDED:nothing"
+    )
+
+
+REFUSAL_LEASED_NOTHING_COUNTEREXAMPLES: tuple[tuple[str, Mapping[str, Any], str], ...] = (
+    (
+        "the run leased an input, so something was driven",
+        {
+            "events": (
+                policy_row(),
+                started_with_session(),
+                join_row(),
+                generation_failed_row(),
+                lease_row(position=6),
+            )
+        },
+        "LEASE_GRANTED:control.move.v1",
+    ),
+    (
+        "the session became playable despite the refusal",
+        {
+            "events": (
+                policy_row(),
+                started_with_session(),
+                join_row(),
+                generation_failed_row(),
+                playable_row(),
+            )
+        },
+        "PLAYABLE_ESTABLISHED_WITH_A_REFUSAL",
+    ),
+    (
+        "nothing joined, so there is no refusal for this to be a consequence of",
+        {"events": (policy_row(), started_with_session(), generation_failed_row())},
+        "PRESUPPOSES_the_world_was_joined:NO_JOIN_RECORDED",
+    ),
+    (
+        "snapshots were admitted, so the refusal is not the first one",
+        {"document": refused_run(snapshots_admitted=2)},
+        "PRESUPPOSES_the_world_was_joined:SNAPSHOT_ADMITTED:2",
+    ),
+    (
+        "no reason was named, so nothing here was refused",
+        {"document": refused_run(snapshot_rejections=[])},
+        "PRESUPPOSES_the_first_snapshot_was_refused:NOT_AUTHORITATIVE_NOT_RECORDED:nothing",
+    ),
+)
+
+
+@pytest.mark.parametrize(
+    "why, change, reason",
+    REFUSAL_LEASED_NOTHING_COUNTEREXAMPLES,
+    ids=[why for why, _, _ in REFUSAL_LEASED_NOTHING_COUNTEREXAMPLES],
+)
+def test_two_absences_are_only_a_consequence_once_the_refusal_is_there(
+    why: str, change: Mapping[str, Any], reason: str
+) -> None:
+    assert refusal_reason(REFUSAL_LEASED_NOTHING, **change) == reason  # type: ignore[arg-type]
+
+
+GENERATION_CLOSED_COUNTEREXAMPLES: tuple[tuple[str, Mapping[str, Any], str], ...] = (
+    (
+        "a second attempt reached the world after this one",
+        {
+            "events": (
+                policy_row(),
+                started_with_session(),
+                join_row(),
+                generation_failed_row(),
+                join_row(position=7),
+            )
+        },
+        "JOINS_RECORDED:2",
+    ),
+    (
+        "nothing ever joined",
+        {"events": (policy_row(), started_with_session(), generation_failed_row())},
+        "JOINS_RECORDED:0",
+    ),
+    (
+        "the generation was reopened to playable",
+        {
+            "events": (
+                policy_row(),
+                started_with_session(),
+                join_row(),
+                generation_failed_row(),
+                playable_row(),
+            )
+        },
+        "GENERATION_REOPENED_TO_PLAYABLE",
+    ),
+    (
+        "the ledger records no end for the generation",
+        {"events": (policy_row(), started_with_session(), join_row())},
+        "GENERATION_LEFT_OPEN",
+    ),
+    (
+        "the end was written before the join, so it did not close it",
+        {
+            "events": (
+                policy_row(),
+                started_with_session(),
+                join_row(position=3),
+                generation_failed_row(position=1),
+            )
+        },
+        "GENERATION_LEFT_OPEN",
+    ),
+    (
+        "the join row carries no position, so order is unknown",
+        {
+            "events": (
+                policy_row(),
+                started_with_session(),
+                join_row(position=None),
+                generation_failed_row(),
+            )
+        },
+        "LEDGER_ORDER_NOT_RECORDED",
+    ),
+    (
+        "the closing row carries no position, and an absent column is not row zero",
+        {
+            "events": (
+                policy_row(),
+                started_with_session(),
+                join_row(),
+                generation_failed_row(position=None),
+            )
+        },
+        "GENERATION_LEFT_OPEN",
+    ),
+)
+
+
+@pytest.mark.parametrize(
+    "why, change, reason",
+    GENERATION_CLOSED_COUNTEREXAMPLES,
+    ids=[why for why, _, _ in GENERATION_CLOSED_COUNTEREXAMPLES],
+)
+def test_a_generation_still_open_is_not_a_refused_one(
+    why: str, change: Mapping[str, Any], reason: str
+) -> None:
+    assert refusal_reason(GENERATION_CLOSED, **change) == reason  # type: ignore[arg-type]
+
+
+def test_the_closure_is_read_from_the_ledgers_order_and_not_from_the_readers() -> None:
+    """Rows handed over scrambled, positions intact: the generation still closed.
+
+    A criterion that worked out order from the sequence it was given would be decided
+    by how a bundle reader appended its rows. This one asks the ledger's own column.
+    """
+
+    arguments = {
+        "events": (
+            generation_failed_row(position=4),
+            join_row(position=3),
+            policy_row(),
+            started_with_session(),
+        )
+    }
+
+    assert refusal_reason(GENERATION_CLOSED, **arguments) is None  # type: ignore[arg-type]
+
+
+def test_how_a_run_ended_is_not_what_closed_the_generation() -> None:
+    """The contract offers `connection_cancelled` and `outcome` as alternatives; neither is asked.
+
+    Measured on this harness, every sealed run — healthy ones included — ends with
+    `outcome` `BRIDGE_LOST`, because the harness stops a session by terminating the
+    client, and a refused snapshot leaves `connection_cancelled` empty because Core
+    abandoned no attempt. Both are therefore fields a positive control passes too, so
+    the closure is read from the transition row instead, and a run with the same ending
+    and no such row fails.
+    """
+
+    run = cast(Mapping[str, object], refused_run()["run"])
+
+    assert run.get("outcome") == "BRIDGE_LOST"
+    assert "connection_cancelled" not in run
+    assert (
+        refusal_reason(GENERATION_CLOSED, events=(policy_row(), started_with_session(), join_row()))
+        == "GENERATION_LEFT_OPEN"
+    )
+
+
+REFUSAL_WAS_ASKED_COUNTEREXAMPLES: tuple[tuple[str, Mapping[str, Any], str], ...] = (
+    (
+        "the run injected no fault and presents no record",
+        {"fault_injection": None},
+        "NO_INJECTION_REQUEST_RECORD",
+    ),
+    (
+        "the record is of a process that was killed, not a client that was asked",
+        {"fault_injection": fault_record()},
+        "NOT_A_REQUEST_RECORD:None",
+    ),
+    (
+        "the record belongs to another case",
+        {"fault_injection": request_record()},
+        "REQUEST_RECORD_IS_ANOTHER_CASE:CORE-060",
+    ),
+    (
+        "the record belongs to another definition of this case",
+        {"fault_injection": refusal_request(case_version="0" * 64)},
+        f"REQUEST_RECORD_IS_ANOTHER_CASE_VERSION:{'0' * 64}",
+    ),
+    (
+        "the record names no case at all",
+        {"fault_injection": refusal_request(case=None)},
+        "NO_CASE_ATTRIBUTION",
+    ),
+    (
+        "the record has no request section",
+        {"fault_injection": refusal_request(request=None)},
+        "NO_REQUEST_SECTION",
+    ),
+    (
+        "another switch was asked for",
+        {"fault_injection": refusal_request(request={"subject": "RUNTIME_CONTROLLER"})},
+        "REQUEST_IS_ANOTHER_SUBJECT:RUNTIME_CONTROLLER",
+    ),
+    (
+        "the variable named is not the one that subject owns",
+        {
+            "fault_injection": refusal_request(
+                request={"environment_variable": "MINEKIN_BRIDGE_SOMETHING_ELSE"}
+            )
+        },
+        "REQUEST_IS_ANOTHER_VARIABLE:MINEKIN_BRIDGE_SOMETHING_ELSE",
+    ),
+    (
+        "the run was handed the switch and told to leave the report alone",
+        {"fault_injection": refusal_request(value="0")},
+        "THE_REFUSAL_WAS_NOT_ASKED_FOR:False",
+    ),
+    (
+        "no client process was found carrying the switch",
+        {"fault_injection": refusal_request(observed=False)},
+        "THE_ASK_DID_NOT_REACH_THE_CLIENT:NOT_OBSERVED",
+    ),
+    (
+        "the record has no effect section",
+        {"fault_injection": refusal_request(effect=None)},
+        "NO_EFFECT_SECTION",
+    ),
+    (
+        "the observed pid is not a pid",
+        {"fault_injection": refusal_request(effect={"pid": 0})},
+        "REQUEST_EFFECT_HAS_NO_PID",
+    ),
+    (
+        "the observation names no start time, so a reused pid would pass",
+        {"fault_injection": refusal_request(effect={"starttime_ticks": None})},
+        "REQUEST_EFFECT_HAS_NO_START_TIME",
+    ),
+    (
+        "the record is another run's",
+        {"fault_injection": refusal_request(attribution={"run_id": ANOTHER_RUN})},
+        f"REQUEST_RECORD_IS_ANOTHER_RUN:{ANOTHER_RUN}",
+    ),
+    (
+        "the record is another kin's",
+        {"fault_injection": refusal_request(attribution={"kin_id": "kin-02"})},
+        "REQUEST_RECORD_IS_ANOTHER_KIN:kin-02",
+    ),
+    (
+        "the record is a later generation's",
+        {"fault_injection": refusal_request(attribution={"generation": 7})},
+        "REQUEST_RECORD_IS_ANOTHER_SESSION:session-01/7",
+    ),
+    (
+        "the ledger cannot say which session this run is",
+        {"ledger_readable": False},
+        "LEDGER_UNREADABLE",
+    ),
+    (
+        "the ledger records no session coordinate",
+        {"events": (policy_row(), join_row(), generation_failed_row())},
+        "NO_SESSION_ATTRIBUTION_IN_LEDGER",
+    ),
+)
+
+
+@pytest.mark.parametrize(
+    "why, change, reason",
+    REFUSAL_WAS_ASKED_COUNTEREXAMPLES,
+    ids=[why for why, _, _ in REFUSAL_WAS_ASKED_COUNTEREXAMPLES],
+)
+def test_a_refusal_nobody_asked_for_is_not_a_scenario(
+    why: str, change: Mapping[str, Any], reason: str
+) -> None:
+    assert refusal_reason(REFUSAL_WAS_ASKED, **change) == reason  # type: ignore[arg-type]
