@@ -433,8 +433,9 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
   判据 5 落在 `OFFLINE-030-PRISM-PARITY-001`/`OFFLINE-030-ENUM-ALIGNED-001` 两个子 case 上，此前
   因 `domain.sh` 把 case id 直接小写当 fixture 文件名、`-001` 后缀不 round-trip 而**封不进 harness**；
   那个阻断由 `OFFLINE-030-CASE-FILENAME-001`（`DONE`）在 fixture 侧改名解掉，两列各封一份 `PASS`。
-  本战役仍停在 `BLOCKED_EVIDENCE`，但**挡住的不再是第 4 个场景**：第 5/6/7 个场景（crash/outbox
-  窗口、tick/render 采样、promotion report）一概未动，且第 5 个场景目前没有登记任何卡。
+  战役本身仍停在 `BLOCKED_EVIDENCE`，但**挡住的不再是第 4 个场景**：第 5/6/7 个场景（crash/outbox
+  窗口、tick/render 采样、promotion report）一概未动，其中第 5 个场景在 `CRASH-OUTBOX-EVIDENCE-DESIGN-001`
+  登记之前没有任何卡。
 - `scenario_progress`: 4/7 场景已封为正式 case，且第 4 个场景的五条契约判据现在都有真实 bundle
   （父 id 自身的署名边界见本节末）。第 1 个：`ADMIT-040`，run
   `6b5856d57dee4052b2ffba3ff9e3459e`，bundle `46565ef2…`，attempt 1，PASS/AGREES。
@@ -1918,6 +1919,58 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
   提升为唯一 `NEXT`。该卡的产物是判据冻结，不是封证；先例是 `ADMIT-070-EVIDENCE-DESIGN-001` 与
   `OFFLINE-IDENTITY-EVIDENCE-DESIGN-001`。`ADMIT-070-RECORD-SCHEMA-001` 仍 `QUEUED` 且自述不在
   这条链上；`VERSION-AUTO-DESIGN-001` 与 HOST/PERSIST 一族仍需主控决策，未排入。
+
+### CRASH-OUTBOX-EVIDENCE-DESIGN-001 — 冻结 crash / outbox / restart 窗口场景的完整判据
+
+- `status`: `QUEUED`（`7c8c412` 收 `OFFLINE-030-CASE-FILENAME-001` 时预告需要，本 commit 登记；
+  提升为唯一 `NEXT` 写在紧随的 commit 里，以满足交接第 1 项「新卡先 `QUEUED`、不得直接 `NEXT`」）
+- `blocked_by`: 无（前置卡 `OFFLINE-030-CASE-FILENAME-001` 已 `DONE`：campaign `order` 的第 4 个场景
+  五条判据都有真实 bundle，阶段 D 的入口条件——「OFF-A/B 证据闭合」——成立）
+- `baseline_sha`: `7c8c412512b5d27e80e1b552733d820eaad95d99`
+- `question`: `REAL-P0-CAMPAIGN-001.order` 的第 5 个场景（crash/outbox 窗口）**要封什么才算闭合**。
+  逐项说清这几件事，各自落在哪个 case id、读哪件封存工件、以及能不能由**当前 harness** 真跑出来：
+  ① 已被现有 bundle 覆盖的窗口（`CORE-060` 的 runtime/server/client 三个进程边界、`CORE-090` 的
+  「先杀 Core 再重启」恢复对）各证到哪一半，本场景因此**不该**再重复跑什么；
+  ② 仍缺的具体窗口按 [Qoder 交接](qoder-execution-handoff.md) 阶段 D 那份列表逐项核对：正常退出、
+  已写 effect intent 但未 settle、客户端/服务端强杀、重启重验、未决 outbox；
+  ③ 其中「崩溃落在启动窗口（`session start` 已记下 `START_CLIENT` 意图、还没 settle 效果）」这一半，
+  `MINEKIN_DOMAIN_KILL_CORE` 是否**按构造**就打不中——`development-todo.md` 已记过一次尝试：
+  加过 `KILL_CORE=early`，实测它从来不可能早于 playable，于是把开关删掉而不是留一个名字在说谎的选项
+  （`domain.sh:26`、`:1233` 那一段是当前的读法，需复核）。如果确实打不中，本场景就**不**把它伪装成
+  真实 Minecraft 运行：按阶段 D 那句话标为本地证据（真 SQLite + 故障注入单测），并把「真实运行未覆盖」
+  写进契约与 promotion 读法；
+  ④ 若要让它真能被驱动，需要的是 runner 侧的哪一种显式等待点（而不是产品代码的哪一种新策略），
+  以及该改动应落在哪张后续卡的 `allowed_paths` 里——本卡只登记需要，不顺手改 runner。
+- `depends_on`: `OFFLINE-IDENTITY-RUN-001`（`DONE`，`5267399`）与 `OFFLINE-030-CASE-FILENAME-001`
+  （`DONE`，`cf9b387`）——阶段 D 的入口条件由这两张共同满足。判据要落的契约是
+  `p0-validation-evidence-contract.md` 第 7/10 条（`CORE-060`、`CORE-090`）与 W70 那一段。
+- `why_now`: campaign `order` 里它的下一个就是这一个，而它和第 4 个场景不同——**没有任何已登记的卡**
+  覆盖它，计划因此在本卡登记前没有可执行的下一张。先冻结判据再跑真实故障，是第 3、4 个场景已经走过
+  两遍的顺序（`ADMIT-070-EVIDENCE-DESIGN-001`、`OFFLINE-IDENTITY-EVIDENCE-DESIGN-001`）；反过来先跑
+  会重演 `ADMIT-070` 那次的浪费：跑到一半才发现要封的东西读不出来。
+- `allowed_paths`: 纯设计卡，只允许改 `docs/development-execution-plan.md`、
+  `docs/p0-validation-evidence-contract.md`（第 7/10 条与 W70 段落的判据注记）、
+  `docs/qoder-execution-handoff.md`（阶段 D 那一节的「仍缺哪些窗口」清单按实测更正；该文档此前多张卡
+  都不在允许路径里，本卡明确把它写进来是因为要改的正是阶段 D 那一段）、
+  `docs/development-todo.md`。**不改** `test-orchestrator/`、`src/`、`tools/`、`tests/`。
+- `forbidden_paths`: 产品恢复策略（`application/recovery_service.py`、`domain/recovery.py`）、
+  runner 的等待逻辑、任何 case fixture、任何旧 bundle；`Launcher` 不得当成第四个独立进程造虚假故障角色
+  （阶段 D 原文）；任何自动接管/终止的选择——那属于 `PROCESS-RECOVERY-001` 的 `BLOCKED_DECISION`。
+- `non_goals`: 不封本场景任何证据（封证随后续卡走）、不重跑第 4 个场景已封的 OFF-A/OFF-B、不动
+  `CORE-090`/`CORE-060` 现有 case 的 `mandatory`（改判据是后续卡的事，且点亮门禁要契约先说清）、
+  不做第 6/7 个场景（tick/render 采样、promotion report）的设计。
+- `acceptance`: ① 冻结结论写进上述契约与计划，逐窗口给出：由哪个 case id 承载（现有或新登记）、
+  读哪些**已封存工件**、当前 harness 能否真跑出来、不能时它属于本地证据还是完全未覆盖；
+  ② 每个「需要新登记卡」的窗口当场登记成卡（先 `QUEUED`），并写清各自 `allowed_paths` 边界，
+  尤其 runner 侧与产品侧不得混在同一张；③ 一条诚实的结论必须能被读出来：如果本场景在当前
+  harness 下**没有**任何新的真实运行可封（全部落在已有 bundle 或本地证据里），就直接写出来并把
+  campaign 该场景改判为「按构造受限于 harness」，同时登记解它的卡或向主控请求决策——不允许为了
+  推进而虚构一个窗口；④ 冻结前先读当前 `domain.sh` 的 kill/held 路径并给出行号依据，不引用过期描述。
+- `validation_class`: `LOCAL_ONLY`（本卡是设计卡，只产文档与判据；真实运行属其后登记的封存卡）。
+- `stop_conditions`: ① 若冻结判据要求**新增或改写产品恢复策略**（重放/失效/接管语义），立即停下并
+  请求主控决策，不自行定；② 若需要改 `forbidden_paths` 里任何文件，先修订本卡范围再动手（2026-09-24
+  纪律），不得事后追认；③ 若同一窗口在现有 `CORE-060`/`CORE-090` 与其子 case 里已经封过、
+  而契约与 fixture 对「是否重复」说法不一致，停下并记录冲突，不自行选一种读法。
 
 ### OFFLINE-IDENTITY-SEALED-ARGV-001 — 让封存时的 live 判读也拿到那份 argv
 
