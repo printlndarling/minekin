@@ -3661,6 +3661,42 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
   **不改判据凑 PASS，不把一次成功运行写成整版本 tested**。只有全部验收项成立后，才把
   **精确的** 1.20.1 Linux/arch 组合登记为 `tested`。
 
+### VERSION-RESOLVER-001 — 只从 reviewed tested 清单选包
+
+- `status`: `QUEUED`（本提交登记，紧随 V04 收卡 `55e9bce`。提升须另开提交：本卡的输入正是 V04 那
+  四份封证与 `tested_registration_decision`。）
+- `baseline_sha`: `55e9bce`（V04 收卡提交，已推送并核对两 ref）。
+- `depends_on`: `VERSION-SERVER-PROBE-001`（V02 的 observation 形状）、`VERSION-LOCAL-1201-001`
+  （V04 的 `tested` 判据与精确组合）；下游 `VERSION-INSTALLER-001`（V06）只装本卡选出的清单条目、
+  `VERSION-SESSION-SWITCH-001`（V07）把选择接进入服路径。
+- `question`: 给一次 V02 观测（协议/版本/认证策略）+ OS/arch + operator pin，能否**只**从一份已审的
+  tested 清单里选出唯一 bundle，或给出稳定失败类别——而绝不循环试登？
+- `scope`、`allowed_paths`、`forbidden_paths` 与验收：以
+  [连续执行计划的 V05 卡](version-auto-to-server-control-plan.md) 为准，落成显式清单。允许改：新
+  `src/minekin_core/domain/version_resolution.py`、reviewed bundle registry 的 loader 与其清单文件、
+  `tests/unit/test_version_resolution.py`、registry fixture（**新增**文件）、进度/契约文档。不得改：
+  网络下载与安装（V06）、游戏连接与 `session start` 的自动接线（V07）、现有 Bridge hooks、
+  `domain/admission.py`、任何已封存 bundle 与 `tests/fixtures/manifest.sha256` 既有行、
+  V03/V04 已封存的 recipe fixture 字节。
+- `registry_carrier_decision`（登记时先写明，免得领取者就地改冻结件）：仓库今天没有 reviewed tested
+  registry——`schemas/bundle-manifest.schema.json` 的 `status` 枚举里有 `tested`，两份 recipe fixture
+  的自述分别是 `candidate`（1.20.1）与 `recipe`（1.21.4），且没有任何代码读该字段来做选择。因此本卡的
+  清单必须是**新增的、被审的文件**，而不是把 `bundle-candidate-1.20.1.json` 的 `status` 改成 `tested`：
+  后者会移动 fixture digest 与其 `case_version`，把 V04 刚封的四读全打成 `UNJUDGED`（V04
+  `tested_registration_decision` 记录的就是这件事）。
+- `open_semantics`（2026-09-25 登记，**领取时须先闭合再写码**）：设计卡的验收要求"1.20.1 与 1.21.4
+  各自选到唯一 tested bundle"，但 1.21.4 的 bundle 自述是 `status: recipe`，仓库里也没有任何把 1.21.4
+  称作 `tested` 的既有决定。"recipe 状态算不算 tested"无法由既有契约唯一确定，故本卡按**更窄的一读**
+  执行并在此写明：清单只为**各自有独立封证支撑**的组合赋 `tested`，并逐条引用其 evidence（1.20.1 引
+  V04 四案；1.21.4 引它自己的 P0 封证），**不**把 recipe fixture 的 `status` 字段当作清单来源、也
+  **不**把 `recipe` 解释成 `tested`。若领取时发现 1.21.4 的封证不足以支撑该格，宁可让该案返回
+  `NEEDS_PIN` 并记录缺口，也不放宽。
+- `counterexamples`: 未知协议、一对多候选、SRV 指向别处的代理、伪造的 status 文本、缺当前 OS/arch
+  构件、条目非 `tested` 或已 `quarantined`——每种都要一个稳定失败类别，且不得接着试登。
+- `validation_class`: `UNIT_AND_CONTRACT`——纯领域决策，不要求真实入服；跨版本闭环属 V07/V08。
+- `stop_conditions`: 协议共享版本时的优先级无法由既有契约唯一确定时**不新增默认排序**，候选冲突进
+  `NEEDS_PIN`；需要产品拍板（例如是否承认 `recipe` 即 `tested`）时停在此处记录，不自行选一个。
+
 ### VERSION-BRIDGE-IDENTITY-001 — BridgeHello 版本声明配对修复
 
 - `status`: `QUEUED`（本提交登记，来自 V04 卡 `bridge_hello_version_defect` 的实测。提升须另开
