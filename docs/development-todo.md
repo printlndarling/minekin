@@ -2097,11 +2097,10 @@
     `ADMIT-070-RECORD-SCHEMA-001` 继续 `QUEUED` 且不排进这条链；HOST/PERSIST/retention/
     process-recovery 仍等主控决策。公网测试服本轮未使用，也仍不能作判据端。
 
-- [ ] **CRASH-OUTBOX-RESEAL-001（`BLOCKED_EVIDENCE` 4/5，campaign 第 5 场景不记为已封）**：campaign
+- [x] **CRASH-OUTBOX-RESEAL-001（`DONE` 5/5，campaign 第 5 场景封齐、`scenario_progress` 5/7）**：campaign
   `order` 第 5 个场景的**真实重封**——五个已定义窗口各在当前 build 上封一份 bundle。前置是本卡当场
-  发现的第二个封存面阻断，已另起 `CRASH-OUTBOX-SEALED-KIN-001` 并交付（`2160989`）；五个窗口现在有
-  **两份**当前-build bundle（`CORE-060` run `08f206bf…` `attempt 1`、run `412b874b…` `attempt 2`，都判
-  `FAIL`），**PASS 一份也没有**。
+  发现的第二个封存面阻断，已另起 `CRASH-OUTBOX-SEALED-KIN-001` 并交付（`2160989`）；runtime 那一格的最后
+  硬阻断由 `CRASH-OUTBOX-ALIVE-DISPLAY-001`（交付 `f90abc8`）解掉，五案于 current build 全部 `PASS`、四读一致。
   - **环境已就位**：`minekin-runner:local` 镜像按 Dockerfile 重建完成（镜像 id `fed4a143f2e4`），
     `minekin-runner-data` 卷原样保留（旧的五份 PASS 与那份 FAIL 一个没动，登记前照其复核了五对
     `case_version` 与两个旧 `bridge_digest`）。
@@ -2213,8 +2212,8 @@
       「Bridge 没松键」的判决，而是「杀 Core 时把 X 显示一起带走，客户端再没有 tick 写那行日志」——
       两者能分开的实验已由 `CRASH-OUTBOX-ALIVE-DISPLAY-001`（`QUEUED`）接走，本卡不改 runner。
 
-- [ ] **CRASH-OUTBOX-ALIVE-DISPLAY-001（当前唯一 NEXT，2026-09-24 由 `CRASH-OUTBOX-RESEAL-001` 收为
-  `BLOCKED_EVIDENCE` 后从 `QUEUED` 提升；它本身由 RESEAL 的两轮 attempt 当场登记）**：让 Core 的死不再带走客户端的显示。它挡的是**五个窗口里 runtime 那一格**
+- [x] **CRASH-OUTBOX-ALIVE-DISPLAY-001（已完成，交付 `f90abc8`；2026-09-24 由 `CRASH-OUTBOX-RESEAL-001` 收为
+  `BLOCKED_EVIDENCE` 后从 `QUEUED` 提升为唯一 `NEXT`；它本身由 RESEAL 的两轮 attempt 当场登记）**：让 Core 的死不再带走客户端的显示。它挡的是**五个窗口里 runtime 那一格**
   （`CORE-060` 的 `RELEASE_NOT_LOGGED`），不挡另外四案，所以登记为 `QUEUED`、唯一 `NEXT` 仍是
   `CRASH-OUTBOX-RESEAL-001`。
   - **问题**：松键由客户端的下一次 tick 写出（`BridgeIpcWorker.java:1038-1056` → `:249-254` → `:822-837`），
@@ -2228,6 +2227,34 @@
     `CORE-060` 里那行 `bridge released N input(s) after IPC_LOST` 必须**真的出现**且 `N > 0`；② 若显示
     确实活过了 Core 而那行仍不出现，那才是 `RESEAL` `stop_conditions` ① 点名的**产品侧回归**——保留
     `FAIL`、分类、停下报告主控。本卡不封任何其余窗口。
+  - **交付与真实运行（验收 ①②③④⑤ 全达）**：`domain.sh` 把主 session 从 `xvfb-run` 内层搬到 **harness
+    自持的 Xvfb**——`:77-:99` 挑空闲显示、`Xvfb :NN -screen 0 1280x720x24 &`、等 `/tmp/.X11-unix/XNN` socket、
+    `export DISPLAY`，session 改由 `sh -c '"$@"; :' minekin-session-supervisor` 承载（Core 仍是 `session_pid`
+    的**后代**供 `inject_fault` 逐名；尾部 `:` 阻止 shell exec-replace 把包装器与目标折成同一 pid）。
+    joiner（`:649`）/ glxinfo（`:1878`）两处 `xvfb-run` 未动，kill 块 1297 注释随之更正。契约测试新增
+    `test_a_killed_core_leaves_the_display_it_never_owned`（先红后绿）。**一次真实 `CORE-060` runtime-kill**
+    （`MINEKIN_KIN_ID=kin-01 MINEKIN_DOMAIN_CASE=CORE-060 MINEKIN_DOMAIN_KILL_CORE=1 MINEKIN_DOMAIN_PROBE=Kin
+    MINEKIN_DOMAIN_SECONDS=240` + `--hold-forward-seconds 60`，**默认 5 秒探针、不设 `PROBE_SECONDS`**）：
+    run `7fc0671eabca4430885017613977779c`、`run-142`、`attempt_sequence: 3`、bundle `3876c335…`、13 件工件。
+    - **验收 ① 现场**：被封存 `client/latest.log` 有
+      `bridge is failing closed (IPC_LOST)…` → `[Render thread/INFO]: bridge released 1 input(s) after IPC_LOST`
+      （**N=1>0，由客户端 tick 线程写出**）；`client/stderr.log` **为空**（旧两份 `FAIL` 的 stderr 只有
+      `X connection to :99 broken`）——显示真的活过了 Core，那行有机会被写了，「Bridge 没松键」与「客户端没机会
+      写」第一次分开。
+    - **验收 ②③**：`result: PASS`、`failures: []`、四条断言全 `observed`；`case_version` 仍
+      `d1ea32d8b705…`、`bridge_digest` 仍 `faeec4a9df83abb9…`（判据/工件面一字未动）；四读一致——
+      `evidence verify` `PASS`、`rejudge_evidence.py` `agrees`、`minekin_core replay` 与 `replay_evidence.py`
+      皆 `projected`/`PLAYABLE`/16 events/`violations: []`、`report_promotion.py` `from_repository_build: true`
+      + `re_judged: AGREES`。旧 `CORE-060` 两份 `FAIL`（`08f206bf…`、`412b874b…`）与旧 build 的 `PASS/FAIL`
+      原样 `UNJUDGED`、未撤。
+    - **验收 ④⑤**：契约断言先红后绿、`test_runner_scripts.py:156`「不得用全局 pkill 猜目标」原样绿；全量门禁
+      `2159 passed / 2 skipped`、Ruff check/format、Pyright 0、boundaries、case assertions `139 registered`、
+      fixture digests、workflow pins、`git diff --check` 全绿，容器内 `bash -n domain.sh` OK。
+    - **三条 `stop_conditions` 均未触发**：显示活过 Core 且那行真写出（非产品回归）；未动 `forbidden_paths`；
+      解耦靠 harness 自持 Xvfb，无「替客户端重启/接管残留进程」。**收口连带**：runtime 这一格补齐使前置卡
+      `CRASH-OUTBOX-RESEAL-001` 五案齐、`BLOCKED_EVIDENCE(4/5)→DONE(5/5)`，campaign 第 5 场景
+      `scenario_progress 4/7→5/7`。`order` 第 6 场景（tick/render 采样）此前无卡，本 commit 以
+      `TICK-RENDER-SOAK-EVIDENCE-DESIGN-001`（`QUEUED`）登记入口，紧随 commit 提升为 `NEXT`。
 
 - [x] **CRASH-OUTBOX-SEALED-KIN-001（已完成，交付 `2160989`）**：让「没有文档的一次 run」也能明白地
   说出它属于哪个 Kin。`CRASH-OUTBOX-RESEAL-001` 第二次真实 attempt 当场发现的封存面阻断，是 campaign
