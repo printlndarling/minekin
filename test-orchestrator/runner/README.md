@@ -260,7 +260,7 @@ client turns sounds off. A container has no sound device.
 ## The server half
 
 ```text
-uv run python tools/verify_supply_chain.py --save-server <path> --max-bytes 60000000
+uv run python tools/verify_supply_chain.py --version 1.21.4 --save-server <path> --max-bytes 60000000
 MINEKIN_SERVER_JAR=<path> bash test-orchestrator/runner/run.sh server \
     --accept-eula --allow-player Kin
 ```
@@ -271,6 +271,14 @@ against the pin, so `--save-server` keeps the payload it has just verified at th
 path the operator names. It fetches 59,531,345 bytes — the six smallest artifacts
 on the plan, fabric-api, and the 54 MB server — and prints that number before it
 starts. A file already at that path is replaced only if it is the same bytes.
+
+`--version` names which reviewed stack those pins belong to. The runner serves
+1.21.4 and 1.20.1, and a check that re-verified one stack's bytes while the run
+launched the other would report a pass about a bundle nobody started; a version
+nothing pins is refused rather than fetched at a guess. `domain.sh` does not take
+the flag at all — it reads the version out of the bundle profile the run was
+given, so the server it starts cannot be a different version from the client it
+waits for.
 
 The second runs `tools/run_controlled_server.py` inside the runner. The jar is
 mounted read-only from a host path rather than copied, so which jar a run used is

@@ -67,3 +67,29 @@ def test_saving_the_server_jar_fetches_what_it_says_it_will() -> None:
 
     assert planned_bytes() < with_server
     assert saving == with_server
+
+
+def test_each_reviewed_version_plans_its_own_bytes() -> None:
+    """A second reviewed stack has to be checkable, not only nameable.
+
+    The tool held one version's constants, so asking it about another answered
+    with the first version's pins — which reads as a pass while checking nothing
+    about the bundle a run is actually launching.
+    """
+
+    reference = planned_bytes("--version", "1.21.4")
+    candidate = planned_bytes("--version", "1.20.1")
+
+    assert candidate != reference
+    # Asking without a version still means the stack every older run meant.
+    assert planned_bytes() == reference
+
+
+def test_a_version_nothing_pins_is_refused_before_the_budget_line() -> None:
+    """Refusing to guess is different from checking nothing and calling it OK."""
+
+    result = run_tool("--version", "1.19.4", "--max-bytes", "1000")
+
+    assert result.returncode == 2
+    assert "no reviewed supply chain is pinned for Minecraft 1.19.4" in result.stderr
+    assert "would fetch" not in result.stdout

@@ -30,12 +30,47 @@ from dataclasses import dataclass
 from pathlib import Path
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_PROFILE = (
-    REPOSITORY_ROOT / "tests" / "fixtures" / "runtime-input" / ("bundle-p0-core-1.21.4.json")
-)
+DEFAULT_VERSION = "1.21.4"
 DEFAULT_MAX_BYTES = 8 * 1024 * 1024
-VERSION_METADATA = REPOSITORY_ROOT / "tests" / "fixtures" / "launcher" / "1.21.4.json"
 FETCH_TIMEOUT_S = 60.0
+
+
+@dataclass(frozen=True, slots=True)
+class ReviewedStack:
+    """Where one reviewed Minecraft version's pinned bytes live and what they are.
+
+    The recipe holds the digests, so this names the documents that carry them
+    rather than copying the digests a second time: a second copy is a claim that
+    can disagree with the one the product enforces.
+    """
+
+    bundle_profile: Path
+    version_metadata: Path
+    fabric_api_url: str
+    fabric_api_size: int
+    fabric_api_sha256: str
+
+
+def reviewed_stacks() -> dict[str, ReviewedStack]:
+    from minekin_core.adapters.launcher import recipe
+
+    fixtures = REPOSITORY_ROOT / "tests" / "fixtures"
+    return {
+        DEFAULT_VERSION: ReviewedStack(
+            bundle_profile=fixtures / "runtime-input" / "bundle-p0-core-1.21.4.json",
+            version_metadata=fixtures / "launcher" / "1.21.4.json",
+            fabric_api_url=recipe.FABRIC_API_URL,
+            fabric_api_size=recipe.FABRIC_API_SIZE,
+            fabric_api_sha256=recipe.FABRIC_API_SHA256,
+        ),
+        recipe.MINECRAFT_1201_VERSION: ReviewedStack(
+            bundle_profile=fixtures / "runtime-input" / "bundle-candidate-1.20.1.json",
+            version_metadata=fixtures / "launcher" / "1.20.1.json",
+            fabric_api_url=recipe.FABRIC_API_1201_URL,
+            fabric_api_size=recipe.FABRIC_API_1201_SIZE,
+            fabric_api_sha256=recipe.FABRIC_API_1201_SHA256,
+        ),
+    }
 
 
 @dataclass(frozen=True, slots=True)
@@ -63,7 +98,7 @@ def _smallest_per_host(artifacts: list[dict[str, object]]) -> list[dict[str, obj
     return list(chosen.values())
 
 
-def server_artifact() -> dict[str, object]:
+def server_artifact(stack: ReviewedStack) -> dict[str, object]:
     """The pinned vanilla server the test domain runs, from the frozen metadata.
 
     It is not part of the client bundle, which is why it is opt-in: it is fifty
@@ -72,7 +107,7 @@ def server_artifact() -> dict[str, object]:
 
     import json
 
-    downloads = json.loads(VERSION_METADATA.read_bytes())["downloads"]
+    downloads = json.loads(stack.version_metadata.read_bytes())["downloads"]
     return dict(downloads["server"])
 
 
@@ -97,19 +132,25 @@ def keep(payload: bytes, destination: Path) -> str:
     return "saved"
 
 
-def plan() -> list[dict[str, object]]:
+def plan(stack: ReviewedStack) -> list[dict[str, object]]:
     from minekin_core.adapters.launcher.launch_plan import build_launch_plan
 
-    return list(build_launch_plan(DEFAULT_PROFILE)["artifacts"])
+    return list(build_launch_plan(stack.bundle_profile)["artifacts"])
 
 
 def main() -> int:
     parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--version",
+        default=DEFAULT_VERSION,
+        metavar="VERSION",
+        help="which reviewed stack to re-check; one of the versions the recipe pins",
+    )
     parser.add_argument("--max-bytes", type=int, default=DEFAULT_MAX_BYTES)
     parser.add_argument(
         "--include-server",
         action="store_true",
-        help="also verify the pinned vanilla server jar (~54 MB, not part of the bundle)",
+        help="also verify the pinned vanilla server jar (not part of the bundle)",
     )
     parser.add_argument(
         "--save-server",
@@ -122,15 +163,19 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    from minekin_core.adapters.launcher.recipe import (
-        FABRIC_API_SHA256,
-        FABRIC_API_SIZE,
-        FABRIC_API_URL,
-    )
+    stacks = reviewed_stacks()
+    stack = stacks.get(args.version)
+    if stack is None:
+        print(
+            f"no reviewed supply chain is pinned for Minecraft {args.version}; "
+            f"this tool checks {', '.join(sorted(stacks))} and refuses to guess at another",
+            file=sys.stderr,
+        )
+        return 2
 
-    selected = _smallest_per_host(plan())
-    server = server_artifact() if args.include_server or args.save_server else None
-    planned_bytes = sum(int(str(item["size"])) for item in selected) + FABRIC_API_SIZE
+    selected = _smallest_per_host(plan(stack))
+    server = server_artifact(stack) if args.include_server or args.save_server else None
+    planned_bytes = sum(int(str(item["size"])) for item in selected) + stack.fabric_api_size
     if server is not None:
         planned_bytes += int(str(server["size"]))
     print(f"budget {args.max_bytes} bytes; this run would fetch {planned_bytes} bytes")
@@ -153,9 +198,9 @@ def main() -> int:
             continue
         verified.append(Verified(name, len(payload), digest, None))
 
-    payload = _read(FABRIC_API_URL)
+    payload = _read(stack.fabric_api_url)
     digest = hashlib.sha256(payload).hexdigest()
-    if digest != FABRIC_API_SHA256 or len(payload) != FABRIC_API_SIZE:
+    if digest != stack.fabric_api_sha256 or len(payload) != stack.fabric_api_size:
         errors.append("fabric-api: the recipe's SHA-256 or size does not match the served jar")
     else:
         verified.append(
@@ -170,7 +215,9 @@ def main() -> int:
         if digest != server["sha1"] or len(payload) != server["size"]:
             errors.append("vanilla server: pinned SHA-1 or size does not match the served jar")
         else:
-            verified.append(Verified("com.mojang:server:1.21.4", len(payload), digest, None))
+            verified.append(
+                Verified(f"com.mojang:server:{args.version}", len(payload), digest, None)
+            )
             if args.save_server is not None:
                 # Only bytes that already matched the pin are offered to `keep`.
                 try:

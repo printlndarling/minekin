@@ -380,6 +380,22 @@ for argument in "$@"; do
     previous="${argument}"
 done
 
+# The server a run starts has to be the server the client it launches may join, so
+# the recipe is read from the bundle profile rather than named by the operator: a
+# second switch here would be a switch that can be set to the wrong version, and
+# the misjoin it produced would be the thing the run then reported as evidence.
+launched_version=""
+if [[ -n "${profile}" ]]; then
+    launched_version="$(
+        python -c 'import json,sys; print(json.load(open(sys.argv[1],encoding="utf-8"))["minecraft"]["version"])' \
+            "${profile}" 2>/dev/null
+    )" || launched_version=""
+fi
+version_args=()
+if [[ -n "${launched_version}" ]]; then
+    version_args=(--version "${launched_version}")
+fi
+
 
 # Empty means "the world is as vanilla generated it", which is what every run
 # did before this existed — so it stays optional rather than becoming a required
@@ -482,6 +498,7 @@ elif [ -n "${server_profile}" ]; then
         --directory "${server_directory}" \
         --jar /server/server.jar \
         --accept-eula \
+        "${version_args[@]}" \
         "${allow_args[@]}" \
         "${online_args[@]}"         "${pack_args[@]}" \
         "${summon_args[@]}" \

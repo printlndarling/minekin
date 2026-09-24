@@ -71,6 +71,7 @@ if [[ "${1:-}" == "domain" ]]; then
         if [[ -z "${SERVER_JAR}" ]]; then
             echo "MINEKIN_SERVER_JAR must name the pinned server jar." >&2
             echo "Get one with: uv run python tools/verify_supply_chain.py \\" >&2
+            echo "    --version <minecraft version> \\" >&2
             echo "    --save-server <path> --max-bytes 60000000" >&2
             exit 2
         fi
@@ -121,6 +122,7 @@ elif [[ "${1:-}" == "server" ]]; then
     if [[ -z "${SERVER_JAR}" ]]; then
         echo "MINEKIN_SERVER_JAR must name the pinned server jar." >&2
         echo "Get one with: uv run python tools/verify_supply_chain.py \\" >&2
+        echo "    --version <minecraft version> \\" >&2
         echo "    --save-server <path> --max-bytes 60000000" >&2
         exit 2
     fi
