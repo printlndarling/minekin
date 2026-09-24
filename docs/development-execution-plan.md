@@ -3051,6 +3051,10 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 - `depends_on`: `VERSION-REMOTE-PROFILE-001`；下游 `VERSION-RESOLVER-001` 消费本卡观测。
 - `question`: 如何对有字节/时间上限的 DNS/SRV 与 Server List Ping 取得能归因到同一 run 的
   版本观测，并让解析后的端点重新通过 V01 的单地址策略？
+- `entry_paths_amendment`（2026-09-24，实现前登记）：只读 `server probe` 入口按本仓库既有
+  CLI 形状需要落到 `src/minekin_core/cli/parser.py`、新 `src/minekin_core/cli/server_probe.py`
+  与 `src/minekin_core/bootstrap.py` 的一个分发分支（仅 dispatch，不改其它命令）。
+  除此之外不新增允许路径；`bridge/`、`proto/`、`tools/`、已封 bundle 仍禁改。
 - `scope`、`allowed_paths`、`forbidden_paths`、反例与验收：见
   [连续执行计划的 V02 卡](version-auto-to-server-control-plan.md)。要点：新
   `adapters/launcher/server_probe.py` 与 `domain/version_probe.py`、只读 `server probe`
