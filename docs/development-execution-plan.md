@@ -12,14 +12,16 @@
 - `baseline_date`: 2026-09-22
 - `baseline_branch`: `main`
 - `baseline_remote`: `origin/main`
-- `current_next`: `OFFLINE-IDENTITY-RUN-001`——本条 commit 正在收的卡：`OFFLINE-010` 与 `OFFLINE-020`
-  两列各封出一份真实 `PASS` bundle、四个读者一致，并承接了 `SEALED-ARGV-001` 欠下的那一半验收
-  （判据 ① 在 live 判读与 rejudge 上同结论）。它收为 `DONE`，同时如实记下判据 5 那一半**没有**闭合
-  （细节在卡片 `unmet_acceptance`）；本条 commit 之后计划里没有 `NEXT`，紧随的 commit 提升
-  `OFFLINE-030-CASE-FILENAME-001`——本条 commit 以 `QUEUED` 登记的那张，`OFFLINE-030` 判据 5 唯一的入口。
-  顺序表的前两张都已 `DONE`（`OFFLINE-IDENTITY-CASE-001` 交付 `2a84bbd`／收卡 `1a77d40`；
-  `OFFLINE-IDENTITY-SEALED-ARGV-001` 交付 `d8348a3`／收卡 `07cd0d7`），本卡此前已作为 `QUEUED`
-  登记并推送，提升由 `14784a1` 完成。
+- `current_next`: `OFFLINE-030-CASE-FILENAME-001`——由本 commit 从 `QUEUED` 提升为唯一 `NEXT`
+  （前一张 `OFFLINE-IDENTITY-RUN-001` 在 `5267399` 收为 `DONE` 并推送，本 commit 之前计划里没有 `NEXT`，
+  满足交接第 1、6 项的顺序）。它解的是 `OFFLINE-030` 判据 5 唯一的阻断：`domain.sh:172` 用 case id
+  小写当 fixture 文件名，于是 `OFFLINE-030-PRISM-PARITY-001` 会去找 `offline-030-prism-parity-001.json`，
+  而 registry 那侧登记的真实文件叫 `offline-030-prism-parity.json`（本次提升前对物复核过：
+  `tests/fixtures/cases/` 下只有 `offline-030.json`、`offline-030-prism-parity.json`、
+  `offline-030-enum-aligned.json` 三份，`cases.py:346-348` 却列着带 `-001` 的三个 id）。
+  卡片把出路写成二选一（runner 侧解析 / fixture 改名），登记时倾向**前者**，理由写在它的
+  `allowed_paths` 里：改名会移动已登记 fixture 的 `case_version` 与 `manifest.sha256`，那是本战役
+  一直避免的证据事件；解析只改一处脚本、不碰任何已封存字节。这是一次工程取舍，主控可改。
   `ADMIT-070-RECORD-SCHEMA-001` 也还是 `QUEUED`，但它自己写明
   不是任何封证卡的下一张，因此不排进这条链。其余未闭合卡仍是
   `HOST-ADMISSION-DESIGN-001`/`OPERATIONS-RETENTION-001`/`PROCESS-RECOVERY-001`
@@ -424,7 +426,7 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
   但契约判据 5（A/B 分别加入）落在 `OFFLINE-030` 父 case 与两个 `OFFLINE-030-*-001` 子 case 上，
   而那三个 id 目前**封不进 harness**——`domain.sh` 把 case id 直接小写当 fixture 文件名，`-001` 后缀
   不 round-trip。阻断的实测记录与「不就地 hack」的取舍写在那张卡的 `unmet_acceptance`，
-  解它的卡是 `OFFLINE-030-CASE-FILENAME-001`（`QUEUED`）。本战役因此还是 `BLOCKED_EVIDENCE`，
+  解它的卡是 `OFFLINE-030-CASE-FILENAME-001`（登记后已提升为唯一 `NEXT`）。本战役因此还是 `BLOCKED_EVIDENCE`，
   且第 5/6/7 个场景（crash/outbox 窗口、tick/render 采样、promotion report）一概未动。
 - `scenario_progress`: 3/7 场景已完整封为正式 case，第 4 个场景两列各封一份 `PASS`、只剩判据 5。第 1 个：`ADMIT-040`，run
   `6b5856d57dee4052b2ffba3ff9e3459e`，bundle `46565ef2…`，attempt 1，PASS/AGREES。
@@ -1771,8 +1773,13 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 
 ### OFFLINE-030-CASE-FILENAME-001 — 让 `-001` 子 case 的 id 能被 harness 找回自己的 fixture
 
-- `status`: `QUEUED`（由 `OFFLINE-IDENTITY-RUN-001` 的收卡 commit 登记并推送；那个 commit 不做提升，
-  提升为唯一 `NEXT` 写在紧随的 commit 里）
+- `status`: `NEXT`（在 `5267399` 以 `QUEUED` 登记并推送，由紧随的本 commit 提升为唯一 `NEXT`）
+- `promotion_reason`: 顺序已满足——登记它的那张卡（`OFFLINE-IDENTITY-RUN-001`）在 `5267399` 收卡并
+  推到两条 ref，本 commit 之前计划里没有 `NEXT`，中间没有插入别的未授权工作。入口门禁全绿
+  （`verify_fixture_digests.py`/`check_case_assertions.py` 139 registered/`check_boundaries.py`/
+  `check_workflow_pins.py` 均 OK，`git diff --check` 干净），且阻断本身在提升前对物复核过
+  （三份 fixture 文件名 vs `cases.py` 三个带 `-001` 的 id）。
+- `baseline_sha`: `526739902c098223d0e7e840e8200c1b4b46bbb0`
 - `question`: `MINEKIN_DOMAIN_CASE` → fixture 文件名这条派生规则要怎么改，才能让
   `OFFLINE-030-PRISM-PARITY-001` / `OFFLINE-030-ENUM-ALIGNED-001` 各自跑起来并封证——是 runner 侧改成
   「从 registry 查 fixture 路径」，还是 fixture 侧改用带 `-001` 的文件名？两条路各自的代价与对
