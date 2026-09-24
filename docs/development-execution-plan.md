@@ -12,10 +12,11 @@
 - `baseline_date`: 2026-09-22
 - `baseline_branch`: `main`
 - `baseline_remote`: `origin/main`
-- `current_next`: `VERSION-REMOTE-PROFILE-001`。用户在七场景总账后
-  明确把“自动识别服务器版本 → 准备匹配客户端 → 入服并完成简单控制”排为优先路线；
+- `current_next`: 无（本提交把 `VERSION-REMOTE-PROFILE-001` 收为 `DONE`；下一张
+  `VERSION-SERVER-PROBE-001` 须先在独立提交登记 `QUEUED`，再由下一次提交提升为唯一 `NEXT`）。
+  用户在七场景总账后明确把“自动识别服务器版本 → 准备匹配客户端 → 入服并完成简单控制”排为优先路线；
   `VERSION-AUTO-DESIGN-001` 已交付[跨版本连续执行计划](version-auto-to-server-control-plan.md)，
-  `VERSION-REMOTE-PROFILE-001` 已由 `2c4e600` 先登记 `QUEUED`，本提交单独提升为唯一 `NEXT`。
+  `VERSION-REMOTE-PROFILE-001` 已由 `2c4e600` 先登记 `QUEUED`、`36764e8` 单独提升为唯一 `NEXT`。
 - `last_checkpoint`: **有界自主 P0 campaign 已走到需用户拍板的边界；用户现已选择跨版本路线**——上一轮把
   `REAL-P0-CAMPAIGN-001.order` 第 7 也是最后一个场景（阶段 F 晋级总账）的只读卡 `P0-PROMOTION-LEDGER-001`
   收为 `DONE`（`532446e` 登记 `QUEUED`、`28876e3` 提升 `NEXT`）。`scenario_progress 6/7→7/7`——七个 `order`
@@ -2997,10 +2998,11 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 
 ### VERSION-REMOTE-PROFILE-001 — 让运行者保存一个明确授权的远程目标
 
-- `status`: `NEXT`（`2c4e600` 先以 `QUEUED` 登记并推送，本提交单独提升；当前无第二张 `NEXT`）。
+- `status`: `DONE`（`2c4e600` 登记 `QUEUED`、`36764e8` 提升 `NEXT`；本提交收卡）。
 - `promotion_reason`: 用户已明确 1.20.1 私有测试目标与跨版本优先级；探测必须先有可信
   Server Profile，而本卡仅改 schema/地址策略，不发送游戏连接。
 - `baseline_sha`: `94ad677`（设计卡提升时的已推送基线；领取本卡时另记实际 checkout SHA）。
+  领取时实际 checkout = `36764e8`（本地与两远端一致，工作树干净）。
 - `depends_on`: `VERSION-AUTO-DESIGN-001`；下游 `VERSION-SERVER-PROBE-001` 必须先有受信目标。
 - `question`: 如何在 v1 loopback/1.21.4 原样回归的同时，用 v2 profile 表达用户明确批准的
   单一远端目标和版本策略，并在 DNS/SRV 解析后仍执行地址策略？
@@ -3011,6 +3013,34 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
   用户目标地址仅在私有 profile，不写 repo。
 - `validation_class`: `LOCAL`（含地址策略与 schema 反例）；如触及真实解析/连接，按 V02 另取证。
 - `stop_conditions`: 需要扩大无条件禁区或默认开放任意公网时停下请用户决策，不自行改策略。
+  —— 未触发：v2 只能保存文档里逐字段声明过的**单一显式目标**，任意公网/网段放行仍是禁区。
+- `implementation_record`: v1 加载器语义与字节不变（只抽出共用的读取/路径守卫助手，
+  fail-closed 消息与 revision 算法原样；v1 冻结 schema 与 fixture 一字未动）。新增
+  `schemas/server-profile-v2.schema.json`（管理者写入：显式、规范化的 IP 字面量 host/port、
+  `auth_mode: offline`、`version_policy{mode: explicit_allowlist, allowed_versions}`、
+  可选 `pinned_bundle_id`、`resource_pack_policy`、`target_authorization{granted_by, basis}`，
+  `additionalProperties:false`）与产品入口 `load_managed_target_profile`——逐字段 fail-closed、
+  revision 用与 v1 相同的 canonical-JSON digest；**会话启动路径仍只消费 v1**，本卡不产生
+  任何网络或游戏协议动作。`AddressPolicy.for_explicit_target` 把保存的目标固化为 /32 或
+  /128 单地址策略，供 V02 在 DNS/SRV 解析后重验；IPv4-mapped IPv6 字面量显式拒绝，
+  堵住内嵌 v4 绕过无条件禁区的形状。匿名 fixture 用 TEST-NET-1 文档保留地址，
+  运行者的真实端点不进 repo。
+- `counterexamples_driven`: 非字面量/未规范化/前导零/mapped 主机、`169.254.169.254`、
+  `fe80::1`、`0.0.0.0`、`::`、`224.0.0.1`、`ff02::1` 作为保存目标、v1 文档喂 v2 加载器、
+  v2 文档喂 v1 加载器、缺字段/未知字段/残留 `visibility`、在线 auth、空/畸形/重复/
+  非 reviewed mode 的 version_policy、短 basis、大写 `granted_by`、`.minecraft` 内路径、
+  端口溢出（0/65536/字符串/浮点/bool）——各自作为参数化用例断言拒绝；契约测试把 v2
+  加载器逐案对表冻结的 v2 JSON Schema，产品更严处显式列成 `KNOWN_STRICTER_V2` 清单，
+  新增分叉会让契约测试变红而不是静默放行。
+- `gates`: 全量 `uv run --frozen pytest -q` **2274 passed / 2 skipped**（skip 为既有
+  Windows 信号语义项）；定向三件（`test_admission_address`/`test_server_profile`/
+  `test_server_profile_schema`）203 passed；Ruff check、Ruff format --check、Pyright
+  0 errors、boundaries、139 case assertions、fixture digests、workflow pins、
+  `git diff --check` 全绿。`tools/report_cases.py` 读数不变：74 required / 43 present /
+  31 missing（本卡 `LOCAL`，不新增正式 case，不封 bundle）。无 CI 依赖、无 Minecraft
+  真实运行：本卡不声称观察到任何真实解析或连接。
+- `not_tested`: DNS/SRV 实际解析、对任何真实端点的探测与入服、1.20.1 bundle 可用性——
+  分属 V02/V03/V04 及以后，本卡不预支其证据。
 - `next_after_done`: `VERSION-SERVER-PROBE-001`，必须先 `QUEUED` 登记并独立提升。
 
 ### HOST-ADMISSION-DESIGN-001 — 宿主世界会话坐标来源

@@ -2429,3 +2429,25 @@
   修订范围或另起卡；② 若办法落到「harness 替客户端重启/接管残留进程」→ 属 `PROCESS-RECOVERY-001` 的
   `BLOCKED_DECISION`，立即停下请主控决策；③ 若显示确实活过 Core 而那一行仍不出现 → 是产品侧回归，保留
   `FAIL`、分类、停下报告主控，不改判据或杀法换颜色。
+
+## 恢复记录 + V01 实现现场（2026-09-24，Qoder 临时执行者）
+
+- **接手现场**：本地 HEAD = `origin/main` = `origin/codex/core-state-transition` = `36764e8`，
+  工作树干净、无他人未提交改动。主计划唯一 `NEXT` = `VERSION-REMOTE-PROFILE-001`（与交接预期一致）。
+- **机器 inventory**（`tools/report_cases.py` 本次实测）：74 required / 43 present / 31 missing、
+  43 cases / 162 assertion references、`required_not_gating=36`。与交接快照同形；V01 是 `LOCAL` 卡，
+  不新增正式 case 登记，缺口数字不因本卡移动。`report_promotion.py` 未重跑：本卡不封 evidence bundle。
+- **V01 允许路径核对**：改动只落在 `src/minekin_core/domain/admission.py`、
+  `src/minekin_core/adapters/launcher/server_profile.py`、三个命名测试文件、
+  新增 `schemas/server-profile-v2.schema.json`、匿名 fixture
+  `tests/fixtures/launcher/managed-remote-target-example.json`、`tests/fixtures/manifest.sha256`
+  仅**追加**两行新条目（既有行一字未动；这是冻结清单对新文件的既定登记方式），未触碰
+  `bridge/`、`proto/`、`tools/`、任何已封 bundle。fixture 放 `launcher/` 是因为
+  `test_fixture_boundaries.py` 的「非 schemas JSON 必须 schema_version==1」冻结边界豁免
+  `launcher` 路径——既有惯例，未削弱该边界本身。
+- **V01 实现与门禁（收卡细节见主计划卡的 `implementation_record`/`gates`）**：全量 pytest
+  2274 passed / 2 skipped；定向三件 203 passed；Ruff/Pyright/boundaries/case assertions/
+  fixture digests/workflow pins/`git diff --check` 全绿。manifest.sha256 首次登记时把 v2
+  fixture 放进 `runtime-input/`，被冻结边界 `test_fixture_boundaries.py`（非 schemas JSON
+  必须 v1）与 `run_repo_case` 的 W00 合同判红——按既有惯例移到 `tests/fixtures/launcher/`
+  后两处恢复绿；两次红灯与修复都在本条留痕，未放宽任何判据。
