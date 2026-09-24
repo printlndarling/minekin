@@ -12,9 +12,10 @@
 - `baseline_date`: 2026-09-22
 - `baseline_branch`: `main`
 - `baseline_remote`: `origin/main`
-- `current_next`: `ADMIT-070-CASE-001`（上一张 `ADMIT-070-REFUSAL-INJECTION-001` 已按交接六项
-  完成并 `DONE`；本卡由交接阶段 B 授权登记后提升，见其 `registered`/`promotion_reason`）。
-  其余未闭合卡仍是 `HOST-ADMISSION-DESIGN-001`/`OPERATIONS-RETENTION-001`/`PROCESS-RECOVERY-001`
+- `current_next`: 暂无唯一 `NEXT`：`ADMIT-070-CASE-001` 已按交接六项完成并 `DONE`，它的下一张
+  `OFFLINE-IDENTITY-EVIDENCE-DESIGN-001` 依交接第 1 项先登记为 `QUEUED`，提升写在紧随的下一个
+  commit 里（`order` 第 4 个场景的入口条件已成立）。其余未闭合卡仍是
+  `HOST-ADMISSION-DESIGN-001`/`OPERATIONS-RETENTION-001`/`PROCESS-RECOVERY-001`
   三项 `BLOCKED_DECISION` 与 `HOST/W80+` 的 `DEFERRED`，都要用户先拍板。
 - `temporary_executor_handoff`: [Qoder 执行交接](qoder-execution-handoff.md)；
   执行者只实现当前唯一 `NEXT` 并交付证据，主控独占任务状态与下一卡提升。
@@ -386,26 +387,35 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 ### REAL-P0-CAMPAIGN-001 — 批量关闭真实运行缺口
 
 - `status`: `BLOCKED_EVIDENCE`
-- `blocked_by`: `ADMIT-070-CASE-001`（`NEXT`）。`order` 的第 1 个场景（在线认证拒绝）
-  与第 2 个场景（资源包拒绝）已各自封出当前 build 上 `PASS`/`AGREES` 的正式 bundle 并四读一致。
-  第 3 个场景（JOIN 后首快照失败）的判据已由 `ADMIT-070-EVIDENCE-DESIGN-001` 冻结在专项契约里，
-  冻结的结论是：**这一条停在 `BLOCKED_EVIDENCE` 的原因不是读不出，而是发生不了**——被拒快照的
-  理由确实会写进 run document 的 `snapshot_rejections`（读数那一层在真实运行里会工作，
-  `entities_rejected` 就写过），但五个 `SnapshotReason` 在当前构建与当前 runner 下一个都触发
-  不了，数据卷 36 份真实运行文档该字段全为空。缺的那件——让 Bridge 在该代第一份快照上按
-  `authoritative=false` 上报、默认关断、由 runner 显式要求、由测试域记录——已由
-  `ADMIT-070-REFUSAL-INJECTION-001`（`DONE`）交付并在两次真实受控诊断上读出；自此本场景
-  只缺封证，也就是 `ADMIT-070-CASE-001`。
-- `scenario_progress`: 2/7 场景已封为正式 case。第 1 个：`ADMIT-040`，run
+- `blocked_by`: `OFFLINE-IDENTITY-EVIDENCE-DESIGN-001`（`QUEUED`，即将提升）。`order` 的第 1 个场景
+  （在线认证拒绝）、第 2 个场景（资源包拒绝）与第 3 个场景（JOIN 后首快照失败）已各自在当前
+  build 上封出 `PASS`/`AGREES` 的正式 bundle 并四读一致。第 3 个场景的判据由
+  `ADMIT-070-EVIDENCE-DESIGN-001` 冻结在专项契约里，冻结的结论是：**这一条停在 `BLOCKED_EVIDENCE`
+  的原因不是读不出，而是发生不了**——被拒快照的理由确实会写进 run document 的
+  `snapshot_rejections`（读数那一层在真实运行里会工作，`entities_rejected` 就写过），但五个
+  `SnapshotReason` 在当前构建与当前 runner 下一个都触发不了，数据卷 36 份真实运行文档该字段
+  全为空。缺的那件——让 Bridge 在该代第一份快照上按 `authoritative=false` 上报、默认关断、由
+  runner 显式要求、由测试域记录——已由 `ADMIT-070-REFUSAL-INJECTION-001`（`DONE`）交付并在两次
+  真实受控诊断上读出；封证由 `ADMIT-070-CASE-001`（`DONE`）完成，停在 `BLOCKED_EVIDENCE` 的
+  理由自此消失。
+- `scenario_progress`: 3/7 场景已封为正式 case。第 1 个：`ADMIT-040`，run
   `6b5856d57dee4052b2ffba3ff9e3459e`，bundle `46565ef2…`，attempt 1，PASS/AGREES。
   第 2 个：`ADMIT-060`，run `7bc740ea4cde4e1aaff074bb64850348`，bundle
   `ca61b64b86b13b0d55528f2f2604825f973c313ba7adaa91fcefe3a2cb29ddcc`，attempt 2
   （attempt 1 是 run `3c17aa78a838486391634e69d9f8ea98`，因判据 1 的读侧缺陷如实封存为
   `FAIL`，保留不覆盖），PASS/AGREES、`from_repository_build: true`。
+  第 3 个：`ADMIT-070`，run `2a128d0dd30b4932b88ada6d0032d40c`，bundle
+  `88ccc9dfc8202deef484eb00c5f45137f0a11f64f04a0597027887d47b5e537e`，attempt 2、
+  `supersedes_run_id` 指向 `7ef8b5537c454e9fa6682102e5e288f5`（attempt 1 因判据在两轴自审后被
+  收紧而 `case_version` 移动，现读作 `re_judged: UNJUDGED`，原样保留、不追认不覆盖），
+  PASS/AGREES、`from_repository_build: true`。
   第 2 个场景另有三次**只作诊断**的受控运行，都不进 bundle、不追认 PASS：
   `a114949bf0204a2e8021ec5d02583b4b`（线缆策略事实落地前）、
   `b1ace69e610c4c04a942281add8bd69b`（拒绝侧，`run-114`）与
   `8516151dab664d8692c3bf7ab3288859`（默认离线正向，`run-115`，到达 `PLAYABLE`）。
+  第 3 个场景在当前 build 上有两次**只作诊断**的运行：正向 `dc896480ac1c41d19094550b2f7161f4`
+  （`run-124`，`PLAYABLE`/1 准入）与注入 `dfcfcc34c5ef4d4b9d6e83099c763dfc`（`run-125`，
+  `NOT_AUTHORITATIVE`/0 准入），此外 `7ef8b553…` 是已封存的 attempt 1，不是诊断。
 - `regression_history`: `ADMIT-040-CLASSIFICATION-001` 曾阻断首场景；受控 Docker 诊断运行
   `fdef1d7192dd480db6aed1c5e7e493dd` 在离线身份连接 `online-mode=true`
   原版服务器时，客户端日志出现 `Failed to log in: Invalid session (Try restarting your game and the launcher)`，
@@ -1106,7 +1116,7 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 
 ### ADMIT-070-CASE-001 — 封存并复判首快照拒绝用例
 
-- `status`: `NEXT`（登记与提升写在同一次交付里，依据与理由见下面两条）
+- `status`: `DONE`（登记与提升写在同一次交付里，依据与理由见下面两条；完成记录在本节末尾）
 - `baseline_sha`: `8498084a836fadfe9f1ec56b36b579900987fc16`
 - `registered`: 2026-09-24。交接文档阶段 B 的原文顺序就是「先登记 `ADMIT-070-CASE-001` 为
   `QUEUED`，……再按条件授权提升为唯一 `NEXT`」，而它的前置 `ADMIT-070-REFUSAL-INJECTION-001`
@@ -1162,6 +1172,79 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 - `stop_conditions`: 若封存通道里拿不出注入工件，本卡停在 `FAIL`/`BLOCKED_EVIDENCE` 并记名，
   不靠 Bridge 日志补判；若同一 build 的真实注入运行读不出 `NOT_AUTHORITATIVE`（即上一卡的
   读数在当前 build 上不可重现），停在该卡并如实封存失败运行，不换判据、不改产品语义凑绿。
+  两条都没触发：注入工件在同一 run 的 bundle 里被读回，真实注入运行仍读出
+  `NOT_AUTHORITATIVE`。
+
+- `completion_commit`: `2a70c7b49e96bac49c09680dcb863012dfaa42e8`
+  （`feat(evidence): judge a sealed first-snapshot refusal run`）与其后按两轴自审修掉判据缺陷的
+  `ec082f3e749f14a21b7d7574252849bb929c6fbe`
+  （`fix(evidence): make the closure criterion read the row that actually closes`）；登记与提升在
+  `ff63746`。三个 commit 均已推送，本地 HEAD、`refs/heads/codex/core-state-transition` 与
+  `refs/heads/main` 逐字节相同。
+- `completion_evidence`:
+  - **五条判据落进判官**（`tools/assert_case_evidence.py`，全部只读运行材料），反例逐条红：
+    ① 确实进了世界却没被告知能玩 = 同 run ledger 恰好一条 `JoinObserved`
+    （`BRIDGE`/`BRIDGE_FILTERED`）+ run document `snapshots_admitted == 0` 且
+    `connection_state != PLAYABLE`（缺该字段判 `CONNECTION_STATE_UNREADABLE`；反例 7 条）；
+    ② 被拒是有判决的被拒 = `snapshot_rejections` 含枚举名 `NOT_AUTHORITATIVE` 且 0 准入
+    （反例 8 条，含「非空但已有准入」「字段缺失或类型不对」）；③ 无 lease 无 PLAYABLE 写在
+    ①② 在场之上（反例 5 条）；④ 本代终止（见下面的偏离）反例 10 条；⑤ 注入在 bundle 里
+    说得出自己 = `fault-injection.json` 的 `CLIENT_REPORT_REQUEST` 归因到同 run/session/generation、
+    `request.asked` 与 `effect.observed` 均为真（反例 18 条）。客户端日志那行 warn 只做
+    「删掉它判据仍然成立」的对照，不作为被拒事实。
+  - **④ 的偏离（专项契约是本卡的 forbidden path，故记在这里）**：契约冻结文本给的候选字段是
+    「`connection_cancelled`/`outcome` 说这一代已放弃」。实测这两者在当前 harness 下都不判别：
+    每个封存的 run（健康运行的正向诊断同样）`outcome` 都是 `BRIDGE_LOST`，因为 harness 是 terminate
+    客户端来停会话的；而拒绝场景下 `connection_cancelled` 为空，因为 Core 没有主动放弃任何尝试。
+    判官因此改读 ledger 自己的那一行：`SessionStateTransitioned`、`from == JOINED_UNVERIFIED`、
+    `to == FAILED`、`source == CORE` 且 `trust_class == CORE`、`position` 晚于本 run 唯一的
+    `JoinObserved`、且属于同一 session；这一行之后不再出现 `PlayableEstablished`。这比冻结文本
+    更强（正向对照也过不了它），不是替换成更容易的读数。真实 bundle 里读到的就是
+    `pos=1096 JoinObserved BRIDGE/BRIDGE_FILTERED` 与 `pos=1097 JOINED_UNVERIFIED→FAILED CORE/CORE`。
+    契约文本要按这次读数续期，需主控决定，本卡未改。
+  - **两轴自审记录**（交接第 4 项）：并行两个子代理分别按「逐项对应专项契约」与「逐项核对
+    允许路径/依赖方向/代码重复/测试假阳性」审 `2a70c7b` 的 diff，回报 5 条，其中 3 条为真并已
+    修（④ 只看 `to == FAILED` 却在 docstring 里承诺了起始态与 Core 作者身份；① 接受没有
+    `connection_state` 的文档；② docstring 把实体拒绝说成会进 `snapshot_rejections`，实际不会），
+    2 条经核对不成立或不修：kill 记录形状本就由写侧 `fault_record()` 构造器产出，⑤ 与
+    `_confirmed_sigkill` 重复的归因段保持现状——抽公共 helper 会移动其他 case 的判据，那是本卡
+    禁止的。修完后判据变化必然移动 `case_version`，故只重录 `admit-070.json` 一个 fixture
+    （`778f0541…` → `d829381d…`）、`manifest.sha256` 只动该行，其余 case version 未动。
+  - **本地门禁**（在 `ec082f3` 上）：pytest **2071 passed / 2 skipped**（跳过项为
+    `tests/unit/test_orphans.py:686`、`tests/unit/test_silent_listener.py:123` 两条平台不可答项）、
+    Ruff check/format、Pyright 0 errors、boundaries OK、case assertions 134 条注册且 `--record`
+    只动新 fixture、fixture digests OK、workflow pins OK、`git diff --check` 干净；
+    `report_cases.py` → `ADMIT-070` 5 条断言、`judged_by: run-material`、`mandatory: false`、
+    `W50`、unregistered 0，总计 38 cases / 145 assertions。
+  - **当前 build 上的两次诊断**（都不封 bundle、不追认 PASS）：正向 run
+    `dc896480ac1c41d19094550b2f7161f4` / session `b13916d4501648dba30f27eeff08dd4b` / 服务端
+    `run-124` → `connection_state: PLAYABLE`、`snapshots_admitted: 1`、`snapshot_rejections: []`；
+    注入 run `dfcfcc34c5ef4d4b9d6e83099c763dfc` / session `a1425ef1b0894817af61a79ee7569ff1` /
+    服务端 `run-125` → `JOIN_SEEN`、0 准入、`["NOT_AUTHORITATIVE"]`，runner 自己判读
+    「Core refused this run's first snapshot as asked」。
+  - **正式封存**：run `2a128d0dd30b4932b88ada6d0032d40c` / session
+    `8294c928c2564c0a93a41219ef30c84d` / generation 1 / 服务端 `run-126` /
+    `attempt_sequence: 2` / `supersedes_run_id: 7ef8b5537c454e9fa6682102e5e288f5` /
+    bundle `88ccc9dfc8202deef484eb00c5f45137f0a11f64f04a0597027887d47b5e537e` /
+    `case_version d829381de953cfeb01a4f12858f10e6f9353153b23c04bc6980d109e18ddbaa3` /
+    14 件工件 / `result: PASS` / `failures: []`。四读一致：① `evidence verify` →
+    `verified: true, sealed: true, artifacts: 14, violations: []`；② `tools/rejudge_evidence.py` →
+    `status: agrees`，`current` 与 `recorded` 两边 5/5 observed、`failures: []`；③
+    `minekin_core replay` 与 `tools/replay_evidence.py` 读同一 bundle → 16 事件投影到 `STOPPED`、
+    `violations: []`、`trace_sha256 cf724e39…`；④ `tools/report_promotion.py --data-root /data
+    --work-package W50` → 该行 `PASS / verified: true / sealed: true / re_judged: AGREES /
+    from_repository_build: true`，`bridge_digest faeec4a9…` 与配方 pin 相同、
+    `launch_plan_digest 9e0e0ccc…` 与当前 build 相同。报告整体 `status: blocked` 且退出码 1
+    是既有事实（41 条 mandatory case 尚未封存），`ADMIT-070` 以 `requirement.non_mandatory` 出现。
+  - **第 1 次尝试保持原样**：run `7ef8b5537c454e9fa6682102e5e288f5`（bundle `e3e6ca36…`，
+    `case_version 778f0541…`）不覆盖、不追认；判据收紧后它在 promotion 报告里读作
+    `re_judged: UNJUDGED`，理由是「这份 bundle 是对着旧 case version 封的，判据移动了」。
+  - **未验证项**：新 Bridge jar 字节的 Linux 逐字节复现（上一卡遗留）；`ADMIT-070` 其余四个
+    `SnapshotReason` 的运行时形状；`mandatory` 仍为 `false`，故本 case 不 gates W50。
+- `next_after_done`: `OFFLINE-IDENTITY-EVIDENCE-DESIGN-001`（`order` 第 4 个场景：OFF-A/OFF-B
+  身份候选的可复判证据设计）。本卡 DONE 时它只登记为 `QUEUED`，提升为唯一 `NEXT` 写在紧随的
+  下一个 commit 里，以满足交接第 1、6 项「新卡先 `QUEUED`，不得直接 `NEXT`」。
+
 
 ### ADMIT-070-RECORD-SCHEMA-001 — 让封存的 schema 也说得出报告请求记录
 
@@ -1197,6 +1280,47 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 - `stop_conditions`: 若 `jsonschema`（测试期依赖，draft 2020-12）无法在不往 reader 里加规则的
   前提下表达两类的判别，停在该卡并报告：宁可让 schema 继续只描述一类、由测试记名缺口，也不能
   让写下来的契约与执行它的读取器各说各话。
+
+### OFFLINE-IDENTITY-EVIDENCE-DESIGN-001 — 冻结 OFF-A/OFF-B 身份候选的可复判证据边界
+
+- `status`: `QUEUED`（交接第 1 项：新卡先 `QUEUED`，不得直接 `NEXT`；提升写在紧随的下一个 commit）
+- `baseline_sha`: `ec082f3e749f14a21b7d7574252849bb929c6fbe`
+- `registered`: 2026-09-24，由 `ADMIT-070-CASE-001` 的 `DONE` 触发：`order` 的前三个场景
+  （在线认证拒绝 → 资源包拒绝 → 首快照负向）已各自在当前 build 上封出 `PASS`/`AGREES`
+  的正式 bundle 并四读一致，交接阶段 C 的入口条件「ADMIT-070 正式 case 可复判」自此成立。
+- `question`: OFF-A（`prism-parity`）与 OFF-B（`enum-aligned`）各自要封哪些工件才算
+  OFFLINE-010/020/030 被证明，OFFLINE-030 的「A/B 分别加入」在「一个 run 只启动一个候选」
+  的事实下由什么结构承载（两份材料还是一个 case 两个子 case），以及哪些判据必须由两次
+  独立 run 各自封证、不能由判官读活目录里的另一份 run。
+- `depends_on`: `ADMIT-070-CASE-001`（同一受控离线服务端与同一封存通道，本卡的运行形状沿用它的
+  `JoinObserved`/首快照/ledger 读数）；`CORE-STATE-TRANSITION-001`；`OFFLINE-CANDIDATE-001`
+  （它交付了 `--identity-candidate` 且证明可选值只有一个来源，但其 `still_open` 写着「真实运行
+  仍需要一次客户端」——本卡就是把那两次真实运行变成可复判判据的那一步）。
+- `scope`: 重读 `docs/p0-offline-session-compatibility-contract.md` 的 OFFLINE-010/020/030/040/050
+  与 `docs/p0-remote-admission-contract.md` 的身份边界，确认 CLI `--identity-candidate` 的可选值
+  确实由 `OFFLINE_SESSION_CANDIDATES` 单一清单导出；把两候选写成两列比较——真实 Session
+  `AccountType` 与客户端警告、Bridge 上报的身份材料、argv 边界（`clientId`/`xuid` 的显式空元素
+  与 option/value 错位）、服务端观察到的身份与 UUID、JOIN 与首快照——并逐条标明可信来源、
+  待封存工件、判官字段与反例。既有 `offline-040`/`offline-050` 只覆盖声明侧，运行侧一半要
+  在这张表里指名。
+- `allowed_paths`: `docs/p0-offline-session-compatibility-contract.md`（新增「可复判证据边界」
+  冻结小节）、`docs/development-execution-plan.md`、`docs/development-todo.md`；若拆分结论要求
+  登记新 case fixture 与 `tools/check_case_assertions.py` 注册项，只登记为后续实现卡，不在本卡落
+  registry 改动。
+- `forbidden_paths`: 产品代码（尤其 `adapters/launcher/offline_session.py` 的身份材料与
+  `candidate_by_id` 语义）、Bridge/`proto/`、case registry 的编号与 `mandatory` 翻转、
+  required inventory 的既有 case ID、CI。
+- `non_goals`: 不改身份算法、不挑一个「比较好」的候选作为唯一支持方式、不封任何 evidence、
+  不声称 OFFLINE-010/020/030 已通过、不在本卡决定非空 sentinel 对照是否要跑（契约规定只有
+  真实启动产生可归因失败时才跑）。
+- `acceptance`: 两列比较逐格有可信来源，且每格写明「由哪一次 run 的哪一份工件证明」；凡跨 run
+  比较的判据都给出「两份已封存材料」或「父子 case 拆分」两种形状之一并按 `CORE-060` 先例说明
+  拆分与兼容语义；如果结论要求改 required inventory 的既有 case ID，必须先写出拆分规则、
+  迁移语义与假阳性测试，才允许后续实现卡动 registry；后续实现卡逐张登记为 `QUEUED`。
+- `validation_class`: `LOCAL_ONLY`（本卡是设计卡；真实运行属其后的封存卡）。
+- `stop_conditions`: 若 OFF-B 在当前 build 上无法启动或启动后身份不可归因，保留真实失败并记为
+  `BLOCKED_EVIDENCE`，不回退 OFF-A 后声称两者都过；若发现必须改产品身份材料才能冻结判据，
+  停在该处并向用户请求决策，不在设计卡里改产品。
 
 ### ADMIT-040-CLASSIFICATION-001 — 识别原版在线认证拒绝的真实文案
 

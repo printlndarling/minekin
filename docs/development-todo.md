@@ -1659,3 +1659,58 @@
     该卡 `registered`/`promotion_reason`）；`ADMIT-070-RECORD-SCHEMA-001` 继续 `QUEUED`，因为封存
     与复判都不读那份 schema。本地 HEAD、`origin/codex/core-state-transition`、`origin/main` 三者
     对 `8498084` 核对相同。
+
+- [x] **ADMIT-070-CASE-001（已完成，实现 `2a70c7b` + 两轴自审修复 `ec082f3` 均已推送，卡已
+  `NEXT → DONE`）**：把 `ADMIT-070` 从「只有五条 pytest 域内断言」变成一份真实拒绝运行能被封存、
+  能被复判的正式 case。域内那五条一行未动、注册项原样保留，运行材料一侧新增五条同名不同源的
+  判据，逐条对应专项契约「ADMIT-070 的可复判证据边界」冻结的五项。
+  - **恢复记录（交接「每次启动与上下文丢失后的恢复步骤」）**：接手时 HEAD `2a70c7b`、工作树有本
+    会话未提交的判据修复 4 文件（`tools/assert_case_evidence.py`、
+    `tests/unit/test_case_evidence_assertions.py`、`tests/fixtures/cases/admit-070.json`、
+    `tests/fixtures/manifest.sha256`），归属本任务、无他人改动，未 reset 未 stash。机器仍是 Windows
+    主机 + WSL/Docker 受控 runner，数据卷 `/data`、`MINEKIN_KIN_ID=kin-01`。`report_cases.py` 读数
+    38 cases / 145 assertions / unregistered 0；`report_promotion.py` 整体仍 `blocked`（41 条
+    mandatory 未封存），`ADMIT-070` 只在 `requirement.non_mandatory` 下出现。下一步即该卡的封证与
+    四读，stop condition 两条均未触发。
+  - **④ 的偏离必须记在这里，因为契约文件是本卡 forbidden path**：冻结文本给的候选读数
+    （`connection_cancelled`/`outcome`）在当前 harness 下不判别——所有封存 run（含正向）
+    `outcome` 都是 `BRIDGE_LOST`，拒绝轮的 `connection_cancelled` 为空。判官改读 ledger 自己那行
+    `SessionStateTransitioned`：`from JOINED_UNVERIFIED → to FAILED`、`source/trust_class` 都是
+    `CORE`、`position` 晚于本 run 唯一的 `JoinObserved`、同一 session，且其后不再出现
+    `PlayableEstablished`。真实 bundle 里读到的正是 `pos=1096 JoinObserved BRIDGE/BRIDGE_FILTERED`
+    与 `pos=1097 JOINED_UNVERIFIED→FAILED CORE/CORE`。这比冻结文本更强，不是换成更容易的读数；
+    契约文本要不要按这次读数续期，留给主控决定。
+  - **两轴自审（并行两个子代理，逐条对物核实后才动）**：3 条为真并已修（④ 只看 `to == FAILED`
+    却在 docstring 里承诺起始态与 Core 作者身份；① 接受缺 `connection_state` 的文档，现为
+    `CONNECTION_STATE_UNREADABLE`；② docstring 误称实体拒绝会进 `snapshot_rejections`，实际进的是
+    自己的字段、该列表保持为空）；2 条不成立或不修（kill 记录形状本就由写侧构造器产出；⑤ 与
+    `_confirmed_sigkill` 的归因段重复保留——抽公共 helper 会移动其他 case 的判据）。判据变化必然
+    移动 `case_version`，`--record` 只动 `admit-070.json`（`778f0541…` → `d829381d…`），
+    `manifest.sha256` 只动该行，其余 case version 未动。
+  - **门禁**：pytest 2071 passed / 2 skipped（两条平台不可答项 `test_orphans.py:686`、
+    `test_silent_listener.py:123`）、Ruff check/format、Pyright 0 errors、case assertions 134 条
+    注册、fixture digests、boundaries、workflow pins、`git diff --check` 全绿。反例条数 ①7 ②8
+    ③5 ④10 ⑤18。
+  - **当前 build 上两次诊断重跑（不封 bundle）**：正向 run `dc896480ac1c41d19094550b2f7161f4`
+    （session `b13916d4…`、`run-124`）到 `PLAYABLE`/`snapshots_admitted: 1`/`snapshot_rejections: []`；
+    注入 run `dfcfcc34c5ef4d4b9d6e83099c763dfc`（session `a1425ef1…`、`run-125`）`JOIN_SEEN`、
+    0 准入、`["NOT_AUTHORITATIVE"]`、无 `PlayableEstablished`，`domain.sh` 自己打印
+    「Core refused this run's first snapshot as asked」。
+  - **正式封存与四读**：run `2a128d0dd30b4932b88ada6d0032d40c`（session `8294c928…`、gen 1、
+    `run-126`）→ `attempt_sequence: 2`、`supersedes_run_id: 7ef8b553…`、bundle
+    `88ccc9dfc8202deef484eb00c5f45137f0a11f64f04a0597027887d47b5e537e`、`case_version`
+    `d829381de953cfeb01a4f12858f10e6f9353153b23c04bc6980d109e18ddbaa3`、14 件工件、`PASS`。
+    ① `evidence verify` `verified/sealed true`、`violations: []`；② `rejudge_evidence.py`
+    `status: agrees`（current 与 recorded 两边 5/5）；③ `replay` 两读 16 事件投影到 `STOPPED`、
+    `violations: []`；④ `report_promotion.py --work-package W50` 该行
+    `PASS/verified/sealed/AGREES/from_repository_build: true`，`bridge_digest faeec4a9…` 与配方 pin
+    相同、`launch_plan_digest 9e0e0ccc…` 与当前 build 相同。attempt 1（`7ef8b553…`、bundle
+    `e3e6ca36…`）原样保留，现读作 `re_judged: UNJUDGED`——判据移动使旧 verdict 回答的是本仓库
+    已不再问的问题，不追认、不覆盖、不改判。
+  - **未验证**：新 Bridge jar 字节的 Linux 逐字节复现（上一卡遗留）；其余四个 `SnapshotReason`
+    的运行时形状；`mandatory` 仍 `false`，本 case 不 gates W50。公网测试服 `159.138.62.207:25565`
+    本轮未使用，也仍不能作判据端。
+  - **状态流转**：本卡 `NEXT → DONE`；`OFFLINE-IDENTITY-EVIDENCE-DESIGN-001`（交接阶段 C 的证据
+    设计卡）按第 1 项先登记为 `QUEUED`，提升为唯一 `NEXT` 写在紧随的下一个 commit；
+    `ADMIT-070-RECORD-SCHEMA-001` 继续 `QUEUED`。本地 HEAD、`refs/heads/codex/core-state-transition`
+    与 `refs/heads/main` 对 `ec082f3` 核对相同。
