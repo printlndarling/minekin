@@ -1536,7 +1536,32 @@
     断言），不是卡上原写的 `process.py`——后者按自身条件保持不动。
   - campaign 第 3 个场景在本卡落地并跑出一条真实拒绝运行之前保持 `BLOCKED_EVIDENCE`。
 
-- [x] **ADMIT-040-CLASSIFICATION-001（已完成，commit `dd992b1` 已推送）**：`REAL-P0-CAMPAIGN-001`
+- [ ] **2026-09-24 恢复记录（Qoder，按 `docs/qoder-execution-handoff.md` 的恢复步骤执行）**：
+  - HEAD 与远端：本地 HEAD `4532714`，`git ls-remote` 核对 `refs/heads/main` 与
+    `refs/heads/codex/core-state-transition` 均为 `4532714e0c0e2d8269898facbb20fab3e93dc5f5`，
+    与本地一致；本轮无需推送。
+  - 工作树归属：7 个已改文件（Bridge 2 主 + 1 测试、`config.py`、`domain.sh`、
+    `tests/contract/test_bridge_java_constants.py`、`tests/unit/test_init.py`）全部是本人上一轮
+    `ADMIT-070-REFUSAL-INJECTION-001` 的进行中改动，不是他人的在途工作；不 reset、不 stash。
+  - 机器 inventory：`tools/report_cases.py` → required 72 / present 38 / missing 34，
+    `not_gating` 31、`present_wanting_a_run` 14，38 cases / 145 assertion references，与手册快照同形。
+  - 最新 attempt 与 build 诊断：`.tmp/data` 数据根下 `tools/report_promotion.py` →
+    `overall.status: blocked`、`promotable: false`；`repository_build.readable: false`，原因
+    `Bridge source tree digest differs from the bundle recipe`（本人未续期的 pin，不是回归）。
+    W40 缺 ADMIT-010/020/030/050/090 + CORE-020；W50 缺 ADMIT-120/CORE-080，ADMIT-070 记为
+    `non_mandatory` 且无运行证据。已有 bundle 只有 CORE-001（判据已漂移，rejudge `UNJUDGED`）与
+    W00-CONTRACT-001（缺 `asserter-inputs.json`，同样 `UNJUDGED`）；runner 数据卷
+    `minekin-runner-data` 的 `server-runs` 计 117 份、`repo-evidence` 计 2 份。
+    按手册口径：这些是 registry 现状，不等于任何 case 的最新 PASS。
+  - 最窄红灯确认：`pytest tests/contract/test_runner_scripts.py` → 1 failed / 11 passed，失败项
+    正是 `run.sh` 未转发 `MINEKIN_DOMAIN_REFUSE_FIRST_SNAPSHOT`；与手册记录的「33 红里 1 项非
+    digest」一致。
+  - 下一步：先改本卡进行中的三处假阳性（开关非空即真、日志即成功、注入事实无独立记录），再续期
+    pin 与跑门禁，最后跑一正一注入两条受控 Docker 诊断。
+  - Stop condition：若 `fault-injection.json` 的现有严格结构无法诚实承载「请求 Bridge 非权威上报」
+    这类非进程故障，按卡停手并报告所需的最小契约调整，不擅自突破 `forbidden_paths`。
+
+- [ ] **ADMIT-040-CLASSIFICATION-001（已完成，commit `dd992b1` 已推送）**：`REAL-P0-CAMPAIGN-001`
   首个受控诊断运行 `fdef1d7192dd480db6aed1c5e7e493dd` 中，离线身份遇到原版
   `online-mode=true` 的真实客户端拒绝文案为 `Failed to log in: Invalid session
   (Try restarting your game and the launcher)`；Bridge/Core 目前记录
