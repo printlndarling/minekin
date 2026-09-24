@@ -51,6 +51,16 @@
 - HOST 与 W80+ 默认冻结。只有当前 `NEXT` 明确允许，或修复主干回归时，才可
   修改其生产代码。
 
+- **文档不得记录运行者自备基础设施的地址**（2026-09-24 用户指示）。公网测试服等目标在计划、
+  TODO、契约与证据记录里一律用匿名描述（「运行者自备的公网 offline 测试服」）指代，字面值只记在
+  本地未跟踪文件 `.tmp/local-test-server.txt`（已在 `.gitignore`）。理由：文档会 push 到远端，
+  一次普通提交抹不掉 Git 历史里的地址。
+
+- **先修订卡片范围，再动手**（2026-09-24 用户指示，起因是 `ADMIT-070` 在实现完成后才追认六个
+  超出 `allowed_paths` 的测试文件）。需要越界的改动时，先在本计划里登记/修订卡片并推送，或另起
+  前置卡（例如 `OFFLINE-IDENTITY-SEALED-ARGV-001`），再碰那些文件；不得事后追认，也不得为绕开
+  范围而放宽判据。
+
 ## 当前已验证状态
 
 以下事实必须从命令重新生成，不手工维护漂移数字：
@@ -390,8 +400,9 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 
 - `status`: `BLOCKED_EVIDENCE`
 - `blocked_by`: `OFFLINE-IDENTITY-LEDGER-FACT-001`（`DONE`，`ec8fb15`）→ `OFFLINE-IDENTITY-CASE-001`
-  （`NEXT`）→ `OFFLINE-IDENTITY-RUN-001`（仍 `QUEUED`，都由已 `DONE` 的
-  `OFFLINE-IDENTITY-EVIDENCE-DESIGN-001` 登记）。`order` 的第 1 个场景
+  （`NEXT`）→ `OFFLINE-IDENTITY-SEALED-ARGV-001`（`QUEUED`）→ `OFFLINE-IDENTITY-RUN-001`（仍 `QUEUED`，
+  都由已 `DONE` 的
+  `OFFLINE-IDENTITY-EVIDENCE-DESIGN-001` 与 `OFFLINE-IDENTITY-CASE-001` 登记）。`order` 的第 1 个场景
   （在线认证拒绝）、第 2 个场景（资源包拒绝）与第 3 个场景（JOIN 后首快照失败）已各自在当前
   build 上封出 `PASS`/`AGREES` 的正式 bundle 并四读一致。第 3 个场景的判据由
   `ADMIT-070-EVIDENCE-DESIGN-001` 冻结在专项契约里，冻结的结论是：**这一条停在 `BLOCKED_EVIDENCE`
@@ -1070,8 +1081,9 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
     Linux x86_64 构建出同一份 jar」那次复现验证没有对新字节重做，`recipe.py` 的注释已按此改写，
     不再替新字节声称两平台。`check_wheel_boundary.py` 需要一个 wheel 参数（CI 构建后才有），本地
     未跑。本卡按 non_goals 未封任何 bundle：两次注入诊断与一次正向诊断只留在数据根的 run 目录与
-    ledger 里，`ADMIT-070` 的 PASS bundle 属于后续的 `ADMIT-070-CASE-001`。公网测试服
-    `159.138.62.207:25565` 未被使用（`AddressPolicy.p0_loopback()` 与本卡的判据需求都不允许它）。
+    ledger 里，`ADMIT-070` 的 PASS bundle 属于后续的 `ADMIT-070-CASE-001`。运行者自备的公网
+    offline 测试服（地址只记在本地未跟踪文件 `.tmp/local-test-server.txt`，不入文档）未被使用
+    （`AddressPolicy.p0_loopback()` 与本卡的判据需求都不允许它）。
 - `validation_class`: `LOCAL_THEN_REAL_RUN`
 - `commit_intent`: `feat(bridge): allow an explicitly requested non-authoritative first snapshot`
 - `stop_conditions`: 若开关只能靠 `control.proto` 的一条新命令到达 Bridge，或注入无法在同一 bundle
@@ -1524,6 +1536,9 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
   放宽时如实记录）、`docs/p0-offline-session-compatibility-contract.md`（Case set 行的状态注记）、
   `docs/development-execution-plan.md`、`docs/development-todo.md`。
 - `forbidden_paths`: 产品代码、Bridge/`proto/`、runner 脚本与领域运行分支（属 `RUN-001`）、
+  `tools/seal_run_evidence.py`（封存时把 `session_argv` 交给 live 判读那一行属
+  `OFFLINE-IDENTITY-SEALED-ARGV-001`；本卡只实现从封存 bundle 读的判据一侧，并把 live 侧缺口如实
+  记进证据，不越界改它）、
   既有 case id 的改名/删除/重编号、任何 `mandatory` 翻转为 `true`、旧 bundle 的 `manifest.sha256`
   与历史 digest。
 - `non_goals`: 不封 evidence、不声称 `OFFLINE-010/020/030` 已通过、不在本卡跑真实客户端。
@@ -1541,7 +1556,8 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 - `status`: `QUEUED`；不替换当前唯一 `NEXT`。
 - `question`: 在同一个受控离线服务端、同一份封存通道上，`--identity-candidate prism-parity` 与
   `--identity-candidate enum-aligned` 各封出一份 `PASS`/`AGREES` 的 bundle，需要哪些运行形状与读数。
-- `depends_on`: `OFFLINE-IDENTITY-CASE-001`（判据与 fixture 先存在）；`ADMIT-070-CASE-001`
+- `depends_on`: `OFFLINE-IDENTITY-CASE-001`（判据与 fixture 先存在）；
+  `OFFLINE-IDENTITY-SEALED-ARGV-001`（live 判读要把 argv 交给判官，见下）；`ADMIT-070-CASE-001`
   （同一 runner、同一 domain 场景与同一「两次独立 run 各自封证」的封存通道）。
 - `scope`: 两跑各领新 `run_id`/attempt，各自 `evidence verify` → `rejudge` → 两个 `replay` →
   `report_promotion`，并把 `observed_account_type` 的**实际值**如实记录（不预设、不为「A 与 B 应该
@@ -1550,7 +1566,8 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
   `docs/development-todo.md`、`docs/p0-offline-session-compatibility-contract.md`（Case set 行的
   封证状态注记与 `OfflineSessionProfile.v1` 的候选字段填入）。
 - `forbidden_paths`: 产品代码、Bridge/`proto/`、runner 的等待与封存逻辑（需要改则回到实现卡）、
-  case registry 与 `mandatory` 翻转、旧 bundle、任何非受控目标（`159.138.62.207:25565` 已被判为
+  case registry 与 `mandatory` 翻转、旧 bundle、任何非受控目标（运行者自备的公网 offline 测试服
+  ——地址记于 `.tmp/local-test-server.txt`——已被判为
   `REJECTED`，不得作为目标或 oracle，也不得向它发送任何凭据）。
 - `non_goals`: 不挑「比较好」的候选、不决定 OFF-C/OFF-D/非空 sentinel 是否跑（契约规定只有真实启动
   产生可归因失败时才跑）、不宣布 OFFLINE 族整体完成（`060/070/080/090/100` 不在本卡）。
@@ -1559,6 +1576,35 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 - `validation_class`: `REAL_RUN`。
 - `stop_conditions`: 同一外部阻断连续三次重现则记 `BLOCKED_EVIDENCE` 并停在该分支；任一候选被封成
   `PASS` 而另一候选失败时，只报告一半通过，不合并宣称 `OFFLINE-030` 完成。
+
+### OFFLINE-IDENTITY-SEALED-ARGV-001 — 让封存时的 live 判读也拿到那份 argv
+
+- `status`: `QUEUED`；不替换当前唯一 `NEXT`（由 `OFFLINE-IDENTITY-CASE-001` 在实现判据 ① 时发现并
+  按 2026-09-24 主控确立的「先修订卡片范围再动手」登记，而不是在本卡里顺手改掉）。
+- `question`: `tools/seal_run_evidence.py:664` 把 run 交给 `read_run_material` 时没有传
+  `session_argv`，而判据 ① 需要它。封存现场要怎样把这份 argv 交进 live 判读，才与 rejudge 从
+  `orchestrator-trace.json` 读出的完全是同一份？
+- `depends_on`: `OFFLINE-IDENTITY-CASE-001`（判据先存在，这张卡才有对象）。
+- `why_now`: 本卡（`CASE-001`）的判据 ① 在**封存后**的读路上已经闭合——`collect_artifacts` 早就把
+  `orchestrator-trace.json` 写进 bundle，判官从 bundle 目录读得到。缺口只在**封存当时**那一次判读：
+  `read_run_material` 的签名没有 `session_argv` 参数，sealer 也没有传。补齐要动
+  `tools/seal_run_evidence.py`，它在 `CASE-001` 的 `allowed_paths` 之外，故另立此卡。缺口按
+  `stop_conditions` 如实记在 `CASE-001` 的证据里，不放宽判据、也不事后追认越界文件。
+- `scope`: `read_run_material` 增 `session_argv: tuple[str, ...] | None = None` 参数，sealer 在
+  已有 `orchestrator_trace(...)` 结果处把它传入（一行读数，不做第二份真相）；`run_asserter` 若也要
+  在 live 侧判读归因，则同样把这份文本带过去。附一条测试：同一 run 的 live 判读与对同一 bundle 的
+  rejudge 读出**逐字相同**的 argv。
+- `allowed_paths`: `tools/seal_run_evidence.py`、`tools/assert_case_evidence.py`（只加
+  `read_run_material` 的入参，不改判据实现）、`tests/unit/test_seal_run_evidence.py`
+  （或该模块现有归属的测试文件）、`docs/development-execution-plan.md`、`docs/development-todo.md`。
+- `forbidden_paths`: 产品代码、Bridge/`proto/`、runner 脚本与领域运行分支、case registry 与
+  `mandatory` 翻转、旧 bundle。
+- `non_goals`: 不改写任何判据语义、不新增封存工件、不在本卡封 OFF-A/OFF-B 证据。
+- `acceptance`: ① 一次真实受控运行的 live 判读与 rejudge 对判据 ① 给出同一结论；② argv 缺失
+  （没有 trace 工件）时两条读路都判「未记录」而不是空 argv；③ 全量门禁绿。
+- `validation_class`: `LOCAL_THEN_REAL_RUN`。
+- `stop_conditions`: 若 `orchestrator-trace.json` 在 live 侧根本不可读（写入发生在判读之后），停在
+  该卡并把顺序问题记为 `BLOCKED_EVIDENCE`，不得改为让 sealer 凭记忆重造 argv。
 
 ### ADMIT-040-CLASSIFICATION-001 — 识别原版在线认证拒绝的真实文案
 

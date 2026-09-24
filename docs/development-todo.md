@@ -1637,8 +1637,9 @@
     `ADMIT-070-RECORD-SCHEMA-001`（`QUEUED`）：`schemas/fault-injection.schema.json` 仍只描述
     SIGKILL 那一种记录，而它在 `w00-contract-001` 的 `inputs`（`schemas/*.schema.json`）里，改它
     等于给一张无关的 case 重新定版——这条一致性与本卡的边界冲突，故另起一卡，并由
-    `test_the_frozen_schema_still_describes_the_kill_record_only` 显式钉住。用户给出的公网测试服
-    `159.138.62.207:25565` 本卡未使用，也不能作判据端（`AddressPolicy.p0_loopback()` 为 loopback
+    `test_the_frozen_schema_still_describes_the_kill_record_only` 显式钉住。用户给出的公网
+    offline 测试服（地址只记在本地未跟踪文件 `.tmp/local-test-server.txt`，不入文档）
+    本卡未使用，也不能作判据端（`AddressPolicy.p0_loopback()` 为 loopback
     only，`online-mode=false` 的服产生不了 `AUTH_MODE_MISMATCH`）。
   - **两轴自审改了三处文字与一处分支（`8498084`，`fix(tools): stop a request record from
     claiming more than it saw`）**：①`record_request` 在 environ 命中之后、身份读取之前碰上进程
@@ -1708,7 +1709,8 @@
     `e3e6ca36…`）原样保留，现读作 `re_judged: UNJUDGED`——判据移动使旧 verdict 回答的是本仓库
     已不再问的问题，不追认、不覆盖、不改判。
   - **未验证**：新 Bridge jar 字节的 Linux 逐字节复现（上一卡遗留）；其余四个 `SnapshotReason`
-    的运行时形状；`mandatory` 仍 `false`，本 case 不 gates W50。公网测试服 `159.138.62.207:25565`
+    的运行时形状；`mandatory` 仍 `false`，本 case 不 gates W50。公网测试服（地址记于
+    `.tmp/local-test-server.txt`）
     本轮未使用，也仍不能作判据端。
   - **状态流转**：本卡 `NEXT → DONE`；`OFFLINE-IDENTITY-EVIDENCE-DESIGN-001`（交接阶段 C 的证据
     设计卡）按第 1 项先登记为 `QUEUED`，提升为唯一 `NEXT` 写在紧随的下一个 commit；
@@ -1790,3 +1792,24 @@
     `ADMIT-070-RECORD-SCHEMA-001` 继续 `QUEUED`；`REAL-P0-CAMPAIGN-001.blocked_by` 改指后两张，
     `scenario_progress` 保持 3/7。本地 HEAD、`refs/heads/codex/core-state-transition` 与
     `refs/heads/main` 对 `ec8fb15` 核对相同。
+
+## 记录：文档脱敏与卡片范围纪律（2026-09-24，用户指示）
+
+- **触发**：主控指出两处问题。① 已推送的计划/开发记录里写入了用户自备的公网测试服完整地址
+  （`docs/development-execution-plan.md` 两处、`docs/development-todo.md` 两处）；判据本身不需要
+  这个地址，而一次普通提交抹不掉 Git 历史里的它。② `ADMIT-070` 的实现卡曾在交付完成后才追认六个
+  超出 `allowed_paths` 的测试文件——文件都与功能相关、没有产品偏航，但顺序不对：应先修订任务卡
+  范围再动手。
+- **本轮改动（纯文档）**：四处地址改为匿名指代（「运行者自备的公网 offline 测试服」），字面值只留在
+  本地未跟踪文件 `.tmp/local-test-server.txt`（`git check-ignore -v` 确认被 `.gitignore:10` 的
+  `.tmp/` 覆盖）；`## 不可变边界` 新增两条政策（文档不记基础设施地址；先修订范围再动手）；
+  `OFFLINE-IDENTITY-RUN-001.forbidden_paths` 与 ADMIT-070 记录的表述同步。
+- **核验**：`git grep -n "159\.138"` 在跟踪文件里返回空。其余 `25565` 命中均为 loopback/默认端口
+  文本，不属于本条范围，未改。
+- **仍然存在的暴露**：该地址在历史提交里已被推送到远端。清除需要改写历史并强推，属于需主控决策的
+  动作，本轮不做。
+- **顺带登记的卡片**：`OFFLINE-IDENTITY-SEALED-ARGV-001`（`QUEUED`）。`OFFLINE-IDENTITY-CASE-001`
+  的判据 ① 需要 run 的 `session_argv`；封存的 `orchestrator-trace.json` 已带它，所以只读判官一侧
+  就够，但 `tools/seal_run_evidence.py:664` 那次 live 判读没把 argv 交给 `read_run_material`，而
+  该文件在本卡 `allowed_paths` 之外——按上面第二条纪律，另起前置卡而不是顺手改。本卡的
+  `stop_conditions` 会把这个缺口如实记下。
