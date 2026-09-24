@@ -326,11 +326,17 @@ REQUIRED_CASES: Final[tuple[RequiredCase, ...]] = (
         "ADMIT-110",
     ),
     *_phase_cases(_ADMISSION, ValidationClass.RUNTIME_REQUIRED, "W50", "ADMIT-070", "ADMIT-120"),
-    # `p0-offline-session-compatibility-contract.md` § "Case set": eleven rows, all of
-    # them gating W30. `OFFLINE-001` is the one the contract's own note says the
-    # existing unit tests already perform; 040 and 050 have their declaration half
+    # `p0-offline-session-compatibility-contract.md` § "Case set": eleven contract rows,
+    # all of them gating W30, carried here as thirteen ids because one of those rows is
+    # one-run-per-identity-column. `OFFLINE-001` is the one the contract's own note says
+    # the existing unit tests already perform; 040 and 050 have their declaration half
     # closed and their real-Session half explicitly still open.
     *_phase_cases(_OFFLINE, ValidationClass.LOCAL_ONLY, "W30", "OFFLINE-001"),
+    # `OFFLINE-030` is the row the contract splits by identity column, for the same
+    # reason `CORE-060` splits by kill target: one run starts one candidate, so no
+    # single bundle can satisfy "OFF-A and OFF-B joined separately". The parent keeps
+    # the one criterion that holds whichever column ran, and each child carries the
+    # attribution that can only be true of one.
     *_phase_cases(
         _OFFLINE,
         ValidationClass.RUNTIME_REQUIRED,
@@ -338,6 +344,8 @@ REQUIRED_CASES: Final[tuple[RequiredCase, ...]] = (
         "OFFLINE-010",
         "OFFLINE-020",
         "OFFLINE-030",
+        "OFFLINE-030-PRISM-PARITY-001",
+        "OFFLINE-030-ENUM-ALIGNED-001",
         "OFFLINE-040",
         "OFFLINE-050",
         "OFFLINE-060",

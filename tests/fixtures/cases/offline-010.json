@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "case_id": "OFFLINE-010",
+  "work_package": "W30",
+  "mandatory": false,
+  "inputs": [],
+  "assertion_digests": {
+    "core_recorded_the_identity_it_compared": "15b04d2cb96d114508f34809a32d98b111d2bbe4121921a36b75a25b70ec0bb3",
+    "the_account_type_was_recorded_as_an_observation": "e34cfe16d53b74a4c136419eb18c18af2aabd1bc25164bfd442ee99c80b59b22",
+    "the_reported_session_is_the_identity_this_run_launched_with": "59d725255d82455584cec8b6ed1443cfeb76ab31dee097646d8b02187e444af9",
+    "this_run_started_the_identity_candidate_the_case_names": "e80f8cfecd4dcb6fc750e8bafb59c426fa229b20be66ee68ff5d7ac7c3cad702"
+  },
+  "assertions": [
+    "this_run_started_the_identity_candidate_the_case_names",
+    "core_recorded_the_identity_it_compared",
+    "the_reported_session_is_the_identity_this_run_launched_with",
+    "the_account_type_was_recorded_as_an_observation"
+  ]
+}

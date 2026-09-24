@@ -327,6 +327,26 @@ IMPLEMENTATIONS: dict[str, Implementation] = {
     "the_refusal_left_the_run_on_one_policy_and_one_process": _runtime(
         "the_refusal_left_the_run_on_one_policy_and_one_process"
     ),
+    # OFFLINE-010/020/030: the five facts one real launch of one identity column has to
+    # carry. The first four are about *which* column — the argv the harness handed Core,
+    # Core's own record of what it compared, the comparison between them, and the account
+    # type the client reported — so they belong to `OFFLINE-010`, `OFFLINE-020` and the
+    # two children of `OFFLINE-030`, each of which names one candidate in its own id. The
+    # fifth is the server's agreement, which holds whichever column ran and is what the
+    # parent keeps.
+    "this_run_started_the_identity_candidate_the_case_names": _runtime(
+        "this_run_started_the_identity_candidate_the_case_names"
+    ),
+    "core_recorded_the_identity_it_compared": _runtime("core_recorded_the_identity_it_compared"),
+    "the_reported_session_is_the_identity_this_run_launched_with": _runtime(
+        "the_reported_session_is_the_identity_this_run_launched_with"
+    ),
+    "the_account_type_was_recorded_as_an_observation": _runtime(
+        "the_account_type_was_recorded_as_an_observation"
+    ),
+    "the_offline_identity_joined_and_the_server_agrees": _runtime(
+        "the_offline_identity_joined_and_the_server_agrees"
+    ),
     # ADMIT-060: the four facts the contract names for a server that demands a pack
     # the profile refuses. The last of the four is where the case is decided: the
     # first three say the two sides disagreed, and only the client's own directory

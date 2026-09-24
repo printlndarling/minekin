@@ -13,9 +13,10 @@ import dataclasses
 import hashlib
 import importlib
 import json
+import shutil
 import subprocess
 import sys
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from types import ModuleType
 from typing import Any, Protocol, cast
@@ -24,8 +25,11 @@ import pytest
 
 from fault_support import fault_record, request_record
 from minekin_core.adapters.evidence.promotion import load_case_manifest
+from minekin_core.adapters.launcher.offline_session import SECRET_CLASSIFICATION, candidate_by_id
 from minekin_core.adapters.launcher.server_profile import load_server_profile
 from minekin_core.adapters.sqlite.connection import connect_writer
+from minekin_core.adapters.sqlite.session_log import SESSION_IDENTITY_COMPARED
+from minekin_core.domain.cases import REQUIRED_CASES
 from minekin_core.domain.offline_identity import offline_player_uuid
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
@@ -73,6 +77,10 @@ class _Material(Protocol):
     #: The record the harness wrote when it killed a process, or None when this
     #: run injected no fault. Judged with the rest rather than beside it.
     fault_injection: Mapping[str, object] | None
+    #: The arguments the harness handed to `session start`, as the orchestrator's own
+    #: trace recorded them. None means no argv reached this judgement at all, which is
+    #: a different answer from an argv that was recorded and names no candidate.
+    session_argv: tuple[str, ...] | None
 
 
 class _Verdict(Protocol):
@@ -91,6 +99,14 @@ class _Asserter(Protocol):
     EXIT_HELD: int
     EXIT_FAILED: int
     EXIT_UNJUDGED: int
+
+    #: Two artifact names, and the reader that walks a bundle it did not watch happen.
+    #: The seal-side test needs all three: it writes what the sealer names and reads it
+    #: back through the judge's own sealed path.
+    ASSERTER_INPUTS: str
+    ORCHESTRATOR_TRACE_ARTIFACT: str
+
+    def read_sealed_material(self, directory: Path) -> _Material: ...
 
     #: The server's own answers, one per probe that asked for this shape. Public
     #: because it is how this module reads a position or a rotation, and a case
@@ -226,6 +242,7 @@ def material(
     server_properties: str = "",
     server_profile: Mapping[str, object] | None = None,
     client_pack_listing: str = "",
+    argv: Sequence[str] | None = None,
 ) -> _Material:
     previous_run_id, previous_run_events = previous
     soak_samples, soak_summary = soak
@@ -249,6 +266,7 @@ def material(
         server_properties=server_properties,
         server_profile=server_profile,
         client_pack_listing=client_pack_listing,
+        session_argv=None if argv is None else tuple(argv),
     )
 
 
@@ -288,6 +306,7 @@ def test_the_reviewed_case_names_only_assertions_the_asserter_performs() -> None
         REFUSED_CASE,
         AUTH_MISMATCH_CASE,
         RESOURCE_PACK_CASE,
+        *OFFLINE_CASES,
     ):
         declared = cast(dict[str, object], json.loads(path.read_text(encoding="utf-8")))[
             "assertions"
@@ -5363,3 +5382,883 @@ def test_a_refusal_nobody_asked_for_is_not_a_scenario(
     why: str, change: Mapping[str, Any], reason: str
 ) -> None:
     assert refusal_reason(REFUSAL_WAS_ASKED, **change) == reason  # type: ignore[arg-type]
+
+
+# ---------------------------------------------------------------------------
+# OFFLINE-010 / 020 / 030: the identity a launch was built from, and the
+# comparison Core made against it.
+# ---------------------------------------------------------------------------
+
+#: The two reviewed offline candidates, spelled the way the product's own candidate
+#: table spells them. A fixture that invented a third name would pass an assertion
+#: comparing strings and say nothing about which column a run was.
+OFF_A = "prism-parity"
+OFF_B = "enum-aligned"
+
+#: The five fixtures the offline contract's frozen section asks for. `OFFLINE-010`
+#: and `OFFLINE-020` are one column's launch as far as the Bridge; `OFFLINE-030` keeps
+#: the candidate-independent half of joining, and its two children are that half plus
+#: the attribution a single run can only carry for one of the two columns.
+OFFLINE_LAUNCH_A_CASE = CASES / "offline-010.json"
+OFFLINE_LAUNCH_B_CASE = CASES / "offline-020.json"
+OFFLINE_JOIN_CASE = CASES / "offline-030.json"
+OFFLINE_JOIN_A_CASE = CASES / "offline-030-prism-parity.json"
+OFFLINE_JOIN_B_CASE = CASES / "offline-030-enum-aligned.json"
+
+OFFLINE_CASES = (
+    OFFLINE_LAUNCH_A_CASE,
+    OFFLINE_LAUNCH_B_CASE,
+    OFFLINE_JOIN_CASE,
+    OFFLINE_JOIN_A_CASE,
+    OFFLINE_JOIN_B_CASE,
+)
+
+#: Core's row for one first-snapshot comparison, named by the product rather than
+#: spelled again here: a fixture that drifted from the name the writer uses would judge
+#: a row no run ever leaves behind.
+IDENTITY_COMPARED = SESSION_IDENTITY_COMPARED
+
+IDENTITY_IS_THE_CASES = "this_run_started_the_identity_candidate_the_case_names"
+IDENTITY_WAS_RECORDED = "core_recorded_the_identity_it_compared"
+SESSION_MATCHES_MATERIAL = "the_reported_session_is_the_identity_this_run_launched_with"
+ACCOUNT_TYPE_OBSERVED = "the_account_type_was_recorded_as_an_observation"
+OFFLINE_IDENTITY_JOINED = "the_offline_identity_joined_and_the_server_agrees"
+
+#: The contract's five criteria, in the order its frozen section reads them.
+OFFLINE_CRITERIA = (
+    IDENTITY_IS_THE_CASES,
+    IDENTITY_WAS_RECORDED,
+    SESSION_MATCHES_MATERIAL,
+    ACCOUNT_TYPE_OBSERVED,
+    OFFLINE_IDENTITY_JOINED,
+)
+
+#: The four of them a run can only answer about *one* candidate. The fifth is what the
+#: parent keeps for itself: what the server saw, which does not depend on which column
+#: was launched, so a bundle that answers it has not said which candidate got in.
+CANDIDATE_TIED = frozenset(OFFLINE_CRITERIA[:4])
+
+#: The cases that name `enum-aligned`, for the helper that builds a run under one.
+OFF_B_CASES = frozenset({OFFLINE_LAUNCH_B_CASE, OFFLINE_JOIN_B_CASE})
+
+
+def launch_argv(candidate: str | None = OFF_A) -> list[str]:
+    """The arguments `run.sh domain session start` hands to Core for one column.
+
+    The profile, the server profile, and then the candidate the case points at. None
+    stands for the operator naming no candidate — the contract's first counter-example,
+    because a run that does not ask gets the first candidate, so a bundle claiming to be
+    OFF-B cannot be one that never chose.
+    """
+
+    argv = [
+        "session",
+        "start",
+        "--profile",
+        "tests/fixtures/runtime-input/bundle-p0-core-1.21.4.json",
+        "--server-profile",
+        "tests/fixtures/runtime-input/controlled-offline-server.json",
+    ]
+    if candidate is not None:
+        argv += ["--identity-candidate", candidate]
+    return argv
+
+
+def identity_row(
+    *,
+    candidate: str = OFF_A,
+    username: str = USERNAME,
+    uuid_value: str | None = None,
+    account_type: str = "LEGACY",
+    client_id_present: bool = False,
+    xuid_present: bool = False,
+    credentials_exposed: bool = False,
+    mismatches: tuple[str, ...] = (),
+    matched: bool | None = None,
+    session_id: str = "session-01",
+    generation: int = 1,
+    source: str = "CORE",
+    trust_class: str = "CORE",
+    position: int = 4,
+    without: tuple[str, ...] = (),
+    extra: Mapping[str, object] | None = None,
+) -> Mapping[str, object]:
+    """One `SessionIdentityCompared` row, keyed the way `identity_ledger_record` keys it.
+
+    Eleven keys: the product's nine, plus the two coordinates the writer adds so a row
+    can be bound to the session and generation that made it. A fixture missing one would
+    be a fixture the assertions were written around rather than against.
+
+    The default report is the OFF-B observation measured on a real run: a client started
+    with `--userType legacy` reports `AccountType.LEGACY`, and the same client started
+    with `--userType offline` reports nothing. Both are green below, because the value is
+    an observation and the criteria do not pre-set it.
+    """
+
+    record: dict[str, object] = {
+        "session_id": session_id,
+        "generation": generation,
+        "identity_candidate_id": candidate,
+        "session_username": username,
+        "session_uuid": offline_player_uuid(username).hex if uuid_value is None else uuid_value,
+        "observed_account_type": account_type,
+        "client_id_present": client_id_present,
+        "xuid_present": xuid_present,
+        "credential_values_exposed": credentials_exposed,
+        "matched": matched if matched is not None else not mismatches,
+        "mismatches": list(mismatches),
+    }
+    for key in without:
+        record.pop(key)
+    if extra is not None:
+        record.update(extra)
+    return event(
+        IDENTITY_COMPARED,
+        row_session_id=session_id,
+        row_generation=generation,
+        source=source,
+        trust_class=trust_class,
+        position=position,
+        **record,
+    )
+
+
+def launched_events(*, candidate: str = OFF_A) -> list[Mapping[str, object]]:
+    """The ledger one clean offline launch leaves, in the order Core wrote it.
+
+    The comparison sits between the join and the playable row because that is where the
+    runtime makes it: the snapshot arrives, Core compares it against what the launcher
+    recorded, and only then does the session become playable.
+    """
+
+    return [
+        started_with_session(),
+        event(HANDSHAKE, source="CORE", trust_class="CORE", position=2),
+        join_row(position=3),
+        identity_row(candidate=candidate, position=4),
+        playable_row(position=5),
+    ]
+
+
+def ledger_without(event_type: str, *, candidate: str = OFF_A) -> tuple[Mapping[str, object], ...]:
+    """The launched ledger with every row of one type taken out."""
+
+    return tuple(
+        row for row in launched_events(candidate=candidate) if row.get("event_type") != event_type
+    )
+
+
+def ledger_with(
+    rows: Mapping[str, object] | tuple[Mapping[str, object], ...],
+    *,
+    replaces: str = IDENTITY_COMPARED,
+    candidate: str = OFF_A,
+) -> tuple[Mapping[str, object], ...]:
+    """The launched ledger with one kind of row replaced, where it stood.
+
+    Replaced rather than appended: the runtime writes a comparison row per comparison it
+    makes and a join row per arrival, so a criterion that read the first of them would be
+    judging a fact the run went on to overrule.
+    """
+
+    found = launched_events(candidate=candidate)
+    at = next(index for index, row in enumerate(found) if row.get("event_type") == replaces)
+    kept = [row for row in found if row.get("event_type") != replaces]
+    replacement = rows if isinstance(rows, tuple) else (rows,)
+    return tuple(kept[:at] + list(replacement) + kept[at:])
+
+
+def identity_run(*, candidate: str = OFF_A, **changes: object) -> _Material:
+    """One offline run that answers every criterion for the candidate it names.
+
+    The document is the healthy one — the client got in, one snapshot was admitted,
+    nothing was refused — and the server logged the join under the UUID the name derives
+    to. Every counter-example below starts here and breaks exactly one thing.
+    """
+
+    arguments: dict[str, object] = {
+        "argv": launch_argv(candidate),
+        "events": tuple(launched_events(candidate=candidate)),
+    }
+    arguments.update(changes)
+    return material(**arguments)  # type: ignore[arg-type]
+
+
+def offline_case(path: Path) -> dict[str, object]:
+    return cast(dict[str, object], json.loads(path.read_text(encoding="utf-8")))
+
+
+def identity_reason(name: str, case: Path = OFFLINE_LAUNCH_A_CASE, **changes: object) -> str | None:
+    """One offline criterion's answer about a run, held apart from the rest of the verdict.
+
+    Each of the five is asked on its own, as `refusal_reason` does for ADMIT-070, because
+    they are separate facts and a table that judged a whole verdict could hide a criterion
+    that never fails.
+
+    The case is named per row because four of the five belong to a column: the same run
+    answers `OFFLINE-010` and refuses to answer `OFFLINE-020`, and only judging it under
+    both says so. The candidate defaults to the one *that* case names, so a row breaks one
+    fact rather than the whole attribution.
+    """
+
+    candidate = OFF_B if case in OFF_B_CASES else OFF_A
+    verdict = ASSERTER_MODULE.evaluate(
+        offline_case(case), identity_run(candidate=candidate, **changes)
+    )
+    prefix = f"{name}:"
+    for failure in verdict.failures:
+        if failure.startswith(prefix):
+            return failure[len(prefix) :]
+    return None
+
+
+def test_an_offline_launch_that_recorded_what_it_compared_holds_for_its_own_column() -> None:
+    for case, candidate in (
+        (OFFLINE_LAUNCH_A_CASE, OFF_A),
+        (OFFLINE_LAUNCH_B_CASE, OFF_B),
+        (OFFLINE_JOIN_A_CASE, OFF_A),
+        (OFFLINE_JOIN_B_CASE, OFF_B),
+        (OFFLINE_JOIN_CASE, OFF_A),
+        (OFFLINE_JOIN_CASE, OFF_B),
+    ):
+        verdict = ASSERTER_MODULE.evaluate(offline_case(case), identity_run(candidate=candidate))
+        assert verdict.result == "PASS", f"{case.name}: {verdict.failures}"
+        assert verdict.observed == verdict.expected
+        assert verdict.unimplemented == ()
+
+
+def test_the_five_criteria_are_split_across_the_five_offline_cases() -> None:
+    """Which case answers which criterion, written down where a test can hold it.
+
+    The contract distributes the five rather than repeating them: the children take
+    attribution, the record, the comparison and the join, the launch cases take the
+    observation of `AccountType`, and the parent takes only what holds whichever column
+    ran. A fixture that drifted to a wider set would silently make one bundle answer a
+    case it was never written for.
+    """
+
+    declared: dict[str, frozenset[str]] = {}
+    for path in OFFLINE_CASES:
+        names = cast(list[str], offline_case(path)["assertions"])
+        declared[path.name] = frozenset(names)
+        assert set(names) <= set(OFFLINE_CRITERIA), path.name
+
+    assert declared[OFFLINE_LAUNCH_A_CASE.name] == CANDIDATE_TIED
+    assert declared[OFFLINE_LAUNCH_B_CASE.name] == CANDIDATE_TIED
+    for child in (OFFLINE_JOIN_A_CASE.name, OFFLINE_JOIN_B_CASE.name):
+        assert declared[child] == set(OFFLINE_CRITERIA) - {ACCOUNT_TYPE_OBSERVED}
+    assert declared[OFFLINE_JOIN_CASE.name] == frozenset({OFFLINE_IDENTITY_JOINED})
+
+
+ATTRIBUTION_COUNTEREXAMPLES: tuple[tuple[str, Mapping[str, Any], str], ...] = (
+    (
+        "no argv reached the judgement",
+        {"argv": None},
+        "LAUNCH_ARGV_UNRECORDED",
+    ),
+    (
+        "the operator named no candidate, so the first one was used",
+        {"argv": launch_argv(None)},
+        "CANDIDATE_NOT_NAMED_IN_ARGV",
+    ),
+    (
+        "the candidate named twice",
+        {"argv": [*launch_argv(OFF_A), "--identity-candidate", OFF_A]},
+        "CANDIDATE_NAMED_TWICE_IN_ARGV",
+    ),
+    (
+        "a candidate no reviewed matrix defines",
+        {"argv": launch_argv("nightly-parity")},
+        "CANDIDATE_NOT_REVIEWED:nightly-parity",
+    ),
+    (
+        "the argv belongs to the other column",
+        {"argv": launch_argv(OFF_B)},
+        "ARGV_NAMES:enum-aligned",
+    ),
+    (
+        "only the argv says which candidate this was",
+        {"events": ledger_without(IDENTITY_COMPARED)},
+        "CORE_NAMED_NO_CANDIDATE",
+    ),
+    (
+        "only Core's row says it, and the launch asked for nothing",
+        {"argv": launch_argv(None)},
+        "CANDIDATE_NOT_NAMED_IN_ARGV",
+    ),
+    (
+        "Core's row names the other column",
+        {"events": ledger_with(identity_row(candidate=OFF_B))},
+        "CORE_ROW_NAMES:enum-aligned",
+    ),
+    (
+        "the ledger cannot be read at all",
+        {"ledger_readable": False},
+        "LEDGER_UNREADABLE",
+    ),
+)
+
+
+@pytest.mark.parametrize(
+    "why, change, reason",
+    ATTRIBUTION_COUNTEREXAMPLES,
+    ids=[why for why, _, _ in ATTRIBUTION_COUNTEREXAMPLES],
+)
+def test_a_launch_that_cannot_be_attributed_is_not_this_columns_launch(
+    why: str, change: Mapping[str, Any], reason: str
+) -> None:
+    assert identity_reason(IDENTITY_IS_THE_CASES, **change) == reason  # type: ignore[arg-type]
+
+
+RECORDING_COUNTEREXAMPLES: tuple[tuple[str, Mapping[str, Any], str], ...] = (
+    (
+        "no comparison was recorded",
+        {"events": ledger_without(IDENTITY_COMPARED)},
+        "IDENTITY_ROW_MISSING",
+    ),
+    (
+        "the ledger cannot be read at all",
+        {"ledger_readable": False},
+        "LEDGER_UNREADABLE",
+    ),
+    (
+        "the row belongs to another session",
+        {"events": ledger_with(identity_row(session_id="session-02"))},
+        "ROW_OF_ANOTHER_SESSION",
+    ),
+    (
+        "the row belongs to another generation",
+        {"events": ledger_with(identity_row(generation=2))},
+        "ROW_OF_ANOTHER_GENERATION",
+    ),
+    (
+        "the row is the Bridge reporting rather than Core deciding",
+        {"events": ledger_with(identity_row(source="BRIDGE", trust_class="BRIDGE_FILTERED"))},
+        "ROW_NOT_CORES_WORD:BRIDGE/BRIDGE_FILTERED",
+    ),
+    (
+        "the candidate the row was about is not in it",
+        {"events": ledger_with(identity_row(without=("identity_candidate_id",)))},
+        "OBSERVATION_FIELD_MISSING:identity_candidate_id",
+    ),
+    (
+        "the observation is not in it",
+        {"events": ledger_with(identity_row(without=("observed_account_type",)))},
+        "OBSERVATION_FIELD_MISSING:observed_account_type",
+    ),
+    (
+        "one presence boundary is not in it",
+        {"events": ledger_with(identity_row(without=("client_id_present", "xuid_present")))},
+        "OBSERVATION_FIELD_MISSING:client_id_present",
+    ),
+    (
+        "the row says it matched while naming a mismatch",
+        {"events": ledger_with(identity_row(matched=True, mismatches=("uuid",)))},
+        "ROW_CONTRADICTS_ITSELF",
+    ),
+    (
+        "the row says it refused while naming nothing",
+        {"events": ledger_with(identity_row(matched=False, mismatches=()))},
+        "ROW_CONTRADICTS_ITSELF",
+    ),
+    (
+        "the mismatch list is a word rather than a list",
+        {"events": ledger_with(identity_row(extra={"mismatches": "uuid"}))},
+        "MISMATCHES_UNREADABLE",
+    ),
+    (
+        "two comparisons that disagree about the same run",
+        {
+            "events": ledger_with(
+                (identity_row(position=4), identity_row(candidate=OFF_B, position=6))
+            )
+        },
+        "ROWS_DISAGREE",
+    ),
+)
+
+
+@pytest.mark.parametrize(
+    "why, change, reason",
+    RECORDING_COUNTEREXAMPLES,
+    ids=[why for why, _, _ in RECORDING_COUNTEREXAMPLES],
+)
+def test_a_run_that_left_no_identity_record_is_not_a_run_that_read_its_identity(
+    why: str, change: Mapping[str, Any], reason: str
+) -> None:
+    assert identity_reason(IDENTITY_WAS_RECORDED, **change) == reason  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize("secret", sorted(SECRET_CLASSIFICATION))
+def test_a_credential_body_key_in_the_row_fails_it_whatever_its_value_is(
+    secret: str,
+) -> None:
+    """The contract's rule is *出现即失败*, so the key is read and the value is not.
+
+    The value used here is the offline access-token sentinel — a string that is not a
+    secret in this scenario at all. That is the point: a record carrying a credential
+    *key* has stopped being an account of presence, and no argument about whether the
+    value was real makes it evidence again.
+    """
+
+    events = ledger_with(identity_row(extra={secret: "0"}))
+    assert (
+        identity_reason(IDENTITY_WAS_RECORDED, events=events)  # type: ignore[arg-type]
+        == f"CREDENTIAL_BODY_KEY:{secret}"
+    )
+
+
+def test_two_agreements_from_two_comparisons_are_one_record_and_not_a_disagreement() -> None:
+    """The ledger-fact card delivers a row per comparison, not a row per generation.
+
+    A runtime that looks twice and sees the same identity twice leaves two rows. The
+    criterion has to say which reading closes the case — and the answer cannot be "the
+    first", which would keep judging a refusal the run went on to overrule.
+    """
+
+    repeated = ledger_with(
+        (
+            identity_row(position=4),
+            identity_row(uuid_value=offline_player_uuid(USERNAME).hex, position=6),
+        )
+    )
+    for name in (IDENTITY_WAS_RECORDED, SESSION_MATCHES_MATERIAL, ACCOUNT_TYPE_OBSERVED):
+        assert identity_reason(name, events=repeated) is None  # type: ignore[arg-type]
+
+
+CONSISTENCY_COUNTEREXAMPLES: tuple[tuple[str, Mapping[str, Any], str], ...] = (
+    (
+        "no comparison was recorded",
+        {"events": ledger_without(IDENTITY_COMPARED)},
+        "IDENTITY_ROW_MISSING",
+    ),
+    (
+        "the client is somebody else",
+        {"events": ledger_with(identity_row(username="Somebody"))},
+        "REPORTED_USERNAME_NOT_RECORDED:Somebody",
+    ),
+    (
+        "the uuid is not the one the name derives to",
+        {"events": ledger_with(identity_row(uuid_value="0" * 32))},
+        f"REPORTED_UUID_NOT_RECORDED:{'0' * 32}",
+    ),
+    (
+        "the uuid is not a uuid at all",
+        {"events": ledger_with(identity_row(uuid_value="not-an-identity"))},
+        "REPORTED_UUID_UNREADABLE:not-an-identity",
+    ),
+    (
+        "the comparison itself refused",
+        {"events": ledger_with(identity_row(mismatches=("username",)))},
+        "COMPARISON_REFUSED:username",
+    ),
+    (
+        "the client reported nothing and the row says so",
+        {
+            "events": ledger_with(
+                identity_row(
+                    username="",
+                    uuid_value="",
+                    mismatches=("report_incomplete", "username", "uuid"),
+                )
+            )
+        },
+        "COMPARISON_REFUSED:report_incomplete,username,uuid",
+    ),
+    (
+        "clientId present where the candidate declares it empty",
+        {"events": ledger_with(identity_row(client_id_present=True))},
+        "CLIENT_ID_PRESENCE_NOT_AS_DECLARED",
+    ),
+    (
+        "xuid present where the candidate declares it empty",
+        {"events": ledger_with(identity_row(xuid_present=True))},
+        "XUID_PRESENCE_NOT_AS_DECLARED",
+    ),
+)
+
+
+@pytest.mark.parametrize(
+    "why, change, reason",
+    CONSISTENCY_COUNTEREXAMPLES,
+    ids=[why for why, _, _ in CONSISTENCY_COUNTEREXAMPLES],
+)
+def test_a_session_that_is_not_the_recorded_material_is_not_this_run_s_identity(
+    why: str, change: Mapping[str, Any], reason: str
+) -> None:
+    assert identity_reason(SESSION_MATCHES_MATERIAL, **change) == reason  # type: ignore[arg-type]
+
+
+def test_a_canonical_report_and_the_id128_launch_are_the_same_identity() -> None:
+    """Both candidates put the id128 form in argv; the client may report either.
+
+    `OFFLINE-040` already pins that the two encodings and a capitalised spelling are one
+    identity, and this criterion inherits it — otherwise a correct run would be refused
+    for how it printed a number.
+    """
+
+    canonical = ledger_with(identity_row(uuid_value=str(offline_player_uuid(USERNAME))))
+    assert identity_reason(SESSION_MATCHES_MATERIAL, events=canonical) is None  # type: ignore[arg-type]
+    upper = ledger_with(identity_row(uuid_value=str(offline_player_uuid(USERNAME)).upper()))
+    assert identity_reason(SESSION_MATCHES_MATERIAL, events=upper) is None  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize("candidate", [OFF_A, OFF_B])
+@pytest.mark.parametrize("observed", ["", "LEGACY", "MOJANG", "MSA"])
+def test_the_account_type_is_judged_on_being_recorded_and_never_on_its_value(
+    candidate: str, observed: str
+) -> None:
+    """An empty observation and a full one are both green, and neither is a verdict.
+
+    The matrix exists to find out which candidate the client accepts as a session type,
+    so a criterion that read the value would decide the experiment it is there to run.
+    What it reads instead is that the field carries an observation — which is what the
+    row below, holding the launcher's own word, cannot claim.
+    """
+
+    case = OFFLINE_LAUNCH_A_CASE if candidate == OFF_A else OFFLINE_LAUNCH_B_CASE
+    events = ledger_with(identity_row(candidate=candidate, account_type=observed))
+    assert (
+        identity_reason(ACCOUNT_TYPE_OBSERVED, case, events=events)  # type: ignore[arg-type]
+        is None
+    )
+
+
+OBSERVATION_COUNTEREXAMPLES: tuple[tuple[str, str, Mapping[str, Any], str], ...] = (
+    (
+        "no comparison was recorded",
+        OFF_A,
+        {"events": ledger_without(IDENTITY_COMPARED)},
+        "IDENTITY_ROW_MISSING",
+    ),
+    (
+        "the field is not in the row at all",
+        OFF_A,
+        {"events": ledger_with(identity_row(without=("observed_account_type",)))},
+        "ACCOUNT_TYPE_NOT_RECORDED",
+    ),
+    (
+        "the field holds a word that is not a word",
+        OFF_A,
+        {"events": ledger_with(identity_row(extra={"observed_account_type": None}))},
+        "ACCOUNT_TYPE_NOT_RECORDED",
+    ),
+)
+
+
+@pytest.mark.parametrize(
+    "why, candidate, change, reason",
+    OBSERVATION_COUNTEREXAMPLES,
+    ids=[why for why, _, _, _ in OBSERVATION_COUNTEREXAMPLES],
+)
+def test_an_account_type_that_was_never_observed_is_not_a_recorded_one(
+    why: str, candidate: str, change: Mapping[str, Any], reason: str
+) -> None:
+    case = OFFLINE_LAUNCH_A_CASE if candidate == OFF_A else OFFLINE_LAUNCH_B_CASE
+    assert (
+        identity_reason(ACCOUNT_TYPE_OBSERVED, case, **change) == reason  # type: ignore[arg-type]
+    )
+
+
+@pytest.mark.parametrize("candidate", [OFF_A, OFF_B])
+def test_the_launchers_own_word_copied_into_the_field_is_not_an_observation(
+    candidate: str,
+) -> None:
+    """The counter-example the contract spells out, run against both columns.
+
+    `--userType offline` and `--userType legacy` are the launcher's words for an account;
+    a field holding one of them has been written from argv rather than read from a
+    session. Which word that is depends on which candidate ran, so each column is shown
+    its own — and the other column's word stays a legal observation, because a client
+    that reports `LEGACY` under OFF-A is telling the truth about what it saw.
+    """
+
+    argv_word = candidate_by_id(candidate).user_type_argv
+    other_word = candidate_by_id(OFF_B if candidate == OFF_A else OFF_A).user_type_argv
+    case = OFFLINE_LAUNCH_A_CASE if candidate == OFF_A else OFFLINE_LAUNCH_B_CASE
+    events = ledger_with(
+        identity_row(candidate=candidate, account_type=argv_word),
+        candidate=candidate,
+    )
+
+    assert (
+        identity_reason(ACCOUNT_TYPE_OBSERVED, case, events=events)  # type: ignore[arg-type]
+        == f"ACCOUNT_TYPE_COPIED_FROM_THE_LAUNCH_ARGUMENT:{argv_word}"
+    )
+    assert (
+        identity_reason(  # type: ignore[arg-type]
+            ACCOUNT_TYPE_OBSERVED,
+            case,
+            events=ledger_with(
+                identity_row(candidate=candidate, account_type=other_word),
+                candidate=candidate,
+            ),
+        )
+        is None
+    )
+
+
+JOIN_COUNTEREXAMPLES: tuple[tuple[str, Mapping[str, Any], str], ...] = (
+    (
+        "the server logged a join the ledger never recorded",
+        {"events": ledger_without(JOIN_OBSERVED)},
+        "JOINS_RECORDED:0",
+    ),
+    (
+        "the world was reached twice, which is a second attempt",
+        {
+            "events": ledger_with(
+                (join_row(position=3), join_row(position=9)), replaces=JOIN_OBSERVED
+            )
+        },
+        "JOINS_RECORDED:2",
+    ),
+    (
+        "the join row is not the Bridge's filtered word",
+        {"events": ledger_with(join_row(trust_class="CORE"), replaces=JOIN_OBSERVED)},
+        "JOIN_ROW_NOT_ATTRIBUTABLE:BRIDGE/CORE",
+    ),
+    (
+        "the identity comparison refused the first snapshot",
+        {"document": run_document(snapshot_rejections=["SESSION_MATERIAL_MISMATCH"])},
+        "IDENTITY_COMPARISON_REFUSED",
+    ),
+    (
+        "the first snapshot was refused for another reason",
+        {
+            "document": run_document(
+                snapshots_admitted=0,
+                connection_state="JOIN_SEEN",
+                snapshot_rejections=["NOT_AUTHORITATIVE"],
+            )
+        },
+        "FIRST_SNAPSHOT_REFUSED:NOT_AUTHORITATIVE",
+    ),
+    (
+        "no snapshot was admitted and nothing says why",
+        {
+            "document": run_document(
+                snapshots_admitted=0, connection_state="JOIN_SEEN", snapshot_rejections=[]
+            )
+        },
+        "FIRST_SNAPSHOT_NOT_ADMITTED:NO_SNAPSHOT_ADMITTED",
+    ),
+    (
+        "the server recorded a different player under the same name",
+        {"identities": {USERNAME: "0" * 32}},
+        f"SERVER_IDENTITY_NOT_EXPLAINED:IDENTITY_UUID_MISMATCH:{'0' * 32}",
+    ),
+    (
+        "the ledger cannot be read at all",
+        {"ledger_readable": False},
+        "LEDGER_UNREADABLE",
+    ),
+)
+
+
+@pytest.mark.parametrize(
+    "why, change, reason",
+    JOIN_COUNTEREXAMPLES,
+    ids=[why for why, _, _ in JOIN_COUNTEREXAMPLES],
+)
+def test_a_kin_the_server_never_saw_joining_is_not_an_offline_identity_that_joined(
+    why: str, change: Mapping[str, Any], reason: str
+) -> None:
+    assert (
+        identity_reason(
+            OFFLINE_IDENTITY_JOINED,
+            OFFLINE_JOIN_CASE,
+            **change,  # type: ignore[arg-type]
+        )
+        == reason
+    )
+
+
+def test_one_columns_bundle_cannot_answer_the_other_columns_attribution() -> None:
+    """The split's whole point, tested in both directions.
+
+    Only attribution separates the two columns — the record, the comparison and the
+    derivation are the same facts whichever candidate was launched — and that is by
+    construction: the contract asks one bundle per run because a run starts one
+    candidate. A red attribution is enough to keep the case from passing, which is what
+    "A 与 B 分别加入" cannot be proved by one bundle means.
+    """
+
+    for case, other in (
+        (OFFLINE_LAUNCH_B_CASE, OFF_A),
+        (OFFLINE_JOIN_B_CASE, OFF_A),
+        (OFFLINE_LAUNCH_A_CASE, OFF_B),
+        (OFFLINE_JOIN_A_CASE, OFF_B),
+    ):
+        verdict = ASSERTER_MODULE.evaluate(offline_case(case), identity_run(candidate=other))
+
+        assert verdict.result == "FAIL", case.name
+        assert f"{IDENTITY_IS_THE_CASES}:ARGV_NAMES:{other}" in verdict.failures, case.name
+
+
+def test_the_parent_join_case_asserts_nothing_about_which_column_was_launched() -> None:
+    """A bundle that only answers the parent has not claimed either column.
+
+    This is the shape that keeps `OFFLINE-030` from quietly standing in for the two
+    children: with no attribution name in its own list, the parent can be satisfied by a
+    run whose identity reached the server, and says nothing about which candidate made it
+    there. A reader who wants that has to read a second bundle.
+    """
+
+    declared = cast(list[str], offline_case(OFFLINE_JOIN_CASE)["assertions"])
+
+    assert frozenset(declared) & CANDIDATE_TIED == frozenset()
+    assert OFFLINE_IDENTITY_JOINED in declared
+
+
+def test_a_launch_only_bundle_says_nothing_about_the_server_being_reached() -> None:
+    """The other half of the split: `OFFLINE-010` asks nothing of the server.
+
+    A run whose server never saw it still answers the launch case, because nothing in it
+    reads a join. That is what makes the case worth having on its own — the Bridge-side
+    identity facts are reachable from a session that never entered a world — and it is
+    also why it cannot stand in for a join case: a reader who took it for one would be
+    reading a server's silence as a server's agreement.
+    """
+
+    verdict = ASSERTER_MODULE.evaluate(
+        offline_case(OFFLINE_LAUNCH_A_CASE), identity_run(log="", identities={})
+    )
+
+    assert verdict.result == "PASS"
+    join_verdict = ASSERTER_MODULE.evaluate(
+        offline_case(OFFLINE_JOIN_A_CASE), identity_run(log="", identities={})
+    )
+
+    assert join_verdict.result == "FAIL"
+    assert any(
+        failure.startswith(f"{OFFLINE_IDENTITY_JOINED}:") for failure in join_verdict.failures
+    )
+
+
+def test_both_children_are_required_and_one_of_them_is_still_missing_without_the_other(
+    tmp_path: Path,
+) -> None:
+    """The inventory keeps the two columns apart even when one of them is satisfied.
+
+    Only the fixtures decide this: the required list names three offline ids for the one
+    contract row, so deleting one child's fixture has to leave the other present and the
+    deleted one missing. A registry that folded the two together would show up here as a
+    case that vanished from the list rather than as a missing file.
+    """
+
+    required = {entry.case_id for entry in REQUIRED_CASES}
+    assert {
+        "OFFLINE-030",
+        "OFFLINE-030-PRISM-PARITY-001",
+        "OFFLINE-030-ENUM-ALIGNED-001",
+    } <= required
+
+    reporter = cast(Any, load("report_cases"))
+    pristine = set(cast(list[str], reporter.report()["requirements"]["missing"]))
+    assert "OFFLINE-030-PRISM-PARITY-001" not in pristine
+    assert "OFFLINE-030-ENUM-ALIGNED-001" not in pristine
+
+    cases = tmp_path / "cases"
+    shutil.copytree(CASES, cases)
+    (cases / OFFLINE_JOIN_B_CASE.name).unlink()
+    one_column = set(
+        cast(
+            list[str],
+            reporter.report(cases_dir=cases)["requirements"]["missing"],
+        )
+    )
+
+    assert "OFFLINE-030-ENUM-ALIGNED-001" in one_column
+    assert "OFFLINE-030-PRISM-PARITY-001" not in one_column
+
+
+def test_each_child_carries_a_case_version_of_its_own(tmp_path: Path) -> None:
+    """Moving one child's definition does not move the other's.
+
+    Two fixtures sharing a digest would be one case wearing two ids, and the evidence
+    sealed under either would then be re-judgeable under the other. So an edit to one has
+    to leave the other's version where it was.
+    """
+
+    cases = tmp_path / "cases"
+    shutil.copytree(CASES, cases)
+    target = cases / OFFLINE_JOIN_B_CASE.name
+    narrowed = json.loads(target.read_text(encoding="utf-8"))
+    narrowed["assertions"] = cast(list[str], narrowed["assertions"])[:1]
+    target.write_text(json.dumps(narrowed, indent=2) + "\n", encoding="utf-8")
+
+    assert (
+        load_case_manifest(cases / OFFLINE_JOIN_A_CASE.name).digest
+        == load_case_manifest(OFFLINE_JOIN_A_CASE).digest
+    )
+    assert load_case_manifest(target).digest != load_case_manifest(OFFLINE_JOIN_B_CASE).digest
+
+
+def test_the_argv_an_attribution_reads_is_the_trace_the_sealer_seals(tmp_path: Path) -> None:
+    """Where the launch arguments come from, checked at both ends of the seal.
+
+    The name the reader opens is the asserter's own constant, and the sealer's artifact
+    list is asked here whether it writes that name — a sealer that wrote a name the reader
+    did not know would not fail. It would read as "this run recorded no argv", which is the
+    answer the attribution refuses, and the bundle would say the run never chose when the
+    only thing that happened is that two files stopped agreeing.
+    """
+
+    sealer = cast(Any, load("seal_run_evidence"))
+    artifacts = sealer.collect_artifacts(
+        overlay=None,
+        server_directory=None,
+        run_document=b"",
+        fault_injection=b"",
+        soak_samples=b"",
+        soak_summary=b"",
+        orchestrator={"schema_version": 1, "session_argv": launch_argv(OFF_A)},
+    )
+
+    assert ASSERTER_MODULE.ORCHESTRATOR_TRACE_ARTIFACT in artifacts
+
+    (tmp_path / ASSERTER_MODULE.ASSERTER_INPUTS).write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "kin_id": "kin-01",
+                "run_id": RUN_ID,
+                "username": USERNAME,
+                "previous_run_id": "",
+            }
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / ASSERTER_MODULE.ORCHESTRATOR_TRACE_ARTIFACT).write_text(
+        json.dumps({"schema_version": 1, "session_argv": launch_argv(OFF_A)}), encoding="utf-8"
+    )
+
+    assert ASSERTER_MODULE.read_sealed_material(tmp_path).session_argv == tuple(launch_argv(OFF_A))
+
+
+def test_a_bundle_that_sealed_no_trace_recorded_no_argv_rather_than_an_empty_one(
+    tmp_path: Path,
+) -> None:
+    """The two absences a re-judge has to keep apart.
+
+    A bundle sealed before this criterion existed carries no trace, and a run launched
+    with no candidate carries a trace whose argv names none. The first is a judge that was
+    never told; the second is a run that never chose, which is the contract's own
+    counter-example. Read as one shape, the second would look like the first and pass.
+    """
+
+    (tmp_path / ASSERTER_MODULE.ASSERTER_INPUTS).write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "kin_id": "kin-01",
+                "run_id": RUN_ID,
+                "username": USERNAME,
+                "previous_run_id": "",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    assert ASSERTER_MODULE.read_sealed_material(tmp_path).session_argv is None

@@ -35,6 +35,7 @@ import json
 import re
 import sqlite3
 import sys
+import uuid
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path, PurePosixPath
@@ -42,7 +43,16 @@ from typing import TypeGuard, cast
 from urllib.parse import urlsplit
 
 from minekin_core.adapters.evidence.trace import LEDGER_TIMELINE_ARTIFACT
+from minekin_core.adapters.launcher.offline_session import (
+    EMPTY_ARGV,
+    ENUM_ALIGNED,
+    OFFLINE_SESSION_CANDIDATES,
+    PRISM_PARITY,
+    SECRET_CLASSIFICATION,
+    SessionCandidate,
+)
 from minekin_core.adapters.launcher.saves import LEVEL_DAT
+from minekin_core.adapters.sqlite.session_log import SESSION_IDENTITY_COMPARED
 from minekin_core.cli.init import DATABASE_NAME, KIN_DIRECTORY, kin_directory, run_root
 from minekin_core.cli.session import session_overlay_path
 from minekin_core.domain.admission import AddressPolicy
@@ -390,6 +400,14 @@ class RunMaterial:
     #: (`pack_listing_bytes`). Empty means the run left no game directory to list,
     #: which an assertion reports rather than reading as "nothing was downloaded".
     client_pack_listing: str = ""
+    #: The arguments the harness handed Core to start this session, as the trace it
+    #: sealed records them. This is the only place a run says which offline identity
+    #: column the operator *asked* for — the client cannot report a choice it never saw,
+    #: and Core's row says what it compared rather than what it was told to launch.
+    #: `None` means the bundle sealed no trace at all, which is a judge that was never
+    #: told; an argv that names no candidate is a run that never chose, and the two
+    #: cannot read as one absence.
+    session_argv: tuple[str, ...] | None = None
     #: The reviewed case being evaluated.  `evaluate` fills these from the same
     #: manifest that declares the assertions, so a trace attributed to another
     #: case (or another revision of this case) cannot satisfy this one.
@@ -650,6 +668,29 @@ CLIENT_PACK_LISTING_ARTIFACT = "client/server-resource-packs.json"
 #: The directory's name inside the overlay, spelled once here because both the
 #: reading and the assertion have to agree about which directory was listed.
 CLIENT_PACK_DIRECTORY = "server-resource-packs"
+#: The harness's own account of the run, written by the sealer and read back here for
+#: one field: the argv that started the session. Named by the reader because the
+#: attribution criterion below refuses a bundle that cannot say which candidate it asked
+#: for, and a name the reader did not know would read as exactly that.
+ORCHESTRATOR_TRACE_ARTIFACT = "orchestrator-trace.json"
+
+
+def _trace_argv(trace: Mapping[str, object] | None) -> tuple[str, ...] | None:
+    """The launch arguments a sealed trace carries, or None when no trace was sealed.
+
+    A trace whose `session_argv` is missing, empty or not a list of text is read as None
+    rather than as an empty argv: the difference between "the bundle says nothing" and
+    "the run chose nothing" is the whole of what an attribution refuses on.
+    """
+
+    if trace is None:
+        return None
+    argv = trace.get("session_argv")
+    if not isinstance(argv, list) or not all(
+        isinstance(item, str) for item in cast("list[object]", argv)
+    ):
+        return None
+    return tuple(cast("list[str]", argv))
 
 
 def asserter_inputs_bytes(material: RunMaterial, *, username: str) -> bytes:
@@ -883,6 +924,7 @@ def read_sealed_material(directory: Path) -> RunMaterial:
         server_properties=_sealed(directory, SERVER_PROPERTIES_ARTIFACT) or "",
         server_profile=_sealed_json(directory, SERVER_PROFILE_ARTIFACT),
         client_pack_listing=_sealed(directory, CLIENT_PACK_LISTING_ARTIFACT) or "",
+        session_argv=_trace_argv(_sealed_json(directory, ORCHESTRATOR_TRACE_ARTIFACT)),
     )
 
 
@@ -2921,6 +2963,399 @@ def the_refusal_was_asked_of_this_run(material: RunMaterial) -> str | None:
     return None
 
 
+# ---------------------------------------------------------------------------
+# OFFLINE-010 / 020 / 030: the candidate a launch started, and the comparison
+# Core made against it.
+# ---------------------------------------------------------------------------
+
+#: The launcher's word for "which identity column this run is", and the reviewed
+#: candidates keyed by the id that word carries. Four of the five criteria below can
+#: only be answered about *one* column, and which column a case asks about is its own
+#: id — the same way `ADMIT-070` names its refusal reason by being that case rather
+#: than by carrying a field for it. `OFFLINE-030` is absent on purpose: what the
+#: parent keeps is the fifth criterion, which holds whichever column ran.
+IDENTITY_CANDIDATE_OPTION = "--identity-candidate"
+
+_CANDIDATE_BY_ID: dict[str, SessionCandidate] = {
+    candidate.candidate_id: candidate for candidate in OFFLINE_SESSION_CANDIDATES
+}
+
+OFFLINE_CANDIDATE_BY_CASE: Mapping[str, str] = {
+    "OFFLINE-010": PRISM_PARITY.candidate_id,
+    "OFFLINE-020": ENUM_ALIGNED.candidate_id,
+    "OFFLINE-030-PRISM-PARITY-001": PRISM_PARITY.candidate_id,
+    "OFFLINE-030-ENUM-ALIGNED-001": ENUM_ALIGNED.candidate_id,
+}
+
+#: What one comparison row has to carry to be an account of a comparison at all —
+#: the product's `identity_ledger_record` keys, in the order it writes them, minus the
+#: two verdict fields checked below by name. The order is the reason a row missing both
+#: presence boundaries reports the first: one row, one named gap.
+OBSERVED_ACCOUNT_TYPE_KEY = "observed_account_type"
+
+IDENTITY_OBSERVATION_FIELDS = (
+    "identity_candidate_id",
+    "session_username",
+    "session_uuid",
+    OBSERVED_ACCOUNT_TYPE_KEY,
+    "client_id_present",
+    "xuid_present",
+    "credential_values_exposed",
+)
+
+#: The credential bodies the launcher classifies as secret-shaped. A row carrying one
+#: of these *keys* has stopped recording presence and started recording the value, and
+#: the contract's rule is that the key alone fails — whatever the value is. The
+#: classification is read from the product rather than restated here for that reason.
+CREDENTIAL_BODY_KEYS = tuple(SECRET_CLASSIFICATION)
+
+#: Core's own word for "the session I looked at is not the identity I launched", as
+#: the run document spells it. The one rejection reason that refutes a join criterion
+#: about an offline identity, because it is the only one the comparison can produce.
+SESSION_MATERIAL_MISMATCH = "SESSION_MATERIAL_MISMATCH"
+
+
+def _identity_observation(row: Mapping[str, object]) -> tuple[tuple[str, object], ...]:
+    """One comparison row, reduced to the fields that could disagree.
+
+    A tuple rather than the mapping, so two rows can be compared without a reader
+    having to decide which of their columns — the attribution ones or the payload —
+    carry the fact. Position, session and generation are deliberately left out: two
+    comparisons of one session differ in those and agree in everything else, and that
+    is a run that looked twice, not a run that gave two answers.
+    """
+
+    record = payload(row)
+    mismatches = record.get("mismatches")
+    return (
+        *((key, record.get(key)) for key in IDENTITY_OBSERVATION_FIELDS),
+        ("matched", record.get("matched")),
+        (
+            "mismatches",
+            tuple(cast("list[object]", mismatches)) if isinstance(mismatches, list) else mismatches,
+        ),
+    )
+
+
+def _one_identity_row(row: Mapping[str, object], session: tuple[str, int] | None) -> str | None:
+    """Why this one row cannot stand as Core's account of a comparison, if it cannot."""
+
+    record = payload(row)
+    for key in CREDENTIAL_BODY_KEYS:
+        if key in record:
+            return f"CREDENTIAL_BODY_KEY:{key}"
+    for key in IDENTITY_OBSERVATION_FIELDS:
+        if key not in record:
+            return f"OBSERVATION_FIELD_MISSING:{key}"
+    source, trust_class = row.get("source"), row.get("trust_class")
+    if source != "CORE" or trust_class != "CORE":
+        # The row is Core's decision about an identity, and only the process that owns
+        # that state machine can record it. A bridge-sourced row saying the same words is
+        # a report *to* Core, which is a different fact and not a weaker proof.
+        return f"ROW_NOT_CORES_WORD:{source}/{trust_class}"
+    if session is not None and not _belongs_to_session(row, session):
+        return (
+            "ROW_OF_ANOTHER_SESSION"
+            if row.get("session_id") != session[0]
+            else "ROW_OF_ANOTHER_GENERATION"
+        )
+    mismatches = record.get("mismatches")
+    if not isinstance(mismatches, list) or not all(
+        isinstance(item, str) for item in cast("list[object]", mismatches)
+    ):
+        return "MISMATCHES_UNREADABLE"
+    matched = record.get("matched")
+    if not isinstance(matched, bool):
+        return "MATCHED_FLAG_UNREADABLE"
+    if matched is not (len(cast("list[str]", mismatches)) == 0):
+        # The two fields are one verdict written twice. A row that says it matched while
+        # naming a mismatch does not tell which of them the run believed, and a criterion
+        # built on either would be a reading rather than a record.
+        return "ROW_CONTRADICTS_ITSELF"
+    return None
+
+
+def _identity_comparisons(
+    material: RunMaterial,
+) -> tuple[tuple[Mapping[str, object], ...], str | None]:
+    """Core's comparison rows for this run, or the reason there is no usable set.
+
+    Shared by the three criteria that read a comparison, because all three ask the same
+    prior question — *which* record answers it — and a criterion that decided that on its
+    own could pick a different row from its neighbour and still both pass. The ledger-fact
+    card delivers a row per comparison rather than per generation, so a run that looked
+    twice and saw the same identity leaves two rows and has to be judged on both: reading
+    only the first would keep judging a refusal the run went on to overrule, and reading
+    only the last would let a later glance paper over a comparison that never happened.
+    """
+
+    if not material.ledger_readable:
+        return (), "LEDGER_UNREADABLE"
+    rows = material.recorded(SESSION_IDENTITY_COMPARED)
+    if not rows:
+        return (), "IDENTITY_ROW_MISSING"
+    session = _ledger_session(material)
+    for row in rows:
+        problem = _one_identity_row(row, session)
+        if problem is not None:
+            return (), problem
+    if any(_identity_observation(row) != _identity_observation(rows[0]) for row in rows[1:]):
+        return (), "ROWS_DISAGREE"
+    return rows, None
+
+
+def _identity_as_uuid(value: object) -> str | None:
+    """Either accepted UUID encoding as one text, or None when it is not a UUID.
+
+    The launcher puts the id128 form in argv and a client may report any encoding it
+    likes, so the comparison is of the numbers. `OFFLINE-040` pins that equivalence for
+    the product's own check, and this criterion inherits it rather than inventing a
+    stricter reading of its own — refusing a correct run for how it printed a number
+    would make the case about spelling.
+    """
+
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        return str(uuid.UUID(value.strip()))
+    except ValueError:
+        return None
+
+
+def _launched_candidate(material: RunMaterial) -> tuple[str | None, str | None]:
+    """Which reviewed candidate this run's own launch arguments named.
+
+    The trace is the harness's record of the argv it handed Core, so this is the one
+    place that says what the *operator* asked for — as opposed to what the client ended
+    up reporting, which is the thing under test. A run that names no candidate is not a
+    run whose candidate is unknown: it is the first column, chosen by the launcher's own
+    default, which is exactly why an attribution has to refuse it. A bundle claiming to
+    be the second column while asking for nothing would otherwise be re-runnable only as
+    a matter of faith.
+    """
+
+    argv = material.session_argv
+    if argv is None:
+        return None, "LAUNCH_ARGV_UNRECORDED"
+    named: list[str] = []
+    index = 0
+    while index < len(argv):
+        argument = argv[index]
+        if argument == IDENTITY_CANDIDATE_OPTION:
+            named.append(argv[index + 1] if index + 1 < len(argv) else "")
+            index += 2
+            continue
+        if argument.startswith(f"{IDENTITY_CANDIDATE_OPTION}="):
+            named.append(argument.partition("=")[2])
+        index += 1
+    if not named:
+        return None, "CANDIDATE_NOT_NAMED_IN_ARGV"
+    if len(named) > 1:
+        # Two asks could have named two columns, and one argv that says the same thing
+        # twice still says nothing about which one the launcher honoured.
+        return None, "CANDIDATE_NAMED_TWICE_IN_ARGV"
+    candidate = named[0]
+    if candidate not in _CANDIDATE_BY_ID:
+        return None, f"CANDIDATE_NOT_REVIEWED:{candidate}"
+    return candidate, None
+
+
+def this_run_started_the_identity_candidate_the_case_names(
+    material: RunMaterial,
+) -> str | None:
+    """Both halves of the attribution: the launch asked for this column, and Core said so.
+
+    The argv alone would let a bundle claim a column nothing observed, and Core's row
+    alone would let a run that never chose — which defaults to the first column — be
+    sealed as either. The pair is what makes "OFF-A and OFF-B joined separately" two
+    bundles rather than one bundle read twice, and the reason is the case id itself: the
+    same run answers `OFFLINE-010` and refuses to answer `OFFLINE-020`, because the two
+    ask which column *this* run was.
+    """
+
+    expected = OFFLINE_CANDIDATE_BY_CASE.get(material.expected_case_id or "")
+    if expected is None:
+        return f"CASE_NAMES_NO_CANDIDATE:{material.expected_case_id}"
+    launched, problem = _launched_candidate(material)
+    if problem is not None:
+        return problem
+    if launched != expected:
+        return f"ARGV_NAMES:{launched}"
+    if not material.ledger_readable:
+        return "LEDGER_UNREADABLE"
+    rows = material.recorded(SESSION_IDENTITY_COMPARED)
+    if not rows:
+        # The argv is the harness's record of itself. Without Core's row naming the same
+        # candidate, nothing in the run says the launch was read at all.
+        return "CORE_NAMED_NO_CANDIDATE"
+    for row in rows:
+        named = payload(row).get("identity_candidate_id")
+        if named != expected:
+            return f"CORE_ROW_NAMES:{named}"
+    return None
+
+
+def core_recorded_the_identity_it_compared(material: RunMaterial) -> str | None:
+    """Core left one well-formed account of the comparison it made.
+
+    Structure, attribution and honesty — not outcome. A row that records a refused
+    comparison satisfies this and fails the case, which is the point: a run that read
+    its identity and found it wrong leaves a trace, and a criterion that quietly
+    required a match would make the failure this family exists to catch unreportable.
+    """
+
+    rows, problem = _identity_comparisons(material)
+    return problem if rows == () else None
+
+
+def the_reported_session_is_the_identity_this_run_launched_with(
+    material: RunMaterial,
+) -> str | None:
+    """What the live session reported is what the recorded material said to expect.
+
+    The username and the UUID are the two the launcher encodes into argv, and the pair
+    that has to hold is the reported one against the identity this run was built from —
+    read the way the client reports it, not the way the launcher printed it. `OFFLINE-040`
+    already pins that the id128 form argv and a canonical or capitalised report are one
+    identity, and a criterion that compared strings would refuse a correct run for how it
+    printed a number.
+
+    The comparison's own verdict is read first, and refused before anything is
+    re-derived: a row that says the client reported nothing still has a username field,
+    and "the reported username is not the recorded one" would describe an empty string as
+    a wrong string rather than as the incomplete report Core already named.
+    """
+
+    rows, problem = _identity_comparisons(material)
+    if problem is not None:
+        return problem
+    for row in rows:
+        record = payload(row)
+        named = record.get("identity_candidate_id")
+        if not isinstance(named, str) or named not in _CANDIDATE_BY_ID:
+            return f"ROW_CANDIDATE_NOT_REVIEWED:{named}"
+        if record.get("matched") is not True:
+            mismatches = cast("list[str]", record.get("mismatches"))
+            return f"COMPARISON_REFUSED:{','.join(mismatches)}"
+        if record.get("session_username") != material.username:
+            return f"REPORTED_USERNAME_NOT_RECORDED:{record.get('session_username')}"
+        reported = _identity_as_uuid(record.get("session_uuid"))
+        if reported is None:
+            return f"REPORTED_UUID_UNREADABLE:{record.get('session_uuid')}"
+        if reported != str(offline_player_uuid(material.username)):
+            return f"REPORTED_UUID_NOT_RECORDED:{record.get('session_uuid')}"
+        # The two presence boundaries are the candidate's own declaration: this matrix's
+        # columns both send an empty clientId and an empty xuid, so a session reporting one
+        # is not the identity the launch was built from, whatever its name and number say.
+        candidate = _CANDIDATE_BY_ID[named]
+        if record.get("client_id_present") is not (candidate.client_id_argv != EMPTY_ARGV):
+            return "CLIENT_ID_PRESENCE_NOT_AS_DECLARED"
+        if record.get("xuid_present") is not (candidate.xuid_argv != EMPTY_ARGV):
+            return "XUID_PRESENCE_NOT_AS_DECLARED"
+    return None
+
+
+def the_account_type_was_recorded_as_an_observation(material: RunMaterial) -> str | None:
+    """The field carries what the client's session said it was, and nothing pre-sets it.
+
+    This is the criterion the whole candidate matrix exists to satisfy, so it is written
+    to be incapable of answering the question it is asked: an empty observation and
+    `LEGACY` are both green here, and which of them arrives is what the two runs are run
+    to find out. What it refuses is a field written from the launch rather than read from
+    the session — `--userType` carries the launcher's own word (`offline`, `legacy`)
+    while the client reports its `AccountType` enum, so a row holding the argv's word is
+    a comparison that never looked at the client and would otherwise be sealed as one
+    that did.
+    """
+
+    rows, problem = _identity_comparisons(material)
+    if problem == f"OBSERVATION_FIELD_MISSING:{OBSERVED_ACCOUNT_TYPE_KEY}":
+        # A row that does not carry this field at all is not a row this criterion cannot
+        # read: the field it is *about* is the one missing, so the answer is the finding.
+        # The other three read the same row's shape and have to refuse it as malformed,
+        # which is why the translation lives here and not in the shared gate.
+        return "ACCOUNT_TYPE_NOT_RECORDED"
+    if problem is not None:
+        return problem
+    for row in rows:
+        record = payload(row)
+        observed = record.get(OBSERVED_ACCOUNT_TYPE_KEY)
+        if not isinstance(observed, str):
+            return "ACCOUNT_TYPE_NOT_RECORDED"
+        named = record.get("identity_candidate_id")
+        candidate = _CANDIDATE_BY_ID.get(named) if isinstance(named, str) else None
+        if candidate is not None and observed == candidate.user_type_argv:
+            return f"ACCOUNT_TYPE_COPIED_FROM_THE_LAUNCH_ARGUMENT:{observed}"
+    return None
+
+
+def the_offline_identity_joined_and_the_server_agrees(material: RunMaterial) -> str | None:
+    """The offline identity reached the world, and the server's own record says so.
+
+    The candidate-independent half of the family, which is why `OFFLINE-030` keeps it and
+    nothing else: what the server logged does not depend on which column was launched, so
+    a bundle that answers it has still not said which one got in. Three records have to
+    agree — the Bridge's filtered word that its client arrived, Core's document that a
+    first snapshot of that world was admitted, and the server's user cache deriving this
+    name to this UUID — and one refusal reason is ruled out on its own, because
+    `SESSION_MATERIAL_MISMATCH` is the identity comparison saying the joiner was not who
+    the launch claimed.
+    """
+
+    if not material.ledger_readable:
+        return "LEDGER_UNREADABLE"
+    rejections, problem = _snapshot_rejections(material)
+    if problem is not None:
+        return problem
+    if SESSION_MATERIAL_MISMATCH in rejections:
+        return "IDENTITY_COMPARISON_REFUSED"
+    joins = material.recorded(JOIN_OBSERVED)
+    if len(joins) != 1:
+        # Zero is a client that never arrived, and two is a second attempt — a new
+        # generation reaching the world, which this bundle cannot speak for.
+        return f"JOINS_RECORDED:{len(joins)}"
+    join = joins[0]
+    source, trust_class = join.get("source"), join.get("trust_class")
+    if source != "BRIDGE" or trust_class != "BRIDGE_FILTERED":
+        return f"JOIN_ROW_NOT_ATTRIBUTABLE:{source}/{trust_class}"
+    refused = first_snapshot_admitted(material)
+    if refused is not None:
+        # The document's own reasons decide whether this is a snapshot that never came or
+        # one that came and was refused, and only the second is a fact about the first.
+        return (
+            f"FIRST_SNAPSHOT_REFUSED:{rejections[0]}"
+            if rejections
+            else f"FIRST_SNAPSHOT_NOT_ADMITTED:{refused}"
+        )
+    observed = server_observed_join_identity(material)
+    if observed is not None:
+        return f"SERVER_IDENTITY_NOT_EXPLAINED:{observed}"
+    return None
+
+
+def _snapshot_rejections(material: RunMaterial) -> tuple[list[str], str | None]:
+    """The reasons Core wrote for refusing snapshots, or why the document cannot say.
+
+    `ADMIT-070`'s own criterion reads the field inline rather than through this helper,
+    and deliberately so: that case has sealed evidence, and a digest is taken of the
+    function's text, so editing it to share two lines would move its `case_version` and
+    unjudge a bundle that still says the same thing. What that leaves here is the second
+    reader — the offline join criterion, which has to rule out the one refusal reason its
+    own identity comparison produces. A missing field and a word where a list belongs are
+    neither "nothing was refused" — that is the answer of an empty list.
+    """
+
+    recorded = material.run().get("snapshot_rejections")
+    if not isinstance(recorded, list):
+        return [], "SNAPSHOT_REJECTIONS_UNREADABLE"
+    rejections: list[str] = []
+    for item in cast("list[object]", recorded):
+        if not isinstance(item, str):
+            return [], "SNAPSHOT_REJECTIONS_UNREADABLE"
+        rejections.append(item)
+    return rejections, None
+
+
 #: Every assertion a case manifest may name, and what performs it. A name that is
 #: not here cannot be judged, which the verdict reports rather than passing over.
 ASSERTIONS: dict[str, Callable[[RunMaterial], str | None]] = {
@@ -3020,6 +3455,24 @@ ASSERTIONS: dict[str, Callable[[RunMaterial], str | None]] = {
         the_refused_generation_was_closed_and_never_reopened
     ),
     "the_refusal_was_asked_of_this_run": the_refusal_was_asked_of_this_run,
+    # ADMIT-070 named the domain tests that exercise the filter; OFFLINE-010/020/030
+    # name what one real launch of one candidate left behind. The five below are that
+    # second reading, and the first four of them can only be answered about a single
+    # column — which is why `OFFLINE-030` keeps only the fifth and its two children
+    # carry the attribution.
+    "this_run_started_the_identity_candidate_the_case_names": (
+        this_run_started_the_identity_candidate_the_case_names
+    ),
+    "core_recorded_the_identity_it_compared": core_recorded_the_identity_it_compared,
+    "the_reported_session_is_the_identity_this_run_launched_with": (
+        the_reported_session_is_the_identity_this_run_launched_with
+    ),
+    "the_account_type_was_recorded_as_an_observation": (
+        the_account_type_was_recorded_as_an_observation
+    ),
+    "the_offline_identity_joined_and_the_server_agrees": (
+        the_offline_identity_joined_and_the_server_agrees
+    ),
 }
 
 

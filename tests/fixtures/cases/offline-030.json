@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "case_id": "OFFLINE-030",
+  "work_package": "W30",
+  "mandatory": false,
+  "inputs": [],
+  "assertion_digests": {
+    "the_offline_identity_joined_and_the_server_agrees": "7d7392a6314956acfd306539a50d090ee1da96bfc8d37dd7abf16249c37ec747"
+  },
+  "assertions": [
+    "the_offline_identity_joined_and_the_server_agrees"
+  ]
+}
