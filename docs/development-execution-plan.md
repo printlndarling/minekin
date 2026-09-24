@@ -3245,6 +3245,77 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
   的任何 pin/源码/已封 bundle，不把 1.20.1 jar 冒名成 1.21.4 的 digest，不因新增 root 就放宽
   host-boundary 名单。此修订只解锁本卡既定的下一步（隔离构建产出可复判的 1.20.1 Bridge jar 并回填
   candidate recipe），不改本卡 `non_goals`、不预支 V04 的入服验收。
+  **续（`bridge-1201/` 落地、跨平台可复现与 recipe 回填，2026-09-25）**：按上一节登记的方案甲做完，
+  逐项是量出来的而非推定的。
+  - **新 root 的形状**：`bridge-1201/` 是与 `bridge/` 同构的独立 Loom 工程（各自的 `settings.gradle.kts`、
+    `build.gradle.kts`、`gradle/libs.versions.toml`、`gradle.lockfile`、`settings-gradle.lockfile`、
+    `gradle/verification-metadata.xml`、wrapper、`host-boundary-names.json`、`src/`），共用上一层的
+    `proto/`。两边 `src` 下各 50 个 `.java`，逐文件比对只有 **7 个主源 + 2 个资源 + 1 个测试**不同，
+    即上一节点名的四处类迁移（`ConnectScreen` 换包、common handler 与 `s2c.common.DisconnectS2CPacket`
+    不存在、`DisconnectionInfo` 未引入、`Session` 在 `client.util`）落在的文件，外加 `fabric.mod.json`
+    与 mixin 清单。**观测面没换**：仍然是连接失败/登出原因/登录断开会话三件事，没有新增能力，也没有
+    因 1.20.1 缺类就删掉一条 hook 让清单变短。
+  - **`bridge/` 一字未动**：`git status bridge/` 干净，source tree 摘要仍是 `507f708d…`，
+    jar 仍是 `faeec4a9…`/1,308,525B。1.21.4 的 recipe、pin 与已封 bundle 无一处前移。
+  - **产物可复现是真的建了四次**：(a) Windows + JDK `21.0.12.1+1-LTS-4` 严格构建、(b)(c) 冷缓存的
+    `eclipse-temurin:21-jdk-jammy` 容器（`Temurin-21.0.12+8`）在**强制依赖校验**下构建（第一次因
+    `libraries.minecraft.net` 的 TLS 握手中断失败，日志留在 gitignored 的 `.tmp/v03docker4.log`，
+    成功那次是 `.tmp/v03docker5.log`——判为网络抖动，不据此声称验证已放宽）、(d) 本收口再跑一次
+    `./gradlew --no-daemon check --rerun-tasks -x checkHostBoundaryArtifacts`：11 个任务全部重执行、
+    含 `test`，23s 后 `BUILD SUCCESSFUL`。四次 jar 摘要逐字节相同：
+    `9e162d8359a886394ddd80db87477d9196ef3d2972e7a4d942df54a2f1e349bc` / 1,308,469B。只 pin 主 jar；
+    sources jar 含时间戳，不参与 pin。
+  - **依赖验证清单**：Windows 与 Linux 各自写出的 `verification-metadata.xml` 取并集（903 ⊂ 918，
+    新增的 15 条是 Linux-only 的解析产物）后合并进 committed 文件，摘要 `23e10efa…`，保留审过的注释头
+    与 `<trust>` 顺序，`verify-metadata=true` 不变；合并后两侧构建都不再改写它——这条是量出来的：
+    上述四次构建前后该文件摘要一致。
+  - **Launcher 侧的 Bridge 身份泛化**：`recipe.py` 新增 `BridgeIdentity`/`bridge_identity(version)`，
+    按版本给出 `source_root`、jar 相对路径、digest、size，并且**读模块常量而非导入期快照**（否则
+    以 monkeypatch 代替「审过的构建」的那几项测试会核不到真值）；`require_built_bridge(root, version)`
+    的第二个参数是必填的——给个默认值会让一个版本的计划拿另一个版本的 pin 去核。`cli/session.py` 的
+    调用点从计划里取 `bundle.minecraft` 传进去。candidate 的 audit 因此从「只能记 `build_required`」
+    变成核真实的 `workspace:bridge-1201` source、jar digest/size 与 `source_tree_sha256`，四类冒名
+    （拿 1.21.4 root 的 source、拿别的 root 的 source_digest、未审 digest、退回 `build_required`）各有
+    一项定向拒绝测试。
+  - **candidate recipe 回填**：`tests/fixtures/runtime-input/bundle-candidate-1.20.1.json` 的 bridge
+    条目现为 `verification: sha256`、digest `9e162d83…`、size 1,308,469、
+    `source: workspace:bridge-1201`、`source_digest: b5a817dd…`；该 fixture 自身的清单摘要行同步为
+    `f552b92a…`。`status` 仍是 `candidate`。真实 CLI 读数（不是测试里的读数）：
+    `minekin bundle verify` 对 1.21.4 与 1.20.1 两份 recipe 都出 `valid_recipe`、`launchable: true`、
+    `blockers: []`。**`launchable` 说的是「计划里没有未构建工件」，不是「已验收」**——本卡没有任何一项
+    被记为 `tested`，1.20.1 客户端从未入过服。
+  - **门禁按 root 各跑**：`check_bridge_scaffold.py` 打印 `OK (2 root(s))`，其 1.21.4 断言字符串逐条
+    保留（含 `options.release = 21`、manifest depends 精确映射）；`check_bridge_protocol.py` 对两个 root
+    各出一行；`check_bridge_artifacts.py` 用 `--artifact bridge-1201/… --names bridge-1201/host-boundary-names.json`
+    读数 `against Yarn 1.20.1+build.10; no server state…`；`check_bridge_host_boundary.py` 对两个 root
+    的源集各跑一次（CI `bridge-static` 已加第二条），1.20.1 root 的独立命名表是 17 个标记/631 种拼写，
+    `ServerLevel` 在该 root 里为空——这份「盲」是量出来的，并在
+    `tests/contract/test_bridge_artifact_gate.py` 里以阳性对照的形式覆盖，而不是靠删规则蒙过去。
+    `check_boundaries.py` 的 `BRIDGE_ROOT` 改为 `BRIDGE_ROOTS`，两个 root 都扫 oracle 标记。
+  - **case 台账因此前移（不是我的选择，是那道门的规则）**：`HOSTCTL-060` 的
+    `the_build_runs_the_artifact_gate_so_a_violation_fails_it` 钉的是 `tools/check_bridge_scaffold.py`
+    的**全文摘要**，泛化该门必然移动它。按既有机制 `--record` 重登记：该断言的实现摘要
+    `5d7fc110… → 29ab71b4…`，case 文件摘要 `625108cd… → 2368ae21…`，`tests/fixtures/manifest.sha256`
+    对应行随之更新。后果如实记下：**`HOSTCTL-060` 的 `case_version` 前移了**，旧版本封存的东西不能算
+    这一版的证据。核对过引用面——仓库内除散文与契约文档外没有引用 `HOSTCTL-060` 旧 case version 的已封
+    bundle（该 case 是 `local-only`、`mandatory: false`，判据由门禁本身承担），所以本卡不重封任何
+    bundle；若后续 campaign 引用它，须按新版本重跑。
+  - **全量读数**：`2319 → 2327 passed / 2 skipped`（净增 8 项定向测试，两条 skip 是既有平台限制项），
+    pyright `0 errors`，ruff check/format、`check_boundaries`、`check_case_assertions`、
+    `verify_fixture_digests`、`check_workflow_pins`、两道 root 的 host-boundage/artifact/protocol 门、
+    `git diff --check` 全绿。
+  - **本卡的未测项与后续（不写成已完成）**：①**1.20.1 客户端从未真实启动或入服**——真服握手、离线身份
+    归因、JOIN 后首快照、look/move/release、断连松键全属 V04，本卡的 `launchable` 只是 recipe 层事实；
+    ②1.20.1 计划里带 `world_name` 时才会走 `_game_argument_template` 的 `--quickPlaySingleplayer`
+    （1.20.2+ 才有该参数），本卡未触及，V04 建真计划时必须处理，已在那里列为前置；③构建容器镜像内没有
+    python，Linux 侧的 `check` 用 `-x checkHostBoundaryArtifacts` 跳过产物门——该门在 Windows 与 CI
+    （uv 提供的解释器）上真跑过，但**「Linux 上由 Gradle 自己触发这道门」未测**；④
+    `check_bridge_proto_java.py` 的 stub 编译只覆盖 1.21.4 root（1.20.1 需要第二套 stub 词汇，已在该文件
+    注释里写明理由，覆盖 1.20.1 的是真 Loom 构建 + 产物门这一更强的那条）；⑤
+    `src/minekin_core/adapters/bridge/bootstrap.py` 的 docstring 仍写着「Bridge JAR 还不能 pin，recipe
+    还是 `build_required`」——该文件不在本卡允许路径内，故未改，登记为后续；⑥Bridge 的协议/能力清单
+    泛化后**没有做过 1.20.1 的运行时能力协商**（协议门只核静态清单）。以上任何一条都不构成本卡收口的
+    反例，但没有一条被算作已验证。
 
 ### HOST-ADMISSION-DESIGN-001 — 宿主世界会话坐标来源
 

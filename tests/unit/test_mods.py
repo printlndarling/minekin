@@ -209,7 +209,7 @@ def test_a_started_session_finds_its_mods_in_the_overlay(
     ) -> dict[str, Any]:
         return plan
 
-    def built_bridge(_root: Path) -> Path:
+    def built_bridge(_root: Path, _minecraft_version: str) -> Path:
         return workspace
 
     def this_workspace(_start: Path) -> Path:

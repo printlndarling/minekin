@@ -16,6 +16,7 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import re
 import struct
 import subprocess
 import sys
@@ -27,6 +28,12 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 TOOL = "tools/check_bridge_artifacts.py"
 NAMES = REPOSITORY_ROOT / "bridge" / "host-boundary-names.json"
 REAL_JAR = REPOSITORY_ROOT / "bridge" / "build" / "libs" / "minekin-bridge-0.0.0.jar"
+
+#: The second Bridge root, pinned to Minecraft 1.20.1. Its table is a different
+#: derivation, not a copy: intermediary names are per-mappings-build, so a jar built
+#: against 1.20.1 and read with 1.21.4's spellings passes without being seen.
+NAMES_1201 = REPOSITORY_ROOT / "bridge-1201" / "host-boundary-names.json"
+REAL_JAR_1201 = REPOSITORY_ROOT / "bridge-1201" / "build" / "libs" / "minekin-bridge-1201-0.0.0.jar"
 
 #: The Yarn names this repository's Bridge legitimately uses, and the intermediary ones
 #: they are remapped to. Read from the checked-in table rather than restated, so a test
@@ -870,18 +877,102 @@ def test_the_pinned_table_matches_the_build_the_jar_was_remapped_with() -> None:
     """The digest in the table is a claim about the mappings, and this is it.
 
     The mappings jar is what loom unpacks to build the jar above; when it is present the
-    table is checked against it rather than taken on trust.
+    table is checked against it rather than taken on trust. One loop for both roots,
+    because each has its own pinned build and a table matched to the wrong one would
+    satisfy this check only by being read against the wrong cache entry.
     """
 
-    table = json.loads(NAMES.read_text(encoding="utf-8"))
     loom = Path.home() / ".gradle" / "caches" / "fabric-loom"
-    candidates = sorted(loom.glob(f"*/net.fabricmc.yarn.*{table['yarn']}*/mappings.tiny"))
-    if not candidates:
+
+    for names in (NAMES, NAMES_1201):
+        table = json.loads(names.read_text(encoding="utf-8"))
+        candidates = sorted(loom.glob(f"*/net.fabricmc.yarn.*{table['yarn']}*/mappings.tiny"))
+        if not candidates:
+            continue
+
+        digest = hashlib.sha256(candidates[0].read_bytes()).hexdigest()
+
+        assert digest == table["mappings"]["sha256"], (
+            f"the name table at {names.relative_to(REPOSITORY_ROOT)} was derived from "
+            "different mappings than the ones this checkout has"
+        )
+
+
+def test_each_root_labels_its_table_from_the_yarn_its_own_build_pins() -> None:
+    """A table says which Yarn build it came from, and that must be its root's pin.
+
+    Measured rather than assumed: the first 1.20.1 table was a copy of the 1.21.4 one,
+    and scanning a 1.20.1 jar with it reported OK while unable to see 52 of that build's
+    server-state spellings. The label is where that shows up — the catalogue beside the
+    table is the same pin the build resolves, so the two cannot name two versions.
+    """
+
+    for names in (NAMES, NAMES_1201):
+        catalog = names.parent / "gradle" / "libs.versions.toml"
+        assert catalog.is_file(), f"{names} has no catalogue beside it to label it"
+        match = re.search(
+            r'^yarn\s*=\s*"([^"]+)"', catalog.read_text(encoding="utf-8"), re.MULTILINE
+        )
+        assert match is not None, f"{catalog} does not pin a Yarn build"
+        table = json.loads(names.read_text(encoding="utf-8"))
+
+        assert table["yarn"] == match.group(1), (
+            f"{names.relative_to(REPOSITORY_ROOT)} is labelled {table['yarn']!r} while its "
+            f"root pins {match.group(1)!r}; a table from another root reads the jar through "
+            "spellings that jar cannot contain"
+        )
+
+    first = json.loads(NAMES.read_text(encoding="utf-8"))
+    second = json.loads(NAMES_1201.read_text(encoding="utf-8"))
+
+    assert first["mappings"]["sha256"] != second["mappings"]["sha256"], (
+        "the two roots name the same mappings build, so one of them is a copy"
+    )
+
+
+def test_the_second_roots_table_sees_a_leak_spelled_in_its_own_names(
+    tmp_path: Path,
+) -> None:
+    """The 1.20.1 table is a vocabulary the gate can use, not a file that exists.
+
+    The spelling comes from the checked-in table itself, so this says the derived
+    intermediary names reach the artifact rather than only the Yarn ones.
+    """
+
+    aliases = json.loads(NAMES_1201.read_text(encoding="utf-8"))["aliases"]
+    intermediary = [
+        name for name in aliases["ServerWorld"] if name.startswith("net/minecraft/class_")
+    ]
+    assert intermediary, "the 1.20.1 table has no intermediary spelling for a server world"
+
+    entries = with_one(
+        "org/minekin/bridge/Leak.class",
+        class_file("org/minekin/bridge/Leak", types=[intermediary[0]]),
+    )
+
+    result = run(
+        "--artifact",
+        str(jar(tmp_path, entries, "second-root-leak.jar")),
+        "--names",
+        str(NAMES_1201),
+    )
+
+    assert result.returncode == 1, result.stdout
+    assert intermediary[0] in result.stderr
+
+
+def test_the_second_roots_built_jar_is_read_by_its_own_table() -> None:
+    """Same claim as the real-jar test, for the root the second recipe pins."""
+
+    arguments = ("--artifact", str(REAL_JAR_1201), "--names", str(NAMES_1201))
+
+    if not REAL_JAR_1201.exists():
+        result = run(*arguments)
+        assert result.returncode == 2
+        assert "is not there" in result.stderr
         return
 
-    digest = hashlib.sha256(candidates[0].read_bytes()).hexdigest()
+    result = run(*arguments)
 
-    assert digest == table["mappings"]["sha256"], (
-        "the checked-in name table was derived from different mappings than the ones this "
-        "checkout has"
-    )
+    assert result.returncode == 0, result.stderr
+    assert "OK" in result.stdout

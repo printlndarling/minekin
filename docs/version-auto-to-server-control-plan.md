@@ -187,6 +187,14 @@ bundle id 与结果；旧代回调不能推进新代。`BLOCKED` 不自动回退
   artifacts,protocol,proto_java}.py`、`tools/check_boundaries.py` 的 `BRIDGE_ROOT`，CI `bridge-static`
   按 root 各跑一遍。禁区分外不变：不改 1.21.4 的 pin/源码/已封 bundle，不冒名 digest，不放宽
   host-boundary 名单。取证与理由见主执行计划 V03 `progress_record`。
+  **登记连带（同次修订内补，2026-09-25）**：`tools/check_bridge_scaffold.py` 的**全文摘要**被
+  `tests/fixtures/cases/hostctl-060.json` 的 `assertion_digests` 钉住（该门的判据原文就是这条 case
+  的一条断言），所以把这道门泛化成「按 root 各查一遍」必然移动它的实现摘要——这正是那道门设计出来
+  要拦住的状态（同一个 case version 底下换了一套判据）。据此允许用既有的
+  `tools/check_case_assertions.py --record` 重登记 `tests/fixtures/cases/hostctl-060.json` 的那一行，
+  并同步 `tests/fixtures/manifest.sha256` 里该 case 文件的摘要行。除这两处摘要外不动任何 case 判据、
+  不动 1.21.4 在门内的 pin 字符串、不重封 bundle；`HOSTCTL-060` 的 `case_version` 因此前移，其后果
+  如实记在主执行计划里。
 - **验收**：隔离构建/`check --rerun-tasks`、源码/产物 digest、依赖锁、SBOM/许可、Bridge
   协议/能力清单均可复判；1.21.4 全套回归无漂移；新产物仍仅 `candidate`。
 - **停止**：元数据无可靠摘要、关键 Mod/映射无可审组合、Bridge hook 需超出当前能力契约、

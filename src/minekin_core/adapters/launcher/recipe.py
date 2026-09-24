@@ -44,13 +44,9 @@ BRIDGE_JAR_SHA256 = "faeec4a9df83abb9ca0404863e04d20cfd87ac0f3afd5e74b6858e3e153
 BRIDGE_JAR_SIZE = 1_308_525
 BRIDGE_JAR_RELATIVE_PATH = "bridge/build/libs/minekin-bridge-0.0.0.jar"
 
-# The second, not-yet-built bundle. These are the reviewed pins for Minecraft
-# 1.20.1, each one re-fetched and re-hashed from its authoritative upstream
-# (see `docs/version-license-matrix.md`), not copied from the 1.21.4 stack. They
-# describe a *candidate* only: no 1.20.1 Bridge jar has been built, so the
-# recipe treats the Bridge as `build_required` and the bundle as non-launchable.
-# Reaching `tested` needs the isolated Loom build and the real cross-version
-# acceptance in later cards; nothing here asserts that has happened.
+# The second bundle. These are the reviewed pins for Minecraft 1.20.1, each one
+# re-fetched and re-hashed from its authoritative upstream (see
+# `docs/version-license-matrix.md`), not copied from the 1.21.4 stack.
 MINECRAFT_1201_VERSION = "1.20.1"
 MINECRAFT_1201_METADATA_SHA1 = "599695fee750ab157846886c6e69583003f22d07"
 MINECRAFT_1201_JAVA_MAJOR = 17
@@ -64,6 +60,58 @@ FABRIC_API_1201_URL = (
 FABRIC_API_1201_SIZE = 2_137_232
 FABRIC_API_1201_SHA256 = "4197ff4fbdac13cffccd267c1bc59e9fbabb2b5683a9d5f8023f4b5ea16a1c1e"
 FABRIC_API_1201_SHA1 = "3e9cdd3e2f827ca9a259df9eb8e31949437b6bd4"
+
+# The 1.20.1 Bridge lives in its own source root, `bridge-1201/`, rather than
+# inside `bridge/`: the 1.21.4 recipe pins `source_digest` over that tree, so
+# adding a second version's sources there would silently move the pinned
+# identity of a bundle that has already been accepted. Its jar is pinned the
+# same way 1.21.4's is — built twice, once on Windows with JDK 21.0.12.1+1-LTS-4
+# and once in a Linux x86_64 Temurin 21 container, both producing the digest
+# below from an empty Gradle cache with dependency verification enforced.
+BRIDGE_1201_JAR_SHA256 = "9e162d8359a886394ddd80db87477d9196ef3d2972e7a4d942df54a2f1e349bc"
+BRIDGE_1201_JAR_SIZE = 1_308_469
+BRIDGE_1201_JAR_RELATIVE_PATH = "bridge-1201/build/libs/minekin-bridge-1201-0.0.0.jar"
+
+
+@dataclass(frozen=True, slots=True)
+class BridgeIdentity:
+    """One reviewed Minecraft version's Bridge: which root builds it and what bytes
+    that root's reviewed build produced.
+
+    The source root has to be part of the identity rather than a constant, because
+    a digest pinned for one root says nothing about another's build.
+    """
+
+    source_root: str
+    jar_relative_path: str
+    jar_sha256: str
+    jar_size: int
+
+
+def bridge_identity(minecraft_version: str) -> BridgeIdentity:
+    """The reviewed Bridge for a version, or a refusal for one nothing pins.
+
+    Read from the module constants rather than from a frozen table, because the
+    tests that stand in for a reviewed build renew those constants; a snapshot
+    taken at import would keep the real pins and the tests would pass without
+    checking anything.
+    """
+
+    if minecraft_version == "1.21.4":
+        return BridgeIdentity(
+            source_root="bridge",
+            jar_relative_path=BRIDGE_JAR_RELATIVE_PATH,
+            jar_sha256=BRIDGE_JAR_SHA256,
+            jar_size=BRIDGE_JAR_SIZE,
+        )
+    if minecraft_version == MINECRAFT_1201_VERSION:
+        return BridgeIdentity(
+            source_root="bridge-1201",
+            jar_relative_path=BRIDGE_1201_JAR_RELATIVE_PATH,
+            jar_sha256=BRIDGE_1201_JAR_SHA256,
+            jar_size=BRIDGE_1201_JAR_SIZE,
+        )
+    raise _reject(f"no reviewed Bridge jar is pinned for Minecraft {minecraft_version}")
 
 
 def _reject(message: str) -> MinekinError:
@@ -165,10 +213,12 @@ def _objects(value: object, field: str) -> list[dict[str, Any]]:
 def _candidate_1201_audit(profile: dict[str, Any], workspace_root: Path) -> RecipeAudit | None:
     """Validate a reviewed 1.20.1 *candidate* recipe, or return None if it is not one.
 
-    The candidate is honest about what has not happened: no 1.20.1 Bridge jar is
-    pinned because none has been built, so the Bridge artifact must say
-    `build_required` and the audit carries that blocker. It is therefore never
-    launchable, and nothing here claims `tested`.
+    `candidate` is the bundle's acceptance status, not a statement about its
+    artifacts: the Bridge jar is pinned like 1.21.4's, because `bridge-1201/` has
+    been built and its bytes measured, while no 1.20.1 client has entered a real
+    server under acceptance. So a plan built from this recipe can be launched —
+    which is what the card that proves it needs — and nothing here calls it
+    `tested`.
     """
 
     version_section = profile.get("minecraft")
@@ -214,18 +264,22 @@ def _candidate_1201_audit(profile: dict[str, Any], workspace_root: Path) -> Reci
         raise _reject("Fabric API artifact identity is not the reviewed release")
 
     bridge = by_name["minekin-bridge"]
+    identity = bridge_identity(MINECRAFT_1201_VERSION)
     if any(
         bridge.get(key) != expected
         for key, expected in {
             "kind": "bridge",
-            "verification": "build_required",
-            "source": "workspace:bridge",
+            "verification": "sha256",
+            "source": f"workspace:{identity.source_root}",
             "license": "NOASSERTION",
+            "digest": identity.jar_sha256,
+            "size": identity.jar_size,
         }.items()
     ):
-        raise _reject("candidate Bridge must be declared as build_required, not a pinned jar")
-    if "digest" in bridge or "size" in bridge:
-        raise _reject("an unbuilt candidate Bridge cannot pin a jar digest or size")
+        raise _reject("candidate Bridge jar pin is not the reviewed build of the 1.20.1 root")
+    candidate_source_digest = source_tree_sha256(workspace_root / identity.source_root)
+    if bridge.get("source_digest") != candidate_source_digest:
+        raise _reject("candidate Bridge source tree digest differs from the bundle recipe")
 
     bundle_name = profile.get("bundle_name")
     if not isinstance(bundle_name, str) or not bundle_name:
@@ -241,9 +295,19 @@ def _candidate_1201_audit(profile: dict[str, Any], workspace_root: Path) -> Reci
                 source=FABRIC_API_1201_URL,
                 sha1=FABRIC_API_1201_SHA1,
             ),
+            FixedMod(
+                name="minekin-bridge",
+                kind="bridge",
+                sha256=identity.jar_sha256,
+                size=identity.jar_size,
+                source=f"workspace:{identity.jar_relative_path}",
+            ),
         ),
-        bridge_source_sha256=source_tree_sha256(workspace_root / "bridge"),
-        blockers=("minekin-bridge: build required",),
+        bridge_source_sha256=candidate_source_digest,
+        # Nothing is blocked either: the recipe pins the 1.20.1 jar as it pins
+        # 1.21.4's. What the candidate lacks is a real server accepting it, and
+        # that is its `status`, not an unbuilt artifact.
+        blockers=(),
     )
 
 
@@ -296,19 +360,20 @@ def validate_bundle_recipe(profile_path: Path, workspace_root: Path) -> RecipeAu
         raise _reject("Fabric API artifact identity is not the reviewed release")
 
     bridge = by_name["minekin-bridge"]
+    identity = bridge_identity("1.21.4")
     if any(
         bridge.get(key) != expected
         for key, expected in {
             "kind": "bridge",
             "verification": "sha256",
-            "source": "workspace:bridge",
+            "source": f"workspace:{identity.source_root}",
             "license": "NOASSERTION",
-            "digest": BRIDGE_JAR_SHA256,
-            "size": BRIDGE_JAR_SIZE,
+            "digest": identity.jar_sha256,
+            "size": identity.jar_size,
         }.items()
     ):
         raise _reject("Bridge jar pin is not the reviewed build of the workspace source")
-    actual_source_digest = source_tree_sha256(workspace_root / "bridge")
+    actual_source_digest = source_tree_sha256(workspace_root / identity.source_root)
     if bridge.get("source_digest") != actual_source_digest:
         raise _reject("Bridge source tree digest differs from the bundle recipe")
     bundle_name = profile.get("bundle_name")
@@ -328,9 +393,9 @@ def validate_bundle_recipe(profile_path: Path, workspace_root: Path) -> RecipeAu
             FixedMod(
                 name="minekin-bridge",
                 kind="bridge",
-                sha256=BRIDGE_JAR_SHA256,
-                size=BRIDGE_JAR_SIZE,
-                source=f"workspace:{BRIDGE_JAR_RELATIVE_PATH}",
+                sha256=identity.jar_sha256,
+                size=identity.jar_size,
+                source=f"workspace:{identity.jar_relative_path}",
             ),
         ),
         bridge_source_sha256=actual_source_digest,
@@ -343,28 +408,32 @@ def validate_bundle_recipe(profile_path: Path, workspace_root: Path) -> RecipeAu
     )
 
 
-def require_built_bridge(workspace_root: Path) -> Path:
-    """The built Bridge jar, or a refusal saying what is wrong with it.
+def require_built_bridge(workspace_root: Path, minecraft_version: str) -> Path:
+    """The built Bridge jar for one Minecraft version, or a refusal saying what is
+    wrong with it.
 
     A missing jar is a build that has not happened; a jar that is the wrong size
     or the wrong bytes is a different thing entirely, and both are refused here
-    rather than discovered by a client that will not load the Bridge.
+    rather than discovered by a client that will not load the Bridge. The version
+    is a required argument because each one's jar is a different root's build: a
+    default would let a plan for one version be checked against the other's pin.
     """
 
-    jar = workspace_root / BRIDGE_JAR_RELATIVE_PATH
+    identity = bridge_identity(minecraft_version)
+    jar = workspace_root / identity.jar_relative_path
     if not jar.is_file():
         raise _reject(
             f"the Bridge jar has not been built: {jar} is missing; "
-            f"run `./gradlew build` in the bridge directory"
+            f"run `./gradlew build` in the {identity.source_root} directory"
         )
     size = jar.stat().st_size
-    if size != BRIDGE_JAR_SIZE:
+    if size != identity.jar_size:
         raise _reject(
-            f"the Bridge jar is {size} bytes, not the reviewed {BRIDGE_JAR_SIZE}; "
+            f"the Bridge jar is {size} bytes, not the reviewed {identity.jar_size}; "
             f"the pin no longer describes this build"
         )
     digest = hashlib.sha256(jar.read_bytes()).hexdigest()
-    if digest != BRIDGE_JAR_SHA256:
+    if digest != identity.jar_sha256:
         raise _reject(
             f"the Bridge jar is not the reviewed build of this source: {digest} is not "
             f"the pinned digest"

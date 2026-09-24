@@ -104,7 +104,7 @@ def stand_in_for_the_built_workspace(monkeypatch: Any) -> None:
     depend on whether this checkout happens to have been built.
     """
 
-    def built_bridge(_root: Path) -> Path:
+    def built_bridge(_root: Path, _minecraft_version: str) -> Path:
         return Path("/dev/null")
 
     def mods(*_args: object, **_kwargs: object) -> tuple[Path, ...]:

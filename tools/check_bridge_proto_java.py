@@ -229,6 +229,15 @@ public class MinecraftClient {
 }
 """,
 }
+#: The adapter layer of the 1.21.4 root, compiled against stubs that spell Minecraft
+#: and Fabric the way 1.21.4's mappings name them. The other Bridge roots are not
+#: listed here on purpose: `bridge-1201`'s sources name classes this stub set does not
+#: have (`client.util.Session`, a play-handler disconnect, no `DisconnectionInfo`), so
+#: compiling them here would need a second stub vocabulary per version. What covers
+#: that root instead is the real Loom build in its own directory — it compiles against
+#: the pinned 1.20.1 artifacts and runs `check_bridge_artifacts.py` over the jar it
+#: produced, which is the stronger of the two checks. Adding a root to this list is a
+#: decision to write its stubs, not a line to copy.
 ADAPTER_SOURCES = (
     ROOT / "bridge/src/main/java/org/minekin/bridge/MinekinBridgeClient.java",
     ROOT / "bridge/src/main/java/org/minekin/bridge/runtime/BridgePhaseMachine.java",

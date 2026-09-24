@@ -20,7 +20,10 @@ from typing import cast
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 PACKAGE_ROOT = REPOSITORY_ROOT / "src" / "minekin_core"
-BRIDGE_ROOT = REPOSITORY_ROOT / "bridge"
+#: One Bridge root per Minecraft version, each pinned by its own recipe. A new root
+#: joins this list as part of being pinned: a root nobody scans is a root whose
+#: oracle markers go unread.
+BRIDGE_ROOTS = (REPOSITORY_ROOT / "bridge", REPOSITORY_ROOT / "bridge-1201")
 CASE_FIXTURES = REPOSITORY_ROOT / "tests" / "fixtures" / "cases"
 ORACLE_DIRECTORY = "tests/oracle/"
 
@@ -92,16 +95,22 @@ def violations(cases_dir: Path = CASE_FIXTURES) -> list[str]:
         if any(part.casefold() == "oracle" for part in relative.parts):
             errors.append(f"{relative}: oracle files must not exist in the product package")
 
-    for path in sorted(BRIDGE_ROOT.rglob("*")):
-        if not path.is_file() or path.suffix.casefold() not in {".java", ".json", ".kts", ".toml"}:
-            continue
-        text = path.read_text(encoding="utf-8").casefold()
-        relative = path.relative_to(REPOSITORY_ROOT)
-        for marker in PRODUCT_ORACLE_REFERENCES:
-            if marker in text:
-                errors.append(
-                    f"{relative}: Bridge product references test oracle marker {marker!r}"
-                )
+    for bridge_root in BRIDGE_ROOTS:
+        for path in sorted(bridge_root.rglob("*")):
+            if not path.is_file() or path.suffix.casefold() not in {
+                ".java",
+                ".json",
+                ".kts",
+                ".toml",
+            }:
+                continue
+            text = path.read_text(encoding="utf-8").casefold()
+            relative = path.relative_to(REPOSITORY_ROOT)
+            for marker in PRODUCT_ORACLE_REFERENCES:
+                if marker in text:
+                    errors.append(
+                        f"{relative}: Bridge product references test oracle marker {marker!r}"
+                    )
 
     pyproject = tomllib.loads((REPOSITORY_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     wheel = (

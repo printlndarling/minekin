@@ -90,7 +90,9 @@ jobs:
       - name: Verify pinned Bridge scaffold without downloading Minecraft
         run: uv run --no-project python tools/check_bridge_scaffold.py
       - name: Refuse server state outside the Bridge's host adapter
-        run: uv run --no-project python tools/check_bridge_host_boundary.py
+        run: |
+          uv run --no-project python tools/check_bridge_host_boundary.py
+          uv run --no-project python tools/check_bridge_host_boundary.py --sources bridge-1201/src/main/java
       - name: Run the dependency-free Bridge protocol and adapter checks
         run: |
           javac -version

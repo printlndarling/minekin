@@ -562,7 +562,12 @@ async def prepare_session_async(
     require_store_complete(plan, ArtifactStore(runs / "artifact-store"))
     # The recipe pins the jar the reviewed source builds, so the launch asks the
     # workspace for it rather than trusting whatever a build happened to leave.
-    require_built_bridge(find_workspace_root(Path(__file__).resolve()))
+    # The version is part of the ask: each reviewed version's Bridge is a
+    # different root's build, and its own pin is the only one that fits it.
+    require_built_bridge(
+        find_workspace_root(Path(__file__).resolve()),
+        str(plan["bundle"]["minecraft"]),
+    )
 
     # Before anything is created: a second client on top of a live one shares the
     # overlay and appears to the server as a second player.

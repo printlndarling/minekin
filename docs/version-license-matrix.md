@@ -27,7 +27,7 @@
 | Fabric Loader | [meta.fabricmc.net](https://meta.fabricmc.net/v2/versions/loader/1.20.1) 对 1.20.1 报告最新 stable 为 `0.19.5`；[jar](https://maven.fabricmc.net/net/fabricmc/fabric-loader/0.19.5/fabric-loader-0.19.5.jar) SHA-1 `ff9e65cffca4a67f31523e1807fe0855940fcbfa`、大小 1,984,980；intermediary `net.fabricmc:intermediary:1.20.1` [jar](https://maven.fabricmc.net/net/fabricmc/intermediary/1.20.1/intermediary-1.20.1.jar) SHA-1 `97d0bff94981e37bd7a4362deee53c9a84e3fb21`、大小 573,365 | candidate 选 stable `0.19.5`（1.21.4 已封的是 `0.16.9`）；loader 版本是**可复核选择**而非既成 tested 事实，跨版本是否复用同一 Bridge 见下方可构建性评估 |
 | Fabric API | maven-metadata 中 1.20.1 线最新 release `0.92.12+1.20.1`；[jar](https://maven.fabricmc.net/net/fabricmc/fabric-api/fabric-api/0.92.12%2B1.20.1/fabric-api-0.92.12+1.20.1.jar) SHA-1 sidecar `3e9cdd3e2f827ca9a259df9eb8e31949437b6bd4`（下载后 `sha1sum` 复算即此值）、大小 2,137,232、自算 SHA-256 `4197ff4fbdac13cffccd267c1bc59e9fbabb2b5683a9d5f8023f4b5ea16a1c1e`；源码 [LICENSE](https://github.com/FabricMC/fabric-api) 为 Apache-2.0 | SHA-256 是 recipe 的强断言、SHA-1 是内容寻址缓存的键；两者都在此留痕。选该 release 只是可构建候选，不声称与 Bridge/Baritone 同跑已兼容 |
 | Yarn 映射 | [meta.fabricmc.net/v2/versions/yarn/1.20.1](https://meta.fabricmc.net/v2/versions/yarn/1.20.1) 最新 `1.20.1+build.10`（`net.fabricmc:yarn:1.20.1+build.10`，Yarn 一律标 stable=false） | 映射仅供研发；最终采用哪套 build 由 Loom/Gradle 对照与真实同步结果决定 |
-| Minekin Bridge | 本仓库自产产物，许可 `NOASSERTION`；**尚无 1.20.1 构建产物** | recipe 只能记为 `build_required`、无 digest；不得用 1.21.4 的 jar digest 冒名，也不得凭旧 build 称 tested |
+| Minekin Bridge | 本仓库自产产物，许可 `NOASSERTION`；1.20.1 的构建产物出自**顶层独立 root `bridge-1201/`**，jar sha256 `9e162d83…`/1,308,469B | recipe 按固定 SHA-256 钉住该 jar（不再是 `build_required`）；**不**用 1.21.4 的 digest 冒名，也不因构建成功称 1.20.1 为 `tested`——入服验收属 V04 |
 
 ### 可构建性评估与停止点（不猜测，留证据）
 
@@ -55,17 +55,59 @@
      下（`.session` 子包未存在），影响 `ClientSnapshot`。
   这不是「超出能力契约」的产品决策，而是本卡允许路径点名的「确需版本适配的 hook」：四处仍是
   同一观测面（连接失败/登出原因/登录断开会话），只是 1.20.1 的类名/包/方法签名不同。失败材料
-  （`.tmp/v03build/v03compile.log`）保留、不猜过，也不据此称 1.20.1 可构建或 tested。
+  （`.tmp/v03build/v03compile.log`）保留、不猜过。**这四处已在 `bridge-1201/` 按 1.20.1 的拼写落进
+  源里并构建通过（见下节），但「能构建」只说明产物存在，不说明 1.20.1 客户端可用——入服验收属 V04。**
 - 启动器侧 `recipe.py`、`metadata.py`、`schemas/bundle-manifest.schema.json` 及约 15 个测试把
   1.21.4 身份（版本/ loader / api / java / libraries 数 / native 数 / asset 对象数 / classpath 数）
   做成常量或 `const`。**在不产生 1.21.4 漂移的前提下**把它们改成按版本键入的 pin 表，是
   让 1.20.1 candidate recipe 通过校验的前置 LOCAL 项，仍在本卡允许路径内，此提交不做。
-- 因此本卡**尚未收 `DONE`**：已完成官方供应链逐项核对、可构建性实测取证（上述 1.20.1 编译
-  失败），以及启动器侧无漂移泛化（`recipe.py`/`metadata.py`/`launch_plan.py`/
-  `bundle-manifest.schema.json` 按版本键入 pin，candidate recipe fixture 端到端 `bundle verify`
-  通过）；剩余是 **Bridge 的 1.20.1 target 版本适配 hook**（上述 4 处类迁移的按版本源集/
-  目标切换）与隔离构建产出可复判的 1.20.1 Bridge jar；真实入服属 V04。以上任何一项都未、
-  也不会被记为 `tested`/PASS。
+- 因此本卡在 2026-09-25 **收口**：官方供应链逐项核对、可构建性实测取证（上述 1.20.1 编译失败及其
+  四处类迁移的定位）、启动器侧无漂移泛化（`recipe.py`/`metadata.py`/`launch_plan.py`/
+  `bundle-manifest.schema.json` 按版本键入 pin）、`bridge-1201/` 隔离构建与跨平台复现取证（见下节）、
+  以及 candidate recipe 回填后 `bundle verify` 端到端通过，均已完成。**剩余不在本卡**：真实 1.20.1
+  入服验收（V04）与把 candidate 提升为 `tested` 的登记（V05 只从 `tested` 里选包）。本卡交付的
+  任何一项都未、也不会被记为 `tested`/PASS。
+
+### 1.20.1 Bridge 隔离构建与 SBOM（V03，2026-09-25 实测）
+
+- **顶层独立 source root `bridge-1201/`**（与 `bridge/` 同构、自成一体的 Loom 工程，
+  `rootProject.name = minekin-bridge-1201`）。取独立 root 而不是往 `bridge/` 里加 per-version
+  源集，是因为 1.21.4 已封 recipe 把 `source_digest = source_tree_sha256(workspace/bridge)`
+  钉死了：本卡收口时复算 `bridge/` 仍为 `507f708dc4e3…`，即 1.21.4 的 source identity **一字未动**。
+- **产物**：`bridge-1201/build/libs/minekin-bridge-1201-0.0.0.jar`，1,308,469 字节，
+  sha256 `9e162d8359a886394ddd80db87477d9196ef3d2972e7a4d942df54a2f1e349bc`。只有这一个 jar
+  进 recipe；同目录的 sources jar 不钉摘要（跨平台复算时它的字节并不稳定）。
+- **跨平台可复现（这一步是量出来的）**：同一棵 1.20.1 源树在 (a) Windows + JDK
+  `21.0.12.1+1-LTS-4` 与 (b) `eclipse-temurin:21-jdk-jammy` 容器（`Temurin-21.0.12+8`）各构建
+  一次，(b) 又分「空 Gradle 缓存 + `--write-verification-metadata` 记录」与「用合并后的元数据、
+  依赖校验**强制**打开、`gradlew build -x checkHostBoundaryArtifacts` 跑绿」两轮，三次 jar 摘要
+  逐字节相同。收口当天再加第四次：Windows 上 `./gradlew --no-daemon check --rerun-tasks`（11 个任务
+  全部重执行、含 `test`），产物仍逐字节等于同一摘要。1.21.4 那道 pin 当年做过同样的双平台演示、
+  此后没再重复；本卡对 1.20.1 重做了它。
+- **依赖校验元数据**：`bridge-1201/gradle/verification-metadata.xml` 是两次真实构建记录的**并集**
+  ——Windows 903 条 component/artifact 摘要、Linux 冷缓存 918 条，前者经逐条比对
+  （group/name/version/artifact/sha256）是后者的真子集，共同条目的摘要**无一条不一致**。
+  15 条 Linux-only 全部是平台/解析差异：`org.lwjgl:*:3.3.2` 的 7 个 `natives-linux` jar、
+  `net.fabricmc:intermediary:1.20.1` 的 `.pom` 与 `-v2.jar`、`guava-parent-33.0.0-jre.pom`、
+  `junit-bom` 的 4 个 `.module`/`.pom`。两条 `<trust>` 与被审的 1.21.4 版本**同一顺序、同一字面**
+  （Loom 合成命名空间无法钉摘要，原因写在文件内注释块里，该注释块一并保留），`verify-metadata`
+  仍为 `true`。
+- **依赖锁与版本目录**：`gradle.lockfile`/`settings-gradle.lockfile` + Loom 1.9.2 + Gradle 8.12.1
+  wrapper（带 `distributionSha256Sum`）+ `dependencyLocking { lockAllConfigurations() }`；
+  loader 0.19.5、Fabric API 0.92.12+1.20.1、Yarn 1.20.1+build.10、protobuf-javalite 4.36.2。
+- **host-boundary 名单按 root 派生**：`bridge-1201/host-boundary-names.json` 由 1.20.1+build.10
+  映射派生（17 个 marker、631 条 intermediary 拼写；`ServerLevel` 为空即该版本候选映射里没有
+  `getServer()` 拼写）。沿用 1.21.4 的表会让构建产物门**看不见** 52 个 server-state 拼写——
+  这是量出来的（改前/改后对照），并已作为正控写进 `tests/contract/test_bridge_artifact_gate.py`。
+- **许可证**：Bridge 自身 `NOASSERTION`（自有产物，按供应链契约用固定 SHA-256 而不以 TLS 作唯一
+  完整性保证）；Fabric API Apache-2.0；loom/loader/intermediary/yarn/Mojang 材料/
+  protobuf-javalite/lwjgl 与本文件上表 1.21.4 栈同一套条款，逐项见上表。
+- **未测与停止点（不猜结论）**：构建镜像里没有 python，`checkHostBoundaryArtifacts` 在 Linux
+  真跑里以 `-x checkHostBoundaryArtifacts` 跳过，同一道门由 CI `bridge-static`（uv 提供的解释器）
+  与本机各跑一遍；一次冷缓存 Linux 构建因 `libraries.minecraft.net` TLS 抖动失败
+  （`.tmp/v03docker4.log` 保留），重试后成功——那是网络瞬断证据，**不是**依赖校验失败；
+  1.20.1 的客户端就绪谓词、`--quickPlaySingleplayer`（1.20.2+ 才有的参数）在 1.20.1 的替代、
+  以及真服握手/入服，全部留给 V04 的真实运行。本节任何一项都不构成 `tested`。
 
 ## 首批支持级别
 
@@ -73,7 +115,7 @@
 | --- | --- | --- |
 | P0 唯一执行基线 | MC 1.21.4、Java 21、Loader 0.16.9、Fabric API 0.119.4+1.21.4、Yarn 1.21.4+build.8；Baritone 固定研究快照 | 完成构建、渲染、本地身份入服、Bridge/IPC、输入、GUI、退出恢复后才能标 `tested` |
 | probe-only | 可识别但无已验证 bundle 的其他协议 | 只报告检测并阻断，不能自动试连 |
-| 第二 bundle | 1.20.1 已被用户选为下一候选（2026-09-24），官方供应链已逐项核对（见上「1.20.1 candidate 供应链核对」） | 仍**未**独立构建、入服或晋级 `tested`；无漂移泛化与隔离构建是本卡剩余项，按[跨版本连续执行计划](version-auto-to-server-control-plan.md)逐卡核对 |
+| 第二 candidate bundle | 1.20.1：官方供应链已逐项核对（见上「1.20.1 candidate 供应链核对」），`bridge-1201/` 已独立构建、jar 与 source tree 摘要已回填进 `tests/fixtures/runtime-input/bundle-candidate-1.20.1.json` | 仍**未**入服、未跑过真实 1.20.1 客户端、未晋级 `tested`；入服验收与 `tested` 登记按[跨版本连续执行计划](version-auto-to-server-control-plan.md)的 V04/V05 逐卡核对 |
 
 首个原型只有 1.21.4 候选，因此“自动识别”当前主要用于正确选择或可解释阻断，不是假装全版本兼容。
 

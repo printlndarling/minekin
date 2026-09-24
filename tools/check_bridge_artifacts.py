@@ -57,8 +57,11 @@ DEFAULT_ARTIFACT = REPOSITORY_ROOT / "bridge" / "build" / "libs" / "minekin-brid
 #: spelled once the build has remapped it. Derived, pinned, and re-derivable.
 DEFAULT_NAMES = REPOSITORY_ROOT / "bridge" / "host-boundary-names.json"
 
-#: Where the Yarn version this table was derived from is pinned. Read rather than
-#: passed on the command line so the table and the build cannot name two versions.
+#: Where the Yarn version a table was derived from is pinned. Read rather than passed
+#: on the command line so the table and the build cannot name two versions. One root
+#: per Minecraft version, so the catalogue is found beside the table rather than
+#: hardcoded: a 1.20.1 table labelled from the 1.21.4 pin would be a table that reads
+#: the jar through spellings that jar cannot contain.
 VERSION_CATALOG = REPOSITORY_ROOT / "bridge" / "gradle" / "libs.versions.toml"
 
 # The vocabulary lives beside this file, and this is the gate that reads what the
@@ -929,11 +932,22 @@ def violations(artifact: Path, table: NameTable) -> list[Violation]:
 # ---------------------------------------------------------------------------
 
 
-def pinned_yarn_version() -> str:
+def version_catalog(names_path: Path) -> Path:
+    """The catalogue of the root this name table belongs to.
+
+    Found beside the table rather than named by the caller: a table and the pin it was
+    derived from are one decision, and letting the command line point them at two roots
+    is how a jar ends up scanned with spellings it cannot contain.
+    """
+
+    return names_path.parent / "gradle" / "libs.versions.toml"
+
+
+def pinned_yarn_version(catalog: Path = VERSION_CATALOG) -> str:
     """The Yarn version the build pins, so the table and the build cannot disagree."""
 
     try:
-        text = VERSION_CATALOG.read_text(encoding="utf-8")
+        text = catalog.read_text(encoding="utf-8")
     except OSError:
         return ""
     match = re.search(r'^yarn\s*=\s*"([^"]+)"', text, re.MULTILINE)
@@ -986,7 +1000,7 @@ def main(argv: list[str] | None = None) -> int:
         mappings_provenance: dict[str, object] = {"sha256": digest, "namespaces": list(NAMESPACES)}
         document: dict[str, object] = {
             "schema": 1,
-            "yarn": pinned_yarn_version(),
+            "yarn": pinned_yarn_version(version_catalog(arguments.names)),
             "mappings": mappings_provenance,
             "aliases": aliases,
         }
