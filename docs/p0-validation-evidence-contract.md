@@ -227,6 +227,15 @@ HOST世界保存/恢复另需 `HOSTCOMMIT-001…110` 证据；它验证默认维
   换成「文件里是不是一份可解析的 JSON 对象」，认不出就按账本里的 `run_id`（`domain.sh:1075`）命名这次
   run 并说出来。`CORE-090` 那一行的两连跑里被杀的是**不承载 case 的第一次**，第二次的 Core 活着、文档
   正常，故不受此影响。这一格要等 `CORE-060` 真封出 `PASS` 才改回「可」，不提前。
+  **守卫修好后又量出第二格**（2026-09-24，run id `082e0f0420fc426ca8156bc9d5c91d11`，同样没有 bundle）：
+  `431ba84` 让 `--run-id` 回落真的走到了，sealer 随即报
+  `no run is named: neither a run document nor a run id`——那句话里两件事都没缺，缺的是 **Kin 的名字**。
+  `tools/assert_case_evidence.py:551-557` 在文档没说出 `kin_id` 时凭数据卷结构猜：要 `<data-root>/kin/*`
+  里**恰好一个**目录持有 `kin.sqlite3`。卷上今天是 `kin-01`/`kin-02` 两个（`kin-02` 是 2026-09-20 join
+  场景留下的，下面还压着 `35fa702d…`/`8280d880…` 两份 bundle——证据不是缓存，不清），那个前提在
+  `07e68af` 成立、在此刻不成立。因此这一格的修法不在 runner 里而在封存面：把 `domain.sh:1086-1092`
+  **已经从账本读出的** `kin_id` 明白地告诉 sealer（只在没有文档时；文档说出 Kin 时以文档为准），归
+  前置卡 `CRASH-OUTBOX-SEALED-KIN-001`。
 - **启动窗口为什么打不中**（冻结时逐行读过，不是引用的旧结论）：意图写在
   `src/minekin_core/cli/session.py:719-721`（`open_effect(effect_type=START_CLIENT, …)`，
   排在 `supervisor.start(...)`（同一文件 `:723`）**之前**），settle 在成功路径 `:750`、失败路径 `:734`。
