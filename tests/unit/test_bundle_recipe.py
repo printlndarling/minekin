@@ -19,6 +19,7 @@ from minekin_core.domain.errors import ErrorCategory, ExitCode, MinekinError
 
 ROOT = Path(__file__).parents[2]
 PROFILE = ROOT / "tests" / "fixtures" / "runtime-input" / "bundle-p0-core-1.21.4.json"
+CANDIDATE_PROFILE = ROOT / "tests" / "fixtures" / "runtime-input" / "bundle-candidate-1.20.1.json"
 
 
 def test_fixed_mod_recipe_validates_source_identity() -> None:
@@ -93,6 +94,38 @@ def test_bundle_verify_cli_is_read_only() -> None:
     assert report["launchable"] is True
     assert report["blockers"] == []
     assert stderr.getvalue() == ""
+
+
+def test_the_1201_candidate_verifies_end_to_end_as_non_launchable() -> None:
+    """`bundle verify` reaches the 1.20.1 candidate's own metadata and stays honest.
+
+    The command runs the whole plan build, so it proves the metadata parser resolves
+    the candidate against its version pins, not 1.21.4's. The bridge is unbuilt, so
+    the plan is a dry run, is not launchable, and names exactly why — no `tested`.
+    """
+
+    from io import StringIO
+
+    stdout, stderr = StringIO(), StringIO()
+    code = run(
+        ["bundle", "verify", "--profile", str(CANDIDATE_PROFILE)], stdout=stdout, stderr=stderr
+    )
+    report = json.loads(stdout.getvalue())
+    assert code == ExitCode.OK
+    assert report["status"] == "valid_recipe"
+    assert report["launchable"] is False
+    assert report["blockers"] == ["minekin-bridge: build required"]
+    assert stderr.getvalue() == ""
+
+
+def test_the_1201_candidate_plan_names_its_reviewed_bundle() -> None:
+    from minekin_core.adapters.launcher.launch_plan import build_launch_plan
+
+    plan = build_launch_plan(CANDIDATE_PROFILE)
+    assert plan["status"] == "dry_run"
+    assert plan["bundle"]["minecraft"] == "1.20.1"
+    assert plan["bundle"]["java_major"] == 17
+    assert plan["bundle"]["fabric_loader"] == "0.19.5"
 
 
 @pytest.mark.parametrize(

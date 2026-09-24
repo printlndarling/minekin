@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "bundle_name": "p0-core-candidate-1.20.1-linux-x86_64",
+  "status": "candidate",
+  "launchable": false,
+  "minecraft": {
+    "version": "1.20.1",
+    "version_metadata_url": "https://piston-meta.mojang.com/v1/packages/599695fee750ab157846886c6e69583003f22d07/1.20.1.json",
+    "version_metadata_sha1": "599695fee750ab157846886c6e69583003f22d07"
+  },
+  "runtime": {
+    "java_major": 17,
+    "os_arch": "linux-x86_64"
+  },
+  "fabric": {
+    "loader": "0.19.5",
+    "api": "0.92.12+1.20.1",
+    "yarn": "1.20.1+build.10"
+  },
+  "metadata": {
+    "version_manifest": "../launcher/version_manifest_v2.json",
+    "version_json": "../launcher/1.20.1.json",
+    "fabric_profile": "../launcher/fabric-loader-0.19.5.json",
+    "asset_index": "../launcher/asset-index-5.json"
+  },
+  "artifacts": [
+    {
+      "name": "fabric-api",
+      "kind": "mod",
+      "verification": "sha256",
+      "digest": "4197ff4fbdac13cffccd267c1bc59e9fbabb2b5683a9d5f8023f4b5ea16a1c1e",
+      "size": 2137232,
+      "source": "https://maven.fabricmc.net/net/fabricmc/fabric-api/fabric-api/0.92.12+1.20.1/fabric-api-0.92.12+1.20.1.jar",
+      "license": "Apache-2.0"
+    },
+    {
+      "name": "minekin-bridge",
+      "kind": "bridge",
+      "verification": "build_required",
+      "source": "workspace:bridge",
+      "source_digest": "507f708dc4e3028ab90b5503ed34aac66ba77f6657904eba4533525b53a4d229",
+      "license": "NOASSERTION"
+    }
+  ]
+}

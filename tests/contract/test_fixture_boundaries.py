@@ -38,6 +38,9 @@ def test_all_json_contracts_are_parseable_and_versioned() -> None:
 def test_runtime_fixtures_conform_to_their_json_schemas() -> None:
     pairs = (
         ("bundle-manifest.schema.json", "runtime-input/bundle-p0-core-1.21.4.json"),
+        # The 1.20.1 candidate conforms to the same schema: the reviewed version
+        # combination is what the schema now keys its identity consts off.
+        ("bundle-manifest.schema.json", "runtime-input/bundle-candidate-1.20.1.json"),
         ("server-profile.schema.json", "runtime-input/controlled-offline-server.json"),
         ("case-manifest.schema.json", "cases/w00-contract-001.json"),
         # The world-creation profile: the shape the P0 policy table freezes, and a

@@ -168,12 +168,19 @@ def build_launch_plan(
     runtime = cast(dict[str, object], runtime_value)
     if runtime.get("os_arch") != "linux-x86_64":
         raise _reject("W10 currently accepts only the reviewed linux-x86_64 target")
+    minecraft_value = profile.get("minecraft")
+    if not isinstance(minecraft_value, dict) or not isinstance(
+        cast(dict[str, object], minecraft_value).get("version"), str
+    ):
+        raise _reject("bundle profile minecraft.version is required")
+    recipe_version = cast(str, cast(dict[str, object], minecraft_value)["version"])
     metadata = load_pinned_metadata(
         _metadata_path(profile_path, profile, "version_manifest"),
         _metadata_path(profile_path, profile, "version_json"),
         _metadata_path(profile_path, profile, "fabric_profile"),
         _metadata_path(profile_path, profile, "asset_index"),
         target=TargetPlatform("linux", "x86_64"),
+        version=recipe_version,
     )
     ordered = [
         metadata.client,

@@ -3153,6 +3153,22 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
   fixture，使 `bundle verify` 端到端跑出非可启动的 1.20.1 plan（含 `_game_argument_template` 的
   `--quickPlaySingleplayer` 是 1.20.2+、1.20.1 无此参数的适配）；以及隔离 Loom 构建产出真实
   1.20.1 Bridge jar。本卡据实仍 `NEXT`、未 `DONE`、未 `tested`。
+  **续（launch_plan + schema + candidate recipe，同日内）**：`launch_plan.py` 现把 recipe 的
+  `minecraft.version` 传给 `load_pinned_metadata`（1.21.4 结果不变）；`bundle-manifest.schema.json`
+  从只锁 1.21.4 身份改为按 `minecraft.version` 条件化——`1.21.4`→java 21/loader 0.16.9/
+  api 0.119.4/yarn build.8，`1.20.1`→java 17/loader 0.19.5/api 0.92.12/yarn build.10，两套身份
+  都由 schema 强制。新增 committed candidate recipe fixture
+  `tests/fixtures/runtime-input/bundle-candidate-1.20.1.json`（status `candidate`、`launchable:false`、
+  fabric-api 走 sha256 pin、Bridge `build_required` 带 source_digest 但**不** pin jar digest/size），
+  登记进 `manifest.sha256`（连同改动的 schema），并加进 `test_fixture_boundaries.py` 的 schema 一致性
+  pair。新增 2 项端到端测试：`bundle verify --profile <candidate>` 出 `valid_recipe`、
+  `launchable:false`、`blockers=["minekin-bridge: build required"]`；`build_launch_plan` 对 candidate
+  产出 `dry_run` 且 bundle 身份为 1.20.1/java 17/loader 0.19.5。全量门禁 `2319 passed / 2 skipped`
+  （较 metadata 层 2317 只多这 2 项）；ruff/format/pyright/boundaries/case assertions/workflow pins/
+  fixture digests/`git diff --check` 全绿。`bundle verify` 不带 `world_name`，故不触及
+  `_game_argument_template` 的 `--quickPlaySingleplayer`（那是 1.20.2+ 参数、1.20.1 无）——真入服
+  建计划时才需处理，留待 V04。**仍未做**：隔离 1.20.1 Loom 构建产出真实 Bridge jar（本卡收口的
+  真跑停止点，需 Docker runner 与可能的版本适配 hook）。本卡据实仍 `NEXT`、未 `DONE`、未 `tested`。
 
 ### HOST-ADMISSION-DESIGN-001 — 宿主世界会话坐标来源
 
