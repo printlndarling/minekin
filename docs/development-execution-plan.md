@@ -12,17 +12,21 @@
 - `baseline_date`: 2026-09-22
 - `baseline_branch`: `main`
 - `baseline_remote`: `origin/main`
-- `current_next`: `P0-PROMOTION-LEDGER-001`——`REAL-P0-CAMPAIGN-001.order` 第 7 也是最后一个场景（阶段 F：
-  `CORE/OFFLINE/ADMIT` 晋级总账）。`532446e` 以 `QUEUED` 登记，本 commit 依「连续推进」提升为唯一 `NEXT`。它是
-  一张**只读汇总卡**：把七场景已封 bundle 与机器 required-case inventory 汇成总账（每 gate present/missing、最新
-  attempt、PASS/FAIL/INCOMPLETE、version、build 关系、阻断原因，AGREES/UNJUDGED/DISAGREES 分清），仍缺的
-  required-case 族按机器读数逐条列阻断原因；**不新增判据/case/阈值、不再封 bundle、不重写既有 bundle**，且在
-  `runtime-required` 有缺口时**不把 campaign 宣布 `DONE`**。**上一批交付**：第 6 场景（tick/render + L6 soak）的
-  真实封证卡 `TICK-RENDER-SOAK-RUN-001`（`9f3946d` 提升、`a26a51a` 收 `DONE`）在当前 build 封了 `CORE-100` 新 attempt
-  （run `8367f741…`、bundle `1b2a58e9…`、`result PASS`、四读一致、`report_soak` 只报覆盖、旧 baseline `e3a99202…`
-  只量不改读作 `UNJUDGED`），`scenario_progress 5/7→6/7`。第 6 场景判据表由冻结卡
-  `TICK-RENDER-SOAK-EVIDENCE-DESIGN-001`（`096bd68` 登记 `QUEUED`、`26a7543` 提升 `NEXT`、
-  `6717d2e` 冻结收 `DONE`）写下。**再往前**：crash/outbox 第 5 场景由 `CRASH-OUTBOX-ALIVE-DISPLAY-001`（`f90abc8`）与前置
+- `current_next`: **无（有界自主 P0 工作已耗尽，到达需用户拍板的边界）**——本 commit 把
+  `REAL-P0-CAMPAIGN-001.order` 第 7 也是最后一个场景（阶段 F 晋级总账）的只读卡 `P0-PROMOTION-LEDGER-001`
+  收为 `DONE`（`532446e` 登记 `QUEUED`、`28876e3` 提升 `NEXT`）。`scenario_progress 6/7→7/7`——七个 `order`
+  场景全部走完。**但 campaign 总体如实为 `BLOCKED/INCOMPLETE`，不标 `DONE`**：机器
+  `report_cases.py` 读出 `74 required / 43 present / 31 missing / 0 misattributed`（本文旧「72/36/36」快照
+  已被此读数取代），`report_promotion.py` 不带 `--work-package` 时 `overall.promotable:false`、
+  `blocks [CASE_VERSION_MISMATCH, CASE_WITHOUT_EVIDENCE, REQUIRED_CASE_NOT_REGISTERED]`、37 阻断案；
+  逐 gate `promotable` 全 `false`。缺口全需产品决策或逐案证据设计：HOST/HOSTCTL/HOSTCOMMIT 整族（host-integrated）、
+  未冻结的 ADMIT/OFFLINE 判据、`PERSIST` `UNFROZEN_CASE_IDS`、`NAV-EXP-010`——这些是
+  `HOST-ADMISSION-DESIGN-001`/`OPERATIONS-RETENTION-001`/`PROCESS-RECOVERY-001` 的 `BLOCKED_DECISION` 与
+  `HOST/W80+` 的 `DEFERRED`，**须用户先拍板，不自行猜编号或 PASS 语义**。
+  **上一批交付**：第 6 场景（tick/render + L6 soak）真实封证卡 `TICK-RENDER-SOAK-RUN-001`（`9f3946d` 提升、
+  `a26a51a` 收 `DONE`）在当前 build 封 `CORE-100` 新 attempt（run `8367f741…`、bundle `1b2a58e9…`、`PASS`、
+  四读一致、`report_soak` 只报覆盖、旧 baseline `e3a99202…` 只量不改读作 `UNJUDGED`）。第 6 场景判据表由冻结卡
+  `TICK-RENDER-SOAK-EVIDENCE-DESIGN-001`（`096bd68`/`26a7543`/`6717d2e`）写下。**再往前**：crash/outbox 第 5 场景由 `CRASH-OUTBOX-ALIVE-DISPLAY-001`（`f90abc8`）与前置
   `CRASH-OUTBOX-RESEAL-001`（`DONE` 5/5）收口，`scenario_progress 4/7→5/7`。`ALIVE-DISPLAY` 只做一件事——把
   X 显示与 Core 的生死脱钩（harness 自己起并持有 Xvfb、
   `session` 只继承 `DISPLAY`、Core 挪到普通 `sh -c` 包装之下仍是 `session_pid` 的后代），使客户端 tick 那句
@@ -443,7 +447,11 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
   解掉显示与 Core 生死脱钩的硬阻断），四读一致；旧 build 上那五份 bundle 对今天的 `case_version` 读作
   `UNJUDGED`，连同两份 runtime `FAIL` 按冻结口径原样保留、不追认。启动窗口那一半（未 settle 的 effect
   intent）按冻结记为本地证据，不在真实 run 里插停顿。第 6/7 个场景在此之前没有任何卡。
-- `scenario_progress`: 6/7 场景已封为正式 case。第 6 个（tick/render + L6 bounded-soak）在当前 reviewed
+- `scenario_progress`: 7/7 场景已走完（`order` 第 7 个即阶段 F 晋级总账，由 `P0-PROMOTION-LEDGER-001` 交付）。
+  **campaign 总体如实为 `BLOCKED/INCOMPLETE`，不标 `DONE`**：`report_cases.py` 读出 `74 required / 43 present /
+  31 missing / 0 misattributed`，`report_promotion.py` `overall.promotable:false`、逐 gate 全 `false`——缺口全需
+  产品决策或逐案证据设计（见 `P0-PROMOTION-LEDGER-001` `completion_evidence`）。第 6 个（tick/render + L6
+  bounded-soak）在当前 reviewed
   build 上封 `CORE-100`（run `8367f741124d4132835eeb3d85833d46`、bundle `1b2a58e9cc371d23…`、attempt 1、
   `case_version d6e94bbc93ff1666…`、`bridge_digest faeec4a9df83abb9…`、`result PASS`、四读一致；受控 600s/10s、
   `ended_early: false`、client/server 各 56 样本，`report_soak` 只报覆盖不设阈值；旧 `2026-09-20` baseline
@@ -2681,7 +2689,7 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 
 ### P0-PROMOTION-LEDGER-001 — 封一次 campaign 的 CORE/OFFLINE/ADMIT 晋级总账
 
-- `status`: `NEXT`（`532446e` 登记为 `QUEUED`，本 commit 依交接「连续推进」把它提升为唯一 `NEXT`）
+- `status`: `DONE`（`532446e` 登记 `QUEUED`、`28876e3` 提升 `NEXT`，本 commit 交付只读晋级总账）
 - `promotion_reason`: 顺序已满足——登记它的 commit（`532446e`）之后计划里无 `NEXT`，中间没插入别的未授权工作；
   它是 `REAL-P0-CAMPAIGN-001.order` 的第 7 个也是最后一个场景（阶段 F 晋级总账）。上一张真实封证卡
   `TICK-RENDER-SOAK-RUN-001` 已在 `a26a51a` 收 `DONE`（`scenario_progress 6/7`）。提升前为纯文档改动，
@@ -2720,6 +2728,47 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 - `next_after_done`: 总账交付后，`REAL-P0-CAMPAIGN-001` 剩下的只有需产品决策的 `runtime-required` 逐案缺口
   （HOST / PERSIST / 未冻结 ADMIT），全部为 `BLOCKED_DECISION`/`DEFERRED`；有界自主 P0 工作到此耗尽——交付
   阻断清单与门禁现状即诚实的阶段终点（阶段 G/H），不擅自宣布整个项目完成。
+- `completion_evidence`（只读晋级总账，本轮不新增判据、不再封证、不重写任何 bundle）：
+  - **机器 required-case inventory（`report_cases.py`，2026-09-24，验收 ②）**：`totals.required 74`、
+    `present 43`、`missing 31`、`misattributed 0`、`not_gating 36`、`present_wanting_a_run 13`；按
+    `validation_class` `local-only 7 / runtime-required 67`；`assertions 162`。本文旧的「72 required /
+    36 present / 36 missing」快照已被此读数取代（保留不抹，仅记其已陈旧）。gate 满足度：
+    `W00/W10/W20/W60/W70 satisfied:true`；`W30/W40/W50/host-integrated/p0-core/p0-nav-exp satisfied:false`。
+    `planning_gaps`：`PERSIST` = `UNFROZEN_CASE_IDS`（不 gate 任何门）。
+  - **七场景最新 PASS/AGREES bundle（`report_promotion.py --data-root /data`，验收 ①）**：当前 reviewed build 的
+    `bridge_digest faeec4a9`。
+    - 场景 1 `ADMIT-040` run `6b5856d5…` att 1 `PASS/AGREES` `cv ec49f61c` — **`from_repository_build:false`**
+      （sealed 于旧 build `bridge 9a30cdb7`，非当前 build）。
+    - 场景 2 `ADMIT-060` run `7bc740ea…` att 2 `PASS/AGREES` `cv 8ee31d23` — **`from_repository_build:false`**
+      （旧 build `bridge ecff5a59`；其 att 1 是判据读侧缺陷那次的 `FAIL/DISAGREES`，保留不覆盖）。
+    - 场景 3 `ADMIT-070` run `2a128d0d…` att 2 `PASS/AGREES` `cv d829381d` `frb:true` `bd faeec4a9`。
+    - 场景 4 `OFFLINE-010` `f2ecb728…`/`OFFLINE-020` `3d5606ce…`/`OFFLINE-030-PRISM-PARITY-001` `ee9d5ad3…`/
+      `OFFLINE-030-ENUM-ALIGNED-001` `cb5e2119…`——四份均 att 1 `PASS/AGREES` `frb:true` `bd faeec4a9`。
+    - 场景 5 crash `CORE-020` `8a72dcdf…`/`CORE-060` `7fc0671e…`(att 3)/`CORE-060-CLIENT-001` `c89f5d35…`/
+      `CORE-060-SERVER-001` `f4365a50…`/`CORE-090` `3e94d49a…`——均 `PASS/AGREES` `frb:true` `bd faeec4a9`。
+    - 场景 6 soak `CORE-100` run `8367f741…` att 1 `PASS/AGREES` `cv d6e94bbc` `frb:true` `bd faeec4a9`。
+    - `evidence`：`unsealed/unverified/unreadable` 皆 `[]`；`from_another_build` 非空（含场景 1、2 及历次诊断/
+      旧 build 封存）；总 bundle 计数以机器为准。
+  - **仍缺的 required-case 族与阻断原因（验收 ③，全部按机器 inventory，不凭例举计数）**：31 条 `runtime-required`
+    `missing`（`report_cases.py`）——`CORE-080`、`NAV-EXP-010`、`ADMIT-010/020/030/050/090/120`、
+    `OFFLINE-060/070/080/090/100`、`HOST-001/090/100`、`HOSTCTL-020/030/040/080/090`、
+    `HOSTCOMMIT-001/010/020/030/040/050/060/070/080/100`。阻断原因分类：`ADMIT-010/020/030/050/090/120`、
+    `OFFLINE-060/070/080/090/100`、`CORE-080` 需**先把判据写成断言**（每写一条即定义一次 PASS，属逐案证据设计，
+    非本卡范围）；`HOST-*`/`HOSTCTL-*`/`HOSTCOMMIT-*` 整族属 **host-integrated、需产品决策**；`NAV-EXP-010`
+    属 `p0-nav-exp` 缺口；`PERSIST` 族 `UNFROZEN_CASE_IDS` 不 gate。
+  - **promotion 总体（验收 ④）**：`report_promotion.py` 不带 `--work-package` 时 `status: blocked`、
+    `overall.promotable:false`、`blocks [CASE_VERSION_MISMATCH, CASE_WITHOUT_EVIDENCE,
+    REQUIRED_CASE_NOT_REGISTERED]`、`blocking_cases 37`；`repository_build.gates_promotion:false`。逐 gate
+    `promotable` 全 `false`。**如实记：七个 `order` 场景全部走完（`scenario_progress 7/7`），但
+    `REAL-P0-CAMPAIGN-001` 总体 `BLOCKED/INCOMPLETE`——74 required 中 31 条 runtime-required 未登记、多条
+    present 的 runtime/local case 因 case_version 移动或缺当前 build 证据而 `CASE_VERSION_MISMATCH`/
+    `CASE_WITHOUT_EVIDENCE`，且场景 1/2 的 PASS 在 `from_repository_build:false` 的旧 build 上——
+    **绝不因七场景齐了就标 campaign `DONE`**。
+  - **未触碰封存证据 + 全量门禁（验收 ⑤）**：本轮零代码、零封存改动，未改写/追加/删除任何 sealed bundle 或旧
+    baseline；`report_cases.py`/`report_promotion.py` 均只读。全量 pytest `2159 passed / 2 skipped`（无代码变化）。
+  - **三条 `stop_conditions` 均未触发**：总账不要求新断言/新封（只如实列缺口）；HOST/PERSIST/未冻结 ADMIT 一律
+    记为需产品决策、未替用户拍板（`BLOCKED_DECISION` 边界保留）；inventory 与各卡已录证据一致（差异仅为
+    「旧 build 封存」这一如实事实，未改写封存来对齐）。
 
 ### OFFLINE-IDENTITY-SEALED-ARGV-001 — 让封存时的 live 判读也拿到那份 argv
 

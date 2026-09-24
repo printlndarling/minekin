@@ -2307,8 +2307,8 @@
     设阈值；FPS/TPS/GC/队列深度/GPU 无来源，如实标不完整。全量门禁 `2159 passed / 2 skipped`。三条
     `stop_conditions` 均未触发。
 
-- [ ] **P0-PROMOTION-LEDGER-001（`NEXT`，campaign 第 7 场景 = 阶段 F 晋级总账；`532446e` 登记 `QUEUED`、紧随
-  commit 提升 `NEXT`）**：把七个
+- [x] **P0-PROMOTION-LEDGER-001（已完成，campaign 第 7 场景 = 阶段 F 晋级总账；`532446e` 登记 `QUEUED`、`28876e3`
+  提升 `NEXT`，本轮交付）**：把七个
   `order` 场景已封的 bundle 与机器 required-case inventory 汇成一张 CORE/OFFLINE/ADMIT 晋级总账。只读重跑
   `tools/report_cases.py` 与 `tools/report_promotion.py`，逐 gate 记 present/missing、最新 attempt、
   PASS/FAIL/INCOMPLETE、case version/摘要、与当前 build 关系、阻断原因，并把 AGREES/UNJUDGED/DISAGREES 分清；
@@ -2316,10 +2316,21 @@
   host-integrated / `PERSIST` PlanningGap）。**不新增判据/case/阈值、不再封 bundle、不重写既有 bundle**；
   在 72 required 仍有 `runtime-required` 缺口时**不把 `REAL-P0-CAMPAIGN-001` 宣布 `DONE`**，如实记为
   「第 7 场景（总账）已交付、campaign 总体仍 BLOCKED/INCOMPLETE」。`validation_class` LOCAL。
-  `stop_conditions`：① 需新断言/case 或再封 ⇒ 停下属另起逐案卡；② 需对 HOST/PERSIST/未冻结 ADMIT 拍板 ⇒
+  `stop_conditions`：① 需新断言/case 或再封 ⇒ 停下、另起逐案卡；② 需对 HOST/PERSIST/未冻结 ADMIT 拍板 ⇒
   `BLOCKED_DECISION` 不猜；③ inventory 与已录证据不一致 ⇒ 如实记冲突不改封存证据。
   `next_after_done`：剩下的只有需产品决策的 `runtime-required` 缺口（全 BLOCKED_DECISION/DEFERRED），有界自主
   P0 工作到此耗尽——交付阻断清单即诚实阶段终点。
+  - **交付（只读晋级总账）**：`report_cases.py` 机器读数 `74 required / 43 present / 31 missing / 0 misattributed`
+    （本文旧「72/36/36」快照被取代）；`report_promotion.py --data-root /data` 不带 `--work-package` 时
+    `status: blocked`、`overall.promotable:false`、`blocks [CASE_VERSION_MISMATCH, CASE_WITHOUT_EVIDENCE,
+    REQUIRED_CASE_NOT_REGISTERED]`、37 阻断案、逐 gate `promotable` 全 false。七场景最新 PASS/AGREES：场景 3–6
+    （ADMIT-070、OFFLINE-010/020/030×2、CORE-020/060/060-CLIENT/060-SERVER/090、CORE-100）全在**当前 build**
+    `bridge faeec4a9`；场景 1 `ADMIT-040`（run `6b5856d5…`）、场景 2 `ADMIT-060`（run `7bc740ea…` att 2）虽
+    `PASS/AGREES` 但 `from_repository_build:false`（旧 build `9a30cdb7`/`ecff5a59`），如实记为「非当前 build 复测」。
+    仍缺 31 条 `runtime-required`（HOST/HOSTCTL/HOSTCOMMIT 整族 host-integrated、未冻结 ADMIT/OFFLINE 判据、
+    `CORE-080`、`NAV-EXP-010`）+ `PERSIST` `UNFROZEN_CASE_IDS`（不 gate）。**如实记 `REAL-P0-CAMPAIGN-001` 总体
+    `BLOCKED/INCOMPLETE`、`scenario_progress 7/7` 但不标 `DONE`**；本轮零代码、零封存改动，全量 `2159 passed /
+    2 skipped`。
 
 - [x] **CRASH-OUTBOX-SEALED-KIN-001（已完成，交付 `2160989`）**：让「没有文档的一次 run」也能明白地
   说出它属于哪个 Kin。`CRASH-OUTBOX-RESEAL-001` 第二次真实 attempt 当场发现的封存面阻断，是 campaign
