@@ -19,9 +19,11 @@
   而 registry 那侧登记的真实文件叫 `offline-030-prism-parity.json`（本次提升前对物复核过：
   `tests/fixtures/cases/` 下只有 `offline-030.json`、`offline-030-prism-parity.json`、
   `offline-030-enum-aligned.json` 三份，`cases.py:346-348` 却列着带 `-001` 的三个 id）。
-  卡片把出路写成二选一（runner 侧解析 / fixture 改名），登记时倾向**前者**，理由写在它的
-  `allowed_paths` 里：改名会移动已登记 fixture 的 `case_version` 与 `manifest.sha256`，那是本战役
-  一直避免的证据事件；解析只改一处脚本、不碰任何已封存字节。这是一次工程取舍，主控可改。
+  卡片把出路写成二选一（runner 侧解析 / fixture 改名），登记时倾向**前者**，理由是「改名会移动已登记
+  fixture 的 `case_version`」。那条理由在本卡动手前被读掉了：`src/minekin_core/domain/cases.py:731-733`
+  的 `case_version` 取的是 fixture **文档内容**的 sha256，文件名不参与，而两份子 fixture 的 `inputs` 为空、
+  内容里也不钉自己的路径——改名不动 `case_version`，也就动不了任何已封存 bundle 的可判读性。因此本卡
+  选择**改名**那条，卡片的 `allowed_paths` 已按此修订，runner 侧解析划掉；改动范围与依据见该卡。
   `ADMIT-070-RECORD-SCHEMA-001` 也还是 `QUEUED`，但它自己写明
   不是任何封证卡的下一张，因此不排进这条链。其余未闭合卡仍是
   `HOST-ADMISSION-DESIGN-001`/`OPERATIONS-RETENTION-001`/`PROCESS-RECOVERY-001`
@@ -1787,22 +1789,37 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 - `depends_on`: `OFFLINE-IDENTITY-CASE-001`（`DONE`，`2a84bbd`：两个子 id 与 fixture 都在那里登记）；
   `OFFLINE-IDENTITY-RUN-001`（`DONE`：阻断在它收尾时实测出来，且它没有就地 hack）。
 - `why_now`: 契约判据 5 是 OFFLINE 族里唯一还缺真实 bundle 的一条，而它缺的原因不是读不出、也不是
-  发生不了，是**名字对不上**——这是最便宜的一类阻断。派生规则改完后，判据 5 的封证形状与
+  发生不了，是**名字对不上**——这是最便宜的一类阻断。名字对上以后，判据 5 的封证形状与
   `RUN-001` 完全相同（同一 runner、同一封存通道、`--identity-candidate` 已在 argv 里）。
-- `allowed_paths`: 待定卡——`test-orchestrator/runner/domain.sh`（只允许 case→fixture 解析那一处）、
-  或 `tests/fixtures/cases/offline-030-*.json` + `tests/fixtures/manifest.sha256` +
-  `tools/check_case_assertions.py` 注册项，**两条路选一条**，选定后把另一条
-  划掉，不允许两边都改（两份真相）。登记时倾向 runner 侧解析：改名那条会移动已登记 fixture 的
-  `case_version` 与 `manifest.sha256` 行，那是本战役一直避免的「证据事件」，而解析那条只改一处脚本、
-  不碰任何已封存字节。这是一次工程取舍、不是产品方向，主控可改。`docs/development-execution-plan.md`、
-  `docs/development-todo.md`、
+- `allowed_paths`: **不再是待定卡**——动手前对两条路各自核了一遍，选定 **fixture 侧改名**，runner 侧解析
+  划掉。翻转登记时倾向的依据是一条写错的前提：登记时以为「改名会移动已登记 fixture 的 `case_version`」，
+  而 `src/minekin_core/domain/cases.py:731-733` 的 `digest` 是 `json.dumps(document, sort_keys=True)` 的
+  sha256——只看 manifest 的内容，文件名不参与；两份子 fixture 的 `inputs` 为空，内容里也没有钉自身路径
+  （`assertion_digests` 钉的是判官源码）。所以改名不动 `case_version`，也就不会事后作废任何已封 bundle
+  的可判读性。真正会动的只有 `tests/fixtures/manifest.sha256` 里那两行的**路径**（digest 值不变），而那
+  是一个门禁自证的评审文件：漏改一行，`verify_fixture_digests.py` 同时报 `unlisted frozen file` 与
+  `stale entry`。
+  允许改动：`tests/fixtures/cases/offline-030-prism-parity.json` →
+  `offline-030-prism-parity-001.json`、`tests/fixtures/cases/offline-030-enum-aligned.json` →
+  `offline-030-enum-aligned-001.json`（`git mv`，内容字节一字不改）、`tests/fixtures/manifest.sha256`
+  （只换那两行的路径）、`tests/unit/test_case_registry.py`（验收 ③ 的约定测试写在这里——它已经是唯一
+  拿真实 `tests/fixtures/cases/` 目录跑 `load_case_registry` 的测试文件）、
+  `tests/unit/test_case_evidence_assertions.py`（`:5405-5406` 两个常量随文件名移动，别的不动）、
+  `docs/development-execution-plan.md`、`docs/development-todo.md`、
   `docs/p0-offline-session-compatibility-contract.md`（Case set 行注记）。
+  划掉的那条是 `test-orchestrator/runner/domain.sh` 的 case→fixture 解析：它要给一条**除这两个文件以外
+  全都成立**的约定（`tests/fixtures/cases/` 下 43 份 fixture，41 份的文件名等于其 `case_id` 小写，另外
+  两份就是本卡要改的）永久多加一套机制；而且 `domain.sh` 在 Windows 侧的 pytest 里不便单独执行，反例测试
+  只能改成在 Python 里镜像一遍小写规则——那是第二份真相。改名反而是把约定补全，并用一条测试把它钉住。
 - `forbidden_paths`: 产品代码、Bridge/`proto/`、既有 case id 的改名/删除/重编号、任何 `mandatory`
   翻转、旧 bundle 与其 digest、runner 的等待逻辑（`RUN-001` 已证明不需要它）。
 - `non_goals`: 不在本卡顺手判 OFFLINE-060/070/080/090/100，不重跑 `RUN-001` 已封的两列证据。
-- `acceptance`: ① 两个子 id 各封出一份 `PASS`/`AGREES` bundle 并四读一致；② 若走 fixture 改名那条路，
-  受影响的 `case_version` 移动被如实记录、其历史 bundle（若有）只读作 `UNJUDGED`，不回改；③ 派生规则
-  改动的反例测试：一个不存在于 registry 的 case id 必须被拒，而不是静默去找一个空文件。
+- `acceptance`: ① 两个子 id 各封出一份 `PASS`/`AGREES` bundle 并四读一致；② 「改名不动证据」这条依据是
+  实测而不是断言：两份子 fixture 在改名前后的 `load_case_manifest(...).digest`（即 `case_version`）逐字相同，
+  `manifest.sha256` 只有两行的路径部分变化、其 digest 值不变；③ 一条把约定钉住的测试——`tests/fixtures/cases/`
+  里每份 fixture 的文件名必须等于它自己声明的 `case_id` 小写，且 registry/required 的每个 id 至多找回一份
+  fixture。今天的两份 `-030-*` 文件要让这条测试在改名**前**红、改名后绿；一个不存在于该目录的 id 读作
+  「找不到」而**不是**静默指向一个空文件（正是 `domain.sh:172` 现在会做的事，本卡按选定的路不给它加机制）。
 - `validation_class`: `REAL_RUN`。
 - `stop_conditions`: 若两条路都要动 registry 语义（即 `cases.py` 里 id 与 fixture 的关系本身要说清），
   停下并向主控请求决策，不自行选一条。
