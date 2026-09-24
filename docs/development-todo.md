@@ -2097,7 +2097,7 @@
     `ADMIT-070-RECORD-SCHEMA-001` 继续 `QUEUED` 且不排进这条链；HOST/PERSIST/retention/
     process-recovery 仍等主控决策。公网测试服本轮未使用，也仍不能作判据端。
 
-- [ ] **CRASH-OUTBOX-RESEAL-001（前置阻断已清，等下一 commit 提升回 `NEXT`）**：campaign
+- [ ] **CRASH-OUTBOX-RESEAL-001（当前唯一 NEXT）**：campaign
   `order` 第 5 个场景的**真实重封**——五个已定义窗口各在当前 build 上封一份 bundle。前置是本卡当场
   发现的第二个封存面阻断，已另起 `CRASH-OUTBOX-SEALED-KIN-001` 并交付（`2160989`）；五个窗口现在有
   **一份**当前-build bundle（`CORE-060` run `08f206bf…`，判据 `FAIL`），**PASS 一份也没有**。
