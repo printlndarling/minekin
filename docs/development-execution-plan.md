@@ -12,23 +12,19 @@
 - `baseline_date`: 2026-09-22
 - `baseline_branch`: `main`
 - `baseline_remote`: `origin/main`
-- `current_next`: `OFFLINE-030-CASE-FILENAME-001`——本条 commit 正在收的卡：它把 `OFFLINE-030`
-  判据 5 唯一的阻断（`-001` 后缀的 case id 找不回自己的 fixture）在 **fixture 侧改名**上解掉，
-  两个子 id 各封出一份真实 `PASS` bundle、四个读者一致，`domain.sh` 一字未动。它收为 `DONE`，
-  同时如实记下父 `OFFLINE-030` 以自己的 id 仍没有 bundle（细节在卡片 `recorded_limits` ①）；
-  本条 commit 之后计划里没有 `NEXT`。
-  （前一张 `OFFLINE-030-CASE-FILENAME-001` 由 `277e601` 从 `QUEUED` 提升为唯一 `NEXT`：阻断是
-  `domain.sh:172` 用 case id 小写当 fixture 文件名，于是 `OFFLINE-030-PRISM-PARITY-001` 会去找
-  `offline-030-prism-parity-001.json`，而当时 registry 那侧登记的真实文件叫 `offline-030-prism-parity.json`。
-  卡片把出路写成二选一（runner 侧解析 / fixture 改名），登记时倾向**前者**，理由是「改名会移动已登记
-  fixture 的 `case_version`」。那条理由在本卡动手前被读掉了：`src/minekin_core/domain/cases.py:731-733`
-  的 `case_version` 取的是 fixture **文档内容**的 sha256，文件名不参与，而两份子 fixture 的 `inputs` 为空、
-  内容里也不钉自己的路径——改名不动 `case_version`，也就动不了任何已封存 bundle 的可判读性。因此本卡
-  选择**改名**那条，卡片的 `allowed_paths` 已按此修订（`2d56a07`），runner 侧解析划掉；改动范围与依据见该卡。）
-  紧随的两个 commit 各做一件事：先以 `QUEUED` 登记 campaign `order` 第 5 个场景（crash/outbox 窗口）
-  的证据设计卡 `CRASH-OUTBOX-EVIDENCE-DESIGN-001`（先例：`ADMIT-070-EVIDENCE-DESIGN-001`、
-  `OFFLINE-IDENTITY-EVIDENCE-DESIGN-001`），再把那一张提升为唯一 `NEXT`——登记的同一 commit 不直接
-  写 `NEXT`，以满足交接第 1 项。在那之前没有别的已登记卡排在这条链上。
+- `current_next`: `CRASH-OUTBOX-EVIDENCE-DESIGN-001`——由本 commit 从 `QUEUED` 提升为唯一 `NEXT`
+  （登记在 `bd0448a` 并推送，登记的那一条 commit 没有同时写 `NEXT`，满足交接第 1 项；提升前计划里没有
+  `NEXT`，中间没有插入别的未授权工作）。它是 campaign `order` 第 5 个场景（crash/outbox 窗口）的
+  **判据冻结**卡，不封证据：先核 `CORE-060` 三个进程边界与 `CORE-090` 恢复对各已证到哪一半，再逐项
+  回答阶段 D 那份窗口清单里哪些还缺、哪些**按构造**在当前 harness 下打不中（尤其「崩溃落在启动窗口、
+  intent 已记而未 settle」那一半——`development-todo.md` 记过一次尝试：加过 `KILL_CORE=early`，实测它
+  从来不可能早于 playable，于是删掉开关而不是留一个名字在说谎的选项）。该卡的验收明确允许并要求和
+  其他场景一样停在「这一半只能是本地证据」，不允许为推进而虚构窗口；要新跑真实故障才登记后续卡。
+  前一张 `OFFLINE-030-CASE-FILENAME-001` 在 `7c8c412` 收为 `DONE` 并推送：它把 `OFFLINE-030` 判据 5
+  唯一的阻断（`-001` 后缀的 case id 找不回自己的 fixture）在 **fixture 侧改名**上解掉，两个子 id 各封出
+  一份真实 `PASS` bundle、四个读者一致，`domain.sh` 一字未动；登记卡片时那条「改名会移动 `case_version`」
+  的倾向依据在动手前被读掉（`cases.py:731-733` 的 digest 只看 manifest 内容），因此先用 `2d56a07` 修订
+  卡片范围再交付（`cf9b387`）——这是 2026-09-24 那条「先修订任务卡范围再动手」纪律的头一次正面执行。
   `ADMIT-070-RECORD-SCHEMA-001` 也还是 `QUEUED`，但它自己写明
   不是任何封证卡的下一张，因此不排进这条链。其余未闭合卡仍是
   `HOST-ADMISSION-DESIGN-001`/`OPERATIONS-RETENTION-001`/`PROCESS-RECOVERY-001`
@@ -1922,8 +1918,15 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 
 ### CRASH-OUTBOX-EVIDENCE-DESIGN-001 — 冻结 crash / outbox / restart 窗口场景的完整判据
 
-- `status`: `QUEUED`（`7c8c412` 收 `OFFLINE-030-CASE-FILENAME-001` 时预告需要，本 commit 登记；
-  提升为唯一 `NEXT` 写在紧随的 commit 里，以满足交接第 1 项「新卡先 `QUEUED`、不得直接 `NEXT`」）
+- `status`: `NEXT`（`bd0448a` 以 `QUEUED` 登记并推送，由紧随的本 commit 提升为唯一 `NEXT`）
+- `promotion_reason`: 顺序已满足——登记它的那张 commit（`bd0448a`）在它之前已由 `7c8c412` 把
+  `OFFLINE-030-CASE-FILENAME-001` 收为 `DONE` 并推到两条 ref，`bd0448a` 只做登记、没写 `NEXT`，
+  本 commit 之前计划里没有 `NEXT`，中间没有插入别的未授权工作。入口门禁在收卡时全绿
+  （`2146 passed / 2 skipped`、ruff check/format、Pyright 0 errors、case assertions 139 registered、
+  fixture digests、boundaries、workflow pins、`git diff --check` 干净），本卡是纯文档设计卡，
+  不需要新的真实运行入口。它是 campaign `order` 第 5 个场景当下唯一的入口：阶段 D 的入口条件
+  （「OFF-A/B 证据闭合」）由 `OFFLINE-IDENTITY-RUN-001` 与 `OFFLINE-030-CASE-FILENAME-001` 满足。
+- `registered`: `bd0448a`（`QUEUED`）
 - `blocked_by`: 无（前置卡 `OFFLINE-030-CASE-FILENAME-001` 已 `DONE`：campaign `order` 的第 4 个场景
   五条判据都有真实 bundle，阶段 D 的入口条件——「OFF-A/B 证据闭合」——成立）
 - `baseline_sha`: `7c8c412512b5d27e80e1b552733d820eaad95d99`
