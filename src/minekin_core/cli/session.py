@@ -11,6 +11,7 @@ on its own, so what is left here is the order and the refusal rules.
 from __future__ import annotations
 
 import asyncio
+import json
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -67,7 +68,10 @@ from minekin_core.adapters.launcher.saves import (
     seed_world,
     settings_digest,
 )
-from minekin_core.adapters.launcher.server_profile import ServerProfile, load_server_profile
+from minekin_core.adapters.launcher.server_profile import (
+    SessionServerProfile,
+    load_session_server_profile,
+)
 from minekin_core.adapters.launcher.supervisor import ProcessIdentity, ProcessSupervisor
 from minekin_core.adapters.sqlite.connection import connect_reader
 from minekin_core.adapters.sqlite.identity_store import read_identity_root
@@ -217,7 +221,7 @@ def open_lan_command(
 
 
 def connect_world_command(
-    profile: ServerProfile,
+    profile: SessionServerProfile,
     *,
     request_id: str,
     generation: int,
@@ -904,6 +908,32 @@ class InputPlan:
         return outstanding
 
 
+def launched_minecraft_version(profile: Path) -> str:
+    """The version a launcher profile document says its client will run.
+
+    Read here rather than taken from the prepared session because the target the
+    session may join is checked against it *before* anything is created, and a run
+    that has already built an overlay is the wrong place to discover that the two
+    documents name different versions. This is the document's own claim, not a
+    verdict on it: the recipe audit inside preparation is what proves the claim
+    belongs to a reviewed bundle, and it still runs on the launch path.
+    """
+
+    try:
+        parsed = json.loads(profile.read_bytes())
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise _reject("the launcher profile is not readable UTF-8 JSON") from error
+    if not isinstance(parsed, dict):
+        raise _reject("the launcher profile must be an object")
+    minecraft = cast("dict[str, object]", parsed).get("minecraft")
+    if not isinstance(minecraft, dict):
+        raise _reject("the launcher profile has no minecraft section")
+    version = cast("dict[str, object]", minecraft).get("version")
+    if not isinstance(version, str) or not version:
+        raise _reject("the launcher profile has no minecraft.version")
+    return version
+
+
 async def start_and_supervise(
     *,
     root: Path,
@@ -950,14 +980,16 @@ async def start_and_supervise(
     reachable while this process is hosting it.
     """
 
-    target: ServerProfile | None = None
+    target: SessionServerProfile | None = None
     if server_profile is not None:
         if connection_timeout <= 0:
             raise _reject("the connection timeout must be positive")
         # Read before anything is created: an unusable profile is an operator
         # error, and a run that has already built an overlay should not be the
         # thing that discovers one.
-        target = load_server_profile(server_profile)
+        target = load_session_server_profile(
+            server_profile, minecraft_version=launched_minecraft_version(profile)
+        )
 
     session = SessionStateMachine()
     prepared = await prepare_session_async(

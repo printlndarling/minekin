@@ -11,6 +11,7 @@ from minekin_core.adapters.launcher.server_profile import (
     ServerProfile,
     load_managed_target_profile,
     load_server_profile,
+    load_session_server_profile,
 )
 from minekin_core.domain.admission import decide_endpoint
 from minekin_core.domain.errors import ErrorCategory, MinekinError
@@ -385,3 +386,96 @@ def test_v2_evidence_document_round_trips(tmp_path: Path) -> None:
         "pinned_bundle_id": "p0-core-1.20.1",
         "revision": profile.revision,
     }
+
+
+SESSION_V2: dict[str, object] = {**VALID_V2, "host": "127.0.0.1"}
+
+
+def load_session_v2(tmp_path: Path, **overrides: object) -> object:
+    return load_session_server_profile(
+        write(tmp_path, {**SESSION_V2, **overrides}), minecraft_version="1.20.1"
+    )
+
+
+def test_a_matching_v1_document_loads_through_the_session_path(tmp_path: Path) -> None:
+    write(tmp_path, VALID)
+
+    profile = load_session_server_profile(FIXTURE, minecraft_version="1.21.4")
+
+    assert isinstance(profile, ServerProfile)
+    assert profile == load_server_profile(FIXTURE)
+    assert profile.revision == load_server_profile(tmp_path / "profile.json").revision
+
+
+def test_a_v1_document_pinned_to_another_version_is_not_a_session_target(tmp_path: Path) -> None:
+    # The 1.20.1 run cannot borrow the 1.21.4 profile: the pinned constant stays
+    # where V01 froze it, and the mismatch is what says no.
+    with pytest.raises(MinekinError, match=r"pins 1\.21\.4"):
+        load_session_server_profile(write(tmp_path, VALID), minecraft_version="1.20.1")
+
+
+def test_a_loopback_v2_target_in_the_controlled_domain_loads(tmp_path: Path) -> None:
+    profile = load_session_v2(tmp_path)
+
+    assert isinstance(profile, ManagedTargetProfile)
+    assert profile.is_loopback
+    assert profile.allowed_versions == ("1.20.1",)
+    assert profile == load_managed_target_profile(tmp_path / "profile.json")
+
+
+@pytest.mark.parametrize("host", ["198.51.100.20", "10.0.0.5", "172.16.3.9"])
+def test_every_saved_non_loopback_literal_stays_unjoinable(tmp_path: Path, host: str) -> None:
+    with pytest.raises(MinekinError, match="loopback"):
+        load_session_v2(tmp_path, host=host)
+
+
+def test_a_version_policy_that_lists_several_versions_is_not_a_session_target(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(MinekinError, match="exactly one version"):
+        load_session_v2(
+            tmp_path,
+            version_policy={"mode": "explicit_allowlist", "allowed_versions": ["1.20.1", "1.21.4"]},
+        )
+
+
+def test_the_target_version_must_be_the_version_being_launched(tmp_path: Path) -> None:
+    with pytest.raises(MinekinError, match=r"allows 1\.21\.4"):
+        load_session_server_profile(
+            write(
+                tmp_path,
+                {
+                    **SESSION_V2,
+                    "version_policy": {
+                        "mode": "explicit_allowlist",
+                        "allowed_versions": ["1.21.4"],
+                    },
+                },
+            ),
+            minecraft_version="1.20.1",
+        )
+
+
+def test_a_v2_document_still_meets_every_v2_loading_rule(tmp_path: Path) -> None:
+    with pytest.raises(MinekinError, match="online-mode"):
+        load_session_v2(tmp_path, auth_mode="online")
+
+
+@pytest.mark.parametrize("schema_version", [0, 3, 1.0, "1"])
+def test_an_unreviewed_schema_version_has_no_session_loader(
+    tmp_path: Path, schema_version: object
+) -> None:
+    with pytest.raises(MinekinError):
+        load_session_server_profile(
+            write(tmp_path, {**VALID, "schema_version": schema_version}),
+            minecraft_version="1.21.4",
+        )
+
+
+def test_a_session_profile_that_fails_to_load_is_still_an_admission_failure(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(MinekinError) as caught:
+        load_session_v2(tmp_path, host="198.51.100.20")
+
+    assert caught.value.category is ErrorCategory.ADMISSION

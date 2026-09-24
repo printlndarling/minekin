@@ -19,6 +19,7 @@ from minekin_core.cli.init import initialise_identity
 from minekin_core.cli.session import (
     SessionLaunch,
     database_for,
+    launched_minecraft_version,
     require_launchable,
     require_store_complete,
     select_kin,
@@ -699,3 +700,43 @@ def test_the_port_a_host_publishes_on_is_either_named_or_chosen_by_the_client() 
         with pytest.raises(MinekinError, match="is not a port") as raised:
             open_lan_command(request_id="lan-1", generation=1, deadline_monotonic_ns=1, port=bad)
         assert raised.value.exit_code is ExitCode.CONFIG
+
+
+BUNDLE_FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "runtime-input"
+
+
+@pytest.mark.parametrize(
+    ("document", "expected"),
+    [
+        ("bundle-p0-core-1.21.4.json", "1.21.4"),
+        ("bundle-candidate-1.20.1.json", "1.20.1"),
+    ],
+)
+def test_the_launched_version_is_the_bundle_document_own_claim(
+    document: str, expected: str
+) -> None:
+    assert launched_minecraft_version(BUNDLE_FIXTURES / document) == expected
+
+
+@pytest.mark.parametrize(
+    "document",
+    [
+        "{}",
+        '{"minecraft": {}}',
+        '{"minecraft": ""}',
+        '{"minecraft": {"version": 1}}',
+        '{"minecraft": []}',
+        "not json",
+    ],
+)
+def test_a_bundle_that_does_not_name_its_version_is_refused(tmp_path: Path, document: str) -> None:
+    path = tmp_path / "bundle.json"
+    path.write_text(document, encoding="utf-8")
+
+    with pytest.raises(MinekinError):
+        launched_minecraft_version(path)
+
+
+def test_a_missing_bundle_document_is_refused(tmp_path: Path) -> None:
+    with pytest.raises(MinekinError):
+        launched_minecraft_version(tmp_path / "nope.json")
