@@ -730,8 +730,51 @@ client_env=()
 if [ "${refusal_asked}" -eq 1 ]; then
     client_env=(env MINEKIN_BRIDGE_NON_AUTHORITATIVE_FIRST_SNAPSHOT="${refuse_first_snapshot}")
 fi
-xvfb-run -a --server-args="-screen 0 1280x720x24" \
-    "${client_env[@]}" python -m minekin_core "$@" "${lan_args[@]}" >/tmp/domain-session.json &
+# The display belongs to the harness, not to the session. `xvfb-run` starts an X
+# server and shuts it down from its own `trap clean_up EXIT`: when the Core — that
+# wrapper's command child — is SIGKILLed, the wrapper walks to its end within
+# milliseconds and takes the server with it (measured: the client's `stderr.log`
+# carried nothing but `X connection to :NN broken`). The input release this window
+# reads is written on the client's *next tick*, which cannot arrive once its screen
+# is gone. So start the server here, hold it for the whole run, and hand the session
+# only `DISPLAY`. The managed client JVM reaches the same screen exactly as before —
+# Core forwards `DISPLAY` (`config.FORWARDED_VARIABLES`) to the client — except now
+# killing the Core has no route to the server behind it.
+#
+# The session stays under a plain `sh -c '"$@"; :'` wrapper, not run directly: the
+# fault helper resolves the runtime controller by walking the descendants of the pid
+# this run holds (`inject_fault.py`), so the Core must remain one level below
+# `session_pid`. The trailing `:` keeps the shell from exec-replacing itself with the
+# Core, which would collapse wrapper and target into one pid and leave no descendant
+# to name. Killing the Core lets this wrapper exit on its own; it holds no server, so
+# nothing here shuts the display down.
+for display_no in $(seq 77 99); do
+    [ -e "/tmp/.X${display_no}-lock" ] || {
+        session_display=":${display_no}"
+        break
+    }
+done
+if [ -z "${session_display:-}" ]; then
+    printf 'domain: no free display in :77-:99 for the harness-owned X server\n' >&2
+    exit 2
+fi
+Xvfb "${session_display}" -screen 0 1280x720x24 >/tmp/domain-xvfb.log 2>&1 &
+harness_xvfb_pid=$!
+# Wait on the socket rather than a fixed sleep: the session's first connect fails if
+# the server has not taken the display yet.
+for _ in $(seq 1 100); do
+    [ -e "/tmp/.X11-unix/X${display_no}" ] && break
+    sleep 0.1
+done
+if [ ! -e "/tmp/.X11-unix/X${display_no}" ]; then
+    printf 'domain: the harness X server never came up on %s\n' "${session_display}" >&2
+    exit 2
+fi
+export DISPLAY="${session_display}"
+
+sh -c '"$@"; :' minekin-session-supervisor \
+    "${client_env[@]}" python -m minekin_core "$@" "${lan_args[@]}" \
+    >/tmp/domain-session.json 2>/tmp/domain-session.err &
 session_pid=$!
 if ! read -r session_starttime_ticks session_pid_namespace_inode \
         <<<"$(read_process_identity "${session_pid}" 2>/dev/null)" ||
@@ -1251,9 +1294,11 @@ if [[ -n "${kill_core}" ]]; then
             sleep 1
             continue
         fi
-        # The runtime is a grandchild of the pid this script holds — `xvfb-run`
-        # and the X server are between them — so it is named by its command line
-        # within that subtree rather than by being the wrapper's first child.
+        # The runtime is a child of the pid this script holds — the plain `sh -c`
+        # supervisor is between them — so it is named by its command line within
+        # that subtree rather than by being the wrapper's own exec'd program. The
+        # X server is no longer in this subtree at all: the harness holds it, so
+        # killing the runtime cannot take the client's display with it.
         if inject_fault "${session_pid}" "runtime_controller" \
                 "${session_starttime_ticks}" "${session_pid_namespace_inode}"; then
             killed=1

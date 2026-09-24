@@ -166,6 +166,40 @@ def test_the_kill_paths_name_their_target_instead_of_guessing() -> None:
     assert "this run asks for two faults at once" in text
 
 
+def test_a_killed_core_leaves_the_display_it_never_owned() -> None:
+    """The runtime window's release line is written on the client's next tick.
+
+    `bridge released N input(s) after IPC_LOST` comes out of the managed client JVM's
+    tick loop, so it can only be written while that JVM still has a screen. Launching
+    the session *inside* `xvfb-run` made the display die with the Core: `xvfb-run` owns
+    the server and shuts it down from its own EXIT trap the moment its command child is
+    SIGKILLed — measured at 6-7 ms — so that whole window was unwritable by construction,
+    and a FAIL could not tell "the Bridge kept the key" from "the client never reached a
+    tick." The harness therefore starts the server itself, hands the session only
+    `DISPLAY`, and keeps the Core under a plain wrapper — the fault helper names the
+    runtime controller by walking the descendants of `session_pid`, so the Core must stay
+    one level below the held pid rather than becoming it.
+    """
+
+    text = (RUNNER / "domain.sh").read_text(encoding="utf-8")
+
+    # The harness owns one server for the whole run and points the session at it.
+    assert 'Xvfb "${session_display}" -screen 0 1280x720x24' in text
+    assert 'export DISPLAY="${session_display}"' in text
+    # It waits on the socket rather than trusting a sleep before anything connects.
+    assert "/tmp/.X11-unix/X${display_no}" in text
+
+    # The session is launched under a wrapper that cannot exec-replace itself into the
+    # Core, so the runtime controller stays a descendant of the held pid.
+    launch = '"${client_env[@]}" python -m minekin_core "$@" "${lan_args[@]}"'
+    assert text.count(launch) == 1, "the session launch moved or doubled"
+    head = text.index(launch)
+    preceding = text[max(0, head - 80) : head]
+    assert "minekin-session-supervisor" in preceding
+    assert "xvfb-run" not in preceding, "the session went back inside its own X server"
+    assert head < text.index("session_pid=$!")
+
+
 def test_the_kill_paths_read_the_ledger_they_are_told_about() -> None:
     """One Kin's database must not be read as another's.
 
