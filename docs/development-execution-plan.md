@@ -3489,7 +3489,8 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
   没有碰到这条路径（受控专服不是 HOST 世界），所以本卡**不**据推断改动它，只把它留在未验证列表上；
   runner 镜像的 JDK 17 备选（⑦ 量到镜像自带的 Java 21 能起 1.20.1 客户端，故这不是阻断）。
   三案各自的**反例**（版本不符即拒、Bridge 摘要不符即拒、认证模式不符即拒）已在 1.20.1 上单独
-  实测，见 ⑮。
+  实测，见 ⑮；V04 验收线点名的第四条反例（**旧 generation**）在 1.20.1 上立成了
+  `V1201-070` 并独立封证，见 ⑰。
 - `seal_path_versioning`（2026-09-25）：`tools/seal_run_evidence.py` 改走会话与受控工装同一道
   `load_session_server_profile()` 准入门，Bridge 摘要按启动版本取 `recipe.bridge_identity(...)`
   （`f90d95d`，已推送并核对两 ref）；`tools/report_promotion.py` 的 build 对照改为**按 bundle 自述
@@ -3569,6 +3570,33 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
   #460（`b3531a2`，工作分支，22s）在浏览器里读到原因：python job 在 `Run uv sync --locked --dev`
   这一步失败（lockfile 与 pyproject 不同步），protocol 与 bridge-static 通过——它不是测试失败，
   且从 #461 起本仓 CI 连续为绿。这些仍是回归信号，不是本卡的 Minecraft 验收证据。
+- `progress_record_17_fourth_counterexample_sealed`（2026-09-25，受控 runner / Docker / Linux）：
+  ⑮ 补上了准入与摘要两侧的反例，本卡的第四条反例（**旧 generation**：权威首快照被拒之后那一代
+  不得复活）此前在 1.20.1 上**没有可封证的案**，因此不算成立。解法是把它立成自己的案而不是口头
+  援引 1.21.4：新增 `tests/fixtures/cases/v1201-070.json`（交付 `b1d06ad`，`manifest.sha256`
+  第 82 行 `3278ad2980ef…`），五条断言与其摘要逐字取自 `ADMIT-070`，inputs 换成 1.20.1 candidate
+  与 1.20.1 受控离线服务端，**不引用任何 1.21.4 证据**。真实运行（`.tmp/v1201-070-run.log`，
+  服务端目录 `/data/server-runs/run-150`，`MINEKIN_DOMAIN_REFUSE_FIRST_SNAPSHOT=1`、
+  `MINEKIN_DOMAIN_CASE=V1201-070`、`MINEKIN_KIN_ID=kin-01`）：run
+  `5b1cbef5162d40a68789324c80d1363c`、session `b71b980f4d374122b7bca1b08cd78c91`、bundle
+  `46aa3f00b42da484720e925110509a40cdb49ce955f85779066ce11434911156`、`case_version
+  1f217891e7a88d4d44660db48579cf7357c6d3eedb4b61b9474aa8aa363de844`、attempt 序列 **1**、14 件工件，
+  **一次封证即 PASS**。运行文档自述 `connection_state: JOIN_SEEN`（真的进了服）、
+  `snapshot_rejections: ["NOT_AUTHORITATIVE"]`、`snapshots_admitted: 0`、`entities_admitted: 0`、
+  `outcome: BRIDGE_LOST`、`session_state: STOPPED`；请求记录 `CLIENT_REPORT_REQUEST` 由
+  `PROC_CHILD_ENVIRON` 观测到 pid 202 携带该环境变量（`observed: true`），即"这次确实问了"是量出来的
+  而不是脚本声称。四读（`.tmp/v1201-070-readers.log`）：`evidence verify` →
+  `verified/sealed/PASS`；`rejudge_evidence.py` → `status: agrees`、五条全 in `observed`、`failures: []`；
+  `python -m minekin_core replay` 与 `tools/replay_evidence.py` → 17 事件投影到 `STOPPED`、
+  `violations: []`、trace sha256 `0b4b6659d1f49b4b1920746094e027cf526918396df0e880fd8a72d321e27557`
+  （12,280B）；`report_promotion.py` → 该 bundle `result PASS`、`from_repository_build true`、
+  attempt `SEALED`、`supersedes_run_id null`。
+  **与 1.21.4 那次不同的两处，如实记下**：本次 `entities_rejected: 0`（1.21.4 为 1）——被拒快照里
+  没有实体可计，故本卡不声称 1.20.1 观测到"实体被拒"；`session exited 0`（1.21.4 为 14）——两条都不
+  在任何断言的判据里，本卡不据其一经任何结论。
+  **这条案证明的范围**：1.20.1 上，被拒的首快照不会成为 lease 或 `PLAYABLE` 的根据，那一代被关掉且
+  没有重开，且拒绝的**理由**是案所指名的那个。它**不**证明真实服务端会自己送出不权威首快照（这条
+  路径只能靠客户端侧上报构造，机制见 `domain.sh` 里该旋钮的注释），也不涉及远程服与在线认证。
 - `server_supply_chain`（2026-09-25 实测，来自 Mojang 官方 `version_manifest_v2` → 1.20.1 条目）：
   dedicated server `sha1 84194a2f286ef7c14ed7ce0090dba59902951553` / 47,791,053B，
   `piston-data.mojang.com/v1/objects/84194a2f…/server.jar`；client `sha1 0c3ec587af28e5a785c0b4a7b8a30f9a8f78f838`

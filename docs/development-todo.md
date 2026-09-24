@@ -2564,3 +2564,22 @@
   （lockfile 与 pyproject 不同步），protocol/bridge-static 通过；#461 起连续为绿。
 - **反例不证明的事**：非回环地址可加入（第 ③ 条恰恰拒绝它，属 HOST 准入卡的产品决策）；
   `BridgeHello` 版本字段正确性（属 `VERSION-BRIDGE-IDENTITY-001`）。
+
+## V04 第四条反例：1.20.1 的旧 generation（2026-09-25，受控 runner / Docker / Linux）
+
+- **新案**：`tests/fixtures/cases/v1201-070.json`（`b1d06ad`，manifest 第 82 行 `3278ad2980ef…`）。
+  五条断言与摘要逐字取自 1.21.4 的 `ADMIT-070`，inputs 换成 1.20.1 candidate + 1.20.1 受控离线
+  服务端；`check_case_assertions.py`（139 项）与 `verify_fixture_digests.py` 均无需改动即复算 OK。
+- **一次真实拒绝运行**：run `5b1cbef5162d40a68789324c80d1363c` / bundle `46aa3f00b42d…` / attempt 1 /
+  14 工件 / `PASS`。运行文档 `JOIN_SEEN` + `snapshot_rejections: ["NOT_AUTHORITATIVE"]` +
+  `snapshots_admitted: 0` + `session_state: STOPPED`；注入请求由 `PROC_CHILD_ENVIRON` 观测到
+  pid 202 携带环境变量（`observed: true`）。日志 `.tmp/v1201-070-run.log`、四读
+  `.tmp/v1201-070-readers.log`。
+- **四读一致**：verify `verified/sealed/PASS`；rejudge `agrees`（五条全 observed、`failures: []`）；
+  replay 17 事件 → `STOPPED`、`violations: []`；promotion `from_repository_build true`、
+  attempt `SEALED`。至此 V04 验收线点名的四条反例（错误版本 / 错误 Bridge / 认证策略拒绝 /
+  旧 generation）在 1.20.1 上各自独立成立。
+- **与 1.21.4 那次不同的两处**（不据其一经结论）：`entities_rejected: 0`（1.21.4 为 1）、
+  `session exited 0`（1.21.4 为 14）。
+- **本条不证明**：真实服务端会自行送出不权威首快照（该路径只能经客户端上报构造）；与远程服、
+  在线认证、HOST 准入无关。
