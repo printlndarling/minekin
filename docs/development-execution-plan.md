@@ -12,10 +12,10 @@
 - `baseline_date`: 2026-09-22
 - `baseline_branch`: `main`
 - `baseline_remote`: `origin/main`
-- `current_next`: `OFFLINE-IDENTITY-EVIDENCE-DESIGN-001`（交接阶段 C 的证据设计卡，`order` 第 4 个
-  场景）。上一张 `ADMIT-070-CASE-001` 已完成交接六项并 `DONE`；本卡先以 `QUEUED` 登记在
-  `e0d92c3`，由紧随的这一次交付按交接第 1、6 项提升为唯一 `NEXT`，入口条件与理由写在该卡
-  `registered`。其余未闭合卡仍是
+- `current_next`: `OFFLINE-IDENTITY-LEDGER-FACT-001`（`order` 第 4 个场景三张实现卡的第一张：让 Core
+  把已经得出的身份比对结论记成自己的账本行）。上一张 `OFFLINE-IDENTITY-EVIDENCE-DESIGN-001` 已完成
+  交接六项并 `DONE`（判据冻结 `308f38a`，收卡 `4d2beb7`）；本卡先在 `4d2beb7` 以 `QUEUED` 登记，
+  由紧随的这一次交付按交接第 1、6 项提升为唯一 `NEXT`。其余未闭合卡仍是
   `HOST-ADMISSION-DESIGN-001`/`OPERATIONS-RETENTION-001`/`PROCESS-RECOVERY-001`
   三项 `BLOCKED_DECISION` 与 `HOST/W80+` 的 `DEFERRED`，都要用户先拍板。
 - `temporary_executor_handoff`: [Qoder 执行交接](qoder-execution-handoff.md)；
@@ -1379,8 +1379,12 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 
 ### OFFLINE-IDENTITY-LEDGER-FACT-001 — 让 Core 把身份比对结论记成自己的账本行
 
-- `status`: `QUEUED`；不替换当前唯一 `NEXT`。由 `OFFLINE-IDENTITY-EVIDENCE-DESIGN-001` 的
-  `completion_evidence` 登记，且它是其后两张卡的前置：判据要读的字段先存在，运行才封得出它。
+- `status`: `NEXT`（`4d2beb7` 登记为 `QUEUED`，本次交付按交接第 1、6 项提升）
+- `promotion_reason`: 交接第 1 项要求的顺序已满足——先 `QUEUED` 登记并推送，再在紧随的交付里提升，
+  两次推送之间没有插入别的未授权工作。入口条件也齐：判据已由 `OFFLINE-IDENTITY-EVIDENCE-DESIGN-001`
+  冻结在专项契约（payload 的最小字段集与反例都写死了），本地门禁全绿，且它是其后两张卡的前置
+  ——判据要读的字段先存在，`OFFLINE-IDENTITY-CASE-001` 才写得出断言、`RUN-001` 才封得出证据。
+- `baseline_sha`: `4d2beb7766e11adc79bedaf3896a542a6ee60c9d`
 - `question`: 把 `compare_session_material` 已经得出的 `SessionMaterialVerdict`（连同 Bridge 上报的
   观测）写成 Core 自己的一条账本行，需要动哪几处、payload 字段的最终名字是什么、以及为什么不去
   改 `BridgeHelloAccepted` 的 payload。
