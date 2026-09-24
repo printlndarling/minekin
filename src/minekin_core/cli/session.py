@@ -81,6 +81,7 @@ from minekin_core.adapters.sqlite.session_log import (
     JOIN_OBSERVED,
     PLAYABLE_ESTABLISHED,
     RESOURCE_PACK_POLICY_APPLIED,
+    SESSION_IDENTITY_COMPARED,
     SESSION_INTERRUPTED,
     SESSION_STATE_TRANSITIONED,
     SessionEventLog,
@@ -1426,6 +1427,19 @@ async def start_and_supervise(
             trust_class=TrustClass.BRIDGE_FILTERED,
         )
 
+    async def on_session_identity(generation: int, compared: Mapping[str, object]) -> None:
+        await record(
+            SESSION_IDENTITY_COMPARED,
+            {"session_id": prepared.session_id, "generation": generation, **compared},
+            # Core's own conclusion, in the same sense the accepted handshake is: it
+            # is what this side decided about a report it received, not the report.
+            # The observed fields are the Bridge's words about the live Session and
+            # this row cannot make them truer than that — what it cannot be is a
+            # restatement of the launch arguments, since no argv text reaches it.
+            source=EventSource.CORE,
+            trust_class=TrustClass.CORE,
+        )
+
     async def until_client_exit() -> None:
         while prepared.supervisor.running():
             await asyncio.sleep(exit_poll_s)
@@ -1452,6 +1466,7 @@ async def start_and_supervise(
         on_transition=record_transition,
         on_playable=on_playable,
         on_resource_pack_policy=on_resource_pack_policy,
+        on_session_identity=on_session_identity,
         on_wind_down=on_wind_down,
         # Only when a hold was asked for: with no lease there is no moment, and a
         # watcher that never completes is a task that exists to be cancelled.

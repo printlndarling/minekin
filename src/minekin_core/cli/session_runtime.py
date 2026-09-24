@@ -26,6 +26,7 @@ from enum import StrEnum
 from minekin_core.adapters.bridge.admission import accept_snapshot, apply_lifecycle
 from minekin_core.adapters.bridge.ipc import BridgeIpcHost, IpcProtocolError
 from minekin_core.adapters.bridge.perception import admit_first_snapshot
+from minekin_core.adapters.bridge.session_report import decode_session_identity
 from minekin_core.domain.budget import BudgetLedger, read_window
 from minekin_core.domain.connection import (
     CallbackDisposition,
@@ -38,7 +39,10 @@ from minekin_core.domain.host_publication import (
     host_publication,
 )
 from minekin_core.domain.information_class import admit_to_cognition
-from minekin_core.domain.session_material import RecordedSessionMaterial
+from minekin_core.domain.session_material import (
+    RecordedSessionMaterial,
+    identity_ledger_record,
+)
 from minekin_core.domain.session_state import (
     SessionState,
     SessionStateMachine,
@@ -239,6 +243,7 @@ async def supervise_session(
     on_transition: TransitionRecorder | None = None,
     on_playable: Callable[[], Awaitable[None]] | None = None,
     on_resource_pack_policy: Callable[[int, str], Awaitable[None]] | None = None,
+    on_session_identity: Callable[[int, Mapping[str, object]], Awaitable[None]] | None = None,
     on_wind_down: Callable[[], Awaitable[None]] | None = None,
     until_input_release: Callable[[], Awaitable[object]] | None = None,
     on_input_release: Callable[[], Awaitable[None]] | None = None,
@@ -270,6 +275,13 @@ async def supervise_session(
     decide what that fact is worth or where it is kept — it is the Bridge's word
     about the client's own connection, and only the caller can say which source to
     record it under.
+
+    `on_session_identity` runs for every first-snapshot comparison the runtime could
+    make, with the attempt's generation and the record of what was compared against
+    what. It fires whether or not the snapshot was admitted, because a run that read
+    the client's identity and refused it and a run that never looked are different
+    facts, and only the record itself can tell a reader which one happened. Which
+    event and which trust class that record deserves is again the caller's call.
 
     `until_input_release` completes when the caller's authorisation to drive the
     client should end, and `on_input_release` is what it does about that. The
@@ -336,6 +348,7 @@ async def supervise_session(
                     on_playable,
                     recorded,
                     on_resource_pack_policy,
+                    on_session_identity,
                 ),
                 name="minekin-bridge-events",
             )
@@ -463,6 +476,7 @@ async def _read_events(
     on_playable: Callable[[], Awaitable[None]] | None,
     recorded: RecordedSessionMaterial | None,
     on_resource_pack_policy: Callable[[int, str], Awaitable[None]] | None = None,
+    on_session_identity: Callable[[int, Mapping[str, object]], Awaitable[None]] | None = None,
 ) -> None:
     """Apply every reported phase until the channel ends or the run is cancelled."""
 
@@ -499,6 +513,7 @@ async def _read_events(
                 on_connection,
                 on_transition,
                 recorded,
+                on_session_identity,
             )
             # The class is recorded only for a snapshot the filter admitted, so the
             # document says what the Kin was actually allowed to know rather than
@@ -586,6 +601,7 @@ async def _admit_first_snapshot(
     on_connection: Callable[[ConnectionState, str], Awaitable[None]] | None,
     on_transition: TransitionRecorder | None,
     recorded: RecordedSessionMaterial | None,
+    on_session_identity: Callable[[int, Mapping[str, object]], Awaitable[None]] | None = None,
 ) -> bool:
     """Let an admitted snapshot, and not a Bridge's word, make an attempt playable.
 
@@ -599,6 +615,9 @@ async def _admit_first_snapshot(
     thing the caller needs to know about what the Kin perceived. It is not the same
     question as whether the attempt advanced: a snapshot can be admitted and still
     not move an attempt whose generation has closed.
+
+    Whatever the verdict, the comparison itself is handed to `on_session_identity`
+    while the report and the record are both in hand.
     """
 
     attempt = connections.active
@@ -606,6 +625,17 @@ async def _admit_first_snapshot(
         progress.ignored += 1
         return False
     admission = admit_first_snapshot(snapshot, generation=attempt.generation, recorded=recorded)
+    if on_session_identity is not None:
+        # Handed over before the verdict is acted on, so a snapshot refused for a
+        # reason unrelated to identity still leaves the comparison on the record.
+        await on_session_identity(
+            attempt.generation.value,
+            identity_ledger_record(
+                recorded,
+                decode_session_identity(snapshot.session_identity),
+                admission.session,
+            ),
+        )
     # Counted either way: the filter runs whether or not the snapshot is admitted,
     # and "the Kin proposed six things and could confirm two" is evidence about
     # the world rather than about the verdict.

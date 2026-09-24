@@ -10,7 +10,7 @@ follows the reported phases to PLAYABLE and stops when the client does.
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from pathlib import Path
 from typing import Any, cast
 
@@ -135,15 +135,23 @@ class Peer:
         core = await asyncio.wait_for(read_frame(control_reader), 2)
         self.core_hello = session_pb2.CoreHello.FromString(core.payload)
 
-    async def snapshot(self, *, generation: int = 1) -> None:
-        """Send a first snapshot Core should admit, and which the launch agrees with."""
+    async def snapshot(
+        self, *, generation: int = 1, authoritative: bool = True, tick: int = 1
+    ) -> None:
+        """Send a first snapshot Core should admit, and which the launch agrees with.
+
+        `authoritative` is the one dial a caller turns to keep the identity report
+        matching while the snapshot is still refused: what is not an authoritative
+        observation is not a perception problem, and a comparison that agrees has to
+        reach the record either way.
+        """
 
         assert self.event_writer is not None
         self.sequence += 1
         snapshot = observation_pb2.InitialObservation(
             generation=generation,
-            game_tick=1,
-            authoritative=True,
+            game_tick=tick,
+            authoritative=authoritative,
             self=observation_pb2.SelfState(
                 health=20.0,
                 max_health=20.0,
@@ -326,6 +334,7 @@ async def _supervise(
     on_input_release: Callable[[], Awaitable[None]] | None = None,
     until_connection_deadline: Callable[[], Awaitable[object]] | None = None,
     on_connection_deadline: Callable[[], Awaitable[None]] | None = None,
+    on_session_identity: Callable[[int, Mapping[str, object]], Awaitable[None]] | None = None,
 ) -> SessionRun:
     return await asyncio.wait_for(
         supervise_session(
@@ -341,6 +350,7 @@ async def _supervise(
             on_input_release=on_input_release,
             until_connection_deadline=until_connection_deadline,
             on_connection_deadline=on_connection_deadline,
+            on_session_identity=on_session_identity,
         ),
         timeout,
     )
@@ -909,6 +919,99 @@ def test_a_refused_snapshot_is_never_the_basis_for_a_lease(tmp_path: Path) -> No
         assert document["actions_applied"] == 0 and document["actions_refused"] == 0
 
     asyncio.run(scenario())
+
+
+def test_every_identity_comparison_the_runtime_could_make_reaches_the_caller(
+    tmp_path: Path,
+) -> None:
+    """The record of who the client turned out to be is handed over whatever it says.
+
+    OFFLINE-010/020/030's evidence needs a row per attempt saying what the launch
+    claimed and what the client reported, and the claim is only evidence if it
+    survives a run that *disagreed*. So the runtime passes the comparison to its
+    caller before it acts on the verdict: all three snapshots below go through one
+    session — one that reports nothing, one that agrees with the launch and is
+    refused anyway for being a non-authoritative observation, and one that is
+    admitted — and each produces its own record. The middle case is the one a
+    shortcut would miss: a caller that only learned about identity when perception
+    succeeded could not tell a client which lied from a client which was not
+    looked at.
+    """
+
+    async def scenario() -> tuple[list[tuple[int, Mapping[str, object]]], SessionRun]:
+        bridge = session()
+        host = BridgeIpcHost(bridge)
+        descriptor = await host.prepare(tmp_path / "descriptor.pb")
+        machine, connections = _in_handshake()
+        exit_event = asyncio.Event()
+        peer = Peer(descriptor, bridge)
+        compared: list[tuple[int, Mapping[str, object]]] = []
+
+        async def record(generation: int, comparison: Mapping[str, object]) -> None:
+            compared.append((generation, comparison))
+
+        async def client() -> None:
+            await peer.prove()
+            for phase in (
+                observation_pb2.CONNECTION_PHASE_RESOLVING,
+                observation_pb2.CONNECTION_PHASE_LOGIN_NEGOTIATING,
+                observation_pb2.CONNECTION_PHASE_PLAY_INIT,
+                observation_pb2.CONNECTION_PHASE_JOIN_SEEN,
+            ):
+                await peer.report(phase)
+                await _wait_until(lambda: machine.state is not SessionState.CONNECTING)
+            await peer.snapshot_without_identity(tick=1)
+            await _wait_until(lambda: len(compared) == 1)
+            await peer.snapshot(tick=2, authoritative=False)
+            await _wait_until(lambda: len(compared) == 2)
+            await peer.snapshot(tick=3)
+            await _wait_until(lambda: machine.state is SessionState.PLAYABLE)
+            exit_event.set()
+            await peer.close()
+
+        running = asyncio.create_task(client())
+        run = await _supervise(
+            host, machine, connections, exit_event=exit_event, on_session_identity=record
+        )
+        await running
+
+        return compared, run
+
+    compared, run = asyncio.run(scenario())
+
+    # Two of the three snapshots were refused, and the agreeing comparison below is
+    # not one of them turning into an admission: the verdict and the perception
+    # filter answered different questions.
+    assert run.snapshots_admitted == 1
+    assert {"SESSION_MATERIAL_MISMATCH", "NOT_AUTHORITATIVE"} <= set(run.snapshot_rejections)
+    # One per snapshot, on the generation the attempt was made under — and not one
+    # for the handshake or the join, which say nothing about identity.
+    assert [generation for generation, _ in compared] == [1, 1, 1]
+    silent, non_authoritative, admitted = (record for _, record in compared)
+
+    # The report-less client is compared field by field rather than summed up as
+    # "no identity": an empty report fails on what it leaves out *and* on the two
+    # fields that then do not line up, and a reader has to see all three.
+    assert silent["matched"] is False
+    assert silent["mismatches"] == ["report_incomplete", "username", "uuid"]
+    assert silent["session_username"] == "" and silent["session_uuid"] == ""
+    # The attribution still names the candidate this launch used, because that is
+    # Core's own record and not something the report was asked to echo.
+    assert silent["identity_candidate_id"] == RECORDED.identity_candidate_id
+
+    # A snapshot refused for a reason outside identity is compared as agreeing —
+    # the two verdicts are about different things and neither may borrow the other.
+    assert non_authoritative["matched"] is True
+    assert non_authoritative["mismatches"] == []
+
+    assert admitted["matched"] is True
+    assert admitted["mismatches"] == []
+    assert admitted["session_username"] == RECORDED.username
+    assert admitted["session_uuid"] == RECORDED.uuid_argv
+    assert admitted["observed_account_type"] == "LEGACY"
+    assert admitted["client_id_present"] is False
+    assert admitted["xuid_present"] is False
+    assert admitted["credential_values_exposed"] is False
 
 
 def test_a_lan_failure_does_not_end_the_session_or_name_a_port(tmp_path: Path) -> None:

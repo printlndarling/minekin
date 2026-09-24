@@ -43,6 +43,7 @@ from minekin_core.adapters.bridge.ipc import (
     USE_INPUT_TYPE,
     BridgeSession,
 )
+from minekin_core.adapters.launcher.offline_session import OFFLINE_SESSION_CANDIDATES
 from minekin_core.adapters.launcher.saves import settings_digest, world_snapshot_digest
 from minekin_core.adapters.launcher.server_profile import load_server_profile
 from minekin_core.adapters.launcher.supervisor import ProcessSupervisor
@@ -58,6 +59,7 @@ from minekin_core.adapters.sqlite.session_log import (
     PLAYABLE_ESTABLISHED,
     PROCESS_STARTED,
     RESOURCE_PACK_POLICY_APPLIED,
+    SESSION_IDENTITY_COMPARED,
     SESSION_INTERRUPTED,
     SESSION_STATE_TRANSITIONED,
 )
@@ -608,6 +610,7 @@ def test_a_named_server_profile_becomes_one_connect_command(
         HELLO_ACCEPTED,
         RESOURCE_PACK_POLICY_APPLIED,
         JOIN_OBSERVED,
+        SESSION_IDENTITY_COMPARED,
         PLAYABLE_ESTABLISHED,
         CLIENT_EXITED,
     ]
@@ -615,10 +618,13 @@ def test_a_named_server_profile_becomes_one_connect_command(
     # playable is Core's own conclusion from a snapshot it admitted, so it is
     # recorded as Core's. §6 says a trust class may not be self-declared, and
     # naming the Bridge as the source of Core's verdict would be exactly that.
+    # The identity row is the same kind of fact: what Core decided about a report,
+    # which is why it cannot be the Bridge's word either.
     observed_rows = [row for row in rows if row[0] != SESSION_STATE_TRANSITIONED]
     assert observed_rows[3] == (RESOURCE_PACK_POLICY_APPLIED, "BRIDGE", "BRIDGE_FILTERED")
     assert observed_rows[4] == (JOIN_OBSERVED, "BRIDGE", "BRIDGE_FILTERED")
-    assert observed_rows[5] == (PLAYABLE_ESTABLISHED, "CORE", "CORE")
+    assert observed_rows[5] == (SESSION_IDENTITY_COMPARED, "CORE", "CORE")
+    assert observed_rows[6] == (PLAYABLE_ESTABLISHED, "CORE", "CORE")
     # The stored fact is the one the Bridge named, and it is compared against the
     # profile rather than against the command Core sent: a run that connected with
     # a different policy has to show that, which is the whole reason the field
@@ -626,6 +632,27 @@ def test_a_named_server_profile_becomes_one_connect_command(
     # stay readable instead of being reduced to a verdict here.
     assert _ledger_payloads_of(database, RESOURCE_PACK_POLICY_APPLIED) == [
         {"generation": GENERATION, "resource_pack_policy": profile.resource_pack_policy}
+    ]
+    # The identity record is the comparison itself: the candidate this launch was
+    # asked to test, the report taken verbatim, and what the two agreed on. The
+    # username and UUID are re-derived here from the identity the data root was
+    # created with rather than from what the row says, because a row that recorded
+    # whatever it liked would pass an assertion that read it back to itself.
+    material = _material(root)
+    assert _ledger_payloads_of(database, SESSION_IDENTITY_COMPARED) == [
+        {
+            "session_id": SESSION_ID,
+            "generation": GENERATION,
+            "identity_candidate_id": OFFLINE_SESSION_CANDIDATES[0].candidate_id,
+            "session_username": material.username,
+            "session_uuid": material.uuid_canonical,
+            "observed_account_type": "LEGACY",
+            "client_id_present": False,
+            "xuid_present": False,
+            "credential_values_exposed": False,
+            "matched": True,
+            "mismatches": [],
+        }
     ]
     # These two writes come from the event reader, which the session cancels on
     # its way out — the first writes the runtime had ever made from a task that

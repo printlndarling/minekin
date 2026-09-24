@@ -66,6 +66,13 @@ SESSION_INTERRUPTED = "SessionInterrupted"
 RESOURCE_PACK_POLICY_APPLIED = "ResourcePackPolicyApplied"
 CLIENT_EXITED = "ClientProcessExited"
 SESSION_STATE_TRANSITIONED = "SessionStateTransitioned"
+#: What Core concluded when it compared the identity the Launcher encoded into argv
+#: with the Session the Bridge reported. It is Core's own conclusion, in the same
+#: sense `BridgeHelloAccepted` is: the Bridge is still the only side that reads the
+#: live Session, so this row cannot see through a report that lies about itself —
+#: what it can never be is an inference from the launch arguments, because no argv
+#: text and no credential value reaches it.
+SESSION_IDENTITY_COMPARED = "SessionIdentityCompared"
 
 SESSION_EVENT_TYPES = frozenset(
     {
@@ -82,6 +89,7 @@ SESSION_EVENT_TYPES = frozenset(
         RESOURCE_PACK_POLICY_APPLIED,
         CLIENT_EXITED,
         SESSION_STATE_TRANSITIONED,
+        SESSION_IDENTITY_COMPARED,
     }
 )
 

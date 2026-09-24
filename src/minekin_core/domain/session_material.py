@@ -130,3 +130,35 @@ def compare_session_material(
         mismatches=tuple(sorted(mismatches)),
         observed_account_type=reported.account_type,
     )
+
+
+def identity_ledger_record(
+    recorded: RecordedSessionMaterial,
+    reported: ReportedSessionIdentity,
+    verdict: SessionMaterialVerdict,
+) -> dict[str, object]:
+    """The `SessionIdentityCompared` payload: one comparison, as evidence reads it.
+
+    The candidate id is Core's own record of what this launch was asked to test, so
+    attribution never rests on a client naming a strategy it cannot see. Everything
+    else is the report taken verbatim: the UUID keeps the encoding the client chose
+    rather than a normalized one, because which form arrived is the question
+    `OFFLINE-040` asks, and the account type is carried as the observation it is —
+    no candidate's `--userType` word is available here to be copied into it.
+
+    A comparison that refused is recorded exactly like one that matched, because the
+    row's whole purpose is that a run which read the identity leaves a trace whether
+    or not the read came out right.
+    """
+
+    return {
+        "identity_candidate_id": recorded.identity_candidate_id,
+        "session_username": reported.username,
+        "session_uuid": reported.uuid,
+        "observed_account_type": verdict.observed_account_type,
+        "client_id_present": reported.client_id_present,
+        "xuid_present": reported.xuid_present,
+        "credential_values_exposed": reported.credential_values_exposed,
+        "matched": verdict.matched,
+        "mismatches": list(verdict.mismatches),
+    }

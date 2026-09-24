@@ -32,6 +32,7 @@ from minekin_core.domain.session_material import (
     RecordedSessionMaterial,
     ReportedSessionIdentity,
     compare_session_material,
+    identity_ledger_record,
 )
 from minekin_core.generated.minekin.v1 import session_pb2
 
@@ -294,3 +295,70 @@ def test_an_argv_that_does_not_carry_the_options_is_rejected(
 ) -> None:
     with pytest.raises(MinekinError, match=expected):
         recorded_material(OFF_A, mutate(resolved()))
+
+
+def record(
+    report: ReportedSessionIdentity, candidate: SessionCandidate = OFF_A
+) -> dict[str, object]:
+    """The ledger payload for one comparison of the reviewed argv and a report."""
+
+    entry = recorded(candidate)
+    return identity_ledger_record(entry, report, compare_session_material(entry, report))
+
+
+def test_the_record_names_the_candidate_the_launch_used_not_one_a_report_echoed() -> None:
+    """Attribution has to survive a client that reports nothing about itself.
+
+    The candidate is the name of the strategy that produced this argv, and a client
+    sees its argv rather than that name, so the record cannot depend on being told.
+    """
+
+    assert record(reported(identity_candidate_id=""))["identity_candidate_id"] == "prism-parity"
+
+
+def test_the_record_keeps_the_encoding_the_report_arrived_in() -> None:
+    """Which UUID form the client used is the question `OFFLINE-040` asks.
+
+    Normalizing it here would answer that question by deleting it: the comparison
+    treats the two forms as one identity, and the record still has to show which one
+    was actually reported.
+    """
+
+    assert (
+        record(reported(uuid="8f40376b-c23f-3ef1-b553-5564eea75639"))["session_uuid"]
+        == "8f40376b-c23f-3ef1-b553-5564eea75639"
+    )
+
+
+def test_a_refused_comparison_is_recorded_as_plainly_as_an_agreeing_one() -> None:
+    """The row exists so that a run which read the identity leaves a trace.
+
+    A trace only on the agreeing side would make "compared and refused" and "never
+    compared" read the same, which is the asymmetry this record is here to close.
+    """
+
+    refused = record(reported(username="SomeoneElse"))
+
+    assert refused["matched"] is False
+    assert refused["mismatches"] == [MISMATCH_USERNAME]
+    assert refused["session_username"] == "SomeoneElse"
+
+
+def test_the_record_has_no_field_that_could_hold_a_credential_body() -> None:
+    """Presence and exposure are the only credential facts this side may state.
+
+    The names are pinned as a set rather than as a rule about substrings, because a
+    future field carrying a token would arrive under a name nobody thought to ban.
+    """
+
+    assert set(record(reported())) == {
+        "identity_candidate_id",
+        "session_username",
+        "session_uuid",
+        "observed_account_type",
+        "client_id_present",
+        "xuid_present",
+        "credential_values_exposed",
+        "matched",
+        "mismatches",
+    }
