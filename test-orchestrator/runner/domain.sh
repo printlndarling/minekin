@@ -1913,7 +1913,17 @@ if [[ -n "${case_id}" ]]; then
         # tellable in the transcript from a seal that quietly stopped looking for one.
         printf 'domain: %s holds no run document, so this run is named by its ledger id\n' \
             "${subject_document}" >&2
-        named_run=(--run-id "${run_id}")
+        # And the Kin that holds that ledger travels with it, from the same rows the
+        # fault attribution is read by. The sealer's other way of answering this is to
+        # count the Kins on the data root and accept the answer when exactly one holds
+        # a database — true while this volume had one Kin, and a guess ever since the
+        # join scenarios left a second one. A name read here is measured; a name
+        # counted there is not, and the two are not tellable apart in a bundle.
+        named_run=(--run-id "${run_id}" --kin-id "${kin_id}")
+        if [ -z "${kin_id}" ]; then
+            printf 'domain: this run has no Kin in its own rows, so the seal cannot be told which one it is\n' >&2
+            named_run=(--run-id "${run_id}")
+        fi
     fi
     # The record of the fault this run injected, when it injected one. It is named
     # by its path and read once by the sealer, which seals the same bytes it judged.

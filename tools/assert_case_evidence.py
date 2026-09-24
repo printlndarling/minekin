@@ -497,6 +497,7 @@ def read_run_material(
     server_directory: Path | None,
     username: str,
     run_id: str | None = None,
+    kin_id: str = "",
     fault_injection: Mapping[str, object] | None = None,
     soak_samples: str = "",
     soak_summary: Mapping[str, object] | None = None,
@@ -529,6 +530,14 @@ def read_run_material(
     `recorded_argv`, which is the rule the sealed trace is read by too. An attribution
     rests on them, so the judgement at the seal and the re-judge of what that seal wrote
     have to hold one answer rather than two spellings of it.
+
+    Which Kin a run belongs to is read from the document when it says, and otherwise
+    from the name handed over — and only otherwise, because a harness able to overrule
+    Core's own record could move a bundle to an address the run never had. Neither is
+    there for a run that left no document and was started by a harness that could not
+    say which Kin it was driving, and then, and only then, does the volume get asked.
+    It answers while it holds exactly one ledger, which is what every run sealed so far
+    rested on; a second Kin is why the question is asked of the harness first.
     """
 
     run: dict[str, object] = {}
@@ -547,7 +556,12 @@ def read_run_material(
     named_run = identifier_value if isinstance(identifier_value, str) else ""
     if not named_run:
         named_run = run_id if run_id is not None else ""
+    if not named_run:
+        raise Unreadable("no run is named: neither a run document nor a run id")
     kin = kin_value if isinstance(kin_value, str) else ""
+    if not kin:
+        kin = kin_id
+    held: list[str] = []
     if not kin:
         held = sorted(
             path.name
@@ -555,8 +569,12 @@ def read_run_material(
             if (path / DATABASE_NAME).is_file()
         )
         kin = held[0] if len(held) == 1 else ""
-    if not kin or not named_run:
-        raise Unreadable("no run is named: neither a run document nor a run id")
+    if not kin:
+        raise Unreadable(
+            f"no Kin is named for run {named_run}: the document says nothing, "
+            "nothing was handed over, and the data root holds "
+            f"{len(held)} Kins rather than one"
+        )
 
     events: list[Mapping[str, object]] = []
     readable = False
@@ -3622,6 +3640,14 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="names the run when there is no document, as a killed Core leaves none",
     )
+    parser.add_argument(
+        "--kin-id",
+        default="",
+        help=(
+            "which Kin holds this run, for the run that left no document to say so; "
+            "a document that names its own Kin is not overruled by it"
+        ),
+    )
     parser.add_argument("--data-root", type=Path, required=True)
     parser.add_argument(
         "--server-directory",
@@ -3798,6 +3824,7 @@ def main(argv: list[str] | None = None) -> int:
         material = read_run_material(
             run_document=args.run_document,
             run_id=args.run_id,
+            kin_id=args.kin_id,
             data_root=args.data_root,
             server_directory=args.server_directory,
             username=args.username,

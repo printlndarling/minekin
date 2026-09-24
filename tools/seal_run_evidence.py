@@ -263,6 +263,7 @@ def run_asserter(
     server_directory: Path | None,
     username: str,
     run_id: str | None = None,
+    kin_id: str = "",
     fault_injection: str | None = None,
     soak_samples: str | None = None,
     soak_summary: str | None = None,
@@ -303,6 +304,12 @@ def run_asserter(
         arguments += ["--run-id", str(run_id)]
     else:
         arguments += ["--run-document", str(run_document)]
+    # The Kin travels beside the run id, because it is the other half of naming a run
+    # that left no document: the judge otherwise has to ask the data root, and a root
+    # holding two Kins has no answer. A document that names its own Kin still wins —
+    # that order is the judge's, and this side only hands the name over.
+    if kin_id:
+        arguments += ["--kin-id", kin_id]
     if server_directory is not None:
         arguments += ["--server-directory", str(server_directory)]
     if world_run_document is not None:
@@ -544,6 +551,7 @@ def seal(
     world_run_document_path: Path | None = None,
     username: str,
     run_id: str | None = None,
+    kin_id: str = "",
     server_jar: Path | None = None,
     java: Path | None = None,
     renderer_display: str = "unmeasured",
@@ -561,7 +569,9 @@ def seal(
     there is no document — which is the case for a run whose Core was killed, and
     the reason the second way exists at all. Everything the document would have
     said about the run's identity is then taken from the ledger, the record that
-    survived the kill.
+    survived the kill. Which Kin holds that ledger is handed over the same way,
+    because a data root holding more than one Kin has no answer to give to a judge
+    that was only told a run id.
 
     A run that injected a fault names the record of it here. The record is read
     once, refused if it is not one, and then used twice — as the text the judge is
@@ -667,6 +677,7 @@ def seal(
         case=case,
         run_document=run_document_path,
         run_id=run_id,
+        kin_id=kin_id,
         data_root=data_root,
         server_directory=server_directory,
         username=username,
@@ -680,6 +691,7 @@ def seal(
     material = read_run_material(
         run_document=run_document_path,
         run_id=run_id,
+        kin_id=kin_id,
         data_root=data_root,
         server_directory=server_directory,
         username=username,
@@ -709,7 +721,7 @@ def seal(
                 f"connection_state={state!r}, snapshots_admitted={admitted!r}"
             )
 
-    kin_id = KinId(material.kin_id)
+    kin = KinId(material.kin_id)
     identifier = material.run_id
     root = workspace_root if workspace_root is not None else find_workspace_root(REPOSITORY_ROOT)
     moment = now if now is not None else datetime.now(UTC)
@@ -771,7 +783,7 @@ def seal(
     if world_run_raw:
         artifacts[HOST_RUN_DOCUMENT_ARTIFACT] = world_run_raw
 
-    directory = bundle_directory(run_root(data_root, kin_id), identifier)
+    directory = bundle_directory(run_root(data_root, kin), identifier)
     attempt = reserve_attempt(
         attempt_registry_path(data_root), case_id=manifest.case_id, run_id=identifier
     )
@@ -821,6 +833,15 @@ def main(argv: list[str] | None = None) -> int:
         "--run-id",
         default=None,
         help="names the run when there is no document, as a killed Core leaves none",
+    )
+    parser.add_argument(
+        "--kin-id",
+        default="",
+        help=(
+            "which Kin holds this run, for the run that left no document to say so; "
+            "the harness reads it out of the run's own ledger rows. A document that "
+            "names its own Kin is not overruled by it"
+        ),
     )
     parser.add_argument(
         "--server-directory",
@@ -888,6 +909,7 @@ def main(argv: list[str] | None = None) -> int:
             run_document_path=args.run_document,
             world_run_document_path=args.world_run_document,
             run_id=args.run_id,
+            kin_id=args.kin_id,
             server_directory=args.server_directory,
             username=args.username,
             server_jar=args.server_jar,

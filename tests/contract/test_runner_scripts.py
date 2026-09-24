@@ -347,3 +347,29 @@ def test_a_run_whose_core_was_killed_is_still_named_by_the_ledger() -> None:
     # The kill itself is untouched: identity-bound, through the helper.
     assert 'inject_fault "${session_pid}" "runtime_controller"' in text
     assert 'pkill -KILL -f "minekin_core session start"' not in text
+
+
+def test_the_run_named_by_the_ledger_also_names_the_kin_that_holds_it() -> None:
+    """A run id says *which* run; it does not say *where*, and the volume no longer can.
+
+    The seal branch that falls back to the ledger id used to leave the Kin for the
+    sealer to work out, and the way it worked it out was to count the directories on
+    the data root and accept the answer only when exactly one held a ledger. `kin-02`
+    arrived with the join scenarios, so on a real volume that count is no longer one
+    answer — and the harness, which reads the Kin out of this run's own rows for the
+    fault attribution, had been holding the name all along without passing it.
+
+    So the name is handed over on the branch that needs it, from the same reading the
+    fault record is attributed by. The document branch is untouched: where Core left a
+    document, its own word about its Kin is the one that counts.
+    """
+
+    text = (RUNNER / "domain.sh").read_text(encoding="utf-8")
+
+    # The name comes from the ledger's rows, not from the path the database sits at.
+    assert "read -r kin_id session_id generation" in text
+    # And it travels with the fallback name, in the same array, so the two cannot be
+    # handed over apart.
+    assert 'named_run=(--run-id "${run_id}" --kin-id "${kin_id}")' in text
+    # A run whose own rows say no Kin is said out loud rather than sealed blind.
+    assert "has no Kin in its own rows" in text

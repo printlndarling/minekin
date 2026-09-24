@@ -106,6 +106,17 @@ class _Asserter(Protocol):
     ASSERTER_INPUTS: str
     ORCHESTRATOR_TRACE_ARTIFACT: str
 
+    def read_run_material(
+        self,
+        *,
+        run_document: Path | None,
+        data_root: Path,
+        server_directory: Path | None,
+        username: str,
+        run_id: str | None = None,
+        kin_id: str = "",
+    ) -> _Material: ...
+
     def read_sealed_material(self, directory: Path) -> _Material: ...
 
     #: The server's own answers, one per probe that asked for this shape. Public
@@ -6262,3 +6273,201 @@ def test_a_bundle_that_sealed_no_trace_recorded_no_argv_rather_than_an_empty_one
     )
 
     assert ASSERTER_MODULE.read_sealed_material(tmp_path).session_argv is None
+
+
+# ---------------------------------------------------------------------------
+# Which Kin a run belongs to, when the run left no document to say so
+# ---------------------------------------------------------------------------
+
+LEDGER_RUN_ID = "5c1f9a7b2d3e4f6089abcdef01234567"
+
+
+def second_kin_on(tmp_path: Path) -> Path:
+    """Another Kin's own ledger on the same data root.
+
+    This is what the volume used to answer "which Kin?" with: one directory holding
+    one database. A second Kin makes that a guess, and a guess is not something a
+    sealed verdict should rest on.
+    """
+
+    directory = tmp_path / "kin" / "kin-02"
+    directory.mkdir(parents=True, exist_ok=True)
+    database = directory / "kin.sqlite3"
+    connect_writer(database).close()
+    return database
+
+
+def test_a_run_named_by_its_ledger_id_is_read_from_the_kin_it_is_told(
+    tmp_path: Path,
+) -> None:
+    """Two Kins, no document, and a name handed over: the name is what is read."""
+
+    ledger_for(tmp_path)
+    second_kin_on(tmp_path)
+
+    material = ASSERTER_MODULE.read_run_material(
+        run_document=None,
+        run_id=LEDGER_RUN_ID,
+        data_root=tmp_path,
+        server_directory=None,
+        username=USERNAME,
+        kin_id="kin-01",
+    )
+
+    assert material.kin_id == "kin-01"
+    assert material.run_id == LEDGER_RUN_ID
+
+
+def test_the_document_s_own_kin_is_the_one_that_is_read_when_both_are_given(
+    tmp_path: Path,
+) -> None:
+    """Core's own record wins over a name the harness happens to carry.
+
+    The handed-over name exists for the run that left nothing to read. Where a
+    document is there, letting the harness overrule it would let a bundle be filed
+    under a Kin the run never said it was in.
+    """
+
+    run = tmp_path / "session.json"
+    run.write_text(json.dumps(run_document()), encoding="utf-8")
+    ledger_for(tmp_path)
+    second_kin_on(tmp_path)
+
+    material = ASSERTER_MODULE.read_run_material(
+        run_document=run,
+        data_root=tmp_path,
+        server_directory=None,
+        username=USERNAME,
+        kin_id="kin-02",
+    )
+
+    assert material.kin_id == "kin-01"
+
+
+def test_an_ambiguous_volume_with_no_name_anywhere_refuses_by_naming_the_kin(
+    tmp_path: Path,
+) -> None:
+    """The run id was handed over here, so the old sentence was about the wrong thing.
+
+    It claimed neither a document nor a run id named the run while the run id sat in
+    the arguments; what is missing is the Kin. The two refusals have to be tellable
+    apart, or a reader follows the message to a ledger that is already there.
+    """
+
+    ledger_for(tmp_path)
+    second_kin_on(tmp_path)
+
+    with pytest.raises(ASSERTER_MODULE.Unreadable, match="no Kin is named") as error:
+        ASSERTER_MODULE.read_run_material(
+            run_document=None,
+            run_id=LEDGER_RUN_ID,
+            data_root=tmp_path,
+            server_directory=None,
+            username=USERNAME,
+        )
+
+    assert "run id" not in str(error.value)
+
+
+def test_a_run_that_nothing_names_is_still_refused_for_the_run(tmp_path: Path) -> None:
+    """The other half of that sentence, kept whole: no document, no run id, no name."""
+
+    ledger_for(tmp_path)
+
+    with pytest.raises(ASSERTER_MODULE.Unreadable, match="no run is named"):
+        ASSERTER_MODULE.read_run_material(
+            run_document=None,
+            data_root=tmp_path,
+            server_directory=None,
+            username=USERNAME,
+        )
+
+
+def test_one_kin_on_the_volume_is_still_read_without_anyone_naming_it(
+    tmp_path: Path,
+) -> None:
+    """The fallback is kept where it still answers, so no other case moves.
+
+    A volume with exactly one ledger on it does say which Kin a run is in, and every
+    run sealed so far was read that way. The refusal above is for the volumes where it
+    stopped being one answer — not a licence to name nothing on the ones where it is.
+    """
+
+    ledger_for(tmp_path)
+
+    material = ASSERTER_MODULE.read_run_material(
+        run_document=None,
+        run_id=LEDGER_RUN_ID,
+        data_root=tmp_path,
+        server_directory=None,
+        username=USERNAME,
+    )
+
+    assert material.kin_id == "kin-01"
+
+
+def test_the_command_judges_a_run_named_by_its_ledger_id_and_kin(tmp_path: Path) -> None:
+    """The same reading through the door the runner uses.
+
+    Which way the judgement comes out is not the point of this test: that it is
+    reached at all is. A run that cannot be told apart from one whose Kin is missing
+    is a run no bundle can be sealed for.
+    """
+
+    ledger_for(tmp_path)
+    second_kin_on(tmp_path)
+    (tmp_path / "server.log").write_text(f"{JOINED}\n{LEFT}\n", encoding="utf-8")
+    (tmp_path / "usercache.json").write_text(
+        json.dumps([{"name": USERNAME, "uuid": RECORDED_UUID}]), encoding="utf-8"
+    )
+
+    # `CORE-020` asks what the run document said, and a killed Core left none to ask.
+    # This case's four answers all come out of the ledger, the logs and the fault
+    # record, so the judgement is reached — which is the whole question here.
+    result = run_cli(
+        "--case",
+        str(LOST_RUNTIME_CASE),
+        "--data-root",
+        str(tmp_path),
+        "--server-directory",
+        str(tmp_path),
+        "--username",
+        USERNAME,
+        "--run-id",
+        LEDGER_RUN_ID,
+        "--kin-id",
+        "kin-01",
+    )
+
+    assert result.returncode == ASSERTER_MODULE.EXIT_FAILED, result.stderr
+    assert json.loads(result.stdout)["result"] == "FAIL"
+    # Failed on what the run did not record, not on the reader giving up: this run
+    # injected no fault, and that is an answer the case can give.
+    assert json.loads(result.stdout)["failures"] != []
+
+
+def test_the_command_refuses_an_unnamed_kin_and_says_which_name_is_missing(
+    tmp_path: Path,
+) -> None:
+    """The refusal at the door too, in the words a transcript will be read by."""
+
+    ledger_for(tmp_path)
+    second_kin_on(tmp_path)
+
+    result = run_cli(
+        "--case",
+        str(LOST_RUNTIME_CASE),
+        "--data-root",
+        str(tmp_path),
+        "--server-directory",
+        str(tmp_path),
+        "--username",
+        USERNAME,
+        "--run-id",
+        LEDGER_RUN_ID,
+    )
+
+    assert result.returncode == ASSERTER_MODULE.EXIT_UNJUDGED
+    said = json.loads(result.stderr)["message"]
+    assert "no Kin is named" in said
+    assert "run id" not in said

@@ -1951,3 +1951,110 @@ def test_an_offline_launch_judged_live_and_re_judged_disagrees_about_nothing(
     # reproducing that list in the same order.
     assert cast(list[str], report["re_judged"]["failures"]) == cast(list[str], sealed["failures"])
     assert len(cast(list[str], sealed["failures"])) > 1
+
+
+# ---------------------------------------------------------------------------
+# A run whose Core was killed, on a volume that holds more than one Kin
+# ---------------------------------------------------------------------------
+
+
+RUNTIME_LOSS_CASE = REPOSITORY_ROOT / "tests" / "fixtures" / "cases" / "core-060.json"
+
+
+def another_kin_on(data_root: Path) -> Path:
+    """A second Kin's own ledger, so the volume stops answering "which Kin?"."""
+
+    database = data_root / "kin" / str(OTHER_KIN) / "kin.sqlite3"
+    database.parent.mkdir(parents=True, exist_ok=True)
+    connect_writer(database).close()
+    return database
+
+
+def test_a_killed_run_named_by_the_harness_is_sealed_where_its_kin_holds_it(
+    tmp_path: Path,
+) -> None:
+    """The run left no document, and the volume holds two Kins: the name has to travel.
+
+    Nothing on the data root answers this any more — one directory holding a ledger
+    was the answer while there was one Kin, and `kin-02` arrived with the join
+    scenarios. The runner does hold the name, in the rows this run itself wrote, and
+    a seal told that is a different thing from a seal that counted directories and
+    took what it found: the bundle has to land under the Kin it was told, and say so.
+    """
+
+    data_root, server, document = finished_run_in(tmp_path)
+    document.unlink()
+    another_kin_on(data_root)
+
+    report = seal_it(
+        data_root,
+        server,
+        document,
+        case=RUNTIME_LOSS_CASE,
+        run_document_path=None,
+        run_id=RUN_ID,
+        kin_id=str(KIN),
+    )
+
+    bundle = data_root / "kin" / str(KIN) / "run" / "evidence" / RUN_ID
+    assert report["status"] == "sealed", report
+    assert bundle.is_dir()
+    assert not (data_root / "kin" / str(OTHER_KIN) / "run" / "evidence").exists()
+    # The document is the one thing this run did not leave, and the bundle says so
+    # rather than being sealed around an invented one.
+    assert not (bundle / "run-document.json").exists()
+    recorded = json.loads((bundle / "asserter-inputs.json").read_bytes())
+    assert recorded["kin_id"] == str(KIN)
+    assert recorded["run_id"] == RUN_ID
+    assert verify_bundle(bundle).verified
+    # And the name that was told is the name the second reading reads back.
+    disagreement = REJUDGE.rejudge(bundle, CASE.parent)["disagreements"]
+    assert disagreement == [], "\n".join(cast(list[str], disagreement))
+
+
+def test_a_killed_run_that_names_no_kin_refuses_by_naming_the_kin(tmp_path: Path) -> None:
+    """The refusal has to say which of the two names is missing.
+
+    A run id was handed over here, so the old sentence — "neither a run document nor
+    a run id" — reported a fact about the run that was not true. What is missing is
+    the Kin, and a reader who takes the first message at face value goes looking in
+    the ledger for a run that is already there.
+    """
+
+    data_root, server, document = finished_run_in(tmp_path)
+    document.unlink()
+    another_kin_on(data_root)
+
+    with pytest.raises(SEALER.Unsealable, match="no Kin is named") as error:
+        seal_it(
+            data_root,
+            server,
+            document,
+            case=RUNTIME_LOSS_CASE,
+            run_document_path=None,
+            run_id=RUN_ID,
+        )
+
+    assert "run id" not in str(error.value)
+
+
+def test_the_document_s_own_kin_is_the_name_a_handed_one_cannot_overrule(
+    tmp_path: Path,
+) -> None:
+    """One reading, with a clear order: what Core wrote beats what the harness says.
+
+    The handed-over name exists for the run that left no document. Where a document
+    is there, it is Core's own record of the run, and a harness that could overwrite
+    its Kin would be able to move a bundle to an address the run never had.
+    """
+
+    data_root, server, document = finished_run_in(tmp_path)
+    another_kin_on(data_root)
+
+    report = seal_it(data_root, server, document, kin_id=str(OTHER_KIN))
+
+    assert report["status"] == "sealed", report
+    assert bundle_of(data_root).is_dir()
+    recorded = json.loads((bundle_of(data_root) / "asserter-inputs.json").read_bytes())
+    assert recorded["kin_id"] == str(KIN)
+    assert not (data_root / "kin" / str(OTHER_KIN) / "run" / "evidence").exists()
