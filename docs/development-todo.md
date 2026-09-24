@@ -1714,3 +1714,36 @@
     设计卡）按第 1 项先登记为 `QUEUED`，提升为唯一 `NEXT` 写在紧随的下一个 commit；
     `ADMIT-070-RECORD-SCHEMA-001` 继续 `QUEUED`。本地 HEAD、`refs/heads/codex/core-state-transition`
     与 `refs/heads/main` 对 `ec082f3` 核对相同。
+
+- [x] **OFFLINE-IDENTITY-EVIDENCE-DESIGN-001（已完成，契约冻结 `308f38a` 已推送，卡已 `NEXT → DONE`）**：
+  冻结 OFF-A（`prism-parity`）/ OFF-B（`enum-aligned`）在 `OFFLINE-010/020/030` 上的可复判证据边界。
+  - **交接第 1 项的形状**：本卡在 `e0d92c3` 以 `QUEUED` 登记并推送，`8781434` 才提升为唯一 `NEXT`；
+    判据冻结在 `308f38a`，收卡与本条记录在它之后的这个 docs commit 里。
+  - **冻结前先对物核对，而不是先写判据**：`adapters/bridge/perception.py:76` 已把
+    `snapshot.session_identity` 送进首快照准入，`domain/session_material.py` 的
+    `SessionMaterialVerdict` 注释写着「evidence 可以原样记录」，但它的 `as_document()` **在全仓库没有
+    调用者**；`BridgeHelloAccepted` 的 payload 是 `{}`，`SessionStateTransitioned` 只有 `{from,to}`，
+    run document 无身份字段，真实 bundle 的 `asserter-inputs.json` 只有
+    `kin_id/run_id/username/previous_run_id`。结论：今天 bundle 里唯一与身份有关的可判读事实是否定形状
+    （`snapshot_rejections` 里的 `SESSION_MATERIAL_MISMATCH`），一份「身份正确」的运行什么都不留——
+    「没报错」与「根本没读身份材料」是同一个读数。缺口在 Core 的记录侧，不在 Bridge。
+  - **交付内容**：`docs/p0-offline-session-compatibility-contract.md` 新增
+    「OFFLINE-010 / 020 / 030 的可复判证据边界（2026-09-24 冻结）」——九行两列比较表（每格写明
+    来源 → sealed artifact → 判官字段）、五条判据（每条带反例，含「把 argv 里的 `offline`/`legacy`
+    抄进观测字段冒充观测」「credential 正文键出现即失败」「只有 argv 没有 Core 的行」）、
+    两次独立 run 的规则，以及 `OFFLINE-030` 按 `CORE-060` 先例拆成
+    `OFFLINE-030-PRISM-PARITY-001` / `OFFLINE-030-ENUM-ALIGNED-001`（父 id 保留与候选无关的那半边；
+    不改名、不删除、不重编号任何既有 id；只有 `offline-030` 的 fixture 需重新登记），
+    外加四条拆分假阳性测试。`OFFLINE-010/020/030` 三行 Case set 注记指向该节，两个子 id 逐字出现。
+  - **两轴自审发现并补明的一处矛盾**：「Bridge回报与成功判据」把 `identity_candidate_id` 列为客户端
+    上报字段，而客户端看不见产生这组 argv 的策略叫什么（`ClientSnapshot` 传的就是空串）。本卡没有为此
+    动 `proto/` 或产品（那是 `forbidden_paths`），而是把候选归因交给 Core 的 argv 记录 + Core 自己的
+    账本行，并在该节补一句说明，避免两处文本被后来的人读成矛盾。
+  - **门禁**：`uv run --frozen pytest -q` → 2071 passed / 2 skipped in 258.30s；Ruff check 干净、
+    `ruff format --check` 304 files already formatted；Pyright 0 errors；fixture digests OK、
+    case assertions OK (134 registered)、workflow pins OK、boundaries OK。本卡为 `LOCAL_ONLY`，
+    未跑真实客户端、未封 evidence。
+  - **状态流转**：本卡 `NEXT → DONE`；`OFFLINE-IDENTITY-LEDGER-FACT-001` → `OFFLINE-IDENTITY-CASE-001`
+    → `OFFLINE-IDENTITY-RUN-001` 三张按第 1 项先登记为 `QUEUED`，提升为唯一 `NEXT` 写在紧随的下一个
+    commit；`REAL-P0-CAMPAIGN-001.blocked_by` 从设计卡改指这三张（第 4 个场景仍未封证，
+    `scenario_progress` 保持 3/7）；`ADMIT-070-RECORD-SCHEMA-001` 继续 `QUEUED`。

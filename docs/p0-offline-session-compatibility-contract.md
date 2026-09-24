@@ -123,6 +123,8 @@ credential_values_exposed = false
 
 不回传 access token、xuid/clientId正文。Launcher保存自身argv摘要，Bridge独立读取客户端实际Session；二者不一致时 `SESSION_MATERIAL_MISMATCH`，不得进入 `PLAYABLE`。
 
+**（2026-09-24 冻结补充）**这份清单里 `identity_candidate_id` 的承担者不是客户端：客户端看得见自己拿到的 argv，看不见产生这组 argv 的 reviewed 策略叫什么，因此线缆上该字段恒为空串（`ClientSnapshot` 传空 candidate id，`compare_session_material` 也据此只在「报了不同的名字」时拒绝）。候选归因改由 Core 的两条记录共同承担——测试域 argv 与被点名的候选、以及 Core 自己那条身份账本行——判据与反例见「OFFLINE-010 / 020 / 030 的可复判证据边界」。其余六个字段确实由客户端上报，`session_account_type` 按观测值原样承载、不预设。
+
 一个候选只有同时满足以下条件才可晋级：
 
 1. Java 21进程正常到 Bridge握手，日志无未替换占位符或参数错位；

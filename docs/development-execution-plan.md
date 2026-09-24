@@ -388,7 +388,9 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 ### REAL-P0-CAMPAIGN-001 — 批量关闭真实运行缺口
 
 - `status`: `BLOCKED_EVIDENCE`
-- `blocked_by`: `OFFLINE-IDENTITY-EVIDENCE-DESIGN-001`（`NEXT`）。`order` 的第 1 个场景
+- `blocked_by`: `OFFLINE-IDENTITY-LEDGER-FACT-001` → `OFFLINE-IDENTITY-CASE-001` →
+  `OFFLINE-IDENTITY-RUN-001`（三张 `QUEUED`，都由已 `DONE` 的
+  `OFFLINE-IDENTITY-EVIDENCE-DESIGN-001` 登记）。`order` 的第 1 个场景
   （在线认证拒绝）、第 2 个场景（资源包拒绝）与第 3 个场景（JOIN 后首快照失败）已各自在当前
   build 上封出 `PASS`/`AGREES` 的正式 bundle 并四读一致。第 3 个场景的判据由
   `ADMIT-070-EVIDENCE-DESIGN-001` 冻结在专项契约里，冻结的结论是：**这一条停在 `BLOCKED_EVIDENCE`
@@ -1284,7 +1286,7 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 
 ### OFFLINE-IDENTITY-EVIDENCE-DESIGN-001 — 冻结 OFF-A/OFF-B 身份候选的可复判证据边界
 
-- `status`: `NEXT`（`e0d92c3` 登记为 `QUEUED`，本次交付按交接第 1、6 项提升；提升理由见
+- `status`: `DONE`（`e0d92c3` 登记为 `QUEUED`，本次交付按交接第 1、6 项提升；提升理由见
   `promotion_reason`）
 - `baseline_sha`: `ec082f3e749f14a21b7d7574252849bb929c6fbe`
 - `registered`: 2026-09-24，由 `ADMIT-070-CASE-001` 的 `DONE` 触发：`order` 的前三个场景
@@ -1327,6 +1329,147 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 - `stop_conditions`: 若 OFF-B 在当前 build 上无法启动或启动后身份不可归因，保留真实失败并记为
   `BLOCKED_EVIDENCE`，不回退 OFF-A 后声称两者都过；若发现必须改产品身份材料才能冻结判据，
   停在该处并向用户请求决策，不在设计卡里改产品。
+- `completion_commit`: `308f38ac37ab8c6e8731924bcba12dd5cf31b2bd`（契约冻结小节 + Case set 三行注记，
+  已推送并核对）；两轴自审补明的那句 `identity_candidate_id` 说明与本次收卡、登记三张后续实现卡同在
+  这个 docs commit 里，推送后由 `git ls-remote` 核对当前分支与 `main`。
+- `completion_evidence`:
+  - **交付物**：`docs/p0-offline-session-compatibility-contract.md` 新增
+    「OFFLINE-010 / 020 / 030 的可复判证据边界（2026-09-24 冻结）」——先列出现在读不出来的那一件，
+    再给九行两列（OFF-A `prism-parity` / OFF-B `enum-aligned`）比较表、五条冻结判据（每条带反例）、
+    两次独立 run 的规则与 `OFFLINE-030` 拆分（含迁移语义与四条假阳性测试）；`OFFLINE-010/020/030`
+    三行 Case set 注记指向该节，两个子 case id 在其中逐字出现（`OFFLINE-030-PRISM-PARITY-001` /
+    `OFFLINE-030-ENUM-ALIGNED-001`），以满足 `tests/contract/test_case_coverage.py` 对逐字引用的要求。
+  - **「读不出来」不是推测，是本 build 逐条对物核对的结论**：`adapters/bridge/perception.py:76` 把
+    `snapshot.session_identity` 喂进 `admit_first_snapshot`；`domain/session_material.py` 的
+    `SessionMaterialVerdict.as_document()` 在全仓库**没有调用者**（`grep` 只命中 `bundle.py`/`trace.py`/
+    `launcher/*` 等同名方法）；`cli/session.py` 的 `BridgeHelloAccepted` payload 是 `{}`，
+    `SessionStateTransitioned` 只有 `{from,to}`；真实 bundle 的 `asserter-inputs.json` 只有
+    `kin_id/run_id/username/previous_run_id`。所以正向一致不留痕迹，只有不一致以
+    `snapshot_rejections` 里的 `SESSION_MATERIAL_MISMATCH`（`domain/perception.py:305`）出现。
+  - **`acceptance` 逐条**：两列表每格都写了「来源 → 工件 → 判官字段」并注明由哪一次 run 的哪份工件证明；
+    跨 run 的两格（除 `userType` 外材料相同、A/B 结果对照）明确排除在单份 bundle 判据之外，并按
+    `CORE-060`/`CORE-060-CLIENT-001`/`CORE-060-SERVER-001` 先例给出父子 case 形状；结论确实要求新增
+    required id，因此先写拆分规则、迁移语义（不改名/不删除/不重编号既有 id，只有 `offline-030` 的
+    fixture 重新登记）与假阳性测试，registry 改动留给后续实现卡。
+  - **两轴自审**：规范轴发现一处契约原文与已交付实现的真实张力并就地补明——「Bridge回报与成功判据」
+    的清单把 `identity_candidate_id` 列为客户端上报字段，而客户端不可能看见策略名（`ClientSnapshot`
+    传的正是空串，`compare_session_material` 也只在「报了不同名字」时拒绝）。冻结的解决方式不是要求
+    Bridge 改报（那要改 `proto/` 与产品，`forbidden_paths` 明令禁止），而是把候选归因交给 Core 的
+    argv 记录 + Core 自己的账本行，并在该节补一句 2026-09-24 说明，避免两处文本被后来的人读成矛盾。
+    实现轴自审：本卡只动允许的三份文档，未触碰产品代码、`proto/`、Bridge Java、case registry、
+    required inventory、CI；未封任何 evidence（`OFFLINE-010/020/030` 的 `mandatory` 仍为 `false`）。
+  - **门禁（原始摘要）**：`uv run --frozen pytest -q` → 2071 passed / 2 skipped in 258.30s
+    （两个 skip 是既有的平台跳过：`test_orphans.py:686`、`test_silent_listener.py:123`）；
+    Ruff check 无输出、`ruff format --check` 304 files already formatted；Pyright
+    0 errors / 0 warnings / 0 informations；`verify_fixture_digests.py` → W00 schema and fixture
+    digests: OK；`check_case_assertions.py` → OK (134 registered)；`check_workflow_pins.py` → OK；
+    `check_boundaries.py` → OK。本卡是 `LOCAL_ONLY` 设计卡，不含新的真实运行；OFF-B 的启动可行性
+    尚未在受控运行上验证，那属 `OFFLINE-IDENTITY-RUN-001`。`check_wheel_boundary.py` 仍需 CI 构建
+    出的 wheel，不在本地门禁内（既有事实）。
+  - **已验证**：契约新增节内部自洽（每条判据的字段名都与 `SessionMaterialVerdict.as_document()`、
+    `SESSION_EVENT_TYPES` 现有词汇对得上或明确标为待新增）；`tests/contract/test_case_coverage.py`、
+    `verify_fixture_digests.py`、`check_case_assertions.py`、`check_workflow_pins.py`、
+    `check_boundaries.py` 与全量 `pytest` 在冻结文本落地后保持绿。
+  - **未验证 / 遗留**：`OFFLINE-030` 拆分所需的 registry 与 fixture 改动（本卡按 `allowed_paths` 只登记
+    不落地）；新账本行的实际字段名与脱敏扫描行为；两次候选各自的真实运行；`offline-030` fixture 的
+    `case_version` 将由实现卡移动，历史 bundle 不追认。
+- `next_after_done`: `OFFLINE-IDENTITY-LEDGER-FACT-001`（三张后续实现卡的第一张：Core 记录身份事实）。
+  本卡 DONE 时它们只登记为 `QUEUED`，提升为唯一 `NEXT` 写在紧随的下一个 commit 里，以满足交接
+  第 1、6 项「新卡先 `QUEUED`，不得直接 `NEXT`」。
+
+### OFFLINE-IDENTITY-LEDGER-FACT-001 — 让 Core 把身份比对结论记成自己的账本行
+
+- `status`: `QUEUED`；不替换当前唯一 `NEXT`。由 `OFFLINE-IDENTITY-EVIDENCE-DESIGN-001` 的
+  `completion_evidence` 登记，且它是其后两张卡的前置：判据要读的字段先存在，运行才封得出它。
+- `question`: 把 `compare_session_material` 已经得出的 `SessionMaterialVerdict`（连同 Bridge 上报的
+  观测）写成 Core 自己的一条账本行，需要动哪几处、payload 字段的最终名字是什么、以及为什么不去
+  改 `BridgeHelloAccepted` 的 payload。
+- `depends_on`: `OFFLINE-IDENTITY-EVIDENCE-DESIGN-001`（判据 2 规定了 payload 的最小字段集）；
+  `ADMIT-060-WIRE-POLICY-001`（先例：`ResourcePackPolicyApplied` 这条链就是「Core 把一个逐次发生的
+  事实记成自己的行」，形状可整条沿用）。
+- `scope`: 沿既有四段接缝走——`adapters/bridge/admission.py:128` 的读取/解码、
+  `cli/session_runtime.py:241/338/465` 的逐次回调、`cli/session.py:1417-1420` 的
+  `append_session_event(...)`、`adapters/sqlite/session_log.py:43-86` 的封闭事件名集合；新行 payload
+  至少含契约冻结判据 2 的七个字段并带 `session_id` 与 `generation`；一行一代，值取自 Bridge 上报与
+  Core 记录，不写 argv 文本、不写 credential 正文。
+- `allowed_paths`: `src/minekin_core/adapters/sqlite/session_log.py`（新事件名进封闭集合）、
+  `src/minekin_core/adapters/bridge/{admission,perception,session_report}.py`、
+  `src/minekin_core/cli/session.py`、`src/minekin_core/cli/session_runtime.py`、
+  `src/minekin_core/domain/session_material.py`（只允许把已有结论导出成稳定字段名，不改比较语义）、
+  其单元测试与 ledger 契约测试、`docs/development-execution-plan.md`、`docs/development-todo.md`。
+- `forbidden_paths`: `bridge/src/main/java/**`、`proto/**`（客户端上报字段一个都不加）、
+  `adapters/launcher/offline_session.py` 的身份材料与 `candidate_by_id` 语义、case registry 的编号与
+  `mandatory` 翻转、`tests/fixtures/cases/**` 与既有断言源（移动别人的 `case_version` 属封证卡）、
+  CI。
+- `non_goals`: 不新增 offline fixture、不封 evidence、不做跨 run 比较的判据、不改
+  `BridgeHelloAccepted` 与 `SessionStateTransitioned` 的 payload（往既有行里塞字段会让旧 bundle 的
+  读数含义漂移；新事实用新行承载）。
+- `acceptance`: ① 新事件名在 `SESSION_EVENT_TYPES` 封闭集合内，`source`/`trust_class` 都是 `CORE`；
+  ② payload 字段名与契约判据 2 逐字对得上，`mismatches` 与 `matched` 不自相矛盾（矛盾形状有测试）；
+  ③ credential 正文键在任何路径上都不进 payload/工件（脱敏测试）；④ `compare_session_material`
+  返回值语义不变，旧 bundle 仍能 `replay` 且 `violations: []`；⑤ 一次受控运行（诊断级，不作 case
+  封证）读出该行确实出现，字段与本次启动的 argv 归因一致。
+- `validation_class`: `LOCAL_GATES` + 一次受控诊断运行（交接第 2 项：新记录路径要有本 build 的受控
+  运行读数）。
+- `stop_conditions`: 若发现必须让 Bridge 上报候选名才能冻结判据，停在 `BLOCKED_DECISION`（那是
+  `proto/` 与产品策略，不属本卡）；若新增行必然移动既有 case 的 `case_version`，停下如实登记，
+  不靠重写 `manifest.sha256` 过关。
+
+### OFFLINE-IDENTITY-CASE-001 — 把 OFFLINE-010/020/030 的判据写进判官与 fixture
+
+- `status`: `QUEUED`；不替换当前唯一 `NEXT`。
+- `question`: 契约冻结的五条判据在 `tools/assert_case_evidence.py` 里各由哪条断言承载，`OFFLINE-030`
+  的父/子拆分在 registry、fixture、digest 与 `check_case_assertions.py` 注册项上具体怎么落地。
+- `depends_on`: `OFFLINE-IDENTITY-LEDGER-FACT-001`（判据 2/3/4 要读的字段先存在）；
+  `OFFLINE-IDENTITY-EVIDENCE-DESIGN-001`（判据文本、反例、拆分与假阳性测试都在那一节）。
+- `scope`: 先在 `tests/unit/test_case_evidence_assertions.py` 写出反例表（含契约列出的
+  「把 argv 里的 `offline`/`legacy` 抄进观测字段冒充观测」「credential 正文键出现即失败」
+  「只有 argv 没有 Core 的行」「只有 Core 的行」），再写四条拆分假阳性测试，最后才动 registry：
+  `src/minekin_core/domain/cases.py` 新增两个 required id、`tests/fixtures/cases/offline-030.json`
+  按收窄后的语义重新登记、`offline-030-prism-parity.json` 与 `offline-030-enum-aligned.json` 两份
+  新 fixture 及各自的 `tests/fixtures/manifest.sha256` 行、`tools/check_case_assertions.py` 注册项。
+- `allowed_paths`: `tools/assert_case_evidence.py`、`tests/unit/test_case_evidence_assertions.py`、
+  `tests/fixtures/cases/offline-010.json`/`offline-020.json`/`offline-030*.json`（新建与重新登记）、
+  `tests/fixtures/manifest.sha256`、`src/minekin_core/domain/cases.py`（只新增 id）、
+  `tools/check_case_assertions.py`（注册项）、`tests/contract/test_case_coverage.py`（只读它，需要
+  放宽时如实记录）、`docs/p0-offline-session-compatibility-contract.md`（Case set 行的状态注记）、
+  `docs/development-execution-plan.md`、`docs/development-todo.md`。
+- `forbidden_paths`: 产品代码、Bridge/`proto/`、runner 脚本与领域运行分支（属 `RUN-001`）、
+  既有 case id 的改名/删除/重编号、任何 `mandatory` 翻转为 `true`、旧 bundle 的 `manifest.sha256`
+  与历史 digest。
+- `non_goals`: 不封 evidence、不声称 `OFFLINE-010/020/030` 已通过、不在本卡跑真实客户端。
+- `acceptance`: ① 五条判据各有域内实现与反例，`run_repo_case.py` 对每份新 fixture 都能跑出可判读的
+  结果；② 四条拆分假阳性测试先红后绿，且证明一份 OFF-A bundle 逐条喂给 OFF-B 的归因判据必须失败；
+  ③ `offline-030` 的 `case_version` 移动被如实记录，其历史 bundle（若存在）只读作 `UNJUDGED`，
+  不回改；④ 两个子 id 在 required 清单里、在契约里逐字出现，只满足其一时另一条仍出现在
+  `report_cases.py` 的 `missing`；⑤ 全量门禁绿。
+- `validation_class`: `LOCAL_GATES`。
+- `stop_conditions`: 若拆分与既有 inventory 测试的假设冲突到必须改别的 case，停下记录冲突；
+  若某条判据在当前读数形状下无法写成不返工的断言，保留判据缺口并向主控请求决策，不放宽判据。
+
+### OFFLINE-IDENTITY-RUN-001 — 两次受控运行：OFF-A 与 OFF-B 各自封证并四读一致
+
+- `status`: `QUEUED`；不替换当前唯一 `NEXT`。
+- `question`: 在同一个受控离线服务端、同一份封存通道上，`--identity-candidate prism-parity` 与
+  `--identity-candidate enum-aligned` 各封出一份 `PASS`/`AGREES` 的 bundle，需要哪些运行形状与读数。
+- `depends_on`: `OFFLINE-IDENTITY-CASE-001`（判据与 fixture 先存在）；`ADMIT-070-CASE-001`
+  （同一 runner、同一 domain 场景与同一「两次独立 run 各自封证」的封存通道）。
+- `scope`: 两跑各领新 `run_id`/attempt，各自 `evidence verify` → `rejudge` → 两个 `replay` →
+  `report_promotion`，并把 `observed_account_type` 的**实际值**如实记录（不预设、不为「A 与 B 应该
+  不同/相同」而重跑挑数据）；OFF-B 无法启动或身份不可归因时保留真实失败。
+- `allowed_paths`: 受控运行与只读判官、`docs/development-execution-plan.md`、
+  `docs/development-todo.md`、`docs/p0-offline-session-compatibility-contract.md`（Case set 行的
+  封证状态注记与 `OfflineSessionProfile.v1` 的候选字段填入）。
+- `forbidden_paths`: 产品代码、Bridge/`proto/`、runner 的等待与封存逻辑（需要改则回到实现卡）、
+  case registry 与 `mandatory` 翻转、旧 bundle、任何非受控目标（`159.138.62.207:25565` 已被判为
+  `REJECTED`，不得作为目标或 oracle，也不得向它发送任何凭据）。
+- `non_goals`: 不挑「比较好」的候选、不决定 OFF-C/OFF-D/非空 sentinel 是否跑（契约规定只有真实启动
+  产生可归因失败时才跑）、不宣布 OFFLINE 族整体完成（`060/070/080/090/100` 不在本卡）。
+- `acceptance`: 两份 bundle 的 case 身份/version/`verified`/`passed`/re-judge/replay/promotion 四个
+  读者一致，且各自满足契约判据 1/2/3/5；两列对照结果写回契约由人读，不做成单份 bundle 的判据。
+- `validation_class`: `REAL_RUN`。
+- `stop_conditions`: 同一外部阻断连续三次重现则记 `BLOCKED_EVIDENCE` 并停在该分支；任一候选被封成
+  `PASS` 而另一候选失败时，只报告一半通过，不合并宣称 `OFFLINE-030` 完成。
 
 ### ADMIT-040-CLASSIFICATION-001 — 识别原版在线认证拒绝的真实文案
 
