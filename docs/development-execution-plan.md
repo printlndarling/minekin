@@ -12,7 +12,10 @@
 - `baseline_date`: 2026-09-22
 - `baseline_branch`: `main`
 - `baseline_remote`: `origin/main`
-- `current_next`: **无（有界自主 P0 工作已耗尽，到达需用户拍板的边界）**——本 commit 把
+- `current_next`: `VERSION-AUTO-DESIGN-001`。用户在七场景总账交付后明确要求优先写完
+  “自动识别服务器版本 → 准备匹配客户端 → 入服并完成简单控制”的连续计划；本次只把已登记的
+  设计卡从 `QUEUED` 提升为唯一 `NEXT`，不在提升提交中改产品代码、冒称 1.20.1 已受审。
+- `last_checkpoint`: **有界自主 P0 campaign 已走到需用户拍板的边界；用户现已选择跨版本路线**——上一轮把
   `REAL-P0-CAMPAIGN-001.order` 第 7 也是最后一个场景（阶段 F 晋级总账）的只读卡 `P0-PROMOTION-LEDGER-001`
   收为 `DONE`（`532446e` 登记 `QUEUED`、`28876e3` 提升 `NEXT`）。`scenario_progress 6/7→7/7`——七个 `order`
   场景全部走完。**但 campaign 总体如实为 `BLOCKED/INCOMPLETE`，不标 `DONE`**：机器
@@ -43,7 +46,7 @@
 - `temporary_executor_handoff`: [Qoder 执行交接](qoder-execution-handoff.md)；
   执行者只实现当前唯一 `NEXT` 并交付证据，主控独占任务状态与下一卡提升。
   2026-09-24：交接文档顶部已补最新停机点；其 ADMIT-070 起步卡与后续阶段正文作为历史路线保留，
-  不得覆盖本文当前 `current_next` 为“无”的判定。
+  不得覆盖本文当前 `current_next` 的判定。
 
 权威顺序：
 
@@ -2934,8 +2937,12 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 
 ### VERSION-AUTO-DESIGN-001 — 恢复跨版本自动探测与受管安装的产品路线
 
-- `status`: `QUEUED`；不替换当前唯一 `NEXT`。当前 P0 受控原型的 1.21.4
+- `status`: `NEXT`（先前已作为 `QUEUED` 登记；用户在 `ed0db6d` 的七场景总账后明确选择此路线，
+  本提交只提升设计卡，后继实现卡尚未获授权）。当前 P0 受控原型的 1.21.4
   pin 是阶段基线，不是产品最终只支持这一版的决定。
+- `promotion_reason`: 用户要求把从自动探测到目标服最小控制的整条路线写为可连续执行文档，
+  明确优先于仍需决策的 HOST/PERSIST；此卡的输出是规划与任务拆分，不是运行证据。
+- `baseline_sha`: `17e74b88404c3cf3237cb0f34ff00da224feb807`
 - `why_now`: 用户明确指出已有一台 1.20.1、关闭正版验证的测试服，并重申
   Minekin 应自动探测服务器版本、选择/下载适配的本地客户端。此前一次答复
   错把 1.21.4 原型边界说成产品目标。当前代码的 `server_profile.py` 同时
