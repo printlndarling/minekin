@@ -2283,7 +2283,8 @@
     fixture digests、workflow pins 全绿）无代码变化；本 commit 复核 `git diff --check` 干净、case/fixture/pins
     静态门禁原样绿。
 
-- [ ] **TICK-RENDER-SOAK-RUN-001（`QUEUED`，campaign 第 6 场景的真实封证实现卡）**：在当前 build 上跑一次受控
+- [ ] **TICK-RENDER-SOAK-RUN-001（`NEXT`，campaign 第 6 场景的真实封证实现卡；`6717d2e` 登记 `QUEUED`、紧随
+  commit 提升 `NEXT`）**：在当前 build 上跑一次受控
   bounded-soak（`MINEKIN_DOMAIN_SOAK_SECONDS`/`MINEKIN_DOMAIN_SOAK_INTERVAL`，建议沿 baseline 的 600 秒 / 间隔
   10 秒、`llvmpipe` 软件渲染、两个 JVM），封 `CORE-100` 新 attempt、四读一致，并用 `report_soak` 报告预算/RSS
   覆盖。**先**对 `2026-09-20` 旧 baseline bundle 在当前 build 上量一次实际读数（记 `UNJUDGED`/或仍 `AGREES`）、

@@ -12,19 +12,15 @@
 - `baseline_date`: 2026-09-22
 - `baseline_branch`: `main`
 - `baseline_remote`: `origin/main`
-- `current_next`: **本 commit 无 `NEXT`**——`TICK-RENDER-SOAK-EVIDENCE-DESIGN-001` 的判据冻结交付完成收为
-  `DONE`：第 6 场景（tick/render + L6 soak）当前-build 上要闭合的**真实读数只有 `CORE-100`**（三条断言，
-  `mandatory: false`），其「可信来源 → sealed artifact → 判官字段 → 反例」逐条写回本节；tick/render callback
-  预算**机制**已在 `CORE-METRICS-001`（`1e43a99`）域内落地，真实侧只作**报告**（不设 case、不设阈值、不造
-  FPS/TPS/GC/队列深度/GPU 读数）。冻结不要求改采样产品代码，三条 `stop_conditions` 未触发。**下一张卡以
-  `QUEUED` 登记、不得直接 `NEXT`**：`TICK-RENDER-SOAK-RUN-001`（当前 build 上受控 bounded-soak 真实运行 +
-  量旧 baseline 当前-build 读数 + 封 `CORE-100` 新 attempt + 四读 + `report_soak` 报告），**紧随的 commit
-  依交接「连续推进」第 6 项把它提升为唯一 `NEXT`**。`scenario_progress` 仍记 **5/7**——第 6 场景的真实封证
-  在下一张卡兑现，冻结本身不产生 PASS。**本卡（`TICK-RENDER-SOAK-EVIDENCE-DESIGN-001`）历史**：`096bd68` 以
-  `QUEUED` 登记、`26a7543` 提升为唯一 `NEXT`、本 commit 交付冻结并收 `DONE`。**上一张交付卡**
-  `CRASH-OUTBOX-ALIVE-DISPLAY-001`（`f90abc8`）交出 crash/outbox 第 5 场景最后一格，前置
-  `CRASH-OUTBOX-RESEAL-001` 随之 `DONE`（5/5）。`CRASH-OUTBOX-ALIVE-DISPLAY-001` 由 `94c3af0` 以 `QUEUED`
-  登记、`9a283ac` 提升为唯一 `NEXT`；它要做的只有一件事——把 X 显示与 Core 的生死脱钩（harness 自己起并持有 Xvfb、
+- `current_next`: `TICK-RENDER-SOAK-RUN-001`——冻结卡 `TICK-RENDER-SOAK-EVIDENCE-DESIGN-001` 交付（`6717d2e`）
+  把它以 `QUEUED` 登记，本 commit 依交接「连续推进」第 6 项提升为唯一 `NEXT`。它是 campaign 第 6 场景（tick/render
+  + L6 soak）的**真实封证实现卡**：在当前 reviewed build 上跑一次受控 bounded-soak、封 `CORE-100` 新 attempt、
+  四读一致，并用 `report_soak` 如实报告预算/RSS 覆盖（**不设阈值、不造 FPS/TPS/GC/队列深度/GPU 读数、不重写
+  旧 baseline**）。`scenario_progress` 仍记 **5/7**——第 6 场景的真实封证由本卡兑现。**上一张交付卡**
+  `TICK-RENDER-SOAK-EVIDENCE-DESIGN-001`（`096bd68` 登记 `QUEUED`、`26a7543` 提升 `NEXT`、`6717d2e` 冻结收
+  `DONE`）把第 6 场景判据表写下。crash/outbox 第 5 场景由 `CRASH-OUTBOX-ALIVE-DISPLAY-001`（`f90abc8`）与前置
+  `CRASH-OUTBOX-RESEAL-001`（`DONE` 5/5）收口，`scenario_progress 4/7→5/7`。`ALIVE-DISPLAY` 只做一件事——把
+  X 显示与 Core 的生死脱钩（harness 自己起并持有 Xvfb、
   `session` 只继承 `DISPLAY`、Core 挪到普通 `sh -c` 包装之下仍是 `session_pid` 的后代），使客户端 tick 那句
   `bridge released N input(s) after IPC_LOST` 有机会真被写出来；`src/`/`bridge/`/`proto/`/`tools/`、故障注入、
   目标选择、`domain.sh:1250` 等待条件、任何 fixture/digest/`mandatory`、已封 bundle 全在禁地，一字未动。
@@ -2609,8 +2605,13 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 
 ### TICK-RENDER-SOAK-RUN-001 — 在当前 build 上封一次 L6 有界 soak 并报告预算/RSS 覆盖
 
-- `status`: `QUEUED`（本 commit 依 `TICK-RENDER-SOAK-EVIDENCE-DESIGN-001` 的冻结表登记；**只排队，不直接
-  `NEXT`**，依交接「连续推进」第 1、6 项由紧随的 commit 提升）
+- `status`: `NEXT`（本 commit 登记那张冻结卡的紧随后一条，依交接「连续推进」第 6 项从 `QUEUED` 提升为唯一
+  `NEXT`）
+- `promotion_reason`: 顺序已满足——登记它的 commit（冻结卡 `TICK-RENDER-SOAK-EVIDENCE-DESIGN-001` 交付，
+  `6717d2e`）同时把该冻结卡收为 `DONE`，登记那次 commit 之后计划里无 `NEXT`，中间没插入别的未授权工作；它是
+  `order` 第 6 场景冻结表点名的唯一真实封证实现卡。提升前静态门禁全绿（case assertions 139 registered、fixture
+  digests、boundaries、workflow pins、`git diff --check` 干净；`6717d2e` 为纯文档 commit，全量 `2159 passed /
+  2 skipped` 相对 `26a7543` 无代码变化）。
 - `registered`: 2026-09-24，由 `TICK-RENDER-SOAK-EVIDENCE-DESIGN-001` 冻结触发；它是 `order` 第 6 场景的
   真实封证实现卡。
 - `depends_on`: `TICK-RENDER-SOAK-EVIDENCE-DESIGN-001`（判据先冻结，本卡才有对象）；`CORE-100`
