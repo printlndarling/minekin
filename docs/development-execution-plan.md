@@ -1060,6 +1060,50 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
   三次 runner 均在停掉承载 Bridge 的客户端时以既有 `BRIDGE_LOST`/exit 14 结束；
   分类证据来自退出后的持久 ledger。未运行 CI，未把诊断运行写作正式 ADMIT-040 PASS。
 
+### VERSION-AUTO-DESIGN-001 — 恢复跨版本自动探测与受管安装的产品路线
+
+- `status`: `QUEUED`；不替换当前唯一 `NEXT`。当前 P0 受控原型的 1.21.4
+  pin 是阶段基线，不是产品最终只支持这一版的决定。
+- `why_now`: 用户明确指出已有一台 1.20.1、关闭正版验证的测试服，并重申
+  Minekin 应自动探测服务器版本、选择/下载适配的本地客户端。此前一次答复
+  错把 1.21.4 原型边界说成产品目标。当前代码的 `server_profile.py` 同时
+  强制 `P0` loopback 与 `minecraft_version == 1.21.4`；`src/minekin_core`
+  尚无接入 session start 的 Server Probe、Version Resolver 或多版本 Bundle
+  Registry。`tests/unit/test_server_profile.py::test_unreviewed_values_are_rejected`
+  目前刻意拒绝其它版本。这些事实说明“自动选择多个已验证版本”尚未实现，
+  不是用户需要手动下载正确版本。
+- `contract_anchors`: `docs/managed-client-runtime.md` 的“固定产品结论”第
+  3–6 项及“服务器版本自动识别”；`docs/launcher-supply-chain-contract.md` 的
+  Server Probe、不可变 Client Bundle 与原子安装；`docs/version-license-matrix.md`
+  的“probe-only/第二 bundle”；`docs/roadmap.md` 第 40 项。
+- `activation`: 当前受控 campaign 的关键路径未被擅自中断；当用户明确要求
+  把多版本提前，或当前 `NEXT` 完成后按授权队列重新评估优先级。无论先后，
+  声称支持用户 1.20.1 服之前必须先完成本卡及后继实现/真实验收。
+- `allowed_paths`: 上述专项契约、`docs/development-execution-plan.md`、
+  `docs/qoder-execution-handoff.md` 与进度记录；只读探针可以访问用户明确给出的
+  测试端点，但不得将公网地址写入仓库或连接协议游戏会话。
+- `forbidden_paths`: 产品/Bridge/runner 实现、版本 fixture、artifact pin、
+  对外服务器的世界数据与管理配置、CI。
+- `scope`: 冻结最小跨版本竖切和任务拆分：①状态 ping 及 DNS/SRV/protocol
+  取证，②以协议号为主的 catalog/歧义规则，③每个 Minecraft/Fabric/Bridge/
+  Java/平台组合的 candidate→tested 验收，④缺失工件的受信上游下载、哈希验证、
+  内容寻址缓存与原子安装，⑤停止旧客户端/失效 generation 后选择新 bundle，
+  ⑥远程 Server Profile 的显式地址策略与服务端身份交叉验证。对 1.20.1
+  建第二 bundle 的可构建性清单，不假定 1.21.4 Bridge 可直接复用。
+- `non_goals`: 不把状态 ping 当作认证模式证明；不承诺任意版本都可自动
+  下载后立即入服；不在已有 JVM 热换版本；不循环试遍版本；不把可下载的
+  candidate 冒称 tested；不修改当前 ADMIT-070 判据。
+- `acceptance`: 形成可独立执行的 probe、bundle-1.20.1、resolver/installer、
+  remote-profile、end-to-end 五张小卡，每张有输入输出、精确允许路径、失败
+  分类、反例、门禁与 stop condition；说明 1.20.1 探测结果与可用 bundle
+  分离，低置信度/伪造 ping/代理多版本时 `NEEDS_PIN` 或明确阻断；缓存未命中
+  时只自动安装已有受审 `tested` 清单的工件；任何新增版本通过独立构建、
+  Bridge 握手、JOIN/首快照、服务端身份与回归门禁后才进入 tested。
+- `validation_class`: `DOCS_THEN_LOCAL_THEN_REAL_RUN`（本设计卡仅 DOCS）。
+- `stop_conditions`: 若产品是否支持 1.20.1、该版本 Bridge 移植范围、协议
+  共享版本优先级或公网地址信任策略需要新的产品选择，列选项与证据交用户
+  决定；不得把测试服在线可达等同于已验证兼容。
+
 ### HOST-ADMISSION-DESIGN-001 — 宿主世界会话坐标来源
 
 - `status`: `BLOCKED_DECISION`
