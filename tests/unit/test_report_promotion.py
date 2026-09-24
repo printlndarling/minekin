@@ -266,6 +266,11 @@ def test_corrupt_latest_bundle_blocks_older_pass(tmp_path: Path) -> None:
 def test_missing_latest_bundle_blocks_older_pass(tmp_path: Path) -> None:
     seal_sequenced(tmp_path, RUN_ID)
     latest = seal_sequenced(tmp_path, "ed1f9a7b2d3e4f6089abcdef01234567")
+    # Moving a bundle out of its address is a retention operation, and renaming a
+    # directory needs write permission on that directory itself — so the seal has
+    # to come off first. Windows ignores that (a read-only directory still
+    # renames), which is why this only showed up on Linux.
+    unseal_bundle(latest)
     latest.rename(tmp_path / "missing-latest")
 
     document = cast(dict[str, Any], bundle_report(CASE_ID, data_root=tmp_path, gated="W40"))
