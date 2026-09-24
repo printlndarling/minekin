@@ -4790,20 +4790,31 @@ def playable_row(*, position: int | None = 5) -> Mapping[str, object]:
     return event(PLAYABLE, source="CORE", trust_class="CORE", position=position)
 
 
-def generation_failed_row(*, position: int | None = 4) -> Mapping[str, object]:
+def generation_failed_row(
+    *,
+    position: int | None = 4,
+    source: str = "CORE",
+    trust_class: str = "CORE",
+    started_from: str = "JOINED_UNVERIFIED",
+    row_session_id: str = "session-01",
+    row_generation: int | str = 1,
+) -> Mapping[str, object]:
     """Core's row for a generation that ended while still not playable.
 
     The payload keys are the product's, and `from` is spelled as a dict entry because
-    Python reserves it as an argument name. Measured on the refusal run's ledger, which
-    ends `JOINED_UNVERIFIED → FAILED → STOPPING → STOPPED`.
+    Python reserves it as an argument name. Measured on the refusal run's ledger, where
+    the row sits one position after the join: `JOINED_UNVERIFIED → FAILED`, written by
+    Core, and the two rows after it take the session through `STOPPING` to `STOPPED`.
     """
 
     return event(
         STATE_TRANSITIONED,
-        source="CORE",
-        trust_class="CORE",
+        source=source,
+        trust_class=trust_class,
         position=position,
-        **{"from": "JOINED_UNVERIFIED", "to": "FAILED"},
+        row_session_id=row_session_id,
+        row_generation=row_generation,
+        **{"from": started_from, "to": "FAILED"},
     )
 
 
@@ -4930,6 +4941,11 @@ JOINED_NOT_PLAYABLE_COUNTEREXAMPLES: tuple[tuple[str, Mapping[str, Any], str], .
         {"ledger_readable": False},
         "LEDGER_UNREADABLE",
     ),
+    (
+        "the document names no connection phase",
+        {"document": document_without(refused_run(), "connection_state")},
+        "CONNECTION_STATE_UNREADABLE",
+    ),
 )
 
 
@@ -5003,13 +5019,20 @@ def test_the_clients_own_words_are_not_the_refusal() -> None:
     """The Bridge may say it misreported; only Core's document says it was refused.
 
     The client's line is about an environment variable it was handed, and a client that
-    claimed the same thing on its own would print it just as loudly. The criterion reads
-    `snapshot_rejections`, so stripping that field leaves the line in the log and the
-    criterion unsatisfied.
+    claimed the same thing on its own would print it just as loudly. So the pair below
+    is the same run with and without that line in its log, both of them missing the
+    field the criterion reads: they have to fail identically, and identically hard.
     """
 
+    changed = refused_run(snapshot_rejections=[])
+
     assert (
-        refusal_reason(FIRST_SNAPSHOT_REFUSED, document=refused_run(snapshot_rejections=[]))
+        refusal_reason(FIRST_SNAPSHOT_REFUSED, document=changed, client_log="")
+        == refusal_reason(
+            FIRST_SNAPSHOT_REFUSED,
+            document=changed,
+            client_log=f"{BRIDGE_REPORTED_NON_AUTHORITATIVE_LINE}\n",
+        )
         == "NOT_AUTHORITATIVE_NOT_RECORDED:nothing"
     )
 
@@ -5142,6 +5165,42 @@ GENERATION_CLOSED_COUNTEREXAMPLES: tuple[tuple[str, Mapping[str, Any], str], ...
             )
         },
         "GENERATION_LEFT_OPEN",
+    ),
+    (
+        "the closing row is not Core's own word",
+        {
+            "events": (
+                policy_row(),
+                started_with_session(),
+                join_row(),
+                generation_failed_row(source="BRIDGE", trust_class="BRIDGE_FILTERED"),
+            )
+        },
+        "CLOSING_ROW_NOT_CORES_WORD:BRIDGE/BRIDGE_FILTERED",
+    ),
+    (
+        "the generation failed from some earlier state, never having reached the world",
+        {
+            "events": (
+                policy_row(),
+                started_with_session(),
+                join_row(),
+                generation_failed_row(started_from="CONNECTING"),
+            )
+        },
+        "GENERATION_FAILED_FROM_ANOTHER_STATE:CONNECTING",
+    ),
+    (
+        "the closing row belongs to a later generation of the same session",
+        {
+            "events": (
+                policy_row(),
+                started_with_session(),
+                join_row(),
+                generation_failed_row(row_generation=2),
+            )
+        },
+        "CLOSING_ROW_OF_ANOTHER_SESSION",
     ),
 )
 

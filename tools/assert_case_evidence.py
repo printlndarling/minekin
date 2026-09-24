@@ -98,6 +98,14 @@ INPUT_LEASE_GRANTED = "InputLeaseGranted"
 INPUT_RELEASED = "InputReleased"
 INPUT_REFUSED = "InputRefused"
 
+#: The two session states `ADMIT-070` names: the one the attempt is in once the
+#: world has been reached but nothing about it has been vouched for, and the one
+#: Core writes when that attempt ends. The pair, and not the ending word alone, is
+#: the difference between "the refused generation was closed" and "the client died
+#: before it got anywhere" — both of which end in `FAILED`.
+JOINED_UNVERIFIED = "JOINED_UNVERIFIED"
+GENERATION_FAILED = "FAILED"
+
 #: The reviewed capability a move is granted under, and the reason a lease that
 #: simply ran out records.
 MOVE_CAPABILITY = "control.move.v1"
@@ -2693,7 +2701,12 @@ def this_run_joined_a_world_it_was_never_told_it_could_play(material: RunMateria
         return "SNAPSHOT_COUNT_MISSING"
     if admitted:
         return f"SNAPSHOT_ADMITTED:{admitted}"
-    if _text(run, "connection_state") == "PLAYABLE":
+    state = _text(run, "connection_state")
+    if state is None:
+        # A document that names no phase cannot answer "was it never told it could
+        # play" — that question is about a field, and its absence is not an answer.
+        return "CONNECTION_STATE_UNREADABLE"
+    if state == "PLAYABLE":
         return "CONNECTION_CLAIMS_PLAYABLE"
     return None
 
@@ -2704,10 +2717,13 @@ def the_first_snapshot_was_refused_by_the_reason_the_case_names(
     """Core wrote down *why* it refused, and this case names that reason.
 
     "The list is not empty" is not this criterion. `snapshot_rejections` is the union
-    over every refusal in the run, so a run that admitted its first snapshot and
-    refused a later one — or one that refused only entities, which are counted
-    separately — has a non-empty list too. What pins the refusal to the first
-    snapshot is the pair: the named reason present, and nothing admitted.
+    over every snapshot refusal in the run, so a run that admitted its first snapshot
+    and refused a later one has a non-empty list too, and the named reason says
+    nothing about which snapshot it answered. What pins the refusal to the *first*
+    snapshot is the pair: the named reason present, and nothing admitted. A run that
+    refused only entities is not in that pair at all — entity rejections are counted
+    in their own field and leave this list empty, so refusing entities can never stand
+    in for refusing a snapshot.
     """
 
     run = material.run()
@@ -2766,9 +2782,14 @@ def a_refused_first_snapshot_became_no_lease_and_no_playable(material: RunMateri
 def the_refused_generation_was_closed_and_never_reopened(material: RunMaterial) -> str | None:
     """The generation that was refused ended, and nothing reopened it.
 
-    Measured on a real refusal run, the ledger ends `JOINED_UNVERIFIED → FAILED →
-    STOPPING → STOPPED`, and the transition to `FAILED` is Core's own row: it is what
-    "this generation is over, while still not playable" looks like in the record.
+    One ledger row ends it: a `SessionStateTransitioned` written by Core, after this
+    run's single join, whose `from` is `JOINED_UNVERIFIED` and whose `to` is `FAILED`.
+    The starting state is required and not the ending word alone, because `→ FAILED`
+    is also what a run records when its client died before the world was ever reached
+    — a different failure that ends in the same word, and one criterion ① has already
+    refused on the join. Requiring exactly one `JoinObserved` is the contract's own
+    counter-example: a run that reached the world again afterwards is a new attempt,
+    not this one closing.
 
     Two fields the contract offers as alternatives are deliberately not asked for.
     `connection_cancelled` is empty on this scenario — Core abandoned no attempt, it
@@ -2780,7 +2801,7 @@ def the_refused_generation_was_closed_and_never_reopened(material: RunMaterial) 
 
     if not material.ledger_readable:
         return "LEDGER_UNREADABLE"
-    joins = [event for event in material.ledger_events if event.get("event_type") == JOIN_OBSERVED]
+    joins = material.recorded(JOIN_OBSERVED)
     if len(joins) != 1:
         # Zero joins is the wrong scenario, and two joins are the contract's own
         # counter-example: a new attempt that reached the world after this one.
@@ -2791,18 +2812,31 @@ def the_refused_generation_was_closed_and_never_reopened(material: RunMaterial) 
     if joined_at is None:
         # "After the join" is a claim about order, and order is the ledger's column.
         return "LEDGER_ORDER_NOT_RECORDED"
-    closed = False
+    session = _ledger_session(material)
+    problem: str | None = None
     for event in material.ledger_events:
         if event.get("event_type") != SESSION_STATE_TRANSITIONED:
             continue
-        if payload(event).get("to") != "FAILED":
+        if payload(event).get("to") != GENERATION_FAILED:
             continue
         ended_at = _position(event)
-        if ended_at is not None and ended_at > joined_at:
-            closed = True
-    if not closed:
-        return "GENERATION_LEFT_OPEN"
-    return None
+        if ended_at is None or ended_at <= joined_at:
+            continue
+        source, trust_class = event.get("source"), event.get("trust_class")
+        if source != "CORE" or trust_class != "CORE":
+            # Core owns this state machine. A row saying it moved is not the same
+            # fact as a row reporting the move from a source that never ran it.
+            problem = f"CLOSING_ROW_NOT_CORES_WORD:{source}/{trust_class}"
+            continue
+        if session is not None and not _belongs_to_session(event, session):
+            problem = "CLOSING_ROW_OF_ANOTHER_SESSION"
+            continue
+        started_from = payload(event).get("from")
+        if started_from != JOINED_UNVERIFIED:
+            problem = f"GENERATION_FAILED_FROM_ANOTHER_STATE:{started_from}"
+            continue
+        return None
+    return problem or "GENERATION_LEFT_OPEN"
 
 
 def the_refusal_was_asked_of_this_run(material: RunMaterial) -> str | None:
