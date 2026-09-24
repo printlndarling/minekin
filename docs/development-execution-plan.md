@@ -12,9 +12,10 @@
 - `baseline_date`: 2026-09-22
 - `baseline_branch`: `main`
 - `baseline_remote`: `origin/main`
-- `current_next`: `VERSION-AUTO-DESIGN-001`。用户在七场景总账交付后明确要求优先写完
-  “自动识别服务器版本 → 准备匹配客户端 → 入服并完成简单控制”的连续计划；本次只把已登记的
-  设计卡从 `QUEUED` 提升为唯一 `NEXT`，不在提升提交中改产品代码、冒称 1.20.1 已受审。
+- `current_next`: **无（设计卡收口与下一卡提升之间的登记提交）**。用户在七场景总账后
+  明确把“自动识别服务器版本 → 准备匹配客户端 → 入服并完成简单控制”排为优先路线；
+  `VERSION-AUTO-DESIGN-001` 已交付[跨版本连续执行计划](version-auto-to-server-control-plan.md)，
+  `VERSION-REMOTE-PROFILE-001` 本提交先登记 `QUEUED`，须在**紧随的独立提交**提升为唯一 `NEXT`。
 - `last_checkpoint`: **有界自主 P0 campaign 已走到需用户拍板的边界；用户现已选择跨版本路线**——上一轮把
   `REAL-P0-CAMPAIGN-001.order` 第 7 也是最后一个场景（阶段 F 晋级总账）的只读卡 `P0-PROMOTION-LEDGER-001`
   收为 `DONE`（`532446e` 登记 `QUEUED`、`28876e3` 提升 `NEXT`）。`scenario_progress 6/7→7/7`——七个 `order`
@@ -2937,8 +2938,9 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 
 ### VERSION-AUTO-DESIGN-001 — 恢复跨版本自动探测与受管安装的产品路线
 
-- `status`: `NEXT`（先前已作为 `QUEUED` 登记；用户在 `ed0db6d` 的七场景总账后明确选择此路线，
-  本提交只提升设计卡，后继实现卡尚未获授权）。当前 P0 受控原型的 1.21.4
+- `status`: `DONE`（先前已作为 `QUEUED` 登记；用户在 `ed0db6d` 的七场景总账后明确选择此路线，
+  `94ad677` 单独提升为 `NEXT`；本提交交付设计，后继实现卡先只登记 `QUEUED`）。
+  当前 P0 受控原型的 1.21.4
   pin 是阶段基线，不是产品最终只支持这一版的决定。
 - `promotion_reason`: 用户要求把从自动探测到目标服最小控制的整条路线写为可连续执行文档，
   明确优先于仍需决策的 HOST/PERSIST；此卡的输出是规划与任务拆分，不是运行证据。
@@ -2982,6 +2984,29 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 - `stop_conditions`: 若产品是否支持 1.20.1、该版本 Bridge 移植范围、协议
   共享版本优先级或公网地址信任策略需要新的产品选择，列选项与证据交用户
   决定；不得把测试服在线可达等同于已验证兼容。
+- `completion_evidence`: [跨版本自动入服与最小控制连续执行计划](version-auto-to-server-control-plan.md)
+  从受信 Server Profile、只读探测、1.20.1 独立 candidate 与受控验收、tested registry、
+  安全安装、切服、目标服入服到 look/move/release 分成 V01–V10 十张依赖明确的卡；
+  原卡要求的 probe、bundle、resolver/installer、remote-profile、E2E 五类均有对应卡。
+  每张含输入输出、允许路径、反例/失败分类、门禁、停止条件；没有产品代码改动、没有连接用户服，
+  未把 1.20.1、任意公网目标或 overall P0 晋级标为 tested/PASS。
+- `next_after_done`: `VERSION-REMOTE-PROFILE-001`（此时仅 `QUEUED`；下一提交单独提升）。
+
+### VERSION-REMOTE-PROFILE-001 — 让运行者保存一个明确授权的远程目标
+
+- `status`: `QUEUED`；从设计卡交付中登记，不在同一提交直接 `NEXT`。
+- `baseline_sha`: `94ad677`（设计卡提升时的已推送基线；领取本卡时另记实际 checkout SHA）。
+- `depends_on`: `VERSION-AUTO-DESIGN-001`；下游 `VERSION-SERVER-PROBE-001` 必须先有受信目标。
+- `question`: 如何在 v1 loopback/1.21.4 原样回归的同时，用 v2 profile 表达用户明确批准的
+  单一远端目标和版本策略，并在 DNS/SRV 解析后仍执行地址策略？
+- `scope`、`allowed_paths`、`forbidden_paths`、负向矩阵与本卡逐项验收：见
+  [连续执行计划的 V01 卡](version-auto-to-server-control-plan.md)；
+  主计划唯一 `NEXT` 与更具体专项契约优先。
+- `non_goals`: 不探测/连接游戏服、不下载工件、不放行任意公网、不做在线认证；
+  用户目标地址仅在私有 profile，不写 repo。
+- `validation_class`: `LOCAL`（含地址策略与 schema 反例）；如触及真实解析/连接，按 V02 另取证。
+- `stop_conditions`: 需要扩大无条件禁区或默认开放任意公网时停下请用户决策，不自行改策略。
+- `next_after_done`: `VERSION-SERVER-PROBE-001`，必须先 `QUEUED` 登记并独立提升。
 
 ### HOST-ADMISSION-DESIGN-001 — 宿主世界会话坐标来源
 

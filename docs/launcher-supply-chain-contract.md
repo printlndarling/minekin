@@ -134,5 +134,5 @@ Bridge 握手至少含 `bundle_id`、`minecraft_version`、`protocol_id`、`brid
 - Identity Manager 的本地 GameProfile/服务器身份绑定实现；可选 Online Auth Adapter 采用 MSAL 加自写 Minecraft 服务链，还是经许可审查后复用成熟认证库；
 - Java runtime 选官方 manifest 指定发行物还是受支持的固定发行版镜像缓存；
 - Artifact Store 物化使用 hardlink、reflink 还是只读 bind mount；
-- 首批执行版本已收敛为唯一 P0 候选 1.21.4；第二 bundle 仍未选择。1.21.4 在完成真实构建、离线入服、Bridge/输入、退出恢复前仍是 `candidate`，不承诺任意服务器版本即刻可用。
+- 首批 P0 执行基线是 1.21.4；用户现已选 1.20.1 作为第二 bundle 的**待验候选**，按[跨版本连续执行计划](version-auto-to-server-control-plan.md)独立构建、入服与晋级。早期 1.21.4 `candidate` 文字是研究快照；实时证据状态以[开发执行控制计划](development-execution-plan.md)为准。选择第二候选仍不承诺任意服务器版本即刻可用。
 

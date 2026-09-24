@@ -5,8 +5,10 @@
 > 已走完（`scenario_progress 7/7`），但 [`development-execution-plan.md`](development-execution-plan.md)
 > 的晋级总账仍把整体判为 `BLOCKED/INCOMPLETE`：74 个 required case 中 31 个尚未登记，
 > 且已有证据中有旧 build 与版本不匹配项。用户随后明确把跨版本路线排为优先项；
-> 当前唯一 `NEXT` 是 `VERSION-AUTO-DESIGN-001`，**只授权写完整设计与逐卡验收计划**，
-> 不授权直接改产品代码或连接公网服。Qoder 应按下文恢复步骤核对 Git、机器报告和
+> 设计卡 `VERSION-AUTO-DESIGN-001` 已交付
+> [跨版本连续执行计划](version-auto-to-server-control-plan.md)。本次收卡提交只把第一张实现卡
+> `VERSION-REMOTE-PROFILE-001` 登记为 `QUEUED`，紧随的独立提交才可提升为唯一 `NEXT`；
+> 在提升之前不授权改产品代码或连接公网服。Qoder 应按下文恢复步骤核对 Git、机器报告和
 > 封存证据；不得从本文件的旧阶段标题或历史 TODO 自行挑选其它 `NEXT`，也不得
 > 把“七个场景完成”写成 P0 晋级完成。最新读数与待决项以主执行计划顶部及
 > `P0-PROMOTION-LEDGER-001` 为准。
@@ -285,9 +287,10 @@ PERSIST 的 case ID 未冻结。Qoder 可以写“待决问题与备选/代价�
 让用户自己下载 1.20.1 客户端来掩盖产品缺口。测试端点由用户在私有运行
 配置中提供，**不要把公网 IP/端口提交到公开仓库**。
 
-此项先前以 `VERSION-AUTO-DESIGN-001`（`QUEUED`）登记；用户已在七场景总账后
-明确把它提升为当前唯一 `NEXT`。当前只做设计卡，不提前实施其下游竖切；
-设计冻结并按主计划逐卡提升之后，才连续执行下列路线：
+此项先前以 `VERSION-AUTO-DESIGN-001`（`QUEUED`）登记；用户在七场景总账后
+明确把它提升并完成设计。详细的 V01–V10 卡在
+[跨版本连续执行计划](version-auto-to-server-control-plan.md)；下列五项只保留为原始路线摘要，
+不得越过主计划唯一 `NEXT` 提前实施：
 
 1. **Probe**：规范 host/port，按策略解析 SRV，做只读 Server List Ping；
    记录协议号、版本文本、来源、解析时间线、TTL、置信度。ping 关闭、伪造、
