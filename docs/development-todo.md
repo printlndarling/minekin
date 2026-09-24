@@ -1909,6 +1909,61 @@
     `scenario_progress` 保持 3/7。本地 HEAD、`refs/heads/codex/core-state-transition` 与
     `refs/heads/main` 对 `d8348a3` 核对相同。
 
+- [x] **OFFLINE-IDENTITY-RUN-001（已完成，证据在本条与契约注记里，卡已 `NEXT → DONE`，判据 5 未闭合）**：
+  在受控 loopback 上把 OFF-A（`prism-parity`）与 OFF-B（`enum-aligned`）各封一份真实 bundle，并让
+  四个读者读同一份材料给出同一结论；同时兑现 `SEALED-ARGV-001` 收卡时欠下的那一半验收。
+  - **没有改 runner**：`why_now` 预判的阻碍（runner 里没有 OFFLINE 场景分支）实际没挡路。两跑都走
+    现成的 `run.sh domain session start --profile … --server-profile … --identity-candidate <列>`，
+    `MINEKIN_DOMAIN_CASE` 分别设为 `OFFLINE-010`/`OFFLINE-020`；`--identity-candidate` 作为
+    `REMAINDER` 进到 Core，并被 `domain.sh:1923` 原样交给 sealer 的 `--session-argv`——这条通道
+    头一次在真实运行里走到。产品代码、Bridge、registry、fixtures 全部未动。
+  - **OFF-A**：run `f2ecb728df754826abf4a052be138a2d`、server 目录 `run-129`、session
+    `d852ccf0ffde42cba3edc25bd72d5766`、`argv_digest 0f4bff0d…`、ledger 里 `PLAYABLE`
+    （run document `snapshots_admitted 1`、`entities_admitted 6`、`snapshot_rejections []`；
+    run document 自身 `status` 是 `started`、`recovery.status` 是 `reconciled`——`PLAYABLE` 不在
+    run document 的状态字段里）。封证：attempt 1、
+    `supersedes_run_id null`、13 件工件、`result PASS`、`failures []`、
+    `case_version 78053e9e31bfba6c…`、bundle `184d636cf028cd05eaf61ca36706ad8aa4576780c4c01e041f07c6f82728ed20`，
+    现场 `evidence verify` 为 `verified: true`。
+  - **OFF-B**：run `3d5606ced37849e3b17a4c418fa33ab4`、session `6e92b314ba0e4ec69ece37b5437cbc2f`、
+    `argv_digest e26e5661…`、ledger 里 `PLAYABLE`（run document `snapshots_admitted 1`、
+    `entities_admitted 10`、`snapshot_rejections []`）。封证：
+    attempt 1、`PASS`、`failures []`、13 件工件、`case_version ff451ea358546639…`、
+    bundle `ff68f67d51ba15afc35efafd89ca8781f31b0a02ed60ea9d9a10b9a2d7de45d8`。
+  - **四个读者**：两份 bundle 的 `rejudge` 都是 `disagreements: []` 且重判 `PASS`（4 条断言
+    expected/observed 逐位相同）；`python -m minekin_core replay` 与 `tools/replay_evidence.py`
+    都退出 0、19 事件、投影 `STOPPED`；`tools/report_promotion.py` 两行都是
+    `PASS / verified: true / sealed: true / re_judged: AGREES / from_repository_build: true`。
+    该工具整体结论仍是 `blocked`（41 条 mandatory 未封完），与本卡无关，如实记着。
+  - **承接的那一半验收**：判据 ① 的 live 判读与 rejudge 在两列上都同结论（都是 `PASS`，都没有
+    `LAUNCH_ARGV_UNRECORDED`）。另在真字节上补了两组对照：把封存材料的 `session_argv` 换成 `None`
+    再判 → `FAIL …:LAUNCH_ARGV_UNRECORDED`（证明 PASS 确实来自那份 argv）；跨列喂 →
+    `OFFLINE-020` 读 OFF-A 得 `FAIL ARGV_NAMES:prism-parity`，`OFFLINE-010` 读 OFF-B 得
+    `FAIL ARGV_NAMES:enum-aligned`。
+  - **不预设的观测值**：OFF-A 的 `SessionIdentityCompared` payload 里 `observed_account_type` 是
+    **空串**，OFF-B 是 **`LEGACY`**；两列 username/UUID 同为 `Kin`/`8f40376b-c23f-3ef1-b553-5564eea75639`，
+    `matched true`、`mismatches []`、两个 presence 布尔都 `false`、`credential_values_exposed false`。
+    **由此留给主控一件事**：契约晋级条件 2 要求「AccountType 被明确记录」，判据 4 只保证键被记录且是
+    观测值——OFF-A 读到的是存在但为空串，这一条是人读，本卡不替它下结论、也没为对照好看而重跑。
+  - **退出码 14 不是 verdict**：两次 `run.sh domain` 都以 14（`BRIDGE_LOST`）结束，那是 harness 主动
+    停客户端；结论只来自 seal 报告与四个读者。
+  - **未闭合的那半句（判据 5）**：本卡验收 ① 写的是「判据 1/2/3/5」，实际封的 `OFFLINE-010`/`OFFLINE-020`
+    各自承载 1/2/3/4；1/2/3/5 是两个 `OFFLINE-030-*-001` 子 case 的形状，而子 case **封不进 harness**：
+    `domain.sh:172` 把 `MINEKIN_DOMAIN_CASE` 直接小写当 fixture 文件名，于是
+    `OFFLINE-030-PRISM-PARITY-001` 会去找 `offline-030-prism-parity-001.json`，真实文件却叫
+    `offline-030-prism-parity.json`（`-001` 是 case id 的后缀，不是文件名的一部分）。改 `domain.sh`
+    撞本卡 `forbidden_paths`，改 fixture/registry 越出本卡范围——按「先修订任务卡范围再动手」的纪律
+    **不就地 hack**，登记为 `OFFLINE-030-CASE-FILENAME-001`（`QUEUED`）承接判据 5。
+  - **门禁原始摘要**：本卡零代码改动，收卡跑快门禁并按原样绿——`verify_fixture_digests.py`
+    `W00 schema and fixture digests: OK`、`check_case_assertions.py` `OK (139 registered)`
+    （判据字节未移动）、`check_boundaries.py` OK、`check_workflow_pins.py` OK、`git diff --check` 干净。
+  - **状态流转**：本卡 `NEXT → DONE`（含上面那条未闭合判据的显式注记）；紧随的 commit 提升
+    `OFFLINE-030-CASE-FILENAME-001`；`ADMIT-070-RECORD-SCHEMA-001` 继续 `QUEUED` 且不排进这条链；
+    `REAL-P0-CAMPAIGN-001` 仍 `BLOCKED_EVIDENCE`（`blocked_by` 链上的 `RUN-001` 已标 `DONE`，
+    第 4 个场景只剩判据 5，第 5/6/7 个场景未动）；`scenario_progress` 由 3/7 记为
+    「3 完整 + 第 4 个场景两列各一份 PASS」。新 Bridge jar 字节的 Linux 逐字节复现仍遗留；
+    公网测试服本轮未使用，也仍不能作判据端。
+
 ## 记录：文档脱敏与卡片范围纪律（2026-09-24，用户指示）
 
 - **触发**：主控指出两处问题。① 已推送的计划/开发记录里写入了用户自备的公网测试服完整地址
