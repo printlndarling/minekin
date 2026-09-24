@@ -3186,6 +3186,22 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
   `.tmp/v03build/v03compile.log`（gitignored）。**下一步**：为四处 divergent 类落 1.20.1 适配源集
   并让隔离工程 `compileJava`/`check --rerun-tasks` 过、产出 1.20.1 Bridge jar，再回填 candidate
   recipe 的 Bridge digest。本卡据实仍 `NEXT`、未 `DONE`、未 `tested`。
+  **续（source-root 耦合与 1.20.1 target 结构取证，同日内）**：从 remapped 1.20.1 jar
+  （`~/.gradle/caches/fabric-loom/minecraftMaven/.../1.20.1-...yarn.1_20_1...-v2.jar`）用 `javap`
+  量到确切 1.20.1 适配目标（非猜测）：`ClientPlayNetworkHandler.onDisconnect(s2c.play.
+  DisconnectS2CPacket)`、`DisconnectS2CPacket.getReason():Text`、`ClientLoginNetworkHandler.
+  onDisconnected(net.minecraft.text.Text)`（1.20.1 无 `DisconnectionInfo`）、
+  `client.gui.screen.ConnectScreen` 三字段 `connectingCancelled/future/connection` 均在、
+  `Session` 在 `net.minecraft.client.util.Session`。**结构性耦合（停止点）**：
+  `recipe.source_tree_sha256` 只排除 `.gradle`/`build`，而 1.21.4 已封 recipe 把
+  `source_digest=source_tree_sha256(workspace/bridge)` 钉死（`recipe.py:311-312`）——任何提交进
+  `bridge/` 的 1.20.1 适配源都会改变 1.21.4 的 source identity，触发「不覆写 1.21.4 既有 recipe」
+  禁区；故 1.20.1 target **不能**放进 `bridge/` 树内，只能作独立 source root（建议 `bridge-1201/`
+  顶层模块，各自 recipe 钉各自 root，`BRIDGE_JAR_RELATIVE_PATH` 与 host-boundary 门
+  `tools/check_bridge_*` 泛化到命名 root）。该做法越过本卡现 `allowed_paths`（仅 `bridge/`）且触及
+  边界门契约，属需先登记**范围修订**的结构决策，本提交不动产品代码、不改 1.21.4、不建 `bridge-1201/`，
+  仅把耦合事实与两选项（甲：顶层独立模块并泛化 recipe/门；乙：per-version 源集共用 `bridge/` 但会
+  改 1.21.4 digest → 违禁）留证并取甲为拟议方案。本卡据实仍 `NEXT`、未 `DONE`、未 `tested`。
 
 ### HOST-ADMISSION-DESIGN-001 — 宿主世界会话坐标来源
 
