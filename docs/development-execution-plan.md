@@ -3362,6 +3362,27 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
   profile/runner 配置、版本化 case/断言/fixture、仅为版本适配必要的 Bridge/launcher 修复、
   进度/契约文档。**不复用** 1.21.4 的 case version 与证据，不覆盖旧 evidence，不改用户服；
   修复若触及冻结产品语义（Player-Equivalent、lease、准入判据）先另开卡。
+- `allowed_paths_amendment`（2026-09-25，领取后、写码前登记）：本卡的真实工作面是**受控运行工装**
+  而不是产品语义，故把设计卡的宽松措辞落成显式清单。允许改：
+  `tools/run_controlled_server.py`（按版本键入的服务端 jar 摘要/大小与资源包格式、profile 读取）、
+  `tools/verify_supply_chain.py`、`tools/fetch_bundle.py`、`tools/report_promotion.py`（recipe 与
+  launcher 元数据按版本取）、`tools/check_case_assertions.py`（新 case 的实现登记）、
+  `src/minekin_core/adapters/launcher/server_profile.py`（v1 的 `1.21.4` 硬检查改为按版本键入，
+  **不改** loopback/offline/字段集判据）、`src/minekin_core/adapters/bridge/ipc.py`
+  （BridgeHello 的 `minecraft_version`/`fabric_loader_version` 从会话取期望值，不放宽为“任意值都过”）、
+  `src/minekin_core/domain/world_creation.py` 与 `cli/bootstrap` 中确需的 bundle 标识泛化、
+  新 `tests/fixtures/runtime-input/controlled-offline-server-1.20.1.json` 与
+  `tests/fixtures/launcher/1.20.1.json`、新 1.20.1 case 清单与 `tests/fixtures/manifest.sha256`、
+  上述改动对应的 unit/contract 测试、`test-orchestrator/runner/{Dockerfile,run.sh,domain.sh,README.md}`
+  （版本旋钮与 1.20.1 所需 JDK 17）、进度/契约文档。
+  仍禁：`bridge/` 与 `bridge-1201/` 的源码（若真跑暴露版本适配缺陷，先回到本卡再修订一次）、
+  任何已封 bundle 与旧 evidence、`domain/admission.py` 的无条件禁区、Player-Equivalent/lease/准入
+  判据、在线认证、用户真实远程服。触及冻结产品语义时按停止条件另开卡，不在本卡顺手放宽。
+- `server_supply_chain`（2026-09-25 实测，来自 Mojang 官方 `version_manifest_v2` → 1.20.1 条目）：
+  dedicated server `sha1 84194a2f286ef7c14ed7ce0090dba59902951553` / 47,791,053B，
+  `piston-data.mojang.com/v1/objects/84194a2f…/server.jar`；client `sha1 0c3ec587af28e5a785c0b4a7b8a30f9a8f78f838`
+  / 23,028,853B。server jar 已下到 gitignored `.tmp/mc-1.20.1-server.jar` 并 `sha1sum` 复算等于官方值。
+  这两个数是本卡服务端 pin 的来源，不是凭记忆填的。
 - `known_preconditions`: ①一个隔离的 1.20.1 专服（`online-mode=false`，独立目录，不碰 V01/V02
   登记的受控目标）；②1.20.1 能否沿用 1.21.4 的 `--quickPlaySingleplayer` 入服路径**尚未核实**——
   本卡在 `.tmp/v03build` 的 loom 缓存里对两份 yarn 映射 merged jar 做过字符串探测，1.21.4 侧
