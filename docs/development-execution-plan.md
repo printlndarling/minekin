@@ -3362,6 +3362,30 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
   profile/runner 配置、版本化 case/断言/fixture、仅为版本适配必要的 Bridge/launcher 修复、
   进度/契约文档。**不复用** 1.21.4 的 case version 与证据，不覆盖旧 evidence，不改用户服；
   修复若触及冻结产品语义（Player-Equivalent、lease、准入判据）先另开卡。
+- `session_profile_decision`（2026-09-25，写码前登记，不改任何已冻结判据）：`session start`
+  目前只读 v1 profile，而 v1 把 `minecraft_version` 硬钉在 `1.21.4`
+  （`cli/session.py:960` + `server_profile.py:32,200`）。1.20.1 真跑要么动 v1 的冻结语义、要么
+  提前做 V07 的会话切换，两者都不在本卡。本卡取**第三条更窄的路**：`session start` 按
+  `schema_version` 分发（与 `cli/server_probe.py:58-60` 同形状），v1 分支一字不改；v2 分支只在
+  **受控测试域**成立时接受——`is_loopback` 且 `auth_mode=offline` 且 `allowed_versions` 恰好一项
+  且该项与所启动 recipe 的版本一致，否则以明确理由拒绝。非 loopback 的 v2 目标在会话路径上仍被
+  拒（远程入服属 V08 的授权范围，本卡不放开任意公网）。这是**新增一条受限入口**，不是放宽既有判据：
+  v1 的字节/语义回归、V01 的 v2 加载判据、`domain/admission.py` 的无条件禁区都不动。
+- `bridge_hello_version_defect`（2026-09-25，领取后实测登记，本卡不修）：本地 IPC 握手里的版本
+  对是**写死的常量**而不是测量值——Core 侧 `adapters/bridge/ipc.py:437-438` 要求
+  `minecraft_version == "1.21.4"`、`fabric_loader_version == "0.16.9"`，同一对字符串还参与
+  `_bridge_proof` 的 HMAC 上下文（`ipc.py:628-629`）；`bridge-1201` 侧同样写死
+  （`protocol/BootstrapDescriptorAdapter.java:44-45`、`protocol/HandshakeGate.java:169`），而 1.20.1
+  candidate 实际跑的是 loader `0.19.5`（`tests/fixtures/runtime-input/bundle-candidate-1.20.1.json`
+  的 `fabric.loader`）。两侧用同一对常量，所以 1.20.1 的握手**能通过**，但它在 hello 里声明的版本
+  是假的。本卡不动它：只改 Core 一侧会让 1.20.1 握手直接失败（证明上下文变了），改 Bridge 一侧要
+  动 V03 已封存的 candidate 源码与 jar 摘要，那是本卡的禁改路径。结论：V04 的闭环证据只能在
+  "IPC 版本声明不可信"这一前提下使用，`tested` 清单不引用该字段。配对修复（Core 按会话期望版本
+  校验 + bridge 声明真实版本 + 重新封存 1.20.1 candidate）另立
+  `VERSION-BRIDGE-IDENTITY-001`，见下方 `QUEUED` 卡。
+- `deferred_within_card`: 服务端资源包格式（1.21.4 侧常量 46）在 1.20.1 上没有核过的值，
+  `run_controlled_server.py` 对未评审版本的服务端资源包请求 fail closed 并报明原因；V04 的验收
+  清单不含资源包场景，故不猜数字。
 - `allowed_paths_amendment`（2026-09-25，领取后、写码前登记）：本卡的真实工作面是**受控运行工装**
   而不是产品语义，故把设计卡的宽松措辞落成显式清单。允许改：
   `tools/run_controlled_server.py`（按版本键入的服务端 jar 摘要/大小与资源包格式、profile 读取）、
