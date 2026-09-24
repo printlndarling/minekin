@@ -19,8 +19,9 @@
   被杀 Core 的 `CORE-060`，run id `08f206bfaed94e4f9a22aed82c1c24d6`：封下来了、bundle 里没有 run-document
   工件、`asserter-inputs.json` 说 `kin_id: kin-01`、四读一致、`from_repository_build: true`，判据
   `FAIL`）记在本卡的 `handover_from_CRASH-OUTBOX-SEALED-KIN-001` 与契约那一节，本卡不必再撞一遍。
-  **本卡剩下什么**（`CORE-060` 两轮 attempt 之后，2026-09-24）：五个窗口在 current build 上一份 **PASS**
-  都还没有，而 `CORE-060` 那两条 `FAIL` 已经按工件定位完毕（读数在本卡的 `attempt_readings_2026-09-24`）。
+  **本卡剩下什么**（`CORE-060` 两轮 attempt 之后，2026-09-24）：五个窗口在 current build 上现在
+  **有 4 份 `PASS`、2 份 `FAIL`**，缺的只有 runtime 那一格；`CORE-060` 那两条 `FAIL` 已经按工件定位完毕
+  （读数在本卡的 `attempt_readings_2026-09-24`）。
   `NEVER_MOVED:0.10` 是**上一轮 attempt 的取法错误**——探针间隔被沿用成 1 秒，于是强杀落在 settle 抖动上，
   Kin 根本没走过；用默认 5 秒重跑的第二轮该条已 `observed`。剩下的 `RELEASE_NOT_LOGGED` 读的是客户端日志，
   而在当前 run 形状下那一行**按构造写不出来**：Bridge 把键交回去发生在**客户端的下一次 tick**
@@ -30,7 +31,10 @@
   `CRASH-OUTBOX-ALIVE-DISPLAY-001`（`QUEUED`；它改的是 runner 怎样给出显示，不在本卡范围内）。
   **这不是「产品侧回归」的判决，也不是「松键已修好」的证据**——能把两者分开的，正是那一卡要跑的
   「显示活得比 Core 久」的真实一轮。`CORE-060-CLIENT-001`、`CORE-060-SERVER-001`、`CORE-090`（两连跑）、
-  `CORE-020` 四案各还差一轮真运行，它们的断言都不读那一行松键日志，不因上面的阻断停下，先跑完这四案。
+  `CORE-020` 四案**已各有一轮真运行、各封一份 `PASS`**（它们的断言都不读那一行松键日志，因此不因上面的
+  阻断停下）：run `c89f5d3582e74250b27cf4a034314c0a`、`f4365a50077647babda76cec90164093`、
+  `3e94d49aace44b00924efeb1bb83c1da`、`8a72dcdf9e9c4fd190860d16a5d1bf1f`，四读逐案一致，逐字读数在本卡的
+  `window_run_readings_2026-09-24`。
   重封一律走新 attempt，旧 bundle 一个不动；`minekin-runner:local` 镜像是 `fed4a143f2e4`，
   `minekin-runner-data` 卷原样保留。第六个窗口（崩溃落在「`START_CLIENT` 意图已写、效果还没 settle」
   之间）按构造打不中（`domain.sh:1250` 等的是「不同横坐标数 ≥2」，而那段区间在产品代码内部），
@@ -2169,9 +2173,13 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
   真实运行时依 `stop_conditions` ② 两次停下并记 `BLOCKED_EVIDENCE`——第一次是 runner 认文档的守卫，已由
   `431ba84` 修好（与登记本卡的 commit 一同推送），范围修订 `ad51045` 先落在文档面；第二次是封存面命名 Kin
   的前提，另起前置卡 `CRASH-OUTBOX-SEALED-KIN-001`。**那张前置卡已交付 `2160989`、收卡 `acb2572`，本卡的
-  阻断已清，由紧随的本 commit 提升回唯一 `NEXT`。** 五个窗口现在有 **2 份**当前-build bundle，都是
-  `CORE-060`（run `08f206bfaed94e4f9a22aed82c1c24d6` `attempt 1` 两条 `FAIL`；run
-  `412b874b2aa049838c2e11e5f0df4770` `attempt 2` 只剩 `RELEASE_NOT_LOGGED` 一条），**PASS 一份也没有**。
+  阻断已清，由紧随的本 commit 提升回唯一 `NEXT`。** 五个窗口现在有 **6 份**当前-build bundle：
+  `CORE-060` 两份 `FAIL`（run `08f206bfaed94e4f9a22aed82c1c24d6` `attempt 1` 两条失败；run
+  `412b874b2aa049838c2e11e5f0df4770` `attempt 2` 只剩 `RELEASE_NOT_LOGGED` 一条），
+  `CORE-060-CLIENT-001`（run `c89f5d3582e74250b27cf4a034314c0a`）、`CORE-060-SERVER-001`
+  （run `f4365a50077647babda76cec90164093`）与 `CORE-090`（两连跑，封存的是重启那次
+  run `3e94d49aace44b00924efeb1bb83c1da`）各一份 `PASS`，四读一致，逐字读数见下面
+  `window_run_readings_2026-09-24`。
   两条失败已按工件定位，见下面 `attempt_readings_2026-09-24`；runtime 这一窗口由此登记的前置卡
   `CRASH-OUTBOX-ALIVE-DISPLAY-001`（`QUEUED`）接走，其余四案的真运行仍在本卡上。）
 - `promotion_reason`: 顺序已满足——登记它的那张 commit（`a1be5fb`）同时把 `CRASH-OUTBOX-EVIDENCE-DESIGN-001`
@@ -2250,6 +2258,98 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
     「显示活得比 Core 久」的一次真实运行分开，而那要改 runner 怎么给出显示——不在本卡 `allowed_paths`
     点名的那一条守卫里，按 2026-09-24 纪律另起前置卡 `CRASH-OUTBOX-ALIVE-DISPLAY-001`。两份 `FAIL` bundle
     原样留在卷上，不重判、不修补；本卡继续跑其余四案。
+- `window_run_readings_2026-09-24`: 其余四案「不读那行松键日志」的真运行逐案记录，一窗一条；各一份新
+  attempt，卷上旧 bundle 一份不动。
+  - **`CORE-060-CLIENT-001` 已封成 `PASS`**（本卡在当前 build 上的第一份 `PASS`）。run
+    `c89f5d3582e74250b27cf4a034314c0a`、`attempt_sequence: 1`、`supersedes_run_id: null`、bundle digest
+    `8b0691b7919ad5f3ea21c3e43e612fe50a40c1e14784aa14e410d82cab026ab0`、14 件工件（含
+    `run-document.json` 与 `previous-run-trace.jsonl`——这一窗 Core 活着，所以文档在），`case_version`
+    `dc85eb0438612888947308f2284386d2c87f4d73e6c504b05aa193ba71bf64d7`、`bridge_digest`
+    `faeec4a9df83abb9…`。命令按本案那行开关取（不是复用上一条改 case 名）：
+    `MINEKIN_KIN_ID=kin-01 MINEKIN_DOMAIN_CASE=CORE-060-CLIENT-001 MINEKIN_DOMAIN_KILL_CLIENT=1`
+    （`domain.sh:36/1389`）`MINEKIN_DOMAIN_PROBE=Kin` + `--hold-forward-seconds 60`，**探针间隔用默认值**。
+    harness 那几句：`the client has been killed; the keys died with the process` →
+    `Core recorded SessionInterrupted after its client was killed` → `session exited 14` →
+    `the case verdict is PASS`。退出码 14 是 `BRIDGE_LOST` 拆解、不是判决，同 run 的 run document 逐字记
+    `outcome: BRIDGE_LOST`、`input_release_failed: true`、`actions_applied: 1`、`session_state: STOPPED`、
+    `recovery.status: reconciled` —— 「客户端里什么都不可能报」这一条被文档如实记下，而本案第四条断言读的是
+    **服务端自己**记的 joined→left，所以它与 `CRASH-OUTBOX-ALIVE-DISPLAY-001` 无关。
+    **四读一致**（`.tmp/four_readers.sh`，全部只读）：① `evidence verify` →
+    `verified: true / sealed: true / violations: [] / result: PASS`；② `tools/rejudge_evidence.py` →
+    `status: agrees`，四条 `move_input_was_leased`、`client_jvm_sigkill_was_confirmed`、
+    `the_ledger_recorded_the_session_ending`、`leave_after_join_observed` 同时出现在 `expected` 与
+    `observed`、`failures: []`；③ 两条重放路径（`python -m minekin_core replay`、
+    `tools/replay_evidence.py`）都 `status: projected`、`events: 21`、`projected.state: STOPPED`、
+    `trace_sha256 6c236465cce5f4436f3385d70f3fa52b1bf0849a754a0709289af997a8773390`、`violations: []`；
+    ④ `tools/report_promotion.py` 给这一份 `result: PASS`、`re_judged: AGREES`、
+    `from_repository_build: true`，并把旧的 `e00f2851…` 仍记为 `UNJUDGED`（reason 逐字为 criteria moved），
+    整体 `status` 仍 `blocked`——第 5 个场景还差三案，`report_promotion` 的 `evidence["bundles"]` 是**列表**
+    而不是以 run id 为键的字典（本卡的读者别再按字典去walk它）。
+  - **`CORE-060-SERVER-001` 已封成 `PASS`**。run `f4365a50077647babda76cec90164093`、`attempt_sequence: 1`、
+    `supersedes_run_id: null`、bundle digest
+    `75a15ccc3a8d17dbe591e876d7687d2323136810ff8f247713d5dac8bf254fc1`、14 件工件、`case_version`
+    `50ca1ae2e22d6185949475e3bc8456bc30ad8254eaf0301ac0ffe4eeb9071677`、`bridge_digest`
+    `faeec4a9df83abb9…`。命令按本案那行开关取：`MINEKIN_KIN_ID=kin-01`
+    `MINEKIN_DOMAIN_CASE=CORE-060-SERVER-001 MINEKIN_DOMAIN_KILL_SERVER=1`（`domain.sh:30/1316`）
+    `MINEKIN_DOMAIN_PROBE=Kin` + `--hold-forward-seconds 60`，探针间隔仍用默认值。harness 那几句：
+    `the fault helper said {"outcome": "INJECTED", …}` → `the server has been killed; the world is gone`
+    （即日志里没有 `Stopping the server`，服务端是被杀而不是停的）→
+    `Core recorded the session ending when the world went away` → `session exited 14` →
+    `the case verdict is PASS`。**这一窗的松键真的写出来了**：客户端仍活着、X 显示仍在，所以
+    `LEFT_PLAYABLE (PLAY_ENDED)` 那条 tick 路径走得通——与 `CORE-060`（Core 自己没了、显示跟着没了）
+    正好是两件事，也印证了 `attempt_readings_2026-09-24` 那条机制读法。四读一致：`evidence verify`
+    `verified/sealed: true`、`violations: []`；`rejudge_evidence.py` `status: agrees` 且五条
+    `move_input_was_leased`、`server_jvm_sigkill_was_confirmed`、`the_server_log_has_no_graceful_shutdown`、
+    `the_ledger_recorded_world_loss`、`the_bridge_released_input_when_play_ended` 全在 `observed`；
+    两条重放路径都 `projected`、`events: 21`、`projected.state: STOPPED`、`violations: []`
+    （`trace_sha256 0ecef024dda1afd8…`）；`report_promotion.py` 给 `re_judged: AGREES`、
+    `from_repository_build: true`，旧的 `652043a6…` 仍 `UNJUDGED` 原样留着。
+  - **`CORE-090` 已封成 `PASS`（两连跑）**。**A（崩溃）**：`MINEKIN_KIN_ID=kin-01`
+    `MINEKIN_DOMAIN_KILL_CORE=1 MINEKIN_DOMAIN_PROBE=Kin` + `--hold-forward-seconds 60`，
+    **不给 `MINEKIN_DOMAIN_CASE`**（所以这次不封存任何东西，它是被 B 的材料读的那一次），run id
+    `0237e24c846f487ea84e8689c24a0528`，harness 四句 `the runtime is gone; the Bridge should let go` →
+    `the Kin left the game after the Core was killed` → `session exited 137` →
+    `the run document said Killed`。**B（重启）**：同一条命令去掉 kill 开关与 `--hold-*`，加
+    `MINEKIN_DOMAIN_CASE=CORE-090 MINEKIN_DOMAIN_STILL=1`（`domain.sh:38/1464`，转发在 `run.sh:93`），run
+    `3e94d49aace44b00924efeb1bb83c1da`、`attempt_sequence: 1`、bundle digest
+    `8bda01b52ae2bbfec5b83fb978f931cb28a7bf78668ef4b88e81235e3d077739`、13 件工件（其中
+    `previous-run-trace.jsonl` 存在，且封进去的 `asserter-inputs.json` 逐字写
+    `previous_run_id: 0237e24c846f487ea84e8689c24a0528`——「上一条 run 就是刚才崩掉的那一次」是 bundle
+    自己说的，不是复述者的记忆）、`case_version`
+    `88fa467d8896e37492bed1fe3dc74f19106c4c7e7bddaff2896bd82ea5c4d9cc`、`bridge_digest`
+    `faeec4a9df83abb9…`。B 自己的 run document：`session_id` `8e17c528937c404080d8d867ae0d95fe`（与 A 不同
+    ⇒ 瞬时状态没跨 run）、`actions_applied: 0`（这次什么都没要求）、`snapshots_admitted: 1` +
+    `connection_state: PLAYABLE`（世界状态是重新观察的，不是沿用的）、
+    `recovery: {"invalidated": [], "waiting": [], "status": "reconciled"}`；harness 那句
+    `the Kin moved 0.000 blocks across 2 readings and did not walk` 是世界那边的读数。四读一致：
+    `evidence verify` `verified/sealed: true`、`violations: []`；`rejudge_evidence.py` `status: agrees`、
+    五条含 `the_restart_runs_as_a_new_session`、`the_restart_reconciled_before_it_started` 全在 `observed`；
+    两条重放路径 `status: projected`、`events: 19`、`projected.state: STOPPED`、`violations: []`；
+    `report_promotion.py` `re_judged: AGREES` + `from_repository_build: true`，旧的 `c993c801…`
+    仍 `UNJUDGED`。**注意这次只有 2 次服务端读数**（上一批记的是 5 次以上）：那条评论判据是
+    `the_server_saw_the_kin_arrive_and_never_move`，按**距离**判（>2 格才算走了），读数个数不是它的判据，
+    本案也没有任何一条要求「同一条上跨过 `MINIMUM_STEP_BLOCKS`」——那类跨步读数是 `CORE-060`/`CORE-020`
+    的断言在读，别把两案的取数要求混为一谈。
+  - **`CORE-020`（正常退出那半，`mandatory: true`）已封成 `PASS`**。run
+    `8a72dcdf9e9c4fd190860d16a5d1bf1f`、`attempt_sequence: 1`、bundle digest
+    `3c4b04894069df5bf99afb17afd68a5acd80812282c82b2ba07e1b7539e89d8e`、13 件工件、`case_version`
+    `7c01d11ed1e9df0eab56725e123cc4a04e59c30c77c58957fee82ad613ce38fa`（与冻结表登记的当前 fixture digest
+    逐位相同）、`bridge_digest` `faeec4a9df83abb9…`。命令就是不带任何 kill 开关、不带 `--hold-*`、
+    不带探针的正常退出：`MINEKIN_KIN_ID=kin-01 MINEKIN_DOMAIN_CASE=CORE-020` + 同一对
+    `--profile/--server-profile`（本案的三条断言只读服务端 `server.log`/`usercache.json`、run document
+    与账本，没有一条读探针读数）。harness `session exited 14` 同样只是收尾，封存时判读
+    `result: PASS`、`failures: []`。四读一致：`evidence verify` `verified/sealed: true` + `violations: []`；
+    `rejudge_evidence.py` `status: agrees`、三条 `server_observed_join_identity`、`first_snapshot_admitted`、
+    `leave_after_join_observed` 全在 `observed`；两条重放路径 `projected`、`events: 19`、
+    `projected.state: STOPPED`、`violations: []`；`report_promotion.py` `re_judged: AGREES` +
+    `from_repository_build: true`（同一 case id 名下卷上另有五份旧 build 的 bundle
+    `24bbae7d…`/`2cab1052…`/`79ac9a14…`/`bad4e962…`/`e1cba67d…`，其中 `2cab1052…` 本来就是 `FAIL`，
+    五份对今天的 criteria 全部仍 `UNJUDGED`，不动不撤）。
+- `window_run_decision_2026-09-24`: **四案齐了，第五案（runtime 那一格）在本卡的形状下封不到。**
+  按本卡 `acceptance` ⑤ 的口径：campaign 第 5 个场景**不记为已封**，`scenario_progress` 保持 `4/7`；
+  本卡改记 `BLOCKED_EVIDENCE`（4/5），阻断项逐字就是 `CRASH-OUTBOX-ALIVE-DISPLAY-001` 那张卡——
+  它挡的是 `CORE-060` 那行 `LEFT_PLAYABLE`/`IPC_LOST` 松键日志在当前 run 形状下写不出来这件事，
+  不是产品判决（见 `attempt_readings_2026-09-24` 最后那条口径）。两份 `CORE-060` `FAIL` bundle 原样留着。
 - `baseline_sha`: `a1be5fbb55d870f7f5d98a3450cf0364b9318712`
 - `question`: campaign `order` 第 5 个场景（crash/outbox 窗口）**在当前 reviewed build 上封齐**。
   冻结已经给出：五个已定义窗口都有 case id、断言与 runner 开关，缺的只是 attempt——所以本卡的问题不是

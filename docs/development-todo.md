@@ -2168,10 +2168,50 @@
       可用；能把两者分开的是「显示活得比 Core 久」的一次真实运行，那要改 runner 怎样给出显示——超出本卡
       `allowed_paths` 点名的那一条守卫，按 2026-09-24 纪律另起 `CRASH-OUTBOX-ALIVE-DISPLAY-001`
       （`QUEUED`）。两份 `FAIL` bundle 原样留在卷上，不重判、不修补、不撤。
-  - **下一步**：本卡仍是唯一 `NEXT`，先跑**不读那行松键日志**的其余四案——`CORE-060-CLIENT-001`、
-    `CORE-060-SERVER-001`、`CORE-090`（两连跑）、`CORE-020`，各一轮真运行、各一份新 attempt，
-    旧 bundle 一个不动；`CORE-060` 那一格等前置卡 `CRASH-OUTBOX-ALIVE-DISPLAY-001`。四案齐了而 runtime
+  - **其余四案里已走通两案，都是当前 build 上的第一份 `PASS`**（逐字读数在计划那张卡的
+    `window_run_readings_2026-09-24`；命令一律按本案自己那行开关取，探针间隔用默认值）：
+    - **`CORE-060-CLIENT-001`** run `c89f5d3582e74250b27cf4a034314c0a`（`attempt_sequence: 1`、bundle
+      `8b0691b7919ad5f3…`、14 件工件、`case_version` `dc85eb043861…`、`bridge_digest` `faeec4a9df83abb9…`、
+      `from_repository_build: true`、`re_judged: AGREES`）。harness 退出码 14 = `BRIDGE_LOST` 拆解，
+      同 run 的 document 如实记 `outcome: BRIDGE_LOST`、`input_release_failed: true`、`actions_applied: 1`、
+      `recovery.status: reconciled` —— 「客户端里不可能留下松键日志」这一条由服务端记的 joined→left 承接，
+      所以这一窗与 `CRASH-OUTBOX-ALIVE-DISPLAY-001` 无关。四读一致（`.tmp/four_readers.sh`）。
+    - **`CORE-060-SERVER-001`** run `f4365a50077647babda76cec90164093`（`attempt_sequence: 1`、bundle
+      `75a15ccc3a8d17db…`、`case_version` `50ca1ae2e22d…`、同样 `from_repository_build: true` +
+      `re_judged: AGREES`、两条重放路径都 `projected`/`STOPPED`/21 events）。本案的五条断言里
+      **那行 `LEFT_PLAYABLE (PLAY_ENDED)` 松键真的写出来了**——被杀的是 server JVM，客户端和它的显示都还在，
+      tick 路径照走。这正好从反面对上上面那条机制读法：**打不中的不是松键本身，是「杀 Core 时把显示一起带走」
+      这一形状**。harness 两句 `the server has been killed; the world is gone` +
+      `Core recorded the session ending when the world went away`。
+  - **当时的下一步**（下面一条把它走完了）：本卡仍是唯一 `NEXT`，还差两案——`CORE-090`（两连跑：先
+    `MINEKIN_DOMAIN_KILL_CORE=1`
+    且**不给 case id**，紧接着 `MINEKIN_DOMAIN_CASE=CORE-090 MINEKIN_DOMAIN_STILL=1` 且不给任何输入）、
+    `CORE-020`（正常退出那半，`leave_after_join_observed`），各一份新 attempt，旧 bundle 一个不动；
+    `CORE-060` 那一格等前置卡 `CRASH-OUTBOX-ALIVE-DISPLAY-001`。四案齐了而 runtime
     那格还封不到 PASS，本卡按 `BLOCKED_EVIDENCE` 记 4/5，不靠改判据或改杀法凑颜色。
+  - **两案已补齐 → 四案齐，本卡按 `BLOCKED_EVIDENCE` 记 4/5**（逐字读数在计划那张卡的
+    `window_run_readings_2026-09-24` 与 `window_run_decision_2026-09-24`）：
+    - **`CORE-090`（两连跑）`PASS`**：崩溃那次 run `0237e24c846f487ea84e8689c24a0528` 不给 case id
+      （所以它自己不封存，harness `session exited 137` + `the run document said Killed`）；重启那次 run
+      `3e94d49aace44b00924efeb1bb83c1da` / bundle `8bda01b52ae2bbfe…` / `case_version` `88fa467d8896…` /
+      13 件工件，`previous-run-trace.jsonl` 在其中，且封进去的 `asserter-inputs.json` 逐字写
+      `previous_run_id: 0237e24c846f487ea84e8689c24a0528` ⇒ 「上一条 run 就是刚才崩掉那一次」是 bundle
+      自己的记载，不是复述。B 自己的 document：
+      `session_id` 与 A 不同、`actions_applied: 0`、`snapshots_admitted: 1`、`connection_state: PLAYABLE`、
+      `recovery: {"invalidated": [], "waiting": [], "status": "reconciled"}`。四读一致（`AGREES` +
+      两条重放路径 `projected`/`STOPPED`/19 events）。**一处取数差异要记清楚**：这次服务端只给了
+      2 次读数（上一批是 5 次以上），本案那条 `never_move` 判据按**距离**判、不断言读数个数，所以不影响
+      判决——但**别把这一行的取数形状套到 `CORE-060`/`CORE-020` 那些跨步读数上**（同一族错误本卡今天已犯过一次）。
+    - **`CORE-020`（`mandatory: true`）`PASS`**：run `8a72dcdf9e9c4fd190860d16a5d1bf1f` / bundle
+      `3c4b04894069df5b…` / `case_version` `7c01d11ed1e9…`（与冻结表登记的当前 fixture digest 逐位相同）/
+      13 件工件；命令只给 `MINEKIN_KIN_ID` + `MINEKIN_DOMAIN_CASE=CORE-020`，**没有** kill 开关、
+      `--hold-*`、探针。三条断言（`server_observed_join_identity`、`first_snapshot_admitted`、
+      `leave_after_join_observed`）全 `observed`，四读一致。旧 build 那五份同 case 的 bundle
+      （含一份本来 `FAIL` 的 `2cab1052…`）全部仍 `UNJUDGED`，不动不撤。
+    - **结论与口径**：`acceptance` ⑤ 要求五案齐才把 campaign 第 5 个场景记为已封，所以现在
+      `scenario_progress` **保持 `4/7`**，本卡 `BLOCKED_EVIDENCE`（4/5）。缺的那一格**不是**
+      「Bridge 没松键」的判决，而是「杀 Core 时把 X 显示一起带走，客户端再没有 tick 写那行日志」——
+      两者能分开的实验已由 `CRASH-OUTBOX-ALIVE-DISPLAY-001`（`QUEUED`）接走，本卡不改 runner。
 
 - [ ] **CRASH-OUTBOX-ALIVE-DISPLAY-001（`QUEUED`，2026-09-24 由 `CRASH-OUTBOX-RESEAL-001` 的两轮
   attempt 当场登记）**：让 Core 的死不再带走客户端的显示。它挡的是**五个窗口里 runtime 那一格**
