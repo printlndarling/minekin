@@ -202,7 +202,7 @@ HOST世界保存/恢复另需 `HOSTCOMMIT-001…110` 证据；它验证默认维
 
 | 窗口 | 承载 case id | 判据读什么 | 当前 harness 可否真跑 | 当前 build 上的证据 |
 | --- | --- | --- | --- | --- |
-| Runtime（Core）强杀后松键 | `CORE-060` | 故障记录 `target: runtime_controller` + Bridge 松键 + 服务端读数 | 开关在（`MINEKIN_DOMAIN_KILL_CORE`，`domain.sh:26/1233`），注入真做得到；**封存通道曾当场是断的，两格已分别由 `431ba84` 与 `2160989` 修好，现在封得上**——这一格仍不算「可」，因为当前 build 上还没有一份 `PASS`（见下面那条 2026-09-24 修订） | **有 1 份，判据 `FAIL`**：run `08f206bfaed94e4f9a22aed82c1c24d6`（`RELEASE_NOT_LOGGED` + `NEVER_MOVED:0.10`）。旧 build 的 PASS/FAIL 不追认 |
+| Runtime（Core）强杀后松键 | `CORE-060` | 故障记录 `target: runtime_controller` + Bridge 松键 + 服务端读数 | 开关在（`MINEKIN_DOMAIN_KILL_CORE`，`domain.sh:26/1233`），注入真做得到；**封存通道曾当场是断的，两格已分别由 `431ba84` 与 `2160989` 修好，现在封得上**——这一格仍不算「可」，因为当前 build 上两轮 attempt 都判 `FAIL`，剩下那条按当前 run 形状**打不中**（见下面 2026-09-24 那一读） | **有 2 份 attempt**：`08f206bfaed94e4f9a22aed82c1c24d6`（`RELEASE_NOT_LOGGED` + `NEVER_MOVED:0.10`）、`412b874b2aa049838c2e11e5f0df4770`（只剩 `RELEASE_NOT_LOGGED`，`attempt_sequence: 2` 取代前一份）。旧 build 的 PASS/FAIL 不追认 |
 | client JVM 强杀 | `CORE-060-CLIENT-001` | 同上，目标 `client_jvm`，账本记 session 结束 | 可（`MINEKIN_DOMAIN_KILL_CLIENT`，`domain.sh:36/1389`） | **无**（同上） |
 | server JVM 强杀 | `CORE-060-SERVER-001` | 目标 `server_jvm`、`/proc` 身份消失、无 `Stopping the server` | 可（`MINEKIN_DOMAIN_KILL_SERVER`，`domain.sh:30/1316`） | **无**（同上） |
 | 崩溃后重启重验（瞬时状态失效、世界重新观察） | `CORE-090` | 本次 run document + 同账本上一条 run 的事件行（`previous-run-trace.jsonl`）+ `recovery` 块 | 可（两连跑：先 `MINEKIN_DOMAIN_KILL_CORE=1`，紧接着 `MINEKIN_DOMAIN_CASE=CORE-090 MINEKIN_DOMAIN_STILL=1`） | **无**（同上） |
@@ -256,6 +256,24 @@ HOST世界保存/恢复另需 `HOSTCOMMIT-001…110` 证据；它验证默认维
     killed`——两边读的不是同一份字节，而**判读那两条失败落在哪件工件上属 `CRASH-OUTBOX-RESEAL-001`**，
     本卡只负责把通道修通并如实收下 `FAIL`。按上面那条口径，这一格仍然要等 `CORE-060` 真封出 `PASS`
     才改回「可」；「有没有当前-build 证据」这一列现在填的是这份 `FAIL`，不是「无」。
+  - **那两条 `FAIL` 落在哪件工件上，第二轮之后有读数了**（2026-09-24，`CRASH-OUTBOX-RESEAL-001` 的
+    `attempt_readings_2026-09-24`；逐字对比用 `.tmp/core060_log_tail_compare.sh`、
+    `.tmp/core060_display_death_probe.sh`、`.tmp/xvfb_display_survival_probe.sh`，全部只读）：
+    `NEVER_MOVED:0.10` 是**上一轮 attempt 的取法错误**——沿用 `CORE-060-SERVER-001` 的
+    `MINEKIN_DOMAIN_PROBE_SECONDS=1` 之后，`horizontal_positions`（`domain.sh:795-800`）把 x 与 z 一起吐出，
+    「不同横坐标数 ≥ 2」被 settle 抖动单独满足，强杀落在还没迈步之前；按默认 5 秒重跑，该条 `observed`。
+    剩下的 `RELEASE_NOT_LOGGED` 是**这一窗口的形状问题，不是判据问题**：`client/latest.log` 整份止于
+    `bridge is failing closed (IPC_LOST)`，而 `client/stderr.log` 整份只有
+    `X connection to :99 broken (explicit kill or server shutdown).`——松键在源码里是客户端 tick 上的动作
+    （`BridgeIpcWorker.java:1038-1056` 只投 `Notice.SAFE_STOP`，`:249-254` 在 tick 里才 `releaseInputs`），
+    而 Core 是 `xvfb-run` 的内层孩子，`/usr/bin/xvfb-run` 的 `trap clean_up EXIT`（`:143`、`:90-91`）会在
+    孩子死后**自己关掉 X 服务**。容器内探针量到那个间隔是 **6 ms / 7 ms**（两次），一次 tick 是 50 ms：
+    当前形状下无论 Bridge 松没松键，那行日志都拿不到。旧 build 那份 `PASS` 反过来对上 `a818a62` 之前
+    `pkill -f` 连包装器一起杀、EXIT trap 没跑、Xvfb 成孤儿继续服务（它的 `stderr.log` 是 0 字节，
+    松键在 failing-closed 之后 1–47 ms）。
+    **所以这一格既没有判出产品侧回归，也没有判出松键可用**：要把两者分开，需要一次「显示活得比 Core 久」
+    的真实运行，那要改 runner 怎样给出显示，归 `CRASH-OUTBOX-ALIVE-DISPLAY-001`（`QUEUED`）。两份 `FAIL`
+    bundle 原样留在卷上（`attempt_sequence: 2` 的 `supersedes_run_id` 指向 `08f206bf…`），不重判、不修补。
 - **启动窗口为什么打不中**（冻结时逐行读过，不是引用的旧结论）：意图写在
   `src/minekin_core/cli/session.py:719-721`（`open_effect(effect_type=START_CLIENT, …)`，
   排在 `supervisor.start(...)`（同一文件 `:723`）**之前**），settle 在成功路径 `:750`、失败路径 `:734`。

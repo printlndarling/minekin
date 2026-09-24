@@ -2100,7 +2100,8 @@
 - [ ] **CRASH-OUTBOX-RESEAL-001（当前唯一 NEXT）**：campaign
   `order` 第 5 个场景的**真实重封**——五个已定义窗口各在当前 build 上封一份 bundle。前置是本卡当场
   发现的第二个封存面阻断，已另起 `CRASH-OUTBOX-SEALED-KIN-001` 并交付（`2160989`）；五个窗口现在有
-  **一份**当前-build bundle（`CORE-060` run `08f206bf…`，判据 `FAIL`），**PASS 一份也没有**。
+  **两份**当前-build bundle（`CORE-060` run `08f206bf…` `attempt 1`、run `412b874b…` `attempt 2`，都判
+  `FAIL`），**PASS 一份也没有**。
   - **环境已就位**：`minekin-runner:local` 镜像按 Dockerfile 重建完成（镜像 id `fed4a143f2e4`），
     `minekin-runner-data` 卷原样保留（旧的五份 PASS 与那份 FAIL 一个没动，登记前照其复核了五对
     `case_version` 与两个旧 `bridge_digest`）。
@@ -2141,11 +2142,52 @@
     `FAIL`（`RELEASE_NOT_LOGGED`、`NEVER_MOVED:0.10`），四读一致（sealer/verify/rejudge/promotion 都报
     同一份，`from_repository_build: true`）。所以本卡现在**有 1 份当前-build bundle，但 5 个窗口一份
     PASS 都还没有**：`CORE-060` 要拿到 PASS 才算契约那一格恢复「可」。
-  - **下一步**：本卡回到 `NEXT`（紧随的 commit 提升），先把上面那两条 `FAIL` 的**读数来源**弄清楚——
-    判据读的是客户端日志里的松键行与服务端读数里的横坐标跨度，harness 的等待条件读的是同一份服务端
-    日志的「不同横坐标数 ≥2」，两者不同源，所以要按工件逐一定位；**不改判据、不改杀法去凑 PASS**。
-    其余四案（`CORE-060-CLIENT-001`、`CORE-060-SERVER-001`、`CORE-090` 两连跑、`CORE-020`）各跑真运行，
-    重封一律走新 attempt，旧 bundle 一个不动。
+  - **两条 `FAIL` 已按工件定位，并且第二轮只剩一条**（`.tmp/core060_attempt_fields_probe.sh` 读到
+    manifest 原字段）：
+    - `NEVER_MOVED:0.10` 是**本卡自己把上一轮跑坏的**——那一轮沿用了上面 KIN 卡记录的
+      `MINEKIN_DOMAIN_PROBE_SECONDS=1`。`horizontal_positions`（`domain.sh:795-800`）把 x 与 z 一起吐出来，
+      所以 `:1250` 那个「不同横坐标数 ≥2」被 settle 期间的 z 抖动单独满足，强杀落在 Kin 还没迈步之前
+      （服务端只读到 3 次、x 恒为 `2.5`、跨度 `0.098 < 2.0`）。**按默认 5 秒间隔重跑：该条 `observed`。**
+      `CORE-060` 以后一律用默认探针间隔，别复用别的 case 那一行的旋钮。
+    - `RELEASE_NOT_LOGGED` 读的是 `client/latest.log` 里那一行松键日志（判官 `_BRIDGE_RELEASE`，
+      `tools/assert_case_evidence.py:161`；用 `read_sealed_material` 逐件数过：那份 65776 字符的日志里
+      `findall → []`，是**行不存在**，不是读不出来）。第二轮（run `412b874b2aa049838c2e11e5f0df4770`，
+      `attempt_sequence: 2`、`supersedes_run_id: 08f206bf…`、`case_version` 仍是 `d1ea32d8b705…`）里
+      Kin 确实带着键在走（`bridge pressed move.forward`、`bridge applied 726bdc43…: holding
+      [move.forward]`），日志仍**止于** `bridge is failing closed (IPC_LOST)`。
+    - **为什么这一条在当前形状下打不中**：松键是客户端 tick 上的动作（`BridgeIpcWorker.java:1038-1056`
+      的 `failClosed` 只把 `Notice.SAFE_STOP` 放进收件箱；`:249-254` 在 tick 里才调 `releaseInputs`，
+      `:822-837` 打那行日志），而 Core 是 `xvfb-run` 的内层孩子，`/usr/bin/xvfb-run` 的
+      `trap clean_up EXIT`（`:143` + `:90-91` 的 `kill "$XVFBPID"`）会在孩子死后自己关掉 X 服务。
+      容器内只读探针（`.tmp/xvfb_display_survival_probe.sh`，两次）量到：只杀命令孩子、不碰 Xvfb →
+      **6 ms / 7 ms 后 Xvfb 消失、显示不再应答**（一次 tick 是 50 ms）。两轮当前-build bundle 的
+      `client/stderr.log` 整份都只有一行 `X connection to :99 broken (explicit kill or server shutdown).`，
+      而旧 build 那份 PASS（`6b6dcdf7…`）的 `stderr.log` 是 0 字节、松键在 failing-closed 之后 1–47 ms 出现
+      ——对上 `a818a62` 之前 `pkill -f` 连包装器一起杀、EXIT trap 没跑、Xvfb 成孤儿继续服务。
+    - **口径**：这**不是**产品侧回归的判决（当前形状下无论 Bridge 松没松键都拿不到那行），也**不是**松键
+      可用；能把两者分开的是「显示活得比 Core 久」的一次真实运行，那要改 runner 怎样给出显示——超出本卡
+      `allowed_paths` 点名的那一条守卫，按 2026-09-24 纪律另起 `CRASH-OUTBOX-ALIVE-DISPLAY-001`
+      （`QUEUED`）。两份 `FAIL` bundle 原样留在卷上，不重判、不修补、不撤。
+  - **下一步**：本卡仍是唯一 `NEXT`，先跑**不读那行松键日志**的其余四案——`CORE-060-CLIENT-001`、
+    `CORE-060-SERVER-001`、`CORE-090`（两连跑）、`CORE-020`，各一轮真运行、各一份新 attempt，
+    旧 bundle 一个不动；`CORE-060` 那一格等前置卡 `CRASH-OUTBOX-ALIVE-DISPLAY-001`。四案齐了而 runtime
+    那格还封不到 PASS，本卡按 `BLOCKED_EVIDENCE` 记 4/5，不靠改判据或改杀法凑颜色。
+
+- [ ] **CRASH-OUTBOX-ALIVE-DISPLAY-001（`QUEUED`，2026-09-24 由 `CRASH-OUTBOX-RESEAL-001` 的两轮
+  attempt 当场登记）**：让 Core 的死不再带走客户端的显示。它挡的是**五个窗口里 runtime 那一格**
+  （`CORE-060` 的 `RELEASE_NOT_LOGGED`），不挡另外四案，所以登记为 `QUEUED`、唯一 `NEXT` 仍是
+  `CRASH-OUTBOX-RESEAL-001`。
+  - **问题**：松键由客户端的下一次 tick 写出（`BridgeIpcWorker.java:1038-1056` → `:249-254` → `:822-837`），
+    而 Core 包在 `xvfb-run` 里（`domain.sh:733-734`），`/usr/bin/xvfb-run:143` 的 `trap clean_up EXIT`
+    会在内层孩子被 SIGKILL 后 `kill "$XVFBPID"`——容器内两次只读探针量到 Xvfb 在 **6 ms / 7 ms** 后消失。
+    于是这一窗口的判据**按构造打不中**，两份 `FAIL` 分不开「Bridge 真没松键」与「客户端没机会写这行」。
+  - **要改的只有一件事**：显示由 harness 起并持有、活过这次注入（`session` 只继承 `DISPLAY`，不再包在
+    `xvfb-run` 里）。**不改** `inject_fault`、目标选择、`domain.sh:1250` 的等待条件，不改回全局 `pkill`
+    （那会撤掉 `a818a62` 的身份绑定并撞上 `test_runner_scripts.py:156`），不碰 `src/`、`bridge/`、`tools/`。
+  - **验收与停机条件**见 [主执行计划](development-execution-plan.md) 该卡一节。要点：① 新一轮真实
+    `CORE-060` 里那行 `bridge released N input(s) after IPC_LOST` 必须**真的出现**且 `N > 0`；② 若显示
+    确实活过了 Core 而那行仍不出现，那才是 `RESEAL` `stop_conditions` ① 点名的**产品侧回归**——保留
+    `FAIL`、分类、停下报告主控。本卡不封任何其余窗口。
 
 - [x] **CRASH-OUTBOX-SEALED-KIN-001（已完成，交付 `2160989`）**：让「没有文档的一次 run」也能明白地
   说出它属于哪个 Kin。`CRASH-OUTBOX-RESEAL-001` 第二次真实 attempt 当场发现的封存面阻断，是 campaign
@@ -2165,7 +2207,10 @@
     `kin_id`，所以卷上只有一个 Kin 这件事**不需要**第二处记载；这也是 `stop_conditions` ② 没触发的原因。
   - **真实运行（验收 ①，一轮真跑）**：`CORE-060`，`MINEKIN_KIN_ID=kin-01 MINEKIN_DOMAIN_CASE=CORE-060
     MINEKIN_DOMAIN_KILL_CORE=1 MINEKIN_DOMAIN_PROBE=Kin MINEKIN_DOMAIN_PROBE_SECONDS=1` +
-    `--hold-forward-seconds 60`，run id `08f206bfaed94e4f9a22aed82c1c24d6`。transcript：
+    `--hold-forward-seconds 60`，run id `08f206bfaed94e4f9a22aed82c1c24d6`。**这一格用的 1 秒探针间隔对本卡
+    无害（它要的是「封得上」，不是 PASS），但对 `CORE-060` 的判据是错的**：它让 `:1250` 的等待条件被 z
+    抖动满足、强杀落在还没迈步之前，因而多出一条 `NEVER_MOVED`。别把它当 `CORE-060` 的取法抄走——默认 5 秒
+    那一轮的读数见上面 `CRASH-OUTBOX-RESEAL-001`。transcript：
     `session exited 137` → `the run document said Killed` →
     `domain: /tmp/domain-session.json holds no run document, so this run is named by its ledger id`，
     **没有**「this run has no Kin in its own rows」那一句（名字确实传到了）。封存
