@@ -2040,6 +2040,63 @@
     `ADMIT-070-RECORD-SCHEMA-001` 继续 `QUEUED` 且不排进这条链。新 Bridge jar 字节的 Linux 逐字节
     复现仍遗留；公网测试服本轮未使用，也仍不能作判据端。
 
+- [x] **CRASH-OUTBOX-EVIDENCE-DESIGN-001（已完成，卡已 `NEXT → DONE`）**：campaign `order` 第 5 个
+  场景（crash / outbox / restart 窗口）的**判据冻结**卡。它不封证据，交出的是一份逐窗口的读数，
+  落在 `docs/p0-validation-evidence-contract.md:198-246` 那张六行表里。
+  - **动手前先把「仍缺哪些窗口」从提问换成量出来的事实**（阶段 D 那句「按契约与已有 fixture 列出仍缺的
+    具体窗口」）。方式是读当前文件，不是引用旧结论：`domain.sh:24-28` 有 `MINEKIN_DOMAIN_KILL_CORE`、
+    `MINEKIN_DOMAIN_KILL_SERVER`、`MINEKIN_DOMAIN_KILL_CLIENT` 三个开关，分别在 `:1233`、`:1316`、
+    `:1389` 各自成块；`--hold-at` 在 `:365/378` 只是被解析成 `hold_at`，**不暂停任何进程**（它只是让
+    Core 在 `JOIN_SEEN` 提前索要租约并被拒，那正是 `CORE-050` 要读的东西）。于是五个已定义窗口——
+    runtime 强杀 / client 强杀 / server 强杀 / 崩溃后重启重验（`CORE-090` 的两连跑，形状照
+    `development-todo.md:529` 那次实测）/ 正常退出（`CORE-020` 的 `leave_after_join_observed`）——
+    **都有 case id、断言与开关，一个都不缺定义**。
+  - **缺的是当前 build 上的 attempt**，这条也是量的：`tools/report_promotion.py` 对数据卷上那五份旧
+    `PASS`（`CORE-060` `6b6dcdf7…`、`CORE-060-SERVER-001` `652043a6…`、`CORE-060-CLIENT-001`
+    `e00f2851…`、`CORE-090` `c993c801…`、`CORE-020` `79ac9a14…`，另有一份保留的旧 `CORE-060` `FAIL`
+    `6d4bf5eb…`）一律给 `from_repository_build: false`，`bridge_digest` 是 `580daa93…`/`f02741f5…`，
+    而本 build 是 `faeec4a9…`；五案的 `case_version` 也**全部移动过**（fixture 钉的是判官源码的摘要，
+    这些年判官长了新断言），表里逐对写短摘要。所以它们对今天的判据读作 `re_judged: UNJUDGED`，
+    reason 逐字是「the criteria moved, so the recorded verdict answers a question this repository no
+    longer asks」。**原样留着**：不追认、不重判、不拿它充当场景闭合——这是契约那句「保留旧 PASS」的
+    一次具体执行，而不是又一次重跑。
+  - **第六个窗口按构造打不中，而且理由要说准**：崩溃落在「`START_CLIENT` 意图已写下、效果还没 settle」
+    之间留下的 pending outbox。意图写在 `cli/session.py:719-721`，排在同文件 `:723` 的
+    `supervisor.start(...)` **之前**，settle 在 `:750`（成功）/`:734`（失败）；而 kill 块要等到
+    `domain.sh:1250` 那个条件成立才动手——**不同横坐标数 ≥ 2**，即 Kin 真的走过之后。曾经加过的
+    `KILL_CORE=early` 在代码里零残留（全仓 `early` 只命中文档）。这一半归本地证据
+    （`tests/unit/test_recovery_service.py:236` 真 `sqlite3.connect`、`:339` 真
+    `SessionEventLog(...).open_effect(...)`）。**冻结时纠正了自己一开始的一句轻率话**：原本写「要让它
+    可达是 runner 改动」，但那两段区间在产品代码内部，`domain.sh` 加一次等待是够不着的——诚实的写法是
+    两条候选路：在产品代码插停顿（为封证改被测物，**拒绝**），或从外部把被 spawn 的客户端拖慢
+    （`MINEKIN_JAVA`，`config.py:21`，在 `bootstrap.py:113` 解析）——**未实测**：它是否只作用于客户端、
+    慢 spawn 会不会同时改掉这轮所观察的东西都没有读数，将来要走须另起一张含 `test-orchestrator/` 的卡
+    先测。本卡只登记这个需要，不顺手试。
+  - **验收 ②「需要新登记卡的窗口当场登记」执行成一张卡**：`CRASH-OUTBOX-RESEAL-001` 在收卡的同一
+    commit 以 `QUEUED` 登记，`allowed_paths` 只有四份文档——重封不需要改任何代码，改了就说明冻结的
+    读数不成立；`forbidden_paths` 明确含 `src/`、`tools/`、`test-orchestrator/`、`tests/` 与那五份
+    旧 bundle，runner 侧与产品侧没有混进同一张。启动窗口那一半**没有**登记卡，理由如上（阶段 D 本来就
+    授权它作为本地证据）。
+  - **收卡前把 digest 又量了一遍，这次绕开容器**：`minekin-runner:local` 这个镜像在本机 Docker 引擎里
+    已经没了（`docker images` 无命中），但 `minekin-runner-data` 卷还在——用 `alpine` 直接挂卷读那五份
+    `manifest.json`，`case_version` 逐字仍是 `30ac59a0…`/`d4850165…`/`e8d03e1b…`/`4b0ba855…`/
+    `090c8253…`，`bridge_digest` 是 `f02741f5…`（`CORE-060`、`CORE-020`）与 `580daa93…`（另三份），
+    五份 `result: PASS`、保留那份旧 `CORE-060` 仍 `FAIL`；当前 fixture 侧用
+    `adapters.evidence.promotion.load_case_manifest` 算出 `d1ea32d8…`/`50ca1ae2…`/`dc85eb04…`/
+    `88fa467d…`/`7c01d11e…`。表里五对逐字对得上，「`from_repository_build: false` 是因为 bridge digest
+    真的不是本 build 那份」这条也就独立成立，不依赖报告工具的措辞。
+  - **门禁（纯文档卡，未跑 Minecraft）**：full pytest `2146 passed / 2 skipped in 518.56s`、
+    `ruff check . -q` exit 0、`ruff format --check .` `304 files already formatted`、`pyright`
+    `0 errors, 0 warnings, 0 informations`、`check_boundaries.py` OK、`check_case_assertions.py`
+    `OK (139 registered)`、`verify_fixture_digests.py` OK、`check_workflow_pins.py` OK、
+    `git diff --check` 干净。
+  - **状态流转**：本卡 `NEXT → DONE`（交付 `72aec3e`，收卡 commit 同时登记 `CRASH-OUTBOX-RESEAL-001`
+    为 `QUEUED`）；`REAL-P0-CAMPAIGN-001` 的 `scenario_progress` 仍是 **4/7**（第 5 个场景没有新增
+    bundle，冻结的不是闭合），`blocked_by` 尾巴改成「第 5 个场景已有冻结与一张待执行的真实运行卡」。
+    `current_next` 本条 commit 之后为空，由紧随的 commit 提升 `CRASH-OUTBOX-RESEAL-001`。
+    `ADMIT-070-RECORD-SCHEMA-001` 继续 `QUEUED` 且不排进这条链；HOST/PERSIST/retention/
+    process-recovery 仍等主控决策。公网测试服本轮未使用，也仍不能作判据端。
+
 ## 记录：文档脱敏与卡片范围纪律（2026-09-24，用户指示）
 
 - **触发**：主控指出两处问题。① 已推送的计划/开发记录里写入了用户自备的公网测试服完整地址

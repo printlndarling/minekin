@@ -12,19 +12,20 @@
 - `baseline_date`: 2026-09-22
 - `baseline_branch`: `main`
 - `baseline_remote`: `origin/main`
-- `current_next`: `CRASH-OUTBOX-EVIDENCE-DESIGN-001`——由本 commit 从 `QUEUED` 提升为唯一 `NEXT`
-  （登记在 `bd0448a` 并推送，登记的那一条 commit 没有同时写 `NEXT`，满足交接第 1 项；提升前计划里没有
-  `NEXT`，中间没有插入别的未授权工作）。它是 campaign `order` 第 5 个场景（crash/outbox 窗口）的
-  **判据冻结**卡，不封证据：先核 `CORE-060` 三个进程边界与 `CORE-090` 恢复对各已证到哪一半，再逐项
-  回答阶段 D 那份窗口清单里哪些还缺、哪些**按构造**在当前 harness 下打不中（尤其「崩溃落在启动窗口、
-  intent 已记而未 settle」那一半——`development-todo.md` 记过一次尝试：加过 `KILL_CORE=early`，实测它
-  从来不可能早于 playable，于是删掉开关而不是留一个名字在说谎的选项）。该卡的验收明确允许并要求和
-  其他场景一样停在「这一半只能是本地证据」，不允许为推进而虚构窗口；要新跑真实故障才登记后续卡。
-  前一张 `OFFLINE-030-CASE-FILENAME-001` 在 `7c8c412` 收为 `DONE` 并推送：它把 `OFFLINE-030` 判据 5
-  唯一的阻断（`-001` 后缀的 case id 找不回自己的 fixture）在 **fixture 侧改名**上解掉，两个子 id 各封出
-  一份真实 `PASS` bundle、四个读者一致，`domain.sh` 一字未动；登记卡片时那条「改名会移动 `case_version`」
-  的倾向依据在动手前被读掉（`cases.py:731-733` 的 digest 只看 manifest 内容），因此先用 `2d56a07` 修订
-  卡片范围再交付（`cf9b387`）——这是 2026-09-24 那条「先修订任务卡范围再动手」纪律的头一次正面执行。
+- `current_next`: 本 commit 之后计划里**没有** `NEXT`。它收掉 `CRASH-OUTBOX-EVIDENCE-DESIGN-001`
+  （冻结在 `72aec3e`，收卡在本 commit）：那张 campaign 第 5 个场景的判据卡交出的不是封证，而是一份
+  逐窗口的读数——五个已定义的故障窗口（`CORE-060` 的 runtime 边界、`CORE-060-CLIENT-001`、
+  `CORE-060-SERVER-001`、`CORE-090` 的两连跑、`CORE-020` 的正常退出）都有 case id、有断言、有
+  runner 开关，但**没有一份 bundle 在当前 reviewed build 上**（五案的 `from_repository_build` 全为
+  `false`、bridge digest 不是本 build、五对 `case_version` 全部移动过，读作 `UNJUDGED` 且原样保留）；
+  第六个窗口——崩溃落在「`START_CLIENT` 意图已写、效果还没 settle」之间——按构造打不中，因为
+  `domain.sh:1250` 那个等待条件要的是「不同横坐标数 ≥2」，而那段区间在产品代码内部；它归本地证据，
+  要变成真实运行得先测一条未验证的路，冻结拒绝为封证在产品代码里插停顿。本 commit 因此当场登记
+  `CRASH-OUTBOX-RESEAL-001`（`QUEUED`，纯真实运行卡，`allowed_paths` 只有文档），紧随的 commit 把它
+  提升为唯一 `NEXT`。
+  （前一张 `CRASH-OUTBOX-EVIDENCE-DESIGN-001` 由 `d33c236` 提升为唯一 `NEXT`、`bd0448a` 登记；
+  它之前的 `OFFLINE-030-CASE-FILENAME-001` 在 `7c8c412` 收为 `DONE`：`-001` 子 case 找不回 fixture
+  那个阻断在 fixture 侧改名解掉，两个子 id 各封一份 `PASS`、四读一致，`domain.sh` 一字未动。）
   `ADMIT-070-RECORD-SCHEMA-001` 也还是 `QUEUED`，但它自己写明
   不是任何封证卡的下一张，因此不排进这条链。其余未闭合卡仍是
   `HOST-ADMISSION-DESIGN-001`/`OPERATIONS-RETENTION-001`/`PROCESS-RECOVERY-001`
@@ -430,8 +431,11 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
   因 `domain.sh` 把 case id 直接小写当 fixture 文件名、`-001` 后缀不 round-trip 而**封不进 harness**；
   那个阻断由 `OFFLINE-030-CASE-FILENAME-001`（`DONE`）在 fixture 侧改名解掉，两列各封一份 `PASS`。
   战役本身仍停在 `BLOCKED_EVIDENCE`，但**挡住的不再是第 4 个场景**：第 5/6/7 个场景（crash/outbox
-  窗口、tick/render 采样、promotion report）一概未动，其中第 5 个场景在 `CRASH-OUTBOX-EVIDENCE-DESIGN-001`
-  登记之前没有任何卡。
+  窗口、tick/render 采样、promotion report）一概未动。第 5 个场景现在有了判据冻结
+  （`CRASH-OUTBOX-EVIDENCE-DESIGN-001`，`DONE`）和一张待执行的真实运行卡
+  （`CRASH-OUTBOX-RESEAL-001`，`QUEUED`）：它缺的不是定义，而是当前 build 上的 attempt——五个已定义
+  窗口在旧 build 上各封过，那些 bundle 对今天的 `case_version` 读作 `UNJUDGED`，按冻结口径原样保留、
+  不追认。第 6/7 个场景在此之前没有任何卡。
 - `scenario_progress`: 4/7 场景已封为正式 case，且第 4 个场景的五条契约判据现在都有真实 bundle
   （父 id 自身的署名边界见本节末）。第 1 个：`ADMIT-040`，run
   `6b5856d57dee4052b2ffba3ff9e3459e`，bundle `46565ef2…`，attempt 1，PASS/AGREES。
@@ -1918,7 +1922,8 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 
 ### CRASH-OUTBOX-EVIDENCE-DESIGN-001 — 冻结 crash / outbox / restart 窗口场景的完整判据
 
-- `status`: `NEXT`（`bd0448a` 以 `QUEUED` 登记并推送，由紧随的本 commit 提升为唯一 `NEXT`）
+- `status`: `DONE`（`bd0448a` 以 `QUEUED` 登记，`d33c236` 提升为唯一 `NEXT`，交付在 `72aec3e`，
+  本 commit 收卡并在同一 commit 以 `QUEUED` 登记它要求的封存卡）
 - `promotion_reason`: 顺序已满足——登记它的那张 commit（`bd0448a`）在它之前已由 `7c8c412` 把
   `OFFLINE-030-CASE-FILENAME-001` 收为 `DONE` 并推到两条 ref，`bd0448a` 只做登记、没写 `NEXT`，
   本 commit 之前计划里没有 `NEXT`，中间没有插入别的未授权工作。入口门禁在收卡时全绿
@@ -1974,6 +1979,123 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
   请求主控决策，不自行定；② 若需要改 `forbidden_paths` 里任何文件，先修订本卡范围再动手（2026-09-24
   纪律），不得事后追认；③ 若同一窗口在现有 `CORE-060`/`CORE-090` 与其子 case 里已经封过、
   而契约与 fixture 对「是否重复」说法不一致，停下并记录冲突，不自行选一种读法。
+- `completion_commit`: `72aec3e5852782627a6e563edf6b4ba7957c7dee`（`docs(contract): freeze which crash
+  windows the harness can reach`——冻结本体落在那一份契约文档；本 commit 只收卡并登记紧随的封存卡）
+- `completion_evidence`:
+  - ①逐窗口的四件事写进了 `docs/p0-validation-evidence-contract.md:198-246` 那张六行表：五个**已定义**
+    窗口各自落在现有 case id 上（`CORE-060` 的 runtime 边界、`CORE-060-CLIENT-001`、
+    `CORE-060-SERVER-001`、`CORE-090` 的崩溃后重启、正常退出那半在 `CORE-020` 的
+    `leave_after_join_observed`），每行给出判据读哪些**已封存工件**、当前 harness 靠哪个开关跑得出来
+    （`MINEKIN_DOMAIN_KILL_CORE` 在 `domain.sh:26/1233`、`MINEKIN_DOMAIN_KILL_SERVER` 在 `:30/1316`、
+    `MINEKIN_DOMAIN_KILL_CLIENT` 在 `:36/1389`；`CORE-090` 是 `development-todo.md:529` 记过的那副
+    两连跑形状），以及**当前 build 上有没有证据**——答案是五行全为「无」。第六行是启动窗口那个
+    pending outbox：它**没有 case id，按契约也不该有**，承载读法只有本地证据那一列。
+  - ②需要新登记卡的窗口当场登记：`CRASH-OUTBOX-RESEAL-001` 在本 commit 以 `QUEUED` 登记，
+    `allowed_paths` 只有文档（计划/契约/TODO/交接），因为重封**不需要改任何代码**——case id、断言、
+    runner 开关、封存通道都已存在。runner 侧与产品侧没有混进同一张：那张卡显式禁止改
+    `test-orchestrator/`、`src/`、`tools/`、`tests/`。启动窗口那一半**没有**登记卡，理由记在契约里
+    （阶段 D 本来就授权把它标为本地证据；要把它变成真实运行的两条路，一条是在产品代码里插停顿——
+    为封证改被测物，冻结时拒绝；另一条是从外部把被 spawn 的客户端拖慢（`MINEKIN_JAVA`，
+    `src/minekin_core/config.py:21`，在 `bootstrap.py:113` 解析）——未实测，将来要走须另起一张
+    `allowed_paths` 含 `test-orchestrator/` 的卡先测）。
+  - ③诚实结论按验收要求写成两句，而不是一句含糊的「已覆盖」：本场景缺的**不是定义**（六行都读得出
+    来），也**不是**「当前 harness 什么真实运行都封不了」——五个已定义窗口都能在今天的 runner 上真跑，
+    只是没有一份 bundle 在当前 reviewed build 上；所以缺的是「重封」，归 `CRASH-OUTBOX-RESEAL-001`。
+    加上启动窗口那一半按构造打不中、只归本地证据。campaign 第 5 个场景因此仍不计为已封，
+    `scenario_progress` 保持 4/7。
+  - ④冻结前逐行重读过当前文件，没用旧描述：`domain.sh:24-28`（三个 kill 开关）、`:363-380`
+    （`--hold-at` 只是被解析成 `hold_at`，`domain.sh:365/378`，不暂停任何进程）、`:1233-1266`
+    （kill 块，等待条件在 `:1250`——要的是**不同横坐标数 ≥ 2**，不是「到 playable」）、
+    `src/minekin_core/cli/session.py:719-721`（`open_effect(START_CLIENT)`）先于 `:723`
+    （`supervisor.start`），settle 在成功路径 `:750`、失败路径 `:734`；本地证据那两个坐标
+    `tests/unit/test_recovery_service.py:236`（真 `sqlite3.connect`）与 `:339`（真
+    `SessionEventLog(...).open_effect(...)`）；`KILL_CORE=early` 在代码里零残留。
+  - 旧 bundle 一律不追认，且这条读法是**量出来的**：五案各有一份旧 `PASS`（`CORE-060`
+    `6b6dcdf7…`、`CORE-060-SERVER-001` `652043a6…`、`CORE-060-CLIENT-001` `e00f2851…`、`CORE-090`
+    `c993c801…`、`CORE-020` `79ac9a14…`）加一份保留的旧 `CORE-060` `FAIL` `6d4bf5eb…`，
+    `tools/report_promotion.py` 对它们全给 `from_repository_build: false`，`bridge_digest` 是
+    `580daa9332e9f9b9…` 或 `f02741f58b0b20d0…`，而本 build 是 `faeec4a9df83abb9…`；五案的
+    `case_version` 全部移动过（表里五对短 digest），因此对今天的 case version 读作
+    `re_judged: UNJUDGED`，reason 逐字为「the criteria moved, so the recorded verdict answers a
+    question this repository no longer asks」——原样留着，不重判、不改写、不充当闭合。
+  - 门禁（纯文档，未跑 Minecraft）：full pytest `2146 passed / 2 skipped in 518.56s`、
+    `ruff check . -q` exit 0、`ruff format --check .` `304 files already formatted`、
+    `pyright` `0 errors, 0 warnings, 0 informations`、`check_boundaries` OK、
+    `check_case_assertions` OK（139 registered）、`verify_fixture_digests` OK、`check_workflow_pins` OK、
+    `git diff --check` 干净。
+  - 收卡前把写进契约的那串 digest **又量了一遍**（这次不靠容器里的报告工具，直接对着卷与 registry）：
+    五份旧 bundle 的 `manifest.json` 里 `case_version` 逐字为
+    `30ac59a0641b…`/`d4850165e578…`/`e8d03e1b4a26…`/`4b0ba8550622…`/`090c8253e6b8…`，
+    `bridge_digest` 为 `f02741f58b0b20d0…`（`CORE-060`、`CORE-020`）或 `580daa9332e9f9b9…`
+    （三份 `CORE-060-*`/`CORE-090`）；当前 fixture 经 `load_case_manifest` 算出的五个 digest 逐字为
+    `d1ea32d8b705…`/`50ca1ae2e22d…`/`dc85eb043861…`/`88fa467d8896…`/`7c01d11ed1e9…`，
+    与表里那五对完全一致，也确认了「`from_repository_build: false`」这条不是工具脾气而是 bridge digest
+    真的不同（本 build 是 `faeec4a9df83abb9…`）。六份里五份 `result: PASS`、保留的那份旧 `CORE-060`
+    `FAIL` 仍是 `FAIL`。
+- `recorded_limits`: ① 本卡没封任何证据，第 5 个场景在当前 build 上仍**零** bundle——冻结的产出是
+  一张待办卡和一份读数，不是闭合。② 「从外部拖慢被 spawn 的客户端能否打开启动窗口」未实测：
+  `MINEKIN_JAVA` 是否只作用于客户端那一侧、慢 spawn 会不会同时改掉这轮所观察的东西，都没有读数。
+  ③ `CORE-090`/`CORE-020` 的 `mandatory` 未动——契约第 10 条要的是「正常退出 + 崩溃恢复」两半齐才点亮
+  门禁，而翻 `mandatory` 属 promotion 场景（第 7 个）的判据，不在本卡范围。④ 数据卷上那五份旧 bundle
+  的 `case_version` 差集是从当前 registry 反推的（fixture 钉判官源码 digest），没去逐一复算历史
+  build 的判官；⑤ Linux 上逐字节复现当前 Bridge jar 仍欠（既有遗留）。
+- `next_after_done`: `CRASH-OUTBOX-RESEAL-001`（本 commit 以 `QUEUED` 登记，由紧随的 commit 提升为
+  唯一 `NEXT`）——它是 campaign `order` 第 5 个场景当下唯一的入口。其后的第 6/7 个场景（tick/render
+  采样、CORE/OFFLINE/ADMIT promotion report）各自还需要设计卡，未排入本链。`ADMIT-070-RECORD-SCHEMA-001`
+  仍 `QUEUED` 且自述不在封证链上；`VERSION-AUTO-DESIGN-001` 与 HOST/PERSIST/retention/process-recovery
+  一族仍需主控决策。
+
+### CRASH-OUTBOX-RESEAL-001 — 把五个故障窗口在 current build 上重封
+
+- `status`: `QUEUED`（本 commit 登记，未提升；按交接第 1 项，提升要等紧随的下一个 commit）
+- `registered`: 本 commit（`CRASH-OUTBOX-EVIDENCE-DESIGN-001` 收卡的同一个 commit）
+- `promotion_reason`: 待定——本卡登记时不写 `NEXT`。
+- `blocked_by`: `CRASH-OUTBOX-EVIDENCE-DESIGN-001`（`DONE`，冻结在 `72aec3e`）。它的冻结是本卡的
+  前提读数：六个窗口各自的承载 case、读的工件、harness 开关，以及「旧 bundle 一律不追认」这条口径。
+- `baseline_sha`: `72aec3e5852782627a6e563edf6b4ba7957c7dee`
+- `question`: campaign `order` 第 5 个场景（crash/outbox 窗口）**在当前 reviewed build 上封齐**。
+  冻结已经给出：五个已定义窗口都有 case id、断言与 runner 开关，缺的只是 attempt——所以本卡的问题不是
+  「怎么证」，而是「把这五个窗口各跑成真 bundle，四读一致」。逐案各一次真实受控运行：
+  `CORE-060`（杀 runtime controller）、`CORE-060-CLIENT-001`（杀 client JVM）、
+  `CORE-060-SERVER-001`（杀 server JVM）、`CORE-090`（先杀 Core 再重启的两连跑）、
+  `CORE-020`（正常退出那半，`leave_after_join_observed`）。
+- `depends_on`: `CRASH-OUTBOX-EVIDENCE-DESIGN-001`（`DONE`）提供读数；`RUN-001`/`OFFLINE-010`/
+  `OFFLINE-020`/`OFFLINE-030-*` 提供同一条封存通道已在当前 build 上走过四遍的先例。
+- `environment_note`: 登记时的环境读数——本机 Docker 引擎里 `minekin-runner:local` 这个镜像**已不在**
+  （`docker images` 无命中，`run.sh:33` 默认就是它），但 `minekin-runner-data` 卷**还在**：
+  `/data/kin/kin-01/run/evidence` 下 42 份目录，上面那五份旧 bundle 的 `manifest.json` 逐字段仍读得出来
+  （本卡登记前以此复核了一遍五对 `case_version` 与两个旧 `bridge_digest`）。所以开跑第一步是重建 runner
+  镜像（`MINEKIN_RUNNER_IMAGE`/`MINEKIN_RUNNER_DATA`，`run.sh:33-34`），不是清卷——卷上那些旧 PASS/FAIL
+  按契约是**要留着**的。
+- `why_now`: 它是 `order` 第 5 个场景当下唯一的入口，且前一张卡已经把「要不要重封」这个判断从猜测
+  换成了读数（五案 `from_repository_build: false`、五对 `case_version` 全移动）。
+- `allowed_paths`: 只允许改 `docs/development-execution-plan.md`、
+  `docs/p0-validation-evidence-contract.md`（第 7/10 条与那份冻结表里的状态注记）、
+  `docs/development-todo.md`、`docs/qoder-execution-handoff.md`（阶段 D 的完成状态）。真实 bundle 落在
+  数据卷 `/data/kin/kin-01/run/evidence/<run_id>/`，不进仓库。
+- `forbidden_paths`: `src/`、`tools/`、`test-orchestrator/`、`tests/`（含任何 case fixture 与 digest
+  登记表）——重封**不需要**改代码，改了就说明冻结的读数不成立，要先回到文档面处理；任何旧 bundle
+  （上面那五份 PASS 与那份保留的 FAIL）不得改写、重判或删除；`CORE-090`/`CORE-020`/`CORE-060*` 的
+  `mandatory` 不得翻转；产品恢复策略（`application/recovery_service.py`、`domain/recovery.py`）不得触碰；
+  `Launcher` 不得当成第四个独立进程。
+- `non_goals`: 不为「崩溃落在启动窗口」的 pending outbox 造真实运行（冻结已归本地证据）；不做第 6/7
+  个场景；不改判据、不加断言；不为了多份报告重复已封的 OFF-A/OFF-B。
+- `acceptance`: ① 五个 case id 各有一份**本 build** 的真实 bundle：`bridge_digest`
+  `faeec4a9df83abb9…`、`from_repository_build: true`、`verified: true`、`violations: []`，
+  `expected` 全部出现在 `observed` 且 `result: PASS`；② 四读一致（封存时判读、`tools/rejudge_evidence.py`、
+  `python -m minekin_core replay` 与 `tools/replay_evidence.py`、`tools/report_promotion.py`），
+  且 `report_promotion.py` 对每个 case id 都报 `AGREES`；③ 每次都是**新的 attempt**（`sequence` 递增或
+  `supersedes_run_id` 如实指向本场景内被取代的那次），旧 PASS/FAIL 原样留在卷上，冻结表里那五行
+  「当前 build 上的证据」逐行改成实际 run/bundle digest；④ 若某一窗口真跑失败：保留 FAIL bundle、
+  分类、如实写进契约与计划，不重判、不在旧 bundle 上修补，退出码 14（`BRIDGE_LOST` 收尾）不充当判决；
+  ⑤ 五案齐后 campaign 第 5 个场景记为已封（`scenario_progress` 5/7），启动窗口那一半继续按
+  「本地证据 + 按构造打不中」表述。
+- `validation_class`: `REAL_RUN`（受控 Docker 域内的真实故障注入）。
+- `stop_conditions`: ① 若某窗口在真跑时暴露出**产品侧**回归（例如 Bridge 未松键、账本没有
+  `SessionInterrupted`、重启后世界没重新观察），停下：保留 FAIL、分类、报告主控，不靠重试换一个颜色；
+  ② 若需要改 `forbidden_paths` 里任何文件才能封上（例如某件工件在当前 build 上根本读不出来），
+  先停下修订范围或另起前置卡（2026-09-24 纪律：先修订任务卡范围再动手）；③ 若某一窗口的处理方案落到
+  自动接管/终止残留进程，那属 `PROCESS-RECOVERY-001` 的 `BLOCKED_DECISION`，立即停下请求主控决策。
 
 ### OFFLINE-IDENTITY-SEALED-ARGV-001 — 让封存时的 live 判读也拿到那份 argv
 

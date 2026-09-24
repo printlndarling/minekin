@@ -204,6 +204,16 @@ pending outbox 若只能用真 SQLite + 故障注入单测构造，应如实标�
 不伪装成真实 Minecraft run。新增产品恢复策略如果触及计划中
 `PROCESS-RECOVERY-001` 的自动接管/终止选择，立即停下请求产品决策。
 
+2026-09-24 实测状态（`CRASH-OUTBOX-EVIDENCE-DESIGN-001` 的冻结，读数在
+`p0-validation-evidence-contract.md` 那份「crash / outbox / restart 窗口的可封边界」表里）：本节要的
+「仍缺哪些具体窗口」已经逐行量过——五个窗口（正常退出、client 强杀、server 强杀、runtime 强杀、
+重启重验）**都有 case id、断言与 runner 开关**，一个都不缺定义；缺的是当前 reviewed build 上的
+attempt，那五份旧 bundle 对今天的 `case_version` 全读作 `UNJUDGED`，按上面那句「保留旧 PASS」原样留着。
+「已写 effect intent 但未 settle」这一半**按构造打不中**：`domain.sh` 的 kill 块要等到 Kin 真的走过
+（不同横坐标数 ≥2）才动手，而那段区间在 Core 自己的 `session start` 代码里，所以它落在上面那句
+「如实标为本地证据」里，不在真实运行里——本阶段**不**为封证在产品代码插停顿。执行入口是
+`CRASH-OUTBOX-RESEAL-001`。
+
 ### 阶段 E：tick / render 与 L6 soak
 
 入口是故障窗口的结论已封证或阻断已显式记录。先复查 `CORE-METRICS-001`
