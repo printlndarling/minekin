@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "case_id": "V1201-040",
+  "work_package": "W60",
+  "mandatory": false,
+  "inputs": [
+    "tests/fixtures/runtime-input/bundle-candidate-1.20.1.json",
+    "tests/fixtures/runtime-input/controlled-offline-server-1.20.1.json"
+  ],
+  "assertion_digests": {
+    "move_input_was_leased": "e1ec3b7cc22434b1a0b5a0a5895ea3cec72f98d048c6abbe13edd8712f1a1747",
+    "the_bridge_carried_the_input_out": "ef4e96df26354ad7536c94e5085b2dc27de694116c731b7b0c703e664c7e3b77",
+    "the_lease_expired_and_was_released": "4dbddab4c433e9bfd753902073ac8da0d1cd387892c4c6d6d9a3888cadbf788f",
+    "the_server_saw_the_kin_move": "c9adaf9826d85999f5d71098df73845430859e206c79013a772cca269d9c52a9",
+    "the_server_saw_the_kin_turn": "1b038137095f2ca2bc2f8b94acb4f326e9ef627280fdf35226a2f2e18db8917b"
+  },
+  "assertions": [
+    "move_input_was_leased",
+    "the_bridge_carried_the_input_out",
+    "the_server_saw_the_kin_move",
+    "the_lease_expired_and_was_released",
+    "the_server_saw_the_kin_turn"
+  ]
+}

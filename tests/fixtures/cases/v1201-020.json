@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "case_id": "V1201-020",
+  "work_package": "W40",
+  "mandatory": false,
+  "inputs": [
+    "tests/fixtures/runtime-input/bundle-candidate-1.20.1.json",
+    "tests/fixtures/runtime-input/controlled-offline-server-1.20.1.json"
+  ],
+  "assertion_digests": {
+    "first_snapshot_admitted": "720a4db1b8bfb3be911c7beb4fe3b0c405353b4569cdcb8f16b5391c56e72472",
+    "leave_after_join_observed": "cbcb053cb0a362a6bff5e5b116bc1c002970ba91845b52741c1242549fa5c62c",
+    "server_observed_join_identity": "3e0bca8cfc01f201e53ed1ee261993b68c6894b972e34197636b0f4ba890232b"
+  },
+  "assertions": [
+    "server_observed_join_identity",
+    "first_snapshot_admitted",
+    "leave_after_join_observed"
+  ]
+}

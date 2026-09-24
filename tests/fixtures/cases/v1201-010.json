@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "case_id": "V1201-010",
+  "work_package": "W20",
+  "mandatory": false,
+  "inputs": [
+    "tests/fixtures/runtime-input/bundle-candidate-1.20.1.json",
+    "tests/fixtures/runtime-input/controlled-offline-server-1.20.1.json"
+  ],
+  "assertion_digests": {
+    "handshake_accepted_by_core": "03fe229ec2fea14e7d9a61371c063a41b4227c3cc7f8eea2b5ecc635671ad08e",
+    "stayed_observe_only": "e6fa71ed5d078ef678566005adccdd57384c1c9eb8ed8203a548e50de8f8410e"
+  },
+  "assertions": [
+    "handshake_accepted_by_core",
+    "stayed_observe_only"
+  ]
+}
