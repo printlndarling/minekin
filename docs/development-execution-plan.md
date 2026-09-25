@@ -6030,21 +6030,37 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 
 这张表是规划输入，不是 required-case inventory 的实现；`PLAN-COVERAGE-001`
 完成后以机器报告为准。**当前实现候选**的 `tools/report_cases.py` 的
-`requirements` 段与下表逐族一致（同为 35 条缺失），但由机器读出、按 gate 组织，
+`requirements` 段与下表逐族一致（**2026-09-26 重生成：同为 31 条缺失**——那句写下时读数是
+`35`，之后 `ADMIT-060`（`420bb88`）与 `OFFLINE-010`/`OFFLINE-020`/`OFFLINE-030`（`2a84bbd`）
+登记，4 条转为 `present`；下表当时只跟着更新了 `HOSTCTL` 一行，其余 4 格漂到 09-26 才校正，
+**原读数不改写**），但由机器读出、按 gate 组织，
 并额外区分每条要求的是 `local-only` 还是 `runtime-required`。**这张表没有那种区分，
 而它曾经因此把人带偏**：表里 `HOSTCTL` 行的 `060` 与其余各行看不出差别，机器读数里
-它是唯一一条 `local-only`——也就是唯一一条不需要真实运行就能补上的。**要看某一族
+它是唯一一条 `local-only`——也就是唯一一条不需要真实运行就能补上的。（**09-26 复核**：
+`HOSTCTL-060` 已登记、已 `present`，那一行今天不再含 `060`；上一句读的是当时那张表。
+今天 missing 的 31 条里 `local-only` 为 **0**，全部是 `runtime-required`。）
+**要看某一族
 缺的是不是本地能补的，读 inventory 的 `validation_class`，不要读这张表。**
 
 | 族 | 当前 contract 要求但 fixture 缺失 |
 | --- | --- |
 | CORE | 080 |
-| ADMIT | 010, 020, 030, 050, 060, 090, 120 |
-| OFFLINE | 010, 020, 030, 060, 070, 080, 090, 100 |
+| ADMIT | 010, 020, 030, 050, 090, 120 |
+| OFFLINE | 060, 070, 080, 090, 100 |
 | HOST | 001, 090, 100 |
 | HOSTCTL | 020, 030, 040, 080, 090 |
 | HOSTCOMMIT | 001, 010, 020, 030, 040, 050, 060, 070, 080, 100 |
 | NAV | NAV-EXP-010 |
+
+**这张表今天的形状是从命令读出来的（2026-09-26）**，不是手抄上一版：
+
+```text
+uv run --frozen python tools/report_cases.py   # exit 0，取 requirements.cases[] 里 present == false 的
+```
+
+按 `case_id` 前缀分组读出 `CORE 1`、`ADMIT 6`、`OFFLINE 5`、`HOST 3`、`HOSTCTL 5`、
+`HOSTCOMMIT 10`、`NAV 1`，**合计 31**，与 inventory 的 `totals.missing` 同数；另有一条
+`PERSIST` 以 `PlanningGap`（`UNFROZEN_CASE_IDS`）报出，不拦任何门、不计进这 31。
 
 其中很多必须真实运行；“缺 fixture”不等于“可以用本地测试补成完成”。
 

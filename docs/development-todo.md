@@ -3167,3 +3167,36 @@
   这条普查的意义是让主控知道：**HOST 的拒绝面判据已经在本地代码里，缺的是所有权决定，不是判据本身。**
 - **仍然没做的**：不提升任何 gate、不实现 HOST、不建 `host-001.json`、不改任何卡状态、
   不动 V08 与远程服、不跑 Minecraft、不接受 EULA、不新增断言或 case 文件。
+
+
+## 规划视图那张「已知缺失」表漂了 4 格，按 inventory 重生成（2026-09-26，读数所在线 `8e47664`）
+
+- **动机**：`## 当前已验证状态` 那节重生成之后，顺着它第 433 行那句「与本文下方『已知缺失
+  case（规划视图）』那张表逐族一致」去核，发现那句话本身已经不成立——**表是 09-23/09-24 的形状，
+  机器今天是 31 条**。这张表的表头写着「当前 contract 要求但 fixture 缺失」，是现在时的规划输入，
+  不是历史读数，所以它必须跟着读数走。
+- **差在哪 4 格（逐条点名，不写「大约」）**：`ADMIT-060` 由 `420bb88`（09-24 03:38）登记、
+  `OFFLINE-010`/`OFFLINE-020`/`OFFLINE-030` 由 `2a84bbd`（09-24 15:06）登记，四条从 missing 转为
+  `present`；当时表只跟着删了 `HOSTCTL-060` 那一格，其余四格留下。35 → 31 的差就是这四条。
+- **改法**：两行按读数重写（`ADMIT` 去掉 `060`，`OFFLINE` 去掉 `010, 020, 030`），表头那句
+  「同为 35 条缺失」就地标注为 09-26 重生成 + 原读数保留；表下新增一段可复跑口径
+  （`uv run --frozen python tools/report_cases.py`，取 `requirements.cases[]` 里 `present == false`，
+  按 `case_id` 前缀分组）。**历史段落（含 09-23 那份 per-gate 快照、八条 ADMIT 那一节）一字未动。**
+- **读数（命令，不是抄表）**：`CORE 1`、`ADMIT 6`、`OFFLINE 5`、`HOST 3`、`HOSTCTL 5`、
+  `HOSTCOMMIT 10`、`NAV 1`，**合计 31** = inventory `totals.missing`；missing 里 `local-only` **0** 条
+  （`local-only 7` 是全部 74 条 required 的分布，不是缺口分布）；`PERSIST` 仍以 `PlanningGap`
+  （`UNFROZEN_CASE_IDS`）报出，不拦门、不计进 31。
+- **校验（两份脚本，都留在 `.tmp/`）**：`.tmp/verify_plan_table.py` 逐格比对晋级窗口那 11 行与
+  `report_promotion.py` 输出；`.tmp/verify_missing_table.py` 把这张表的行集与 inventory 的 missing
+  集合做双向差集比对。**各带反例**：把 `W60` 的 `promotable` 改成 true → `W60: promotable
+  doc=True reading=False`；`host-integrated` 的 `absent` 改成 17 → `absent doc=17 reading=18`；
+  把 `p0-core` 写进「blocking 与 absent 完全重合」那句 → coincide set 报差异（**这条是我先写错、
+  被自己的脚本抓到的**：`p0-core` 的 14 = 12 absent + `CORE-040`/`CORE-050`）；表里放回
+  `ADMIT-060` → `table-only=['ADMIT-060']`；删掉 `HOST-100` → `reading-only=['HOST-100']`；
+  计数写回 7 或合计写回 35 → `per-family sum 32 != stated total 31` / `stated total 35 != reading 31`。
+  原文两次都是 `exit 0`。
+- **口径澄清（读错过一次的地方）**：`repository_build.gates_promotion` 恒 `false`，代码注释原文
+  "Build identity is diagnostic and does not gate"，它**不是一道没过的门**；拦门的是逐 case 的
+  `blocks`。`--work-package W20` 单门路径与全量路径独立跑过，同一读数。
+- **仍未做的**：没有提升任何门（`W00`/`W10`/`W20` 今天够格，动作归主控）；没有为
+  `host-integrated` 那 13 条本地可判 case 封证据；没动 V08、没连远程服、没实现 HOST。

@@ -67,6 +67,17 @@
 > 顺带交主控一格输入（**执行者据此没有行动、一份都没封**）：`host-integrated` 名下 13 个 present case
 > 今天全部由仓库自检判得出且全部成立（但都是 `mandatory: false`）——HOST 缺的是所有权决定，不是判据。
 >
+> **同晚还修了主计划自己指出的两格漂移（落在 `8e47664` 与其后一格）**：一是 `## 当前已验证状态`
+> 按本节规则在 `8660c20` 重跑，追加了逐 gate 的晋级窗口 11 行——**今天够格的是 `W00`/`W10`/`W20`
+> 三道**，其余每道 `blocks` 逐格点名（`W60` 只差 `CORE-040`/`CORE-050` 两份真实运行；`W70` 只差一条
+> mandatory；`W30`/`W40`/`W50`/`p0-nav-exp`/`host-integrated` 的 `blocking` 与 `absent` 完全重合＝
+> 那些 case 连 manifest 都没有；`p0-core` 是唯一不等格的，14 = 12 absent + 同一对）。**提升哪一道都
+> 归主控**，那两格只报够不够格。二是「已知缺失 case（规划视图）」那句「同为 35 条缺失」停在 09-23
+> 形状，今天机器读 **31**：`ADMIT-060`（`420bb88`）与 `OFFLINE-010/020/030`（`2a84bbd`）已转
+> `present`，而当时那张表只跟着删了 `HOSTCTL-060` 一格。表与口径已按 `report_cases.py` 重生成，
+> 09-23 那份快照与「八条 ADMIT」历史段落一字未动。两处各配一份比对脚本
+> （`.tmp/verify_plan_table.py`、`.tmp/verify_missing_table.py`），逐格反证记在 todo 同名日期段。
+>
 > **上一交接点（2026-09-26，1.20.1 的停止阶段松键缺口已从 `tested` 声明划出）**：
 > 收卡提交是 **`b03863e`**（两条 ref 与远端 SHA 已核：`git ls-remote` 上 `main` 与
 > `codex/core-state-transition` 同为 `b03863e2346ed559b6d33fe7482d7fa0619f82df`；GitHub Actions 对该 SHA 的
