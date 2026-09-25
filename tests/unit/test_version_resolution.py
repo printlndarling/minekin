@@ -594,6 +594,22 @@ def test_gaps_name_holes_the_cited_runs_did_not_close() -> None:
         assert all(gap == gap.upper() for gap in item.gaps)
 
 
+def test_the_explicit_stop_release_is_drawn_only_from_the_version_that_has_the_artifact() -> None:
+    # `STOP_PHASE_EXPLICIT_KEY_RELEASE` was drawn out of the 1.20.1 entry because that
+    # version has a sealed run whose Bridge wrote the release itself. The second half of
+    # this test is the reason the first half is not vacuous: deleting the token from the
+    # shared gap vocabulary, or from both entries, would satisfy the 1.20.1 assertion
+    # while quietly claiming a release 1.21.4 has never been shown to make.
+    loaded = load_reviewed_registry(reviewed())
+    by_version = {item.version_text: item for item in loaded.entries}
+    drawn = by_version["1.20.1"]
+    assert "STOP_PHASE_EXPLICIT_KEY_RELEASE" not in drawn.gaps
+    assert "the_bridge_released_the_input_when_the_session_was_stopped" in drawn.capabilities
+    assert "V1201-080" in {reference.case_id for reference in drawn.evidence}
+    assert drawn.status is BundleStatus.TESTED
+    assert "STOP_PHASE_EXPLICIT_KEY_RELEASE" in by_version["1.21.4"].gaps
+
+
 def test_the_registry_is_not_derived_from_a_recipes_own_status_word() -> None:
     # The recipes still call themselves `candidate` and `recipe`. If a future edit
     # ever moves one to `tested`, this fixture's digests change and the citations

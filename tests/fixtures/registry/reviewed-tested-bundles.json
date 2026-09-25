@@ -26,6 +26,7 @@
         "stayed_observe_only",
         "the_bridge_carried_the_input_out",
         "the_bridge_released_the_input_when_the_ipc_was_lost",
+        "the_bridge_released_the_input_when_the_session_was_stopped",
         "the_first_snapshot_was_refused_by_the_reason_the_case_names",
         "the_lease_expired_and_was_released",
         "the_refusal_was_asked_of_this_run",
@@ -42,7 +43,6 @@
         "RESTART_RECONCILIATION_CASES",
         "RUNNER_JDK_17_UNSEALED",
         "SOAK_CASES",
-        "STOP_PHASE_EXPLICIT_KEY_RELEASE",
         "USE_TARGET_BLOCK_CHANGE",
         "WINDOWS_OS_ARCH"
       ],
@@ -91,6 +91,15 @@
           "launch_plan_digest": "83299ad5e224959de8e30c72c5937a2434c4d7bba92c62f4d22cf8d89f5f6181",
           "result": "PASS",
           "attempt": 2
+        },
+        {
+          "case_id": "V1201-080",
+          "run_id": "484675e4938b4134b788a971e195619b",
+          "bundle_digest": "22fb57f34abb22ec9c217a06e3083c1e8ae0c7355b9ada1d205d3739221ffe1a",
+          "bridge_digest": "e50d61c209be98136216b34aadbb6d5a12db8def8aa63a536f32cda8e287006f",
+          "launch_plan_digest": "83299ad5e224959de8e30c72c5937a2434c4d7bba92c62f4d22cf8d89f5f6181",
+          "result": "PASS",
+          "attempt": 3
         }
       ]
     },
