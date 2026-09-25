@@ -24,7 +24,8 @@
   七字段引用，manifest 第 85 行由门禁自己的测量函数量出新签；容器内 provenance `verified: true`（`exit 0`）、
   六条引用逐条为真，`report_promotion` 那一行 `from_repository_build: true` + `re_judged: AGREES` 而整体
   仍 `blocked`／`promotable: false`——**V08 未提升、用户的远程服未连接**，1.21.4 的同一缺口与 1.20.1 其余
-  八条缺口一字未动。逐格读数记在该卡 `completion_readings_2026-09-26`。）
+  八条缺口一字未动。逐格读数记在该卡 `completion_readings_2026-09-26`；收卡提交 `b03863e` 的两条 ref
+  与远端 SHA 已核，GitHub Actions 对该 SHA 的两个 `CI` run 及其六个 job 全 `completed / success`。）
   **下一步是主控已授权的 HOST 支线设计**：`HOST-ADMISSION-DESIGN-001` 依 2026-09-26 口径由
   `BLOCKED_DECISION` 转 `QUEUED`（只整理方案、反例与验收设计；不实现 HOST、不标完成、不提升
   `HOST/W80+`；到必须冻结"谁创建 host generation / `WorldCapsule`"时交主控审查），登记与提升分两个提交，
@@ -5249,7 +5250,9 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 ### TESTED-GAP-DRAW-STOP-PHASE-1201-001 — 把 1.20.1 已补上工件的那一条缺口从 `tested` 声明里划出
 
 - `status`: `DONE`（实现 `4151664`——registry 三处改动 + manifest 那一行重签 + 一条钉住用例，逐格读数见
-  `completion_readings_2026-09-26`；卡片文本由本提交收口。**`stop_conditions` 三条都没有触发**：
+  `completion_readings_2026-09-26`；卡片文本在 `b03863e` 收卡、两条 ref 与远端 SHA 已核，GitHub Actions
+  对该 SHA 的两个 `CI` run 及其六个 job 全 `completed / success`（第 9 格）。
+  **`stop_conditions` 三条都没有触发**：
   `verify_tested_provenance.py` 对新 entry 报 `verified: true`（`exit 0`）而不是 refused，六条引用逐条
   `present/readable/sealed/consistent` 全真；实测 registry 不在 49 个 case 的 `inputs` 里（并带正例对照），
   所以本卡没有移动任何 `case_version`、没有触发任何重封；判据与产品代码一字未改，声明靠既有封存件自己撑起来。
@@ -5374,7 +5377,14 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
      `worktree_restored=True`、还原后摘要 `6dd2f4218388…` 与提交前一致。
   8. **本卡未做的**：不提升 V08、不连接用户的远程服、不动 `EXPLICIT-RELEASE-AT-STOP-001` 的
      `BLOCKED_DECISION` 状态、不动 1.21.4 那条同名缺口、不动 1.20.1 其余八条缺口、不改判据与产品代码、
-     不替换 `V1201-040` 既有引用。远端 SHA 与 CI 读数在紧随的提交里补记。
+     不替换 `V1201-040` 既有引用。
+  9. **远端与 CI**（验收 7）：卡片文本由 `b03863e` 收卡，`git ls-remote origin refs/heads/main
+     refs/heads/codex/core-state-transition` 两行同为 `b03863e2346ed559b6d33fe7482d7fa0619f82df`；
+     GitHub Actions 对该 SHA 的两个 `CI` run（`36176584903`、`36176584988`）`completed / success`，
+     六个 job（每跑 `python` 18 步、`protocol` 10 步、`bridge-static` 9 步）的 step 层没有任何
+     `failure/cancelled`（除 `success` 外只有 `skipped`）。登记 `89ec146`、提升 `822d7f0`、实现 `4151664`
+     与收卡 `b03863e` 在同一次 push 里，GitHub 只在 tip 触发——那一跑覆盖的正是 registry、manifest、
+     用例与文档同一棵树。
 - `validation_class`: `LOCAL_THEN_VOLUME_READ`——不要求新的真实运行；结论来自既有封存件的字节复核。
 - `stop_conditions`: 若 `verify_tested_provenance.py` 在新 entry 上报 refused（bundle 不在卷内、摘要不合）
   → 停在 `BLOCKED_EVIDENCE` 并保留读数，**不**为了让它过而改 bundle 或删引用；若发现 registry 确实落在某个

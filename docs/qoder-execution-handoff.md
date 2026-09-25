@@ -8,8 +8,12 @@
 > 不是阶段状态，也不能替代主计划里的 run/bundle/attempt 与真实门禁记录。
 
 > **最新交接点（2026-09-26，1.20.1 的停止阶段松键缺口已从 `tested` 声明划出；计划暂无 `NEXT`，下一张是 HOST 设计卡的 `QUEUED` 转换）**：
-> 收卡提交是**本提交**（实现 **`4151664`**；登记 `89ec146` → 提升 `822d7f0` → 实现 `4151664` → 本提交收卡，
-> 逐卡串行、每步分提交，满足第 3、4、6 项）。交付形状：`tests/fixtures/registry/reviewed-tested-bundles.json`
+> 收卡提交是 **`b03863e`**（两条 ref 与远端 SHA 已核：`git ls-remote` 上 `main` 与
+> `codex/core-state-transition` 同为 `b03863e2346ed559b6d33fe7482d7fa0619f82df`；GitHub Actions 对该 SHA 的
+> 两个 `CI` run `36176584903`/`36176584988` 及其六个 job `python`/`protocol`/`bridge-static` 全
+> `completed / success`，step 层除 `success` 只有 `skipped`），实现 **`4151664`**；登记 `89ec146` →
+> 提升 `822d7f0` → 实现 `4151664` → 收卡 `b03863e`，
+> 逐卡串行、一步一提交，满足第 3、4、6 项）。交付形状：`tests/fixtures/registry/reviewed-tested-bundles.json`
 > 的 entry[0]（`1.20.1-linux-x86_64-offline-java21`）`gaps` 9 → 8（**只**去掉
 > `STOP_PHASE_EXPLICIT_KEY_RELEASE`）、`capabilities` 18 → 19（补
 > `the_bridge_released_the_input_when_the_session_was_stopped`）、`evidence` 5 → 6（`V1201-080` /

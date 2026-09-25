@@ -3002,6 +3002,12 @@
 - **队列清点的非空转（本提交实测）**：`python .tmp/count_plan_cards.py` 报 56 张带 `status` 的卡里
   `QUEUED` 与 `NEXT` 均为 `0`；把该卡状态在临时副本里改回 `NEXT` 或 `QUEUED`，同一套逻辑各报 `1`
   （正本 `0/0`，副本已删）。
+- **远端与 CI**：卡片文本由 `b03863e` 收卡，`git ls-remote origin refs/heads/main
+  refs/heads/codex/core-state-transition` 两行同为 `b03863e2346ed559b6d33fe7482d7fa0619f82df`；
+  GitHub Actions 对该 SHA 的两个 `CI` run（`36176584903`、`36176584988`）`completed / success`，
+  六个 job（每跑 `python` 18 步、`protocol` 10 步、`bridge-static` 9 步）的 step 层除 `success`
+  只有 `skipped`。四步提交（`89ec146`/`822d7f0`/`4151664`/`b03863e`）在同一次 push 里，
+  GitHub 只在 tip 触发——那一跑覆盖 registry、manifest、用例与文档同一棵树。
 - **复跑命令**：`uv run --frozen pytest tests/unit/test_version_resolution.py -q`；
   `uv run --frozen python tools/verify_fixture_digests.py`；`bash .tmp/run_local_gates.sh`；
   `python .tmp/gap-draw-counterexamples.py`；`python .tmp/count_plan_cards.py`；容器内
