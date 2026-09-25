@@ -560,6 +560,13 @@ MSYS_NO_PATHCONV=1 docker run --rm -v "$PWD":/src:ro -v minekin-runner-data:/dat
   守卫把自己记录的变异输入当成了真缺陷。修法是把记录改回不带前缀的名字（而不是给校验加豁免名单，
   那等于让守卫学会放过自己）：**改前红、改后 `29 个脚本 / findings: 0 / exit 0`**，两道读数都在本节记录。
   本轮九道门 `2501 passed / 2 skipped` 与前一张卡**逐字相同**（在最后一格 docs 改动之后重跑），另八道快门禁全 0。
+  **三格的落地读数**：`f2116b0`（登记）、`e4bcc1c`（更正卡 id）、`030d406`（把反例输入改回不带 `tools/` 前缀）
+  都推了两条 ref，远端 `refs/heads/main` 与 `refs/heads/codex/core-state-transition` 均等于 `030d406`，
+  每格之后 `git fetch origin main:main` 都让 `git rev-list --left-right --count main...origin/main` 从
+  **`0 1` 回到 `0 0`**（该规则第三次照做）。GitHub Actions 对三格各两个 `CI` run 在 job 与 step 层
+  全部 `completed / success`：`f2116b0` → `36197636720`/`36197637053`，`e4bcc1c` →
+  `36198293958`/`36198294124`，`030d406` → `36198498622`/`36198498630`；每 run 三个 job、两 run 合计六个
+  （`python` 18 步 / `protocol` 10 步 / `bridge-static` 9 步）无一步失败或卡住。
 
 ## 最近完成
 
