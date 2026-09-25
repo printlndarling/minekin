@@ -19,7 +19,10 @@
   即使遇到前置阻断，也先登记范围与证据、按唯一 `NEXT` 流转，不得借 `.tmp/` 中的实验记录
   自行改排期或把临时构建当作新主线。HOST/PERSIST、在线认证、远程服授权等既有停机边界不变。
 - `current_next`: `AUTO-PATH-INSTALL-RUN-001`（`94cb15b` 以 `QUEUED` 登记它，由本次独立提交提升为唯一 `NEXT`，
-  当前无第二张 `NEXT`。上一张 `STORE-FAILURE-EVIDENCE-001` 提升 `cfbb87c`、收卡 `4be3d55`：三类安装期故障
+  当前无第二张 `NEXT`。领取后的现场核对已记入本卡 `preparation_readings_auto_path`：自动路径的 store 根是
+  per-Kin 的、空 store 声称必须绕开 `domain.sh:594-616` 的 host store `cp -a` 捷径、抓取在容器内可达而非被网络阻断、
+  必须在带 207 条陈旧 marker 的 `kin-01` 之外另起新 Kin 并在同一命令内清理；**该卡尚未真跑，没有 run/bundle 读数可封**。
+  上一张 `STORE-FAILURE-EVIDENCE-001` 提升 `cfbb87c`、收卡 `4be3d55`：三类安装期故障
   （写失败 / store 层原子 `rename` 失败 / 并发同 digest 的 `FileExistsError → verify`）现在有七条真文件系统断言，
   `ruff`、`pyright` 与全量 `pytest tests/unit`（2177 passed, 2 skipped）在本地逐条读过，实现与安装判据一字未改。
   再上一张 `KEY-RELEASE-AT-STOP-001`（case `bd8f6b7`、收卡 `0fb7158`）交出 1.20.1 的断连释放独立工件。
@@ -4573,6 +4576,32 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
   需要改 runner 的等待语义才能取到该读数 → 停在 `BLOCKED_DECISION`（那属改判据，不属补证）。
 - `next_after_done`: 本卡收口后，V07 `not_tested_v07` 只剩属 `PROCESS-RECOVERY-001` 与属 V08 的两类；
   **是否据此判定缺口已收口并提升 V08 由主控决定**，本卡不代为判定，也不得把 V08 提前登记为 `NEXT`。
+- `preparation_readings_auto_path`（领取本卡后的现场核对，全部为实测，非推断；本节不是收卡读数）：
+  1. **自动路径的 store 根是 per-Kin 的**：`src/minekin_core/cli/auto_session.py:331` 用
+     `ArtifactStore(run_root / "artifact-store")`，显式路径同形（`cli/session.py:566/597/609/619`）。
+     因此"空 store"必须理解为**该新 Kin 自己的 `run/artifact-store` 目录为空**，而不是卷内没有缓存。
+  2. **必须绕开的既有捷径**：`test-orchestrator/runner/domain.sh:594-616` 对加入者执行
+     `cp -a "/data/kin/${host_kin}/run/artifact-store" "/data/kin/${joiner}/run/artifact-store"`。
+     若沿用该路径，加入者的 store 一开局就是满的，`installed` 必为 `0`、`reused` 为整份缓存——正是本卡
+     `counterexamples` 点名的"`reused 3639 / installed 0` 冒充装齐"。空 store 声称只能靠**独立 Kin 根 + 不复制
+     host store** 取得，本卡只在一次性卷目录里这么跑，不改 `domain.sh` 的既有语义（`allowed_paths` 仅允许新增
+     环境变量转发行）。
+  3. **出站可达性实测**（受控 runner 容器内，一次性探测）：`resources.download.minecraft.net` 解析到
+     `150.171.110.138`，对根路径的 HTTPS 请求返回 `HTTP Error 404`（可达、只是根路径无资源）；
+     `launchermeta.mojang.com` 同样 `404`；`piston-data.minecraft.us` 返回 `200`，本次耗时 `4848 ms`。
+     结论：**抓取在离线卷上不是被网络阻断的**，`stop_conditions` 的"URL 不可达"分支当前没有触发。
+  4. **卷内现状与 marker 危害**：`/data/kin/` 下 `kin-01` 的 store `1.2G`、`kin-02` `525M`、
+     三个 `kin-v07-20260925T*` 各 `1.2G`；`/data/kin/kin-01/run/session/` 里仍有既有 marker 目录。
+     按已记录的现场事实，`kin-01` 带着 **207 条陈旧进程 marker**，自动切换若继承它们会立刻改变结论——
+     所以本卡必须在**全新 Kin 根**上跑，且跑完在同一命令内清理该新 Kin 的会话目录与进程 marker；
+     清理属本卡的一次性现场，不构成 `PROCESS-RECOVERY-001` 的 marker GC 收口。
+  5. 由 1–4 得到的**下一步可复现配方**（尚未执行，故意不在此声称任何 run/bundle 摘要）：以
+     `MINEKIN_DOMAIN_KILL_CORE=1` 之类既有开关、指定一个新 `KIN` 名（不复用 `kin-01`/`kin-02`/
+     `kin-v07-*`）跑自动 `session start`，令其 `run/artifact-store` 保持为空并靠自动路径自己装齐；
+     判定要求是同一 run 内同时出现 `installed > 0` 与封存的 `PlayableEstablished`，随后用
+     `evidence verify` / `rejudge_evidence` / `replay_evidence` / `report_promotion` 四读，并按
+     惯例做至少一次"把断言输入换掉必须变红"的非空转反证。若 harness 在 `PlayableEstablished` 之前结束会话，
+     即按 `stop_conditions` 停在 `BLOCKED_DECISION` 并保留失败材料。
 
 ### VERSION-BRIDGE-IDENTITY-001 — BridgeHello 版本声明配对修复
 
