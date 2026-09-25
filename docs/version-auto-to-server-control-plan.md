@@ -332,6 +332,12 @@ bundle id 与结果；旧代回调不能推进新代。`BLOCKED` 不自动回退
   runner 上 `verified: true`、五条反例各有稳定类别、没有移动任何摘要。它审的是"引用与构件是否一致"，**不是**
   "远程入服是否安全"：本卡点名的 `BRIDGE-1214-RUNTIME-IDENTITY-001`（现为唯一 `NEXT`）、`KEY-RELEASE-AT-STOP-001`、
   `STORE-FAILURE-EVIDENCE-001` 与 V07 的 `not_tested_v07` 缺口仍在前，故本卡继续 `QUEUED`，不得据此连接用户远程服。）**
+  **（读数更新，2026-09-25 `16dbb42`：`BRIDGE-1214-RUNTIME-IDENTITY-001` 已 `DONE`——1.21.4 root 现在从 Fabric 自己的
+  mod container 读 `minecraft`/`fabricloader`，读不到即失败关闭；1.21.4 的 source tree / jar / recipe / plan 换代为
+  `a4a53cac…` / `0ee2070b…`(1,310,646 B) / `e3bfbae8…` / `bcc0c10d…`，被引用的 12 条 case 全部在该 build 上重跑重封，
+  registry 的 `status`/`capabilities`/`gaps` 一字未动。上面那句"审的是引用与构件是否一致"仍然成立：本卡要的是
+  "远程入服是否安全"，`KEY-RELEASE-AT-STOP-001`、`STORE-FAILURE-EVIDENCE-001` 与 `not_tested_v07` 三件仍在前，
+  故本卡继续 `QUEUED`，不得据此连接用户远程服。）**
 - **输入/输出**：运行者私有 profile（目标地址不进仓库）、V07 自动路径；仅一次受控
   1.20.1 入服 attempt，封存客户端/账本/必要服务端只读材料。
 - **允许路径**：私有运行配置与受控 runner、必要的目标 profile/证据记录、进度文档；

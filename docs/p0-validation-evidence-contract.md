@@ -297,6 +297,9 @@ HOST世界保存/恢复另需 `HOSTCOMMIT-001…110` 证据；它验证默认维
   reviewed build 上**：`tools/report_promotion.py` 对它们一律给
   `from_repository_build: false`，`bridge_digest` 是 `580daa9332e9f9b9…` 或 `f02741f58b0b20d0…`，
   而本 build 是 `faeec4a9df83abb9ca0404863e04d20cfd87ac0f3afd5e74b6858e3e15372f55`。
+  **（2026-09-25 更正：本 build 已随 1.21.4 root 改为运行时读取版本而换代为 `0ee2070b97ba6583…`，被引用的 12 条
+  1.21.4 case 已在该 build 上重跑重封；本段是当时那次审计的读数，其结论"这些旧 run 不在当前 reviewed build 上"
+  不因换代而减弱。）**
   并且这五个 case 的 `case_version` 全部移动过（fixture 里钉的是判官源码的 digest，判官这些年长了
   新断言）：`CORE-060` `30ac59a0641b…`→`d1ea32d8b705…`、`CORE-060-SERVER-001`
   `d4850165e578…`→`50ca1ae2e22d…`、`CORE-060-CLIENT-001` `e8d03e1b4a26…`→`dc85eb043861…`、

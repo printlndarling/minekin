@@ -34,7 +34,10 @@
 > Linux 容器冷构建三次同一摘要），`V1201-010/020/040/070` 与 1.21.4 的 `CORE-010` 在受控 runner 上各重跑一次、
 > 逐个四读一致，registry 引用按实测换代（`status`/`capabilities`/`gaps` 一字未动）。**1.21.4 的
 > `faeec4a9…` / `bb456060…` / `9e0e0ccc…` 未动**，其黄金证明 `dd1e49ce…` 仍是正例、任一版本字段动一格即被同一
-> seam 拒。逐格账与移动的摘要清单见主计划 `moved_digests_hello`…`next_after_done`。
+> seam 拒。**（2026-09-25 `16dbb42` 更正：那三件摘要与其黄金证明已经随 1.21.4 root 改为运行时读取而换代为
+> `0ee2070b…` / `e3bfbae8…` / `bcc0c10d…` 与 `3f89c8d4…`，1.21.4 的 12 条引用随之在新 build 上重跑重封；上面这句
+> 写的是 `801f9ba` 当时的现场。旧→新对账见主计划 `moved_digests_identity`。）**
+> 逐格账与移动的摘要清单见主计划 `moved_digests_hello`…`next_after_done`。
 > **CI 读数**：`801f9ba` 的 run #526/#527 红在 `bridge-static` 的 dependency-free 检查（已由 `391cc2b` 修好），
 > `391cc2b` 的 #528/#529 与收卡提交 `bebcf5d` 的 #530/#531 三 job 全 `success`；取自 Actions REST 的 step 级结果，
 > 浏览器截图工具超时未能肉眼看页（见主计划 `ci_reading_hello`）。

@@ -2628,3 +2628,41 @@
 - **门禁**：`uv run --frozen pytest` 2468 passed / 2 skipped（本卡 +18）、`ruff check` 与 `ruff format --check`
   干净、`pyright` 0 errors、`check_boundaries` / `check_case_assertions`(139) / `verify_fixture_digests` 全 OK。
   收卡提交前 `git status` 只有 4 个文件（2 改 2 新）——**没有移动任何已封存摘要**。
+
+## BRIDGE-1214-RUNTIME-IDENTITY-001 收卡现场（2026-09-25，Windows + 受控 runner / Docker / Linux）
+
+- **做了什么**：`bridge/`（1.21.4 root）不再把 `"1.21.4"` / `"0.16.9"` 当常量写进 `BridgeHello`——新增
+  `runtime/ClientRuntimeIdentity.java`（与 1.20.1 那份字节相同，compact 构造器用 `requireText` 守形状），
+  `BootstrapDescriptorAdapter.adapt()` 改为 `(descriptor, identity)` 两参，`Expected` 的两个版本字段取自
+  `FabricLoader.getInstance().getModContainer(...)`，拿不到 container 就 `IllegalStateException` 失败关闭，
+  **不回落常量**。实现与重封在同一提交 `16dbb42`。
+- **移动的摘要（工具实测，旧→新）**：source tree `507f708d…`→`a4a53cacb38d83339d46f94d651d25da004e743dded48333ce0e67db4c36413c`；
+  jar `faeec4a9df83…`(1,308,525 B)→`0ee2070b97ba6583ca004cc3f0e4a0e547697d0693dc635c3143c655cc2475f4`(1,310,646 B)；
+  recipe fixture `bb456060…`→`e3bfbae8f41914ee83bce3041b7b91db8df6b24507ee2d0cdca71133661ceae2`；
+  launch plan `9e0e0ccc…`→`bcc0c10d46ab5c0b46d0c86f7e0de9d0d57b635bc17f9dcffdf7631eba8125e2`；
+  `BridgeHello` 黄金证明 `dd1e49ce…`→`3f89c8d43e4dd7f1c4b44411580cd50bc9285d82d739d637157b7917923b37f3`；
+  `tests/fixtures/manifest.sha256` 三行（recipe、`core-001.json` `4f2fc11f…`→`a31b05d1…`、
+  registry `6aaa6342…`→`82a54075…`）。1.20.1 侧 `e50d61c2…` / `8ce43e26…` / `83299ad5…` 一字未动。
+- **重封是真跑出来的**：被引用的 12 条 1.21.4 case 全在新 build 上重跑（`ADMIT-070`、`CORE-010/020/060/090/100`、
+  `CORE-060-CLIENT-001`、`CORE-060-SERVER-001`、`OFFLINE-010/020`、两条 `OFFLINE-030-*`），逐个四读一致
+  （`evidence verify` `sealed:true/verified:true/violations:[]`、`rejudge_evidence` `AGREES`、`replay_evidence` 与
+  `minekin_core replay` 同 `trace_sha256`、`report_promotion` `from_repository_build: true` +
+  `configured_profile bundle-p0-core-1.21.4.json#e3bfbae8…`）。registry 的 12 条引用由 `.tmp/b1214-read-sealed.py`
+  从磁盘上的封存包读出后一次原子换完（64 增 / 64 删），`status`/`capabilities`/`gaps` 不动，`notes` 里"十一条只是更早
+  build 的复判"那句换成"全部是当前 build 的封存"。被替换的旧包仍在卷内、现读 `from_repository_build: false`。
+- **换代后的两条机器读数**：`tools/verify_tested_provenance.py --data-root /data` → `exit=0`、`verified: true`、
+  `registry_revision b59a768d3681…`（换代前 `40e80a17…`），两条 entry 各 `True []`；`bundle install --dry-run` →
+  `status: planned`、`artifacts 4120`、`missing_bytes 523788383`、`plan_sha256 bcc0c10d…`、`exit=0`（未抓取）。
+  未显式给 `--store` 的那次先被 `CONFIG / cli.session` 以 `exit=10` 拒（根内有 5 个 Kin 未指明）。
+- **三条反例都有可执行现场**：① 运行时拿不到 container → `current()` 抛错且消息点名 `minecraft`——
+  `check_bridge_proto_java.py` 的桩 loader 对任何 mod id 答 `Optional.empty()`（仍给不出任何版本值），反向对照
+  （把断言改成期望成功）让门在该行红 `exit=1`；② 声明与本 root recipe 不符 → Java 两处拒（外来版本对、空白版本值）；
+  ③ 未重建就改引用 → 真实加载器三种 tampering 各报 `EVIDENCE_BUILD_MISMATCH`（半换时叠加
+  `TESTED_WITHOUT_EVIDENCE`），完整换代则 12/12 接受——这同时说明引用换代**必须**原子落地。
+- **不证明什么**：`tested` 的晋升仍归人工评审（`status` 未动）；CORE-040 不在被引用 12 案之内、未在新 build 重封；
+  CORE-090 崩溃半 `1a8774fc…` 按设计不封存；真跑全在 Linux x86_64 容器；V08 远程探测/入服与 V09/V10 的
+  look/move/松键一律没做，用户远程服未连接。
+- **门禁**：`uv run --frozen pytest` 2468 passed / 2 skipped、`ruff check` 与 `ruff format --check` 干净（318 files
+  already formatted）、`pyright` 0 errors 0 warnings、`check_boundaries` / `check_case_assertions`(139) /
+  `verify_fixture_digests` / `check_workflow_pins` 全 OK，`bridge/` 四个门（两 root scaffold、host boundary、
+  `bridge-1201` 协议内核、`check_bridge_proto_java`）绿。
