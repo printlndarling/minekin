@@ -12,6 +12,7 @@ launches" is the controlled runner's reading, not a unit test's.
 
 from __future__ import annotations
 
+import io
 import json
 from collections.abc import Callable, Sequence
 from dataclasses import replace
@@ -26,7 +27,7 @@ from minekin_core.adapters.launcher.orphans import Liveness, write_marker
 from minekin_core.adapters.launcher.process import argument_digest
 from minekin_core.adapters.launcher.provision import ProvisionReport
 from minekin_core.adapters.launcher.supervisor import ProcessIdentity
-from minekin_core.bootstrap import main
+from minekin_core.bootstrap import run
 from minekin_core.cli.auto_session import (
     AutoBundleDecision,
     host_os_arch,
@@ -476,8 +477,18 @@ def test_exactly_one_way_to_name_the_client_is_accepted() -> None:
     assert automatic.max_bytes is None
 
 
-def test_an_automatic_start_with_no_target_refuses_before_touching_state(tmp_path: Path) -> None:
-    # `main` rather than `run`, because the refusal is also an exit code: an operator
-    # scripting a switch has to be able to tell "you did not say which server" apart
-    # from a launch that failed.
-    assert main(["session", "start", "--auto-bundle", str(REGISTRY)]) == int(ExitCode.CONFIG)
+def test_an_automatic_start_with_no_target_is_a_usage_refusal(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The refusal is an exit code plus one document: an operator scripting a switch
+    # has to be able to tell "you did not say which server" apart from a launch that
+    # failed. `USAGE` rather than `CONFIG`, because no input document is wrong — the
+    # freeze names the missing target a shape-of-request mistake, and nothing under
+    # the data root is opened to find that out.
+    stderr = io.StringIO()
+    monkeypatch.setenv("MINEKIN_HOME", str(tmp_path))
+    code = run(["session", "start", "--auto-bundle", str(REGISTRY)], stderr=stderr)
+    assert code == int(ExitCode.USAGE)
+    assert json.loads(stderr.getvalue())["status"] == "usage"
+    assert list(tmp_path.iterdir()) == []

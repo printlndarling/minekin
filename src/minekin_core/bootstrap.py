@@ -103,14 +103,22 @@ def _session_start_auto(args: argparse.Namespace, *, stdout: TextIO, stderr: Tex
     """
 
     if args.server_profile is None:
-        raise MinekinError(
-            "cli",
-            "session start --auto-bundle",
-            ErrorCategory.CONFIG,
-            Retryability.OPERATOR_ACTION,
-            "an automatic bundle start needs --server-profile: with no target there is no "
-            "observation to resolve a bundle from",
+        # The freeze answers this with `USAGE` rather than a configuration error, and
+        # the difference is real: no input document is wrong, the operator simply did
+        # not say which world to resolve a bundle against. `ErrorCategory` has no
+        # `USAGE` member, so the refusal is a printed document plus the exit code,
+        # the way a command that is not implemented answers.
+        _emit(
+            {
+                "schema_version": 1,
+                "status": "usage",
+                "command": "session start --auto-bundle",
+                "message": "an automatic bundle start needs --server-profile: with no "
+                "target there is no observation to resolve a bundle from",
+            },
+            stderr,
         )
+        return int(ExitCode.USAGE)
     root = data_root()
     selector = kin_selector()
 
