@@ -3997,6 +3997,10 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
   `artifacts.py:176-177` 的 `FileExistsError → verify` 分支无测试。确有真文件系统覆盖的是隔离/篡改/缺件三类
   （`test_artifact_store.py:44-54`、`test_artifact_fetch.py:97-118`、`test_bundle_install.py:145-197`）。
   缺的是证据不是实现（可见性仍只经原子换名产生），补证登记为 `STORE-FAILURE-EVIDENCE-001`。
+  **2026-09-25 由 `STORE-FAILURE-EVIDENCE-001` 收口（只补证据，未改判据）**：那四类缺口——写失败、store 层
+  原子 `rename` 失败、并发同 digest 的 `FileExistsError → verify` 分支（`artifacts.py:176-177`）——现在有
+  `tests/unit/test_install_fault_injection.py` 的七条真文件系统断言；仍**没有**证据的是真·磁盘满（`ENOSPC`
+  由测试注入到达写调用，不是填满卷）与真跨进程并发。
 - `ci_read_v06`（在 Chrome 里读过，不是只跑）：`main` 上 run **#501**（`06acbf1`）总时长 3m2s、`Success`，
   三个 job 全绿——`python` 2m59s 逐步骤读到 `Set up job / checkout / setup-uv / uv sync --locked --dev /
   ruff check / ruff format --check / pyright / Run uv run pytest 2m6s / check_boundaries` 均绿；
@@ -4012,7 +4016,9 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 - `not_tested`: 安装**未**接进 `session start` 的自动路径（V07），本卡没起过任何 Minecraft 进程；
   1.21.4 那次是**未中断的一趟**，所以"跨进程续抓"只在 1.20.1 上有真实读数；两套组合都只装了可下载
   构件，bridge/asset 的**放置**与真实入服仍停在 V07 门口。磁盘满的**写失败**
-  分支、原子 `rename` 失败、并发同 digest 三类本卡没有主动诱发（既有 store 契约覆盖，不在本卡新增证据）；
+  分支、原子 `rename` 失败、并发同 digest 三类本卡没有主动诱发（既有 store 契约覆盖，不在本卡新增证据）
+  ——**该句由 `STORE-FAILURE-EVIDENCE-001` 更正为不成立**：既有 store 契约并不覆盖这三类，它们现由
+  `tests/unit/test_install_fault_injection.py` 逐条诱发（读数见该卡 `completion_readings_store_failure`）。
   `.staging` 残留无 GC API；跨 Kin 共享缓存未做，每 Kin 一份副本的代价仍成立（本次两套 store 各自
   727M / 525M 就是那份代价的读数）；
   `RUNNER_JDK_17_UNSEALED`（条目写 Java 21、recipe 自述 17）不变。
@@ -4480,7 +4486,10 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 
 ### STORE-FAILURE-EVIDENCE-001 — 补齐 store 故障注入证据并更正 V06 口径
 
-- `status`: `NEXT`（2026-09-25 审查卡登记为 `QUEUED`，来自 A6；由本 commit 单独提升为唯一 `NEXT`，前置 `KEY-RELEASE-AT-STOP-001` 已 `DONE`（`bd8f6b7`+`0fb7158`）。这是**证据卡**：不改安装判据）。
+- `status`: `DONE`（2026-09-25 收卡，读数在 `completion_readings_store_failure`。**两条 `stop_conditions`**
+  都没触发：三类故障全部可在**不改**可见性/原子性语义的前提下测得（注入点全在测试侧，`artifacts.py` 一字
+  未改），并发同 digest 用注入式单进程重排即可判定，**没有**引入跨进程锁，因此不停在 `BLOCKED_DECISION`。
+  本卡是**证据卡**：安装判据、摘要门、registry `status` 与任何封存字节都未改。）
 - `depends_on`: `VERSION-INSTALLER-001`（被更正的收卡口径）、既有 store/fetcher 契约（`artifacts.py:151-182/240`）。
 - `question`: 能否用可复判的测试诱发安装期三类故障——staging 写失败（ENOSPC/IOError）、store 层 `os.replace`
   失败、同一 digest 的并发安装——证明既不产出半成品可见构件也不放宽摘要门？
@@ -4496,6 +4505,35 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 - `validation_class`: `LOCAL_ONLY`（纯单元测试可判定；不涉及 Minecraft 运行时，不需要真跑）。
 - `stop_conditions`: 若必须改动可见性/原子性语义才能让三类故障可测 → 停（那属实现变更，须另卡）；
   若并发同 digest 需要引入跨进程锁 → 停在 `BLOCKED_DECISION`。
+- `completion_readings_store_failure`（2026-09-25，Windows 宿主 + `uv run --frozen`，不用 runner、不起
+  Minecraft 进程；复现：`uv run --frozen python -m pytest tests/unit/test_install_fault_injection.py -q`）：
+  - 新增 `tests/unit/test_install_fault_injection.py` 七条，全部对**真文件系统**下结论（store 目标路径、
+    `.staging`、`quarantine` 的实际列目录结果，以及**重开一个 `ArtifactStore` 实例**之后能看到什么）：
+    ①`test_the_same_install_with_no_injected_fault_publishes_once` 是正对照——不加注入即成功，证明失败来自
+    注入而不是夹具；②`test_a_download_that_dies_midway_leaves_no_transaction_and_no_object` 让下载流在第一块
+    之后抛 `ENOSPC`，并在抛出的瞬间实测到 `payload.part` 真有**部分字节**落盘（`0 < size <` 全长），事后目标
+    不存在、`.staging` 与 `quarantine` 皆空、`verify` 报 missing；③`test_a_reopened_store_sees_nothing_from_the_failed_install`
+    把那次失败留给**下一次会话**：重开 store 后无残留、无对象，随后同一 digest 干净安装仍成功——事务泄漏不会
+    被当成既成事实，正是本卡 `counterexamples` 的第一条；④`test_a_write_that_answers_enospc_publishes_no_partial_object`
+    在 `payload.part` 的**写调用**上返回 `ENOSPC`（代理真实文件句柄：第一块真写进去，撤销注入后重试成功）；
+    ⑤`test_a_failing_publish_rename_leaves_no_half_visible_object` 让 store 层 `os.replace` 抛 `EIO`，并在换名
+    之前实测事务里的 payload 已经**完整**（`seen == [(True, len(payload))]`）——字节齐了也不能提前可见；
+    ⑥`test_a_concurrent_writer_that_published_the_same_digest_is_not_a_failure` 诱发 `artifacts.py:176-177` 的
+    `FileExistsError → verify` 分支：先由另一个写入者落一份**同摘要**只读对象再抛 `FileExistsError`，本方返回的
+    就是那份已验对象、字节完整、`.staging` 空；⑦`test_a_concurrent_writer_that_published_other_bytes_is_still_rejected`
+    是同一条分支的反例：对手落的是**别的字节**，`install` 必须以 `digest` 失败关闭，且不得把篡改件当成功返回
+    （实测目标仍是那份被篡改的字节）——摘要门没有为了让并发通过而放宽。
+  - 门禁：`uv run ruff check`、`uv run ruff format --check` 与
+    `uv run pyright tests/unit/test_install_fault_injection.py` 干净；全量
+    `uv run --frozen python -m pytest tests/unit -q` → **2177 passed, 2 skipped**（两条 skip 是既有平台限制项：
+    孤儿进程判定与 Windows terminate 不是信号）。新注入没有泄漏 `os.replace` / `Path.open` 补丁——同一套件里
+    既有 store/fetcher/bundle 测试全部照旧通过。
+  - **本卡未测项**：①真·磁盘满或卷级错误（`ENOSPC` 到达的是写调用本身，不是把文件系统填满）；②真跨进程并发
+    （两个 OS 进程争抢同一 digest，本卡以注入式单进程重排判定同一分支）；③`installer` 被 `SIGKILL` 中途杀死后
+    `.staging` 残留的清理——那属 `OPERATIONS-RETENTION-001` 的 GC 缺口，本卡不代为收口；④符号链接与根外路径
+    已由既有 store 契约覆盖，本卡未重跑也未重述。
+  - 移动的摘要：**无**。没有新增 fixture，`tests/fixtures/manifest.sha256`、`tests/fixtures/registry/**` 与
+    `src/minekin_core/adapters/launcher/artifacts.py` 一字未改（`git show --stat` 只含 `tests/unit/` 与本文档）。
 - `next_after_done`: 三卡（含 `VERSION-BRIDGE-IDENTITY-001`）与 V07 的 `not_tested_v07` 缺口都收口后，
   才能单独登记并提升 V08。
 
