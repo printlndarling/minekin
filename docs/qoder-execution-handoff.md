@@ -7,7 +7,21 @@
 > `.tmp/` 被 Git 忽略，是构建、诊断和封证的临时工作区；它的内容不是已推送产品代码、
 > 不是阶段状态，也不能替代主计划里的 run/bundle/attempt 与真实门禁记录。
 
-> **最新交接点（2026-09-25，跨版本路线执行中）**：主计划当前唯一 `NEXT` 是 **`KEY-RELEASE-AT-STOP-001`**
+> **最新交接点（2026-09-25，跨版本路线执行中）**：主计划唯一 `NEXT` 仍是 **`KEY-RELEASE-AT-STOP-001`**
+> （`14d85a0` 提升），领取后**没有停在 `BLOCKED_DECISION`**：第一批读数（该卡 `preparation_readings_key_release`）
+> 里更正了一次我自己的初判——草稿曾把 `CRASH-OUTBOX-ALIVE-DISPLAY-001` 读成 `QUEUED`，据
+> `docs/p0-validation-evidence-contract.md:265-276` 的"`xvfb-run` EXIT trap 6–7 ms 关 X vs 50 ms tick"判定
+> `after IPC_LOST` 在 1.20.1 **按构造打不中**。那份读数是 **2026-09-24 修复之前**的现场：那张 runner 卡早已 `DONE`
+> （登记 `94c3af0`、提升 `9a283ac`、交付 `f90abc8`），harness 现在自持 Xvfb、把主 session 搬到 `xvfb-run` 之外，
+> 而 `f90abc8` 的验收 ① 正是 1.21.4 `CORE-060` run `7fc0671e…` 真封出的
+> `[Render thread/INFO]: bridge released 1 input(s) after IPC_LOST`（`stderr.log` 为空）。
+> ⇒ 1.20.1 缺的是**一次尚未做过的"带断连的停止"真跑**（`V1201-040` + `MINEKIN_DOMAIN_KILL_CORE=1`，默认 5 秒探针），
+> 不是窗口；两 root 该路径字节相同，也**不需要**把松键搬到失联检测点同步做（那会撞 `VanillaKeySink` 的客户端线程
+> 不变量，属改失联策略）。真卷对照读数：1.20.1 的两份 `V1201-040`（`155dcb4a…`、`f4cc67ae…`）只有
+> `bridge released 1 input(s) after CORE_REQUEST (TIMEOUT)`——reason 是 Core 的请求，正是本卡不接受的形状。
+> 本卡至今**未改产品代码、未移动任何摘要**。下一张是 `STORE-FAILURE-EVIDENCE-001`。
+
+> **上一交接点（2026-09-25，跨版本路线执行中）**：主计划当时唯一 `NEXT` 是 **`KEY-RELEASE-AT-STOP-001`**
 > （本提交提升）。上一张 **`BRIDGE-1214-RUNTIME-IDENTITY-001`** 已 `DONE`（实现与重封 `16dbb42`、收卡 `2464901`）：
 > 1.21.4 root 现在像 1.20.1 一样从 Fabric 自己的 mod container 读 `minecraft` / `fabricloader` 送进 `Expected`，
 > 读不到 container 就失败关闭而非回落常量；随之移动的四组摘要（source tree `a4a53cac…` / jar `0ee2070b…` /

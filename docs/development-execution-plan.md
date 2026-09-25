@@ -18,8 +18,10 @@
   回归基线；除非真实回归或当前 1.20.1 卡不可绕过的前置阻断，不再新增 1.21.4 功能专题。
   即使遇到前置阻断，也先登记范围与证据、按唯一 `NEXT` 流转，不得借 `.tmp/` 中的实验记录
   自行改排期或把临时构建当作新主线。HOST/PERSIST、在线认证、远程服授权等既有停机边界不变。
-- `current_next`: `KEY-RELEASE-AT-STOP-001`（本提交把已 `QUEUED` 的它单独提升为唯一 `NEXT`，当前无第二张
-  `NEXT`。上一张 `BRIDGE-1214-RUNTIME-IDENTITY-001` 已 `DONE`：实现与重封 `16dbb42`、收卡 `2464901`——1.21.4 root
+- `current_next`: `KEY-RELEASE-AT-STOP-001`（`14d85a0` 把已 `QUEUED` 的它单独提升为唯一 `NEXT`，当前无第二张
+  `NEXT`；领取后的第一批读数记在该卡 `preparation_readings_key_release`——**未停在 `BLOCKED_DECISION`**，
+  并更正了一次把 `CRASH-OUTBOX-ALIVE-DISPLAY-001`（早已 `DONE`、交付 `f90abc8`）当成 `QUEUED` 的初判。
+  上一张 `BRIDGE-1214-RUNTIME-IDENTITY-001` 已 `DONE`：实现与重封 `16dbb42`、收卡 `2464901`——1.21.4 root
   现在从 Fabric 自己的 mod container 读 `minecraft`/`fabricloader`，读不到就失败关闭而非回落常量，被引用的 12 条
   1.21.4 case 已换代后（source tree `a4a53cac…` / jar `0ee2070b…` / recipe `e3bfbae8…` / plan `bcc0c10d…`）在新
   build 上逐个重跑重封，registry 的 `status`/`capabilities`/`gaps` 一字未动。本卡要做的是让 1.20.1 在**停止/断连**
@@ -4366,10 +4368,9 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 
 ### KEY-RELEASE-AT-STOP-001 — 停止阶段的松键要有独立工件
 
-- `status`: `NEXT`（2026-09-25 审查卡登记为 `QUEUED`，来自 A2；本提交单独提升为唯一 `NEXT`，前置
-  `TESTED-PROVENANCE-VERIFY-001`（`49d6d01`）与 `BRIDGE-1214-RUNTIME-IDENTITY-001`（实现 `16dbb42`、收卡 `2464901`）
-  已 `DONE`；提升次序按登记时的排队（它排在 `BRIDGE-1214-RUNTIME-IDENTITY-001` 之后、V09 之前——V09 的
-  look/move/**release** 闭环不能靠 lease 到期记账顶）。
+- `status`: `NEXT`（2026-09-25 审查卡登记为 `QUEUED`，来自 A2；`14d85a0` 单独提升为唯一 `NEXT`，当前无第二张
+  `NEXT`。前置 `TESTED-PROVENANCE-VERIFY-001`（`49d6d01`）与 `BRIDGE-1214-RUNTIME-IDENTITY-001`（实现 `16dbb42`、收卡
+  `2464901`）已 `DONE`；本卡排在 V09 之前——V09 的 look/move/**release** 闭环不能靠 lease 到期记账顶）。
 - `depends_on`: `VERSION-LOCAL-1201-001`（现有 V1201-040 的 lease 路径证据）、`VERSION-BRIDGE-IDENTITY-001`
   （重封后的 1.20.1 客户端）、1.21.4 侧 CORE-060 已有的 Bridge 释放断言形状（`tools/assert_case_evidence.py:1597-1619`）。
 - `question`: 能否让 1.20.1 在**停止/断连**阶段由 Bridge 自己产出独立工件（"IPC 丢失后释放了 N 个输入"），
@@ -4377,6 +4378,16 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 - `scope` 与 `allowed_paths`（显式清单）：`bridge-1201/`（及必要时 `bridge/`）里 IPC 丢失/退出路径的**日志工件**
   与断连释放实现、`tools/assert_case_evidence.py` 的对应断言、`tests/fixtures/cases/v1201-040.json` 的
   **新增**断言（不改既有断言语义）、case 注册表与 `docs/development-todo.md` 的读数行、进度文档。
+- `scope_revision_2026-09-25`（**在动笔之前**改本卡范围，不是因为已经越界）：把 `IPC_LOST` 断言加进
+  `tests/fixtures/cases/v1201-040.json` 会**改掉既有断言语义**——`V1201-040` 是"Core 活着、lease 到期"那一格
+  （`the_lease_expired_and_was_released` 要 `TIMEOUT` 那一次的释放），而强杀 Core 之后 Core 写不出这条记账，
+  同一张 case 文件因此不可能两种流程都跑。`docs/p0-validation-evidence-contract.md:259-264` 也量过
+  `V1201-040` 那次停止阶段 `input_release_failed: true`，正是本卡 `counterexamples` 要求**与 Bridge 的释放可区分**
+  的那一侧。⇒ 本卡的形状改为**新增一张 1.20.1 的断连 case**（`tests/fixtures/cases/v1201-060.json`，镜像
+  1.21.4 的 `CORE-060` 断言集合，`MINEKIN_DOMAIN_KILL_CORE=1`），`v1201-040.json` 一字不动。
+  `test-orchestrator/runner/domain.sh:171-172` 已按 case id 小写解析 `/src/tests/fixtures/cases/<id>.json`，
+  加一张 case **不需要**改 runner；因此 runner 仍在禁止侧。新增文件须按既有做法在
+  `tests/fixtures/manifest.sha256` 追加**它自己那一行**（不改既有行）。
 - `forbidden_paths`: 不放宽 Player-Equivalent/lease/准入判据、不改 registry 的 `status` 字节（缺口是否划出
   `tested` 声明属产品决策，见 `stop_conditions`）、不动 `tests/fixtures/manifest.sha256` 既有行之外的封存字节、
   不连接用户远程服、不改 1.21.4 既有证明上下文所需之外的握手判据。
@@ -4389,6 +4400,38 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 - `stop_conditions`: 若"停止阶段显式松键"需要在产品决策上改变退出/失联策略 → 停在 `BLOCKED_DECISION` 并请
   主控决定是补证还是把该能力从 `tested` 声明中划出；若 1.20.1 客户端运行时拿不到可写工件的通道 → 保留材料报告，
   **不得**以 Core 记账冒充 Bridge 释放。
+- `preparation_readings_key_release`（领取后的第一批读数；**未改产品代码、未移动任何摘要**）：
+  - 两个 root 在这条路径上**字节相同**（`BridgeIpcWorker.java`、`input/BridgeInputController.java` 两树逐文件
+    `diff` 无差异）：`bridge-1201/src/main/java/org/minekin/bridge/runtime/BridgeIpcWorker.java:1041-1059` 的
+    `failClosed()` 只写 "bridge is failing closed ({}); the client will be stopped by its next tick" 并把
+    `Notice.SAFE_STOP` 放进客户端收件箱；真正松键在**下一个客户端 tick** 上（`:252-257` → `:825-840`
+    `bridge released {} input(s) after {}`）。
+  - 把松键搬到失联检测点同步做会撞上仓库既有不变量
+    `bridge-1201/src/main/java/org/minekin/bridge/input/VanillaKeySink.java:57-60`（非客户端线程直接
+    `IllegalStateException: Minecraft input may only change on the client thread`）。**本卡不走那条路**：
+    下面第二格的读数证明"下一个 tick 松键"这条既有路径在真 JVM 上拿得到工件，因此不需要改退出/失联策略，
+    `stop_conditions` 第一支未触发。
+  - 真卷读数（受控 runner 内逐个 `/data/kin/kin-01/run/evidence/*/client/latest.log` grep `bridge released`）：
+    1.20.1 的两次 `V1201-040`（`155dcb4a…`、`f4cc67ae…`）**已有 Bridge 自己写的行**
+    ——`bridge released 1 input(s) after CORE_REQUEST (TIMEOUT)` 与 `bridge released move.forward`（都在
+    `Render thread/INFO`），但那行的 reason 是 **Core 的请求**；`after IPC_LOST` 形状只出现在 1.21.4 的
+    `CORE-060`（`7fc0671e…`、`ed2bbad7…`、`36a1172d…`、`6b6dcdf7…`），1.20.1 侧一份都没有。
+  - **更正一次我自己的初判（登记在此以免后人重犯）**：第一版草稿曾据
+    `docs/p0-validation-evidence-contract.md:265-276`（Core 被杀后 `/usr/bin/xvfb-run` 的 EXIT trap 在
+    **6 ms / 7 ms** 内关 X，一个 tick 50 ms ⇒ `after IPC_LOST` 按构造打不中）把本卡判成
+    `BLOCKED_DECISION`。那份读数是 **2026-09-24 修复之前**的现场：它点名的前置卡 `CRASH-OUTBOX-ALIVE-DISPLAY-001`
+    早已 `DONE`（登记 `94c3af0`、提升 `9a283ac`、交付 `f90abc8`），harness 现在自持 `Xvfb :77-:99` 并把主 session
+    搬到 `xvfb-run` **之外**；同卡验收 ① 就是 1.21.4 `CORE-060` run `7fc0671e…` 的
+    `[Render thread/INFO]: bridge released 1 input(s) after IPC_LOST` + 空 `stderr.log`。
+    ⇒ 1.20.1 缺的是**一次尚未做过的"带断连的停止"真跑**，不是一个打不中的窗口。
+  - 执行形状（据上，全部落在本卡 `allowed_paths` 与 `scope_revision_2026-09-25`）：在受控 1.20.1 真服上跑
+    `MINEKIN_DOMAIN_CASE=V1201-060 MINEKIN_DOMAIN_KILL_CORE=1 … run.sh domain session start --profile
+    tests/fixtures/runtime-input/bundle-candidate-1.20.1.json --server-profile
+    tests/fixtures/runtime-input/controlled-offline-server-1.20.1.json`，**不设** `MINEKIN_DOMAIN_PROBE_SECONDS`
+    （默认 5 秒，避开 `NEVER_MOVED` 那类取法错误，见 `p0-validation-evidence-contract.md:259-264`）；新 case
+    `tests/fixtures/cases/v1201-060.json` 镜像 `CORE-060` 的四条断言（复用**同一批** runtime 实现，摘要逐字照抄，
+    不新写判据）。加 case 会移动 fixture 清单与该 case 的摘要 ⇒ 收卡时须按既有做法**一次原子**把它登记进
+    registry 的 `capabilities`/引用行并重封，不得留下"实现已改、引用仍旧"的半成品。
 - `next_after_done`: `STORE-FAILURE-EVIDENCE-001`。
 
 ### STORE-FAILURE-EVIDENCE-001 — 补齐 store 故障注入证据并更正 V06 口径
