@@ -18,7 +18,14 @@
   回归基线；除非真实回归或当前 1.20.1 卡不可绕过的前置阻断，不再新增 1.21.4 功能专题。
   即使遇到前置阻断，也先登记范围与证据、按唯一 `NEXT` 流转，不得借 `.tmp/` 中的实验记录
   自行改排期或把临时构建当作新主线。HOST/PERSIST、在线认证、远程服授权等既有停机边界不变。
-- `current_next`: **暂无 `NEXT`**（`TESTED-GAP-DRAW-STOP-PHASE-1201-001` 已在本提交收口为 `DONE`：实现
+- `current_next`: **唯一 `NEXT` = `HOST-ADMISSION-DESIGN-001`**（主控 2026-09-26 第 ②、③ 条授权的 HOST 支线
+  **设计**卡，本次提交从 `QUEUED` 提升而来）：交付物是一份新文档
+  `docs/host-admission-session-coordinate-design.md`，四段——现状（两侧闸门为什么卡在同一个缺失的坐标上）、
+  三条候选方案各写全四要素（谁创建 `generation` 与 `WorldCapsule`、首快照由谁收集由谁判、失败与重启语义、
+  与既有契约的冲突点）、每方案一条可落成测试的反例、`HOST-001` 的真实 trace 验收设计；以**分歧矩阵 +
+  交主控冻结**收尾。**不实现 HOST、不标完成、不提升 `HOST/W80+`、不建 `host-001.json`、五份契约一字不改**；
+  到必须冻结"谁创建 host generation / `WorldCapsule`"时按该卡 `stop_conditions` 停止并交主控。
+  （上一张 `TESTED-GAP-DRAW-STOP-PHASE-1201-001` 已在 `b03863e` 收口为 `DONE`：实现
   `4151664`——1.20.1 那条 `tested` 声明的 `gaps` 划出 `STOP_PHASE_EXPLICIT_KEY_RELEASE` 一条、
   `capabilities` 补上工件所证的 token、`evidence` 追加 `V1201-080 / run 484675e4… / attempt 3 / PASS` 的
   七字段引用，manifest 第 85 行由门禁自己的测量函数量出新签；容器内 provenance `verified: true`（`exit 0`）、
@@ -26,10 +33,9 @@
   仍 `blocked`／`promotable: false`——**V08 未提升、用户的远程服未连接**，1.21.4 的同一缺口与 1.20.1 其余
   八条缺口一字未动。逐格读数记在该卡 `completion_readings_2026-09-26`；收卡提交 `b03863e` 的两条 ref
   与远端 SHA 已核，GitHub Actions 对该 SHA 的两个 `CI` run 及其六个 job 全 `completed / success`。）
-  **HOST 支线设计卡已登记**：`HOST-ADMISSION-DESIGN-001` 依 2026-09-26 口径由 `BLOCKED_DECISION` 转
-  `QUEUED`（只整理方案、反例与验收设计；不实现 HOST、不标完成、不提升 `HOST/W80+`；到必须冻结"谁创建
-  host generation / `WorldCapsule`"时交主控审查）。登记提交把它写成完整卡（`anchors` 逐条今天量过、
-  `acceptance` 七格含反证），**下一张是它的提升提交**（`QUEUED → NEXT`，独立一次提交，与本卡一样逐卡串行）。
+  **HOST 设计卡的来路**：登记提交 `51646d5` 把它写成带 `anchors`/`acceptance` 的完整卡（七个代码位置在
+  登记当天逐条 `grep` 复算），本次提交只做提升，实现（写那份文档）在再下一次——与本卡一样逐卡串行、
+  一步一提交。
   （上一张 `ADMIT-070-RECORD-SCHEMA-001` 已收卡为 `DONE`：卡片文本 `cc9ced2`、
   实现 `de8ed7d`——
   冻结的 `schemas/fault-injection.schema.json` 现在按 `category` 分成两支，两类记录各自说得出自己的
@@ -39,12 +45,12 @@
   六个 job 全 `success`。逐格读数、manifest 新旧行与对登记卡那句前提的更正，记在该卡
   `completion_readings_2026-09-26`。）
   **队列是数过的，不是 grep 出来的**（本提交实测：`.tmp/count_plan_cards.py` 按卡头配对 `status` 行，
-  连没有 ` — ` 分隔符的 `### HOST/W80+` 一并数到）：56 张带 `status` 的卡里 `NEXT` = 0、`QUEUED` = 1
-  （就是刚登记的 `HOST-ADMISSION-DESIGN-001`），开放中的只剩 `REAL-P0-CAMPAIGN-001`（`BLOCKED_EVIDENCE`）、
-  `EXPLICIT-RELEASE-AT-STOP-001` / `OPERATIONS-RETENTION-001` /
+  连没有 ` — ` 分隔符的 `### HOST/W80+` 一并数到）：56 张带 `status` 的卡里 `NEXT` = 1
+  （`HOST-ADMISSION-DESIGN-001`，本次提升的就是它）、`QUEUED` = 0，开放中的只剩 `REAL-P0-CAMPAIGN-001`
+  （`BLOCKED_EVIDENCE`）、`EXPLICIT-RELEASE-AT-STOP-001` / `OPERATIONS-RETENTION-001` /
   `PROCESS-RECOVERY-001`（`BLOCKED_DECISION`）与
   `HOST/W80+`（`DEFERRED`）。这套清点反证过非空转：`822d7f0` 那次实测——临时副本里把刚收口的卡改回 `NEXT`
-  或 `QUEUED`，同一逻辑各报 `1`（副本已删）。本提交另测一次：同一脚本在登记前的 `HEAD` 副本上报
+  或 `QUEUED`，同一逻辑各报 `1`（副本已删）。登记这张卡时另测一次：同一脚本在登记前的 `HEAD` 副本上报
   `QUEUED` = 0，工作树上报 1，差值只可能来自这张卡。
   （**2026-09-26 主控答复**：更早那版这份队列说明写的"下一张归主控、`STOP_PHASE_EXPLICIT_KEY_RELEASE`
   待拍板"已经解掉，用户给出口径——①只划这一条缺口、同时登记 `V1201-080` 的 PASS 证据与对应 capability、
@@ -121,8 +127,8 @@
   `NEXT`/`QUEUED` 的副本反证过非空转）。**下一张已授权、不需再问**：按主控 2026-09-26 的第③条口径把
   `HOST-ADMISSION-DESIGN-001` 由 `BLOCKED_DECISION` 转 `QUEUED`——只做设计（方案、反例、验收设计），
   不实现 HOST、不标完成、不提升 `HOST/W80+`，到必须冻结"谁创建 host generation / `WorldCapsule`"时交主控。
-  （**其后的提交已落实该转换**：那张卡现在是带 `anchors`/`acceptance` 的完整卡且处于 `QUEUED`，登记时逐条
-  重量了它的代码位置；剩下的是它的提升提交，`QUEUED → NEXT` 单独一次。上面那句 `QUEUED` 与 `NEXT` 都是 `0`
+  （**该转换与提升都已落实**：`51646d5` 把它写成带 `anchors`/`acceptance` 的完整卡并置 `QUEUED`，
+  登记时逐条重量了它的代码位置；本提交把它提升为唯一 `NEXT`。上面那句 `QUEUED` 与 `NEXT` 都是 `0`
   是登记当时的读数，按既有口径保持原样。）
   上一 checkpoint 是 **写下来的契约重新对上执行它的读取器：冻结的 fault-injection schema 说得出两类记录**
   ——`ADMIT-070-RECORD-SCHEMA-001` 由 `cc9ced2` 收卡为 `DONE`（登记 `ff63746`、提升 `79cf8ce`、实现 `de8ed7d`；
@@ -5677,10 +5683,17 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 
 ### HOST-ADMISSION-DESIGN-001 — 宿主世界会话坐标来源
 
-- `status`: `QUEUED`（2026-09-26 依主控同日答复第 ②、③ 条由 `BLOCKED_DECISION` 转为排队：只做设计
-  （方案、反例、验收设计），不实现 HOST、不标完成、不提升 `HOST/W80+`；到必须冻结"谁创建 host
-  generation / `WorldCapsule`"那一步交主控审查。原 `unblock_condition` 写的"冻结决策"本卡**不满足**，
-  也**不试图满足**——本卡只把它写成可交接的分歧矩阵。）
+- `status`: `NEXT`（计划里唯一的一张。2026-09-26 依主控同日答复第 ②、③ 条由 `BLOCKED_DECISION` 转为排队
+  （只做设计：方案、反例、验收设计），本次提交单独把它提升为唯一 `NEXT`；不实现 HOST、不标完成、
+  不提升 `HOST/W80+`；到必须冻结"谁创建 host generation / `WorldCapsule`"那一步交主控审查。
+  原 `unblock_condition` 写的"冻结决策"本卡**不满足**，也**不试图满足**——本卡只把它写成可交接的分歧矩阵。）
+- `baseline_sha`: `51646d5`（登记提交）；领取时实际 checkout 即该提交，工作树干净。
+- `promotion_reason`: 三条：①主控 2026-09-26 已把这张卡从"等拍板"改成"可以做的设计支线"，并给了可执行的
+  边界（只整理方案/反例/验收设计；不实现、不标完成、不提升 `HOST/W80+`；到所有权冻结点交主控）；
+  ②提升规则第 3 条机械满足——`depends_on` 为空，本卡输入全部已在树里（`anchors` 七组逐条 `grep` 复算过），
+  今天没有更高优先级的安全或回归问题（上一张卡收口后 CI 六个 job 全绿，套件 `2501 passed / 2 skipped`）；
+  ③它是纯文档工作，不产生新 fixture、不移动摘要、不触发重封，因此不与他人未提交的改动争资源。
+  登记（`51646d5`）与提升（本次）分在两个提交，满足交接第 3、4、6 项。
 - `decision_source`: 用户 2026-09-26 三点口径的 ②「先做 HOST-ADMISSION 设计：可以，但它是支线。这张卡的
   核心问题——谁创建 host generation / `WorldCapsule`——仍未被"选择做设计"本身回答。Qoder 可以先整理方案、
   反例与验收设计，不能据此直接实现 HOST、标记完成或提升 HOST/W80+。这也会暂时推迟你优先要的 1.20.1 入服
@@ -5756,8 +5769,8 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
   三张 `BLOCKED_DECISION` 卡；1.20.1 入服 demo 的推迟是本卡的**后果**而不是目标。
 - `next_after_done`: 收卡后 HOST 支线**停在所有权冻结点**：由主控选定方案，才谈得上 `HOST-001` fixture 与
   真 trace 验收卡；主线回到主控口径，1.20.1 入服 demo 仍受"V08 未提升"约束。
-- `registration`: 本提交以 `QUEUED` 登记并推到两条 ref；提升为唯一 `NEXT` 须在**下一次独立提交**，
-  实现（写文档）再下一次。
+- `registration`: `51646d5` 以 `QUEUED` 登记并推到两条 ref；本次提交单独提升为唯一 `NEXT`，
+  实现（写那份设计文档）再下一次。
 
 ### OPERATIONS-RETENTION-001 — marker 与 run 目录清理
 
