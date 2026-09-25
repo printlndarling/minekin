@@ -12,14 +12,20 @@
 - `baseline_date`: 2026-09-22
 - `baseline_branch`: `main`
 - `baseline_remote`: `origin/main`
-- `current_next`: `VERSION-TESTED-GATE-AUDIT-001`（`7ece20c` 登记 `QUEUED`，本提交单独提升为唯一 `NEXT`；
-  上一张 V07 `VERSION-SESSION-SWITCH-001` 已 `DONE`，收卡 `17e81ea`、CI 读数补记 `96fb520`，两 ref 均已核对）。
-  这是**只读审查卡**：`allowed_paths` 只有计划与审查记录，不改产品代码、registry、case 判据或封存证据；在它
-  收口前不得提升 V08、连接用户远程服，或把 reviewed registry 的 `tested` 当作远程入服的充分证据。
+- `current_next`: **本提交起暂无 `NEXT`**——只读审查卡 `VERSION-TESTED-GATE-AUDIT-001` 已 `DONE`（追溯表与判定见
+  [tested 晋级门复判记录](tested-gate-audit-2026-09-25.md)），本提交同时把三个确证缺口登记为 `QUEUED`
+  （`TESTED-PROVENANCE-VERIFY-001`、`KEY-RELEASE-AT-STOP-001`、`STORE-FAILURE-EVIDENCE-001`）。后续提升顺序受
+  依赖约束：`VERSION-BRIDGE-IDENTITY-001`（修 hello 谎报并重封）→ provenance → key-release → store-failure，
+  每一次提升都必须是**独立提交**。审查结论对下游的硬约束：在 Bridge 修复重封、且 registry 的 `tested` 摘要由
+  代码对真实封存构件独立核对之前，**不得提升 V08、不得连接用户远程服，也不得把 `tested` 当作远程入服的充分
+  证据**；本地受控运行仍可按既有边界使用它。
   用户在七场景总账后明确把“自动识别服务器版本 → 准备匹配客户端 → 入服并完成简单控制”排为优先路线；
   `VERSION-AUTO-DESIGN-001` 已交付[跨版本连续执行计划](version-auto-to-server-control-plan.md)。
-- `last_checkpoint`: **跨版本路线走到审查卡领取**——V07 已收卡（`17e81ea` + CI 补记 `96fb520`），唯一 `NEXT`
-  现为 `VERSION-TESTED-GATE-AUDIT-001`（只读复判 `tested` 晋级门，`7ece20c` 登记）。V07 交付的产品侧第一条
+- `last_checkpoint`: **跨版本路线走到 tested 门复判收口**——审查卡 `VERSION-TESTED-GATE-AUDIT-001` 以六行结论
+  （A1 成立但仅限 lease 到期松键；A2 停止阶段显式松键在 1.20.1 无独立工件；A3 registry `tested` 没有被任何代码
+  对封存构件校验；A4 安装门里只有 bridge 那层是常量搬运；A5 两个 root 的 `BridgeHello` 都谎报 `1.21.4`/`0.16.9`；
+  A6 V06 三类故障反例的"既有契约覆盖"口径不实）关闭，判定为"本地受控运行可用、远程自动选择不可作充分证据"，
+  并按此登记三张后续卡。**跨版本路线此前走到 V07 收卡**——V07 交付的产品侧第一条
   fail-closed 自动路径（新增 `cli/auto_session.py`：探测并核对两次观测 → 校验三处版本事实 → `resolve()` →
   **摘要门先于抓取** → 停旧客户端并取证 → 以新 `session_id` + `generation=1` 起新），显式路径字节未变，
   Bridge 握手常量的修复**不属**本卡。真实验收是受控 runner 上两次 1.21.4 → 1.20.1 的**顺序**切换：目标侧探测
@@ -3952,6 +3958,12 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
   "fetch them before starting a session" 拒绝，并实测该拒绝经 `main()` 映射为 exit **11**。
   size 不符、sha 不符、重定向离开 HTTPS、URL 带凭据、并发同 digest、已装件就地篡改后复用六类**沿用**既有
   store/fetcher 契约测试，本卡不重述也不重跑（`not_tested` 里如实区分）。
+  **2026-09-25 审查更正（只改事实陈述，不改判据）**：上句的"沿用既有契约测试"对**并发同 digest**，以及
+  `not_tested_v06` 里的磁盘写失败与原子 `rename` 失败，**并不成立**——`tests/` 内没有任何写失败/ENOSPC 注入，
+  `os.replace` 失败只在**证据包**发布器被测（`tests/unit/test_evidence_bundle.py:115-125`，非 store 层），
+  `artifacts.py:176-177` 的 `FileExistsError → verify` 分支无测试。确有真文件系统覆盖的是隔离/篡改/缺件三类
+  （`test_artifact_store.py:44-54`、`test_artifact_fetch.py:97-118`、`test_bundle_install.py:145-197`）。
+  缺的是证据不是实现（可见性仍只经原子换名产生），补证登记为 `STORE-FAILURE-EVIDENCE-001`。
 - `ci_read_v06`（在 Chrome 里读过，不是只跑）：`main` 上 run **#501**（`06acbf1`）总时长 3m2s、`Success`，
   三个 job 全绿——`python` 2m59s 逐步骤读到 `Set up job / checkout / setup-uv / uv sync --locked --dev /
   ruff check / ruff format --check / pyright / Run uv run pytest 2m6s / check_boundaries` 均绿；
@@ -4183,9 +4195,8 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 
 ### VERSION-TESTED-GATE-AUDIT-001 — 远程入服前复判 tested 晋级门
 
-- `status`: `NEXT`（2026-09-25 主控审查以 `7ece20c` 登记 `QUEUED`，本提交单独提升为唯一 `NEXT`；V07 已 `DONE`
-  收卡 `17e81ea`、CI 读数补记 `96fb520`，两 ref 均已核对。**本卡只读**：不改产品代码、reviewed registry、
-  case 判据或任何封存证据，只产出追溯表与后续修复卡的登记。）
+- `status`: `DONE`（`7ece20c` 登记 `QUEUED`、`977dcf4` 单独提升为唯一 `NEXT`、本提交收卡。全程只读：未改
+  registry/recipe/`manifest.sha256`/case JSON/产品代码，未连接用户远程服。）
 - `baseline_sha`: `7ece20c`（审查卡登记提交）；领取时实际 checkout = 本提升提交。
 - `depends_on`: V07 已 `DONE`；`VERSION-BRIDGE-IDENTITY-001` 的修复与重封须在 V08 前完成，
   但本审查卡先决定其精确证据影响与后续卡顺序。
@@ -4210,7 +4221,103 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
   对缺口先登记、再独立提升修复卡，所有更改仍按唯一 `NEXT` 与 commit/push/SHA 门禁。
 - `stop_conditions`: 需要放宽 Player-Equivalent/lease、删除或改写失败 bundle、改变认证或公网策略，
   或把未核验的清单自述当作签名/封证事实时停止并报告；不得以更改验收文字补齐缺失证据。
-- `next_after_done`: 按真实复判结果安排 `VERSION-BRIDGE-IDENTITY-001`、补证/修复卡；全部完成后
+- `audit_record_v07_gate`: 追溯表与判定写在
+  [tested 晋级门复判记录](tested-gate-audit-2026-09-25.md)。六行结论（编号 A1–A6 与记录同号）：
+  **A1 成立（限 lease 到期路径）**——入服、有界移动、转向、lease 松键都有服务端独立读数；
+  **A2 不成立**——停止/断连阶段的显式松键在 1.20.1 上没有任何独立工件（同 run 文档 `input_release_failed: true`
+  + `BRIDGE_LOST`；Bridge 侧释放断言只存在于 1.21.4 CORE-060），registry 自己也写了
+  `STOP_PHASE_EXPLICIT_KEY_RELEASE`（`reviewed-tested-bundles.json:42`），V04 当时已把声明缩到"记账"层面，
+  属能力边界而非谎报；**A3 不成立（作为自动校验）**——`resolve()`（`version_resolution.py:752-836`）只看
+  protocol/os_arch/version_text/status，条目内摘要只与**同一份文档**的 evidence 段比对（`:375-379/458-459`），
+  引用的 4 个 `bundle_digest` 在仓库里只是文本；**A4 部分成立**——`provision.py:218-235` 真算 recipe 与 plan
+  两层摘要，但 bridge 那层是 `recipe.py:71` 的硬编码常量，jar 字节的真哈希只在启动阶段发生（`recipe.py:435`）；
+  **A5 不成立**——两个 root 的 hello 都写死 `1.21.4`/`0.16.9`（`BootstrapDescriptorAdapter.java:44-45`、
+  `HandshakeGate.java:169`、`ipc.py:437-438/628-629`），真实值 `1.20.1`/`0.19.5`；**A6 收卡口径有误**——V06
+  声称"既有 store 契约覆盖"的三类反例里，写失败注入 0 命中、`os.replace` 失败只在证据包发布器测过
+  （`test_evidence_bundle.py:115-125`）、`artifacts.py:176-177` 的同 digest 并发分支无测试；代码安全
+  （可见性只经原子换名），缺的是证据。
+- `use_verdict_v07gate`: **本地受控运行可用**（V07 已按此用，边界是 A2/A5 必须一起说）；
+  **远程自动选择不可用作充分证据**——A3/A4/A5 合起来意味着 V08 依赖的是一条"自述文本 + 常量搬运 + 谎报版本
+  的封存 jar"。V08 提升前必须：修 A5 并重封重判、把 A3/A4 变成机器校验（A2 属 V09 的 release 闭环，不得靠 A1 顶）。
+- `counterexamples_v07gate`: 每种结论都有对应反例方向——A2 缺 Bridge 侧释放工件、A3 缺件或不符仍放行、
+  A5 修后旧摘要被沿用、A6 三类故障未诱发即称覆盖。后续卡各自带反例格。
+- `not_tested_v07gate`: 本卡没重跑任何 run、没打开 `minekin-runner-data` 里的封存 bundle 真件做哈希（那是
+  `TESTED-PROVENANCE-VERIFY-001` 的实现验收），没验证 1.21.4 侧的 A2 是否同样受限（registry :133 显示同一缺口）。
+- `next_after_done`: 按复判结果，`VERSION-BRIDGE-IDENTITY-001`（已在册 `QUEUED`）排第一，其后
+  `TESTED-PROVENANCE-VERIFY-001`、`KEY-RELEASE-AT-STOP-001`、`STORE-FAILURE-EVIDENCE-001`；**全部完成后**
+  才能单独登记并提升 V08。
+
+### TESTED-PROVENANCE-VERIFY-001 — 把 tested 摘要校验变成机器事实
+
+- `status`: `QUEUED`（2026-09-25 审查卡登记；提升须另一次独立提交，且必须排在
+  `VERSION-BRIDGE-IDENTITY-001` 与其重封之后，否则校验对象就是将被作废的旧摘要）。
+- `depends_on`: `VERSION-BRIDGE-IDENTITY-001`（新的 jar/source tree/recipe 摘要）、
+  `VERSION-BUNDLE-1201-001`（封存过程）、`VERSION-INSTALLER-001`（现有 `require_reviewed_plan` 两层门）。
+- `question`: 能否让"registry 说 `tested`"这一步由代码对**真实封存构件**独立核对——真算 bridge jar 的 sha256、
+  真算 1.20.1 的 source tree 摘要、把 registry 条目引用的 `bundle_digest` 与卷内真件对照——缺件或不符即拒，
+  而不是只比较清单文档内部字段与一个硬编码常量？
+- `scope` 与 `allowed_paths`（显式清单）：`adapters/launcher/recipe.py`（bridge 摘要改为**可核对**而非仅常量搬运，
+  常量保留作期望值）、`domain/version_resolution.py` 的证据核验扩展（新增"封存摘要核对"而不是放松现有拒绝）、
+  一个**只读**校验入口（CLI 或 `tools/` 下的核对脚本，写报告不写 registry）、定向 unit/contract 测试与**匿名**
+  fixture、进度文档与本审查记录的补记。
+- `forbidden_paths`: `tests/fixtures/registry/reviewed-tested-bundles.json` 的 `status`/摘要字节（**读**不写，
+  registry 的 `tested` 只能由人工评审后的独立提交改）、任何已封存 recipe/metadata/launch plan 字节、
+  `tests/fixtures/manifest.sha256` 既有行、V06 摘要门的判据文字、`bridge*/` 的握手常量（属
+  `VERSION-BRIDGE-IDENTITY-001`）、地址策略与 HOST/PERSIST、测试域 oracle。
+- `counterexamples`: 摘要与真件不符 → 稳定拒绝；卷内真件缺失/不可读 → 拒绝并说明缺哪个；registry 引用了
+  从未封存过的 digest → 拒绝；只改 registry 文本不改构件 → 拒绝；核对入口写任何文件 → 拒绝（只读契约）。
+  每种结束时不得让 `resolve()` 或安装门比今天更宽松。
+- `validation_class`: `LOCAL_THEN_REAL_RUN`——先单元/契约，再在受控 runner 上对**重封后的** 1.20.1 真件跑一次
+  核对（正例）与一次人为篡改/缺件反例。
+- `stop_conditions`: 若 source tree 无法在 runner 内重算出可核对的摘要（构建不确定性）→ 保留材料并报告，
+  **不得**把常量搬运重新包装成"已校验"；若需要改写任何封存字节才能对上 → 停；若需要放开 `tested` 的写入路径
+  （让脚本自己晋升）→ 停在 `BLOCKED_DECISION`（那与 `tools/report_promotion.py:7-10` 的"只读只判"契约冲突）。
+- `next_after_done`: `KEY-RELEASE-AT-STOP-001`。
+
+### KEY-RELEASE-AT-STOP-001 — 停止阶段的松键要有独立工件
+
+- `status`: `QUEUED`（2026-09-25 审查卡登记，来自 A2；提升须另一次独立提交，排在
+  `TESTED-PROVENANCE-VERIFY-001` 之后、V09 之前——V09 的 look/move/**release** 闭环不能靠 lease 到期记账顶）。
+- `depends_on`: `VERSION-LOCAL-1201-001`（现有 V1201-040 的 lease 路径证据）、`VERSION-BRIDGE-IDENTITY-001`
+  （重封后的 1.20.1 客户端）、1.21.4 侧 CORE-060 已有的 Bridge 释放断言形状（`tools/assert_case_evidence.py:1597-1619`）。
+- `question`: 能否让 1.20.1 在**停止/断连**阶段由 Bridge 自己产出独立工件（"IPC 丢失后释放了 N 个输入"），
+  并由 case 断言核对，使"松键真的送达"不再依赖 Core 侧记账与服务端推断？
+- `scope` 与 `allowed_paths`（显式清单）：`bridge-1201/`（及必要时 `bridge/`）里 IPC 丢失/退出路径的**日志工件**
+  与断连释放实现、`tools/assert_case_evidence.py` 的对应断言、`tests/fixtures/cases/v1201-040.json` 的
+  **新增**断言（不改既有断言语义）、case 注册表与 `docs/development-todo.md` 的读数行、进度文档。
+- `forbidden_paths`: 不放宽 Player-Equivalent/lease/准入判据、不改 registry 的 `status` 字节（缺口是否划出
+  `tested` 声明属产品决策，见 `stop_conditions`）、不动 `tests/fixtures/manifest.sha256` 既有行之外的封存字节、
+  不连接用户远程服、不改 1.21.4 既有证明上下文所需之外的握手判据。
+- `counterexamples`: Bridge 在 IPC 丢失时未释放（必须有正例证明释放）；释放日志缺失或晚于退出（`RELEASE_NOT_LOGGED`
+  那类"按构造打不中"的窗口要显式避开，见 `docs/p0-validation-evidence-contract.md:267-274`）；Core 报
+  `input_release_failed: true` 而 Bridge 报已释放 → 两者必须可区分，不得静默择一；`STOPPED` 单独出现不得
+  被当作松键证据。
+- `validation_class`: `LOCAL_THEN_REAL_RUN`——单元/契约 + 1.20.1 真服上**一次**带断连的停止（真 JVM，要同时有
+  Bridge 释放工件与服务端停下读数）。
+- `stop_conditions`: 若"停止阶段显式松键"需要在产品决策上改变退出/失联策略 → 停在 `BLOCKED_DECISION` 并请
+  主控决定是补证还是把该能力从 `tested` 声明中划出；若 1.20.1 客户端运行时拿不到可写工件的通道 → 保留材料报告，
+  **不得**以 Core 记账冒充 Bridge 释放。
+- `next_after_done`: `STORE-FAILURE-EVIDENCE-001`。
+
+### STORE-FAILURE-EVIDENCE-001 — 补齐 store 故障注入证据并更正 V06 口径
+
+- `status`: `QUEUED`（2026-09-25 审查卡登记，来自 A6；提升须另一次独立提交。这是**证据卡**：不改安装判据）。
+- `depends_on`: `VERSION-INSTALLER-001`（被更正的收卡口径）、既有 store/fetcher 契约（`artifacts.py:151-182/240`）。
+- `question`: 能否用可复判的测试诱发安装期三类故障——staging 写失败（ENOSPC/IOError）、store 层 `os.replace`
+  失败、同一 digest 的并发安装——证明既不产出半成品可见构件也不放宽摘要门？
+- `scope` 与 `allowed_paths`（显式清单）：`tests/unit/`（新增故障注入用例，含 store 层 `os.replace` 与
+  `artifacts.py:176-177` 的 `FileExistsError → verify` 分支）、必要时 `adapters/launcher/artifacts.py` 中
+  **仅为可测性**存在的注入点（不得改变可见性/原子性语义）、`docs/development-execution-plan.md` 里 V06
+  `counterexamples_v06`/`not_tested` 两格的**事实更正**、`tools/check_case_assertions.py` 的 case 注册。
+- `forbidden_paths`: 安装判据与摘要门（`require_reviewed_plan`/`require_store_complete`）的语义、任何封存字节、
+  registry `status`、store 根、隔离目录的 GC 策略（属 `OPERATIONS-RETENTION-001`）。
+- `counterexamples`: 写失败后 `.staging` 事务泄漏可被下次会话当既成事实；`os.replace` 失败后目标路径出现半成品；
+  并发同 digest 两个写入者都以为自己刚写完（必须有一条 `verify` 复核路径）；测试用 monkeypatch 遮蔽了真文件系统
+  行为却声称覆盖真行为。
+- `validation_class`: `LOCAL_ONLY`（纯单元测试可判定；不涉及 Minecraft 运行时，不需要真跑）。
+- `stop_conditions`: 若必须改动可见性/原子性语义才能让三类故障可测 → 停（那属实现变更，须另卡）；
+  若并发同 digest 需要引入跨进程锁 → 停在 `BLOCKED_DECISION`。
+- `next_after_done`: 三卡（含 `VERSION-BRIDGE-IDENTITY-001`）与 V07 的 `not_tested_v07` 缺口都收口后，
   才能单独登记并提升 V08。
 
 ### VERSION-BRIDGE-IDENTITY-001 — BridgeHello 版本声明配对修复

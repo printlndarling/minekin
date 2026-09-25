@@ -1,9 +1,21 @@
 # Qoder 临时执行交接（2026-09-24）
 
-> **最新交接点（2026-09-25，跨版本路线执行中）**：主计划**当前无 `NEXT`**——`VERSION-SESSION-SWITCH-001`（V07）
-> 由 `5e53429` + `b0d08b6` 交付、本提交收卡；下一张 `VERSION-TESTED-GATE-AUDIT-001` 仍是 `QUEUED`，须在
-> **另一次独立提交**才提升。也**不是**下文 ADMIT-070 起步卡，更不是 V01–V06（七者均已 `DONE`；V06 交付
-> `06acbf1`、收卡 `d7a91f9`）。
+> **最新交接点（2026-09-25，跨版本路线执行中）**：主计划**当前无 `NEXT`**——V07 `VERSION-SESSION-SWITCH-001`
+> 已 `DONE`（交付 `5e53429`+`b0d08b6`、收卡 `17e81ea`、CI 补记 `96fb520`），只读审查卡
+> `VERSION-TESTED-GATE-AUDIT-001` 也已 `DONE`（提升 `977dcf4`、收卡见本提交，追溯表在
+> [`tested-gate-audit-2026-09-25.md`](tested-gate-audit-2026-09-25.md)）。下一张**必须**是
+> `VERSION-BRIDGE-IDENTITY-001`（修 `BridgeHello` 谎报并重封 1.20.1），且仍须**另一次独立提交**提升；其后依序是
+> `TESTED-PROVENANCE-VERIFY-001`、`KEY-RELEASE-AT-STOP-001`、`STORE-FAILURE-EVIDENCE-001`。也**不是**下文
+> ADMIT-070 起步卡，更不是 V01–V06（七者均已 `DONE`；V06 交付 `06acbf1`、收卡 `d7a91f9`）。
+> **审查卡的四条硬事实**（决定 V08 为什么还不能领）：① 1.20.1 的 `tested` **没有被任何代码对真实封存构件校验过**
+> ——`resolve()` 只看 protocol/os_arch/version_text/status，条目摘要只与同一份文档的 evidence 段互比；
+> ② V06 安装门里 recipe/plan 两层是真算，**bridge 那层是 `recipe.py:71` 的常量搬运**，jar 真哈希只在启动阶段发生；
+> ③ 两个 Bridge root 的 hello 都写死 `1.21.4`/`0.16.9`，真实是 `1.20.1`/`0.19.5`，修它会让 jar/source/recipe/
+> plan/registry 摘要全部作废须重封重判；④ 1.20.1 **停止阶段显式松键无独立工件**（只有 Core 的
+> `INPUT_RELEASED(TIMEOUT)` 记账，registry 自己也标了 `STOP_PHASE_EXPLICIT_KEY_RELEASE`）。
+> 因此 `tested` **可用于本地受控运行**（V07 就这么用的），**不可当作远程入服的充分证据**。
+> 同批更正：V06 收卡里"三类故障反例沿用既有 store 契约覆盖"不实——写失败注入与 store 层 `os.replace` 失败
+> 都没有测试，`artifacts.py:176-177` 的同 digest 并发分支无测试；登记为 `STORE-FAILURE-EVIDENCE-001` 补证。
 > **V07 交付了什么**：`session start --auto-bundle <被审 registry> --server-profile <目标> --max-bytes N`
 > ——一条 fail-closed 自动路径（**新增** `cli/auto_session.py`，`bootstrap.py` 只加分派段，`cli/parser.py` 加入口
 > 形状），顺序为 两次观测必须一致 → 三处版本事实核对 → `resolve()` → **摘要门先于抓取** → `stop_recorded_clients`
