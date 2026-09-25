@@ -21,14 +21,17 @@
         "handshake_accepted_by_core",
         "leave_after_join_observed",
         "move_input_was_leased",
+        "runtime_controller_sigkill_was_confirmed",
         "server_observed_join_identity",
         "stayed_observe_only",
         "the_bridge_carried_the_input_out",
+        "the_bridge_released_the_input_when_the_ipc_was_lost",
         "the_first_snapshot_was_refused_by_the_reason_the_case_names",
         "the_lease_expired_and_was_released",
         "the_refusal_was_asked_of_this_run",
         "the_refused_generation_was_closed_and_never_reopened",
         "the_server_saw_the_kin_move",
+        "the_server_saw_the_kin_stop_after_the_move",
         "the_server_saw_the_kin_turn",
         "this_run_joined_a_world_it_was_never_told_it_could_play"
       ],
@@ -70,6 +73,15 @@
           "launch_plan_digest": "83299ad5e224959de8e30c72c5937a2434c4d7bba92c62f4d22cf8d89f5f6181",
           "result": "PASS",
           "attempt": 2
+        },
+        {
+          "case_id": "V1201-060",
+          "run_id": "f71c56f03c7e4d1b9f36028a1edfb945",
+          "bundle_digest": "90d490cea3a64fa239f82fa916e29cf562f52f059f1b7dba5df9469b12b38f3b",
+          "bridge_digest": "e50d61c209be98136216b34aadbb6d5a12db8def8aa63a536f32cda8e287006f",
+          "launch_plan_digest": "83299ad5e224959de8e30c72c5937a2434c4d7bba92c62f4d22cf8d89f5f6181",
+          "result": "PASS",
+          "attempt": 1
         },
         {
           "case_id": "V1201-070",

@@ -4368,9 +4368,11 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 
 ### KEY-RELEASE-AT-STOP-001 — 停止阶段的松键要有独立工件
 
-- `status`: `NEXT`（2026-09-25 审查卡登记为 `QUEUED`，来自 A2；`14d85a0` 单独提升为唯一 `NEXT`，当前无第二张
-  `NEXT`。前置 `TESTED-PROVENANCE-VERIFY-001`（`49d6d01`）与 `BRIDGE-1214-RUNTIME-IDENTITY-001`（实现 `16dbb42`、收卡
-  `2464901`）已 `DONE`；本卡排在 V09 之前——V09 的 look/move/**release** 闭环不能靠 lease 到期记账顶）。
+- `status`: `DONE`（2026-09-25 收卡，运行与复判读数记在 `completion_readings_key_release`。**两条
+  `stop_conditions` 都没有触发**：退出/失联策略一字未改（本卡没有动 `bridge-1201/`、`bridge/` 任何字节，
+  也没有动 `tools/assert_case_evidence.py`），松键工件取自客户端自己的 `client/latest.log`（`stderr.log`
+  为 0 字节），不是 Core 记账顶替。registry 条目的 `status` 与 `gaps` **保持原样**——`STOP_PHASE_EXPLICIT_KEY_RELEASE`
+  是否从 `tested` 声明里划出属 `forbidden_paths` 点名的主控决策，本卡不代其判定。）
 - `depends_on`: `VERSION-LOCAL-1201-001`（现有 V1201-040 的 lease 路径证据）、`VERSION-BRIDGE-IDENTITY-001`
   （重封后的 1.20.1 客户端）、1.21.4 侧 CORE-060 已有的 Bridge 释放断言形状（`tools/assert_case_evidence.py:1597-1619`）。
 - `question`: 能否让 1.20.1 在**停止/断连**阶段由 Bridge 自己产出独立工件（"IPC 丢失后释放了 N 个输入"），
@@ -4432,6 +4434,49 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
     `tests/fixtures/cases/v1201-060.json` 镜像 `CORE-060` 的四条断言（复用**同一批** runtime 实现，摘要逐字照抄，
     不新写判据）。加 case 会移动 fixture 清单与该 case 的摘要 ⇒ 收卡时须按既有做法**一次原子**把它登记进
     registry 的 `capabilities`/引用行并重封，不得留下"实现已改、引用仍旧"的半成品。
+- `completion_readings_key_release`（2026-09-25，受控 runner / Docker / Linux，`MINEKIN_SERVER_JAR` 为按
+  `tools/verify_supply_chain.py` 量过的 1.20.1 pinned jar，sha256 `3af73a9dc5a102e38147946360dd27d4d70bae7055bf91cf2151cd5d121b79e0`；
+  运行全文 `.tmp/keyrelease-v1201-060-run.log`，服务端目录 `/data/server-runs/run-166`）：
+  - **真跑一次即封证 PASS**：`MINEKIN_DOMAIN_CASE=V1201-060 MINEKIN_DOMAIN_KILL_CORE=1`（**未**设
+    `MINEKIN_DOMAIN_PROBE_SECONDS`，用默认 5 秒）→ run `f71c56f03c7e4d1b9f36028a1edfb945`、bundle
+    `90d490cea3a64fa239f82fa916e29cf562f52f059f1b7dba5df9469b12b38f3b`、`case_version
+    2a1795b70211ef486c8b3877de9c2f3b1eeb7e3b1e5a5140219511405df37f8a`、attempt 序列 **1**、13 件工件、
+    `failures: []`；`python -m minekin_core evidence verify <dir>` → `verified/sealed/PASS`、`violations: []`。
+  - **Bridge 自己写的工件**（本卡 `question` 要的那一条，客户端 `client/latest.log`）：
+    `:205 [minekin-bridge-ipc/ERROR]: bridge is failing closed (IPC_LOST); the client will be stopped by its next tick`
+    → `:206 [Render thread/INFO]: bridge released move.forward` → `:207 [Render thread/INFO]: bridge released
+    1 input(s) after IPC_LOST`；`client/stderr.log` 为 **0 字节**。同一份日志 `:210` 还有
+    `bridge released 0 input(s) after LEFT_PLAYABLE (PLAY_ENDED)` —— 即"为别的原因的释放"与"失联释放"在同一次
+    运行里同时在场，断言按 reason 区分而非按行存在与否。
+  - **拷贝工件键控复判**（`docker create -v minekin-runner-data:/data:ro` + `docker cp` 到仓库内
+    `.tmp/f71c56f03c7e4d1b9f36028a1edfb945/`，以 run_id 命名的一级目录）：
+    `bash test-orchestrator/runner/run.sh --shell 'bash /src/.tmp/kr-audit.sh'` ⇒
+    `python tools/rejudge_evidence.py /src/.tmp/f71c56f0…` 对**拷贝**给出
+    `disagreements: []`、四条断言 `observed == expected`、`result: PASS`；
+    `python tools/replay_evidence.py <dir>` 与 `python -m minekin_core replay <dir>` ⇒ 16 事件投影到
+    **`PLAYABLE`**（Core 被杀，本卡不据投影状态声明 `STOPPED`）、`violations: []`、trace sha256
+    `ae76edb44da1b9106fb597a7dfdc2a322d3b7b7553dbba2316ffb14e4e004116`（11,750B）；
+    `python tools/report_promotion.py --data-root /data --work-package W70` 有 `V1201-060 / f71c56f0…` 行；
+    `python tools/verify_tested_provenance.py --registry … --data-root /data` ⇒ `verified: true`、
+    `skipped_not_tested: []`、该条目 `findings: []`、`registry_revision 989515082ca824cc9d68bed47bfcc80fafac461598a2abf4f813cc039fc382d2`。
+  - **反空判反转**（对同一份拷贝的 `read_sealed_material` 结果改文本再判，`b1214` 那次是 1.21.4 案，这里是 1.20.1 案）：
+    删掉 `after IPC_LOST` 那两行 → `RELEASED_FOR_ANOTHER_REASON:LEFT_PLAYABLE`；删掉全部 `bridge released` →
+    `RELEASE_NOT_LOGGED`；把 `released 1 input(s)` 改成 `0` → `HELD_NOTHING_WHEN_THE_RUNTIME_WENT_AWAY`；
+    删掉服务端 entity-data 读数 → `the_server_saw_the_kin_stop_after_the_move: NO_SERVER_READINGS`。
+    四条在原始拷贝上均为 `null`（成立）。**如实记一处取法边界**：同一脚本里直接单点调用
+    `runtime_controller_sigkill_was_confirmed` 返回 `FAULT_RECORD_IS_ANOTHER_CASE:V1201-060`——该断言的期望案名
+    由复判路径注入、不从封存目录自行推断，故本卡不据这一格下任何结论，权威读数是上面那条对拷贝跑的 `rejudge_evidence.py`。
+  - **移动过的摘要**（一条不剩）：`tests/fixtures/cases/v1201-060.json` 新增 → manifest 第 83 行
+    `11fb2c0223cd366c31cb4eb6cce23a0b4de9e53809a377899662ddbb9e1ab0a9`（交付 `bd8f6b7`）；
+    `tests/fixtures/registry/reviewed-tested-bundles.json` 1.20.1 条目**新增**一条证据引用
+    （`V1201-060 f71c56f0…/90d490ce…`，`bridge_digest e50d61c2…`、`launch_plan_digest 83299ad5…`、`result PASS`、
+    attempt 1）与三个 capability 名，其 manifest 行 `82a54075e268440d52415eb23ece8c1aa2252901353dd377f5f49fd1e6ba464e`
+    → `69244c326a2c0dbc8f8dee21522385ce285d6943c1d567c4cbfd1efa6163c98a`。条目 `status`、`gaps` 九条、
+    1.21.4 条目、其余 fixture 与封存字节一字未改；registry 改动与本次运行**同一提交**原子落地（不留"引用已登记、
+    证据未取得"或反向的半成品）。
+  - **本卡未测项**：①"显式松键"（玩家主动停止/session stop 那一格）在 1.20.1 上仍无独立工件——本卡测的是
+    **Core 被杀**后的失联释放；②`STOP_PHASE_EXPLICIT_KEY_RELEASE` 缺口是否划出 `tested` 声明属主控决策，本卡
+    未代其判定；③没有把 lease 到期那一格（`V1201-040`）改造成断连案，`v1201-040.json` 与其证据一字未动。
 - `next_after_done`: `STORE-FAILURE-EVIDENCE-001`。
 
 ### STORE-FAILURE-EVIDENCE-001 — 补齐 store 故障注入证据并更正 V06 口径
