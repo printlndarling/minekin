@@ -2744,3 +2744,61 @@
 - **边界**：不改产品代码（两 root 该路径本就写对）；不动 registry 的 `status`/`gaps`（是否划出
   `STOP_PHASE_EXPLICIT_KEY_RELEASE` 属主控对 `tested` 声明的决定）；不连接用户远程服；不实现
   `PROCESS-RECOVERY-001`。停止条件写在卡里：拿不到这行且不碰产品代码就 `BLOCKED_DECISION`。
+
+## EXPLICIT-RELEASE-AT-STOP-001 真跑现场与结构性阻断（2026-09-25，attempt 1/2，Windows + 受控 runner）
+
+- **判官侧已交付**（`f38cf34`，已推到 `origin/codex/core-state-transition` 与 `origin/main`）：
+  新 runtime token `the_bridge_released_the_input_when_the_session_was_stopped` 只收日志原话
+  `released N input(s) after CORE_REQUEST (EXPLICIT)` 且 N>0；`tools/check_case_assertions.py` 报
+  `OK (140 registered)`；case fixture `tests/fixtures/cases/v1201-080.json`（manifest 摘要
+  `f4ef3adf5d6260bb66145b0ee1e7664f3d770daec33becb2bee342fac0bd2945`）；单元侧正例 + 五条拒绝理由
+  （`NO_CLIENT_LOG` / `RELEASE_NOT_LOGGED` / `RELEASED_FOR_ANOTHER_REASON:…` /
+  `HELD_NOTHING_WHEN_THE_SESSION_WAS_STOPPED`）各配非空转反证，另有一条 positive control `exit 0`。
+  本次复跑：`uv run --frozen pytest tests/unit -q` → `2184 passed, 2 skipped`。
+- **attempt 1**（run `6d11ab7d35b64f83a9352ff120bceaa2`、bundle `6afda194861acb0dc5f43d09fedcbc2694854a83019dbc65ff7cd4a49445efe1`）：
+  `result FAIL`，`failures = ["the_bridge_released_the_input_when_the_session_was_stopped:RELEASE_NOT_LOGGED"]`。
+  现场是 `client/latest.log:204 [15:52:59] Kin was slain by Slime` + `:205 bridge released move.forward` +
+  `:206 bridge let go of its held input: the client is showing DeathScreen`——Kin 在停止前已死，
+  且那行 `bridge released move.forward` 不是计数形状，token 因此报 `RELEASE_NOT_LOGGED`（材料保留，未删）。
+- **attempt 2 是专门为排除死亡干扰而起**（`--hold-forward-seconds 180` 对 `MINEKIN_DOMAIN_SECONDS=60`；
+  run `ffdd54fcdf454938a7ec63d045860ea6`、bundle `931157feaae6cbc94cd31777feb15fe5de4380e24c438540f2e0a8d8a155119c`）：
+  `result FAIL`、同一 `failures` 项。封存的 `client/latest.log` 里 `grep -ic released` = **0**、
+  `grep -ic deathscreen` = **0**，末两行是 `bridge pressed move.forward` 与
+  `bridge applied 2f2adcf0894541a18f5ff0151e5fc614: holding [move.forward]`；run document 记
+  `input_release_failed: true`、`outcome: BRIDGE_LOST`、`connection_state: PLAYABLE`、`session_state: STOPPED`，
+  `session stop` 输出 `terminated: [235]`（235 是 run document 的 `pid`）。
+  容器内逐条复判两件封存件：`move_input_was_leased` 与 `the_server_saw_the_kin_stop_after_the_move` **两跑都 observed**，
+  缺的只有本卡那一格。
+- **结构性结论（读代码 + 真跑读数一致）**：`session stop` 的路径是 `bootstrap.py:323 →
+  cli/session.py:1560-1582 → adapters/launcher/orphans.py:314-353`，终步对客户端进程 `terminate(pid)`；
+  运行时只在 `reader`/`client` 结束后进入 `finally`（`cli/session_runtime.py:423-438`），其中
+  `connections.close()`（:432）在 await `on_wind_down()`（:433-435）之前，失败置
+  `progress.release_failed = True`（:436-437）。`RELEASE_ALL_INPUTS` 全仓只有 `cli/session.py:1370` 一个发送者，
+  Core 亦无信号处理器 ⇒ **显式松键命令的发出点永远在它的接收方被终止之后**。lease 到期 / 离开可玩态 /
+  Core 被杀三种释放之所以有工件，是因为它们在 Bridge 还活着时发送。
+- **因此本卡按自己的 `stop_conditions` 第①格停在 `BLOCKED_DECISION`**：不改两 root 的松键路径、不改任何产品代码、
+  不改判据、不动 registry（`STOP_PHASE_EXPLICIT_KEY_RELEASE` 仍在九条 `gaps` 里，registry 摘要一字未动）、
+  不提升 V08、不连接用户远程服。
+- **决策已得（2026-09-25，用户）**：在 (a)「把停止改成先向活着的 Bridge 显式释放、再终止客户端」与
+  (b)「承认这一格只能由 Core 记账 + 服务端推断覆盖并据此改写/划出缺口」之间，用户选 **(a)**：
+  「修正产品的停止顺序，先让仍存活的 Bridge 确认松键，再终止客户端」。承接它的是主计划里以 `QUEUED` 登记的
+  `GRACEFUL-STOP-KEY-RELEASE-001`（机制：`<run_root>/stop-requests/<session_id>-generation-<n>.json` 请求 +
+  `.ack.json` 回执；会话侧新增 `until_stop_request`/`on_stop_request` 分支走既有
+  `release_inputs(arbiter, EXPLICIT)`；`on_wind_down` 只在已确认的停止后跳过重发；`session stop` 先问后杀、
+  超时回落到今天的终止并如实报告未确认）。
+- **登记那张卡时新测得的两条边界事实**（更正先前"改产品代码会牵动 1.21.4 重封"的说法）：
+  `tools/report_promotion.py:204-222` 的 `from_repository_build` 只把 bundle 记的 launch plan 摘要与本检出
+  按该版本算出的摘要相比，Python 侧改动不移动它 ⇒ 被 registry 引用的 run 不需重封；
+  `tools/assert_case_evidence.py:1591-1602` 的 `the_lease_expired_and_was_released` 取 reason **集合**含
+  `TIMEOUT`，故停止阶段多出的 `INPUT_RELEASED(EXPLICIT)` 不改变 V1201-040 的结论（仍按验收再跑一次复证）。
+  另注意 `cli/auto_session.py:255` 的版本切换也是"直接终止"，本卡明示留在范围外（`non_goals`）。
+- **可复跑读数**（同形状，卷内两件封存件仍在）：
+  `MINEKIN_KIN_ID=kin-01 MINEKIN_SERVER_JAR=.tmp/mc-1.20.1-server.jar MINEKIN_DOMAIN_CASE=V1201-080
+  MINEKIN_DOMAIN_PROBE=Kin MINEKIN_DOMAIN_SECONDS=60 bash test-orchestrator/runner/run.sh domain session start
+  --profile tests/fixtures/runtime-input/bundle-candidate-1.20.1.json
+  --server-profile tests/fixtures/runtime-input/controlled-offline-server-1.20.1.json --hold-forward-seconds 180`；
+  复判：把 evidence 目录从卷里 `docker cp` 出来后用**入库的**读者
+  `uv run python tools/rejudge_evidence.py <绝对 bundle 目录>`；本次另用了 `.tmp/er-audit.sh`（未入库的临时脚本，
+  内容只是 `read_sealed_material` + `evaluate` 套在 `tests/fixtures/cases/v1201-080.json` 上，逐条打印
+  `observed`/`failures`，与 `rejudge_evidence.py` 同源）；
+  转录：`.tmp/explicit-release-v1201-080-run.log`、`.tmp/explicit-release-v1201-080-run2.log`。

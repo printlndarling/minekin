@@ -18,14 +18,19 @@
   回归基线；除非真实回归或当前 1.20.1 卡不可绕过的前置阻断，不再新增 1.21.4 功能专题。
   即使遇到前置阻断，也先登记范围与证据、按唯一 `NEXT` 流转，不得借 `.tmp/` 中的实验记录
   自行改排期或把临时构建当作新主线。HOST/PERSIST、在线认证、远程服授权等既有停机边界不变。
-- `current_next`: **`EXPLICIT-RELEASE-AT-STOP-001`**（`b22a262` 以 `QUEUED` 登记并推到两条 ref，本提交按交接
-  第 1、6 项单独提升为唯一 `NEXT`；提升前计划里没有 `NEXT`，中间未插入别的未授权工作。它补的是 registry 那条
-  `STOP_PHASE_EXPLICIT_KEY_RELEASE`：Core 的 wind-down 会以 `ReleaseReason.EXPLICIT` 显式发 `ReleaseAllInputs`
-  （`cli/session.py:1433`、`:1360-1385`），1.20.1 的 Bridge 会把松手写成日志（`bridge-1201/.../BridgeIpcWorker.java:233-237`、
-  `:825-840`），但仓库里**没有**任何断言收 `CORE_REQUEST (EXPLICIT)` 这个形状——`_BRIDGE_RELEASE`
-  （`tools/assert_case_evidence.py:161`）不捕获括号里的 reasonCode。本卡先加一个要求 N>0 的 runtime token，
-  再在受控 1.20.1 真服上封一次。**不改产品代码、不动 registry、不连接用户远程服**；
-  **V07 剩余缺口是否算收口、是否提升 V08 为 `NEXT` 仍由主控决定**，本卡不代为登记下一张。）
+- `current_next`: **无**（`EXPLICIT-RELEASE-AT-STOP-001` 由本提交依其 `stop_conditions` 第①格转为
+  `BLOCKED_DECISION`：判官侧的新 token、case `V1201-080` 与单元门禁已在 `f38cf34` 交付并推到两条 ref，
+  但两次受控 1.20.1 真跑（attempt 1 run `6d11ab7d…`/bundle `6afda194…`，attempt 2 run `ffdd54fc…`/bundle
+  `931157fe…`）都封在同一个命名理由 `RELEASE_NOT_LOGGED` 上。结构性原因（实测+读代码）：`session stop` 直接
+  `terminate()` 客户端进程（`adapters/launcher/orphans.py:314-353`），而 Core 的显式松键要到
+  `cli/session_runtime.py:423-438` 的 wind-down 才发出——那时 Bridge 已被这次停止终止，两跑皆
+  `input_release_failed: true`。同一 run 里 `move_input_was_leased` 与 `the_server_saw_the_kin_stop_after_the_move`
+  两格**都成立**，attempt 2 的客户端日志末行仍是 `holding [move.forward]` ⇒ 场景没问题，缺的是产品侧的停止次序。
+  要拿到那行必须改产品代码（本卡 `forbidden_paths` 明令不改），或改判 registry 那条 `STOP_PHASE_EXPLICIT_KEY_RELEASE`
+  的含义。**2026-09-25 用户已就本题作答**：修正产品的停止顺序，先让仍存活的 Bridge 确认松键、再终止客户端 ⇒
+  由 `GRACEFUL-STOP-KEY-RELEASE-001`（本提交以 `QUEUED` 登记）承接，提升为唯一 `NEXT` 由紧随提交完成。
+  读数、失败材料与复跑命令记在该卡 `blocked_readings_2026-09-25`；
+  registry 的 `status`/九条 `gaps`/digest 原样，V08 未提升，用户远程服未连接。）
   （上一张 `AUTO-PATH-INSTALL-RUN-001` 由 `e890924` 收卡：`94cb15b` 登记、提升提交 `298883e`，收卡读数记在
   该卡 `completion_readings_auto_path`——空 store 的自动 `session start` 真跑已在**同一个 run** 内同时给出
   `installed 3639 / reused 0` 与封存的 `PlayableEstablished`，四读一致、三条非空转反证各红在其命名理由上；
@@ -48,7 +53,15 @@
   [tested 晋级门复判记录](tested-gate-audit-2026-09-25.md)；V07 收卡 `17e81ea`+`96fb520`。）
   用户在七场景总账后明确把“自动识别服务器版本 → 准备匹配客户端 → 入服并完成简单控制”排为优先路线；
   `VERSION-AUTO-DESIGN-001` 已交付[跨版本连续执行计划](version-auto-to-server-control-plan.md)。
-- `last_checkpoint`: **跨版本路线走到自动路径的空 store 真跑补证收口**——`AUTO-PATH-INSTALL-RUN-001`（本提交收卡）在
+- `last_checkpoint`: **1.20.1 停止阶段的显式松键：判据已就位、工件卡在产品侧停止次序**——`EXPLICIT-RELEASE-AT-STOP-001`
+  的判官侧（`the_bridge_released_the_input_when_the_session_was_stopped` + case `V1201-080`）已在 `f38cf34` 落地并推到
+  两条 ref，两次受控 1.20.1 真跑（`6d11ab7d…`/`ffdd54fc…`）各封一个新 attempt、都红在 `RELEASE_NOT_LOGGED`：
+  同 run 的 lease 与服务端停步两格成立、停止时键仍被按着，而 Bridge 一行释放都没写，因为 `session stop` 先终止客户端、
+  Core 的 `ReleaseAllInputs(EXPLICIT)` 在 wind-down 里才发（`session_runtime.py:423-438`，两跑 `input_release_failed: true`）。
+  依卡片自身 `stop_conditions` 第①格停在 `BLOCKED_DECISION`：**未改**两 root 松键路径与任何产品代码、**未改**判据、
+  registry 与 V08 原样、失败材料两件封存 bundle 全留（读法与复跑命令记在该卡 `blocked_readings_2026-09-25`）。
+  **2026-09-25 用户已答此题**（修正停止顺序：先让仍存活的 Bridge 确认松键，再终止客户端），该决策由本提交以
+  `QUEUED` 登记的 `GRACEFUL-STOP-KEY-RELEASE-001` 承接；**本提交仍无 `NEXT`**，提升由紧随的独立提交完成。上一 checkpoint 是 **跨版本路线走到自动路径的空 store 真跑补证收口**——`AUTO-PATH-INSTALL-RUN-001`（`e890924` 收卡）在
   卷内一个全新 Kin 的空 `run/artifact-store` 上让自动路径自己装齐（封存 `run-document.json`：
   `fetch_set 3639 / installed 3639 / reused 0`，落盘 `3639 files / 738,432,269 字节`），并在**同一个 run** 的封存
   `bridge-trace.jsonl` 里拿到 `PlayableEstablished`（run `7236c53e…`、bundle `9a732edc…`、case `V1201-020`、
@@ -4721,10 +4734,111 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
      - 两条 `stop_conditions` **都没有触发**：抓取没被网络阻断（实测装齐到 3639 件），会话也是在
        `PlayableEstablished` **之后**才由 `session stop` 结束，因此没有走进"必须改判据或改等待语义才取得读数"那一支。
 
+### GRACEFUL-STOP-KEY-RELEASE-001 — 停止顺序修正：先让仍存活的 Bridge 确认松键，再终止客户端
+
+- `status`: `QUEUED`（本提交登记并推到两条 ref；提升为唯一 `NEXT` 由紧随的独立提交完成，中间不插入别的未授权工作。）
+- `decision_source`: 用户 2026-09-25 就 `EXPLICIT-RELEASE-AT-STOP-001` 的 `blocked_readings_2026-09-25` 第 7 格
+  选定 (a)：「修正产品的停止顺序，先让仍存活的 Bridge 确认松键，再终止客户端。」
+- `depends_on`: `EXPLICIT-RELEASE-AT-STOP-001`（判官侧 token 与 case `V1201-080` 已在 `f38cf34` 就位；
+  那张卡自身的 `forbidden_paths` 不因本决策放宽，工件由本卡取得）、`VERSION-SESSION-SWITCH-001`
+  （被改的正是 `session stop` 与 wind-down 的次序）。
+- `question`: 能否让 `session stop` 在终止客户端**之前**先向**仍活着**的 Bridge 发出显式
+  `ReleaseAllInputs(reason_code=EXPLICIT)` 并**得到确认**，使 1.20.1 在**不改一条判据**的前提下把
+  `V1201-080` 封成 PASS（客户端日志一行
+  `bridge released N input(s) after CORE_REQUEST (EXPLICIT)`，N>0），同时保持"身份未证明的 PID 绝不被信号"、
+  run document 的字段集、以及三种既有释放（`TIMEOUT` / `LEFT_PLAYABLE` / `IPC_LOST`）的语义不变？
+- **领取前量到的现场**（2026-09-25，基点 `f38cf34`，全部是读代码或真跑读数，不是推断）：
+  1. 今天的停止是一条**不带询问**的终止：`bootstrap.py:323 → cli/session.py:1560-1582 →
+     adapters/launcher/orphans.py:314-353`，终步 `terminate(pid)` 打在**客户端进程**上；而
+     `RELEASE_ALL_INPUTS` 全仓只有一个发送者（`cli/session.py:1370`，经 `:1433` 以 EXPLICIT 调用），
+     它运行在 `cli/session_runtime.py:423-438` 的 `finally` 里、即 `connections.close()`（:432）**之后**。
+     两次真跑（run `6d11ab7d…` / `ffdd54fc…`）都记 `input_release_failed: true` 且客户端日志里 `released` 计数为 0。
+  2. 会话侧已有**可复用的同形状先例**：`until_input_release` / `on_input_release`（`session.py:1390-1419`）
+     正是"时刻由调用方掌握、运行时照做且**不结束 run**"的分支，`session_runtime.py:368-402` 的 `branches`
+     本就支持任意多条这类分支。"操作员要求停止"就是缺的那一条时刻。
+  3. 客户端进程由会话自己持有的 supervisor 管理（`adapters/launcher/supervisor.py:87/153/163` 的
+     `running()` 与 `stop(timeout_s)`），而今天 `cli/` 里**无人调用** `supervisor.stop()`——终止权在
+     `session stop` 那条命令手里。本卡**保持**这一分工：谁终止不变，只改**次序**。
+  4. `session stop` 与活会话是两个进程，今天之间**没有任何通道**。marker 在
+     `<run_root>/session/<session_id>/generation-<n>/process.json`（`orphans.py:101-117`、`_markers` :119-124），
+     它已含 `session_id` 与 `generation` ⇒ 请求该投递到的地址今天就查得到。
+  5. 判据侧不需要改动：`V1201-080` 三条断言在 attempt 2 里已是"两条 observed + 只缺本卡那一条"
+     （`move_input_was_leased`、`the_server_saw_the_kin_stop_after_the_move` 都成立）。
+  6. 回归面实测：`tools/report_promotion.py:204-222` 的 `from_repository_build` 只把 bundle 记的 launch plan
+     摘要与本检出按该版本算出的摘要相比（后者由 recipe / bridge jar / source tree 决定），Python 改动不移动它
+     ⇒ 被 registry 引用的 run **不需要**重封；`the_lease_expired_and_was_released`
+     （`tools/assert_case_evidence.py:1591-1602`）取 reason **集合**含 `TIMEOUT`，故停止阶段多出的一条
+     `INPUT_RELEASED(EXPLICIT)` 不改变 V1201-040 的结论——但这一格仍要真跑复证（见 `acceptance` 第 4 格）。
+- **要做成的形状**（设计决策写进卡，实现按此落地）：
+  - 新增一对文件：**停止请求** `<run_root>/stop-requests/<session_id>-generation-<n>.json`
+    （含 `request_id`、`requested_at`）与其**回执**同名 `.ack.json`（回同一 `request_id`）。放在 run root 下
+    独立的 `stop-requests/` 目录，**不**写进 overlay（overlay 的既有内容属会话状态）。
+  - `session stop`：对每个**已证明是本 run 记录的**客户端 PID（身份证明与三态归类规则一字不改），先按 marker
+    给出的 `session_id`/`generation` 写请求，再在**有界等待**内等回执；等到 → 报告"松键在终止前已确认"；
+    等不到（无活会话应答 / 超时）→ 照今天的路径终止并**如实报告未确认**。退出码仍只由 `outcome.complete` 决定。
+  - 活会话：`session_runtime` 多接一对 `until_stop_request` / `on_stop_request`（与既有两条同形状，触发后
+    **不结束 run**）；`on_stop_request` 走既有的 `release_inputs(arbiter, ReleaseReason.EXPLICIT)`
+    （`session.py:1360-1388`：同一函数、同一字面 reason、同一 ledger 记账），发送成功后写回执。
+  - `on_wind_down`：**当且仅当**本次 run 已按停止请求把 EXPLICIT 释放送达时跳过重发；其它任何结束原因下仍是
+    无条件的安全网（`session.py:1421-1428` 注释所依据的理由不被削弱）。
+  - **不新增 run document 字段、不动 `schema_version`**：确认与否由 `session stop` 自己的输出、ledger 的
+    `INPUT_RELEASED` 行与 Bridge 的日志承担。
+- `scope` 与 `allowed_paths`（显式清单）：
+  - `src/minekin_core/adapters/launcher/stop_request.py`（新）：请求/回执两份文档的写入与容错读取
+    （读不到 / 不可解析 / schema 不符 ⇒ 视为"没有请求"，不抛给操作员）；
+  - `src/minekin_core/cli/session_runtime.py`：仅**新增**一对 caller-owned 分支参数及其取消/失败记账，
+    不改既有分支语义；
+  - `src/minekin_core/cli/session.py`：会话侧 `until_stop_request` / `on_stop_request`、`on_wind_down` 的
+    条件跳过、`stop_session()` 的"先问后杀 + 超时回落 + 如实报告"；
+  - `tests/unit/test_stop_request.py`（新）与既有会话/停止侧测试文件的**新增**用例；
+  - 本计划、`development-todo.md`、`qoder-execution-handoff.md` 的状态与读数。
+- `forbidden_paths`: 判据一字不改——`tools/assert_case_evidence.py`、`tools/check_case_assertions.py`、
+  `tests/fixtures/cases/**`（含 `v1201-080.json`）、`tests/fixtures/manifest.sha256`；
+  registry `tests/fixtures/registry/reviewed-tested-bundles.json` 的任一字（`STOP_PHASE_EXPLICIT_KEY_RELEASE`
+  是否划出仍归主控）；`bridge/**`、`bridge-1201/**`、`proto/**`（两 root 的松键与日志形状本就对）；
+  `adapters/launcher/orphans.py` 的**身份证明与终止判定规则**（`prove_process_identity`、
+  `stop_recorded_clients` 的三态归类、`terminate_process`）——本卡只在其之前加一次询问；
+  `cli/auto_session.py` 的版本切换停止路径（见 `non_goals`）；run document 的字段集与 `schema_version`；
+  既有封存 bundle 与 attempt 序号（重试领新序号）；V1201-060 的 `IPC_LOST` 那一格；用户的真实远程服（属 V08）；
+  `PROCESS-RECOVERY-001` / `OPERATIONS-RETENTION-001` 的残留进程与 marker 策略。
+- `acceptance`:
+  1. 单元证据覆盖四条行为且**非空转**：(i) 请求在场 → 会话在 Bridge 仍活时发出 EXPLICIT 释放并写回执；
+     (ii) `session stop` 在 `terminate` **之前**看到回执（测试须能区分"先确认后终止"与"终止之后才确认"）；
+     (iii) 无活会话 / 超时 → 回落到今天的终止并报告未确认；(iv) 已确认的停止之后 wind-down **不再重发**，
+     而其它结束原因照旧发。把 (ii) 改回"直接终止"必须让测试红；
+  2. 门禁全绿：`uv run --frozen pytest tests/unit`、`ruff check`、`ruff format --check`、`pyright`、
+     `tools/check_case_assertions.py`、`tools/verify_fixture_digests.py`、`tools/check_boundaries.py`、
+     `git diff --check`；
+  3. 1.20.1 受控真跑一次（attempt 2 的同形状：`--hold-forward-seconds 180` + `MINEKIN_DOMAIN_SECONDS=60`），
+     **判据不改**，封存 `client/latest.log` 出现 `bridge released N input(s) after CORE_REQUEST (EXPLICIT)`
+     （N>0），以 `V1201-080` 封成 `result PASS`（新 attempt 序号），四读一致且 `from_repository_build: true`；
+  4. 同形状再跑一次 **V1201-040**（lease 到期那一格）并 `result PASS`——修复会让停止阶段多一条
+     `INPUT_RELEASED(EXPLICIT)`，这一跑是"旧结论没被改坏"的真跑证据，不是可选项；
+  5. 至少三条反证各红在其**命名理由**上，且有一条 positive control `exit 0`；
+  6. 独立 commit + push 到两条 ref，`git ls-remote` 核对。
+- `counterexamples`（逐个必须打不中）: 把超时回落当确认；用 Core 的 `INPUT_RELEASED(EXPLICIT)` 记账顶替
+  Bridge 那一行；用 `released 0` 充数；靠整体删掉 wind-down 的无条件安全网来"避免重发"；
+  以"会话结束时 Bridge 恰好还活着"当成交；拿 V1201-060 的 `IPC_LOST` 工件顶替本卡的显式释放。
+- `validation_class`: `PRODUCT_CHANGE_WITH_REAL_RUN`——改产品代码并有单元证据，结论仍只来自 1.20.1 上
+  那一次真跑及其封存读数（外加 V1201-040 的回归真跑）。
+- `stop_conditions`: 若活着的 Bridge 收到 `ReleaseAllInputs` 后**不写**那行（要改 Java 才写）→ 停在
+  `BLOCKED_DECISION`、不改两 root；若"确认"必须靠改 run document schema 或 ledger 语义才做得到 → 停止并报告，
+  不改判据也不扩字段；若 V1201-040 那一格因这次改动再也封不出 PASS → 停止，保留两条失败件，不削弱判据；
+  真实运行连续三次重现同一外部阻断 → 停止并报告。
+- `non_goals`: 不改 `cli/auto_session.py` 的版本切换停止（那里今天也是"直接终止"；切换阶段的松键若要有工件，
+  另立一张，本卡不代为扩面）；不判定 V07 剩余缺口是否收口；不提升 V08、不连接用户远程服；
+  不把 `STOP_PHASE_EXPLICIT_KEY_RELEASE` 从 registry 的 `gaps` 里划掉；不动 `USE_TARGET_BLOCK_CHANGE`；
+  不实现 `PROCESS-RECOVERY-001`。
+- `next_after_done`: 本卡收口后 `V1201-080` 有 PASS 件、1.20.1 的 `STOP_PHASE_EXPLICIT_KEY_RELEASE` 那一格有
+  Bridge 自己的工件，registry 原样；**是否据此划出缺口、是否提升 V08 仍归主控决定**，本卡不代为登记下一张。
+
 ### EXPLICIT-RELEASE-AT-STOP-001 — 停止阶段的显式松键要在 1.20.1 上有 Bridge 自己的工件
 
-- `status`: `NEXT`（`b22a262` 以 `QUEUED` 登记并推到两条 ref，本提交按交接第 1、6 项单独提升为唯一 `NEXT`；
-  提升前计划里没有 `NEXT`，中间未插入别的未授权工作。）
+- `status`: `BLOCKED_DECISION`（本提交按本卡自己的 `stop_conditions` **第①格**停下：判官侧已经交付并推到两条 ref
+  （`f38cf34`，新 token + case `V1201-080` + 单元门禁全绿 + 非空转反证与 positive control），但两次受控 1.20.1
+  真跑各封一个新 attempt 序号、都红在同一个命名理由 `RELEASE_NOT_LOGGED` 上；要拿到 Bridge 那一行**必须改产品代码
+  里"停止"的次序**，而改哪一处、要不要改是用户/主控的产品决策，不在证据卡权限内。读数见
+  `blocked_readings_2026-09-25`，失败材料一字未删。）
 - `depends_on`: `VERSION-SESSION-SWITCH-001`（被测的是会话 wind-down 那一格）、`KEY-RELEASE-AT-STOP-001`
   （同族的**失联**那一格，先例与跑法都在它那里）。
 - `question`: 1.20.1 上 Kin **手里还按着键**时被主动停止（Core 活着、显式发出 `release_all`），Bridge 能不能
@@ -4804,6 +4918,68 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
   `USE_TARGET_BLOCK_CHANGE`；不实现 `PROCESS-RECOVERY-001`。
 - `next_after_done`: 本卡收口后，1.20.1 的 `STOP_PHASE_EXPLICIT_KEY_RELEASE` 那一格有工件、但 registry 原样；
   **是否据此划出缺口、是否提升 V08 仍归主控决定**，本卡不代为登记下一张。
+  （实际走向：本卡没有收到工件，停在 `BLOCKED_DECISION`；下面 `blocked_readings_2026-09-25` 第 7 格写明待决的是什么。）
+- `blocked_readings_2026-09-25`（两次真跑的实测，全部读自卷内封存件与容器内复判，不是推断）：
+  1. **触发的是第①格，不是第②格**。第②格问"harness 能否在 lease 到期前完成显式停止"——实测**能**：
+     attempt 2 以 `--hold-forward-seconds 180` 配 `MINEKIN_DOMAIN_SECONDS=60`，停止落在 lease 未到期之前
+     （`MINEKIN_SERVER_JAR=.tmp/mc-1.20.1-server.jar MINEKIN_DOMAIN_CASE=V1201-080 MINEKIN_DOMAIN_PROBE=Kin
+     MINEKIN_DOMAIN_SECONDS=60`，完整命令见第 7 格）：封存的 `client/latest.log` 里 `released` 计数为 **0**
+     （连 V1201-040 那种 `CORE_REQUEST (TIMEOUT)` 都没有），末两行是
+     `bridge pressed move.forward` / `bridge applied 2f2adcf0894541a18f5ff0151e5fc614: holding [move.forward]`
+     ⇒ 那一刻键仍被按着、lease 仍活着。第①格问的是"Bridge 侧根本不打这行、需要改产品代码才拿得到"——两次真跑都是它。
+  2. **attempt 1（死亡干扰未排除）**：run `6d11ab7d35b64f83a9352ff120bceaa2`、bundle
+     `6afda194861acb0dc5f43d09fedcbc2694854a83019dbc65ff7cd4a49445efe1`、`attempt_sequence 1`、`result FAIL`、
+     `failures = ["the_bridge_released_the_input_when_the_session_was_stopped:RELEASE_NOT_LOGGED"]`、13 件工件。
+     该 run 的 Kin 在停止前被 Slime 杀死（`client/latest.log:204 [15:52:59] Kin was slain by Slime`），
+     全日志唯一含 `released` 的一行是 `:205 bridge released move.forward`（死亡界面自动松手），
+     它不是 `released N input(s) after <REASON> (<CODE>)` 的计数形状 ⇒ token 报 `RELEASE_NOT_LOGGED` 正是其命名理由。
+     run document 同报 `input_release_failed: true`、`outcome: BRIDGE_LOST`。
+  3. **attempt 2（去掉死亡干扰的复现）**：run `ffdd54fcdf454938a7ec63d045860ea6`、bundle
+     `931157feaae6cbc94cd31777feb15fe5de4380e24c438540f2e0a8d8a155119c`、`attempt_sequence 2`、
+     同一 `failures` 项、`result FAIL`；`grep -ic released client/latest.log` = 0、`deathscreen` = 0；
+     run document `input_release_failed: true`、`outcome: BRIDGE_LOST`、`session_state: STOPPED`、
+     `connection_state: PLAYABLE`，`session stop` 自身报 `{"status": "stopped", "terminated": [235], "unresolved": []}`
+     （235 即 run document 的 `pid`）。容器内对**两件**封存件逐条复判（`.tmp/er-audit.sh`，未入库的临时读者，
+     内容与 `tools/rejudge_evidence.py` 同源）：
+     `move_input_was_leased` 与 `the_server_saw_the_kin_stop_after_the_move` 两格在两跑里**都 observed**，
+     只有本卡的新 token 缺 ⇒ 阻断是这一件工件本身，不是场景没跑起来。
+  4. **为什么拿不到（读代码得到的结构性事实）**：`session stop` 的实际路径是
+     `bootstrap.py:323 → cli/session.py:1560-1582 → adapters/launcher/orphans.py:314-353`，最后一步对**客户端进程**
+     直接 `terminate(pid)`；会话自己的运行时要等 `reader`/`client` 结束才进入 `finally`
+     （`cli/session_runtime.py:423-438`），那里**先** `connections.close()`（:432）、**再** await `on_wind_down()`
+     （:433-435），失败即置 `progress.release_failed = True`（:436-437）——正是两跑读到的 `input_release_failed: true`。
+     而 `RELEASE_ALL_INPUTS` 全仓只有一个发送者（`cli/session.py:1370`，经 `:1433` 以 EXPLICIT 调用），Core 也不安装
+     信号处理器。⇒ 现有次序下"显式松键"命令发出时，它的接收方已经被**这次停止亲手终止**，Bridge 无从写下那行。
+  5. **不是判据太严，也不是别处能借**：lease 到期（V1201-040 的 `CORE_REQUEST (TIMEOUT)`）、离开可玩态
+     （`LEFT_PLAYABLE (PLAY_ENDED)`）、Core 被杀（V1201-060 的 `IPC_LOST`）这三种释放都发生在 Bridge **还活着**
+     的时候，所以它们有工件；只有"操作员主动停止"这一格的发送点在 wind-down 之后。用 Core 的
+     `INPUT_RELEASED(EXPLICIT)` 记账或服务端"停下来了"反推，都在本卡 `counterexamples` 里明令不算。
+  6. **本卡已交付与未交付**（按 `acceptance` 逐格）：1 ✅（新 token 只收日志原话 `after CORE_REQUEST (EXPLICIT)`
+     且 N>0，把 `EXPLICIT` 换成 `TIMEOUT` 的同一行被拒）；2 ✅（`pytest tests/unit` 2184 passed / 2 skipped、
+     `ruff check`、`ruff format --check`、`pyright`、`check_case_assertions.py` `OK (140 registered)`、
+     `verify_fixture_digests.py`、`check_boundaries.py`、`git diff --check` 全绿，均在 `f38cf34`）；
+     5 ✅（五条拒绝理由各有非空转反证 + positive control `exit 0`）；6 ✅（判官侧独立提交已推到两条 ref）；
+     **3、4 ❌ 且按现有产品代码不可取得**——`V1201-080` 至今没有 `result PASS` 的封存件，registry 的
+     `STOP_PHASE_EXPLICIT_KEY_RELEASE` 仍留在 `gaps`（本卡未动 registry 任一字）。
+  7. **交给用户/主控的决策**：(a) 把"停止"改成优雅版——Core 先向**活着的** Bridge 发
+     `ReleaseAllInputs(EXPLICIT)`、确认后再终止客户端（改产品代码的一张实现卡）；(b) 承认 1.20.1"停止时松键"
+     只能由 Core 记账 + Bridge 随进程消失 + 服务端推断来覆盖，据此改写或划出 registry 的
+     `STOP_PHASE_EXPLICIT_KEY_RELEASE`（属主控对 `tested` 声明的决定）。
+     **2026-09-25 用户已作答，选 (a)**：「修正产品的停止顺序，先让仍存活的 Bridge 确认松键，再终止客户端。」
+     该决策由紧随提交落成 `GRACEFUL-STOP-KEY-RELEASE-001`（先 `QUEUED` 登记、再以下一个提交提升为唯一 `NEXT`），
+     工件由那张卡取得；**本卡自身的 `forbidden_paths` 不因该决策放宽**——本卡不改产品代码，
+     `V1201-080` 也仍在没有 PASS 的状态。
+     登记那张卡时另测得一条与本卡第 7 格旧说法相反的事实：Python 侧的停止次序改动**不会**移动任何已封存 run 的
+     `from_repository_build`（`tools/report_promotion.py:204-222` 只把 bundle 记的 launch plan 摘要与
+     本检出按该版本算出的 launch plan 摘要相比，而后者由 recipe / bridge jar / source tree 摘要决定），
+     所以"改产品代码就要把被引用的 run 全部重封"不成立；本卡旧文中"会牵动 1.21.4 的同一族判据与重封"以此更正。
+     **保留的失败材料与复跑命令**：卷内两个 evidence 目录
+     `/data/kin/kin-01/run/evidence/{6d11ab7d35b64f83a9352ff120bceaa2, ffdd54fcdf454938a7ec63d045860ea6}`、
+     转录 `.tmp/explicit-release-v1201-080-run.log` / `.tmp/explicit-release-v1201-080-run2.log`；复跑形状：
+     `MINEKIN_KIN_ID=kin-01 MINEKIN_SERVER_JAR=.tmp/mc-1.20.1-server.jar MINEKIN_DOMAIN_CASE=V1201-080
+     MINEKIN_DOMAIN_PROBE=Kin MINEKIN_DOMAIN_SECONDS=60 bash test-orchestrator/runner/run.sh domain session start
+     --profile tests/fixtures/runtime-input/bundle-candidate-1.20.1.json --server-profile
+     tests/fixtures/runtime-input/controlled-offline-server-1.20.1.json --hold-forward-seconds 180`。
 
 ### VERSION-BRIDGE-IDENTITY-001 — BridgeHello 版本声明配对修复
 

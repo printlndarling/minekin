@@ -7,7 +7,31 @@
 > `.tmp/` 被 Git 忽略，是构建、诊断和封证的临时工作区；它的内容不是已推送产品代码、
 > 不是阶段状态，也不能替代主计划里的 run/bundle/attempt 与真实门禁记录。
 
-> **最新交接点（2026-09-25，停止阶段显式松键）**：主计划**暂无 `NEXT`**，`AUTO-PATH-INSTALL-RUN-001` 已 `DONE`
+> **最新交接点（2026-09-25，停止阶段显式松键：判据已交付、工件待产品决策）**：主计划**暂无 `NEXT`**。
+> `EXPLICIT-RELEASE-AT-STOP-001`（`b22a262` 登记、紧随提交提升为唯一 `NEXT`、判官侧 `f38cf34` 已推两条 ref）
+> 由本提交依其 `stop_conditions` **第①格**转为 **`BLOCKED_DECISION`**。机器读数（不是推断）：
+> 判官侧新 token `the_bridge_released_the_input_when_the_session_was_stopped`（只收
+> `released N input(s) after CORE_REQUEST (EXPLICIT)` 且 N>0）、case `V1201-080`、五条拒绝理由的非空转反证与
+> positive control 全部就位，`check_case_assertions.py` 报 `OK (140 registered)`，
+> `uv run --frozen pytest tests/unit -q` = `2184 passed, 2 skipped`。但两次受控 1.20.1 真跑都封在同一个命名理由上：
+> attempt 1 run `6d11ab7d…`/bundle `6afda194…`（Kin 在停止前被 Slime 杀死，唯一 `released` 行是死亡界面自动松手）、
+> attempt 2 run `ffdd54fc…`/bundle `931157fe…`（**去掉了死亡干扰**：客户端日志 `released` 计数 0、
+> `deathscreen` 计数 0，末行仍 `holding [move.forward]`，停止落在 lease 到期前）。两跑里
+> `move_input_was_leased` 与 `the_server_saw_the_kin_stop_after_the_move` **都 observed**，run document 都记
+> `input_release_failed: true`、`outcome: BRIDGE_LOST`。结构性原因：`session stop` 终步对客户端进程
+> `terminate(pid)`（`adapters/launcher/orphans.py:314-353`），而 Core 唯一的 `ReleaseAllInputs` 发送点在
+> wind-down（`cli/session_runtime.py:423-438`，`connections.close()` 之后、`on_wind_down()` 失败置
+> `release_failed`）——**命令发出时接收方已被这次停止终止**，Bridge 无从写下那行。
+> **本提交未做的**（都属越界）：改两 root 松键路径或任何产品代码、改判据、动 registry（
+> `STOP_PHASE_EXPLICIT_KEY_RELEASE` 仍在九条 `gaps` 里、摘要一字未动）、提升 V08、连接用户远程服、删失败材料。
+> **用户 2026-09-25 已答该决策，选 (a)**：「修正产品的停止顺序，先让仍存活的 Bridge 确认松键，再终止客户端。」
+> 承接它的是本提交以 `QUEUED` 登记的 **`GRACEFUL-STOP-KEY-RELEASE-001`**（机制、`allowed_paths`、
+> 验收与停止条件全在那张卡里；判据与 case `V1201-080` 一字不改，正是它的验收形状）。
+> 登记时另测得：Python 侧改动**不**移动 `from_repository_build`（`tools/report_promotion.py:204-222` 只比
+> launch plan 摘要），因此被 registry 引用的 16 条 run 不需重封——先前"改产品代码会牵动 1.21.4 重封"的说法据此更正。
+> 决策落地前不要另提任何一张卡；`EXPLICIT-RELEASE-AT-STOP-001` 自身的 `forbidden_paths` 不因该决策放宽。
+>
+> **上一交接点（2026-09-25，本卡领取时）**：主计划**暂无 `NEXT`**，`AUTO-PATH-INSTALL-RUN-001` 已 `DONE`
 > 并推到两条 ref（本地 `HEAD`、`origin/main`、`origin/codex/core-state-transition` 均 `e890924`，工作树干净）。
 > 队列逐条读过：没有任何 `QUEUED` 可提升——`HOST-ADMISSION-DESIGN-001`、`OPERATIONS-RETENTION-001`、
 > `PROCESS-RECOVERY-001` 都是 `BLOCKED_DECISION`，`HOST/W80+` `DEFERRED`。**用户 2026-09-25 选定**下一步是补
