@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -56,6 +57,7 @@ from minekin_core.adapters.launcher.orphans import (
     default_cmdline,
     default_probe,
     require_no_unresolved_client,
+    session_claims,
     stop_recorded_clients,
     terminate_process,
     write_marker,
@@ -71,6 +73,14 @@ from minekin_core.adapters.launcher.saves import (
 from minekin_core.adapters.launcher.server_profile import (
     SessionServerProfile,
     load_session_server_profile,
+)
+from minekin_core.adapters.launcher.stop_request import (
+    StopRelease,
+    StopRequest,
+    read_receipt,
+    read_request,
+    write_receipt,
+    write_request,
 )
 from minekin_core.adapters.launcher.supervisor import ProcessIdentity, ProcessSupervisor
 from minekin_core.adapters.sqlite.connection import connect_reader
@@ -166,6 +176,12 @@ DEFAULT_HANDSHAKE_TIMEOUT_S = 30.0
 # rather than blocking in a thread: a thread parked on the child would keep the
 # event loop's executor alive at shutdown and hang the process.
 DEFAULT_EXIT_POLL_S = 0.2
+
+# How long `session stop` waits, per live client, for that client's own session to
+# confirm it took the keys back before the command terminates the process. Bounded
+# because the answer comes from another process that may be gone already, and a
+# stop that can never be answered must still stop — it just has to say so.
+DEFAULT_STOP_RELEASE_TIMEOUT_S = 5.0
 
 # How long a requested connection may take before Core stops meaning it. The
 # value rides inside `ConnectWorld` so the Bridge can refuse a command that is
@@ -1017,6 +1033,11 @@ async def start_and_supervise(
     if prepared.bridge_session is None or prepared.bridge_descriptor is None:
         raise _reject("the session was prepared without a Bridge session to host")
 
+    # Where `session stop` leaves its asks for this Kin: the same directory the
+    # stopper writes into, because the two processes share no channel but the run's
+    # own files.
+    stop_requests_at = run_root(root, KinId(prepared.kin_id))
+
     async def record_transition(source: SessionState, target: SessionState) -> None:
         await prepared.ledger.record_session_event(
             event_type=SESSION_STATE_TRANSITIONED,
@@ -1418,6 +1439,68 @@ async def start_and_supervise(
             return
         await release_inputs(plan.arbiter, ReleaseReason.TIMEOUT)
 
+    async def until_stop_request() -> None:
+        """Wait for the operator to ask, from another process, that this run stop.
+
+        Polled rather than signalled: the stopper is a different process and the one
+        thing between them is this run's directory. The exit poll's own interval is
+        reused because both questions — is the client gone, has the operator asked —
+        are asked of the same filesystem at the same cost, and the ask is addressed
+        to this client's pid so a request left by an earlier life of this session
+        cannot be mistaken for one aimed at this one.
+        """
+
+        while True:
+            request = read_request(
+                stop_requests_at,
+                session_id=prepared.session_id,
+                generation=prepared.generation,
+                pid=launch.identity.pid,
+            )
+            if request is not None:
+                asked_to_stop[0] = request
+                return
+            await asyncio.sleep(exit_poll_s)
+
+    async def on_stop_request() -> None:
+        """Let go now, while the Bridge is still there to be told.
+
+        This is the whole point of the branch. The wind-down's release is the run's
+        last act, and a run that another process is stopping reaches it only after
+        that process has terminated the client — so the command lands on a channel
+        whose receiver is gone, which is what two sealed runs recorded as
+        `input_release_failed`. Answered here, the release goes out over a live
+        channel and the receipt is what tells the stopper it may terminate. Nothing
+        is written when the send fails: the stopper then reports that it asked and
+        got no answer rather than claiming the Bridge was told.
+        """
+
+        request = asked_to_stop[0]
+        if request is None:
+            # The watcher completes only once it has read a request, so this is the
+            # checker's hazard rather than the run's.
+            return
+        if plan is None or plan.arbiter is None:
+            # Nothing was ever granted, so there is nothing to withdraw. Still
+            # answered: the stopper has to learn that this session saw the ask and
+            # is not going to send, instead of waiting out its deadline for nothing.
+            write_receipt(
+                stop_requests_at,
+                request=request,
+                released_at=SystemClock().utc_now().isoformat(),
+                release=StopRelease.NOTHING_HELD,
+            )
+            return
+        plan.watchdog.disarm()
+        await release_inputs(plan.arbiter, ReleaseReason.EXPLICIT)
+        stop_released[0] = request.request_id
+        write_receipt(
+            stop_requests_at,
+            request=request,
+            released_at=SystemClock().utc_now().isoformat(),
+            release=StopRelease.SENT,
+        )
+
     async def on_wind_down() -> None:
         """Take the input back, whatever ended the run.
 
@@ -1425,11 +1508,17 @@ async def start_and_supervise(
         nothing is not evidence that the client is holding nothing, so the release
         goes out even when Core believes it granted no lease. The reason code is
         Core's own withdrawal — a session ending is not a fault in the input.
+
+        The one exception is the release this run already sent in answer to a stop
+        request: that ask and its receipt name the same command, and sending it
+        twice would put two answers on the channel for one ask.
         """
 
         if plan is None or plan.arbiter is None:
             return
         plan.watchdog.disarm()
+        if stop_released[0]:
+            return
         await release_inputs(plan.arbiter, ReleaseReason.EXPLICIT)
 
     async def on_connection(state: ConnectionState, reason: str) -> None:
@@ -1490,6 +1579,12 @@ async def start_and_supervise(
     # abandoned one — both are facts only this caller holds.
     attempt_deadline: list[int | None] = [None]
     cancelled: list[str] = [""]
+    # Also cells, for the same reason: the stop-request hooks write them and the
+    # wind-down reads one. The request is the ask this run answers; the id recorded
+    # there is the receipt's, and it is what makes the wind-down skip a release this
+    # run has already sent.
+    asked_to_stop: list[StopRequest | None] = [None]
+    stop_released: list[str] = [""]
 
     run = await supervise_session(
         host=host,
@@ -1513,6 +1608,11 @@ async def start_and_supervise(
         # a watcher that never completes is a task that exists to be cancelled.
         until_connection_deadline=None if target is None else until_connection_deadline,
         on_connection_deadline=None if target is None else on_connection_deadline,
+        # Always armed: an operator's ask needs no lease and no world to be worth
+        # answering, and a session that never reads one leaves the stopper waiting
+        # out its deadline instead of learning that nobody was listening.
+        until_stop_request=until_stop_request,
+        on_stop_request=on_stop_request,
         recorded=prepared.recorded,
     )
     if cancelled[0]:
@@ -1543,9 +1643,98 @@ async def start_and_supervise(
 
 
 @dataclass(frozen=True, slots=True)
+class StopReleaseReport:
+    """What the live clients answered, before any of them was terminated.
+
+    Keyed by pid, because a pid is what the stopper proved to be this Kin's client
+    and what the stop document already names.
+    """
+
+    #: Asked to let go of the client's inputs.
+    asked: tuple[int, ...]
+    #: Answered that Core's release went out over a live channel.
+    released: tuple[int, ...]
+    #: Answered that it holds nothing, so nothing is coming.
+    nothing_held: tuple[int, ...]
+    #: Asked and never answered within the deadline — the stop went ahead anyway.
+    unconfirmed: tuple[int, ...]
+
+    def as_document(self) -> dict[str, object]:
+        return {
+            "asked": list(self.asked),
+            "released": list(self.released),
+            "nothing_held": list(self.nothing_held),
+            "unconfirmed": list(self.unconfirmed),
+        }
+
+
+#: What a stop reports when no client was live to be asked.
+NOTHING_TO_RELEASE = StopReleaseReport(asked=(), released=(), nothing_held=(), unconfirmed=())
+
+
+def ask_live_clients_to_release(
+    runs: Path,
+    *,
+    probe: Callable[[int], Liveness] = default_probe,
+    cmdline: Callable[[int], bytes | None] = default_cmdline,
+    timeout_s: float = DEFAULT_STOP_RELEASE_TIMEOUT_S,
+    poll_s: float = DEFAULT_EXIT_POLL_S,
+) -> StopReleaseReport:
+    """Ask every client this Kin recorded as live to release its inputs, and wait.
+
+    One round of asks and then one wait shared by all of them: the clients are
+    stopped together, so asking one at a time would make the total wait the sum of
+    the individual ones. The deadline is spent whether or not the answers arrive —
+    a session that is not listening is a fact to report, not a reason to leave a
+    client running forever.
+    """
+
+    # `ALIVE` out of `session_claims` already means the command line matched the
+    # marker, so these are pids this Kin may ask about; an unresolved one is left to
+    # the stopper's own refusal, which is the same rule as before.
+    requests = {
+        claim.identity.pid: write_request(
+            runs,
+            session_id=claim.session_id,
+            generation=claim.generation,
+            pid=claim.identity.pid,
+            request_id=OpaqueId.new().value,
+            requested_at=SystemClock().utc_now().isoformat(),
+        )
+        for claim in session_claims(runs, probe=probe, cmdline=cmdline)
+        if claim.liveness is Liveness.ALIVE
+    }
+    if not requests:
+        return NOTHING_TO_RELEASE
+
+    answers: dict[int, StopRelease] = {}
+    deadline = monotonic_ns() + int(timeout_s * 1_000_000_000)
+    while True:
+        for pid, request in requests.items():
+            if pid not in answers:
+                receipt = read_receipt(runs, request=request)
+                if receipt is not None:
+                    answers[pid] = receipt.release
+        if len(answers) == len(requests) or monotonic_ns() >= deadline:
+            unconfirmed = tuple(pid for pid in requests if pid not in answers)
+            return StopReleaseReport(
+                asked=tuple(requests),
+                released=tuple(
+                    pid for pid, release in answers.items() if release is StopRelease.SENT
+                ),
+                nothing_held=tuple(
+                    pid for pid, release in answers.items() if release is StopRelease.NOTHING_HELD
+                ),
+                unconfirmed=unconfirmed,
+            )
+        time.sleep(poll_s)
+
+
+@dataclass(frozen=True, slots=True)
 class StopReport:
     kin_id: str
     outcome: StopOutcome
+    release: StopReleaseReport = NOTHING_TO_RELEASE
 
     def as_dict(self) -> dict[str, object]:
         return {
@@ -1553,6 +1742,7 @@ class StopReport:
             "command": "session stop",
             "status": "stopped" if self.outcome.complete else "blocked",
             "kin_id": self.kin_id,
+            "release": self.release.as_document(),
             **self.outcome.as_document(),
         }
 
@@ -1564,19 +1754,32 @@ def stop_session(
     probe: Callable[[int], Liveness] = default_probe,
     read_cmdline: Callable[[int], bytes | None] = default_cmdline,
     terminate: Callable[[int], None] = terminate_process,
+    release_timeout_s: float = DEFAULT_STOP_RELEASE_TIMEOUT_S,
 ) -> StopReport:
     """Stop the clients this Kin recorded, as far as they can be identified.
 
     Stopping is idempotent: a Kin with nothing running is already stopped. What is
     not idempotent is touching a process that cannot be shown to be ours, so that
     is reported rather than done.
+
+    The ask comes first and the terminate after it, because the only process that
+    can put a release on a live Bridge's channel is the session holding that channel
+    — and that channel dies with the client being terminated. Waiting for the receipt
+    is what makes the order real instead of intended.
     """
 
     kin_id = select_kin(root, kin_selector)
+    runs = run_root(root, kin_id)
+    release = ask_live_clients_to_release(
+        runs,
+        probe=probe,
+        cmdline=read_cmdline,
+        timeout_s=release_timeout_s,
+    )
     outcome = stop_recorded_clients(
-        run_root(root, kin_id),
+        runs,
         probe=probe,
         read_cmdline=read_cmdline,
         terminate=terminate,
     )
-    return StopReport(kin_id=str(kin_id), outcome=outcome)
+    return StopReport(kin_id=str(kin_id), outcome=outcome, release=release)

@@ -19,6 +19,7 @@ import sqlite3
 import threading
 import time
 from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
 
@@ -40,12 +41,22 @@ from minekin_core.adapters.bridge.ipc import (
     LOOK_INPUT_TYPE,
     MOVE_INPUT_TYPE,
     OPEN_LAN_TYPE,
+    RELEASE_ALL_INPUTS_TYPE,
     USE_INPUT_TYPE,
+    BridgeIpcHost,
     BridgeSession,
 )
 from minekin_core.adapters.launcher.offline_session import OFFLINE_SESSION_CANDIDATES
 from minekin_core.adapters.launcher.saves import settings_digest, world_snapshot_digest
 from minekin_core.adapters.launcher.server_profile import load_server_profile
+from minekin_core.adapters.launcher.stop_request import (
+    StopReceipt,
+    StopRelease,
+    StopRequest,
+    read_receipt,
+    read_request,
+    write_request,
+)
 from minekin_core.adapters.launcher.supervisor import ProcessSupervisor
 from minekin_core.adapters.sqlite.connection import connect_reader
 from minekin_core.adapters.sqlite.identity_store import read_identity_root
@@ -55,6 +66,7 @@ from minekin_core.adapters.sqlite.session_log import (
     HELLO_ACCEPTED,
     INPUT_LEASE_GRANTED,
     INPUT_REFUSED,
+    INPUT_RELEASED,
     JOIN_OBSERVED,
     PLAYABLE_ESTABLISHED,
     PROCESS_STARTED,
@@ -1758,3 +1770,283 @@ def test_a_session_that_was_not_asked_to_host_does_not_ask(
     asyncio.run(scenario())
 
     assert OPEN_LAN_TYPE not in seen
+
+
+@dataclass
+class _Held:
+    """A live session, with the parts a test still has to drive.
+
+    The scenario returns rather than finishes, because what the stop path is about
+    happens after the lease is granted: the ask arrives, the answer is written, and
+    then the client leaves.
+    """
+
+    process: LiveProcess
+    running: asyncio.Task[tuple[SessionLaunch, SessionRun]]
+    control_reader: asyncio.StreamReader
+    control_writer: asyncio.StreamWriter
+    event_writer: asyncio.StreamWriter
+    database: Path
+
+
+async def _run_holding_the_input(root: Path, *, hold_forward: float | None = 30.0) -> _Held:
+    """Walk a session to playable, and leave it there with the input in hand.
+
+    The term is deliberately long: a lease that expired on its own would release with
+    `TIMEOUT`, and a stop-request test reading that release would be testing a command
+    nobody asked for.
+    """
+
+    process = LiveProcess()
+    path = descriptor_path(root)
+    supervisor = live_supervisor(process, path, [])
+    database = root / "kin" / "kin-01" / "kin.sqlite3"
+    arguments: dict[str, Any] = {} if hold_forward is None else {"hold_forward": hold_forward}
+    running = asyncio.create_task(
+        start_and_supervise(
+            root=root,
+            profile=PROFILE,
+            java_executable=JAVA,
+            session_id=SESSION_ID,
+            generation=GENERATION,
+            supervisor_factory=lambda _logs: supervisor,
+            handshake_timeout=5.0,
+            exit_poll_s=0.01,
+            server_profile=SERVER_PROFILE,
+            **arguments,
+        )
+    )
+    await _wait_until(path.is_file)
+    descriptor = session_pb2.BridgeBootstrapDescriptor.FromString(path.read_bytes())
+    bridge = BridgeSession(
+        kin_id=descriptor.kin_id,
+        session_id=descriptor.session_id,
+        generation=descriptor.generation,
+        client_instance_id=descriptor.client_instance_id,
+        bundle_digest=descriptor.bundle_digest,
+        bridge_digest=descriptor.bridge_digest,
+        minecraft_version="1.21.4",
+        fabric_loader_version="0.16.9",
+        launch_nonce=descriptor.launch_nonce,
+        session_key=descriptor.session_key,
+    )
+    control_reader, control_writer = await connect(descriptor, envelope_pb2.CHANNEL_CONTROL)
+    _event_reader, event_writer = await connect(descriptor, envelope_pb2.CHANNEL_EVENT)
+    await write_frame(
+        control_writer,
+        envelope(
+            bridge,
+            BRIDGE_HELLO_TYPE,
+            envelope_pb2.CHANNEL_CONTROL,
+            1,
+            hello(bridge).SerializeToString(deterministic=True),
+        ),
+    )
+    await asyncio.wait_for(read_frame(control_reader), 5)
+    connect_frame = await _wait_for_control_message(control_reader, CONNECT_WORLD_TYPE)
+    command = control_pb2.ConnectWorld.FromString(connect_frame.payload)
+    for sequence, phase in enumerate(CONNECTED_PHASES, start=1):
+        await write_frame(
+            event_writer,
+            envelope(
+                bridge,
+                CONNECTION_LIFECYCLE_TYPE,
+                envelope_pb2.CHANNEL_EVENT,
+                sequence,
+                _lifecycle(bridge, command, phase).SerializeToString(deterministic=True),
+            ),
+        )
+    await write_frame(
+        event_writer,
+        envelope(
+            bridge,
+            INITIAL_OBSERVATION_TYPE,
+            envelope_pb2.CHANNEL_EVENT,
+            len(CONNECTED_PHASES) + 1,
+            first_snapshot(
+                generation=bridge.generation, material=_material(root)
+            ).SerializeToString(deterministic=True),
+        ),
+    )
+    await _wait_until(lambda: any(row[0] == PLAYABLE_ESTABLISHED for row in _ledger_rows(database)))
+    if hold_forward is not None:
+        await _wait_for_control_message(control_reader, MOVE_INPUT_TYPE)
+    return _Held(
+        process=process,
+        running=running,
+        control_reader=control_reader,
+        control_writer=control_writer,
+        event_writer=event_writer,
+        database=database,
+    )
+
+
+#: The one ask these tests make. A fixed id and address, so the receipt a test reads
+#: back is the answer to this ask rather than to whatever a previous run left.
+ASK_ID = "ask-1"
+
+
+def _ask(runs: Path) -> StopRequest:
+    """Write the ask the way `session stop` writes it, and hand back its address."""
+
+    return write_request(
+        runs,
+        session_id=SESSION_ID,
+        generation=GENERATION,
+        pid=STUB_PID,
+        request_id=ASK_ID,
+        requested_at="2026-09-25T12:00:00Z",
+    )
+
+
+def _answer(runs: Path) -> StopReceipt | None:
+    """The answer sitting in the run's directory, if the session wrote one."""
+
+    request = read_request(runs, session_id=SESSION_ID, generation=GENERATION, pid=STUB_PID)
+    return None if request is None else read_receipt(runs, request=request)
+
+
+def test_a_stop_request_releases_the_input_over_the_still_live_channel(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    """The product's stop order, in the one place that can prove it.
+
+    The release the judge needs is the Bridge's own log line, and no unit test can
+    write that. What this can prove is the half the two sealed failures were missing:
+    that a session asked to stop sends the release *while its channel is still open*,
+    answers the ask with a receipt naming it, and does not send it a second time on
+    the way out. The frame is read from the fake Bridge before the client is retired —
+    one that arrived after that would have had nobody left to receive it.
+    """
+
+    root = ready_data_root(tmp_path, monkeypatch)
+    runs = run_root(root)
+
+    async def scenario() -> tuple[SessionRun, StopReceipt | None, str, Path]:
+        held = await _run_holding_the_input(root)
+        # Asked only once the lease is in hand: an ask that arrived before the run
+        # had anything to give back would be answered `NOTHING_HELD`, which is the
+        # other test below and not this one.
+        request = _ask(runs)
+        await _wait_until(lambda: read_receipt(runs, request=request) is not None)
+        receipt = read_receipt(runs, request=request)
+        frame = await _wait_for_control_message(held.control_reader, RELEASE_ALL_INPUTS_TYPE)
+        reason = control_pb2.ReleaseAllInputs.FromString(frame.payload).reason_code
+        held.process.exited = True
+        _launch, run = await asyncio.wait_for(held.running, 10)
+        await close_writers(held.control_writer, held.event_writer)
+        return run, receipt, reason, held.database
+
+    run, receipt, reason, database = asyncio.run(scenario())
+
+    assert receipt is not None
+    assert receipt.release is StopRelease.SENT
+    assert receipt.request_id == ASK_ID
+    assert reason == "EXPLICIT"
+    assert run.outcome is SessionOutcome.CLIENT_EXITED
+    assert run.release_failed is False
+    # Exactly one release in the ledger: the wind-down did not send it again.
+    assert [
+        payload["reason"] for kind, payload in _ledger_facts(database) if kind == INPUT_RELEASED
+    ] == ["EXPLICIT"]
+
+
+def test_a_run_that_was_never_asked_still_releases_on_the_way_out(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    """The skip is scoped to the ask, not to the wind-down.
+
+    A release at the end of a run is what every accepted bundle already carries, and
+    the new branch must not become a reason for a run that was never stopped to leave
+    the Bridge holding keys. Without this, "skip the resend" could quietly grow into
+    "never resend".
+    """
+
+    root = ready_data_root(tmp_path, monkeypatch)
+
+    async def scenario() -> tuple[SessionRun, Path]:
+        held = await _run_holding_the_input(root)
+        held.process.exited = True
+        _launch, run = await asyncio.wait_for(held.running, 10)
+        await close_writers(held.control_writer, held.event_writer)
+        return run, held.database
+
+    run, database = asyncio.run(scenario())
+
+    assert run.release_failed is False
+    assert [
+        payload["reason"] for kind, payload in _ledger_facts(database) if kind == INPUT_RELEASED
+    ] == ["EXPLICIT"]
+    # Nothing was asked, and nothing was answered.
+    assert _answer(run_root(root)) is None
+
+
+def test_a_session_holding_nothing_answers_that_instead_of_sending(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    """`NOTHING_HELD` is an answer, and the stopper must not wait for a send.
+
+    A run with no lease has no keys to give back, and the one thing the stopper needs
+    to know is whether an answer is coming. Left unanswered it would sit out its
+    deadline for a message that can never exist; answered, it stops and says so.
+    """
+
+    root = ready_data_root(tmp_path, monkeypatch)
+    runs = run_root(root)
+
+    async def scenario() -> tuple[SessionRun, StopReceipt | None, list[str]]:
+        held = await _run_holding_the_input(root, hold_forward=None)
+        request = _ask(runs)
+        await _wait_until(lambda: read_receipt(runs, request=request) is not None)
+        receipt = read_receipt(runs, request=request)
+        seen = await _control_types_after(held.control_reader)
+        held.process.exited = True
+        _launch, run = await asyncio.wait_for(held.running, 10)
+        await close_writers(held.control_writer, held.event_writer)
+        return run, receipt, seen
+
+    run, receipt, seen = asyncio.run(scenario())
+
+    assert receipt is not None
+    assert receipt.release is StopRelease.NOTHING_HELD
+    assert RELEASE_ALL_INPUTS_TYPE not in seen
+    assert run.outcome is SessionOutcome.CLIENT_EXITED
+    assert run.release_failed is False
+
+
+def test_a_release_the_channel_refuses_leaves_no_answer(tmp_path: Path, monkeypatch: Any) -> None:
+    """No receipt for a release that never went out.
+
+    The receipt is what licenses the terminate, so writing it before the send — or
+    anyway, after the send fails — would let a stop report a confirmed release the
+    Bridge never received. The failure has to land on the run document instead.
+    """
+
+    root = ready_data_root(tmp_path, monkeypatch)
+    runs = run_root(root)
+    attempts: list[str] = []
+    original = BridgeIpcHost.send_control
+
+    async def refusing(self: BridgeIpcHost, message_type: str, message: Any) -> None:
+        if message_type == RELEASE_ALL_INPUTS_TYPE:
+            attempts.append(message_type)
+            raise OSError("the channel went")
+        await original(self, message_type, message)
+
+    monkeypatch.setattr(BridgeIpcHost, "send_control", refusing)
+
+    async def scenario() -> SessionRun:
+        held = await _run_holding_the_input(root)
+        _ask(runs)
+        await _wait_until(lambda: bool(attempts))
+        assert _answer(runs) is None
+        held.process.exited = True
+        _launch, run = await asyncio.wait_for(held.running, 10)
+        await close_writers(held.control_writer, held.event_writer)
+        return run
+
+    run = asyncio.run(scenario())
+
+    assert attempts
+    assert _answer(runs) is None
+    assert run.release_failed is True

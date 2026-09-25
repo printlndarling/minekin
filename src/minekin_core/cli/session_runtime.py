@@ -249,6 +249,8 @@ async def supervise_session(
     on_input_release: Callable[[], Awaitable[None]] | None = None,
     until_connection_deadline: Callable[[], Awaitable[object]] | None = None,
     on_connection_deadline: Callable[[], Awaitable[None]] | None = None,
+    until_stop_request: Callable[[], Awaitable[object]] | None = None,
+    on_stop_request: Callable[[], Awaitable[None]] | None = None,
     recorded: RecordedSessionMaterial | None = None,
 ) -> SessionRun:
     """Wait for the handshake, follow the Bridge, and stop when the client does.
@@ -297,6 +299,13 @@ async def supervise_session(
     about that is not this module's decision either — but nothing about it ends
     the run, and that is what the two branches have in common: each fires, is
     answered, and then the session carries on.
+
+    `until_stop_request` and `on_stop_request` are that shape once more, for the
+    moment this runtime cannot see coming on its own: an operator in another
+    process asking for this run to stop. Nothing about it ends the run either —
+    the client is still the thing whose exit ends a run — but it is the last
+    moment at which a release can still reach a live Bridge, which is why the
+    answer to it is awaited here rather than left to the wind-down.
 
     `on_wind_down` is the last chance to speak to the Bridge: it runs after the
     generation is closed and before the transport is, which is the only order in
@@ -367,6 +376,10 @@ async def supervise_session(
                         _awaited(until_connection_deadline), name="minekin-connection-deadline"
                     )
                 ] = on_connection_deadline
+            if until_stop_request is not None and on_stop_request is not None:
+                branches[
+                    asyncio.create_task(_awaited(until_stop_request), name="minekin-stop-request")
+                ] = on_stop_request
             watched: set[asyncio.Task[None]] = {reader, client, *branches}
             try:
                 while True:
@@ -388,7 +401,7 @@ async def supervise_session(
                             # a command Core cannot deliver is recorded, not raised.
                             # A transport that has already gone must not turn into a
                             # run that failed for an unrelated reason.
-                            if answer is on_input_release:
+                            if answer is on_input_release or answer is on_stop_request:
                                 progress.release_failed = True
                             else:
                                 progress.connection_cancel_failed = True
