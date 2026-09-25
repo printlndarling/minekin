@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "case_id": "V1201-060",
+  "work_package": "W70",
+  "mandatory": false,
+  "inputs": [
+    "tests/fixtures/runtime-input/bundle-candidate-1.20.1.json",
+    "tests/fixtures/runtime-input/controlled-offline-server-1.20.1.json"
+  ],
+  "assertion_digests": {
+    "move_input_was_leased": "e1ec3b7cc22434b1a0b5a0a5895ea3cec72f98d048c6abbe13edd8712f1a1747",
+    "runtime_controller_sigkill_was_confirmed": "a318d1b668e8d36c06a42e70872a7844d50612eba1ce64182b5167bb75cfd6a9",
+    "the_bridge_released_the_input_when_the_ipc_was_lost": "35805197573d3f4a2a9692e13496617efd58d8a1e95019a445230d5e9bc4fd7c",
+    "the_server_saw_the_kin_stop_after_the_move": "803c27d44ab273b8d52cce5b113bf7489d989c1adc9e2c17cba5d3653886e5f3"
+  },
+  "assertions": [
+    "move_input_was_leased",
+    "runtime_controller_sigkill_was_confirmed",
+    "the_bridge_released_the_input_when_the_ipc_was_lost",
+    "the_server_saw_the_kin_stop_after_the_move"
+  ]
+}
