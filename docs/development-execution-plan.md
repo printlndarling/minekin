@@ -4595,7 +4595,11 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
      按已记录的现场事实，`kin-01` 带着 **207 条陈旧进程 marker**，自动切换若继承它们会立刻改变结论——
      所以本卡必须在**全新 Kin 根**上跑，且跑完在同一命令内清理该新 Kin 的会话目录与进程 marker；
      清理属本卡的一次性现场，不构成 `PROCESS-RECOVERY-001` 的 marker GC 收口。
-  5. 由 1–4 得到的**下一步可复现配方**（尚未执行，故意不在此声称任何 run/bundle 摘要）：以
+  5. **空 store 需要装齐的规模已实测**：同一 runner 容器内对既有 Kin 的 store 计量得到
+     `/data/kin/kin-02/run/artifact-store` = `4121` 个 blob 文件、`523,911,981` 字节（`du -sb`，约 525 MB；
+     `quarantine` 与 `.staging` 均为 0 文件）。也就是说"从头装齐"意味着**数千次出站抓取**，单次真跑可能超过
+     一个 10 分钟的命令行窗口——领取者应按后台长跑准备，并把清理放在同一脚本的 `trap` 里，别把它塞进交互式回合。
+  6. 由 1–5 得到的**下一步可复现配方**（尚未执行，故意不在此声称任何 run/bundle 摘要）：以
      `MINEKIN_DOMAIN_KILL_CORE=1` 之类既有开关、指定一个新 `KIN` 名（不复用 `kin-01`/`kin-02`/
      `kin-v07-*`）跑自动 `session start`，令其 `run/artifact-store` 保持为空并靠自动路径自己装齐；
      判定要求是同一 run 内同时出现 `installed > 0` 与封存的 `PlayableEstablished`，随后用
