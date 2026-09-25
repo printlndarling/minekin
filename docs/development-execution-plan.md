@@ -64,7 +64,10 @@
   `sealed: false`、`ARTIFACT_DIGEST_MISMATCH:<那条检查的日志>`；② 把两份 bundle 各放进独立数据根 ⇒
   只有它自己那道门 `promotable: true`，另一道仍红在**自己的 case 名**上（不是整体翻绿）；③ 只拷 bundle
   不拷 `evidence-attempts.sqlite3` 的数据根报 `status: unusable`、`exit 2`，读取器不接受半套卷。
-  复跑命令记在 `development-todo.md` 同名小节。）
+  复跑命令记在 `development-todo.md` 同名小节。**这条记录本身落在 `6934161`**：本地九道门全 0、
+  pytest `2501 passed / 2 skipped` 与前两张卡逐字相同；两条 ref 与远端 SHA 已核，GitHub Actions 对该
+  SHA 的两个 `CI` run `36186341837` / `36186341861` 及其六个 job `python`/`protocol`/`bridge-static`
+  全 `completed / success`（step 层只有 `success`）。）
   （上一张 `TESTED-GAP-DRAW-STOP-PHASE-1201-001` 已在 `b03863e` 收口为 `DONE`：实现
   `4151664`——1.20.1 那条 `tested` 声明的 `gaps` 划出 `STOP_PHASE_EXPLICIT_KEY_RELEASE` 一条、
   `capabilities` 补上工件所证的 token、`evidence` 追加 `V1201-080 / run 484675e4… / attempt 3 / PASS` 的

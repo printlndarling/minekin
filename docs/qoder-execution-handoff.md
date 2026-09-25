@@ -43,6 +43,20 @@
 > 及其六个 job `python`/`protocol`/`bridge-static` 全 `completed / success`，step 层只有 `success`；
 > 本地九道门全 0、pytest `2501 passed / 2 skipped` 与收卡时逐字相同）。
 >
+> **同一晚的第二格：`present` 的 case 也会证据过期（`W00`/`W10` 已重封，记录落在 `6934161`）**：
+> 规范卷 `/data` 里 `W00-CONTRACT-001` 的 bundle 是 09-20 封的（`case_version b3efa8ee…` ≠ 今天的
+> `c59b9636…`）、`CORE-001` 在卷里从来没有 bundle（09-23 那两份封在 `.tmp/` 数据根、未迁入卷），
+> 所以两道门当天实测 `promotable: false`——主计划 09-23 那句"两道门都变成 promotable"因此失效
+> （原句保留，失效实在计划顶部标注）。走的是既有"证据生产不是卡"那一格：`run_repo_case.py` 两个 case
+> 全 `held: true` / `PASS` / `exit 0` ⇒ `seal_repo_case.py --data-root /data` 各封 attempt 1
+> （`f233501676394223b65320ec14cc2797`、`157eccd2eeb5486dab5b9393c914b0c0`）⇒ 产品自己的
+> `evidence verify` 两份都 `status: verified`、`sealed: true`、`violations: []`。读数：evidence
+> `83 → 85`、`W00`/`W10` 各自 `blocks: []` + `promotable: true`、`overall.blocking_cases` `36 → 34`、
+> `overall.status` 仍 `blocked`、`promotable` 仍 `false` ⇒ **没有提升任何一道门、没改任何卡状态、
+> 两份旧 bundle 一字未动**。三条反证：改掉一个工件字节 ⇒ `ARTIFACT_DIGEST_MISMATCH` + `sealed: false`；
+> 两份 bundle 各放独立数据根 ⇒ 只有它自己那道门翻绿、另一道仍红在自己的 case 名上；只拷 bundle 不拷
+> `evidence-attempts.sqlite3` 的数据根 ⇒ `status: unusable`、`exit 2`。
+>
 > **上一交接点（2026-09-26，1.20.1 的停止阶段松键缺口已从 `tested` 声明划出）**：
 > 收卡提交是 **`b03863e`**（两条 ref 与远端 SHA 已核：`git ls-remote` 上 `main` 与
 > `codex/core-state-transition` 同为 `b03863e2346ed559b6d33fe7482d7fa0619f82df`；GitHub Actions 对该 SHA 的
