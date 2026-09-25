@@ -439,6 +439,54 @@ uv run --frozen python tools/report_cases.py
   `W00`、`W10`、`W20`、`W60`、`W70` 五道的 case set 是齐的，其中 W70 仍因没有
   mandatory case 而由既有 `NO_MANDATORY_CASES` 规则阻断——这是准确读数，不是回归。
 
+### 本节按自己的规则重生成一次（2026-09-26，读数所在线 `8660c20`）
+
+本节开头写的是“以下事实必须从命令重新生成，不手工维护漂移数字”。上面那份
+`72 required / 36 present / 36 missing`、`不 gating 27 条` 是 09-23 的快照，数字已经移动
+（**快照原样保留，不改写**）。今天重跑：
+
+```text
+git rev-parse HEAD                                     # 8660c20
+uv run --frozen python tools/report_cases.py           # exit 0
+uv run --frozen python tools/check_case_assertions.py  # OK (140 registered)
+MSYS_NO_PATHCONV=1 docker run --rm -v "$PWD":/src:ro -v minekin-runner-data:/data:ro \
+  -e MINEKIN_HOME=/data -e PYTHONPATH=/src/src --entrypoint /bin/bash minekin-runner:local \
+  -lc 'cd /src && python tools/report_promotion.py --data-root /data'   # 整体 blocked ⇒ exit 1
+```
+
+- **inventory**：`required 74` / `present 43` / `missing 31` / `not_gating 36` / `misattributed 0`
+  / `present_wanting_a_run 13`；`by_validation_class` `local-only 7` / `runtime-required 67`；
+  断言实现 **140 条已登记**、`check_case_assertions.py` `rc 0`。
+- **晋级窗口（逐 gate，`report_promotion.py --data-root /data`，即规范证据卷）**：
+
+  | gate | `requirement.satisfied` | `promotable` | `blocks` | `absent` 条 | `blocking_cases` 条 |
+  | --- | --- | --- | --- | --- | --- |
+  | `W00` | true | **true** | — | 0 | 0 |
+  | `W10` | true | **true** | — | 0 | 0 |
+  | `W20` | true | **true** | — | 0 | 0 |
+  | `W30` | false | false | `NO_MANDATORY_CASES`, `REQUIRED_CASE_NOT_REGISTERED` | 5 | 5 |
+  | `W40` | false | false | `REQUIRED_CASE_NOT_REGISTERED` | 5 | 5 |
+  | `W50` | false | false | `NO_MANDATORY_CASES`, `REQUIRED_CASE_NOT_REGISTERED` | 2 | 2 |
+  | `W60` | true | false | `CASE_VERSION_MISMATCH` | 0 | 2 |
+  | `W70` | true | false | `NO_MANDATORY_CASES` | 0 | 0 |
+  | `p0-core` | false | false | `CASE_VERSION_MISMATCH`, `REQUIRED_CASE_NOT_REGISTERED` | 12 | 14 |
+  | `p0-nav-exp` | false | false | `NO_MANDATORY_CASES`, `REQUIRED_CASE_NOT_REGISTERED` | 1 | 1 |
+  | `host-integrated` | false | false | `NO_MANDATORY_CASES`, `REQUIRED_CASE_NOT_REGISTERED` | 18 | 18 |
+
+  整体：`status: blocked`、`overall.blocks [CASE_VERSION_MISMATCH, REQUIRED_CASE_NOT_REGISTERED]`、
+  `overall.blocking_cases` 33 条。**三道门今天够格**（`W00`/`W10`/`W20`），**但提升哪一道都是主控的
+  动作**，本表只说够不够格。`--work-package W20` 那条单门路径独立复核过，同一读数。
+- **每一格差的是哪一类东西（不混报）**：`W60` 只差 `CORE-040`/`CORE-050` **两份真实运行**
+  （同一天普查点名这两条 `NO_IMPLEMENTATION`，仓库自检判不出它们）；`W30`/`W40`/`W50`/
+  `p0-nav-exp`/`host-integrated` 的 `blocking_cases` 与 `absent` **完全重合**——那些 case
+  连 manifest 都没有，缺的是“先把判据写成断言”或产品决策，不是补证据；`p0-core` 是唯一两者
+  不等格的：14 条 `blocking` = 12 条 `absent` + `CORE-040`/`CORE-050`，多出的正是 `W60` 那同一对
+  （一条过期证据同时拦两道门）；`W70` 只缺一条 mandatory（`absent` 为 0，红在
+  `NO_MANDATORY_CASES`），与 09-23 那句一致。
+- **一个容易被读错的字段**：`repository_build.gates_promotion` 恒为 `false`，代码注释原文是
+  "Build identity is diagnostic and does not gate"——**它不是一道没过的门**，只说明构建身份不参与
+  拦门；逐 bundle 的 `from_repository_build` 才是“这份证据出自哪个 build”的诊断字段。
+
 ## 最近完成
 
 ### OFFLINE-CANDIDATE-001 — 第二个离线候选跑不起来
