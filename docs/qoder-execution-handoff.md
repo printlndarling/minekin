@@ -7,7 +7,22 @@
 > `.tmp/` 被 Git 忽略，是构建、诊断和封证的临时工作区；它的内容不是已推送产品代码、
 > 不是阶段状态，也不能替代主计划里的 run/bundle/attempt 与真实门禁记录。
 
-> **最新交接点（2026-09-25，跨版本路线执行中）**：主计划**暂无 `NEXT`**——**`AUTO-PATH-INSTALL-RUN-001`** 已 `DONE`
+> **最新交接点（2026-09-25，停止阶段显式松键）**：主计划**暂无 `NEXT`**，`AUTO-PATH-INSTALL-RUN-001` 已 `DONE`
+> 并推到两条 ref（本地 `HEAD`、`origin/main`、`origin/codex/core-state-transition` 均 `e890924`，工作树干净）。
+> 队列逐条读过：没有任何 `QUEUED` 可提升——`HOST-ADMISSION-DESIGN-001`、`OPERATIONS-RETENTION-001`、
+> `PROCESS-RECOVERY-001` 都是 `BLOCKED_DECISION`，`HOST/W80+` `DEFERRED`。**用户 2026-09-25 选定**下一步是补
+> 1.20.1 那条 `STOP_PHASE_EXPLICIT_KEY_RELEASE`（**不是**开远程服），故登记 `EXPLICIT-RELEASE-AT-STOP-001`
+> （`QUEUED`），提升它是紧随的独立提交。要点：Core 的 wind-down 以 `ReleaseReason.EXPLICIT` 显式发
+> `ReleaseAllInputs`（`cli/session.py:1433`、`:1360-1385`），Bridge 侧应写下
+> `bridge released N input(s) after CORE_REQUEST (EXPLICIT)`（`bridge-1201/.../BridgeIpcWorker.java:233-237` +
+> `:825-840`，1.21.4 root 同两处字节相同）；今天**没有**任何断言收这一形状——`_BRIDGE_RELEASE`
+> （`tools/assert_case_evidence.py:161`）不捕获括号里的 reasonCode，所以 `CORE_REQUEST (EXPLICIT)` 与 V1201-040 的
+> `CORE_REQUEST (TIMEOUT)` 不可分，本卡必须先加一个 runtime token（带 N>0，因为 `on_wind_down` 是无条件的），
+> 再在受控 1.20.1 上真跑封证。**V08 仍未打开**：`STOP_PHASE_EXPLICIT_KEY_RELEASE` 是否从 `tested` 声明划出、
+> V07 剩余缺口是否算收口、是否提升 V08 为 `NEXT` 都归主控；HOST/PERSIST 仍 `BLOCKED_DECISION`；本卡不连接用户
+> 远程服、不改产品代码、不动 registry。
+>
+> **上一交接点（2026-09-25，跨版本路线执行中）**：主计划**暂无 `NEXT`**——**`AUTO-PATH-INSTALL-RUN-001`** 已 `DONE`
 > （`94cb15b` 登记、提升提交 `298883e`、本提交收卡）。该卡的空 store 自动路径真跑**已做完并封存**：全新 Kin
 > `kin-auto-inst-20260925T141055Z` 自己的 `run/artifact-store` 从 `0 files` 起步，由自动入口**自己**装齐（封存
 > `run-document.json`：`fetch_set 3639 / installed 3639 / reused 0`，落盘 `3639 files / 738,432,269 bytes`，

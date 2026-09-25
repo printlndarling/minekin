@@ -2716,3 +2716,31 @@
   `tools/seal_run_evidence.py:550` 的常量而非本跑的发起者；预检那句 `4121 blob / 523,911,981 字节` 是别的 Kin 全 store
   的规模代理，本卡自己的 fetch 集是 `3639 files / 738,432,269 字节`；卷内遗留两个 auto-inst Kin 的 store（各 738 MB）
   未清理，属卷级运维。
+
+## EXPLICIT-RELEASE-AT-STOP-001 登记现场（2026-09-25，基点 `e890924`，Windows）
+
+- **为什么是这张**：主计划收卡后 `current_next` 为空，队列里没有任何 `QUEUED`（逐条看过：
+  `HOST-ADMISSION-DESIGN-001`/`OPERATIONS-RETENTION-001`/`PROCESS-RECOVERY-001` 均 `BLOCKED_DECISION`，
+  `HOST/W80+` `DEFERRED`，其余 `DONE`）。机器读数之外唯一不需产品决策、又落在 1.20.1 主线上的缺口，是 registry
+  那条 `STOP_PHASE_EXPLICIT_KEY_RELEASE`。用户选定先补它，不开远程服（V08 仍待主控决定）。
+- **实测到的缺口形状**（对当前树，非推断）：
+  - `src/minekin_core/cli/session.py:1433` `on_wind_down()` → `release_inputs(..., ReleaseReason.EXPLICIT)`；
+    `session.py:1360-1385` 先发 `ReleaseAllInputs(reason_code="EXPLICIT")` 再记 Core 的 `INPUT_RELEASED`；
+    字面值在 `domain/input_control.py:49`。`on_wind_down` 注释明确它**无条件**执行 ⇒ 判据必须带计数。
+  - `bridge-1201/.../BridgeIpcWorker.java:233-237` 把 `ReleaseCommand` 记成
+    `releaseInputs(CORE_REQUEST, reasonCode)`，`:825-840` 打
+    `bridge released {} input(s) after {} ({})` ⇒ 目标工件是一行
+    `bridge released N input(s) after CORE_REQUEST (EXPLICIT)`（N>0）。1.21.4 root 同两处字节相同
+    （`bridge/.../BridgeIpcWorker.java:235/835`）。
+  - `tools/assert_case_evidence.py` 里今天**没有**收这个形状的 token：三条松键断言分别读
+    Core 账本的 `TIMEOUT`（`:1578`）、Bridge 的 `IPC_LOST`（`:1597`）、Bridge 的
+    `LEFT_PLAYABLE (PLAY_ENDED)`（`:1940`）；`_BRIDGE_RELEASE`（`:161`）只捕获 (计数, reason)，
+    **不含括号里的 reasonCode**，所以 `CORE_REQUEST (EXPLICIT)` 与 V1201-040 的 `CORE_REQUEST (TIMEOUT)`
+    在现有正则下不可分——这是本卡必须新增判据的理由。`the_bridge_carried_the_input_out`（`:1535`）读
+    Core run document 的 action 计数，仍是 Core 侧记账，不能顶替。
+  - `V1201-080` 未占用（`tests/fixtures/cases/` 只有 `-010/-020/-040/-060/-070`，全仓 grep 无命中）。
+- **与 V1201-060 的差别（决定卡的形状）**：`bd8f6b7` 那一格只需新增 fixture，因为 `IPC_LOST` 的 token 早已存在；
+  本卡要先加 token 再真跑，所以 `validation_class` 是 `LOCAL_THEN_REAL_RUN` 而不是 `REAL_RUN_ONLY`。
+- **边界**：不改产品代码（两 root 该路径本就写对）；不动 registry 的 `status`/`gaps`（是否划出
+  `STOP_PHASE_EXPLICIT_KEY_RELEASE` 属主控对 `tested` 声明的决定）；不连接用户远程服；不实现
+  `PROCESS-RECOVERY-001`。停止条件写在卡里：拿不到这行且不碰产品代码就 `BLOCKED_DECISION`。
