@@ -12,13 +12,14 @@
 - `baseline_date`: 2026-09-22
 - `baseline_branch`: `main`
 - `baseline_remote`: `origin/main`
-- `current_next`: **本提交起暂无 `NEXT`**——`VERSION-SESSION-SWITCH-001`（V07）已 `DONE` 收卡（实现 `5e53429`、
-  修正 `b0d08b6`，两 ref 均已核对）。下一张 `VERSION-TESTED-GATE-AUDIT-001` 已在 `7ece20c` 登记为 `QUEUED`，
-  须先在该状态确认、再在**另一次独立提交**提升为唯一 `NEXT`；在它收口前不得提升 V08、连接用户远程服，或把
-  reviewed registry 的 `tested` 当作远程入服的充分证据。
+- `current_next`: `VERSION-TESTED-GATE-AUDIT-001`（`7ece20c` 登记 `QUEUED`，本提交单独提升为唯一 `NEXT`；
+  上一张 V07 `VERSION-SESSION-SWITCH-001` 已 `DONE`，收卡 `17e81ea`、CI 读数补记 `96fb520`，两 ref 均已核对）。
+  这是**只读审查卡**：`allowed_paths` 只有计划与审查记录，不改产品代码、registry、case 判据或封存证据；在它
+  收口前不得提升 V08、连接用户远程服，或把 reviewed registry 的 `tested` 当作远程入服的充分证据。
   用户在七场景总账后明确把“自动识别服务器版本 → 准备匹配客户端 → 入服并完成简单控制”排为优先路线；
   `VERSION-AUTO-DESIGN-001` 已交付[跨版本连续执行计划](version-auto-to-server-control-plan.md)。
-- `last_checkpoint`: **跨版本路线走到 V07 收卡**——`VERSION-SESSION-SWITCH-001`（V07）交付了产品侧第一条
+- `last_checkpoint`: **跨版本路线走到审查卡领取**——V07 已收卡（`17e81ea` + CI 补记 `96fb520`），唯一 `NEXT`
+  现为 `VERSION-TESTED-GATE-AUDIT-001`（只读复判 `tested` 晋级门，`7ece20c` 登记）。V07 交付的产品侧第一条
   fail-closed 自动路径（新增 `cli/auto_session.py`：探测并核对两次观测 → 校验三处版本事实 → `resolve()` →
   **摘要门先于抓取** → 停旧客户端并取证 → 以新 `session_id` + `generation=1` 起新），显式路径字节未变，
   Bridge 握手常量的修复**不属**本卡。真实验收是受控 runner 上两次 1.21.4 → 1.20.1 的**顺序**切换：目标侧探测
@@ -4182,7 +4183,10 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 
 ### VERSION-TESTED-GATE-AUDIT-001 — 远程入服前复判 tested 晋级门
 
-- `status`: `QUEUED`（2026-09-25 主控审查登记；当前唯一 `NEXT` 仍是 V07，不能越卡改其产品代码）。
+- `status`: `NEXT`（2026-09-25 主控审查以 `7ece20c` 登记 `QUEUED`，本提交单独提升为唯一 `NEXT`；V07 已 `DONE`
+  收卡 `17e81ea`、CI 读数补记 `96fb520`，两 ref 均已核对。**本卡只读**：不改产品代码、reviewed registry、
+  case 判据或任何封存证据，只产出追溯表与后续修复卡的登记。）
+- `baseline_sha`: `7ece20c`（审查卡登记提交）；领取时实际 checkout = 本提升提交。
 - `depends_on`: V07 已 `DONE`；`VERSION-BRIDGE-IDENTITY-001` 的修复与重封须在 V08 前完成，
   但本审查卡先决定其精确证据影响与后续卡顺序。
 - `question`: 现有 1.20.1 `tested` 登记能否在原始 V04/V05/V06 契约下经独立复判，
