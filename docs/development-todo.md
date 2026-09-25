@@ -3231,3 +3231,22 @@
   missing`。原文 `exit 0`。
 - **没动的**：门禁数字（`2501 passed / 2 skipped` 与前三张卡逐字相同）、任何卡状态、任何门是否提升、
   V08、远程服、HOST 实现与 `host-integrated` 的证据。
+
+
+## 一格实况：push 之后本地 `main` 又落后 1 格，规则改成每轮刷新（2026-09-26，`57ccec0`）
+
+- **上一格刚把本地 `main` 快进到 `f4d6fa7`、读到 `0 0`；紧接着提交 `57ccec0` 并推送，同一条命令
+  立刻读 `0 1`。** 原因不在文档里那句修法，而在推送的形状：
+  `git push origin HEAD:refs/heads/main` 动的是**远端 `main` 与远端跟踪引用 `origin/main`**，
+  本地那个叫 `main` 的分支指针不在被推的对象里。
+- **因此这格的修法不是"修好就完"**：`git fetch origin main:main` 之后 `main == origin/main ==
+  HEAD == 57ccec0`、读数回到 `0 0`；但只要再推一轮，`0 1` 就会重新出现，**N 会逐轮累加**。
+  规则写进主计划本节：**每轮 push 之后跑一次 `git fetch origin main:main`**。
+- **为什么值得当成一条规则**：这条命令是那一节的**第一条**，它的产物被写成「基线相等」的前置条件。
+  谁会去怀疑一条只输出两个整数的命令？它一直安静地返回 `0 104`、`0 1` 这样的值，而上一轮的文档
+  把它读成"已经对齐"。**只有把它的输出与「每轮推送两条 ref」这件事对上，才发现缺的是刷新。**
+- **反证（这格两条）**：①非快进被拒——`git fetch origin 2c30fc4…:main` ⇒
+  `! [rejected] … (non-fast-forward)`、`exit 1`、指针不变（所以刷新不可能悄悄回退本地引用）；
+  ②`.tmp/verify_plan_table.py` 里那条同步检查**现场重跑** `git rev-list --left-right --count
+  main...origin/main` 并要求 `0 0`，把文档里的 `读 0 0` 改成 `读 0 104` 即报
+  `sync sentence missing`——它同时是一道防回归：下一轮若忘了刷新，脚本会红。

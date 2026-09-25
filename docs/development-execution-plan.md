@@ -523,6 +523,14 @@ MSYS_NO_PATHCONV=1 docker run --rm -v "$PWD":/src:ro -v minekin-runner-data:/dat
   这次移动只是指针前进，原值 `2c30fc4` 记在此处可回退。
   **反证**：`git fetch origin 2c30fc4…:main` ⇒ `! [rejected] … (non-fast-forward)`、
   **`exit 1`**、`git rev-parse main` 仍是 `f4d6fa7`——这条通道只会前进，不会把本地指针按回去。
+  **但它不是一次性的**：下一格提交 `57ccec0` 推完之后同一条命令立刻又读 **`0 1`**——
+  `HEAD:refs/heads/main` 只动**远端**与远端跟踪引用，本地那个 `main` 指针没人推。
+  所以本轮把规则写实：**每轮 push 之后跑一次 `git fetch origin main:main`**（快进形态，
+  非 FF 会被拒），否则本节第一条命令读到的就是"本地落后 N 格"，而那 N 会逐轮累加。
+  刷新后 `main == origin/main == HEAD == 57ccec0`、读数回到 **`0 0`**。
+  `57ccec0` 的两条 ref 已核，GitHub Actions 对该 SHA 的两个 `CI` run `36193460132` /
+  `36193460141` 及其六个 job `python`/`protocol`/`bridge-static` 在 job 与 step 层均
+  `completed / success`；本地九道门 `2501 passed / 2 skipped` 与前三张卡**逐字相同**。
 
 ## 最近完成
 
