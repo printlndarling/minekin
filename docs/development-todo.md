@@ -3200,3 +3200,34 @@
   `blocks`。`--work-package W20` 单门路径与全量路径独立跑过，同一读数。
 - **仍未做的**：没有提升任何门（`W00`/`W10`/`W20` 今天够格，动作归主控）；没有为
   `host-integrated` 那 13 条本地可判 case 封证据；没动 V08、没连远程服、没实现 HOST。
+
+
+## 本节第一条命令量出本地 `main` 落后 104 个提交，顺手把 case 级读数补全（2026-09-26，`f4d6fa7` 之后）
+
+- **触发**：`## 当前已验证状态` 那一节的命令列表第一条是
+  `git rev-list --left-right --count main...origin/main`，而上一轮重生成只做了后三条命令。
+  今天补跑第一条 ⇒ **`0 104`**。
+- **成因（不是猜测，是 refs 的形状）**：每轮推的是 `HEAD:refs/heads/codex/core-state-transition` 与
+  `HEAD:refs/heads/main` 两条**远端** ref，本地那个叫 `main` 的分支指针从来没人动，
+  `git reflog main` 停在 `2c30fc4`（更早几条也是 `branch: Reset to codex/core-state-transition`）。
+  远端 `main` 与 `HEAD` 一直同源，**漂移只在本地引用上**。
+- **为什么值得修**：文档里「以 main 为基线」的每一步如果解析的是**本地** `main`，就会倒退 104 个提交
+  去量 case/证据——那类读数不会报错，只会安静地给出旧答案。基线那句
+  `main == origin/main == 59e425d…` 说的就是这个字段，它当时成立、修之前不成立。
+- **修法**：`git fetch origin main:main` ⇒ `2c30fc4..f4d6fa7 main -> main`（快进，唯一允许的形态）。
+  事后 `git rev-parse main origin/main HEAD` 三者同为 `f4d6fa7`、同步读数 **`0 0`**、工作树干净。
+  `git worktree list` 十一条里没有本地 `main`，所以这一步不可能踩到别的检出。
+- **反证**：`git fetch origin 2c30fc4…:main` ⇒ `! [rejected] … (non-fast-forward)`、`exit 1`，
+  `git rev-parse main` 仍是 `f4d6fa7`。**没有用过 `--force`，也没有回退过任何指针。**
+- **同时补全的 case 级读数**（`report_cases.py` 的 `totals`，与基线同一组字段）：
+  `49 cases / 184 assertion references / 7 mandatory`，judge 归属 `locally 20` + `run-material 29`，
+  `mixed 0`、`unimplemented 0`、`unregistered_assertions 0`。对基线（33 / 121 / 6，19 + 14）的增量是
+  `+16 / +63 / +1`，**四个零仍然都是零**。并注明 `by_judge.locally = 20` 与当日普查 `PASS 20`
+  同数但不是同一件事（一个是工具按声明分类，一个是逐 case 实测）。
+- **校验扩展**：`.tmp/verify_plan_table.py` 现在除了 11 行晋级窗口，还比对 case 级那六个数、
+  三条增量，并**现场重跑同步命令**要求 `0 0`。四条变异各红在自己的命名理由上：`cases` 写 43 ⇒
+  `cases: doc=43 reading=49`；增量写 +62 ⇒ `delta assertions: doc=62 reading=63`；`run-material`
+  写 28 ⇒ `by_judge: doc=('20','28') reading=…`；把 `读 0 0` 改回 `读 0 104` ⇒ `sync sentence
+  missing`。原文 `exit 0`。
+- **没动的**：门禁数字（`2501 passed / 2 skipped` 与前三张卡逐字相同）、任何卡状态、任何门是否提升、
+  V08、远程服、HOST 实现与 `host-integrated` 的证据。

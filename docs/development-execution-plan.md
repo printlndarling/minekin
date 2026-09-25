@@ -476,6 +476,13 @@ MSYS_NO_PATHCONV=1 docker run --rm -v "$PWD":/src:ro -v minekin-runner-data:/dat
 - **inventory**：`required 74` / `present 43` / `missing 31` / `not_gating 36` / `misattributed 0`
   / `present_wanting_a_run 13`；`by_validation_class` `local-only 7` / `runtime-required 67`；
   断言实现 **140 条已登记**、`check_case_assertions.py` `rc 0`。
+- **同一份 JSON 的 case 级那一半**（基线那几条 bullet 说的是这些字段，本节此前只重生成了一半）：
+  `totals` 读出 **`49 cases` / `184 assertion references` / `7 mandatory`**，按 judge 分
+  `locally 20` + `run-material 29`，`mixed 0`、`unimplemented 0`、`unregistered_assertions 0`。
+  对基线（`59e425d` 上：33 / 121 / 6，19 本地 + 14 运行材料）的增量是 **case +16、断言引用 +63、
+  mandatory +1**；**四个零仍然都是零**，这一条没有移动。
+  （`by_judge.locally = 20` 与当日普查 `PASS 20` 同数，但**不是同一件事**：前者是工具按 case 声明
+  的 judge 归属分类，后者是把 43 个 `present` case 逐个交给 `run_repo_case.py` 的实测结果。）
 - **晋级窗口（逐 gate，`report_promotion.py --data-root /data`，即规范证据卷）**：
 
   | gate | `requirement.satisfied` | `promotable` | `blocks` | `absent` 条 | `blocking_cases` 条 |
@@ -505,6 +512,17 @@ MSYS_NO_PATHCONV=1 docker run --rm -v "$PWD":/src:ro -v minekin-runner-data:/dat
 - **一个容易被读错的字段**：`repository_build.gates_promotion` 恒为 `false`，代码注释原文是
   "Build identity is diagnostic and does not gate"——**它不是一道没过的门**，只说明构建身份不参与
   拦门；逐 bundle 的 `from_repository_build` 才是“这份证据出自哪个 build”的诊断字段。
+- **本节第一条命令今天量出了一格真漂移**：`git rev-list --left-right --count main...origin/main`
+  在修之前是 **`0 104`**——远端 `main` 与 `HEAD` 同源（每轮都推两条 ref），但**本地 `main` 引用
+  停在 `2c30fc4`**，因为历轮推的是 `HEAD:refs/heads/main`，本地那个分支指针没人动。基线那句
+  `main == origin/main == 59e425d…` 说的就是这个读数，它当时成立、今天不成立。**后果不是数字难看，
+  是拿本地 `main` 当基线的任何一步都会倒退 104 个提交。**
+  修法是一次快进：`git fetch origin main:main` ⇒ `2c30fc4..f4d6fa7 main -> main`，之后
+  `main == origin/main == HEAD == f4d6fa7`、`git rev-list --left-right --count main...origin/main`
+  读 **`0 0`**；本地 `main` 没有被任何 worktree 检出（`git worktree list` 十一条里没有它），
+  这次移动只是指针前进，原值 `2c30fc4` 记在此处可回退。
+  **反证**：`git fetch origin 2c30fc4…:main` ⇒ `! [rejected] … (non-fast-forward)`、
+  **`exit 1`**、`git rev-parse main` 仍是 `f4d6fa7`——这条通道只会前进，不会把本地指针按回去。
 
 ## 最近完成
 
