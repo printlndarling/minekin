@@ -4078,7 +4078,11 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
      `run_root/session/<session_id>/generation-<n>`（`cli/session.py:343-350`），而 `session_id` 每次
      `session start` 由 `SessionId.new()` 现取（`bootstrap.py:186`），所以新会话天然不会撞旧 overlay 目录；
      本卡因此**保持 `generation=1`**（`bootstrap.py:187` 不动），不引入"同进程第二个 bridge host"。
-     "失效旧…"落在既有机制上：旧客户端由 `stop_recorded_clients` 停掉并清 marker（`orphans.py:314-355`），
+     "失效旧…"落在既有机制上：旧客户端由 `stop_recorded_clients` 只发终止信号（`orphans.py:314-355`），
+     它**不清 marker**——`orphans.py:14-16` 写明 "Nothing clears a marker"，已结束的运行要留痕。
+     因此"旧客户端不再挡路"这件事在代码里由**活 PID 的重新探测**承载：`_identified`（`orphans.py:241-254`）
+     把证不来身份的 PID 判成 GONE/UNKNOWN，`SessionClaim.resolved` 即 `liveness is GONE`
+     （`orphans.py:90-92`），自动路径据此在有界窗口内轮询确认旧进程真的没了；
      旧**连接** generation 由 `domain/connection.py:258-289` 的 `close()` 关掉、`:174-256` 的 `apply()` 把
      晚到回调判为 `CLOSED_GENERATION`/`STALE_GENERATION`，lease 由
      `InputArbiter(attempt.generation)`（`session.py:1173`）随连接代一起失效。三件既有载体在 (a) 之下各自
