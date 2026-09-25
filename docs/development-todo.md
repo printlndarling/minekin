@@ -2802,3 +2802,90 @@
   内容只是 `read_sealed_material` + `evaluate` 套在 `tests/fixtures/cases/v1201-080.json` 上，逐条打印
   `observed`/`failures`，与 `rejudge_evidence.py` 同源）；
   转录：`.tmp/explicit-release-v1201-080-run.log`、`.tmp/explicit-release-v1201-080-run2.log`。
+
+## GRACEFUL-STOP-KEY-RELEASE-001 实现与真跑收卡现场（2026-09-26，Windows + 受控 runner / Docker / Linux）
+
+- **基点与提交**：领取时唯一 `NEXT`（登记 `6bef249`、提升提交 `d0ed908`），实现落在 **`5c643c6`**
+  （`feat(session): release the client's keys before terminating it`，6 个文件 / 1190 行新增：
+  `adapters/launcher/stop_request.py`（新）、`cli/session.py`、`cli/session_runtime.py` 与
+  `tests/unit/test_stop_request.py`（新）、`tests/unit/test_stop_session_release.py`（新）、
+  `tests/unit/test_session_supervision.py`）。判据、case fixture、registry、两 root 的 Java、
+  `orphans.py` 的身份证明与终止判定规则一字未改。
+- **实现形状对卡片设计稿的一处更正**（登记时未量到，实现时量到）：请求/回执的名字带 **pid**——
+  `<run_root>/stop-requests/<session_id>-generation-<n>-pid-<pid>.request.json` 与同名 `.receipt.json`
+  （不是设计稿的 `.ack.json`）。理由：本项目所有流程里的 `generation` 都是 1，只按
+  `(session_id, generation)` 寻址会让一次**未被应答的旧请求**截断同会话新一跑的 lease（新会话一开头就读到
+  旧请求、立刻松键）。pid 是 run document 与 marker 都已记下的事实（`launch.identity.pid` /
+  `SessionClaim.identity.pid`），会话侧读自己的、停止侧按 claim 的写，一次停止恰好只对**它将要终止的那一个进程**
+  提问。容错读取不变：读不到 / 不可解析 / schema 不符 ⇒ 视为"没有请求"。
+- **单元证据（验收①，四条都非空转）**：
+  (i) `test_a_stop_request_releases_the_input_over_the_still_live_channel`——请求在场时会话在**仍活的**
+  控制通道上发出 `ReleaseAllInputs(EXPLICIT)` 并写回执 `SENT`，账本恰有一条 `INPUT_RELEASED{EXPLICIT}`；
+  (ii) `test_the_stop_asks_the_live_client_and_waits_for_its_answer`——应答线程被故意延后 0.3 秒，
+  断言 `terminated_when_answered == [[]]`，因此它只在"先拿到回执、后终止"时成立（见下方 CE2）；
+  (iii) `test_a_stop_that_gets_no_answer_still_stops_and_says_nobody_answered`——`release_timeout_s=0.05`
+  之下仍终止、`status: stopped`，并在 `release.unconfirmed` 里如实报出没人应答、请求文件留在原地；
+  (iv) `test_a_run_that_was_never_asked_still_releases_on_the_way_out` +
+  `test_a_session_holding_nothing_answers_that_instead_of_sending`（`NOTHING_HELD` 回执、**不发**命令）+
+  `test_a_release_the_channel_refuses_leaves_no_answer`（发送失败 ⇒ 无回执、`release_failed: true`）。
+  寻址与容错另有 `tests/unit/test_stop_request.py` 8 条（含"回执必须对得上同一次 ask"、"旧 pid 的请求不算"、
+  "截断的 JSON ⇒ 没有请求"、四个地址非法项都拒且**不建目录**）。
+- **四条反证各红在其命名理由上**（`.tmp/graceful-stop-counterexamples.sh` →
+  `.tmp/graceful-stop-counterexamples.log`；每条打补丁→跑点名测试→从备份还原，收尾 `git diff --exit-code` 干净）：
+  CE1 把超时回落当确认 ⇒ `test_a_stop_that_gets_no_answer_still_stops_and_says_nobody_answered` 红在
+  `unconfirmed` 少一项；CE2 先终止后询问 ⇒ 次序测试红在 `At index 0 diff: [4242] != []`（终止发生在应答之前）；
+  CE3 去掉"已确认就不重发" ⇒ 活通道测试红在 `EXPLICIT` 多一条；CE4 靠删掉 wind-down 的无条件安全网来避免重发 ⇒
+  未被询问的测试红在 `EXPLICIT` 少一条。**positive control**：还原后同一批点名测试 `5 passed`、
+  脚本 `positive_control_exit=0`。
+- **判据侧对真实封存件的交叉读数**（`.tmp/graceful-stop-token-readings.sh` →
+  `.tmp/graceful-stop-token-readings.log`，只读地把本卡的 runtime token 套到**别的 run** 的
+  `client/latest.log` 上；容器内 `PYTHONPATH=/src/src`，未入库的临时读者）：
+  `V1201-080` attempt 3 的日志 ⇒ `None`（observed）；attempt 2 的日志 ⇒ `RELEASE_NOT_LOGGED`；
+  `V1201-040` attempt 3 的日志（**真实存在**一条 `bridge released 0 input(s) after CORE_REQUEST (EXPLICIT)`）⇒
+  `HELD_NOTHING_WHEN_THE_SESSION_WAS_STOPPED`（`released 0` 充数被拒，正是卡片点名的反例）；
+  `V1201-060` 的 bundle（`f71c56f03c7e4d1b9f36028a1edfb945`）⇒
+  `RELEASED_FOR_ANOTHER_REASON:IPC_LOST,LEFT_PLAYABLE(PLAY_ENDED)`（拿 IPC_LOST 顶替被拒）。
+- **门禁（验收②，全部在 `5c643c6` 上量）**：`uv run --frozen pytest tests/unit -q` =
+  **2200 passed / 2 skipped**；`ruff check .`、`ruff format --check .`（322 文件）、`pyright`（0 errors）、
+  `tools/check_case_assertions.py` = `OK (140 registered)`、`tools/verify_fixture_digests.py` =
+  `W00 schema and fixture digests: OK`、`tools/check_boundaries.py`、`git diff --check` 全绿。
+- **真跑 attempt 3（验收③，`V1201-080`，判据一字未改）**：run
+  `484675e4938b4134b788a971e195619b`、bundle `22fb57f34abb22ec9c217a06e3083c1e8ae0c7355b9ada1d205d3739221ffe1a`、
+  `attempt_sequence 3`（supersedes `ffdd54fc…`）、`case_version 6fea27c3…`、13 件工件、`result PASS`、
+  `failures: []`；服务端目录 `/data/server-runs/run-169`。三条独立读数：
+  封存的 `client/latest.log:204-205` 是 `bridge released move.forward` +
+  **`bridge released 1 input(s) after CORE_REQUEST (EXPLICIT)`**（N=1>0，末行之前是
+  `holding [move.forward]`，`grep -ic deathscreen` = 0 ⇒ 无死亡干扰）；`session stop` 自己报
+  `"release": {"asked": [218], "nothing_held": [], "released": [218], "unconfirmed": []}` 且
+  `terminated: [218]`、`status: stopped`、`unresolved: []`（218 是 run document 的 `pid` ⇒ 先问后杀）；
+  run document 记 `input_release_failed: false`（attempt 1/2 都是 `true`）、`session_state: STOPPED`、
+  `connection_state: PLAYABLE`、`outcome: BRIDGE_LOST`（客户端仍是被终止而结束的，这一点没被改）。
+  四读一致：`evidence verify` = `verified: true / sealed: true / violations: []`、
+  `tools/rejudge_evidence.py` = `status: agrees`（三条断言全 observed）、
+  `python -m minekin_core replay` 与 `tools/replay_evidence.py` 都把 21 条事件投到 `STOPPED`
+  （`trace_sha256 e87a9847…`）、`tools/report_promotion.py` 那一行
+  `from_repository_build: true` + `re_judged: AGREES` + `bridge_digest e50d61c2…`。
+  attempt 1/2 两件 `FAIL` 封存件与转录原样留在卷内（`6d11ab7d…`、`ffdd54fc…`，`report_promotion` 里仍各报
+  `result FAIL` / `AGREES`），未撤未改。
+- **回归真跑（验收④，`V1201-040` lease 到期那一格）**：沿用该 case 既有 PASS 的命令行形状
+  （`--look-yaw-degrees 45 --hold-forward-seconds 2`，`MINEKIN_DOMAIN_SECONDS=60` 让停止落在 lease 到期之后）：
+  run `6a86da0353e746829cc5966ac272ef9d`、bundle `554c467bdae9e0582d0b6b28517068899758065f533e2abd55674a611e6cc1e0`、
+  `attempt_sequence 3`（supersedes `155dcb4a…`）、`case_version 2ef224d8…`、13 件工件、`result PASS`、
+  `failures: []`，harness 退出码 0。客户端日志同时给出两条释放且**各归各的理由**：
+  `:207 bridge released 1 input(s) after CORE_REQUEST (TIMEOUT)`（lease 到期那一格，仍是它撑着结论）与
+  `:208 bridge released 0 input(s) after CORE_REQUEST (EXPLICIT)`（这次停止新加的那一条，N=0 因为键已在
+  2 秒时松开）。四读一致（`verified/sealed` PASS、`agrees`、两个 replay 同投 23 条事件到 `STOPPED`、
+  `from_repository_build: true` + `AGREES`）；run document 的 `input_release_failed` 也从旧 PASS 件的
+  `true` 变成 `false`。**停止条件第③格没有触发**。
+- **复跑命令**（两条，形状与 attempt 2 记录的一致，只是 case 与 hold 时长不同）：
+  `MINEKIN_KIN_ID=kin-01 MINEKIN_SERVER_JAR=.tmp/mc-1.20.1-server.jar MINEKIN_DOMAIN_CASE=V1201-080
+  MINEKIN_DOMAIN_PROBE=Kin MINEKIN_DOMAIN_SECONDS=60 bash test-orchestrator/runner/run.sh domain session start
+  --profile tests/fixtures/runtime-input/bundle-candidate-1.20.1.json
+  --server-profile tests/fixtures/runtime-input/controlled-offline-server-1.20.1.json --hold-forward-seconds 180`；
+  把 `MINEKIN_DOMAIN_CASE` 换成 `V1201-040`、把 `--hold-forward-seconds 180` 换成
+  `--look-yaw-degrees 45 --hold-forward-seconds 2` 即回归那一跑。转录：
+  `.tmp/graceful-stop-v1201-080-run3.log`、`.tmp/graceful-stop-v1201-080-readers3.log`、
+  `.tmp/graceful-stop-v1201-040-regression.log`、`.tmp/graceful-stop-v1201-040-readers.log`。
+- **本卡未做的**（都属越界）：`cli/auto_session.py` 的版本切换停止仍是"直接终止"（`non_goals`）；
+  registry 的 `status`、九条 `gaps`、摘要一字未动（`STOP_PHASE_EXPLICIT_KEY_RELEASE` 是否据此划出仍归主控）；
+  不判定 V07 剩余缺口、不提升 V08、不连接用户远程服；run document 字段集与 `schema_version` 未扩。

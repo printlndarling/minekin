@@ -7,7 +7,41 @@
 > `.tmp/` 被 Git 忽略，是构建、诊断和封证的临时工作区；它的内容不是已推送产品代码、
 > 不是阶段状态，也不能替代主计划里的 run/bundle/attempt 与真实门禁记录。
 
-> **最新交接点（2026-09-25，停止阶段显式松键：判据已交付、工件待产品实现）**：主计划唯一 `NEXT` 是
+> **最新交接点（2026-09-26，停止阶段的显式松键：工件已到手，计划暂无 `NEXT`，下一张归主控）**：
+> `GRACEFUL-STOP-KEY-RELEASE-001` 已 **`DONE`** 并由本提交收卡。实现是 **`5c643c6`**（新增
+> `adapters/launcher/stop_request.py` 的请求/回执两份文档、`cli/session_runtime.py` 多一对 caller-owned
+> `until_stop_request`/`on_stop_request` 分支、`cli/session.py` 的 `stop_session()` 改成"先问后杀 + 有界等待 +
+> 超时如实报未确认"，`on_wind_down()` 只在本次已按请求送达 EXPLICIT 时跳过重发）。与设计稿的一处差异：文件名带
+> **pid**（`<run_root>/stop-requests/<session_id>-generation-<n>-pid-<pid>.request.json` + 同名
+> `.receipt.json`），因为本项目里 `generation` 恒为 1，不含 pid 会让一次未被应答的旧请求截断同会话新一跑的 lease。
+> **真跑读数（判据一字未改）**：`V1201-080` attempt 3 = run `484675e4938b4134b788a971e195619b` /
+> bundle `22fb57f34abb22ec9c217a06e3083c1e8ae0c7355b9ada1d205d3739221ffe1a` / `result PASS` / 13 件工件，
+> 封存的 `client/latest.log:204-205` 是 `bridge released move.forward` +
+> **`bridge released 1 input(s) after CORE_REQUEST (EXPLICIT)`**（N=1>0，之前末行仍 `holding [move.forward]`、
+> `deathscreen` 计数 0），`session stop` 报 `released:[218] unconfirmed:[]` 且随后终止的就是 218，
+> run document 的 `input_release_failed` 由两跑失败件的 `true` 变 `false`；`V1201-040` attempt 3 = run
+> `6a86da0353e746829cc5966ac272ef9d` / bundle `554c467bdae9e0582d0b6b28517068899758065f533e2abd55674a611e6cc1e0`
+> / `PASS`，同一份日志把 `(TIMEOUT)` N=1 与停止阶段新加的 `(EXPLICIT)` N=0 分开写出，旧那一格没被改坏。
+> 两跑四读一致（`evidence verify` PASS/verified/sealed、`rejudge_evidence.py` `agrees`、两个 `replay` 同投
+> 21 / 23 条事件到 `STOPPED`、`report_promotion` 那一行 `from_repository_build: true` + `AGREES`）。
+> 门禁在 `5c643c6` 上全绿（`pytest tests/unit` = **2200 passed / 2 skipped**、ruff check/format、pyright 0、
+> `check_case_assertions.py` `OK (140 registered)`、fixture digests、boundaries、`git diff --check`）。
+> 反证：单元侧四条各红在其命名理由（超时当确认 / 先终止后询问 / 去掉"已确认就不重发" / 删掉 wind-down 安全网），
+> 判据侧对**真实封存件**交叉跑本卡 token：`V1201-080` attempt 3 ⇒ observed、attempt 2 ⇒ `RELEASE_NOT_LOGGED`、
+> `V1201-040` 那条真实的 `released 0 … (EXPLICIT)` ⇒ `HELD_NOTHING_WHEN_THE_SESSION_WAS_STOPPED`、
+> `V1201-060` bundle ⇒ `RELEASED_FOR_ANOTHER_REASON:IPC_LOST,LEFT_PLAYABLE(PLAY_ENDED)`；positive control
+> `exit 0`。脚本与转录（`.tmp/`，未入库）：`graceful-stop-counterexamples.sh`/`.log`、
+> `graceful-stop-token-readings.sh`/`.log`、`graceful-stop-v1201-080-run3.log`、
+> `graceful-stop-v1201-080-readers3.log`、`graceful-stop-v1201-040-regression.log`、
+> `graceful-stop-v1201-040-readers.log`；旧的 `V1201-080` 两件 `FAIL` 封存件（`6d11ab7d…`、`ffdd54fc…`）原样留在卷内。
+> **下一步不是本执行者可代决的**：1.20.1 的 `STOP_PHASE_EXPLICIT_KEY_RELEASE` 那一格现在有 Bridge 自己写的工件，
+> **是否据此从 registry 的 `tested` 声明里划出该缺口、是否提升 V08、是否连接用户远程服**都归主控；
+> registry 的 `status`/九条 `gaps`/摘要在本提交里一字未动。队列中没有可提升的 `QUEUED`
+> （`HOST-ADMISSION-DESIGN-001`、`OPERATIONS-RETENTION-001`、`PROCESS-RECOVERY-001` 仍 `BLOCKED_DECISION`，
+> HOST/W80+ `DEFERRED`），`cli/auto_session.py` 的版本切换停止仍是"直接终止"（那张卡明写留在范围外）。
+> 恢复现场时先核主计划 `current_next` 应为**暂无 `NEXT`**，与本文件一致后再等其他指示。
+>
+> **上一交接点（2026-09-25，停止阶段显式松键：判据已交付、工件待产品实现）**：主计划唯一 `NEXT` 是
 > **`GRACEFUL-STOP-KEY-RELEASE-001`**（本提交提升；恢复现场时先核 `current_next` 与本文件是否仍一致）。
 > `EXPLICIT-RELEASE-AT-STOP-001`（`b22a262` 登记、紧随提交提升为唯一 `NEXT`、判官侧 `f38cf34` 已推两条 ref）
 > 由本提交依其 `stop_conditions` **第①格**转为 **`BLOCKED_DECISION`**。机器读数（不是推断）：
