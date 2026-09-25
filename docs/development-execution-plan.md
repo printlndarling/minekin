@@ -12,12 +12,15 @@
 - `baseline_date`: 2026-09-22
 - `baseline_branch`: `main`
 - `baseline_remote`: `origin/main`
-- `current_next`: 无（本收卡提交把 `VERSION-BRIDGE-IDENTITY-001` 标 `DONE`，树中不再有 `NEXT`）。下一张待提升的是
-  已 `QUEUED` 的 `TESTED-PROVENANCE-VERIFY-001`——它登记的措辞就要求排在"本卡与其重封之后"，现在前置已满足；
-  提升须**另一次独立提交**。其后依次是 `BRIDGE-1214-RUNTIME-IDENTITY-001`（本卡收卡新登）、
-  `KEY-RELEASE-AT-STOP-001`、`STORE-FAILURE-EVIDENCE-001`；这些与 V07 的 `not_tested_v07` 缺口全部收口前，
+- `current_next`: `TESTED-PROVENANCE-VERIFY-001`（本提交把已 `QUEUED` 的它单独提升为唯一 `NEXT`，当前无第二张
+  `NEXT`。上一张 `VERSION-BRIDGE-IDENTITY-001` 已 `DONE`：实现 `801f9ba`、CI 门修复 `391cc2b`、收卡 `bebcf5d`、
+  CI 补记 `f00daeb`，两 ref 均已核对到 `f00daeb`；其重封让本卡的校验对象第一次变成"当前 build 的真件"。）
+  本卡要做的是把"registry 说 `tested`"从文档内部字段互比，变成代码对**真实封存构件**的独立核对；它**只读**
+  registry，`tested` 的晋升仍归人工评审后的独立提交。其后依序是
+  `BRIDGE-1214-RUNTIME-IDENTITY-001`（`801f9ba` 收卡新登）、`KEY-RELEASE-AT-STOP-001`、
+  `STORE-FAILURE-EVIDENCE-001`；这些与 V07 的 `not_tested_v07` 缺口全部收口前，
   **不得提升 V08、连接用户远程服，或把 reviewed registry 的 `tested` 当作远程入服的充分证据**。
-  （上一张 `VERSION-TESTED-GATE-AUDIT-001` 已 `DONE`：提升 `977dcf4`、收卡 `518e2f2`，追溯表见
+  （再上一张 `VERSION-TESTED-GATE-AUDIT-001` 已 `DONE`：提升 `977dcf4`、收卡 `518e2f2`，追溯表见
   [tested 晋级门复判记录](tested-gate-audit-2026-09-25.md)；V07 收卡 `17e81ea`+`96fb520`。）
   用户在七场景总账后明确把“自动识别服务器版本 → 准备匹配客户端 → 入服并完成简单控制”排为优先路线；
   `VERSION-AUTO-DESIGN-001` 已交付[跨版本连续执行计划](version-auto-to-server-control-plan.md)。
@@ -4259,8 +4262,12 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 
 ### TESTED-PROVENANCE-VERIFY-001 — 把 tested 摘要校验变成机器事实
 
-- `status`: `QUEUED`（2026-09-25 审查卡登记；提升须另一次独立提交，且必须排在
-  `VERSION-BRIDGE-IDENTITY-001` 与其重封之后，否则校验对象就是将被作废的旧摘要）。
+- `status`: `NEXT`（`518e2f2` 登记 `QUEUED`，来自审查结论 A3；本提交单独提升为唯一 `NEXT`，前置
+  `VERSION-BRIDGE-IDENTITY-001`（实现 `801f9ba`、重封 `bebcf5d`）已 `DONE`，校验对象是换代后的真件——
+  jar `e50d61c209be…` / source tree `ab33714672dc…` / recipe `8ce43e26b2e1…` / plan `83299ad5e224…`。
+  收卡时必须说清：核对入口是否**只读**（写过任何 registry/封存字节即不合格）、五条反例各自的真实退出类别、
+  以及"常量搬运"是否真的被"对真件重算"取代——不许把"读到了常量"重新包装成"已校验"。）
+- `baseline_sha`: `518e2f2`（登记提交）；领取时实际 checkout = 本提升提交。
 - `depends_on`: `VERSION-BRIDGE-IDENTITY-001`（新的 jar/source tree/recipe 摘要）、
   `VERSION-BUNDLE-1201-001`（封存过程）、`VERSION-INSTALLER-001`（现有 `require_reviewed_plan` 两层门）。
 - `question`: 能否让"registry 说 `tested`"这一步由代码对**真实封存构件**独立核对——真算 bridge jar 的 sha256、

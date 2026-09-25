@@ -1,11 +1,13 @@
 # Qoder 临时执行交接（2026-09-24）
 
-> **最新交接点（2026-09-25，跨版本路线执行中）**：主计划**当前无 `NEXT`**——`VERSION-BRIDGE-IDENTITY-001`
-> 已 `DONE`（实现 `801f9ba`、收卡见本提交）。下一张**必须**是已 `QUEUED` 的 `TESTED-PROVENANCE-VERIFY-001`
-> （把 registry 的 `tested` 变成对真实封存构件的机器核对），且仍须**另一次独立提交**提升；其后依序是
-> `BRIDGE-1214-RUNTIME-IDENTITY-001`（`801f9ba` 收卡新登：1.21.4 root 的 hello 常量仍写死）、
-> `KEY-RELEASE-AT-STOP-001`、`STORE-FAILURE-EVIDENCE-001`。也**不是**下文 ADMIT-070 起步卡，更不是 V01–V07
-> （均已 `DONE`；V07 交付 `5e53429`+`b0d08b6`、收卡 `17e81ea`+`96fb520`）。
+> **最新交接点（2026-09-25，跨版本路线执行中）**：主计划当前唯一 `NEXT` 是
+> **`TESTED-PROVENANCE-VERIFY-001`**（把 registry 的 `tested` 变成对真实封存构件的机器核对；提升见本提交）。
+> 上一张 `VERSION-BRIDGE-IDENTITY-001` 已 `DONE`（实现 `801f9ba`、CI 门修复 `391cc2b`、收卡 `bebcf5d`、
+> CI 补记 `f00daeb`）。该卡**只读** registry：`tested` 的晋升仍归人工评审后的独立提交，核对入口写任何
+> registry/封存字节即不合格。其后依序是 `BRIDGE-1214-RUNTIME-IDENTITY-001`（`801f9ba` 收卡新登：1.21.4 root
+> 的 hello 常量仍写死）、`KEY-RELEASE-AT-STOP-001`、`STORE-FAILURE-EVIDENCE-001`；这些与 V07 的
+> `not_tested_v07` 缺口收口前**不得提升 V08、不得连接用户远程服**。也**不是**下文 ADMIT-070 起步卡，
+> 更不是 V01–V07（均已 `DONE`；V07 交付 `5e53429`+`b0d08b6`、收卡 `17e81ea`+`96fb520`）。
 > **审查卡的四条硬事实**（决定 V08 为什么还不能领）：① 1.20.1 的 `tested` **没有被任何代码对真实封存构件校验过**
 > ——`resolve()` 只看 protocol/os_arch/version_text/status，条目摘要只与同一份文档的 evidence 段互比；
 > ② V06 安装门里 recipe/plan 两层是真算，**bridge 那层是 `recipe.py:71` 的常量搬运**，jar 真哈希只在启动阶段发生；
