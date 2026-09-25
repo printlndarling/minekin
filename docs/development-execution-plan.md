@@ -18,22 +18,21 @@
   回归基线；除非真实回归或当前 1.20.1 卡不可绕过的前置阻断，不再新增 1.21.4 功能专题。
   即使遇到前置阻断，也先登记范围与证据、按唯一 `NEXT` 流转，不得借 `.tmp/` 中的实验记录
   自行改排期或把临时构建当作新主线。HOST/PERSIST、在线认证、远程服授权等既有停机边界不变。
-- `current_next`: `KEY-RELEASE-AT-STOP-001`（`14d85a0` 把已 `QUEUED` 的它单独提升为唯一 `NEXT`，当前无第二张
-  `NEXT`；领取后的第一批读数记在该卡 `preparation_readings_key_release`——**未停在 `BLOCKED_DECISION`**，
-  并更正了一次把 `CRASH-OUTBOX-ALIVE-DISPLAY-001`（早已 `DONE`、交付 `f90abc8`）当成 `QUEUED` 的初判。
-  上一张 `BRIDGE-1214-RUNTIME-IDENTITY-001` 已 `DONE`：实现与重封 `16dbb42`、收卡 `2464901`——1.21.4 root
-  现在从 Fabric 自己的 mod container 读 `minecraft`/`fabricloader`，读不到就失败关闭而非回落常量，被引用的 12 条
-  1.21.4 case 已换代后（source tree `a4a53cac…` / jar `0ee2070b…` / recipe `e3bfbae8…` / plan `bcc0c10d…`）在新
-  build 上逐个重跑重封，registry 的 `status`/`capabilities`/`gaps` 一字未动。本卡要做的是让 1.20.1 在**停止/断连**
-  阶段由 Bridge 自己产出"IPC 丢失后释放了 N 个输入"的独立工件并由 case 断言核对，使"松键真的送达"不再依赖 Core 侧
-  记账与服务端推断；它排在 V09 之前，因为 V09 的 look/move/**release** 闭环不能靠 lease 到期记账顶替。其后是
-  `STORE-FAILURE-EVIDENCE-001`；这两卡与 V07 的 `not_tested_v07` 缺口全部收口前，
-  **不得提升 V08、连接用户远程服，或把 reviewed registry 的 `tested` 当作远程入服的充分证据**。
+- `current_next`: `STORE-FAILURE-EVIDENCE-001`（本 commit 把已 `QUEUED` 的它单独提升为唯一 `NEXT`，当前无第二张
+  `NEXT`。上一张 `KEY-RELEASE-AT-STOP-001` 已 `DONE`：case 登记 `bd8f6b7`、真跑与原子登记 `0fb7158`——1.20.1 上
+  `MINEKIN_DOMAIN_KILL_CORE=1` 的一次真跑（run `f71c56f0…`、bundle `90d490ce…`、attempt 序列 1）让 Bridge 自己在
+  `client/latest.log` 写下 `bridge released 1 input(s) after IPC_LOST`，`stderr.log` 为 0 字节，四条断言对拷贝出来的
+  工件复判一致。registry 摘要 `82a54075…` → `69244c32…`，其 `status` 与九条 `gaps` 一字未动，
+  `STOP_PHASE_EXPLICIT_KEY_RELEASE` 是否划出 `tested` 声明仍待主控决策；本卡未改产品代码。
+  本卡是**证据卡**：安装期三类故障（staging 写失败 / store 层 `os.replace` 失败 / 同 digest 并发安装）的可复判注入，
+  不改安装判据、摘要门与任何封存字节。它连同 V07 的 `not_tested_v07` 缺口收口前，**不得提升 V08、连接用户远程服，
+  或把 reviewed registry 的 `tested` 当作远程入服的充分证据**。
+  （上一张 `BRIDGE-1214-RUNTIME-IDENTITY-001` 已 `DONE`：实现与重封 `16dbb42`、收卡 `2464901`。）
   （再上一张 `VERSION-TESTED-GATE-AUDIT-001` 已 `DONE`：提升 `977dcf4`、收卡 `518e2f2`，追溯表见
   [tested 晋级门复判记录](tested-gate-audit-2026-09-25.md)；V07 收卡 `17e81ea`+`96fb520`。）
   用户在七场景总账后明确把“自动识别服务器版本 → 准备匹配客户端 → 入服并完成简单控制”排为优先路线；
   `VERSION-AUTO-DESIGN-001` 已交付[跨版本连续执行计划](version-auto-to-server-control-plan.md)。
-- `last_checkpoint`: **跨版本路线走到 1.21.4 root 自报运行时收口**——`BRIDGE-1214-RUNTIME-IDENTITY-001`（实现
+- `last_checkpoint`: **跨版本路线走到 1.20.1 停止阶段断连松键收口**——`KEY-RELEASE-AT-STOP-001`（case `bd8f6b7`、收卡 `0fb7158`）把 1.21.4 那一格“Bridge 自己写释放工件”交到了 1.20.1 上：`MINEKIN_DOMAIN_KILL_CORE=1` 的一次真跑产出 `after IPC_LOST` 释放行与空 `stderr.log`，四条断言对拷贝工件复判一致，产品代码一字未改，registry 的 `status`/`gaps` 未动（缺口是否划出 `tested` 声明属主控决策）。上一 checkpoint 是 **1.21.4 root 自报运行时收口**——`BRIDGE-1214-RUNTIME-IDENTITY-001`（实现
   `16dbb42`）让 1.21.4 root 像 1.20.1 一样从 Fabric 自己的 mod container 读 `minecraft`/`fabricloader` 送进
   `Expected`，读不到 container 就失败关闭而非回落常量；随之移动的 source tree / jar / recipe / plan / 黄金证明五组
   摘要逐条列在 `moved_digests_identity`，1.21.4 被引用的 **12 条** case 全部在新 build 上重跑、重封、四读一致，
@@ -4481,7 +4480,7 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 
 ### STORE-FAILURE-EVIDENCE-001 — 补齐 store 故障注入证据并更正 V06 口径
 
-- `status`: `QUEUED`（2026-09-25 审查卡登记，来自 A6；提升须另一次独立提交。这是**证据卡**：不改安装判据）。
+- `status`: `NEXT`（2026-09-25 审查卡登记为 `QUEUED`，来自 A6；由本 commit 单独提升为唯一 `NEXT`，前置 `KEY-RELEASE-AT-STOP-001` 已 `DONE`（`bd8f6b7`+`0fb7158`）。这是**证据卡**：不改安装判据）。
 - `depends_on`: `VERSION-INSTALLER-001`（被更正的收卡口径）、既有 store/fetcher 契约（`artifacts.py:151-182/240`）。
 - `question`: 能否用可复判的测试诱发安装期三类故障——staging 写失败（ENOSPC/IOError）、store 层 `os.replace`
   失败、同一 digest 的并发安装——证明既不产出半成品可见构件也不放宽摘要门？
