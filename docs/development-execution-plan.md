@@ -82,6 +82,25 @@
   （`HOST-010/020/050/060/070/080`、`HOSTCTL-001/010/050/060/070`、`HOSTCOMMIT-090/110`）今天
   **全部由仓库自检判得出且全部成立**，但它们都是 `mandatory: false`，**一份都没封**——封它们等于往
   未冻结的 HOST 所有权里加读数。这条普查要说清的是：**HOST 的拒绝面判据已在本地代码里，缺的是决定不是判据。**）
+  （**同晚按文档自己的规则重生成两处读数，落在 `8e47664` 与 `bdd2428`**：①`## 当前已验证状态`
+  那一节开头写着这些事实必须从命令重新生成，却带着 09-23 的快照，于是在 `8660c20` 上重跑
+  `report_cases.py` ＋ `check_case_assertions.py` ＋容器内 `report_promotion.py`，追加逐 gate 晋级窗口
+  11 行：**今天够格的是 `W00`/`W10`/`W20` 三道**，其余各道 `blocks` 逐格点名（`W60` 只差
+  `CORE-040`/`CORE-050` 两份真实运行；`W70` 只差一条 mandatory；`W30`/`W40`/`W50`/`p0-nav-exp`/
+  `host-integrated` 的 `blocking` 与 `absent` 完全重合＝那些 case 连 manifest 都没有；`p0-core`
+  唯一不等格＝12 条 absent ＋ 同一对，一条过期证据同时拦两道门）。**够不够格由机器说，提升哪一道
+  仍是主控的动作**，这两格只报形状。②`已知缺失 case（规划视图）` 那张表是现在时的规划输入，却停在
+  09-23 的形状：它那句「与下表逐族一致（同为 35 条缺失）」今天机器读 **31**——`ADMIT-060`
+  （`420bb88`）与 `OFFLINE-010`/`OFFLINE-020`/`OFFLINE-030`（`2a84bbd`）之后已登记，而当时表只跟着
+  删了 `HOSTCTL-060` 一格；两行与逐族计数已按 `report_cases.py` 重生成，09-23 快照与「八条 ADMIT」
+  历史段落一字未动。两处各配一份比对脚本（`.tmp/verify_plan_table.py`、
+  `.tmp/verify_missing_table.py`），**改错一格即红在自己的命名理由上**：把 `W60` 的 `promotable`
+  写成 true、把 `host-integrated` 的 `absent` 写成 17、把 `p0-core` 塞进"完全重合"名单、表里放回
+  `ADMIT-060`、删掉 `HOST-100`、合计写回 35 —— 各出一条具名 finding；其中 `p0-core` 那条是
+  **我先写错、被自己的脚本抓到之后才改的**，原文读数没变。全量门禁 `2501 passed / 2 skipped` 与前
+  三张卡**逐字相同**，另八道快门禁全 0；`8e47664` 两条 ref 已核，GitHub Actions 对该 SHA 的两个
+  `CI` run `36191047597` / `36191047585` 及其六个 job `python`/`protocol`/`bridge-static` 在 job 与
+  step 层均 `completed / success`。）
   （上一张 `TESTED-GAP-DRAW-STOP-PHASE-1201-001` 已在 `b03863e` 收口为 `DONE`：实现
   `4151664`——1.20.1 那条 `tested` 声明的 `gaps` 划出 `STOP_PHASE_EXPLICIT_KEY_RELEASE` 一条、
   `capabilities` 补上工件所证的 token、`evidence` 追加 `V1201-080 / run 484675e4… / attempt 3 / PASS` 的
