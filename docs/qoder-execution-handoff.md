@@ -1,10 +1,8 @@
 # Qoder 临时执行交接（2026-09-24）
 
-> **最新交接点（2026-09-25，跨版本路线执行中）**：**当前没有 `NEXT`**——`VERSION-INSTALLER-001`（V06）
-> 已收为 `DONE`（登记 `d8ca02d`、提升 `9ca039f`、范围与语义冻结 `f15f6b7`、实现 `06acbf1`、收卡
-> `d7a91f9`）；下一张 `VERSION-SESSION-SWITCH-001`（V07）已由紧随的登记提交以 `QUEUED` 写入主计划，
-> **提升为唯一 `NEXT` 须由下一次独立提交完成**。在那之前任何执行者都不得自行领取 V07 或其它卡。
-> 下文 ADMIT-070 起步卡与 V01–V05 都不是当前领取对象（五者均已 `DONE`）。
+> **最新交接点（2026-09-25，跨版本路线执行中）**：唯一 `NEXT` 是 `VERSION-SESSION-SWITCH-001`（V07，
+> `591cc89` 登记、本提交提升），**不是**下文 ADMIT-070 起步卡，也不是 V01–V06（六者均已 `DONE`；
+> V06 交付 `06acbf1`、收卡 `d7a91f9`）。
 > **V07 领取前必读**主计划 V07 卡的 `measured_state_v07`、`ownership_boundary_v07`、`open_semantics_v07`：
 > 装配层已支持两版本，拒人的是 `server_profile.py:32/200-201` 与 `ipc.py:437/628` 的字面量；
 > `resolve()` 在 `src/` 内零调用者；`bootstrap.py:187` 会话 generation 恒为 1；`stop_session` 对证不来的

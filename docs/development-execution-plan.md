@@ -12,13 +12,14 @@
 - `baseline_date`: 2026-09-22
 - `baseline_branch`: `main`
 - `baseline_remote`: `origin/main`
-- `current_next`: **暂无 `NEXT`**——`VERSION-INSTALLER-001`（V06）已收为 `DONE`
-  （登记 `d8ca02d`、提升 `9ca039f`、范围与语义冻结 `f15f6b7`、实现 `06acbf1`、收卡 `d7a91f9`）；下一张
-  `VERSION-SESSION-SWITCH-001`（V07）由本提交以 `QUEUED` 登记卡片正文，提升为唯一 `NEXT` 须由**下一次独立
-  提交**完成。在那之前任何执行者都不得自行领取 V07 或其它卡。
+- `current_next`: `VERSION-SESSION-SWITCH-001`（V07，`591cc89` 登记 `QUEUED`，本提交单独提升为唯一
+  `NEXT`；`VERSION-INSTALLER-001` 已 `DONE` 收卡 `d7a91f9`，两 ref 均已核对）。
   用户在七场景总账后明确把“自动识别服务器版本 → 准备匹配客户端 → 入服并完成简单控制”排为优先路线；
   `VERSION-AUTO-DESIGN-001` 已交付[跨版本连续执行计划](version-auto-to-server-control-plan.md)。
-- `last_checkpoint`: **跨版本路线走到 V06 收卡**——V06 `VERSION-INSTALLER-001` 交付的是产品侧第一个安装
+- `last_checkpoint`: **跨版本路线走到 V07 领取**——唯一 `NEXT` 现为 `VERSION-SESSION-SWITCH-001`（V07），
+  其正文与实测现状（`measured_state_v07`/`ownership_boundary_v07`/`open_semantics_v07`）在 `591cc89` 写下：
+  装配层已支持两版本，缺的是把探测/解析/安装接成一条 fail-closed 自动路径，且 Bridge 握手常量的修复
+  **不属**本卡。**上一张** V06 `VERSION-INSTALLER-001` 交付的是产品侧第一个安装
   入口：`bundle install`（必填 `--max-bytes`，缺失即 `USAGE`）显式组合"先核对被审摘要、再装"两层——
   `require_reviewed_plan` 按 `tested` 状态 → recipe 摘要 → launch plan 摘要 → bridge 摘要四步拒绝，
   `reviewed_entry` 拒绝猜近邻 id，装完仍由逐构件 `verify` 每次重新导出就绪（**没有**新增 ready 标记、
@@ -3797,7 +3798,7 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 ### VERSION-INSTALLER-001 — 缺缓存时把已审组合安全装齐
 
 - `status`: `DONE`（`d8ca02d` 登记 `QUEUED`、`9ca039f` 提升为唯一 `NEXT`、范围与语义冻结 `f15f6b7`、
-  实现 `06acbf1`、本提交收卡。当前无第二张 `NEXT`）。
+  实现 `06acbf1`、收卡 `d7a91f9`。当前 `NEXT` 是 V07，不是本卡）。
 - `baseline_sha`: `d8ca02d`（本卡 `QUEUED` 登记提交，紧随 V05 收卡 `6a8e79e`，两者均已推送并核对两
   ref）。领取时实际 checkout = 本提升提交。
 - `depends_on`: `VERSION-BUNDLE-1201-001`（V03 的两套 recipe/pin 与 launch plan 形状）、
@@ -3963,17 +3964,16 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
   `.staging` 残留无 GC API；跨 Kin 共享缓存未做，每 Kin 一份副本的代价仍成立（本次两套 store 各自
   727M / 525M 就是那份代价的读数）；
   `RUNNER_JDK_17_UNSEALED`（条目写 Java 21、recipe 自述 17）不变。
-- `next_after_done`: 本卡收卡后暂无 `NEXT`。下一张 `VERSION-SESSION-SWITCH-001`（V07）已由紧随本提交的
-  登记提交以 `QUEUED` 写入主计划，提升须再另开一次独立提交；设计卡正文见
+- `next_after_done`: 本卡收卡时暂无 `NEXT`。下一张 `VERSION-SESSION-SWITCH-001`（V07）随后以 `QUEUED`
+  登记（`591cc89`）并被提升为唯一 `NEXT`；设计卡正文见
   [跨版本连续执行计划](version-auto-to-server-control-plan.md) 的 V07 一节。
 
 ### VERSION-SESSION-SWITCH-001 — 接通会话启动而不热换
 
-- `status`: `QUEUED`（本提交登记，V06 收卡 `d7a91f9` 之后。提升须**另开一次独立提交**，且领取者必须先
-  闭合下面 `open_semantics_v07` 四格；本卡与 `VERSION-BRIDGE-IDENTITY-001` 的边界见
-  `ownership_boundary_v07`，不得越界改 Bridge 常量。）
-- `baseline_sha`: `d7a91f9`（V06 收卡提交，两 ref 已核对；`main` run **#503** 在浏览器读到 `Success`
-  2m36s，`python` 2m33s / `protocol` 10s / `bridge-static` 13s）。领取时实际 checkout = 本卡提升提交。
+- `status`: `NEXT`（`591cc89` 登记 `QUEUED`，本提交单独提升为唯一 `NEXT`；当前无第二张 `NEXT`。
+  领取者必须先闭合下面 `open_semantics_v07` 四格，不得越 `ownership_boundary_v07` 改 Bridge 常量。）
+- `baseline_sha`: `591cc89`（本卡 `QUEUED` 登记提交，紧随 V06 收卡 `d7a91f9`，两者均已推送并核对两
+  ref）。领取时实际 checkout = 本提升提交。
 - `depends_on`: `VERSION-REMOTE-PROFILE-001`（V01 的 v2 受信目标与 `allowed_versions`）、
   `VERSION-SERVER-PROBE-001`（V02 的 `ProbeObservation`）、`VERSION-RESOLVER-001`（V05 的 `resolve()`）、
   `VERSION-INSTALLER-001`（V06 的 `bundle install` 与 `require_reviewed_plan` 门）；下游
