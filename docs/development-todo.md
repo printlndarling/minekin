@@ -2666,3 +2666,53 @@
   already formatted）、`pyright` 0 errors 0 warnings、`check_boundaries` / `check_case_assertions`(139) /
   `verify_fixture_digests` / `check_workflow_pins` 全 OK，`bridge/` 四个门（两 root scaffold、host boundary、
   `bridge-1201` 协议内核、`check_bridge_proto_java`）绿。
+
+## AUTO-PATH-INSTALL-RUN-001 收卡现场（2026-09-25，Windows + 受控 runner / Docker / Linux）
+
+- **基点与提交形状**：领取基点 `244c99d`（工作分支 `codex/core-state-transition`，与 `origin/main` 同点）。本卡是
+  `REAL_RUN_ONLY` 证据卡：**产品代码、fixture、`tests/fixtures/manifest.sha256`、registry 一字未改**，收卡提交只含
+  `docs/`（跑法与读数脚本留在未跟踪的 `.tmp/`）。docs 提交无法自指 SHA，push 后用
+  `git ls-remote origin refs/heads/codex/core-state-transition refs/heads/main` 核对两条 refs 与本地 `git rev-parse HEAD` 一致。
+- **跑法（可复现，容器内）**：`.tmp/auto-inst-run.sh`，分离容器起（`docker run -d --name auto-inst-run-2 --entrypoint
+  /bin/bash -v <repo>:/src:ro -v minekin-runner-data:/data -e MINEKIN_HOME=/data -e PYTHONPATH=/src/src -e
+  LD_LIBRARY_PATH=/opt/sqlite/lib -w /src minekin-runner:local -lc 'bash /src/.tmp/auto-inst-run.sh'`）。Kin
+  `kin-auto-inst-20260925T141055Z`（`kin-01` 那 207 条陈旧 marker 之外新建），脚本先断言该 Kin 自己的
+  `run/artifact-store` 开局 `0 files`，再对 loopback 1.20.1 目标做观测性预备（`.tmp/v07-server-config.py`：harness
+  自己的 `properties_for`+`verify_jar`+`write_configuration`，唯一一格 `enable-status=true`，pin jar 直起），然后跑
+  **正常**自动入口 `session start --auto-bundle tests/fixtures/registry/reviewed-tested-bundles.json
+  --server-profile tests/fixtures/runtime-input/controlled-offline-server-1.20.1.json --max-bytes 1500000000`
+  （无 `--profile`、无 `MINEKIN_DOMAIN_KILL_CORE`、不复制 host store、不硬链接缓存），以 `session stop` 结束，手工
+  `tools/seal_run_evidence.py` 封存。
+- **同一 run 的正证**：封存 `run-document.json` 里 `bundle_id 1.20.1-linux-x86_64-offline-java21 status=ready
+  fetch_set=3639 installed=3639 reused=0`；该 Kin 的 store 从 `0 files` 变成 `3639 files / 738,432,269 bytes`，
+  `quarantine` 与 `.staging` 各 `0 files`；`PlayableEstablished` 在封存的 `bridge-trace.jsonl` 里（`grep -rla` 唯一
+  命中该文件；`replay` 从它投影 19 条事件），同一 ledger 的 position 15、在 `JoinObserved`(12) 与
+  `SessionIdentityCompared`(13) 之后；`connection_state=PLAYABLE`、`snapshots_admitted=1`、`outcome=BRIDGE_LOST`
+  （`session stop` 的正常后果，CLI 退出码 14）；封存 server 日志 `Kin joined the game 14:35:32` /
+  `Kin left the game 14:36:06`。run `7236c53ef3ef4492ab2a6b18499f6699`、bundle
+  `9a732edc057cebe9e5be9c277b673a710fd23e92248e182d1d9028024b00df9e`（= `sha256(manifest.json)` = `bundle.sha256`）、
+  case `V1201-020`、`case_version e7c3b722…`、attempt 序列 3（supersedes `ece5d0cb…`）、12 件工件、`result PASS`。
+  抓取到 `PlayableEstablished` 耗时 1493s。
+- **四读**：`minekin_core evidence verify` → `exit 0` `sealed:true/verified:true/violations:[]`（12 件）；
+  `tools/rejudge_evidence.py` → `exit 0` `status: agrees`、三条 `expected`/`observed` 相同、`recorded.result PASS`；
+  `minekin_core replay` → `exit 0` `events 19` `projected{last_event_position 18, state STOPPED}`
+  `trace_sha256 f6e396703f2e…`，`tools/replay_evidence.py` → `exit 0` "projects 19 event(s)"；
+  `tools/report_promotion.py --work-package W40` → `exit 1`（**W40 整体仍 `blocked`**，其 20 条 blocking_cases 与本卡
+  无关），本 run 那一行 `re_judged: AGREES`、`from_repository_build: true`、`verified/sealed: true`。
+- **非空转反证（三条）**：rejudge 对"要求 observe-only"的变体 case → `exit 2 unjudged`（点名 `e7c3b722…` vs
+  `08c544c6…`）；对"删掉首帧断言"的变体 → `exit 2 unjudged`（`c0d4186a…`）；`tools/assert_case_evidence.py` 对同一批
+  封存工件跑一条它们不满足的 `stayed_observe_only` → `exit 1` `failures ["stayed_observe_only:JOINED_A_WORLD"]`，
+  同形状 positive control（真正的三条）→ `exit 0` `failures []`。
+- **第一次尝试的失败记录（材料保留 `.tmp/auto-inst-attempt1.log`）**：Kin `kin-auto-inst-20260925T134134Z`，那一次同样
+  装齐并在 1430s 到达 `PlayableEstablished`，但我的取文档代码对整份 stdout 做 `json.load` → `Expecting value: line 1
+  column 1`：抓取分支把进度行打在 **stdout**，文档只是末行 JSON。`RUN_ID` 因此为空、seal 跳过，`trap` 按设计删了会话
+  目录 ⇒ 该次无法补封。第二跑改成 `grep -a '^{' … | tail -1` 并**另起全新 Kin**（没有复用第一次那个已装满的 store，
+  否则就造成本卡点名的 `installed 0 / reused 3639` 假证据）。
+- **registry 未动**：`reviewed-tested-bundles.json` 每个 `case_id` 只留一条证据引用，V1201-020 原指向 attempt 2
+  （`ece5d0cb…`，PASS 且对当前 build `AGREES`），换成 attempt 3 不新增任何被证明的属性、却要移动 registry 自身摘要并
+  要求全部引用重验（重封是原子的）。`status`、九条 `gaps`、`capabilities` 与三组 digest 原样。
+- **不证明什么**：V08（用户远程服）未连接，HOST/PERSIST 仍 `BLOCKED_DECISION`；跨 Kin 缓存共享、marker GC、残留进程
+  接管未测（`PROCESS-RECOVERY-001`）；`orchestrator-trace.json` 里 `"orchestrator": "domain.sh"` 是
+  `tools/seal_run_evidence.py:550` 的常量而非本跑的发起者；预检那句 `4121 blob / 523,911,981 字节` 是别的 Kin 全 store
+  的规模代理，本卡自己的 fetch 集是 `3639 files / 738,432,269 字节`；卷内遗留两个 auto-inst Kin 的 store（各 738 MB）
+  未清理，属卷级运维。

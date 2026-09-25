@@ -7,8 +7,28 @@
 > `.tmp/` 被 Git 忽略，是构建、诊断和封证的临时工作区；它的内容不是已推送产品代码、
 > 不是阶段状态，也不能替代主计划里的 run/bundle/attempt 与真实门禁记录。
 
-> **最新交接点（2026-09-25，跨版本路线执行中）**：主计划当前唯一 `NEXT` 是 **`AUTO-PATH-INSTALL-RUN-001`**
-> （`94cb15b` 登记、提升提交 `298883e`）。它**尚未真跑**，卡里只有领取后的 `preparation_readings_auto_path`
+> **最新交接点（2026-09-25，跨版本路线执行中）**：主计划**暂无 `NEXT`**——**`AUTO-PATH-INSTALL-RUN-001`** 已 `DONE`
+> （`94cb15b` 登记、提升提交 `298883e`、本提交收卡）。该卡的空 store 自动路径真跑**已做完并封存**：全新 Kin
+> `kin-auto-inst-20260925T141055Z` 自己的 `run/artifact-store` 从 `0 files` 起步，由自动入口**自己**装齐（封存
+> `run-document.json`：`fetch_set 3639 / installed 3639 / reused 0`，落盘 `3639 files / 738,432,269 bytes`，
+> `quarantine`/`.staging` 各 0），并在**同一个 run** 的封存 `bridge-trace.jsonl` 里拿到 `PlayableEstablished`
+> （ledger position 15，在 `JoinObserved` 与 `SessionIdentityCompared` 之后；`connection_state=PLAYABLE`、
+> `snapshots_admitted=1`；封存 server 日志有 join 14:35:32 / leave 14:36:06）。身份：run `7236c53ef3ef4492ab2a6b18499f6699`、
+> bundle `9a732edc057cebe9…`、case `V1201-020`、`case_version e7c3b722…`、attempt 序列 3（supersedes `ece5d0cb…`）、
+> 12 件工件、`result PASS`。四读一致（`evidence verify` `verified:true/violations:[]`、`rejudge` `agrees`、
+> 两个 `replay` 同投 19 条事件到 `STOPPED`、`report_promotion` 那一行 `re_judged: AGREES` +
+> `from_repository_build: true`），三条非空转反证各红在其命名理由上（两条 `exit 2 unjudged` 的 case_version 漂移、
+> 一条 `assert_case_evidence` 的 `stayed_observe_only:JOINED_A_WORLD`，同形状 positive control `exit 0`）。
+> **门禁与边界**：`cli/auto_session.py` 的判据与顺序、runner 等待语义、产品代码、fixture、`manifest.sha256`、
+> registry 全部一字未改（`status`、九条 `gaps`、`capabilities`、三组 digest 原样；不换 V1201-020 那条引用的理由记在
+> 该卡 `completion_readings_auto_path` 第 6 格）。两条 `stop_conditions` 都没触发。V07 `not_tested_v07` 的头两格由
+> `not_tested_v07_correction_2026-09-25` 更正为真跑证据，其余格未动。**V07 剩余缺口是否算收口、是否提升 V08 为
+> `NEXT` 由主控决定**，本卡未代为登记，也未连接用户的远程测试服；HOST/PERSIST、在线认证仍 `BLOCKED_DECISION`。
+> 失败材料保留：`.tmp/auto-inst-attempt1.log`（第一次跑到过 `PlayableEstablished` 但取文档方式错、未及封存，
+> 第二跑另起新 Kin 而没有复用那个已装满的 store）。卷内遗留：两个 auto-inst Kin 各自的 738 MB store 未清理（属卷级运维）。
+>
+> **上一交接点（2026-09-25，本卡领取时的准备现场）**：主计划当时唯一 `NEXT` 是 **`AUTO-PATH-INSTALL-RUN-001`**
+> （`94cb15b` 登记、提升提交 `298883e`）。它当时**尚未真跑**，卡里只有领取后的 `preparation_readings_auto_path`
 > （`c14acff`、`825a511`），全是实测：自动路径的 store 根是 per-Kin（`cli/auto_session.py:331`），所以"空 store"
 > 只指**新 Kin 自己的 `run/artifact-store` 为空**；该声称必须绕开 `test-orchestrator/runner/domain.sh:594-616`
 > 对加入者执行的 host store `cp -a`，否则开局即满、只会得到 `installed 0 / reused 数千` 的假证据；容器内出站可达
@@ -26,6 +46,7 @@
 > 然后持续检查该作业直至拿到本卡要求的证据或触发明确停止条件。使用正常自动会话，**不要沿用上一张
 > `KEY-RELEASE-AT-STOP-001` 的 `MINEKIN_DOMAIN_KILL_CORE=1` 故障注入**。如果环境或 harness 使真跑无法继续，
 > 保存失败现场、标明触发的 `stop_conditions`，再交回主控；预检完成本身不构成停机条件。
+> **（这条指令已执行：真跑完成并封存，收卡读数见最上面那块。）**
 >
 > **上一交接点（2026-09-25，跨版本路线执行中）**：主计划当时**暂无 `NEXT`**——`STORE-FAILURE-EVIDENCE-001` 已由
 > `cfbb87c` 提升、由 `4be3d55` 收卡，`94cb15b` 把 V07 `not_tested_v07` 的头两格承接为新卡

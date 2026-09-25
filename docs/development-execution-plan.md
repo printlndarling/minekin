@@ -18,18 +18,20 @@
   回归基线；除非真实回归或当前 1.20.1 卡不可绕过的前置阻断，不再新增 1.21.4 功能专题。
   即使遇到前置阻断，也先登记范围与证据、按唯一 `NEXT` 流转，不得借 `.tmp/` 中的实验记录
   自行改排期或把临时构建当作新主线。HOST/PERSIST、在线认证、远程服授权等既有停机边界不变。
-- `current_next`: `AUTO-PATH-INSTALL-RUN-001`（`94cb15b` 以 `QUEUED` 登记它，由本次独立提交提升为唯一 `NEXT`，
-  当前无第二张 `NEXT`。领取后的现场核对已记入本卡 `preparation_readings_auto_path`：自动路径的 store 根是
-  per-Kin 的、空 store 声称必须绕开 `domain.sh:594-616` 的 host store `cp -a` 捷径、抓取在容器内可达而非被网络阻断、
-  必须在带 207 条陈旧 marker 的 `kin-01` 之外另起新 Kin 并在同一命令内清理；**该卡尚未真跑，没有 run/bundle 读数可封**。
+- `current_next`: **暂无**（`AUTO-PATH-INSTALL-RUN-001` 由本提交收卡：`94cb15b` 登记、提升提交 `298883e`，收卡读数记在
+  该卡 `completion_readings_auto_path`——空 store 的自动 `session start` 真跑已在**同一个 run** 内同时给出
+  `installed 3639 / reused 0` 与封存的 `PlayableEstablished`，四读一致、三条非空转反证各红在其命名理由上；
+  V07 `not_tested_v07` 的头两格随之由 `not_tested_v07_correction_2026-09-25` 更正，registry 一字未动。
+  队列里没有第二张已登记的卡：**V07 剩余缺口是否算收口、是否提升 V08 为 `NEXT` 由主控决定**，本卡不代为登记。
   上一张 `STORE-FAILURE-EVIDENCE-001` 提升 `cfbb87c`、收卡 `4be3d55`：三类安装期故障
   （写失败 / store 层原子 `rename` 失败 / 并发同 digest 的 `FileExistsError → verify`）现在有七条真文件系统断言，
   `ruff`、`pyright` 与全量 `pytest tests/unit`（2177 passed, 2 skipped）在本地逐条读过，实现与安装判据一字未改。
   再上一张 `KEY-RELEASE-AT-STOP-001`（case `bd8f6b7`、收卡 `0fb7158`）交出 1.20.1 的断连释放独立工件。
-  本卡是 `REAL_RUN_ONLY` 的**证据卡**：在受控 runner 上以卷内一次性**空 store** 起自动 `session start`，让自动路径
-  自己走完摘要门先于抓取 → 装齐 → 起会话，并在同一 run 观测 `PlayableEstablished`；**不得**改 `cli/auto_session.py`
-  的判据与顺序，**不得**访问用户的真实远程服。V08 的门仍在：**是否判定 V07 缺口已收口并据此提升 V08 由主控决定**，
-  本卡不代为判定。上一张 `KEY-RELEASE-AT-STOP-001` 已 `DONE`：case 登记 `bd8f6b7`、真跑与原子登记 `0fb7158`——1.20.1 上
+  刚收口的 `AUTO-PATH-INSTALL-RUN-001` 是 `REAL_RUN_ONLY` 的**证据卡**：它要求在受控 runner 上以卷内一次性**空 store**
+  起自动 `session start`，让自动路径自己走完摘要门先于抓取 → 装齐 → 起会话，并在同一 run 观测
+  `PlayableEstablished`；两格都已实测在场（`run 7236c53e…` / `bundle 9a732edc…`）。它**没有**改
+  `cli/auto_session.py` 的判据与顺序，**没有**访问用户的真实远程服。V08 的门仍在：**是否判定 V07 缺口已收口并据此
+  提升 V08 由主控决定**，本卡不代为判定。上一张 `KEY-RELEASE-AT-STOP-001` 已 `DONE`：case 登记 `bd8f6b7`、真跑与原子登记 `0fb7158`——1.20.1 上
   `MINEKIN_DOMAIN_KILL_CORE=1` 的一次真跑（run `f71c56f0…`、bundle `90d490ce…`、attempt 序列 1）让 Bridge 自己在
   `client/latest.log` 写下 `bridge released 1 input(s) after IPC_LOST`，`stderr.log` 为 0 字节，四条断言对拷贝出来的
   工件复判一致。registry 摘要 `82a54075…` → `69244c32…`，其 `status` 与九条 `gaps` 一字未动，
@@ -39,7 +41,14 @@
   [tested 晋级门复判记录](tested-gate-audit-2026-09-25.md)；V07 收卡 `17e81ea`+`96fb520`。）
   用户在七场景总账后明确把“自动识别服务器版本 → 准备匹配客户端 → 入服并完成简单控制”排为优先路线；
   `VERSION-AUTO-DESIGN-001` 已交付[跨版本连续执行计划](version-auto-to-server-control-plan.md)。
-- `last_checkpoint`: **跨版本路线走到安装故障证据收口、进入自动路径补证**——`STORE-FAILURE-EVIDENCE-001`（提升
+- `last_checkpoint`: **跨版本路线走到自动路径的空 store 真跑补证收口**——`AUTO-PATH-INSTALL-RUN-001`（本提交收卡）在
+  卷内一个全新 Kin 的空 `run/artifact-store` 上让自动路径自己装齐（封存 `run-document.json`：
+  `fetch_set 3639 / installed 3639 / reused 0`，落盘 `3639 files / 738,432,269 字节`），并在**同一个 run** 的封存
+  `bridge-trace.jsonl` 里拿到 `PlayableEstablished`（run `7236c53e…`、bundle `9a732edc…`、case `V1201-020`、
+  attempt 序列 3、12 件工件），`evidence verify`/`rejudge`/两个 `replay`/`report_promotion` 四读一致，三条非空转反证
+  各红在其命名理由上；V07 `not_tested_v07` 头两格由 `not_tested_v07_correction_2026-09-25` 更正，registry 一字未动
+  （理由记在本卡第 6 格），两条 `stop_conditions` 均未触发，产品代码与 fixture 未改。**V07 剩余缺口是否算收口、
+  据此提升 V08 仍归主控决策。** 上一 checkpoint 是 **跨版本路线走到安装故障证据收口、进入自动路径补证**——`STORE-FAILURE-EVIDENCE-001`（提升
   `cfbb87c`、收卡 `4be3d55`）用 `tests/unit/test_install_fault_injection.py` 七条真文件系统断言补上了 V06 曾
   误称已被契约覆盖的三类故障（写失败、store 层原子 `rename` 失败、并发同 digest 的 `FileExistsError → verify`），
   实现与判据一字未改，未测一侧是真·磁盘满与真跨进程并发。上一 checkpoint 是 **1.20.1 停止阶段断连松键收口**——`KEY-RELEASE-AT-STOP-001`（case `bd8f6b7`、收卡 `0fb7158`）把 1.21.4 那一格“Bridge 自己写释放工件”交到了 1.20.1 上：`MINEKIN_DOMAIN_KILL_CORE=1` 的一次真跑产出 `after IPC_LOST` 释放行与空 `stderr.log`，四条断言对拷贝工件复判一致，产品代码一字未改，registry 的 `status`/`gaps` 未动（缺口是否划出 `tested` 声明属主控决策）。上一 checkpoint 是 **1.21.4 root 自报运行时收口**——`BRIDGE-1214-RUNTIME-IDENTITY-001`（实现
@@ -4235,9 +4244,20 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
   `controlled_run_v07` 的两次受控真跑里。
 - `not_tested_v07`：两次真跑都是 `reused 3639 / installed 0`，自动路径的"需要时装"分支只有单元证据（从空 store
   装齐的证据属 V06）；第二跑在自动路径自己的 `PlayableEstablished` 之前就被结束（该事件只在第一跑的显式会话里
-  观察到）；跨 Kin 缓存共享、marker 清理、残留进程接管均未动（属 `PROCESS-RECOVERY-001`）；1.20.1 的 `BridgeHello`
+  观察到）（**这两格已被真跑更正，见 `not_tested_v07_correction_2026-09-25`；此处按惯例保留当时的原始读数不改写**）；
+  跨 Kin 缓存共享、marker 清理、残留进程接管均未动（属 `PROCESS-RECOVERY-001`）；1.20.1 的 `BridgeHello`
   仍自报 1.21.4，按 `ownership_boundary_v07` 未修（`VERSION-BRIDGE-IDENTITY-001`）；`xvfb-run` 会把子进程 stderr
   并进 stdout，驱动 `.err` 文件恒空，读数取自同一文件的 JSON 尾部；用户的真实远程服本卡未访问。
+- `not_tested_v07_correction_2026-09-25`（`AUTO-PATH-INSTALL-RUN-001` 收卡带来的事实更正，只动头两格）：
+  "自动路径的『需要时装』分支只有单元证据"与"第二跑在自动路径自己的 `PlayableEstablished` 之前就被结束"两格
+  **已被一次真跑证据更正**——全新 Kin `kin-auto-inst-20260925T141055Z` 自己的 `run/artifact-store` 从 `0 files`
+  起步，由自动路径**自己**装齐（封存的 `run-document.json`：`fetch_set 3639 / installed 3639 / reused 0`，
+  落盘 `3639 files / 738,432,269 bytes`），且 `PlayableEstablished` 出现在**自动**路径自己的封存
+  `bridge-trace.jsonl` 里（run `7236c53e…`、bundle `9a732edc…`、case `V1201-020`、attempt 序列 3，四读一致、
+  三条非空转反证）。V07 当日那两跑的 `reused 3639 / installed 0` 不是错读，而是**该 Kin 的 store 已被硬链接预热**
+  这一形状的必然结果，本更正不追溯改动它。剩余未测格不在本卡范围：跨 Kin 缓存共享 / marker 清理 / 残留进程接管
+  属 `PROCESS-RECOVERY-001`，远程服属 V08；`BridgeHello` 那一格由 `VERSION-BRIDGE-IDENTITY-001` 与
+  `BRIDGE-1214-RUNTIME-IDENTITY-001` 各自收口，本卡未重述其读数。
 - `next_after_done`: `VERSION-TESTED-GATE-AUDIT-001`（已 `QUEUED`；V07 完成并推送后才可在下一次
   独立提交提升）。主控 2026-09-25 审查发现下述已收卡验收口径与原始契约有差距；审查卡未收口前，
   **不得提升 V08、连接用户远程服，或把 reviewed registry 的 `tested` 当作远程入服充分证据**。
@@ -4549,8 +4569,10 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 
 ### AUTO-PATH-INSTALL-RUN-001 — 让自动路径自己完成空 store 安装并跑到可玩
 
-- `status`: `NEXT`（`94cb15b` 登记为 `QUEUED`，由紧随其后的独立提交提升为唯一 `NEXT`。前置 `STORE-FAILURE-EVIDENCE-001`
-  已 `DONE`（`cfbb87c` 提升、`4be3d55` 收卡）。这是**证据卡**：不改自动路径的任何判据。）
+- `status`: `DONE`（`94cb15b` 登记为 `QUEUED`，由紧随其后的独立提交提升为唯一 `NEXT`，本提交收卡。前置
+  `STORE-FAILURE-EVIDENCE-001` 已 `DONE`（`cfbb87c` 提升、`4be3d55` 收卡）。这是**证据卡**：不改自动路径的任何判据，
+  收卡时产品代码、fixture、`manifest.sha256` 与 registry 一字未改（`git show --stat` 只含 `docs/`，跑法脚本在未跟踪的
+  `.tmp/`）。）
 - `depends_on`: `VERSION-SESSION-SWITCH-001`（被测的 `cli/auto_session.py` 自动路径）、`VERSION-INSTALLER-001`
   （其安装分支在显式 `bundle install` 上真跑过，在自动路径上没有）。
 - `question`: 能否在受控 runner 上以**空 store** 起一次自动 `session start`，让自动路径自己走完
@@ -4608,6 +4630,89 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
      `evidence verify` / `rejudge_evidence` / `replay_evidence` / `report_promotion` 四读，并按
      惯例做至少一次"把断言输入换掉必须变红"的非空转反证。若 harness 在 `PlayableEstablished` 之前结束会话，
      即按 `stop_conditions` 停在 `BLOCKED_DECISION` 并保留失败材料。
+
+- `completion_readings_auto_path`（收卡读数，2026-09-25 实测；`REAL_RUN_ONLY`——结论只来自那一次真跑及其封存产物）：
+  1. **跑法（可复现）**：未跟踪脚本 `.tmp/auto-inst-run.sh`，在**独立分离容器**里跑（`domain.sh` 装不下这条路径，
+     原因记在第 7 格），启动形状
+     `MSYS_NO_PATHCONV=1 docker run -d --name auto-inst-run-2 --entrypoint /bin/bash -v <repo>:/src:ro`
+     ` -v minekin-runner-data:/data -e MINEKIN_HOME=/data -e PYTHONPATH=/src/src`
+     ` -e LD_LIBRARY_PATH=/opt/sqlite/lib -w /src minekin-runner:local -lc 'bash /src/.tmp/auto-inst-run.sh'`。
+     脚本内顺序：`init --kin-id kin-auto-inst-20260925T141055Z` → **断言该新 Kin 自己的 `run/artifact-store`
+     开局是 `0 files`**（不为 0 即 `exit 1`，不装第二跑）→ 用 `.tmp/v07-server-config.py`（harness 自己的
+     `properties_for` + `verify_jar` + `write_configuration`，唯一一格 `enable-status=true`）准备 loopback 1.20.1
+     目标并直接起 pin 的 jar → `python -m minekin_core server probe` 先记下自动路径将看到的形状 →
+     `xvfb-run -a --server-args="-screen 0 1280x720x24" python -m minekin_core session start`
+     `--auto-bundle tests/fixtures/registry/reviewed-tested-bundles.json --server-profile`
+     `tests/fixtures/runtime-input/controlled-offline-server-1.20.1.json --max-bytes 1500000000`
+     （**无 `--profile`、无 `MINEKIN_DOMAIN_KILL_CORE`、不复制 host store、不硬链接缓存**）→ 轮询该 Kin 自己的 ledger
+     等 `PlayableEstablished` → `python -m minekin_core session stop` 收尾（harness 自己的结束方式）→
+     `tools/seal_run_evidence.py` 手工封存 → 四读。
+  2. **同一 run 内的两格正证（本卡判据）**：装齐一侧写在**封存的 `run-document.json`** 里而不是控制台快照——
+     `bundle_id 1.20.1-linux-x86_64-offline-java21 status=ready fetch_set=3639 installed=3639 reused=0`，该 Kin 的
+     store 由 `0 files` 变为 `3639 files / 738,432,269 bytes`，`quarantine` 与 `.staging` 各 `0 files`；可玩一侧
+     `PlayableEstablished` **在封存产物里**——`grep -rla PlayableEstablished <bundle>` 唯一命中
+     `bridge-trace.jsonl`（其内事件计数：`SessionStateTransitioned` 11、`AuthPolicyFrozen`/`SessionProcessStarted`/
+     `BridgeHelloAccepted`/`ResourcePackPolicyApplied`/`JoinObserved`/`SessionIdentityCompared`/
+     `PlayableEstablished`/`SessionInterrupted` 各 1），`replay` 就是从这份 trace 投影出 19 条事件；同一 ledger 里它
+     位于 `JoinObserved`（position 12）与 `SessionIdentityCompared`（13）**之后**的 position 15，本卡没有用
+     `JoinObserved` 顶替它；`run-document.json` 的 `connection_state=PLAYABLE`、`snapshots_admitted=1`、
+     `outcome=BRIDGE_LOST`（`session stop` 的正常后果，CLI 退出码 14）；封存 `server/server.log` 里
+     `Kin joined the game 14:35:32` 与 `Kin left the game 14:36:06` 都在。身份：run
+     `7236c53ef3ef4492ab2a6b18499f6699`、bundle `9a732edc057cebe9e5be9c277b673a710fd23e92248e182d1d9028024b00df9e`
+     （= `sha256(manifest.json)` = `bundle.sha256` 文件内容）、case `V1201-020`、`case_version e7c3b72235d907…`、
+     attempt 序列 **3**（`supersedes_run_id ece5d0cb282946f786088bced9fbf4b1`）、12 件工件、`result PASS`。
+  3. **四读**（全部在容器内跑，主机 `python` 没有 `minekin_core`：`ModuleNotFoundError`）：
+     - `python -m minekin_core evidence verify 7236c53e…` → `exit 0`，`sealed: true`、`status verified`、
+       `verified: true`、`artifacts 12`、`violations []`；
+     - `python tools/rejudge_evidence.py <bundle>` → `exit 0`，`status: agrees`、`disagreements []`，
+       `expected`/`observed` 同为 `server_observed_join_identity`、`first_snapshot_admitted`、
+       `leave_after_join_observed`，`recorded.result PASS`；
+     - `python -m minekin_core replay <bundle>` → `exit 0`，`events 19`、`projected {last_event_position: 18,
+       state: STOPPED}`、`violations []`、`trace_sha256 f6e396703f2e…`；`python tools/replay_evidence.py <bundle>`
+       → `exit 0`，"projects 19 event(s)"；
+     - `python tools/report_promotion.py --data-root /data --work-package W40` → `exit 1`：**W40 整体仍然 `blocked`**
+       （`gated "W40"`，blocking_cases 为 ADMIT-010/020/030/050/090/120、CORE-001/040/050/070/080、
+       HOST-001/090/100、HOSTCOMMIT-001…050 那 20 条），这不是本卡的判定对象；本 run 在证据表里那一行是
+       `re_judged: AGREES`、`re_judge_reason ""`、`verified: true`、`sealed: true`、`from_repository_build: true`、
+       `result PASS`、`attempt_sequence 3`，attempt 序列 1 `87229052…` → 2 `ece5d0cb…` → 3 `7236c53e…` 逐条可追。
+  4. **非空转反证（三条，各红在它命名的理由上）**：
+     - A：把变体 case（要求 `observe-only`）放进 `--cases-dir` 再 rejudge → `exit 2`、`status unjudged`，消息点名
+       "sealed against `e7c3b722…` and V1201-020 is now `08c544c6…` — the criteria moved"；
+     - B：把三条断言删成两条（join + leave，去掉首帧）→ 同样 `exit 2 unjudged`（`c0d4186a…`）。这两条说明 rejudge
+       不是"文本对上就算"，改回真实 case 仍是 `exit 0`（agrees）；
+     - C：`python tools/assert_case_evidence.py` 拿同一批封存工件去跑一条它们**不满足**的断言
+       `stayed_observe_only` → `exit 1`、`failures ["stayed_observe_only:JOINED_A_WORLD"]`；同形状的 positive control
+       （该 case 真正的三条）→ `exit 0`、`failures []`、三条全 observed。
+  5. **第一跑的失败材料（保留，未删）**：`.tmp/auto-inst-attempt1.log`，Kin `kin-auto-inst-20260925T134134Z`、
+     session overlay `a8a9855a…`。那一次**同样装齐并到达了 `PlayableEstablished`（1430s）**，但我的收档脚本对整份
+     stdout 做 `json.load` → `Expecting value: line 1 column 1`：自动路径的抓取分支把 `fetching N/…` 进度行打在
+     **stdout** 上，文档只是文件末尾那一行 JSON（V07 的 `not_tested_v07` 早已写过这条形状）。于是 `RUN_ID` 为空、
+     seal 被跳过，而 `trap` 按设计删掉了该 Kin 的会话目录 ⇒ 那一次已无法补封。第二跑把取文档改成
+     `grep -a '^{' "${AUTO_DOC}" | tail -1`，并**另起一个全新 Kin**重跑——没有复用第一跑已装满的 store，
+     那会正好造成本卡 `counterexamples` 点名的 `installed 0 / reused 3639`。
+  6. **registry：本卡不动它**（`tests/fixtures/registry/reviewed-tested-bundles.json` 与 `manifest.sha256` 一字未改）。
+     理由：该文件每个 `case_id` 只保留**一条**证据引用，V1201-020 当时指向 `ece5d0cb…`（attempt 2，PASS 且对当前
+     build 复判 `AGREES`），本次 attempt 3 也是 PASS——**替换它不会新增任何被证明的属性，却会移动 registry 自身摘要
+     并要求全部引用重跑重验**（重封是原子的，见 `project-reseal-is-atomic`）。`status`、九条 `gaps`、
+     `capabilities` 与三组 digest 全部原样；"从空 store 自动装齐"是否据此写进 `tested` 声明属主控决策。
+  7. **诚实注记与边界**：
+     - `orchestrator-trace.json` 里的 `"orchestrator": "test-orchestrator/runner/domain.sh"` 是
+       `tools/seal_run_evidence.py:550` 的**写死常量**，不构成"这一跑由 `domain.sh` 发起"的声称。`domain.sh` 对本卡
+       这条路是走不通的：`--auto-bundle` 跑没有 `--profile`，其 sealer 要求 `--profile` 并按 1.21.4 pin jar 校验，
+       而它起的受控服务器写着 `enable-status=false`，对本卡必需的版本观测恒为 `NO_RESPONSE`。所以这一跑是**手工长跑 +
+       手工 `seal_run_evidence.py`**，先例即 `.tmp/v07-switch2.sh`；**未改任何 runner 等待语义**，`allowed_paths` 里
+       "仅为转发环境变量而新增行"那条也没用上（没有新增）。
+     - `--server-jar /data/v07-jars/server-1.20.1.jar`（pin 的同一支 jar）而不是 `run.sh` 那条 `/server/server.jar`
+       只读挂载点：分离容器没套 `run.sh server`。
+     - 预检第 5 格的 `4121 blob / 523,911,981 字节` 是**别的 Kin 全 store 的规模代理**，本次自己的 fetch 集实测
+       `3639 files / 738,432,269 字节`（文件更少而字节更多：kin-02 的 store 装的不是同一 bundle 集合）。耗时：从起
+       会话到 ledger 出现 `PlayableEstablished` 为 1493s（第一跑 1430s）。
+     - 清理只做在本卡自己的一次性现场：删了该 Kin 的 `run/session`（含其 1 条 `process.json` marker），封存 bundle
+       未动。**遗留现场**：`kin-auto-inst-20260925T134134Z` 与 `…T141055Z` 两个 store 各 `738 MB` 仍在卷内（前者是
+       失败材料里的装满 store，后者是封存证据所属的 store），删它属卷级清理、不在本卡范围。跨 Kin 缓存共享、
+       marker GC、残留进程接管仍未测（`PROCESS-RECOVERY-001`）；用户的真实远程服未访问（V08）。
+     - 两条 `stop_conditions` **都没有触发**：抓取没被网络阻断（实测装齐到 3639 件），会话也是在
+       `PlayableEstablished` **之后**才由 `session stop` 结束，因此没有走进"必须改判据或改等待语义才取得读数"那一支。
 
 ### VERSION-BRIDGE-IDENTITY-001 — BridgeHello 版本声明配对修复
 
