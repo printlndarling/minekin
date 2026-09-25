@@ -35,6 +35,15 @@
   **下一张归主控**：1.20.1 的 `STOP_PHASE_EXPLICIT_KEY_RELEASE` 已有 Bridge 自己写下的工件、其复判与
   V08 提升是否放行仍待拍板，`BLOCKED_DECISION` 四张与 `HOST/W80+` 亦须先解一个决策；本执行者不自行
   猜编号、不新造主线卡、也不把 `.tmp/` 的实验记录当排期。）
+  （**2026-09-26 主控答复后的走向**：上面那句"待拍板"已经解掉一半——用户就这两格给出口径
+  （①只划 `STOP_PHASE_EXPLICIT_KEY_RELEASE` 这一条缺口、同时登记 `V1201-080` 的 PASS 证据与 capability、
+  重算摘要并跑 provenance 校验；②不提升 V08、因此不连接远程服；③HOST 支线只做设计，不实现、不标完成、
+  不提升 `HOST/W80+`）。据此登记 `TESTED-GAP-DRAW-STOP-PHASE-1201-001`（本提交，`QUEUED`），
+  紧随的提交把它提升为唯一 `NEXT`；`HOST-ADMISSION-DESIGN-001` 的 `QUEUED` 转换排在它收口之后，
+  两张严格串行。**此刻的清点**：55+1 张带 `status` 的卡里 `QUEUED` = 1（就是这张新卡）、`NEXT` = 0，
+  其余开放项不变——`REAL-P0-CAMPAIGN-001`（`BLOCKED_EVIDENCE`）、`EXPLICIT-RELEASE-AT-STOP-001` 与
+  `OPERATIONS-RETENTION-001`/`PROCESS-RECOVERY-001`（`BLOCKED_DECISION`，`HOST-ADMISSION-DESIGN-001`
+  暂未改判）与 `HOST/W80+`（`DEFERRED`）。）
   （上一张 `GRACEFUL-STOP-KEY-RELEASE-001` 由 `2253358` 收卡为 `DONE`：实现 `5c643c6`，
   `V1201-080` attempt 3（run `484675e4938b4134b788a971e195619b` / bundle `22fb57f3…`）在**判据一字未改**之下封成
   `result PASS`（客户端日志 `bridge released 1 input(s) after CORE_REQUEST (EXPLICIT)`，N=1），`V1201-040`
@@ -5204,6 +5213,78 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
      `completion_readings_2026-09-26`。**本卡的 `status` 仍是 `BLOCKED_DECISION`**：它自己的两次真跑确实没拿到
      工件（上面第 1-6 格是那时的事实），它的 `forbidden_paths` 也未被那项决策放宽，registry 任一字未动；
      `STOP_PHASE_EXPLICIT_KEY_RELEASE` 是否因有工件而划出，仍归主控决定。
+
+### TESTED-GAP-DRAW-STOP-PHASE-1201-001 — 把 1.20.1 已补上工件的那一条缺口从 `tested` 声明里划出
+
+- `status`: `QUEUED`（主控 2026-09-26 就 `EXPLICIT-RELEASE-AT-STOP-001` 第 8 格与 `GRACEFUL-STOP-KEY-RELEASE-001`
+  的收卡读数给出决策：「划出松键缺口、暂不提升 V08」，并直接核对了封存客户端日志里
+  `bridge released 1 input(s) after CORE_REQUEST (EXPLICIT)` 那一行。决策到达前这张卡不存在，
+  因为它要动的 registry `tested` 声明不属执行者权限；到达后它是一条如实记账的机械工作。
+  按交接第 1 项先 `QUEUED` 登记，紧随的提交才提升为唯一 `NEXT`。）
+- `decision_source`: 用户 2026-09-26 的三点口径：①只划 `STOP_PHASE_EXPLICIT_KEY_RELEASE` **这一条**缺口，
+  其余缺口与 `tested` 状态一字不动；②划出时必须同时登记 `V1201-080` 的 PASS 证据与对应 capability，
+  重算摘要并跑 provenance 校验；③**不提升 V08**，因而也不连接用户的远程服。
+- `question`: 1.20.1 那一条 `tested` 声明现在能否由它自己引用的封存件撑起来——`gaps` 里去掉
+  `STOP_PHASE_EXPLICIT_KEY_RELEASE`、`capabilities` 里补上工件所证的 token、`evidence` 里补上那一次
+  `PASS` 的 run，并且这份文件级声称能被 `tools/verify_tested_provenance.py` 按字节复核？
+- `depends_on`: `EXPLICIT-RELEASE-AT-STOP-001`（判官侧 token 与 case `V1201-080` 在 `f38cf34` 就位）、
+  `GRACEFUL-STOP-KEY-RELEASE-001`（`DONE`，实现 `5c643c6`；工件 run `484675e4938b4134b788a971e195619b`、
+  bundle `22fb57f3…`、attempt 3、`result PASS` 由它取得）。两张都不是本卡的伪装：本卡不写产品代码，
+  只把已存在的工件记进声明。
+- `allowed_paths`: `tests/fixtures/registry/reviewed-tested-bundles.json`（只动 1.20.1 那一条 entry 的
+  `gaps`/`capabilities`/`evidence`）、`tests/fixtures/manifest.sha256`（registry 那一行随文件重签，
+  实测为第 85 行）、`tests/unit/test_version_resolution.py`（**仅**新增一条钉住"这一格已划出且另一格仍在"的
+  用例）、`docs/development-execution-plan.md`、`docs/development-todo.md`、`docs/qoder-execution-handoff.md`。
+- `forbidden_paths`: 产品代码与两 root 的 Bridge、`tools/fault_injection.py`、判据
+  `tools/assert_case_evidence.py` 与 case fixtures（判据一字不改，本卡不重封任何 run）、
+  1.21.4 那条 entry 的 `gaps`（`STOP_PHASE_EXPLICIT_KEY_RELEASE` 在那里**保留**——1.21.4 没有这一格的
+  工件，决策也只说 1.20.1）、其余八条 1.20.1 缺口与两条 entry 的 `status`、
+  V08 的任何晋级动作（`report_promotion` 的 `promotable` 保持现状）、用户的真实远程服与任何
+  host/网络准入、`EXPLICIT-RELEASE-AT-STOP-001` 自身的 `status`（它仍是 `BLOCKED_DECISION`，
+  是否改判归主控）。
+- `scope`: 三处文件改动 + 一次容器内复核。(1) 1.20.1 entry 的 `gaps` 去掉
+  `STOP_PHASE_EXPLICIT_KEY_RELEASE`；(2) `capabilities` 加
+  `the_bridge_released_the_input_when_the_session_was_stopped`（与那次 run 的
+  `assertions.expected`/`observed` 里同一 token 对齐）；(3) `evidence` 追加一条七字段引用
+  （`case_id V1201-080`、`run_id 484675e4938b4134b788a971e195619b`、bundle 摘要、
+  `bridge_digest e50d61c209be…`、`launch_plan_digest 83299ad5e224…`、`result PASS`、`attempt 3`）——
+  两个 build 摘要必须与该 entry 自身的 `bridge_digest`/`launch_plan_digest` 相同，否则
+  `load_reviewed_registry` 报 `EVIDENCE_BUILD_MISMATCH`。manifest 那一行由门禁自己的测量函数量出新签。
+  **不改动 `V1201-040` 既有引用**：同形状的新一次 PASS（attempt 3）按既有口径只进卡片读数，
+  不做挪摘要的替换。
+- `acceptance`:
+  1. 只划这一条：`git diff` 逐行核对 1.20.1 entry 其余八条缺口、两条 entry 的 `status` 与 1.21.4 entry 的
+     `gaps` 全部未动；划出前后各读一次两份 `gaps` 列表。
+  2. 声明撑得起：新 capability 与所引 run 的 `assertions.observed` 同名，且 `load_reviewed_registry`
+     对该文件读出零 `RegistryViolation`。
+  3. 摘要自洽：`tools/verify_fixture_digests.py` 通过（registry 那一行新签），并实测 registry **不在任何
+     case 的 `inputs` 里**——若无命中，则本卡不移动任何 `case_version`、不触发任何重封（这一点必须量，
+     不能沿用 ADMIT-070 之前那句"改 fixture 就是重定版"的旧前提）。
+  4. provenance 复核：容器内 `python tools/verify_tested_provenance.py` 对新 1.20.1 entry 读 `verified`
+     （`exit 0`），并逐条报出被引 bundle 的 run id；`tools/report_promotion.py` 那一行仍是
+     `from_repository_build: true` + `re_judged: AGREES`，而 V08 的 `promotable` 仍为 `false`
+     （**这是"不提升 V08"的机器读法，不是我的口头声明**）。
+  5. 门禁全绿：`uv run --frozen pytest tests/unit`、`ruff check`、`ruff format --check`、`pyright`、
+     `check_case_assertions`、`check_boundaries`、`check_workflow_pins`、`git diff --check`。
+  6. 反证（各红在其命名理由上）+ positive control `exit 0`：
+     (i) 新 capability 从 1.20.1 entry 删掉 → 本卡新增的那条用例红；
+     (ii) 1.21.4 entry 的 `gaps` 里那条被顺手删掉 → 同一条用例红（钉住"只划一条"）；
+     (iii) evidence 引用的 `launch_plan_digest` 换成另一个 build 的摘要 → `load_reviewed_registry`
+     报 `EVIDENCE_BUILD_MISMATCH`；(iv) 划出缺口但不补 evidence → 同一条用例红。
+  7. 独立提交 + 推到两条 ref + `git ls-remote` 核对 + Actions 对该 SHA 的 run 读绿。
+- `validation_class`: `LOCAL_THEN_VOLUME_READ`——不要求新的真实运行；结论来自既有封存件的字节复核。
+- `stop_conditions`: 若 `verify_tested_provenance.py` 在新 entry 上报 refused（bundle 不在卷内、摘要不合）
+  → 停在 `BLOCKED_EVIDENCE` 并保留读数，**不**为了让它过而改 bundle 或删引用；若发现 registry 确实落在某个
+  case 的 `inputs` 里（会移动 `case_version`）→ 停下并报告，重封属另一张卡；若必须动判据或产品代码才能让
+  声明自洽 → 停止（那是 `EXPLICIT-RELEASE-AT-STOP-001` 的范围，不是本卡）。
+- `non_goals`: 不提升 V08、不连接远程服、不动 HOST/PERSIST/retention/process-recovery 一族、
+  不改 `EXPLICIT-RELEASE-AT-STOP-001` 的状态、不把 1.20.1 其余缺口（`REMOTE_TARGET`、
+  `WINDOWS_OS_ARCH`、`USE_TARGET_BLOCK_CHANGE`、`RUNNER_JDK_17_UNSEALED`、`CRASH_RECOVERY_CASES`、
+  `OFFLINE_IDENTITY_LEDGER_CASES`、`RESTART_RECONCILIATION_CASES`、`SOAK_CASES`）任何一条划出。
+- `next_after_done`: 本卡收口后按决策做 HOST 支线的**设计**——`HOST-ADMISSION-DESIGN-001` 依主控 2026-09-26
+  口径转 `QUEUED`（只整理方案、反例与验收设计；不实现 HOST、不标完成、不提升 `HOST/W80+`，
+  到必须冻结"谁创建 host generation / `WorldCapsule`"这一所有权问题时交主控审查）。
+  两张卡严格串行，不并行。
 
 ### VERSION-BRIDGE-IDENTITY-001 — BridgeHello 版本声明配对修复
 
