@@ -7,7 +7,28 @@
 > `.tmp/` 被 Git 忽略，是构建、诊断和封证的临时工作区；它的内容不是已推送产品代码、
 > 不是阶段状态，也不能替代主计划里的 run/bundle/attempt 与真实门禁记录。
 
-> **最新交接点（2026-09-26，停止阶段的显式松键：工件已到手，计划暂无 `NEXT`，下一张归主控）**：
+> **最新交接点（2026-09-26，停止阶段工件到手；唯一 `NEXT` 是 `ADMIT-070-RECORD-SCHEMA-001`）**：
+> `GRACEFUL-STOP-KEY-RELEASE-001` 已 **`DONE`**（收卡提交 `2253358`，两条 ref 与远端 SHA 已核，GitHub Actions
+> 的两个 `CI` run 对该 SHA 均 `completed / success`）。1.20.1 那一格的读数：实现 `5c643c6`；
+> `V1201-080` attempt 3 run `484675e4938b4134b788a971e195619b` / bundle `22fb57f3…` / `result PASS`，
+> 封存的 `client/latest.log` 里有 **`bridge released 1 input(s) after CORE_REQUEST (EXPLICIT)`**；
+> `V1201-040` attempt 3 run `6a86da0353e746829cc5966ac272ef9d` / bundle `554c467b…` / `PASS`（lease 到期的
+> `(TIMEOUT)` N=1 与停止阶段的 `(EXPLICIT)` N=0 各写各的，旧那一格没被改坏）。两跑四读一致、
+> `from_repository_build: true`，`input_release_failed` 由旧失败件的 `true` 变 `false`。逐格验收、反证与复跑命令
+> 记在 main 计划该卡 `completion_readings_2026-09-26` 与 todo 的收卡现场。
+> **registry 一字未动**：那一格现在有 Bridge 自己写的工件，**是否据此从 `tested` 声明里划出该缺口、是否提升 V08、
+> 是否连接用户远程服仍归主控**（`HOST-ADMISSION-DESIGN-001`、`OPERATIONS-RETENTION-001`、
+> `PROCESS-RECOVERY-001` 仍 `BLOCKED_DECISION`，HOST/W80+ `DEFERRED`）。
+> 主线那一格既然归决策而不归执行，本提交依交接第 3 项把队列里唯一可执行的 `QUEUED` 提升为 `NEXT`：
+> **`ADMIT-070-RECORD-SCHEMA-001`**（`ff63746` 登记）——`schemas/fault-injection.schema.json` 至今仍只描述
+> SIGKILL 那一类记录，而 `tools/fault_injection.py` 已经读两类；缺口被
+> `tests/unit/test_fault_injection.py::test_the_frozen_schema_still_describes_the_kill_record_only`
+> 显式钉住。`LOCAL_ONLY`，不碰产品代码、不碰判据、不要求真实运行。
+> （另需记一笔：本文件上一版交接点写过"队列中没有可提升的 `QUEUED`"，那是错的——漏看这张自 9 月 24 日就挂在
+> `QUEUED` 上的卡；当时的清点只数了 `BLOCKED_DECISION`/`DEFERRED` 三条。该说法已在主计划 checkpoint 里就地更正。）
+> 恢复现场时先核主计划 `current_next` 与本文件是否仍一致。
+>
+> **上一交接点（2026-09-26，停止阶段的显式松键：工件已到手，计划暂无 `NEXT`，下一张归主控）**：
 > `GRACEFUL-STOP-KEY-RELEASE-001` 已 **`DONE`** 并由本提交收卡。实现是 **`5c643c6`**（新增
 > `adapters/launcher/stop_request.py` 的请求/回执两份文档、`cli/session_runtime.py` 多一对 caller-owned
 > `until_stop_request`/`on_stop_request` 分支、`cli/session.py` 的 `stop_session()` 改成"先问后杀 + 有界等待 +

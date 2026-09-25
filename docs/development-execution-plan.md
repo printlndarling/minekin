@@ -18,15 +18,17 @@
   回归基线；除非真实回归或当前 1.20.1 卡不可绕过的前置阻断，不再新增 1.21.4 功能专题。
   即使遇到前置阻断，也先登记范围与证据、按唯一 `NEXT` 流转，不得借 `.tmp/` 中的实验记录
   自行改排期或把临时构建当作新主线。HOST/PERSIST、在线认证、远程服授权等既有停机边界不变。
-- `current_next`: **暂无 `NEXT`**（本提交把 `GRACEFUL-STOP-KEY-RELEASE-001` 收卡为 `DONE`——实现 `5c643c6`，
+- `current_next`: **`ADMIT-070-RECORD-SCHEMA-001`**（`ff63746` 以 `QUEUED` 登记并推到两条 ref，本提交单独提升为
+  唯一 `NEXT`；提升前计划里没有 `NEXT`，中间未插入别的未授权工作。它是被测试钉住的证据侧结构缺口——
+  `schemas/fault-injection.schema.json` 至今只描述 SIGKILL 那一类记录，而 `tools/fault_injection.py` 已读两类——
+  `LOCAL_ONLY`、不碰产品代码也不碰判据，依赖全 `DONE`，提升理由记在该卡 `promotion_reason`。）
+  （上一张 `GRACEFUL-STOP-KEY-RELEASE-001` 由本提交的前一张 `2253358` 收卡为 `DONE`：实现 `5c643c6`，
   `V1201-080` attempt 3（run `484675e4938b4134b788a971e195619b` / bundle `22fb57f3…`）在**判据一字未改**之下封成
   `result PASS`（客户端日志 `bridge released 1 input(s) after CORE_REQUEST (EXPLICIT)`，N=1），`V1201-040`
   attempt 3（run `6a86da0353e746829cc5966ac272ef9d` / bundle `554c467b…`）回归同样 `PASS`，两跑四读一致且
-  `from_repository_build: true`；逐格读数记在该卡 `completion_readings_2026-09-26`）。队列里没有任何 `QUEUED`
-  可提升（`HOST-ADMISSION-DESIGN-001`、`OPERATIONS-RETENTION-001`、`PROCESS-RECOVERY-001` 仍
-  `BLOCKED_DECISION`，HOST/W80+ `DEFERRED`）。**下一张归主控**：1.20.1 的 `STOP_PHASE_EXPLICIT_KEY_RELEASE`
-  那一格现在有 Bridge 自己写下的工件，是否据此从 registry 的 `tested` 声明里划出该缺口、是否提升 V08，
-  都不是本执行者可代决的；本卡 `next_after_done` 亦明写不代为登记下一张。）
+  `from_repository_build: true`；逐格读数记在该卡 `completion_readings_2026-09-26`。
+  **registry 一字未动**：1.20.1 的 `STOP_PHASE_EXPLICIT_KEY_RELEASE` 那一格现在有 Bridge 自己写下的工件，
+  是否据此从 `tested` 声明里划出该缺口、是否提升 V08、是否连接用户远程服，仍归主控决定，本执行者不代为登记。）
   （上一张 `GRACEFUL-STOP-KEY-RELEASE-001` 的来路：`6bef249` 以 `QUEUED` 登记并推到两条 ref，`d0ed908` 单独提升为
   唯一 `NEXT`；提升前计划里没有 `NEXT`，中间未插入别的未授权工作。它执行用户 2026-09-25 就
   `EXPLICIT-RELEASE-AT-STOP-001` 那题所作的决策——**修正产品的停止顺序，先让仍存活的 Bridge 确认松键，再终止客户端**；
@@ -78,7 +80,10 @@
   / `report_promotion` `from_repository_build: true`），四条反证各红在其命名理由上、positive control `exit 0`，
   门禁 `2200 passed / 2 skipped`。旧的 `V1201-080` 两件 `FAIL` 封存件（`6d11ab7d…`、`ffdd54fc…`）原样留在卷内、未撤。
   **registry 一字未动**（`STOP_PHASE_EXPLICIT_KEY_RELEASE` 仍在九条 `gaps` 里）：那一格现在有工件，
-  **是否据此划出缺口、是否提升 V08 仍归主控**；计划自本提交起**暂无 `NEXT`**（队列里没有可提升的 `QUEUED`）。
+  **是否据此划出缺口、是否提升 V08 仍归主控**；计划自本提交起**暂无 `NEXT`**。
+  （**同日夜的更正**：那句"队列里没有可提升的 `QUEUED`"是错的——`ADMIT-070-RECORD-SCHEMA-001` 自 `ff63746`
+  起一直挂在 `QUEUED`（本文件第 1471 行一带），当时按状态行 grep 只看到 `BLOCKED_DECISION`/`DEFERRED` 三条，
+  漏了它。紧随的提交把它提升为唯一 `NEXT`，计划自该提交起有 `NEXT`；registry 与 V08 的决策仍归主控。）
   上一 checkpoint 是 **1.20.1 停止阶段的显式松键：判据已就位、工件卡在产品侧停止次序**——`EXPLICIT-RELEASE-AT-STOP-001`
   的判官侧（`the_bridge_released_the_input_when_the_session_was_stopped` + case `V1201-080`）已在 `f38cf34` 落地并推到
   两条 ref，两次受控 1.20.1 真跑（`6d11ab7d…`/`ffdd54fc…`）各封一个新 attempt、都红在 `RELEASE_NOT_LOGGED`：
@@ -1468,10 +1473,16 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 
 ### ADMIT-070-RECORD-SCHEMA-001 — 让封存的 schema 也说得出报告请求记录
 
-- `status`: `QUEUED`；不替换当前唯一 `NEXT`（本卡由 `ADMIT-070-REFUSAL-INJECTION-001` 的
-  `completion_evidence` 登记，而 `order` 第 3 个场景的封证 `ADMIT-070-CASE-001` 排在它前面：
-  封存与复判都不读这份 schema，只有 `tests/unit/test_fault_injection.py` 读它，所以它是被测试
-  钉住的结构缺口而不是封证的前置）。
+- `status`: `NEXT`（`ff63746` 以 `QUEUED` 登记并推到两条 ref，本提交按交接第 3 项单独提升为唯一 `NEXT`；
+  提升前计划里没有 `NEXT`，中间未插入别的未授权工作。登记时那句"不替换当前唯一 `NEXT`"已到期：
+  `order` 第 3 个场景的封证 `ADMIT-070-CASE-001` 与注册它的 `ADMIT-070-REFUSAL-INJECTION-001` 都已 `DONE`，
+  本卡依赖全为 `DONE`，且它是被测试钉住的结构缺口（写下来的 schema 与执行它的 reader 各说各话），
+  属证据侧的 fail-closed 修正而不是新的 1.21.4 功能专题。提升的另一半理由是 1.20.1 主线的下一格
+  （`STOP_PHASE_EXPLICIT_KEY_RELEASE` 是否据此划出、是否提升 V08）**归主控决策**，本执行者无权代决，
+  因此它是当前唯一可执行的 `QUEUED`。）
+- `baseline_sha`: `ff63746`（登记提交）；领取时实际 checkout = 本提升提交。
+- `promotion_reason`: 见 `status` 括号内三条——依赖皆 `DONE`、缺口被测试钉住且属证据一致性而非新功能、
+  主线那一格是决策而非工作项。提升与交付分在两个提交，满足交接第 4、6 项。
 - `why_now`: 上一条卡给 `fault-injection.json` 加了第二类记录（`CLIENT_REPORT_REQUEST`），
   而 `schemas/fault-injection.schema.json` 仍只描述 SIGKILL 那一种。这不是遗漏而是被钉住的
   缺口：`tests/unit/test_fault_injection.py::test_the_frozen_schema_still_describes_the_kill_record_only`
