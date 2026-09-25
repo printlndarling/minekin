@@ -26,6 +26,29 @@ KERNEL_SOURCES = (
 
 SELF_TEST = ROOT / "tools/java/BridgeProtocolSelfTest.java"
 
+#: A root's own version pair is not this checker's to invent: it is read from that root's
+#: `[versions]` table, so the self-test asserts the gate accepts the pair the root is
+#: actually built against rather than a pair this file happens to name.
+VERSIONS_TABLE = "gradle/libs.versions.toml"
+
+
+def root_versions(bridge_root: str) -> tuple[str, str]:
+    lines = (ROOT / bridge_root / VERSIONS_TABLE).read_text(encoding="utf-8").splitlines()
+    values: dict[str, str] = {}
+    for line in lines:
+        if line.startswith("[") and values:
+            break
+        if line.strip() == "[versions]":
+            continue
+        if not line.strip() or line.startswith("[") or "=" not in line:
+            continue
+        name, _, quoted = line.partition("=")
+        values[name.strip()] = quoted.strip().strip('"')
+    missing = [key for key in ("minecraft", "fabric-loader") if not values.get(key)]
+    if missing:
+        raise SystemExit(f"{bridge_root}: {VERSIONS_TABLE} names no {', '.join(missing)}")
+    return values["minecraft"], values["fabric-loader"]
+
 
 def sources_for(bridge_root: str) -> tuple[Path, ...]:
     kernel = ROOT / bridge_root / "src/main/java/org/minekin/bridge"
@@ -39,6 +62,7 @@ def main() -> None:
         raise SystemExit("a local JDK is required for the dependency-free Bridge self-test")
     for bridge_root in BRIDGE_ROOTS:
         sources = sources_for(bridge_root)
+        minecraft, loader = root_versions(bridge_root)
         with tempfile.TemporaryDirectory(prefix="minekin-bridge-protocol-") as temporary:
             output = Path(temporary)
             compile_result = subprocess.run(
@@ -51,7 +75,15 @@ def main() -> None:
             if compile_result.returncode != 0:
                 raise SystemExit(f"{bridge_root}: {compile_result.stderr}")
             run_result = subprocess.run(
-                [java, "-ea", "-cp", str(output), "BridgeProtocolSelfTest"],
+                [
+                    java,
+                    "-ea",
+                    f"-Dminekin.selftest.minecraft={minecraft}",
+                    f"-Dminekin.selftest.fabric.loader={loader}",
+                    "-cp",
+                    str(output),
+                    "BridgeProtocolSelfTest",
+                ],
                 cwd=ROOT,
                 check=False,
                 capture_output=True,

@@ -16,6 +16,22 @@ public final class BridgeProtocolSelfTest {
     private static final int DEFAULT_HEARTBEAT_MS = 500;
     private static final int DEFAULT_MAX_FRAME_BYTES = 4 * 1024 * 1024;
 
+    /**
+     * The version pair is named by the checker from the root's own `[versions]` table. Each root's
+     * gate pins a different pair, so a shared self-test that spelled one out would prove nothing
+     * about the other.
+     */
+    private static final String MINECRAFT_VERSION = namedVersion("minekin.selftest.minecraft");
+    private static final String FABRIC_LOADER_VERSION = namedVersion("minekin.selftest.fabric.loader");
+
+    private static String namedVersion(String property) {
+        String value = System.getProperty(property);
+        if (value == null || value.isBlank()) {
+            throw new AssertionError("the checker must name this root's own version with -D" + property);
+        }
+        return value;
+    }
+
     public static void main(String[] args) {
         framingIsNetworkOrderAndIncremental();
         oversizedFramesFailBeforeAllocation();
@@ -213,6 +229,24 @@ public final class BridgeProtocolSelfTest {
         require(gate.accept(accepted), "matching Core hello");
         require(phases.phase() == BridgePhaseMachine.Phase.OBSERVE_ONLY, "observe-only activation");
         require(!gate.accept(accepted), "handshake cannot be replayed");
+        // Each root pins exactly one version pair, so a hello naming any other must not even build
+        // the expectation this gate would honour.
+        expectFailure(
+                () ->
+                        new HandshakeGate.Expected(
+                                1,
+                                0,
+                                "kin-01",
+                                "session-01",
+                                4,
+                                "client-01",
+                                "a".repeat(64),
+                                "b".repeat(64),
+                                MINECRAFT_VERSION + "-other-root",
+                                FABRIC_LOADER_VERSION + "-other-root",
+                                new byte[32],
+                                new byte[32],
+                                BASELINE_CAPABILITIES));
         require(phases.phase() == BridgePhaseMachine.Phase.SAFE_STOP, "replay is fail-closed");
 
         expectHandshakeRejected(expected, gate2 -> signed(
@@ -321,8 +355,8 @@ public final class BridgeProtocolSelfTest {
                 "client-01",
                 "a".repeat(64),
                 "b".repeat(64),
-                "1.21.4",
-                "0.16.9",
+                MINECRAFT_VERSION,
+                FABRIC_LOADER_VERSION,
                 nonce,
                 key,
                 BASELINE_CAPABILITIES);
