@@ -18,8 +18,9 @@
   回归基线；除非真实回归或当前 1.20.1 卡不可绕过的前置阻断，不再新增 1.21.4 功能专题。
   即使遇到前置阻断，也先登记范围与证据、按唯一 `NEXT` 流转，不得借 `.tmp/` 中的实验记录
   自行改排期或把临时构建当作新主线。HOST/PERSIST、在线认证、远程服授权等既有停机边界不变。
-- `current_next`: `STORE-FAILURE-EVIDENCE-001`（本 commit 把已 `QUEUED` 的它单独提升为唯一 `NEXT`，当前无第二张
-  `NEXT`。上一张 `KEY-RELEASE-AT-STOP-001` 已 `DONE`：case 登记 `bd8f6b7`、真跑与原子登记 `0fb7158`——1.20.1 上
+- `current_next`: **暂无 `NEXT`**（上一张 `STORE-FAILURE-EVIDENCE-001` 已在 `cfbb87c` 提升、本提交按实测收卡为
+  `DONE`（`4be3d55`）。同一提交把补证 V07 `not_tested_v07` 前两格的 `AUTO-PATH-INSTALL-RUN-001` 以 `QUEUED`
+  登记；把它提升为唯一 `NEXT` 须**另一次独立提交**。上一张 `KEY-RELEASE-AT-STOP-001` 已 `DONE`：case 登记 `bd8f6b7`、真跑与原子登记 `0fb7158`——1.20.1 上
   `MINEKIN_DOMAIN_KILL_CORE=1` 的一次真跑（run `f71c56f0…`、bundle `90d490ce…`、attempt 序列 1）让 Bridge 自己在
   `client/latest.log` 写下 `bridge released 1 input(s) after IPC_LOST`，`stderr.log` 为 0 字节，四条断言对拷贝出来的
   工件复判一致。registry 摘要 `82a54075…` → `69244c32…`，其 `status` 与九条 `gaps` 一字未动，
@@ -32,7 +33,10 @@
   [tested 晋级门复判记录](tested-gate-audit-2026-09-25.md)；V07 收卡 `17e81ea`+`96fb520`。）
   用户在七场景总账后明确把“自动识别服务器版本 → 准备匹配客户端 → 入服并完成简单控制”排为优先路线；
   `VERSION-AUTO-DESIGN-001` 已交付[跨版本连续执行计划](version-auto-to-server-control-plan.md)。
-- `last_checkpoint`: **跨版本路线走到 1.20.1 停止阶段断连松键收口**——`KEY-RELEASE-AT-STOP-001`（case `bd8f6b7`、收卡 `0fb7158`）把 1.21.4 那一格“Bridge 自己写释放工件”交到了 1.20.1 上：`MINEKIN_DOMAIN_KILL_CORE=1` 的一次真跑产出 `after IPC_LOST` 释放行与空 `stderr.log`，四条断言对拷贝工件复判一致，产品代码一字未改，registry 的 `status`/`gaps` 未动（缺口是否划出 `tested` 声明属主控决策）。上一 checkpoint 是 **1.21.4 root 自报运行时收口**——`BRIDGE-1214-RUNTIME-IDENTITY-001`（实现
+- `last_checkpoint`: **跨版本路线走到安装故障证据收口、进入自动路径补证**——`STORE-FAILURE-EVIDENCE-001`（提升
+  `cfbb87c`、收卡 `4be3d55`）用 `tests/unit/test_install_fault_injection.py` 七条真文件系统断言补上了 V06 曾
+  误称已被契约覆盖的三类故障（写失败、store 层原子 `rename` 失败、并发同 digest 的 `FileExistsError → verify`），
+  实现与判据一字未改，未测一侧是真·磁盘满与真跨进程并发。上一 checkpoint 是 **1.20.1 停止阶段断连松键收口**——`KEY-RELEASE-AT-STOP-001`（case `bd8f6b7`、收卡 `0fb7158`）把 1.21.4 那一格“Bridge 自己写释放工件”交到了 1.20.1 上：`MINEKIN_DOMAIN_KILL_CORE=1` 的一次真跑产出 `after IPC_LOST` 释放行与空 `stderr.log`，四条断言对拷贝工件复判一致，产品代码一字未改，registry 的 `status`/`gaps` 未动（缺口是否划出 `tested` 声明属主控决策）。上一 checkpoint 是 **1.21.4 root 自报运行时收口**——`BRIDGE-1214-RUNTIME-IDENTITY-001`（实现
   `16dbb42`）让 1.21.4 root 像 1.20.1 一样从 Fabric 自己的 mod container 读 `minecraft`/`fabricloader` 送进
   `Expected`，读不到 container 就失败关闭而非回落常量；随之移动的 source tree / jar / recipe / plan / 黄金证明五组
   摘要逐条列在 `moved_digests_identity`，1.21.4 被引用的 **12 条** case 全部在新 build 上重跑、重封、四读一致，
@@ -4536,6 +4540,33 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
     `src/minekin_core/adapters/launcher/artifacts.py` 一字未改（`git show --stat` 只含 `tests/unit/` 与本文档）。
 - `next_after_done`: 三卡（含 `VERSION-BRIDGE-IDENTITY-001`）与 V07 的 `not_tested_v07` 缺口都收口后，
   才能单独登记并提升 V08。
+
+### AUTO-PATH-INSTALL-RUN-001 — 让自动路径自己完成空 store 安装并跑到可玩
+
+- `status`: `QUEUED`（2026-09-25 由 `STORE-FAILURE-EVIDENCE-001` 收卡后登记；提升为唯一 `NEXT` 须另一次独立提交。
+  这是**证据卡**：不改自动路径的任何判据。）
+- `depends_on`: `VERSION-SESSION-SWITCH-001`（被测的 `cli/auto_session.py` 自动路径）、`VERSION-INSTALLER-001`
+  （其安装分支在显式 `bundle install` 上真跑过，在自动路径上没有）。
+- `question`: 能否在受控 runner 上以**空 store** 起一次自动 `session start`，让自动路径自己走完
+  探测核对 → 三处版本事实 → `resolve()` → 摘要门先于抓取 → 抓取装齐 → 起会话，并在**同一个 run** 里观测到
+  `PlayableEstablished`，从而把 V07 `not_tested_v07` 的头两格从“只有单元证据”改为真跑证据？
+- `scope` 与 `allowed_paths`（显式清单）：卷内一次性的空 store 目录、`tests/fixtures/runtime-input/**` 的**只读**引用、
+  `test-orchestrator/runner/**` 中仅为转发环境变量而存在的新增行（不改任何既有语义）、
+  `docs/development-execution-plan.md` 里 V07 `not_tested_v07` 两格的事实更正与本卡读数、进度文档。
+- `forbidden_paths`: `cli/auto_session.py` 的判据与顺序（探测两次核对、摘要门先于抓取、停旧起新）、registry 的
+  `status`/`gaps`、任何封存字节、用户的真实远程服（属 V08）、跨 Kin 缓存共享与 marker 清理/残留进程接管
+  （属 `PROCESS-RECOVERY-001`）。
+- `counterexamples`: 空 store 的自动安装未装齐却仍报可玩（必须以 `installed > 0` 且封存 `PlayableEstablished`
+  同时在场）；用 `JoinObserved` 顶替 `PlayableEstablished`；把 `reused 3639 / installed 0` 当作“装齐”证据；
+  跑完不清理导致 `kin-01` 那 207 条陈旧进程 marker 被下一次自动切换继承；退回“先手工装好再跑自动路径”的现场
+  冒充空 store。
+- `validation_class`: `REAL_RUN_ONLY`——本卡没有单元侧，结论只来自受控 runner 上那一次真跑及其封存读数
+  （`evidence verify` / `rejudge` / `replay` / `report_promotion` 四读）。
+- `stop_conditions`: 若空 store 在当前供给下无法完成自动抓取（离线卷、URL 不可达）→ 保留失败材料并报告，
+  **不得**改用已装 store 冒充，也不得放宽摘要门；若自动路径必然在 `PlayableEstablished` 之前被 harness 结束、
+  需要改 runner 的等待语义才能取到该读数 → 停在 `BLOCKED_DECISION`（那属改判据，不属补证）。
+- `next_after_done`: 本卡收口后，V07 `not_tested_v07` 只剩属 `PROCESS-RECOVERY-001` 与属 V08 的两类；
+  **是否据此判定缺口已收口并提升 V08 由主控决定**，本卡不代为判定，也不得把 V08 提前登记为 `NEXT`。
 
 ### VERSION-BRIDGE-IDENTITY-001 — BridgeHello 版本声明配对修复
 
