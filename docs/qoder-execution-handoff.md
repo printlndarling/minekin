@@ -7,7 +7,22 @@
 > `.tmp/` 被 Git 忽略，是构建、诊断和封证的临时工作区；它的内容不是已推送产品代码、
 > 不是阶段状态，也不能替代主计划里的 run/bundle/attempt 与真实门禁记录。
 
-> **最新交接点（2026-09-25，跨版本路线执行中）**：主计划唯一 `NEXT` 仍是 **`KEY-RELEASE-AT-STOP-001`**
+> **最新交接点（2026-09-25，跨版本路线执行中）**：主计划唯一 `NEXT` 现在是 **`STORE-FAILURE-EVIDENCE-001`**
+> （提升提交 `cfbb87c`，与工作分支同步、远端 SHA 一致）。上一张 **`KEY-RELEASE-AT-STOP-001`** 已 `DONE`
+> （case 登记 `bd8f6b7`、真跑与原子登记 `0fb7158`）：1.20.1 受控离线真服上 `MINEKIN_DOMAIN_CASE=V1201-060
+> MINEKIN_DOMAIN_KILL_CORE=1`（默认 5 秒探针，未设 `MINEKIN_DOMAIN_PROBE_SECONDS`）一次真跑封证 PASS——
+> run `f71c56f0…`、bundle `90d490ce…`、`case_version 2a1795b7…`、attempt 序列 1、13 件工件，Bridge 自己在
+> `client/latest.log` 写下 `bridge released 1 input(s) after IPC_LOST`（`stderr.log` 0 字节），四条断言对
+> **拷贝出来的工件**（`.tmp/<run_id>/`，用 `docker cp` 从 `minekin-runner-data` 取出）复判一致，溯源校验器
+> `verified: true`、`findings: []`。移动过的摘要只有两行：新 case 的 manifest 行 `11fb2c02…`，与 registry 自身
+> `82a54075…` → `69244c32…`（1.20.1 条目**新增**一条 `V1201-060` 证据引用与三个 capability 名）。**产品代码
+> 一字未改**——两 root 的失联路径本就写对了，本卡交出的是一件独立工件，不是新实现。
+> 仍然没测的：①"玩家主动停止/显式松键"那一格（本卡测的是 Core 被杀后的失联释放）；②`STOP_PHASE_EXPLICIT_KEY_RELEASE`
+> 是否从 `tested` 声明里划出，属主控决策，registry 的 `status` 与九条 `gaps` 因此原样保留；③`V1201-040`
+> 及其两份证据一字未动（它是 lease 到期那一格，写不进 `IPC_LOST`）。停机边界不变：V08、用户远程服、HOST/PERSIST、
+> 在线认证都还没到；`.tmp/` 里的运行记录不是产品进度。
+
+> **上一交接点（2026-09-25，跨版本路线执行中）**：主计划当时唯一 `NEXT` 仍是 **`KEY-RELEASE-AT-STOP-001`**
 > （`14d85a0` 提升），领取后**没有停在 `BLOCKED_DECISION`**：第一批读数（该卡 `preparation_readings_key_release`）
 > 里更正了一次我自己的初判——草稿曾把 `CRASH-OUTBOX-ALIVE-DISPLAY-001` 读成 `QUEUED`，据
 > `docs/p0-validation-evidence-contract.md:265-276` 的"`xvfb-run` EXIT trap 6–7 ms 关 X vs 50 ms tick"判定
@@ -19,9 +34,9 @@
 > 不是窗口；两 root 该路径字节相同，也**不需要**把松键搬到失联检测点同步做（那会撞 `VanillaKeySink` 的客户端线程
 > 不变量，属改失联策略）。真卷对照读数：1.20.1 的两份 `V1201-040`（`155dcb4a…`、`f4cc67ae…`）只有
 > `bridge released 1 input(s) after CORE_REQUEST (TIMEOUT)`——reason 是 Core 的请求，正是本卡不接受的形状。
-> 本卡至今**未改产品代码、未移动任何摘要**。下一张是 `STORE-FAILURE-EVIDENCE-001`。
+> （那块写于领取时，当时确实未改产品代码、未移动摘要；收卡读数见上面那块。）
 
-> **上一交接点（2026-09-25，跨版本路线执行中）**：主计划当时唯一 `NEXT` 是 **`KEY-RELEASE-AT-STOP-001`**
+> **更早交接点（2026-09-25，跨版本路线执行中）**：主计划当时唯一 `NEXT` 是 **`KEY-RELEASE-AT-STOP-001`**
 > （本提交提升）。上一张 **`BRIDGE-1214-RUNTIME-IDENTITY-001`** 已 `DONE`（实现与重封 `16dbb42`、收卡 `2464901`）：
 > 1.21.4 root 现在像 1.20.1 一样从 Fabric 自己的 mod container 读 `minecraft` / `fabricloader` 送进 `Expected`，
 > 读不到 container 就失败关闭而非回落常量；随之移动的四组摘要（source tree `a4a53cac…` / jar `0ee2070b…` /
