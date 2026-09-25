@@ -12,7 +12,7 @@
 > 队列逐条读过：没有任何 `QUEUED` 可提升——`HOST-ADMISSION-DESIGN-001`、`OPERATIONS-RETENTION-001`、
 > `PROCESS-RECOVERY-001` 都是 `BLOCKED_DECISION`，`HOST/W80+` `DEFERRED`。**用户 2026-09-25 选定**下一步是补
 > 1.20.1 那条 `STOP_PHASE_EXPLICIT_KEY_RELEASE`（**不是**开远程服），故登记 `EXPLICIT-RELEASE-AT-STOP-001`
-> （`QUEUED`），提升它是紧随的独立提交。要点：Core 的 wind-down 以 `ReleaseReason.EXPLICIT` 显式发
+> （`b22a262` 以 `QUEUED` 登记），并由紧随的独立提交提升为**当前唯一 `NEXT`**。要点：Core 的 wind-down 以 `ReleaseReason.EXPLICIT` 显式发
 > `ReleaseAllInputs`（`cli/session.py:1433`、`:1360-1385`），Bridge 侧应写下
 > `bridge released N input(s) after CORE_REQUEST (EXPLICIT)`（`bridge-1201/.../BridgeIpcWorker.java:233-237` +
 > `:825-840`，1.21.4 root 同两处字节相同）；今天**没有**任何断言收这一形状——`_BRIDGE_RELEASE`

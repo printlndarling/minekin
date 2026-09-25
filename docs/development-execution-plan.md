@@ -18,13 +18,18 @@
   回归基线；除非真实回归或当前 1.20.1 卡不可绕过的前置阻断，不再新增 1.21.4 功能专题。
   即使遇到前置阻断，也先登记范围与证据、按唯一 `NEXT` 流转，不得借 `.tmp/` 中的实验记录
   自行改排期或把临时构建当作新主线。HOST/PERSIST、在线认证、远程服授权等既有停机边界不变。
-- `current_next`: **暂无**（`AUTO-PATH-INSTALL-RUN-001` 由本提交收卡：`94cb15b` 登记、提升提交 `298883e`，收卡读数记在
+- `current_next`: **`EXPLICIT-RELEASE-AT-STOP-001`**（`b22a262` 以 `QUEUED` 登记并推到两条 ref，本提交按交接
+  第 1、6 项单独提升为唯一 `NEXT`；提升前计划里没有 `NEXT`，中间未插入别的未授权工作。它补的是 registry 那条
+  `STOP_PHASE_EXPLICIT_KEY_RELEASE`：Core 的 wind-down 会以 `ReleaseReason.EXPLICIT` 显式发 `ReleaseAllInputs`
+  （`cli/session.py:1433`、`:1360-1385`），1.20.1 的 Bridge 会把松手写成日志（`bridge-1201/.../BridgeIpcWorker.java:233-237`、
+  `:825-840`），但仓库里**没有**任何断言收 `CORE_REQUEST (EXPLICIT)` 这个形状——`_BRIDGE_RELEASE`
+  （`tools/assert_case_evidence.py:161`）不捕获括号里的 reasonCode。本卡先加一个要求 N>0 的 runtime token，
+  再在受控 1.20.1 真服上封一次。**不改产品代码、不动 registry、不连接用户远程服**；
+  **V07 剩余缺口是否算收口、是否提升 V08 为 `NEXT` 仍由主控决定**，本卡不代为登记下一张。）
+  （上一张 `AUTO-PATH-INSTALL-RUN-001` 由 `e890924` 收卡：`94cb15b` 登记、提升提交 `298883e`，收卡读数记在
   该卡 `completion_readings_auto_path`——空 store 的自动 `session start` 真跑已在**同一个 run** 内同时给出
   `installed 3639 / reused 0` 与封存的 `PlayableEstablished`，四读一致、三条非空转反证各红在其命名理由上；
   V07 `not_tested_v07` 的头两格随之由 `not_tested_v07_correction_2026-09-25` 更正，registry 一字未动。
-  队列里**没有 `NEXT`**，但按用户 2026-09-25 的选择新登记了一张 `QUEUED`：`EXPLICIT-RELEASE-AT-STOP-001`
-  （停止阶段的显式松键要在 1.20.1 上有 Bridge 自己的工件）。**V07 剩余缺口是否算收口、是否提升 V08 为 `NEXT`
-  仍由主控决定**，本卡不代为登记，也不连接用户远程服。
   上一张 `STORE-FAILURE-EVIDENCE-001` 提升 `cfbb87c`、收卡 `4be3d55`：三类安装期故障
   （写失败 / store 层原子 `rename` 失败 / 并发同 digest 的 `FileExistsError → verify`）现在有七条真文件系统断言，
   `ruff`、`pyright` 与全量 `pytest tests/unit`（2177 passed, 2 skipped）在本地逐条读过，实现与安装判据一字未改。
@@ -4718,8 +4723,8 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 
 ### EXPLICIT-RELEASE-AT-STOP-001 — 停止阶段的显式松键要在 1.20.1 上有 Bridge 自己的工件
 
-- `status`: `QUEUED`（本提交登记。按交接第 1 项「新卡先 `QUEUED`、不得直接 `NEXT`」，提升它是紧随其后的**独立
-  提交**；本提交之前和之后计划里都没有第二个 `NEXT`。）
+- `status`: `NEXT`（`b22a262` 以 `QUEUED` 登记并推到两条 ref，本提交按交接第 1、6 项单独提升为唯一 `NEXT`；
+  提升前计划里没有 `NEXT`，中间未插入别的未授权工作。）
 - `depends_on`: `VERSION-SESSION-SWITCH-001`（被测的是会话 wind-down 那一格）、`KEY-RELEASE-AT-STOP-001`
   （同族的**失联**那一格，先例与跑法都在它那里）。
 - `question`: 1.20.1 上 Kin **手里还按着键**时被主动停止（Core 活着、显式发出 `release_all`），Bridge 能不能
