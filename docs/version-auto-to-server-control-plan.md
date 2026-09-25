@@ -299,6 +299,11 @@ bundle id 与结果；旧代回调不能推进新代。`BLOCKED` 不自动回退
 
 ### V08 `VERSION-REMOTE-SMOKE-001`：用户测试服只读探测与非破坏性入服
 
+- **提升前审查门（2026-09-25 主控复核）**：V07 完成后先执行主计划已登记的
+  `VERSION-TESTED-GATE-AUDIT-001`；它复判 V04 的断连松键、V05 `tested` 清单的真实 sealed
+  provenance、V06 的安装失败反例，以及已排队的 `VERSION-BRIDGE-IDENTITY-001` 修复/重封影响。
+  审查与必要修复均未收口前，本卡仍为 `QUEUED`，不得以现有 registry 的 `tested` 字节为由连接
+  用户远程服。这里不改变 V07 的受控本地编排范围，也不改写任何历史证据。
 - **输入/输出**：运行者私有 profile（目标地址不进仓库）、V07 自动路径；仅一次受控
   1.20.1 入服 attempt，封存客户端/账本/必要服务端只读材料。
 - **允许路径**：私有运行配置与受控 runner、必要的目标 profile/证据记录、进度文档；

@@ -4105,8 +4105,38 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
   需要改 Bridge 握手常量或重新封存 1.20.1 candidate → 停（属 `VERSION-BRIDGE-IDENTITY-001`）；
   需要改已封存 recipe/metadata/plan 字节或 store 根 → 停；需要 HOST/PERSIST、在线认证或公网放行 → 停；
   受控 runner 取不到 1.20.1 服务端或客户端材料 → 保留失败材料并报告，**不得**以单测通过充当切换验收。
-- `next_after_done`: `VERSION-REMOTE-SMOKE-001`（V08）——主计划尚无其卡片正文，须先 `QUEUED` 登记、
-  再在下一次独立提交提升。
+- `next_after_done`: `VERSION-TESTED-GATE-AUDIT-001`（已 `QUEUED`；V07 完成并推送后才可在下一次
+  独立提交提升）。主控 2026-09-25 审查发现下述已收卡验收口径与原始契约有差距；审查卡未收口前，
+  **不得提升 V08、连接用户远程服，或把 reviewed registry 的 `tested` 当作远程入服充分证据**。
+
+### VERSION-TESTED-GATE-AUDIT-001 — 远程入服前复判 tested 晋级门
+
+- `status`: `QUEUED`（2026-09-25 主控审查登记；当前唯一 `NEXT` 仍是 V07，不能越卡改其产品代码）。
+- `depends_on`: V07 已 `DONE`；`VERSION-BRIDGE-IDENTITY-001` 的修复与重封须在 V08 前完成，
+  但本审查卡先决定其精确证据影响与后续卡顺序。
+- `question`: 现有 1.20.1 `tested` 登记能否在原始 V04/V05/V06 契约下经独立复判，
+  而不依赖清单自述或把尚未证明的安全属性写成已通过？
+- `scope`: 只读核对 V04 四份真实 bundle、原始 case 与 run/ledger/server 材料、V05 清单加载器和
+  V06 安装失败反例；逐项记录事实、误判风险、应撤销/保留的能力声明，并为每个确证缺口登记有
+  `allowed_paths`/反例/门禁/停止条件的后续修复卡。若证据不足以支持 `tested`，先走单独范围修订与
+  可复判的状态降级，不得让下游靠旧 `tested` 字节继续自动选择。
+- `allowed_paths`: 本计划、`docs/version-auto-to-server-control-plan.md`、`docs/development-todo.md`
+  与新的只读审查记录；本卡不改产品代码、registry、case 判据或封存证据。
+- `review_questions`（不是预判 PASS）：① 原 V04 要求的**断连松键**，能否由同 run 的 Bridge/服务端独立
+  材料证明？当前 V1201-040 只有 lease `TIMEOUT` 释放记账，run document 另有
+  `input_release_failed: true`/`BRIDGE_LOST`；`STOPPED` 不能自动代替松键送达。② V05 清单的
+  `PASS`/bridge/plan/digest 引用是否由可信 promotion 过程对**真实 sealed bundle**独立核验？
+  目前 `version_resolution._evidence_refs` 只比较清单内字段，不能单凭它声称校验了 bundle digest。
+  ③ V06 的磁盘写失败、原子 rename 失败、并发同 digest 等设计卡反例是否已有适用的可复判测试/运行；
+  两套成功安装与 SIGKILL 续抓不覆盖这些故障。④ 1.20.1 BridgeHello 仍自称 1.21.4，
+  `VERSION-BRIDGE-IDENTITY-001` 修复后须重封并重判受影响的精确 build，不得沿用旧摘要。
+- `acceptance`: 给出每项原始要求→本 build 实际证据→结论→补证/修复卡的追溯表；
+  明确 reviewed registry 当前 `tested` 在本地受控运行和远程自动选择各自能否使用；
+  对缺口先登记、再独立提升修复卡，所有更改仍按唯一 `NEXT` 与 commit/push/SHA 门禁。
+- `stop_conditions`: 需要放宽 Player-Equivalent/lease、删除或改写失败 bundle、改变认证或公网策略，
+  或把未核验的清单自述当作签名/封证事实时停止并报告；不得以更改验收文字补齐缺失证据。
+- `next_after_done`: 按真实复判结果安排 `VERSION-BRIDGE-IDENTITY-001`、补证/修复卡；全部完成后
+  才能单独登记并提升 V08。
 
 ### VERSION-BRIDGE-IDENTITY-001 — BridgeHello 版本声明配对修复
 
