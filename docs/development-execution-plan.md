@@ -26,10 +26,10 @@
   仍 `blocked`／`promotable: false`——**V08 未提升、用户的远程服未连接**，1.21.4 的同一缺口与 1.20.1 其余
   八条缺口一字未动。逐格读数记在该卡 `completion_readings_2026-09-26`；收卡提交 `b03863e` 的两条 ref
   与远端 SHA 已核，GitHub Actions 对该 SHA 的两个 `CI` run 及其六个 job 全 `completed / success`。）
-  **下一步是主控已授权的 HOST 支线设计**：`HOST-ADMISSION-DESIGN-001` 依 2026-09-26 口径由
-  `BLOCKED_DECISION` 转 `QUEUED`（只整理方案、反例与验收设计；不实现 HOST、不标完成、不提升
-  `HOST/W80+`；到必须冻结"谁创建 host generation / `WorldCapsule`"时交主控审查），登记与提升分两个提交，
-  与本卡一样逐卡串行。
+  **HOST 支线设计卡已登记**：`HOST-ADMISSION-DESIGN-001` 依 2026-09-26 口径由 `BLOCKED_DECISION` 转
+  `QUEUED`（只整理方案、反例与验收设计；不实现 HOST、不标完成、不提升 `HOST/W80+`；到必须冻结"谁创建
+  host generation / `WorldCapsule`"时交主控审查）。登记提交把它写成完整卡（`anchors` 逐条今天量过、
+  `acceptance` 七格含反证），**下一张是它的提升提交**（`QUEUED → NEXT`，独立一次提交，与本卡一样逐卡串行）。
   （上一张 `ADMIT-070-RECORD-SCHEMA-001` 已收卡为 `DONE`：卡片文本 `cc9ced2`、
   实现 `de8ed7d`——
   冻结的 `schemas/fault-injection.schema.json` 现在按 `category` 分成两支，两类记录各自说得出自己的
@@ -39,12 +39,13 @@
   六个 job 全 `success`。逐格读数、manifest 新旧行与对登记卡那句前提的更正，记在该卡
   `completion_readings_2026-09-26`。）
   **队列是数过的，不是 grep 出来的**（本提交实测：`.tmp/count_plan_cards.py` 按卡头配对 `status` 行，
-  连没有 ` — ` 分隔符的 `### HOST/W80+` 一并数到）：56 张带 `status` 的卡里 `NEXT` = 0、`QUEUED` = 0，
-  开放中的只剩 `REAL-P0-CAMPAIGN-001`（`BLOCKED_EVIDENCE`）、
-  `EXPLICIT-RELEASE-AT-STOP-001` / `HOST-ADMISSION-DESIGN-001` / `OPERATIONS-RETENTION-001` /
-  `PROCESS-RECOVERY-001`（`BLOCKED_DECISION`，其中 `HOST-ADMISSION-DESIGN-001` 在下一张卡改判）与
-  `HOST/W80+`（`DEFERRED`）。这套清点反证过非空转：本提交实测——临时副本里把刚收口的卡改回 `NEXT`
-  或 `QUEUED`，同一逻辑各报 `1`（副本已删）。
+  连没有 ` — ` 分隔符的 `### HOST/W80+` 一并数到）：56 张带 `status` 的卡里 `NEXT` = 0、`QUEUED` = 1
+  （就是刚登记的 `HOST-ADMISSION-DESIGN-001`），开放中的只剩 `REAL-P0-CAMPAIGN-001`（`BLOCKED_EVIDENCE`）、
+  `EXPLICIT-RELEASE-AT-STOP-001` / `OPERATIONS-RETENTION-001` /
+  `PROCESS-RECOVERY-001`（`BLOCKED_DECISION`）与
+  `HOST/W80+`（`DEFERRED`）。这套清点反证过非空转：`822d7f0` 那次实测——临时副本里把刚收口的卡改回 `NEXT`
+  或 `QUEUED`，同一逻辑各报 `1`（副本已删）。本提交另测一次：同一脚本在登记前的 `HEAD` 副本上报
+  `QUEUED` = 0，工作树上报 1，差值只可能来自这张卡。
   （**2026-09-26 主控答复**：更早那版这份队列说明写的"下一张归主控、`STOP_PHASE_EXPLICIT_KEY_RELEASE`
   待拍板"已经解掉，用户给出口径——①只划这一条缺口、同时登记 `V1201-080` 的 PASS 证据与对应 capability、
   重算摘要并跑 provenance 校验；②**不提升 V08**，因此也不连接远程服；③HOST 支线只做设计，
@@ -120,6 +121,9 @@
   `NEXT`/`QUEUED` 的副本反证过非空转）。**下一张已授权、不需再问**：按主控 2026-09-26 的第③条口径把
   `HOST-ADMISSION-DESIGN-001` 由 `BLOCKED_DECISION` 转 `QUEUED`——只做设计（方案、反例、验收设计），
   不实现 HOST、不标完成、不提升 `HOST/W80+`，到必须冻结"谁创建 host generation / `WorldCapsule`"时交主控。
+  （**其后的提交已落实该转换**：那张卡现在是带 `anchors`/`acceptance` 的完整卡且处于 `QUEUED`，登记时逐条
+  重量了它的代码位置；剩下的是它的提升提交，`QUEUED → NEXT` 单独一次。上面那句 `QUEUED` 与 `NEXT` 都是 `0`
+  是登记当时的读数，按既有口径保持原样。）
   上一 checkpoint 是 **写下来的契约重新对上执行它的读取器：冻结的 fault-injection schema 说得出两类记录**
   ——`ADMIT-070-RECORD-SCHEMA-001` 由 `cc9ced2` 收卡为 `DONE`（登记 `ff63746`、提升 `79cf8ce`、实现 `de8ed7d`；
   `LOCAL_ONLY`，本卡不要求也不封任何真实运行）。形状：根 `oneOf` 按 `category` 分两支——kill 一类保持原样
@@ -5673,11 +5677,87 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 
 ### HOST-ADMISSION-DESIGN-001 — 宿主世界会话坐标来源
 
-- `status`: `BLOCKED_DECISION`
-- `question`: host generation / `WorldCapsule` 由谁创建，Bridge 与 Core 如何绑定
-  一个不是 `ConnectWorld` 发起的世界。
+- `status`: `QUEUED`（2026-09-26 依主控同日答复第 ②、③ 条由 `BLOCKED_DECISION` 转为排队：只做设计
+  （方案、反例、验收设计），不实现 HOST、不标完成、不提升 `HOST/W80+`；到必须冻结"谁创建 host
+  generation / `WorldCapsule`"那一步交主控审查。原 `unblock_condition` 写的"冻结决策"本卡**不满足**，
+  也**不试图满足**——本卡只把它写成可交接的分歧矩阵。）
+- `decision_source`: 用户 2026-09-26 三点口径的 ②「先做 HOST-ADMISSION 设计：可以，但它是支线。这张卡的
+  核心问题——谁创建 host generation / `WorldCapsule`——仍未被"选择做设计"本身回答。Qoder 可以先整理方案、
+  反例与验收设计，不能据此直接实现 HOST、标记完成或提升 HOST/W80+。这也会暂时推迟你优先要的 1.20.1 入服
+  demo」与 ③「按唯一 `NEXT`、逐卡提交并 push 处理，不要同时开两张卡。HOST 设计若到了必须冻结所有权方案的
+  节点，再由主控审查」。
+- `question`: 一个**不是由 `ConnectWorld` 发起**的世界（本 Kin 自己宿主的世界）要成为可被监督的会话，
+  它的 `generation` 与 `WorldCapsule` 由谁创建，Bridge 与 Core 如何就"首快照从哪来、由谁判"达成一致。
 - `constraint`: 不得给运行时凭空造 capsule，也不得让 Bridge 自报可信管理事实。
-- `unblock_condition`: 冻结决策，并准备 HOST-001 的真实 trace 验收方案。
+- `depends_on`: 无未闭合卡。本卡的输入全部是**已经在树里**的代码与契约，逐条见 `anchors`（实测于
+  `ad49e7b`），因此"依赖全 `DONE`"按空依赖满足；`HOST/W80+` 是 `DEFERRED` 而不是本卡的前置——它在
+  `forbidden_paths` 里。
+- `anchors`（2026-09-26 逐条 `grep -n` / `sed -n` 量出来的，不是回忆）：
+  - `src/minekin_core/domain/world_activation.py:73` 定义 `WorldCapsule`，`:87` 的 `server_profile_id`
+    注释写明宿主世界该列为空；`src/` 内**没有任何生产构造点**（`:124`/`:126` 只是把已有胶囊序列化进记录）。
+  - `src/minekin_core/cli/session.py:1190` 是生产里唯一一处 `connections.begin(...)`，而它上面 `:1188`
+    的 `if target is None: return` 使这段只在存在远端 profile 目标时可达。
+  - `src/minekin_core/cli/session_runtime.py:609` 的 `_admit_first_snapshot` 在 `:637`
+    （`if attempt is None or recorded is None`）把没有 attempt 可挂的快照记为 `ignored`。
+  - `src/minekin_core/adapters/bridge/admission.py:40` 的 `PLAYABLE_PHASE` **有意不在** `:42` 的
+    `_PHASE_SIGNALS` 里，`:156` 起的分支返回 `WITHHELD`——Bridge 自报"可玩"不构成准入。
+  - `bridge/src/main/java/org/minekin/bridge/runtime/ClientAdmissionController.java:288` 与
+    `bridge-1201/src/main/java/org/minekin/bridge/runtime/ClientAdmissionController.java:303` 的
+    `collectSnapshotWhenPlayable` 在 `activeGeneration == 0` 时提前返回（两处分别在 `:292` / `:307`），
+    而 `beginGeneration(ConnectWorld)`（`:569` / `:584`）在每个 root 内**各只有一个调用点**（`:589` / `:604`）。
+  - `proto/minekin/v1/envelope.proto:58` 有 `world_context_id`，而 `src/minekin_core/adapters/bridge/`
+    与 `bridge/src/main/java/` 内该字段**零命中**——线缆上留好的位置两边都没有填。
+  - `docs/hosted-world-storage-lifecycle-contract.md:221` 定义 `HOST-001`（全新 data root 建固定 profile
+    世界；本地 JOIN、首保存、重启重进），`:234` 要求 `host-integrated: tested` 至少拿到 `HOST-001…100` 的
+    mandatory 子集；`tests/fixtures/cases/` 里 `host-010…080` 存在而 **`host-001.json` 不存在**，本文件
+    「已知缺失 case」表的 `HOST` 行记的是 `001, 090, 100`。
+- `allowed_paths`: **新建** `docs/host-admission-session-coordinate-design.md`（唯一交付物）＋
+  `docs/development-execution-plan.md`、`docs/development-todo.md`、`docs/qoder-execution-handoff.md`。
+- `forbidden_paths`: 产品代码 `src/**`、两份 Bridge root `bridge/**` 与 `bridge-1201/**`、`proto/**`、
+  `schemas/**`、判据与 fixture `tools/**` 与 `tests/**`（**不建** `host-001.json`，本卡只设计它的验收）、
+  五份既有契约一字不改（`world-context-contract.md`、`hosted-world-control-boundary-contract.md`、
+  `hosted-world-storage-lifecycle-contract.md`、`hosted-world-commit-recovery-contract.md`、
+  `world-hosting-mode-contract.md`）、`HOST/W80+` 的 `status`（仍 `DEFERRED`）、`host-integrated` 的
+  任何 `mandatory` 化、V08 的任何晋级动作、用户的远程服与任何 host/网络准入、
+  `EXPLICIT-RELEASE-AT-STOP-001` / `OPERATIONS-RETENTION-001` / `PROCESS-RECOVERY-001` 的 `status`。
+- `scope`: 一份设计文档，四段。(1) **现状**：把 `anchors` 摊成两侧闸门的因果链，说清"读得到宿主世界"与
+  "被准入为会话"为什么是两件事。(2) **候选方案**，至少三条，每条必须写全四要素——谁创建 `generation` 与
+  `WorldCapsule`、首快照由谁收集由谁判、失败与重启后的恢复语义、与既有契约条款的冲突点：
+  A Bridge 侧给 `beginGeneration` 加一条不是 `ConnectWorld` 的入口；B Core 侧为宿主世界产生胶囊并下发
+  一条新的开始命令，Bridge 只执行；C 承认现状——宿主世界只走 `MANAGEMENT_ONLY`，不作为被监督会话。
+  (3) **反例**：每个方案至少一条可落成测试的反例（命名其失败理由），并写明它今天为什么还跑不了。
+  (4) **验收设计**：`HOST-001` 的真实 trace 验收方案——fixture 形状（case id、断言 token 名、
+  `validation_class`、`mandatory` 建议值及其理由）、必跑命令、positive control 与非空转反证。
+  以**分歧矩阵 + 交主控冻结**收尾；本执行者不替主控选定方案。
+- `acceptance`:
+  1. 交付物四段齐备、三条方案各带四要素：一个临时校验脚本（放 `.tmp/`，不入库）按小节清单核对，
+     缺一段或某方案缺一个要素即红。
+  2. 每条 `文件:行号` 引用可复算：同一脚本从文档抽出全部锚点，逐条 `sed -n` 读该行并核对其声称的内容；
+     正例是文档锚点全过，反证是把任一行号改错 ±1 后脚本报红——这是"文档没有编造代码位置"的机器保证。
+  3. 不动代码与判据：改动只落在 `allowed_paths`；全量门禁
+     `uv run --frozen pytest` / `ruff check` / `ruff format --check` / `pyright` / `check_boundaries` /
+     `check_case_assertions` / `verify_fixture_digests` / `check_workflow_pins` / `git diff --check` 全绿，
+     且 pytest 计数与上一张卡收口时相同（`2501 passed / 2 skipped`——无产品与测试改动，用例数不该动）。
+  4. 状态不越权（机器读法，不是口头声明）：`HOST/W80+` 那行仍 `DEFERRED`；容器内
+     `tools/report_promotion.py` 的输出里 `host-integrated` **仍不出现**（一条 mandatory 用例都没有时它
+     就不该出现，出现了即是越权）；`tests/fixtures/cases/host-001.json` 仍不存在。
+  5. 所有权问题**没有被本卡回答**：文档必须有"交主控冻结"的小节并列出分歧点，且不得出现"本卡选定/采用
+     方案 X"式结论；反证是把收尾改成选定句即让校验脚本报红。这条直接落用户 ②。
+  6. 三份执行文档的中文全角括号配平保持 0、`git diff --check` 干净。
+  7. 逐提交 push 到两条 ref、核对远端 SHA，并读 GitHub Actions 该 SHA 的 run 与 job/step 层结果。
+- `validation_class`: `docs-only-design`——本地可判，不产生 run、不进容器、不碰 fixture。
+- `stop_conditions`:
+  1. 到了必须冻结"谁创建 host generation / `WorldCapsule`"才能继续的节点：停止推进，把分歧矩阵与各方案
+     代价交主控（用户 ②③ 指定），**不自行选定方案**。
+  2. 发现某方案要说清就必须改产品代码 / 契约 / fixture：停止，按规格缺口报告，不越 `allowed_paths`。
+  3. 发现判定要依赖真客户端 trace、受控运行或远程服：停止并记录缺的是哪一种输入，不把猜测写成表。
+- `non_goals`: 不实现 HOST；不给运行时凭空造胶囊；不改 `beginGeneration` 的签名或调用点；不建
+  `host-001.json`；不把 `host-integrated` 变成门禁；不提升 V08、不连接远程服；不改 `HOST/W80+` 与另外
+  三张 `BLOCKED_DECISION` 卡；1.20.1 入服 demo 的推迟是本卡的**后果**而不是目标。
+- `next_after_done`: 收卡后 HOST 支线**停在所有权冻结点**：由主控选定方案，才谈得上 `HOST-001` fixture 与
+  真 trace 验收卡；主线回到主控口径，1.20.1 入服 demo 仍受"V08 未提升"约束。
+- `registration`: 本提交以 `QUEUED` 登记并推到两条 ref；提升为唯一 `NEXT` 须在**下一次独立提交**，
+  实现（写文档）再下一次。
 
 ### OPERATIONS-RETENTION-001 — marker 与 run 目录清理
 
