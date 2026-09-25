@@ -4582,7 +4582,11 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
      因此"空 store"必须理解为**该新 Kin 自己的 `run/artifact-store` 目录为空**，而不是卷内没有缓存。
   2. **必须绕开的既有捷径**：`test-orchestrator/runner/domain.sh:594-616` 对加入者执行
      `cp -a "/data/kin/${host_kin}/run/artifact-store" "/data/kin/${joiner}/run/artifact-store"`。
-     若沿用该路径，加入者的 store 一开局就是满的，`installed` 必为 `0`、`reused` 为整份缓存——正是本卡
+     该复制只在**加入者分支**（`domain.sh:586` 起，需 `MINEKIN_DOMAIN_OPEN_LAN=1` 与命名 host Kin）里发生：
+     单 Kin 的自动 `session start` 不走它。但它同段注释还留了一条更硬的约束（`domain.sh:580-584`）——
+     **store 拒绝把自己的根变成符号链接**，"链接一份现成缓存"不是可选路径，所以新 Kin 只能有自己真实的
+     `run/artifact-store` 目录，缓存复用要靠目录内的硬链接而不是链接根目录。
+     后果：若沿用加入者路径，加入者的 store 一开局就是满的，`installed` 必为 `0`、`reused` 为整份缓存——正是本卡
      `counterexamples` 点名的"`reused 3639 / installed 0` 冒充装齐"。空 store 声称只能靠**独立 Kin 根 + 不复制
      host store** 取得，本卡只在一次性卷目录里这么跑，不改 `domain.sh` 的既有语义（`allowed_paths` 仅允许新增
      环境变量转发行）。
