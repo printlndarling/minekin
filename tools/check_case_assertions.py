@@ -298,6 +298,9 @@ IMPLEMENTATIONS: dict[str, Implementation] = {
     "the_bridge_released_input_when_play_ended": _runtime(
         "the_bridge_released_input_when_play_ended"
     ),
+    "the_bridge_released_the_input_when_the_session_was_stopped": _runtime(
+        "the_bridge_released_the_input_when_the_session_was_stopped"
+    ),
     "the_attempt_was_abandoned_at_its_deadline": _runtime(
         "the_attempt_was_abandoned_at_its_deadline"
     ),

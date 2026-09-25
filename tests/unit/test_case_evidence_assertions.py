@@ -41,6 +41,9 @@ MOVEMENT_CASE = CASES / "core-040.json"
 LOST_RUNTIME_CASE = CASES / "core-060.json"
 LOST_SERVER_CASE = CASES / "core-060-server-001.json"
 LOST_CLIENT_CASE = CASES / "core-060-client-001.json"
+#: 1.20.1's stop-phase release: a session Core wound down while the Kin still held
+#: a move lease.
+SESSION_STOP_CASE = CASES / "v1201-080.json"
 RESTART_CASE = CASES / "core-090.json"
 SOAK_CASE = CASES / "core-100.json"
 #: The session the run before the restart wrote under. Every witness the restart
@@ -1049,6 +1052,87 @@ def test_a_kin_that_never_moved_did_not_stop(server_log: str, reason: str) -> No
     verdict = ASSERTER_MODULE.evaluate(lost_runtime_case(), killed(log=server_log))
 
     assert verdict.failures == (f"the_server_saw_the_kin_stop_after_the_move:{reason}",)
+
+
+# The line 1.20.1's Bridge writes when Core hands back a session it is winding
+# down: `releaseInputs(CORE_REQUEST, "EXPLICIT")`, verbatim in the shape
+# `BridgeIpcWorker.java:833-839` prints it. The code in the parentheses is the
+# whole claim — the same sentence without it is a lease that expired.
+EXPLICIT_RELEASE = "bridge released 1 input(s) after CORE_REQUEST (EXPLICIT)"
+
+
+def session_stop_case() -> dict[str, object]:
+    return cast(dict[str, object], json.loads(SESSION_STOP_CASE.read_text(encoding="utf-8")))
+
+
+def stopped_session(**overrides: object) -> _Material:
+    """A session Core stopped while its Kin was still holding the move key.
+
+    No run document: the wind-down ends the run before `session start` prints one,
+    which is why the client's own line is the witness. Nothing injects a fault
+    either — this is the polite shutdown, not the killed one.
+    """
+
+    arguments: dict[str, object] = {
+        "document": {},
+        "log": STOPPED_READINGS,
+        "client_log": EXPLICIT_RELEASE,
+        "events": (event("PlayableEstablished"), LEASE),
+    }
+    arguments.update(overrides)
+    return material(**arguments)  # type: ignore[arg-type]
+
+
+def test_a_session_stopped_while_holding_a_key_holds() -> None:
+    verdict = ASSERTER_MODULE.evaluate(session_stop_case(), stopped_session())
+
+    assert verdict.result == "PASS"
+    assert verdict.observed == verdict.expected
+    assert verdict.failures == ()
+
+
+@pytest.mark.parametrize(
+    ("client_log", "reason"),
+    [
+        ("", "NO_CLIENT_LOG"),
+        ("bridge held 1 input(s)\n", "RELEASE_NOT_LOGGED"),
+        # The lease lapsed on its own: a release, and not the one asked for.
+        (
+            "bridge released 1 input(s) after CORE_REQUEST (TIMEOUT)\n",
+            "RELEASED_FOR_ANOTHER_REASON:CORE_REQUEST(TIMEOUT)",
+        ),
+        (
+            "bridge released 1 input(s) after IPC_LOST\n",
+            "RELEASED_FOR_ANOTHER_REASON:IPC_LOST",
+        ),
+        # The Bridge releases whether or not it held anything, so the count is the
+        # difference between a stopped session and a session that stopped holding.
+        (
+            "bridge released 0 input(s) after CORE_REQUEST (EXPLICIT)\n",
+            "HELD_NOTHING_WHEN_THE_SESSION_WAS_STOPPED",
+        ),
+    ],
+)
+def test_a_release_that_is_not_an_explicit_stop_is_named(client_log: str, reason: str) -> None:
+    verdict = ASSERTER_MODULE.evaluate(session_stop_case(), stopped_session(client_log=client_log))
+
+    assert f"the_bridge_released_the_input_when_the_session_was_stopped:{reason}" in (
+        verdict.failures
+    )
+
+
+def test_an_explicit_stop_is_found_among_other_releases() -> None:
+    """A session whose lease expired and was then stopped explicitly has both."""
+
+    log = (
+        "bridge released 1 input(s) after CORE_REQUEST (TIMEOUT)\n"
+        "bridge released 1 input(s) after CORE_REQUEST (EXPLICIT)\n"
+    )
+
+    verdict = ASSERTER_MODULE.evaluate(session_stop_case(), stopped_session(client_log=log))
+
+    assert "the_bridge_released_the_input_when_the_session_was_stopped" in verdict.observed
+    assert verdict.failures == ()
 
 
 # The record shape itself lives in one place, `tests/fault_support.py`, because

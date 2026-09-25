@@ -161,6 +161,18 @@ IPC_LOST = "IPC_LOST"
 _BRIDGE_RELEASE = re.compile(r"released (\d+) input\(s\) after ([A-Z_]+)")
 _PLAY_ENDED_RELEASE = re.compile(r"released (\d+) input\(s\) after LEFT_PLAYABLE \(PLAY_ENDED\)")
 
+#: Why the Bridge records a release it was *asked* for, and the code Core puts on
+#: that ask when the session winds down: `on_wind_down` releases with
+#: `ReleaseReason.EXPLICIT` and the Bridge logs `CORE_REQUEST (EXPLICIT)`. The
+#: reason alone is not the fact — a lease lapsing arrives as
+#: `CORE_REQUEST (TIMEOUT)` — so the code inside the parentheses is what separates
+#: a stopped session from an expired hold.
+CORE_REQUEST = "CORE_REQUEST"
+EXPLICIT_REASON_CODE = "EXPLICIT"
+_BRIDGE_RELEASE_WITH_CODE = re.compile(
+    r"released (\d+) input\(s\) after ([A-Z_]+)(?: \(([A-Z0-9_]+)\))?"
+)
+
 #: What the Bridge writes when it acts on a cancel. Measured in a run against a
 #: black hole, after the attempt reached `LOGIN_NEGOTIATING` and stayed there.
 CANCEL_LINE = "bridge is cancelling the client's connection"
@@ -1955,6 +1967,40 @@ def the_bridge_released_input_when_play_ended(material: RunMaterial) -> str | No
     return None
 
 
+def the_bridge_released_the_input_when_the_session_was_stopped(
+    material: RunMaterial,
+) -> str | None:
+    """The client's own line for keys it let go because Core asked it to.
+
+    This is the stop phase, so the ask has to be the one a wind-down sends:
+    `bridge released 1 input(s) after CORE_REQUEST (EXPLICIT)`. A release after
+    `TIMEOUT` is a lease that lapsed while the session carried on, and a release
+    after `IPC_LOST` is a fault — both are the Bridge letting go, neither is the
+    session being stopped.
+
+    The count matters for the same reason it does elsewhere: Core releases
+    unconditionally when it winds down, so `released 0` is the Bridge reporting
+    that it held nothing, which makes the letting go vacuous.
+    """
+
+    if not material.client_log:
+        return "NO_CLIENT_LOG"
+    releases = _BRIDGE_RELEASE_WITH_CODE.findall(material.client_log)
+    if not releases:
+        return "RELEASE_NOT_LOGGED"
+    asked = [
+        (count, code)
+        for count, reason, code in releases
+        if reason == CORE_REQUEST and code == EXPLICIT_REASON_CODE
+    ]
+    if not asked:
+        reasons = {f"{reason}({code})" if code else reason for _, reason, code in releases}
+        return f"RELEASED_FOR_ANOTHER_REASON:{','.join(sorted(reasons))}"
+    if not any(int(count) > 0 for count, _ in asked):
+        return "HELD_NOTHING_WHEN_THE_SESSION_WAS_STOPPED"
+    return None
+
+
 def the_previous_run_left_the_kin_holding_input(material: RunMaterial) -> str | None:
     """The run before this one granted a move lease and never released it.
 
@@ -3441,6 +3487,9 @@ ASSERTIONS: dict[str, Callable[[RunMaterial], str | None]] = {
     "the_server_log_has_no_graceful_shutdown": the_server_log_has_no_graceful_shutdown,
     "the_ledger_recorded_world_loss": the_ledger_recorded_world_loss,
     "the_bridge_released_input_when_play_ended": the_bridge_released_input_when_play_ended,
+    "the_bridge_released_the_input_when_the_session_was_stopped": (
+        the_bridge_released_the_input_when_the_session_was_stopped
+    ),
     "the_attempt_was_abandoned_at_its_deadline": the_attempt_was_abandoned_at_its_deadline,
     "no_world_was_joined": no_world_was_joined,
     "the_cancel_reached_the_client_and_was_acted_on": (
