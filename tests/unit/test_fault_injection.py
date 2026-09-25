@@ -284,7 +284,7 @@ def test_a_malformed_record_is_refused_by_code(document: dict[str, object], code
     assert code in codes(document)
 
 
-def structural_mutations() -> list[dict[str, object]]:
+def kill_structural_mutations() -> list[dict[str, object]]:
     return [
         changed(schema_version=2),
         changed(outcome="MAYBE"),
@@ -302,20 +302,121 @@ def structural_mutations() -> list[dict[str, object]]:
     ]
 
 
+def request_structural_mutations() -> list[dict[str, object]]:
+    """The same agreement, for the kind that asks rather than kills.
+
+    Each of these is a document the reader already refuses by name, and the schema
+    is meant to be the written form of that refusal rather than a document about a
+    different shape.
+    """
+
+    return [
+        # A record that names neither kind: the reader will not read a category it
+        # does not have, and neither does the file that describes one.
+        request_sample(category="MAYBE"),
+        # A request carrying a kill's fields, and one missing its own effect.
+        {**request_sample(), "target": target()},
+        {key: value for key, value in request_sample().items() if key != "effect"},
+        # Attribution to a run that never existed is the reader's refusal and the
+        # schema's, for this kind exactly as for that one.
+        nested(request_sample(), "attribution", generation=0),
+        # The subject and the variable are one pairing, not two free strings.
+        nested(request_sample(), "request", environment_variable="SOMETHING_OTHER"),
+        # A value the Bridge would not read, beside an `asked` that reads it anyway.
+        nested(request_sample(), "request", value="yes-please"),
+        # And an `asked` that contradicts a value both sides do understand: the
+        # writer derives the claim from the value, so a hand-written record that
+        # states the other answer is refused rather than believed.
+        nested(request_sample(), "request", value="0", asked=True),
+        nested(request_sample(), "request", value="1", asked=False),
+        # The effect named a method it did not use, dropped the pid it claimed to
+        # have read, and said nothing about what it looked for.
+        nested(request_sample(), "effect", method="NOT_OBSERVED"),
+        nested(request_sample(), "effect", pid=None),
+        nested(request_sample(), "effect", detail=""),
+        # An observed effect beside an ask that says nothing was asked: the reader
+        # calls it `EFFECT_WITHOUT_REQUEST`, and the schema says the same thing.
+        nested(request_sample(), "request", value="0", asked=False),
+    ]
+
+
+def structural_mutations() -> list[tuple[str, dict[str, object]]]:
+    return [("kill", document) for document in kill_structural_mutations()] + [
+        ("request", document) for document in request_structural_mutations()
+    ]
+
+
 def test_the_schema_refuses_everything_the_reader_refuses_structurally() -> None:
     """Two descriptions of one shape: where the schema can speak, it must agree.
 
     The reader is the contract and the schema is its written form, so a document
     the reader rejects for a structural reason has to be one the schema rejects
-    too — otherwise the file that readers consult has drifted.
+    too — otherwise the file that readers consult has drifted. Both kinds are
+    checked, because the second kind is the one a written form most often forgets.
     """
 
     schema = json.loads(SCHEMA.read_text(encoding="utf-8"))
     validator = Draft202012Validator(schema)
 
-    for document in structural_mutations():
-        assert codes(document) != (), document
-        assert list(validator.iter_errors(as_json(document))) != [], document
+    for kind, document in structural_mutations():
+        assert codes(document) != (), (kind, document)
+        assert list(validator.iter_errors(as_json(document))) != [], (kind, document)
+
+
+def legal_shapes() -> list[tuple[str, dict[str, object]]]:
+    """Every record shape the reader accepts, taken from what a run produces.
+
+    The other direction of the same agreement, and the one that has bitten before:
+    a written form stricter than the reader makes a real record unrecordable, which
+    is how an empty argv element once turned a client kill into a refusal that could
+    not be written down either.
+    """
+
+    unobserved = nested(
+        request_sample(reasons=["NO_CHILD_JVM_CARRYING_THE_NAME"]),
+        "effect",
+        observed=False,
+        method="NOT_OBSERVED",
+        pid=None,
+        starttime_ticks=None,
+    )
+    handed_zero = nested(
+        nested(
+            request_sample(reasons=["NOT_ASKED_TO_REFUSE_THE_FIRST_SNAPSHOT"]),
+            "effect",
+            observed=False,
+            method="NOT_OBSERVED",
+            pid=None,
+            starttime_ticks=None,
+        ),
+        "request",
+        value="0",
+        asked=False,
+    )
+    return [
+        ("an injected kill", sample()),
+        ("a kill that never landed", not_injected()),
+        ("a kill naming its own kind", changed(category="PROCESS_SIGKILL")),
+        ("a client whose argv holds empty option values", with_argv(CLIENT_ARGV)),
+        ("a report request that was seen", request_sample()),
+        ("a report request that was not seen", unobserved),
+        ("a report request nobody asked for", handed_zero),
+    ]
+
+
+def test_the_schema_accepts_every_shape_the_reader_accepts() -> None:
+    """The written form must not refuse a record a real run produces.
+
+    Measured on both kinds, including the two request shapes a scenario seals when
+    the name never reached the client: those are the ones a schema keyed only to the
+    flattering reading would drop.
+    """
+
+    validator = schema_validator()
+
+    for label, document in legal_shapes():
+        assert codes(document) == (), label
+        assert list(validator.iter_errors(as_json(document))) == [], label
 
 
 @pytest.mark.parametrize(
@@ -675,20 +776,52 @@ def test_the_builder_derives_the_claims_it_would_most_easily_get_wrong() -> None
         )
 
 
-def test_the_frozen_schema_still_describes_the_kill_record_only() -> None:
-    """Where the two descriptions of this artifact part company, and why.
+def test_the_schema_names_both_kinds_and_refuses_a_record_that_names_neither() -> None:
+    """Which kind a record is stays a fact about the document.
 
-    `schemas/fault-injection.schema.json` is a reviewed input digest: it is one of
-    the `inputs` of `w00-contract-001`, so editing it changes that case's
-    `case_version` and re-versions a case this scenario has no business touching. So
-    the schema describes the SIGKILL record, the reader describes both, and this test
-    is the statement that the gap is known rather than missed — a request record is
-    refused by the schema today, on purpose. Renewing the schema is its own card.
+    One file describes both kinds, so the boundary has to be its own assertion: a
+    schema that let the two shapes blur would seal a request under a kill's
+    vocabulary and read `outcome: INJECTED` for a process that never died.
     """
 
-    schema = json.loads(SCHEMA.read_text(encoding="utf-8"))
-    validator = Draft202012Validator(schema)
+    validator = schema_validator()
 
-    assert codes(request_sample()) == ()
-    assert list(validator.iter_errors(as_json(request_sample()))) != []
+    assert list(validator.iter_errors(as_json(request_sample()))) == []
     assert list(validator.iter_errors(as_json(sample()))) == []
+    # A request that borrows a kill's fields, and a kill that borrows a request's.
+    assert list(validator.iter_errors(as_json({**request_sample(), "outcome": "INJECTED"}))) != []
+    assert list(validator.iter_errors(as_json({**sample(), "request": {}, "effect": {}}))) != []
+    # A kill record missing one of its own fields is not read as a request record.
+    assert (
+        list(validator.iter_errors(as_json({k: v for k, v in sample().items() if k != "signal"})))
+        != []
+    )
+
+
+def test_the_two_comparisons_the_reader_still_keeps_for_itself() -> None:
+    """Where the two descriptions still part company, said out loud rather than missed.
+
+    The written form stops at a field's shape and at the pairs that are one claim
+    said twice (`result`/`error`, `observed`/`exit_status`, `asked`/`value`, and
+    `asked`/`observed`, which is the false positive the reviewed scenario would
+    otherwise allow). What it does not state is whether an account is complete: a
+    run that saw nothing and did not say why, or saw something and still listed
+    reasons. Those belong to `tools/fault_injection.py`, exactly as the kill record's
+    outcome-vs-confirmation rules do, and the reader refuses both ways.
+    """
+
+    validator = schema_validator()
+    silent = nested(
+        request_sample(),
+        "effect",
+        observed=False,
+        method="NOT_OBSERVED",
+        pid=None,
+        starttime_ticks=None,
+    )
+    contradicted = request_sample(reasons=["CLIENT_JVM_AMBIGUOUS"])
+
+    assert codes(silent) == ("REASONS_MISSING",)
+    assert codes(contradicted) == ("REASONS_NOT_FOR_THIS_OUTCOME",)
+    assert list(validator.iter_errors(as_json(silent))) == []
+    assert list(validator.iter_errors(as_json(contradicted))) == []

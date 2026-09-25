@@ -1,1 +1,316 @@
-{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"https://minekin.local/schemas/fault-injection.v1.json","title":"Minekin fault-injection record v1","$comment":"The written form of the record tools/inject_fault.py produces and tools/seal_run_evidence.py seals. It covers the structural rules: types, enumerations, required fields, identifiers, pid bounds and the consistency of an observed supervisor exit status. It cannot cover the comparisons between fields - that the confirmation was stamped after the attempt, and that the outcome, the signal and the confirmation tell one story - so those are enforced by tools/fault_injection.py, which is the contract. jsonschema is a test-only dependency and the runner image does not carry it; this file is checked against the reader by tests/unit/test_fault_injection.py.","type":"object","additionalProperties":false,"required":["schema_version","case","attribution","target","signal","outcome","reasons","confirmation_strength","confirmation","attempted_at_monotonic_ns","confirmed_at_monotonic_ns","recorded_at_monotonic_ns","supervisor"],"properties":{"schema_version":{"const":1},"case":{"$comment":"Null when the run was not executed for a reviewed case; a kill run nobody attributed borrows nothing.","type":["object","null"],"additionalProperties":false,"required":["case_id","case_version"],"properties":{"case_id":{"type":"string","pattern":"^[A-Z][A-Z0-9-]+-[0-9]{3}$"},"case_version":{"type":"string","pattern":"^[0-9a-f]{64}$","description":"The case definition's own digest, so the record and the bundle name one version."}}},"attribution":{"type":"object","additionalProperties":false,"required":["kin_id","run_id","session_id","generation"],"properties":{"kin_id":{"type":"string","pattern":"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"},"run_id":{"type":"string","pattern":"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"},"session_id":{"type":"string","pattern":"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"},"generation":{"type":"integer","minimum":1}}},"target":{"type":["object","null"],"additionalProperties":false,"required":["role","pid","starttime_ticks","state","comm","pid_namespace_inode","exe_path","cmdline","identity_digest","parent"],"properties":{"role":{"enum":["runtime_controller","server_jvm","client_jvm"]},"pid":{"type":"integer","exclusiveMinimum":1},"starttime_ticks":{"type":"integer","minimum":0,"description":"Field 22 of /proc/<pid>/stat. The pid is reused; this is not."},"state":{"type":"string","minLength":1,"maxLength":1},"comm":{"type":"string","minLength":1},"pid_namespace_inode":{"type":"string","pattern":"^pid:\\[[0-9]+\\]$"},"exe_path":{"type":"string","minLength":1},"cmdline":{"type":"array","minItems":1,"items":{"type":"string"},"description":"The arguments the kernel kept, in order. An element may be empty: the frozen offline launch passes an empty option value as its own element."},"identity_digest":{"type":"string","pattern":"^[0-9a-f]{64}$","description":"SHA-256 over the resolved exe path and the NUL-joined argv."},"parent":{"type":"object","additionalProperties":false,"required":["pid","comm","starttime_ticks"],"properties":{"pid":{"type":"integer","exclusiveMinimum":0},"comm":{"type":"string"},"starttime_ticks":{"type":"integer","minimum":0}}}}},"signal":{"type":["object","null"],"additionalProperties":false,"required":["name","number","result","error"],"properties":{"name":{"enum":["SIGKILL"]},"number":{"const":9},"result":{"enum":["DELIVERED","FAILED"]},"error":{"type":["string","null"]}},"allOf":[{"if":{"properties":{"result":{"const":"DELIVERED"}},"required":["result"]},"then":{"properties":{"error":{"type":"null"}}}},{"if":{"properties":{"result":{"const":"FAILED"}},"required":["result"]},"then":{"properties":{"error":{"type":"string","minLength":1}}}}]},"outcome":{"enum":["INJECTED","NOT_INJECTED","AMBIGUOUS"]},"reasons":{"type":"array","items":{"type":"string","pattern":"^[A-Z][A-Z0-9_]*(:.+)?$"}},"confirmation_strength":{"enum":["IDENTITY_DISAPPEARED","WAIT_STATUS","NONE"],"$comment":"The helper is not the parent of what it kills, so it has no wait status and writes IDENTITY_DISAPPEARED. WAIT_STATUS is reserved for a helper that is, and is refused by the reader today."},"confirmation":{"type":["object","null"],"additionalProperties":false,"required":["method","observations","pid_reused","wait_status_available"],"properties":{"method":{"enum":["PROC_ENTRY_ABSENT","PROC_STATE_ZOMBIE","PROC_PID_REUSED","NONE"]},"observations":{"type":"integer","minimum":0},"pid_reused":{"type":"boolean"},"wait_status_available":{"type":"boolean","const":false}}},"attempted_at_monotonic_ns":{"type":"integer","minimum":0},"confirmed_at_monotonic_ns":{"type":["integer","null"],"minimum":0,"description":"Read from CLOCK_MONOTONIC, which cannot go backwards. The reader also requires it to be no earlier than the attempt; a schema cannot compare two fields."},"recorded_at_monotonic_ns":{"type":"integer","minimum":0},"supervisor":{"$comment":"The process the target was found under. The helper cannot reap it, so exit_status stays null until the runner, which does wait for it, annotates the record.","type":"object","additionalProperties":false,"required":["pid","role","starttime_ticks","pid_namespace_inode","exit_status","observed"],"properties":{"pid":{"type":"integer","exclusiveMinimum":0},"role":{"enum":["runtime_controller_root","server_jvm_root","client_jvm_root"]},"starttime_ticks":{"type":"integer","minimum":0},"pid_namespace_inode":{"type":"string","pattern":"^pid:\\[[0-9]+\\]$"},"exit_status":{"type":["integer","null"]},"observed":{"type":"boolean"}},"allOf":[{"if":{"properties":{"observed":{"const":true}},"required":["observed"]},"then":{"properties":{"exit_status":{"type":"integer"}}}},{"if":{"properties":{"observed":{"const":false}},"required":["observed"]},"then":{"properties":{"exit_status":{"type":"null"}}}}]}}}
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://minekin.local/schemas/fault-injection.v1.json",
+  "title": "Minekin fault-injection record v1",
+  "$comment": "The written form of the record tools/inject_fault.py produces and tools/seal_run_evidence.py seals. It covers the structural rules for both kinds a record may be: a process killed by SIGKILL, and a report request handed to the client. It cannot cover the comparisons between fields - that the confirmation was stamped after the attempt, and that the outcome, the signal and the confirmation tell one story - so those are enforced by tools/fault_injection.py, which is the contract. jsonschema is a test-only dependency and the runner image does not carry it; this file is checked against the reader by tests/unit/test_fault_injection.py.",
+  "oneOf": [
+    {"$ref": "#/$defs/process_sigkill_record"},
+    {"$ref": "#/$defs/client_report_request_record"}
+  ],
+  "$defs": {
+    "case": {
+      "$comment": "Null when the run was not executed for a reviewed case; a kill run nobody attributed borrows nothing.",
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["case_id", "case_version"],
+      "properties": {
+        "case_id": {"type": "string", "pattern": "^[A-Z][A-Z0-9-]+-[0-9]{3}$"},
+        "case_version": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "description": "The case definition's own digest, so the record and the bundle name one version."
+        }
+      }
+    },
+    "attribution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kin_id", "run_id", "session_id", "generation"],
+      "properties": {
+        "kin_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"},
+        "run_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"},
+        "session_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"},
+        "generation": {"type": "integer", "minimum": 1}
+      }
+    },
+    "reasons": {"type": "array", "items": {"type": "string", "pattern": "^[A-Z][A-Z0-9_]*(:.+)?$"}},
+    "attempted_at_monotonic_ns": {"type": "integer", "minimum": 0},
+    "recorded_at_monotonic_ns": {"type": "integer", "minimum": 0},
+    "process_sigkill_record": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "case",
+        "attribution",
+        "target",
+        "signal",
+        "outcome",
+        "reasons",
+        "confirmation_strength",
+        "confirmation",
+        "attempted_at_monotonic_ns",
+        "confirmed_at_monotonic_ns",
+        "recorded_at_monotonic_ns",
+        "supervisor"
+      ],
+      "properties": {
+        "schema_version": {"const": 1},
+        "category": {
+          "$comment": "Absent means this kind, which is what every bundle sealed before request records existed says. A kill that says so is saying the same thing.",
+          "const": "PROCESS_SIGKILL"
+        },
+        "case": {"$ref": "#/$defs/case"},
+        "attribution": {"$ref": "#/$defs/attribution"},
+        "target": {
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "required": [
+            "role",
+            "pid",
+            "starttime_ticks",
+            "state",
+            "comm",
+            "pid_namespace_inode",
+            "exe_path",
+            "cmdline",
+            "identity_digest",
+            "parent"
+          ],
+          "properties": {
+            "role": {"enum": ["runtime_controller", "server_jvm", "client_jvm"]},
+            "pid": {"type": "integer", "exclusiveMinimum": 1},
+            "starttime_ticks": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Field 22 of /proc/<pid>/stat. The pid is reused; this is not."
+            },
+            "state": {"type": "string", "minLength": 1, "maxLength": 1},
+            "comm": {"type": "string", "minLength": 1},
+            "pid_namespace_inode": {"type": "string", "pattern": "^pid:\\[[0-9]+\\]$"},
+            "exe_path": {"type": "string", "minLength": 1},
+            "cmdline": {
+              "type": "array",
+              "minItems": 1,
+              "items": {"type": "string"},
+              "description": "The arguments the kernel kept, in order. An element may be empty: the frozen offline launch passes an empty option value as its own element."
+            },
+            "identity_digest": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$",
+              "description": "SHA-256 over the resolved exe path and the NUL-joined argv."
+            },
+            "parent": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["pid", "comm", "starttime_ticks"],
+              "properties": {
+                "pid": {"type": "integer", "exclusiveMinimum": 0},
+                "comm": {"type": "string"},
+                "starttime_ticks": {"type": "integer", "minimum": 0}
+              }
+            }
+          }
+        },
+        "signal": {
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "required": ["name", "number", "result", "error"],
+          "properties": {
+            "name": {"enum": ["SIGKILL"]},
+            "number": {"const": 9},
+            "result": {"enum": ["DELIVERED", "FAILED"]},
+            "error": {"type": ["string", "null"]}
+          },
+          "allOf": [
+            {
+              "if": {"properties": {"result": {"const": "DELIVERED"}}, "required": ["result"]},
+              "then": {"properties": {"error": {"type": "null"}}}
+            },
+            {
+              "if": {"properties": {"result": {"const": "FAILED"}}, "required": ["result"]},
+              "then": {"properties": {"error": {"type": "string", "minLength": 1}}}
+            }
+          ]
+        },
+        "outcome": {"enum": ["INJECTED", "NOT_INJECTED", "AMBIGUOUS"]},
+        "reasons": {"$ref": "#/$defs/reasons"},
+        "confirmation_strength": {
+          "enum": ["IDENTITY_DISAPPEARED", "WAIT_STATUS", "NONE"],
+          "$comment": "The helper is not the parent of what it kills, so it has no wait status and writes IDENTITY_DISAPPEARED. WAIT_STATUS is reserved for a helper that is, and is refused by the reader today."
+        },
+        "confirmation": {
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "required": ["method", "observations", "pid_reused", "wait_status_available"],
+          "properties": {
+            "method": {
+              "enum": ["PROC_ENTRY_ABSENT", "PROC_STATE_ZOMBIE", "PROC_PID_REUSED", "NONE"]
+            },
+            "observations": {"type": "integer", "minimum": 0},
+            "pid_reused": {"type": "boolean"},
+            "wait_status_available": {"type": "boolean", "const": false}
+          }
+        },
+        "attempted_at_monotonic_ns": {"$ref": "#/$defs/attempted_at_monotonic_ns"},
+        "confirmed_at_monotonic_ns": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "description": "Read from CLOCK_MONOTONIC, which cannot go backwards. The reader also requires it to be no earlier than the attempt; a schema cannot compare two fields."
+        },
+        "recorded_at_monotonic_ns": {"$ref": "#/$defs/recorded_at_monotonic_ns"},
+        "supervisor": {
+          "$comment": "The process the target was found under. The helper cannot reap it, so exit_status stays null until the runner, which does wait for it, annotates the record.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "pid",
+            "role",
+            "starttime_ticks",
+            "pid_namespace_inode",
+            "exit_status",
+            "observed"
+          ],
+          "properties": {
+            "pid": {"type": "integer", "exclusiveMinimum": 0},
+            "role": {
+              "enum": ["runtime_controller_root", "server_jvm_root", "client_jvm_root"]
+            },
+            "starttime_ticks": {"type": "integer", "minimum": 0},
+            "pid_namespace_inode": {"type": "string", "pattern": "^pid:\\[[0-9]+\\]$"},
+            "exit_status": {"type": ["integer", "null"]},
+            "observed": {"type": "boolean"}
+          },
+          "allOf": [
+            {
+              "if": {"properties": {"observed": {"const": true}}, "required": ["observed"]},
+              "then": {"properties": {"exit_status": {"type": "integer"}}}
+            },
+            {
+              "if": {"properties": {"observed": {"const": false}}, "required": ["observed"]},
+              "then": {"properties": {"exit_status": {"type": "null"}}}
+            }
+          ]
+        }
+      }
+    },
+    "client_report_request_record": {
+      "$comment": "What was asked of the client, and how far the ask provably got. `target`, `signal`, `confirmation` and `supervisor` are absent on purpose: a report request has no process that died, no pid whose disappearance could be watched, and no supervisor whose exit status could be waited for.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "category",
+        "case",
+        "attribution",
+        "request",
+        "effect",
+        "reasons",
+        "attempted_at_monotonic_ns",
+        "recorded_at_monotonic_ns"
+      ],
+      "properties": {
+        "schema_version": {"const": 1},
+        "category": {"const": "CLIENT_REPORT_REQUEST"},
+        "case": {"$ref": "#/$defs/case"},
+        "attribution": {"$ref": "#/$defs/attribution"},
+        "request": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["subject", "environment_variable", "value", "asked"],
+          "properties": {
+            "subject": {"const": "BRIDGE_FIRST_SNAPSHOT_AUTHORITY"},
+            "environment_variable": {
+              "$comment": "The one variable the one subject travels as. The reader holds the pair as a one-entry map, so a record naming one subject with another subject's variable names nothing.",
+              "const": "MINEKIN_BRIDGE_NON_AUTHORITATIVE_FIRST_SNAPSHOT"
+            },
+            "value": {
+              "type": "string",
+              "description": "A value that means yes or a value that means no, and nothing else: an injection switch whose meaning a reader has to guess is how a run becomes evidence for a scenario nobody asked for. The two patterns below are the two lists, stated once."
+            },
+            "asked": {
+              "$comment": "Derived from the value by the writer, never stated beside it. The reader recomputes the meaning and refuses the record when the two disagree.",
+              "type": "boolean"
+            }
+          },
+          "allOf": [
+            {
+              "if": {"properties": {"asked": {"const": true}}, "required": ["asked"]},
+              "then": {"properties": {"value": {"pattern": "^\\s*(1|[Tt][Rr][Uu][Ee])\\s*$"}}}
+            },
+            {
+              "if": {"properties": {"asked": {"const": false}}, "required": ["asked"]},
+              "then": {
+                "properties": {
+                  "value": {"pattern": "^\\s*(|0|[Ff][Aa][Ll][Ss][Ee])\\s*$"}
+                }
+              }
+            }
+          ]
+        },
+        "effect": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["observed", "method", "pid", "starttime_ticks", "detail"],
+          "properties": {
+            "observed": {"type": "boolean"},
+            "method": {"enum": ["PROC_CHILD_ENVIRON", "NOT_OBSERVED"]},
+            "pid": {
+              "type": ["integer", "null"],
+              "exclusiveMinimum": 1,
+              "description": "The managed client JVM the environment was read from - the far end of the host to Core to JVM chain, not the host's own intention. Null when nothing was seen."
+            },
+            "starttime_ticks": {"type": ["integer", "null"], "minimum": 0},
+            "detail": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Required either way: an observation that saw nothing still has to say what it looked for and failed to find."
+            }
+          },
+          "allOf": [
+            {
+              "if": {"properties": {"observed": {"const": true}}, "required": ["observed"]},
+              "then": {
+                "properties": {
+                  "method": {"const": "PROC_CHILD_ENVIRON"},
+                  "pid": {"type": "integer"},
+                  "starttime_ticks": {"type": "integer"}
+                }
+              }
+            },
+            {
+              "if": {"properties": {"observed": {"const": false}}, "required": ["observed"]},
+              "then": {
+                "properties": {
+                  "method": {"const": "NOT_OBSERVED"},
+                  "pid": {"type": "null"},
+                  "starttime_ticks": {"type": "null"}
+                }
+              }
+            }
+          ]
+        },
+        "reasons": {"$ref": "#/$defs/reasons"},
+        "attempted_at_monotonic_ns": {"$ref": "#/$defs/attempted_at_monotonic_ns"},
+        "recorded_at_monotonic_ns": {"$ref": "#/$defs/recorded_at_monotonic_ns"}
+      },
+      "allOf": [
+        {
+          "$comment": "An effect presupposes the ask it answers: observed beside asked false is how a run handed the knob 0 would read as a run that asked for the refusal.",
+          "if": {
+            "required": ["effect"],
+            "properties": {
+              "effect": {"required": ["observed"], "properties": {"observed": {"const": true}}}
+            }
+          },
+          "then": {
+            "required": ["request"],
+            "properties": {
+              "request": {"required": ["asked"], "properties": {"asked": {"const": true}}}
+            }
+          }
+        }
+      ]
+    }
+  }
+}
