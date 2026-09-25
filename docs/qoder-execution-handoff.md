@@ -78,6 +78,20 @@
 > 09-23 那份快照与「八条 ADMIT」历史段落一字未动。两处各配一份比对脚本
 > （`.tmp/verify_plan_table.py`、`.tmp/verify_missing_table.py`），逐格反证记在 todo 同名日期段。
 >
+> **同晚按同一规则又核了三类现在时声明（落在 `1674bfb`、`7e469ce`、`f2116b0 → e4bcc1c → 030d406 → 6003ed4`，
+> 全部 docs-only，计划仍暂无 `NEXT`）**：①**本地 `main` 指针**——本节第一条命令读到 `0 104`，之后确立为
+> 每轮 push 后的固定动作 `git fetch origin main:main`（快进；非 FF 被拒 `exit 1`），三格提交各自实测
+> `0 1 → 0 0`。②**设计文档那句"按字节 digest"**——它记的是 blob（LF）值，只能由
+> `git show HEAD:<path> | sha256sum` 复现，工作树因 `core.autocrlf=true` 是 CRLF；**没有为此去
+> `.gitattributes` 钉 `*.md`**。③**执行文档教出去的每一条 `tools/*.py` 命令 vs 脚本自己声明的 flag 表**
+> （`.tmp/check_doc_commands.py`，纯静态）：7 份文档 → **29 个脚本 / 27 处 flag / `findings: 0` / `exit 0`**，
+> 五道变异各红在自己的命名理由上、对照组 `exit 0`。这一轮还两次抓到执行者自己的错：**一个凭设计文档名拼出来的
+> 不存在卡 id**（卡片清点读 `56 张 / NEXT = 0 / QUEUED = 0` 才对上 `current_next`）与**把变异反证的输入写成
+> 命令形状**（守卫随即报 `MISSING_SCRIPT report_coverage.py`、`exit 1`，改回不带 `tools/` 前缀后回到
+> `29 / 0 / exit 0`；没有给校验加豁免名单）。九道门在 `030d406` 上 `2501 passed / 2 skipped`，
+> 三格各两个 `CI` run 在 job 与 step 层全 `completed / success`。
+> **归主控的仍然一样**：§5 三格所有权冻结、V08 提升、连接用户的远程服、那三张 `BLOCKED_DECISION` 卡的状态。
+>
 > **上一交接点（2026-09-26，1.20.1 的停止阶段松键缺口已从 `tested` 声明划出）**：
 > 收卡提交是 **`b03863e`**（两条 ref 与远端 SHA 已核：`git ls-remote` 上 `main` 与
 > `codex/core-state-transition` 同为 `b03863e2346ed559b6d33fe7482d7fa0619f82df`；GitHub Actions 对该 SHA 的
