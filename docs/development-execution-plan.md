@@ -4405,7 +4405,17 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
   （V07 收卡时 2432，本卡净增 7 条）；`ruff check` All checks passed；`ruff format --check .` 316 files already
   formatted；`uv run pyright` **0 errors**（`npx pyright` 会因环境不同给出 3 条 `pytest.approx` 假红灯，仓库门是
   前者）；`tools/check_boundaries.py` OK；`tools/check_case_assertions.py` OK（139 registered）；
-  `tools/verify_fixture_digests.py` OK。CI 不作 Minecraft 验收证据。
+  `tools/verify_fixture_digests.py` OK。CI 不作 Minecraft 验收证据，但 `391cc2b` 修的正是 CI 门，故其结果必须读。
+- `ci_reading_hello`（GitHub Actions 实际读数，取自 Actions REST，逐 job/逐 step）：`801f9ba` 的 run
+  **#526/#527** 均 `completed / failure`，红的就是 `bridge-static` 的 "Run the dependency-free Bridge protocol and
+  adapter checks" step；`391cc2b` 的 **#528/#529** 与本次收卡提交 `bebcf5d` 的 **#530/#531** 全部
+  `completed / success`，三个 job（`python` / `protocol` / `bridge-static`）逐个 `success`，`bridge-static` 的
+  scaffold / host boundary / protocol+adapter 三个 step 逐个 `success`，`python` job 的 `ruff check`、`ruff format
+  --check`、`pyright`、`pytest`、五道 `tools/` 门、wheel 门与 `minekin --help` 也逐个 `success`
+  （原始响应 `.tmp/run529.json`）。**取数方式如实记录**：浏览器 `navigate` 到了 run 页面（标题确认为
+  `fix(tools): let each Bridge root name its own version pair…`），但 `take_snapshot` 返回空、
+  `take_screenshot` 两次 40s 超时，Playwright 侧 Chrome 未安装——这一页最终没能用眼睛看过，
+  结论只建立在 step 级 API 读数上，需要人工肉眼复核时仍应打开页面确认。
 - `reseal_runs_hello`（受控 runner `minekin-runner:local` + 卷 `minekin-runner-data`，真 JVM、真 1.20.1 服务端；
   每跑一次通过、四读一致：`evidence verify` = verified/sealed PASS，`rejudge` = AGREES，两个 replay 均 projected，
   `report_promotion` 判 `from_repository_build: true`）：

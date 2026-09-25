@@ -25,6 +25,9 @@
 > 逐个四读一致，registry 引用按实测换代（`status`/`capabilities`/`gaps` 一字未动）。**1.21.4 的
 > `faeec4a9…` / `bb456060…` / `9e0e0ccc…` 未动**，其黄金证明 `dd1e49ce…` 仍是正例、任一版本字段动一格即被同一
 > seam 拒。逐格账与移动的摘要清单见主计划 `moved_digests_hello`…`next_after_done`。
+> **CI 读数**：`801f9ba` 的 run #526/#527 红在 `bridge-static` 的 dependency-free 检查（已由 `391cc2b` 修好），
+> `391cc2b` 的 #528/#529 与收卡提交 `bebcf5d` 的 #530/#531 三 job 全 `success`；取自 Actions REST 的 step 级结果，
+> 浏览器截图工具超时未能肉眼看页（见主计划 `ci_reading_hello`）。
 > **V07 交付了什么**：`session start --auto-bundle <被审 registry> --server-profile <目标> --max-bytes N`
 > ——一条 fail-closed 自动路径（**新增** `cli/auto_session.py`，`bootstrap.py` 只加分派段，`cli/parser.py` 加入口
 > 形状），顺序为 两次观测必须一致 → 三处版本事实核对 → `resolve()` → **摘要门先于抓取** → `stop_recorded_clients`
