@@ -31,6 +31,16 @@
   "重启重进"那半边今天能不能判）；③规则 2 对没有 server profile 的宿主世界，profile 一致性是跳过、
   以 `HostedWorldManifest` 摘要替代、还是要求一个 loopback profile。冻结之前队列里没有可提升的卡，
   也不该出现任何 HOST 实现卡。
+  （**2026-09-26 把"队列里没有可提升的卡"从证据缺口侧再量一次**：上面那句原先只由卡片清点支持，
+  现在补一份测量——`uv run --frozen python tools/report_cases.py` 在 `55d0ecc` 上读出
+  `required: 74` / `present: 43` / `missing: 31`，把 31 条 missing 与 `cases[].validation_class` 求交后
+  `local-only` 缺失 **0 条**（7 条 `local-only` required 全为 `present: true`：`CORE-001`、
+  `HOSTCOMMIT-110`、`HOSTCTL-001`、`HOSTCTL-010`、`HOSTCTL-060`、`OFFLINE-001`、`W00-CONTRACT-001`），
+  即**今天没有任何一条缺口能在不真实运行的情况下关掉**；求交逻辑反证过非空转——往 `missing` 里凭空调入
+  `CORE-001`、`W00-CONTRACT-001` 后同一函数报出这 2 条，调入 `CORE-080`（`runtime-required`）仍报 0。
+  条数与本文早期几处 dated 读数（37 条、35 条）不同，只因期间有 case 转为 present，历史记录按当时读数
+  保留不改写。`planning_gaps` 仍只有 `PERSIST` 一条 `UNFROZEN_CASE_IDS`，其 `reason` 自己写明在这里编号
+  等于让 inventory 发明它要验的 case，故那一格同样不是一张可本地收口的卡。）
   （上一张 `TESTED-GAP-DRAW-STOP-PHASE-1201-001` 已在 `b03863e` 收口为 `DONE`：实现
   `4151664`——1.20.1 那条 `tested` 声明的 `gaps` 划出 `STOP_PHASE_EXPLICIT_KEY_RELEASE` 一条、
   `capabilities` 补上工件所证的 token、`evidence` 追加 `V1201-080 / run 484675e4… / attempt 3 / PASS` 的

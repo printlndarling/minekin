@@ -3053,3 +3053,30 @@
   `tests/fixtures/cases/host-001.json`、不动五份 host/world 契约、不把 `host-integrated` 变 mandatory、
   不提升 `HOST/W80+` 与 V08、不连接用户的远程服、不改 `EXPLICIT-RELEASE-AT-STOP-001` /
   `OPERATIONS-RETENTION-001` / `PROCESS-RECOVERY-001` 的状态。
+
+
+## 队列暂停期的第二次测量：缺口侧数过之后，本地已经没有可关的格（2026-09-26，`55d0ecc`）
+
+- **为什么量**：`HOST-ADMISSION-DESIGN-001` 收口后计划写的是"冻结之前队列里没有可提升的卡"。
+  那句当时只由**卡片清点**（`NEXT` = 0 / `QUEUED` = 0）支持。这次从**证据缺口**那一侧独立量一遍：
+  如果 31 条 missing 里还有一条 `local-only`，那它就是一张不用跑 Minecraft、今天就能收口的卡，
+  "没有可提升的卡"这句话就得改。
+- **实测**：`uv run --frozen python tools/report_cases.py > .tmp/host-next-cases.json`（`exit 0`），
+  `requirements.totals` 为 `required: 74` / `present: 43` / `missing: 31` / `not_gating: 36` /
+  `misattributed: 0` / `present_wanting_a_run: 13`，`by_validation_class` 为
+  `{local-only: 7, runtime-required: 67}`。把 `requirements.missing` 的 31 个 id 与
+  `requirements.cases[].validation_class` 求交：**`local-only` 缺失 0 条**；7 条 `local-only` required
+  逐条 `present: true`（`CORE-001`、`HOSTCOMMIT-110`、`HOSTCTL-001`、`HOSTCTL-010`、`HOSTCTL-060`、
+  `OFFLINE-001`、`W00-CONTRACT-001`）。⇒ 剩下的缺口全部要真实运行，本地无可关格。
+- **这条断言的反证（防空转）**：求交函数不是恒返回空——在同一份读数上把 `CORE-001`、
+  `W00-CONTRACT-001` 凭空并入 `missing`，同一逻辑报出这 2 条；把 `CORE-080`（`runtime-required`）
+  并入则仍报 0。两类各红/各绿都落在命名理由上。
+- **与早期 dated 读数的差**：本文 `1019` 行那句"全仓 37 条 missing 现在全部要真实运行"、
+  计划里那句"35 条缺失"，与今天的 31 条不同，是因为期间有 case 从 missing 转为 present。
+  历史句子按当时读数保留，不改写。
+- **`planning_gaps` 不构成一张本地卡**：今天只剩 `PERSIST` 一条 `UNFROZEN_CASE_IDS`，其 `reason`
+  原文即"在此编号等于让 inventory 发明它要验的 case"——要关它得先由主控冻结持久化契约的 case
+  编号，不是本地能自造判据的事。
+- **本次未做也不做的**（越界清单沿用 HOST 设计卡那份）：不实现 HOST、不建 `host-001.json`、
+  不动五份 host/world 契约、不提升 `HOST/W80+` 与 V08、不连接用户的远程服、不改三张
+  `BLOCKED_DECISION` 卡的状态、不为凑一张本地卡而新造断言。
