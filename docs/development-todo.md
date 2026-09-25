@@ -3289,3 +3289,28 @@
   12 位写法，于是把 `…a1b6` 改成 `…a1b7` 仍然 `exit 0`——改成比对 16 位之后，末位篡改与截短篡改
   两种都红。**「校验器绿了」不等于"它看了你要看的那一位"。**
 - **没动的**：设计文档本体（一动就真的动了那一格的证据）、`.gitattributes`、任何门与卡状态。
+
+## 2026-09-26 按 `drift-scan-fix` 又核了一类现在时声明：文档教出去的命令 vs 脚本接受的 flag 表
+
+- `NEXT`: `HOST-ADMISSION-SESSION-COORDINATE-DESIGN-001`（未收口；本轮不动它，也不提升任何门）。
+- 触发：主计划 `## 当前已验证状态` 一节写着"以下事实必须从命令重新生成"。前两轮核了
+  `report_cases.py` 快照与缺失 case 规划视图；本轮核第三类：**执行文档里写下的每一条
+  `tools/*.py` 命令，参数是否落在脚本自己声明的 flag 表上**。
+- 读数（`7e469ce`，纯静态、不执行任何被检查的命令）：7 份文档 → **29 个脚本、27 处 flag 传参、
+  `findings: 0`、`exit 0`**。校验脚本 `.tmp/check_doc_commands.py`（`DOCS` 常量即那七份；
+  `DOCS_OVERRIDE` 环境变量用于变异反证）。
+- 四类 finding：`MISSING_SCRIPT` / `UNKNOWN_FLAG` / `VALUE_FOR_STORE_TRUE_FLAG` /
+  `SCAN_TOO_NARROW`。两条写死的口径：`--help`、`--version` 由 argparse 自带不算缺陷；
+  行尾 `\` 续行不算"给 store_true flag 传值"。
+- 五道反证（`exit 1`，各自红在自己的命名理由上；对照组 `exit 0`）：
+  1. 文档副本加 `--json` → `UNKNOWN_FLAG report_promotion.py --json`
+  2. 引用 `tools/report_coverage.py` → `MISSING_SCRIPT`
+  3. `--derive-names` 后接值 → `VALUE_FOR_STORE_TRUE_FLAG check_bridge_artifacts.py --derive-names`
+  4. 同处改回续行写法（positive control）→ `exit 0`、`findings: []`
+  5. 扫描范围收窄到空目录 → `SCAN_TOO_NARROW scripts: 0`（防"绿因为什么都没解析到"）
+- 一次自我修正：第一版没认续行，把 `docs/development.md:94` 的 `--derive-names` 误判成带值；
+  修的是解析口径，判据一字未动，第 4 道对照组就是这条修的证明。
+- 门禁：九道门 `2501 passed / 2 skipped`（与前一张卡逐字相同）＋ 本轮追加的八道快门禁全 0；
+  `docs/development-execution-plan.md` 括号 balance 0、改动 `19 insertions / 0 deletions`。
+- 边界：不改任何 `tools/` 与判据，不动 `.gitattributes`，不碰 HOST 实现/fixture，不提升任何门，
+  不连接用户的远程服。

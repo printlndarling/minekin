@@ -531,6 +531,25 @@ MSYS_NO_PATHCONV=1 docker run --rm -v "$PWD":/src:ro -v minekin-runner-data:/dat
   `57ccec0` 的两条 ref 已核，GitHub Actions 对该 SHA 的两个 `CI` run `36193460132` /
   `36193460141` 及其六个 job `python`/`protocol`/`bridge-static` 在 job 与 step 层均
   `completed / success`；本地九道门 `2501 passed / 2 skipped` 与前三张卡**逐字相同**。
+- **第三类现在时声明也按同一规则核了一次（2026-09-26，读数所在线 `7e469ce`）**：本节以上所有
+  文档写下的 `tools/*.py` 命令，是否与脚本自己声明的 flag 表对得上。读数：7 份文档
+  （`README.md`、`CLAUDE.md`、本文、`development-todo.md`、`qoder-execution-handoff.md`、
+  `development.md`、`external-tools.md`）里引用到 **29 个脚本、27 处 flag 传参**，
+  `findings: 0`、`exit 0`——**文档教出去的每一条命令都落在脚本真的接受的表面上，一条空头支票都没抓到**。
+  比对是**纯静态**的（`.tmp/check_doc_commands.py`，不执行任何被检查的命令）：从文档抓
+  `tools/<name>.py` 及其后的参数，从脚本源码解析 argparse 声明的 flag 集，只报四类 finding——
+  `MISSING_SCRIPT`、`UNKNOWN_FLAG`、`VALUE_FOR_STORE_TRUE_FLAG`、`SCAN_TOO_NARROW`。
+  两处口径写死在校验里：`--help`/`--version` 由 argparse 自带、不算缺陷；行尾 `\` 续行不算"给
+  store_true flag 传值"。**后一条不是先验设定**：第一版没认出续行，把 `docs/development.md:94` 的
+  `--derive-names` 误判成带值，修的是解析口径、判据本身一字未动。
+  **五道反证**，各自红在自己那一条命名理由上（全部 `exit 1`，除对照组）：文档副本里加一个不存在的
+  `--json` → `UNKNOWN_FLAG report_promotion.py --json`；引用不存在的 `tools/report_coverage.py` →
+  `MISSING_SCRIPT`；把 `--derive-names` 后面接一个值 → `VALUE_FOR_STORE_TRUE_FLAG
+  check_bridge_artifacts.py --derive-names`；**同处改回续行写法作 positive control → `exit 0`、
+  `findings: []`**（证明上一条抓到的是真传值不是 parser 误报）；把扫描范围收窄到空目录 →
+  `SCAN_TOO_NARROW scripts: 0`——这一条专防"绿是因为什么都没解析到"，也是上一格那个 12 位前缀
+  自匹配陷阱在同一类校验里的写法。**本节不改任何工具与判据**，只登记一次读数。
+  本轮九道门 `2501 passed / 2 skipped` 与前一张卡**逐字相同**，另八道快门禁全 0。
 
 ## 最近完成
 
