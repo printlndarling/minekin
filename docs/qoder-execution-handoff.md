@@ -1,13 +1,27 @@
 # Qoder 临时执行交接（2026-09-24）
 
-> **最新交接点（2026-09-25，跨版本路线执行中）**：唯一 `NEXT` 是 `VERSION-SESSION-SWITCH-001`（V07，
-> `591cc89` 登记、本提交提升），**不是**下文 ADMIT-070 起步卡，也不是 V01–V06（六者均已 `DONE`；
-> V06 交付 `06acbf1`、收卡 `d7a91f9`）。
-> **V07 领取前必读**主计划 V07 卡的 `measured_state_v07`、`ownership_boundary_v07`、`open_semantics_v07`：
-> 装配层已支持两版本，拒人的是 `server_profile.py:32/200-201` 与 `ipc.py:437/628` 的字面量；
-> `resolve()` 在 `src/` 内零调用者；`bootstrap.py:187` 会话 generation 恒为 1；`stop_session` 对证不来的
-> 进程从不动手（只报 `blocked` → `ExitCode.PROCESS`）。**Bridge 握手常量的修复不属 V07**（属
+> **最新交接点（2026-09-25，跨版本路线执行中）**：主计划**当前无 `NEXT`**——`VERSION-SESSION-SWITCH-001`（V07）
+> 由 `5e53429` + `b0d08b6` 交付、本提交收卡；下一张 `VERSION-TESTED-GATE-AUDIT-001` 仍是 `QUEUED`，须在
+> **另一次独立提交**才提升。也**不是**下文 ADMIT-070 起步卡，更不是 V01–V06（七者均已 `DONE`；V06 交付
+> `06acbf1`、收卡 `d7a91f9`）。
+> **V07 交付了什么**：`session start --auto-bundle <被审 registry> --server-profile <目标> --max-bytes N`
+> ——一条 fail-closed 自动路径（**新增** `cli/auto_session.py`，`bootstrap.py` 只加分派段，`cli/parser.py` 加入口
+> 形状），顺序为 两次观测必须一致 → 三处版本事实核对 → `resolve()` → **摘要门先于抓取** → `stop_recorded_clients`
+> 停旧并取证 → 以新 `session_id` + `generation=1` 起新。显式路径 `cli/session.py` 字节未变；markers 从不清除，
+> 旧进程"证不来"就停在 `PROCESS`，接管/强杀仍属 `PROCESS-RECOVERY-001`。**Bridge 握手常量的修复不属 V07**（属
 > `VERSION-BRIDGE-IDENTITY-001`）；1.20.1 客户端今天能过握手只是因为 `bridge-1201` 的 root 声明了 1.21.4。
+> **V07 的真实读数**（受控 runner，两次 1.21.4 → 1.20.1 **顺序**切换）：目标侧探测 `OBSERVED protocol 763 /
+> version_text "1.20.1"`，旧侧 `NO_RESPONSE "the endpoint closed before any frame"`；自动路径自报
+> `bundle_id 1.20.1-linux-x86_64-offline-java21`、`launch_plan_digest ac403160…`、
+> `fetch_set 3639 / installed 0 / reused 3639`、`status ready`、`stopped [328]`，旧会话以 `SessionInterrupted` 收，
+> 新会话 `JoinObserved`/`PlayableEstablished` 各 1、两服日志各 1 条 `Kin joined the game`、两跑合计 314 次快照
+> 0 次并发。本地门禁：2432 passed / 2 skipped，ruff / format / pyright / boundaries 全绿。
+> **V07 没有证明的事**：自动路径的**下载分支**只有单元证据（两跑均 `reused 3639 / installed 0`）；自动起的新会话
+> 在自己的 `PlayableEstablished` 之前被 SIGINT 结束；跨 Kin 缓存共享、残留 marker 清理、进程接管未动；1.20.1 的
+> `BridgeHello` 仍自报 1.21.4；用户真实远程服**未访问**。
+> 跑切换前还要知道两条环境事实：`kin-01` 运行根带 **207** 个残留 `process.json` marker（自动切换须用 `init
+> --kin-id` 新建的 Kin，`artifact-store`/`bundle` 以 `cp -al` 硬链接复用），harness 写的 `enable-status=false` 会让
+> 产品探测恒得 `NO_RESPONSE`（沿用 V02/V05 先例：启动前把 loopback 那一行改成 `true`，不改 harness 也不改探测判据）。
 > **V06 交付了什么**：产品侧第一个安装入口
 > `minekin bundle install --registry ... --bundle-id ... --max-bytes N [--store ...] [--dry-run] [--jobs N] [--quiet]`，
 > 它把"先核对被审摘要，再装"两层显式组合起来——`require_reviewed_plan` 按 `tested` 状态 → recipe 摘要 →

@@ -109,7 +109,7 @@ bundle id 与结果；旧代回调不能推进新代。`BLOCKED` 不自动回退
 | V04 | `VERSION-LOCAL-1201-001` | `DONE`（`tested` 判据成立；registry 承载属 V05） | 受控 1.20.1 真服/真客户端验收到 `tested` | V01,V03 |
 | V05 | `VERSION-RESOLVER-001` | `DONE`（清单承载与解析边界已落地） | catalog / tested registry / 歧义阻断 | V02,V04 |
 | V06 | `VERSION-INSTALLER-001` | `DONE`（`bundle install` 与受审摘要门已落地并在受控 runner 装齐） | 缺缓存自动安全安装与原子发布 | V03,V05 |
-| V07 | `VERSION-SESSION-SWITCH-001` | `NEXT`（`591cc89` 登记、随后单独提升） | 自动选包、停止旧代、启动新代 | V01,V05,V06 |
+| V07 | `VERSION-SESSION-SWITCH-001` | `DONE`（`591cc89` 登记、`a0f495a` 提升、`5e53429`+`b0d08b6` 交付） | 自动选包、停止旧代、启动新代 | V01,V05,V06 |
 | V08 | `VERSION-REMOTE-SMOKE-001` | `QUEUED` | 用户目标只读探测及非破坏性入服 | V07 |
 | V09 | `VERSION-SIMPLE-CONTROL-001` | `QUEUED` | 目标服一次 look/move/release 闭环 | V08 |
 | V10 | `VERSION-DEMO-ACCEPTANCE-001` | `QUEUED` | 本地+目标服证据、回归与诚实能力声明 | V09 |
@@ -287,7 +287,7 @@ bundle id 与结果；旧代回调不能推进新代。`BLOCKED` 不自动回退
   不触碰宿主 `.minecraft`，不同时存在两个可控客户端。
 - **停止**：如果需要替用户决定残留进程自动接管/强杀（`PROCESS-RECOVERY-001`），
   停在 `BLOCKED_DECISION`；不为维持切服进度暗中实现该策略。
-- **现况**（2026-09-25，`NEXT`：正文由 `591cc89` 登记、本提交单独提升）：领取前先读主计划 V07 卡的
+- **现况**（2026-09-25，登记时的领取说明：正文由 `591cc89` 登记、`a0f495a` 单独提升）：领取前先读主计划 V07 卡的
   `measured_state_v07`、`ownership_boundary_v07` 与 `open_semantics_v07` 三格。量到的现状是：装配层
   （`metadata.py` 的按版本 pin 表、`recipe.py:107-113` 的 1.20.1 分支、V06 的 `bundle install`）**已经**
   支持两个版本，拒人的是三处字面量与 profile 常量（`server_profile.py:32/200-201`、`ipc.py:437/628`）；
@@ -296,6 +296,17 @@ bundle id 与结果；旧代回调不能推进新代。`BLOCKED` 不自动回退
   一条必须知道的既有事实：1.20.1 客户端今天能过握手，是因为 `bridge-1201` 那个 root 的
   `HandshakeGate.java:169` 拿 `"1.21.4"` 作期望值（V04 记的 `bridge_hello_version_defect`）——修它属
   `VERSION-BRIDGE-IDENTITY-001`，本卡**不越界**，也不得把它当作"版本校验已成立"的证据。
+- **交付**（2026-09-25，实现 `5e53429` + 修正 `b0d08b6`，收卡见主计划）：自动路径落在**新增**
+  `cli/auto_session.py`，顺序是 探测两次且必须一致 → 三处版本事实核对 → `resolve()` → **摘要门先于抓取** →
+  `stop_recorded_clients` 停旧并取证 → 以新 `session_id` + `generation=1` 起新；`bootstrap.py` 只在
+  `session start` 分派处转交，`cli/session.py` 的显式配方字节未变。无目标的自动启动按冻结第 1 格以 `USAGE`
+  拒（`b0d08b6`；此前误成 `CONFIG`），且不打开数据根任何文件。真实读数：受控 runner 上两次 1.21.4 → 1.20.1
+  顺序切换，目标侧 `OBSERVED protocol 763 / version_text "1.20.1"`、旧侧 `NO_RESPONSE`、旧会话以
+  `SessionInterrupted` 收并与自动路径自报的 `stopped [328]` 对得上，新会话 `JoinObserved`/`PlayableEstablished`
+  各 1、两服各 1 条 `Kin joined the game`、两跑合计 314 次快照 0 次并发。**本卡未证**：自动路径的下载分支
+  （两跑均 `reused 3639 / installed 0`）、自动起的会话跑到 `PlayableEstablished` 之后的自然结束、跨 Kin 缓存
+  共享与残留 marker 清理（`kin-01` 带 207 个 marker，切换跑用新建 Kin + `cp -al` 硬链接）、`BridgeHello`
+  版本自述缺陷、以及用户真实远程服——远程入服现被 `VERSION-TESTED-GATE-AUDIT-001` 的审查门挡住。
 
 ### V08 `VERSION-REMOTE-SMOKE-001`：用户测试服只读探测与非破坏性入服
 

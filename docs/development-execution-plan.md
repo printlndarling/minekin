@@ -12,14 +12,20 @@
 - `baseline_date`: 2026-09-22
 - `baseline_branch`: `main`
 - `baseline_remote`: `origin/main`
-- `current_next`: `VERSION-SESSION-SWITCH-001`（V07，`591cc89` 登记 `QUEUED`，本提交单独提升为唯一
-  `NEXT`；`VERSION-INSTALLER-001` 已 `DONE` 收卡 `d7a91f9`，两 ref 均已核对）。
+- `current_next`: **本提交起暂无 `NEXT`**——`VERSION-SESSION-SWITCH-001`（V07）已 `DONE` 收卡（实现 `5e53429`、
+  修正 `b0d08b6`，两 ref 均已核对）。下一张 `VERSION-TESTED-GATE-AUDIT-001` 已在 `7ece20c` 登记为 `QUEUED`，
+  须先在该状态确认、再在**另一次独立提交**提升为唯一 `NEXT`；在它收口前不得提升 V08、连接用户远程服，或把
+  reviewed registry 的 `tested` 当作远程入服的充分证据。
   用户在七场景总账后明确把“自动识别服务器版本 → 准备匹配客户端 → 入服并完成简单控制”排为优先路线；
   `VERSION-AUTO-DESIGN-001` 已交付[跨版本连续执行计划](version-auto-to-server-control-plan.md)。
-- `last_checkpoint`: **跨版本路线走到 V07 领取**——唯一 `NEXT` 现为 `VERSION-SESSION-SWITCH-001`（V07），
-  其正文与实测现状（`measured_state_v07`/`ownership_boundary_v07`/`open_semantics_v07`）在 `591cc89` 写下：
-  装配层已支持两版本，缺的是把探测/解析/安装接成一条 fail-closed 自动路径，且 Bridge 握手常量的修复
-  **不属**本卡。**上一张** V06 `VERSION-INSTALLER-001` 交付的是产品侧第一个安装
+- `last_checkpoint`: **跨版本路线走到 V07 收卡**——`VERSION-SESSION-SWITCH-001`（V07）交付了产品侧第一条
+  fail-closed 自动路径（新增 `cli/auto_session.py`：探测并核对两次观测 → 校验三处版本事实 → `resolve()` →
+  **摘要门先于抓取** → 停旧客户端并取证 → 以新 `session_id` + `generation=1` 起新），显式路径字节未变，
+  Bridge 握手常量的修复**不属**本卡。真实验收是受控 runner 上两次 1.21.4 → 1.20.1 的**顺序**切换：目标侧探测
+  `OBSERVED protocol 763 / version_text "1.20.1"`，旧侧 `NO_RESPONSE`、账本以 `SessionInterrupted` 收、自动路径
+  自己报 `stopped [328]`，新会话 `JoinObserved`/`PlayableEstablished` 各 1 次、两服日志各 1 条
+  `Kin joined the game`、两跑合计 314 次客户端快照 0 次并发（逐笔读数见 `controlled_run_v07`；只装不下载的两跑都报
+  `reused 3639 / installed 0`，自动路径的下载分支仍只有单元证据）。**上一张** V06 `VERSION-INSTALLER-001` 交付的是产品侧第一个安装
   入口：`bundle install`（必填 `--max-bytes`，缺失即 `USAGE`）显式组合"先核对被审摘要、再装"两层——
   `require_reviewed_plan` 按 `tested` 状态 → recipe 摘要 → launch plan 摘要 → bridge 摘要四步拒绝，
   `reviewed_entry` 拒绝猜近邻 id，装完仍由逐构件 `verify` 每次重新导出就绪（**没有**新增 ready 标记、
@@ -3970,9 +3976,10 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 
 ### VERSION-SESSION-SWITCH-001 — 接通会话启动而不热换
 
-- `status`: `NEXT`（`591cc89` 登记 `QUEUED`、`a0f495a` 单独提升为唯一 `NEXT`；当前无第二张 `NEXT`。
-  下面 `open_semantics_v07` 四格已由 `semantics_frozen_v07` 按实测闭合，本卡实现期间不再就地改判据；
-  不得越 `ownership_boundary_v07` 改 Bridge 常量。）
+- `status`: `DONE`（`591cc89` 登记 `QUEUED`、`a0f495a` 单独提升为唯一 `NEXT`、`9ccf175` 按实测冻结
+  `semantics_frozen_v07` 四格、`04724ce` 修正冻结里关于 marker 的说法、`5e53429` 交付自动路径编排、
+  `b0d08b6` 把无目标的自动启动改为 `USAGE` 拒绝、本提交收卡。实现期间未就地改判据，未越
+  `ownership_boundary_v07` 改 Bridge 常量。）
 - `baseline_sha`: `591cc89`（本卡 `QUEUED` 登记提交，紧随 V06 收卡 `d7a91f9`，两者均已推送并核对两
   ref）。领取时实际 checkout = 本提升提交。
 - `depends_on`: `VERSION-REMOTE-PROFILE-001`（V01 的 v2 受信目标与 `allowed_versions`）、
@@ -4109,6 +4116,58 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
   需要改 Bridge 握手常量或重新封存 1.20.1 candidate → 停（属 `VERSION-BRIDGE-IDENTITY-001`）；
   需要改已封存 recipe/metadata/plan 字节或 store 根 → 停；需要 HOST/PERSIST、在线认证或公网放行 → 停；
   受控 runner 取不到 1.20.1 服务端或客户端材料 → 保留失败材料并报告，**不得**以单测通过充当切换验收。
+- `delivery_v07`（实现 `5e53429` + 修正 `b0d08b6`，均已推送并核对两 ref）：自动路径落在**新增**
+  `src/minekin_core/cli/auto_session.py`（+372），`bootstrap.py` 只在 `session start` 分派处加了 `--auto-bundle`
+  转交那一段（+91），`cli/parser.py` 声明入口形状（+27）。顺序固定：读被审 registry → 探测目标（两次观测必须
+  一致，否则 `TARGET_MOVED`）→ `resolve()` 出 bundle/recipe → **先过 V06 摘要门再决定装不装** →
+  `stop_recorded_clients` 停旧 → 证不来就停在 `PROCESS` 且不起新 → 以新 `session_id` + `generation=1` 起新客户端。
+  `git diff --stat 591cc89..b0d08b6` 只列出上述三个源文件与 `tests/unit/test_auto_session.py`（+494）和三份文档：
+  显式路径 `cli/session.py`、`cli/server_probe.py`、`domain/version_resolution.py` 的字节**未变**，Bridge 常量、
+  `domain/admission.py` 与地址策略、已封存 recipe/metadata/plan 字节均未碰。
+- `local_gates_v07`（在 `b0d08b6` 的干净树上实测）：`uv run --frozen pytest` = **2432 passed / 2 skipped**；
+  `ruff check` clean；`ruff format --check` 203 files already formatted；`pyright` 0 errors；
+  `python tools/check_boundaries.py` OK。CI 不作 Minecraft 验收证据。
+- `entry_shape_v07`（与冻结措辞的偏差，如实记）：冻结第 1 格写"两者恰好给一个……由代码以 USAGE 拒，不由
+  argparse 猜"。实测：`--auto-bundle` 与 `--profile` 同时给或都不给由 argparse 互斥组回答，退出码 2 恰与
+  `ExitCode.USAGE` 同值——**判定地点**与冻结措辞不同、**可观察结果**相同，单元里以 `parse_args` 抛
+  `SystemExit(code=2)` 钉住；`--auto-bundle` 缺 `--server-profile` 一格最初实现成 `CONFIG`，`b0d08b6` 改为按冻结
+  打印 `status: usage` 文档并以 `ExitCode.USAGE` 退出，且发生在打开数据根任何文件之前（测试断言 `tmp_path`
+  仍为空）。两处都**没有**靠改冻结来对齐。
+- `controlled_run_v07`（受控 runner：`minekin-runner:local`，`MINEKIN_HOME=/data`，两侧真 JVM）：
+  1. `/data/v07-switch-20260925T014225Z`——显式两版本顺序切换。目标 1.20.1 探测 `OBSERVED protocol 763 /
+     version_text "1.20.1"`；旧侧 1.21.4 探测 `NO_RESPONSE "the endpoint closed before any frame"`（进程真的没了）；
+     账本 34 行：旧会话 `354916af…` 第 1–19 行以 `SessionInterrupted` 收，新会话 `db04b26e…`/`bdd7dea8…` 第 20–34 行
+     含 `JoinObserved`(31) 与 `PlayableEstablished`(34)；两份服务端日志各 1 条 `Kin joined the game`；296 次客户端
+     快照中 **0** 次同时存在两个可控客户端。此跑自动侧退出码 124 且无报告文档——驱动脚本的 `timeout -s INT`
+     打的是 python（KeyboardInterrupt 路径不打印），属驱动缺陷，第二跑改为对客户端 JVM 发信号。
+  2. `/data/v07-switch-20260925T020633Z`——产品自己的自动路径 `session start --auto-bundle … --server-profile …
+     --max-bytes 900000000`。决策文档 `status started`，新会话 `53ebca9c…`、`run_id ef553d39…`、`generation 1`、
+     `pid 800`、overlay `…/53ebca9c…/generation-1`；`auto_bundle` 一节 `bundle_id 1.20.1-linux-x86_64-offline-java21`、
+     `protocol 763`、`version_text "1.20.1"`、`profile_id p0-controlled-offline-loopback-1201`、`profile_revision 77a19c94…`、
+     `registry_revision e8dcd3c1…`、`launch_plan_digest ac403160…`、`recipe_path tests/fixtures/runtime-input/bundle-candidate-1.20.1.json`、
+     `fetch_set 3639 / installed 0 / reused 3639`、`status ready`、`stopped [328]`；旧会话 `312d422e…` 记 `"pid": 328`
+     并以 `SessionInterrupted` 收——与 `stopped [328]` 对得上；新会话账本第 20–33 行；两服各 1 条 join；18 次快照
+     **0** 次并发。结束方式是对新客户端 JVM `kill -INT` → `outcome BRIDGE_LOST`、`session_state STOPPED`、退出码 14
+     （`IPC_PROTOCOL`）与完整报告，即受支持的那条退路；本卡不实现也不声称支持"正常松键退服"。
+  两个环境事实（非产品缺陷，但决定怎么跑）：`kin-01` 运行根带 **207** 个残留 `process.json` marker，
+  `stop_recorded_clients` 对它们只能报 unresolved（"Nothing clears a marker" 是既定语义），故自动切换跑用
+  `init --kin-id` 新建的 Kin、`artifact-store` 与 `bundle` 以 `cp -al` 硬链接复用；harness 把 `server.properties`
+  写成 `enable-status=false`，产品探测在这种目标上恒得 `NO_RESPONSE`，故由未跟踪的 `.tmp/v07-server-config.py`
+  在启动前把 loopback 那一行改成 `true`，沿用 V02/V05 已记录的先例，**没有**改 harness 或探测判据。
+- `failure_material_v07`：`/data/v07-switch-20260925T010750Z`——用未改 `enable-status` 的 harness 配置跑自动路径，
+  探测 `NO_RESPONSE`，自动路径按门拒 `ADMISSION … STALE_PROBE … PROBE_NOT_OBSERVED`（退出码 17），**旧客户端保留
+  未动**、1.20.1 侧 `Kin joined the game` 计 0。材料保留未删。
+- `counterexamples_v07`：`tests/unit/test_auto_session.py` 16 条覆盖解析结果的 bundle/recipe 交接、两个被审 bundle
+  都能选、有 protocol 无 entry → `SUPPLY_CHAIN`、目标读不了、store 不足且无预算、fill 不完整、`TARGET_MOVED`、
+  `OLD_CLIENT_UNPROVEN`、`OLD_CLIENT_ALIVE`、停旧早于交接、摘要门先于抓取、"三处版本事实不一致是两条稳定拒绝"、
+  目标无版本、宿主 arch 拼写、命名客户端只有一条路、无目标即 `USAGE`。冻结点名的"自动入口与显式 `--profile`
+  同时给/都不给"由 argparse 形状钉住，"v1 profile 配 1.20.1 客户端"由既有 `test_connection_generation.py` /
+  `test_server_profile_schema.py` 承担、本卡未复制。每种拒绝结束时可控客户端数 ≤1，且不留新 overlay。
+- `not_tested_v07`：两次真跑都是 `reused 3639 / installed 0`，自动路径的"需要时装"分支只有单元证据（从空 store
+  装齐的证据属 V06）；第二跑在自动路径自己的 `PlayableEstablished` 之前就被结束（该事件只在第一跑的显式会话里
+  观察到）；跨 Kin 缓存共享、marker 清理、残留进程接管均未动（属 `PROCESS-RECOVERY-001`）；1.20.1 的 `BridgeHello`
+  仍自报 1.21.4，按 `ownership_boundary_v07` 未修（`VERSION-BRIDGE-IDENTITY-001`）；`xvfb-run` 会把子进程 stderr
+  并进 stdout，驱动 `.err` 文件恒空，读数取自同一文件的 JSON 尾部；用户的真实远程服本卡未访问。
 - `next_after_done`: `VERSION-TESTED-GATE-AUDIT-001`（已 `QUEUED`；V07 完成并推送后才可在下一次
   独立提交提升）。主控 2026-09-25 审查发现下述已收卡验收口径与原始契约有差距；审查卡未收口前，
   **不得提升 V08、连接用户远程服，或把 reviewed registry 的 `tested` 当作远程入服充分证据**。
