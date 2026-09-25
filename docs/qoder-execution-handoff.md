@@ -11,7 +11,7 @@
 > 收卡提交是 **`b03863e`**（两条 ref 与远端 SHA 已核：`git ls-remote` 上 `main` 与
 > `codex/core-state-transition` 同为 `b03863e2346ed559b6d33fe7482d7fa0619f82df`；GitHub Actions 对该 SHA 的
 > 两个 `CI` run `36176584903`/`36176584988` 及其六个 job `python`/`protocol`/`bridge-static` 全
-> `completed / success`，step 层除 `success` 只有 `skipped`），实现 **`4151664`**；登记 `89ec146` →
+> `completed / success`，step 层除 `success` 只有 `skipped`），实现 **`4151664`**；（登记 `89ec146` →
 > 提升 `822d7f0` → 实现 `4151664` → 收卡 `b03863e`，
 > 逐卡串行、一步一提交，满足第 3、4、6 项）。交付形状：`tests/fixtures/registry/reviewed-tested-bundles.json`
 > 的 entry[0]（`1.20.1-linux-x86_64-offline-java21`）`gaps` 9 → 8（**只**去掉
