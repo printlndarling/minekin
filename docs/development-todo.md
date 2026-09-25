@@ -3016,3 +3016,40 @@
 - **本卡未做的**（都属越界）：不提升 V08、不连接用户远程服、不改 `EXPLICIT-RELEASE-AT-STOP-001` 的
   `BLOCKED_DECISION`、不动 1.21.4 那条同名缺口与 1.20.1 其余八条缺口、不改判据
   （`tools/assert_case_evidence.py`）与产品代码、不替换 `V1201-040` 既有引用、不重封任何 run。
+
+## HOST-ADMISSION-DESIGN-001 收卡现场（2026-09-26：问题读到底，剩下的三格是所有权）
+
+- **交付物**：新文档 [宿主世界会话坐标来源设计](host-admission-session-coordinate-design.md)。
+  它回答的是**能答的那一半**：两侧闸门卡在同一个缺失的坐标上，而这处缺失是**契约留白**
+  （远程入服契约自己写明"不扩张到 HOST 模式"，`docs/p0-remote-admission-contract.md:3`），
+  既不是"违反现行契约"，也不是"契约已答只是没人读"。
+- **三条方案的许可性是量出来的，不是排出来的**：A（Bridge 自己开代）要改"谁裁判"那两条；
+  C（宿主世界永远只走 `MANAGEMENT_ONLY`）与生命周期状态机那两条正面冲突
+  （`CREATING --> HOST_PLAYABLE: local JOIN + snapshot`、manifest 转 ACTIVE 含首份 authoritative snapshot）；
+  B（Core/控制面产胶囊、下发一条自带 `generation` 的开始命令，Bridge 只执行）的形状**已被 host 命令的
+  字段表预设**——`session_id, generation, expected_state, profile_digest` 本来就在每张 host 命令里。
+  许可性 ≠ 选定：B 仍要等所有权冻结。
+- **交主控的三格**（设计文档 §5 那张表就是本卡的结尾）：①宿主世界的 `generation` 由谁分配
+  （建档时的控制面 vs 下发时的 Core 会话运行时）；②`WorldCapsule` 的权威来源与是否落盘
+  （它决定 `HOST-001` 的"重启重进"那半边今天能不能判）；③规则 2 对一个**没有 server profile** 的
+  宿主世界如何算一致性（跳过 / 以 `HostedWorldManifest` 摘要替代 / 要求一个 loopback profile——
+  最后那个要动地址策略，那是安全控制，不为了方便就改）。
+- **一条新量出来的事实**：`world_creation.synthesize` 与 `storage_slot_for` 在 `src/` 内**没有任何生产调用点**
+  （只有定义处与 `tests/unit/test_world_creation.py`）。也就是说 Gateway 侧的"从提案算出不可变 effective
+  profile 与系统槽"是现成的纯函数，缺的是把它接到运行时胶囊上的那根线——这与"契约没许可"是两件不同的事。
+- **一处旧读数的更正**（历史那句按既有口径保持原样，这里只记今天量的）：
+  `development-todo.md` 2026-09-22 那段写过「`report_promotion.py` 里 `host-integrated` 因为一条
+  mandatory 用例都没有而**根本不出现**」。**今天它出现**：`promotable: false`、
+  `blocks: [NO_MANDATORY_CASES, REQUIRED_CASE_NOT_REGISTERED]`、`requirement.satisfied: false`、
+  `absent` 18 条（含 `HOST-001`）、15 条 host* 全在 `non_mandatory`。**结论没变、依据变了**——
+  这个面今天仍不是门禁，理由是"没有 mandatory 用例可判"，不是"这一格在报告里缺席"。
+  今后要说"这个面没有门禁"，读 `blocks` 里的 `NO_MANDATORY_CASES`，不要读它是否出现。
+- **复跑命令**：`python .tmp/check_host_design_anchors.py`（41 行锚点 + 结构 + 反选定句，positive control
+  `exit 0`；变异副本各红在其命名理由，含"锚点表被截掉 → `anchor rows parsed: 0 < 30`"这条自身非空转）；
+  `python .tmp/count_plan_cards.py`（56 张带 `status` 的卡：`NEXT` 0、`QUEUED` 0）；
+  `bash .tmp/run_local_gates.sh`（全量 `2501 passed / 2 skipped`，与上一张卡逐字相同）；容器内
+  `python tools/report_promotion.py --data-root /data`（`exit 1` = blocked，读 `host-integrated` 那一格）。
+- **本卡未做的**（都属越界）：不实现 HOST、不改任何产品代码与两份 Bridge root、不建
+  `tests/fixtures/cases/host-001.json`、不动五份 host/world 契约、不把 `host-integrated` 变 mandatory、
+  不提升 `HOST/W80+` 与 V08、不连接用户的远程服、不改 `EXPLICIT-RELEASE-AT-STOP-001` /
+  `OPERATIONS-RETENTION-001` / `PROCESS-RECOVERY-001` 的状态。

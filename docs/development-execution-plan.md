@@ -18,13 +18,18 @@
   回归基线；除非真实回归或当前 1.20.1 卡不可绕过的前置阻断，不再新增 1.21.4 功能专题。
   即使遇到前置阻断，也先登记范围与证据、按唯一 `NEXT` 流转，不得借 `.tmp/` 中的实验记录
   自行改排期或把临时构建当作新主线。HOST/PERSIST、在线认证、远程服授权等既有停机边界不变。
-- `current_next`: **唯一 `NEXT` = `HOST-ADMISSION-DESIGN-001`**（主控 2026-09-26 第 ②、③ 条授权的 HOST 支线
-  **设计**卡，本次提交从 `QUEUED` 提升而来）：交付物是一份新文档
-  `docs/host-admission-session-coordinate-design.md`，四段——现状（两侧闸门为什么卡在同一个缺失的坐标上）、
-  三条候选方案各写全四要素（谁创建 `generation` 与 `WorldCapsule`、首快照由谁收集由谁判、失败与重启语义、
-  与既有契约的冲突点）、每方案一条可落成测试的反例、`HOST-001` 的真实 trace 验收设计；以**分歧矩阵 +
-  交主控冻结**收尾。**不实现 HOST、不标完成、不提升 `HOST/W80+`、不建 `host-001.json`、五份契约一字不改**；
-  到必须冻结"谁创建 host generation / `WorldCapsule`"时按该卡 `stop_conditions` 停止并交主控。
+- `current_next`: **暂无 `NEXT`**（`HOST-ADMISSION-DESIGN-001` 已在本提交收口为 `DONE`，**且只覆盖设计交付**：
+  新文档 `docs/host-admission-session-coordinate-design.md` 交出"现状 + 三方案各带四要素 + R1–R7 反例 +
+  `HOST-001` 真实 trace 验收设计 + 分歧矩阵"，锚点表 41 行逐条读盘复算全中、六条变异各红在其命名理由上、
+  positive control `exit 0`；全量门禁 `2501 passed / 2 skipped` 与上一张卡**逐字相同**（零产品与测试改动）；
+  `host-integrated` 在 `report_promotion` 里 `promotable: false` + `blocks: [NO_MANDATORY_CASES, …]`、
+  `HOST/W80+` 仍 `DEFERRED`、`host-001.json` 仍未创建——**HOST 没有因此前进一格**。逐格读数记在该卡
+  `completion_readings_2026-09-26`。）
+  **下一步归主控**：设计文档 §5 那三格所有权要冻结——①宿主世界的 `generation` 由谁分配（建档时的
+  Gateway/控制面 vs 下发时的 Core 会话运行时）；②`WorldCapsule` 的权威来源与是否落盘（决定 `HOST-001`
+  "重启重进"那半边今天能不能判）；③规则 2 对没有 server profile 的宿主世界，profile 一致性是跳过、
+  以 `HostedWorldManifest` 摘要替代、还是要求一个 loopback profile。冻结之前队列里没有可提升的卡，
+  也不该出现任何 HOST 实现卡。
   （上一张 `TESTED-GAP-DRAW-STOP-PHASE-1201-001` 已在 `b03863e` 收口为 `DONE`：实现
   `4151664`——1.20.1 那条 `tested` 声明的 `gaps` 划出 `STOP_PHASE_EXPLICIT_KEY_RELEASE` 一条、
   `capabilities` 补上工件所证的 token、`evidence` 追加 `V1201-080 / run 484675e4… / attempt 3 / PASS` 的
@@ -45,13 +50,14 @@
   六个 job 全 `success`。逐格读数、manifest 新旧行与对登记卡那句前提的更正，记在该卡
   `completion_readings_2026-09-26`。）
   **队列是数过的，不是 grep 出来的**（本提交实测：`.tmp/count_plan_cards.py` 按卡头配对 `status` 行，
-  连没有 ` — ` 分隔符的 `### HOST/W80+` 一并数到）：56 张带 `status` 的卡里 `NEXT` = 1
-  （`HOST-ADMISSION-DESIGN-001`，本次提升的就是它）、`QUEUED` = 0，开放中的只剩 `REAL-P0-CAMPAIGN-001`
+  连没有 ` — ` 分隔符的 `### HOST/W80+` 一并数到）：56 张带 `status` 的卡里 `NEXT` = 0、`QUEUED` = 0，
+  开放中的只剩 `REAL-P0-CAMPAIGN-001`
   （`BLOCKED_EVIDENCE`）、`EXPLICIT-RELEASE-AT-STOP-001` / `OPERATIONS-RETENTION-001` /
   `PROCESS-RECOVERY-001`（`BLOCKED_DECISION`）与
-  `HOST/W80+`（`DEFERRED`）。这套清点反证过非空转：`822d7f0` 那次实测——临时副本里把刚收口的卡改回 `NEXT`
-  或 `QUEUED`，同一逻辑各报 `1`（副本已删）。登记这张卡时另测一次：同一脚本在登记前的 `HEAD` 副本上报
-  `QUEUED` = 0，工作树上报 1，差值只可能来自这张卡。
+  `HOST/W80+`（`DEFERRED`）——四张里三张要主控拍板，`HOST-ADMISSION-DESIGN-001` 已收口但它留下的
+  正是同一类输入（所有权冻结）。这套清点反证过非空转：`822d7f0` 那次实测——临时副本里把刚收口的卡改回 `NEXT`
+  或 `QUEUED`，同一逻辑各报 `1`（副本已删）。登记 HOST 卡时另测一次：同一脚本在登记前的 `HEAD` 副本上报
+  `QUEUED` = 0，工作树上报 1，差值只来自那张卡。
   （**2026-09-26 主控答复**：更早那版这份队列说明写的"下一张归主控、`STOP_PHASE_EXPLICIT_KEY_RELEASE`
   待拍板"已经解掉，用户给出口径——①只划这一条缺口、同时登记 `V1201-080` 的 PASS 证据与对应 capability、
   重算摘要并跑 provenance 校验；②**不提升 V08**，因此也不连接远程服；③HOST 支线只做设计，
@@ -107,8 +113,17 @@
   [tested 晋级门复判记录](tested-gate-audit-2026-09-25.md)；V07 收卡 `17e81ea`+`96fb520`。）
   用户在七场景总账后明确把“自动识别服务器版本 → 准备匹配客户端 → 入服并完成简单控制”排为优先路线；
   `VERSION-AUTO-DESIGN-001` 已交付[跨版本连续执行计划](version-auto-to-server-control-plan.md)。
-- `last_checkpoint`: **一条 `tested` 声明改由它自己引用的封存件在字节上撑起：1.20.1 的停止阶段松键缺口
-  划出、那一次 PASS 登记进声明**——`TESTED-GAP-DRAW-STOP-PHASE-1201-001` 由本提交收卡为 `DONE`（登记
+- `last_checkpoint`: **HOST 支线的边界从"没读到底"变成"读到底且剩下三格所有权"**——
+  `HOST-ADMISSION-DESIGN-001` 由本提交收卡为 `DONE`（登记 `51646d5`、提升 `da43c98`、实现 = 本提交的
+  新文档；`docs-only-design`，本卡不跑任何真实运行、不建任何 fixture）。形状：交付
+  [宿主世界会话坐标来源设计](host-admission-session-coordinate-design.md)——41 行锚点表逐条读盘复算、
+  三方案各带"谁创建/首快照谁判/失败重启语义/与契约的冲突点"四要素、R1–R7 反例配一条 positive control、
+  `HOST-001` 的真实 trace 验收设计，结尾是**分歧矩阵而不是选择**。判据是量出来的：A 要改"谁裁判"两条、
+  C 与生命周期状态机那两条正面冲突、B 的形状已被 host 命令的字段表预设（`generation` 早就在命令里），
+  但 B 仍要等所有权冻结。**计划的下一步归主控，不是归执行者**：`generation` 由谁分配、胶囊是否落盘、
+  规则 2 对无 profile 的宿主世界怎么算一致性。
+  上一 checkpoint 是 **一条 `tested` 声明改由它自己引用的封存件在字节上撑起：1.20.1 的停止阶段松键缺口
+  划出、那一次 PASS 登记进声明**——`TESTED-GAP-DRAW-STOP-PHASE-1201-001` 由 `b03863e` 收卡为 `DONE`（登记
   `89ec146`、提升 `822d7f0`、实现 `4151664`；`LOCAL_THEN_VOLUME_READ`，本卡不跑新的真实运行）。形状：
   1.20.1 entry 的 `gaps` 9 → 8（只去掉 `STOP_PHASE_EXPLICIT_KEY_RELEASE`）、`capabilities` 18 → 19（补上
   `the_bridge_released_the_input_when_the_session_was_stopped`）、`evidence` 5 → 6（`V1201-080` run
@@ -5683,10 +5698,13 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 
 ### HOST-ADMISSION-DESIGN-001 — 宿主世界会话坐标来源
 
-- `status`: `NEXT`（计划里唯一的一张。2026-09-26 依主控同日答复第 ②、③ 条由 `BLOCKED_DECISION` 转为排队
-  （只做设计：方案、反例、验收设计），本次提交单独把它提升为唯一 `NEXT`；不实现 HOST、不标完成、
-  不提升 `HOST/W80+`；到必须冻结"谁创建 host generation / `WorldCapsule`"那一步交主控审查。
-  原 `unblock_condition` 写的"冻结决策"本卡**不满足**，也**不试图满足**——本卡只把它写成可交接的分歧矩阵。）
+- `status`: `DONE`（**只覆盖设计交付这一件事**：`docs/host-admission-session-coordinate-design.md` 已落地，
+  形状是"现状 + 三方案各带四要素 + R1–R7 反例 + `HOST-001` 验收设计 + 分歧矩阵 + 复算命令"。
+  **HOST 没有因此前进一格**：`generation` 由谁分配、胶囊落在哪里、规则 2 对宿主世界的 profile 一致性怎么算，
+  这三格所有权仍交主控冻结；`HOST/W80+` 原样 `DEFERRED`、`host-integrated` 仍未成为门禁、
+  `host-001.json` 仍未创建、V08 未提升、用户的远程服未连接。逐格读数见
+  `completion_readings_2026-09-26`；停止条件第 1 条是**按设计命中**（设计到所有权边界即停），
+  第 2、3 条未触发：全程没需要改产品代码、契约或 fixture，也没需要任何真实运行。）
 - `baseline_sha`: `51646d5`（登记提交）；领取时实际 checkout 即该提交，工作树干净。
 - `promotion_reason`: 三条：①主控 2026-09-26 已把这张卡从"等拍板"改成"可以做的设计支线"，并给了可执行的
   边界（只整理方案/反例/验收设计；不实现、不标完成、不提升 `HOST/W80+`；到所有权冻结点交主控）；
@@ -5771,6 +5789,44 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
   真 trace 验收卡；主线回到主控口径，1.20.1 入服 demo 仍受"V08 未提升"约束。
 - `registration`: `51646d5` 以 `QUEUED` 登记并推到两条 ref；本次提交单独提升为唯一 `NEXT`，
   实现（写那份设计文档）再下一次。
+- `completion_readings_2026-09-26`（逐格对应 `acceptance` 的七格，全部今天量过）：
+  1. **交付物形状**（验收 1）：`docs/host-admission-session-coordinate-design.md` 四段齐备——§1 现状
+     （含 §1.2 许可性判定与 §1.3 锚点表）、§2 方案 A/B/C 各带 ①谁创建 ②首快照谁收集谁判 ③失败与重启
+     语义 ④与契约的冲突点、§3 反例 R1–R7、§4 `HOST-001` 真实 trace 验收设计、§5 分歧矩阵、§6 复算命令、
+     §7 结论。校验脚本 `.tmp/check_host_design_anchors.py` 结构部分全过（五个工作日标题、三方案 ×
+     四要素、R1–R7 逐个在）。
+  2. **锚点可复算**（验收 2）：同一脚本解析出 **41 行** `位置 → 该行必须含有的片段`，逐条读盘核对全中，
+     `exit 0`（positive control）。四条计数类声称另测：`WorldCapsule(` 在 `src/` 内零命中（类定义在
+     `world_activation.py:73`）；`connections.begin(` 全仓只有 `cli/session.py:1190` 一处；
+     `synthesize(` / `storage_slot_for(` 只出现在定义文件与 `tests/unit/test_world_creation.py`；
+     `world_context_id` 在 `src/minekin_core/adapters/bridge/` 与 `bridge/src/main/java/` 内零命中，
+     而 `proto/minekin/v1/envelope.proto:58` 有该字段。
+  3. **反证 + 非空转**（验收 1、2、5 合起来）：六条变异各红在其命名理由上——把 `session.py:1190` 写成
+     `1191` → `does not contain`；§3 标题改名 → `section missing`；删掉方案 B 的 `③` 标号 →
+     `is missing element`；加一句「本卡选定方案 B」→ `chooses an option`；删 R5 那一行 →
+     `counterexample R5 missing`；截掉锚点表 → `anchor rows parsed: 0 < 30`（最后这条同时是校验脚本
+     自身不空转的证据）。变异只写 `.tmp/` 副本，原文按字节 digest `b0e30acb3afb…` 前后一致。
+  4. **不动代码与判据**（验收 3）：改动只落在 `allowed_paths`（新文档 + 三份执行文档；校验脚本在
+     `.tmp/`，被 Git 忽略）。全量门禁全绿：`ruff check` / `ruff format --check` /
+     `pyright`（0 errors）/ `check_boundaries` / `check_case_assertions` / `verify_fixture_digests` /
+     `check_workflow_pins` / `git diff --check` 各 `exit 0`，`pytest` = **`2501 passed / 2 skipped`**
+     ——与上一张卡收口时逐字相同，正是"零产品与测试改动"的读法。
+  5. **状态不越权**（验收 4，机器读法）：容器内 `tools/report_promotion.py --data-root /data`（`exit 1`
+     即 `status: blocked`、`overall.promotable: false`）里 `host-integrated` 那格
+     `promotable: false`、`blocks: [NO_MANDATORY_CASES, REQUIRED_CASE_NOT_REGISTERED]`、
+     `requirement.satisfied: false`、`absent` 18 条含 `HOST-001`、15 条 host* 全在 `non_mandatory`；
+     `HOST/W80+` 那行仍 `DEFERRED`；`tests/fixtures/cases/host-001.json` 仍不存在。
+     **一处措辞修正（不是静默改写）**：本卡 `acceptance` 第 4 格把"没越权"写成
+     「`report_promotion.py` 的输出里 `host-integrated` 仍不出现」——**实测不准确**：它**出现**，只是
+     `promotable: false` 且 `blocks` 含 `NO_MANDATORY_CASES`。那个错误前提来自
+     `development-todo.md` 里 2026-09-22 那句 dated 读数（按既有口径不改写历史），本卡换成上面那组
+     字段读法；验收意图（这个面仍未成为门禁、本卡没做任何晋级动作）不变、并且成立。
+  6. **括号与空白**（验收 6）：新文档与三份执行文档的全角 `（`/`）` 配平各为 `0`，`git diff --check` 干净。
+  7. **远端与 CI**（验收 7）：待本收卡提交 push 后填。
+  8. **停止与边界**：`stop_conditions` 第 1 条**按设计命中**——文档写到所有权边界即停，三格留给主控；
+     第 2、3 条未触发（全程未需要改产品代码 / 契约 / fixture，也未需要真实运行或远程服）。
+     本卡 `DONE` 的外延就是那句话：设计交付完成，**不等于** HOST 有实现、`HOST-001` 有验收或
+     `host-integrated` 有门禁。
 
 ### OPERATIONS-RETENTION-001 — marker 与 run 目录清理
 

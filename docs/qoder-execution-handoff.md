@@ -7,7 +7,28 @@
 > `.tmp/` 被 Git 忽略，是构建、诊断和封证的临时工作区；它的内容不是已推送产品代码、
 > 不是阶段状态，也不能替代主计划里的 run/bundle/attempt 与真实门禁记录。
 
-> **最新交接点（2026-09-26，1.20.1 的停止阶段松键缺口已从 `tested` 声明划出；计划暂无 `NEXT`，下一张是 HOST 设计卡的 `QUEUED` 转换）**：
+> **最新交接点（2026-09-26，HOST 支线设计卡收口：问题读到底，留下三格所有权交主控；计划暂无 `NEXT`）**：
+> 收卡提交是本文件所在的这一次提交（其 SHA、两条 ref 与 CI 读数在 push 后回填进主计划该卡的
+> `completion_readings_2026-09-26` 第 7 格）；登记 **`51646d5`** → 提升 **`da43c98`** → 实现 = 收卡提交，
+> 逐卡串行、一步一提交。交付形状：新文档 `docs/host-admission-session-coordinate-design.md`——
+> 41 行锚点表（每行写"位置 + 该行必须含有的片段"，由 `.tmp/check_host_design_anchors.py` 逐条读盘核对、
+> `exit 0`）、三条方案各带四要素（谁创建 `generation` 与 `WorldCapsule`、首快照由谁收集由谁判、失败与重启
+> 语义、与既有契约的冲突点）、R1–R7 反例配一条 positive control、`HOST-001` 的真实 trace 验收设计，
+> 结尾是**分歧矩阵而不是选择**。**读数**：六条变异各红在其命名理由上（改错一个行号 → `does not contain`、
+> 删掉一个要素 → `is missing element`、加一句"本卡选定方案 B" → `chooses an option`、截掉锚点表 →
+> `anchor rows parsed: 0 < 30`），原文按字节 digest `b0e30acb3afb…` 前后一致；全量门禁
+> `2501 passed / 2 skipped` 与上一张卡**逐字相同**；容器内 `report_promotion.py` 里 `host-integrated`
+> `promotable: false` + `blocks: [NO_MANDATORY_CASES, REQUIRED_CASE_NOT_REGISTERED]`、18 条 absent 含
+> `HOST-001`，`HOST/W80+` 仍 `DEFERRED`、`tests/fixtures/cases/host-001.json` 仍不存在——
+> **HOST 没有因此前进一格**，V08 仍未提升、用户的远程服仍未连接。
+> **下一步归主控（执行者不代答）**：把设计文档 §5 那三格冻结——宿主世界的 `generation` 由谁分配
+> （建档时的控制面 vs 下发时的 Core 会话运行时）、`WorldCapsule` 的权威来源与是否落盘、
+> 规则 2 对一个没有 server profile 的宿主世界如何算一致性。冻结之前队列里没有可提升的卡，
+> 也不该出现任何 HOST 实现卡。仍归主控：V08 提升、连接用户的远程服、
+> `EXPLICIT-RELEASE-AT-STOP-001` / `OPERATIONS-RETENTION-001` / `PROCESS-RECOVERY-001` 的状态。
+> 恢复现场时先核主计划 `current_next` 与本文件是否仍一致。
+>
+> **上一交接点（2026-09-26，1.20.1 的停止阶段松键缺口已从 `tested` 声明划出）**：
 > 收卡提交是 **`b03863e`**（两条 ref 与远端 SHA 已核：`git ls-remote` 上 `main` 与
 > `codex/core-state-transition` 同为 `b03863e2346ed559b6d33fe7482d7fa0619f82df`；GitHub Actions 对该 SHA 的
 > 两个 `CI` run `36176584903`/`36176584988` 及其六个 job `python`/`protocol`/`bridge-static` 全
@@ -27,11 +48,9 @@
 > registry 不在 49 个 case 的 `inputs` 里（同一检测逻辑对人为加输入的副本报 1）⇒ 无 `case_version` 移动、
 > 无重封；四条反证各红在其命名理由上、positive control `exit 0`、变异后按字节还原；本地全量门禁
 > `2501 passed / 2 skipped`（上一张卡 2500 + 本卡新增 1）。
-> **下一步（主控 2026-09-26 已授权，不必再问）**：把 `HOST-ADMISSION-DESIGN-001` 由 `BLOCKED_DECISION`
-> 转 `QUEUED` 并按唯一 `NEXT` 提升——**只做设计**：整理方案、反例与验收设计；不实现 HOST、不标完成、
-> 不提升 `HOST/W80+`；到必须冻结"谁创建 host generation / `WorldCapsule`"这一所有权方案时停下交主控审查。
-> 仍归主控：V08 提升、连接用户的远程服、`EXPLICIT-RELEASE-AT-STOP-001` 与其它 `BLOCKED_DECISION` 的状态。
-> 恢复现场时先核主计划 `current_next` 与本文件是否仍一致。
+> （**2026-09-26 更正**：这一段当时写的"下一步是把 `HOST-ADMISSION-DESIGN-001` 由 `BLOCKED_DECISION`
+> 转 `QUEUED` 并按唯一 `NEXT` 提升"已经全部落实——登记 `51646d5`、提升 `da43c98`、设计文档由收卡提交落地，
+> 见上面最新交接点。这里保持当时那句话原样不改写，只标注它已被执行。）
 >
 > **上一交接点（2026-09-26，`ADMIT-070-RECORD-SCHEMA-001` 收卡：冻结的 schema 说得出两类记录了；计划暂无 `NEXT`）**：
 > 收卡提交是 **`cc9ced2`**（两条 ref 与远端 SHA 已核；GitHub Actions 对该 SHA 的两个 `CI` run
