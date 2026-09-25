@@ -13,7 +13,7 @@
 - `baseline_branch`: `main`
 - `baseline_remote`: `origin/main`
 - `current_priority`（用户 2026-09-25 再确认）：**1.20.1 是现阶段产品主线**。按唯一 `NEXT` 先完成
-  1.20.1 停止/断连松键证据，再完成 V08 前确有必要的安装故障门，随后推进 1.20.1 目标的
+  空 store 自动路径真跑及 V07 缺口复判，再按门禁推进 1.20.1 目标的
   V08 非破坏性入服、V09 最小 look/move/release、V10 demo 验收。1.21.4 仅作为已建成版本的
   回归基线；除非真实回归或当前 1.20.1 卡不可绕过的前置阻断，不再新增 1.21.4 功能专题。
   即使遇到前置阻断，也先登记范围与证据、按唯一 `NEXT` 流转，不得借 `.tmp/` 中的实验记录
@@ -34,9 +34,6 @@
   `client/latest.log` 写下 `bridge released 1 input(s) after IPC_LOST`，`stderr.log` 为 0 字节，四条断言对拷贝出来的
   工件复判一致。registry 摘要 `82a54075…` → `69244c32…`，其 `status` 与九条 `gaps` 一字未动，
   `STOP_PHASE_EXPLICIT_KEY_RELEASE` 是否划出 `tested` 声明仍待主控决策；本卡未改产品代码。
-  本卡是**证据卡**：安装期三类故障（staging 写失败 / store 层 `os.replace` 失败 / 同 digest 并发安装）的可复判注入，
-  不改安装判据、摘要门与任何封存字节。它连同 V07 的 `not_tested_v07` 缺口收口前，**不得提升 V08、连接用户远程服，
-  或把 reviewed registry 的 `tested` 当作远程入服的充分证据**。
   （上一张 `BRIDGE-1214-RUNTIME-IDENTITY-001` 已 `DONE`：实现与重封 `16dbb42`、收卡 `2464901`。）
   （再上一张 `VERSION-TESTED-GATE-AUDIT-001` 已 `DONE`：提升 `977dcf4`、收卡 `518e2f2`，追溯表见
   [tested 晋级门复判记录](tested-gate-audit-2026-09-25.md)；V07 收卡 `17e81ea`+`96fb520`。）
