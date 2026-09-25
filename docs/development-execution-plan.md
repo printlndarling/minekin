@@ -12,10 +12,10 @@
 - `baseline_date`: 2026-09-22
 - `baseline_branch`: `main`
 - `baseline_remote`: `origin/main`
-- `current_next`: **本提交起暂无 `NEXT`**——`VERSION-INSTALLER-001`（V06）已在本提交收为 `DONE`
-  （登记 `d8ca02d`、提升 `9ca039f`、范围与语义冻结 `f15f6b7`、实现 `06acbf1`），而下一张
-  `VERSION-SESSION-SWITCH-001`（V07）在主计划里还没有卡片正文，须先以 `QUEUED` 登记、再在**另一次独立提交**
-  提升；在那之前任何执行者都不得自行领取 V07 或其它卡。
+- `current_next`: **暂无 `NEXT`**——`VERSION-INSTALLER-001`（V06）已收为 `DONE`
+  （登记 `d8ca02d`、提升 `9ca039f`、范围与语义冻结 `f15f6b7`、实现 `06acbf1`、收卡 `d7a91f9`）；下一张
+  `VERSION-SESSION-SWITCH-001`（V07）由本提交以 `QUEUED` 登记卡片正文，提升为唯一 `NEXT` 须由**下一次独立
+  提交**完成。在那之前任何执行者都不得自行领取 V07 或其它卡。
   用户在七场景总账后明确把“自动识别服务器版本 → 准备匹配客户端 → 入服并完成简单控制”排为优先路线；
   `VERSION-AUTO-DESIGN-001` 已交付[跨版本连续执行计划](version-auto-to-server-control-plan.md)。
 - `last_checkpoint`: **跨版本路线走到 V06 收卡**——V06 `VERSION-INSTALLER-001` 交付的是产品侧第一个安装
@@ -3963,9 +3963,108 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
   `.staging` 残留无 GC API；跨 Kin 共享缓存未做，每 Kin 一份副本的代价仍成立（本次两套 store 各自
   727M / 525M 就是那份代价的读数）；
   `RUNNER_JDK_17_UNSEALED`（条目写 Java 21、recipe 自述 17）不变。
-- `next_after_done`: 本卡收卡后暂无 `NEXT`。下一张 `VERSION-SESSION-SWITCH-001`（V07）主计划仍无正文，
-  须先以 `QUEUED` 登记、再在下一次独立提交提升；设计卡正文见
+- `next_after_done`: 本卡收卡后暂无 `NEXT`。下一张 `VERSION-SESSION-SWITCH-001`（V07）已由紧随本提交的
+  登记提交以 `QUEUED` 写入主计划，提升须再另开一次独立提交；设计卡正文见
   [跨版本连续执行计划](version-auto-to-server-control-plan.md) 的 V07 一节。
+
+### VERSION-SESSION-SWITCH-001 — 接通会话启动而不热换
+
+- `status`: `QUEUED`（本提交登记，V06 收卡 `d7a91f9` 之后。提升须**另开一次独立提交**，且领取者必须先
+  闭合下面 `open_semantics_v07` 四格；本卡与 `VERSION-BRIDGE-IDENTITY-001` 的边界见
+  `ownership_boundary_v07`，不得越界改 Bridge 常量。）
+- `baseline_sha`: `d7a91f9`（V06 收卡提交，两 ref 已核对；`main` run **#503** 在浏览器读到 `Success`
+  2m36s，`python` 2m33s / `protocol` 10s / `bridge-static` 13s）。领取时实际 checkout = 本卡提升提交。
+- `depends_on`: `VERSION-REMOTE-PROFILE-001`（V01 的 v2 受信目标与 `allowed_versions`）、
+  `VERSION-SERVER-PROBE-001`（V02 的 `ProbeObservation`）、`VERSION-RESOLVER-001`（V05 的 `resolve()`）、
+  `VERSION-INSTALLER-001`（V06 的 `bundle install` 与 `require_reviewed_plan` 门）；下游
+  `VERSION-REMOTE-SMOKE-001`（V08）在用户真实目标上走本卡接好的自动路径。
+- `question`: 能否让 `session start` 走"探测 → 解析 → 需要时装 → 启动"的自动路径，并且在**同一
+  `kin_id`** 下切版本时**先停旧 JVM、让旧 generation/lease 失效，再以新 bundle/overlay/nonce 起新客户端**，
+  全程不热换、不同时存在两个可控客户端、任何一环不匹配都 fail closed？
+- `scope` 与 `allowed_paths`（显式清单）：`src/minekin_core/cli/{parser,session}.py`、
+  `bootstrap.py` 的 `session start` 分派分支（只允许动那一段与其 import）、自动路径的编排落点
+  （新增 `cli/auto_session.py` 一类，或在 `cli/session.py` 内组合既有件——由领取者按 `open_semantics_v07`
+  第 1 格定，定了就写进本卡）、`domain/version_resolution.py` 的**调用点**（不改其判据）、
+  session runtime / 状态机与 launcher supervisor 中"停旧再起新"所需的字段、状态与账本 schema
+  （仅确需字段）、定向 unit/contract 测试与**匿名** fixture、进度文档。
+- `forbidden_paths`: `adapters/bridge/ipc.py` 与两个 Bridge root（`bridge/`、`bridge-1201/`）的版本常量
+  与握手判据（属 `VERSION-BRIDGE-IDENTITY-001`）、`proto/`、任何已封存 bundle/recipe/metadata/launch_plan
+  字节、`tests/fixtures/manifest.sha256` 既有行、V05 清单与 V06 摘要门的字节（**读**不写）、
+  `domain/admission.py` 与地址策略、宿主 `.minecraft`、在线认证与 HOST/PERSIST、测试域 oracle。
+  不从 status/MOTD URL 取构件；不在自动路径里放宽任何一门。
+- `measured_state_v07`（登记时对当前代码的实测，不是推测）：
+  1. `session start` 今天的顺序：`bootstrap.py:180-224` 分派时传 `session_id=SessionId.new().value` 与
+     **硬编码 `generation=1`（`bootstrap.py:187`）**；`cli/session.py:983-992` 在创建任何东西之前用
+     `launched_minecraft_version(profile)`（`:911-934`，读 profile 文档自己的 `minecraft.version`）加载
+     server profile；`prepare_session_async` 依次 `:564 build_launch_plan` → `:565 require_launchable` →
+     `:566 require_store_complete`（V06 装的就是它要验的东西）→ `:571-574 require_built_bridge(…,
+     str(plan["bundle"]["minecraft"]))` → `:578 require_no_unresolved_client` → `:580-582` 建 overlay
+     （`session_overlay_path` `:343-350` = `run_root/session/<session_id>/generation-<n>`）→ `:594 install_fixed_mods`
+     → `:605 natives` → `:615 assets` → `:629 seed_world` → `:648-655` bridge session；JVM 真正起来在
+     `launch_prepared_async` 的 `:732 supervisor.start(spec)`。
+  2. 版本耦合点：`server_profile.py:32` 常量 + `:200-201` 对 v1 文档"不等于 `1.21.4` 即拒"
+     （`ErrorCategory.ADMISSION`，`:70-77`）+ `:216` 把字段改写成常量；v2 文档 `:445-449` 要求
+     `allowed_versions` **恰好一个**版本、`:450-454` 与本次客户端版本不符即拒；`metadata.py` 是**按版本
+     键控的 pin 表**（`:55-70` 有 `"1.20.1"` 行）而不是常量门，`recipe.py:107-113` 的 `bridge_identity`
+     也已有 1.20.1 分支。也就是说：装配层早就支持两个版本，拒人的是**握手与 profile 的字面量**。
+  3. 握手侧（本卡**不改**）：`ipc.py:437` 要求 `hello.minecraft_version == "1.21.4"`，不符即
+     `IpcProtocolError`（`:444-445`）；`:628` 同一字面量进 HMAC proof 上下文。而 `bridge-1201` 这个
+     **1.20.1 root 的 `HandshakeGate.java:169` 也拿 `"1.21.4"`/`"0.16.9"` 作期望值**——所以 1.20.1 客户端
+     今天能过握手，是因为那个 root 声明了 1.21.4（V04 记下的 `bridge_hello_version_defect`）。本卡在此
+     基础上跑，不修它、也不得把它当"版本校验已经成立"的证据。
+  4. 解析器今天**没接线**：`domain/version_resolution.py` 在 `src/` 内唯一 importer 是
+     `adapters/launcher/provision.py:38-42`（只取 `BundleStatus/RegistryEntry/load_reviewed_registry`）；
+     **`resolve()` 在 `src/` 内零调用者**（只有测试引用），`cli/` 与 `bootstrap.py` 都不 import 该模块；
+     `cli/server_probe.py:24` 产出 `ProbeObservation` 但不喂给 `resolve`。
+  5. 两个不同的 generation 空间：会话 generation（`bootstrap.py:187` → `PreparedSession.generation`
+     `session.py:392`、overlay 路径 `:350`、`bridge_session_for(..., generation=...)` `:652`、marker
+     `orphans.py:104-116`、每行账本 `:718,738,749,755,1026`，并被 `ipc.py:433` 用来拒过期握手）与
+     **连接** generation（`domain/connection.py:150-171 open/apply/close`、`:183-195` 挡过期回调，消费于
+     `session.py:1141-1184,1236-1240` 与 `session_runtime.py:424-432,617-646`）。切换要失效的是**前者**，
+     而后者已经有一套自己的过期判据——两格不能混为一谈。
+  6. 停止侧的既有边界：`stop_session`（`session.py:1560-1583`）委托 `orphans.stop_recorded_clients`
+     （`:314-355`），对**证不来的进程从不动手**：liveness `UNKNOWN → unresolved`（`:336-340`）、
+     `IdentityProof.NOT_OURS → left_alone`（`:347-348`）、`UNVERIFIABLE → unresolved`（`:349-350`）；
+     报告 `status: blocked`（`session.py:1554`）→ `ExitCode.PROCESS`（`bootstrap.py:234`）。唯一会抛的是
+     信号失败本身（`orphans.py:289-291`，`ErrorCategory.PROCESS`）。
+  7. 现成输入件：`tests/fixtures/runtime-input/` 有 `bundle-p0-core-1.21.4.json`、
+     `bundle-candidate-1.20.1.json`、`controlled-offline-server.json`（v1，1.21.4）、
+     `controlled-offline-server-1.20.1.json`（v2，`allowed_versions:["1.20.1"]`）、
+     `world-create-p0.json`（`bundle_id: p0-core-1.21.4`）。
+  8. 措辞与代码的落差（如实记）：设计卡里的"失效旧…瞬时观察"在 `src/` 内**没有**对应计数器，该词只出现在
+     三份文档（`docs/managed-client-runtime.md:223`、`docs/p0-core-internal-architecture.md:319`、
+     `docs/standalone-runtime-dashboard.md:222`）；代码侧最接近的是首帧 `authoritative` 门
+     （`domain/perception.py:276,300`、`config.py:41`）。本卡按"连接 generation + lease + 首帧门"三件既有
+     机制验收，不新造一个观察计数器。
+- `ownership_boundary_v07`（先划清，免得两卡互相追认）：Bridge 握手版本常量的**修复**属
+  `VERSION-BRIDGE-IDENTITY-001`（它会移动 1.20.1 candidate 的 `source_tree_sha256` 与 jar 摘要，需要重新
+  封存，且明确要求"1.21.4 既有证明上下文逐字节不变"）。本卡只做**编排**：把探测/解析/安装/停止/启动接成
+  一条 fail-closed 的自动路径。若实现中发现"不修 Bridge 常量就没法证明切换"，那是停止条件，不是就地扩权
+  的理由。
+- `open_semantics_v07`（领取时须先逐格闭合并写回本卡，不能靠默认值）：
+  1. 自动入口的 CLI 形状：设计卡允许"独立 `--auto-bundle`，与显式 `--profile` 互斥"，但要求最终形状由
+     本卡测试冻结。取更窄的一读：`--profile` 的既有语义逐字保持（给了就按它跑），自动入口是**新参数**，
+     两者同时给出时**拒绝**而不是择一，缺失两者时的行为（拒绝还是自动）由领取时按"不替用户决定"定。
+  2. 三处版本事实（探测到的目标版本、解析出的 bundle、被启动客户端的自述）不一致时，自动路径**只拒不改**：
+     不得自动换版本重试、不得自动重探一次直到通过、不得降级去装另一个条目。要证明的是拒绝的类别稳定。
+  3. 顺序重启会不会需要**递增会话 generation**？今天 `bootstrap.py:187` 恒为 1，而 overlay 目录按
+     `session_id` 划分——若同一 `session_id` 起第二个版本会撞同一路径。领取时必须选一个并写清依据：
+     (a) 每次自动启动发新 `session_id`（generation 仍为 1），还是 (b) 同 `session_id` 递增 generation。
+     两者都要说明 marker/账本/`ipc.py:433` 过期判定各自受什么影响。
+  4. 旧进程停不下来时（`status blocked` / `ExitCode.PROCESS`）自动路径**不得**接管或强杀：那是
+     `PROCESS-RECOVERY-001` 的 `BLOCKED_DECISION`，属用户。本卡只证"停不下来就不起新的"。
+- `counterexamples`: Bridge bundle/schema 不匹配、探测中目标改变（两次观测不一致）、安装失败或缺件、
+  旧进程未停、旧代回调晚到、自动入口与显式 `--profile` 同时给、三处版本事实不一致、V06 摘要门不符、
+  v1 profile 配 1.20.1 客户端。每种一个稳定类别，且**每种结束时可控客户端数量不得大于 1**、不得留下
+  新 overlay 被后续会话当既成事实。
+- `validation_class`: `LOCAL_THEN_REAL_RUN`——先单元/契约与 CLI 反例，再在受控 runner 上真跑一次
+  1.21.4 → 1.20.1 的**顺序**切换（两侧都是真 JVM，旧侧要看到进程真的没了、账本真的记了）。
+- `stop_conditions`: 需要替用户决定残留进程接管/强杀 → 停在 `BLOCKED_DECISION`（`PROCESS-RECOVERY-001`）；
+  需要改 Bridge 握手常量或重新封存 1.20.1 candidate → 停（属 `VERSION-BRIDGE-IDENTITY-001`）；
+  需要改已封存 recipe/metadata/plan 字节或 store 根 → 停；需要 HOST/PERSIST、在线认证或公网放行 → 停；
+  受控 runner 取不到 1.20.1 服务端或客户端材料 → 保留失败材料并报告，**不得**以单测通过充当切换验收。
+- `next_after_done`: `VERSION-REMOTE-SMOKE-001`（V08）——主计划尚无其卡片正文，须先 `QUEUED` 登记、
+  再在下一次独立提交提升。
 
 ### VERSION-BRIDGE-IDENTITY-001 — BridgeHello 版本声明配对修复
 

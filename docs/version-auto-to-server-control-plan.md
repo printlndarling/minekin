@@ -287,6 +287,15 @@ bundle id 与结果；旧代回调不能推进新代。`BLOCKED` 不自动回退
   不触碰宿主 `.minecraft`，不同时存在两个可控客户端。
 - **停止**：如果需要替用户决定残留进程自动接管/强杀（`PROCESS-RECOVERY-001`），
   停在 `BLOCKED_DECISION`；不为维持切服进度暗中实现该策略。
+- **现况**（2026-09-25，`QUEUED`：正文已由主计划登记提交写入）：领取前先读主计划 V07 卡的
+  `measured_state_v07`、`ownership_boundary_v07` 与 `open_semantics_v07` 三格。量到的现状是：装配层
+  （`metadata.py` 的按版本 pin 表、`recipe.py:107-113` 的 1.20.1 分支、V06 的 `bundle install`）**已经**
+  支持两个版本，拒人的是三处字面量与 profile 常量（`server_profile.py:32/200-201`、`ipc.py:437/628`）；
+  `resolve()` 在 `src/` 内**零调用者**、`cli/` 与 `bootstrap.py` 都不 import 它；`bootstrap.py:187` 的会话
+  `generation` 恒为 1；`stop_session` 对证不来的进程**从不动手**，只报 `blocked` → `ExitCode.PROCESS`。
+  一条必须知道的既有事实：1.20.1 客户端今天能过握手，是因为 `bridge-1201` 那个 root 的
+  `HandshakeGate.java:169` 拿 `"1.21.4"` 作期望值（V04 记的 `bridge_hello_version_defect`）——修它属
+  `VERSION-BRIDGE-IDENTITY-001`，本卡**不越界**，也不得把它当作"版本校验已成立"的证据。
 
 ### V08 `VERSION-REMOTE-SMOKE-001`：用户测试服只读探测与非破坏性入服
 

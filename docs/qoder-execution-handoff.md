@@ -1,9 +1,15 @@
 # Qoder 临时执行交接（2026-09-24）
 
 > **最新交接点（2026-09-25，跨版本路线执行中）**：**当前没有 `NEXT`**——`VERSION-INSTALLER-001`（V06）
-> 已在本批收为 `DONE`（登记 `d8ca02d`、提升 `9ca039f`、范围与语义冻结 `f15f6b7`、实现 `06acbf1`），而
-> 下一张 `VERSION-SESSION-SWITCH-001`（V07）在主计划里还没有卡片正文：须先以 `QUEUED` 登记、再在
-> **另一次独立提交**提升。下文 ADMIT-070 起步卡与 V01–V05 都不是当前领取对象（五者均已 `DONE`）。
+> 已收为 `DONE`（登记 `d8ca02d`、提升 `9ca039f`、范围与语义冻结 `f15f6b7`、实现 `06acbf1`、收卡
+> `d7a91f9`）；下一张 `VERSION-SESSION-SWITCH-001`（V07）已由紧随的登记提交以 `QUEUED` 写入主计划，
+> **提升为唯一 `NEXT` 须由下一次独立提交完成**。在那之前任何执行者都不得自行领取 V07 或其它卡。
+> 下文 ADMIT-070 起步卡与 V01–V05 都不是当前领取对象（五者均已 `DONE`）。
+> **V07 领取前必读**主计划 V07 卡的 `measured_state_v07`、`ownership_boundary_v07`、`open_semantics_v07`：
+> 装配层已支持两版本，拒人的是 `server_profile.py:32/200-201` 与 `ipc.py:437/628` 的字面量；
+> `resolve()` 在 `src/` 内零调用者；`bootstrap.py:187` 会话 generation 恒为 1；`stop_session` 对证不来的
+> 进程从不动手（只报 `blocked` → `ExitCode.PROCESS`）。**Bridge 握手常量的修复不属 V07**（属
+> `VERSION-BRIDGE-IDENTITY-001`）；1.20.1 客户端今天能过握手只是因为 `bridge-1201` 的 root 声明了 1.21.4。
 > **V06 交付了什么**：产品侧第一个安装入口
 > `minekin bundle install --registry ... --bundle-id ... --max-bytes N [--store ...] [--dry-run] [--jobs N] [--quiet]`，
 > 它把"先核对被审摘要，再装"两层显式组合起来——`require_reviewed_plan` 按 `tested` 状态 → recipe 摘要 →
@@ -23,7 +29,9 @@
 > `.staging` 里 5 个残留事务无 GC API、每 Kin 一份副本的代价仍成立、`RUNNER_JDK_17_UNSEALED` 不变。
 > **CI 已按规矩在浏览器里读过**：`main` run **#501**（`06acbf1`）三 job 全绿，`python` 2m59s 逐步骤读过
 > （`ruff check`/`ruff format --check`/`pyright`/`pytest 2m6s`/`check_boundaries`），`protocol` 9s、
-> `bridge-static` 12s；文档提交 `f15f6b7` 的 run **#499** 在列表页读到 `completed successfully`；
+> `bridge-static` 12s；收卡提交 `d7a91f9` 的 run **#503** 读到 `Success` 2m36s（`python` 2m33s、
+> `protocol` 10s、`bridge-static` 13s）；文档提交 `f15f6b7` 的 run **#499** 在列表页读到
+> `completed successfully`；
 > 注解全是 GitHub 平台公告（Node 20 弃用、runner-images #14748），不是本仓库红灯。**CI 不是 Minecraft
 > 验收证据**——真实运行只发生在受控 runner 里。
 > 以下 ADMIT-070 起步任务和阶段说明是
