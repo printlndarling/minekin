@@ -3250,3 +3250,16 @@
   ②`.tmp/verify_plan_table.py` 里那条同步检查**现场重跑** `git rev-list --left-right --count
   main...origin/main` 并要求 `0 0`，把文档里的 `读 0 0` 改成 `读 0 104` 即报
   `sync sentence missing`——它同时是一道防回归：下一轮若忘了刷新，脚本会红。
+
+
+## 刷新规则在写下它的同一轮就被复现了一次（2026-09-26，`1674bfb`）
+
+- 那一格提交并推送之后（`57ccec0..1674bfb` 两条 ref），`git rev-list --left-right --count
+  main...origin/main` **当场再读 `0 1`**；跑一次 `git fetch origin main:main` 后回到 **`0 0`**，
+  `git rev-parse main origin/main HEAD` 三者同为 `1674bfb`。这是第二次独立观测到同一形状，
+  规则不是从一次事故推出来的。
+- `1674bfb` 的 GitHub Actions 两个 `CI` run `36193816641` / `36193816658` 及其六个 job
+  `python`/`protocol`/`bridge-static` 在 job 与 step 层均 `completed / success`（step 层无其他值）。
+- 本轮到此为文档真值的一格：**没有提升任何门、没有动任何卡状态、没有碰 V08/远程服/HOST**。
+  晋级窗口与规划视图的比对脚本留在 `.tmp/verify_plan_table.py` 与 `.tmp/verify_missing_table.py`，
+  其中同步检查是**现场重跑**命令而非比对文本，所以忘了刷新时它会红。
