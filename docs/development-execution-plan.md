@@ -12,16 +12,14 @@
 - `baseline_date`: 2026-09-22
 - `baseline_branch`: `main`
 - `baseline_remote`: `origin/main`
-- `current_next`: `BRIDGE-1214-RUNTIME-IDENTITY-001`（本提交把已 `QUEUED` 的它单独提升为唯一 `NEXT`，当前无第二张
-  `NEXT`。上一张 `TESTED-PROVENANCE-VERIFY-001` 已 `DONE`：实现 `c93cfa4`、收卡 `49d6d01`，两 ref 均已核对到
-  `49d6d01`。**提升次序的取舍如实记录**：那张已收卡片的 `next_after_done` 写的是 `KEY-RELEASE-AT-STOP-001`，
-  但那句写于 `801f9ba` 把本卡登记进队列之前；本卡的 `depends_on` 点名 `TESTED-PROVENANCE-VERIFY-001`（"先有机器
-  核对，重封后的摘要才是可核对事实"），且 `e86ad8b` 与本文件上一段 `current_next` 文字都把本卡排在队列第一，
-  故按依赖与最新队列取本卡。`KEY-RELEASE-AT-STOP-001` 紧随其后，仍在 V09 之前。）
-  本卡要做的是让 `bridge/`（1.21.4 root）像 1.20.1 root 一样从 Fabric 自己的 mod container 读 `minecraft` /
-  `fabricloader` 并送进 `Expected`，然后重建、重封并按实测换掉 registry 的**引用**字段；它**会**移动已冻结的
-  1.21.4 source tree / jar / plan 摘要，因此不得夹带任何判据放宽。其后依序是 `KEY-RELEASE-AT-STOP-001`、
-  `STORE-FAILURE-EVIDENCE-001`；这些与 V07 的 `not_tested_v07` 缺口全部收口前，
+- `current_next`: `KEY-RELEASE-AT-STOP-001`（本提交把已 `QUEUED` 的它单独提升为唯一 `NEXT`，当前无第二张
+  `NEXT`。上一张 `BRIDGE-1214-RUNTIME-IDENTITY-001` 已 `DONE`：实现与重封 `16dbb42`、收卡 `2464901`——1.21.4 root
+  现在从 Fabric 自己的 mod container 读 `minecraft`/`fabricloader`，读不到就失败关闭而非回落常量，被引用的 12 条
+  1.21.4 case 已换代后（source tree `a4a53cac…` / jar `0ee2070b…` / recipe `e3bfbae8…` / plan `bcc0c10d…`）在新
+  build 上逐个重跑重封，registry 的 `status`/`capabilities`/`gaps` 一字未动。本卡要做的是让 1.20.1 在**停止/断连**
+  阶段由 Bridge 自己产出"IPC 丢失后释放了 N 个输入"的独立工件并由 case 断言核对，使"松键真的送达"不再依赖 Core 侧
+  记账与服务端推断；它排在 V09 之前，因为 V09 的 look/move/**release** 闭环不能靠 lease 到期记账顶替。其后是
+  `STORE-FAILURE-EVIDENCE-001`；这两卡与 V07 的 `not_tested_v07` 缺口全部收口前，
   **不得提升 V08、连接用户远程服，或把 reviewed registry 的 `tested` 当作远程入服的充分证据**。
   （再上一张 `VERSION-TESTED-GATE-AUDIT-001` 已 `DONE`：提升 `977dcf4`、收卡 `518e2f2`，追溯表见
   [tested 晋级门复判记录](tested-gate-audit-2026-09-25.md)；V07 收卡 `17e81ea`+`96fb520`。）
@@ -4362,8 +4360,10 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 
 ### KEY-RELEASE-AT-STOP-001 — 停止阶段的松键要有独立工件
 
-- `status`: `QUEUED`（2026-09-25 审查卡登记，来自 A2；提升须另一次独立提交，排在
-  `TESTED-PROVENANCE-VERIFY-001` 之后、V09 之前——V09 的 look/move/**release** 闭环不能靠 lease 到期记账顶）。
+- `status`: `NEXT`（2026-09-25 审查卡登记为 `QUEUED`，来自 A2；本提交单独提升为唯一 `NEXT`，前置
+  `TESTED-PROVENANCE-VERIFY-001`（`49d6d01`）与 `BRIDGE-1214-RUNTIME-IDENTITY-001`（实现 `16dbb42`、收卡 `2464901`）
+  已 `DONE`；提升次序按登记时的排队（它排在 `BRIDGE-1214-RUNTIME-IDENTITY-001` 之后、V09 之前——V09 的
+  look/move/**release** 闭环不能靠 lease 到期记账顶）。
 - `depends_on`: `VERSION-LOCAL-1201-001`（现有 V1201-040 的 lease 路径证据）、`VERSION-BRIDGE-IDENTITY-001`
   （重封后的 1.20.1 客户端）、1.21.4 侧 CORE-060 已有的 Bridge 释放断言形状（`tools/assert_case_evidence.py:1597-1619`）。
 - `question`: 能否让 1.20.1 在**停止/断连**阶段由 Bridge 自己产出独立工件（"IPC 丢失后释放了 N 个输入"），
