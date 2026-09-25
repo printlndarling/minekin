@@ -3130,3 +3130,40 @@
 - **仍然没做的**（边界不变）：不提升 `W00`/`W10`（提升是主控的动作，本报告只说 `promotable`）、
   不动 V08 与远程服、不实现 HOST、不改任何一张卡的 `status`、不新增断言或 case、不跑 Minecraft、
   不接受 EULA。剩下 34 条 `blocking_cases` 与 31 条 `missing` 全部要真实运行或产品决策。
+
+
+## 本地判据的普查：43 个 present case 里 20 个今天完全由仓库自检判定，其中唯一还拦门的 `CORE-070` 已重封（2026-09-26，规范卷 `/data`）
+
+- **动机**：`W00`/`W10` 那一步之后剩下一个问题没量过——**"present 但证据过期"这件事到底还有多大一片能本地补**。
+  答案不能靠 `validation_class` 这个标签，得问机械判官。
+- **方法（可复跑）**：`.tmp/sweep_repo_cases.py` 对 `report_cases.py` 的 43 个 `present` case 逐个跑
+  `uv run --frozen python tools/run_repo_case.py --case tests/fixtures/cases/<id>.json --output-directory …`，
+  记下退出码与 `result`。机制：用例里只要有**任何一条**声明断言没有仓库自检实现，runner 就报
+  `INCOMPLETE` + `exit 2` 并把它们逐条列进 `unimplemented`（形如 `<assertion>:NO_IMPLEMENTATION`）；
+  全部有实现且全部 `held: true` 才报 `PASS` + `exit 0`。**所以"PASS"不是默认值，同一个命令当场就给出 23 个反例。**
+- **读数**：`PASS 20 / INCOMPLETE 23`。20 个是 `CORE-001`、`CORE-070`、`W00-CONTRACT-001`、
+  `OFFLINE-001/040/050`、`ADMIT-080`、`HOST-010/020/050/060/070/080`、`HOSTCTL-001/010/050/060/070`、
+  `HOSTCOMMIT-090/110`。23 个 `INCOMPLETE` 里包含 `CORE-040`、`CORE-050`（各 6 条、4 条
+  `NO_IMPLEMENTATION`）、全部 `ADMIT-*`（除 080）、`OFFLINE-010/020/030*`、`CORE-010/020/060*/090/100`、
+  `HOST-030/040`——**这些就是"必须真实运行"那一半，机器点名了，不用猜**。
+- **只有一格拦在门禁上**：20 个里 `mandatory: true` 的只有 `CORE-001`、`CORE-070`、`W00-CONTRACT-001`
+  三个，前两个今天刚重封过，于是 `CORE-070` 是唯一"本地判得出、又确实拦着门"的那一条。做了：
+  `run_repo_case.py` → `PASS` / `exit 0` / 4 条全 `held`、`unimplemented: []` →
+  `seal_repo_case.py --data-root /data` → run `e2393e92f47b489cba0707d4ae078307`、bundle
+  `19cb4f30ceb0c5c2e6f8b7ff3011a9ff363ad7b7588c6bbeb1d960a9ddf0d4c0`、`case_version 053f08c3…`、
+  attempt 1、8 件工件；`python -m minekin_core evidence verify` → `status: verified`、`sealed: true`、
+  `violations: []`。**09-20 那份旧 bundle（`7aa541e5…`，`case_version 1fb32ffb…`）一字未动。**
+- **前后读数差（同一工具同一卷，只多了这一份）**：evidence `85 → 86`；`W60` 的 `blocking_cases`
+  `3 → 2`（剩下的正是 `CORE-040`、`CORE-050`，两条都由同一普查点名 `NO_IMPLEMENTATION`）；
+  `p0-core` `15 → 14`；`overall.blocking_cases` `34 → 33`（去掉的就是 `CORE-070`）；
+  `overall.status` 仍 `blocked`、`promotable` 仍 `false`、`blocks` 仍是
+  `[CASE_VERSION_MISMATCH, REQUIRED_CASE_NOT_REGISTERED]`。**没有提升任何一道门。**
+  这一条同时是**逐案特异性**的反证：重封 `CORE-070` 只让 `CORE-070` 从名单上消失，
+  同类的 `CORE-040`/`CORE-050` 仍红在原地——报告不是一次性翻绿。
+- **给主控的一格输入（我没有据此行动）**：`host-integrated` 名下 13 个 present case
+  （`HOST-010/020/050/060/070/080`、`HOSTCTL-001/010/050/060/070`、`HOSTCOMMIT-090/110`）
+  今天**全部由仓库自检判得出且全部成立**。它们都是 `mandatory: false`（`not_gating`），
+  **所以本轮一份都没有封**：封它们等于往 HOST 那一格里加读数，而 HOST 的三格所有权还没冻结。
+  这条普查的意义是让主控知道：**HOST 的拒绝面判据已经在本地代码里，缺的是所有权决定，不是判据本身。**
+- **仍然没做的**：不提升任何 gate、不实现 HOST、不建 `host-001.json`、不改任何卡状态、
+  不动 V08 与远程服、不跑 Minecraft、不接受 EULA、不新增断言或 case 文件。

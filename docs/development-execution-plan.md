@@ -68,6 +68,20 @@
   pytest `2501 passed / 2 skipped` 与前两张卡逐字相同；两条 ref 与远端 SHA 已核，GitHub Actions 对该
   SHA 的两个 `CI` run `36186341837` / `36186341861` 及其六个 job `python`/`protocol`/`bridge-static`
   全 `completed / success`（step 层只有 `success`）。）
+  （**同晚把这条通道普查到底**：43 个 `present` case 逐个交给 `run_repo_case.py`（`.tmp/sweep_repo_cases.py`，
+  复跑命令在 `development-todo.md`），机械读数是 **`PASS` 20 / `INCOMPLETE` 23**——"PASS"不是默认值，
+  同一命令当场给出 23 个 `NO_IMPLEMENTATION` 反例。20 个里 `mandatory: true` 只有 `CORE-001`、
+  `W00-CONTRACT-001`、`CORE-070` 三个，前两个刚重封，所以**唯一"本地判得出又确实拦着门"的一格是
+  `CORE-070`**：`run_repo_case.py` → `PASS`/`exit 0`/4 条全 `held` → `seal_repo_case.py --data-root /data`
+  → run `e2393e92f47b489cba0707d4ae078307` / bundle `19cb4f30…` / `case_version 053f08c3…` / attempt 1，
+  `evidence verify` 报 `verified: true`、`sealed: true`、`violations: []`；09-20 那份旧 bundle 一字未动。
+  读数：evidence `85 → 86`、`W60` 的 `blocking_cases` `3 → 2`（只剩 `CORE-040`/`CORE-050`，同一普查点名
+  它们 `NO_IMPLEMENTATION` ⇒ **确属必须真实运行**）、`p0-core` `15 → 14`、`overall.blocking_cases`
+  `34 → 33`、`overall.status` 仍 `blocked`、`promotable` 仍 `false` ⇒ **本地证据生产到此为止，没有提升任何
+  一道门**。顺带交主控一格输入（**本轮据此没有行动**）：`host-integrated` 名下 13 个 present case
+  （`HOST-010/020/050/060/070/080`、`HOSTCTL-001/010/050/060/070`、`HOSTCOMMIT-090/110`）今天
+  **全部由仓库自检判得出且全部成立**，但它们都是 `mandatory: false`，**一份都没封**——封它们等于往
+  未冻结的 HOST 所有权里加读数。这条普查要说清的是：**HOST 的拒绝面判据已在本地代码里，缺的是决定不是判据。**）
   （上一张 `TESTED-GAP-DRAW-STOP-PHASE-1201-001` 已在 `b03863e` 收口为 `DONE`：实现
   `4151664`——1.20.1 那条 `tested` 声明的 `gaps` 划出 `STOP_PHASE_EXPLICIT_KEY_RELEASE` 一条、
   `capabilities` 补上工件所证的 token、`evidence` 追加 `V1201-080 / run 484675e4… / attempt 3 / PASS` 的

@@ -57,6 +57,16 @@
 > 两份 bundle 各放独立数据根 ⇒ 只有它自己那道门翻绿、另一道仍红在自己的 case 名上；只拷 bundle 不拷
 > `evidence-attempts.sqlite3` 的数据根 ⇒ `status: unusable`、`exit 2`。
 >
+> **同晚把这条本地通道普查到底（记录落在主计划顶部同一格）**：43 个 `present` case 逐个跑
+> `run_repo_case.py` ⇒ **`PASS` 20 / `INCOMPLETE` 23**（同一命令当场给出 `NO_IMPLEMENTATION` 反例，
+> "PASS"不是默认值）。20 个里 mandatory 只有 `CORE-001`/`W00-CONTRACT-001`/`CORE-070`，前两个已重封，
+> 于是唯一"本地判得出又拦着门"的是 **`CORE-070`**：已重封为 run `e2393e92f47b489cba0707d4ae078307` /
+> bundle `19cb4f30…` / attempt 1，`evidence verify` `verified: true` + `sealed: true`；读数 evidence
+> `85 → 86`、`W60` blocking `3 → 2`（只剩 `CORE-040`/`CORE-050`，普查点名它们必须真实运行）、
+> `overall.blocking_cases` `34 → 33`、`overall` 仍 `blocked`。**本地证据生产到此为止。**
+> 顺带交主控一格输入（**执行者据此没有行动、一份都没封**）：`host-integrated` 名下 13 个 present case
+> 今天全部由仓库自检判得出且全部成立（但都是 `mandatory: false`）——HOST 缺的是所有权决定，不是判据。
+>
 > **上一交接点（2026-09-26，1.20.1 的停止阶段松键缺口已从 `tested` 声明划出）**：
 > 收卡提交是 **`b03863e`**（两条 ref 与远端 SHA 已核：`git ls-remote` 上 `main` 与
 > `codex/core-state-transition` 同为 `b03863e2346ed559b6d33fe7482d7fa0619f82df`；GitHub Actions 对该 SHA 的
