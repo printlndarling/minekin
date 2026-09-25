@@ -3263,3 +3263,29 @@
 - 本轮到此为文档真值的一格：**没有提升任何门、没有动任何卡状态、没有碰 V08/远程服/HOST**。
   晋级窗口与规划视图的比对脚本留在 `.tmp/verify_plan_table.py` 与 `.tmp/verify_missing_table.py`，
   其中同步检查是**现场重跑**命令而非比对文本，所以忘了刷新时它会红。
+
+
+## 那份「按字节 digest 前后一致」的记录在 Windows 工作树上复算不出来——差的是行尾，不是内容（2026-09-26，`e5a78c0` 之后）
+
+- **触发**：HOST 设计卡收口时写下「原文按字节 digest `b0e30acb3afb…` 前后一致」。今天先确认交付物仍然成立：
+  `.tmp/check_host_design_anchors.py` ⇒ **`anchor rows parsed: 41`、`GREEN all structural and anchor
+  checks pass`、`exit 0`**（41 行锚点指向的源码行没有因为后续提交而漂移）。但直接量工作树
+  ⇒ `9160d4a844ee…`，**与记录不等**。
+- **不是内容被改**：`git log --oneline -- docs/host-admission-session-coordinate-design.md` **只有一条**
+  （`03eec4a`），`git status` 对该文件干净。差在行尾：`core.autocrlf=true`，而 `.gitattributes` 只把
+  `*.sh` / `gradlew` / `*.proto` 钉成 `text eol=lf`，`.md` 故意没钉 ⇒ 签出即 CRLF。
+  **算术**：blob 23609 字节 / 255 个 LF；工作树 23864 字节 / 255 个 LF / **255 个 CR**——
+  差值 255 正好一行一个 CR。
+- **正确的复算形状**：`git show HEAD:docs/host-admission-session-coordinate-design.md | sha256sum`
+  ⇒ `b0e30acb3afba1b6d1ac…`，与记录一致。写进主计划那一格的原句一字未动，只在它后面补了这段口径。
+- **通用后果（这才是修它的理由）**：本文与另两份执行文档同样是签出 CRLF，所以**任何在文档里引用的
+  「按字节 digest」都必须写明取自 blob 还是取自签出**，否则下一轮会把它读成"证据被改过"。
+  **没有去 `.gitattributes` 钉 `*.md`**：那会重写每份文档的签出形状，而且属配置决策、不在任何卡的
+  `allowed_paths` 内。
+- **校验**：`.tmp/verify_md_digest.py` 现场重算 blob/工作树 digest、行数、CR 数、`git log` 条数，
+  并与文档中的那一段逐项比对；带「切片过短即红」的守卫。**五条变异各红在自己理由上**：工作树 digest
+  改末位、blob 字节数改 23608、CR 数改 254、提交号改 `03eec4b` 各报一条 `claim not reproducible`。
+  **这个校验器自己也红过一次真错**：第一版用 12 位前缀比 blob digest，而切片里本来就含另一处
+  12 位写法，于是把 `…a1b6` 改成 `…a1b7` 仍然 `exit 0`——改成比对 16 位之后，末位篡改与截短篡改
+  两种都红。**「校验器绿了」不等于"它看了你要看的那一位"。**
+- **没动的**：设计文档本体（一动就真的动了那一格的证据）、`.gitattributes`、任何门与卡状态。

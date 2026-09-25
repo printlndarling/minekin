@@ -5958,6 +5958,16 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
      `is missing element`；加一句「本卡选定方案 B」→ `chooses an option`；删 R5 那一行 →
      `counterexample R5 missing`；截掉锚点表 → `anchor rows parsed: 0 < 30`（最后这条同时是校验脚本
      自身不空转的证据）。变异只写 `.tmp/` 副本，原文按字节 digest `b0e30acb3afb…` 前后一致。
+     （**09-26 复核这一格该怎么复算，否则它会骗人**：在 Windows 工作树上直接量
+     `sha256sum docs/host-admission-session-coordinate-design.md` 读 **`9160d4a844ee…`**，与上面那个值
+     **不等**——不是文档被改过（`git log` 上它只被 `03eec4a` 动过一次，`git status` 对它干净），是
+     `core.autocrlf=true` 而 `.gitattributes` 只把 `*.sh`/`gradlew`/`*.proto` 钉成 LF、`.md` 故意没钉，
+     签出即 CRLF：**blob 23609 字节 / 255 行，工作树 23864 字节 / 255 个 CR，差值正好一行一个 CR**。
+     复算要走 blob：`git show HEAD:docs/host-admission-session-coordinate-design.md | sha256sum` ⇒
+     `b0e30acb3afba1b6…`，与记录一致。**因此凡引用「按字节 digest」的格子，复算命令必须写明取自
+     blob 还是取自签出**——这两份文件今天都在 `.tmp/` 的脚本之外，改一份就等于动另一格的证据。
+     **没有去 `.gitattributes` 里钉 `*.md`**：那会一次性重写每份文档的签出形状，而且这是配置决策、
+     不在任何卡的 `allowed_paths` 里；本轮只把"这个数在哪里成立"写清楚。）
   4. **不动代码与判据**（验收 3）：改动只落在 `allowed_paths`（新文档 + 三份执行文档；校验脚本在
      `.tmp/`，被 Git 忽略）。全量门禁全绿：`ruff check` / `ruff format --check` /
      `pyright`（0 errors）/ `check_boundaries` / `check_case_assertions` / `verify_fixture_digests` /
