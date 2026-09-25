@@ -57,7 +57,32 @@ def build_parser() -> argparse.ArgumentParser:
     session_parser = commands.add_parser("session", help="manage the client session")
     session_commands = session_parser.add_subparsers(dest="session_command", required=True)
     session_start = session_commands.add_parser("start", help="start a managed session")
-    session_start.add_argument("--profile", required=True, metavar="PATH")
+    # Which client to run is asked exactly one way. The recipe names itself; the
+    # registry is the reviewed document the target is resolved against, so giving
+    # both would mean running one bundle while a second document claims the choice.
+    # argparse answers the both/neither case with exit 2 rather than letting one of
+    # the two win by precedence.
+    bundle_source = session_start.add_mutually_exclusive_group(required=True)
+    bundle_source.add_argument("--profile", metavar="PATH")
+    bundle_source.add_argument(
+        "--auto-bundle",
+        metavar="PATH",
+        help=(
+            "resolve the target of --server-profile against this reviewed bundle registry "
+            "and run the bundle it names"
+        ),
+    )
+    # Only meaningful with --auto-bundle, and deliberately without a default: the
+    # installer's budget rule is that a fill has to be asked for by name, so a
+    # session start that found an empty store refuses rather than downloading a
+    # gigabyte because nobody said otherwise.
+    session_start.add_argument(
+        "--max-bytes",
+        type=int,
+        default=None,
+        metavar="BYTES",
+        help="what an automatic bundle install may fetch (needs --auto-bundle)",
+    )
     # §15's surface lists `session start --profile ...`; this is an optional
     # second input document rather than a new verb, because the alternative —
     # a `session connect` command — would have to re-open a session that is

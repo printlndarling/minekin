@@ -22,6 +22,7 @@ from minekin_core.adapters.launcher.provision import (
     reviewed_entry,
 )
 from minekin_core.adapters.system.clock import SystemClock
+from minekin_core.cli.auto_session import prepare_auto_bundle_start
 from minekin_core.cli.doctor import diagnose
 from minekin_core.cli.evidence import verify_run
 from minekin_core.cli.init import initialise_identity
@@ -90,6 +91,86 @@ def _install_store_root(explicit: str | None) -> Path:
         return Path(explicit).resolve()
     root = data_root()
     return run_root(root, select_kin(root, kin_selector())) / STORE_DIRECTORY
+
+
+def _session_start_auto(args: argparse.Namespace, *, stdout: TextIO, stderr: TextIO) -> int:
+    """`session start --auto-bundle`: resolve the target, then launch what it resolved to.
+
+    The deciding itself lives in `cli.auto_session` so every refusal is reachable without
+    a JVM. What is added here is only the hand-off: the recipe the reviewed registry named
+    takes the place of the one the operator typed, and the launch is the same
+    `start_and_supervise` call the explicit `--profile` path makes.
+    """
+
+    if args.server_profile is None:
+        raise MinekinError(
+            "cli",
+            "session start --auto-bundle",
+            ErrorCategory.CONFIG,
+            Retryability.OPERATOR_ACTION,
+            "an automatic bundle start needs --server-profile: with no target there is no "
+            "observation to resolve a bundle from",
+        )
+    root = data_root()
+    selector = kin_selector()
+
+    def progress(done: int, total: int) -> None:
+        # stdout stays one document. A fill of thousands of artifacts is long enough to
+        # be worth reading while it happens, and the session's own report still comes
+        # back at the end unchanged.
+        if done == total or done % 100 == 0:
+            print(f"fetching {done}/{total}", file=stderr, flush=True)
+
+    decision = prepare_auto_bundle_start(
+        registry_path=Path(args.auto_bundle),
+        server_profile=Path(args.server_profile),
+        run_root=run_root(root, select_kin(root, selector)),
+        max_bytes=None if args.max_bytes is None else int(args.max_bytes),
+        on_progress=progress,
+    )
+    launch, session_run = asyncio.run(
+        start_and_supervise(
+            root=root,
+            profile=decision.recipe,
+            java_executable=java_executable(),
+            session_id=SessionId.new().value,
+            generation=1,
+            kin_selector=selector,
+            forward_environment=forwarded_environment(),
+            server_profile=Path(args.server_profile),
+            connection_timeout=(
+                DEFAULT_CONNECTION_TIMEOUT_S
+                if args.connection_timeout_seconds is None
+                else float(args.connection_timeout_seconds)
+            ),
+            hold_forward=(
+                None if args.hold_forward_seconds is None else float(args.hold_forward_seconds)
+            ),
+            hold_use=(None if args.hold_use_seconds is None else float(args.hold_use_seconds)),
+            hold_strafe=(None if args.hold_strafe is None else float(args.hold_strafe)),
+            hold_jump=bool(args.hold_jump),
+            hold_sneak=bool(args.hold_sneak),
+            hold_at=str(args.hold_at),
+            look_yaw_degrees=(
+                None if args.look_yaw_degrees is None else float(args.look_yaw_degrees)
+            ),
+            look_pitch_degrees=(
+                None if args.look_pitch_degrees is None else float(args.look_pitch_degrees)
+            ),
+            world_save=(None if args.world_save is None else Path(args.world_save)),
+            world_name=(None if args.world_name is None else str(args.world_name)),
+            identity_candidate=(
+                None if args.identity_candidate is None else str(args.identity_candidate)
+            ),
+            open_lan=bool(args.open_lan),
+            open_lan_port=int(args.open_lan_port),
+        )
+    )
+    _emit(
+        {**launch.as_dict(), "auto_bundle": decision.as_document(), "run": session_run.as_dict()},
+        stdout,
+    )
+    return int(_exit_code_for(session_run))
 
 
 def _bundle_install(args: argparse.Namespace, *, stdout: TextIO, stderr: TextIO) -> int:
@@ -178,6 +259,8 @@ def run(
         return int(ExitCode.OK)
 
     if args.command == "session" and args.session_command == "start":
+        if args.auto_bundle is not None:
+            return _session_start_auto(args, stdout=stdout, stderr=stderr)
         launch, run = asyncio.run(
             start_and_supervise(
                 root=data_root(),
