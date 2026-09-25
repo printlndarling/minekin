@@ -27,7 +27,7 @@
 | Fabric Loader | [meta.fabricmc.net](https://meta.fabricmc.net/v2/versions/loader/1.20.1) 对 1.20.1 报告最新 stable 为 `0.19.5`；[jar](https://maven.fabricmc.net/net/fabricmc/fabric-loader/0.19.5/fabric-loader-0.19.5.jar) SHA-1 `ff9e65cffca4a67f31523e1807fe0855940fcbfa`、大小 1,984,980；intermediary `net.fabricmc:intermediary:1.20.1` [jar](https://maven.fabricmc.net/net/fabricmc/intermediary/1.20.1/intermediary-1.20.1.jar) SHA-1 `97d0bff94981e37bd7a4362deee53c9a84e3fb21`、大小 573,365 | candidate 选 stable `0.19.5`（1.21.4 已封的是 `0.16.9`）；loader 版本是**可复核选择**而非既成 tested 事实，跨版本是否复用同一 Bridge 见下方可构建性评估 |
 | Fabric API | maven-metadata 中 1.20.1 线最新 release `0.92.12+1.20.1`；[jar](https://maven.fabricmc.net/net/fabricmc/fabric-api/fabric-api/0.92.12%2B1.20.1/fabric-api-0.92.12+1.20.1.jar) SHA-1 sidecar `3e9cdd3e2f827ca9a259df9eb8e31949437b6bd4`（下载后 `sha1sum` 复算即此值）、大小 2,137,232、自算 SHA-256 `4197ff4fbdac13cffccd267c1bc59e9fbabb2b5683a9d5f8023f4b5ea16a1c1e`；源码 [LICENSE](https://github.com/FabricMC/fabric-api) 为 Apache-2.0 | SHA-256 是 recipe 的强断言、SHA-1 是内容寻址缓存的键；两者都在此留痕。选该 release 只是可构建候选，不声称与 Bridge/Baritone 同跑已兼容 |
 | Yarn 映射 | [meta.fabricmc.net/v2/versions/yarn/1.20.1](https://meta.fabricmc.net/v2/versions/yarn/1.20.1) 最新 `1.20.1+build.10`（`net.fabricmc:yarn:1.20.1+build.10`，Yarn 一律标 stable=false） | 映射仅供研发；最终采用哪套 build 由 Loom/Gradle 对照与真实同步结果决定 |
-| Minekin Bridge | 本仓库自产产物，许可 `NOASSERTION`；1.20.1 的构建产物出自**顶层独立 root `bridge-1201/`**，jar sha256 `9e162d83…`/1,308,469B | recipe 按固定 SHA-256 钉住该 jar（不再是 `build_required`）；**不**用 1.21.4 的 digest 冒名，也不因构建成功称 1.20.1 为 `tested`——入服验收属 V04 |
+| Minekin Bridge | 本仓库自产产物，许可 `NOASSERTION`；1.20.1 的构建产物出自**顶层独立 root `bridge-1201/`**，当前 jar sha256 `e50d61c2…`/1,310,604B（V03 收口时为 `9e162d83…`/1,308,469B，`801f9ba` 后换代） | recipe 按固定 SHA-256 钉住该 jar（不再是 `build_required`）；**不**用 1.21.4 的 digest 冒名，也不因构建成功称 1.20.1 为 `tested`——入服验收属 V04 |
 
 ### 可构建性评估与停止点（不猜测，留证据）
 
@@ -77,6 +77,11 @@
 - **产物**：`bridge-1201/build/libs/minekin-bridge-1201-0.0.0.jar`，1,308,469 字节，
   sha256 `9e162d8359a886394ddd80db87477d9196ef3d2972e7a4d942df54a2f1e349bc`。只有这一个 jar
   进 recipe；同目录的 sources jar 不钉摘要（跨平台复算时它的字节并不稳定）。
+  **（2026-09-25 更正：该 jar 摘要与字节数是 V03 收口时的现场，`801f9ba` 让 1.20.1 root 声明自己真实运行的
+  版本后已换代为 1,310,604 字节 / `e50d61c209be98136216b34aadbb6d5a12db8def8aa63a536f32cda8e287006f`。
+  新 jar 的跨平台复现做的是三次（Windows `build`、Windows 依赖校验严格 `build`、Linux 容器 `clean build`）
+  且逐字节相同；本节 V03 的第四次（`--no-daemon check --rerun-tasks`）未对新 jar 重做。
+  读数见主计划 `reproducibility_hello`，本节其余内容不改写。）**
 - **跨平台可复现（这一步是量出来的）**：同一棵 1.20.1 源树在 (a) Windows + JDK
   `21.0.12.1+1-LTS-4` 与 (b) `eclipse-temurin:21-jdk-jammy` 容器（`Temurin-21.0.12+8`）各构建
   一次，(b) 又分「空 Gradle 缓存 + `--write-verification-metadata` 记录」与「用合并后的元数据、

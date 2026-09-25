@@ -220,6 +220,10 @@ bundle id 与结果；旧代回调不能推进新代。`BLOCKED` 不自动回退
   实测，前三条见卡内 `progress_record_15_counterexamples`，第四条由新案 `V1201-070` 的真实拒绝运行
   成立（`progress_record_17_fourth_counterexample_sealed`）。据此**允许**登记的精确组合只到
   `1.20.1 / linux-x86_64 / runner 自带 Java 21 / bridge 9e162d8359a8… / plan ac40316094dd…`。
+  **（2026-09-25 后续更正：`801f9ba` 修 `BridgeHello` 版本声明时重建了 1.20.1 candidate，这个精确组合的两项摘要
+  已换代为 bridge `e50d61c209be…` / plan `83299ad5e224…`；组合的范围不变——仍不含 Windows 侧、不含
+  use-target 路径。V04 四案的引用由该卡的换代 run 重新封证，见主计划 `moved_digests_hello` 1/4 与
+  `reseal_runs_hello`。）**
   **`tested` 的机器可读登记不在本卡落地**，理由与后果见主计划 `tested_registration_decision`：仓库今天
   没有 reviewed tested registry 文件，改 V03 已封存 candidate 的 `status` 字节会推动 fixture digest 与
   `case_version`，把刚封的四读全变成 `UNJUDGED`——那是改状态凑结论。承载属 V05（其允许路径含
@@ -240,7 +244,8 @@ bundle id 与结果；旧代回调不能推进新代。`BLOCKED` 不自动回退
 - **现况**（2026-09-25 收卡，`DONE`；登记 `c90bc51`、提升 `b9f7e2d`、交付 `f70fddc`）：验收线成立。
   解析边界是新纯领域模块 `src/minekin_core/domain/version_resolution.py`，清单是**新增的被审文件**
   `tests/fixtures/registry/reviewed-tested-bundles.json`（摘要 `d9e4823b80f5…`，以新增行进 fixture
-  manifest）——**没有**改动 V03 已封存 candidate 的 `status` 字节，两份 recipe 至今仍自称
+  manifest；**该文件摘要已随 `801f9ba` 换代为 `6aaa63420eee…`**，见主计划 `moved_digests_hello` 6）——**没有**
+  改动 V03 已封存 candidate 的 `status` 字节，两份 recipe 至今仍自称
   `candidate`/`recipe`（有反向测试断言这件事）。1.20.1 与 1.21.4 各自选到唯一 `tested` bundle，且各自
   引用**同一 build** 的独立封证；跨 build 引用、非 `PASS` 引用与无引用的 `tested` 条目由 loader 机械拒载，
   所以"旧 build 证据称为 tested"现在是代码约束而不是判据口号。未知协议/一对多/多版本代理/目标歧义/
@@ -296,6 +301,9 @@ bundle id 与结果；旧代回调不能推进新代。`BLOCKED` 不自动回退
   一条必须知道的既有事实：1.20.1 客户端今天能过握手，是因为 `bridge-1201` 那个 root 的
   `HandshakeGate.java:169` 拿 `"1.21.4"` 作期望值（V04 记的 `bridge_hello_version_defect`）——修它属
   `VERSION-BRIDGE-IDENTITY-001`，本卡**不越界**，也不得把它当作"版本校验已成立"的证据。
+  **（2026-09-25 后续更正：该缺陷由 `801f9ba` 修掉——Core 改为按本次会话的 plan 校验两个版本字段，
+  `bridge-1201` 声明它真实运行的 `1.20.1`/`0.19.5`；1.21.4 root 仍写死常量，另登
+  `BRIDGE-1214-RUNTIME-IDENTITY-001`。上面这段是 V07 领取时的现场，不改写。）**
 - **交付**（2026-09-25，实现 `5e53429` + 修正 `b0d08b6`，收卡见主计划）：自动路径落在**新增**
   `cli/auto_session.py`，顺序是 探测两次且必须一致 → 三处版本事实核对 → `resolve()` → **摘要门先于抓取** →
   `stop_recorded_clients` 停旧并取证 → 以新 `session_id` + `generation=1` 起新；`bootstrap.py` 只在
@@ -315,6 +323,10 @@ bundle id 与结果；旧代回调不能推进新代。`BLOCKED` 不自动回退
   provenance、V06 的安装失败反例，以及已排队的 `VERSION-BRIDGE-IDENTITY-001` 修复/重封影响。
   审查与必要修复均未收口前，本卡仍为 `QUEUED`，不得以现有 registry 的 `tested` 字节为由连接
   用户远程服。这里不改变 V07 的受控本地编排范围，也不改写任何历史证据。
+  **（读数更新，2026-09-25 `801f9ba`：本条点名的 `VERSION-BRIDGE-IDENTITY-001` 已 `DONE` 并按新 build 换掉了
+  registry 引用，`status`/`capabilities`/`gaps` 未动；仍待收口的是 `TESTED-PROVENANCE-VERIFY-001`、
+  `KEY-RELEASE-AT-STOP-001`、`STORE-FAILURE-EVIDENCE-001`、新登的 `BRIDGE-1214-RUNTIME-IDENTITY-001` 与
+  V07 的 `not_tested_v07` 缺口，故本卡仍为 `QUEUED`，判据不因此放宽。）**
 - **输入/输出**：运行者私有 profile（目标地址不进仓库）、V07 自动路径；仅一次受控
   1.20.1 入服 attempt，封存客户端/账本/必要服务端只读材料。
 - **允许路径**：私有运行配置与受控 runner、必要的目标 profile/证据记录、进度文档；

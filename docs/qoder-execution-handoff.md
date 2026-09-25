@@ -1,27 +1,37 @@
 # Qoder 临时执行交接（2026-09-24）
 
-> **最新交接点（2026-09-25，跨版本路线执行中）**：主计划**当前无 `NEXT`**——V07 `VERSION-SESSION-SWITCH-001`
-> 已 `DONE`（交付 `5e53429`+`b0d08b6`、收卡 `17e81ea`、CI 补记 `96fb520`），只读审查卡
-> `VERSION-TESTED-GATE-AUDIT-001` 也已 `DONE`（提升 `977dcf4`、收卡见本提交，追溯表在
-> [`tested-gate-audit-2026-09-25.md`](tested-gate-audit-2026-09-25.md)）。下一张**必须**是
-> `VERSION-BRIDGE-IDENTITY-001`（修 `BridgeHello` 谎报并重封 1.20.1），且仍须**另一次独立提交**提升；其后依序是
-> `TESTED-PROVENANCE-VERIFY-001`、`KEY-RELEASE-AT-STOP-001`、`STORE-FAILURE-EVIDENCE-001`。也**不是**下文
-> ADMIT-070 起步卡，更不是 V01–V06（七者均已 `DONE`；V06 交付 `06acbf1`、收卡 `d7a91f9`）。
+> **最新交接点（2026-09-25，跨版本路线执行中）**：主计划**当前无 `NEXT`**——`VERSION-BRIDGE-IDENTITY-001`
+> 已 `DONE`（实现 `801f9ba`、收卡见本提交）。下一张**必须**是已 `QUEUED` 的 `TESTED-PROVENANCE-VERIFY-001`
+> （把 registry 的 `tested` 变成对真实封存构件的机器核对），且仍须**另一次独立提交**提升；其后依序是
+> `BRIDGE-1214-RUNTIME-IDENTITY-001`（`801f9ba` 收卡新登：1.21.4 root 的 hello 常量仍写死）、
+> `KEY-RELEASE-AT-STOP-001`、`STORE-FAILURE-EVIDENCE-001`。也**不是**下文 ADMIT-070 起步卡，更不是 V01–V07
+> （均已 `DONE`；V07 交付 `5e53429`+`b0d08b6`、收卡 `17e81ea`+`96fb520`）。
 > **审查卡的四条硬事实**（决定 V08 为什么还不能领）：① 1.20.1 的 `tested` **没有被任何代码对真实封存构件校验过**
 > ——`resolve()` 只看 protocol/os_arch/version_text/status，条目摘要只与同一份文档的 evidence 段互比；
 > ② V06 安装门里 recipe/plan 两层是真算，**bridge 那层是 `recipe.py:71` 的常量搬运**，jar 真哈希只在启动阶段发生；
-> ③ 两个 Bridge root 的 hello 都写死 `1.21.4`/`0.16.9`，真实是 `1.20.1`/`0.19.5`，修它会让 jar/source/recipe/
-> plan/registry 摘要全部作废须重封重判；④ 1.20.1 **停止阶段显式松键无独立工件**（只有 Core 的
-> `INPUT_RELEASED(TIMEOUT)` 记账，registry 自己也标了 `STOP_PHASE_EXPLICIT_KEY_RELEASE`）。
+> ③ ~~两个 Bridge root 的 hello 都写死 `1.21.4`/`0.16.9`~~ ——**已由 `801f9ba` 修掉一半**：Core 现在按**本次会话**
+> 的 plan 校验两个版本字段，`bridge-1201` 改为声明它真实运行的 `1.20.1`/`0.19.5`；1.21.4 root 仍写死常量
+> （今天声明得对，但不是运行时读来的），故该事实只剩 1.21.4 一侧，属 `BRIDGE-1214-RUNTIME-IDENTITY-001`；
+> ④ 1.20.1 **停止阶段显式松键无独立工件**（只有 Core 的 `INPUT_RELEASED(TIMEOUT)` 记账，registry 自己也标了
+> `STOP_PHASE_EXPLICIT_KEY_RELEASE`）。
 > 因此 `tested` **可用于本地受控运行**（V07 就这么用的），**不可当作远程入服的充分证据**。
 > 同批更正：V06 收卡里"三类故障反例沿用既有 store 契约覆盖"不实——写失败注入与 store 层 `os.replace` 失败
 > 都没有测试，`artifacts.py:176-177` 的同 digest 并发分支无测试；登记为 `STORE-FAILURE-EVIDENCE-001` 补证。
+> **`801f9ba` 交付了什么**：`BridgeSession` 增必填 `minecraft_version`/`fabric_loader_version`（形状门 `VERSION_TEXT`
+> 守住"NUL 拼接即证明上下文"），`_validate_bridge_hello`/`_bridge_proof` 读会话字段而非字面量；bootstrap 从已审
+> plan 取版本、钉不住即拒；`bridge-1201` 新增 `ClientRuntimeIdentity`（从 Fabric mod container 读，读不到即失败关闭）
+> 并把它送进 `Expected`/`HandshakeGate`。1.20.1 candidate 重建为 jar `e50d61c209be…` / 1,310,604（Windows 两次 +
+> Linux 容器冷构建三次同一摘要），`V1201-010/020/040/070` 与 1.21.4 的 `CORE-010` 在受控 runner 上各重跑一次、
+> 逐个四读一致，registry 引用按实测换代（`status`/`capabilities`/`gaps` 一字未动）。**1.21.4 的
+> `faeec4a9…` / `bb456060…` / `9e0e0ccc…` 未动**，其黄金证明 `dd1e49ce…` 仍是正例、任一版本字段动一格即被同一
+> seam 拒。逐格账与移动的摘要清单见主计划 `moved_digests_hello`…`next_after_done`。
 > **V07 交付了什么**：`session start --auto-bundle <被审 registry> --server-profile <目标> --max-bytes N`
 > ——一条 fail-closed 自动路径（**新增** `cli/auto_session.py`，`bootstrap.py` 只加分派段，`cli/parser.py` 加入口
 > 形状），顺序为 两次观测必须一致 → 三处版本事实核对 → `resolve()` → **摘要门先于抓取** → `stop_recorded_clients`
 > 停旧并取证 → 以新 `session_id` + `generation=1` 起新。显式路径 `cli/session.py` 字节未变；markers 从不清除，
 > 旧进程"证不来"就停在 `PROCESS`，接管/强杀仍属 `PROCESS-RECOVERY-001`。**Bridge 握手常量的修复不属 V07**（属
-> `VERSION-BRIDGE-IDENTITY-001`）；1.20.1 客户端今天能过握手只是因为 `bridge-1201` 的 root 声明了 1.21.4。
+> `VERSION-BRIDGE-IDENTITY-001`）；1.20.1 客户端当时能过握手只是因为 `bridge-1201` 的 root 声明了 1.21.4
+> ——这一句在 `801f9ba` 之后不再成立，见上面最新交接点。
 > **V07 的真实读数**（受控 runner，两次 1.21.4 → 1.20.1 **顺序**切换）：目标侧探测 `OBSERVED protocol 763 /
 > version_text "1.20.1"`，旧侧 `NO_RESPONSE "the endpoint closed before any frame"`；自动路径自报
 > `bundle_id 1.20.1-linux-x86_64-offline-java21`、`launch_plan_digest ac403160…`、

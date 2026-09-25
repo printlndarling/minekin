@@ -12,15 +12,25 @@
 - `baseline_date`: 2026-09-22
 - `baseline_branch`: `main`
 - `baseline_remote`: `origin/main`
-- `current_next`: `VERSION-BRIDGE-IDENTITY-001`（本提交把已 `QUEUED` 的它单独提升为唯一 `NEXT`；上一张
-  `VERSION-TESTED-GATE-AUDIT-001` 已 `DONE`（提升 `977dcf4`、收卡 `518e2f2`，追溯表见
-  [tested 晋级门复判记录](tested-gate-audit-2026-09-25.md)），V07 收卡 `17e81ea`+`96fb520`，两 ref 均已核对）。
-  它排第一是因为审查结论 A5：两个 Bridge root 的 `BridgeHello` 都谎报 `1.21.4`/`0.16.9`，而修它会移动 1.20.1
-  的 jar / source tree / recipe / plan 摘要——**先重封，后两卡（provenance 核对、停止阶段松键）才有对象**。
-  本卡的产出会让现有 registry 条目摘要作废：**重封后必须另卡登记** registry 的更新，本卡不写 registry 字节。
+- `current_next`: 无（本收卡提交把 `VERSION-BRIDGE-IDENTITY-001` 标 `DONE`，树中不再有 `NEXT`）。下一张待提升的是
+  已 `QUEUED` 的 `TESTED-PROVENANCE-VERIFY-001`——它登记的措辞就要求排在"本卡与其重封之后"，现在前置已满足；
+  提升须**另一次独立提交**。其后依次是 `BRIDGE-1214-RUNTIME-IDENTITY-001`（本卡收卡新登）、
+  `KEY-RELEASE-AT-STOP-001`、`STORE-FAILURE-EVIDENCE-001`；这些与 V07 的 `not_tested_v07` 缺口全部收口前，
+  **不得提升 V08、连接用户远程服，或把 reviewed registry 的 `tested` 当作远程入服的充分证据**。
+  （上一张 `VERSION-TESTED-GATE-AUDIT-001` 已 `DONE`：提升 `977dcf4`、收卡 `518e2f2`，追溯表见
+  [tested 晋级门复判记录](tested-gate-audit-2026-09-25.md)；V07 收卡 `17e81ea`+`96fb520`。）
   用户在七场景总账后明确把“自动识别服务器版本 → 准备匹配客户端 → 入服并完成简单控制”排为优先路线；
   `VERSION-AUTO-DESIGN-001` 已交付[跨版本连续执行计划](version-auto-to-server-control-plan.md)。
-- `last_checkpoint`: **跨版本路线走到 tested 门复判收口**——审查卡 `VERSION-TESTED-GATE-AUDIT-001` 以六行结论
+- `last_checkpoint`: **跨版本路线走到 BridgeHello 版本配对修复收口**——`VERSION-BRIDGE-IDENTITY-001`（实现
+  `801f9ba`）让 Core 按**本次会话**的 plan 校验 `BridgeHello` 的两个版本字段（期望值不再写字面量，plan 钉不住即拒，
+  并用 `VERSION_TEXT` 形状门守住"NUL 拼接即证明上下文"这条不变量），1.20.1 root 改为声明它真实运行的
+  `1.20.1`/`0.19.5`（`ClientRuntimeIdentity` 从 Fabric 的 mod container 读，读不到就失败关闭）；1.21.4 的 jar
+  `faeec4a9…`、recipe `bb456060…`、plan `9e0e0ccc…` **一字未动**，其黄金证明 `dd1e49ce…` 仍是正例、任一版本字段动一格
+  即被同一 seam 拒。1.20.1 candidate 重建（jar `e50d61c2…` / 1,310,604，Windows 两次与 Linux 容器冷构建三次同一摘要）
+  并把 `V1201-010/020/040/070` + 1.21.4 的 `CORE-010` 在受控 runner 上各重跑一次、逐个四读一致，再按实测把
+  registry 引用换成新 build 真件（`status`/`capabilities`/`gaps` 未动）。随之移动的摘要逐条列在 `moved_digests_hello`；
+  1.21.4 root 仍写死常量这件事按停止条件另登 `BRIDGE-1214-RUNTIME-IDENTITY-001`，**其 `status` 与晋升不属本卡**。
+  **再此前**，跨版本路线走到 tested 门复判收口——审查卡 `VERSION-TESTED-GATE-AUDIT-001` 以六行结论
   （A1 成立但仅限 lease 到期松键；A2 停止阶段显式松键在 1.20.1 无独立工件；A3 registry `tested` 没有被任何代码
   对封存构件校验；A4 安装门里只有 bridge 那层是常量搬运；A5 两个 root 的 `BridgeHello` 都谎报 `1.21.4`/`0.16.9`；
   A6 V06 三类故障反例的"既有契约覆盖"口径不实）关闭，判定为"本地受控运行可用、远程自动选择不可作充分证据"，
@@ -45,7 +55,8 @@
   `.staging` 残留 5 个事务无 GC。完整读数与未测项见该卡 `delivery_record_v06`…`not_tested`。
   **上一轮** V05 `VERSION-RESOLVER-001` 交付的是纯领域解析边界：
   新模块 `src/minekin_core/domain/version_resolution.py` + 新增被审清单
-  `tests/fixtures/registry/reviewed-tested-bundles.json`（摘要 `d9e4823b80f5…`，以**新增行**进
+  `tests/fixtures/registry/reviewed-tested-bundles.json`（当时摘要 `d9e4823b80f5…`，现已随
+  `VERSION-BRIDGE-IDENTITY-001` 换代为 `6aaa63420eee…`，见该卡 `moved_digests_hello` 6；以**新增行**进
   `tests/fixtures/manifest.sha256`，既有 82 行未动）+ 44 条单元/契约测试。`tested` 从此有了机器可读承载，
   且由 loader 强制"证据必须来自同一 build"（跨 build 引用直接拒载），1.20.1 与 1.21.4 各自选到唯一
   bundle；歧义/代理/过期/非 tested 全部落到稳定失败类别，没有默认排序。**V05 没有证明的事**：解析未接入
@@ -4321,12 +4332,9 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 
 ### VERSION-BRIDGE-IDENTITY-001 — BridgeHello 版本声明配对修复
 
-- `status`: `NEXT`（`3c3a564` 登记 `QUEUED`，实测出自 `ce26394` 记的 `bridge_hello_version_defect`；本提交单独
-  提升为唯一 `NEXT`，当前无第二张 `NEXT`。**本卡会作废** V03 已封存的 1.20.1 candidate 摘要，须重建并重封，
-  收卡时把随之移动的摘要**逐条列全**（bridge jar sha256、`source_tree_sha256`、recipe 文件摘要与
-  `tests/fixtures/manifest.sha256` 对应行、launch plan 摘要、`recipe.py:71` 常量、registry 条目引用的旧值）。
-  registry 的 `status: tested` 不在本卡改——那要等 `TESTED-PROVENANCE-VERIFY-001` 用真件重算核对后再由独立
-  提交登记；本卡也不得以"改 registry 让旧摘要看起来对"的方式收口。）
+- `status`: `DONE`（实现 `801f9ba`；本收卡提交把卡片按 `question` 的三格如实记账。两条 `stop_conditions`
+  **都没有触发**：客户端运行时读到了自己真实的 loader 版本（`runtime_hello_reading`），1.21.4 的 jar / recipe / plan
+  摘要一字未改（`faeec4a9…` / `bb456060…` / `9e0e0ccc…`），也没有用"两侧写死另一个常量"冒充修复。）
 - `baseline_sha`: `3c3a564`（登记提交）；领取时实际 checkout = 本提升提交。
 - `depends_on`: `VERSION-BUNDLE-1201-001`（两套 root 与其摘要）、`VERSION-LOCAL-1201-001`
   （在当前写死常量下取得的闭环证据——它先成立，本卡才有东西可替换）。
@@ -4343,6 +4351,138 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
   recipe 不符即拒”的反例）。
 - `stop_conditions`: 若客户端运行时读不到真实 loader 版本，或必须改动已冻结的 1.21.4 产物摘要
   才能过——保留材料并报告，不静默替换 candidate，不把“两侧都写死另一个常量”当作修复。
+- `moved_digests_hello`（卡片点名"逐条列全"，全部旧→新）：
+  1. 1.20.1 bridge jar sha256 `9e162d8359a886394ddd80db87477d9196ef3d2972e7a4d942df54a2f1e349bc`
+     → `e50d61c209be98136216b34aadbb6d5a12db8def8aa63a536f32cda8e287006f`，size `1,308,469` → `1,310,604`；
+  2. `source_tree_sha256`（candidate fixture 的 `source_digest`）
+     `b5a817dda359ed5d350b814f53db45aa570ab7fc601c2ca150c65d0961ae1d20`
+     → `ab33714672dc48a8ebd3f288a1e9ffe96ec11b9315a41a85ed26742b11eed979`；
+  3. recipe 文件摘要 `f552b92aa9322b3cd2ff23fc0e927ff4b430e7d24974808e41341f412542c3bb`
+     → `8ce43e26b2e17b10e161a9367b990b62a5350132dd81662a97b4e734a1be0ea0`
+     （`tests/fixtures/manifest.sha256` 第 22 行同值替换）；
+  4. launch plan 摘要 `ac40316094dda001c2333bdaea00f886609a58982153b085f276d91d750db8bc`
+     → `83299ad5e224959de8e30c72c5937a2434c4d7bba92c62f4d22cf8d89f5f6181`（由 1–3 重算而来）；
+  5. `src/minekin_core/adapters/launcher/recipe.py:71-72` 的 `BRIDGE_1201_JAR_SHA256` / `_SIZE` 常量随之改为
+     `e50d61c2…` / `1_310_604`（其上方注释重述"两次构建同一摘要"的可复现依据）；
+  6. registry `tests/fixtures/registry/reviewed-tested-bundles.json` 自身摘要
+     `d9e4823b80f5ab0ed41f21448209517b260732d9bd9b13a231ec20b93d6270c7`
+     → `6aaa63420eeee3af1920fdc0f208ab4d3d1b262c0dde8ca83ee1f7d1420dcd52`（manifest 第 83 行）。1.20.1 条目的
+     `bridge_digest` / `launch_plan_digest` / `recipe_digest` 换成 1/3/4 的新值，四条引用整体换代：
+     `V1201-010 bc203c0e…/13471d2f…` → `8665b021…/dc30bdaa…`，`V1201-020 87229052…/6dd17bd6…` →
+     `ece5d0cb…/bc987a32…`，`V1201-040 f4cc67ae…/3d0ebebe…` → `155dcb4a…/435ab159…`，
+     `V1201-070 5b1cbef5…/46aa3f00…` → `ecebb080…/eb054c0a…`；1.21.4 条目只有握手案 `CORE-010` 换代
+     `e22cacf0…/6e0fc4fa…` → `73fec7d3…/98e32412…`，其 `bridge_digest` / `launch_plan_digest` / `recipe_digest`
+     与其余十一条引用**未动**；
+  7. `tests/fixtures/cases/core-070.json` 因 `tools/check_case_assertions.py --record` 重钉实现摘要而变：断言
+     `no_input_is_replayed_after_an_ambiguous_disconnect` `3a44204850b9b45639d8bd7410ab4269d4e1356e0d1fce7431ead644565ab9b3`
+     → `1560b0854480db15405133334f4505df3c4a50fb0ce936660d76cdb4bfc803ad`，文件摘要 `f467e42f…` → `1d583470…`
+     （manifest 第 38 行同步）。
+- `delivery_hello`（实现提交 `801f9ba`，21 文件 +353/−55）：Core 侧 `adapters/bridge/ipc.py` 给 `BridgeSession` 增加
+  必填 `minecraft_version` / `fabric_loader_version`，`__post_init__` 以新增的 `VERSION_TEXT`
+  （`^[0-9][0-9A-Za-z.\-_]{0,31}$`）拒形状不正的值——**因为证明上下文是这些字段 NUL 拼接后的 HMAC，允许分隔符
+  就等于允许跨字段伪造**；`_validate_bridge_hello:451-452` 与 `_bridge_proof:642-643` 的字面量改为读 `session.*`。
+  `adapters/bridge/bootstrap.py` 新增 `_bundle_version(plan, key)`：从已审 plan 的 `bundle.minecraft` /
+  `bundle.fabric_loader` 取值，缺 bundle 段或取不到可用值即以 `MinekinError` 拒（"the launch plan has no bundle
+  section" / "the launch plan has no usable bundle {key}"），再把它们交给 `bridge_session_for`。
+  1.20.1 root 侧新增 `runtime/ClientRuntimeIdentity.java`（51 行，从 `FabricLoader.getInstance().getModContainer(
+  "minecraft"/"fabricloader")` 读版本，任缺一件即 `orElseThrow` 失败关闭），`MinekinBridgeClient` 启动时取一次，
+  `BootstrapDescriptorAdapter.adapt(descriptor, identity)` 把它送进 `Expected`，`HandshakeGate.java:169` 只接受
+  `1.20.1`/`0.19.5` 这一对。**`bridge/`（1.21.4 root）字节未改**——它的 hello 仍是字面量，见 `not_tested_hello`。
+  未触碰：其它握手字段的判据、Player-Equivalent / lease / 准入、地址策略、已冻结的 1.21.4 产物。
+- `shared_selftest_fix_hello`（实现后的第二笔提交 `391cc2b`，CI 实测逼出来的）：`801f9ba` 推上去后 CI 的
+  `bridge-static` job 在 `tools/check_bridge_protocol.py` 这步**红了**（run **#526/#527**，本地全绿但那条门没跑）——
+  两个 root 共用的自测 `tools/java/BridgeProtocolSelfTest.java:323` 把 `1.21.4`/`0.16.9` 写死进 `Expected`，
+  而 1.20.1 的 `HandshakeGate` 现在钉的是 `1.20.1`/`0.19.5`，于是同一份文件在 `bridge-1201` 下必然抛
+  `game and Loader versions must match the 1.20.1 candidate`。修法是让**被检的 root 自己报名**：`tools/check_bridge_protocol.py`
+  读该 root 的 `gradle/libs.versions.toml` `[versions]` 表并以 `-Dminekin.selftest.minecraft=` /
+  `-Dminekin.selftest.fabric.loader=` 传给自测（表里缺任一键即 `SystemExit`），自测读到空值就以
+  `AssertionError` 失败——**不留默认值**，否则又变回一处写死。另加一格断言：拿任一其它版本对构造 `Expected`
+  必须被拒，钉"门只认自己 root 的那一对"。这条门改的是 `tools/`，不进 jar，封存摘要不受影响。
+  实测（本机 JDK 21.0.12.1，走真实 checker 只改 `root_versions` 的返回值）：两 root 各按自己表内值 →
+  `OK`；给 `bridge` 传 `1.20.1`/`0.19.5` → 拒；给 `bridge-1201` 传 `1.21.4`/`0.16.9` → 拒；不给属性 →
+  `AssertionError`。CI 那三个 step（scaffold / 两侧 host boundary / protocol + proto-java）本地全序列复跑亦 `OK`。
+- `local_gates_hello`（在实现提交前的同一棵树实测）：`uv run --frozen pytest` = **2439 passed / 2 skipped**
+  （V07 收卡时 2432，本卡净增 7 条）；`ruff check` All checks passed；`ruff format --check .` 316 files already
+  formatted；`uv run pyright` **0 errors**（`npx pyright` 会因环境不同给出 3 条 `pytest.approx` 假红灯，仓库门是
+  前者）；`tools/check_boundaries.py` OK；`tools/check_case_assertions.py` OK（139 registered）；
+  `tools/verify_fixture_digests.py` OK。CI 不作 Minecraft 验收证据。
+- `reseal_runs_hello`（受控 runner `minekin-runner:local` + 卷 `minekin-runner-data`，真 JVM、真 1.20.1 服务端；
+  每跑一次通过、四读一致：`evidence verify` = verified/sealed PASS，`rejudge` = AGREES，两个 replay 均 projected，
+  `report_promotion` 判 `from_repository_build: true`）：
+  `V1201-010` run `8665b021bb594f64baa9256ccbc70366` / bundle `dc30bdaa0ac100bf6e7f25c1399d45340d342ac733b41c5fea134eaf85448494`
+  （attempt 3）；`V1201-020` `ece5d0cb282946f786088bced9fbf4b1` / `bc987a3208a22a099a0effd29d94fdcd1c447585ed49846eb8970fc25533ad1f`（2）；
+  `V1201-040` `155dcb4a527643618a6c09d94b39dce0` / `435ab159045b18f222a011f9acea96c849c29e271ce926df382e4899afdd8bc3`（2）；
+  `V1201-070` `ecebb08084be468ea6372ba1d43c27d5` / `eb054c0af2aa91d81ad105061f0bd0bd0abc1371746ba9ae10836a09f925a0c8`（2）；
+  1.21.4 侧握手正例 `CORE-010` `73fec7d3103e4e33baf7f8db857020f2` / `98e32412c326c6954625df31fe14bfba960417f9e8ca9603a0fc25df752a8b84`
+  （attempt 2，supersedes `e22cacf088284598ad1928d426cc3a71`）。
+- `runtime_hello_reading`（两侧各一次真跑的封存 bundle 内读数，脚本 `.tmp/v09_hello_evidence.sh`）：1.20.1 bundle
+  （`V1201-020`）的 `client/latest.log` 第 1 行 `Loading Minecraft 1.20.1 with Fabric Loader 0.19.5`，且**整包**
+  `1.21.4` / `0.16.9` 出现次数为 0；1.21.4 bundle（`CORE-010`）的客户端日志 `Loading Minecraft 1.21.4 with Fabric
+  Loader 0.16.9`，`1.20.1` / `0.19.5` 出现次数 0；两份 `manifest.json` 各带自己的 `bridge_digest`
+  （`e50d61c2…` / `faeec4a9…`）与 `launch_plan_digest`（`83299ad5…` / `9e0e0ccc…`），case 结果均 `PASS`。
+  这就是"运行时读得到真实 loader 版本"这一停止条件的正面观测。
+- `reproducibility_hello`：新 1.20.1 jar 三次构建同一摘要 `e50d61c2…` / 1,310,604——Windows `build`、Windows
+  依赖校验严格 `build`、以及 Linux x86_64 容器内 `clean build`（`.tmp/v09-linux-cold-build.log`：现下 Gradle
+  8.12.1、18 tasks executed、`checkHostBoundaryArtifacts` OK、`gradle/verification-metadata.xml` 仍为
+  `23e10efa…`）。该日志末端的 `ImportError: StrEnum` 是容器 `python3`（3.10）跑校验脚本的措辞问题，与产物无关。
+- `counterexamples_hello`（每种一个稳定类别）：**声明与本次 plan 不符即拒**——`test_a_session_with_one_version_of_the_pair_moved_does_not_share_that_digest`
+  把 1.21.4 的黄金证明 `dd1e49ce34d4ce9662b48a7f35ead3910727244f7aae907081ab06514bdc0c5e` 原样送给字段动了一格
+  的会话，经真实回环 seam 由 `BridgeIpcHost.authenticate()` 判为 `IpcProtocolError … was rejected`（两个参数化方向：
+  minecraft、fabric_loader）；同文件保留"1.21.4 会话仍被它一直以来的摘要证明"的正例。plan 说不出发哪个 loader /
+  根本没有 bundle 段 → bootstrap 拒。版本形状不可钉（空串、尾空格、含 NUL、`v` 前缀、超长）× 两个键 → bootstrap
+  拒；直接构造 `BridgeSession` 持不可钉形状 → `ValueError`。Java 侧：`BootstrapDescriptorAdapterTest.
+  anIdentityThatIsNotThisRootsRecipeIsRefused`、`HandshakeGateTest.onlyTheVersionPairThisRootActuallyRunsIsAccepted`。
+  真件层反例是**供给链**那条：把 registry 指向日志里另一种 loader 拼写的 recipe（`.tmp/v09-candidate-wrong-loader.json`）后，
+  容器内 `bundle install` 在抓取前拒 `SUPPLY_CHAIN / launcher.provision` 退出码 **11**（"digests to 9b1aacc9…, not the
+  reviewed 8ce43e26…"）。被拒之后注册表照旧、无写副作用。
+- `registry_boundary_hello`：本卡**没有**改 registry 的 `status`、`capabilities`、`gaps` 或 1.21.4 的 bridge/plan/recipe
+  三条摘要，只按主控 2026-09-25 选定的路线把**引用**换成新 build 真件（"status 不动，全部引用换成新 build 真件"），
+  并把它写进 `notes`：1.21.4 其余十一条引用是**更早 build 的封存 + 当前代码的复判**，这一点显式声明而非留给摘要说话。
+  计划元数据第 20 行原本要求"重封后另卡登记 registry 更新"——主控指令优先于该措辞，偏差如实记在此格；
+  `tested` 是否成立仍由 `TESTED-PROVENANCE-VERIFY-001` 用真件重算后判定。
+- `not_tested_hello`：① **1.21.4 root 仍写死 hello 常量**——今天声明得对，但不是从运行时读来的；把它改成
+  `ClientRuntimeIdentity` 同源做法会动已冻结的 `bridge_source_sha256` 与 `launch_plan_digest`，本卡的停止条件禁止，
+  故另登 `BRIDGE-1214-RUNTIME-IDENTITY-001`（`QUEUED`）。② **"客户端真件自己谎报版本"的活体反例拿不到**：不篡改
+  已封存 bridge 就产不出这样的件，所以该反例只有契约测试 + Java 测试 + 上面那条供给链真跑支撑；活的错误声明
+  仍属未测。③ registry 的 `tested` 未经真件重算核对（`TESTED-PROVENANCE-VERIFY-001`）、1.20.1 停止阶段显式松键无
+  独立工件（`KEY-RELEASE-AT-STOP-001`）、V06 三类 store 故障注入缺证据（`STORE-FAILURE-EVIDENCE-001`）、
+  V07 的 `not_tested_v07` 缺口原样仍在。④ 用户的真实远程服未连接；look/move/松键的 V09/V10 动作本卡一律没做。
+  ⑤ recipe 声明 Java 17 而封存用 21 的 `RUNNER_JDK_17_UNSEALED` 缺口未变。
+- `docs_sync_hello`（摘要换代后，仓库里以**现在时**描述这些摘要的地方）：逐处只加带日期的更正括注，不改写历史
+  读数——本文件元数据 `last_checkpoint` 里 V05 段的 registry 摘要；[跨版本计划](version-auto-to-server-control-plan.md)
+  V04 段"允许登记的精确组合"（bridge/plan 两项摘要）与 V05 段 registry 摘要、V07 段握手缺陷现场；
+  [执行交接](qoder-execution-handoff.md) 事实 ③ 与"当时能过握手"那句；
+  [许可矩阵](version-license-matrix.md) 表格行与产物小节里"当前 jar 摘要/字节数"（并注明新 jar 只做过三次跨平台
+  复现，V03 的第四次 `--rerun-tasks` 未重做）。各卡内部 `delivery_record_v0x` / 真实读数按登记时点冻结，保持原样，
+  对账统一走 `moved_digests_hello` 的旧→新表。
+- `next_after_done`: `TESTED-PROVENANCE-VERIFY-001`（已 `QUEUED`，其登记文字本就要求排在"本卡与其重封之后"；
+  提升须下一次独立提交）。`BRIDGE-1214-RUNTIME-IDENTITY-001` 与 `KEY-RELEASE-AT-STOP-001`、
+  `STORE-FAILURE-EVIDENCE-001` 同样排在其后；三卡 + V07 缺口全部收口前**不得提升 V08**，也不得把 reviewed
+  registry 的 `tested` 当作远程入服的充分证据。
+
+### BRIDGE-1214-RUNTIME-IDENTITY-001 — 让 1.21.4 root 也声明它真实运行的版本
+
+- `status`: `QUEUED`（2026-09-25 由 `VERSION-BRIDGE-IDENTITY-001` 收卡登记。它**会**动已冻结的 1.21.4
+  `bridge_source_sha256`、jar 摘要与 `launch_plan_digest`，因此必须是独立一卡、独立重建与重封，不能夹在
+  任何"顺手对齐摘要"的提交里。）
+- `depends_on`: `VERSION-BRIDGE-IDENTITY-001`（`BridgeSession` 已按会话校验、`ClientRuntimeIdentity` 的形状已定）、
+  `TESTED-PROVENANCE-VERIFY-001`（先有机器核对，重封后的摘要才是可核对事实）。
+- `question`: 能否让 `bridge/`（1.21.4 root）像 1.20.1 root 一样从 Fabric 自己的 mod container 读取
+  `minecraft` / `fabricloader` 并送进 `Expected`，同时把 1.21.4 candidate 重建、重封、按实测换掉 registry 引用
+  （`status` 仍不动）？
+- `allowed_paths`: `bridge/src/main/java/**`（hello 常量来源与 `Expected` 装配）、`bridge/src/test/java/**`、
+  `src/minekin_core/adapters/launcher/recipe.py` 的 1.21.4 常量、`tests/fixtures/runtime-input/bundle-p0-core-1.21.4.json`、
+  `tests/fixtures/manifest.sha256` 对应行、`tests/fixtures/registry/reviewed-tested-bundles.json` 的**引用**字段、
+  受影响 case 的 `check_case_assertions` 重钉、进度文档。
+- `forbidden_paths`: registry 的 `status`/`capabilities`/`gaps` 字节、准入判据与 lease、地址策略、HOST/PERSIST、
+  以及任何"改判据让旧摘要继续成立"的做法。
+- `counterexamples`: 运行时拿不到 mod container → 失败关闭而非回落常量；声明与 plan 不符 → 拒；
+  未重建就改引用 → 拒。
+- `validation_class`: `LOCAL_THEN_REAL_RUN`——静态门 + 1.21.4 侧一次握手真跑与四读一致，外加引用换代后
+  `bundle install --dry-run` 与被替换 case 的复判。
+- `stop_conditions`: 若重封后 1.21.4 既有已 `tested` 引用无法在新 build 上重跑得证 → 保留材料并报告，
+  **不得**把旧 build 的引用继续当作当前证据，也不得靠放宽 `from_another_build` 判定过关。
+- `next_after_done`: 由主控按当时唯一 `NEXT` 判定；本卡不指定晋升顺序之外的动作。
 
 ### HOST-ADMISSION-DESIGN-001 — 宿主世界会话坐标来源
 
