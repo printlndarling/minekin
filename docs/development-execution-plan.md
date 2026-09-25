@@ -543,7 +543,7 @@ MSYS_NO_PATHCONV=1 docker run --rm -v "$PWD":/src:ro -v minekin-runner-data:/dat
   store_true flag 传值"。**后一条不是先验设定**：第一版没认出续行，把 `docs/development.md:94` 的
   `--derive-names` 误判成带值，修的是解析口径、判据本身一字未动。
   **五道反证**，各自红在自己那一条命名理由上（全部 `exit 1`，除对照组）：文档副本里加一个不存在的
-  `--json` → `UNKNOWN_FLAG report_promotion.py --json`；引用不存在的 `tools/report_coverage.py` →
+  `--json` → `UNKNOWN_FLAG report_promotion.py --json`；引用不存在的 `report_coverage.py` →
   `MISSING_SCRIPT`；把 `--derive-names` 后面接一个值 → `VALUE_FOR_STORE_TRUE_FLAG
   check_bridge_artifacts.py --derive-names`；**同处改回续行写法作 positive control → `exit 0`、
   `findings: []`**（证明上一条抓到的是真传值不是 parser 误报）；把扫描范围收窄到空目录 →
@@ -554,7 +554,12 @@ MSYS_NO_PATHCONV=1 docker run --rm -v "$PWD":/src:ro -v minekin-runner-data:/dat
   而清点读的是 **56 张卡 / `NEXT` = 0 / `QUEUED` = 0**，与本节上方 `current_next` 那句"暂无 `NEXT`"一致。
   更正以带日期的括号写在 todo 那一格上，原文留在 `f2116b0` 不静默改写——**flag 表要对着脚本源码核，
   卡 id 要对着 `grep` 与清点核，两者都不是"看起来对"就够了**。
-  本轮九道门 `2501 passed / 2 skipped` 与前一张卡**逐字相同**，另八道快门禁全 0。
+  **第六条是守卫抓到我自己登记的反例**：上面那条 `MISSING_SCRIPT` 反证，我最初把它的**输入**按命令形状
+  写成了带 `tools/` 前缀的 `report_coverage.py`，于是 `e4bcc1c` 之后重跑校验读到
+  **`scripts referenced: 30 | findings: 1`、`exit 1`、`MISSING_SCRIPT report_coverage.py`**——
+  守卫把自己记录的变异输入当成了真缺陷。修法是把记录改回不带前缀的名字（而不是给校验加豁免名单，
+  那等于让守卫学会放过自己）：**改前红、改后 `29 个脚本 / findings: 0 / exit 0`**，两道读数都在本节记录。
+  本轮九道门 `2501 passed / 2 skipped` 与前一张卡**逐字相同**（在最后一格 docs 改动之后重跑），另八道快门禁全 0。
 
 ## 最近完成
 

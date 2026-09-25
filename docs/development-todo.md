@@ -3310,7 +3310,9 @@
   行尾 `\` 续行不算"给 store_true flag 传值"。
 - 五道反证（`exit 1`，各自红在自己的命名理由上；对照组 `exit 0`）：
   1. 文档副本加 `--json` → `UNKNOWN_FLAG report_promotion.py --json`
-  2. 引用 `tools/report_coverage.py` → `MISSING_SCRIPT`
+  2. 引用不存在的 `report_coverage.py` → `MISSING_SCRIPT`（**这条登记的输入最初写成了带 `tools/` 前缀的命令形状，
+     于是 `e4bcc1c` 之后重跑校验读到 `scripts referenced: 30 / findings: 1 / exit 1`，守卫把自己记录的变异输入
+     当成了真缺陷**；改回不带前缀的名字后回到 `29 / findings: 0 / exit 0`。给校验加豁免名单不是修法——那等于让它学会放过自己）
   3. `--derive-names` 后接值 → `VALUE_FOR_STORE_TRUE_FLAG check_bridge_artifacts.py --derive-names`
   4. 同处改回续行写法（positive control）→ `exit 0`、`findings: []`
   5. 扫描范围收窄到空目录 → `SCAN_TOO_NARROW scripts: 0`（防"绿因为什么都没解析到"）
