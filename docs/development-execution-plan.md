@@ -4600,9 +4600,10 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
      `/data/kin/kin-02/run/artifact-store` = `4121` 个 blob 文件、`523,911,981` 字节（`du -sb`，约 525 MB；
      `quarantine` 与 `.staging` 均为 0 文件）。也就是说"从头装齐"意味着**数千次出站抓取**，单次真跑可能超过
      一个 10 分钟的命令行窗口——领取者应按后台长跑准备，并把清理放在同一脚本的 `trap` 里，别把它塞进交互式回合。
-  6. 由 1–5 得到的**下一步可复现配方**（尚未执行，故意不在此声称任何 run/bundle 摘要）：以
-     `MINEKIN_DOMAIN_KILL_CORE=1` 之类既有开关、指定一个新 `KIN` 名（不复用 `kin-01`/`kin-02`/
-     `kin-v07-*`）跑自动 `session start`，令其 `run/artifact-store` 保持为空并靠自动路径自己装齐；
+  6. 由 1–5 得到的**下一步可复现配方**（尚未执行，故意不在此声称任何 run/bundle 摘要）：指定一个新 `KIN` 名
+     （不复用 `kin-01`/`kin-02`/`kin-v07-*`）跑**正常**自动 `session start`，令其 `run/artifact-store`
+     保持为空并靠自动路径自己装齐。不要设置 `MINEKIN_DOMAIN_KILL_CORE=1`：它是上一张断连松键卡的故障注入开关，
+     会主动杀 Core，不是本卡取得 `PlayableEstablished` 所需的条件；
      判定要求是同一 run 内同时出现 `installed > 0` 与封存的 `PlayableEstablished`，随后用
      `evidence verify` / `rejudge_evidence` / `replay_evidence` / `report_promotion` 四读，并按
      惯例做至少一次"把断言输入换掉必须变红"的非空转反证。若 harness 在 `PlayableEstablished` 之前结束会话，

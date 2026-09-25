@@ -21,6 +21,11 @@
 > `report_promotion`）与至少一次非空转反证；若 harness 在 `PlayableEstablished` 之前结束会话，按卡的 `stop_conditions`
 > 停在 `BLOCKED_DECISION` 并保留失败材料，不改 `cli/auto_session.py` 的判据与顺序、不改 runner 等待语义。
 > V08 的门没有松动：V07 缺口是否算收口并据此提升 V08 由主控决定，registry 的 `status` 与九条 `gaps` 原样。
+> **续跑指令（2026-09-25）**：上述读数只是准备，不是本卡交付。恢复 goal 后应直接进入新 Kin 的受控真跑，
+> 不要再次以“脚本尚未写、长跑尚未启动”作为正常收尾；可以把下载/安装放进有日志与清理 `trap` 的后台作业，
+> 然后持续检查该作业直至拿到本卡要求的证据或触发明确停止条件。使用正常自动会话，**不要沿用上一张
+> `KEY-RELEASE-AT-STOP-001` 的 `MINEKIN_DOMAIN_KILL_CORE=1` 故障注入**。如果环境或 harness 使真跑无法继续，
+> 保存失败现场、标明触发的 `stop_conditions`，再交回主控；预检完成本身不构成停机条件。
 >
 > **上一交接点（2026-09-25，跨版本路线执行中）**：主计划当时**暂无 `NEXT`**——`STORE-FAILURE-EVIDENCE-001` 已由
 > `cfbb87c` 提升、由 `4be3d55` 收卡，`94cb15b` 把 V07 `not_tested_v07` 的头两格承接为新卡
