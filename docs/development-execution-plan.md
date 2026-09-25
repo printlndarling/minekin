@@ -24,7 +24,14 @@
   [tested 晋级门复判记录](tested-gate-audit-2026-09-25.md)；V07 收卡 `17e81ea`+`96fb520`。）
   用户在七场景总账后明确把“自动识别服务器版本 → 准备匹配客户端 → 入服并完成简单控制”排为优先路线；
   `VERSION-AUTO-DESIGN-001` 已交付[跨版本连续执行计划](version-auto-to-server-control-plan.md)。
-- `last_checkpoint`: **跨版本路线走到 BridgeHello 版本配对修复收口**——`VERSION-BRIDGE-IDENTITY-001`（实现
+- `last_checkpoint`: **跨版本路线走到 tested 摘要机器核对收口**——`TESTED-PROVENANCE-VERIFY-001`（实现
+  `c93cfa4`）把"registry 说 `tested`"从同一份文档的字段互比，变成代码对**真实封存构件**的独立核对：真算 bridge jar
+  的 sha256、真算 1.20.1 的 source tree 摘要、从 recipe 重建 launch plan、把每条引用的 `bundle_digest` 与卷内真件重算
+  对照，四层缺口一次报全。入口 `tools/verify_tested_provenance.py` **只读**（受控 runner 里卷以 `:/data:ro` 挂载，
+  正例 `exit=0`、`verified: true`，1.20.1 的 4 条与 1.21.4 的 12 条引用全部对真件通过），卡内五条反例各自落到一个
+  稳定类别，**没有任何摘要移动**、`tested` 的晋升仍归人工评审后的独立提交。逐格账见
+  `moved_digests_provenance`…`docs_sync_provenance`；未证一侧主要是"非 PASS 的引用只能单元证明"与"没有第二个 host
+  的构建对照"。**再此前**，**跨版本路线走到 BridgeHello 版本配对修复收口**——`VERSION-BRIDGE-IDENTITY-001`（实现
   `801f9ba`）让 Core 按**本次会话**的 plan 校验 `BridgeHello` 的两个版本字段（期望值不再写字面量，plan 钉不住即拒，
   并用 `VERSION_TEXT` 形状门守住"NUL 拼接即证明上下文"这条不变量），1.20.1 root 改为声明它真实运行的
   `1.20.1`/`0.19.5`（`ClientRuntimeIdentity` 从 Fabric 的 mod container 读，读不到就失败关闭）；1.21.4 的 jar
@@ -4262,11 +4269,11 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 
 ### TESTED-PROVENANCE-VERIFY-001 — 把 tested 摘要校验变成机器事实
 
-- `status`: `NEXT`（`518e2f2` 登记 `QUEUED`，来自审查结论 A3；本提交单独提升为唯一 `NEXT`，前置
+- `status`: `DONE`（`518e2f2` 登记 `QUEUED`，来自审查结论 A3；`e86ad8b` 单独提升为唯一 `NEXT`，前置
   `VERSION-BRIDGE-IDENTITY-001`（实现 `801f9ba`、重封 `bebcf5d`）已 `DONE`，校验对象是换代后的真件——
   jar `e50d61c209be…` / source tree `ab33714672dc…` / recipe `8ce43e26b2e1…` / plan `83299ad5e224…`。
-  收卡时必须说清：核对入口是否**只读**（写过任何 registry/封存字节即不合格）、五条反例各自的真实退出类别、
-  以及"常量搬运"是否真的被"对真件重算"取代——不许把"读到了常量"重新包装成"已校验"。）
+  收卡必答的三格：入口**只读**（见 `readonly_provenance`）、五条反例各自的真实退出类别（见
+  `counterexamples_provenance`）、"常量搬运"确已被"对真件重算"取代（见 `measurement_provenance`）。）
 - `baseline_sha`: `518e2f2`（登记提交）；领取时实际 checkout = 本提升提交。
 - `depends_on`: `VERSION-BRIDGE-IDENTITY-001`（新的 jar/source tree/recipe 摘要）、
   `VERSION-BUNDLE-1201-001`（封存过程）、`VERSION-INSTALLER-001`（现有 `require_reviewed_plan` 两层门）。
@@ -4289,6 +4296,60 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 - `stop_conditions`: 若 source tree 无法在 runner 内重算出可核对的摘要（构建不确定性）→ 保留材料并报告，
   **不得**把常量搬运重新包装成"已校验"；若需要改写任何封存字节才能对上 → 停；若需要放开 `tested` 的写入路径
   （让脚本自己晋升）→ 停在 `BLOCKED_DECISION`（那与 `tools/report_promotion.py:7-10` 的"只读只判"契约冲突）。
+- `moved_digests_provenance`：**没有任何摘要移动**。核对读到的四层真值与登记时一致——1.20.1 jar
+  `e50d61c209be…`（1,310,604 B）/ source tree `ab33714672dc…` / recipe 文件摘要 `8ce43e26b2e1…` /
+  plan `83299ad5e224…`；1.21.4 jar `faeec4a9df83…`（1,308,525 B）/ `507f708dc4e3…` / `bb45606023ce…` /
+  `9e0e0ccca9d0…`；registry 修订 `40e80a17a87b…` 原样。工作树只涉 4 个文件（2 改 2 新），
+  `tests/fixtures/registry/`、`tests/fixtures/manifest.sha256`、任何已封存 recipe/metadata/plan 字节 0 改动
+  （`tools/verify_fixture_digests.py` = OK）。
+- `delivery_provenance`（实现 `c93cfa4`）：domain 层 `ProvenanceViolation`（17 个 token）与
+  `BridgeMeasurement / CitationMeasurement / EntryMeasurements / ProvenanceFinding / EntryProvenance /
+  ProvenanceSummary` + 纯函数 `verify_entry_provenance` / `verify_registry_provenance`（不抛异常、一次给出全部
+  缺口、没有"读不到就当过"的短默认，`src/minekin_core/domain/version_resolution.py:839-1239`）；adapter 层
+  `BridgeBytes` / `measure_bridge`（取 `require_built_bridge` 同样三层事实但只取不判，
+  `src/minekin_core/adapters/launcher/recipe.py:445-502`）；入口 `tools/verify_tested_provenance.py`（320 行，
+  JSON 报告到 stdout，退出码 0 已核对 / 1 有拒绝 / 2 读不了）；测试 `tests/unit/test_tested_provenance.py`
+  （18 条）。
+- `measurement_provenance`（"常量搬运"有没有被真的换掉）：换掉了，并且**在被需要时才证明**。入口算 recipe 文件摘要
+  走的是执行那道门的实现本身（`from ...provision import _reviewed_digest`），不重述判据；桥的四层值全部由本机字节
+  现算，`test_the_bridge_bytes_are_measured_rather_than_the_pin_repeated` 在没有构建产物的 workspace 下跑，要求报告
+  **拿不到** jar 摘要（而不是把 `recipe.py` 的常量抄回来当读数）；有真件时同一条断言读数与 pin 相等。受控 runner 的
+  真跑（见 `real_run_provenance`）就是"有真件"那一侧的正面观测。
+- `readonly_provenance`（只读契约）：报告只写 stdout，`main()` 无任何写路径参数。
+  `test_the_entry_point_writes_nothing_it_was_pointed_at` 在跑完后重算 data root 内全部 manifest 摘要、registry
+  字节、`tests/fixtures/registry/` 目录清单与 recipe 字节并断言逐项不变。真跑时卷以 `:/data:ro` 挂载——入口若试图
+  写回封存件会直接失败，正例 `exit=0` 同时说明"没写任何东西也读得完"。`tested` 的晋升仍归人工评审后的独立提交，
+  `tools/report_promotion.py` 一字未改（未封但摘要完整的 bundle 只报告不拒，与它"摘要是保证、mode 是礼貌"同一立场）。
+- `real_run_provenance`（受控 runner 真件正例）：容器 `minekin-runner:local`，
+  `-v minekin-runner-data:/data:ro -w /src`，命令
+  `PYTHONPATH=/src/src python tools/verify_tested_provenance.py --registry
+  /src/tests/fixtures/registry/reviewed-tested-bundles.json --data-root /data --workspace-root /src` →
+  **`exit=0`、`verified: true`、`skipped_not_tested: []`**，1.20.1 条目 4 条引用、1.21.4 条目 12 条引用全部对卷内
+  真 bundle 重算并通过（含 jar / source tree / recipe / plan 四层）。原始报告 `.tmp/tp-runner-positive.json`，
+  反例脚本 `.tmp/tp-counter.sh` / `.tmp/tp-counter2.sh`。
+- `local_gates_provenance`（同一棵树实测）：`uv run --frozen pytest` = **2468 passed / 2 skipped**（本卡新增 18 条）；
+  `ruff check src tools tests` All checks passed；`ruff format --check src tools tests` 235 files already formatted；
+  `uv run pyright` **0 errors**；`tools/check_boundaries.py` OK；`tools/check_case_assertions.py` OK（139 registered）；
+  `tools/verify_fixture_digests.py` OK。
+- `counterexamples_provenance`（卡内五条，每条一个稳定类别，全部在**重封后的真件**上跑过一次，非仅单元）：
+  ① 摘要与真件不符——改掉一个已封存 bundle 的 `manifest.json` 字节 → `CITATION_BUNDLE_INCONSISTENT`（自洽校验先命中，
+  纯 `CITATION_DIGEST_MISMATCH` 方向由单元测试覆盖）；② 真件缺失/不可读——删掉被引用的 bundle 目录 →
+  `CITATION_BUNDLE_MISSING`，detail 点名 `no bundle directory is named 8665b021bb59…`；把 workspace 换成一个 recipe
+  可读、Bridge 不存在的目录 → `BRIDGE_JAR_MISSING`（点名 jar 路径）+ `SOURCE_TREE_MISSING`（点名 source root）+
+  `PLAN_UNBUILDABLE`，三个发现各说自己的工件；③ registry 引用从未封存的 digest——单元层
+  `test_a_citation_to_a_digest_nothing_was_sealed_under_is_refused`；④ 只改 registry 文本不改构件——把条目
+  `recipe_digest` 换成 64 个 `0`、构件全在 → 唯一发现 `RECIPE_DIGEST_MISMATCH`（并如实报真摘要 `8ce43e26b2e1…`）；
+  ⑤ 入口写任何文件 → 不合格由只读契约排除（见 `readonly_provenance`）。四次的真实退出码均为 1；每种结束时
+  `resolve()` 与安装门判据一字未动（`test_verifying_provenance_leaves_resolution_exactly_as_it_was`）。
+- `not_tested_provenance`：① "写文件即拒"没有被真去写一次来触发——靠只读契约与 `:ro` 挂载反证，若将来入口新增输出
+  参数需重测；② `CITATION_NOT_PASS` / `CITATION_BUILD_DISAGREES` / `CITATION_IDENTITY_MISMATCH` /
+  `CITATION_BUNDLE_UNREADABLE` 只有单元证据——真卷里今天没有一条"非 PASS"或跨构建的封存 bundle 可供指认（V03–V04
+  的失败 run 从未登记为引用）；③ 构建不确定性未被反证——只观察到当前 host 能重算出与 pin 相同的 source tree 摘要，
+  没有第二个 host 的对照；④ 1.21.4 root 仍写死 hello 常量（属 `BRIDGE-1214-RUNTIME-IDENTITY-001`），本卡核对的是它的
+  封存摘要，不是它的运行时声明；⑤ 用户远程服未连接，V08 探测/入服、V09 look/move/松键一律没做，V07 的
+  `not_tested_v07` 缺口原样仍在。
+- `docs_sync_provenance`：本卡收卡与提升分两次独立提交；进度文档同步见 `docs/development-todo.md` 与
+  `docs/qoder-execution-handoff.md` 的当日补记（不追改历史读数）。
 - `next_after_done`: `KEY-RELEASE-AT-STOP-001`。
 
 ### KEY-RELEASE-AT-STOP-001 — 停止阶段的松键要有独立工件

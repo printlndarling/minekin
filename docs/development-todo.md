@@ -2595,3 +2595,36 @@
   candidate 的 `status` 字节会移动 fixture digest 与 `case_version`、把四读打成 `UNJUDGED`。承载属 V05。
   收卡前门禁：`2359 passed / 2 skipped`、ruff check/format 干净、`git diff --check` 干净
   （`.tmp/v04-gate-chain-3.log`）。
+
+## TESTED-PROVENANCE-VERIFY-001 收卡：`tested` 第一次能被机器核对（2026-09-25，Windows + 受控 runner）
+
+- **加了什么**：`domain/version_resolution.py:839-1239` 的纯核对层（`ProvenanceViolation` 17 个 token、
+  `BridgeMeasurement / CitationMeasurement / EntryMeasurements / ProvenanceFinding / EntryProvenance /
+  ProvenanceSummary`、`verify_entry_provenance` / `verify_registry_provenance`——一次报全缺口、不抛、没有"读不到
+  就当过"）；`adapters/launcher/recipe.py:445-502` 的 `BridgeBytes` / `measure_bridge`（取 `require_built_bridge`
+  同样三层事实但只取不判，jar 与 source tree 各有自己的失败措辞）；入口 `tools/verify_tested_provenance.py`
+  （只读，JSON 到 stdout，退出 0/1/2）；`tests/unit/test_tested_provenance.py` 18 条。
+- **它核对什么**：registry 每条 `tested` 的四层构建事实（recipe 文件摘要、source tree 摘要、从 recipe 重建的
+  launch plan、桥 jar 真哈希）**加**它引用的每一条 bundle（重算 `sha256(manifest.json)`、case 结果、构建一致性、
+  run id 与目录是否唯一）。recipe 摘要走 `provision._reviewed_digest` 本身——判据不留第二份拼写。
+- **受控 runner 真件正例**：容器 `minekin-runner:local`、卷 `minekin-runner-data` 以 `:/data:ro` 挂载，
+  `PYTHONPATH=/src/src python tools/verify_tested_provenance.py --registry …/reviewed-tested-bundles.json
+  --data-root /data --workspace-root /src` → `exit=0`、`verified: true`、`skipped_not_tested: []`；
+  1.20.1 条目 4 条引用、1.21.4 条目 12 条引用全通过，读数 jar `e50d61c209be…`(1,310,604) /
+  source `ab33714672dc…` / recipe `8ce43e26b2e1…` / plan `83299ad5e224…`（1.21.4 侧
+  `faeec4a9df83…`(1,308,525) / `507f708dc4e3…` / `bb45606023ce…` / `9e0e0ccca9d0…`），原始报告
+  `.tmp/tp-runner-positive.json`。
+- **五条反例的真实退出类别**（脚本 `.tmp/tp-counter.sh` / `.tmp/tp-counter2.sh`，四次 `exit=1`）：改动已封存
+  bundle 的 `manifest.json` 字节 → `CITATION_BUNDLE_INCONSISTENT`；删掉被引用的 bundle 目录 →
+  `CITATION_BUNDLE_MISSING`（detail 点名 run id）；只把 registry 条目的 `recipe_digest` 换成 64 个 `0`、构件全在 →
+  唯一发现 `RECIPE_DIGEST_MISMATCH` 并如实报真摘要；workspace 换成 recipe 可读而 Bridge 不在 → `BRIDGE_JAR_MISSING`
+  （点名 jar 路径）+ `SOURCE_TREE_MISSING`（点名 source root）+ `PLAN_UNBUILDABLE`；"入口写文件即不合格"由只读契约
+  排除（测试跑完重算 data root/registry/recipe 字节并断言不变，真跑卷只读挂载）。每种结束时 `resolve()` 与安装门
+  判据一字未动。
+- **不证明什么**：真卷里没有非 PASS / 跨构建的封存 bundle，故 `CITATION_NOT_PASS`、`CITATION_BUILD_DISAGREES`、
+  `CITATION_IDENTITY_MISMATCH`、`CITATION_BUNDLE_UNREADABLE` 只有单元证据；构建可重算性只在当前 host 上被观察，
+  无第二 host 对照；核对入口**不在**启动/安装调用链上——把它变成运行时前置门是产品决策；V08 远程探测、入服与
+  V09/V10 的 look/move/松键一律没做，用户远程服未连接。
+- **门禁**：`uv run --frozen pytest` 2468 passed / 2 skipped（本卡 +18）、`ruff check` 与 `ruff format --check`
+  干净、`pyright` 0 errors、`check_boundaries` / `check_case_assertions`(139) / `verify_fixture_digests` 全 OK。
+  收卡提交前 `git status` 只有 4 个文件（2 改 2 新）——**没有移动任何已封存摘要**。
