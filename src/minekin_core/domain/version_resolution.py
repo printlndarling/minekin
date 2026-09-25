@@ -834,3 +834,406 @@ def resolve(
         candidates=(agreeing[0].bundle_id,),
         bundle=agreeing[0],
     )
+
+
+class ProvenanceViolation(StrEnum):
+    """One way an entry's claim to `tested` fails to be a fact about real artifacts.
+
+    Loading a registry only proves the document agrees with itself. These tokens
+    name the ways the sealed bytes the entry cites can still disagree with it, so
+    that a check against the artifacts themselves has a vocabulary to report in —
+    every one of them is a refusal, and none of them is a softer default.
+    """
+
+    ENTRY_NOT_MEASURED = "ENTRY_NOT_MEASURED"
+    RECIPE_UNREADABLE = "RECIPE_UNREADABLE"
+    RECIPE_DIGEST_MISMATCH = "RECIPE_DIGEST_MISMATCH"
+    SOURCE_TREE_MISSING = "SOURCE_TREE_MISSING"
+    SOURCE_DIGEST_MISMATCH = "SOURCE_DIGEST_MISMATCH"
+    BRIDGE_JAR_MISSING = "BRIDGE_JAR_MISSING"
+    BRIDGE_JAR_DIGEST_MISMATCH = "BRIDGE_JAR_DIGEST_MISMATCH"
+    PLAN_UNBUILDABLE = "PLAN_UNBUILDABLE"
+    PLAN_DIGEST_MISMATCH = "PLAN_DIGEST_MISMATCH"
+    CITATION_UNMEASURED = "CITATION_UNMEASURED"
+    CITATION_BUNDLE_MISSING = "CITATION_BUNDLE_MISSING"
+    CITATION_BUNDLE_UNREADABLE = "CITATION_BUNDLE_UNREADABLE"
+    CITATION_BUNDLE_INCONSISTENT = "CITATION_BUNDLE_INCONSISTENT"
+    CITATION_DIGEST_MISMATCH = "CITATION_DIGEST_MISMATCH"
+    CITATION_IDENTITY_MISMATCH = "CITATION_IDENTITY_MISMATCH"
+    CITATION_NOT_PASS = "CITATION_NOT_PASS"
+    CITATION_BUILD_DISAGREES = "CITATION_BUILD_DISAGREES"
+
+
+@dataclass(frozen=True, slots=True)
+class BridgeMeasurement:
+    """What the build host holds for the Bridge one entry names.
+
+    Measured, not recalled: `jar_sha256` is the hash of the bytes that are there
+    now, and None means there were no bytes to hash. The pin stays where it is —
+    in the entry, and in `recipe.py` as the expectation — because this is the half
+    that answers "and what is actually on this machine?".
+    """
+
+    source_root: str
+    jar_path: str
+    jar_sha256: str | None
+    jar_size: int | None
+    source_digest: str | None
+    detail: str | None = None
+    source_detail: str | None = None
+
+    def as_document(self) -> dict[str, object]:
+        return {
+            "source_root": self.source_root,
+            "jar_path": self.jar_path,
+            "jar_sha256": self.jar_sha256,
+            "jar_size": self.jar_size,
+            "source_digest": self.source_digest,
+            "detail": self.detail,
+            "source_detail": self.source_detail,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class CitationMeasurement:
+    """One sealed evidence bundle, re-read from the store rather than trusted by name.
+
+    `bundle_digest` is the digest recomputed from the manifest bytes; `case_id`,
+    `result`, `bridge_digest` and `launch_plan_digest` are what that manifest
+    itself says. A citation is only support if all of it lines up with the
+    registry's claim, so the fields are kept apart from the findings on purpose.
+
+    `sealed` is read-only mode bits, reported and never refused: the digest is the
+    guarantee and the mode is a courtesy, which is the position
+    `tools/report_promotion.py` already takes. Editing the bytes of a writable
+    bundle cannot hide itself here anyway — the manifest digest is what the
+    registry cites, and it moves with them.
+    """
+
+    run_id: str
+    present: bool
+    readable: bool
+    sealed: bool
+    consistent: bool
+    bundle_digest: str | None
+    case_id: str | None = None
+    result: str | None = None
+    bridge_digest: str | None = None
+    launch_plan_digest: str | None = None
+    detail: str | None = None
+
+    def as_document(self) -> dict[str, object]:
+        return {
+            "run_id": self.run_id,
+            "present": self.present,
+            "readable": self.readable,
+            "sealed": self.sealed,
+            "consistent": self.consistent,
+            "bundle_digest": self.bundle_digest,
+            "case_id": self.case_id,
+            "result": self.result,
+            "bridge_digest": self.bridge_digest,
+            "launch_plan_digest": self.launch_plan_digest,
+            "detail": self.detail,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class EntryMeasurements:
+    """Everything one host could measure about one registry entry."""
+
+    recipe_digest: str | None
+    recipe_source_digest: str | None
+    plan_sha256: str | None
+    bridge: BridgeMeasurement | None
+    citations: tuple[CitationMeasurement, ...]
+    detail: str | None = None
+
+    def as_document(self) -> dict[str, object]:
+        return {
+            "recipe_digest": self.recipe_digest,
+            "recipe_source_digest": self.recipe_source_digest,
+            "plan_sha256": self.plan_sha256,
+            "bridge": None if self.bridge is None else self.bridge.as_document(),
+            "citations": [item.as_document() for item in self.citations],
+            "detail": self.detail,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class ProvenanceFinding:
+    """One refusal, and the artifact it was about."""
+
+    violation: ProvenanceViolation
+    subject: str
+    detail: str
+
+    def as_document(self) -> dict[str, object]:
+        return {"violation": self.violation.value, "subject": self.subject, "detail": self.detail}
+
+
+@dataclass(frozen=True, slots=True)
+class EntryProvenance:
+    """What one entry's `tested` claim is worth on the machine that measured it."""
+
+    bundle_id: str
+    verified: bool
+    findings: tuple[ProvenanceFinding, ...]
+    measured: EntryMeasurements | None
+
+    def as_document(self) -> dict[str, object]:
+        return {
+            "bundle_id": self.bundle_id,
+            "verified": self.verified,
+            "findings": [item.as_document() for item in self.findings],
+            "measured": None if self.measured is None else self.measured.as_document(),
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class ProvenanceSummary:
+    """The verification of every tested entry in one registry document."""
+
+    registry_revision: str
+    verified: bool
+    entries: tuple[EntryProvenance, ...]
+    skipped: tuple[str, ...]
+
+    def as_document(self) -> dict[str, object]:
+        return {
+            "schema_version": 1,
+            "kind": "tested-provenance-report",
+            "registry_revision": self.registry_revision,
+            "verified": self.verified,
+            "entries": [item.as_document() for item in self.entries],
+            "skipped_not_tested": list(self.skipped),
+        }
+
+
+def _finding(
+    found: list[ProvenanceFinding], violation: ProvenanceViolation, subject: str, detail: str
+) -> None:
+    found.append(ProvenanceFinding(violation=violation, subject=subject, detail=detail))
+
+
+def _citation_findings(
+    entry: RegistryEntry,
+    citation: CitationMeasurement | None,
+    ref: EvidenceRef,
+    found: list[ProvenanceFinding],
+) -> None:
+    subject = f"{ref.case_id}@{ref.run_id}"
+    if citation is None or citation.run_id != ref.run_id:
+        _finding(
+            found,
+            ProvenanceViolation.CITATION_UNMEASURED,
+            subject,
+            "no bundle was measured for this run id; an unmeasured citation is not verified",
+        )
+        return
+    if not citation.present:
+        _finding(
+            found,
+            ProvenanceViolation.CITATION_BUNDLE_MISSING,
+            subject,
+            citation.detail or f"no sealed bundle is stored under {ref.run_id}",
+        )
+        return
+    if not citation.readable:
+        _finding(
+            found,
+            ProvenanceViolation.CITATION_BUNDLE_UNREADABLE,
+            subject,
+            citation.detail or f"the bundle stored under {ref.run_id} cannot be read",
+        )
+        return
+    if not citation.consistent:
+        _finding(
+            found,
+            ProvenanceViolation.CITATION_BUNDLE_INCONSISTENT,
+            subject,
+            citation.detail
+            or f"the bundle stored under {ref.run_id} does not verify against its own manifest",
+        )
+        return
+    if citation.bundle_digest != ref.bundle_digest:
+        _finding(
+            found,
+            ProvenanceViolation.CITATION_DIGEST_MISMATCH,
+            subject,
+            f"the bundle there digests to {citation.bundle_digest}, not the cited "
+            f"{ref.bundle_digest}",
+        )
+    if citation.case_id != ref.case_id:
+        _finding(
+            found,
+            ProvenanceViolation.CITATION_IDENTITY_MISMATCH,
+            subject,
+            f"the bundle under {ref.run_id} describes case {citation.case_id}",
+        )
+    if citation.result != "PASS":
+        _finding(
+            found,
+            ProvenanceViolation.CITATION_NOT_PASS,
+            subject,
+            f"the bundle's own manifest records {citation.result}, not PASS",
+        )
+    if (
+        citation.bridge_digest != entry.bridge_digest
+        or citation.launch_plan_digest != entry.launch_plan_digest
+    ):
+        # The registry loader already refuses a citation that names another build, so
+        # reaching here means the document was loaded by something that skipped that
+        # rule. It is still a refusal, because this check is the one that reads the
+        # sealed bytes.
+        _finding(
+            found,
+            ProvenanceViolation.CITATION_BUILD_DISAGREES,
+            subject,
+            f"the bundle was sealed against bridge {citation.bridge_digest} and plan "
+            f"{citation.launch_plan_digest}, not the entry's {entry.bridge_digest} and "
+            f"{entry.launch_plan_digest}",
+        )
+
+
+def verify_entry_provenance(
+    entry: RegistryEntry, measurements: EntryMeasurements | None
+) -> EntryProvenance:
+    """Say what an entry's `tested` claim is worth, given what a host could measure.
+
+    Every check here compares a claim against a measurement, and a missing
+    measurement is its own refusal rather than a pass: the question this answers is
+    "did someone hash the real thing?", and "nobody did" is not a yes.
+
+    Nothing about `resolve()` changes. This cannot make an entry resolvable,
+    quotable, or installable — it only reports whether the artifacts back the word
+    `tested`, and a `False` here is strictly more caution than no measurement.
+    """
+
+    found: list[ProvenanceFinding] = []
+    if measurements is None:
+        _finding(
+            found,
+            ProvenanceViolation.ENTRY_NOT_MEASURED,
+            entry.bundle_id,
+            "nothing was measured for this entry",
+        )
+        return EntryProvenance(entry.bundle_id, False, tuple(found), None)
+
+    if measurements.recipe_digest is None:
+        _finding(
+            found,
+            ProvenanceViolation.RECIPE_UNREADABLE,
+            entry.recipe_path,
+            measurements.detail or f"recipe {entry.recipe_path} could not be read",
+        )
+    elif measurements.recipe_digest != entry.recipe_digest:
+        _finding(
+            found,
+            ProvenanceViolation.RECIPE_DIGEST_MISMATCH,
+            entry.recipe_path,
+            f"{entry.recipe_path} digests to {measurements.recipe_digest}, not the reviewed "
+            f"{entry.recipe_digest}",
+        )
+
+    bridge = measurements.bridge
+    if bridge is None:
+        _finding(
+            found,
+            ProvenanceViolation.BRIDGE_JAR_MISSING,
+            entry.bundle_id,
+            # A consequence, not a claim about the jar: the version the Bridge is
+            # named by never reached the disk, so say which reading stopped.
+            "no Bridge bytes were measured for this entry's version"
+            if measurements.detail is None
+            else f"no Bridge bytes were measured: {measurements.detail}",
+        )
+    else:
+        if bridge.jar_sha256 is None:
+            _finding(
+                found,
+                ProvenanceViolation.BRIDGE_JAR_MISSING,
+                bridge.jar_path,
+                bridge.detail or f"{bridge.jar_path} is not there to be hashed",
+            )
+        elif bridge.jar_sha256 != entry.bridge_digest:
+            _finding(
+                found,
+                ProvenanceViolation.BRIDGE_JAR_DIGEST_MISMATCH,
+                bridge.jar_path,
+                f"{bridge.jar_path} digests to {bridge.jar_sha256}, not the reviewed "
+                f"{entry.bridge_digest}",
+            )
+        if measurements.recipe_source_digest is None:
+            _finding(
+                found,
+                ProvenanceViolation.SOURCE_TREE_MISSING,
+                bridge.source_root,
+                "the recipe names no source digest for its Bridge artifact",
+            )
+        elif bridge.source_digest is None:
+            _finding(
+                found,
+                ProvenanceViolation.SOURCE_TREE_MISSING,
+                bridge.source_root,
+                # `bridge.detail` is the jar's story; a source tree that cannot be
+                # hashed has its own, or a reader is told the jar went missing twice.
+                bridge.source_detail
+                or f"the source tree {bridge.source_root} cannot be hashed on this host",
+            )
+        elif bridge.source_digest != measurements.recipe_source_digest:
+            _finding(
+                found,
+                ProvenanceViolation.SOURCE_DIGEST_MISMATCH,
+                bridge.source_root,
+                f"{bridge.source_root} hashes to {bridge.source_digest}, but the reviewed recipe "
+                f"seals {measurements.recipe_source_digest}",
+            )
+
+    if measurements.plan_sha256 is None:
+        _finding(
+            found,
+            ProvenanceViolation.PLAN_UNBUILDABLE,
+            entry.recipe_path,
+            measurements.detail or "no launch plan could be built from the recipe on this host",
+        )
+    elif measurements.plan_sha256 != entry.launch_plan_digest:
+        _finding(
+            found,
+            ProvenanceViolation.PLAN_DIGEST_MISMATCH,
+            entry.recipe_path,
+            f"the plan built from {entry.recipe_path} digests to {measurements.plan_sha256}, "
+            f"not the reviewed {entry.launch_plan_digest}",
+        )
+
+    measured = {item.run_id: item for item in measurements.citations}
+    for ref in entry.evidence:
+        _citation_findings(entry, measured.get(ref.run_id), ref, found)
+
+    ordered = tuple(sorted(found, key=lambda item: (item.violation.value, item.subject)))
+    return EntryProvenance(entry.bundle_id, not ordered, ordered, measurements)
+
+
+def verify_registry_provenance(
+    registry: ReviewedBundleRegistry,
+    measurements: Mapping[str, EntryMeasurements | None],
+) -> ProvenanceSummary:
+    """Verify every `tested` entry the registry carries, and name what it skipped."""
+
+    entries = tuple(
+        verify_entry_provenance(entry, measurements.get(entry.bundle_id))
+        for entry in registry.entries
+        if entry.status is BundleStatus.TESTED
+    )
+    return ProvenanceSummary(
+        registry_revision=registry.revision,
+        verified=bool(entries) and all(entry.verified for entry in entries),
+        entries=entries,
+        skipped=tuple(
+            sorted(
+                entry.bundle_id
+                for entry in registry.entries
+                if entry.status is not BundleStatus.TESTED
+            )
+        ),
+    )

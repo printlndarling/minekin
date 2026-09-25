@@ -439,3 +439,64 @@ def require_built_bridge(workspace_root: Path, minecraft_version: str) -> Path:
             f"the pinned digest"
         )
     return jar
+
+
+@dataclass(frozen=True, slots=True)
+class BridgeBytes:
+    """What one version's Bridge actually is on the machine asking.
+
+    The same three facts `require_built_bridge` checks, taken without deciding
+    anything: the jar's bytes, the jar's length, and the hash of its source tree.
+    A `None` means the thing was not there to be measured. `detail` says so for the
+    jar and `source_detail` for the tree, because one gap swallowed by the other is
+    an audit that names the wrong artifact.
+    """
+
+    source_root: str
+    jar_path: str
+    jar_sha256: str | None
+    jar_size: int | None
+    source_digest: str | None
+    detail: str | None = None
+    source_detail: str | None = None
+
+
+def measure_bridge(workspace_root: Path, minecraft_version: str) -> BridgeBytes:
+    """Hash the Bridge a version names and report the readings, refuses included.
+
+    `require_built_bridge` stops at the first wrong byte, which is right at launch
+    and wrong for an audit: someone asking "what does the machine actually hold?"
+    needs every gap in one answer, not the first one plus a stack. So nothing here
+    compares anything — the pin stays in `bridge_identity` as the expectation, and
+    the domain layer is where a reading becomes a finding.
+    """
+
+    identity = bridge_identity(minecraft_version)
+    jar = workspace_root / identity.jar_relative_path
+    sha256 = None
+    size = None
+    detail = None
+    try:
+        payload = jar.read_bytes()
+    except OSError as error:
+        detail = f"{jar} is not readable: {type(error).__name__}"
+    else:
+        sha256 = hashlib.sha256(payload).hexdigest()
+        size = len(payload)
+    source_digest = None
+    source_detail = None
+    try:
+        source_digest = source_tree_sha256(workspace_root / identity.source_root)
+    except (MinekinError, OSError) as error:
+        # The root being absent is the case `source_tree_sha256` refuses for, and the
+        # refuse is the reading: say what it reported rather than a second wording.
+        source_detail = error.safe_message if isinstance(error, MinekinError) else str(error)
+    return BridgeBytes(
+        source_root=identity.source_root,
+        jar_path=identity.jar_relative_path,
+        jar_sha256=sha256,
+        jar_size=size,
+        source_digest=source_digest,
+        detail=detail,
+        source_detail=source_detail,
+    )
