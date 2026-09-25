@@ -7,7 +7,8 @@
 > `.tmp/` 被 Git 忽略，是构建、诊断和封证的临时工作区；它的内容不是已推送产品代码、
 > 不是阶段状态，也不能替代主计划里的 run/bundle/attempt 与真实门禁记录。
 
-> **最新交接点（2026-09-25，停止阶段显式松键：判据已交付、工件待产品决策）**：主计划**暂无 `NEXT`**。
+> **最新交接点（2026-09-25，停止阶段显式松键：判据已交付、工件待产品实现）**：主计划唯一 `NEXT` 是
+> **`GRACEFUL-STOP-KEY-RELEASE-001`**（本提交提升；恢复现场时先核 `current_next` 与本文件是否仍一致）。
 > `EXPLICIT-RELEASE-AT-STOP-001`（`b22a262` 登记、紧随提交提升为唯一 `NEXT`、判官侧 `f38cf34` 已推两条 ref）
 > 由本提交依其 `stop_conditions` **第①格**转为 **`BLOCKED_DECISION`**。机器读数（不是推断）：
 > 判官侧新 token `the_bridge_released_the_input_when_the_session_was_stopped`（只收
@@ -25,7 +26,8 @@
 > **本提交未做的**（都属越界）：改两 root 松键路径或任何产品代码、改判据、动 registry（
 > `STOP_PHASE_EXPLICIT_KEY_RELEASE` 仍在九条 `gaps` 里、摘要一字未动）、提升 V08、连接用户远程服、删失败材料。
 > **用户 2026-09-25 已答该决策，选 (a)**：「修正产品的停止顺序，先让仍存活的 Bridge 确认松键，再终止客户端。」
-> 承接它的是本提交以 `QUEUED` 登记的 **`GRACEFUL-STOP-KEY-RELEASE-001`**（机制、`allowed_paths`、
+> 承接它的是 **`GRACEFUL-STOP-KEY-RELEASE-001`**（`6bef249` 以 `QUEUED` 登记、本提交提升为唯一 `NEXT`；
+> 机制、`allowed_paths`、
 > 验收与停止条件全在那张卡里；判据与 case `V1201-080` 一字不改，正是它的验收形状）。
 > 登记时另测得：Python 侧改动**不**移动 `from_repository_build`（`tools/report_promotion.py:204-222` 只比
 > launch plan 摘要），因此被 registry 引用的 16 条 run 不需重封——先前"改产品代码会牵动 1.21.4 重封"的说法据此更正。

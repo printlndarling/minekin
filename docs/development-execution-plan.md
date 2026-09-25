@@ -18,7 +18,11 @@
   回归基线；除非真实回归或当前 1.20.1 卡不可绕过的前置阻断，不再新增 1.21.4 功能专题。
   即使遇到前置阻断，也先登记范围与证据、按唯一 `NEXT` 流转，不得借 `.tmp/` 中的实验记录
   自行改排期或把临时构建当作新主线。HOST/PERSIST、在线认证、远程服授权等既有停机边界不变。
-- `current_next`: **无**（`EXPLICIT-RELEASE-AT-STOP-001` 由本提交依其 `stop_conditions` 第①格转为
+- `current_next`: **`GRACEFUL-STOP-KEY-RELEASE-001`**（`6bef249` 以 `QUEUED` 登记并推到两条 ref，本提交单独提升为
+  唯一 `NEXT`；提升前计划里没有 `NEXT`，中间未插入别的未授权工作。它执行用户 2026-09-25 就
+  `EXPLICIT-RELEASE-AT-STOP-001` 那题所作的决策——**修正产品的停止顺序，先让仍存活的 Bridge 确认松键，再终止客户端**；
+  机制、`allowed_paths`、验收与停止条件全在那张卡里，判据与 case `V1201-080` 一字不改就是它的验收形状。）
+  （上一张 `EXPLICIT-RELEASE-AT-STOP-001` 由 `6bef249` 依其 `stop_conditions` 第①格转为
   `BLOCKED_DECISION`：判官侧的新 token、case `V1201-080` 与单元门禁已在 `f38cf34` 交付并推到两条 ref，
   但两次受控 1.20.1 真跑（attempt 1 run `6d11ab7d…`/bundle `6afda194…`，attempt 2 run `ffdd54fc…`/bundle
   `931157fe…`）都封在同一个命名理由 `RELEASE_NOT_LOGGED` 上。结构性原因（实测+读代码）：`session stop` 直接
@@ -28,7 +32,7 @@
   两格**都成立**，attempt 2 的客户端日志末行仍是 `holding [move.forward]` ⇒ 场景没问题，缺的是产品侧的停止次序。
   要拿到那行必须改产品代码（本卡 `forbidden_paths` 明令不改），或改判 registry 那条 `STOP_PHASE_EXPLICIT_KEY_RELEASE`
   的含义。**2026-09-25 用户已就本题作答**：修正产品的停止顺序，先让仍存活的 Bridge 确认松键、再终止客户端 ⇒
-  由 `GRACEFUL-STOP-KEY-RELEASE-001`（本提交以 `QUEUED` 登记）承接，提升为唯一 `NEXT` 由紧随提交完成。
+  由 `GRACEFUL-STOP-KEY-RELEASE-001`（`6bef249` 以 `QUEUED` 登记）承接，本提交将其提升为唯一 `NEXT`。
   读数、失败材料与复跑命令记在该卡 `blocked_readings_2026-09-25`；
   registry 的 `status`/九条 `gaps`/digest 原样，V08 未提升，用户远程服未连接。）
   （上一张 `AUTO-PATH-INSTALL-RUN-001` 由 `e890924` 收卡：`94cb15b` 登记、提升提交 `298883e`，收卡读数记在
@@ -61,7 +65,7 @@
   依卡片自身 `stop_conditions` 第①格停在 `BLOCKED_DECISION`：**未改**两 root 松键路径与任何产品代码、**未改**判据、
   registry 与 V08 原样、失败材料两件封存 bundle 全留（读法与复跑命令记在该卡 `blocked_readings_2026-09-25`）。
   **2026-09-25 用户已答此题**（修正停止顺序：先让仍存活的 Bridge 确认松键，再终止客户端），该决策由本提交以
-  `QUEUED` 登记的 `GRACEFUL-STOP-KEY-RELEASE-001` 承接；**本提交仍无 `NEXT`**，提升由紧随的独立提交完成。上一 checkpoint 是 **跨版本路线走到自动路径的空 store 真跑补证收口**——`AUTO-PATH-INSTALL-RUN-001`（`e890924` 收卡）在
+  `QUEUED` 登记的 `GRACEFUL-STOP-KEY-RELEASE-001` 承接，本提交将其提升为唯一 `NEXT`；计划自本提交起有 `NEXT`。上一 checkpoint 是 **跨版本路线走到自动路径的空 store 真跑补证收口**——`AUTO-PATH-INSTALL-RUN-001`（`e890924` 收卡）在
   卷内一个全新 Kin 的空 `run/artifact-store` 上让自动路径自己装齐（封存 `run-document.json`：
   `fetch_set 3639 / installed 3639 / reused 0`，落盘 `3639 files / 738,432,269 字节`），并在**同一个 run** 的封存
   `bridge-trace.jsonl` 里拿到 `PlayableEstablished`（run `7236c53e…`、bundle `9a732edc…`、case `V1201-020`、
@@ -4736,7 +4740,8 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 
 ### GRACEFUL-STOP-KEY-RELEASE-001 — 停止顺序修正：先让仍存活的 Bridge 确认松键，再终止客户端
 
-- `status`: `QUEUED`（本提交登记并推到两条 ref；提升为唯一 `NEXT` 由紧随的独立提交完成，中间不插入别的未授权工作。）
+- `status`: `NEXT`（`6bef249` 以 `QUEUED` 登记并推到两条 ref，本提交按交接的领取顺序单独提升为唯一 `NEXT`；
+  提升前计划里没有 `NEXT`，中间未插入别的未授权工作。）
 - `decision_source`: 用户 2026-09-25 就 `EXPLICIT-RELEASE-AT-STOP-001` 的 `blocked_readings_2026-09-25` 第 7 格
   选定 (a)：「修正产品的停止顺序，先让仍存活的 Bridge 确认松键，再终止客户端。」
 - `depends_on`: `EXPLICIT-RELEASE-AT-STOP-001`（判官侧 token 与 case `V1201-080` 已在 `f38cf34` 就位；
