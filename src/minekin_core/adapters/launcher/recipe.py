@@ -30,18 +30,19 @@ FABRIC_API_SHA1 = "1c7871b6af04edc8b8f0dbad12606d67f6118a11"
 # The Bridge is Minekin's own artifact, so no upstream publishes a digest for
 # it: the supply-chain contract says an own artifact without one gets a fixed
 # SHA-256 instead, and TLS is not accepted as the only integrity guarantee. The
-# digest below is that pin. The bytes it names were rebuilt on Windows with JDK
-# 21.0.12.1+1-LTS-4 after the Bridge gained the non-authoritative first-snapshot
-# switch; the cross-platform demonstration (Windows and Linux x86_64 with Temurin
-# 21.0.12+8 building one jar) was made for the bytes this pin replaced, and it
-# has not been repeated for these.
+# digest below is that pin. The bytes it names were produced twice on purpose:
+# once on Windows with JDK 21.0.12.1+1-LTS-4 (`./gradlew check --rerun-tasks`,
+# 15 tasks executed) and once in a Linux x86_64 Temurin 21.0.12+8 container with
+# an empty project `build/` (`./gradlew clean build`), and both wrote the jar
+# below. A pin that only one platform has ever produced would be a claim about
+# a build machine rather than about these bytes.
 #
 # The consequence is a stricter rule than the source digest alone: changing the
 # Bridge source is not allowed to "just work". The jar has to be rebuilt and
 # this pin renewed, because a plan that names this digest and ships other bytes
 # is the failure the pin exists to catch.
-BRIDGE_JAR_SHA256 = "faeec4a9df83abb9ca0404863e04d20cfd87ac0f3afd5e74b6858e3e15372f55"
-BRIDGE_JAR_SIZE = 1_308_525
+BRIDGE_JAR_SHA256 = "0ee2070b97ba6583ca004cc3f0e4a0e547697d0693dc635c3143c655cc2475f4"
+BRIDGE_JAR_SIZE = 1_310_646
 BRIDGE_JAR_RELATIVE_PATH = "bridge/build/libs/minekin-bridge-0.0.0.jar"
 
 # The second bundle. These are the reviewed pins for Minecraft 1.20.1, each one

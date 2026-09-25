@@ -20,6 +20,39 @@ FABRIC_STUBS = {
 package net.fabricmc.api;
 public interface ClientModInitializer { void onInitializeClient(); }
 """,
+    # The loader's own mod-container vocabulary, which is what the Bridge reads its
+    # running Minecraft and Fabric Loader versions out of. It is spelled here because
+    # `runtime/ClientRuntimeIdentity.java` is compiled below: a stub that answered a
+    # version would let the gate pass while the real record read something else, so
+    # this set hands out no version value at all. `getInstance()` returns a loader
+    # that reports no mod containers, which is the one shape that lets the shared
+    # self-test prove the missing-container branch fails closed instead of only
+    # asserting that a stub throws.
+    "net/fabricmc/loader/api/FabricLoader.java": """\
+package net.fabricmc.loader.api;
+import java.util.Optional;
+public final class FabricLoader {
+    private FabricLoader() {}
+    public static FabricLoader getInstance() {
+        return new FabricLoader();
+    }
+    public Optional<ModContainer> getModContainer(String modId) {
+        return Optional.empty();
+    }
+}
+""",
+    "net/fabricmc/loader/api/ModContainer.java": """\
+package net.fabricmc.loader.api;
+public interface ModContainer { ModMetadata getMetadata(); }
+""",
+    "net/fabricmc/loader/api/ModMetadata.java": """\
+package net.fabricmc.loader.api;
+public interface ModMetadata { Version getVersion(); }
+""",
+    "net/fabricmc/loader/api/Version.java": """\
+package net.fabricmc.loader.api;
+public interface Version { String getFriendlyString(); }
+""",
     "net/fabricmc/fabric/api/client/event/lifecycle/v1/Event.java": """\
 package net.fabricmc.fabric.api.client.event.lifecycle.v1;
 public final class Event<T> { public void register(T listener) {} }
@@ -243,6 +276,10 @@ ADAPTER_SOURCES = (
     ROOT / "bridge/src/main/java/org/minekin/bridge/runtime/BridgePhaseMachine.java",
     ROOT / "bridge/src/main/java/org/minekin/bridge/runtime/BoundedChannel.java",
     ROOT / "bridge/src/main/java/org/minekin/bridge/runtime/BridgeIpcWorker.java",
+    # What the worker now declares to Core: the versions the running client reports.
+    # It is in this list because the worker and the adapter both name the type, so a
+    # signature change there has to fail here rather than only in a Gradle build.
+    ROOT / "bridge/src/main/java/org/minekin/bridge/runtime/ClientRuntimeIdentity.java",
     # The callback budget: the series that holds it and the two windows the client
     # tick hands over. Compiled here with the rest, so the one class the tick calls
     # per frame is checked against the generated protocol types like every other

@@ -95,8 +95,13 @@ public final class BridgeIpcWorkerSelfTest {
             serverThread.start();
 
             BridgePhaseMachine phases = new BridgePhaseMachine();
+            // The versions the worker reports are the ones its runtime names, so the
+            // worker and the verifying gate below have to be handed the same report.
+            org.minekin.bridge.runtime.ClientRuntimeIdentity identity =
+                    new org.minekin.bridge.runtime.ClientRuntimeIdentity("1.21.4", "0.16.9");
             try (BridgeIpcWorker worker = new BridgeIpcWorker(
                     descriptorPath,
+                    identity,
                     Duration.ofSeconds(2),
                     Duration.ofSeconds(2),
                     4,
@@ -161,9 +166,16 @@ public final class BridgeIpcWorkerSelfTest {
             assert bridgeEnvelope.getMessageType().equals(BridgeIpcWorker.BRIDGE_HELLO_TYPE);
             BridgeHello bridgeHello = BridgeHello.parseFrom(bridgeEnvelope.getPayload());
             assert bridgeHello.getSessionId().equals("session-worker");
+            assert bridgeHello.getMinecraftVersion().equals("1.21.4");
+            assert bridgeHello.getFabricLoaderVersion().equals("0.16.9");
 
+            // The same runtime report the worker was handed: the versions on the wire
+            // are the ones the record named, not the ones the descriptor carried.
             BootstrapDescriptorAdapter.AdaptedDescriptor adapted =
-                    BootstrapDescriptorAdapter.adapt(descriptor);
+                    BootstrapDescriptorAdapter.adapt(
+                            descriptor,
+                            new org.minekin.bridge.runtime.ClientRuntimeIdentity(
+                                    "1.21.4", "0.16.9"));
             HandshakeGate proofGate =
                     new HandshakeGate(adapted.expected(), new BridgePhaseMachine());
             HandshakeGate.CoreHelloData unsigned = new HandshakeGate.CoreHelloData(

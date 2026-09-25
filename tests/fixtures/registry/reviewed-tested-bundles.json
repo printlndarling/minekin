@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "kind": "reviewed-bundle-registry",
-  "notes": "The only bundles this project launches against without an operator pin. An entry is `tested` because the runs it cites were each sealed and independently re-judged on the exact bridge and launch plan the entry names; it is not `tested` because a recipe fixture describes itself that way, and a citation to an older build is not accepted. `capabilities` are the assertion tokens the cited cases prove, one for one, and `gaps` name the holes a launch must not assume closed. The protocol ids are measured status responses of the controlled targets, not a looked-up listing. The 1.20.1 entry declares java_major 21 because that is the runtime its sealing used; its recipe declares 17, and RUNNER_JDK_17_UNSEALED records that the recipe's own number has never been the proven one. Provenance of the version check: Core now rejects a BridgeHello whose declared Minecraft and Fabric Loader versions are not the ones this session's plan builds, and the bridge roots report the runtime they actually run. The 1.20.1 entry cites the four cases re-run and re-sealed on the bridge that change produced; of the 1.21.4 entry, whose bridge and plan are byte-for-byte what they were, only CORE-010 - the handshake case - was re-run live afterwards, and the other eleven were sealed earlier and carry the current code's re-judgement, which is a weaker claim than a launch and is stated here rather than left to a digest.",
+  "notes": "The only bundles this project launches against without an operator pin. An entry is `tested` because the runs it cites were each sealed and independently re-judged on the exact bridge and launch plan the entry names; it is not `tested` because a recipe fixture describes itself that way, and a citation to an older build is not accepted. `capabilities` are the assertion tokens the cited cases prove, one for one, and `gaps` name the holes a launch must not assume closed. The protocol ids are measured status responses of the controlled targets, not a looked-up listing. The 1.20.1 entry declares java_major 21 because that is the runtime its sealing used; its recipe declares 17, and RUNNER_JDK_17_UNSEALED records that the recipe's own number has never been the proven one. Provenance of the version check: Core now rejects a BridgeHello whose declared Minecraft and Fabric Loader versions are not the ones this session's plan builds, and the bridge roots report the runtime they actually run. The 1.21.4 entry was re-sealed in full on the bridge that reads its own runtime version: all twelve cited runs are launches of that build, each sealed and re-judged against the digests this entry names, and no citation carries an earlier build any more.",
   "entries": [
     {
       "bundle_id": "1.20.1-linux-x86_64-offline-java21",
@@ -89,10 +89,10 @@
       "protocol": 769,
       "os_arch": "linux-x86_64",
       "java_major": 21,
-      "bridge_digest": "faeec4a9df83abb9ca0404863e04d20cfd87ac0f3afd5e74b6858e3e15372f55",
-      "launch_plan_digest": "9e0e0ccca9d0a589a38a3f3be40ddbf957f71a51cffe08caf5436153954bfea4",
+      "bridge_digest": "0ee2070b97ba6583ca004cc3f0e4a0e547697d0693dc635c3143c655cc2475f4",
+      "launch_plan_digest": "bcc0c10d46ab5c0b46d0c86f7e0de9d0d57b635bc17f9dcffdf7631eba8125e2",
       "recipe_path": "tests/fixtures/runtime-input/bundle-p0-core-1.21.4.json",
-      "recipe_digest": "bb45606023cea201bf8cb66ee35dfcfa136c428a8eb8bfff90c864499d5dcf72",
+      "recipe_digest": "e3bfbae8f41914ee83bce3041b7b91db8df6b24507ee2d0cdca71133661ceae2",
       "auth_mode": "offline",
       "capabilities": [
         "a_refused_first_snapshot_became_no_lease_and_no_playable",
@@ -137,111 +137,111 @@
       "evidence": [
         {
           "case_id": "ADMIT-070",
-          "run_id": "2a128d0dd30b4932b88ada6d0032d40c",
-          "bundle_digest": "88ccc9dfc8202deef484eb00c5f45137f0a11f64f04a0597027887d47b5e537e",
-          "bridge_digest": "faeec4a9df83abb9ca0404863e04d20cfd87ac0f3afd5e74b6858e3e15372f55",
-          "launch_plan_digest": "9e0e0ccca9d0a589a38a3f3be40ddbf957f71a51cffe08caf5436153954bfea4",
-          "result": "PASS",
-          "attempt": 2
-        },
-        {
-          "case_id": "CORE-010",
-          "run_id": "73fec7d3103e4e33baf7f8db857020f2",
-          "bundle_digest": "98e32412c326c6954625df31fe14bfba960417f9e8ca9603a0fc25df752a8b84",
-          "bridge_digest": "faeec4a9df83abb9ca0404863e04d20cfd87ac0f3afd5e74b6858e3e15372f55",
-          "launch_plan_digest": "9e0e0ccca9d0a589a38a3f3be40ddbf957f71a51cffe08caf5436153954bfea4",
-          "result": "PASS",
-          "attempt": 2
-        },
-        {
-          "case_id": "CORE-020",
-          "run_id": "8a72dcdf9e9c4fd190860d16a5d1bf1f",
-          "bundle_digest": "3c4b04894069df5bf99afb17afd68a5acd80812282c82b2ba07e1b7539e89d8e",
-          "bridge_digest": "faeec4a9df83abb9ca0404863e04d20cfd87ac0f3afd5e74b6858e3e15372f55",
-          "launch_plan_digest": "9e0e0ccca9d0a589a38a3f3be40ddbf957f71a51cffe08caf5436153954bfea4",
-          "result": "PASS",
-          "attempt": 1
-        },
-        {
-          "case_id": "CORE-060",
-          "run_id": "7fc0671eabca4430885017613977779c",
-          "bundle_digest": "3876c335306f21e154ea20dfa09340dc5a542c0d19c8acefd93f4c94dff8ed80",
-          "bridge_digest": "faeec4a9df83abb9ca0404863e04d20cfd87ac0f3afd5e74b6858e3e15372f55",
-          "launch_plan_digest": "9e0e0ccca9d0a589a38a3f3be40ddbf957f71a51cffe08caf5436153954bfea4",
+          "run_id": "b9b70330cd404120b4b4763e01a6d027",
+          "bundle_digest": "2f66c5f30ea6a24bb5ea9a5183c0818ff13492a8543cc73a3f5dc906a622500c",
+          "bridge_digest": "0ee2070b97ba6583ca004cc3f0e4a0e547697d0693dc635c3143c655cc2475f4",
+          "launch_plan_digest": "bcc0c10d46ab5c0b46d0c86f7e0de9d0d57b635bc17f9dcffdf7631eba8125e2",
           "result": "PASS",
           "attempt": 3
         },
         {
-          "case_id": "CORE-060-CLIENT-001",
-          "run_id": "c89f5d3582e74250b27cf4a034314c0a",
-          "bundle_digest": "8b0691b7919ad5f3ea21c3e43e612fe50a40c1e14784aa14e410d82cab026ab0",
-          "bridge_digest": "faeec4a9df83abb9ca0404863e04d20cfd87ac0f3afd5e74b6858e3e15372f55",
-          "launch_plan_digest": "9e0e0ccca9d0a589a38a3f3be40ddbf957f71a51cffe08caf5436153954bfea4",
+          "case_id": "CORE-010",
+          "run_id": "3c1d03501b5a4c428dec9cb38de75df4",
+          "bundle_digest": "00ef53d1a0f427a712f5dc403e1785d5ad9681b11735aa78711c44793a388528",
+          "bridge_digest": "0ee2070b97ba6583ca004cc3f0e4a0e547697d0693dc635c3143c655cc2475f4",
+          "launch_plan_digest": "bcc0c10d46ab5c0b46d0c86f7e0de9d0d57b635bc17f9dcffdf7631eba8125e2",
           "result": "PASS",
-          "attempt": 1
+          "attempt": 3
+        },
+        {
+          "case_id": "CORE-020",
+          "run_id": "d3b3a4d5ea5342c0b350d1b515de8a0c",
+          "bundle_digest": "b5aac60496f527f4ec484e3c99e667328e8ae1cc4ec9f87d83d2bc470afccca5",
+          "bridge_digest": "0ee2070b97ba6583ca004cc3f0e4a0e547697d0693dc635c3143c655cc2475f4",
+          "launch_plan_digest": "bcc0c10d46ab5c0b46d0c86f7e0de9d0d57b635bc17f9dcffdf7631eba8125e2",
+          "result": "PASS",
+          "attempt": 2
+        },
+        {
+          "case_id": "CORE-060",
+          "run_id": "ed2bbad7051f4014956bcce86fc17443",
+          "bundle_digest": "1b3449cd6cba44064e744b9e182b74b012745bd868447b7ac079bf1dd0e1b3e2",
+          "bridge_digest": "0ee2070b97ba6583ca004cc3f0e4a0e547697d0693dc635c3143c655cc2475f4",
+          "launch_plan_digest": "bcc0c10d46ab5c0b46d0c86f7e0de9d0d57b635bc17f9dcffdf7631eba8125e2",
+          "result": "PASS",
+          "attempt": 4
+        },
+        {
+          "case_id": "CORE-060-CLIENT-001",
+          "run_id": "03bd3a22f6ac43aea07d470222cd2c92",
+          "bundle_digest": "368d206ccf535efeb4c23ba948962d3ffea45924fd18ee93249908d3a65b9bab",
+          "bridge_digest": "0ee2070b97ba6583ca004cc3f0e4a0e547697d0693dc635c3143c655cc2475f4",
+          "launch_plan_digest": "bcc0c10d46ab5c0b46d0c86f7e0de9d0d57b635bc17f9dcffdf7631eba8125e2",
+          "result": "PASS",
+          "attempt": 2
         },
         {
           "case_id": "CORE-060-SERVER-001",
-          "run_id": "f4365a50077647babda76cec90164093",
-          "bundle_digest": "75a15ccc3a8d17dbe591e876d7687d2323136810ff8f247713d5dac8bf254fc1",
-          "bridge_digest": "faeec4a9df83abb9ca0404863e04d20cfd87ac0f3afd5e74b6858e3e15372f55",
-          "launch_plan_digest": "9e0e0ccca9d0a589a38a3f3be40ddbf957f71a51cffe08caf5436153954bfea4",
+          "run_id": "de754891b5b6431dbf90d0f5b9a783e8",
+          "bundle_digest": "5f15a00eddb1278b9221b6f5510e75b99dd6da1c514a81ea8951b9f643c3437e",
+          "bridge_digest": "0ee2070b97ba6583ca004cc3f0e4a0e547697d0693dc635c3143c655cc2475f4",
+          "launch_plan_digest": "bcc0c10d46ab5c0b46d0c86f7e0de9d0d57b635bc17f9dcffdf7631eba8125e2",
           "result": "PASS",
-          "attempt": 1
+          "attempt": 2
         },
         {
           "case_id": "CORE-090",
-          "run_id": "3e94d49aace44b00924efeb1bb83c1da",
-          "bundle_digest": "8bda01b52ae2bbfec5b83fb978f931cb28a7bf78668ef4b88e81235e3d077739",
-          "bridge_digest": "faeec4a9df83abb9ca0404863e04d20cfd87ac0f3afd5e74b6858e3e15372f55",
-          "launch_plan_digest": "9e0e0ccca9d0a589a38a3f3be40ddbf957f71a51cffe08caf5436153954bfea4",
+          "run_id": "26fca56e580a45ef9ccf438b03a88a4f",
+          "bundle_digest": "c5bf4fee725401b8f966766b5cc5dad335ccb3453f20e263c6c6cad79ad3b16a",
+          "bridge_digest": "0ee2070b97ba6583ca004cc3f0e4a0e547697d0693dc635c3143c655cc2475f4",
+          "launch_plan_digest": "bcc0c10d46ab5c0b46d0c86f7e0de9d0d57b635bc17f9dcffdf7631eba8125e2",
           "result": "PASS",
-          "attempt": 1
+          "attempt": 2
         },
         {
           "case_id": "CORE-100",
-          "run_id": "8367f741124d4132835eeb3d85833d46",
-          "bundle_digest": "1b2a58e9cc371d236b959b7e3507678d04506b6c32b875a5ce7ebd9f20c749e2",
-          "bridge_digest": "faeec4a9df83abb9ca0404863e04d20cfd87ac0f3afd5e74b6858e3e15372f55",
-          "launch_plan_digest": "9e0e0ccca9d0a589a38a3f3be40ddbf957f71a51cffe08caf5436153954bfea4",
+          "run_id": "cf01a54b277c4bcea7b32e820458d6e1",
+          "bundle_digest": "1e40554c920ffe7c7ed672f089469ca717c505845c8e9e66a1798983a0ad0581",
+          "bridge_digest": "0ee2070b97ba6583ca004cc3f0e4a0e547697d0693dc635c3143c655cc2475f4",
+          "launch_plan_digest": "bcc0c10d46ab5c0b46d0c86f7e0de9d0d57b635bc17f9dcffdf7631eba8125e2",
           "result": "PASS",
-          "attempt": 1
+          "attempt": 2
         },
         {
           "case_id": "OFFLINE-010",
-          "run_id": "f2ecb728df754826abf4a052be138a2d",
-          "bundle_digest": "184d636cf028cd05eaf61ca36706ad8aa4576780c4c01e041f07c6f82728ed20",
-          "bridge_digest": "faeec4a9df83abb9ca0404863e04d20cfd87ac0f3afd5e74b6858e3e15372f55",
-          "launch_plan_digest": "9e0e0ccca9d0a589a38a3f3be40ddbf957f71a51cffe08caf5436153954bfea4",
+          "run_id": "61b4f0253cc84e2183d8913f3ad77867",
+          "bundle_digest": "d5c2dd45c71ea0f2af816efd169ef798c985045489b2ad23f00bc367e06bce45",
+          "bridge_digest": "0ee2070b97ba6583ca004cc3f0e4a0e547697d0693dc635c3143c655cc2475f4",
+          "launch_plan_digest": "bcc0c10d46ab5c0b46d0c86f7e0de9d0d57b635bc17f9dcffdf7631eba8125e2",
           "result": "PASS",
-          "attempt": 1
+          "attempt": 2
         },
         {
           "case_id": "OFFLINE-020",
-          "run_id": "3d5606ced37849e3b17a4c418fa33ab4",
-          "bundle_digest": "ff68f67d51ba15afc35efafd89ca8781f31b0a02ed60ea9d9a10b9a2d7de45d8",
-          "bridge_digest": "faeec4a9df83abb9ca0404863e04d20cfd87ac0f3afd5e74b6858e3e15372f55",
-          "launch_plan_digest": "9e0e0ccca9d0a589a38a3f3be40ddbf957f71a51cffe08caf5436153954bfea4",
+          "run_id": "6ad6f0002518474fbfe039a272aaa947",
+          "bundle_digest": "d771abe33c4dc0c0224d2aa217125af85238150d7a17e0074d4e71956ea06d12",
+          "bridge_digest": "0ee2070b97ba6583ca004cc3f0e4a0e547697d0693dc635c3143c655cc2475f4",
+          "launch_plan_digest": "bcc0c10d46ab5c0b46d0c86f7e0de9d0d57b635bc17f9dcffdf7631eba8125e2",
           "result": "PASS",
-          "attempt": 1
+          "attempt": 2
         },
         {
           "case_id": "OFFLINE-030-ENUM-ALIGNED-001",
-          "run_id": "cb5e2119845e41868c28e5aeb1370ce3",
-          "bundle_digest": "b90cb29b664a872133ffec208634723e37330c357f8876390b17eee2093ee90e",
-          "bridge_digest": "faeec4a9df83abb9ca0404863e04d20cfd87ac0f3afd5e74b6858e3e15372f55",
-          "launch_plan_digest": "9e0e0ccca9d0a589a38a3f3be40ddbf957f71a51cffe08caf5436153954bfea4",
+          "run_id": "f0f350358d774075b1cecab6e9fc49ec",
+          "bundle_digest": "99e7df38a4138b1152184d9e36ffbc6b07186b5bd31758b6fc9d61b5d10de086",
+          "bridge_digest": "0ee2070b97ba6583ca004cc3f0e4a0e547697d0693dc635c3143c655cc2475f4",
+          "launch_plan_digest": "bcc0c10d46ab5c0b46d0c86f7e0de9d0d57b635bc17f9dcffdf7631eba8125e2",
           "result": "PASS",
-          "attempt": 1
+          "attempt": 2
         },
         {
           "case_id": "OFFLINE-030-PRISM-PARITY-001",
-          "run_id": "ee9d5ad3d57344da8452069102e27216",
-          "bundle_digest": "cdb8e53f67d54d5171b2d23741a20d5351bb59c1c7136ffa2f3a53c5d4734295",
-          "bridge_digest": "faeec4a9df83abb9ca0404863e04d20cfd87ac0f3afd5e74b6858e3e15372f55",
-          "launch_plan_digest": "9e0e0ccca9d0a589a38a3f3be40ddbf957f71a51cffe08caf5436153954bfea4",
+          "run_id": "6393b228db7a44789968a6d42dfac7eb",
+          "bundle_digest": "6319313871ccd328deeefb5353fe901351f4c6fc66950010e061c9dcf48a07f9",
+          "bridge_digest": "0ee2070b97ba6583ca004cc3f0e4a0e547697d0693dc635c3143c655cc2475f4",
+          "launch_plan_digest": "bcc0c10d46ab5c0b46d0c86f7e0de9d0d57b635bc17f9dcffdf7631eba8125e2",
           "result": "PASS",
-          "attempt": 1
+          "attempt": 2
         }
       ]
     }

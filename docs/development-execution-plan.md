@@ -4557,6 +4557,30 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
   `src/minekin_core/adapters/launcher/recipe.py` 的 1.21.4 常量、`tests/fixtures/runtime-input/bundle-p0-core-1.21.4.json`、
   `tests/fixtures/manifest.sha256` 对应行、`tests/fixtures/registry/reviewed-tested-bundles.json` 的**引用**字段、
   受影响 case 的 `check_case_assertions` 重钉、进度文档。
+  - `scope_revision_20260925`（领取后、动手前补入）：再加 `tests/fixtures/cases/core-001.json` 的
+    `input_digests` **一行**。原因是那格把 1.21.4 recipe fixture 的**文件摘要**当受审输入钉住了
+    （`bb456060…`），recipe 一换代它就必然过期，而 `check_case_assertions.py` 的 `--record` 只写
+    `assertion_digests`（`DIGESTS_FIELD`，`tools/check_case_assertions.py:46`）、**不覆盖** `input_digests`，
+    原"重钉"条款盖不到它；把它留在旧值上会让 `promotion.py:_validate_input_digests` 判 CORE-001 输入不符。
+    `CORE-001` 不在被引用的 12 案之内，改它不动任何一次重封的 case 定义，也不属于"改判据"。
+  - 同一次修订再加三处，全部是**本卡改 `bridge/` 签名之后被真实门禁逼出来的**，与上一卡
+    `shared_selftest_fix_hello` 同类（`801f9ba` 那次也是本地全绿、CI 门红）：
+    ① `tools/check_bridge_proto_java.py` —— 它的 `ADAPTER_SOURCES` 是一份**显式文件清单**，
+    新的 `runtime/ClientRuntimeIdentity.java` 不在里面，于是要给 `net.fabricmc.loader.api`
+    的 `FabricLoader`/`ModContainer`/`ModMetadata`/`Version` 补桩并把该文件列入清单（桩**不返回
+    任何版本值**：`ModContainer`/`ModMetadata`/`Version` 三个接口方法都抛
+    `UnsupportedOperationException`，`getInstance()` 只交出一个对任何 mod id 都答
+    `Optional.empty()` 的 loader —— 它仍然什么版本都给不出，但正因如此，"读不到 mod container"
+    这一格成了可执行断言而不是一句注释）；② `tools/java/BridgeProtoAdapterSelfTest.java` 与
+    `tools/java/BridgeIpcWorkerSelfTest.java` 共用自测的调用点随签名改为两参，并各加一格读数
+    断言（`Expected` 里是运行时那一对、线上来回 `BridgeHello` 里也是），另加"外来版本对被拒"、
+    "拿不到 container 时 `current()` 抛错且报出缺的是 `minecraft`"、"空白版本值不成对"；
+    ③ `tests/unit/test_bridge_bootstrap.py` 的 `BRIDGE_HELLO_PROOF_1214` 黄金值随 plan 换代重算
+    （`dd1e49ce…` → `3f89c8d4…`，由出货的 `_bridge_proof` 与手拼上下文**两路同算相符**得证）。
+    ①②在 `tools/`，不进 jar、不进 `bridge_source_sha256`（那条摘要只盖 `bridge/` 树），因此
+    **不移动任何封存摘要**；③是测试文件，同理。三者都不是"改判据让旧摘要继续成立"。
+    新增断言的非空洞性做了反向对照：把该格改成期望 `current()` 成功，门立即在该行红
+    （`AssertionError: control: reversed expectation`，exit=1），改回后复绿。
 - `forbidden_paths`: registry 的 `status`/`capabilities`/`gaps` 字节、准入判据与 lease、地址策略、HOST/PERSIST、
   以及任何"改判据让旧摘要继续成立"的做法。
 - `counterexamples`: 运行时拿不到 mod container → 失败关闭而非回落常量；声明与 plan 不符 → 拒；

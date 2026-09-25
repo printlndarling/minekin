@@ -11,13 +11,17 @@ import io.minekin.protocol.v1.IpcEndpoint;
 import io.minekin.protocol.v1.ProtocolVersion;
 import java.util.HashSet;
 import java.util.HexFormat;
+import java.util.Objects;
 import java.util.Set;
+import org.minekin.bridge.runtime.ClientRuntimeIdentity;
 
 /** Maps generated protobuf values into the dependency-free handshake kernel. */
 public final class BootstrapDescriptorAdapter {
     private BootstrapDescriptorAdapter() {}
 
-    public static AdaptedDescriptor adapt(BridgeBootstrapDescriptor descriptor) {
+    public static AdaptedDescriptor adapt(
+            BridgeBootstrapDescriptor descriptor, ClientRuntimeIdentity identity) {
+        Objects.requireNonNull(identity, "identity");
         if (!descriptor.hasProtocol()
                 || descriptor.getProtocol().getMajor() < 1
                 || descriptor.getGeneration() < 1
@@ -41,8 +45,8 @@ public final class BootstrapDescriptorAdapter {
                     descriptor.getClientInstanceId(),
                     descriptor.getBundleDigest(),
                     descriptor.getBridgeDigest(),
-                    "1.21.4",
-                    "0.16.9",
+                    identity.minecraftVersion(),
+                    identity.fabricLoaderVersion(),
                     nonce,
                     key,
                     capabilities);

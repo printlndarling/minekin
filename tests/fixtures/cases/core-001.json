@@ -9,7 +9,7 @@
     "bridge/host-boundary-names.json"
   ],
   "input_digests": {
-    "tests/fixtures/runtime-input/bundle-p0-core-1.21.4.json": "bb45606023cea201bf8cb66ee35dfcfa136c428a8eb8bfff90c864499d5dcf72",
+    "tests/fixtures/runtime-input/bundle-p0-core-1.21.4.json": "e3bfbae8f41914ee83bce3041b7b91db8df6b24507ee2d0cdca71133661ceae2",
     "bridge/gradle.lockfile": "279e01b80d30f3d1ba495ae03a61e7ffb33130c346f442113c9d6c3ac73b359f",
     "bridge/host-boundary-names.json": "709dfff8127e65436715ce879d0f0b3a749de83fa46f205ccaec3dee049bb320"
   },

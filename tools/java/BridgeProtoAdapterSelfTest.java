@@ -19,14 +19,19 @@ import org.minekin.bridge.protocol.HandshakeGate;
 /** Executable adapter contract check that does not require Fabric or Java 21. */
 public final class BridgeProtoAdapterSelfTest {
     private static final String DIGEST = "ab".repeat(32);
+    /** The pair this root runs, which is the only one the handshake gate accepts. */
+    private static final org.minekin.bridge.runtime.ClientRuntimeIdentity RUNTIME =
+            new org.minekin.bridge.runtime.ClientRuntimeIdentity("1.21.4", "0.16.9");
 
     private BridgeProtoAdapterSelfTest() {}
 
     public static void main(String[] arguments) throws Exception {
         BridgeBootstrapDescriptor descriptor = descriptor("127.0.0.1");
         BootstrapDescriptorAdapter.AdaptedDescriptor adapted =
-                BootstrapDescriptorAdapter.adapt(descriptor);
+                BootstrapDescriptorAdapter.adapt(descriptor, RUNTIME);
         assert adapted.expected().sessionId().equals("session-1");
+        assert adapted.expected().minecraftVersion().equals("1.21.4");
+        assert adapted.expected().fabricLoaderVersion().equals("0.16.9");
         assert adapted.expected().capabilities().equals(Set.of(HandshakeGate.HANDSHAKE_CAPABILITY));
         assert adapted.endpoints().control().getPort() == 26001;
         assert adapted.endpoints().event().getPort() == 26002;
@@ -68,11 +73,44 @@ public final class BridgeProtoAdapterSelfTest {
 
         boolean rejected = false;
         try {
-            BootstrapDescriptorAdapter.adapt(descriptor("0.0.0.0"));
+            BootstrapDescriptorAdapter.adapt(descriptor("0.0.0.0"), RUNTIME);
         } catch (IllegalArgumentException expected) {
             rejected = true;
         }
         assert rejected : "non-loopback endpoint was accepted";
+
+        // A runtime that is not this root's recipe is refused rather than repeated:
+        // the declaration on the wire has to be the version the client is running.
+        boolean foreignRuntimeRejected = false;
+        try {
+            BootstrapDescriptorAdapter.adapt(
+                    descriptor("127.0.0.1"),
+                    new org.minekin.bridge.runtime.ClientRuntimeIdentity("1.20.1", "0.19.5"));
+        } catch (IllegalArgumentException expected) {
+            foreignRuntimeRejected = true;
+        }
+        assert foreignRuntimeRejected : "a runtime this root does not run was accepted";
+
+        // With no mod container to read, the record refuses instead of reporting a
+        // version it picked: this JVM's loader answers empty for every id.
+        boolean unreadableRuntimeRejected = false;
+        try {
+            org.minekin.bridge.runtime.ClientRuntimeIdentity.current();
+        } catch (IllegalStateException expected) {
+            unreadableRuntimeRejected = expected.getMessage().contains("minecraft");
+        }
+        assert unreadableRuntimeRejected : "current() invented an identity it could not read";
+
+        // The same refusal holds for a container that reports a blank version, and for
+        // a record built by hand with nothing in it: there is no default to fall back to.
+        boolean blankRuntimeRejected = false;
+        try {
+            new org.minekin.bridge.runtime.ClientRuntimeIdentity("1.21.4", "   ");
+        } catch (IllegalStateException expected) {
+            blankRuntimeRejected = true;
+        }
+        assert blankRuntimeRejected : "a blank version was accepted as an identity";
+
         System.out.println("Minekin Bridge protobuf adapter self-test: OK");
     }
 
