@@ -12,13 +12,12 @@
 - `baseline_date`: 2026-09-22
 - `baseline_branch`: `main`
 - `baseline_remote`: `origin/main`
-- `current_next`: **本提交起暂无 `NEXT`**——只读审查卡 `VERSION-TESTED-GATE-AUDIT-001` 已 `DONE`（追溯表与判定见
-  [tested 晋级门复判记录](tested-gate-audit-2026-09-25.md)），本提交同时把三个确证缺口登记为 `QUEUED`
-  （`TESTED-PROVENANCE-VERIFY-001`、`KEY-RELEASE-AT-STOP-001`、`STORE-FAILURE-EVIDENCE-001`）。后续提升顺序受
-  依赖约束：`VERSION-BRIDGE-IDENTITY-001`（修 hello 谎报并重封）→ provenance → key-release → store-failure，
-  每一次提升都必须是**独立提交**。审查结论对下游的硬约束：在 Bridge 修复重封、且 registry 的 `tested` 摘要由
-  代码对真实封存构件独立核对之前，**不得提升 V08、不得连接用户远程服，也不得把 `tested` 当作远程入服的充分
-  证据**；本地受控运行仍可按既有边界使用它。
+- `current_next`: `VERSION-BRIDGE-IDENTITY-001`（本提交把已 `QUEUED` 的它单独提升为唯一 `NEXT`；上一张
+  `VERSION-TESTED-GATE-AUDIT-001` 已 `DONE`（提升 `977dcf4`、收卡 `518e2f2`，追溯表见
+  [tested 晋级门复判记录](tested-gate-audit-2026-09-25.md)），V07 收卡 `17e81ea`+`96fb520`，两 ref 均已核对）。
+  它排第一是因为审查结论 A5：两个 Bridge root 的 `BridgeHello` 都谎报 `1.21.4`/`0.16.9`，而修它会移动 1.20.1
+  的 jar / source tree / recipe / plan 摘要——**先重封，后两卡（provenance 核对、停止阶段松键）才有对象**。
+  本卡的产出会让现有 registry 条目摘要作废：**重封后必须另卡登记** registry 的更新，本卡不写 registry 字节。
   用户在七场景总账后明确把“自动识别服务器版本 → 准备匹配客户端 → 入服并完成简单控制”排为优先路线；
   `VERSION-AUTO-DESIGN-001` 已交付[跨版本连续执行计划](version-auto-to-server-control-plan.md)。
 - `last_checkpoint`: **跨版本路线走到 tested 门复判收口**——审查卡 `VERSION-TESTED-GATE-AUDIT-001` 以六行结论
@@ -4322,8 +4321,13 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 
 ### VERSION-BRIDGE-IDENTITY-001 — BridgeHello 版本声明配对修复
 
-- `status`: `QUEUED`（本提交登记，来自 V04 卡 `bridge_hello_version_defect` 的实测。提升须另开
-  提交，且必须排在 V04 之后：本卡会让 V03 已封存的 1.20.1 candidate 摘要失效并需要重新封存。）
+- `status`: `NEXT`（`3c3a564` 登记 `QUEUED`，实测出自 `ce26394` 记的 `bridge_hello_version_defect`；本提交单独
+  提升为唯一 `NEXT`，当前无第二张 `NEXT`。**本卡会作废** V03 已封存的 1.20.1 candidate 摘要，须重建并重封，
+  收卡时把随之移动的摘要**逐条列全**（bridge jar sha256、`source_tree_sha256`、recipe 文件摘要与
+  `tests/fixtures/manifest.sha256` 对应行、launch plan 摘要、`recipe.py:71` 常量、registry 条目引用的旧值）。
+  registry 的 `status: tested` 不在本卡改——那要等 `TESTED-PROVENANCE-VERIFY-001` 用真件重算核对后再由独立
+  提交登记；本卡也不得以"改 registry 让旧摘要看起来对"的方式收口。）
+- `baseline_sha`: `3c3a564`（登记提交）；领取时实际 checkout = 本提升提交。
 - `depends_on`: `VERSION-BUNDLE-1201-001`（两套 root 与其摘要）、`VERSION-LOCAL-1201-001`
   （在当前写死常量下取得的闭环证据——它先成立，本卡才有东西可替换）。
 - `question`: 能否让 Core 按**本次会话**的 recipe 校验 `BridgeHello` 的
