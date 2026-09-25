@@ -3292,7 +3292,13 @@
 
 ## 2026-09-26 按 `drift-scan-fix` 又核了一类现在时声明：文档教出去的命令 vs 脚本接受的 flag 表
 
-- `NEXT`: `HOST-ADMISSION-SESSION-COORDINATE-DESIGN-001`（未收口；本轮不动它，也不提升任何门）。
+- `NEXT`: **暂无**（主计划 `current_next` 写着"暂无 `NEXT`"，`HOST-ADMISSION-DESIGN-001` 已由 `03eec4a`
+  收口为 `DONE`；本轮不动任何卡，也不提升任何门）。
+  **这条刚写下时被自己的清点脚本抓到过一次**：本节第一版把它写成 `NEXT`: `HOST-ADMISSION-SESSION-COORDINATE-DESIGN-001`
+  （未收口）——那个卡 id **在全仓只出现在我自己那一行里**，`grep -rn HOST-ADMISSION-SESSION docs/` 今天只回这一处；
+  等 CI 时顺手重跑 `.tmp/count_plan_cards.py` 读 **56 张带 `status` 的卡 / `NEXT` = 0 / `QUEUED` = 0**，
+  与 `current_next` 一致，才确认是我把设计文档名 `docs/host-admission-session-coordinate-design.md` 拼成了卡 id。
+  原文一字不改地留在 `f2116b0`，此处按更正标注而非静默改写。
 - 触发：主计划 `## 当前已验证状态` 一节写着"以下事实必须从命令重新生成"。前两轮核了
   `report_cases.py` 快照与缺失 case 规划视图；本轮核第三类：**执行文档里写下的每一条
   `tools/*.py` 命令，参数是否落在脚本自己声明的 flag 表上**。
@@ -3311,6 +3317,9 @@
 - 一次自我修正：第一版没认续行，把 `docs/development.md:94` 的 `--derive-names` 误判成带值；
   修的是解析口径，判据一字未动，第 4 道对照组就是这条修的证明。
 - 门禁：九道门 `2501 passed / 2 skipped`（与前一张卡逐字相同）＋ 本轮追加的八道快门禁全 0；
-  `docs/development-execution-plan.md` 括号 balance 0、改动 `19 insertions / 0 deletions`。
+  `docs/development-execution-plan.md` 括号 balance 0、`f2116b0` 那一格改动 `19 insertions / 0 deletions`。
+  **下一格更正提交（`NEXT` 那格的改名与这句）在同一棵 docs-only 树上重跑了九道门：
+  `2501 passed / 2 skipped`，八道快门禁同样全 0，改动 `16 insertions / 2 deletions`（含这两句自身；两行删除就是
+  被更正的那两行，未静默丢历史——原文留在 `f2116b0`）。**
 - 边界：不改任何 `tools/` 与判据，不动 `.gitattributes`，不碰 HOST 实现/fixture，不提升任何门，
   不连接用户的远程服。

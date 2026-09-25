@@ -549,6 +549,11 @@ MSYS_NO_PATHCONV=1 docker run --rm -v "$PWD":/src:ro -v minekin-runner-data:/dat
   `findings: []`**（证明上一条抓到的是真传值不是 parser 误报）；把扫描范围收窄到空目录 →
   `SCAN_TOO_NARROW scripts: 0`——这一条专防"绿是因为什么都没解析到"，也是上一格那个 12 位前缀
   自匹配陷阱在同一类校验里的写法。**本节不改任何工具与判据**，只登记一次读数。
+  同一轮等 CI 时顺手重跑卡片清点（`.tmp/count_plan_cards.py`）却抓到我自己写进 `development-todo.md`
+  的一个**不存在的卡 id**：那格 `NEXT` 我按设计文档名拼成了 `HOST-ADMISSION-SESSION-COORDINATE-DESIGN-001`，
+  而清点读的是 **56 张卡 / `NEXT` = 0 / `QUEUED` = 0**，与本节上方 `current_next` 那句"暂无 `NEXT`"一致。
+  更正以带日期的括号写在 todo 那一格上，原文留在 `f2116b0` 不静默改写——**flag 表要对着脚本源码核，
+  卡 id 要对着 `grep` 与清点核，两者都不是"看起来对"就够了**。
   本轮九道门 `2501 passed / 2 skipped` 与前一张卡**逐字相同**，另八道快门禁全 0。
 
 ## 最近完成
