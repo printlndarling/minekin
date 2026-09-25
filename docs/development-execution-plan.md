@@ -12,6 +12,12 @@
 - `baseline_date`: 2026-09-22
 - `baseline_branch`: `main`
 - `baseline_remote`: `origin/main`
+- `current_priority`（用户 2026-09-25 再确认）：**1.20.1 是现阶段产品主线**。按唯一 `NEXT` 先完成
+  1.20.1 停止/断连松键证据，再完成 V08 前确有必要的安装故障门，随后推进 1.20.1 目标的
+  V08 非破坏性入服、V09 最小 look/move/release、V10 demo 验收。1.21.4 仅作为已建成版本的
+  回归基线；除非真实回归或当前 1.20.1 卡不可绕过的前置阻断，不再新增 1.21.4 功能专题。
+  即使遇到前置阻断，也先登记范围与证据、按唯一 `NEXT` 流转，不得借 `.tmp/` 中的实验记录
+  自行改排期或把临时构建当作新主线。HOST/PERSIST、在线认证、远程服授权等既有停机边界不变。
 - `current_next`: `KEY-RELEASE-AT-STOP-001`（本提交把已 `QUEUED` 的它单独提升为唯一 `NEXT`，当前无第二张
   `NEXT`。上一张 `BRIDGE-1214-RUNTIME-IDENTITY-001` 已 `DONE`：实现与重封 `16dbb42`、收卡 `2464901`——1.21.4 root
   现在从 Fabric 自己的 mod container 读 `minecraft`/`fabricloader`，读不到就失败关闭而非回落常量，被引用的 12 条
