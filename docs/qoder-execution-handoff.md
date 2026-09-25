@@ -7,7 +7,33 @@
 > `.tmp/` 被 Git 忽略，是构建、诊断和封证的临时工作区；它的内容不是已推送产品代码、
 > 不是阶段状态，也不能替代主计划里的 run/bundle/attempt 与真实门禁记录。
 
-> **最新交接点（2026-09-26，停止阶段工件到手；唯一 `NEXT` 是 `ADMIT-070-RECORD-SCHEMA-001`）**：
+> **最新交接点（2026-09-26，`ADMIT-070-RECORD-SCHEMA-001` 收卡：冻结的 schema 说得出两类记录了；计划暂无 `NEXT`）**：
+> 收卡提交是本次文档提交，实现 **`de8ed7d`**（登记 `ff63746` → 提升 `79cf8ce` → 实现 `de8ed7d`，三步分提交，
+> 满足交接第 3、4、6 项）。交付形状：`schemas/fault-injection.schema.json` 根 `oneOf` 分
+> `$defs.process_sigkill_record` / `$defs.client_report_request_record`，`category` 缺省仍是 kill 一类
+> （卷内每张旧封存照读不变），reader `tools/fault_injection.py` **一字未动**（`forbidden_paths`，方向只能是
+> 文件向 reader 对齐）。`$comment` 里那句"字段间比较归 reader"仍然成立，但两处"同一件事说两遍"的配对已写进
+> 文件：`asked` 由 `value` 的拼写派生、`observed: true` 预设 `asked: true`（即 `EFFECT_WITHOUT_REQUEST`）。
+> **读数**：23 件结构反例（10 kill + 13 request）两侧同时被拒、7 种合法形状两侧同时被接受；把 7 条新规则
+> 逐一从盘上删掉，那 4 个具名测试作为一组 7/7 变红，未删时 positive control `exit 0`
+> （`uv run --frozen python .tmp/schema_counterexamples.py`，读数 `.tmp/schema-counterexamples-final.log`）。
+> 本地全量门禁在 `de8ed7d` 干净树上跑：`2500 passed / 2 skipped`、ruff check/format 干净、Pyright 0 errors、
+> `check_case_assertions OK (140 registered)`、`verify_fixture_digests OK`、boundaries / workflow pins /
+> `git diff --check` 全 0（`bash .tmp/run_local_gates.sh`）。
+> **fixture 只动一行**：`tests/fixtures/manifest.sha256:7` `cc983bc8…` → `34e6d26c…`；
+> `w00-contract-001.json` 一字未改、其 `case_version` 新旧同为 `c59b9636…`（`case_version` 是 case 文档自身的
+> sha256）。**登记这张卡时那句"改 schema 等于给无关 case 重新定版"经测量不准确**——耦合点是
+> `fixture_digests_match_manifest` 读那行 manifest。registry 与 `tested` 声明一字未动（旧 digest 全跟踪树无命中、
+> registry 只钉 bridge/plan/recipe/bundle 四类摘要），因此没有触发任何重封。
+> **下一张归主控**：队列这次是**逐卡数过**的，不是 grep 状态行——`python .tmp/count_plan_cards.py` 报
+> 55 张带 `status` 的卡里 `QUEUED` 与 `NEXT` 均为 `0`，开放中的只剩 `REAL-P0-CAMPAIGN-001`
+> （`BLOCKED_EVIDENCE`）、`EXPLICIT-RELEASE-AT-STOP-001`/`HOST-ADMISSION-DESIGN-001`/
+> `OPERATIONS-RETENTION-001`/`PROCESS-RECOVERY-001`（`BLOCKED_DECISION`）与 `HOST/W80+`（`DEFERRED`）。
+> 要往下走得先拍板：①1.20.1 的 `STOP_PHASE_EXPLICIT_KEY_RELEASE` 是否据现有工件从 `tested` 划出、V08 是否提升；
+> ②`HOST`/`PERSIST`/远程服授权那几张的决策；③或明确一条新的自主路线。本执行者不自行猜编号、不新造主线卡。
+> 恢复现场时先核主计划 `current_next` 与本文件是否仍一致。
+>
+> **上一交接点（2026-09-26，停止阶段工件到手；唯一 `NEXT` 是 `ADMIT-070-RECORD-SCHEMA-001`）**：
 > `GRACEFUL-STOP-KEY-RELEASE-001` 已 **`DONE`**（收卡提交 `2253358`，两条 ref 与远端 SHA 已核，GitHub Actions
 > 的两个 `CI` run 对该 SHA 均 `completed / success`）。1.20.1 那一格的读数：实现 `5c643c6`；
 > `V1201-080` attempt 3 run `484675e4938b4134b788a971e195619b` / bundle `22fb57f3…` / `result PASS`，
@@ -20,13 +46,13 @@
 > 是否连接用户远程服仍归主控**（`HOST-ADMISSION-DESIGN-001`、`OPERATIONS-RETENTION-001`、
 > `PROCESS-RECOVERY-001` 仍 `BLOCKED_DECISION`，HOST/W80+ `DEFERRED`）。
 > 主线那一格既然归决策而不归执行，本提交依交接第 3 项把队列里唯一可执行的 `QUEUED` 提升为 `NEXT`：
-> **`ADMIT-070-RECORD-SCHEMA-001`**（`ff63746` 登记）——`schemas/fault-injection.schema.json` 至今仍只描述
-> SIGKILL 那一类记录，而 `tools/fault_injection.py` 已经读两类；缺口被
+> **`ADMIT-070-RECORD-SCHEMA-001`**（`ff63746` 登记）——`schemas/fault-injection.schema.json` 当时仍只描述
+> SIGKILL 那一类记录，而 `tools/fault_injection.py` 已经读两类；缺口当时被
 > `tests/unit/test_fault_injection.py::test_the_frozen_schema_still_describes_the_kill_record_only`
-> 显式钉住。`LOCAL_ONLY`，不碰产品代码、不碰判据、不要求真实运行。
-> （另需记一笔：本文件上一版交接点写过"队列中没有可提升的 `QUEUED`"，那是错的——漏看这张自 9 月 24 日就挂在
-> `QUEUED` 上的卡；当时的清点只数了 `BLOCKED_DECISION`/`DEFERRED` 三条。该说法已在主计划 checkpoint 里就地更正。）
-> 恢复现场时先核主计划 `current_next` 与本文件是否仍一致。
+> 显式钉住（该测试随 `de8ed7d` 退役，换成双向一致的两条）。`LOCAL_ONLY`，不碰产品代码、不碰判据、不要求真实运行。
+> （另需记一笔：本文件更早一版交接点写过"队列中没有可提升的 `QUEUED`"，那是错的——漏看这张自 9 月 24 日就挂在
+> `QUEUED` 上的卡；当时的清点只数了 `BLOCKED_DECISION`/`DEFERRED` 三条。该说法已在主计划 checkpoint 里就地更正，
+> 清点方式也换成了上面那条按卡头配对状态行的脚本。）
 >
 > **上一交接点（2026-09-26，停止阶段的显式松键：工件已到手，计划暂无 `NEXT`，下一张归主控）**：
 > `GRACEFUL-STOP-KEY-RELEASE-001` 已 **`DONE`** 并由本提交收卡。实现是 **`5c643c6`**（新增

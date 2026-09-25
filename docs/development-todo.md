@@ -2889,3 +2889,59 @@
 - **本卡未做的**（都属越界）：`cli/auto_session.py` 的版本切换停止仍是"直接终止"（`non_goals`）；
   registry 的 `status`、九条 `gaps`、摘要一字未动（`STOP_PHASE_EXPLICIT_KEY_RELEASE` 是否据此划出仍归主控）；
   不判定 V07 剩余缺口、不提升 V08、不连接用户远程服；run document 字段集与 `schema_version` 未扩。
+
+## ADMIT-070-RECORD-SCHEMA-001 收卡现场（2026-09-26，本地 Windows；`LOCAL_ONLY`，无真实运行）
+
+- **这张卡要补的洞**：`tools/fault_injection.py` 自拒绝注入那张卡起读**两类**记录
+  （`PROCESS_SIGKILL`、`CLIENT_REPORT_REQUEST`），而 `schemas/fault-injection.schema.json` 只写得出
+  SIGKILL 那一类，并且有一条测试**显式断言**请求记录会被 schema 拒绝。写下来的契约与执行它的读取器
+  各说各话，将来照文件读的人就会以为请求类没有规则。方向只能是文件向 reader 对齐——reader 一字未动。
+- **交付（`de8ed7d`）**：根 `oneOf` 指向 `$defs.process_sigkill_record` 与
+  `$defs/client_report_request_record`。kill 一支的字段集与旧文件逐格相同（`category` 缺省仍表示它，
+  卷内每张旧封存照读不变；明写 `PROCESS_SIGKILL` 也接受，与 reader 的 `keys = _KEYS | {"category"}` 对齐）；
+  请求一支带上 `_REQUEST_KEYS` 的九件、`request` 的四件与 `effect` 的五件，并把 reader 里那两条派生关系写进
+  `allOf/if/then`：`asked` 由 `value` 的拼写决定（YES/NO 两张拼写表，大小写与首尾空白都跟着 `yes_or_no`
+  的实际归一化写，避免"schema 比 reader 更严"）、`method`/`pid`/`starttime_ticks` 跟着 `observed` 走，
+  以及 `observed: true` 预设 `asked: true`（就是 `EFFECT_WITHOUT_REQUEST` 那一格）。
+  `case`/`attribution`/`reasons` 与两个单调时钟字段收进 `$defs` 共用——reader 里一份的规则，文件里也只留一份。
+- **验收第①格（双向一致，两条方向都测）**：`structural_mutations()` 拆成
+  `kill_structural_mutations()`（10 件）+ `request_structural_mutations()`（13 件）= 23 件，
+  `test_the_schema_refuses_everything_the_reader_refuses_structurally` 逐件要求 reader 报代码**且** schema
+  报错；新增 `test_the_schema_accepts_every_shape_the_reader_accepts` 过 7 种合法形状（注入成功/未落地的
+  kill、明写类别的 kill、argv 含空 option 值的真实客户端身份、被观察到/未被观察到/没人要过的请求）。
+  第二类是这条卡自己踩过的坑：写下的形式一旦比 reader 严，真记录连它的拒绝理由一起写不下来。
+  新增 `test_the_schema_names_both_kinds_and_refuses_a_record_that_names_neither` 钉两类边界（借字段的
+  两份文档都拒；缺 `signal` 的 kill 不会被改读成请求）。
+- **退役与替换**：`test_the_frozen_schema_still_describes_the_kill_record_only` 删除，改由
+  `test_the_two_comparisons_the_reader_still_keeps_for_itself` 说清**仍然分工**的两格——
+  `REASONS_MISSING` 与 `REASONS_NOT_FOR_THIS_OUTCOME` 由 reader 拒、schema 沉默（与 kill 一类的
+  outcome-vs-confirmation 同一条线：文件说形状与"同一件事说两遍"的配对，不替整段叙述是否完整作证）。
+- **反证（非空转）**：`uv run --frozen python .tmp/schema_counterexamples.py` 把新写的 7 条规则逐一从
+  盘上的 schema 里删掉再跑那 4 个具名测试：`7/7` 次整体变红（`exit=1`），未删时 positive control
+  `4 passed` `exit=0`；脚本 `finally` 里按字节还原并复核测量 digest 前后一致（`34e6d26c…`）。
+  读数：`.tmp/schema-counterexamples-final.log`。
+- **验收第②③格（fixture 侧，并更正登记卡的前提）**：动的只有 `tests/fixtures/manifest.sha256:7`
+  ——`cc983bc8fc4b12c9bf9725b50e9d31493941c83066b93cb4aab2ff293b3be0a0` →
+  `34e6d26c7d102121cde10d9b43c6eb99951746a80993abce4e41d4a717802e19`（用门禁自己的
+  `tools/verify_fixture_digests.py::_normalized_bytes` 量出，改前该工具报的就是这一行；卡片当时写的"第 6 行"
+  实际是第 7 行）。**`w00-contract-001.json` 一字未改**：`case_version` 是 case 文档自身的 sha256
+  （`src/minekin_core/domain/cases.py:731`），新旧同为 `c59b9636646e3e3d3964d51421c3ead556f12a5936bbea74c46fbfc89f6b66b4`
+  （改前改后各算一次，并核 `git show HEAD:` 与工作副本字节相等）。所以登记时"改 schema = 给无关 case
+  重新定版"不准确：真正的耦合是 `fixture_digests_match_manifest` 会读那行 manifest——不重签就是 W00 判红。
+  另核两件事：旧 digest `cc983bc8fc4b12c9` 在全跟踪树里已无命中（`.claude/` 陈旧 worktree 除外）；
+  `tests/fixtures/registry/reviewed-tested-bundles.json` 只钉 `bridge_digest`/`launch_plan_digest`/
+  `recipe_digest`/`bundle_digest` 四类，**没有一条 `tested` 声明被本卡移动**，故无需任何重封。
+- **验收第④格（全量门禁，`bash .tmp/run_local_gates.sh`，跑在 `de8ed7d` 的干净工作树上）**：
+  `ruff check` `All checks passed!`、`ruff format --check` 0、Pyright `0 errors`、全量 pytest
+  **`2500 passed / 2 skipped`**（302.92s；两处跳过是既有的平台限制）、`check_boundaries` 0、
+  `check_case_assertions` `OK (140 registered)`、`verify_fixture_digests` `W00 schema and fixture digests: OK`、
+  `check_workflow_pins` 0、`git diff --check` 0。定向文件 `tests/unit/test_fault_injection.py` 63 passed。
+- **复跑命令**：`uv run --frozen pytest tests/unit/test_fault_injection.py -q`；
+  `uv run --frozen python tools/verify_fixture_digests.py`；
+  `uv run --frozen python .tmp/schema_counterexamples.py`；`bash .tmp/run_local_gates.sh`；
+  队列清点 `python .tmp/count_plan_cards.py`。
+- **本卡未做的**（都属越界）：`tools/fault_injection.py` 的读取规则一字未动；判官
+  `tools/assert_case_evidence.py`、产品 `src/minekin_core`、Bridge、runner、`proto/`、CI 全未触碰；
+  未新增第三类记录、未改 `CLIENT_REPORT_REQUEST` 已冻结的字段语义、未重解释 SIGKILL 类既有字段；
+  `$id`/`title` 仍是 v1（reader 的 `schema_version` 仍是 `1`）；不封 evidence，也不据此判定 1.20.1
+  那一格或 V08——那仍是主控的决策。
