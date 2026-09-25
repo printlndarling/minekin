@@ -4663,6 +4663,11 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
   1.21.4-linux-x86_64-offline-java21 --max-bytes 8000000000 --store /tmp/… --dry-run` → `status: planned`、
   `artifacts: 4120`、`missing: 4120`、`missing_bytes: 523788383`、`plan_sha256: bcc0c10d…`、`exit=0`，未抓取任何东西。
   未显式给 `--store` 的那一次先被 `CONFIG / cli.session` 以 `exit=10` 拒绝（根内有 5 个 Kin 未指明）——选择仍是显式的。
+- `ci_reading_identity`（CI **不是** Minecraft 验收证据，这里只是三道静态门的读数）：Actions REST 的 check-runs 对
+  `20b975e` 两个 ref 的 run（#36113321667 main / #36113330411 工作分支）各三 job 全 `success`；run 页面读到
+  `python 2m 50s`、`protocol 9s`、`bridge-static 13s`，总计 2m 53s。页面**开进 Chrome 看过**（连接器导航成功，标题即
+  `…@20b975e`），但截图工具 40s 超时、a11y snapshot 返回空，因此逐 job 的可见读数取自该 run 页面与其 REST 结果，
+  **不声称肉眼读过日志每一步输出**——与上一卡 `ci_reading_hello` 同一口径。
 - `not_tested_identity`：① **`tested` 是否成立仍不由本卡判定**——`status`/`capabilities`/`gaps` 字节未动，换代只是让
   既有判据有一条当前 build 的证据可判；② CORE-040 不在被引用的 12 案之内，本卡没在新 build 上重封它
   （`CORE_040_UNSEALED_ON_THIS_BUILD`），CORE-090 的崩溃半 `1a8774fc…` 按设计不封存；③ 全部真跑都在 Linux x86_64
