@@ -3080,3 +3080,53 @@
 - **本次未做也不做的**（越界清单沿用 HOST 设计卡那份）：不实现 HOST、不建 `host-001.json`、
   不动五份 host/world 契约、不提升 `HOST/W80+` 与 V08、不连接用户的远程服、不改三张
   `BLOCKED_DECISION` 卡的状态、不为凑一张本地卡而新造断言。
+
+
+## `W00` / `W10` 两道门的本地证据过期了，按既有通道重封（2026-09-26，规范数据卷 `/data`）
+
+- **发现的路径不是猜的**：量完"missing 里没有 `local-only`"之后，顺着 `report_promotion.py` 的
+  `overall.blocking_cases` 往下问了一句——**present 的 case 也会证据过期**。今天规范卷里
+  `W00-CONTRACT-001` 的 bundle 是 09-20 封的（`case_version b3efa8ee…`），当前用例的摘要是
+  `c59b9636…`，于是 `W00` 红在 `CASE_VERSION_MISMATCH`；`CORE-001` 在规范卷里**从来没有** bundle
+  （09-23 那两份封在 `.tmp/` 的数据根、没迁入卷），于是 `W10` 红在 `CASE_WITHOUT_EVIDENCE`。
+  本文 09-23 那句"两道门都变成 `promotable`"因此已失效——**历史句子按当时读数保留**，失效实在此记录。
+- **为什么这不算新范围**：`case_version` 判定用的是 `case.digest`（`src/minekin_core/domain/cases.py:921`
+  那条 `item.case_version != case.digest`），补一份匹配当前用例的 PASS bundle 是本文写过的
+  "队列之外第二类：证据生产不是卡"——不新增断言、不新增 case、不跑 Minecraft、不要 runner、不做任何决定。
+- **复跑命令**（全部本机 + 容器，只读挂载仓库）：
+  ```bash
+  # 1) 当前树是否仍成立（本机，只写 .tmp/）
+  uv run --frozen python tools/run_repo_case.py --case tests/fixtures/cases/core-001.json \
+    --output-directory .tmp/resume-repo-out/core001 > .tmp/resume-repo-out/core-001.json   # exit 0 / PASS
+  uv run --frozen python tools/run_repo_case.py --case tests/fixtures/cases/w00-contract-001.json \
+    --output-directory .tmp/resume-repo-out/w00c001 > .tmp/resume-repo-out/w00-contract-001.json
+
+  # 2) 封进规范卷（/data 读写挂载，MINEKIN_HOME=/data）
+  python tools/seal_repo_case.py --data-root /data --case tests/fixtures/cases/core-001.json \
+    --profile tests/fixtures/runtime-input/bundle-p0-core-1.21.4.json \
+    --verdict .tmp/resume-repo-out/core-001.json \
+    --output-directory .tmp/resume-repo-out/core001 --root /src        # exit 0 = sealed 且 held
+
+  # 3) 由产品自己的读取器复核（数据根只从环境来，verify 没有 --data-root）
+  MINEKIN_HOME=/data python -m minekin_core evidence verify f233501676394223b65320ec14cc2797
+  MINEKIN_HOME=/data python -m minekin_core evidence verify 157eccd2eeb5486dab5b9393c914b0c0
+  ```
+- **封进去的两份**：`CORE-001` run `f233501676394223b65320ec14cc2797` / bundle `1a8ec211e1565d747dadef1795055009af6e9adc83da70bc76c3800c1b514b9d` / `case_version fdd125b5…` / attempt 1 / 9 件工件 / `result: PASS`；
+  `W00-CONTRACT-001` run `157eccd2eeb5486dab5b9393c914b0c0` / bundle `73c784d6f9218390db9b63d0465085920bbd2070540efb87ed8cb4bea34068f3` / `case_version c59b9636…` / attempt 1 / 8 件工件 / `result: PASS`。
+  两份 `evidence verify` 都是 `status: verified`、`sealed: true`、`verified: true`、`violations: []`；
+  `re_judged: UNJUDGED` 是这类 bundle 的既有口径（仓库自检没有 `asserter-inputs.json`，重判方式是重跑检查）。
+- **前后读数差（同一工具、同一卷，只多了这两份 bundle）**：evidence `83 → 85`；
+  `W00 promotable false → true`（`blocks` 清空）、`W10 promotable false → true`（`blocks` 清空）；
+  `p0-core` 的 `blocking_cases` `17 → 15`；`overall.blocks` 少掉 `CASE_WITHOUT_EVIDENCE`、
+  `overall.blocking_cases` `36 → 34`（少的正是这两条 case）；`overall.status` 仍 `blocked`、
+  `overall.promotable` 仍 `false`、`repository_build.gates_promotion` 仍 `false`。**没有提升任何一道门。**
+  两份 09-20 的旧 bundle 一字未动，`reviewed-tested-bundles.json` 与 `manifest.sha256` 未被触碰。
+- **三条反证**：① 把封好的 bundle 复制一份、改检查日志的第 1 个字节 ⇒ 同一读取器报
+  `status: invalid`、`sealed: false`、`violations: ["ARTIFACT_DIGEST_MISMATCH:checks/the_fixed_bundle_recipe_is_the_reviewed_one.log"]`；
+  ② 两份 bundle 各放进独立数据根（含 `evidence-attempts.sqlite3`）⇒ `core` 根只有 `W10` `promotable: true`
+  而 `W00` 仍红在 `W00-CONTRACT-001`、`w00` 根只有 `W00` `promotable: true` 而 `W10` 仍红在 `CORE-001`
+  ⇒ 翻绿是**逐 case 的**，不是整体放行；③ 只拷 bundle 不拷 attempt registry 的数据根 ⇒
+  `status: unusable`、`message: sequenced evidence exists without its attempt registry`、`exit 2`。
+- **仍然没做的**（边界不变）：不提升 `W00`/`W10`（提升是主控的动作，本报告只说 `promotable`）、
+  不动 V08 与远程服、不实现 HOST、不改任何一张卡的 `status`、不新增断言或 case、不跑 Minecraft、
+  不接受 EULA。剩下 34 条 `blocking_cases` 与 31 条 `missing` 全部要真实运行或产品决策。

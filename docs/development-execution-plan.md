@@ -44,6 +44,27 @@
   本地九道门全 0、pytest `2501 passed / 2 skipped` 与上一张卡逐字相同，两条 ref 与远端 SHA 已核，
   GitHub Actions 对该 SHA 的两个 `CI` run `36182923576` / `36182924428` 及其六个 job
   `python`/`protocol`/`bridge-static` 全 `completed / success`（step 层只有 `success`）。）
+  （**同日晚，还有一格没量过：`present` 的 case 也会证据过期——`W00`/`W10` 在规范数据卷里已经不当班，
+  按既有通道重封了两份当前 build 的 PASS bundle**：上面那段说的是 `missing` 集合，没说 `present` 那一半。
+  `report_promotion.py --data-root /data`（规范卷）今天读出 `W00 promotable: false` +
+  `blocks: [CASE_VERSION_MISMATCH]`、`W10 promotable: false` + `blocks: [CASE_WITHOUT_EVIDENCE]`，
+  即本文 2026-09-23 那句"两道门都变成 `promotable`"**已经失效**（那句原样保留，失实在此标注）。原因：卷里
+  `W00-CONTRACT-001` 的 bundle 是 09-20 封的（`case_version b3efa8ee…` ≠ 今天的 `c59b9636…`），
+  而 `CORE-001` 在规范卷里**从来没有** bundle（09-23 那两份封在 `.tmp/` 的数据根，未迁入卷）。这属于本文
+  写过的"队列之外第二类：证据生产不是卡"——不要 Minecraft、不要 runner、不新增判据，所以直接做了：
+  `run_repo_case.py` 两个 case 各跑一遍 ⇒ 全部 `held: true`、`result: PASS`、`exit 0`（当前树仍成立）；
+  `seal_repo_case.py --data-root /data` 各封一份 ⇒ `CORE-001` run `f233501676394223b65320ec14cc2797` /
+  bundle `1a8ec211…` / attempt 1 / 9 件工件，`W00-CONTRACT-001` run `157eccd2eeb5486dab5b9393c914b0c0` /
+  bundle `73c784d6…` / attempt 1 / 8 件工件；两份都由产品自己的读取器复核为 `status: verified`、
+  `sealed: true`、`result: PASS`、`violations: []`。**改了哪些读数**：卷内 evidence `83 → 85`，`W00`/`W10`
+  各自 `blocks: []` + `promotable: true`，`p0-core` 的 `blocking_cases` 17 → 15，`overall.blocks` 去掉
+  `CASE_WITHOUT_EVIDENCE`、`overall.blocking_cases` 36 → 34（去掉的正是这两条），`overall.status` 仍
+  `blocked`、`overall.promotable` 仍 `false` ⇒ **没有提升任何一道门、没有改任何一张卡的状态**；两份 09-20
+  的旧 bundle 一字未动。**三条反证**：① 改掉一个工件的字节 ⇒ 同一读取器报 `status: invalid`、
+  `sealed: false`、`ARTIFACT_DIGEST_MISMATCH:<那条检查的日志>`；② 把两份 bundle 各放进独立数据根 ⇒
+  只有它自己那道门 `promotable: true`，另一道仍红在**自己的 case 名**上（不是整体翻绿）；③ 只拷 bundle
+  不拷 `evidence-attempts.sqlite3` 的数据根报 `status: unusable`、`exit 2`，读取器不接受半套卷。
+  复跑命令记在 `development-todo.md` 同名小节。）
   （上一张 `TESTED-GAP-DRAW-STOP-PHASE-1201-001` 已在 `b03863e` 收口为 `DONE`：实现
   `4151664`——1.20.1 那条 `tested` 声明的 `gaps` 划出 `STOP_PHASE_EXPLICIT_KEY_RELEASE` 一条、
   `capabilities` 补上工件所证的 token、`evidence` 追加 `V1201-080 / run 484675e4… / attempt 3 / PASS` 的
@@ -596,7 +617,10 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 变成 `promotable`**（`blocks: []`、`requirement.satisfied: true`），而用机器读数问
 一遍「哪些门的 required set 整组都是 `local-only`」，答案正好是这两道——其余的道
 要么要真客户端（`W20`、`W60`），要么缺 1～18 条运行时用例，要么一条 mandatory case
-都没有（`W70`）。**所以本地证据生产能关死的门只有这两道，已经关死了。**
+都没有（`W70`）。**所以本地证据生产能关死的门只有这两道，已经关死了。**（**2026-09-26 补一句实况**：
+"关死"不是一次性的——`case_version` 会漂移，规范卷里这两道门当天实测已回到
+`CASE_VERSION_MISMATCH` / `CASE_WITHOUT_EVIDENCE`，并按同一条通道重封两份当前 build 的 PASS bundle 才重新
+`promotable`；逐格读数与复跑命令见顶部 `current_next` 那一格与 `development-todo.md`。）
 
 **队列之外还有第三类，2026-09-23**：**判官自己的拒绝分支也不是卡**。`tools/assert_case_evidence.py`
 里每一条 runtime 断言的每一个拒绝理由，都是某次真实运行的判决，而一个**从没响过的分支**
