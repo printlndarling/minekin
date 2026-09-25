@@ -1,31 +1,31 @@
 # Qoder 临时执行交接（2026-09-24）
 
-> **最新交接点（2026-09-25，跨版本路线执行中）**：唯一 `NEXT` 是
-> `VERSION-INSTALLER-001`（V06，`d8ca02d` 登记、本提交提升），**不是**下文 ADMIT-070 起步卡，
-> 也不是 V01–V05（五者均已 `DONE`；V05 交付 `f70fddc`、收卡 `6a8e79e`）。
-> **V05 交付了什么**：纯领域解析边界 `src/minekin_core/domain/version_resolution.py`（只依赖 stdlib 与
-> `minekin_core.domain.*`）、**新增**的被审清单 `tests/fixtures/registry/reviewed-tested-bundles.json`
-> （摘要 `d9e4823b80f5…`，以新增行进 `tests/fixtures/manifest.sha256`，既有 82 行一字未动）、44 条
-> 单元/契约测试。`tested` 从此有了机器可读承载：1.20.1 与 1.21.4 各自以**同一 build** 的独立封证被选中
-> （1.20.1 → V04 四案；1.21.4 → 当前 build 的 12 案，V05 补封了握手格 `CORE-010`），而跨 build 引用、
-> 非 `PASS` 引用、无引用的 `tested` 条目由 loader 直接拒载——"旧 build 证据称为 tested"这条禁令现在是
-> 代码而不是口号。**没有**读 recipe fixture 的 `status` 字段，两份 recipe 至今仍自称 `candidate`/`recipe`。
-> 清单里的协议号来自真实只读探测（1.21.4 → 769；1.20.1 → 763，在受控 vanilla 服上实测），清单本身不含
-> 任何目标地址。
-> **V05 没有证明的事**：解析未接进 `session start`（属 V07）、零下载零安装（属 V06）、没对**真实远程**
-> 1.20.1 目标解析过（属 V08）、CLI 无 resolver 入口；`RESOLVED` 不等于验收。
-> **V06 只做一件事**：把 V05 选出的一个 `tested` 条目，在**空缓存**里装到 `session start` 的完整性门真的
-> 通过，并证明任何中断（断网、size/sha 不符、磁盘满、rename 失败、并发同 digest、已装件被篡改）都不留下
-> 可启动的半成品；净增量是**一个有类别的显式安装入口**——暂存+`os.replace`+隔离、请求前预算拒绝、逐构件
-> `verify` 今天**已存在**，`provision_bundle`/`ArtifactFetcher` 在 `src/` 内**零调用者**、`bundle` 只有
-> `verify`，所以不要重写下载器。领取前必读主计划 V06 卡的 `measured_state_v06`、`store_root_decision`
-> （store 根按 Kin 划分，改它会移动已封存 plan 的路径字段——**不改**）与 `open_semantics_v06` 三格。
-> 真实下载约 1 GB 级，属**本地/受控 runner 的真实运行**，CI 不证；不把"下载成功"写成 `tested`。
-> **CI 已按规矩在浏览器里逐 job 读过**：`f70fddc` 两 ref 一致，`main` run **#491** 三 job 全绿且逐步骤
-> 打开过（`python` 20 步含 pytest 1m54s、`protocol` buf 三检、`bridge-static` 8 步），工作分支 run
-> **#490** 同 commit 在列表页读到成功；#491 的 2 warnings/3 notices 全是 GitHub 平台公告（Node 20 弃用、
-> runner-images #14748），不是本仓库的红灯。**CI 不是 Minecraft 验收证据**，Minecraft 侧真实运行只有
-> 受控 runner 里那一次只读握手。
+> **最新交接点（2026-09-25，跨版本路线执行中）**：**当前没有 `NEXT`**——`VERSION-INSTALLER-001`（V06）
+> 已在本批收为 `DONE`（登记 `d8ca02d`、提升 `9ca039f`、范围与语义冻结 `f15f6b7`、实现 `06acbf1`），而
+> 下一张 `VERSION-SESSION-SWITCH-001`（V07）在主计划里还没有卡片正文：须先以 `QUEUED` 登记、再在
+> **另一次独立提交**提升。下文 ADMIT-070 起步卡与 V01–V05 都不是当前领取对象（五者均已 `DONE`）。
+> **V06 交付了什么**：产品侧第一个安装入口
+> `minekin bundle install --registry ... --bundle-id ... --max-bytes N [--store ...] [--dry-run] [--jobs N] [--quiet]`，
+> 它把"先核对被审摘要，再装"两层显式组合起来——`require_reviewed_plan` 按 `tested` 状态 → recipe 摘要 →
+> launch plan 摘要 → bridge 摘要四步拒绝，`reviewed_entry` 拒绝猜近邻 id。**没有**新增 ready 标记、
+> **没有**改 store 根、**没有**重写下载器（暂存+`os.replace`+隔离、请求前预算拒绝、逐构件 `verify` 都是既有的）。
+> 清单的 `bridge_digest` 是 **bridge jar** 的 sha256（plan `fixed_mods` 里那条），不是
+> `bridge_source_sha256`；bridge jar 由 workspace 提供、**不经 fetch**，所以 bridge/asset 的放置仍属 V07。
+> 真实读数（受控 runner，收卡时重量过；**两套**各自受审组合各从一个空 store 装齐）：1.20.1 的
+> **3,639 个构件 / 738,432,269 字节**，中途 SIGKILL 在 384 件、续跑报 `installed 3255 / reused 384 /
+> failed []`；1.21.4 的 **4,120 / 523,788,383 字节**一趟未中断（`installed 4120 / reused 0 / failed []`）。
+> 两套随后各自 `require_launchable` + `require_store_complete` **通过**（`missing 0`、`quarantine 0`；
+> store `du` 分别 727M / 525M），满 store 以 `--max-bytes 1` 分别全量复用 3,639 / 4,120 件、exit 0；
+> 预算不足与缺 `--max-bytes` 分别以 exit 11 / exit 2 拒。
+> **V06 没有证明的事**：安装未接进 `session start` 自动路径（V07）、没起过任何 Minecraft 进程、
+> 跨进程续抓只在 1.20.1 上有读数、
+> 磁盘满的写失败分支/原子 `rename` 失败/并发同 digest 三类未主动诱发（既有 store 契约覆盖）、
+> `.staging` 里 5 个残留事务无 GC API、每 Kin 一份副本的代价仍成立、`RUNNER_JDK_17_UNSEALED` 不变。
+> **CI 已按规矩在浏览器里读过**：`main` run **#501**（`06acbf1`）三 job 全绿，`python` 2m59s 逐步骤读过
+> （`ruff check`/`ruff format --check`/`pyright`/`pytest 2m6s`/`check_boundaries`），`protocol` 9s、
+> `bridge-static` 12s；文档提交 `f15f6b7` 的 run **#499** 在列表页读到 `completed successfully`；
+> 注解全是 GitHub 平台公告（Node 20 弃用、runner-images #14748），不是本仓库红灯。**CI 不是 Minecraft
+> 验收证据**——真实运行只发生在受控 runner 里。
 > 以下 ADMIT-070 起步任务和阶段说明是
 > 当时的历史执行路线，**不是当前领取任务的授权**。七个已排定的 P0 campaign 场景
 > 已走完（`scenario_progress 7/7`），但 [`development-execution-plan.md`](development-execution-plan.md)

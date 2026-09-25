@@ -12,13 +12,25 @@
 - `baseline_date`: 2026-09-22
 - `baseline_branch`: `main`
 - `baseline_remote`: `origin/main`
-- `current_next`: `VERSION-INSTALLER-001`（V06，`d8ca02d` 登记 `QUEUED`，本提交单独提升为唯一 `NEXT`；
-  `VERSION-RESOLVER-001` 已 `DONE` 收卡 `6a8e79e`，两 ref 均已核对）。
+- `current_next`: **本提交起暂无 `NEXT`**——`VERSION-INSTALLER-001`（V06）已在本提交收为 `DONE`
+  （登记 `d8ca02d`、提升 `9ca039f`、范围与语义冻结 `f15f6b7`、实现 `06acbf1`），而下一张
+  `VERSION-SESSION-SWITCH-001`（V07）在主计划里还没有卡片正文，须先以 `QUEUED` 登记、再在**另一次独立提交**
+  提升；在那之前任何执行者都不得自行领取 V07 或其它卡。
   用户在七场景总账后明确把“自动识别服务器版本 → 准备匹配客户端 → 入服并完成简单控制”排为优先路线；
   `VERSION-AUTO-DESIGN-001` 已交付[跨版本连续执行计划](version-auto-to-server-control-plan.md)。
-- `last_checkpoint`: **跨版本路线走到 V06 领取**——唯一 `NEXT` 现为 `VERSION-INSTALLER-001`（V06），
-  其正文与实测现状（`measured_state_v06`/`store_root_decision`/`open_semantics_v06`）在 `d8ca02d` 写下。
-  **上一张** V05 `VERSION-RESOLVER-001` 交付的是纯领域解析边界：
+- `last_checkpoint`: **跨版本路线走到 V06 收卡**——V06 `VERSION-INSTALLER-001` 交付的是产品侧第一个安装
+  入口：`bundle install`（必填 `--max-bytes`，缺失即 `USAGE`）显式组合"先核对被审摘要、再装"两层——
+  `require_reviewed_plan` 按 `tested` 状态 → recipe 摘要 → launch plan 摘要 → bridge 摘要四步拒绝，
+  `reviewed_entry` 拒绝猜近邻 id，装完仍由逐构件 `verify` 每次重新导出就绪（**没有**新增 ready 标记、
+  **没有**改 store 根、**没有**重写下载器）。真实证据在受控 runner：**两套**各自受审组合各从一个空 store 装齐——1.20.1 的
+  **3,639 个构件 / 738,432,269 字节**（中途被 `docker rm -f` 打断在 384 件，续跑报
+  `installed 3255 / reused 384 / failed []`），随后 `require_launchable` + `require_store_complete`
+  通过、`missing 0`、`quarantine 0`；1.21.4 的 **4,120 / 523,788,383 字节**同样从一个空 store 一趟未中断装齐
+  （`installed 4120 / reused 0 / failed []`）并通过同一对门，两套满 store 对 `--max-bytes 1` 均报全量复用。
+  **V06 没有证明的事**：安装未接进 `session start` 自动路径（V07）、
+  没起过 Minecraft 进程、跨进程续抓只在 1.20.1 上有真实读数、磁盘满写失败/`rename` 失败/并发同 digest 三类未主动诱发、
+  `.staging` 残留 5 个事务无 GC。完整读数与未测项见该卡 `delivery_record_v06`…`not_tested`。
+  **上一轮** V05 `VERSION-RESOLVER-001` 交付的是纯领域解析边界：
   新模块 `src/minekin_core/domain/version_resolution.py` + 新增被审清单
   `tests/fixtures/registry/reviewed-tested-bundles.json`（摘要 `d9e4823b80f5…`，以**新增行**进
   `tests/fixtures/manifest.sha256`，既有 82 行未动）+ 44 条单元/契约测试。`tested` 从此有了机器可读承载，
@@ -3784,7 +3796,8 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 
 ### VERSION-INSTALLER-001 — 缺缓存时把已审组合安全装齐
 
-- `status`: `NEXT`（`d8ca02d` 登记 `QUEUED`，本提交单独提升为唯一 `NEXT`；当前无第二张 `NEXT`）。
+- `status`: `DONE`（`d8ca02d` 登记 `QUEUED`、`9ca039f` 提升为唯一 `NEXT`、范围与语义冻结 `f15f6b7`、
+  实现 `06acbf1`、本提交收卡。当前无第二张 `NEXT`）。
 - `baseline_sha`: `d8ca02d`（本卡 `QUEUED` 登记提交，紧随 V05 收卡 `6a8e79e`，两者均已推送并核对两
   ref）。领取时实际 checkout = 本提升提交。
 - `depends_on`: `VERSION-BUNDLE-1201-001`（V03 的两套 recipe/pin 与 launch plan 形状）、
@@ -3825,6 +3838,10 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
   “CLI 的 `bundle` 子命令面（`cli/parser.py` 与其 `bundle` 分派处）”，而分派处实测在
   `src/minekin_core/bootstrap.py:169`（`bundle verify` 的唯一处理点）。本提交把该文件**点名**进
   允许路径，且只允许动它的 `bundle` 分派分支与相应 import；`session start` 接线仍在禁止路径里。
+- `allowed_paths_revision_v06_2`（收卡时先改范围再写文档，与本卡交付文档同一提交）：CLI 表面新增
+  `bundle install` 之后，`docs/p0-core-internal-architecture.md` §15"CLI 最小表面"成了**说错话的冻结件**
+  ——它仍只列 `bundle verify`。本提交把该文件的 §15 一格点名进允许路径，且只允许加那一行命令与其
+  紧随的说明句；该文件其余部分、以及 `session start` 相关的任何描述不动。
 - `open_semantics_v06`（领取时须先逐格闭合，不能靠默认值）：
   1. `bundle install` 的默认 `max_bytes` 预算：现有 `tools/fetch_bundle.py` 把预算作为参数传入，
      CLI 入口若自带一个宽到"永不拒绝"的默认值，等于把 `tests/contract/test_supply_chain_budget.py`
@@ -3853,20 +3870,102 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
   3. **不新增 ready 标记**。就绪仍由逐构件 `verify` 每次重新导出；`install_reviewed_bundle` 只加
      "装之前先按清单摘要核对 recipe 与 bridge/launch-plan 摘要"这一层门，不引入新的状态载体。
      另外如实记录一条可测性边界：假传输层不可能造出与受审 pin 逐字节相符的内容，所以"空缓存装齐"
-     这条正向路径只能由上面那次受控真实运行证明；单元测试覆盖入口拒绝（条目不在清单、非
+     这条正向路径只能由上面那两次受控真实运行证明；单元测试覆盖入口拒绝（条目不在清单、非
      `tested`、recipe/plan/bridge 摘要不符、预算缺失或非正）、预算拒绝时零请求、以及安装失败后
      `session start` 的完整性门仍拒绝。
 - `counterexamples`: 下载中断、size 不符、sha 不符、上游失联/超时、重定向到非 HTTPS、URL 带凭据、
   磁盘满（预算拒绝与写失败两条路径分别证）、原子 rename 失败、并发同 digest、已装缓存被就地篡改后
   复用、清单条目与实际 recipe 摘要不一致、非 `tested` 条目要求安装。每种一个稳定类别，且失败后
   `session start` 仍必须拒绝（不得因为装到一半就放行）。
-- `validation_class`: `UNIT_AND_CONTRACT` + 一次受控真实安装（空缓存装齐一个组合，随后
-  `session start` 的完整性门通过）。Minecraft 进程本身不属本卡（V07）。
+- `validation_class`: `UNIT_AND_CONTRACT` + 两次受控真实安装（两套各自受审组合各从一个空缓存装齐，
+  随后 `session start` 的完整性门逐组合通过）。Minecraft 进程本身不属本卡（V07）。
 - `stop_conditions`: 需要引入第三方镜像或放宽来源才能装成时停并记录来源；需要改 store 根、
   改已封存 recipe 字节、或动 `session start` 接线时停（分别属用户决策 / V07）；
   装不上就报失败，不以"部分构件到位"充当通过。
-- `next_after_done`: 提升本卡为唯一 `NEXT` 由下一次独立提交完成；本卡之后是
-  `VERSION-SESSION-SWITCH-001`（V07，设计卡已有正文，主计划尚无）。
+- `delivery_record_v06`（实现提交 `06acbf1`）：门是 `require_reviewed_plan(entry, *, workspace_root=None)`，
+  按"条目状态是 `tested` → recipe 摘要 → launch plan 摘要 → bridge 摘要"四步拒绝；`reviewed_entry` 读清单
+  并按 id 取**唯一**条目（不在清单即拒，不猜近邻）；CLI `bundle install` 显式组合"门 + `provision_bundle`"，
+  **没有**新增 `install_reviewed_bundle` 那类中间函数（那会把 plan 建两遍，而既有先例 `tools/fetch_bundle.py`
+  就是显式组合）。落点：`provision.py`（`_reviewed_digest`/`_plan_bridge_digest`/`reviewed_entry`/
+  `require_reviewed_plan`）、`cli/parser.py`（`bundle install` 七个参数）、`bootstrap.py`
+  （`_bundle_install` + `bundle install` 分派分支 + `_install_store_root`）、
+  `tests/unit/test_bundle_install.py` 13 条。`_reviewed_digest` 复刻 fixture 清单的归一化语义
+  （可 UTF-8 解码则 `\r\n`→`\n`，否则按原始字节），否则 Windows 检出与 Linux 检出会各自算出不同摘要。
+- `bridge_digest_topology`（领取时量出来的，纠正卡片对"bridge 摘要"的含糊）：清单的
+  `bridge_digest 9e162d8359a88639…` 等于 plan `fixed_mods` 里 `minekin-bridge` 记录的 `sha256`
+  （**bridge jar**），**不是** `plan["bridge_source_sha256"] b5a817dda359ed5d…`（那是 bridge 源码树摘要）。
+  该记录 `sha1: null`、`source: workspace:bridge-1201/build/libs/…jar`，因此 bridge jar **不经 fetch 进 store**：
+  本卡装的是 3,639 个可下载构件，bridge/asset 的**放置**仍属 `session start`（V07）。门同时校 `plan_sha256`
+  与 bridge 摘要不是冗余——前者确实覆盖后者，但条目内部自相矛盾时，分开校能报出**哪一处引用**动了。
+- `entry_shape_v06`：store 根默认 `_install_store_root` = `run_root(root, select_kin(root, kin_selector())) /
+  artifact-store`（每 Kin 一份，**未改根**），`--store PATH` 显式覆盖（受控运行用的就是显式根）；
+  `--max-bytes` 必填，缺失由 argparse 以 `USAGE`(2) 拒，实测输出
+  `minekin bundle install: error: the following arguments are required: --max-bytes`；
+  `--dry-run` 只报工不请求；`--quiet` 关进度，stdout 仍只那一份文档。
+- `gates_v06`（收卡前在锁定环境**重跑**的读数）：`uv run --frozen pytest -q` 全量 **2416 passed /
+  2 skipped in 263.42s**（两条 skip 仍是 `test_orphans`/`test_silent_listener` 的平台局限）；本卡定向
+  **13 passed in 5.45s**；`ruff check .` All checks passed；`ruff format --check .` 313 files already
+  formatted；`pyright` **0 errors, 0 warnings, 0 informations**；`tools/check_boundaries.py` OK；
+  `check_case_assertions`（139 registered）、`check_workflow_pins`、`verify_fixture_digests` 各为 OK；
+  `verify_supply_chain --version 1.20.1` 与 `--version 1.21.4` 各自 "Supply chain: OK (6 pinned
+  artifacts still match)"。`git diff --check` 干净。
+  **这些是静态与单元门禁，不是 Minecraft 验收。**
+- `controlled_run_v06`（受控 runner `minekin-runner:local` + 卷 `minekin-runner-data`，checkout `06acbf1`；
+  下面每一条都是收卡时**重新量过**的，未重量的历史读数单独标明）：
+  - 空 store 规划：`--dry-run` → `artifacts 3639 / missing 3639 / missing_bytes 738432269 /
+    plan_sha256 ac40316094dda001…`、`status planned`、exit 0；1.21.4 同形 → `4120 / 523788383 /
+    9e0e0ccca9d0a589…`（其 plan 摘要与条目一致）。
+  - 预算拒绝（1.21.4，`--max-bytes 1000`，空 store）：exit **11**、`category SUPPLY_CHAIN`、
+    `component launcher.provision`、`retryability OPERATOR_ACTION`，消息
+    "fetching the missing 4120 of 4120 artifacts needs 523788383 bytes, over the 1000 byte budget;
+    raise the budget deliberately rather than by accident"——拒绝在任何请求之前。
+  - 真实装齐 1.20.1：一趟被 `docker rm -f`（SIGKILL，退出码 137）打断在 384 个构件，续跑报
+    `{"installed": 3255, "reused": 384, "failed": [], "missing_bytes": 521807408, "status": "complete"}`。
+    中断既没留下可启动的半成品，也没让已装的 384 件重抓——这就是"半成品不可启动"在真实传输上的读数。
+  - 完整性门：同一 plan/store 上 `require_launchable` + `require_store_complete` **通过**，
+    `fetch_set 3639 / missing 0`，重测耗时 **2.43 s**（页缓存热时的一次复跑为 0.58 s）。store `du -sh` = **727M**、
+    `blobs` 文件数 **3639**、`quarantine` 条目 **0**。
+  - 真实装齐 1.21.4（设计卡"两套各自受审组合"的第二套，收卡时补做）：另一个**空** store
+    `/data/v06-1214-store`、`--max-bytes 600000000`、一趟未中断跑完，报
+    `{"installed": 4120, "reused": 0, "failed": [], "missing": 4120, "missing_bytes": 523788383,
+    "status": "complete"}`、exit **0**；事后 `du -sh` = **525M**、`blobs` **4120**、`quarantine` **0**、
+    `.staging` 文件 **0**。同一 plan/store 的 `require_launchable` + `require_store_complete` **通过**
+    （`fetch_set 4120 / missing 0`，耗时 2.25 s）。
+  - 满 store 复用：1.20.1 与 1.21.4 各一次 `--max-bytes 1` → 分别 `reused 3639 / installed 0` 与
+    `reused 4120 / installed 0 / missing_bytes 0 / failed [] / status complete`、exit 0，
+    进程内耗时 **<1 s**（首次那趟含容器启动的墙钟读数 15.4 s）。预算只约束"这一趟要抓多少"，
+    不约束"已经有多少"，所以一个装满的 store 对任何预算都不该被拒——这条现在是两套组合的真实运行读数
+    而不只是断言。
+  - 暂存残留如实记录（不冒充已清理）：`.staging` 下 **5** 个事务目录、各一个 `payload.part`，合计
+    **58,834** 字节，来自那次 SIGKILL；`ArtifactStore` 今天没有 GC/删除 API，它们留在原地。
+- `counterexamples_v06`（每种一个稳定类别，单元/契约层以注入 opener 证明，且拒绝时**零请求**）：条目不在
+  清单 / 非 `tested` / recipe 摘要不符 / plan 摘要不符 / bridge 摘要不符 / 清单不可读 / recipe 不可读 /
+  预算缺失或非正；上游 `URLError` 一趟后 store 不完整 → `require_store_complete` 仍以
+  "fetch them before starting a session" 拒绝，并实测该拒绝经 `main()` 映射为 exit **11**。
+  size 不符、sha 不符、重定向离开 HTTPS、URL 带凭据、并发同 digest、已装件就地篡改后复用六类**沿用**既有
+  store/fetcher 契约测试，本卡不重述也不重跑（`not_tested` 里如实区分）。
+- `ci_read_v06`（在 Chrome 里读过，不是只跑）：`main` 上 run **#501**（`06acbf1`）总时长 3m2s、`Success`，
+  三个 job 全绿——`python` 2m59s 逐步骤读到 `Set up job / checkout / setup-uv / uv sync --locked --dev /
+  ruff check / ruff format --check / pyright / Run uv run pytest 2m6s / check_boundaries` 均绿；
+  `protocol` 9s；`bridge-static` 12s。文档提交 `f15f6b7` 的 run **#499** 在列表页读到
+  `completed successfully`。注解只有 GitHub 平台自身的公告（Node 20 runner 弃用 changelog、
+  runner-images #14748），不是本仓库的红灯。**CI 不作为 Minecraft 验收证据**：`verify_supply_chain` 与
+  那次真实安装都不在 CI 的三个 job 里，分别由本地门禁与 `controlled_run_v06` 承担。
+- `decision_reversal_v06`：`docs/development-todo.md` 那条"谁来驱动抓取，结论是**操作者工具**而不是产品
+  命令"被本卡**部分推翻**——产品入口现在有了，它成立的前提是清单里存在被审的 `tested` 条目（V05 之前不
+  存在，那正是当时选择工具落点的原因）；`tools/fetch_bundle.py` 保留为工具入口，其可选 `max_bytes` 不变。
+  §15 的 CLI 最小表面加一行 `bundle install`（同一提交里先改本卡 `allowed_paths`，见
+  `allowed_paths_revision_v06_2`）。
+- `not_tested`: 安装**未**接进 `session start` 的自动路径（V07），本卡没起过任何 Minecraft 进程；
+  1.21.4 那次是**未中断的一趟**，所以"跨进程续抓"只在 1.20.1 上有真实读数；两套组合都只装了可下载
+  构件，bridge/asset 的**放置**与真实入服仍停在 V07 门口。磁盘满的**写失败**
+  分支、原子 `rename` 失败、并发同 digest 三类本卡没有主动诱发（既有 store 契约覆盖，不在本卡新增证据）；
+  `.staging` 残留无 GC API；跨 Kin 共享缓存未做，每 Kin 一份副本的代价仍成立（本次两套 store 各自
+  727M / 525M 就是那份代价的读数）；
+  `RUNNER_JDK_17_UNSEALED`（条目写 Java 21、recipe 自述 17）不变。
+- `next_after_done`: 本卡收卡后暂无 `NEXT`。下一张 `VERSION-SESSION-SWITCH-001`（V07）主计划仍无正文，
+  须先以 `QUEUED` 登记、再在下一次独立提交提升；设计卡正文见
+  [跨版本连续执行计划](version-auto-to-server-control-plan.md) 的 V07 一节。
 
 ### VERSION-BRIDGE-IDENTITY-001 — BridgeHello 版本声明配对修复
 

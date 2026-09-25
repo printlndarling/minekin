@@ -108,7 +108,7 @@ bundle id 与结果；旧代回调不能推进新代。`BLOCKED` 不自动回退
 | V03 | `VERSION-BUNDLE-1201-001` | `DONE` | 独立 1.20.1 candidate 构建、pin、SBOM | D |
 | V04 | `VERSION-LOCAL-1201-001` | `DONE`（`tested` 判据成立；registry 承载属 V05） | 受控 1.20.1 真服/真客户端验收到 `tested` | V01,V03 |
 | V05 | `VERSION-RESOLVER-001` | `DONE`（清单承载与解析边界已落地） | catalog / tested registry / 歧义阻断 | V02,V04 |
-| V06 | `VERSION-INSTALLER-001` | `NEXT`（由主计划提升） | 缺缓存自动安全安装与原子发布 | V03,V05 |
+| V06 | `VERSION-INSTALLER-001` | `DONE`（`bundle install` 与受审摘要门已落地并在受控 runner 装齐） | 缺缓存自动安全安装与原子发布 | V03,V05 |
 | V07 | `VERSION-SESSION-SWITCH-001` | `QUEUED` | 自动选包、停止旧代、启动新代 | V01,V05,V06 |
 | V08 | `VERSION-REMOTE-SMOKE-001` | `QUEUED` | 用户目标只读探测及非破坏性入服 | V07 |
 | V09 | `VERSION-SIMPLE-CONTROL-001` | `QUEUED` | 目标服一次 look/move/release 闭环 | V08 |
@@ -262,13 +262,16 @@ bundle id 与结果；旧代回调不能推进新代。`BLOCKED` 不自动回退
   可启动半成品；受保护运行中 bundle/native 不被回收。镜像不含 Mojang 客户端。
 - **停止**：可信上游无法提供可核验材料或需要向第三方镜像回退时停止并记录来源；
   不把“下载成功”当作 capability/tested 证据。
-- **现况**（2026-09-25，`NEXT`，正文由 `d8ca02d` 登记、本提交提升）：领取前先读主计划
-  V06 卡的 `measured_state_v06`、`store_root_decision` 与 `open_semantics_v06` 三格。实测到的现状是：
-  暂存+`os.replace`+隔离的原子写、逐构件 `verify`、请求前的预算拒绝**今天已经存在**，而
-  `provision_bundle`/`ArtifactFetcher` 在 `src/` 内**零调用者**、`bundle` 子命令只有 `verify`、
-  `session start` 缺件即拒——所以本卡的净增量是"把已有能力接成一个有类别的显式安装入口并证明它扛得住
-  中断"，不是重写下载。仓库今天**没有任何删除/GC API**，"受保护构件不被回收"因此是要保持的现状而不是
-  要新防的风险；store 根按 Kin 划分，改它会移动已封存 plan 的路径字段，本卡不改。
+- **现况**（2026-09-25，`DONE`：登记 `d8ca02d`、提升 `9ca039f`、范围与语义冻结 `f15f6b7`、实现
+  `06acbf1`、收卡提交）：交付的是产品侧第一个安装入口 `minekin bundle install`，它显式组合"先按被审
+  摘要拒绝、再装"两层（`require_reviewed_plan` 的四步门 + 既有 `provision_bundle`），**没有**重写下载器、
+  **没有**新增 ready 标记、**没有**改 store 根。验收里"空缓存可安装两套各自受审组合"与"已有缓存逐字节
+  复验后复用"都在受控 runner 上拿到了真实读数：1.20.1 装 3,639 件 / 738,432,269 字节（含一次 SIGKILL
+  打断后的续跑）、1.21.4 装 4,120 件 / 523,788,383 字节，两套事后各自 `require_store_complete` 通过、
+  `missing 0`，满 store 对 `--max-bytes 1` 全量复用。仓库今天仍**没有任何删除/GC API**，"受保护构件不被
+  回收"是本卡保持住的现状而非新防的风险（被打断那一趟留下 5 个 `.staging` 事务、58,834 字节，如实记录）。
+  **本卡没有做也不声称**：安装未接进 `session start`（V07）、没起过 Minecraft 进程、"下载完成"不是
+  `tested`；逐格账见主计划 V06 卡 `delivery_record_v06`…`not_tested`。
 
 ### V07 `VERSION-SESSION-SWITCH-001`：接通会话启动而不热换
 

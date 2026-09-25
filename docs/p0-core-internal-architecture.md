@@ -347,6 +347,7 @@ P0 仅需要：
 minekin init --kin-id ...
 minekin doctor
 minekin bundle verify --profile ...
+minekin bundle install --registry ... --bundle-id ... --max-bytes N [--store ...] [--dry-run] [--jobs N] [--quiet]
 minekin launch-plan --profile ... --dry-run
 minekin session start --profile ... [--server-profile ...] [--identity-candidate ...]
 minekin session status
@@ -354,6 +355,8 @@ minekin session stop
 minekin evidence verify <run-id>
 minekin replay <evidence-dir>
 ```
+
+`bundle install` 是跨版本路线 V06 加进来的唯一一个新动词（`P0 仅需要` 那句因此只描述它的初始形状）。它把"抓齐一个组合"从操作者工具变成产品入口，代价是三条硬门：输入只能是**被审清单里状态为 `tested` 的条目**，且 recipe / launch plan / bridge 三处摘要任一与清单不符就在发出任何请求之前拒绝；`--max-bytes` **没有默认值**，缺失即 `USAGE`——一个宽到永不拒绝的默认预算会把"请求之前就拒绝"那道门变成摆设；它**不**替 `session start` 做任何决定，就绪仍由逐构件 `verify` 每次重新导出，这里不写 ready 标记。
 
 `--server-profile` 是可选的第二个输入文档：不给就与加它之前逐字相同（客户端启动、证明自己、停在主菜单），给了就在握手之后由 Core 发出 `ConnectWorld`，把客户端接到那份已评审的、不可变的 Server Profile 上。它没有做成独立动词（`session connect`），因为会话只在本进程托管期间可达，而客户端只有一个 Bridge 对。
 
