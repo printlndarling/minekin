@@ -7,7 +7,22 @@
 > `.tmp/` 被 Git 忽略，是构建、诊断和封证的临时工作区；它的内容不是已推送产品代码、
 > 不是阶段状态，也不能替代主计划里的 run/bundle/attempt 与真实门禁记录。
 
-> **最新交接点（2026-09-25，跨版本路线执行中）**：主计划当前**暂无 `NEXT`**——`STORE-FAILURE-EVIDENCE-001` 已由
+> **最新交接点（2026-09-25，跨版本路线执行中）**：主计划当前唯一 `NEXT` 是 **`AUTO-PATH-INSTALL-RUN-001`**
+> （`94cb15b` 登记、提升提交 `298883e`）。它**尚未真跑**，卡里只有领取后的 `preparation_readings_auto_path`
+> （`c14acff`、`825a511`），全是实测：自动路径的 store 根是 per-Kin（`cli/auto_session.py:331`），所以"空 store"
+> 只指**新 Kin 自己的 `run/artifact-store` 为空**；该声称必须绕开 `test-orchestrator/runner/domain.sh:594-616`
+> 对加入者执行的 host store `cp -a`，否则开局即满、只会得到 `installed 0 / reused 数千` 的假证据；容器内出站可达
+> （`piston-data.minecraft.us` 200 / 4848 ms，`resources.download.minecraft.net` 解析到 `150.171.110.138` 且根路径
+> 404、`launchermeta.mojang.com` 404），停止条件里"URL 不可达"那一支当前没触发；从头装齐的量级实测为
+> **4121 个 blob / 523,911,981 字节**（`/data/kin/kin-02/run/artifact-store`），因此这一跑应按**后台长跑**准备而不是
+> 交互式一次性命令。另两条必须守住的现场事实：`kin-01` 带 207 条陈旧进程 marker，本跑要在它之外的新 Kin 名上起，
+> 并把该新 Kin 会话目录与 marker 的清理放进**同一脚本的 trap**；判定要求是同一 run 内 `installed > 0` 与封存
+> `PlayableEstablished` 同时在场，再做四读（`evidence verify` / `rejudge_evidence` / `replay_evidence` /
+> `report_promotion`）与至少一次非空转反证；若 harness 在 `PlayableEstablished` 之前结束会话，按卡的 `stop_conditions`
+> 停在 `BLOCKED_DECISION` 并保留失败材料，不改 `cli/auto_session.py` 的判据与顺序、不改 runner 等待语义。
+> V08 的门没有松动：V07 缺口是否算收口并据此提升 V08 由主控决定，registry 的 `status` 与九条 `gaps` 原样。
+>
+> **上一交接点（2026-09-25，跨版本路线执行中）**：主计划当时**暂无 `NEXT`**——`STORE-FAILURE-EVIDENCE-001` 已由
 > `cfbb87c` 提升、由 `4be3d55` 收卡，`94cb15b` 把 V07 `not_tested_v07` 的头两格承接为新卡
 > `AUTO-PATH-INSTALL-RUN-001`（`QUEUED`），提升它是紧随其后的那一次独立提交。收卡读数：新增
 > `tests/unit/test_install_fault_injection.py` 七条真文件系统断言，逐条诱发写失败、store 层 `os.replace` 失败、
