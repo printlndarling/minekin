@@ -18,13 +18,14 @@
   回归基线；除非真实回归或当前 1.20.1 卡不可绕过的前置阻断，不再新增 1.21.4 功能专题。
   即使遇到前置阻断，也先登记范围与证据、按唯一 `NEXT` 流转，不得借 `.tmp/` 中的实验记录
   自行改排期或把临时构建当作新主线。HOST/PERSIST、在线认证、远程服授权等既有停机边界不变。
-- `current_next`: **暂无 `NEXT`**（`HOST-ADMISSION-DESIGN-001` 已在本提交收口为 `DONE`，**且只覆盖设计交付**：
+- `current_next`: **暂无 `NEXT`**（`HOST-ADMISSION-DESIGN-001` 已由 `03eec4a` 收卡为 `DONE`，**且只覆盖设计交付**：
   新文档 `docs/host-admission-session-coordinate-design.md` 交出"现状 + 三方案各带四要素 + R1–R7 反例 +
   `HOST-001` 真实 trace 验收设计 + 分歧矩阵"，锚点表 41 行逐条读盘复算全中、六条变异各红在其命名理由上、
   positive control `exit 0`；全量门禁 `2501 passed / 2 skipped` 与上一张卡**逐字相同**（零产品与测试改动）；
   `host-integrated` 在 `report_promotion` 里 `promotable: false` + `blocks: [NO_MANDATORY_CASES, …]`、
   `HOST/W80+` 仍 `DEFERRED`、`host-001.json` 仍未创建——**HOST 没有因此前进一格**。逐格读数记在该卡
-  `completion_readings_2026-09-26`。）
+  `completion_readings_2026-09-26`；`03eec4a` 的两条 ref 与远端 SHA 已核，GitHub Actions 对该 SHA 的
+  两个 `CI` run 及其六个 job 全 `success`（第 7 格）。）
   **下一步归主控**：设计文档 §5 那三格所有权要冻结——①宿主世界的 `generation` 由谁分配（建档时的
   Gateway/控制面 vs 下发时的 Core 会话运行时）；②`WorldCapsule` 的权威来源与是否落盘（决定 `HOST-001`
   "重启重进"那半边今天能不能判）；③规则 2 对没有 server profile 的宿主世界，profile 一致性是跳过、
@@ -39,7 +40,7 @@
   八条缺口一字未动。逐格读数记在该卡 `completion_readings_2026-09-26`；收卡提交 `b03863e` 的两条 ref
   与远端 SHA 已核，GitHub Actions 对该 SHA 的两个 `CI` run 及其六个 job 全 `completed / success`。）
   **HOST 设计卡的来路**：登记提交 `51646d5` 把它写成带 `anchors`/`acceptance` 的完整卡（七个代码位置在
-  登记当天逐条 `grep` 复算），本次提交只做提升，实现（写那份文档）在再下一次——与本卡一样逐卡串行、
+  登记当天逐条 `grep` 复算），`da43c98` 只做提升，`03eec4a` 交设计文档并收卡——与本卡一样逐卡串行、
   一步一提交。
   （上一张 `ADMIT-070-RECORD-SCHEMA-001` 已收卡为 `DONE`：卡片文本 `cc9ced2`、
   实现 `de8ed7d`——
@@ -49,7 +50,7 @@
   `2500 passed / 2 skipped`；两条 ref 与远端 SHA 已核，GitHub Actions 对 `cc9ced2` 的两个 `CI` run 及其
   六个 job 全 `success`。逐格读数、manifest 新旧行与对登记卡那句前提的更正，记在该卡
   `completion_readings_2026-09-26`。）
-  **队列是数过的，不是 grep 出来的**（本提交实测：`.tmp/count_plan_cards.py` 按卡头配对 `status` 行，
+  **队列是数过的，不是 grep 出来的**（`03eec4a` 实测：`.tmp/count_plan_cards.py` 按卡头配对 `status` 行，
   连没有 ` — ` 分隔符的 `### HOST/W80+` 一并数到）：56 张带 `status` 的卡里 `NEXT` = 0、`QUEUED` = 0，
   开放中的只剩 `REAL-P0-CAMPAIGN-001`
   （`BLOCKED_EVIDENCE`）、`EXPLICIT-RELEASE-AT-STOP-001` / `OPERATIONS-RETENTION-001` /
@@ -114,8 +115,8 @@
   用户在七场景总账后明确把“自动识别服务器版本 → 准备匹配客户端 → 入服并完成简单控制”排为优先路线；
   `VERSION-AUTO-DESIGN-001` 已交付[跨版本连续执行计划](version-auto-to-server-control-plan.md)。
 - `last_checkpoint`: **HOST 支线的边界从"没读到底"变成"读到底且剩下三格所有权"**——
-  `HOST-ADMISSION-DESIGN-001` 由本提交收卡为 `DONE`（登记 `51646d5`、提升 `da43c98`、实现 = 本提交的
-  新文档；`docs-only-design`，本卡不跑任何真实运行、不建任何 fixture）。形状：交付
+  `HOST-ADMISSION-DESIGN-001` 由 `03eec4a` 收卡为 `DONE`（登记 `51646d5`、提升 `da43c98`、
+  实现与收卡在同一个提交；`docs-only-design`，本卡不跑任何真实运行、不建任何 fixture）。形状：交付
   [宿主世界会话坐标来源设计](host-admission-session-coordinate-design.md)——41 行锚点表逐条读盘复算、
   三方案各带"谁创建/首快照谁判/失败重启语义/与契约的冲突点"四要素、R1–R7 反例配一条 positive control、
   `HOST-001` 的真实 trace 验收设计，结尾是**分歧矩阵而不是选择**。判据是量出来的：A 要改"谁裁判"两条、
@@ -5698,14 +5699,18 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 
 ### HOST-ADMISSION-DESIGN-001 — 宿主世界会话坐标来源
 
-- `status`: `DONE`（**只覆盖设计交付这一件事**：`docs/host-admission-session-coordinate-design.md` 已落地，
+- `status`: `DONE`（实现与收卡在同一个提交 `03eec4a`——新文档落地 + 三份执行文档同步，两条 ref 与远端
+  SHA 已核、GitHub Actions 对该 SHA 的两个 `CI` run 及其六个 job 全 `success`（第 7 格）。
+  **只覆盖设计交付这一件事**：`docs/host-admission-session-coordinate-design.md` 已落地，
   形状是"现状 + 三方案各带四要素 + R1–R7 反例 + `HOST-001` 验收设计 + 分歧矩阵 + 复算命令"。
   **HOST 没有因此前进一格**：`generation` 由谁分配、胶囊落在哪里、规则 2 对宿主世界的 profile 一致性怎么算，
   这三格所有权仍交主控冻结；`HOST/W80+` 原样 `DEFERRED`、`host-integrated` 仍未成为门禁、
   `host-001.json` 仍未创建、V08 未提升、用户的远程服未连接。逐格读数见
   `completion_readings_2026-09-26`；停止条件第 1 条是**按设计命中**（设计到所有权边界即停），
   第 2、3 条未触发：全程没需要改产品代码、契约或 fixture，也没需要任何真实运行。）
-- `baseline_sha`: `51646d5`（登记提交）；领取时实际 checkout 即该提交，工作树干净。
+- `baseline_sha`: `51646d5`（登记提交）；领取时实际 checkout = 提升提交 `da43c98`，工作树干净。
+  （**一处登记时写歪的字段修正**：这一格原本写"领取时实际 checkout 即该（登记）提交"，
+  而领取发生在提升之后——按实测改成 `da43c98`。）
 - `promotion_reason`: 三条：①主控 2026-09-26 已把这张卡从"等拍板"改成"可以做的设计支线"，并给了可执行的
   边界（只整理方案/反例/验收设计；不实现、不标完成、不提升 `HOST/W80+`；到所有权冻结点交主控）；
   ②提升规则第 3 条机械满足——`depends_on` 为空，本卡输入全部已在树里（`anchors` 七组逐条 `grep` 复算过），
@@ -5787,8 +5792,8 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
   三张 `BLOCKED_DECISION` 卡；1.20.1 入服 demo 的推迟是本卡的**后果**而不是目标。
 - `next_after_done`: 收卡后 HOST 支线**停在所有权冻结点**：由主控选定方案，才谈得上 `HOST-001` fixture 与
   真 trace 验收卡；主线回到主控口径，1.20.1 入服 demo 仍受"V08 未提升"约束。
-- `registration`: `51646d5` 以 `QUEUED` 登记并推到两条 ref；本次提交单独提升为唯一 `NEXT`，
-  实现（写那份设计文档）再下一次。
+- `registration`: `51646d5` 以 `QUEUED` 登记并推到两条 ref；`da43c98` 单独提升为唯一 `NEXT`；
+  `03eec4a` 交设计文档并收卡。三步分提交。
 - `completion_readings_2026-09-26`（逐格对应 `acceptance` 的七格，全部今天量过）：
   1. **交付物形状**（验收 1）：`docs/host-admission-session-coordinate-design.md` 四段齐备——§1 现状
      （含 §1.2 许可性判定与 §1.3 锚点表）、§2 方案 A/B/C 各带 ①谁创建 ②首快照谁收集谁判 ③失败与重启
@@ -5822,7 +5827,10 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
      `development-todo.md` 里 2026-09-22 那句 dated 读数（按既有口径不改写历史），本卡换成上面那组
      字段读法；验收意图（这个面仍未成为门禁、本卡没做任何晋级动作）不变、并且成立。
   6. **括号与空白**（验收 6）：新文档与三份执行文档的全角 `（`/`）` 配平各为 `0`，`git diff --check` 干净。
-  7. **远端与 CI**（验收 7）：待本收卡提交 push 后填。
+  7. **远端与 CI**（验收 7）：收卡提交 **`03eec4a60dd08b2fade7978bcaa447422718ab81`** 已在 push 后核过——
+     `git ls-remote` 上 `main` 与 `codex/core-state-transition` 同为该 SHA；GitHub Actions 对该 SHA 的两个
+     `CI` run（`36180434143`、`36180433739`）`completed / success`，六个 job 的 step 层只有 `success`
+     （每跑 `python` 18 步、`protocol` 10 步、`bridge-static` 9 步），没有 `failure`/`cancelled`。
   8. **停止与边界**：`stop_conditions` 第 1 条**按设计命中**——文档写到所有权边界即停，三格留给主控；
      第 2、3 条未触发（全程未需要改产品代码 / 契约 / fixture，也未需要真实运行或远程服）。
      本卡 `DONE` 的外延就是那句话：设计交付完成，**不等于** HOST 有实现、`HOST-001` 有验收或

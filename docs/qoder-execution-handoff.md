@@ -8,9 +8,11 @@
 > 不是阶段状态，也不能替代主计划里的 run/bundle/attempt 与真实门禁记录。
 
 > **最新交接点（2026-09-26，HOST 支线设计卡收口：问题读到底，留下三格所有权交主控；计划暂无 `NEXT`）**：
-> 收卡提交是本文件所在的这一次提交（其 SHA、两条 ref 与 CI 读数在 push 后回填进主计划该卡的
-> `completion_readings_2026-09-26` 第 7 格）；登记 **`51646d5`** → 提升 **`da43c98`** → 实现 = 收卡提交，
-> 逐卡串行、一步一提交。交付形状：新文档 `docs/host-admission-session-coordinate-design.md`——
+> 收卡提交是 **`03eec4a60dd08b2fade7978bcaa447422718ab81`**（`git ls-remote` 上 `main` 与
+> `codex/core-state-transition` 同为该 SHA；GitHub Actions 对该 SHA 的两个 `CI` run
+> `36180434143`/`36180433739` 及其六个 job `python`/`protocol`/`bridge-static` 全
+> `completed / success`，step 层只有 `success`）；登记 **`51646d5`** → 提升 **`da43c98`** → 实现与收卡
+> **`03eec4a`**，逐卡串行、一步一提交。交付形状：新文档 `docs/host-admission-session-coordinate-design.md`——
 > 41 行锚点表（每行写"位置 + 该行必须含有的片段"，由 `.tmp/check_host_design_anchors.py` 逐条读盘核对、
 > `exit 0`）、三条方案各带四要素（谁创建 `generation` 与 `WorldCapsule`、首快照由谁收集由谁判、失败与重启
 > 语义、与既有契约的冲突点）、R1–R7 反例配一条 positive control、`HOST-001` 的真实 trace 验收设计，
