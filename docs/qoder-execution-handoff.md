@@ -1,14 +1,17 @@
 # Qoder 临时执行交接（2026-09-24）
 
-> **最新交接点（2026-09-25，跨版本路线执行中）**：主计划当前唯一 `NEXT` 是
-> **`TESTED-PROVENANCE-VERIFY-001`**，本提交**收卡为 `DONE`**（实现 `c93cfa4`；提升与晋升各占一次独立提交）。
+> **最新交接点（2026-09-25，跨版本路线执行中）**：主计划当前唯一 `NEXT` 是 **`BRIDGE-1214-RUNTIME-IDENTITY-001`**
+> （本提交提升）。上一张 **`TESTED-PROVENANCE-VERIFY-001`** 已 `DONE`（实现 `c93cfa4`、收卡 `49d6d01`）。
 > 它交付的是仓库第一条**只读**核对入口 `tools/verify_tested_provenance.py`：真算 bridge jar 的 sha256、真算
 > source tree 摘要、从 recipe 重建 launch plan、把 registry 每条引用的 `bundle_digest` 与卷内真件重算对照，四层缺口
 > 一次报全；在受控 runner 上（卷 `:/data:ro` 挂载）对**重封后的真件**跑通正例（`exit=0`、`verified: true`；1.20.1
 > 4 条 + 1.21.4 12 条引用全通过），卡内五条反例各有稳定退出类别，且**没有移动任何摘要**、`tested` 的晋升仍归人工
-> 评审后的独立提交。上一张 `VERSION-BRIDGE-IDENTITY-001` 已 `DONE`（实现 `801f9ba`、CI 门修复 `391cc2b`、收卡
-> `bebcf5d`、CI 补记 `f00daeb`）。其后依序是 `BRIDGE-1214-RUNTIME-IDENTITY-001`（`801f9ba` 收卡新登：1.21.4 root
-> 的 hello 常量仍写死）、`KEY-RELEASE-AT-STOP-001`、`STORE-FAILURE-EVIDENCE-001`；这些与 V07 的
+> 评审后的独立提交。再上一张 `VERSION-BRIDGE-IDENTITY-001` 已 `DONE`（实现 `801f9ba`、CI 门修复 `391cc2b`、收卡
+> `bebcf5d`、CI 补记 `f00daeb`）。**本卡要做的事**：让 `bridge/`（1.21.4 root）像 1.20.1 root 一样从 Fabric 自己的
+> mod container 读 `minecraft` / `fabricloader` 并送进 `Expected`，随后重建、重封并按实测换掉 registry 的**引用**
+> 字段——它会移动 1.21.4 的 source tree / jar / plan 三件摘要（`status` 仍不动），收卡时须用
+> `tools/verify_tested_provenance.py` 对换代后的真件跑一次正例。其后依序是 `KEY-RELEASE-AT-STOP-001`、
+> `STORE-FAILURE-EVIDENCE-001`；这些与 V07 的
 > `not_tested_v07` 缺口收口前**不得提升 V08、不得连接用户远程服**。也**不是**下文 ADMIT-070 起步卡，
 > 更不是 V01–V07（均已 `DONE`；V07 交付 `5e53429`+`b0d08b6`、收卡 `17e81ea`+`96fb520`）。
 > **审查卡的四条硬事实**（决定 V08 为什么还不能领）：① ~~1.20.1 的 `tested` 没有被任何代码对真实封存构件校验过~~

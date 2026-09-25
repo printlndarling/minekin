@@ -327,6 +327,11 @@ bundle id 与结果；旧代回调不能推进新代。`BLOCKED` 不自动回退
   registry 引用，`status`/`capabilities`/`gaps` 未动；仍待收口的是 `TESTED-PROVENANCE-VERIFY-001`、
   `KEY-RELEASE-AT-STOP-001`、`STORE-FAILURE-EVIDENCE-001`、新登的 `BRIDGE-1214-RUNTIME-IDENTITY-001` 与
   V07 的 `not_tested_v07` 缺口，故本卡仍为 `QUEUED`，判据不因此放宽。）**
+  **（读数更新，2026-09-25 `49d6d01`：`TESTED-PROVENANCE-VERIFY-001` 已 `DONE`（实现 `c93cfa4`）——仓库第一条
+  只读核对入口 `tools/verify_tested_provenance.py` 对真实封存构件重算四层摘要并逐条比对引用 bundle，正例在受控
+  runner 上 `verified: true`、五条反例各有稳定类别、没有移动任何摘要。它审的是"引用与构件是否一致"，**不是**
+  "远程入服是否安全"：本卡点名的 `BRIDGE-1214-RUNTIME-IDENTITY-001`（现为唯一 `NEXT`）、`KEY-RELEASE-AT-STOP-001`、
+  `STORE-FAILURE-EVIDENCE-001` 与 V07 的 `not_tested_v07` 缺口仍在前，故本卡继续 `QUEUED`，不得据此连接用户远程服。）**
 - **输入/输出**：运行者私有 profile（目标地址不进仓库）、V07 自动路径；仅一次受控
   1.20.1 入服 attempt，封存客户端/账本/必要服务端只读材料。
 - **允许路径**：私有运行配置与受控 runner、必要的目标 profile/证据记录、进度文档；

@@ -12,12 +12,15 @@
 - `baseline_date`: 2026-09-22
 - `baseline_branch`: `main`
 - `baseline_remote`: `origin/main`
-- `current_next`: `TESTED-PROVENANCE-VERIFY-001`（本提交把已 `QUEUED` 的它单独提升为唯一 `NEXT`，当前无第二张
-  `NEXT`。上一张 `VERSION-BRIDGE-IDENTITY-001` 已 `DONE`：实现 `801f9ba`、CI 门修复 `391cc2b`、收卡 `bebcf5d`、
-  CI 补记 `f00daeb`，两 ref 均已核对到 `f00daeb`；其重封让本卡的校验对象第一次变成"当前 build 的真件"。）
-  本卡要做的是把"registry 说 `tested`"从文档内部字段互比，变成代码对**真实封存构件**的独立核对；它**只读**
-  registry，`tested` 的晋升仍归人工评审后的独立提交。其后依序是
-  `BRIDGE-1214-RUNTIME-IDENTITY-001`（`801f9ba` 收卡新登）、`KEY-RELEASE-AT-STOP-001`、
+- `current_next`: `BRIDGE-1214-RUNTIME-IDENTITY-001`（本提交把已 `QUEUED` 的它单独提升为唯一 `NEXT`，当前无第二张
+  `NEXT`。上一张 `TESTED-PROVENANCE-VERIFY-001` 已 `DONE`：实现 `c93cfa4`、收卡 `49d6d01`，两 ref 均已核对到
+  `49d6d01`。**提升次序的取舍如实记录**：那张已收卡片的 `next_after_done` 写的是 `KEY-RELEASE-AT-STOP-001`，
+  但那句写于 `801f9ba` 把本卡登记进队列之前；本卡的 `depends_on` 点名 `TESTED-PROVENANCE-VERIFY-001`（"先有机器
+  核对，重封后的摘要才是可核对事实"），且 `e86ad8b` 与本文件上一段 `current_next` 文字都把本卡排在队列第一，
+  故按依赖与最新队列取本卡。`KEY-RELEASE-AT-STOP-001` 紧随其后，仍在 V09 之前。）
+  本卡要做的是让 `bridge/`（1.21.4 root）像 1.20.1 root 一样从 Fabric 自己的 mod container 读 `minecraft` /
+  `fabricloader` 并送进 `Expected`，然后重建、重封并按实测换掉 registry 的**引用**字段；它**会**移动已冻结的
+  1.21.4 source tree / jar / plan 摘要，因此不得夹带任何判据放宽。其后依序是 `KEY-RELEASE-AT-STOP-001`、
   `STORE-FAILURE-EVIDENCE-001`；这些与 V07 的 `not_tested_v07` 缺口全部收口前，
   **不得提升 V08、连接用户远程服，或把 reviewed registry 的 `tested` 当作远程入服的充分证据**。
   （再上一张 `VERSION-TESTED-GATE-AUDIT-001` 已 `DONE`：提升 `977dcf4`、收卡 `518e2f2`，追溯表见
@@ -4540,9 +4543,11 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 
 ### BRIDGE-1214-RUNTIME-IDENTITY-001 — 让 1.21.4 root 也声明它真实运行的版本
 
-- `status`: `QUEUED`（2026-09-25 由 `VERSION-BRIDGE-IDENTITY-001` 收卡登记。它**会**动已冻结的 1.21.4
-  `bridge_source_sha256`、jar 摘要与 `launch_plan_digest`，因此必须是独立一卡、独立重建与重封，不能夹在
-  任何"顺手对齐摘要"的提交里。）
+- `status`: `NEXT`（2026-09-25 由 `VERSION-BRIDGE-IDENTITY-001` 收卡登记为 `QUEUED`，本提交单独提升为唯一
+  `NEXT`；前置 `TESTED-PROVENANCE-VERIFY-001` 已 `DONE`（实现 `c93cfa4`、收卡 `49d6d01`），所以"重封后的摘要能被
+  机器核对"这条依赖今天成立——收卡时须用 `tools/verify_tested_provenance.py` 对换代后的 1.21.4 真件跑一次正例。
+  它**会**动已冻结的 1.21.4 `bridge_source_sha256`、jar 摘要与 `launch_plan_digest`，因此必须是独立一卡、独立重建
+  与重封，不能夹在任何"顺手对齐摘要"的提交里。）
 - `depends_on`: `VERSION-BRIDGE-IDENTITY-001`（`BridgeSession` 已按会话校验、`ClientRuntimeIdentity` 的形状已定）、
   `TESTED-PROVENANCE-VERIFY-001`（先有机器核对，重封后的摘要才是可核对事实）。
 - `question`: 能否让 `bridge/`（1.21.4 root）像 1.20.1 root 一样从 Fabric 自己的 mod container 读取
