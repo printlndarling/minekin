@@ -18,7 +18,12 @@
   回归基线；除非真实回归或当前 1.20.1 卡不可绕过的前置阻断，不再新增 1.21.4 功能专题。
   即使遇到前置阻断，也先登记范围与证据、按唯一 `NEXT` 流转，不得借 `.tmp/` 中的实验记录
   自行改排期或把临时构建当作新主线。HOST/PERSIST、在线认证、远程服授权等既有停机边界不变。
-- `current_next`: **暂无 `NEXT`**（`ADMIT-070-RECORD-SCHEMA-001` 已收卡为 `DONE`：卡片文本 `cc9ced2`、
+- `current_next`: **`TESTED-GAP-DRAW-STOP-PHASE-1201-001`**（`89ec146` 以 `QUEUED` 登记并推到两条 ref，
+  本提交单独提升为唯一 `NEXT`；它是主控 2026-09-26 那条口径的机械记账——只划 1.20.1 的
+  `STOP_PHASE_EXPLICIT_KEY_RELEASE` 一条缺口，同时把 `V1201-080` 的 PASS 证据与 capability 登记进
+  `tested` 声明、重签 manifest 那一行、在容器里跑 provenance 校验；**V08 不提升、远程服不连**，
+  1.21.4 那条 entry 的同一缺口属 `forbidden_paths`。）
+  （上一张 `ADMIT-070-RECORD-SCHEMA-001` 已收卡为 `DONE`：卡片文本 `cc9ced2`、
   实现 `de8ed7d`——
   冻结的 `schemas/fault-injection.schema.json` 现在按 `category` 分成两支，两类记录各自说得出自己的
   required 字段，`tools/fault_injection.py` 的读取规则一字未动（方向只从文件向 reader 对齐）；23 件结构
@@ -26,24 +31,18 @@
   `2500 passed / 2 skipped`；两条 ref 与远端 SHA 已核，GitHub Actions 对 `cc9ced2` 的两个 `CI` run 及其
   六个 job 全 `success`。逐格读数、manifest 新旧行与对登记卡那句前提的更正，记在该卡
   `completion_readings_2026-09-26`。）
-  **队列这次是数过的，不是 grep 出来的**：全文件 55 张带 `status` 的卡里 `QUEUED` 与 `NEXT` 都为 `0`，
-  开放中的只剩 `REAL-P0-CAMPAIGN-001`（`BLOCKED_EVIDENCE`）、`EXPLICIT-RELEASE-AT-STOP-001` /
-  `HOST-ADMISSION-DESIGN-001` / `OPERATIONS-RETENTION-001` / `PROCESS-RECOVERY-001`（`BLOCKED_DECISION`）
-  与 `HOST/W80+`（`DEFERRED`）；清点脚本 `.tmp/count_plan_cards.py`（按卡头配对 `status` 行，连没有
-  ` — ` 分隔符的 `### HOST/W80+` 一并数到——上次误报"没有可提升的 QUEUED"正是因为只 grep 了状态行；
-  这个 `0/0` 也反证过：临时副本里把本卡状态改回 `NEXT` 或 `QUEUED`，同一套逻辑各报 `1`）。
-  **下一张归主控**：1.20.1 的 `STOP_PHASE_EXPLICIT_KEY_RELEASE` 已有 Bridge 自己写下的工件、其复判与
-  V08 提升是否放行仍待拍板，`BLOCKED_DECISION` 四张与 `HOST/W80+` 亦须先解一个决策；本执行者不自行
-  猜编号、不新造主线卡、也不把 `.tmp/` 的实验记录当排期。）
-  （**2026-09-26 主控答复后的走向**：上面那句"待拍板"已经解掉一半——用户就这两格给出口径
-  （①只划 `STOP_PHASE_EXPLICIT_KEY_RELEASE` 这一条缺口、同时登记 `V1201-080` 的 PASS 证据与 capability、
-  重算摘要并跑 provenance 校验；②不提升 V08、因此不连接远程服；③HOST 支线只做设计，不实现、不标完成、
-  不提升 `HOST/W80+`）。据此登记 `TESTED-GAP-DRAW-STOP-PHASE-1201-001`（本提交，`QUEUED`），
-  紧随的提交把它提升为唯一 `NEXT`；`HOST-ADMISSION-DESIGN-001` 的 `QUEUED` 转换排在它收口之后，
-  两张严格串行。**此刻的清点**：55+1 张带 `status` 的卡里 `QUEUED` = 1（就是这张新卡）、`NEXT` = 0，
-  其余开放项不变——`REAL-P0-CAMPAIGN-001`（`BLOCKED_EVIDENCE`）、`EXPLICIT-RELEASE-AT-STOP-001` 与
-  `OPERATIONS-RETENTION-001`/`PROCESS-RECOVERY-001`（`BLOCKED_DECISION`，`HOST-ADMISSION-DESIGN-001`
-  暂未改判）与 `HOST/W80+`（`DEFERRED`）。）
+  **队列是数过的，不是 grep 出来的**（本提交实测：`.tmp/count_plan_cards.py` 按卡头配对 `status` 行，
+  连没有 ` — ` 分隔符的 `### HOST/W80+` 一并数到）：56 张带 `status` 的卡里 `NEXT` = 1（就是本卡）、
+  `QUEUED` = 0，开放中的只剩 `REAL-P0-CAMPAIGN-001`（`BLOCKED_EVIDENCE`）、
+  `EXPLICIT-RELEASE-AT-STOP-001` / `HOST-ADMISSION-DESIGN-001` / `OPERATIONS-RETENTION-001` /
+  `PROCESS-RECOVERY-001`（`BLOCKED_DECISION`）与 `HOST/W80+`（`DEFERRED`）。这套清点反证过非空转：
+  临时副本里把某张卡状态改回 `NEXT` 或 `QUEUED`，同一逻辑各报 `1`（副本已删）。
+  （**2026-09-26 主控答复**：上一版这份队列说明写的"下一张归主控、`STOP_PHASE_EXPLICIT_KEY_RELEASE`
+  待拍板"已经解掉，用户给出口径——①只划这一条缺口、同时登记 `V1201-080` 的 PASS 证据与对应 capability、
+  重算摘要并跑 provenance 校验；②**不提升 V08**，因此也不连接远程服；③HOST 支线只做设计，
+  不实现、不标完成、不提升 `HOST/W80+`，且**逐卡串行、不同时开两张**。据此登记本卡（`89ec146`），
+  由本提交提升为唯一 `NEXT`；`HOST-ADMISSION-DESIGN-001` 的 `QUEUED` 转换排在本卡收口之后。
+  `EXPLICIT-RELEASE-AT-STOP-001` 自身的 `status` 不改判——是否划归它那份工件仍归主控。）
   （上一张 `GRACEFUL-STOP-KEY-RELEASE-001` 由 `2253358` 收卡为 `DONE`：实现 `5c643c6`，
   `V1201-080` attempt 3（run `484675e4938b4134b788a971e195619b` / bundle `22fb57f3…`）在**判据一字未改**之下封成
   `result PASS`（客户端日志 `bridge released 1 input(s) after CORE_REQUEST (EXPLICIT)`，N=1），`V1201-040`
@@ -84,7 +83,10 @@
   `MINEKIN_DOMAIN_KILL_CORE=1` 的一次真跑（run `f71c56f0…`、bundle `90d490ce…`、attempt 序列 1）让 Bridge 自己在
   `client/latest.log` 写下 `bridge released 1 input(s) after IPC_LOST`，`stderr.log` 为 0 字节，四条断言对拷贝出来的
   工件复判一致。registry 摘要 `82a54075…` → `69244c32…`，其 `status` 与九条 `gaps` 一字未动，
-  `STOP_PHASE_EXPLICIT_KEY_RELEASE` 是否划出 `tested` 声明仍待主控决策；本卡未改产品代码。
+  `STOP_PHASE_EXPLICIT_KEY_RELEASE` 是否划出 `tested` 声明仍待主控决策；本卡未改产品代码。）
+  （**2026-09-26 更正**：上面那句"仍待主控决策"是本卡收卡当时的如实记录，此后保留不改写；该决策已经到达，
+  主控答复"只划这一条缺口、其他缺口和 `tested` 状态不变、同时登记 V1201-080 的 PASS 证据与对应 capability"，
+  落成 `TESTED-GAP-DRAW-STOP-PHASE-1201-001`——缺口划出由该卡执行，本卡不追认。）
   （上一张 `BRIDGE-1214-RUNTIME-IDENTITY-001` 已 `DONE`：实现与重封 `16dbb42`、收卡 `2464901`。）
   （再上一张 `VERSION-TESTED-GATE-AUDIT-001` 已 `DONE`：提升 `977dcf4`、收卡 `518e2f2`，追溯表见
   [tested 晋级门复判记录](tested-gate-audit-2026-09-25.md)；V07 收卡 `17e81ea`+`96fb520`。）
@@ -5216,21 +5218,29 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 
 ### TESTED-GAP-DRAW-STOP-PHASE-1201-001 — 把 1.20.1 已补上工件的那一条缺口从 `tested` 声明里划出
 
-- `status`: `QUEUED`（主控 2026-09-26 就 `EXPLICIT-RELEASE-AT-STOP-001` 第 8 格与 `GRACEFUL-STOP-KEY-RELEASE-001`
-  的收卡读数给出决策：「划出松键缺口、暂不提升 V08」，并直接核对了封存客户端日志里
-  `bridge released 1 input(s) after CORE_REQUEST (EXPLICIT)` 那一行。决策到达前这张卡不存在，
-  因为它要动的 registry `tested` 声明不属执行者权限；到达后它是一条如实记账的机械工作。
-  按交接第 1 项先 `QUEUED` 登记，紧随的提交才提升为唯一 `NEXT`。）
+- `status`: `NEXT`（`89ec146` 以 `QUEUED` 登记并推到两条 ref，本提交单独提升为唯一 `NEXT`——提升前
+  计划里没有 `NEXT`，中间没有插入别的未授权工作。理由三条：①主控 2026-09-26 已就这两格给出可执行的
+  口径（划这一条、登记证据与 capability、重算摘要、跑 provenance；V08 不动、远程服不连）；②它要依赖的
+  东西**已经在树里**——判官 token 与 case `V1201-080` 在 `f38cf34`，工件在 `5c643c6` 之后的 attempt 3，
+  那张卡自身 `status` 是否改判仍归主控，不在本卡权限内；③它是机械记账，不改判据、不改产品代码、
+  不产生新的 1.21.4 功能专题。登记与提升分在两个提交，满足交接第 3、4、6 项。）
+- `promotion_reason`: 见上三条。另记一条测量过的前提修正：登记时把 `EXPLICIT-RELEASE-AT-STOP-001`
+  （`BLOCKED_DECISION`）写进了 `depends_on`，那会让"依赖全 `DONE`"这条提升条件不成立；实测本卡真正依赖的是
+  那两张卡的**产物**（token/case 与被引 run），产物都已在 `HEAD` 里，故 `depends_on` 按产物改写，
+  被引用那两张卡的状态一字未动。
 - `decision_source`: 用户 2026-09-26 的三点口径：①只划 `STOP_PHASE_EXPLICIT_KEY_RELEASE` **这一条**缺口，
   其余缺口与 `tested` 状态一字不动；②划出时必须同时登记 `V1201-080` 的 PASS 证据与对应 capability，
   重算摘要并跑 provenance 校验；③**不提升 V08**，因而也不连接用户的远程服。
 - `question`: 1.20.1 那一条 `tested` 声明现在能否由它自己引用的封存件撑起来——`gaps` 里去掉
   `STOP_PHASE_EXPLICIT_KEY_RELEASE`、`capabilities` 里补上工件所证的 token、`evidence` 里补上那一次
   `PASS` 的 run，并且这份文件级声称能被 `tools/verify_tested_provenance.py` 按字节复核？
-- `depends_on`: `EXPLICIT-RELEASE-AT-STOP-001`（判官侧 token 与 case `V1201-080` 在 `f38cf34` 就位）、
-  `GRACEFUL-STOP-KEY-RELEASE-001`（`DONE`，实现 `5c643c6`；工件 run `484675e4938b4134b788a971e195619b`、
-  bundle `22fb57f3…`、attempt 3、`result PASS` 由它取得）。两张都不是本卡的伪装：本卡不写产品代码，
-  只把已存在的工件记进声明。
+- `depends_on`: `GRACEFUL-STOP-KEY-RELEASE-001`（`DONE`，实现 `5c643c6`；本卡要引用的那一次 `PASS` 由它取得：
+  run `484675e4938b4134b788a971e195619b`、bundle `22fb57f3…`、attempt 3、13 件工件）、
+  `EXPLICIT-RELEASE-AT-STOP-001` 的**产物**（判官 token
+  `the_bridge_released_the_input_when_the_session_was_stopped` 与 case `V1201-080` 在 `f38cf34` 就位——
+  实测于 `HEAD`：`tools/assert_case_evidence.py:1970`、`:3490` 注册表、`tools/check_case_assertions.py:301`、
+  `tests/fixtures/cases/v1201-080.json`）。那张卡自身的 `status` 仍是 `BLOCKED_DECISION`、本卡不改它，
+  依赖按产物而不是按状态满足。
 - `allowed_paths`: `tests/fixtures/registry/reviewed-tested-bundles.json`（只动 1.20.1 那一条 entry 的
   `gaps`/`capabilities`/`evidence`）、`tests/fixtures/manifest.sha256`（registry 那一行随文件重签，
   实测为第 85 行）、`tests/unit/test_version_resolution.py`（**仅**新增一条钉住"这一格已划出且另一格仍在"的
