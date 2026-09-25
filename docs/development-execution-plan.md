@@ -4163,6 +4163,14 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
   目标无版本、宿主 arch 拼写、命名客户端只有一条路、无目标即 `USAGE`。冻结点名的"自动入口与显式 `--profile`
   同时给/都不给"由 argparse 形状钉住，"v1 profile 配 1.20.1 客户端"由既有 `test_connection_generation.py` /
   `test_server_profile_schema.py` 承担、本卡未复制。每种拒绝结束时可控客户端数 ≤1，且不留新 overlay。
+- `ci_read_v07`（按规矩在浏览器里逐 job 读过；本机无 `gh` CLI，REST 只用于列 run，日志端点对现有 token 仍 404）：
+  `b0d08b6` 的 run **#515**（id 36083169845）`Success`、总 3m17s，`python` 2m39s——步骤逐条列出并通过：
+  `ruff check`、`ruff format --check`、`pyright`、`pytest`、`check_boundaries`、`check_case_assertions`、
+  `verify_fixture_digests`、`check_workflow_pins`、`uv build --wheel`、`check_wheel_boundary`、`minekin --help`；
+  `protocol` 9s、`bridge-static` 19s。收卡提交 `17e81ea` 的 run **#517**（id 36086726938）`Success`、2m27s
+  （`python` 2m24s、`protocol` 5s、`bridge-static` 17s）。两页注解均只有平台公告（Node 20 弃用、
+  runner-images #14748），无本仓库红灯。**CI 不是 Minecraft 验收证据**——切换的真实证据只在
+  `controlled_run_v07` 的两次受控真跑里。
 - `not_tested_v07`：两次真跑都是 `reused 3639 / installed 0`，自动路径的"需要时装"分支只有单元证据（从空 store
   装齐的证据属 V06）；第二跑在自动路径自己的 `PlayableEstablished` 之前就被结束（该事件只在第一跑的显式会话里
   观察到）；跨 Kin 缓存共享、marker 清理、残留进程接管均未动（属 `PROCESS-RECOVERY-001`）；1.20.1 的 `BridgeHello`

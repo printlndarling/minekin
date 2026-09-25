@@ -22,6 +22,13 @@
 > 跑切换前还要知道两条环境事实：`kin-01` 运行根带 **207** 个残留 `process.json` marker（自动切换须用 `init
 > --kin-id` 新建的 Kin，`artifact-store`/`bundle` 以 `cp -al` 硬链接复用），harness 写的 `enable-status=false` 会让
 > 产品探测恒得 `NO_RESPONSE`（沿用 V02/V05 先例：启动前把 loopback 那一行改成 `true`，不改 harness 也不改探测判据）。
+> **本机 `git push` 的坑**：仓库配置是 `credential.helper=helper-selector` 且 `credential.helperselector.selected`
+> 为空，`git push` 会**一声不响地挂死**（`git ls-remote` 走匿名读路径照样成功，所以它不能证明推送凭据可用）。
+> 能走通的写法是 `GIT_TERMINAL_PROMPT=0 git -c credential.helper= -c credential.helper=wincred push origin <ref>`。
+> **CI 已在浏览器里逐 job 读过**：`b0d08b6` 的 run **#515** 与收卡提交 `17e81ea` 的 run **#517** 均 `Success`
+> （`python` 2m39s / 2m24s，步骤含 `ruff check`、`ruff format --check`、`pyright`、`pytest`、`check_boundaries`、
+> `check_case_assertions`、`verify_fixture_digests`、`check_workflow_pins`、wheel 构建与 `check_wheel_boundary`、
+> `minekin --help`），注解只有平台公告。**CI 不是 Minecraft 验收证据**，真实运行只在受控 runner 里。
 > **V06 交付了什么**：产品侧第一个安装入口
 > `minekin bundle install --registry ... --bundle-id ... --max-bytes N [--store ...] [--dry-run] [--jobs N] [--quiet]`，
 > 它把"先核对被审摘要，再装"两层显式组合起来——`require_reviewed_plan` 按 `tested` 状态 → recipe 摘要 →
