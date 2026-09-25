@@ -197,6 +197,8 @@ def test_session_start_hosts_the_bridge_and_stays_until_the_client_leaves(
             client_instance_id=descriptor.client_instance_id,
             bundle_digest=descriptor.bundle_digest,
             bridge_digest=descriptor.bridge_digest,
+            minecraft_version="1.21.4",
+            fabric_loader_version="0.16.9",
             launch_nonce=descriptor.launch_nonce,
             session_key=descriptor.session_key,
         )
@@ -299,6 +301,8 @@ def test_session_start_records_what_the_run_observed(tmp_path: Path, monkeypatch
             client_instance_id=descriptor.client_instance_id,
             bundle_digest=descriptor.bundle_digest,
             bridge_digest=descriptor.bridge_digest,
+            minecraft_version="1.21.4",
+            fabric_loader_version="0.16.9",
             launch_nonce=descriptor.launch_nonce,
             session_key=descriptor.session_key,
         )
@@ -522,6 +526,8 @@ def test_a_named_server_profile_becomes_one_connect_command(
             client_instance_id=descriptor.client_instance_id,
             bundle_digest=descriptor.bundle_digest,
             bridge_digest=descriptor.bridge_digest,
+            minecraft_version="1.21.4",
+            fabric_loader_version="0.16.9",
             launch_nonce=descriptor.launch_nonce,
             session_key=descriptor.session_key,
         )
@@ -709,6 +715,8 @@ def test_an_attempt_that_outlives_its_deadline_is_cancelled_by_core(
             client_instance_id=descriptor.client_instance_id,
             bundle_digest=descriptor.bundle_digest,
             bridge_digest=descriptor.bridge_digest,
+            minecraft_version="1.21.4",
+            fabric_loader_version="0.16.9",
             launch_nonce=descriptor.launch_nonce,
             session_key=descriptor.session_key,
         )
@@ -790,6 +798,8 @@ def test_a_session_with_no_server_profile_is_never_told_to_connect(
             client_instance_id=descriptor.client_instance_id,
             bundle_digest=descriptor.bundle_digest,
             bridge_digest=descriptor.bridge_digest,
+            minecraft_version="1.21.4",
+            fabric_loader_version="0.16.9",
             launch_nonce=descriptor.launch_nonce,
             session_key=descriptor.session_key,
         )
@@ -947,6 +957,8 @@ def test_a_rejected_login_reaches_the_ledger_with_its_category(
             client_instance_id=descriptor.client_instance_id,
             bundle_digest=descriptor.bundle_digest,
             bridge_digest=descriptor.bridge_digest,
+            minecraft_version="1.21.4",
+            fabric_loader_version="0.16.9",
             launch_nonce=descriptor.launch_nonce,
             session_key=descriptor.session_key,
         )
@@ -1083,6 +1095,8 @@ async def _joined_run(*, root: Path, hold_at: str | None) -> tuple[SessionRun, P
         client_instance_id=descriptor.client_instance_id,
         bundle_digest=descriptor.bundle_digest,
         bridge_digest=descriptor.bridge_digest,
+        minecraft_version="1.21.4",
+        fabric_loader_version="0.16.9",
         launch_nonce=descriptor.launch_nonce,
         session_key=descriptor.session_key,
     )
@@ -1291,6 +1305,8 @@ def test_no_input_is_replayed_after_an_ambiguous_disconnect(
             client_instance_id=descriptor.client_instance_id,
             bundle_digest=descriptor.bundle_digest,
             bridge_digest=descriptor.bridge_digest,
+            minecraft_version="1.21.4",
+            fabric_loader_version="0.16.9",
             launch_nonce=descriptor.launch_nonce,
             session_key=descriptor.session_key,
         )
@@ -1424,6 +1440,8 @@ def test_a_deadline_does_not_cancel_a_world_the_kin_is_already_in(
             client_instance_id=descriptor.client_instance_id,
             bundle_digest=descriptor.bundle_digest,
             bridge_digest=descriptor.bridge_digest,
+            minecraft_version="1.21.4",
+            fabric_loader_version="0.16.9",
             launch_nonce=descriptor.launch_nonce,
             session_key=descriptor.session_key,
         )
@@ -1643,6 +1661,8 @@ def test_a_host_session_asks_the_client_to_publish_its_world(
             client_instance_id=descriptor.client_instance_id,
             bundle_digest=descriptor.bundle_digest,
             bridge_digest=descriptor.bridge_digest,
+            minecraft_version="1.21.4",
+            fabric_loader_version="0.16.9",
             launch_nonce=descriptor.launch_nonce,
             session_key=descriptor.session_key,
         )
@@ -1711,6 +1731,8 @@ def test_a_session_that_was_not_asked_to_host_does_not_ask(
             client_instance_id=descriptor.client_instance_id,
             bundle_digest=descriptor.bundle_digest,
             bridge_digest=descriptor.bridge_digest,
+            minecraft_version="1.21.4",
+            fabric_loader_version="0.16.9",
             launch_nonce=descriptor.launch_nonce,
             session_key=descriptor.session_key,
         )

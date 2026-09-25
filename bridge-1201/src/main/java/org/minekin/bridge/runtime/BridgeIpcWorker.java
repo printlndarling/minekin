@@ -89,6 +89,7 @@ public final class BridgeIpcWorker implements AutoCloseable {
     private static final long MONOTONIC_ORIGIN = System.nanoTime();
 
     private final Path descriptorPath;
+    private final ClientRuntimeIdentity identity;
     private final Duration connectTimeout;
     private final Duration handshakeTimeout;
     private final BridgePhaseMachine phases;
@@ -110,6 +111,7 @@ public final class BridgeIpcWorker implements AutoCloseable {
 
     public BridgeIpcWorker(
             Path descriptorPath,
+            ClientRuntimeIdentity identity,
             Duration connectTimeout,
             Duration handshakeTimeout,
             int inboxCapacity,
@@ -117,6 +119,7 @@ public final class BridgeIpcWorker implements AutoCloseable {
             KeySink keySink,
             ViewSink viewSink) {
         this.descriptorPath = descriptorPath.toAbsolutePath().normalize();
+        this.identity = java.util.Objects.requireNonNull(identity, "identity");
         this.connectTimeout = requirePositive(connectTimeout, "connectTimeout");
         this.handshakeTimeout = requirePositive(handshakeTimeout, "handshakeTimeout");
         this.phases = java.util.Objects.requireNonNull(phases, "phases");
@@ -514,7 +517,7 @@ public final class BridgeIpcWorker implements AutoCloseable {
         try {
             BridgeBootstrapDescriptor raw = DescriptorLoader.loadAndDelete(descriptorPath);
             BootstrapDescriptorAdapter.AdaptedDescriptor descriptor =
-                    BootstrapDescriptorAdapter.adapt(raw);
+                    BootstrapDescriptorAdapter.adapt(raw, identity);
             phases.transition(BridgePhaseMachine.Phase.IPC_CONNECTING);
             control = connect(
                     descriptor.endpoints().control(), Channel.CHANNEL_CONTROL, descriptor.maxFrameBytes());

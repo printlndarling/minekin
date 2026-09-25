@@ -28,6 +28,8 @@ def session() -> BridgeSession:
         client_instance_id="client-1",
         bundle_digest="a" * 64,
         bridge_digest="b" * 64,
+        minecraft_version="1.21.4",
+        fabric_loader_version="0.16.9",
         launch_nonce=b"n" * 32,
         session_key=b"k" * 32,
         heartbeat_interval_ms=100,
@@ -91,8 +93,8 @@ def bridge_proof(bridge_session: BridgeSession) -> str:
             bridge_session.client_instance_id,
             bridge_session.bundle_digest,
             bridge_session.bridge_digest,
-            "1.21.4",
-            "0.16.9",
+            bridge_session.minecraft_version,
+            bridge_session.fabric_loader_version,
             ",".join(sorted(bridge_session.capabilities)),
             bridge_session.launch_nonce.hex(),
         )
@@ -111,8 +113,8 @@ def hello(bridge_session: BridgeSession, *, proof: str | None = None) -> session
         client_instance_id=bridge_session.client_instance_id,
         bundle_digest=bridge_session.bundle_digest,
         bridge_digest=bridge_session.bridge_digest,
-        minecraft_version="1.21.4",
-        fabric_loader_version="0.16.9",
+        minecraft_version=bridge_session.minecraft_version,
+        fabric_loader_version=bridge_session.fabric_loader_version,
         capabilities=[
             session_pb2.Capability(name=name, version=1)
             for name in sorted(bridge_session.capabilities)

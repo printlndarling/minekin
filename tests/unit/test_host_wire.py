@@ -32,6 +32,8 @@ def _session() -> BridgeSession:
         client_instance_id="client-1",
         bundle_digest=DIGEST,
         bridge_digest=DIGEST,
+        minecraft_version="1.21.4",
+        fabric_loader_version="0.16.9",
         launch_nonce=b"\x00" * 32,
         session_key=b"\x01" * 32,
     )

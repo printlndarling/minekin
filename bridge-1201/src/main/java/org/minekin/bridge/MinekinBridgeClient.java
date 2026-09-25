@@ -21,6 +21,7 @@ import org.minekin.bridge.runtime.BridgeIpcWorker;
 import org.minekin.bridge.runtime.BridgeMetrics;
 import org.minekin.bridge.runtime.BridgePhaseMachine;
 import org.minekin.bridge.runtime.ClientAdmissionController;
+import org.minekin.bridge.runtime.ClientRuntimeIdentity;
 import org.minekin.bridge.runtime.HostController;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -46,6 +47,7 @@ public final class MinekinBridgeClient implements ClientModInitializer {
         BridgePhaseMachine phases = new BridgePhaseMachine();
         BridgeIpcWorker created = new BridgeIpcWorker(
                 Path.of(descriptor),
+                ClientRuntimeIdentity.current(),
                 Duration.ofSeconds(5),
                 Duration.ofSeconds(5),
                 16,

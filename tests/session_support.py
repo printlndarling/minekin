@@ -59,7 +59,11 @@ def fabricated() -> tuple[dict[str, Any], Artifact]:
     plan: dict[str, Any] = {
         "launchable": True,
         "blockers": [],
-        "bundle": {"main_class": "example.Main", "minecraft": "1.21.4"},
+        "bundle": {
+            "main_class": "example.Main",
+            "minecraft": "1.21.4",
+            "fabric_loader": "0.16.9",
+        },
         "runtime": {
             "jvm_args": ["-cp", store_path, "-Djava.library.path=session/natives"],
             "classpath": [store_path],

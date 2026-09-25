@@ -11,6 +11,7 @@ import asyncio
 import hashlib
 import hmac
 import os
+import re
 import struct
 import time
 from collections.abc import Collection
@@ -58,6 +59,11 @@ MAX_FRAME_BYTES: Final = 16 * 1024 * 1024
 DEFAULT_MAX_FRAME_BYTES: Final = 1024 * 1024
 DEFAULT_HEARTBEAT_INTERVAL_MS: Final = 500
 BRIDGE_HELLO_TYPE: Final = "minekin.v1.BridgeHello"
+# Both version strings enter the BridgeHello proof context, which is field values
+# joined by NUL, so a declaration carrying a NUL or a space would let one peer's
+# context read as another's. A version-shaped token is what the recipe can
+# actually pin, so that is what a session is allowed to hold.
+VERSION_TEXT: Final[re.Pattern[str]] = re.compile(r"^[0-9][0-9A-Za-z.\-_]{0,31}$")
 CORE_HELLO_TYPE: Final = "minekin.v1.CoreHello"
 HEARTBEAT_TYPE: Final = "minekin.v1.Heartbeat"
 CONNECT_WORLD_TYPE: Final = "minekin.v1.ConnectWorld"
@@ -115,6 +121,8 @@ class BridgeSession:
     client_instance_id: str
     bundle_digest: str
     bridge_digest: str
+    minecraft_version: str
+    fabric_loader_version: str
     launch_nonce: bytes
     session_key: bytes
     capabilities: frozenset[str] = frozenset(
@@ -144,6 +152,12 @@ class BridgeSession:
         ):
             if len(value) != 64 or any(character not in "0123456789abcdef" for character in value):
                 raise ValueError(f"{label} must be a lowercase SHA-256 digest")
+        for value, label in (
+            (self.minecraft_version, "minecraft_version"),
+            (self.fabric_loader_version, "fabric_loader_version"),
+        ):
+            if not VERSION_TEXT.fullmatch(value):
+                raise ValueError(f"{label} must be a version string the recipe can pin")
         if not 1 <= self.generation <= _UINT64_MAX:
             raise ValueError("generation must be a positive uint64")
         if len(self.launch_nonce) != 32 or len(self.session_key) != 32:
@@ -434,8 +448,8 @@ class BridgeIpcHost:
             and hello.client_instance_id == self.session.client_instance_id
             and hello.bundle_digest == self.session.bundle_digest
             and hello.bridge_digest == self.session.bridge_digest
-            and hello.minecraft_version == "1.21.4"
-            and hello.fabric_loader_version == "0.16.9"
+            and hello.minecraft_version == self.session.minecraft_version
+            and hello.fabric_loader_version == self.session.fabric_loader_version
             and hello.phase == session_pb2.BRIDGE_PHASE_IPC_CONNECTING
             and capabilities == self.session.capabilities
             and len(hello.proof) == 64
@@ -625,8 +639,8 @@ def _bridge_proof(session: BridgeSession) -> str:
             session.client_instance_id,
             session.bundle_digest,
             session.bridge_digest,
-            "1.21.4",
-            "0.16.9",
+            session.minecraft_version,
+            session.fabric_loader_version,
             ",".join(sorted(session.capabilities)),
             session.launch_nonce.hex(),
         )

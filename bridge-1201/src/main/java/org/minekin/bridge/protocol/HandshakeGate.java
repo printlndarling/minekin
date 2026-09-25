@@ -166,8 +166,9 @@ public final class HandshakeGate {
             requireText(clientInstanceId, "clientInstanceId");
             requireDigest(bundleDigest, "bundleDigest");
             requireDigest(bridgeDigest, "bridgeDigest");
-            if (!"1.21.4".equals(minecraftVersion) || !"0.16.9".equals(fabricLoaderVersion)) {
-                throw new IllegalArgumentException("game and Loader versions must match p0-core");
+            if (!"1.20.1".equals(minecraftVersion) || !"0.19.5".equals(fabricLoaderVersion)) {
+                throw new IllegalArgumentException(
+                        "game and Loader versions must match the 1.20.1 candidate");
             }
             if (protocolMajor < 1 || protocolMinor < 0 || generation < 1) {
                 throw new IllegalArgumentException("protocol and generation must be positive");

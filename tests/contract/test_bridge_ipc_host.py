@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import struct
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -209,6 +210,43 @@ def test_bad_bridge_proof_fails_closed(tmp_path: Path) -> None:
         )
 
         with pytest.raises(IpcProtocolError, match="proof was rejected"):
+            await host.authenticate()
+        await close_writers(control_writer, event_writer)
+
+    asyncio.run(scenario())
+
+
+def test_a_hello_proving_the_other_candidates_versions_is_rejected(tmp_path: Path) -> None:
+    """The pairing is what is verified, not the shape of the claim.
+
+    This is the defect the 1.20.1 candidate shipped with, seen from Core's side: a
+    client that proves itself consistently over *a* version pair still has to
+    prove it over *this session's*. The peer below declares 1.20.1 with Loader
+    0.19.5 and signs its hello over exactly that, so nothing about it is malformed
+    — it is simply the wrong candidate for a session launched from the 1.21.4 plan.
+    """
+
+    async def scenario() -> None:
+        host_session = session()
+        other_candidate = replace(
+            host_session, minecraft_version="1.20.1", fabric_loader_version="0.19.5"
+        )
+        host = BridgeIpcHost(host_session)
+        descriptor = await host.prepare(tmp_path / "descriptor.pb")
+        _control_reader, control_writer = await connect(descriptor, envelope_pb2.CHANNEL_CONTROL)
+        _event_reader, event_writer = await connect(descriptor, envelope_pb2.CHANNEL_EVENT)
+        await write_frame(
+            control_writer,
+            envelope(
+                other_candidate,
+                BRIDGE_HELLO_TYPE,
+                envelope_pb2.CHANNEL_CONTROL,
+                1,
+                hello(other_candidate).SerializeToString(deterministic=True),
+            ),
+        )
+
+        with pytest.raises(IpcProtocolError, match="was rejected"):
             await host.authenticate()
         await close_writers(control_writer, event_writer)
 
@@ -426,6 +464,8 @@ def test_session_configuration_rejects_unsafe_bounds(change: dict[str, object]) 
         "client_instance_id": "client-1",
         "bundle_digest": "a" * 64,
         "bridge_digest": "b" * 64,
+        "minecraft_version": "1.21.4",
+        "fabric_loader_version": "0.16.9",
         "launch_nonce": b"n" * 32,
         "session_key": b"k" * 32,
     }

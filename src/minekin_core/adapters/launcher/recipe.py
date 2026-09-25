@@ -68,8 +68,8 @@ FABRIC_API_1201_SHA1 = "3e9cdd3e2f827ca9a259df9eb8e31949437b6bd4"
 # same way 1.21.4's is — built twice, once on Windows with JDK 21.0.12.1+1-LTS-4
 # and once in a Linux x86_64 Temurin 21 container, both producing the digest
 # below from an empty Gradle cache with dependency verification enforced.
-BRIDGE_1201_JAR_SHA256 = "9e162d8359a886394ddd80db87477d9196ef3d2972e7a4d942df54a2f1e349bc"
-BRIDGE_1201_JAR_SIZE = 1_308_469
+BRIDGE_1201_JAR_SHA256 = "e50d61c209be98136216b34aadbb6d5a12db8def8aa63a536f32cda8e287006f"
+BRIDGE_1201_JAR_SIZE = 1_310_604
 BRIDGE_1201_JAR_RELATIVE_PATH = "bridge-1201/build/libs/minekin-bridge-1201-0.0.0.jar"
 
 

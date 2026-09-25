@@ -19,7 +19,7 @@ f35bfb5585f5ccc64e085f582e14e236506e30d6ba009d23909bfbc63e860ad9  proto/minekin/
 166d2c481798328397ea99b7135a0543e266aabf8f1ee4df7f34e4e6704e85a5  tests/fixtures/cases/host-040.json
 741fe39980bec574968cd46b2485035c502f4fc84ae2214797ad1ea5a6872e94  tests/fixtures/cases/core-030.json
 bb45606023cea201bf8cb66ee35dfcfa136c428a8eb8bfff90c864499d5dcf72  tests/fixtures/runtime-input/bundle-p0-core-1.21.4.json
-f552b92aa9322b3cd2ff23fc0e927ff4b430e7d24974808e41341f412542c3bb  tests/fixtures/runtime-input/bundle-candidate-1.20.1.json
+8ce43e26b2e17b10e161a9367b990b62a5350132dd81662a97b4e734a1be0ea0  tests/fixtures/runtime-input/bundle-candidate-1.20.1.json
 ee722d8bb2727b833920ce67ef37ea9d6e7fe217e1d83296192f49c4b44db4f9  tests/fixtures/runtime-input/controlled-offline-server.json
 d7cab733f636f73017d148bf946ea007c355dec6cc79f98e56d0ad9f2871a0f4  tests/fixtures/runtime-input/controlled-offline-server-1.20.1.json
 0a9fd3b5a2732c256df44742376618270511c6c60af03416909c0971c99065d4  tests/fixtures/launcher/managed-remote-target-example.json
@@ -35,7 +35,7 @@ ece1e763e0b8601a56e5165e0c630d3f235ac45a9a67415c9f7168c83be28e6b  tests/fixtures
 d9e2e35decc0268782c0af81d9cf2512f69d05c4e6547b69f2fdb46bd2dc4715  tests/fixtures/cases/admit-100.json
 b2c2e86d453a34156cc9cf961b233cb488b62ab017d44a3e0ca2ebdc2d95f57f  tests/fixtures/cases/core-010.json
 e4df012dfb184b505ac9125725047fb00925f84c62e1a79a1861644d9eff68df  tests/fixtures/cases/core-050.json
-f467e42f266f79b3a661f84497ea2ea4dabd41d7fbbb93e23549c67e191d6e13  tests/fixtures/cases/core-070.json
+1d58347069b5245a078f1227869ae138909fc0abd545983842edc881f13d28dc  tests/fixtures/cases/core-070.json
 2dc4972edd6e32403f8635a98ca59ee6fc1a324bc36c5b6faba3870af924c8d0  tests/fixtures/crash/pending-outbox.v1.json
 9bf163fb8eaf355d52985a6e85b5aecde15e54f4ceca796f39eab696a59b41c9  tests/fixtures/launcher/1.21.4.json
 49dd76868180eeebc1a6522e5732f33ea99221f351d46bc79da5948876f6ae61  tests/fixtures/launcher/fabric-loader-0.16.9.json
@@ -80,4 +80,4 @@ a92fe2eefe2bbfa5f9d7be19b4aa97f7e3e31eb688ad5220badcdf14788b6778  tests/fixtures
 e848db79574bc9c6b912a7930f55c307ff89fff8d3bb1ed82af59d0345aa8b78  tests/fixtures/cases/v1201-020.json
 93932a7e2f80a9dad6865c64e10dd17e7dad6d8ec7ea99e250ba11525b221862  tests/fixtures/cases/v1201-040.json
 3278ad2980efc3b473e0f96d614d0ad0df0a6c191365769af48a603574da8712  tests/fixtures/cases/v1201-070.json
-d9e4823b80f5ab0ed41f21448209517b260732d9bd9b13a231ec20b93d6270c7  tests/fixtures/registry/reviewed-tested-bundles.json
+6aaa63420eeee3af1920fdc0f208ab4d3d1b262c0dde8ca83ee1f7d1420dcd52  tests/fixtures/registry/reviewed-tested-bundles.json

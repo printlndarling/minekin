@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "kind": "reviewed-bundle-registry",
-  "notes": "The only bundles this project launches against without an operator pin. An entry is `tested` because the runs it cites were each sealed and independently re-judged on the exact bridge and launch plan the entry names; it is not `tested` because a recipe fixture describes itself that way, and a citation to an older build is not accepted. `capabilities` are the assertion tokens the cited cases prove, one for one, and `gaps` name the holes a launch must not assume closed. The protocol ids are measured status responses of the controlled targets, not a looked-up listing. The 1.20.1 entry declares java_major 21 because that is the runtime its sealing used; its recipe declares 17, and RUNNER_JDK_17_UNSEALED records that the recipe's own number has never been the proven one.",
+  "notes": "The only bundles this project launches against without an operator pin. An entry is `tested` because the runs it cites were each sealed and independently re-judged on the exact bridge and launch plan the entry names; it is not `tested` because a recipe fixture describes itself that way, and a citation to an older build is not accepted. `capabilities` are the assertion tokens the cited cases prove, one for one, and `gaps` name the holes a launch must not assume closed. The protocol ids are measured status responses of the controlled targets, not a looked-up listing. The 1.20.1 entry declares java_major 21 because that is the runtime its sealing used; its recipe declares 17, and RUNNER_JDK_17_UNSEALED records that the recipe's own number has never been the proven one. Provenance of the version check: Core now rejects a BridgeHello whose declared Minecraft and Fabric Loader versions are not the ones this session's plan builds, and the bridge roots report the runtime they actually run. The 1.20.1 entry cites the four cases re-run and re-sealed on the bridge that change produced; of the 1.21.4 entry, whose bridge and plan are byte-for-byte what they were, only CORE-010 - the handshake case - was re-run live afterwards, and the other eleven were sealed earlier and carry the current code's re-judgement, which is a weaker claim than a launch and is stated here rather than left to a digest.",
   "entries": [
     {
       "bundle_id": "1.20.1-linux-x86_64-offline-java21",
@@ -10,10 +10,10 @@
       "protocol": 763,
       "os_arch": "linux-x86_64",
       "java_major": 21,
-      "bridge_digest": "9e162d8359a886394ddd80db87477d9196ef3d2972e7a4d942df54a2f1e349bc",
-      "launch_plan_digest": "ac40316094dda001c2333bdaea00f886609a58982153b085f276d91d750db8bc",
+      "bridge_digest": "e50d61c209be98136216b34aadbb6d5a12db8def8aa63a536f32cda8e287006f",
+      "launch_plan_digest": "83299ad5e224959de8e30c72c5937a2434c4d7bba92c62f4d22cf8d89f5f6181",
       "recipe_path": "tests/fixtures/runtime-input/bundle-candidate-1.20.1.json",
-      "recipe_digest": "f552b92aa9322b3cd2ff23fc0e927ff4b430e7d24974808e41341f412542c3bb",
+      "recipe_digest": "8ce43e26b2e17b10e161a9367b990b62a5350132dd81662a97b4e734a1be0ea0",
       "auth_mode": "offline",
       "capabilities": [
         "a_refused_first_snapshot_became_no_lease_and_no_playable",
@@ -46,39 +46,39 @@
       "evidence": [
         {
           "case_id": "V1201-010",
-          "run_id": "bc203c0ed4004a0d9ba3604d2a51d910",
-          "bundle_digest": "13471d2f9b9e337392b86b25a80d574d45eae761c21d91a5b348c1729cdd890f",
-          "bridge_digest": "9e162d8359a886394ddd80db87477d9196ef3d2972e7a4d942df54a2f1e349bc",
-          "launch_plan_digest": "ac40316094dda001c2333bdaea00f886609a58982153b085f276d91d750db8bc",
+          "run_id": "8665b021bb594f64baa9256ccbc70366",
+          "bundle_digest": "dc30bdaa0ac100bf6e7f25c1399d45340d342ac733b41c5fea134eaf85448494",
+          "bridge_digest": "e50d61c209be98136216b34aadbb6d5a12db8def8aa63a536f32cda8e287006f",
+          "launch_plan_digest": "83299ad5e224959de8e30c72c5937a2434c4d7bba92c62f4d22cf8d89f5f6181",
+          "result": "PASS",
+          "attempt": 3
+        },
+        {
+          "case_id": "V1201-020",
+          "run_id": "ece5d0cb282946f786088bced9fbf4b1",
+          "bundle_digest": "bc987a3208a22a099a0effd29d94fdcd1c447585ed49846eb8970fc25533ad1f",
+          "bridge_digest": "e50d61c209be98136216b34aadbb6d5a12db8def8aa63a536f32cda8e287006f",
+          "launch_plan_digest": "83299ad5e224959de8e30c72c5937a2434c4d7bba92c62f4d22cf8d89f5f6181",
           "result": "PASS",
           "attempt": 2
         },
         {
-          "case_id": "V1201-020",
-          "run_id": "87229052d24f4772a512dee497bab29c",
-          "bundle_digest": "6dd17bd6b41251fe39fb0f6ca6386334dc4c9ebd0a89ca00082b260999dbd84e",
-          "bridge_digest": "9e162d8359a886394ddd80db87477d9196ef3d2972e7a4d942df54a2f1e349bc",
-          "launch_plan_digest": "ac40316094dda001c2333bdaea00f886609a58982153b085f276d91d750db8bc",
-          "result": "PASS",
-          "attempt": 1
-        },
-        {
           "case_id": "V1201-040",
-          "run_id": "f4cc67ae130d4aef9b6fef00801c0e2f",
-          "bundle_digest": "3d0ebebe28050ea0ce9c35e4f7a32c7e173d28103f6b0c5f30041b02e88b1a56",
-          "bridge_digest": "9e162d8359a886394ddd80db87477d9196ef3d2972e7a4d942df54a2f1e349bc",
-          "launch_plan_digest": "ac40316094dda001c2333bdaea00f886609a58982153b085f276d91d750db8bc",
+          "run_id": "155dcb4a527643618a6c09d94b39dce0",
+          "bundle_digest": "435ab159045b18f222a011f9acea96c849c29e271ce926df382e4899afdd8bc3",
+          "bridge_digest": "e50d61c209be98136216b34aadbb6d5a12db8def8aa63a536f32cda8e287006f",
+          "launch_plan_digest": "83299ad5e224959de8e30c72c5937a2434c4d7bba92c62f4d22cf8d89f5f6181",
           "result": "PASS",
-          "attempt": 1
+          "attempt": 2
         },
         {
           "case_id": "V1201-070",
-          "run_id": "5b1cbef5162d40a68789324c80d1363c",
-          "bundle_digest": "46aa3f00b42da484720e925110509a40cdb49ce955f85779066ce11434911156",
-          "bridge_digest": "9e162d8359a886394ddd80db87477d9196ef3d2972e7a4d942df54a2f1e349bc",
-          "launch_plan_digest": "ac40316094dda001c2333bdaea00f886609a58982153b085f276d91d750db8bc",
+          "run_id": "ecebb08084be468ea6372ba1d43c27d5",
+          "bundle_digest": "eb054c0af2aa91d81ad105061f0bd0bd0abc1371746ba9ae10836a09f925a0c8",
+          "bridge_digest": "e50d61c209be98136216b34aadbb6d5a12db8def8aa63a536f32cda8e287006f",
+          "launch_plan_digest": "83299ad5e224959de8e30c72c5937a2434c4d7bba92c62f4d22cf8d89f5f6181",
           "result": "PASS",
-          "attempt": 1
+          "attempt": 2
         }
       ]
     },
@@ -146,12 +146,12 @@
         },
         {
           "case_id": "CORE-010",
-          "run_id": "e22cacf088284598ad1928d426cc3a71",
-          "bundle_digest": "6e0fc4fa635b5130f7090f1e727c1ccd6fef629b85ca2a3569d408b9bf31e48e",
+          "run_id": "73fec7d3103e4e33baf7f8db857020f2",
+          "bundle_digest": "98e32412c326c6954625df31fe14bfba960417f9e8ca9603a0fc25df752a8b84",
           "bridge_digest": "faeec4a9df83abb9ca0404863e04d20cfd87ac0f3afd5e74b6858e3e15372f55",
           "launch_plan_digest": "9e0e0ccca9d0a589a38a3f3be40ddbf957f71a51cffe08caf5436153954bfea4",
           "result": "PASS",
-          "attempt": 1
+          "attempt": 2
         },
         {
           "case_id": "CORE-020",

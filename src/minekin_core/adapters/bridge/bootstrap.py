@@ -17,9 +17,9 @@ import os
 import re
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any, Final
+from typing import Any, Final, cast
 
-from minekin_core.adapters.bridge.ipc import BridgeSession
+from minekin_core.adapters.bridge.ipc import VERSION_TEXT, BridgeSession
 from minekin_core.domain.errors import ErrorCategory, MinekinError, Retryability
 from minekin_core.domain.ids import KinId
 
@@ -64,6 +64,24 @@ def _digest(plan: Mapping[str, Any], key: str) -> str:
     return value
 
 
+def _bundle_version(plan: Mapping[str, Any], key: str) -> str:
+    """Which Minecraft and which Loader this reviewed plan launches.
+
+    The Bridge proves both back in `BridgeHello`, so the session's expectation is
+    read from the reviewed plan rather than named here: a plan that does not say
+    what it launches is one Core cannot authenticate a client against, and that
+    is a refusal rather than a default.
+    """
+
+    bundle = plan.get("bundle")
+    if not isinstance(bundle, dict):
+        raise _reject("the launch plan has no bundle section")
+    value = cast(dict[str, Any], bundle).get(key)
+    if not isinstance(value, str) or not VERSION_TEXT.fullmatch(value):
+        raise _reject(f"the launch plan has no usable bundle {key}")
+    return value
+
+
 def bridge_session_for(
     plan: Mapping[str, Any],
     *,
@@ -94,6 +112,8 @@ def bridge_session_for(
         client_instance_id=client_instance_id,
         bundle_digest=_digest(plan, "plan_sha256"),
         bridge_digest=_digest(plan, "bridge_source_sha256"),
+        minecraft_version=_bundle_version(plan, "minecraft"),
+        fabric_loader_version=_bundle_version(plan, "fabric_loader"),
         launch_nonce=_secret(nonce),
         session_key=_secret(session_key),
     )
