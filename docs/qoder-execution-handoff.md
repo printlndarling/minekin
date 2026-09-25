@@ -8,7 +8,9 @@
 > 不是阶段状态，也不能替代主计划里的 run/bundle/attempt 与真实门禁记录。
 
 > **最新交接点（2026-09-26，`ADMIT-070-RECORD-SCHEMA-001` 收卡：冻结的 schema 说得出两类记录了；计划暂无 `NEXT`）**：
-> 收卡提交是本次文档提交，实现 **`de8ed7d`**（登记 `ff63746` → 提升 `79cf8ce` → 实现 `de8ed7d`，三步分提交，
+> 收卡提交是 **`cc9ced2`**（两条 ref 与远端 SHA 已核；GitHub Actions 对该 SHA 的两个 `CI` run
+> `36170297867`/`36170297886` 及其六个 job `python`/`protocol`/`bridge-static` 全 `completed / success`），
+> 实现 **`de8ed7d`**（登记 `ff63746` → 提升 `79cf8ce` → 实现 `de8ed7d`，三步分提交，
 > 满足交接第 3、4、6 项）。交付形状：`schemas/fault-injection.schema.json` 根 `oneOf` 分
 > `$defs.process_sigkill_record` / `$defs.client_report_request_record`，`category` 缺省仍是 kill 一类
 > （卷内每张旧封存照读不变），reader `tools/fault_injection.py` **一字未动**（`forbidden_paths`，方向只能是
@@ -26,7 +28,8 @@
 > `fixture_digests_match_manifest` 读那行 manifest。registry 与 `tested` 声明一字未动（旧 digest 全跟踪树无命中、
 > registry 只钉 bridge/plan/recipe/bundle 四类摘要），因此没有触发任何重封。
 > **下一张归主控**：队列这次是**逐卡数过**的，不是 grep 状态行——`python .tmp/count_plan_cards.py` 报
-> 55 张带 `status` 的卡里 `QUEUED` 与 `NEXT` 均为 `0`，开放中的只剩 `REAL-P0-CAMPAIGN-001`
+> 55 张带 `status` 的卡里 `QUEUED` 与 `NEXT` 均为 `0`（同一套逻辑在非空转反证里数得到：临时副本把本卡状态
+> 改回 `NEXT` 或 `QUEUED` 各报 `1`，副本已删），开放中的只剩 `REAL-P0-CAMPAIGN-001`
 > （`BLOCKED_EVIDENCE`）、`EXPLICIT-RELEASE-AT-STOP-001`/`HOST-ADMISSION-DESIGN-001`/
 > `OPERATIONS-RETENTION-001`/`PROCESS-RECOVERY-001`（`BLOCKED_DECISION`）与 `HOST/W80+`（`DEFERRED`）。
 > 要往下走得先拍板：①1.20.1 的 `STOP_PHASE_EXPLICIT_KEY_RELEASE` 是否据现有工件从 `tested` 划出、V08 是否提升；

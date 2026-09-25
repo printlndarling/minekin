@@ -2936,6 +2936,15 @@
   **`2500 passed / 2 skipped`**（302.92s；两处跳过是既有的平台限制）、`check_boundaries` 0、
   `check_case_assertions` `OK (140 registered)`、`verify_fixture_digests` `W00 schema and fixture digests: OK`、
   `check_workflow_pins` 0、`git diff --check` 0。定向文件 `tests/unit/test_fault_injection.py` 63 passed。
+- **远端与 CI**：卡片文本由 `cc9ced2` 收卡，`git ls-remote` 上 `main` 与
+  `codex/core-state-transition` 同为 `cc9ced28b19f2e249683548be550acc74f14b699`；GitHub Actions 对该 SHA 的
+  两个 `CI` run（`36170297867`、`36170297886`）`completed / success`，六个 job
+  （每个 run 的 `python`/`protocol`/`bridge-static`）全 `success`，step 层没有 `failure/cancelled`。
+  实现 `de8ed7d` 与收卡提交在同一次 push 里，所以 GitHub 只在 tip 触发——那一跑覆盖的正是 schema、测试
+  加文档的同一棵树。
+- **"队列 `QUEUED`/`NEXT` 都是 0"的反空转证明**：清点按卡头配对 `status` 行（`.tmp/count_plan_cards.py`）。
+  把计划复制到临时文件、只改本卡那一行状态再跑同一套逻辑：改 `NEXT` 的副本报 `55 / QUEUED=0 / NEXT=1`，
+  改 `QUEUED` 的副本报 `55 / QUEUED=1 / NEXT=0`，正本仍是 `55 / 0 / 0`。两份临时副本已删，未进版本库。
 - **复跑命令**：`uv run --frozen pytest tests/unit/test_fault_injection.py -q`；
   `uv run --frozen python tools/verify_fixture_digests.py`；
   `uv run --frozen python .tmp/schema_counterexamples.py`；`bash .tmp/run_local_gates.sh`；

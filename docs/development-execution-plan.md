@@ -18,17 +18,20 @@
   回归基线；除非真实回归或当前 1.20.1 卡不可绕过的前置阻断，不再新增 1.21.4 功能专题。
   即使遇到前置阻断，也先登记范围与证据、按唯一 `NEXT` 流转，不得借 `.tmp/` 中的实验记录
   自行改排期或把临时构建当作新主线。HOST/PERSIST、在线认证、远程服授权等既有停机边界不变。
-- `current_next`: **暂无 `NEXT`**（本提交把 `ADMIT-070-RECORD-SCHEMA-001` 收卡为 `DONE`：实现 `de8ed7d`——
+- `current_next`: **暂无 `NEXT`**（`ADMIT-070-RECORD-SCHEMA-001` 已收卡为 `DONE`：卡片文本 `cc9ced2`、
+  实现 `de8ed7d`——
   冻结的 `schemas/fault-injection.schema.json` 现在按 `category` 分成两支，两类记录各自说得出自己的
   required 字段，`tools/fault_injection.py` 的读取规则一字未动（方向只从文件向 reader 对齐）；23 件结构
   反例在两侧同时变红、7 条新规则逐一删掉各让一个具名测试变红、positive control `exit 0`，本地全量门禁
-  `2500 passed / 2 skipped`。逐格读数、manifest 新旧行与对登记卡那句前提的更正，记在该卡
+  `2500 passed / 2 skipped`；两条 ref 与远端 SHA 已核，GitHub Actions 对 `cc9ced2` 的两个 `CI` run 及其
+  六个 job 全 `success`。逐格读数、manifest 新旧行与对登记卡那句前提的更正，记在该卡
   `completion_readings_2026-09-26`。）
   **队列这次是数过的，不是 grep 出来的**：全文件 55 张带 `status` 的卡里 `QUEUED` 与 `NEXT` 都为 `0`，
   开放中的只剩 `REAL-P0-CAMPAIGN-001`（`BLOCKED_EVIDENCE`）、`EXPLICIT-RELEASE-AT-STOP-001` /
   `HOST-ADMISSION-DESIGN-001` / `OPERATIONS-RETENTION-001` / `PROCESS-RECOVERY-001`（`BLOCKED_DECISION`）
   与 `HOST/W80+`（`DEFERRED`）；清点脚本 `.tmp/count_plan_cards.py`（按卡头配对 `status` 行，连没有
-  ` — ` 分隔符的 `### HOST/W80+` 一并数到——上次误报"没有可提升的 QUEUED"正是因为只 grep 了状态行）。
+  ` — ` 分隔符的 `### HOST/W80+` 一并数到——上次误报"没有可提升的 QUEUED"正是因为只 grep 了状态行；
+  这个 `0/0` 也反证过：临时副本里把本卡状态改回 `NEXT` 或 `QUEUED`，同一套逻辑各报 `1`）。
   **下一张归主控**：1.20.1 的 `STOP_PHASE_EXPLICIT_KEY_RELEASE` 已有 Bridge 自己写下的工件、其复判与
   V08 提升是否放行仍待拍板，`BLOCKED_DECISION` 四张与 `HOST/W80+` 亦须先解一个决策；本执行者不自行
   猜编号、不新造主线卡、也不把 `.tmp/` 的实验记录当排期。）
@@ -79,21 +82,23 @@
   用户在七场景总账后明确把“自动识别服务器版本 → 准备匹配客户端 → 入服并完成简单控制”排为优先路线；
   `VERSION-AUTO-DESIGN-001` 已交付[跨版本连续执行计划](version-auto-to-server-control-plan.md)。
 - `last_checkpoint`: **写下来的契约重新对上执行它的读取器：冻结的 fault-injection schema 说得出两类记录**
-  ——`ADMIT-070-RECORD-SCHEMA-001` 由本提交收卡为 `DONE`（登记 `ff63746`、提升 `79cf8ce`、实现 `de8ed7d`；
+  ——`ADMIT-070-RECORD-SCHEMA-001` 由 `cc9ced2` 收卡为 `DONE`（登记 `ff63746`、提升 `79cf8ce`、实现 `de8ed7d`；
   `LOCAL_ONLY`，本卡不要求也不封任何真实运行）。形状：根 `oneOf` 按 `category` 分两支——kill 一类保持原样
   （`category` 缺省仍是它，卷内每张旧封存照读不变），请求一类带上自己的 `request`/`effect` 与两条派生关系
   （`asked` 由 `value` 的拼写决定；`observed: true` 预设 `asked: true`）；`case`/`attribution`/`reasons` 和两个
   单调时钟字段收进 `$defs` 由两支共用。判据侧：23 件结构反例（10 kill + 13 request）在 reader 与 schema
   两侧同时被拒，7 种合法形状两侧同时被接受（含 argv 带空 option 值的真实客户端身份——写下的形式一旦比
   reader 严，记录就连拒绝理由一起写不下来）；把 7 条新规则逐一从盘上的 schema 删掉，那 4 个具名测试作为
-  一组 7/7 变红，未删时 positive control `exit 0`，脚本按字节还原并复核 digest 一致。fixture 侧：只动
+  一组 7/7 变红，未删时 positive control `exit 0`，脚本按字节还原并复核 digest 一致。本地全量门禁
+  `2500 passed / 2 skipped`，两条 ref 与远端 SHA 已核，GitHub Actions 对收卡提交 `cc9ced2` 的两个 `CI` run
+  及其六个 job（`python`/`protocol`/`bridge-static`）全 `success`。fixture 侧：只动
   `tests/fixtures/manifest.sha256:7`（`cc983bc8…` → `34e6d26c…`，由门禁自己的测量函数量出），
   **`w00-contract-001.json` 一字未改、其 `case_version` 新旧同为 `c59b9636…`**——登记这张卡时那句「改 schema
   等于给无关 case 重新定版」经测量不准确（`case_version` 是 case 文档自身的 sha256），真正的耦合是
   `fixture_digests_match_manifest` 会读那行 manifest。**registry 一字未动**：旧 digest 在全跟踪树里已无命中，
   `reviewed-tested-bundles.json` 只钉 `bridge_digest`/`launch_plan_digest`/`recipe_digest`/`bundle_digest`，
   没有一条 `tested` 声明被本卡移动。1.20.1 的 `STOP_PHASE_EXPLICIT_KEY_RELEASE` 是否划出、V08 是否提升、
-  四张 `BLOCKED_DECISION` 与 `HOST/W80+` 仍归主控。计划自本提交起**暂无 `NEXT`**——这次是数过的：55 张带
+  四张 `BLOCKED_DECISION` 与 `HOST/W80+` 仍归主控。计划自 `cc9ced2` 起**暂无 `NEXT`**——这次是数过的：55 张带
   `status` 的卡里 `QUEUED` 与 `NEXT` 都是 `0`（清点脚本 `.tmp/count_plan_cards.py`，按卡头配对状态行、
   连无 ` — ` 分隔符的 `### HOST/W80+` 一起数）；上一次那句"队列里没有可提升的 `QUEUED`"错在只 grep 状态行，
   见下面 checkpoint 的更正括注。
@@ -1504,7 +1509,8 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 
 ### ADMIT-070-RECORD-SCHEMA-001 — 让封存的 schema 也说得出报告请求记录
 
-- `status`: `DONE`（实现 `de8ed7d`；提升的三条理由已挪到下面的 `promotion_reason`，逐格读数见
+- `status`: `DONE`（实现 `de8ed7d`，卡片文本在 `cc9ced2` 收卡、两条 ref 与远端 SHA 已核，GitHub Actions
+  对该 SHA 的两个 `CI` run 均 `completed / success`；提升的三条理由已挪到下面的 `promotion_reason`，逐格读数见
   `completion_readings_2026-09-26`。**`stop_conditions` 没有触发**：`jsonschema`（draft 2020-12，测试期
   依赖）在不往 `tools/fault_injection.py` 加一条规则、也不放宽它任何一条规则的条件下，表达得出两类的
   判别——`oneOf` 按 `category` 分支，`asked` 由 `value` 派生与「观察到的 effect 预设那次 ask」都用现成的
@@ -1523,7 +1529,10 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
   `tests/fixtures/cases/w00-contract-001.json` 的 `inputs`（`schemas/*.schema.json`）里，
   动它 = 给一张与本场景无关的 case 重新定版；而 case fixtures 是那张卡的 `forbidden_paths`。
   （登记时那句「重新定版」经测量不准确，见 `completion_readings_2026-09-26` 第 7 条；结论不变——它要动的
-  是一份被 W00 断言冻结的输入，重签的是 manifest 而不是 case 文档，故仍属另一张卡。）
+  是一份被 W00 断言冻结的输入，重签的是 manifest 而不是 case 文档，故仍属另一张卡。另：上面那句
+  「显式断言一条请求记录会被 schema 拒绝」是当时的事实，钉住缺口的
+  `test_the_frozen_schema_still_describes_the_kill_record_only` 已随 `de8ed7d` 退役，取而代之的是
+  双向对齐的三条测试，见 `completion_readings_2026-09-26` 第 2、3、5 条。）
 - `allowed_paths`: `schemas/fault-injection.schema.json`、
   `tests/fixtures/cases/w00-contract-001.json`（只随 `case_version` 重签）、
   `tests/fixtures/manifest.sha256`（第 6 行随 schema 动）、
@@ -1596,7 +1605,18 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
      `tests/unit/test_fault_injection.py` 63 passed——本卡新增三条（两类边界、双向一致、仍归 reader 的
      两处比较）、退役一条（钉住缺口的 `test_the_frozen_schema_still_describes_the_kill_record_only`），
      并把 13 件请求类反例并入既有的对齐测试。
-  9. **本卡未做的**（越界项）：`tools/fault_injection.py` 的读取规则一字未动（`forbidden_paths`，方向
+  9. **收卡提交、远端 SHA 与 CI**：卡片文本由 `cc9ced2` 收卡，两条 ref（`main` 与
+     `codex/core-state-transition`）在 `git ls-remote` 上同为
+     `cc9ced28b19f2e249683548be550acc74f14b699`。GitHub Actions 对该 SHA 的两个 `CI` run
+     （`36170297867`、`36170297886`）均 `completed / success`，各自的三个 job
+     （`python`、`protocol`、`bridge-static`）也都 `success`，step 层没有任何一项落到
+     `failure/cancelled`。这一跑覆盖的正是 `de8ed7d` 的 schema 与测试内容加本次文档改动，
+     因为两个提交在同一次 push 里、GitHub 只对 tip 触发。
+  10. **"队列里没有可提升的 `QUEUED`"这句的可空转反证**：清点不是 grep 状态行，而是按卡头配对
+      `status`（`.tmp/count_plan_cards.py`）。为证明它不是空跑，临时复制计划文件、只把本卡状态行
+      改回 `NEXT`（或 `QUEUED`）再跑同一套逻辑：`NEXT` 副本报 `55/QUEUED=0/NEXT=1`，`QUEUED` 副本报
+      `55/QUEUED=1/NEXT=0`，盘上正本的读数仍是 `55/0/0`。副本用完即删，未进版本库。
+  11. **本卡未做的**（越界项）：`tools/fault_injection.py` 的读取规则一字未动（`forbidden_paths`，方向
      只从 schema 向 reader 对齐）、判官 `tools/assert_case_evidence.py`、产品 `src/minekin_core`、Bridge、
      runner、`proto/`、CI 全未触碰；未新增第三类记录、未改 `CLIENT_REPORT_REQUEST` 已冻结的字段语义、
      未重新解释 SIGKILL 一类的既有字段；不封 evidence，也不据此判定 1.20.1 那一格或 V08。
