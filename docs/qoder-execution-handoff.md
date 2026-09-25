@@ -7,7 +7,18 @@
 > `.tmp/` 被 Git 忽略，是构建、诊断和封证的临时工作区；它的内容不是已推送产品代码、
 > 不是阶段状态，也不能替代主计划里的 run/bundle/attempt 与真实门禁记录。
 
-> **最新交接点（2026-09-25，跨版本路线执行中）**：主计划唯一 `NEXT` 现在是 **`STORE-FAILURE-EVIDENCE-001`**
+> **最新交接点（2026-09-25，跨版本路线执行中）**：主计划当前**暂无 `NEXT`**——`STORE-FAILURE-EVIDENCE-001` 已由
+> `cfbb87c` 提升、由 `4be3d55` 收卡，`94cb15b` 把 V07 `not_tested_v07` 的头两格承接为新卡
+> `AUTO-PATH-INSTALL-RUN-001`（`QUEUED`），提升它是紧随其后的那一次独立提交。收卡读数：新增
+> `tests/unit/test_install_fault_injection.py` 七条真文件系统断言，逐条诱发写失败、store 层 `os.replace` 失败、
+> 并发同 digest 三类故障，并对 store 目标路径、`.staging`、`quarantine` 与**重开的 store 实例**实测；
+> `ruff check`、`ruff format --check`、`pyright` 干净，`pytest tests/unit` → 2177 passed / 2 skipped（两条既有
+> 平台 skip）。实现与安装判据一字未改。仍未测：真·磁盘满（`ENOSPC` 到达的是写调用）、真跨进程并发、
+> `SIGKILL` 中途杀 installer 后的 `.staging` 残留清理（属 `OPERATIONS-RETENTION-001`）。本卡是纯单元证据卡，
+> 不产出任何 Minecraft 验收证据，因此 CI 不是它的判据来源。V08（入你授权的 1.20.1 测试服）的门没有松动：
+> V07 缺口是否算收口由主控决定，registry 的 `status`/`gaps` 原样。
+
+> **上一交接点（2026-09-25，跨版本路线执行中）**：主计划当时唯一 `NEXT` 是 **`STORE-FAILURE-EVIDENCE-001`**
 > （提升提交 `cfbb87c`，与工作分支同步、远端 SHA 一致）。上一张 **`KEY-RELEASE-AT-STOP-001`** 已 `DONE`
 > （case 登记 `bd8f6b7`、真跑与原子登记 `0fb7158`）：1.20.1 受控离线真服上 `MINEKIN_DOMAIN_CASE=V1201-060
 > MINEKIN_DOMAIN_KILL_CORE=1`（默认 5 秒探针，未设 `MINEKIN_DOMAIN_PROBE_SECONDS`）一次真跑封证 PASS——
