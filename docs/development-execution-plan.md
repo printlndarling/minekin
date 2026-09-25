@@ -567,6 +567,11 @@ MSYS_NO_PATHCONV=1 docker run --rm -v "$PWD":/src:ro -v minekin-runner-data:/dat
   全部 `completed / success`：`f2116b0` → `36197636720`/`36197637053`，`e4bcc1c` →
   `36198293958`/`36198294124`，`030d406` → `36198498622`/`36198498630`；每 run 三个 job、两 run 合计六个
   （`python` 18 步 / `protocol` 10 步 / `bridge-static` 9 步）无一步失败或卡住。
+  随后两格记录提交同样各两个 run 全绿：`6003ed4` → `36199039375`/`36199040285`、
+  `aa4144c` → `36199114794`/`36199114842`（远端两条 ref 现等于 `aa4144c`）。
+  **一条读 CI 的姿势更正**：轮询 REST 时 `urllib` 会开始报 `403 rate limit exceeded` 而配额其实还剩
+  （`/rate_limit` 读 `remaining 50`），带 `-A` 的 `curl` 同一时刻仍能读——**限流是按调用节奏，不是按小时配额**，
+  每轮读一次就够。
 
 ## 最近完成
 
