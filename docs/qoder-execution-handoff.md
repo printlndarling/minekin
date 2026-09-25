@@ -7,7 +7,29 @@
 > `.tmp/` 被 Git 忽略，是构建、诊断和封证的临时工作区；它的内容不是已推送产品代码、
 > 不是阶段状态，也不能替代主计划里的 run/bundle/attempt 与真实门禁记录。
 
-> **最新交接点（2026-09-26，`ADMIT-070-RECORD-SCHEMA-001` 收卡：冻结的 schema 说得出两类记录了；计划暂无 `NEXT`）**：
+> **最新交接点（2026-09-26，1.20.1 的停止阶段松键缺口已从 `tested` 声明划出；计划暂无 `NEXT`，下一张是 HOST 设计卡的 `QUEUED` 转换）**：
+> 收卡提交是**本提交**（实现 **`4151664`**；登记 `89ec146` → 提升 `822d7f0` → 实现 `4151664` → 本提交收卡，
+> 逐卡串行、每步分提交，满足第 3、4、6 项）。交付形状：`tests/fixtures/registry/reviewed-tested-bundles.json`
+> 的 entry[0]（`1.20.1-linux-x86_64-offline-java21`）`gaps` 9 → 8（**只**去掉
+> `STOP_PHASE_EXPLICIT_KEY_RELEASE`）、`capabilities` 18 → 19（补
+> `the_bridge_released_the_input_when_the_session_was_stopped`）、`evidence` 5 → 6（`V1201-080` /
+> run `484675e4938b4134b788a971e195619b` / bundle `22fb57f3…` / attempt 3 / `PASS`，其 bridge 与 plan 摘要
+> 与该 entry 自身相同）；`tests/fixtures/manifest.sha256:85` `69244c32…` → `6dd2f421…`，由门禁自己的
+> 测量函数量出；`tests/unit/test_version_resolution.py` 只加一条用例，钉住"这一格已划出**且 1.21.4 那条仍在**"。
+> **读数**：容器内 `verify_tested_provenance.py` 对新文件 `verified: true`、`exit 0`，六条引用逐条
+> `present/readable/sealed/consistent` 为真；`report_promotion.py` 里 `V1201-080` attempt 3 那行
+> `from_repository_build: true` + `re_judged: AGREES`，整体仍 `status: blocked`、
+> `overall.promotable: false`、`repository_build.gates_promotion: false` ⇒ **V08 未提升、远程服未连**；
+> registry 不在 49 个 case 的 `inputs` 里（同一检测逻辑对人为加输入的副本报 1）⇒ 无 `case_version` 移动、
+> 无重封；四条反证各红在其命名理由上、positive control `exit 0`、变异后按字节还原；本地全量门禁
+> `2501 passed / 2 skipped`（上一张卡 2500 + 本卡新增 1）。
+> **下一步（主控 2026-09-26 已授权，不必再问）**：把 `HOST-ADMISSION-DESIGN-001` 由 `BLOCKED_DECISION`
+> 转 `QUEUED` 并按唯一 `NEXT` 提升——**只做设计**：整理方案、反例与验收设计；不实现 HOST、不标完成、
+> 不提升 `HOST/W80+`；到必须冻结"谁创建 host generation / `WorldCapsule`"这一所有权方案时停下交主控审查。
+> 仍归主控：V08 提升、连接用户的远程服、`EXPLICIT-RELEASE-AT-STOP-001` 与其它 `BLOCKED_DECISION` 的状态。
+> 恢复现场时先核主计划 `current_next` 与本文件是否仍一致。
+>
+> **上一交接点（2026-09-26，`ADMIT-070-RECORD-SCHEMA-001` 收卡：冻结的 schema 说得出两类记录了；计划暂无 `NEXT`）**：
 > 收卡提交是 **`cc9ced2`**（两条 ref 与远端 SHA 已核；GitHub Actions 对该 SHA 的两个 `CI` run
 > `36170297867`/`36170297886` 及其六个 job `python`/`protocol`/`bridge-static` 全 `completed / success`），
 > 实现 **`de8ed7d`**（登记 `ff63746` → 提升 `79cf8ce` → 实现 `de8ed7d`，三步分提交，
@@ -27,6 +49,9 @@
 > sha256）。**登记这张卡时那句"改 schema 等于给无关 case 重新定版"经测量不准确**——耦合点是
 > `fixture_digests_match_manifest` 读那行 manifest。registry 与 `tested` 声明一字未动（旧 digest 全跟踪树无命中、
 > registry 只钉 bridge/plan/recipe/bundle 四类摘要），因此没有触发任何重封。
+> （**2026-09-26 更正**：下面这段"下一张归主控"是本卡收卡当时的状态，原样保留；主控随后给出答复，
+> ①已落成 `TESTED-GAP-DRAW-STOP-PHASE-1201-001` 并收口（见上面最新交接点），③HOST 支线只做设计已授权，
+> 队列计数随之从 55 张变为 56 张。V08 提升与远程服授权仍归主控。）
 > **下一张归主控**：队列这次是**逐卡数过**的，不是 grep 状态行——`python .tmp/count_plan_cards.py` 报
 > 55 张带 `status` 的卡里 `QUEUED` 与 `NEXT` 均为 `0`（同一套逻辑在非空转反证里数得到：临时副本把本卡状态
 > 改回 `NEXT` 或 `QUEUED` 各报 `1`，副本已删），开放中的只剩 `REAL-P0-CAMPAIGN-001`

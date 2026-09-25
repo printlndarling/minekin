@@ -18,11 +18,17 @@
   回归基线；除非真实回归或当前 1.20.1 卡不可绕过的前置阻断，不再新增 1.21.4 功能专题。
   即使遇到前置阻断，也先登记范围与证据、按唯一 `NEXT` 流转，不得借 `.tmp/` 中的实验记录
   自行改排期或把临时构建当作新主线。HOST/PERSIST、在线认证、远程服授权等既有停机边界不变。
-- `current_next`: **`TESTED-GAP-DRAW-STOP-PHASE-1201-001`**（`89ec146` 以 `QUEUED` 登记并推到两条 ref，
-  本提交单独提升为唯一 `NEXT`；它是主控 2026-09-26 那条口径的机械记账——只划 1.20.1 的
-  `STOP_PHASE_EXPLICIT_KEY_RELEASE` 一条缺口，同时把 `V1201-080` 的 PASS 证据与 capability 登记进
-  `tested` 声明、重签 manifest 那一行、在容器里跑 provenance 校验；**V08 不提升、远程服不连**，
-  1.21.4 那条 entry 的同一缺口属 `forbidden_paths`。）
+- `current_next`: **暂无 `NEXT`**（`TESTED-GAP-DRAW-STOP-PHASE-1201-001` 已在本提交收口为 `DONE`：实现
+  `4151664`——1.20.1 那条 `tested` 声明的 `gaps` 划出 `STOP_PHASE_EXPLICIT_KEY_RELEASE` 一条、
+  `capabilities` 补上工件所证的 token、`evidence` 追加 `V1201-080 / run 484675e4… / attempt 3 / PASS` 的
+  七字段引用，manifest 第 85 行由门禁自己的测量函数量出新签；容器内 provenance `verified: true`（`exit 0`）、
+  六条引用逐条为真，`report_promotion` 那一行 `from_repository_build: true` + `re_judged: AGREES` 而整体
+  仍 `blocked`／`promotable: false`——**V08 未提升、用户的远程服未连接**，1.21.4 的同一缺口与 1.20.1 其余
+  八条缺口一字未动。逐格读数记在该卡 `completion_readings_2026-09-26`。）
+  **下一步是主控已授权的 HOST 支线设计**：`HOST-ADMISSION-DESIGN-001` 依 2026-09-26 口径由
+  `BLOCKED_DECISION` 转 `QUEUED`（只整理方案、反例与验收设计；不实现 HOST、不标完成、不提升
+  `HOST/W80+`；到必须冻结"谁创建 host generation / `WorldCapsule`"时交主控审查），登记与提升分两个提交，
+  与本卡一样逐卡串行。
   （上一张 `ADMIT-070-RECORD-SCHEMA-001` 已收卡为 `DONE`：卡片文本 `cc9ced2`、
   实现 `de8ed7d`——
   冻结的 `schemas/fault-injection.schema.json` 现在按 `category` 分成两支，两类记录各自说得出自己的
@@ -32,16 +38,17 @@
   六个 job 全 `success`。逐格读数、manifest 新旧行与对登记卡那句前提的更正，记在该卡
   `completion_readings_2026-09-26`。）
   **队列是数过的，不是 grep 出来的**（本提交实测：`.tmp/count_plan_cards.py` 按卡头配对 `status` 行，
-  连没有 ` — ` 分隔符的 `### HOST/W80+` 一并数到）：56 张带 `status` 的卡里 `NEXT` = 1（就是本卡）、
-  `QUEUED` = 0，开放中的只剩 `REAL-P0-CAMPAIGN-001`（`BLOCKED_EVIDENCE`）、
+  连没有 ` — ` 分隔符的 `### HOST/W80+` 一并数到）：56 张带 `status` 的卡里 `NEXT` = 0、`QUEUED` = 0，
+  开放中的只剩 `REAL-P0-CAMPAIGN-001`（`BLOCKED_EVIDENCE`）、
   `EXPLICIT-RELEASE-AT-STOP-001` / `HOST-ADMISSION-DESIGN-001` / `OPERATIONS-RETENTION-001` /
-  `PROCESS-RECOVERY-001`（`BLOCKED_DECISION`）与 `HOST/W80+`（`DEFERRED`）。这套清点反证过非空转：
-  临时副本里把某张卡状态改回 `NEXT` 或 `QUEUED`，同一逻辑各报 `1`（副本已删）。
-  （**2026-09-26 主控答复**：上一版这份队列说明写的"下一张归主控、`STOP_PHASE_EXPLICIT_KEY_RELEASE`
+  `PROCESS-RECOVERY-001`（`BLOCKED_DECISION`，其中 `HOST-ADMISSION-DESIGN-001` 在下一张卡改判）与
+  `HOST/W80+`（`DEFERRED`）。这套清点反证过非空转：本提交实测——临时副本里把刚收口的卡改回 `NEXT`
+  或 `QUEUED`，同一逻辑各报 `1`（副本已删）。
+  （**2026-09-26 主控答复**：更早那版这份队列说明写的"下一张归主控、`STOP_PHASE_EXPLICIT_KEY_RELEASE`
   待拍板"已经解掉，用户给出口径——①只划这一条缺口、同时登记 `V1201-080` 的 PASS 证据与对应 capability、
   重算摘要并跑 provenance 校验；②**不提升 V08**，因此也不连接远程服；③HOST 支线只做设计，
-  不实现、不标完成、不提升 `HOST/W80+`，且**逐卡串行、不同时开两张**。据此登记本卡（`89ec146`），
-  由本提交提升为唯一 `NEXT`；`HOST-ADMISSION-DESIGN-001` 的 `QUEUED` 转换排在本卡收口之后。
+  不实现、不标完成、不提升 `HOST/W80+`，且**逐卡串行、不同时开两张**。据此登记缺口划出卡（`89ec146`）
+  并由 `822d7f0` 提升为唯一 `NEXT`、由本提交收口；`HOST-ADMISSION-DESIGN-001` 的 `QUEUED` 转换排在其后。
   `EXPLICIT-RELEASE-AT-STOP-001` 自身的 `status` 不改判——是否划归它那份工件仍归主控。）
   （上一张 `GRACEFUL-STOP-KEY-RELEASE-001` 由 `2253358` 收卡为 `DONE`：实现 `5c643c6`，
   `V1201-080` attempt 3（run `484675e4938b4134b788a971e195619b` / bundle `22fb57f3…`）在**判据一字未改**之下封成
@@ -92,7 +99,27 @@
   [tested 晋级门复判记录](tested-gate-audit-2026-09-25.md)；V07 收卡 `17e81ea`+`96fb520`。）
   用户在七场景总账后明确把“自动识别服务器版本 → 准备匹配客户端 → 入服并完成简单控制”排为优先路线；
   `VERSION-AUTO-DESIGN-001` 已交付[跨版本连续执行计划](version-auto-to-server-control-plan.md)。
-- `last_checkpoint`: **写下来的契约重新对上执行它的读取器：冻结的 fault-injection schema 说得出两类记录**
+- `last_checkpoint`: **一条 `tested` 声明改由它自己引用的封存件在字节上撑起：1.20.1 的停止阶段松键缺口
+  划出、那一次 PASS 登记进声明**——`TESTED-GAP-DRAW-STOP-PHASE-1201-001` 由本提交收卡为 `DONE`（登记
+  `89ec146`、提升 `822d7f0`、实现 `4151664`；`LOCAL_THEN_VOLUME_READ`，本卡不跑新的真实运行）。形状：
+  1.20.1 entry 的 `gaps` 9 → 8（只去掉 `STOP_PHASE_EXPLICIT_KEY_RELEASE`）、`capabilities` 18 → 19（补上
+  `the_bridge_released_the_input_when_the_session_was_stopped`）、`evidence` 5 → 6（`V1201-080` run
+  `484675e4…`、bundle `22fb57f3…`、attempt 3、`PASS`，两个 build 摘要与该 entry 自身相同）；manifest 第 85 行
+  `69244c32…` → `6dd2f421…`，由门禁自己的测量函数量出。**只划这一条**：1.21.4 的同名缺口、1.20.1 其余八条
+  缺口、两条 entry 的 `status` 一字未动（逐字段对比读数记在该卡验收第 1 格）。卷内复核：
+  `verify_tested_provenance.py` 对新文件 `verified: true`、`exit 0`，六条引用逐条
+  `present/readable/sealed/consistent` 为真；`report_promotion.py` 里 `V1201-080` attempt 3 那行
+  `from_repository_build: true` + `re_judged: AGREES`，而整体仍 `status: blocked`、
+  `overall.promotable: false`、`repository_build.gates_promotion: false`——**V08 未提升、用户的远程服未连接**
+  （主控 2026-09-26 口径的后两格）。耦合面是量过的，不是沿用的：registry 不在 49 个 case 的 `inputs` 里
+  （带正例对照），所以本卡没有移动任何 `case_version`、没有触发任何重封。判据与产品代码一字未改；
+  四条反证各红在其命名理由上、positive control `exit 0`；门禁 `2501 passed / 2 skipped`。
+  计划自本提交起**暂无 `NEXT`**——数过的：56 张带 `status` 的卡里 `QUEUED` 与 `NEXT` 都是 `0`
+  （`.tmp/count_plan_cards.py`，按卡头配对状态行、连无 ` — ` 分隔符的 `### HOST/W80+` 一起数，并用改回
+  `NEXT`/`QUEUED` 的副本反证过非空转）。**下一张已授权、不需再问**：按主控 2026-09-26 的第③条口径把
+  `HOST-ADMISSION-DESIGN-001` 由 `BLOCKED_DECISION` 转 `QUEUED`——只做设计（方案、反例、验收设计），
+  不实现 HOST、不标完成、不提升 `HOST/W80+`，到必须冻结"谁创建 host generation / `WorldCapsule`"时交主控。
+  上一 checkpoint 是 **写下来的契约重新对上执行它的读取器：冻结的 fault-injection schema 说得出两类记录**
   ——`ADMIT-070-RECORD-SCHEMA-001` 由 `cc9ced2` 收卡为 `DONE`（登记 `ff63746`、提升 `79cf8ce`、实现 `de8ed7d`；
   `LOCAL_ONLY`，本卡不要求也不封任何真实运行）。形状：根 `oneOf` 按 `category` 分两支——kill 一类保持原样
   （`category` 缺省仍是它，卷内每张旧封存照读不变），请求一类带上自己的 `request`/`effect` 与两条派生关系
@@ -113,6 +140,9 @@
   `status` 的卡里 `QUEUED` 与 `NEXT` 都是 `0`（清点脚本 `.tmp/count_plan_cards.py`，按卡头配对状态行、
   连无 ` — ` 分隔符的 `### HOST/W80+` 一起数）；上一次那句"队列里没有可提升的 `QUEUED`"错在只 grep 状态行，
   见下面 checkpoint 的更正括注。
+  （**2026-09-26 更正**：那句里"是否划出"随后由主控给出可执行口径，并落成
+  `TESTED-GAP-DRAW-STOP-PHASE-1201-001`（见上面新 checkpoint）；V08 提升、其余 `BLOCKED_DECISION` 与
+  `HOST/W80+` 仍归主控，其中 `HOST-ADMISSION-DESIGN-001` 只做设计已获授权。）
   上一 checkpoint 是 **1.20.1 停止阶段的显式松键：工件已经到手——产品先问后杀，Bridge 在仍活着时写下那一行**
   ——`GRACEFUL-STOP-KEY-RELEASE-001` 由 `2253358` 收卡为 `DONE`（实现 `5c643c6`）。真跑读数：`V1201-080` attempt 3
   （run `484675e4938b4134b788a971e195619b`、bundle `22fb57f3…`、`case_version 6fea27c3…`、13 件工件）在
@@ -5218,13 +5248,19 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 
 ### TESTED-GAP-DRAW-STOP-PHASE-1201-001 — 把 1.20.1 已补上工件的那一条缺口从 `tested` 声明里划出
 
-- `status`: `NEXT`（`89ec146` 以 `QUEUED` 登记并推到两条 ref，本提交单独提升为唯一 `NEXT`——提升前
-  计划里没有 `NEXT`，中间没有插入别的未授权工作。理由三条：①主控 2026-09-26 已就这两格给出可执行的
-  口径（划这一条、登记证据与 capability、重算摘要、跑 provenance；V08 不动、远程服不连）；②它要依赖的
-  东西**已经在树里**——判官 token 与 case `V1201-080` 在 `f38cf34`，工件在 `5c643c6` 之后的 attempt 3，
-  那张卡自身 `status` 是否改判仍归主控，不在本卡权限内；③它是机械记账，不改判据、不改产品代码、
-  不产生新的 1.21.4 功能专题。登记与提升分在两个提交，满足交接第 3、4、6 项。）
-- `promotion_reason`: 见上三条。另记一条测量过的前提修正：登记时把 `EXPLICIT-RELEASE-AT-STOP-001`
+- `status`: `DONE`（实现 `4151664`——registry 三处改动 + manifest 那一行重签 + 一条钉住用例，逐格读数见
+  `completion_readings_2026-09-26`；卡片文本由本提交收口。**`stop_conditions` 三条都没有触发**：
+  `verify_tested_provenance.py` 对新 entry 报 `verified: true`（`exit 0`）而不是 refused，六条引用逐条
+  `present/readable/sealed/consistent` 全真；实测 registry 不在 49 个 case 的 `inputs` 里（并带正例对照），
+  所以本卡没有移动任何 `case_version`、没有触发任何重封；判据与产品代码一字未改，声明靠既有封存件自己撑起来。
+  提升的三条理由保留在下面的 `promotion_reason`。）
+- `baseline_sha`: `89ec146`（登记提交）；领取时实际 checkout = 提升提交 `822d7f0`。
+- `promotion_reason`: 三条：①主控 2026-09-26 已就这两格给出可执行的口径（划这一条、登记证据与
+  capability、重算摘要、跑 provenance；V08 不动、远程服不连）；②它要依赖的东西**已经在树里**——判官
+  token 与 case `V1201-080` 在 `f38cf34`，工件在 `5c643c6` 之后的 attempt 3，那张卡自身 `status` 是否
+  改判仍归主控，不在本卡权限内；③它是机械记账，不改判据、不改产品代码、不产生新的 1.21.4 功能专题。
+  登记（`89ec146`）与提升（`822d7f0`）分在两个提交，满足交接第 3、4、6 项。另记一条测量过的前提修正：
+  登记时把 `EXPLICIT-RELEASE-AT-STOP-001`
   （`BLOCKED_DECISION`）写进了 `depends_on`，那会让"依赖全 `DONE`"这条提升条件不成立；实测本卡真正依赖的是
   那两张卡的**产物**（token/case 与被引 run），产物都已在 `HEAD` 里，故 `depends_on` 按产物改写，
   被引用那两张卡的状态一字未动。
@@ -5282,6 +5318,63 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
      (iii) evidence 引用的 `launch_plan_digest` 换成另一个 build 的摘要 → `load_reviewed_registry`
      报 `EVIDENCE_BUILD_MISMATCH`；(iv) 划出缺口但不补 evidence → 同一条用例红。
   7. 独立提交 + 推到两条 ref + `git ls-remote` 核对 + Actions 对该 SHA 的 run 读绿。
+- `completion_readings_2026-09-26`（实现 `4151664`；`LOCAL_THEN_VOLUME_READ`——本卡无新的真实运行，
+  结论来自卷内既有封存件的字节复核。复跑命令都在仓库根，容器读数用
+  `MSYS_NO_PATHCONV=1 docker run --rm -v "$PWD":/src:ro -v minekin-runner-data:/data -e MINEKIN_HOME=/data
+  -e PYTHONPATH=/src/src --entrypoint /bin/bash minekin-runner:local -lc 'cd /src && …'`）：
+  1. **只划这一条**（验收 1）：以 `git show HEAD:tests/fixtures/registry/reviewed-tested-bundles.json`
+     为"前"、工作树为"后"逐字段对比——entry[0] `1.20.1`：`gaps` 9 → 8（`removed =
+     ['STOP_PHASE_EXPLICIT_KEY_RELEASE']`、`added = []`）、`capabilities` 18 → 19（只多了那一个 token）、
+     `evidence` 5 → 6（`V1201-010/020/040/060/070/080`）、其余 11 个字段逐一相等、`status` 仍 `tested`；
+     entry[1] `1.21.4`：`gaps` 5 → 5 且 `['CORE_040_UNSEALED_ON_THIS_BUILD', 'REMOTE_TARGET',
+     'STOP_PHASE_EXPLICIT_KEY_RELEASE', 'USE_TARGET_BLOCK_CHANGE', 'WINDOWS_OS_ARCH']` 原样、
+     `capabilities` 31 → 31、`evidence` 12 → 12、11 个字段相等。
+  2. **声明撑得起**（验收 2）：`v1201-080.json` 的 `assertions` 为
+     `['move_input_was_leased', 'the_bridge_released_the_input_when_the_session_was_stopped',
+     'the_server_saw_the_kin_stop_after_the_move']`——新 capability 与所引 run 观察到的 token 同名；
+     `load_reviewed_registry` 对新文件零 `RegistryViolation`（`uv run --frozen pytest
+     tests/unit/test_version_resolution.py -q` ⇒ 45 passed），既有的
+     `test_declared_capabilities_are_exactly_the_cited_assertions`（capabilities 必须**恰好等于**被引 case
+     断言之并）与 `test_gaps_name_holes_the_cited_runs_did_not_close`（缺口与能力不相交）同时通过。
+  3. **摘要自洽**（验收 3）：manifest 第 85 行
+     `69244c326a2c0dbc8f8dee21522385ce285d6943c1d567c4cbfd1efa6163c98a` →
+     `6dd2f4218388781b05c13d82e974df1c46eda9618f37a6e50295f21d8ec2feb9`，新值由门禁自己的测量函数量出
+     （`hashlib.sha256(_normalized_bytes(path)).hexdigest()`，`_normalized_bytes` 直接
+     `sys.path.insert(0,'tools')` 后从 `verify_fixture_digests` 导入），`tools/verify_fixture_digests.py`
+     ⇒ `W00 schema and fixture digests: OK`（`exit 0`）。registry **确实不在任何 case 的 `inputs` 里**：
+     扫 `tests/fixtures/cases/*.json` 49 个文件、命中 0；同一套检测逻辑对一个被人为加上该输入的副本报出 1 个
+     命中（正例对照，副本已删）——所以本卡没有移动任何 `case_version`、没有触发任何重封。
+     登记卡那句"改 fixture 就是重定版"的旧前提至此由测量取代（同 ADMIT-070 第 7 格）。
+  4. **provenance 复核**（验收 4）：容器内 `python tools/verify_tested_provenance.py --registry
+     tests/fixtures/registry/reviewed-tested-bundles.json --data-root /data` ⇒ `exit 0`、
+     `verified: true`、`entries[0].findings: []`，六条引用逐条 `present/readable/sealed/consistent = true`
+     且 `detail: null`，其中新增那条为 `V1201-080 / run 484675e4…`；`registry_revision`
+     `989515082ca8…` → `35bdd1c043c1…`（同一次编辑前后各跑一遍，两遍都 `exit 0`）。
+  5. **"不提升 V08"的机器读法**（验收 4 后半）：`tools/report_promotion.py --data-root /data` 里
+     `V1201-080` attempt 3 那一行是 `from_repository_build: true` + `re_judged: AGREES` +
+     `verified: true` + `result: PASS`（attempt 1/2 两行同样 `AGREES`、`result: FAIL`，失败材料没被抹掉）；
+     整体 `status: "blocked"`、`overall.promotable: false`、`repository_build.gates_promotion: false`、
+     11 个 work package 里 10 个 `promotable: false`（只有 `W20` 为 `true`，与本卡无关）。
+     **一处措辞修正**（不是静默改写）：验收 4 原文写"V08 的 `promotable`"，实测 `report_promotion.py`
+     的 `work_packages` 键里没有 `V08`（只有 `W00…W70`、`host-integrated`、`p0-core`、`p0-nav-exp`），
+     因此该格按上面三个字段读，读到的仍是"未提升"。
+  6. **门禁全绿**（验收 5）：`.tmp/run_local_gates.sh` 在 `head=822d7f0 dirty=3` 上
+     `ruff_check=0`、`ruff_format_check=0`、`pyright=0 errors, 0 warnings`、
+     `pytest=2501 passed, 2 skipped in 302.41s`（比上一张卡的 2500 多 1，正是本卡新增那条用例）、
+     `check_boundaries=0`、`check_case_assertions=0`、`verify_fixture_digests=0`、
+     `check_workflow_pins=0`、`git_diff_check=0`。
+  7. **反证 + positive control**（验收 6）：`.tmp/gap-draw-counterexamples.py`（把变异写进真实路径、
+     跑真实用例、`finally` 还原并核对摘要）⇒ `counterexample_failures=0`：
+     (i) 划出后删掉新 capability → 新用例 `exit 1`，命名字段 `token_in_1201_capabilities: VIOLATED`；
+     (ii) 顺手删掉 1.21.4 的同名缺口 → `exit 1`，`gap_still_in_1214: VIOLATED`；
+     (iii) 引用的 `launch_plan_digest` 换成 1.21.4 那份 ⇒ `load_reviewed_registry` 抛
+     `MinekinError: ['EVIDENCE_BUILD_MISMATCH']`，整文件 `exit 1`；
+     (iv) 划出缺口但不补 evidence 行 → `exit 1`，`v1201_080_cited: VIOLATED`。
+     positive control（还原后的工作树字节）⇒ `positive_control_exit=0`、45 passed；
+     `worktree_restored=True`、还原后摘要 `6dd2f4218388…` 与提交前一致。
+  8. **本卡未做的**：不提升 V08、不连接用户的远程服、不动 `EXPLICIT-RELEASE-AT-STOP-001` 的
+     `BLOCKED_DECISION` 状态、不动 1.21.4 那条同名缺口、不动 1.20.1 其余八条缺口、不改判据与产品代码、
+     不替换 `V1201-040` 既有引用。远端 SHA 与 CI 读数在紧随的提交里补记。
 - `validation_class`: `LOCAL_THEN_VOLUME_READ`——不要求新的真实运行；结论来自既有封存件的字节复核。
 - `stop_conditions`: 若 `verify_tested_provenance.py` 在新 entry 上报 refused（bundle 不在卷内、摘要不合）
   → 停在 `BLOCKED_EVIDENCE` 并保留读数，**不**为了让它过而改 bundle 或删引用；若发现 registry 确实落在某个

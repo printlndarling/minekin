@@ -2954,3 +2954,59 @@
   未新增第三类记录、未改 `CLIENT_REPORT_REQUEST` 已冻结的字段语义、未重解释 SIGKILL 类既有字段；
   `$id`/`title` 仍是 v1（reader 的 `schema_version` 仍是 `1`）；不封 evidence，也不据此判定 1.20.1
   那一格或 V08——那仍是主控的决策。
+
+## TESTED-GAP-DRAW-STOP-PHASE-1201-001 收卡现场（2026-09-26，Windows + 受控 runner 卷读数；无新的真实运行）
+
+- **来由**：主控 2026-09-26 就两格决策答复——①只把 1.20.1 的 `STOP_PHASE_EXPLICIT_KEY_RELEASE` 从
+  `tested` 声明划出，同时登记 `V1201-080` 的 PASS 证据与对应 capability、重算摘要并跑 provenance 校验；
+  ②**不提升 V08**，因而不连接用户的远程服；③HOST 支线只做设计。登记 `89ec146` → 提升 `822d7f0` →
+  实现 `4151664` → 本提交收卡（逐卡串行，一步一提交）。
+- **交付形状（三处文件）**：`tests/fixtures/registry/reviewed-tested-bundles.json` entry[0]
+  `gaps` 9 → 8、`capabilities` 18 → 19（`the_bridge_released_the_input_when_the_session_was_stopped`）、
+  `evidence` 5 → 6（`V1201-080` / run `484675e4938b4134b788a971e195619b` / bundle
+  `22fb57f34abb22ec9c217a06e3083c1e8ae0c7355b9ada1d205d3739221ffe1a` / bridge `e50d61c2…` /
+  plan `83299ad5…` / `PASS` / attempt 3——两个 build 摘要与该 entry 自身相同，否则
+  `load_reviewed_registry` 会报 `EVIDENCE_BUILD_MISMATCH`）；`tests/fixtures/manifest.sha256:85`
+  `69244c32…` → `6dd2f421…`（用门禁自己的 `verify_fixture_digests._normalized_bytes` 量出）；
+  `tests/unit/test_version_resolution.py` 只加一条用例
+  `test_the_explicit_stop_release_is_drawn_only_from_the_version_that_has_the_artifact`。
+- **只划这一条（逐字段对比，`git show HEAD:` 与工作树）**：entry[0] 其余 11 个字段、`status: tested` 不变，
+  划掉的只有那一条缺口；entry[1]（1.21.4）`gaps` 5 → 5 且 `STOP_PHASE_EXPLICIT_KEY_RELEASE` 仍在、
+  `capabilities` 31 → 31、`evidence` 12 → 12、11 个字段相等。既有断言
+  `test_declared_capabilities_are_exactly_the_cited_assertions`（capabilities 必须**恰好等于**被引 case 的
+  断言之并）与 `test_gaps_name_holes_the_cited_runs_did_not_close`（缺口与能力不相交）同时通过——
+  `v1201-080.json` 的三条 `assertions` 里就有那个 token。
+- **耦合面实测（不沿用旧前提）**：registry 不在任何 case 的 `inputs` 里——扫 `tests/fixtures/cases/*.json`
+  49 个文件、命中 0；同一套检测逻辑对一个人为加上该输入的临时副本报 1 个命中（正例对照，副本已删）。
+  所以本卡没有移动任何 `case_version`、没有触发任何重封。
+- **卷内读数（受控 runner，`--data-root /data`）**：`tools/verify_tested_provenance.py` 对新文件
+  `verified: true`、`exit 0`、`entries[0].findings: []`，六条引用逐条 `present/readable/sealed/consistent =
+  true`、`detail: null`；`registry_revision` `989515082ca8…` → `35bdd1c043c1…`（编辑前后各跑一遍，两遍都 0）。
+  `tools/report_promotion.py`：`V1201-080` attempt 3 那行 `from_repository_build: true` +
+  `re_judged: AGREES` + `verified: true` + `result: PASS`（attempt 1/2 两行仍 `AGREES`、`result: FAIL`，
+  失败材料原样在卷内）；整体 `status: blocked`、`overall.promotable: false`、
+  `repository_build.gates_promotion: false`、11 个 work package 里只有 `W20` 为 `true`。
+  **V08 未提升的机器读法就是这三个字段**——`report_promotion.py` 的 `work_packages` 键里并没有 `V08`
+  （只有 `W00…W70`、`host-integrated`、`p0-core`、`p0-nav-exp`），验收第 4 格那句"V08 的 `promotable`"
+  按此更正，不静默改写。
+- **反证 + positive control（`.tmp/gap-draw-counterexamples.py`）**：把变异写进真实路径、跑真实用例、
+  `finally` 按字节还原并核对摘要。(i) 划出后删 capability → 新用例红、`token_in_1201_capabilities: VIOLATED`；
+  (ii) 顺手删 1.21.4 同名缺口 → 红、`gap_still_in_1214: VIOLATED`；(iii) 引用的 plan 摘要换成 1.21.4 那份 →
+  `load_reviewed_registry` 抛 `MinekinError: ['EVIDENCE_BUILD_MISMATCH']`、整文件红；
+  (iv) 划缺口不补 evidence 行 → 红、`v1201_080_cited: VIOLATED`。还原后 positive control `exit 0`（45 passed）、
+  `worktree_restored=True`。读数 `.tmp/gap-draw-counterexamples.log`。
+- **门禁（`bash .tmp/run_local_gates.sh`，`head=822d7f0`、三个待提交文件）**：`ruff check` 0、
+  `ruff format --check` 0、Pyright `0 errors`、全量 pytest **`2501 passed / 2 skipped`**（302.41s；比上一张
+  卡多出的 1 正是本卡用例）、`check_boundaries` 0、`check_case_assertions` 0、
+  `verify_fixture_digests` `W00 schema and fixture digests: OK`、`check_workflow_pins` 0、`git diff --check` 0。
+- **队列清点的非空转（本提交实测）**：`python .tmp/count_plan_cards.py` 报 56 张带 `status` 的卡里
+  `QUEUED` 与 `NEXT` 均为 `0`；把该卡状态在临时副本里改回 `NEXT` 或 `QUEUED`，同一套逻辑各报 `1`
+  （正本 `0/0`，副本已删）。
+- **复跑命令**：`uv run --frozen pytest tests/unit/test_version_resolution.py -q`；
+  `uv run --frozen python tools/verify_fixture_digests.py`；`bash .tmp/run_local_gates.sh`；
+  `python .tmp/gap-draw-counterexamples.py`；`python .tmp/count_plan_cards.py`；容器内
+  `PYTHONPATH=/src/src python tools/verify_tested_provenance.py --registry
+  tests/fixtures/registry/reviewed-tested-bundles.json --data-root /data`。
+- **本卡未做的**（都属越界）：不提升 V08、不连接用户远程服、不改 `EXPLICIT-RELEASE-AT-STOP-001` 的
+  `BLOCKED_DECISION`、不动 1.21.4 那条同名缺口与 1.20.1 其余八条缺口、不改判据
+  （`tools/assert_case_evidence.py`）与产品代码、不替换 `V1201-040` 既有引用、不重封任何 run。
