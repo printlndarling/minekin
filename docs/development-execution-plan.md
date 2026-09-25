@@ -40,7 +40,10 @@
   `CORE-001`、`W00-CONTRACT-001` 后同一函数报出这 2 条，调入 `CORE-080`（`runtime-required`）仍报 0。
   条数与本文早期几处 dated 读数（37 条、35 条）不同，只因期间有 case 转为 present，历史记录按当时读数
   保留不改写。`planning_gaps` 仍只有 `PERSIST` 一条 `UNFROZEN_CASE_IDS`，其 `reason` 自己写明在这里编号
-  等于让 inventory 发明它要验的 case，故那一格同样不是一张可本地收口的卡。）
+  等于让 inventory 发明它要验的 case，故那一格同样不是一张可本地收口的卡。**本段读数落在 `9a9be9e`**：
+  本地九道门全 0、pytest `2501 passed / 2 skipped` 与上一张卡逐字相同，两条 ref 与远端 SHA 已核，
+  GitHub Actions 对该 SHA 的两个 `CI` run `36182923576` / `36182924428` 及其六个 job
+  `python`/`protocol`/`bridge-static` 全 `completed / success`（step 层只有 `success`）。）
   （上一张 `TESTED-GAP-DRAW-STOP-PHASE-1201-001` 已在 `b03863e` 收口为 `DONE`：实现
   `4151664`——1.20.1 那条 `tested` 声明的 `gaps` 划出 `STOP_PHASE_EXPLICIT_KEY_RELEASE` 一条、
   `capabilities` 补上工件所证的 token、`evidence` 追加 `V1201-080 / run 484675e4… / attempt 3 / PASS` 的

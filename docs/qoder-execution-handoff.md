@@ -30,6 +30,19 @@
 > `EXPLICIT-RELEASE-AT-STOP-001` / `OPERATIONS-RETENTION-001` / `PROCESS-RECOVERY-001` 的状态。
 > 恢复现场时先核主计划 `current_next` 与本文件是否仍一致。
 >
+> **收口后的补充测量（同日晚，计划仍暂无 `NEXT`）**：上面"冻结之前队列里没有可提升的卡"原先只由
+> **卡片清点**支持，现在从**证据缺口**那一侧独立量一遍。`uv run --frozen python tools/report_cases.py`
+> 在 `55d0ecc` 读出 `required: 74` / `present: 43` / `missing: 31`、`by_validation_class`
+> `{local-only: 7, runtime-required: 67}`；把 31 条 missing 与 `validation_class` 求交后
+> `local-only` 缺失 **0 条**（7 条 `local-only` required 逐条 `present: true`）⇒ **今天没有任何一条缺口
+> 能在不真实运行的情况下关掉**，也就没有该提升而没提升的本地卡。该求交反证过非空转：凭空把
+> `CORE-001`、`W00-CONTRACT-001` 并入 missing 即报这 2 条，并入 `CORE-080`（`runtime-required`）仍报 0。
+> `planning_gaps` 只剩 `PERSIST` 一条 `UNFROZEN_CASE_IDS`，其 `reason` 原文即说明在此编号等于让
+> inventory 发明自己要验的 case，所以那一格要主控冻结契约、不是一张本地卡。读数落在 **`9a9be9e`**
+> （`git ls-remote` 上两条 ref 同为该 SHA；GitHub Actions 的两个 `CI` run `36182923576` / `36182924428`
+> 及其六个 job `python`/`protocol`/`bridge-static` 全 `completed / success`，step 层只有 `success`；
+> 本地九道门全 0、pytest `2501 passed / 2 skipped` 与收卡时逐字相同）。
+>
 > **上一交接点（2026-09-26，1.20.1 的停止阶段松键缺口已从 `tested` 声明划出）**：
 > 收卡提交是 **`b03863e`**（两条 ref 与远端 SHA 已核：`git ls-remote` 上 `main` 与
 > `codex/core-state-transition` 同为 `b03863e2346ed559b6d33fe7482d7fa0619f82df`；GitHub Actions 对该 SHA 的
