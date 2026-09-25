@@ -18,9 +18,15 @@
   回归基线；除非真实回归或当前 1.20.1 卡不可绕过的前置阻断，不再新增 1.21.4 功能专题。
   即使遇到前置阻断，也先登记范围与证据、按唯一 `NEXT` 流转，不得借 `.tmp/` 中的实验记录
   自行改排期或把临时构建当作新主线。HOST/PERSIST、在线认证、远程服授权等既有停机边界不变。
-- `current_next`: **暂无 `NEXT`**（上一张 `STORE-FAILURE-EVIDENCE-001` 已在 `cfbb87c` 提升、本提交按实测收卡为
-  `DONE`（`4be3d55`）。同一提交把补证 V07 `not_tested_v07` 前两格的 `AUTO-PATH-INSTALL-RUN-001` 以 `QUEUED`
-  登记；把它提升为唯一 `NEXT` 须**另一次独立提交**。上一张 `KEY-RELEASE-AT-STOP-001` 已 `DONE`：case 登记 `bd8f6b7`、真跑与原子登记 `0fb7158`——1.20.1 上
+- `current_next`: `AUTO-PATH-INSTALL-RUN-001`（`94cb15b` 以 `QUEUED` 登记它，由本次独立提交提升为唯一 `NEXT`，
+  当前无第二张 `NEXT`。上一张 `STORE-FAILURE-EVIDENCE-001` 提升 `cfbb87c`、收卡 `4be3d55`：三类安装期故障
+  （写失败 / store 层原子 `rename` 失败 / 并发同 digest 的 `FileExistsError → verify`）现在有七条真文件系统断言，
+  `ruff`、`pyright` 与全量 `pytest tests/unit`（2177 passed, 2 skipped）在本地逐条读过，实现与安装判据一字未改。
+  再上一张 `KEY-RELEASE-AT-STOP-001`（case `bd8f6b7`、收卡 `0fb7158`）交出 1.20.1 的断连释放独立工件。
+  本卡是 `REAL_RUN_ONLY` 的**证据卡**：在受控 runner 上以卷内一次性**空 store** 起自动 `session start`，让自动路径
+  自己走完摘要门先于抓取 → 装齐 → 起会话，并在同一 run 观测 `PlayableEstablished`；**不得**改 `cli/auto_session.py`
+  的判据与顺序，**不得**访问用户的真实远程服。V08 的门仍在：**是否判定 V07 缺口已收口并据此提升 V08 由主控决定**，
+  本卡不代为判定。上一张 `KEY-RELEASE-AT-STOP-001` 已 `DONE`：case 登记 `bd8f6b7`、真跑与原子登记 `0fb7158`——1.20.1 上
   `MINEKIN_DOMAIN_KILL_CORE=1` 的一次真跑（run `f71c56f0…`、bundle `90d490ce…`、attempt 序列 1）让 Bridge 自己在
   `client/latest.log` 写下 `bridge released 1 input(s) after IPC_LOST`，`stderr.log` 为 0 字节，四条断言对拷贝出来的
   工件复判一致。registry 摘要 `82a54075…` → `69244c32…`，其 `status` 与九条 `gaps` 一字未动，
@@ -4543,8 +4549,8 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 
 ### AUTO-PATH-INSTALL-RUN-001 — 让自动路径自己完成空 store 安装并跑到可玩
 
-- `status`: `QUEUED`（2026-09-25 由 `STORE-FAILURE-EVIDENCE-001` 收卡后登记；提升为唯一 `NEXT` 须另一次独立提交。
-  这是**证据卡**：不改自动路径的任何判据。）
+- `status`: `NEXT`（`94cb15b` 登记为 `QUEUED`，由紧随其后的独立提交提升为唯一 `NEXT`。前置 `STORE-FAILURE-EVIDENCE-001`
+  已 `DONE`（`cfbb87c` 提升、`4be3d55` 收卡）。这是**证据卡**：不改自动路径的任何判据。）
 - `depends_on`: `VERSION-SESSION-SWITCH-001`（被测的 `cli/auto_session.py` 自动路径）、`VERSION-INSTALLER-001`
   （其安装分支在显式 `bundle install` 上真跑过，在自动路径上没有）。
 - `question`: 能否在受控 runner 上以**空 store** 起一次自动 `session start`，让自动路径自己走完
