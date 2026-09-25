@@ -3970,8 +3970,9 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
 
 ### VERSION-SESSION-SWITCH-001 — 接通会话启动而不热换
 
-- `status`: `NEXT`（`591cc89` 登记 `QUEUED`，本提交单独提升为唯一 `NEXT`；当前无第二张 `NEXT`。
-  领取者必须先闭合下面 `open_semantics_v07` 四格，不得越 `ownership_boundary_v07` 改 Bridge 常量。）
+- `status`: `NEXT`（`591cc89` 登记 `QUEUED`、`a0f495a` 单独提升为唯一 `NEXT`；当前无第二张 `NEXT`。
+  下面 `open_semantics_v07` 四格已由 `semantics_frozen_v07` 按实测闭合，本卡实现期间不再就地改判据；
+  不得越 `ownership_boundary_v07` 改 Bridge 常量。）
 - `baseline_sha`: `591cc89`（本卡 `QUEUED` 登记提交，紧随 V06 收卡 `d7a91f9`，两者均已推送并核对两
   ref）。领取时实际 checkout = 本提升提交。
 - `depends_on`: `VERSION-REMOTE-PROFILE-001`（V01 的 v2 受信目标与 `allowed_versions`）、
@@ -3982,9 +3983,11 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
   `kin_id`** 下切版本时**先停旧 JVM、让旧 generation/lease 失效，再以新 bundle/overlay/nonce 起新客户端**，
   全程不热换、不同时存在两个可控客户端、任何一环不匹配都 fail closed？
 - `scope` 与 `allowed_paths`（显式清单）：`src/minekin_core/cli/{parser,session}.py`、
-  `bootstrap.py` 的 `session start` 分派分支（只允许动那一段与其 import）、自动路径的编排落点
-  （新增 `cli/auto_session.py` 一类，或在 `cli/session.py` 内组合既有件——由领取者按 `open_semantics_v07`
-  第 1 格定，定了就写进本卡）、`domain/version_resolution.py` 的**调用点**（不改其判据）、
+  `bootstrap.py` 的 `session start` 分派分支（只允许动那一段与其 import）、
+  `src/minekin_core/cli/server_probe.py`（只作为被自动路径 import 的既有探测入口，不改其判据）、
+  自动路径的编排落点
+  （已按 `semantics_frozen_v07` 第 1 格定为**新增** `src/minekin_core/cli/auto_session.py`；
+  `cli/session.py` 的既有显式路径不掺自动分支）、`domain/version_resolution.py` 的**调用点**（不改其判据）、
   session runtime / 状态机与 launcher supervisor 中"停旧再起新"所需的字段、状态与账本 schema
   （仅确需字段）、定向 unit/contract 测试与**匿名** fixture、进度文档。
 - `forbidden_paths`: `adapters/bridge/ipc.py` 与两个 Bridge root（`bridge/`、`bridge-1201/`）的版本常量
@@ -4041,7 +4044,8 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
   封存，且明确要求"1.21.4 既有证明上下文逐字节不变"）。本卡只做**编排**：把探测/解析/安装/停止/启动接成
   一条 fail-closed 的自动路径。若实现中发现"不修 Bridge 常量就没法证明切换"，那是停止条件，不是就地扩权
   的理由。
-- `open_semantics_v07`（领取时须先逐格闭合并写回本卡，不能靠默认值）：
+- `open_semantics_v07`（领取时须先逐格闭合并写回本卡，不能靠默认值；**四格已全部闭合，见下面
+  `semantics_frozen_v07`**，原文保留以显示每格的判据从哪来）：
   1. 自动入口的 CLI 形状：设计卡允许"独立 `--auto-bundle`，与显式 `--profile` 互斥"，但要求最终形状由
      本卡测试冻结。取更窄的一读：`--profile` 的既有语义逐字保持（给了就按它跑），自动入口是**新参数**，
      两者同时给出时**拒绝**而不是择一，缺失两者时的行为（拒绝还是自动）由领取时按"不替用户决定"定。
@@ -4053,6 +4057,44 @@ Minecraft、不需要 runner、不需要任何决定——这正是 `CASE-CORE-0
      两者都要说明 marker/账本/`ipc.py:433` 过期判定各自受什么影响。
   4. 旧进程停不下来时（`status blocked` / `ExitCode.PROCESS`）自动路径**不得**接管或强杀：那是
      `PROCESS-RECOVERY-001` 的 `BLOCKED_DECISION`，属用户。本卡只证"停不下来就不起新的"。
+- `semantics_frozen_v07`（领取时按量出来的事实闭合上面四格；此后本卡不再就地改判据）：
+  1. **入口形状**：`--profile` 今天写死 `required=True`（`cli/parser.py:60`），所以自动入口不可能靠"省略
+     `--profile`"表达。冻结为：argparse 层把 `--profile` 改为非必填，新增
+     `--auto-bundle PATH`（值是**已审清单文档**，即 V05 那份 `reviewed-tested-bundles.json` 的形状），
+     两者**恰好给一个**——都不给或都给由代码以 `USAGE` 拒，不由 argparse 猜；给 `--profile` 时路径与今天
+     **逐字相同**（自动分支不掺进去）。自动路径还必须有 `--server-profile`：没有目标就没有可解析的
+     观测，缺失即 `USAGE`。自动路径的配方来源已由清单自身承载——每条 entry 带
+     `recipe_path` + `recipe_digest`（1.20.1 → `tests/fixtures/runtime-input/bundle-candidate-1.20.1.json`，
+     1.21.4 → `bundle-p0-core-1.21.4.json`），所以"解析出一个条目"到"`build_launch_plan` 吃一份文档"
+     之间不需要新的状态载体，只需要 V06 那道 `require_reviewed_plan` 摘要门先过。编排落点随之冻结：
+     自动路径的"探测 → 解析 → 门 → 缺件时装 → 组装 recipe 路径"住在**新增**的
+     `src/minekin_core/cli/auto_session.py`，`bootstrap.py` 只在 `session start` 分派处加一个互斥分支，
+     `cli/session.py` 内既有的显式 `--profile` 流水线一行不改判据。
+  2. **三处版本事实不一致只拒不改**：探测到的目标版本、`resolve()` 选中的 `version_text`、被启动 plan 自述的
+     `minecraft.version`（`launched_minecraft_version`）三者不一致时，每个不一致点一个**稳定类别**、当场拒绝，
+     不重试探测、不换条目、不降级安装、不"取最近的一个"。这条是判据不是风格：放宽它等于让自动路径替用户
+     决定版本。
+  3. **切换 = 停旧再起新会话，不在一个进程里热换**：`session_overlay_path` 是
+     `run_root/session/<session_id>/generation-<n>`（`cli/session.py:343-350`），而 `session_id` 每次
+     `session start` 由 `SessionId.new()` 现取（`bootstrap.py:186`），所以新会话天然不会撞旧 overlay 目录；
+     本卡因此**保持 `generation=1`**（`bootstrap.py:187` 不动），不引入"同进程第二个 bridge host"。
+     "失效旧…"落在既有机制上：旧客户端由 `stop_recorded_clients` 停掉并清 marker（`orphans.py:314-355`），
+     旧**连接** generation 由 `domain/connection.py:258-289` 的 `close()` 关掉、`:174-256` 的 `apply()` 把
+     晚到回调判为 `CLOSED_GENERATION`/`STALE_GENERATION`，lease 由
+     `InputArbiter(attempt.generation)`（`session.py:1173`）随连接代一起失效。三件既有载体在 (a) 之下各自
+     受什么影响（`open_semantics_v07` 第 3 格要求逐项说明）：**marker** 每条记录带
+     `session_id` + `generation`（`orphans.py:105-112`，读回 `:141-149`），所以旧 marker 只可能被同一
+     `session_id` 的启动复用，新会话不会误认；**账本** `session_log` 的行按 `session_id` 追加与过滤（如
+     `adapters/sqlite/session_log.py:118-152,164-191`），新 `session_id` 是一条新线程而不是覆盖旧的，
+     旧会话的行保持原样；**`ipc.py:433` 的过期判定**是握手等式 `hello.generation == self.session.generation`
+     （同一 `valid` 块里 `:432` 比 `session_id`、`:435` 比 `bundle_digest`），两侧都来自本次启动构造的
+     `self.session`，因此"新 `session_id` + `generation` 仍为 1"是自洽的：旧客户端的 hello 会在 `:432` 就
+     对不上，不需要靠递增 generation 来区分两次启动。反例"旧代回调晚到"因此在
+     单元层可测，不需要两个 JVM 同时在跑。
+  4. **旧进程停不下来就不起新的**：`stop_recorded_clients` 对证不来的进程只报 `unresolved`/`left_alone`
+     （`orphans.py:336-350`），自动路径遇到这种结果**必须**停在"没有起新客户端"，把 `status blocked` 如实
+     透出（→ `ExitCode.PROCESS`）。接管或强杀属 `PROCESS-RECOVERY-001` 的 `BLOCKED_DECISION`，本卡不实现、
+     不预埋开关。
 - `counterexamples`: Bridge bundle/schema 不匹配、探测中目标改变（两次观测不一致）、安装失败或缺件、
   旧进程未停、旧代回调晚到、自动入口与显式 `--profile` 同时给、三处版本事实不一致、V06 摘要门不符、
   v1 profile 配 1.20.1 客户端。每种一个稳定类别，且**每种结束时可控客户端数量不得大于 1**、不得留下
