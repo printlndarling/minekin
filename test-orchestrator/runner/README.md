@@ -276,9 +276,10 @@ starts. A file already at that path is replaced only if it is the same bytes.
 1.21.4 and 1.20.1, and a check that re-verified one stack's bytes while the run
 launched the other would report a pass about a bundle nobody started; a version
 nothing pins is refused rather than fetched at a guess. `domain.sh` does not take
-the flag at all — it reads the version out of the bundle profile the run was
-given, so the server it starts cannot be a different version from the client it
-waits for.
+the flag at all: for a run that names a bundle profile it reads the version out
+of that profile, and for an auto-bundle run, which names none, out of the run's
+own Server Profile (see below) — so the server it starts cannot be a different
+version from the client it waits for.
 
 The second runs `tools/run_controlled_server.py` inside the runner. The jar is
 mounted read-only from a host path rather than copied, so which jar a run used is
@@ -337,6 +338,42 @@ One `ERROR` is in the log and is not a defect to fix here:
 `level-type=minecraft:flat` arrived without a `layers` key. It falls back to the
 default layer set and the world generates; the alternative would be inventing a
 generator preset the profile does not name.
+
+### The auto-bundle path, and the readings every server run carries now
+
+`domain.sh` hands the session's own command line through untouched, and
+`session start --auto-bundle <reviewed registry>` resolves its recipe during the
+run, so three places now read that form. The argument scan records the registry
+under `auto_bundle`, and a run that names both bundle sources — or an auto
+bundle together with a joining second client — is refused by name, because the
+product's parser admits exactly one source and the joiner's client is started
+from a named profile. The server version for an auto run is read from the run's
+own Server Profile: the single allowed version of a schema 2 profile, or the
+pinned version of a schema 1 one; a profile allowing several versions is
+refused by name rather than started at an arbitrary one. And at sealing the
+required `--profile` is the recipe the run actually launched, read back from
+the run document's `auto_bundle.recipe_path`; a document that names no readable
+recipe leaves the run reported *unsealed*, by name, rather than sealed against
+a guessed profile. What the sealer checks is untouched — only who names the
+profile changed.
+
+Two readings a server run carries by default now:
+
+* `domain: the controlled server reports enable-status=<value>`, read from the
+  run directory's `server.properties` after vanilla has rewritten it, so the
+  one switch the auto path resolves its target through is checkable from the
+  run rather than inferred from a failed join. The controlled-server tool still
+  writes `enable-status=false` into every run directory — measured: the
+  product's own probe against such a server says `NO_RESPONSE` where the same
+  bytes with only that switch flipped say `OBSERVED` — so an auto-bundle run
+  whose server does not report `true` stops here, by name, before any client
+  starts. Flipping the switch is a change to `tools/run_controlled_server.py`,
+  outside this harness's surface, and is registered as its own card.
+* The server is asked `data get entity <name> Pos` and `Rotation` on every
+  run's probe cadence, defaulting to the whitelisted account's name. What
+  `MINEKIN_DOMAIN_PROBE` gates is unchanged — every wait and judgement that
+  reads those lines still asks for it by name — so the default adds readings,
+  not verdicts; naming another probee behaves exactly as before.
 
 ## What it does now
 

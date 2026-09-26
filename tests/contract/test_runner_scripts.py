@@ -472,3 +472,93 @@ def test_every_package_the_image_pip_installs_is_pinned_to_the_lock() -> None:
             continue
         name = str(dependency["name"]).lower()
         assert name in pinned, f"the image installs pytest but not its locked dependency {name}"
+
+
+def test_an_auto_bundle_run_is_captured_named_and_otherwise_refused() -> None:
+    """`session start --auto-bundle <registry>` used to scan as if it did not exist.
+
+    The argument scan in `domain.sh` matched exactly four valued options, and an
+    auto-bundle run fell through all of them: `profile` stayed empty, the derived
+    server version stayed empty (so the server started at the tool's default
+    version whatever the Server Profile allowed), and the seal branch handed the
+    sealer `--profile ""`. Measured against the pre-change copy in the controlled
+    container: the scan of an `--auto-bundle` argv yielded
+    `profile=[] launched_version=[] version_args=[]`, and the sealer, called with
+    the expansion that scan produces, refused with
+    "is not a Server Profile the product accepts: the launcher profile is not
+    readable UTF-8 JSON" (rc=2). Every clause below is measured red against that
+    copy and green against the fixed script, and the positive control that the
+    named recipe is accepted by the sealer reaches the same honest frontier as a
+    hand-reviewed recipe (`no Kin is named for run ...`).
+    """
+
+    text = (RUNNER / "domain.sh").read_text(encoding="utf-8")
+
+    # The scan names the option, into a variable of its own.
+    assert '--auto-bundle) auto_bundle="${argument}" ;;' in text
+    # The two bundle sources cannot be mixed, and neither can an auto run borrow
+    # the joiner block (which starts its second client from a named profile).
+    assert "names both --profile and --auto-bundle" in text
+    assert "cannot also ask for a joining second client" in text
+    # An auto run's server version is read from the Server Profile it joins — the
+    # single allowed version of a schema 2 profile or the pinned one of a schema 1
+    # profile — and an ambiguous allow-list is refused by name rather than guessed.
+    assert 'elif [[ -n "${auto_bundle}" && -n "${server_profile}" ]]; then' in text
+    assert 'allowed = policy.get("allowed_versions") if isinstance(policy, dict) else None' in text
+    assert "names no single version to start" in text
+    # The seal names the required --profile from the run document's own recipe,
+    # and a run whose document says nothing is reported unsealed rather than
+    # sealed against a guessed profile.
+    assert 'decision.get("recipe_path")' in text
+    assert 'seal_profile_args=(--profile "${resolved_recipe}")' in text
+    assert "names no readable recipe it resolved to" in text
+    assert "seal_blocked=1" in text
+    assert "no seal was attempted" in text
+    # The sealer is no longer handed the bare scan variable at all: its call site
+    # takes the named array (the joiner's own session start still names its
+    # profile directly, and an auto run is refused before it can reach that).
+    assert '"${seal_profile_args[@]}"' in text
+    assert '--case "${case_file}" \\\n            "${seal_profile_args[@]}" \\' in text
+
+
+def test_the_console_probe_is_a_default_and_the_status_switch_is_read() -> None:
+    """Two readings a run could not have before, and no new verdicts.
+
+    The first is the server-side account of where the Kin is. `data get entity`
+    used to fire only in runs that had exported `MINEKIN_DOMAIN_PROBE` in advance,
+    so a scenario that later wanted a reading had none: measured against the
+    pre-change copy, the extracted construction yielded `PROBE ARGS: []` with no
+    knob and `[--probe-player Kin --probe-every-seconds 5]` only with it. The
+    asking is a default now, on the whitelisted account's name; what the knob
+    still gates is every *judgement* that reads those lines, which is why the
+    clause below pins both halves — the default and the untouched gate.
+
+    The second is `enable-status`. The auto path resolves and observes its target
+    through the vanilla status endpoint, and the controlled server tool writes
+    `enable-status=false` into every run directory (measured: the product probe
+    against such a server says `NO_RESPONSE`, rc 17, while the same bytes with
+    only that one switch flipped say `OBSERVED`). `domain.sh` now prints the
+    switch read back from the run directory's own settings file — measured to
+    print `false` for the tool-written directory and `true` for the flipped
+    positive control — and stops an auto-bundle run whose server cannot answer,
+    by name, before a client is started into a join that can never be observed.
+    Flipping the switch itself belongs to `tools/run_controlled_server.py`,
+    outside this harness's surface, and is registered for its own card.
+    """
+
+    text = (RUNNER / "domain.sh").read_text(encoding="utf-8")
+
+    # The probe is built unconditionally, defaulting to the whitelisted account.
+    assert (
+        'probe_args=(--probe-player "${probe:-${player}}" '
+        '--probe-every-seconds "${probe_seconds}")' in text
+    )
+    assert 'probe_args=()\nif [[ -n "${probe}" ]]; then' not in text
+    # And the judgement gate that reads those lines is still the knob, unchanged.
+    assert '[[ -n "${probe}" && "${hold_requested}" -eq 1' in text
+    # The status switch is read from the server's own settings and printed.
+    assert "s/^enable-status=//p" in text
+    assert "printf 'domain: the controlled server reports enable-status=%s\\n'" in text
+    # An auto run whose server cannot answer stops by name, before the client.
+    assert 'if [ -n "${auto_bundle}" ] && [ "${enable_status}" != "true" ]; then' in text
+    assert "the auto path needs this server to answer status" in text
