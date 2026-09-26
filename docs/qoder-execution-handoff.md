@@ -409,3 +409,33 @@ V2 的绿读数暴露、M 在自己卷上重放确认：auto run 跨过早停后
 
 ### 不声称
 - 不声称 Minekin 完成；不声称端到端 1.20.1 auto JOIN 有一次「窗内到达 + 正常收尾」的运行；不声称任何门禁点亮（`promotable` 仍 `W00/W10/W20/W60`，`overall.blocks` 仍 `["REQUIRED_CASE_NOT_REGISTERED"]`）；不声称 `H1d`/`B1-b`/`INT-ORCHESTRATOR-REVISION-VISIBILITY-001` 已验证（三张都还没有提交）。全程未连接、未探测、未读取用户的远程服务器，`.tmp/local-test-server.txt` 未被打开；文中只出现 loopback/受控本地地址、卷名与镜像名。
+
+
+## M 主控第九轮（2026-09-27）：`B1-b` 第一阶段交付审查 —— 内容采信、落点越界、派落位修正
+
+### 起点核对（先量再写）
+- 恢复时远端 `refs/heads/main = 4a7d132f67d329e842e220323e8daaa83a24a278`；`git ls-remote` 首查三条在工分支全无远端 ref，随后收到 `B1-b` 会话完成件：支 `codex/minekin-offline-090-100` 远端尖 `b2e9be339af8edb60966af13c4cc9dbc426c923e`。`H1d` 与 `INT-ORCHESTRATOR-REVISION-VISIBILITY-001` 两支仍无远端 ref（本地 `minekin-wt-h1d` 尖 `796316a` 干净、`minekin-wt-revvis` 有未提交改动）。
+
+### M 侧独立双审（不照抄 lane 自报）
+- 改面从**真实 merge-base** 起算：`git merge-base origin/main origin/codex/minekin-offline-090-100` = `03c1d95bd7c8c440756e91598afd3b1bc91938a4`（与卡面自报 base 一致），parent 亦为该 SHA，`git diff --stat` = **1 文件 / +323**，无第二笔、无夹带。
+- 仓库字节核过的两处引用：① 该文 `:97` 引的哨兵字面量确实存在，真实路径是 `src/minekin_core/adapters/launcher/offline_session.py:71` 与 `:82` 的 `access_token_argv="0"`（lane 正文写成 `offline_session.py:71-84` 的简写路径）⇒ **「090 判据按字面读会永红/不可判」这条阻塞属实**，需主控钉「字面量集合口径」。② `git ls-files | grep -i registry` 只给 `tests/fixtures/registry/reviewed-tested-bundles.json` 等既有件，任何 ref 里没有 `harness/` 树 ⇒ 它自报的「registry 冻结面尚未成形」与主干字节一致。
+- 门读数三方一致：`B1-b-0` 两次独立复现的门载荷 `fb0152c85d029ee06a41a34e84f9656cd23fae0b1e166322c494d1190cd178da`、`promotable W00/W10/W20/W60`、`W30 blocks=[NO_MANDATORY_CASES, REQUIRED_CASE_NOT_REGISTERED]` 与 M 第八轮在 `796316a` 上的自读同值；卷底数 `attempts 71 / bundles 107 / from_another_build 61 / sealed_without_bundle 0` 亦同。它新增的分布读数是本轮第一次有的：**OFFLINE 系 bundle 的 crash-reports 为 0 份，卷上仅 3 份且都属 CORE-030；OFFLINE-070/090/100 零 bundle；53 个声明路径里无任何 Dashboard 载体**。
+- 采信与不采信：普查、门基线、两行 contract 逐字引用、哨兵字面量的判定 ⇒ **采信**（可由仓库字节复算）；§2.7/§3.6 的探针与反例、注册后门 sha 增量 ⇒ lane 自己具名「未测」，M 也未复量，**不算已验证**。
+
+### 审查发现（一处，硬阻断合并）
+- **落点越界**：交付件落在新建顶层目录 `harness/case-specs/P0-OFFLINE-090-100-CASE-SPEC-001.md`，而本卡允许路径只有「`tests/fixtures/cases/**` 里这两条的定义与其覆盖测试」+「本卡自己那份记录」。`harness/` 不是本仓库任何 ref 里的既有载体，主干计划文档也从不提它 ⇒ **M 不追认越界路径**（既定规矩：越界不能事后追认，只能改落位）。内容与结论不改，只把文件按 E 自己记录的既有惯例（`docs/p0-core030-runner-rerun-2026-09-27.md` 同形）移到 `docs/p0-offline-090-100-case-spec-2026-09-27.md`；已派落位修正会话到 `../minekin-wt-b1b`，明写「只收尾、不重设计」。
+
+### 状态四栏
+- 已合入 main：仅本节回写一笔；`B1-b` 未合入。
+- 仅在分支、尚未验证：`B1-b` 第一阶段（`b2e9be3`，等落位修正的第二笔）、`H1d`、`INT-ORCHESTRATOR-REVISION-VISIBILITY-001`。
+- 真实封证：本轮零封证（M 未挂卷写、未建 attempt/bundle；lane 全程 `:ro`，其自报与本卷实读一致）。
+- 尚未验证：`B1-b` 文中未测的探针/反例与注册后门 sha 增量；`H1d` 的活体读数。
+
+### 新增待主控拍板（不代答）
+1. `OFFLINE-090` 判据的**凭据字面量口径**：公版哨兵 `access_token_argv="0"` 算不算「暴露」，需钉一个字面量集合与判法，否则该 case 按字面永红。
+2. `OFFLINE-090/100` 两条**入册的落点**：注册要动 `tools/assert_case_evidence.py` 的断言函数 + `tools/check_case_assertions.py` 的 `IMPLEMENTATIONS`（`:170`）两行，属 **M 的面**；且两 id 入册**必然移动门载荷**，须与落块读数同次给出。
+3. `OFFLINE-070` 是否与 090/100 并单。
+4. `OFFLINE-100` 的 A→B→A 闭合要写卷真跑（卷写窗现空闲）。
+
+### 不声称
+- 不声称 Minekin 完成；不声称 `B1-b` 已闭环（它连落位都还没改完）；不声称 `OFFLINE-090/100` 已被注册或被封证（零 bundle）；不声称任何门禁点亮（`promotable` 仍 `W00/W10/W20/W60`、`overall.blocks` 仍 `REQUIRED_CASE_NOT_REGISTERED`）。全程未连接、未探测、未读取用户的远程服务器，`.tmp/local-test-server.txt` 未被打开；文中只出现 loopback/受控本地地址、卷名与镜像名。
