@@ -687,3 +687,33 @@ V2 的绿读数暴露、M 在自己卷上重放确认：auto run 跨过早停后
 - 不声称 H1e 修好了 JOIN，也不声称 `[0x1000E]` 消失；`FORWARDED_VARIABLES` 那扇门 M 未打开、H 未打开。
 - 不声称任何门禁点亮（`W30` 与 `p0-core` 实测仍 `promotable False`，载荷 `cfa0f118…`）。
 - 不声称 Minekin 完成。
+
+## 第十五轮（2026-09-27，M 主控）：收干全部 lane 分支 + 一处依赖重分类 + 派 `H1f`
+
+### 现场核对（本轮亲量，非引用上轮）
+- `git ls-remote origin refs/heads/main` = `ea97c5c44ec5f3ac9a6a16274648cc52a4dccbfe`；M 的集成 worktree `../minekin-wt-integration` HEAD 同值、`git status --porcelain` 在本轮写入前为空。
+- **全部 lane 分支已收干**：逐条 `git merge-base --is-ancestor <远端尖> ea97c5c` 核验，20 条 `codex/*` 分支全部 `IN_MAIN`（含 E 的 `codex/minekin-evidence @ 7f75dab`、H 的 `codex/minekin-client-env-readout @ 743765e`、B1-b 的 `codex/minekin-offline-090-100 @ b9c40a7`）。唯一 `AHEAD` 的是 `codex/parallel-execution-plan @ e472897`，它相对主干只多两笔，内容 diff 就是 `docs/parallel-execution-plan.md` 一份文件，而按 `git diff ea97c5c FETCH_HEAD` 读的是**主干更新、分支更旧**（分支那份还是 2026-09-26 的原始草稿，没有第四到第十四轮的那些补注）⇒ 判为已被取代的开工支，**无待合内容**，不再挂待办。
+- 清理：M 自己第十四轮的暂存 worktree `../minekin-wt-m-r14` 与分支 `review/m-r14-h1e` 已删（删前核过：工作树干净，且其树与 `ea97c5c` 的差异恰是 5 份 `docs/` 文件、零源码/测试差异 ⇒ 那笔本地合并树的内容全在主干里）。
+
+### 一处依赖重分类（本轮的实质判断，按字节改的是措辞里的因果，不是判据）
+第十四轮把「1.20.1 加入者起跳面」写成了需要主控决策、且前置在 `src/minekin_core/config.py:51` 的 `FORWARDED_VARIABLES`。本轮重读字节后确认那是**把两个独立面混成一件事**：
+
+- 加入者自己的 LAN profile 在 `test-orchestrator/runner/domain.sh:728-744` 那段内嵌 python 字典里，`"minecraft_version"` 是字面量 `1.21.4`（同一字典 `"profile_id": "p0-lan-host-fixture"`）；而它要加入的世界的版本并非常量——`:413` 起的 `launched_version` 从 bundle profile 的 recipe 读出，`:565-585` 附近拼成 `version_args` 交给 `tools/run_controlled_server.py`。⇒ 加入者声称的版本与世界版本按构造可以不一致，这就是 V1/V2 记录里那句「1.20.1 没有加入者起跳面」的字面来源，**修它在 H 独占面内**。
+- `FORWARDED_VARIABLES` 管的是 **Core 起跳的客户端**能不能拿到 `XDG_RUNTIME_DIR`（H1e 已按字节证实那三格白名单里没有它），与「加入者 profile 声称哪个版本」无关；`[0x1000E]` 那一族的最后一跳仍在产品面，本卡不打开、也不得顺手打开。
+- `domain.sh:404-407` 的 auto+joiner 拒止是**第三件事**：它自己的注释写明「no auto resolution has been reviewed for it」⇒ 属主控保留的语义冻结，`H1f` 的卡面硬边界就是**不开这扇门**，只覆盖命名 profile / 具名 bundle 路径。
+
+### 派工 `H1f` `V1201-JOINER-VERSION-FROM-RUN-001`（仅在分支，未审未合）
+- 支 `codex/minekin-joiner-version-from-run` @ `../minekin-wt-h1f`，base `ea97c5c`（M 新建 worktree，施工由 H lane 会话负责，M 不进它的工作树）。允许路径恰三份：`test-orchestrator/runner/domain.sh` + `tests/contract/test_runner_scripts.py` + 新记录 `docs/p0-h1f-joiner-version-from-run-2026-09-27.md`。
+- 验收五条（写进派工）：改前后逐字打出实际写出的 profile；新契约测试在 base 字节上转红、改后转绿（非恒真）；拿不到版本时具名拒止并非零退出且**不留下**声称 `1.21.4` 的 profile（禁止静默回落）；1.20.1 与 1.21.4 两版本来源各一次正对照；**不要求** 1.20.1 完整 JOIN 变绿，真跑只报停在哪个具名读数。
+- 规范卷至多 `:ro`、不封 attempt/bundle；不新建 case id、不翻 `mandatory`、不动 registry/判据/seal schema、不碰 M 的三份主干计划文档；只推自己分支。
+
+### 四态报告（本轮）
+- **已合入 main**：本轮无新合入（远端仍是第十四轮的 `ea97c5c`）；本轮的主干写入是这一份回写加 §4/`lane_next` 的登记。
+- **仅在分支**：`H1f`（在工，未交付、未审、未合）。
+- **真实封证**：本轮零封证。卷上仍是 E 第十四轮那三段 `SEALED` bundle（A1 `670aec0b…` / B `0314121c…` / A2 `0cc1fb99…`），M 全程至多 `:ro` 读。
+- **未验证**：OFFLINE-100 的链上载体与 `world_context_id`（三段皆 `None`，父行实测 `FAIL / A_B_A_TRIPLE_NOT_SEALED`）；OFFLINE-090 的 Dashboard 载体与真跑；反例 9/10/11；1.20.1 侧活体 JOIN 与 `[0x1000E]`；`H1f` 的全部读数（尚未交付）；门禁一律未点亮（`W30`/`p0-core` 仍 `promotable False`，载荷仍 `cfa0f118…`）。
+
+### 不声称
+- 不声称 `H1f` 会让 1.20.1 的 JOIN 变绿——它的目标只是让加入者 profile 声称的版本来自本次真正起起来的世界。
+- 不声称 V lane 已解锁：V 的下一张活体卡仍排在 `H1f` 收口并入主干之后。
+- 不声称任何 case 闭合、任何门禁点亮，不声称 Minekin 完成。
