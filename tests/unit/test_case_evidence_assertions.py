@@ -257,6 +257,7 @@ def material(
     server_profile: Mapping[str, object] | None = None,
     client_pack_listing: str = "",
     argv: Sequence[str] | None = None,
+    carriers: Sequence[tuple[str, str]] = (),
 ) -> _Material:
     previous_run_id, previous_run_events = previous
     soak_samples, soak_summary = soak
@@ -281,6 +282,7 @@ def material(
         server_profile=server_profile,
         client_pack_listing=client_pack_listing,
         session_argv=None if argv is None else tuple(argv),
+        exposure_carriers=tuple(carriers),
     )
 
 
@@ -6555,3 +6557,303 @@ def test_the_command_refuses_an_unnamed_kin_and_says_which_name_is_missing(
     said = json.loads(result.stderr)["message"]
     assert "no Kin is named" in said
     assert "run id" not in said
+
+
+# ---------------------------------------------------------------------------
+# OFFLINE-090: no authentication body in the carriers a run leaves behind
+# ---------------------------------------------------------------------------
+
+#: The parent row, registered with both halves of its criterion — the log/crash half and
+#: the Dashboard half. 主控's reading is what the two assertions here are shaped for: an
+#: exposure is a credential body standing in a field's or an option's place, never the
+#: bare digit the offline sentinel is, and the Dashboard has no sealed carrier to judge,
+#: so the row cannot be marked closed on bundle bytes alone.
+OFFLINE_090_CASE = CASES / "offline-090.json"
+BUNDLE_CARRIERS = "auth_field_bodies_are_not_exposed_in_bundle_carriers"
+DASHBOARD_CARRIERS = "auth_field_bodies_are_not_exposed_on_the_dashboard"
+
+#: A body this fixture invents: 32 hex characters, the shape of what an auth server hands
+#: out. Nobody's credential — the assertion's only job is to notice one sitting where a
+#: field's value belongs, and a test that used the real sentinels to do that would prove
+#: nothing about either.
+SECRET_BODY = "f4c9b0d7e2a148fb9c3d5e6f7089abcd"
+
+
+def public_carriers() -> list[tuple[str, str]]:
+    """The ways an offline run legitimately writes these three fields.
+
+    Shaped like the sealed material, not like an idea of it: the client's log carries the
+    resolved argv with the sentinels in place, the ledger row carries presence booleans
+    and the classification labels inside an escaped `payload_json`, and the fault record
+    carries the argv as a JSON array with each value on its own line. Those are the three
+    shapes that a bare-literal search would set alight and a field-context reading has to
+    let through.
+    """
+
+    return [
+        (
+            "client/latest.log",
+            "[19:28:12] [Render thread/INFO] Game launched with --accessToken 0 "
+            '--clientId "" --xuid "" --username Kin\n'
+            "[19:28:20] [Server thread/INFO] Ticks: 0, latency 0 ms, 20 entities at 0.0\n",
+        ),
+        (
+            "bridge-trace.jsonl",
+            '{"event_type": "SessionIdentityCompared", "payload_json": '
+            '"{\\"client_id_present\\":false,\\"xuid_present\\":false,'
+            '\\"credential_values_exposed\\":false,'
+            '\\"secret_classification\\":{\\"access_token\\":\\"secret-shaped-nonsecret\\"}}"}\n',
+        ),
+        (
+            "fault-injection.json",
+            '{\n  "session_argv": [\n    "--username",\n    "Kin",\n    "--accessToken",\n'
+            '    "0",\n    "--clientId",\n    "",\n    "--xuid",\n    ""\n  ]\n}\n',
+        ),
+        ("server/server.log", f"{JOINED}\n{LEFT}\n"),
+    ]
+
+
+def bundle_with_manifest(directory: Path, artifacts: Mapping[str, str]) -> Path:
+    """A sealed-looking bundle: the files, and a manifest that declares them.
+
+    Only the declaration is read by the carrier set — the digests are the verifier's
+    business — so this is a bundle for the reader, not a bundle a seal produced.
+    """
+
+    for name, text in artifacts.items():
+        path = directory / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+    declared = {"artifacts": [{"path": name} for name in sorted(artifacts)]}
+    (directory / "manifest.json").write_text(json.dumps(declared), encoding="utf-8")
+    return directory
+
+
+def assertion(name: str) -> Callable[[Any], str | None]:
+    """The registered judgement under one of its two names."""
+
+    implementation = ASSERTER_MODULE.ASSERTIONS.get(name)
+    assert implementation is not None, name
+    return implementation
+
+
+def test_the_public_bodies_are_the_ones_the_reviewed_candidates_write() -> None:
+    """The sentinel list is read off the matrix rather than typed into a test.
+
+    The whole of 090's reverse control rests on `"0"` and the empty argv being public, and
+    those are the reviewed candidates' own values. A test that hard-coded them would keep
+    passing if the matrix moved; this one stops.
+    """
+
+    public = ASSERTER_MODULE.PUBLIC_AUTHENTICATION_BODIES
+
+    for candidate in (candidate_by_id("prism-parity"), candidate_by_id("enum-aligned")):
+        assert candidate.access_token_argv in public
+        assert candidate.client_id_argv in public
+        assert candidate.xuid_argv in public
+    assert ASSERTER_MODULE.REDACTED_AUTHENTICATION_BODY in public
+    assert set(SECRET_CLASSIFICATION.values()) <= public
+
+
+def test_a_run_that_wrote_only_public_bodies_in_field_context_holds() -> None:
+    assert assertion(BUNDLE_CARRIERS)(material(carriers=public_carriers())) is None
+
+
+def test_a_bare_zero_an_empty_value_and_a_redaction_are_never_exposures() -> None:
+    """The 公版哨兵保护, as its own case rather than as an absence of counterexamples.
+
+    Every one of these is either the digit `0` in a place a count belongs, an empty argv
+    value attached to its flag, the placeholder the harness substitutes for a secret, a
+    classification label printed instead of a value, or an unresolved template
+    placeholder. A reading that went red here would be a reading that cannot tell the
+    sentinel from a credential, and would be dropped rather than tuned.
+    """
+
+    carriers = [
+        (
+            "client/latest.log",
+            "Ticks: 0, latency 0 ms, 20 entities at 0.0, score 0\n"
+            '--accessToken 0 --clientId "" --xuid ""\n'
+            '--auth_access_token "<redacted>" --clientid "secret-shaped-nonsecret"\n'
+            "--clientId requested for the offline session and left it empty\n",
+        ),
+        (
+            "run-document.json",
+            '{"access_token": "0", "client_id": "", "xuid": "0", "clientid": "${clientid}"}\n',
+        ),
+        (
+            "server/server.log",
+            '{"auth_access_token": "secret-shaped-nonsecret"}\n'
+            "[19:28:12] [Server thread/INFO] Kin joined the game (0 new players)\n",
+        ),
+    ]
+
+    assert assertion(BUNDLE_CARRIERS)(material(carriers=carriers)) is None
+
+
+#: Each of the four shapes a body can appear in, and the field name the reading reports.
+EXPOSURE_COUNTEREXAMPLES: tuple[tuple[str, str, str, str], ...] = (
+    (
+        "a quoted value after the option flag",
+        "client/latest.log",
+        f'Game launched with --clientId "{SECRET_BODY}"\n',
+        "AUTH_BODY_EXPOSED:client/latest.log:clientId",
+    ),
+    (
+        "an inline argv assignment",
+        "client/stdout.log",
+        f"--accessToken={SECRET_BODY}\n",
+        "AUTH_BODY_EXPOSED:client/stdout.log:accessToken",
+    ),
+    (
+        "a JSON property in the run document",
+        "run-document.json",
+        json.dumps({"auth_access_token": SECRET_BODY}) + "\n",
+        "AUTH_BODY_EXPOSED:run-document.json:auth_access_token",
+    ),
+    (
+        "an escaped property inside a ledger row's payload",
+        "bridge-trace.jsonl",
+        '{"event_type": "SessionIdentityCompared", "payload_json": '
+        f'"{{\\"access_token\\":\\"{SECRET_BODY}\\"}}"}}\n',
+        "AUTH_BODY_EXPOSED:bridge-trace.jsonl:access_token",
+    ),
+    (
+        "the array spelling of an argv in the harness's own trace",
+        "orchestrator-trace.json",
+        json.dumps({"session_argv": ["--xuid", SECRET_BODY]}) + "\n",
+        "AUTH_BODY_EXPOSED:orchestrator-trace.json:xuid",
+    ),
+    (
+        "a crash report, which is where the row's second half lives",
+        "client/crash-reports/crash-2026-09-26_12.24.07-client.txt",
+        f' Client arguments: --clientid "{SECRET_BODY}"\n',
+        "AUTH_BODY_EXPOSED:client/crash-reports/crash-2026-09-26_12.24.07-client.txt:clientid",
+    ),
+)
+
+
+@pytest.mark.parametrize(("why", "carrier", "text", "reason"), EXPOSURE_COUNTEREXAMPLES)
+def test_an_authentication_body_in_a_field_context_is_named_by_carrier_and_field(
+    why: str, carrier: str, text: str, reason: str
+) -> None:
+    """The injected half of the pair, once per shape rather than once in total.
+
+    Each is a carrier of its own, so the reported name pins where the reader looked: an
+    exposure that came back as a bare word would let a scan of one file be read as a scan
+    of the bundle.
+    """
+
+    carriers = [*public_carriers(), (carrier, text)]
+
+    assert assertion(BUNDLE_CARRIERS)(material(carriers=carriers)) == reason, why
+
+
+def test_a_carrier_set_with_nothing_readable_is_not_a_clean_scan() -> None:
+    assert assertion(BUNDLE_CARRIERS)(material(carriers=())) == "NO_EXPOSURE_CARRIERS_READABLE"
+
+
+def test_the_dashboard_half_names_the_carrier_it_cannot_read(tmp_path: Path) -> None:
+    """A named gap now, and a real judgement once something under `dashboard/` is sealed.
+
+    Both branches are measured here because the gap is the interesting half: a case that
+    reached PASS over a bundle with no Dashboard carrier would be a case closed by the
+    absence of the thing it was written to check.
+    """
+
+    assert assertion(DASHBOARD_CARRIERS)(material(carriers=public_carriers())) == (
+        "DASHBOARD_CARRIER_NOT_SEALED"
+    )
+
+    clean = [(ASSERTER_MODULE.DASHBOARD_CARRIER_PREFIX + "panel.log", '--clientId "" 0\n')]
+    assert assertion(DASHBOARD_CARRIERS)(material(carriers=clean)) is None
+    leaked = [(ASSERTER_MODULE.DASHBOARD_CARRIER_PREFIX + "panel.log", f'--xuid "{SECRET_BODY}"\n')]
+    assert assertion(DASHBOARD_CARRIERS)(material(carriers=leaked)) == (
+        "AUTH_BODY_EXPOSED:dashboard/panel.log:xuid"
+    )
+
+
+def test_the_parent_case_cannot_reach_pass_on_bundle_bytes_alone() -> None:
+    """The row's own status rule, enforced by the Dashboard half rather than by prose.
+
+    `OFFLINE-090` is registered non-mandatory and stays that way, and on top of that it
+    cannot print PASS: its second assertion refuses to answer for a surface nothing
+    sealed. So neither the gate nor a reader can take a green log half as the row closing.
+    """
+
+    case = cast(dict[str, object], json.loads(OFFLINE_090_CASE.read_text(encoding="utf-8")))
+    verdict = ASSERTER_MODULE.evaluate(case, material(carriers=public_carriers()))
+
+    assert verdict.result == "FAIL"
+    assert verdict.observed == (BUNDLE_CARRIERS,)
+    assert verdict.failures == (f"{DASHBOARD_CARRIERS}:DASHBOARD_CARRIER_NOT_SEALED",)
+    assert verdict.unimplemented == ()
+
+
+def test_asserter_inputs_names_no_credential_field_so_no_body_can_be_read_from_it() -> None:
+    """The record the judge is handed carries ids and a name, and nothing credential.
+
+    Recorded as a test because a case draft claimed 090 could take the run's token, xuid
+    and clientId literals from this artifact. It cannot: the keys are these five, and none
+    of them is an authentication field. An exposure reading that started from here would
+    be reading a value that is not in the file.
+    """
+
+    document = json.loads(
+        ASSERTER_MODULE.asserter_inputs_bytes(material(), username=USERNAME).decode("utf-8")
+    )
+
+    assert sorted(document) == [
+        "kin_id",
+        "previous_run_id",
+        "run_id",
+        "schema_version",
+        "username",
+    ]
+    lowered = [key.lower().replace("_", "").replace("-", "") for key in document]
+    for field in ASSERTER_MODULE.AUTHENTICATION_FIELD_NAMES:
+        folded = field.lower().replace("_", "").replace("-", "")
+        assert not any(folded in key for key in lowered), field
+
+
+def test_a_sealed_bundle_is_scanned_through_the_artifacts_it_declares(tmp_path: Path) -> None:
+    """The reader opens what the manifest says is there — including a crash report.
+
+    The row's crash half has no OFFLINE carrier on this volume, so the only honest way to
+    cover it is to show that a bundle which *does* declare one gets it read, clean and
+    injected alike. A carrier list spelled here instead of taken from the manifest would
+    have reported a clean scan of a bundle whose crash report it never opened.
+    """
+
+    def sealed(*, text: str) -> Any:
+        bundle = bundle_with_manifest(
+            tmp_path / hashlib.sha256(text.encode("utf-8")).hexdigest()[:16],
+            {
+                "asserter-inputs.json": json.dumps(
+                    {
+                        "schema_version": 1,
+                        "kin_id": "kin-01",
+                        "run_id": RUN_ID,
+                        "username": USERNAME,
+                        "previous_run_id": "",
+                    }
+                ),
+                "client/latest.log": text,
+                "client/crash-reports/crash-2026-09-26_17.31.04-client.txt": text,
+                "server/level.dat": "not text, and not read\n",
+            },
+        )
+        return ASSERTER_MODULE.read_sealed_material(bundle)
+
+    clean = sealed(text='--clientId "" --xuid "" 0\n')
+    assert [name for name, _ in clean.exposure_carriers] == [
+        "asserter-inputs.json",
+        "client/crash-reports/crash-2026-09-26_17.31.04-client.txt",
+        "client/latest.log",
+    ]
+    assert assertion(BUNDLE_CARRIERS)(clean) is None
+
+    injected = sealed(text=f'--clientId "{SECRET_BODY}"\n')
+    assert assertion(BUNDLE_CARRIERS)(injected) == (
+        "AUTH_BODY_EXPOSED:client/crash-reports/crash-2026-09-26_17.31.04-client.txt:clientId"
+    )

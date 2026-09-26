@@ -238,6 +238,16 @@ IMPLEMENTATIONS: dict[str, Implementation] = {
         "tests/unit/test_session_supervision.py"
         "::test_no_input_is_replayed_after_an_ambiguous_disconnect",
     ),
+    # OFFLINE-090: the two halves of "logs, crashes and Dashboard show no authentication
+    # body". Both are readings of sealed carriers, so both are the asserter's; the
+    # Dashboard half names the carrier it cannot read rather than reporting a zero over
+    # the bytes that happen to be there — see the reason recorded on the fixture.
+    "auth_field_bodies_are_not_exposed_in_bundle_carriers": _runtime(
+        "auth_field_bodies_are_not_exposed_in_bundle_carriers"
+    ),
+    "auth_field_bodies_are_not_exposed_on_the_dashboard": _runtime(
+        "auth_field_bodies_are_not_exposed_on_the_dashboard"
+    ),
     "server_observed_join_identity": _runtime("server_observed_join_identity"),
     "first_snapshot_admitted": _runtime("first_snapshot_admitted"),
     "the_run_says_which_world_it_hosted": _runtime("the_run_says_which_world_it_hosted"),

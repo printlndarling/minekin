@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "case_id": "OFFLINE-090",
+  "work_package": "W30",
+  "mandatory": false,
+  "inputs": [],
+  "assertion_digests": {
+    "auth_field_bodies_are_not_exposed_in_bundle_carriers": "faa3bf1dea84d241a89ff8897b25843d2a5269da2fd83d540cd48f9d226c6cef",
+    "auth_field_bodies_are_not_exposed_on_the_dashboard": "ddbb3a855cfef669777e906cbe254f95c5ea30762f6c7c11d93011311453d69c"
+  },
+  "assertions": [
+    "auth_field_bodies_are_not_exposed_in_bundle_carriers",
+    "auth_field_bodies_are_not_exposed_on_the_dashboard"
+  ]
+}

@@ -42,6 +42,7 @@ from pathlib import Path, PurePosixPath
 from typing import TypeGuard, cast
 from urllib.parse import urlsplit
 
+from minekin_core.adapters.evidence.bundle import MANIFEST_NAME
 from minekin_core.adapters.evidence.trace import LEDGER_TIMELINE_ARTIFACT
 from minekin_core.adapters.launcher.offline_session import (
     EMPTY_ARGV,
@@ -433,6 +434,13 @@ class RunMaterial:
     #: Reviewed content pins declared by the case. These are part of the case JSON,
     #: and therefore of `case_version`; changing an input invalidates old evidence.
     case_input_digests: tuple[tuple[str, str], ...] = ()
+    #: Every text carrier this judgement can read, each under the name the bundle
+    #: holds it under. The fields above are the *selections* other assertions read;
+    #: one case asks a question of the whole carrier set at once ("was a credential
+    #: body written anywhere in this bundle"), and a selection chosen by the other
+    #: cases is not an answer to that. Empty means nothing was readable, which that
+    #: case reports rather than counting as a clean result.
+    exposure_carriers: tuple[tuple[str, str], ...] = ()
 
     def recorded(self, event_type: str) -> tuple[Mapping[str, object], ...]:
         """Every event of one type this run recorded."""
@@ -672,6 +680,14 @@ def read_run_material(
         server_profile=server_profile,
         client_pack_listing=pack_listing_bytes(overlay).decode("utf-8"),
         session_argv=recorded_argv(session_argv),
+        exposure_carriers=_run_exposure_carriers(
+            overlay=overlay,
+            server_directory=server_directory,
+            run_document=run,
+            events=events,
+            previous_run_events=previous_events,
+            session_argv=session_argv,
+        ),
     )
 
 
@@ -707,6 +723,9 @@ SERVER_PROFILE_ARTIFACT = "trusted/server-profile.json"
 #: Bridge's account, so it is sealed for a reader to consult and not read into the
 #: log a verdict rests on.
 CLIENT_STREAM_ARTIFACTS = ("client/stdout.log", "client/stderr.log", "client/latest.log")
+#: The directory the game drops crash reports into, named once because both the sealer's
+#: glob and the carrier names this judgement reads them under have to agree about it.
+CLIENT_CRASH_REPORTS_DIRECTORY = "crash-reports"
 #: In the order `read_run_material` concatenates them. The client's account is what
 #: the bundle keeps, and the judge that reached the sealed verdict read exactly this
 #: string — reading them the other way round would be a different string.
@@ -976,6 +995,7 @@ def read_sealed_material(directory: Path) -> RunMaterial:
         server_profile=_sealed_json(directory, SERVER_PROFILE_ARTIFACT),
         client_pack_listing=_sealed(directory, CLIENT_PACK_LISTING_ARTIFACT) or "",
         session_argv=_trace_argv(_sealed_json(directory, ORCHESTRATOR_TRACE_ARTIFACT)),
+        exposure_carriers=_sealed_exposure_carriers(directory),
     )
 
 
@@ -3441,9 +3461,309 @@ def _snapshot_rejections(material: RunMaterial) -> tuple[list[str], str | None]:
     return rejections, None
 
 
+# ---------------------------------------------------------------------------
+# OFFLINE-090: whether an authentication body was written where a reader can read it
+# ---------------------------------------------------------------------------
+
+#: The names that carry an authentication body when a value follows them. Each field is
+#: spelled three ways because the three places a body can appear never agreed on one:
+#: `auth_access_token`/`clientid`/`auth_xuid` are the launcher template's placeholder
+#: names (`offline_session.py:166, 176-177`), `--accessToken`/`--clientId`/`--xuid` the
+#: resolved argv options (`:10, :247`), and the snake_case forms the classified field
+#: names (`SECRET_CLASSIFICATION`, `:25-33`). A key that merely *contains* one of these
+#: is not one of them: what a sealed ledger row carries today is `client_id_present` and
+#: `xuid_present`, and the whole name between the quotes has to match for the pair to be
+#: a field context at all.
+AUTHENTICATION_FIELD_NAMES = (
+    "accessToken",
+    "access-token",
+    "access_token",
+    "auth_access_token",
+    "clientId",
+    "client-id",
+    "client_id",
+    "clientid",
+    "xuid",
+    "auth_xuid",
+)
+
+#: What the harness writes in place of a secret (`errors.redact_text`), listed with the
+#: public sentinels rather than counted as a body: an assertion that went red on a
+#: redaction placeholder would be an instrument that punishes the control it exists to
+#: check for.
+REDACTED_AUTHENTICATION_BODY = "<redacted>"
+
+#: The bodies that are public by construction. The offline candidates' own argv values
+#: are repo constants — `access_token_argv="0"` and `client_id_argv`/`xuid_argv` equal to
+#: `EMPTY_ARGV` (`offline_session.py:71-73, 82-84`) — so any `0` or empty value anywhere,
+#: in any context, says nothing about a leak, and the classification labels an evidence
+#: view prints instead of a value (`candidate_document`, `:278-290`) say nothing either.
+#: Derived from the reviewed candidates rather than typed in, because the sentinel is
+#: whatever the matrix says and there are two candidates that could move apart.
+PUBLIC_AUTHENTICATION_BODIES = frozenset(
+    {
+        REDACTED_AUTHENTICATION_BODY,
+        *SECRET_CLASSIFICATION.values(),
+        *(
+            body
+            for candidate in OFFLINE_SESSION_CANDIDATES
+            for body in (
+                candidate.access_token_argv,
+                candidate.client_id_argv,
+                candidate.xuid_argv,
+            )
+        ),
+    }
+)
+
+#: The prefix a bundle would hold a Dashboard carrier under. Nothing on this volume
+#: declares a path under it, which is the whole of why the Dashboard half of the row is
+#: a named gap rather than a count of zero.
+DASHBOARD_CARRIER_PREFIX = "dashboard/"
+DASHBOARD_CARRIER_NOT_SEALED = "DASHBOARD_CARRIER_NOT_SEALED"
+
+#: The artifact suffixes this judgement reads. Text only, on purpose: the question is
+#: whether a body was *written where it can be read*, and a `level.dat` has no reader to
+#: leak to. A carrier type added later is admitted by its suffix, not by a list here.
+EXPOSURE_CARRIER_SUFFIXES = (".log", ".json", ".jsonl", ".txt", ".properties")
+
+_FIELD_ALTERNATION = "|".join(
+    re.escape(name) for name in sorted(AUTHENTICATION_FIELD_NAMES, key=len, reverse=True)
+)
+
+#: `"auth_access_token": "<body>"` — and the same pair as it appears inside a ledger
+#: row's escaped `payload_json` string, which is where a token would be written if Core
+#: ever recorded one. The body stops at a backslash rather than consuming escape
+#: sequences: inside an escaped payload the closing quote *is* `\"`, and a capture that
+#: swallowed it would carry the row's remaining braces with it and report a clean
+#: classification label as a credential.
+JSON_AUTHENTICATION_BODY = re.compile(rf'\\?"({_FIELD_ALTERNATION})\\?"\s*:\s*\\?"([^"\\]*)\\?"')
+
+#: An option flag standing before its value. Case-insensitive because the argv spells
+#: them camelCase and a classified field log may spell them lower.
+AUTHENTICATION_FLAG = re.compile(rf"--({_FIELD_ALTERNATION})(?![A-Za-z0-9_-])", re.IGNORECASE)
+
+#: The value after an option flag, in the three shapes it takes: `--clientId "x"`,
+#: `--clientId=x`, `--clientId x`, and the array spelling `"--clientId", "x"` a JSON argv
+#: uses. The lookahead on the quoted capture is what keeps `["--clientId", "--xuid", ""]`
+#: from reading the next option as this one's body.
+_FLAG_QUOTED_BODY = re.compile(r'^"?[\s,=]*\\?"((?!-)[^"\\]*)"', re.DOTALL)
+_FLAG_INLINE_BODY = re.compile(r'^"?\s*=\s*([^"\s,]+)')
+#: A bare value — unquoted, so nothing delimits it but its shape — counts only when it is
+#: long enough to be a credential. Every body this product can carry is 16 characters or
+#: more; a flag followed by an ordinary word is a log sentence, not a leak.
+_FLAG_BARE_BODY = re.compile(r'^"?\s+([A-Za-z0-9+/_=-]{16,})(?![A-Za-z0-9])')
+
+
+def _flag_body(rest: str) -> str | None:
+    """The value an option flag carries, from the text that follows it, or None.
+
+    None is the answer for "flag, then something that is not a value": a flag at the end
+    of a line, or one followed by prose, says nothing about a body either way.
+    """
+
+    for pattern in (_FLAG_QUOTED_BODY, _FLAG_INLINE_BODY, _FLAG_BARE_BODY):
+        match = pattern.match(rest)
+        if match is not None:
+            return match.group(1)
+    return None
+
+
+def _authentication_body_is_public(body: str) -> bool:
+    """Whether a body found in a field context is one of the public ones.
+
+    Beyond the sentinel list: an unresolved `${...}` template placeholder names no
+    credential. Its survival into a log is a launcher bug that another case holds
+    (`test_no_argument_survives_as_a_literal_placeholder`), and this judgement would be a
+    worse instrument if it reported that bug as a leak.
+    """
+
+    return body in PUBLIC_AUTHENTICATION_BODIES or (body.startswith("${") and body.endswith("}"))
+
+
+def authentication_exposures(carrier: str, text: str) -> tuple[str, ...]:
+    """Every field-context exposure in one carrier, as `<carrier>:<field>` names.
+
+    Both readings run over the whole carrier rather than line by line, because a JSON
+    argv puts the flag and its value on separate lines and the pair is still a pair.
+    """
+
+    found: list[str] = []
+    for match in JSON_AUTHENTICATION_BODY.finditer(text):
+        if not _authentication_body_is_public(match.group(2)):
+            found.append(f"{carrier}:{match.group(1)}")
+    for match in AUTHENTICATION_FLAG.finditer(text):
+        body = _flag_body(text[match.end() :])
+        if body is not None and not _authentication_body_is_public(body):
+            found.append(f"{carrier}:{match.group(1)}")
+    return tuple(found)
+
+
+def _text_carrier(path: Path, name: str) -> tuple[str, str] | None:
+    """One readable text carrier, or None when this run left no such file."""
+
+    if not path.is_file():
+        return None
+    return (name, path.read_text(encoding="utf-8", errors="replace"))
+
+
+def _sealed_exposure_carriers(directory: Path) -> tuple[tuple[str, str], ...]:
+    """Every text artifact this bundle declares, read once.
+
+    The manifest decides what was sealed rather than a list here, which is the same rule
+    the sealer follows: a reader that picked its own subset would report "nothing was
+    exposed" about the files it never opened. The manifest's own record is skipped — it
+    names artifacts, and a digest is not a field context.
+    """
+
+    manifest = _sealed_json(directory, MANIFEST_NAME)
+    if manifest is None:
+        return ()
+    artifacts = manifest.get("artifacts")
+    if not isinstance(artifacts, list):
+        return ()
+    carriers: list[tuple[str, str]] = []
+    for entry in cast("list[object]", artifacts):
+        if not isinstance(entry, Mapping):
+            continue
+        name = cast("Mapping[str, object]", entry).get("path")
+        if not isinstance(name, str) or name == MANIFEST_NAME:
+            continue
+        if not name.lower().endswith(EXPOSURE_CARRIER_SUFFIXES):
+            continue
+        text = _sealed(directory, name)
+        if text is not None:
+            carriers.append((name, text))
+    return tuple(carriers)
+
+
+def _run_exposure_carriers(
+    *,
+    overlay: Path | None,
+    server_directory: Path | None,
+    run_document: Mapping[str, object],
+    events: Sequence[Mapping[str, object]],
+    previous_run_events: Sequence[Mapping[str, object]],
+    session_argv: Sequence[str] | None,
+) -> tuple[tuple[str, str], ...]:
+    """The same carrier set for a run still on the machine that made it.
+
+    Named as the bundle names them, so that the verdict a sealer records and the verdict
+    a reader reaches from the sealed bytes are readings of one question. What has no file
+    — the ledger rows, the run document, the argv — is rendered here in the form the
+    sealer will write it in, and the argv is the case that decides: it exists nowhere but
+    in the trace this run is about to seal.
+    """
+
+    carriers: list[tuple[str, str]] = []
+    if overlay is not None:
+        for name in CLIENT_STREAM_ARTIFACTS:
+            found = _text_carrier(overlay / "logs" / name.rsplit("/", 1)[-1], name)
+            if found is not None:
+                carriers.append(found)
+        for report in sorted((overlay / CLIENT_CRASH_REPORTS_DIRECTORY).glob("*")):
+            if report.is_file():
+                sealed = f"client/{CLIENT_CRASH_REPORTS_DIRECTORY}/{report.name}"
+                found = _text_carrier(report, sealed)
+                if found is not None:
+                    carriers.append(found)
+    if server_directory is not None:
+        for name in (
+            SERVER_LOG_ARTIFACT,
+            SERVER_IDENTITIES_ARTIFACT,
+            SERVER_PROPERTIES_ARTIFACT,
+        ):
+            found = _text_carrier(server_directory / name.rsplit("/", 1)[-1], name)
+            if found is not None:
+                carriers.append(found)
+    if run_document:
+        carriers.append(
+            (RUN_DOCUMENT_ARTIFACT, json.dumps(dict(run_document), sort_keys=True) + "\n")
+        )
+    if events:
+        carriers.append(
+            (LEDGER_TIMELINE_ARTIFACT, timeline_bytes(events).decode("utf-8", errors="replace"))
+        )
+    if previous_run_events:
+        carriers.append(
+            (
+                PREVIOUS_TIMELINE_ARTIFACT,
+                timeline_bytes(previous_run_events).decode("utf-8", errors="replace"),
+            )
+        )
+    if session_argv:
+        carriers.append(
+            (
+                ORCHESTRATOR_TRACE_ARTIFACT,
+                json.dumps({"session_argv": list(session_argv)}, sort_keys=True) + "\n",
+            )
+        )
+    return tuple(carriers)
+
+
+def auth_field_bodies_are_not_exposed_in_bundle_carriers(material: RunMaterial) -> str | None:
+    """No authentication body in any text carrier this run left, except a public one.
+
+    The count is of exposures, not of mentions: a field name whose value is the offline
+    sentinel, an empty argv, a redaction placeholder or a classification label is what a
+    correctly behaving run writes, and the row's `0` is a count of the cases where a real
+    body stands in a field's place.
+
+    The Dashboard is not read here. Whatever this assertion can say about the carriers a
+    bundle holds, it cannot say anything about a surface nothing sealed, and reporting
+    `0` over the readable half as if it were the row would be the quietest way to close a
+    criterion that stayed open.
+    """
+
+    readable = [
+        (name, text)
+        for name, text in material.exposure_carriers
+        if not name.startswith(DASHBOARD_CARRIER_PREFIX)
+    ]
+    if not readable:
+        # Nothing to scan is not a clean scan: a run whose carriers were all unreadable
+        # left no evidence either way, and this name says which of the two it was.
+        return "NO_EXPOSURE_CARRIERS_READABLE"
+    for name, text in sorted(readable):
+        exposures = authentication_exposures(name, text)
+        if exposures:
+            return f"AUTH_BODY_EXPOSED:{exposures[0]}"
+    return None
+
+
+def auth_field_bodies_are_not_exposed_on_the_dashboard(material: RunMaterial) -> str | None:
+    """The Dashboard half of the row, as far as a bundle can reach it.
+
+    Named as a gap rather than answered as a zero, and it stays that way for as long as
+    no carrier is sealed under `dashboard/`: the Dashboard is a live view of a running
+    Kin, so nothing writes those bytes during a run, and a run can no more evidence it
+    than it can evidence the operator's own screen. A future carrier changes the answer by
+    being read, not by this function being edited to stop refusing.
+    """
+
+    carriers = [
+        (name, text)
+        for name, text in material.exposure_carriers
+        if name.startswith(DASHBOARD_CARRIER_PREFIX)
+    ]
+    if not carriers:
+        return DASHBOARD_CARRIER_NOT_SEALED
+    for name, text in sorted(carriers):
+        exposures = authentication_exposures(name, text)
+        if exposures:
+            return f"AUTH_BODY_EXPOSED:{exposures[0]}"
+    return None
+
+
 #: Every assertion a case manifest may name, and what performs it. A name that is
 #: not here cannot be judged, which the verdict reports rather than passing over.
 ASSERTIONS: dict[str, Callable[[RunMaterial], str | None]] = {
+    "auth_field_bodies_are_not_exposed_in_bundle_carriers": (
+        auth_field_bodies_are_not_exposed_in_bundle_carriers
+    ),
+    "auth_field_bodies_are_not_exposed_on_the_dashboard": (
+        auth_field_bodies_are_not_exposed_on_the_dashboard
+    ),
     "server_observed_join_identity": server_observed_join_identity,
     "first_snapshot_admitted": first_snapshot_admitted,
     "the_run_says_which_world_it_hosted": the_run_says_which_world_it_hosted,
