@@ -23,6 +23,17 @@
 
 同一文件仅一名 owner。任何跨 lane 修改都先在 M 的冲突表登记：需求、目标文件、当前 owner、移交时点；不能两边各写一半再指望 Git 自动合。每张卡附 base SHA、diff stat、测试原始结果、未测、阻断；分支 commit 后立即 push 本分支供审查，**只有 M 能更新 `main`**，且仅在证据/测试通过后按依赖顺序集成。失败分支保留，不能靠重写历史隐藏失败。
 
+#### 冲突表登记（2026-09-26，M 逐条开）
+
+| 卡 | 需求 | 目标文件 | 当前 owner | 移交时点 |
+| --- | --- | --- | --- | --- |
+| `INT-EVIDENCE-INTEGRITY-001` | 台账 `SEALED` 行缺 bundle 不再静默（E 第五刀 R-E 量出） | `tools/report_promotion.py`、`tests/unit/test_report_promotion.py` | M（读者面不属任何 lane 的独占面） | 已闭环：`759125f` 合入 `main`，未占用 E 的规范卷写窗口 |
+| `H1a` `TEST-ORCHESTRATOR-PINNED-PYTEST-001` | 受控镜像带钉住的测试工具链，消掉「镜像内跑仓库自检 ⇒ 环境性假 FAIL」（E 第五刀 §5） | `test-orchestrator/runner/Dockerfile`（+ 其契约测试） | **H 独占面**；施工由 M 派工到 `../minekin-wt-harness`（`codex/minekin-harness`），仍走 H 的分支与 H 的验收 | push 后 M 单张双审合入；`E-CO` 在该合并落地后才可开工 |
+| `H1b` `RUNNER-NAMED-FAILURE-001` | `domain.sh:657` 确定性静默 `rc=2`、runner 内 `sys` 未 `import sys`（E 第四刀两次失败） | `test-orchestrator/runner/domain.sh` 及出错路径涉及脚本 | **H 独占面**；派工到 `../minekin-wt-runner`（`codex/minekin-runner-named-failure`），与 H1a 不同分支不同文件，二者不互撞 | 两个提交各自可回退；push 后 M 审。`V1201-AUTO-PATH-RUNNER-001`（G1/G2）在其后开工，避免同一批文件两条施工 |
+| `S2` `V1201-MAX-BYTES-VALIDATION-001` | 非正预算具名拒止（今天 `INTERNAL_INVARIANT`）、`--max-bytes` 与 `--profile` 同给具名用法错误（A2 的 N2） | `src/minekin_core/cli/auto_session.py` + 对应单元/契约测试 | S 独占面；派工到 `../minekin-wt-auto-entry`（`codex/minekin-auto-entry`） | push 后 M 审；不改 case 判据、不碰规范卷 |
+
+登记只解决文件面归属，**不把 lane 分支上的实现升格为主干状态**：四行里除第一行外都还是「仅在分支、尚未验证」。
+
 ### 工作区配方
 
 各会话从最近 `origin/main` 创建不同 worktree/分支；如果目标名已存在先核对归属，不强行覆盖。示意：
