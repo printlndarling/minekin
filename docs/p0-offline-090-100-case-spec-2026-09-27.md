@@ -14,6 +14,13 @@
 - All code citations are to the bytes at this base (or `origin/main` where stated). No
   citation to prior conversation is used as evidence; anything not re-measured here is
   marked 未测.
+- Round 14 trunk edit by 主控 (2026-09-27): this file is no longer a placement draft — its
+  rows are registered on trunk, and the A→B→A run §3.5 called for now exists on the volume.
+  The edits are confined to §3.5 C, §3.6 and this bullet: C4's negative clause is scoped to
+  the carrier that actually seals (the pairwise `previous-run-trace.jsonl` is not a
+  three-run timeline), and the "no controlled triple exists yet" wording is replaced by the
+  sealed `kin-e-aba` readings. `case_version` digests the registered function bytes plus the
+  fixture, not this file, so none of this moves a registry digest or invalidates a bundle.
 - Placement: this draft sits at `docs/p0-offline-090-100-case-spec-2026-09-27.md`, the E lane's existing per-card record convention under `docs/` (precedent: `docs/p0-core030-runner-rerun-2026-09-27.md`) and within this card's allowed paths; the previous session's invented top-level `harness/case-specs/` location is not a carrier in any ref of this repository and is not kept.
 
 ## 1. Contract source (verbatim, `docs/p0-offline-session-compatibility-contract.md`)
@@ -346,19 +353,44 @@ Clauses, each named with its judgement and red/green condition:
   red `A_ENDS_NOT_THE_SAME_CONFIRMED_WORLD`; either end unconfirmed ⇒ that end's named
   non-green code, not green.
 - **C4 `the_b_run_does_not_cross_into_a`** — ④: B's session set and confirmed-context
-  tuple appear in neither A1's nor A2's timeline or carrier pair (both directions: A's
-  context tuple ≠ B's; the pairwise §3.5 B disjointness must hold for A1|B and B|A2);
-  red `B_CROSSES_INTO_A` on any shared session/world-context occurrence.
+  tuple appear in neither A1's **own timeline** nor A2's **own timeline**, A's confirmed
+  context tuple ≠ B's, and the pairwise §3.5 B disjointness holds for both A1|B and B|A2.
+  Red `B_CROSSES_INTO_A` on any shared session/world-context occurrence in those scopes.
+  **Scope corrected by 主控 (round 14, 2026-09-27).** This row used to read "in neither
+  A1's nor A2's timeline **or carrier pair**", and that form is unsatisfiable by
+  construction: a bundle's carrier pair includes the sealed `previous-run-trace.jsonl`,
+  which *is* the predecessor's timeline, so in any honest A→B→A run A2's carrier pair
+  holds B's own session. Measured on the sealed triple — A2
+  `7ff026e4bca646c58f8eee2c2b000867` `previous_timeline.sessions =
+  ["4ba0825eee234506bcdca524d1631df9"]`, and that value is B
+  `a26e2c35b66e498b828900877397a73f`'s own session. The judgement therefore scopes to
+  each run's **own** rows plus the sealed context tuples; it never asks the predecessor
+  trace to be empty. The wording is a design-doc change only — `case_version` digests the
+  registered function bytes and the fixture, not this file — so it moves no registry
+  digest and invalidates no sealed bundle.
 - **C5 `the_external_identity_is_server_observed_in_all_three`** — ⑤: for each of the
   three runs, the registered `server_observed_join_identity` rule holds against that
   bundle's own `server/usercache.json` + `server/server.log` — no re-derivation of the
   rule, no client-side self-claim. Red = the rule's own named codes.
 
-The on-volume situation is unchanged and named: 46 sealed previous-run links whose both
+The on-volume situation as measured at draft time: 46 sealed previous-run links whose both
 ends exist (B1-b-0 probe, incl. the OFFLINE chain `f2ecb728…(010) → 3d5606ce…(020) →
-ee9d5ad3… / f0f35035…(030 children)`), but **no A→B→A triple was ever produced on the
-volume for identity-switch purposes** ⇒ the A→B→A half can only be closed by a future
-controlled run (§7.4); the definition itself does not close anything.
+ee9d5ad3… / f0f35035…(030 children)`), and at that point **no A→B→A triple had been
+produced on the volume for identity-switch purposes**.
+
+**Updated by 主控 (round 14, 2026-09-27): that first controlled run now exists.** Kin root
+`kin-e-aba`, A→B→A = attempts seq 3/4/5 — A1 `cd215ca1caf74bd0b230abe8de72e568`,
+B `a26e2c35b66e498b828900877397a73f`, A2 `7ff026e4bca646c58f8eee2c2b000867` — all `SEALED`,
+each `evidence verify` `verified: true` with 13 artifacts, each `rejudge_evidence`
+`status: agrees` at `case_version a44289e8cdbc0643eebb7ff73985014a8fb87e176c622fd2a1c085f7abcc8a3b`,
+and the two failed warm-up attempts (`fd516eb6…`, `c96aa8bd…`, both `HANDSHAKE_TIMEOUT`)
+left on the volume untouched. Clause-by-clause readings are in
+`docs/p0-offline-100-a-b-a-run-2026-09-27.md`. What the run supplies is real bytes for
+C1, C2, C5 and — under the corrected C4 scope — C4's disjointness, plus C3's tuple
+equality. What it does not supply is the cross-bundle chain carrier, so the registered row
+still answers `A_B_A_TRIPLE_NOT_SEALED` and the definition still closes nothing: closing it
+needs 主控 to decide whether evidence schema `minekin.p0.evidence.v1` grows a field, which
+would re-seal the volume.
 
 ### 3.6 Minimal counterexamples / positive controls (design; runtime part 未测 this session)
 
@@ -367,10 +399,16 @@ Positive controls (available material): runs `3d5606ced37849e3b17a4c418fa33ab4`
 `ee9d5ad3d57344da8452069102e27216` and `cb5e2119845e41868c28e5aeb1370ce3`
 (OFFLINE-030 children) — all five OFFLINE-030*/010*/020* bundles qualify per §3.3
 declared-path census. **But these are previous-run *pairs*: they can only ever control
-the 重启 half (§3.5 A/B). The volume has never produced any A→B→A triple for identity
-switching (named in §3.5 C), so no positive control exists this side of a controlled
-run for clauses C1-C5 — every C-clause probe below is design-only, 未测.** Counterexamples,
-each a single named-field edit on an in-memory copy of those sealed bytes (never the
+the 重启 half (§3.5 A/B). At draft time the volume had never produced any A→B→A triple
+for identity switching (named in §3.5 C), so no positive control existed this side of a
+controlled run for clauses C1-C5 — every C-clause probe below was design-only, 未测.**
+**Updated by 主控 (round 14, 2026-09-27): the controlled triple now exists** (§3.5 C's
+update paragraph), and with it the positive control for C1, C2, C4 (corrected scope) and
+C5 is measured on real sealed bytes rather than designed — 主控 re-read all three bundles
+independently with `rejudge_evidence` + `evidence verify` on the current trunk bytes. The
+counterexamples below are a different axis: they stay un-executed except 8's first half
+(E's labelled-copy trial, §6 of the run record). Counterexamples, each a single
+named-field edit on an in-memory copy of those sealed bytes (never the
 volume):
 
 1. one previous-row `kin_id` → `kin-99` ⇒ A red `KIN_ID_NOT_CONTINUOUS`.
@@ -384,12 +422,19 @@ volume):
    stays green — the rule is crossing, not uniqueness.
 7. generic digest guard as §2.7 (`rc=12` + `ARTIFACT_DIGEST_MISMATCH:<path>`).
 
-Triple counterexamples for §3.5 C (each on a labelled out-of-volume copy of a future
-A1/B/A2 triple — the design stands, the run does not exist yet, 未测):
+Triple counterexamples for §3.5 C (each designed against an A1/B/A2 triple; the truth
+ carriers are the sealed three, so an edit is made on a labelled out-of-volume copy and
+ the canonical volume is never written. **Updated by 主控 (round 14, 2026-09-27): the
+ triple now exists** — `kin-e-aba` sequences 3/4/5, digests in §3.5 C's update paragraph.
+ 8's first half has been run on such a copy; 9, 10 and 11 remain 未测):
 
 8. forge A2's carriers so its confirmed context names **B's** world (server.properties
    `level-name` / `Preparing level` moved to B's, or B's `server-profile.json` tuple)
    ⇒ C3 red `A_ENDS_NOT_THE_SAME_CONFIRMED_WORLD` (and C4 red).
+   **Half-executed** (round 14; §6 of the run record): on a labelled /tmp copy of A2, the
+   single field `level-name` → `OTHERWORLD` makes A2's tuple unequal to A1's and makes that
+   copy's properties digest disagree with the sealed manifest. Moving the carriers onto
+   **B's** actual world, `Preparing level` included, is still 未测.
 9. forge `kin_id` to differ in one of the three segments ⇒ C1 red
    `KIN_ID_NOT_SINGLE_ACROSS_TRIPLE`.
 10. forge A1 and A2 to reuse the **same** `session_id` ⇒ C2 red
