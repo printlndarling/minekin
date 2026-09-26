@@ -9,6 +9,12 @@
 #
 # Usage (inside the runner image, started by `run.sh domain`):
 #   domain.sh session start --profile /src/.../bundle.json --server-profile /src/.../server.json
+#   domain.sh session start --auto-bundle /src/.../reviewed-tested-bundles.json --server-profile /src/.../server.json
+#
+# The auto-bundle form resolves its recipe during the run; the seal then names the
+# recipe the run resolved to by reading it back from the run document, and a run
+# whose document says nothing is reported unsealed rather than sealed against a
+# guessed profile.
 #
 # Environment:
 #   MINEKIN_USERNAME         the account to whitelist (default Kin)
@@ -364,6 +370,7 @@ hold_requested=0
 # spend its whole budget on a hold that was correctly never granted.
 hold_at="playable"
 profile=""
+auto_bundle=""
 server_profile=""
 connection_timeout=""
 previous=""
@@ -373,12 +380,31 @@ for argument in "$@"; do
     esac
     case "${previous}" in
         --profile) profile="${argument}" ;;
+        --auto-bundle) auto_bundle="${argument}" ;;
         --server-profile) server_profile="${argument}" ;;
         --connection-timeout-seconds) connection_timeout="${argument}" ;;
         --hold-at) hold_at="${argument}" ;;
     esac
     previous="${argument}"
 done
+
+# The two bundle sources are mutually exclusive in the product's own parser, and
+# this scan keeps that rule rather than inventing a second one: a run naming both
+# would leave everything below choosing between two documents the session was
+# never given. Said by name, because the scan that first missed `--auto-bundle`
+# missed it silently — an empty profile carried all the way to the sealer.
+if [[ -n "${profile}" && -n "${auto_bundle}" ]]; then
+    printf 'domain: this run names both --profile and --auto-bundle; the session admits exactly one bundle source\n' >&2
+    exit 2
+fi
+# The auto path is a single-session scenario: the joining second client below is
+# started from a named bundle profile, and no auto resolution has been reviewed
+# for it. Refused here by name rather than reaching the joiner block with the
+# empty profile this scan carries for an auto run.
+if [[ -n "${auto_bundle}" && -n "${joiner}" ]]; then
+    printf 'domain: an auto-bundle run cannot also ask for a joining second client; the joiner is started from a named bundle profile\n' >&2
+    exit 2
+fi
 
 # The server a run starts has to be the server the client it launches may join, so
 # the recipe is read from the bundle profile rather than named by the operator: a
@@ -390,6 +416,42 @@ if [[ -n "${profile}" ]]; then
         python -c 'import json,sys; print(json.load(open(sys.argv[1],encoding="utf-8"))["minecraft"]["version"])' \
             "${profile}" 2>/dev/null
     )" || launched_version=""
+elif [[ -n "${auto_bundle}" && -n "${server_profile}" ]]; then
+    # An auto-bundle run hands this scan no bundle profile: the recipe is resolved
+    # during the run, and only the run document says which one. The server still
+    # has to start before the client, and the one document this run itself names
+    # that carries a version is the Server Profile it joins, so the version is
+    # read from there — the single allowed version of a schema 2 profile, or the
+    # pinned one of a schema 0/1 profile. An allow-list of several is refused by
+    # name rather than started at an arbitrary entry: starting the wrong server is
+    # the misjoin this whole block exists to prevent. A black hole names a port
+    # but starts no server, so nothing is decided here for it.
+    launched_version="$(
+        python - "${server_profile}" <<'PY' 2>/dev/null || true
+import json
+import sys
+
+try:
+    with open(sys.argv[1], encoding="utf-8") as handle:
+        document = json.loads(handle.read())
+except (OSError, ValueError):
+    raise SystemExit(0)
+if not isinstance(document, dict):
+    raise SystemExit(0)
+policy = document.get("version_policy")
+allowed = policy.get("allowed_versions") if isinstance(policy, dict) else None
+if isinstance(allowed, list) and allowed:
+    if len(allowed) == 1 and isinstance(allowed[0], str):
+        print(allowed[0])
+elif isinstance(document.get("minecraft_version"), str):
+    print(document["minecraft_version"])
+PY
+    )"
+    if [[ -z "${launched_version}" && -z "${black_hole}" ]]; then
+        printf 'domain: an auto-bundle run has to start the server its Server Profile allows, and %s names no single version to start\n' \
+            "${server_profile}" >&2
+        exit 2
+    fi
 fi
 version_args=()
 if [[ -n "${launched_version}" ]]; then
@@ -2010,6 +2072,47 @@ if [[ -n "${case_id}" ]]; then
             named_run=(--run-id "${run_id}")
         fi
     fi
+    # The sealer's --profile is required and names the bundle profile the session
+    # launched from. A manual run was handed one on its own command line, and this
+    # seals exactly that file. An auto-bundle run launched from exactly one recipe
+    # too — but which one the resolution picked is said in only one place, the run
+    # document Core printed, at `auto_bundle.recipe_path`. Guessing it here (the
+    # registry, the first reviewed entry, or the empty string the argv scan carries
+    # for an auto run) would seal a launch plan that never ran; the defect this
+    # branch had was passing that empty string and watching the sealer refuse. A
+    # document that says nothing is therefore reported unsealed, by name.
+    seal_profile_args=(--profile "${profile}")
+    seal_blocked=0
+    if [[ -n "${auto_bundle}" ]]; then
+        resolved_recipe="$(
+            python - "${subject_document}" <<'PY' 2>/dev/null || true
+import json
+import sys
+
+try:
+    with open(sys.argv[1], encoding="utf-8") as handle:
+        document = json.loads(handle.read())
+except (OSError, ValueError):
+    raise SystemExit(0)
+if not isinstance(document, dict):
+    raise SystemExit(0)
+decision = document.get("auto_bundle")
+if isinstance(decision, dict):
+    recipe = decision.get("recipe_path")
+    if isinstance(recipe, str) and recipe:
+        print(recipe)
+PY
+        )"
+        if [[ -n "${resolved_recipe}" && -f "${resolved_recipe}" ]]; then
+            seal_profile_args=(--profile "${resolved_recipe}")
+            printf 'domain: this is an auto-bundle run; the seal names the recipe the run resolved to: %s\n' \
+                "${resolved_recipe}" >&2
+        else
+            printf 'domain: this is an auto-bundle run and %s names no readable recipe it resolved to; the run is reported unsealed rather than sealed against a guessed profile\n' \
+                "${subject_document}" >&2
+            seal_blocked=1
+        fi
+    fi
     # The record of the fault this run injected, when it injected one. It is named
     # by its path and read once by the sealer, which seals the same bytes it judged.
     #
@@ -2032,19 +2135,30 @@ if [[ -n "${case_id}" ]]; then
     if [ -s "${soak_summary}" ]; then
         soak_args=(--soak-samples "${soak_file}" --soak-summary "${soak_summary}")
     fi
-    python /src/tools/seal_run_evidence.py \
-        --data-root /data \
-        --case "${case_file}" \
-        --profile "${profile}" \
-        "${world_args[@]}" \
-        "${named_run[@]}" \
-        "${world_run_args[@]}" \
-        "${fault_args[@]}" \
-        "${soak_args[@]}" \
-        --username "${subject_username}" \
-        --renderer-display "${renderer}" \
-        --session-argv "$@" >/tmp/domain-seal.json 2>/tmp/domain-seal.err
-    sealed=$?
+    sealed=2
+    if [ "${seal_blocked}" -eq 1 ]; then
+        # Not a sealer that fell over: one that was deliberately not called,
+        # because the profile it requires could not be named from this run's own
+        # document. Said through the same channel the sealer's stderr uses, so
+        # the transcript tells "unsealed, and why" apart from "judged".
+        : > /tmp/domain-seal.json
+        printf 'the auto-bundle run resolved to no recipe this harness can name from its run document; no seal was attempted\n' \
+            >/tmp/domain-seal.err
+    else
+        python /src/tools/seal_run_evidence.py \
+            --data-root /data \
+            --case "${case_file}" \
+            "${seal_profile_args[@]}" \
+            "${world_args[@]}" \
+            "${named_run[@]}" \
+            "${world_run_args[@]}" \
+            "${fault_args[@]}" \
+            "${soak_args[@]}" \
+            --username "${subject_username}" \
+            --renderer-display "${renderer}" \
+            --session-argv "$@" >/tmp/domain-seal.json 2>/tmp/domain-seal.err
+        sealed=$?
+    fi
     set -e
     if [ "${sealed}" -eq 2 ] || [ ! -s /tmp/domain-seal.json ]; then
         # A sealer that said nothing and exited zero-ish did not seal: the codes
