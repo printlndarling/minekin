@@ -1,6 +1,6 @@
 # Minekin 并行开发调度计划
 
-版本：2026-09-26。目的：把一个串行 Qoder 会话拆成可独立推进的实现、前端和真实验证工作流，同时保留当前证据门禁和用户决策边界。本文是**并行作业协议**，不是宣称这些能力已经完成；主控已于 2026-09-26 把它与 `development-execution-plan.md` 的主干状态原子对齐（主干 §2 `lane_next` 激活表与唯一 integration `NEXT` = `PARALLEL-INTEGRATION-GATE-001`，此后每合一张 lane 卡即回写主干状态）。
+版本：2026-09-26 激活、2026-09-27 第四轮补「M 侧审查的写操作边界」与 H 当前施工支。目的：把一个串行 Qoder 会话拆成可独立推进的实现、前端和真实验证工作流，同时保留当前证据门禁和用户决策边界。本文是**并行作业协议**，不是宣称这些能力已经完成；主控已于 2026-09-26 把它与 `development-execution-plan.md` 的主干状态原子对齐（主干 §2 `lane_next` 激活表与唯一 integration `NEXT` = `PARALLEL-INTEGRATION-GATE-001`，此后每合一张 lane 卡即回写主干状态）。
 
 ## 1. 当前现场与启动条件
 
@@ -16,12 +16,14 @@
 | E 真实运行/证据 | 当前 B2 专属证据记录、其 case/判官必要改动；规范数据卷的**唯一写入者** | `dashboard/**`、自动入口产品代码、他人独立卷；不得连接用户远程服 | B2 当前构建的剩余受控证据，缺 fixture 与未实现行为逐条分开 |
 | V 1.20.1 游戏内调试 | 独立卷/独立 Kin 的本地真实 run 与 `docs/validation/**` 中自己的报告；产品源码只读 | 规范卷、B2 文件、runner/判官/case/registry、用户远程服 | `V1201-PARTIAL-STORE-AND-JOIN-SMOKE-001`：部分装机复验与当前 build 本地入服/退出观察 |
 | S 自动入服安全 | `src/minekin_core/cli/auto_session.py`、必要 `bootstrap.py`/`server_profile.py` 和对应单元/契约测试（路径若需扩大先给 M） | `test-orchestrator/**`、证据工具、case fixtures、registry、规范卷、主计划 | `V1201-AUTO-ENTRY-GATE-ORDER-001`；之后 N2 预算参数校验，另卡另提交 |
-| H 测试 Harness | `test-orchestrator/runner/**`、`tools/run_controlled_server.py`、对应 runner 契约测试；`seal_run_evidence.py` 需与 E 协调独占窗口 | 产品 `src/**`、`bridge*/**`、case 判据、registry、规范卷、主计划 | `V1201-AUTO-PATH-RUNNER-001`（G1/G2）；**等 E 不再改/依赖该批 runner 文件后才开工** |
+| H 测试 Harness | `test-orchestrator/runner/**`、`tools/run_controlled_server.py`、对应 runner 契约测试；`seal_run_evidence.py` 需与 E 协调独占窗口。**当前施工支（2026-09-27）**：`codex/minekin-auto-path-status-wiring` @ `../minekin-wt-h3`，base `6ce9f06`，卡 `V1201-AUTO-PATH-STATUS-WIRING-001`（H3）；`H1c` 排在其后（`QUEUED`） | 产品 `src/**`、`bridge*/**`、case 判据、registry、规范卷、主计划 | `V1201-AUTO-PATH-RUNNER-001`（G1/G2）；**等 E 不再改/依赖该批 runner 文件后才开工** |
 | D Web Dashboard 前端 | 新增 `dashboard/**`，只含前端、类型/模拟数据、前端测试、局部说明 | `src/**`、`bridge*/**`、服务端 API、数据库、游戏输入、真实媒体宣称、主计划 | 只读状态/时间线 mock-first 垂直切片；不合并为 P0 运行产品 |
 
 另设候补 **G Gateway 只读投影**：待 M 冻结浏览器读模型与 P2 进程形态后，单独拥有新 `gateway/**`；不可在 P0 Core 里偷偷塞 FastAPI/WS，不可直接暴露 SQLite、Bridge socket 或带凭据原始事件。**P2 媒体**也待真实采集和授权接口冻结后开新 lane；不能用假画面充 Live View。
 
 同一文件仅一名 owner。任何跨 lane 修改都先在 M 的冲突表登记：需求、目标文件、当前 owner、移交时点；不能两边各写一半再指望 Git 自动合。每张卡附 base SHA、diff stat、测试原始结果、未测、阻断；分支 commit 后立即 push 本分支供审查，**只有 M 能更新 `main`**，且仅在证据/测试通过后按依赖顺序集成。失败分支保留，不能靠重写历史隐藏失败。
+
+**M 侧审查的写操作边界（2026-09-27 第四轮补，起因是 M 自己的一次越界）**：M 对 lane 卡的复量、反向证明和任何写文件的动作，只在**自己新建的 worktree / 自己的容器卷**里做，或在该 lane 会话明确停笔之后做；**不得在被审 lane 的活动 worktree 内写文件，不得替 lane 提交或重排它的提交**。同一条约束反过来也约束 lane：lane 不得为了让审查通过而改动 M 的合并说明。`Constraint`/`Not-tested` 这类 trailer 的口径由**做过该测量的一方**负责——M 未复量应写「M 侧未复量」，不得写成「未做」，那会把 lane 真实跑过的测量抹掉（第四轮 H2 上真实发生过一次，lane 已按事实更正）。
 
 #### 冲突表登记（2026-09-26，M 逐条开）
 
