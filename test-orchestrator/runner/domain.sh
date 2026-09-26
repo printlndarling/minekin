@@ -743,8 +743,168 @@ profile = {
 with open(path, "w", encoding="utf-8") as document:
     document.write(json.dumps(profile, indent=2) + "\n")
 PY
+    # ---------------------------------------------------------------------------
+    # The environment the joining client is *actually handed*, named before its JVM
+    # starts rather than inferred from what it crashed with afterwards.
+    #
+    # Why this exists as a reading and not as a comment: three runs of one case were
+    # judged on one byte-identical recipe and the machine answered differently — the
+    # same `domain.sh`, the same image, the same pinned artifacts — two of them died in
+    # the client with `[0x1000E] Failed to detect any supported platform` and one of
+    # them passed. Nothing the bundle said about that run could tell a reader which
+    # screen, which runtime directory or which GL stack the client process had been
+    # given, because the only display-shaped field in the evidence
+    # (`environment.renderer_display`) is measured by the *sealer*, by its own
+    # `xvfb-run … glxinfo -B` below, and it therefore says nothing about a run whose
+    # client never reached a window at all. Measured: it reads
+    # `llvmpipe (LLVM 20.1.2, 256 bits)` in every one of those six samples, PASS and
+    # FAIL alike.
+    #
+    # So the launcher names the three items itself, at both depths that matter, into
+    # one file in the joining Kin's run directory:
+    #   * `harness` — the environment this script holds at the moment it launches,
+    #   * `launch`  — the environment the wrapper hands down to the client's child.
+    # Two depths because the interesting thing is the *difference*: `xvfb-run` allocates
+    # its own server, its own `XAUTHORITY` and its own `DISPLAY`, so the values the
+    # client JVM sees are not the ones the harness exported.
+    #
+    # This is a reading, not a fix: it never exports, unset or defaults any of the three
+    # names, so it cannot hide a FAIL by making the environment look like something else.
+    # An item that is not set is written as `<unset>`, and a screen nobody serves is
+    # written as `unmeasurable: …` — a missing reading is named as missing rather than
+    # left as an empty string a later reader would call "the same as unset".
+    joiner_launch_wrapper=(xvfb-run -a --server-args="-screen 0 1280x720x24")
+    client_environment_readout="/data/kin/${joiner}/run/client-environment.txt"
+    client_environment_probe='
+        depth="${1:?which environment is being named}"
+        out="${2:?where the named environment is written}"
+        # Three states, not two: a name that is absent and a name that is present but
+        # blank answer different questions, and an empty string would let a reader
+        # collapse them.
+        read_one() {
+            if [ -z "${!1+set}" ]; then
+                printf "%s" "<unset>"
+            elif [ -z "${!1}" ]; then
+                printf "%s" "<set-but-empty>"
+            else
+                printf "%s" "${!1}"
+            fi
+        }
+        probe=$(glxinfo -B 2>&1)
+        probe_rc=$?
+        backend=$(printf "%s\n" "${probe}" |
+            sed -n "s/^OpenGL renderer string: //p" | head -1)
+        if [ -z "${DISPLAY:-}" ]; then
+            # Nothing to ask a renderer of, and that is said rather than measured.
+            backend="not-measured: this process was handed no DISPLAY at all"
+        elif [ -z "${backend}" ]; then
+            case "${probe}" in
+                *"unable to open display"*)
+                    backend="unmeasurable: the DISPLAY named here is not being served (glxinfo rc=${probe_rc})" ;;
+                *)
+                    backend="unmeasurable: glxinfo rc=${probe_rc} said $(printf "%s" "${probe}" | tr "\n" " " | cut -c1-90)" ;;
+            esac
+        fi
+        for item in DISPLAY XDG_RUNTIME_DIR XAUTHORITY; do
+            printf "%s %s=%s\n" "${depth}" "${item}" "$(read_one "${item}")" >> "${out}"
+        done
+        printf "%s GL_BACKEND=%s\n" "${depth}" "${backend}" >> "${out}"
+        printf "%s GL_PROBE_RC=%s\n" "${depth}" "${probe_rc}" >> "${out}"
+        # Which command line this reading came from, kept as a separate name rather than
+        # folded into `depth`: a screen allocated *inside* the wrapper is a different
+        # screen from the one the harness exported.
+        printf "%s WRAPPER=%s\n" "${depth}" "${MINERUN_LAUNCH_DEPTH:-not-stated}" >> "${out}"
+    '
     join_ready=1
 fi
+
+# Name the three items at both depths, then say them on the run's own output once. Called
+# by the launcher itself — see `join_the_published_world` — and never on a path a normal
+# run takes, so a run with no joiner pays nothing for it.
+#
+# It returns rather than exits whatever it could not do: a reading that cannot be taken
+# is a named gap in the record, not a reason to destroy a run that was about to produce
+# evidence. `set -e` is back on by the time this is called.
+name_the_joiner_client_environment() {
+    local rc=0
+    rm -f /tmp/domain-client-environment.err
+    if ! : > "${client_environment_readout}" 2>/dev/null; then
+        printf 'domain: the joining client environment could not be written because %s is not writable\n' \
+            "${client_environment_readout}" >&2
+        return 0
+    fi
+    # Depth 1 — what this script holds. The harness owns the X server for the whole run
+    # (see `Xvfb "${session_display}"`), so its own DISPLAY is the harness screen, not
+    # the one the joiner is about to be handed.
+    MINERUN_LAUNCH_DEPTH=direct \
+        bash -c "${client_environment_probe}" minekin-runner harness \
+        "${client_environment_readout}" 2>>/tmp/domain-client-environment.err ||
+        rc=$?
+    [ "${rc}" -eq 0 ] ||
+        printf 'domain: harness=unmeasurable: the probe process itself failed rc=%s (see /tmp/domain-client-environment.err)\n' \
+            "${rc}" >&2
+    # Depth 2 — what the launcher hands down. This goes through the very same array the
+    # client is launched with, which is why the launch site uses that array rather than
+    # repeating the literal: a reading taken through *another* command line could drift
+    # from the one the client actually got, and then the record would be about the probe.
+    rc=0
+    MINERUN_LAUNCH_DEPTH=inside-wrapper \
+        "${joiner_launch_wrapper[@]}" env MINEKIN_KIN_ID="${joiner}" \
+        bash -c "${client_environment_probe}" minekin-runner launch \
+        "${client_environment_readout}" 2>>/tmp/domain-client-environment.err ||
+        rc=$?
+    [ "${rc}" -eq 0 ] ||
+        printf 'domain: the launch-depth reading failed rc=%s (the wrapper never reached its child; see /tmp/domain-client-environment.err)\n' \
+            "${rc}" >&2
+    # The greppable line: the items as one line, exactly as the file holds them.
+    printf 'domain: joiner client environment before its JVM: %s\n' \
+        "$(grep '^launch ' "${client_environment_readout}" 2>/dev/null |
+            tr '\n' ' ')" >&2
+    return 0
+}
+
+# When the joining client never arrived, *which* downstream reading the run is evidence
+# about. The criteria say `NO_CONNECTION_WAS_DIALLED` / `THE_CLIENT_NEVER_DIALLED_A_PORT`,
+# and both are facts about the client half — but a reader who only sees them cannot tell
+# whether the world was even there, and "the server status is not probeable" has the same
+# shape as "the client never dialled" from downstream. So the two are read separately here:
+# whether anything answers the published port on loopback (nothing else — never a remote
+# address), and whether the client was handed a screen that could be measured.
+#
+# This names readings. It changes no criterion, no gate and no bundle field, and a run it
+# describes is still the same FAIL it was before.
+classify_the_joiner_downstream_readings() {
+    local listening=0
+    local probe_rc=0
+    timeout 5 bash -c "exec 3<>/dev/tcp/127.0.0.1/${lan_port}" 2>/dev/null || probe_rc=$?
+    if [ "${probe_rc}" -eq 0 ]; then
+        listening=1
+    fi
+    local backend
+    backend=$(sed -n 's/^launch GL_BACKEND=//p' "${client_environment_readout}" 2>/dev/null |
+        head -1) || true
+    local verdict
+    if [ -z "${backend}" ]; then
+        verdict='THE_CLIENT_ENVIRONMENT_WAS_NEVER_READ (no launch-depth line in '"${client_environment_readout}"'); this run cannot say which half died'
+    elif [ "${listening}" -eq 1 ]; then
+        case "${backend}" in
+            unmeasurable* | not-measured*)
+                verdict='THE_RUN_DIED_IN_THE_CLIENT_ENVIRONMENT while the world was listening on 127.0.0.1:'"${lan_port}"' (screen: '"${backend}"')' ;;
+            *)
+                verdict='THE_RUN_DIED_ON_THE_CLIENT_SIDE with a live world and a measurable screen ('"${backend}"'), so the client environment rather than the world is where to look next' ;;
+        esac
+    else
+        case "${backend}" in
+            unmeasurable* | not-measured*)
+                verdict='BOTH_HALVES_NAMED_AND_BOTH_BAD: nothing answers 127.0.0.1:'"${lan_port}"' and the client was handed no measurable screen ('"${backend}"')' ;;
+            *)
+                verdict='THE_WORLD_STATUS_IS_NOT_PROBEABLE: nothing answers 127.0.0.1:'"${lan_port}"' while the client screen measured ('"${backend}"'), so this run is evidence about the world and not about the client environment' ;;
+        esac
+    fi
+    printf 'domain: downstream reading — %s\n' "${verdict}" >&2
+    printf 'downstream %s\n' "${verdict}" >> "${client_environment_readout}" 2>/dev/null || true
+    return 0
+}
 
 # Start the second client against the world the first one published, and wait for the
 # *world* to say somebody arrived. The joiner's own document is what that client
@@ -788,7 +948,8 @@ join_the_published_world() {
     baseline=$(/opt/sqlite/bin/sqlite3 "/data/kin/${joiner}/kin.sqlite3" \
         "select coalesce(max(position), 0) from event;" 2>/dev/null || echo 0)
     baseline=${baseline:-0}
-    xvfb-run -a --server-args="-screen 0 1280x720x24" \
+    name_the_joiner_client_environment
+    "${joiner_launch_wrapper[@]}" \
         env MINEKIN_KIN_ID="${joiner}" python -m minekin_core session start \
         --profile "${profile}" \
         --server-profile /tmp/domain-join-profile.json \
@@ -810,6 +971,7 @@ join_the_published_world() {
         printf 'domain: %s never arrived within %ss\n' "${join_username}" "${seconds}" >&2
         tr -d '\n' </tmp/domain-join-session.err >&2 || true
         printf '\n' >&2
+        classify_the_joiner_downstream_readings
     fi
     # Being *playable* is the joining client's own conclusion about the first snapshot
     # it admitted, and the ledger is where this harness reads conclusions. Measured:
