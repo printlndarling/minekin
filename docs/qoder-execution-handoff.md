@@ -379,3 +379,33 @@ V2 的绿读数暴露、M 在自己卷上重放确认：auto run 跨过早停后
 
 ### 不声称
 - 不宣称 Minekin 完成；不宣称端到端 1.20.1 auto JOIN 跑通过过一次「窗内到达 + 正常收尾」的运行；不宣称任何门禁点亮（`promotable` 仍 `W00/W10/W20/W60`，`overall.blocks` 仍 `["REQUIRED_CASE_NOT_REGISTERED"]`）。
+
+
+## M 主控第八轮（2026-09-27）：受控容器引擎恢复、合并树 `:ro` 复量补完、两张卡派工
+
+### 起点核对（先量再写）
+- 恢复时远端 `refs/heads/main = 796316ad68724584178add0e34f8370dd22a5098`（= 第七轮回写的三笔 `3706524` → `d455309` → `14830cc` → `796316a`）；M 的集成 worktree `../minekin-wt-integration` 与主干同步、工作树 clean；共享 checkout `codex/core-state-transition @ 6a02ac6` 未由 M 写入。
+- 用户启动 Docker Desktop 后 M 实读：`docker version` → `Server Version 29.5.3`；`docker image inspect minekin-runner:local` → id `b67a4d917306`；卷 `minekin-runner-data` 在位。第七轮诊断的根因（**整个应用没有在运行**，而非引擎报错）据此确认并解除；M 全程未自行重启/接管任何进程。
+
+### 已合入 main
+- 本轮无新的 lane 卡合入（本节的回写即是本轮唯一主干改动）。
+
+### 补完：第七轮欠下的合并后 `:ro` 复量（本轮已做，替代主干里所有「M 侧未复量」）
+- 在合并树 `796316a` 上以 `minekin-runner:local`（id `b67a4d917306`）挂仓库 `:ro` + 规范卷 `:ro` 重放 `.tmp/m-r7-baseline.sh`、`.tmp/m-h3-evidence.sh`（脚本在 `../minekin-wt-integration/.tmp`，日志 `.tmp/m-r8-baseline.log`、`.tmp/m-r8-evidence.log`）：
+  - 只读性证据是真实写试探 → `OSError: [Errno 30] Read-only file system`，不是 `os.access` 断言。
+  - 门载荷 `report_rc=1`、`gate_payload_sha256 = fb0152c85d029ee06a41a34e84f9656cd23fae0b1e166322c494d1190cd178da`、`promotable = ["W00","W10","W20","W60"]`、`overall.blocks = ["REQUIRED_CASE_NOT_REGISTERED"]` ⇒ 与第三～七轮逐字相同，`H1c` 的合入没有移动任何门禁读数。
+  - 台账底数 `attempts 71 / bundles 107 / from_another_build 61 / repo_checks_not_from_the_controlled_interpreter 9`，`sealed_without_bundle 0 / unreadable 0 / unsealed 0 / unverified 0`；两个 build 计划 SHA（1.20.1 `83299ad5…`、1.21.4 `bcc0c10d…`）照旧可读；`CORE-030 rows: 0`、`supersedes: []`。
+
+### 仅在分支（两张在工，均未提交 ⇒ 尚未验证）
+- H lane `H1d`：支 `codex/minekin-h1d-run-rc` @ `../minekin-wt-h1d`，base `796316a`，工作树 clean、`git log` 尖仍是 base ⇒ 施工中、零提交。三项验收：① auto run 停在具名前沿时 `domain.sh` 的 `rc=0` 可见性缺口，② `launch` 深度读数取自真起客户端那次 wrapper（成对实测对照，坐实或改正 `H1c` 记录里那句过强措辞），③ 相应措辞修正。禁挂规范卷、禁改判据/registry/门禁/seal schema。
+- M 自己 naming 卡 `INT-ORCHESTRATOR-REVISION-VISIBILITY-001`：支 `codex/minekin-orchestrator-revision-visibility` @ `../minekin-wt-revvis`，base `796316a`，当前未提交改动 = `tests/unit/test_report_promotion.py` `+43`（只动 `tools/report_promotion.py` 与其单测）。它只把「bundle 不钉编排脚本版本」这件事变成报告里可读的具名事实，不改判据、不写卷。
+- E lane `B1-b` 第一阶段：支 `codex/minekin-offline-090-100` @ `../minekin-wt-b1b`，base `03c1d95`，工作树 clean、零提交；会话仍在产出仓库外测量（`.tmp/e-b1b-stage2.sh`、`stage3.sh`、`offline-090.proposed.json`、`offline-100.proposed.json`）。M 未在该 worktree 写任何文件。
+
+### 真实封证
+- 本轮零封证：M 全程 `:ro` 读规范卷，未新建 attempt/bundle、未重判任何既有行、未翻 `status/gaps`、未晋级任何门。`attempts 71 / bundles 107` 与第七轮逐字相同。
+
+### lane_next 现状
+- 主干唯一 `NEXT` 仍是 `PARALLEL-INTEGRATION-GATE-001`。H = `H1d`（在工）；M = `INT-ORCHESTRATOR-REVISION-VISIBILITY-001`（在工）；E = `B1-b` 第一阶段在工、其**封存侧**前置已满足（写窗空闲）；V/S/D 无安全可派卡（V 的下一张要等 `H1d` 给出加入者起跳面）。
+
+### 不声称
+- 不声称 Minekin 完成；不声称端到端 1.20.1 auto JOIN 有一次「窗内到达 + 正常收尾」的运行；不声称任何门禁点亮（`promotable` 仍 `W00/W10/W20/W60`，`overall.blocks` 仍 `["REQUIRED_CASE_NOT_REGISTERED"]`）；不声称 `H1d`/`B1-b`/`INT-ORCHESTRATOR-REVISION-VISIBILITY-001` 已验证（三张都还没有提交）。全程未连接、未探测、未读取用户的远程服务器，`.tmp/local-test-server.txt` 未被打开；文中只出现 loopback/受控本地地址、卷名与镜像名。
