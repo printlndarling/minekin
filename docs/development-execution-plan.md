@@ -27,7 +27,7 @@
 | lane | 分支 / worktree | `lane_next` | 状态 |
 | --- | --- | --- | --- |
 | E 真实运行/证据 | `codex/minekin-evidence` @ `../minekin-wt-evidence`（B2 checkpoint `6a02ac6` 已交，已迁出共享 checkout） | B2 `P0-CONTROLLED-CAMPAIGN-001` | 进行中，B2 归 E，不因 lane 化改判；规范卷唯一写入者不变 |
-| S 自动入服安全 | `codex/minekin-auto-entry` @ `../minekin-wt-auto-entry`，base 见本表激活时远端 `main` | `V1201-AUTO-ENTRY-GATE-ORDER-001`（N1，§3.2）；S2 `V1201-MAX-BYTES-VALIDATION-001` 另卡另提交 | 已激活 |
+| S 自动入服安全 | `codex/minekin-auto-entry` @ `../minekin-wt-auto-entry`，base 见本表激活时远端 `main` | S1 `V1201-AUTO-ENTRY-GATE-ORDER-001`（N1，§3.2）**已合入主干**（合并 `b88e36f`，2026-09-26）；`lane_next` 前进为 S2 `V1201-MAX-BYTES-VALIDATION-001`，另卡另提交 | S1 实现经双审+全量基础门合入；§3.2 N1 的受控“先拒后装”重跑读数待 E 的规范卷轮次，卡片未收口；新 base 以远端 `main` 为准 |
 | D Web Dashboard 前端 | `codex/minekin-dashboard` @ `../minekin-wt-dashboard` | `DASHBOARD-READONLY-SHELL-001`（协议 §3 D1，按[Dashboard 契约](standalone-runtime-dashboard.md)与[技术栈](technical-stack-selection.md)施工） | 已激活 |
 | V 1.20.1 游戏内调试 | `codex/minekin-v1201-validation` @ `../minekin-wt-v1201-validation` | `V1201-PARTIAL-STORE-AND-JOIN-SMOKE-001`（协议 V1） | 已激活 |
 | H 测试 Harness | `codex/minekin-harness` @ `../minekin-wt-harness` | `V1201-AUTO-PATH-RUNNER-001`（G1/G2，§3.1） | 已激活（2026-09-26，E 的 B2 checkpoint `6a02ac6` 落地且本批 runner 文件零改动，文件租约释放）；E 重开真跑封证时按协议先协调 `seal_run_evidence.py` 独占窗口 |
@@ -156,7 +156,7 @@ A2/A3 是本次新增的**本地安全顺序卡**，允许 A1 完成后机械提
 
 | ID | 状态 / 依赖 | 交付与边界 |
 | --- | --- | --- |
-| **N1** `V1201-AUTO-ENTRY-GATE-ORDER-001` | `QUEUED`，不依赖 A3，可插在 A3 之后 | 让 `--auto-bundle` 的准入与 `--profile` 等强：地址禁区、"managed session 只能 join loopback"、profile allowlist 与解析结果一致三件事必须在**任何下载/整店复核之前**判完。判据取复判记录 §3 的 X1 vs X2/Y2 与 B1/B2；实现不得改本记录的期望，收卡要能重跑那三组行并给出"先拒后装"的新读数。**不改 case 判据、不翻 registry。** |
+| **N1** `V1201-AUTO-ENTRY-GATE-ORDER-001` | **实现已合入主干 `b88e36f`（2026-09-26，S lane S1 `5355568` 经双审与全量基础门：2508 测试通过、5 条新单元/契约测试以探针计数证明“先拒后问”）**，收口仍待受控重跑读数 | 让 `--auto-bundle` 的准入与 `--profile` 等强：地址禁区、"managed session 只能 join loopback"、profile allowlist 与解析结果一致三件事必须在**任何下载/整店复核之前**判完。判据取复判记录 §3 的 X1 vs X2/Y2 与 B1/B2；实现不得改本记录的期望，收卡要能重跑那三组行并给出"先拒后装"的新读数。**不改 case 判据、不翻 registry。** 合入实现：`load_joinable_session_target` 在 probe/resolve 之前具名拒非法地址与禁区，`require_target_allows_launch` 在 `_resolved_entry` 后、`require_reviewed_plan` 前判 allowlist 一致性；那三组行的规范卷重跑读数由 E 在后续真跑轮补，补到前本卡不收口。 |
 | **N2** `V1201-MAX-BYTES-VALIDATION-001` | `QUEUED`，不依赖 A3 | `--max-bytes 0`/`-1` 今天得到 `exit=70 / INTERNAL_INVARIANT`（`ValueError` 冒到 CLI），`--max-bytes 1` 却是正确的 `SUPPLY_CHAIN` 具名拒止；`--max-bytes` 与 `--profile` 同给时被接受且被忽略，而帮助文本说它属于 `--auto-bundle`。要的是 CLI 层具名校验/具名用法错误，属产品行为。 |
 | **N3** `V1201-DISK-PREFLIGHT-001` | `BLOCKED_DECISION`（等主控冻结断言） | 契约"1.20.1 工件…磁盘满 → 无可启动半包"一行在 `src/minekin_core` 无任何实现（无空间预检、无对应失败类别），因此执行侧无法用真实读数回答它。需要先决定：是否装机前预检、失败令牌叫什么、与 `--max-bytes` 预算如何分工。冻结前不自造断言。 |
 | **N4** `V1201-SRV-RESOLVER-001` | `BLOCKED_DECISION` | 唯一解析实现是 `SavedAddressResolver`，profile host 必须是字面 IP（复判记录 §1 F3 的 A4 行）。契约那行"SRV/DNS 目标改变"要成为可测行为，先得决定产品是否引入 SRV/DNS；若决定不引入，则该行的正确收法是"无解析路径 + 装载期禁区拒"，需要主控确认这一口径。 |
@@ -187,7 +187,7 @@ B1 的卡面判据是「只把有明确必要性的 missing case 排成独立实
 | --- | --- | --- |
 | `P0-EVIDENCE-INVENTORY-001` | **`DONE`（2026-09-26，见 §2 与[盘点记录](p0-evidence-inventory-2026-09-26.md)）**，依赖 A3（已满足） | 已量出：四桶 `31/28/0/15`、28 条按成因与判据形状两刀切分、11 门 block 与三种 block 的语义、产品未实现只在缺 fixture 侧点名 6 条整条 + 2 个半句、四条反证各自移一个机制、一处契约行与一处旧清单口径的滞后登记。交出 §3.3 的排卡。 |
 | `P0-CONTROLLED-CAMPAIGN-001` | **E lane 的 `NEXT`（2026-09-26 自 B1 机械提升；lane 化后归 E 在独立分支施工，M 只合并）**，其「inventory 后」前置已满足；**第一刀 B1-a 与第二刀（`OFFLINE-030`）同日完成，卡片仍在进行中** | 按 W00→W70/`p0-core` 契约，在受控 dedicated offline 与必要 LAN 场景补当前 build 的 mandatory sealed bundle，包括 L3/L5/L6、崩溃恢复、重启协调、offline identity 与 soak；每个 case 的独立 oracle、非空转反证、版本摘要齐全，再谈 promotion。既有 `REAL-P0-CAMPAIGN-001` 历史阻断保留，不当成 DONE。B1 给它的最小内容：先补 §3.3 的 B1-a（`CORE-040`、`CORE-050` 两条 mandatory，只差运行）——**已交，见 [第一刀记录](p0-core-040-050-run-2026-09-26.md)**：两条各一份当前 build 的 `PASS + verified + case_version 对得上 + 独立复判 AGREES` bundle，W60 读数转为 `promotable: true / blocks []`（仍只是候选，不晋级），反证 P/R1/R2/R3 证明这个视图既能判红也能拒篡改。再按判据形状排 `OFFLINE-030` 与那 5 条只有别的构建 bundle 的 ADMIT 行（`ADMIT-001/040/060/100/110`）——`OFFLINE-030` **同日已交，见 [第二刀记录](p0-offline-030-run-2026-09-26.md)**（一份当前 build 的 `PASS + verified + crit_match + 复判 AGREES 1/1`，八行材料层判否对照；但该行 `mandatory: false`，撤掉它门一字不变）；那 5 条 ADMIT 行也全在 `non_mandatory` 名单里，**跑完它们不会动任何一门**，所以本卡剩下的门阻因（`REQUIRED_CASE_NOT_REGISTERED` / `NO_MANDATORY_CASES`）属 case 设计与 `P0-GATE-PROMOTION-001`（主控）。deferred 的 `HOST-030/040` 不计入本卡。 |
-| `PARALLEL-INTEGRATION-GATE-001` | **主干 `NEXT`（M，2026-09-26 随 lane_next 激活常驻）** | 主控 integration gate：按协议 §5 与 M1，逐卡双审 S/E/H/D/V 分支（允许路径、契约、测试、当前 build 真实证据），按依赖顺序每次只合一张卡入 `main`，合后核远端 SHA 并向各 lane 发新 base；分支未合并不得写成主干 `DONE`。本卡随激活持续有效，不是 docs-only 轮次卡。 |
+| `PARALLEL-INTEGRATION-GATE-001` | **主干 `NEXT`（M，2026-09-26 随 lane_next 激活常驻）** | 主控 integration gate：按协议 §5 与 M1，逐卡双审 S/E/H/D/V 分支（允许路径、契约、测试、当前 build 真实证据），按依赖顺序每次只合一张卡入 `main`，合后核远端 SHA 并向各 lane 发新 base；分支未合并不得写成主干 `DONE`。本卡随激活持续有效，不是 docs-only 轮次卡。首合：S1 并入主干 `b88e36f`（2026-09-26）。 |
 | `P0-PLATFORM-MATRIX-001` | `QUEUED_CONDITIONAL`，基础证据后 | Java 17/21 与目标 OS/arch 分别做真实 runner/安装验证；Windows 缺口不凭 Linux PASS 删除。CI 仅作为辅助，优先本地/Docker。 |
 | `P0-GATE-PROMOTION-001` | `BLOCKED_EVIDENCE`，上述证据后 | 独立审计 W00…W70、`p0-core` 当前门禁；`promotable` 只是机器候选，还要规格/工程审查、准确登记、commit/push。不可用单一 W 门的绿替代整体。 |
 
