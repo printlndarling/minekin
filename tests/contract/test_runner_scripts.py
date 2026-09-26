@@ -455,6 +455,190 @@ def test_a_run_that_stops_at_a_named_supply_chain_refusal_exits_non_zero() -> No
     assert "SUPPLY_CHAIN" not in text
 
 
+#: The one command line that writes the joining client's LAN profile, with the two
+#: lines that unpack its arguments. Pinned in full because the whole card is about
+#: where line `minecraft_version` gets its value: a writer that still took two
+#: arguments could not carry a run's version even if the dict entry were renamed.
+JOINER_PROFILE_WRITER = (
+    '    python - "${lan_port}" /tmp/domain-join-profile.json "${launched_version}" <<\'PY\'\n'
+    "import json\n"
+    "import sys\n"
+    "\n"
+    "port, path, version = int(sys.argv[1]), sys.argv[2], sys.argv[3]\n"
+)
+
+#: The named refusal immediately above that writer: the run stops when it cannot
+#: name the version it launched, instead of handing the joiner a guessed one.
+JOINER_VERSION_REFUSAL = (
+    '    if [ -z "${launched_version}" ]; then\n'
+    "        printf 'domain: the joining client must carry the version this run launched,"
+    " and this run launched none it could name; refusing to write a joiner profile at a"
+    " guessed version\\n' >&2\n"
+    "        exit 2\n"
+    "    fi\n"
+)
+
+
+def joiner_profile_version_comes_from_the_run(text: str) -> bool:
+    """The joiner's profile carries the version this run launched, as an argument."""
+
+    return (
+        JOINER_PROFILE_WRITER in text
+        and '"minecraft_version": version,' in text
+        # The constant is banned script-wide as a dict entry, not just at the writer:
+        # a second writer with the old default is the same defect one file later.
+        # (A comment may still *name* the old constant — that is how the refusal
+        # says what it refuses — but the byte with the trailing comma is a dict.)
+        and '"minecraft_version": "1.21.4",' not in text
+    )
+
+
+def joiner_version_refusal_is_named(text: str) -> bool:
+    """No version this run can name stops the run by name, before any profile exists."""
+
+    gate = text.find(JOINER_VERSION_REFUSAL)
+    writer = text.find(JOINER_PROFILE_WRITER)
+    return (
+        text.count(JOINER_VERSION_REFUSAL) == 1
+        and text.count(JOINER_PROFILE_WRITER) == 1
+        and -1 < gate < writer
+    )
+
+
+def test_the_joiner_profile_version_comes_from_the_run() -> None:
+    """The second client's profile said 1.21.4 whatever the run had actually started.
+
+    Measured on the base bytes in the controlled container, driving the block as the
+    shipped script holds it (lines 728-745, extracted verbatim by `.tmp/h1f-joiner-probe.sh`
+    and sourced with the run's own variables): with `launched_version=1.20.1` — the value
+    the recipe read at the top of the same script would carry — the profile written to
+    `/tmp/domain-join-profile.json` still said `"minecraft_version": "1.21.4"`, rc 0; and
+    with `launched_version` empty (a bundle profile that names no readable recipe) it said
+    the same. So a 1.20.1 server was joined by a client claiming 1.21.4, and the ⑤-family
+    client endings (`GLFW 0x1000E`, `XDG_RUNTIME_DIR`) could be neither reproduced nor
+    excluded on the 1.20.1 side — V's record of exactly that is what this replaces. After
+    the change the same drives say: `1.20.1` in → `1.20.1` out, `1.21.4` in → `1.21.4` out,
+    nothing in → the named refusal on stderr, rc 2, and no profile file written at all.
+
+    The refusal shape is the one the script already uses for its other "this run cannot
+    name it" frontiers (the auto+joiner refusal above the recipe read): said to stderr,
+    `exit 2`, and — the part this card adds — with no constant left standing behind it to
+    fall back to. A default would be the defect of the base bytes under a new name.
+
+    The four profile fields that are not the version (`profile_id`, `host`, `port`,
+    `auth_mode`) are pinned unchanged below, so "the version source moved" cannot be
+    recorded as a quiet change to what the fixture dials. The auto+joiner refusal itself
+    stays closed — this writer is reached only from the named-profile path, and the gate
+    reads the same `launched_version` the server was started with.
+    """
+
+    text = (RUNNER / "domain.sh").read_text(encoding="utf-8")
+
+    # The version reaches the profile as this run's value, through argv and nothing else.
+    assert joiner_profile_version_comes_from_the_run(text)
+    # And a run that cannot name its version says so by name and leaves no profile behind.
+    assert joiner_version_refusal_is_named(text)
+
+    # Same server, same claim: the value profiled is the value the controlled server was
+    # started with. Both read the one variable the recipe produced at the top of the run.
+    assert 'version_args=(--version "${launched_version}")' in text
+    assert '"${version_args[@]}"' in text
+
+    # The fields that are not the version, unchanged by this card, each exactly once
+    # inside the joiner's own writer block (the script builds other documents too, and
+    # this claim is about the one profile the joining client is handed).
+    writer_head = text.index(JOINER_PROFILE_WRITER)
+    writer_block = text[writer_head : text.index("\nPY\n", writer_head)]
+    assert writer_block.count('"profile_id": "p0-lan-host-fixture",') == 1
+    assert writer_block.count('"host": "127.0.0.1",') == 1
+    assert writer_block.count('"auth_mode": "offline",') == 1
+    assert writer_block.count('"port": port,') == 1
+    assert writer_block.count('"schema_version": 1,') == 1
+    assert writer_block.count('"visibility": "isolated_test_only",') == 1
+    assert writer_block.count('"resource_pack_policy": "deny",') == 1
+
+    # The profile is still written where the client's launch line reads it, and before
+    # that line — the refusal can only stop a run that had not started a joiner yet.
+    assert "/tmp/domain-join-profile.json" in text
+    assert text.index(JOINER_VERSION_REFUSAL) < text.index(JOINER_LAUNCH_HEAD)
+
+    # The refusal of an auto-bundle run with a joiner stays exactly as it was: this card
+    # moved the version source under the named-profile path and did not open that door.
+    assert "an auto-bundle run cannot also ask for a joining second client" in text
+    assert text.count("cannot also ask for a joining second client") == 1
+
+
+def test_the_joiner_version_contract_is_not_an_always_true_claim() -> None:
+    """Reverse each half of the fix over the shipped bytes and its predicate goes false.
+
+    `assert "launched_version" in text` would have passed on the base bytes too — the
+    variable existed there, it just never reached the joiner's profile. So the two
+    predicates the test above asserts are driven here over mutations, and RV-0 pins the
+    shape difference against the base block itself: the base writer takes two arguments
+    and its dict carries the comma-terminated constant, which is exactly what each
+    predicate refuses.
+    """
+
+    text = (RUNNER / "domain.sh").read_text(encoding="utf-8")
+    assert joiner_profile_version_comes_from_the_run(text)
+    assert joiner_version_refusal_is_named(text)
+
+    # RV-0: the base block, re-spliced in place of the shipped one — the red measurement
+    # in predicate form. Both halves stop holding, and nothing else is deleted.
+    base_writer = (
+        "    python - \"${lan_port}\" /tmp/domain-join-profile.json <<'PY'\n"
+        "import json\n"
+        "import sys\n"
+        "\n"
+        "port, path = int(sys.argv[1]), sys.argv[2]\n"
+    )
+    back_to_base = text.replace(JOINER_PROFILE_WRITER, base_writer, 1).replace(
+        '    "minecraft_version": version,\n', '    "minecraft_version": "1.21.4",\n', 1
+    )
+    assert back_to_base != text, "the shipped writer was not found to replace"
+    assert not joiner_profile_version_comes_from_the_run(back_to_base)
+    assert not joiner_version_refusal_is_named(back_to_base)
+
+    # RV-1: the version is still passed, but the dict keeps a constant — the silent
+    # fallback under a new name, which is the defect this card was written to kill.
+    constant_kept = text.replace(
+        '    "minecraft_version": version,\n',
+        '    "minecraft_version": "1.21.4",\n',
+        1,
+    )
+    assert constant_kept != text
+    assert not joiner_profile_version_comes_from_the_run(constant_kept)
+
+    # RV-2: the writer is fixed but the refusal is deleted — a run with no version now
+    # writes a profile carrying the empty string, a claim about no world at all.
+    without_gate = text.replace(JOINER_VERSION_REFUSAL, "", 1)
+    assert without_gate != text
+    assert not joiner_version_refusal_is_named(without_gate)
+    assert joiner_profile_version_comes_from_the_run(without_gate), (
+        "deleting the refusal also blinded the writer predicate: the two are supposed"
+        " to be independent halves"
+    )
+
+    # RV-3: the refusal prints but falls through — `exit 2` gone, the named sentence
+    # becomes a warning and the guessed profile is written right after it.
+    warn_only = text.replace(
+        JOINER_VERSION_REFUSAL,
+        JOINER_VERSION_REFUSAL.replace("        exit 2\n", "", 1),
+        1,
+    )
+    assert warn_only != text
+    assert not joiner_version_refusal_is_named(warn_only)
+
+    # RV-4: the gate stays but is moved below the writer — it can then only speak after
+    # the profile it refuses to have written already exists.
+    moved = text.replace(JOINER_VERSION_REFUSAL, "", 1).replace(
+        JOINER_PROFILE_WRITER, JOINER_PROFILE_WRITER + JOINER_VERSION_REFUSAL, 1
+    )
+    assert moved != text
+    assert not joiner_version_refusal_is_named(moved)
+    assert joiner_profile_version_comes_from_the_run(moved)
+
+
 def _pip_install_arguments(dockerfile: str) -> list[str]:
     """Each quoted argument handed to a `pip install`, across line continuations."""
 
