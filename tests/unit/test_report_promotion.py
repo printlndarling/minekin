@@ -287,6 +287,50 @@ def test_missing_latest_bundle_blocks_older_pass(tmp_path: Path) -> None:
     assert document["work_packages"]["W40"]["blocking_cases"] == [CASE_ID]
 
 
+def test_a_lost_latest_attempt_is_named_as_attested_evidence(tmp_path: Path) -> None:
+    """The case blocks *and* the report says which attested bundle is not there."""
+
+    seal_sequenced(tmp_path, RUN_ID)
+    latest = seal_sequenced(tmp_path, "ed1f9a7b2d3e4f6089abcdef01234567")
+    unseal_bundle(latest)
+    shutil.rmtree(latest)
+
+    document = cast(dict[str, Any], bundle_report(CASE_ID, data_root=tmp_path, gated="W40"))
+
+    assert document["status"] == "blocked"
+    assert document["evidence"]["sealed_without_bundle"] == [
+        {"case_id": CASE_ID, "run_id": "ed1f9a7b2d3e4f6089abcdef01234567", "sequence": 2}
+    ]
+
+
+def test_a_lost_earlier_attempt_is_named_rather_than_absorbed(tmp_path: Path) -> None:
+    """The verdict is the latest attempt's; the retained failure that vanished is not."""
+
+    earlier = seal_sequenced(tmp_path, RUN_ID, result=EvidenceResult.FAIL)
+    seal_sequenced(tmp_path, "fd1f9a7b2d3e4f6089abcdef01234567")
+    unseal_bundle(earlier)
+    shutil.rmtree(earlier)
+
+    document = cast(dict[str, Any], bundle_report(CASE_ID, data_root=tmp_path, gated="W40"))
+
+    assert document["status"] == "promotable"
+    assert document["evidence"]["sealed_without_bundle"] == [
+        {"case_id": CASE_ID, "run_id": RUN_ID, "sequence": 1}
+    ]
+
+
+def test_retained_earlier_attempt_keeps_the_report_readable(tmp_path: Path) -> None:
+    """One setup changed from the refusal above: the bytes are still there."""
+
+    seal_sequenced(tmp_path, RUN_ID, result=EvidenceResult.FAIL)
+    seal_sequenced(tmp_path, "fd1f9a7b2d3e4f6089abcdef01234567")
+
+    document = cast(dict[str, Any], bundle_report(CASE_ID, data_root=tmp_path, gated="W40"))
+
+    assert document["status"] == "promotable"
+    assert document["evidence"]["sealed_without_bundle"] == []
+
+
 def test_unverified_latest_attempt_blocks_older_pass(tmp_path: Path) -> None:
     seal_sequenced(tmp_path, RUN_ID)
     latest = seal_sequenced(tmp_path, "9c1f9a7b2d3e4f6089abcdef01234567")

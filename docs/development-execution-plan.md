@@ -4,7 +4,7 @@
 
 ## 0. 状态与证据口径
 
-`current_next: PARALLEL-INTEGRATION-GATE-001`（M 的 integration gate 卡，见 §2 的 lane_next 表）。自 2026-09-26 起按[并行作业协议](parallel-execution-plan.md)激活 lane_next：主干只保留这一个 integration `NEXT`；E lane 的 `NEXT` 仍是 B2 `P0-CONTROLLED-CAMPAIGN-001`（由 E 在其独立分支施工，M 只合并），S/D/V 各有一个 `lane_next`（§2），H 的 `lane_next` 等 E 释放 runner 文件租约后激活。此前 B1 `P0-EVIDENCE-INVENTORY-001` 已于 2026-09-26 以规范卷只读四桶盘点收卡（见 §2、§3.3 与[盘点记录](p0-evidence-inventory-2026-09-26.md)）。B2 的第一刀 `P0-CORE-040-050-RUN-001` 同日完成：`CORE-040`、`CORE-050` 各在当前构建上封了一份四读齐全的 PASS bundle，W60 读数转为 `promotable: true`（仅机器候选，不晋级）。**第二刀（`OFFLINE-030`）同日完成**：一次裸 join 真跑封出该 case 在本根上的第一份当前构建 PASS bundle（四读齐全 + 八行材料层判否对照），但它 `mandatory: false`，撤掉它门一字不变；同日复核第一刀的四读逐行复现（[第二刀记录](p0-offline-030-run-2026-09-26.md)）。**第三刀（5 条 `ADMIT-001/040/060/100/110`）同日完成**：五轮受控本地真跑各封一份当前构建 PASS bundle，`from_another_build` 名单长度不变（61）而该格从 5 条变 0 条，四行门读数与正对照逐字相同（[第三刀记录](p0-admit-five-run-2026-09-26.md)）。**第四刀（`CORE-030`，第一条 LAN 形状）同日完成**：宿主客户端把 `kinworld` publish 到 `25570`、加入者拨号并承认第一个快照，封出该 case 在本根上第一份当前构建 PASS bundle（判据 `2/2`、复判 `AGREES`、宿主 `settings_digest` 逐字节等于 case 的 `level.dat` pin），卷上底色 `attempts 61 / bundles 97 / from_another_build 61`，三种卷状态下门读数一字未动；这一刀是三次尝试换来的（一次 runner 确定性 `rc=2`、一次不可重现的 GLFW 崩溃封成 FAIL，材料全留），至此 B1 §7 的 9 条最小内容全部交付（[第四刀记录](p0-core030-lan-run-2026-09-26.md)）。**第五刀（`OFFLINE-001/040/050` + `ADMIT-080` 四条）同日完成**：B1 §6 三格里的第三种形状「判官只需仓库字节但本根零 bundle」由 17 条变 **13 条**，四条各封一份当前构建 PASS bundle（检查 5/3/3/6 条全 held），**门载荷 sha256 在封证前后逐字节相同**（`fb0152c8…`）；剩下的 13 条全部属 deferred 的 HOST 家族，E 在门前停住（[第五刀记录](p0-repo-four-case-run-2026-09-26.md)）。B2 本身仍是 E lane 的 `NEXT`（见 §2 与[第一刀记录](p0-core-040-050-run-2026-09-26.md)）。A3 `V1201-TESTED-GATE-READOUT-001` 同日以规范卷只读机器读数收卡（见 §2 与[复判记录](tested-gate-readout-2026-09-26.md)）；A1/A2 同日收卡。A1 `V1201-LOCAL-DEMO-REHEARSAL-001`（真跑 sealed PASS）、A2 `V1201-LOCAL-NEGATIVE-MATRIX-001`（机器读数与配对反证）（[负向矩阵复判记录](version-negative-matrix-2026-09-26.md)）按 §3 的机械流转已依次完成。B 段首张是只读证据盘点，不是 V08 晋级，也不是连接用户服务器的许可。`cef712b` 时旧队列 `NEXT=0/QUEUED=0`；本计划是用户 2026-09-26 要求“一次性编写后续任务”的新排期，不把旧卡改称未完成。
+`current_next: PARALLEL-INTEGRATION-GATE-001`（M 的 integration gate 卡，见 §2 的 lane_next 表）。自 2026-09-26 起按[并行作业协议](parallel-execution-plan.md)激活 lane_next：主干只保留这一个 integration `NEXT`；E lane 的 `NEXT` 仍是 B2 `P0-CONTROLLED-CAMPAIGN-001`（由 E 在其独立分支施工，M 只合并），S/D/V 各有一个 `lane_next`（§2），H 的 `lane_next` 等 E 释放 runner 文件租约后激活。此前 B1 `P0-EVIDENCE-INVENTORY-001` 已于 2026-09-26 以规范卷只读四桶盘点收卡（见 §2、§3.3 与[盘点记录](p0-evidence-inventory-2026-09-26.md)）。B2 的第一刀 `P0-CORE-040-050-RUN-001` 同日完成：`CORE-040`、`CORE-050` 各在当前构建上封了一份四读齐全的 PASS bundle，W60 读数转为 `promotable: true`（仅机器候选，不晋级）。**第二刀（`OFFLINE-030`）同日完成**：一次裸 join 真跑封出该 case 在本根上的第一份当前构建 PASS bundle（四读齐全 + 八行材料层判否对照），但它 `mandatory: false`，撤掉它门一字不变；同日复核第一刀的四读逐行复现（[第二刀记录](p0-offline-030-run-2026-09-26.md)）。**第三刀（5 条 `ADMIT-001/040/060/100/110`）同日完成**：五轮受控本地真跑各封一份当前构建 PASS bundle，`from_another_build` 名单长度不变（61）而该格从 5 条变 0 条，四行门读数与正对照逐字相同（[第三刀记录](p0-admit-five-run-2026-09-26.md)）。**第四刀（`CORE-030`，第一条 LAN 形状）同日完成**：宿主客户端把 `kinworld` publish 到 `25570`、加入者拨号并承认第一个快照，封出该 case 在本根上第一份当前构建 PASS bundle（判据 `2/2`、复判 `AGREES`、宿主 `settings_digest` 逐字节等于 case 的 `level.dat` pin），卷上底色 `attempts 61 / bundles 97 / from_another_build 61`，三种卷状态下门读数一字未动；这一刀是三次尝试换来的（一次 runner 确定性 `rc=2`、一次不可重现的 GLFW 崩溃封成 FAIL，材料全留），至此 B1 §7 的 9 条最小内容全部交付（[第四刀记录](p0-core030-lan-run-2026-09-26.md)）。**第五刀（`OFFLINE-001/040/050` + `ADMIT-080` 四条）同日完成**：B1 §6 三格里的第三种形状「判官只需仓库字节但本根零 bundle」由 17 条变 **13 条**，四条各封一份当前构建 PASS bundle（检查 5/3/3/6 条全 held），**门载荷 sha256 在封证前后逐字节相同**（`fb0152c8…`）；剩下的 13 条全部属 deferred 的 HOST 家族，E 在门前停住（[第五刀记录](p0-repo-four-case-run-2026-09-26.md)）。B2 本身仍是 E lane 的 `NEXT`（见 §2 与[第一刀记录](p0-core-040-050-run-2026-09-26.md)）。A3 `V1201-TESTED-GATE-READOUT-001` 同日以规范卷只读机器读数收卡（见 §2 与[复判记录](tested-gate-readout-2026-09-26.md)）；A1/A2 同日收卡。A1 `V1201-LOCAL-DEMO-REHEARSAL-001`（真跑 sealed PASS）、A2 `V1201-LOCAL-NEGATIVE-MATRIX-001`（机器读数与配对反证）（[负向矩阵复判记录](version-negative-matrix-2026-09-26.md)）按 §3 的机械流转已依次完成。B 段首张是只读证据盘点，不是 V08 晋级，也不是连接用户服务器的许可。`cef712b` 时旧队列 `NEXT=0/QUEUED=0`；本计划是用户 2026-09-26 要求“一次性编写后续任务”的新排期，不把旧卡改称未完成。**M 主控轮次（同日）已把 E 的证据分支整条 fast-forward 合入 `main`（远端 `refs/heads/main = f632665`，`git ls-remote` 复核），把 E 提出的七项阻断逐项分类（§2 那张表），并落了第一张工程卡 `INT-EVIDENCE-INTEGRITY-001`（§2 同名小节：读者不再对「台账 `SEALED` 行 ⇒ 卷上无 bundle」保持沉默）；四条 `non_mandatory` 的 `PASS` 只写成当前构建读数，11 个门的 `promotable` 分布与门载荷摘要在合入前后逐字相同。**
 
 已核实的基线：V01–V07 及空 store 自动安装真跑已完成；A1 已在受控本地把自动装机与同 run 的 PLAYABLE→look/move→释放→退出接成一次 sealed PASS（§2）；1.20.1 `V1201-080` 的正常停止显式松键有 sealed PASS，registry 对应缺口已划出；`HOST-ADMISSION-DESIGN-001` 只交付了[设计和三个未决所有权问题](host-admission-session-coordinate-design.md#5-分歧矩阵所有权问题为什么不由本卡回答)。这些都**不等于** V08、V09、V10 或完整 Minekin 完成。1.20.1 registry 其余缺口按现行文件和 `verify_tested_provenance.py` 重新读取，不以本文计数代替机器结果（A3 已按此重读：provenance `verified: true / rc=0`，边界见 §2 与[复判记录](tested-gate-readout-2026-09-26.md)）。旧 W00/W10/W20 的 `promotable` 读数不等于总体 `p0-core tested`；`p0-core`/七场景 campaign 仍有真实证据缺口。CI、ping、旧 bundle、单测、文档自述均不能证明真实入服。
 
@@ -26,13 +26,59 @@
 
 | lane | 分支 / worktree | `lane_next` | 状态 |
 | --- | --- | --- | --- |
-| E 真实运行/证据 | `codex/minekin-evidence` @ `../minekin-wt-evidence`（B2 checkpoint `6a02ac6` 已交，已迁出共享 checkout） | B2 `P0-CONTROLLED-CAMPAIGN-001` | 进行中，B2 归 E，不因 lane 化改判；规范卷唯一写入者不变 |
+| E 真实运行/证据 | `codex/minekin-evidence` @ `../minekin-wt-evidence`（B2 checkpoint `6a02ac6` 已交，已迁出共享 checkout） | B2 `P0-CONTROLLED-CAMPAIGN-001` | 进行中，B2 归 E，不因 lane 化改判；规范卷唯一写入者不变。**B2 五刀的证据文档与 `f632665` 已由 M 双审合入 `main`（远端 SHA 已核），四条 repo-check 行是 `non_mandatory` 的当前构建读数，不构成晋级**；E 的下一件受控验证待 M 在 ②/① 落地后派 |
 | S 自动入服安全 | `codex/minekin-auto-entry` @ `../minekin-wt-auto-entry`，base 见本表激活时远端 `main` | S1 `V1201-AUTO-ENTRY-GATE-ORDER-001`（N1，§3.2）**已合入主干**（合并 `b88e36f`，2026-09-26）；`lane_next` 前进为 S2 `V1201-MAX-BYTES-VALIDATION-001`，另卡另提交 | S1 实现经双审+全量基础门合入；§3.2 N1 的受控“先拒后装”重跑读数待 E 的规范卷轮次，卡片未收口；新 base 以远端 `main` 为准 |
 | D Web Dashboard 前端 | `codex/minekin-dashboard` @ `../minekin-wt-dashboard` | D1 `DASHBOARD-READONLY-SHELL-001` **已合入主干**（合并 `8aab153`，2026-09-26）；`lane_next`：D2 真实接线等 G lane 冻结 Gateway 只读契约后由 M 派卡 | D1 只读外壳合入（`dashboard/**` 50 文件；默认 mock、gateway 需显式 opt-in 且端点是 fail-closed 提案非契约；无 Bridge/DB/凭据，只读不变量由 Vitest/Playwright 固定；P0 Core 零 Node 依赖，ADR 0001 保持）。M 在合入树复跑 tsc/Vitest/build 绿后推送；Playwright e2e 复用 D 会话双 Node 版本绿的材料。真实读数声称仍被 G 未冻结契约阻断 |
 | V 1.20.1 游戏内调试 | `codex/minekin-v1201-validation` @ `../minekin-wt-v1201-validation` | V1 `V1201-PARTIAL-STORE-AND-JOIN-SMOKE-001` **已合入主干**（合并 `eb6f63d`，2026-09-26）；`lane_next`：暂无，待 H-1/H-2 落地后由 M 重新派卡 | V1 按卡面收口为 `PARTIAL / BLOCKED_HARNESS`（[报告](v1201-partial-store-and-join-smoke-2026-09-26.md)：A 段逐件复验 PASS＋两缺陷复现；B 段 status/自动选择/摘要门真跑 PASS，完整 JOIN 阻于 bridge 不可联网取＋G1 封证＋G2 探测失明；四读如实 `N/A`，未进规范卷、未搬旧 PASS）；其交办的 H-1..H-5 登记给 H，其中 H-3/H-4 属产品下载器行为，另卡由 M 排期，不并入了结 V1 的这次合并 |
-| H 测试 Harness | `codex/minekin-harness` @ `../minekin-wt-harness` | `V1201-AUTO-PATH-RUNNER-001`（G1/G2，§3.1） | 已激活（2026-09-26，E 的 B2 checkpoint `6a02ac6` 落地且本批 runner 文件零改动，文件租约释放）；E 重开真跑封证时按协议先协调 `seal_run_evidence.py` 独占窗口；V1 报告交办的 H-1..H-5（同 run 封证、bridge 产物化、损坏 blob 重取、孤儿 `.staging` 回收、`enable-status` 取舍）随 H1 一并权衡，其中 H-3/H-4 触产品 `src/**`，超出 H 独占面，须由 M 另立卡 |
+| H 测试 Harness | `codex/minekin-harness` @ `../minekin-wt-harness` | `V1201-AUTO-PATH-RUNNER-001`（G1/G2，§3.1） | 已激活（2026-09-26，E 的 B2 checkpoint `6a02ac6` 落地且本批 runner 文件零改动，文件租约释放）；E 重开真跑封证时按协议先协调 `seal_run_evidence.py` 独占窗口；V1 报告交办的 H-1..H-5（同 run 封证、bridge 产物化、损坏 blob 重取、孤儿 `.staging` 回收、`enable-status` 取舍）随 H1 一并权衡，其中 H-3/H-4 触产品 `src/**`，超出 H 独占面，须由 M 另立卡。**M 另立两卡（冲突表已登记，H 未同时施工时由 M 在 `../minekin-wt-integrity` 代打）：`H1a TEST-ORCHESTRATOR-PINNED-PYTEST-001`（受控镜像带锁定的 pytest 工具链，消掉「镜像内假 FAIL」）与 `H1b RUNNER-NAMED-FAILURE-001`（`domain.sh:657` 确定性静默 `rc=2` + runner 内 `sys` 未 `import sys`，两缺陷分两个提交）** |
 
 每个 `lane_next` 只代表该分支可开发；分支 PASS/交付不等于主干 `DONE`，只有 M 合并并通过相应门禁后才回写主干状态。跨 lane 修改先在协议 §2 冲突表登记；同一文件仅一名 owner。上表 `base` 只记激活时点：lane 会话开新卡前一律 `git fetch origin`，以当时远端 `main` 最新 SHA 为重建/rebase 基底；M 每合一张卡即推 `main`，新 base 随远端自然发布。
+
+### E 提出的七项阻断：M 的逐项分类（2026-09-26，主控轮次）
+
+来源是[第五刀记录](p0-repo-four-case-run-2026-09-26.md) §5–§7 与[交接](qoder-execution-handoff.md)里 E 点名的「待主控点的五件 + 新加两件」。分类按现行契约，不按报告好不好看：
+
+| 记号 | 事项 | 分类 | 处置 |
+| --- | --- | --- | --- |
+| ① | 台账有 `SEALED` 行、卷上无对应 bundle，读者一字不提 | **普通工程缺陷（读者侧的完整性）** | 本轮开卡并完成第一版：`INT-EVIDENCE-INTEGRITY-001`（下一节） |
+| ② | 受控镜像不带钉住的 pytest ⇒ 在镜像里跑仓库自检会封出**环境造成的假 FAIL** | **基础设施缺陷** | 排 `H1a TEST-ORCHESTRATOR-PINNED-PYTEST-001`：镜像装 `pyproject.toml`/锁文件里已钉住的 dev 测试工具链，验收要求「镜像内跑一条 pytest 类判据真绿 + 版本读数一致」。`test-orchestrator/**` 是 H 独占面 ⇒ 冲突表登记，H lane 未同时施工时由 M 代打；已封的四条 repo bundle 的 `environment` 段**不重封**（口径 ②-b：既成证据按封存进程记，本次一并写成正式口径） |
+| ③ | `domain.sh:657` 在全新加入者 Kin 上确定性 `rc=2` 且不给具名理由 | 普通工程缺陷（runner 编排） | 排 `H1b`，与 ④ 同卡不同提交；先写只读最小反例（同输入显式路径可跑通，自动路径静默） |
+| ④ | runner 某处使用 `sys` 而未 `import sys` | 普通工程缺陷（局部） | 并入 `H1b`；影响面：出错路径本身抛 `NameError`，把 ③ 那类确定性失败变成无声失败 |
+| ⑤ | GLFW `[0x1000E]` 崩溃**不可重现** | 观察项，不是缺陷 | 开 `H1c` 只在再次量到时触发（材料已在第四刀记录里）；当前不排实现卡，不补断言 |
+| ⑥ | `REQUIRED_CASE_NOT_REGISTERED` / `NO_MANDATORY_CASES` 与四条 `mandatory: false` 的 PASS 是否晋级 | **主控保留（门禁决定）** | 不属工程缺陷：动的是 case 集合与 `mandatory` 语义，属 `P0-GATE-PROMOTION-001`。本轮不改 registry、不翻 `status/gaps`，四条 `PASS` 只写成 `non_mandatory` 行的当前构建读数 |
+| ⑦ | HOST 家族剩下 13 条（+ 2 条）不封 | **重大决策保留** | HOST §5 所有权未冻结 ⇒ 维持 `DEFERRED`，E 与 M 都不自造断言 |
+
+② 的口径同时回答第五刀 §5 请 M 定的那一格：**两条都要**——镜像该带可用的工具链（②），已经封进去的 `environment` 段仍按封存进程解释（②-b），因为重封会让一批判据只依赖工具链存在与否的字节搬家。
+
+### `INT-EVIDENCE-INTEGRITY-001` — `NEXT`（M 主控，2026-09-26，分支 `codex/minekin-evidence-integrity` @ `../minekin-wt-integrity`）
+
+目的：把 ① 从「静默」变成「具名」。允许路径只有两处：`tools/report_promotion.py`（读者）与 `tests/unit/test_report_promotion.py`（判读它的测试）。不碰产品代码、case 判据、registry 字节、`status/gaps`，不重封任何历史 bundle，规范卷全程 `:ro`。
+
+**最小反例（先量红）**：`tests/unit/test_report_promotion.py` 三条新案，同一套具序列的 bundle，只差「早期那次的字节还在不在」。
+
+```bash
+uv run --frozen pytest tests/unit/test_report_promotion.py -q \
+  -k "lost or retained_earlier or missing_latest"
+# 修复前实测：3 failed, 1 passed, 42 deselected in 9.95s
+#   test_a_lost_earlier_attempt_is_refused_rather_than_reported → Failed: DID NOT RAISE
+#     （删掉 seq 1 的 FAIL bundle，报告照样出、`promotable` 不变、没有任何字段点名）
+#   test_a_lost_latest_attempt_is_named… / test_retained_earlier_attempt_keeps_the_report_readable
+#     → KeyError: 'sealed_without_bundle'
+#   test_missing_latest_bundle_blocks_older_pass → passed（旧行为已在，本卡不回退它）
+```
+
+同一件事在真卷上的形状由 E 的 R-E 量出：副本里删掉四个 run 目录 ⇒ `bundles 9→5`、`attempts` 仍是 65、`unsealed 0 / unreadable 0`。反方向（有 bundle 无台账）09-25 已量过是 `unusable / exit 2`——**半套卷的拒绝一直只朝一个方向生效**。
+
+**验收**：(1) 报告里新增 `evidence.sealed_without_bundle`，逐条 `{case_id, run_id, sequence}`，覆盖最新与非最新两种位置；(2) 序列最新那次缺字节仍按现行规则把该 case 判阻（不回退）；(3) **不拒读**：故意只拷一部分的可逆切片必须仍能出报告，并在新字段里看见自己缺了哪些行——因为「丢失」与「有意切片」在盘上是同一个形状，拒读会拆掉唯一能在卷外复读 19 GB 卷的通道；(4) 完整规范卷的读数在本卡前后一字不动。
+
+**实现**：`discover()` 补上台账→bundle 的方向（`has_bundle = verifications ∪ unreadable_run_ids`，`status == "SEALED"` 且不在其中者入列），`EvidenceOnDisk` 多一个 `sealed_without_bundle` 字段，报告多列那一段，模块 docstring 写明「为什么到此为止、不拒读」。
+
+**读数（修后，`uv run --frozen`）**：`tests/unit/test_report_promotion.py` → `46 passed`；`test_report_promotion.py + test_case_registry.py + test_attempt_registry.py` → `140 passed`（改语义前那一轮，语义改为具名后由全量门重跑覆盖）。容器内对规范卷只读复跑（`/src:ro` + `/data:ro` + `MINEKIN_HOME=/data`）：`attempts 65 / bundles 101 / unverified 0 / unsealed 0 / unreadable 0 / sealed_without_bundle []`，`rc=1`，`overall False ['REQUIRED_CASE_NOT_REGISTERED']` —— 与修前逐字相同 ⇒ 本卡不改变任何门的读数。复现脚本 `.tmp/m-probe-sealed-without-bundle.py`、`.tmp/m-probe-slice-reads.py`（未跟踪，随容器销毁）。
+
+**非 vacuity 与正对照**：切片副本（只拷 `repo-evidence/` 532 KB + 整份台账，`MINEKIN_HOME=/tmp/m-integrity-slice`）修后 `rc=1` 仍可读，`bundles 9`、`sealed_without_bundle 58`（前几行是 `ADMIT-001 seq 1/2`、`ADMIT-040 seq 1`），门分布 `promotable True 2 / False 9`，`overall False ['CASE_VERSION_MISMATCH', 'REQUIRED_CASE_NOT_REGISTERED']`。**同一份读者在完整卷上给 `[]`、在切片上给 58 条**，字段既不是恒空也不是恒红；E 的可逆切片通道保持可用。
+
+**本卡不声称**：不点亮任何门晋级，不改 `mandatory`/registry；不说「丢失 bundle 现在会被阻止」——它现在会被**说出**，是否升级成门禁条件是 ⑥（`P0-GATE-PROMOTION-001`，主控）；不声称已修 ②③④；不声称已连接或探测用户远程服。
+
 
 ### B2 的第一刀（`P0-CORE-040-050-RUN-001`）— 已完成（2026-09-26），B2 本身仍是 E lane 的 `NEXT`
 
@@ -176,6 +222,11 @@ B1 的卡面判据是「只把有明确必要性的 missing case 排成独立实
 | `ADMIT-030`、`ADMIT-050` 的 case id 拆分 | `BLOCKED_DECISION`（契约层） | 两条各自把三个互斥场景塞进一个 case id，而 promotion 对一个 case id 取任一满足 bundle ⇒ 正向证据会顺带关掉互斥的负向判据。先决定拆成几条、每条判什么，再谈 fixture。 |
 | HOST 18 条 + `NAV-EXP-010` | `DEFERRED` / 依赖门，不建卡 | 前者等主控对[HOST §5](host-admission-session-coordinate-design.md#5-分歧矩阵所有权问题为什么不由本卡回答)三个 ownership 单元格表态（`HOST-OWNERSHIP-FREEZE-001`）；后者契约原文写明「只在 core tested 后运行」，而 `p0-core` 今天不可晋级。把它记成「产品未实现」是替主控做决策。 |
 | 契约 crash/outbox 那行的滞后 | 记录，不建卡（不发明 docs-only 卡） | 那行说 `CORE-060` 的 runtime 强杀窗「按当前 run 形状打不中」，磁盘上是 9 个 bundle、seq4 `ed2bbad7…` 当前构建 PASS（来源：历史 `:5936-5941` 的 1.21.4 换代重封）。随下一次触碰该契约表的卡顺手改，本卡原文照引不改。 |
+| `INT-EVIDENCE-INTEGRITY-001` | **`NEXT`（M 主控，2026-09-26）**，见 §2 同名小节 | 七项分类里的 ①：读者对「台账 `SEALED` 行 ⇒ 卷上无 bundle」必须具名。允许路径只有 `tools/report_promotion.py` 与其单测；不改 registry/`status/gaps`/判据，不重封历史 bundle，规范卷 `:ro`。红→绿读数、真卷对照与切片非 vacuity 都在 §2 那一节。**不声称**丢失已被阻止——它已被说出；是否升级为门禁条件是 `P0-GATE-PROMOTION-001`（主控）。 |
+| `H1a` `TEST-ORCHESTRATOR-PINNED-PYTEST-001` | `QUEUED`（M 代打，等 §2 的冲突表窗口） | 七项分类里的 ②：受控镜像 `/opt/minekin` 只有 `google/pip/protobuf`，镜像内跑仓库自检 ⇒ `rc=1`、五条 `No module named pytest` 的**环境性假 FAIL**（第五刀 §5 实测）。卡面：把锁文件里已钉住的测试工具链装进 `test-orchestrator/runner/Dockerfile`，验收要在镜像内跑一条 `pytest` 类判据真绿并读出工具链版本；已封的四条 repo bundle **不重封**（②-b 口径：`environment` 段按封存进程记）。 |
+| `H1b` `RUNNER-NAMED-FAILURE-001` | `QUEUED`（M 代打，两缺陷两个提交） | 七项分类里的 ③④：`domain.sh:657` 在全新加入者 Kin 上确定性 `rc=2` 且不给具名理由（第四刀换回材料），以及 runner 内使用 `sys` 而未 `import sys`（把确定性失败变成 `NameError` 无声失败）。先写只读最小反例（同一输入显式路径可跑通），修后要求原命令给出具名读数；不改 case 判据、不动历史 sealed bundle。 |
+| `E-CO` 镜像内自检重封一轮 | `QUEUED`，依赖 `H1a` 合入 | ②落地后由 E 在规范卷上做一次的受控验证：在同一镜像里跑「判官只需仓库字节」那一族，使 `environment` 段与检查执行环境一致。**这是新证据卡，不是把已封四条改口径**；是否值得点亮哪一门的 `mandatory` 仍属 `P0-GATE-PROMOTION-001`。 |
+
 
 ## 4. 完整 Minekin 长程任务簿（设计先行、证据后置）
 

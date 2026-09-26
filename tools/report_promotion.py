@@ -48,6 +48,20 @@ latest attempt decides; a later failure cannot be hidden by an earlier PASS.
 Unsequenced legacy bundles keep the former any-satisfying rule only until that
 case receives its first sequenced attempt.
 
+The registry is read in that direction too. Every rule above starts from a bundle
+and asks what it attests; the registry also attests bundles, and a row it marks
+SEALED whose bytes no longer answer to that run id is a hole in the reading, not an
+emptier root. For a case's latest attempt the behavior is the existing one: that run
+id blocks the case and no earlier PASS is revived. For an earlier attempt nothing
+would notice at all — fewer bundles listed, the same verdict, retained failure
+material gone quietly — so every such row is named, whichever end of the chain it
+sits at. Naming is where this stops, and it is a deliberate stop rather than a gap:
+an intentional read-only slice of a root — some bundles copied beside the whole
+ledger — has exactly the same shape as a loss, and refusing that state would take
+away the one channel that lets a sealed root be re-read without the 19 GiB beside
+it. Which cases a loss does change the answer for is therefore visible twice: the
+named list, and the case-level block the latest-attempt rule already raises.
+
 What this cannot see, and now says so, is a case that is not there. Every reading
 above walks the registry, so the answer it gives is about the cases somebody wrote:
 "every mandatory case passed" is a true sentence about an incomplete case set, and
@@ -250,6 +264,10 @@ class EvidenceOnDisk:
     re_judged: Mapping[str, ReJudge] = field(default_factory=no_outcomes)
     re_judge_reasons: Mapping[str, str] = field(default_factory=no_reasons)
     attempts: tuple[Attempt, ...] = ()
+    #: Ledger rows the registry attests as SEALED whose bytes are not at that run id.
+    #: Named for both halves of the question: the latest one is why a case blocks,
+    #: an earlier one is retained failure material that has gone missing.
+    sealed_without_bundle: tuple[Attempt, ...] = ()
 
     @property
     def unverified(self) -> tuple[str, ...]:
@@ -413,12 +431,19 @@ def discover(data_root: Path, cases_dir: Path = CASES) -> EvidenceOnDisk:
             or attempt.supersedes_run_id != manifest.supersedes_run_id
         ):
             raise Unusable(f"{run_id}: bundle attempt metadata disagrees with the attempt registry")
+    has_bundle = set(verifications) | unreadable_run_ids
+    sealed_without_bundle = tuple(
+        attempt
+        for attempt in attempts
+        if attempt.status == "SEALED" and attempt.run_id not in has_bundle
+    )
     return EvidenceOnDisk(
         verifications=verifications,
         unreadable=tuple(sorted(unreadable)),
         re_judged=outcomes,
         re_judge_reasons=reasons,
         attempts=attempts,
+        sealed_without_bundle=sealed_without_bundle,
     )
 
 
@@ -541,6 +566,16 @@ def _report_with_inventory(
             "unverified": list(evidence.unverified),
             "unsealed": list(evidence.unsealed),
             "unreadable": list(evidence.unreadable),
+            # The registry's own claims about bytes that are not there: which
+            # attempts it attests as sealed while no bundle answers to that run id.
+            "sealed_without_bundle": [
+                {
+                    "case_id": item.case_id,
+                    "run_id": item.run_id,
+                    "sequence": item.sequence,
+                }
+                for item in evidence.sealed_without_bundle
+            ],
             # Which of the bundles were sealed from the build this checkout would
             # launch. Named rather than counted, for the same reason the blocks are:
             # "one of these is stale" is only actionable with the ids.

@@ -189,3 +189,15 @@ B2 的第一刀 `P0-CORE-040-050-RUN-001` 已于 2026-09-26 完成（**B2 本身
   基础门在同一棵树上重跑：`ruff check` / `ruff format --check`（339 files）/ `pyright` 0 errors /
   `pytest` 2509 passed 2 skipped / boundaries / 140 registered assertions / fixture digests / workflow pins 全绿。
   这条只描述 M 合并时预期看到什么，不构成任何合并时机的请求；E 之后若再提交，仍然只动 `docs/`。
+
+## M 主控轮次（2026-09-26）：E 分支合入、七项阻断分类、第一张完整性卡
+
+四态口径逐条给：**已合入 main / 仅在分支 / 真实封证 / 尚未验证**。本轮不产生新的真跑封证（规范卷全程 `:ro`），也不点亮任何门。
+
+- **已合入 main**：E 的 `codex/minekin-evidence` 整条（`48fe79e → c3998a3 → 2a83109 → a5f3ec8 → 470b032 → f632665`）以 fast-forward 合入并推送；`git ls-remote` 实测 `refs/heads/main = f632665029469fd7de51b949578dacaa5cad7925`。M 独立复核过 E 的声称，不是照抄记录：卷上 `attempts 65 / bundles 101 / from_another_build 61 / unverified 0`；门载荷 sha256 重算 = `fb0152c85d029ee06a41a34e84f9656cd23fae0b1e166322c494d1190cd178da`（与第五刀 §3 逐字相同）；11 门 `promotable` 分布 `W00/W10/W20/W60 true`、其余 `false`、overall `false / REQUIRED_CASE_NOT_REGISTERED / blocking_cases 31` ⇒ **四条 `PASS` 没有变成任何晋级**；五条 repo/真跑 bundle 的 `launch_plan_digest` 与本轮重建的 tree 计划摘要 `bcc0c10d46ab5c0b46d0c86f7e0de9d0d57b635bc17f9dcffdf7631eba8125e2` 相同；一～四刀的 run 复判仍 `AGREES`，失败 attempt（`CORE-050 eb7f9086`、`CORE-030 8164024d`、`ADMIT-060 3c17aa78`、`ADMIT-110 c383d4f1`）原样在卷。**四条 repo bundle 的 `re_judged` 是 `UNJUDGED`**（该通道没有 asserter-inputs 工件），其第二读法是重跑检查，这条区分照记录使用。
+- **仅在分支**：`codex/minekin-evidence-integrity` @ `../minekin-wt-integrity`（base `f632665`）承载 `INT-EVIDENCE-INTEGRITY-001`：`tools/report_promotion.py` 补台账→bundle 方向的具名 + 三条新单测 + 计划文档。红→绿、真卷对照（完整卷 `sealed_without_bundle []`、rc 与 overall 一字未动）与切片非 vacuity（`bundles 9 / 58 行具名 / 仍可读`）在[执行计划 §2](development-execution-plan.md#2-上一卡交付与当前-next-边界) 同名小节。
+- **七项阻断分类**（① 完整性静默＝工程，本轮做；② 镜像缺钉住 pytest＝基础设施，排 `H1a`；③ `domain.sh:657` 静默 `rc=2`、④ runner 未 `import sys`＝工程，合并成 `H1b` 两提交；⑤ GLFW `[0x1000E]` 不可重现＝观察项，不再量到才开诊断卡；⑥ `REQUIRED_CASE_NOT_REGISTERED`/`NO_MANDATORY_CASES` 与 `mandatory` 晋级＝主控保留的门禁决定，本轮不动 registry；⑦ HOST 13+2 条＝§5 所有权未冻结，维持 `DEFERRED`）。同时把第五刀 §5 请 M 定的那一格定成**两条都要**：镜像补工具链（②），已封 repo bundle 的 `environment` 段按封存进程解释（②-b），不重封。
+- **下一步（不需要用户拍板的安全工作）**：`H1a` 与 `H1b` 在 `test-orchestrator/**`（H 独占面，冲突表已登记，H 未同时施工由 M 代打）、S2 `V1201-MAX-BYTES-VALIDATION-001` 留在 S lane、`E-CO` 镜像内自检重封一轮排 `QUEUED` 等 `H1a`。
+- **仍然阻着的**（不自答）：HOST §5 三格所有权、PERSIST case 冻结、V08 远程服连接、V09 动作授权、在线认证、数据删除/进程接管。**本轮没有连接、也没有探测用户的远程服务器**；规范卷只有 E 写，M 只读。
+- **不声称** Minekin 已完成、不声称任何 gate 已点亮、不声称 ②③④ 已修（只登记了卡与验收）。
+
