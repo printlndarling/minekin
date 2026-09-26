@@ -557,7 +557,7 @@ V2 的绿读数暴露、M 在自己卷上重放确认：auto run 跨过早停后
 
 ### lane_next 现状
 - 主干唯一 integration `NEXT` 仍是 `PARALLEL-INTEGRATION-GATE-001`（常驻，本轮没有被"完成"）。
-- M = `P0-OFFLINE-090-100-REGISTRATION-001` **已闭环**；M 的下一张是独立的 `P0-OFFLINE-070-CASE-SPEC-001` 后续登记卡（不与 090/100 混单，且其 `identity_revision`/人格根半句缺载体，属主控保留的那条决定）。
+- M = `P0-OFFLINE-090-100-REGISTRATION-001` **已闭环**；M 的下一张是新立的 **`P0-OFFLINE-070-REGISTRATION-001`**（`QUEUED`，§4 同名行；不与 090/100 混单，且其 `identity_revision`/人格根半句缺载体，属主控保留的那条决定 ⇒ 该卡只登记可判半句 + 具名缺口）。同一轮里 M 按仓库字节改正了主干对 070 载体枚举名的错引（`..._DUPLICATE_LOGGED` 不存在 ⇒ `ADMISSION_FAILURE_REASON_DUPLICATE_LOGIN`，`bridge/src/main/java/org/minekin/bridge/runtime/ClientAdmissionController.java:435`）。
 - E = `P0-OFFLINE-100-A-B-A-RUN-001`（`QUEUED`）：判据冻结前置已由 `2e6711f` 满足、`H1d` 已闭环 ⇒ 写窗条件成立；受控**本地隔离服**真跑，绝不连用户远程服；跑出三段也只是给主控裁决提供字节，不会让那条 gap 判据自行变绿。
 - H lane 仍无 `lane_next`（等 M 另立）；V/S/D 停等其前置。
 
