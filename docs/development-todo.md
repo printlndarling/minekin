@@ -3335,3 +3335,58 @@
   单发 `curl -A` 同刻可用 ⇒ **每轮读一次、不轮询**。
 - 边界：不改任何 `tools/` 与判据，不动 `.gitattributes`，不碰 HOST 实现/fixture，不提升任何门，
   不连接用户的远程服。
+
+## 2026-09-26 按同一把尺子核第四类现在时声明：文档里的路径引用还指不指得到东西
+
+- `NEXT`: **暂无**（主计划 `current_next` 仍是"暂无 `NEXT`"，本轮不动任何卡、不提升任何门、不碰 HOST 实现与夹具）。
+- 触发：前三轮分别核了 `report_cases.py` 快照、缺失 case 的规划视图、以及"文档教出去的命令 vs 脚本接受的 flag
+  表"。本轮把同一把尺子换到**路径引用**上：维护中的执行/契约文档里每一条 `path` 或 `path:行号`，今天还指不指
+  得到树里的真文件、行号还在不在线内。
+- 读数（所在线 `c0b252a`，纯静态比对，不执行任何被检查的东西）：`git ls-files '*.md'` 里 `docs/` 全部再加
+  `README.md`、`CLAUDE.md` 共 **82 份** → 去重 **688 处**引用 → **628 处直接命中真文件**、**60 处按机器判的理由
+  豁免** → **`findings: 0` / `exit 0`**。校验脚本 `.tmp/check_doc_paths.py`（作用域口径与上一轮同一套：只走
+  `git ls-files`，不遍历文件系统）。
+- 两类 finding：`MISSING_FILE`（路径不在树里）、`LINE_OUT_OF_RANGE`（`path:NN` 的 NN 超过该文件行数）。
+  一条护栏：引用总数低于 `FLOOR`（默认 60）就报 `SCAN_TOO_NARROW` —— 防"绿是因为什么都没解析到"。
+- 六类豁免，每类都要机器判、不认口头：**47** `external_project`（指上游树：baritone、Fabric、npm docs、git blob；
+  只归类、不判存在）、**4** `container_absolute`（runner 里的绝对路径，剥掉容器前缀后**必须仍能对上真文件**）、
+  **3** `renamed_away`（改名箭头的左半边，右半边存在才豁免）、**4** `stated_absent`（同一处 ±1 行内文档自己写明
+  "不建 / 仍不存在"的那一族 fixture case 名）、**1** `placeholder`（省略号占位）、**1** `shorthand_basename`
+  （一列裸 basename 里的简写）。
+- 十道变异与对照读数（`.tmp/reverse_doc_paths.py`；七道红各只出 1 条具名 finding、三道绿是对照组）：
+  1. R1 挂在脚本目录下的假脚本完整路径 → `MISSING_FILE`
+  2. R2 把 `report_cases.py` 的行号写成 999999 → `LINE_OUT_OF_RANGE`（该文件 371 行）
+  3. R3 挂我们自己根目录的假 java → `MISSING_FILE`（证明那 47 条上游豁免盗不走）
+  4. R4 把假引用放在"不存在"那句下方第 5 行 → 仍 `MISSING_FILE`（证明 `stated_absent` 窗口是 ±1 行、不是整篇）
+  5. R5 容器绝对路径指向假文件 → `MISSING_FILE`
+  6. R6 空文档 → `SCAN_TOO_NARROW citations: 0`（防"绿因为什么都没解析到"）
+  7. R7 容器绝对路径对照组 → `exit 0`、`findings: 0`
+  8. R8 多模块歧义路径行号越界（`protocol/HandshakeGate.java` 同时命中 `bridge/` 与 `bridge-1201/` 两份）→
+     `LINE_OUT_OF_RANGE`（按行数较大那份算，该文件 241 行）
+  9. R9 同一歧义路径、行号在内 → `exit 0`（对照组，证明第 8 道不是"歧义就一律红"）
+  10. positive control：**不复制、不覆盖输入**地跑真扫描 82 份 → `rc 0`、`findings: 0`
+- 四处守卫自己的洞（①② 由首轮扫描现形、③④ 由反证现形；四处都是改判据后重跑，**没有一处靠加豁免名单绕过**）：
+  ① 第一版作用域直接遍历文件系统 → 2635 份 md、1037 条 finding（worktree、依赖目录、`.tmp` 下的克隆全被扫进来），
+     改成只走 `git ls-files` 才是"维护中的文档"这个集合；
+  ② 扩展名交替把 `manifest.sha256` 的后半截掉，token 只剩半个 → 补 `sha256` 并给 token 加尾部锚点；
+  ③ 简写规则最初写成"路径里只有一个 `/` 就算简写"，于是任何"一个目录名 + 斜杠 + 文件名"形状的脚本路径都被放过，
+     **R1 直接变绿（rc=0）**——这条是反证把自己骗过去了，改成"同一处还有两个以上裸 basename 才算"；
+  ④ 改完 ③ 冒出 3 条 `MISSING_FILE`，追下去是**多模块同尾路径**（`gradle/libs.versions.toml` 在 `bridge/` 与
+     `bridge-1201/` 各一份）被当成不存在——**那 3 条不是文档写错，是判据太窄**：解析函数把"多个后缀命中"当成了
+     "不存在"，改成取其一并按行数较大那份判行号。
+- 一次记录形状的自我修正：写 ③ 那段时，反例输入本身用了"脚本目录前缀 + 假文件名"的完整形状，下一轮扫描立刻读到
+  `findings: 1 / MISSING_FILE`——**守卫又一次把自己记下来的变异输入当成了真缺陷**（与 09-26 flag 表一节五道反证的
+  第 2 条同类）。改成只描述形状、不拼成可解析路径后回到 `findings: 0`；同时把改名箭头两边写全，可解析引用因此变多，
+  本节最初量的 684 是这两处改写之前的数；这两格记录自己举的歧义路径例子本身也是可解析引用，
+  append 完再跑一次读到 **688**，**本节后续一律引这个数**。
+- 九道门（`.tmp/check_docs_followup.py`：括号配平 + `ruff check`、`ruff format --check`、`pyright`、
+  `check_boundaries`、`check_case_assertions`、`verify_fixture_digests`、`check_workflow_pins`、`git diff --check`）
+  与 `uv run --frozen pytest -q` 都在**最后一格 docs 改动之后**跑：八道 `rc 0`（`pyright` 0 errors、
+  `check_case_assertions` **140 registered**、`verify_fixture_digests` OK、`check_workflow_pins` OK、
+  323 files already formatted），括号配平 plan 与 handoff 各 **0**、todo 仍是历史遗留的 **8**（本段没动过它），
+  pytest 读 **2501 passed / 2 skipped**（两条 skip 还是 `test_orphans.py:686`、`test_silent_listener.py:123`）。
+  本轮范围由收口提交的 `git show --stat` 证明：**三格 docs、98 insertions / 3 deletions**（那 3 处删除是把
+  交接文档"三类现在时声明"改成"四类"的那一句改写），产品代码与夹具一字未动。
+  本节落地后的 SHA、远端 ref 与 CI 的 job/step 层读数，在收口之后的补记里给出（同一文件、同一追加方向）。
+- 边界：不改任何 `tools/` 与判据之外的产品代码，不动 `.gitattributes`，不碰 HOST 实现/fixture，不提升任何门，
+  不连接用户的远程服；todo 仍是 append-only，历史段落一字未动。

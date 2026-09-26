@@ -572,6 +572,38 @@ MSYS_NO_PATHCONV=1 docker run --rm -v "$PWD":/src:ro -v minekin-runner-data:/dat
   **一条读 CI 的姿势更正**：轮询 REST 时 `urllib` 会开始报 `403 rate limit exceeded` 而配额其实还剩
   （`/rate_limit` 读 `remaining 50`），带 `-A` 的 `curl` 同一时刻仍能读——**限流是按调用节奏，不是按小时配额**，
   每轮读一次就够。
+- **同一规则下核的第四类现在时声明：文档里的路径引用还指不指得到东西**（2026-09-26，读数所在线
+  `c0b252a`）。范围是 `git ls-files '*.md'` 里的 `docs/` 全部加上 `README.md` 与 `CLAUDE.md` 共
+  **82 份**、去重后 **688 处**路径或 `path:行号` 引用，纯静态比对（`.tmp/check_doc_commands.py` 的姊妹脚本
+  `.tmp/check_doc_paths.py`），读 **`findings: 0` / `exit 0`**——**维护中的执行文档与契约文档里没有任何一条
+  路径引用指向死文件**。60 处按理由豁免，每类都要机器判：**47** 处指上游树（baritone / Fabric / npm docs /
+  git blob），**4** 处是 runner 里的绝对路径（剥掉 `/src` 前缀后**必须仍能对上真文件**才算豁免），
+  **3** 处是改名箭头的左半边（`tests/fixtures/cases/offline-030-prism-parity.json` →
+  `tests/fixtures/cases/offline-030-prism-parity-001.json`，右半边存在才豁免），
+  **4** 处文档自己写明"不建 / 仍不存在"（`tests/fixtures/cases/host-001.json` 那一族），**1** 处省略号占位，
+  **1** 处 basename 列表里的简写。**十道变异与对照读数**（`.tmp/reverse_doc_paths.py`；七道红各只出
+  1 条具名 finding、三道绿是对照组）：
+  假的 `nonexistent_probe.py`（写作挂在脚本目录下的完整路径）→ `MISSING_FILE`；把 `report_cases.py` 的行号
+  写成 999999 → `LINE_OUT_OF_RANGE`（该文件 371 行）；挂我们自己的根的假 java → `MISSING_FILE`
+  （证明那 47 条上游豁免盗不走）；把假引用放到
+  "不存在"那句下方第 5 行 → 仍 `MISSING_FILE`（证明豁免窗口是 ±1 行、不是整篇）；容器绝对路径指向假文件 →
+  `MISSING_FILE`；空文档 → `SCAN_TOO_NARROW citations: 0`；多模块歧义路径双向——`protocol/HandshakeGate.java`
+  同时命中 `bridge/` 与 `bridge-1201/`，**行号越界仍红、行号在内仍绿**；容器路径与在内行号各一道对照组 `exit 0`；
+  最后一次是**真扫描 `findings: 0` 的 positive control**。**这一轮抓到四处守卫自己的洞**（①② 由首轮扫描现形、
+  ③④ 由反证现形，四处都是改判据后重跑，**没有一处是靠加豁免名单绕过去的**）：①作用域写成遍历文件系统 →
+  2635 份 md、1037 条 finding（把 worktree、依赖目录、`.tmp` 下的克隆全扫进来了），改成只走 `git ls-files`；
+  ②扩展名交替把 `manifest.sha256` 的后半截掉，只剩半个 token，补 `sha256` 并给 token 加尾部锚点；③简写规则最初写成
+  "路径里只有一个 `/` 就算简写"，于是**任何"一个目录名 + 斜杠 + 文件名"形状的脚本路径**都被放过，R1 直接变绿
+  ——改成"同一处还有两个以上裸 basename 才算"；④改完 ③ 冒出 3 条 `MISSING_FILE`，追下去是**多模块同尾
+  路径**（`gradle/libs.versions.toml` 在 `bridge/` 与 `bridge-1201/` 各一份）被当成不存在——**那 3 条不是文档
+  写错，是判据太窄**。**这段记录自己也把门弄红过一次**：写 ③ 时举例用了"脚本目录前缀 + 假文件名"的完整形状，
+  下一轮扫描立刻读到 `findings: 1 / MISSING_FILE`，把它改成只描述形状（不拼成可解析路径）才回到 0——
+  与上一轮 `report_coverage.py` 那次同类（见 `docs/development-todo.md` 09-26 flag 表一节五道反证的第 2 条），
+  **加豁免名单仍然不是修法**。另外把改名箭头两边写全也让可解析引用变多：本段最初量的 684 是那两处改写之前的
+  数；这两格记录自己举的歧义路径例子本身也是可解析引用，全部改完再跑一次读到 **688**，**后续各格一律引这个数**。**刻意保留的边界（不当作缺口）**：只判带目录前缀的路径 token，正文里光写 `orphans.py`
+  这类裸名不判；多模块歧义路径的行号按"任一命中文件内即算过"（宽松方向）；上游树只归类、不判存在。
+  **本轮只动文档与 `.tmp` 校验脚本**，产品代码、测试与夹具一字未改；九道门与 pytest 的实测读数记在
+  `docs/development-todo.md` 同名一节，且都在最后一格 docs 改动之后跑。
 
 ## 最近完成
 
