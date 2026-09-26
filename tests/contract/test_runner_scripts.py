@@ -519,3 +519,46 @@ def test_an_auto_bundle_run_is_captured_named_and_otherwise_refused() -> None:
     # profile directly, and an auto run is refused before it can reach that).
     assert '"${seal_profile_args[@]}"' in text
     assert '--case "${case_file}" \\\n            "${seal_profile_args[@]}" \\' in text
+
+
+def test_the_console_probe_is_a_default_and_the_status_switch_is_read() -> None:
+    """Two readings a run could not have before, and no new verdicts.
+
+    The first is the server-side account of where the Kin is. `data get entity`
+    used to fire only in runs that had exported `MINEKIN_DOMAIN_PROBE` in advance,
+    so a scenario that later wanted a reading had none: measured against the
+    pre-change copy, the extracted construction yielded `PROBE ARGS: []` with no
+    knob and `[--probe-player Kin --probe-every-seconds 5]` only with it. The
+    asking is a default now, on the whitelisted account's name; what the knob
+    still gates is every *judgement* that reads those lines, which is why the
+    clause below pins both halves — the default and the untouched gate.
+
+    The second is `enable-status`. The auto path resolves and observes its target
+    through the vanilla status endpoint, and the controlled server tool writes
+    `enable-status=false` into every run directory (measured: the product probe
+    against such a server says `NO_RESPONSE`, rc 17, while the same bytes with
+    only that one switch flipped say `OBSERVED`). `domain.sh` now prints the
+    switch read back from the run directory's own settings file — measured to
+    print `false` for the tool-written directory and `true` for the flipped
+    positive control — and stops an auto-bundle run whose server cannot answer,
+    by name, before a client is started into a join that can never be observed.
+    Flipping the switch itself belongs to `tools/run_controlled_server.py`,
+    outside this harness's surface, and is registered for its own card.
+    """
+
+    text = (RUNNER / "domain.sh").read_text(encoding="utf-8")
+
+    # The probe is built unconditionally, defaulting to the whitelisted account.
+    assert (
+        'probe_args=(--probe-player "${probe:-${player}}" '
+        '--probe-every-seconds "${probe_seconds}")' in text
+    )
+    assert 'probe_args=()\nif [[ -n "${probe}" ]]; then' not in text
+    # And the judgement gate that reads those lines is still the knob, unchanged.
+    assert '[[ -n "${probe}" && "${hold_requested}" -eq 1' in text
+    # The status switch is read from the server's own settings and printed.
+    assert "s/^enable-status=//p" in text
+    assert "printf 'domain: the controlled server reports enable-status=%s\\n'" in text
+    # An auto run whose server cannot answer stops by name, before the client.
+    assert 'if [ -n "${auto_bundle}" ] && [ "${enable_status}" != "true" ]; then' in text
+    assert "the auto path needs this server to answer status" in text

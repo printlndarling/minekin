@@ -470,10 +470,16 @@ fi
 # A run that is supposed to move the Kin has to be able to ask the server where
 # the Kin is: the server does not log where anyone walks, and the acceptance for
 # input is the server's own observation of the displacement.
-probe_args=()
-if [[ -n "${probe}" ]]; then
-    probe_args=(--probe-player "${probe}" --probe-every-seconds "${probe_seconds}")
-fi
+#
+# The asking is a default now: every server run carries `data get entity <Kin> Pos`
+# and `Rotation` on this cadence into the server's log, so a reading a scenario
+# might want is already there rather than only present in runs that knew in advance
+# to name the probe. What `MINEKIN_DOMAIN_PROBE` still gates is everything below
+# that *judges* — the walk and turn waits read it before they wait — so the default
+# adds readings, not verdicts, and the judgement set is exactly what it was. The
+# default name is the account this run whitelists, which is the Kin those scenarios
+# put in the world.
+probe_args=(--probe-player "${probe:-${player}}" --probe-every-seconds "${probe_seconds}")
 if [[ -n "${use_target}" ]]; then
     probe_args+=(--use-target)
 fi
@@ -615,6 +621,25 @@ if [ -n "${server_pid}" ]; then
             exit 1
         fi
         printf 'domain: server ready\n' >&2
+        # A checkable reading of the one server setting the auto path depends on:
+        # resolution and status observation of an auto-bundle target go through the
+        # vanilla status endpoint, and whether this controlled server answers one
+        # is written by the launcher tool into the run directory's own settings
+        # file. It is printed for every server run — a run can then see the switch
+        # it is relying on rather than assuming it — and an auto-bundle run whose
+        # server will not answer stops here, by name, before a client is started
+        # into a join that can never be observed. The flip itself belongs to
+        # tools/run_controlled_server.py, outside this harness's surface, and is
+        # registered for its own card; this reading is what makes that blocker
+        # checkable from inside a run instead of inferred from a failed join.
+        enable_status="$(sed -n 's/^enable-status=//p' \
+            "${server_directory}/server.properties" 2>/dev/null | tail -1)"
+        printf 'domain: the controlled server reports enable-status=%s\n' "${enable_status:-unreadable}" >&2
+        if [ -n "${auto_bundle}" ] && [ "${enable_status}" != "true" ]; then
+            printf 'domain: the auto path needs this server to answer status and it reports enable-status=%s; the controlled-server tool has to make it answer (registered separately), so the run stops before the client starts\n' \
+                "${enable_status:-unreadable}" >&2
+            exit 2
+        fi
     fi
 fi
 
