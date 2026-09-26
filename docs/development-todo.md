@@ -3441,3 +3441,9 @@
 - 边界：只判"id 指不指得到注册表"，不判这张卡该不该存在；跨命名空间（卡 id 与 case id 同形）不做区分，
   因为注册位置就是它们各自的权威表；不改任何 `tools/` 判据、不动 `.gitattributes`、不碰 HOST 实现与夹具、
   不提升任何门、不连接用户的远程服。
+- 补记（这一格的落地读数，收口提交 **`097a3d0`**）：远端两条 ref 已核为同一完整 SHA `097a3d0b90b46ed1ac48ffa4106a63b62a672018`
+  （`git ls-remote` 上 `main` 与 `codex/core-state-transition` 各一条），push 之后照固定动作跑
+  `git fetch origin main:main`，`main...origin/main` 与 `HEAD...main` 都读到 `0 0`。GitHub Actions 对该 SHA 的
+  两个 `CI` run `36205275770`/`36205275642` 及六个 job（`python` 18 步、`protocol` 10 步、`bridge-static` 9 步，
+  两 run 各一套）在 job 与 step 层全部 `completed / success`、无一步失败或卡住。**这段补记自己是 docs-only、
+  只动本文件**，因此按仓库口径没有为重跑九道门而改动任何判据，范围由它所落提交的 `git show --stat` 证明。
