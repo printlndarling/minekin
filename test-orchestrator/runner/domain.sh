@@ -818,9 +818,20 @@ PY
     join_ready=1
 fi
 
-# Name the three items at both depths, then say them on the run's own output once. Called
-# by the launcher itself — see `join_the_published_world` — and never on a path a normal
-# run takes, so a run with no joiner pays nothing for it.
+# Name the three items at the depth this script can name them, say them on the run's
+# own output once, and stage the probe for the depth it cannot. Called by the launcher
+# itself — see `join_the_published_world` — and never on a path a normal run takes, so
+# a run with no joiner pays nothing for it.
+#
+# The `launch` depth is deliberately NOT read here. An earlier form ran a second
+# command line through the same wrapper array to take it, and wrote those values as the
+# environment the client was handed; that was too strong — `xvfb-run` allocates its
+# screen, `XAUTHORITY` and display number per invocation, so a probe run *through* the
+# wrapper is a sibling of the client, not its ancestor, and can only claim to be like
+# it. The reading now happens on the launch line itself (see `join_the_published_world`),
+# inside the wrapper process that `exec`s into the client, so what it writes is what
+# the client's JVM is handed, by construction. This function's job is the `harness`
+# depth and staging the probe file that line runs.
 #
 # It returns rather than exits whatever it could not do: a reading that cannot be taken
 # is a named gap in the record, not a reason to destroy a run that was about to produce
@@ -833,6 +844,14 @@ name_the_joiner_client_environment() {
             "${client_environment_readout}" >&2
         return 0
     fi
+    # Stage the probe as a file the launch line can run: the alternative — embedding the
+    # whole probe in the launch command line — would put a second copy of it beside the
+    # one this function runs, and the two could drift apart from each other.
+    client_environment_probe_script=/tmp/domain-client-environment-probe.sh
+    if ! printf '%s\n' "${client_environment_probe}" > "${client_environment_probe_script}" 2>/dev/null; then
+        printf 'domain: the environment probe could not be staged at %s, so the launch-depth reading will name its own absence\n' \
+            "${client_environment_probe_script}" >&2
+    fi
     # Depth 1 — what this script holds. The harness owns the X server for the whole run
     # (see `Xvfb "${session_display}"`), so its own DISPLAY is the harness screen, not
     # the one the joiner is about to be handed.
@@ -843,22 +862,12 @@ name_the_joiner_client_environment() {
     [ "${rc}" -eq 0 ] ||
         printf 'domain: harness=unmeasurable: the probe process itself failed rc=%s (see /tmp/domain-client-environment.err)\n' \
             "${rc}" >&2
-    # Depth 2 — what the launcher hands down. This goes through the very same array the
-    # client is launched with, which is why the launch site uses that array rather than
-    # repeating the literal: a reading taken through *another* command line could drift
-    # from the one the client actually got, and then the record would be about the probe.
-    rc=0
-    MINERUN_LAUNCH_DEPTH=inside-wrapper \
-        "${joiner_launch_wrapper[@]}" env MINEKIN_KIN_ID="${joiner}" \
-        bash -c "${client_environment_probe}" minekin-runner launch \
-        "${client_environment_readout}" 2>>/tmp/domain-client-environment.err ||
-        rc=$?
-    [ "${rc}" -eq 0 ] ||
-        printf 'domain: the launch-depth reading failed rc=%s (the wrapper never reached its child; see /tmp/domain-client-environment.err)\n' \
-            "${rc}" >&2
-    # The greppable line: the items as one line, exactly as the file holds them.
+    # The greppable line: the harness-depth items as one line, exactly as the file
+    # holds them so far. The `launch` lines land in the same file a moment later,
+    # written by the wrapper that execs the client, and the classifier below reads
+    # them from there.
     printf 'domain: joiner client environment before its JVM: %s\n' \
-        "$(grep '^launch ' "${client_environment_readout}" 2>/dev/null |
+        "$(grep '^harness ' "${client_environment_readout}" 2>/dev/null |
             tr '\n' ' ')" >&2
     return 0
 }
@@ -871,7 +880,12 @@ name_the_joiner_client_environment() {
 # whether anything answers the published port on loopback (nothing else — never a remote
 # address), and whether the client was handed a screen that could be measured.
 #
-# This names readings. It changes no criterion, no gate and no bundle field, and a run it
+# This names readings, on the branch where the joiner had not arrived when the wait
+# window closed — a reading about that moment, which a later arrival does not undo.
+# The verdict names say the window for exactly that reason: an H1c run whose joiner
+# arrived after its window (`snapshots_admitted 1`, ending `BRIDGE_LOST`) had been
+# called a run that died on the client side, and this shape cannot know that much.
+# It changes no criterion, no gate and no bundle field, and a run it
 # describes is still the same FAIL it was before.
 classify_the_joiner_downstream_readings() {
     local listening=0
@@ -889,9 +903,9 @@ classify_the_joiner_downstream_readings() {
     elif [ "${listening}" -eq 1 ]; then
         case "${backend}" in
             unmeasurable* | not-measured*)
-                verdict='THE_RUN_DIED_IN_THE_CLIENT_ENVIRONMENT while the world was listening on 127.0.0.1:'"${lan_port}"' (screen: '"${backend}"')' ;;
+                verdict='THE_JOINER_SCREEN_WAS_UNMEASURABLE while the world was listening on 127.0.0.1:'"${lan_port}"' at the window close (screen: '"${backend}"'), so the environment the joiner was handed is what this run measures' ;;
             *)
-                verdict='THE_RUN_DIED_ON_THE_CLIENT_SIDE with a live world and a measurable screen ('"${backend}"'), so the client environment rather than the world is where to look next' ;;
+                verdict='THE_JOINER_HAD_NOT_ARRIVED_IN_THE_WINDOW with a live world and a measurable screen ('"${backend}"'), so the client half rather than the world is where to look at the moment the window closed; a joiner arriving after the window would make this line about the window, not about the death' ;;
         esac
     else
         case "${backend}" in
@@ -949,11 +963,33 @@ join_the_published_world() {
         "select coalesce(max(position), 0) from event;" 2>/dev/null || echo 0)
     baseline=${baseline:-0}
     name_the_joiner_client_environment
+    # The launch-depth reading goes on this very command line, in the wrapper process
+    # that becomes the client: the probe runs first, `exec` follows with the client as
+    # its argument, and `exec` hands its environment to what it becomes — so the values
+    # written are the ones the client's JVM is handed, and not those of a sibling
+    # allocation taken through the wrapper earlier. A staged probe file that is missing
+    # names its own absence in the readout rather than going silently quiet, and cannot
+    # stop the client from starting either way.
     "${joiner_launch_wrapper[@]}" \
-        env MINEKIN_KIN_ID="${joiner}" python -m minekin_core session start \
-        --profile "${profile}" \
-        --server-profile /tmp/domain-join-profile.json \
-        >/tmp/domain-join-session.json 2>/tmp/domain-join-session.err &
+        env MINEKIN_KIN_ID="${joiner}" \
+            MINERUN_LAUNCH_DEPTH=inside-wrapper \
+            CLIENT_ENVIRONMENT_PROBE_SCRIPT="${client_environment_probe_script:-/tmp/domain-client-environment-probe.sh}" \
+            CLIENT_ENVIRONMENT_READOUT="${client_environment_readout}" \
+        bash -c '
+            if [ -f "${CLIENT_ENVIRONMENT_PROBE_SCRIPT}" ]; then
+                bash "${CLIENT_ENVIRONMENT_PROBE_SCRIPT}" launch \
+                    "${CLIENT_ENVIRONMENT_READOUT}" \
+                    2>>/tmp/domain-client-environment.err || true
+            else
+                printf "launch GL_PROBE=not-staged: %s is absent\n" \
+                    "${CLIENT_ENVIRONMENT_PROBE_SCRIPT}" >> "${CLIENT_ENVIRONMENT_READOUT}" 2>/dev/null || true
+            fi
+            exec "$@"
+        ' minekin-joiner-launch \
+            python -m minekin_core session start \
+            --profile "${profile}" \
+            --server-profile /tmp/domain-join-profile.json \
+            >/tmp/domain-join-session.json 2>/tmp/domain-join-session.err &
     joiner_pid=$!
     deadline=$((SECONDS + seconds))
     for _ in $(seq 1 "${seconds}"); do
@@ -1045,12 +1081,17 @@ fi
 # Core forwards `DISPLAY` (`config.FORWARDED_VARIABLES`) to the client — except now
 # killing the Core has no route to the server behind it.
 #
-# The session stays under a plain `sh -c '"$@"; :'` wrapper, not run directly: the
-# fault helper resolves the runtime controller by walking the descendants of the pid
-# this run holds (`inject_fault.py`), so the Core must remain one level below
-# `session_pid`. The trailing `:` keeps the shell from exec-replacing itself with the
-# Core, which would collapse wrapper and target into one pid and leave no descendant
-# to name. Killing the Core lets this wrapper exit on its own; it holds no server, so
+# The session stays under a plain `sh -c` wrapper, not run directly: the fault helper
+# resolves the runtime controller by walking the descendants of the pid this run holds
+# (`inject_fault.py`), so the Core must remain one level below `session_pid`. What the
+# wrapper ends with is the Core's own status: an earlier form ended in a bare `:`, which
+# kept the no-exec property but made the wrapper exit 0 whatever the Core said — an auto
+# run refused at a named supply-chain frontier (measured: Core's own rc 17, the refusal
+# printed on the run's stderr) left this harness through rc 0, indistinguishable by exit code from a run whose
+# client booted and rode out its bound. Statements after `"$@"` are what prevent the
+# exec-replacement, and `session_rc=$?; exit` are statements, so the guard survives; the
+# capture is the first thing after the Core precisely so nothing else can set `$?`.
+# Killing the Core lets this wrapper exit on its own; it holds no server, so
 # nothing here shuts the display down.
 for display_no in $(seq 77 99); do
     [ -e "/tmp/.X${display_no}-lock" ] || {
@@ -1076,7 +1117,7 @@ if [ ! -e "/tmp/.X11-unix/X${display_no}" ]; then
 fi
 export DISPLAY="${session_display}"
 
-sh -c '"$@"; :' minekin-session-supervisor \
+sh -c '"$@"; session_rc=$?; exit "${session_rc}"' minekin-session-supervisor \
     "${client_env[@]}" python -m minekin_core "$@" "${lan_args[@]}" \
     >/tmp/domain-session.json 2>/tmp/domain-session.err &
 session_pid=$!
