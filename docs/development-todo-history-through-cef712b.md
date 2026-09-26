@@ -1,0 +1,3601 @@
+# 开发 TODO 与执行门禁（历史归档，含 cef712b 后未提交的审计草稿）
+
+更新：2026-09-22。
+
+本文把现有设计文档转换为可执行开发队列。若本文与专项契约冲突，以更新且更具体的契约为准；P0 的实现入口是 [P0 核心原型执行计划](p0-prototype-execution-plan.md)与 [P0 core 内部架构](p0-core-internal-architecture.md)。
+
+> 当前任务领取、依赖、允许修改面、门禁与 commit/push 边界，以
+> [开发执行控制计划](development-execution-plan.md)为准。本文保留历史调查与实测账，
+> 不再作为 Claude 自行选择下一任务的入口。
+
+## 执行原则
+
+- 严格按 `W00 → W10 → W20 → W30 → W40 → W50 → W60 → W70` 晋级；前置门禁失败时不以 mock 或后续结果覆盖。
+- 每批只增加一个可逆能力，按“schema/fixture/预期 → 实现 → 真实 evidence digest”提交。
+- 失败 run 只追加、不覆盖；无实际证据不得标记 `PASS`、`tested` 或 `P0_CORE_TESTED`。
+- P0 仅包含一个 Python `minekin-core` 进程与一个 Java 21 Minecraft/Fabric JVM。Dashboard、PlayerMind、LLM、媒体、导航和 HOST 均后置。
+- 产品代码不得读取测试 oracle；服务端真值只允许验收器在运行结束后交叉核对。
+
+## 环境门禁
+
+- [x] Git 工作树与 `origin/main` 基线确认。
+- [x] Python 与 uv 可用。
+- [x] 固定 Java 21；本机以 JDK 21.0.12.1 完成 Gradle 8.12.1 的 Bridge `clean check`，并在改过 proto 与 Bridge 源码之后以 `--offline` 重新验证过：strict verification、锁定依赖、`BUILD SUCCESSFUL`。Bridge 源码树摘要在反复跑 Gradle 之后保持不变，说明 `build/` 与 `.gradle/` 确实被排除在摘要之外。
+- [x] Bridge 源码树摘要不再随平台变化：recipe 的 `source_digest` 原来按**后缀白名单**决定要不要把 CRLF 归一到 LF，白名单里有 `.java`、`.kts`，唯独漏了 `.xml`，于是 `gradle/verification-metadata.xml` 一个文件就让同一个 commit 在两平台上摘要不同（23c7bfe：Linux 等价树 `40664fab…`、Windows 检出 `4bd0189c…`）。记录下来的那个值其实哪个检出都对不上，代价是 launch plan 一路失败——因为 CI 因账单停摆，这个红灯没有任何人看见。现在改为按 git 自己的判据（前 8000 字节内有 NUL 即二进制）归一所有文本文件，二进制逐字节保留，并有测试断言「同内容 LF 树与 CRLF 树摘要相同」「只差一个 CRLF 的两个 jar 摘要不同」。**由此产生的纪律：Bridge 源码一改，recipe 的 `source_digest` 就必须重算**，否则所有依赖 launch plan 的用例都会报「Bridge source tree digest differs」而不是它们真正要报的错。
+- [x] 以固定版本的 Buf action 提供 schema build/lint/format 门禁；本机用固定 Buf `v1.50.0` 完成 lint 并复现同一生成字节。
+- [x] 补上 Buf **CLI** 的版本 pin：原来只钉了 action（`bufbuild/buf-action@v1.5.0`），而 action 下载的是哪个 CLI 并没有指定，等于用「最新的那个」。lint 规则与 format 输出会随 Buf 版本变化，所以这道门禁本来可以在本仓库毫无改动的情况下变红或悄悄改成在检查别的东西。现在显式写 `version: v1.50.0`，并有契约测试断言这条 pin 存在（同一个测试也覆盖「哪些工具由 workflow 自己安装就必须自己钉住」）。
+- [x] Buf CLI 的 `checksum` 已补上：重试后取到了 release 的官方 `sha256.txt`，并先确认 action 下载的是**裸二进制** `buf-Linux-x86_64`（其 dist 里完全没有 `tar.gz`），因此用的是该条目而不是压缩包的摘要。契约测试同时断言 version 与 checksum 存在且是 64 位小写十六进制。
+- [x] workflow 里的 action 本身仍按 tag 引用（`actions/checkout@v5`、`astral-sh/setup-uv@v6`、`bufbuild/buf-action@v1.5.0`），没有按 commit SHA 固定。本仓库对工件一律做摘要核验，action 是另一类供应链入口；是否改成 SHA 引用需要单独决定（它会让升级更麻烦，但能挡住 tag 被移动）。 **（2026-09-22 已决定并已做，见下一条。）**
+- [x] **三个 action 全部钉到 commit，release 号写在旁边；并且有一条门禁让它保持这样——"是否改成 SHA 引用"这个留给单独决定的问题，用本仓库自己的政策就答完了。** `actions/checkout` → `fbc6f399…`（v5）、`astral-sh/setup-uv` → `d0cc045d…`（v6）、`bufbuild/buf-action` → `8c6a16e1…`（v1.5.0）。
+  - **为什么这不是一个真正悬而未决的问题**：那条 `[ ]` 把取舍写成"升级更麻烦 vs 挡住 tag 被移动"。而本仓库对**所有**从外面取来的东西都选后者——Gradle wrapper 按 sha256、服务端 jar 按 SHA-1、Bridge jar 按 sha256（换 pin 要走四处重录）、buf CLI 按 checksum、夹具与用例判据各有 pin——并且反复把"换 pin 是一次**评审动作**"写成纪律而不是麻烦。action 是同一类东西：**外部代码，带着本仓库的凭据运行**。所以按它自己的政策，答案只有一个。`buf-action` 那段注释甚至已经把这件事说过一遍了（"钉住 action 不等于钉住它下载的 CLI"）——只是没回头钉 action 本身。
+  - **注释是这条门禁的另一半，而不是装饰**：一个**裸 SHA** 是没人能复核的钉——看不出它出自哪个 release、也就看不出有没有更新的。所以 `check_workflow_pins.py` 分两种理由拒绝：没钉（`is not owner/repo@<40 hex commit>`）与钉了不说 release（`records no release`）。半截的缩写也算没钉：`fbc6f399` 会碰撞，而且它不是评审者读到的那串。
+  - **它自己验证自己**：门禁进了 CI 的 `python` job，而 CI 跑的就是这份 workflow——**一个解析不到的 commit 会在 action 启动之前就让 job 失败**，所以"这些 SHA 真的存在且指向那个 release"这件事由每次 push 的运行来证，而不是由一条需要网络的测试来证（我第一版真写了那样一条测试，然后删掉了：没有凭据时它会静默 return，那是一条**不可能失败**的测试）。三个 SHA 本身是**从 release 用 API 解析出来的**（`setup-uv` 的 v6 是 annotated tag，要先解引用到 commit，这一步单独做了）。
+  - **它是个门禁不是解析器，而这条局限写在了模块里**：没有 PyYAML，而为了一份两打行的 workflow 引一个依赖不是这个仓库的做法，所以它按行读；失效方式是 `run:` 块里恰好有一行长得像 `uses:`——那只可能是有人故意那么写的。另外它**不能**检查一个 commit 是否存在（那要网络），理由与上面那条一样写在模块里。
+  - **测试 8 条**：真仓库钉好了；tag 被拒（连消息里带上那个 tag 一起断言）；**有 commit 没有 release 被拒**（这是替换时最容易漏掉、且会让另一半无法复核的那一半）；两者齐全被接受（负向对照）；缩写被拒；本地 action（`./`）放行；运行时计算的 `${{ }}` 被拒（第一版正则漏了它，因为它带空格）；工作流目录不存在**不是**通过（exit 2）。**其中 `${{ }}` 那条第一次是绿的**，而它暴露了正则的一个真缺陷：第一版把 target 写成 `\S+?`（一串非空白字符），而运行时计算出来的 action 名字里**带空格**（`${{ inputs.action }}`），于是那一行根本没被匹配到、直接跳过——**一个因为看不懂而放行的门禁**。改成贪婪到注释为止之后才真的拒它。
+  - **实测（本轮只到本地锁定环境）**：ruff check/format、pyright（0 errors）、`check_workflow_pins`（真 workflow）以及全量 pytest（**1558 通过 / 2 skipped**，新增 8 条）；上面的 CI 三个 job 是**真的跑过这组 pin 之后**才绿的。**没有跑真实 Minecraft**，也没接受 EULA；**任何夹具与 pin 都没有动**（这一轮只改 workflow 的一处、加一个门禁与一份文档）。
+  - **仍然开着的**：门禁只覆盖 `.github/workflows/` 下的文件；将来若拆到 `action.yml` 之类的地方（本仓库没有），那类文件不会被它扫到。
+- [x] 完成 Gradle 依赖锁与 SHA-256 verification metadata；固定 Wrapper 8.12.1 已在 Java 21 下通过离线 strict verification `clean check`。**但这份 metadata 目前只在一台机器上成立**：它记录了 Loom 本地**中间**工件的本机摘要，换平台即 mismatch——注意这与发布物无关（最终 JAR 两边同字节），所以这纯粹是一道门禁的可移植性问题，不再阻断可复现性结论；W10 有完整证据与待定选项。
+- [x] 用 Docker 实测过 Linux 侧：容器里的 Linux 构建**能完整跑通**（为此需要在命令行加 `--dependency-verification=off`，不改任何已提交配置），产出与 Windows 逐字节相同的 JAR。JDK、依赖缓存与锁文件本身够用；拦住的不是构建，而是上面那道门禁。
+- [x] **客户端侧的受控 runner 已建好并验证**：`test-orchestrator/runner/` 里有 Dockerfile、驱动脚本与说明。基础镜像是 `eclipse-temurin:21-jdk-noble`（glibc），因为冻结的 WAL 门禁要 SQLite >=3.51.3，而实测各发行版自带的是 Ubuntu 24.04 `3.45.1`、Debian trixie `3.46.1`、Alpine `3.53.4`——满足门禁的只有 musl 的那个，而 Minecraft 的 LWJGL native 是 glibc 构建，两个要求指向不同镜像，所以这里取 glibc 镜像**自己带一个新的 SQLite**：构建时抓 `sqlite-autoconf-3530400.tar.gz`，先用上游公布的 SHA3-256 `454e45f6…` 核对（`openssl dgst -sha3-256`），核对通过才编译，装到 `/opt/sqlite` 并**不**放进系统库路径——由驱动脚本在命令行上给 `LD_LIBRARY_PATH`，于是「用的哪个 SQLite」写在命令里而不是藏在镜像里。**实测结果**：`run.sh doctor` 四项全过（Python 3.12.3、Java 21、protobuf 6.33.6、SQLite 3.53.4），同一个命令在 stock Ubuntu 容器里只有 SQLite 那项失败；`xvfb-run -a --server-args="-screen 0 1280x720x24" glxinfo -B` 报 llvmpipe（LLVM 20.1.2）Mesa 25.2.8、**max core profile 4.5**——Minecraft 1.21.4 要 GL 3.2 core，所以客户端有可用的渲染后端；**软件光栅下的实际帧率仍未测**，那正是这个 runner 存在的意义。
+- [x] runner 的**另一半**已经接上：受控 runner 现在能起隔离的原版服务端，不再只有客户端。新增 `run.sh server` 模式：jar 由 `MINEKIN_SERVER_JAR` 指名的宿主路径**只读挂载**进来（不拷进镜像，这样"这次跑的是哪个 jar"能从命令里读出来，而不是靠猜），逐 run 目录落在数据卷的 `/data/server-runs/run-<n>`，**`n` 跳过所有已存在的**——服务端的 run 目录只追加不覆盖，所以编号必须避开已有的，工具自己那道"目录非空即拒"是第二道而不是唯一一道。EULA **不由脚本代传**：`--accept-eula` 和其余参数一起透传，而 `run_controlled_server.py` 在没有它时在**创建目录之前**就退出，所以被拒的一run不会留下任何痕迹。
+- [x] 顺带补上了一个一直没有答案的问题：**服务端的 jar 从哪里来**。`run_controlled_server.py` 只说了"先下载钉住的服务端 jar"，而仓库里没有任何东西是那一步——供应链核查工具会把这些字节读进内存比对完就丢掉，客户端用的内容寻址 store 又**刻意**不含服务端（它不是 bundle 的一部分）。于是操作者只能自己 curl，而那条路会绕过本仓库对每个下载工件施加的全部规则。现在 `tools/verify_supply_chain.py --save-server <path>` 把**它刚刚按 pin 验过的那份 payload** 存下来——验证与保存是同一份字节，两者无法各说各话——并且 `--save-server` 隐含 `--include-server`，因此操作者在发出任何请求之前读到的预算行就已经包含了那 54 MB。已实测：同一条命令今天重跑了全部 pin（`59531345` bytes，7 个工件全部匹配，含 server 的 56,880,250 / SHA-1 `4707d00e…`），并存到已有文件时判为 `already present`；另有一条离线用例断言"保存标志取到的预算等于 `--include-server` 的预算"，以及 `keep()` 的三条不变量（原子落盘不留 staging、同字节重复保存不动文件、**路径上已有的不同文件绝不被替换**）。
+- [x] **服务端在 runner 里真实启动过了**（运行者明确同意 EULA 之后）：`run-1` 从固定种子生成了新的世界，绑定 `127.0.0.1:25565`，报 `Done (0.512s)!`，收到 `stop` 后干净收尾（`Stopping the server` → `ThreadedAnvilChunkStorage: All dimensions are saved`），容器退出后没有任何东西留在跑。隔离是从**vanilla 自己重写过的** `server.properties` 里读回来验的，不是读工具写的那份：`online-mode=false`、`white-list=true` + `enforce-whitelist=true`、`gamemode=survival` + `force-gamemode=true`、`spawn-protection=0`，`enable-rcon`/`enable-query`/`enable-command-block`/`broadcast-console-to-ops` 全 false；`whitelist.json` 只有 Kin 一个离线 UUID `8f40376b-…`，`ops.json` 是空的。两条如实记下的东西：**(一)** 每个 run 目录 64 MB（44 MB 是 bundler jar 解出来的 libraries、18 MB 是它解出来的服务端本身、3.5 MB 是世界），逐 run 隔离正是这个解包行为白送的，代价是目前**没有任何东西会清理它**——与 session marker 是同一个未决问题；**(二)** 日志里有一条 `ERROR: No key layers in MapLike[{}]`，那是 vanilla 的 flat 生成器在说 `level-type=minecraft:flat` 没带 `layers` 键，它回落到默认层集、世界照常生成（3.5 MB、spawn 区就绪），录下来而不是"修掉"，因为另一条路是发明一个 profile 没有点名的生成器预设。
+- [x] 但**仍然没有任何东西可以被连接**：连接需要 Core 发出 `ConnectWorld`，而那个入口目前不存在（没有 Server Profile 选择，也没有对应命令），所以会话依旧停在主菜单。这一条等的是代码，不是决定。 **（2026-09-22 核对：已闭合——`ConnectWorld` 三处都在：`adapters/bridge/ipc.py:63`（类型名）与 `:81`（注册）、`cli/parser.py:47`（`--server-profile`）、`cli/session.py:1080` 发出它；`tests/unit/test_session_supervision.py` 会从控制通道**读回那一帧**，所以不只是「存在」，是「真的发出去了」。）**
+- [x] 顺带修掉一个**可诊断性**缺陷：上面那次实测里 `minekin init` 在容器里以 `INTERNAL_INVARIANT`（退出码 70）失败，消息是「unexpected internal failure」——因为 `SQLiteCompatibilityError` 原先只是 `RuntimeError`，未分类异常会被 CLI 脱敏成内部不变量错误，于是**把话说得最清楚的那条消息恰好被吞掉了**（实际内容是：SQLite 3.45.1 outside the validated multi-connection WAL safety set）。现在它是有分类的 `MinekinError`（`STORAGE` / `OPERATOR_ACTION`），消息里还会点名「本构建接受 3.51.3 或更新，或回补版 3.44.6 / 3.50.7」，于是操作者拿到的是可执行的拒绝而不是一句内部错误。已做变异验证：把它改回 `RuntimeError`，那条 CLI 用例立刻失败（分类退回 INTERNAL_INVARIANT）。**一般化的那条教训**：任何「我明确知道哪里不对」的拒绝都不该以裸异常形式抛出，否则它在 CLI 那一层会被降级成不可诊断的错误。
+- [x] 照那条教训把整棵代码树扫了一遍（非 `MinekinError` 的 `raise`），三处**命令路径上会被脱敏成 INTERNAL_INVARIANT** 的都修了：**（一）** `select_kin` 对磁盘上发现的 Kin 目录名不做校验，`KinId(...)` 抛裸 `ValueError`——一个名字带空格的目录会让 `session start/status/stop` 全部以「unexpected internal failure」失败，而真正的原因（目录名不是合法标识符）不可推导；现在点名那个目录。**（二）** `session start` 在读身份根**之前**没有「库在不在」的检查，而 `session status` 有（`cli/status.py`）；`connect_reader` 是 `mode=ro` 打开的，文件缺失只会得到一个驱动层错误。现在两者措辞一致：点名路径并让人去 `minekin init`。**（三）** 账本读路径上「存下来的 payload 与它自己的摘要对不上」抛的是裸 `ValueError`，于是**连事件 id 一起丢了**——而那正是唯一能让它对账的东西；现在是有分类的 `STORAGE` 错误并把事件 id 写进消息。三处都做了变异验证：各自回退后，对应用例分别失败。
+- [x] 上一条挂着的那个洞已经按同一个判据堵上了：读连接现在**拒绝任何不是本构建写出的账本**（`connection.assert_reviewed_ledger`）。这里先要回答的是那个问题本身——**未迁移的库该不该可读**——答案是「不该，而且是刻意的」：本构建没有任何路径会产生这样一个文件（`connect_writer` 在同一次调用里就把它迁移了），所以没有 schema 的库只可能是**迁移回滚后的残骸**或**别人的数据库**，两者都应该在这里被点名，而不是稍后以 `no such table: kin_identity` 出现在驱动层再被 CLI 脱敏。校验顺序是先看 `user_version` 是不是本构建认识的（否则 `_EXPECTED_TABLES` 会 KeyError），再复用写路径已有的 `_validate_schema` 查 application_id 与期望表。**刻意没有**用「捕获 `OperationalError`」来做这件事——「文件不是我们的」与「文件被锁住」是两种不同的状况，把前者当成后者会是新的误报。已做变异验证：去掉 `connect_reader` 里的那次调用，三条用例（外来库、未迁移库、以及 CLI 上的 STORAGE 报告）同时失败；同时加了一条反向用例，确认校验不会拒掉它本该保护的正常账本。
+- [x] 已实测 wheel 装出来能不能跑：把 `uv build --wheel` 的产物装进一个干净 venv 再逐条执行命令。`doctor`、`init`、`session status` 都正常（migrations 与 `schema.sql` 确实被打进 wheel，否则 `init` 会在 importlib.resources 上炸）。但 `launch-plan`（以及依赖它的 `session start`）在源码树之外必然失败，因为它用 `Path(__file__).resolve().parents[4]` 猜工作区根，装在 site-packages 里就猜到了 venv 的 `Lib`，于是去找 `<venv>/Lib/bridge` 并报「Bridge source root is missing」。现在改为按标记目录（同时存在 `bridge/` 与 `proto/`）向上查找工作区，并在找不到时把查找起点和「已安装的 wheel 不带源码树」写进错误里。这条 CI 结构上抓不到：CI 会 build wheel，但所有命令都在源码树里跑。
+
+## W00：规格、夹具与整体框架
+
+- [x] 建立 `pyproject.toml`、`uv.lock`、Python 3.12–3.13 范围与 Node-free P0 产品依赖清单。
+- [x] 固定 Pyright 门禁的 Node 运行时（原始记录如下）：产品与构建确实不需要 Node，但 `uv run pyright` 需要，且它默认先用 `PATH` 上的 node、找不到就用 nodeenv 联网下载。实测本机用 PATH 上的 v22.22.3，把 node 移出 PATH 后下载了 26.9.0——同一份代码在不同主机跑在不同 Node 上，完全离线的环境跑不了这道门禁。要么预先提供固定版本 node，要么上 `pyright[nodejs]` + `PYRIGHT_PYTHON_GLOBAL_NODE=0`。详见[开发环境](development.md)。**已解决**：依赖改为 `pyright[nodejs]`，锁文件里多了逐平台记摘要的 `nodejs-wheel-binaries`（24.19.0），Pyright 只用它。两条实测：`PATH` 上完全没有 node 时 `pyright --version` 照常返回；把必然失败的假 `node` 放在 `PATH` 最前面，Pyright 仍正常通过。**没有**顺手加 `PYRIGHT_PYTHON_GLOBAL_NODE=0`——装上这个 extra 之后它不改变任何结果，而留一个不控制任何东西的设置正是本仓库一直在清理的那类问题。
+- [x] 建立 `src/minekin_core` 的 domain/application/ports/adapters/entrypoints/generated/cli 边界。
+- [x] 建立 `bridge`、`proto/minekin/v1`、`tests` 与 `test-orchestrator` 骨架。
+- [x] 实现并测试 Session 状态与合法转换表。
+- [x] 冻结 ID、generation、sequence、deadline 与 monotonic/wall-clock 语义。
+- [x] 冻结 proto v1：envelope、hello、fault、observation、lease、`release_all`。
+- [x] 提交 `src/minekin_core/generated` 的 Python gencode 与 `.pyi` stub，并提供 `tools/generate_protos.py` 与 CI 漂移门禁：生成字节可复现，导入路径统一为 `minekin_core.generated.minekin.v1`，缺 stub 即视为未完成。
+- [x] 冻结 SQLite schema/migration v1、单 writer-thread 与 transactional outbox 契约。v1 文件本身未改动，仅在其上追加。
+- [x] 把单步 v1 迁移泛化为有序迁移执行器：每条迁移自己记账、抬升 `user_version` 并更新 `schema_version`，重复打开是 no-op，v1 库可原地升到 v2 且保留既有事件；比当前代码更新的库版本被拒绝而不是降级。
+- [x] `0002_identity_root.sql` 落 `kin_identity` 单行身份根：`kin_id` 不可变，离线 UUID 由 `uuid_algorithm` + `username` 推导而不是存储（存了就会和规则本身不一致），不保存任何必须失效的瞬时状态。
+- [x] `schema.sql` 是当前 schema 的 golden 文档表示，与迁移产物对齐到 v2；新增漂移测试：把 golden 文件与迁移各建一个库、比对 `sqlite_master` 的建表语句与版本。此前它已悄悄停在 v1 而无人发现，因为没有东西会因它过时而失败。
+- [x] 冻结错误分类、退出码、脱敏规则与未知错误 fail-closed 行为。
+- [x] 冻结 CLI schema；`doctor` 为只读实现，其余命令在实现前明确无副作用地失败。
+- [x] 提供 fake Clock/Launcher/Bridge/EventStore/Evidence ports。
+- [x] 提供 protobuf、framing、event replay 与 crash golden fixtures，并固定跨平台摘要。
+- [x] 自动检查依赖方向、Bridge 引用与产品 wheel 不得包含 oracle。
+- [x] 写 ADR：P0 不引入 Web、ORM、通用 Agent 框架和多 Python 服务。
+- [x] 门禁：schema 可版本化、fixtures 摘要固定、oracle 与产品输入目录隔离。
+
+## W10：Launcher 元数据与 dry-run
+
+- [x] 保存上游原始响应并解析、校验 Mojang 1.21.4 与 Fabric 0.16.9 固定元数据；版本身份、Java/main class、规则与 Fabric 继承均 fail closed。
+- [x] 生成可审计的内容寻址 classpath、session natives 目录、独立 JVM argv、typed game argv 模板与规范化计划摘要。
+- [x] 复核过 W10 计数：实际 4,120 个去重工件 = 4,039 asset + 69 library + 9 native + client + asset-index + logging，与文档所写一致。
+- [x] 逐项校验 URL、大小、SHA、Java 21、main class、规则与固定 mod 集；计划覆盖 4,120 个去重工件（含 4,039 个 asset object、9 个 Linux native 和 logging 配置）。
+- [x] recipe 的 `fabric` 段全部成为受检 pin：`api` 与 `yarn` 此前只是一段没人校验的字符串，而评审者正是靠这段了解这个 bundle 由什么组成，于是"写下来的"可能和"实际用的"不一致。现在两者都按固定常量 fail closed，并有一条测试把它们与 Bridge 的 Gradle 版本目录逐项对齐，两处版本无法再各自漂移。
+- [x] 使用独立 argv 元素；JVM 占位符必须全部解析、game 占位符必须转为 typed entry，并禁止 shell 拼接与宿主 `.minecraft` 访问。
+- [x] 建立带 staging/quarantine/原子发布的内容寻址 artifact store、逐文件复核的只读 bundle 与 generation 隔离的可写 session overlay。
+- [x] 工件抓取：只走 https（重定向降级到 http 也拒绝）、URL 不得带凭据；已在校验通过的缓存中的工件直接复用、不重发请求；只有传输错误才重试，策略拒绝与摘要不符立即返回——重下同样的错字节只会浪费镜像；单次 pass 不因一个失败中止，交由调用方在 `complete` 为假时拒绝启动。暂存、隔离、原子发布与只读封存由 `ArtifactStore.install` 负责，抓取层只提供传输。
+- [x] 有界地核对了固定上游**如今仍然**提供固定字节：`tools/verify_supply_chain.py` 只取每个上游主机上最小的那个工件，外加 recipe 唯一的 mod（fabric-api）。它在**抓取之前**先印出本次会用掉多少字节、超出预算即拒绝——全量抓取是一个 GB，不该被顺手做掉。2026-09-19 实测：6 个工件覆盖全部五个上游主机，全部通过；其中 fabric-api 的 size 2,149,128、sha256 `d183bacb…`、sha1 `1c7871b6…` 与 recipe 及文档所记逐位相同。这个工具**不进 CI**：它需要网络，而 CI 不该依赖 Mojang；可离线验证的那一半（预算拒绝）有测试。
+- [ ] 全量 4,120 个工件与真实客户端仍未跑：需要受控 runner。（2026-09-22 核对：**那个数字今天复现不出来**。从 Mojang 的 1.21.4 version manifest 与它点名的 Asset Index（id `19`）实测：**113 条 library 条目 + 4,039 个 asset 对象 = 4,152**，而且三个平台算出来都是这个数（1.21.4 的条目不带 `rules`，平台差异表现在各自的 natives 条目上）。4,120 与这三项（4,152 / 4,039 / 113）**都对不上**，当年那个数字统计的是什么没有记下来。**所以这条现在应当读作「全量工件与真实客户端仍未跑」**，而不是一个可核对的目标数字——数字留在这里只会让下一个读的人以为它有意义。) 
+- [x] 原版 server JAR 的 pin 也核对过了：契约与资料索引记的 SHA-1 `4707d00e…`、大小 56,880,250 bytes，与冻结元数据 `downloads.server` 逐位相同，且 Mojang 的 URL 本身把 SHA-1 写在路径里（内容寻址），因此三者互相印证。这三条现在都是**离线**断言（`tests/contract/test_server_artifact_pin.py`），契约或元数据被改就会失败，不必每次重下 54 MB。
+- [x] 真实上游也核过了：`tools/verify_supply_chain.py --include-server --max-bytes 60000000` 实测 7 个工件（五个 bundle 主机 + fabric-api + 原版 server）全部匹配，server JAR 56,880,250 bytes、SHA-1 相同。server 是 opt-in：默认预算下工具会先印出会花 59,531,345 bytes 然后**拒绝**，所以 54 MB 不会被人顺手拉下来。
+- [x] 门禁：所有工件与参数可复核；元数据/asset/bundle 篡改、未知 mod、路径越界或不兼容 runtime 均 fail closed；Bridge 未构建时保持明确 blocker，不谎称 launchable。
+- [x] 实测 Bridge JAR 并修正了对 `build_required` 的理解：`./gradlew build` 产出 `minekin-bridge-0.0.0.jar`（1.17 MB、157 项，含 `fabric.mod.json`、生成的 `io.minekin.protocol.v1.*`，以及 include 进去的 `META-INF/jars/protobuf-javalite-4.36.2.jar`），连续三次 `clean build` 的 SHA-256 完全相同，所有条目时间戳都是 1980-01-01（DOS epoch）。
+- [x] 但那份确定性**不是构建声明出来的**：在 `build.gradle.kts` 里加 `withType<Jar>` 的 `isPreserveFileTimestamps = false` / `isReproducibleFileOrder = true` 之后产物字节完全没变——连条目顺序都没变有序，因为真正产出 remapped jar 的是 Loom 的 `RemapJarTask`。既然那条声明不控制真正发布的东西，就没有留下它：一个看起来保证、实际不保证的设置，正是本仓库一路在清理的那类问题。
+- [x] recipe 现在**按固定 SHA-256 钉住 Bridge JAR**，`build_required` 消失了。依据是供应链契约那句「缺散列的自有工件使用 Minekin 发布签名或固定 SHA-256，不把 TLS 当唯一完整性保证」——Bridge 是自有工件，没有上游替它公布摘要，所以固定 SHA-256 就是它该有的形状；schema 本来就允许（`verification: sha256` + `digest`/`size`/`source`/`license`，`source_digest` 仍作为「这份摘要出自哪棵源码树」的审计链保留），因此不需要改 schema。
+- [x] 判断"这个 jar 在不在、对不对"挪到了**启动时**（`require_built_bridge`），而不是写进 plan。理由是 plan 必须是纯函数：如果把「本机有没有构建过」算进 blockers，`plan_sha256` 就会随机器变化，而它正是 descriptor 里的 `bundle_digest`——bundle 身份随构建状态漂移正是契约要避免的。三种拒绝各自明确：没构建（点名路径与 `./gradlew build`）、大小不符、字节不符（后两者是 `SUPPLY_CHAIN`，因为"计划声称这个摘要却运行别的字节"才是这个 pin 存在的理由）。已用**真实构建产物**端到端验证：`sha256sum` 与 `size` 都等于 pin，`require_built_bridge` 接受；`minekin bundle verify` 现在报 `launchable: true`、`blockers: []`。
+- [x] 由此产生一条**更严的纪律**：改 Bridge 源码不再"改完就好"。jar 必须重建，`recipe.py` 的 `BRIDGE_JAR_SHA256` / `BRIDGE_JAR_SIZE` 与 recipe fixture 里的 `digest`/`size` 必须同时更新——否则所有 recipe 用例会以"pin 不描述这次构建"失败。这与 `source_digest` 是同一条纪律的两个部分：一个说"哪棵源码树"，一个说"它构建出的字节"。
+- [x] ~~仍未做的、也是它与"能启动"之间的真正距离：没有任何东西把固定 mod 集放进客户端的 mods 目录。~~ **已在 W30 收口**：`fixed_mods` 现在是完整记录而非两个名字，`install_fixed_mods` 按 pin 校验后把两个 jar 放进 overlay 的 `mods/`（见 W30 对应条目）。
+- [x] 把上一条追到底，结论比「那条声明没用」更精确：`RemapJarTask` **确实**继承 `org.gradle.jvm.tasks.Jar`（实测层级：`RemapJarTask_Decorated` → `RemapJarTask` → `AbstractRemapJarTask` → `Jar` → `Zip` → `AbstractArchiveTask` → …），所以 `withType<Jar>` 的确配置到了它；但把 `isPreserveFileTimestamps` 反过来设成 `true` 之后产物仍然逐字节相同（时间戳仍是 1980、顺序仍未排序、摘要不变）。也就是说决定最终字节的是 Loom 的 remap 阶段，不是 `Jar` 任务自己的写档。
+- [x] 这修正了「确定性来路不明」的判断：它来自 Loom 刻意为之的可复现输出，而 Loom 本身是**被钉住的**——版本目录写死 1.9.2，`verification-metadata.xml` 有它的 SHA-256，`check_bridge_scaffold.py` 也会校验。因此确定性依赖的是一个被固定并核验过的构件，而不是运气；Loom 升级时必须重新评审摘要，这正是钉住 recipe 的含义。
+- [x] **跨平台可复现问过了，答案是可以**：Bridge JAR 在 Windows（`21.0.12.1+1-LTS-4`）与 Linux x86_64（Temurin `21.0.12+8`）上逐字节相同，两边都是 `fc1692d2…`——Linux 侧连做三次 `clean build`、Windows 侧连做两次，六次全一致。**所以 W10 那条「在受控 Linux runner 上产出同一摘要之前不得把 JAR 摘要写进 recipe」的前提已经成立**，JAR 摘要有资格被钉住。
+- [x] 更正上一条曾经给出的结论：这里先记的是「答案是不」，**那是错的**，错在把依赖校验的失败读成了「构建产物不同」。两者不是一回事：失败的是 51 个 **Loom 本地产出的中间工件**（remap 过的 Fabric API mods 与 merge 过的 Minecraft jar），它们的字节确实随平台变（`fabric-api-base-0.4.54+b47eab6b04.jar` 记录 `59f44704…`、Linux 产出 `1d4b01ea…`），但**我们自己那些类经过 remap 后的最终产物是同字节的**。也就是说随平台变的是中间物，不是发布物。
+- [x] 同一次调查里我自己还犯了一个会误导下一人的错，一并记下：容器里只拷了 `bridge/`，而 `build.gradle.kts` 写的是 `proto { srcDir("../proto") }`，于是 `:generateProto` 报 `NO-SOURCE`、`compileJava` 报满屏 `package io.minekin.protocol.v1 does not exist`——看起来像移植性缺陷，其实是**我给的源码布局缺了 `proto/`**。要复现就把 `bridge/` 与 `proto/` 按原相对位置一起拷进去。
+- [x] 在容器里跑完整构建需要在**命令行**上加 `--dependency-verification=off`（不改任何已提交配置），因为严格校验会被上面那 51 个中间工件挡住。这解释了为什么这条路以前走不通：不是构建不可复现，而是**门禁把跨平台构建挡住了**，而门禁本身是被本地工件摘要钉死的（见环境门禁那条）。
+- [x] ~~下一步由此明确：既然摘要可复现，就应该把 JAR 摘要钉进 recipe~~ **已做**（ef45c22）：recipe 现在按固定 SHA-256 钉住 Bridge JAR，`build_required` 消失，`launchable` 为真，jar 是否存在改为启动时检查（见本节前一条与 W30）。
+- [x] 顺带补上了一个真实的缺口：依赖校验只钉了 **Windows** 的 `protoc-4.36.2-windows-x86_64.exe`，而 protobuf 插件按当前平台挑 classifier，于是 Linux/macOS 上要么「没有缓存版本」（离线）要么「摘要未列出」。现在 `protoc-4.36.2-linux-x86_64.exe` 也进了 `verification-metadata.xml`：摘要由下载到的工件实算（SHA-256 `f6ee22d6…`），并先与 Maven Central 公布的 SHA-1 `bb3742d0…` 逐位对上作为出处证明。macOS 仍缺条目——没有人在那个平台上构建过，不凭猜测补。
+- [x] 由上面第一条引出一个**需要单独决定的**问题：`verification-metadata.xml` 里那 50 个 `net_fabricmc_yarn_*` 组件与被 merge 的 Minecraft jar 都是 **Loom 本地产出**，它们被记录了 Windows 摘要，于是这道严格校验门禁**只可能在被生成的那台机器上通过**。它看起来是供应链控制，实际是一把平台锁——CI 没发现是因为 `bridge-static` 根本不跑 Gradle。可选做法是把这类本地工件列入 `<trusted-artifacts>`（前提是它们的输入仍被严格校验），但那是**放宽**一项安全控制（2026-09-22 实测更正，两轮。**这一段的前提是错的；第一次更正只说对了一半，一并改掉。** 第一次更正在容器里去掉 `--dependency-verification=off` 之后看到「失败 9 个、全是 Mojang 的 `-natives-linux.jar`，yarn 组件一条都没失败」，据此断定锁的成因是「按平台分类的依赖」。第二轮把两种校验模式都量了一遍：`--dependency-verification=lenient`（解析全部工件、只报不拦）下失败的是 **59 个 = 50 个 `net_fabricmc_yarn_*` 本地产出物 + 那 9 个 Mojang natives**；严格模式下编译类路径先被那 50 个挡住，构建**在解析运行时 natives 之前就中止**，所以看得见的只有 9 个。第一次那个观察本身没错，但它取决于缓存里留着哪一批 remap 产物，不是成因。50 个本地产出物的成因本轮量到了：把 `fabric-api-base-0.4.54+b47eab6b04.jar` 的两个版本解开逐条目比对，**31 个条目的字节完全相同，只有 zip 时间戳不同**（记录版 `2026-09-19 00:58:22`、新 remap `2026-09-22 04:50:42`）——Loom 给每个条目盖上**那次 remap 的时刻**。所以那不是平台锁，是**时钟锁**：在生成它的那台机器上冷一次也一样对不上（本机把 `bridge/.gradle` 挪走后冷构建报这 50 条，同一个工件三个值互不相同：记录 `59f44704…`、本机新构建 `c7279a7d…`、容器 `803f8ded…`）。Loom 1.9.2 关不掉它：可复现开关 `isPreserveFileTimestamps` 只长在 `AbstractRemapJarTask`（我们自己的 `remapJar`）上，`TinyRemapperService$Options` 没有对应项（`javap` 查过）。它和 natives 是**两个独立的缺口**，只有后者能用「补摘要」解决——见本节末尾。），代价是 Windows 那边也失去这层检查，所以不在这一批里顺手做。**（2026-09-22 做掉了，而且做的时候发现这一条的两难问错了问题。** 两处实测：**（一）它根本不是「放宽还是不放宽」，而是「这条控制今天到底在控制什么」。** Loom 给 remap 出来的依赖 jar 的**每个 zip 条目**盖上那次 remap 的时间戳，所以本地工件记下来的摘要**在任何平台、任何机器上都满足不了**——包括记下它的那一台（本轮再次实测：冷一次就红 50 条）。一条只能失败的控制不是控制，而它拦下的从来不是供应链风险，是每一个新开发者第一次构建。**（二）被信任的两个命名空间是 Loom 自己合成的**：`net_fabricmc_yarn_.*` 是它按 mapping id 拼出来的前缀，`minecraft-merged-.*` 是它按 remap 输入拼出来的名字——**没有人能在真实仓库里发布这两个命名空间**。所以真正被放宽的只有「Loom 用它自己校验过的输入构建出来的产物」，而**被抓取的东西一条都没放宽**：Yarn 映射、Minecraft 客户端与服务端 jar、Fabric API 与 loader、以及每一个 native，全部照旧逐条核验（`verify-metadata` 仍是 `true`，`check_bridge_scaffold.py` 现在**逐字钉住这份豁免名单**，把它加宽必须是一次有意的改动）。**效果是量出来的**：把 `bridge/.gradle` 与 `bridge/build` 挪走之后冷构建，本轮 `BUILD SUCCESSFUL`（上一轮同样条件下是 50 条 `failed verification`）。**两处陷阱也记在这里，因为它们都属于「看起来配置好了、其实什么都没验」**：`<trusted-artifacts>` **必须在 `<configuration>` 里面**（放成兄弟节点时 Gradle 直接拒绝整个文件，报的是元数据的问题而不是依赖的问题）；而模式**默认按字面量匹配**，要当正则用必须写 `regex="true"`——第一版用了 `net_fabricmc_yarn_*`，作为字面量一个组都匹配不上，于是文件看着配好了、验的却和以前一模一样。)
+- [x] 让下一次能直接重跑（命令已按实测修正）：`docker volume create minekin-gradle`，把 `~/.gradle` 的 `caches/modules-2`、`caches/fabric-loom`、`caches/jars-9`、`wrapper` 用 tar 管进这个卷（**先 `./gradlew --stop`**，否则活锁文件会以「Unexpected lock protocol found in lock file」或读错误的形式破坏拷贝），然后
+  `MSYS_NO_PATHCONV=1 docker run --rm -v <repo>:/src:ro -v minekin-gradle:/gradle -e GRADLE_USER_HOME=/gradle eclipse-temurin:21-jdk-jammy bash -c 'apt-get update -qq && apt-get install -y -qq --no-install-recommends python3 && mkdir -p /work && cp -a /src/bridge /work/bridge && cp -a /src/proto /work/proto && cp -a /src/tools /work/tools && cd /work/bridge && ./gradlew --dependency-verification=off build && sha256sum build/libs/minekin-bridge-0.0.0.jar'`。
+
+  **三处是 2026-09-22 才加的，每一处都是量出来的**：**(1) `MSYS_NO_PATHCONV=1`** ——从 Git Bash 跑这条命令时，MSYS 会把 `-e GRADLE_USER_HOME=/gradle` 的**值**当成一个路径翻译成 Windows 路径（实测变成 `D:/env/Git/gradle`），容器里于是拿到一个不存在的 `GRADLE_USER_HOME`，报错却是「Could not find or load main class org.gradle.launcher.daemon.bootstrap.GradleDaemon」——**一个与原因毫无关系的错误**。**(2) `python3`** ——`checkHostBoundaryArtifacts` 把产物门禁接进了 `check`，而这个 JDK 镜像里**没有任何 Python**；第一版任务还只认 `python` 这个名字（裸 Ubuntu 没有它），所以它先在容器里红了一次、装了 `python3` 之后**又**红了一次。现在任务按 `python3` → `python` 找并支持 `-PgatePython=`。**(3) `tools/`** ——门禁住在 `tools/`，所以 Bridge 的构建现在需要 `bridge/`、`proto/` **和** `tools/` 三处（这是把仓库级门禁接进构建的代价，如实记下）。加完这三处，容器里 `build` 全绿并且 jar 摘要 `7e1b5fa7…` **与 Windows 逐字节相同、也与 pin 相同**——门禁在 Linux 上也真的跑了（`Bridge artifacts: OK`）。
+  三条经验：**不能**把 Windows 的 `~/.gradle` 直接 bind mount 进容器（Gradle 的 file-access journal 在那种挂载上直接 `Input/output error`）；**不能**把宿主已有的 `bridge/build/` 一起拷进去（会拿旧 jar 当成本次产物，得到一个假的"一致"）；**必须**把 `proto/` 按原相对位置一起拷进去，否则 `generateProto` 会是 `NO-SOURCE`。
+
+## W20：只读 Thin Bridge
+
+- [x] 建立 Java 21/Fabric 1.21.4 client entrypoint 与固定 manifest。
+- [x] Java gencode 归 Gradle protobuf plugin 在构建期从 `proto/` 生成，不提交生成目录；`bridge/src/generated` 的旧 Buf 产物已移除，避免污染 bundle source digest。
+- [x] 实现 control/event 双通道的长度前缀 Protobuf framing。
+- [x] 实现 nonce、protocol、generation、bundle 与 capability 握手。
+- [x] Bridge 默认 `OBSERVE_ONLY`，握手前无连接和输入能力。
+- [x] IPC/编码在后台有界队列运行，Minecraft 对象只在 client thread 访问。
+- [x] Core 侧 Windows loopback IPC 主机静态子集：control/event 各绑定独立随机 `127.0.0.1` 端口，以独占创建的一次性 protobuf descriptor 交付 256-bit nonce/key；服务端先按四字节网络序长度上限解帧，再校验 protocol、channel、sequence、session/generation/client identity 和 HMAC，只有双向证明通过才启动心跳及 control/event 收发。事件队列有界且溢出时清空旧观察、显式报错；Windows Proactor 挂起读在关闭时先断 transport，整个收尾有界。错误 proof、超长帧、descriptor 覆盖与不安全参数均有本地 loopback 契约测试。Windows descriptor 的私有 ACL 仍由尚未接线的 session overlay 创建者负责，真实 Bridge 握手尚未以此替代下方实测门禁。
+- [x] 门禁（静态子集）：错误 nonce/protocol、未协商 capability 与越界心跳/帧长被拒并 safe-stop，未知 mod 被 bundle recipe 拒绝，握手后仍为 `OBSERVE_ONLY`（无连接、无输入）；由 `BridgeProtocolSelfTest`、`BridgeIpcWorkerSelfTest` 与 `test_unknown_mod_is_rejected` 覆盖，并已接入 CI 的 `bridge-static`。
+- [x] Gradle 侧终于有测试：`build.gradle.kts` 一直声明 JUnit 并配置 `useJUnitPlatform()`，但 `:test` 始终是 `NO-SOURCE`，于是「manifest 里写的 entrypoint 类是否真的存在、是否真的实现 `ClientModInitializer`」从来没人验过——而 manifest 指向一个不存在的类是 Fabric 启动失败的经典形态，文本检查抓不到。现在 `BridgeEntrypointTest` 用编译产物验证这条链，并复核 manifest 的固定依赖集与 client-only 环境。它需要 Fabric API 在 classpath 上，但不需要 Minecraft 运行时，因此在依赖已缓存时本机离线可跑；普通 CI 仍不下载 Minecraft 资产，所以不进 CI。
+- [x] **`CORE-010`（L1）现在是一个真用例，而且它的两条断言在真实运行上判过。** 契约给 CORE-010 写的是「到主菜单、hello、握手、OBSERVE_ONLY」，其中"握手"与"只观察"是可判的，而且**判据必须是 Core 自己的记录**：实测——一个不加入任何世界的会话里，Bridge **在客户端日志里一个字节都不写**（`grep minekin-bridge` 为空），所以客户端无法被问"握手发生了没有"；能回答的是账本，`BridgeHelloAccepted` 是 Core 验完 proof 之后写的，因此这是握手里唯一不依赖另一方证词的一侧。断言因此是两条：`handshake_accepted_by_core` 与 `stayed_observe_only`（后者要求确实有握手可观察，然后要求**什么也没发生**：没有 `JoinObserved`/`PlayableEstablished`/`InputLeaseGranted`，且 run document 的 `connection_state` 仍是空、`snapshots_admitted` 仍是 0——两份记录互相核对，而不是只信一份）。
+  - **为此验收器学会了读账本**：`RunMaterial` 多了一份"这次运行的账本行"，按 run id 取，并且**区分"账本读不出来"与"账本里没有这件事"**（`ledger_readable`；一个读不到的账本被当成"没记录"会让两种完全不同的状况长得一样）。这份读法只有一处实现（`assert_case_evidence.py`），封存端**导入同一个函数**而不是自己再写一遍——第二份实现就是第二个让"哪次运行的事件"产生分歧的地方；封进去的 `bridge-trace.jsonl` 因此**逐字就是判决所依据的那份读法**。
+  - **真实运行上判过**（容器内，一个无世界会话）：轮询账本等到 `BridgeHelloAccepted`，停止会话，再用验收器判 → `{"result": "PASS", "observed": ["handshake_accepted_by_core", "stayed_observe_only"], "failures": []}`、退出码 0。
+  - **它现在能封进 bundle 了，而这是靠一次明确的形状决定换来的**：冻结的 manifest 把 `world.kind`（只能是 `dedicated|lan`）与 `server_config_digest`（必须是合法 sha256）当作必填，而一次没有世界的运行**两个字段都无从诚实填写**——写 `dedicated` 是假话，写一个真服务器的摘要更糟。这与 `W00-CONTRACT-001` 那类仓库自检用例撞的是同一堵墙。选的是**窄的那条**：给形状加第三个取值 `kind: "none"`，并把"没有任何服务端配置"定义成**空文档的 sha256**（`e3b0c442…`）——它仍是一个合法摘要，因此与"摘要缺失"这一失败长得不一样，又不可能等于任何一份真配置的摘要。规则写进了**验证契约本身**（`docs/p0-validation-evidence-contract.md`），并且**双向**在域里执行：`kind: "none"` 与非空文档摘要同时出现要拒，另外两种 kind 与空文档摘要同时出现也要拒——否则这个取值会变成"绕开服务端配置要求"的逃逸口。同一次决定里还说清了其余字段：`seed_or_snapshot_id` 与 `server_jar_sha1` 写 `none`/空串（这次运行既没有种子也没有用到 jar），`server_observed_name_uuid` 为空（没有服务端观察过这个身份，而"服务端观察到什么"不能被客户端自报替代），`configured_profile` 照填。
+  - **封存端还多加了一道交叉核对**：没有 `--server-profile` 时，它会读 Core 自己的 run document，**只要那里出现了连接状态或已准入快照就拒绝封存**——"这次没有世界"是算子给的说法，而"实际发生了什么"以 Core 的记录为准，两者矛盾时不许把它写成一份说不存在的世界的 bundle。
+  - **实测（容器内，`MINEKIN_DOMAIN_CASE=CORE-010`）**：这次运行**根本没有起服务端**（`run.sh` 从会话自己的参数里看出没有 `--server-profile`，于是既不要求 `MINEKIN_SERVER_JAR` 也不挂载它；`domain.sh` 不再等 playable、改成等账本里的握手）。结果：6 件工件（不含任何服务端的）、`world: {kind: "none", server_config_digest: "e3b0c442…", seed_or_snapshot_id: "none"}`、`server_jar_sha1` 为空、`identity.server_observed_name_uuid` 为空、`result: PASS`、`evidence verify` 报 `verified: true, sealed: true`。晋级报告上 **W20 与 W40 都可晋级**，整体只剩 `W00-CONTRACT-001` 一个挡路的。
+  - **仓库自检类用例现在有自己的 bundle 了**（`tools/seal_repo_case.py`）。地址是一次明确的决定（见 `docs/run-directory-proposal.md` 决定五）：`repo-evidence/<run-id>/`，与 `kin/` 并列——把一次仓库自检塞进某个 Kin 里就得**指名一个 Kin**，而"这次仓库检查属于哪个 Kin"不是一个有答案的问题。查找端两类一起找，规则不变（一个 run id 一份、撞名拒绝），因此 `evidence verify <run-id>` 对两类 bundle 是同一个命令。**bundle 里装的是**：runner 的判决、四条检查各自的完整输出、**用例定义本身**（于是 `case_version` 可以被读者独立重算——有测试真的去重算它）、以及那份被检查的夹具摘要清单（`fixture_digests_match_manifest` 比较的对象），最后是"这次检查的是什么"的出处与"在哪里跑的"。世界段写的是 `none` + 空文档摘要，与"没有世界的那次运行"同一条记录。
+  - **在哪里跑是量出来的，而这次量出的答案修正了一个默认假设**：runner 镜像里**只有 protobuf，没有 pytest**（Dockerfile 明说镜像只带 CLI 需要的那一个运行时依赖），所以这类检查不能在客户端 runner 里跑——它跑在**有仓库工具链的地方**（本机/CI 的 python job）。于是 host 那一栏如实写着 `Windows 10` 与宿主 JVM `17.0.12`、内存 `unmeasured`（Windows 没有 `/proc/meminfo`），而不是抄一份容器里的数字。
+  - **端到端实测**：本机上跑 `run_repo_case.py`（四条全 held）→ `seal_repo_case.py` 封存（8 件工件、`result: PASS`）→ `minekin evidence verify <run-id>` 报 `verified: true, sealed: true`；再把容器数据卷里那 6 份运行的 bundle 复制进同一个数据根，一次 `report_promotion.py` 报出 **7 份 bundle 全部 verified/sealed、W00/W20/W40 全部 promotable、整体 promotable、退出码 0**。**没有**任何一份是伪造的，也**没有**为了让它变绿而放宽任何规则。
+  - **仍未定的那一个**：`W00-CONTRACT-001` 那类**仓库自检**用例是否需要一次"证据种类"的独立决定，已经在上面被这一步回答了：不需要——同一份形状 + `world.kind: "none"` 就够了，而且它的 `inputs` 恰恰是那份已评审的 bundle，所以那些字段填的是真值。剩下的是**范围**问题：契约要求 L0–L5 全部 mandatory case 有 PASS evidence，而 L3/L4/L5 的用例还不存在。
+- [ ] 门禁（实测）：真实 1.21.4 客户端内 tick/render 回调预算的 P50/P95/P99 尚未测量；W20 只有“worker 启动不阻塞、队列有界不阻塞”的结构证据，实测随 W30 首次真实启动补齐。
+
+## W30：Offline Session
+
+- [ ] 按 OFF-A（`offline`）→ OFF-B（`legacy`）运行有界候选，不静默漂移。
+- [x] 冻结 `token=0`、offline UUID 与 clientId/xuid 显式空 argv 语义：`domain/offline_identity.py` 复刻 `UUID.nameUUIDFromBytes("OfflinePlayer:"+name)`，向量取自 JDK 实际输出；`adapters/launcher/offline_session.py` 冻结 OFF-A/OFF-B 候选，并强制每个空值仍是紧跟自己 option 的独立 argv 元素。
+- [x] OFFLINE-001 静态子集：dry-run 无字面 `${...}`；未声明占位符直接拒绝而不是替换成空字符串；空值位置与候选声明不一致即失败。
+- [x] 身份根可持久化：`kin_identity` 单行存储 `kin_id`、local profile、identity revision 与 username；缺失时读取直接失败而不隐式新建，第二次 `init` 被拒绝，未知 `uuid_algorithm` 被拒绝。
+- [x] `minekin init` 接线完成：数据根来自 `MINEKIN_HOME`、username 来自 `MINEKIN_USERNAME`，两者都**没有默认值**，未设置即 `CONFIG` 失败并点名变量；相对根在 `resolve()` 之前拒绝。目录布局为 `<root>/kin/<kin_id>/{kin.sqlite3, run/}`，`run/` 就是启动计划相对路径所相对的根。`init` 不幂等：数据库已存在即拒绝，且拒绝时不留下任何痕迹。这两项都是**提案**，见[数据根与身份创建提案](run-directory-proposal.md)——契约都没有规定它们，改起来只涉及一个函数与 `init` 的读取点。
+- [x] 把冻结的 session argv 与计划里的 JVM 参数组装成完整命令行：计划中的路径按契约是 run-root 相对，只有 `adapters/launcher/process.py` 把它们变成绝对路径，因此"到底指向哪个目录"只有一个答案。classpath 逐项重建而不是重写拼接串；`-cp` 后面若不是类路径就拒绝（否则会把下一个选项当成类路径吞掉）；仍为相对计划路径、或 `.minecraft` 作为路径分段出现的参数一律拒绝。该判别必须按路径分段——`net.minecraft.client.main.Main` 是类名，不是目录，第一版按子串判断会误杀它。
+- [x] **发现并修掉了一处契约违规：受管理客户端此前根本不在自己的会话 overlay 里运行。** 启动计划契约写的是 `runtime.game_dir: "<session overlay>"`，`managed-client-runtime.md` 也说"为每次世界会话创建独立 managed run directory/可写 overlay：options、服务器资源包、日志、崩溃报告和会话临时文件"，而 overlay 预建的目录名（`logs`、`crash-reports`、`cache`、`server-resource-packs`、`ipc`）本身就是 Minecraft run directory 的形状。但实现把 `game_dir` 写成 `session/game` 并对 **run root** 解析，于是客户端跑在 `<run_root>/session/game`——一个与该 Kin 的**每一次会话、每一代 generation 共享**的目录，而真正的 overlay 在它旁边。后果不是抽象的：两代之间客户端的 `options.txt`、它自己的 `logs/`、`saves/`、资源包缓存全部互相污染，而"残留进程拦截""generation 隔离"这些说法都建立在"每代一个干净目录"之上；`HOME`/`XDG_*`/`TMPDIR` 的重定向也跟着落在那个共享目录里（`session_redirects` 取的是工作目录的**父目录**）。
+- [x] 修法是让计划路径明确命名**两个根**，而不是一个：`artifact-store/` 与 `bundle/` 仍在 run root 下（只读、内容寻址），`session/` 指向本代 generation 的可写 overlay，因此 `session/` 单独出现就是 overlay 本身（契约说的 game_dir），`session/natives` 是它里面的目录。`session_redirects` 也改为以工作目录自身为会话根。顺带发现并修掉一个自己引入的漏洞：`_require_materialised` 这道"不许留下相对路径"的兜底只认 run-root 前缀，`session/` 一旦成为合法前缀，一个残留的 `session/...` 参数就不会再被拦下——它现在检查全部计划路径前缀。
+- [x] 固定 mod 集**现在真的会被放到客户端会加载的位置**。契约要求 `artifacts.mods` 带工件与摘要，而计划里原来只有 `fixed_mods` 这两个名字，于是 fabric-api 的 jar 被 recipe 校验过却从未被放到任何地方，Bridge 的 jar 同理——客户端会以原版状态起来，然后握手永远不来（一个看起来像超时、实际是文件没放的失败）。现在计划里的 `fixed_mods` 是完整记录（name/kind/sha256/size/source，取回型 mod 另带 sha1），`adapters/launcher/mods.py` 把每一个按 pin 校验后放进**会话 overlay 的 `mods/`**——overlay 就是客户端的 game directory，所以 Fabric Loader 找得到它们；overlay 预建目录也补上了 `mods`。放置走 staging 名再原子替换，读方不会看到半个文件。拒绝分成四种且各自说清：没构建、大小不符、字节不符、不在 store 里。已做变异验证：去掉 pin 校验，两个用例立刻失败。
+- [x] fabric-api 的 SHA-1 成为 recipe 常量：store 按 SHA-1 寻址（上游元数据就是这么发的），而 recipe 钉的是 SHA-256，所以两者都记——pin 是更强的声明，SHA-1 是 store 找到文件的键。值就是 bootstrap 契约与供应链核查工具里已经记过的那个，不是新引入的数字。
+- [x] 工件**现在真的能被抓进 store 了**：`adapters/launcher/provision.py` 是那个一直缺的驱动——它从计划里读出工件、算出缺哪些、把缺的交给 `ArtifactFetcher`（后者本身早已完整：已验证的复用、只重试传输错误、一个失败不中断整趟），并汇总成一份可入证据的报告。计划工件的读取逻辑原来只存在于 `cli/session.py` 的私有函数里，现在提到 `launch_plan.artifacts_from_plan` 供两侧共用：同一份形状被两处独立解析，就是两处会各自漂移的地方。
+- [x] 但那次抓取**漏掉了 fabric-api**：抓取集来自 `plan["artifacts"]`（Minecraft 元数据那 4,120 个），而 fabric-api 是**固定 mod**、按契约从 game directory 加载而不是走 classpath，因此不在那张表里——于是「抓完整个 bundle」之后 `install_fixed_mods` 仍会以「fabric-api is not in the content-addressed store yet」拒绝，而且看起来像一次缺失的下载。现在 `plan_fetch_set` 把**取回型的固定 mod**也算进工作集，并且这条身份只构造一次（`mods.fetched_mod_artifact`，抓取与放置共用）——两处各构造一次就会漂移，而漂移的 store key 表现为「文件永远找不到」。已做变异验证：把 mod 从工作集里去掉，接缝用例与两条工具用例同时失败。
+- [x] 顺带**修正了一个文档里的小数字**：计划自己声明的抓取量是 **523,911,981 bytes（约 500 MiB）**，而不是各处沿用至今的「一个 GB」。工具现在打印的就是这个数（`--dry-run` 可见），预算拒绝也按它算；原来那个「GB」是估算，没人在真实计划上量过。
+- [x] 谁来驱动抓取，结论是**操作者工具**而不是产品命令：冻结的 CLI 表面里没有抓取动词；`session start` 的设计原则是"先验证就绪再创建任何东西"，`require_store_complete` 明确选择**拒绝**并让运行者去抓，而不是让启动命令变成一次 GB 级网络操作；`bundle verify` 则有一条测试钉住它是只读的。三个显而易见的落点都被已定的设计挡住，所以它落在 `tools/fetch_bundle.py`，与需要网络、因此不进 CI 的供应链核查工具同类：它按 `session start` 同样的方式解析 data root 与 Kin，把解析出的 store 路径**打印出来**（抓错地方要看得见），并默认先 `--dry-run` 看清单再真抓。 **（2026-09-25 由 V06 `VERSION-INSTALLER-001` 部分推翻：产品入口
+  `minekin bundle install` 现在有了，而它当时选工具落点的前提——清单里没有任何被审 `tested` 条目、
+  CLI 表面冻结——已经因为 V05 的清单与 V06 的 §15 扩面而不成立。工具入口 `tools/fetch_bundle.py` 保留，
+  其可选 `max_bytes` 不变；产品入口的 `--max-bytes` 必填。理由与读数见主计划 V06 卡
+  `decision_reversal_v06`。）**
+- [x] 预算不是装饰：它**在发出任何请求之前**就按"缺的那部分字节数"拒绝，且只约束"这一趟要抓多少"，不约束"已经有多少"——一个已经填满的 store 无论预算多小都不会被拒。已验证：库层用注入的 opener 断言预算拒绝时 opener 一次都没被调用（变异验证：去掉预算检查，该用例立刻失败）。**一条操作经验值得记下**：绕过预算去跑真实 profile 的测试会真的开始联网抓那 1GB——所以变异验证要在库层做（注入 opener），不要在工具层做。
+- [x] 抓取**从「一个一个来」改成「同时来几个」**，因为实测推翻了原来的理由：拿真实 p0-core 计划量过，缺失 3,970 个工件 / 386 MB，**顺序抓取每个工件约 2.9 秒**——将近三小时，而带宽只用到约 35 KB/s，也就是说它一直在等往返而不是等链路；原来那句「工件都很小，有界、可续、易诊断的一趟比并行更值」在为并不紧的那一头辩护。现在并发仍然**有界**（`jobs`，默认 8，是参数而不是循环的性质）：每个工件仍由 store 先校验再发布，blob 名由内容本身决定，因此 worker 之间不争抢同一个路径；失败仍按自己的坐标报出；中断一趟仍靠「已在的不再抓」续上。报告保持**计划顺序**，与哪个 worker 先完成无关；`on_progress` 由**调用线程**在 future 完成时回调，调用者不会从 worker 里打印。工具侧：进度走 stderr，stdout 仍是那唯一一份文档——几千个工件的一趟在完成前**一个字都不打**，那不是能盯着的进度，而这次要跑的正是几十分钟到几小时的一趟。已做变异验证：新循环的四种改法（永远串行、按完成顺序报、只在末尾报一次进度、去掉 jobs 下界检查）各自让对应的用例失败。
+- [x] **宿主的显示凭据也要转发**：只有 `DISPLAY` 不足以使用一个会对客户端做认证的 X server，而 runner 起的虚拟显示正是这样——`xvfb-run` 会生成一个 cookie 文件并把它的名字放进 `XAUTHORITY`；客户端自己的 `HOME` 又被改指到会话目录，于是默认的 `$HOME/.Xauthority` 也不在。X server 因此拒绝连接，而客户端对此说的话离认证很远：`Failed to initialize GLFW, errors: GLFW error during init: [0x1000E] Failed to detect any supported platform`，随后是一份关于「初始化游戏」的崩溃报告。它与 `DISPLAY` 属于同一类事实（显示在哪里、以及使用它的凭据），所以进同一张可审名单，而不是靠一次一次失败去发现。变异验证：把 `XAUTHORITY` 从名单里去掉，两条用例立刻失败。
+- [x] 由此剩下的就不再是"能不能抓"，而是两个仍然悬着的决定，加上外部环境：**(一)** Core 还没有发出过 `ConnectWorld`（没有对应命令，也没有从 Server Profile 到它的入口），所以即使抓齐、起得来，会话也只会停在 `READY_MENU`；**(二)** 受控 Linux runner（Java 21、Xvfb、原版 1.21.4 server、隔离账号）尚未准备。两者都不是可以在本机顺手补完的。 **（2026-09-22 核对：已闭合——同一条：其中第 (一) 项已经不存在——`ConnectWorld` 与 `--server-profile` 都在，见上面那一条的核对。）**
+- [x] **受控 runner 里第一次真的把客户端拉起来了，也因此挖出两个让它根本起不来的缺陷**（只有在 runner 上跑 `session start` 才可能发现：本机没有 store、没有虚拟显示，任何一步都够不着）。
+  - **（一）计划把 store 路径重述错了**：`launch_plan` 自己拼 `artifact-store/sha1/...`，而 `ArtifactStore` 实际写的是 `artifact-store/blobs/sha1/...`，于是计划里**每一条** classpath 条目都指向一个从未写出的文件。JVM 对不存在的 classpath 条目是静默忽略的，所以报错完全指向别处：`Could not find or load main class net.fabricmc.loader.impl.launch.knot.KnotClient`。它一直没被发现，是因为**就绪检查与启动各用了自己的答案**——`require_store_complete` 问 store（真布局，通过），classpath 用计划（重述的布局，全错），而没有任何东西比较过两者；测试里的 `session_support.fabricated()` 又照抄了同一个错路径，整套测试于是跟着一起错。修法只留一处定义：`artifacts.store_relative_path()`，`ArtifactStore.path_for` 与 `launch_plan._store_path` 都从它来；新增用例把两侧接上——计划声明的每条路径必须等于 store 自己算出的路径，且 classpath/native_artifacts 必须是这些已声明路径的子集。变异验证：把 `_store_path` 改回重述（去掉 `blobs`），用例立刻失败。（把 store 的 blob 目录整体改名则**不会**失败——那是一次一致的改名，两侧仍然相符，这条用例断言的是「相符」而不是某个字面量。）
+  - **（二）Fabric 档案对父库的覆盖从未生效**：Fabric profile 是 `inheritsFrom` 1.21.4 并**重述**它需要的库，两张表因此有交集；计划把两张表直接接起来，于是 classpath 上同时有 ASM 9.6（Minecraft 的）与 ASM 9.7.1（Fabric 的）。Loader 一发现同一个类有两份就拒绝启动：`duplicate ASM classes found on classpath`。现在 `PinnedMetadata.resolved_libraries` 给出**合并且已覆盖**的整套库（profile 的声明替换父级同 group:artifact 的那条，分类符不算身份的一部分），并且是整套而不是父级那一半——把 profile 的表再接上去正是要防的那个错误，现在接不上去。变异验证：取消覆盖、把版本计入覆盖键、把分类符计入覆盖键，三者各自让用例失败。
+  两条都指向同一件事：**「就绪检查通过」与「客户端起得来」是两个不同的断言**，只要它们各自去问不同的东西，就都可能为真而不相容。
+- [x] **原生库现在真的被解出来了**：计划把 natives 与 classpath 分开命名（`native_artifacts` 是那些 jar、`native_extract_excludes` 是不要拿出来的前缀、`natives_dir` 最终以 `-Djava.library.path=<overlay>/natives` 交给客户端），而**没有任何东西把它们从 jar 里取出来**。在受控 runner 上的表现是一连串离病因很远的症状：Loader 解析完整个 classpath、加载了 54 个 mod（含 Bridge）、把 Minecraft 启动起来，直到渲染线程第一次碰 LWJGL 才报 `UnsatisfiedLinkError: Failed to locate library: liblwjgl.so`——在此之前一切都像一次成功的启动。新增 `adapters/launcher/natives.py`：只打开计划**点名为 native** 的工件（classpath 的 jar 不是 native 容器，全都打开就会把计划里的一处失误变成「客户端会从中加载代码的目录里的文件」）；条目经 staging 名再原子替换；排除前缀跳过；条目名一律要求留在 natives 目录内（jar 按定义是上游输入，条目名里的 `../` 就是从目录里出去的老办法）；两个 native 对同一个库给出不同字节时**拒绝**，而不是让后一个悄悄覆盖；解出来是空的时候在这里拒绝，而不是留给客户端晚得多的时候报——空的 natives 目录正是这一步要防的那个失败。变异验证：把条目名当可信路径、允许重复覆盖、允许空解出、打开所有工件、跳过排除前缀，五者各自让对应用例失败。
+  - **一个平台细节值得记**：`zipfile` 在**读**的时候也会把 `os.sep` 换成 `/`，所以在 Windows 上条目名里的反斜杠对读者是不可见的、构造不出这样的 jar 来测；而目标平台是 Linux（`os.sep` 是 `/`，没有东西改写这个名字）。因此反斜杠那条规则直接在它所在的函数上测（`entry_relative_path`），其余名字仍走「真的造一个 jar」的端到端路径。
+- [x] **受控 runner 上第一次跑通「真实客户端起来 + Bridge 握手被接受」**：`session start` 在 Xvfb 里把原版 1.21.4 客户端拉起来，客户端渲染出主菜单（日志里一张张纹理图集被创建），**0 份崩溃报告**，账本记下 `SessionProcessStarted`（LAUNCHER）→ `BridgeHelloAccepted`（CORE）；本次运行以我自己的 `timeout` 杀掉 CLI 结束（exit=124），所以没有 `SessionInterrupted`——那不是失败，是这一趟没有干净收尾。在此之前同一个命令连续暴露并修掉了五个缺陷，每一个的报错都指向别处：store 路径错位（主类找不到）、Fabric 档案对父库的覆盖未生效（ASM 两份）、natives 从未被解出（liblwjgl.so）、`DISPLAY` 没人转发（客户端没有显示）、以及 `XAUTHORITY` 没跟着转发（有显示但被 X server 拒绝，GLFW 报的是「Failed to detect any supported platform」）。`session status` 同时给出一个顺带的答案：历史上几次被硬杀的 run 留下的 marker，probe 都判为 `GONE`（容器已消失，pid 不存在），因此**不会**挡住下一次启动——「发现并拒绝」那道闸门没有被自己的痕迹锁死。
+  - 仍然缺的（按顺序）：**(1)** 物化的 assets 视图——客户端现在会报 `Can't open the resource index file: .../bundle/assets/indexes/19.json`（契约里的「物化只读 classpath/assets/natives/mods 视图」这一步还没做；客户端自带 jar 内的资源，所以它仍然渲染，但这是一条应当消失的 ERROR 与一处契约缺口）；**(2)** 没有任何东西发出 `ConnectWorld`（没有命令入口），所以会话停在主菜单；**(3)** 服务端半边（原版 server、隔离账号）需要运行者明确同意 Mojang EULA 才能落地；**(4)** 客户端还没有被驱动（输入、`look`/`move`）；**(5)** Bridge 的 `fabric.mod.json` 里版本仍是未展开的 `${version}`，Loader 因此每趟都警告一次。
+- [x] **assets 视图现在真的被物化了**：计划交给客户端的是 `--assetsDir bundle/assets` 与 `--assetIndex 19`，也就是让客户端去读 `<assetsDir>/indexes/19.json` 以及索引点名的每个 `<assetsDir>/objects/<hh>/<hash>`；而 store 用它自己的内容寻址布局，客户端不说这种话，**中间没有任何东西把一种变成另一种**。客户端只说了一句不像缺步骤的话：`Can't open the resource index file: .../indexes/19.json`（它仍能从自身 jar 拿到一批资源、照常渲染，所以很容易被当成无害）。新增 `adapters/launcher/assets.py`：视图是**每次 run 一份**而不是每代一份（字节对每个会话都相同，已经在的就留着不动）；文件是**拷贝**而不是指向 store 的硬链接——硬链接会让「视图被改坏」与「store 被改坏」是同一批字节，而 store 是之后每一次校验都要去哈希的东西。里面有两道正是这个仓库反复需要的检查：计划自己的视图路径必须留在它交给客户端的 assets 目录内（按**解析后**的路径比较——按字符串比，`bundle/assets/../../etc/passwd` 是在目录里面的），以及索引必须落在索引名所蕴含的文件名上。另外 `resolve_plan_path` 提为公开并被 natives 一并改用：**计划路径的含义只写一处**（启动解析它交给客户端的路径，把这些路径指向的位置填上文件的那几步用同一套解析）。变异验证：允许视图路径离开 assets 目录、每趟都重拷、把已存在的当作可信、去掉索引名核对、只取 store 路径而不要字节，五者各自让对应用例失败。
+- [x] **Bridge 的 `fabric.mod.json` 版本不再是字面量 `${version}`**：Fabric 模板留的占位符一直没人填，于是 jar 对外声明的版本就是字符串 `${version}`，Loader 每趟都警告一次（`Mod minekin_bridge uses the version ${version} which isn't compatible with Loader's extended semantic version format`）。修法是给 `processResources` 加上展开。**两处 Gradle 细节值得记**：**(1)** 不能在任务动作里读 `project.version`——`bridge/gradle.properties` 打开了 configuration cache，那样写会以「invocation of 'Task.project' at execution time is unsupported」直接构建失败；**(2)** 也不能用 `filesMatching { expand(...) }` 的闭包写法——Kotlin DSL 编译出的闭包持有脚本对象引用，configuration cache 无法序列化，报「cannot serialize Gradle script object references」。可行的写法是在 copy spec 上直接 `expand("version" to modVersion)`，并把版本在配置期捕获成一个普通 `val`。按本仓库既有流程，改 Bridge 源码就要重录 pin：重新构建（容器内 `./gradlew build`，`clean build` 两次摘要相同）→ jar 摘要 `afa12034…`、大小 1,220,234 → 更新 `recipe.py` 两个常量、fixture 的 `digest`/`size`/`source_digest`，以及 `tests/fixtures/manifest.sha256` 里该 fixture 自己那行（fixture 是冻结文件）。九道门全过；`bundle verify` 报 `launchable: true`；受控 runner 里客户端日志的版本警告由 1 条变 0 条，mod 列表里写的是 `minekin_bridge 0.0.0`。
+- [x] **`source_tree_sha256` 的第二个平台陷阱：遍历顺序**。上一轮修的是内容（CRLF），但**顺序**仍然是平台相关的：`sorted()` 比较 `Path` 对象时，Windows 用 `WindowsPath.__lt__`（大小写不敏感），Linux 用 `PosixPath.__lt__`（大小写敏感），于是名字只有大小写不同的文件与目录在两个平台上换位，同一份源码树因此得出不同摘要——正是紧挨着的注释声称要避免的事（「did the source change?」而不是「which platform checked it out?」）。它这次是我新加的 `input/` 包暴露的：`MinekinBridgeClient.java` 与 `input/` 正是会换位的那一对（码点序 `M`(77) < `i`(105)；大小写不敏感则 `i` < `m`），而在此之前 `.../bridge/` 下没有能触发换位的兄弟项，所以这个 bug 一直潜伏、且只在两个平台都算一遍时才看得见。修法是按**路径文本本身**排序（`key=lambda path: path.relative_to(root).as_posix()`）——码点序在任何平台都一样；实测同一棵树在宿主与容器内现在给出同一个摘要。新增用例直接断言**应该用的顺序**而不是平台碰巧给的顺序（`Zebra.txt` 与 `apple.txt` 正是会换位的一对），变异验证：去掉排序键，Windows 上立刻 3 条失败。
+  - **流程上的教训**：这次是受控 runner 报 `Bridge source tree digest differs` 才发现的——宿主上算出的摘要在容器里不一致。一个只有在两个平台各算一遍才会暴露的 bug，正是「优先本地/docker 验证」这条要求的价值所在。
+- [x] spawn 与基本进程监管：直接 `Popen`（`shell=False` + 列表 argv，无 shell 复解析），cwd 为 session game 目录，日志落盘；身份记录为 `(pid, started_at, argv_digest)` 而不只是 PID——PID 会被系统复用，单独用不能跨 run 认人。停止是有界的：先请它退出，到点仍在则 kill，因为它还占着 session overlay、在服务端看来还像一名玩家。同一 supervisor 第二次 start 被拒。
+- [x] 客户端环境显式化：不隐式继承宿主环境。`HOME`/XDG/TEMP 一律改指 session 目录（继承了宿主 `HOME` 的客户端仍然够得到运行者的文件，而受管运行目录存在的意义正是挡住这件事），需要宿主提供的东西（虚拟显示要的 `DISPLAY`）必须逐个指名转发，且转发值中出现 `.minecraft` 路径分段即拒绝。改指到的目录必须在启动前存在——实测传给子进程一个不存在的 `TMPDIR` 会让它告警并可能无法建临时文件。
+- [x] `session start` **现在真的把宿主显示交给客户端了**。库层一直有这道口子也有测试（`client_environment(..., forward={"DISPLAY": ":99"})`），但产品里**没有一个调用者给它传过值**：`bootstrap` 调 `start_and_supervise` 时 `forward_environment` 始终是默认的 `None`。后果在受控 runner 上很具体——客户端拿不到 `DISPLAY`，窗口根本开不出来，而 runner 存在的意义正是一个虚拟显示上的真实客户端。修法照 `MINEKIN_HOME`/`MINEKIN_USERNAME`/`MINEKIN_JAVA` 已有的样式，在边缘（`bootstrap`）读环境：`config.FORWARDED_VARIABLES` 是**代码里的名单**而不是运行者给的名单——被转发的值按定义是「宿主定的值」，若让运行者来点名字，那唯一一道可审的门就会把 `LD_PRELOAD` 一起放进来；未设置或设为空白的变量就是「没有」，不编造值。已做变异验证：名单里加上 `LD_PRELOAD`、把空白当有值、去掉 `bootstrap` 那行转发，三者各自让对应用例失败。
+- [x] 启动前的残留进程拦截：每个会话 generation 在 overlay 里留下 `process.json`（记录 pid / started_at / argv digest），`session start` 在创建任何东西之前先扫这些标记；只要有一个「未解决」就拒绝并把会话、pid 与要删除的标记文件指名报出来。
+- [x] 三值活性判定而不是猜：`ALIVE` / `GONE` / `UNKNOWN`。探针只在 POSIX 上可信——实测 Windows 上 `os.kill(pid, 0)` 会把已回收的进程报成仍然存在，所以那里一律答 `UNKNOWN`。`UNKNOWN` 与 `ALIVE` 一样拦启动，因为「大概没了」不是往世界里再放一个玩家的理由。
+- [ ] 残留进程的处置策略（接管 / 终止 / 人工阻断）在真实事件流中的接线：本步只做「发现并拒绝」，不做「替运行者决定」。判断一个活着的 pid 是否真属于我们需要的证据（命令行、启动时间）在本机不可移植，所以宁可停下并要求人工确认；在受控 runner 上再决定接管或终止。
+- [x] `session stop` 接线完成，并且找到了「凭什么敢杀这个 pid」的答案：运行者**明确要求停止**本身就是授权，仍需挣得的是「对这个 pid 发信号」的资格，而这次是**可证明**的——`/proc/<pid>/cmdline` 报的正是进程被启动时的那串参数，而标记里记的 `argv_digest` 就是把同样的参数用 NUL 连起来做 sha256（`/proc` 是 NUL 分隔并以 NUL 结尾，去掉末尾 NUL 后逐字节相同）。因此判定是三值：`PROVEN` 才终止，`NOT_OURS`（pid 被复用）不碰并报出，`UNVERIFIABLE`（本平台问不了）不碰且**不算完成**，退出码为 `PROCESS`。宁可停下也不猜，因为在这里猜错的代价是杀掉无关进程。
+- [x] 由此收紧了上一条的口径：真正被推迟的只是**自动**处置策略（运行者不在场时该接管、终止还是升级），而运行者主动发起的停止路径已经完整，并且只有在能证明身份时才动手。`session` 三个子命令现在都已实现。
+- [x] 重启语义固化：同一 `kin_id` 重启后身份根逐字不变（revision、created_at、credential_kind 都一样），但每次 Core 调用是新 run（run_id 不同、sequence 各自从 1 起）、新 session、新 overlay，旧 overlay 原样留在原处；启动前会重新读并重新校验身份根（改坏 `uuid_algorithm` 即拒绝重启）与重新检查工件就绪，没有任何东西从上一次运行被缓存下来。失败的启动不写 marker，所以重试不会被自己的失败挡住——marker 只在进程真的起来之后才写，顺序反了就会把重试锁死。
+- [ ] 标记文件不会被自动清理：跑完的 run 留下标记就是它跑过的痕迹，与「失败 run 只追加不覆盖」一致。长期累积的清理策略未定。其 `tests/fixtures/replay/session-preparing.v1.json` 仍**没有消费者**（2026-09-22：**有消费者了**，见紧接在同节 `replay` 那一条之后的那一条——`tools/replay_evidence.py --fixture`。）——这是「先提交 fixture 与预期、再提交实现」的顺序，不是死文件，不要删；已核对它的 `payload_hash` 就是自身 payload 的规范 JSON 摘要。crash fixture 现在有消费者了，见下一条。
+- [x] crash fixture 的 `expected_recovery` 不再是无人认领的期望：`domain/recovery.py` 把 §8「不是所有副作用都能重试」那张表落成了代码，并**直接以该 fixture 的三条期望为准**——`START_CLIENT` → `RECONCILE`（先问进程身份，别再起一个 JVM）、`INPUT_LEASE` → `INVALIDATE`（lease 本就不持久化，这条只可能是「按过键」的陈旧意图，重放它正是要防的失败）、`CONNECT_WORLD` → `INVALIDATE`（那一代已经结束，重连是新 generation 而不是续上旧的那个）。判据是「重复它是不是同一个请求」：内容寻址的下载与幂等的松键可重试，凡是正确性依附于某个 generation 或某个已持有 lease 的都不能。本版本不认识的 effect 一律 `FAIL_CLOSED`——「我不知道它原本要做什么」的安全读法不是「再做一次」；重试次数也封顶（`MAX_ATTEMPTS`），因为无限重试是一种永远不干净地失败的方式。已做变异验证：把 `INPUT_LEASE` 改成可重试，三个用例同时失败，其中一个是直接读 fixture 的那条。
+- [x] 那条策略**现在跑在真实启动路径上了**：`application/recovery_service.py` 读未决 outbox、按策略办事，`session start` 在**创建任何东西之前**调用它（§13 的第 4、5 步）。四种结局里只有两种是动作，这是刻意的：**必须永不重放**的在这里就地关闭（带原因），这样之后任何一次启动都不会再把它捡起来；**可重试**与**需要先看世界**的则原样留着并上报——「记录里的客户端还在不在」属于持有进程身份的启动器，在这里悄悄关掉那条就等于把一个活着的进程从专门用来找它的检查面前藏起来。本版本读不懂的 effect 与已经重试到上限的，直接让这次启动停下而不是猜。拒绝之前先把所有决定都读完，所以一次拒绝不会留下「处理了一半」的账本（有测试钉住这一点）。已做变异验证：把「等待世界」也当成可关闭，那条「活着的客户端必须仍然可见」的用例立刻失败。账本侧新增 `reconcile_outbox`/`reconcile_outbox_async` 一对入口，理由与写事件那对相同：监督中的启动已经在循环里，不能再套一层 `asyncio.run`；这一条接线时正是先踩了这个坑。
+- [x] §8 的事务性 outbox 现在**真的被用上了**：`session start` 在**尝试效果之前**先把意图写进账本（一条 outbox 项，`effect_type=START_CLIENT`，幂等键是这次 run 的 `run_id`），效果有结果之后再写成功/失败事件并把它标记完成。这条顺序就是崩溃恢复能成立的全部理由——没被记下来的效果，没有人能对账；上一批那条「对账跑起来只会读到空账本」的说明由此作废。有测试直接钉住这个顺序：假 supervisor 在 spawn 的**那一刻**读账本，断言那里的 `START_CLIENT` 还是 pending（已做变异验证：把意图挪到 spawn 之后，该断言立刻失败）。两个附加决定：失败的一次启动**也算已结清**（它有结果，不该被下一次启动重放），而 `open_effect` 会拒绝 recovery 读不懂的 effect 类型——写一行 recovery 只会拒绝的记录，只会让下一次启动无谓地停下。
+- [x] `session start` 接线完成：读数据根与 Kin（根下只有一个 Kin 时无需选择，多于一个必须显式指定，否则拒绝——启动错的 Kin 是后续步骤挽不回来的）、读身份根、构建计划，然后**先验证就绪再创建任何东西**：计划自己说 not launchable 就带着 blocker 拒绝，计划点名的每一个工件都必须已在 store 中校验通过，缺一个就报出第一个缺失项。通过后建 session overlay、组装命令行、交给 supervisor 启动。overlay 的路径由 `session_overlay_path` 计算而非事后发现，所以 supervisor 的日志目录在 overlay 存在之前就能命名。
+- [x] 事件记录：契约要求 adapter 拿到结果之后再追加成功/失败事件，`session start` 现在在进程启动后记 `SessionProcessStarted`、在启动失败时记 `SessionProcessFailed` 并照常抛出。记录用的是已经脱敏的 `safe_message` 与错误分类，从不记原始异常正文；`source`/`trust_class` 标为 LAUNCHER，与"这是启动器报告的事实"一致。sequence 按 run 续号而不是从 1 重来，payload 哈希用账本自己的规范 JSON 摘要。启动之前的拒绝（没有 Kin、计划不可启动、工件缺失）不写事件——那是运行者错误而不是一次运行的结果。`sequence`/`generation` 在库里是 TEXT，因为 uint64 放不进 SQLite 的有符号 INTEGER。
+- [x] `session status` 接线完成，且是严格只读的：数据库以 query-only 打开、绝不启动 writer 线程，也不隐式建档——「报告」与「创建」分开。它把已有事实合起来报出：会话 overlay、记录在案的客户端进程与其活性、账本的计数与最后一条事件；状态判为 `idle` / `running` / `unresolved`，其中 `unresolved` 与 `start` 的拒绝条件完全一致，命令之间不会互相矛盾。
+- [x] 与冻结 CLI 的措辞有一处偏离并已记明：`status` 的 help 写的是「read the current projection」，但目前没有任何 projector 写投影表，照字面读只会读到空。因此它报告的是从真实存在的东西推导出的同一幅图景；等 projector 落地，这里应当改为读投影。
+- [x] Bridge 脱敏报告：`SessionIdentityReport` 随 hello 与首快照上报候选、用户名、UUID、AccountType 与 clientId/xuid presence；凭据按结构不可携带——消息没有 `bytes` 字段、观测 record 没有 token/secret/key 分量、`credential_values_exposed` 为 true 时拒绝。形状由已发布的 descriptor 断言，不靠人工复查。
+- [x] `SESSION_MATERIAL_MISMATCH` 规则：从**实际 argv** 读回 Launcher 记录的 session 材料（不是从候选重新推导），与 Bridge 上报逐项比较；uuid 按规范化后的身份比较以容纳 id128/canonical，`userType` 与 `AccountType` 分属不同命名空间故只记录不比较，任一不一致都阻断 `PLAYABLE`。
+- [x] 读取真实客户端 Session 回填该报告。（2026-09-22 核查：**已经做了，而且在真实客户端上量过。** Bridge 侧 `protocol/SessionIdentityReportAdapter` 从**活着的 Session** 取字段，`runtime/ClientSnapshot.observed(Session session, UUID uuid)` 把它装进首快照的 `session_identity`；真实运行里正是这一次读取量到了 `Session.getAccountType()` 对这次启动**是 null**（那条 NPE 就是这么来的），两处「必须非空」随之放开、理由写在适配器里。Core 侧 `decode_session_identity` 解它、与 Launcher 记录逐项比较（`SESSION_MATERIAL_MISMATCH`）。这条注释写在适配器落地之前，所以它当时是对的。）
+- [ ] 执行 `OFFLINE-001…100`，仅在条件满足时运行 UUID/sentinel 对照。
+- [ ] 门禁：启动、握手与身份材料可解释，失败分类明确。（2026-09-22 核对：**「失败分类明确」那一半是构造上成立的**——领域里今天有十几个封闭词汇表（`SnapshotReason`、`EntityReason`、`InputRefusal`、`ActivationOutcome`、`WorldCreationRefusal`、`HostPublicationRefusal`、`CognitionRefusal`、`AddressReason`、`CaseViolation`、`EvidenceViolation`……），每个都由产生它的那个函数执行、而不是由调用方拼字符串；wire 侧另有 `SessionOutcome`、`AdmissionFailureReason` 与 `LifecycleDisposition`。**这条要的那一半（`OFFLINE-001…100` 的真实运行）仍然要一次客户端。** 顺带记一条量法上的教训：**用「测试文件里有没有出现这个类型名」来数覆盖率会骗人**——`SessionMaterialVerdict` 这么数得 0 个文件，而它的行为由 `tests/unit/test_session_material.py` 的二十多条覆盖着（它从不被测试文件写出来，只经由函数的返回值被断言）。名字计数不是覆盖计数。) 
+
+- [x] **那个数字交给工具了：`tools/report_cases.py` 只读地报出用例清单。** 起因是同一天里同一类数字错了三次（「三份 host 用例」其实是 12 份；那份清单写了 26、29、31 三个版本），而**每一次都不是算错，是散文不会注意到自己过期**。这个工具按 `report_promotion.py` 的样子做——读夹具与登记表、打印、**不写任何东西**——所以下一个想要这个数的人是敲一条命令，而不是去数。它比"数一遍"多出来的那一层是**谁判得了**：kind 属于 `pytest`/`tool` 的断言由 `run_repo_case.py` 与 CI 的测试套件执行，`runtime` 的由运行材料判官对着一次跑完的运行执行；**一条用例只能有一个判官**，所以两边混着的用例**谁也判不了**（这个仓库已经被这件事咬过一次），而那正是扫一眼就该看见的形状。没有实现认领的断言**被报出来而不是被算进去**——登记表那道门禁会拒它，但"这条用例有覆盖"与"这条用例点名了一个没人执行的东西"在读报告的人眼里是两回事。
+  - **实测（12 秒内可重推）**：`uv run --no-project python tools/report_cases.py` → 2026-09-22 的读数：**31 条用例 / 114 条断言 / 6 条强制**；按判官分：**本地 17、运行材料 14、mixed 0、unimplemented 0**；按工作包：`W00` 1、`W20` 1、`W30` 3、`W40` 4、`W50` 1、`W60` 3、`W70` 5、`p0-core` 1、`host-integrated` 12（**W10 与 W80 仍是 0**）。
+  - **变异验证（三条，各自单独跑）**：让 `mixed` 不可达 → 1 条红；让 `unimplemented` 不可达 → 1 条红；让"没实现的断言"永远报空 → 1 条红。改完逐字节还原，8 条测试全绿。
+  - **顺带说明它为什么不做门禁**：登记表已经是门禁（未实现的名字它先拒），而这个工具的存在意义是**说清楚有什么**。一个会红的报告会被学会忽略，那正是这一轮想从根上拆掉的东西。
+
+- [x] **W30 的头三条用例落地了：`OFFLINE-001`、`OFFLINE-040`、`OFFLINE-050`，而且它们的判据早就写好了——缺的只是"把它们变成用例"这一步。** 这一节的 `[x]` 里其实已经记着「`OFFLINE-001` 静态子集：dry-run 无字面 `${...}`；未声明占位符直接拒绝而不是替换成空字符串；空值位置与候选声明不一致即失败」，但**没有任何 fixture 认领它**：`grep OFFLINE-` 在 `tests/fixtures/cases/` 里零命中，W30 也是唯一一个一条用例都没有的工作包。现在三条 fixture 各按契约那一行取判据：**001** 五条（空凭据的显式 argv 值、没有参数错位、没有字面占位符、两个候选都能解出完整模板、未声明占位符直接拒绝）、**040** 三条（canonical 编码可用；argv 里的 id128、canonical 上报、大写上报三者都与记录的身份相同）、**050** 三条（空值必须仍挂在自己的 option 上、空环境变量在到达 argv 前被拒、候选文档报 presence 而不报值）。**判据全部由现有测试执行**（`tests/unit/test_offline_session.py` 与 `tests/unit/test_session_material.py`），`run_repo_case.py` 三条都是 `PASS`（5/5、3/3、3/3），`mandatory` 仍是 `false`——理由写在契约那三行上：这个族里 010/020/030/060/070/080/090 要的是真实启动与入服证据。
+  - **顺带更正的（上一轮我自己写下的）数字**：那份用例清单说「26 条」，现在是 **29 条**；`W30` 从「0 条」变成 3 条。**这正是我在同一天里第三次遇到的那件事**——一个数字写下来的那一刻就开始过期，所以这次一并把它改掉，而不是留着等下一次读账时再发现。
+
+- [x] **又两条：`HOST-050` 与 `HOST-080`——`host-integrated` 的 12 条里，能本地判的现在都已经被认领了。** 两条都取自存储生命周期契约自己的表：**050** 的「恢复不重放动作」那一半三条断言（只有可重复的 effect 可重试、「永不重放」的之后也不再被捡起、三条冻结期望与策略实际所做的一致），**080** 的「两个 world context 不串线」那一半四条断言（切换的任何一步都只有一个 current、另一个世界不能在已有 current 时上位、没走完的切换什么都不留下、两个都标 ACTIVE 的记录被拒绝而不是被挑一个）。两条都 `run_repo_case.py` `PASS`（3/3、4/4）。**这一轮之前先把七条断言逐个查过「有没有被别的用例认领」**——七条全部未认领（顺便量到：**共享断言本来就是这里的常态**，已有 8 条断言被 2–4 个用例共同认领，最典型的是 `move_input_was_leased` 被四个用例认领），所以这次既没有重复计入，也没有假装两条新用例带来了七条新判据。
+  - **这一族的审计到此为止，结论写在这里**：存储契约的 10 条 HOST 用例里，**能本地判的（020、030 的写方、050、060、070、080 的各一半）现在都有 fixture**；剩下的 `HOST-001`（本地 JOIN + 首保存 + 重启重进）、`HOST-040`（第二个真实客户端加入）、`HOST-090`（黑盒 canary）与 `HOST-030` 的运行半边**都真的需要一次运行或第二个客户端**，不是缺判据。
+
+- [x] **契约要求的 case 有一份可机器核对的清单，而每个 gate 按**自己**那份清单取证——不是按全仓库的那一份。** 已由主控以 `6863be919ba0b80756091cf4d15952c64142710f` commit 并 push；本地、`origin/main` 与远端 `refs/heads/main` 已核为同一 SHA。本层缺得比上一节更根本：上面所有规则（mandatory、evidence、version、重判）读的都是登记表，而登记表是一个目录，所以**一条契约要求、却没人写过的 case 在那套读法里根本不会被问起**。「每一个 mandatory 用例都 PASS」在一个有洞的用例集上是一句真话，也正是这句话会把晋级门禁变成一张给没做过的活的证书——控件边界契约自己写着「**一个在残缺用例集上给出的『可晋级』就是一句假话**」。所以 `domain/cases.py` 现在有 `REQUIRED_CASES`（**72 条**，每条带 `expected_work_package` / `required_for` / `validation_class` / `anchor`），`CaseRegistry.requirement(*gates)` 把它读成这道门的前置条件，`evaluate_promotion(..., requirement=...)` 据此拒绝。
+  - **审查纠正了两类过度收紧**：**(一) 第一版把全仓库的 missing 塞进每一个 work-package 的判决**，于是 HOST/NAV 的洞把 W40 也堵上了；现在 `required_for` 是 gate 成员关系（`p0-core` = W00–W70 的并集 + `CORE-030`；`host-integrated` = 三份 host 契约各自的族，独立），`CaseRegistry.required_cases(gate)` 决定**判哪些 case**、`requirement(gate)` 决定**这道门缺什么**。**(二) 第二版曾把每条 `mandatory: false` 都当作 inventory 失败，等价于暗中把 72 条全改成 mandatory；现在 required presence 与 mandatory evidence 保持分层**：missing/misattributed 拦 inventory，non-mandatory 作为 `not_gating` 诊断保留；若一道门没有任何 mandatory，仍由既有 `NO_MANDATORY_CASES` 拒绝。（`W80` 是 work package 而**不是** gate：NAV 由 `p0-nav-exp` 独立评级。）
+  - **实测（`python tools/report_cases.py`）**：**72 required / 33 present / 39 missing**；按证据种类 `local-only` **7** / `runtime-required` **65**；已登记却不 gating 的 **27** 条。按 gate：`W00` 1、`W10` 1、`W20` 1、`W30` 11、`W40` 12、`W50` 3、`W60` 3、`W70` 5、`p0-core` 38、`p0-nav-exp` 1、`host-integrated` 33——`W00`、`W20`、`W60`、`W70` 四道的 case set 齐全，但 W70 没有 mandatory case，仍不会晋级；其余各有洞（`host-integrated` 缺 19 条、`p0-core` 缺 19 条）。这份 missing 与执行计划那张「已知缺失 case（规划视图）」表逐族一致，两张表由两条独立路径得出。
+  - **清单不从契约散文里抓，而从散文里**核**。** 契约是散文，抽出来的清单会在一段被改写时悄悄变意思；因此机器核的是更弱但真的可核的那件事——**每条 ID 都逐字出现在它引用的那份文档里**（`tests/contract/test_case_coverage.py`），它抓得住编造、拼错与契约改动落在后面的条目，同时不假装正则读得懂一条要求。清单本身是一次人工阅读，这是它唯一不可推导的部分，也是它带 anchor 的理由。
+  - **`PERSIST` 按缺口报出、不编号、也不拦任何门**：它有一份 persistence/recovery 契约、有要求、**没有任何 case 编号**；为了让清单好看而写一条 `PERSIST-001`，就是这个「用来核对契约」的清单反过来**自己发明**它要核对的东西。所以它是 `PlanningGap(status=UNFROZEN_CASE_IDS, required_for=())`，只出现在报告的 `planning_gaps` 里。
+  - **负向验证**：删除 required fixture 只阻塞它所属的 gate；把 fixture 归到错误 work package 会报告 `misattributed`；合法形状但不在 v1 清单中的 ID 与重复 ID 都会拒绝；`mandatory: false` 仍单独报告为 `not_gating`，不会被 inventory 偷偷改写。
+  - **一处契约互相矛盾，只报告不解决**：`ADMIT-100` 与 `ADMIT-110` 在**两份契约里是两个不同的场景**——`p0-remote-admission-contract.md` 的表把 110 写成「恶意聊天给出地址/要求改配置」、把 100 写成「同名/改名/代理改写」，而 `p0-validation-evidence-contract.md` 把 100 写成「服务端拒绝」、110 写成「目标接受连接却从不回应」，**已登记的 fixture 与后者一致**。两份契约都承认这两个 ID 存在、都属于同一族、都要真实运行，所以**无论按哪一份读它们都是 required**——不一致的是场景语义，不是存在性，而本卡的字段里**没有场景**这一项，代码因此没有也不需要选边。改哪一份表留给契约作者。
+  - **门禁**：1762 passed / 2 skipped（基线 1722；新增 40 条），ruff check/format、pyright（strict，0 errors）、`check_boundaries`、`check_case_assertions`（110 条注册断言不变）、`verify_fixture_digests`、`check_workflow_pins` 全绿；本卡未改 Bridge/proto。**没有改任何 fixture、没有改 schema、没有改真实运行路径、没有跑 Minecraft**，改动只在 `domain/cases.py`、`adapters/evidence/promotion.py`、两个 report 工具与对应测试里；真实运行的那一半（39 条缺失 case 里绝大多数）仍然要一次真客户端/真故障，这正是这份读数要让它**说出来**的东西。
+
+## W40：原版服务器准入
+
+- [x] 启动隔离的 vanilla 1.21.4 `online-mode=false` dedicated server：已在受控 runner 里真实跑过一次（详见环境门禁那一条：绑 loopback、whitelist 只含 Kin 的离线 UUID、无 op/RCON/query/command-block、固定种子的新世界、`Done (0.512s)!`、`stop` 后有界干净收尾）。**这条替代的是"跑得起来"，不是"连得上"**：客户端仍无法被连过去，因为 Core 不会发 `ConnectWorld`。
+- [x] 受控 server runner 已准备：只接受显式 `--accept-eula`，先复核官方 1.21.4 server JAR 的大小与 SHA-1，再写全新的 run 目录；固定 loopback、offline、survival、difficulty、seed、白名单、无 op、无 RCON/query/command-block/console 广播，并按 vanilla 离线 UUID 规则生成白名单。旧 run 目录、非法或仅大小写不同的玩家名均 fail closed；启动未就绪时不会因 `--keep-running` 误报成功，退出始终有界停服。配置与拒绝路径已有离线契约测试。**runner 侧已接线**：`run.sh server` 把 jar 只读挂载进来、逐 run 编号目录、EULA 只透传不代传，实测可到达容器并在没有 `--accept-eula` 时于建目录前退出（细节见环境门禁那三条），并且运行者同意之后**已经真实启动过一次**——上一条由此改为完成。
+- [x] 静态子集：可信 Server Profile 加载与地址策略——只接受冻结 schema 里的 `127.0.0.1`/`::1` 两个 loopback literal，拒绝 DNS 名、私网、通配、第二条 loopback 与未知字段；profile 内容摘要作为 revision。以 `schemas/server-profile.schema.json` 做逐项对照测试，产品规则只允许比 schema 更严。
+- [x] 地址策略判定：解析后的 endpoint 必须再过一次策略，只接受 profile 声明的网络；名称永不解析入位（可重绑定），link-local（含云元数据 `169.254.169.254`）、unspecified 与 multicast 是任何策略都不能放宽的无条件拒绝。profile 加载与判定共用同一份规则，不再各写一遍 loopback 字面量。
+- [ ] DNS/SRV 解析本身，以及「每次重连重新解析、不永久信任旧 SRV 结果」的时序：需要真实客户端连接路径。（2026-09-22 核查：**后半个的「结构」那一半是构造上成立的**——域里每次尝试就是一个新 generation（`domain/connection.py` 的 `begin()`），而解析状态在域里**根本不存在**（解析是客户端的事），所以「不永久信任旧结果」没有可违反的地方；真正要跑的是**客户端侧**每次重连是否真的重新解析（含 SRV），以及保存原始地址与实际 endpoint 的那条（`ADMIT-020`）。）
+- [x] connection generation 的纯领域门禁：每次 begin 从 1 单调分配且必须先显式 close 当前 generation；旧 generation 的 DNS/Netty/JOIN/snapshot 回调只返回 `STALE_GENERATION`，关闭后的晚到回调只返回 `CLOSED_GENERATION`，均不改变新状态；未分配的未来 generation 与当前 generation 的乱序回调 fail closed，JOIN 与 authoritative snapshot 缺一不可 `PLAYABLE`。真实 client-thread 事件接线仍随 ConnectWorld 实测完成，不能用此静态状态机代替。
+- [x] 冻结 W40 wire schema：`ConnectWorld` 只携带已保存 profile 的 id/revision、原始 host/port、资源包策略、generation 与 deadline；`CancelConnection` 使用枚举原因；`ConnectionLifecycle` 只上报稳定 phase/failure enum，不给服务端任意文本开产品通道。profile binding 属于生命周期管理元数据，world context 由 Envelope 承载，二者都不塞进玩家等价 `InitialObservation`；Python gencode、`.pyi` 与 Java lite 编译检查已同步。
+- [x] Bridge command ingress 与 client-thread 适配静态子集：IPC worker 只在握手协商 `admission.connect.v1` 后解析 `ConnectWorld`/`CancelConnection`，再次限制 loopback、profile revision、deadline、资源包策略与单调 connection generation，再以非阻塞有界 inbox 交给 client tick；client tick 使用固定 1.21.4 的公开 `ConnectScreen.connect`、`ServerAddress`、`ServerInfo(OTHER)`、`quickPlay=false` 与空 cookie storage，资源包只映射 deny/prompt。取消先失效 generation，再经 required Mixin accessor 精确执行 vanilla Cancel 按钮所用的 future/connection 路径，无反射；队列满、能力缺失、重放/跳号、非法目标或 tick 适配异常均 safe-stop。真实 JOIN/DISCONNECT 回调的 generation 绑定与生命周期上报尚未接入。
+- [x] 生命周期上报的**出站路径**已接通并实测：`BridgeIpcWorker` 增加一条独立的事件写线程，`publishLifecycle` 从 client tick 非阻塞投递进有界 outbox，队列满即 fail-closed——这是「必须送达」的状态事件，丢掉一条就等于让 Core 永远等一个不会来的相位。只有相位与失败原因自洽的事件才准出去：终止相位必须自称 `terminal`，`FAILED` 必须带具体原因，`CANCELLED` 只能带 `CANCELLED` 或不带原因，其余相位一律不得携带失败原因。Core 用「相位 + 原因」共同分类，放行一个不属于该相位的原因就等于让它把取消读成白名单拒绝。`BridgeIpcWorkerSelfTest` 现在真的从 event channel 读回事件，断言 channel、message type、**从 1 起逐条递增的 sequence** 并逐条比对 payload，被拒的形态一条都不许占用 outbox；已做变异验证：把事件写进 control channel 测试即失败。同一提交修好了 `tools/check_bridge_proto_java.py` 里那份手写 stub——它与真实 `ClientAdmissionController` 的构造签名是各自演化的，构造函数一改，离线编译门禁立刻红（这次就是这样红的）。
+- [x] **真实 JOIN/DISCONNECT 回调接线完成**：`ClientAdmissionController` 现在有五个「客户端自己到达某相位」的入口，由 Fabric 的 `ClientLoginConnectionEvents`（`INIT` → `LOGIN_NEGOTIATING`、`DISCONNECT` → `FAILED`）与 `ClientPlayConnectionEvents`（`INIT` → `PLAY_INIT`、`JOIN` → `JOIN_SEEN`、`DISCONNECT` → `DISCONNECTED`）驱动，监听器在 `onInitializeClient` 里注册一次。三条规则在这里落地：**(一) 没有活跃 generation 就不上报**——这些事件对客户端**连过的每一台服务器**都会触发，包括这次 Bridge 从没点过名的，把它算到「当前那次尝试」头上正是让一次无关连接推动本次尝试的办法；**(二) 终止即退休**——`FAILED`/`DISCONNECTED` 上报之后 generation 归零、profile 绑定清空、相位机回到 `OBSERVE_ONLY`，于是迟到的同类事件既不能替它说话也不能把它重新打开；**(三) 原因用稳定枚举**——登录未成而结束是 `FAILED` + `UNEXPECTED_DISCONNECT`（不是 `DISCONNECTED`：什么都没加入，不存在可以被正常结束的会话），正常断开是 `DISCONNECTED` 且**不带**原因，服务端的原话一个字节都不进产品事件。为了让这套规则可以**离线**验证，把「这次尝试开始了」这段记账从 `connect()` 里拆成 `beginGeneration()`——需要 Minecraft 的是发起连接，不是相信连接；`ClientAdmissionControllerTest` 五条用例全在没有客户端的情况下跑（相位顺序与 profile 回显、登录失败的原因与终止性、正常断开不带原因、终止后迟到事件被丢弃且相位机回到 `OBSERVE_ONLY`、没有 generation 时五个事件一个都不上报）。掉进 vanilla 事件分发里的异常会从包处理路径冒出来，所以 `MinekinBridgeClient` 的五个监听器各自包了一层，与 tick 上的故障同样处理（safe-stop + 关 Bridge）。
+- [x] **第五个钩子成了，而且是按前四个量出来的地图找到的**：TCP 被拒现在会带着**精确的分类**进账本，而不是让账本停在协商前那一片沉默上。前四个钩子（见下一条的完整记录）分别死在「写假事实」「从不触发」「编译不过」「mixin 应用失败」上；第五个把钩子挂在 `ConnectScreen$1.run` 里那**两次 `MinecraftClient.execute(Runnable)` 调用**上（javap 量过：`run` 里恰好两次）——**ordinal 0** 是地址解析不出来那一路（原版自己的 `AllowedAddressResolver` 返回了空 → DNS 失败），**ordinal 1** 是 catch 那一路（异常还在手上 → 按**类型**分类，`AnnotatedConnectException` 是 `ConnectException` 的子类，三类精确可分）。用 MixinExtras 的 `@WrapOperation` + `@Local` 取那个异常局部。
+  **实测（`MINEKIN_DOMAIN_NO_SERVER=1`，端口上什么都没有）**：
+  - 客户端：`[Server Connector #1] bridge observed a failed connection: finishConnect(..) failed: Connection refused: localhost/127.0.0.1:25565 (ADMISSION_FAILURE_REASON_ADDRESS_INVALID)` → `[Render thread] bridge classified the connection failure as ADMISSION_FAILURE_REASON_ADDRESS_INVALID` → `bridge reporting CONNECTION_PHASE_FAILED for generation 1 (terminal=true, …)`；
+  - 账本：`SessionInterrupted{"phase":"FAILED","reason":"ADMISSION_FAILURE_REASON_ADDRESS_INVALID"}`（此前这里什么都没有）。（2026-09-22 补注：**这两行里的 token 已经过时，但测量本身没错** —— 当时 `ConnectException` 被映到 `ADDRESS_INVALID`，而那是错阶段的分类（见下面的修复）；现在映到 `CONNECTION_REFUSED`。输出保留原样，因为它记的是改动之前真的发生过的事。）
+  **反面对照同样做了**（这正是第一个钩子被回滚的理由）：同一条命令、服务端正常启动时，客户端日志里 `observed a failed connection` 与 `CONNECTION_PHASE_FAILED` 各出现 **0 次**，账本一路 `JoinObserved → PlayableEstablished` ✓。
+- [x] **一次真实的坑，代价是第四次尝试**：mixin 类里的**非 private 辅助方法会让 mixin 应用失败**（`InvalidMixinException: contains non-private static method …`），而我为了让分类函数能被测试写成包级可见 ✗。修法是把它移出 mixin，放进自己的 `runtime/ConnectFailure.java`（public、单一职责、可测）——分类规则重要到值得直接测，而 mixin 天生不允许它。
+- [ ] **三类里只有"被拒"在域里量得了**：DNS 失败要一个解析不出来的主机名，而冻结的 Server Profile schema **只接受 `127.0.0.1` 与 `::1` 两个字面量**，所以域里造不出 DNS 失败；连接超时同理（loopback 上的拒绝是瞬时的，不会超时）。两条路都实现了、`ConnectFailureTest` 也钉住了三种异常的映射，但**没有真实运行的证据**——按本仓库的规矩，这里如实写"未实测"而不是记成通过。
+  - [x] **前四个钩子都试过，四个都不成立——但这次留下的是"是什么结构、以及为什么每个想当然都不行"的完整地图。** 目标是报出「TCP 被拒 / DNS 失败 / 连接超时」这三类：它们都发生在 login handler 存在之前，所以 Bridge 一句话都不说，账本停在协商前那一相位上。四个钩子按顺序：
+    1. **`MinecraftClient.setScreen`，条件是"界面带着失败语"** → **写假事实** ✗。原版在**开始连之前**就把"失败时会显示的那个界面"构造好了，所以那句话从一开始就在屏幕上：实测日志里 `bridge observed a failed connection: Failed to connect to the server` 出现在 `Connecting to 127.0.0.1, 25565` **之前**，紧接着这次连接**成功了**。账本于是记下一条 `FAILED`，而 Kin 其实入了服。
+    2. **同一处再加"连接已关闭"** → **一次都不触发** ✗。那个钩子只在界面**创建**时跑一次，而创建那一刻 `connection` 还是 null；失败时原版并不新建界面，只是把已有那个更新成失败的样子。
+    3. **改用客户端 tick + 界面状态** → 编译期就过不去 ✗：`ConnectScreen` 的 `failureErrorMessage` 与 `status` 两个字段，**Mixin 注解处理器定位不到**（同一文件里 `connection`/`future`/`connectingCancelled` 三个都定位得到）。这条路不是"没写对"，是工具不支持这两个名字。
+    4. **`@Inject` 到 `ConnectScreen$1.run` 里那次 `Logger.error(String, Throwable)`** → **mixin 应用失败，客户端在类变换阶段就崩** ✗。原因很有价值：那次调用**在一个 lambda 里**（`run` 里是 `submit(Consumer)` + `invokedynamic`），所以 `run` 自身根本没有这个调用点，`@Inject` 找不到目标。
+- [x] **这一轮真正的内容：把「已知的那一半」做完了，并在这一半上揪出一个分类错误（2026-09-22）。** 上一条说的是「三类里只有被拒在域里量得了」；既然它量得了，就应该被**看**。看的结果是：**TCP 被拒此前被记成 `ADDRESS_INVALID`，而那是 parse/resolve 阶段的分类**（契约自己的表里，那一行的必要动作是「不创建连接」；而拒绝恰恰证明连接被创建过——地址解析成功、策略放行、对端没人在听，客户端日志写的也是 `Connection refused`）。**这个错误已经以真实数据出现过**：那次 `MINEKIN_DOMAIN_NO_SERVER=1` 的运行在账本里留下 `reason: "ADMISSION_FAILURE_REASON_ADDRESS_INVALID"`，读账本的人会得出「地址无效／没拨出去」这个没有人观测到的结论，而它会和 `ADDRESS_POLICY_BLOCKED` 并排出现，看起来像这个客户端拒绝了一个它其实拨过的地址。修法是给这一类自己的值：`ADMISSION_FAILURE_REASON_CONNECTION_REFUSED = 16`（**追加**，wire 兼容，末尾编号，不重排任何既有值），`ConnectFailure` 把 `ConnectException` 映到它，Java 与 Core 各加一条「拒绝不属于 parse/resolve 那一组」的用例（Core 那条还把 `NO_CONNECTION_CREATED` 写成契约那一行的三个值，所以判据是**对着契约的表**而不是对着自己的名字）。
+  - **协议改了，所以整条 pin 链都得跟着走，全都真的走了一遍**：Python 生成物由 `tools/generate_protos.py` 重生成（diff 恰好只有 `observation_pb2.py` 与 `.pyi`，共 4 改 2 加），Java 由 Gradle 的 protobuf 插件重生成；**jar 摘要因此移动**（`7e1b5fa7…` → `d9030604…`，size 也变了：1291157 → 1291476，所以 `_SIZE` 那个常量同样要续——**第一遍只续了 `_SHA256`，全量 pytest 立刻用 `BRIDGE_JAR_SIZE` 拦下来，这正是那条 pin 存在的意义**）；`recipe.py` 的两个常量、用例夹具的 `digest`/`size`/`source_digest`（bridge 树变了）、`manifest.sha256` 里那份夹具、以及**协议文件自己**（`proto/` 是冻结夹具，改它就得重录它的摘要——夹具门禁先报的就是这条）逐项续期。
+  - **跨平台可复现重新核过，没有想当然**：容器里重建的同一次构建给出 `d9030604…`，与 Windows 逐字节相同——这条性质在换 jar 之后仍然成立，而它是这次移动 pin 的前提。
+  - **顺手补上的一条本地缺口**：`buf` 不在本机 PATH 上，而 `generate_protos.py --buf` 传**相对路径**会失败（Windows 的 `CreateProcess` 要绝对路径，报的还是 `FileNotFoundError`——一个与原因无关的错误）。这次用的 Windows 版 `buf 1.50.0` 是按仓库已经钉住的版本取的，且**先核了 release 的 `sha256.txt`**：那份文件里的 Linux 条目与仓库 CI pin 的 `154ea883…` 逐位相同，所以那份清单是可信的，Windows 条目（`e12d1033…`）再与下载到的二进制对上。**这条只记在本地**：`buf` 的 pin 归 CI 那条 workflow，本机这次只是用它生成一次，生成物由 CI 的 `git diff --exit-code` 复核。
+  - **仍然开着的**：DNS 失败与连接超时**依旧没有真实运行证据**（上一条的理由没有变：loopback 上造不出这两种），所以上一条仍然留着 `[ ]`；那两条实测记录里写的 `ADDRESS_INVALID` 也仍然是对的——它们记的是**改动之前**真的发生过的事。
+- [x] **四次尝试换来的地图**（下一次不用再量）：
+  - **谁抛出、在哪抛**：失败发生在**连接器线程**上；`ClientConnection.connect(...)` 不是抛出点——它把活儿 `submit` 给事件循环就返回（javap 实测）。整个客户端里**只有 `ConnectScreen$1` 含 "Couldn't connect to server" 这个字符串**，也就是说"接住它的地方"就是那个类。
+  - **异常类型是三类的判据，而且精确**：原版日志实测 `io.netty.channel.AbstractChannel$AnnotatedConnectException: finishConnect(..) failed: Connection refused: localhost/127.0.0.1:25565`，`Caused by java.net.ConnectException`——而 `AnnotatedConnectException` **是** `ConnectException` 的子类，所以按类型分类对三类都成立（`UnknownHostException` / `SocketTimeoutException` / `ConnectException`）；按句子分类则只能算近似（句子是译文 ✗）。
+  - **跨线程**：分类发生在连接器线程，而每一次上报都必须在客户端线程 ✓——这条桥本仓库已经有现成形状（断线原因就是这么传的）。
+  - **下一次该怎么做**：`@Redirect` 掉 `run` 里那次 `ExecutorService.submit(Consumer)`（**这个方法调用确实在 `run` 里**，实测签名 `(Ljava/util/function/Consumer;)V`），把传进去的 Consumer 包一层自己的 try/catch，在异常继续上抛之前按类型分类。这次的失败正是因为它把钩子挂在了 lambda **内部**的调用上。
+- [x] **四次都回滚了**，一次都没留在代码里：一个会写假事实、一个永远不响、一个编译不过、一个让客户端崩。回滚后重新构建的 jar 与**已提交的 pin 逐字节相同**（`88226771…`、1,255,856；源码树 `d90593d8…`）——pin 纪律再一次自我验证。留下的只有域里的 `MINEKIN_DOMAIN_NO_SERVER=1`（服务端起来证明自己能起之后立刻停掉，于是那份冻结 profile 指向的地址上什么都没有）。
+- [x] **这一条已经接上了**（原来的问题：TCP 被拒、DNS 失败、连接超时这三类在 vanilla 里走的是 `ConnectScreen` 的失败回调而**不会创建 login handler**，所以 `ClientLoginConnectionEvents` 一个都不触发——受控 runner 里那次 `Connection refused` 就是这种情况，Bridge 因此一句话都没说）。现在这三类都有稳定的分类并进账本；实机证据与「域里只量得到被拒」的诚实边界见 W60 那两条。
+- [x] **这次改动的回填与验证**：改动落在 Bridge 源码，因此按流程重录 pin（jar `050a6390…`、1,236,303 字节、源码树 `f5c644a0…`），并照例在两个平台上各验一遍——Windows 与受控 Linux 容器产出逐字节相同的 jar，宿主与容器算出相同的源码树摘要。离线侧九道门全过（含 42 条 Java 测试，其中 5 条是新增的 `ClientAdmissionControllerTest`）。**真客户端侧只验到「没有把它弄坏」**：在 runner 里再跑一次 `session start --server-profile`，客户端加载 54 个 mod、**0 份崩溃报告**、`minekin_bridge 0.0.0` 在模组列表里、日志里仍有 `Connecting to 127.0.0.1, 25565`、没有 Bridge 异常——也就是说新注册的五个监听器不会在模组初始化时把客户端弄崩，而相位上报本身要等有服务端接住那次 TCP 才谈得上。
+- [x] Core 侧终于有人读这些事件了：`adapters/bridge/admission.py` 是唯一读 wire 相位枚举的地方，把「客户端说自己到了 X」翻成「这次尝试前进到 Y」，并交由 `ConnectionGenerations` 做 generation 门禁。三条绑定在这里落地——**报告自己的 generation**（不是当前活跃的那个：晚到的旧 generation 报告是正常的，把它当当前读，正是让一个陈旧 Bridge 进程把新连接读成 PLAYABLE 的方法；这条在写测试时立刻抓到了一个真实 bug）、**profile 绑定**（名字与 revision 都要与当前尝试一致，否则是别人的连接）、**相位与原因自洽**（Core 按「相位 + 原因」分类，对不上的报告等于不可分类，拒绝而不是修补）。无法归类的报告返回稳定 token（`UNKNOWN_PHASE`/`MISPAIRED_REASON`/`FOREIGN_PROFILE`/`UNBOUND`/`INVALID_GENERATION`），`FAILED` 的原因按 proto 枚举名作为分类 token 带出来——服务端文本本来就没有通道，这个枚举名就是契约里的稳定分类。
+- [x] 由此补上了领域状态机里一个真实的洞：Bridge 现在会发一个**终止、不带原因**的 `DISCONNECTED`，而 `ConnectionState` 里根本没有能表示「连上了又正常结束」的状态，`apply(FAILURE)` 在 PLAYABLE 上还会被判为乱序。于是加了 `DISCONNECTED` 状态与信号（只允许从 `PLAY_INIT`/`JOIN_SEEN`/`PLAYABLE` 进入：PLAY_INIT 之前断掉的 socket 是一次**带原因**的登录失败，不是这个），并把「终止态」抽成一处常量：终止态不再被后续矛盾报告改写成 `FAILED`——把一次已观测到的断开改写成失败，等于往证据里塞一个没人发过的原因码。
+- [x] 连接相位现在能推动**会话**状态机了：§7 那张冻结表一直是座孤岛（`SessionState` 除自身模块与测试外没有任何使用方），而 W40 报上来的相位无处安放。`domain/session_state.py` 新增 `advance_for_connection`：把一次连接决策翻成会话该去的状态，**合法性完全由那张冻结表裁决**——`READY_MENU` 只能进 `CONNECTING`，所以一个跳过 CONNECTING 直接报 JOIN 的相位会被拒（`IllegalSessionTransition`），而不是被快进到 `JOINED_UNVERIFIED`。四个准入前相位（REQUEST_ACCEPTED/RESOLVING/LOGIN_NEGOTIATING/PLAY_INIT）对会话是同一件事，因此第二个相位是 no-op 而不是一次自跳转（自跳转在冻结表里也是非法的）。只有 `ADVANCED`/`FAILED`/`OUT_OF_ORDER`/`FUTURE_GENERATION` 这四类决策代表当前这次尝试：`STALE_GENERATION` 与 `CLOSED_GENERATION` 是重连留下的东西，正是 generation 门禁存在的理由，绝不允许它们移动会话。契约用例现在断言整条链——字节从 loopback event channel 出来，经 `apply_lifecycle`，再经 `advance_for_connection`，得到 `CONNECTING → CONNECTING → CONNECTING → JOINED_UNVERIFIED → PLAYABLE → READY_MENU`。已做变异验证：把 `DISCONNECTED` 映射到别的信号、或改掉它对会话的落点，单元与契约用例都失败。
+- [x] 失败与终止也接线了：连接侧 fail-closed（`FAILED`）与「当前 generation 收到不可能顺序的报告」（`OUT_OF_ORDER`）都会把会话推进到 `FAILED`；而 PLAYABLE 之后的一次正常断开走 `DISCONNECTED` → `READY_MENU`。连接侧那条「终止态不被后续矛盾报告改写」的规则在这里得到报偿：终止态上的 `FAILURE` 被判乱序、状态不变，于是会话也不会莫名其妙变成 `FAILED`。**（后来更正过一次：当时这句写的是「`FAILURE` 在 PLAYABLE 上被判乱序」，见下面那条——那条规则的前提被实测推翻了。）**
+- [x] ~~这条链仍然没有运行时调用方~~ **已接线**（59d60d3 / 8211c71）：`session start` 建 host、写 descriptor、在有界窗口内等待握手，并用 §10 的任务树陪着会话直到客户端离开；今天的调用方是契约测试与真实命令两条路径。
+- [x] 一次性 descriptor 里该装什么，现在有唯一答案：`adapters/bridge/bootstrap.py` 从**已评审的 launch plan** 推导 `kin_id`/`session_id`/`generation`/`client_instance_id` 与两条摘要，并生成 32 字节 nonce 与 session key。`bundle_digest` 取 `plan_sha256`——它是"这次启动出自哪份已评审计划"的唯一值，也正是 Core 拿去和 Bridge 回显值比对的东西。`bridge_digest` 取 `bridge_source_sha256`（Bridge **源码树**摘要）而**不是** JAR 摘要，并在代码与本文里都写明：JAR 摘要要等 Loom 输出在第二个平台上被证明可复现之后才能写进 recipe（见上文 W10 两条尚未完成的项），所以现在能诚实记录的就是源码摘要——它绑定的是"Core 与客户端来自同一份源码"，不是关于发布字节的主张。descriptor 路径由 overlay 算出而不是由调用方指定（它装着 session key，必须落在本次会话自己的目录里），并有测试拒绝相对路径。
+- [x] 名字一侧也不再有第二个真值：`MINEKIN_BRIDGE_DESCRIPTOR` 只由 `adapters/launcher/process.py` 定义一次，并**不允许经 `forward_environment` 传入**——转发列表装的是"运行者主机必须提供的事实"，而 descriptor 是 Core 为本次会话创建的，一个由主机提供的同名值会把 Bridge 指向运行者控制的文件。写这条测试时立刻抓到了这个洞：原来的实现只在转发名与会话重定向名冲突时才拒绝，所以不带 descriptor 启动时，主机可以通过转发列表把 `MINEKIN_BRIDGE_DESCRIPTOR` 塞进去。
+- [x] 顺带补上了 Python↔Java 那条**没有任何东西在盯**的接缝：两边的 message type 字符串与那个环境变量名都是各自硬编码的，而现有的两道 Java 门禁都看不见它——离线检查用 stub 编译，loopback 契约测试本身就是 Python 侧。所以只有真客户端才能发现的改名，现在由 `tests/contract/test_bridge_java_constants.py` 读两侧源码比对（已做变异验证：把 Java 的 `CONNECTION_LIFECYCLE_TYPE` 改一个字母，测试即失败）。它只校验**拼写**，不校验行为——它说不出 Bridge 是否真的处理了那条消息。
+- [x] §10 的任务树有了第一个可运行版本：`cli/session_runtime.py` 的有界握手等待 + 事件读取 + 收尾。它放在组合根而不是 `application/`，理由是它必须同时点名具体 transport、两台具体状态机与具体 supervisor，而 §2 本来就把 entrypoints 定为唯一允许知道这三者的层；改成 port 形状只会多出一个只有一种实现的 `Any` 接缝。收尾按 §13 的次序取其中已存在的部分：**先让 generation 失效，再关 transport**，这样从已关连接晚到的报告无法推动一个正在停止的会话（已做变异验证：去掉失效这一步，两个用例立刻失败）。握手失败与「Bridge 丢了」分开计：前者是 `HANDSHAKE_TIMEOUT`/`HANDSHAKE_FAILED`，后者是 `BRIDGE_LOST`，且**只**把 transport 契约错误算作后者——其它异常是本进程的 bug，必须冒泡成 INTERNAL_INVARIANT，不能被折进一个网络结论里。
+- [x] 写这些用例时确认了一条本就该成立、但此前没被任何东西断言的规则：报 JOIN 而不报中间的登录相位**不会**前进。连接状态机只允许 `PLAY_INIT → JOIN_SEEN`，所以跳过 `LOGIN_NEGOTIATING`/`PLAY_INIT` 直接报 JOIN 会把这次尝试判为乱序并 fail-closed（`test_a_join_that_skips_the_login_phases_fails_the_attempt_closed`）。我最初的用例就是跳着报的，于是被自己的机制就地抓住——这条现在是文档化的断言，而不是我记住的巧合。
+- [x] 会话状态机的收尾也确认了一次 §7 表的形状：**menu 里丢掉 Bridge 不算失败**。`READY_MENU` 在冻结表里没有通向 `FAILED` 的出口，因为"客户端停在主菜单、控制通道断了"是要停止的会话，不是坏掉的会话；而在连接内部丢掉 Bridge 就是失败，表也是这么给的。`_wind_down` 只用 `can_advance` 依次尝试 `FAILED`(可选) → `STOPPING` → `STOPPED`，没有自己的一套转移表。
+- [x] `session start` 现在真的会托管会话了。顺序是「就绪检查 → 建 overlay → 独占写出 descriptor → 启动客户端 → 有界等待握手 → 跟着 Bridge 直到客户端离开」，其中 descriptor **必须先于 spawn 存在**：客户端在自己的启动过程中读它，读不到就根本起不来。这条顺序不是靠约定，`tests/unit/test_session_supervision.py` 让假 supervisor 在 spawn 的瞬间记下「文件在不在」（已做变异验证：把 prepare 挪到 spawn 之后，用例立刻失败）。假客户端也从**文件**里读回 descriptor 再握手，与真 Bridge 的路径一致，因此用例同时断言了 descriptor 携带的 `bundle_digest` 就是这次启动那份 plan 的摘要——绑错了就是"证明了一次并没有发生的启动"。
+- [x] 接线时撞上一个真的冲突：ledger 的写入是 `asyncio.run(...)`（每次写自建一个 writer），而它现在被一个**正在运行的**事件循环调用，直接 `RuntimeError: asyncio.run() cannot be called from a running event loop`。当时先把它推到线程里（`asyncio.to_thread`）绕开，**根因已在下一批修掉**：`SessionEventLog` 现在每个事件都有异步入口（`*_async`），同步入口只是它的 `asyncio.run` 薄壳，`launch_prepared` 同样拆成同步壳 + `launch_prepared_async`，`start_and_supervise` 直接 await 异步版本——于是既没有嵌套的 `asyncio.run`，也不再需要那个线程。
+- [x] 会话运行时现在**真的把观察到的事实写进账本**了，因为 §7 要求「状态转换由 application service 决定并**持久记录**」，而在此之前它只改状态、不留痕。写入的是 §5 点名的四个事实：`BridgeHelloAccepted`（握手证明通过）、`JoinObserved`、`PlayableEstablished`、`SessionInterrupted`、以及 `ClientProcessExited`；事件名是 `session_log.py` 里的**闭集**，写错一个名字会在写入时就被拒，而不是等到有人查一个永远不存在的事件类型。来源与信任等级按 §6 分类：**Core 自己得出的结论**（握手被验证通过、进程消失、Bridge 丢失）记 `CORE`/`CORE`，**Bridge 报上来的相位**记 `BRIDGE`/`BRIDGE_FILTERED`；两个字段在 `record_session_event` 上是必填而不是默认值，因为 §6 明说信任等级不能由输入正文自报，每个调用点都必须表态。已做变异验证：把握手的来源改成 `BRIDGE`，用例立刻失败。
+- [x] 运行时**不**决定事实怎么落账：`supervise_session` 只通过 `on_handshake()` 与 `on_connection(state)` 报告「这次运行观察到了什么」，事件名、来源与信任等级都在组合根里映射。这也意味着运行时会报告**每一个**前进到的相位（含 RESOLVING/LOGIN_NEGOTIATING/PLAY_INIT 这类只是过程的），由调用方决定哪些值得记——契约用例断言了这一点。
+- [x] **Core 现在会发 `ConnectWorld`，连接类事实因此真的落进账本了**。`session start` 多了一个**可选**的 `--server-profile`（见「已消歧的文档口径」：§15 的 CLI 表面是「只列最小集」，这一项是给已有动词加一个输入文档，而不是新增动词——`session connect` 那种形状做不到，因为会话只在本进程托管期间可达，客户端也只有一个 Bridge）。不给这个参数，行为与以前逐字相同：客户端起来、证明自己、停在主菜单。给了，则在 `on_ready`（会话刚到 READY_MENU、一条报告都还没读之前）开一个 connection generation 并把命令发出去；**generation 在这里开而不是在握手时开**，因为 generation 是「一次尝试」，而命令上路之前没有尝试可言——开在这里，它同时就是 Bridge 报告被 gate 的那一代，`UNBOUND` 由此变成 `APPLIED`。命令里的 host/port/资源包策略**只来自已评审的 profile**（`connect_world_command` 是「哪个服务器」从决定变成消息的唯一一处），并有一层断言：`start_and_supervise` 会先看这次会话有没有协商 `admission.connect.v1`，没有就在**启动客户端之前**拒绝。端到端证据在 `tests/unit/test_session_supervision.py`：假客户端从控制通道读到真实的 `ConnectWorld`、按 profile 自己的值逐项比对，再按冻结表的顺序报五个相位，账本变成 `SessionProcessStarted → BridgeHelloAccepted → JoinObserved → PlayableEstablished → ClientProcessExited`，其中后两条按 §6 记为 `BRIDGE`/`BRIDGE_FILTERED`。**一条反向用例**：不给 `--server-profile` 时控制通道上只有心跳、没有命令，会话 `events_applied` 为 0。
+- [x] **deadline 现在真的是一条 deadline，而不是一个没人读的字段**。契约要求「下一 client tick 消费 inbox；过期 deadline 直接拒绝」，而 Bridge 原先只校验 `deadline > 0`。这里先要回答的是**一个 deadline 怎么跨进程**：两侧的 `monotonic_ns` 原点不同（两个 JVM 的 `System.nanoTime()` 各算各的），拿 Core 的 deadline 去和 Bridge 的 `System.nanoTime()` 比，是在比两个不相干的数，过不过全凭运气。可行的口径只有一条——**差值**：deadline 与承载它的那条 envelope 的 `monotonic_ns` 来自同一个时钟，两者的差就是一段时长，而时长是两台没有共同原点的进程唯一能达成一致的东西。Core 因此照这个口径发送（`Deadline.after(...)`，并把 `ipc.monotonic_ns()` 提为公开、与 envelope 的时间戳共用一处定义），Bridge 在读到时用 `validateConnectDeadline` 判定**已经过期就拒绝**，而不是让客户端去连一个 Core 已经放弃的世界。已做变异验证式的边界用例：恰好等于 deadline 也算过期、`uint64` 溢出到负数不会绕回「还没到」、以及一条活的 deadline 照常放行。
+- [x] **追这条链时挖出一个真 bug：被取消的账本写入会把写线程永久留在那里。** 上面那条让 `JoinObserved` 第一次从**会被取消的任务**（事件读线程，会话收尾时被 cancel）里写账本，于是暴露出 `SQLiteWriter` 的一个洞：线程是在**构造时**就启动的，而 `aclose()` 原先用 `await asyncio.to_thread(..., _STOP)` 投递停止信号——**一个已经在解取消的协程根本到不了它的下一个 `await`**（`CancelledError` 会在那一点直接被重新抛出，被等待的东西压根不执行），于是停止信号没送到、线程永远停在空队列上。那是一个非 daemon 线程，没有任何东西会停它，**解释器因此永远退不出去**——症状是「7 条用例全过，然后进程挂死」，没有任何一条断言指向它，只有 `threading._shutdown` 的栈。修法是把停止信号改成**同步**投递（`put_nowait`，在任何一个 `await` 之前），于是取消最多只能放弃「等待」，不能阻止「停止」。另外把 `session_log.py` 四处 `writer.start()` 挪进 `try` 内——`start()` 抛错时同样会把线程留下，而那是一个更常见的路径（库文件不是库）。回归用一条**确定性**用例钉住：拿一个不是 SQLite 文件的库去写，断言没有 `minekin-sqlite-writer-*` 线程留下；另外在连接那条用例末尾直接断言此刻没有 writer 线程存活——它正是那个「全过然后挂死」的形态。
+- [x] **这次尝试的超时处置接线了：Core 在 deadline 到点时会自己放弃这次尝试。** 在此之前 deadline 只骑在 `ConnectWorld` 里让 Bridge 拒绝一条过期命令，而 **Core 自己什么都不做**——客户端要是掉进一个黑洞（连上了但不说话），Core 会一直等一个不会来的世界。现在 §10 的任务树多了一个「会触发但**不结束**整场运行」的分支：`on_ready` 记下它发出去的那个 deadline（**同一处计算**，两个地方各算一次就是两条 deadline），`until_connection_deadline` 等它到点，`on_connection_deadline` 发 `CancelConnection{generation, reason: TIMEOUT}`。**先发、后关** generation：这样 Bridge 的回答（一个 `CANCELLED` 相位，或者什么都没有）不可能去推动一个 Core 已经不再当真的尝试。
+  - **顺手把两条分支合成一个机制**：原来 release 那条分支是「一个 `release` 变量 + `assert release is not None`」，现在是一个 `{task: callback}` 映射——每个分支都是「某个属于调用者的时刻到了，做一件事，然后继续等」，这也是等待写成循环的原因。运行时不判断它们分别是什么意思，只在回调抛 `OSError`/`RuntimeError` 时记下来（通道先没了不该变成一次因为无关原因失败的运行）。
+  - **记在哪里是一次判断**：`connection_cancelled: "TIMEOUT"` 落在 **run document** 上，**不是**账本——§5 没有为「这次尝试被放弃了」命名任何事件，而把它写成 `SessionInterrupted` 是在说"会话被打断了"，那是假话（会话还在）。这与 `input_refusal` 是同一个形状、同一个理由。「发送失败」是**自己的一格**（`connection_cancel_failed`）：取消与松键是 Core 欠 Bridge 的两件不同的事。
+  - **实测**：`tests/unit/test_session_supervision.py` 里一条新用例用真实的 loopback 对端跑完整条路——不给任何 lifecycle 报告（尝试因此在途），等来 `CancelConnection`，断言它的 **generation 等于 `ConnectWorld` 的 generation**、`reason == TIMEOUT`，run document 记着 `connection_cancelled == "TIMEOUT"`、`connection_cancel_failed is False`，**运行没有因此结束**（`outcome == CLIENT_EXITED`），并且**账本里没有 `SessionInterrupted`**（会话没有被打断）。另加两条运行时级用例：分支触发后运行继续、以及取消发不出去时被记下来（`connection_cancel_failed is True`）而不是抛出去。
+  - **这条链还没在真实客户端上跑过**：验证用的是真实 IPC 对端而不是真实 Minecraft——要造出"连上了但不说话"的目标需要一个黑洞监听者（accept 但永不回应），而那属于下一次的域场景与用例。现在的边界就是这里。
+- [x] 由此 `session start` 的语义变了，并且必须写下来：它**不再启动完就返回**，而是留在会话里直到客户端退出（这正是"Core 是一个长期进程、客户端才有 Bridge 对端"的必然结果——Core 一退出 socket 就断，Bridge 会按 control lost 自保）。退出码按结局给：客户端离开是 `OK`，握手失败/Bridge 丢失是 `IPC_PROTOCOL`，握手超时是 `TIMEOUT`。**尚未接线的是信号**：Ctrl-C 只让本进程收摊（关 transport、generation 失效），不会去停客户端；停客户端仍然只有 `session stop` 那条已实现且要证明进程身份的路。
+- [x] 测试助手不再靠"pytest 恰好把两个目录都塞进 sys.path"来互相 import：`session_support.py` 与 `bridge_peer.py` 移到 `tests/` 下，并由 `tests/conftest.py` 显式把这个目录放进 `sys.path`，`unit/` 与 `contract/` 现在可以各自引用同一份定义。
+- [x] **真实客户端已经跑过这条路径了**：受控 runner 里的 1.21.4 客户端读到 descriptor、握手被接受，并且（在这一批之后）真的消费了 `ConnectWorld`、按 profile 的地址拨了号——证据与限制见 W40 那两条。`ADMIT-001…120` 与 W50/W60 的实测项仍然压在这上面，但要压的已经不是「路径通不通」，而是「加入之后的事」：真实 JOIN/DISCONNECT 相位由 Bridge 上报、服务端与客户端同处一个网络命名空间、以及拿到服务端侧的离线核对。
+- [x] **真实 1.21.4 客户端第一次消费了 `ConnectWorld`，并按 profile 的地址真的拨了号**。在受控 runner 里跑 `session start --profile <bundle> --server-profile <受控离线 profile>`：客户端加载 54 个 mod（含 `minekin_bridge 0.0.0`）、建出 14 张纹理图集（也就是到了主菜单）、**0 份崩溃报告**，然后日志里出现一行只可能是 vanilla 自己写的
+  `[Render thread/INFO]: Connecting to 127.0.0.1, 25565`
+  ——那正是 `ConnectScreen.connect` 拿到 `ServerAddress` 之后说的话，而那个地址是 Core 从已评审 profile 里读出来、经 `ConnectWorld` 送过去的。随后 `[Server Connector #1/ERROR]: ... Connection refused: localhost/127.0.0.1:25565`：**失败的唯一原因是那一端没有人在听**，这正是本次要验的东西——命令完整地走到了真客户端的连接路径上，而不是停在某个 mock 里。这也把上一条的空白补上了：`Bridge 真的读到了 descriptor`、`descriptor 的端口真的能连上`、以及「Core 发的命令真的被 vanilla 消费」现在都有真客户端证据。**没有记录到 JOIN**，原因是另一件事：Bridge 目前只上报 `RESOLVING` 与 `CANCELLED`，加入相位要等 Fabric 客户端事件接线（见下一条）。
+- [x] **runner 的第三半：`domain` 模式，服务端与客户端同处一个容器**。冻结的 Server Profile schema 只允许 `127.0.0.1`/`::1`，而 loopback 是**每个容器各自一份**——所以 `run.sh server` 与 `run.sh session` 分别在两个容器里跑，双方永远看不见对方，这跟地址写得对不对无关。唯一与那条策略相容的形状是同一个容器里两个进程（`--network host` 在 Docker Desktop for Windows 上不可用）。新增 `test-orchestrator/runner/domain.sh`（容器内脚本，比一大串引号里的 shell 好读也好评审）与 `run.sh domain`：挑一个**新的**服务端 run 目录、把服务端拉起来并等它自己说 ready、再在同一个容器里跑会话、最后有界停服。**测出来的第一件事是它自己的一个 bug**：`timeout` 原先套在 `xvfb-run` 外面，于是信号落在 X server 上而不是客户端上，客户端以 `X connection to :99 broken` 收场——那是显示没了，不是会话结束，任何"这次跑得怎么样"的结论都会被它污染。把 `timeout` 挪到 `xvfb-run` **里面**之后，会话窗口由客户端自己收下。
+- [x] **这一批最有价值的产出：Bridge 的新相位上报被真客户端验证了**。在 `domain` 里跑 `session start --server-profile` 之后，账本出现
+  `SessionInterrupted` / `BRIDGE` / `BRIDGE_FILTERED` / `{"phase":"FAILED"}`——那是**一条真实的 `ConnectionLifecycle`**，由 `ClientLoginConnectionEvents.DISCONNECT` 经 `loginFailed()` 映射出来、走真的 loopback IPC、被 Core 归类并落账。也就是说上一条接线里"客户端自己到达的相位"这条路，从 Fabric 事件到账本，已经用真客户端走通了；此前它只有 JUnit 和一个假 peer 作证。同一批里 3 秒级的时序也记下来了：进程起 → 握手 → `Connecting to` → 失败，约 3 秒，与"TCP 层面被拒"同一个量级。
+- [x] **把失败变可见，并把几个猜测真正排掉**。契约允许 Bridge "keep redacted diagnostics outside the product event payload"，于是 Bridge 在本地日志里记下了它看到的每一件事（每条被上报的相位与它的 generation、被丢弃而**不**上报的报告、事件 outbox 满导致 fail-closed、以及 Bridge 主动停客户端的那一刻）。跑一遍 `domain` 之后日志直接给出了答案的形状：
+  `bridge reporting CONNECTION_PHASE_LOGIN_NEGOTIATING …` 与 `bridge reporting CONNECTION_PHASE_FAILED …` 出现在**同一秒**。也就是说这不是超时、也不是等服务端应答等出来的失败：登录 handler 建起来之后通道立刻就不活动了。
+- [x] **并且把服务端排除干净了——用一个手写的协议客户端**。`.tmp` 里一个一次性的探针（握手 + login start，protocol 769、名字 `Kin`、白名单里那个离线 UUID）对同一个域拿到了 `0x03 Set Compression`，也就是**登录被接受了**。**顺带纠正上一条里的一个错误推断**：服务端"什么都没记"曾被我当成"登录没到达"，那是错的——vanilla 对一个**被接受**的握手同样一个字都不记（探针这次就被接受了，服务端日志照样停在 `Done (…)`）。所以服务端的沉默不是证据，`usercache.json` 为空也不是（它只在成功加入后写）。同时排掉的还有名字解析：`_minecraft._tcp.127.0.0.1` 在 0.19 秒内干净地 NXDOMAIN，字面量 0.01 秒解析出来，vanilla 会很快回落到字面量，所以那 4 秒的空档不是 DNS。
+- [x] **把「谁掐断了它」这个问题问到了底，答案是「没有人说过话」**。在客户端的登录断开路径上挂了一个 Mixin（`LoginDisconnectMixin`，照 `ConnectScreenAccessor` 的先例，并确认 refmap 把它解析成了 `class_635.method_10839`），它记的是 `DisconnectionInfo.reason()`——也就是"谁说了为什么"。**它一次都没触发**。这就是答案：这次断开**没有任何 `DisconnectionInfo`**，socket 就这么没了；我们之所以知道"发生过一次断开"，是因为 Fabric 的事件除了 `handleDisconnection` 之外还挂在 `channelInactive` 上，而走的正是后者。也就是说：不是服务端发了断开包，也不是我们这边调用 `disconnect(...)`（`cancelVanilla` 只有一处、用的是 `ConnectScreen.ABORTED_TEXT`，真走了它会留下理由）。
+- [x] **顺手把服务端和身份彻底洗清了——而且纠正了上一批那个探针的结论**。上一批的探针读到第一个包 `0x03 Set Compression` 就收手了，那个包只说明"服务端在讲协议"，**不说明身份被接受**：压缩启用之后才轮到白名单那一步。这次把整个登录交换读完，拿到的是
+  `0x03 Set Compression` → `0x02 LoginSuccess`
+  ——**服务端让这个身份进去了**（名字 `Kin`、白名单里那个离线 UUID）。所以服务端、白名单、端口、地址策略这几条到此为止，全部有正面证据。
+- [x] **那 2–4 秒的空档有了一个量级对得上的解释**：vanilla 在真正连之前会经 `AllowedAddressResolver` 里的 `BlockListChecker` 去取 `https://sessionserver.mojang.com/blocked.json`。在域容器里实测：DNS 正常（0.55 s / 1.65 s），那个 URL 1.60 s 返回 **HTTP 404**（不是预期的 JSON 列表）。1.6 秒与观测到的 2–4 秒是同一个量级，而"取不到 → 当作不阻断"是 vanilla 的既定行为。**这条目前只是量级相称，不是定论**——它解释延迟，还不足以解释断开。
+- [x] **「是不是我们自己掐的」有了正面答案：不是**。`cancelVanilla` 是这份代码里**唯一**主动关连接的地方，现在它自己会说话（并且会说明当时屏幕上是不是那个 ConnectScreen）。实测：那一行没有出现，而同一批里 `bridge asked vanilla to connect to 127.0.0.1:25565 for generation 1` 与 vanilla 自己的 `Connecting to 127.0.0.1, 25565` 紧挨着出现——命令确实到了 vanilla。所以上一个问题（没有任何 `DisconnectionInfo`）现在有两个正面证据合起来读：**不是服务端发的断开包，也不是这份代码关的**。
+- [x] **套接字快照这次锚对了，并且抓到了真东西**。这一次容器里**没有跑任何探针**，所以那段时间唯一可能连 25565 的进程就是我们的客户端。快照（0.1 秒一次，写进数据卷）抓到：该连接第一次被看到时**已经是 TIME_WAIT（14:02:14.04），且 TIME_WAIT 握在服务端那一侧**——TIME_WAIT 属于先发 FIN 的一方，也就是说**先关的是服务端**。同时它从未以 ESTABLISHED 被采样到，所以它的存活时间不到采样间隔的量级。把这一批的时间线排在一起：`:09` 我们的命令与 vanilla 的 `Connecting to`、`:13` 登录 handler 出现、`:14` 连接已经进了 TIME_WAIT、`:14` FAILED。**那 4 秒空档也因此有了量级相称的解释**（resolver 里 `BlockListChecker` 取 `blocked.json` 实测 1.60 秒，加上 DNS）。**剩下的问题因此变得很窄**：客户端连上了，服务端几乎立刻把连接关掉且不留一行日志；而同样名字、同样 UUID、同样协议号的手写客户端是被接受的——差别只能在**这个客户端发出去的东西**上。
+- [x] **根因找到并修掉了：我们把普通连接发成了一次「传送」。** 办法是**读字节而不是继续推**——在同一个容器里用一个小脚本顶替 25565 的域（不需要服务端 jar、不需要改 Bridge、不需要重录 pin），把客户端实际发出的东西整包读出来。第一行就是答案：
+  `HANDSHAKE protocol=769 host='localhost' port=25565 next_state=3`
+  ——**`next_state=3` 是 `TRANSFER`，不是 `LOGIN`（2）**。vanilla 的语义在字节码里读得很清楚：`ConnectScreen$1` 先算 `cookieStorage != null`，再调 `ClientConnection.connect(..., Z)`，而那个方法就是 `transfer ? ConnectionIntent.TRANSFER : ConnectionIntent.LOGIN`。也就是说 **cookie storage 只要不是 null 就是一次传送**，哪怕它里面是空的；而**原版服务端会静默拒绝一次它没有发起的传送**——不发断开包、只关 socket、两边都不留日志。这一条把我们量到的每一个症状都对上了：没有 `DisconnectionInfo`（所以 Mixin 不响）、服务端沉默、连接刚出现就进了 TIME_WAIT、账本上一条 `FAILED`/`UNEXPECTED_DISCONNECT`。我们传的是 `new CookieStorage(Map.of())`，而契约里那句「cookie storage 在普通 P0 连接中为空」的意思是**不带**，不是"带着一个空的"。修法就是把那个参数传 `null`（并在代码里写明为什么：空的 cookie storage 不是"没有 cookie"，而是"一次没有 cookie 的传送"）。
+- [x] **修完之后：真实客户端加入了受隔离的服务端**。同一条 `domain` 命令，三份互相独立的证据对上：
+  - **客户端**（Bridge 自己的本地日志，一条条相位）：`bridge asked vanilla to connect to 127.0.0.1:25565 for generation 1` → `Connecting to 127.0.0.1, 25565` → `LOGIN_NEGOTIATING` → `PLAY_INIT` → `JOIN_SEEN`；
+  - **账本**：`SessionProcessStarted`(LAUNCHER) → `BridgeHelloAccepted`(CORE) → **`JoinObserved`(BRIDGE/BRIDGE_FILTERED, {"phase":"JOIN_SEEN"})**——这是**第一次由真客户端、经真 Fabric 事件、经真 loopback IPC 报上来的加入事实**，而不是任何 mock；
+  - **服务端侧真值**（run 结束后手工读的，按契约只做离线交叉核对）：`Kin[/127.0.0.1:42662] logged in with entity id 1 at (-9.5, -60.0, 2.5)` 与 `Kin joined the game`，四分钟后我杀掉容器时是 `Kin lost connection: Disconnected`。也就是说这个客户端**在世界里待了四分钟**，不是连上就掉。
+  账本停在这里是对的：`PlayableEstablished` 需要首快照被接受（W50），在那之前 `JOIN_SEEN` 就是这条路能诚实到达的最远处。
+  - **一条诊断方法值得留住**（它才是这一批真正的收获）：**当双方都不说话时，去读字节**。前面几批把服务端、白名单、DNS、暂停、以及"是不是我们自己关的"逐条量过，都对；但它们全是**排除法**，而真正定位到的那一步是"把客户端发出去的那一包读出来"——一次就够。这条方法比那一行修复更值得记：`next_state=3` 在任何日志里都不存在。
+- [x] 经普通客户端执行 ConnectWorld：**已经做到了**——普通 1.21.4 客户端、经普通连接路径（不是 bot、不是 GUI 自动点击），进了受隔离的服务端并被服务端自己记为 `Kin joined the game`，Core 账本上有 `JoinObserved`。**这一条只覆盖「成功加入」**：按 JOIN/认证/白名单/资源包等原因**分类**需要各自的负向用例（online-mode 拒绝、白名单拒绝、重复登录、资源包阻断），其中**白名单拒绝与重复登录两类已经在下面跑通并分类到账本**，另外两类还没有跑。
+- [x] **服务端说的那句话现在会被分类，而不是被丢进同一个桶**。先用域**制造一次真的拒绝**：把 `MINEKIN_USERNAME` 换成别的名字（只影响服务端白名单，客户端的用户名来自身份根，所以 Kin 会被拒），服务端说
+  `Disconnecting Kin (…): You are not white-listed on this server!`
+  而 Bridge 当时仍然只报 `UNEXPECTED_DISCONNECT`——契约点名的那些类别（白名单、认证模式、重复登录、资源包）一个都没用上。
+  - **钩在哪里，是量出来的而不是猜的**：原先挂在 `onDisconnected(DisconnectionInfo)` 上，它对一次**服务端发起的踢出**根本不触发（服务端那次是发断开包，走的是 `onDisconnect(LoginDisconnectS2CPacket)` 那条路；Fabric 的事件之所以还是会响，是因为它还挂在 `channelInactive` 上）。改挂 `onDisconnect` 之后既拿得到那句话，又因为它**先于** Fabric 的断开事件运行，报告失败时理由已经在手上了。
+  - **分类是一个纯函数**：把 vanilla 服务端会说的那几句映射到稳定枚举，**认不出来的一律留在 `UNEXPECTED_DISCONNECT`**——一个错的类别是关于服务端的一项没人做过的声明，比诚实的"未分类"更糟。它是静态的，因此**离线可测**（`ClientAdmissionControllerTest` 新增四类句子的映射，以及"认不出就保持未分类"与"理由只被消费一次、不会被下一次尝试继承"）。
+  - **类别必须真的进证据，否则不算证据**：`on_connection` 现在把 Bridge 分类出的 reason 和相位一起交给调用方，`session start` 把它写进账本。**端到端实测**：服务端那句话 → 客户端本地日志 `bridge classified the login failure as ADMISSION_FAILURE_REASON_WHITELIST_REJECTED` → 账本 `SessionInterrupted {"phase":"FAILED","reason":"ADMISSION_FAILURE_REASON_WHITELIST_REJECTED"}`，而**服务端那句原话不在账本里**（契约：原话不进产品事件，只留在本机日志）。另有一条契约测试在真 loopback 上钉住这条链（把 `WHITELIST_REJECTED` 从假 Bridge 送进去，断言账本 payload 恰好是那两项）。
+  - **范围**：四类里**白名单这一类现在有从服务端原话到账本的完整证据**；认证模式、重复登录、资源包三类目前只有映射规则与单元用例，**还没有各自量到的真实句子**，所以还不能说它们验过。
+- [x] **一次「重复登录」把一条早就写错的前提掀翻了**。做法照旧是先量：让第二个客户端用同一个名字登进去（一个手写探针，在受管客户端已经进了世界之后），服务端说
+  `Kin lost connection: You logged in from another location`
+  ——**服务端自己结束了一次会话，并且说了为什么**。而当时账本记的是 `SessionInterrupted {"phase":"DISCONNECTED"}`，也就是「会话自己结束了」：**把一次被服务端踢掉的会话记成一次正常结束**。
+  - 挡住这条的是一条域规则：`FAILURE` 从 `PLAYABLE` 出发被判乱序，理由写在注释里——「会话中途断掉的正当报告是一次不带原因的断开」。**那句话的后半截是错的**，vanilla 对自己发起的结束恰恰会发一个**带原因**的断开包。更说明问题的是 §7 那张冻结表**一直允许** `PLAYABLE → FAILED`，是连接状态机让一个会话表承认的转移变得不可达。规则因此改成只拒绝**终止态**上的 `FAILURE`（把终止态改写才是往证据里塞一个没人发过的原因码），并补了两条用例：踢出是 `FAILED`、终止态上的重复报告仍是 `OUT_OF_ORDER`。第一条用例原先**不存在**——这条规则从来没被任何东西钉住过，所以它错着也没人发现。
+  - Bridge 侧多了一个钩子：`ClientCommonNetworkHandler.onDisconnect(DisconnectS2CPacket)`（play 状态的那个断开包，`ClientPlayNetworkHandler` 自己不声明它）。它让「服务端结束的」与「自己结束的」第一次可分辨：**有原因就是 `FAILED` + 分类，没有原因才是 `DISCONNECTED`**。
+  - **端到端实测**：服务端原话 → 客户端本地日志 `bridge classified the disconnect as ADMISSION_FAILURE_REASON_DUPLICATE_LOGIN` → 账本 `SessionInterrupted {"phase":"FAILED","reason":"ADMISSION_FAILURE_REASON_DUPLICATE_LOGIN"}`。
+- [x] **`CORE-020` 这个用例第一次有了定义，它的三条断言也第一次有了实现。** 晋级门禁要的是「mandatory 用例有 PASS evidence」，而在此之前**一条也拿不到**：manifest 的 `case_id`/`case_version` 要填得诚实就得有一份真的用例定义（`case_version` 按既有规则是**用例定义自身的 sha256**，`CORE-020` 那份算出来是 `090c8253…`），而这份定义又要求至少一条断言、且每条断言都得有实现（`tools/check_case_assertions.py` 的登记表）——于是「写用例」与「实现断言」互为前提，这一条把两半一次性做完。
+  - **用例定义**：`tests/fixtures/cases/core-020.json`，`work_package: W40`、`mandatory: true`；三条断言就是验证契约给 CORE-020 写的那三件事（「服务端 name/UUID、JOIN 首快照与退出」）。fixture 摘要按既有纪律记进了 `tests/fixtures/manifest.sha256`。
+  - **实现**：`tools/assert_case_evidence.py`，在**验收器**这一侧（它读服务端自己的 `server.log` 与 `usercache.json`），因此只能在 `tools/` 而不能在产品包里——产品一个字节的服务端真值都不许看见。三条判据都是量过的东西而不是猜的：UUID 用 **vanilla 自己的离线规则**算（`offline_player_uuid`，规则本身就是判据，不需要拿一份"配置里的 UUID"来对照）；JOIN 行按 `[时间] [Server thread/INFO]: <名> joined the game` 匹配；首快照读 Core 自己的 run document，要求 `snapshots_admitted >= 1` **且** `connection_state == PLAYABLE`（"接上了但看不见"与"看见了但没接上"是两件事）；退出要求 leave 行**在 join 行之后**且本次以 `CLIENT_EXITED` 收尾。判不出来（用例点了一条没有实现的断言）时结果是 `INCOMPLETE` 而**不是** `FAIL`——没做过检查不等于检查没过。
+  - **拿真字节验过**：把 runner 数据卷里 `run-57` 的 `server.log`（11 KB 真实 vanilla 日志）与 `usercache.json`（`Kin` → `8f40376b-…`）取出来跑这个工具 → `PASS`、退出码 0；再拿 `run-1`（真实跑过、但没有人 join 过的那次）的日志 + 空 usercache → `FAIL`，三条都是 `JOIN_NOT_LOGGED`、退出码 1；把 run document 删掉 → `unreadable`、退出码 2。**口径**：这两次的 run document 是照真实形状手写的，因为 harness 现在还不捕获它（那是下一步），所以「读真日志、真 usercache」是真的，「读真 document」**还不是**。
+  - **顺手补上登记表的一个洞**：`tool` 这类实现原先只检查"文件在不在"，而一个文件实现多条断言时，把其中一条的函数改名，那个名字仍然算"有实现"。现在登记表可以连**函数名**一起钉住（`Implementation.symbol`），改名立刻红，并有一条契约测试（把工具换成一个空文件，断言报 `has no server_observed_join_identity`）。
+  - **还没做的**：声明与实现之间的那层仍然靠人：harness 要**手动**指名这次跑的是哪个 case（`MINEKIN_DOMAIN_CASE`），没有任何东西核对"这次用的开关"与"这个 case 的场景"是否对得上；`case_version` 只覆盖用例**定义**、不覆盖断言的**实现**（下面 W70 那条记了这件事）。
+- [ ] 仍未跑的两类负向用例：`online-mode=true` 对离线客户端、资源包阻断。（2026-09-22 核对：**障碍是真的，但理由写错了，真正的那个更小也更好修。** `auth_mode` 描述的是**我们这个客户端怎么认证**，不是目标服务器要求什么；契约把这条用例的结局写得很清楚：「离线身份不能越过 online-mode……会话验证拒绝时记录 `AUTH_MODE_MISMATCH`」（`launcher-supply-chain-contract.md`），`ADMISSION_FAILURE_REASON_AUTH_MODE_MISMATCH` 就是为它准备的。**所以产品侧不需要改**：一个 `auth_mode: offline` 的 profile 去打一台 online-mode 的服务器，正是这条用例要的。真正挡住它的是 harness：`tools/run_controlled_server.py` 把服务端的 online-mode **从 profile 的 `auth_mode` 推出来**（`"online-mode": "false" if profile.auth_mode == "offline" else "true"`），于是两边**永远不可能不一致**——要造出这个场景，harness 需要一个独立的开关（像上面那条黑洞监听者一样），而不是给产品开一条在线准入路径。剩下要的仍然是一次真实客户端运行。**（2026-09-22 后半：harness 那半边做掉了。** `run_controlled_server.py` 的 `properties_for(...)` 多了 `online_mode` 覆盖（`--online-mode/--no-online-mode`，默认仍从 profile 推导），域脚本多了 `MINEKIN_DOMAIN_ONLINE_MODE=true|false`（别的一律拒跑），README 记了这个场景；用例钉的是**一个设置动、别的都不动**（`tests/contract/test_controlled_server_runner.py`，变异验证：把覆盖去掉就这一条红）。产品侧一个字没改，正如上一段所说——它本来就不该有在线准入路径。**（2026-09-22 第三段：资源包那一半同样查了，障碍同类，也做掉了。** 这条用例的另一半「资源包阻断」当时只被写成「仍未跑」，但 harness 里 `resource` 出现 **0 次**：服务端既不会要求资源包、也没有任何地方能提供它 ✗——所以它和第一类一样，卡在**harness 造不出场景**上。现在 `run_controlled_server.py` 会**自己造一个包并自己发它**：`resource_pack_zip()` 用**固定时间戳**（URL 里带着它的 sha1，按写入时刻生成的 zip 每跑一次就是另一个场景——这正是 Bridge jar 那条教训），`ResourcePackServer` 只在 loopback 上服务**一个路径**（一个什么路径都答的服务器会让「客户端取了这个包」与「客户端取了点东西」变成同一个观察），服务端设置里多出 `require-resource-pack`/`resource-pack`/`resource-pack-sha1` 三项；域脚本多了 `MINEKIN_DOMAIN_RESOURCE_PACK=1`。**两条用例现在都只差一次真实运行。**) 
+- [x] 取消、重连与晚到 callback 不得改变新 generation。 **（2026-09-22 核对：已闭合——三条各自的用例都在 `tests/unit/test_connection_generation.py`：取消 → `test_stale_close_cannot_cancel_the_current_attempt`；重连 → `test_reconnect_allocates_a_new_generation_and_old_callback_is_diagnostic_only` 与 `test_a_disconnect_is_closed_explicitly_before_the_next_generation`；晚到 → `test_close_invalidates_before_late_callbacks_arrive` 与 `test_a_late_report_cannot_turn_a_disconnect_into_a_failure`。会话侧另有 `tests/unit/test_session_state.py::test_a_report_that_speaks_for_another_generation_moves_nothing`。）**
+- [x] **第一个 ADMIT 用例：一个「接受连接但从不回应」的目标，以及 Core 在自己的 deadline 上放弃它。** 上一步把超时处置接上了线，但只用真实 IPC 对端验过；要让**真客户端**卡住需要一个黑洞——原版服务端做不到（它会应答），而"什么都没有"得到的是**拒绝**（另一条路径、另一种分类）。新增 `tools/run_silent_listener.py`：绑定 Server Profile 的地址、接受连接、**一个字节都不发**，并把它接受了什么说出来（一个没人拨过的黑洞不能证明客户端放弃过）。harness 侧新增 `MINEKIN_DOMAIN_BLACK_HOLE`：不起原版服务端、改起这个监听者，`run.sh` 也不再要求 `MINEKIN_SERVER_JAR`。
+  - **为什么要给 `session start` 加 `--connection-timeout-seconds`**：客户端自己有一条 30 秒的读超时，而 Core 的默认 deadline 也是 30 秒——两个等长的钟放在一起是竞态而不是测试。这个开关让场景能要求一个更短的、属于 Core 的 deadline（实测用 8 秒）。
+  - **用例是 `ADMIT-110`**（契约只给了一个区间 `ADMIT-001…110` 而没有逐条定义，所以这里定义的是**这一条**：目标接受连接却从不回应时，Core 在自己的 deadline 上取消这次尝试）。三条断言各自读一份记录：`the_attempt_was_abandoned_at_its_deadline`（run document 的 `connection_cancelled == "TIMEOUT"`——§5 没有为这件事命名事件，写 `SessionInterrupted` 是说会话被打断了，那是假话）、`no_world_was_joined`（账本与文档两处一起看：没有 `JoinObserved`、没有 `PlayableEstablished`、`snapshots_admitted` 为 0、`connection_state` 为空——契约明说 TCP/INIT/界面状态不得单独判成功）、`the_cancel_reached_the_client_and_was_acted_on`（**Bridge 自己那行** `bridge is cancelling the client's connection`，实测里它出现在一次到达 `LOGIN_NEGOTIATING` 就停住、然后被取消的尝试之后）。
+  - **实测**：`MINEKIN_DOMAIN_BLACK_HOLE=1 … --connection-timeout-seconds 8` → harness `the client dialled the black hole and got nothing`、run document `connection_cancelled: TIMEOUT`、`snapshots_admitted: 0`、`connection_state: null`、6 件工件（没有任何服务端的）、三条断言全部 observed、`evidence verify` 通过、**harness 退出码 0**。
+  - **一条断言又是错的，而错的仍然是它**：第一版第三条要求 `outcome == CLIENT_EXITED`，实测拿到 `BRIDGE_LOST`——因为 **harness 结束会话的办法是终止客户端**，所以每一轮由 harness 结束的运行都记 `BRIDGE_LOST`，关于"结束方式"的断言其实是在断言 harness。改成读 Bridge 自己那行之后通过；这段测量写进了断言的注释。
+  - **这一轮还量出两处工具缺陷，各自都修了根**：**(一)** 封存端**崩溃**（不是拒绝）：harness 给一次没有挂载 jar 的运行传了 `--server-jar /server/server.jar`，`read_bytes` 抛 `FileNotFoundError`，工具带着 traceback 退出 1——现在 harness 不再为黑洞运行点名一个不存在的 jar，封存端也会把"读不到的 jar"变成 `Unsealable` 而不是崩溃。**(二)** harness 把"空报告"当成"封了但没过"，于是**工具自己的 stderr 被丢掉**——第一次排查时看到的只有一句空白的 verdict；现在非零退出或空报告都会把工具的原话打出来。
+- [x] **第二个 ADMIT 用例：服务端拒绝 Kin，而拒绝被分类、被记下、被两处记录对上。** 这是与黑洞不同的**另一条失败路径**：客户端把登录握手走完，是**服务端**说不。harness 加 `MINEKIN_DOMAIN_NOT_WHITELISTED`（不给 `run_controlled_server.py` 传 `--allow-player`，白名单因此是空的，而 `white-list=true` + `enforce-whitelist=true` 是既有的固定配置），并且**不等一个永远不会到来的世界**：改成等账本里这次运行自己的 `SessionInterrupted{phase: FAILED}`。
+  - **用例是 `ADMIT-100`**（同样在契约条目里写明定义的是哪一条），三条断言分读三处：`the_refusal_was_classified_in_the_ledger`（账本里 `phase: FAILED` 配 `ADMISSION_FAILURE_REASON_WHITELIST_REJECTED`——**类别是 Bridge 对服务端原话的分类**，原话永不进产品事件）、`the_bridge_classified_the_refusal`（客户端日志里 Bridge 自己那行 `bridge classified the login failure as …WHITELIST_REJECTED`——两处都要，因为只Core 记下而 Bridge 没认出来是 Core 在猜，只 Bridge 认出来而没进账本则是没人以后能拿来用的一个事实）、`no_world_was_joined`。
+  - **`no_world_was_joined` 因此被修松了一处，而松得对**：它原来要求 `connection_state` 为空，而**实测**被拒绝的登录结束时状态是 `FAILED`——按原判据会把一次被拒绝的登录判成"加入过"。现在它只拒绝**声称在世界里**的状态（`PLAYABLE`/`JOIN_SEEN`），终止态（`FAILED`/`DISCONNECTED`）不算；这正是契约「TCP连接、INIT或 screen状态不得单独判成功」的读法。
+  - **实测**：`MINEKIN_DOMAIN_NOT_WHITELISTED=1` → `server ready` → `the session was interrupted, as this run expected` → 三条断言全部 observed、9 件工件（含服务端自己的日志）、`evidence verify` 通过、**harness 退出码 0**。
+- [ ] 执行 `ADMIT-001…120`；Kin 不得获得 op、RCON 或 console 权限。（2026-09-22 核查：**后半句是构造上成立的，前半句要真实运行**。权限那半边没有入口可走：受控服务端的配置里写着 `"enable-rcon": "false"`；`openToLan(null, false, port)` 不给 cheats、也不动游戏模式；而创建提案里**没有** cheats/keepInventory/datapack 这些字段（`HOSTCTL-010` 钉着这一条）。`ADMIT-001…120` 本身是运行类用例，且今天一条 fixture 都还没有。）
+
+- [x] **又两条契约用例被定义了：`ADMIT-070`（W50）与 `ADMIT-080`（W40）——两条的判据都已经实现、甚至已经被本仓库自己的注记宣布「已闭合」，只是**没有任何 fixture 认领**。** 这与上一步的 W30 是同一个缺口，所以这一轮把整个 `ADMIT` 族对着契约的表核了一遍：契约点名 10 条（001–090），此前只有 100/110 有 fixture。**070** 的判据是"不授 lease／generation 终止"——五条断言，其中包括上一步刚钉下的那条**组合**（被拒的快照走不到要 lease 的那一步）；**080** 的判据是"旧 generation 不能复活或输入"——六条断言，**逐条就是本仓库 `[x]` 那条注记点名的那些用例**（`test_connection_generation.py` 五条 + 会话侧一条）。两条都 `run_repo_case.py` `PASS`（5/5、6/6）。
+  - **这一轮把 ADMIT 族的审计也记下来，因为它决定下一步该往哪走**：10 条里 **4 条现在有 fixture**（070、080、100、110）。剩下的六条里，**`ADMIT-030` 的"分类不同"那一半是本地就判得了的**（三类原因码互不相同、且"被拒"有自己的值——见 W40 那两条的修正），但它的"无无限重试"那一半不在域里（连接尝试根本没有循环，是构造上成立，而不是被判过），所以它还差一个能判"尝试没有再来一次"的地方；**`ADMIT-001`（JOIN 与首快照都要求才 PLAYABLE）与 `ADMIT-010`（只连已保存的 profile）的规则半边也已经实现**，但各自的核心是真实客户端路径；`ADMIT-020/040/050/060` 的核心都是真实连接的结果。**换句话说：这一族里能在本地判的，现在都已经被认领了。**
+  - **顺带更正上一轮的数字（第三次）**：那份清单说 29 条，现在是 **31 条**；`W50` 从 0 条变成 1 条。**同一个数字在一天里改了三次，这件事本身值得记下**：它说明"把会变的数字写进散文"这个做法在这个仓库里是稳定的错误来源，正确的做法是让它可以被重推（下一次读账时应该考虑给它一个像 `report_promotion.py` 那样只读、只报的工具，而不是继续手工维护一个数）。
+
+## W50：玩家等价首快照
+
+- [x] visible-world 过滤器与首快照准入：未确认视线的候选只丢弃不猜位置，距离、非有限坐标（NaN 会绕过朴素距离判断）、缺失或重复的目标令牌各自计数；快照未准入时**不交出任何实体**，漏检 `admitted` 的调用者也拿不到世界。
+- [x] self 与 inventory 一致性过滤器：生命不在 `0..max_health`、`max_health` 非正、饥饿不在 vanilla 的 `0..20`、饱食为负、非有限数值，以及 `alive` 与 `health > 0` 互相矛盾都判为不可用读数——按拒绝处理而不是钳制，300 点生命不是满血玩家。背包侧拒绝未设置的 revision、非 1..64 的堆叠数、缺 item id 与同槽重复；`bool` 是 `int`，因此每个整数上界都单独挡 `true`（否则 `food=true` 会被读成食物 1）。
+- [x] 同 generation 与身份绑定的准入：`authoritative`、快照 generation 必须是当前 generation、快照内 session 报告必须与 Launcher 记录一致，三者任一不成立都不准入。
+- [x] **首快照的验收权收了回来，而且真的接上了运行时**。契约把 PLAYABLE 的判定交给 Runtime（「Bridge 发出首个 authoritative snapshot，Runtime 校验 … 后才标 PLAYABLE」），而 Core 原先**把 Bridge 报来的 `CONNECTION_PHASE_PLAYABLE` 直接当成 `SNAPSHOT_ACCEPTED`**——也就是说一个 Bridge 只要这么说，就能让一次**没有任何快照被检查过**的会话变成 PLAYABLE。现在 `PLAYABLE` 不在 `_PHASE_SIGNALS` 里：这类报告记为 `WITHHELD`（已知、已校验、刻意不作为证据），而 `SNAPSHOT_ACCEPTED` 只由 `accept_snapshot()` 产生，它**唯一**的调用点是运行时对**自己准入过的**快照的回应——想找「通向 PLAYABLE 的所有路径」，搜一个函数就够。**这次改动让 5 条既有用例失败，而且失败得正是地方**：它们原本就是靠那条被收回的路径走到 PLAYABLE 的。
+- [x] 运行时现在真的读 `InitialObservation`：`admit_first_snapshot` 校验 authoritative / generation / 会话材料 / 自身状态 / 背包，准入则应用 `SNAPSHOT_ACCEPTED` 并推进会话；**未准入则一条实体都不交出去**，并把**计数与原因**写进 run 文档（`snapshots_admitted` / `snapshot_rejections`）——「Kin 看不见」与「Kin 什么都没看见」是两件不同的事实，不该都折进一个 `ignored` 计数里。会话材料取自从**已解析 argv 读回**的 `recorded_material`（不是重新推导），因此「值放错 argv 槽」会在这里被抓到；为此测试夹具的 argv 也补齐了 Launcher 真正会编码的四个选项（原来只有 `--username`/`--uuid`，那是一种不可能发生的启动形状）。契约用例覆盖两个方向：一份与记录相符的快照把会话推到 PLAYABLE，一份报不出身份的则被拒绝且原因可见。
+- [x] **Bridge 发出首快照，会话真的到了 PLAYABLE**。`ClientSnapshot` 在进入世界后于客户端线程采集自身状态（生命/上限/饥饿/饱食/着地/存活/当前 screen 的**类名**）、背包摘要（非空槽位的 item id、数量、耐久）与身份报告，`authoritative=true`、generation 取自控制器当前那一代；worker 的事件出箱改成**带消息类型**的 `EventMessage`（事件通道的序列跨消息类型连续，所以同一个写线程拥有两类事件，类型跟着 payload 走而不是由读队列的人决定）。**实测**：账本出现 `PlayableEstablished`——真客户端 → 真 Bridge → 真 loopback → Core 准入 → 会话推进，而不是任何 mock。
+- [x] **跑通这条路的代价是两个真问题，都不是猜出来的**：**(一)** 第一次跑就挂了，而我上一批亲手写的 `observe` 包装把异常**吞掉了**——那正是这份代码里每一处诊断都在防的形态（"客户端停了，哪儿都没写原因"），所以先给它加上 `LOGGER.error(..., error)`，第二次跑立刻拿到 `NullPointerException`。**(二)** 那个 NPE 是一条**关于离线候选的真实事实**：`Session.getAccountType()` 对这次启动**是 null**——`--userType legacy` 并**没有**变成 `Session.AccountType`。这正是候选矩阵存在的意义（"最终组合必须由真实启动与入服证据冻结，不能从任一名称推导"），所以如实上报**缺席**，而不是替它填一个 LEGACY：填了就是记下一个客户端从未持有过的枚举值。`SessionIdentityReportAdapter` 的两处"必须非空"随之放开，理由写在那里。
+- [x] **两处随之而来的更正**：**(一)** `PlayableEstablished` 的信任等级从 `BRIDGE/BRIDGE_FILTERED` 改为 `CORE/CORE`——这个事实现在是**Core 自己的结论**（来自它自己准入的快照），§6 明说信任等级不能自我声明，把 Core 的判定记成 Bridge 的报告就是在给会话里最强的那条事实安错来源；join 仍然是 Bridge 的报告，所以它保持 `BRIDGE/BRIDGE_FILTERED`。**(二)** 身份报告里的 `identity_candidate_id` 允许为空：那个名字是 **Launcher 的**标签（它测的是哪个已评审策略），客户端根本看不见——它只知道给它的那串 argv；Core 把空白读作"不作声明"，而**声称了另一个**候选依然被拒。
+- [x] **可见世界接上了，而且是在真世界里数出来的**。`ClientSnapshot.visibleEntities(...)` 以玩家包围盒外扩 64 格取 `getOtherEntities`，每个候选带上 `player.canSee(entity)` 的视线结论、实体自己的 UUID 作为稳定令牌（列表下标下一次就指别的东西了）、相对玩家的坐标与实体类型；**看不见的候选照样上报**——Core 数拒绝，Bridge 不替它做丢弃的决定。受控域加了 `--summon`（域脚本从 `MINEKIN_DOMAIN_SUMMON` 转发），空世界因此有东西可看；跑完的 run 文档给出 `entities_admitted` / `entities_rejected`，**"可见世界"第一次有了数字，而不是一句保证**。`--summon` 的形状也按域里一贯的判据挡：控制台是"没检查过的字符串就是第二条命令"的通道，所以实体 id 是按 vanilla 的 id 形状匹配而不是转义（`pig\nstop`、`pig; stop`、`pig \`stop\`` 全部拒绝）。
+- [x] **「进了世界」不等于「世界已经到了」**。第一次带猪的实测里客户端报 `0 entity candidate(s)`，而服务端日志明明写着 `Summoned new Pig`。错的是快照的**触发点**：`JOIN_SEEN` 由 game-join 包触发，而服务端那些实体追踪包在它**之后**才到——在那个时刻取快照，数字对客户端为真、对世界为假，而"对世界为假"恰好是快照唯一不许犯的错。现在 `joinSeen()` 只**武装**，采集发生在客户端 tick 上，等的是 vanilla 自己的"玩家已接管"信号（`currentScreen == null`，也就是下载地形的界面撤下、自己那个 spawn 包已处理完），并且**有界**（100 tick）——屏幕不撤时宁可取一份还在加载的快照，也不能让会话永远等不到。**实测差的就是一 tick**：`bridge knows of 1 entity candidate(s) 1 tick(s) after joining`，随后 `bridge collected 1 entity candidate(s) within 64.0 blocks, 1 confirmed visible`。
+- [x] **run 文档现在真的打得出来了，顺带修掉一个把结论喂错的假象**。域原本用 `timeout` 掐掉 `session start`，而**被打断的 CLI 从不打印 run 文档**——于是 `entities_admitted` 这类 **Core 自己的判定**在域里根本不存在，一次运行只能证明 Bridge 发了什么、证明不了 Core 拿它怎么办。现在改为**等这一次自己的账本长出 `PlayableEstablished`，再 `session stop`**，CLI 正常返回并打印文档。原来的判断条件看着很对却什么也没等：`session status` 的 `last_event_type` 是**这个 Kin 的整本账**，而之前每一次域运行都以 `PlayableEstablished` 结尾，所以它在会话开始前就已经为真——循环一秒都没等，`session stop` 在客户端被记录之前就跑了（`terminated: []`），后面白等 120 秒兜底。判据改成**账本相对启动前增长了**且最后一条是它。
+- [x] **兜底那句 `kill -INT` 一直是空操作，这才是每次域运行白等八分钟的原因**。非交互 shell 的后台作业**继承到的 SIGINT 是 `SIG_IGN`**——容器里量到 `SIGINT SIG_IGN`、`SIGTERM SIG_DFL`，`kill -INT` 之后进程照样活着。所以域脚本里那句"优雅关服"从来没有送出过任何信号，服务端一直跑到容器被杀（八分钟），而我用外层 `timeout` 把它遮住了：脚本已经没有输出了，人却以为它在收尾。现在 `run_controlled_server.py` 对 SIGINT 与 SIGTERM **都装处理器**（都走那条会保存世界的 `stop`），域脚本发 SIGTERM，实测关服 5 秒完成、日志里有 `All dimensions are saved`；整趟域运行从 560 秒以上降到 **44 秒**。同时把 `session stop` 的回答留在日志里而不是丢掉——"停下来了"和"没停成"在外表上一模一样。
+
+- [x] 建立 Bridge/Runtime、server truth、orchestrator 三条时间线。（2026-09-22 核查：**三条都在，而且是封存件的一部分**。`tools/seal_run_evidence.py` 收的正是它们：Core 自己的 run document、**账本导出（Bridge/Runtime 时间线）**、服务端日志与 `usercache.json`（**server truth**）、客户端输出（**Bridge 那些行所在**）、以及 orchestrator trace——最后这一条由封存端自己写，理由就在它的 docstring 里：「harness 自己做过什么的账，别处没有」。断言已经在跨时间线读它们（CORE-040 同时读账本 + run document + 服务端读数；LAN 那条读客户端日志 + run document + 宿主文档），`rejudge_evidence` 也能从封存字节重判，说明它们确实**在证据里**而不只在运行目录里。这条原本要的是「建立」，那件事在封存端写完时就完成了。）
+- [x] oracle canary 与字段泄漏扫描：canary 值进入 wheel 路径/内容即失败（已验证能抓到人为注入），产品源码与 runtime-input 也扫描；观察消息的字段集与命名按已发布 descriptor 断言，容器、seed、服务端坐标没有字段可落。
+- [ ] 门禁：首快照失败不授 lease。**正向已经实测**（真客户端的快照被 Core 准入、`snapshots_admitted` 与两枚实体计数都落在 run 文档里，实体侧另按结构保证：未准入就一条实体都不交出去）；**负向仍缺一次真实运行**——要让真客户端交出一份报不出身份的快照，域里还没有这个开关，所以这条继续挂（**2026-09-22 补：这条的「组合」那一半现在钉住了。** 新的运行时用例 `test_a_refused_snapshot_is_never_the_basis_for_a_lease`（`tests/contract/test_session_runtime.py`）只喂一份报不出身份的快照，断言会话停在 `JOINED_UNVERIFIED`、`snapshots_admitted` 为 0、拒绝理由有记录、**且呈现输入计划的那个钩子一次都没有被调用**——也就是「要授 lease」这一步根本走不到，而 arbiter 自己那条拒绝早就在 CORE-040 的真实运行里量过；变异验证：把运行时的准入检查改成永远通过，这条与上面那条同时红。仍然缺的是**真客户端**交出一份这样的快照。) 着而不是记成通过。
+
+## W60：最小合法输入
+
+- [x] **`move` 真的走通了，而且是服务端自己看到的**。`session start --hold-forward` 让 Core 在首快照被准入（PLAYABLE）那一刻批准一个 `control.move.v1` 的 lease、发一条 `MoveInput(forward=1)`；Bridge 校验身份/lease/generation/axes 与**协商出来的 `control.move.v1` capability** 之后，经 `VanillaKeySink` 按住客户端的 `forwardKey`，并把 `ActionResult` 回给 Core；会话结束时 Core 撤回 lease 并发 `ReleaseAllInputs`。**一轮域运行里三段互相独立的证据**：
+  - **服务端**（它自己的观测，run 结束后离线读）：`Kin joined the game` 之后 `[17:46:04] Kin has the following entity data: [-7.5, -60.0, 16.66]`、`[17:46:09] … [-7.5, -60.0, 38.24]`——5 秒 21.6 格，正好是原版步行速度约 4.3 格/秒。**瞬移会是一次跳跃而不是匀速**，所以"没有瞬移"这条是量出来的，不是保证的；
+  - **客户端**：`bridge collected 2 entity candidate(s) … 2 confirmed visible` 之后紧跟 `bridge applied c8946f96…: holding [move.forward]`；
+  - **账本**：`PlayableEstablished → InputLeaseGranted(capability=control.move.v1, priority=NORMAL) → InputReleased(had_lease=true, reason=EXPLICIT)`，run 文档 `actions_applied: 1`、`input_refusal: ""`、`input_release_failed: false`。
+- [x] **`ActionResult` 是必须回的那一半**。一条没有答复的命令与一条还在执行中的命令，在外表上完全一样。Bridge 对每条命令都回一条（拒绝的用 `ACTION_STATUS_FAILED` 带上稳定 reason code，如 `STALE_GENERATION`/`DEADLINE_EXCEEDED`），Core 计成 `actions_applied`/`actions_refused`。**时间的时钟差也在这里解决**：`MoveInput` 的 deadline 与信封自己的 `monotonic_ns` 来自 Core 的同一个时钟，所以两者之差是唯一的可比值，Bridge 把差值换算到自己的时钟上——与 `ConnectWorld` 同一条理由；但**过期不是错误**（与 connect 不同）：过期的命令被改写成"已经过期"，由控制器以 `DEADLINE_EXCEEDED` 拒绝并回给 Core，因为"不按键"本来就是迟到命令的安全答案。
+- [x] **三处"看起来对"的东西，都是这一轮实测逼出来的。** **(一)** arbiter 建好了，却没人告诉它会话已经 playable：`InputArbiter` 默认 `playable=False`，于是 `grant()` 以 `NOT_PLAYABLE` 拒绝——而那条拒绝**只挂在 release 事件的 payload 上**，release 又因为客户端被杀而发不出去，于是整件事在证据里不留痕迹（run 文档只显示 `actions_applied: 0`）。现在 `on_playable` 先 `set_playable(True)`，拒绝理由写进 **run 文档**（`input_refusal`）：拒绝意味着永远不会有 release，把理由挂在 release 上就是挂在一扇不会开的门上。**(二)** 等 playable 的条件是 `session status` 的 `last_event_type`，而 `InputLeaseGranted` 在 `PlayableEstablished` 之后**几毫秒**就写进去了——条件为真的窗口比轮询间隔还短，于是域白等满 240 秒，而 Kin 已经在世界里走了 780 格。现在直接问账本：「这次运行开始之后是否记录过 `PlayableEstablished`」。**(三)** 两个等待各自计时（原先共用一个 deadline，一次冷启动三分钟就把走路的额度吃光），于是同一批证据先被读成"从没动过"。
+- [x] **`domain.sh` 里 `pipefail` 与 `grep` 的组合**：`grep` 没有匹配就返回 1，而 `set -o pipefail` 让整条管道失败，于是「服务器日志里还没有位置」这个**正常状态**直接把脚本打死（`run.sh exited 1`，且没有任何输出解释原因）。现在把 `grep || true` 包进命令组。这几次是同一类错误：**边界条件被当成了失败**，而失败又没有任何人说出来。
+- [x] **`look` 接上了，而且「转了多少」是量出来的，不是约定的**。契约 §12 说 Bridge 应用它被告知的输入；`LookInput` 早就在 proto 里，但没有任何一侧碰过它。现在：Core 在 playable 那一刻为 `control.look.v1` 批准一个 lease 并发出 `LookInput(delta_yaw_degrees=90)`；Bridge 校验身份与有限性、按与 `MoveInput` **同一套**理由拒绝（过期 generation / 过期 deadline / 键盘被夺走 / 非有限值），然后交给 `VanillaViewSink`。
+  **走的是客户端自己的视角路径**：`Entity.changeLookDirection(cursorDeltaX, cursorDeltaY)` —— 鼠标调用的就是它。比例不是我猜的，是从**编译后的字节码**里读出来的：`0.15f` 每光标单位，所以「90 度」是 600 个光标单位。**由此那句"不得直接写状态"有了可检验的含义**：写 `setYaw(90)` 会得到 90，但那是把结果写进去；走这条路径，客户端自己夹取 pitch、自己环绕 yaw，而**转出来的角度必须真的等于要的角度**——这一条是实测的：
+  - **服务端自己说**（同一秒的两次读数）：`[5.5d, -60.0d, 6.5d]` + `[0.0f, 0.0f]` → `[5.5d, -60.0d, 6.5d]` + `[90.0f, 0.0f]`——**同一个位置，不同的朝向**。位置不变就是"没有瞬移"，而 yaw 从 0 到 90 正好是要求的角度（这也顺带量到了出生朝向是 0，先前只是假定）；
+  - **客户端**：`bridge turned the view by 90.0 yaw, 0.0 pitch degrees` 与 `bridge applied look 7053ff2c…: 90.0 yaw, 0.0 pitch degrees`；
+  - **账本**：`InputLeaseGranted{capability: control.look.v1}`——是 look 的能力，不是 move 的。
+  域的判据也随之变强：两个不同的朝向、**且只有一个位置**（`awk` 按分量个数区分位置读数与朝向读数：服务端两种回答的措辞完全一样），并要求转出的角度与要求的角度相差不超过 1 度。
+- [x] **这一批又抓到两个"看起来对"的东西**。**(一)** lease 的 `capabilities` 还是写死的 `{MOVE_CAPABILITY}`——我的改动只覆盖了发送块，没覆盖 lease 构造，于是 look-only 的运行拿到一份不含 look 的授权，仲裁以 `CAPABILITY_NOT_LEASED` 拒绝，run 文档里 `actions_applied: 0`、`input_refusal: "CAPABILITY_NOT_LEASED"`。**这正是"唯一 input owner"该有的行为**：写死的授权碰上一个按计划申请的运行，第一件事就是拒绝。修法是 `capabilities=plan.capabilities`。**(二)** `MINEKIN_DOMAIN_LOOK` 没有在 `run.sh` 里透传进容器，于是域的等待块整段没跑——和 `MINEKIN_DOMAIN_SILENCE` 上一次犯的是同一个错。现在一次把 `PROBE_SECONDS`/`LOOK`/`KILL`/`SILENCE`/`SECONDS` 都列在同一行上，读的人一眼能看出哪些开关存在。
+- [x] **探针现在同时问位置与朝向**（`data get entity <name> Pos` 与 `… Rotation`），因为它们是服务端能回答的关于 Kin 的两件事，而要其中一件的运行，读的人一定也想要另一件。look 的验收因此有了完整的**前后一对**读数：默认 5 秒的探针间隔会让一次"入服后一秒内完成"的转身只留下一个读数，所以域还能用 `MINEKIN_DOMAIN_PROBE_SECONDS` 把间隔调密——一次转身值一次 1 秒的轮询。
+
+- [x] 输入仲裁（Core 侧）：唯一 input owner、lease、deadline、priority 与前置状态检查全部落在 `domain/input_control.py`。取值方式来自冻结的 proto 而不是自创：优先级用 `INPUT_PRIORITY_NORMAL/URGENT/EMERGENCY` 的排序，lease 字段与 `InputLease` 一致，能力名沿用 `control.<skill>.v1` 约定（`control.move.v1`/`control.look.v1`）。规则：一次只允许一个 lease；同级或更低优先级不得抢走输入（EMERGENCY 可以抢占，这是反射路径需要的）；lease 在 deadline 处失效；引用已被替换 lease 的迟到动作一律只判为 `LEASE_SUPERSEDED` 而不执行；能力未被 lease 覆盖、动作自身 deadline 已过、或不在 PLAYABLE，都拒。所有拒绝原因一并收集，一次就说清全部原因。
+- [x] Core 侧 watchdog（双 watchdog 的第二层）：`domain/control_watchdog.py` 在会话进入 PLAYABLE 时**先武装、再等心跳**——启动途中就死掉的 Bridge 一个心跳都不会发，等收到才开始的看门狗永远不会发现它。超时阈值由协商的 `heartbeat_interval_ms` 推出（容忍若干个间隔，因为漏一个间隔是普通调度抖动），并且：**旧 generation 的心跳既不计数也不续期**（否则一条已关闭连接的数据包会让新连接显得还活着），乱序到达的旧时间戳同样不算新信息。与 `InputArbiter` 的合成为「静默 → 判超时 → withdraw(TIMEOUT) → 无 lease → 拒绝一切输入」，这条链路有测试覆盖。
+- [x] **GUI 冲突这条松键触发，在真客户端上验过了**——§12 点名的那一类里唯一由客户端自己决定的一条。契约说「断 IPC、generation 改变、死亡、GUI 冲突、超时、Bridge fault 或离开 PLAYABLE 时，Bridge 必须释放」，而 `GUI_CONFLICT` 这个原因**存在却从来没有人产生过**：Bridge 从不看 `client.currentScreen`，也就是说一个按着前进键的 Kin 打开任何界面（或死掉、或会话结束后落到标题界面）时，键仍然按着。这三条触发其实是一件事：**键盘归谁**。现在客户端 tick 把「客户端在显示什么」当作观察交给 worker，控制器在**键盘被拿走**时松开全部按键（原因 `GUI_CONFLICT`）、在**命令到来时拒绝**（`ActionResult(FAILED, GUI_CONFLICT)`——在客户端不读键盘时按下的键，等它重新读键盘时还按着），界面对应地在关掉时解除封锁而**不替任何人把键按回去**（按键只能由命令按下）。
+  **实测**（域里 `MINEKIN_DOMAIN_KILL=Kin`，服务端执行 `kill Kin`，此时 Kin 正按着前进键）：
+  - **服务端自己说**：`18:17:43 Kin was killed`；
+  - **客户端**：`18:17:38 bridge applied dc2c8218…: holding [move.forward]` → `18:17:43 bridge released move.forward` → `18:17:43 bridge let go of its held input: the client is showing DeathScreen`——**同一秒**；
+  - 之后服务端两次位置读数相同（`25.53`、`25.53`），而会话还活着。
+  选死亡而不是别的界面，是因为**只有服务端能造出它**：它是唯一一个不需要碰客户端、就能让客户端弹出界面的办法，因此这一条的两侧证据互相独立。
+  **还缺的**：`jump`/`sneak`/`strafe` 从来没被按下过（见门禁那条）；watchdog 那条路见下一条。
+- [x] **契约说的「最终松键保障」，在真客户端上验过了——而且它本来根本没机会发生。** 域的开关是 `MINEKIN_DOMAIN_SILENCE=1`：Kin 走到一半时用 **SIGSTOP**（不是 kill，因为会话之后还要能被停掉）把 Core 从调度里拿掉。第一次跑的结果不是"没验出来"，而是**验出了一个缺陷**：
+  ```
+  [minekin-bridge-ipc/ERROR] bridge is failing closed; the client will be stopped by its next tick
+  [Render thread/INFO]  bridge released 1 input(s) after BRIDGE_FAULT
+  ```
+  也就是说 **Core 安静两秒，Bridge 直接把客户端停掉**，而契约要的「超时 → 松键、客户端继续活着」从未发生。原因是两个阈值**撞在了一起**：输入看门狗的容差是 `INPUT_MISSED_HEARTBEATS=3 × heartbeat_interval`（默认 1.5 秒），而传输层的 read 超时原来是 `heartbeat_interval × 3`——**同一个 1.5 秒**，于是"停客户端"和"松键"同时到期，赢的永远是前者。现在两者显式分开：松键仍是 3 个间隔，传输层判死等 `CORE_ABSENT_INTERVALS=60` 个间隔（默认 30 秒），并有一条用例钉住这个**次序**（`INPUT_MISSED_HEARTBEATS < CORE_ABSENT_INTERVALS`）——因为同容差下松键永远不发生，而这一点只有实测才看得见。理由写在常量旁边：**松开按键是对沉默的第一反应，停掉客户端则会毁掉一个返回的 Core 仍可能拥有的会话**。
+  **修完后的实测**（同一轮命令）：
+  - **服务端自己说**：`18:31:06 Z=11.97`、`18:31:11 Z=19.99`、`18:31:16 Z=19.99`——走了 25 格然后**停住**，而且**没有死亡、没有断线**，会话还活着；
+  - **客户端**：`18:31:02 bridge applied 0ba1ec4b…: holding [move.forward]` → `18:31:08 bridge released move.forward` + `bridge released input after TIMEOUT`，**没有 `failing closed`**，客户端继续运行；
+  - 这一条的两侧证据是独立的：**服务端看的是位移，客户端看的是它自己松了手**，而 Core 全程没有说话（账本里这次运行**没有** `InputReleased`——那是 Core 的事件，而 Core 当时不在）。
+- [x] **`IPC_LOST` 这个原因从来没有人产生过——和 `GUI_CONFLICT` 完全同一类缺陷**。`ReleaseReason` 里写着它，契约 §12 也把「断 IPC」列为触发面之一，但真正发生的时候，Bridge 走的是 `failClosed()` → `SAFE_STOP` → 客户端线程以 **`BRIDGE_FAULT`** 松键：**Core 死了，日志却说是 Bridge 自己犯了错**，拿着日志去查的人会被指到错的进程上。根因是失败在类型上不可分：socket 的 EOF、对端停止应答、以及「消息不合法」原本都是 `IOException`。现在传输层的失败在**发生的地方**被标出来（`control.read` 与 `event.write` 外面各包一层 `IpcLost`，加上心跳到期那条 `SocketTimeoutException`），`reasonFor(error)` 只把这三种判成 `IPC_LOST`，其余（gate 拒绝、解析失败、不变量破裂）仍是 `BRIDGE_FAULT`——**只有传输层被标**这一句写在了常量旁边，否则「Bridge 拒绝继续」会再次被误标成「Core 走了」。原因随 `SAFE_STOP` 传到客户端线程（`faultReason`），所以松键那行日志带的就是真正的原因。
+  **实测**（`MINEKIN_DOMAIN_KILL_CORE=1`：Kin 走到一半时 `pkill -KILL` 掉 Core，于是**套接字真的关闭**，不是沉默）：
+  - **客户端**：`bridge applied ce6f8f83…: holding [move.forward]` → `bridge is failing closed (IPC_LOST); the client will be stopped by its next tick` → `bridge released move.forward` → `bridge released 1 input(s) after IPC_LOST`；
+  - **服务端自己说**：`19:00:55` 位置 `4.40`、`19:00:57` 位置 `13.03`、`19:00:58 Kin left the game`；
+  - **账本停在 `InputLeaseGranted`**：`InputReleased` 是 Core 的事件，而 Core 那时已经不存在了——这条**缺席**本身就是「这次松键不可能是 Core 做的」的证据。
+- [x] **松键原因的最后一次盘点：两个从没被产生过的原因，一个接上、一个删掉，并加了一道静态检查。** 上一批修掉 `IPC_LOST` 之后我把整个 `ReleaseReason` 枚举对着代码数了一遍，写了一条**用不着再靠人眼数的检查**：`tests/contract/test_bridge_release_reasons.py` 读出枚举，要求每个常量在**声明之外**出现过（只把枚举块本身从源码里摘掉，不是把整个文件排除——`BridgeInputController` 自己就产生其中几个，第一版检查因此误报了 `GENERATION_CHANGED` 和 `GUI_CONFLICT`）。它指出两个真问题：
+  - **`LEFT_PLAYABLE` 从没被产生过**，而契约 §12 明写「Session 离开 PLAYABLE 时，Bridge 必须释放」。此前这条**是被 vanilla 的标题界面顺带覆盖的**——客户端的界面一出现，GUI 冲突那条就把键松了——也就是说一条 §12 的要求靠另一个实现的 UI 习惯兜着，而日志里写的原因是「键盘被夺走」而不是「会话结束了」。现在 play 连接结束时立刻松键（`LEFT_PLAYABLE (PLAY_ENDED)`），不再等某个界面出现，也不再把一个关于键盘的事实当成关于会话的事实来读。**实测**（`MINEKIN_DOMAIN_KICK=Kin`，服务端 `kick Kin`）：服务端 `Kicked Kin: Kicked by an operator` → `Kin lost connection` → `Kin left the game`；客户端 `bridge released move.forward` 与 `bridge released 1 input(s) after LEFT_PLAYABLE (PLAY_ENDED)`；账本 `SessionInterrupted{phase: FAILED, reason: ADMISSION_FAILURE_REASON_UNEXPECTED_DISCONNECT}`（踢出被分类，是更早一批的成果）→ 之后 lease 到期 `InputReleased{reason: TIMEOUT}`。
+  - **`OPERATOR` 从来不在契约的触发面里**，是枚举自己发明的能力（Bridge 没有任何操作者接口，操作者的 `session stop` 走的是 Core 的 `CORE_REQUEST`）。删掉了：一个产生不了的名字，读日志的人只会被它误导。
+- [x] **接这条线的时候又踩了一个真缺陷，而且是这道代码自己抓的**：`ClientPlayConnectionEvents.DISCONNECT` 回调跑在 **Netty 网络线程**上，而键属于客户端线程——`VanillaKeySink` 的线程断言直接把这次松键变成异常，`observe` 包装把它记成 `BRIDGE_FAULT` 并**把整个客户端停掉**。日志里读得到：`bridge fault while handling a client event` → `bridge is stopping the client: BRIDGE_FAULT`，而客户端随后崩在渲染循环里。**修法是 `client.execute(...)`**（Minecraft 自己的「切到客户端线程」），松键因此发生在客户端 tick 上；也就是这条路径本该做的事，靠的是 sink 里那句断言而不是靠"看起来能跑"。**一般化的教训**：松键的每一处调用点都必须在客户端线程上，而**只有 tick 里那几处天然满足**——新增一处非 tick 的调用点，就必须显式派发。
+- [x] **两次实测把「沉默」与「断线」的区别变成了行为，而不只是两个枚举名**：**沉默**（SIGSTOP，对端还在、只是不说话）→ Bridge 松键、客户端**继续活着**（上一批实测：位置冻住而会话没断）；**套接字关闭**（对端真的没了）→ 松键**并且**停掉客户端（本批实测：`Kin left the game`）。理由是同一句话的两半：会回来的对端不该被毁掉会话，不会回来的对端不该留下一个没人管的 Kin。这也意味着这一批的域判据要接受两种「松键生效」的形态——位置停住，或者客户端退出（**进程都没了的按键不可能还按着**）——并在日志里说清是哪一种。
+- [x] **`getClass().getSimpleName()` 在真客户端上是 `class_418`**：这是这一批顺带挖出来的事实，因为它同时打在两处——日志里的界面标签，和首快照的 `self.current_screen`。生产客户端的 Minecraft 类在运行时是 **intermediary** 名，所以「那个界面的类名」是 `class_418`（对照 Yarn 映射：`DeathScreen` 的 intermediary 就是 `class_418`，一字不差）——一个每个版本都会变的令牌，读日志的人拿它没办法。日志这一侧现在改成 **Bridge 自己认得出来的标签**（`DeathScreen`/`GameMenuScreen`/`TitleScreen`/`ConnectScreen`，其余一律 `SomeScreen`）：只说自己**能证明**的那一点，而且它只是本地日志、不是产品事件。**`self.current_screen` 仍原样带着类名**——它是产品事件，改它要么定一份冻结词表、要么用 Fabric 的 `MappingResolver`（而后者在生产环境里未必解析得到 named 名），所以这一条留成待办，而不是顺手改掉。
+- [x] 松键的**判定**（Core 侧）：八种失效原因（显式、IPC 断、客户端死亡、GUI 冲突、超时、generation 改变、离开 PLAYABLE、被抢占）走同一条 `withdraw`，结果都是「没有任何 lease 留下」，因此都意味着松全部按键；重复 withdraw 无害，在本来就没有 lease 时 withdraw 依然报出「需要松键」——Bridge 必须照做，而不是因为 Core 以为自己没持有就跳过。有一条测试遍历全部八种原因逐一验证这一不变量。
+- [x] **Bridge 侧输入的第一层：所有权账本 + 本地 watchdog（纯逻辑，接线是下一步）**。契约 §12 把最后一道保障放在 Bridge（「Bridge 本地 watchdog 才是最终松键保障」），触发面是断 IPC、generation 改变、死亡、GUI 冲突、超时、Bridge fault、离开 PLAYABLE，并且明确按下的键状态是**必须失效的瞬时状态**、不持久化。新增 `bridge/.../input/`：`InputOwnership`（这一代 Bridge 按住了什么，全部操作幂等；`releaseAll` **报告**释放了哪些而不是只清空——它持有的东西正是客户端必须被告知松开的东西）；`InputWatchdog`（**被第一条消息武装**而不是被构造武装：启动途中就死掉的 Core 一条消息都不发，构造即计时的看门狗永远等不到触发；乱序到达的旧时间戳既不算心跳也不延期，与 Core 侧同一口径；容差边界取严格大于，恰好容差内的沉默仍在容差内）；`KeySink`（键真正下落的地方；与 Minecraft 打交道的实现自己负责切到客户端线程，因为调用它的可能正是「别的东西卡住时才会运行」的看门狗）；以及把三者合起来的 `BridgeInputController`：移动按**与已持有状态的差**施加（重复命令不再按键，丢掉某个轴只松那个轴——所以「全部松开」松的是账本而不是最后一条命令），拒绝过期 generation、过期 deadline、非有限或越界的轴；`tick` 在 watchdog 到期时松开一次且只报一次，`beginGeneration` 不继承上一代的任何按键。**一个刻意的取舍**：被拒绝的命令**不改变**已持有的状态——迟到的命令不是「松开之前那条」的指令，撤回是 Core 的决定（有用例专钉此点）。29 条 Java 测试全过（容器内 `./gradlew build`）。新增类会改变 jar，因此按流程重录 pin（`0fc598f6…`、1,227,837、源码树 `87605542…`），九道门全过。**接线（worker 每条消息喂 watchdog、断连即松、Minecraft 的 KeySink、`look`/短时 `move` 的实际施加）尚未完成**，所以本条目前只有测试在跑这些类——按本仓库先例明写在这里，而不当成已经能用。
+
+- [x] **Bridge 侧松键路的可验证接线完成**（真实按键的按下/抬起验收仍是下一步）：worker 在**握手之后**才创建控制器（看门狗容差取协商出的 `heartbeat_interval_ms` 的倍数）；只有 payload 也通过验证的 Core 消息才给 watchdog 续期。Core 现在能发送 `minekin.v1.ReleaseAllInputs`；Bridge 校验 action ID、正 generation 与有界 reason token 后放入有界 client inbox，下一次 client tick 才同步修改 `KeyBinding` 并清账本。这里刻意不在 worker 线程先清账本再 `client.execute`：那会在排队失败或延迟时把“请求松键”误记成“已经松键”。故障用终态 `SAFE_STOP` 替换队列，普通命令此后不能再进入；watchdog、显式释放、Bridge fault 和正常 shutdown 都在 client thread 共用同步 `releaseInputs`，日志只在 binding 调用返回后写。`ReleaseAllInputs` 的 generation 只要求正数而不拿来压制释放——旧代释放不能授予控制，拒绝它却可能保留残键。`MovementBinding` 六个能力名由 Python/Java 契约测试共同钉住。当前静态/loopback 测试证明消息能到达同步释放入口、非法字段会 fail closed、并发终态门禁成立；runner 里仍只验证过“持键为 0 时故障路径到达”，**没有把真实按键按下再证明抬起，也没有服务端位移证据**，所以不能把下一条门禁标完成。
+- [x] **重录这份 pin 时挖出三件必须记下的事**，其中两件是这一批**自己制造的**：**(一) 记 pin 的那一刻源码和 jar 已经不是同一份。** 录 `source_digest` 之后又改了 `BridgeIpcWorker`（17:56）与 `MinekinBridgeClient`（17:57），于是记下的源码树摘要**与磁盘上的任何状态都对不上**：81 条依赖 recipe 的用例全部以 `Bridge source tree digest differs from the bundle recipe` 失败。这不是"再算一次"就完了的错误——`source_digest` 与 jar 摘要存在的意义正是抓住"源码改了却没重录"，而它这次抓的正是录制者自己。**纪律：`source_digest` 与 jar 两枚 pin 必须在最后一次源码改动之后一起重算，中间不许再有编辑。**
+  - **(二) 构建产物会掉进被哈希的那棵树里，于是 pin 取决于"构建过没有"。** `:test` 的 JVM 继承项目目录作为工作目录，而 `minecraft(...)` 依赖带上来的 log4j 配置会把 `logs/latest.log` 写到那里——也就是说每次真正执行 `:test`，`bridge/logs/latest.log` 就会出现在**被 `source_tree_sha256` 哈希的 `bridge/` 里**（它既没被 `.gitignore` 覆盖，也不在函数排除的 `build`/`.gradle` 名单里）。后果不是"摘要算得难看"，而是：**同一份源码，检出后直接算一个值，构建过一次之后再算另一个值**——于是任何一次 `bundle verify`/`session start` 会在构建过的机器上以一句与源码无关的话失败。实测复现：`rm -rf bridge/logs && ./gradlew test --rerun-tasks` 后该文件重新出现。**修在根因上**：`tasks.test.workingDir` 指到 `build/test-working-directory`（构建产物本就属于 `build/`，而 `build/` 已被摘要排除），并在 `doFirst` 里建目录（Gradle 不会替测试建工作目录，进程会因为"目录名称无效"起不来）。修完实测：连跑两次 `--rerun-tasks`，`bridge/logs` 不再出现，摘要保持不变。
+  - **(三) 离线 Java 门禁的 Fabric stub 把客户端参数写成了 `Object`**，比真实 Fabric 事件**更宽**：于是 `stopSafely(client, ...)` 这种"取真实 `MinecraftClient`"的写法直接编译失败——这是好事，说明它抓到了；但反过来，一个把 `Object` 传下去的监听器本来能悄悄过关。stub 现在按真实签名写成 `MinecraftClient`，这个门禁才真的在检查"这个 mod 能被注册"。
+- [x] **这一次的跨平台结论**（照本仓库对工件的一贯要求，两件事都在第二个平台上验了）：jar 在 Windows（`21.0.12.1+1-LTS-4`）与受控 Linux 容器（Temurin `21.0.12+8`，`--dependency-verification=off`）上逐字节相同，都是 `4a7c8880…`、1,234,638 字节；**源码树摘要**在宿主与 Linux 容器里也相同，都是 `f8779f02…`（这正是上一批那个遍历顺序 bug 的回归验证——它只有在两个平台各算一遍时才看得见）。pin 因此记为 jar `4a7c8880…` / 1,234,638 与源码树 `f8779f02…`，并同步更新 fixture 的 `digest`/`size`/`source_digest` 与 `manifest.sha256` 中该 fixture 自己那行。本地九道门全过：ruff check/format、pyright（0 errors）、pytest（851 条）、`check_boundaries`、`check_case_assertions`、`verify_fixture_digests`、wheel 边界、`check_bridge_scaffold`、`check_bridge_protocol`、`check_bridge_proto_java`，以及 Gradle `clean build`（34 条 Java 测试）。
+
+- [x] 松键的**执行**（Bridge 侧）与 `move` 的实际施加：见上，`move` 已经跑通到服务端观测。`release_all` 的执行侧也接上了——lease 撤回后 Core 发 `ReleaseAllInputs`，本轮实测里那条 release **真的发出去了**（`input_release_failed: false`，账本有 `InputReleased(had_lease=true)`）。**但"Bridge 真的把键松开了"仍只有两面证据**（Core 的 `InputReleased` 与客户端日志），没有第三次独立观测；进程被杀那条路上，真正松键的是 Bridge 自己的 IPC-断线释放（§12 的第二层），那一条在本轮没有单独的验收。`look` 见上一条。
+- [x] 门禁（真实位移）：服务端自己报出两个位置、5 秒 21.6 格、匀速——**没有瞬移**，也没有直接写状态（走的路径是客户端自己的按键绑定，不是改玩家坐标）。
+- [x] **`lease_watchdog` 接上了，"短时"因此是产品保证的而不是域凑出来的**。上一批结束时这里记着一条 limitation：lease 的 deadline 只被**记录**（lease 与 `MoveInput` 上都有），**没有任何东西在到期时释放**——所以"短时 move"实际是"域检测到位移就结束会话"。现在 `domain/lease_watchdog.py` 持有**至多一个** lease，`lapsed(now)` 在到期时**报告一次**（报告即清空，所以"一次"不需要调用方自己记标志位），并且**报告的是那个 lease 而不是一个判断**——替换与生成只有调用方能判：一份已被替换的授权过期了，不能去释放接替它的那一份。运行时这边没有任何新概念：调用方交一个自己的 awaitable（和 `until_client_exit` 同一个形状）`until_input_release`，运行时把它当成任务**创建、取消、gather**，但它**不进"谁结束了这次运行"的赛跑**——租约到期是会话里发生的又一件小事，运行时照做然后回去继续等（所以等待是一个循环，完成的任务必须从集合里摘掉，否则下一次 `asyncio.wait` 立刻返回）。
+  **实测**（`--hold-forward-seconds 8`，一轮域运行）：服务端自己报出 `18:03:02 Z=12.01`、`18:03:07 Z=33.60`、`18:03:12 Z=39.03`、`18:03:17 Z=39.03`——**走了 27 格然后停住**，而会话又活了 10 秒才被域停掉（"停住"与"会话结束"在日志里长得一样，这是唯一的区别，也正是要验的东西）；客户端 `bridge applied a5b9a84b…` 在 18:03:01、`bridge released move.forward` 与 `bridge released 1 input(s) after CORE_REQUEST (TIMEOUT)` 在 **18:03:09，正好 8 秒**；账本 `InputLeaseGranted → InputReleased{reason: TIMEOUT}`。域这一侧的判据也随之变强：不再是"看到两个不同位置"，而是"**看到两个不同位置、且最后两次相同**"。
+- [x] **这个功能自己制造的那个洞，值得单独记一条**：`release_inputs` 的文档写着"两种结束共用一条路径，第二份就是第二个会漂移的地方"——然后我把 `record(INPUT_RELEASED)` 只写在 wind-down 那条路上，于是**lease 到期发出的那次 release**（也就是这个功能存在的全部理由）到了 Bridge、在客户端日志里留着痕，账本里却一条都没有。是实测读账本时发现的：上一轮 run 的 `InputReleased(EXPLICIT)` 在，本轮的 `TIMEOUT` 不在。记录移进共用路径之后，四个地方对得上：服务端位置、客户端日志、账本、run 文档。
+
+- [x] **四个移动轴都在真客户端上按过、也被真客户端松开过，而且每一步都量到了原版的物理值**。契约把「不得残留按键」当作门禁，而在此之前只有 `forward` 被按过：`MovementBinding` 的映射与控制器对各轴的处理都有单元测试，但**没有任何测试能回答"Bridge 按的那个 key 就是原版的那件事吗"**——这正是本仓库栽过的那类错（`next_state=3` 是语义错配，单元测试看不见）。现在 `--hold-strafe` / `--hold-jump` / `--hold-sneak` 是 hold 的修饰符（hold 的时长仍由 `--hold-forward-seconds` 给，没有时长就没有 hold），服务端的读数就是判据：
+  - **forward**：21.6 格 / 5 秒 = **4.32 格/秒**（步行 4.317）；
+  - **sneak**（`--hold-sneak`）：**1.30 格/秒**（= 4.317 × 0.3 = 1.295 ✓），高度恒定、横向不偏；
+  - **jump**（`--hold-jump`）：高度在 `-60.00 / -59.58 / -58.75 / -59.20 …` 之间来回，**总高差 1.25 格**（原版跳跃高度 1.2522 ✓），而且最后一跳落回地面；
+  - **strafe**（`--hold-strafe 1`）：X 与 Z **等量变化**（-1.5→-34.9 与 -3.5→+29.9），就是前向 + 右移的 45° 对角线。
+  四个数字都不是"看起来对"，而是与原版常量对得上；而且这两次运行里 hold 到期后 Kin 都**停住并落地**，所以「松开」也被这四个轴各自走过一遍（不再只是 `forward`）。
+- [x] **L4 的第一份证据：走完那条链现在是一个用例（`CORE-040`），而且已封存。** 契约要 L4 证的是"输入 → 服务端确认的结果"这条链。四条断言各自读一份记录，没有一条靠自报：`move_input_was_leased`（账本里这次的 lease **capability 是 `control.move.v1`**——lease 是"被授权做某一件事"，租到别的东西的运行没有资格走）、`the_bridge_carried_the_input_out`（run document 的 `actions_applied ≥ 1` 且 `actions_refused == 0`）、`the_server_saw_the_kin_move`（**服务端自己的读数**里首末水平位移 ≥ 一格）、`the_lease_expired_and_was_released`（`InputReleased` 且**理由是 `TIMEOUT`**——通道断掉是另一个原因、另一件事）。
+  - **判据是从一次真实运行里量出来的**：`--hold-forward-seconds 3` 的那一轮，服务端读数是 `[-7.5, -60.0, 4.5]` → `[-7.5, -60.0, 17.66]` → 同样的值（**位移 13.16 格**，与"步行 4.3 格/秒 × 3 秒"对得上，末两条相同即停住），账本是 `InputLeaseGranted{capability: control.move.v1}` → `InputReleased{reason: TIMEOUT}`，run document 是 `actions_applied: 1, actions_refused: 0`。
+  - **两个读数形状必须分得开**：服务端回答位置是 `[x, y, z]`、回答朝向是 `[yaw, pitch]`——**同一句话、只有形状不同**，所以读数按分量个数区分，有一条用例专门钉住"两分量的读数不会被当成位置"。"走了一格"的阈值（2 格）不是调出来的：步行 4.3 格/秒、而这只猪把 Kin 拱开不到一格，阈值取的是这两者之间的量级差——harness 也是用同一个数字决定什么时候停止等待，理由写在断言里。
+  - **实测**：`MINEKIN_DOMAIN_CASE=CORE-040` 那一轮 → 四条断言全部 `observed`、`result: PASS`、9 件工件、`evidence verify` 报 `verified: true, sealed: true`。**harness 一行都没改**——走这条链所需的一切（probe 读数、run document、账本）已经在它写的材料里了。
+  - **它现在是 `mandatory: false`，原因写在契约自己的 CORE-040 条目里**：契约那条写的是 move/look/**use**，而 `use` 还没接线、本用例只覆盖 **move** 那一条链。让一个只覆盖三分之一动作的用例去把 L4 的门禁点亮，等于用真实证据说一句不真实的话。它的证据仍然**在册**（晋级报告的 `evidence.bundles` 里能看到它 PASS 且 verified），只是不参与判定；等 `use` 接上、三种动作都覆盖之后才应当改成 mandatory。（2026-09-20 更新：这件事已经做了，见本文件下面那条——`use` 已接线，三种动作在同一轮里被服务端看见，`CORE-040` 现在是 `mandatory: true`。）
+- [x] **域现在把高度也报出来**：`reported_heights()` 取位置读数里的第二个分量，走完那条消息从"walk and stop"变成"walk and stop; its height moved through N blocks"——**跳跃是唯一只在这一项里出现的事**（同一个位置、不同的高度），所以它需要一个能被读到的数字，而不是一条"它动了"的断言。
+
+
+- [x] **`use` 接线了，所以 L4 的「三种动作」少了一种这件事不再是真的——但用例还没跟上，这一条只讲能力。** 契约的 L4 要 move/look/**use**，而前两者早已实现、`use` 一直是缺的那个。现在它是**第四个 capability**（`control.use.v1`）与第四条 wire 消息（`UseInput`），形状刻意与移动命令相同：**使用东西就是按住一个键**，所以携带的是"按住"状态、结束它的是 lease 被撤回——于是"不许留下按住的键"仍然只有一条规则，而不是每个键一条。
+  - **两侧各自的最小改动**：Core 侧 `USE_CAPABILITY`/`USE_INPUT_TYPE`、`InputPlan.use_seconds`（自己的时长，与移动 hold 同理：结束它的是 lease，没有长度的 hold 会是一个键被按到别的事情出错为止）、`--hold-use-seconds`；Bridge 侧 `HandshakeGate.USE_CAPABILITY`、`BridgeInputController.USE`（`use.hand`）与 `use(now, deadline, generation, boolean)`、worker 的类型/分派/`validateUse`/`UseCommand`/`applyUse`。
+  - **一处改名，因为不改名就是一句小谎**：`MovementBinding` → **`InputBinding`**——它现在也绑定 use 键，一个说"move"的名字绑着使用键是在说错话。改名波及 sink、Java 用例与离线编译门禁的源码清单。
+  - **`onLocalClock` 有了第三份拷贝，而这是刻意的**：deadline 从 envelope 的钟改写到本地钟的那段逻辑，protobuf 的 builder **没有共同父类型**可以写出一个泛型版本，所以只有两个选择——三份短方法，或者反射；这个文件已经选了前者，注释里写明了。
+  - **重录 pin（两侧逐字节相同）**：Windows 构建与 Linux 容器构建都是 `580daa93…`、1,266,556 字节；源码树摘要 `9af6db41…`。`recipe.py` 两个常量、fixture 的 `digest`/`size`/`source_digest` 一起更新——**并且 `proto/minekin/v1/control.proto` 自己也是冻结工件**，它的摘要行也得跟着动（fixture 摘要门禁当场抓到了这一条）。
+  - **三道既有的 pin 各自尽了职**：Java 的 `InputBindingTest` 钉着 wire 名字的完整列表（加 `use.hand` 才通过）、`test_bridge_ipc_host` 钉着协商出来的 capability 集合（加 `control.use.v1` 才通过）、离线编译门禁的 `GameOptions` stub 缺 `useKey` 时直接编译失败。三次都是"改完就红"，这正是它们存在的理由。
+  - **仍未做的，也是这一步的边界**：**还没有任何一次运行真的"用了"什么**。能力由两侧的单元用例与离线编译门禁验证，但服务端可观察的 use（对着一块能改变状态的方块按下去，再从服务端问它的状态）需要新场景与新探针——那是下一步，做完之后 `CORE-040` 才有资格从 `mandatory: false` 变成门禁的一部分。
+
+- [x] **`use` 现在有一次真实运行作证，`CORE-040` 因此改成 `mandatory: true`——这是第一次让一个用例同时覆盖 move/look/use 三种动作。** 六条断言（move 四条 + 转向 + 方块状态改变）在一轮真运行里全部 `observed`、`result: PASS`、9 件工件、`evidence verify` 通过、harness 退出码 0；晋级报告的 `overall.blocking_cases` 里已经**没有 `CORE-040`**（它此前一直在那儿，且在案的 PASS 包都是 `mandatory: false` 时留下的）。换掉的是「只覆盖三分之一的用例不该点亮 L4 门禁」那句顾虑——现在它不成立了，因为三种动作是在同一轮里被服务端看见的。
+  - **场景**：`MINEKIN_DOMAIN_CASE=CORE-040 MINEKIN_DOMAIN_PROBE=Kin MINEKIN_DOMAIN_USE_TARGET=1 MINEKIN_DOMAIN_PROBE_SECONDS=1` + `--hold-forward-seconds 8 --hold-use-seconds 8 --look-yaw-degrees 45`。三个开关都不可省：`USE_TARGET` 让服务端工具在 Kin 面前摆一个能被「用」、状态可问的方块；`PROBE_SECONDS=1` 是因为**转向必须在 8 秒的 hold 之内被看见**（join 时一次 0°、转完后一次 45°，这一对就是「转过了」的证据，默认的 5 秒间隔量不到 pre-turn 那一次）；`--look-yaw-degrees` 就是那个转。
+  - **这一步试了四次，每次失败都指向一个量出来的事实**：
+    - **形状**：`javap` 出来的 `LeverBlock` 常量是 `FLOOR_Z_AXIS_SHAPE = createCuboidShape(5,0,4,11,6,12)`、`CEILING_Z_AXIS_SHAPE = (5,10,4,11,16,12)`——拉杆**只有 6/16 格高**，贴着方块底或顶；而站立玩家眼睛在 1.62，也就是自己方块往上 **0.62**。于是平视的射线从「立在地上的」顶上**差 0.005 格擦过**、从「挂在天花板上的」底下**差 0.005 格擦过**：两次都差一根头发，日志里一个字都不会有。拉杆不是"摆好了就行"的道具。
+    - **数据还是谓词**：`data get block <pos> powered` 对拉杆的回答实测是 **`The target block is not a block entity`**——它只答 block entity。所以探针只能是谓词 `execute if block …`，而谓词的两种答案都是 `Test passed`，因此命令里带 `run say minekin-target-…`，让服务端**自己说出**问的是哪个状态；断言读的就是这两个词。
+    - **局部坐标**：`^` 从玩家的**脚**量起，而它的「前」轴**不含俯仰**——实测一轮里 Kin 明明俯视 10°，`anchored eyes … ^ ^ ^2` 仍然落在脚那一层（比眼睛低一层），`anchored eyes` 本身也没改变结果。所以偏移写成 `^ ^1 ^3`：一格上（正好是眼睛那一层）+ 三格前（水平），与俯仰无关。
+    - **走路会把射线沿着自己搬**：这条运行同时要量「走」，而走的水平方向就是视线的水平方向，于是 Kin 一边走一边把射线**沿自身平移**——方块落在射线里的那一段距离只持续约 0.1 秒，而按住的 use 每 5 tick 才按一次，两次之间 Kin 已经走进去了。所以目标换成**满方块的音符盒**：射线在任何距离都打得到它（不存在"瞄准"这件事），并且摆在**三格**外——Kin 会**撞上去停住**，把"移动中的瞄准"变成"站定的瞄准"，同时正好是 harness 等的那个 walk-and-stop。停下时位移约 2.7 格，在"一次推挤"与"一步"的 2 格阈值之上。
+    - **采样会与它共振**：音符盒每次使用都进位，按住时每 5 tick 一次，而位置探针的间隔是 5 秒——**正好 10 个周期**，于是每次采样都落在同一个相位上，方块明明在变却每次都读成没变（第一次运行报的就是 `THE_BLOCK_NEVER_CHANGED`）。修法是两条：块状态**每次循环都问**（约 2 tick 一次，比它变化的节奏快），以及目标的状态**不是二值翻转而是一路进位**——"它曾经不是被摆下去时的那个状态"才是证据，"它现在是什么"不是。
+  - **顺带修掉一个把话说错的地方**：`send_control` 的类型→payload 表里**没有 `UseInput`**，所以三种动作一起发的那一轮，在第一条命令记完账之后就以 `KeyError` 崩了（CLI 把它脱敏成 `INTERNAL_INVARIANT` / 退出码 70），而**离线用例一个都没红**——因为没有任何测试把「计划能产生的每条命令」真的从 host 发出去。现在那张表是唯一的副本（`_CONTROL_TYPES` 由它派生，"加了类型但忘了 payload"这种状态不再可表达），并补了一条契约测试：把 `InputPlan.commands()` 产出的每一条都真实发过 loopback 并核对回程；**做过变异验证**——把 `UseInput` 那一行删掉，这条立刻红。
+  - **harness 的等待顺序也是错的，一并修了**：playable 的等待先问 `kill -0` 再读账本，于是**一个已经死掉的会话**会被报成「从未变成 playable」，而账本里明明写着 `PlayableEstablished`。现在先读账本再问进程，并且消息说清是两者中的哪一个（`the bound expired` / `the session exited first`）——一个把死因说错的诊断比没有诊断更贵。
+  - **它在 fixture 与契约里都改了**：`tests/fixtures/cases/core-040.json` 六条断言 + `mandatory: true`（fixture 摘要跟着重算）；契约自己的 CORE-040 条目改成「三种动作都已覆盖、此时才是 mandatory」。
+
+- [x] **一次被拒绝的输入现在是一条记录，而且「问得太早」这件事第一次可以被违反——所以它第一次能被测。** 契约的 L4 写的是「只有 JOIN+首快照后获得 lease」，CORE-050 把它展开成「握手前、JOIN 前、首快照前的输入全部被拒绝」。这条不变量此前**没有任何东西能违反**：Core 只在成功的那个时刻开口，所以它永远成立、也永远没有证据。两处改动让它可以被问，并且问了有记录：
+  - **`InputRefused` 成为账本事件**（`{phase, capabilities, refusals}`，`refusals` 是仲裁器自己的 token）。此前拒绝只落在 run document 的 `input_refusal` 一个字符串上——**一次运行可以问两次**（join 一次、playable 一次），而一个字段只会留下最后一次的答案。现在每一次被拒答都是一条只追加的记录，理由不会被吞掉。
+  - **`session start --hold-at join`**：这次运行**故意问得太早**。默认 `playable` 与既有行为逐字相同；`join` 时 plan 在**观察到 join 之后、首快照之前**被送到仲裁器面前，仲裁器说 `NOT_PLAYABLE`，这条答案被记录，而**运行不因此结束**（结束一次运行的是客户端，不是一次被拒的 hold）。拒绝的记录**写在 join 之后**，所以账本读起来就是这次运行经历的顺序。
+  - **两条测出来的对照**（`tests/unit/test_session_supervision.py`，都在真实 IPC 对端上驱动）：`--hold-at join` → 账本里恰好一条 `InputRefused{phase: "JOIN_SEEN", capabilities: ["control.move.v1"], refusals: ["NOT_PLAYABLE"]}`、**没有任何** `InputLeaseGranted`、`run.input_refusal == "NOT_PLAYABLE"`、`snapshots_admitted == 0`（答案之所以是"不"的原因）、outcome 仍是 `CLIENT_EXITED`；**默认不问** → 同一条路径上一条拒绝记录也没有（这正是"阶段是可选项、不是把拒绝塞进每一次运行"的证据）。
+  - **握手指令之前那一段由传输层覆盖**：尚未 authenticate 的 host 拒绝**所有**控制命令（不只是输入），并新增了一条契约用例断言这一点——对一个输入类型和一个非输入类型各断言一次，因为"只覆盖输入"的门禁是有人会绕过去的那种门禁。
+  - **这一步的边界**：CORE-050 还**没有 fixture、还没有真实运行、也还没有进入晋级门禁**。Core 侧现在能问、能记、有对照；下一步是把它做成一个用例（断言读账本里的 `InputRefused` 与「客户端从未被驱动」）并在受控域里真跑一轮。
+
+- [x] **`CORE-050` 成为门禁的一部分：一次「问得太早」的真实运行，四条断言全部成立。** 这是 L4 缺的另一半——CORE-040 证的是「合法输入会产生服务端看得见的结果」，这一条证的是「世界还不真的存在时，输入根本发不出去」。用例（`tests/fixtures/cases/core-050.json`，`mandatory: true`）四条断言，各自读一份会活下来的记录：
+  - `input_was_refused_before_the_world_was_playable`：账本里有一条 `InputRefused`，**phase 是 `JOIN_SEEN`** 且**理由里有 `NOT_PLAYABLE`**。两半都要——没有 phase 的「某时被拒」也可能是别的原因、别的时刻。
+  - `no_lease_was_granted`：整轮运行**没有任何** `InputLeaseGranted`，并列出它若存在会携带的 capability（租到别的东西是另一轮运行）。
+  - `the_bridge_never_pressed_a_key`：**客户端自己那本日志**里没有 Bridge 按过键的两行（`bridge pressed …` / `bridge applied …: holding […]`）。Core 的拒绝是 Core 的一面之词，这一条是另一侧说「什么也没被按下」。
+  - `the_server_saw_the_kin_arrive_and_never_move`：世界那边 Kin 到达过、而每一条位置读数都在同一个地方——用的是与「走了一格」**同一个阈值**，只是反过来读；而且要求**至少两条读数**（一条读数是一个地点，不是一次静止）。
+  - **实测**（受控域里一轮真运行，`--hold-forward-seconds 30 --hold-at join`）：`result: PASS`、`failures: []`、九件工件、`evidence verify` 报 `verified: true, sealed: true`、harness 退出码 0；harness 自己那句 `the Kin moved 0.000 blocks across 2 readings and did not walk` 就是 stillness 的现场读数。run document 里 `input_refusal: "NOT_PLAYABLE"`、`actions_applied: 0`，而 `connection_state: "PLAYABLE"`、`snapshots_admitted: 1`——**世界是真的，Kin 仍然一步没动**，这才是这条用例要的那种证据。
+  - **harness 学到的一件事**：它按运行自己的参数认出「这次问在 join 上」，于是**不再等一次永远不会发生的行走**（并且把这件事说出来）。不这样做的话，这一轮会把 240 秒预算花在一个本就应该被拒绝的 hold 上。
+  - **一次失败教会的另一件事**：把 fixture 从 `mandatory: false` 改成 `true` 之后，**已封存的两份 PASS 证据立刻不再满足门禁**（`CASE_VERSION_MISMATCH`）——因为 case version 覆盖的是用例**定义**，`mandatory` 是定义的一部分。这不是缺陷，是规则在起作用：证据必须对着**它当时那份定义**被判。重跑一次之后就对了，而这也是这个仓库一贯的做法（旧 FAIL 不删、不手改）。
+  - **顺带把三个 fixture 的行尾统一了**：`core-040.json`、`admit-110.json`、`core-050.json` 在 Windows 上被 `write_text` 写成了 CRLF（工作区字节与 git 存的不一致，而摘要门禁按规范化后的字节判，所以谁也没红）。现在工作区就是 LF，等于 git 存的那份；三份的摘要都没变，说明之前那份摘要本来就是规范化后的值——**这条纪律与 `.gitattributes` 里那条 `*.sh text eol=lf` 是同一件事**。
+
+- [x] **`CORE-070` 有证据了，而且它顺便让整道门禁第一次整体变绿。** 契约这一条要的是「断线/半帧/慢消费者/事件洪水；有界背压且无危险重放」——四条断言**都由测试执行**，因为这里的主体是**通道**：半帧、超限帧、洪水都是端能对通道做的事，而唯一能被按需驱动到那些状态的端是测试对端（真 Bridge 不会替我们发半帧）。用例 `tests/fixtures/cases/core-070.json`，`mandatory: true`：
+  - `a_frame_that_stops_halfway_is_refused`：长度头说 256 字节、通道只送到 16 —— 必须按**故障**读，不能按"短读"读。理由写在断言里：被截断的 protobuf 更常见的结果是**解析成另一个消息**，而不是解析失败，那是"通道坏了"与"通道在撒谎"的差别。
+  - `an_oversize_frame_is_rejected_before_it_is_allocated`：超过协商上限的长度头在**分配之前**就被拒（既有的那条用例被这个用例名引用，而不是重写一遍）。
+  - `a_flood_of_events_fails_closed_rather_than_dropping_them`：把队列上限设成 2、再灌 8 条事件 → 消费者接下来读到的是 `event queue overflowed`，而**不是**溢出之前缓存的那两条。这条规则的另一面就是"慢消费者"：慢消费者就是反方向的洪水。
+  - `no_input_is_replayed_after_an_ambiguous_disconnect`：把会话驱动到 playable、lease 真的发出去（`MoveInput` 到对端）、然后世界消失且报告**没有**失败原因——本仓库自己的判据是「带原因是服务端结束了会话，不带原因是会话自己结束了」，所以 Core 无法知道最后那条命令是否到达；安全的答案是**不再重复它**。断言之外还核对了 lease 确实存在（否则"什么也没重发"对一个从未发过的运行也成立）。
+  - **做过变异验证**：临时在断线时把那条命令重发一次，这条用例立刻变红；还原后即绿。这一条值得，因为它证的是"没有发生的事"，而没有发生的事最容易写出一条永远为真的断言。
+  - **实测（仓库自检类）**：`run_repo_case.py --case core-070.json` → 四条全部 `held: true`、`result: PASS`、退出码 0；`seal_repo_case.py` 把它的 bundle 封进数据卷的 `repo-evidence/<run-id>/`（4 件工件：用例定义、判决、被检查的夹具摘要清单、orchestrator trace）、`result: PASS`。
+  - **顺带把整体门禁跑绿了**：把 `W00-CONTRACT-001` 的仓库自检 bundle 也按同样的方式封进**同一个数据根**，再跑一次 `report_promotion.py --data-root /data` → **`status: promotable`、`overall.promotable: true`、`blocking_cases: []`**，四个工作包（W00/W20/W40/W60）全部 promotable，20 份 bundle。`overall.blocks` 里仍列着 `CASE_VERSION_MISMATCH` 与 `EVIDENCE_IS_NOT_A_PASS`——那是**登记册里每一份候选**的理由集合，包含早先的 FAIL 包与旧 case version 的包，所以它是"这些理由有主"，不是"这道门禁还挡着"。
+  - **这个"绿"要说清楚它绿在哪一层**（与上一条同样的边界）：它说的是**登记册里那些 mandatory case 都有 PASS 证据**了，也就是 W00-CONTRACT-001、CORE-010、CORE-020、CORE-040、CORE-050、CORE-070 六个。契约要的 `p0-core: tested` 还差 L3（LAN）、L5 的其余故障注入、以及 L6 baseline，所以**不能**把这个结果读成"P0 已经 tested"。
+  - **这一步的边界**：Bridge 侧同一个有界队列（Java `BoundedChannel`）**不在这个用例里**——仓库自检类用例能驱动的只有 python 侧，Java 侧那部分由 `bridge/` 自己的测试与离线编译门禁覆盖，但**没有**一个用例断言它，如实记在这里而不是假装覆盖到了。
+
+- [x] **强杀 server 这次真的杀对了，而且它抓到两个真缺陷——这正是故障注入存在的理由。** 新增 `MINEKIN_DOMAIN_KILL_SERVER=1`：世界在 Kin 正在走的时候被杀掉。第一版和第二版都**报成了成功**，而真相是两件不同的事：
+  - **缺陷一：harness 杀错了进程。** `kill -KILL "${server_pid}"` 杀的是**服务端工具**，而 JVM 是它的子进程、继续活着；之后容器退出时那条 `SIGTERM` 让工具走完它自己的"干净停止"路径，于是世界被保存、被重写，而 harness 打印的是 `the world is gone`。实测两次：被"杀掉"的那一轮，服务端日志以 `All dimensions are saved` 结尾。现在杀的是 `pgrep -P "${server_pid}"` 找到的**那个 JVM**，并且**验尸**：进程真的没了、日志里也没有 `Stopping the server`，才算注入成功（否则 `injection_failed=1`）。**这是同一个教训的第二次**——第一次是 `kill -INT` 对后台作业是空操作，而脚本以为它停了服务器。
+  - **缺陷二（产品侧，已修）：连接 deadline 会取消一个 Kin 已经在里面的世界。** 触发条件很普通：**在同一个世界里待超过 30 秒**（默认 `--connection-timeout-seconds`）。`on_connection_deadline` 的判据是 `attempt.in_flight`，而 `in_flight` 的定义是"没到终态"，`PLAYABLE` 不是终态——于是一个**已经到达世界**的尝试被判为"还在等世界"，Core 就发 `CancelConnection`，把一个健康的连接关掉了。更糟的是取消会清掉 Bridge 用来归属后续报告的 generation，于是**世界的死亡变得无法上报**。修法是域里新增 `ConnectionAttempt.reached_world`（只有 PLAYABLE 为真）并在 deadline 分支上拒绝取消它；两条测试：一条驱动到 PLAYABLE 再等过 deadline（断言没有 `CancelConnection`、`connection_cancelled` 为空、会话仍在 `PLAYABLE`），另一条是既有的"从没到达世界的尝试仍会被取消"。**做过变异验证**：把那条守卫改成恒假，新用例立刻变红，旧的仍然绿。
+  - **修好之后的实测**（`--hold-forward-seconds 60`，域里真跑）：服务端日志停在半句上（`Kin has the following entity data: …`）、`Stopping the server` **0 次**；客户端 `bridge reporting CONNECTION_PHASE_DISCONNECTED for generation 1 (terminal=true, reason=…UNSPECIFIED)` 然后 `bridge released 1 input(s) after LEFT_PLAYABLE (PLAY_ENDED)`；账本 `InputLeaseGranted → SessionInterrupted{phase: "DISCONNECTED"}` **没有 reason**——这正是域里那条规则：带原因是服务端结束了会话，不带原因是会话自己结束了。bundle 已封存、可验。
+  - **两个修复都不影响已有证据**：deadline 那条只在"待在世界里超过 30 秒"时才可能改变结果，而 CORE-040 的 hold 是 8 秒、CORE-050 是**被拒绝**的（根本没有世界），所以它们那几份 bundle 的结论不受影响；这一点写在这里而不是默默假设。
+  - **仍未做、且这一步明确暴露的结构问题**：契约要的是**四种**进程逐个强杀，而晋级规则是「某个 case id 有**任何一份**满足的 bundle」，一次运行只经历一种故障——所以四种故障的断言**不可能同时成立**，`CORE-060` 因此卡在 `mandatory: false`。它需要的是「一个用例可以要求多份 bundle，每种故障一份」的规则，那是一个**尚未做的设计决定**（W70 待办里已经挂了第三次）。另外记下来：本仓库里 **Runtime 与 Launcher 是同一个进程**（CLI 既持有运行时又启动客户端），所以四种强杀在这里只有三种是不同的故障。
+
+## W70：恢复与证据晋级
+
+- [x] **杀 Core 那条路一直在"报告一次没发生过的故障注入"，而且报告得很像成功。** 想给 L5（`CORE-060`）取证时先量了一次杀 Core 的运行，结果有两处不对劲：**存在 run document**（被 SIGKILL 的 CLI 不可能打印任何东西），而客户端日志里**没有** `IPC_LOST` 的松键记录。于是给那个循环加了一条临时打印，实测结果是 `DEBUG kill loop at 32s: distinct=0` **连续 90 次、`SECONDS` 一直停在 32**——原因很简单也很要命：那个循环**没有 `sleep`**，而它的预算是用 `SECONDS` 算的；`SECONDS` 在命令不耗时的自旋里根本不前进，于是"150 秒的等待"在毫秒内跑完并放弃。接着**下面那个等待**（它有 sleep）看到 Kin 停住了——那是 hold 到期自然停的——于是打印 `the server saw the Kin stop after Core died`。也就是说：**一个没有注入故障的运行，被报告成了注入成功的运行**，而它的证据（停住的读数）本来就会出现。
+  - **修法是两件事**：循环里补 `sleep 1`（并把"为什么必须有它"写进注释：`SECONDS` 只在 shell 真的在等的时候前进），以及**注入没成功就大声说出来**——`the Core was never killed, so this run proves nothing about a lost runtime`，并把整轮运行判为非零退出，而不是让它长得像别的那几轮。
+  - **实测（两端都量了）**：修好之后 `--hold-forward-seconds 25` 那一轮打印 `Core has been killed` → `the Kin left the game after the Core was killed`，客户端日志是 `bridge released 1 input(s) after IPC_LOST`（**这正是 L5 要的那条证据**）；而故意不带 `MINEKIN_DOMAIN_PROBE`（没有 probe 就没有读数，注入永远等不到时机）那一轮打印了那句"proves nothing"并且 **退出码 1**（此前它会打印"服务端看到 Kin 停下"并退出 14）。
+  - **这不是"从来没用过"**：数据卷里翻出过 3 份带 `IPC_LOST` 的客户端日志，说明这条路的**竞态有时赢**——量到的证据是真的，但这条路径本身不可靠，且**输了也看不出来**。已加契约测试：`domain.sh` 里每个 `for _ in $(seq 1 …)` 等待循环体内都必须有一条 `sleep` **语句**。这条测试的第一版是错的（它接受注释里的那个词——那个循环的注释里恰好写着 `sleep 1`），是**把 sleep 语句删掉、看测试是否变红**才发现的；删掉之后测试确实变红，这才算数。
+  - **它挡着的 `CORE-060` 现在有了：一次「Core 被杀」的运行能封存、能判、能验。** 这一步要回答的问题很具体——**被杀的 Core 没有 run document**，而封存端一直要求它。定下来的做法是让"运行"可以由两种名字之一指定：Core 打印的 document，或它的 run id；没有 document 时，能问账本的都问账本（run id、kin、session/generation，以及 overlay 的位置——客户端日志在那里），因为账本正是**在 Core 死后仍然存在**的那份记录。同一条规则两边都用：`RunMaterial` 现在带上 `kin_id`/`run_id`/`overlay`，封存端从**读过的那份材料**取名而不是再读一遍文档。**空的 run document 不进 bundle**：没有就是没有，一个空文件会被读成"它什么也没说"而不是"它从来不存在"。
+  - **三条断言各自读一份会活下来的记录**：`move_input_was_leased`（账本里确实租过——否则"松开了"是句空话）、`the_bridge_released_the_input_when_the_ipc_was_lost`（**客户端日志里 Bridge 自己写的那行**，实测 `bridge released 1 input(s) after IPC_LOST`；理由要被检查，因为 `CORE_REQUEST` 是 lease 到期、`LEFT_PLAYABLE` 是会话结束，只有 IPC 消失才是运行时消失；计数为 0 也不行——"什么也没握着"让松手变得没有内容）、`the_server_saw_the_kin_stop_after_the_move`（世界那边：先是动过、然后不再动）。
+  - **实测（一轮真运行）**：Core 被杀 → Bridge 松键 → Kin 离开 → 三条断言全部 `observed`、`result: PASS`、8 件工件（**没有** `run-document.json`）、`evidence verify` 通过、harness 退出码 0。
+  - **第一次跑是 FAIL，而错的是断言不是运行**：`the_server_saw_the_kin_stop_after_the_move:STILL_MOVING_AFTER_THE_RUNTIME_WENT_AWAY`。读服务端日志才看清——杀落在**迈步中间**，客户端随即离开，于是最后两条读数本来就不同（根本没有"停下之后"的读数，也不可能有）。"最后两条读数相同"是停下的一种形状，不是唯一的；**离开了的客户端也不握着键**，所以判据改成"读数安定**或**已经离开"——与 harness 等待时用的正是同一条规则。这一段测量写进了断言的注释。
+  - **它仍不是 `mandatory`**：契约的 CORE-060 要的是**逐个强杀 Runtime、Launcher、client、server** 四种，而这条只覆盖了 Core 一种；"回收/重验"也没有覆盖。同 CORE-040，理由写在契约自己的 CORE-060 条目里，证据登记在册但不参与门禁。
+
+- [x] **故障注入第一阶段：让「杀掉了什么」成为一条能判的事实，而不是 harness 的一句自述。** 上面那条杀 Core 的运行虽然能封存、能 PASS，但**杀谁**一直是 harness 自己说的：`pkill -KILL -f "minekin_core session start"` 会匹配**容器里任何**一个 Core（包括脚本后面自己要跑的 `session stop`），强杀 server 那一路则用 `pgrep -P "${server_pid}" | head -1` 猜「工具的第一个子进程就是 JVM」——两个都**说不出自己杀了哪一个进程**，所以两个都成不了证据。新增 `tools/inject_fault.py`（Linux `/proc` 专用、纯 stdlib，放在 tools/ 而不是产品包里）：
+  - **目标是推导出来的，不是搜出来的。** 由本 run 已持有的 pid（会话包装进程，或服务端工具）在 `/proc` 里递归枚举 descendants，再按明确的 cmdline/exe 特征找**唯一**候选：`runtime_controller` = `xvfb-run` 子树里跑 `python -m minekin_core session start` 的那个进程；`server_jvm` = controlled-server 工具子树里**唯一**的 Java 服务端。**0 个或多个一律拒绝，拒绝时绝不发信号**——「说不清杀了谁」就不再算一次注入。
+  - **身份，不是一个 pid。** runner 在启动 wrapper/tool 后立刻捕获其 starttime_ticks 与 pid namespace，把这份身份与 pid 一起交给 helper；helper 在遍历前及发信号前都复核这个 `/proc` 子树信任根，wrapper 退出后复用的 pid 因而不能把无关子树变成本 run 的目标。目标本身记录从 `/proc/<pid>/stat` 读出的 starttime_ticks、pid namespace inode、解析后的 exe 路径、argv 及其 digest、以及父进程身份；角色也对同一份身份快照重验（Core 必须是精确的 `-m minekin_core session start`，server 必须是 `java -jar /server/server.jar`，`javac` 或任意 Java 子进程都不算）。发信号前**重读一遍身份**（TOCTOU：pid 是会被复用的数字，看与杀之间的窗口足够一个进程死掉、pid 被交给别人），不一致就拒绝；SIGKILL 之后**等这个身份从 `/proc` 消失**——条目没了、状态是 Z（僵尸是已终止、等回收）、或**同一个 pid 换了 starttime**（PID 复用，必须与「存活」区分开）。**顺序由 `/proc` 的观测次数和那次终止观测决定，绝不把 wall clock 当顺序**；记录里的 `CLOCK_MONOTONIC` 读数只是给人看的。
+  - **它证不到的那一半写在 schema 和文档里，而不是含糊过去。** helper **不是被杀进程的父进程**，没有 `waitpid`，因此**永远没有 exit status、没有终止信号**，`confirmation_strength` 只能是 `IDENTITY_DISAPPEARED`，**不允许**写 `WAIT_STATUS`（该值在 schema 里保留给未来真正是父进程的 helper，reader 今天直接拒绝声称它的记录）。外层 supervisor 的退出状态由**真正 wait 了它的 runner** 事后 `annotate` 写进去：强杀 Core 这条路有；server 那一路封存时 supervisor 还没退出，于是**明确记为未观测**，而不是拿 0 冒充。
+  - **两条 kill 路径都改走 helper，失败就失败。** 非 `INJECTED` 一律把 `injection_failed=1` 打上，并把 outcome 与 reasons 打进日志——**一个不存在的故障注入不允许长得像成功**（这正是 W70 上面那条老账）。同时收紧归属：`ls -1 /data/kin/*/kin.sqlite3 | head -1` 在多 Kin 存在时会**默默挑一个**，现在改成「必须恰好一个，否则 fail closed」；run/kin/session/generation 从账本读出（kin 由**路径与账本行两端交叉**），交给 helper 记录，再由 sealer/asserter **对着运行材料再交叉一次**——记录与 bundle 必须说的是同一个 run。
+  - **`fault-injection.json` 的结构化链路。** `schema_version=1` + case/run/kin/session/generation 归属 + supervisor/目标身份 + signal action + attempted/confirmed `CLOCK_MONOTONIC_NS` + outcome/reasons/confirmation_strength。sealer **只经显式 `--fault-injection PATH`** 接收；reader 用 `lstat → O_NOFOLLOW open（可用时）→ fstat 同 inode → 同一 fd read`，因此既拒绝 symlink，也拒绝检查与打开之间被替换的路径；随后做严格的 JSON/schema/enum/type/pid/时钟关系校验（`jsonschema` 只是测试依赖、runner 镜像里没有它，所以校验是手写的纯 stdlib，`schemas/fault-injection.schema.json` 与它由测试对齐）。**读成不可变 bytes 之后，asserter 与 bundle 用的是同一份快照**——文本交给判据、字节作为工件，两侧都不会各自重读活动文件。
+  - **CORE-060 新增断言 `runtime_controller_sigkill_was_confirmed`**：要求 target 是 `runtime_controller`、信号是 `SIGKILL`、`outcome=INJECTED`、确认强度是 `IDENTITY_DISAPPEARED`、且没有声称 wait status；并与 lease + `IPC_LOST` 松键 + 服务端读数**一起裁决**（用例的答案是这几条的合取，一次没有确认过强杀、只是松了键的运行不再是「运行时死了」）。断言的归属字段与 `RunMaterial` 交叉（run/kin 必查；账本里有 `SessionProcessStarted` 时 session/generation 也查）。**case_version 随之变化，此前封存的 CORE-060 bundle 成为 legacy partial**（仍可验证，但不再是该用例的证据）。
+  - **当时明确不做、后来已拆分的边界**：这一阶段只让强杀 server 的 `server_jvm` 记录可生成、严格校验、封存并有单测；随后才由上面的 `CORE-060-SERVER-001` 独立子用例接住它。两条**不是 kill 路径**的旧归属方式留着并如实记下：`MINEKIN_DOMAIN_SILENCE` 仍用 `pkill -STOP -f`（暂停，不是杀），soak 采样仍用 `pgrep -P` 递归找 JVM（采样，不声称杀死）。**最重要的一条**：这里没有新增真实 Minecraft/EULA 运行——`/proc` 的实际读取路径由单测覆盖（注入的 procfs，配真实 stat 形状，含带空格与括号的 `comm`），domain.sh 与 helper 的接线由静态契约测试与 `bash -n` 覆盖；新 server case 的断言同样只做了本地 fixture/变异验证，尚无新的端到端 bundle。
+
+- [ ] 对账未决 outbox，失效历史 generation/lease，防止危险动作重放。（2026-09-22 核查：**策略与service 都在，缺的是一次真的崩溃**。`domain/recovery.py` 把每个 effect 的处置写成表——`INPUT_LEASE` 与 `CONNECT_WORLD` 是 `INVALIDATE`（理由分别写着「lease 是故意不落盘的」与「它对应的 generation 已经结束」）、`RELEASE_ALL`/`STOP_SESSION` 可重试、读不懂的 `FAIL_CLOSED`；`application/recovery_service.py` 在 `session start` 创建任何东西之前跑它，而「记下意图、还没 settle 效果」那个窗口由 `tests/unit/test_recovery_service.py` **对着真账本**覆盖（见本节 W70 那几条）。剩下的正是那一次真崩溃——harness 按构造排不到那个窗口里。）
+- [x] **故障场景拆成独立 case id；先落地 server JVM。** 没有把 promotion 改成猜测「同一用例需要几份 bundle」：一次运行只注入一种故障，因此每种进程边界各用一个 case id。新增 `CORE-060-SERVER-001`（`mandatory: false`，直到 L5 剩余 client kill 与恢复/重验也有独立覆盖）：五条断言必须在**同一份运行材料**里同时成立——账本确实授予 move lease；`fault-injection.json` 精确归属同一 case/version/run/kin/session/generation，目标角色是 `server_jvm`、已投递 `SIGKILL`、`outcome=INJECTED`、确认强度是 `IDENTITY_DISAPPEARED`，且不伪称 wait status；服务端日志存在并且没有 `Stopping the server` / `All dimensions are saved`；账本先有 `PlayableEstablished`、后有 `SessionInterrupted{phase: DISCONNECTED}`；客户端日志有非零 `released … after LEFT_PLAYABLE (PLAY_ENDED)`。每个字段/顺序/原因都有负向变异测试，少一项都 FAIL。原 `CORE-060` 暂保留为 runtime-controller 的 legacy case id；Runtime 与 Launcher 在本仓库仍是同一进程边界，不虚构第四种 kill。
+  - **接手时这一步还没跑通，而挡住它的两处都不是「少写了个测试」，是「测的是一份不存在的账本」。** 第一处：新增的 `_ledger_session` 要求账本行**自己的** `session_id`/`generation` 列与它 payload 里的那份坐标一致，判断是直接比的——但库里 `generation` 是 **TEXT**（uint64 放不进 SQLite 的有符号 INTEGER，写入端存的是 `str(generation)`），而 payload 里是 JSON 数字。于是 `"1" == 1` 永远为假：**真实运行里这个坐标永远读不出来**，两条新断言会一律以 `NO_SESSION_ATTRIBUTION_IN_LEDGER` FAIL，而旧 `CORE-060` 的交叉核对会**静默地不再核对**（它的口径是「账本没说就不用对」，于是一个坏掉的读取长得像一次无需核对的运行）。单元测试之所以全绿，是因为夹具手写的行把 `generation` 写成了 int——**测试与代码共用同一个错误前提**。修法只有一处：`_coordinate()` 把两种写法归一成一个整数（bool 与 0 不算数），`_ledger_session` 与 `_belongs_to_session` 都经它比较；夹具的 `event()` 改成写 `str(row_generation)`，于是这一整套用例从此量的是账本的真实形状。已做变异验证：把两处比较改回「按原样比」，**11 条用例立刻红**，其中包括上面那两条新写的。
+  - 第二处：`NO_MOVE_LEASE_FOR_KILLED_SESSION` 这条理由**没有任何用例产生过**（它是实现里新加的一格）。现在它在参数化用例里有一格，另外补了两条：`test_a_generation_is_the_same_generation_in_both_of_its_spellings`（两种写法指的是同一个 generation）与 `test_a_row_whose_column_contradicts_its_payload_attributes_to_neither`（一行里两份坐标**互相矛盾**时，它谁也不属于——这正是「行与 payload 必须一致」那条收紧的判据本身）。本地九道门全过（ruff/format、pyright 0 errors、pytest 1227 passed + 1 skipped、`check_boundaries`、`check_case_assertions`（35 条登记）、`verify_fixture_digests`、wheel 边界、Bridge 三道静态门、`bash -n`）。
+  - **端到端跑过了（受控域里一轮真运行）：`MINEKIN_DOMAIN_CASE=CORE-060-SERVER-001 MINEKIN_DOMAIN_KILL_SERVER=1 MINEKIN_DOMAIN_PROBE=Kin MINEKIN_DOMAIN_PROBE_SECONDS=1 --hold-forward-seconds 60`。** 五条断言全部 `observed`、`result: PASS`、10 件工件、`evidence verify` 报 `verified: true, sealed: true, violations: []`、harness 退出码 0；封好的 bundle 是 `652043a6…`，`report_promotion.py` 里它是 `CORE-060-SERVER-001` / PASS / verified / sealed，整体仍 `promotable: true`、`blocking_cases: []`。三份互相独立的读数：账本（这一 run 的行）是 `SessionProcessStarted(502) → BridgeHelloAccepted(503) → JoinObserved(504) → PlayableEstablished(505) → InputLeaseGranted{control.move.v1}(506) → SessionInterrupted{DISCONNECTED}(507)`，**全部归属同一个 session `4a6b0032…`/generation 1**；客户端日志是 `bridge released move.forward` + `bridge released 1 input(s) after LEFT_PLAYABLE (PLAY_ENDED)`（计数非零）；服务端自己的日志**停在半句上**（最后一行是一条位置读数，不是 `Stopping the server`），而 fault record 说 `INJECTED`、目标 `server_jvm`、身份已从 `/proc` 消失。
+  - **这次运行顺带把上面那处类型缺陷证成了「真的是它挡住的」**：把同一份真实 bundle 交给「按原样比较」的那一版（只改两处比较，其余不动），判决立刻变成 `FAIL`——`server_jvm_sigkill_was_confirmed:NO_SESSION_ATTRIBUTION_IN_LEDGER` 与 `the_ledger_recorded_world_loss:NO_SESSION_ATTRIBUTION_IN_LEDGER`。真实账本里那一行就是 `generation` 列 `'1'`（str）、payload `1`（int），两者并排量过。**这条比单测的变异验证更值钱**：单测里的行是夹具写的，而这里读的是 SQLite 真实返回的东西。
+  - **`mandatory` 仍是 `false`，理由是契约那一层而不是这一条**：L5 要的是逐个强杀四种进程边界、外加回收/重验，而现在有真实运行作证的仍只有 runtime 与 server 两种（client kill 与恢复/重验还没有独立子用例），所以点亮 L5 门禁仍然说不出口。证据在册（`report_promotion.py` 的逐条里可见它 PASS 且 verified），只是不参与判定——与父用例 `CORE-060` 同一条口径。
+
+- [x] **第三种进程边界：强杀 client JVM（`CORE-060-CLIENT-001`），而且这一条与另外两条的形状不同。** client 是 Bridge 所在的那个进程，所以**杀它等于同时杀掉记录者**：另外两条路子依靠的「被杀的进程自己留下松键日志」在这里**不可能存在**。用例因此把判据放在两个幸存者的记录上，四条断言（`mandatory: false`，与父用例同口径）：
+  - `move_input_was_leased`：账本里这一 run 确实按 `control.move.v1` 租过（否则「握着键的进程死了」是句空话，没有内容可丢）；
+  - `client_jvm_sigkill_was_confirmed`：故障记录精确归属本 case/version/run/kin/session/generation，目标角色是 **`client_jvm`**、`SIGKILL` 已投递、`outcome=INJECTED`、确认强度 `IDENTITY_DISAPPEARED`，且不伪称 wait status；
+  - `the_ledger_recorded_the_session_ending`：账本里**同一个 session 坐标**上有一条 `SessionInterrupted`，位置在租约之后——**刻意不规定它写成哪个事件**，因为实测胜出的是传输那条路（下面解释）；
+  - `leave_after_join_observed`：**服务端自己的日志**里 Kin 先 joined 后 left——世界那一侧的独立读数，也是「进程真的没了」与「世界看见它没了」的这一对。
+  - **角色是新加的一个，而不是复用 runtime**：`client_jvm` 的判据是 cmdline 里**恰好有一个元素**等于 Fabric 的入口类名（`net.fabricmc.loader.impl.launch.knot.KnotClient`，与 launch plan 用的是同一个已评审常量），且 exe 名是 `java`/`javaw`；它与 `runtime_controller` 从**同一个 root**（会话包装进程）里各自唯一命中——两个角色共用一棵子树，所以两条判据必须都精确，否则「杀 client」会杀到 runtime。新增单测直接钉住这一点（同一棵子树里两个角色各得其一）。
+  - **实测（受控域，Kin 走着时强杀 client JVM）**：`domain: the client has been killed` → 账本 `SessionProcessStarted(535) → BridgeHelloAccepted(536) → JoinObserved(537) → PlayableEstablished(538) → InputLeaseGranted{control.move.v1}(539) → InputReleased{EXPLICIT}(540) → SessionInterrupted{BRIDGE_LOST}(541)`；故障记录 `role=client_jvm`、`supervisor=client_jvm_root`、`INJECTED`、`IDENTITY_DISAPPEARED`、`method=PROC_STATE_ZOMBIE`（父进程 Core 还没回收它，僵尸就是已终止）；服务端自己说 `10:01:15 Kin joined the game` → `10:01:41 Kin lost connection: Disconnected` → `Kin left the game`。四断言 PASS、10 件工件、`evidence verify` 通过、harness 退出码 0；另一台机器上（同一个数据卷）用 `assert_case_evidence.py` **再判一次**同样 PASS，所以封进去的判决不是我复述的。
+  - **两处「看起来该通过」的地方，实测都不成立，而它们都不是这一条的问题、是记录格式的问题**：
+    - **（一）真实客户端的 cmdline 里有空元素，而记录的校验要求每个元素非空。** 离线启动的冻结规则是「空值也是紧跟在自己 option 后面的一个独立元素」（`--clientId` 后面跟着一个空串），所以客户端的 argv 里**真的有**空元素；`_target_is_usable` 要求 `bool(item)`，于是**这个进程的身份永远写不成记录**——`validate` 判 `INVALID_TARGET`，helper 拒绝落盘，harness 收到的只有 `{"message": "INVALID: ... INVALID_TARGET"}`。schema 里 `cmdline.items` 的 `minLength: 1` 是同一个错误的另一种说法，一并放开。
+    - **（二）一条已经读到目标的拒绝**（`ROOT_IDENTITY_CHANGED_BEFORE_SIGNAL` 这类）**也带着 target**，写盘前同样过校验，于是它会被（一）连坐成 `INVALID_TARGET`：**真正的理由被换成了一句「目标不合法」**，读日志的人会去查进程身份，而问题在记录的形状。修好（一）之后这条也自动通了；两条各有单测，且都做过变异验证（把校验改回非空，两条同时红）。
+  - **传输那条路赢了这个竞态，而用例刻意不去断言竞态**：Core 记录的是 `SessionInterrupted{outcome: BRIDGE_LOST}`（`source/trust = CORE/CORE`），不是 `ClientProcessExited`——客户端的 socket 关了，事件读线程先看见 EOF。两个结论都是关于同一件事的真话，把哪一个写成断言就是在断言调度顺序，所以 `the_ledger_recorded_the_session_ending` 只要求「同 session、在租约之后有一条结束记录」。**顺带记下一个实测事实**：这一轮 Kin 其实**先被史莱姆打死**（`Kin was slain by Slime` → DeathScreen → Bridge 松键），一秒后 harness 才杀掉那个 JVM——所以用例里没有任何一条依赖「被杀时 Kin 还活着」。
+  - **仍未做**：L5 只差「回收/重验」这一类（第四种进程边界在本仓库不存在：Runtime 与 Launcher 是同一个进程）；`mandatory` 等 L5 补齐后再统一决定。
+- [x] **崩溃之后的重启：同一个 `kin_id` 再起一次，世界状态重新验证，而死掉那次让它做的事一件都不留。** 这一条按「两次运行」来验，因为数据卷跨容器保留，所以两次运行共用同一本账：
+  - **A（崩溃）**：Kin 走着的时候 `SIGKILL` 掉 Core（`MINEKIN_DOMAIN_KILL_CORE=1`）——套接字关闭，Bridge 以 `IPC_LOST` 松键并停掉客户端（上一批测过的那条路）；
+  - **B（重启）**：同一条命令再跑一次，不给任何输入（`MINEKIN_DOMAIN_STILL=1`）。**实测**：`connection_state: PLAYABLE` 且 `snapshots_admitted: 1`——一次**新的**快照被准入，世界状态是重新验证的而不是沿用的；`actions_applied: 0`（这次运行什么都没要求）；服务端自己报出 **10 次以上读数里位移 0.000 格**——上一批结束的时候 Kin 正在走，重启之后它一步都没动。`recovery` 块如实地说它这次**无事可做**：`{"invalidated": [], "waiting": [], "status": "reconciled"}`，因为崩溃发生在启动早已 settle 之后。
+  - **诚实记下没有覆盖的那一半**：真正会留下 pending outbox 的窗口是「记下意图、还没 settle 效果」那段（§8 说的那个窗口，也就是启动客户端的那一秒）。要打中它，harness 必须在**启动窗口里**杀掉 Core，而这个块按构造排在 playable 等待之后 ✗ 打不中。我先加了个 `KILL_CORE=early` 想做到，实测发现它**从来不可能早于 playable**——于是把它删掉了，而不是留一个名字在说谎的开关。那段窗口的 **pending 分支由 `tests/unit/test_recovery_service.py` 对着真账本覆盖**（`test_reconciliation_against_the_real_ledger`、`test_a_start_that_never_happened_is_settled_too`、`test_a_retryable_effect_stays_pending`…），**没有**真崩溃的端到端验证。
+  - **这一步现在是一个用例（`CORE-090`），而且它读的是「上一条运行」而不只是自己。** 原来那两次运行只是实测记录，没有 fixture、没有断言、没有 bundle。做成用例时先要回答一个形状问题：**恢复是两次运行之间的事，而一份 bundle 只描述一次运行**。没有改成「一个用例可以要两份 bundle」（那正是 L5 那边遇到的同一个设计问题），而是让**这一次运行的材料里带上「上一次运行」**：账本是同一个 Kin 的一本，`previous_run_rows()` 用**账本自己的 `position`**（不是任何时钟）取「最后一行排在我第一行之前」的那个 run，`RunMaterial` 因此多出 `previous_run_id`/`previous_run_events`，封存端在它非空时多封一件 `previous-run-trace.jsonl`——**判决所依据的那份读法必须和 bundle 一起走**，否则读 bundle 的人复现不出这个判决。这也让「一次重启」与「一次恰好很安静的首跑」第一次可以被区分开。
+  - **五条断言，各自读一份会活下来的记录**：`first_snapshot_admitted`（这一次**新的**快照被准入，所以世界状态是重新观察的而不是沿用的）、`the_server_saw_the_kin_arrive_and_never_move`（世界那边：上一条运行让它做的事一件都不在生效）、`the_previous_run_left_the_kin_holding_input`（**上一条运行的账本停在 `InputLeaseGranted` 之后什么都没有**——没有松键、也没有中断，因为能写下它们的那次 Core 已经被杀；一次干净退出的前序运行会让它 FAIL）、`the_restart_runs_as_a_new_session`（§7 的瞬时状态不跨运行：这一次的 session 坐标与那一次不同）、`the_restart_reconciled_before_it_started`（run document 的 `recovery` 块：`status=reconciled` 且没有东西still waiting）。**最后这一条刻意不要求 `invalidated` 为空**：那里面有条目意味着重启关掉了必须永不重放的效果，是报告在正常工作而不是失败；而 `waiting` 非空意味着这次启动在一个还没问过世界的问题上开始，那条必须拒。
+  - **实测（一轮真实的两连跑：先 `MINEKIN_DOMAIN_KILL_CORE=1` 杀 Core，紧接着 `MINEKIN_DOMAIN_CASE=CORE-090 MINEKIN_DOMAIN_STILL=1` 重启）**：五条断言全部 `observed`、`result: PASS`、10 件工件、`evidence verify` 报 `verified: true, sealed: true`、harness 退出码 0；bundle 是 `c993c801…`，里面那件 `previous-run-trace.jsonl` 恰好是崩溃那次运行的五条行（`… SessionProcessStarted → BridgeHelloAccepted → JoinObserved → PlayableEstablished → InputLeaseGranted`，session `e975d386…`），而重启自己的 session 是 `87b2e58a…`。世界那边 `the Kin moved 0.000 blocks across 5 readings and did not walk`，run document 是 `actions_applied: 0`、`snapshots_admitted: 1`、`connection_state: PLAYABLE`、`recovery: {"invalidated": [], "waiting": [], "status": "reconciled"}`。**同一份封好的材料在另一台机器上再判一次**（带封进去的 run document 与 `previous-run-trace.jsonl`）同样 PASS，所以上面这五条不是我在复述。
+  - **仍未做的边界**：`CORE-090` 的 `mandatory` 仍是 `false`，因为契约那一条写的是「**正常退出**与崩溃恢复」，而这一版只覆盖崩溃恢复那半（正常退出那半由 `CORE-020` 的 `leave_after_join_observed` 证）；另外「启动窗口里崩溃留下的 pending outbox」这一窗口依然只能由单测对着真账本覆盖（见上一条）。
+- [x] **`MINEKIN_DOMAIN_STILL` 这条判据第一版是错的，而且错得很有意思**：它用「两次读数不同」判「Kin 动了」，于是第一次跑就报 `the Kin moved without being asked to`——而日志里那段位移是**被猪拱的**（世界里有召来的猪，它走到 Kin 身上把它推了 1.5 格）。**「被推」与「在走」是两件事**，一个是环境、一个是残留的输入：现在按**距离**判（首末读数的大圆距离 > 2 格才算走了——步行是 4.3 格/秒，两者差着数量级），并把测到的距离写进日志让读的人自己判断。同一条判据的其余部分也有同样的脆弱性（`settled` 用的是「最后两次完全相同」），只是还没被撞上。
+- [x] **一个反复咬人的工具问题，这次顺手治了根**：我用 heredoc 往 `domain.sh` 里写块时，`\n` 会**变成真的换行**，于是 `printf '...\n'` 落进文件是「字符串里带一个裸换行」——bash 照样能跑、`bash -n` 也照样通过，只是源码不可读，而且这类错误我这几批已经制造了十几次。现在文件里的这种残骸全部按一个明确的规则修好了（**当前导引号数不成对、且下一行以引号开头**时合并，并把换行写回 `\n` 转义；awk 那种跨行单引号串的下一行不是引号开头，所以不会被误伤），并且判定规则留在了这一条里——下次再犯，一眼能认出来。**同一族的第二个机制，2026-09-20 又踩了一次并记在这里**：用脚本改 `*.sh` 时，Python 的 `write_text` 在 Windows 上会把 LF 换成 CRLF；而 `.gitattributes` 规定 `.sh` 是 `eol=lf`，于是脚本在容器里会带着 CR 进 bash——`set -euo pipefail
+` 里的 `pipefail
+` 不是一个合法选项名，整个脚本当场失败。抓到它的是仓库里已有的那条契约测试（`test_runner_scripts.py` 要求 `.sh` 无 CR），它本来就在，正是因为这类损坏光看源码看不出来。改 `.sh` 的脚本一律 `write_bytes` 或 `newline="
+"`。
+- [x] 不可变 evidence bundle 的封存与校验：manifest 与冻结形状一致，工件按 sha256 记账，bundle 摘要覆盖 manifest 字节；同一目录绝不覆盖旧 run（改正是新 run，不是编辑）；工件或 manifest 含凭据正文即整体拒封——不做就地脱敏，静默改写的日志比缺失的日志更糟；校验端重新对账摘要并检出缺失、篡改与未声明文件。工件名走白名单而非黑名单：Windows 上 `/x` 既非绝对路径、拼接又会替换 bundle 根。
+- [x] 报告诚实性规则：缺 expected/observed 对照时结果不得是 `PASS`（只能 `INCOMPLETE`），`PASS` 不得带 failures，`FAIL` 必须有 reason code，只有先后无法在时钟误差窗口内判定时才用 `AMBIGUOUS`。
+- [x] candidate→tested 晋级检查：case manifest 按冻结 schema 校验（含 `mandatory` 必须是布尔——真值字符串会把用例悄悄移出晋级门禁；`assertions` 不得为空），`case_version` 用用例定义自身的摘要，因此改过用例就必须产生新 run；只有 mandatory 用例全部拿到「已校验且结果为 `PASS` 且版本一致」的证据才可晋级，缺证据/未校验/非 PASS/版本不符分别给出稳定原因码；非 mandatory 用例不拦晋级。
+- [x] **仓库自检类用例的断言第一次被真正执行了（`tools/run_repo_case.py`）。** `W00-CONTRACT-001` 的四条断言（schema 都带版本、fixture 摘要对得上、runtime input 不引用 oracle、产品包不导入 orchestrator）此前只有"有实现"这一层保障——`check_case_assertions.py` 保证名字指向存在的东西，但**没有任何东西真的跑它们**，而这类用例从不启动客户端，运行时那套"读 run document / 读账本"的材料它一样也没有。现在这个工具按用例声明的顺序逐条执行：`tool` 类直接跑那个文件，`pytest` 类跑 `python -m pytest <file>::<test>`，每条一个子进程，退出码就是那条断言的判决。**登记表同时是白名单**：一个用例只能点名登记表已经指向的东西，因此"用例"不可能变成"跑任意命令"的入口。
+  - **判决形状与运行时那条一模一样**（`expected`/`observed`/`failures`/`unimplemented` + `result`），这是刻意的：封存那一端据此记账时**不需要知道这个 case 是哪一类**。"没实现"仍然与"没通过"分开——一条断言没人实现是 `INCOMPLETE`，不是 `FAIL`。
+  - **实测**（本机真跑，不是 mock）：`python tools/run_repo_case.py --case tests/fixtures/cases/w00-contract-001.json` → 四条全部 `held: true`（1 条 tool + 3 条 pytest）、`result: PASS`、退出码 0；把 `--root` 指向一个什么都没有的目录 → 四条全变 `NO_IMPLEMENTATION`、`INCOMPLETE`、退出码 2，而且**一条都不会被执行**（目标不存在时运行它只会报 shell 的失败，而不是关于这个仓库的判决）。
+
+- [x] **上面那个工具的一个真问题修掉了：断言按「谁判得了」分了几种判官，而 runner 现在只执行它判得了的那些。** `HOST-030` 的四条**运行材料**断言（由 `assert_case_evidence.py` 对着一次跑完的运行判）此前被 `run_repo_case.py` 报成 FAIL，而它们并没有失败：`command_for` 对 `tool` 类实现**只给脚本路径、不给任何参数**，而那个判官需要 `--case`/`--run`，于是它退出在 argparse 的 usage 错误上——**红的样子指着一个不存在的问题**（与 `MSYS_NO_PATHCONV`、`buf --buf` 那两条同一类）。现在 `Implementation` 多了一种 kind：`runtime`，由 `_runtime(...)` 用于全部 43 条运行材料断言；`run_repo_case.py` 只执行 `PERFORMABLE_KINDS`（`tool`/`pytest`），`runtime` 类进 `unimplemented`——也就是**两个判官共用**的那个词（「这个判官判不了它」），于是判决是 `INCOMPLETE` 而不是 FAIL。**这不是新词汇**：`assert_case_evidence.py` 一直用同一个桶表示「我这里没有能执行它的东西」，`result` 的注释也写着「没有被断言的东西 = 未判，而不是通过」。
+  - **两处细节是刻意的。** **（一）kind 的检查排在 `missing_reason` 之前**：一个 `runtime` 断言的目标在不在，是**登记表那道门禁**的职责（它每次都查），runner 不该因为那个目标不在自己给的 root 下就把它报成失败——**「判不了」与「不存在」是两件事**。**（二）`command_for` 遇到 `runtime` 直接抛 `Unrunnable`**，而不是返回一条空命令：问一个这里跑不了的命令应该是个错误，而不是一条会被执行的东西。
+  - **实测三条，都是真跑。** `HOST-030` 现在 `INCOMPLETE`、`checks: []`、四条名字全部出现在 `unimplemented`、退出码 2；`W00-CONTRACT-001` 仍然 `PASS`、四条 held、退出码 0（**判得了的用例一点没受影响**）；**变异验证**：把登记表里 `_runtime` 改回 `tool`，那条端到端用例立刻红（1 failed / 16 passed），改回来又绿——**「哪类断言归哪个判官」这件事由测试钉住，而不是由注释钉住**。
+  - **顺带纠正一条我此前写下的判断**：这里原来记的是"套用运行时那个形状就得编造 launcher 摘要"。`world.kind: "none"` 定下来之后再看，这句话**太悲观了**：这个用例的 `inputs` 恰恰就是那份已评审的 bundle 与 schema/proto 夹具，因此 manifest 里那些"这次检查的是什么"的字段（`launch_plan_digest`、minecraft/loader/fabric API、`protocol_schema_digest`）**正是它要检查的东西本身**，填进真实值不是编造。仍然没做的是：**它还没有 bundle**，而它该住在哪里也需要一次决定——一次仓库自检不是某个 Kin 的运行，`kin/<kin_id>/run/evidence/<run-id>/` 这个地址对它不适用。
+- [x] case 声明的断言必须有实现：case manifest 里的断言名一直是自由字符串，晋级机制又照单全收 bundle 里记的东西，于是「用例点名了一个没有任何东西实现的断言」或「实现被改名」都不会被发现。现在 `tools/check_case_assertions.py` 维护一张名字→实现位置的登记表（实现分 `tool` 与 `pytest` 两种），既拒绝用例点名未登记的名字，也核对每个登记目标确实存在（pytest 那条还会确认函数名仍在文件里），改名即失败。它只校验**声明**而不运行检查——运行是 orchestrator 的事，属于需要真实客户端的运行时用例。已接入 CI 的 python job。
+- [x] 让 case 真正跑出 bundle（**运行时**用例这一半）：见下面那条完整记录。仓库自检类用例（`W00-CONTRACT-001` 这种根本没启动的）仍然**没有** bundle，也仍然不该有——套运行时那个形状就得编造 launcher 摘要——但现在这不再是"没有命令入口"的问题，而是"这类用例的 evidence 该长什么样"的问题，且没有任何东西因为缺它而假装通过。
+- [x] case manifest 的 oracle 边界由 `tools/check_boundaries.py` 检查：`inputs` 不得出现 oracle 标记，`oracle_inputs` 必须落在 oracle 目录内。产品侧只校验结构——产品代码连 oracle 的名字都不许出现，这条规则曾经被我错误地放进产品里，是 `check_boundaries` 抓出来的。
+- [x] **`evidence verify` 有命令入口了，run 目录约定也定了。** 这条原来卡在两件都「未定」的事上：run 目录约定与断言谓词语义。约定现在定了，并写进 `docs/run-directory-proposal.md` 的决定四：一次 Core 运行 = 一个 run id（uuid4 的 hex），它的证据封存在 `<kin>/run/evidence/<run-id>/`，**目录名就是 run id**，所以只拿到 run id 的校验端有一个算得出来的地址。校验端**不要求 `MINEKIN_KIN_ID`**：bundle 是拿来交给别人的，查它的人通常不是跑它的人，身份根/账本/artifact 缓存都不是回答「这份证据还立不立得住」所需要的东西；于是在数据根下的每个 Kin 里找这个名字，找到 0 个或 2 个都报 `CONFIG` 而**不挑一个**（run id 是 uuid4，撞名意味着其中一份不是它自称的那份，挑任一个都会把一次运行的证据记到另一次头上）。run id 变成路径段之前按**标识符规则**校验（`domain.ids` 那一条），而不是去找 `..`：不是 uuid 的 run id 指不到任何运行，于是它连文件系统都不该碰。**实测**走的是真实命令行入口（不是进程内调用 `run()`），`MINEKIN_HOME` 是真目录：封好的 bundle → `exit 0`、`status: verified` 且报出 `bundle_digest`；把 `server-truth.txt` 改一个字节 → `exit 12`、`violations: ["ARTIFACT_DIGEST_MISMATCH:server-truth.txt"]`；未知 run id → `exit 10`；`../home` 这种 id → `exit 10`，消息是「不是可用的 run id」。`sealed`（权限位）与 `verified`（摘要）**分开报**：摘要才是保证、权限位只是提醒，所以摘要对而权限位丢了仍然算 verified，而校验**不写一个字节**（有一条测试把整个目录的文件名/大小/mtime 取前后两次比对，并断言封着的仍是封着的）。
+- [x] **目录名就是归属**，所以 manifest 里的 `test_run_id` 与目录名不一致即 `RUN_ID_MISMATCH`。bundle 只按目录名被认领（`promotable` 判定与报告都是用 `directory.name` 当 run id），把一份 bundle 搬到另一个 run id 下必须立刻被发现，否则晋级检查会把一次运行的证据记到另一个用例名下。**（原先这条检查只写在 `evidence verify` 里，晋级路径并不查它——见本节末尾那条 fail-open 记录；现在它只有一处实现 `verify_addressed_bundle`，三条路径共用。）**
+- [x] **一个运行时 case 第一次真正跑出了 bundle，而且是 `evidence verify` 自己读回来的。** 这条原来卡在两件事上：bundle 的形状是为运行时用例设计的（见上一条，仓库自检用例套不上），以及"谁来封、封哪些东西"没有落地。现在 `tools/seal_run_evidence.py` 做了三件事，**顺序就是要点**：先让 `assert_case_evidence.py` 判，把它的答案**原样**记进 bundle（这个工具自己不做任何通过与否的判断，所以封出来的记录不可能与它依据的裁决不一致）；再收集这次运行留下的东西；最后封到 run id 算出来的那个地址上（上一条 `evidence verify` 定的约定）。
+  - **每个字段都有量出来的来源，没有一个是为了填格子编的**：`launch_plan_digest` 与 minecraft/loader/fabric_api 来自 launch plan；`bridge_digest` 是 recipe 里那个 pin；`protocol_schema_digest` 是 **`proto/` 树按 recipe 自己的树摘要规则**算的（一个仓库里"树摘要"只有一个意思，两个平台同值）；`server_jar_sha1` 从**挂载进来的那份 jar 的字节**量出来（`4707d00e…`，与 pin 一致）；`server_config_digest` 是 `load_server_profile(...).revision`；世界里那个 seed 是从**服务端自己重写过的** `server.properties` 读回来的（`minekin-p0-controlled`），读不到就写 `unrecorded` 而不是拿配置值顶上；`server_observed_name_uuid` 来自**服务端自己的** `usercache.json`；`configured_profile` 只留文件名与摘要前缀，宿主路径一个字节都不进 bundle。
+  - **环境四项也是量的**：`Linux 6.18.33.2-microsoft-standard-WSL2`、`openjdk version "21.0.12" … Temurin-21.0.12+8`、`20 vCPU / 7.6 GiB`、`llvmpipe (LLVM 20.1.2, 256 bits)`。最后这一项是 harness 在**同一个 `xvfb-run` 包装下**跑 `glxinfo -B` 量出来的——原版 1.21.4 的客户端日志里**不打印 GL vendor/renderer**（量过：`latest.log` 里只有 `Backend library: LWJGL version 3.3.3-snapshot`），所以这个字段不能从日志里凑，只能自己量。
+  - **工件九件，三条时间线各有其物**：`bridge-trace.jsonl` 是**这次运行**的账本行导出（按 `run_id` 取，带 `payload_hash`，另一次运行的同一事件不在里面——有用例钉住）；server truth 是服务端自己的 `server.log`、`usercache.json` 与 `server.properties`；orchestrator 那条由工具**撰写**（case、服务端目录、这次会话的 argv、裁决、时间），因为 harness 自己做过什么本来没有别的地方记着。另外还有 Core 自己的 run document 与客户端**未经筛选**的 `stdout/stderr/latest.log`——整段封进去而不是只封筛出来的一段，读的人才能拿它去核对任何筛选结果，而不是只能相信筛选。
+  - **harness 接线**：`MINEKIN_DOMAIN_CASE`（不设置则这次运行的一切都不变），有界地等 leave 行落地、量渲染器、封存，然后**用 `minekin evidence verify <run-id>` 把它读回来**并打印那个答案。case 运行的退出码也改成 **case 的答案**（PASS→0，否则 1）而不是会话的退出码——后者对每一次 harness 运行都是 **14**（`IPC_PROTOCOL`），因为 harness 结束会话的办法是终止客户端，Core 因此记 `BRIDGE_LOST`。这一点是量出来的，不是猜的。
+  - **三次真实 domain 运行**（容器内，真服务端 + 真客户端）：第一次 `FAIL`，理由 `leave_after_join_observed:OUTCOME_NOT_A_CLEAN_EXIT:BRIDGE_LOST`——**错的是我的断言而不是那次运行**：它要求 Core 报 `CLIENT_EXITED`，而 harness 结束会话必然让 Core 先看到通道关闭，这等于在断言 harness 的手法而不是 Kin 的离开；契约要的是**服务端**观察到的离开，所以那条要求被删掉并把这段测量写进注释。第二、三次 `PASS`：9 件工件、`bundle_digest` 记在报告里、`evidence verify` 报 `verified: true, sealed: true, violations: []`、进程退出码 0。
+  - **顺手被真实运行顶出来的两个缺陷**（各自都有量到的事实，不是推测）：
+    - `_is_sealed` 原来问的是 `os.access`，而权限位对 **uid 0** 不适用：容器里以 root 封存的 bundle 文件确实是 `400`、目录 `555`，而 `os.access(.., W_OK)` 报 `True`，于是**每一份真封好的 bundle 都被报成没封**。现在问的是模式位本身（"封好了没有"与"谁在问"是两件事），并有用例把"谁在问不影响答案"钉住。
+    - `RESULT_NEEDS_ASSERTIONS` 原来要求**任何**非 `INCOMPLETE` 结果都得同时有 expected 与 observed，于是"三条断言全都没过"的那种运行**根本封不进去**——而那正是契约说必须留下的证据。现在这条规则只约束**在声明某种结论**的结果（`PASS`/`AMBIGUOUS`）；`FAIL` 由它的理由支撑，`INCOMPLETE` 本来就不声明任何东西。`PASS` 那条守卫没有放松（有 expected 而 observed 为空仍然不能 PASS）。
+  - **还没做 / 仍未定的**：`case_version` 只覆盖用例**定义**（manifest 的摘要），**不覆盖断言的实现**——这次把 `leave_after_join_observed` 从"要求 CLIENT_EXITED"改成"只看服务端那一行"并没有改变任何一份 manifest 的摘要，于是同一个 case 版本可以对应两种不同的判据。这是"一个 case 版本应当覆盖什么"的一个真问题，留在这里没有偷偷绕过去。（2026-09-22 已做，见本节末尾那一条：用例现在把每条断言的实现摘要记进 manifest，`case_version` 因此覆盖判据本身，而不只是判据的名字。）另外：harness 是**手动**指名 case 的，没有任何东西核对开关与场景是否一致；`replay` 仍然没有入口（见下条）；非 case 的 harness 运行与以前逐字相同。
+- [x] `replay <evidence-dir>` 仍然没有入口，因为它要的东西没定：重放要把事件流重新过一遍状态机、再与 fixture 的 `expected_projection` 比对（`tests/fixtures/replay/session-preparing.v1.json` 从 W00 冻结到现在**没有任何东西读它**），而重放需要一个 projector。bundle 里现在**已经有**这次运行的完整事件流（`bridge-trace.jsonl`），所以缺的是 projector 与"比较什么"的语义，不再是"事件流在哪"。 **（2026-09-22 核对：已闭合——入口是 `tools/replay_evidence.py` 与 `domain/replay.py`，那份从 W00 冻结的 fixture 现在有了消费者——见本节末尾那一条（15 条用例）。bundle 那条路今天会拒绝，理由也记在那一条里。）**
+- [x] **`replay` 有入口了：fixture 那条路是完整检查（那份从 W00 冻结至今没人读的 fixture 终于有了消费者），bundle 那条路今天**拒绝**——而"拒绝"就是这一步真正的结论。** projector（`domain/replay.py`）把事件流按 `session_state.py` 那张**冻结的迁移表**折叠成 `{state, last_event_position}`，`tools/replay_evidence.py` 是入口。
+  - **"比较什么"的语义，由 fixture 自己定，而不是我发明**：`--fixture` 走的是完整检查——事件逐个核对 `payload_hash`（用**事件存储自己的那个** `payload_digest`，一次读法）、状态按表折叠、结果与 fixture 的 `expected_projection` 逐项比。那份 fixture 从 W00 起就写着"先提交 fixture 与预期、再提交实现"，这一步就是那个实现；`tests/contract/test_replay_evidence.py` 的第一条断言它真的相符，于是它从**文档**变成了**契约**。
+  - **bundle 那条路现在会拒绝，而这是量出来的结论，不是没做完**：把 `bridge-trace.jsonl` 读出来会发现，Core 的账本记的全是"发生了什么"——`SessionProcessStarted`、`BridgeHelloAccepted`、`JoinObserved`、`PlayableEstablished`……**没有一个**记着"会话走到了哪个状态"。所以一次真实运行的时间线里**没有可折叠的东西**。从事件名反推状态（`PlayableEstablished` 看着就像 `PLAYABLE`）会是**对记录者的猜测，伪装成一次检查**，而 run document 已经记下了状态机真正到达的那个状态——从有损的事件流里再推一遍那个值，得到的不是核对，是巧合。要让它工作，得先让账本**记迁移**，那是关于**Core 记什么**的决定，不是关于 projector 能不能算的决定。
+  - **两种拒绝分得很开**：`ReplayRefused`（"这条流不是可重放的流"）与 `IllegalSessionTransition`（"状态机与这条流对不上"）。合并它们会让一份报告在最需要读的那一刻变得读不懂——前者说流读不出来，后者说两边对同一件事的说法不一致。有一条用例专门钉住"跳步被拒而不是被快进"（`STOPPED → PLAYABLE` 直接报错），另一条钉住合法的回退（`PLAYABLE → READY_MENU`）照常投影。
+  - **`last_event_position` 的两种读法，选了一个并写在字段上**：它是**游标**（消费到的最后一个事件的 1-based 位置，空流为 0），不是"移动了几次"。今天两种读法必然相同（冻结的表**不允许自迁移**，所以"带了状态但没动"这种事不可表示）——正因为今天相同、以后会分开，字段注释把话说在了前头。
+  - **顺手修掉一个我自己在上一轮留下的形状问题**：`rejudge_evidence.py` 与新的 `replay_evidence.py` 都把 JSON 报告打到 stdout 的同时，又往 stdout 打了一行人话——于是输出**不可解析**，机器读它就得先把最后一行剪掉。现在报告是 stdout 的全部，人话走 stderr（本仓库其它工具本来就是这个约定）。这是被新写的一条 `json.loads(result.stdout)` 顶出来的。
+  - **测试 15 条新增**（`test_replay.py` 7 条 + `test_replay_evidence.py` 8 条）：投影到最后一次合法移动；空流是初始状态 + 位置 0；没带状态的事件被拒（**且用例先重算 payload 摘要**，否则那会变成第二条"摘要检查"的用例、而真正要测的拒绝永远跑不到）；payload 不是对象被拒；不存在的状态被拒；跳步报的是表自己的 `IllegalSessionTransition`（连 source/target 一起断言）；合法回退照常投影；以及入口层面：冻结 fixture 相符、被改过的 payload 被摘要拒、被改过的预期是**不一致**（exit 1）、bundle 时间线无状态即拒绝、目录里没有时间线即拒绝、**带状态的时间线照常投影**（拒绝那条的负向对照）、bundle 与 `--fixture` 同时给也被拒。
+  - **实测（本轮只到本地锁定环境）**：`uv run --frozen` 下 ruff check/format、pyright（strict，0 errors）、`check_boundaries`、`check_case_assertions`、`verify_fixture_digests`，以及全量 pytest（**1546 通过 / 2 skipped**）。**没有跑真实 Minecraft**，也没接受 EULA；**任何 fixture 摘要都没有动**（那份 replay fixture 只被读，没被改），Bridge 与运行时的 Java 源码一行未改。
+  - **仍然开着的**：让账本记会话状态迁移（上面那条决定）——它一落地，`replay <bundle>` 就会开始做真正的检查，而 projector 一行都不用改。另外 `p0-core-internal-architecture.md` 第 10 条把 replay fixture 与 golden protobuf/framing/crash fixture 并列，其余几份的消费者状况**本轮没有逐一核对**，只核对了这一份。
+- [x] **冻结的产品入口 `minekin replay <EVIDENCE_DIR>` 已接通，而且产品 CLI 与 standalone tool 只走同一份 sealed/addressed bundle reader。** 主控完成两轮规格/工程双审查后，以 `de79a2bb09cca57dc70267495b108a1655a90e35` commit 并 push；本地、`origin/main` 与远端 `refs/heads/main` 已核为同一 SHA。reader 先验证整包，再对同一次读取的 `bridge-trace.jsonl` 字节复核 manifest 声明的 size/sha256 后才解析；外层 JSONL 与真实 SQLite 行里的 `payload_json` 都严格拒绝坏 UTF-8/JSON、空行、重复 key、未配对 surrogate、`NaN`/`Infinity`/`1e400`，并用事件存储的中立 canonical JSON 规则复核 `payload_hash`。bundle/trace/payload integrity 归 `STORAGE`，站得住但没有显式迁移的旧 bundle 稳定归 `SESSION / NO_STATE_TRANSITIONS`。迁移只从认证 payload 的显式 `from`/`to` 读取，普通事件可共存，`from` 必须与状态机当前值一致；不从 event type 猜状态，也不把 W00 fixture 的 `payload.state` 方言混进产品路径。只读测试同时核字节、mtime 与权限位；本地门禁 **1807 passed / 2 skipped**，Ruff、Pyright、boundaries、110 条 case assertions、fixture digests、workflow pins、diff check 全绿。**没有改 session 生命周期、没有跑 Minecraft、没有接受 EULA。**
+- [ ] 跑完 `CORE-001…090`、mandatory OFFLINE/ADMIT cases。
+- [x] **L6 baseline 从「打到终端的一行」变成了一份可复核的证据，而且真的跑了 10 分钟。** 契约要求 `p0-core: tested` 必须有「一轮有明确时长和环境的 L6 baseline」，采样器也早就在 harness 里（`MINEKIN_DOMAIN_SOAK_SECONDS`），但**那些数字从来没有进过 bundle**——`seal-run` 不收集它，于是「跑了多久、采了多少次、峰值多少」全是运行者的一面之词。这一步把它接成证据，并且**没有设任何阈值**（契约明写「阈值先测后定」）：
+  - **采样本身变成一条时间线**：每一行是 `label rss_kb threads elapsed_seconds`。加了最后一个字段才有「这次测量覆盖了多长时间」这个可判的事实——一堆没有时刻的读数说不出自己跨了多久。
+  - **harness 额外写一份 summary**（`requested_seconds`/`interval_seconds`/`passes`/`samples`/`ended_early`/`failed_samples`），sealer 与 `assert_case_evidence.py` 各多两个输入（路径或文本，与故障记录同一套），**读一次、判一次、封同样的字节**：bundle 里因此多出 `soak-samples.txt` 与 `soak-summary.json`。两者分工明确：summary 说「要求了什么、有没有提前结束」，samples 说「测量实际到哪」。
+  - **用例 `CORE-100`（`mandatory: false`，W70）三条断言**，全部是测量完整性的判据而不是性能判据：`first_snapshot_admitted`（soak 的世界是**被准入过的**，否则它的资源数是在给一个没有世界的进程画像）、`the_soak_held_for_the_duration_it_was_asked_for`（summary 没提前结束，且样本实际跨到要求的时长——容差一个间隔，因为最后一次采样必然落在到点之前）、`both_jvms_were_sampled_throughout_the_soak`（两个 label 各自有样本、数量相等、且**各自都撑到末尾**——一个中途不再被采样的进程就是中途不在了，这正是 soak 存在的意义）。每条都有负向变异用例。
+  - **报告不再从活文件里算**：新增 `tools/report_soak.py`，只读**已封存**的 bundle（先 `verify_bundle`，摘要不符就拒绝），输出 per-process 的最小/首个/末尾/P50/P95/P99/最大 RSS（MB）与线程峰值，并**写明百分位用的是 nearest-rank**（不写方法，"P95" 就不是一个数），同时带上环境四项与要求的时长——一份没有机器的基线是没人能拿来比较的数。它**报告不判定**：没有人类基线之前，任何「优秀」阈值都是在编造那个正要被测量的数。
+  - **实测（受控域，一轮 600 秒、间隔 10 秒的真运行）**：两个进程各 **62 个样本**、跨度 594 秒、`ended_early: false`、`failed_samples: false`、case PASS、12 件工件、`evidence verify` 报 `verified: true, sealed: true`、harness 退出码 0。分布（`report_soak.py` 从封存字节算出）：
+    - **client**：min 1584 / first 1585 / last 1603 / **P50 1607** / P95 1611 / P99 1618 / max 1618 MB，线程峰值 **115**；
+    - **server**：min 826 / first 826 / last 913 / **P50 912** / P95 913 / P99 913 / max 913 MB，线程峰值 **78**；
+    - 环境：`Linux 6.18.33.2-microsoft-standard-WSL2`、Temurin `21.0.12+8`、`20 vCPU / 7.6 GiB`、`llvmpipe (LLVM 20.1.2, 256 bits)`（**软件渲染**这一档；GPU 档仍未测）。
+  - **这一步明确不做的**：FPS/TPS/GC/队列深度**没有来源**（契约列了它们，本仓库的采样器只读 `/proc`），所以报告里没有它们，也不假装有；GPU 渲染档的基线没有跑（本机只有 llvmpipe）；`CORE-100` 的 `mandatory` 仍是 `false`——L6 的基线是一轮证据，不是一个点亮门禁的用例，等阈值定下来再说。
+- [x] **门禁有入口了，而且它现在的答案是"还不行"，并把缺的东西点名列出来。** 晋级规则从 W70 起就是库（`domain/cases.py` 的 `evaluate_promotion`、`adapters/evidence/promotion.py`），但它一直没有东西可读——磁盘上没有任何一份 bundle。现在有了，`tools/report_promotion.py` 就是把它们读出来回答这个问题的命令：遍历数据根下每个 Kin 的 `run/evidence/`，逐份校验，再按工作包给出 `promotable`/`blocking_cases`/`blocks`，最后按"指定的那个包"或"全部 mandatory case"决定退出码（0 可晋级 / 1 被挡 / 2 问题本身问不出来）。它**只读不写**：契约说只有 Registry 的 promotion job 能改 bundle 状态，这里没有 Registry，所以它给的是那份工作需要的答案，而不是替这个仓库宣布自己已经 tested。
+  - **两件事刻意不当作同一件事**：校验不过的 bundle 仍然**参与**判定并被记成 `EVIDENCE_NOT_VERIFIED`，而不是被跳过——一份从报告里悄悄消失的证据会让数据根显得比实际更空；而"只读位被恢复过"的 bundle 会被列进 `unsealed` 但**不单独构成阻挡**，因为摘要是保证、权限位只是提醒（这是 `evidence verify` 早就采取的口径）。读不出来的目录（`manifest.json` 存在但坏了）会被**点名**列进 `unreadable`，而不是让整个报告崩掉——这也是它不直接用 `evaluate_case_promotion` 的原因：那个函数自己重新校验目录，遇到读不了的就抛，报告就没法把"我读不了它"当成阻挡理由说出来。
+  - **一次失败不会挡掉后来的通过**：数据根上同一次 case 的 FAIL 与 PASS 会同时存在（契约要求失败证据保留、修好之后重跑而不是编辑），判定按"有满足的就算满足"。库里 `blocks` 是**对所有候选**收集的集合，因此一个 `promotable: true` 的包旁边仍可能列着 `EVIDENCE_IS_NOT_A_PASS`——所以报告把每份 bundle **逐条列出**（run_id、case_id、case_version、result、verified、sealed、violations），让那个理由有主可查，而不是让人去猜。这条语义有用例钉住。
+  - **真实数据根上的实测**（容器里那四次真实运行留下的四份 bundle）：`--work-package W40` → **退出码 0**、`promotable: true`、`blocking_cases: []`，逐条列出 1 份 FAIL（断言放宽之前那次）与 3 份 PASS、全部 `verified`/`sealed`；不加 `--work-package` → **退出码 1**，`overall.blocking_cases: ["W00-CONTRACT-001"]`、`blocks: ["CASE_WITHOUT_EVIDENCE", …]`——仓库自检类用例**没有** bundle，而那正是上一条说的、还没有形状的那一类。
+  - **在"已登记的 mandatory case"这个范围内，门禁第一次整体成立**：`overall.promotable`、退出码 0。仓库自检那一条也封出了自己的 bundle（`repo-evidence/<run-id>/`，与运行的 bundle 并列而不在某个 Kin 里面——见 W00 那条）。
+  - **这个"成立"要说清楚它成立在哪一层**：晋级规则管的是**登记表里那些 mandatory case**，而现在登记表里有三条（W00-CONTRACT-001、CORE-010、CORE-020）。验证契约要求的是 L0–L5 **全部** mandatory case 有 PASS evidence，而 L3（LAN）、L4（最小输入）、L5（故障安全）的用例**还没有定义**，所以"契约意义上的 tested"**还没有达到**——把现在这个结果读成"P0 已经 tested"是错的，报告里的 `overall.promotable` 只是说"这些包的这些用例都有证据了"。
+- [x] **晋级路径上两个可证明的 fail-open 堵上了，两次都是把"报告没说"变成"点名拒绝"。**
+  - **（一）一个 run id 出现在两个候选根下时，报告原来按后写覆盖。** `discover()` 用 `verifications[directory.name] = ...` 收集，同名目录谁后遍历到谁留下，另一份**不留痕迹地消失**。现在 `discover()` 在校验之前按目录名记账，第二次见到同名目录即以 `Unusable` 拒绝（退出码 2），消息点名两份目录；一份读得出、一份读不出也一样拒，因为碰撞是名字的问题，不是可读性的问题。跨 Kin 与 Kin↔`repo-evidence` 两种形状都有用例。
+  - **（二）promotion 路径原来只 `verify_bundle`，不查目录名与 `manifest.test_run_id` 是否一致。** 现在 `RUN_ID_MISMATCH` 与 `verify_addressed_bundle` 只有一处实现，`evidence verify`、`evaluate_case_promotion` 与 `report_promotion.discover` 三条路径共用。不匹配的 bundle 会进入 `unverified` 并列出 `violations: ["RUN_ID_MISMATCH"]`，以 `EVIDENCE_NOT_VERIFIED` 阻挡它声称的 case；若另有合规 PASS，既有的 any-satisfying-candidate 语义保持不变，但 mismatch 仍被完整列出。
+  - **先写失败测试**：跨 root 重复 run id（两个 Kin 与 Kin↔repo 两种形状）、目录/manifest mismatch、以及 mismatch + 合规 PASS 的组合，均在实现前失败、实现后通过。
+- [x] **`case_version` 现在覆盖判据本身，不再只覆盖判据的名字——上一节自己写下、刻意没有绕过去的那个洞。** 记在这里的那句话是：「`case_version` 只覆盖用例**定义**（manifest 的摘要），**不覆盖断言的实现**——这次把 `leave_after_join_observed` 从『要求 CLIENT_EXITED』改成『只看服务端那一行』并没有改变任何一份 manifest 的摘要，于是同一个 case 版本可以对应两种不同的判据。」现在每份用例在 manifest 里记录**它点名的每条断言由哪段源码执行**（`assertion_digests`：断言名 → 实现的 sha256），因此「改了判据就必须换版本」由 manifest 自己的摘要给出，不靠另一条规则去记得。
+  - **为什么放进 manifest 而不是另立一份 pin**：换版本这件事的证据是 `case_version`，而它是 manifest 的摘要；把实现摘要放进 manifest，`case_version` 就自动覆盖判据，晋级那边一行都不用改（`item.case_version != case.digest` → `CASE_VERSION_MISMATCH` 照旧）。另立一份 pin 会让「版本没动但判据动了」继续可能，只是多了一个地方能被人忘记。
+  - **摘要取什么**：取执行该断言的**那一个函数**的源码（`ast` 定位，从装饰器那一行到最后一行；目标只实现一条断言时取整个文件），**docstring 算在内**——换一种说法说清一条断言是什么意思，就是换了这条版本声称覆盖的东西；一个跳过散文的摘要会把同一个检查的两种说法判成同一个。跨平台按 LF 归一化后再算：同一份函数在 Windows 与 Linux 上是同一个实现，否则摘要回答的是「这份记录在哪台机器上做的」。
+  - **记录按用例限定，这是刻意的**：改一条**这份用例没点名**的断言不会动它的版本，因为到处都会动的版本等于没有版本。实测（给 `leave_after_join_observed` 插一行注释再跑门禁）：只有 `CORE-020` 与 `CORE-060-CLIENT-001` 这两个真的点了它的用例变红，其余 14 份一行不动。
+  - **门禁拒绝四件事**：记录缺失（`has no entry for …`）、记录对不上（`is implemented by … and recorded as …`，并点名是哪条断言）、记录了用例**没有点名**的断言（`which this case does not name`）、以及实现解析不出来（沿用既有的 `does not exist` / `has no …`）。`--record` 是唯一的更新路径，而那是改动**评审之后**才该跑的一步——消息里就是这么写的。
+  - **一个真被测试逼出来的缺陷**：`--record` 的第一版把缩进写进了替换文本、却没把缩进包含进匹配范围，于是**每记录一次就把那个键往右挪两格**——第一次看不出来、第二次一定不对。修法是把行首空白纳入匹配（`^(?P<indent>[ 	]*)…`）再原样写回，并加了「同一条命令连跑两次产生逐字节相同的文件」这条用例。顺带：插入用的换行符按文件自己的约定，CRLF 的文件不插一行 LF 进去。
+  - **用例文件是就地插入一段键，不是重新渲染**：重新渲染会把 16 份用例整体重排，把「判据换了」这件事埋进整文件 diff 里。实测 diff 只有 93 行插入、0 行删除；并有一条用例把记录前后去掉该键那几行再逐行比对。
+  - **测试 14 条新增**（`test_case_assertions.py` 从 4 条到 12 条、`test_case_registry.py` 从 46 到 48）：记录齐备（真仓库每一份用例的 `assertion_digests` 键集合恰好等于它的 `assertions`——否则门禁的「绿」可能只是「没得比」）；记录缺失/过期/越界各自单独红；同一份变异下**没点名该断言的用例仍然绿**（上一条的负向对照）；`--record` 修好之后再跑门禁通过、且**连跑两次逐字节相同**；就地插入不动其余行；CRLF 与 LF 两种 checkout 给出同一个摘要；domain 侧则钉住 `assertion_digests` 进 `as_document()`、**进了 manifest 摘要**（换一个值就换一个版本）、形状不合法报 `INVALID_ASSERTION_DIGESTS`、而「没记录」**不算 manifest 非法**——那是一个还没记录的用例，不是一个写错的用例，该由门禁带着「缺了哪条」的消息去拒。
+  - **pin 只动了两处**：16 份用例 fixture 与 `schemas/case-manifest.schema.json`（新增一个可选字段）重录进 `manifest.sha256`；重录脚本先断言「凡是摘要变了的文件都必须属于这一次改动」，反过来也一样。**没有跑真实 Minecraft，Bridge 与运行时的 Java/Python 源码一行未改。**
+  - **仍然开着的**：`evidence verify` 仍然只核对摘要、**不会**从封存的字节重判一次判决（2026-09-22 已做：`tools/rejudge_evidence.py` 从封存字节重判一次并逐项比对，见 W70 一节末尾那一条——`evidence verify` 本身**仍然**只核对摘要，那是刻意的，判据属于测试域。）——这一步让「重判」有了意义（重判所依据的判据现在被钉在版本里），但重判本身还没做；另外 `world.kind` 那两条「仍然开着」的旧注记是**过期的**（`WORLD_KINDS` 在 `domain/evidence.py` 里早就有，两处校验都在），本轮没有顺手改掉，留给下一次读到那里的人。
+- [x] **封存的判决可以被重判一次，而且重判必须与封存的一致——`evidence verify` 一直只说"字节还是那些字节"，现在有东西说更强的那句话了。** 上一节把「判据有没有变」钉进了 `case_version`；这一节补的是另一半：**写在字节上的判决，这些字节是否真的支持**。缺口是实测出来的，不是推断的：一份把 `failures` 清空、`observed` 填成 `expected`、`result` 改成 `PASS`、并**重新生成 `bundle.sha256`** 的 manifest，`evidence verify` 报 `verified: true, sealed: true, violations: []`——摘要证明的是"字节没被动过"，不是"这些字节支持这个判决"。
+  - **为什么是 `tools/rejudge_evidence.py` 而不是给 `evidence verify` 加一步**：判据（断言）属于测试域，读的是运行材料、不属于任何要出货的产品；产品代码 import `tools/` 会得到一个依赖 `tools/` 的 wheel，`check_boundaries.py` 存在就是为了拦这类事。所以 `evidence verify` 继续只说它能说的，更强的那句话由测试域里的工具说——那里本来就是判据住的地方。这也解释了为什么这件事在契约里被写成"仍未做"而不是"顺手加个 flag"。
+  - **bundle 此前缺两样东西，补的是第一样**：判官**被交给的输入**——服务端看见的那个名字、这次运行属于哪个 Kin、以及它前面那一次是哪一次。这些不在任何文档里（一个被强杀 Core 的运行从来没写过会说这些的文档），所以此前的 bundle 只能靠猜来重判，而猜不是"同一个问题的第二次读"。现在封存端多封一件 `asserter-inputs.json`。
+  - **第二样是"同一份材料"，做法是把工件名收成一处**：材料的每个工件名本来散在 `collect_artifacts` 的字面量里，现在由**读取端**（`assert_case_evidence.py`）声明、封存端 import。理由是失败的样子：封存端写了一个读取端不认识的名字**不会失败**，它会读成"这次运行没有这一项"——那是另一个更安静的答案。顺带把两次读用户缓存（服务端目录一次、封存副本一次）收成同一个函数：客户端自报的身份从来不是服务端看见了什么的证据，两次读法不一致就是同一个问题的两个答案。
+  - **三件事各查各的，而且第二种拒绝与第三种必须不同**：字节站不站得住（`verify_addressed_bundle`，`evidence verify` 跑的就是它）／bundle 点名的用例是否仍是**封存时那一版**（版本不符即拒判——判据搬了家，旧判决回答的是现在没人问的问题）／这些字节现在给出的判决与记录是否逐项一致（result、expected、observed、failures）。**把版本不符和判决不符分成两个答案**是刻意的：前者报成"重判不符"会让一次正当的用例改动读起来像一次篡改。
+  - **红/绿都是真的**：绿是"封出来的 bundle 重判一次仍得同一个 PASS"。红有两种，都走真实入口：**（一）** 删掉一条 observed（manifest 仍是合法的 PASS、observed 仍非空），重新生成摘要 → `verify_bundle` 说 `verified`，重判报 `OBSERVED:recorded=[…两条],re-judged=[…三条]`；**（二）** 让这次运行**真的失败**（把服务端日志的 `joined the game` 行去掉），封出 `result: FAIL`，再改写成 `PASS` 并重新生成摘要 → `verify_bundle` 仍说 `verified`，重判报 `RESULT:recorded=PASS,re-judged=FAIL`。**用例里明写了 `assert verify_bundle(bundle).verified` 这句话**，因为那个"通过"就是这个洞本身。
+  - **一条保真测试，是整件事成立的前提**：把 `read_run_material`（当时真的用来判的那次读法）与 `read_sealed_material`（从 bundle 读回来）逐字段比——kin/run/username/previous_run_id、run document、两个客户端日志按**同一顺序**拼出来的那一个字符串、账本事件、`ledger_readable`、服务端日志、身份表。只有 `overlay` 一个字段刻意不同（它是指向跑这次运行那台机器的路径；断言从那个目录里读的就是它的日志，而那些日志已经按自己的名字封进去了）。
+  - **测试 7 条新增**（`test_seal_run_evidence.py` 从 37 到 43，`ASSERTER`/`REJUDGE` 与既有的 `SEALER` 用同一条加载路径）：重判一致（含"记录的四个方面与重判的四个方面逐项相等"）；材料保真（上一条）；删一条 observed 被抓；失败运行被改写成 PASS 被抓（两处都先断言"篡改过的 bundle **仍然**验得过"）；用例版本搬了家 → 拒判且消息是 `the criteria moved`；bundle 里没有判官输入 → `read_sealed_material` 拒绝（**不是**通过 `verify` 拒绝——删掉一个已声明的工件会先被摘要检查拦下，那是另一个答案）。另外既有的工件清单用例加上了新工件名，并新增一条断言它记的是 `username`/`kin_id`/`run_id`。
+  - **实测（本轮只到本地锁定环境）**：`uv run --frozen` 下 ruff check/format、pyright（strict，0 errors）、`check_boundaries`、`check_case_assertions`、`verify_fixture_digests`、`check_bridge_artifacts`，以及全量 pytest（**1512 通过 / 2 skipped**）。**没有跑真实 Minecraft**，也**没有接受 EULA**；这一轮只改了 `tools/` 三个文件与一个测试文件，**任何 fixture 摘要都没有动**（没有新增用例、没有改用例定义），Bridge 的 Java 源码一行未改。
+  - **仍然开着的**：`--record` 之外的自动重判入口没有——`report_promotion.py` 与 `evidence verify` 都**不**做重判，重判是操作者对着一个 bundle 手动跑的一步；把它接进晋级报告需要先决定"一份重判不符的 bundle 在报告里算什么"（现在它只是一份判决与字节不符的 bundle，而晋级看的是 `verified` 与 `result`）。另外 `replay <evidence-dir>` 仍然没有入口——那件事要的是 projector 与"比较什么"的语义，**不是**"重判"，两者别混。
+- [x] **晋级报告现在也重判：判决与字节不符的 bundle 不能点亮它所属的包——上一节留下的那个"这是什么"的问题，答案定下来了。** 上一节做出了重判，但没有任何东西自动调用它，问题写成了一句："一份重判不符的 bundle 在报告里算什么"。现在 `report_promotion.py` 对每个**验得过**的 bundle 重判一次，不符的进 `EVIDENCE_DISAGREES_WITH_ITS_BYTES`（域里新加的稳定原因码），因此 `W40` 这种只有一条 mandatory 用例的包真的会被它挡住——端到端有用例：把一次**真的失败**的运行改写成 PASS 并重新生成摘要，报告报 `blocked`、`blocking_cases: ["CORE-020"]`、`blocks` 含那个码，而每份 bundle 那一条上也写着 `verified: true`、`re_judged: "DISAGREES"` 和 `RESULT:recorded=PASS,re-judged=FAIL` 的理由。
+  - **只有"不符"拦，"重判不出来"不拦，而且这是一个刻意的区分。** `ReJudge` 的注释把两种事实分开了：`DISAGREES` 是**关于 bundle 的事实**（字节与判决互相矛盾），`UNJUDGED` 是**关于读者的事实**（bundle 早于这条规矩、没有记录判官当时的输入）。后者在报告里逐份列出并带理由，但不拦——把它当成"不符"会让一次正当的封存历史读起来像一次篡改，而把它当成"同意"是这里唯一真的会漏的做法。**它不是一条绕过门禁的路**：把判官输入从 bundle 里删掉走不到这个状态——删掉 manifest 声明过的工件（`ARTIFACT_MISSING`）、留下 manifest 没声明的文件（`UNDECLARED_FILE`）都已经是校验失败，所以 `UNJUDGED` 只剩下"这份 bundle 早于这条规矩"这一种来源，而那种情况按本仓库一贯的规矩就是重封一次。
+  - **第一次把"必须重判"做成硬性要求是错的，而测试立刻说了出来。** 第一版让 `UNJUDGED` 也拦，结果 12 条测试变红——其中 `report_promotion` 的 7 条都是**手工造出来的 bundle**（`write_bundle` 直接写、没有判官输入），于是"晋级规则"突然依赖起"每个 bundle 都能被测试域重判"这件事，而这个耦合是不该有的：晋级要回答的是"这些证据能不能点亮这个包"，判据属于测试域，规则属于 domain。改成"只拦不符"之后那 7 条原样通过，而该拦的那条端到端用例是**真的**拦住了。**这就是那 12 条红灯的价值**：它们把一个不该有的耦合顶了出来，而不是被顺手改绿。
+  - **`CaseEvidence` 多了一个字段，而且没有默认值**：`re_judged`。理由写在字段上——生产者不等价，adapter 校验一个 bundle 时**不能**重判它（判据是测试域代码），能重判的报告逐份说明自己做了什么；给一个默认值会让两者变得不可区分。`case_evidence()` 因此多了一个显式参数，没被点名的 bundle 报 `NOT_ATTEMPTED`，而它在规则里既不算同意也不算不符。
+  - **实测（本轮只到本地锁定环境）**：`uv run --frozen` 下 ruff check/format、pyright（strict，0 errors）、`check_boundaries`、`check_case_assertions`、`verify_fixture_digests`、`check_bridge_artifacts`，以及全量 pytest（**1514 通过 / 2 skipped**）。**没有跑真实 Minecraft**，也没接受 EULA；**任何 fixture 摘要都没有动**（没有新增用例、没有改用例定义），Bridge 与运行时的 Java 源码一行未改。
+  - **仍然开着的**：重判在报告里是**逐份**做的，因此一份数据根里几十份 bundle 就要重判几十次——现在这些材料都是小的文本工件、断言是纯函数，所以没有量到问题，但这是**没量过**而不是**量过没问题**。另外 `evidence verify` 本身仍然只说"字节还是那些字节"（那是刻意的，理由同上一节）；`replay <evidence-dir>` 也仍然没有入口，那要的是 projector 与"比较什么"的语义。
+- [x] **`work_package` 从"形如 `W\d\d`"变成一份闭集，三份 `W90` 占位各自拿到了真实的名字——契约里那句"值得给宿主面一个正式编号"就是这一步。** `W90` 满足形状检查（`^W[0-9]{2}$`）却不指任何东西：路线图到 `W80`（`p0-nav-exp`）为止，而 host 面按验证契约是独立的 `host-integrated` 晋级面。读者读一份 bundle 时**说不出**它的证据属于哪个包，也**没有东西可以核对**这个说法——这与 `world.kind`（`WORLD_KINDS`）和 `assertion_digests` 是同一族的洞：*看起来像枚举、其实是自由文本*。
+  - **词汇表现在是**：`W00`-`W80`（core 切片内部的阶段，路线图给号的那些）加上契约与决策记录已经命名的三个**独立晋级面**：`p0-core`、`p0-nav-exp`、`host-integrated`。三种名字都在文档里存在，这也是为什么没有沿用"再编一个 `W` 号"的做法。
+  - **为什么要有两种名字**：`W00`-`W80` 是阶段，而 **L3（LAN join）不属于任何单一阶段**——它是 core 阶梯上的一级，建在 W70 之上但不属于它——所以 `CORE-030` 写它为之作证的**面**（`p0-core`），而不是借一个不属于它的阶段号。`HOST-030`/`HOST-040` 写 `host-integrated`。**这三份都是 `mandatory: false`**，所以这一步改的是**标签的诚实度**而不是任何门禁：`W90` 今天本来就不点亮任何包（`report_work_packages` 只列有 mandatory 用例的包）。
+  - **闭集落在两处，并有一条用例钉住它们相等**：`domain/cases.py` 的 `WORK_PACKAGES`（晋级按它分组）与 `schemas/case-manifest.schema.json` 的 `enum`（fixture 按它校验）。两份清单就是两套词汇，而其中一份会漂移——所以有一条用例断言 `enum == list(WORK_PACKAGES)`，另有一条断言真仓库里每一份用例的 `work_package` 都在词汇表里、且 `W90` 不在其中。域里那个 `^W[0-9]{2}$` 正则**删掉了**而不是留着当第二道检查：留着就是"形状"与"词汇"两个答案。
+  - **顺手定了一个先前含混的地方**：`_WORK_PACKAGE` 正则消失之后，`work_package` 的检查只剩成员资格一条，`INVALID_WORK_PACKAGE` 从"形状不对"变成"这个名字不存在"——消息不变而含义更准确。
+  - **用例 15 条新增**（`test_case_registry.py` 从 50 到 65）：`W90` 被拒且理由是 `INVALID_WORK_PACKAGE`（单独一条）；`WORK_PACKAGES` 里每一个名字都被接受（12 条参数化，这是"闭集不是窄集"的负向对照）；schema 的 `enum` 与域的元组逐项相等；以及真仓库 16 份用例的 `work_package` 集合都落在词汇表内、且不含 `W90`。
+  - **pin 只动了四处，全部属于这次改动**：三份用例 fixture（`work_package` 变则 `case_version` 变，这正是"改过用例就必须产生新 run"）与 `schemas/case-manifest.schema.json` 重录进 `manifest.sha256`；重录脚本先断言"摘要变了的文件恰好是这四个"，反过来也一样。`assertion_digests` **没有动**（判据没变，只是标签变了），`check_case_assertions` 照旧绿。
+  - **实测（本轮只到本地锁定环境）**：`uv run --frozen` 下 ruff check/format、pyright（strict，0 errors）、`check_boundaries`、`check_case_assertions`、`verify_fixture_digests`，以及全量 pytest（**1531 通过 / 2 skipped**）。**没有跑真实 Minecraft**，也没接受 EULA；Bridge 与运行时的 Java 源码一行未改。
+  - **仍然开着的**：三份 host 相关用例的 `mandatory` 都还是 `false`，所以 `host-integrated` 这个面今天没有任何门禁——把它变成门禁要的是 `HOST-001…100` 与 `HOSTCTL-001…090` 的真实运行（见 W70 之后那一段的 HOST 专题），不是改一个标签。另外 `p0-nav-exp` 在词汇表里但**没有任何用例**，这是刻意的：词汇表来自契约，不是来自 fixture，等 `W80` 真的有了用例它就已经在那里了。
+- [x] **"没有消费者的冻结夹具"从一句注释变成了能失败的一条规则，另外把上一轮自己欠下的那个数字量了。** 起因是上一节的收获：`tests/fixtures/replay/session-preparing.v1.json` 从 W00 起没人读，而**知道这件事的唯一途径是读过那句注释**——注释不会注意到什么。现在 `tests/contract/test_fixture_consumers.py` 扫 `tests/fixtures/` 下每一份**非 `cases/`** 的夹具，要求它的文件名或仓库相对路径在 `src`/`tools`/`tests`/`README.md`/`pyproject.toml` 里被指名；没人指名的就红。
+  - **先审了一遍，结论是当前 28 份全部有消费者**（`cases/` 那 16 份由注册表**按目录 glob** 读，所以它们不需要被指名——`core-070.json` 在我第一版按名字扫的脚本里报了"无消费者"，那正是 glob 消费的形状）。所以这条规则今天不是红的，它是**防止变红**的：一个月后有人删掉读某份夹具的那段代码，这条会说话。
+  - **豁免是两条"声明"而不是两张"名单"，而且豁免本身也被检查**：`cases/` 那条附带着"注册表还在 glob 吗"的断言——豁免活得比它豁免的代码久，就是个洞；`manifest.sha256` 是其余各份的清单，由摘要门禁读。
+  - **负向对照第一次写错了，而它错得很有意思**：我用一个字面量文件名造孤儿夹具，结果规则**没**报它——因为规则也扫 `tests/`，而那个文件名就写在这条测试自己的源码里，于是**它自己是自己的消费者**。改成运行时拼出名字之后才真的红。这不是技巧，是把这条规则的边界写进了测试：**"被测试指名"就是"被消费"**，一份夹具由一条测试读着，它就是有消费者的。
+  - **上一轮欠的那个数字量出来了**：`report_promotion` 对每份**验得过**的 bundle 重判一次，我把它写成了"没量过而不是量过没问题"。现在量了——一份 bundle 10 个工件 / 5,896 字节，单次重判 **5.5 ms**（20 次平均，本机锁定环境），一个有 **40 份** bundle 的数据根约 **0.22 s**。量法与命令记在这条里，脚本在 `.tmp/` 且不提交：从 `tests/unit/test_seal_run_evidence.py` 借它的夹具封一份真 bundle，然后重复 `rejudge()` 计时。结论是**这点开销不值得优化**，但这是一次测量的结论，不是一句"应该很便宜"。
+  - **上一节留下的那个决定，记在这里而不是做掉**：要让 `replay <bundle>` 真正做检查，Core 的账本必须**记会话状态迁移**。今天它有十处 `advance`/`advance_for_connection` 调用（九处在 async 函数里、一处在 `_wind_down` 这个**同步**函数里），而账本写入是 async 的（`SessionEventLog` 经专用写线程），所以每条迁移都得在它发生的地方被 `await`。这意味着动的是**真实客户端生命周期那条路径**，而我这一轮**跑不了真实客户端**，也就无法按本仓库对运行时改动的标准验证"被强杀时最后一条迁移还在不在"。所以：**这是一个需要有人能跑真客户端时再做的决定**，不是一个可以顺手做完的重构。做的时候有一条现成的判据——`replay` 那条路会自己开始工作，projector 一行都不用改（`SessionProjection` 只读 `payload.state`）。
+  - **顺手核对了这条 todo 里两处说反了的话**（见下两条注记）：`world.kind` 的取值**早就有**闭集校验了——`WORLD_KINDS` 在 `domain/evidence.py:32`，`EvidenceManifest.violations()` 在 `:165` 报 `WORLD_KIND_UNKNOWN`，而 `write_bundle` 在写任何东西之前就因 `violations()` 非空而拒绝；封存端也确实是从 domain 取那三个名字（`DEDICATED_WORLD`/`LAN_WORLD`/`NO_WORLD`）而不是自己重述。那两处"仍然开着"是**旧注记被后来的条目抄了下来**，不是还有洞。**这正是这一步的主题**：注释不会注意到什么，所以要么有规则，要么至少别留一句错的。
+  - **实测（本轮只到本地锁定环境）**：`uv run --frozen` 下 ruff check/format、pyright（strict，0 errors）、`check_boundaries`、`check_case_assertions`、`verify_fixture_digests`、`check_bridge_artifacts`，以及全量 pytest（**1550 通过 / 2 skipped**，其中新增 4 条）。**没有跑真实 Minecraft**，也没接受 EULA；**任何夹具与 pin 都没有动**（这一轮没有改 fixture、没有改用例、没有改 schema）。
+  - **仍然开着的**：账本记迁移（上面那条决定）；这条消费规则目前只覆盖 `tests/fixtures/` 下的夹具，**`schemas/` 与 `tools/java/` 下的冻结物没有纳入**——它们是同一类东西，但各自有别的门禁（`check_boundaries`、`check_bridge_proto_java`），本轮**没有逐一核对**它们是否真的被读。
+- [ ] **仍未做、且是刻意不做的："最新证据优先"。** 现有 manifest 没有可信的顺序字段（没有 attempt 序、没有 supersession 指针），所以晋级规则继续保持已记录的语义：一个 case 的候选里只要有一份满足（版本一致 + 已校验 + PASS）就算满足。要实现"后来的 run 覆盖先前的"，应由 Registry 在写 bundle 时分配单调 `attempt_sequence` 并记录 supersession；在那之前按时间戳或目录名取最新都是猜。
+
+## L3：LAN 与宿主世界
+
+契约的 L3 要的是「Kin 能加入**另一个宿主**开放的 LAN 世界」，而 Kin 自己创建/开放 LAN 属于独立的 `p0-host-exp`。两件事要求同一个前提：一个**已经在世界里**的受管理客户端——`IntegratedServer.openToLan` 发布的是客户端正在跑的那个 integrated server，而停在标题界面的客户端一个都没有。
+
+- [x] **受管理会话现在能被放进一个世界里，三个面各有用例钉住。** `session start` 增加 `--world-save PATH` 与 `--world-name LEVEL`，两者**要么都给要么都不给**：只有名字没有存档不是世界，只有存档没有名字不可进入，两者都在**创建任何东西之前**被拒（与就绪检查同一条规矩——已经建好 overlay 的那次运行不该是发现它的地方）。存档被复制到 overlay 里的 `saves/<level>`（overlay **就是**客户端的游戏目录），经 staging 目录再 rename；`--quickPlaySingleplayer <level>` 进**启动计划自己的 argv 模板**，所以计划仍然逐字说出它会产生的命令行，计划的摘要也就命名了这次启动而不是那个要求它的场景。
+  - **世界是操作者给的存档，不是这个启动器生成的**，这是决定不是省略：生成的世界每次运行都不同，而契约要的是一个能被**指名**的世界（"按种子或按快照身份"）。名字是整份存档**每个文件**的摘要而不是只 `level.dat`——只差地形的两份存档是两个世界——并且**在复制之前**取：客户端玩过的世界是另一个世界（多出 region 文件、`level.dat` 被重写），复制之后再取就命名了别的东西。run document 用 `world_snapshot` 记它：与账本并列而不在账本里，因为 §5 没有「这里放了一个世界」这个事件，它是关于**启动**的事实。
+- [x] **收尾时顶出来四处同类的毛病：一个说法在一条路上成立、在另一条路上悄悄不成立。**
+  - `prepare_session` 收了 `world_save`/`world_name`，却在转调 `prepare_session_async` 时**把它们丢掉了**。同步入口会产出一个停在标题界面的客户端，而任何地方都不报错——正是这个功能存在的理由。`start_session` 当时也根本没有这两个参数，所以这条路连提都提不了；现在三个准备入口收同一组输入。
+  - 同一个非法 level 名，从计划出去是 **11**（`SUPPLY_CHAIN`）、从会话出去是 **10**（`CONFIG`），由「哪个检查先跑」决定。非法 level 名是操作者错误，`launcher.plan` 因此多了一个分类参数，而不是所有拒绝共用一个分类。
+  - 一个**不存在**的 `--world-save` 路径被报成「不是世界：它没有 level.dat」——把「没有这个目录」说成「目录里缺文件」。
+  - 计划原来重述了一条比 `saves/` **更弱**的规则，于是它会承诺 `--quickPlaySingleplayer a/b` 这个谁也种不出来的 level。现在它问 `level_name_is_usable`，两条路对同一个名字给同一个答案。
+- [x] **51 条新测试**：种世界的规则与它的各种拒绝（含摘要取的是源字节、目的地已有世界即拒、staging 不留痕）、计划多加的那两个 literal、CLI 层的两条二选一拒绝，以及一次真实的 `start_and_supervise`——它**同时**断言世界在盘上、在 run document 里被指名、并且被会话向计划构造器要过，而不是让其中任何一个替代另外两个。run document 那处接线做过变异验证：去掉它，那条用例立刻变红。
+- [x] **这一次运行真的进过世界了，而且进不去的那两个原因都是量出来的**（先是「全新游戏目录 = 首次运行」，见下一条；再是「种下去的世界带着一个死掉的 Kin」，见上一条）。**仍然刻意不做的**：`openToLan` 本身、驱动它的 harness 场景，以及封存端的 `world.kind`（它现在只认 `dedicated` 与 `none`，LAN/宿主运行在那里还没有形状；在运行存在之前先编一个形状，就是在编那次运行）。
+
+- [x] **一个「全新的游戏目录」是一次首次运行，而首次运行到不了世界——这才是种子世界进不去的那个原因。** 实测（受控 runner、真客户端）：`--quickPlaySingleplayer kinworld` 被客户端接受、世界也真的躺在 overlay 的 `saves/kinworld` 里，而客户端**停在 vanilla 的辅助功能首次运行页**（"Welcome to Minecraft! Would you like to enable the Narrator…?"）上：跑 100–150 秒都不进世界，`latest.log` 停在一片贴图集之后**再没有一行**，种子世界里所有文件的 mtime 都还是种下去的那一刻，账本里一条连接事件都没有。日志既不报错也不提示——这正是它值得被写下来的原因。**这一步是靠截图定下来的**：标题页、提示页与首次运行页在 `latest.log` 里长得一模一样，只有把同一个 X 显示画下来才分得开。
+  - **闸门是 `options.txt` 存在与否，不是那个选项的值**（两条对照实测）：没有 `options.txt` → 停在那页、世界永不载入；只有一行 `narrator:0` 的 `options.txt` → 世界载入（`Preparing start region for dimension minecraft:overworld` → `Loaded 38 advancements`）。`onboardAccessibility:true` 仍然写进去，因为那是**把这件事说真的**选项（没有人会替它按 Continue），而不是因为它是闸门。
+  - 修法：`session start` 在 overlay 建好后、客户端启动前放一份最小 `options.txt`（`launcher.game_options`），**已存在就不覆盖**——那份文件是客户端的，跨代替换等于替它把设置拿走。它和 mods/assets/世界是同一种东西：客户端会去看、而全新游戏目录里不可能有的那一份状态。
+  - **端到端实测**（同一个受控 runner，走真实 `session start` 命令行）：客户端进世界了——客户端日志里 `Kin joined the game` 与 `Loaded 38 advancements`、世界文件被写、截图上就是那个世界。**截图上是「You Died!」**：Kin 一进去就死了。这是量到的事实而不是解释，死因还没查。
+  - **顺手量到一件与契约有关的事**：Bridge 对一次自己没被要求过的连接**拒不上报**——客户端日志是 `bridge saw CONNECTION_PHASE_LOGIN_NEGOTIATING with no generation of ours active; not reported`，账本里因此只有 `SessionProcessStarted` 与 `BridgeHelloAccepted`，没有 `JoinObserved`、也没有 `PlayableEstablished`。于是现在这个宿主 Kin **处在一个 Core 不知道、也没有准入过的世界里**：没有租约、没有首快照、没有监督。这是下一步，而不是一个可以当成完成的形状。
+- [x] **种下去的那个世界带着一个已经死掉的 Kin，而这次运行看起来完全正常。** 第一轮端到端实测里 Kin 一进世界就停在「You Died!」上，而**客户端日志里一条死亡都没有**——因为没有发生死亡。从存档里读出来的事实是：那份 `playerdata/<uuid>.dat` 是 **`Health 0` 且 `DeathTime` 非零**（它是从上一次「服务端杀掉 Kin」的运行里拷出来的），客户端于是把 Kin **照着那次运行离开时的样子**加载进来：左边死着，右边进来就死着。
+  - **修法是一条规则、两个时刻**：`saves.player_data_path(save, player)` 是那条谓词（这个世界里有没有**这个** Kin 的状态），`seed_world` 与 `prepare_session_async` 各自问它一次——前者在复制之前，后者在**建 overlay 之前**，因为已经建好的 overlay 不该是发现它的地方。消息点名那个文件，操作者据此知道该从世界里拿掉什么。
+  - **要有反面对照，否则「有 playerdata 就拒」也能让测试通过**：别人的 playerdata 仍然照种不误——一份被别的玩家玩过的世界正是共享快照该有的样子，把这条规则从「一个 Kin 的状态」变成「世界的属性」就错了。
+  - **容器里两条实测**：脏存档（`/data/prepared-world`）→ `exit 10`、`CONFIG`、消息点名 `8f40376b-…-5564eea75639.dat`，什么都没建；干净存档（同样一份世界，去掉 `playerdata/`）→ Kin **活着**进世界，在世界出生点 `(-8.5, -60.0, 7.5)`，世界真的在跑。
+- [x] **跟着量到的第二件事：一个「没人开的」Kin 会在十几秒内被史莱姆杀死，三轮三次都是同一结果。**（干净存档两轮 + 7 分钟长跑一轮，每次都是 `Kin joined the game` 之后约 12 秒 `Kin was slain by Slime`。）这不是缺陷，是**那个快照的属性**：来源世界的 `server.properties` 是 `gamemode=survival`、`difficulty=normal`、`spawn-monsters=true`，而 Kin 站在那里没有任何东西驱动它。所以「宿主用的干净快照」不只是「没有玩家历史」，还得是**一个不动的 Kin 不会死**的世界——这条要求落在快照上而不在启动器上，**具体取哪一档（和平 / `doMobSpawning=false` / 创造 / 围一圈）还没有定，也没有测**。**7 分钟那一轮另外证明了一件事**：Kin 死了以后世界照跑不误——死亡界面**不**暂停单机世界（12 秒时死，6000 刻的自动保存落在 420 秒后）。
+- [x] **世界不会因为没人看它而停下来——7 分钟长跑把这件量出来了，`pauseOnLostFocus` 因此不需要碰。** 上一条把「失焦会不会暂停单机世界」列为未测，这是它的答案，而且答案不是靠推理来的：受控 runner 里没有窗口管理器（窗口从来没有获得过焦点），世界从 join 起跑满整个窗口——**6000 刻（正好是自动保存的间隔）落在 join 之后 420 秒**，文件 `level.dat` 的 mtime 就写在那一刻，之后才被停。Kin 在 12 秒就死了、死亡界面整轮都挂着，所以这同时排掉了「死亡界面暂停世界」这一条。
+  - **上面那个「平均不慢于 14.3 刻/秒」是拿 6000 刻 / 420 秒算的，它把「保存落在窗口末尾」读成了「世界一直在跑」，因此它作废；按分钟采样的那一轮给出了不必解释的读数。** 16 分钟里出现了三次自动保存，**相邻两次相隔 284 秒与 285 秒，各自比上一次多 6000 刻**；客户端日志里 `Can't keep up`／`overloaded` 出现 **0 次**。6000 刻在 20 刻/秒下需要 300 秒，而实测间隔 285 秒**比这个界还短**——所以这个窗口里根本没有给停顿留出余地，而不只是"平均看不出来"。**这就够回答宿主的问题了**：没有窗口管理器、Kin 从第 12 秒起就死在死亡界面上，世界照样以满速跑了至少 16 分钟，`pauseOnLostFocus` 不需要碰。
+  - **同一轮也顺手钉住了这个仪器的边界**：6000/285 = 21.05 刻/秒，**高于 20 TPS 的名义上限**，所以 `level.dat` 里的 `Time` 不是一个可以用来算 TPS 的干净 tick 计数器（它为什么多算了 5%，这一轮没有查）。因此这里**不写 TPS 数字**：能写的是「相邻保存的间隔」这个不依赖 `Time` 语义的读数，加上「服务端自己一次都没报跟不上」。
+  - **顺带一提它没有改变的事**：这一轮账本里仍然只有三条事件（`SessionProcessStarted`、`BridgeHelloAccepted`、`SessionInterrupted`），run document 的 `connection_state` 是 `null`、`snapshots_admitted` 是 0——世界跑了 7 分钟，而 Core 全程不知道它存在。
+
+- [x] **开 LAN（`openToLan`）这一步的三条未知，能从固定 jar 里静态读出来的那半读完了。** 契约把执行线程、端口绑定、完成判据列在「仍待原型冻结」里，现在各有一个**可复现**的答案（对固定 jar 的 `hje.class` 与 `asf.class` 跑 `javap -p -c`），而**运行那半一条都没测**，所以它没有被划掉，而是被改成「静态已知、运行待测」：
+  - **线程 = client thread**：方法体里三处触达 `MinecraftClient`（含客户端玩家的 profile 与权限级），不是能从 IPC worker 线程随手调的 server 方法。
+  - **完成判据 = 返回 `true`**：`ServerNetworkIo.bind(null, port)` 在 try 内同步绑定，返回时 accept 线程已经起来了。
+  - **端口会骗人**：它把**请求的**端口打进日志（`Started serving on {}`）并原样存进 `getServerPort()` 返回的那个字段——请求 `0` 时两处都说 `0`；真正绑到的端口只能从 `NetworkIo.getAddress()` 读，契约要的「实际动态端口」在那里。
+  - **失败无声**：整个方法体罩在 `catch (IOException)` 里，catch 只 `return false`，**一行日志都没有**。所以「开 LAN 失败」在客户端日志里根本查不到，只能由 Bridge 自己说（`HOST_LAN_OPEN_FAILED` 是唯一会说这件事的地方）。
+  - **它自己就在改权威状态**（游戏模式、cheats、宿主玩家权限级），这条要算进 `HOSTCTL-010` 的门禁，而不是只盯着提案入口。
+- [ ] **宿主仍未回答的一件事**：这个宿主 Kin 处在一个 Core 不知道、也没有准入过的世界里（见上一条末尾）。要让宿主成为一个可被监督的会话，`ConnectWorld` 那条路之外需要一个「Kin 自己开的世界的准入」，它的首快照从哪来、由谁判，都还没有答案。（2026-09-22：**这一条现在读到底了，答案比原来那句"没有答案"要具体——两侧各有一道闸，而两道闸是同一个缺失的东西。** **（首快照从哪来）** `runtime/ClientSnapshot.java` 读的是**这个客户端自己的**世界与玩家（`MinecraftClient.world`/`player`），所以它对"世界是别人开的还是自己开的"完全不敏感、宿主的世界它读得到；但 `ClientAdmissionController.collectSnapshotWhenPlayable` 在 `activeGeneration == 0` 时**直接返回**（`ClientAdmissionController.java:200`），而 `beginGeneration` 全仓库只有一个调用点、就在 `ConnectWorld` 的处理里（`:446`）——**于是宿主的世界一条快照都不会被收集**，不是因为读不出来，而是因为闸没开。**（由谁判）** Core 侧同一形状：`admit_snapshot` 这道过滤器本身不排斥宿主世界（它的输入里没有"必须是对外连接"这一项），但它的调用方 `_admit_first_snapshot` 要求 `connections.active`——也就是一次由 `ConnectWorld` 发起的 attempt（`cli/session_runtime.py`：`if attempt is None or recorded is None: progress.ignored += 1`）。所以两侧卡在**同一件**东西上：一个"Core 没有拨过、但 Kin 自己开着的世界"的坐标。**这就是要决定的那件事**：宿主世界的坐标由谁拥有——Bridge 侧要么给 `beginGeneration` 一条不是 `ConnectWorld` 的入口、要么扩展它（而它今天只认 server profile，宿主世界没有 profile），Core 侧则要用**胶囊**（`domain/world_activation.py` 的 `WorldCapsule`，它的 `server_profile_id` 对宿主世界**为空**，这一步已经写好了），但今天运行时的胶囊**没有任何来源**，它的出处是存储生命周期契约的 `HOST-001…100`，而那批用例**一条都还没定义**。**因此本轮只把问题读到底、没有动代码**：任何一侧的冻结都要先有真客户端的 trace（Bridge 侧）或那批用例（Core 侧），凭现在知道的去改 `beginGeneration` 或给运行时凭空造胶囊，就是把猜测写成表——契约在关闭状态机上已经拒绝过一次同样的做法。）
+- [x] **存储契约的第一条用例落地了：`HOST-020`（save path 的四个拒绝），而且它是这个 HOST 面里第一条不需要客户端、也不需要挂载策略就成立的判据。** 契约把 hosted world 的布局写死（`kin/<kin_id>/hosted-worlds/<hosted_world_id>/{manifest.yaml,save/,checkpoints/,backups/}`）并指明"唯一权威存档"是 `save/`；但**怎么让客户端看到它**（托管 run directory，还是受控 bind mount）契约**故意留给原型比较**。这两种策略都要用的那一半是「这个路径能不能用」，而那条规则契约写死了：无论哪种策略，**canonical path 都必须留在该 `kin_id/hosted_world_id` 根内**。所以本轮做的是这一半——`adapters/launcher/hosted_store.py` 拥有布局与准入判决，用例 `HOST-020` 六条断言（布局、id 规则、symlink 叶子、symlink 祖先、另一个 Kin、越界），`run_repo_case.py` 跑出 `PASS`、六条全 `held`。
+  - **两处是量出来才定下的。** **（一）按"沿路径往上找 symlink"判，而不是 `resolve()` 一次。** 契约禁止 `createSessionWithoutSymlinkCheck`，而 `resolve()` 对 symlink 祖先返回的是**真实位置**、对"怎么走到那里"一个字都不说——而客户端写进去的正是那个真实位置，两条路径在它看来没有区别。所以判决**先报 symlink、后报 canonical 越界**：越界是 symlink 会造成的**后果**，机制才是可操作的那个原因（用例里有一条专门钉这个顺序，把"先查包含关系"变异掉它就会红）。**（二）id 现在和 level name 守同一条规则，理由是量出来的。** `OpaqueId` 允许 `:`，而 Windows 上路径段里的 `:` 是盘符：实测 `Path('C:/data') / 'a:b'` 得到的**不是** `C:/data/a:b` 而是 `a:b`——**data root 整个没了**；`Path('C:/data') / 'C:foo'` 得到 `C:/data/foo`，即两个不同的 id 会同指一个目录。规则从 `saves.level_name_is_usable` 取用（没有第二处拼写），并有一条只在 Windows 跑的用例把上面那两句实测钉住（换 Python 之后行为变了，那条会红）。
+  - **变异验证（这一轮的做法与契约门禁那两次相同）**：把 id 规则去掉 → 9 条红；把 symlink 查找打瞎 → 3 条红；把"是这个世界自己的 save"判成永远成立 → 2 条红；把"另一个 Kin"那条拒绝去掉 → 1 条红；把"先报 symlink"的顺序换掉 → 3 条红。**五次变异各自只打中它该打中的那几条**，说明六条断言各钉一件事，而不是一条断言在替五条背书。
+  - **没动的是这条的另一半，而且理由是契约自己的**：挂载策略未冻结，所以"一个 bind 把存储挂进会话目录"**还没有可测的对象**；本轮实现的正是两种策略都要用的那半，`mandatory` 因此仍是 `false`（与 `HOSTCTL-001/010/050/070` 同一个理由：`host-integrated` 要的是整套 `HOST-001…100` 证据，在残缺用例集上给出"可晋级"是假话）。
+- [x] **`HOST-030` 的写方那一半：阶段与端口必须自洽，而报告走进的是加入方要读的那个文档。** 这条用例原本就有四条**运行材料**判据（这一轮跑的是什么世界、客户端是否发布在它拿到的那个端口上、Core 是否被告知），它们要一次真实运行；本轮补的是**写方**：`domain/host_publication.py` 持有规则，`cli/session_runtime.py` 在把 `HostLifecycle` 写进 run document 之前问它，拒绝按**原因码**计数（`host_report_refusals`）而不是折进 `ignored`——"到达了但被拒"和"从没到达"在外表上一模一样，这是本仓库反复在修的那一类。
+  - **两条规则都是量出来的，而且第二条正好是 proto 自己写下的那句话**：**(一) `LAN_OPENED` 必须给出端口，`0` 不是端口**——proto 里写着"零永远不是一个地址：读者会连上一个什么都没有的地方"，而"说发布了却不说在哪里"**比说失败更坏，因为它看起来像成功**（这句也是 Bridge 侧那条规则的原文）。**(二) `LAN_OPEN_FAILED` 不许带端口**——"没人在听"与"有东西在听"是两个断言，不是一条；失败记录因此写 `port: null` 而不是 `0`（`0` 是一个读者会去连的数字；判据工具本来就只在 `LAN_OPENED` 时才看端口，所以旧封存的 bundle 一条都不受影响）。
+  - **这是"读方检查"，不是重复 Bridge 的检查**：Bridge 拒绝**产生**这两种形状（`LanPublication` 与它那三条用例），但报告走过 IPC 边界、落进**加入方要读的文档**；两条边各查一次，与本仓库"同一条边两道门禁"的做法一致（源码/产物那次）。顺带把端口上界做成**一处拼写**：`MAX_PORT` 现在由判据工具从 domain 取用（它此前自己写着 `65535`），否则写方与读方对"哪些是端口"迟早各说各话。
+  - **这一轮的断言留在测试里，没有加进 `HOST-030`——而这是量出来的，不是省事。** 我一开始把七条断言挂到 `HOST-030` 上，全量 pytest 立刻红了六条：那条用例是**运行材料**用例（四条断言由 `tools/assert_case_evidence.py` 对着一次真实运行判），而 `_runtime(...)` 之外的东西它**判不了**——于是 `evaluate()` 的判决从 `FAIL` 变成 `INCOMPLETE`。两者都不是错：`INCOMPLETE` 正是"这份材料里有断言判不了"的诚实说法，**但它意味着那条用例从此永远拿不到判决**；而本仓库的用例之所以各自整齐，就是因为一条用例只能由**一个**判官判完。所以写方的规则归测试（`tests/unit/test_host_lifecycle_record.py` 与 `tests/contract/test_session_runtime.py`，CI 每次都跑），`HOST-030` 保持它原来的形状与四条断言。**判据表里那几个名字也一并撤了**：登记表是"用例可以依赖的名字"，留着一个没有用例认领的名字会让人以为有人依赖它。
+  - **差点做错，是门禁先拦下的**：我以为 `HOST-030` 还没有 fixture，直接写了一份新的把它覆盖了——**冻结夹具清单当场报摘要不一致**（`manifest.sha256:15`），我才发现那条用例早就存在（连同 `inputs` 里的 `tests/fixtures/saves/kinworld`）。这正是"每一个冻结文件都在清单里"这条规则的用处，记在这里。
+  - **顺手量到一个与本案无关、但会误导人的红**（**2026-09-22 已修**，见 W70 那一条）：`run_repo_case.py` 对 `HOST-030` 里那**四条运行材料断言**报 FAIL，而它们并没有失败——`command_for` 对 `tool` 类实现**只给一个脚本路径、不给任何参数**，而 `assert_case_evidence.py` 需要 `--case`/`--run`，于是它退出在 argparse 的 usage 错误上。**这一条是既有的、与本次改动无关**（拿改动前的 fixture 跑同一个 runner 得到一模一样的四条 FAIL，本轮实测过）。当时写的是「值得单独一步」，那个判断是对的：修法比它看起来大一点——不是给 runner 加个特例，而是**断言按「谁判得了」分类**。
+  - **仍然开着的**：这条契约真正要的"端口正常/占用/被防火墙阻断"三态（要真实客户端与服务端），以及那四条运行判据所需的运行；`mandatory` 仍是 `false`。
+
+- [x] **存储契约的备份与恢复两条路径规则落地了：`HOST-060` 与 `HOST-070`，都是不需要客户端的那一半。** 这两条防的是**两种会把坏下午变成不可恢复**的写法：`HOST-060` 的「不覆盖已有好备份」——备份目标名基本固定（排程就是这么产生的），所以「再跑一次同一个世界的备份」很自然，而如果那份 save 这期间坏了，它就**用坏副本盖掉最后一份好副本**；`HOST-070` 的「原世界不被修改」——目标是**被恢复的那棵树里面**（或就是它）时拒绝，于是恢复失败之后原件还在。新模块 `adapters/launcher/hosted_backup.py` 同时持有**备份记录**（契约列的那几个字段：世界/epoch、bundle、checkpoint、文件清单摘要、大小、原因、验证结果——`verified` 就在记录上，因为覆盖规则读的正是它）与两条判决；用例 `HOST-060`/`HOST-070` 各三条断言，`run_repo_case.py` 都跑出 `PASS`（各 3/3 `held`）。
+  - **四处是量出来／被测试逼出来才定下的。** **（一）未验证的残留可以被替换**——中断的备份留下的就是它，要求人工处理每一次中断是另一种坏；规则管的是**好**备份，不是「这个名字被占了」。**（二）暂存前缀本身也不许当名字**：以 `.publishing-` 命名的备份会被清理暂存的那套东西扫走，而且两个备份会同时指向一份字节。**（三）目标必须是某个 hosted world 自己的 `save/`，因此复用 `HOST-020` 那道准入与它的原因码**——「另一个 Kin 的区域」「越出 data root」「中间有 symlink」是不同的错误，这个模块不该把它们再拼一遍。这条是我先写错、被测试逼出来的：第一版把「目标世界」当成了「来源世界」，于是**分叉**（把备份恢复成一个原本不存在的世界）直接被判成 `ANOTHER_WORLD`——而那恰好是契约允许的两种恢复之一。**（四）原因码的先后**：目标既是来源又已存在时报「目标就是来源」，因为两条都成立而只有一条告诉操作者要改什么。
+  - **这条也是「一条用例一个判官」那个结论的第一次应用。** 上一轮量到：把 pytest 断言挂到运行材料用例上会让判决变成 `INCOMPLETE` 而永远判不了。所以这两条用例按契约自己的分法**只覆盖纯规则那一半**（`mandatory: false`，理由写进契约那两条：磁盘四态与「真正恢复一次并抽样核对」都要真实运行），与 `HOSTCTL-001/010/050/070`、`HOST-020` 同一形状。
+  - **变异验证（六条，各自只打中它该打中的）**：去掉「验证过就不覆盖」→ 1 条红；去掉名字规则 → 8 条红；去掉「目标就是来源」→ 2 条红；去掉「在来源里面」→ 1 条红；去掉「不是世界」→ 1 条红；去掉「已存在」→ 1 条红。改完全部逐字节还原（`diff` 过），19 条测试全绿。
+  - **仍然开着的**：`HOST-060` 的磁盘四态、`HOST-070` 的真实恢复与抽样核对（都要真实运行）；轮换与配额契约点名了**没有给策略**，所以本轮一条都没编。
+
+- [x] **`HOST-010` 的判决那一半落地了：一个世界要两把锁，而「两把都拿到」是一句话、不是事实。** 契约的「双重单写」写着每个 hosted world 同时持有 Minekin supervisor lease 与 vanilla `LevelStorage.Session` 锁，任一不成立都不得启动——它们问的是**两个不同的问题**（Minekin 是否已经起了另一个会话／存档是否被别的进程打开），所以只问一把的规则只管了一半的相撞方式。新模块 `domain/world_locking.py` 收下两份**观测**（租约记录 + 旧主人在不在，vanilla 锁的状态）并给出判决；用例 `HOST-010` 五条断言，`run_repo_case.py` `PASS`（5/5）。
+  - **三处是照契约的话做的，其中两处正是「看起来像谨慎、其实是契约原文」的那类。** **（一）状态机收下的是说法，这个模块判它成不成立**：`PREPARED -> LOCKED` 的信号叫 `SUPERVISOR_AND_LOCK`，机器只认这个名字，而「两把锁真的都拿到了」由这里判——与仓库里其它地方「报告 vs 读方检查」同一条分工。**（二）租约只在确认旧主人已经不在之后才能回收**：契约写的是「先确认旧进程身份不存在、文件锁已释放，再进入 recovery」，所以 `owner_is_running` 有**第三个值** `None`，**它不是 `False` 的同义词**——把「查不出来」当「不在了」就是拿猜测起第二个服务端（这条单独有用例，两个方向都钉）。**（三）看见 `session.lock` 文件不等于知道锁被持有**：契约把「只凭遗留的 `session.lock` 文件就能判断进程仍活着」列在**不能据此声称**那一列，同时禁止见到就删；所以锁的状态是**观测值**，`UNKNOWN` 是正经取值，**没读出来就拒绝启动**，而不是当成空闲——用例里 `UNKNOWN` 与 `FREE` 给出**不同**的判决，这正是那一条的意义。
+  - **一条更细的划分也是照本仓库的规矩来的**：`LEASE_UNREADABLE`（租约本身读不出来／说持有却没有记录）与 `LEASE_OWNER_UNKNOWN`（记录在、但旧主人查不了）是**两个原因码**，因为操作者要修的是两件不同的事——我第一版把它们合成一个，理由是「都是不确定」，而契约那条恰恰区分了它们。
+  - **变异验证（逐条单独跑，六条）**：去掉 `WORLD_IN_USE` → 1 条红；去掉「查不出来就不回收」→ **2 条红**（两个方向各一条）；去掉「vanilla 锁被持有即拒」→ 1 条；把「锁没读出来」当成空闲 → 1 条；把「租约没读出来」当成空闲 → 1 条；去掉「说持有却没有记录」→ 1 条。每次改完逐字节还原。**（第一次我是把六条变异串在一个脚本里跑的，其中一条的计数与它单独跑的结果对不上——单独跑才是准的，所以本条的计数全部来自逐条单独跑。）**
+  - **仍然开着的**：两把锁各自的**写入方**（谁写租约、谁读 vanilla 的 `isValid`）都还没有——存储的挂载策略未冻结，租约落盘属于那个还没建的 store；以及真正两个进程抢同一个世界的运行（那正是这条用例的名字）。所以 `mandatory` 仍是 `false`。
+  - **本轮验证**：全量 pytest **1694 通过 / 2 skipped**；ruff（check + format）、pyright、`check_boundaries`、`check_case_assertions`（81 条注册、26 条用例）、`verify_fixture_digests`、`check_workflow_pins` 全绿。
+
+- [x] **持久化契约的那张表落成代码了：重启之后什么还在、什么必须失效，以及"记得"与"重新确认过"的区别。** `docs/persistence-recovery-contract.md` 的核心原则是三句（记忆连续、现实重验、动作不续跑），而它那张 13 行表就是这三句对每一类东西各自的意思，表后面还有一句有牙齿的话——"启动提示可以说『我记得上次在修屋顶』，但在客户端重新连接、看到背包与现场之前，不得继续放置方块"。现在 `domain/restart_rules.py` **逐行抄下那张表**（契约自己的行名与理由，原文照抄，所以文件顶上有 `# ruff: noqa: RUF001`——契约的行名里有全角逗号）并把它变成一个判据：`admit_resumption(kind, established=…)` 回答"这一类东西现在能不能按记忆行动、缺什么前置条件"，未分类的种类**拒绝**而不是放行。
+  - **这一轮最重要的产出是一次自我更正，而且是实测排掉的**：我原本打算把这张表做成**名字扫描**（账本里不许出现会话级 token 的名字），看起来又简单又像门禁——**它是错的**。`InputLeaseGranted` 事件本来就带 `lease_id`，而那是**证据**（"某时刻授过一次 lease"正是账本该记的事，CORE-040 的判据就读它）；**不许留下的不是它的名字，是它作为"还能用的能力"这一身份**。所以规则落在"行动前要重新取得"，不落在"不许写下来"。**先量后做的价值就在这里：一个按名字判的门禁会把正当证据判红，然后被所有人学会忽略。**
+  - **被失效的那几行今天已经成立，而且是构造上成立，不是靠这条规则**：输入 lease 根本不落盘（`domain/recovery.py` 在决定什么可以重放的地方写着"leases are deliberately not persisted"）、arbiter 从空开始、没有任何东西跨重启重放 GUI 句柄或实体 token。**真正还没有的东西是"记得"与"已经重新确认"的区别**——那属于还没建的 Mind（P1），所以这一轮的价值是把词汇和判据先立起来，并让"以后加一种数据"必须当场表态（未分类即拒 ✓）。
+  - **前置条件分六种，而不是一种"要小心"**：`NONE`（身份/经历/知识——模型会话消失不改变它们）、`REEVALUATED`（关系——理由写着"防止重启洗白关系"，所以前置条件是一**次重新评判**）、`PRECONDITIONS_REVERIFIED`（目标/技能——"记得我原本想做什么，但不盲做"）、`WORLD_RE_OBSERVED`（最后已知状态与地点资产——就是那句"不得继续放置方块"）、`RECOMPUTED`（心境——**既不冻结愤怒，也不重启清零**）、`RE_ACQUIRED`（按键/GUI 句柄/实体 token/在途请求——"有过"不是"现在有"）。
+  - **这份契约没有用例编号表**（它的"开发阶段必要回放"是 14 条**场景**，没有 id），所以本轮**没有新增用例**——不冒充某条有编号的用例；判据由 `tests/unit/test_restart_rules.py`（14 条）执行，其中"表与契约逐行一致"和"每一类的前置条件写死一遍"两条让任何漂移都必须是有意的。
+  - **变异验证（逐条单独跑，六条）**：把"无前置条件"这条拿掉 → 4 条红；让未分类种类放行 → 1 条红；`LAST_KNOWN_STATE` 改成不需要重新观察 → 2 条红；`INPUT_CONTROL` 改成"记得就能用" → 3 条红；`RELATIONSHIPS` 不再重评 → 2 条红；`MOOD` 改成冻结 → 1 条红。每次改完逐字节还原。
+  - **仍然开着的**：消费方（Mind/P1），以及这张表里每一行真正落盘与装载的实现——那些要等 PlayerMind 与它的 store。
+  - **本轮验证**：全量 pytest **1708 通过 / 2 skipped**（新增 14 条）；ruff（check + format）、pyright、`check_boundaries`、`check_case_assertions`（81 条注册、26 条用例）、`verify_fixture_digests`、`check_workflow_pins` 全绿。
+  - **本轮验证**：全量 pytest **1662 通过 / 2 skipped**；ruff（check + format）、pyright、`check_boundaries`、`check_case_assertions`（70 条注册，与改动前一致）、`verify_fixture_digests`、`check_workflow_pins` 全绿。
+- [x] **契约的四道门禁里，第 1 道（源码依赖门禁）做出来了，而且它先于它要守的模块存在。** `tools/check_bridge_host_boundary.py` 扫 `bridge/src/main/java` 的**生产**源码，按两层允许清单判：`getServer()`、`IntegratedServer`、`MinecraftServer`、`net.minecraft.server.` 只许 `org/minekin/bridge/host` 用；`ServerWorld`/`ServerLevel`/`ServerPlayerEntity`/`PlayerManager`/`ServerChunkManager`/`NbtIo`/`LevelStorage` 与反射逃逸（`java.lang.reflect`、`MethodHandles`、`Class.forName`、`setAccessible`、`Unsafe`）**连适配器也不许碰**——一个能读背包的适配器只是把边界挪开而不是关掉；适配器里也**不许通配导入**。它进了 CI 的 `bridge-static` 与 `docs/development.md` 的本地门禁清单。
+  - **先于模块存在是有意的，而且端到端验过**：门禁和它要守的代码同一次落地，就没人见过它拦下东西。所以先对今天的真树跑——Bridge 现有 29 个生产文件里 `IntegratedServer|getServer()|net.minecraft.server|net.minecraft.class_` 命中数 **0**，门禁 OK；然后往真树里放一个必然违规的 `LeakProbe.java`，门禁报出 `LeakProbe.java:5 getServer()`、`:6 PlayerManager`、`:6 IntegratedServer` 并 `exit 1`；删掉它又回到 OK。**这条红/绿是这一步的主要证据**，它证的是「门禁真的在看这棵树」，而不是「工具单测通过」。
+  - **两条是给门禁自己的用例**：适配器**可以**指名 `IntegratedServer`（否则它拒绝的正是要做的活），以及**注释里写规则不算违规**（一条会因为「你解释了它」而误报的门禁，教人删掉解释）；抹注释后行号仍对得上也有一条。
+  - **它不代替第 2 道门禁**：源码门禁看不见依赖树带进来的东西（class 常量池、mixin JSON、access widener、entrypoint、打包依赖），那一道仍未实现；契约里「仍待原型冻结」那一条因此被改写成区分两者，而不是被划掉。
+- [x] **`bridge-host-control` 有第一块真东西了：把世界开出去，以及「端口在哪里」这条规则。** `org.minekin.bridge.host` 现在有三个文件——`IntegratedServerControl`（那个窄适配器）、`LanPublication`（结果与端口规则）、`LanRefusal`（本地封闭词汇）。它**还没有调用方**（命令通道是下一步），所以这一步的证据是编译、单测与门禁，不是一次运行。
+  - **端口那条规则是这一步真正的内容**，而且它是量出来的：客户端自己的日志行（`Started serving on {}`）与 `getServerPort()` **都报告被请求的那个端口**——请求 0（让系统挑）时两处都说 0，而世界其实听在别的地方。所以适配器读的是 socket 上的那个地址（`getNetworkIo().bindLocal()`），**读不出一个能命名的端口就算失败**，而不是报一个「0 号端口上的成功」——后者比失败更坏，因为它看起来像成功。三个用例钉住它（0 端口、非 Inet 地址、null 地址），另有三条钉住记录本身的不变量（说开了就必须有端口、说没开就必须给理由且不能带端口）。
+  - **策略不在线上，所以它只能在这里**：`openToLan(null, false, port)`——`null` 不动世界模式、`false` 不给 cheats。命令将来**不会**有这两个字段，所以「Kin 不能给自己开作弊」是**没有入口**而不是「桥会校验」，这也是契约 P0 政策表（survival / 非极限 / normal / 无命令）在代码里的落点。
+  - **线程规则照抄本仓库已有的先例**：只在 client thread 上跑，别处直接抛（`VanillaKeySink` 对输入就是这么做的），因为被包的那个方法有三处会碰 `MinecraftClient`。
+  - **门禁第一次有了真主体**：`host` 现在是唯一被允许指名服务端类型的包，而这不再是工具单测里的一句话——把同一个文件原样放进 `runtime/`，门禁报出 5 条并 `exit 1`；放回去又 OK。
+  - **我自己的第一次变异做错了，而它暴露了门禁一个真漏洞**：我只改了文件里的 `package` 行没挪目录，门禁没响——因为门禁当时按**目录**判。但 `javac` 从不要求两者一致，所以「目录在 host、声明在 runtime」这种文件能绕过按目录判的门禁。现在**以声明的包为准**，并且**两者不一致本身就算违规**（两个方向各有用例）——这条是被一次失败的变异逼出来的，不是想出来的。
+  - **jar 重建了、pin 重录了，而且两个平台逐字节相同**：新摘要 `5a2bbb31…`、1,270,254 字节，Windows（`21.0.12.1+1-LTS-4`）与受控 Linux 容器（Temurin `21.0.12+8`）都是它。pin 落在四处：`recipe.py` 的 jar 摘要与大小、fixture 的 digest/size、以及 fixture 自己的清单摘要；源码树摘要也跟着重录。**顺序上踩到一次真实的纪律**：改 Bridge 源码不只是改源码——fixture 的 `source_digest`、recipe 的 jar 摘要、jar 大小、fixture 清单，四处都要重录，少一处就是 120 条测试变红（这次每条都真的红过，包括我把 `1_266_556` 写成 `1266556` 没匹配上而白跑的一轮）。
+  - **顺带记一条门禁看不见的东西**：jar 摘要与源码树摘要是**两个独立的检查**，没有任何东西强制它们在同一次改动里一起重录。这次它们是一致的，但一致靠的是评审纪律而不是运行时能验的东西（要验就得重编一次）。不修，只是写下来。
+- [x] **宿主那条命令的线上形状冻住了：`OpenLan` 出去、`HostLifecycle` 回来、能力叫 `host.lan.v1`。**命令是 `{request_id, generation, port, deadline_monotonic_ns}`，事件是 `{request_id, generation, phase, bound_port}`，`phase` 只有契约白名单里那两个（`LAN_OPENED` / `LAN_OPEN_FAILED`），**没有自造第三个**——失败的理由按契约留在 Bridge 自己的日志里。
+  - **一处刻意的缺席，而且是断言出来的**：命令**没有** cheats 字段、**没有** game mode 字段。开 LAN 这个动作自己就抬高宿主权限并放开作弊（上一轮从 jar 里读到的），而宿主政策是「不能由命令提升」——所以这条规则的最强形式是**字段不存在**，不是「桥会拒绝一个值」。用例直接读 `OpenLan` 的描述符断言字段集合恰好是那四个，任何将来想加 `cheats` 的人会先撞到这条测试。
+  - **两处都钉住了能力字符串**：Python 侧 `test_host_wire.py`（含「默认会话就广告这条能力」），Java 侧 `HandshakeGateTest` 把六条能力名逐一钉死。理由写在测试里：能力名是**线上字面量**，一边改名不是重构，而是一条**永远匹配不上、也就永远不报错的检查**。
+  - **仓库原有的那条 pin 真的响了**：往默认能力集合里加 `host.lan.v1` 之后，`test_bridge_ipc_host`（钉着协商出来的能力集合）立刻变红，加上去才绿——这正是它存在的理由。
+  - **生成链这次是可复现的，而且先验过再动手**：本机没有 buf，改用容器里的 `bufbuild/buf:1.47.2`。动手改 proto 之前先对**未修改**的 proto 跑了一遍生成，结果与提交的字节**完全一致**——决定字节的是 `buf.gen.yaml` 里钉死的远端插件 `protocolbuffers/python:v31.1`，buf 只是驱动，所以容器里的版本不影响产物。生成后照 `generate_protos.py` 的规范化步骤（它自己那一步只有 buf 能跑，我用它的函数跑的）。
+  - **一条没解决的、也不该假装解决的差异**：CI 里有一步 `buf format --diff --exit-code`，而**未修改的** proto 在 buf 1.47.2 下就不是规范格式——说明 CI 用的是另一个版本，本机复现不了那一步。我**没有**顺手 `buf format -w`（那会把整个文件重排成一次与本次改动无关的大 diff），只让自己新增的那段与周围风格一致。CI 是不是绿的，这轮没有去查（每次提交的 CI 在任何步骤跑起来之前就失败，见环境门禁那条）。
+  - **pin 又重录了一轮，两个平台仍然逐字节相同**：jar `7a3bd349…`、1,285,252 字节（Windows `21.0.12.1+1-LTS-4` 与受控 Linux 容器都是它），源码树摘要、fixture 摘要/大小与 fixture 清单同步重录。**jar 比上一轮大了约 15 KB**，来源是新的两条消息被 protobuf 插件生成的 Java 类编了进去——也就是说这次摘要变化主要来自 proto，而不是那个常量。
+  - **这一步之后线上形状有了、线路还没通**：Bridge 的 control 门禁允许的消息类型里**还没有** `OpenLan`，Core 也**还没有**任何地方发它。所以现在发一条 `OpenLan` 过去会被当成未知类型拒掉（fail closed），这正是下一步要接的那一段。
+- [x] **线路接上了：Bridge 现在认 `OpenLan`、在 client thread 上执行、并用 `HostLifecycle` 回话。**命令进了 control 门禁的允许集合，dispatch 里做三件事——校验 deadline、检查 `host.lan.v1` 能力、投进 client inbox；`HostController` 在 client tick 上消费它，经 `IntegratedServerControl` 执行，再把结果投进同一条必须送达的 outbox。这一步仍然**没有真实运行**（当时 Core 还不会发这条命令），证据是编译、86 个 Java 测试与门禁。**（2026-09-22 更正：这条注释已经过期。** Core 现在会发它了：`cli/session.py` 的 `open_lan_command(...)` 构造这条命令、`OPEN_LAN_TYPE` 在 `:1054` 真的发出去，而且端口那条规则就写在构造器上——`port=0` 是让客户端自己挑并回报（默认），夹具才点名一个固定端口（因为要加入的那个客户端需要一个固定端口的 server profile），`1-65535` 之外的端口**拒绝**；**没有 cheats 字段、也没有游戏模式字段，线缆上也没有**——「发一个世界出去会同时抬高两者」这条 P0 政策是**靠没有入口**实现的，不是靠校验。这条注释写在它之前，所以它说的当时是对的。) 
+  - **两条规则是这个控制的全部内容，而且都是量出来的**：**（一）命令和世界到达顺序不定**——客户端是异步进入世界的，launcher 比客户端快是常态，所以「现在没有世界」不能当成失败：命令被扣住，在世界出现的那一 tick 上执行，到 deadline 才报失败。**（二）同一个世界在一代里最多开一次**，这不是整洁而是安全：`ServerNetworkIo.bind` 是往 channel 列表里 **add**（从 1.21.4 的字节码读出来的），所以开第二次会**监听第二个 socket**，而请求 0 时第二个端口谁也报不出来——`getServerPort()` 答的是第一个。于是重复命令由已知答案直接回答，不再问客户端。
+  - **执行那一步被放在接缝后面**（`HostControl` 只有 `isHosting` 与 `publish` 两个方法），所以上面这两条规则**不需要客户端就能测**——8 条新 Java 测试全是这么写的，`ClientAdmissionControllerTest` 早就是这个路数（「需要 Minecraft 的是发起连接，不是相信一次连接」）。
+  - **门禁自己出现了一次假阳性，而且是我这段新代码撞出来的**：`IntegratedServerControl`（本仓库那个适配器类）**包含** `IntegratedServer`，于是「只许适配器包指名服务端类型」的规则把 `runtime` 里的接线判成了违规——而 `runtime` 指名适配器正是接缝本身。修法是让裸类型名按**标识符**匹配（`IntegratedServer` 会命中，`IntegratedServerControl` 不会），带点的包前缀/调用/反射类名照旧按字面匹配。两条用例钉住两个方向，并且把「同一个文件挪出 host 包」那个变异重跑了一遍——仍然报 6 条并 `exit 1`。
+  - **重录 pin 这次踩了一个真坑，值得留下**：pin 有四处（recipe 的 jar 摘要与大小、fixture 的 digest/size/source_digest、fixture 自己的清单摘要），我写了个脚本想一次做完，第一版用了**通配正则** `"digest": "[0-9a-f]{64}"`——结果**把 Fabric API 那条工件的摘要和大小一起改成了 Bridge 的**：fixture 里两条工件用的是同一组键名。改法是**只匹配 `minekin-bridge` 那一条**（按 name 锚定）。**发现方式**是把 fixture 里的工件逐条打出来看，不是靠报错——recipe 检查 Fabric API 摘要的那条迟早会红，但那是几步之后的事。这个脚本现在只在 `.tmp/`（不提交），下一步做 Core 侧时还要重录一次，那时它值得进 `tools/` 并带上「不得碰另一条工件」的用例。
+  - **jar 又重建并重录，两个平台仍然逐字节相同**：`7db652e8…`、1,290,146 字节。
+  - **仍然没接的那一段**：Core 不发送这条命令（没有 CLI 开关、没有 run document 字段、没有账本事件），harness 也没有开关——所以「客户端真的把世界开出去了、端口是多少、另一个客户端能不能连上」这几件事**到现在一次都没量过**。下一步就是它们。
+- [x] **一个受管理的 Kin 真的把它自己的世界开出去了，端口是三份互不同源的记录对上的。** `session start --open-lan` 在菜单处发出 `OpenLan`，Bridge 在 Kin 进入世界时执行，结果落进 run document。**受控 runner 里第四次运行**的三份记录：客户端日志 `Started serving on 37661`、run document `lan_publication: {phase: LAN_OPENED, port: 37661}`、以及**内核自己的监听表**（`/proc/net/tcp6` 上 `37661` 在听）。第三份是这一步真正想要的东西：它不是前两份的转述，而是一个独立事实——**报出来的端口确实有东西在听**。
+  - **前三次运行各顶出一个真问题，每一个都不是靠读代码能看出来的。**
+  - **（一）「有服务端」和「人在世界里」是两件事**（第一次运行）：客户端日志 `bridge is stopping the client: BRIDGE_FAULT`。integrated server 在 `:56` 起动、玩家在 `:59` 才进去，而 `openToLan` 内部要读**客户端的玩家**（权限级那一段），那时它还是 null，于是在客户端自己的调用里抛了。原来的前提 `getServer() != null` 因此是错的，现在还要 `client.player != null`——**「Kin 在世界里」才是发布的前提**。顺带把那条吞掉异常的路径补了一行日志：它只记「为什么停下来」不记「什么把它弄停了」，而这一条让上一轮白猜了一遍。
+  - **（二）1.21.4 根本没有公开的办法读到绑定的端口**（第二次运行）：客户端**确实**开了 LAN（日志 `Started serving on 0`、socket 真的出现了），而 Bridge 报 `NO_BOUND_ADDRESS`。从 jar 里读出来的原因：`getServerPort()` 与那行日志报的都是**被请求的**端口；而 `ServerNetworkIo.bindLocal()` **不是 getter**——它自己**另绑一个 local channel**（`LocalServerChannel` + `LocalAddress.ANY`）并把那个地址返回，所以它给的不是 TCP 监听地址（读成 `LocalAddress` 于是被规则正确地拒了）。**结论是端口必须在调用之前选好、而不是调用之后去读**——这也正是原版自己「Open to LAN」界面的做法。现在：命令说 0 时由 Bridge 向系统要一个空闲端口、把它写进调用，于是 `getServerPort()` 说的就是真话。
+  - **（三）我的测量工具只读了一半的真相**（第三次运行）：那一轮 `LAN_OPENED, port 35757`，而监听表里**没有**这个端口——因为脚本只读 `/proc/net/tcp`，而 Java 在没有特别要求时把通配地址绑成 **IPv6**，socket 一直躺在 `/proc/net/tcp6` 里。这是工具的错，不是产品的错；修好之后第四次运行三份记录就对上了。
+  - **仍然没有发生的**：**没有第二个客户端连进去过**。要连，需要一个指名该端口的 Server Profile，而冻结的 profile schema 里的端口是**固定字面量**，宿主的端口却是运行时选出来的——这是 L3 真正的下一个设计问题，不是补一个参数就能过的。另外 harness 还没有 `--open-lan` 开关（这一轮的测量是在 runner 里直接调 CLI 做的），所以它还不是一个可封存的 case。**（2026-09-23 核对：这一整条已经全部过期，而且是逐句验过的。** ①第二个客户端连进去了——就在下面几条里，两边记录互相对上；②「端口只能是固定字面量」那个设计问题答了：`session start --open-lan-port N` 让两个客户端**在都不启动之前**就知道端口（`docs/development-todo.md` 里紧邻的那一条）；③harness 的开关有了：`MINEKIN_DOMAIN_OPEN_LAN=1` + `MINEKIN_DOMAIN_LAN_PORT=N`，`test-orchestrator/runner/domain.sh` 第 102 行读这两个变量、第 607 行真的发 `--open-lan --open-lan-port`，`run.sh:97` 转发它们；④「不是一个可封存的 case」也不再成立：sealer 现在会封 `host-run-document.json`（`tools/seal_run_evidence.py:713`），而 `tests/fixtures/cases/core-030.json` 就是这条用例。**仍未覆盖的**是端口变化、host 退出与重新进入——那一半没变。**注意本条列在「仍然没有发生的」下面而答案就在几行之后，这正是下面那条 `[x]` 说的「`[ ]` 与它的答案挨着出现」的同一个毛病。）**
+- [x] **宿主可以被告知在哪个端口上开——因为要连进来的那个客户端只能照着一份固定端口的 profile 配置。** 新增 `session start --open-lan-port N`（0 仍是老行为：由客户端挑并报回来）。这不是给客户端挑端口的能力，而是**让两个客户端在都不启动之前就知道端口**：joiner 的 Server Profile 里的端口是**字面量**，而宿主自己挑的端口只有跑完才知道。实测：宿主真的在 `25570` 上开了（内核监听表里也是它）。
+  - 校验放在建消息的那一处：`0` 表示「你来挑」，`1–65535` 是名字，别的值在**发出去之前**就被拒（`CONFIG`）。
+- [x] **两客户端那一轮跑到了一半，而且失败的形状本身就说明连接是真的穿过去了。** 两个受管理客户端（`kin-01` 宿主 + `kin-02` joiner，两个 Kin 因为身份就是用户名、同一个 Kin 连两次会被当重复登录踢掉）：joiner 照着 profile 连上 `127.0.0.1:25570`、进入 `LOGIN_NEGOTIATING`，而**宿主的 integrated server 自己记下了它**：`Kin2 (/127.0.0.1:36166) lost connection: Disconnected`——也就是说 TCP、握手、用户名都到对岸了。然后登录没走完：客户端报 `ADMISSION_FAILURE_REASON_UNEXPECTED_DISCONNECT`（一次没有理由包的断开），**服务端侧没有拒绝记录**，说明是客户端自己挂断的。
+  - **待验证的猜测（明确写成猜测）**：连接是在 Bridge 完成握手时立刻发起的，而**那时客户端还在加载资源**——joiner 的贴图集行就夹在这次尝试中间；相比之下 L2 那几轮之所以没事，是因为 dedicated server 要 ~30 秒才 ready，客户端反而先加载完了。两个客户端抢 IO 让 joiner 的加载慢于自己的握手，这个竞态才露出来。下一步是让准入路径**等客户端过了初始加载再发起连接**（一个判据 + 有界的等待），然后重跑这一轮；若仍然失败，就去开客户端 DEBUG 把真正的理由取出来。
+  - **两条踩到的规矩，都是它们该有的样子**：给第二个 Kin 分享 artifact store **不能靠软链**——store 自己拒绝把根做成软链（内容寻址的缓存一旦能被指到别处，寻址就没有意义了），只能**拷贝**；还有：建了第二个 Kin 之后数据根就不再唯一，`session start`/`stop` **两个客户端都必须显式指名自己的 Kin**（`MINEKIN_KIN_ID`），否则连宿主那一侧都会以「这个根里有多个 Kin」被拒——第一次跑就是这么失败的。
+  - 顺带：这一轮里宿主的 Kin 被一只僵尸杀了（`Kin was slain by Zombie`）——「没人开的 Kin 会在十几秒内死」这件事又多了一个样本，宿主用的快照仍然必须是**不动的 Kin 不会死**的那种。
+- [x] **「连接发得太早了」这个猜测被实测推翻了——而推翻它靠的是把状态打出来，不是再想一遍。** 上一条把 joiner 登录失败归因为「Bridge 在客户端还在加载时就发起连接」，于是做了对应的改动：`ClientAdmissionController` 现在**扣住**一条 `ConnectWorld`，在客户端就绪的那一 tick 上才真正开始（新增 `tickConnect`，取消时把扣住的那条丢掉），判据用的是 **vanilla 自己的 `isFinishedLoading()`**，并且把它做成接缝（因为问它要读 Minecraft，而围着它的判断不需要）。
+  - **第一次重跑「毫无变化」，因为判据根本没触发**：我最初用的是 `currentScreen != null`，而**加载期间那个屏幕已经存在**，所以扣留从未发生。这不是「猜测被证实」，是「猜测压根没被测试到」——一条不改变可观测行为的改动，不能算验证。
+  - **换成 `isFinishedLoading()` 并把它连同屏幕、overlay 一起打进日志之后，答案直接写在了日志里**：`bridge asked vanilla to connect to 127.0.0.1:25570 for generation 1 (finishedLoading=true, screen=class_442, overlay=class_425)`——**客户端是完全加载完的**。所以「太早」不是原因，这个猜测到此为止（改动留着：在一个还没加载完的客户端上发起连接本身是危险的，而且这次正是它把状态打了出来）。
+  - **失败形状现在描述得很清楚，而且排掉了两种解释**：joiner 进 `LOGIN_NEGOTIATING`；**宿主的服务端按名字记下了来客**（`Kin2 (/127.0.0.1:42280)`）然后 `lost connection: Disconnected`；服务端没有任何拒绝记录；客户端侧的分类是「一次没有理由包的断开」。从 jar 里读到的 `ServerHandshakeNetworkHandler` 说明：**transfer 被拒**（`multiplayer.disconnect.transfers_disabled`）和**版本不符**都会**带理由**发出去——所以这两种都不是它。（而且 transfer 那条本仓库早就量过并修好了：cookie storage 传 null 而不是空对象。）
+  - **下一步是把真正的理由取出来**，两条路：给一次运行开客户端 DEBUG（log4j 配置是钉住的 artifact，需要先说清怎么临时换而不动 pin），或者从 jar 里读 `ServerLoginNetworkHandler` 的登录期拒绝路径，找出一条**不发理由包**的。**不该再猜第三次**——这一轮的教训就是猜错的代价是把一整轮时间花在了一个不改变任何可观测行为的改动上。
+    "- [x] **原因找到了，而且不是猜的：vanilla 的 integrated server 自己把 online mode 打开，所以 Kin 开的世界会**认证**来客——而 P0 的客户端是离线的。**"
+    "静态读出来的：`IntegratedServer.setupServer()` 在打完 `Starting integrated minecraft server version {}` 之后立刻 `setOnlineMode(true)`（紧接着 `generateKeyPair()`，那把密钥就是给加密用的）。"
+    "于是 joiner 收到的不是「没有理由的断开」，而是**一条有理由的断开**：`bridge observed a login disconnect: Failed to log in: Invalid session`。"
+    "**每一条别的 P0 加入路径都是离线的**（受控 dedicated server 的 `online-mode` 由 profile 的 `auth_mode` 生成），所以一个离线受管理客户端根本进不去 Kin 自己开的 LAN 世界。\n"
+    "  - **修法在适配器的职责之内**：`MinecraftServer.setOnlineMode(false)` 是公开的 server 生命周期调用，正是 `bridge-host-control` 存在的那一类；它在**绑定端口之前**执行，所以不会有 joiner 在旧模式下来到。"
+    "**这是一条政策决定，值得在有了 host profile 之后回头重看**：宿主的 LAN 世界从此不认证来客——理由是 P0 整个域都是离线的（受控服务端按 profile 走，身份是离线身份），而契约明说 Microsoft 认证不是首版离线/LAN 路径的能力。\n"
+    "- [x] **于是「一个 Kin 加入另一个 Kin 开的 LAN 世界」这件事，第一次真的成了——两边各自的记录互相对上。**\n"
+    "  - **宿主侧**：`lan_publication: {phase: LAN_OPENED, port: 25570}`、世界 `kinworld`，而**它自己的服务端**记下了来客与离开：`Kin2 joined the game` →（`Kin2 was slain by Slime`）→ `Kin2 lost connection: Disconnected` + `Kin2 left the game`。\n"
+    "  - **joiner 侧**：`connection_state: PLAYABLE`、`snapshots_admitted: 1`、`entities_admitted: 18`、`events_applied: 5`，Bridge 的相位走到 `PLAY_INIT → JOIN_SEEN`，并报出 `bridge knows of 19/25/27 entity candidate(s)`。"
+    "也就是**首快照被准入、Kin 在世界里能动**——这正是 L3 要的那件事。\n"
+    "  - **这一步的教训里有一条是我自己工具的**：`Invalid session` 那行其实**早就在日志里**，只是我前面的几轮一直在读**错的 overlay**——脚本用「目录里的第一条」当 joiner 的目录，读到的是上一轮的旧目录。"
+    "把它换成「最新写入的那个」之后，证据立刻就在手边了。**下次要读某个客户端的日志，先确认读的是哪一次运行。**\n"
+    "  - **仍然没有的**：harness 还没有 `--open-lan`/`--open-lan-port` 开关（这一轮仍然是在 runner 里直接调 CLI + 一份临时脚本：第二个 Kin、拷贝出来的 store、按选定端口生成的 profile），所以 L3 还**不是一个可封存的 case**；"
+    "joiner 在这一轮里被史莱姆杀了（没人开的 Kin 会死，又一次），而「宿主用的快照必须是不动的 Kin 不会死的那种」仍然没定。\n"
+- [x] **宿主场景进了受支持的 harness 路径，不再靠临时脚本。** `MINEKIN_DOMAIN_OPEN_LAN=1` + `MINEKIN_DOMAIN_LAN_PORT=N` 让 harness 给会话加上 `--open-lan --open-lan-port N`，并**等世界真的被开出去**。实测走的 `run.sh domain`（不是 `--shell`）：`domain: the world is published on 25570 (…/logs/latest.log)`，而 run document 里 `lan_publication: {phase: LAN_OPENED, port: 25570}` 与 `world_snapshot: kinworld` 都在。
+  - **这个等待必须读客户端的日志，而这不是抄近路**：harness 的等待一律建在**账本**上，而「世界被开出去了」**不是 §5 的会话事件**——按本仓库一贯的规矩它落在 run document 上，而 document 是会话结束才打印的。会话还在跑的时候，这件事**只存在于客户端自己的日志里**。这条不对称因此被写进注释，而不是被绕过。
+  - **顺带拆掉了一个挡住多 Kin 场景的门**：harness 原来要求数据根里**恰好一个 Kin**（`ledgers=(/data/kin/*/kin.sqlite3)` 加 fail-closed 检查——它自己注释说清了为什么：`head -1` 会把一个 Kin 的库读成另一个的）。而「有第二个 Kin 连进来」这种场景天然有两个账本，所以现在可以用 `MINEKIN_KIN_ID` 指名（`run.sh` 也把它透传进容器），指名之外仍然 fail-closed。
+  - **踩了一个本仓库已经写下来的坑**：用 Python 在 Windows 上改写 `domain.sh` 把行尾变成了 CRLF，容器里立刻是 `#!/usr/bin/env bash\r` 找不到。`.gitattributes` 里 `*.sh text eol=lf` 那条的注释**正是这件事**——它甚至写了「`bash -n` 仍会说语法没问题」，而这次确实如此。改成 LF 就好；记下来是因为它花掉了一轮。
+  - **L3 仍然不是一个可封存的 case**：没有 case fixture、没有对应的断言谓词，而且**join 那一半还需要两个会话**（harness 现在是「一个会话 + 可选 dedicated server」的形状）。下一步是这两件：先给「宿主把世界开出去」一个 case（断言读客户端日志那行与 run document），再让 harness 支持第二个会话来加入。
+- [x] **`HOST-030` 有了 case fixture、三条断言，以及一轮真实封存——`the case verdict is PASS`，并且 `evidence verify` 把 bundle 读回来了（7 件工件）。** 三条断言：`the_run_says_which_world_it_hosted`（run document 的 `world_snapshot` 有 level 名与摘要）、`core_was_told_the_world_was_published`（`lan_publication` 是 `LAN_OPENED` 且端口是端口）与 `the_client_published_the_world_on_the_port_it_was_given`（**客户端自己那句 `Started serving on N` 与 Core 记下的端口必须一致**）。第一条是补上来的：原来只有 LAN 那一半有断言，**「本地的世界」竟然没有任何一条断言在读**——一个本该被种下世界的运行没有 `world_snapshot` 也不会有人发现。用例 id 取契约里那条真正管这件事的：`HOST-030`（「端口正常/占用/被防火墙阻断；本地世界与 LAN 结果分开」）。
+  - **第二条断言正好能抓住这个功能走过的那个 bug**：第一版让客户端自己挑端口，于是客户端日志说 `0` 而 Core 记的是真实端口——用例里有这条（`PORT_MISMATCH:client=0,core=25570`）。
+  - **实测**（两轮，第一次两条断言、补上第三条后重跑）：`MINEKIN_DOMAIN_CASE=HOST-030` → `domain: the world is published on 25570` → `domain: the case verdict is PASS`，封出的 bundle `bundle_digest e2ae9636…`、7 件工件，`evidence verify` 报一致。**这也顺带把 case 的「两件事分开」验成了**：两半各自会在自己那一半出错时失败——世界没人开出去时 LAN 断言红而世界仍然被指名；没记下世界时另一条红。用例里有这两条。
+  - **`work_package` 写了 `W90`**：case schema 要求 `^W[0-9]{2}$`，而契约把宿主面放在 `p0-host-exp`（W 系列之外），W00–W80 都已名花有主。**这是一个占位选择，值得在契约里给宿主面一个正式编号。**（2026-09-22 已做：见本节末尾那一条——`work_package` 现在是闭集。）
+- [x] **封存端把这一轮的世界记成了「没有世界」——而且用例照样 PASS。** 刚封出来的 bundle 里 `world: {kind: none, seed_or_snapshot_id: none, server_config_digest: <空文档>}`，可这一轮 Kin **在世界 `kinworld` 里**（run document 有 `world_snapshot.digest = aac62c39…`）并且在 `25570` 上把它开了出去。这正是先前那条「刻意不做」的 `world.kind` 缺口——它当时只是"没形状"，现在**在产出与运行相反的记录**。用例没拦下来，是因为断言读的是 **run material**（run document/账本/日志），而 `world` 块是**封存端**写的——所以修的地方在封存端，不在断言。 **（2026-09-22 核对：已闭合——已修，而且不只修了症状：封存端现在认识第三种 kind，证据是 `tests/unit/test_seal_run_evidence.py:1092`（自建世界记成 `lan`）与 `:1158`（说 `lan` 却说不清是哪个世界**被拒**——那个逃逸口的负向对照）。紧跟在后的 `[x]` 那一条记的是修法与实测。）**
+  - 契约的 `world.kind` 枚举里**本来就有 `lan`**，而 `seed_or_snapshot_id` 的字面意思就是「按种子或按快照身份」——这一轮现成有那个身份：run document 的 `world_snapshot.digest`。所以前两项的映射是明确的。
+  - **需要先定的是第三项**：`server_config_digest` 对一个 Kin 自建的世界意味着什么？`none` 那条规则要求它必须是空文档摘要、其余 kind 不许是空文档摘要，而宿主这一轮**根本没有 server profile**——世界的设置在世界自己的 `level.dat` 里。要么给宿主世界一个可复核的配置摘要（`level.dat`？），要么明确契约允许它在 `lan` 下为空文档并把规则改成"每种 kind 各自允许的取值"。**在这条定下来之前不要再封一轮宿主 case**——否则会往数据根里再放一份说假话的证据。
+- [x] **封存端不再把「Kin 自己开的世界」记成「没有世界」了——而且这次改的是根因，不是症状。** 上一轮封出来的 bundle 对一轮「Kin 在世界 `kinworld` 里、并把它开在 25570 上」的运行写了 `world: {kind: none, seed_or_snapshot_id: none, server_config_digest: <空文档>}`。根因在封存端那条守卫：它防的是「明明连过世界却记成没有世界」，而它找的证据是**连接**（`connection_state`/`snapshots_admitted`/`PLAYABLE_ESTABLISHED`）——**一个在自己世界里的 Kin 没有任何连接**，于是守卫放行，bundle 就否认了一个运行自己的文档正记着的世界。
+  - **修法**：封存端认识第三种 kind。有 server profile → `dedicated`（照旧，profile 的 revision + 服务端自己生成的世界）；没有 profile 但文档里有 `world_snapshot` → **`lan`**，`seed_or_snapshot_id` 取快照自己的摘要（契约里那个字段的字面意思就是「按种子或按快照身份」），`server_config_digest` 取**被种下去的那份 `level.dat` 的摘要**——一个背后没有 server profile 的世界，「服务端配置」就是它自己的设置（难度、游戏规则、生成器、是否允许命令）。
+  - **设置摘要由启动器在种世界时命名**（run document 的 `world_snapshot.settings_digest`），**与地形分开哈希**：一条 bundle 要说清「这轮从什么开始」，而需要复现的那一半是设置不是方块——有用例钉住「只改地形，设置摘要不变；改 `level.dat` 才变」。文档里缺这个字段时封存端**拒绝**而不是拿快照摘要顶上：两个字段意思不同，互相顶替之后没人能再分开。
+  - **实测**（重跑 `HOST-030` 并重新封存）：`the case verdict is PASS`、`evidence verify` 报 `verified: true, sealed: true, violations: []`，而 bundle 里现在是
+    `world: {"kind": "lan", "seed_or_snapshot_id": "aac62c39…（快照摘要）", "server_config_digest": "3bdd4aff…（level.dat 摘要）"}`。
+  - **仍然开着的两件小事**：`world.kind` 的取值**没有任何地方按契约的三个名字校验**（2026-09-22 核对：**这句是错的**——`WORLD_KINDS` 在 `domain/evidence.py:32`，`EvidenceManifest.violations()` 在 `:165` 报 `WORLD_KIND_UNKNOWN`，`write_bundle` 写任何东西之前就据此拒绝；封存端也从 domain 取那三个名字。见本节末尾那一条。）（写成 `LAN` 或手误也照样封进去，只有「是不是 none」被管）；`HOST-030` 的 `work_package: W90` 仍是占位（2026-09-22 已做：见本节末尾那一条——`work_package` 现在是闭集。）。另外宿主用的那份「准备好的存档」目前是 harness 从更早一次服务端运行的世界拷来的，**还不是仓库里可复核的 fixture**——这一条会影响 case 的可复现性。
+- [x] **宿主用的世界现在是一份仓库里的 fixture（1.6 KiB），不再是「容器里某一次服务端运行的世界」。** 上一轮记下的可复现性缺口是：harness 从 `/data/server-runs/run-97/world` 拷一份世界，`run-97` 在别的机器上不存在，而且到底是哪一次也不可复核。**先量了一件事再动手**：Minecraft 的 save 通常是一个目录，但让目录成为世界的只有 `level.dat` ——它带着关卡名、难度、是否允许命令和生成器设置（平原地形、固定种子 `minekin-p0-controlled`）。**实测**：只用这一个文件当存档，受管理客户端照样进世界并把它开在 25570 上。所以世界可以是 **`tests/fixtures/saves/kinworld/level.dat`，1,636 字节**，而不是曾经那份 5.3 MiB。
+  - **为什么要提交二进制而不是每次生成**：按种子现生成的世界**每次都不是同一个世界**（`LastPlayed` 一动摘要就变），而 case 要的正是「它开始时的那个世界能被指名」。提交进来的字节永远一样，于是 `server_config_digest` 指向的是**仓库里那份文件**——实测新一轮封存：`world: {"kind": "lan", "seed_or_snapshot_id": "5c14c563…", "server_config_digest": "3bdd4aff…"}`，而 `3bdd4aff…` 就是那份 fixture 的摘要。
+  - **顺手补了一个冻结规则的口子**：`tests/fixtures/manifest.sha256` 原来只冻结 `**/*.json`，二进制世界**没有任何 pin**；而且它的摘要函数对**所有**文件做 CRLF→LF 归一化——对一个 gzip blob 做那种事，等于让摘要回答「这次 checkout 是不是在 Windows 上做的」而不是「这是不是那个世界」。现在 `tests/fixtures/saves/**/*.dat` 进冻结集，并且**摘要按原字节算**（不是合法 UTF-8 就不归一化）——这正是仓库里 Bridge 源码树当年用后缀白名单踩过的那个坑，所以照它的说法写进了注释。
+  - **fixture 旁边有一份 README** 说明它是什么、为什么能只有 1.6 KiB、以及**怎么重新生成**（跑一次受控服务端，取它生成世界的 `level.dat`）：重新生成意味着**换一份 fixture 和一个新 pin，而不是就地改**。case 的 `inputs` 也把它列上了。
+  - **仍然开着的**：`world.kind` 的取值没有按契约的三个名字校验（只查「是不是 none」）（2026-09-22 核对：**这句是错的**——`WORLD_KINDS` 在 `domain/evidence.py:32`，`EvidenceManifest.violations()` 在 `:165` 报 `WORLD_KIND_UNKNOWN`，`write_bundle` 写任何东西之前就据此拒绝；封存端也从 domain 取那三个名字。见本节末尾那一条。）；`HOST-030` 的 `work_package: W90` 仍是占位（2026-09-22 已做：见本节末尾那一条——`work_package` 现在是闭集。）；join 那一半（第二个会话）还没有 harness 形状。
+- [x] **世界块那条「看起来是枚举、其实是自由文本」的口子堵上了，两个方向的逃逸口都拒绝。** `world.kind` 原来只有「是不是 `none`」被检查——写成 `LAN`、`lan_hosted`、`"none "` 都照封不误，而这样的 bundle 的世界**没人能分类**，也就没法与任何东西比较（包括同一个 case 的另一份 bundle）。现在契约的三个名字（`dedicated`/`lan`/`none`）进了 domain（`WORLD_KINDS`），不认识的 kind 报 `WORLD_KIND_UNKNOWN`；封存端也从 domain **问**这三个名字而不是自己重述一遍。
+  - **第二个逃逸口是同一形状的另一个字段**：`seed_or_snapshot_id` 原来只跟着 `kind` 走，于是 `kind: lan` 配 `seed_or_snapshot_id: none` 能封出一份「说了有世界、却说不清是哪个世界」的证据。现在这条字段与配置摘要用同一条规则——`none` 与 `kind: none` **互为充要**，两个字段任一不合就 `WORLD_RECORD_INCONSISTENT`。封存端这边更早一步：宿主世界**必须在文档里被指名**（`digest` 是 64 位十六进制），否则**拒绝封存**，而不是拿 `none` 顶上。
+  - **新规则立刻抓到了一处测试里的不一致**：`test_a_run_that_joined_no_world_records_the_absence_and_seals` 原来构造的是「`kind: none` 但 `seed_or_snapshot_id: snapshot-01`」——一份自相矛盾的 no-world bundle，而它此前一直是绿的。这正是这条不变式该干的事。
+  - **实测**：1380 条测试、ruff/format/pyright、fixture digests 全绿；用仓库里那份世界 fixture 重跑 `HOST-030` 仍然 `the case verdict is PASS`（更严的规则没有误伤生产路径）。
+  - **仍然开着的**：`HOST-030` 的 `work_package: W90` 是占位（2026-09-22 已做：见本节末尾那一条——`work_package` 现在是闭集。）；join 那一半（第二个会话）还没有 harness 形状；宿主用的世界 fixture 虽然进了仓库，但它**只在受控服务端里验过**（`level.dat` 单文件成世界这件事量过），没有一条断言在读 `server_config_digest` 是否等于那份 fixture 的摘要。
+- [x] **harness 现在能同时跑两个客户端：一个 Kin 开世界，另一个 Kin 连进去——而「到了」和「看见了」被区分开了。** `MINEKIN_DOMAIN_JOIN=<kin-id>`（用户名由 `MINEKIN_DOMAIN_JOIN_USERNAME` 给，默认 `Kin2`）：harness 先备好第二个 Kin 的环境（`init` 出这个 Kin、把宿主的 artifact store **拷**给它——store 拒绝软链、profile 按被指名端口生成），等宿主把世界开出去，再在第二个 X display 上起第二个会话，然后**等两件事**：宿主的世界听见它到了、以及**它自己的账本**说首快照被准入。实测：
+  `domain: the world is published on 25570` → `domain: the world heard Kin2 arrive` → `domain: Kin2 admitted its first snapshot of that world` → `domain: the joining client ended with {'connection_state': 'PLAYABLE', 'snapshots_admitted': 1, 'entities_admitted': 14}`，而宿主的日志里 `Kin2 joined the game` / `lost connection` / `Kin2 left the game` 三行齐全（joiner 先停，所以世界对「离开」有话说）。
+  - **这一步自己顶出来两条，都是「等待等错了东西」**：
+    - **「世界听见它到了」不等于「那个客户端能看见了」**：只等前者就停，某轮 joiner 以 `PLAY_INIT`、`snapshots_admitted: 0` 结束——契约要的是首快照被准入，所以现在还要等 joiner **自己账本**里的 `PlayableEstablished`。
+    - **而那条账本查询第一版写漏了范围**：`select ... where event_type='PlayableEstablished' limit 1` 读的是**整条账本**，于是它命中了**这个 Kin 更早一次运行**留下的行——harness 宣布「它准入了首快照」，而同一个客户端自己的 run document 说 `snapshots_admitted: 0`。**两份记录当场对不上，这才是发现它的方式**。修法与 harness 其他等待一致：启动前先记下账本最大 `position`，查询加 `position > baseline`。这与本文件里早就写下的那条教训是同一个形状（「`head -1` 会把一个 Kin 的库读成另一个的」），只是这次错在**同一条账本的不同运行之间**。
+  - **仍然没有的**：**L3 还不是可封存的 case**。harness 一份 bundle 只封一次运行，而这一轮有**两份** run document（宿主与 joiner），「case 说的是哪一份、世界的账从哪来」是个要先定的设计问题（候选：以 joiner 为 case 的运行，用宿主的日志/`usercache.json` 当「世界那一侧」的第三方账——但 sealer 现在只认 dedicated server 的目录形状）。`HOST-030` 的 `work_package: W90` 仍是占位（2026-09-22 已做：见本节末尾那一条——`work_package` 现在是闭集。）。
+- [x] **「第二个真实客户端连进来了」现在是一份封存好的 case（`HOST-040`），而且**没有加任何新输入**——上一轮担心的那个设计问题自己解决了。** 上一条把「L3 还不是可封存的 case」的原因写成了「一份 bundle 只封一次运行，而这一轮有两份 run document；世界的账从哪来还是个设计问题」。这一轮发现：**宿主的运行自己的材料里就有世界的账**——integrated server 跑在那个客户端里面，所以它的 `[Server thread/INFO]` 行（`Kin2 joined the game` / `left the game`）就写在宿主的 `logs/latest.log` 里，而那份日志本来就是 asserter 读的 `client_log`。于是「以哪一次运行为准」的答案是：**以宿主这一次为准**——它是世界自己的运行，不需要第二个 bundle、不需要新的 sealer 输入、也不需要把别人的话抄一份。契约里管这件事的那条本来就叫 `HOST-040`：「第二个真实客户端加入、游玩、离开、host提示后关闭」。
+  - **两条新断言，其中一条是**组合**出来的**：`another_kin_joined_the_world_this_run_hosted` 先要求这一轮**真的把世界开出去了**——直接复用 `core_was_told_the_world_was_published` 的结论而不是重述一遍规则（两处规则会漂移）；`the_world_saw_that_kin_leave_again` 要求**来过的人都离开了**（「还在世界里」和「来了又走」是两个事实，而只有世界知道是哪一个）。两条都从日志里把**本 Kin 自己**那行排除掉——判据是用户名，不是数行数——有用例专门钉住「自己到达不算别人到达」。
+  - **实测**（`MINEKIN_DOMAIN_CASE=HOST-040 MINEKIN_DOMAIN_JOIN=kin-02 MINEKIN_DOMAIN_OPEN_LAN=1`）：`the world heard Kin2 arrive` → `Kin2 admitted its first snapshot of that world`（joiner 侧 `PLAYABLE`、`snapshots_admitted: 1`、`entities_admitted: 22`）→ `the case verdict is PASS` → `evidence verify` 通过（7 件工件）。
+  - **这份 case 说的是世界那一侧，不是 joiner 那一侧**：HOST-040 的措辞里还有「游玩」和「host 提示后关闭」没有覆盖，而 **joiner 自己的首快照准入（契约的 `CORE-030`）不在这份 bundle 里**——它需要「一次运行之外的第二份 run document」这个设计（上一轮列过）。这两条都如实留在待办里，没有拿这份 PASS 冒充它们。
+- [x] **加入端自己的那一轮运行现在也是一份封存好的 case（`CORE-030`）：`the case verdict is PASS`、`evidence verify` 读回 8 件工件——而挡住它的那条守卫，正是这一弧反复在修的那个形状。** harness 只封一次运行，而一轮双客户端场景有**两份** run document；`MINEKIN_DOMAIN_CASE_ON=host|joiner`（值不合法就拒绝）决定这一份 bundle 说的是谁——选 joiner 时 `subject_document`/`subject_username` 换成加入端，并把宿主的 run document 作为 `--world-run-document` 传给 sealer。
+  - **封存第一次尝试被拒（exit 2）**：`no server profile was given, but the record shows a world: connection_state='PLAYABLE', snapshots_admitted=1`。这条守卫写在「宿主世界」这个概念存在之前，那时「没有 server profile 却记着世界」只可能是误读；而**加入端本来就没有 dedicated profile，同时合法地报告 `PLAYABLE`**。修法与这一弧其他几处同形：豁免的条件是**世界的名字被给出来了**（`--world-run-document`），否则维持 fail-closed——那个 document 若自己没记世界，`_world_record` 仍然拒绝（`did not record a world of its own`）。两条新用例正好钉住这一对：同一份 join 文档，**不给**宿主 document 时被拒、**给了**就以 `kind: lan` 封出去。
+  - **读完封出来的 bundle 才发现第二个洞**：世界块用**宿主那次运行量出来的**两个摘要给世界命名，而 bundle 里**没有任何东西表明这个名字从哪来**——一条读者无法核对的断言。所以宿主的 run document 现在随 bundle 一起封（`host-run-document.json`，8 件工件），与「不给世界命名就不许封」是同一条规则：断言的依据必须在 bundle 里。反向控制也有：`kind: none` 的运行**不**带这份工件（「没有世界」不等于「宿主的文档恰好是空的」）。
+  - **实测**（`MINEKIN_DOMAIN_CASE=CORE-030 MINEKIN_DOMAIN_CASE_ON=joiner MINEKIN_DOMAIN_JOIN=kin-02 MINEKIN_DOMAIN_OPEN_LAN=1`）：joiner 侧 `PLAYABLE`/`snapshots_admitted: 1`，封存 `result: PASS`、`failures: []`、`evidence verify` → `sealed`、`verified`、`violations: []`。**两个摘要当场对上了**：joiner 的 `seed_or_snapshot_id`/`server_config_digest` 与宿主 run document 的 `world_snapshot.digest`/`settings_digest` 逐一相等（`5c14c563…` / `3bdd4aff…`）；而 `3bdd4aff…` 正是 `tests/fixtures/manifest.sha256` 里 `tests/fixtures/saves/kinworld/level.dat` 的摘要——**「封出去的世界」与「仓库里那份世界 fixture」第一次被同一串十六进制连了起来**。这是**量出来的**，还不是**断言读出来的**（见待办），所以如实写在这里而不记成「已覆盖」。
+  - **新 case fixture 立刻被冻结门禁抓到**：`tools/verify_fixture_digests.py` 报 `unlisted frozen file tests/fixtures/cases/core-030.json`，于是按同一套规范（文本 CRLF→LF 后取 SHA-256）录进 `manifest.sha256`——`test_frozen_fixture_digests_match` 与 `w00-contract-001` 的 `fixture_digests_match_manifest` 同时转绿。这就是那部 manifest 存在的意义。
+  - **门禁**：1389 passed / 1 skipped（Windows 上 terminate 不是信号）；ruff check/format、`check_boundaries`、`check_case_assertions`（48 条已注册）、`verify_fixture_digests`、`check_bridge_host_boundary` 全绿。`pyright` 报 3 条 error，全在**本轮没碰过的** `tests/unit/test_report_soak.py`（`approx` 部分未知类型），是本地版本差异，留给环境而不是这一轮。
+  - **仍然开着的**：三份新 case 的 `work_package: "W90"` 仍是占位（契约把 host 面放在 W 系列之外的 `p0-host-exp`，而 case schema 要求 `^W[0-9]{2}$`）（2026-09-22 已做：见本节末尾那一条——`work_package` 现在是闭集。）；`HOST-040` 的「游玩」与「host 提示后关闭」、`CORE-030` 的「端口变化、host 退出与重新进入」都还没覆盖；以及上面那条**没有任何断言**在读世界块的摘要是否等于仓库 fixture 的摘要。
+- [x] **CI 不再是「永远在第一步之前就失败」了——三个 job 真的跑起来了，而且三个都因为各自的原因红着。** 这条记的是**验证通道本身**：此前每次提交的 CI 都在计费拦截上死掉，任何一步都没运行过，于是所有本地绿灯都只是本地绿灯。现在 job 跑起来了，红的不是这一轮改动，而是三件互不相干的事，各自修掉：
+  - **`python`：`ruff check` 红在一个 import block 上，而它在 Linux 是 `I001`、在 Windows 是干净的——同一个 ruff 版本、同一份设置。** 这不是文件的问题，是 first-party 识别的平台差异：写代码的机器和把关的机器对同一个文件给出不同答案。**没有挑一边当赢家**，而是把 `src` 根一直要求推断的东西**明说**出来（`known-first-party` = 本仓库拥有的那些顶层模块），两台机器从此排同一个序。修完立刻在原文件上验证：两边各自都只剩**同一条** `I001`，`--fix` 之后两边都干净。
+  - **`protocol`：buf CLI 根本没被下载过。** action 把 URL 拼成 `.../download/v${version}/...`，于是 `version: v1.50.0` 去要一个叫 `vv1.50.0` 的 release，job 在 `buf` 跑第一行之前就 404 了。**checksum 是对的**（拿 release 自己的 `sha256.txt` 核对过），所以只去掉那个多出来的 `v`；并且让钉版本的契约测试**说明原因**、直接拒绝带 `v` 的写法，而不是只比对字符串。
+  - **`bridge-static`：`javac` 找不到 `HostController`。** 这个无依赖门禁编译的是一份**手工维护的源码清单**，而 host adapter 那一批不在清单上。现在在清单上了——连同 seam 与它的结果词表，也就是**唯一读服务端状态的那个类之上的所有东西**（那一个按老规矩 stub 掉，这正是 `HostControl` 存在的意义）。并且**量过它真的被编译**而不是被跳过：往 `HostController` 里塞一行不存在的调用，门禁当场红。
+  - **顺带关掉一个只看本地才会出现的陷阱**：`.gitattributes` 把 `*.proto` 钉成 LF。Windows 检出下 `buf format --diff` 会说 `observation.proto` **每一行都变了**，而提交进去的 blob 本来就是格式化好的——本地红、CI 绿、两边都看不出差别。这与 `*.sh` 当年那条是同一个形状。
+  - **每一步都在锁定环境里跑过一遍**（`uv run --frozen …`）：ruff check/format、pyright、1389 条测试、边界/断言/fixture 三道门禁、wheel 构建与它的边界检查、`minekin --help`、pinned 1.50.0 的 `buf build/lint/format`，以及 `tools/generate_protos.py` **对签入的生成包零 diff**。**pyright 在锁定环境是 0 error**——此前本地 .venv 里那 3 条 `approx` 报错是**更老的 pyright**给出的，也就是说那 3 条被记成「环境问题」的时候，读的是错的环境。
+  - **推上去之后 `protocol` 与 `bridge-static` 两个 job 直接绿了，`python` 又往前走了一步，停在 pyright 上——而这次它抓到的是真的**：`ipc.py` 里 `os.O_BINARY` 在 Windows 上有、在 Linux 上**这个名字根本不存在**，于是 Linux 的严格模式报 `reportAttributeAccessIssue`（本地 Windows pyright 永远是干净的，所以本地看不见）。运行时那行本来就有 `hasattr` 守卫、**没有真的坏**——坏的是「守卫只对运行时有效，对读代码的人和类型检查器都没有」。改成 `getattr(os, "O_BINARY", 0)`（与 `tools/fault_injection.py` 里同一行同一个写法），并**在 Linux 容器里量了两件事再动手**：守卫写法确实复现 CI 那 4 条、`getattr` 写法在 Linux 是 0 条；Windows 侧同样 0 条。这就是「同一份源码在两台机器上答案不同」的第三次出现，这一次不是工具的问题，而是只有一台机器能看见的**平台专属名字**。
+  - **pyright 过了之后 pytest 这一关露出第四件、也是最大的一件：CI 的 Python 不是这台机器上的那个。** 日志里写着 `Using CPython 3.12.3 interpreter at: /usr/bin/python3`——**发行版的**解释器，链的是发行版的 SQLite（3.45.1），而 `connect_writer` 只接受「已验证的多连接 WAL 安全集」（≥3.51.3 或两个列出的 backport）。也就是说：CI 会在一个与本仓库自己钉住的运行时**不同的**运行时上跑测试，红在一个没有提交选过的原因上；本机 `uv sync` 建的 venv 用的是 uv 托管解释器、自带 SQLite **3.53.1**，所以本地永远是绿的。修法是把解释器也按工具链钉住（`UV_PYTHON_PREFERENCE: only-managed` + `UV_PYTHON: 3.12`，与 ruff 的 `target-version`、pyright 的 `pythonVersion` 同一个版本），并且**在契约测试里把这条规则写下来**（`test_pinned_toolchain.py`：job 的 env 必须钉这两项，外加一条「正在跑测试的这个解释器本身必须被账本接受」——这样选错解释器的人得到的是一行说明，而不是满屏看起来各不相同的存储报错）。**在 Linux 容器里复核过**：加这两项之后 uv 建出的解释器是 python 3.12.13 + SQLite 3.53.1，整套 1383 通过。
+  - **同一次 Linux 全量跑还找出一个只在 Linux 成立的测试期望**：`test_an_environment_path_outside_the_reviewed_prefixes_is_refused[/etc/passwd]` 在 Linux 报的是 `not a plan-relative path`，而它断言的是 `run-root|outside the reviewed`。原因是 `/etc/passwd` **在 Linux 是绝对路径、在 Windows 不是**——同一个字符串落到两条不同的规则上，而那条断言只会被其中一台机器满足。改法不是放宽正则，而是把两件事分开：逃出 run-root 的**相对**路径留在原参数里（两台机器同一条规则），绝对路径另立一条用例并用 `Path.cwd()`（两台都绝对）来断言第一条规则。Windows 26 通过、Linux 26 通过。
+  - **还没定论的**：`python` job 的 pytest 在 runner 上跑了 **90 分钟以上仍未结束**（本机 112 秒，容器里最坏情况 29 分钟）。不能排除是 runner 慢，但也不能排除有测试在那边真的卡住——这一条**如实留开**，等 CI 自己给出结论，没有拿「本地全绿」冒充它。**（2026-09-23 更正：那次运行的日志取到了，机制在下面——pytest 33.82 秒就打印汇总并结束，那 90 分钟是这个 job 没有退出，不是测试卡住；见本文件最新一条。）**
+- [x] **`python` job 只剩两条红，而这两条是**同一件事**：测试把「这台机器答不上来」当成了通用事实。** 上一条留下的问题（pytest 在 runner 上跑 90 分钟不结束）**现在已经没有疑问**：同一个 job，钉住解释器之后是 **86 秒**跑完（`2 failed, 1388 passed, 2 skipped in 86.35s`），两次运行之间只多了那个 env 钉住和两条测试改动。**相关关系是量出来的，机制没有**——只写到这一层，没有编一个解释。
+  - **两条红都在 `test_orphans.py`**，断言的都是 `ExitCode.PROCESS`(13)：一条得 20（`session start` 没有被拦下，反而真的起了一个会话，最后 `HANDSHAKE_TIMEOUT`），一条得 0（`session stop` 报了成功、什么都没 unresolved）。**契约本来就写清楚了两种平台各自该发生什么**（`orphans.py` 模块开头）：*「命令行能被证明不是我们的活 PID 就是已经结束的，start 可以继续；命令行读不出来的才叫 unresolved，这时 start 拒绝，因为『大概没了』不是再往世界里塞一个玩家的理由。」* Windows 的 `os.kill(pid,0)` 对已回收的进程仍然报「在」，所以它**根本答不了**，于是每个 marker 都是 unresolved、两条断言都成立；Linux 能答，而那两条用例记的 PID 4242 要么不存在、要么被别的东西占了——**两种读法按契约都算「结束」**，于是 CLI 正确地放行/报成功。**这两条用例把 Windows 的答案写成了通用答案。**
+  - **修法不是放宽断言，而是把「哪台机器」写进用例**（与这个文件本来就有的一条 `test_the_default_probe_refuses_to_guess_on_a_platform_it_cannot_ask` 同一个写法）：拦不下客户端那一条改成只在答不上来的平台跑，并把「另一半由 `test_an_unresolved_claim_refuses_a_new_start` 用注入的探针在**所有**平台覆盖」写进 docstring（CLI 级要在 POSIX 上走到同一分支，得真的拉起一个客户端——那是真实运行，不是单测）。
+  - **并且补上 POSIX 那一半**，而不是只把断言删掉：`test_the_cli_does_not_call_a_client_gone_here_unresolved` 断言同一个 marker 在能答的平台上**不**被算作 unresolved（`unresolved == []`、`status == stopped`、退出码 OK）。两条用例互为反面：一条是 CLI **必须拒绝**，一条是 CLI **必须不拒绝**，任何一条宽松到接受两种答案都会变成两条都不测。docstring 里写明为什么 PID 4242 的两种读法都确定（不存在→GONE，被占→命令行不是我们的→NOT_OURS），所以它不是碰运气。
+  - **实测**：Windows 39 通过 / 1 skip；Linux（用上一步钉住的托管解释器，SQLite 3.53.1）36 通过 / 4 skip，其中三条是本来就只在 Windows 跑的、加上改过的这条；新的 POSIX 用例在 Linux **通过**。**Linux 全量跑**：1387 通过 / 4 skip / 2 失败，而那 2 条（`test_session_start.py`）是**容器没有 Java**造成的——装上 JDK 21 之后那两条 33 通过、15 秒跑完（没有 Java 时每条要花 24 秒去找）。本地全量 ruff/format/pyright 全绿、1391 通过 2 skip。
+  - **推送之后三个 job 全绿——这个仓库的 CI 第一次整轮通过。** `python`（ruff check/format、pyright、pytest、边界/断言/fixture 三道门禁、wheel 构建与边界检查、`minekin --help`）、`protocol`（buf build/lint/format + 生成包零 diff）、`bridge-static`（scaffold / host 边界 / 协议内核 / 无依赖 adapter 编译）**每一步 success**；`python` 这一次 90 秒跑完（上一条那轮是 100 分钟没结束）。**这一步的作用是让「绿灯」重新有含义**：在这之前所有本地绿灯都只是本地绿灯，而这一轮证明的两件事——「本地绿 ≠ CI 绿」（前四条红全是环境差异）与「CI 绿 ≠ 本地绿」（Windows 上永远看不到的那几条）——现在都有真信号可以对照了。
+  - **仍然开着的**：**CI 只在 3 个 job 上把关**，真正的 Bridge 编译（Gradle、JDK 21）与全部真实运行（受管客户端、LAN、封存）仍然只在本地/容器里跑过；runner 的 pytest 比本机慢约一分钟（90 秒 vs 110 秒本机）但**已经不再是谜**。
+- [x] **「这个世界是哪一份世界」第一次可以被核对，而不是只能被相信——`the_world_this_run_had_is_the_one_the_case_names`。** 这一条正是上一轮自己写下的缺口：*「封出去的世界与仓库里那份世界 fixture 第一次被同一串十六进制连了起来，但这是**量出来的**，还不是**断言读出来的**。」* 一条 world block 报一个摘要，是**关于没人能查阅的字节**的断言；要让它可核对，比较的另一端必须在某个地方被写下来——那就是**用例自己**。所以 case 现在**指名它从哪个世界开始**（`tests/fixtures/saves/kinworld` 本来就在 `inputs` 里，此前没人读），断言把 run 记的 `settings_digest` 与**冻结清单里那个值**比。
+  - **摘要同时写进 case 的 `input_digests`，因此进入 `case_version`。** 只从当前 checkout 的 manifest 临时读取会留下一个时间漏洞：fixture 与 pin 一起更新后，旧世界的 PASS 仍与未变化的 case version 相符。现在 case definition 自己钉住 `level.dat` 的 SHA-256；断言要求 case pin、冻结清单、磁盘字节与 run 的 `settings_digest` 四者一致。变更世界会先变更 case version，旧 bundle 因 `CASE_VERSION_MISMATCH` 失效，而不是被新 checkout 重新解释。
+  - **比的是清单里的摘要，不是重新算一遍文件**——这是「一次核对」与「同义反复」全部分别。一个 fixture 的字节变了而清单没变，这里必须红；拿文件和自己比，永远红不了。所以 `verify_fixture_digests.py` 多了个公开的 `frozen_digests()`（并把解析收成一处 `parse_manifest()`，`violations()` 与它共用**同一个读法**），而不是让断言再写一份 manifest 解析。
+  - **这份共享 reader 也必须自己 fail closed。** 重复路径不再 last-writer-wins；畸形摘要、反斜杠、`..` 与非规范路径一律拒绝，`frozen_digests()` 遇到任一解析错误会抛出 `ManifestError`，断言把它判成失败。这样不能靠“之后可能还会跑完整 fixture gate”替当前证据读取兜底。
+  - **用例指名的是世界的目录，冻结的是它的 `level.dat`**：目录会随着 run 走动画出新的 region 文件，同一个 case 两次运行本来就该得到不同的目录；让目录成为「一个世界」的是那个 level 文件，而 run 记成「这个世界自己的配置」的也正是它。文件名不在这里拼写，而是**问产品**要（`from minekin_core.adapters.launcher.saves import LEVEL_DAT`），免得两处各说一个名字。
+  - **`RunMaterial` 多了 `case_inputs`**，和 `expected_case_id`/`expected_case_version` 一样由 `evaluate` 从**声明断言的那份 manifest**里填——断言要拿 run 与仓库里的东西比，谁来做这件事只能是**用例说**，而这是那句话唯一存在的地方。这条移动立刻抓到了测试夹具的问题：`hosted_world()` 造的世界块**根本没有 `settings_digest`**，而它此前是绿的——现在它必须报 `THE_WORLD_SETTINGS_ARE_NOT_A_DIGEST:None`，于是那个 helper 拿到了真实 fixture 的摘要（**写死**而不是现算，理由与上面同：fixture 变了而常量没变必须是失败）。
+  - **六条新用例**，覆盖每一种「没有指名唯一一个冻结世界」的方式：不指名、指名了一个没被冻结的、指名了两个、指名了一个**不是本 case 的世界**的、settings 缺失、以及**磁盘上的字节与清单不符**（monkeypatch `frozen_digests` 造出差异——这一条正是「同义反复」那一半的反面）。全部通过 `evaluate` 走真实入口，不是直接调断言函数。
+  - **实测**：HOST-030 真实运行 → 三条断言全 observed、`the case verdict is PASS`、`evidence verify` 通过。ruff/format/pyright、`check_case_assertions`（49 条已注册）、`verify_fixture_digests`（两份 case fixture 的摘要已按规范重录）全绿；本地 1397 通过。
+  - **顺手量到的一件事**：`python` 的 `tuple` 收窄在 `len(x) > 1` 之后**不会**把空元组那一支消掉（pyright 推出 `tuple[()] | tuple[str]`，于是 `x[0]` 报越界）。用 `reveal_type` 量出来之后改成列表推导即可——**没有加 `# type: ignore` 去盖住它**。
+  - **仍然开着的**：这条断言只覆盖**自己种了世界**的运行（HOST-030/040）。加入端（`CORE-030`）的世界来自宿主那份 run document——**封在 bundle 里**（上上轮的 `host-run-document.json`）但**断言读不到**，因为 asserter 只拿到自己这一次运行的材料；要让加入端也有这条断言，得把宿主文档像 sealer 那样接进 asserter。
+- [x] **加入端的世界现在是被**断言读出来**的，不再只是被封存下来——`the_world_this_run_joined_is_the_one_the_case_names`。** 这条正是上一条自己写下的缺口：宿主文档进了 bundle，但 asserter 只拿到自己这一次运行的材料，所以 CORE-030 当时只证明「joiner 的首快照被准入」，**没有一条断言在读它加入的是哪一份世界**——`3bdd4aff…` 与用例钉住的 `level.dat` 相等这件事，上一次是**量出来的**，不是判出来的。
+  - **接法：把宿主文档当成第二份「读一次、判一次、封同样的字节」的输入**（与故障记录、soak 样本同一条既有形状）。sealer 本来就已经把 `--world-run-document` 读成 `world_run_raw`，现在**只读这一次**：严格 UTF-8 解码成文本，经 `run_asserter` → `--world-run-document-json` → `RunMaterial.world_run_document` 交给验收器，同时用同一批 raw bytes 封 `host-run-document.json`。**sealer 不再把活动路径转发过去**——加入端这个 case 的主体就是那份文档，一个能再打开一次路径的验收器，就有资格去判一份没人封过的文档。asseter 自己仍保留 `--world-run-document PATH`（与文本互斥，规则同故障记录），供操作者单独判一次。
+  - **一条断言，四处绑定，每一处都单独会红**：①世界的 `settings_digest` 等于用例钉住的那份 fixture（**与宿主那一半共用同一条规则** `_the_frozen_world_the_case_names`：用例指名的目录 → 冻结清单里 `level.dat` 的摘要 → 磁盘字节 → 用例自己的 pin，四者相等）；②`digest` 与 `settings_digest` **都必须在场且都是摘要**（新加的 `is_digest` 要求 64 位小写十六进制——此前只数长度，`"z"*64` 也能过），缺一个不会被另一个补上；③宿主**必须真的把世界开出去过**（`LAN_OPENED`），没人开过的世界没有人加入过；④**端口必须等于这个客户端实际 dial 的那个端口**——两个运行互相看不见对方，端口是它们唯一能同时被核对的事实（joiner 侧的证据仍是它自己日志里那行 `bridge asked vanilla to connect to …`）。另外宿主的 `kin_id`、`run_id` **都必须是非空字符串**，并且分别不同于加入端的 Kin 与本次 run：缺失、类型错误、空值、同 Kin 或同 run 都是无法归属或被替换的文档，不是「我加入的那个世界」的账。
+  - **顺手修掉一个真实的假阳性（根因，不是症状）**：`--world-run-document` 指向一个内容为 `{}` 的文件时，`seal` 里那条「没有 server profile 却记着世界」的守卫因为**路径非空**而被豁免，接着 `_world_record` 用 **truthiness** 把空 mapping 当成「没给」，于是**封出一个 `world: {kind: none…}` 的 bundle，同时把那份 `{}` 当工件封进去**——而这次运行的 run document 明明写着 `PLAYABLE`、`snapshots_admitted=1`。现在 `None`（没给）与空对象（给了但非法）是两件事：后者在**写出任何东西之前**被拒（`did not record a world of its own`），不是 FAIL，因为一个「否认 Kin 待过的世界」的 bundle 比没有 bundle 更糟。
+  - **一份文档只有一个读法**：`world_snapshot()`（读一份 run document 的世界块）从 sealer 搬进了验收器，两边**导入同一个函数**——bundle 的 world block 与判决因此不可能长成两种方言；`_is_port()` 同理收成一处，`core_was_told_the_world_was_published` 与这条新断言共用它。
+  - **用例与冻结清单**：`core-030.json` 现在声明两条断言（`mandatory` 仍是 `false`，输入与 `input_digests` **一字未动**——沿用 81ec8bb 的规则，不另造平行解析），用例摘要按同一套规范重录进 `manifest.sha256`（`5183a809…`）；`check_case_assertions` 从 49 条变 **50 条**。
+  - **测试（全部是变异式，且都走真实入口 `evaluate`/`seal`/CLI）**：21 种「绑不上」各自单独红（没给文档；拿本 run 的文档顶替；宿主的 Kin/run 标识分别缺失、类型错误、为空或与加入端相同；另一个 Kin 却不说世界；世界块缺失；settings 缺失/不是摘要；bytes 缺失；另一个世界；`LAN_OPEN_FAILED`；没有 `lan_publication`；端口不是端口；端口不是 dial 的那个；本 run 从未 dial）；两条世界断言在**同一个用例**上给出**逐字相同**的失败原因（把 pin 规则复制一份就会先红在这里），并用 monkeypatch 造出「fixture 动过而清单没动」的那一半；CLI 层验路径与文本**同一份判决**、两者同给被拒、不可读判 `UNJUDGED` 而**不是** `FAIL`；sealer 层验**读了一次**（判之前把那份文件换成另一个世界的文档，判词、manifest 的 world block 与封进去的工件**仍然是第一次读的那些字节**）、坏宿主文档**只能封出 FAIL**（三处同源）、以及篡改检测（改工件 → `ARTIFACT_DIGEST_MISMATCH`；连 manifest 一起改 → `BUNDLE_DIGEST_MISMATCH`）；空文档那条既有单测（`{}` 与 `None` 的区别），也有**穿过 `seal` 的回归**（拒绝，且什么都没写）。
+  - **实测（本轮只到本地锁定环境）**：`uv run --frozen` 下 ruff check/format、pyright、`check_boundaries`、`check_case_assertions`（50 条）、`verify_fixture_digests`、`check_bridge_host_boundary`，以及全量 pytest，全绿。**这一轮没有跑真实 Minecraft，也没有接受 EULA**——所以这条断言**还从没有在一轮真实的 CORE-030 运行上被观察到**，它现在是有测试的代码，不是有证据的结论。
+  - **仍然开着的**：`CORE-030` 的「端口变化、host 退出与重新进入」仍然没覆盖；三份 case 的 `work_package: "W90"` 仍是占位（2026-09-22 已做：见本节末尾那一条——`work_package` 现在是闭集。）；这条绑定的**残余限度**如实记下——两轮 run id 不同的宿主运行如果用的是同一份冻结世界、又发在同一个端口上，从这两份文档里仍分辨不出哪一次真正接住了加入端（能绑的是世界、端口、另一个 Kin 与另一次 run，实际加入事实由 `HOST-040` 那一侧回答）；`evidence verify` 仍然只核对**摘要**（工件、manifest、bundle），**不会**重放判决——「从封存的字节重判一次」仍是开着的，本轮没有拿「verify 通过」冒充它。（2026-09-22 已做：`tools/rejudge_evidence.py` 从封存字节重判一次并逐项比对，见 W70 一节末尾那一条——`evidence verify` 本身**仍然**只核对摘要，那是刻意的，判据属于测试域。）
+- [x] **要真去开一次 LAN，缺的是模块而不是调用**：契约把这件事放在独立的 `bridge-host-control`（创建/加载/保存/LAN/关闭的窄 adapter），并明令 `bridge-client-core` 与观察/导航模块**不得**引用 `IntegratedServer`、`getServer()` 或 `net.minecraft.server..`——而 `bridge-host-control` 现在还不存在。所以下一步是**先把这个窄 adapter 建出来**（连同它自己的源码依赖门禁、构建产物门禁），再谈"发一条命令让它开 LAN"。**刻意不先做的**：在没有那个模块的时候从别处临时反射调用一次——那正好是契约禁止的那条路，而且量出来的东西不能代表 adapter 建好之后的形状。
+  - **（2026-09-21 完成）上面这条的前半步后来做完了**：`org.minekin.bridge.host` 三个文件 + `tools/check_bridge_host_boundary.py`（第 1 道门禁—源码依赖）落地的记录在 579 行那一条；命令通道（`HostController` + `OpenLan`）与「一次真实运行」在它之后。它留下的两条尾巴——**第 2 道门禁（构建产物扫描）**与**映射名归一化**——是下一条，已做完。
+- [x] **契约的四道门禁里，第 2 道（构建产物门禁）与「映射名归一化」这一轮做完了，而且它们其实是同一件事的两半。** `tools/check_bridge_artifacts.py` 扫构建**产物**而不是源码，`bridge/host-boundary-names.json` 给出同一个名字在产物里的另一种拼写。两条一起进 Gradle 的 `check`：**`./gradlew check` 会因为产物里的服务端引用而失败**——契约要的「构建必须失败」是这条命令的行为，不是一句文档承诺。
+  - **为什么非要名字表：产物里的名字不是任何人写过的名字。** 生产 jar 被 remap 成 intermediary——`IntegratedServer` 是 `net.minecraft.class_1132`，`getServer()` 是 `method_1576`。一个用 Yarn 拼写去读 jar 的门禁会**每次都通过，并且报告它已经看过了**；按名字判的门禁读不懂名字时不是变弱，而是看不见它存在的理由。表从固定的 Yarn 构建（`1.21.4+build.8`）推导，记下 mappings 的 sha256，`--derive-names` 重推、`--mappings` 校验，两者不一致就拒绝运行而不是改表。
+  - **两种拼写要同时认，因为仓库用两种方式造 Bridge**：Gradle（带 Minecraft，remap 成 intermediary）与 `check_bridge_proto_java.py` 的桩编译（Yarn 名字，CI 里跑的就是它）。表里因此同时存 intermediary 与 named 两列；只认一种的门禁在其中一种产物上就是瞎的。
+  - **四道门禁的词汇表现在只声明一次**：`tools/bridge_host_rules.py`，两道门禁 import 同一份。两份拷贝就是两条规则，而会漂移的那份正好是看不见洞的那份——这正是 42b431a 里「把 pin 规则复制一份就会先红在这里」那句话的同一件事。源码门禁原先的 14 条用例在重构后逐条通过，未改行为。
+  - **产物门禁查五个面（契约 §四道门禁 第 2 条的原话）**：class 常量池（含 descriptor 与 Signature 里被擦除的类型——泛型参数会把类型藏出源码的视线，藏不出常量池）、mixin 配置、access widener、entrypoint、打包依赖。第六个是 test probe：`bridge-test-probes` 属于只测试的 source set，这道门禁是**唯一能看见它们有没有被打进去**的那道。另外任何不在 `org/minekin/bridge/` 或 `io/minekin/protocol/` 下的 class 也拒——没人枚举过的 bundle 不是被评审过的构建。
+  - **两处结论是量出来之后才定下的，都写进了注释与用例。** **（一）打包进来的依赖不进词汇表扫描。** protobuf-javalite 在自己的类里大量用 `java.lang.reflect` 与 `sun.misc.Unsafe`，照词汇表扫它会把一个评审过的依赖报成**三十四次**越界，然后所有人学会忽略这道门禁；管依赖的是它的摘要（`META-INF/jars/` 下逐条按 name+sha256 核对），不是它的内部。**（二）`MethodHandles` 在产物这一层不能按类型判。** `javac` 给每个 lambda 的 `LambdaMetafactory` bootstrap 发一次 `MethodHandles.lookup()`，于是「这个类提到了 `java/lang/invoke/MethodHandles`」在本仓库自己的 **28 个**类上都成立，而它们一个都没反射任何东西。这条规则在产物层收窄成**授予权限的那几个成员**（`privateLookupIn`/`unreflect*`/`defineClass*`），bootstrap 从不碰它们。
+  - **一个真实的漏洞是被测试逼出来的，值得记下：`this_class` 曾经读错。** 常量池里 `CONSTANT_Class` 装的是**池内下标**而不是名字，第一版把那个下标直接当名字读，于是 `declared` 恒为空、**每一条成员引用都解析成空、`getServer()` 这条规则在真 jar 上从来没有匹配过任何东西**——门禁照跑、照报 OK。现在按「Class 条目下标 → name_index → Utf8」两跳读，并有用例直接钉住这条路径（每次对真 jar 报的第一个越界都带调用点 `net/minecraft/class_310#method_1576`，这条路径不再是空的）。
+  - **红/绿证据，两边都是真字节。** 绿：真 jar（`7e1b5fa7…`，就是 pin 的那份）跑产物门禁 OK。红有两份，都走真实入口：**（一）** 把 `IntegratedServerControl.class` 的**真实字节**原样改名搬出 `host` 包（同长度改名，池保持合法），门禁报 `names net/minecraft/class_1132 (IntegratedServer)` 与 `calls net/minecraft/class_310#method_1576 (getServer())` 并 exit 1；**（二）** 按 HOSTCTL-060 的原文往 `bridge/src/main/java/.../runtime/LeakProbe.java` 注入 `IntegratedServer` + `getServer()`，`./gradlew remapJar` 后**只有产物门禁那个任务**失败（exit 1），源码门禁同时以它自己的拼写报同一条：`names net/minecraft/class_1132` 对 `IntegratedServer`、`calls …#method_1576` 对 `getServer()`。删掉探针、`./gradlew clean check` 后 jar 逐字节回到 pin（`7e1b5fa7…`）——**这一轮的改动没有碰 Bridge 的 Java 源码，jar 与它的大小不变**。
+  - **顺手撞出一个真实的 Gradle 增量问题**：删掉探针源码后 `jar`/`remapJar` 仍报 UP-TO-DATE，`build/libs` 里留着带着 `LeakProbe.class` 的旧 jar——产物门禁**正是因此拒绝了那次构建**，而 `clean` 重编后字节回到 pin。也就是说这道门禁抓到的第一件真实事情，是一个被删掉的源文件留在产物里。不修 Gradle（那是环境），只写在这里。
+  - **pin 这次只动了两处，而且只该动那两处**：`bridge/host-boundary-names.json` 是 `bridge/` 下的新文件，而 `source_tree_sha256` 哈希整棵树——于是 fixture 的 `source_digest` 与 `manifest.sha256` 里该 fixture 自己那行重录；**jar 摘要与大小一字未动**，因为 Java 源码没变。这 125 条测试变红正是这条 pin 在按设计工作。重录时避开了本仓库记过的那个坑：`manifest.sha256` 用**字节**写入而不是 `write_text`（后者在 Windows 上把 LF 换成 CRLF），并且记的是 `verify_fixture_digests` 用的**规范化后**摘要（它按 LF 归一化再哈希）。
+  - **测试 41 条，全部走真实入口（CLI 子进程），产物由测试自己拼**：类文件由一个只写常量池的构造器生成——门禁读到 `this_class` 就停，所以字段、方法、属性都只是没人看的字节，而这恰好让「编译器绝不会这样发出一个类」这件事变成可测的，因为泄漏也不是编译器发的。覆盖：intermediary 与 Yarn 两种拼写；`getServer()` 的**全部 9 种** spelling 逐个单独红（按名字建表只留最后一个就会先红在这里）；host 包允许指名服务端、但 `ServerWorld` 连适配器也不许；同一引用只报一次；泛型 descriptor；lambda bootstrap 不算反射逃逸而 `privateLookupIn` 算；`Class.forName`；名字与地址不一致（且**不因此获得适配器豁免**——loader 按条目找类，声明与地址不符的类在它声明的名字下根本不可达）；probe；包外 class；mixin 包/mixin 缺失；access widener 指名服务端状态、以及 manifest 指名了却不存在的 widener；entrypoint 缺失/包外；非 client；未评审的打包依赖、摘要不符的、以及根本不是 jar 的；以及四条「看不见就不能说通过」：产物不存在、产物里一个 class 都没有（sources jar 就是这个形状）、读不出来的 class、名字表不存在；加上词汇表长了一个表里没有的标记必须拒绝运行、`ServerLevel` 这种「这个 Yarn 构建没有对应名字」是**答案而不是错误**、表必须与 `libs.versions.toml` 钉住的 Yarn 版本一致、以及 `--derive-names`/`--verify` 的往返与陈旧检测（含 tiny 文件成员行是**缩进**的——按首字符读会一个成员都读不到，而那只看起来像「这个构建没有这个名字」）。
+  - **实测（本轮只到本地锁定环境）**：`uv run --frozen` 下 ruff check/format、pyright（strict，0 errors）、`check_boundaries`、`check_case_assertions`（50 条）、`verify_fixture_digests`、`check_bridge_scaffold`、`check_bridge_host_boundary`、`check_bridge_artifacts`（对真 jar），以及全量 pytest（**1491 通过 / 2 skipped**）、`./gradlew clean check`（含新接进去的产物门禁）。**这一轮没有跑真实 Minecraft，也没有接受 EULA**，Bridge 的 Java 源码一行未改。
+  - **仍然开着的**：产物门禁**在 CI 里没有跑**——CI 的 `bridge-static` 只有源码树，而这道门禁需要产物，产物只在构建发生过的地方存在；它跑在 Gradle `check`（本地与受控 runner），CI 跑的是它的**用例**（41 条在 `python` job 的 `pytest` 里）。要把整段收进 CI，得先让 CI 真的编译 Bridge（JDK 21 + Minecraft 下载），那是 694 行那条「CI 只在 3 个 job 上把关」里写着的事，本轮**刻意没有顺手扩**。另外契约第 3、4 道门禁（运行时路由 `information_class`、黑盒 canary）仍未实现，它们本来就排在产物门禁之后。
+
+- [x] **把仍然开着的条目按「它在等什么」读了一遍，并顺手关掉了五条已经闭合却仍写着 `[ ]` 的。** 起因很具体：这一轮我在读文档找下一步时，把「封存端把世界记成没有世界」当成了一条**还没修的 bug**——而它的修法与实测就写在下一条里。`[ ]` 与它的答案挨着出现，读者只会看到 `[ ]`。这和这一轮反复遇到的是同一件事：**记录不会注意到自己过期**，所以要么把状态改对，要么至少不要让它读起来是错的。
+  - **关掉的五条，每一条都对着代码或用例核过（不是相信旁边的 `[x]`）**：**(1)** `ConnectWorld` 那条——这个入口现在三处都在（`adapters/bridge/ipc.py:63` 与 `:81`、`cli/parser.py:47` 的 `--server-profile`、`cli/session.py:1080` 发出它），而且 `tests/unit/test_session_supervision.py` 会**从控制通道把那一帧读回来**，所以证据不只是「代码里有」，是「真的发出去了」；**(2)** 与它同一处的第 (一) 项（同一条结论）；**(3)** 「取消、重连与晚到 callback 不得改变新 generation」——三条各自的用例都在 `tests/unit/test_connection_generation.py` 里，会话侧另有 `test_session_state.py::test_a_report_that_speaks_for_another_generation_moves_nothing`（我先把测试名逐个读出来才标的）；**(4)** `replay <evidence-dir>` 没有入口——上一节做的；**(5)** 封存端的世界块——`tests/unit/test_seal_run_evidence.py:1092` 与 `:1158`（后者是「说 `lan` 却说不清是哪个世界」那个逃逸口的负向对照）。
+  - **只关这五条，因为只有这五条我能核到底**。我做了一次机械扫描想自动找出「开着却已闭合」的条目（看一个 `[ ]` 后面的十几行里有没有「已做」之类的字样），结果它报了 11 条，绝大多数是**相邻条目的措辞**碰巧命中——**一个会误报的检查会被学会忽略，所以它没有留下来**。真正被留下来的只有人工逐条核对。
+  - **剩下的开着的条目，按「在等什么」分三类**（这一遍读完了全部 20 条顶层 `[ ]`）：
+    - **等一次真实客户端运行**（本机做不到：需要受控 runner，且要接受 EULA）——**13 条**，是绝大多数：`全量 4,120 个工件`、tick/render 回调预算、OFF-A→OFF-B、读取真实 Session 回填报告、`OFFLINE-001…100`、「启动/握手/身份材料可解释」这条门禁、`DNS/SRV`、两类负向用例（`online-mode=true`、资源包）、`ADMIT-001…120`、三条时间线、首快照失败不授 lease 的负向、对账未决 outbox、跑完 `CORE-001…090`；此外「W70 之后」那一整段（`p0-nav-exp`、生存底座、PlayerMind、Host 专题、P2/P3/P4、扩展）共 **8 条**同属此类。
+    - **等一个决定**（不需要跑任何东西，只是没人拍）——**2026-09-22 重新读过一遍，5 条里有 1 条已经答了**：**（已答）**「冻结的 Server Profile schema 表达不出 DNS 失败与连接超时」——**答案是不该放宽**：schema 只接受两个 loopback 字面量是**地址策略**本身（那是安全控制），为了造得出测试而放宽它，等于把控制拆掉给测试让路；域里确实**消费**得下这两种原因（`apply_lifecycle` 接受全部已知值，`DNS_FAILED` 也有用例走通），缺的只是**产生**它们的真实运行，那属于别的条目。**（仍然开着，4 条）**：`verification-metadata.xml` 的平台锁（放宽 `<trusted-artifacts>` 还是按平台重生成）、残留进程的处置策略、标记文件的清理策略、「最新证据优先」（缺 manifest 的顺序字段，而且契约自己写了该由 Registry 分配单调序号——它不存在）。**注意后两类里最实质的一条**：`host-integrated` 这个面**今天没有任何门禁**——**（2026-09-22 重新量过：不是「三份」而是 12 份**，全部 `mandatory: false`：`host-010/020/030/040/060/070`、`hostcommit-090/110`、`hostctl-001/010/050/070`；`report_promotion.py --work-package host-integrated` 对一个空数据根的回答仍然是 `unusable`，与「一条 mandatory 用例都没有」一致。）把它变成门禁要的是 `HOST-001…100` 与 `HOSTCTL-001…090` 的真实运行，不是改一个标签，也不是把某一半标成 mandatory——那会让这个面在残缺用例集上报出「可晋级」。
+    - **等上一节记下的那个决定**——**1 条**：Core 的账本记会话状态迁移（让 `replay <bundle>` 真的做检查）。它属于第二类（等人拍），但它特殊在**改动落在真实客户端生命周期那条路径上**，所以门槛是「有人能跑真客户端时再动」，理由写在 replay 那一条里。
+  - **这一遍没有改任何代码、没有改任何夹具**：`uv run --frozen` 下 ruff check/format、pyright、`check_boundaries`、`check_case_assertions`、`verify_fixture_digests`、`check_workflow_pins` 与全量 pytest（**1558 通过 / 2 skipped**）全绿，作为「只动了文档」的证据；CI 三个 job 在那之后也是绿的。
+  - **仍然开着的**：上面那 20 条；另外**分类本身是 2026-09-22 的读数**，按本仓库的惯例它是一次带日期的观察而不是一份会自己更新的清单——加了一条 `[ ]` 之后这份分类就会过期，而过期的分类与过期的注释是同一个问题。
+  - **第二轮读账（2026-09-22，本轮）**：顶层 `[ ]` 现在是 **27 条**，这一轮**逐条对着代码核了 5 条**（`读取真实客户端 Session 回填该报告`、`三条时间线`、`DNS/SRV`、`ADMIT-001…120` 的权限半句、`对账未决 outbox`），**其中 2 条据此关闭**（两条都不是「还没做」，而是**注释没注意到它已经落地**：身份报告早就在真实客户端上量过，三条时间线随封存件一起收）**，3 条补上了「哪一半成立、哪一半要跑」**。**这一轮只改了这份文档、没有改代码**（上一步那条运行时用例不属于这一轮），因此证据是全量门禁：pytest **1709 通过 / 2 skipped**、ruff、pyright、`check_boundaries`、`check_case_assertions`、`verify_fixture_digests`、`check_workflow_pins` 全绿。**这一遍的结论仍然是一句带日期的读数**：剩下 25 条里，除 3 条等决定之外，全部要一次真实客户端运行或一次真实崩溃。（平台锁那条已经在同一轮里做掉了——见 W20 那一段末尾；等决定的三条是残留进程处置、标记文件清理、以及「最新证据优先」。）
+  - **第三轮（同日）：又核了 3 条，其中两条的**数字与前提**被改正**——`全量 4,120 个工件`的 4,120 **今天复现不出来**（实测 113 条 library + 4,039 个 asset = 4,152，三个平台同值），而 `online-mode=true 对离线客户端` 那条写的「产品侧无法表达在线模式目标」**不是真正的障碍**：`auth_mode` 说的是我们这个客户端怎么认证，真正挡住它的是 harness 把服务端 online-mode 从同一个字段推出来（`run_controlled_server.py:61`），于是两边永远不可能不一致。**两条都没改代码**，但一条把一个没有意义的数字从待办里摘掉了，另一条把一个看起来要动产品的障碍换成了一个只需在 harness 上加开关的。
+  - **第四轮（同日）：量了一份用例清单，因为前沿的数字一直是散着的。** 输入只有两处（`tests/fixtures/cases/*.json` 与 `check_case_assertions.IMPLEMENTATIONS` 里那个 kind），所以随时可以重推：**26 条用例**，其中 **14 条由运行材料判官判**（`runtime`，要一次跑完的运行的产出）、**12 条本地判得了**（`pytest`/`tool`，CI 的 pytest job 每次都在跑它们）。**标了 mandatory 的只有 6 条**：`CORE-010/020/040/050/070` 与 `W00-CONTRACT-001`。**`host-integrated` 那 12 条里，10 条本地判得了、0 条强制**——所以那个面缺的不是判据（判据在 CI 里绿着），而是契约要求的那整套 `HOST`/`HOSTCTL` 的**运行**。**这一轮还把「造场景」这个角度整个过了一遍**（资源包那条就是在这个角度上找出来的）：剩下那些「等一次真实运行」的条目里，`OFF-A→OFF-B` 的候选矩阵（`OFFLINE_SESSION_CANDIDATES`）与覆盖率测量要的采样都**已经在了**，而 `tick/render` 预算那一条**连这个测量都产不出来**——线缆上没有预算字段，所以它不只是等客户端，还等一个小的协议增项。**（同日追加两次：写完 29 条之后又加了 `OFFLINE-001/040/050` 与 `ADMIT-070/080`，W30 从 0 变 3、W50 从 0 变 1。**而这个数字本身现在不再由散文维护**——见下面那一条：`tools/report_cases.py` 只读地报出清单。**这个读数本身在同一天内又变了两次**（`HOST-050`/`HOST-080` 加进来之后是 **33 条用例 / 121 条断言 / 6 条强制**，本地判得了的 **19** 条、要运行材料的 **14** 条；`host-integrated` 12 → 14）。**写下「31」到它变成「33」之间只隔了两个提交**——这不是算错，是**散文不会注意到自己过期**，而这正是把这件事交给工具的全部理由：要这个数的人现在敲一条命令，读到的就是他那一刻的真实值。）**
+- [x] **宿主面的头两条用例落地了：`HOSTCTL-001`/`010` 现在有定义、有实现、跑得动、封得出——而且是这个仓库第一条**不靠客户端**的宿主判据。** 契约把这两条写在"必测用例"里已经很久，代码里一行都没有：`grep HOSTCTL` 在整个 `src/`+`tools/`+`tests/` 里**零命中**。
+  - **做的是契约的中间那一层：提案 → 有效档。** `domain/world_creation.py`：Kin 交一份**提案**（意图、它自己起的名、它想要的偏好），网关按固定 bundle 与管理策略把它解析成**不可变的、可摘要的有效档**。Bridge 永远只拿到档，不读提案。
+  - **这个模块的形状由契约最后一句决定**："未测试组合只能解释性拒绝或进入专门实验，**不能静默回退成另一种世界**。" 所以 P0 档的检查在**解析**时就做了，越界的东西**拒绝**并点名「哪个字段、被要求的是什么」；解析器交出来的 `Proposal` 按构造就是 P0 能满足的东西——这也是为什么 `synthesize` **不会失败**、也没有东西可拒。**这一类形状**（解析器返回已验证的值、消费方是 total 的）与 `parse_case_manifest`/`CaseManifest` 完全一样。
+  - **两条断言各钉一件事，而"没有字段"那条是最强的形式**：HOSTCTL-001 钉「重跑 digest 一致」与「显示名不控制目录」——存储槽是 Kin 与提案 id 的函数，**名字不在输入里**，而名字仍被 pin（提案摘要进 provenance），所以改个名字会换掉档的摘要却不移动任何目录；HOSTCTL-010 钉「越界即拒」与「拒绝要点名」，其中 cheats / keepInventory / datapack 走的是**提案里根本没有这些字段**那条路（`UNKNOWN_FIELD`）——契约自己就说过最强形式是「没有入口」而不是「桥会拒绝一个值」。
+  - **判据由测试执行，理由与 CORE-070 相同**：主体是纯函数，客户端加不了任何东西。四条断言在 `check_case_assertions` 的登记表里指向 `tests/unit/test_world_creation.py` 的同名测试（`Implementation("pytest", …::test_… )`），因此**CI 每次跑它们**，而 `run_repo_case.py` 这个通用 runner 也能直接执行它们——这是 W00-CONTRACT-001 走的那条路，不是新发明的。
+  - **端到端跑过并封过（本地，不碰 Minecraft）**：对两个 case 各跑 `run_repo_case.py` → 两个都 `exit 0`、`result: PASS`、四条断言全 `observed`；再 `seal_repo_case.py` → 两份 bundle 都 `sealed`、`result: PASS`（run `be31e935…` 与 `d6c18c6c…`，封在 `.tmp/` 的数据根里，**不提交**）。`report_promotion.py` 对那个数据根说：两份都 `verified: true`、`PASS`。
+  - **顺手量到一件关于重判的事，值得留下**：那两份 bundle 的重判结果是 **`UNJUDGED`** 而不是 `AGREES`——因为 `seal_repo_case.py` 封的是"仓库自检"，**没有 `asserter-inputs.json`**（判官当时被交给的输入对这类 case 不存在：判据就是测试本身）。所以**仓库自检类的 bundle 的重判方式是重跑它的检查**（`run_repo_case.py`），不是 `rejudge_evidence.py`。这正是上一轮那个区分（`UNJUDGED` 是关于读者的事实、不拦）在真实数据上的样子：它**被报出来了**，只是没有假装自己同意。
+  - **两条 fixture 加一份 schema 加一对 golden**：`schemas/world-create.schema.json` 冻住档的形状；`tests/fixtures/runtime-input/world-create-proposal-p0.json` 是一份**评审过的提案**，`…/world-create-p0.json` 是它解析出来的**档**——单元测试断言"生成的档等于提交的那个档"，而 schema 与 fixture 的相符由 `test_fixture_boundaries` 里那对 `(schema, fixture)` 检查。**两处各查一半，任何一处漂移都会红**；我一开始想只留 schema（用 jsonschema 校验生成的文档），被 pyright 的 stub 挡住之后才发现真正的答案是这个仓库一贯的做法：钉住**评审过的字节**，而不是"形状允许"。
+  - **`schema_version` 是补上去的，因为本仓库的规矩是每一份留下来的文档都声明版本**（`test_all_json_contracts_are_parseable_and_versioned` 真的会拦）；契约的提案 YAML 没有这个字段，所以它现在是提案的**一个受管字段**（版本不是策略字段），并且 schema 也认它。
+  - **一条被自己的测试抓出来的真 bug**：我给 `as_document()` 加了 `schema_version` 却**忘了给算摘要用的那份文档加**，于是档的摘要覆盖的文档与实际打印出来的文档不是同一份——`test_the_effective_digest_covers_the_profile_and_not_the_digest_itself`（它自己重算一遍摘要）立刻红了。修完重新生成了那份 golden 档（摘要从 `20d97b3b…` 变成 `a49a0113…`）。
+  - **为什么 `mandatory` 留 `false`——这是一个刻意的决定，不是没做完**：晋级规则是"**每一个 mandatory 用例**都有 PASS evidence"。这两条如果标成 mandatory，`host-integrated` 会报 `promotable`，而契约要求的是 `HOST-001…100` 与其余 `HOSTCTL-001…090` 的整套证据——**在残缺的用例集上给出"可晋级"就是一句假话**。所以：判据跑着、证据封得出，但**这个面还不算有门禁**（`report_promotion` 里 `host-integrated` 因为一条 mandatory 用例都没有而**根本不出现**，这是准确的）。这一点也写进了契约那两条的注记。
+  - **实测（本轮只到本地锁定环境）**：ruff check/format、pyright（strict，0 errors）、`check_boundaries`、`check_case_assertions`（从 50 条变成 **54 条**注册断言）、`verify_fixture_digests`、`check_workflow_pins`，以及全量 pytest（**1574 通过 / 2 skipped**，新增 16 条）。**没有跑真实 Minecraft**，也**没有接受 EULA**；pin 只动了五处（新 schema、两份新 case、两份新 fixture、以及两份被改过的 case），每一处都按"凡是摘要变了的文件都必须属于这一次改动"核对过。
+  - **仍然开着的**：`host-integrated` 要有门禁，得先把契约的用例集补齐（`HOST-001…100`、`HOSTCTL-002…090`、`HOSTCOMMIT-001…110`），其中大部分要真实线程证据或 canary 服务端——本轮做的是**其中唯一不需要客户端的那两条**，这条边界是量出来的（`grep` 过、`rg` 过，代码里此前零命中），不是猜的。
+- [x] **上一节那两条用例写完之后，把它们的两个字段追到底，两个都是"各自成立的规矩合到一起就不成立"——而且其中一个是能让人指到别人世界上去的。** 这一轮没有加新用例，改的是上一节刚落下的那两个字段的规矩。
+  - **一：`storage_slot` 必须真的是一个 level 名，而它不是。** 槽会变成 `saves/` 下的目录，启动器（`level_name_is_usable`）拒绝含分隔符、NUL、盘符冒号的名字；而 `OpaqueId` 的字符集里**冒号是允许的**——它的 docstring 写着自己是 "path-independent"，所以这不是疏忽而是两条规则各自都有理。后果是量出来的：`KinId("kin:01")` 是**合法**的，`world-kin:01-proposal-1` 在启动器眼里**不是**一个世界名——一个完全正当的 Kin 永远建不出世界，而这件事要到运行中途才被发现。修法是**percent-encoding**：任何标识符都能得到一个可用的名字，且映射**单射**。**单射这一半是刻意的**：把禁用字符替换成安全字符的写法会把 `kin:01` 与 `kin%3A01`（两个都合法）映到同一个槽，而**两个 Kin 共用一个世界比一个不好看的目录糟得多**。用例拿**启动器自己的谓词**验每一个槽——`#` 那种"抄一份规则过来"的做法正是这一族 bug 的来源。
+  - **二：KIN 是"谁提交的"，不是"提案里说它是谁"——而槽正是从那个字段建的。** 契约明说提案是不可信内容（聊天、网页都能提一份上来），而 `storage_slot` 由 `proposal.kin_id` 生成。于是**一个 Kin 可以指名为另一个 Kin 建世界**，整条链上没有任何东西会注意到。修法是把认证身份变成**必需参数**：`parse_proposal(document, *, kin_id=…)`，不一致即以 `KIN_MISMATCH` 拒绝。**刻意不给默认值**——一个"没有主人的提案"不是一个提案，而一个能省掉这项检查的调用方也能建出一份指向别人世界的档。这条与上一轮那个"字段不存在是规则的最强形式"是同一族：**能力不是靠校验拿掉的，是靠没有入口。**
+  - **上一节的判据一个字没变，两条用例仍然 PASS**（`run_repo_case` 两个都 `exit 0`、四条断言全 `observed`）。改动只落在字段的生成与校验上，所以 golden 档与 schema **没有动**（安全 id 的 percent-encoding 是恒等映射）。
+  - **上一节的第 2 道门禁立刻响了，而且是对的**：我改了 `the_refusal_names_what_the_proposal_asked_for` 这个测试（它现在要多传一个 `kin_id`），于是 `check_case_assertions` 报 `is implemented by … and recorded as … — the criteria moved under a version that did not`，`hostctl-010` 这一份必须重录。**这正是那一节做它的理由**：判据的实现变了而版本没变，就是"一个版本对应两种判据"。重录之后 `manifest.sha256` 里只动了这一份——重录脚本先断言"摘要变了的文件恰好是它"。
+  - **测试新增 3 条**（`test_world_creation.py` 16 → 19）：槽在**六组对抗性标识符**下都被启动器的谓词接受（含冒号、`%`、空格、非 ASCII、128 字符长 id），且不以 `-` 开头；两个只差一个禁用字符的合法 id 得到**不同**的槽（朴素替换写法会撞的那个反例）；以及指名另一个 Kin 的提案被 `KIN_MISMATCH` 拒绝。
+  - **实测（本轮只到本地锁定环境）**：ruff check/format、pyright（strict，0 errors）、`check_boundaries`、`check_case_assertions`（54 条注册）、`verify_fixture_digests`、`check_workflow_pins`、全量 pytest（**1577 通过 / 2 skipped**），以及两条 host 用例的 `run_repo_case` 端到端。**没有跑真实 Minecraft**，也没接受 EULA。
+  - **仍然开着的**：`synthesize` 仍是一个**纯函数**——它不知道也不检查"这份档对应的存档目录是不是已经存在"，而重复建档（契约的 `HOSTCTL-050`："不得…重复建档"）是下一个能只在域里做的东西；再往后就要跨到 Bridge 那一侧（`HOSTCTL-020/030/040` 要真实线程证据，`HOST-001…100` 要真客户端）。
+- [x] **`HOSTCTL-050` 的域那一半：宿主世界的创建/关闭生命周期，以及"谁可以推动它"——第三条 host 用例，判据是纯函数。** 这一条此前一行都没有；现在有一张表、一条准入规则和两条断言。
+  - **状态表不是设计的，是抄的**：存储生命周期契约里 `## 创建状态机` 那张 mermaid 图就是权威（`REQUESTED → PREPARED → LOCKED → CREATING → HOST_PLAYABLE → LAN_OPEN → QUIESCING → SAVING → CLOSED`，加 `QUARANTINED` 与 `RECOVERY_REQUIRED` 两条出口）。`domain/hosted_world.py` 的表**逐边**对应它，一条不多。**这正是上一节那条界限的反面**：那一节我拒绝为宿主面凭空设计状态机，这一节照图实现——同一件事，一个没有出处的规格不能做，一个有出处的规格应该做。
+  - **准入规则来自另一份契约**：控制边界契约对每条 host 命令的完成都要求重验 `session_id + generation + world_epoch + expected_state`，并写明被取消的创建、失败的资源包加载、未决的警告或**过期回调**「都不能伪造成功」。所以 `admit()` 先查四个坐标（顺序按"说了多少"排：别的会话 → 这个世界的过去 → 这个世界的现在被什么改了 → 发送者看的是另一个时刻），每个坐标**各有自己的 disposition**——"为什么被拒"才是操作者问的问题，一个 `REJECTED` 答不了。
+  - **两个拒绝是这一步存在的理由，而不是顺手加的检查**：`STALE_COMPLETION` 是**常态而非异例**（launcher 比客户端快，上一代的完成落在这一代开始之后就是真实运行的样子）；`DUPLICATE_CREATION` 被**点名**而不是留给表去报"非法迁移"——「你不许从 LAN_OPEN 跳到 CREATING」与「这个世界已经存在」是两句不同的话，而后者是 Kin 需要被告知的。契约的原文就是"不得重复建档"。
+  - **一条被自己的测试顶出来的、关于"定义"的修正**：`settled` 我一开始写成一张表（`{CLOSED, QUARANTINED}`），并为它写了一条性质测试——"settled 就是**没有信号能推动它**"。测试立刻在 `RECOVERY_REQUIRED` 上红了：图里它**也没有出口**（恢复恰恰是机器之外的人要做的决定），而那张手写表说它不是 settled。**一条列出来的定义就是图的第二份陈述，而它第一次被比较就漂了**，所以现在 `settled` 由图**推导**（`not any((state, signal) in 表)`），不再可能漂。
+  - **测试改成只走公开面，而且因此更强**：第一版用了模块的私有表与私有集合，被 pyright 的 `reportPrivateUsage` 拦下——拦得对：**读表的测试会随着表说什么而通过**，而那正是唯一值得检查的东西。现在可达性是**沿 `admit` 自己**走出来的（对每个状态×信号问一次，谁被推进就是可达的），`has_a_world` 则被验成"在这个状态下第二次创建会不会被判重复"——**两条定义各自被验成同一个问题的两次提问**。
+  - **端到端**：`run_repo_case.py --case tests/fixtures/cases/hostctl-050.json` → `exit 0`、`result: PASS`、两条断言全 `observed`（本地，不碰 Minecraft）。加上前两条，宿主的**三条**用例现在都跑得动；`mandatory` 仍是 `false`，理由与上一节相同（契约要的是一整套 `HOST`/`HOSTCTL` 证据）。
+  - **上一节的判据门禁第二次响了，而且两次都对**：我为了去掉私有依赖改了 `a_second_creation_in_one_epoch_is_refused`，`check_case_assertions` 立刻报 `the criteria moved under a version that did not`，`hostctl-050` 必须重录。**连续两步都是它先发现的**——这就是那一节做它的意义。
+  - **实测（本轮只到本地锁定环境）**：ruff check/format、pyright（strict，0 errors）、`check_boundaries`、`check_case_assertions`（从 54 变 **56** 条注册断言）、`verify_fixture_digests`、`check_workflow_pins`，全量 pytest（**1590 通过 / 2 skipped**，新增 14 条），以及三条 host 用例的 `run_repo_case`。**没有跑真实 Minecraft**，也没接受 EULA；pin 只动了两处（新 case 与它自己的重录）。
+  - **仍然开着的**：这条用例的**真实一半**——延迟回调由 Bridge 真正发出、跨一次真实 generation 返回（要真客户端）；`admit()` 还没有检查完成里带的 `profile_digest`（世界记录里已经有这个字段，但还没有东西在完成里送它，所以现在不验而不是假装验了）；`HOST-001…100` 一条都还没有定义。
+- [x] **`HOSTCOMMIT-110`：什么使一个世界是同一个世界——第四条 host 类用例，而这条守的是"两个世界被悄悄并成一个"。** 契约在提交/恢复那一份里把这件事写成**六条规则**（普通重启、回滚、复制成两个世界、同名重建、端口改变、同地址换档），这一节把它们逐条落成判断，并给出各自的结论。
+  - **为什么这条值得做**：其余五条规则都是"什么时候是新世界"，而这五条里最危险的两条是**反向**的——**显示名不能合并两个世界**，**seed / level name / MOTD / 玩家名 / 目录名也都不能单独当主键**。把删掉又重建的世界当成同一个，等于把新世界的背包配上旧世界的地图；这不是数据错误，是人物事实错误。
+  - **两条反向规则做成了字段层面，而不是校验层面**：既然这些都不是键，它们就**不是 `WorldLineage` 的字段**。并且有一条用例**直接钉住那张字段清单**——「端口不属于身份」这句话只能活到有人为它加一个字段为止，所以这句话由一个断言守着，而不是由一段注释守着。这与这一路反复用的"能力不是靠校验拿掉的，是靠没有入口"是同一条。
+  - **六条规则 = 六种结论，各自命名**：`UNCHANGED`（重启、端口改变）、`SAME_WORLD_NEW_EPOCH`（回滚）、`NEW_WORLD`（复制，仍是关于这个世界）、`NEW_WORLD_AND_CONTEXT`（同名重建，只有名字相同）、`REVIEW`（同地址换档——**地址不是身份**，契约明写，所以这里不下判断，返回的是一条 lineage 都没有）。回滚的 epoch 由 `Generation.next()` 推出来，不由调用方给：这是唯一一条"同一个世界的两个时代"的规则。
+  - **加了两条关于"参数"的拒绝，都是静默失败那一族**：`MISSING_NEW_IDENTITY`（这次变更会产生新世界，却没给身份——**不能替它造一个**，造出来的世界没人能再找到）与 `UNEXPECTED_NEW_IDENTITY`（这次变更不产生新世界，却给了身份——**被丢掉的那个参数**会让调用方以为自己建了什么）。两条都有用例，后者还按变更逐条参数化了。
+  - **一个我自己写错的不变式，被它自己的测试当场拒了**：`__post_init__` 一开始检查"父 epoch 必须小于本 epoch"。对回滚成立（两个数都是同一个世界的时代），对**复制/重建是假的**——fork 的父 epoch 属于一个在这个身份下已经不存在的世界，两个世界的计数器不可比。这条检查把一个**合法的 fork** 拒绝了。**删掉它，并把"为什么故意不检查"写在代码里**，另加一条用例（"从别处来的世界会说出来"）防止它再回来。这正是"写下不变式"这件事的代价与价值：写错的那一条被自己的测试抓住了。
+  - **端到端**：`run_repo_case.py --case tests/fixtures/cases/hostcommit-110.json` → `exit 0`、`result: PASS`、三条断言全 `observed`（本地，不碰 Minecraft）。**宿主的四条用例现在都跑得动**（`HOSTCTL-001/010/050`、`HOSTCOMMIT-110`），`mandatory` 仍全是 `false`，理由同前两节。
+  - **实测（本轮只到本地锁定环境）**：ruff check/format、pyright（strict，0 errors）、`check_boundaries`、`check_case_assertions`（从 56 变 **59** 条注册断言）、`verify_fixture_digests`、`check_workflow_pins`，全量 pytest（**1605 通过 / 2 skipped**，新增 14 条），以及四条 host 用例的 `run_repo_case`。**没有跑真实 Minecraft**，也没接受 EULA；pin 只动了两处（新 case 与它自己的重录）。
+  - **仍然开着的**：契约里紧挨着的**切换激活门**（`STAGED → OBSERVING → RECONCILED → ACTIVE`，「只有一个 Current World Capsule 可以标 ACTIVE」，即 `HOSTCOMMIT-090`）**还没做**——它与这一节是同一个主题的下一半，而且同样是纯域、同样有出处；另外 `HOSTCOMMIT-070`（回滚后事实失效并等待重验）需要"哪些事实失效"的定义，那份定义在**心智侧**（`player-mind`/记忆），本仓库还没有。那份**候选**正常关闭状态机（`ACTIVE → QUIESCING → … → CLEAN`）**刻意没做**：契约自己写着"第4～6步的真实调用先后…必须由真客户端 trace冻结"，所以它现在是一条**候选**，把它冻结成表就等于假装已经有那些 trace。**（2026-09-23 核对：`HOSTCOMMIT-090` 这一句过期了——它就在紧接着的下一条里做完了：`tests/fixtures/cases/hostcommit-090.json`（断言 `switching_worlds_keeps_exactly_one_current_at_a_time`），由 `tests/unit/test_world_activation.py` 执行，`run_repo_case.py --case` 判 PASS；契约文件 `docs/hosted-world-commit-recovery-contract.md:226` 也记着「这一条做了」。**同一句里的另外两半仍然成立**：`HOSTCOMMIT-070` 的定义仍在心智侧，候选正常关闭状态机仍刻意没做。）**
+- [x] **`HOSTCOMMIT-090`：任一时刻只有一个"当前世界"——第五条 host 类用例，而这条守的是这一步之前没有任何东西守着的那个不变式。** 契约的切换激活门是四条规则加一条阶梯（`STAGED → OBSERVING → RECONCILED → ACTIVE`），这一节把四条规则各落成一个操作。
+  - **为什么"至多一个当前世界"值得一个模块**：这句话在两条代码路径各自以为自己是那条激活路径之前一直成立，而它失败的样子**不是崩溃**——是一个人物的背包在一个世界里、计划在另一个世界里。所以它被做成**双重结构保证**：只有一个调用能产生 `ACTIVE`，且它只能从 `RECONCILED` 产生，于是"两个当前世界"这份记录**用这套 API 造不出来**。`current()` 还是拒绝它，理由写在函数里：**这种记录只可能从别处来**（一个文件、另一个版本），而那正是矛盾会出现的地方——两个里挑一个就是把一个世界的事实安到另一个头上。
+  - **第 5 条是这一步里最容易被做错、也最值得写下来的一条**：一次失败的切换留下的是**没有**当前世界，而那是**正确状态**而不是错误。身处两个世界之间的 Kin，计划是挂起的；坚持"必须恰好有一个当前世界"的代码只能靠**编**一个出来。所以 `suspended()` 是一个可以正常返回 True 的函数，而不是一个被当作异常的断言——这与我这一路反复用的"沉默不是同意"是同一件事的两面：**没有当前世界不等于当前世界是上一个**。
+  - **第 2 条拒绝时点名坐标**：JOIN 必须与预期的 server profile / bundle / session / generation 一致（`world_context_id` 与 `world_epoch` 也一并查），而拒绝的 outcome **带上是哪个字段、观察到的是什么、期望是什么**。理由是操作可读性：一个**没人能据此行动的**停机会一直停下去，「证据不符」四个字不够。六个坐标各有一条参数化用例。
+  - **第 3 条做成了阶梯的形状而不是一次检查**：只能逐级，所以「没被确认过的世界不能成为人物事实所绑定的现实」不靠一条规则去记得——它**没有别的路**。用例两条：`reconcile`/`activate` 都拒 `STAGED`，`activate` 拒 `OBSERVING`。
+  - **HOSTCOMMIT-090 的断言写成了"每一步都查"而不是"看终态"**：hosted A → remote B → hosted A，每一步断言不变式。理由与上面第一条相同——这个规则要防的是一个**中间时刻**，而只看终态的测试会在那个时刻已经发生之后变绿。往返两个方向都走了，因为单向规则会把回来的那半做错。
+  - **端到端**：`run_repo_case.py --case tests/fixtures/cases/hostcommit-090.json` → `exit 0`、`result: PASS`、断言 `observed`（本地，不碰 Minecraft）。**宿主的五条用例现在都跑得动**（`HOSTCTL-001/010/050`、`HOSTCOMMIT-090/110`），`mandatory` 仍全是 `false`，理由同前几节。
+  - **实测（本轮只到本地锁定环境）**：ruff check/format、pyright（strict，0 errors）、`check_boundaries`、`check_case_assertions`（从 59 变 **60** 条注册断言）、`verify_fixture_digests`、`check_workflow_pins`，全量 pytest（**1617 通过 / 2 skipped**，新增 12 条），以及五条 host 用例的 `run_repo_case`。**没有跑真实 Minecraft**，也没接受 EULA；pin 只动了两处（新 case 与它自己的重录）。
+  - **仍然开着的**：`HOSTCOMMIT-070`（回滚后事实失效并等待重验）需要"哪些事实失效"的定义，那份定义在**心智侧**，本仓库还没有；`HOSTCOMMIT-010/020/030/040/050/060/100` 都要真实保存/强杀/双水位证据；那份**候选**正常关闭状态机仍然**刻意没做**（契约写着要真客户端 trace 才能冻结）。宿主域里**有出处、又不需要客户端**的部分，到这一条为止基本做完了——下一步要么是 Bridge 那一侧（Java，需要真客户端验证），要么是等真客户端回来跑那 13 条。
+- [x] **按用户要求改用 docker 验证，结果第一步就抓到了我自己留下的两个问题，还顺手把一条悬着的决定的前提量翻了。** 容器那条命令这次是从 **Git Bash** 跑的，于是先撞上 MSYS 的路径翻译，再撞上产物门禁需要 Python——两个都不在本地能看见，因为本地是 Windows。
+  - **一：`-e GRADLE_USER_HOME=/gradle` 从 Git Bash 传进容器会变成 `D:/env/Git/gradle`。** MSYS 把 `/gradle` 这个**值**当成路径翻译了，容器里 Gradle 于是拿到一个不存在的 `GRADLE_USER_HOME`，而它报的是「Could not find or load main class org.gradle.launcher.daemon.bootstrap.GradleDaemon」——**一个与原因毫无关系的错误**（实测：容器里 `env` 打出来就是 `GRADLE_USER_HOME=D:/env/Git/gradle`）。加 `MSYS_NO_PATHCONV=1` 即好。**这条记下来是因为它属于"在一条路上成立、在另一条路上悄悄不成立"**：同一条命令从 cmd/PowerShell 跑是对的，从 Git Bash 跑是错的，而错的样子指着一个不存在的问题。
+  - **二：产物门禁只认 `python` 这个名字，而 JDK 镜像里一个 Python 都没有。** 这是**我在第 1 步留下的真问题**：`checkHostBoundaryArtifacts` 接进了 `check`，于是 Bridge 的构建多了一个 Python 依赖，而 `eclipse-temurin:21-jdk-jammy` 里 `python`/`python3`/`uv` **全都没有**。第一版任务写死 `python`（Windows 上是对的、裸 Ubuntu 上没有），所以容器里先红一次「A problem occurred starting process 'command 'python''」，装了 `python3` 之后**又红一次**——因为名字还是不对。现在任务按 `python3` → `python` 的顺序在 `PATH` 上找（用 provider API 读 `PATH`，好让 configuration cache 跟踪它而不是把一台机器的工具链缓存进构建），支持 `-PgatePython=<命令>`；**一个都找不到时先打 warning 说明原因和补救办法再失败**——不是静默跳过，一道跳过的门禁与没有门禁是同一件事。
+  - **三：Bridge 的构建现在需要 `tools/`。** 门禁住在 `tools/`（构建脚本按"项目目录的父目录"解析仓库根），所以容器命令只拷 `bridge/` 与 `proto/` 不够——第三次红。**这是把仓库级门禁接进构建的代价**，如实记下，并写进了 `docs/development.md`（连同"`./gradlew check` 需要 PATH 上有 Python"这一条）。
+  - **修完三处之后，容器里 `build` 全绿，而且 `Bridge artifacts: OK` 说明门禁真的在 Linux 上跑了**；jar 摘要 **`7e1b5fa7…` 与 Windows 逐字节相同、也与 pin 相同**——跨平台可复现这条照旧成立，多出来的只是"这也要求 Python 与 `tools/`"。
+  - **四（这一轮真正的收获）：把 `verification-metadata.xml` 那道"平台锁"量了出来，而它推翻了那条 `[ ]` 自己的前提。** 那条写的是「那 50 个 `net_fabricmc_yarn_*` 组件与被 merge 的 Minecraft jar 都是 **Loom 本地产出**，记录了 Windows 摘要，所以这道门禁只可能在被生成的那台机器上通过」。实测（容器里去掉 `--dependency-verification=off`）：**失败的是 9 个工件，全是 Mojang 仓库按平台发布的 natives**——`jtracy-1.0.29-natives-linux.jar` 与 8 个 `lwjgl-3.3.3-natives-linux.jar`；而 `verification-metadata.xml` 里记的**正是它们对应的 `-natives-windows.jar`**（9 条，逐一对上）。**yarn 组件一条都没失败。** 所以锁的成因不是"Loom 本地产出"，而是**按平台分类的依赖**：元数据是在哪台机器上生成的，就只有那一套 natives 的摘要。
+  - **这个更正把那条决定的两难解开了**：那 9 个是**正常发布、摘要稳定**的构件，不是本地产出物，所以正确做法**不是**那条 `[ ]` 里提的 `<trusted-artifacts>`（那是**放宽**一项安全控制），而是**把另一个平台的那一套也记进去**——多记 9 条摘要，一条安全检查都没有放松。这条决定因此不再是"要不要放宽"，而是一次普通的 pin 补录；**具体做它留给下一步**（在容器里按仓库自己的 `--write-verification-metadata sha256` 生成、把文件取出来、核对，再提交）。
+  - **实测（本轮：本地 + docker）**：本地 `ruff check/format`、pyright、`check_boundaries`、`check_case_assertions`、`verify_fixture_digests`、`check_workflow_pins` 全绿；`./gradlew check` 本地绿（找到 `python`）；容器里 `build` 绿、摘要与 pin 相同。**没有跑真实 Minecraft**，也没接受 EULA；**没有改任何夹具、用例或 pin**（这一轮只改了一个 Gradle 任务、两处文档）。
+  - **五（本轮：natives 那半边补上了，逐条核过来路）**：`bridge/gradle/verification-metadata.xml` 现在多出 9 条 `-natives-linux.jar` 摘要。生成走的是仓库自己那条路——容器里 `./gradlew build --write-verification-metadata sha256`，再把文件取出来比对：Gradle 是**合并**而不是重写，diff 恰好 **+27 / −0 行**（9 条 × 3 行），既有条目一条都没被动过，所以这次改动可以逐行复核。摘要**不采信「Gradle 说它对」**：8 个 lwjgl 各自从 Maven Central 取回同名工件实算 SHA-256，与记下的值逐位相同，且它们的 SHA-1 与 Maven Central 自己公布的 `.sha1` 相同；`jtracy-1.0.29-natives-linux.jar` 是 Mojang 独有，改用 `piston-meta.mojang.com` 上 1.21.4 的 version manifest 核对——manifest 记的 SHA-1 `f43b6fa5…` 与 size `187868` 都与文件相符（Gradle 缓存目录名本身就是这个 SHA-1）。**效果量过**：容器里 `--dependency-verification=lenient`，改之前 9 个 natives 未核验，改之后 **0 个**；两次跑出来的 jar 摘要都是 `7e1b5fa7…`，与 Windows 相同。
+  - **六（顺手量到，但处理方式仍是那条 `[ ]`）：`./gradlew check` 在干净检出上过不去，两个平台都过不去。** 把本机 `bridge/.gradle` 挪走后冷构建：严格校验报那 50 条，失败在 `:compileJava`——**测试与产物门禁根本没轮到跑**。所以 `docs/development.md` 里「先 `./gradlew check`」这句话，在一台新机器上会红，而红的样子与代码无关。本轮把这句写进了 `docs/development.md`（连同「想一次看全就用 `--dependency-verification=lenient`」）。
+  - **仍然开着的**：那 50 个 Loom 本地产出物（时钟锁——`<trusted-artifacts>` 是放宽一项检查，关掉校验也是，两者都不是这次该顺手做的决定）；以及 `tools/` 与 `bridge/` 分居两处这件事本身——门禁住在 `tools/` 是对的（它是测试域工具），但「Bridge 的构建需要仓库的另一半」值得在下一次有人从零搭环境时再看一眼。
+  - **七（本轮：契约第 3 道门禁——运行时路由——做完了，而且做完之后定了两处"照性质、不照字面"的做法）**：那条契约说每个 DTO 带 `information_class`（`PLAYER_EQUIVALENT|MANAGEMENT_ONLY|TEST_ORACLE`），只有第一类能进人物认知路径。新模块 `domain/information_class.py` 管类别表与准入判决，`cli/session_runtime.py` **在每一个事件上问它**并把结果记进 run document（`perceived_information_class` 与 `cognition_refusals`），用例 `HOSTCTL-070` 四条断言，全部本地可跑（其中一条穿过真实 IPC 环回——"门禁存在"与"运行时真的问它"是两句话）。两处是量出来才定下的：**（一）类别不能按字面做成字段。** 字段由**发送方**设置，而这条用例的前提恰恰是发送方（host-control）不可信：管理侧给自己打分的类别不是控制，是注释。所以类别住在**读方**的表里，表里没有的类型**拒绝**而不是默认放行（默认放行的话，将来有人加一个服务端 DTO 时没有任何东西会响），并且这张表与 IPC 层的入站事件表**双向绑定**，多一个 DTO 不定类别就红。**（二）形状不能当判据，而这不是哲学问题。** `HostLifecycle` 的字节按 `InitialObservation` 解**是能过的**，`game_tick` 读回的是 generation（两条消息的 2 号字段都是 varint）；用例把"这些字节解得出"与"这条路由被拒"**配成一对**断言——这正是这道门禁存在的理由，也是把 `isinstance` 当成唯一防线会漏掉的东西。**剩下的**：真客户端那一半（与 `HOST-001…100` 同一条路），因此 `HOSTCTL-070` 的 `mandatory` 仍是 `false`，`host-integrated` 照旧不算有门禁。本轮顺带把 `INBOUND_EVENT_TYPES` 从私有表提升为适配器的公开常量——判据要能点名"这些入站 DTO"才说得出"每一个都有类别"。
+- [x] **契约里那条「固定 artifact/bundle 清单复核；篡改任一摘要与插入未知 mod」现在是一条 `mandatory` 用例，而不是一句 prose。** 它是 `PLAN-COVERAGE-001` 的 required inventory 点名要、而注册表里没有的第一条 `local-only` 缺口（`W10` 只要求 `CORE-001` 一条）。以 `9b2d53913950d038213d4fbe9763ce31eaa44129` commit 并 push；本地、`origin/main` 与远端 `refs/heads/main` 已核为同一 SHA。
+  - **用例不写第二份检查，它点名已有的三份。** 五条断言全部是**已被执行过**的测试：`validate_bundle_recipe`（固定清单本身）、`BundleStore.verify`（内容寻址的已发布 bundle）、`tools/check_bridge_artifacts.py`（编译后 JAR 里被打包的依赖摘要）。理由是这三份判据已经各自有负向测试，而该用例存在的意义是**把这些判据绑到一个 case version 上**——另写一份实现只会与产品真正跑的那份漂开，而那正是 recipe pin 要防的失效模式。判官分类因此是 `locally`（`pytest` ×5），`mandatory: true`，`work_package: W10`。
+  - **新加的那条测试是「篡改*任一*摘要」这句话需要的。** 原来只有 `test_unknown_mod_is_rejected`（插入未知 mod）与 `test_an_unreviewed_fabric_pin_is_rejected`（改版本号），**没有任何测试改过清单里已存在工件的摘要**。`test_any_tampered_recipe_digest_is_rejected` 对 recipe 实际携带的三个 sha256 各跑一遍：`fabric-api.digest`、`minekin-bridge.digest`、`minekin-bridge.source_digest`。**这是一处诚实的边界**：recipe 的 `minecraft.version_metadata_sha1` **不在这三条里**，因为 `validate_bundle_recipe` 今天并不比较它（它由 `test_version_metadata_sha1_pin_is_the_reviewed_value` 独立核对 fixture 字节）。所以本轮的断言是"recipe 里**被强制**的每个摘要"，不是"recipe 里出现的每个摘要"——后者要动 `src/`，不在本卡范围内，如实记在这里。
+  - **三条变异各自驱动到红，然后原样还原。** （一）把 `required_api` 里的 `digest` 键去掉 → `test_any_tampered_recipe_digest_is_rejected[fabric-api-digest]` 报 `DID NOT RAISE`；（二）把 Bridge artifact gate 的 `digest != reviewed` 短路成 `False` → 该断言报 `AssertionError`；（三）把 `BundleStore.verify` 的 size/digest 比较短路 → artifact store 那条报 `Failed`。三次都先让 `python tools/run_repo_case.py --case tests/fixtures/cases/core-001.json` 退出码 **1**，再用备份还原；`git diff --quiet src/ tools/check_bridge_artifacts.py` 事后确认零残留。
+  - **fail-closed 也量过了，而不只是"报告里有"**：把 `core-001.json` 从一份复制的 registry 里删掉，`report_cases.py` 点名 `CORE-001` missing、`W10` 从 `satisfied: true` 翻成 `false`，同一次读数里 `W00` 与 `host-integrated` 一动没动（洞不串门）；`report_promotion.py --work-package W10` 则从「requirement satisfied、只差 `CASE_WITHOUT_EVIDENCE`」变成「`REQUIRED_CASE_NOT_REGISTERED` + `NO_MANDATORY_CASES`、`satisfied: false`」。
+  - **实测（本轮：本地）**：全量 pytest **1810 passed / 2 skipped**（比上一轮 +3，正是新测试的三条参数化），Ruff check/format、Pyright（strict，0 errors）、`check_boundaries`、`check_case_assertions`（115 条注册）、`verify_fixture_digests`、`check_workflow_pins`、四条 Bridge scaffold 门禁与 `git diff --check` 全绿。**没有改 `src/` 一行、没有跑 Minecraft、没有接受 EULA。**
+  - **顺手修的一处树状态**：开始之前主工作树里 `buf.yaml` 与 `buf.gen.yaml` 被删掉了（未提交），于是 `verify_fixture_digests` 与 `run_repo_case` 对 `W00-CONTRACT-001` 双双变红——这是**与本卡无关的既有红**。两份文件仍被 `manifest.sha256` 冻结、内容在 HEAD 里，所以用 `git checkout --` 还原后这 2 条红即消失；没有丢弃任何人的改动（删除本身从未被提交）。
+  - **仍然开着的**：`CORE-001` 的 `mandatory: true` 意味着 `W10` 现在只差一份**封存的 PASS bundle**——`tools/seal_repo_case.py` 能做这件事，但它是"用当前树跑一遍并封存"，属于证据生产而不是本卡范围，因此**本轮没有封**。另外 `CORE-080`（W50 的 oracle 防回流）仍是 `CORE` 族里唯一的缺口。
+
+- [x] **W20 那条停止条件——「tick/render 卡顿」——从一句判据变成了有出处可核的数字，而这条链的每一跳都是有界的。** `CORE-METRICS-001` 这张卡的范围写的是「只增加预算采样所需的最小 Bridge/proto 字段、聚合与 evidence 形状」，而 `p0-bridge-bootstrap-contract.md` 的最小模块表里早就有一行 `Metrics | tick预算、队列、丢弃、握手、结果 | token、秘密、无界日志`——这一轮就是把它做出来。**注意它测的不是性能好不好**：契约明写「阈值先测后定」，所以本轮一个阈值都没设，只是让那个数**存在**。以 `9b2d539` 之后的实现 commit 一并 push。
+  - **测什么，以及为什么不是只测 Bridge 自己。** 契约的另一条（§P0 决定 6）要求 IPC、DNS、序列化与磁盘日志**不得阻塞初始化、tick 或 render**。这两条合起来是一个要求：你没法从 tick 之外的地方证明 Bridge 没拖住 tick。所以两条序列都在回调里写、按节拍读：`tick` 是**这次 Bridge `END_CLIENT_TICK` 回调体自己**的墙钟时间——这个 mod 加到客户端帧上的那份工作；`tick_interval` 是**两个 tick 之间的周期**——vanilla 的 tick、渲染、一次 GC 全在这里显形。**只测前者会得出一个荒谬的结论**：Bridge 自报预算健康，而客户端因为别的原因卡着，其中一些正是 Bridge 自己引起的。**「render」这一半是这么处理的，如实记下**：本轮**没有**新增 render path 的 mixin（那不属于「最小」，而且 mixin 挂在渲染路径上失败就等于客户端起不来），所以声明是「客户端主线程的 tick 周期」而不是「render 回调耗时」；tick 周期变长正是卡顿的表现，但**render 自身耗时仍未被直接测量**。这条缺口比原先「线缆上连字段都没有」小得多，也确实还没关上。
+  - **一个有界的采样器长什么样。** `CallbackBudget`（`bridge/.../runtime/`）是一段定长 ring 加几个整数计数器：`record()` 无分配、无锁、无 I/O、不增长——它就是回调里跑的那一半；`take()` 每个窗口跑一次，才是会分配的那一半。`BridgeMetrics` 管两条序列、窗口节拍与窗口序号。**内存是 ring 且只有 ring**：跑十分钟和跑十小时的保有量相同，而一个窗口记进来的多于它留得下的，会自己说出来（`recorded` 是到达数、`nanos.length` 是还在的数），不是被平均掉。
+  - **「丢了一个窗口」这件事不做成计数器，做成序号的洞。** Bridge 的 event outbox 是 must-deliver 且满了就 `failClosed()`——但预算窗口是**唯一一个允许被丢的报告**：它是关于 Bridge 自己的测量，因为一条测量送不出去就停掉客户端，等于让采样器制造它本来要检测的那类故障。所以它被丢掉、被 `LOGGER.warn` 点名，而读者仍然看得见：**序号是在窗口关闭时取的，不是在它发布时取的**，于是送达的窗口在丢掉的那个位置留一个洞（1、2、4 就是「3 存在过但没来」）。这比再带一个「丢了几条」的计数器好，因为那个计数器得坐着同一条满掉的 outbox 才能出来，而且运行先结束就整个丢了。
+  - **三跳全有界，所以 run document 不会因为跑得久而封不上。** Bridge 的 ring 定长 → 线缆上的消息因此定长（`micros` 最多就是 ring 的容量，一个 build 常量）→ Core 侧折进 run document 的是**每序列一组聚合**加**每个没到的窗口一个整数**。这一条不是顺带的：run document 是工件，一个随运行时长增长的形状会让长跑**只因为长**而无法封存。真要跑过一小时（默认窗口 10 秒、每窗口约 200 个 tick），池子会开始丢最新的以外的部分，并**说出它丢了多少**。
+  - **聚合在哪里、用什么方法。** `domain/budget.py`：nearest-rank，与 `tools/report_soak.py` 报资源分布**同一个方法**——同一份 bundle 里两个分布不该悄悄是两种统计量——并且方法名随数字一起走。空序列**没有** P50 而不是 0：没人采过样的序列没有中位数，报一个 0 就是报一个没发生过的测量。
+  - **它到不了 Kin 的脑子里，而且这一点是被强制出来的。** 新 DTO 一进 `_EVENT_TYPES`，`domain/information_class.py` 那张双向绑定的表就逼着一个决定：预算窗口是 `MANAGEMENT_ONLY`——它是关于本仓库机械的测量，不是世界里任何 Kin 可能看见的东西。端到端用例断言九条报告全部被认知门禁拒收（`cognition_refusals == {"MANAGEMENT_ONLY_DTO": 9}`），而 `perceived_information_class` 仍然是 `PLAYER_EQUIVALENT`。
+  - **evidence 形状不需要新工件名，这一点是查出来的而不是设计的。** Bridge 的事件本来就进 run document，而 run document 本来就是被封存的工件（`RUN_DOCUMENT_ARTIFACT`），所以预算走的就是那条已经存在、已经被验证的路。可封存性是**被测**的：`tests/unit/test_seal_run_evidence.py` 拿真实 wire 消息喂出一个带洞的聚合、封存、`verify_bundle` 通过、再从封存字节里读回那个洞。
+  - **三处变异各自驱动到红，然后原样还原**（每一处都先确认红、再 `git diff` 核对零残留）：序号不再推进 → Java 自检在 `aWindowThatWasNotDeliveredStillConsumesItsNumber` 报错；ring 的保有量不再封顶 → `budgetsAreBoundedAndKeepTheNewest` 报错；预算窗口改判 `PLAYER_EQUIVALENT` → 类别表用例与端到端用例双双变红。第四处是那条**本地到不了**的规则（`publishBudgetWindow` 会不会 `failClosed`，需要真 worker + 满 outbox），所以它按源码钉住：`tests/contract/test_bridge_budget.py` 断言四个 publisher **必须** fail closed、预算那个**必须不**——两个方向都断言，否则这条规则不是规则；把 `publishBudgetWindow` 改成 fail closed、以及反向把一个生命周期 publisher 改成不 fail closed，用例各红一次。**这是一条较弱的声明并且写明了**：它能说「做决定的是那段代码」，不能说「某次运行验证过」。
+  - **加了 Bridge 源码，所以整条 pin 链又走了一遍，而且 jar 摘要是真的可复现的。** `docs/development-todo.md` 里上一次协议变更留下的那行笔记救了这一轮的时间——它写着「第一遍只续了 `_SHA256`，全量 pytest 立刻用 `BRIDGE_JAR_SIZE` 拦下来」。所以这次**一次续齐**：`recipe.py` 的 `BRIDGE_JAR_SHA256` 与 `BRIDGE_JAR_SIZE`（`d9030604…`/1291476 → `49af3b6f…`/1305495）、用例夹具的 `digest`/`size`/`source_digest`（`bridge` 源码树改了，`22d597b0…` → `e17885bd…`）、`manifest.sha256` 里那份夹具、以及**协议文件自己**（`proto/` 是冻结夹具）。**新摘要不是采信构建说的**：Windows 上跑了三次（增量、`clean build`、以及 `rm -rf build` 加 `--no-build-cache --rerun-tasks` 的强制全量）三次同摘要，然后**在 Linux 容器里**（`eclipse-temurin:21-jdk-noble`，仓库存量挂载只读、Gradle 缓存卷复用、容器里先 `rm -rf bridge/build` 再 `--no-build-cache build`，所以这次比对不是拿 Windows 的产物糊弄自己）得到**逐字节相同**的 `49af3b6f…` / 1305495——跨平台可复现这条对新 pin 照旧成立，容器里的产物门禁也真的跑了（`Bridge artifacts: OK`）。
+  - **一处工具接线**：`tools/check_bridge_proto_java.py` 的 `ADAPTER_SOURCES` 是一份显式清单，新文件不在里面就编不过——这次它先红了一次「找不到符号 `BridgeMetrics`」，把两个文件加进去即好。这是**好事**：说明那份离线编译门禁真的会碰到每一个新文件，而不是只编它认识的那几个。
+  - **实测（本轮：本地 + Java + Docker）**：全量 pytest **1829 passed / 2 skipped**（比上一轮 +19），Ruff check/format、Pyright（strict，0 errors）、`check_boundaries`、`check_case_assertions`、`verify_fixture_digests`、`check_workflow_pins`、四条 Bridge scaffold 门禁、`git diff --check` 全绿；Bridge 的 JDK 21 Gradle `build`/`check` 绿（含 `check` 里的产物门禁与 Java 单测）；容器里 Linux 构建绿且摘要同上。**没有跑真实 Minecraft，没有接受 EULA，没有设任何阈值。**
+  - **仍然开着的**：真实的 P50/P95/P99 要一次真实运行（这条卡本来就是 `LOCAL_THEN_RUN`，现在缺的只剩运行）；render 回调耗时仍未被直接测量（上面写了理由）；阈值仍然没有（契约「先测后定」）；本轮**没有**加读取端工具——聚合已经落在 run document 里，谁要读它就是一个读者的事，在还没有 case 消费它之前加一个工具就是多一份没有消费者的表面。
+  - **顺带确认了一件对整条路线重要的事：队列到这里空了。** 执行计划的阶段队列里，剩下的卡全是 `WAITING_REAL_RUN`（2 张）、`BLOCKED_DECISION`（4 张）或 `DEFERRED`（1 张）——**没有一张能按计划自己的规则提升为 `NEXT`**。所以本轮把 `current_next` 记成「无」并写明三种解除方式，而不是发明一张新卡来制造进度：这不是没有工作，是剩下的每一件都卡在被明确写下的门禁上（受控 runner + EULA 授权，或用户先做一个设计决定）。
+
+- [x] **队列空之前先查了一遍「是不是还有别人没做完的活」，答案是没有，而且这次是量出来的不是一个印象。** 主工作树之外有 9 个 `worktree-*` 分支目录，是先前几轮留在 `.claude/worktrees/` 的。逐条核过之后结论是**全部都是过期的快照，没有一份是未落地的成果**，证据有三层，每一层都能重推：
+  - **两个有提交的分支是逐字节重复的**：`plan-coverage-001`（`c864666`）与 `core-replay-cli-001`（`266b22c`）用 `git diff` 对着 main 上同名的落地提交 `6863be9` 与 `de79a2b` 比，**两边树完全相同**——那些工作是被重新提交进 main 的，不是靠合并。
+  - **其余七个的基点都是 main 的祖先**，逐个 `git merge-base --is-ancestor` 验过；而 main 在这些基点之后，**在同样的文件上**还有许多更晚的提交（例：`promotion-fail-closed` 动 `promotion.py`/`report_promotion.py`，而 main 上 `917f215 feat(evidence): a bundle whose bytes contradict its verdict cannot promote` 正是那件事；`launcher-liveness-fix` 动 `orphans.py`/`status.py`，两者**已经与 main 逐字节相同**）。所以那些 `git status` 里看着像"改动"的东西，是 main 走得更远之后的落后，不是没做的工作。
+  - **一个反例式的教训**：一开始想用「把工作树的 patch 反向应用到 main，成功即表示已落地」来判，结果**九份全部"失败"**——连我自己刚落地过的 `case-core-001` 都失败，因为 main 后来大改过那些文件。这说明那个判据太钝，会把"main 前进过"误报成"工作没落地"。真正能分辨的是**逐文件比对**（工作树的新文件与 main 逐字节相同）加**基点祖先性**加**main 是否在同样的文件上有更晚的提交**，这三条一起才说得清。**没有删除任何工作树**：它们是别的执行者留下的，删不属于本轮范围，路径记在 `git worktree list` 里。
+  - **顺带更正了本文一条过期的事实，因为它是量出来的**：执行计划的「不可变边界」原文写着「CI 当前没有额度，不作为本阶段完成证据」——**已经过期**。实测最近 12 次 run 全绿，最新一次 3 个 job 共 37 步全部执行，其中 `protocol` job 会跑 `buf lint`、`buf format --diff` 与「Verify checked-in Python protobufs」，也就是**protobuf 与提交进仓库的生成物有一道独立于本地门禁的核对**（这正好是我上一轮改过 proto 的东西）。更正只改了事实那一半；**政策那一半原样保留**：完成证据仍来自本地与 Docker，因为 CI 同样跑不了 Minecraft。
+  - **实测（本轮：只读 + CI 查询）**：`git worktree list`、9 个工作树的 `git status`/`git diff --stat main`、2 次 `git diff <branch-commit> <main-commit>`、4 次 `git merge-base --is-ancestor`、以及 GitHub REST 的 run/job/step 三段查询。**没有改任何代码**，本轮只改了执行计划里那条过期事实与本条记录。
+
+- [x] **CI 红了一次，而红的原因与提交无关——查下来它是一条"在一条路上成立、在另一条路上悄悄不成立"的链条，而且这条链条值得记下来。** 上一轮那个纯文档提交 `6ecd0b5` 的 CI 在 `python` job 的 **`uv sync --locked --dev`** 上失败：`error: Failed to download nodeenv==1.10.0` / `cause: HTTP status client error (403 Forbidden)`，URL 是 `https://pypi.tuna.tsinghua.edu.cn/...`。**同一个 URL 几分钟后再取是 200**，也就是这次红是**瞬时的**——`rerun-failed-jobs` 重跑，三个 job 全绿，**一个字节都没改**。
+  - **链条是这样的，每一环都量过**：`uv.lock` 里**92 个包**的 `source` 与 `url` 指向 `pypi.tuna.tsinghua.edu.cn`，`pypi.org` 出现 0 次；`.github/workflows/ci.yml` 里**没有任何** index 配置（只有 `UV_PYTHON_PREFERENCE`/`UV_PYTHON`）；仓库里也没有 `uv.toml`。真正的出处是**这台机器的用户级配置** `%APPDATA%\uv\uv.toml`（2026-07-22），内容是 `[[index]] name = "tsinghua" ... default = true`。所以：**锁文件是在一台把清华镜像设成默认的机器上生成的**，而 CI 忠实照办锁文件里的 URL——于是仓库多了一条**没有写在仓库里、却每次 CI 都要依赖**的第三方镜像依赖。仓库自己的信条恰恰相反：`launcher-supply-chain-contract.md` 写的是「不换镜像碰运气」。
+  - **完整性没有被削弱，这一点是单独验过的**：把同一个锁按 `--default-index https://pypi.org/simple` 重解析之后，**18 个包一个不少、没有版本移动、逐包的 sha256 集合完全没变**，主机从 `pypi.tuna.tsinghua.edu.cn` 变成 `files.pythonhosted.org`——也就是说这是一次纯可用性差异，与字节无关。
+  - **那为什么没有就这么改掉：因为它的代价落在你的机器上，而收益只是一个瞬时红的门禁。** 这台机器正是把清华设成默认的那台，所以把锁改成 pypi.org 之后，**本机 `uv sync --locked` 反而会拒绝**——实测 `uv lock --check` 与 `uv sync --locked` 都会报「lockfile needs to be updated」，因为 uv 认为锁与**当前配置的** index 不符。再往前一步的正确修法是**在 `pyproject.toml` 里显式声明本项目的 index**（项目级配置优先于用户级），那样锁与 `--locked` 在两边都成立——但那等于**把你的镜像选择在这个仓库里关掉**，而那个选择大概是为了你所在网络的下载速度甚至可达性。**这个取舍我不替你决定**：(a) 想让 CI 不再依赖第三方镜像，就在 `pyproject.toml` 里把 index 钉成 pypi.org（一条声明 + 一次重录，18 个包版本与摘要都不动）；(b) 想留着镜像，那就接受 CI 偶尔因为镜像 403 而红一次，重跑即可——本次就是这么处理的。本轮**没有改 `uv.lock`**（改完又原样还原，`git status` 干净），因为 (a) 的代价我看不到而你看到。
+  - **实测（本轮：只读 + CI 查询与重跑）**：`grep` 锁文件与 workflow 计数、读 `%APPDATA%\uv\uv.toml`、`curl` 同一 URL 前后两次（403 → 200）、`uv lock --default-index` 后的逐包版本与 sha256 集合比对、`uv lock --check` / `uv sync --locked` 的行为、以及 GitHub REST 的 run/job/step 与 `rerun-failed-jobs`。**没有改任何代码与依赖**，本轮只加了本条记录。**重跑后 `6ecd0b5` 三个 job 全绿。**
+
+- [x] **把「队列是空的」这个结论又验了一遍，这次是冲着"计划写错了"去的——上一轮那条过期的 CI 声明说明计划里的状态字段也可能过期。结论：没有过期，六张剩余卡各自卡在它写明的理由上。** 逐张核过，每一条都能重推：
+  - **`CORE-STATE-TRANSITION-001`（WAITING_REAL_RUN）**：停止理由写的是「强杀时最后一条迁移是否落账不能由 mock 证明」——与 `docs/persistence-recovery-contract.md` 的同一件事一致，**没有任何本地判据能替代它**。
+  - **`REAL-P0-CAMPAIGN-001`（WAITING_REAL_RUN）**：前置写明需要受控 runner 与用户对 EULA 的授权，两者都不在仓库里。
+  - **`HOST-ADMISSION-DESIGN-001`（BLOCKED_DECISION）**：这条**不是没读过，而是读到过底**——`development-todo.md:675` 已经给出了两侧各一道闸的具体位置（`ClientAdmissionController.collectSnapshotWhenPlayable` 在 `activeGeneration == 0` 时直接返回，而 `beginGeneration` 全仓库只有 `ConnectWorld` 一个调用点；Core 侧 `_admit_first_snapshot` 要求 `connections.active`），并明确写下**任何一侧的冻结都要先有真客户端 trace，凭现在知道的去改就是把猜测写成表**。所以它属于「等运行」而不是「等设计」。
+  - **`EVIDENCE-SEQUENCE-001`（BLOCKED_DECISION）**：它的主语是「Registry 如何分配单调 `attempt_sequence`」——而**这个 Registry 在代码里不存在**（全仓库唯一的 registry 是 *case* registry `domain/cases.py`，那是另一件事，它枚举用例而不是登记 bundle）。给一个还没造出来的组件的字段定语义，等于先发明组件再倒推它的约束。现有语义是**刻意保留**的，`development-todo.md:638` 记着：没有可信顺序字段，就按「一份满足即满足」判，按时间戳或目录名取最新都是猜。
+  - **`OPERATIONS-RETENTION-001` / `PROCESS-RECOVERY-001`（BLOCKED_DECISION）**：前者的保留期在 `docs/decisions.md` 的「默认执行决议」表里被明确划给 **Dashboard 原型校准**（那是 P2，`HOST/W80+` 之下）；后者的解除条件自己写着要**在受控 runner 上取得真实残留事件流**。——两张都要么属于被冻结的阶段，要么要真实运行。
+- [x] **所以本轮没有产生代码改动，这是刻意的一步而不是空转。** 先验「队列空了是不是因为计划写旧了」，再逐张确认每张卡的阻塞理由**在今天的代码与契约里仍然成立**。把这件事写下来是为了让下一个人不必再查一遍：**要往下走，缺的不是本地工作量，而是三种输入之一**——①对四张 `BLOCKED_DECISION` 中任意一张给出决定（`HOST-ADMISSION-DESIGN-001` 与 `PROCESS-RECOVERY-001` 还需要真实运行才能真正关闭，另外两张给决定即可）；②受控 runner + EULA 授权（解锁两张 `WAITING_REAL_RUN`，也是让上一轮那套 tick 预算真正产出 P50/P95/P99 的前提）；③另行指定一张新卡（先入 `QUEUED`）。**在拿到其中之一之前，任何"继续"都只能是发明范围**，而执行计划自己在「Claude 调度包」里把这条写成硬要求（第 376 行：「发现规格缺口时停止并报告，不自行设计新范围」）。
+
+- [x] **把「仍然开着的」这一类说法对着树核了一遍，关掉两条已经闭合的，并给出一条核对这类记录时必须先做的判断。** 起因是执行计划自己那条硬规则：**「文档中的历史 `[x]`…都不是 DONE 证据，必须看当前树与命令」**——它同样意味着反过来：写着「仍然开着」的地方也必须看树，因为记录不会注意到自己过期。上一轮刚抓到一条过期的 CI 声明，这一轮换成审这一类。
+  - **两条确实过期，逐句验过。** ①`docs/development-todo.md` 里那条「仍然没有发生的」说 L3 没有第二个客户端连进去过、harness 没有 `--open-lan` 开关、端口只能是固定字面量、所以不是可封存的 case——**四句全过期**：第二份客户端连进去了（答案就在下面几条），端口问题答了（`--open-lan-port N` 让两边启动前就知道端口），开关在 `domain.sh:102/606` 真的发 `--open-lan --open-lan-port`（`run.sh:97` 转发变量），而 sealer 现在会封 `host-run-document.json`（`seal_run_evidence.py:713`）、`tests/fixtures/cases/core-030.json` 就是那条用例。②同一份文档里说 `HOSTCOMMIT-090`「还没做」——**它就写在紧接着的下一条**：用例 `hostcommit-090.json`、执行者 `tests/unit/test_world_activation.py`、`run_repo_case` 判 PASS，契约文件自己也记着「这一条做了」。两条都在原处加了带日期的更正，**没有删掉原话**。
+  - **先做的那一条判断，是这一轮唯一有点通用的收获：核之前必须先分清「哪些是引用」。** 第一次要改的时候我数出三处，其中一处（那份 `"  - **仍然没有的**：..."` 整块）**每一行都以 `    "` 开头**——那是在**逐字引用**更早的一条记录。改引用就是伪造引文；那条因此**刻意没动**。这与更早那条「把仍然开着的条目按『它在等什么』读了一遍」是同一件事的补充：那次关掉的是 `[ ]` 标题，这次关掉的是**正文里**的过期陈述，而正文里还混着**必须保持原样的引用**。判据很简单也很机械：**这一行是不是 `"` 开头的**。（本条刻意不写行号：写下来就会随下一次编辑过期，而这一轮修的正是这种过期。）
+  - **同时确认了几条仍然成立的**，免得只报坏消息：`synthesize()` 仍是纯函数、签名只有 `(proposal, *, bundle_id)`，不检查存档目录是否已存在（契约 `HOSTCTL-050` 的「不得重复建档」仍空着）；`profile_digest` 只在 `domain/hosted_world.py:179` 有字段，**没有任何地方送它或校验它**；`CORE-080` 仍是 `CORE` 族唯一缺口、`W10` 仍只差一份封存的 PASS bundle；产物门禁仍**不在** CI 里（CI 只有 3 个 job 的源码树检查）。
+  - **实测（本轮：只读 + 本地门禁）**：`grep`/`sed` 读树与文档、`run_repo_case.py --case tests/fixtures/cases/hostcommit-090.json`、`report_cases.py` 读 `W10` 与 `CORE` 族的缺失集、`domain.sh`/`run.sh`/`seal_run_evidence.py` 的逐处定位；全量 pytest **1829 passed / 2 skipped**，Ruff、Pyright、boundaries、case assertions、fixture digests、workflow pins、`git diff --check` 全绿。**本轮只改文档**：两处带日期的更正加本条，**没有改任何代码、夹具或门禁**。
+
+- [x] **去实现那张被我推了两轮的卡时，先读代码把它的接缝摸清——结果摸出一个它自己没写、但比它写的更硬的问题：晋级从不问证据出自哪个 build。** `EVIDENCE-SEQUENCE-001` 问的是「Registry 怎么分配单调 `attempt_sequence`、怎么记 supersession、旧 bundle 怎么兼容」。读下去发现：`evaluate_promotion` 对每一份候选只比 case 身份、case version、`verified`、`passed`、re-judge 是否同意——**`launch_plan_digest` 与 `bridge_digest` 只在一次运行内部被比较**（`BridgeIpcHost` 拿 `BridgeHello` 对 descriptor），全仓库**没有任何地方**把它们和「当前 build」比。
+  - **为什么这是个真问题而不是整洁问题。** 验证契约写的是「失败运行保留完整 evidence。修复后用新 build/case version 重跑，不把旧 FAIL 删除」；`REAL-P0-CAMPAIGN-001` 的验收句写的是「**当前 build** 与当前 case version 的 sealed bundle」。两句都假定证据与 build 绑定，而机制只实现了 case 那一半：**修复之前封的一份 PASS，会满足今天磁盘上这个 build 的门禁**，而重跑出来的 FAIL 完全不会把它挤掉。
+  - **做的只是两种修法都要的那个公共前提，而且它是诊断不是门禁。** `tools/report_promotion.py` 现在逐份 bundle 报出 `launch_plan_digest`、`bridge_digest`、`from_repository_build`，并列出 `from_another_build` 的 run id；文档里明写 `repository_build.gates_promotion: false`。**这个边界是刻意的**：`EVIDENCE-SEQUENCE-001` 有两条都说得通的路（**甲**按 build 绑定：证据必须出自当前 build，代价是每一次 Bridge/recipe 改动作废全部已有证据、每次都要重跑一整轮；**乙**按单调序号 supersession：封存端分配 `attempt_sequence`、显式记录取代关系、promotion 只认序号最大的那份——更贴近本卡原措辞，代价是要回答「最大那份是 FAIL 时该不该挡住更早的 PASS」，我倾向该挡），**两条路都还没有被冻结**，所以让报告悄悄执行其中一条就等于替项目做了这个决定。提案连同建议写在执行计划那张卡里。
+  - **「是不是同一个 build」这件事本身是量过的，不是推的。** 比的是 `plan_sha256`，而它必须与路径无关（Bridge 跨进程拿它做握手比对），所以我把它**真的量了一遍**：在仓库里算一次，再把 `bridge/`+`fixtures` 拷到 `.tmp/planprobe/` 另算一次，两次都是 `c02413801e3675eff3b12d3bcfcc4e0ca7f583a1091da53dffa295d3d216669f`，而 `bridge_source_sha256` 都是 `e17885bd…`（与上一步续期后的 pin 一致）。**没有这一步，这个比较就是无意义的**——一个随机器变的 digest 比出来的「不同」全是噪声。
+  - **`None` 不等于 `False`，这一点单独有一条用例。** 一个算不出 plan 的检出（recipe 读不到）对「这份证据出自哪个 build」**没有意见**，报「不匹配」就是凭空造一个答案——与 `ReJudge.UNJUDGED` 是同一条区分。用例把 `build_launch_plan` 打挂，断言 `readable: false`、`plan_sha256: None`、`from_repository_build: None`、`from_another_build` 为空，而且**判决不变**。
+  - **两处变异各自驱动到红，方向是相反的，正好把边界钉住。** （一）把比较改成恒真 → 「另一 build 被点名」与「诊断不决定判决」两条红；（二）**让诊断去 gate**（见 `from_another_build` 非空就 blocked）→ **13 条用例红**，也就是说这棵树确实期待 promotion 语义不变。两处都原样还原，`git diff --stat` 只有预期的 +89/−2。
+  - **实测（本轮：本地）**：全量 pytest **1833 passed / 2 skipped**（比上一轮 +4，正是新加的四条），Ruff check/format、Pyright（strict，0 errors）、boundaries、case assertions、fixture digests、workflow pins 与 `git diff --check` 全绿。**没有跑 Minecraft、没有接受 EULA、没有改 promotion 的语义**。
+  - **仍然开着的**：`EVIDENCE-SEQUENCE-001` 本身仍是 `BLOCKED_DECISION`——我只把两种修法都要的证据**露出来**了，没有替它选；`attempt_sequence` 与 supersession 一行都没写。
+  - **更正（2026-09-23）**：上述状态是历史记录。主控已冻结方案乙并实现 `attempt_sequence`、显式 supersession 与 fail-closed latest-attempt promotion；实现提交 `488f0ba` 已推送到 `origin/main`。全量 pytest **1901 passed / 2 skipped**；Ruff、Pyright、boundaries、120 assertions、fixture digests、workflow pins、CORE-001 runner case 5/5 与 `git diff --check` 全绿。SQLite registry 先留 `PENDING`，完整 bundle 原子发布后才记 `SEALED`；legacy bundle 在该 case 首个 sequenced attempt 前保留旧语义，之后被 supersede。没有跑 CI 或 Minecraft。
+  - **下一张卡（唯一 NEXT）**：`CORE-STATE-TRANSITION-001`；用户已确认 EULA，且使用受控 runner 做正常退出/强杀验证的前置已解除。仅当该卡明确需要时才执行受控 Minecraft 场景。
+
+- [x] **`doctor` 一直会在一台「起不了会话」的机器上报 `ok`——因为它的四项检查全是**环境**，没有一项是**这台机器要跑的东西**到底在不在。** 受控 runner 存在的理由是它**只读挂载仓库**而不是装 wheel，而理由写在挂载那一段：`find_workspace_root` 需要 `bridge/` 与 `proto/` 与源码并列，**装好的 wheel 不带它们**。于是 Python、Java、protobuf、SQLite 全对的机器上，`minekin doctor` 可以一路绿，而 `session start` 会在**客户端已经起来之后**失败。这正是诊断该消灭的形状：环境说可以，而环境为之存在的那个东西说不可以。
+  - **补上的那一项检查是 `workspace`，而且它是照着产品自己的问法问的。** `cli/doctor.py` 新增第五项：从 `launch_plan.__file__` 起（**与 `build_launch_plan` 完全同一个起点**，见 `launch_plan.py:162`）调 `find_workspace_root`，通过就报出根路径，不通过就把那句拒绝**压成一行**放进报告——保留原文，因为它说的正是「缺哪个标记、以及为什么 wheel 代替不了它」。**关键性质是忠诚**：一道能在 `build_launch_plan` 会拒绝时仍然通过的检查，比没有检查更坏；所以有用例构造**只缺一个标记**的半成品树，断言检查与 `find_workspace_root` **同时**拒绝。
+  - **容器里验过，而且这正是它该被验的地方**：`bash test-orchestrator/runner/run.sh doctor` 现在报五项全绿，`workspace at /src`——runner 把仓库挂在 `/src`，检查找到的就是它。本机则是 `workspace at C:\Users\darling\Documents\agent_work\minekin`。（本机 `java` 那一项报 `Java 27 (required: 21)` 而失败，这是**既有的、已知的**本机事实：JDK 21 在 `D:\env\jdk-21.0.12.1` 而不在 PATH 上；容器里是 21，所以那一项绿。不是本轮引入的。）
+  - **顺带把上一轮那处没做过的 Docker 验证补上了，结果是干净的。** 上一步改了 proto 并重生了 Python 生成物，但**只在本地验过**；容器里 protobuf 是 6.33.6，与本地未必同版本，而「本地绿、容器红」正是这一层最典型的失效。实测：容器里 `import minekin_core` 与 `observation_pb2` 都通过，新的 `CallbackBudgetWindow` 往返出的字节是 `0a047469636b100120022a020304`（字段 1 `"tick"`、字段 2 `1`、字段 4 `2`、字段 5 `[3,4]`，逐字段对得上），产品 CLI `--help` 打印出七个动词，`evidence verify` 给的是结构化错误而不是 traceback。**没有发现问题**——如实记成验证，而不是记成成果。
+  - **两处变异，第二次比第一次更有价值。** （一）让检查恒为通过 → 两条用例红；（二）**把检查从报告里摘掉**（不再接进 `diagnose`）→ **四条**用例红。第二次的差别是本轮改测试方式的理由：一开始我直接 import 私有函数 `_workspace_check`，Pyright 立刻以 `reportPrivateUsage` 报错，而那条报错指向的是更好的写法——**通过 `diagnose` 这个公开面去问**，于是一个「检查写了但没接线」的改动也会红，而直接调函数的测试永远看不见它。
+  - **实测（本轮：本地 + Docker）**：全量 pytest **1836 passed / 2 skipped**（比上一轮 +3），Ruff check/format、Pyright（strict，0 errors）、`check_boundaries`（`cli` 引 `adapters.launcher` 是允许的方向）、case assertions、fixture digests、workflow pins 与 `git diff --check` 全绿；容器的 `run.sh doctor` 五项全绿。**没有跑 Minecraft，没有接受 EULA。**
+  - **仍然开着的**：`doctor` 检查的仍是**环境**，它不知道这个镜像里的 Xvfb/GL 是否真的能给出 3.2 core（README 里那条 `glxinfo -B` 是手动的），也不知道 runner 之外的宿主；本轮只补了「这个仓库在这台机器上找得到吗」这一项，而它恰好是 runner 挂载契约失效时最先坏的那一项。
+
+- [x] **`HOSTCTL-060` 登记完成——而它是「队列空了」这句话底下一直漏着的那一条。** 我先前说过两次「剩下的 missing 全是 `runtime-required`，所以本地没有可做的活」，**那是错的**：机器读数里当时就有 **1 条 `local-only`**，`HOSTCTL-060`。inventory 一直按 `validation_class` 把这件事写清楚了，是我拿执行计划那张**不分 local/runtime 的表**代替了读数——而那张表的 `HOSTCTL` 行里，`060` 和旁边五条看起来一模一样。**同一个「文档不会注意到自己过期」的毛病，这次长在我自己的结论上。**
+  - **契约要的是什么。** `hosted-world-control-boundary-contract.md` 第 7 条：「对 core/nav 源码、class、mixin 和 access widener 注入 `getServer`/`ServerWorld` 引用；**构建必须失败**」。四个注入面，加一句关于构建的话——**没有真实运行那半**，所以 inventory 判它 `local-only` 是对的。
+  - **四个面里有三个已经实现、有负向测试，只是没有 case 去认领**（与 `CASE-CORE-001` 同一形状）：源码面 `test_bridge_host_boundary.py::test_a_client_file_that_calls_get_server_is_refused`、class 面 `test_bridge_artifact_gate.py::test_a_server_type_outside_the_adapter_is_refused`、access widener 面 `::test_an_access_widener_naming_server_state_is_refused`。**mixin 面当时没有测试**——门禁的规则是「服务端状态只能在 host 适配器里」，一条通用规则本来就会覆盖 mixin，但契约把 mixin 单独列出来是有道理的：**它是这里唯一被写来注入到别人字节码里跑的类**，不该只靠通用规则兜着。补了 `test_a_server_reference_in_a_mixin_is_refused`，另加负向对照 `test_a_mixin_that_names_no_server_state_is_left_alone`——否则「拒绝 mixin」和「拒绝服务端状态」读起来是同一句话。
+  - **「构建必须失败」那一句当时谁也保证不了。** `checkHostBoundaryArtifacts` 确实接在 `check` 上（`build.gradle.kts`），但**没有任何东西钉住这个接线**：删掉 `tasks.named("check") { dependsOn(...) }` 之后，产物门禁照样能手工跑通，而每一次构建都不再跑它——契约那句话就静默失效。修法是把两个字符串加进 `check_bridge_scaffold.py` 对 `build.gradle.kts` 的逐字 pin 列表（那个工具本来就在钉这个文件），于是**每次门禁运行都在核对接线还在**。
+  - **`mandatory` 保持 `false`，这是跟着家族走而不是随手定的。** `host-integrated` 这个面今天一组用例全是 `mandatory: false`，**包括同样 `local-only` 且早已登记的 `HOSTCTL-001` 与 `HOSTCTL-010`**；本文有一条明写的告诫：把这个面变成门禁要的是真实运行，不是把某一半标成 mandatory。所以这条只补**存在性**（inventory 核的是 presence），`mandatory` 仍按家族既有约定。
+  - **变异两处，外加一次「我的测试是不是空洞」的自查。** ①把产物门禁报告服务端类型引用那段去掉 → `run_repo_case` 对 `HOSTCTL-060` 退出码 **1**，class 与 mixin 两条断言同时红，还原后回 0；②删掉 Gradle 接线 → scaffold 门禁报 `is missing pins: dependsOn(checkHostBoundaryArtifacts)`，还原即绿；③新加的两条 mixin 测试一条断言拒绝、一条断言放行，所以规则收窄或放宽都会红。
+  - **实测（本轮：本地）**：`run_repo_case.py --case tests/fixtures/cases/hostctl-060.json` → `result: PASS`、**5/5**、`failures: []`、`unimplemented: []`、退出码 0；`report_cases.py` 从 **34 present / 38 missing** 变成 **35 / 37**，`local-only` 那一类的缺失**清零**（逐条验过：37 条全是 `runtime-required`）；全量 pytest **1838 passed / 2 skipped**，Ruff check/format、Pyright（strict，0 errors）、`check_boundaries`、case assertions（120 条注册）、fixture digests、workflow pins 与 `git diff --check` 全绿。**没有跑 Minecraft，没有接受 EULA。**
+  - **仍然开着的**：`host-integrated` 仍是 15 present / 18 missing 且 `satisfied: false`——要变成有门禁还差 `HOST-001…100` 与其余 `HOSTCTL`/`HOSTCOMMIT` 的真实运行，这一条没变。**全仓 37 条 missing 现在全部要真实运行。**
+
+- [x] **上一轮那条教训用了一遍：读机器读数，不要读散文——这次读的是 `inputs`，结果把一条「声明没人核」的老洞补上了。** `HOSTCTL-060` 那一步的教训是「我用执行计划那张表代替了 inventory 的 `validation_class`」。所以这一轮把 case manifest 里**我还从没系统读过的那个字段**过了一遍：35 份用例声明了 **44 条 `inputs`**，逐条按 glob 解析——**全部解析得到**，没有漂移。
+  - **但「全都对」不等于「有人核」。** 逐条读代码之后确认：`check_boundaries.py::_case_manifest_errors` 本来只管两条规则——普通 `inputs` 不许引用 oracle、`oracle_inputs` 必须在 `tests/oracle/` 下——**两条都不问路径存不存在**。于是 case 可以声明一个被改名、搬走或删掉的夹具，**它照样读起来是「有覆盖」的**。这与 `check_case_assertions.py` 存在的理由**是同一句话**，只是换了一个字段：那边管的是「用例依赖的断言名要指向存在的东西」，这边管的是「用例依赖的输入名要指向存在的东西」，而**后者当时只是承诺**。这个仓库对「声明」的一贯做法是把声明本身核掉（`oracle_inputs` 的注释原话就是「the declaration itself is checked instead of being taken as a promise」），`inputs` 是漏掉的那一个。
+  - **补的规则三条，落在同一个走过 manifest 的循环里**：①解析得到——**允许 glob**（一个关于「全部 schema」的用例用 `schemas/*.schema.json` 比一份会过期的清单说得更准），但**glob 一个都匹配不到就拒绝**，那说明它的对象没了；②必须是仓库相对路径——绝对路径、`..`、反斜杠、非规范写法一律拒绝，**判法与 `promotion.py::_validate_input_digests` 对 `input_digests` 的判法逐条相同**（两个读者对「什么是相对路径」给出两个答案，本身就是第三个洞）；③同一条规则**也覆盖 `oracle_inputs`**，因为它同样是声明。
+  - **顺带修了一处名不副实**：`check_boundaries.py` 的模块 docstring 只写着「Fail CI when P0 package imports violate the frozen dependency direction」，而它其实早就在管 oracle 那两条边界规则了。现在写成它实际做的三件事。
+  - **诚实地说：今天一条都不红。** 44 条输入全部解析得到，所以这条规则**现在抓不到任何东西**——它的价值在于**以后**：夹具改名或搬走时，用例不会继续「看起来有覆盖」。这与 `check_workflow_pins.py` 加进来时的处境一样，而那类门禁正是这个仓库反复在做的事。
+  - **两处变异各自驱动到红**：①把存在性检查去掉 → 新用例红；②只去掉路径安全那半、保留存在性 → 同一条用例仍红（说明两半都在被验）。
+  - **实测（本轮：本地）**：全量 pytest **1839 passed / 2 skipped**（+1，正是新加的那条），Ruff check/format、Pyright（strict，0 errors）、`check_boundaries`、case assertions（120 条注册）、fixture digests、workflow pins、`git diff --check` 全绿；`check_boundaries.py` 在门禁矩阵与 CI 的 `python` job 里，所以这条规则**在 CI 上也跑**。
+  - **仍然开着的**：这条规则只核「名字解析得到」，**不核声明是否完整**——一个用例只声明了它需要的一半依赖，门禁不会知道；那要靠读者与评审，不是机械判据。
+
+- [x] **REAL-P0-CAMPAIGN-001 的前两个场景，按 README 里那条命令跑，会**跑出一个没发生过的场景**并封出一份看起来正常的 bundle。** 起因是拿上一轮的教训去用：读机器读数。这次读的是「harness 认哪些旋钮」与「wrapper 把它们递进去哪些」，两份清单**逐名对照**。
+  - **差集正好是两个名字**：`domain.sh` 读 26 个 `MINEKIN_DOMAIN_*`，`run.sh` 只递 24 个，缺的是 **`MINEKIN_DOMAIN_ONLINE_MODE`** 与 **`MINEKIN_DOMAIN_RESOURCE_PACK`**。`docker run` 只能靠**点名**传递环境变量，所以这两个在容器里是空的；而 `domain.sh` 用的是 `${VAR:-}` 加「空即没被要求」的分支——**空值与「操作者没要求」走同一条路**。于是：服务端不会开 online-mode、也不会要求资源包，运行照常完成、照常封存，而**这份 bundle 是给一个从未发生的场景作证的**。
+  - **为什么这两个偏偏最要命。** 执行计划把 `REAL-P0-CAMPAIGN-001` 的 `order` 写成「online-mode mismatch → resource-pack refusal → 首快照负向 → …」——**它们是前两个**。而 `domain.sh` 在 `online_mode` 上面那几行注释自己写着为什么这两个不能用别的方式造出来：「the tool derives the server's online-mode from the profile's `auth_mode`, so **no other run can produce this**」。也就是说：**这个旋钮是唯一能产生第一号场景的东西，而它到不了容器**。
+  - **更糟的是它被文档化了。** `test-orchestrator/runner/README.md` 把两条命令逐字列在可复制的命令清单里（第 38、39 行），另有两节散文分别解释它们做什么。`development-todo.md:313` 也记着这件事的全过程：先确认「harness 造不出场景」是真正的障碍（而不是产品侧缺能力），然后**两半都做掉了**——服务端工具加了 `--online-mode/--no-online-mode` 覆盖（默认仍从 profile 推导，并有 `tests/contract/test_controlled_server_runner.py` 钉住「一个设置动、别的都不动」）、`resource_pack_zip()` 与 `ResourcePackServer` 也做了——那一条最后写的是「**两条用例现在都只差一次真实运行**」。**那句话对容器内部是真的，对「README 里那条命令」是假的**：命令跑得通，只是没有测到它说要测的东西。第 3 步（wrapper）当时谁都没回头看。
+  - **为什么已有的门禁没拦住它。** `test_runner_scripts.py` 当时只查**脚本内部**那一半（`local="${ENV:-...}"` 读了之后有没有被用），那个 `MINEKIN_DOMAIN_SUMMON` 的旧账就是这么被抓住的。而「harness 读的、wrapper 没递」是**跨进程边界**的同一个失效，**没有任何东西在看**。`test_controlled_server_runner.py` 也看不到它：它直接测 `run_controlled_server.py`，从不经过 `run.sh`。
+  - **修的是 wrapper，不是文档。** `run.sh` 的 `-e` 清单补上这两个名字，并且**刻意放在 `BLACK_HOLE` 与 `NOT_WHITELISTED` 旁边**——这四个是一组（四个负向场景），一个只递三个的 wrapper 比一个都不递更坏；顺带写下了为什么：被丢掉的旋钮不会让运行变红，只会让它作证一件没发生的事。
+  - **补的守卫是那条跨边界的另一半**，落在同一个文件里、紧挨着旧的那条：`test_every_knob_the_harness_reads_is_one_the_wrapper_hands_it`，`domain.sh` 里 `${MINEKIN_DOMAIN_*}` 的集合必须与 `run.sh` 里 `-e MINEKIN_DOMAIN_*` 的集合**双向相等**（两个方向是两种故障：读了不递＝场景没跑成；递了没人读＝一个看起来受支持其实没人理的旋钮），并且先断言集合非空，否则这条检查会在 runner 改名之后空转通过。
+  - **变异两处，第一处就是决定性的那种。** ①**把原始 bug 原样放回去**（删掉那两行 `-e`）→ 新用例红——也就是说这条守卫**真的能抓住我刚修的这个问题**，不是事后补的装饰；②递一个没人读的名字（`MINEKIN_DOMAIN_IMAGINARY`）→ 新用例红。两次都原样还原。
+  - **顺带看见仓库自己的一道门禁在工作**：变异②那次我用 `write_text` 时漏了 `newline="
+"`，Windows 上写出 CRLF，于是 `test_scripts_are_lf_and_keep_an_executable_shebang[run.sh]` **同时红了**——那道 CRLF 门禁是有效的，而且它和这一条正好是同一个文件里的互补守卫。
+  - **实测（本轮：静态 + 本地）**：两份清单现在 **26 == 26、双向零差集**；`bash -n` 对两个脚本都通过；全量 pytest **1840 passed / 2 skipped**（+1，正是新加的那条），Ruff、Pyright（strict，0 errors）、boundaries、case assertions、fixture digests、workflow pins 与 `git diff --check` 全绿。**没有跑 Minecraft，没有接受 EULA**——本轮**没有**真的去跑那两个场景，所以「修好了」这句话的证据是**静态的**：清单相等 + 守卫能抓住原 bug。真正的证明要一次真实运行。
+  - **仍然开着的**：这两个场景现在**只差一次真实运行**——而这句话这次是对**README 里那条命令**也成立的。另外这一轮的发现说明一件事：harness 的旋钮有三个地方要同时改（`domain.sh` 读、`run.sh` 递、README 写），**只有前两处现在被机械绑住了**，README 与它们之间仍然靠人。
+
+- [x] **把上一轮那个镜头（「边界两边是不是在说同一个名字」）转向**能力名**——六个 capability 标识符，一边定义、一边使用，**没有任何东西比过它们**。** `HandshakeGate.java` 是 Bridge 唯一声明 capability 的地方：`session.handshake.v1`、`admission.connect.v1`、`control.move.v1`、`control.look.v1`、`control.use.v1`、`host.lan.v1`；`ipc.py` 里是逐字相同的六个（Core 从它 import，`session.py` 的 `wanted` 集合就是这么搭起来的，所以 Core 侧只有一个来源）。
+  - **洞的形状**：唯一一条 capability 绑定扫的是**另一个文件**里的 `move.*`——`_INPUT_CAPABILITY` 从 `BridgeInputController.java` 抓 `"move.forward"` 那六个**子能力**，绑到 `ipc.MOVEMENT_CAPABILITIES`。那是对的、也仍然有用，但它管的是「一个能力里的六个方向」，**六个能力标识符本身从来没被比过**。`test_bridge_java_constants.py` 覆盖了消息类型（`*_TYPE`）与那六个方向，**中间的六行是空的**。
+  - **为什么这比一般的命名漂移严重**：capability 是这两个进程「允许发生什么」的全部约定——Core 报一组、Bridge 接受一个子集、之后每条命令都按覆盖它的那个 capability 放行。所以单边改名不是外观问题：要么 Core 报了一个 Bridge 永远不接受的能力，要么 Bridge 拒了一条**已经协商过**的命令，而两者到达时的样子都是「协议违规」而不是「有人改了名字」。**而这个文件自己的 docstring 早就写着这正是那类「本地复现不出来的失效」**：「a rename on the Java side alone stays invisible until a real client fails to start. That is the one failure this repository cannot reproduce locally, so it is worth a check that reads both sources and compares them.」——那句话当时只兑现了三分之二。
+  - **补的绑定按**常量名**逐条比，而不是比两个字符串集合**。理由是报错要说得出**动的是哪一个**：`{"a","b"} != {"a","c"}` 只说「有东西不一样」，而 `LOOK_CAPABILITY: ('control.look.v1', 'control.look.v2')` 直接点名。**并且双向**：Java 声明的集合与 Python 声明的集合必须相等——一个方向是「一边报了个对方没听说过的能力」，反方向是「一边删了、另一边还在提供」，而**反方向对上面的逐名比较是不可见的**（那只走 Java 声明过的东西）。两头都先断言非空，否则 runner/文件改名之后这条检查会空转通过。
+  - **诚实地说：这次也没有漂移。** 两边今天逐字相同，所以这条绑定**现在抓不到任何东西**——与上一步的 `inputs` 一样，是防将来的。**但它比上一步那条更值**：`inputs` 那条防的是一个用例的声明走样，这条防的是**唯一一类本地证明不了的失效**（真客户端才会暴露），而它恰好落在两个进程都硬编码字符串的那条缝上。
+  - **三处变异全部驱动到红**：①Java 把 `control.look.v1` 改成 `v2`（值变了）；②Java 删掉 `HOST_LAN_CAPABILITY`（一边少了）；③Python 加了 `REFLEX_CAPABILITY` 而 Java 没有（另一边多了）。三次都只红这一条，还原即绿。
+  - **顺带记一条容易误读的东西**：`observation.lifecycle.v1` 这个像是协议词汇的名字**只出现在 `tools/java/BridgeProtocolSelfTest.java` 里**（两处，都是那个自检自己的夹具），产品两侧都没有它。它是自检用来喂 `HandshakeGate` 的一组任意能力，**不是真实能力**；写在这里免得下一个人把它当协议表面去追。
+  - **实测（本轮：本地）**：全量 pytest **1841 passed / 2 skipped**（+1，正是新加的那条），Ruff check/format、Pyright（strict，0 errors）、boundaries、case assertions、fixture digests、workflow pins 与 `git diff --check` 全绿。**没有跑 Minecraft，没有接受 EULA。**
+  - **仍然开着的**：这条绑定读的是**源码里的常量**，不是行为——它说得出两个进程把同一件事叫同一个名字，说不出 Bridge 真的处理了那条消息（那条边界在这个文件的 docstring 里也写着）。真正的验证仍要真客户端。
+
+- [x] **读了容器里那份**真实**证据，然后发现「本地没有可做的活」这句话**第二次**是错的：只差两份**本地就能封**的 bundle，W00 与 W10 两道门就可以晋级。** 起因是换了个做法——十一步以来第一次**真的去读容器数据卷里已有的证据**，而不是读文档对它的描述。`minekin-runner-data` 里有两个 Kin、各 525 MB 工件库、以及 **36 份已封存的 bundle**。
+  - **那份证据的机器读数**（`report_promotion.py --data-root /data`，在容器里跑）：36 份 bundle **全部 verified、0 份 unreadable**；整体 blocked，blocks 是 `CASE_VERSION_MISMATCH` + `CASE_WITHOUT_EVIDENCE` + `REQUIRED_CASE_NOT_REGISTERED`；**没有任何一道门 promotable**。逐门看：`W00`/`W10`/`W20`/`W60`/`W70` 的 requirement 是 satisfied，其余各缺 8～18 条。
+  - **`CASE_VERSION_MISMATCH` 是怎么来的，逐个查清楚了，因为它决定「要不要重跑」。** 拿每份 bundle 的 `case_version` 去**遍历该用例文件的 git 历史**，找出版本号对得上的那一版，再与今天的比：`CORE-010` 与 `CORE-020` **只多了 `assertion_digests` 一个字段**（判据逐字未变）；`CORE-040` **多了两条断言且 `mandatory` 由 false 翻 true**（用例真的长大了）；`CORE-050` 的两份**对不上任何一次提交**——它是在**工作树未提交**的清单上封的。**结论：这个失效机制是对的**（`assertion_digests` 正是让 `case_version` 覆盖判据而不是只覆盖名字的那个字段，旧 bundle 无法声称是哪个实现判的它），**代价是 CORE-010/020 这两次真实运行被一个记账字段作废**，而重跑要花真客户端。**这是正确但昂贵的一次失效，不是 bug**，如实记下。
+  - **顺手验了一件事，结论是工具没问题——而我差点报两条假发现。** `rejudge_evidence.py` 对那三份 CORE-050 bundle 的回答是 `{"status": "unjudged", "message": "... sealed against case version X and CORE-050 is now Y — the criteria moved, so the recorded verdict answers a question this repository no longer asks"}`、**退出码 2**。**第一次跑时我自己的探针错了三处**：路径带了尾斜杠（于是 `verify_bundle` 报「is not an evidence bundle」）、退出码取的是管道末端 `tail` 的、以及从输出里挑的键不存在。两个「发现」都是我的错，不是仓库的。**记下来因为这类探针错误会伪装成仓库缺陷。**
+  - **真正能本地做完的那一步**：`local-only` 的 required case 只差一份**封存的 PASS bundle**，而 `tools/seal_repo_case.py` 不需要 Minecraft。做了两份：`run_repo_case.py --case … --output-directory …` → `seal_repo_case.py --data-root … --profile <recipe> --verdict …`。结果 `CORE-001` PASS / 9 件工件 / `case_version c38d86c1…`、`W00-CONTRACT-001` PASS / 8 件工件；两份都用产品自己的 `minekin evidence verify` 独立复核为 `status: verified, sealed: true, result: PASS`。（顺带撞到两条设计正确的拒绝：`MINEKIN_HOME` 必须是**绝对路径**，以及 `evidence verify` **没有** `--data-root`，数据根只从环境来。）
+  - **然后把「哪些门本地能做完」这个问题用机器读了一遍，答案正好是两道**：required set **整组**都是 `local-only` 的门只有 `W00`（`W00-CONTRACT-001`）与 `W10`（`CORE-001`）。其余——`W20`/`W60` 要真客户端、`W70` 一条 mandatory case 都没有、`W30`/`W40`/`W50`/`p0-core`/`host-integrated`/`p0-nav-exp` 各缺 1～18 条运行时用例。**所以本地证据生产能关死的门**只有这两道，而它们现在**都 promotable**：`report_promotion.py --work-package W00` 与 `--work-package W10` 都是 `status: promotable`、`blocks: []`、`blocking_cases: []`。
+  - **同一类错误我犯了第二次，这一点要说清楚。** 第八步纠正过一次「剩下的 missing 全是 runtime-required」；这一步发现**「没有可本地执行的卡」也不等于「没有本地能做完的事」**——卡是工作单元，而**证据生产不是卡**。两次的根因是同一个：**我在读文档对状态的描述，而不是读机器读数**。这条比具体结论更值得记。
+  - **明确的边界**：这两份 bundle 在 `.tmp/data` 这个**临时数据根**里，按契约证据住在数据根而不进仓库，所以**它们不该被提交**，本轮的提交只有文档。要让这份晋级状态**持久**，需要操作者把它封进自己的数据根（或把 `.tmp/data` 换成一个长期位置）——**这是操作者的选择，不是我替他定的**。另外这两道门「promotable」只说明**证据齐了**，不等于 `p0-core` 有进展：`p0-core` 仍缺 18 条运行时用例。
+  - **实测（本轮：本地 + 容器读取）**：两份 bundle 由产品命令独立验签；`report_promotion` 对 `W00`/`W10` 报 promotable；全量 pytest **1841 passed / 2 skipped**，Ruff、Pyright（strict，0 errors）、boundaries、case assertions、fixture digests、workflow pins 与 `git diff --check` 全绿。**没有跑 Minecraft，没有接受 EULA。**
+  - **仍然开着的**：`p0-core` 的 18 条、`host-integrated` 的 18 条、以及 `W20`/`W60` 那几次被记账字段作废的真实运行——后者要么重跑，要么等一个「判据未变就不作废」的机制，而后者是设计决定（属于 `EVIDENCE-SEQUENCE-001` 那一类）。
+
+- [x] **把上一步那个镜头从「旋钮递没递进去」推到「有没有旋钮」——于是发现：有界候选矩阵只实现了一半，而没有任何东西会说。** 上一步查的是已存在的 harness 旋钮有没有被 wrapper 递进容器；这一步改问一个更前面的问题：`REAL-P0-CAMPAIGN-001` 的 `order` 八项**各自有没有一条能产生它的路**。
+  - **逐项对照的结果**：`online-mode mismatch` → `MINEKIN_DOMAIN_ONLINE_MODE` ✓（上一步刚接上）、`resource-pack refusal` → `MINEKIN_DOMAIN_RESOURCE_PACK` ✓、`首快照负向` → **没有路**（`development-todo.md` 早已记着：「要让真客户端交出一份报不出身份的快照，域里还没有这个开关」，是已知项）、`crash/outbox 窗口` → `KILL_CORE` ✓、`tick/render 采样` → `SOAK_SECONDS` ✓、`promotion report` → 工具 ✓。**剩下 `OFF-A/OFF-B` 这一项，查出来是新的。**
+  - **`OFF-B` 跑不起来，而且这不是「没做」，是「做了但接不上」**：`adapters/launcher/offline_session.py:87` 声明了**两个**候选（`PRISM_PARITY` = OFF-A `offline`、`ENUM_ALIGNED` = OFF-B `legacy`），而产品里**唯一**的选择点是 `cli/session.py:630` 的 `candidate = OFFLINE_SESSION_CANDIDATES[0]`——**永远 OFF-A**。整个仓库里 `enum-aligned` 只出现在契约的枚举清单和一个 Java 自检的夹具里：**没有 CLI 开关、没有环境变量、没有 harness 旋钮**。所以 `p0-prototype-execution-plan.md` 那句「按 OFF-A → OFF-B 运行有界候选，**不静默漂移**」只兑现了第一步，而 campaign 的 `order` 第 4 项写的正是「**OFF-A/OFF-B**」。
+  - **为什么记成卡而不是当场改。** 修法很小（给 `session start` 一个选候选的入口，默认仍是 OFF-A），但它动的是**产品 CLI 表面**——那在 `p0-core-internal-architecture.md` §15 里是**冻结**的，而本文的「不可变边界」写着生产代码只有在**当前 `NEXT` 明确允许**或**修复主干回归**时才可改。这里两者都不是：这是一项**新表面**，不是回归。`--server-profile` 那次也是同一类改动，而它当时是附带理由与文档更新之后才做的（见本文「已消歧的文档口径」第 4 条）。**所以排进 `QUEUED` 并写清 `blocked_by`，等主控提升**——第七步我在 `doctor` 上加只读检查时说过「这类没有卡授权的生产代码改动，你要是不愿意我就只在 TODO 里做」，那次的改动是既有命令内部的只读检查，**这次是产品对外接口，规模不同，不能拿同一次默认当授权**。
+  - **不阻塞任何当前工作，但它是 W30 那半证据的前提。** campaign 本身卡在 runner 与 EULA 上；可一旦真跑起来，`OFFLINE-010/020/030`（都 `runtime-required`）**只能产生 OFF-A 的证据**，契约矩阵的 B 半边永远不可达，而工具不会说——这与上一步那个旋钮是同一种失效：**缺失是静默的**。
+  - **测试与否的诚实边界**：本步**没有改任何代码**，所以没有新的测试；验证方式是**逐处 grep 加读**：候选的两个声明点、唯一选择点、以及 `enum-aligned` 在全仓的每一处出现。**没有跑 Minecraft**，全量 pytest **1841 passed / 2 skipped**，Ruff、Pyright（strict，0 errors）、boundaries、case assertions、fixture digests、workflow pins 与 `git diff --check` 全绿。
+  - **仍然开着的**：`OFFLINE-CANDIDATE-001` 在 `QUEUED` 里等提升；`首快照负向` 那条路仍缺（**已记录**，且它要动的是域而不是 CLI）。
+
+- [x] **把 `OFFLINE-CANDIDATE-001` 做掉了——第二个离线候选现在真的跑得起来。** 上一轮查出 `adapters/launcher/offline_session.py` 声明了两个候选而产品里唯一的选点是硬编码的 `[0]`（永远 OFF-A），于是把这个改成**可选**并**明确说明我为什么自己拍板**。
+  - **越权这件事的说法放在最前面。** 本卡要动的是**产品 CLI 表面**，而执行计划的「不可变边界」写着生产代码只在**当前 `NEXT` 明确允许**或**修复主干回归**时可改——这一条两者都不是，是**新增表面**。拍板的依据是**用户反复给出的明确指令**（「自动选择最佳方案就行」「不要询问我打断任务」），而本文的权威顺序第一条正是「用户当前明确指令」，**它高于本文自己的规则**。代价有界：**一个可选开关、默认逐字节不变、一次 revert 就能撤销**；不做的话 campaign 的第 4 个场景**永远跑不起来而没有任何东西会说**。**若不同意这次越权，撤销方式就是 revert 这一个 commit**——这句话也写进了计划那张卡。
+  - **改的是什么。** `session start` 新增 `--identity-candidate`；`offline_session.candidate_by_id()` 负责解析：**不给就是第一个**（`prism-parity`，也就是加它之前每一次运行实际用的那个）、**点名不存在的候选拒绝并列出已知的**。参数沿 `bootstrap → start_and_supervise → prepare_session_async` 一路透传，落点是原来那行 `candidate = OFFLINE_SESSION_CANDIDATES[0]`。**可选值从候选清单读出**（`choices=sorted(...)`），所以清单加候选时命令行自动跟着变，不需要第二个地方同步。
+  - **三处变异，第三处是这条设计的关键证明。** ①默认改成第二个候选 → `test_naming_no_candidate_is_the_run_this_always_was` 红；②未知 id 改成静默回退 → `test_a_candidate_that_does_not_exist_is_refused_by_name` 红；③**在候选清单里加第三个候选、完全不动 `parser.py`** → 命令行直接接受了 `diagnostic-default`。**第三处证明的是「可选值只有一个来源」**：如果我在 parser 里重抄了那份清单，这条会红。
+  - **一条我没做的测试，以及为什么。** 最初想让新测试去读 parser 的 `_actions` 断言 `choices` 等于清单，结果 Pyright 报 8 个错（`argparse.Action` 上 `choices`/`default` 没有类型），而且那本来就是**内省**而非行为。改成行为式：点名每个已声明候选都被接受、点名一个未声明的**由 parser 在创建任何东西之前拒绝**、什么都不说时 `identity_candidate is None`。**这比原来的写法更弱在「一个来源」上、但它由变异③补上**，而不是靠读一份和被测对象同源的清单自证。
+  - **顺带修了两个我自己的错**：`start_and_supervise` 的签名末尾不是 `world_name`（后面还有 `open_lan`），所以第一版替换没打中它、Pyright 顺着报出 `identity_candidate is not defined`；以及第一版脚本用「12 空格」的锚点去替换转发行时**同时匹配到两处**（8 空格那处是它的子串），于是改成**按行插入、沿用该行自己的缩进**。
+  - **文档同步**：`docs/p0-core-internal-architecture.md` §15 的冻结 CLI 表面加上了这个选项，并写清它与 `--server-profile` 是同一类「可选输入」、以及为什么它必须存在（否则第二个候选有实现、契约里有、却不可达）。
+  - **实测（本轮：本地）**：全量 pytest **1846 passed / 2 skipped**（+5，正是新加的 5 条），Ruff check/format、Pyright（strict，0 errors）、boundaries、case assertions、fixture digests、workflow pins 与 `git diff --check` 全绿。**没有跑 Minecraft，没有接受 EULA**——`validation_class` 是 `LOCAL_THEN_REAL_RUN`，**本卡只做到「选得出来」**。
+  - **仍然开着的**：OFF-B 的**真实运行**仍要一次客户端；`首快照负向` 那条路仍缺（要动的是域，不是 CLI）。
+
+- [x] **`ADMIT-001` 登记完成——同时量清楚了一件事：剩下八条 ADMIT 不是「缺几行代码」，而是「先要决定判据由谁写」。** 起因是问了一个结构性的问题：campaign 想「批量关闭真实运行缺口」，但**一次运行只能对着一个已经存在的 case 封存**（`seal_run_evidence.py` 要 `--case`），而 37 条 required 里 36 条连 fixture 都没有。所以缺的不只是运行，是**能让运行被封存的那个东西**。
+  - **`ADMIT-001` 用的是既有判据，所以它只是「认领」而不是「发明」。** 契约那一行写的是「`host:port`受控 offline-mode服 ｜ 走正常客户端路径，JOIN+首快照后才 PLAYABLE」——而这正好是两条**已在 `CORE-020` 上验过**的断言：`first_snapshot_admitted`（JOIN 行存在 + `snapshots_admitted >= 1` + `connection_state == PLAYABLE`，实现读过了）与 `server_observed_join_identity`（服务端自己那份记录，也就是「正常客户端路径」的独立证据）。这正是契约给 `ADMIT-070`/`ADMIT-080` 用过的那条路（那两条的注记写着「全部取自本仓库自己已经闭合的那条注记」）。没有新增断言、没有改 `src/`。
+  - **`mandatory` 保持 `false`，而且这不是随手定的**：契约给 `ADMIT-070`/`ADMIT-080` 的注记明写它们「已定义、跑得动」而 `mandatory` **仍为 false**；整个 ADMIT 家族（含已登记的 070/080/100/110）都是 false。所以这条跟着家族走，只补**存在性**。
+  - **一个独立的旁证**：录进去的两条 digest 与 `CORE-020` 里同名断言**逐位相同**（`720a4db1…`、`3e0bca8c…`）——两个 case 说的是同一份实现，这是机器给的确认，不是我的描述。
+  - **剩下八条为什么不能照做，逐条查过**：`the_refusal_was_classified_in_the_ledger` **把 `WHITELIST_REJECTED` 写死在函数体里**（还配一个模块级 `REFUSAL_LINE`），所以 `ADMIT-040`（要 `AUTH_MODE_MISMATCH`）与 `ADMIT-050`（封禁/重名）**用不了它**，除非把那条断言参数化或另写一条；`ADMIT-010`（不扫描局域网）、`ADMIT-020`（SRV 原始地址与实际 endpoint、重定向仍过策略）、`ADMIT-060`（资源包未授权时不 PLAYABLE、不由聊天同意）、`ADMIT-120`（canary 不进入 Runtime/Memory/prompt/行动路径）今天**根本没有对应断言**。**写一条新断言就是给一次真实运行定义「PASS 是什么意思」**，这是本仓库里最该由人拍的一类东西——所以本轮**只登记能认领的那一条**，其余写成计划里的发现，不做。
+  - **两处变异各自驱动到红**：①删掉 `admit-001.json` → 报告点名 `ADMIT-001` missing、`W40` 的 missing 由 7 回到 8；②把录下的 `first_snapshot_admitted` 摘要改成全零 → `check_case_assertions` 红，报文逐字说明「实现是 `720a4db1…` 而记录是 `0000…`，判据在一个没动的版本下移动了」——也就是那两个 digest 是**吃劲的**，不是装饰。
+  - **登记这条 case 把一条既有用例打红了，而红得对。** `test_a_hole_in_another_surface_does_not_block_a_phase` 断言的是「一道 gate 只按自己的 case 判」，而它当时**拿 `ADMIT-001` 当「W40 缺的那条」的例子**——`ADMIT-001` 一被登记，`assert "ADMIT-001" in w40["requirement"]["absent"]` 立刻失败。**这是我自己写的一句还没测就写下的结论的代价**：我先在下面写了「全量 pytest 1846 全绿」，然后才去跑，跑出来是 `1 failed, 1845 passed`。修法不是换个名字继续钉，而是**把那个例子改成推导出来的**（取 W40 absent 的集合，断言它非空、且其中没有任何 HOST/NAV 前缀的 case），并把这个来历写进 docstring——**钉一个具体 id 当例子，正是 case 报告当初被写出来要消灭的那种手工维护**，只是挪了一个文件。变异验证：把断言改成「HOST-001 也在 W40 的 absent 里」→ 这条立刻红，说明它仍在校那条真正的性质。
+  - **实测（本轮：本地）**：读数从 **35 present / 37 missing** 变成 **36 / 36**；`W40` 由 present 4 / missing 8 变成 **5 / 7**；`ADMIT` 缺失由 9 条降到 8 条；全量 pytest **1846 passed / 2 skipped**（修完那条之后重新跑的数），Ruff check/format、Pyright（strict，0 errors）、boundaries、case assertions（120 条注册）、fixture digests、workflow pins 与 `git diff --check` 全绿。**没有跑 Minecraft，没有接受 EULA**——`ADMIT-001` 是 `runtime-required`，本轮只做到「它可以被封存了」。
+  - **仍然开着的**：八条 ADMIT 要先有判据（上面逐条列了缺什么）；`W40` 仍 `satisfied: false`，离有门禁还差 7 条。
+
+- [x] **把「剩下八条 ADMIT 缺什么」逐条量成了一张工作单——而量出来的结论比上一步那句更具体：每条都至少缺一个**可观测事实**。** 上一步我写下「其余八条要先把判据写成断言」；这一步去验它，顺手用一条命令把**现有 42 条 `runtime` 断言**列全，再逐条对着契约的「必须证明」列比对。
+  - **结论表**（写进执行计划，可重推）：`ADMIT-010`/`020` **一条都不沾**（「只连了哪几个地址」「SRV 原始地址与 endpoint」在运行材料里没有来源）；`ADMIT-030` 部分（`the_attempt_was_abandoned_at_its_deadline` 管有界，但它现在由 `ADMIT-110` 认领；三类分类接不住，因为 `the_refusal_was_classified_in_the_ledger` **把 `WHITELIST_REJECTED` 写死**）；`ADMIT-040` 一半（前半要把契约点名的 `AUTH_MODE_MISMATCH` 转写成断言，**后半「不悄悄换用在线账号」没有可观测事实**——那不是「没进世界」的同义词）；`ADMIT-050` 一半但**已被认领**；`ADMIT-060` 一半（`no_lease_was_granted`，由 `CORE-050` 认领）；`ADMIT-090` 三分之二（两条 restart 断言都在、都是 `CORE-090` 的，「人格不重建」**没有任何判据**）；`ADMIT-120` **运行期那半整条缺失**。
+  - **顺带查出一处契约冲突，而它第一次产生了实际影响。** `ADMIT-100` 在**两份契约里是两件事**：admission 契约说它是「同名/改名/代理改写 ｜ 同时记录本地候选与服务端观察身份」（身份），validation 契约说它是「**服务端拒绝**……白名单上说不」（拒绝分类）。`domain/cases.py` 的注记早就记着这两份契约对 `ADMIT-100`/`ADMIT-110`「disagree about what those two scenarios *are*」，**现有 fixture 跟的是后者**。于是 `ADMIT-050` 想复用白名单那一对时会撞上「同一判据被两个场景不同的 case 认领」。**这不是新问题，是那个已记录的冲突第一次挡在具体的下一步前面**——谁写 `ADMIT-050` 之前得先解掉它。
+  - **每条可机械验的都验了**，没有只凭读：42 条 runtime 断言由注册表读出（我第一版 grep 漏掉了多行的 `_runtime(` 写法，所以改用工具本身的读数）；`the_attempt_was_abandoned_at_its_deadline` 确由 `ADMIT-110` 认领、两条 restart 断言确由 `CORE-090` 认领、`no_lease_was_granted` 确由 `CORE-050` 认领；`runtime_input_does_not_reference_oracle` 的 kind 是 `pytest` 而不是 `runtime`。**我自己的查询也出过一次错**：想找「关于地址的断言」时用了子串 `host`，它匹配到了 `hosted`——所以那一条的结论是靠**通读断言名单**得出的，不是靠那次查询。
+  - **本轮没有改任何代码、没有登记 case**，所以交付物是一份**判据工作单**而不是新 fixture：余下八条各自缺什么，现在是一张能照着做的表，而不是八句「以后再说」。
+  - **实测（本轮：本地）**：全量 pytest **1846 passed / 2 skipped**，Ruff check/format、Pyright（strict，0 errors）、boundaries、case assertions、fixture digests、workflow pins 与 `git diff --check` 全绿。
+  - **仍然开着的**：那张表本身；以及它标出的两件事——**八条各缺一个可观测事实**，其中「人格不重建」「聊天不是授权来源」「不扫描局域网」「SRV 与 endpoint」都还没有任何来源；`ADMIT-050` 之前要先解掉 `ADMIT-100` 的契约冲突。
+
+- [x] **去验上一步自己写下的结论，结果发现那张表把**两种完全不同**的缺法混成了一类——而分开之后，八条里有一半其实只是**写断言**。** 上一步我说「每一条都至少缺一个可观测事实」。这句话把「事实记了但没人断言」和「事实根本没记」说成了同一件事，而两者的代价差一个数量级：前者在测试域里解决，后者要先决定**一次运行必须多记什么**。
+  - **（甲）记了、只是没人断言**：`ADMIT-030`/`040`/`050` 要的那些失败分类，**就住在账本行的 `reason` 字段里**——`on_connection` 写的 payload 是 `{"phase": …, "reason": …}`，注释写明那个 `reason` 是「Bridge 的稳定分类」，而 `the_refusal_was_classified_in_the_ledger` 正是读它，**只是把值写死成了 `WHITELIST_REJECTED`**。所以这三条要的不是新事实，是一条不写死值的断言。`ADMIT-060` 的「没授 lease」由 `no_lease_was_granted` 承担，同类。
+  - **（乙）根本没记**：`ADMIT-010`/`020` 要的「连了哪个 profile / 解析到什么 endpoint」；`ADMIT-090` 要的「人格没被重建」（账本**现有的十个事件类型**里没有一个承载身份/人格）；`ADMIT-120` 要的 canary containment。这些不是补断言，是**产品要在运行里多记一个事实**——那是决定，不是几行代码。
+  - **这个区分是一次差点写错的更正换来的，值得记下来。** 我先扫到线缆上 `ConnectionLifecycle` **确实带着** `server_profile_id` 与 `revision`（`session.py:239-240`），差一点就把 `ADMIT-010` 从「没记」改成「记了没断言」。去查 `on_connection` 的 payload 才发现：**它止步于写账本那一行**——payload 只有 `phase` 和 `reason`，profile 在那里被丢掉。**所以我的原结论对、正准备写的更正才是错的。** 这与第 12/13 步那两次（尾斜杠、`tail` 的退出码）是同一类：**一个探针只走到边界的一半就下结论**。这次的教训更窄也更可操作：**先问「这个事实在哪一层被写下来」，再问「有没有人读它」。**
+  - **实测（本轮：读代码 + 本地门禁）**：账本事件类型从 `adapters/sqlite/session_log.py` 逐个读出（**共十个**，无身份/人格类）；`on_connection` 的 payload 与 `session.py:239` 的线缆字段逐处对照；`runtime_input_does_not_reference_oracle` 的 kind 确认为 `pytest`。全量 pytest **1846 passed / 2 skipped**，Ruff check/format、Pyright（strict，0 errors）、boundaries、case assertions、fixture digests、workflow pins 与 `git diff --check` 全绿。**本轮只改文档**：更正执行计划里那张表并把它拆成两类，没有改代码、没有登记 case。
+  - **仍然开着的**：（甲）那半是**测试域能直接做的**——`ADMIT-030`/`040`/`050` 各需要一条不写死值的分类断言，这是一个可以开工的活；（乙）那半要有人决定「运行要不要多记 profile/endpoint、身份连续性、canary containment」。
+
+- [x] **去开工「（甲）那三条」，结果发现其中两条**按现在的编号根本写不出来**——这是三步里第三次修正我自己的结论，而这次的理由是契约自己早就为 `CORE-060` 写过的那一条。** 上一步我说 `ADMIT-030`/`040`/`050` 是「测试域能直接做的」；去写之前先问了一句「这三条能不能被**一份** bundle 满足」。
+  - **规则（读代码确认，不是推的）**：`evaluate_promotion` 对每个 case id 取**第一份满足的候选**就判该 case 满足（`by_case` 分桶后逐份比对，命中即 `satisfied = True`）。所以**一个 case id 只能承载一个场景**。
+  - **而这两条各装三个**：`ADMIT-030` 是「**三类**失败分类不同且无无限重试」（无 DNS、拒绝连接、超时），`ADMIT-050` 是「白名单/封禁/**重名**」。契约对**一模一样**的处境早写下过结论——`CORE-060` 那条注记：「**按进程边界拆独立 case id**，因为一次运行只能注入一种故障，而 promotion 对一个 case id 采用 any-satisfying-bundle 语义；**把互斥故障塞进同一断言集既不可能由一份 bundle 满足，也不能保证每种故障各有一份**」。契约当时把它拆成了 `CORE-060` / `-CLIENT-001` / `-SERVER-001`。
+  - **差别在于：`CORE-060` 的拆法是契约自己的注记授权的，`ADMIT-030`/`050` 没有任何这样的注记。** 所以拆它们等于**改契约的编号**——而 inventory 的编号正是逐条从契约引出来的（`domain/cases.py` 的清单，每条带 `anchor`，`tests/contract/test_case_coverage.py` 还会去契约里逐字核那个 id）。**凭空加号就是 inventory 一直拒绝做的事**，所以这两条今天的状态不是「可以开工」，而是「先要有契约层面的拆分决定」。
+  - **如果不拆就写会怎样**：写一条「reason 是这三者之一」的断言，于是一份**只跑了「连接被拒」**的 bundle 就让整条用例读起来是覆盖的，而契约要的「三类分类不同」**从来没有被证明过**。这正是这个仓库反复在堵的那种「看起来覆盖了」。
+  - **`ADMIT-040` 是这三条里唯一单场景的**，它的前半是转写（契约点名 `AUTH_MODE_MISMATCH`）；**后半「不自动启用账号适配器」仍然缺判据**——「只尝试了一次」是个**代理**（账本里 `SessionInterrupted` 的条数可以数），而**代理正是这里不该悄悄选的东西**：它说的是「没重试」，契约说的是「没有自动启用账号适配器」，两者不等价。
+  - **三步里第三次修正自己的结论，值得记下来。** 第 15 步我说「其余八条都要先把判据写成断言」；第 17 步改成「分两类，其中（甲）是测试域能直接做的」；这一步又发现（甲）里两条根本不能按现编号写。**三次都是往「其实更麻烦」的方向修正**——与第 8/12 步那两次（我把能做的说成不能做）方向相反，说明这不是我偏保守或偏乐观，而是**在没有读到判据来源之前就给结论**。所以这一轮我把问题问得更靠前了一次：不问「缺什么断言」，先问「**一条 bundle 能不能满足它**」。
+  - **实测（本轮：读代码 + 本地门禁）**：`evaluate_promotion` 的满足语义逐行读过；契约对 `CORE-060` 的拆分注记逐字引用过（含那句「既不可能由一份 bundle 满足，也不能保证每种故障各有一份」）；全量 pytest **1846 passed / 2 skipped**，Ruff check/format、Pyright（strict，0 errors）、boundaries、case assertions、fixture digests、workflow pins 与 `git diff --check` 全绿。**本轮只改文档**，没有改代码、没有登记 case。
+  - **仍然开着的**：`ADMIT-030`/`050` 需要**契约层面的拆分决定**（拆成三个 case id 各一场景，像 `CORE-060` 那样），这是用户的决定；`ADMIT-040` 需要决定后半用什么判据（或者接受「只尝试一次」这个代理并写明它是代理）。
+
+- [x] **换了个问题问，问出这个仓库最忌讳的那一类东西：判官自己的**失败分支**有 15 条从来没被测过——而其中至少一条，**被测的是防御性的那半，真正会发生的这半没人碰**。** 前几轮都在找「缺哪个 case」；这一轮问的是「**现有 42 条 runtime 断言，每一条定义的 PASS 有没有被证明会拒绝错的东西**」。
+  - **怎么量的（可重推）**：从 `tools/assert_case_evidence.py` 用 `ast` 把 42 条断言的每个 `return` 字符串取出来（纯字面量与 f-string 的前缀各算一条），再逐个去 `tests/unit/test_case_evidence_assertions.py` 里找——测试不直接调断言函数，而是读 `verdict.failures` 里 `"<名字>:<原因>"` 这个形状，所以「在某处出现过」就是「有测试断言过这条拒绝」。**读数：129 条不同的失败原因，其中 15 条在测试里从未出现。**
+  - **第一次量错了，值得记**：我先按「名字 + `is None` 在同一行」去数，结果 42 条全是 0/0——因为测试根本不那样写。**这是这一轮第三次探针先出错**（前两次是尾斜杠、`tail` 的退出码），所以这次我没有拿错数去下结论，而是先去读了一个真实的测试长什么样。
+  - **修掉的那一条，正是「测错了半边」。** `the_bridge_classified_the_refusal` 有两条拒绝分支：`NO_CLIENT_LOG`（完全没有客户端日志）与 `THE_BRIDGE_DID_NOT_CLASSIFY_IT`（有日志、但没有 Bridge 那行分类）。**唯一被测的是前者**——而前者是**真实运行产生不出来的**（客户端总会写日志）。后者才是「Bridge 看见了拒绝却没分类」留下的事实，也就是这条断言存在的全部理由。补了 `test_a_client_log_that_does_not_classify_it_is_not_evidence_that_it_did`，**变异验证**：把那个分支从实现里删掉 → 新测试立刻红；还原即绿。
+  - **剩下 15 条列在这里当工作单**（2026-09-23 更正：这条原本写的是 14，而它自己列了 15 条）（每一条都是「这个理由没有测试让它的分支真的响一次」）：`another_kin_joined_the_world_this_run_hosted:THIS_RUN_DID_NOT_PUBLISH_A_WORLD`、`first_snapshot_admitted:SNAPSHOT_COUNT_MISSING`、`the_attempt_was_abandoned_at_its_deadline:NO_CONNECTION_RECORD`、`the_bridge_carried_the_input_out:ACTION_COUNTS_MISSING`、`the_first_snapshot_of_the_world_it_dialled_was_admitted` 的 **五条**（`DIALLED_A_PORT_THAT_IS_NOT_ONE`/`DIALLED_SOMETHING_BUT_A_LOOPBACK_LITERAL`/`NEVER_BECAME_PLAYABLE`/`NO_SNAPSHOT_WAS_ADMITTED`/`SNAPSHOT_COUNT_MISSING`）、`the_restart_runs_as_a_new_session:PREVIOUS_RUN_HAS_NO_SESSION_ATTRIBUTION`、`the_run_says_which_world_it_hosted` 的两条（`WORLD_SNAPSHOT_HAS_NO_LEVEL_NAME`/`WORLD_SNAPSHOT_IS_NOT_A_DIGEST`）、`the_server_saw_the_kin_stop_after_the_move:NEVER_MOVED`、`the_soak_held_for_the_duration_it_was_asked_for:SOAK_SUMMARY_INCOMPLETE`、`the_world_this_run_joined_is_the_one_the_case_names:THE_WORLD_WAS_PUBLISHED_ON_ANOTHER_PORT`。
+  - （2026-09-23：上面这份清单里已划掉三条——`the_soak_held_for_the_duration_it_was_asked_for:SOAK_SUMMARY_INCOMPLETE`、`the_run_says_which_world_it_hosted:WORLD_SNAPSHOT_HAS_NO_LEVEL_NAME`、`...:WORLD_SNAPSHOT_IS_NOT_A_DIGEST` 已各有负向测试，所以剩下 **12 条**。清单不逐条划掉是因为**它是一次带日期的读数**，不是一份会自己更新的表——要用请以最近一次 `ast` 审计的输出为准。）
+  - **这不是「都有测试」那种假缺口**：42 条断言**每一条都至少有一条拒绝测试**（我先量了这个，读数是 42/42）——缺的是**逐条分支**的覆盖，粒度更细，所以量出来的东西不一样。两句都对，但它们说的不是同一件事，我把两句都留着。
+  - **为什么这属于本仓库最忌讳的一类**：`check_case_assertions.py` 自己的 docstring 写着它的存在理由——「a name that still resolves is not the same thing as the same check」。这里是同一句话往下走一层：**一个签名还在、名字还解析得到的拒绝分支，不等于一个验证过的拒绝。** 一条从没响过的分支可以是写错的，而它一旦响就是某次真实运行的判决。
+  - **实测（本轮：本地）**：全量 pytest **1847 passed / 2 skipped**（+1，正是新加的那条），Ruff check/format、Pyright（strict，0 errors）、boundaries、case assertions（120 条注册）、fixture digests、workflow pins 与 `git diff --check` 全绿；变异一次驱动到红并原样还原（`git diff --stat tools/` 为空）。**没有跑 Minecraft**。
+  - **仍然开着的**：上面那 14 条分支各要一条负向测试。**这一条是本轮之后仍然明确属于测试域、不需要任何决定的活**——与前面几步那些「要先有契约/产品决定」的条目不是同一类。
+
+- [x] **按工作单做掉了三条没测过的失败分支——其中一条的**第一次变异是假的**，值得单独记。** 上一步量出 16 条「理由没有测试让它的分支真的响一次」，补了 `the_bridge_classified_the_refusal` 那条；这一步再做三条：`the_soak_held_for_the_duration_it_was_asked_for:SOAK_SUMMARY_INCOMPLETE`、`the_run_says_which_world_it_hosted:WORLD_SNAPSHOT_HAS_NO_LEVEL_NAME`、`...:WORLD_SNAPSHOT_IS_NOT_A_DIGEST`。**读数：129 条理由里没测过的从 15 条降到 12 条。**
+  - **三条都是「避开了防御性的那半」**：soak 那条已测的是 `NO_SOAK_SUMMARY`（摘要**根本不在**），没测的是摘要**在、但读不出被要求了什么**（`requested_seconds=0`）；world 那两条已测的是 `NO_WORLD_SNAPSHOT_RECORDED`（记录**根本不在**），没测的是记录**在、但没有 level 名**、以及**有名字而 digest 不是摘要**。「记录不在」是产品写不出来的形状，「记录在而残缺」才是部分写入留下的。
+  - **第一次变异三处全是假的，而它差点看起来像成功。** 我用一个 shell 函数把分支行删掉再跑测试，结果三处都报 `anchor not found`——**因为我那一层的转义没生效，三处其实一个都没改**；而报告出来的却是「1 passed」，也就是**测试通过了**。如果我只读那行 `1 passed`，我会得出「这些测试抓不住变异」的**完全相反的结论**。**这是这一轮第四次探针出错**，而这次错得最像成功。
+  - **第二次也错了两处，错法不同**：改成按行号删除之后，soak 那条**真的**抓到了（`1 failed`），但另两处报的是 **collection error**——删掉 `return` 行留下一个空的 `if` 体，**连语法都不成立**。**一个跑不起来的变异证明不了测试的任何事**，所以那两处也作废。
+  - **第三次才对**：把分支改成 `return None`（**neuter，而不是删除**）——函数仍然合法，只是这条分支不再拒绝。这样两处都各自红了：`test_a_world_record_with_no_level_name_is_not_the_world_it_hosted` 与 `test_a_world_digest_that_is_not_a_digest_is_refused`。**教训是变异必须在「程序仍然成立」的前提下做**，否则你测的是语法，不是测试。
+  - **三条新测试的断言用的是 `startswith` 而不是整串相等**：这几条断言在残缺材料下往往**同时**触发别的分支（例如 world 那两条会一起响），整串相等会把「顺便还红了一条」变成失败，而我要证明的只是**这一条**分支响了。文件里两种写法都有，我选了这个并说明理由。
+  - **顺带更正上一步的一处数字**：上一步的记录里写「剩下 14 条」，而它自己那张工作单列了 **15** 条——**散文和列表对不上**。列表是对的，数字是我写错了。**这正是这个仓库反复记录的「散文不会注意到自己过期」**，这次是我的散文。
+  - **实测（本轮：本地）**：全量 pytest **1850 passed / 2 skipped**（+3，正是新加的三条），Ruff check/format、Pyright（strict，0 errors）、boundaries、case assertions（120 条注册）、fixture digests、workflow pins 与 `git diff --check` 全绿；三处变异各自驱动到红（第三轮才成立），`git diff --stat tools/` **为空**——判官一行都没改。**没有跑 Minecraft**。
+  - **仍然开着的**：**12 条**分支没有测试，列表在 `development-todo.md` 上一轮那条里（少掉的三条已划掉说明）。这仍然是**不需要任何决定**的活。
+- [x] **按工作单做掉五条没测过的失败分支——其中三条**不在任何工作单上**，是这一步把审计口径放宽之后才量出来的。** 上一轮留下 12 条（断言级），这一步做掉 2 条断言级的（`another_kin_joined_the_world_this_run_hosted:THIS_RUN_DID_NOT_PUBLISH_A_WORLD`、`the_restart_runs_as_a_new_session:PREVIOUS_RUN_HAS_NO_SESSION_ATTRIBUTION`），又在放宽口径的审计里发现并做掉 3 条共享辅助函数里的（`NO_CASE_ATTRIBUTION`/`NO_TARGET`/`NO_ATTRIBUTION`）。**读数：没测过的分支 13 → 10。**
+  - **那 3 条为什么以前量不出来（这是口径问题，不是漏读）**：前几轮的审计是**从 `ASSERTIONS` 注册表里的 42 条断言出发**取 `return` 字面量，而这三条在一个**私有辅助函数** `_confirmed_sigkill` 里——它被 `the_attempt_was_abandoned_at_its_deadline`、`server_jvm_sigkill_was_confirmed`、客户端那条**共用**，所以它的理由是以 `server_jvm_sigkill_was_confirmed:NO_CASE_ATTRIBUTION` 这种**带调用者前缀**的形状出现的。它的 `NO_FAULT_INJECTION_RECORD` 早有测试（所以不是整个辅助函数没人碰），缺的正是**「整段 section 不在」**那三条：契约里那三行原本就在逐字段核对，而被测的全是「字段值不对」，没有一条是「连 section 都没有」。**口径一放宽（遍历模块里所有函数的 `return`），这三条自己就浮出来了。**
+  - **这一步第一次写测试就写错了，而错的是我的假设、不是断言**：我拿 `host_case()` 去写第一条，结果它红了，而且红得**指向断言**（`another_kin_joined_...` 一条 failure 都没产生）。我一开始怀疑断言提前 `return` 了。诊断方法是**直接把断言函数调一次**并**打出这个 case 到底声明了哪些断言**，两个读数并排一看就清楚了：直接调用**正常返回** `THIS_RUN_DID_NOT_PUBLISH_A_WORLD`，而 `host_case()` 是 **HOST-030**，它只声明四条、**根本不声明这一条**——这一条属于 **HOST-040**（文件里的 `join_case()`）。**断言没错，是我把用例认错了。** 换成 `join_case()` 即绿。**教训：`verdict.failures` 里没有某条名字，可能不是「它没拒绝」，而是「这个 case 压根没要求它」。** 这两件事在失败列表上长得一模一样。
+  - **五处变异全部驱动到红，且都是 neuter**：两条断言分支各自改成 `return None` → 两条新测试各自红；`_confirmed_sigkill` 的三条分支改成 `return None` → 新增的三行 parametrize **各自红**（`overrides0/1/2` 三条 id 分别对应三个理由）。还原后 `git diff --stat tools/` **为空**——判官一行都没改。**变异一律 neuter 成 `return None`，不删行**（删行会留下空的 `if` 体，那测的是语法不是测试，第 20 步已经吃过一次）。
+  - **那三条不在「被命名过的清单」里，值得写下来**：`_confirmed_sigkill` 的 `NO_CASE_ATTRIBUTION`/`NO_TARGET`/`NO_ATTRIBUTION` 是**这一步新发现的**，不在上一轮那张 15 条工作单里（那张单是从 42 条断言出发列的）。所以这一步的起点读数按**旧口径**是 12、按**新口径**是 13——**两个数都对，因为它们数的不是同一个东西**，我把两个口径都写在这里，而不是把旧数改成新数。
+  - **实测（本轮：本地）**：全量 pytest **1855 passed / 2 skipped**（+5，正是新加的两条测试 + 三行 parametrize），Ruff check/format、Pyright（strict，0 errors）、boundaries、case assertions（120 条注册）、fixture digests、workflow pins 与 `git diff --check` 全绿；五处变异各自驱动到红并原样还原。**没有跑 Minecraft，本轮只有测试文件一个改动。**
+  - **仍然开着的**：**10 条**分支没有测试（`the_first_snapshot_of_the_world_it_dialled_was_admitted` 占五条、`first_snapshot_admitted:SNAPSHOT_COUNT_MISSING`、`the_attempt_was_abandoned_at_its_deadline:NO_CONNECTION_RECORD`、`the_bridge_carried_the_input_out:ACTION_COUNTS_MISSING`、`the_server_saw_the_kin_stop_after_the_move:NEVER_MOVED`、`the_world_this_run_joined_is_the_one_the_case_names:THE_WORLD_WAS_PUBLISHED_ON_ANOTHER_PORT`）。审计脚本可重推：`ast` 取 `tools/assert_case_evidence.py` 里**所有函数**的 `return` 字面量与 f-string 前缀，再去测试文件里按「出现过」比对（f-string 前缀去掉结尾冒号再比）。**这仍然是本仓库里明确属于测试域、不需要任何决定的活。**
+- [x] **做掉 `the_first_snapshot_of_the_world_it_dialled_was_admitted` 的五条分支，并在这个过程中发现审计方法自己**两个方向都错过一次**——上一轮那条「10 条」的清单因此既是**多一条**、也藏了**少一条**。** 补了 6 个条目（5 个不同理由名 + 1 条同名兄弟函数）。**文本审计的读数 9 → 3**（按理由名计），而**真正的判据换成了变异**：把剩下三条一起 neuter 跑**全量**，1862 passed、**唯一红的是 case digest 门禁**——那不是「有测试盯着它」，是 `implementation_digest` 把实现源码钉进 case version，属于另一个机制。**结论：没有测试观察这三条分支。**
+  - **多报的一条（上一轮的错，已更正）**：上一轮清单里写着 `the_world_this_run_joined_is_the_one_the_case_names:THE_WORLD_WAS_PUBLISHED_ON_ANOTHER_PORT` 没测——**它其实测了**（`test_a_join_that_cannot_be_bound_to_the_case_s_world_does_not_hold` 里 `port=25565` 那行）。错因是审计用「字面量在测试文件里出现过」判断，而那条测试把 f-string **折成两行**（`f"...ON_ANOTHER_PORT:"` + `"host=25565,dialled=25570"`），于是 `...ON_ANOTHER_PORT:host=` 这个前缀**从不连续出现**。**「字符串搜索」当审计，遇到折行就漏。**
+  - **少报的一条（这一步才暴露，而且是同一方法相反方向的错）**：我把 5 条新测试写进文件之后，审计的读数从 9 掉到 **3**——掉了 6，而我只覆盖了 5 条。**第 6 个是假掉**：审计按「理由名是否在测试文件里出现过」判断，而 `SNAPSHOT_COUNT_MISSING` 这个理由名被**两个函数**返回（`first_snapshot_admitted` 与 `the_first_snapshot_of_the_world_it_dialled_was_admitted`），我给后者写了测试，**前者就被顺带标成已覆盖**。**同一个名字，两条互不相干的分支。** 修法不是改判据而是**把兄弟那条也测掉**（`test_a_join_without_an_admitted_first_snapshot_is_not_a_join` 加一行 `(None, "PLAYABLE", "SNAPSHOT_COUNT_MISSING")`），变异验证：把 `first_snapshot_admitted` 那条分支 neuter → **只有新加的那一行红**，另三行仍绿。
+  - **所以判据从「文本搜索」换成了「变异」**：文本审计现在只负责**提名**，确认一律用变异。剩下三条的确认方式是**一次性 neuter 三条再跑全量**——如果真有测试盯着它们，全量里必然有红。结果是全绿（除 digest 门禁），**这才是一个能下结论的读数**。三处 neuter 都保持程序合法：`ACTION_COUNTS_MISSING` 那条不能直接 `return None`（下游要拿 `applied` 比大小），改成 `or 0` 把「缺失」折成 0。
+  - **新增的测试**：一个 `dialled()` 助手（按**实测那行**的形状生成地址），并配一条 `test_the_measured_line_is_what_this_helper_builds` 钉住它——**助手自己会漂**，没有这条，所有用它的测试一起绿而线早已不是那条线。地址两条（`192.168.1.4`、`localhost` 非回环字面量；`port=0` 不是端口）、admission 三条（计数缺失/为零/未 PLAYABLE）、兄弟一条，共 6 个条目。
+  - **实测（本轮：本地）**：全量 pytest **1863 passed / 2 skipped**（+8），Ruff check/format、Pyright（strict，0 errors）、boundaries、case assertions（120 条注册）、fixture digests、workflow pins 与 `git diff --check` 全绿；**六处变异**各自驱动到红并原样还原（`git diff --stat tools/` 为空）。**没有跑 Minecraft，本轮只有测试文件一个改动。**
+  - **仍然开着的**：**3 条**分支没有测试，且这次是**变异确认过**的，不是文本推断的——`the_attempt_was_abandoned_at_its_deadline:NO_CONNECTION_RECORD`、`the_bridge_carried_the_input_out:ACTION_COUNTS_MISSING`、`the_server_saw_the_kin_stop_after_the_move:NEVER_MOVED`。**这三条是本仓库里明确属于测试域、不需要任何决定的活。** 另需注意：文本审计对**同名兄弟**永远可能漏，所以下一个人要用它时，**先看名字是否被多个函数返回**。
+- [x] **做掉变异确认过的最后三条分支——但「0 条」不等于「每条分支都有测试」，这一轮把这句话写成下一件工作。** 三条：`the_attempt_was_abandoned_at_its_deadline:NO_CONNECTION_RECORD`、`the_bridge_carried_the_input_out:ACTION_COUNTS_MISSING`、`the_server_saw_the_kin_stop_after_the_move:NEVER_MOVED`。**文本审计的读数 3 → 0**（理由名在测试文件里出现不出来的，一条不剩）。
+  - **这三条各自都是「缺席 vs 为零」那一类**，和前面几轮做掉的一样：`NO_CONNECTION_RECORD` 是 `connection_cancelled` **整个字段不在**（不是空串——空串是 `NO_ATTEMPT_WAS_ABANDONED`，已有测试），新测试用 `document_without` 把字段**摘掉**而不是置空；`ACTION_COUNTS_MISSING` 是 `actions_applied`/`actions_refused` 读不出来（`_integer` 对「不在」与「是 null」答同一个 None，所以这一行同时代表两种形状，注释里写明）；`NEVER_MOVED` 是**两次读数相同**（真的站着没动），与已测的「只有一次读数」（`NO_SERVER_READINGS`）是两回事——**日志答不出来 ≠ 这个 Kin 没动过**。
+  - **顺手把辅助函数改成能用在实测文档上**：原来的 `run_document_without()` 自己造文档，只能用在 `run_document()` 上；`connection_cancelled` 那条要用 `no_world_document(...)` 的实测形状，所以改成 `document_without(document, *keys)`——**收一个文档**，`run_document` 那处调用点跟着改成 `document_without(run_document(), ...)`。一个形状一处实现，没有留两个同义函数。
+  - **这一轮最该记住的是「0」这个数不能读成「做完了」。** 文本审计的判据是「这个理由名在测试文件里出现过」，它对**同名兄弟**永远会假阳（上一轮已经踩过一次：给一个函数写了测试，另一个函数就被顺带标成已覆盖）。**所以 0 只说明「没有一个理由名是文件里完全没出现过的」，不说明「每条分支都有测试盯着」。** 要下后一个结论，只有一条路：**对 154 处 `return` 逐个变异**（neuter 后跑测试，红了才算有测试）。我这一步只对**被提名的那三条**做了这件事，`_confirmed_sigkill` 与另外 14 个**被多个函数共用的理由名**没有逐条扫过。**所以剩下的是「逐分支变异扫描」，不是「没有活了」——这是下一件明确的、不需要任何决定的工作。**
+  - **实测（本轮：本地）**：全量 pytest **1866 passed / 2 skipped**（+3，正是新加的三条），Ruff check/format、Pyright（strict，0 errors）、boundaries、case assertions（120 条注册）、fixture digests、workflow pins 与 `git diff --check` 全绿；**三处变异各自只驱动自己那一条测试红**（`1 failed, 228 passed` 三次），还原后 `git diff --stat tools/` 为空。**没有跑 Minecraft，本轮只有测试文件一个改动。**
+  - **仍然开着的**：**逐分支变异扫描**（154 处 `return`，重点是被多个函数共用的那 15 个理由名），用来把「每个理由名都出现过」升级成「每条分支都有测试」。
+- [x] **把审计的判据从「文本搜索」换成「行级追踪」——一条新依赖都没加，读数立刻从「0 条」变成「10 条从未响过」，其中 7 条是文本审计判成「已覆盖」的。** 这是这一步最重的一次自我更正：**上一轮那个 0 不是「做完了」，是判据太钝。**
+  - **怎么量的（可重推）**：不需要 coverage 包（装它会动 `uv.lock` 与那条钉死的供应链），改用标准库 `sys.settrace`：只对 `tools/assert_case_evidence.py` 装行级 tracer，跑**全量** pytest，然后把「`return <理由>` 所在行是否执行过」与 `ast` 取出的 154 处 `return` 对照。**读数：154 处，本次运行执行了 144 处，10 处从未执行。** 开销只有 1.25×（145s → 182s）。
+  - **文本审计为什么会漏这 7 条**：它的判据是「这个理由名在测试文件里出现过」。`LEDGER_UNREADABLE` 被 **11 个函数**返回，测试里确实出现过——**但那是别的函数在响**。这 10 条里 **6 条是 `LEDGER_UNREADABLE`**（`the_lease_expired_and_was_released`、`the_previous_run_left_the_kin_holding_input`、`the_restart_runs_as_a_new_session`、`the_refusal_was_classified_in_the_ledger`、`input_was_refused_before_the_world_was_playable`、`no_lease_was_granted`），另外 4 条是 `the_restart_runs_as_a_new_session:NO_SESSION_ATTRIBUTION_IN_LEDGER`、`the_server_saw_the_kin_turn:NO_SERVER_READINGS`、`the_bridge_never_pressed_a_key:NO_CLIENT_LOG`、`the_server_saw_the_kin_arrive_and_never_move:JOIN_NOT_LOGGED`。**同一个理由名，多条互不相干的分支——上一轮我已经写出这句话，这一步量出了它到底有多少条。**
+  - **10 条是同一类，而且是最该有测试的那一类**：全都是「本该留下证据的那份记录不在／读不出来」——账本读不出、客户端日志没有、服务器没答过、没有 join 行。**这一类断言的整个存在理由就是「不把沉默读成事实」**，而它们自己从没被验证过会拒绝。**6 条 `LEDGER_UNREADABLE` 缺得尤其直白**：测试里有 `ledger_readable=False` 的材料，但那些材料走的是**别的断言**，所以这 6 个函数的第一道守卫一次都没跑过。
+  - **确认方式仍然是变异，而这次的 neuter 是 `pass` 而不是 `return None`**：把这 10 行换成 `pass`——**控制流一个字都不变，只是不再拒绝**，所以下游不会因为「值变 None」而崩，红只可能来自「有测试观察到了这条拒绝」。结果：**全量 1865 passed**，唯一的红是 case digest 门禁（它把实现源码钉进 case version，属于另一个机制，与上一轮同）。**→ 没有任何测试观察这 10 条。**
+  - **追踪自己也有盲点，写在这里**：`sys.settrace` 只看本进程。`test_seal_run_evidence.py` 会**以子进程**调用判官，那条路径追不到。所以「从未执行」在方法上是**提名**、不是判决——**这 10 条之所以能下结论，是因为它们各自被变异确认过**，不是因为追踪说它们没跑。**审计工具已入库为 `tools/trace_reason_branches.py`**，一条命令即可重推：`uv run --frozen python tools/trace_reason_branches.py`（约 3 分钟，它在自己的进程里跑全量并打印「从未执行」的那几行）。
+  - **实测（本轮：本地）**：全量 pytest **1866 passed / 2 skipped**（追踪运行 182s），Ruff check/format、Pyright（strict，0 errors）、boundaries、case assertions（120 条注册）、fixture digests、workflow pins 与 `git diff --check` 全绿；10 处 `pass` 变异全量跑一次，除 digest 门禁外全绿，还原后 `git diff --stat tools/` 为空。**没有跑 Minecraft，本轮改动是文档加一个新的审计工具 `tools/trace_reason_branches.py`（判官一行都没改）。**
+  - **仍然开着的**：**上面那 10 条**各要一条测试，其中 6 条 `LEDGER_UNREADABLE` 是同一个形状（用**声明了该断言的那个 case** 配 `ledger_readable=False` 走一遍）。**这是逐分支变异的替代品，比它便宜得多，而且这一次是逐分支的。** 仍然是本仓库里明确属于测试域、不需要任何决定的活。
+- [x] **把上一轮量出来的 10 条「从未执行」全部补上——追踪读数从 144/154 变成 154/154，判官的每一条拒绝分支都至少响过一次。** 10 条各一条测试，**每一个都单独变异确认**：把那一行换成 `pass`，各自只驱动**自己那一条**测试红，没有连带，还原后 `tools/` 逐字节不变。
+  - **6 条 `LEDGER_UNREADABLE` 用一个形状解决**：它们在 4 个 case 里（CORE-040/ADMIT-100/CORE-050/CORE-090），但缺的是同一件事。写了一个助手 `with_no_ledger_to_read(built)` ——**拿该 case 自己的 helper 先造出一个「本来就成立」的材料，再用 `dataclasses.replace` 只翻 `ledger_readable` 一个字段**。这样做的理由写进了 docstring：**判决只可能出在那个字段上**，手搓一份材料则会把「拒绝」和「材料本来就缺别的」混在一起。一次参数化跑 6 行，读数从 6 条降到 0。
+  - **另外 4 条各自是「记录在、但答不了这个问题」**，与已测的邻居成对：`the_server_saw_the_kin_turn:NO_SERVER_READINGS`（**只有一次朝向读数**——一次读数是方向，不是方向变了；已有的是「有两次朝向读数但没有转向」`NO_TURN_OBSERVED`）；`the_server_saw_the_kin_arrive_and_never_move:JOIN_NOT_LOGGED`（**读数在、join 行不在**——服务器答过，但没有任何东西说它答的是这个 Kin；已有的是「只有一次读数」）；`the_bridge_never_pressed_a_key:NO_CLIENT_LOG`（**客户端一行日志都没有**，与「有日志但没有按下任何键」是两回事）；`the_restart_runs_as_a_new_session:NO_SESSION_ATTRIBUTION_IN_LEDGER`（**这一次运行的 process-start 行不在**，所以没有坐标可拿去和崩溃那次比——**注意这与前面修掉的「上一次运行的归属缺失」是同一函数里的两条不同分支**）。
+  - **这一步的判据是工具给的，不是我看出来的**：`tools/trace_reason_branches.py` 的读数在补测试前后是 10 → 0，而且**它自己会打印那句警告**——「读数为 0 不等于覆盖」——所以补完必须再变异。**10 处变异 10 中，且每处只红一条**，这条读数才算数。
+  - **顺带说明追踪的盲点在这里为什么无害**：`sys.settrace` 看不到子进程，而 `test_seal_run_evidence.py` 是以子进程调用判官的。但**确认用的是变异、不是追踪**：如果真有子进程观察到这 10 条，neuter 之后那次全量里就会有测试红——结果是全绿，所以**盲点不会把「有覆盖」误判成「没覆盖」**。这也正是「追踪提名、变异判决」这个分工的价值。
+  - **不能过度声称的地方，写清楚**：「154/154 都响过」**不等于**「154 条各自都被变异验证过」。这一轮和前面几轮**逐条变异确认的约 26 条**是审计提名出来的那些；**其余约 128 条是「会响」但没逐条变异过**。**完整的 154 路变异扫描没有做过**，它比追踪贵得多（约 154 次测试运行），价值在于把「这条分支会走到」升级成「这条分支的判决内容被验证过」。**这是一件仍然开着的、不需要任何决定的活**，但优先级已经低于这件事本身带来的收益。
+  - **实测（本轮：本地）**：全量 pytest **1876 passed / 2 skipped**（+10，正是新加的 6 行参数化 + 4 条），Ruff check/format、Pyright（strict，0 errors）、boundaries、case assertions（120 条注册）、fixture digests、workflow pins 与 `git diff --check` 全绿；**10 处 `pass` 变异各自只红一条**，还原后 `git diff --stat tools/` 为空。**没有跑 Minecraft，本轮只有测试文件一个改动。**
+  - **仍然开着的**：154 路完整变异扫描（可选、不需要决定）；以及本文档其余各处记着的、**需要用户决定或真实运行**的那些条目（契约拆分、runner+EULA、判据缺口）。
+- [x] **把最后那件「完整 154 路变异」做掉了——但真正值得记的不是读数，是我的**测量工具自己错了两次，而第一次错成了「发现」**。** 读数：**154 条拒绝全部被测试断言过，0 条没有**（`tools/verify_reason_assertions.py`，跑一遍可复现）。
+  - **换了个变异方式，问题才问得准**：上一轮的变异是**改控制流**（`return` 换成 `pass`），会遇到「守卫挡着的值下游还要用」而崩掉，崩掉又不算「有测试观察到」。这一步改成**只改拒绝的措辞**——把返回的理由字符串前面缀上 `MUTATED_REASON:`。**控制流一个字不动**，所以没有任何一次运行会因为「程序被改坏」而红；**测试若断言了这条理由，就必红；只走过这条分支而没看内容的，不红**。这正好是要问的那个问题，而且对 154 条**通用**。
+  - **第一次错：把「工具把模块改到编译不过」读成了「没有测试反对」。** f-string 的**片段**在 `ast` 里是一个 Constant，它的 `col_offset`/`end_col_offset` 落在**引号里面**；而整条字符串字面量的跨度**含引号**。我按「整条字面量」处理，于是给 f-string 片段补上了引号 → **源码语法错误** → pytest 报的是 **collection ERROR**，而我的分类器**只数 `FAILED` 开头的行** → 那一批全被记成 `UNCHECKED`。**读数一度是「56 条没有任何测试断言过」——全是假的，真数字是 3。** 如果不是我看了一眼分布、发现**每一条 UNCHECKED 的理由都是以 `:` 结尾的 f-string**（一个太整齐的模式），这个假读数就会被写进文档。**这正是本仓库反复记录过的那类错误：探针自己坏了，却看起来像结论。**
+  - **第二次错，同一处代码的另一种情形**：隐式拼接 `"A:" f"{b}"` 会被 `ast` 合成**一个** JoinedStr，而它的**第一个元素是普通字面量**（带引号）。所以「父节点是 JoinedStr ⟹ 这是 f-string 片段」这个判据是错的。改成**看 span 前面的那个字节是不是引号**——直接在证据上判，不靠推断。
+  - **并且把这一类从根上堵掉**：变异产物先 `compile()` 一遍，编不过就记成 `UNPARSEABLE` 而不是「没人反对」；`compile()` 这个前置检查现在跑起来是 154/154 通过。**「模块没编出来」再也不会被读成「结论」。**
+  - **3 条要看更宽的观察者才发现**：`move_input_was_leased:LEDGER_UNREADABLE`、`both_jvms_were_sampled_throughout_the_soak:NO_SOAK_SUMMARY`、`...:NO_SOAK_SAMPLES`——**证据测试文件里没有钉住它们，是 soak/promotion 那几个测试钉住的**。所以工具有第二个阶段：第一阶段跑「读 `verdict.failures` 的那个文件」，没被发现的再用**所有碰过判官的文件**（含 sealer 的子进程）复核一遍。
+  - **工具入库，但它和追踪工具不是一个危险级别**：`tools/trace_reason_branches.py` **只读**；这一个**就地改一个受版本控制的源文件**。所以它**拒绝在判官有未提交改动时启动**（出事时 `git checkout --` 一定是条活路），在 `finally` 里还原并**验证还原成功**，失败就大声报错退出。这两条都写在它的模块 docstring 里。
+  - **这一步之后这个面算是关死了（就本地证据能关到的程度）**：**每条分支都响过**（追踪 154/154），**每条理由的原话都被某个测试钉住**（本轮 154/154）。两句话是两件事，两边都测了。
+  - **实测（本轮：本地）**：全量 pytest **1876 passed / 2 skipped**，Ruff check/format、Pyright（strict，0 errors）、boundaries、case assertions（120 条注册）、fixture digests、workflow pins 与 `git diff --check` 全绿；入库后的工具**自己复现了读数**（154/154，跑完 `git diff --stat tools/assert_case_evidence.py` 为空）。**没有跑 Minecraft，本轮改动是文档加一个新的审计工具。**
+- [x] **把这一轮之前从没跑过的门禁跑了一遍（四道 Bridge 静态门 + JDK 21 的 Gradle 门），并且量出**计划里那条 Gradle 命令本身验不动**：同一棵源码、三条命令、三条都打印 `BUILD SUCCESSFUL`，而只有第三条真的编译并跑了 Java 测试。** 已改掉计划里那一行。**门禁读数：四道 Bridge 门全 OK，Gradle 强制重跑 15/15 执行、`Bridge artifacts: OK`，冷构建的 jar 与 pin 逐字节相同。**
+  - **先纠正一个我自己的预期**：我本来准备把「CI 里没有 Gradle 这一步」当成新发现写下来。**它已经是记录过的事**：`development-todo.md` 里写着「普通 CI 仍不下载 Minecraft 资产，所以不进 CI」，另一处写着「CI 只在 3 个 job 上把关，真正的 Bridge 编译（Gradle、JDK 21）与全部真实运行仍然只在本地/容器里跑过」。CI 的 `bridge-static` job 跑的**正是**我刚跑的这四道 Python 门（`check_bridge_scaffold` / `_host_boundary` / `_protocol` / `_proto_java`），一条 Gradle 都没有。**所以这不是缺陷，是一条已知的、把 Minecraft 资产挡在 CI 之外的选择**——记在这里是因为我差点把已记录的事当成新发现。
+  - **真正量出来的东西是那条命令不够**。同一棵树，三条命令：
+
+    | 命令 | 任务 | `:test` 跑了吗 |
+    |---|---|---|
+    | `./gradlew check` | `1 executed, 14 up-to-date` | **没有**（`:compileJava`、`:test`、`:remapJar` 全在 up-to-date 里） |
+    | `./gradlew clean check` | `12 executed, 4 from cache` | **没有**——`:test` 正是那 4 个 `FROM-CACHE` 之一（`bridge/gradle.properties` 里 `org.gradle.caching=true`） |
+    | `./gradlew check --rerun-tasks` | `15 executed` | **跑了** |
+
+    **三条都返回 `BUILD SUCCESSFUL`。** 所以按计划原来那句「运行 Gradle `check`」执行，**可以在一次都没编译、一次都没跑 Java 测试的情况下拿到绿灯**。这不是「UP-TO-DATE 一般不可靠」——Gradle 的增量与 build cache 都按输入哈希判断，通常是对的；**是这个仓库自己已经吃过一次它判断错的亏**：删掉探针源码后 `jar`/`remapJar` 仍报 UP-TO-DATE，`build/libs` 里留着带 `LeakProbe.class` 的旧 jar，是产物门禁把它挡下的（`development-todo.md` 里记着）。**当一条命令已经有过说谎的记录，它作为门禁的读数就只能靠「真的执行过」。**
+  - **冷构建复现 pin**：`clean check` 之后 jar 是 `49af3b6f…` / 1,305,495，与 `BRIDGE_JAR_SHA256` / `BRIDGE_JAR_SIZE` **逐字节相同**；产物门禁自己打印 `Bridge artifacts: OK (… against Yarn 1.21.4+build.8; no server state in the constant pools, mixins, access widener, entrypoint or packed jars)`。**这一条是本轮唯一新增的「Bridge 侧确实验过」的证据**，此前只在本会话之外的记录里出现过。
+  - **修改**：计划门禁矩阵那一行从「运行 Gradle `check`」改成「运行 Gradle `check --rerun-tasks`」，并把上面三条读数、`org.gradle.caching=true`、LeakProbe 那次事故和冷构建的 jar 读数一起写在旁边。**这是把一个验不动的门禁改成验得动的**，不是新增范围。
+  - **实测（本轮：本地 + JDK 21）**：全量 pytest **1876 passed / 2 skipped**，Ruff check/format、Pyright（strict，0 errors）、boundaries、case assertions（120 条注册）、fixture digests、workflow pins 与 `git diff --check` 全绿；四道 Bridge 静态门全 OK；Gradle `check --rerun-tasks`（JDK 21.0.12.1，15/15 执行）与 `clean check` 均 `BUILD SUCCESSFUL`。**没有跑 Minecraft**（这四道门的名字里就写着「without downloading Minecraft」），**也没有把本地绿灯说成真实运行**。
+  - **仍然开着的**：真实运行与四个决策，与前述各条相同；本轮没有改变它们的状态。
+- [x] **把上一轮那个问题问到第二个判官身上（`tools/fault_injection.py` 的 20 条校验码），逐条变异扫描之后：20/20 都有测试盯住。但过程中抓到的是**三件事**，而最值钱的一件是**文本判据反过来也骗人**：它说 `INVALID_CASE` 被测过——**那是 `CaseViolation.INVALID_CASE_ID` 里的子串，来自另一个模块的另一个枚举**。** 顺手修掉上一轮入库的工具里一个我刚写的缺陷。
+  - **怎么问的**：拿同一个问题去量别的 fail-closed 模块——「这个模块能吐出的每一条拒绝，有没有测试盯过它」。**先跑的仍然只是粗探针（文本搜索）**，当时就写明它粗：这个会话里文本搜索**两个方向都错过**（f-string 折行→已覆盖的看成本覆盖；同名兄弟→没覆盖的看成已覆盖）。它提名了三个（`fault_injection.py` 两条、`inject_fault.py` 一条）。**按本会话立下的规矩：文本搜索只许提名，判决必须靠变异。**
+  - **第一轮变异（对全量 1876 条测试跑）**：`INVALID_ATTRIBUTION` 改名 → **0 红**，`INVALID_SIGNAL` 改名 → **0 红**。确认两条真的没被验过。**这一次文本搜索是对的**——但结论不是从它那里来的。
+  - **然后我把 20 条**全部**扫了一遍**，于是抓到了反方向的那一件：`INVALID_CASE` 被文本判据判成「已覆盖」，**而它对四个观察者文件全跑一遍也是 0 红**。原因是 `grep` 命中的是 `tests/unit/test_case_registry.py` 里的 `CaseViolation.INVALID_CASE_ID` 与 `RequiredCaseViolation.INVALID_CASE_ID`——**`INVALID_CASE` 只是另一个模块里另一个标识符的子串**。这一条是本轮最有价值的读数：**文本判据的假阳性不是理论，它在同一个文件上刚刚发生过一次，而且方向和我预期相反。**
+  - **补的三条，各自是一条真实的坏记录**：`INVALID_CASE` 用 `nested(changed(), "case", case_version="not-a-digest")`——section 在、case_id 也在，**版本不是摘要，就等于没有可比对的版本**；`INVALID_ATTRIBUTION` 用 `nested(..., "attribution", generation=0)`——**归因给第 0 代就是归因给一个不存在的运行**（reader 自己的规则：generation 从 1 起）；`INVALID_SIGNAL` 用 `nested(..., "signal", error="EPERM")`——**「已投递」和「它为什么失败」同时写着**，两个字段本是同一件事的两半。
+  - **三条都同时进了 `structural_mutations()`**：那个测试问「reader 拒绝的，schema 是否也拒绝」。**实测三份文档都被 schema 拒绝**（各 1 条 error），所以这是**加强**那个一致性测试，不是把它变松。而它们在 `structural_mutations()` 里**不会**因为改名而红，**且本来就不该红**——那个测试断言的是「`codes(...)` 非空」，改名后仍非空。**两条测试问的不是同一件事，这正好被变异凸显出来。**
+  - **重扫的读数：20/20**。三处变异各自只红自己那一行（`document6-INVALID_CASE`、`document7-INVALID_ATTRIBUTION`、`document8-INVALID_SIGNAL`）。
+  - **探针提名的第三条是我自己的假阳性，如实记下**：`inject_fault.py` 的 `EUNKNOWN` 是 `errno.errorcode.get(error.errno or 0, "EUNKNOWN")`——**一个查表失败时的兜底标签，不是拒绝分支**。探针那行的启发式里 `error.errno` 含 "error" 就被算进来了。**没有东西要修，写在这里是为了让下一个人不要来「修」它。**
+  - **顺手修掉上一轮入库的工具里一个我自己写的缺陷**：`tools/verify_reason_assertions.py` 的还原用 `write_text`，在 Windows 上会把每个 `\n` 翻译成平台分隔符——**文件被还原成 CRLF**；更糟的是**读回来走的是同一个翻译**，所以它那句「已检查还原成功」比较的是「文件说了什么」而不是「文件的字节」。现在两端都用 bytes，docstring 也改成 "byte for byte"。**直接验证**：该文件本来有 **2471 个 CRLF**，改一次再还原后仍是 2471 个、逐字节相同。**并用它重跑了一遍全量验证：154/154、0 条没有，判官逐字节不变。**
+  - **探针的副作用，如实记**：中途那个临时脚本还原时把 `tools/fault_injection.py` 的行尾翻成了 CRLF（git 只报 `modified`、`git diff` 却空——**这正是行尾差异的签名**）。用 `git checkout --` 还原，确认内容与索引一致、工作树干净。**没有内容被改坏，也没有把行尾翻转带进提交**；后来这个临时脚本也改成按 bytes 还原了。
+  - **实测（本轮：本地）**：`tests/unit/test_fault_injection.py` **45 passed**（+3），全量 pytest、Ruff check/format、Pyright（strict，0 errors）、boundaries、case assertions、fixture digests、workflow pins 与 `git diff --check` 全绿；20 条码逐条变异扫描 **20/20**，临时脚本跑完 `tools/fault_injection.py` 逐字节还原；工具重跑一遍 **154/154** 且判官逐字节不变。**没有跑 Minecraft。**
+  - **仍然开着的**：真实运行与四个决策，状态未变。
+- [x] **把那条「pytest 在 runner 上跑 90 分钟不结束」的**机制**取到了，而它顺带更正了这条记录自己的措辞：pytest 没有跑 90 分钟——它 33.82 秒就正常结束了，**90 分钟是它结束之后那个 job 没有退出**。** 证据是那次运行自己的日志，不用推断。
+  - **定位**：全仓库（`main`，2026-09-20 起 100 次运行）**只有一次**超过 20 分钟的运行——`run 35542081847`、sha `7d2b1fe`、2026-09-20T22:34Z、结论 `cancelled`、**89.8 分钟**；其中 `bridge-static` 0.2 分钟成功、`protocol` 0.1 分钟成功，**`python` 89.8 分钟被取消**，卡住的那一步就是 `Run uv run pytest`。其余 75 次逐条量过（25 + 50），`python` job 全在 **1.8～2.7 分钟**、全部 success，**没有一次超过 20 分钟**。
+  - **日志里那两行是相邻的**，这就是机制：
+
+    ```text
+    2026-09-20T22:35:07.7206391Z =========== 144 failed, 1227 passed, 2 skipped, 17 errors in 33.82s ============
+    2026-09-21T00:03:50.6397136Z ##[error]The operation was canceled.
+    ```
+
+    **pytest 打印了汇总行就结束了**（33.82 秒），**之后 88.7 分钟一行输出都没有**，直到被取消；而取消时的清理动作里 GitHub 终止了两个**仍然活着**的进程：`Terminate orphan process: pid (2439) (uv)` 与 `pid (2442) (pytest)`。
+  - **所以能说的和不能说的分清楚**：**能说**——这一次里**没有任何测试卡住**，pytest 的收集与执行都跑完了（`144 failed / 1227 passed`，那还是一次红运行）；卡住的是**那一步的进程树没有退出**。**不能说**——它的成因。上面那两个被终止的进程（`uv` 与 `pytest` 都还活着）**与「某个子进程握着这一步的 stdout 不放、于是步骤一直等 EOF」这个形状一致**，但那是**形状相符**，不是机制成立；**这里只写到这一层，不编解释**——这条记录上一次就是这么要求自己的。
+  - **这更正了什么**：原文写「`python` job 的 pytest 在 runner 上跑了 **90 分钟以上仍未结束**」，而按日志，**pytest 33.82 秒就结束了**；九十多分钟是**job** 没结束。同一条记录后面那半（「钉住解释器之后 86 秒跑完」）与本次读数**一致**——今天这个 job 稳定在 1.8～2.7 分钟。
+  - **一个建议，留给用户决定，不在本步做**：这一次的代价是**白烧 89.8 分钟**才被取消（GitHub 默认 job 上限是 6 小时）。给 `python` job 加 `timeout-minutes` 能把「不退出」变成**有界的红**——本仓库对服务端退出、队列、inbox 都要求有界，这里是同一类问题。**但没有本步就改 CI**：超时值是个判断（CI 上实测约 2 分钟，日志里容器最坏 29 分钟），定小了会在慢 runner 上制造假红，而定值这件事不该由我替别人拍。**如果要改，依据就是上面这三个读数。**
+  - **本步顺带补上的 docker 读数（此前只有本机读数）**：`bash test-orchestrator/runner/run.sh doctor` 在 `minekin-runner:local` 容器里跑通，**五条检查全 OK**——`python` Python 3.12.3、`java` Java 21 (required: 21)、`protobuf` 6.33.6、`sqlite` SQLite 3.53.4（multi-connection WAL safety gate）、`workspace` workspace at /src，`status: ok`、退出码 0。**`workspace` 那条正是本会话早先加进 `doctor` 的检查，这是它第一次在 Linux 上被验到**；镜像里**没有 pytest**（Dockerfile 明说只带 CLI 需要的那一个运行时依赖），所以仓库自检类用例**不在**容器里跑，这一条与记录一致、本次实测再次确认。
+  - **实测（本轮：本地 + 容器 + GitHub REST）**：100 次运行（`main`，2026-09-20 → 2026-09-23）逐条量过运行级时长，>20 分钟者 1 次（即上面那次）；其中 75 次的 `python` job 逐条量过 job 级时长，全部 1.8～2.7 分钟、全部 success；卡住那次 job 的完整日志（639,445 字节、7,073 行）取回来读过。容器内 `doctor` 五条全过。本地全量 pytest、Ruff check/format、Pyright（strict，0 errors）、boundaries、case assertions、fixture digests、workflow pins 与 `git diff --check` 全绿。**没有跑 Minecraft，也没有接受 EULA。**
+  - **仍然开着的**：真实运行与四个决策，状态未变；上一条建议（CI 超时）是有依据、但需要有人定值的决定。
+
+- [x] **`CASE-CORE-001-INPUT-PINS`：`CORE-001` 已声明的 recipe、Gradle lock 与
+  host-boundary name table 还没有进入 `input_digests`。** 这会让输入字节变化但
+  assertion 源码不变时 case version 保持不变，旧 W10 PASS 可能继续满足新清单。
+  **规格复核补充**：三份输入都是文本，loader 目前按工作树原始字节核 pin；Windows
+  autocrlf 与 Linux LF 会制造不同摘要。按唯一 NEXT 卡先统一成 UTF-8 文本 LF
+  规范化摘要（二进制仍逐字节），再钉住三个当前输入，逐项验证 fail-closed、跨平台
+  等价与 version-mismatch；完成前不推进 evidence sequencing。
+  - **完成（2026-09-23，commit `453d2fb`，已推送且远端 SHA 核对一致）**：CORE-001 三项输入 pin 已加入，UTF-8 文本按 LF 规范化、不可解码二进制保持原始字节；每项输入变异不更新 pin 均由 loader 拒绝，LF/CRLF 版本一致，既有 case-version mismatch 测试证明旧证据不能复用。全量 pytest **1884 passed / 2 skipped**；CORE-001 case **5/5 PASS**；120 assertions、fixture digests、boundaries、workflow pins、Ruff、Pyright 与 `git diff --check` 全绿。按该卡范围没有启动 Minecraft。
+  - **下一卡冻结（2026-09-23）**：EVIDENCE-SEQUENCE-001 选方案乙（每 case 单调 attempt sequence + 显式 supersession）；只评估最高序号，最新失败/未验证/损坏时旧 PASS 不回退。封存分配需原子化，并发不得重复序号；旧 bundle 不推导序号，legacy 兼容策略必须显式。详情以 `development-execution-plan.md` 为准。
+
+## W70 之后
+
+- [ ] W80：独立 `p0-nav-exp` 导航实验；核验输入冲突、隐藏真值与 SBOM/许可。
+- [ ] 生存底座：可见树导航、正常破坏/拾取、GUI 合成、工具链、食物与首夜。
+- [ ] P1 PlayerMind：身份/人格、运行者关系种子、自主目标、承诺、世界书、知识画像、分层记忆、SkillSpec、注入与工具安全。
+- [ ] HOST 专题：独立 `p0-host-exp`，执行 `HOST`、`HOSTCTL`、`HOSTCOMMIT` 用例。
+- [ ] P2 产品化：Gateway、Dashboard、Live View、systemd/cgroup、备份与可观测性。
+- [ ] P3 社会 MVP：权属、拒绝、承诺、损失、归因不确定性、调查与和解。
+- [ ] P4 单 Kin 综合演示：独居、等待、死亡调整、合作/分歧与跨日连续性。
+- [ ] 扩展：仓储/熔炼/施工/战斗/跨维度/末影龙；之后才评估多 Kin、模组、多版本与在线认证。
+
+## 已消歧的文档口径
+
+1. `technical-stack-selection.md` 的早期“首个切片”提到 Gateway/Dashboard，但更具体且更新的 P0 契约明确 P0 无 Web/Node；因此 Gateway/Dashboard 后置 P2。
+2. P0 core 没有模型或网页工具；W00–W70 只实现来源、trust、脱敏与 oracle 隔离基础。完整 `INJECT-001…120` 在 PlayerMind/工具层进入后执行。
+3. Xvfb 可作为真实客户端启动环境，但 FFmpeg/Live View 不进入 P0 core。
+4. `session start` 多了一个**可选**的 `--server-profile PATH`（§15 的 CLI 最小表面里没有它）。这是对**已有动词**加一个输入文档，不是新增动词：`minekin session start --profile ...` 仍然逐字有效且行为不变（客户端起来、证明自己、停在主菜单），给了 `--server-profile` 才在握手之后发出 `ConnectWorld`。不新增动词的理由是形状本身——`session connect` 要求会话在**另一个进程**里还活着，而客户端只有一个 Bridge 对，会话也只在本进程托管期间可达；要支持那种形状，得先让会话可被第二个进程接管，那是另一件事。CLI 表面若要与本文一致，应当把 §15 的清单改成「最小集」而不是「闭集」，或显式列出这一项。
+
+## 2026-09-23 推进记录
+
+- [x] **CORE-STATE-TRANSITION-001：ledger 显式记录每次 session 状态迁移**（代码 commit
+  `14acde7f63bb7a9584a63e7c163780d2cbd84dea`，已推送并合并到 `origin/main`；远端 SHA 已核对）。
+  - 增加唯一事件 `SessionStateTransitioned`，payload 显式为 `{from, to}`；event source/trust
+    均为 `CORE`。冻结迁移表未改；domain 提供校验 seam 与 connection-decision target，实际
+    迁移统一先持久化、再同步推进状态机。SQLite append 遇 cancellation 时会等 append 完成、
+    同步应用该迁移后再传播 cancellation，避免账本领先内存状态。
+  - 非法迁移在写入 ledger 前拒绝；单测验证 append 发生时机器仍处于源状态。runtime wiring
+    将完整 ledger payloads 交给现有 replay projector，最终状态与最后持久迁移一致；现有非法
+    跳转及 from 不一致拒绝逻辑保持原样。
+  - **最终版全量 pytest：1903 passed / 2 skipped**。Ruff check/format、Pyright（0 errors）、
+    boundaries、case assertions（120）、fixture digests、workflow pins、4 道 Bridge 静态/协议
+    门禁均通过。用 `D:\env\jdk-21.0.12.1` 执行 `./gradlew check --rerun-tasks`：15/15 tasks
+    执行，`BUILD SUCCESSFUL`。
+  - **最终版受控 Docker 实跑**：runner doctor 五项全绿；正常 `session stop` run
+    `f1db5741c9d049f7872c72d1872ac458`，强制 kill-client run
+    `dd872210b53c4da1ab834ac539dd2aa0`。两个容器都退出后，从持久 SQLite volume 再读到各自
+    11 条唯一迁移：每条 `{from,to}` 连续衔接，source/trust 为 CORE/CORE，最终到 STOPPED；
+    强杀场景记录 `INJECTED`（reasons 为空）且 Core 写入 `SessionInterrupted`。runner 两次
+    outcome 都是 `BRIDGE_LOST`、exit 14——这是关闭/杀死承载 Bridge 的客户端后的既定结果，
+    如实保留，没有改写成 `CLIENT_EXITED`。CI 未运行。
+- [ ] **REAL-P0-CAMPAIGN-001（首场景证据判据待冻结）**：前置现在齐备（`CORE-METRICS-001` DONE、
+  受控 Docker runner 与 artifact store 可用、EULA 已由用户确认）。campaign 先按执行计划顺序
+  做 online-mode mismatch、resource-pack refusal、first-snapshot negative、OFF-A/OFF-B、
+  crash/outbox、tick/render sampling，再对 CORE/OFFLINE/ADMIT 跑 verify/rejudge/replay/
+  promotion。只接受当前 build + 当前 case version + 最新 attempt 的 bundle。
+  - 刚读过的 `report_cases.py` 基线：72 required，36 present、36 missing；W30 缺 8、W40 缺 7、
+    W50 缺 2、host-integrated 缺 18、p0-core 缺 17（各 gate 有重叠）；当前缺口全为
+    `runtime-required`。PERSIST case ID 尚未冻结，HOST 相关设计卡仍是 `BLOCKED_DECISION`，
+    因此不得猜编号或把 campaign 结果外推为 HOST/PERSIST 已完成。
+  - 2026-09-23 当前 build 的受控 `online-mode=true` 负向诊断已得到
+    `AUTH_MODE_MISMATCH`，但 `ADMIT-040` 仍缺 fixture；“不自动启用账号适配器”
+    没有 sealed run material 可直接复判。一个 `SessionProcessStarted` 只能证明没重启，
+    不能证明同一进程没有换认证方式。当前按 campaign 步骤 2 停在证据设计。
+
+- [x] **ADMIT-040-EVIDENCE-DESIGN-001（commit `103b9bc` 已推送）**：冻结第一个真实场景的完整
+  判据与可信材料来源；确认何种产品/测试域观测点能证明离线策略维持到拒绝终态，
+  同时不泄露 token。给后续实现卡精确范围，不凭“只尝试一次”代理宣布 PASS。
+  - 设计已收敛到 Core 的不可变离线策略与 `AuthPolicyFrozen`（CORE/CORE）：
+    事件在连接前绑定同一 run/generation、经验证 Profile id/revision、
+    `auth_mode=offline` 和 `online_adapter_enabled=false`。P0 没有在线适配器/重绑定 API；
+    改认证方式需运行者改 profile 并另起 run。判官再以 sealed 服务端
+    `server.properties`、经验证 Profile、ledger 失败分类与未入服事实交叉核对。
+    这套判据与反例已写入 `p0-remote-admission-contract.md`，旧诊断 run 不补判。
+  - 后续两张实现卡已在执行计划排队：`AUTH-POLICY-EVENT-001` 先落产品事件与
+    真实诊断，`ADMIT-040-CASE-001` 再封存 Profile/服务器配置、写判官与 fixture，
+    用当前 build 跑正式 bundle。两卡均不得改在线登录语义。
+  - 文档阶段全量 pytest 1903 passed / 2 skipped，Ruff、Pyright、边界、120 条
+    断言注册、fixture 摘要与 workflow pins 均通过。未跑新 Minecraft 场景。
+
+- [x] **AUTH-POLICY-EVENT-001（commit `0d7b41e` 已推送）**：实际离线启动路径与
+  `AuthPolicyFrozen` 共享同一个不可变策略对象；每个 run 在进程启动前写唯一
+  CORE/CORE 策略事件。全量 pytest 1912 passed / 2 skipped；真实负向 run
+  `f136163a648246f6af0f899f0a71e181` 在服务端 online-mode=true 下保留
+  `AUTH_MODE_MISMATCH` 且未入服，真实正向 run
+  `c3b7d7a3fa684c279627f394613adadb` 在 offline-mode 下达到 PLAYABLE 并接纳
+  首快照。两条都先写策略事件；诊断 run 尚非 ADMIT-040 的正式封证。
+
+- [x] **ADMIT-040-CASE-001（commit `0f9a3fd` 已推送）**：按专项契约把同一 run 的五项
+  事实封成可复判的正式用例。判官（`tools/assert_case_evidence.py`）新增
+  `the_server_this_run_met_required_online_authentication`、
+  `the_offline_auth_policy_was_frozen_before_the_client_started`、
+  `the_frozen_policy_names_the_profile_this_run_dialled`、
+  `the_auth_mode_mismatch_was_classified_in_the_ledger`、
+  `the_refusal_left_the_run_on_one_policy_and_one_process`，与既有
+  `no_world_was_joined` 一起登记为 `ADMIT-040`（W40，`mandatory: false`）；
+  封存端读一次经验证的 Server Profile 并把**同一段字节**封为
+  `trusted/server-profile.json`，与服务端自己写的 `server.properties` 交叉核对
+  （`online-mode` / `server-port` / `motd` 点名该 Profile）。账本顺序只认 `position`，
+  不认 mtime 或行数。反例逐个 FAIL：服务端实际离线、没写 online-mode、端口或 motd
+  不指向这份 Profile、缺/双份/晚于进程启动的策略事件、归属不是 CORE/CORE、
+  `auth_mode` 非 offline、在线适配器没记为禁用、profile id 或 revision 与封存件不同、
+  revision 不是摘要、缺分类行、分类行是 Core 自报而非 Bridge 过滤、拒绝后又多一条
+  策略或第二次启动、以及准入快照或 `PLAYABLE` 冒充本用例。产品拒收的 Profile 让封存
+  直接停（`Unsealable`），改写过的判决让晋级拒绝。runner 在这个场景等的是 ledger 里
+  那条分类，不是 `PLAYABLE`。
+  - **当前 build 的真实受控运行**（kin-01，服务端 `online-mode=true`，离线身份）：
+    run `6b5856d57dee4052b2ffba3ff9e3459e`、session `fc6fa5cd564b4864b0ee8bcf158aabf4`，
+    `attempt_sequence: 1`，bundle digest
+    `46565ef26d78106215d996f64870b95bb9a3fb97d653f3d1e7cf0e9c9ef2e736`，
+    case version `ec49f61caf2d351969f8ebc61718fa8c64a6af86eb3f238101b06b3bed56c73b`，
+    verdict `PASS`（6/6 observed、`failures: []`、12 件工件）。运行文档读数
+    `connection_state: FAILED`、`snapshots_admitted: 0`、`entities_admitted: 0`、
+    `actions_applied: 0`、`world_snapshot: null`；退出码 14 仍是 harness 终止客户端的
+    既有 teardown，不作为判决依据。三份独立读数：`minekin evidence verify` →
+    `verified: true, sealed: true, artifacts: 12, violations: []`；
+    `tools/rejudge_evidence.py` → `status: agrees`（result/expected/observed/failures
+    逐项与封存记录相同）；`minekin replay` 与 `tools/replay_evidence.py` 同一 bundle →
+    14 条事件投影到 `STOPPED`（`last_event_position: 13`）。
+    `tools/report_promotion.py --data-root /data` 里这份是
+    `verified/sealed/PASS/re_judged: AGREES/from_repository_build: true/attempt 1`，
+    `launch_plan_digest` 与当前 build 的 `plan_sha256` 相同、`bridge_digest` 与配方 pin
+    相同；整体仍 `blocked`，W40 的阻塞项只剩其余 required case 与 `CORE-020` 的旧
+    case version，**没有** `EVIDENCE_DISAGREES_WITH_ITS_BYTES`。
+  - **正向回归（入服路径没退化）**：同镜像同 build 的 `ADMIT-001` 真实运行
+    `68b232492bc1474fba1816705164a4d3` 达到 `PLAYABLE`、首快照准入 1 次，同样封出
+    12 件工件（含 `trusted/server-profile.json`），verdict `PASS`、bundle
+    `26da2ed17c3d4c5c5295c4642136c65d437213059f5dddd22874428685625abb`、
+    `re_judged: AGREES`。
+  - 读数：全量 pytest **1948 passed / 2 skipped**；case assertions 125 条注册、
+    `report_cases.py` 37 cases / 139 assertion
+    references、inventory 72 required / **37 present / 35 missing**（W40 缺 6、
+    p0-core 缺 16）；Ruff check/format、Pyright 0 errors、boundaries、fixture digests、
+    workflow pins 与 `git diff --check` 通过。未跑 CI，未把旧诊断 run 追认为 PASS。
+  - **`mandatory` 仍是 `false`**：契约的其余 ADMIT 场景未齐，这一条不点亮任何 gate。
+
+- [x] **ADMIT-060-EVIDENCE-DESIGN-001（已完成，判据内容提交 `49466dc` 已推送）**：
+  campaign `order` 的第 2 个
+  场景（资源包拒绝）。缺的不是运行而是判据——「未授权时不 PLAYABLE」有材料，
+  「不由聊天同意」在现有 sealed 运行材料里没有任何承载事实，`no_lease_was_granted`
+  说的是「没授 lease」，不是那句的同义词。harness 那半边已具备
+  （`MINEKIN_DOMAIN_RESOURCE_PACK=1`）。
+
+  - **判据冻结前的一次真实测量（受控 runner，只作诊断，不封存）**：
+    设 `MINEKIN_DOMAIN_RESOURCE_PACK=1`、profile
+    `p0-controlled-offline-loopback`（`resource_pack_policy: deny`）、服务端 run-112，
+    run `a114949bf0204a2e8021ec5d02583b4b`、session `e1c91d061176482d8f447153df081469`。
+    读到的形状是**客户端停在 login 协商，两侧都没把这件事说成资源包**：
+    run document `connection_state: LOGIN_NEGOTIATING`、`snapshots_admitted: 0`、
+    `world_snapshot: null`；ledger 只有 `CONNECTING → FAILED` 迁移与终止时 Core 自报的
+    `SessionInterrupted{outcome: BRIDGE_LOST}`（CORE/CORE），**没有** Bridge 过滤后的
+    `phase=FAILED` 分类，所以 `ADMISSION_FAILURE_REASON_RESOURCE_PACK_BLOCKED` 在这条
+    路径上从未产生；客户端 `logs/latest.log` 末行是
+    `bridge reporting CONNECTION_PHASE_LOGIN_NEGOTIATING for generation 1
+    (terminal=false, reason=ADMISSION_FAILURE_REASON_UNSPECIFIED)`；服务端只写
+    `... name=Kin ... lost connection: Disconnected`；客户端 `server-resource-packs/`
+    为空；`server.properties` 为 `require-resource-pack=true` +
+    `resource-pack=http://127.0.0.1:45123/minekin-domain-pack.zip` +
+    `resource-pack-sha1=a351bd3668e6fc47c0c9bb8da95ca6e1fb64638f`。
+  - **由此定下的两条判据边界**：`ADMIT-060` 在 P0 **不**要求分类后的
+    `RESOURCE_PACK_BLOCKED`（要求一条没有任何真实运行产生过的事实等于替产品编答案，
+    正是 `Invalid session` 曾被记成 `UNEXPECTED_DISCONNECT` 那类错；是否分类留给产品侧
+    单独决定）；**超时不算拒绝**——第 4 项不能只靠「45 秒没 PLAYABLE」，第 1～3 项必须
+    同时成立。
+  - **「不由聊天同意」重写为「同意只有一个来源」**：P0 的 IPC 协议里没有聊天消息面，
+    所以那句在运行材料里没有也不该有对应的否定观察。可证的是 profile 的规范化
+    `revision` 已含 `resource_pack_policy`、并由 `AuthPolicyFrozen` 绑定到本 run；
+    缺的只有「本 generation 实际放上线缆的那个策略值」。缺它时的假阳性说得出来：一个
+    只读 `auth_mode`、把 `resource_pack_policy` 忽略成 `prompt` 的构建会产出形状完全
+    相同的 bundle 并通过——所以补的必须是产品事实，且取自 Bridge 交付给原版连接路径的
+    `ServerInfo`（读回），不接受命令回显。
+  - 四项同 run 判据、可信来源、sealed 工件（含新的客户端 `server-resource-packs/`
+    目录列表）、逐一反例已写入专项契约「ADMIT-060 的可复判证据边界（2026-09-23 冻结）」。
+  - 排队的两张精确范围实现卡：`ADMIT-060-WIRE-POLICY-001`（产品：线缆策略事实）与
+    `ADMIT-060-CASE-001`（测试域：封存 + 断言 + fixture + runner 资源包等待分支）。
+  - 诊断 run 早于第 3、4 项的观测点存在，不追认为 `ADMIT-060` 的 PASS。
+  - 完成读数：文档阶段全量本地门禁 pytest **1948 passed / 2 skipped**、Ruff
+    check/format、Pyright 0 errors、boundaries、case assertions 125 条注册、fixture
+    digests、workflow pins、`git diff --check` 通过；未跑 CI、未封存 bundle。
+
+- [x] **ADMIT-060-WIRE-POLICY-001（已完成，commit `e75b011` 已推送，判据冻结于
+  `49466dc`）**：产品侧最小观测点已落地。`ConnectionLifecycle` 加一个具名字段
+  `applied_resource_pack_policy = 7`（类型取 `control.proto` 的 `ResourcePackPolicy`），
+  Bridge 只在本代**建立连接的那一条**上报（`CONNECTION_PHASE_RESOLVING`）里命名它，值
+  从交付给原版连接路径的 `ServerInfo.getResourcePackPolicy()` **读回**，不是命令回显；
+  Core 对每一条具名且被门接受的报告写一行 `ResourcePackPolicyApplied`
+  （`BRIDGE` / `BRIDGE_FILTERED`，payload 只有 `{"generation": N,
+  "resource_pack_policy": "deny"}`），不去重也不聚合；未具名的报告不写行，所以旧 Bridge
+  不会凭空造出事实。两端各自拒不可命名的值：Java 侧 `validLifecycle` 拒绝
+  `ResourcePackPolicy.UNRECOGNIZED`，Python 侧 admission 门以
+  `LifecycleDisposition.UNKNOWN_POLICY` 在改状态之前拒，形状与既有 reason 门一致。
+  - 卡里的 `question` 已在 `design_decision` 记账：取「每条 lifecycle 报告带一个字段」，
+    不新增每 generation 的专门事件——专门事件承载的信息与「本代那条报告具名与否」相同，
+    却多一个消息类型、一道独立的门和一处 replay 兼容面。
+  - 两条停止条件都没触发：该值确实读得回来（定向 JUnit
+    `thePolicyVanillaConnectsWithIsReportedInItsOwnWireWords` 钉住 `DISABLED→deny`、
+    `PROMPT→prompt`，因此「命令被忽略成另一个值」与「命令回显」两种构建给出不同读数），
+    也不需要新增 `AdmissionFailureReason` 或改动 `prompt` 语义。
+  - 完成读数（本地）：pytest **1953 passed / 2 skipped**（本卡 +5 条）、Ruff check/format、
+    Pyright 0 errors、boundaries、case assertions 125 条注册、fixture digests、workflow
+    pins、`git diff --check` 与五道 Bridge 静态/协议门全绿；Java 针对性套件在 Linux 容器
+    与本机 JDK 21 各 **88 条全绿**，jar
+    `ecff5a598bda3a5055755cbbf04251d33c464b3764267b7b479917a2a8dce9c7` / 1307584 字节两平台
+    逐字节相同；pin 链按门逐级 renewal（`recipe.py` → bundle fixture → `core-001.json`
+    的 `input_digests` → `manifest.sha256`）。
+  - 完成读数（真实受控 Docker，两条都是**未封存诊断**，不追认 PASS）：拒绝侧 run
+    `b1ace69e610c4c04a942281add8bd69b` / session `4a0543d748da41eb8db421eb8455daf3` /
+    服务端 `run-114`（`require-resource-pack=true`、loopback URL、
+    `resource-pack-sha1=a351bd3668e6fc47c0c9bb8da95ca6e1fb64638f`）账本 position 899 恰好
+    一行该事实、值为冻结 profile 的 `deny`，落在 `READY_MENU→CONNECTING` 之间，其后
+    `CONNECTING→FAILED`；默认离线正向 run `8516151dab664d8692c3bf7ab3288859` / session
+    `9569a9afd046415e84f7d9ff878d9a1c` / `run-115`（`require-resource-pack=false`）同样
+    恰好一行（position 913），随后 `JoinObserved`→`PlayableEstablished`、
+    `connection_state: PLAYABLE`、`snapshots_admitted: 1`——**入服没有退化**。
+    更早的 `a114949bf0204a2e8021ec5d02583b4b`（本卡之前的 build）仍是 0 行。
+  - 旧封存件的兼容是真量过的，不是推断：ADMIT-040 的 bundle
+    `46565ef26d78106215d996f64870b95bb9a3fb97d653f3d1e7cf0e9c9ef2e736` 在新 build 上
+    `rejudge` 仍 `agrees` / `PASS`（6 条 expected 全部 observed），`replay evidence` 仍
+    投影 14 事件、末态 `STOPPED`、0 violations。
+  - 仍然开着的（本卡不做的）：`ADMIT-060` 的正式 fixture、sealer 封
+    `server-resource-packs/` 目录列表、runner 资源包场景的等待分支，以及把 login 停顿
+    分类成 `RESOURCE_PACK_BLOCKED` 这件单独的产品决定。CI 未作为完成证据。
+
+- [x] **ADMIT-060-CASE-001（已完成，commit `420bb88` + 修复 `e906e92` 均已推送，基线
+  `e75b011`）**：测试域那半边已按专项契约的四项判据封成可复判的正式用例。
+  - 封存端：本代客户端的 `server-resource-packs/` 读一次、判与封同字节，封为
+    `client/server-resource-packs.json`（每文件的 name/bytes/sha256，不含包字节）；
+    **「目录不存在」与「目录存在且为空」保持为两个不同答案**（`present:false` → 判官
+    读不出列表 → `NO_CLIENT_PACK_LISTING`；`present:true`+`entries:[]` → 判据成立），
+    目录里出现 symlink 时封存直接停（`Unsealable`）。
+  - 判官：`the_server_this_run_required_a_resource_pack`（服务端自己的
+    `server.properties` 要求包、URL 落在 `AddressPolicy.p0_loopback()`、sha1 是 40 hex、
+    端口与 motd 指向这份 sealed profile）、
+    `the_sealed_profile_refused_the_resource_pack`（`resource_pack_policy` 为 `deny` 且
+    规范化 `revision` 等于进程启动前 `AuthPolicyFrozen` 的 `server_profile_revision`）、
+    `the_resource_pack_policy_that_went_on_the_wire_is_the_frozen_one`（本 run 那条
+    `ResourcePackPolicyApplied` 是 `BRIDGE`/`BRIDGE_FILTERED`、值与 profile 相同且**只有
+    一个值**）、`the_client_never_downloaded_the_pack`（目录为空且无 JOIN/PLAYABLE/快照/
+    lease），与 `no_world_was_joined`/`no_lease_was_granted` 一起登记为 `ADMIT-060`
+    （`W40`、`mandatory: false`）。
+  - 反例逐个 FAIL：包需求 9 条、profile 一致性 6 条、线缆 5 条（含被忽略成 `prompt`、
+    出现 `deny,prompt` 两个值）、客户端列表 2 条，另有「**只有超时**时两条否定断言成立而
+    四项判据全红」（契约的「超时不算拒绝」被写成可执行的一条）与
+    loopback 只作为他主机 userinfo 的那条。
+  - runner：`domain.sh` 新增 `ADMIT-060` 等待分支，等的是账本里那条 `deny` 策略事实而不是
+    `PLAYABLE`，且资源包场景与 Server Profile 缺一就直接退出 2（不封一个没发生的场景）。
+  - **真实受控 Docker `deny` 运行**（当前 build、同镜像）：run
+    `7bc740ea4cde4e1aaff074bb64850348` / session `79eec2b3078e43f782f7b5ff00defe58` /
+    服务端 `run-117` → 13 件工件、`result: PASS`、`failures: []`、`attempt_sequence: 2`、
+    bundle `ca61b64b86b13b0d55528f2f2604825f973c313ba7adaa91fcefe3a2cb29ddcc`、
+    `case_version 8ee31d23f3a0e82a1f2ccd28a2666880b32aec6ac06af271e207873262e3cdb2`。
+    **四读一致**：`evidence verify` → `verified/sealed/13 件/violations: []`；
+    `rejudge_evidence.py` → `agrees`（6/6 observed）；`minekin replay` 与
+    `replay_evidence.py` → 同一 bundle 14 事件投影到 `STOPPED`、0 violations；
+    `report_promotion.py --data-root /data --work-package W40` →
+    `PASS/verified/sealed/AGREES/from_repository_build: true`，`bridge_digest ecff5a59…`
+    与配方 pin 相同、`launch_plan_digest 6b81fa7d…` 与当前 build 相同。W40 的阻塞项仍是
+    `ADMIT-010/020/030/050/090` 与 `CORE-020` 的旧 case version，**没有**
+    `EVIDENCE_DISAGREES_WITH_ITS_BYTES`。campaign `scenario_progress` 自此为 **2/7**。
+  - **第 1 次尝试如实留档**：run `3c17aa78a838486391634e69d9f8ea98`（bundle `259cc93d…`）
+    封存为 `FAIL`，原因是判据 1 的**读侧缺陷**——Java 的 `Properties.store` 把值里的冒号
+    写成 `\:`，判官连 `\` 一起当地址读，于是 loopback 上的包被报成「不在 P0  admits 的地址」。
+    本地 300 多条断言当时全绿，因为 fixture 写的是**未转义**形状，也就是任何真实运行都不会
+    产生的形状。`e906e92` 改为按 `Properties.load` 的语义解转义、fixture 换成真实形状并补
+    一条 userinfo 反例；对那份旧 bundle 复判给出 `disagrees` +
+    `RESULT:recorded=FAIL,re-judged=PASS`，**旧记录不追认、不覆盖**，promotion 报告里 attempt 1
+    仍列 `FAIL`/`DISAGREES`，attempt 2 以 `supersedes_run_id` 指向它。
+  - 读数：全量 pytest **1991 passed / 2 skipped**（本卡 +37 条、读侧修复再 +1 条）、
+    Ruff check/format、Pyright 在被改文件 0 errors、包边界、
+    129 条 case assertions（`--record` 只动新 fixture）、fixture digests、workflow pins、
+    wheel oracle 边界、`bash -n` 全绿。未跑 CI。
+  - **`mandatory` 仍是 `false`**：契约其余 ADMIT 场景未齐，这一条不点亮任何 gate。
+
+- [x] **ADMIT-070-EVIDENCE-DESIGN-001（已完成，commit `a7983c3` 已推送）**：campaign `order`
+  第 3 个场景（JOIN 后首快照失败）的判据已冻结在专项契约新增的「ADMIT-070 的可复判证据边界
+  （2026-09-24 冻结）」一节。
+  - 五条断言（`tests/fixtures/cases/admit-070.json` 里**全部登记为 `pytest` 类**，即今天只测域内
+    过滤器）逐条写成一次真实拒绝运行里的五项事实，各指名可信来源与 sealed 工件：同一 ledger 有
+    `JoinObserved`（BRIDGE/BRIDGE_FILTERED）且 run document 的 `connection_state` 非 `PLAYABLE`、
+    `snapshots_admitted: 0`；`run-document.json` 的 `snapshot_rejections` 里出现**本用例点名的那一个**
+    `SnapshotReason`（不接受「非空即可」）；无 `InputLeaseGranted`（复用 `no_lease_was_granted`）
+    且无 `PlayableEstablished`；本 generation 终止且其后不再进世界；判官不得要求文档里没有的正文
+    （`IntegrityViolation` 不落文档），也不得把客户端那行 warn 当作被拒事实。
+  - 反例逐条指名要判红的判据：只有超时（`connection_cancelled: "TIMEOUT"`，那正是 `ADMIT-110`
+    已经在读的运行）、拒过一份但首份放行（并集字段说不了「首」）、`entities_rejected` 非零（实体
+    闸门不是快照闸门）、没有 `JoinObserved`、出现过 lease 或 PLAYABLE、之后又起新 generation 进了
+    世界、字段缺失或类型不对时读作不可判定而不当空数组。
+  - **本卡要回答的那一问有确定答案：需要新的观测点，而且它在 Bridge 的上报侧。** 五个理由的取值
+    来源逐条量过——`authoritative` 写死 `true`（`ClientSnapshot.java:80`）、`generation` 回的是
+    Core 给出去的那个值、身份两端同源（record 从解析后的 argv 读回）、self/inventory 全取活客户端
+    状态；决定性的是 Bridge 说不出自己是谁时**不发**快照而不是发一份残缺的
+    （`ClientSnapshot.java:52-60` + `ClientAdmissionController.java:249-253`）。现存 knob 逐条排除
+    （`MINEKIN_DOMAIN_*`、服务端工具的 flag、`SILENCE` 停的是 Core、fault 注入只会让进程消失）。
+    `FIRST_SNAPSHOT_TIMEOUT`/`WORLD_BINDING_MISMATCH` 有 proto 枚举值而没有任何一层发出，故判据不
+    要求它们——与 `ADMIT-060` 拒绝要求 `RESOURCE_PACK_BLOCKED` 同形。
+  - 实测读数：数据卷 **36 份**真实运行文档的 `snapshot_rejections` 全为 `[]`，同批里
+    `connection_cancelled: "TIMEOUT"` 3 次、`entities_rejected` 非零 1 次。所以第 3 个场景停在
+    `BLOCKED_EVIDENCE` 的原因是**发生不了**，不是**读不出**；写理由那一层在真实运行里会工作。
+  - 契约表格 ADMIT-070 行 2026-09-22 写的「跑得动」在本卡撤回（那五条靠伪造 IPC 消息成立）。
+  - 本卡只改文档：未跑一次真实运行、未封 evidence、未动判官或夹具。
+    `tests/contract/test_case_coverage.py` 4 passed、`git diff --check` clean。
+    `mandatory` 仍为 `false`，不点亮任何 gate。
+
+- [ ] **ADMIT-070-REFUSAL-INJECTION-001（当前唯一 NEXT，提升于 2026-09-24）**：把首快照报成 Core
+  会拒的样子——一个默认关断的开关让 Bridge 对本代**第一份**快照上报 `authoritative=false`，Core
+  的过滤器照旧自己判决；注入事实必须从同一 bundle 的 `fault-injection.json` 读得出；不设开关时
+  正向不回归。范围、Bridge pin 续期清单与停止条件（开关只能靠新 proto 命令到达、或注入说不出
+  自己 → 停）见执行计划里那张卡。
+  - 提升由运行者 2026-09-24 的选择「实现注入点（Bridge 改动）」作出。它改的是产品码（与
+    `ADMIT-060-WIRE-POLICY-001` 同形），所以本卡先只以 `QUEUED` 登记、再单独一个 commit 提升。
+  - 提升前量过的接缝：客户端环境是封闭的，宿主能借给它的名字只有
+    `src/minekin_core/config.py:37` 的 `FORWARDED_VARIABLES`（`bootstrap.py:121` →
+    `client_environment(forward=…)`），Bridge 侧读 env 已有 `MINEKIN_BRIDGE_DESCRIPTOR` 先例。
+    所以开关不必走 `control.proto`，卡的第一条停止条件不成立。
+  - 由此产生的 `scope_amendment`：放行点是 `config.py`（连带 `tests/unit/test_init.py` 一条定向
+    断言），不是卡上原写的 `process.py`——后者按自身条件保持不动。
+  - campaign 第 3 个场景在本卡落地并跑出一条真实拒绝运行之前保持 `BLOCKED_EVIDENCE`。
+
+- [ ] **2026-09-24 恢复记录（Qoder，按 `docs/qoder-execution-handoff.md` 的恢复步骤执行）**：
+  - HEAD 与远端：本地 HEAD `4532714`，`git ls-remote` 核对 `refs/heads/main` 与
+    `refs/heads/codex/core-state-transition` 均为 `4532714e0c0e2d8269898facbb20fab3e93dc5f5`，
+    与本地一致；本轮无需推送。
+  - 工作树归属：7 个已改文件（Bridge 2 主 + 1 测试、`config.py`、`domain.sh`、
+    `tests/contract/test_bridge_java_constants.py`、`tests/unit/test_init.py`）全部是本人上一轮
+    `ADMIT-070-REFUSAL-INJECTION-001` 的进行中改动，不是他人的在途工作；不 reset、不 stash。
+  - 机器 inventory：`tools/report_cases.py` → required 72 / present 38 / missing 34，
+    `not_gating` 31、`present_wanting_a_run` 14，38 cases / 145 assertion references，与手册快照同形。
+  - 最新 attempt 与 build 诊断：`.tmp/data` 数据根下 `tools/report_promotion.py` →
+    `overall.status: blocked`、`promotable: false`；`repository_build.readable: false`，原因
+    `Bridge source tree digest differs from the bundle recipe`（本人未续期的 pin，不是回归）。
+    W40 缺 ADMIT-010/020/030/050/090 + CORE-020；W50 缺 ADMIT-120/CORE-080，ADMIT-070 记为
+    `non_mandatory` 且无运行证据。已有 bundle 只有 CORE-001（判据已漂移，rejudge `UNJUDGED`）与
+    W00-CONTRACT-001（缺 `asserter-inputs.json`，同样 `UNJUDGED`）；runner 数据卷
+    `minekin-runner-data` 的 `server-runs` 计 117 份、`repo-evidence` 计 2 份。
+    按手册口径：这些是 registry 现状，不等于任何 case 的最新 PASS。
+  - 最窄红灯确认：`pytest tests/contract/test_runner_scripts.py` → 1 failed / 11 passed，失败项
+    正是 `run.sh` 未转发 `MINEKIN_DOMAIN_REFUSE_FIRST_SNAPSHOT`；与手册记录的「33 红里 1 项非
+    digest」一致。
+  - 下一步：先改本卡进行中的三处假阳性（开关非空即真、日志即成功、注入事实无独立记录），再续期
+    pin 与跑门禁，最后跑一正一注入两条受控 Docker 诊断。
+  - Stop condition：若 `fault-injection.json` 的现有严格结构无法诚实承载「请求 Bridge 非权威上报」
+    这类非进程故障，按卡停手并报告所需的最小契约调整，不擅自突破 `forbidden_paths`。
+
+- [ ] **ADMIT-040-CLASSIFICATION-001（已完成，commit `dd992b1` 已推送）**：`REAL-P0-CAMPAIGN-001`
+  首个受控诊断运行 `fdef1d7192dd480db6aed1c5e7e493dd` 中，离线身份遇到原版
+  `online-mode=true` 的真实客户端拒绝文案为 `Failed to log in: Invalid session
+  (Try restarting your game and the launcher)`；Bridge/Core 目前记录
+  `ADMISSION_FAILURE_REASON_UNEXPECTED_DISCONNECT`，但专项契约要求
+  `AUTH_MODE_MISMATCH`。真实原因是 Fabric 的网络线程断线事件先于原版
+  `onDisconnected` 的渲染线程原因回调；Bridge 现在按同一 login handler 关联
+  两者，在 client tick 上报终态，且将真实 `Invalid session` 文案归入认证模式不匹配。
+  新负向 run `fbb9d4787a3743afa868a804c3c586ec` 在持久 ledger 中得到
+  `AUTH_MODE_MISMATCH`；默认离线正向 run `5507cb8b92e848a6a3b36aece7872840`
+  有服务端 JOIN、`PlayableEstablished` 与首快照准入；白名单负向 run
+  `cc2cfb7f69554f0989dbea695938a194` 仍是 `WHITELIST_REJECTED`。
+  JDK 21 Gradle 15/15 任务、Python 1903 passed / 2 skipped 与全部本地门禁通过。
+  默认受控服务器继续由 `auth_mode: offline` 得出 `online-mode=false`，保持可接受
+  离线身份的正常路径；负向在线模式只用于诊断。ADMIT-040 的正式 case fixture 与
+  “不自动启用账号适配器”的可观测判据仍未冻结，不能凭这次诊断标 PASS。
+
+- [x] **ADMIT-070-REFUSAL-INJECTION-001（已完成，实现 `eeac5b0` + 两轴自审修复 `8498084`
+  均已推送，卡已 `NEXT → DONE`）**：让「Kin 的
+  第一份快照被报成 Core 会拒的样子」成为一条**能被要求、能被记录、能被同一 run 说出口**的
+  事。四件事各自独立可验：①Bridge 一个默认关断的开关
+  `MINEKIN_BRIDGE_NON_AUTHORITATIVE_FIRST_SNAPSHOT`，只对本代**第一份**、且真的交出去的快照
+  把 `authoritative` 写成 `false`（`ClientSnapshot` 由入参决定，默认仍是 `true`）；②变量名进
+  `config.FORWARDED_VARIABLES`——那是宿主 → 客户端 JVM 的唯一清单，`process.py` 原样继承，
+  不需要放行；③runner 的 knob `MINEKIN_DOMAIN_REFUSE_FIRST_SNAPSHOT` **按值**进入拒绝路径
+  （显式 `0`/`false` 走正常路径），`run.sh` 转发它；④注入事实走
+  `fault-injection.json` 那一条既有通道，作为第二类记录 `CLIENT_REPORT_REQUEST`——
+  它带 `request`（被要求什么）与 `effect`（看到了什么），不带任何 kill 字段。
+  - **换掉了那条日志行判据**。原先等待的是客户端日志里的一句话，而那句话既可以在快照根本没
+    送到 IPC 时被说出来，也可以因日志轮转而消失。现在两条读数都来自本 run 留下的东西：Core 自己的
+    run document（`snapshot_rejections` 恰含 `NOT_AUTHORITATIVE`、`snapshots_admitted: 0`）与
+    本 run 的 ledger（有 `JoinObserved`，无 `PlayableEstablished`/`InputLeaseGranted`）。等待仍走
+    账本而不是日志。
+  - **「请求」与「生效」分开记，且生效以 `/proc` 为凭**：`effect.method` 是
+    `PROC_CHILD_ENVIRON`——在本代客户端 JVM 还活着时读它自己的
+    `/proc/<pid>/environ`，看到那个名字等于那个值才算生效；看不到写
+    `REQUEST_NOT_IN_CLIENT_ENVIRON`，两个候选写 `CLIENT_JVM_AMBIGUOUS`，root 认不出写
+    `ROOT_NOT_FOUND`/`ROOT_IDENTITY_MISMATCH`。`asked` 由 value 派生而不是由参数给，因为那是手写
+    文档最容易往 flattering 方向写错的字段。
+  - **判官与封存端一处未动**：`seal_run_evidence.py` 仍用 `fault_injection.read_record` 读一次、
+    把同一批字节封成 `fault-injection.json`；`assert_case_evidence._confirmed_sigkill()` 仍要求
+    真实的 target/SIGKILL/`INJECTED`，所以一条请求记录**不可能**冒充一次进程被杀——这一点由
+    `tests/unit/test_seal_run_evidence.py` 直接判一条 `FAIL` 来证明，而不是靠注释。
+  - **完成读数**：pytest **2017 passed / 2 skipped**（本卡新增的定向用例分布在上面那四件事各自的
+    测试文件里）、Ruff check/format 干净、
+    boundaries、case assertions 129 条注册、fixture digests、workflow pins、`verify_supply_chain`、
+    `bash -n` 全绿；Bridge 五项静态检查绿；JDK 21 `./gradlew build check --rerun-tasks` 17 任务
+    全部执行。交接文档记的 33 红灯全部消失。Pyright 仍有 3 条 `test_report_soak.py` 的既存
+    `approx` 部分未知（该文件本卡未触碰、与 HEAD 一致）。
+  - **受审 pin 续期（旧 → 新）**：jar `ecff5a59…` / `1_307_584` → `faeec4a9df83abb9…` /
+    `1_308_525`；Bridge source tree `1b1103dd…` → `507f708dc4e3028a…`；bundle fixture 自身
+    `c3a19927…` → `bb45606023cea201…`（CORE-001 的 input digest 同值）；`core-001.json` 自身
+    `c26cb0b5…` → `4f2fc11f8c65de48…`；`manifest.sha256` 两行随动。红灯是靠重建 + 续期消失的，
+    没有任何一处校验被放宽。
+  - **两次真受控 Docker 诊断（只作诊断，未封 bundle）**：正向 run
+    `97fcfa1460d1407b9e94e34e12934ab5`（session `dd55afb9…`、gen 1、服务端目录
+    `/data/server-runs/run-118`）到 `PLAYABLE`、`snapshots_admitted: 1`、`snapshot_rejections: []`，
+    账本 951–968 有 `JoinObserved`(962) 与 `PlayableEstablished`(964)。注入 run
+    `db5671d970f943aa8540fd50191ecd92`（session `d623a3c1…`、gen 1、`run-120`）JOIN 之后
+    `snapshot_rejections: ["NOT_AUTHORITATIVE"]`、`snapshots_admitted: 0`、`entities_admitted: 0`，
+    账本 985–1000 有 `JoinObserved`(996) 而**无** `PlayableEstablished`、**无**
+    `InputLeaseGranted`；同一次 run 里 `domain.sh` 用封存器的那个读取入口把记录读回并打印
+    （归因到同一 run/session/generation，`effect.detail` 命名的 pid 207 正是同一次 `session stop`
+    终止的那个）。两次都以 `BRIDGE_LOST`/exit 14 结束——harness 主动停客户端，按 `runner/README.md`
+    是设计语义。第一次注入 run `785fcd4d…`（`run-119`）形状相同，跑在判据块还没把「通过」说出口
+    之前，因此重跑一次留下可读的通过行。
+  - **一条附注，免得判据被高估**：`InputLeaseGranted` 在正向 run 的账本里也不存在（那一轮没人请求
+    输入）。所以拒绝轮那条「没有 lease」的判据靠的是它与 `PlayableEstablished` **一起**缺席，而不是
+    单看一条本来就不会出现的行。
+  - **未测与后续**：新 jar 字节只在 Windows（JDK 21.0.12.1+1-LTS-4）构建过，旧 pin 注释里那次
+    「Windows 与 Linux 构建出同一份 jar」的复现验证**没有**对新字节重做，`recipe.py` 的注释已按此
+    改写、不再替新字节声称两平台；`check_wheel_boundary.py` 需要 CI 产出的 wheel，本地未跑；本卡按
+    non_goals 未封任何 bundle，`ADMIT-070` 的 PASS 证据属于后续 `ADMIT-070-CASE-001`。缺口已登记为
+    `ADMIT-070-RECORD-SCHEMA-001`（`QUEUED`）：`schemas/fault-injection.schema.json` 仍只描述
+    SIGKILL 那一种记录，而它在 `w00-contract-001` 的 `inputs`（`schemas/*.schema.json`）里，改它
+    等于给一张无关的 case 重新定版——这条一致性与本卡的边界冲突，故另起一卡，并由
+    `test_the_frozen_schema_still_describes_the_kill_record_only` 显式钉住。用户给出的公网
+    offline 测试服（地址只记在本地未跟踪文件 `.tmp/local-test-server.txt`，不入文档）
+    本卡未使用，也不能作判据端（`AddressPolicy.p0_loopback()` 为 loopback
+    only，`online-mode=false` 的服产生不了 `AUTH_MODE_MISMATCH`）。
+  - **两轴自审改了三处文字与一处分支（`8498084`，`fix(tools): stop a request record from
+    claiming more than it saw`）**：①`record_request` 在 environ 命中之后、身份读取之前碰上进程
+    消失时，会写 `observed: false` 却把 pid 留在 `effect` 里且 `reasons` 为空——正是本模块
+    `validate()` 自己会拒的形状（`NOT_OBSERVED` 要求 pid/starttime 皆空、未观察必须给理由），
+    真撞上会让封存失败；现在报 `CLIENT_IDENTITY_UNREADABLE` 并清空 pid，另加一条在两次读取之间
+    抽走该进程的定向测试。②「请求没到」的 detail 原写「该名的任何值都不存在」，而代码只查过被
+    要求的那一对，属多报一个没做过的检查；改为只说那一对与被查了几个 JVM，测试同时钉住不再退回。
+    ③`PROC_CHILD_ENVIRON` 的注释把机制说成从被启动进程*继承*，实际是按命令行在后代里认出客户端
+    JVM 后读它自己的 environ——这个差别就是这条记录的全部价值（宿主打算转发 ≠ 那个 JVM 收到）。
+    查过而**不是**缺陷的：记录里的 pid 确实是客户端 JVM（`find_candidates` 只收命令行匹配
+    java + 客户端主类的严格后代），判官与封存端一行未动。修复后门禁：pytest **2018 passed /
+    2 skipped**、fault/judge/sealer 定向 165 passed、Ruff check/format 干净、被改四文件 pyright
+    0 errors、digests/case assertions/boundaries/workflow pins 全绿、`git diff --check` 干净；该
+    提交不含 `bridge/` 与 `test-orchestrator/` 改动，故 Gradle 与 `bash -n` 沿用上一次的绿色读数。
+  - **状态流转**：本卡 `NEXT → DONE`（`completion_commit` 两个 SHA、`self_review` 全部写在执行
+    计划该卡里），`current_next` 现为交接阶段 B 的 `ADMIT-070-CASE-001`（登记与提升同批，理由写在
+    该卡 `registered`/`promotion_reason`）；`ADMIT-070-RECORD-SCHEMA-001` 继续 `QUEUED`，因为封存
+    与复判都不读那份 schema。本地 HEAD、`origin/codex/core-state-transition`、`origin/main` 三者
+    对 `8498084` 核对相同。
+
+- [x] **ADMIT-070-CASE-001（已完成，实现 `2a70c7b` + 两轴自审修复 `ec082f3` 均已推送，卡已
+  `NEXT → DONE`）**：把 `ADMIT-070` 从「只有五条 pytest 域内断言」变成一份真实拒绝运行能被封存、
+  能被复判的正式 case。域内那五条一行未动、注册项原样保留，运行材料一侧新增五条同名不同源的
+  判据，逐条对应专项契约「ADMIT-070 的可复判证据边界」冻结的五项。
+  - **恢复记录（交接「每次启动与上下文丢失后的恢复步骤」）**：接手时 HEAD `2a70c7b`、工作树有本
+    会话未提交的判据修复 4 文件（`tools/assert_case_evidence.py`、
+    `tests/unit/test_case_evidence_assertions.py`、`tests/fixtures/cases/admit-070.json`、
+    `tests/fixtures/manifest.sha256`），归属本任务、无他人改动，未 reset 未 stash。机器仍是 Windows
+    主机 + WSL/Docker 受控 runner，数据卷 `/data`、`MINEKIN_KIN_ID=kin-01`。`report_cases.py` 读数
+    38 cases / 145 assertions / unregistered 0；`report_promotion.py` 整体仍 `blocked`（41 条
+    mandatory 未封存），`ADMIT-070` 只在 `requirement.non_mandatory` 下出现。下一步即该卡的封证与
+    四读，stop condition 两条均未触发。
+  - **④ 的偏离必须记在这里，因为契约文件是本卡 forbidden path**：冻结文本给的候选读数
+    （`connection_cancelled`/`outcome`）在当前 harness 下不判别——所有封存 run（含正向）
+    `outcome` 都是 `BRIDGE_LOST`，拒绝轮的 `connection_cancelled` 为空。判官改读 ledger 自己那行
+    `SessionStateTransitioned`：`from JOINED_UNVERIFIED → to FAILED`、`source/trust_class` 都是
+    `CORE`、`position` 晚于本 run 唯一的 `JoinObserved`、同一 session，且其后不再出现
+    `PlayableEstablished`。真实 bundle 里读到的正是 `pos=1096 JoinObserved BRIDGE/BRIDGE_FILTERED`
+    与 `pos=1097 JOINED_UNVERIFIED→FAILED CORE/CORE`。这比冻结文本更强，不是换成更容易的读数；
+    契约文本要不要按这次读数续期，留给主控决定。
+  - **两轴自审（并行两个子代理，逐条对物核实后才动）**：3 条为真并已修（④ 只看 `to == FAILED`
+    却在 docstring 里承诺起始态与 Core 作者身份；① 接受缺 `connection_state` 的文档，现为
+    `CONNECTION_STATE_UNREADABLE`；② docstring 误称实体拒绝会进 `snapshot_rejections`，实际进的是
+    自己的字段、该列表保持为空）；2 条不成立或不修（kill 记录形状本就由写侧构造器产出；⑤ 与
+    `_confirmed_sigkill` 的归因段重复保留——抽公共 helper 会移动其他 case 的判据）。判据变化必然
+    移动 `case_version`，`--record` 只动 `admit-070.json`（`778f0541…` → `d829381d…`），
+    `manifest.sha256` 只动该行，其余 case version 未动。
+  - **门禁**：pytest 2071 passed / 2 skipped（两条平台不可答项 `test_orphans.py:686`、
+    `test_silent_listener.py:123`）、Ruff check/format、Pyright 0 errors、case assertions 134 条
+    注册、fixture digests、boundaries、workflow pins、`git diff --check` 全绿。反例条数 ①7 ②8
+    ③5 ④10 ⑤18。
+  - **当前 build 上两次诊断重跑（不封 bundle）**：正向 run `dc896480ac1c41d19094550b2f7161f4`
+    （session `b13916d4…`、`run-124`）到 `PLAYABLE`/`snapshots_admitted: 1`/`snapshot_rejections: []`；
+    注入 run `dfcfcc34c5ef4d4b9d6e83099c763dfc`（session `a1425ef1…`、`run-125`）`JOIN_SEEN`、
+    0 准入、`["NOT_AUTHORITATIVE"]`、无 `PlayableEstablished`，`domain.sh` 自己打印
+    「Core refused this run's first snapshot as asked」。
+  - **正式封存与四读**：run `2a128d0dd30b4932b88ada6d0032d40c`（session `8294c928…`、gen 1、
+    `run-126`）→ `attempt_sequence: 2`、`supersedes_run_id: 7ef8b553…`、bundle
+    `88ccc9dfc8202deef484eb00c5f45137f0a11f64f04a0597027887d47b5e537e`、`case_version`
+    `d829381de953cfeb01a4f12858f10e6f9353153b23c04bc6980d109e18ddbaa3`、14 件工件、`PASS`。
+    ① `evidence verify` `verified/sealed true`、`violations: []`；② `rejudge_evidence.py`
+    `status: agrees`（current 与 recorded 两边 5/5）；③ `replay` 两读 16 事件投影到 `STOPPED`、
+    `violations: []`；④ `report_promotion.py --work-package W50` 该行
+    `PASS/verified/sealed/AGREES/from_repository_build: true`，`bridge_digest faeec4a9…` 与配方 pin
+    相同、`launch_plan_digest 9e0e0ccc…` 与当前 build 相同。attempt 1（`7ef8b553…`、bundle
+    `e3e6ca36…`）原样保留，现读作 `re_judged: UNJUDGED`——判据移动使旧 verdict 回答的是本仓库
+    已不再问的问题，不追认、不覆盖、不改判。
+  - **未验证**：新 Bridge jar 字节的 Linux 逐字节复现（上一卡遗留）；其余四个 `SnapshotReason`
+    的运行时形状；`mandatory` 仍 `false`，本 case 不 gates W50。公网测试服（地址记于
+    `.tmp/local-test-server.txt`）
+    本轮未使用，也仍不能作判据端。
+  - **状态流转**：本卡 `NEXT → DONE`；`OFFLINE-IDENTITY-EVIDENCE-DESIGN-001`（交接阶段 C 的证据
+    设计卡）按第 1 项先登记为 `QUEUED`，提升为唯一 `NEXT` 写在紧随的下一个 commit；
+    `ADMIT-070-RECORD-SCHEMA-001` 继续 `QUEUED`。本地 HEAD、`refs/heads/codex/core-state-transition`
+    与 `refs/heads/main` 对 `ec082f3` 核对相同。
+
+- [x] **OFFLINE-IDENTITY-EVIDENCE-DESIGN-001（已完成，契约冻结 `308f38a` 已推送，卡已 `NEXT → DONE`）**：
+  冻结 OFF-A（`prism-parity`）/ OFF-B（`enum-aligned`）在 `OFFLINE-010/020/030` 上的可复判证据边界。
+  - **交接第 1 项的形状**：本卡在 `e0d92c3` 以 `QUEUED` 登记并推送，`8781434` 才提升为唯一 `NEXT`；
+    判据冻结在 `308f38a`，收卡与本条记录在它之后的这个 docs commit 里。
+  - **冻结前先对物核对，而不是先写判据**：`adapters/bridge/perception.py:76` 已把
+    `snapshot.session_identity` 送进首快照准入，`domain/session_material.py` 的
+    `SessionMaterialVerdict` 注释写着「evidence 可以原样记录」，但它的 `as_document()` **在全仓库没有
+    调用者**；`BridgeHelloAccepted` 的 payload 是 `{}`，`SessionStateTransitioned` 只有 `{from,to}`，
+    run document 无身份字段，真实 bundle 的 `asserter-inputs.json` 只有
+    `kin_id/run_id/username/previous_run_id`。结论：今天 bundle 里唯一与身份有关的可判读事实是否定形状
+    （`snapshot_rejections` 里的 `SESSION_MATERIAL_MISMATCH`），一份「身份正确」的运行什么都不留——
+    「没报错」与「根本没读身份材料」是同一个读数。缺口在 Core 的记录侧，不在 Bridge。
+  - **交付内容**：`docs/p0-offline-session-compatibility-contract.md` 新增
+    「OFFLINE-010 / 020 / 030 的可复判证据边界（2026-09-24 冻结）」——九行两列比较表（每格写明
+    来源 → sealed artifact → 判官字段）、五条判据（每条带反例，含「把 argv 里的 `offline`/`legacy`
+    抄进观测字段冒充观测」「credential 正文键出现即失败」「只有 argv 没有 Core 的行」）、
+    两次独立 run 的规则，以及 `OFFLINE-030` 按 `CORE-060` 先例拆成
+    `OFFLINE-030-PRISM-PARITY-001` / `OFFLINE-030-ENUM-ALIGNED-001`（父 id 保留与候选无关的那半边；
+    不改名、不删除、不重编号任何既有 id；只有 `offline-030` 的 fixture 需重新登记），
+    外加四条拆分假阳性测试。`OFFLINE-010/020/030` 三行 Case set 注记指向该节，两个子 id 逐字出现。
+  - **两轴自审发现并补明的一处矛盾**：「Bridge回报与成功判据」把 `identity_candidate_id` 列为客户端
+    上报字段，而客户端看不见产生这组 argv 的策略叫什么（`ClientSnapshot` 传的就是空串）。本卡没有为此
+    动 `proto/` 或产品（那是 `forbidden_paths`），而是把候选归因交给 Core 的 argv 记录 + Core 自己的
+    账本行，并在该节补一句说明，避免两处文本被后来的人读成矛盾。
+  - **门禁**：`uv run --frozen pytest -q` → 2071 passed / 2 skipped in 258.30s；Ruff check 干净、
+    `ruff format --check` 304 files already formatted；Pyright 0 errors；fixture digests OK、
+    case assertions OK (134 registered)、workflow pins OK、boundaries OK。本卡为 `LOCAL_ONLY`，
+    未跑真实客户端、未封 evidence。
+  - **状态流转**：本卡 `NEXT → DONE`；`OFFLINE-IDENTITY-LEDGER-FACT-001` → `OFFLINE-IDENTITY-CASE-001`
+    → `OFFLINE-IDENTITY-RUN-001` 三张按第 1 项先登记为 `QUEUED`，提升为唯一 `NEXT` 写在紧随的下一个
+    commit；`REAL-P0-CAMPAIGN-001.blocked_by` 从设计卡改指这三张（第 4 个场景仍未封证，
+    `scenario_progress` 保持 3/7）；`ADMIT-070-RECORD-SCHEMA-001` 继续 `QUEUED`。
+
+- [x] **OFFLINE-IDENTITY-LEDGER-FACT-001（已完成，交付 `ec8fb15` 已推送，卡已 `NEXT → DONE`）**：
+  让 Core 把首快照上已经得出的身份比对结论记成自己的一条账本行。
+  - **交接第 1 项的形状**：本卡在 `4d2beb7` 以 `QUEUED` 登记并推送，`1f85155` 才提升为唯一 `NEXT`；
+    产品代码与测试在 `ec8fb15`，收卡与本条记录在它之后的这个 docs commit 里。
+  - **交付前的事实核对**：`compare_session_material` 的结论一直在算，算完就丢——它落在
+    `SnapshotAdmission.session`，除了转成 `SESSION_MATERIAL_MISMATCH` 这一个否定形状外无人读取。
+    因此本卡不改比较语义、不动 `adapters/bridge/admission.py`，只在结论还带着一手材料的地方把它接出去。
+  - **四段接缝（整条沿用 `ResourcePackPolicyApplied` 的形状）**：`domain/session_material.py` 新增
+    `identity_ledger_record(recorded, reported, verdict)` 导出稳定字段名；
+    `cli/session_runtime.py` 新增可选回调 `on_session_identity(generation, record)`，在
+    `_admit_first_snapshot` 算出 admission 之后、按 verdict 行动之前触发；`cli/session.py` 记成
+    `SessionIdentityCompared`，`source`/`trust_class` 都是 `CORE`；事件名进
+    `adapters/sqlite/session_log.py` 的封闭集合（现 14 个名字）。payload 为判据 2 的七个观测字段加
+    `matched`/`mismatches`，CLI 再补 `session_id`/`generation`；不含 argv 文本、不含凭据正文。
+  - **acceptance ⑤ 的两次受控诊断（不封证）**：`--identity-candidate enum-aligned` 的 run
+    `6fbc61e47f4743cd9de10ee21f71f1f9`（`event.pos=1113`）与默认的 run
+    `c2dea6ce3bc14652b0f9f1bab98d3969`（`pos=1132`）各出一行 `SessionIdentityCompared`，都夹在
+    `JoinObserved` 与 `PlayableEstablished` 之间、都 `CORE/CORE`、都 `matched: true`。两次只差一处
+    观测：`observed_account_type` 分别为 `"LEGACY"` 与 `""`，而 `identity_candidate_id` 分别跟着
+    本次命令行读出 `enum-aligned` / `prism-parity`。归因与观测不是互为抄写——判据 1 那个「把 argv 里
+    的词抄进观测字段」的反例，在真实运行里被这两行直接排除。两次都以 `BRIDGE_LOST`／退出码 14 收尾
+    （受控停客户端，按既有政策不作判据）。
+  - **旧证据没漂**：同 build 读 ADMIT-070 attempt 2 bundle（`2a128d0d…` / `88ccc9df…`）——
+    `evidence verify` `PASS`、`rejudge_evidence.py` `agrees`/`PASS`、两个 `replay` 读者
+    `events: 16` / `violations: []`、`trace_sha256` 不变。断言源未改，`case_version` 未移动。
+  - **两轴自审**：规范轴发现并如实登记一处偏差——卡面 `scope` 写「一行一代」，实现是
+    **一次首快照比对一行**（契约测试同一 generation 出三行）。不改实现去凑那句话，因为同代里
+    「先被拒、后被接受」正是必须两行都在的形状；改为把「判据要自己指定读哪一行」写进
+    `OFFLINE-IDENTITY-CASE-001.depends_on`，沿用 `ec082f3` 的 closure-row 教训。实现轴：
+    `git show --stat ec8fb15` 只有 4 份产品文件 + 3 份测试；`proto/`、Bridge Java、
+    `adapters/launcher/offline_session.py`、case registry、`tests/fixtures/**`、既有断言源与 CI
+    未动；`BridgeHelloAccepted`/`SessionStateTransitioned` 的 payload 保持原样（本卡 `non_goals`）；
+    `OFFLINE-010/020/030` 的 `mandatory` 仍 `false`。
+  - **门禁（原始摘要）**：`uv run --frozen pytest -q` → 2076 passed / 2 skipped in 227.32s（+5：
+    身份记录单元四条、运行时链接一条；两个 skip 是既有平台跳过）；Ruff check 干净、
+    `ruff format --check` 304 files already formatted；Pyright 0 errors；fixture digests OK、
+    case assertions OK (134 registered)、workflow pins OK、boundaries OK。
+  - **状态流转**：本卡 `NEXT → DONE`；`OFFLINE-IDENTITY-CASE-001` 已登记为 `QUEUED`，提升为唯一
+    `NEXT` 写在紧随的下一个 commit；`OFFLINE-IDENTITY-RUN-001` 继续 `QUEUED`，
+    `ADMIT-070-RECORD-SCHEMA-001` 继续 `QUEUED`；`REAL-P0-CAMPAIGN-001.blocked_by` 改指后两张，
+    `scenario_progress` 保持 3/7。本地 HEAD、`refs/heads/codex/core-state-transition` 与
+    `refs/heads/main` 对 `ec8fb15` 核对相同。
+
+- [x] **OFFLINE-IDENTITY-CASE-001（已完成，交付 `2a84bbd` 已推送，卡已 `NEXT → DONE`）**：
+  把契约冻结的五条 OFFLINE-010/020/030 判据写成判官里的断言，并把 `OFFLINE-030` 的父/子拆分落到
+  registry、fixture、digest 与注册项上。
+  - **交接第 1 项的形状**：本卡在 `4d2beb7` 以 `QUEUED` 登记并推送，`ad8d482` 才提升为唯一 `NEXT`；
+    判官实现与测试在 `2a84bbd`，收卡与本条记录在它之后的这个 docs commit 里。前置卡
+    `OFFLINE-IDENTITY-LEDGER-FACT-001`（`ec8fb15`）交付的是**一次首快照比对一行**、不是一行一代，
+    所以判据自己指定读哪一行，没有依赖那个不成立的假设。
+  - **五条判据 → 五条断言**（`tools/assert_case_evidence.py`，+453 行）：判据 1
+    `this_run_started_the_identity_candidate_the_case_names` 读封存的 `orchestrator-trace.json`
+    （新常量 `ORCHESTRATOR_TRACE_ARTIFACT` → `RunMaterial.session_argv`）；判据 2
+    `core_recorded_the_identity_it_compared`、判据 3
+    `the_reported_session_is_the_identity_this_run_launched_with`、判据 4
+    `the_account_type_was_recorded_as_an_observation` 共用 `_identity_comparisons` 的读行规则；判据 5
+    `the_offline_identity_joined_and_the_server_agrees` 只问服务端那一侧，因而留在父 case。
+  - **判据 1 的两半与四种拒绝**：argv 没点名候选 ⇒ `CANDIDATE_NOT_NAMED_IN_ARGV`（`candidate_by_id(None)`
+    回退到第一列，"没点名"实际等于默认值，归因必须拒它）、点名两次 ⇒
+    `CANDIDATE_NAMED_TWICE_IN_ARGV`、点了不存在的候选 ⇒ `CANDIDATE_NOT_REVIEWED`、trace 压根没封
+    ⇒ `LAUNCH_ARGV_UNRECORDED`。最后一种与「封了但 argv 为空」是两回事，由
+    `test_a_bundle_that_sealed_no_trace_recorded_no_argv_rather_than_an_empty_one` 钉住；
+    `None` 与 `()` 在 material 里是两个字段值，不是巧合。
+  - **判据 2/3/4 的共享形状**：`position/session_id/generation` 刻意不进比较元组——同一 session 的
+    两次比对正是只在这三格上不同，因此读全部行并要求逐格一致（`ROWS_DISAGREE`）；单行内
+    `matched` 与 `mismatches` 互为印证（`ROW_CONTRADICTS_ITSELF`，判据 2 第一轮跑出 24 条红的就是
+    把空列表读成了 `False`）；credential 正文键出现即 `CREDENTIAL_BODY_KEY:<key>`，键名直接取自产品侧
+    `SECRET_CLASSIFICATION` 而不是在判官里重抄一份。判据 4 只问记录在不在：整格缺失时它答
+    `ACCOUNT_TYPE_NOT_RECORDED`（缺口就是它的发现），2/3 读同一形状时仍按结构损坏拒绝——这条翻译
+    只在判据 4 内部做，不塞进共享闸门。
+  - **拆分落地**：`src/minekin_core/domain/cases.py` 只新增 `OFFLINE-030-PRISM-PARITY-001` /
+    `OFFLINE-030-ENUM-ALIGNED-001` 两个 id（照 `CORE-060` 先例，不改名、不删除、不重编号）；
+    `offline-010/020.json` 与两个子 fixture 挂 1/2/3/4（子 case 再挂 5），`offline-030.json`
+    只挂 5——所以一份 bundle 永远答不了两列；`tools/check_case_assertions.py` 注册 5 条
+    （134 → 139），`tests/fixtures/manifest.sha256` 加 5 行。
+  - **一次已经避免的越界（本轮最重要的教训）**：实现中一度让 `ADMIT-070` 的
+    `the_first_snapshot_was_refused_by_the_reason_the_case_names` 改用新的共用 helper 读
+    `snapshot_rejections`，`tools/check_case_assertions.py --record` 随即移动了
+    `tests/fixtures/cases/admit-070.json` 的 `assertion_digests`（`718d7ccc…` → `8194f472…`）。
+    digest 取的是**断言函数的源码文本**，`tools/rejudge_evidence.py:130` 拿 `case_version` 比对，
+    于是那次改动会让已封的 ADMIT-070 `PASS` bundle 复判为不可判。断言本体已恢复原样，共享 helper
+    只服务新判据，理由写进了 helper 的 docstring。收卡前的核对方式：`git status` 里
+    `tests/fixtures/cases/admit-*.json` 与其余既有 fixture 一律无改动。
+  - **门禁（原始摘要）**：`uv run --frozen pytest -q` → 2140 passed / 2 skipped in 311.44s
+    （本卡新增 19 个测试函数，参数化展开后比上一卡基线多 64 条；两个 skip 是既有平台跳过）；
+    Ruff check 干净、`ruff format --check` 干净；Pyright 0 errors（补 `_Asserter` Protocol 的
+    `ASSERTER_INPUTS`/`ORCHESTRATOR_TRACE_ARTIFACT`/`read_sealed_material` 三个成员，
+    两次多余的 `cast` 被 `reportUnnecessaryCast` 退回后删除）；case assertions OK (139 registered)、
+    fixture digests OK、workflow pins OK、boundaries OK、`git diff --check` 干净。收卡时重跑
+    五份 fixture 的 `run_repo_case.py`：逐份 `INCOMPLETE` + 每条断言 `NO_IMPLEMENTATION`，
+    预期分布与注册一致（父 `offline-030` 只有一条）。
+  - **未验证**：五条判据从未见过真实 bundle（本卡 `non_goals`），`OFFLINE-010/020/030` 与两个子 id
+    的 `mandatory` 全部仍 `false`，`evidence/` 下没有新增、修改或重封任何 bundle；live 侧的 argv
+    hand-off 未做（见下）；新 Bridge jar 字节的 Linux 逐字节复现仍遗留；公网测试服本轮未使用，
+    也仍不能作判据端（地址只记在本地未跟踪文件里）。
+  - **状态流转**：本卡 `NEXT → DONE`；`OFFLINE-IDENTITY-SEALED-ARGV-001` 提升为唯一 `NEXT` 写在紧随的
+    下一个 commit（它的 `depends_on` 就是本卡），`OFFLINE-IDENTITY-RUN-001` 继续 `QUEUED`；
+    `REAL-P0-CAMPAIGN-001.blocked_by` 链里本卡已标 `DONE（2a84bbd）`，链上还剩那两张；
+    `ADMIT-070-RECORD-SCHEMA-001` 继续 `QUEUED`，它自己写明不是任何封证卡的下一张，因此不排进这条链；
+    `scenario_progress` 保持 3/7。本地 HEAD、`refs/heads/codex/core-state-transition` 与
+    `refs/heads/main` 对 `2a84bbd` 核对相同。
+
+- [x] **OFFLINE-IDENTITY-SEALED-ARGV-001（已完成，交付 `d8348a3` 已推送，卡已 `NEXT → DONE`）**：
+  让封存当时的 live 判读也拿到那份 argv，判据 ① 才在封存现场与复判现场读成同一件事。
+  - **交接第 1 项的形状**：本卡在 `9ffe980` 以 `QUEUED` 登记并推送，`58c9d8f`（上一卡收卡的紧随
+    commit）才提升为唯一 `NEXT`；改动在 `d8348a3`，收卡与本条记录在它之后的 docs commit 里。
+    `allowed_paths` 是 `tools/seal_run_evidence.py`、`tools/assert_case_evidence.py`（只加入参）、
+    `tests/unit/test_seal_run_evidence.py` 加两份文档——交付只碰这三份代码/测试文件
+    （+236 / −5），runner、fixture、bundle、产品代码一律无改动，`git status` 可核。
+  - **为什么不产生第二份真相**：`seal()` 里那份 `session_argv` 与 `orchestrator_trace(...)` 往
+    `session_argv` 字段写进去的是**同一个变量**（`tools/seal_run_evidence.py:745`）。本卡把这个变量
+    在 `:678` 交给 `run_asserter`、在 `:688` 交给 `read_run_material`，于是 live 判读与 bundle 各自
+    取用的是同一份，中间没有一份需要保持同步的副本。判据 ① 因此第一次在封存现场拿到了它一直在问的
+    那件事：操作者点名了哪一列。
+  - **一条归一规则，两处收口**：新增 `recorded_argv`（`tools/assert_case_evidence.py:479`），
+    `read_run_material` 的入参与 `_trace_argv` 都走它，规则是「空 ⇒ `None`」。这让
+    `seal()` 的默认 `()`、封存下来的 `[]`、根本没有 trace 三种情形在两条读路上都读成「什么都没记下」
+    ⇒ `LAUNCH_ARGV_UNRECORDED`。`_trace_argv` 的 docstring 早就写了这层意思而代码没做到，本卡顺手
+    把两者对齐——不改判据语义，只把「未记录」与「记录了但没选」这条已冻结的区分补全到 live 侧。
+  - **交接通道**：判官 CLI 新增 `--session-argv-json`（普通 JSON 旗，不是 `REMAINDER`，因此不要求
+    放最后），非 JSON 或非字符串列表直接 `_reject`——判不出就不封，而不是按空 argv 判过去。
+  - **四条新测试各钉住什么**：① `test_the_argv_the_seal_writes_is_the_argv_the_live_judgement_reads`
+    ——三处逐字相同（live 字段 = 封存读路 = trace 工件）；②
+    `test_the_live_judge_can_refuse_a_launch_on_the_argv_it_was_handed`——用**真的** `run_asserter`
+    子进程对同一个 run 判出三种不同拒绝：点名对列 ⇒ `CORE_NAMED_NO_CANDIDATE`（这个 run 没记身份行，
+    点名对了也还得拒）、点名另一列 ⇒ `ARGV_NAMES:enum-aligned`、没点名 ⇒
+    `CANDIDATE_NOT_NAMED_IN_ARGV`；③ `test_a_seal_that_never_saw_an_argv_says_so_the_same_way_twice`
+    ——验收 ② 本体：两侧同判 `LAUNCH_ARGV_UNRECORDED`；④
+    `test_an_offline_launch_judged_live_and_re_judged_disagrees_about_nothing`——封 OFFLINE-010 后
+    `REJUDGE.rejudge` 读 `disagreements == []`，并把 failures 按位置（不是按集合）比相等且确有多条。
+  - **第 ④ 条测试顺手挖出的第二个缺陷**：`assertions_from` 对 failures 做了 `sorted()`，而
+    `rejudge_evidence.disagreements` 是按**位置**比 `expected`/`observed`/`failures` 的。单条失败两种
+    写法看不出差别，所以这缺陷一直藏着；一次 OFFLINE-010 封证有两条判据一起拒绝，就露出
+    `FAILURES:recorded=<字母序>,re-judged=<声明序>`——一份 bundle 的封存 verdict 用它自己的字节复现
+    不出来。修法：去掉那次排序（`observed` 从来没排过，判据字节不动）。影响面已核对：`.tmp/data` 下
+    现存 bundle 中没有一份记录了 2 条以上失败（脚本扫全部 `manifest.json` 返回 0），PASS bundle 的
+    failures 为空，所以没有旧证据因这次改动改变读数；要改的期望只有 core-020 那三条失败一处，按
+    fixture 的实际声明顺序重写并写明理由。
+  - **门禁（原始摘要）**：`uv run --frozen pytest -q` → `2144 passed / 2 skipped in 276.75s`
+    （本卡新增 4 个测试函数，2140 → 2144；两处 skip 是既有平台跳过）；`ruff check . -q` 干净、
+    `ruff format --check .` 304 份文件干净（新测试里一处换行由 `ruff format` 收干后单文件重跑 57
+    passed）；Pyright `0 errors, 0 warnings, 0 informations`；`check_case_assertions.py` OK
+    （139 registered，与上一卡相同 ⇒ 判据字节没动）、`verify_fixture_digests.py`
+    `W00 schema and fixture digests: OK`、`check_boundaries.py` OK、`check_workflow_pins.py` OK、
+    `git diff --check` 干净。
+  - **未验证**：验收 ① 的**真实受控运行**那一半未在本卡兑现——本卡 `non_goals` 写明「不在本卡封
+    OFF-A/OFF-B 证据」，且 `domain.sh` 里至今没有 OFFLINE 场景分支（grep `identity-candidate`、
+    `offline-0` 均为空）。这条检查随 `OFFLINE-IDENTITY-RUN-001` 的头一次真实封证执行，提升那张卡时
+    写进它的 `acceptance`。另记一条形状限制：runner 早已在 `domain.sh:1923` 用 `--session-argv "$@"`
+    把命令行交给 sealer（所以本卡不需要动 runner），但同一脚本 `:734` 以
+    `python -m minekin_core "$@" "${lan_args[@]}"` 启动 Core，脚本自己追加的 LAN 连接参数不在这份
+    argv 里——封存的是「操作者那一段命令行」而非进程完整 argv；判据 ① 问的恰是前者，够用，如实记下。
+    新 Bridge jar 字节的 Linux 逐字节复现仍遗留；公网测试服本轮未使用，也仍不能作判据端。
+  - **状态流转**：本卡 `NEXT → DONE`；`OFFLINE-IDENTITY-RUN-001` 提升为唯一 `NEXT` 写在紧随的下一个
+    commit（它的 `depends_on` 就是本卡），`ADMIT-070-RECORD-SCHEMA-001` 继续 `QUEUED` 且不排进这条链；
+    `REAL-P0-CAMPAIGN-001.blocked_by` 链上本卡已标 `DONE（d8348a3）`，只剩 `RUN-001` 一张；
+    `scenario_progress` 保持 3/7。本地 HEAD、`refs/heads/codex/core-state-transition` 与
+    `refs/heads/main` 对 `d8348a3` 核对相同。
+
+- [x] **OFFLINE-IDENTITY-RUN-001（已完成，证据在本条与契约注记里，卡已 `NEXT → DONE`，判据 5 未闭合）**：
+  在受控 loopback 上把 OFF-A（`prism-parity`）与 OFF-B（`enum-aligned`）各封一份真实 bundle，并让
+  四个读者读同一份材料给出同一结论；同时兑现 `SEALED-ARGV-001` 收卡时欠下的那一半验收。
+  - **没有改 runner**：`why_now` 预判的阻碍（runner 里没有 OFFLINE 场景分支）实际没挡路。两跑都走
+    现成的 `run.sh domain session start --profile … --server-profile … --identity-candidate <列>`，
+    `MINEKIN_DOMAIN_CASE` 分别设为 `OFFLINE-010`/`OFFLINE-020`；`--identity-candidate` 作为
+    `REMAINDER` 进到 Core，并被 `domain.sh:1923` 原样交给 sealer 的 `--session-argv`——这条通道
+    头一次在真实运行里走到。产品代码、Bridge、registry、fixtures 全部未动。
+  - **OFF-A**：run `f2ecb728df754826abf4a052be138a2d`、server 目录 `run-129`、session
+    `d852ccf0ffde42cba3edc25bd72d5766`、`argv_digest 0f4bff0d…`、ledger 里 `PLAYABLE`
+    （run document `snapshots_admitted 1`、`entities_admitted 6`、`snapshot_rejections []`；
+    run document 自身 `status` 是 `started`、`recovery.status` 是 `reconciled`——`PLAYABLE` 不在
+    run document 的状态字段里）。封证：attempt 1、
+    `supersedes_run_id null`、13 件工件、`result PASS`、`failures []`、
+    `case_version 78053e9e31bfba6c…`、bundle `184d636cf028cd05eaf61ca36706ad8aa4576780c4c01e041f07c6f82728ed20`，
+    现场 `evidence verify` 为 `verified: true`。
+  - **OFF-B**：run `3d5606ced37849e3b17a4c418fa33ab4`、session `6e92b314ba0e4ec69ece37b5437cbc2f`、
+    `argv_digest e26e5661…`、ledger 里 `PLAYABLE`（run document `snapshots_admitted 1`、
+    `entities_admitted 10`、`snapshot_rejections []`）。封证：
+    attempt 1、`PASS`、`failures []`、13 件工件、`case_version ff451ea358546639…`、
+    bundle `ff68f67d51ba15afc35efafd89ca8781f31b0a02ed60ea9d9a10b9a2d7de45d8`。
+  - **四个读者**：两份 bundle 的 `rejudge` 都是 `disagreements: []` 且重判 `PASS`（4 条断言
+    expected/observed 逐位相同）；`python -m minekin_core replay` 与 `tools/replay_evidence.py`
+    都退出 0、19 事件、投影 `STOPPED`；`tools/report_promotion.py` 两行都是
+    `PASS / verified: true / sealed: true / re_judged: AGREES / from_repository_build: true`。
+    该工具整体结论仍是 `blocked`（41 条 mandatory 未封完），与本卡无关，如实记着。
+  - **承接的那一半验收**：判据 ① 的 live 判读与 rejudge 在两列上都同结论（都是 `PASS`，都没有
+    `LAUNCH_ARGV_UNRECORDED`）。另在真字节上补了两组对照：把封存材料的 `session_argv` 换成 `None`
+    再判 → `FAIL …:LAUNCH_ARGV_UNRECORDED`（证明 PASS 确实来自那份 argv）；跨列喂 →
+    `OFFLINE-020` 读 OFF-A 得 `FAIL ARGV_NAMES:prism-parity`，`OFFLINE-010` 读 OFF-B 得
+    `FAIL ARGV_NAMES:enum-aligned`。
+  - **不预设的观测值**：OFF-A 的 `SessionIdentityCompared` payload 里 `observed_account_type` 是
+    **空串**，OFF-B 是 **`LEGACY`**；两列 username/UUID 同为 `Kin`/`8f40376b-c23f-3ef1-b553-5564eea75639`，
+    `matched true`、`mismatches []`、两个 presence 布尔都 `false`、`credential_values_exposed false`。
+    **由此留给主控一件事**：契约晋级条件 2 要求「AccountType 被明确记录」，判据 4 只保证键被记录且是
+    观测值——OFF-A 读到的是存在但为空串，这一条是人读，本卡不替它下结论、也没为对照好看而重跑。
+  - **退出码 14 不是 verdict**：两次 `run.sh domain` 都以 14（`BRIDGE_LOST`）结束，那是 harness 主动
+    停客户端；结论只来自 seal 报告与四个读者。
+  - **未闭合的那半句（判据 5）**：本卡验收 ① 写的是「判据 1/2/3/5」，实际封的 `OFFLINE-010`/`OFFLINE-020`
+    各自承载 1/2/3/4；1/2/3/5 是两个 `OFFLINE-030-*-001` 子 case 的形状，而子 case **封不进 harness**：
+    `domain.sh:172` 把 `MINEKIN_DOMAIN_CASE` 直接小写当 fixture 文件名，于是
+    `OFFLINE-030-PRISM-PARITY-001` 会去找 `offline-030-prism-parity-001.json`，真实文件却叫
+    `offline-030-prism-parity.json`（`-001` 是 case id 的后缀，不是文件名的一部分）。改 `domain.sh`
+    撞本卡 `forbidden_paths`，改 fixture/registry 越出本卡范围——按「先修订任务卡范围再动手」的纪律
+    **不就地 hack**，登记为 `OFFLINE-030-CASE-FILENAME-001`（`QUEUED`）承接判据 5。
+  - **门禁原始摘要**：本卡零代码改动，收卡跑快门禁并按原样绿——`verify_fixture_digests.py`
+    `W00 schema and fixture digests: OK`、`check_case_assertions.py` `OK (139 registered)`
+    （判据字节未移动）、`check_boundaries.py` OK、`check_workflow_pins.py` OK、`git diff --check` 干净。
+  - **状态流转**：本卡 `NEXT → DONE`（含上面那条未闭合判据的显式注记）；紧随的 commit 提升
+    `OFFLINE-030-CASE-FILENAME-001`；`ADMIT-070-RECORD-SCHEMA-001` 继续 `QUEUED` 且不排进这条链；
+    `REAL-P0-CAMPAIGN-001` 仍 `BLOCKED_EVIDENCE`（`blocked_by` 链上的 `RUN-001` 已标 `DONE`，
+    第 4 个场景只剩判据 5，第 5/6/7 个场景未动）；`scenario_progress` 由 3/7 记为
+    「3 完整 + 第 4 个场景两列各一份 PASS」。新 Bridge jar 字节的 Linux 逐字节复现仍遗留；
+    公网测试服本轮未使用，也仍不能作判据端。
+
+- [x] **OFFLINE-030-CASE-FILENAME-001（已完成，卡已 `NEXT → DONE`）**：把 `MINEKIN_DOMAIN_CASE`
+  找不回 fixture 的那条阻断解掉，让契约判据 5（A/B 分别加入）第一次拥有真实 bundle。
+  - **本卡是「先修订任务卡范围再动手」那条纪律的头一次正面执行**：登记时把出路写成二选一
+    （runner 侧改解析 / fixture 侧改名）并倾向后者之外的**前者**，理由写着「改名会移动已登记 fixture
+    的 `case_version`」。动手前对两条路各核一遍，发现这条前提是读错的：
+    `src/minekin_core/domain/cases.py:731-733` 的 `digest` 是
+    `sha256(json.dumps(document, sort_keys=True, separators=(",", ":")))`，只看 manifest 的内容，
+    文件名不参与；两份子 fixture 的 `inputs` 为空、内容里也没有钉自身路径（`assertion_digests`
+    钉的是判官源码）。于是**先用 `2d56a07` 把卡片的 `allowed_paths`/`acceptance` 改成选定路线并
+    记录翻转依据，再碰 fixture 与测试**（`cf9b387` 才是交付），而不是静默换路，也不是做完再追认。
+  - **runner 侧那条为什么划掉**（写在卡片 `allowed_paths` 里，不只写在结论里）：`domain.sh` 的
+    case→fixture 小写派生在 43 份 fixture 里对 41 份成立，唯一的两个例外正是本卡要改的文件——
+    为一条补全即成立的约定永久多加一套机制不划算；而且 `domain.sh` 在 Windows 侧的 pytest 里不便
+    单独执行，反例测试只能改成在 Python 里镜像一遍小写规则，那是第二份真相。
+  - **改动的字节**：`tests/fixtures/cases/offline-030-prism-parity.json` →
+    `offline-030-prism-parity-001.json`、`offline-030-enum-aligned.json` →
+    `offline-030-enum-aligned-001.json`（两次 `git mv`，`similarity index 100%`）、
+    `tests/fixtures/manifest.sha256` 那两行的**路径字段**（digest 值 `84ed4701…`/`2cda33af…` 未变）、
+    `tests/unit/test_case_evidence_assertions.py:5405-5406` 两个常量、
+    `tests/unit/test_case_registry.py` 两条新测试、三份文档。产品代码、`cases.py`、`domain.sh`、
+    任何 case id、任何 `mandatory` 字段、任何旧 bundle 都没动。
+  - **改名不动证据（实测，非断言）**：改名前后 `load_case_manifest(...).digest` 逐字相同——
+    `229750d9f27555bc5c75065d504ee08e7c98c43ea22f403c2f4725a76688ece7`（PRISM-PARITY 子 case）与
+    `377aa638e36a20cf3c81cd11b23eafebf70c4f61040a6be004a4d688b95db870`（ENUM-ALIGNED 子 case），
+    且与随后真封的两份 bundle 里的 `case_version` 字段一致。`check_case_assertions.py` 仍报
+    `OK (139 registered)`，即移动过的判据字节为 0。
+  - **约定测试先红后绿**：`test_every_reviewed_case_is_filed_under_the_name_its_id_derives` 在改名前
+    跑过一次，`1 failed, 2 passed`，失败项正是那两份 `offline-030-*`；改名后绿。
+    `test_a_case_with_no_fixture_is_reported_absent_rather_than_judged_from_nothing` 在 `tmp_path` 里
+    搬走一份子 fixture 后断言 `registry.by_id()` 没有它、且它在 `registry.requirement("W30").absent`
+    里——「找不到」与「指向一个空文件」这两种失败被分开钉住。
+    **没有**在 Python 里镜像 `domain.sh` 的小写规则，理由如上（第二份真相）。
+  - **判据 5 的真实 bundle（两张，各四读一致）**：OFF-A/`OFFLINE-030-PRISM-PARITY-001` run
+    `ee9d5ad3d57344da8452069102e27216`、session `7696999c3d1143ad80c4e154e7239f8f`、server 目录
+    `run-131`、`argv_digest 2c328d39ccbc8469b5af51a5f4b87e906712c41f87ab348cffb86f6e1f0a5868`、
+    bundle `cdb8e53f67d54d5171b2d23741a20d5351bb59c1c7136ffa2f3a53c5d4734295`；
+    OFF-B/`OFFLINE-030-ENUM-ALIGNED-001` run `cb5e2119845e41868c28e5aeb1370ce3`、session
+    `0f0850c198ed4e8ba3b6473c4a74e04c`、`run-132`、`argv_digest 528c4981e6065c15…`、bundle
+    `b90cb29b664a872133ffec208634723e37330c357f8876390b17eee2093ee90e`。两份都是 attempt 1、
+    `supersedes_run_id null`、13 件工件、`result PASS`、`failures []`、现场 `verified: true`/
+    `violations []`；rejudge `disagreements: []` 且重判 `PASS`；两路 replay 都 exit 0、19 事件；
+    `report_promotion.py` 两行都是 `PASS / sealed / verified / re_judged: AGREES /
+    from_repository_build: true`，`bridge_digest faeec4a9df83abb9…`、
+    `launch_plan_digest 9e0e0ccca9d0a589…` 与 `RUN-001` 那两列同一（同一份 reviewed build）。
+    该工具对 W30 整体仍 exit 1（包里还有未封 case），与这两条无关。
+  - **判据 5 需要的是「同一份 bundle 两端都能读」而不是跨 run 拼**：服务端侧
+    `online-mode=false`、`Kin joined the game`、usercache `Kin/8f40376b-c23f-3ef1-b553-5564eea75639`；
+    客户端侧 run document `connection_state PLAYABLE`、`snapshots_admitted 1`、`snapshot_rejections []`、
+    `entities_admitted 10`。
+  - **反例仍在真字节上跑**：`OFFLINE-030-PRISM-PARITY-001` 的 case 判 OFF-B 那份 →
+    `FAIL …:ARGV_NAMES:enum-aligned`，反向 → `FAIL …:ARGV_NAMES:prism-parity`；同一份材料把
+    `session_argv` 换成 `None` 再判 → `FAIL …:LAUNCH_ARGV_UNRECORDED`。改名没有把归因判据变成永真。
+  - **退出码 14 不是 verdict**：两次 `run.sh domain` 都以 14（`BRIDGE_LOST`、`session_state STOPPED`）
+    结束，是 harness 主动停客户端；结论只来自 seal 报告与四个读者。
+  - **如实保留的两条边界**：① 父 `OFFLINE-030` 以自己的 id **仍然没有 bundle**——它那一条断言
+    （离线身份入服且服务端认同）已经在两份子 bundle 里逐条判过，再封一份只是同一材料的子集，因此
+    没为它跑第三次；`report_promotion.py` 的 W30 报告里查不到 `case_id: OFFLINE-030` 的条目，
+    这是事实不是工具缺陷。② 这次改名没有任何历史 bundle 要读作 `UNJUDGED`，因为这两个子 id 在改名前
+    本来一份都没封出；「改名不动证据」这条前提对**已封过**的 case 不再自动安全，将来若再动别的
+    文件名必须重新核，不能照抄本卡。
+  - **门禁原始摘要**：收卡时在工作树（含本次文档改动）重跑全量——`uv run --frozen pytest -q`
+    `2146 passed / 2 skipped in 316.19s`、`ruff check . -q` exit 0、`ruff format --check .`
+    `304 files already formatted`、`pyright` `0 errors, 0 warnings, 0 informations`、
+    `verify_fixture_digests.py` `W00 schema and fixture digests: OK`、`check_case_assertions.py`
+    `OK (139 registered)`、`check_boundaries.py` OK、`check_workflow_pins.py` OK、
+    `git diff --check` 干净。
+  - **状态流转**：本卡 `NEXT → DONE`；`REAL-P0-CAMPAIGN-001` 的 `scenario_progress` 由
+    「3 完整 + 第 4 个场景只剩判据 5」记为 **4/7**，`blocked_by` 链上第 4 个场景不再有未闭合卡，
+    战役本身仍 `BLOCKED_EVIDENCE`（第 5/6/7 个场景未动，且第 5 个场景当时没有登记任何卡）。
+    `current_next` 本条 commit 之后为空；随后两个 commit 各做一件事——先以 `QUEUED` 登记
+    `CRASH-OUTBOX-EVIDENCE-DESIGN-001`（campaign `order` 第 5 个场景的判据冻结，先例：
+    `ADMIT-070-EVIDENCE-DESIGN-001`、`OFFLINE-IDENTITY-EVIDENCE-DESIGN-001`），再把它提升为唯一
+    `NEXT`（登记的同一 commit 不直接写 `NEXT`）。
+    `ADMIT-070-RECORD-SCHEMA-001` 继续 `QUEUED` 且不排进这条链。新 Bridge jar 字节的 Linux 逐字节
+    复现仍遗留；公网测试服本轮未使用，也仍不能作判据端。
+
+- [x] **CRASH-OUTBOX-EVIDENCE-DESIGN-001（已完成，卡已 `NEXT → DONE`）**：campaign `order` 第 5 个
+  场景（crash / outbox / restart 窗口）的**判据冻结**卡。它不封证据，交出的是一份逐窗口的读数，
+  落在 `docs/p0-validation-evidence-contract.md:198-246` 那张六行表里。
+  - **动手前先把「仍缺哪些窗口」从提问换成量出来的事实**（阶段 D 那句「按契约与已有 fixture 列出仍缺的
+    具体窗口」）。方式是读当前文件，不是引用旧结论：`domain.sh:24-28` 有 `MINEKIN_DOMAIN_KILL_CORE`、
+    `MINEKIN_DOMAIN_KILL_SERVER`、`MINEKIN_DOMAIN_KILL_CLIENT` 三个开关，分别在 `:1233`、`:1316`、
+    `:1389` 各自成块；`--hold-at` 在 `:365/378` 只是被解析成 `hold_at`，**不暂停任何进程**（它只是让
+    Core 在 `JOIN_SEEN` 提前索要租约并被拒，那正是 `CORE-050` 要读的东西）。于是五个已定义窗口——
+    runtime 强杀 / client 强杀 / server 强杀 / 崩溃后重启重验（`CORE-090` 的两连跑，形状照
+    `development-todo.md:529` 那次实测）/ 正常退出（`CORE-020` 的 `leave_after_join_observed`）——
+    **都有 case id、断言与开关，一个都不缺定义**。
+  - **缺的是当前 build 上的 attempt**，这条也是量的：`tools/report_promotion.py` 对数据卷上那五份旧
+    `PASS`（`CORE-060` `6b6dcdf7…`、`CORE-060-SERVER-001` `652043a6…`、`CORE-060-CLIENT-001`
+    `e00f2851…`、`CORE-090` `c993c801…`、`CORE-020` `79ac9a14…`，另有一份保留的旧 `CORE-060` `FAIL`
+    `6d4bf5eb…`）一律给 `from_repository_build: false`，`bridge_digest` 是 `580daa93…`/`f02741f5…`，
+    而本 build 是 `faeec4a9…`；五案的 `case_version` 也**全部移动过**（fixture 钉的是判官源码的摘要，
+    这些年判官长了新断言），表里逐对写短摘要。所以它们对今天的判据读作 `re_judged: UNJUDGED`，
+    reason 逐字是「the criteria moved, so the recorded verdict answers a question this repository no
+    longer asks」。**原样留着**：不追认、不重判、不拿它充当场景闭合——这是契约那句「保留旧 PASS」的
+    一次具体执行，而不是又一次重跑。
+  - **第六个窗口按构造打不中，而且理由要说准**：崩溃落在「`START_CLIENT` 意图已写下、效果还没 settle」
+    之间留下的 pending outbox。意图写在 `cli/session.py:719-721`，排在同文件 `:723` 的
+    `supervisor.start(...)` **之前**，settle 在 `:750`（成功）/`:734`（失败）；而 kill 块要等到
+    `domain.sh:1250` 那个条件成立才动手——**不同横坐标数 ≥ 2**，即 Kin 真的走过之后。曾经加过的
+    `KILL_CORE=early` 在代码里零残留（全仓 `early` 只命中文档）。这一半归本地证据
+    （`tests/unit/test_recovery_service.py:236` 真 `sqlite3.connect`、`:339` 真
+    `SessionEventLog(...).open_effect(...)`）。**冻结时纠正了自己一开始的一句轻率话**：原本写「要让它
+    可达是 runner 改动」，但那两段区间在产品代码内部，`domain.sh` 加一次等待是够不着的——诚实的写法是
+    两条候选路：在产品代码插停顿（为封证改被测物，**拒绝**），或从外部把被 spawn 的客户端拖慢
+    （`MINEKIN_JAVA`，`config.py:21`，在 `bootstrap.py:113` 解析）——**未实测**：它是否只作用于客户端、
+    慢 spawn 会不会同时改掉这轮所观察的东西都没有读数，将来要走须另起一张含 `test-orchestrator/` 的卡
+    先测。本卡只登记这个需要，不顺手试。
+  - **验收 ②「需要新登记卡的窗口当场登记」执行成一张卡**：`CRASH-OUTBOX-RESEAL-001` 在收卡的同一
+    commit 以 `QUEUED` 登记，`allowed_paths` 只有四份文档——重封不需要改任何代码，改了就说明冻结的
+    读数不成立；`forbidden_paths` 明确含 `src/`、`tools/`、`test-orchestrator/`、`tests/` 与那五份
+    旧 bundle，runner 侧与产品侧没有混进同一张。启动窗口那一半**没有**登记卡，理由如上（阶段 D 本来就
+    授权它作为本地证据）。
+  - **收卡前把 digest 又量了一遍，这次绕开容器**：`minekin-runner:local` 这个镜像在本机 Docker 引擎里
+    已经没了（`docker images` 无命中），但 `minekin-runner-data` 卷还在——用 `alpine` 直接挂卷读那五份
+    `manifest.json`，`case_version` 逐字仍是 `30ac59a0…`/`d4850165…`/`e8d03e1b…`/`4b0ba855…`/
+    `090c8253…`，`bridge_digest` 是 `f02741f5…`（`CORE-060`、`CORE-020`）与 `580daa93…`（另三份），
+    五份 `result: PASS`、保留那份旧 `CORE-060` 仍 `FAIL`；当前 fixture 侧用
+    `adapters.evidence.promotion.load_case_manifest` 算出 `d1ea32d8…`/`50ca1ae2…`/`dc85eb04…`/
+    `88fa467d…`/`7c01d11e…`。表里五对逐字对得上，「`from_repository_build: false` 是因为 bridge digest
+    真的不是本 build 那份」这条也就独立成立，不依赖报告工具的措辞。
+  - **门禁（纯文档卡，未跑 Minecraft）**：full pytest `2146 passed / 2 skipped in 518.56s`、
+    `ruff check . -q` exit 0、`ruff format --check .` `304 files already formatted`、`pyright`
+    `0 errors, 0 warnings, 0 informations`、`check_boundaries.py` OK、`check_case_assertions.py`
+    `OK (139 registered)`、`verify_fixture_digests.py` OK、`check_workflow_pins.py` OK、
+    `git diff --check` 干净。
+  - **状态流转**：本卡 `NEXT → DONE`（交付 `72aec3e`，收卡 commit 同时登记 `CRASH-OUTBOX-RESEAL-001`
+    为 `QUEUED`）；`REAL-P0-CAMPAIGN-001` 的 `scenario_progress` 仍是 **4/7**（第 5 个场景没有新增
+    bundle，冻结的不是闭合），`blocked_by` 尾巴改成「第 5 个场景已有冻结与一张待执行的真实运行卡」。
+    `current_next` 本条 commit 之后为空，由紧随的 commit 提升 `CRASH-OUTBOX-RESEAL-001`。
+    `ADMIT-070-RECORD-SCHEMA-001` 继续 `QUEUED` 且不排进这条链；HOST/PERSIST/retention/
+    process-recovery 仍等主控决策。公网测试服本轮未使用，也仍不能作判据端。
+
+- [x] **CRASH-OUTBOX-RESEAL-001（`DONE` 5/5，campaign 第 5 场景封齐、`scenario_progress` 5/7）**：campaign
+  `order` 第 5 个场景的**真实重封**——五个已定义窗口各在当前 build 上封一份 bundle。前置是本卡当场
+  发现的第二个封存面阻断，已另起 `CRASH-OUTBOX-SEALED-KIN-001` 并交付（`2160989`）；runtime 那一格的最后
+  硬阻断由 `CRASH-OUTBOX-ALIVE-DISPLAY-001`（交付 `f90abc8`）解掉，五案于 current build 全部 `PASS`、四读一致。
+  - **环境已就位**：`minekin-runner:local` 镜像按 Dockerfile 重建完成（镜像 id `fed4a143f2e4`），
+    `minekin-runner-data` 卷原样保留（旧的五份 PASS 与那份 FAIL 一个没动，登记前照其复核了五对
+    `case_version` 与两个旧 `bridge_digest`）。
+  - **第一次 `CORE-060` attempt 封不上**（run id `3e7ac6124d3549598ad85259d2b8b54f`）：注入成功
+    （`INJECTED`、session 退出 137），sealer 报 `exit 2 / unsealed`——
+    `/tmp/domain-session.json is not a readable run document`。**这次没有 bundle**，卷上无物可留可撤。
+  - **读数**：`domain.sh:1886-1889` 用「文件有没有字节」回答「Core 打没打出文档」；session 跑在
+    `xvfb-run` 里，其 `/usr/bin/xvfb-run:184` 是 `"$@" 2>&1`，于是被 SIGKILL 的 runtime controller 的
+    死讯 `Killed` 落在文档同一条流上。三次容器内只读探针（`.tmp/killed_stdout_probe.sh`）：只杀内层
+    python → 文档 7 字节 `Killed`、包装器 stderr 0 字节；不过包装器直接杀同一个孩子 → 两路各 0 字节；
+    按命令行同时杀包装器与孩子（`a818a62` 之前 `pkill -f` 的形状）→ 文档 0 字节，回落 `--run-id` 生效。
+    即：死讯进文档流的条件是**包装器活得比孩子久**，而 `a818a62` 把杀法从「连包装器一起杀」换成
+    「按身份只杀孙进程」之后，`07e68af` 那条「Core 被杀也能封存」的通道再没走通过——它服务的正是
+    这个窗口。
+  - **第二次 `CORE-060` attempt：守卫修好后当场又停一次**（`431ba84` 之后，run id
+    `082e0f0420fc426ca8156bc9d5c91d11`）：这一次 transcript 如实说出了
+    `domain: /tmp/domain-session.json holds no run document, so this run is named by its ledger id`，
+    回落 `--run-id` 那条分支真的走到了——sealer 仍报 `exit 2 / unsealed`，理由是
+    `no run is named: neither a run document nor a run id`。**这次同样没有 bundle**，卷上无物可留可撤。
+  - **第二格的读数**（只读探针 `.tmp/recent_ledger_runs.sh`，以 `mode=ro` 打开账本）：那句话里两件事
+    都没缺——run id 就在参数里。缺的是 Kin 的名字：`tools/assert_case_evidence.py:551-557` 在文档没
+    说出 `kin_id` 时，从 `<data-root>/kin/*` 里挑**恰好一个**持有 `kin.sqlite3` 的目录，否则留空并撞上
+    `:558`。卷上今天是 `kin-01`/`kin-02` 两个（`kin-02` 是 2026-09-20 join 场景留下的，下面还有
+    `35fa702d…`/`8280d880…` 两份封存 bundle，属证据不属缓存），所以那个「恰好一个」的前提在
+    `07e68af`（当时只有一案一 Kin）成立、在今天不成立。这条阻断与 runner 那条独立：`431ba84` 把它
+    暴露出来，而不是造成它。
+  - **已修订范围**（`stop_conditions` ②，2026-09-24 纪律：先修订范围再动手）：放开
+    `test-orchestrator/runner/domain.sh` 的那一条守卫与 `tests/contract/test_runner_scripts.py`
+    的一条断言；故障注入、目标选择、`:1250` 等待条件、判据与 `tools/`、`src/` 仍在禁地。修法是
+    「按能不能解析成 JSON 对象来认文档，认不出就用账本 run id 命名这次 run 并说出来」；不改回
+    `pkill`，因为那会撤掉身份绑定并撞上 `test_runner_scripts.py:156`。`case_version` 不动（判官源码
+    未改），`from_repository_build` 不受影响（它比的是启动计划 + Bridge 源码树，不含 runner）。
+  - **第二格不在本卡范围内**：修它要动 `tools/`（封存面），那是本卡禁地。按同一条纪律另起前置卡
+    `CRASH-OUTBOX-SEALED-KIN-001`，本卡因此 `BLOCKED_EVIDENCE`。
+  - **前置卡已 `DONE`（交付 `2160989`），本卡的阻断已清**：那一格修完后，**第三次真实 `CORE-060`
+    attempt（run id `08f206bfaed94e4f9a22aed82c1c24d6`）封下来了** —— 也就是说「被杀的 Core 没有文档
+    也能封存」这条通道在当前 build 上重新走通，并且是在卷上有两个 Kin 的前提下走通的。它的判据结果是
+    `FAIL`（`RELEASE_NOT_LOGGED`、`NEVER_MOVED:0.10`），四读一致（sealer/verify/rejudge/promotion 都报
+    同一份，`from_repository_build: true`）。所以本卡现在**有 1 份当前-build bundle，但 5 个窗口一份
+    PASS 都还没有**：`CORE-060` 要拿到 PASS 才算契约那一格恢复「可」。
+  - **两条 `FAIL` 已按工件定位，并且第二轮只剩一条**（`.tmp/core060_attempt_fields_probe.sh` 读到
+    manifest 原字段）：
+    - `NEVER_MOVED:0.10` 是**本卡自己把上一轮跑坏的**——那一轮沿用了上面 KIN 卡记录的
+      `MINEKIN_DOMAIN_PROBE_SECONDS=1`。`horizontal_positions`（`domain.sh:795-800`）把 x 与 z 一起吐出来，
+      所以 `:1250` 那个「不同横坐标数 ≥2」被 settle 期间的 z 抖动单独满足，强杀落在 Kin 还没迈步之前
+      （服务端只读到 3 次、x 恒为 `2.5`、跨度 `0.098 < 2.0`）。**按默认 5 秒间隔重跑：该条 `observed`。**
+      `CORE-060` 以后一律用默认探针间隔，别复用别的 case 那一行的旋钮。
+    - `RELEASE_NOT_LOGGED` 读的是 `client/latest.log` 里那一行松键日志（判官 `_BRIDGE_RELEASE`，
+      `tools/assert_case_evidence.py:161`；用 `read_sealed_material` 逐件数过：那份 65776 字符的日志里
+      `findall → []`，是**行不存在**，不是读不出来）。第二轮（run `412b874b2aa049838c2e11e5f0df4770`，
+      `attempt_sequence: 2`、`supersedes_run_id: 08f206bf…`、`case_version` 仍是 `d1ea32d8b705…`）里
+      Kin 确实带着键在走（`bridge pressed move.forward`、`bridge applied 726bdc43…: holding
+      [move.forward]`），日志仍**止于** `bridge is failing closed (IPC_LOST)`。
+    - **为什么这一条在当前形状下打不中**：松键是客户端 tick 上的动作（`BridgeIpcWorker.java:1038-1056`
+      的 `failClosed` 只把 `Notice.SAFE_STOP` 放进收件箱；`:249-254` 在 tick 里才调 `releaseInputs`，
+      `:822-837` 打那行日志），而 Core 是 `xvfb-run` 的内层孩子，`/usr/bin/xvfb-run` 的
+      `trap clean_up EXIT`（`:143` + `:90-91` 的 `kill "$XVFBPID"`）会在孩子死后自己关掉 X 服务。
+      容器内只读探针（`.tmp/xvfb_display_survival_probe.sh`，两次）量到：只杀命令孩子、不碰 Xvfb →
+      **6 ms / 7 ms 后 Xvfb 消失、显示不再应答**（一次 tick 是 50 ms）。两轮当前-build bundle 的
+      `client/stderr.log` 整份都只有一行 `X connection to :99 broken (explicit kill or server shutdown).`，
+      而旧 build 那份 PASS（`6b6dcdf7…`）的 `stderr.log` 是 0 字节、松键在 failing-closed 之后 1–47 ms 出现
+      ——对上 `a818a62` 之前 `pkill -f` 连包装器一起杀、EXIT trap 没跑、Xvfb 成孤儿继续服务。
+    - **口径**：这**不是**产品侧回归的判决（当前形状下无论 Bridge 松没松键都拿不到那行），也**不是**松键
+      可用；能把两者分开的是「显示活得比 Core 久」的一次真实运行，那要改 runner 怎样给出显示——超出本卡
+      `allowed_paths` 点名的那一条守卫，按 2026-09-24 纪律另起 `CRASH-OUTBOX-ALIVE-DISPLAY-001`
+      （`QUEUED`）。两份 `FAIL` bundle 原样留在卷上，不重判、不修补、不撤。
+  - **其余四案里已走通两案，都是当前 build 上的第一份 `PASS`**（逐字读数在计划那张卡的
+    `window_run_readings_2026-09-24`；命令一律按本案自己那行开关取，探针间隔用默认值）：
+    - **`CORE-060-CLIENT-001`** run `c89f5d3582e74250b27cf4a034314c0a`（`attempt_sequence: 1`、bundle
+      `8b0691b7919ad5f3…`、14 件工件、`case_version` `dc85eb043861…`、`bridge_digest` `faeec4a9df83abb9…`、
+      `from_repository_build: true`、`re_judged: AGREES`）。harness 退出码 14 = `BRIDGE_LOST` 拆解，
+      同 run 的 document 如实记 `outcome: BRIDGE_LOST`、`input_release_failed: true`、`actions_applied: 1`、
+      `recovery.status: reconciled` —— 「客户端里不可能留下松键日志」这一条由服务端记的 joined→left 承接，
+      所以这一窗与 `CRASH-OUTBOX-ALIVE-DISPLAY-001` 无关。四读一致（`.tmp/four_readers.sh`）。
+    - **`CORE-060-SERVER-001`** run `f4365a50077647babda76cec90164093`（`attempt_sequence: 1`、bundle
+      `75a15ccc3a8d17db…`、`case_version` `50ca1ae2e22d…`、同样 `from_repository_build: true` +
+      `re_judged: AGREES`、两条重放路径都 `projected`/`STOPPED`/21 events）。本案的五条断言里
+      **那行 `LEFT_PLAYABLE (PLAY_ENDED)` 松键真的写出来了**——被杀的是 server JVM，客户端和它的显示都还在，
+      tick 路径照走。这正好从反面对上上面那条机制读法：**打不中的不是松键本身，是「杀 Core 时把显示一起带走」
+      这一形状**。harness 两句 `the server has been killed; the world is gone` +
+      `Core recorded the session ending when the world went away`。
+  - **当时的下一步**（下面一条把它走完了）：本卡仍是唯一 `NEXT`，还差两案——`CORE-090`（两连跑：先
+    `MINEKIN_DOMAIN_KILL_CORE=1`
+    且**不给 case id**，紧接着 `MINEKIN_DOMAIN_CASE=CORE-090 MINEKIN_DOMAIN_STILL=1` 且不给任何输入）、
+    `CORE-020`（正常退出那半，`leave_after_join_observed`），各一份新 attempt，旧 bundle 一个不动；
+    `CORE-060` 那一格等前置卡 `CRASH-OUTBOX-ALIVE-DISPLAY-001`。四案齐了而 runtime
+    那格还封不到 PASS，本卡按 `BLOCKED_EVIDENCE` 记 4/5，不靠改判据或改杀法凑颜色。
+  - **两案已补齐 → 四案齐，本卡按 `BLOCKED_EVIDENCE` 记 4/5**（逐字读数在计划那张卡的
+    `window_run_readings_2026-09-24` 与 `window_run_decision_2026-09-24`）：
+    - **`CORE-090`（两连跑）`PASS`**：崩溃那次 run `0237e24c846f487ea84e8689c24a0528` 不给 case id
+      （所以它自己不封存，harness `session exited 137` + `the run document said Killed`）；重启那次 run
+      `3e94d49aace44b00924efeb1bb83c1da` / bundle `8bda01b52ae2bbfe…` / `case_version` `88fa467d8896…` /
+      13 件工件，`previous-run-trace.jsonl` 在其中，且封进去的 `asserter-inputs.json` 逐字写
+      `previous_run_id: 0237e24c846f487ea84e8689c24a0528` ⇒ 「上一条 run 就是刚才崩掉那一次」是 bundle
+      自己的记载，不是复述。B 自己的 document：
+      `session_id` 与 A 不同、`actions_applied: 0`、`snapshots_admitted: 1`、`connection_state: PLAYABLE`、
+      `recovery: {"invalidated": [], "waiting": [], "status": "reconciled"}`。四读一致（`AGREES` +
+      两条重放路径 `projected`/`STOPPED`/19 events）。**一处取数差异要记清楚**：这次服务端只给了
+      2 次读数（上一批是 5 次以上），本案那条 `never_move` 判据按**距离**判、不断言读数个数，所以不影响
+      判决——但**别把这一行的取数形状套到 `CORE-060`/`CORE-020` 那些跨步读数上**（同一族错误本卡今天已犯过一次）。
+    - **`CORE-020`（`mandatory: true`）`PASS`**：run `8a72dcdf9e9c4fd190860d16a5d1bf1f` / bundle
+      `3c4b04894069df5b…` / `case_version` `7c01d11ed1e9…`（与冻结表登记的当前 fixture digest 逐位相同）/
+      13 件工件；命令只给 `MINEKIN_KIN_ID` + `MINEKIN_DOMAIN_CASE=CORE-020`，**没有** kill 开关、
+      `--hold-*`、探针。三条断言（`server_observed_join_identity`、`first_snapshot_admitted`、
+      `leave_after_join_observed`）全 `observed`，四读一致。旧 build 那五份同 case 的 bundle
+      （含一份本来 `FAIL` 的 `2cab1052…`）全部仍 `UNJUDGED`，不动不撤。
+    - **结论与口径**：`acceptance` ⑤ 要求五案齐才把 campaign 第 5 个场景记为已封，所以现在
+      `scenario_progress` **保持 `4/7`**，本卡 `BLOCKED_EVIDENCE`（4/5）。缺的那一格**不是**
+      「Bridge 没松键」的判决，而是「杀 Core 时把 X 显示一起带走，客户端再没有 tick 写那行日志」——
+      两者能分开的实验已由 `CRASH-OUTBOX-ALIVE-DISPLAY-001`（`QUEUED`）接走，本卡不改 runner。
+
+- [x] **CRASH-OUTBOX-ALIVE-DISPLAY-001（已完成，交付 `f90abc8`；2026-09-24 由 `CRASH-OUTBOX-RESEAL-001` 收为
+  `BLOCKED_EVIDENCE` 后从 `QUEUED` 提升为唯一 `NEXT`；它本身由 RESEAL 的两轮 attempt 当场登记）**：让 Core 的死不再带走客户端的显示。它挡的是**五个窗口里 runtime 那一格**
+  （`CORE-060` 的 `RELEASE_NOT_LOGGED`），不挡另外四案，所以登记为 `QUEUED`、唯一 `NEXT` 仍是
+  `CRASH-OUTBOX-RESEAL-001`。
+  - **问题**：松键由客户端的下一次 tick 写出（`BridgeIpcWorker.java:1038-1056` → `:249-254` → `:822-837`），
+    而 Core 包在 `xvfb-run` 里（`domain.sh:733-734`），`/usr/bin/xvfb-run:143` 的 `trap clean_up EXIT`
+    会在内层孩子被 SIGKILL 后 `kill "$XVFBPID"`——容器内两次只读探针量到 Xvfb 在 **6 ms / 7 ms** 后消失。
+    于是这一窗口的判据**按构造打不中**，两份 `FAIL` 分不开「Bridge 真没松键」与「客户端没机会写这行」。
+  - **要改的只有一件事**：显示由 harness 起并持有、活过这次注入（`session` 只继承 `DISPLAY`，不再包在
+    `xvfb-run` 里）。**不改** `inject_fault`、目标选择、`domain.sh:1250` 的等待条件，不改回全局 `pkill`
+    （那会撤掉 `a818a62` 的身份绑定并撞上 `test_runner_scripts.py:156`），不碰 `src/`、`bridge/`、`tools/`。
+  - **验收与停机条件**见 [主执行计划](development-execution-plan.md) 该卡一节。要点：① 新一轮真实
+    `CORE-060` 里那行 `bridge released N input(s) after IPC_LOST` 必须**真的出现**且 `N > 0`；② 若显示
+    确实活过了 Core 而那行仍不出现，那才是 `RESEAL` `stop_conditions` ① 点名的**产品侧回归**——保留
+    `FAIL`、分类、停下报告主控。本卡不封任何其余窗口。
+  - **交付与真实运行（验收 ①②③④⑤ 全达）**：`domain.sh` 把主 session 从 `xvfb-run` 内层搬到 **harness
+    自持的 Xvfb**——`:77-:99` 挑空闲显示、`Xvfb :NN -screen 0 1280x720x24 &`、等 `/tmp/.X11-unix/XNN` socket、
+    `export DISPLAY`，session 改由 `sh -c '"$@"; :' minekin-session-supervisor` 承载（Core 仍是 `session_pid`
+    的**后代**供 `inject_fault` 逐名；尾部 `:` 阻止 shell exec-replace 把包装器与目标折成同一 pid）。
+    joiner（`:649`）/ glxinfo（`:1878`）两处 `xvfb-run` 未动，kill 块 1297 注释随之更正。契约测试新增
+    `test_a_killed_core_leaves_the_display_it_never_owned`（先红后绿）。**一次真实 `CORE-060` runtime-kill**
+    （`MINEKIN_KIN_ID=kin-01 MINEKIN_DOMAIN_CASE=CORE-060 MINEKIN_DOMAIN_KILL_CORE=1 MINEKIN_DOMAIN_PROBE=Kin
+    MINEKIN_DOMAIN_SECONDS=240` + `--hold-forward-seconds 60`，**默认 5 秒探针、不设 `PROBE_SECONDS`**）：
+    run `7fc0671eabca4430885017613977779c`、`run-142`、`attempt_sequence: 3`、bundle `3876c335…`、13 件工件。
+    - **验收 ① 现场**：被封存 `client/latest.log` 有
+      `bridge is failing closed (IPC_LOST)…` → `[Render thread/INFO]: bridge released 1 input(s) after IPC_LOST`
+      （**N=1>0，由客户端 tick 线程写出**）；`client/stderr.log` **为空**（旧两份 `FAIL` 的 stderr 只有
+      `X connection to :99 broken`）——显示真的活过了 Core，那行有机会被写了，「Bridge 没松键」与「客户端没机会
+      写」第一次分开。
+    - **验收 ②③**：`result: PASS`、`failures: []`、四条断言全 `observed`；`case_version` 仍
+      `d1ea32d8b705…`、`bridge_digest` 仍 `faeec4a9df83abb9…`（判据/工件面一字未动）；四读一致——
+      `evidence verify` `PASS`、`rejudge_evidence.py` `agrees`、`minekin_core replay` 与 `replay_evidence.py`
+      皆 `projected`/`PLAYABLE`/16 events/`violations: []`、`report_promotion.py` `from_repository_build: true`
+      + `re_judged: AGREES`。旧 `CORE-060` 两份 `FAIL`（`08f206bf…`、`412b874b…`）与旧 build 的 `PASS/FAIL`
+      原样 `UNJUDGED`、未撤。
+    - **验收 ④⑤**：契约断言先红后绿、`test_runner_scripts.py:156`「不得用全局 pkill 猜目标」原样绿；全量门禁
+      `2159 passed / 2 skipped`、Ruff check/format、Pyright 0、boundaries、case assertions `139 registered`、
+      fixture digests、workflow pins、`git diff --check` 全绿，容器内 `bash -n domain.sh` OK。
+    - **三条 `stop_conditions` 均未触发**：显示活过 Core 且那行真写出（非产品回归）；未动 `forbidden_paths`；
+      解耦靠 harness 自持 Xvfb，无「替客户端重启/接管残留进程」。**收口连带**：runtime 这一格补齐使前置卡
+      `CRASH-OUTBOX-RESEAL-001` 五案齐、`BLOCKED_EVIDENCE(4/5)→DONE(5/5)`，campaign 第 5 场景
+      `scenario_progress 4/7→5/7`。`order` 第 6 场景（tick/render 采样）此前无卡，本 commit 以
+      `TICK-RENDER-SOAK-EVIDENCE-DESIGN-001`（`QUEUED`）登记入口，紧随 commit 提升为 `NEXT`。
+
+- [x] **TICK-RENDER-SOAK-EVIDENCE-DESIGN-001（`DONE`，冻结交付 commit；`096bd68` 登记 `QUEUED`、
+  `26a7543` 提升 `NEXT`）**：冻结 campaign `order` 第 6 个场景（tick/render + L6 soak）在当前 reviewed
+  build 上「要封什么才算闭合」。**冻结本身不封 bundle、不跑 600 秒、不改采样产品代码**——真实封证交给它
+  当场登记的 `TICK-RENDER-SOAK-RUN-001`。
+  - **第 6 场景当前-build 上要闭合的真实读数只有 `CORE-100`**（L6 有界 soak，`tests/fixtures/cases/core-100.json`
+    三条断言、`mandatory: false`）。三条断言的「可信来源 → sealed artifact → 判官字段 → 反例」已在计划本节
+    `freeze` 表逐条写下：`first_snapshot_admitted`（run document 的准入快照 + `BRIDGE_FILTERED` join 行，
+    两半都要）、`the_soak_held_for_the_duration_it_was_asked_for`（`soak-summary.json` 的 requested/interval/
+    ended_early + `soak-samples.txt` 的实际 elapsed，容差一个间隔）、`both_jvms_were_sampled_throughout_the_soak`
+    （两 label 各 ≥2 样本、各自末次撑到 `reached-2*interval`）。每条已有负向变异用例。
+  - **tick/render callback 预算的机制已在 `CORE-METRICS-001`（`1e43a99`，`LOCAL_THEN_REAL_RUN`）域内落地**，其
+    `acceptance` 明写「真实 percentile 仍由后续 runner campaign 验收」。故第 6 场景真实侧对预算**只作报告**：
+    `tools/report_soak.py` 从**已验摘要的封存 bundle**算 per-process min/first/last/P50/P95/P99/max RSS 与
+    线程峰值（nearest-rank），注明窗口/采样覆盖与缺口。**不新增 case、不新增判据、不设性能阈值**；FPS/TPS/GC/
+    队列深度/GPU 契约无来源，只标「该轮不完整」，不造读数（契约 L6 行 + 阶段 E 的口径）。
+  - **当前-build 判定**：`2026-09-20` 那轮 baseline **早于**当前 reviewed build（此后 `bridge/` 大量变动，含
+    `1e43a99`/`dd992b1`/`e75b011`/`eeac5b0`，且 case-version 绑定改为覆盖 criteria `13967fa`）。使 5 份旧 crash
+    bundle 读 `UNJUDGED` 的**同一条每-build 四读规则** ⇒ 预期旧 baseline 对当前 build 亦 `UNJUDGED`（**预期，
+    非本卡实测**）。`CORE-100` `mandatory:false` 不 gate promotion，但第 6 场景要一份当前-build 的 L6 baseline
+    读数 ⇒ 闭合方式是在当前 build 上跑新 attempt 封 `CORE-100`，旧 baseline 原样保留、不重写。
+  - **状态流转**：本卡 `NEXT → DONE`（冻结为交付）；`scenario_progress` 仍 **5/7**（第 6 场景真实封证在下一张卡）；
+    本 commit 以 `QUEUED` 登记 `TICK-RENDER-SOAK-RUN-001`，紧随 commit 提升为唯一 `NEXT`。三条 `stop_conditions`
+    未触发。`allowed_paths` 只有计划与本 TODO，未碰 `src/`/`bridge/`/`proto/`/`tools/`、任何 fixture/digest、旧 bundle。
+  - **门禁**：纯文档改动，相对上一绿基线（`26a7543`：`2159 passed / 2 skipped`、case assertions 139 registered、
+    fixture digests、workflow pins 全绿）无代码变化；本 commit 复核 `git diff --check` 干净、case/fixture/pins
+    静态门禁原样绿。
+
+- [x] **TICK-RENDER-SOAK-RUN-001（已完成，campaign 第 6 场景的真实封证实现卡；`6717d2e` 登记 `QUEUED`、`9f3946d`
+  提升 `NEXT`，本轮交付）**：在当前 build 上跑一次受控
+  bounded-soak（`MINEKIN_DOMAIN_SOAK_SECONDS`/`MINEKIN_DOMAIN_SOAK_INTERVAL`，建议沿 baseline 的 600 秒 / 间隔
+  10 秒、`llvmpipe` 软件渲染、两个 JVM），封 `CORE-100` 新 attempt、四读一致，并用 `report_soak` 报告预算/RSS
+  覆盖。**先**对 `2026-09-20` 旧 baseline bundle 在当前 build 上量一次实际读数（记 `UNJUDGED`/或仍 `AGREES`）、
+  不重写，**再**跑新 attempt。`non_goals`：不设阈值、不测 GPU、不为未采样指标造来源、不重复 600 秒「多一份
+  报告」。`stop_conditions`：① 封存通道今天不能把 soak 两份工件写进 bundle（需动采样面）⇒ 先停下修订范围；
+  ② 真实 soak 连续三次同一不可消除外部阻断 ⇒ `BLOCKED_EVIDENCE`；③ 判官要而契约无来源的指标只报不完整。
+  `next_after_done`：按 `order` 进入第 7 场景（CORE/OFFLINE/ADMIT promotion 总账，阶段 F）。
+  - **交付（本轮真实封证）**：旧 baseline `e3a99202…` 先在当前 build 量得 `re_judged: UNJUDGED`（判据字节随
+    case_version 移动），PASS 字节原样保留、未重写、未追新 attempt。随后受控 600 秒 / 间隔 10 秒 `llvmpipe`
+    两 JVM soak，封 `CORE-100` 新 attempt：run `8367f741124d4132835eeb3d85833d46`、
+    `evidence_directory /data/kin/kin-01/run/evidence/8367f741…`、`attempt_sequence 1`、`status sealed`、15 件
+    工件（含 `soak-samples.txt`/`soak-summary.json`）、`bundle_digest 1b2a58e9cc371d23…`、`case_version
+    d6e94bbc93ff1666…`、`result PASS`。四读一致：`evidence verify` `verified/sealed true`、`violations []`；
+    `rejudge_evidence` `status: agrees`（三条 expected==observed）；`replay`（产品 + 测试域）`status: projected`、
+    `violations []`、终态 STOPPED；`report_promotion` 该 bundle `PASS/verified/sealed`、`from_repository_build:
+    true`、`re_judged: AGREES`、`bridge_digest faeec4a9df83abb9…`、attempt `SEALED`。`report_soak`：`status
+    reported`、600s/10s、`ended_early: false`，client 56 样本 last 594、RSS P50 1550.8/P95 1553.2/P99 1553.2/max
+    1553.2 MB、线程 94–113；server 56 样本 last 594、RSS P50 870.6/P95 871.3/P99 871.4/max 871.4 MB（nearest-rank）；
+    tick 窗口 56（p50 2µs/p95 13/p99 22/max 20929µs）、tick_interval 窗口 56、`received_windows 112`，只报覆盖不
+    设阈值；FPS/TPS/GC/队列深度/GPU 无来源，如实标不完整。全量门禁 `2159 passed / 2 skipped`。三条
+    `stop_conditions` 均未触发。
+
+- [x] **P0-PROMOTION-LEDGER-001（已完成，campaign 第 7 场景 = 阶段 F 晋级总账；`532446e` 登记 `QUEUED`、`28876e3`
+  提升 `NEXT`，本轮交付）**：把七个
+  `order` 场景已封的 bundle 与机器 required-case inventory 汇成一张 CORE/OFFLINE/ADMIT 晋级总账。只读重跑
+  `tools/report_cases.py` 与 `tools/report_promotion.py`，逐 gate 记 present/missing、最新 attempt、
+  PASS/FAIL/INCOMPLETE、case version/摘要、与当前 build 关系、阻断原因，并把 AGREES/UNJUDGED/DISAGREES 分清；
+  仍缺的 required-case 族按机器 inventory 逐条列出并标阻断原因（需新断言 / 需产品决策 / 未冻结编号 /
+  host-integrated / `PERSIST` PlanningGap）。**不新增判据/case/阈值、不再封 bundle、不重写既有 bundle**；
+  在 72 required 仍有 `runtime-required` 缺口时**不把 `REAL-P0-CAMPAIGN-001` 宣布 `DONE`**，如实记为
+  「第 7 场景（总账）已交付、campaign 总体仍 BLOCKED/INCOMPLETE」。`validation_class` LOCAL。
+  `stop_conditions`：① 需新断言/case 或再封 ⇒ 停下、另起逐案卡；② 需对 HOST/PERSIST/未冻结 ADMIT 拍板 ⇒
+  `BLOCKED_DECISION` 不猜；③ inventory 与已录证据不一致 ⇒ 如实记冲突不改封存证据。
+  `next_after_done`：剩下的只有需产品决策的 `runtime-required` 缺口（全 BLOCKED_DECISION/DEFERRED），有界自主
+  P0 工作到此耗尽——交付阻断清单即诚实阶段终点。
+  - **交付（只读晋级总账）**：`report_cases.py` 机器读数 `74 required / 43 present / 31 missing / 0 misattributed`
+    （本文旧「72/36/36」快照被取代）；`report_promotion.py --data-root /data` 不带 `--work-package` 时
+    `status: blocked`、`overall.promotable:false`、`blocks [CASE_VERSION_MISMATCH, CASE_WITHOUT_EVIDENCE,
+    REQUIRED_CASE_NOT_REGISTERED]`、37 阻断案、逐 gate `promotable` 全 false。七场景最新 PASS/AGREES：场景 3–6
+    （ADMIT-070、OFFLINE-010/020/030×2、CORE-020/060/060-CLIENT/060-SERVER/090、CORE-100）全在**当前 build**
+    `bridge faeec4a9`；场景 1 `ADMIT-040`（run `6b5856d5…`）、场景 2 `ADMIT-060`（run `7bc740ea…` att 2）虽
+    `PASS/AGREES` 但 `from_repository_build:false`（旧 build `9a30cdb7`/`ecff5a59`），如实记为「非当前 build 复测」。
+    仍缺 31 条 `runtime-required`（HOST/HOSTCTL/HOSTCOMMIT 整族 host-integrated、未冻结 ADMIT/OFFLINE 判据、
+    `CORE-080`、`NAV-EXP-010`）+ `PERSIST` `UNFROZEN_CASE_IDS`（不 gate）。**如实记 `REAL-P0-CAMPAIGN-001` 总体
+    `BLOCKED/INCOMPLETE`、`scenario_progress 7/7` 但不标 `DONE`**；本轮零代码、零封存改动，全量 `2159 passed /
+    2 skipped`。
+
+- [x] **CRASH-OUTBOX-SEALED-KIN-001（已完成，交付 `2160989`）**：让「没有文档的一次 run」也能明白地
+  说出它属于哪个 Kin。`CRASH-OUTBOX-RESEAL-001` 第二次真实 attempt 当场发现的封存面阻断，是 campaign
+  第 5 个场景当下唯一的硬阻断（`c75865b` 登记 `QUEUED`、`3427e43` 提升为 `NEXT`；交付
+  `2160989 fix(tools): name the Kin of a run that left no document`，已推 `codex/core-state-transition`
+  与 `main`，`git ls-remote` 核对为 `2160989a3dc882292bbd76ff8a9d2e10832a5ca5`）。
+  - **问题**：`tools/assert_case_evidence.py:551-557` 在 run 文档没说出 `kin_id` 时，凭数据卷的目录
+    结构猜——要求 `<data-root>/kin/*` 里恰好一个目录持有 `kin.sqlite3`。卷上现在有 `kin-01`/`kin-02`
+    两个，那个前提不再成立；而 `:558` 那句合并报错把「缺 Kin」说成「缺 run id」，两件事都没缺。
+  - **修法（一条读路，不做第二份真相）**：`domain.sh:1086-1092` 已经从账本里这次 run 的行读出
+    `kin_id`（脚本 `:764-767` 并写明归因刻意不从数据库路径读）。把那份**已经测出来**的名字沿
+    `OFFLINE-IDENTITY-SEALED-ARGV-001` 给 `session_argv` 的同一形状传下去：`seal()` 与
+    `read_run_material` 各接一个可选 `kin_id`（CLI 两侧各一个 `--kin-id`），只在文档没说出 Kin 时用它，
+    文档说出时以文档为准；同时把 `:558` 拆成「没命名 run」与「没命名 Kin」两句话。runner 只在确实没有
+    文档的那条分支上传，并且**名字读不出来时不编一个**：另说一句、退回只给 `--run-id`。
+    `tools/rejudge_evidence.py` 一字未改——它读的是封进去的 `asserter-inputs.json`，那里本来就有
+    `kin_id`，所以卷上只有一个 Kin 这件事**不需要**第二处记载；这也是 `stop_conditions` ② 没触发的原因。
+  - **真实运行（验收 ①，一轮真跑）**：`CORE-060`，`MINEKIN_KIN_ID=kin-01 MINEKIN_DOMAIN_CASE=CORE-060
+    MINEKIN_DOMAIN_KILL_CORE=1 MINEKIN_DOMAIN_PROBE=Kin MINEKIN_DOMAIN_PROBE_SECONDS=1` +
+    `--hold-forward-seconds 60`，run id `08f206bfaed94e4f9a22aed82c1c24d6`。**这一格用的 1 秒探针间隔对本卡
+    无害（它要的是「封得上」，不是 PASS），但对 `CORE-060` 的判据是错的**：它让 `:1250` 的等待条件被 z
+    抖动满足、强杀落在还没迈步之前，因而多出一条 `NEVER_MOVED`。别把它当 `CORE-060` 的取法抄走——默认 5 秒
+    那一轮的读数见上面 `CRASH-OUTBOX-RESEAL-001`。transcript：
+    `session exited 137` → `the run document said Killed` →
+    `domain: /tmp/domain-session.json holds no run document, so this run is named by its ledger id`，
+    **没有**「this run has no Kin in its own rows」那一句（名字确实传到了）。封存
+    `status: sealed`、`attempt_sequence: 1`、`evidence_directory:
+    /data/kin/kin-01/run/evidence/08f206bf…`。只读探针（`.tmp/kin060_bundle_probe.sh`）：bundle 共 15 件
+    工件、**没有任何 run-document 文件**（`orchestrator-trace.json` 是 harness 自己的），
+    `asserter-inputs.json` 说 `kin_id: kin-01` / `run_id: 08f206bf…` / `previous_run_id: 082e0f04…`，
+    卷上仍是 `kin-01`/`kin-02` 两个都持有 ledger ——**旧那条「恰好一个」的读路这一次给不出答案**，
+    所以这份 bundle 是这条修法的正面证明，不是顺带成功的。四读：sealer `FAIL` →
+    `evidence verify` `verified: true, sealed: true, violations: []` → `rejudge_evidence.py`
+    `status: agrees` → `report_promotion.py` 该份 `from_repository_build: true`、
+    `bridge_digest: faeec4a9df83abb9…`、`re_judged: AGREES`、`attempt_sequence: 1`。
+  - **判据给出的是 `FAIL`，本卡照实收下**：`observed` 的是 `move_input_was_leased` 与
+    `runtime_controller_sigkill_was_confirmed`；两条失败
+    `the_bridge_released_the_input_when_the_ipc_was_lost:RELEASE_NOT_LOGGED` 与
+    `the_server_saw_the_kin_stop_after_the_move:NEVER_MOVED:0.10`。本卡不要求 PASS（契约里那一格写明要
+    等 `CORE-060` 真封出 PASS 才改回「可」），两条读数原样写进 `CRASH-OUTBOX-RESEAL-001` 的
+    `handover_from_CRASH-OUTBOX-SEALED-KIN-001`，不追认、不重试掩盖。
+  - **顺带量到的一条上限（交给 RESEAL，不必再撞）**：`RunMaterial.run()`
+    （`tools/assert_case_evidence.py:433-436`）在没有文档时抛 `the run document carries no run section`，
+    所以**读文档的断言在被杀的 run 上拿不到读数**。用 AST 逐条查过 `CORE-060` 的四条断言，没有一条读
+    `run`/`run_document`，故这一窗口可判（本轮 `result: FAIL` 而非 `UNJUDGED` 就是现场证据）。
+  - **`case_version` 一个没动**（验收 ④）：`check_case_assertions.py` 到改完仍是 `OK (139 registered)`、
+    `verify_fixture_digests.py` 仍 OK，`CORE-060` 仍是 `d1ea32d8b705…`。`read_run_material` 不是任何断言
+    的实现，digest 按函数源码算（`_function_source`，`:94-124`），所以 `stop_conditions` ① 未触发。
+  - **测试**：判官侧新增 7 条（含「文档自己的 Kin 赢过传入的名字」「卷上歧义时报的是 Kin 而不是 run id」
+    「单 Kin 回落仍然读得到」与两条 CLI 形状）；封存侧新增 3 条（含一条真把 document 删掉、在两份 Kin
+    的卷上封存并 `verify_bundle` + `rejudge` 全绿的）；runner 契约新增 1 条钉住
+    `named_run=(--run-id "${run_id}" --kin-id "${kin_id}")` 与那句「没有 Kin」。
+    定向 3 个文件 `504 passed in 63.45s`；全量 `2158 passed / 2 skipped in 266.18s`。
+    Pyright 抓到一处真实的形状问题：`seal()` 里原有一行把 `kin_id` 从 str 参数改绑成 `KinId`，
+    参数名与已解析的名字是两个东西，解析后的那个改名 `kin`（它才是 bundle 地址）。
+  - **状态流转**：本卡 `NEXT → DONE`；`CRASH-OUTBOX-RESEAL-001` 的阻断已清，由紧随的 commit 提升回
+    唯一 `NEXT`。本卡没封第 5 个场景的任何**其它** bundle。
+
+## 记录：文档脱敏与卡片范围纪律（2026-09-24，用户指示）
+
+- **触发**：主控指出两处问题。① 已推送的计划/开发记录里写入了用户自备的公网测试服完整地址
+  （`docs/development-execution-plan.md` 两处、`docs/development-todo.md` 两处）；判据本身不需要
+  这个地址，而一次普通提交抹不掉 Git 历史里的它。② `ADMIT-070` 的实现卡曾在交付完成后才追认六个
+  超出 `allowed_paths` 的测试文件——文件都与功能相关、没有产品偏航，但顺序不对：应先修订任务卡
+  范围再动手。
+- **本轮改动（纯文档）**：四处地址改为匿名指代（「运行者自备的公网 offline 测试服」），字面值只留在
+  本地未跟踪文件 `.tmp/local-test-server.txt`（`git check-ignore -v` 确认被 `.gitignore:10` 的
+  `.tmp/` 覆盖）；`## 不可变边界` 新增两条政策（文档不记基础设施地址；先修订范围再动手）；
+  `OFFLINE-IDENTITY-RUN-001.forbidden_paths` 与 ADMIT-070 记录的表述同步。
+- **核验**：`git grep -n "159\.138"` 在跟踪文件里返回空。其余 `25565` 命中均为 loopback/默认端口
+  文本，不属于本条范围，未改。
+- **仍然存在的暴露**：该地址在历史提交里已被推送到远端。清除需要改写历史并强推，属于需主控决策的
+  动作，本轮不做。
+- **顺带登记的卡片**：`OFFLINE-IDENTITY-SEALED-ARGV-001`（`QUEUED`）。`OFFLINE-IDENTITY-CASE-001`
+  的判据 ① 需要 run 的 `session_argv`；封存的 `orchestrator-trace.json` 已带它，所以只读判官一侧
+  就够，但 `tools/seal_run_evidence.py:664` 那次 live 判读没把 argv 交给 `read_run_material`，而
+  该文件在本卡 `allowed_paths` 之外——按上面第二条纪律，另起前置卡而不是顺手改。本卡的
+  `stop_conditions` 会把这个缺口如实记下。
+
+## 恢复记录：crash 场景状态对齐（2026-09-24，Qoder 临时执行者）
+
+- **接手现场**：本地 HEAD = `origin/main` = `origin/codex/core-state-transition` = `b5d4a9e`，工作树干净、
+  无他人未提交改动，三处 integrity 门禁（case assertions 139 registered、fixture digests、workflow pins）绿。
+- **对齐的动作（纯文档）**：`b5d4a9e` 已写下 `CRASH-OUTBOX-RESEAL-001` 的 `window_run_decision_2026-09-24`
+  ——四案各封 `PASS`、runtime 那格 `BLOCKED_EVIDENCE`（4/5），但没同步状态字段。本次只把
+  `status` / `current_next` 与那条已提交的判决对齐：`CRASH-OUTBOX-RESEAL-001` `NEXT → BLOCKED_EVIDENCE（4/5）`，
+  前置卡 `CRASH-OUTBOX-ALIVE-DISPLAY-001` `QUEUED → NEXT`。未引入新判断、未动任何代码或 bundle。
+  campaign 第 5 场景 `scenario_progress` 仍 `4/7`。
+- **机器 inventory（沿用本卡已提交读数，未重跑）**：`minekin-runner:local` 镜像 `fed4a143f2e4`、
+  `minekin-runner-data` 卷原样；四份当前-build `PASS`（`c89f5d35…`/`f4365a50…`/`3e94d49a…`/`8a72dcdf…`）、
+  两份 `CORE-060` `FAIL`（`08f206bf…`/`412b874b…`）都在卷上不动。
+- **下一步**：`CRASH-OUTBOX-ALIVE-DISPLAY-001` 是真实实现卡——把 X 显示与 Core 生死脱钩（harness 起并持有
+  Xvfb、`session` 只继承 `DISPLAY`），改 `domain.sh` 显示包装点 + `test_runner_scripts.py` 契约断言，再一次
+  真实 `CORE-060` attempt 验那行 `bridge released N input(s) after IPC_LOST`（`N>0`）真出现并封 `PASS`、四读一致。
+- **stop condition（开工前需满足/警惕）**：① 若解耦显示必须动 `forbidden_paths`（`tools/` 或产品码）→ 先停下
+  修订范围或另起卡；② 若办法落到「harness 替客户端重启/接管残留进程」→ 属 `PROCESS-RECOVERY-001` 的
+  `BLOCKED_DECISION`，立即停下请主控决策；③ 若显示确实活过 Core 而那一行仍不出现 → 是产品侧回归，保留
+  `FAIL`、分类、停下报告主控，不改判据或杀法换颜色。
+
+## 恢复记录 + V01 实现现场（2026-09-24，Qoder 临时执行者）
+
+- **接手现场**：本地 HEAD = `origin/main` = `origin/codex/core-state-transition` = `36764e8`，
+  工作树干净、无他人未提交改动。主计划唯一 `NEXT` = `VERSION-REMOTE-PROFILE-001`（与交接预期一致）。
+- **机器 inventory**（`tools/report_cases.py` 本次实测）：74 required / 43 present / 31 missing、
+  43 cases / 162 assertion references、`required_not_gating=36`。与交接快照同形；V01 是 `LOCAL` 卡，
+  不新增正式 case 登记，缺口数字不因本卡移动。`report_promotion.py` 未重跑：本卡不封 evidence bundle。
+- **V01 允许路径核对**：改动只落在 `src/minekin_core/domain/admission.py`、
+  `src/minekin_core/adapters/launcher/server_profile.py`、三个命名测试文件、
+  新增 `schemas/server-profile-v2.schema.json`、匿名 fixture
+  `tests/fixtures/launcher/managed-remote-target-example.json`、`tests/fixtures/manifest.sha256`
+  仅**追加**两行新条目（既有行一字未动；这是冻结清单对新文件的既定登记方式），未触碰
+  `bridge/`、`proto/`、`tools/`、任何已封 bundle。fixture 放 `launcher/` 是因为
+  `test_fixture_boundaries.py` 的「非 schemas JSON 必须 schema_version==1」冻结边界豁免
+  `launcher` 路径——既有惯例，未削弱该边界本身。
+- **V01 实现与门禁（收卡细节见主计划卡的 `implementation_record`/`gates`）**：全量 pytest
+  2274 passed / 2 skipped；定向三件 203 passed；Ruff/Pyright/boundaries/case assertions/
+  fixture digests/workflow pins/`git diff --check` 全绿。manifest.sha256 首次登记时把 v2
+  fixture 放进 `runtime-input/`，被冻结边界 `test_fixture_boundaries.py`（非 schemas JSON
+  必须 v1）与 `run_repo_case` 的 W00 合同判红——按既有惯例移到 `tests/fixtures/launcher/`
+  后两处恢复绿；两次红灯与修复都在本条留痕，未放宽任何判据。
+
+## V02 只读探测实现现场（2026-09-25，Qoder 临时执行者）
+
+- **接手现场**：领取 V02 时 checkout = `c10731a`（入口路径修正提交），本地与 `origin/main` /
+  `origin/codex/core-state-transition` 一致、工作树干净。收卡时 HEAD 仍是该提交、改动全为 V02 允许路径。
+- **允许路径核对**：产品改动只落在新 `domain/version_probe.py` 与新
+  `adapters/launcher/server_probe.py`（V02 卡内两条允许路径）；只读入口按 `c10731a` 登记的
+  `entry_paths_amendment` 落在 `cli/parser.py`、新 `cli/server_probe.py`、`bootstrap.py` 一个分发分支。
+  新增两份定向测试；未触碰 `bridge/`、`proto/`、`tools/`、任何已封 bundle，也未改 v1 会话启动路径
+  （仍只消费 v1，本卡不产生游戏连接）。
+- **red→green 留痕（未放宽判据）**：首次真实探针返回 MALFORMED（payload:128、非 UTF-8 JSON）——
+  根因是 transport 交回整帧 packet body 而 parse 只期望裸 JSON。补公开助手
+  `status_json_from_packet` 先剥 packet-id（须 0x00）与字符串长度两道 varint，重探即 OBSERVED；
+  并新增单元用例锁死该修复（不只信一次真实运行）。契约层一度报 `reportPrivateUsage`
+  （测试导入 `_`-private varint 助手）：改为公开 `status_json_from_packet`、framing 用例手工
+  构造 `bytes((0x00, len(doc)))`，不导出私有符号。
+- **门禁（收卡细节见主计划卡 `gates`）**：定向 33 项全绿；全量 `2307 passed / 2 skipped`（skip 为
+  既有平台限制项）；Ruff check/format、Pyright 0 errors、boundaries、case assertions(139)、
+  fixture digests、workflow pins、`git diff --check` 全绿。
+- **真实只读证据（两枚，均回环、无地址泄露）**：受控 vanilla 1.21.4（`.tmp/v02probe` 临时
+  `enable-status=true` 直启 jar，不触冻结 harness/profile）→ OBSERVED
+  `protocol:769, version_text:"1.21.4", endpoint:"127.0.0.1:25565"`、链 saved→as-saved→payload:126、exit 0；
+  无监听回环端口 → NO_RESPONSE（`the endpoint refused the connection`、链止于 as-saved、exit 17）。
+  探针不建 Session/JVM/lease、不登录；一次成功 ping 只记为“观测到 1.21.4/协议号”，**不**称任何目标 tested/PASS。
+- **未测项（如实保留）**：未对用户真实远程 1.20.1 目标做首次探测（本卡 `validation_class` 明确推迟至 V08）；
+  未接入 dnspython/SRV 真实解析（默认 resolver 不查询，重绑定/重定向以 fake 取证）。
+- **下一步**：V03 `VERSION-BUNDLE-1201-001` 仍 `QUEUED`，需先本提交后单独登记、再独立提升为唯一 `NEXT`。
+
+## V03 交付与收口现场（2026-09-25，Qoder 临时执行者）
+
+- **接手现场**：本地 HEAD = `origin/main` = `origin/codex/core-state-transition` = `35babf2`，工作树
+  除本卡进行中的改动外无他人未提交内容。主计划唯一 `NEXT` = `VERSION-BUNDLE-1201-001`（与交接预期一致）。
+- **交付**：`0510591`（工作分支与 `main` 的远端 SHA 已核对为同一值）。内容 = 顶层独立
+  `bridge-1201/` Loom 工程（64 个文件，与 `bridge/` 同形状；`build/`、`.gradle/` 全被忽略，
+  `git status bridge/` 干净）+ launcher 侧 Bridge 身份按版本命名 root 泛化 + candidate recipe 回填
+  真实 jar 摘要 + 五道 `tools/check_bridge_*`/`check_boundaries` 按 root 各跑 + CI `bridge-static`
+  对两个 root 的源集各跑一次 host-boundary 门。
+- **判据前移的那一条（不藏着）**：`HOSTCTL-060` 的一条断言钉的是
+  `tools/check_bridge_scaffold.py` 的全文摘要，泛化这道门必然移动它。按既有 `--record` 机制重登记后
+  `5d7fc110… → 29ab71b4…`、case 文件摘要 `625108cd… → 2368ae21…`，`tests/fixtures/manifest.sha256`
+  同步。**后果**：`HOSTCTL-060` 的 `case_version` 前移，旧版本封的东西不算这一版的证据。仓库内除散文/
+  契约文档外没有引用其旧 case version 的已封 bundle（该 case `local-only`、`mandatory: false`），故本卡
+  不重封 bundle；1.21.4 的门内 pin 字符串逐条保留，没有借泛化放宽任何一条。
+- **产物可复现是建出来的**：`9e162d83…`/1,308,469B 在 Windows 严格构建、容器冷缓存记录构建、容器
+  强制依赖校验构建、`check --rerun-tasks`（11 任务全重跑、含 `test`）四次逐字节相同；一次容器构建因
+  `libraries.minecraft.net` TLS 抖动失败（`.tmp/v03docker4.log` 保留），重试成功——网络证据，不是校验证据。
+- **读数**：全量 pytest `2327 passed / 2 skipped`，Pyright `0 errors`，Ruff check/format、boundaries、
+  case assertions(139)、fixture digests、workflow pins、两道 root 的 scaffold/protocol/artifact/
+  host-boundary 门、`git diff --check` 全绿；真实 CLI `bundle verify` 对 1.21.4 与 1.20.1 都出
+  `valid_recipe`/`launchable: true`/`blockers: []`。
+- **仍未测（不把任一写成已过）**：1.20.1 客户端从未启动、从未入服；`launchable` 只是 recipe 层事实；
+  Linux 上由 Gradle 自己触发产物门未测（镜像内无 python）；`--quickPlaySingleplayer` 在 1.20.1 的替代与
+  就绪谓词留给 V04；`check_bridge_proto_java` 的 stub 只覆盖 1.21.4 root；
+  `adapters/bridge/bootstrap.py` 里「Bridge JAR 还不能 pin」那句 docstring 已过期，因不在本卡允许路径而未改。
+- **下一步**：V03 本提交收 `DONE`；`VERSION-LOCAL-1201-001`（V04）需先在独立提交登记 `QUEUED`，
+  再由下一次提交提升为唯一 `NEXT`。
+
+## V04 卷内封证现场（2026-09-25，Qoder 临时执行者；数据卷 `minekin-runner-data`，账本 `kin-01`）
+
+- **接手现场**：本地 HEAD = `origin/main` = `origin/codex/core-state-transition` = `f90d95d`；
+  唯一 `NEXT` = `VERSION-LOCAL-1201-001`。
+- **第一次封证被自己的账本门挡住（保留原样）**：run-146 `raw_exit=2`、
+  `domain: this run cannot name its ledger (found 2)`（`.tmp/v04-domain-1201-020-seal.log`）。
+  卷内除了 `kin-01` 还有 hosted-join 场景留下的 `kin-02`，`domain.sh` 按设计拒绝替执行者选账。
+  处置是**显式命名**而不是搬动/删除任何账本：此后每次真跑带 `MINEKIN_KIN_ID=kin-01`。
+- **三案的 run / bundle / attempt（每次一个 case，attempt 序列由 durable registry 分配）**：
+
+  | case | run id | bundle digest | attempt | 四读 |
+  | --- | --- | --- | --- | --- |
+  | `V1201-010`（FAIL，判据未变、案文档矛盾） | `e0f497107aa14fbcbff939c4548c37a1` | `7bf45e22593fd680f8455793f0b44ea104979c1ac6f1bb790bfea72eb16d4289` | 1 | verify `verified/sealed/FAIL`；第四读 `UNJUDGED`（case version 已移动） |
+  | `V1201-010`（PASS） | `bc203c0ed4004a0d9ba3604d2a51d910` | `13471d2f9b9e337392b86b25a80d574d45eae761c21d91a5b348c1729cdd890f` | 2 | verify PASS / rejudge `agrees` / replay 11 事件→`STOPPED` / `from_repository_build true` |
+  | `V1201-020`（PASS） | `87229052d24f4772a512dee497bab29c` | `6dd17bd6b41251fe39fb0f6ca6386334dc4c9ebd0a89ca00082b260999dbd84e` | 1 | verify PASS / rejudge `agrees` / replay 19 事件→`STOPPED` / 同上 |
+  | `V1201-040`（PASS） | `f4cc67ae130d4aef9b6fef00801c0e2f` | `3d0ebebe28050ea0ce9c35e4f7a32c7e173d28103f6b0c5f30041b02e88b1a56` | 1 | verify PASS / rejudge `agrees` / replay 22 事件→`STOPPED` / 同上 |
+  | `V1201-070`（PASS） | `5b1cbef5162d40a68789324c80d1363c` | `46aa3f00b42da484720e925110509a40cdb49ce955f85779066ce11434911156` | 1 | verify PASS / rejudge `agrees` / replay 17 事件→`STOPPED` / 同上 |
+
+  服务端目录依次为 `run-147`（020）、`run-148`（010 FAIL）、`run-149`（040）；010 的 PASS 那次无服务端
+  目录（仅观察运行不入服，`domain: no server profile; this run joins no world`）。
+- **案文档的自相矛盾（改文档，不改判据）**：`v1201-010.json` 把受控服务端 profile 列进 `inputs`，
+  而它自己的 `stayed_observe_only` 要求这次运行不入服。收敛为只列 `bundle-candidate-1.20.1.json`；
+  `manifest.sha256` 该行 `f712b354… → 69e6bb24…`，`case_version` `1f4c3663173a… → d9446f648807…`。
+  两条断言实现的摘要与 1.21.4 的 `CORE-010` 逐项相同，未动一行。
+- **第四读暴露的假阴性（已单独修复并推送）**：单 recipe 的 `report_promotion.py` 把第一份真实 1.20.1
+  bundle 列进 `from_another_build`。改为按 bundle 自述版本取 recipe 后，三案 `from_repository_build`
+  全为 `true`，`repository_build.builds` 两条 readable（`ac40316094dd…` / `9e0e0ccca9d0…`），
+  `gates_promotion` 仍 `false`。
+- **读数**：全量本地门禁 `2359 passed / 2 skipped`、ruff check/format、pyright 0 errors、boundaries、
+  case assertions(139)、fixture digests、workflow pins、`git diff --check` 全绿
+  （`.tmp/v04-gate-chain-2.log`）；案文档修订后三道受影响门重跑仍绿。CI `f90d95d` 的 run #473/#472
+  三 job 全 Success（浏览器逐条看过，注解只有 Node 20 弃用与 runner 镜像迁移提示）。
+- **仍未测（不把任一写成已过）**：`V1201-040` 那次运行文档里 `input_release_failed: true`（停止阶段命令送不进已
+  消失的通道），故只声明"lease 到期松键被记账"，不声明停止阶段显式松键送达；1.20.1 的 use-target
+  方块变化未证；IPC hello 的版本声明仍写死（`VERSION-BRIDGE-IDENTITY-001` 保持 `QUEUED`），本卡全部
+  证据不引用该字段；未连接用户真实远程服。
+
+## V04 反例与 CI 补读（2026-09-25，受控 runner / Docker / Linux）
+
+- **反例已实测**（脚本 `.tmp/v04-counterexamples-3.sh`、日志 `.tmp/v04-counterexamples-3.log`）：
+  五条准入反例在 `session start` 上全部 **exit 17 / ADMISSION / launcher.profile**，1–2 秒返回
+  （早于任何客户端拉起），消息逐条不同名：allowlist 写 `1.21.4`、`auth_mode: online`、host 改
+  `192.0.2.1`（TEST-NET-1，不指向真实主机）、allowlist 两项、`version_policy.mode: deny_all`。
+  Bridge 摘要反例（recipe `artifacts[1].digest` 改全零）在 `bundle verify` 与
+  `launch-plan --dry-run` 上双双 **exit 11 / SUPPLY_CHAIN / launcher.recipe**。
+- **成对控制**：未改动的 1.20.1 目标被同一准入门判 accepted（`127.0.0.1:25566`/`offline`）；
+  未改动的 1.20.1 recipe 被 `bundle verify` 判 `valid_recipe`、exit 0、plan `ac40316094dd…`。
+  五份改动物各自 sha256 记在日志 F 段。
+- **失败材料保留**：前两次尝试（`.tmp/v04-counterexamples.log`、`-2.log`）的报错在我自己的脚本里
+  ——臆造 `session start --kin-id`、`bundle verify <path>`，以及 JSON 改写助手对字典键调用
+  `int()` 把文档截断成"不是可读 UTF-8 JSON"。它们不是关于门的证据，一条也没记成通过。
+- **CI 补读**（浏览器逐条看过）：`bc80299` → #474/#475 成功；`3b512ee` → #476/#477 成功，#477 三
+  job 为 python 2m35s / protocol 7s / bridge-static 15s，注解只有 Node 20 弃用与 runner 镜像迁移
+  提示。历史失败 #460（`b3531a2`，22s）是 python job 在 `Run uv sync --locked --dev` 步骤失败
+  （lockfile 与 pyproject 不同步），protocol/bridge-static 通过；#461 起连续为绿。
+- **反例不证明的事**：非回环地址可加入（第 ③ 条恰恰拒绝它，属 HOST 准入卡的产品决策）；
+  `BridgeHello` 版本字段正确性（属 `VERSION-BRIDGE-IDENTITY-001`）。
+
+## V04 第四条反例：1.20.1 的旧 generation（2026-09-25，受控 runner / Docker / Linux）
+
+- **新案**：`tests/fixtures/cases/v1201-070.json`（`b1d06ad`，manifest 第 82 行 `3278ad2980ef…`）。
+  五条断言与摘要逐字取自 1.21.4 的 `ADMIT-070`，inputs 换成 1.20.1 candidate + 1.20.1 受控离线
+  服务端；`check_case_assertions.py`（139 项）与 `verify_fixture_digests.py` 均无需改动即复算 OK。
+- **一次真实拒绝运行**：run `5b1cbef5162d40a68789324c80d1363c` / bundle `46aa3f00b42d…` / attempt 1 /
+  14 工件 / `PASS`。运行文档 `JOIN_SEEN` + `snapshot_rejections: ["NOT_AUTHORITATIVE"]` +
+  `snapshots_admitted: 0` + `session_state: STOPPED`；注入请求由 `PROC_CHILD_ENVIRON` 观测到
+  pid 202 携带环境变量（`observed: true`）。日志 `.tmp/v1201-070-run.log`、四读
+  `.tmp/v1201-070-readers.log`。
+- **四读一致**：verify `verified/sealed/PASS`；rejudge `agrees`（五条全 observed、`failures: []`）；
+  replay 17 事件 → `STOPPED`、`violations: []`；promotion `from_repository_build true`、
+  attempt `SEALED`。至此 V04 验收线点名的四条反例（错误版本 / 错误 Bridge / 认证策略拒绝 /
+  旧 generation）在 1.20.1 上各自独立成立。
+- **与 1.21.4 那次不同的两处**（不据其一经结论）：`entities_rejected: 0`（1.21.4 为 1）、
+  `session exited 0`（1.21.4 为 14）。
+- **本条不证明**：真实服务端会自行送出不权威首快照（该路径只能经客户端上报构造）；与远程服、
+  在线认证、HOST 准入无关。
+- **收卡（`VERSION-LOCAL-1201-001` → `DONE`）**：验收线八格逐条核对见主计划 `acceptance_ledger_v04`；
+  未证清单见 `not_established_v04`（停止阶段显式松键送达、use-target 方块、`BridgeHello` 版本真实性、
+  HOST 世界 bundle 标识、runner JDK 17、远程服）。`tested` 的精确组合已在 `tested_registration_decision`
+  写明并**允许**登记，但机器可读登记不在本卡落地：仓库无 reviewed tested registry 文件，改 V03 已封存
+  candidate 的 `status` 字节会移动 fixture digest 与 `case_version`、把四读打成 `UNJUDGED`。承载属 V05。
+  收卡前门禁：`2359 passed / 2 skipped`、ruff check/format 干净、`git diff --check` 干净
+  （`.tmp/v04-gate-chain-3.log`）。
+
+## TESTED-PROVENANCE-VERIFY-001 收卡：`tested` 第一次能被机器核对（2026-09-25，Windows + 受控 runner）
+
+- **加了什么**：`domain/version_resolution.py:839-1239` 的纯核对层（`ProvenanceViolation` 17 个 token、
+  `BridgeMeasurement / CitationMeasurement / EntryMeasurements / ProvenanceFinding / EntryProvenance /
+  ProvenanceSummary`、`verify_entry_provenance` / `verify_registry_provenance`——一次报全缺口、不抛、没有"读不到
+  就当过"）；`adapters/launcher/recipe.py:445-502` 的 `BridgeBytes` / `measure_bridge`（取 `require_built_bridge`
+  同样三层事实但只取不判，jar 与 source tree 各有自己的失败措辞）；入口 `tools/verify_tested_provenance.py`
+  （只读，JSON 到 stdout，退出 0/1/2）；`tests/unit/test_tested_provenance.py` 18 条。
+- **它核对什么**：registry 每条 `tested` 的四层构建事实（recipe 文件摘要、source tree 摘要、从 recipe 重建的
+  launch plan、桥 jar 真哈希）**加**它引用的每一条 bundle（重算 `sha256(manifest.json)`、case 结果、构建一致性、
+  run id 与目录是否唯一）。recipe 摘要走 `provision._reviewed_digest` 本身——判据不留第二份拼写。
+- **受控 runner 真件正例**：容器 `minekin-runner:local`、卷 `minekin-runner-data` 以 `:/data:ro` 挂载，
+  `PYTHONPATH=/src/src python tools/verify_tested_provenance.py --registry …/reviewed-tested-bundles.json
+  --data-root /data --workspace-root /src` → `exit=0`、`verified: true`、`skipped_not_tested: []`；
+  1.20.1 条目 4 条引用、1.21.4 条目 12 条引用全通过，读数 jar `e50d61c209be…`(1,310,604) /
+  source `ab33714672dc…` / recipe `8ce43e26b2e1…` / plan `83299ad5e224…`（1.21.4 侧
+  `faeec4a9df83…`(1,308,525) / `507f708dc4e3…` / `bb45606023ce…` / `9e0e0ccca9d0…`），原始报告
+  `.tmp/tp-runner-positive.json`。
+- **五条反例的真实退出类别**（脚本 `.tmp/tp-counter.sh` / `.tmp/tp-counter2.sh`，四次 `exit=1`）：改动已封存
+  bundle 的 `manifest.json` 字节 → `CITATION_BUNDLE_INCONSISTENT`；删掉被引用的 bundle 目录 →
+  `CITATION_BUNDLE_MISSING`（detail 点名 run id）；只把 registry 条目的 `recipe_digest` 换成 64 个 `0`、构件全在 →
+  唯一发现 `RECIPE_DIGEST_MISMATCH` 并如实报真摘要；workspace 换成 recipe 可读而 Bridge 不在 → `BRIDGE_JAR_MISSING`
+  （点名 jar 路径）+ `SOURCE_TREE_MISSING`（点名 source root）+ `PLAN_UNBUILDABLE`；"入口写文件即不合格"由只读契约
+  排除（测试跑完重算 data root/registry/recipe 字节并断言不变，真跑卷只读挂载）。每种结束时 `resolve()` 与安装门
+  判据一字未动。
+- **不证明什么**：真卷里没有非 PASS / 跨构建的封存 bundle，故 `CITATION_NOT_PASS`、`CITATION_BUILD_DISAGREES`、
+  `CITATION_IDENTITY_MISMATCH`、`CITATION_BUNDLE_UNREADABLE` 只有单元证据；构建可重算性只在当前 host 上被观察，
+  无第二 host 对照；核对入口**不在**启动/安装调用链上——把它变成运行时前置门是产品决策；V08 远程探测、入服与
+  V09/V10 的 look/move/松键一律没做，用户远程服未连接。
+- **门禁**：`uv run --frozen pytest` 2468 passed / 2 skipped（本卡 +18）、`ruff check` 与 `ruff format --check`
+  干净、`pyright` 0 errors、`check_boundaries` / `check_case_assertions`(139) / `verify_fixture_digests` 全 OK。
+  收卡提交前 `git status` 只有 4 个文件（2 改 2 新）——**没有移动任何已封存摘要**。
+
+## BRIDGE-1214-RUNTIME-IDENTITY-001 收卡现场（2026-09-25，Windows + 受控 runner / Docker / Linux）
+
+- **做了什么**：`bridge/`（1.21.4 root）不再把 `"1.21.4"` / `"0.16.9"` 当常量写进 `BridgeHello`——新增
+  `runtime/ClientRuntimeIdentity.java`（与 1.20.1 那份字节相同，compact 构造器用 `requireText` 守形状），
+  `BootstrapDescriptorAdapter.adapt()` 改为 `(descriptor, identity)` 两参，`Expected` 的两个版本字段取自
+  `FabricLoader.getInstance().getModContainer(...)`，拿不到 container 就 `IllegalStateException` 失败关闭，
+  **不回落常量**。实现与重封在同一提交 `16dbb42`。
+- **移动的摘要（工具实测，旧→新）**：source tree `507f708d…`→`a4a53cacb38d83339d46f94d651d25da004e743dded48333ce0e67db4c36413c`；
+  jar `faeec4a9df83…`(1,308,525 B)→`0ee2070b97ba6583ca004cc3f0e4a0e547697d0693dc635c3143c655cc2475f4`(1,310,646 B)；
+  recipe fixture `bb456060…`→`e3bfbae8f41914ee83bce3041b7b91db8df6b24507ee2d0cdca71133661ceae2`；
+  launch plan `9e0e0ccc…`→`bcc0c10d46ab5c0b46d0c86f7e0de9d0d57b635bc17f9dcffdf7631eba8125e2`；
+  `BridgeHello` 黄金证明 `dd1e49ce…`→`3f89c8d43e4dd7f1c4b44411580cd50bc9285d82d739d637157b7917923b37f3`；
+  `tests/fixtures/manifest.sha256` 三行（recipe、`core-001.json` `4f2fc11f…`→`a31b05d1…`、
+  registry `6aaa6342…`→`82a54075…`）。1.20.1 侧 `e50d61c2…` / `8ce43e26…` / `83299ad5…` 一字未动。
+- **重封是真跑出来的**：被引用的 12 条 1.21.4 case 全在新 build 上重跑（`ADMIT-070`、`CORE-010/020/060/090/100`、
+  `CORE-060-CLIENT-001`、`CORE-060-SERVER-001`、`OFFLINE-010/020`、两条 `OFFLINE-030-*`），逐个四读一致
+  （`evidence verify` `sealed:true/verified:true/violations:[]`、`rejudge_evidence` `AGREES`、`replay_evidence` 与
+  `minekin_core replay` 同 `trace_sha256`、`report_promotion` `from_repository_build: true` +
+  `configured_profile bundle-p0-core-1.21.4.json#e3bfbae8…`）。registry 的 12 条引用由 `.tmp/b1214-read-sealed.py`
+  从磁盘上的封存包读出后一次原子换完（64 增 / 64 删），`status`/`capabilities`/`gaps` 不动，`notes` 里"十一条只是更早
+  build 的复判"那句换成"全部是当前 build 的封存"。被替换的旧包仍在卷内、现读 `from_repository_build: false`。
+- **换代后的两条机器读数**：`tools/verify_tested_provenance.py --data-root /data` → `exit=0`、`verified: true`、
+  `registry_revision b59a768d3681…`（换代前 `40e80a17…`），两条 entry 各 `True []`；`bundle install --dry-run` →
+  `status: planned`、`artifacts 4120`、`missing_bytes 523788383`、`plan_sha256 bcc0c10d…`、`exit=0`（未抓取）。
+  未显式给 `--store` 的那次先被 `CONFIG / cli.session` 以 `exit=10` 拒（根内有 5 个 Kin 未指明）。
+- **三条反例都有可执行现场**：① 运行时拿不到 container → `current()` 抛错且消息点名 `minecraft`——
+  `check_bridge_proto_java.py` 的桩 loader 对任何 mod id 答 `Optional.empty()`（仍给不出任何版本值），反向对照
+  （把断言改成期望成功）让门在该行红 `exit=1`；② 声明与本 root recipe 不符 → Java 两处拒（外来版本对、空白版本值）；
+  ③ 未重建就改引用 → 真实加载器三种 tampering 各报 `EVIDENCE_BUILD_MISMATCH`（半换时叠加
+  `TESTED_WITHOUT_EVIDENCE`），完整换代则 12/12 接受——这同时说明引用换代**必须**原子落地。
+- **不证明什么**：`tested` 的晋升仍归人工评审（`status` 未动）；CORE-040 不在被引用 12 案之内、未在新 build 重封；
+  CORE-090 崩溃半 `1a8774fc…` 按设计不封存；真跑全在 Linux x86_64 容器；V08 远程探测/入服与 V09/V10 的
+  look/move/松键一律没做，用户远程服未连接。
+- **门禁**：`uv run --frozen pytest` 2468 passed / 2 skipped、`ruff check` 与 `ruff format --check` 干净（318 files
+  already formatted）、`pyright` 0 errors 0 warnings、`check_boundaries` / `check_case_assertions`(139) /
+  `verify_fixture_digests` / `check_workflow_pins` 全 OK，`bridge/` 四个门（两 root scaffold、host boundary、
+  `bridge-1201` 协议内核、`check_bridge_proto_java`）绿。
+
+## AUTO-PATH-INSTALL-RUN-001 收卡现场（2026-09-25，Windows + 受控 runner / Docker / Linux）
+
+- **基点与提交形状**：领取基点 `244c99d`（工作分支 `codex/core-state-transition`，与 `origin/main` 同点）。本卡是
+  `REAL_RUN_ONLY` 证据卡：**产品代码、fixture、`tests/fixtures/manifest.sha256`、registry 一字未改**，收卡提交只含
+  `docs/`（跑法与读数脚本留在未跟踪的 `.tmp/`）。docs 提交无法自指 SHA，push 后用
+  `git ls-remote origin refs/heads/codex/core-state-transition refs/heads/main` 核对两条 refs 与本地 `git rev-parse HEAD` 一致。
+- **跑法（可复现，容器内）**：`.tmp/auto-inst-run.sh`，分离容器起（`docker run -d --name auto-inst-run-2 --entrypoint
+  /bin/bash -v <repo>:/src:ro -v minekin-runner-data:/data -e MINEKIN_HOME=/data -e PYTHONPATH=/src/src -e
+  LD_LIBRARY_PATH=/opt/sqlite/lib -w /src minekin-runner:local -lc 'bash /src/.tmp/auto-inst-run.sh'`）。Kin
+  `kin-auto-inst-20260925T141055Z`（`kin-01` 那 207 条陈旧 marker 之外新建），脚本先断言该 Kin 自己的
+  `run/artifact-store` 开局 `0 files`，再对 loopback 1.20.1 目标做观测性预备（`.tmp/v07-server-config.py`：harness
+  自己的 `properties_for`+`verify_jar`+`write_configuration`，唯一一格 `enable-status=true`，pin jar 直起），然后跑
+  **正常**自动入口 `session start --auto-bundle tests/fixtures/registry/reviewed-tested-bundles.json
+  --server-profile tests/fixtures/runtime-input/controlled-offline-server-1.20.1.json --max-bytes 1500000000`
+  （无 `--profile`、无 `MINEKIN_DOMAIN_KILL_CORE`、不复制 host store、不硬链接缓存），以 `session stop` 结束，手工
+  `tools/seal_run_evidence.py` 封存。
+- **同一 run 的正证**：封存 `run-document.json` 里 `bundle_id 1.20.1-linux-x86_64-offline-java21 status=ready
+  fetch_set=3639 installed=3639 reused=0`；该 Kin 的 store 从 `0 files` 变成 `3639 files / 738,432,269 bytes`，
+  `quarantine` 与 `.staging` 各 `0 files`；`PlayableEstablished` 在封存的 `bridge-trace.jsonl` 里（`grep -rla` 唯一
+  命中该文件；`replay` 从它投影 19 条事件），同一 ledger 的 position 15、在 `JoinObserved`(12) 与
+  `SessionIdentityCompared`(13) 之后；`connection_state=PLAYABLE`、`snapshots_admitted=1`、`outcome=BRIDGE_LOST`
+  （`session stop` 的正常后果，CLI 退出码 14）；封存 server 日志 `Kin joined the game 14:35:32` /
+  `Kin left the game 14:36:06`。run `7236c53ef3ef4492ab2a6b18499f6699`、bundle
+  `9a732edc057cebe9e5be9c277b673a710fd23e92248e182d1d9028024b00df9e`（= `sha256(manifest.json)` = `bundle.sha256`）、
+  case `V1201-020`、`case_version e7c3b722…`、attempt 序列 3（supersedes `ece5d0cb…`）、12 件工件、`result PASS`。
+  抓取到 `PlayableEstablished` 耗时 1493s。
+- **四读**：`minekin_core evidence verify` → `exit 0` `sealed:true/verified:true/violations:[]`（12 件）；
+  `tools/rejudge_evidence.py` → `exit 0` `status: agrees`、三条 `expected`/`observed` 相同、`recorded.result PASS`；
+  `minekin_core replay` → `exit 0` `events 19` `projected{last_event_position 18, state STOPPED}`
+  `trace_sha256 f6e396703f2e…`，`tools/replay_evidence.py` → `exit 0` "projects 19 event(s)"；
+  `tools/report_promotion.py --work-package W40` → `exit 1`（**W40 整体仍 `blocked`**，其 20 条 blocking_cases 与本卡
+  无关），本 run 那一行 `re_judged: AGREES`、`from_repository_build: true`、`verified/sealed: true`。
+- **非空转反证（三条）**：rejudge 对"要求 observe-only"的变体 case → `exit 2 unjudged`（点名 `e7c3b722…` vs
+  `08c544c6…`）；对"删掉首帧断言"的变体 → `exit 2 unjudged`（`c0d4186a…`）；`tools/assert_case_evidence.py` 对同一批
+  封存工件跑一条它们不满足的 `stayed_observe_only` → `exit 1` `failures ["stayed_observe_only:JOINED_A_WORLD"]`，
+  同形状 positive control（真正的三条）→ `exit 0` `failures []`。
+- **第一次尝试的失败记录（材料保留 `.tmp/auto-inst-attempt1.log`）**：Kin `kin-auto-inst-20260925T134134Z`，那一次同样
+  装齐并在 1430s 到达 `PlayableEstablished`，但我的取文档代码对整份 stdout 做 `json.load` → `Expecting value: line 1
+  column 1`：抓取分支把进度行打在 **stdout**，文档只是末行 JSON。`RUN_ID` 因此为空、seal 跳过，`trap` 按设计删了会话
+  目录 ⇒ 该次无法补封。第二跑改成 `grep -a '^{' … | tail -1` 并**另起全新 Kin**（没有复用第一次那个已装满的 store，
+  否则就造成本卡点名的 `installed 0 / reused 3639` 假证据）。
+- **registry 未动**：`reviewed-tested-bundles.json` 每个 `case_id` 只留一条证据引用，V1201-020 原指向 attempt 2
+  （`ece5d0cb…`，PASS 且对当前 build `AGREES`），换成 attempt 3 不新增任何被证明的属性、却要移动 registry 自身摘要并
+  要求全部引用重验（重封是原子的）。`status`、九条 `gaps`、`capabilities` 与三组 digest 原样。
+- **不证明什么**：V08（用户远程服）未连接，HOST/PERSIST 仍 `BLOCKED_DECISION`；跨 Kin 缓存共享、marker GC、残留进程
+  接管未测（`PROCESS-RECOVERY-001`）；`orchestrator-trace.json` 里 `"orchestrator": "domain.sh"` 是
+  `tools/seal_run_evidence.py:550` 的常量而非本跑的发起者；预检那句 `4121 blob / 523,911,981 字节` 是别的 Kin 全 store
+  的规模代理，本卡自己的 fetch 集是 `3639 files / 738,432,269 字节`；卷内遗留两个 auto-inst Kin 的 store（各 738 MB）
+  未清理，属卷级运维。
+
+## EXPLICIT-RELEASE-AT-STOP-001 登记现场（2026-09-25，基点 `e890924`，Windows）
+
+- **为什么是这张**：主计划收卡后 `current_next` 为空，队列里没有任何 `QUEUED`（逐条看过：
+  `HOST-ADMISSION-DESIGN-001`/`OPERATIONS-RETENTION-001`/`PROCESS-RECOVERY-001` 均 `BLOCKED_DECISION`，
+  `HOST/W80+` `DEFERRED`，其余 `DONE`）。机器读数之外唯一不需产品决策、又落在 1.20.1 主线上的缺口，是 registry
+  那条 `STOP_PHASE_EXPLICIT_KEY_RELEASE`。用户选定先补它，不开远程服（V08 仍待主控决定）。
+- **实测到的缺口形状**（对当前树，非推断）：
+  - `src/minekin_core/cli/session.py:1433` `on_wind_down()` → `release_inputs(..., ReleaseReason.EXPLICIT)`；
+    `session.py:1360-1385` 先发 `ReleaseAllInputs(reason_code="EXPLICIT")` 再记 Core 的 `INPUT_RELEASED`；
+    字面值在 `domain/input_control.py:49`。`on_wind_down` 注释明确它**无条件**执行 ⇒ 判据必须带计数。
+  - `bridge-1201/.../BridgeIpcWorker.java:233-237` 把 `ReleaseCommand` 记成
+    `releaseInputs(CORE_REQUEST, reasonCode)`，`:825-840` 打
+    `bridge released {} input(s) after {} ({})` ⇒ 目标工件是一行
+    `bridge released N input(s) after CORE_REQUEST (EXPLICIT)`（N>0）。1.21.4 root 同两处字节相同
+    （`bridge/.../BridgeIpcWorker.java:235/835`）。
+  - `tools/assert_case_evidence.py` 里今天**没有**收这个形状的 token：三条松键断言分别读
+    Core 账本的 `TIMEOUT`（`:1578`）、Bridge 的 `IPC_LOST`（`:1597`）、Bridge 的
+    `LEFT_PLAYABLE (PLAY_ENDED)`（`:1940`）；`_BRIDGE_RELEASE`（`:161`）只捕获 (计数, reason)，
+    **不含括号里的 reasonCode**，所以 `CORE_REQUEST (EXPLICIT)` 与 V1201-040 的 `CORE_REQUEST (TIMEOUT)`
+    在现有正则下不可分——这是本卡必须新增判据的理由。`the_bridge_carried_the_input_out`（`:1535`）读
+    Core run document 的 action 计数，仍是 Core 侧记账，不能顶替。
+  - `V1201-080` 未占用（`tests/fixtures/cases/` 只有 `-010/-020/-040/-060/-070`，全仓 grep 无命中）。
+- **与 V1201-060 的差别（决定卡的形状）**：`bd8f6b7` 那一格只需新增 fixture，因为 `IPC_LOST` 的 token 早已存在；
+  本卡要先加 token 再真跑，所以 `validation_class` 是 `LOCAL_THEN_REAL_RUN` 而不是 `REAL_RUN_ONLY`。
+- **边界**：不改产品代码（两 root 该路径本就写对）；不动 registry 的 `status`/`gaps`（是否划出
+  `STOP_PHASE_EXPLICIT_KEY_RELEASE` 属主控对 `tested` 声明的决定）；不连接用户远程服；不实现
+  `PROCESS-RECOVERY-001`。停止条件写在卡里：拿不到这行且不碰产品代码就 `BLOCKED_DECISION`。
+
+## EXPLICIT-RELEASE-AT-STOP-001 真跑现场与结构性阻断（2026-09-25，attempt 1/2，Windows + 受控 runner）
+
+- **判官侧已交付**（`f38cf34`，已推到 `origin/codex/core-state-transition` 与 `origin/main`）：
+  新 runtime token `the_bridge_released_the_input_when_the_session_was_stopped` 只收日志原话
+  `released N input(s) after CORE_REQUEST (EXPLICIT)` 且 N>0；`tools/check_case_assertions.py` 报
+  `OK (140 registered)`；case fixture `tests/fixtures/cases/v1201-080.json`（manifest 摘要
+  `f4ef3adf5d6260bb66145b0ee1e7664f3d770daec33becb2bee342fac0bd2945`）；单元侧正例 + 五条拒绝理由
+  （`NO_CLIENT_LOG` / `RELEASE_NOT_LOGGED` / `RELEASED_FOR_ANOTHER_REASON:…` /
+  `HELD_NOTHING_WHEN_THE_SESSION_WAS_STOPPED`）各配非空转反证，另有一条 positive control `exit 0`。
+  本次复跑：`uv run --frozen pytest tests/unit -q` → `2184 passed, 2 skipped`。
+- **attempt 1**（run `6d11ab7d35b64f83a9352ff120bceaa2`、bundle `6afda194861acb0dc5f43d09fedcbc2694854a83019dbc65ff7cd4a49445efe1`）：
+  `result FAIL`，`failures = ["the_bridge_released_the_input_when_the_session_was_stopped:RELEASE_NOT_LOGGED"]`。
+  现场是 `client/latest.log:204 [15:52:59] Kin was slain by Slime` + `:205 bridge released move.forward` +
+  `:206 bridge let go of its held input: the client is showing DeathScreen`——Kin 在停止前已死，
+  且那行 `bridge released move.forward` 不是计数形状，token 因此报 `RELEASE_NOT_LOGGED`（材料保留，未删）。
+- **attempt 2 是专门为排除死亡干扰而起**（`--hold-forward-seconds 180` 对 `MINEKIN_DOMAIN_SECONDS=60`；
+  run `ffdd54fcdf454938a7ec63d045860ea6`、bundle `931157feaae6cbc94cd31777feb15fe5de4380e24c438540f2e0a8d8a155119c`）：
+  `result FAIL`、同一 `failures` 项。封存的 `client/latest.log` 里 `grep -ic released` = **0**、
+  `grep -ic deathscreen` = **0**，末两行是 `bridge pressed move.forward` 与
+  `bridge applied 2f2adcf0894541a18f5ff0151e5fc614: holding [move.forward]`；run document 记
+  `input_release_failed: true`、`outcome: BRIDGE_LOST`、`connection_state: PLAYABLE`、`session_state: STOPPED`，
+  `session stop` 输出 `terminated: [235]`（235 是 run document 的 `pid`）。
+  容器内逐条复判两件封存件：`move_input_was_leased` 与 `the_server_saw_the_kin_stop_after_the_move` **两跑都 observed**，
+  缺的只有本卡那一格。
+- **结构性结论（读代码 + 真跑读数一致）**：`session stop` 的路径是 `bootstrap.py:323 →
+  cli/session.py:1560-1582 → adapters/launcher/orphans.py:314-353`，终步对客户端进程 `terminate(pid)`；
+  运行时只在 `reader`/`client` 结束后进入 `finally`（`cli/session_runtime.py:423-438`），其中
+  `connections.close()`（:432）在 await `on_wind_down()`（:433-435）之前，失败置
+  `progress.release_failed = True`（:436-437）。`RELEASE_ALL_INPUTS` 全仓只有 `cli/session.py:1370` 一个发送者，
+  Core 亦无信号处理器 ⇒ **显式松键命令的发出点永远在它的接收方被终止之后**。lease 到期 / 离开可玩态 /
+  Core 被杀三种释放之所以有工件，是因为它们在 Bridge 还活着时发送。
+- **因此本卡按自己的 `stop_conditions` 第①格停在 `BLOCKED_DECISION`**：不改两 root 的松键路径、不改任何产品代码、
+  不改判据、不动 registry（`STOP_PHASE_EXPLICIT_KEY_RELEASE` 仍在九条 `gaps` 里，registry 摘要一字未动）、
+  不提升 V08、不连接用户远程服。
+- **决策已得（2026-09-25，用户）**：在 (a)「把停止改成先向活着的 Bridge 显式释放、再终止客户端」与
+  (b)「承认这一格只能由 Core 记账 + 服务端推断覆盖并据此改写/划出缺口」之间，用户选 **(a)**：
+  「修正产品的停止顺序，先让仍存活的 Bridge 确认松键，再终止客户端」。承接它的是主计划里以 `QUEUED` 登记的
+  `GRACEFUL-STOP-KEY-RELEASE-001`（机制：`<run_root>/stop-requests/<session_id>-generation-<n>.json` 请求 +
+  `.ack.json` 回执；会话侧新增 `until_stop_request`/`on_stop_request` 分支走既有
+  `release_inputs(arbiter, EXPLICIT)`；`on_wind_down` 只在已确认的停止后跳过重发；`session stop` 先问后杀、
+  超时回落到今天的终止并如实报告未确认）。
+- **登记那张卡时新测得的两条边界事实**（更正先前"改产品代码会牵动 1.21.4 重封"的说法）：
+  `tools/report_promotion.py:204-222` 的 `from_repository_build` 只把 bundle 记的 launch plan 摘要与本检出
+  按该版本算出的摘要相比，Python 侧改动不移动它 ⇒ 被 registry 引用的 run 不需重封；
+  `tools/assert_case_evidence.py:1591-1602` 的 `the_lease_expired_and_was_released` 取 reason **集合**含
+  `TIMEOUT`，故停止阶段多出的 `INPUT_RELEASED(EXPLICIT)` 不改变 V1201-040 的结论（仍按验收再跑一次复证）。
+  另注意 `cli/auto_session.py:255` 的版本切换也是"直接终止"，本卡明示留在范围外（`non_goals`）。
+- **可复跑读数**（同形状，卷内两件封存件仍在）：
+  `MINEKIN_KIN_ID=kin-01 MINEKIN_SERVER_JAR=.tmp/mc-1.20.1-server.jar MINEKIN_DOMAIN_CASE=V1201-080
+  MINEKIN_DOMAIN_PROBE=Kin MINEKIN_DOMAIN_SECONDS=60 bash test-orchestrator/runner/run.sh domain session start
+  --profile tests/fixtures/runtime-input/bundle-candidate-1.20.1.json
+  --server-profile tests/fixtures/runtime-input/controlled-offline-server-1.20.1.json --hold-forward-seconds 180`；
+  复判：把 evidence 目录从卷里 `docker cp` 出来后用**入库的**读者
+  `uv run python tools/rejudge_evidence.py <绝对 bundle 目录>`；本次另用了 `.tmp/er-audit.sh`（未入库的临时脚本，
+  内容只是 `read_sealed_material` + `evaluate` 套在 `tests/fixtures/cases/v1201-080.json` 上，逐条打印
+  `observed`/`failures`，与 `rejudge_evidence.py` 同源）；
+  转录：`.tmp/explicit-release-v1201-080-run.log`、`.tmp/explicit-release-v1201-080-run2.log`。
+
+## GRACEFUL-STOP-KEY-RELEASE-001 实现与真跑收卡现场（2026-09-26，Windows + 受控 runner / Docker / Linux）
+
+- **基点与提交**：领取时唯一 `NEXT`（登记 `6bef249`、提升提交 `d0ed908`），实现落在 **`5c643c6`**
+  （`feat(session): release the client's keys before terminating it`，6 个文件 / 1190 行新增：
+  `adapters/launcher/stop_request.py`（新）、`cli/session.py`、`cli/session_runtime.py` 与
+  `tests/unit/test_stop_request.py`（新）、`tests/unit/test_stop_session_release.py`（新）、
+  `tests/unit/test_session_supervision.py`）。判据、case fixture、registry、两 root 的 Java、
+  `orphans.py` 的身份证明与终止判定规则一字未改。
+- **实现形状对卡片设计稿的一处更正**（登记时未量到，实现时量到）：请求/回执的名字带 **pid**——
+  `<run_root>/stop-requests/<session_id>-generation-<n>-pid-<pid>.request.json` 与同名 `.receipt.json`
+  （不是设计稿的 `.ack.json`）。理由：本项目所有流程里的 `generation` 都是 1，只按
+  `(session_id, generation)` 寻址会让一次**未被应答的旧请求**截断同会话新一跑的 lease（新会话一开头就读到
+  旧请求、立刻松键）。pid 是 run document 与 marker 都已记下的事实（`launch.identity.pid` /
+  `SessionClaim.identity.pid`），会话侧读自己的、停止侧按 claim 的写，一次停止恰好只对**它将要终止的那一个进程**
+  提问。容错读取不变：读不到 / 不可解析 / schema 不符 ⇒ 视为"没有请求"。
+- **单元证据（验收①，四条都非空转）**：
+  (i) `test_a_stop_request_releases_the_input_over_the_still_live_channel`——请求在场时会话在**仍活的**
+  控制通道上发出 `ReleaseAllInputs(EXPLICIT)` 并写回执 `SENT`，账本恰有一条 `INPUT_RELEASED{EXPLICIT}`；
+  (ii) `test_the_stop_asks_the_live_client_and_waits_for_its_answer`——应答线程被故意延后 0.3 秒，
+  断言 `terminated_when_answered == [[]]`，因此它只在"先拿到回执、后终止"时成立（见下方 CE2）；
+  (iii) `test_a_stop_that_gets_no_answer_still_stops_and_says_nobody_answered`——`release_timeout_s=0.05`
+  之下仍终止、`status: stopped`，并在 `release.unconfirmed` 里如实报出没人应答、请求文件留在原地；
+  (iv) `test_a_run_that_was_never_asked_still_releases_on_the_way_out` +
+  `test_a_session_holding_nothing_answers_that_instead_of_sending`（`NOTHING_HELD` 回执、**不发**命令）+
+  `test_a_release_the_channel_refuses_leaves_no_answer`（发送失败 ⇒ 无回执、`release_failed: true`）。
+  寻址与容错另有 `tests/unit/test_stop_request.py` 8 条（含"回执必须对得上同一次 ask"、"旧 pid 的请求不算"、
+  "截断的 JSON ⇒ 没有请求"、四个地址非法项都拒且**不建目录**）。
+- **四条反证各红在其命名理由上**（`.tmp/graceful-stop-counterexamples.sh` →
+  `.tmp/graceful-stop-counterexamples.log`；每条打补丁→跑点名测试→从备份还原，收尾 `git diff --exit-code` 干净）：
+  CE1 把超时回落当确认 ⇒ `test_a_stop_that_gets_no_answer_still_stops_and_says_nobody_answered` 红在
+  `unconfirmed` 少一项；CE2 先终止后询问 ⇒ 次序测试红在 `At index 0 diff: [4242] != []`（终止发生在应答之前）；
+  CE3 去掉"已确认就不重发" ⇒ 活通道测试红在 `EXPLICIT` 多一条；CE4 靠删掉 wind-down 的无条件安全网来避免重发 ⇒
+  未被询问的测试红在 `EXPLICIT` 少一条。**positive control**：还原后同一批点名测试 `5 passed`、
+  脚本 `positive_control_exit=0`。
+- **判据侧对真实封存件的交叉读数**（`.tmp/graceful-stop-token-readings.sh` →
+  `.tmp/graceful-stop-token-readings.log`，只读地把本卡的 runtime token 套到**别的 run** 的
+  `client/latest.log` 上；容器内 `PYTHONPATH=/src/src`，未入库的临时读者）：
+  `V1201-080` attempt 3 的日志 ⇒ `None`（observed）；attempt 2 的日志 ⇒ `RELEASE_NOT_LOGGED`；
+  `V1201-040` attempt 3 的日志（**真实存在**一条 `bridge released 0 input(s) after CORE_REQUEST (EXPLICIT)`）⇒
+  `HELD_NOTHING_WHEN_THE_SESSION_WAS_STOPPED`（`released 0` 充数被拒，正是卡片点名的反例）；
+  `V1201-060` 的 bundle（`f71c56f03c7e4d1b9f36028a1edfb945`）⇒
+  `RELEASED_FOR_ANOTHER_REASON:IPC_LOST,LEFT_PLAYABLE(PLAY_ENDED)`（拿 IPC_LOST 顶替被拒）。
+- **门禁（验收②，全部在 `5c643c6` 上量）**：`uv run --frozen pytest tests/unit -q` =
+  **2200 passed / 2 skipped**；`ruff check .`、`ruff format --check .`（322 文件）、`pyright`（0 errors）、
+  `tools/check_case_assertions.py` = `OK (140 registered)`、`tools/verify_fixture_digests.py` =
+  `W00 schema and fixture digests: OK`、`tools/check_boundaries.py`、`git diff --check` 全绿。
+- **真跑 attempt 3（验收③，`V1201-080`，判据一字未改）**：run
+  `484675e4938b4134b788a971e195619b`、bundle `22fb57f34abb22ec9c217a06e3083c1e8ae0c7355b9ada1d205d3739221ffe1a`、
+  `attempt_sequence 3`（supersedes `ffdd54fc…`）、`case_version 6fea27c3…`、13 件工件、`result PASS`、
+  `failures: []`；服务端目录 `/data/server-runs/run-169`。三条独立读数：
+  封存的 `client/latest.log:204-205` 是 `bridge released move.forward` +
+  **`bridge released 1 input(s) after CORE_REQUEST (EXPLICIT)`**（N=1>0，末行之前是
+  `holding [move.forward]`，`grep -ic deathscreen` = 0 ⇒ 无死亡干扰）；`session stop` 自己报
+  `"release": {"asked": [218], "nothing_held": [], "released": [218], "unconfirmed": []}` 且
+  `terminated: [218]`、`status: stopped`、`unresolved: []`（218 是 run document 的 `pid` ⇒ 先问后杀）；
+  run document 记 `input_release_failed: false`（attempt 1/2 都是 `true`）、`session_state: STOPPED`、
+  `connection_state: PLAYABLE`、`outcome: BRIDGE_LOST`（客户端仍是被终止而结束的，这一点没被改）。
+  四读一致：`evidence verify` = `verified: true / sealed: true / violations: []`、
+  `tools/rejudge_evidence.py` = `status: agrees`（三条断言全 observed）、
+  `python -m minekin_core replay` 与 `tools/replay_evidence.py` 都把 21 条事件投到 `STOPPED`
+  （`trace_sha256 e87a9847…`）、`tools/report_promotion.py` 那一行
+  `from_repository_build: true` + `re_judged: AGREES` + `bridge_digest e50d61c2…`。
+  attempt 1/2 两件 `FAIL` 封存件与转录原样留在卷内（`6d11ab7d…`、`ffdd54fc…`，`report_promotion` 里仍各报
+  `result FAIL` / `AGREES`），未撤未改。
+- **回归真跑（验收④，`V1201-040` lease 到期那一格）**：沿用该 case 既有 PASS 的命令行形状
+  （`--look-yaw-degrees 45 --hold-forward-seconds 2`，`MINEKIN_DOMAIN_SECONDS=60` 让停止落在 lease 到期之后）：
+  run `6a86da0353e746829cc5966ac272ef9d`、bundle `554c467bdae9e0582d0b6b28517068899758065f533e2abd55674a611e6cc1e0`、
+  `attempt_sequence 3`（supersedes `155dcb4a…`）、`case_version 2ef224d8…`、13 件工件、`result PASS`、
+  `failures: []`，harness 退出码 0。客户端日志同时给出两条释放且**各归各的理由**：
+  `:207 bridge released 1 input(s) after CORE_REQUEST (TIMEOUT)`（lease 到期那一格，仍是它撑着结论）与
+  `:208 bridge released 0 input(s) after CORE_REQUEST (EXPLICIT)`（这次停止新加的那一条，N=0 因为键已在
+  2 秒时松开）。四读一致（`verified/sealed` PASS、`agrees`、两个 replay 同投 23 条事件到 `STOPPED`、
+  `from_repository_build: true` + `AGREES`）；run document 的 `input_release_failed` 也从旧 PASS 件的
+  `true` 变成 `false`。**停止条件第③格没有触发**。
+- **复跑命令**（两条，形状与 attempt 2 记录的一致，只是 case 与 hold 时长不同）：
+  `MINEKIN_KIN_ID=kin-01 MINEKIN_SERVER_JAR=.tmp/mc-1.20.1-server.jar MINEKIN_DOMAIN_CASE=V1201-080
+  MINEKIN_DOMAIN_PROBE=Kin MINEKIN_DOMAIN_SECONDS=60 bash test-orchestrator/runner/run.sh domain session start
+  --profile tests/fixtures/runtime-input/bundle-candidate-1.20.1.json
+  --server-profile tests/fixtures/runtime-input/controlled-offline-server-1.20.1.json --hold-forward-seconds 180`；
+  把 `MINEKIN_DOMAIN_CASE` 换成 `V1201-040`、把 `--hold-forward-seconds 180` 换成
+  `--look-yaw-degrees 45 --hold-forward-seconds 2` 即回归那一跑。转录：
+  `.tmp/graceful-stop-v1201-080-run3.log`、`.tmp/graceful-stop-v1201-080-readers3.log`、
+  `.tmp/graceful-stop-v1201-040-regression.log`、`.tmp/graceful-stop-v1201-040-readers.log`。
+- **本卡未做的**（都属越界）：`cli/auto_session.py` 的版本切换停止仍是"直接终止"（`non_goals`）；
+  registry 的 `status`、九条 `gaps`、摘要一字未动（`STOP_PHASE_EXPLICIT_KEY_RELEASE` 是否据此划出仍归主控）；
+  不判定 V07 剩余缺口、不提升 V08、不连接用户远程服；run document 字段集与 `schema_version` 未扩。
+
+## ADMIT-070-RECORD-SCHEMA-001 收卡现场（2026-09-26，本地 Windows；`LOCAL_ONLY`，无真实运行）
+
+- **这张卡要补的洞**：`tools/fault_injection.py` 自拒绝注入那张卡起读**两类**记录
+  （`PROCESS_SIGKILL`、`CLIENT_REPORT_REQUEST`），而 `schemas/fault-injection.schema.json` 只写得出
+  SIGKILL 那一类，并且有一条测试**显式断言**请求记录会被 schema 拒绝。写下来的契约与执行它的读取器
+  各说各话，将来照文件读的人就会以为请求类没有规则。方向只能是文件向 reader 对齐——reader 一字未动。
+- **交付（`de8ed7d`）**：根 `oneOf` 指向 `$defs.process_sigkill_record` 与
+  `$defs/client_report_request_record`。kill 一支的字段集与旧文件逐格相同（`category` 缺省仍表示它，
+  卷内每张旧封存照读不变；明写 `PROCESS_SIGKILL` 也接受，与 reader 的 `keys = _KEYS | {"category"}` 对齐）；
+  请求一支带上 `_REQUEST_KEYS` 的九件、`request` 的四件与 `effect` 的五件，并把 reader 里那两条派生关系写进
+  `allOf/if/then`：`asked` 由 `value` 的拼写决定（YES/NO 两张拼写表，大小写与首尾空白都跟着 `yes_or_no`
+  的实际归一化写，避免"schema 比 reader 更严"）、`method`/`pid`/`starttime_ticks` 跟着 `observed` 走，
+  以及 `observed: true` 预设 `asked: true`（就是 `EFFECT_WITHOUT_REQUEST` 那一格）。
+  `case`/`attribution`/`reasons` 与两个单调时钟字段收进 `$defs` 共用——reader 里一份的规则，文件里也只留一份。
+- **验收第①格（双向一致，两条方向都测）**：`structural_mutations()` 拆成
+  `kill_structural_mutations()`（10 件）+ `request_structural_mutations()`（13 件）= 23 件，
+  `test_the_schema_refuses_everything_the_reader_refuses_structurally` 逐件要求 reader 报代码**且** schema
+  报错；新增 `test_the_schema_accepts_every_shape_the_reader_accepts` 过 7 种合法形状（注入成功/未落地的
+  kill、明写类别的 kill、argv 含空 option 值的真实客户端身份、被观察到/未被观察到/没人要过的请求）。
+  第二类是这条卡自己踩过的坑：写下的形式一旦比 reader 严，真记录连它的拒绝理由一起写不下来。
+  新增 `test_the_schema_names_both_kinds_and_refuses_a_record_that_names_neither` 钉两类边界（借字段的
+  两份文档都拒；缺 `signal` 的 kill 不会被改读成请求）。
+- **退役与替换**：`test_the_frozen_schema_still_describes_the_kill_record_only` 删除，改由
+  `test_the_two_comparisons_the_reader_still_keeps_for_itself` 说清**仍然分工**的两格——
+  `REASONS_MISSING` 与 `REASONS_NOT_FOR_THIS_OUTCOME` 由 reader 拒、schema 沉默（与 kill 一类的
+  outcome-vs-confirmation 同一条线：文件说形状与"同一件事说两遍"的配对，不替整段叙述是否完整作证）。
+- **反证（非空转）**：`uv run --frozen python .tmp/schema_counterexamples.py` 把新写的 7 条规则逐一从
+  盘上的 schema 里删掉再跑那 4 个具名测试：`7/7` 次整体变红（`exit=1`），未删时 positive control
+  `4 passed` `exit=0`；脚本 `finally` 里按字节还原并复核测量 digest 前后一致（`34e6d26c…`）。
+  读数：`.tmp/schema-counterexamples-final.log`。
+- **验收第②③格（fixture 侧，并更正登记卡的前提）**：动的只有 `tests/fixtures/manifest.sha256:7`
+  ——`cc983bc8fc4b12c9bf9725b50e9d31493941c83066b93cb4aab2ff293b3be0a0` →
+  `34e6d26c7d102121cde10d9b43c6eb99951746a80993abce4e41d4a717802e19`（用门禁自己的
+  `tools/verify_fixture_digests.py::_normalized_bytes` 量出，改前该工具报的就是这一行；卡片当时写的"第 6 行"
+  实际是第 7 行）。**`w00-contract-001.json` 一字未改**：`case_version` 是 case 文档自身的 sha256
+  （`src/minekin_core/domain/cases.py:731`），新旧同为 `c59b9636646e3e3d3964d51421c3ead556f12a5936bbea74c46fbfc89f6b66b4`
+  （改前改后各算一次，并核 `git show HEAD:` 与工作副本字节相等）。所以登记时"改 schema = 给无关 case
+  重新定版"不准确：真正的耦合是 `fixture_digests_match_manifest` 会读那行 manifest——不重签就是 W00 判红。
+  另核两件事：旧 digest `cc983bc8fc4b12c9` 在全跟踪树里已无命中（`.claude/` 陈旧 worktree 除外）；
+  `tests/fixtures/registry/reviewed-tested-bundles.json` 只钉 `bridge_digest`/`launch_plan_digest`/
+  `recipe_digest`/`bundle_digest` 四类，**没有一条 `tested` 声明被本卡移动**，故无需任何重封。
+- **验收第④格（全量门禁，`bash .tmp/run_local_gates.sh`，跑在 `de8ed7d` 的干净工作树上）**：
+  `ruff check` `All checks passed!`、`ruff format --check` 0、Pyright `0 errors`、全量 pytest
+  **`2500 passed / 2 skipped`**（302.92s；两处跳过是既有的平台限制）、`check_boundaries` 0、
+  `check_case_assertions` `OK (140 registered)`、`verify_fixture_digests` `W00 schema and fixture digests: OK`、
+  `check_workflow_pins` 0、`git diff --check` 0。定向文件 `tests/unit/test_fault_injection.py` 63 passed。
+- **远端与 CI**：卡片文本由 `cc9ced2` 收卡，`git ls-remote` 上 `main` 与
+  `codex/core-state-transition` 同为 `cc9ced28b19f2e249683548be550acc74f14b699`；GitHub Actions 对该 SHA 的
+  两个 `CI` run（`36170297867`、`36170297886`）`completed / success`，六个 job
+  （每个 run 的 `python`/`protocol`/`bridge-static`）全 `success`，step 层没有 `failure/cancelled`。
+  实现 `de8ed7d` 与收卡提交在同一次 push 里，所以 GitHub 只在 tip 触发——那一跑覆盖的正是 schema、测试
+  加文档的同一棵树。
+- **"队列 `QUEUED`/`NEXT` 都是 0"的反空转证明**：清点按卡头配对 `status` 行（`.tmp/count_plan_cards.py`）。
+  把计划复制到临时文件、只改本卡那一行状态再跑同一套逻辑：改 `NEXT` 的副本报 `55 / QUEUED=0 / NEXT=1`，
+  改 `QUEUED` 的副本报 `55 / QUEUED=1 / NEXT=0`，正本仍是 `55 / 0 / 0`。两份临时副本已删，未进版本库。
+- **复跑命令**：`uv run --frozen pytest tests/unit/test_fault_injection.py -q`；
+  `uv run --frozen python tools/verify_fixture_digests.py`；
+  `uv run --frozen python .tmp/schema_counterexamples.py`；`bash .tmp/run_local_gates.sh`；
+  队列清点 `python .tmp/count_plan_cards.py`。
+- **本卡未做的**（都属越界）：`tools/fault_injection.py` 的读取规则一字未动；判官
+  `tools/assert_case_evidence.py`、产品 `src/minekin_core`、Bridge、runner、`proto/`、CI 全未触碰；
+  未新增第三类记录、未改 `CLIENT_REPORT_REQUEST` 已冻结的字段语义、未重解释 SIGKILL 类既有字段；
+  `$id`/`title` 仍是 v1（reader 的 `schema_version` 仍是 `1`）；不封 evidence，也不据此判定 1.20.1
+  那一格或 V08——那仍是主控的决策。
+
+## TESTED-GAP-DRAW-STOP-PHASE-1201-001 收卡现场（2026-09-26，Windows + 受控 runner 卷读数；无新的真实运行）
+
+- **来由**：主控 2026-09-26 就两格决策答复——①只把 1.20.1 的 `STOP_PHASE_EXPLICIT_KEY_RELEASE` 从
+  `tested` 声明划出，同时登记 `V1201-080` 的 PASS 证据与对应 capability、重算摘要并跑 provenance 校验；
+  ②**不提升 V08**，因而不连接用户的远程服；③HOST 支线只做设计。登记 `89ec146` → 提升 `822d7f0` →
+  实现 `4151664` → 本提交收卡（逐卡串行，一步一提交）。
+- **交付形状（三处文件）**：`tests/fixtures/registry/reviewed-tested-bundles.json` entry[0]
+  `gaps` 9 → 8、`capabilities` 18 → 19（`the_bridge_released_the_input_when_the_session_was_stopped`）、
+  `evidence` 5 → 6（`V1201-080` / run `484675e4938b4134b788a971e195619b` / bundle
+  `22fb57f34abb22ec9c217a06e3083c1e8ae0c7355b9ada1d205d3739221ffe1a` / bridge `e50d61c2…` /
+  plan `83299ad5…` / `PASS` / attempt 3——两个 build 摘要与该 entry 自身相同，否则
+  `load_reviewed_registry` 会报 `EVIDENCE_BUILD_MISMATCH`）；`tests/fixtures/manifest.sha256:85`
+  `69244c32…` → `6dd2f421…`（用门禁自己的 `verify_fixture_digests._normalized_bytes` 量出）；
+  `tests/unit/test_version_resolution.py` 只加一条用例
+  `test_the_explicit_stop_release_is_drawn_only_from_the_version_that_has_the_artifact`。
+- **只划这一条（逐字段对比，`git show HEAD:` 与工作树）**：entry[0] 其余 11 个字段、`status: tested` 不变，
+  划掉的只有那一条缺口；entry[1]（1.21.4）`gaps` 5 → 5 且 `STOP_PHASE_EXPLICIT_KEY_RELEASE` 仍在、
+  `capabilities` 31 → 31、`evidence` 12 → 12、11 个字段相等。既有断言
+  `test_declared_capabilities_are_exactly_the_cited_assertions`（capabilities 必须**恰好等于**被引 case 的
+  断言之并）与 `test_gaps_name_holes_the_cited_runs_did_not_close`（缺口与能力不相交）同时通过——
+  `v1201-080.json` 的三条 `assertions` 里就有那个 token。
+- **耦合面实测（不沿用旧前提）**：registry 不在任何 case 的 `inputs` 里——扫 `tests/fixtures/cases/*.json`
+  49 个文件、命中 0；同一套检测逻辑对一个人为加上该输入的临时副本报 1 个命中（正例对照，副本已删）。
+  所以本卡没有移动任何 `case_version`、没有触发任何重封。
+- **卷内读数（受控 runner，`--data-root /data`）**：`tools/verify_tested_provenance.py` 对新文件
+  `verified: true`、`exit 0`、`entries[0].findings: []`，六条引用逐条 `present/readable/sealed/consistent =
+  true`、`detail: null`；`registry_revision` `989515082ca8…` → `35bdd1c043c1…`（编辑前后各跑一遍，两遍都 0）。
+  `tools/report_promotion.py`：`V1201-080` attempt 3 那行 `from_repository_build: true` +
+  `re_judged: AGREES` + `verified: true` + `result: PASS`（attempt 1/2 两行仍 `AGREES`、`result: FAIL`，
+  失败材料原样在卷内）；整体 `status: blocked`、`overall.promotable: false`、
+  `repository_build.gates_promotion: false`、11 个 work package 里只有 `W20` 为 `true`。
+  **V08 未提升的机器读法就是这三个字段**——`report_promotion.py` 的 `work_packages` 键里并没有 `V08`
+  （只有 `W00…W70`、`host-integrated`、`p0-core`、`p0-nav-exp`），验收第 4 格那句"V08 的 `promotable`"
+  按此更正，不静默改写。
+- **反证 + positive control（`.tmp/gap-draw-counterexamples.py`）**：把变异写进真实路径、跑真实用例、
+  `finally` 按字节还原并核对摘要。(i) 划出后删 capability → 新用例红、`token_in_1201_capabilities: VIOLATED`；
+  (ii) 顺手删 1.21.4 同名缺口 → 红、`gap_still_in_1214: VIOLATED`；(iii) 引用的 plan 摘要换成 1.21.4 那份 →
+  `load_reviewed_registry` 抛 `MinekinError: ['EVIDENCE_BUILD_MISMATCH']`、整文件红；
+  (iv) 划缺口不补 evidence 行 → 红、`v1201_080_cited: VIOLATED`。还原后 positive control `exit 0`（45 passed）、
+  `worktree_restored=True`。读数 `.tmp/gap-draw-counterexamples.log`。
+- **门禁（`bash .tmp/run_local_gates.sh`，`head=822d7f0`、三个待提交文件）**：`ruff check` 0、
+  `ruff format --check` 0、Pyright `0 errors`、全量 pytest **`2501 passed / 2 skipped`**（302.41s；比上一张
+  卡多出的 1 正是本卡用例）、`check_boundaries` 0、`check_case_assertions` 0、
+  `verify_fixture_digests` `W00 schema and fixture digests: OK`、`check_workflow_pins` 0、`git diff --check` 0。
+- **队列清点的非空转（本提交实测）**：`python .tmp/count_plan_cards.py` 报 56 张带 `status` 的卡里
+  `QUEUED` 与 `NEXT` 均为 `0`；把该卡状态在临时副本里改回 `NEXT` 或 `QUEUED`，同一套逻辑各报 `1`
+  （正本 `0/0`，副本已删）。
+- **远端与 CI**：卡片文本由 `b03863e` 收卡，`git ls-remote origin refs/heads/main
+  refs/heads/codex/core-state-transition` 两行同为 `b03863e2346ed559b6d33fe7482d7fa0619f82df`；
+  GitHub Actions 对该 SHA 的两个 `CI` run（`36176584903`、`36176584988`）`completed / success`，
+  六个 job（每跑 `python` 18 步、`protocol` 10 步、`bridge-static` 9 步）的 step 层除 `success`
+  只有 `skipped`。四步提交（`89ec146`/`822d7f0`/`4151664`/`b03863e`）在同一次 push 里，
+  GitHub 只在 tip 触发——那一跑覆盖 registry、manifest、用例与文档同一棵树。
+- **复跑命令**：`uv run --frozen pytest tests/unit/test_version_resolution.py -q`；
+  `uv run --frozen python tools/verify_fixture_digests.py`；`bash .tmp/run_local_gates.sh`；
+  `python .tmp/gap-draw-counterexamples.py`；`python .tmp/count_plan_cards.py`；容器内
+  `PYTHONPATH=/src/src python tools/verify_tested_provenance.py --registry
+  tests/fixtures/registry/reviewed-tested-bundles.json --data-root /data`。
+- **本卡未做的**（都属越界）：不提升 V08、不连接用户远程服、不改 `EXPLICIT-RELEASE-AT-STOP-001` 的
+  `BLOCKED_DECISION`、不动 1.21.4 那条同名缺口与 1.20.1 其余八条缺口、不改判据
+  （`tools/assert_case_evidence.py`）与产品代码、不替换 `V1201-040` 既有引用、不重封任何 run。
+
+## HOST-ADMISSION-DESIGN-001 收卡现场（2026-09-26：问题读到底，剩下的三格是所有权）
+
+- **交付物**：新文档 [宿主世界会话坐标来源设计](host-admission-session-coordinate-design.md)。
+  它回答的是**能答的那一半**：两侧闸门卡在同一个缺失的坐标上，而这处缺失是**契约留白**
+  （远程入服契约自己写明"不扩张到 HOST 模式"，`docs/p0-remote-admission-contract.md:3`），
+  既不是"违反现行契约"，也不是"契约已答只是没人读"。
+- **三条方案的许可性是量出来的，不是排出来的**：A（Bridge 自己开代）要改"谁裁判"那两条；
+  C（宿主世界永远只走 `MANAGEMENT_ONLY`）与生命周期状态机那两条正面冲突
+  （`CREATING --> HOST_PLAYABLE: local JOIN + snapshot`、manifest 转 ACTIVE 含首份 authoritative snapshot）；
+  B（Core/控制面产胶囊、下发一条自带 `generation` 的开始命令，Bridge 只执行）的形状**已被 host 命令的
+  字段表预设**——`session_id, generation, expected_state, profile_digest` 本来就在每张 host 命令里。
+  许可性 ≠ 选定：B 仍要等所有权冻结。
+- **交主控的三格**（设计文档 §5 那张表就是本卡的结尾）：①宿主世界的 `generation` 由谁分配
+  （建档时的控制面 vs 下发时的 Core 会话运行时）；②`WorldCapsule` 的权威来源与是否落盘
+  （它决定 `HOST-001` 的"重启重进"那半边今天能不能判）；③规则 2 对一个**没有 server profile** 的
+  宿主世界如何算一致性（跳过 / 以 `HostedWorldManifest` 摘要替代 / 要求一个 loopback profile——
+  最后那个要动地址策略，那是安全控制，不为了方便就改）。
+- **一条新量出来的事实**：`world_creation.synthesize` 与 `storage_slot_for` 在 `src/` 内**没有任何生产调用点**
+  （只有定义处与 `tests/unit/test_world_creation.py`）。也就是说 Gateway 侧的"从提案算出不可变 effective
+  profile 与系统槽"是现成的纯函数，缺的是把它接到运行时胶囊上的那根线——这与"契约没许可"是两件不同的事。
+- **一处旧读数的更正**（历史那句按既有口径保持原样，这里只记今天量的）：
+  `development-todo.md` 2026-09-22 那段写过「`report_promotion.py` 里 `host-integrated` 因为一条
+  mandatory 用例都没有而**根本不出现**」。**今天它出现**：`promotable: false`、
+  `blocks: [NO_MANDATORY_CASES, REQUIRED_CASE_NOT_REGISTERED]`、`requirement.satisfied: false`、
+  `absent` 18 条（含 `HOST-001`）、15 条 host* 全在 `non_mandatory`。**结论没变、依据变了**——
+  这个面今天仍不是门禁，理由是"没有 mandatory 用例可判"，不是"这一格在报告里缺席"。
+  今后要说"这个面没有门禁"，读 `blocks` 里的 `NO_MANDATORY_CASES`，不要读它是否出现。
+- **复跑命令**：`python .tmp/check_host_design_anchors.py`（41 行锚点 + 结构 + 反选定句，positive control
+  `exit 0`；变异副本各红在其命名理由，含"锚点表被截掉 → `anchor rows parsed: 0 < 30`"这条自身非空转）；
+  `python .tmp/count_plan_cards.py`（56 张带 `status` 的卡：`NEXT` 0、`QUEUED` 0）；
+  `bash .tmp/run_local_gates.sh`（全量 `2501 passed / 2 skipped`，与上一张卡逐字相同）；容器内
+  `python tools/report_promotion.py --data-root /data`（`exit 1` = blocked，读 `host-integrated` 那一格）。
+- **本卡未做的**（都属越界）：不实现 HOST、不改任何产品代码与两份 Bridge root、不建
+  `tests/fixtures/cases/host-001.json`、不动五份 host/world 契约、不把 `host-integrated` 变 mandatory、
+  不提升 `HOST/W80+` 与 V08、不连接用户的远程服、不改 `EXPLICIT-RELEASE-AT-STOP-001` /
+  `OPERATIONS-RETENTION-001` / `PROCESS-RECOVERY-001` 的状态。
+
+
+## 队列暂停期的第二次测量：缺口侧数过之后，本地已经没有可关的格（2026-09-26，`55d0ecc`）
+
+- **为什么量**：`HOST-ADMISSION-DESIGN-001` 收口后计划写的是"冻结之前队列里没有可提升的卡"。
+  那句当时只由**卡片清点**（`NEXT` = 0 / `QUEUED` = 0）支持。这次从**证据缺口**那一侧独立量一遍：
+  如果 31 条 missing 里还有一条 `local-only`，那它就是一张不用跑 Minecraft、今天就能收口的卡，
+  "没有可提升的卡"这句话就得改。
+- **实测**：`uv run --frozen python tools/report_cases.py > .tmp/host-next-cases.json`（`exit 0`），
+  `requirements.totals` 为 `required: 74` / `present: 43` / `missing: 31` / `not_gating: 36` /
+  `misattributed: 0` / `present_wanting_a_run: 13`，`by_validation_class` 为
+  `{local-only: 7, runtime-required: 67}`。把 `requirements.missing` 的 31 个 id 与
+  `requirements.cases[].validation_class` 求交：**`local-only` 缺失 0 条**；7 条 `local-only` required
+  逐条 `present: true`（`CORE-001`、`HOSTCOMMIT-110`、`HOSTCTL-001`、`HOSTCTL-010`、`HOSTCTL-060`、
+  `OFFLINE-001`、`W00-CONTRACT-001`）。⇒ 剩下的缺口全部要真实运行，本地无可关格。
+- **这条断言的反证（防空转）**：求交函数不是恒返回空——在同一份读数上把 `CORE-001`、
+  `W00-CONTRACT-001` 凭空并入 `missing`，同一逻辑报出这 2 条；把 `CORE-080`（`runtime-required`）
+  并入则仍报 0。两类各红/各绿都落在命名理由上。
+- **与早期 dated 读数的差**：本文 `1019` 行那句"全仓 37 条 missing 现在全部要真实运行"、
+  计划里那句"35 条缺失"，与今天的 31 条不同，是因为期间有 case 从 missing 转为 present。
+  历史句子按当时读数保留，不改写。
+- **`planning_gaps` 不构成一张本地卡**：今天只剩 `PERSIST` 一条 `UNFROZEN_CASE_IDS`，其 `reason`
+  原文即"在此编号等于让 inventory 发明它要验的 case"——要关它得先由主控冻结持久化契约的 case
+  编号，不是本地能自造判据的事。
+- **本次未做也不做的**（越界清单沿用 HOST 设计卡那份）：不实现 HOST、不建 `host-001.json`、
+  不动五份 host/world 契约、不提升 `HOST/W80+` 与 V08、不连接用户的远程服、不改三张
+  `BLOCKED_DECISION` 卡的状态、不为凑一张本地卡而新造断言。
+
+
+## `W00` / `W10` 两道门的本地证据过期了，按既有通道重封（2026-09-26，规范数据卷 `/data`）
+
+- **发现的路径不是猜的**：量完"missing 里没有 `local-only`"之后，顺着 `report_promotion.py` 的
+  `overall.blocking_cases` 往下问了一句——**present 的 case 也会证据过期**。今天规范卷里
+  `W00-CONTRACT-001` 的 bundle 是 09-20 封的（`case_version b3efa8ee…`），当前用例的摘要是
+  `c59b9636…`，于是 `W00` 红在 `CASE_VERSION_MISMATCH`；`CORE-001` 在规范卷里**从来没有** bundle
+  （09-23 那两份封在 `.tmp/` 的数据根、没迁入卷），于是 `W10` 红在 `CASE_WITHOUT_EVIDENCE`。
+  本文 09-23 那句"两道门都变成 `promotable`"因此已失效——**历史句子按当时读数保留**，失效实在此记录。
+- **为什么这不算新范围**：`case_version` 判定用的是 `case.digest`（`src/minekin_core/domain/cases.py:921`
+  那条 `item.case_version != case.digest`），补一份匹配当前用例的 PASS bundle 是本文写过的
+  "队列之外第二类：证据生产不是卡"——不新增断言、不新增 case、不跑 Minecraft、不要 runner、不做任何决定。
+- **复跑命令**（全部本机 + 容器，只读挂载仓库）：
+  ```bash
+  # 1) 当前树是否仍成立（本机，只写 .tmp/）
+  uv run --frozen python tools/run_repo_case.py --case tests/fixtures/cases/core-001.json \
+    --output-directory .tmp/resume-repo-out/core001 > .tmp/resume-repo-out/core-001.json   # exit 0 / PASS
+  uv run --frozen python tools/run_repo_case.py --case tests/fixtures/cases/w00-contract-001.json \
+    --output-directory .tmp/resume-repo-out/w00c001 > .tmp/resume-repo-out/w00-contract-001.json
+
+  # 2) 封进规范卷（/data 读写挂载，MINEKIN_HOME=/data）
+  python tools/seal_repo_case.py --data-root /data --case tests/fixtures/cases/core-001.json \
+    --profile tests/fixtures/runtime-input/bundle-p0-core-1.21.4.json \
+    --verdict .tmp/resume-repo-out/core-001.json \
+    --output-directory .tmp/resume-repo-out/core001 --root /src        # exit 0 = sealed 且 held
+
+  # 3) 由产品自己的读取器复核（数据根只从环境来，verify 没有 --data-root）
+  MINEKIN_HOME=/data python -m minekin_core evidence verify f233501676394223b65320ec14cc2797
+  MINEKIN_HOME=/data python -m minekin_core evidence verify 157eccd2eeb5486dab5b9393c914b0c0
+  ```
+- **封进去的两份**：`CORE-001` run `f233501676394223b65320ec14cc2797` / bundle `1a8ec211e1565d747dadef1795055009af6e9adc83da70bc76c3800c1b514b9d` / `case_version fdd125b5…` / attempt 1 / 9 件工件 / `result: PASS`；
+  `W00-CONTRACT-001` run `157eccd2eeb5486dab5b9393c914b0c0` / bundle `73c784d6f9218390db9b63d0465085920bbd2070540efb87ed8cb4bea34068f3` / `case_version c59b9636…` / attempt 1 / 8 件工件 / `result: PASS`。
+  两份 `evidence verify` 都是 `status: verified`、`sealed: true`、`verified: true`、`violations: []`；
+  `re_judged: UNJUDGED` 是这类 bundle 的既有口径（仓库自检没有 `asserter-inputs.json`，重判方式是重跑检查）。
+- **前后读数差（同一工具、同一卷，只多了这两份 bundle）**：evidence `83 → 85`；
+  `W00 promotable false → true`（`blocks` 清空）、`W10 promotable false → true`（`blocks` 清空）；
+  `p0-core` 的 `blocking_cases` `17 → 15`；`overall.blocks` 少掉 `CASE_WITHOUT_EVIDENCE`、
+  `overall.blocking_cases` `36 → 34`（少的正是这两条 case）；`overall.status` 仍 `blocked`、
+  `overall.promotable` 仍 `false`、`repository_build.gates_promotion` 仍 `false`。**没有提升任何一道门。**
+  两份 09-20 的旧 bundle 一字未动，`reviewed-tested-bundles.json` 与 `manifest.sha256` 未被触碰。
+- **三条反证**：① 把封好的 bundle 复制一份、改检查日志的第 1 个字节 ⇒ 同一读取器报
+  `status: invalid`、`sealed: false`、`violations: ["ARTIFACT_DIGEST_MISMATCH:checks/the_fixed_bundle_recipe_is_the_reviewed_one.log"]`；
+  ② 两份 bundle 各放进独立数据根（含 `evidence-attempts.sqlite3`）⇒ `core` 根只有 `W10` `promotable: true`
+  而 `W00` 仍红在 `W00-CONTRACT-001`、`w00` 根只有 `W00` `promotable: true` 而 `W10` 仍红在 `CORE-001`
+  ⇒ 翻绿是**逐 case 的**，不是整体放行；③ 只拷 bundle 不拷 attempt registry 的数据根 ⇒
+  `status: unusable`、`message: sequenced evidence exists without its attempt registry`、`exit 2`。
+- **仍然没做的**（边界不变）：不提升 `W00`/`W10`（提升是主控的动作，本报告只说 `promotable`）、
+  不动 V08 与远程服、不实现 HOST、不改任何一张卡的 `status`、不新增断言或 case、不跑 Minecraft、
+  不接受 EULA。剩下 34 条 `blocking_cases` 与 31 条 `missing` 全部要真实运行或产品决策。
+
+
+## 本地判据的普查：43 个 present case 里 20 个今天完全由仓库自检判定，其中唯一还拦门的 `CORE-070` 已重封（2026-09-26，规范卷 `/data`）
+
+- **动机**：`W00`/`W10` 那一步之后剩下一个问题没量过——**"present 但证据过期"这件事到底还有多大一片能本地补**。
+  答案不能靠 `validation_class` 这个标签，得问机械判官。
+- **方法（可复跑）**：`.tmp/sweep_repo_cases.py` 对 `report_cases.py` 的 43 个 `present` case 逐个跑
+  `uv run --frozen python tools/run_repo_case.py --case tests/fixtures/cases/<id>.json --output-directory …`，
+  记下退出码与 `result`。机制：用例里只要有**任何一条**声明断言没有仓库自检实现，runner 就报
+  `INCOMPLETE` + `exit 2` 并把它们逐条列进 `unimplemented`（形如 `<assertion>:NO_IMPLEMENTATION`）；
+  全部有实现且全部 `held: true` 才报 `PASS` + `exit 0`。**所以"PASS"不是默认值，同一个命令当场就给出 23 个反例。**
+- **读数**：`PASS 20 / INCOMPLETE 23`。20 个是 `CORE-001`、`CORE-070`、`W00-CONTRACT-001`、
+  `OFFLINE-001/040/050`、`ADMIT-080`、`HOST-010/020/050/060/070/080`、`HOSTCTL-001/010/050/060/070`、
+  `HOSTCOMMIT-090/110`。23 个 `INCOMPLETE` 里包含 `CORE-040`、`CORE-050`（各 6 条、4 条
+  `NO_IMPLEMENTATION`）、全部 `ADMIT-*`（除 080）、`OFFLINE-010/020/030*`、`CORE-010/020/060*/090/100`、
+  `HOST-030/040`——**这些就是"必须真实运行"那一半，机器点名了，不用猜**。
+- **只有一格拦在门禁上**：20 个里 `mandatory: true` 的只有 `CORE-001`、`CORE-070`、`W00-CONTRACT-001`
+  三个，前两个今天刚重封过，于是 `CORE-070` 是唯一"本地判得出、又确实拦着门"的那一条。做了：
+  `run_repo_case.py` → `PASS` / `exit 0` / 4 条全 `held`、`unimplemented: []` →
+  `seal_repo_case.py --data-root /data` → run `e2393e92f47b489cba0707d4ae078307`、bundle
+  `19cb4f30ceb0c5c2e6f8b7ff3011a9ff363ad7b7588c6bbeb1d960a9ddf0d4c0`、`case_version 053f08c3…`、
+  attempt 1、8 件工件；`python -m minekin_core evidence verify` → `status: verified`、`sealed: true`、
+  `violations: []`。**09-20 那份旧 bundle（`7aa541e5…`，`case_version 1fb32ffb…`）一字未动。**
+- **前后读数差（同一工具同一卷，只多了这一份）**：evidence `85 → 86`；`W60` 的 `blocking_cases`
+  `3 → 2`（剩下的正是 `CORE-040`、`CORE-050`，两条都由同一普查点名 `NO_IMPLEMENTATION`）；
+  `p0-core` `15 → 14`；`overall.blocking_cases` `34 → 33`（去掉的就是 `CORE-070`）；
+  `overall.status` 仍 `blocked`、`promotable` 仍 `false`、`blocks` 仍是
+  `[CASE_VERSION_MISMATCH, REQUIRED_CASE_NOT_REGISTERED]`。**没有提升任何一道门。**
+  这一条同时是**逐案特异性**的反证：重封 `CORE-070` 只让 `CORE-070` 从名单上消失，
+  同类的 `CORE-040`/`CORE-050` 仍红在原地——报告不是一次性翻绿。
+- **给主控的一格输入（我没有据此行动）**：`host-integrated` 名下 13 个 present case
+  （`HOST-010/020/050/060/070/080`、`HOSTCTL-001/010/050/060/070`、`HOSTCOMMIT-090/110`）
+  今天**全部由仓库自检判得出且全部成立**。它们都是 `mandatory: false`（`not_gating`），
+  **所以本轮一份都没有封**：封它们等于往 HOST 那一格里加读数，而 HOST 的三格所有权还没冻结。
+  这条普查的意义是让主控知道：**HOST 的拒绝面判据已经在本地代码里，缺的是所有权决定，不是判据本身。**
+- **仍然没做的**：不提升任何 gate、不实现 HOST、不建 `host-001.json`、不改任何卡状态、
+  不动 V08 与远程服、不跑 Minecraft、不接受 EULA、不新增断言或 case 文件。
+
+
+## 规划视图那张「已知缺失」表漂了 4 格，按 inventory 重生成（2026-09-26，读数所在线 `8e47664`）
+
+- **动机**：`## 当前已验证状态` 那节重生成之后，顺着它第 433 行那句「与本文下方『已知缺失
+  case（规划视图）』那张表逐族一致」去核，发现那句话本身已经不成立——**表是 09-23/09-24 的形状，
+  机器今天是 31 条**。这张表的表头写着「当前 contract 要求但 fixture 缺失」，是现在时的规划输入，
+  不是历史读数，所以它必须跟着读数走。
+- **差在哪 4 格（逐条点名，不写「大约」）**：`ADMIT-060` 由 `420bb88`（09-24 03:38）登记、
+  `OFFLINE-010`/`OFFLINE-020`/`OFFLINE-030` 由 `2a84bbd`（09-24 15:06）登记，四条从 missing 转为
+  `present`；当时表只跟着删了 `HOSTCTL-060` 那一格，其余四格留下。35 → 31 的差就是这四条。
+- **改法**：两行按读数重写（`ADMIT` 去掉 `060`，`OFFLINE` 去掉 `010, 020, 030`），表头那句
+  「同为 35 条缺失」就地标注为 09-26 重生成 + 原读数保留；表下新增一段可复跑口径
+  （`uv run --frozen python tools/report_cases.py`，取 `requirements.cases[]` 里 `present == false`，
+  按 `case_id` 前缀分组）。**历史段落（含 09-23 那份 per-gate 快照、八条 ADMIT 那一节）一字未动。**
+- **读数（命令，不是抄表）**：`CORE 1`、`ADMIT 6`、`OFFLINE 5`、`HOST 3`、`HOSTCTL 5`、
+  `HOSTCOMMIT 10`、`NAV 1`，**合计 31** = inventory `totals.missing`；missing 里 `local-only` **0** 条
+  （`local-only 7` 是全部 74 条 required 的分布，不是缺口分布）；`PERSIST` 仍以 `PlanningGap`
+  （`UNFROZEN_CASE_IDS`）报出，不拦门、不计进 31。
+- **校验（两份脚本，都留在 `.tmp/`）**：`.tmp/verify_plan_table.py` 逐格比对晋级窗口那 11 行与
+  `report_promotion.py` 输出；`.tmp/verify_missing_table.py` 把这张表的行集与 inventory 的 missing
+  集合做双向差集比对。**各带反例**：把 `W60` 的 `promotable` 改成 true → `W60: promotable
+  doc=True reading=False`；`host-integrated` 的 `absent` 改成 17 → `absent doc=17 reading=18`；
+  把 `p0-core` 写进「blocking 与 absent 完全重合」那句 → coincide set 报差异（**这条是我先写错、
+  被自己的脚本抓到的**：`p0-core` 的 14 = 12 absent + `CORE-040`/`CORE-050`）；表里放回
+  `ADMIT-060` → `table-only=['ADMIT-060']`；删掉 `HOST-100` → `reading-only=['HOST-100']`；
+  计数写回 7 或合计写回 35 → `per-family sum 32 != stated total 31` / `stated total 35 != reading 31`。
+  原文两次都是 `exit 0`。
+- **口径澄清（读错过一次的地方）**：`repository_build.gates_promotion` 恒 `false`，代码注释原文
+  "Build identity is diagnostic and does not gate"，它**不是一道没过的门**；拦门的是逐 case 的
+  `blocks`。`--work-package W20` 单门路径与全量路径独立跑过，同一读数。
+- **仍未做的**：没有提升任何门（`W00`/`W10`/`W20` 今天够格，动作归主控）；没有为
+  `host-integrated` 那 13 条本地可判 case 封证据；没动 V08、没连远程服、没实现 HOST。
+
+
+## 本节第一条命令量出本地 `main` 落后 104 个提交，顺手把 case 级读数补全（2026-09-26，`f4d6fa7` 之后）
+
+- **触发**：`## 当前已验证状态` 那一节的命令列表第一条是
+  `git rev-list --left-right --count main...origin/main`，而上一轮重生成只做了后三条命令。
+  今天补跑第一条 ⇒ **`0 104`**。
+- **成因（不是猜测，是 refs 的形状）**：每轮推的是 `HEAD:refs/heads/codex/core-state-transition` 与
+  `HEAD:refs/heads/main` 两条**远端** ref，本地那个叫 `main` 的分支指针从来没人动，
+  `git reflog main` 停在 `2c30fc4`（更早几条也是 `branch: Reset to codex/core-state-transition`）。
+  远端 `main` 与 `HEAD` 一直同源，**漂移只在本地引用上**。
+- **为什么值得修**：文档里「以 main 为基线」的每一步如果解析的是**本地** `main`，就会倒退 104 个提交
+  去量 case/证据——那类读数不会报错，只会安静地给出旧答案。基线那句
+  `main == origin/main == 59e425d…` 说的就是这个字段，它当时成立、修之前不成立。
+- **修法**：`git fetch origin main:main` ⇒ `2c30fc4..f4d6fa7 main -> main`（快进，唯一允许的形态）。
+  事后 `git rev-parse main origin/main HEAD` 三者同为 `f4d6fa7`、同步读数 **`0 0`**、工作树干净。
+  `git worktree list` 十一条里没有本地 `main`，所以这一步不可能踩到别的检出。
+- **反证**：`git fetch origin 2c30fc4…:main` ⇒ `! [rejected] … (non-fast-forward)`、`exit 1`，
+  `git rev-parse main` 仍是 `f4d6fa7`。**没有用过 `--force`，也没有回退过任何指针。**
+- **同时补全的 case 级读数**（`report_cases.py` 的 `totals`，与基线同一组字段）：
+  `49 cases / 184 assertion references / 7 mandatory`，judge 归属 `locally 20` + `run-material 29`，
+  `mixed 0`、`unimplemented 0`、`unregistered_assertions 0`。对基线（33 / 121 / 6，19 + 14）的增量是
+  `+16 / +63 / +1`，**四个零仍然都是零**。并注明 `by_judge.locally = 20` 与当日普查 `PASS 20`
+  同数但不是同一件事（一个是工具按声明分类，一个是逐 case 实测）。
+- **校验扩展**：`.tmp/verify_plan_table.py` 现在除了 11 行晋级窗口，还比对 case 级那六个数、
+  三条增量，并**现场重跑同步命令**要求 `0 0`。四条变异各红在自己的命名理由上：`cases` 写 43 ⇒
+  `cases: doc=43 reading=49`；增量写 +62 ⇒ `delta assertions: doc=62 reading=63`；`run-material`
+  写 28 ⇒ `by_judge: doc=('20','28') reading=…`；把 `读 0 0` 改回 `读 0 104` ⇒ `sync sentence
+  missing`。原文 `exit 0`。
+- **没动的**：门禁数字（`2501 passed / 2 skipped` 与前三张卡逐字相同）、任何卡状态、任何门是否提升、
+  V08、远程服、HOST 实现与 `host-integrated` 的证据。
+
+
+## 一格实况：push 之后本地 `main` 又落后 1 格，规则改成每轮刷新（2026-09-26，`57ccec0`）
+
+- **上一格刚把本地 `main` 快进到 `f4d6fa7`、读到 `0 0`；紧接着提交 `57ccec0` 并推送，同一条命令
+  立刻读 `0 1`。** 原因不在文档里那句修法，而在推送的形状：
+  `git push origin HEAD:refs/heads/main` 动的是**远端 `main` 与远端跟踪引用 `origin/main`**，
+  本地那个叫 `main` 的分支指针不在被推的对象里。
+- **因此这格的修法不是"修好就完"**：`git fetch origin main:main` 之后 `main == origin/main ==
+  HEAD == 57ccec0`、读数回到 `0 0`；但只要再推一轮，`0 1` 就会重新出现，**N 会逐轮累加**。
+  规则写进主计划本节：**每轮 push 之后跑一次 `git fetch origin main:main`**。
+- **为什么值得当成一条规则**：这条命令是那一节的**第一条**，它的产物被写成「基线相等」的前置条件。
+  谁会去怀疑一条只输出两个整数的命令？它一直安静地返回 `0 104`、`0 1` 这样的值，而上一轮的文档
+  把它读成"已经对齐"。**只有把它的输出与「每轮推送两条 ref」这件事对上，才发现缺的是刷新。**
+- **反证（这格两条）**：①非快进被拒——`git fetch origin 2c30fc4…:main` ⇒
+  `! [rejected] … (non-fast-forward)`、`exit 1`、指针不变（所以刷新不可能悄悄回退本地引用）；
+  ②`.tmp/verify_plan_table.py` 里那条同步检查**现场重跑** `git rev-list --left-right --count
+  main...origin/main` 并要求 `0 0`，把文档里的 `读 0 0` 改成 `读 0 104` 即报
+  `sync sentence missing`——它同时是一道防回归：下一轮若忘了刷新，脚本会红。
+
+
+## 刷新规则在写下它的同一轮就被复现了一次（2026-09-26，`1674bfb`）
+
+- 那一格提交并推送之后（`57ccec0..1674bfb` 两条 ref），`git rev-list --left-right --count
+  main...origin/main` **当场再读 `0 1`**；跑一次 `git fetch origin main:main` 后回到 **`0 0`**，
+  `git rev-parse main origin/main HEAD` 三者同为 `1674bfb`。这是第二次独立观测到同一形状，
+  规则不是从一次事故推出来的。
+- `1674bfb` 的 GitHub Actions 两个 `CI` run `36193816641` / `36193816658` 及其六个 job
+  `python`/`protocol`/`bridge-static` 在 job 与 step 层均 `completed / success`（step 层无其他值）。
+- 本轮到此为文档真值的一格：**没有提升任何门、没有动任何卡状态、没有碰 V08/远程服/HOST**。
+  晋级窗口与规划视图的比对脚本留在 `.tmp/verify_plan_table.py` 与 `.tmp/verify_missing_table.py`，
+  其中同步检查是**现场重跑**命令而非比对文本，所以忘了刷新时它会红。
+
+
+## 那份「按字节 digest 前后一致」的记录在 Windows 工作树上复算不出来——差的是行尾，不是内容（2026-09-26，`e5a78c0` 之后）
+
+- **触发**：HOST 设计卡收口时写下「原文按字节 digest `b0e30acb3afb…` 前后一致」。今天先确认交付物仍然成立：
+  `.tmp/check_host_design_anchors.py` ⇒ **`anchor rows parsed: 41`、`GREEN all structural and anchor
+  checks pass`、`exit 0`**（41 行锚点指向的源码行没有因为后续提交而漂移）。但直接量工作树
+  ⇒ `9160d4a844ee…`，**与记录不等**。
+- **不是内容被改**：`git log --oneline -- docs/host-admission-session-coordinate-design.md` **只有一条**
+  （`03eec4a`），`git status` 对该文件干净。差在行尾：`core.autocrlf=true`，而 `.gitattributes` 只把
+  `*.sh` / `gradlew` / `*.proto` 钉成 `text eol=lf`，`.md` 故意没钉 ⇒ 签出即 CRLF。
+  **算术**：blob 23609 字节 / 255 个 LF；工作树 23864 字节 / 255 个 LF / **255 个 CR**——
+  差值 255 正好一行一个 CR。
+- **正确的复算形状**：`git show HEAD:docs/host-admission-session-coordinate-design.md | sha256sum`
+  ⇒ `b0e30acb3afba1b6d1ac…`，与记录一致。写进主计划那一格的原句一字未动，只在它后面补了这段口径。
+- **通用后果（这才是修它的理由）**：本文与另两份执行文档同样是签出 CRLF，所以**任何在文档里引用的
+  「按字节 digest」都必须写明取自 blob 还是取自签出**，否则下一轮会把它读成"证据被改过"。
+  **没有去 `.gitattributes` 钉 `*.md`**：那会重写每份文档的签出形状，而且属配置决策、不在任何卡的
+  `allowed_paths` 内。
+- **校验**：`.tmp/verify_md_digest.py` 现场重算 blob/工作树 digest、行数、CR 数、`git log` 条数，
+  并与文档中的那一段逐项比对；带「切片过短即红」的守卫。**五条变异各红在自己理由上**：工作树 digest
+  改末位、blob 字节数改 23608、CR 数改 254、提交号改 `03eec4b` 各报一条 `claim not reproducible`。
+  **这个校验器自己也红过一次真错**：第一版用 12 位前缀比 blob digest，而切片里本来就含另一处
+  12 位写法，于是把 `…a1b6` 改成 `…a1b7` 仍然 `exit 0`——改成比对 16 位之后，末位篡改与截短篡改
+  两种都红。**「校验器绿了」不等于"它看了你要看的那一位"。**
+- **没动的**：设计文档本体（一动就真的动了那一格的证据）、`.gitattributes`、任何门与卡状态。
+
+## 2026-09-26 按 `drift-scan-fix` 又核了一类现在时声明：文档教出去的命令 vs 脚本接受的 flag 表
+
+- `NEXT`: **暂无**（主计划 `current_next` 写着"暂无 `NEXT`"，`HOST-ADMISSION-DESIGN-001` 已由 `03eec4a`
+  收口为 `DONE`；本轮不动任何卡，也不提升任何门）。
+  **这条刚写下时被自己的清点脚本抓到过一次**：本节第一版把它写成 `NEXT`: `HOST-ADMISSION-SESSION-COORDINATE-DESIGN-001`
+  （未收口）——那个卡 id **在全仓只出现在我自己那一行里**，`grep -rn HOST-ADMISSION-SESSION docs/` 今天只回这一处；
+  等 CI 时顺手重跑 `.tmp/count_plan_cards.py` 读 **56 张带 `status` 的卡 / `NEXT` = 0 / `QUEUED` = 0**，
+  与 `current_next` 一致，才确认是我把设计文档名 `docs/host-admission-session-coordinate-design.md` 拼成了卡 id。
+  原文一字不改地留在 `f2116b0`，此处按更正标注而非静默改写。
+- 触发：主计划 `## 当前已验证状态` 一节写着"以下事实必须从命令重新生成"。前两轮核了
+  `report_cases.py` 快照与缺失 case 规划视图；本轮核第三类：**执行文档里写下的每一条
+  `tools/*.py` 命令，参数是否落在脚本自己声明的 flag 表上**。
+- 读数（`7e469ce`，纯静态、不执行任何被检查的命令）：7 份文档 → **29 个脚本、27 处 flag 传参、
+  `findings: 0`、`exit 0`**。校验脚本 `.tmp/check_doc_commands.py`（`DOCS` 常量即那七份；
+  `DOCS_OVERRIDE` 环境变量用于变异反证）。
+- 四类 finding：`MISSING_SCRIPT` / `UNKNOWN_FLAG` / `VALUE_FOR_STORE_TRUE_FLAG` /
+  `SCAN_TOO_NARROW`。两条写死的口径：`--help`、`--version` 由 argparse 自带不算缺陷；
+  行尾 `\` 续行不算"给 store_true flag 传值"。
+- 五道反证（`exit 1`，各自红在自己的命名理由上；对照组 `exit 0`）：
+  1. 文档副本加 `--json` → `UNKNOWN_FLAG report_promotion.py --json`
+  2. 引用不存在的 `report_coverage.py` → `MISSING_SCRIPT`（**这条登记的输入最初写成了带 `tools/` 前缀的命令形状，
+     于是 `e4bcc1c` 之后重跑校验读到 `scripts referenced: 30 / findings: 1 / exit 1`，守卫把自己记录的变异输入
+     当成了真缺陷**；改回不带前缀的名字后回到 `29 / findings: 0 / exit 0`。给校验加豁免名单不是修法——那等于让它学会放过自己）
+  3. `--derive-names` 后接值 → `VALUE_FOR_STORE_TRUE_FLAG check_bridge_artifacts.py --derive-names`
+  4. 同处改回续行写法（positive control）→ `exit 0`、`findings: []`
+  5. 扫描范围收窄到空目录 → `SCAN_TOO_NARROW scripts: 0`（防"绿因为什么都没解析到"）
+- 一次自我修正：第一版没认续行，把 `docs/development.md:94` 的 `--derive-names` 误判成带值；
+  修的是解析口径，判据一字未动，第 4 道对照组就是这条修的证明。
+- 门禁：九道门 `2501 passed / 2 skipped`（与前一张卡逐字相同）＋ 本轮追加的八道快门禁全 0；
+  `docs/development-execution-plan.md` 括号 balance 0、`f2116b0` 那一格改动 `19 insertions / 0 deletions`。
+  **下一格更正提交（`NEXT` 那格的改名与这句）在同一棵 docs-only 树上重跑了九道门：
+  `2501 passed / 2 skipped`，八道快门禁同样全 0，改动 `16 insertions / 2 deletions`（含这两句自身；两行删除就是
+  被更正的那两行，未静默丢历史——原文留在 `f2116b0`）。**
+- 落地：本节这三格 `f2116b0`（登记）→ `e4bcc1c`（更正卡 id）→ `030d406`（改回反例输入形状）各推两条 ref，
+  远端两条 ref 均等于 `030d406`；每格之后 `git fetch origin main:main` 都把 `0 1` 带回 `0 0`。
+  Actions 对三格各两个 `CI` run 在 job 与 step 层全 `completed / success`
+  （`36197636720`/`36197637053`、`36198293958`/`36198294124`、`36198498622`/`36198498630`）。
+  九道门在 `030d406` 上重跑读 `2501 passed / 2 skipped`；**记录这段的提交本身是 docs-only 且未再跑九道门**，
+  范围由 `git show --stat <该提交>` 证明（只动这两份执行文档）。
+  **补记（同一轮的最后一格）**：`6003ed4` 与 `aa4144c` 之后各读了一次 job/step 层，两 run × 三 job 全
+  `completed / success`（`36199039375`/`36199040285`、`36199114794`/`36199114842`），远端两条 ref 现等于
+  `aa4144c`。读 CI 时按调用节奏被限流过一次（`urllib` 报 `403` 而 `/rate_limit` 仍读 `remaining 50`），
+  单发 `curl -A` 同刻可用 ⇒ **每轮读一次、不轮询**。
+- 边界：不改任何 `tools/` 与判据，不动 `.gitattributes`，不碰 HOST 实现/fixture，不提升任何门，
+  不连接用户的远程服。
+
+## 2026-09-26 按同一把尺子核第四类现在时声明：文档里的路径引用还指不指得到东西
+
+- `NEXT`: **暂无**（主计划 `current_next` 仍是"暂无 `NEXT`"，本轮不动任何卡、不提升任何门、不碰 HOST 实现与夹具）。
+- 触发：前三轮分别核了 `report_cases.py` 快照、缺失 case 的规划视图、以及"文档教出去的命令 vs 脚本接受的 flag
+  表"。本轮把同一把尺子换到**路径引用**上：维护中的执行/契约文档里每一条 `path` 或 `path:行号`，今天还指不指
+  得到树里的真文件、行号还在不在线内。
+- 读数（所在线 `c0b252a`，纯静态比对，不执行任何被检查的东西）：`git ls-files '*.md'` 里 `docs/` 全部再加
+  `README.md`、`CLAUDE.md` 共 **82 份** → 去重 **689 处**引用 → **629 处直接命中真文件**、**60 处按机器判的理由
+  豁免** → **`findings: 0` / `exit 0`**。校验脚本 `.tmp/check_doc_paths.py`（作用域口径与上一轮同一套：只走
+  `git ls-files`，不遍历文件系统）。
+- 两类 finding：`MISSING_FILE`（路径不在树里）、`LINE_OUT_OF_RANGE`（`path:NN` 的 NN 超过该文件行数）。
+  一条护栏：引用总数低于 `FLOOR`（默认 60）就报 `SCAN_TOO_NARROW` —— 防"绿是因为什么都没解析到"。
+- 六类豁免，每类都要机器判、不认口头：**47** `external_project`（指上游树：baritone、Fabric、npm docs、git blob；
+  只归类、不判存在）、**4** `container_absolute`（runner 里的绝对路径，剥掉容器前缀后**必须仍能对上真文件**）、
+  **3** `renamed_away`（改名箭头的左半边，右半边存在才豁免）、**4** `stated_absent`（同一处 ±1 行内文档自己写明
+  "不建 / 仍不存在"的那一族 fixture case 名）、**1** `placeholder`（省略号占位）、**1** `shorthand_basename`
+  （一列裸 basename 里的简写）。
+- 十道变异与对照读数（`.tmp/reverse_doc_paths.py`；七道红各只出 1 条具名 finding、三道绿是对照组）：
+  1. R1 挂在脚本目录下的假脚本完整路径 → `MISSING_FILE`
+  2. R2 把 `report_cases.py` 的行号写成 999999 → `LINE_OUT_OF_RANGE`（该文件 371 行）
+  3. R3 挂我们自己根目录的假 java → `MISSING_FILE`（证明那 47 条上游豁免盗不走）
+  4. R4 把假引用放在"不存在"那句下方第 5 行 → 仍 `MISSING_FILE`（证明 `stated_absent` 窗口是 ±1 行、不是整篇）
+  5. R5 容器绝对路径指向假文件 → `MISSING_FILE`
+  6. R6 空文档 → `SCAN_TOO_NARROW citations: 0`（防"绿因为什么都没解析到"）
+  7. R7 容器绝对路径对照组 → `exit 0`、`findings: 0`
+  8. R8 多模块歧义路径行号越界（`protocol/HandshakeGate.java` 同时命中 `bridge/` 与 `bridge-1201/` 两份）→
+     `LINE_OUT_OF_RANGE`（按行数较大那份算，该文件 241 行）
+  9. R9 同一歧义路径、行号在内 → `exit 0`（对照组，证明第 8 道不是"歧义就一律红"）
+  10. positive control：**不复制、不覆盖输入**地跑真扫描 82 份 → `rc 0`、`findings: 0`
+- 四处守卫自己的洞（①② 由首轮扫描现形、③④ 由反证现形；四处都是改判据后重跑，**没有一处靠加豁免名单绕过**）：
+  ① 第一版作用域直接遍历文件系统 → 2635 份 md、1037 条 finding（worktree、依赖目录、`.tmp` 下的克隆全被扫进来），
+     改成只走 `git ls-files` 才是"维护中的文档"这个集合；
+  ② 扩展名交替把 `manifest.sha256` 的后半截掉，token 只剩半个 → 补 `sha256` 并给 token 加尾部锚点；
+  ③ 简写规则最初写成"路径里只有一个 `/` 就算简写"，于是任何"一个目录名 + 斜杠 + 文件名"形状的脚本路径都被放过，
+     **R1 直接变绿（rc=0）**——这条是反证把自己骗过去了，改成"同一处还有两个以上裸 basename 才算"；
+  ④ 改完 ③ 冒出 3 条 `MISSING_FILE`，追下去是**多模块同尾路径**（`gradle/libs.versions.toml` 在 `bridge/` 与
+     `bridge-1201/` 各一份）被当成不存在——**那 3 条不是文档写错，是判据太窄**：解析函数把"多个后缀命中"当成了
+     "不存在"，改成取其一并按行数较大那份判行号。
+- 一次记录形状的自我修正：写 ③ 那段时，反例输入本身用了"脚本目录前缀 + 假文件名"的完整形状，下一轮扫描立刻读到
+  `findings: 1 / MISSING_FILE`——**守卫又一次把自己记下来的变异输入当成了真缺陷**（与 09-26 flag 表一节五道反证的
+  第 2 条同类）。改成只描述形状、不拼成可解析路径后回到 `findings: 0`；同时把改名箭头两边写全，可解析引用因此变多，
+  本节最初量的 684 是这两处改写之前的数；这两格记录自己举的歧义路径例子本身也是可解析引用，
+  append 完再跑一次读到 **689**，**本节后续一律引这个数**。
+- 九道门（`.tmp/check_docs_followup.py`：括号配平 + `ruff check`、`ruff format --check`、`pyright`、
+  `check_boundaries`、`check_case_assertions`、`verify_fixture_digests`、`check_workflow_pins`、`git diff --check`）
+  与 `uv run --frozen pytest -q` 都在**最后一格 docs 改动之后**跑：八道 `rc 0`（`pyright` 0 errors、
+  `check_case_assertions` **140 registered**、`verify_fixture_digests` OK、`check_workflow_pins` OK、
+  323 files already formatted），括号配平 plan 与 handoff 各 **0**、todo 仍是历史遗留的 **8**（本段没动过它），
+  pytest 读 **2501 passed / 2 skipped**（两条 skip 还是 `test_orphans.py:686`、`test_silent_listener.py:123`）。
+  本轮范围由收口提交的 `git show --stat` 证明：**三格 docs、98 insertions / 3 deletions**（那 3 处删除是把
+  交接文档"三类现在时声明"改成"四类"的那一句改写），产品代码与夹具一字未动。
+  本节落地后的 SHA、远端 ref 与 CI 的 job/step 层读数，在收口之后的补记里给出（同一文件、同一追加方向）。
+- 边界：不改任何 `tools/` 与判据之外的产品代码，不动 `.gitattributes`，不碰 HOST 实现/fixture，不提升任何门，
+  不连接用户的远程服；todo 仍是 append-only，历史段落一字未动。
+- 补记（这一格的落地读数，收口提交 **`ea74ba0`**）：远端两条 ref 已核为同一 SHA
+  `ea74ba0bae6df10420ecb67fdba58563f3348823`（`git ls-remote` 上 `main` 与 `codex/core-state-transition` 各一条），
+  push 之后照固定动作跑 `git fetch origin main:main`，`main...origin/main` 由 `0 1` 回到 `0 0`。
+  GitHub Actions 对该 SHA 的两个 `CI` run `36203312458`/`36203312450` 及其六个 job（`python` 18 步、
+  `protocol` 10 步、`bridge-static` 9 步，两 run 各一套）在 job 与 step 层全部 `completed / success`、
+  无一步失败或卡住。**这段补记自己是 docs-only**，范围由它所落提交的 `git show --stat` 证明（只动本文件），
+  因此没有为重跑九道门而改动任何判据；两份文档守卫在补记写完后重读仍是 `findings: 0`。
+  **本格还出过一次自己造的险情**：第一版补记脚本先 `open(本文件, "wb")` 再拼字节，拼接抛错时文件已被截成
+  0 字节；用 `git checkout -- 本文件` 从收口提交复原（**834293 字节 / 3392 行，与工作树差异为 0**），
+  未丢任何内容，脚本已改成"先算完整载荷、再写盘"。
+
+## 2026-09-26 按同一把尺子核第五类现在时声明：文档写下的卡 id / case id 指不指得到真注册表
+
+- `NEXT`: **暂无**（主计划 `current_next` 仍是"暂无 `NEXT`"；本轮不动卡、不提升门、不碰 HOST 与夹具）。
+- 触发：上一轮核的是路径，本轮核**标识符**。仓库里已经栽过一次：某格把设计文档名拼成一个不存在的卡 id
+  写进 `NEXT`（`f2116b0`，在 `e4bcc1c` 标注更正）。那种错当时靠手跑卡片清点发现，这轮把它变成一道门。
+- 读数（所在线 `650bcde`，纯静态）：同一套作用域（`git ls-files`，82 份文档）→ **186 处**"大写词段用连字符
+  连起来再加编号"形状的 id → **`findings: 0` / `exit 0`**。校验脚本 `.tmp/check_doc_card_ids.py`。
+  注册面读数：**58 个** id 出现在注册位置、**14 个** id 出现在非 markdown 文件里（case id 的权威侧）。
+- 判据（不认口头）：一个 id 算"指得到"，当且仅当它落在**注册位置**——任一被跟踪 markdown 的标题行，
+  或带状态字（`QUEUED`/`NEXT`/`DONE`/`BLOCKED_*`/`DEFERRED`/`IN_PROGRESS`）的表格行——或出现在
+  **非 markdown 文件**里。文档爱用的"丢前缀简写"（`SEALED-ARGV-001` 之于
+  `OFFLINE-IDENTITY-SEALED-ARGV-001`）**只有唯一后缀命中**才算数，**两枚注册 id 共用同一后缀仍判红**。
+  一条护栏：`SCAN_TOO_NARROW`（引用数低于 `FLOOR` 即红，默认 60）。
+- 一类豁免，机器判：**2 处** `stated_fabrication`——就是上一轮那个被更正的拼造卡 id 自己在两份文档里的两次出现，
+  判据是同一处 ±1 行内文档明写"它不存在 / 全仓只出现在这一行 / 更正"；**把那个拼造 id 的原文抄进本节，本节就成了
+  新的未锚定引用**，所以红案输入只留在脚本里。
+- 七道变异与对照读数（`.tmp/reverse_doc_ids.py`；三道红各只出 1 条具名 finding、三道绿是对照组、
+  第七道是真扫描 positive control）：
+  1. R1 假造卡 id、句子里没有任何"不存在"字样 → `UNKNOWN_CARD_ID`
+  2. R2 同一形状但句子自写"它不存在"→ 豁免、`exit 0`（证明豁免窗是 ±1 行、不是整篇）
+  3. R3 真注册 id 的唯一后缀简写 → `exit 0`（对照组，证明简写规则不把活引用判死）
+  4. R4 两枚锚点共用同一后缀（`EXTRA_ANCHORS` 注入两枚假锚点）→ `UNKNOWN_CARD_ID`
+  5. R5 同一简写只有一枚锚点 → `exit 0`（对照组，证明第 4 道红在"歧义"而不是"简写"）
+  6. R6 作用域收成空文档 → `SCAN_TOO_NARROW citations: 0`
+  7. positive control：不加任何 override 跑真扫描 82 份 → `rc 0`、`findings: 0`
+- 三次自己的口径错（都改判据、不改文档，改完重跑）：①第一版把"首段带数字"的 id 整类剔出注册表，于是真的
+  case id `W00-CONTRACT-001` 一下产出 **15 条红**；②只认主计划的标题注册，漏了姊妹计划——
+  `docs/version-auto-to-server-control-plan.md` 用表格行加 `### V08` 标题注册了三张卡，那 3 条红是判据太窄
+  而不是文档写错；③**反证脚本把 `FLOOR=0` 一路带给"空文档"那一道**，于是 `SCAN_TOO_NARROW` 永远不响、
+  R6 直接假绿——那不是绿，是我叫它别响；改成每道反证各带自己的地板后 R6 红在命名理由上、其余不变。
+- 九道门与 pytest 在最后一格 docs 改动之后跑（读数记在下面一条），本轮范围：三格 docs，产品代码、测试与夹具
+  一字未动，由收口提交的 `git show --stat` 证明。
+- 收口前实测（就在上面那些改动之后跑）：八道快门禁 `rc 0`（`pyright` 0 errors、`check_case_assertions`
+  **140 registered**、`verify_fixture_digests` OK、`check_workflow_pins` OK、`ruff check`/`format --check`
+  323 files、`check_boundaries` OK、`git diff --check` 干净），括号配平 plan 与 handoff 各 **0**、todo 仍是
+  历史遗留的 **8**（本段没动过它），`uv run --frozen pytest -q` 读 **2501 passed / 2 skipped**
+  （两条 skip 还是那条平台不可答项与 Windows terminate）。
+- 边界：只判"id 指不指得到注册表"，不判这张卡该不该存在；跨命名空间（卡 id 与 case id 同形）不做区分，
+  因为注册位置就是它们各自的权威表；不改任何 `tools/` 判据、不动 `.gitattributes`、不碰 HOST 实现与夹具、
+  不提升任何门、不连接用户的远程服。
+- 补记（这一格的落地读数，收口提交 **`097a3d0`**）：远端两条 ref 已核为同一完整 SHA `097a3d0b90b46ed1ac48ffa4106a63b62a672018`
+  （`git ls-remote` 上 `main` 与 `codex/core-state-transition` 各一条），push 之后照固定动作跑
+  `git fetch origin main:main`，`main...origin/main` 与 `HEAD...main` 都读到 `0 0`。GitHub Actions 对该 SHA 的
+  两个 `CI` run `36205275770`/`36205275642` 及六个 job（`python` 18 步、`protocol` 10 步、`bridge-static` 9 步，
+  两 run 各一套）在 job 与 step 层全部 `completed / success`、无一步失败或卡住。**这段补记自己是 docs-only、
+  只动本文件**，因此按仓库口径没有为重跑九道门而改动任何判据，范围由它所落提交的 `git show --stat` 证明。
+
+## 2026-09-26 按同一把尺子核第六类现在时声明：文档引用的证据摘要配不配得上 registry
+
+- `NEXT`: 暂无（本格不动卡面，也不提升任何门）。
+- 触发：前四格把"路径引用 / 命令 flag / 标识符注册表"这三类现在时声明变成了静态守卫，剩下没核的一类是
+  **文档抄下的证据摘要**——`run_id`（32 位）与 `bundle_digest`（64 位）。这类声明的假法与前几格不同：
+  它不是"路径不存了"，而是"行号旁边那个 hex 其实属于另一枚 case"，一旦漂移，任何引用它的收口段落都会
+  跟着假。所以按同一条规则先量一遍，权威表取 registry 的 evidence 行。
+- 作用域与读数（`.tmp/check_doc_evidence.py`，纯静态，HEAD 在 `844fcb1`）：`git ls-files '*.md'` 的
+  **86 份**文档 × registry **18 行 evidence**，读 **`paired citations: 15` / `distinct cited cases: 6 / 18` /
+  `registry-internal unbound digests: 0` / `absent from registry: 59` / `findings: 0` / `exit 0`**。
+  86 份比上一格那句 82 份多 4 份：路径守卫只看 `docs/` 加 `README.md`/`CLAUDE.md`，本格没有沿用那个作用域，
+  多出来的是 `test-orchestrator/` 两份、`tests/fixtures/saves/`、`tests/oracle/` 各一份 README。
+- 判据：与某个已登记 case 写在**同一行**的 hex 摘要必须归属那个 case，否则 `EVIDENCE_PAIRING`。
+  归属是 **case 集合**不是单值——`bridge_digest`/`launch_plan_digest` 在同一 entry 内被所有行共享，
+  按单值判会把"本 entry 另一个 case 的合法共享摘要"判成假红（这一条是写判据时自己撞上的，见下面第五颗子弹）。
+- 十道变异与对照读数（`.tmp/reverse_doc_evidence.py` → `.tmp/doc-evidence-reversals.txt`，每道除退出码外
+  还断言 `paired`/`shared`/`absent` 三个计数器）：四道红——真 case 配别的 case 的 run id →
+  `EVIDENCE_PAIRING`、配别的 case 的 bundle 摘要 → 同名、跨 entry 配错 → 同名、`FLOOR` 抬到 40 高于实配对数 →
+  `SCAN_TOO_NARROW`，各只出 1 条具名 finding；六道绿——五道是**故意保留的边界**（registry 里没有的 hex、
+  行内没有 case 的裸 hex、`attempt` 数字、entry 级不绑 case 的 recipe 摘要、同 entry 共享摘要配在本 entry
+  另一个 case 旁）加第十道真扫描 positive control，全部 `exit 0`。**红案输入的原文留在脚本里，不抄进本文件**，
+  否则这段记录自己就成了第 1 处错配。
+- 写判据时抓到的一处自己的洞：第一版把每枚摘要映射到"第一个见到它的 case"，于是"本 entry 的 `bridge_digest`
+  配在本 entry 另一个 case 旁"这条合法句子会判红。修法是归属取集合、行内任一 case 命中即算配对，
+  **不是**给文档加豁免名单；改完 R8 从红变绿、R1/R2/R9 三道仍各自红在命名理由上。
+- 两处"判不了"是实测出来的边界，不是我没做完就收工：① 与 case 同行的 hex 里 **59 处（40 枚不同：32 枚
+  32 位、8 枚 64 位）在 registry 里根本没有**——文档写的是被取代的 attempt 与只作诊断的运行（例：`ADMIT-070`
+  那一行旁边的 `2a128d0d…` 是 attempt 2，registry 现在那行是 attempt 3 的另一枚 run），一律判红会得到
+  59 条假红；这 40 枚在未跟踪的 `.tmp/` 运行日志与 promotion 快照里全都读得到（106 个文件命中），只有 1 枚
+  同时出现在被跟踪的非 markdown 文件里，所以"引用不在仓内"≠"引用是假的"。**要真判必须读 runner 数据卷
+  `/data` 的根**，那是带 `python` + `PYTHONPATH=/src` 的容器才有的东西。按本文「发现规格缺口时停止并报告，
+  不自行设计新范围」，这条只划缺口，**不新建卡、不扩范围、不写成已修**。② registry 侧覆盖不对称：
+  1.20.1 那 6 行的 run/bundle 摘要在文档里出现 2/3/2/4/2/15 次，1.21.4 那 12 行一次都没出现——两边对
+  1.21.4 证据的描述停在不同时间点。这只是读数，判它算不算缺陷属于证据面与 V08 那条主线，归主控。
+- 九道门与 pytest 在最后一格 docs 改动之后跑（读数记在下面一条），本轮范围：三格 docs 加 `.tmp` 校验脚本，
+  产品代码、测试与夹具一字未动，由收口提交的 `git show --stat` 证明。
+- 复现面本身也是量出来的一条缺口：`.tmp/check_doc_evidence.py` 与前三格那几把守卫都在 **.gitignore 第 10 行**排除的
+  `.tmp/` 里（`git ls-files .tmp` 读 **0 行**），所以这些 `rc 0` 只在还留着这些文件的机器上可复现。把它们移进被跟踪的
+  `tools/`、接进九道门与 CI 是**新范围**——本轮不动，只按规矩报出来。
+- 边界：只判"文档引用的摘要配不配得上 registry 那 18 行"，不判这行证据该不该存在、不判 attempt 高低；
+  不改任何 `tools/` 判据、不动 registry 与 `.gitattributes`、不碰 HOST 实现与夹具、不提升任何门、
+  不连接用户的远程服、不改那三张 `BLOCKED_DECISION` 卡的状态。
+- 收口前实测（就在上面那些改动之后跑）：`git diff --check` 先把这一格自己的毛病判红了——append 的正文带了
+  一个尾随空行，报 `docs/development-todo.md:3490: new blank line at EOF.`、`rc 2`；去掉那一个空行才回到
+  `rc 0`。**这一处是被门抓出来的，不是我重读出来的**；另一处（摘要归属按单值判会把合法句子判成假红）是我在写
+  反证 R8 之前自己想到并改了判据。其余八道快门禁 `rc 0`（`pyright` 0 errors、`check_case_assertions`
+  **140 registered**、`verify_fixture_digests` OK、`check_workflow_pins` OK、`ruff check`/`format --check`
+  323 files、`check_boundaries` OK），括号配平 plan 与 handoff 各 **0**、todo 仍是历史遗留的 **8**（本段没动过它），
+  `uv run --frozen pytest -q` 读 **2501 passed / 2 skipped**（两条 skip 还是那条平台不可答项与 Windows terminate）。
+- 时序照实写：pytest 那道读数是在最后几条缺口记录之前跑的；之后本文件又 append 了四条 bullet，每次都重跑八道
+  快门禁与 `git diff --check`（各 `rc 0`、todo 配平仍是历史遗留的 8），没有再动任何判据、脚本或产品代码，
+  所以 2501/2 覆盖的是同一棵树的产品面。原来的"这一条是最后写入的一格"那句作废。
+  四把文档守卫在同一棵树上各读 `rc 0`：路径 **690 处 / `findings: 0`**（上一格记录收口时是 689，本格这一条自己
+  多写出了一处可解析路径引用 `docs/development-todo.md:3490`，所以按 E 格定下的规矩引最终读数）、
+  标识符 **186 处 / `findings: 0`**、
+  命令 flag **29 脚本 / 27 处 / `findings: 0`**、本格证据摘要 **15 配对 / `findings: 0`**。
+- 更正（就在上一条之后，同日晚）：本格 ① 那条把「registry 之外的 40 枚引用」整块叫作规格缺口，**结论写重了**。
+  仓里早就有被跟踪的判据 `tools/verify_tested_provenance.py`：它按 run id 把 registry 每行引用的 bundle 在数据根里
+  对着自己的 manifest 复核，读数记在执行文档两处（一处 `verified: true` 带 registry revision，一处 2026-09-26 对新
+  entry 六条引用逐条 `present/readable/sealed/consistent`、`exit 0`）。**registry 那 18 行的字节面不是缺口。**
+  剩下的缺口窄得多：那 40 枚「被取代 attempt / 只作诊断」的 run 不在 registry 里，那道门走不到、本格的守卫也走不到，
+  所以「文档历史引用 对 `/data` 封存件」两侧都没人判。本轮没有在这台机器上重跑那道门（它要 `/data`），引的是记录里的
+  读数——按仓库口径这属于「引用既有实测」，不是「本轮已测」。仍只报告、不自建卡。
+
+## 2026-09-26 第六类现在时声明这一格的落地读数（收口补记）
+
+- 本格落了两格 docs-only 提交：`33ac25cc02d1fc3f10fd17fd45927f6b81a6984f`（记录扫描与十道读数）与
+  `517ebdadbb7277358268d62d89f8b322cf90932d`（把 ① 那条写重的"规格缺口"更正掉）。
+  `git show --stat` 各自读 **3 files changed**：前一格 `100 insertions(+), 1 deletion(-)`、后一格
+  `22 insertions(+), 2 deletions(-)`，三格文件都是 `docs/`，**产品代码、测试、夹具与 `tools/` 一字未动**——
+  这就是本轮没有重跑 pytest 的理由（八道快门禁与 `git diff --check` 在每格 docs 改动之后都重跑过，各 `rc 0`；
+  `uv run --frozen pytest -q` 的那次 2501 passed / 2 skipped 记在上面一节，覆盖的是同一棵树的产品面）。
+- 远端：`git ls-remote` 上 `main` 与 `codex/core-state-transition` 两格都读同一完整 SHA
+  （`33ac25c…` 之后是 `517ebda…`），push 用 `GIT_TERMINAL_PROMPT=0 git -c credential.helper= -c
+  credential.helper=wincred push origin HEAD:refs/heads/…`（这条命令是本机凭据选择器坏掉之后的固定写法），
+  push 之后照固定动作 `git fetch origin main:main`，`main...origin/main` 与 `HEAD...main` 都读 `0 0`。
+- GitHub Actions 对两个 SHA 各起两个 `CI` run：`33ac25c` 是 `36207685280` / `36207685203`，
+  `517ebda` 是 `36207976465` / `36207976345`。四个 run、每个三件 job（`python` 18 步、`protocol` 10 步、
+  `bridge-static` 9 步）**在 job 与 step 层全部 `completed / success`，没有一步失败或卡住**——读法还是那两条：
+  无 `gh`，用 `curl -A qoder-agent` 打 REST，再用 `.tmp/ci_steps.py <完整 SHA>` 逐步展开。
+- 这一格自己带来的两处"被门/被查出来"的账：① `git diff --check` 抓到 append 正文的尾随空行（`rc 2`，
+  报在 `docs/development-todo.md:3490`）；② 收口前重读判据面时发现自己把"registry 之外的引用"叫成了规格缺口，
+  而 `tools/verify_tested_provenance.py` 早就是被跟踪的那道门——于是有了 `517ebda` 这一格更正，
+  留下"哪一侧都不判那 40 枚历史引用"这条更窄的缺口。**没有为任何一处给自己加豁免名单，也没有 amend。**
+- 补记之后四把文档守卫与八道快门禁再各读一次 `rc 0`（路径 690 处、标识符 186 处、命令 29 脚本 / 27 处、
+  证据摘要 15 配对，四格 `findings: 0`），所以这一段自己没把门弄红——这是本轮第四次遇到"记录形状可能变成 finding"，
+  前三次分别落在 flag 表、路径引用与标识符那三格。
+
+## 2026-09-26 按同一把尺子核第七类现在时声明：散文里的"现在是什么状态"
+
+- **触发**：前六格把工件、引用、命令、路径、卡 id、证据摘要各判了一遍，还剩一类没量——**计划元数据与交接文档
+  用散文写下的当前状态**（「`planning_gaps` 仍只有一条」「HOST/W80+ 仍 `DEFERRED`」「`host-001.json` 仍未创建」
+  「暂无 `NEXT`」「今天没有任何一条缺口能在不真实运行的情况下关掉」「7 条 local-only required 全为 `present: true`」）。
+  先确认没有先例：`.tmp/verify_plan_table.py`、`.tmp/verify_missing_table.py` 各自比的是别的表，且都不是文档教出去的
+  命令，所以这一格是新活。**不改任何判据的语义，只把"对不上"这件事变成一条能跑的命令。**
+- **作用域与读数**：被扫两段——`docs/development-execution-plan.md` 的 `## 计划元数据` 段（当前第 8–375 行）与
+  `docs/qoder-execution-handoff.md` 全文。实读 `sections: 2 / claims judged: 10 / data-root claims left unjudged: 11 /
+  findings: 0 / exit 0`，逐族 `ABSENCE=2 CARD_STATUS=2 GAP=1 LOCAL_GAP=1 LOCAL_LIST=2 NEXT=2`，机器侧
+  `planning_gaps=['PERSIST'] local-only=7 local-only∩missing=0 NEXT=0`。十条锚点（守卫自己打印）：计划 21（`current_next`）、
+  26（卡面状态 + 夹具未创建）、37（local-only 名单）、39（缺口 0 条那句）、42（唯一规划缺口）；交接文档 10（当前的
+  暂无 NEXT）、24（同一格的两条）、37（无名单那条）。
+- **判据**（`.tmp/check_plan_state.py`，纯静态 + 现算读数）：① `planning_gaps` 那句 ⇔ `tools/report_cases.py` 的
+  `requirements.planning_gaps` 恰为文档写的 (面, 状态) 那一条；② 「卡 仍 `STATUS`」⇔ **卡片自己的** status 行
+  （不读散文，散文只当被审对象）；③ 「`X.json` 仍未创建 / 仍不存在」⇔ `git ls-files`——带目录的按精确路径判、裸名按尾名判；
+  ④ 「暂无 `NEXT`」⇔ `.tmp/count_plan_cards.py` 现数的 `NEXT` 条数为 0，且**每段只判第一条**（其余 12 次都在写了日期或
+  提交号的历史句里，本文口径历史读数不追溯改写）；⑤ 「今天没有任何一条缺口能在不真实运行的情况下关掉」⇔
+  `local-only ∩ missing == ∅`；⑥ 「N 条 local-only required 全为/逐条 `present: true`（+名单）」⇔ 条数、逐条 `present`、
+  名单集合三者。任何一条句式在文档里彻底消失 → `CLAIM_NOT_FOUND family=…`（守卫不能靠"没句子"变绿）；命中数低于 `FLOOR`
+  → `SCAN_TOO_NARROW`。
+- **十一道变异与对照**（`.tmp/reverse_plan_state.py` → `.tmp/plan-state-reversals.txt`，末行 `bad cases: 0`，脚本
+  `exit 0`）：R1 面名换成 `V08` → `STALE_GAP` 1 条；R2 卡面写成 `DONE` → `STALE_CARD_STATUS` 2 条；R3 「仍未创建」挪到
+  仓里真有的 `reviewed-tested-bundles.json` 上 → `STALE_ABSENCE` 1 条；R4 句子一字未改、只在卡片清点副本里翻一格
+  `status` 为 `NEXT`（副本清点 `NEXT=1`）→ `STALE_NEXT` 2 条；R5 只改机器读数（`CORE-001` 进 `missing` 且 `present`
+  翻 `false`）→ `STALE_LOCAL_GAP` 1 + `STALE_LOCAL_LIST` 2；R6 只把名单少写一个名字 → `STALE_LOCAL_LIST` 1；
+  R7 六类句式全部改写 → `CLAIM_NOT_FOUND` 7（通用 1 + 每族 1）**加** `SCAN_TOO_NARROW` 1；R8 只拆 LOCAL_GAP 一句 →
+  精确 1 条 `CLAIM_NOT_FOUND family=LOCAL_GAP`；R9 `FLOOR` 抬到 11（命中 10）→ 只红 `SCAN_TOO_NARROW`；
+  R10 **不滥报的对照**：只翻一个 `runtime-required` case 的 `present` → 十条仍全绿（`exit 0`），证明判据认得
+  `validation_class`；R11 positive control：不喂任何 override 的真扫描，`uv run --frozen python tools/report_cases.py`
+  现算，读数与缓存基线逐字相同。每道除退出码外还断言 finding **条数**、**种类集合**与 `claims judged`，期望值取自脚本
+  自己先读的基线，不手抄。
+- **自己撞上的两处判据洞**（都是变异红在别的理由上暴露的，不是重读出来的）：① ① 式的面名先写成 `[A-Z]+`，而真值
+  `PERSIST` 恰好全字母，于是 R1 期望 `STALE_GAP` 却读到 `CLAIM_NOT_FOUND family=GAP`——**换成带数字的面名才证明这条判据
+  原本根本读不到**；放宽为 `[A-Z0-9+/_-]+`，改判据、不加豁免。② 反证脚本复刻作用域时把两段并成一段，「每段只判第一条
+  `NEXT`」少判一条（`NEXT=1` 对基线 `2`），这条差异被新加的 R0（override 与默认作用域**逐字对照**）当场抓住，改由
+  `<!-- SECTION -->` 分段复刻后才等价。
+- **判不了但已量出的边界**：钉了 SHA 或日期的读数（「在 `55d0ecc` 上读出 `required: 74`」）按本文口径是历史快照，
+  不判；需要数据根 `/data` 的 11 条 `promotable:` 散文只计数、不判（本机没有那卷）；交接文档第 ⑥ 条没写名单，那一格
+  只判条数与逐条 `present`。
+- **复现命令**（守卫在未跟踪的 `.tmp/`，与上一格同一复现面缺口）：
+  `uv run --frozen python tools/report_cases.py > .tmp/cases_current.json`；
+  `CASES_JSON=.tmp/cases_current.json python .tmp/check_plan_state.py`；
+  `python .tmp/reverse_plan_state.py`。不喂 `CASES_JSON` 时守卫自己跑 `uv`。
+- **九道门与全量门禁实测（这一格最后一批 docs 改动之后跑）**：括号平衡 计划 `0` / todo `8`（那 8 是历史遗留，
+  与前四格同一读数）/ 交接 `0`；`ruff check` `All checks passed!`、`ruff format --check` `323 files already formatted`、
+  `pyright` `0 errors, 0 warnings, 0 informations`、`check_boundaries` `OK`、`check_case_assertions` `140 registered`、
+  `verify_fixture_digests` `OK`、`check_workflow_pins` `OK`、`git diff --check` `rc 0`，**八道快门全 `rc 0`**；
+  `uv run --frozen pytest -q` → **`2501 passed, 2 skipped in 334.99s`**（两处 skip 仍是
+  `tests\unit\test_orphans.py:686` 与 `tests\unit\test_silent_listener.py:123`），与前四张卡逐字相同 ⇒ 本轮零产品与测试改动。
+  五把文档守卫在同一批改动后重跑：`.tmp/check_doc_commands.py` `29 脚本 / 27 处 flag / findings 0`、
+  `.tmp/check_doc_paths.py` `82 份 / 690 处 / findings 0`、`.tmp/check_doc_card_ids.py` `82 份 / 186 处 / findings 0`、
+  `.tmp/check_doc_evidence.py` `86 份 / 18 行 / paired 15 / absent 59 / findings 0`、本格新守卫
+  `.tmp/check_plan_state.py` `2 段 / claims judged 10 / unjudged 11 / findings 0`——**这一格没有把任何一条现在时数字顶高**
+  （前四格各出现过"记录自己把计数加一"的复发，这次写法上刻意避开了相邻句式，实测确认）。
+  **时序照实写**：pytest 的读数在追加本条之前跑；本条落盘后八道快门与括号平衡再重跑一次，读数记在本节末尾——
+  文档改动不动产品与测试，pytest 结论不受影响，但这条推理本身也照实登记。
+- **上一条落盘之后重跑（这一条自己落盘前最后一次校验）**：括号平衡 计划 `0` / todo `8` / 交接 `0`；八道快门
+  `rc 0`（`ruff check` `All checks passed!`、`ruff format --check` `323 files already formatted`、`pyright`
+  `0 errors, 0 warnings, 0 informations`、`check_boundaries` `OK`、`check_case_assertions` `140 registered`、
+  `verify_fixture_digests` `OK`、`check_workflow_pins` `OK`、`git diff --check` `rc 0`）；五把文档守卫
+  `findings: 0` 且 `exit 0`（含本格 `.tmp/check_plan_state.py` 的 `claims judged 10 / unjudged 11`）；
+  `git diff --numstat` 到这一刻是 计划 `30/0`、todo `64/0`、交接 `24/3`（含这一条自己那 6 行）。
