@@ -22,7 +22,8 @@ from typing import Any
 import pytest
 
 import minekin_core.cli.auto_session as auto_session
-from minekin_core.adapters.launcher.fetch import FetchFailure
+from minekin_core import bootstrap as bootstrap_module
+from minekin_core.adapters.launcher.fetch import ArtifactFetcher, FetchFailure
 from minekin_core.adapters.launcher.orphans import Liveness, write_marker
 from minekin_core.adapters.launcher.process import argument_digest
 from minekin_core.adapters.launcher.provision import ProvisionReport
@@ -393,6 +394,169 @@ def test_a_store_that_is_short_without_a_declared_budget_refuses_before_fetching
     assert "BUDGET_UNDECLARED" in str(raised.value)
 
 
+def test_a_nonpositive_budget_is_a_named_refusal_before_anything_is_asked(
+    tmp_path: Path, filled_store: list[str]
+) -> None:
+    """A2 §3.2 N2: `--max-bytes 0` and `-1` used to escape as a bare `ValueError`.
+
+    The installer guarded it with an invariant, so the CLI answered `INTERNAL_INVARIANT`
+    after the digest gate and the store scan. A non-positive budget is an operator
+    mistake at the entry, so it must be named there: before the profile is read, before
+    the target is asked (`asks_nothing` is the proof), and before the store is touched.
+    """
+
+    for budget in (0, -1):
+        with pytest.raises(MinekinError) as raised:
+            prepare_auto_bundle_start(
+                registry_path=REGISTRY,
+                server_profile=TARGET,
+                run_root=tmp_path / "run",
+                max_bytes=budget,
+                os_arch="linux-x86_64",
+                probe_target=asks_nothing,
+                sleep=never_sleeps,
+            )
+        assert raised.value.category is ErrorCategory.CONFIG, budget
+        assert str(raised.value).endswith("[BUDGET_NOT_POSITIVE]"), budget
+        assert raised.value.exit_code == int(ExitCode.CONFIG)
+    assert filled_store == []
+    assert not (tmp_path / "run" / "artifact-store").exists()
+
+
+def test_a_positive_budget_still_refuses_by_name_when_the_fill_outgrows_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The paired positive reading: `--max-bytes 1` was and stays a named refusal.
+
+    A small positive budget is not a usage mistake — it is a deliberate authorisation
+    the fill does not fit inside, so it ends where it always did: at the supply-chain
+    budget rule, before the fetcher moves a byte.
+    """
+
+    def never_fetch(*_args: Any, **_kwargs: Any) -> None:
+        raise AssertionError("the fetcher was reached")
+
+    monkeypatch.setattr(ArtifactFetcher, "fetch", never_fetch)
+
+    with pytest.raises(MinekinError) as raised:
+        prepare_auto_bundle_start(
+            registry_path=REGISTRY,
+            server_profile=TARGET,
+            run_root=tmp_path / "run",
+            max_bytes=1,
+            os_arch="linux-x86_64",
+            probe_target=probe_that_answers([observation(PROTOCOL_1201, "1.20.1")]),
+            sleep=never_sleeps,
+        )
+
+    assert raised.value.category is ErrorCategory.SUPPLY_CHAIN
+    assert "over the 1 byte budget" in str(raised.value)
+    # The store's empty skeleton may exist — the constructor creates it — but the
+    # fetcher was never reached, so not one artifact was written into it.
+    assert [path for path in (tmp_path / "run").rglob("*") if path.is_file()] == []
+
+
+def test_the_command_refuses_a_nonpositive_budget_before_it_probes_or_installs(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The same refusal through the real entry point, ordered before the probe.
+
+    Nothing here answers a probe, so the exit code is what tells the two refusals
+    apart: without the budget check this run would ask 127.0.0.1:25566 first and end
+    `ADMISSION`, and only with it checked first does it end named `CONFIG` — with no
+    artifact store created either way.
+    """
+
+    monkeypatch.setenv("MINEKIN_HOME", str(tmp_path))
+    monkeypatch.setenv("MINEKIN_USERNAME", "kin_test")
+    assert main(["init", "--kin-id", "kin-01"]) == int(ExitCode.OK)
+    capsys.readouterr()
+
+    code = main(
+        [
+            "session",
+            "start",
+            "--auto-bundle",
+            str(REGISTRY),
+            "--server-profile",
+            str(TARGET),
+            "--max-bytes",
+            "0",
+        ]
+    )
+
+    assert code == int(ExitCode.CONFIG)
+    diagnostic = json.loads(capsys.readouterr().err.strip().splitlines()[-1])
+    assert diagnostic["category"] == "CONFIG"
+    assert diagnostic["message"].endswith("[BUDGET_NOT_POSITIVE]")
+    assert [path for path in tmp_path.rglob("artifact-store") if path.is_dir()] == []
+
+
+def test_a_budget_without_the_auto_bundle_entry_is_a_named_usage_refusal(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A2 §3.2 N2: `--max-bytes` beside `--profile` used to be accepted and ignored.
+
+    The help text says the budget belongs to `--auto-bundle`, and the explicit path
+    never read it. That is a request naming two entries at once, so it ends the way
+    the missing-target case ends: one usage document, exit `USAGE`, nothing under the
+    data root opened and no launch attempted.
+    """
+
+    stderr = io.StringIO()
+    monkeypatch.setenv("MINEKIN_HOME", str(tmp_path))
+    code = run(
+        [
+            "session",
+            "start",
+            "--profile",
+            str(tmp_path / "recipe.json"),
+            "--max-bytes",
+            "100",
+        ],
+        stderr=stderr,
+    )
+
+    assert code == int(ExitCode.USAGE)
+    document = json.loads(stderr.getvalue())
+    assert document["status"] == "usage"
+    assert document["reason"] == "MAX_BYTES_WITHOUT_AUTO_BUNDLE"
+    assert "--auto-bundle" in document["message"]
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_the_explicit_entry_without_a_budget_still_reaches_the_launch(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The paired positive control: `--profile` alone keeps its original meaning.
+
+    The usage refusal must not swallow the explicit path it polices — a start that
+    names its recipe and no budget still hands off to `start_and_supervise`.
+    """
+
+    handed: list[Path] = []
+
+    def fake_start(**kwargs: Any) -> Any:
+        handed.append(kwargs["profile"])
+        raise AssertionError("the hand-off reached the supervisor")
+
+    monkeypatch.setattr(bootstrap_module, "start_and_supervise", fake_start)
+    monkeypatch.setattr(bootstrap_module, "data_root", lambda: tmp_path)
+    monkeypatch.setattr(bootstrap_module, "java_executable", lambda: tmp_path / "java")
+
+    with pytest.raises(AssertionError, match="supervisor"):
+        bootstrap_module.run(
+            ["session", "start", "--profile", str(tmp_path / "recipe.json")],
+            stdout=io.StringIO(),
+            stderr=io.StringIO(),
+        )
+    assert handed == [tmp_path / "recipe.json"]
+
+
 def test_an_incomplete_fill_is_a_supply_chain_refusal(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -597,7 +761,9 @@ def test_the_host_architecture_is_spelled_the_way_the_registry_spells_it() -> No
     assert decision.status.value == "UNSUPPORTED"
 
 
-def test_exactly_one_way_to_name_the_client_is_accepted() -> None:
+def test_exactly_one_way_to_name_the_client_is_accepted(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     for argv in (
         ["session", "start"],
         ["session", "start", "--profile", "a.json", "--auto-bundle", "b.json"],
@@ -605,6 +771,9 @@ def test_exactly_one_way_to_name_the_client_is_accepted() -> None:
         with pytest.raises(SystemExit) as raised:
             parse_args(argv)
         assert raised.value.code == ExitCode.USAGE
+    # The both case is refused by name at the parse boundary: the error says the two
+    # entries exclude each other, so neither can win by precedence in silence.
+    assert "not allowed with argument" in capsys.readouterr().err
 
     explicit = parse_args(["session", "start", "--profile", "a.json", "--server-profile", "s.json"])
     assert explicit.auto_bundle is None
@@ -612,6 +781,10 @@ def test_exactly_one_way_to_name_the_client_is_accepted() -> None:
     automatic = parse_args(["session", "start", "--auto-bundle", "b.json"])
     assert automatic.profile is None
     assert automatic.max_bytes is None
+
+    # A positive budget beside the entry it bounds is legal and stays unperturbed.
+    budgeted = parse_args(["session", "start", "--auto-bundle", "b.json", "--max-bytes", "4096"])
+    assert budgeted.max_bytes == 4096
 
 
 def test_an_automatic_start_with_no_target_is_a_usage_refusal(

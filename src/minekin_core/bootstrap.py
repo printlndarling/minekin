@@ -22,7 +22,7 @@ from minekin_core.adapters.launcher.provision import (
     reviewed_entry,
 )
 from minekin_core.adapters.system.clock import SystemClock
-from minekin_core.cli.auto_session import prepare_auto_bundle_start
+from minekin_core.cli.auto_session import prepare_auto_bundle_start, require_spendable_budget
 from minekin_core.cli.doctor import diagnose
 from minekin_core.cli.evidence import verify_run
 from minekin_core.cli.init import initialise_identity
@@ -184,6 +184,10 @@ def _session_start_auto(args: argparse.Namespace, *, stdout: TextIO, stderr: Tex
 def _bundle_install(args: argparse.Namespace, *, stdout: TextIO, stderr: TextIO) -> int:
     """Fetch one reviewed tested entry into the store, under an explicit budget."""
 
+    # The same named budget rule the automatic start answers under, before this entry
+    # reads the registry or rebuilds a plan: a non-positive number is refused by name,
+    # not by the installer's invariant crashing the CLI (A2 §3.2 N2).
+    require_spendable_budget(int(args.max_bytes), operation="bundle install")
     entry = reviewed_entry(Path(args.registry), str(args.bundle_id))
     root = _install_store_root(args.store)
     store = ArtifactStore(root)
@@ -269,6 +273,27 @@ def run(
     if args.command == "session" and args.session_command == "start":
         if args.auto_bundle is not None:
             return _session_start_auto(args, stdout=stdout, stderr=stderr)
+        if args.max_bytes is not None:
+            # A2 §3.2 N2: beside `--profile` the budget used to be accepted and then
+            # silently ignored, even though the help text says it belongs to
+            # `--auto-bundle`. The two ways to say which client to run are exclusive,
+            # so this is a request that named two entries: answer it as a usage
+            # mistake, by name, before any profile is read and before a JVM exists.
+            _emit(
+                {
+                    "schema_version": 1,
+                    "status": "usage",
+                    "command": "session start --profile",
+                    "reason": "MAX_BYTES_WITHOUT_AUTO_BUNDLE",
+                    "message": "--max-bytes only bounds what --auto-bundle may fetch; "
+                    "with --profile the recipe is named outright and there is no "
+                    "automatic fill to budget. The two entries exclude each other: to "
+                    "run under a budget say `session start --auto-bundle <registry> "
+                    "--max-bytes N`; to run the named recipe drop --max-bytes.",
+                },
+                stderr,
+            )
+            return int(ExitCode.USAGE)
         launch, run = asyncio.run(
             start_and_supervise(
                 root=data_root(),

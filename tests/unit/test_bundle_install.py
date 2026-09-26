@@ -220,3 +220,26 @@ def test_install_requires_its_budget_to_be_said_out_loud() -> None:
         run(["bundle", "install", "--registry", str(REGISTRY), "--bundle-id", BUNDLE_ID])
 
     assert raised.value.code == int(ExitCode.USAGE)
+
+
+def test_a_nonpositive_install_budget_is_named_before_the_registry_is_read(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A2 §3.2 N2 on the other entry the flag sits on: `--max-bytes 0` was a crash.
+
+    The installer guarded a non-positive budget with a plain `ValueError`, so the CLI
+    answered `INTERNAL_INVARIANT` — and only after the reviewed plan had been rebuilt
+    from disk. The refusal now belongs to the entry: named before any document is read
+    and before the store's directory would exist.
+    """
+
+    for budget in ("0", "-1"):
+        argv = _argv(tmp_path / "store")
+        argv[argv.index("1")] = budget
+        with pytest.raises(MinekinError) as raised:
+            run(argv, stdout=io.StringIO(), stderr=io.StringIO())
+        assert raised.value.category is ErrorCategory.CONFIG, budget
+        assert str(raised.value).endswith("[BUDGET_NOT_POSITIVE]"), budget
+        assert main(argv) == int(ExitCode.CONFIG), budget
+    capsys.readouterr()
+    assert not (tmp_path / "store").exists()
