@@ -4,7 +4,7 @@
 
 ## 0. 状态与证据口径
 
-`current_next: V1201-LOCAL-NEGATIVE-MATRIX-001`；全库同时只允许这一张 `NEXT`。A1 `V1201-LOCAL-DEMO-REHEARSAL-001` 已于 2026-09-26 用当前 build 的真跑 sealed PASS 收卡（见 §2），按 §3 的机械流转提升 A2；A2 仍是**本地受控**卡，不是 V08 晋级，也不是连接用户服务器的许可。`cef712b` 时旧队列 `NEXT=0/QUEUED=0`；本计划是用户 2026-09-26 要求“一次性编写后续任务”的新排期，不把旧卡改称未完成。
+`current_next: V1201-TESTED-GATE-READOUT-001`；全库同时只允许这一张 `NEXT`。A1 `V1201-LOCAL-DEMO-REHEARSAL-001` 已于 2026-09-26 用当前 build 的真跑 sealed PASS 收卡（见 §2），A2 `V1201-LOCAL-NEGATIVE-MATRIX-001` 同日以机器读数与配对反证收卡（见 §2、[负向矩阵复判记录](version-negative-matrix-2026-09-26.md)），按 §3 的机械流转提升 A3；A3 仍是**只读复判**卡，不是 V08 晋级，也不是连接用户服务器的许可。`cef712b` 时旧队列 `NEXT=0/QUEUED=0`；本计划是用户 2026-09-26 要求“一次性编写后续任务”的新排期，不把旧卡改称未完成。
 
 已核实的基线：V01–V07 及空 store 自动安装真跑已完成；A1 已在受控本地把自动装机与同 run 的 PLAYABLE→look/move→释放→退出接成一次 sealed PASS（§2）；1.20.1 `V1201-080` 的正常停止显式松键有 sealed PASS，registry 对应缺口已划出；`HOST-ADMISSION-DESIGN-001` 只交付了[设计和三个未决所有权问题](host-admission-session-coordinate-design.md#5-分歧矩阵所有权问题为什么不由本卡回答)。这些都**不等于** V08、V09、V10 或完整 Minekin 完成。1.20.1 registry 其余缺口按现行文件和 `verify_tested_provenance.py` 重新读取，不以本文计数代替机器结果。旧 W00/W10/W20 的 `promotable` 读数不等于总体 `p0-core tested`；`p0-core`/七场景 campaign 仍有真实证据缺口。CI、ping、旧 bundle、单测、文档自述均不能证明真实入服。
 
@@ -20,7 +20,22 @@
 
 ## 2. 上一卡交付与当前 NEXT 边界
 
-当前唯一 `NEXT` 是 **A2 `V1201-LOCAL-NEGATIVE-MATRIX-001`**（判据已在 §3 表中冻结，不新造卡）。以下是刚收掉的 A1。
+当前唯一 `NEXT` 是 **A3 `V1201-TESTED-GATE-READOUT-001`**（判据已在 §3 表中冻结，不新造卡）。以下是刚收掉的 A2 与 A1。
+
+### `V1201-LOCAL-NEGATIVE-MATRIX-001` — `DONE`（2026-09-26）
+
+目的：把版本契约的九行负向矩阵按 A2 的六族逐族量出**当前 build 可重跑的拒绝类别 + 原因码**，需要真跑的两族用规范数据根的 sealed bundle 在本 build 重读，只补真实缺失的组合，不造重复 fixture、不改判据/registry/产品代码。逐行读数、复现命令、卷与配对反证都在[负向矩阵复判记录](version-negative-matrix-2026-09-26.md)，本节只留结论与卡面判据的对应。
+
+- 交付形式（卡面"以索引/机器读数收卡"）：新增只读记录 `docs/version-negative-matrix-2026-09-26.md`；八个 `.tmp/` 未跟踪脚本 + 十个本卡新建数据卷 `minekin-v1201neg2…neg11` 保留原始材料，其中 `neg3` 是被同卡第二次运行取代的首次状态探测、`neg9` 是本卡自己构造错的失败尝试，两次都判为不确定后未采用、未覆盖。
+- F1 歧义协议 / 文本-协议冲突：**成立**。真实 socket 18 行具名帧形状（`SocketStatusTransport` 真读，非 monkeypatch）全部落在预期 `outcome` 令牌上，`table rows: 20 FAIL=0`，正对照 `control_1201 → OBSERVED/exit 0`；自动入口对 `DISPLAY_TEXT_CONTRADICTS`、`MULTI_VERSION_PROXY` 各 1–2 秒 `exit=17 / ADMISSION / NEEDS_PIN` 且 store 保持 0。
+- F2 错误版本 / 身份 / Bridge：**显式路径成立**。allowlist 与启动版本冲突、两版本 allowlist、`deny_all`、online-mode、非 loopback 五格在 `session start --profile` 上均 1–2 秒具名拒止；Bridge 钉错在 `bundle verify` 与 `launch-plan --dry-run` 各得 `SUPPLY_CHAIN`；未改动 recipe 正对照 `launchable: true / plan_sha256 83299ad5…`。
+- F3 恶意 status / SRV / 禁区：**部分成立**。`0.0.0.0`、`169.254.169.254`、`224.0.0.1`、主机名四格在 profile 装载期具名拒止，且假端点接受计数 `0→0` 证明**拒在发出任何字节之前**（同端口的 loopback 对照把该计数从 0 变 1，证明计数非空转）；无 DNS/SRV 解析器（`SavedAddressResolver` 是唯一实现）⇒ 契约"SRV 目标改变"无法作为真实行为产生，是实际能力边界而非通过项。
+- F4 hash / 中断 / 磁盘：**部分成立**。recipe 摘要不符 2 秒 `SUPPLY_CHAIN` 且 store 0；1 字节预算给出精确超额读数；半包 store 无法启动；契约"磁盘不足"一行**无实现**（N3）。
+- F5 断连 / F6 旧 generation：**成立，且来自真跑封证**。`V1201-060`（`90d490ce…`，13 工件）、`V1201-070`（`eb054c0a…`，14 工件）、`V1201-080`（`22fb57f3…`，13 工件）在 baseline `11538c4` 的同一 build 上重读为 `evidence verify → verified / result PASS` 且 `rejudge_evidence.py → status: agrees`；只重读，未重封、未翻 registry。
+- 非空转：四条新拒止各自配一行同入口同 store 的对照（一致的假应答进入装机、同端口 loopback 被接受、未改动 profile 被 accept、干净空 store 的未改动作正对照 `0→8→31 文件`），故矩阵不能靠"什么都拒"变绿。
+- 本卡量出的真实缺口（全部按 §1.2 另登，见 §3.2）：**N1** 自动入口的门序——同一份 profile 在 `--profile` 下 2 秒拒，`--auto-bundle` 下先下到 388 文件（空 store）或先过完 3639 项（满 store）才说"只能 join loopback"，且 profile 的版本 allowlist 在自动路径上根本不参与准入（`--profile` 路径会拒同两形状）；授权本身没被绕过（`java=0`）。**N2** `--max-bytes 0/-1` 得到 `exit=70 / INTERNAL_INVARIANT`，而 `--max-bytes` 与 `--profile` 同给时被接受且被忽略。**N3** 磁盘预检缺失。**N4** 无 DNS/SRV 解析路径，契约那行 SRV 风险面 today 只能以"只接受字面 IP"收。另记一处真 socket 上不可达的 `length < 0` 死分支。
+- 未测：不连任何远程目标（V08 仍未提升）；1.21.4 侧矩阵；部分装机后的整店复验（"旧 blob 仍可验"半句）；HOST/PERSIST/在线认证族。
+- 复现：记录 §0 的镜像模板 + 八个脚本，每行自带时间戳目录与退出码；sealed 重读为 `-v minekin-runner-data:/data:ro` 后 `python -m minekin_core evidence verify <run_id>` 与 `python /src/tools/rejudge_evidence.py /data/kin/kin-01/run/evidence/<run_id>`。
 
 ### `V1201-LOCAL-DEMO-REHEARSAL-001` — `DONE`（2026-09-26）
 
@@ -49,8 +64,8 @@
 | 顺位 / ID | 状态 | 交付、验收和停止边界 |
 | --- | --- | --- |
 | A1 `V1201-LOCAL-DEMO-REHEARSAL-001` | `DONE`（2026-09-26，见 §2） | 全新 data root 同 run 预演：自动装机 3639/3639、同 generation 的 lease+look+move+到期释放、sealed PASS、七类反证各自变红。 |
-| A2 `V1201-LOCAL-NEGATIVE-MATRIX-001` | `NEXT`，依赖 A1（已满足） | 受控本地复判歧义协议、错误版本/身份、恶意 status/SRV、hash/磁盘/下载中断、断连与旧 generation；对照[版本契约](version-auto-to-server-control-plan.md)现有负向用例，**只补实际缺失的组合**，不能修改断言求绿。每例需可重跑的拒绝类别，真实行为需 sealed 证据；若已全覆盖，以索引/机器读数收卡，不造重复 fixture。attempt 2 的 `SUPPLY_CHAIN` 中断是该流真实的负向样本之一，可在本卡纳入。 |
-| A3 `V1201-TESTED-GATE-READOUT-001` | `QUEUED`，依赖 A1–A2 | 在规范数据根重读 registry/provenance、case inventory、四读和负向矩阵，给出“1.20.1 本地可玩”与“不代表远程/全版本”的精确能力边界。只做只读报告和必要的真实证据补封；需要改变 tested 声称时另开卡审查。 |
+| A2 `V1201-LOCAL-NEGATIVE-MATRIX-001` | `DONE`（2026-09-26，见 §2 与[复判记录](version-negative-matrix-2026-09-26.md)） | 六族逐族读数：18 行真 socket 状态探测 `FAIL=0`、自动入口两条 `NEEDS_PIN` 具名拒止、装载期禁区地址四拒（含“拒在发字节之前”的连接计数证明）、显式路径五拒 + Bridge 钉错两拒、`V1201-060/070/080` 本 build sealed 重读 `PASS / agrees`。量出 N1–N4 四格缺口，另登 §3.2。 |
+| A3 `V1201-TESTED-GATE-READOUT-001` | `NEXT`，依赖 A1–A2（已满足） | 在规范数据根重读 registry/provenance、case inventory、四读和负向矩阵，给出“1.20.1 本地可玩”与“不代表远程/全版本”的精确能力边界。只做只读报告和必要的真实证据补封；需要改变 tested 声称时另开卡审查。A2 的 §3.2 缺口不并入本卡，本卡也不修产品行为。 |
 | A4 `VERSION-REMOTE-SMOKE-001`（V08） | `BLOCKED_DECISION` | 用户先明确**本次**是否允许对其指定 1.20.1 测试服做一次只读 ping 和非破坏性普通玩家入服，以及运行窗口/频率。旧地址和“关闭正版验证”不是持续授权。获授权后依[原卡](version-auto-to-server-control-plan.md#v08-version-remote-smoke-001用户测试服只读探测与非破坏性入服)先 ping 后 JOIN/PLAYABLE，地址只在私有 profile，不扫描、不改服务器、不使用 op/RCON；拒绝/限流/资源包异常立即停。 |
 | A5 `VERSION-SIMPLE-CONTROL-001`（V09） | `BLOCKED_DEPENDENCY` | A4 真通过后，在用户指定安全位置、另一次明确动作授权下，≤2 秒前进+小幅转向+release/退出；先 client-observed，只有独立只读 server oracle 才能声称 server-confirmed。保护插件拒绝或残留按键即停。 |
 | A6 `VERSION-DEMO-ACCEPTANCE-001`（V10） | `BLOCKED_DEPENDENCY` | A1–A5 真完成后写可复现 CLI demo、风险/未测清单、1.21.4 必要回归、负向与封证索引。缺证据只能交 `PARTIAL/BLOCKED`，不写“全部完成”。 |
@@ -64,6 +79,16 @@ A2/A3 是本次新增的**本地安全顺序卡**，允许 A1 完成后机械提
 | `V1201-AUTO-PATH-RUNNER-001` | `QUEUED`，不依赖 A2/A3，可在 A3 之后插入 | 让**自动路径**与**服务端读数**在同一条受控通道里同时成立（G1+G2）：`domain.sh` 捕获 `--auto-bundle` 并在封存时按 `seal_run_evidence.py` 的实际必填项传参；受控 launcher 在“需要被 status 观测”的场景给出可复核的 `enable-status` 读数，并把 `data get entity <Kin> Pos/Rotation` 的控制台探针做成默认能力。判据不动产品行为；改 `domain.sh` 的判据/断言集合要另卡。 |
 | `V1201-DEMO-CASE-FREEZE-001` | `BLOCKED_DECISION`（等主控冻结 G3） | “一次演示 run 到底断言哪些事实”是定义 PASS 的动作，不属于执行侧自造：需要冻结是否新增融合 case、以及如何在同一次 run 里安放 `V1201-040`（租约到期释放）与 `V1201-080`（停止时仍持有）这对互斥释放原因（两次 run、放宽阈值，还是拆成两条断言）。冻结前不落 fixture、不改 registry、不封存 host 之外的新断言。 |
 | 供应链单次中断（G1/G2 之外的观察） | 记录，不建卡 | attempt 2 的 `infinite_amethyst.ogg SUPPLY_CHAIN` 拒绝启动是现行防护的正确形状，但整店 25 分钟下载中一次中断就要整卡重来。是否要断点续传/单资产重试属产品选择，随 `V1201-AUTO-PATH-RUNNER-001` 一起问主控，不自行加实现。 |
+
+### 3.2 A2 交出的四格缺口（同样按 §1.2 单独登记，不由 A2 顺手修）
+
+| ID | 状态 / 依赖 | 交付与边界 |
+| --- | --- | --- |
+| **N1** `V1201-AUTO-ENTRY-GATE-ORDER-001` | `QUEUED`，不依赖 A3，可插在 A3 之后 | 让 `--auto-bundle` 的准入与 `--profile` 等强：地址禁区、"managed session 只能 join loopback"、profile allowlist 与解析结果一致三件事必须在**任何下载/整店复核之前**判完。判据取复判记录 §3 的 X1 vs X2/Y2 与 B1/B2；实现不得改本记录的期望，收卡要能重跑那三组行并给出"先拒后装"的新读数。**不改 case 判据、不翻 registry。** |
+| **N2** `V1201-MAX-BYTES-VALIDATION-001` | `QUEUED`，不依赖 A3 | `--max-bytes 0`/`-1` 今天得到 `exit=70 / INTERNAL_INVARIANT`（`ValueError` 冒到 CLI），`--max-bytes 1` 却是正确的 `SUPPLY_CHAIN` 具名拒止；`--max-bytes` 与 `--profile` 同给时被接受且被忽略，而帮助文本说它属于 `--auto-bundle`。要的是 CLI 层具名校验/具名用法错误，属产品行为。 |
+| **N3** `V1201-DISK-PREFLIGHT-001` | `BLOCKED_DECISION`（等主控冻结断言） | 契约"1.20.1 工件…磁盘满 → 无可启动半包"一行在 `src/minekin_core` 无任何实现（无空间预检、无对应失败类别），因此执行侧无法用真实读数回答它。需要先决定：是否装机前预检、失败令牌叫什么、与 `--max-bytes` 预算如何分工。冻结前不自造断言。 |
+| **N4** `V1201-SRV-RESOLVER-001` | `BLOCKED_DECISION` | 唯一解析实现是 `SavedAddressResolver`，profile host 必须是字面 IP（复判记录 §1 F3 的 A4 行）。契约那行"SRV/DNS 目标改变"要成为可测行为，先得决定产品是否引入 SRV/DNS；若决定不引入，则该行的正确收法是"无解析路径 + 装载期禁区拒"，需要主控确认这一口径。 |
+| 真 socket 上不可达的 `length < 0` 分支 | 记录，不建卡 | `adapters/launcher/server_probe.py` 的负长度守卫在真实帧上永不命中（`_read_varint` 不产负数，`negative_length` 实测 `OVERSIZE`）。属死代码清理，随任一 probe 实现卡顺手看，不作为契约缺口。 |
 
 ## 4. 完整 Minekin 长程任务簿（设计先行、证据后置）
 
