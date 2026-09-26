@@ -14,6 +14,7 @@
 | --- | --- | --- | --- |
 | M 主控/集成 | `docs/development-execution-plan.md`、`docs/development-todo.md`、`docs/qoder-execution-handoff.md`、本计划、合并/门禁记录；主干 refs | 不在他人正在施工的分支改代码；不替执行者改判据求绿 | B2 checkpoint → 启用并行规则 → 逐分支双审和合并 |
 | E 真实运行/证据 | 当前 B2 专属证据记录、其 case/判官必要改动；规范数据卷的**唯一写入者** | `dashboard/**`、自动入口产品代码、他人独立卷；不得连接用户远程服 | B2 当前构建的剩余受控证据，缺 fixture 与未实现行为逐条分开 |
+| V 1.20.1 游戏内调试 | 独立卷/独立 Kin 的本地真实 run 与 `docs/validation/**` 中自己的报告；产品源码只读 | 规范卷、B2 文件、runner/判官/case/registry、用户远程服 | `V1201-PARTIAL-STORE-AND-JOIN-SMOKE-001`：部分装机复验与当前 build 本地入服/退出观察 |
 | S 自动入服安全 | `src/minekin_core/cli/auto_session.py`、必要 `bootstrap.py`/`server_profile.py` 和对应单元/契约测试（路径若需扩大先给 M） | `test-orchestrator/**`、证据工具、case fixtures、registry、规范卷、主计划 | `V1201-AUTO-ENTRY-GATE-ORDER-001`；之后 N2 预算参数校验，另卡另提交 |
 | H 测试 Harness | `test-orchestrator/runner/**`、`tools/run_controlled_server.py`、对应 runner 契约测试；`seal_run_evidence.py` 需与 E 协调独占窗口 | 产品 `src/**`、`bridge*/**`、case 判据、registry、规范卷、主计划 | `V1201-AUTO-PATH-RUNNER-001`（G1/G2）；**等 E 不再改/依赖该批 runner 文件后才开工** |
 | D Web Dashboard 前端 | 新增 `dashboard/**`，只含前端、类型/模拟数据、前端测试、局部说明 | `src/**`、`bridge*/**`、服务端 API、数据库、游戏输入、真实媒体宣称、主计划 | 只读状态/时间线 mock-first 垂直切片；不合并为 P0 运行产品 |
@@ -31,6 +32,7 @@ git fetch origin main
 git worktree add -b codex/minekin-auto-entry C:\Users\darling\Documents\agent_work\minekin-wt-auto-entry origin/main
 git worktree add -b codex/minekin-dashboard C:\Users\darling\Documents\agent_work\minekin-wt-dashboard origin/main
 git worktree add -b codex/minekin-harness C:\Users\darling\Documents\agent_work\minekin-wt-harness origin/main
+git worktree add -b codex/minekin-v1201-validation C:\Users\darling\Documents\agent_work\minekin-wt-v1201-validation origin/main
 ```
 
 这些是**三个分别执行的例子**，不是在当前脏 checkout 里切分支。E 保留当前共享 checkout 直到 B2 checkpoint；之后也迁到独立 worktree。每会话启动都读 `git status --short`、branch/HEAD、远端 main SHA、本文 lane 卡和专项契约。不要 `git reset --hard`、删别人工作树或用 `git add -A` 混入其他 lane 的文件。
@@ -53,13 +55,17 @@ A2 实测 N1：同一 profile 的 `--profile` 路径 2 秒拒止，`--auto-bundl
 
 按[Dashboard 契约](standalone-runtime-dashboard.md)和[技术栈](technical-stack-selection.md)，在 `dashboard/**` 建 Node 24/pnpm/TypeScript strict/React+Vite 前端，先定义小而稳定的**只读界面**：Kin 状态（idle/running/unresolved/stale）、session/generation、目标/版本/心跳、时间线/告警、证据来源与 unknown 显示。使用明确标注的 mock fixtures 和可替换 read adapter；前端对同一界面测试正常/失联/陈旧/未知/无权限。只呈现已由 Core 可读状态支撑的字段，Persona/成本/Live View 尚无真源时显示“未接入”，不造假数据。Vitest/组件测试/Playwright 本地 smoke + `pnpm build` 必须过；不接真实 Gateway、不保存密钥、不调用 Bridge、无输入按钮/遥控。D2 只有在 G 冻结 Gateway 只读接口后才做真实接线。
 
+### V1 `V1201-PARTIAL-STORE-AND-JOIN-SMOKE-001`
+
+1.20.1 主线单独开一个受控本地验证会话：从当前已审 recipe 和固定本地 offline profile 起，在该 lane 的唯一 Docker 数据卷/新 Kin 中复现 A2 F4 未测的“下载中断后旧 blob 仍可逐件重验”，再做一次本地 status→自动选择→真实 JOIN/PLAYABLE→安全退出的 current-build smoke。对部分 store 要记录哪些 blob 已验证、哪些是 `.staging`、恢复时是否重复抓取/误用；对入服要保存 run/attempt/版本摘要与失败分类。需要服务器独立读数时用自己的受控 server/console，不借 E 的规范卷。若现有 runner 仍不能同 run 自动探测+封证（G1/G2），如实标 `BLOCKED_HARNESS` 并把复现交 H；不得手改判官、搬旧 bundle 或称其为 V08 远程入服。V 只写独立报告和自己分支的复现脚本；产出的 bundle 不自动进入 tested/规范卷，M/E 独立复核后再决定是否引用。机器资源紧张时与 E 约时间轮流跑 JVM，但 S/D 的编码不受阻。
+
 ### H1 `V1201-AUTO-PATH-RUNNER-001`（B2 释放文件租约后）
 
 A1 的 G1/G2：`domain.sh` 未识别 `--auto-bundle`，封证入口仍强制 `--profile`；受控服务端默认 `enable-status=false`，无法在同一受控通道既自动探测又收集独立服务器 Pos/Rotation。H 改 runner 编排与本地 server launcher，使自动路径、status、探针和封证同 run 可复现；测试验证原有显式路径不回归、无服务端读数时必须红、私服地址/凭据不入证据。不得改产品代码、case 判据或历史 sealed bundle。需要改 `seal_run_evidence.py` 时先从 E 获得该文件租约；E 正在跑 JVM/封证时不热改 runner。
 
 ### M1 集成护栏
 
-审 S/H/D 的契约和工程两轴，逐分支在主干最新 HEAD 重跑针对测试与全量基础门；Bridge 变更才追加 Java 21 `check --rerun-tasks`，真运行要求容器和 sealed 证据。合并顺序优先安全修复 S1→S2，证据 E 的已封存 checkpoint，H 的 runner 修复，D 的未集成前端。每次只合一张卡，合后核 `main` 远端 SHA，给各 lane 发新 base；变更导致旧 build 证据失效则先更新证据归属而非“仍绿”。D 可以先 push 分支，但是否进入主干 P0 包须检查 ADR：保持前端独立、不可让 P0 运行依赖 Node/Gateway。
+审 S/H/D/V 的契约和工程两轴，逐分支在主干最新 HEAD 重跑针对测试与全量基础门；Bridge 变更才追加 Java 21 `check --rerun-tasks`，真运行要求容器和 sealed 证据。合并顺序优先安全修复 S1→S2，证据 E 的已封存 checkpoint，H 的 runner 修复，D 的未集成前端，V 的独立观察报告按相关修复验证时点并入。每次只合一张卡，合后核 `main` 远端 SHA，给各 lane 发新 base；变更导致旧 build 证据失效则先更新证据归属而非“仍绿”。D 可以先 push 分支，但是否进入主干 P0 包须检查 ADR：保持前端独立、不可让 P0 运行依赖 Node/Gateway。
 
 ## 4. 第二、三波与完成门
 
