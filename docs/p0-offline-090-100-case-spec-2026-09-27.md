@@ -196,21 +196,47 @@ on current material only the sub-case half of this sentence can ever be green.
   {"client/stdout.log": b"...token=<secret>..."}, secrets=["<secret>"])` raises
   `MinekinError` and writes no directory.
 
-### 2.7 Minimal counterexample / positive control (design; runtime part 未测)
+### 2.7 Minimal counterexample / positive control (design; partly executed by 主控, round 15)
 
-All three below run on a **labelled copy outside the volume** (`/tmp`, never `/data`),
-against §2.5's pinned reading; none was executed this session — 未测.
+All three below were designed to run on a **labelled copy outside the volume** (`/tmp`,
+never `/data`), against §2.5's pinned reading. **主控 (round 15, 2026-09-27) executed two
+of the shapes and they are no longer 未测; the file-level copy injection still is.**
 
-- Counterexample (红): inject into one carrier of the copy a context-bearing exposure —
-  argv-shaped `--accessToken <fabricated-secret>` or JSON `"auth_access_token":
+- **Executed by 主控 (round 15) — positive control over real sealed bytes.** The registered
+  judgement was driven read-only over every bundle on the canonical volume: 99 bundles,
+  1103 declared text carriers, `auth_field_bodies_are_not_exposed_in_bundle_carriers`
+  answered `None` for all **65** bundles it could load and **0** answered red. 34 bundles
+  raised `Unreadable` from the loader (they are not this case's run shape; named rather
+  than counted as green). Non-vacuity of the scan itself: **50** bundles do carry one of
+  `AUTHENTICATION_FIELD_NAMES` somewhere in their text carriers, so the zero above is a
+  reading over bytes that contain the fields, not over bytes that lack them. Reproduce:
+  `bash /src/.tmp/m-r15-090-live.sh` under the standard `:ro` container mount (log
+  `.tmp/m-r15-090-live.log`).
+- **Executed by 主控 (round 15) — exposure / reverse controls at the carrier-text level**,
+  i.e. `authentication_exposures` over the strings the rule operates on (in-memory; no file
+  written): a context-bearing secret reds in all three shapes a body can appear in —
+  JSON `"accessToken": "<64-hex>"`, argv `--accessToken <64-hex>`, and the same pair nested
+  inside a sealed ledger row's escaped `payload_json` — while every public form stays
+  green: the digit `0` as the field's value, an empty body, `<redacted>`, the launcher
+  template placeholder `${auth_access_token}`, a presence-only key
+  (`client_id_present`/`xuid_present`), and a flag followed by an ordinary word
+  (`--xuid none configured`). Ten pairs, all matching the pinned expectation.
+  **This is the 公版哨兵保护 of §2.5 rule 3 measured rather than asserted**, and it holds
+  at the text level only: the same ten pairs injected into a *copy* of a carrier and
+  re-judged through `read_sealed_material` remain **未测**.
+- Counterexample (红), file-level: inject into one carrier of the copy a context-bearing
+  exposure — argv-shaped `--accessToken <fabricated-secret>` or JSON `"auth_access_token":
   "<fabricated-secret>"` — ⇒ exposure count ≥ 1 ⇒ assertion red with a named violation.
+  **未测.**
 - Reverse control (不得红): inject into the same copy bare `0` occurrences — the digit
   `0` as a standalone value in counting/coordinate/latency positions, and `EMPTY_ARGV`
   empty values — ⇒ exposure count stays 0 ⇒ the assertion must stay green. This is the
-  公版哨兵保护, straight from §2.5 rule 3.
+  公版哨兵保护, straight from §2.5 rule 3. **Executed at the text level above; the
+  file-level copy remains 未测.**
 - Positive control: the same reading over the unaltered sealed bytes → count 0 (every
   authentication field in a sealed bundle is either the public sentinel or redacted,
-  §2.5 rule 7). Still 未测 this session as a *run*; the carrier census behind it is in §5.
+  §2.5 rule 7). **Executed by 主控 as the 65/0 volume reading above** (the earlier carrier
+  census behind it is in §5).
 - Digest guard (per card acceptance ②, generic): tamper one byte of a declared artifact in
   a `/tmp` copy of a bundle → `python -m minekin_core evidence verify <run>` exits
   `ExitCode.STORAGE = 12` (`src/minekin_core/domain/errors.py:39`) with violation
