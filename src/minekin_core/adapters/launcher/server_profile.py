@@ -400,6 +400,67 @@ def load_managed_target_profile(path: Path) -> ManagedTargetProfile:
 SessionServerProfile = ServerProfile | ManagedTargetProfile
 
 
+def load_joinable_session_target(path: Path) -> SessionServerProfile:
+    """Load a session target and enforce the rules the saved document alone decides.
+
+    Which address may be joined, that a managed session stays inside the loopback test
+    domain, and that a target names one version are all properties of the document. What
+    version this run actually launches is not, and the automatic entry path has to settle
+    the first set before it knows the second: a target it may not join must be refused
+    without asking it anything. `load_session_server_profile` is this and
+    `require_target_allows_launch` run in order.
+    """
+
+    document = _read_object_document(path)
+    saved_version = document.get("schema_version")
+    if isinstance(saved_version, bool) or not isinstance(saved_version, int):
+        raise _reject("server profile schema_version must be an integer")
+
+    if saved_version == PROFILE_SCHEMA_VERSION:
+        return load_server_profile(path)
+
+    if saved_version == PROFILE_SCHEMA_VERSION_V2:
+        target = load_managed_target_profile(path)
+        if not target.is_loopback:
+            raise _reject(
+                "a managed session may only join a loopback target; remote joining needs its "
+                "own authorization card"
+            )
+        if len(target.allowed_versions) != 1:
+            raise _reject(
+                "a managed session target must allow exactly one version, this one lists "
+                + ", ".join(target.allowed_versions)
+            )
+        return target
+
+    raise _reject(f"server profile schema_version {saved_version} has no session loader")
+
+
+def require_target_allows_launch(
+    profile: SessionServerProfile, *, minecraft_version: str
+) -> ManagedTargetProfile | ServerProfile:
+    """Refuse a target whose version rule contradicts the client about to launch.
+
+    The version is checked against the launch rather than trusted from the profile: a
+    client built for one version joining a server pinned to another is the misjoin this
+    module exists to make impossible.
+    """
+
+    if isinstance(profile, ServerProfile):
+        if profile.minecraft_version != minecraft_version:
+            raise _reject(
+                f"the session launches Minecraft {minecraft_version}, the profile pins "
+                f"{profile.minecraft_version}"
+            )
+        return profile
+    if profile.allowed_versions[0] != minecraft_version:
+        raise _reject(
+            f"the session launches Minecraft {minecraft_version}, the target allows "
+            f"{profile.allowed_versions[0]}"
+        )
+    return profile
+
+
 def load_session_server_profile(path: Path, *, minecraft_version: str) -> SessionServerProfile:
     """Load the target one managed session is allowed to join, whatever its schema.
 
@@ -415,43 +476,8 @@ def load_session_server_profile(path: Path, *, minecraft_version: str) -> Sessio
     refused case says which of those it failed, so the open door here is the
     narrow one: a 1.20.1 run gets a 1.20.1 target without v1's pinned constant
     moving and without any non-loopback address becoming joinable.
-
-    The version is checked against the launch rather than trusted from the
-    profile: a client built for one version joining a server pinned to another is
-    the misjoin this card exists to make impossible.
     """
 
-    document = _read_object_document(path)
-    saved_version = document.get("schema_version")
-    if isinstance(saved_version, bool) or not isinstance(saved_version, int):
-        raise _reject("server profile schema_version must be an integer")
-
-    if saved_version == PROFILE_SCHEMA_VERSION:
-        profile = load_server_profile(path)
-        if profile.minecraft_version != minecraft_version:
-            raise _reject(
-                f"the session launches Minecraft {minecraft_version}, the profile pins "
-                f"{profile.minecraft_version}"
-            )
-        return profile
-
-    if saved_version == PROFILE_SCHEMA_VERSION_V2:
-        target = load_managed_target_profile(path)
-        if not target.is_loopback:
-            raise _reject(
-                "a managed session may only join a loopback target; remote joining needs its "
-                "own authorization card"
-            )
-        if len(target.allowed_versions) != 1:
-            raise _reject(
-                "a managed session target must allow exactly one version, this one lists "
-                + ", ".join(target.allowed_versions)
-            )
-        if target.allowed_versions[0] != minecraft_version:
-            raise _reject(
-                f"the session launches Minecraft {minecraft_version}, the target allows "
-                f"{target.allowed_versions[0]}"
-            )
-        return target
-
-    raise _reject(f"server profile schema_version {saved_version} has no session loader")
+    return require_target_allows_launch(
+        load_joinable_session_target(path), minecraft_version=minecraft_version
+    )
