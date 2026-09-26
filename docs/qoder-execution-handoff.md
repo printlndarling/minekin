@@ -371,7 +371,8 @@ V2 的绿读数暴露、M 在自己卷上重放确认：auto run 跨过早停后
 - 本轮零封证：M 全程 `:ro` 读规范卷，未新建 attempt/bundle，未重判既有行；合并前底数 `71 / 107` 为实读。
 
 ### 新增阻断（需要用户/主控动作）
-- **受控容器引擎不可用**：`docker version` 与 `/_ping` 自 2026-09-27 19:34Z 起持续回 `500 Internal Server Error`。受影响面：`H1d` 的活体测量、`B1-b` 的封存侧、任何 `:ro` 门载荷/台账复量、⑤ 家族的再次观察。M 不重启用户机上的引擎进程（进程接管属保留决策）。**恢复后第一件事**：在 `3706524` 上重放 `.tmp/m-r7-baseline.sh` + `.tmp/m-h3-evidence.sh`，核对门载荷仍 `fb0152c8…`、底数仍 `71 / 107`，再派 `H1d`。
+- **受控容器引擎不可用（第七轮收尾时已诊断到根因）**：`docker version` 自 2026-09-27 19:34Z 起回 `500 Internal Server Error`，19:48Z 复测时 `tasklist //FI "IMAGENAME eq Docker Desktop.exe"` 给 **`No tasks are running which match the specified criteria`**，且 `docker info` 改报 `open //./pipe/dockerDesktopLinuxEngine: The system cannot find the file specified` ⇒ **不是引擎报错，是 Docker Desktop 整个没有在运行**（`docker context ls` 里 `desktop-linux` 仍是指向该 npipe 的当前 context，配置未变）。受影响面：`H1d` 的活体测量、`B1-b` 的封存侧、任何 `:ro` 门载荷/台账复量、⑤ 家族的再次观察，以及一切受控真跑与封存。**M 不启动也不重启用户机上的该进程**（进程接管属保留决策）。**恢复后第一件事**：在 `d455309`（或其后）重放 `.tmp/m-r7-baseline.sh` + `.tmp/m-h3-evidence.sh`，核对门载荷仍 `fb0152c8…`、底数仍 `71 / 107`、镜像仍 `minekin-runner:local` 且 id `b67a4d917306`，再派 `H1d`。
+- **一条数据风险提示（属用户动作，M 不代做）**：规范卷 `minekin-runner-data` 与各 lane 卷都活在 Docker Desktop 的 VM 磁盘里。仅仅**启动** Docker Desktop 不会动它们；但 VM 的磁盘压缩/重置或菜单里的 **Clean / Purge data** 会**删卷**，那等于删掉 `attempts 71 / bundles 107` 的全部规范证据。数据删除属保留决策，故 M 只登记不处置。
 
 ### lane_next 现状
 - 主干唯一 `NEXT` 仍是 `PARALLEL-INTEGRATION-GATE-001`。H = `H1d`（已提升，阻于引擎）；E = `B1-b` 第一阶段在工、封存侧写窗前置已满足；V/S/D 无安全可派卡（V 的下一张需要 `H1d` 起的加入者起跳面）。
