@@ -28,11 +28,13 @@
 | 卡 | 需求 | 目标文件 | 当前 owner | 移交时点 |
 | --- | --- | --- | --- | --- |
 | `INT-EVIDENCE-INTEGRITY-001` | 台账 `SEALED` 行缺 bundle 不再静默（E 第五刀 R-E 量出） | `tools/report_promotion.py`、`tests/unit/test_report_promotion.py` | M（读者面不属任何 lane 的独占面） | 已闭环：`759125f` 合入 `main`，未占用 E 的规范卷写窗口 |
-| `H1a` `TEST-ORCHESTRATOR-PINNED-PYTEST-001` | 受控镜像带钉住的测试工具链，消掉「镜像内跑仓库自检 ⇒ 环境性假 FAIL」（E 第五刀 §5） | `test-orchestrator/runner/Dockerfile`（+ 其契约测试） | **H 独占面**；施工由 M 派工到 `../minekin-wt-harness`（`codex/minekin-harness`），仍走 H 的分支与 H 的验收 | push 后 M 单张双审合入；`E-CO` 在该合并落地后才可开工 |
-| `H1b` `RUNNER-NAMED-FAILURE-001` | `domain.sh:657` 确定性静默 `rc=2`、runner 内 `sys` 未 `import sys`（E 第四刀两次失败） | `test-orchestrator/runner/domain.sh` 及出错路径涉及脚本 | **H 独占面**；派工到 `../minekin-wt-runner`（`codex/minekin-runner-named-failure`），与 H1a 不同分支不同文件，二者不互撞 | 两个提交各自可回退；push 后 M 审。`V1201-AUTO-PATH-RUNNER-001`（G1/G2）在其后开工，避免同一批文件两条施工 |
-| `S2` `V1201-MAX-BYTES-VALIDATION-001` | 非正预算具名拒止（今天 `INTERNAL_INVARIANT`）、`--max-bytes` 与 `--profile` 同给具名用法错误（A2 的 N2） | `src/minekin_core/cli/auto_session.py` + 对应单元/契约测试 | S 独占面；派工到 `../minekin-wt-auto-entry`（`codex/minekin-auto-entry`） | push 后 M 审；不改 case 判据、不碰规范卷 |
+| `H1a` `TEST-ORCHESTRATOR-PINNED-PYTEST-001` | 受控镜像带钉住的测试工具链，消掉「镜像内跑仓库自检 ⇒ 环境性假 FAIL」（E 第五刀 §5） | `test-orchestrator/runner/Dockerfile`（+ 其契约测试 `tests/contract/test_runner_scripts.py`） | **H 独占面**；施工由 M 派工到 `../minekin-wt-harness`（`codex/minekin-harness`），仍走 H 的分支与 H 的验收 | 已闭环：`44922b8` 经 M 双审合入 `main = ee0a439`（2026-09-26）。**副作用登记**：共享 tag `minekin-runner:local` 已重建（image id `7730fc480365 → b67a4d917306`），全体 lane 的下一次镜像运行都带这一层；修前参照以 `minekin-runner-before:local` 留在本机 |
+| `H1b` `RUNNER-NAMED-FAILURE-001` | `domain.sh` 的加入基线读取在全新 Kin 上确定性静默 `rc=2`（E 第四刀）；分类 ④（runner 未 `import sys`）后判**仓库代码未复现**，故本卡只有一个提交 | `test-orchestrator/runner/domain.sh` | **H 独占面**；派工到 `../minekin-wt-runner`（`codex/minekin-runner-named-failure`），与 H1a 不同分支不同文件，二者不互撞 | 已闭环：`1dc6101` 经 M 双审合入 `main = d09e9b2`（2026-09-26）。该 worktree 随即移交下一张 runner 卡（见下方 G1/G2 行），H1b 的 `.tmp/` 探针作为测量材料保留在未合并分支之外 |
+| `S2` `V1201-MAX-BYTES-VALIDATION-001` | 非正预算具名拒止（当时是 `INTERNAL_INVARIANT`）、`--max-bytes` 与 `--profile` 同给具名用法错误（A2 的 N2） | `src/minekin_core/cli/auto_session.py` + 必要 `src/minekin_core/bootstrap.py` + 对应单元测试 | S 独占面（本表 §2 那行授予的「必要 `bootstrap.py`」即此）；派工到 `../minekin-wt-auto-entry`（`codex/minekin-auto-entry`） | 已闭环：`20e2e60` 经 M 双审合入 `main = ea5423e`（2026-09-26）；不改 case 判据、不碰规范卷 |
+| `E-CO` 镜像内自检重封一轮 | 让「判官只需仓库字节」那四条的 `environment` 段与真正执行检查的环境一致（②落地后的新证据卡） | 写入目标只有规范卷 `minekin-runner-data`（新 attempt + 新 bundle）与本卡自己的 `docs/p0-repo-internal-image-reseal-2026-09-26.md` | **E 独占**：规范卷唯一写入者；`tools/**`、`src/**`、`test-orchestrator/**` 一律只读 | 移交时点：M 派工于 2026-09-26，base 为合入三张工程卡后的远端 `main`。与 H 的 G1/G2 同时开工的**前提**是 G1/G2 不指名挂载该卷（已写进派工边界）；E 收尾前 M 不合并任何改动 registry/case fixture 的分支 |
+| `V1201-AUTO-PATH-RUNNER-001`（G1/G2） | 自动路径进 `domain.sh` 并按 `seal_run_evidence.py` 实际必填项传参；`enable-status` 可复核读数与 `Pos/Rotation` 控制台探针默认化 | `test-orchestrator/**` + `tests/contract/test_runner_scripts.py`；`tools/seal_run_evidence.py` **只读接口，不改** | **H 独占面**；派工到 `../minekin-wt-runner` 的新支 `codex/minekin-auto-path-runner`（H1b 合完后顺序接手同一文件面，避免两条施工撞同一批脚本） | 开工条件已满足（③、② 均在主干）。**禁令**：不得挂载规范卷（归 E 的 `E-CO`）；需要封存独占窗口即停在该前置上报。push 后 M 审 |
 
-登记只解决文件面归属，**不把 lane 分支上的实现升格为主干状态**：四行里除第一行外都还是「仅在分支、尚未验证」。
+登记只解决文件面归属，**不把 lane 分支上的实现升格为主干状态**：前三行已随 M 的合入闭环（主干 SHA 逐笔在行内），后两行是 M 于 2026-09-26 派出的在工卡，状态一律是「仅在分支、尚未验证」。
 
 ### 工作区配方
 
