@@ -32,7 +32,7 @@
 | V 1.20.1 游戏内调试 | `codex/minekin-v1201-validation` @ `../minekin-wt-v1201-validation` | V1 `V1201-PARTIAL-STORE-AND-JOIN-SMOKE-001` **已合入主干**（合并 `eb6f63d`，2026-09-26）；`lane_next`：暂无，待 H-1/H-2 落地后由 M 重新派卡 | V1 按卡面收口为 `PARTIAL / BLOCKED_HARNESS`（[报告](v1201-partial-store-and-join-smoke-2026-09-26.md)：A 段逐件复验 PASS＋两缺陷复现；B 段 status/自动选择/摘要门真跑 PASS，完整 JOIN 阻于 bridge 不可联网取＋G1 封证＋G2 探测失明；四读如实 `N/A`，未进规范卷、未搬旧 PASS）；其交办的 H-1..H-5 登记给 H，其中 H-3/H-4 属产品下载器行为，另卡由 M 排期，不并入了结 V1 的这次合并 |
 | H 测试 Harness | `codex/minekin-harness` @ `../minekin-wt-harness` | `V1201-AUTO-PATH-RUNNER-001`（G1/G2，§3.1） | 已激活（2026-09-26，E 的 B2 checkpoint `6a02ac6` 落地且本批 runner 文件零改动，文件租约释放）；E 重开真跑封证时按协议先协调 `seal_run_evidence.py` 独占窗口；V1 报告交办的 H-1..H-5（同 run 封证、bridge 产物化、损坏 blob 重取、孤儿 `.staging` 回收、`enable-status` 取舍）随 H1 一并权衡，其中 H-3/H-4 触产品 `src/**`，超出 H 独占面，须由 M 另立卡 |
 
-每个 `lane_next` 只代表该分支可开发；分支 PASS/交付不等于主干 `DONE`，只有 M 合并并通过相应门禁后才回写主干状态。跨 lane 修改先在协议 §2 冲突表登记；同一文件仅一名 owner。
+每个 `lane_next` 只代表该分支可开发；分支 PASS/交付不等于主干 `DONE`，只有 M 合并并通过相应门禁后才回写主干状态。跨 lane 修改先在协议 §2 冲突表登记；同一文件仅一名 owner。上表 `base` 只记激活时点：lane 会话开新卡前一律 `git fetch origin`，以当时远端 `main` 最新 SHA 为重建/rebase 基底；M 每合一张卡即推 `main`，新 base 随远端自然发布。
 
 ### B2 的第一刀（`P0-CORE-040-050-RUN-001`）— 已完成（2026-09-26），B2 本身仍是 E lane 的 `NEXT`
 
