@@ -562,3 +562,65 @@ def test_the_console_probe_is_a_default_and_the_status_switch_is_read() -> None:
     # An auto run whose server cannot answer stops by name, before the client.
     assert 'if [ -n "${auto_bundle}" ] && [ "${enable_status}" != "true" ]; then' in text
     assert "the auto path needs this server to answer status" in text
+
+
+def test_the_auto_path_hands_the_status_opt_in_to_the_controlled_launcher() -> None:
+    """The knob registered by the tools card is now asked for by the caller that needs it.
+
+    `tools/run_controlled_server.py` stopped hard-coding `enable-status=false` and made
+    answering a status ping a named opt-in (`--enable-status`), read back off the disk
+    before it reports. The auto path is exactly the caller the switch names: resolving
+    and observing the bundle target goes through the vanilla status endpoint. Until
+    this wiring the end-to-end `--auto-bundle` run could not clear the harness's own
+    readiness check by construction — measured on the base script inside the controlled
+    container: a real 1.21.4 JVM came up ready, `domain.sh` read back
+    `enable-status=false`, and the run stopped by name with rc=2 before a client was
+    started (`/data/server-runs/run-1/server.properties` said the same off the disk).
+
+    Every clause below is measured red against that base copy and green against the
+    wired script, and each of the two ways the wiring could silently degrade — the
+    switch handed to every run, the switch dropped again — names the assertion it
+    breaks. The last two clauses are the surviving guard: the reading is taken from
+    the run directory's file, not from the request, so a write reverted anywhere else
+    still stops an auto run by name instead of joining a server that cannot answer.
+    """
+
+    text = (RUNNER / "domain.sh").read_text(encoding="utf-8")
+
+    # The switch is asked for exactly once in the whole script, and by one name.
+    # A run that dropped it again measures zero; a run that spread it unconditionally
+    # to the black-hole branch or to a second call site measures more than one.
+    assert text.count("--enable-status") == 1, (
+        "domain.sh must name --enable-status exactly once, inside the auto-bundle guard"
+    )
+    # And that one naming sits under exactly the predicate the early-stop check is
+    # asked under: non-empty `auto_bundle`, initialised empty so a non-auto run —
+    # including the black-hole run that skips the early stop by design — hands the
+    # launcher nothing and keeps the reviewed default.
+    assert (
+        "status_args=()\n"
+        '    if [ -n "${auto_bundle}" ]; then\n'
+        "        status_args=(--enable-status)\n"
+        "    fi"
+    ) in text
+    # The call site that starts the controlled server expands the guarded array, so
+    # the switch reaches the tool inside this run rather than somewhere else.
+    call = text[
+        text.index("python /src/tools/run_controlled_server.py") : text.index(
+            "--keep-running >/tmp/domain-server.log"
+        )
+    ]
+    assert '"${status_args[@]}"' in call
+    # The black-hole branch starts a silent listener, never the controlled server,
+    # and the opt-in never reaches it.
+    listener = text[
+        text.index('if [ -n "${server_profile}" ] && [ -n "${black_hole}" ]; then') : text.index(
+            'elif [ -n "${server_profile}" ]; then'
+        )
+    ]
+    assert "status_args" not in listener
+    # The readiness guard survives the wiring: it reads the setting back off the
+    # disk and stops an auto run by name when the file does not say true, whatever
+    # the request said.
+    assert 'if [ -n "${auto_bundle}" ] && [ "${enable_status}" != "true" ]; then' in text
+    assert "so the run stops before the client starts" in text

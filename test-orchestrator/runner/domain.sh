@@ -562,6 +562,20 @@ elif [ -n "${server_profile}" ]; then
             exit 2
             ;;
     esac
+    # The one caller the status knob was registered for: the auto path resolves and
+    # observes its target through the vanilla status endpoint, so an auto-bundle run
+    # asks the controlled server to answer one. Asked under exactly the predicate the
+    # readiness check below is asked under — `-n "${auto_bundle}"` — and no wider:
+    # every other run keeps the tool's reviewed default (`enable-status=false`),
+    # because a domain whose whole purpose is to be joined by one named Kin has no
+    # reason to announce itself to whoever asks. The check that reads the setting
+    # back off the disk still stands after this line: it reads the file, not the
+    # request, and it stays as the harness's own guard if the write is ever reverted
+    # elsewhere.
+    status_args=()
+    if [ -n "${auto_bundle}" ]; then
+        status_args=(--enable-status)
+    fi
     python /src/tools/run_controlled_server.py \
         --directory "${server_directory}" \
         --jar /server/server.jar \
@@ -569,6 +583,7 @@ elif [ -n "${server_profile}" ]; then
         "${version_args[@]}" \
         "${allow_args[@]}" \
         "${online_args[@]}"         "${pack_args[@]}" \
+        "${status_args[@]}" \
         "${summon_args[@]}" \
         "${probe_args[@]}" \
         "${kill_args[@]}" \
