@@ -618,3 +618,72 @@ V2 的绿读数暴露、M 在自己卷上重放确认：auto run 跨过早停后
 - 不声称卷上存在 070 的 bundle、`identity_revision` 读数或身份根工件；也不声称改名/大小写能被今天的分类词表区分。
 - 不声称任何门禁点亮（`W30` 与 `p0-core` 实测仍 `promotable False`）。
 - 不声称 Minekin 完成。
+
+## M 主控第十四轮（2026-09-27，修 100 的设计口径 + 收 E 的三段真跑 + 收 H1e）
+
+### 落干与远端核对（次序即结论）
+- 起点：`main` = 远端 `main` = `d4d44b63c2d9465392bf0fd521edb8af9cb1fcc7`（第十三轮尾）。本轮开工前 `git ls-remote` 同值 ⇒ 远端未被他人推进。
+- 本轮主干三笔，按此顺序：
+  1. **`91ebd6c`**（M 直接一笔，`docs/p0-offline-090-100-case-spec-2026-09-27.md` 1 文件 `+58 -13`）= 主控目标第 2 条的「先修设计和反例」。推送后远端 `main = 91ebd6cad6fdfccf57886bef42b039ebb87961ed`（已核）。
+  2. **`318d1b9`** = 合并 `origin/codex/minekin-evidence`（E 的 `a42450c` + `7f75dab`）。
+  3. **`639cedb`** = 合并 `origin/codex/minekin-client-env-readout`（H 的 `0b820e0` + `743765e`）。
+- **H1e 在 E 之后**不是偏好而是在案的次序规则：两张卡会同时改主干 §4 行与卷底数，先合谁决定那份读数挂在谁名下。E 的报告落成 `318d1b9` 之后该条件才成立。
+
+### 100 的设计修正：C4 的字面 scope 是一枚永红的判据（不是执行缺陷）
+- 缺陷：冻结草稿 §3.5 C/C4 要求「B 的 session 不出现在 A1、A2 的**时间线或载体对**里」。bundle 的载体对里封的 `previous-run-trace.jsonl` 按装修录**必然**是前驱那次 run 的时间线，而 A2 的前驱就是 B ⇒ 该字面要求对任何诚实执行都自相矛盾。卷上原样读数（`readout.log` 第 239-242 行）：A2 `7ff026e4…` 的 `previous_timeline.sessions = ["4ba0825eee234506bcdca524d1631df9"]`，即 B `a26e2c35…` 自己的 session。
+- 修法是**收窄口径而不是删判据**：C4 现在写作「B 的 session 集与获确认 context tuple 不出现在 A1、A2 **各自自身** timeline 中，且 A 的 tuple ≠ B 的，A1|B 与 B|A2 的 pairwise 互斥都须成立」；具名 `B_CROSSES_INTO_A` 不变。可判形状与 E 那半句「正确的可判形状」一致，两处的度量都指向同一批已封字节。
+- 同时改掉的三处现状陈述（按仓库口径：dated 读数保留、只改现在时）：§3.5 末段与 §3.6 的「三段尚未存在 / C1-C5 反证全部 design-only 未测」，改为「首次受控三段已存在」+ 具名 run_id/digest/读数；反例头注明 9/10/11 仍未测、**8 只算了前半**（E 实量的是单字段 `level-name → OTHERWORLD`，不是「搬到 B 的真实世界」那个变体）。
+- **不移动任何摘要**：`case_version` 取的是注册函数字节 + fixture，不含这份文档 ⇒ 登记数仍 `OK (150 registered)`、`verify_fixture_digests OK`、卷上 5 份 OFFLINE-100 bundle 无需重封。该笔推送后门载荷实测 `cfa0f118…` 一字未变（见下）。
+
+### §3.5 的 C1-C5 ↔ 主干注册名映射（此前无人写死，读法会糊）
+
+| 设计条款（文档名，不注册） | 主干注册判据（进 `case_version`） | 今天能判什么 |
+| --- | --- | --- |
+| C1 `the_kin_id_is_single_across_the_triple` | `the_kin_id_continues_from_the_previous_run` | 逐对（A1|热身、B|A1、A2|B）续接；三段传递单值靠三段 bundle 的人工并读，链上无单一判据 |
+| C2 `the_triple_runs_as_three_distinct_sessions` | `the_session_is_not_the_one_the_previous_run_had` | 相邻对互斥；三值两两互异 = 人工并读（本轮已由 M 复量：`f0a28733…`／`4ba0825e…`／`ed3fdc06…`） |
+| C3 `the_two_a_runs_share_one_confirmed_world_context` | `the_world_and_the_identity_are_the_server_s_record` + `the_world_switch_returned_to_the_confirmed_world` | 前半：每份 bundle 内 profile digest / `level-name` / `Preparing level` / 服务端自记身份一致；后半恒答 `A_B_A_TRIPLE_NOT_SEALED`——跨 bundle 的「同一获确认 context」无载体（`world_context_id` 全卷 null） |
+| C4 `the_b_run_does_not_cross_into_a` | `the_session_is_not_the_one_the_previous_run_had`（两对）+ 同上缺口 | 自身 timeline 互斥与 tuple 不等可判；「载体对不含 B」按构造不可判，本轮已把口径收到前者 |
+| C5 `the_external_identity_is_server_observed_in_all_three` | `the_world_and_the_identity_are_the_server_s_record` | 三份 bundle 各判各的服务端自记（`usercache.json` + `joined the game`），`offline_player_uuid` 规则**委托**已注册的 `server_observed_join_identity`，不重推 |
+
+⇒ 结论形状：**C1/C2/C5 与 C4（收窄后）在卷上可判且已复量；C3 只有 bundle 内那一半，三段那一半仍缺载体。** 这不是「判据太弱」，而是父行 `the_world_switch_returned_to_the_confirmed_world` 恒拒的原因，仍归主控对 `minekin.p0.evidence.v1` 的保留决定。
+
+### E 的 `P0-OFFLINE-100-A-B-A-RUN-001` 双审（真实封证在卷上，M 未写卷）
+- 增量按真实 merge-base 量：`0e497a9..origin/codex/minekin-evidence` = 2 笔（`a42450c`、`7f75dab`）、改面恰 1 文件 `docs/p0-offline-100-a-b-a-run-2026-09-27.md` `+259`。`tools/**`、`tests/fixtures/**`、registry、判据、门禁、`minekin.p0.evidence.v1` 字段一字未动（E 未 rebase，其分支读 `OK (146 registered)` 属 base 差异，非缺陷）。
+- 卡面四条边界逐条核：① 本地隔离服、全程未连用户远程服（文档只出现卷名/镜像名/loopback，无 IP:port）；② 三段齐备且**失败材料保留**——seq1/seq2 两份 `HANDSHAKE_TIMEOUT` FAIL bundle 与热身 run 的台账行原样在卷，5 行 attempts 全 `SEALED`，无删除、无伪装 supersede；③ 逐条 C1-C5 具名到 run_id 与字段；④ 未声称闭合，父行失败名 `A_B_A_TRIPLE_NOT_SEALED` 原样引。
+- **一轮退回**：首版 §C4 写「成立」，与它自己引的载体行矛盾。M 按字节退回（不是按文风），E 以新提交 `7f75dab` 改判「部分成立」并把口径缺陷登记给主控（未 amend 已推的 `a42450c`）。
+- M 侧独立复量（`minekin-wt-integration` 树、规范卷 `:ro`、日志 `.tmp/m-r14-rejudge-triple.log`）：三份 `evidence verify` 均 `verified: true / sealed: true / artifacts: 13 / violations: []`（`result: FAIL` 是被验的 verdict）；三份 `rejudge_evidence.py` 均 `status=agrees disagreements=[]`，`case_version = a44289e8cdbc0643eebb7ff73985014a8fb87e176c622fd2a1c085f7abcc8a3b`。⇒ 这一条同时把「登记会不会让已封 bundle 失效」从推断升成实测：OFFLINE-070 那四个新函数已在这条主干字节上，三段仍产出 bundle 自记的同一 verdict。
+- 卷底数（E 记录 + M 复量一致）：`bundles 99 / attempts 76 / server-runs 184`；`kin-e-aba` 的账本邻接 6 段无 `run_id` 重叠。
+
+### H1e 双审：给了运行时目录，但没越过 Core 的封闭名单
+- 增量：`0e497a9..origin/codex/minekin-client-env-readout` = 2 笔、3 文件 `+548 -10`（`test-orchestrator/runner/domain.sh` `+140 -1`、`tests/contract/test_runner_scripts.py` `+269 -9`、H 自己的记录 `+194`）。`de579ad` 是 `743765e` 的祖先 ⇒ 该分支为正常前进推送，无强推。
+- H 的契约测试只读文本，函数分支无人独立跑过 ⇒ M 的行为探针（`.tmp/m-r14-h1e-probe.sh`，容器内驱动真函数七态）：unset / 空 / 相对路径 / 不存在 / 不可写（用 `:ro` 绑挂造，root 也读到 `-w` 为假）五种都不合格 ⇒ 建 `/tmp/.../runtime.XXXXXX` 且 `stat` 实测 **700**、origin = `provided-by-harness`；可用目录那态 `inherited` 且值不被换；base 建不出来时两字段皆空并具名原因；`set -u` 下空数组展开 rc=0（旧坑不复活）。
+- **核心自限按产品字节证实**：`src/minekin_core/config.py:51` 的 `FORWARDED_VARIABLES` 只有 `DISPLAY` / `XAUTHORITY` / 桥的三个诊断名，**无 `XDG_RUNTIME_DIR`**，而 `forwarded_environment()` 只白名单转发 ⇒ 目录停在 Core 门口，**活体 JOIN 不会因 H1e 变绿**；最后一跳属 `src/**` 产品面（另卡，且改名单是产品决定）。
+- **一轮退回（文档口径，非代码）**：H 首版 §6 把全量写成 `2579 passed` 无红，而它自己引的首跑日志是 `1 failed, 2578 passed, 3 skipped in 489.80s`（红在 `tests/unit/test_session_supervision.py:141 TimeoutError`）。按「修复 = 改动真落地」退回后：H 重跑全量得 `2579 passed, 3 skipped in 412.20s`，两份日志都留在 `.tmp/` 并在 §6 逐字并列；另顺手修掉两处它自己核出的偏差（契约格 `0.08s` → 实读 `27 passed in 0.10s`；改面总量按 numstat 更正）。M 侧对该 TimeoutError 另有两枚独立证据：合并树 `3f85fc0` 全量绿、主干 `d4d44b6` 单跑三次 `22 passed` ⇒ 归类为满载负载敏感，非回归。
+- 合并树（`639cedb`）复量：`bash -n domain.sh` rc=0、`ruff format --check`（352 files already formatted）、`ruff check`、`check_case_assertions OK (150 registered)`、`verify_fixture_digests OK`、`check_boundaries OK`、`git diff --check` rc=0，全量 **`2594 passed, 3 skipped in 331.11s`**（第十三轮为 `2591`，差 **3** 恰等于 H1e 新增的三条契约测试 ⇒ 除本笔外无其它测试面移动）。
+
+### 门载荷第五段读数：真跑封证与两次合并都没动门
+- E 封存后与本轮两次合并后各读一次（`:ro` 容器、同一 `report_promotion.py --data-root /data`，日志 `.tmp/m-r14-payload-after-abar.log`、`.tmp/m-r14-payload-after-merges.log`）：子集摘要两次都 **`cfa0f1184bee30df6a1d9fcf45778c9cef074ece6761c47fe7d6b9f49863afd6`**（与第十三轮尾一字相同）；`report_rc=1`；**`W30.promotable False`**（blocks `NO_MANDATORY_CASES` + `REQUIRED_CASE_NOT_REGISTERED`）、**`p0-core.promotable False`**（blocks 仍只有 `REQUIRED_CASE_NOT_REGISTERED`）；`W30.absent` 仍 2 = `OFFLINE-060 / OFFLINE-080`、`non_mandatory` 仍 11（含 070/090/100）、`misattributed 0`。
+- 为什么这是量出来的而不是类推：OFFLINE-100 现在卷上有 5 份 `SEALED` bundle（含 3 份真三段），若那条恒拒判据能被 bundle 满足，`overall.blocks` 或 `non_mandatory` 行的形状必然变动。读数一字未变 ⇒ 「真实封证 ≠ 门变动」在 100 上第二次成立（第一次是 070 注册轮零封证）。
+
+### 本轮登记给主控的两条保留决定（只命名，不实施）
+1. **`src/minekin_core/config.py:51` 的 `FORWARDED_VARIABLES`**：要不要把 `XDG_RUNTIME_DIR` 放进被管客户端的转发名单，是产品面决定（H1e 只到启动线为止）。放开 = 客户端 JVM 环境可观察形状改变，需另卡并配活体读数。
+2. **`A_B_A_TRIPLE_NOT_SEALED` 这枚名字**：三段链载体要么扩 `minekin.p0.evidence.v1`（重封全卷）、要么把三段材料并成一份新封存工件（同一后果）。**改名本身也会动 `case_version`** ⇒ 会立刻让卷上 5 份 OFFLINE-100 bundle 被判失效。本轮既不改名也不补载体，父行按构造继续 FAIL。
+
+### lane_next 现状
+- 主干唯一 integration `NEXT` 仍是 `PARALLEL-INTEGRATION-GATE-001`（常驻；本轮收掉两张 lane 分支，但该门不因收卡而「完成」）。
+- E = `P0-OFFLINE-100-A-B-A-RUN-001` **已收卡并入主干**（`318d1b9`）。E 的 `lane_next` 回到 B2 剩余范围；090 侧的受控真跑是 E 可提的下一张（需先立卡，不在本轮自派）。
+- H = `H1e` **已收卡并入主干**（`639cedb`）。H 名下无可安全自派的下一张：1.20.1 加入者起跳面（V 停等的第 4 格阻断）需要 H 面新卡，而它的前置——活体 JOIN 的判定面——仍卡在上面那条 `FORWARDED_VARIABLES` 决定上。
+- M 名下仍无安全自排卡：090/100/070 的剩余半句全在主控保留的载体/词汇决定上。V/S/D 停等其前置。
+
+### 四态
+- 已合入 main：`91ebd6c`（100 的设计与反例口径修正）、`318d1b9`（E 的三段记录）、`639cedb`（H1e 的编排脚本 + 契约测试 + 记录），本节的回写再随下一笔入干；每笔推送后 `git ls-remote origin refs/heads/main` 与本地值对账，`91ebd6c` 推送后远端已核到 `91ebd6cad6fdfccf57886bef42b039ebb87961ed`。
+- 仅在分支：无新增。E 支 `7f75dab`、H 支 `743765e` 的内容都随本轮两次合并进干，两支不再有未合提交。
+- 真实封证：**卷上三份新 `SEALED` 三段 bundle 是 E 在写窗内跑出来的**（A1 `670aec0b…` / B `0314121c…` / A2 `0cc1fb99…`，加两份早期 `HANDSHAKE_TIMEOUT` FAIL），M 全程 `:ro` 只读复量、**未新封任何 bundle**、未建 attempt。OFFLINE-070/090 卷上 bundle 仍 **0**。
+- 尚未验证：三段链的跨 bundle 判据（无载体）；`world_context_id` 的链上真值（全卷 null）；设计反例 9/10/11 与「搬到 B 的真实世界」变体；OFFLINE-090 的受控真跑与 Dashboard 半句；H1e 之后活体 JOIN 与 `[0x1000E]` 是否消失（归 V，且 M 未复量 V 侧任何活体读数）；端到端 1.20.1 auto JOIN。
+
+### 不声称
+- 不声称 `OFFLINE-100` 已闭合：三段字节 + 人工读数 ≠ 注册判据变绿，父行实测仍 `FAIL / A_B_A_TRIPLE_NOT_SEALED`。
+- 不声称 C3 的「首尾 A 同一获确认 context」已被链上证据满足——今天有的只是 `server_config_digest` + `level-name` + `Preparing level` 这组旁证，拿 null 的 `world_context_id` 相等糊判被规范明文禁止。
+- 不声称 H1e 修好了 JOIN，也不声称 `[0x1000E]` 消失；`FORWARDED_VARIABLES` 那扇门 M 未打开、H 未打开。
+- 不声称任何门禁点亮（`W30` 与 `p0-core` 实测仍 `promotable False`，载荷 `cfa0f118…`）。
+- 不声称 Minekin 完成。
