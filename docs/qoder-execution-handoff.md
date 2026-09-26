@@ -439,3 +439,39 @@ V2 的绿读数暴露、M 在自己卷上重放确认：auto run 跨过早停后
 
 ### 不声称
 - 不声称 Minekin 完成；不声称 `B1-b` 已闭环（它连落位都还没改完）；不声称 `OFFLINE-090/100` 已被注册或被封证（零 bundle）；不声称任何门禁点亮（`promotable` 仍 `W00/W10/W20/W60`、`overall.blocks` 仍 `REQUIRED_CASE_NOT_REGISTERED`）。全程未连接、未探测、未读取用户的远程服务器，`.tmp/local-test-server.txt` 未被打开；文中只出现 loopback/受控本地地址、卷名与镜像名。
+
+
+## M 主控第十轮（2026-09-27）：`INT-ORCHESTRATOR-REVISION-VISIBILITY-001` 合入 `6495356`、`B1-b` 判据设计退回两处
+
+### 起点核对（先量再写）
+- 恢复时远端 `refs/heads/main = ca3f9417df44c33944ed34af0d2239c37f391bd2`（第九轮回写）。`git ls-remote` 时点：`codex/minekin-orchestrator-revision-visibility` 已推 `b2e57853c5969d4b8ffa01c592f970c6c06fb5f4`；`codex/minekin-offline-090-100` 已推 `a2a93ea2bd91e2712d25abcc155f3b0c6e1fa5c3`；`codex/minekin-h1d-run-rc` 仍无远端 ref（本地工作树有未提交的 `domain.sh` + `tests/contract/test_runner_scripts.py`）。
+
+### 已合入 main（一笔）
+- `64953566e40ab7c2a39b8415c424377874c06a39` = `INT-ORCHESTRATOR-REVISION-VISIBILITY-001`（M 自己的 naming 卡，lane 提交 `b2e5785`，真实 merge-base `796316a`）。推送后 `git ls-remote` 已核。
+
+### M 侧独立双审（不照抄 lane 自报）
+- 改面恰 3 文件 `+168`：`tools/report_promotion.py` +33（新常量 `ORCHESTRATOR_REVISION_GAP` / `VISIBILITY_GAPS`，报告里平级新键 `visibility_gaps`）、`tests/unit/test_report_promotion.py` +43、`docs/validation/m-orchestrator-revision-visibility-2026-09-27.md` +92。全在 M 卡自己的面内，未碰判据/registry/schema/seal。
+- 合并树门禁：单测 `55 passed`；`ruff check` / `ruff format --check` / `check_boundaries` / `check_case_assertions`（140 registered）/ `verify_fixture_digests` / `git diff --check` 全 rc=0；全量 `uv run --frozen pytest -q` 于本轮后台复跑（基线 `2537` ⇒ 预期 `2538 passed, 3 skipped`，读数在提交后补记于本行末）。
+- M 自放反向证明：注释掉新键那一行 ⇒ `1 failed, 54 passed`（新测承重、非恒真）；`git checkout --` 还原后 sha256 与审前一致。
+
+### 卷侧复量（补 lane 具名未做的那一半：M 在合并树 `6495356` 上以 `:ro` 容器实读）
+- 配方同第八轮（镜像 `minekin-runner:local` id `b67a4d917306`，仓库 `:ro` + 规范卷 `:ro`），脚本 `.tmp/m-r10-visibility.sh`、日志 `.tmp/m-r10-visibility.log`：写试探 `OSError: [Errno 30] Read-only file system`；`report_rc=1`；**门载荷子集 `{work_packages, overall}` 仍 `fb0152c85d029ee06a41a34e84f9656cd23fae0b1e166322c494d1190cd178da`**、`promotable ['W00','W10','W20','W60']`、`overall_blocks ['REQUIRED_CASE_NOT_REGISTERED']` ⇒ 合入没移动门禁读数。
+- 新增可见性的形状已被量出：报告顶层键多出 `visibility_gaps`（值 `ORCHESTRATOR_REVISION_NOT_PINNED`，`artifact orchestrator-trace.json`、`field orchestrator`、`gates_promotion False`），且 `visibility_gaps_in_subset False` ⇒ 平级键按构造不进载荷；整份文档的摘要另为 `e958e624db32240abc8f9d86d764d8357c19fa9a6b538671e7999a8d11724fe2`（与子集不同，具名记录，不作门载荷用）。
+- **一处诚实更正**：本脚本里 M 猜的普查 glob `runs/*/bundle.json` 与 `attempts/*.json` 各回 0，那是**路径假设错误**，不是卷为空；现行底数仍是第八轮的 `attempts 71 / bundles 107 / from_another_build 61 / sealed_without_bundle 0`。
+
+### `B1-b` 复审：落位合格、判据设计退回两处（不合入）
+- 落位修正 `a2a93ea`（`git mv` → `docs/p0-offline-090-100-case-spec-2026-09-27.md`，rename 97%，累计恰 1 文件 `+324`）合格，M 认可；未重做卷普查。
+- **退回两处，且已给具体改法**（主控口径）：
+  1. `OFFLINE-090`：草稿 §2.5 第 1 步把「本 run 的凭据字面量」的来源指向 `asserter-inputs.json` ⇒ **M 用仓库字节证否**：`asserter_inputs_bytes` 在 `tools/assert_case_evidence.py:747-763`，写出的键恰为 `schema_version/kin_id/run_id/username/previous_run_id`，**不含 token/xuid/clientId**。判法改为主控钉下的形状：哨兵是公开非秘密值（`access_token_argv="0"`、`client_id_argv/xuid_argv=EMPTY_ARGV`，`src/minekin_core/adapters/launcher/offline_session.py:71/:82`），裸 `0` 与空值一律不算泄漏；只判**带字段/参数上下文的认证正文暴露**（可用名字：`_RECORDED_OPTIONS = ("--username","--uuid","--clientId","--xuid")` `:247`、`auth_access_token` `:166`、`auth_xuid` `:177`、`EMPTY_CAPABLE_PLACEHOLDERS` `:115`），认证字段仍统一脱敏；反例除注入红，还要加**反向对照**（裸 `0`/空值出现仍不得红）。登记形状：卷上无 Dashboard 载体 ⇒ 日志/崩溃只是部分证据，**父案 `OFFLINE-090` 不得标 PASS、不得借非 mandatory 登记暗示闭合**，拆非门禁子案承载那半句、父案保留缺口。
+  2. `OFFLINE-100`：草稿 §3.5 B 用「两条时间线 `session_id` 集合互不相交」承担整条 ⇒ 主控判定**不足以证明 A→B→A**。改为逐条断言集合：同一 `kin_id` 贯穿三段、三次不同会话、**首尾两个 A 属同一个「获确认的」world context**（要写出 bundle 字段上的判法）、B 不串入 A、外部身份取服务端证据（`server/usercache.json` 对 `asserter-inputs.json:username` == `str(offline_player_uuid(username))`，`src/minekin_core/domain/offline_identity.py:39`，沿用已注册的 `server_observed_join_identity` 不重推规则）；原两 run 形状降级为「重启那半」的必要条件之一。逐条给反例（A2 带 B 的 world context ⇒ 红；kin_id 变化 ⇒ 红；A1/A2 复用同一 session ⇒ 红；缺 usercache ⇒ 具名不可探，不是绿）。
+- 另三处顺手关闭并写进主干：`OFFLINE-070` **单独排卡**（`P0-OFFLINE-070-CASE-SPEC-001`，`identity_revision`/人格根半句缺载体，不与 090/100 混单）；asserter + `IMPLEMENTATIONS` + manifest 登记为 **M 独占**（新卡 `P0-OFFLINE-090-100-REGISTRATION-001`，逐案提交、量门载荷前后差、证明 `W30`/`p0-core` 仍未晋级）；`OFFLINE-100` 的受控本地 A→B→A 真跑**排在规范卷独占写窗**，前置是判据冻结且 H 当前写卷任务让窗，只用本地隔离服、绝不连用户远程服，没有完整三段证据就一直保持未完成。
+- 一条 lane 侧引用错误，M 在复审时一并纠正：草稿把 `asserter_inputs_bytes` 写成 `tools/assert_case_evidence.py:70-88`，真实位置 `:747-763`（`:70-88` 是 import 区）。
+
+### 状态四栏
+- 已合入 main：`6495356`（revvis 卡）+ 本节回写。
+- 仅在分支、尚未验证：`B1-b`（`b2e9be3`+`a2a93ea`，两处判据修正已在派工中）、`H1d`（未 push、零提交）。
+- 真实封证：**本轮零封证**。M 只 `:ro` 读卷，未建 attempt/bundle、未重判任何行；`promotable` 未扩大、`overall.blocks` 未变。
+- 尚未验证：`B1-b` 两处判据修正（含其 §2.7/§3.6 反例的运行时那一半）、`H1d` 的活体读数、`P0-OFFLINE-090-100-REGISTRATION-001` 与 `P0-OFFLINE-070-CASE-SPEC-001` 两张新卡（只登记，未开工）。
+
+### 不声称
+- 不声称 Minekin 完成；不声称 `OFFLINE-090`/`OFFLINE-100` 已注册或已闭合（卷上仍零 bundle）；不声称 090 的 Dashboard 半句有任何载体；不声称任何门禁点亮（`promotable` 仍 `W00/W10/W20/W60`、`overall.blocks` 仍 `REQUIRED_CASE_NOT_REGISTERED`）。全程未连接、未探测、未读取用户的远程服务器，`.tmp/local-test-server.txt` 未被打开；文中只出现 loopback/受控本地地址、卷名与镜像名。
