@@ -3390,3 +3390,13 @@
   本节落地后的 SHA、远端 ref 与 CI 的 job/step 层读数，在收口之后的补记里给出（同一文件、同一追加方向）。
 - 边界：不改任何 `tools/` 与判据之外的产品代码，不动 `.gitattributes`，不碰 HOST 实现/fixture，不提升任何门，
   不连接用户的远程服；todo 仍是 append-only，历史段落一字未动。
+- 补记（这一格的落地读数，收口提交 **`ea74ba0`**）：远端两条 ref 已核为同一 SHA
+  `ea74ba0bae6df10420ecb67fdba58563f3348823`（`git ls-remote` 上 `main` 与 `codex/core-state-transition` 各一条），
+  push 之后照固定动作跑 `git fetch origin main:main`，`main...origin/main` 由 `0 1` 回到 `0 0`。
+  GitHub Actions 对该 SHA 的两个 `CI` run `36203312458`/`36203312450` 及其六个 job（`python` 18 步、
+  `protocol` 10 步、`bridge-static` 9 步，两 run 各一套）在 job 与 step 层全部 `completed / success`、
+  无一步失败或卡住。**这段补记自己是 docs-only**，范围由它所落提交的 `git show --stat` 证明（只动本文件），
+  因此没有为重跑九道门而改动任何判据；两份文档守卫在补记写完后重读仍是 `findings: 0`。
+  **本格还出过一次自己造的险情**：第一版补记脚本先 `open(本文件, "wb")` 再拼字节，拼接抛错时文件已被截成
+  0 字节；用 `git checkout -- 本文件` 从收口提交复原（**834293 字节 / 3392 行，与工作树差异为 0**），
+  未丢任何内容，脚本已改成"先算完整载荷、再写盘"。
