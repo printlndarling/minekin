@@ -344,3 +344,37 @@ V2 的绿读数暴露、M 在自己卷上重放确认：auto run 跨过早停后
 
 不声称 Minekin 已完成；不声称任何 gate 点亮（门载荷摘要与第三、四、五轮逐字相同）；不声称 1.20.1 的 auto JOIN 可用（V2 绿读数只证明 status 那格打开，端到端仍 `BLOCKED_HARNESS`）；不声称 ⑤ 在 1.20.1 被复现或被排除（V-b 是零读数，形状到不了）；不声称 M 复量了 V 的 mismatch/control/V-c 四处（都没复量，点名在案）；不声称 `B1-b` 已跑或已派工（它仍是 `QUEUED`，等 `H1c`）；不声称 `H1c`、`H1d` 已验证。全程未连接、未探测、未读取用户的远程服务器，`.tmp/local-test-server.txt` 未被打开；文中只出现 loopback/受控本地地址、卷名与镜像名。
 
+
+## M 主控第七轮（2026-09-27）：`H1c` 双审合入 `3706524`、`B1-b` 第一阶段定标、orchestrator 版本可见性缺口登记
+
+### 起点核对（先量再写）
+- 恢复时远端 `refs/heads/main = dd3f4b1c79b132c85b9b8ff50922c45b3b1ae673`（= 第七轮派工的两笔回写 `3b00ca3` → `dd3f4b1`）；共享 checkout 停在 `codex/core-state-transition @ 6a02ac6`，M 未在其中写文件。
+- M 合并前在 `dd3f4b1` 上实读的底数（`.tmp/m-r7-baseline.sh`、`.tmp/m-h3-evidence.sh`，规范卷 `:ro`）：写试探 → `OSError: [Errno 30] Read-only file system`；门载荷 `fb0152c85d029ee06a41a34e84f9656cd23fae0b1e166322c494d1190cd178da`；`promotable = ["W00","W10","W20","W60"]`；`overall.blocks = ["REQUIRED_CASE_NOT_REGISTERED"]`；`attempts 71 / bundles 107 / from_another_build 61 / sealed_without_bundle 0`。
+
+### 已合入 main（一笔）
+- `370652462c75e4e59837ae4d5eda11b95f410f7b` = H lane 的 `H1c`（支 `codex/minekin-client-env-readout`；lane 提交 `e846c27` 实现、`de579ad` 记录；base 为真实 merge-base `9ac99c0`）。推送后 `git ls-remote` 读到 `refs/heads/main` 与本地一致。
+
+### M 侧独立双审（不照抄 lane 自报）
+- 改面从真实 merge-base 起算：3 文件、`+676 -1`，全在 H 独占面（`test-orchestrator/runner/domain.sh`、`tests/contract/test_runner_scripts.py`）加该 lane 自己那份 `docs/validation/v1201-client-env-readout-2026-09-27.md`，无越界、无地址泄漏、未碰 Dockerfile。
+- 门禁：`bash -n` rc=0；契约 `22 passed`；全量 `uv run --frozen pytest -q` → **`2537 passed, 3 skipped in 415.31s`**（主干基线 2535 ⇒ 恰为两张新测）；ruff check / ruff format --check / pyright / `check_boundaries` / `check_case_assertions`（140 registered）/ `verify_fixture_digests`（W00 OK）/ `git diff --check` 全 rc=0。
+- M 自己的反向证明：把 `name_the_joiner_client_environment` 与 `classify_the_joiner_downstream_readings` 两个调用点各改成注释 → `2 failed, 20 passed`（新测确实承重，非恒真）；还原后 `sha256sum` 与审前逐字节一致、`git status` clean。
+- 采信卡面 `(b)`：现有 bundle 读不出 `domain.sh` 字节，修复需碰 seal schema ⇒ 留主控（主计划 §3.3 的 `BLOCKED_DECISION` + `QUEUED_PROPOSED` 两行）。本卡未加字段、未重判任何 attempt。
+
+### 审查发现（两处，均未由 M 代改）
+1. `H1c` 记录写「客户端 JVM 拿到的正是 `launch` 那组值」——**过强**：`launch` 读数取自探针自己那次 `xvfb-run` 调用，与真起客户端那次是两个进程，`XAUTHORITY` 临时目录必然不同、屏号只是可能重分配相同。要坐实需容器成对实测 ⇒ 追加为 `H1d` 的验收（并行计划 §4 同名行）。**M 侧未复量**（引擎故障）。
+2. `H1c` 那跑（`kin-h1c-v26`）在 90 秒窗后**确实加入了世界**（`snapshots_admitted 1`、终态 `BRIDGE_LOST`），而分类器挂在超时分支上，写下 `THE_RUN_DIED_ON_THE_CLIENT_SIDE`。lane 自己已在记录里把这条措辞越界登记为待定夺，M 认可其判断、不改字节。
+
+### 仅在分支
+- E lane 的 `B1-b` **第一阶段**（支 `codex/minekin-offline-090-100` @ `../minekin-wt-b1b`，base `03c1d95`）：本轮已产出四组仓库外测量（preflight、卷普查、门底数、工件内容分布，`.tmp/e-b1b-*.log`），施工面 clean ⇒ 尚无提交，**仅在分支、尚未验证**。
+
+### 真实封证
+- 本轮零封证：M 全程 `:ro` 读规范卷，未新建 attempt/bundle，未重判既有行；合并前底数 `71 / 107` 为实读。
+
+### 新增阻断（需要用户/主控动作）
+- **受控容器引擎不可用**：`docker version` 与 `/_ping` 自 2026-09-27 19:34Z 起持续回 `500 Internal Server Error`。受影响面：`H1d` 的活体测量、`B1-b` 的封存侧、任何 `:ro` 门载荷/台账复量、⑤ 家族的再次观察。M 不重启用户机上的引擎进程（进程接管属保留决策）。**恢复后第一件事**：在 `3706524` 上重放 `.tmp/m-r7-baseline.sh` + `.tmp/m-h3-evidence.sh`，核对门载荷仍 `fb0152c8…`、底数仍 `71 / 107`，再派 `H1d`。
+
+### lane_next 现状
+- 主干唯一 `NEXT` 仍是 `PARALLEL-INTEGRATION-GATE-001`。H = `H1d`（已提升，阻于引擎）；E = `B1-b` 第一阶段在工、封存侧写窗前置已满足；V/S/D 无安全可派卡（V 的下一张需要 `H1d` 起的加入者起跳面）。
+
+### 不声称
+- 不宣称 Minekin 完成；不宣称端到端 1.20.1 auto JOIN 跑通过过一次「窗内到达 + 正常收尾」的运行；不宣称任何门禁点亮（`promotable` 仍 `W00/W10/W20/W60`，`overall.blocks` 仍 `["REQUIRED_CASE_NOT_REGISTERED"]`）。
