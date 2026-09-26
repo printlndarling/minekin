@@ -710,8 +710,11 @@ def test_the_runner_names_the_joiner_environment_before_its_jvm() -> None:
     `grep -c XDG_RUNTIME_DIR` over the whole runner returns nothing, and the base script's
     only `DISPLAY` lines are a comment and the harness's own `export`), and each way the
     readout could stop being a reading names the line it turns red. The last two clauses
-    are the point of the shape: it *adds* a reading and changes none of the three names,
-    and it leaves the sealer's own measurement alone rather than passing itself off as it.
+    are the point of the shape: the *reading* adds a report and touches none of the three
+    names inside this script, and it leaves the sealer's own measurement alone rather than
+    passing itself off as it. (H1e added one handover on the client's own launch line, a
+    runtime directory; it is not exported here either, and its own test below pins both
+    the handover and the reading that names where it came from.)
     """
 
     text = (RUNNER / "domain.sh").read_text(encoding="utf-8")
@@ -724,7 +727,7 @@ def test_the_runner_names_the_joiner_environment_before_its_jvm() -> None:
     # client whose environment was never read; none at all is a reading that no longer
     # shares a command line with what it describes.
     assert text.count('"${joiner_launch_wrapper[@]}"') == 1
-    assert '"${joiner_launch_wrapper[@]}" \\\n        env MINEKIN_KIN_ID="${joiner}"' in text
+    assert JOINER_LAUNCH_HEAD in text
     assert (
         'xvfb-run -a --server-args="-screen 0 1280x720x24" \\\n        env MINEKIN_KIN_ID'
         not in text
@@ -747,14 +750,17 @@ def test_the_runner_names_the_joiner_environment_before_its_jvm() -> None:
     head = text.index("    name_the_joiner_client_environment\n")
     assert text.count("    name_the_joiner_client_environment\n") == 1
     assert text.index("baseline=${baseline:-0}") < head
-    assert head < text.index('"${joiner_launch_wrapper[@]}" \\\n        env MINEKIN_KIN_ID')
+    assert head < text.index(JOINER_LAUNCH_HEAD)
     # And the reading happens before the client is handed anything at all, not after it
     # dies: the launch site is the next thing the script does.
     assert head < text.index("joiner_pid=$!")
 
-    # A reading, not a fix: nothing here exports, unsets or defaults any of the three, so
-    # the one `export DISPLAY` left in the script is still the harness pointing its own
-    # session at the screen it owns.
+    # The reading is still a reading: it exports, unsets or defaults none of the three
+    # names into this script, so the one `export DISPLAY` left in it is still the harness
+    # pointing its own session at the screen it owns. What the harness now hands the
+    # client — a runtime directory — is handed on the launch line and named as such in
+    # the readout; `test_the_joiner_launch_line_is_handed_a_runtime_directory` pins that
+    # half, and it is deliberately not an `export` here.
     assert text.count("export DISPLAY") == 1
 
     # The sealer keeps measuring its own renderer; this reading is a second, differently
@@ -863,8 +869,10 @@ def test_the_launch_depth_reading_travels_on_the_line_that_execs_the_client() ->
 
     The clauses pin the shape of that claim and its two honest edges: a staged probe file
     that is missing names its absence instead of writing a silent `launch GL_BACKEND=`
-    the classifier would read as a measured screen, and nothing in the readout exports,
-    unsets or defaults any of the three items.
+    the classifier would read as a measured screen, and the readout itself still exports,
+    unsets or defaults none of the three items — the runtime directory H1e hands over
+    belongs to the launch line, where the client is actually standing, and never to this
+    script's own environment.
     """
 
     text = (RUNNER / "domain.sh").read_text(encoding="utf-8")
@@ -891,3 +899,255 @@ def test_the_launch_depth_reading_travels_on_the_line_that_execs_the_client() ->
     # The depth label the launch line carries is the inside-wrapper one, and exactly once.
     assert text.count("MINERUN_LAUNCH_DEPTH=inside-wrapper") == 1
     assert text.count("MINERUN_LAUNCH_DEPTH=direct") == 1
+
+
+#: The two answers a run can give about where the runtime directory it handed the
+#: joining client came from. Pinned as data because the third test below drives the same
+#: two predicates over mutated bytes: a name that appears nowhere is a missing reading,
+#: and a name that appears everywhere is a decoration.
+RUNTIME_DIR_ORIGINS = ("inherited", "provided-by-harness")
+
+#: The first two lines of the one command line that starts the joining client: the
+#: wrapper array, then `env` with the runtime directory this run decided and the Kin the
+#: session is for. Named once because three tests locate the client's launch site by it.
+JOINER_LAUNCH_HEAD = (
+    '"${joiner_launch_wrapper[@]}" \\\n'
+    '        env "${joiner_runtime_dir_env[@]}" MINEKIN_KIN_ID="${joiner}"'
+)
+
+#: The launch-line clause the whole provision turns on. One predicate, shared by the
+#: green case and the reversal, so the reversal cannot pass by testing something looser
+#: than the implementation.
+RUNTIME_DIR_HANDOVER = (
+    "        joiner_runtime_dir_env=(\n"
+    '            XDG_RUNTIME_DIR="${client_runtime_dir}"\n'
+    '            CLIENT_RUNTIME_DIR_ORIGIN="${client_runtime_dir_origin}"\n'
+    "        )\n"
+)
+
+
+def hands_the_joiner_a_runtime_directory(text: str) -> bool:
+    """The launcher decides a runtime directory and puts it on the client's own line."""
+
+    return (
+        "provide_the_joiner_runtime_directory() {" in text
+        and "    provide_the_joiner_runtime_directory\n" in text
+        and RUNTIME_DIR_HANDOVER in text
+        and 'env "${joiner_runtime_dir_env[@]}" MINEKIN_KIN_ID="${joiner}"' in text
+    )
+
+
+def names_the_runtime_directory_origin(text: str) -> bool:
+    """The readout says which of the two ways this run has one produced that value."""
+
+    return (
+        'printf "%s XDG_RUNTIME_DIR_ORIGIN=%s\\n" "${depth}" \\\n'
+        '            "$(read_one CLIENT_RUNTIME_DIR_ORIGIN)" >> "${out}"' in text
+    )
+
+
+def provider_body(text: str) -> str:
+    """The bytes of `provide_the_joiner_runtime_directory`, and only those."""
+
+    start = text.index("provide_the_joiner_runtime_directory() {")
+    return text[start : text.index("\n# When the joining client never arrived")]
+
+
+def keeps_the_runtime_directory_off_the_sealed_material(text: str) -> bool:
+    """The directory is made where a run's sealable material is not.
+
+    `/data` is the volume, and everything under a Kin's run directory is material a later
+    seal may glob. A runtime directory is neither of those things, so the single place its
+    path is decided has to name scratch space — and the mutation that moves it is the one
+    this predicate exists to catch.
+    """
+
+    return "client_runtime_dir_base=/tmp/" in text and "client_runtime_dir_base=/data" not in text
+
+
+def test_the_joiner_launch_line_is_handed_a_runtime_directory() -> None:
+    """The joining client's launch line carries a usable `XDG_RUNTIME_DIR`, or nothing.
+
+    H1c left the harness able to see the absence and unable to do anything with it: on
+    the shipped bytes the whole of `domain.sh`'s relationship to the name was one line
+    (`for item in DISPLAY XDG_RUNTIME_DIR XAUTHORITY; do`), and the readout it produces
+    said `launch XDG_RUNTIME_DIR=<unset>` on every controlled run. Measured in the
+    container this time rather than inferred: the image sets the name nowhere at all and
+    has no `/run/user/0`, the joining client's own first stderr line is
+    `error: XDG_RUNTIME_DIR is invalid or not set in the environment`, and that line sits
+    in `run/session/<id>/generation-1/logs/stderr.log` and in the sealed
+    `client/stderr.log` — it is written by the client, not by the shell that launched it.
+    A launch line that hands over nothing is therefore the half this harness owns.
+
+    The shape is deliberately small, and the clauses say which edges of it are load
+    bearing:
+
+    * An inherited value is kept when it is usable (absolute, present, a directory,
+      writable). This harness does not swap out a directory somebody else made.
+    * Otherwise it makes one, at mode 0700 — what the name itself requires — under `/tmp`,
+      never under `/data`: the volume is a run's material, and a directory created there
+      would sit beside the session overlay and become something a later seal would have
+      to be taught to ignore.
+    * It is carried on the client's own command line and never exported into this script,
+      which has no window surface to register with one. A provision that could not
+      provision leaves the array empty, so the client is handed exactly what it was
+      handed before, rather than a name set to nothing — `<set-but-empty>` is worse than
+      `<unset>` here, because it looks like a value.
+    """
+
+    text = (RUNNER / "domain.sh").read_text(encoding="utf-8")
+
+    # The decision exists, is called exactly once, and is on the client's line.
+    assert hands_the_joiner_a_runtime_directory(text)
+    assert text.count("    provide_the_joiner_runtime_directory\n") == 1
+
+    # Inheritance is checked rather than assumed, and the ways a value can be unusable
+    # are asked separately: "nobody set it" and "it was set to nothing" are different
+    # faults, and so are "not a path", "no such directory" and "not ours to write to".
+    assert 'local candidate="${XDG_RUNTIME_DIR:-}"' in text
+    # Asked of the environment, not of the local copy — an empty string is what both
+    # "nobody set it" and "it was set to nothing" collapse into otherwise.
+    assert 'if [ -z "${XDG_RUNTIME_DIR+set}" ]; then' in text
+    assert "reason='it is not set in the environment this script holds'" in text
+    assert "reason='it is set to nothing in the environment this script holds'" in text
+    assert 'elif [ "${candidate#/}" = "${candidate}" ]; then' in text
+    assert 'elif [ ! -d "${candidate}" ]; then' in text
+    assert 'elif [ ! -w "${candidate}" ]; then' in text
+    assert "        client_runtime_dir_origin=inherited" in text
+
+    # A made directory is private at mode 0700, and only becomes the handed-over value
+    # once it is verifiably one.
+    assert "    client_runtime_dir_origin=provided-by-harness" in text
+    assert 'chmod 700 "${made}"' in text
+    assert 'made=$(mktemp -d "${client_runtime_dir_base}/runtime.XXXXXX"' in text
+
+    # Under /tmp and out of the volume: the base the directory is made from is named once,
+    # it is under the harness's scratch, and the provider body never names `/data`.
+    assert text.count("client_runtime_dir_base=") == 1
+    assert keeps_the_runtime_directory_off_the_sealed_material(text)
+    body = provider_body(text)
+    assert "/data" not in body, "the runtime directory moved onto the volume a run seals from"
+
+    # Nothing is exported into this script: the value reaches the client through the one
+    # command line that execs it, and the harness's own environment keeps the shape the
+    # readout has always reported for it.
+    assert "export XDG_RUNTIME_DIR" not in text
+    assert text.count("export DISPLAY") == 1
+
+    # A failed provision hands over nothing rather than an empty name.
+    assert '    if [ -n "${client_runtime_dir}" ]; then' in text
+    assert "    joiner_runtime_dir_env=()\n" in text
+
+    # The order on the launch path: read what this script holds, decide the runtime
+    # directory, then start the wrapper that execs the client.
+    read = text.index("    name_the_joiner_client_environment\n")
+    decided = text.index("    provide_the_joiner_runtime_directory\n")
+    started = text.index('env "${joiner_runtime_dir_env[@]}" MINEKIN_KIN_ID="${joiner}"')
+    assert read < decided < started
+    assert started < text.index("joiner_pid=$!")
+
+
+def test_the_client_environment_readout_names_where_the_runtime_directory_came_from() -> None:
+    """`client-environment.txt` says whether the runtime directory is this harness's.
+
+    A value in that file can now mean two different things, and the difference is exactly
+    the thing H1c built the readout to keep visible: a container that had a usable
+    directory, and a harness that made one because nothing had. Without the second name
+    the file would report the same shape for both, and the harness would be grading its
+    own work by a path it filled in — which is the failure mode the reading existed to
+    avoid. So the origin is a separate line, and the three states H1c named for a missing
+    item still apply to it: the harness depth is never told, and writes `<unset>` rather
+    than dropping the line or inventing `inherited`.
+    """
+
+    text = (RUNNER / "domain.sh").read_text(encoding="utf-8")
+
+    # The origin is read out, once, in the same probe that reads out the three items —
+    # not by a second writer that could drift from it.
+    assert names_the_runtime_directory_origin(text)
+    assert text.count("XDG_RUNTIME_DIR_ORIGIN=%s") == 1
+    assert text.count("CLIENT_RUNTIME_DIR_ORIGIN=") == 1, (
+        "the origin is handed over somewhere other than the client's own launch line"
+    )
+
+    # Both names the answer can take are in the shipped bytes.
+    for origin in RUNTIME_DIR_ORIGINS:
+        assert f"client_runtime_dir_origin={origin}" in text, f"an origin name is gone: {origin}"
+
+    # The three-state shape survives: the origin goes through the same three-state reader
+    # as the items, the items are still read by name, and neither collapses into the
+    # value line.
+    assert '"$(read_one CLIENT_RUNTIME_DIR_ORIGIN)"' in text
+    assert "for item in DISPLAY XDG_RUNTIME_DIR XAUTHORITY; do" in text
+    for name in CLIENT_ENVIRONMENT_ABSENT_NAMES:
+        assert name in text, f"the readout lost a state name: {name}"
+
+    # It is written into the same readout file, at both depths, in the joining Kin's run
+    # directory — the reading moved nowhere, and the new line is on the same channel.
+    probe = text[
+        text.index("    client_environment_probe=") : text.index("    client_runtime_dir=")
+    ]
+    assert 'client_environment_readout="/data/kin/${joiner}/run/client-environment.txt"' in text
+    assert probe.count('>> "${out}"') == 5, (
+        "a depth no longer writes every line it claims to, or a second writer appeared"
+    )
+
+
+def test_the_runtime_directory_provision_is_not_an_always_true_claim() -> None:
+    """Delete the handover or the origin line and the clauses above stop holding.
+
+    A contract test written as `assert "XDG" in text` would pass on the bytes that shipped
+    before this card and on the bytes that ship after it, which makes it worthless as
+    evidence. So the two predicates the other two tests are built on are driven here over
+    mutations of the *shipped* bytes: each mutation removes exactly one thing this card
+    adds, and each is measured to turn its predicate false. The predicates are the same
+    functions the green tests assert, so nothing looser is being checked on the way.
+    """
+
+    text = (RUNNER / "domain.sh").read_text(encoding="utf-8")
+
+    # Green on the shipped bytes first: a predicate that is false on both sides of a
+    # mutation would prove nothing about the mutation.
+    assert hands_the_joiner_a_runtime_directory(text)
+    assert names_the_runtime_directory_origin(text)
+    assert keeps_the_runtime_directory_off_the_sealed_material(text)
+    assert "/data" not in provider_body(text)
+
+    # RV-1: the export itself is deleted from the launch line's array, leaving the
+    # function, the call and the array in place. This is the half that decides whether the
+    # client stands on a runtime directory at all.
+    without_handover = text.replace(RUNTIME_DIR_HANDOVER, "", 1)
+    assert without_handover != text, "the handover block was not found to delete"
+    assert not hands_the_joiner_a_runtime_directory(without_handover)
+
+    # RV-2: the value stays on the line but the origin reading is deleted — the shape
+    # where the harness fills a blank and the record cannot tell a reader it did.
+    without_origin = text.replace(
+        'printf "%s XDG_RUNTIME_DIR_ORIGIN=%s\\n" "${depth}" \\\n'
+        '            "$(read_one CLIENT_RUNTIME_DIR_ORIGIN)" >> "${out}"',
+        "",
+        1,
+    )
+    assert without_origin != text, "the origin reading was not found to delete"
+    assert not names_the_runtime_directory_origin(without_origin)
+
+    # RV-3: the origin is still written, but from the value rather than through the
+    # three-state reader — one state where three were, which is what H1c existed to stop.
+    collapsed = text.replace(
+        '"$(read_one CLIENT_RUNTIME_DIR_ORIGIN)"', '"${CLIENT_RUNTIME_DIR_ORIGIN}"', 1
+    )
+    assert collapsed != text
+    assert not names_the_runtime_directory_origin(collapsed)
+
+    # RV-4: the directory moves from the harness's scratch onto the volume a run seals
+    # from. Every other clause still holds — the function, the handover, the origin line —
+    # and the one that stops holding is the one about where the directory lives.
+    onto_volume = text.replace(
+        "client_runtime_dir_base=/tmp/minekin-client-runtime",
+        "client_runtime_dir_base=/data/kin/client-runtime",
+        1,
+    )
+    assert onto_volume != text
+    assert hands_the_joiner_a_runtime_directory(onto_volume)
+    assert names_the_runtime_directory_origin(onto_volume)
+    assert not keeps_the_runtime_directory_off_the_sealed_material(onto_volume)

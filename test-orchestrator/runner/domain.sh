@@ -773,6 +773,11 @@ PY
     # An item that is not set is written as `<unset>`, and a screen nobody serves is
     # written as `unmeasurable: …` — a missing reading is named as missing rather than
     # left as an empty string a later reader would call "the same as unset".
+    #
+    # The one thing this run *does* hand over — a runtime directory, see
+    # `provide_the_joiner_runtime_directory` — is therefore read rather than assumed: the
+    # line below the three items names where the runtime directory came from, so a value
+    # the harness supplied is recorded as supplied and never reads as inherited.
     joiner_launch_wrapper=(xvfb-run -a --server-args="-screen 0 1280x720x24")
     client_environment_readout="/data/kin/${joiner}/run/client-environment.txt"
     client_environment_probe='
@@ -808,6 +813,16 @@ PY
         for item in DISPLAY XDG_RUNTIME_DIR XAUTHORITY; do
             printf "%s %s=%s\n" "${depth}" "${item}" "$(read_one "${item}")" >> "${out}"
         done
+        # Where the runtime directory this depth holds came from, named apart from its
+        # value. A path on the line above can be one the container already had or one
+        # this harness made ready for the client, and a reader must not have to guess
+        # which: a harness that fills in a blank and then reports only the filled-in
+        # shape has graded its own work. Same three states as the three items above —
+        # a depth that was never told says `<unset>` rather than dropping the line,
+        # which is what the harness depth does while the launch line is the only one
+        # this run hands a runtime directory to.
+        printf "%s XDG_RUNTIME_DIR_ORIGIN=%s\n" "${depth}" \
+            "$(read_one CLIENT_RUNTIME_DIR_ORIGIN)" >> "${out}"
         printf "%s GL_BACKEND=%s\n" "${depth}" "${backend}" >> "${out}"
         printf "%s GL_PROBE_RC=%s\n" "${depth}" "${probe_rc}" >> "${out}"
         # Which command line this reading came from, kept as a separate name rather than
@@ -815,6 +830,26 @@ PY
         # screen from the one the harness exported.
         printf "%s WRAPPER=%s\n" "${depth}" "${MINERUN_LAUNCH_DEPTH:-not-stated}" >> "${out}"
     '
+    #: The runtime directory this run hands the joining client, and which of the two
+    #: ways it has one that came from — `inherited` or `provided-by-harness`. Both are
+    #: empty until `provide_the_joiner_runtime_directory` decides them, and the readout
+    #: above carries whichever name it lands on rather than only the path.
+    #:
+    #: Under `/tmp`, and that choice is the load-bearing one:
+    #:   * `/data` is a run's material. A directory made there would sit beside the
+    #:     session overlay and the readout, and anything that later globs the Kin's run
+    #:     directory would have to be taught to ignore it — a runtime directory is not
+    #:     evidence and must never be sealable material. The canonical volume is not
+    #:     written by this harness at all outside the material a run already produces.
+    #:   * the XDG requirement on this directory is that it be private to its user
+    #:     (mode 0700), so it is created per run and named, not shared out of an
+    #:     existing world-writable location;
+    #:   * `/tmp` is already where this harness keeps the unsealable scratch of a join
+    #:     (`/tmp/domain-join-session.err`, the staged probe file), so nothing new is
+    #:     left behind that the run has not already said where it is.
+    client_runtime_dir=""
+    client_runtime_dir_origin=""
+    client_runtime_dir_base=/tmp/minekin-client-runtime
     join_ready=1
 fi
 
@@ -869,6 +904,87 @@ name_the_joiner_client_environment() {
     printf 'domain: joiner client environment before its JVM: %s\n' \
         "$(grep '^harness ' "${client_environment_readout}" 2>/dev/null |
             tr '\n' ' ')" >&2
+    return 0
+}
+
+# Hand the joining client's launch line a runtime directory it can use, and say which
+# of the two ways this run has one it came from.
+#
+# Why now, and why this is the whole of it: the reading above has named
+# `launch XDG_RUNTIME_DIR=<unset>` on every controlled run since it landed, and naming
+# is where it stopped — deliberately so, because a reading that fills in its own blanks
+# can no longer report a blank. The blank is a fact about the container, measured: the
+# controlled image sets no `XDG_RUNTIME_DIR` and has no `/run/user/<uid>` at all, and
+# the joining client's own stderr answers with
+# `error: XDG_RUNTIME_DIR is invalid or not set in the environment`. This harness is the
+# side that decides what the launch line is handed, so this is the side that can put a
+# usable directory there.
+#
+# Two rules keep the change on that one path and nowhere else:
+#   * A value already in the environment is left alone when it is usable — absolute,
+#     present, a directory, writable. The harness does not swap out a directory the
+#     operator or the container made, and the readout then says `inherited`.
+#   * A value that is missing or unusable becomes a private directory of this run at
+#     mode 0700, which is what the XDG requirement for the name states, and the readout
+#     says `provided-by-harness`. Why the inherited value was not used is named too
+#     ("unset" and "set to a path that is not a directory" are facts about different
+#     things), because a provision that cannot say what it replaced is a guess.
+#
+# It does NOT export into this script. The harness has no window surface of its own to
+# register with a runtime directory — its display is the X server it started itself —
+# and exporting here would widen the change past the one line that needs it. The value
+# travels in `joiner_runtime_dir_env`, below, which is expanded on the client's own
+# command line and nowhere else. If the directory cannot be made, that array stays
+# empty, the client is handed exactly what it would have been handed before this
+# function existed, and the failure is named on stderr: a run is not destroyed by a
+# provision that could not provide.
+provide_the_joiner_runtime_directory() {
+    local candidate="${XDG_RUNTIME_DIR:-}"
+    local reason=""
+    client_runtime_dir=""
+    client_runtime_dir_origin=""
+    # Asked of the environment itself, not of the local copy above: a name nobody set
+    # and a name set to nothing arrive here through the same empty string, and they are
+    # different faults about different halves.
+    if [ -z "${XDG_RUNTIME_DIR+set}" ]; then
+        reason='it is not set in the environment this script holds'
+    elif [ -z "${candidate}" ]; then
+        reason='it is set to nothing in the environment this script holds'
+    elif [ "${candidate#/}" = "${candidate}" ]; then
+        reason="it is not an absolute path (${candidate})"
+    elif [ ! -d "${candidate}" ]; then
+        reason="it names no directory that is there (${candidate})"
+    elif [ ! -w "${candidate}" ]; then
+        reason="it is not writable (${candidate})"
+    fi
+    if [ -z "${reason}" ]; then
+        client_runtime_dir="${candidate}"
+        client_runtime_dir_origin=inherited
+        printf 'domain: joiner runtime directory: %s (inherited, left as the environment had it)\n' \
+            "${client_runtime_dir}" >&2
+        return 0
+    fi
+    local made
+    if ! mkdir -p "${client_runtime_dir_base}" 2>/dev/null; then
+        printf 'domain: joiner runtime directory: not provided, %s cannot be created; the client keeps what it had, which was unusable because %s\n' \
+            "${client_runtime_dir_base}" "${reason}" >&2
+        return 0
+    fi
+    if ! made=$(mktemp -d "${client_runtime_dir_base}/runtime.XXXXXX" 2>/dev/null); then
+        printf 'domain: joiner runtime directory: not provided, no directory could be made under %s; the client keeps what it had, which was unusable because %s\n' \
+            "${client_runtime_dir_base}" "${reason}" >&2
+        return 0
+    fi
+    if ! chmod 700 "${made}" 2>/dev/null || [ ! -d "${made}" ] || [ ! -w "${made}" ]; then
+        printf 'domain: joiner runtime directory: not provided, %s could not be made private at mode 0700; the client keeps what it had, which was unusable because %s\n' \
+            "${made}" "${reason}" >&2
+        rmdir "${made}" 2>/dev/null || true
+        return 0
+    fi
+    client_runtime_dir="${made}"
+    client_runtime_dir_origin=provided-by-harness
+    printf 'domain: joiner runtime directory: %s (provided by the harness at mode 0700; the name it would have inherited was unusable because %s)\n' \
+        "${client_runtime_dir}" "${reason}" >&2
     return 0
 }
 
@@ -963,6 +1079,29 @@ join_the_published_world() {
         "select coalesce(max(position), 0) from event;" 2>/dev/null || echo 0)
     baseline=${baseline:-0}
     name_the_joiner_client_environment
+    # The runtime directory is decided after that reading and before the wrapper runs:
+    # the reading is about the environment this script holds, and this is a decision
+    # about what the client's line is handed. Carried on the line itself rather than
+    # exported here — see `provide_the_joiner_runtime_directory`.
+    #
+    # How far that reaches, measured rather than assumed: this line ends in the Core CLI,
+    # and the client JVM that command supervises is not given this environment. Core
+    # builds the client's from a closed list
+    # (`config.FORWARDED_VARIABLES` plus the session's own redirects) and inherits
+    # nothing implicitly, so `XDG_RUNTIME_DIR` stops at that door while `DISPLAY` and
+    # `XAUTHORITY` cross it. This handover is therefore the harness's half of the
+    # blocker and not all of it: what it fixes here is the absence on the line this
+    # harness controls and the record of what was handed over, and the last step — the
+    # name reaching the JVM that prints the libwayland line — is a decision on Core's
+    # side of the boundary, registered as such rather than taken here.
+    provide_the_joiner_runtime_directory
+    joiner_runtime_dir_env=()
+    if [ -n "${client_runtime_dir}" ]; then
+        joiner_runtime_dir_env=(
+            XDG_RUNTIME_DIR="${client_runtime_dir}"
+            CLIENT_RUNTIME_DIR_ORIGIN="${client_runtime_dir_origin}"
+        )
+    fi
     # The launch-depth reading goes on this very command line, in the wrapper process
     # that becomes the client: the probe runs first, `exec` follows with the client as
     # its argument, and `exec` hands its environment to what it becomes — so the values
@@ -971,7 +1110,7 @@ join_the_published_world() {
     # names its own absence in the readout rather than going silently quiet, and cannot
     # stop the client from starting either way.
     "${joiner_launch_wrapper[@]}" \
-        env MINEKIN_KIN_ID="${joiner}" \
+        env "${joiner_runtime_dir_env[@]}" MINEKIN_KIN_ID="${joiner}" \
             MINERUN_LAUNCH_DEPTH=inside-wrapper \
             CLIENT_ENVIRONMENT_PROBE_SCRIPT="${client_environment_probe_script:-/tmp/domain-client-environment-probe.sh}" \
             CLIENT_ENVIRONMENT_READOUT="${client_environment_readout}" \
