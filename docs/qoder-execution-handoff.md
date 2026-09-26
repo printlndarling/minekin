@@ -475,3 +475,53 @@ V2 的绿读数暴露、M 在自己卷上重放确认：auto run 跨过早停后
 
 ### 不声称
 - 不声称 Minekin 完成；不声称 `OFFLINE-090`/`OFFLINE-100` 已注册或已闭合（卷上仍零 bundle）；不声称 090 的 Dashboard 半句有任何载体；不声称任何门禁点亮（`promotable` 仍 `W00/W10/W20/W60`、`overall.blocks` 仍 `REQUIRED_CASE_NOT_REGISTERED`）。全程未连接、未探测、未读取用户的远程服务器，`.tmp/local-test-server.txt` 未被打开；文中只出现 loopback/受控本地地址、卷名与镜像名。
+
+## M 主控第十一轮（2026-09-27，合并三张卡并坐实卷侧底数）
+
+### 起点核对（先量再写）
+- 恢复时远端 `refs/heads/main = f5a7fdae65750cb76a3ddaa44709d4e0e1fdb541`（第十轮补记全量读数那一笔）。
+- 三支 lane 分支同时到位：`codex/minekin-h1d-run-rc` 由「无远端 ref、工作树未提交」推进为 `21e0b6c` 并已推；`codex/minekin-offline-090-100` 由 `a2a93ea` 推进为 `b9c40a7`（两处退回件的修正）；新支 `codex/minekin-offline-070` = `9d43de6`，base `f5a7fda`。
+
+### 已合入 main（三笔，逐笔核远端 SHA）
+- `e3ca1b7405fbcbfc1c5d5b4ba19faf4abcb556ec` = `H1d`（真实 merge-base `796316a`，恰 3 文件 `+409/-46`：`domain.sh` +105/−32、契约测试 +141/−14、新记录 `docs/validation/v1201-h1d-run-rc-2026-09-27.md` +209）。
+- `3a993e0` = `B1-b` 第一阶段的定义草稿（累计对 merge-base `03c1d95` 恰 1 文件 `+521`，全在 `docs/p0-offline-090-100-case-spec-2026-09-27.md`）。
+- `24f446f6de9a94784385dda49341a5027513d1a1` = `P0-OFFLINE-070-CASE-SPEC-001` 的定义草稿（恰 1 新文件 `+121`）。远端 `main` 现为该 SHA。
+
+### H1d 的 M 侧独立双审（不照抄 lane 自报）
+- 门禁在分支树全 `rc=0`：`bash -n domain.sh`、契约 `24 passed`、`ruff check` / `ruff format --check`（347 files）、`check_boundaries`、`check_case_assertions`（140 registered）、`verify_fixture_digests`、`git diff --check`。
+- M 自放两枚反向（在 M 自己的审阅 worktree `../minekin-wt-h1drev`，不碰 lane 树）：
+  - 把 supervisor 退回 `'"$@"; :'` ⇒ `test_a_run_that_stops_at_a_named_supply_chain_refusal_exits_non_zero` 红（`2 failed, 22 passed`）；
+  - 把 launch 行的 `exec ` 去掉 ⇒ `test_the_launch_depth_reading_travels_on_the_line_that_execs_the_client` 红（同 `2 failed, 22 passed`）；
+  - 两条里第二条红都是 M 用 python 写回时 LF→CRLF 触发的 `test_scripts_are_lf_and_keep_an_executable_shebang[domain.sh]`，属**复量工具的形状**、不是本卡缺陷，如实记在这里；两次还原后 `domain.sh` 的 sha256 前缀 `fccf372e6ca5c831` 与审前一致。
+- 全量：分支树 `2539 passed, 3 skipped in 371.46s`；合并后 `e3ca1b7` 树 `2540 passed, 3 skipped in 343.73s`（第十轮基线 `2538` + 本卡 2 新测）。
+- **M 侧未复量**：lane 的活体容器读数（base 字节 `rc=0` + `BUDGET_UNDECLARED`、新字节 `rc=11`、早停 `rc=2` / 客户端未达 playable `rc=14` 的可分形状），以及它逐字证伪 H1c「JVM 拿到的正是探针那次」的 `XAUTHORITY` 对照（`/tmp/xvfb-run.RZkqh1/Xauthority` vs `/tmp/xvfb-run.tV9Nuz/Xauthority`）。
+
+### B1-b 修正稿复审：两处退回都已落地（因此合入）
+- 090：判法钉为**认证字段名/参数名与其值同处出现**，裸 `0` 与空 argv 一律不计泄漏（`offline_session.py:36` `EMPTY_ARGV`、`:71-73`、`:82-84` 实读到 `access_token_argv="0"`）；明写**不从 `asserter-inputs.json` 取凭据字面量**，并把错位引用 `:70-88` 改成 `:747-758`。M 逐条对仓库字节核过：`offline_session.py:10/36/71-73/82-84/166/176-177/247/278-290`、`assert_case_evidence.py:251/282-344/451-454/747-758/1028-1044/2041-2064/3447`、`errors.py:39`（`STORAGE = 12`）、`bundle.py:1-9`（拒封而非脱敏）与 `:255`（`ARTIFACT_DIGEST_MISMATCH:<path>`）、`world_activation.py:11-12/207`，全部属实。父案 `OFFLINE-090` 明写**状态不得为 PASS**，Dashboard 半句只作具名缺口，非门禁子案 `OFFLINE-090-BUNDLE-CARRIERS-001` 只承载日志/崩溃两半；§2.7 给了注入反例（红）与「裸 `0`/空值不得红」的反向对照。
+- 100：§3.5 B 被显式降级为「重启那一半，不足以证明整条 A→B→A」，新增 §3.5 C 的 **C1-C5** 恰对应主控钉下的五个条件（同一 `kin_id` 三段唯一 / 三个互异 session / 首尾 A 同一「获确认」world context / B 不串入 A / 外部身份取服务端已注册读数不重推）；「获确认」落到 `(profile_id, revision, level-name)` + `joined the game` + `usercache.json` 的服务端证据，并具名禁止用 `world_context_id` 的 null 相等糊判；§3.6 第 8-11 条给了 triple 级反例（含缺 usercache ⇒ `IDENTITY_NOT_RECORDED`，非绿）。
+
+### 卷侧底数：M 用**正确布局**自测（坐实第十轮那条 glob 更正）
+- 真实布局是 `/data/kin/<kin_id>/run/evidence/<run_id>/`，里面有 `manifest.json` + `bundle.sha256` + `bridge-trace.jsonl` + `orchestrator-trace.json` + `run-document.json` + `client/` + `server/`。第十轮 M 猜的 `runs/*/bundle.json`、`attempts/*.json` 都因此回 0。脚本 `.tmp/m-r11-b1b-volume.sh`、日志 `.tmp/m-r11-b1b-volume.log`（`:ro` 容器，`rc=0`）：
+  - kin 侧 manifest **94**；OFFLINE 分布 `010:2 / 020:2 / 030:1 / 030-ENUM-ALIGNED-001:2 / 030-PRISM-PARITY-001:2`；**`OFFLINE-070/090/100 = 0 份`**；
+  - 声明 crash-report 的 manifest **3** 份，且无一属 OFFLINE 系 ⇒ 「090 的崩溃半句在 OFFLINE 材料上是载体缺席，不是扫过为零」成立；
+  - OFFLINE 两份 trace 里带 `world_context_id` 的行 **345**，非 null **0** ⇒ 草稿「禁止拿 null 相等当判据」有实测依据；
+  - 每份 OFFLINE bridge-trace 恰**一个**非 null `session_id`（`3d5606ce…`→`6e92b314…`、`f2ecb728…`→`d852ccf0…`，与草稿逐字同值）。
+- 与 070 草稿 §6 的互证：全量 `glob(/data/**/manifest.json)` 为 **107**（94 kin + 13 份非 kin 根），attempts 表 **71** 行——第八轮底数一字未动。
+
+### 门读数（第十一轮的「登记前」底数，`:ro` 容器在 `24f446f` 树上）
+- `.tmp/m-r11-payload.sh` / `.log`：`report_rc=1`；门载荷子集 `{work_packages, overall}` 仍 `fb0152c85d029ee06a41a34e84f9656cd23fae0b1e166322c494d1190cd178da`（三笔合并一字未动）；`overall.blocks = ['REQUIRED_CASE_NOT_REGISTERED']`；**`W30.promotable False`、`W30.blocks = ['NO_MANDATORY_CASES', 'REQUIRED_CASE_NOT_REGISTERED']`**；报告顶层键含 `visibility_gaps`（id `ORCHESTRATOR_REVISION_NOT_PINNED`）。登记卡落地后必须与这两枚读数逐字对比，并具名证明 `W30` 与 `p0-core` 仍未晋级。
+
+### 排期与让窗
+- 主干 `NEXT` 仍是 `PARALLEL-INTEGRATION-GATE-001`（本轮收三笔）。
+- M 自己的 `P0-OFFLINE-090-100-REGISTRATION-001` 由 `QUEUED` 提升为 **`NEXT`**（判据已冻结；`tools/assert_case_evidence.py` + `tools/check_case_assertions.py` 的 `IMPLEMENTATIONS` + `tests/fixtures/cases/**` + `manifest.sha256` 由 M 逐案两笔实施，不翻 `mandatory`、不动 registry `status/gaps`）。
+- 新立 `P0-OFFLINE-100-A-B-A-RUN-001`（`QUEUED`，E 的规范卷独占写窗）：受控**本地隔离服**真跑，前置=登记卡落地 + H 让窗（`H1d` 已闭环 ⇒ 让窗成立）；三段证据不齐保持未完成。
+- H lane 现无 `lane_next`，等 M 另立；V lane 仍停等具名；`OFFLINE-070` 的登记留作 M 的又一张卡。
+
+### 四态
+- 已合入 main：`e3ca1b7`（H1d）、`3a993e0`（B1-b 定义）、`24f446f`（070 定义）；远端 `main = 24f446f6de9a94784385dda49341a5027513d1a1` 已核。
+- 仅在分支：无（三支都已并入）。
+- 真实封证：本轮**零新增**——H1d 全程未挂规范卷，两张定义卡只 `:ro` 读取，未建 attempt、未封 bundle。
+- 尚未验证：H1d 的活体容器读数（M 侧未复量）、090/100/070 全部反例与阳性对照的运行时那一半、登记后门载荷的位移、端到端 1.20.1 auto JOIN。
+
+### 不声称
+- 不声称 `OFFLINE-090`/`OFFLINE-100`/`OFFLINE-070` 已注册或已闭合；不声称 090 的 Dashboard 半句有任何载体；不声称 A→B→A 有任何三段证据；不声称任何门禁点亮；不声称 Minekin 完成。
