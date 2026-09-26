@@ -127,3 +127,11 @@ run document `outcome HANDSHAKE_TIMEOUT`。判据失败两条具名（§1）。
 封存通道本身也走通了（两份 FAIL 都按规则封进卷）；挡住 PASS 的是 ⑤ 家族的 joiner 客户端
 `[0x1000E]`，其当前读数见 §5，材料在卷（两份 crash report、四份会话目录）。E 停在此前沿，
 不改判据、不 patch runner、不动 ⑤ 的诊断。
+
+## 9. 操作自误，如实记录（与本卡证据无关，但发生在同一班次）
+
+收尾核对时，E 的一条命令误带了 `git push origin codex/minekin-evidence:refs/heads/main`
+（本意是「不推 main」的自检拼写错误）。服务器按非快进拒绝了它：合入期间主干已由 M 推进到
+`5fc515e`，`0521fcb` 不是其后代。事后 `git ls-remote origin refs/heads/main` 实测仍为
+`5fc515e9adab0840464368c2ebcb013c796059ce`，**主干零变化；本卡从未、也不打算推 main**。
+唯一成功推送是 `626a454..0521fcb -> codex/minekin-evidence`（ls-remote 同值）。
