@@ -18,6 +18,7 @@ harness:
 from __future__ import annotations
 
 import re
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -407,3 +408,67 @@ def test_the_run_named_by_the_ledger_also_names_the_kin_that_holds_it() -> None:
     assert 'named_run=(--run-id "${run_id}" --kin-id "${kin_id}")' in text
     # A run whose own rows say no Kin is said out loud rather than sealed blind.
     assert "has no Kin in its own rows" in text
+
+
+def _pip_install_arguments(dockerfile: str) -> list[str]:
+    """Each quoted argument handed to a `pip install`, across line continuations."""
+
+    arguments: list[str] = []
+    lines = dockerfile.splitlines()
+    index = 0
+    while index < len(lines):
+        if "pip install" in lines[index]:
+            block: list[str] = [lines[index]]
+            while block[-1].rstrip().endswith("\\"):
+                block.append(lines[index + len(block)])
+            joined = " ".join(line.rstrip().removesuffix("\\").strip() for line in block)
+            arguments.extend(argument for argument in re.findall(r'"([^"]+)"', joined))
+            index += len(block)
+        else:
+            index += 1
+    return arguments
+
+
+def test_every_package_the_image_pip_installs_is_pinned_to_the_lock() -> None:
+    """`/opt/minekin` carries only packages whose versions `uv.lock` resolves.
+
+    The image hosts a test toolchain so repository-check cases can run inside
+    the controlled environment (the Dockerfile comment says why). That is only
+    honest while every pin here equals the lockfile the repository's own gates
+    run against, and while nothing installs unpinned: a floating install on a
+    sealing path is unreviewed code sealing evidence. This test reads both the
+    Dockerfile and `uv.lock`, so the two drift apart only through a named edit.
+    """
+
+    dockerfile = (RUNNER / "Dockerfile").read_text(encoding="utf-8")
+    arguments = _pip_install_arguments(dockerfile)
+    assert arguments, "the Dockerfile installs nothing; did its shape change?"
+
+    pinned: dict[str, str] = {}
+    for argument in arguments:
+        match = re.fullmatch(r"([A-Za-z0-9][A-Za-z0-9._-]*)==([A-Za-z0-9._+!-]+)", argument)
+        assert match is not None, f"pip argument {argument!r} is not an exact `name==version` pin"
+        pinned[match.group(1).lower()] = match.group(2)
+
+    lock = tomllib.loads((RUNNER.parents[1] / "uv.lock").read_text(encoding="utf-8"))
+    locked = {str(package["name"]).lower(): str(package["version"]) for package in lock["package"]}
+
+    for name, version in pinned.items():
+        assert name in locked, f"{name} is installed by the image but resolved by no lock"
+        assert version == locked[name], (
+            f"the image pins {name}=={version} but uv.lock resolves {locked[name]}"
+        )
+
+    # The point of the layer: pytest is in the image, at the dev-group version.
+    assert pinned.get("pytest") == locked["pytest"], "the image must carry a pinned pytest"
+
+    # And pytest's own locked dependency closure is pinned here too, except the
+    # ones that only exist on Windows: the image builds on Linux.
+    pytest_package = next(
+        package for package in lock["package"] if str(package["name"]) == "pytest"
+    )
+    for dependency in pytest_package.get("dependencies", []):
+        if "win32" in str(dependency.get("marker", "")):
+            continue
+        name = str(dependency["name"]).lower()
+        assert name in pinned, f"the image installs pytest but not its locked dependency {name}"
