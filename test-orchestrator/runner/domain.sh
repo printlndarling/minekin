@@ -725,18 +725,32 @@ if [ -n "${joiner}" ]; then
                 exit 2
             }
     fi
-    python - "${lan_port}" /tmp/domain-join-profile.json <<'PY'
+    # The joining client dials the world this run started, so the version its profile
+    # claims has to be that world's version. The constant this writer used to carry
+    # (`"minecraft_version": "1.21.4"`) paired any server with a joiner saying 1.21.4:
+    # on a 1.20.1 run the ⑤-family client endings (`GLFW 0x1000E`, `XDG_RUNTIME_DIR`)
+    # could then be neither reproduced nor excluded, because the profile the joiner
+    # was handed described a different world than the one it dialed. The version is
+    # therefore taken from `launched_version` — the recipe this run read at the top —
+    # and said by name when the run holds none: falling back to any constant here
+    # would be the very misjoin this block exists to prevent, so there is no default
+    # to fall back to and the run stops before a profile is written.
+    if [ -z "${launched_version}" ]; then
+        printf 'domain: the joining client must carry the version this run launched, and this run launched none it could name; refusing to write a joiner profile at a guessed version\n' >&2
+        exit 2
+    fi
+    python - "${lan_port}" /tmp/domain-join-profile.json "${launched_version}" <<'PY'
 import json
 import sys
 
-port, path = int(sys.argv[1]), sys.argv[2]
+port, path, version = int(sys.argv[1]), sys.argv[2], sys.argv[3]
 profile = {
     "schema_version": 1,
     "profile_id": "p0-lan-host-fixture",
     "host": "127.0.0.1",
     "port": port,
     "auth_mode": "offline",
-    "minecraft_version": "1.21.4",
+    "minecraft_version": version,
     "visibility": "isolated_test_only",
     "resource_pack_policy": "deny",
 }
