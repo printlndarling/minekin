@@ -124,7 +124,9 @@ B 本段 session）。seq1/seq2（`fd516eb6…`、`c96aa8bd…`）为早期失�
 - 逐条两层完成度：**9、10（CX10a 主读数 + CX10b 字面变体）、11 全部 L1+L2+正对照齐**，
   无一条只有单层。副本目录名均带标签（段名+伪造字段），伪造只发生在 `/tmp` 副本；
   规范卷全程 `:ro`（写试探回 `Errno 30`），三枚 bundle 的 `manifest.json` 摘要在全部
-  试验后复核仍与 §2 逐字一致（`digest_matches_file True ×3`，s2 日志尾段）。
+  试验后复核仍与 §2 逐字一致（`digest_matches_file True ×3`，s2 日志尾段）。收口复量（两次
+  提交之后、以当时候的镜像 `b67a4d917306` 再跑）：`/data` 写试探仍回 `Errno 30`，三枚
+  manifest 摘要复核 `True ×3`，无任何卷面漂移。
 - 只到 clause 层的：无——三条 L1 红都同时出现在判官层父行 `evaluate` 的 `failures` 里
   （§3/§4/§5 逐字）。够到父行的限定：**判官层**父行不等于登记面父行；登记面父行今天
   对任何材料恒答常量（见下）。
@@ -153,6 +155,12 @@ B 本段 session）。seq1/seq2（`fd516eb6…`、`c96aa8bd…`）为早期失�
 
 运行时代码树 = `7aa5d14` + 本记录文档一次 docs-only 提交（`8c38f1d`），工作树 clean；
 未合入 `41cff82` 的 clause map 重排，故不触发该重排下的 `168 != 150` 失败面。
+门禁读数按 base 固定申报（主控口径）：「150 registered / 2594 passed / fixtures OK」
+仅在 `7aa5d14` 成立，不构成 `41cff82` 或 H 系列之后的门禁绿；合入重排后预期
+`check_case_assertions` 与 pytest 计数面改变，由 M 处置。
+另注：宿主唯一 `minekin-runner:local` 在收口复量时仍为 `b67a4d917306`（尚未被
+H1g 重建为 c866d05 来源）；本卡容器读数不依赖镜像内代码（见 §6 镜像来源限定），
+收口复量已单独通过（§6 首条）。
 
 ```text
 $ uv run --frozen pytest -q            # 一次跑满,未触发已知满载 flaky,无 failed 行
