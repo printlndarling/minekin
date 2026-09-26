@@ -605,7 +605,11 @@ if [ -n "${joiner}" ]; then
         fi
         printf 'domain: the joining Kin %s was created as %s\n' "${joiner}" "${join_username}" >&2
     fi
-    mkdir -p "/data/kin/${joiner}/run"
+    # `run/session/` is prepared with `run/`: a Kin that has never started a session
+    # has no session directory, and the join baseline below is empty by design — an
+    # earlier shape of this block left the directory away and the baseline read died
+    # on it (see `before=` in `join_the_published_world`).
+    mkdir -p "/data/kin/${joiner}/run/session"
     if [ -L "/data/kin/${joiner}/run/artifact-store" ]; then
         # Left by an attempt that linked it; `-d` follows a link, so the copy below
         # would be skipped and the refusal would come back looking like the same bug.
@@ -654,7 +658,26 @@ join_the_published_world() {
     local baseline
     local recorded
     local playable
-    before=$(ls "/data/kin/${joiner}/run/session/" 2>/dev/null | sort)
+    # A joiner that has never started a session has no `run/session/` yet, and the
+    # honest baseline for that is an empty one — but that has to be *said*, not left
+    # to `ls`'s exit code. This read used to be `ls … 2>/dev/null | sort`, which
+    # under `pipefail` turned a fresh joiner Kin into a silent `rc=2` (the first
+    # CORE-030 attempt died on exactly that, with nothing on stderr). Either branch
+    # is named now: a missing directory continues from an empty baseline with one
+    # line saying what is absent and where, and a directory that exists but cannot
+    # be listed is a failure with a name, a path and a non-zero exit.
+    before=""
+    if [ -d "/data/kin/${joiner}/run/session" ]; then
+        before=$(ls "/data/kin/${joiner}/run/session/" | sort) ||
+            {
+                printf 'domain: the joining Kin %s has a session directory at /data/kin/%s/run/session that cannot be listed\n' \
+                    "${joiner}" "${joiner}" >&2
+                exit 2
+            }
+    else
+        printf 'domain: the joining Kin %s has no session directory yet at /data/kin/%s/run/session; the join baseline is empty\n' \
+            "${joiner}" "${joiner}" >&2
+    fi
     # Where the joining Kin's ledger stood before this client started. Every wait in
     # this harness reads only its own run, and this one learned why the hard way: an
     # unscoped query found the `PlayableEstablished` of an *earlier* run of the same
