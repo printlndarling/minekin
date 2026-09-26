@@ -1171,3 +1171,46 @@ def test_the_interpreter_diagnostic_does_not_decide_the_verdict(tmp_path: Path) 
     assert here_report["status"] == there_report["status"] == "promotable"
     assert named_runs(here_report) == []
     assert named_runs(there_report) == [RUN_ID]
+
+
+# ---------------------------------------------------------------------------
+# What no bundle can say about the script that ran it
+# ---------------------------------------------------------------------------
+#
+# `orchestrator-trace.json` records its `orchestrator` field as the fixed path
+# string `test-orchestrator/runner/domain.sh` — `orchestrator_trace()` in
+# tools/seal_run_evidence.py — with no version or digest beside it, and the
+# artifact set is collected entry by entry, so nothing else in a bundle holds
+# that script's bytes. Whether two runs used the same revision of it is not
+# readable from a bundle by construction. The report now says so on its own
+# surface, as a statement beside the gate payload and never as a block inside
+# it: nothing about the evidence on disk moved, and a known limit of the seal
+# format is not a finding about a bundle.
+
+
+def test_the_report_names_the_orchestrator_revision_visibility_gap(tmp_path: Path) -> None:
+    """The gap is a named sibling of `work_packages`/`overall`, not a blocker."""
+
+    seal(tmp_path, RUN_ID, launch_plan_digest=plan_of("1.21.4"))
+
+    document = cast(dict[str, Any], bundle_report(CASE_ID, data_root=tmp_path, gated="W40"))
+
+    gaps = cast(list[dict[str, Any]], document["visibility_gaps"])
+    assert len(gaps) == 1
+    gap = gaps[0]
+    assert gap["artifact"] == "orchestrator-trace.json"
+    assert gap["field"] == "orchestrator"
+    assert "domain.sh" in cast(str, gap["statement"])
+    assert gap["gates_promotion"] is False
+
+    # A statement, not a block: it never enters the payload the gate is read from.
+    payload = json.dumps(
+        {"work_packages": document["work_packages"], "overall": document["overall"]},
+        sort_keys=True,
+    )
+    assert cast(str, gap["id"]) not in payload
+    assert "domain.sh" not in payload
+    assert "orchestrator" not in payload
+    assert document["work_packages"]["W40"]["blocks"] == []
+    assert document["work_packages"]["W40"]["promotable"] is True
+    assert document["status"] == "promotable"
