@@ -572,3 +572,49 @@ V2 的绿读数暴露、M 在自己卷上重放确认：auto run 跨过早停后
 - 不声称卷上存在 090/100 的 bundle、三段链证据或 `world_context_id` 读数。
 - 不声称任何门禁点亮（`W30` 与 `p0-core` 实测仍 `promotable False`）。
 - 不声称 Minekin 完成。
+
+## M 主控第十三轮（2026-09-27，M 独占登记 OFFLINE-070，一笔入干）
+
+### 落干与远端核对
+- 起点：`main` = 远端 `main` = `0e497a9f951c7704c81ee807c7ef646b94e4b7fe`（推送前 `git ls-remote` 同值 ⇒ 远端未被他人推进）。
+- 本卡一笔：`OFFLINE-070` 登记 = M 直接提交 **`31cf9c3`**（5 文件 `+407 -2`：`tools/assert_case_evidence.py` `+126`、`tools/check_case_assertions.py` `+15`、`tests/fixtures/cases/offline-070.json` 新建 19 行、`tests/fixtures/manifest.sha256` 一行、`tests/unit/test_case_evidence_assertions.py` `+246 -2`）。
+- 推送后 `git -c credential.helper= -c credential.helper=wincred ls-remote origin refs/heads/main` = **`31cf9c3a8aa91cf6b26cc518a4e099694d46fe84`**（已核）。
+- 提交信息最初少了主题与正文之间的空行（整条被 `git log %s` 读成主题）。推送前只改信息、不改内容：`git commit --amend -F`，树摘要前后都是 **`ffcf1bda89320a99d75b522ebc440a9ae07edd28`** ⇒ 改动只落在提交信息上。
+
+### 070 的登记形状（按 E 的冻结草稿 `docs/p0-offline-070-case-spec-2026-09-27.md`）
+- 四条注册名，按可判性分两类。**有载体的只有一条**：`the_conflict_was_classified_as_duplicate_login` 要 `SessionInterrupted{phase: FAILED, reason: ADMISSION_FAILURE_REASON_DUPLICATE_LOGIN}` **成对**出现——phase 单独会把掉线算成拒绝登录，reason 单独会把 Core 记在他处的拒绝算进来；服务端原句按契约不进产品事件，所以能过界的只有分类名。缺 `reason` 的行具名答 `ADMISSION_EVENT_UNCLASSIFIED`，而不是被循环跳过（那是另一种、更弱的陈述）。
+- 三条恒拒的名缺口的仓库证据逐条量过（不是回忆）：`a_renamed_or_recased_login_is_not_called_a_duplicate` ⇒ `CONFLICT_CATEGORY_HAS_NO_RENAME_ENTRY`（`AdmissionFailureReason` 的臂名解析后无 RENAME/RECASE/CASE/ALIAS，且 Java 一个 arm 把两句 vanilla 文案折成同一分类；离线 UUID 是 `"OfflinePlayer:" + name` 的 MD5 ⇒ 改大小写对 vanilla 是另一个身份，不是同一身份的第二次登录）；`the_conflict_opened_a_new_identity_revision` ⇒ `IDENTITY_REVISION_HAS_NO_CHANGE_CARRIER`（`cli/init.py:77` 写常量、`identity_store.py` 只有 INSERT/SELECT、`schema.sql:93` 只 `CHECK >= 1`、`src/**` 里同时含 `update` 与 `identity_revision` 的语句 grep **rc=1**，且 sealed 输入键集恰为 `schema_version/kin_id/run_id/username/previous_run_id`）；`the_identity_root_was_not_merged` ⇒ `IDENTITY_ROOT_MERGE_HAS_NO_SEALED_CARRIER`（`create_identity_root` 的「已有一行即拒」是**码级护栏**、不是 run 记录；bundle 的 identity 段只有两个分类字符串）。
+- **整条不得 PASS 由代码保证**：那三条无载体判据恒返字符串 ⇒ 一次「分类完美」的冲突 run 仍判 `FAIL`，`observed` 恰含那一条可判项、`failures` 恰为三条具名缺口（`test_a_perfectly_classified_conflict_still_cannot_close_the_row`）。非 mandatory 登记因此不会被读成闭合，形状与 090 的 `DASHBOARD_CARRIER_NOT_SEALED` 同类。
+- **与 E 草稿的两处具名分叉**（E 那份定义文档属 E 的卡面，M 不代其改写；此处双向记名，后续读法以主干 fixture 与 `check_case_assertions.py` 为准）：① E 草稿只点了两个断言名，主干按契约句「同名双登录、改名、大小写变化 / 冲突·新revision分类正确 / 不合并人格根」落成**四个**名字（`a_renamed_or_recased_login_is_not_called_a_duplicate`、`the_identity_root_was_not_merged` 是主干补的名）；② E 的 revision 名 `the_conflict_opened_a_new_revision`（预想反例「`identity_revision` 仍等旧值 ⇒ `REVISION_NOT_ADVANCED`）在主干改成 `the_conflict_opened_a_new_identity_revision` 且**恒拒**——E 的反例预设有一列可读的 revision 数字，实测该产品从不写第二值，按那条写法会把「无载体」误判成「测过且没升」，所以注册成缺口而不是实现一个永远读不到数的判据。
+
+### 反证与还原（本轮把"红线不是装饰"量了两遍）
+- 自我释放反证 #1：把可判条的缺失分支改为空洞放行 ⇒ 该文件 **2 条测红**；自我释放反证 #2：把分类等值判断削弱为只看 phase ⇒ **3 条测红**。两次都按具名行核对后还原。
+- 还原方式记一次教训：#1 用 `git checkout -- tools/assert_case_evidence.py` 撤「故意改坏」，连带把**未提交**的整段 070 新代码一起丢弃，靠本轮早些时候存下的 `git diff`（`.tmp/m-r13-070-neutered.diff`）`git apply` 复原并 Edit 回两处被削分支。复原是否等于原物不靠肉眼：`check_case_assertions.py` ⇒ `OK (150 registered)`、该测试文件 487 全绿、文件 sha256 前缀 **`e0f196a3c5b88814`** 与记录一致。#2 因此改为先 `cp` 到 `.tmp/m-r13-asserter-backup.py` 再动工作树，前后 sha256 同值。
+- 非空洞性正对照：一份只有外来 `FAILED` 行（别的分类）的账本不把重复登录答成已分类；`NO_ADMISSION_EVENT_RECORDED` 与 `ADMISSION_EVENT_UNCLASSIFIED` 是两种具名读法，不共用一条沉默。
+
+### 门载荷第四段读数（`:ro` 容器，`report_promotion.py --data-root /data`，`report_rc=1` 属正常拒晋级）
+- 登记前（第十二轮尾底数）：`76fb9bdb314b59ca87aaf8077e8b579e6593bae9de39fc7273ef14634dc3ca47`。
+- 070 注册后：**`cfa0f1184bee30df6a1d9fcf45778c9cef074ece6761c47fe7d6b9f49863afd6`**（日志 `.tmp/m-r13-payload-after-070.log`）。
+- 逐项：`W30.requirement.absent` 3→**2** = `OFFLINE-060 / OFFLINE-080`；`W30.non_mandatory` 10→**11**（含 `OFFLINE-070`）；`W30.misattributed` **0**；**`W30.promotable False`**、blocks 仍 `['NO_MANDATORY_CASES', 'REQUIRED_CASE_NOT_REGISTERED']`；`p0-core.absent` 10→**9**、`non_mandatory` 23→**24**、`misattributed 0`、**`p0-core.promotable False`**、blocks 仍只有 `REQUIRED_CASE_NOT_REGISTERED`。⇒ 070 的登记把「缺席」挪成「已登记未闭合」，没有点亮任何东西；差异集合恰等于 070 离场所能造成的改动，无第三项。
+- 摘要无漂移的正对照：`uv run --frozen python tools/check_case_assertions.py` ⇒ **`OK (150 registered)`**（登记前 146）；`--record` 只移动 `offline-070.json` 一个文件 ⇒ 没有已注册判据的摘要被改动，也就没有已封 bundle 被判失效（070 卷上本就 0 份）。
+- 全量：`uv run --frozen pytest -q` ⇒ **`2591 passed, 3 skipped in 422.06s`**（第十二轮为 `2576`，差 **15** 恰等于本卡新增测数：8 条单字段反例参数化 + 6 个函数 + 1 条 registration 形状测 ⇒ 除本卡外没有其它测试面移动）；`tests/unit/test_case_evidence_assertions.py` 单文件 **487 passed**（前为 472）。`ruff format --check` 3 files already formatted、`ruff check` All checks passed、`tools/verify_fixture_digests.py` ⇒ `W00 schema and fixture digests: OK`、`tools/check_boundaries.py` rc=0、`bash -n test-orchestrator/runner/domain.sh` rc=0、`git diff --check` rc=0。
+- `tests/fixtures/cases/offline-070.json` 的 LF 摘要 **`7325aa39f2c7edc0c771a8e3709f7ddf021e4b90c4973ee77e171a7b8a8550be`** 已入 `tests/fixtures/manifest.sha256`（紧接在 090 行之前，diff = 1 insertion）。
+
+### lane_next 现状
+- 主干唯一 integration `NEXT` 仍是 `PARALLEL-INTEGRATION-GATE-001`（常驻，本轮没有被"完成"）。
+- M = **`P0-OFFLINE-070-REGISTRATION-001` 已闭环**（§4 同名行已改写）。M 名下已无可安全自排的卡：090/100/070 三案的剩余半句全部卡在主控保留的载体/词汇决定上（Dashboard 载体、三段链载体、`identity_revision` 变更事件、身份根工件、改名分类），下一步是**收 E 与 H 的分支**而非再开 M 卡。
+- E = `P0-OFFLINE-100-A-B-A-RUN-001`（施工中）：`minekin-wt-evidence` 工作树 `0e497a9`、无未提交改动 ⇒ 其本轮动作在卷上（封存窗内），尚未回报。
+- H = `H1e`（`XDG_RUNTIME_DIR` 提供，施工中）：`minekin-wt-client-env` 工作树 `0e497a9` 带未提交的 `test-orchestrator/runner/domain.sh` + `tests/contract/test_runner_scripts.py` ⇒ 尚未 commit/push，也未回报。按在案的次序规则，**H1e 不在 E 的三段报告落地前合入 main**。
+- V/S/D 仍停等其前置；两张 lane 卡派出的子代理截至本节撰写均未回报（其一日志在本轮 06:34 仍在写入）。
+
+### 四态
+- 已合入 main：`31cf9c3`（OFFLINE-070 登记）；远端 `main = 31cf9c3a8aa91cf6b26cc518a4e099694d46fe84` 已核。
+- 仅在分支：无新增。E 与 H 的两张卡仍在各自工作树里（H 有未提交改动、E 无），M 未代其 commit。
+- 真实封证：**零新增** —— 全程规范卷 `:ro`，未建 attempt、未封 bundle；070/090/100 的卷上 bundle 数仍为 **0**。
+- 尚未验证：070 那条可判据在**真实冲突 run 字节**上的那一半（夹具覆盖 8 条反例，运行时未测；070 卷上 0 份 bundle）；`P0-OFFLINE-100-A-B-A-RUN-001` 的三段真跑；`H1e` 的客户端运行时目录读数；端到端 1.20.1 auto JOIN。
+
+### 不声称
+- 不声称 `OFFLINE-070` 已闭合：它按构造只能是 FAIL（三条恒拒缺口），非 mandatory 登记只把「缺席」挪成「已登记未闭合」。
+- 不声称卷上存在 070 的 bundle、`identity_revision` 读数或身份根工件；也不声称改名/大小写能被今天的分类词表区分。
+- 不声称任何门禁点亮（`W30` 与 `p0-core` 实测仍 `promotable False`）。
+- 不声称 Minekin 完成。
