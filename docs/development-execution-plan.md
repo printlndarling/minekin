@@ -647,6 +647,16 @@ MSYS_NO_PATHCONV=1 docker run --rm -v "$PWD":/src:ro -v minekin-runner-data:/dat
   不新建卡、不扩范围、也不写成已修**。② registry 侧的覆盖是不对称的：**1.20.1 那 6 行的 run/bundle 摘要在文档里
   出现 2/3/2/4/2/15 次，1.21.4 那 12 行一次都没出现**——两边对 1.21.4 证据的描述停在不同时间点。这只是读数，
   判它算不算缺陷属于证据面与 V08 那条主线，**归主控**。
+  **更正（同一晚紧接其后，改的是我刚才那句的结论，不是判据）**：本格第一版把「registry 之外的引用」整条写成
+  「规格缺口」，漏看了**已经存在的被跟踪门**。`tools/verify_tested_provenance.py` 自己的模块说明就写着会「按 run id
+  把 entry 引用的每一个 evidence bundle 在数据根里对着它自己的 manifest 复核」，而它的读数就记在本文两处：一处
+  `verified: true` / `skipped_not_tested: []` / 该条目 `findings: []` 并带 registry revision（V1201-060 那一格），
+  另一处更近（2026-09-26）——对新 entry 报 `verified: true`、`exit 0`，六条引用逐条 `present/readable/sealed/consistent`
+  全真。**所以 registry 那 18 行的字节面不是缺口，是已有一道门**；本轮没有在这台 Windows 树上重跑它（它要 `/data`），
+  引的是那两格记录自己写下的读数。**剩下的真缺口比第一版写的小、而且不是同一条**：那 40 枚「被取代 attempt / 只作诊断」
+  的 run 引用在 registry 里没有，`verify_tested_provenance.py` 因此根本不会去看它们——它只走 registry 的行；本格这把
+  守卫同样只走 registry。两侧合起来仍然没人判「文档里的历史引用 对 `/data` 里的封存件」这一条。这条照旧只报告、
+  不自建卡，也不把 ① 那句「要真判必须读 `/data`」当成已修。
   **本轮只动文档与 `.tmp` 校验脚本**，产品代码、测试与夹具一字未改；九道门与 pytest 的实测读数记在
   `docs/development-todo.md` 同名一节，且都在最后一格 docs 改动之后跑。
 

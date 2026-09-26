@@ -3504,3 +3504,10 @@
   多写出了一处可解析路径引用 `docs/development-todo.md:3490`，所以按 E 格定下的规矩引最终读数）、
   标识符 **186 处 / `findings: 0`**、
   命令 flag **29 脚本 / 27 处 / `findings: 0`**、本格证据摘要 **15 配对 / `findings: 0`**。
+- 更正（就在上一条之后，同日晚）：本格 ① 那条把「registry 之外的 40 枚引用」整块叫作规格缺口，**结论写重了**。
+  仓里早就有被跟踪的判据 `tools/verify_tested_provenance.py`：它按 run id 把 registry 每行引用的 bundle 在数据根里
+  对着自己的 manifest 复核，读数记在执行文档两处（一处 `verified: true` 带 registry revision，一处 2026-09-26 对新
+  entry 六条引用逐条 `present/readable/sealed/consistent`、`exit 0`）。**registry 那 18 行的字节面不是缺口。**
+  剩下的缺口窄得多：那 40 枚「被取代 attempt / 只作诊断」的 run 不在 registry 里，那道门走不到、本格的守卫也走不到，
+  所以「文档历史引用 对 `/data` 封存件」两侧都没人判。本轮没有在这台机器上重跑那道门（它要 `/data`），引的是记录里的
+  读数——按仓库口径这属于「引用既有实测」，不是「本轮已测」。仍只报告、不自建卡。
