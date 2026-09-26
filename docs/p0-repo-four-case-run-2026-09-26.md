@@ -87,10 +87,30 @@ for c in ['offline-001','offline-040','offline-050','admit-080']:
     print(c, d['mandatory'], d['work_package'], [(n, I[n].kind, I[n].target) for n in d['assertions']])"
 ```
 
-17 条检查全部是 `pytest` 类，落在三个测试文件里：`tests/unit/test_offline_session.py`（11 条，
-`OFFLINE-001/040/050`）、`tests/unit/test_session_material.py`（2 条，`OFFLINE-040` 的 id128 与
-大写报告同一性）、`tests/unit/test_connection_generation.py` 与 `tests/unit/test_session_state.py`
-（6 条，`ADMIT-080` 的代次/关闭/迟到回调）。四条 case 都是 `mandatory: false`
+逐文件的计数用它下面这一段（同一条命令的最后两行换成计数器；这两行是本卡下面那句「9/2/5/1」的出处）：
+
+```bash
+.venv/Scripts/python.exe -c "
+import sys,json,collections
+sys.path.insert(0,'tools')
+from check_case_assertions import IMPLEMENTATIONS as I
+tot=0; files=collections.Counter()
+for c in ['offline-001','offline-040','offline-050','admit-080']:
+    d=json.load(open(f'tests/fixtures/cases/{c}.json',encoding='utf-8'))
+    a=[(n, I[n].kind, I[n].target) for n in d['assertions']]
+    tot+=len(a)
+    for n,k,t in a: files[t.split('::')[0]]+=1
+print('total checks',tot); print('by file',dict(files))"
+# total checks 17
+# by file {'tests/unit/test_offline_session.py': 9, 'tests/unit/test_session_material.py': 2,
+#          'tests/unit/test_connection_generation.py': 5, 'tests/unit/test_session_state.py': 1}
+```
+
+17 条检查全部是 `pytest` 类，落在**四个**测试文件里（上面那段计数命令的 `by file` 实测：9/2/5/1，总数 17）：
+`OFFLINE-001/040/050` 三案共 11 条，其中 **9 条**在 `tests/unit/test_offline_session.py`、
+**2 条**在 `tests/unit/test_session_material.py`（`OFFLINE-040` 的 id128 与大写报告同一性）；
+`ADMIT-080` 的 6 条分在 `tests/unit/test_connection_generation.py`（**5 条**）与
+`tests/unit/test_session_state.py`（**1 条**），即代次/关闭/迟到回调那组。四条 case 都是 `mandatory: false`
 （`OFFLINE-001/040/050` 属 W30，`ADMIT-080` 属 W40）。
 
 ## 2. 四行的读数
