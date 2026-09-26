@@ -41,6 +41,11 @@ from minekin_core.adapters.launcher.provision import (
     provision_bundle,
     require_reviewed_plan,
 )
+from minekin_core.adapters.launcher.server_profile import (
+    SessionServerProfile,
+    load_joinable_session_target,
+    require_target_allows_launch,
+)
 from minekin_core.cli.server_probe import run_probe
 from minekin_core.cli.session import launched_minecraft_version
 from minekin_core.domain.errors import ErrorCategory, MinekinError, Retryability
@@ -307,21 +312,31 @@ def prepare_auto_bundle_start(
 ) -> AutoBundleDecision:
     """Probe the target, resolve it to one reviewed bundle, and get the host ready to launch.
 
-    Order is the safety property. The digest gate runs before a byte is fetched, the
-    target is asked a second time before anything is stopped, and the old client is
-    confirmed gone only at the end — so a run that refuses has neither replaced the
-    client the operator was watching nor filled half a store, and never has more than one
-    controlled client alive.
+    Order is the safety property. The saved target is admitted from its own document
+    before the probe sends a byte, the digest gate and the target's version rule run
+    before a byte is fetched, the target is asked a second time before anything is
+    stopped, and the old client is confirmed gone only at the end — so a run that refuses
+    has neither replaced the client the operator was watching nor filled half a store,
+    and never has more than one controlled client alive.
     """
 
     root = workspace_root or find_workspace_root(Path(__file__).resolve())
     architecture = os_arch or host_os_arch()
     ask = probe_target or _ask_target(probe_timeout_s)
 
+    # Joining is decided by the profile, not by what the probe answers: a forbidden
+    # address or a non-loopback target is refused here, so this path sends nothing and
+    # fetches nothing to find out that it may not join.
+    target: SessionServerProfile = load_joinable_session_target(server_profile)
+
     registry = load_registry(registry_path)
     first = ask(server_profile)
     decision = resolve(registry, first, os_arch=architecture)
     entry = _resolved_entry(decision)
+    # The bundle the target resolved to has to be one the target allows, before the plan
+    # behind it is checked and certainly before the store is filled: the automatic path
+    # used to take the version from the answer and leave the profile's policy out.
+    require_target_allows_launch(target, minecraft_version=entry.version_text)
     plan = require_reviewed_plan(entry, workspace_root=root)
     recipe = root / entry.recipe_path
     require_agreeing_facts(observation=first, entry=entry, recipe=recipe)

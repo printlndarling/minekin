@@ -27,7 +27,7 @@ from minekin_core.adapters.launcher.orphans import Liveness, write_marker
 from minekin_core.adapters.launcher.process import argument_digest
 from minekin_core.adapters.launcher.provision import ProvisionReport
 from minekin_core.adapters.launcher.supervisor import ProcessIdentity
-from minekin_core.bootstrap import run
+from minekin_core.bootstrap import main, run
 from minekin_core.cli.auto_session import (
     AutoBundleDecision,
     host_os_arch,
@@ -52,13 +52,32 @@ ID_1214 = "1.21.4-linux-x86_64-offline-java21"
 PROTOCOL_1201 = 763
 PROTOCOL_1214 = 769
 
-#: A target of convenience. The automatic path never reads an address from here; it hands
-#: this path to the probe, and the probe is the thing under test.
-TARGET = Path("tests/fixtures/runtime-input/controlled-offline-server-1.20.1.json")
+#: The target this path admits from its saved document before it asks anything: an
+#: automatic run now reads the profile's address and version policy, so a test's target
+#: has to name the version its fake reading answers. `TARGET_1214` is the same rule for
+#: the other reviewed bundle.
+TARGET = REPOSITORY_ROOT / "tests/fixtures/runtime-input/controlled-offline-server-1.20.1.json"
+TARGET_1214 = REPOSITORY_ROOT / "tests/fixtures/runtime-input/controlled-offline-server.json"
 
 OURS_ARGV = ("java", "-jar", "ours.jar")
 OURS_DIGEST = argument_digest(OURS_ARGV)
 OURS_CMDLINE = b"\x00".join(arg.encode() for arg in OURS_ARGV)
+
+
+def managed_target(tmp_path: Path, **overrides: object) -> Path:
+    """The loopback 1.20.1 target with only the named fields changed."""
+
+    document = json.loads(TARGET.read_text(encoding="utf-8"))
+    document.update(overrides)
+    path = tmp_path / "target.json"
+    path.write_text(json.dumps(document), encoding="utf-8")
+    return path
+
+
+def asks_nothing(path: Path) -> ProbeObservation:
+    """A probe that fails the test: some refusals must come before the target is asked."""
+
+    raise AssertionError(f"the target was probed: {path}")
 
 
 def observation(
@@ -170,11 +189,12 @@ def prepare(
     read_cmdline: Callable[[int], bytes | None] = UNREADABLE_CMDLINE,
     terminate: Callable[[int], None] | None = None,
     run_root: Path | None = None,
+    server_profile: Path = TARGET,
 ) -> AutoBundleDecision:
     asked: list[int] = []
     return prepare_auto_bundle_start(
         registry_path=REGISTRY,
-        server_profile=TARGET,
+        server_profile=server_profile,
         run_root=run_root or (tmp_path / "run"),
         max_bytes=max_bytes,
         os_arch="linux-x86_64",
@@ -209,7 +229,11 @@ def test_the_resolved_bundle_and_its_recipe_are_what_gets_handed_off(
 def test_the_other_reviewed_bundle_resolves_to_the_other_recipe(
     tmp_path: Path, filled_store: list[str]
 ) -> None:
-    decision = prepare(tmp_path, [observation(PROTOCOL_1214, "1.21.4")])
+    decision = prepare(
+        tmp_path,
+        [observation(PROTOCOL_1214, "1.21.4")],
+        server_profile=TARGET_1214,
+    )
 
     assert decision.bundle_id == ID_1214
     assert decision.recipe.name == "bundle-p0-core-1.21.4.json"
@@ -234,6 +258,119 @@ def test_a_target_that_could_not_be_read_does_not_become_a_launch(tmp_path: Path
             prepare(tmp_path, [reading])
         # None of these is a missing bundle: each is a target this run may not decide for.
         assert raised.value.category is ErrorCategory.ADMISSION, reading.outcome
+
+
+def prepare_refusing(
+    tmp_path: Path,
+    filled_store: list[str],
+    server_profile: Path,
+    *,
+    readings: Sequence[ProbeObservation],
+) -> MinekinError:
+    """Run the automatic start against one profile with the fill fenced off.
+
+    How many times the read-only probe was reached is part of the reading: an unjoinable
+    target has to be refused before a byte is sent to it, while a joinable one may be asked
+    and still be refused for what its own document allows. Either way `filled_store` is the
+    record of what the store saw, and the run root is where a store would have been built.
+    """
+
+    asked: list[Path] = []
+    answer = probe_that_answers(readings)
+
+    def count_and_answer(path: Path) -> ProbeObservation:
+        asked.append(path)
+        return answer(path)
+
+    with pytest.raises(MinekinError) as raised:
+        prepare_auto_bundle_start(
+            registry_path=REGISTRY,
+            server_profile=server_profile,
+            run_root=tmp_path / "run",
+            max_bytes=4_000_000_000,
+            os_arch="linux-x86_64",
+            # With no reading to give, the probe itself is the assertion: a row that must
+            # be refused before a byte is sent has nothing to answer with.
+            probe_target=count_and_answer if readings else asks_nothing,
+            terminate=recording_terminate([]),
+            sleep=never_sleeps,
+        )
+    assert len(asked) == len(readings)
+    assert filled_store == []
+    assert not (tmp_path / "run" / "artifact-store").exists()
+    return raised.value
+
+
+@pytest.mark.parametrize("host", ["198.51.100.20", "10.0.0.5"])
+def test_a_target_this_run_may_not_join_is_refused_before_it_is_asked(
+    tmp_path: Path, filled_store: list[str], host: str
+) -> None:
+    """A2 §3 X2 with the fix: the same profile the explicit path refuses in 2s (X1)."""
+
+    error = prepare_refusing(
+        tmp_path, filled_store, managed_target(tmp_path, host=host), readings=[]
+    )
+    assert error.category is ErrorCategory.ADMISSION
+    assert error.exit_code == int(ExitCode.ADMISSION)
+    assert "loopback" in str(error)
+
+
+@pytest.mark.parametrize("host", ["0.0.0.0", "169.254.169.254", "224.0.0.1"])
+def test_an_address_the_policy_blocks_is_refused_before_it_is_asked(
+    tmp_path: Path, filled_store: list[str], host: str
+) -> None:
+    """A2 §1 F3: these three were already refused at profile loading, and still are."""
+
+    error = prepare_refusing(
+        tmp_path, filled_store, managed_target(tmp_path, host=host), readings=[]
+    )
+    assert error.category is ErrorCategory.ADMISSION
+    assert "address policy" in str(error)
+
+
+def test_a_target_that_lists_several_versions_is_refused_before_it_is_asked(
+    tmp_path: Path, filled_store: list[str]
+) -> None:
+    """A2 §3 B2: the allowlist now decides, instead of the answer picking the bundle."""
+
+    error = prepare_refusing(
+        tmp_path,
+        filled_store,
+        managed_target(
+            tmp_path,
+            version_policy={
+                "mode": "explicit_allowlist",
+                "allowed_versions": ["1.20.1", "1.21.4"],
+            },
+        ),
+        readings=[],
+    )
+    assert error.category is ErrorCategory.ADMISSION
+    assert "exactly one version" in str(error)
+
+
+def test_a_target_whose_allowlist_disagrees_with_the_answer_is_refused_before_the_fill(
+    tmp_path: Path, filled_store: list[str]
+) -> None:
+    """A2 §3 B1: a 1.20.1 answer against a target that allows only 1.21.4.
+
+    The probe does run here — the target is joinable and read-only to ask — but the
+    profile's rule is what decides, and it decides before a single artifact is fetched.
+    `test_the_resolved_bundle_and_its_recipe_are_what_gets_handed_off` is the paired
+    reading: the same answer with a matching allowlist reaches the fill.
+    """
+
+    error = prepare_refusing(
+        tmp_path,
+        filled_store,
+        managed_target(
+            tmp_path,
+            version_policy={"mode": "explicit_allowlist", "allowed_versions": ["1.21.4"]},
+        ),
+        readings=[observation(PROTOCOL_1201, "1.20.1")],
+    )
+    assert error.category is ErrorCategory.ADMISSION
+    assert "allows 1.21.4" in str(error)
 
 
 def test_a_store_that_is_short_without_a_declared_budget_refuses_before_fetching(
@@ -492,3 +629,39 @@ def test_an_automatic_start_with_no_target_is_a_usage_refusal(
     assert code == int(ExitCode.USAGE)
     assert json.loads(stderr.getvalue())["status"] == "usage"
     assert list(tmp_path.iterdir()) == []
+
+
+def test_the_command_refuses_an_unjoinable_target_before_it_installs_anything(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A2 §3 X2 through the real entry point: named admission, and the store stayed 0.
+
+    Nothing is injected here, so the reading is the operator's: the refusal is an exit code
+    and one document, no artifact store was created under the data root, and the JVM hand-off
+    below it was never reached.
+    """
+
+    monkeypatch.setenv("MINEKIN_HOME", str(tmp_path))
+    monkeypatch.setenv("MINEKIN_USERNAME", "kin_test")
+    assert main(["init", "--kin-id", "kin-01"]) == int(ExitCode.OK)
+    capsys.readouterr()
+
+    profile = managed_target(tmp_path, host="198.51.100.20")
+    code = main(
+        [
+            "session",
+            "start",
+            "--auto-bundle",
+            str(REGISTRY),
+            "--server-profile",
+            str(profile),
+        ]
+    )
+
+    assert code == int(ExitCode.ADMISSION)
+    diagnostic = json.loads(capsys.readouterr().err.strip().splitlines()[-1])
+    assert diagnostic["category"] == "ADMISSION"
+    assert "loopback" in diagnostic["message"]
+    assert [path for path in tmp_path.rglob("artifact-store") if path.is_dir()] == []
