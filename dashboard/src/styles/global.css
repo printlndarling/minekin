@@ -1,0 +1,46 @@
+:root {
+  --bg: #10131a;
+  --surface: #171b24;
+  --surface-2: #1e2330;
+  --line: #2b3242;
+  --line-soft: #232937;
+  --text: #e6e9f0;
+  --text-dim: #9aa4b8;
+  --text-faint: #6b7488;
+  --invert-text: #10131a;
+  --accent-line: #3d5afe;
+  --accent-bg: #1b2140;
+  --ok-ink: #4ad295;
+  --ok-bg: #12291f;
+  --ok-line: #1d4a37;
+  --warn-ink: #e8b339;
+  --warn-bg: #2a2313;
+  --warn-line: #4d3f1c;
+  --bad-ink: #ff6b6b;
+  --bad-bg: #2b1719;
+  --bad-line: #55292e;
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: system-ui, "Segoe UI", "Noto Sans SC", sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.muted {
+  font-size: 12px;
+  color: var(--text-faint);
+}
+
+code {
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-size: 12px;
+}
