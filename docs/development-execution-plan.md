@@ -15,7 +15,7 @@
 1. 每次冷启动按[交接](qoder-execution-handoff.md)检查工作树、HEAD、工作分支、远端 `main` SHA；未提交改动归原作者，不 reset、stash、覆盖。读本文主干 `NEXT`（lane 会话另读自己分支的 `lane_next`）、对应专项契约和现行机器清单，写下 baseline SHA、允许路径、停止条件。
 2. 只做 `NEXT`。需要产品选择、真实外部授权、修改卡外判据/registry、删除数据、接管进程时停止该分支，登记证据和 `BLOCKED_*`；继续已有的独立安全卡，不自行猜结论。测试失败先诊断是否本卡范围内的缺陷；范围外登记单独修复卡，由主控排期。
 3. 一卡一可逆提交。先验路径范围和两轴审查（契约/工程），再跑与改动相称的本地门禁；运行时结论必须来自当前 build 的 Docker/受控真跑和 sealed bundle。`verify`、`rejudge`、适用 `replay`、`report_promotion` 四读、负向反证和 provenance 分开记录。失败工件不覆盖，敏感目标不入库。
-4. 卡通过后更新本文及[当前 TODO](development-todo.md)，commit，立即 push 工作分支与 `main`（仅在当前共享仓库两 ref 同步且无并发冲突时），核本地 HEAD、`origin/main` 和远端 SHA 一致，才改卡为 `DONE` 并提升下一张。push 失败不领取下一张。Qoder 可以在这些条件全部满足时机械流转已明确排队的卡；`BLOCKED_DECISION`、HOST/W80+、PERSIST、在线认证、扩大公网访问不在委托内。
+4. 卡通过后更新本文及[当前 TODO](development-todo.md)，commit，立即 push 本 lane 工作分支并核远端 SHA。lane 会话**不得**push `main`；`main` 只由主控 M 在双审与门禁通过后按依赖顺序合并更新，合后核 `origin/main` SHA 并向各 lane 发新 base，该卡此时才算主干 `DONE`/回写。push 失败不领取下一张。Qoder 可以在这些条件全部满足时机械流转已明确排队的卡；`BLOCKED_DECISION`、HOST/W80+、PERSIST、在线认证、扩大公网访问不在委托内。
 5. 基础门禁：`uv run --frozen pytest -q`，Ruff check/format，Pyright，`check_boundaries.py`、`check_case_assertions.py`、`verify_fixture_digests.py`、`check_workflow_pins.py`、`git diff --check`。Bridge/proto 加四项 Bridge 检查和 Java 21 `./gradlew check --rerun-tasks`（不可用 UP-TO-DATE 或 FROM-CACHE 替代）。Docker/真实客户端卡须跑其专项真实门禁。提交正文记 `Constraint`、`Rejected`、`Confidence`、`Scope-risk`、`Not-tested`。
 
 ## 2. 上一卡交付与当前 NEXT 边界
