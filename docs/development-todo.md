@@ -31,6 +31,7 @@
 - [ ] `BLOCKED_DECISION`：`V1201-DEMO-CASE-FREEZE-001`（A1 的 G3）——融合演示 case 断言哪些事实，含 040/080 两种释放原因在同 run 互斥；须主控冻结，执行侧不自造断言。
 - [ ] `BLOCKED_DECISION`：V08 对用户 1.20.1 测试服的一次只读探测和非破坏性入服，须新的本次许可；之后 V09 动作须单独限幅授权。V10 依赖真实 V08/V09。
 - [ ] `BLOCKED_DECISION`：HOST §5 三格所有权；PERSIST case 冻结；残留进程处置；数据保留/删除。不要猜。
+- [ ] `BLOCKED_DECISION`（M 第七轮登记）：**封存件不钉住编排脚本版本** ⇒「两次 run 是不是同一份 `domain.sh`」在现有 bundle 内按构造读不出（`orchestrator_trace()` 只写硬编码路径字符串，`tools/seal_run_evidence.py:535-556`；工件集合由具名常量逐条收，无 `run/` 目录扫描）。要它可读只有两条路：往 `minekin.p0.evidence.v1` 加修订字段（= 重封全卷，今日 `attempts 71 / bundles 107`、`from_another_build 61`），或只做读者面命名（先例 `0ab208c`）。M 采后者并已排自己那张 `INT-ORCHESTRATOR-REVISION-VISIBILITY-001`（`QUEUED_PROPOSED`，排在 `H1c`/`B1-b` 收口之后）；**加字段那一半要主控拍板，M 不代决**。读数与两式见[执行计划](development-execution-plan.md) §3.3 同名两行。
 - [ ] `BLOCKED_EVIDENCE`：`P0-GATE-PROMOTION-001` 与各门晋级——`promotable` 只是机器候选， mandatory 真实证据（现由 `P0-CONTROLLED-CAMPAIGN-001` 承接）补齐前不用单测或旧包替代。**读数已变（2026-09-26）**：`report_promotion` 对 W60 给 `promotable: true / blocks [] / requirement.satisfied: true`，即它那 7 条 mandatory 全部满足（其中 `CORE-040`、`CORE-050` 两条是本卡补的，其余 5 条在 B1 的 baseline 上就已满足）；是否晋级仍是主控决定，不由本读数触发。
 
 ## 后续阶段索引
