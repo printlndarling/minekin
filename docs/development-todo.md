@@ -3511,3 +3511,27 @@
   剩下的缺口窄得多：那 40 枚「被取代 attempt / 只作诊断」的 run 不在 registry 里，那道门走不到、本格的守卫也走不到，
   所以「文档历史引用 对 `/data` 封存件」两侧都没人判。本轮没有在这台机器上重跑那道门（它要 `/data`），引的是记录里的
   读数——按仓库口径这属于「引用既有实测」，不是「本轮已测」。仍只报告、不自建卡。
+
+## 2026-09-26 第六类现在时声明这一格的落地读数（收口补记）
+
+- 本格落了两格 docs-only 提交：`33ac25cc02d1fc3f10fd17fd45927f6b81a6984f`（记录扫描与十道读数）与
+  `517ebdadbb7277358268d62d89f8b322cf90932d`（把 ① 那条写重的"规格缺口"更正掉）。
+  `git show --stat` 各自读 **3 files changed**：前一格 `100 insertions(+), 1 deletion(-)`、后一格
+  `22 insertions(+), 2 deletions(-)`，三格文件都是 `docs/`，**产品代码、测试、夹具与 `tools/` 一字未动**——
+  这就是本轮没有重跑 pytest 的理由（八道快门禁与 `git diff --check` 在每格 docs 改动之后都重跑过，各 `rc 0`；
+  `uv run --frozen pytest -q` 的那次 2501 passed / 2 skipped 记在上面一节，覆盖的是同一棵树的产品面）。
+- 远端：`git ls-remote` 上 `main` 与 `codex/core-state-transition` 两格都读同一完整 SHA
+  （`33ac25c…` 之后是 `517ebda…`），push 用 `GIT_TERMINAL_PROMPT=0 git -c credential.helper= -c
+  credential.helper=wincred push origin HEAD:refs/heads/…`（这条命令是本机凭据选择器坏掉之后的固定写法），
+  push 之后照固定动作 `git fetch origin main:main`，`main...origin/main` 与 `HEAD...main` 都读 `0 0`。
+- GitHub Actions 对两个 SHA 各起两个 `CI` run：`33ac25c` 是 `36207685280` / `36207685203`，
+  `517ebda` 是 `36207976465` / `36207976345`。四个 run、每个三件 job（`python` 18 步、`protocol` 10 步、
+  `bridge-static` 9 步）**在 job 与 step 层全部 `completed / success`，没有一步失败或卡住**——读法还是那两条：
+  无 `gh`，用 `curl -A qoder-agent` 打 REST，再用 `.tmp/ci_steps.py <完整 SHA>` 逐步展开。
+- 这一格自己带来的两处"被门/被查出来"的账：① `git diff --check` 抓到 append 正文的尾随空行（`rc 2`，
+  报在 `docs/development-todo.md:3490`）；② 收口前重读判据面时发现自己把"registry 之外的引用"叫成了规格缺口，
+  而 `tools/verify_tested_provenance.py` 早就是被跟踪的那道门——于是有了 `517ebda` 这一格更正，
+  留下"哪一侧都不判那 40 枚历史引用"这条更窄的缺口。**没有为任何一处给自己加豁免名单，也没有 amend。**
+- 补记之后四把文档守卫与八道快门禁再各读一次 `rc 0`（路径 690 处、标识符 186 处、命令 29 脚本 / 27 处、
+  证据摘要 15 配对，四格 `findings: 0`），所以这一段自己没把门弄红——这是本轮第四次遇到"记录形状可能变成 finding"，
+  前三次分别落在 flag 表、路径引用与标识符那三格。
