@@ -6857,3 +6857,360 @@ def test_a_sealed_bundle_is_scanned_through_the_artifacts_it_declares(tmp_path: 
     assert assertion(BUNDLE_CARRIERS)(injected) == (
         "AUTH_BODY_EXPOSED:client/crash-reports/crash-2026-09-26_17.31.04-client.txt:clientId"
     )
+
+
+# ==============================================================================
+# OFFLINE-100 — the restart a pair can judge, and the world switch it cannot
+# ==============================================================================
+
+
+OFFLINE_100_CASE = CASES / "offline-100.json"
+KIN_CONTINUES = "the_kin_id_continues_from_the_previous_run"
+SESSION_NOT_RESUMED = "the_session_is_not_the_one_the_previous_run_had"
+SERVER_RECORD = "the_world_and_the_identity_are_the_server_s_record"
+TRIPLE = "the_world_switch_returned_to_the_confirmed_world"
+
+#: The run this one followed, and the line the server wrote about the directory it
+#: opened before anyone connected. Both are shapes measured on the volume: the run id is
+#: the ledger's 32-hex form, and `Preparing level` is vanilla's own sentence naming the
+#: world it took, which is the only place the server says so rather than configures so.
+PREVIOUS_RUN_ID = "a91f4c2e7d0b4f83a1c65d9e2b7f4c10"
+PREPARING = '[19:28:05] [Server thread/INFO]: Preparing level "world"'
+
+#: The controlled offline server's properties as it left them: the profile the harness
+#: built it from, the port that profile names, the directory it opened, and the
+#: `online-mode=false` that makes this row an offline one.
+OFFLINE_SERVER_PROPERTIES = (
+    f"level-name=world\nonline-mode=false\nserver-port={PROFILE_PORT}\n"
+    f"motd=minekin P0 controlled server {PROFILE_ID}\n"
+)
+
+
+def ledger_row(
+    event_type: str, *, run: str, session: str, kin: str = "kin-01", **payload: object
+) -> Mapping[str, object]:
+    """One ledger row, carrying the attribution columns OFFLINE-100 reads.
+
+    `event()` holds `run_id` at this run's because no earlier case asked which run wrote a
+    row. This row's first clause does: the criterion is that the Kin continues from *the
+    run before*, and a timeline assembled from rows of unknown provenance could say that
+    about any two runs at all.
+    """
+
+    return {
+        **event(event_type, row_session_id=session, **payload),
+        "run_id": run,
+        "kin_id": kin,
+    }
+
+
+def offline_pair(**changes: object) -> _Material:
+    """A restarted offline run, and the run its Kin's ledger held before it.
+
+    Shaped like the OFFLINE-020 pair measured on the volume: one session per timeline, the
+    predecessor's rows stopping where its run stopped, and the server's carriers naming the
+    same world the trusted profile does.
+    """
+
+    arguments: dict[str, object] = {
+        "events": (
+            ledger_row(PROCESS_STARTED, run=RUN_ID, session="session-01"),
+            ledger_row(HANDSHAKE, run=RUN_ID, session="session-01"),
+            ledger_row("JoinObserved", run=RUN_ID, session="session-01", phase="JOIN_SEEN"),
+        ),
+        "previous": (
+            PREVIOUS_RUN_ID,
+            (
+                ledger_row(PROCESS_STARTED, run=PREVIOUS_RUN_ID, session=DEAD_SESSION),
+                ledger_row(HANDSHAKE, run=PREVIOUS_RUN_ID, session=DEAD_SESSION),
+                ledger_row("JoinObserved", run=PREVIOUS_RUN_ID, session=DEAD_SESSION),
+            ),
+        ),
+        "log": f"{PREPARING}\n{JOINED}\n{LEFT}\n",
+        "server_properties": OFFLINE_SERVER_PROPERTIES,
+        "server_profile": TRUSTED_PROFILE,
+    }
+    arguments.update(changes)
+    return material(**arguments)  # type: ignore[arg-type]
+
+
+def offline_100_case() -> dict[str, object]:
+    return cast(dict[str, object], json.loads(OFFLINE_100_CASE.read_text(encoding="utf-8")))
+
+
+def test_a_restarted_run_in_a_world_the_server_named_holds_its_three_clauses() -> None:
+    pair = offline_pair()
+
+    assert assertion(KIN_CONTINUES)(pair) is None
+    assert assertion(SESSION_NOT_RESUMED)(pair) is None
+    assert assertion(SERVER_RECORD)(pair) is None
+
+
+def test_a_green_pair_is_not_a_closed_row() -> None:
+    """主控's rule on this row, enforced by the fixture rather than by prose.
+
+    Every clause a bundle and the run before it can answer for is green here, and the row
+    still reports FAIL: the A→B→A half refuses. Two adjacent runs holding different
+    sessions is a necessary condition of the identity switch and not the switch, so neither
+    the gate nor a reader can take this pair as OFFLINE-100 closing.
+    """
+
+    verdict = ASSERTER_MODULE.evaluate(offline_100_case(), offline_pair())
+
+    assert verdict.result == "FAIL"
+    assert verdict.observed == (KIN_CONTINUES, SESSION_NOT_RESUMED, SERVER_RECORD)
+    assert verdict.failures == (f"{TRIPLE}:A_B_A_TRIPLE_NOT_SEALED",)
+    assert verdict.unimplemented == ()
+
+
+#: The pair-level counterexamples: which clause is meant to answer, one named edit, and
+#: the code it has to produce. The first five are the definition's §3.6 list; the rest are
+#: the carrier halves of the third clause, each of which would go green on an absence if it
+#: were not written to refuse one.
+PAIR_COUNTEREXAMPLES: tuple[tuple[str, str, Mapping[str, object], str], ...] = (
+    (
+        "a predecessor row belonging to another Kin",
+        KIN_CONTINUES,
+        {
+            "previous": (
+                PREVIOUS_RUN_ID,
+                (
+                    ledger_row(PROCESS_STARTED, run=PREVIOUS_RUN_ID, session=DEAD_SESSION),
+                    ledger_row(HANDSHAKE, run=PREVIOUS_RUN_ID, session=DEAD_SESSION, kin="kin-99"),
+                ),
+            )
+        },
+        "KIN_ID_NOT_CONTINUOUS:kin-01,kin-99",
+    ),
+    (
+        "a predecessor trace assembled from two runs",
+        KIN_CONTINUES,
+        {
+            "previous": (
+                PREVIOUS_RUN_ID,
+                (
+                    ledger_row(PROCESS_STARTED, run=PREVIOUS_RUN_ID, session=DEAD_SESSION),
+                    ledger_row(HANDSHAKE, run="f" * 32, session=DEAD_SESSION),
+                ),
+            )
+        },
+        f"PREVIOUS_ROWS_NOT_ONE_RUN:{'f' * 32}",
+    ),
+    (
+        "a row of this timeline written by another run",
+        KIN_CONTINUES,
+        {
+            "events": (
+                ledger_row(PROCESS_STARTED, run=RUN_ID, session="session-01"),
+                ledger_row(HANDSHAKE, run="e" * 32, session="session-01"),
+            )
+        },
+        f"THIS_TIMELINE_ROWS_ARE_NOT_ONE_RUN:{'e' * 32}",
+    ),
+    (
+        "a row that names no Kin at all",
+        KIN_CONTINUES,
+        {"events": ({**event(PROCESS_STARTED, row_session_id="session-01"), "run_id": RUN_ID},)},
+        "LEDGER_ROW_NAMES_NO_KIN",
+    ),
+    (
+        "the dead run's session, resumed",
+        SESSION_NOT_RESUMED,
+        {
+            "events": (
+                ledger_row(PROCESS_STARTED, run=RUN_ID, session=DEAD_SESSION),
+                ledger_row(HANDSHAKE, run=RUN_ID, session=DEAD_SESSION),
+            )
+        },
+        f"SESSION_ID_SHARED_ACROSS_RUNS:{DEAD_SESSION}",
+    ),
+    (
+        "a run with no session column anywhere in it",
+        SESSION_NOT_RESUMED,
+        {"events": (ledger_row(PROCESS_STARTED, run=RUN_ID, session=""),)},
+        "NO_SESSION_ATTRIBUTION_IN_LEDGER",
+    ),
+    (
+        "a predecessor whose rows name no session",
+        SESSION_NOT_RESUMED,
+        {
+            "previous": (
+                PREVIOUS_RUN_ID,
+                (ledger_row(PROCESS_STARTED, run=PREVIOUS_RUN_ID, session=""),),
+            )
+        },
+        "PREVIOUS_RUN_HAS_NO_SESSION_ATTRIBUTION",
+    ),
+    (
+        "the server cached a different player for this name",
+        SERVER_RECORD,
+        {"identities": {USERNAME: str(offline_player_uuid("Someone-else"))}},
+        f"IDENTITY_UUID_MISMATCH:{offline_player_uuid('Someone-else')}",
+    ),
+    (
+        "the server logged no arrival",
+        SERVER_RECORD,
+        {"log": f"{PREPARING}\n"},
+        "JOIN_NOT_LOGGED",
+    ),
+    (
+        "the profile's revision is a word rather than a digest",
+        SERVER_RECORD,
+        {"server_profile": {**TRUSTED_PROFILE, "revision": "latest"}},
+        "SERVER_PROFILE_HAS_NO_REVISION_DIGEST:'latest'",
+    ),
+    (
+        "no sealed profile at all",
+        SERVER_RECORD,
+        {"server_profile": None},
+        "NO_SEALED_SERVER_PROFILE",
+    ),
+    (
+        "properties that never say which world",
+        SERVER_RECORD,
+        {"server_properties": "online-mode=false\n"},
+        "SERVER_PROPERTIES_SAY_NOTHING_ABOUT_THE_WORLD",
+    ),
+    (
+        "a log that never named the world it opened",
+        SERVER_RECORD,
+        {"log": f"{JOINED}\n{LEFT}\n"},
+        "SERVER_LOG_NEVER_NAMED_THE_WORLD_IT_OPENED",
+    ),
+    (
+        "properties saying one world, the server opening another",
+        SERVER_RECORD,
+        {
+            "server_properties": OFFLINE_SERVER_PROPERTIES.replace(
+                "level-name=world", "level-name=world-2"
+            )
+        },
+        "SERVER_OPENED_A_WORLD_OTHER_THAN_ITS_PROPERTIES:world",
+    ),
+)
+
+
+@pytest.mark.parametrize("why, clause, change, reason", PAIR_COUNTEREXAMPLES)
+def test_a_pair_that_does_not_hold_a_clause_is_named_for_that_clause(
+    why: str, clause: str, change: Mapping[str, object], reason: str
+) -> None:
+    """Each mutation reds exactly the clause it breaks, and nothing beside it.
+
+    The `clause` is part of the expectation, not a comment: a mutation that reddened a
+    neighbour instead would let one carrier's absence be reported as a Kin's disagreement,
+    which is how a row about identity ends up judging files.
+    """
+
+    pair = offline_pair(**change)  # type: ignore[arg-type]
+    answers = {
+        KIN_CONTINUES: assertion(KIN_CONTINUES)(pair),
+        SESSION_NOT_RESUMED: assertion(SESSION_NOT_RESUMED)(pair),
+        SERVER_RECORD: assertion(SERVER_RECORD)(pair),
+    }
+
+    assert answers[clause] == reason, why
+    others = {name: answer for name, answer in answers.items() if name != clause}
+    assert others == dict.fromkeys(others), why
+
+
+def test_a_first_run_of_a_kin_is_not_a_restart_and_says_so() -> None:
+    """`PREVIOUS_IS_FIRST_RUN` on both pair clauses, rather than a green over nothing.
+
+    The reading worst to get wrong is this one: a run with no predecessor has no crossing to
+    refuse and no continuity to confirm, and answering "holds" to either question would let
+    a first run be filed as the restart evidence the row asks for. The world clause still
+    answers, because the server's own carriers do not need a predecessor to speak about.
+    """
+
+    first = offline_pair(previous=("", ()))
+
+    assert assertion(KIN_CONTINUES)(first) == "PREVIOUS_IS_FIRST_RUN"
+    assert assertion(SESSION_NOT_RESUMED)(first) == "PREVIOUS_IS_FIRST_RUN"
+    assert assertion(SERVER_RECORD)(first) is None
+
+
+def test_a_run_that_names_a_predecessor_but_carries_its_rows_nothing_is_not_scoped() -> None:
+    """The ledger says a run came before; this bundle sealed no trace of it.
+
+    Absent rows are not the same fact as rows that disagree, and this is where the two
+    part: reading an empty predecessor as continuity would make the weakest evidence in the
+    bundle the strongest.
+    """
+
+    assert assertion(KIN_CONTINUES)(offline_pair(previous=(PREVIOUS_RUN_ID, ()))) == (
+        "PREVIOUS_TRACE_NOT_SEALED"
+    )
+    assert assertion(SESSION_NOT_RESUMED)(offline_pair(previous=(PREVIOUS_RUN_ID, ()))) == (
+        "PREVIOUS_TRACE_NOT_SEALED"
+    )
+
+
+def test_the_generation_may_repeat_while_the_session_does_not() -> None:
+    """The non-vacuity control on the crossing rule: it keys on the session.
+
+    A generation restarting at 1 in every run is what the harness actually does — each run
+    takes its own session and begins its generation again. A rule that compared the whole
+    coordinate would call that a resumed session and red a row that holds.
+    """
+
+    repeated_generation = offline_pair(
+        events=(
+            ledger_row(PROCESS_STARTED, run=RUN_ID, session="session-07", generation=1),
+            ledger_row(HANDSHAKE, run=RUN_ID, session="session-07", generation=1),
+        )
+    )
+    resumed_coordinate = offline_pair(
+        events=(ledger_row(PROCESS_STARTED, run=RUN_ID, session=DEAD_SESSION, generation=1),)
+    )
+
+    assert assertion(SESSION_NOT_RESUMED)(repeated_generation) is None
+    assert assertion(SESSION_NOT_RESUMED)(resumed_coordinate) == (
+        f"SESSION_ID_SHARED_ACROSS_RUNS:{DEAD_SESSION}"
+    )
+
+
+def test_the_a_b_a_half_refuses_on_every_shape_a_bundle_can_take() -> None:
+    """No material turns the switch clause green, including the ones that hold.
+
+    The clause is a refusal for a missing carrier, so the only honest test of it is that the
+    widest set of shapes available today — a clean pair, a first run, a mismatched identity
+    — all get the same answer. It changes when a sealed chain reaches the judgement, not
+    when this list grows.
+    """
+
+    for pair in (
+        offline_pair(),
+        offline_pair(previous=("", ())),
+        offline_pair(identities={USERNAME: str(offline_player_uuid("Someone-else"))}),
+    ):
+        assert assertion(TRIPLE)(pair) == "A_B_A_TRIPLE_NOT_SEALED"
+
+
+def test_the_two_new_rows_name_only_assertions_the_asserter_performs() -> None:
+    """The registry check, taken for the fixtures added after the list above."""
+
+    for path in (OFFLINE_090_CASE, OFFLINE_100_CASE):
+        declared = cast(dict[str, object], json.loads(path.read_text(encoding="utf-8")))[
+            "assertions"
+        ]
+        assert isinstance(declared, list)
+        for name in cast(list[object], declared):
+            assert str(name) in ASSERTER_MODULE.ASSERTIONS, f"{path.name} names {name}"
+
+
+def test_the_row_stays_non_mandatory_and_records_what_implements_each_clause() -> None:
+    """The registration's own shape: a clause nothing implements cannot be recorded.
+
+    `mandatory: false` is 主控's call to move, not this row's. The recorded digests are what
+    makes the criteria's version travel with the evidence: a bundle judged before a clause
+    moved is unjudged by this row rather than silently read against the new meaning.
+    """
+
+    case = offline_100_case()
+
+    assert case["mandatory"] is False
+    assert case["work_package"] == "W30"
+    digests = cast(Mapping[str, object], case["assertion_digests"])
+    assert set(digests) == set(cast(list[str], case["assertions"]))
+    for name, digest in digests.items():
+        assert isinstance(digest, str) and len(digest) == 64, name

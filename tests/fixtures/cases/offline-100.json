@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "case_id": "OFFLINE-100",
+  "work_package": "W30",
+  "mandatory": false,
+  "inputs": [],
+  "assertion_digests": {
+    "the_kin_id_continues_from_the_previous_run": "0e76c34d721efb4e7d04dbd0ebf5f81e00f4d7df49b7af910ab5cb75a34957ee",
+    "the_session_is_not_the_one_the_previous_run_had": "17fc221317e0066ef03ea09f60fced1f8ef9fd2e474fd79814461e9f25e861e0",
+    "the_world_and_the_identity_are_the_server_s_record": "5c19dea37d608ec2174490aa14ccf6eca260d1f870a9bda4e8e07aac13cd9a2e",
+    "the_world_switch_returned_to_the_confirmed_world": "ae90de9463ce3a8be574b2f17daf255ff9fc6c6c094a156e7e30a0b656f7fa0d"
+  },
+  "assertions": [
+    "the_kin_id_continues_from_the_previous_run",
+    "the_session_is_not_the_one_the_previous_run_had",
+    "the_world_and_the_identity_are_the_server_s_record",
+    "the_world_switch_returned_to_the_confirmed_world"
+  ]
+}

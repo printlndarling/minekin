@@ -3755,6 +3755,164 @@ def auth_field_bodies_are_not_exposed_on_the_dashboard(material: RunMaterial) ->
     return None
 
 
+# OFFLINE-100 — the restart half of the identity row, and the world switch a single bundle
+# cannot reach. The shape of this section is 主控's ruling on the row: two adjacent runs are
+# a necessary condition of A→B→A and never the proof of it, so what a pair can answer for
+# (one Kin, the server's own record of its world and identity, and a session the dead run
+# did not have) is judged here, and the three-run closure names the carrier it would need.
+
+
+#: What the server wrote about the world directory it opened, before anything connected.
+#: `server.properties` is what the server was configured for, and the server rewrites it;
+#: this line is what it took on the run that is being judged.
+PREPARING_LEVEL = re.compile(r'Preparing level "([^"]+)"')
+SERVER_LEVEL_NAME_KEY = "level-name"
+
+
+def the_world_and_the_identity_are_the_server_s_record(material: RunMaterial) -> str | None:
+    """Which world this run stood in, and which player the server says it was.
+
+    The client's claim is excluded on purpose: the profile Core was given, the properties
+    the server ran under, the world the server said it was preparing, and the cache it
+    wrote when a name connected are four third-party accounts, and the external identity
+    the contract row asks for is what *the server* recorded.
+
+    Three of them have to agree rather than each be present. A profile whose `revision` is
+    not a digest names a world that could have changed underneath it; properties saying
+    `world` over a log that prepared `world-2` is a run in two worlds at once; and a world
+    nobody entered is not a world this run stood in, so the join and the UUID the name
+    derives to are read through the registered rule rather than re-derived here — a second
+    copy of that rule would be a second place to disagree about what vanilla's offline
+    identity is.
+    """
+
+    if material.server_profile is None:
+        return "NO_SEALED_SERVER_PROFILE"
+    profile_id = _text(material.server_profile, "profile_id")
+    if not profile_id:
+        return "SERVER_PROFILE_NAMES_NO_WORLD"
+    revision = material.server_profile.get("revision")
+    if not is_digest(revision):
+        return f"SERVER_PROFILE_HAS_NO_REVISION_DIGEST:{revision!r}"
+    configured = (
+        None
+        if not material.server_properties
+        else _properties_value(material.server_properties, SERVER_LEVEL_NAME_KEY)
+    )
+    if configured is None:
+        return "SERVER_PROPERTIES_SAY_NOTHING_ABOUT_THE_WORLD"
+    opened = PREPARING_LEVEL.search(material.server_log)
+    if opened is None:
+        return "SERVER_LOG_NEVER_NAMED_THE_WORLD_IT_OPENED"
+    if opened.group(1) != configured:
+        return f"SERVER_OPENED_A_WORLD_OTHER_THAN_ITS_PROPERTIES:{opened.group(1)}"
+    return server_observed_join_identity(material)
+
+
+def _session_values(events: Sequence[Mapping[str, object]]) -> frozenset[str]:
+    """Every session one timeline's rows attribute themselves to.
+
+    The column and not the payload: the pair-level rule below asks only whether two
+    timelines hold a coordinate in common, and the column is the one the ledger indexes.
+    """
+
+    found: list[str] = []
+    for recorded in events:
+        value = recorded.get("session_id")
+        if isinstance(value, str) and value:
+            found.append(value)
+    return frozenset(found)
+
+
+def the_kin_id_continues_from_the_previous_run(material: RunMaterial) -> str | None:
+    """The restart's one subject: the same Kin, and two runs that stay in their own rows.
+
+    Each timeline has to hold exactly the rows of the run it is said to hold, because that
+    is what makes "the run before this one" a scoping fact rather than a guess about where
+    a row came from — and a `kin_id` that is continuous *within* a pile of rows from two
+    unrelated runs would be a comparison that never actually compared the pair.
+    """
+
+    if not material.ledger_readable:
+        return "LEDGER_UNREADABLE"
+    if not material.previous_run_id:
+        return "PREVIOUS_IS_FIRST_RUN"
+    if not material.previous_run_events:
+        return "PREVIOUS_TRACE_NOT_SEALED"
+    if not material.ledger_events:
+        return "THIS_RUN_HAS_NO_ROWS"
+    for row in material.ledger_events:
+        if row.get("run_id") != material.run_id:
+            return f"THIS_TIMELINE_ROWS_ARE_NOT_ONE_RUN:{row.get('run_id')}"
+    for row in material.previous_run_events:
+        if row.get("run_id") != material.previous_run_id:
+            return f"PREVIOUS_ROWS_NOT_ONE_RUN:{row.get('run_id')}"
+    named = {
+        str(row.get("kin_id") or "")
+        for row in (*material.ledger_events, *material.previous_run_events)
+    }
+    if "" in named:
+        return "LEDGER_ROW_NAMES_NO_KIN"
+    if named != {material.kin_id}:
+        return f"KIN_ID_NOT_CONTINUOUS:{','.join(sorted(named))}"
+    return None
+
+
+def the_session_is_not_the_one_the_previous_run_had(material: RunMaterial) -> str | None:
+    """This run did not resume the session coordinate the run before it died with.
+
+    The whole of what a pair can say about crossing, and named for the session rather than
+    for the world for that reason: the world contexts of the two runs would need the second
+    run's own server carriers, which its bundle holds and this one does not. Disjoint
+    sessions is a necessary condition of A→B→A, not its proof — the row's last assertion
+    is where the switch itself is refused.
+    """
+
+    if not material.ledger_readable:
+        return "LEDGER_UNREADABLE"
+    if not material.previous_run_id:
+        return "PREVIOUS_IS_FIRST_RUN"
+    if not material.previous_run_events:
+        return "PREVIOUS_TRACE_NOT_SEALED"
+    here = _session_values(material.ledger_events)
+    if not here:
+        return "NO_SESSION_ATTRIBUTION_IN_LEDGER"
+    before = _session_values(material.previous_run_events)
+    if not before:
+        # Rows that exist and name no session: an empty set on this side would make any
+        # session on the other side look unshared, which is the green an absence has to be
+        # refused rather than counted.
+        return "PREVIOUS_RUN_HAS_NO_SESSION_ATTRIBUTION"
+    shared = here & before
+    if shared:
+        return f"SESSION_ID_SHARED_ACROSS_RUNS:{','.join(sorted(shared))}"
+    return None
+
+
+def the_world_switch_returned_to_the_confirmed_world(material: RunMaterial) -> str | None:
+    """A→B→A: the Kin left one world, entered another, and came back to the first.
+
+    Never green on the bytes this function is given, and written to say so rather than to
+    be tuned around it. The five conditions pinned for the row are one `kin_id` across
+    three runs, three distinct sessions, the two A ends sharing one *confirmed* context
+    tuple, B's session and context appearing in neither A end, and the external identity
+    server-observed in all three. Each of them is a reading this section performs per
+    bundle or per adjacent pair; none of them is the row, because the row is the same
+    answer taken from three bundles at once.
+
+    `RunMaterial` is one run's, and bundles are judged one at a time. The carrier that
+    would let a judgement see the chain is one the sealer does not write, and naming a
+    sealed artifact is a change to evidence schema `minekin.p0.evidence.v1`, which 主控
+    holds. So a controlled A→B→A run changes this answer by being sealed and read, not by
+    this function being edited to stop refusing. The ledger's own `world_context_id` column
+    is no shortcut either: it is null in every row of every sealed trace on the volume
+    (B1-b-0 recount: 0 non-null of 345 rows), and an equality over absent values would be
+    exactly the fabricated confirmation this row exists to refuse.
+    """
+
+    return "A_B_A_TRIPLE_NOT_SEALED"
+
+
 #: Every assertion a case manifest may name, and what performs it. A name that is
 #: not here cannot be judged, which the verdict reports rather than passing over.
 ASSERTIONS: dict[str, Callable[[RunMaterial], str | None]] = {
@@ -3763,6 +3921,16 @@ ASSERTIONS: dict[str, Callable[[RunMaterial], str | None]] = {
     ),
     "auth_field_bodies_are_not_exposed_on_the_dashboard": (
         auth_field_bodies_are_not_exposed_on_the_dashboard
+    ),
+    "the_world_and_the_identity_are_the_server_s_record": (
+        the_world_and_the_identity_are_the_server_s_record
+    ),
+    "the_kin_id_continues_from_the_previous_run": the_kin_id_continues_from_the_previous_run,
+    "the_session_is_not_the_one_the_previous_run_had": (
+        the_session_is_not_the_one_the_previous_run_had
+    ),
+    "the_world_switch_returned_to_the_confirmed_world": (
+        the_world_switch_returned_to_the_confirmed_world
     ),
     "server_observed_join_identity": server_observed_join_identity,
     "first_snapshot_admitted": first_snapshot_admitted,

@@ -241,12 +241,28 @@ IMPLEMENTATIONS: dict[str, Implementation] = {
     # OFFLINE-090: the two halves of "logs, crashes and Dashboard show no authentication
     # body". Both are readings of sealed carriers, so both are the asserter's; the
     # Dashboard half names the carrier it cannot read rather than reporting a zero over
-    # the bytes that happen to be there — see the reason recorded on the fixture.
+    # the bytes that happen to be there — see that function's own docstring.
     "auth_field_bodies_are_not_exposed_in_bundle_carriers": _runtime(
         "auth_field_bodies_are_not_exposed_in_bundle_carriers"
     ),
     "auth_field_bodies_are_not_exposed_on_the_dashboard": _runtime(
         "auth_field_bodies_are_not_exposed_on_the_dashboard"
+    ),
+    # OFFLINE-100: the restart half is a reading of one bundle and the run before it, so it
+    # is the asserter's. The third name is the A→B→A half, and it is registered as the
+    # judgement that refuses to answer for a chain no carrier holds — the row's own status
+    # rule, which is that a pair of adjacent runs never closes it.
+    "the_world_and_the_identity_are_the_server_s_record": _runtime(
+        "the_world_and_the_identity_are_the_server_s_record"
+    ),
+    "the_kin_id_continues_from_the_previous_run": _runtime(
+        "the_kin_id_continues_from_the_previous_run"
+    ),
+    "the_session_is_not_the_one_the_previous_run_had": _runtime(
+        "the_session_is_not_the_one_the_previous_run_had"
+    ),
+    "the_world_switch_returned_to_the_confirmed_world": _runtime(
+        "the_world_switch_returned_to_the_confirmed_world"
     ),
     "server_observed_join_identity": _runtime("server_observed_join_identity"),
     "first_snapshot_admitted": _runtime("first_snapshot_admitted"),
