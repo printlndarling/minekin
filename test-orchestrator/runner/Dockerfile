@@ -75,4 +75,28 @@ RUN python3 -m venv /opt/minekin \
       "protobuf==6.33.6" >/dev/null
 ENV PATH=/opt/minekin/bin:$PATH
 
+# Why a test toolchain lives in the controlled image at all: repository-check
+# cases (OFFLINE-001/040/050, ADMIT-080 and the rest of their family) are judged
+# by `tools/run_repo_case.py`, which performs every `pytest`-kind assertion with
+# `python -m pytest` from *this* interpreter. Without pytest the same command
+# returns a false FAIL caused only by the environment — measured on the previous
+# image: rc=1, all five details `/opt/minekin/bin/python3: No module named
+# pytest` (docs/p0-repo-four-case-run-2026-09-26.md §5). Sealing a repository
+# check inside the controlled environment was impossible; this layer makes it
+# possible without loosening anything else.
+#
+# Every version below is taken verbatim from the `dev` group resolution in
+# `uv.lock` (registry-resolved at the base of this branch): pytest 9.1.1 and its
+# four Linux-side locked dependencies, pinned together so pip cannot float any
+# transitive closure — no bare `pip install pytest`. `colorama` is the fifth
+# locked dependency but carries `sys_platform == 'win32'`, so it is not
+# installed here; `tests/conftest.py` and the unit tests these cases point at
+# import nothing beyond pytest, the source tree and protobuf already above.
+RUN /opt/minekin/bin/pip install --no-cache-dir --disable-pip-version-check \
+      "pytest==9.1.1" \
+      "iniconfig==2.3.0" \
+      "packaging==26.3" \
+      "pluggy==1.6.0" \
+      "pygments==2.21.0" >/dev/null
+
 WORKDIR /work
