@@ -181,3 +181,11 @@ B2 的第一刀 `P0-CORE-040-050-RUN-001` 已于 2026-09-26 完成（**B2 本身
   已提交的 runner/产品代码、不封 HOST 族。** 待主控点的仍是那五件 + 新加两件：mandatory 登记/晋级、§3.3 排期、
   `import sys` 缺陷、`domain.sh:657`、GLFW `[0x1000E]` 是否开诊断卡、受控镜像是否携带钉住的测试工具链、
   「`SEALED` 行无 bundle」的静默是否开卡。禁止连接用户远程服这条不变；`minekin-runner-data` 仍只有 E 写。
+- **给 M 的整合形状（量出来的，2026-09-26 `13:50` UTC 前后，lane `470b032`）**：`git merge-base --is-ancestor
+  ed37260 HEAD` 成立 ⇒ 主干就是 E 分支的祖先，合并是 **fast-forward**、`git merge-tree --write-tree origin/main HEAD`
+  的 rc=0 且不报任何冲突；`git log origin/main..HEAD` 是 5 条提交（`48fe79e` N1 收口读数、`c3998a3` 第三刀、
+  `2a83109` 第四刀、`a5f3ec8` 第五刀、`470b032` 第五刀的判据归属更正），`git diff --stat origin/main...HEAD`
+  是 **8 个 `docs/` 文件、974 行增、7 行删**，`src/ tools/ tests/ test-orchestrator/ schemas/ bridge/` 零改动。
+  基础门在同一棵树上重跑：`ruff check` / `ruff format --check`（339 files）/ `pyright` 0 errors /
+  `pytest` 2509 passed 2 skipped / boundaries / 140 registered assertions / fixture digests / workflow pins 全绿。
+  这条只描述 M 合并时预期看到什么，不构成任何合并时机的请求；E 之后若再提交，仍然只动 `docs/`。
