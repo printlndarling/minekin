@@ -1,6 +1,6 @@
 # Qoder / 新会话连续执行交接
 
-更新：2026-09-27（最新一轮是文末的「M 主控第四轮」）。旧 875 行交接（包括 Qoder 未提交的第七类审计草稿）完整保存在[历史交接](qoder-execution-handoff-history-through-cef712b.md)；其中旧 `NEXT`、旧 run 读数、旧“队列为空”不再指挥执行。现行唯一队列是[执行计划](development-execution-plan.md)。
+更新：2026-09-27（最新一轮是文末的「M 主控第十二轮」，其前的第五至第十一轮按同一格式顺排在该节之前）。旧 875 行交接（包括 Qoder 未提交的第七类审计草稿）完整保存在[历史交接](qoder-execution-handoff-history-through-cef712b.md)；其中旧 `NEXT`、旧 run 读数、旧“队列为空”不再指挥执行。现行唯一队列是[执行计划](development-execution-plan.md)。
 
 ## 每次启动与上下文丢失后的恢复步骤
 
@@ -525,3 +525,50 @@ V2 的绿读数暴露、M 在自己卷上重放确认：auto run 跨过早停后
 
 ### 不声称
 - 不声称 `OFFLINE-090`/`OFFLINE-100`/`OFFLINE-070` 已注册或已闭合；不声称 090 的 Dashboard 半句有任何载体；不声称 A→B→A 有任何三段证据；不声称任何门禁点亮；不声称 Minekin 完成。
+（以上属第十一轮的陈述；本轮 090/100 **已注册**，其「未闭合」结论不变，见下一节。）
+
+## M 主控第十二轮（2026-09-27，M 独占实施 090/100 的登记，逐案两笔）
+
+### 落干与远端核对
+- `OFFLINE-090` = M 的直接提交 `11f5ea0`（5 文件 `+648`：`tools/assert_case_evidence.py` `+320`、`tools/check_case_assertions.py` `+10`、`tests/fixtures/cases/offline-090.json` 新建、`tests/fixtures/manifest.sha256` 一行、`tests/unit/test_case_evidence_assertions.py` `+302`）。
+- `OFFLINE-100` = M 的直接提交 `2e6711f`（5 文件 `+562 -1`，同五个面）。
+- 推送后 `git -c credential.helper= -c credential.helper=wincred ls-remote origin refs/heads/main` = **`2e6711f01a41dab5e2eb8ecbcdb68e4b92331599`**（推送前为父提交 `11f5ea07f0b47d988e890d837c9627daa55224c7`，即远端未被他人推进）。
+
+### 090 的登记形状（按第十一轮冻结的 §2.5）
+- 判据是**带字段/参数上下文的认证正文暴露**：`_FIELD_ALTERNATION` 名字与值同处出现才算。裸 `0`（离线哨兵，公开非秘密）与空 argv 一律不计泄漏；认证字段仍统一脱敏。
+- JSON 载体捕获取 `[^"\\]*`。M 在提交前量到 8 条红，根因正是贪婪版 `[^"]*` 会把转义 payload 的闭合 `\"` 吞进捕获、连带行内余下花括号，把一条干净的分类标签报成凭据；Dashboard 一侧的反例夹具也改成真实参数形状 `--xuid "<正文>"` 而非散文。
+- `asserter-inputs.json` **不携带** token/xuid/clientId（键恰为 `schema_version/kin_id/run_id/username/previous_run_id`），判法不从中取值。
+- **整条不得 PASS 由代码保证**：父案 fixture 持两句，`auth_field_bodies_are_not_exposed_on_the_dashboard` 在无 `dashboard/` 载体时恒答具名 `DASHBOARD_CARRIER_NOT_SEALED` ⇒ 该行判 `FAIL` 且只 obs 两句之一。E 草稿里那个非门禁子案 id `OFFLINE-090-BUNDLE-CARRIERS-001` **未创建**：新 case id 要动 `src/minekin_core/domain/cases.py`（出本卡面，且属主控保留的 id 拆分口径，如 ADMIT-030/050 的先例），而主控的原条件是「必要时拆」——父案以 FAIL 形态保留缺口已满足该条件，故本轮不拆。若日后要拆，由主控先批准 id 面。
+
+### 100 的登记形状（按 §3.5 C1-C5，可判的落在 pair 级）
+- 四条注册名：`the_kin_id_continues_from_the_previous_run`、`the_session_is_not_the_one_the_previous_run_had`、`the_world_and_the_identity_are_the_server_s_record`、`the_world_switch_returned_to_the_confirmed_world`。
+- 前三条在「本 bundle + 已封的 `previous-run-trace.jsonl`」上可判；服务端那半句读 `trusted/server-profile.json` + `server/server.properties` 的 `level-name` + `server.log` 的 `Preparing level "<name>"` 三者一致，UUID 与加入句**委托已注册的 `server_observed_join_identity`**，不重推规则。
+- 第四条恒答 `A_B_A_TRIPLE_NOT_SEALED`：一个 `RunMaterial` 只属一次 run，三段链无封存载体，补载体 = 扩展 `minekin.p0.evidence.v1`（主控保留、且会重封全卷）；`world_context_id` 在卷上 345 行全 null，禁止拿 null 相等糊判。
+- 测试面（22 条新测）：三条 pair 级判据绿；**「绿 pair 不是闭合行」**（`result == FAIL`、failures 恰为那条具名 gap）；14 条单字段反例逐条点名该红的判据；非空洞性对照（本 run 独有的外来 `session_id` 仍绿、`generation` 复用而 session 不同仍绿）；首 run ⇒ `PREVIOUS_IS_FIRST_RUN` 而非重启判决；声称有前一条却无行 ⇒ 两条判据同报 `PREVIOUS_TRACE_NOT_SEALED`（M 实施中被测试抓到的一处真实缺陷：原本空 session 集会让互斥判据**空洞地**变绿，已补 `PREVIOUS_RUN_HAS_NO_SESSION_ATTRIBUTION` 形状的拒答）。
+- `the_world_switch_returned_to_the_confirmed_world` 的断言名与 fixture 顺序按契约句排列，fixture `tests/fixtures/cases/offline-100.json` LF 摘要 `96d4b186e09e97f4965f4dbf41999e5f59cbecac2ef5b0ccf8fc28910f096b27` 已入 `tests/fixtures/manifest.sha256`（紧接 offline-090 行，`git diff --stat` = 1 insertion）。
+- **E 草稿与落地之间的一处具名分叉**：`docs/p0-offline-090-100-case-spec-2026-09-27.md` §3.1 的拟议 manifest 只有两个断言名（`the_kin_id_continues_from_the_previous_run` + `the_external_identity_and_world_context_do_not_cross_runs`）。主干落地的形状是把 E 自己在 §3.5 B/C 里拆开的条件按可判性分成**三条 pair 级判据 + 一条恒拒的三段缺口**：E 的第二名同时含「服务端自记身份」与「session/world 不串线」两件事，而 world 那半件在 pair 级没有可读的三段载体，保留为一个名字就会让它在 bundle 上要么空洞地绿、要么把可判的那半也拖成缺口。E 那份定义文档属 E 的卡面，M 不代其改写；此处具名记录分叉，后续 070/100 的读法以主干 fixture 与 `check_case_assertions.py` 为准。
+
+### 门载荷的三段读数（`:ro` 容器，`report_promotion.py --data-root /data`，`report_rc=1` 属正常拒晋级）
+- 登记前（第十一轮底数）：`fb0152c85d029ee06a41a34e84f9656cd23fae0b1e166322c494d1190cd178da`。
+- 090 注册后：`eb4e76eb…`，`W30.requirement.absent` 5→4。
+- 100 注册后：**`76fb9bdb314b59ca87aaf8077e8b579e6593bae9de39fc7273ef14634dc3ca47`**，`W30.absent` 4→3 = `OFFLINE-060/070/080`、`W30.non_mandatory` 9→10（含 `OFFLINE-090`、`OFFLINE-100`）、`p0-core.absent` 11→10；**`W30.promotable False`**（blocks 仍 `NO_MANDATORY_CASES` + `REQUIRED_CASE_NOT_REGISTERED`）、**`p0-core.promotable False`**、`overall.blocks` 仍只有 `REQUIRED_CASE_NOT_REGISTERED`。日志 `.tmp/m-r12-payload-after-100.log`。差异集合恰等于「这两个 id 从 absent 名单离场」所能造成的改动，无第三项。
+- 摘要无漂移的正对照：`uv run --frozen python tools/check_case_assertions.py` ⇒ `Case assertion implementations: OK (146 registered)`、`rc=0`；`--record` 只移动 `offline-100.json` 一个文件 ⇒ 没有任何已注册判据的摘要被这两笔改动，也就没有已封 bundle 被判为失效（090/100 卷上本就 0 份 bundle）。
+- 全量：`uv run --frozen pytest -q` ⇒ **`2576 passed, 3 skipped in 292.86s`**。收集数逐笔核过：090 那笔 `+14`（8 个函数 + 6 行 `EXPOSURE_COUNTEREXAMPLES` 参数化），100 那笔 `+22`（8 个函数 + 14 行 `PAIR_COUNTEREXAMPLES`），两笔之差恰等于第十一轮记录在案的 `2540` 与本数之差 ⇒ 除这两笔外没有其它测试面移动；`tests/unit/test_case_evidence_assertions.py` 单文件现 `472 passed`。`ruff format --diff` 32 files already formatted、`ruff check` All checks passed。
+
+### lane_next 现状
+- 主干唯一 integration `NEXT` 仍是 `PARALLEL-INTEGRATION-GATE-001`（常驻，本轮没有被"完成"）。
+- M = `P0-OFFLINE-090-100-REGISTRATION-001` **已闭环**；M 的下一张是独立的 `P0-OFFLINE-070-CASE-SPEC-001` 后续登记卡（不与 090/100 混单，且其 `identity_revision`/人格根半句缺载体，属主控保留的那条决定）。
+- E = `P0-OFFLINE-100-A-B-A-RUN-001`（`QUEUED`）：判据冻结前置已由 `2e6711f` 满足、`H1d` 已闭环 ⇒ 写窗条件成立；受控**本地隔离服**真跑，绝不连用户远程服；跑出三段也只是给主控裁决提供字节，不会让那条 gap 判据自行变绿。
+- H lane 仍无 `lane_next`（等 M 另立）；V/S/D 停等其前置。
+
+### 四态
+- 已合入 main：`11f5ea0`（OFFLINE-090 登记）、`2e6711f`（OFFLINE-100 登记）；远端 `main = 2e6711f01a41dab5e2eb8ecbcdb68e4b92331599` 已核。
+- 仅在分支：无新增（本轮两笔都是 M 直接在主干面上施工，未开分支）。
+- 真实封证：**零新增** —— 全程规范卷 `:ro`，未建 attempt、未封 bundle；090/100 的卷上 bundle 数仍为 **0**。
+- 尚未验证：两案全部反例在**真实 run 字节**上的那一半（仓库夹具已覆盖，运行时未测）；`P0-OFFLINE-100-A-B-A-RUN-001` 的三段真跑；端到端 1.20.1 auto JOIN；`OFFLINE-070` 的登记。
+
+### 不声称
+- 不声称 `OFFLINE-090` 或 `OFFLINE-100` 已闭合：090 的父案按构造只能是 FAIL（Dashboard 半句无载体），100 的 A→B→A 半句恒答具名缺口；非 mandatory 登记不表示任何一行已被真跑证明。
+- 不声称卷上存在 090/100 的 bundle、三段链证据或 `world_context_id` 读数。
+- 不声称任何门禁点亮（`W30` 与 `p0-core` 实测仍 `promotable False`）。
+- 不声称 Minekin 完成。
