@@ -451,7 +451,7 @@ V2 的绿读数暴露、M 在自己卷上重放确认：auto run 跨过早停后
 
 ### M 侧独立双审（不照抄 lane 自报）
 - 改面恰 3 文件 `+168`：`tools/report_promotion.py` +33（新常量 `ORCHESTRATOR_REVISION_GAP` / `VISIBILITY_GAPS`，报告里平级新键 `visibility_gaps`）、`tests/unit/test_report_promotion.py` +43、`docs/validation/m-orchestrator-revision-visibility-2026-09-27.md` +92。全在 M 卡自己的面内，未碰判据/registry/schema/seal。
-- 合并树门禁：单测 `55 passed`；`ruff check` / `ruff format --check` / `check_boundaries` / `check_case_assertions`（140 registered）/ `verify_fixture_digests` / `git diff --check` 全 rc=0；全量 `uv run --frozen pytest -q` 于本轮后台复跑（基线 `2537` ⇒ 预期 `2538 passed, 3 skipped`，读数在提交后补记于本行末）。
+- 合并树门禁：单测 `55 passed`；`ruff check` / `ruff format --check` / `check_boundaries` / `check_case_assertions`（140 registered）/ `verify_fixture_digests` / `git diff --check` 全 rc=0；全量 `uv run --frozen pytest -q` 在合并树实跑 ⇒ **`2538 passed, 3 skipped in 332.26s`**（基线 `2537` ⇒ 恰为这张卡新增的 1 测）。
 - M 自放反向证明：注释掉新键那一行 ⇒ `1 failed, 54 passed`（新测承重、非恒真）；`git checkout --` 还原后 sha256 与审前一致。
 
 ### 卷侧复量（补 lane 具名未做的那一半：M 在合并树 `6495356` 上以 `:ro` 容器实读）
