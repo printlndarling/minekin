@@ -14,6 +14,14 @@ carried over from another version.
 It exists because the server half of the controlled environment needs nothing but
 Java, unlike the client half. What it does *not* do is accept the EULA on anyone's
 behalf — that is the operator's to accept, so it must be asked for explicitly.
+
+Whether that server answers a status ping is asked for the same way. It is closed by
+default, and closing it is what every sealed run this harness has started has meant;
+so a run that needs the *server's own* reading of its target opts in by name with
+`--enable-status`, and the tool then reports what it wrote by reading the settings
+file back rather than by repeating what it meant to write. A request to open it on
+something that is not the loopback offline channel above is refused before a run
+directory exists.
 """
 
 from __future__ import annotations
@@ -32,7 +40,10 @@ import zipfile
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import BinaryIO
+from typing import TYPE_CHECKING, BinaryIO
+
+if TYPE_CHECKING:
+    from minekin_core.adapters.launcher.server_profile import SessionServerProfile
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 
@@ -109,6 +120,16 @@ _BLOCK_PLACED = re.compile(r"Changed the block at (-?\d+), (-?\d+), (-?\d+)")
 MAX_USE_TARGETS = 12
 READY_MARKER = "Done ("
 DEFAULT_READY_TIMEOUT_S = 240.0
+
+#: Whether the controlled server answers a status ping, for a run that names nothing.
+#: `false` is what every run this harness has ever started has written, and a domain
+#: whose whole purpose is to be joined by one named Kin has no reason to announce
+#: itself to whoever asks. So opening it is something a caller *names* — the
+#: `--enable-status` switch below — rather than a default that moves underneath an
+#: existing run. A check that has to read the server's own answer about its target
+#: (the auto path resolving a bundle, or a probe that wants the version off the wire
+#: rather than off a log line) is exactly the caller that names it.
+DEFAULT_ENABLE_STATUS = False
 
 
 #: The pack a case serves when it wants the client to *refuse* one. Built rather than
@@ -202,12 +223,82 @@ class ResourcePackServer:
         self._server.server_close()
 
 
+def _online_mode_text(profile: SessionServerProfile, online_mode: bool | None) -> str:
+    """The one derivation of what the server will say about session verification.
+
+    Shared by the settings that get written and by the switch that is refused before
+    anything is written, so a refusal cannot disagree with the file it prevented.
+    """
+
+    if online_mode is None:
+        return "false" if profile.auth_mode == "offline" else "true"
+    return "true" if online_mode else "false"
+
+
+def status_switch_refusal(
+    profile: SessionServerProfile, *, online_mode: bool | None, enable_status: bool
+) -> str | None:
+    """Why this run may not open the status port, or `None` when it may.
+
+    Asked of the same two rules the controlled channel already rests on — a saved
+    loopback address, and a server whose clients authenticate offline — rather than
+    of a new policy invented here. Both are the rules the module docstring states and
+    the profile loader enforces for every run; this only declines to *widen* the
+    channel by name. A status reply says out loud that a server is there and what it
+    calls itself, which is worth nothing on a loopback port inside one container and
+    worth a great deal anywhere else, so the answer to a target outside the domain,
+    or to a server the client is required to fail to join, is a refusal written before
+    a directory exists rather than a setting nobody re-reads.
+    """
+
+    if not enable_status:
+        return None
+    if not profile.is_loopback:
+        return (
+            "--enable-status asks the controlled server to answer a status ping, and this "
+            "run's profile names a target that is not loopback; the controlled domain is "
+            "loopback-only (P0 admits only a saved loopback profile, no LAN scan or DNS "
+            "name), so the switch is refused rather than made to advertise a server from "
+            "outside the domain"
+        )
+    if _online_mode_text(profile, online_mode) == "true":
+        return (
+            "--enable-status asks the controlled server to answer a status ping, and this "
+            "run forces the server to require session verification; that is the one shape "
+            "this tool documents as a server its client must never get into "
+            "(AUTH_MODE_MISMATCH), and a server that announces itself there is offering the "
+            "join the case exists to measure a refusal of"
+        )
+    return None
+
+
+def read_back_enable_status(directory: Path) -> str:
+    """What the settings file on disk actually says about answering status.
+
+    Read from the file rather than returned from the argument that produced it,
+    because the reading is worth nothing as a copy of the intent: the thing a caller
+    needs to see is the setting the server will start up and read. `unreadable` when
+    the file or the line is not there, which is the same word the domain runner prints
+    for the same missing line, so the two sides of the harness name one absence.
+    """
+
+    try:
+        lines = (directory / "server.properties").read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return "unreadable"
+    written = [
+        value for key, _, value in (line.partition("=") for line in lines) if key == "enable-status"
+    ]
+    return written[-1] if written else "unreadable"
+
+
 def properties_for(
     profile: object,
     *,
     level_seed: str,
     online_mode: bool | None = None,
     resource_pack: ServedResourcePack | None = None,
+    enable_status: bool = DEFAULT_ENABLE_STATUS,
 ) -> dict[str, str]:
     """The server settings the frozen profile implies, plus one refusal to imply.
 
@@ -219,16 +310,18 @@ def properties_for(
     The switch is here rather than in the profile because the product deliberately has
     no online-mode admission path: the point of that case is that the client cannot
     satisfy the server, not that it should try.
+
+    `enable_status` is the other switch, and it is a plain opt-in with the reviewed
+    default on the silent side: a run that wants this server to answer a status ping
+    says so through `--enable-status`, and every other run gets exactly the settings
+    file it has always got.
     """
 
     from minekin_core.adapters.launcher.server_profile import SessionServerProfile
 
     assert isinstance(profile, SessionServerProfile)
-    derived_online_mode = "false" if profile.auth_mode == "offline" else "true"
     return {
-        "online-mode": (
-            derived_online_mode if online_mode is None else ("true" if online_mode else "false")
-        ),
+        "online-mode": _online_mode_text(profile, online_mode),
         # A pack the client is required to have, served by this harness for the case
         # where the profile's policy is to refuse one. Empty when nothing is served,
         # which is what every other run has.
@@ -244,7 +337,9 @@ def properties_for(
         "pvp": "true",
         "enable-rcon": "false",
         "enable-query": "false",
-        "enable-status": "false",
+        # The one switch here that the profile does not imply, and so the one a caller
+        # has to name. See `DEFAULT_ENABLE_STATUS`.
+        "enable-status": "true" if enable_status else "false",
         "enable-command-block": "false",
         "broadcast-console-to-ops": "false",
         "white-list": "true",
@@ -674,6 +769,18 @@ def main() -> int:
         ),
     )
     parser.add_argument(
+        "--enable-status",
+        action="store_true",
+        help=(
+            "write enable-status=true so this server answers a status ping; without it "
+            f"the run gets the reviewed default (enable-status="
+            f"{str(DEFAULT_ENABLE_STATUS).lower()}), which is what every sealed run so "
+            "far has started with. The value actually written is read back out of the "
+            "settings file and printed. Refused for a target that is not the loopback "
+            "offline domain, or for a server forced to require session verification"
+        ),
+    )
+    parser.add_argument(
         "--allow-player",
         action="append",
         default=[],
@@ -707,6 +814,15 @@ def main() -> int:
     # The same admission door the session joins through, so this harness cannot start
     # a server the product would refuse to connect to.
     profile = load_session_server_profile(recipe.profile, minecraft_version=recipe.version)
+    # Asked of the profile and of this run's own overrides, and answered before
+    # anything at all is written: a switch that cannot be safe on this channel is a
+    # refusal, not a setting that lands in a run directory and gets read by a server.
+    refused = status_switch_refusal(
+        profile, online_mode=args.online_mode, enable_status=args.enable_status
+    )
+    if refused is not None:
+        print(refused, file=sys.stderr)
+        return 2
     pack_server: ResourcePackServer | None = None
     if args.resource_pack:
         if recipe.resource_pack_format is None:
@@ -724,12 +840,21 @@ def main() -> int:
         level_seed=FIXED_WORLD_SEED,
         online_mode=args.online_mode,
         resource_pack=None if pack_server is None else pack_server.served,
+        enable_status=args.enable_status,
     )
     verify_jar(args.jar, recipe)
     write_configuration(
         args.directory,
         properties,
         allowed_players=tuple(args.allow_player),
+    )
+    # The value reported is the value the file holds, taken back off the disk: what
+    # the server will read when it starts is the fact a run needs, and repeating the
+    # argument that produced it would only prove this script agrees with itself.
+    written_status = read_back_enable_status(args.directory)
+    print(
+        f"enable-status: asked for {'true' if args.enable_status else 'false'},"
+        f" the settings written say {written_status}"
     )
 
     summon = None if args.summon is None else summon_command(args.summon)
