@@ -4,9 +4,9 @@
 
 ## 0. 状态与证据口径
 
-`current_next: V1201-TESTED-GATE-READOUT-001`；全库同时只允许这一张 `NEXT`。A1 `V1201-LOCAL-DEMO-REHEARSAL-001` 已于 2026-09-26 用当前 build 的真跑 sealed PASS 收卡（见 §2），A2 `V1201-LOCAL-NEGATIVE-MATRIX-001` 同日以机器读数与配对反证收卡（见 §2、[负向矩阵复判记录](version-negative-matrix-2026-09-26.md)），按 §3 的机械流转提升 A3；A3 仍是**只读复判**卡，不是 V08 晋级，也不是连接用户服务器的许可。`cef712b` 时旧队列 `NEXT=0/QUEUED=0`；本计划是用户 2026-09-26 要求“一次性编写后续任务”的新排期，不把旧卡改称未完成。
+`current_next: P0-EVIDENCE-INVENTORY-001`；全库同时只允许这一张 `NEXT`。A3 `V1201-TESTED-GATE-READOUT-001` 已于 2026-09-26 以规范卷只读机器读数收卡（见 §2 与[复判记录](tested-gate-readout-2026-09-26.md)）；A1/A2 同日收卡。A1 `V1201-LOCAL-DEMO-REHEARSAL-001`（真跑 sealed PASS）、A2 `V1201-LOCAL-NEGATIVE-MATRIX-001`（机器读数与配对反证）（[负向矩阵复判记录](version-negative-matrix-2026-09-26.md)）按 §3 的机械流转已依次完成。B 段首张是只读证据盘点，不是 V08 晋级，也不是连接用户服务器的许可。`cef712b` 时旧队列 `NEXT=0/QUEUED=0`；本计划是用户 2026-09-26 要求“一次性编写后续任务”的新排期，不把旧卡改称未完成。
 
-已核实的基线：V01–V07 及空 store 自动安装真跑已完成；A1 已在受控本地把自动装机与同 run 的 PLAYABLE→look/move→释放→退出接成一次 sealed PASS（§2）；1.20.1 `V1201-080` 的正常停止显式松键有 sealed PASS，registry 对应缺口已划出；`HOST-ADMISSION-DESIGN-001` 只交付了[设计和三个未决所有权问题](host-admission-session-coordinate-design.md#5-分歧矩阵所有权问题为什么不由本卡回答)。这些都**不等于** V08、V09、V10 或完整 Minekin 完成。1.20.1 registry 其余缺口按现行文件和 `verify_tested_provenance.py` 重新读取，不以本文计数代替机器结果。旧 W00/W10/W20 的 `promotable` 读数不等于总体 `p0-core tested`；`p0-core`/七场景 campaign 仍有真实证据缺口。CI、ping、旧 bundle、单测、文档自述均不能证明真实入服。
+已核实的基线：V01–V07 及空 store 自动安装真跑已完成；A1 已在受控本地把自动装机与同 run 的 PLAYABLE→look/move→释放→退出接成一次 sealed PASS（§2）；1.20.1 `V1201-080` 的正常停止显式松键有 sealed PASS，registry 对应缺口已划出；`HOST-ADMISSION-DESIGN-001` 只交付了[设计和三个未决所有权问题](host-admission-session-coordinate-design.md#5-分歧矩阵所有权问题为什么不由本卡回答)。这些都**不等于** V08、V09、V10 或完整 Minekin 完成。1.20.1 registry 其余缺口按现行文件和 `verify_tested_provenance.py` 重新读取，不以本文计数代替机器结果（A3 已按此重读：provenance `verified: true / rc=0`，边界见 §2 与[复判记录](tested-gate-readout-2026-09-26.md)）。旧 W00/W10/W20 的 `promotable` 读数不等于总体 `p0-core tested`；`p0-core`/七场景 campaign 仍有真实证据缺口。CI、ping、旧 bundle、单测、文档自述均不能证明真实入服。
 
 状态语义：`NEXT` 可立即领取；`QUEUED` 必须依赖满足后才顺序提升；`BLOCKED_DECISION` 要用户明确拍板；`BLOCKED_EVIDENCE` 要真实材料；`DEFERRED` 不可开工。以下顺序是**长程任务账本**，不是对未冻结功能/案例的授权。只有本文出现一个 `NEXT`，完成一张后才原子更新队列。不会因为没有可执行卡而创建“再盘点一次”的 docs-only 任务。
 
@@ -20,7 +20,23 @@
 
 ## 2. 上一卡交付与当前 NEXT 边界
 
-当前唯一 `NEXT` 是 **A3 `V1201-TESTED-GATE-READOUT-001`**（判据已在 §3 表中冻结，不新造卡）。以下是刚收掉的 A2 与 A1。
+当前唯一 `NEXT` 是 **B1 `P0-EVIDENCE-INVENTORY-001`**（§4 B 段首张，依赖 A3 已满足；判据在其行内冻结，不新造卡）。A3 收卡后按 §3 的机械排期转 B 段：V08 未获新授权，A4 不设 `NEXT`。以下是刚收掉的 A3、A2 与 A1。
+
+### `V1201-TESTED-GATE-READOUT-001` — `DONE`（2026-09-26）
+
+目的：在**规范数据根**（卷 `minekin-runner-data`）与**当前构建**上重读 registry/provenance、case 清单、四读与负向矩阵，给出“1.20.1 本地可玩”与“不代表远程/全版本”的精确能力边界。只读复判卡：不改产品代码、case 判据、registry 字节、`status/gaps`，不重封证据。
+
+交付（baseline `818e2bd`，两个 `.tmp/` 脚本 + 两份日志，容器内 `os.access('/data', os.W_OK)=False` 为只读凭据）：
+
+- 交付形式：新增只读记录 [docs/tested-gate-readout-2026-09-26.md](tested-gate-readout-2026-09-26.md)，含 §0 复现入口、§1 五问五答、§2 15 次 attempt 清单、§3/§4 正反边界、§5 与 09-25 审计对照、§6 反转、§7 不声称。
+- T1 provenance 已是机器事实：`verify_tested_provenance.py --data-root /data --workspace-root /src` → `verified: true / rc=0`，两条条目 `findings: []`，registry revision `35bdd1c0…`。09-25 审计的"摘要只是文本"一格由该工具闭合（本卡 §5）。
+- T2 六条被引用的 1.20.1 封证四读一致：`evidence verify` 全 `verified/PASS`（9/13/13/13/14/13 工件），`rejudge` 全 `agrees/PASS`，`replay` 全 `projected`，`report_promotion` 侧 `from_repository_build: true`、`violations: []`；六条引用行的 plan 全为 `83299ad5…` ⇒ 无一条被引用 run 落在旧 build 上。
+- T3 能力边界正面：条目 19 个 capability 与六 case 断言并集**双向差集为空**；“可玩”只指那 19 件事（探测/握手、入服/首快照、限幅 move+turn、断连松键、拒快照、停止松键）加上 A1 的同 run 连续性。
+- T4 边界反面：`report_promotion` 在规范卷上 W60 `false / CASE_VERSION_MISMATCH`（`CORE-040`、`CORE-050`）、W70 `false / NO_MANDATORY_CASES`、`p0-core` `false / CASE_VERSION_MISMATCH + REQUIRED_CASE_NOT_REGISTERED`、overall `false`；六条 V1201 case 全 `mandatory: false` ⇒ 本卡证据不让任何门晋级，也不改变 V08 阻断。
+- T5 卷内实况（记录，不动引用）：1.20.1 家族 15 次 attempt = 6 引用 PASS + 2 本 build 等强未引用（`V1201-020` seq3 `7236c53e…`、`V1201-040` seq3 `6a86da03…`；A1 的等强 PASS `fc12d7d1…` 在独立卷 `minekin-v1201demo3`，不计入这 15 行）+ 5 旧 build（plan `ac403160…`，`from_repository_build: false`，含 seq1 的 `FAIL`/`UNJUDGED`）+ `V1201-080` seq1/2 本 build sealed **FAIL** 保留。更换 registry 引用摘要属主控动作，本卡不提议、不执行。
+- 非空转：四条反转各自把读者判红——R1 空证据根 → `CITATION_BUNDLE_MISSING rc=1`；R2 引用摘要改一位 → `CITATION_DIGEST_MISMATCH rc=1`（原样消息 `"digests to dc30bdaa…, not the cited 0c30bdaa…"`）；R3 空根与规范根的 promotion 输出不同（`count 0` vs `86`）；R4 删一个工件并给另一个追加一字节 → `status: invalid rc=12` + `rejudge: unjudged / ARTIFACT_DIGEST_MISMATCH + ARTIFACT_MISSING rc=2`。正对照是 §2 表里那六条真件全绿。
+- 未测并保留：F4 后半句“部分装机后旧 blob 整店复验”仍无 store 级读数；A2 的 N1–N4 与 A1 的 G1–G3 不并入本卡；1.21.4/Windows/JDK17/HOST/PERSIST/在线认证一律不声称。
+- 复现：记录 §0 的两条 docker 命令（`-v minekin-runner-data:/data:ro`，反证另挂 `/src:ro`）；日志 `.tmp/a3-gate-readout.log`、`.tmp/a3-readout-reversal.log`。
 
 ### `V1201-LOCAL-NEGATIVE-MATRIX-001` — `DONE`（2026-09-26）
 
@@ -65,12 +81,12 @@
 | --- | --- | --- |
 | A1 `V1201-LOCAL-DEMO-REHEARSAL-001` | `DONE`（2026-09-26，见 §2） | 全新 data root 同 run 预演：自动装机 3639/3639、同 generation 的 lease+look+move+到期释放、sealed PASS、七类反证各自变红。 |
 | A2 `V1201-LOCAL-NEGATIVE-MATRIX-001` | `DONE`（2026-09-26，见 §2 与[复判记录](version-negative-matrix-2026-09-26.md)） | 六族逐族读数：18 行真 socket 状态探测 `FAIL=0`、自动入口两条 `NEEDS_PIN` 具名拒止、装载期禁区地址四拒（含“拒在发字节之前”的连接计数证明）、显式路径五拒 + Bridge 钉错两拒、`V1201-060/070/080` 本 build sealed 重读 `PASS / agrees`。量出 N1–N4 四格缺口，另登 §3.2。 |
-| A3 `V1201-TESTED-GATE-READOUT-001` | `NEXT`，依赖 A1–A2（已满足） | 在规范数据根重读 registry/provenance、case inventory、四读和负向矩阵，给出“1.20.1 本地可玩”与“不代表远程/全版本”的精确能力边界。只做只读报告和必要的真实证据补封；需要改变 tested 声称时另开卡审查。A2 的 §3.2 缺口不并入本卡，本卡也不修产品行为。 |
+| A3 `V1201-TESTED-GATE-READOUT-001` | `DONE`（2026-09-26，见 §2 与[复判记录](tested-gate-readout-2026-09-26.md)） | 已量出：provenance `verified/rc=0`、六条引用四读一致且全归当前 build、19 能力与六 case 断言双向差集为空、promotion 三门仍 `false`（CASE_VERSION_MISMATCH / NO_MANDATORY_CASES）、卷内 15 次 attempt 的引用与失败分布。 | 在规范数据根重读 registry/provenance、case inventory、四读和负向矩阵，给出“1.20.1 本地可玩”与“不代表远程/全版本”的精确能力边界。只做只读报告和必要的真实证据补封；需要改变 tested 声称时另开卡审查。A2 的 §3.2 缺口不并入本卡，本卡也不修产品行为。 |
 | A4 `VERSION-REMOTE-SMOKE-001`（V08） | `BLOCKED_DECISION` | 用户先明确**本次**是否允许对其指定 1.20.1 测试服做一次只读 ping 和非破坏性普通玩家入服，以及运行窗口/频率。旧地址和“关闭正版验证”不是持续授权。获授权后依[原卡](version-auto-to-server-control-plan.md#v08-version-remote-smoke-001用户测试服只读探测与非破坏性入服)先 ping 后 JOIN/PLAYABLE，地址只在私有 profile，不扫描、不改服务器、不使用 op/RCON；拒绝/限流/资源包异常立即停。 |
 | A5 `VERSION-SIMPLE-CONTROL-001`（V09） | `BLOCKED_DEPENDENCY` | A4 真通过后，在用户指定安全位置、另一次明确动作授权下，≤2 秒前进+小幅转向+release/退出；先 client-observed，只有独立只读 server oracle 才能声称 server-confirmed。保护插件拒绝或残留按键即停。 |
 | A6 `VERSION-DEMO-ACCEPTANCE-001`（V10） | `BLOCKED_DEPENDENCY` | A1–A5 真完成后写可复现 CLI demo、风险/未测清单、1.21.4 必要回归、负向与封证索引。缺证据只能交 `PARTIAL/BLOCKED`，不写“全部完成”。 |
 
-A2/A3 是本次新增的**本地安全顺序卡**，允许 A1 完成后机械提升；A4 不能因前三卡通过自动提升。A5 的新动作授权也不能从 A4 的只读/无动作入服授权推导。**机械排期**：A3 收卡后若 V08 尚未获得新授权，不把 A4 设成 `NEXT`；转取 B 段首张安全卡。B 段某卡受真实证据阻断时可转取其后不依赖它的已冻结安全卡（如平台验证），记录跳过原因；若剩余只涉及决策/未冻结契约，则保持 `current_next: none / BLOCKED_DECISION` 并一次性列出所需选择，不发明 docs-only 卡。V08 获新授权后主控重新排在安全卡边界，不能中断正在封证的 run。
+A2/A3 是本次新增的**本地安全顺序卡**，允许 A1 完成后机械提升；A4 不能因前三卡通过自动提升。A5 的新动作授权也不能从 A4 的只读/无动作入服授权推导。**机械排期**：A3 收卡后若 V08 尚未获得新授权，不把 A4 设成 `NEXT`；转取 B 段首张安全卡（A3 已于 2026-09-26 收卡，该分支已照此执行：`current_next` 现为 `P0-EVIDENCE-INVENTORY-001`）。B 段某卡受真实证据阻断时可转取其后不依赖它的已冻结安全卡（如平台验证），记录跳过原因；若剩余只涉及决策/未冻结契约，则保持 `current_next: none / BLOCKED_DECISION` 并一次性列出所需选择，不发明 docs-only 卡。V08 获新授权后主控重新排在安全卡边界，不能中断正在封证的 run。
 
 ### 3.1 A1 交出的三格缺口（按 §1.2 单独登记，不由 A1 顺手补）
 
@@ -98,7 +114,7 @@ A2/A3 是本次新增的**本地安全顺序卡**，允许 A1 完成后机械提
 
 | ID | 状态 / 依赖 | 完成定义 |
 | --- | --- | --- |
-| `P0-EVIDENCE-INVENTORY-001` | `QUEUED_CONDITIONAL`，A3 后 | `report_cases`/`report_promotion` 在规范卷逐 case 标注“缺 fixture、缺当前 build 真证据、真实失败、产品未实现”；先复用旧清单。只把有明确必要性的 missing case 排成独立实现卡，不将盘点本身冒充门绿。 |
+| `P0-EVIDENCE-INVENTORY-001` | **`NEXT`（2026-09-26 自 A3 机械提升）**，依赖 A3（已满足） | `report_cases`/`report_promotion` 在规范卷逐 case 标注“缺 fixture、缺当前 build 真证据、真实失败、产品未实现”；先复用旧清单。只把有明确必要性的 missing case 排成独立实现卡，不将盘点本身冒充门绿。 |
 | `P0-CONTROLLED-CAMPAIGN-001` | `BLOCKED_EVIDENCE`，inventory 后 | 按 W00→W70/`p0-core` 契约，在受控 dedicated offline 与必要 LAN 场景补当前 build 的 mandatory sealed bundle，包括 L3/L5/L6、崩溃恢复、重启协调、offline identity 与 soak；每个 case 的独立 oracle、非空转反证、版本摘要齐全，再谈 promotion。既有 `REAL-P0-CAMPAIGN-001` 历史阻断保留，不当成 DONE。 |
 | `P0-PLATFORM-MATRIX-001` | `QUEUED_CONDITIONAL`，基础证据后 | Java 17/21 与目标 OS/arch 分别做真实 runner/安装验证；Windows 缺口不凭 Linux PASS 删除。CI 仅作为辅助，优先本地/Docker。 |
 | `P0-GATE-PROMOTION-001` | `BLOCKED_EVIDENCE`，上述证据后 | 独立审计 W00…W70、`p0-core` 当前门禁；`promotable` 只是机器候选，还要规格/工程审查、准确登记、commit/push。不可用单一 W 门的绿替代整体。 |

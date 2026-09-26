@@ -6,7 +6,8 @@
 
 - [x] `DONE`（2026-09-26）：`V1201-LOCAL-DEMO-REHEARSAL-001`。全新 data root/全新 Kin 的一次自动路径 run 接成 sealed PASS：装机 3639/3639、同 generation 的 look+move 与到期释放、退出；四读一致，七类反证各自变红，两次失败 attempt 保留。读数与缺口见[执行计划 §2](development-execution-plan.md#2-上一卡交付与当前-next-边界)。
 - [x] `DONE`（2026-09-26）：`V1201-LOCAL-NEGATIVE-MATRIX-001`。六族逐族量出当前 build 的可重跑拒止与 sealed 重读：18 行真 socket 状态探测 `FAIL=0`、自动入口两条 `NEEDS_PIN`、装载期禁区地址四拒（含"拒在发出字节之前"的连接计数证明）、显式路径五拒 + Bridge 钉错两拒、`V1201-060/070/080` 本 build `PASS / agrees`。逐行读数与配对反证见[负向矩阵复判记录](version-negative-matrix-2026-09-26.md)。
-- [ ] `NEXT`：`V1201-TESTED-GATE-READOUT-001`。规范卷和当前构建的 tested/provenance/风险边界只读报告。
+- [x] `DONE`（2026-09-26）：`V1201-TESTED-GATE-READOUT-001`。规范卷只读复判：provenance `verified / rc=0`、六条 1.20.1 引用四读一致且全归当前 build、19 能力与六 case 断言双向差集为空、promotion 三门仍 `false`（`CASE_VERSION_MISMATCH`/`NO_MANDATORY_CASES`）、卷内 15 次 attempt 的引用与失败分布已列清；四条反转（缺件/摘要改一位/空根/删工件）证明读者能判红。边界与读数见[复判记录](tested-gate-readout-2026-09-26.md)。
+- [ ] `NEXT`：`P0-EVIDENCE-INVENTORY-001`。B 段首张：在规范卷逐 case 标注“缺 fixture / 缺当前 build 真证据 / 真实失败 / 产品未实现”，先复用旧清单，不把盘点冒充门绿。
 - [ ] `QUEUED`：`V1201-AUTO-PATH-RUNNER-001`。让自动解析与服务端读数在受控通道里同时成立（A1 的 G1/G2）。
 - [ ] `QUEUED`：`V1201-AUTO-ENTRY-GATE-ORDER-001`。把 loopback-only join 授权与 profile 版本 allowlist 移到任何下载之前（A2 的 N1）。
 - [ ] `QUEUED`：`V1201-MAX-BYTES-VALIDATION-001`。非正预算要具名拒止而不是 `INTERNAL_INVARIANT`；`--max-bytes` 与 `--profile` 同给要具名用法错误（A2 的 N2）。
