@@ -621,6 +621,34 @@ MSYS_NO_PATHCONV=1 docker run --rm -v "$PWD":/src:ro -v minekin-runner-data:/dat
   `FLOOR=0` 一路带给"空文档"那一道，于是 `SCAN_TOO_NARROW` 永远不响——**那不是绿，是我叫它别响**，改成每道
   各带自己的地板。**刻意保留的边界**：id 与卡号只判"存不存在"，不判它该不该存在；跨命名空间（卡 id 与 case id
   同形）不做区分，因为注册位置就是它们各自的权威表。
+- **同一规则下核的第六类现在时声明：文档写下的证据摘要（run id / bundle 摘要）配不配得上 registry**（2026-09-26，读数所在线
+  `844fcb1`）。范围是 `git ls-files '*.md'` 的全部 **86 份**（比上一格那句 82 份多 4 份：`test-orchestrator/` 两份、
+  `tests/fixtures/saves/`、`tests/oracle/` 各一份 README——路径守卫只看 `docs/` 加 `README.md`/`CLAUDE.md`，
+  这一格没有沿用那个作用域）。权威表是 `tests/fixtures/registry/reviewed-tested-bundles.json` 的 **18 行 evidence**
+  （每行 `case_id` + `run_id` + `bundle_digest` + `attempt` + `result`）。判据：与某个已登记 case 写在**同一行**的
+  hex 摘要必须归属那个 case；一枚摘要可以属于多行（`bridge_digest`/`launch_plan_digest` 在同一 entry 内共享），
+  所以归属是 **case 集合**，行内任一 case 命中即算配对、全不命中才判 `EVIDENCE_PAIRING`。纯静态
+  （`.tmp/check_doc_evidence.py`），实读 **`paired citations: 15` / `distinct cited cases: 6 / 18` /
+  `findings: 0` / `exit 0`**。**十道变异与对照读数**（`.tmp/reverse_doc_evidence.py`；每道除退出码外还断言
+  `paired`/`shared`/`absent` 三个计数器，免得"没抓到东西"被读成"抓到了且没问题"）：真 case 配别的 case 的 run id →
+  `EVIDENCE_PAIRING`；配别的 case 的 bundle 摘要 → 同名；跨 entry 配错 → 同名；`FLOOR` 抬到 40 高于实配对数 →
+  `SCAN_TOO_NARROW`；另五道是**故意保留的边界**（registry 里没有的 hex、行内没有 case 的裸 hex、`attempt` 数字、
+  entry 级不绑 case 的 recipe 摘要、同 entry 共享摘要配在本 entry 另一个 case 旁）各读 `exit 0`；第十道是真扫描的
+  positive control。红案输入的原文留在脚本里，不抄进本文（同上一轮的理由：抄进来这段记录自己就成了第 1 处 finding）。
+  **两处"判不了"不是口径错，是实测出来的边界**：① 与 case 写在同一行的 hex 里有 **59 处（40 枚不同：32 枚 32 位、
+  8 枚 64 位）在 registry 里根本没有**——文档写的是被取代的 attempt 与只作诊断的运行（例：`ADMIT-070` 那一行旁边的
+  `2a128d0d…` 是 attempt 2，registry 现在那一行是 attempt 3 的另一枚 run），把它们一律判红会得到 59 条假红。
+  **"引用不在仓内"≠"引用是假的"**：这 40 枚在未跟踪的 `.tmp/` 运行日志与 promotion 快照里全都读得到（106 个文件命中），
+  只有 1 枚同时出现在被跟踪的非 markdown 文件里。要真判就得读 runner 数据卷 `/data` 的根，那是带 `python` +
+  `PYTHONPATH=/src` 的容器才有的东西；**按本文「发现规格缺口时停止并报告，不自行设计新范围」，这一条只划缺口，
+  同一把尺子还量出一件更要紧的事：**这一格与前三格的复现命令都指向未跟踪的 `.tmp/`**（`.gitignore` 第 10 行把
+  整个目录排除，`git ls-files .tmp` 读 0 行），换一台机器就复现不出这些守卫；把守卫提进被跟踪的 `tools/` 并接进
+  CI 属于**新范围**，按同一条规矩只报告、不自建卡。
+  不新建卡、不扩范围、也不写成已修**。② registry 侧的覆盖是不对称的：**1.20.1 那 6 行的 run/bundle 摘要在文档里
+  出现 2/3/2/4/2/15 次，1.21.4 那 12 行一次都没出现**——两边对 1.21.4 证据的描述停在不同时间点。这只是读数，
+  判它算不算缺陷属于证据面与 V08 那条主线，**归主控**。
+  **本轮只动文档与 `.tmp` 校验脚本**，产品代码、测试与夹具一字未改；九道门与 pytest 的实测读数记在
+  `docs/development-todo.md` 同名一节，且都在最后一格 docs 改动之后跑。
 
 ## 最近完成
 

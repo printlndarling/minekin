@@ -3447,3 +3447,60 @@
   两个 `CI` run `36205275770`/`36205275642` 及六个 job（`python` 18 步、`protocol` 10 步、`bridge-static` 9 步，
   两 run 各一套）在 job 与 step 层全部 `completed / success`、无一步失败或卡住。**这段补记自己是 docs-only、
   只动本文件**，因此按仓库口径没有为重跑九道门而改动任何判据，范围由它所落提交的 `git show --stat` 证明。
+
+## 2026-09-26 按同一把尺子核第六类现在时声明：文档引用的证据摘要配不配得上 registry
+
+- `NEXT`: 暂无（本格不动卡面，也不提升任何门）。
+- 触发：前四格把"路径引用 / 命令 flag / 标识符注册表"这三类现在时声明变成了静态守卫，剩下没核的一类是
+  **文档抄下的证据摘要**——`run_id`（32 位）与 `bundle_digest`（64 位）。这类声明的假法与前几格不同：
+  它不是"路径不存了"，而是"行号旁边那个 hex 其实属于另一枚 case"，一旦漂移，任何引用它的收口段落都会
+  跟着假。所以按同一条规则先量一遍，权威表取 registry 的 evidence 行。
+- 作用域与读数（`.tmp/check_doc_evidence.py`，纯静态，HEAD 在 `844fcb1`）：`git ls-files '*.md'` 的
+  **86 份**文档 × registry **18 行 evidence**，读 **`paired citations: 15` / `distinct cited cases: 6 / 18` /
+  `registry-internal unbound digests: 0` / `absent from registry: 59` / `findings: 0` / `exit 0`**。
+  86 份比上一格那句 82 份多 4 份：路径守卫只看 `docs/` 加 `README.md`/`CLAUDE.md`，本格没有沿用那个作用域，
+  多出来的是 `test-orchestrator/` 两份、`tests/fixtures/saves/`、`tests/oracle/` 各一份 README。
+- 判据：与某个已登记 case 写在**同一行**的 hex 摘要必须归属那个 case，否则 `EVIDENCE_PAIRING`。
+  归属是 **case 集合**不是单值——`bridge_digest`/`launch_plan_digest` 在同一 entry 内被所有行共享，
+  按单值判会把"本 entry 另一个 case 的合法共享摘要"判成假红（这一条是写判据时自己撞上的，见下面第五颗子弹）。
+- 十道变异与对照读数（`.tmp/reverse_doc_evidence.py` → `.tmp/doc-evidence-reversals.txt`，每道除退出码外
+  还断言 `paired`/`shared`/`absent` 三个计数器）：四道红——真 case 配别的 case 的 run id →
+  `EVIDENCE_PAIRING`、配别的 case 的 bundle 摘要 → 同名、跨 entry 配错 → 同名、`FLOOR` 抬到 40 高于实配对数 →
+  `SCAN_TOO_NARROW`，各只出 1 条具名 finding；六道绿——五道是**故意保留的边界**（registry 里没有的 hex、
+  行内没有 case 的裸 hex、`attempt` 数字、entry 级不绑 case 的 recipe 摘要、同 entry 共享摘要配在本 entry
+  另一个 case 旁）加第十道真扫描 positive control，全部 `exit 0`。**红案输入的原文留在脚本里，不抄进本文件**，
+  否则这段记录自己就成了第 1 处错配。
+- 写判据时抓到的一处自己的洞：第一版把每枚摘要映射到"第一个见到它的 case"，于是"本 entry 的 `bridge_digest`
+  配在本 entry 另一个 case 旁"这条合法句子会判红。修法是归属取集合、行内任一 case 命中即算配对，
+  **不是**给文档加豁免名单；改完 R8 从红变绿、R1/R2/R9 三道仍各自红在命名理由上。
+- 两处"判不了"是实测出来的边界，不是我没做完就收工：① 与 case 同行的 hex 里 **59 处（40 枚不同：32 枚
+  32 位、8 枚 64 位）在 registry 里根本没有**——文档写的是被取代的 attempt 与只作诊断的运行（例：`ADMIT-070`
+  那一行旁边的 `2a128d0d…` 是 attempt 2，registry 现在那行是 attempt 3 的另一枚 run），一律判红会得到
+  59 条假红；这 40 枚在未跟踪的 `.tmp/` 运行日志与 promotion 快照里全都读得到（106 个文件命中），只有 1 枚
+  同时出现在被跟踪的非 markdown 文件里，所以"引用不在仓内"≠"引用是假的"。**要真判必须读 runner 数据卷
+  `/data` 的根**，那是带 `python` + `PYTHONPATH=/src` 的容器才有的东西。按本文「发现规格缺口时停止并报告，
+  不自行设计新范围」，这条只划缺口，**不新建卡、不扩范围、不写成已修**。② registry 侧覆盖不对称：
+  1.20.1 那 6 行的 run/bundle 摘要在文档里出现 2/3/2/4/2/15 次，1.21.4 那 12 行一次都没出现——两边对
+  1.21.4 证据的描述停在不同时间点。这只是读数，判它算不算缺陷属于证据面与 V08 那条主线，归主控。
+- 九道门与 pytest 在最后一格 docs 改动之后跑（读数记在下面一条），本轮范围：三格 docs 加 `.tmp` 校验脚本，
+  产品代码、测试与夹具一字未动，由收口提交的 `git show --stat` 证明。
+- 复现面本身也是量出来的一条缺口：`.tmp/check_doc_evidence.py` 与前三格那几把守卫都在 **.gitignore 第 10 行**排除的
+  `.tmp/` 里（`git ls-files .tmp` 读 **0 行**），所以这些 `rc 0` 只在还留着这些文件的机器上可复现。把它们移进被跟踪的
+  `tools/`、接进九道门与 CI 是**新范围**——本轮不动，只按规矩报出来。
+- 边界：只判"文档引用的摘要配不配得上 registry 那 18 行"，不判这行证据该不该存在、不判 attempt 高低；
+  不改任何 `tools/` 判据、不动 registry 与 `.gitattributes`、不碰 HOST 实现与夹具、不提升任何门、
+  不连接用户的远程服、不改那三张 `BLOCKED_DECISION` 卡的状态。
+- 收口前实测（就在上面那些改动之后跑）：`git diff --check` 先把这一格自己的毛病判红了——append 的正文带了
+  一个尾随空行，报 `docs/development-todo.md:3490: new blank line at EOF.`、`rc 2`；去掉那一个空行才回到
+  `rc 0`。**这一处是被门抓出来的，不是我重读出来的**；另一处（摘要归属按单值判会把合法句子判成假红）是我在写
+  反证 R8 之前自己想到并改了判据。其余八道快门禁 `rc 0`（`pyright` 0 errors、`check_case_assertions`
+  **140 registered**、`verify_fixture_digests` OK、`check_workflow_pins` OK、`ruff check`/`format --check`
+  323 files、`check_boundaries` OK），括号配平 plan 与 handoff 各 **0**、todo 仍是历史遗留的 **8**（本段没动过它），
+  `uv run --frozen pytest -q` 读 **2501 passed / 2 skipped**（两条 skip 还是那条平台不可答项与 Windows terminate）。
+- 时序照实写：pytest 那道读数是在最后几条缺口记录之前跑的；之后本文件又 append 了四条 bullet，每次都重跑八道
+  快门禁与 `git diff --check`（各 `rc 0`、todo 配平仍是历史遗留的 8），没有再动任何判据、脚本或产品代码，
+  所以 2501/2 覆盖的是同一棵树的产品面。原来的"这一条是最后写入的一格"那句作废。
+  四把文档守卫在同一棵树上各读 `rc 0`：路径 **690 处 / `findings: 0`**（上一格记录收口时是 689，本格这一条自己
+  多写出了一处可解析路径引用 `docs/development-todo.md:3490`，所以按 E 格定下的规矩引最终读数）、
+  标识符 **186 处 / `findings: 0`**、
+  命令 flag **29 脚本 / 27 处 / `findings: 0`**、本格证据摘要 **15 配对 / `findings: 0`**。
