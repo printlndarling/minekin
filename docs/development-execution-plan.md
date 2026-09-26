@@ -4,7 +4,7 @@
 
 ## 0. 状态与证据口径
 
-`current_next: P0-EVIDENCE-INVENTORY-001`；全库同时只允许这一张 `NEXT`。A3 `V1201-TESTED-GATE-READOUT-001` 已于 2026-09-26 以规范卷只读机器读数收卡（见 §2 与[复判记录](tested-gate-readout-2026-09-26.md)）；A1/A2 同日收卡。A1 `V1201-LOCAL-DEMO-REHEARSAL-001`（真跑 sealed PASS）、A2 `V1201-LOCAL-NEGATIVE-MATRIX-001`（机器读数与配对反证）（[负向矩阵复判记录](version-negative-matrix-2026-09-26.md)）按 §3 的机械流转已依次完成。B 段首张是只读证据盘点，不是 V08 晋级，也不是连接用户服务器的许可。`cef712b` 时旧队列 `NEXT=0/QUEUED=0`；本计划是用户 2026-09-26 要求“一次性编写后续任务”的新排期，不把旧卡改称未完成。
+`current_next: P0-CONTROLLED-CAMPAIGN-001`；全库同时只允许这一张 `NEXT`。B1 `P0-EVIDENCE-INVENTORY-001` 已于 2026-09-26 以规范卷只读四桶盘点收卡（见 §2、§3.3 与[盘点记录](p0-evidence-inventory-2026-09-26.md)）。A3 `V1201-TESTED-GATE-READOUT-001` 同日以规范卷只读机器读数收卡（见 §2 与[复判记录](tested-gate-readout-2026-09-26.md)）；A1/A2 同日收卡。A1 `V1201-LOCAL-DEMO-REHEARSAL-001`（真跑 sealed PASS）、A2 `V1201-LOCAL-NEGATIVE-MATRIX-001`（机器读数与配对反证）（[负向矩阵复判记录](version-negative-matrix-2026-09-26.md)）按 §3 的机械流转已依次完成。B 段首张是只读证据盘点，不是 V08 晋级，也不是连接用户服务器的许可。`cef712b` 时旧队列 `NEXT=0/QUEUED=0`；本计划是用户 2026-09-26 要求“一次性编写后续任务”的新排期，不把旧卡改称未完成。
 
 已核实的基线：V01–V07 及空 store 自动安装真跑已完成；A1 已在受控本地把自动装机与同 run 的 PLAYABLE→look/move→释放→退出接成一次 sealed PASS（§2）；1.20.1 `V1201-080` 的正常停止显式松键有 sealed PASS，registry 对应缺口已划出；`HOST-ADMISSION-DESIGN-001` 只交付了[设计和三个未决所有权问题](host-admission-session-coordinate-design.md#5-分歧矩阵所有权问题为什么不由本卡回答)。这些都**不等于** V08、V09、V10 或完整 Minekin 完成。1.20.1 registry 其余缺口按现行文件和 `verify_tested_provenance.py` 重新读取，不以本文计数代替机器结果（A3 已按此重读：provenance `verified: true / rc=0`，边界见 §2 与[复判记录](tested-gate-readout-2026-09-26.md)）。旧 W00/W10/W20 的 `promotable` 读数不等于总体 `p0-core tested`；`p0-core`/七场景 campaign 仍有真实证据缺口。CI、ping、旧 bundle、单测、文档自述均不能证明真实入服。
 
@@ -20,7 +20,22 @@
 
 ## 2. 上一卡交付与当前 NEXT 边界
 
-当前唯一 `NEXT` 是 **B1 `P0-EVIDENCE-INVENTORY-001`**（§4 B 段首张，依赖 A3 已满足；判据在其行内冻结，不新造卡）。A3 收卡后按 §3 的机械排期转 B 段：V08 未获新授权，A4 不设 `NEXT`。以下是刚收掉的 A3、A2 与 A1。
+当前唯一 `NEXT` 是 **B2 `P0-CONTROLLED-CAMPAIGN-001`**（§4 B 段第二张，其「inventory 后」前置已由 B1 满足）。B1 收卡后按 §3 的机械排期提升：V08 仍未获新授权，A4 不设 `NEXT`；HOST/PERSIST 仍 `DEFERRED`。以下是刚收掉的 B1、A3、A2 与 A1。
+
+### `P0-EVIDENCE-INVENTORY-001` — `DONE`（2026-09-26）
+
+目的：把契约要求的 74 条 case 在**规范数据卷**与**当前仓库构建**上逐条标注到四个桶（缺 fixture / 缺当前 build 真证据 / 真实失败 / 产品未实现），先复用旧清单，只把有明确必要性的 missing case 排成独立实现卡，不把盘点本身冒充门绿。只读卡：不改产品代码、case 判据、registry 字节、`status/gaps`，不重跑真实运行、不重封证据、失败材料全留。
+
+交付（baseline `37f8deb`，两个 `.tmp/` 未跟踪脚本 + 两份日志，容器内 `os.access('/data', os.W_OK)=False` 与 `os.access('/src', os.W_OK)=False` 为只读凭据）：
+
+- 交付形式（卡面「以机器读数收卡」）：新增只读记录 [docs/p0-evidence-inventory-2026-09-26.md](p0-evidence-inventory-2026-09-26.md)，含 §0 复现入口（两条 docker 读数/反证 + §5 六个代码锚点的 grep 入口）、§1 桶数读数、§2 逐桶名单、§3 十一门读数与三种 block 的语义差别、§4 真实失败桶为何为空、§5 31 条缺 fixture 的甲/乙两分、§6 28 条按成因逐条、§7 四格登记、§8 反证、§9 排卡建议。
+- 四桶：`missing_fixture 31 / no_current_build_evidence 28 / real_failure_on_current_build 0 / current_build_pass 15`（74 条恰落一桶）。28 条的成因切分：`no_bundle_on_this_root 18`、`only_another_build 10`，第三种成因今天为空但被 R4 真实触发过。按判据形状再看一层（日志 §9）：判官要运行材料且本根零 bundle **1 条**（`OFFLINE-030`）、要运行材料但只有别的构建的 bundle **10 条**（mandatory 只含 `CORE-040`、`CORE-050`）、只需仓库字节但本根零 bundle **17 条**。
+- 逐门：W00/W10/W20 `promotable: true`；W30/W50/host-integrated/p0-nav-exp 阻在 `NO_MANDATORY_CASES`（+ 缺定义）；W40 只阻在缺定义；W60 与 `p0-core` 阻在 `CASE_VERSION_MISMATCH`（`CORE-040`、`CORE-050`）；W70 只阻在 `NO_MANDATORY_CASES`。三种 block 分别对应「先要判据设计」「要一轮当前构建真跑」「是主控的门禁决策」——盘点一张门都不点亮。
+- 产品未实现这一桶的正确读法：已注册 case 上为空（`by_judge.unimplemented == 0`、`mixed == 0`、`unregistered_assertions 0`）；缺 fixture 的 31 条里今天点名 **6 条整条**（`ADMIT-010/020/090/120`、`CORE-080`、`OFFLINE-060`）与 **2 个半句**（`OFFLINE-070` 的 revision／人格根、`OFFLINE-080` 的封禁），其余属甲类（写断言即可）或 deferred。HOST 18 条**不判**（等主控对 HOST §5 三格表态）。
+- 顺带量到的两处口径滞后（原文照引不改，记录在册）：契约 crash/outbox 那行说 `CORE-060` 的 runtime 强杀窗「打不中」，磁盘上该 case id 已有 9 个 bundle、attempt 链 seq4 `ed2bbad7…` 是当前构建 PASS，其来源是历史 `:5936-5941` 的 1.21.4 换代重封；旧清单把 31 条统一写成「需先把判据写成断言」，其中 OFFLINE 三条不能只靠写断言闭合。
+- 非空转：正对照即 15/31/28；四条反转各移一个机制——R1 删 `core-001.json` ⇒ `required_missing 31→32`、`current_build_pass 15→14`；R2 空数据根 ⇒ 通过桶整桶消失、28→43；R3 把 `CORE-070` 当前构建行改成 `FAIL` ⇒ 真实失败桶点名 `['CORE-070']` 且视图与规则的对账护栏同时报红；R4 改一位 case 摘要 ⇒ 第三种成因首次被触发、护栏报 `['CORE-010']`。真件上八条自检 `FAIL count = 0`、反证段 `reversal FAIL count = 0`。
+- 本卡不声称：没跑过一次真实 Minecraft；没点亮任何门；`V1201-*` 族不在 74 条 required 内，所以「真实失败 0 条」不等于「这卷上没有失败」（卷上 14 份 sealed FAIL、2 份在当前构建上，原样保留）。
+- 复现：记录 §0 的两条 docker 命令；日志 `.tmp/b1-evidence-inventory.log`、`.tmp/b1-inventory-reversals.log`。交出的排卡建议登记在 §3.3，不由 B1 顺手补。
 
 ### `V1201-TESTED-GATE-READOUT-001` — `DONE`（2026-09-26）
 
@@ -86,7 +101,7 @@
 | A5 `VERSION-SIMPLE-CONTROL-001`（V09） | `BLOCKED_DEPENDENCY` | A4 真通过后，在用户指定安全位置、另一次明确动作授权下，≤2 秒前进+小幅转向+release/退出；先 client-observed，只有独立只读 server oracle 才能声称 server-confirmed。保护插件拒绝或残留按键即停。 |
 | A6 `VERSION-DEMO-ACCEPTANCE-001`（V10） | `BLOCKED_DEPENDENCY` | A1–A5 真完成后写可复现 CLI demo、风险/未测清单、1.21.4 必要回归、负向与封证索引。缺证据只能交 `PARTIAL/BLOCKED`，不写“全部完成”。 |
 
-A2/A3 是本次新增的**本地安全顺序卡**，允许 A1 完成后机械提升；A4 不能因前三卡通过自动提升。A5 的新动作授权也不能从 A4 的只读/无动作入服授权推导。**机械排期**：A3 收卡后若 V08 尚未获得新授权，不把 A4 设成 `NEXT`；转取 B 段首张安全卡（A3 已于 2026-09-26 收卡，该分支已照此执行：`current_next` 现为 `P0-EVIDENCE-INVENTORY-001`）。B 段某卡受真实证据阻断时可转取其后不依赖它的已冻结安全卡（如平台验证），记录跳过原因；若剩余只涉及决策/未冻结契约，则保持 `current_next: none / BLOCKED_DECISION` 并一次性列出所需选择，不发明 docs-only 卡。V08 获新授权后主控重新排在安全卡边界，不能中断正在封证的 run。
+A2/A3 是本次新增的**本地安全顺序卡**，允许 A1 完成后机械提升；A4 不能因前三卡通过自动提升。A5 的新动作授权也不能从 A4 的只读/无动作入服授权推导。**机械排期**：A3 收卡后若 V08 尚未获得新授权，不把 A4 设成 `NEXT`；转取 B 段首张安全卡（A3 已于 2026-09-26 收卡，该分支已照此执行；B1 同日收卡后 `current_next` 现为 `P0-CONTROLLED-CAMPAIGN-001`）。B 段某卡受真实证据阻断时可转取其后不依赖它的已冻结安全卡（如平台验证），记录跳过原因；若剩余只涉及决策/未冻结契约，则保持 `current_next: none / BLOCKED_DECISION` 并一次性列出所需选择，不发明 docs-only 卡。V08 获新授权后主控重新排在安全卡边界，不能中断正在封证的 run。
 
 ### 3.1 A1 交出的三格缺口（按 §1.2 单独登记，不由 A1 顺手补）
 
@@ -106,6 +121,21 @@ A2/A3 是本次新增的**本地安全顺序卡**，允许 A1 完成后机械提
 | **N4** `V1201-SRV-RESOLVER-001` | `BLOCKED_DECISION` | 唯一解析实现是 `SavedAddressResolver`，profile host 必须是字面 IP（复判记录 §1 F3 的 A4 行）。契约那行"SRV/DNS 目标改变"要成为可测行为，先得决定产品是否引入 SRV/DNS；若决定不引入，则该行的正确收法是"无解析路径 + 装载期禁区拒"，需要主控确认这一口径。 |
 | 真 socket 上不可达的 `length < 0` 分支 | 记录，不建卡 | `adapters/launcher/server_probe.py` 的负长度守卫在真实帧上永不命中（`_read_varint` 不产负数，`negative_length` 实测 `OVERSIZE`）。属死代码清理，随任一 probe 实现卡顺手看，不作为契约缺口。 |
 
+### 3.3 B1 交出的缺 case 排卡（按 §1.2 单独登记，不由 B1 顺手写断言也不自占队列）
+
+B1 的卡面判据是「只把有明确必要性的 missing case 排成独立实现卡」。74 条里今天够得上「排一张卡」的只有两组，
+其余三类的前置是主控选择或 deferred 族，给它们编卡号就是替主控做产品决定。完整形状与判据原文在
+[盘点记录 §7、§9](p0-evidence-inventory-2026-09-26.md)。
+
+| ID | 状态 / 依赖 | 交付与边界 |
+| --- | --- | --- |
+| **B1-a** `P0-CORE-040-050-RUN-001` | `QUEUED_PROPOSED`（等主控排期；它是 B2 的第一刀，不抢 B2 的 `NEXT`） | 7 条 mandatory 里唯二只差运行的行：`CORE-040`（move/look/use 的账本顺序）、`CORE-050`（首快照前拒输入）各在**当前仓库构建**上补一轮受控本地真跑。完成判据逐字取自磁盘：两条各有一份 `verified`、`case_version == 今天的摘要`（`22906123eeb7…` / `4b88854a5d46…`）、`result == PASS`、`from_repository_build: true` 的 bundle，且 W60 不再报 `CASE_VERSION_MISMATCH`。非空转反证沿用 R4 形状（改一位摘要 ⇒ 该行不再算数）。旧 attempt 全留；跑绿后 `promotable` 仍只是候选，晋级属 `P0-GATE-PROMOTION-001`。 |
+| **B1-b** `P0-OFFLINE-090-100-EVIDENCE-CHECK-001` | `QUEUED_PROPOSED`（等主控排期） | §5 判为**甲**的两条：待计数的字节已在 bundle 里（三份 client 日志流、`client/crash-reports/*`、`server/server.log`、账本全时间线、`previous-run-trace.jsonl`），缺的是 case 定义与断言。`OFFLINE-100` 的 A→B→A 跨 run 链按 `EVIDENCE-SEQUENCE` 形状做。两条硬边界写进卡面：`OFFLINE-090` 的 Dashboard 那半句**不在任何封存工件内**，只能登记为材料外边界，不许用 bundle 内「正文暴露次数 0」冒充整条闭合；`bundle.py:5-9` 对凭据字面量是**拒封而非脱敏**，所以「一次真实暴露」今天封不出 bundle，反证只能在副本上做并如实标注。 |
+| 产品事实无载体：6 条整条 + 2 个半句 | `BLOCKED_DECISION`（缺的是选择，不是代码） | 需要主控逐条回答：账本那一行是否承载 `server_profile_id`/endpoint（`ADMIT-010/020`）；身份是否承载「人格没有被重建」（`ADMIT-090`）；oracle/canary containment 的运行期来源（`ADMIT-120`、`CORE-080`）；OFF-D/OFF-N 是否进入 reviewed 候选集（`OFFLINE-060`，今天这两候选**根本启不来**）；`identity_revision` 是否有变更事件（`OFFLINE-070` 半句，今天全仓库只在 init 写常量 1、无自增路径）；封禁是否成为独立准入分类（`OFFLINE-080` 半句，今天 `classifyDisconnect` 无 banned 分支，一句封禁响应按设计落 `UNEXPECTED_DISCONNECT`）。冻结前不自造断言、不改候选集。 |
+| `ADMIT-030`、`ADMIT-050` 的 case id 拆分 | `BLOCKED_DECISION`（契约层） | 两条各自把三个互斥场景塞进一个 case id，而 promotion 对一个 case id 取任一满足 bundle ⇒ 正向证据会顺带关掉互斥的负向判据。先决定拆成几条、每条判什么，再谈 fixture。 |
+| HOST 18 条 + `NAV-EXP-010` | `DEFERRED` / 依赖门，不建卡 | 前者等主控对[HOST §5](host-admission-session-coordinate-design.md#5-分歧矩阵所有权问题为什么不由本卡回答)三个 ownership 单元格表态（`HOST-OWNERSHIP-FREEZE-001`）；后者契约原文写明「只在 core tested 后运行」，而 `p0-core` 今天不可晋级。把它记成「产品未实现」是替主控做决策。 |
+| 契约 crash/outbox 那行的滞后 | 记录，不建卡（不发明 docs-only 卡） | 那行说 `CORE-060` 的 runtime 强杀窗「按当前 run 形状打不中」，磁盘上是 9 个 bundle、seq4 `ed2bbad7…` 当前构建 PASS（来源：历史 `:5936-5941` 的 1.21.4 换代重封）。随下一次触碰该契约表的卡顺手改，本卡原文照引不改。 |
+
 ## 4. 完整 Minekin 长程任务簿（设计先行、证据后置）
 
 以下是持续执行所需的完整方向、顺序与交付门。细到尚未冻结的 case ID/阈值/接口不预编；到其前置门时从专项契约冻结，**一张大项可按真实依赖拆成多张小卡，但不能同时有两个 NEXT**。不依赖重大决策且已冻结的受控本地修复/证据卡可插入 A2/A3 之后、A4 之前；记录原因，不开无限审计格。
@@ -114,8 +144,8 @@ A2/A3 是本次新增的**本地安全顺序卡**，允许 A1 完成后机械提
 
 | ID | 状态 / 依赖 | 完成定义 |
 | --- | --- | --- |
-| `P0-EVIDENCE-INVENTORY-001` | **`NEXT`（2026-09-26 自 A3 机械提升）**，依赖 A3（已满足） | `report_cases`/`report_promotion` 在规范卷逐 case 标注“缺 fixture、缺当前 build 真证据、真实失败、产品未实现”；先复用旧清单。只把有明确必要性的 missing case 排成独立实现卡，不将盘点本身冒充门绿。 |
-| `P0-CONTROLLED-CAMPAIGN-001` | `BLOCKED_EVIDENCE`，inventory 后 | 按 W00→W70/`p0-core` 契约，在受控 dedicated offline 与必要 LAN 场景补当前 build 的 mandatory sealed bundle，包括 L3/L5/L6、崩溃恢复、重启协调、offline identity 与 soak；每个 case 的独立 oracle、非空转反证、版本摘要齐全，再谈 promotion。既有 `REAL-P0-CAMPAIGN-001` 历史阻断保留，不当成 DONE。 |
+| `P0-EVIDENCE-INVENTORY-001` | **`DONE`（2026-09-26，见 §2 与[盘点记录](p0-evidence-inventory-2026-09-26.md)）**，依赖 A3（已满足） | 已量出：四桶 `31/28/0/15`、28 条按成因与判据形状两刀切分、11 门 block 与三种 block 的语义、产品未实现只在缺 fixture 侧点名 6 条整条 + 2 个半句、四条反证各自移一个机制、一处契约行与一处旧清单口径的滞后登记。交出 §3.3 的排卡。 |
+| `P0-CONTROLLED-CAMPAIGN-001` | **`NEXT`（2026-09-26 自 B1 机械提升）**，其「inventory 后」前置已满足 | 按 W00→W70/`p0-core` 契约，在受控 dedicated offline 与必要 LAN 场景补当前 build 的 mandatory sealed bundle，包括 L3/L5/L6、崩溃恢复、重启协调、offline identity 与 soak；每个 case 的独立 oracle、非空转反证、版本摘要齐全，再谈 promotion。既有 `REAL-P0-CAMPAIGN-001` 历史阻断保留，不当成 DONE。B1 给它的最小内容：先补 §3.3 的 B1-a（`CORE-040`、`CORE-050` 两条 mandatory，只差运行），再按判据形状排 `OFFLINE-030` 与那 5 条只有别的构建 bundle 的 ADMIT 行；deferred 的 `HOST-030/040` 不计入本卡。 |
 | `P0-PLATFORM-MATRIX-001` | `QUEUED_CONDITIONAL`，基础证据后 | Java 17/21 与目标 OS/arch 分别做真实 runner/安装验证；Windows 缺口不凭 Linux PASS 删除。CI 仅作为辅助，优先本地/Docker。 |
 | `P0-GATE-PROMOTION-001` | `BLOCKED_EVIDENCE`，上述证据后 | 独立审计 W00…W70、`p0-core` 当前门禁；`promotable` 只是机器候选，还要规格/工程审查、准确登记、commit/push。不可用单一 W 门的绿替代整体。 |
 
@@ -162,5 +192,6 @@ A2/A3 是本次新增的**本地安全顺序卡**，允许 A1 完成后机械提
 
 - V08 远程目标：用户曾提供测试服且声明 offline 1.20.1，但又明确选择“V08 暂不提升”。要新的本次探测/入服许可；A1–A3 绝不连接该服。V09 的控制必须另行明确动作边界。
 - HOST §5 三格没有答案，不能由“先做设计”推导实现选项。PERSIST case 编号、运维删除、残留进程接管也未获产品决定。
+- B1 另交出两类等产品决定的缺 case：§3.3 的六个产品事实载体问题（账本 profile/endpoint、人格未重建、oracle/canary 来源、OFF-D/OFF-N 候选、`identity_revision` 变更事件、封禁分类）与 `ADMIT-030/050` 的 case id 拆分。执行侧不自造断言、不改候选集、不翻 registry 求绿。
 - 当前不会开启在线认证、扩大任意公网访问、让远程内容改变信任策略、把测试服务端真值送给 Kin，或以 CI 替代本地真跑。
 - 一旦走到 A4/上述决策门且没有独立已授权安全卡，保持 `BLOCKED_DECISION` 并交付清楚的选项；不得为了维持活动量反复改 `.tmp`、盘点或文档。
