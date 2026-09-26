@@ -298,3 +298,49 @@ B2 的第一刀 `P0-CORE-040-050-RUN-001` 已于 2026-09-26 完成（**B2 本身
 
 不声称 Minekin 已完成；不声称任何 gate 点亮（`promotable` 与第三、四轮逐字相同，仍是机器候选）；不声称 H3 让端到端 auto JOIN 跑通了（它停在一个**更靠后**的具名前沿 `BUDGET_UNDECLARED`，补 store 是 523 MB 的具名预算决定，未做）；不声称 ⑤ 的根因、归类或「这是 trunk 回归」——被量掉的只有「不是 runner 那 85→104 行的改动、不是 H1a 镜像、不是 case 也不是构建」，没被量掉的是 `xvfb-run` 那一次究竟有没有给子进程可用显示、以及那 65 字节 `XDG_RUNTIME_DIR` 与它是否同一条因果链；不声称 M 复量了 E 的容器探针或 H 的四组活体读数（都没复量，两侧全量 `pytest` 也未重跑）；不声称 `H1c` 已验证。全程未连接、未探测、未读取用户的远程服务器（`.tmp/local-test-server.txt` 未被打开），文中只出现 loopback/受控本地地址、卷名与镜像名。
 
+## M 主控第六轮（2026-09-27）：V2 双审合入、M 改掉自己为 E 写的 B1-b 三处、新登记候补卡 `H1d`
+
+### 起点核对（先量再写）
+
+- 主干推进顺序（`git log --oneline main`）：第五轮收尾 `9ac99c0` → `cb4786f`（H1c 派工 + M 自己 `:878-900` 错引的更正）→ `332e47e`（V lane 独立活体验证面的登记）→ `93b1f0a` + `a04d66f`（B1-b 排卡、V2 派工）→ V lane 尖 `9ec4486` → 本轮合并 `b6f23a8`。`git ls-remote origin` 实读：`refs/heads/main = b6f23a89888d9b5f46f14e1601400955f18bd7d0`、`refs/heads/codex/minekin-v1201-auto-status = 9ec448648261e808fe8ce69f7512fae6f59bebfd`、`refs/heads/codex/minekin-evidence = 918218d6…`（E 自第五刀后未再前进）。
+- V lane 自报 base `cb4786f`；**施工期间主干又前进过**，M 用真实 merge-base 核：差面恰 `1 文件 / +314`（`docs/validation/v1201-auto-status-1201-2026-09-27.md`），产品/runner/工具/registry/判据一字未动。合并干净无冲突。
+
+### 已合入 main（一笔）
+
+- **`b6f23a8` = `V1201-AUTO-STATUS-ON-1201-001`（V2）**：把 M 前几轮明写「未测」的「1.20.1 recipe × `--enable-status`」在 1.20.1 隔离侧量成四组真实读数（V-a 红/绿/非 auto 对照/`AUTH_MODE_MISMATCH`），V-b 给 ⑤ 家族在 1.20.1 的**诚实零读数**，V-c 复核 bridge 那件阻断仍成立。V 的原话按字节留下：**「V-a 结论：1.20.1 recipe × `--enable-status` 从「未测」变为四组真实读数（红/绿/对照/mismatch）」**、**「端到端完整 JOIN：未达 PASS，按 `BLOCKED_HARNESS` 具名收口」**。
+
+### M 侧独立双审（不照抄 lane 自报）
+
+1. **承重引用逐字对仓库字节核过**：`.tmp/v2-domain-preh3.sh` 与 `git show 6ce9f06:test-orchestrator/runner/domain.sh` 同枚（sha1 实读 `0eb3f55dfa10d686553ff1da8f514e5f5266f198`）；`domain.sh:404-407`（auto 不能带加入者）、`:575-578`（谓词 `-n "${auto_bundle}"`）、`:739`（joiner profile 钉死 `"minecraft_version": "1.21.4"`）、`:791`（加入者 `xvfb-run -a`）、`bundle-candidate-1.20.1.json` 的 `"source": "workspace:bridge-1201"`，全部属实 ⇒ V 的 V-b 构造依据与 V-c 的阻断判断不是推断。
+2. **M 重放了 V-a 的承重两组**（`.tmp/m-v2-run.sh` + `.tmp/m-v2-domain-preh3.sh`，日志 `.tmp/m-v2-red.log` / `.tmp/m-v2-green.log`；1.20.1 服务端 jar 走 `tools/verify_supply_chain.py --version 1.20.1` 具名取料、7 枚钉摘要仍匹配）：红 ⇒ `M: domain.sh rc=2` + run 目录第 12 行 `enable-status=false` + 具名早停开火；绿 ⇒ 工具自报 `asked for true, the settings written say true` + 第 12 行 `true` + 跨过早停 + 停在 `3639 of 3639 artifacts are missing and would cost 738432269 bytes … [BUDGET_UNDECLARED]`。**与 V 记录逐字同值**，且与 1.21.4 那形的 4120 件 / 523,788,383 字节明确不同形 ⇒ 早停护栏不恒绿、旗标不恒开。全程在 M 自己新建的 worktree 与自建卷 `minekin-m-v2-verify` 上，**规范卷 `minekin-runner-data` 连 `:ro` 都没挂**。
+3. **合并树门禁**：`ruff check`、`ruff format --check`（344 文件）、`pyright`（0 errors）、`check_boundaries`、`check_case_assertions`（140 registered）、`verify_fixture_digests`、`check_workflow_pins`、`git diff --check` 全 `rc=0`；**规范卷只读复量到 `report_promotion` 门载荷 sha256 在合并前后都仍是 `fb0152c85d029ee06a41a34e84f9656cd23fae0b1e166322c494d1190cd178da`**、`promotable` 仍 `W00/W10/W20/W60`、`attempts 71 / bundles 107` 一字未动 ⇒ 一个纯文档 lane 卡没有搬动任何门。
+4. **M 未复量**（照实在主干记）：V 的 mismatch 与 control 两组（M 只核了谓词字节）、V-c 的 738 MB 取件与装后前沿、V-b 的零计数（M 侧同样没有 1.20.1 加入者起跳面，无从反证）。
+
+### 本轮的第二件事：M 改掉自己为 E 写的 `B1-b` 三处
+
+第六轮在只读预检 `B1-b` 卡面时，M 量到三个自己上一轮写下的缺陷，逐条当场改主散文档（`259d597` / `009fcee` / `345d9af`），**没有让 E 去重做 M 的测量**：
+
+1. **「台账载体不存在」是 M 的命名方法缺陷**：M 拿字面串 `ledger` 去搜工件路径，而常量拼的是 `bridge-trace.jsonl`。载体链现按字节钉死：SQLite 台账 → `ledger_rows(database, run_id)`（`tools/assert_case_evidence.py:282`，按 `position` 排序、按 `run_id` 取）→ `timeline_bytes(...)`（`:304`，一行一个 JSON 对象）→ 封存为工件 `bridge-trace.jsonl`（`LEDGER_TIMELINE_ARTIFACT`，`src/minekin_core/adapters/evidence/trace.py:73`；落盘点 `tools/seal_run_evidence.py:788`），上一 run 的行另存 `previous-run-trace.jsonl`。卷上活体读数：**94/107 份 bundle 有该工件**、manifest 以 `{path, sha256, size}` 声明、`present_not_declared = 0`、每个 3–24 行且无空文件、19 个字段键；缺的 13 份全在 `repo-evidence/` 之下（正对照：仓库自检通道本就没有 bridge 会话）。据此「甲」类从被 M 错降的 4/5 **复原为 5/5**。派工前置换成：引用那些字段名，不要把 `orchestrator-trace.json` 当台账。
+2. **死指针 `docs/contracts/**`**：该目录不存在。判据锚点改为契约真实行号 `docs/p0-offline-session-compatibility-contract.md:155-156`，并带上 `:158` 那句「所有case只在运行者控制的隔离服执行。不得用第三方公网offline服务器做身份探测。」OFFLINE-090 的可读文本 = `CLIENT_STREAM_ARTIFACTS`（`assert_case_evidence.py:709`）+ crash 目录（seal `:252-254`）+ `server.log`（`:256`）；OFFLINE-100 = 两份 trace 工件里的 `kin_id`/`world_context_id`/`session_id`/`generation` + `server/usercache.json`（`:257`）。
+3. **M 写的验收 ③ 与本卡目标互相矛盾**：case registry **就是** fixture 目录（`load_case_registry()` 直接 glob `*.json`，`src/minekin_core/adapters/evidence/promotion.py:111-114`），而 `REQUIRED_CASES` 已含 OFFLINE-090/100（`src/minekin_core/domain/cases.py:354-355`）⇒ 注册它们必然让 `requirement()` 的 `absent` 变空（`:799-806`）、`PromotionBlock.REQUIRED_CASE_NOT_REGISTERED` 消失（`:884-891`），「门载荷一字不动」与「注册缺的 case」不可能同时成立。验收 ③ 拆成两种可量形状：(i) 只做封存侧 ⇒ 摘要必须仍 `fb0152c8…`；(ii) 注册 OFFLINE-090/100 ⇒ 摘要必然移，须给前后两枚摘要 + 逐项差异、点名出现/消失哪个 block、`promotable` 冻结不晋级。门晋级仍归主控。
+
+### 本轮的第三件事：新登记候补卡 `H1d`（runner 读数可见性缺口）
+
+V2 的绿读数暴露、M 在自己卷上重放确认：auto run 跨过早停后停在具名供应链/预算前沿时，domain 层已打印 `the session never became playable within 30s (the session exited first)`、`this run is ` 与 `the run document said ` 皆空（无 run document ⇒ seal 通道未触发），**而 `domain.sh` 仍返回 `rc=0`**（`.tmp/m-v2-green.log:6,11,12,20`）；同一驱动的红形状在服务器段具名早停时返回 `rc=2`（`.tmp/m-v2-red.log:6`）⇒ 通道不是恒零，只是粒度不够：「客户端 JVM 从未起跳」与「起了跳但没到 playable」在退出码上不可区分，只读 rc 的调用方会把「停在预算门」当成成功。卡面、先红后绿验收与允许面已写进执行计划同名行（`QUEUED_PROPOSED`，等 `H1c` 收口后提升为 H lane 下一张；禁挂规范卷、禁往 `minekin.p0.evidence.v1` 加字段）。
+
+### 真实封证
+
+本轮 **M 没有产生任何 sealed evidence，也没有写规范卷**（V2 重放在自建卷、卷上复量全程 `:ro`）。V2 自己也明写「**本卡不产生封证**」，其四组读数属 lane 侧活体测量，不是主干可引用的 sealed evidence。
+
+### lane_next 现状
+
+- 主干唯一 integration `NEXT` 仍是 `PARALLEL-INTEGRATION-GATE-001`（常驻，本轮没被"完成"）。
+- **H → `H1c` 在工**：该 lane 的 worktree 现有未提交改动（`test-orchestrator/runner/domain.sh`、`tests/contract/test_runner_scripts.py`），分支尚未 push ⇒ M 未进该树、未在其中写文件，只在派工 base 的字节上做只读引用核对。`H1d` 排在其后。
+- **E → `B1-b`（`OFFLINE-090/100` 的证据检验）已按上面三处更正定稿，`QUEUED`，等 `H1c` 合并后派工**；B2 剩余范围（非 mandatory 的 HOST 家族）仍阻在 §5 的 ownership 决定。
+- **V → 无安全可派卡，停等具名**：1.20.1 端到端 JOIN 的阻断者是 bridge 非 https 不可联网获取（H-2 未落地）与 joiner 无 1.20.1 起跳面，两者都不是 V lane 能自行解除的。
+- S → 暂无安全的 S 卡（N3/N4 属 `BLOCKED_DECISION`）；D → D1 已合入，D2 等 Gateway 只读契约冻结。冲突表与面归属见[并行作业协议](parallel-execution-plan.md) §2。
+
+### 不声称
+
+不声称 Minekin 已完成；不声称任何 gate 点亮（门载荷摘要与第三、四、五轮逐字相同）；不声称 1.20.1 的 auto JOIN 可用（V2 绿读数只证明 status 那格打开，端到端仍 `BLOCKED_HARNESS`）；不声称 ⑤ 在 1.20.1 被复现或被排除（V-b 是零读数，形状到不了）；不声称 M 复量了 V 的 mismatch/control/V-c 四处（都没复量，点名在案）；不声称 `B1-b` 已跑或已派工（它仍是 `QUEUED`，等 `H1c`）；不声称 `H1c`、`H1d` 已验证。全程未连接、未探测、未读取用户的远程服务器，`.tmp/local-test-server.txt` 未被打开；文中只出现 loopback/受控本地地址、卷名与镜像名。
+
