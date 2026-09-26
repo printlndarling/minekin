@@ -23,7 +23,7 @@ B1 `P0-EVIDENCE-INVENTORY-001` 已于 2026-09-26 收卡：规范卷只读四桶�
 
 B2 的第一刀 `P0-CORE-040-050-RUN-001` 已于 2026-09-26 完成（**B2 本身仍是 E lane 的 `NEXT`，不收卡**）：在规范卷 `kin-01` 上补了三轮受控本地 dedicated offline 真跑（jar 实测与 `SERVER_RECIPES["1.21.4"]` 的 pin 相同），`CORE-040`、`CORE-050` 各留一份当前构建的 PASS bundle，`case_version` 逐字节等于今天的摘要、`from_repository_build: true`，四读齐全（封证 verdict、`evidence verify`、`report_promotion` row、独立复判 `observed=6/6` 与 `4/4`、`disagreements=[]`）；W60 因此从 `CASE_VERSION_MISMATCH` 转为 `promotable: true / blocks []`，`p0-core` 只剩 `REQUIRED_CASE_NOT_REGISTERED`。反证四组：撤掉任一判绿 run 该门立刻回红，只改一位封进去的字节则 `EVIDENCE_NOT_VERIFIED` + `rc=12` + 复判 `unjudged`、而规范卷同一 run 仍 `verified`。`CORE-050` 第 1 次 attempt 真实 **FAIL**（本次命令漏 `MINEKIN_DOMAIN_STILL=1`，`--hold-at join` 下 harness 不代跑静默等待 ⇒ `NO_SERVER_READINGS`），判据未改、材料保留。逐条读数、复现命令与「本卡不声称」见[CORE-040 / CORE-050 当前构建真跑封证](p0-core-040-050-run-2026-09-26.md)。
 
-当前 **E lane** 的 `NEXT` 是 **B2 `P0-CONTROLLED-CAMPAIGN-001`**（主干 `NEXT` 是 M 的 `PARALLEL-INTEGRATION-GATE-001`，见[并行作业协议](parallel-execution-plan.md)与[执行计划 §2](development-execution-plan.md#2-上一卡交付与当前-next-边界)的 lane_next 表；B2 属 §4 B 段第二张，B1 已满足其「inventory 后」前置；在受控 dedicated offline 与必要 LAN 场景补当前 build 的 mandatory sealed bundle。**第一刀 `CORE-040`/`CORE-050` 与第二刀 `OFFLINE-030` 已交，剩余是 5 条 `only_another_build` 的 `ADMIT-001/040/060/100/110`，以及卡面后半段 L3/L5/L6、崩溃恢复、重启协调、offline identity 与 soak**）。**那 5 条 ADMIT 行与 `OFFLINE-030` 一样都在 `non_mandatory` 名单里，再跑也不会动任何一门**；今天 11 个包的 block 字段里没有 `CASE_VERSION_MISMATCH`，剩下的阻因是 `REQUIRED_CASE_NOT_REGISTERED` 与 `NO_MANDATORY_CASES`，属 case 设计与门禁决定（主控）。**禁止连接用户远程服；V08 仍未提升**，A4 是新的授权门，B 段推进不等于入服许可。W60 的 `promotable: true` 只是机器候选，**晋级属 `P0-GATE-PROMOTION-001`（主控）**，它既不等于 `p0-core tested`，也不等于任何门已点亮；执行侧不翻 `status/gaps`、不改 case/registry 求绿。A1 留下的 `V1201-DEMO-CASE-FREEZE-001`、A2 留下的 `V1201-DISK-PREFLIGHT-001`/`V1201-SRV-RESOLVER-001`，与 B1 留下的六个产品事实载体问题、`ADMIT-030/050` 的 case id 拆分都是 `BLOCKED_DECISION`，留在主控手里；B1 交出的 `P0-OFFLINE-090-100-EVIDENCE-CHECK-001` 是 `QUEUED_PROPOSED`，排期是主控动作。本地真跑再受 runner 缺陷阻断时，保留原始材料并按需另登修复卡。
+当前 **E lane** 的 `NEXT` 是 **B2 `P0-CONTROLLED-CAMPAIGN-001`**（主干 `NEXT` 是 M 的 `PARALLEL-INTEGRATION-GATE-001`，见[并行作业协议](parallel-execution-plan.md)与[执行计划 §2](development-execution-plan.md#2-上一卡交付与当前-next-边界)的 lane_next 表；B2 属 §4 B 段第二张，B1 已满足其「inventory 后」前置；在受控 dedicated offline 与必要 LAN 场景补当前 build 的 mandatory sealed bundle。**第一刀 `CORE-040`/`CORE-050`、第二刀 `OFFLINE-030`、第三刀 5 条 `ADMIT-001/040/060/100/110`、第四刀 `CORE-030`（LAN）与第五刀 4 条仓库自检行（`OFFLINE-001/040/050` + `ADMIT-080`）已交；B1 §6 三格里的非 deferred 形状至此清空，剩余是卡面后半段 L3/L5/L6、崩溃恢复、重启协调、offline identity 与 soak（要新场景与新判据），以及整族 deferred 的 `HOST*`（13 条「只需仓库字节」+ `HOST-030/040`，前置是 ownership 决策）**）。**本轮交的这些行都在 `non_mandatory` 名单里，再跑也不会动任何一门**；今天 11 个包的 block 字段里没有 `CASE_VERSION_MISMATCH`，剩下的阻因是 `REQUIRED_CASE_NOT_REGISTERED` 与 `NO_MANDATORY_CASES`，属 case 设计与门禁决定（主控）。**禁止连接用户远程服；V08 仍未提升**，A4 是新的授权门，B 段推进不等于入服许可。W60 的 `promotable: true` 只是机器候选，**晋级属 `P0-GATE-PROMOTION-001`（主控）**，它既不等于 `p0-core tested`，也不等于任何门已点亮；执行侧不翻 `status/gaps`、不改 case/registry 求绿。A1 留下的 `V1201-DEMO-CASE-FREEZE-001`、A2 留下的 `V1201-DISK-PREFLIGHT-001`/`V1201-SRV-RESOLVER-001`，与 B1 留下的六个产品事实载体问题、`ADMIT-030/050` 的 case id 拆分都是 `BLOCKED_DECISION`，留在主控手里；B1 交出的 `P0-OFFLINE-090-100-EVIDENCE-CHECK-001` 是 `QUEUED_PROPOSED`，排期是主控动作。本地真跑再受 runner 缺陷阻断时，保留原始材料并按需另登修复卡。
 
 **2026-09-26 主控对 B2 后续工作的边界（覆盖本文更早的推送口径）**：证据 checkpoint 之后执行侧**停止直接写 `main`**；B2 的后续一刀作为 **E 证据 lane 在独立分支**推进，由主控决定分支名与合入时机。执行侧使用的受控通道是仓库内 `test-orchestrator/runner/run.sh` 与 `test-orchestrator/runner/domain.sh`（服务端 `tools/run_controlled_server.py`，判据 `tools/assert_case_evidence.py`，封证 `tools/seal_run_evidence.py`，读数 `tools/report_promotion.py` / `tools/rejudge_evidence.py`），镜像 `minekin-runner:local`，**规范数据卷 `minekin-runner-data`（容器内 `/data`，证据在 `kin/kin-01/run/evidence/<run>`、attempt 登记在 `evidence-attempts.sqlite3`）**；只读读数一律以 `-v …:/src:ro -v minekin-runner-data:/data:ro` 挂载并在 `/tmp` 副本上做破坏性动作。
 
@@ -134,3 +134,50 @@ B2 的第一刀 `P0-CORE-040-050-RUN-001` 已于 2026-09-26 完成（**B2 本身
   待主控点的仍是那三件 + 新加两件：mandatory 登记/晋级、§3.3 排期、`import sys` 缺陷、`domain.sh:657`、
   GLFW `[0x1000E]` 是否值得诊断卡。禁止连接用户远程服这条不变；规范卷 `minekin-runner-data` 仍只有 E 写，
   本轮对它的写入只有两次真跑的追加（其余全程 `:ro`）。
+
+## E lane 交件：B2 第五刀（4 条「判官只需仓库字节」行的当前构建封证）+ 两格交主控的事实 2026-09-26
+
+- **交了什么**：B1 §6 三格按判据形状切出的第三种形状 —— 「判官只需仓库字节但本根零 bundle 17 条」里
+  **非 HOST 的 4 条**（`OFFLINE-001`、`OFFLINE-040`、`OFFLINE-050`、`ADMIT-080`），各封一份当前构建的
+  PASS bundle。**该格由此从 17 条变成 13 条，而剩下的 13 条全部属 `HOST*` 家族**
+  （`HOST-010/020/050/060/070/080`、`HOSTCOMMIT-090/110`、`HOSTCTL-001/010/050/060/070`）。E 工作树
+  `2a83109`（第四刀的记录提交）之上的同一份主干源码，纯文档提交。
+  记录：[四条仓库自检行的当前构建封证](p0-repo-four-case-run-2026-09-26.md)。
+- **这一刀的形状与前四刀不同，值得主控知道**：它**不是** Minecraft 真跑，而是既有的**仓库自检通道**
+  （`tools/run_repo_case.py` 跑 case 声明的 pytest 判据 ⇒ `tools/seal_repo_case.py --data-root /data` 封到
+  `repo-evidence/<run-id>/`）。这条通道 09-25 已在卷上留下三份（`f2335016 / e2393e92 / 157eccd2`），本轮是
+  按同一条通道重复它，未新增判据、未新增 case id。四份 attempt 各 seq 1、检查 `5/3/3/6` 条全 held、
+  工件 9/7/7/10 件、`launch_plan_digest bcc0c10d…`（与前四刀同一份当前仓库构建）。
+- **读数（四读，含该通道自己的口径）**：封存自报 `sealed / PASS / failures []`；只读挂载上
+  `python -m minekin_core evidence verify` 四条 `rc=0`；`report_promotion.py --data-root /data` 每行
+  `from_repository_build: true / verified: true / sealed: true / violations: []`；**`rejudge_evidence.py`
+  报 `UNJUDGED` + `rc=2`**，理由是 bundle 不记 asserter 输入（`asserter-inputs.json`）——这是仓库自检类
+  bundle 的既有口径，所以这条通道的**第二次读法是重跑检查**，本轮四条各有全新 run id 的独立重跑并同意
+  （`c844cffa / 5826ff69 / 25696021 / e115a539`）。**E 不声称 `re_judged = AGREES`**，请按此强度使用。
+  底色 `attempts 61→65 / bundles 97→101`，`from_another_build` **仍是 61**。
+- **门一寸未动，而且是量出来的**：把 `report_promotion.py` 的 `work_packages`+`overall` 整段按 sort_keys
+  序列化取 sha256，封前（97 份 bundle）与封后（101 份）**同一个值** `fb0152c85d029ee0…`；四条都是
+  `mandatory: false` 且都在所属门的 `requirement.non_mandatory` 名单里。反证七件 P/R-A/R-B/R-C/R-D/R-E/R-F：
+  一位字节的两种工件（检查输出、判决工件）都给 `rc=12` + `ARTIFACT_DIGEST_MISMATCH` 且**还原即回 `rc=0`**；
+  R-D 在产品代码副本上改一字节（token 入参、`STALE_GENERATION` 处置、`uuid` 规范化）使四案各自的判据转红
+  （`3/5`、`2/3`、`4/6`，`OFFLINE-040` 需自己那一刀才 `2/3`），并如实封成**卷外** FAIL；R-E 删 bundle 目录
+  ⇒ `bundles 9→5` 而 `attempts` 仍 65。规范卷全程 `:ro`，唯一写入是那四次封存追加。
+- **交主控的事实 1（基础设施，E 不自作处置）——受控镜像里执行不了仓库自检类检查**：
+  `minekin-runner:local` 内 `find_spec("pytest")` → `None`，`/opt/minekin/lib/python3.12/site-packages` 只有
+  `google / pip / pip-24.0.dist-info / protobuf-6.33.6.dist-info`（`test-orchestrator/runner/Dockerfile` 里只
+  `pip install "protobuf==6.33.6"`）。在镜像里跑 `run_repo_case.py` ⇒ `rc=1`、`result FAIL`、五条 detail 全是
+  `No module named pytest`，即**一份由环境造成的假 FAIL**。E 没有临时 `pip install`（会把未钉住的代码放进封证
+  链路）、没有改镜像（`test-orchestrator/` 不在本卡允许路径，且这是基础设施不是证据）、也没有把那份假 FAIL 封进卷，
+  走的是 09-25 已在卷上留下三份的同一条通道（检查在宿主、封存受控容器）。**请定口径**：给受控镜像加一份钉住的
+  测试工具链（另卡），还是明确「仓库自检类 bundle 的 `environment` 段按封存进程记」为本项目正式口径。
+- **交主控的事实 2（判读侧，是否开卡由主控判）——「台账有行、卷上无 bundle」被静默忽略**：在副本里删掉本轮四个
+  run 目录后，`report_promotion.py` 仍报 `attempts 65`、`unsealed 0`、`unreadable 0`，只有 `bundles 9→5`；
+  而反方向的半套卷（有 bundle 无台账）09-25 量过是 `unusable / exit 2`。也就是说**半套卷的拒绝只朝一个方向生效**，
+  一条 `SEALED` 台账行指向不存在的目录时没有任何读者会抱怨。E 不动工具代码。
+- **E 接下来的停等边界（更新上一条）**：B1 §6 三格里的**全部非 deferred 形状**至此清空（1 条 → 第二刀、
+  10 条 → 第三、四刀、17 条 → 第五刀后剩 13 条全 HOST）。剩余动作没有一件是 E 单方能做的：卡面后半段
+  L3/L5/L6 / 崩溃恢复 / 重启协调 / offline identity / soak 要新场景与新判据；B1-b 仍 `QUEUED_PROPOSED`；
+  HOST 那 13 + 2 条的前置是 ownership 决策。**E 不自造断言、不改 `mandatory`、不动 registry、不 patch
+  已提交的 runner/产品代码、不封 HOST 族。** 待主控点的仍是那五件 + 新加两件：mandatory 登记/晋级、§3.3 排期、
+  `import sys` 缺陷、`domain.sh:657`、GLFW `[0x1000E]` 是否开诊断卡、受控镜像是否携带钉住的测试工具链、
+  「`SEALED` 行无 bundle」的静默是否开卡。禁止连接用户远程服这条不变；`minekin-runner-data` 仍只有 E 写。
