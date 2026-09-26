@@ -119,6 +119,12 @@ not_gating 36 / misattributed 0`，注册 case 49 个、mandatory 7 个、断言
 - `CASE_VERSION_MISMATCH` = 定义有、证据有，但那份封证判的不是今天的判据，**要一轮当前构建真跑**；
 - `NO_MANDATORY_CASES` = 定义与判据都在、且都还没被点亮为门禁，**是主控的门禁决策**，不是谁的实现缺口。
 
+**后效（同日，不改上表读数）**：上面这张表是 baseline `37f8deb` 上的读数，按原样保留。同日 B2 的第一刀
+`P0-CORE-040-050-RUN-001` 在当前构建上为 `CORE-040`、`CORE-050` 各封了一份 PASS bundle，于是
+W60 与 `p0-core` 的 `CASE_VERSION_MISMATCH` 都不再出现——今天的读数是 W60 `promotable: true`、
+`p0-core` 只剩 `REQUIRED_CASE_NOT_REGISTERED`。那份记录（含四读、门读数与四组反证）在
+[这里](p0-core-040-050-run-2026-09-26.md)；那张卡没有点亮任何门的晋级，理由见其 §6。
+
 顺带纠正一处契约文档滞后（**不改写原文，登记读数**）：
 `docs/p0-validation-evidence-contract.md` 的 crash/outbox 表把 runtime 强杀那一窗写成「有 2 份 attempt、都判 `FAIL`、
 剩下那条按当前 run 形状打不中」。规范卷今天对该 case id 有 9 个 bundle（日志 §7b 逐条），其中带 `attempt_sequence` 的链条是
@@ -233,6 +239,9 @@ B1 的卡面判据是「只把**有明确必要性**的 missing case 排成独�
 登记落点在[执行计划 §3.3](development-execution-plan.md)。
 
 ### 9.1 建议新卡 1：`P0-CORE-040-050-RUN-001`（状态 `QUEUED`，本地 + 真跑）
+
+> 后效：本节就是 B2 第一刀的卡面，2026-09-26 同日已按此执行完毕（含下面两条完成判据与那条反证形状），
+> 结果见 [CORE-040 / CORE-050 当前构建真跑封证](p0-core-040-050-run-2026-09-26.md)。本节文字按建议时的原样保留。
 
 - **为什么必要**：7 条 mandatory 里唯二只差运行的行（§6）。W60 与 `p0-core` 今天的唯一 block 就是这两条的
   `CASE_VERSION_MISMATCH`，判据现成、无需新断言。
