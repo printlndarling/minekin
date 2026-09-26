@@ -13,6 +13,7 @@ import dataclasses
 import hashlib
 import importlib
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -7186,10 +7187,10 @@ def test_the_a_b_a_half_refuses_on_every_shape_a_bundle_can_take() -> None:
         assert assertion(TRIPLE)(pair) == "A_B_A_TRIPLE_NOT_SEALED"
 
 
-def test_the_two_new_rows_name_only_assertions_the_asserter_performs() -> None:
+def test_the_three_new_rows_name_only_assertions_the_asserter_performs() -> None:
     """The registry check, taken for the fixtures added after the list above."""
 
-    for path in (OFFLINE_090_CASE, OFFLINE_100_CASE):
+    for path in (OFFLINE_090_CASE, OFFLINE_100_CASE, OFFLINE_070_CASE):
         declared = cast(dict[str, object], json.loads(path.read_text(encoding="utf-8")))[
             "assertions"
         ]
@@ -7208,6 +7209,249 @@ def test_the_row_stays_non_mandatory_and_records_what_implements_each_clause() -
 
     case = offline_100_case()
 
+    assert case["mandatory"] is False
+    assert case["work_package"] == "W30"
+    digests = cast(Mapping[str, object], case["assertion_digests"])
+    assert set(digests) == set(cast(list[str], case["assertions"]))
+    for name, digest in digests.items():
+        assert isinstance(digest, str) and len(digest) == 64, name
+
+
+# ==============================================================================
+# OFFLINE-070 — the conflict a name has with the world: one clause has a carrier, three do
+# not
+# ==============================================================================
+
+
+OFFLINE_070_CASE = CASES / "offline-070.json"
+DUPLICATE_CLASSIFIED = "the_conflict_was_classified_as_duplicate_login"
+RENAME_APART = "a_renamed_or_recased_login_is_not_called_a_duplicate"
+REVISION_OPENED = "the_conflict_opened_a_new_identity_revision"
+ROOT_KEPT = "the_identity_root_was_not_merged"
+
+#: The category as the proto spells it, written out rather than imported: a rename on
+#: either side of this pair is meant to read as a red test, not as a green one that
+#: followed the rename. The row's own green is the pair `phase: FAILED` and this reason,
+#: the same shape `the_refusal_was_classified_in_the_ledger` was proven against.
+DUPLICATE_LOGIN_CATEGORY = "ADMISSION_FAILURE_REASON_DUPLICATE_LOGIN"
+
+CLASSIFIER_SOURCE = (
+    REPOSITORY_ROOT
+    / "bridge"
+    / "src"
+    / "main"
+    / "java"
+    / "org"
+    / "minekin"
+    / "bridge"
+    / "runtime"
+    / "ClientAdmissionController.java"
+)
+FAILURE_REASONS = REPOSITORY_ROOT / "proto" / "minekin" / "v1" / "observation.proto"
+
+
+def conflict_run(**changes: object) -> _Material:
+    """A run the world refused because the name it came under was already in it."""
+
+    arguments: dict[str, object] = {
+        "events": (event("SessionInterrupted", phase="FAILED", reason=DUPLICATE_LOGIN_CATEGORY),),
+    }
+    arguments.update(changes)
+    return material(**arguments)  # type: ignore[arg-type]
+
+
+def offline_070_case() -> dict[str, object]:
+    return cast(dict[str, object], json.loads(OFFLINE_070_CASE.read_text(encoding="utf-8")))
+
+
+def test_a_refusal_because_the_name_was_taken_holds_the_classification_clause() -> None:
+    assert assertion(DUPLICATE_CLASSIFIED)(conflict_run()) is None
+
+
+#: The shapes that are not a classified duplicate login: another category, a disconnect
+#: that was never a refusal, the right category at the wrong phase, an interruption with
+#: nothing in its reason field, a row whose payload cannot be read at all, and a run that
+#: was never interrupted. Every one of them has to answer with a name — an assertion that
+#: ran out of rows and fell through to green would report "no conflict" as "conflict
+#: handled".
+DUPLICATE_CLASSIFICATION_COUNTEREXAMPLES: tuple[tuple[str, Mapping[str, object], str], ...] = (
+    (
+        "the server refused for a different reason",
+        {
+            "events": (
+                event(
+                    "SessionInterrupted",
+                    phase="FAILED",
+                    reason="ADMISSION_FAILURE_REASON_WHITELIST_REJECTED",
+                ),
+            )
+        },
+        "NO_DUPLICATE_LOGIN_CLASSIFICATION:FAILED/ADMISSION_FAILURE_REASON_WHITELIST_REJECTED",
+    ),
+    (
+        "the connection was lost rather than refused",
+        {"events": (event("SessionInterrupted", outcome="BRIDGE_LOST"),)},
+        "NO_DUPLICATE_LOGIN_CLASSIFICATION:<no-phase>/<no-reason>",
+    ),
+    (
+        "the category was reached after the session was already in the world",
+        {
+            "events": (
+                event("SessionInterrupted", phase="DISCONNECTED", reason=DUPLICATE_LOGIN_CATEGORY),
+            )
+        },
+        f"NO_DUPLICATE_LOGIN_CLASSIFICATION:DISCONNECTED/{DUPLICATE_LOGIN_CATEGORY}",
+    ),
+    (
+        "a failed interruption that recorded no category",
+        {"events": (event("SessionInterrupted", phase="FAILED"),)},
+        "ADMISSION_EVENT_UNCLASSIFIED",
+    ),
+    (
+        "a failed interruption whose category is null",
+        {"events": (event("SessionInterrupted", phase="FAILED", reason=None),)},
+        "ADMISSION_EVENT_UNCLASSIFIED",
+    ),
+    (
+        "an interruption row whose payload cannot be read",
+        {"events": ({**event("SessionInterrupted", phase="FAILED"), "payload_json": "{not json"},)},
+        "NO_DUPLICATE_LOGIN_CLASSIFICATION:<no-phase>/<no-reason>",
+    ),
+    (
+        "a run that was never interrupted",
+        {"events": (event(HANDSHAKE),)},
+        "NO_ADMISSION_EVENT_RECORDED",
+    ),
+    (
+        "a bundle that sealed no ledger",
+        {"ledger_readable": False},
+        "LEDGER_UNREADABLE",
+    ),
+)
+
+
+@pytest.mark.parametrize(("why", "changes", "reason"), DUPLICATE_CLASSIFICATION_COUNTEREXAMPLES)
+def test_a_conflict_that_is_not_a_classified_duplicate_login_says_which_it_was(
+    why: str, changes: Mapping[str, object], reason: str
+) -> None:
+    assert assertion(DUPLICATE_CLASSIFIED)(conflict_run(**changes)) == reason, why
+
+
+def test_a_taken_name_has_one_category_and_no_category_names_a_rename() -> None:
+    """The measured reason the rename half of the row is a gap rather than a reading.
+
+    Two facts, both from the source rather than from a summary of it: the classifier has
+    one arm for both of vanilla's sentences about a name being in use, so a Kin that was
+    kicked because it logged in elsewhere and a Kin whose name collides are the same
+    category; and no entry in the enumeration is about a name changing at all. Add a
+    rename entry to the enum and this test goes red on the second half — which is the
+    moment the clause stops being a gap and has to be written as a reading.
+    """
+
+    classifier = CLASSIFIER_SOURCE.read_text(encoding="utf-8")
+    folded = re.sub(r"\s+", " ", classifier)
+    assert (
+        'if (text.contains("already connected") || '
+        'text.contains("logged in from another location")) { '
+        "return AdmissionFailureReason.ADMISSION_FAILURE_REASON_DUPLICATE_LOGIN; }"
+    ) in folded, "the two sentences no longer share one arm"
+
+    enum = FAILURE_REASONS.read_text(encoding="utf-8")
+    names = [
+        line.split("=")[0].strip()
+        for line in enum.splitlines()
+        if line.strip().startswith("ADMISSION_FAILURE_REASON_")
+    ]
+    assert len(names) >= 16, names
+    renames = ("RENAME", "RECASE", "CASE", "ALIAS")
+    assert not [name for name in names if any(word in name for word in renames)], names
+
+
+def test_the_product_has_no_path_that_writes_an_identity_revision() -> None:
+    """The reason the revision half of the row cannot be judged on a bundle.
+
+    Scanned rather than remembered: every statement in `src/**` that both says `UPDATE`
+    and names the column. Today there is none — the number is written once at init as a
+    constant and read back after that — so a conflict that should have opened a revision
+    leaves no trace of having declined to. Land a migration that updates the column and
+    this reds, which is when the clause becomes writable as a reading.
+    """
+
+    offenders: list[str] = []
+    for path in (REPOSITORY_ROOT / "src").rglob("*"):
+        if path.suffix not in {".py", ".sql"}:
+            continue
+        for statement in path.read_text(encoding="utf-8").split(";"):
+            if "identity_revision" in statement and re.search(r"\bupdate\b", statement, re.I):
+                offenders.append(path.relative_to(REPOSITORY_ROOT).as_posix())
+    assert offenders == []
+
+
+def test_the_sealed_inputs_hold_no_number_for_a_rejudge_to_read() -> None:
+    """The other half of the same gap, on the carrier side rather than the write side.
+
+    What a re-judge is handed is exactly these five names. A revision the product *had*
+    still could not be read here, which is why the clause refuses on the artifact rather
+    than on the run.
+    """
+
+    sealed = json.loads(ASSERTER_MODULE.asserter_inputs_bytes(conflict_run(), username=USERNAME))
+
+    assert set(sealed) == {"schema_version", "kin_id", "run_id", "username", "previous_run_id"}
+
+
+def test_the_three_carrier_free_clauses_refuse_whatever_the_run_says() -> None:
+    """No material turns a gap green, including one whose judgeable clause holds.
+
+    Each gap is a refusal for a named missing carrier, so the honest test is that the
+    widest set of shapes available today gives the same answer. A controlled conflict run
+    changes these by being sealed and read after the carriers exist, not by this file
+    being edited to stop refusing.
+    """
+
+    for run in (conflict_run(), conflict_run(events=()), conflict_run(ledger_readable=False)):
+        assert assertion(RENAME_APART)(run) == ASSERTER_MODULE.CONFLICT_CATEGORY_HAS_NO_RENAME_ENTRY
+        assert assertion(REVISION_OPENED)(run) == (
+            ASSERTER_MODULE.IDENTITY_REVISION_HAS_NO_CHANGE_CARRIER
+        )
+        assert assertion(ROOT_KEPT)(run) == (
+            ASSERTER_MODULE.IDENTITY_ROOT_MERGE_HAS_NO_SEALED_CARRIER
+        )
+
+
+def test_a_perfectly_classified_conflict_still_cannot_close_the_row() -> None:
+    """The row's own status rule, enforced by the fixture: registration is not closure.
+
+    The one clause with a carrier is green here, and the verdict is still FAIL — the
+    rename half, the revision half and the identity-root half each name what they are
+    waiting for. A non-mandatory registration cannot be read as OFFLINE-070 closing, and
+    a run that classifies its conflicts perfectly cannot read it either.
+    """
+
+    verdict = ASSERTER_MODULE.evaluate(offline_070_case(), conflict_run())
+
+    assert verdict.result == "FAIL"
+    assert verdict.observed == (DUPLICATE_CLASSIFIED,)
+    assert verdict.failures == (
+        f"{RENAME_APART}:{ASSERTER_MODULE.CONFLICT_CATEGORY_HAS_NO_RENAME_ENTRY}",
+        f"{REVISION_OPENED}:{ASSERTER_MODULE.IDENTITY_REVISION_HAS_NO_CHANGE_CARRIER}",
+        f"{ROOT_KEPT}:{ASSERTER_MODULE.IDENTITY_ROOT_MERGE_HAS_NO_SEALED_CARRIER}",
+    )
+    assert verdict.unimplemented == ()
+
+
+def test_the_070_row_is_registered_without_being_made_mandatory() -> None:
+    """What this card is allowed to move, and what it is not.
+
+    `OFFLINE-070` was already a `W30` / `p0-core` row in the registry; the gate's reading
+    of it goes from absent to registered by this file existing. `mandatory` is the
+    controller's to flip, and so is the registry's own status and gap text — neither of
+    which this row's fixture carries.
+    """
+
+    case = offline_070_case()
+
+    assert case["case_id"] == "OFFLINE-070"
     assert case["mandatory"] is False
     assert case["work_package"] == "W30"
     digests = cast(Mapping[str, object], case["assertion_digests"])

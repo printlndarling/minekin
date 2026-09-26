@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "case_id": "OFFLINE-070",
+  "work_package": "W30",
+  "mandatory": false,
+  "inputs": [],
+  "assertion_digests": {
+    "a_renamed_or_recased_login_is_not_called_a_duplicate": "e1e59587afd51b076fe166eab6e5455795febab1593ea8c3b3cf80fbad91656c",
+    "the_conflict_opened_a_new_identity_revision": "e388084164e7121342bb6f0db5f1ba84cdfb311e57d14453639436987dd39a05",
+    "the_conflict_was_classified_as_duplicate_login": "7bff0cc61cb0d1c664452b1087d58deb1ccd5ab643a83dba41b16f5ba67a9a08",
+    "the_identity_root_was_not_merged": "2b0867bc9af3907270d4c69405e6bb9964de6cdb2e9ce1e6fa33869235183442"
+  },
+  "assertions": [
+    "the_conflict_was_classified_as_duplicate_login",
+    "a_renamed_or_recased_login_is_not_called_a_duplicate",
+    "the_conflict_opened_a_new_identity_revision",
+    "the_identity_root_was_not_merged"
+  ]
+}

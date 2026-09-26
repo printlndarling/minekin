@@ -195,6 +195,12 @@ REFUSAL_LINE = f"bridge classified the login failure as {WHITELIST_REJECTED}"
 AUTH_MODE_MISMATCH = "ADMISSION_FAILURE_REASON_AUTH_MODE_MISMATCH"
 AUTH_POLICY_FROZEN = "AuthPolicyFrozen"
 
+#: What the Bridge gives a server that says the name is already in the world, spelled as
+#: the proto names it (`observation.proto:33`). The two vanilla sentences that reach it, and
+#: why a rename cannot be told from a re-login, are the subject of the OFFLINE-070 section
+#: below; only the category itself belongs here, beside the two its neighbours were placed.
+DUPLICATE_LOGIN = "ADMISSION_FAILURE_REASON_DUPLICATE_LOGIN"
+
 #: What a refusal at the resource pack has to be read from instead: the server's own
 #: three settings, the policy the trusted profile carries, and the product fact the
 #: Bridge reports for the connection it actually made. The contract names all three
@@ -3913,6 +3919,118 @@ def the_world_switch_returned_to_the_confirmed_world(material: RunMaterial) -> s
     return "A_B_A_TRIPLE_NOT_SEALED"
 
 
+# ---------------------------------------------------------------------------
+# OFFLINE-070: a Kin whose name the world already holds — one clause has a carrier, three
+# name the carrier they would need
+# ---------------------------------------------------------------------------
+
+#: What the refusal is read from: the same ledger event the whitelist and auth-mode rows
+#: read, carrying the phase and the category together. The server's sentence is not
+#: available to a re-judge at all — the contract keeps arbitrary server text out of product
+#: events — so the category is the only thing that can travel, and the reading below is the
+#: one already proven on its two sibling categories (`the_refusal_was_classified_in_the_ledger`).
+DUPLICATE_LOGIN_PHASE = "FAILED"
+
+#: The names this row reports instead of a silent red. The last three are clauses with no
+#: carrier today: each says which artifact it is waiting for rather than counting an empty
+#: reading as a pass.
+ADMISSION_EVENT_UNCLASSIFIED = "ADMISSION_EVENT_UNCLASSIFIED"
+NO_DUPLICATE_LOGIN_CLASSIFICATION = "NO_DUPLICATE_LOGIN_CLASSIFICATION"
+NO_ADMISSION_EVENT_RECORDED = "NO_ADMISSION_EVENT_RECORDED"
+CONFLICT_CATEGORY_HAS_NO_RENAME_ENTRY = "CONFLICT_CATEGORY_HAS_NO_RENAME_ENTRY"
+IDENTITY_REVISION_HAS_NO_CHANGE_CARRIER = "IDENTITY_REVISION_HAS_NO_CHANGE_CARRIER"
+IDENTITY_ROOT_MERGE_HAS_NO_SEALED_CARRIER = "IDENTITY_ROOT_MERGE_HAS_NO_SEALED_CARRIER"
+
+
+def the_conflict_was_classified_as_duplicate_login(material: RunMaterial) -> str | None:
+    """The world said the name was taken, and Core recorded which kind of no it was.
+
+    Green needs the pair, not either half: `SessionInterrupted{phase: FAILED, reason:
+    …DUPLICATE_LOGIN}`. Phase alone would count a lost connection as a refused login, and
+    reason alone would count a refusal Core filed somewhere else — which is what this
+    clause exists to catch, since the Bridge files `"already connected"` and `"logged in
+    from another location"` in the one category and a Kin's own rename reaches the server
+    through the second of them.
+
+    An interruption row that carries no category is refused by name rather than skipped:
+    a loop that kept looking for a match would report the absence of a classification as
+    the absence of a duplicate login, which is a different statement and the weaker one.
+    """
+
+    if not material.ledger_readable:
+        return "LEDGER_UNREADABLE"
+    events = material.recorded(SESSION_INTERRUPTED)
+    if not events:
+        return NO_ADMISSION_EVENT_RECORDED
+    seen_shapes: list[tuple[str, str]] = []
+    for event in events:
+        seen = payload(event)
+        phase = str(seen.get("phase") or "")
+        reason = str(seen.get("reason") or "")
+        if phase == DUPLICATE_LOGIN_PHASE and reason == DUPLICATE_LOGIN:
+            return None
+        seen_shapes.append((phase, reason))
+    if any(phase == DUPLICATE_LOGIN_PHASE and not reason for phase, reason in seen_shapes):
+        return ADMISSION_EVENT_UNCLASSIFIED
+    return f"{NO_DUPLICATE_LOGIN_CLASSIFICATION}:" + ";".join(
+        f"{phase or '<no-phase>'}/{reason or '<no-reason>'}" for phase, reason in seen_shapes
+    )
+
+
+def a_renamed_or_recased_login_is_not_called_a_duplicate(material: RunMaterial) -> str | None:
+    """A Kin that changed its name is not a Kin whose name is already in the world.
+
+    Refused on the vocabulary rather than on the run: `AdmissionFailureReason` names no
+    entry for a rename or a case change, and the classifier maps both vanilla sentences to
+    `…DUPLICATE_LOGIN` — so no ledger row this judgement can be handed says which of the
+    two happened. The distinction is not nothing to a reader either: an offline UUID is the
+    case-sensitive MD5 of `"OfflinePlayer:" + name` (`offline_identity.py:39-43`), so a
+    recased name is a different identity to vanilla and not a second login of the same one.
+
+    Adding the category is the controller's call and would turn this clause into a reading
+    of the same event list. Until then the row says which word is missing.
+    """
+
+    return CONFLICT_CATEGORY_HAS_NO_RENAME_ENTRY
+
+
+def the_conflict_opened_a_new_identity_revision(material: RunMaterial) -> str | None:
+    """The conflict left the Kin's identity root at a higher revision than it started.
+
+    Refused on a carrier the product does not have. `identity_revision` is written once, at
+    init, as the constant `INITIAL_IDENTITY_REVISION` (`cli/init.py:77`); the store offers an
+    INSERT and a SELECT and no UPDATE (`identity_store.py:47-60, 64-69`); the schema only
+    bounds it (`CHECK (identity_revision >= 1)`, `schema.sql:93`); and nothing in `src/**`
+    assigns to it — measured as a grep for the four ways a write could be spelled, exit code
+    1. `RunMaterial` cannot supply the number either: the sealed inputs hold
+    `kin_id`/`run_id`/`username`/`previous_run_id` and no revision (`asserter_inputs_bytes`).
+
+    So "the row's revision half" is not a judgement waiting on evidence — it is a design
+    decision about whether a conflict should open a revision at all, which 主控 holds.
+    """
+
+    return IDENTITY_REVISION_HAS_NO_CHANGE_CARRIER
+
+
+def the_identity_root_was_not_merged(material: RunMaterial) -> str | None:
+    """The two names did not become one person, and the run says so rather than not denying it.
+
+    Refused on what a bundle holds. What exists today is a code-level guard against a second
+    root being created silently: `create_identity_root` refuses when a row is already there
+    (`identity_store.py:45-46`), `init` refuses to run twice over a store (`cli/init.py:70-73`),
+    and `read_identity_root` never writes (`identity_store.py:64-69`). A guard is what makes a
+    run possible; the clause asks what the run recorded, and a sealed bundle carries no
+    identity-root artifact — the manifest's identity section is two classified strings, and
+    the Kin store is not among the sealed artifacts.
+
+    A controlled conflict run with the root's before-and-after sealed would be read here.
+    That is a new artifact name in evidence schema `minekin.p0.evidence.v1`, which 主控 holds
+    for the same reason the A→B→A chain is refused on OFFLINE-100.
+    """
+
+    return IDENTITY_ROOT_MERGE_HAS_NO_SEALED_CARRIER
+
+
 #: Every assertion a case manifest may name, and what performs it. A name that is
 #: not here cannot be judged, which the verdict reports rather than passing over.
 ASSERTIONS: dict[str, Callable[[RunMaterial], str | None]] = {
@@ -3932,6 +4050,14 @@ ASSERTIONS: dict[str, Callable[[RunMaterial], str | None]] = {
     "the_world_switch_returned_to_the_confirmed_world": (
         the_world_switch_returned_to_the_confirmed_world
     ),
+    "the_conflict_was_classified_as_duplicate_login": (
+        the_conflict_was_classified_as_duplicate_login
+    ),
+    "a_renamed_or_recased_login_is_not_called_a_duplicate": (
+        a_renamed_or_recased_login_is_not_called_a_duplicate
+    ),
+    "the_conflict_opened_a_new_identity_revision": (the_conflict_opened_a_new_identity_revision),
+    "the_identity_root_was_not_merged": (the_identity_root_was_not_merged),
     "server_observed_join_identity": server_observed_join_identity,
     "first_snapshot_admitted": first_snapshot_admitted,
     "the_run_says_which_world_it_hosted": the_run_says_which_world_it_hosted,

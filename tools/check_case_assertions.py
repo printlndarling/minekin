@@ -264,6 +264,21 @@ IMPLEMENTATIONS: dict[str, Implementation] = {
     "the_world_switch_returned_to_the_confirmed_world": _runtime(
         "the_world_switch_returned_to_the_confirmed_world"
     ),
+    # OFFLINE-070: one clause of the row has a carrier — the ledger's classified admission
+    # refusal — and three have each a different kind of missing one: a word in the
+    # classifier's vocabulary, a write path in the product, an artifact in the evidence
+    # schema. Registering those three as runtime readings is what keeps the row's status
+    # "registered, not closed" true in code rather than in a sentence in a doc.
+    "the_conflict_was_classified_as_duplicate_login": _runtime(
+        "the_conflict_was_classified_as_duplicate_login"
+    ),
+    "a_renamed_or_recased_login_is_not_called_a_duplicate": _runtime(
+        "a_renamed_or_recased_login_is_not_called_a_duplicate"
+    ),
+    "the_conflict_opened_a_new_identity_revision": _runtime(
+        "the_conflict_opened_a_new_identity_revision"
+    ),
+    "the_identity_root_was_not_merged": _runtime("the_identity_root_was_not_merged"),
     "server_observed_join_identity": _runtime("server_observed_join_identity"),
     "first_snapshot_admitted": _runtime("first_snapshot_admitted"),
     "the_run_says_which_world_it_hosted": _runtime("the_run_says_which_world_it_hosted"),
