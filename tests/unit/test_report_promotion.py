@@ -12,6 +12,7 @@ from __future__ import annotations
 import hashlib
 import importlib
 import json
+import os
 import shutil
 import sqlite3
 import subprocess
@@ -994,3 +995,179 @@ def test_a_report_that_cannot_build_one_version_s_plan_says_so_rather_than_misma
     # None is not False, so the bundle with no answer is not claimed stale either.
     assert document["evidence"]["from_another_build"] == []
     assert document["work_packages"]["W40"]["promotable"] is True
+
+
+#: ---------------------------------------------------------------------------
+#: Which interpreter a repository check recorded as having run it.
+#: ---------------------------------------------------------------------------
+
+CONTROLLED = "/opt/minekin/bin/python3"
+#: One developer's virtualenv on a Windows host — the shape that produced five
+#: false FAILs from a missing module before the image carried a pinned pytest.
+HOST_VENV = r"C:\Users\darling\Documents\agent_work\minekin\.venv\Scripts\python.exe"
+
+
+def seal_repo_check(
+    data_root: Path,
+    run_id: str,
+    *,
+    case_id: str = CASE_ID,
+    interpreters: tuple[str, ...] = (CONTROLLED,),
+    verdict_bytes: bytes | None = None,
+) -> Path:
+    """Seal a repository-check bundle, naming who each check says ran it.
+
+    The recorded command is the runner's own `argv` for one assertion, so the
+    interpreter is `command[0]`; `verdict_bytes` replaces the whole document to ask
+    about one that cannot be read.
+    """
+
+    verdict = {
+        "schema_version": 1,
+        "command": "run repo case",
+        "run_id": run_id,
+        "case_id": case_id,
+        "result": "PASS",
+        "checks": [
+            {"name": f"check-{index}", "command": [python, "-m", "pytest", "-q", "t.py::x"]}
+            for index, python in enumerate(interpreters)
+        ],
+    }
+    directory = repository_bundle_directory(data_root, run_id)
+    write_bundle(
+        directory,
+        manifest_for(case_id, run_id=run_id, launch_plan_digest=plan_of("1.21.4")),
+        {
+            "check-verdict.json": (
+                json.dumps(verdict).encode("utf-8") if verdict_bytes is None else verdict_bytes
+            )
+        },
+    )
+    return directory
+
+
+def named_runs(document: dict[str, Any]) -> list[str]:
+    return cast(
+        "list[str]", document["evidence"]["repo_checks_not_from_the_controlled_interpreter"]
+    )
+
+
+def test_the_controlled_interpreter_is_the_one_the_image_builds(tmp_path: Path) -> None:
+    """The constant this report compares against comes from the runner's contract.
+
+    Read from `test-orchestrator/runner/Dockerfile` rather than restated: if the
+    image moves its venv, every sealed bundle's provenance reading moves with it, and
+    this is where that has to fail loudly instead of quietly mislabelling evidence.
+    """
+
+    dockerfile = (REPOSITORY_ROOT / "test-orchestrator" / "runner" / "Dockerfile").read_text(
+        encoding="utf-8"
+    )
+
+    assert "python3 -m venv /opt/minekin" in dockerfile
+    assert PROMOTION.CONTROLLED_CHECK_INTERPRETER == CONTROLLED
+    assert CONTROLLED.startswith("/opt/minekin/bin/")
+
+
+def test_a_check_recorded_by_the_controlled_interpreter_is_not_named(tmp_path: Path) -> None:
+    seal_repo_check(tmp_path, RUN_ID, interpreters=(CONTROLLED,))
+
+    document = cast(dict[str, Any], bundle_report(CASE_ID, data_root=tmp_path))
+
+    assert document["evidence"]["controlled_check_interpreter"] == CONTROLLED
+    assert listed_by_run(document)[RUN_ID]["check_interpreters"] == [CONTROLLED]
+    assert named_runs(document) == []
+
+
+def test_a_check_recorded_by_a_host_virtualenv_is_named(tmp_path: Path) -> None:
+    seal_repo_check(tmp_path, RUN_ID, interpreters=(HOST_VENV,))
+
+    document = cast(dict[str, Any], bundle_report(CASE_ID, data_root=tmp_path))
+
+    assert listed_by_run(document)[RUN_ID]["check_interpreters"] == [HOST_VENV]
+    assert named_runs(document) == [RUN_ID]
+
+
+def test_an_alias_of_the_controlled_interpreter_is_named(tmp_path: Path) -> None:
+    """A spelling that is not the pinned one is named, and that direction is chosen.
+
+    Inside one venv `python` and `python3` are the same toolchain under two names, so
+    this cannot be both reader-independent and silent about aliases. Naming is the
+    safe half: the reader sees a question and the bundle's own record answers it.
+    """
+
+    seal_repo_check(tmp_path, RUN_ID, interpreters=("/opt/minekin/bin/python",))
+
+    document = cast(dict[str, Any], bundle_report(CASE_ID, data_root=tmp_path))
+
+    assert named_runs(document) == [RUN_ID]
+
+
+def test_a_run_bundle_records_no_check_interpreter(tmp_path: Path) -> None:
+    """A session bundle has no `check-verdict.json`, so it cannot be named for one.
+
+    Without this the list is just "every bundle", and a reader cannot tell the field
+    apart from an accident of the loop that fills it.
+    """
+
+    seal(tmp_path, RUN_ID, launch_plan_digest=plan_of("1.21.4"))
+
+    document = cast(dict[str, Any], bundle_report(CASE_ID, data_root=tmp_path))
+
+    assert listed_by_run(document)[RUN_ID]["check_interpreters"] == []
+    assert named_runs(document) == []
+
+
+def test_two_checks_recorded_under_two_interpreters_are_both_named(tmp_path: Path) -> None:
+    seal_repo_check(tmp_path, RUN_ID, interpreters=(CONTROLLED, HOST_VENV))
+
+    document = cast(dict[str, Any], bundle_report(CASE_ID, data_root=tmp_path))
+
+    assert listed_by_run(document)[RUN_ID]["check_interpreters"] == sorted(
+        [CONTROLLED, HOST_VENV],
+        key=os.path.normcase,
+    )
+    assert named_runs(document) == [RUN_ID]
+
+
+def test_a_check_verdict_that_cannot_be_read_records_nothing(tmp_path: Path) -> None:
+    """An artifact this reading cannot parse is a gap in the reading, not a finding.
+
+    It is not the answer "ran somewhere else" either, so the bundle stays out of the
+    list — the same distinction `None` draws for a version with no recipe here.
+    """
+
+    seal_repo_check(
+        tmp_path,
+        RUN_ID,
+        verdict_bytes=b'{"result": "PASS"}',
+    )
+
+    document = cast(dict[str, Any], bundle_report(CASE_ID, data_root=tmp_path))
+
+    assert listed_by_run(document)[RUN_ID]["check_interpreters"] == []
+    assert named_runs(document) == []
+    assert document["status"] == "promotable"
+
+
+def test_the_interpreter_diagnostic_does_not_decide_the_verdict(tmp_path: Path) -> None:
+    """One bundle, two recorded interpreters, one verdict — and the difference named.
+
+    Compared rather than asserted against a fixed status, as the build diagnostic
+    is: if this reading ever starts gating, that failure is here.
+    """
+
+    here = seal_repo_check(tmp_path / "here", RUN_ID, interpreters=(CONTROLLED,))
+    there = seal_repo_check(tmp_path / "there", RUN_ID, interpreters=(HOST_VENV,))
+    assert here.name == there.name
+
+    here_report = cast(
+        dict[str, Any], bundle_report(CASE_ID, data_root=tmp_path / "here", gated="W40")
+    )
+    there_report = cast(
+        dict[str, Any], bundle_report(CASE_ID, data_root=tmp_path / "there", gated="W40")
+    )
+
+    assert here_report["status"] == there_report["status"] == "promotable"
+    assert named_runs(here_report) == []
+    assert named_runs(there_report) == [RUN_ID]

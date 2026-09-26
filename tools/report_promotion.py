@@ -87,12 +87,30 @@ stale, and a diagnostic that is wrong in that direction is worse than none.
 **Build identity is diagnostic and does not gate.** Evidence ordering is now
 determined by each case's attempt registry; `gates_promotion` remains false for the
 repository-build comparison specifically.
+
+A repository check has a second axis of provenance that no rule above reads. Its
+verdict records the command that performed each assertion, and the first word of
+that command is the interpreter which ran it — so a check sealed inside the
+controlled image and the same check sealed from a developer's own virtualenv are
+two different claims about the same case, and the manifest's `environment` block
+cannot tell them apart because it describes the launcher, not the check. One of
+those shapes has already been measured producing five false FAILs at once from a
+missing module. So the report names, per repository-check bundle, the interpreters
+its own verdict records, and lists the bundles that do not record the interpreter
+the runner's image contract pins. The comparison is deliberately *not* against
+whatever is reading: the same interpreter answers under two spellings inside one
+venv (`python` and `python3`), so a reader-relative answer would name every bundle
+in the image and call that a finding. **Like the build comparison this is
+diagnostic and does not gate**, and for the same reason: which interpreter ran a
+check is a claim the bundle makes about where it was made, and one an operator can
+answer without this report agreeing with it.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
@@ -127,6 +145,14 @@ from minekin_core.domain.errors import MinekinError
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 CASES = REPOSITORY_ROOT / "tests" / "fixtures" / "cases"
+#: The artifact `seal_repo_case.py` writes: the repository check runner's own
+#: verdict, command included. A session bundle has no such file.
+CHECK_VERDICT_NAME = "check-verdict.json"
+#: The interpreter a repository check records when it ran inside the controlled
+#: image: the venv `test-orchestrator/runner/Dockerfile` builds and pins its test
+#: toolchain into. A unit test reads that file for this exact string, so the two
+#: cannot drift apart quietly.
+CONTROLLED_CHECK_INTERPRETER = "/opt/minekin/bin/python3"
 
 # The re-judge lives beside this file, and this is the only report that can run it:
 # the assertions are test-domain code, so the product's own verification must not
@@ -246,6 +272,45 @@ def no_reasons() -> dict[str, str]:
     return {}
 
 
+def no_interpreters() -> dict[str, tuple[str, ...]]:
+    return {}
+
+
+def recorded_check_interpreters(directory: Path) -> tuple[str, ...]:
+    """Which interpreter a repository check's own verdict says ran it.
+
+    Empty is the answer "this bundle says nothing about an interpreter", and three
+    shapes reach it: a session bundle, which has no check verdict at all; a verdict
+    that cannot be read; and a verdict whose checks carry no command. None of them
+    is "ran somewhere else", which is why the naming list below skips empties rather
+    than treating them as mismatches.
+    """
+
+    path = directory / CHECK_VERDICT_NAME
+    if not path.is_file():
+        return ()
+    try:
+        document = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return ()
+    if not isinstance(document, dict):
+        return ()
+    checks = cast("dict[str, object]", document).get("checks")
+    if not isinstance(checks, list):
+        return ()
+    interpreters: set[str] = set()
+    for check in cast("list[object]", checks):
+        if not isinstance(check, dict):
+            continue
+        command = cast("dict[str, object]", check).get("command")
+        if not isinstance(command, list) or not command:
+            continue
+        launched_by = cast("list[object]", command)[0]
+        if isinstance(launched_by, str) and launched_by:
+            interpreters.add(launched_by)
+    return tuple(sorted(interpreters, key=os.path.normcase))
+
+
 @dataclass(frozen=True, slots=True)
 class EvidenceOnDisk:
     """Every bundle found, with what verifying each one said about it."""
@@ -268,6 +333,33 @@ class EvidenceOnDisk:
     #: Named for both halves of the question: the latest one is why a case blocks,
     #: an earlier one is retained failure material that has gone missing.
     sealed_without_bundle: tuple[Attempt, ...] = ()
+    #: Which interpreter each repository check recorded as having run it, for the
+    #: bundles that recorded one. The controlled image and a developer's virtualenv
+    #: are two claims about one case, and the manifest's `environment` block cannot
+    #: tell them apart because it describes the launcher rather than the check.
+    check_interpreters: Mapping[str, tuple[str, ...]] = field(default_factory=no_interpreters)
+
+    @property
+    def outside_controlled_checks(self) -> tuple[str, ...]:
+        """Repository-check bundles whose verdict records another interpreter.
+
+        Compared against the interpreter the image contract pins, not against the
+        one asking: inside one venv `/opt/minekin/bin/python` and its `python3`
+        target are the same toolchain under two spellings, so a reader-relative
+        comparison names every bundle in the image and reports that as a finding.
+        A bundle that recorded no interpreter is absent from this rather than in it
+        — an unanswerable question is not the answer "another one", which is how
+        `from_another_build` treats a version this checkout has no recipe for.
+        """
+
+        pinned = os.path.normcase(CONTROLLED_CHECK_INTERPRETER)
+        return tuple(
+            sorted(
+                run_id
+                for run_id, interpreters in self.check_interpreters.items()
+                if [os.path.normcase(item) for item in interpreters] != [pinned]
+            )
+        )
 
     @property
     def unverified(self) -> tuple[str, ...]:
@@ -338,6 +430,10 @@ class EvidenceOnDisk:
                     # can see which one, and what it disagreed about.
                     "re_judged": self.re_judged.get(run_id, ReJudge.NOT_ATTEMPTED).value,
                     "re_judge_reason": self.re_judge_reasons.get(run_id, ""),
+                    # Which interpreter this bundle's own check verdict names as
+                    # having run it. Empty for a bundle that records no such thing —
+                    # every session bundle, and a check verdict that could not be read.
+                    "check_interpreters": list(self.check_interpreters.get(run_id, ())),
                 }
             )
         return entries
@@ -364,6 +460,7 @@ def discover(data_root: Path, cases_dir: Path = CASES) -> EvidenceOnDisk:
     addressed: dict[str, Path] = {}
     outcomes: dict[str, ReJudge] = {}
     reasons: dict[str, str] = {}
+    interpreters: dict[str, tuple[str, ...]] = {}
     for root in candidate_roots(data_root):
         # An evidence root that is not there holds nothing: the repository's is
         # absent on a host that has only ever run sessions, and a Kin's is absent
@@ -397,6 +494,9 @@ def discover(data_root: Path, cases_dir: Path = CASES) -> EvidenceOnDisk:
                 outcomes[directory.name] = outcome
                 if reason:
                     reasons[directory.name] = reason
+                recorded = recorded_check_interpreters(directory)
+                if recorded:
+                    interpreters[directory.name] = recorded
     registry_path = attempt_registry_path(data_root)
     attempts = read_attempts(registry_path) if registry_path.exists() else ()
     attempt_by_run = {attempt.run_id: attempt for attempt in attempts}
@@ -444,6 +544,7 @@ def discover(data_root: Path, cases_dir: Path = CASES) -> EvidenceOnDisk:
         re_judge_reasons=reasons,
         attempts=attempts,
         sealed_without_bundle=sealed_without_bundle,
+        check_interpreters=interpreters,
     )
 
 
@@ -584,6 +685,22 @@ def _report_with_inventory(
                 for entry in bundles
                 if entry["from_repository_build"] is False
             ],
+            # Which interpreter is answering the questions above: the one running
+            # this report. Reported so a reader can tell where a reading was taken,
+            # which is not the same fact as the two below.
+            "reading_interpreter": sys.executable,
+            # The interpreter a repository check has to record for this report to
+            # believe it ran inside the controlled image.
+            "controlled_check_interpreter": CONTROLLED_CHECK_INTERPRETER,
+            # Repository-check bundles whose own verdict names some other
+            # interpreter as having run the checks — the difference between a check
+            # that ran inside the controlled image and one that ran from whoever's
+            # virtualenv happened to be first on the path. Diagnostic, like the build
+            # comparison, and for the same reason: where a bundle was made is a claim
+            # it carries, and a reader can check it without this report agreeing.
+            "repo_checks_not_from_the_controlled_interpreter": list(
+                evidence.outside_controlled_checks
+            ),
         },
         # The build this report is comparing against: one entry per reviewed version,
         # because a bundle is only comparable to the plan its own version launches
