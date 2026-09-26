@@ -410,6 +410,51 @@ def test_the_run_named_by_the_ledger_also_names_the_kin_that_holds_it() -> None:
     assert "has no Kin in its own rows" in text
 
 
+def test_a_run_that_stops_at_a_named_supply_chain_refusal_exits_non_zero() -> None:
+    """An auto run refused at a named frontier must not leave through rc 0.
+
+    Measured red on the base bytes, in the controlled container with a lane volume
+    that holds no store (`H1D: domain.sh rc=0`, `.tmp/h1d-red-live.log`): the session
+    died at `BUDGET_UNDECLARED` — Core printed the named refusal on the run's stderr
+    and its own process exited 17 — and `domain.sh` still exited 0, because the
+    supervisor that holds the session was `sh -c '"$@"; :'`: the trailing `:` is the
+    last command of the wrapper, so the wrapper exits with the no-op's status no
+    matter what the Core it just waited on said. The `:` was written to keep the
+    shell from exec-replacing itself into the Core (the fault helper walks
+    `session_pid`'s descendants, so the Core must stay one level below), and it does
+    that still — but it also swallowed the exit status, and that made "the run
+    stopped early at a named supply-chain frontier" indistinguishable, by exit code
+    alone, from "a client booted and the run rode out its bound". The V lane read
+    this shape off a run; the same driver line run outside the supervisor answers
+    non-zero (rc=17 measured above, and M's replay of the earlier early-stop shape
+    gave rc=2), so the masking is the wrapper's and not the CLI's.
+
+    The clauses below pin the shape of the fix and its two edges: the Core's status
+    reaches `status`, the wrapper still cannot exec-collapse, and the harness learns
+    nothing new — it propagates a number it was already holding, naming no refusal
+    and judging nothing, so this is visibility and not a second verdict.
+    """
+
+    text = (RUNNER / "domain.sh").read_text(encoding="utf-8")
+
+    # The swallowing form is gone, and its replacement ends in the Core's own status.
+    assert "sh -c '\"$@\"; :' minekin-session-supervisor" not in text
+    assert 'sh -c \'"$@"; session_rc=$?; exit "${session_rc}"\' minekin-session-supervisor' in text
+    # The wrapper still runs statements after the Core, which is the only reason the
+    # old form existed: without them `sh` exec-replaces itself and the fault helper
+    # loses the descendant it names the runtime controller by.
+    assert 'inject_fault "${session_pid}" "runtime_controller"' in text
+    # And what `wait` collects is still the thing the script exits on — the seal
+    # branch may override it for case runs by name, and nothing re-zeroes it elsewhere.
+    assert 'wait "${session_pid}"\nstatus=$?' in text
+    assert 'exit "${status}"' in text
+    assert text.count("status=0") <= 1, "a second unconditional zero reappeared"
+    # Visibility comes from the propagated number, not from a new classifier: the
+    # harness still names no supply-chain refusal anywhere in its own text.
+    assert "BUDGET_UNDECLARED" not in text
+    assert "SUPPLY_CHAIN" not in text
+
+
 def _pip_install_arguments(dockerfile: str) -> list[str]:
     """Each quoted argument handed to a `pip install`, across line continuations."""
 
@@ -674,16 +719,17 @@ def test_the_runner_names_the_joiner_environment_before_its_jvm() -> None:
     # One launcher array, and the client goes through it: a reading taken through a
     # second, hand-retyped command line could drift from the one the client got.
     assert 'joiner_launch_wrapper=(xvfb-run -a --server-args="-screen 0 1280x720x24")' in text
-    # The array is used by exactly two things: the launch-depth reading and the client.
-    # A third naming is a second client whose environment was never read; a first is a
-    # reading that no longer shares a command line with what it describes.
-    assert text.count('"${joiner_launch_wrapper[@]}"') == 2
+    # The array is used by exactly one command line — the client's own — and that line
+    # writes the launch-depth reading before it execs. A second naming is a second
+    # client whose environment was never read; none at all is a reading that no longer
+    # shares a command line with what it describes.
+    assert text.count('"${joiner_launch_wrapper[@]}"') == 1
     assert '"${joiner_launch_wrapper[@]}" \\\n        env MINEKIN_KIN_ID="${joiner}"' in text
     assert (
         'xvfb-run -a --server-args="-screen 0 1280x720x24" \\\n        env MINEKIN_KIN_ID'
         not in text
     )
-    assert text.count("python -m minekin_core session start \\\n        --profile") == 1
+    assert text.count("python -m minekin_core session start") == 1
 
     # The three items, each by its real name, and each of the ways one can be missing
     # named rather than left blank.
@@ -718,7 +764,8 @@ def test_the_runner_names_the_joiner_environment_before_its_jvm() -> None:
 
 
 def test_a_joiner_that_never_arrived_is_told_apart_from_an_unprobeable_world() -> None:
-    """Downstream of a dead client, the two readings a reader can confuse are named apart.
+    """Downstream of a client that had not arrived, the two readings a reader can
+    confuse are named apart — and neither reading claims more than the window shows.
 
     `NO_CONNECTION_WAS_DIALLED` and `THE_CLIENT_NEVER_DIALLED_A_PORT` are both facts about
     the client half, and "the server's status is not probeable" looks the same from
@@ -727,12 +774,22 @@ def test_a_joiner_that_never_arrived_is_told_apart_from_an_unprobeable_world() -
     the published port *on loopback*, and whether the client had been handed a screen that
     could be measured — and naming the combination. Measured in the controlled container:
     with a real listener on the port the same script says
-    `THE_RUN_DIED_ON_THE_CLIENT_SIDE with a live world and a measurable screen (…)`, and
-    with that listener gone it says `THE_WORLD_STATUS_IS_NOT_PROBEABLE …, so this run is
-    evidence about the world and not about the client environment`. A reading that cannot
-    flip when the world is the thing that is down would be a restatement of the FAIL.
+    `THE_JOINER_HAD_NOT_ARRIVED_IN_THE_WINDOW with a live world and a measurable screen
+    (…)`, and with that listener gone it says `THE_WORLD_STATUS_IS_NOT_PROBEABLE …, so
+    this run is evidence about the world and not about the client environment`. A reading
+    that cannot flip when the world is the thing that is down would be a restatement of
+    the FAIL.
 
-    It is reached only on the branch where the joiner never arrived, it changes no
+    The two client-side endings used to be named `THE_RUN_DIED_ON_THE_CLIENT_SIDE` and
+    `THE_RUN_DIED_IN_THE_CLIENT_ENVIRONMENT`. That overclaimed on measured material: this
+    classifier is reached from the wait branch that prints `never arrived within`, and the
+    H1c run whose readings produced the first of those sentences joined *after* its window
+    closed (`snapshots_admitted 1`, ending `BRIDGE_LOST`) — the run did not die on the
+    client side; the window closed before the client half had delivered. The endings now
+    name what the branch can see (the window, the screen, the listener) and nothing more.
+    Same five readings, same distinctions, no new criterion, no gate, no bundle field.
+
+    It is reached only on the branch where the joiner had not arrived, it changes no
     criterion, no gate and no bundle field, and it feeds nothing to the sealer — the
     verdict is written next to the readings it was derived from and printed. A run it
     describes is still the same FAIL it was before, with one more thing said about it.
@@ -751,12 +808,21 @@ def test_a_joiner_that_never_arrived_is_told_apart_from_an_unprobeable_world() -
     # Every outcome has its own name, including the one where nothing could be read.
     for name in (
         "THE_CLIENT_ENVIRONMENT_WAS_NEVER_READ",
-        "THE_RUN_DIED_IN_THE_CLIENT_ENVIRONMENT",
-        "THE_RUN_DIED_ON_THE_CLIENT_SIDE",
+        "THE_JOINER_SCREEN_WAS_UNMEASURABLE",
+        "THE_JOINER_HAD_NOT_ARRIVED_IN_THE_WINDOW",
         "THE_WORLD_STATUS_IS_NOT_PROBEABLE",
         "BOTH_HALVES_NAMED_AND_BOTH_BAD",
     ):
         assert body.count(name) == 1, f"a downstream reading is missing or doubled: {name}"
+
+    # The two death claims are gone from the whole script, not just renamed elsewhere:
+    # this classifier is reached when the *window* closed, and a window cannot name a
+    # death — the H1c material says so in one run's own readings.
+    assert "THE_RUN_DIED" not in text
+    # And the surviving client-side ending says the window in its own name.
+    assert body.index("THE_JOINER_HAD_NOT_ARRIVED_IN_THE_WINDOW") < body.index(
+        "THE_WORLD_STATUS_IS_NOT_PROBEABLE"
+    )
 
     # The world side is asked a loopback question and nothing else. This project never
     # dials a remote address from here, so the only `/dev/tcp` in the script names
@@ -778,3 +844,50 @@ def test_a_joiner_that_never_arrived_is_told_apart_from_an_unprobeable_world() -
     assert text.index("    classify_the_joiner_downstream_readings\n") < text.index(
         "admitted its first snapshot of that world"
     )
+
+
+def test_the_launch_depth_reading_travels_on_the_line_that_execs_the_client() -> None:
+    """The `launch` depth is written by the wrapper that becomes the JVM, not a sibling.
+
+    H1c measured the two depths into one file and its record asserted that the client JVM
+    is handed the `launch` values. That claim was too strong as written: the launch-depth
+    probe ran through `xvfb-run` as *its own* invocation, and the real client started in a
+    *different* one — `xvfb-run -a` picks a display number per allocation and makes a
+    fresh temporary `XAUTHORITY` each time, so the probe's screen could only resemble the
+    client's. Measured in the controlled container with both shapes side by side
+    (`.tmp/h1d-env-pair.log`): the separate probe's `XAUTHORITY` and the environment of
+    the process exec'd on the launch line are different files under `/tmp`, and the
+    readings now come from inside that exec'ing line — so the sentence in the record is
+    true by construction: the probe runs, then `exec "$@"` hands *this* environment to
+    whatever the line becomes.
+
+    The clauses pin the shape of that claim and its two honest edges: a staged probe file
+    that is missing names its absence instead of writing a silent `launch GL_BACKEND=`
+    the classifier would read as a measured screen, and nothing in the readout exports,
+    unsets or defaults any of the three items.
+    """
+
+    text = (RUNNER / "domain.sh").read_text(encoding="utf-8")
+
+    # The sibling allocation is gone: no command line runs the probe through the
+    # wrapper except the one that execs the client.
+    assert "minekin-runner launch \\" not in text
+    assert 'bash -c "${client_environment_probe}" minekin-runner harness' in text
+    # The launch line stages and runs the probe, then execs in the same environment.
+    staging = (
+        'printf \'%s\\n\' "${client_environment_probe}" > "${client_environment_probe_script}"'
+    )
+    assert staging in text
+    assert 'CLIENT_ENVIRONMENT_PROBE_SCRIPT="${client_environment_probe_script' in text
+    assert 'bash "${CLIENT_ENVIRONMENT_PROBE_SCRIPT}" launch \\' in text
+    assert 'exec "$@"' in text
+    # The probe runs before the exec, on that line — not after the JVM is up.
+    head = text.index('bash "${CLIENT_ENVIRONMENT_PROBE_SCRIPT}" launch \\')
+    assert head < text.index('exec "$@"')
+    # A missing staged probe is a named absence, and it is not a `launch GL_BACKEND=`
+    # line: the classifier's NEVER_READ ending has to stay reachable and honest.
+    assert "launch GL_PROBE=not-staged" in text
+    assert text.count("GL_BACKEND=%s") == 1, "a second writer of the launch-depth backend appeared"
+    # The depth label the launch line carries is the inside-wrapper one, and exactly once.
+    assert text.count("MINERUN_LAUNCH_DEPTH=inside-wrapper") == 1
+    assert text.count("MINERUN_LAUNCH_DEPTH=direct") == 1
