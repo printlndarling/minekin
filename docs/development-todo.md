@@ -3343,7 +3343,7 @@
   表"。本轮把同一把尺子换到**路径引用**上：维护中的执行/契约文档里每一条 `path` 或 `path:行号`，今天还指不指
   得到树里的真文件、行号还在不在线内。
 - 读数（所在线 `c0b252a`，纯静态比对，不执行任何被检查的东西）：`git ls-files '*.md'` 里 `docs/` 全部再加
-  `README.md`、`CLAUDE.md` 共 **82 份** → 去重 **688 处**引用 → **628 处直接命中真文件**、**60 处按机器判的理由
+  `README.md`、`CLAUDE.md` 共 **82 份** → 去重 **689 处**引用 → **629 处直接命中真文件**、**60 处按机器判的理由
   豁免** → **`findings: 0` / `exit 0`**。校验脚本 `.tmp/check_doc_paths.py`（作用域口径与上一轮同一套：只走
   `git ls-files`，不遍历文件系统）。
 - 两类 finding：`MISSING_FILE`（路径不在树里）、`LINE_OUT_OF_RANGE`（`path:NN` 的 NN 超过该文件行数）。
@@ -3378,7 +3378,7 @@
   `findings: 1 / MISSING_FILE`——**守卫又一次把自己记下来的变异输入当成了真缺陷**（与 09-26 flag 表一节五道反证的
   第 2 条同类）。改成只描述形状、不拼成可解析路径后回到 `findings: 0`；同时把改名箭头两边写全，可解析引用因此变多，
   本节最初量的 684 是这两处改写之前的数；这两格记录自己举的歧义路径例子本身也是可解析引用，
-  append 完再跑一次读到 **688**，**本节后续一律引这个数**。
+  append 完再跑一次读到 **689**，**本节后续一律引这个数**。
 - 九道门（`.tmp/check_docs_followup.py`：括号配平 + `ruff check`、`ruff format --check`、`pyright`、
   `check_boundaries`、`check_case_assertions`、`verify_fixture_digests`、`check_workflow_pins`、`git diff --check`）
   与 `uv run --frozen pytest -q` 都在**最后一格 docs 改动之后**跑：八道 `rc 0`（`pyright` 0 errors、
@@ -3400,3 +3400,44 @@
   **本格还出过一次自己造的险情**：第一版补记脚本先 `open(本文件, "wb")` 再拼字节，拼接抛错时文件已被截成
   0 字节；用 `git checkout -- 本文件` 从收口提交复原（**834293 字节 / 3392 行，与工作树差异为 0**），
   未丢任何内容，脚本已改成"先算完整载荷、再写盘"。
+
+## 2026-09-26 按同一把尺子核第五类现在时声明：文档写下的卡 id / case id 指不指得到真注册表
+
+- `NEXT`: **暂无**（主计划 `current_next` 仍是"暂无 `NEXT`"；本轮不动卡、不提升门、不碰 HOST 与夹具）。
+- 触发：上一轮核的是路径，本轮核**标识符**。仓库里已经栽过一次：某格把设计文档名拼成一个不存在的卡 id
+  写进 `NEXT`（`f2116b0`，在 `e4bcc1c` 标注更正）。那种错当时靠手跑卡片清点发现，这轮把它变成一道门。
+- 读数（所在线 `650bcde`，纯静态）：同一套作用域（`git ls-files`，82 份文档）→ **186 处**"大写词段用连字符
+  连起来再加编号"形状的 id → **`findings: 0` / `exit 0`**。校验脚本 `.tmp/check_doc_card_ids.py`。
+  注册面读数：**58 个** id 出现在注册位置、**14 个** id 出现在非 markdown 文件里（case id 的权威侧）。
+- 判据（不认口头）：一个 id 算"指得到"，当且仅当它落在**注册位置**——任一被跟踪 markdown 的标题行，
+  或带状态字（`QUEUED`/`NEXT`/`DONE`/`BLOCKED_*`/`DEFERRED`/`IN_PROGRESS`）的表格行——或出现在
+  **非 markdown 文件**里。文档爱用的"丢前缀简写"（`SEALED-ARGV-001` 之于
+  `OFFLINE-IDENTITY-SEALED-ARGV-001`）**只有唯一后缀命中**才算数，**两枚注册 id 共用同一后缀仍判红**。
+  一条护栏：`SCAN_TOO_NARROW`（引用数低于 `FLOOR` 即红，默认 60）。
+- 一类豁免，机器判：**2 处** `stated_fabrication`——就是上一轮那个被更正的拼造卡 id 自己在两份文档里的两次出现，
+  判据是同一处 ±1 行内文档明写"它不存在 / 全仓只出现在这一行 / 更正"；**把那个拼造 id 的原文抄进本节，本节就成了
+  新的未锚定引用**，所以红案输入只留在脚本里。
+- 七道变异与对照读数（`.tmp/reverse_doc_ids.py`；三道红各只出 1 条具名 finding、三道绿是对照组、
+  第七道是真扫描 positive control）：
+  1. R1 假造卡 id、句子里没有任何"不存在"字样 → `UNKNOWN_CARD_ID`
+  2. R2 同一形状但句子自写"它不存在"→ 豁免、`exit 0`（证明豁免窗是 ±1 行、不是整篇）
+  3. R3 真注册 id 的唯一后缀简写 → `exit 0`（对照组，证明简写规则不把活引用判死）
+  4. R4 两枚锚点共用同一后缀（`EXTRA_ANCHORS` 注入两枚假锚点）→ `UNKNOWN_CARD_ID`
+  5. R5 同一简写只有一枚锚点 → `exit 0`（对照组，证明第 4 道红在"歧义"而不是"简写"）
+  6. R6 作用域收成空文档 → `SCAN_TOO_NARROW citations: 0`
+  7. positive control：不加任何 override 跑真扫描 82 份 → `rc 0`、`findings: 0`
+- 三次自己的口径错（都改判据、不改文档，改完重跑）：①第一版把"首段带数字"的 id 整类剔出注册表，于是真的
+  case id `W00-CONTRACT-001` 一下产出 **15 条红**；②只认主计划的标题注册，漏了姊妹计划——
+  `docs/version-auto-to-server-control-plan.md` 用表格行加 `### V08` 标题注册了三张卡，那 3 条红是判据太窄
+  而不是文档写错；③**反证脚本把 `FLOOR=0` 一路带给"空文档"那一道**，于是 `SCAN_TOO_NARROW` 永远不响、
+  R6 直接假绿——那不是绿，是我叫它别响；改成每道反证各带自己的地板后 R6 红在命名理由上、其余不变。
+- 九道门与 pytest 在最后一格 docs 改动之后跑（读数记在下面一条），本轮范围：三格 docs，产品代码、测试与夹具
+  一字未动，由收口提交的 `git show --stat` 证明。
+- 收口前实测（就在上面那些改动之后跑）：八道快门禁 `rc 0`（`pyright` 0 errors、`check_case_assertions`
+  **140 registered**、`verify_fixture_digests` OK、`check_workflow_pins` OK、`ruff check`/`format --check`
+  323 files、`check_boundaries` OK、`git diff --check` 干净），括号配平 plan 与 handoff 各 **0**、todo 仍是
+  历史遗留的 **8**（本段没动过它），`uv run --frozen pytest -q` 读 **2501 passed / 2 skipped**
+  （两条 skip 还是那条平台不可答项与 Windows terminate）。
+- 边界：只判"id 指不指得到注册表"，不判这张卡该不该存在；跨命名空间（卡 id 与 case id 同形）不做区分，
+  因为注册位置就是它们各自的权威表；不改任何 `tools/` 判据、不动 `.gitattributes`、不碰 HOST 实现与夹具、
+  不提升任何门、不连接用户的远程服。

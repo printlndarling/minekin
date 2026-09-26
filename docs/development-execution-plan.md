@@ -574,7 +574,7 @@ MSYS_NO_PATHCONV=1 docker run --rm -v "$PWD":/src:ro -v minekin-runner-data:/dat
   每轮读一次就够。
 - **同一规则下核的第四类现在时声明：文档里的路径引用还指不指得到东西**（2026-09-26，读数所在线
   `c0b252a`）。范围是 `git ls-files '*.md'` 里的 `docs/` 全部加上 `README.md` 与 `CLAUDE.md` 共
-  **82 份**、去重后 **688 处**路径或 `path:行号` 引用，纯静态比对（`.tmp/check_doc_commands.py` 的姊妹脚本
+  **82 份**、去重后 **689 处**路径或 `path:行号` 引用，纯静态比对（`.tmp/check_doc_commands.py` 的姊妹脚本
   `.tmp/check_doc_paths.py`），读 **`findings: 0` / `exit 0`**——**维护中的执行文档与契约文档里没有任何一条
   路径引用指向死文件**。60 处按理由豁免，每类都要机器判：**47** 处指上游树（baritone / Fabric / npm docs /
   git blob），**4** 处是 runner 里的绝对路径（剥掉 `/src` 前缀后**必须仍能对上真文件**才算豁免），
@@ -600,10 +600,27 @@ MSYS_NO_PATHCONV=1 docker run --rm -v "$PWD":/src:ro -v minekin-runner-data:/dat
   下一轮扫描立刻读到 `findings: 1 / MISSING_FILE`，把它改成只描述形状（不拼成可解析路径）才回到 0——
   与上一轮 `report_coverage.py` 那次同类（见 `docs/development-todo.md` 09-26 flag 表一节五道反证的第 2 条），
   **加豁免名单仍然不是修法**。另外把改名箭头两边写全也让可解析引用变多：本段最初量的 684 是那两处改写之前的
-  数；这两格记录自己举的歧义路径例子本身也是可解析引用，全部改完再跑一次读到 **688**，**后续各格一律引这个数**。**刻意保留的边界（不当作缺口）**：只判带目录前缀的路径 token，正文里光写 `orphans.py`
+  数；这两格记录自己举的歧义路径例子本身也是可解析引用，全部改完再跑一次读到 **689**，**后续各格一律引这个数**。**刻意保留的边界（不当作缺口）**：只判带目录前缀的路径 token，正文里光写 `orphans.py`
   这类裸名不判；多模块歧义路径的行号按"任一命中文件内即算过"（宽松方向）；上游树只归类、不判存在。
   **本轮只动文档与 `.tmp` 校验脚本**，产品代码、测试与夹具一字未改；九道门与 pytest 的实测读数记在
   `docs/development-todo.md` 同名一节，且都在最后一格 docs 改动之后跑。
+- **同一规则下核的第五类现在时声明：文档写下的卡 id / case id 指不指得到真注册表**（2026-09-26，读数所在线
+  `650bcde`）。范围仍是 `git ls-files` 里那 82 份文档、**186 处**"大写词段用连字符串起来再加编号"形状的 id，
+  纯静态（`.tmp/check_doc_card_ids.py`），读 **`findings: 0` / `exit 0`**。判据不认口头：一个 id 只有落在
+  **注册位置**（任一被跟踪 markdown 的标题行，或带状态字的表格行）、或出现在**非 markdown 文件**里，才算指得到；
+  文档爱用的"丢掉前缀的简写"（`SEALED-ARGV-001` 之于 `OFFLINE-IDENTITY-SEALED-ARGV-001`）**只有唯一后缀命中**
+  才算数，**两个注册 id 共用同一后缀仍判红**。**2 处按理由豁免**：都是上一轮那个被更正的拼造卡 id 自己，
+  判据是同一处 ±1 行内文档明写"它不存在 / 全仓只出现在这一行 / 更正"。**七道变异与对照读数**
+  （`.tmp/reverse_doc_ids.py`；三道红各只出 1 条具名 finding、三道绿是对照组、第七道是真扫描 positive control；
+  红案输入的原文留在脚本里，**不抄进本文，否则这段记录自己就成了新的未锚定引用**）：假造的卡 id → `UNKNOWN_CARD_ID`；同一形状但句子自写
+  "不存在"→ 豁免且 `exit 0`；真注册 id 的唯一后缀简写 → `exit 0`；两枚锚点共用同一后缀 → `UNKNOWN_CARD_ID`，
+  只给一枚锚点时同一简写 → `exit 0`；作用域收成空文档 → `SCAN_TOO_NARROW citations: 0`；
+  最后一道是**真扫描 `findings: 0` 的 positive control**。**这一轮又抓到三次自己的口径错**：①第一版把"首段带数字"
+  的 id 整类剔出注册表，于是真的 case id `W00-CONTRACT-001` 一下变成 15 条红；②只认主计划的标题注册，漏了
+  姊妹计划——`docs/version-auto-to-server-control-plan.md` 用表格行加 `### V08` 标题注册了三张卡；③反证脚本把
+  `FLOOR=0` 一路带给"空文档"那一道，于是 `SCAN_TOO_NARROW` 永远不响——**那不是绿，是我叫它别响**，改成每道
+  各带自己的地板。**刻意保留的边界**：id 与卡号只判"存不存在"，不判它该不该存在；跨命名空间（卡 id 与 case id
+  同形）不做区分，因为注册位置就是它们各自的权威表。
 
 ## 最近完成
 
