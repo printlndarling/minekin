@@ -154,6 +154,34 @@ CHECK_VERDICT_NAME = "check-verdict.json"
 #: cannot drift apart quietly.
 CONTROLLED_CHECK_INTERPRETER = "/opt/minekin/bin/python3"
 
+#: A visibility gap in the seal format itself, named on the report surface so a
+#: reader no longer has to infer it. `orchestrator-trace.json` records the
+#: orchestrator as the fixed path string `test-orchestrator/runner/domain.sh`
+#: (`orchestrator_trace()` in `tools/seal_run_evidence.py`), with no version or
+#: digest beside it, and the artifact set is collected entry by entry under
+#: named constants — the script's own bytes are in no artifact a bundle holds.
+#: So "did these two runs use the same revision of that script?" cannot be read
+#: from a bundle by construction. This is a statement beside the gate payload,
+#: never a block: it is a property of the seal format, not a finding about the
+#: evidence on disk, and it decides no verdict — which the entry itself says,
+#: in the document.
+ORCHESTRATOR_REVISION_GAP: dict[str, object] = {
+    "id": "ORCHESTRATOR_REVISION_NOT_PINNED",
+    "artifact": "orchestrator-trace.json",
+    "field": "orchestrator",
+    "statement": (
+        "sealed bundles do not pin the revision of the orchestrator script: "
+        "orchestrator-trace.json records field `orchestrator` as the fixed path "
+        "string test-orchestrator/runner/domain.sh with no version or digest, "
+        "and no other bundle artifact carries the script's bytes, so whether two "
+        "runs used the same revision of it cannot be read from the bundles by "
+        "construction"
+    ),
+    "gates_promotion": False,
+}
+
+VISIBILITY_GAPS: tuple[dict[str, object], ...] = (ORCHESTRATOR_REVISION_GAP,)
+
 # The re-judge lives beside this file, and this is the only report that can run it:
 # the assertions are test-domain code, so the product's own verification must not
 # import them — which is why reaching a verdict again is a separate tool and not a
@@ -716,6 +744,11 @@ def _report_with_inventory(
         },
         "work_packages": packages,
         "overall": overall,
+        # Named beside the two structures the gate is read from, never inside them:
+        # what the seal format cannot answer, so a reader does not have to infer
+        # that it cannot be answered. These statements block nothing — see each
+        # entry's own `gates_promotion`.
+        "visibility_gaps": [dict(gap) for gap in VISIBILITY_GAPS],
         "gated": gated,
         "status": "promotable" if gate.get("promotable") else "blocked",
     }
