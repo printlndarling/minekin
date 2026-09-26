@@ -26,11 +26,11 @@
 
 | lane | 分支 / worktree | `lane_next` | 状态 |
 | --- | --- | --- | --- |
-| E 真实运行/证据 | 共享 checkout `codex/core-state-transition`（B2 checkpoint 后迁移独立 worktree） | B2 `P0-CONTROLLED-CAMPAIGN-001` | 进行中，B2 归 E，不因 lane 化改判 |
+| E 真实运行/证据 | `codex/minekin-evidence` @ `../minekin-wt-evidence`（B2 checkpoint `6a02ac6` 已交，已迁出共享 checkout） | B2 `P0-CONTROLLED-CAMPAIGN-001` | 进行中，B2 归 E，不因 lane 化改判；规范卷唯一写入者不变 |
 | S 自动入服安全 | `codex/minekin-auto-entry` @ `../minekin-wt-auto-entry`，base 见本表激活时远端 `main` | `V1201-AUTO-ENTRY-GATE-ORDER-001`（N1，§3.2）；S2 `V1201-MAX-BYTES-VALIDATION-001` 另卡另提交 | 已激活 |
 | D Web Dashboard 前端 | `codex/minekin-dashboard` @ `../minekin-wt-dashboard` | `DASHBOARD-READONLY-SHELL-001`（协议 §3 D1，按[Dashboard 契约](standalone-runtime-dashboard.md)与[技术栈](technical-stack-selection.md)施工） | 已激活 |
 | V 1.20.1 游戏内调试 | `codex/minekin-v1201-validation` @ `../minekin-wt-v1201-validation` | `V1201-PARTIAL-STORE-AND-JOIN-SMOKE-001`（协议 V1） | 已激活 |
-| H 测试 Harness | `codex/minekin-harness` @ `../minekin-wt-harness`（**未建**） | `V1201-AUTO-PATH-RUNNER-001`（G1/G2，§3.1） | 未激活：等 E 释放 `test-orchestrator/runner/**`、`tools/run_controlled_server.py` 文件租约 |
+| H 测试 Harness | `codex/minekin-harness` @ `../minekin-wt-harness` | `V1201-AUTO-PATH-RUNNER-001`（G1/G2，§3.1） | 已激活（2026-09-26，E 的 B2 checkpoint `6a02ac6` 落地且本批 runner 文件零改动，文件租约释放）；E 重开真跑封证时按协议先协调 `seal_run_evidence.py` 独占窗口 |
 
 每个 `lane_next` 只代表该分支可开发；分支 PASS/交付不等于主干 `DONE`，只有 M 合并并通过相应门禁后才回写主干状态。跨 lane 修改先在协议 §2 冲突表登记；同一文件仅一名 owner。
 
