@@ -248,3 +248,53 @@ B2 的第一刀 `P0-CORE-040-050-RUN-001` 已于 2026-09-26 完成（**B2 本身
 - **仍然阻着的**（不自答）：HOST §5 三格所有权、PERSIST case 冻结、V08 远程服连接、V09 动作授权、在线认证、数据删除/进程接管，以及 `P0-GATE-PROMOTION-001` 的门禁晋级、B1-b（`P0-OFFLINE-090-100-EVIDENCE-CHECK-001`）的排期、`ADMIT-030/050` 的 case id 拆分、N3/N4、H-3/H-4 的产品下载器归属。**本轮没有连接、也没有探测用户的远程服务器**；未读取任何外部地址；规范卷只有 E 写，M 只读。
 - **不声称** Minekin 已完成；不声称任何 gate 点亮（`promotable` 分布与第三轮逐字相同，仍是机器候选）；不声称 H2 的旋钮让 auto run 跑通了（正相反，它让 auto 路径的阻塞点从"猜"变成"具名早停"，接旗标是 H3）；不声称 `E-RR` 拿到了 PASS（它两次尝试封的都是 FAIL，卡的目标未达成，M 判先做 `H1c` 的环境读数而不是第三次裸重跑）；不声称 `DISPLAY` 未转发就是那两次崩溃的根因（M 只量到两次同形状的 stderr 与一份 0 字节的 PASS 对照，机制未证）；不声称 `E-RR`/H3/`H1c` 已验证。
 
+## M 主控第五轮（2026-09-27）：`E-RR` 与 H3 两张 lane 卡合入、⑤ 从观察项改为具名阻断者、并改掉 M 自己上一轮的一处错引
+
+### 起点核对（先量再写）
+
+- 本地：`../minekin-wt-integration`，`main` HEAD 起手 `3932ba5`（E-RR 合并）之前为 `6463e16`；`git fetch origin` 后 `origin/main` 与本地一致，各 lane 分支 SHA 以 `git ls-remote origin` 实读为准。
+- E lane：`codex/minekin-evidence` 尖 `918218d`（其上一笔 `0521fcb`），真实 `merge-base` 与主干核为 `be4e79b` ⇒ 与 lane 自报 base 一致。
+- H lane：`codex/minekin-auto-path-status-wiring` 尖 **`a70bf38467ac5a46b6ddd5a5cdd55ebb4bd5fded`**（`4b943ce` 实现 + `a70bf38` 记录），base `6ce9f06`（H2 合并），`git merge-base --is-ancestor 6ce9f065 HEAD` 量到「是主干祖先」⇒ 两笔都是干净非 ff 合并，无需处理冲突。
+
+### 已合入 main（两张卡，按依赖顺序逐张）
+
+- **`3932ba5` = `E-RR P0-CORE030-RUNNER-RERUN-2026-09-27`（记 `BLOCKED_HARNESS`，不记 `DONE`）**。改面恰一份新记录 [`docs/p0-core030-runner-rerun-2026-09-27.md`](p0-core030-runner-rerun-2026-09-27.md)（`git diff --stat be4e79b..918218d` = 1 文件 / +137 行）。**M 在本轮改了自己写下的两处**：① 该 diff 的范围一度写成 `626a454..918218d`，量到的是 `11 文件 / +900 -39`——那是从 E **上一轮**的 base 起算，把主干自己推进的内容算进了 lane 改面；范围只能从真实 merge-base 起算。② 上一轮 M 用 `domain.sh:878-900`（会话监督进程自己起 `Xvfb :77-99` + `export DISPLAY`）论证「runner 已经给了显示」，但**加入者客户端不走那一段**：它在 `join_the_published_world()`（主干 `:739`）里由 `xvfb-run -a --server-args="-screen 0 1280x720x24"`（`:776`）起跳。M 逐字节比过整个函数：`ed37260 → be4e79b` 的唯一差异是 ③ 的 +19 行具名基线读，那条 `xvfb-run` 启动行在 `ed37260 / be4e79b / 6463e16` 三处逐字相同 ⇒ **「那两次跑的不是主干这份 runner」这个备选被量掉**，runner 字节不是变量。
+- **`cd7664b` = `V1201-AUTO-PATH-STATUS-WIRING-001`（H3）**：把 `--enable-status` 只在 `auto_bundle` 非空这一个谓词下接进 `domain.sh` 对受控启动器的调用面，读回后早停原样保留为护栏；黑洞分支不经受控启动器、拿不到旗标。改面恰三文件 `+320/-0`（`domain.sh` +15、其契约测试 +62、本卡记录 +243），无 registry / 无 case fixture / 无 `tools/**` / 无产品 `src/**`。
+
+### M 侧独立复量（不照抄 lane 自报）
+
+1. **合并树门禁**：`bash -n test-orchestrator/runner/domain.sh`、`uv run --frozen ruff check .`、`python tools/check_case_assertions.py`（`140 registered`）、`python tools/verify_fixture_digests.py`、`git diff --check` 全 `rc=0`；`uv run --frozen pytest -q tests/contract/test_runner_scripts.py` ⇒ **20 passed**。
+2. **M 自放的反向证明（一条，主干树上做、`git checkout --` 还原）**：
+   ```bash
+   git show 6ce9f065:test-orchestrator/runner/domain.sh > test-orchestrator/runner/domain.sh
+   uv run --frozen pytest -q tests/contract/test_runner_scripts.py   # → 1 failed, 19 passed
+   git checkout -- test-orchestrator/runner/domain.sh                 # → git status 干净
+   ```
+   红点恰在 `tests/contract/test_runner_scripts.py:593`（`assert text.count("--enable-status") == 1` ⇒ `0 == 1`），即新测试不是空转。H 记录里其余三组变异（always / never / guard）是它的测量，**M 未复量**。
+3. **两处承重引用核到代码**：`src/minekin_core/cli/auto_session.py:98` 原文写着该预算拒止 "only appears after the probe and the digest gate" ⇒ 绿 run 停的 `BUDGET_UNDECLARED`（4120 件制品 / 523,788,383 字节）确实是下一个具名前沿，不是旧阻塞换名；`tools/report_promotion.py:244` 的 `_build_agrees` 只比对 recipe 派生的 plan 摘要与 bundle 自记摘要 ⇒ **这次 runner 字节变更不重判卷上任何 bundle**。
+4. **合并后规范卷只读复量**（`.tmp/m-h3-readout.sh`、`.tmp/m-h3-rows.sh`、`.tmp/m-h3-evidence.sh`，日志同名 `.log`）：
+   ```bash
+   export MSYS_NO_PATHCONV=1
+   REPO="$(cygpath -m /c/Users/darling/Documents/agent_work/minekin-wt-integration)"
+   docker run --rm --entrypoint /bin/bash -w /src \
+     -v "${REPO}:/src:ro" -v minekin-runner-data:/data:ro \
+     -e MINEKIN_HOME=/data -e PYTHONPATH=/src/src minekin-runner:local -lc 'bash /src/.tmp/m-h3-rows.sh'
+   ```
+   读数：`attempts 71 / bundles 107 / from_another_build 61 / sealed_without_bundle 0 / unverified 0 / unsealed 0 / unreadable 0 / repo_checks_not_from_the_controlled_interpreter 9`；门载荷 `sha256 = fb0152c85d029ee06a41a34e84f9656cd23fae0b1e166322c494d1190cd178da`、`promotable` 仍 `W00/W10/W20/W60`、`overall` 仍 `REQUIRED_CASE_NOT_REGISTERED`、`report_rc=1`（不晋级 shape）；两枚构建身份一字未动（1.20.1 `83299ad5…` / 1.21.4 `bcc0c10d…`）。`CORE-030` 四行 seq 1 FAIL / seq 2 PASS / seq 3 FAIL / seq 4 FAIL 全部仍 `from_repository_build true`、`re_judged AGREES`、`verified/sealed true` ⇒ **第 3 点的代码判断有活体读数支撑**。只读性用真写入试探证明：`open("/data/.m-h3-write-probe","w")` ⇒ `OSError: [Errno 30] Read-only file system`（`os.access` 在容器 root 下恒真，不能当哨兵——M 第一轮探针就错在这里）。
+5. **⑤ 的崩溃计数重放**（`.tmp/m-joiner-crash-tally.sh`，同一 `:ro` 挂载，按「会话副本 vs bundle 副本」去重）：`Time: 2026-09-26` 的 `[0x1000E]` 加入者崩溃共 **6 个具名时刻**——`kin-04 12:24:07`（第四刀 seq 1）、`kin-e-rr-branch 16:58:38` 与 `17:10:06`、`kin-e-rr-seal 17:19:18`（seq 3）、`kin-e-rr-seal2 17:31:04`（seq 4）、`kin-e-rr-imgprobe 17:41:35`（E 的换修前镜像探针）；`kin-01`（宿主根）只有 2 份崩溃文件且都是 `2026-09-19` 的旧字节 ⇒ 今日宿主侧 **0 次**。E 报的是它窗口内的 4/4，M 的 6/6 是更宽的同向读数；今天唯一没崩的那次正是 12:46 的 seq 2 PASS。
+
+### 真实封证
+
+本轮 **M 没有产生任何 sealed evidence，也没有写规范卷**（全程 `:ro`）。卷上的两份当前构建 `CORE-030` 新封是 **E 的**，且都是 FAIL：seq 3 `787168062c4047b48e32620984d6d814`、seq 4 `6286f1e5a4a6403b9cfb3b564f2b3118`（`supersedes` 指向前者），两条判据各给具名否 `NO_CONNECTION_WAS_DIALLED` / `THE_CLIENT_NEVER_DIALLED_A_PORT`。当前构建的 LAN PASS 仍是第四刀的 seq 2 `19ff9064c…`，台账链尾在 seq 4 FAIL——这是「保留每个失败 attempt」的直接后果，M 不动它、也不粉饰。
+
+### lane_next 现状
+
+- 主干唯一 integration `NEXT` 仍是 `PARALLEL-INTEGRATION-GATE-001`（常驻，本轮没被"完成"）。
+- **H → `H1c`**：由 `QUEUED` 转为该 lane 的 `lane_next`（H3 已合入，`domain.sh` / Dockerfile 面前序已清）。卡面三条 (a)(b)(c) 在[执行计划](development-execution-plan.md) §2 分类表 ⑤ 行；派工仍需 E 释放规范卷写入窗口。**不点亮、不放宽任何门；`environment.renderer_display`（六份 manifest 一律写 `llvmpipe (LLVM 20.1.2, 256 bits)`，含客户端从未建过窗口的那几份）不得顶替客户端侧读数；不擅自往 `minekin.p0.evidence.v1` 加字段**（那会重封全卷，属门禁归属人的决定）。
+- **E → B2 剩余范围**：`E-RR` 不再挂着；它的 LAN 形状当下被 ⑤ 具名阻断，M 的判断是先做 `H1c` 的环境读数而不是第三次裸重跑；B2 其余不依赖 joiner 客户端的形状仍可独立推进（task 台账上「B2 剩余范围等主控排期」一条仍开着）。
+- S → 暂无安全的 S 卡（N3/N4 属 `BLOCKED_DECISION`）；D/V 仍停等其前置。冲突表与面归属见[并行作业协议](parallel-execution-plan.md) §2。
+
+### 不声称
+
+不声称 Minekin 已完成；不声称任何 gate 点亮（`promotable` 与第三、四轮逐字相同，仍是机器候选）；不声称 H3 让端到端 auto JOIN 跑通了（它停在一个**更靠后**的具名前沿 `BUDGET_UNDECLARED`，补 store 是 523 MB 的具名预算决定，未做）；不声称 ⑤ 的根因、归类或「这是 trunk 回归」——被量掉的只有「不是 runner 那 85→104 行的改动、不是 H1a 镜像、不是 case 也不是构建」，没被量掉的是 `xvfb-run` 那一次究竟有没有给子进程可用显示、以及那 65 字节 `XDG_RUNTIME_DIR` 与它是否同一条因果链；不声称 M 复量了 E 的容器探针或 H 的四组活体读数（都没复量，两侧全量 `pytest` 也未重跑）；不声称 `H1c` 已验证。全程未连接、未探测、未读取用户的远程服务器（`.tmp/local-test-server.txt` 未被打开），文中只出现 loopback/受控本地地址、卷名与镜像名。
+
