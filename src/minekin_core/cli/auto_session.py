@@ -67,6 +67,10 @@ DEFAULT_PROBE_TIMEOUT_S = 5.0
 DEFAULT_STOP_WAIT_S = 30.0
 _STOP_POLL_S = 0.25
 
+#: The operation every refusal from this path arrives under, so an operator (and the
+#: usage refusal beside it in `bootstrap.py`) can name the entry that said no.
+_AUTO_OPERATION = "session start --auto-bundle"
+
 
 def _reject(
     message: str,
@@ -76,11 +80,36 @@ def _reject(
 ) -> MinekinError:
     return MinekinError(
         "cli.auto_session",
-        "session start --auto-bundle",
+        _AUTO_OPERATION,
         category,
         Retryability.OPERATOR_ACTION,
         f"{message} [{reason}]",
     )
+
+
+def require_spendable_budget(max_bytes: int | None, *, operation: str = _AUTO_OPERATION) -> None:
+    """Refuse a non-positive budget by name at the entry, before any action.
+
+    The budget is what the operator authorises a fill to spend, and `0` or a negative
+    number authorises nothing — it is a mistake at the keyboard, not a decision to
+    honour. The installer also guards this, with a plain `ValueError`, because a
+    non-positive budget reaching *it* means a caller skipped the entry check; without
+    this function the CLI answers `INTERNAL_INVARIANT`, a category that names nothing
+    the operator can change and that only appears after the probe and the digest gate.
+    Both entries that take `--max-bytes` call this before they read a document,
+    probe a target or fetch a byte.
+    """
+
+    if max_bytes is not None and max_bytes < 1:
+        raise MinekinError(
+            "cli.auto_session",
+            operation,
+            ErrorCategory.CONFIG,
+            Retryability.OPERATOR_ACTION,
+            f"--max-bytes {max_bytes} is not a spendable budget: it authorises no fetch "
+            f"at all; pass a positive byte count, or omit --max-bytes to leave the "
+            f"store untouched [BUDGET_NOT_POSITIVE]",
+        )
 
 
 def host_os_arch(*, system: str | None = None, machine: str | None = None) -> str:
@@ -312,7 +341,9 @@ def prepare_auto_bundle_start(
 ) -> AutoBundleDecision:
     """Probe the target, resolve it to one reviewed bundle, and get the host ready to launch.
 
-    Order is the safety property. The saved target is admitted from its own document
+    Order is the safety property. The budget is said valid before anything else is
+    touched — a non-positive number is an operator mistake, not a decision to carry
+    through a probe. The saved target is admitted from its own document
     before the probe sends a byte, the digest gate and the target's version rule run
     before a byte is fetched, the target is asked a second time before anything is
     stopped, and the old client is confirmed gone only at the end — so a run that refuses
@@ -320,6 +351,7 @@ def prepare_auto_bundle_start(
     and never has more than one controlled client alive.
     """
 
+    require_spendable_budget(max_bytes)
     root = workspace_root or find_workspace_root(Path(__file__).resolve())
     architecture = os_arch or host_os_arch()
     ask = probe_target or _ask_target(probe_timeout_s)
