@@ -11,7 +11,9 @@
   `forgery-copy.log`，及本收尾会话的复量 `readout-recheck.log` / `readout-recheck-r1.log`）。
 - 测试服是运行者控制的**本地隔离服**（匿名称谓；地址只在未跟踪的 `.tmp/local-test-server.txt`，
   本文档不出现其 IP:port / 主机名；本卡全程未连接任何远程服务器）。
-- 一句话结论：**三段已真跑并封存为三份 `SEALED` bundle，逐条 C1-C5 的人工读数全部成立；
+- 一句话结论：**三段已真跑并封存为三份 `SEALED` bundle，C1/C2/C3/C5 的人工读数成立，C4 仅
+  「部分成立」——其自身 timeline 与 context tuple 方向成立，字面「载体对」读法被封装修录构造
+  挡死（见 §C4 及其口径缺陷段）；
   但 registry 侧父行仍 `FAIL`，失败名照原样是
   `the_world_switch_returned_to_the_confirmed_world:A_B_A_TRIPLE_NOT_SEALED`**——卡面第 12 轮
   边界写明「本卡即便跑出完整三段，也不会让已登记的判据自行变绿……真跑的产出是卷上三段字节 +
@@ -109,16 +111,42 @@ supersedes 链）为 `8ce30346… → cd215ca1…(A1) → a26e2c35…(B) → 7ff
   与已封 manifest 不符（改一个字节即露馅）；规范卷未受影响（sentinel `data writable: False`，
   规范 A2 的 `level-name=world` 原样，副本目录已清理）。
 
-### C4 `the_b_run_does_not_cross_into_a` — 成立
+### C4 `the_b_run_does_not_cross_into_a` — 部分成立：本次能证的方向成立，字面「载体对」读法被构造挡死
 
-- 判据原文：B 的 session 集与 context tuple 在 A1、A2 的时间线或载体对中均不出现；
-  A1|B 与 B|A2 的 pairwise 互斥都须成立。
-- 读数：B 的 session `4ba0825eee234506bcdca524d1631df9` 不出现在 A1（timeline =
-  `f0a28733…`、previous = `b80c75d9…`）也不出现在 A2（timeline = `ed3fdc06…`、previous =
-  `4ba0825e…` 为前驱行、其自身 timeline 为 `ed3fdc06…`）的任一 timeline 集合中
-  （`readout.log` §1 `previous_timeline.sessions` 逐段列明）；B 的 context tuple
-  （`…-b` profile / `bfd03fcd…` digest）与 A 两端的 tuple（§C3 读数）不等。
-- 结论：**成立**（session 与 tuple 两个方向均无交叉）。
+- 判据原文（§3.5 C/C4，逐字）："**C4 `the_b_run_does_not_cross_into_a`** — ④: B's session set
+  and confirmed-context tuple appear in neither A1's nor A2's timeline or carrier pair (both
+  directions: A's context tuple ≠ B's; the pairwise §3.5 B disjointness must hold for A1|B and
+  B|A2); red `B_CROSSES_INTO_A` on any shared session/world-context occurrence."
+- **（a）本次能证的——成立**：
+  - 三个 run 各自的**自身 timeline** session 两两不同：A1 `timeline.sessions` =
+    `f0a287335e5f408285886aff7d65bdb3`、B = `4ba0825eee234506bcdca524d1631df9`、
+    A2 = `ed3fdc067e294d5e9b356c34ca9a058b`（`readout.log` §1；A2 处即该文件第 245-254 行
+    `timeline.sessions` 逐字 `ed3fdc067e294d5e9b356c34ca9a058b`）。
+  - B 的 context tuple（`p0-controlled-offline-loopback-b` profile / digest
+    `bfd03fcd16cf9d02b044fb475a030d6274f7424fcff0b22ca9dfdaece79268d1`）与 A 两端的 tuple
+    （`p0-controlled-offline-loopback` / `c742c47670997ac5f8f9e9f3bcca6304a041b253fe953dc0906923affb798d4b`，
+    A2 自身值见 `readout.log` 第 243-244 行）不等（§C3 读数）。
+  - 已登记的 pairwise 形 `the_session_is_not_the_one_the_previous_run_had` 对 A1|B、B|A2
+    两对都在三份 bundle 的 `assertions.observed` 里（§3 逐字 JSON 块）。
+- **（b）不能证的——不是被证据判红，而是被构造挡死**：C4 的字面读法要求 B 的 session 不出现在
+  A2 的「时间线或载体对」里，而 bundle 的载体对里封的 `previous-run-trace.jsonl` 恰是前驱那次
+  run 的时间线，A2 的前驱就是 B。`readout.log` 第 239-242 行逐字：A2 的
+  `previous_timeline.sessions` = [`4ba0825eee234506bcdca524d1631df9`]，即 B 自己的 session。
+  所以这条字面要求**按构造永不可能绿**，任何诚实执行都会撞上它；本卡不声称它被证据满足。
+- 结论：**部分成立**——（a）三件（自身 timeline 互异、tuple 与 B 不等、pairwise observed 两对
+  覆盖）按上述读数逐字成立；（b）的字面「载体对」要求因封装修录必然包含前驱 trace 而被构造
+  挡死，属判据口径缺陷（见下段），不由本卡改判。父行仍 `FAIL`、失败名照 §3 原样，与本节读数
+  不冲突。
+
+### C4 的口径缺陷（登记给主控，不改判据）
+
+- 缺陷在 §3.5 那行的字面 scope：「timeline or carrier pair」没有把一个 run **自身的 timeline**
+  与**被封进载体对里的前驱 trace** 区分开——后者按封装修录必然携带前驱 run 的 session，对 A2
+  （前驱 = B）而言字面要求自相矛盾。
+- 正确的可判形状应是：「B 的 session 不出现在 A1、A2 **各自自身** timeline 中，且 A1/A2 的
+  context tuple 与 B 不等」。
+- 修它 = 改冻结判据文档 `docs/p0-offline-090-100-case-spec-2026-09-27.md`，归主控裁决；本卡
+  不动该文件、不动 `tools/**`、不动 fixture、不动 registry。
 
 ### C5 `the_external_identity_is_server_observed_in_all_three` — 成立
 
@@ -222,7 +250,9 @@ manifest 不符；规范卷 sentinel 全程 `data writable: False`，规范 `ser
   失败）+ 热身 run 的账本行；三段 bundle 字节即本卡规定的产出。
 - **仅在分支**：本记录文档（`docs/p0-offline-100-a-b-a-run-2026-09-27.md`），随本提交在
   `codex/minekin-evidence` 上；主干未动。
-- **人工判读成立但未登记**：C1-C5 五条作为 §2 的人工读数全部成立。
+- **人工判读成立但未登记**：C1/C2/C3/C5 四条作为 §2 的人工读数成立；C4 不在此列的全成立声明
+  里——它只有**部分成立**（自身 timeline 与 tuple 方向成立，字面「载体对」读法被构造挡死，见
+  §C4 及其口径缺陷段，该缺陷已登记给主控、本卡未改判据）。
 - **仍缺载体 / 未验证**：跨 bundle 的三段链判断载体（需扩展 `minekin.p0.evidence.v1`，主控
   保留）；`world_context_id` 的链上真值（全卷 null）；「首尾 A 同一获确认 context」目前只有
   旁证；OFFLINE-090 侧真跑（本卡未触及）；registry 父行变绿——以上任何一项都**没有**被本卡
