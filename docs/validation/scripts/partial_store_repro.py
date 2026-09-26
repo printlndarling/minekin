@@ -70,9 +70,7 @@ def save_state(state: dict) -> None:
 
 def committed_blobs(store: ArtifactStore) -> list[str]:
     return sorted(
-        p.relative_to(store.root).as_posix()
-        for p in (store.blobs).rglob("*")
-        if p.is_file()
+        p.relative_to(store.root).as_posix() for p in (store.blobs).rglob("*") if p.is_file()
     )
 
 
@@ -96,11 +94,16 @@ def main(argv: list[str]) -> int:
     plan, artifacts, store = load_context()
 
     if mode == "plan":
-        print(json.dumps({
-            "plan_sha256": plan.get("plan_sha256"),
-            "artifact_count": len(artifacts),
-            "total_bytes": sum(a.size for a in artifacts),
-        }, indent=2))
+        print(
+            json.dumps(
+                {
+                    "plan_sha256": plan.get("plan_sha256"),
+                    "artifact_count": len(artifacts),
+                    "total_bytes": sum(a.size for a in artifacts),
+                },
+                indent=2,
+            )
+        )
         return 0
 
     if mode == "snapshot":
@@ -113,18 +116,24 @@ def main(argv: list[str]) -> int:
                 present.append(True)
             except MinekinError:
                 present.append(False)
-        print(json.dumps({
-            "committed_blobs": len(committed_blobs(store)),
-            "staging_leftovers": staging_leftovers(store),
-            "quarantine": quarantine_entries(store),
-            "first_n": n,
-            "first_n_verified_present": sum(present),
-            "first_n_missing": present.count(False),
-        }, indent=2))
+        print(
+            json.dumps(
+                {
+                    "committed_blobs": len(committed_blobs(store)),
+                    "staging_leftovers": staging_leftovers(store),
+                    "quarantine": quarantine_entries(store),
+                    "first_n": n,
+                    "first_n_verified_present": sum(present),
+                    "first_n_missing": present.count(False),
+                },
+                indent=2,
+            )
+        )
         return 0
 
     if mode == "interrupt":
-        n = int(sys.argv[2]); delay = float(sys.argv[3])
+        n = int(sys.argv[2])
+        delay = float(sys.argv[3])
         subset = artifacts[:n]
         save_state({"n": n, "subset_coords": [a.coordinate for a in subset]})
 
@@ -137,8 +146,15 @@ def main(argv: list[str]) -> int:
         threading.Thread(target=watchdog, daemon=True).start()
         fetcher = ArtifactFetcher(store, jobs=8, timeout_s=10.0)
         fetcher.fetch(subset)  # never returns if watchdog fires
-        print(json.dumps({"note": "completed before watchdog (raise N or lower T)",
-                          **fetcher.fetch(subset).as_document()}, indent=2))
+        print(
+            json.dumps(
+                {
+                    "note": "completed before watchdog (raise N or lower T)",
+                    **fetcher.fetch(subset).as_document(),
+                },
+                indent=2,
+            )
+        )
         return 0
 
     if mode == "resume":
@@ -165,7 +181,9 @@ def main(argv: list[str]) -> int:
         verified_before = {c for c, v in pre.items() if v == "verified"}
         reused = set(outcome.reused)
         installed = set(outcome.installed)
-        doc["reuse_invariant_holds"] = verified_before.issubset(reused) and not (verified_before & installed)
+        doc["reuse_invariant_holds"] = verified_before.issubset(reused) and not (
+            verified_before & installed
+        )
         doc["committed_after"] = len(committed_blobs(store))
         doc["staging_after"] = staging_leftovers(store)
         print(json.dumps(doc, indent=2))
@@ -199,11 +217,17 @@ def main(argv: list[str]) -> int:
         path.unlink()
         out2 = ArtifactFetcher(store, jobs=1, timeout_s=30.0).fetch([a]).as_document()
         verdict["outcome_after_removal"] = out2
-        verdict["recovers_once_removed"] = out2["installed"] == 1 and out2["reused"] == 0 and out2["complete"]
+        verdict["recovers_once_removed"] = (
+            out2["installed"] == 1 and out2["reused"] == 0 and out2["complete"]
+        )
         # A third pass must now reuse the freshly fetched, valid blob (idempotent).
         out3 = ArtifactFetcher(store, jobs=1, timeout_s=30.0).fetch([a]).as_document()
         verdict["third_pass_reuses"] = out3["reused"] == 1 and out3["complete"]
-        print(json.dumps({"coordinate": a.coordinate, "truncated_bytes_removed": 512, **verdict}, indent=2))
+        print(
+            json.dumps(
+                {"coordinate": a.coordinate, "truncated_bytes_removed": 512, **verdict}, indent=2
+            )
+        )
         return 0
 
     print(f"unknown mode: {mode}", file=sys.stderr)
@@ -212,6 +236,7 @@ def main(argv: list[str]) -> int:
 
 def stat_write() -> int:
     import stat as _s
+
     return _s.S_IWUSR
 
 
