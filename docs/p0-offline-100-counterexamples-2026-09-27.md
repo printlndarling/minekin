@@ -149,6 +149,54 @@ B 本段 session）。seq1/seq2（`fd516eb6…`、`c96aa8bd…`）为早期失�
   未伪造正对照全绿）实测完成；§3.6 字面 10（A1↔A2 复用）与三条的三段链级目标串按构造
   不可判，已以 CX10b 与常量读数留证并具名登记，非含糊化。
 
-## 7. 门禁原始输出
+## 7. 门禁原始输出（本 worktree，base `7aa5d14` 全树，宿主 uv）
 
-（第一次提交先交读数与未跑标注；门禁输出在 §7 后续提交补入。）
+运行时代码树 = `7aa5d14` + 本记录文档一次 docs-only 提交（`8c38f1d`），工作树 clean；
+未合入 `41cff82` 的 clause map 重排，故不触发该重排下的 `168 != 150` 失败面。
+
+```text
+$ uv run --frozen pytest -q            # 一次跑满,未触发已知满载 flaky,无 failed 行
+2594 passed, 3 skipped in 417.61s (0:06:57)
+SKIPPED [1] tests\unit\test_orphans.py:686: this platform cannot answer the question, so it can never say gone
+SKIPPED [1] tests\unit\test_silent_listener.py:123: a Windows terminate is not a signal
+SKIPPED [1] tests\unit\test_tested_provenance.py:354: bridge-1201/build/libs/minekin-bridge-1201-0.0.0.jar is not built on this host, ...
+
+$ uv run ruff format --check .
+353 files already formatted
+
+$ uv run ruff check .
+All checks passed!
+
+$ uv run python tools/check_case_assertions.py
+Case assertion implementations: OK (150 registered)
+
+$ uv run python tools/verify_fixture_digests.py
+Minekin case fixture digests: OK
+
+$ uv run python tools/check_boundaries.py
+Minekin package dependency boundaries: OK
+
+$ git diff --check
+(空输出,clean)
+```
+
+（`verify_fixture_digests` 原样行:`Minekin case fixture digests: OK`。）
+
+四态划分：
+- **已合入**：无——主干未动,本卡一切产物只在本分支。
+- **仅在分支**：本记录文档 + `.tmp/ecs/` 探针与日志(不入库)。
+- **真实封证(卷上,既有)**：§2 三枚 `SEALED` bundle(第十四轮封,本卡只 `:ro` 复量,零新增封证)。
+- **未验证/未测**：§6 未测清单;另登记一条边界——本卡的 L2 `rejudge agrees`/`verify` 正对照
+  成立依赖 base `7aa5d14` 的 case fixture 字节与封证时一致;远端 main 若经 41cff82+ 的 clause
+  map 重排,在 41cff82 上 `rejudge_evidence` 会以 case 摘要漂移
+  (`731f63d0…` vs 封证 `f55260af…`,registry fixture `tests/fixtures/cases/p0-offline-100.json`
+  面)改答 `unjudged`,该漂移属 M 独占面、由 M 处置,本卡未改任何 fixture 字节。
+
+## 8. 一句话结论
+
+**DONE**：§3.6 反例 9、10、11 全部完成两层读数(L1 判官层真红 + L2 封存通道具名拒止 +
+未伪造正对照全绿),证明 OFFLINE-100 已注册的三条 clause 判据(`kin_id` 延续、session 不跨界、
+服务端身份记录)非恒真;§3.6 字面 10(A1↔A2 复用)与两段设计目标串
+(`KIN_ID_NOT_SINGLE_ACROSS_TRIPLE`/`SESSIONS_NOT_THREE_DISTINCT`)按构造不可由现注册判据观察,
+已以 CX10b 真实读数具名登记;登记面父行仍 `FAIL / A_B_A_TRIPLE_NOT_SEALED`,OFFLINE-100
+不因本卡闭合。
