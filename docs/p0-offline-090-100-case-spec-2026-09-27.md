@@ -10,6 +10,7 @@
 - All code citations are to the bytes at this base (or `origin/main` where stated). No
   citation to prior conversation is used as evidence; anything not re-measured here is
   marked 未测.
+- Placement: this draft sits at `docs/p0-offline-090-100-case-spec-2026-09-27.md`, the E lane's existing per-card record convention under `docs/` (precedent: `docs/p0-core030-runner-rerun-2026-09-27.md`) and within this card's allowed paths; the previous session's invented top-level `harness/case-specs/` location is not a carrier in any ref of this repository and is not kept.
 
 ## 1. Contract source (verbatim, `docs/p0-offline-session-compatibility-contract.md`)
 
@@ -296,7 +297,7 @@ evaluate time) and entries in the IMPLEMENTATIONS map of
 `tools/**` — M's surface per the card's hard boundary ④ (the card text repeats it). A
 fixture committed without them would break `python tools/check_case_assertions.py`
 rc=0. **Stop cell reported; this draft is the patch-set input for M.** The only file this
-sub-slot adds is this `harness/case-specs/P0-OFFLINE-090-100-CASE-SPEC-001.md`.
+sub-slot adds is this `docs/p0-offline-090-100-case-spec-2026-09-27.md`.
 
 ## 6. Evidence boundaries and four-state declaration
 
