@@ -624,3 +624,157 @@ def test_the_auto_path_hands_the_status_opt_in_to_the_controlled_launcher() -> N
     # the request said.
     assert 'if [ -n "${auto_bundle}" ] && [ "${enable_status}" != "true" ]; then' in text
     assert "so the run stops before the client starts" in text
+
+
+#: The three items the joining client's failure turned on, and the names the readout
+#: gives them when they are absent. Pinned as data because the same five strings are
+#: what the reversal table below was measured against: removing any one of them makes
+#: the readout unable to name a missing item, which is the difference between a reading
+#: and a restatement of what the crash report already said.
+CLIENT_ENVIRONMENT_ITEMS = ("DISPLAY", "XDG_RUNTIME_DIR", "XAUTHORITY")
+CLIENT_ENVIRONMENT_ABSENT_NAMES = (
+    '"<unset>"',
+    '"<set-but-empty>"',
+    "not-measured: this process was handed no DISPLAY at all",
+    "unmeasurable: the DISPLAY named here is not being served",
+)
+
+
+def test_the_runner_names_the_joiner_environment_before_its_jvm() -> None:
+    """The launcher says which screen, runtime directory and GL stack it is handing over.
+
+    Six runs of one case — `CORE-030`, one byte-identical recipe, one image — answered
+    differently on one machine: five of them left a `client/crash-reports` carrying
+    `[0x1000E] Failed to detect any supported platform` and one joined the world. The
+    evidence could not have answered *which* environment the dying process had been
+    given, because the only display-shaped field in a bundle,
+    `environment.renderer_display`, is measured by the sealer after the fact: it comes
+    from this script's own seal branch (`xvfb-run -a … glxinfo -B`, then
+    `--renderer-display`), and it reads `llvmpipe (LLVM 20.1.2, 256 bits)` in all six
+    samples, the run whose client never opened a window included. A sealing-side reading
+    cannot describe a client-side death.
+
+    So the launcher takes the reading itself, at two depths — what this script holds, and
+    what the wrapper hands its child — and writes both into
+    `/data/kin/<joiner>/run/client-environment.txt` before the client starts. Measured in
+    the controlled container: an unset name is written as `<unset>` and a screen nobody
+    serves as `unmeasurable: … (glxinfo rc=255)`, while a run told
+    `XDG_RUNTIME_DIR=/tmp/h1c-ctl-runtime` reads that exact value back at both depths.
+
+    The clauses are measured red against the base bytes (no such reading exists there —
+    `grep -c XDG_RUNTIME_DIR` over the whole runner returns nothing, and the base script's
+    only `DISPLAY` lines are a comment and the harness's own `export`), and each way the
+    readout could stop being a reading names the line it turns red. The last two clauses
+    are the point of the shape: it *adds* a reading and changes none of the three names,
+    and it leaves the sealer's own measurement alone rather than passing itself off as it.
+    """
+
+    text = (RUNNER / "domain.sh").read_text(encoding="utf-8")
+
+    # One launcher array, and the client goes through it: a reading taken through a
+    # second, hand-retyped command line could drift from the one the client got.
+    assert 'joiner_launch_wrapper=(xvfb-run -a --server-args="-screen 0 1280x720x24")' in text
+    # The array is used by exactly two things: the launch-depth reading and the client.
+    # A third naming is a second client whose environment was never read; a first is a
+    # reading that no longer shares a command line with what it describes.
+    assert text.count('"${joiner_launch_wrapper[@]}"') == 2
+    assert '"${joiner_launch_wrapper[@]}" \\\n        env MINEKIN_KIN_ID="${joiner}"' in text
+    assert (
+        'xvfb-run -a --server-args="-screen 0 1280x720x24" \\\n        env MINEKIN_KIN_ID'
+        not in text
+    )
+    assert text.count("python -m minekin_core session start \\\n        --profile") == 1
+
+    # The three items, each by its real name, and each of the ways one can be missing
+    # named rather than left blank.
+    assert "for item in DISPLAY XDG_RUNTIME_DIR XAUTHORITY; do" in text
+    for name in CLIENT_ENVIRONMENT_ABSENT_NAMES:
+        assert name in text, f"the readout lost the name for an absent item: {name}"
+    assert "GL_BACKEND=" in text
+
+    # Written where the run leaves it, in the joining Kin's own directory, and said once
+    # on the run's own output.
+    assert 'client_environment_readout="/data/kin/${joiner}/run/client-environment.txt"' in text
+    assert text.count("joiner client environment before its JVM") == 1
+
+    # The order is the card: baseline read, then the named environment, then the JVM.
+    head = text.index("    name_the_joiner_client_environment\n")
+    assert text.count("    name_the_joiner_client_environment\n") == 1
+    assert text.index("baseline=${baseline:-0}") < head
+    assert head < text.index('"${joiner_launch_wrapper[@]}" \\\n        env MINEKIN_KIN_ID')
+    # And the reading happens before the client is handed anything at all, not after it
+    # dies: the launch site is the next thing the script does.
+    assert head < text.index("joiner_pid=$!")
+
+    # A reading, not a fix: nothing here exports, unsets or defaults any of the three, so
+    # the one `export DISPLAY` left in the script is still the harness pointing its own
+    # session at the screen it owns.
+    assert text.count("export DISPLAY") == 1
+
+    # The sealer keeps measuring its own renderer; this reading is a second, differently
+    # placed thing and has not been substituted for it.
+    assert text.count("--renderer-display") == 1
+    assert 'measured=$(xvfb-run -a --server-args="-screen 0 1280x720x24" glxinfo -B' in text
+
+
+def test_a_joiner_that_never_arrived_is_told_apart_from_an_unprobeable_world() -> None:
+    """Downstream of a dead client, the two readings a reader can confuse are named apart.
+
+    `NO_CONNECTION_WAS_DIALLED` and `THE_CLIENT_NEVER_DIALLED_A_PORT` are both facts about
+    the client half, and "the server's status is not probeable" looks the same from
+    downstream: nothing arrived, nothing answered. This run's material says which of the
+    two it is evidence about, by reading two separate things — whether anything answers
+    the published port *on loopback*, and whether the client had been handed a screen that
+    could be measured — and naming the combination. Measured in the controlled container:
+    with a real listener on the port the same script says
+    `THE_RUN_DIED_ON_THE_CLIENT_SIDE with a live world and a measurable screen (…)`, and
+    with that listener gone it says `THE_WORLD_STATUS_IS_NOT_PROBEABLE …, so this run is
+    evidence about the world and not about the client environment`. A reading that cannot
+    flip when the world is the thing that is down would be a restatement of the FAIL.
+
+    It is reached only on the branch where the joiner never arrived, it changes no
+    criterion, no gate and no bundle field, and it feeds nothing to the sealer — the
+    verdict is written next to the readings it was derived from and printed. A run it
+    describes is still the same FAIL it was before, with one more thing said about it.
+    """
+
+    text = (RUNNER / "domain.sh").read_text(encoding="utf-8")
+    assert "classify_the_joiner_downstream_readings() {" in text, (
+        "the two downstream readings are no longer told apart at all"
+    )
+    body = text[
+        text.index("classify_the_joiner_downstream_readings() {") : text.index(
+            "# Start the second client against the world the first one published"
+        )
+    ]
+
+    # Every outcome has its own name, including the one where nothing could be read.
+    for name in (
+        "THE_CLIENT_ENVIRONMENT_WAS_NEVER_READ",
+        "THE_RUN_DIED_IN_THE_CLIENT_ENVIRONMENT",
+        "THE_RUN_DIED_ON_THE_CLIENT_SIDE",
+        "THE_WORLD_STATUS_IS_NOT_PROBEABLE",
+        "BOTH_HALVES_NAMED_AND_BOTH_BAD",
+    ):
+        assert body.count(name) == 1, f"a downstream reading is missing or doubled: {name}"
+
+    # The world side is asked a loopback question and nothing else. This project never
+    # dials a remote address from here, so the only `/dev/tcp` in the script names
+    # 127.0.0.1 — a target the harness itself published to.
+    assert re.findall(r"/dev/tcp/([^/\"]+)/", text) == ["127.0.0.1"]
+
+    # The client side is read from the launch-depth line the launcher wrote, not from the
+    # harness's own screen, which is a different display by construction.
+    assert "sed -n 's/^launch GL_BACKEND=//p'" in body
+    assert "s/^harness GL_BACKEND=" not in body
+
+    # It is a reading and not a second verdict: it writes to the readout file, prints, and
+    # touches neither the sealer's inputs nor its field names.
+    assert "--renderer-display" not in body
+    assert "seal_run_evidence" not in body
+    assert text.count("    classify_the_joiner_downstream_readings\n") == 1
+    never_arrived = text.index("never arrived within")
+    assert never_arrived < text.index("    classify_the_joiner_downstream_readings\n")
+    assert text.index("    classify_the_joiner_downstream_readings\n") < text.index(
+        "admitted its first snapshot of that world"
+    )
