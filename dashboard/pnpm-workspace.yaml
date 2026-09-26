@@ -1,0 +1,19 @@
+# Standalone workspace root for the dashboard lane: keeps Node tooling out of the
+# P0 Core build (minekin-core must never require Node).
+packages:
+  - "."
+
+allowBuilds:
+  esbuild: set this to true or false
+
+onlyBuiltDependencies:
+  - esbuild
+
+# The workspace policy enforces a 24h minimum release age. @tanstack/react-query
+# 5.104.0 (published 2026-09-26) is too fresh, and 5.103.2's caret range would
+# pull it in transitively, so both halves of the pair are pinned.
+overrides:
+  "@tanstack/react-query": "5.103.2"
+  "@tanstack/query-core": "5.103.2"
+
+verifyDepsBeforeRun: false
