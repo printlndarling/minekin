@@ -4,9 +4,11 @@
 
 ## 当前
 
-- [ ] `NEXT`：`V1201-LOCAL-DEMO-REHEARSAL-001`。仅全新 data root + 受控本地 offline 1.20.1 服务端；同 run 自动安装、PLAYABLE、look/move/release/退出与 sealed 四读。缺证据时如实阻断。
-- [ ] `QUEUED`：`V1201-LOCAL-NEGATIVE-MATRIX-001`。复用既有负例，只补真实组合缺口。
+- [x] `DONE`（2026-09-26）：`V1201-LOCAL-DEMO-REHEARSAL-001`。全新 data root/全新 Kin 的一次自动路径 run 接成 sealed PASS：装机 3639/3639、同 generation 的 look+move 与到期释放、退出；四读一致，七类反证各自变红，两次失败 attempt 保留。读数与缺口见[执行计划 §2](development-execution-plan.md#2-上一卡交付与当前-next-边界)。
+- [ ] `NEXT`：`V1201-LOCAL-NEGATIVE-MATRIX-001`。复用既有负例，只补真实组合缺口。
 - [ ] `QUEUED`：`V1201-TESTED-GATE-READOUT-001`。规范卷和当前构建的 tested/provenance/风险边界报告。
+- [ ] `QUEUED`：`V1201-AUTO-PATH-RUNNER-001`。让自动解析与服务端读数在受控通道里同时成立（A1 的 G1/G2）。
+- [ ] `BLOCKED_DECISION`：`V1201-DEMO-CASE-FREEZE-001`（A1 的 G3）——融合演示 case 断言哪些事实，含 040/080 两种释放原因在同 run 互斥；须主控冻结，执行侧不自造断言。
 - [ ] `BLOCKED_DECISION`：V08 对用户 1.20.1 测试服的一次只读探测和非破坏性入服，须新的本次许可；之后 V09 动作须单独限幅授权。V10 依赖真实 V08/V09。
 - [ ] `BLOCKED_DECISION`：HOST §5 三格所有权；PERSIST case 冻结；残留进程处置；数据保留/删除。不要猜。
 - [ ] `BLOCKED_EVIDENCE`：P0 campaign/当前 build mandatory 真实证据；按主计划 B 段排入，不用单测或旧包替代。

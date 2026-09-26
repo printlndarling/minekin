@@ -11,6 +11,8 @@
 
 ## 目前交棒点
 
-`cef712b` 时 Qoder 已停止且留下三份未提交旧文档草稿。本次整理已把草稿连同所有历史内容保存为同级 `*-history-through-cef712b.md`，新现行文件从零建队列。当前唯一 `NEXT` 是 `V1201-LOCAL-DEMO-REHEARSAL-001`：全新 Kin/数据根、受控本地 offline 1.20.1 服务器，同 run 自动安装→PLAYABLE→小幅 look/move→松键/退出。**禁止连接用户远程服；V08 仍未提升。** 本地真跑若受 runner 缺陷阻断，保留原始材料并登记单独修复卡；不能改 case/registry 求绿。
+`cef712b` 时 Qoder 已停止且留下三份未提交旧文档草稿。本次整理已把草稿连同所有历史内容保存为同级 `*-history-through-cef712b.md`，新现行文件从零建队列。
 
-完成 A1 后按执行计划的 A2→A3 机械流转；A4 是新的用户授权决策门，不可自动提升。后续 B–E 是完整长程排期，但 HOST §5 三格、PERSIST 与运维选择仍受明确停机条件约束。旧交接里“无 NEXT”是历史快照，不可复活。
+A1 `V1201-LOCAL-DEMO-REHEARSAL-001` 已于 2026-09-26 收卡：在全新 data root 与全新 Kin 上，一次自动路径 `session start` 同 run 完成装机（`installed 3639 / reused 0`）、JOIN、`PlayableEstablished`、限幅 look+move、租约到期释放与 `session stop` 退出，按现行 case `V1201-040` 封存为 PASS，四读一致（`verified PASS` / `re_judged AGREES` / replay 23 事件 / 当前 build），七类单项删除各自把对应断言判红；两次失败 attempt（服务端无读数的 sealed FAIL、供应链中断的 partial store）都原样保留。原始读数、复现命令和三格缺口在[执行计划 §2、§3.1](development-execution-plan.md#2-上一卡交付与当前-next-边界)。
+
+当前唯一 `NEXT` 是 **A2 `V1201-LOCAL-NEGATIVE-MATRIX-001`**，随后 A3 机械流转。**禁止连接用户远程服；V08 仍未提升**，A4 是新的授权门。A1 留下的 `V1201-DEMO-CASE-FREEZE-001`（融合演示 case 断言什么、两种释放原因如何在同 run 安放）留在主控手里，执行侧不自造断言、不改 case/registry 求绿；`V1201-AUTO-PATH-RUNNER-001` 是已登记的实现卡，不在 A2/A3 之前插队。本地真跑再受 runner 缺陷阻断时，保留原始材料并按需另登修复卡。
