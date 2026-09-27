@@ -1,12 +1,14 @@
 # 1.20.1 本地加入解阻：主控连续任务卡
 
-状态：`PROPOSED_FOR_M_INTEGRATION`。基线为远端 `main` 的 `e3b1c6f8e38d4ced74770606290874ccfde0dc8e`；本文件所在分支经 M 审查合入后，以下队列才激活。主干唯一 `current_next` 仍是 `PARALLEL-INTEGRATION-GATE-001`；本文件给 H、V、E 顺序派卡，**不设第二个主干 NEXT**。
+状态：`ACTIVATED`（本文件随规划分支 `0da7032` 于 2026-09-27 第二十五轮并入 `main`；此后 §2 队列按卡逐个合入推进，远端 `main` 落点见每卡小节）。基线为并入时的远端 `main` 的 `e3b1c6f8e38d4ced74770606290874ccfde0dc8e`。主干唯一 `current_next` 仍是 `PARALLEL-INTEGRATION-GATE-001`；本文件给 H、V、E 顺序派卡，**不设第二个主干 NEXT**。
 
 ## 0. 已作出的选择与仍未作出的选择
 
 用户已明确要求按服务器版本自动选择受审客户端，并以 1.20.1 为现阶段主线。这足以排除“把 1.20.1 profile 强行改报 1.21.4”或“只支持 1.21.4”的路线，**不是一次新的远程服连接授权**。本卡只解受控本地 1.20.1 第二客户端的准入和可观测性，不改变 V08 的 `BLOCKED_DECISION`。
 
-已核代码：`src/minekin_core/adapters/launcher/server_profile.py` 的 v1 `load_server_profile` 固定只接受 loopback、offline 和 `MINECRAFT_VERSION = "1.21.4"`；`domain.sh` 的 H1f 已让加入者 profile 诚实填本次 `launched_version`，所以 1.20.1 被 v1 准入拒在 JVM 之前。**不要把 v1 常量改成 1.20.1，也不要为求绿绕开准入。**同一模块已提供 v2 `ManagedTargetProfile`：`load_joinable_session_target` 仅允许 loopback 且版本 allowlist 恰一项，`require_target_allows_launch` 再与本次实际版本比对。此处最小闭环是在受控 runner 的 1.20.1 加入者路径写出符合已审 v2 形状的 loopback profile，保留 1.21.4 既有 v1 字节和行为；若实测证明现有 v2 路径仍无法承载，停下来具名报告，不临时修改产品安全策略。
+已核代码（写卡时读数，H1g 已按下段改口）：`src/minekin_core/adapters/launcher/server_profile.py` 的 v1 `load_server_profile` 固定只接受 loopback、offline 和 `MINECRAFT_VERSION = "1.21.4"`；`domain.sh` 的 H1f 已让加入者 profile 诚实填本次 `launched_version`，所以当时 1.20.1 被 v1 准入拒在 JVM 之前。**不要把 v1 常量改成 1.20.1，也不要为求绿绕开准入。**同一模块已提供 v2 `ManagedTargetProfile`：`load_joinable_session_target` 仅允许 loopback 且版本 allowlist 恰一项，`require_target_allows_launch` 再与本次实际版本比对。此处最小闭环是在受控 runner 的 1.20.1 加入者路径写出符合已审 v2 形状的 loopback profile，保留 1.21.4 既有 v1 字节和行为；若实测证明现有 v2 路径仍无法承载，停下来具名报告，不临时修改产品安全策略。
+
+**2026-09-27 第二十六~二十七轮回写（上面那句「1.20.1 被 v1 准入拒在 JVM 之前」不再是主干现状）**：H1g 已按最小闭环落干——`domain.sh` 的加入者写文档路径按本次 launched version 分派，1.21.4 继续走原 v1 形状，非 1.21.4 写出已审 v2 的 loopback/offline/单版本文档。合入树上 M 独立量到 `1.20.1 ⇒ ACCEPTED ManagedTargetProfile a51407f412850459`、`1.21.4 ⇒ ACCEPTED ServerProfile c74d94a4e4f99a81`（后者与基线同值＝v1 未漂移）。**这只解到准入层**：越过后 H1g 真跑停在供给阶段（`session start` 由 rc=17 变 rc=11），所以「1.20.1 加入者能起 JVM / 能 JOIN」仍是下面 V4 卡要量的问题，不是本节已解的事。
 
 `src/minekin_core/adapters/launcher/metadata.py` 也有默认 `1.21.4`，但**现在没有证据说明它是这一次准入拒止的执行点**。先用真实调用链测量，若 profile 解阻后才暴露这里的错误，再由 M 开独立产品卡；禁止把两个常量一起盲改。
 
@@ -22,6 +24,11 @@
 
 ### H1g `V1201-JOINER-LOCAL-V2-PROFILE-001` — H lane 的下一张
 
+> **状态（2026-09-27 第二十七轮回写）**：**已合主干**。并入本卡的三个合并依次为 `ab93668`（改动提交 `dd76a1d`
+> ＋记录补写 `1edf1a4`）、`8b357b6`（记录核证补句 `bbd8432`）、`cbe00ac`（四态补日期 `b0c7a34`）。
+> 合入树读数：容器五项门 `rc=0`、契约 `37 passed`、宿主全量套 `2604 passed, 3 skipped`（基线 `2596`）、
+> 门载荷仍 `cfa0f118…`、`report_promotion` 仍 `blocked`。以下卡面原文保留为验收依据。
+
 **前置**：M 合入本计划；H1f、H1e 已在主干；E 无需交出规范卷写窗，因为本卡不写它。
 
 **允许面**：`test-orchestrator/runner/domain.sh`、`tests/contract/test_runner_scripts.py`、一份新 `docs/validation/` 记录。确有必要才改 runner 自己的 fixture/脚本，并先在记录里列明；不改产品 `src/**`、Bridge、判据、registry、门禁、封存 schema、`domain.sh` 的 auto+joiner 拒止。H 在独立 worktree/分支从当时最新远端 `main` 起卡，不能直接推 `main`。
@@ -33,6 +40,11 @@
 **停止**：第一个真实前沿仍在 profile 准入之外时，只报告精确停点，不顺手改 `metadata.py` 或游戏客户端。M 按真实 merge-base、允许路径、反证和合并树测试双审后合入，立即 push `main` 并核远端 SHA。
 
 ### V4 `V1201-LOCAL-JOIN-AFTER-V2-001` — H1g 合入后提升 V lane
+
+> **状态（2026-09-27 第二十七轮回写）**：**在工**。worktree `../minekin-wt-v4`、分支
+> `codex/minekin-v4-local-join-after-v2`、base `8b357b6`；派工时该分支无远端 ref、工作树干净，
+> 因此本节尚未有任何 V4 交付可审。M 不预判其结论：V4 只有逐阶段量到加入者 JVM 真起＋Bridge 握手＋JOIN/首快照，
+> E6 才可提升；停在更早一层就按那一层开窄卡。
 
 **允许面**：V 私有本地测试根和一份新 `docs/validation/` 记录；规范卷 `:ro` 或不挂，产品/runner/判据/registry 零改动。仅连接由受控 runner 本次启动的本地 1.20.1 服，不读、不用用户远程目标配置。
 
