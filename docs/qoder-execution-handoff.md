@@ -898,3 +898,30 @@ M 以合并 `3ffc79c` 入 `main` 并核远端 SHA。V 全程未挂规范卷、�
   ⑤ 家族在**已启动**客户端上的一般性排除、§3.6 条目 4 的字面 uuid 改写、OFFLINE-090 的 Dashboard 载体、
   OFFLINE-100 跨 bundle 三段链载体、门禁一律未点亮。
 - **不声称**：不声称 V3 让 1.20.1 的 JOIN 变绿，不声称 ⑤ 家族已被一般性排除，不声称任何 case 闭合或门禁点亮，不声称 Minekin 完成。
+
+## 第二十二轮（2026-09-27，M 主控）：V3 的续投 `1dad5f5` 按字节退回一处；B1 的真常量落到产品面
+
+V lane 的第一段 `bbf0daf` 已在第二十一轮并入主干（合并 `3ffc79c`）。随后该卡的原始后台会话又推了一枚**纯增量**续投
+`1dad5f5`（`bbf0daf..1dad5f5` 快进，改面恰同一份 `docs/validation/v1201-join-live-readout-after-h1f-2026-09-27.md`，
+`+259 -0`，只增不改旧行），本轮按契约复审：
+
+- **通过的部分**：真实 merge-base 与自报同为 `5dbcc8a`，允许面守住（仍只有那一份 `docs/validation/` 记录）；
+  **一处 ruff 记录被 lane 自己更正**——上一段写的 `rc=127 未跑` 是 bare `ruff` 缺失，续投用 `uv run ruff format --check`
+  （355 files）与 `uv run ruff check` 补到 `rc=0`，并全量 `2596 passed, 3 skipped / 380.55s`＝主干基线一字不变，
+  契约 29 passed、`bash -n` rc=0、case assertions OK(150)、fixture digests OK。
+- **退回的具体一处（不并入，直到修正）**：`git show --check 1dad5f5` 命中 1 条行尾空格
+  （`docs/validation/v1201-join-live-readout-after-h1f-2026-09-27.md:203`，被逐字引用的 harness stderr 行尾带一个空格）
+  ⇒ 主干门 `git diff --check` 必须 `rc=0`，该提交现在合进来就是把这道门弄脏。口径：保留字节事实，把「原文含行尾空格」
+  以脚注/转写表示，删掉那个空格即可；由 V 自己新提交修正，**M 不进 V 的工作树、不 amend 已推提交**（流程自我更正仍然有效）。
+- **B1 的真常量落在产品面（新登记的保留决定，未动）**：lane 指认的准入钉住点在
+  `src/minekin_core/adapters/launcher/server_profile.py:32`（`MINECRAFT_VERSION = "1.21.4"`，`:200` 用它做比较），
+  M 在主干字节复核为真，并看到同族常量第二处 `…/launcher/metadata.py:16`（同样 `1.21.4`，且 `:392/:544` 以它为默认版本参数）。
+  ⇒ 「让 1.20.1 的加入者进 JVM」需要的是产品钉住版本/准入语义的决定（`src/**`，H 与 V 都没有独占面，M 未打开），
+  属主控保留；本轮只登记，不改、不派卡去绕它。⑤ 家族的排除继续按**有界**记录。
+- **门载荷**：本轮零代码/fixture/registry 改动，最后一次实读仍是第二十一轮合并后的
+  `cfa0f1184bee30df6a1d9fcf45778c9cef074ece6761c47fe7d6b9f49863afd6`、`W30`/`p0-core` `promotable False`
+  （`.tmp/m-r21-payload-after-v3.log`）；本轮只动文档故未重读。
+- **四态**：已合入 main = `bbf0daf` 的记录（第二十一轮）+ 本轮 handoff；仅在分支 = `1dad5f5`（退回一处待修）；
+  真实封证 = 零；未验证 = 1.20.1 加入者 JVM 侧与端到端 JOIN（B1）、⑤ 家族在已启动客户端上的一般性排除、
+  §3.6 条目 4 的字面 uuid 改写、OFFLINE-090 的 Dashboard 载体、OFFLINE-100 跨 bundle 三段链载体、门禁一律未点亮。
+- **不声称**：不声称 `1dad5f5` 已并入，不声称 1.20.1 JOIN 变绿，不声称 B1 已解，不声称 Minekin 完成。
