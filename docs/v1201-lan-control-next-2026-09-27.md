@@ -405,3 +405,7 @@ bash C:/Users/darling/Documents/agent_work/minekin/.tmp/m-r45-rerun.sh
 **CI 读数（各自单独一步，`/actions/runs?per_page=3`）**：run 866 `d933fbe` `completed/success`、run 867 `c982a32` `completed/success`、run 868 `fcce60c` 在 20:30:49Z 时点 `in_progress` ⇒ 该笔的绿读数本轮不作。主干工作树 `git status --short` 空、`git ls-remote origin refs/heads/main` = `fcce60cb41dadb5a42a931d3c834a19c35ddaa01`。
 
 **停放状态（供接手会话）**：M 侧无未提交改动，规范卷写窗仍归 E 独占且 M 全程只 `:ro`；H lane 的续跑会话在飞，允许面未变（`domain.sh`、`tests/contract/test_runner_scripts.py`、`docs/validation/v1201-joiner-on-controlled-server-2026-09-27.md`），其未提交候选必须先备份 + 记 sha256 再动，禁止 `git checkout --`/`restore`/`reset --hard`。下一格仍是 §2.22 的第②③④项，其后才是 M 的合入复审与 V5′→M-C1→E7→M-G1。真实封证计数不变：**LAN 第二客户端在专服形状下的同 run 封证 0**。
+
+### 2.24 第四十六轮补：§2.23 的字节读数只活到它自己的时点
+
+20:32 复量同一 lane 树：`domain.sh` 仍是 `e1d8dbb9…`（156,467 字节），`tests/contract/test_runner_scripts.py` 已从 §2.23 记录的 `02ec23c2…`（161,021 字节）移动到 `33f7d7f02222dd4f…`（171,525 字节），分支 HEAD 仍 `29c5187`、仍未提交 ⇒ lane 在第①项内持续加契约面，§2.22 的第②③④项尚无读数。**下一位接手者不要引用 §2.23 的测试摘要作为候选字节**：复审前必须自己重取 sha256。CI 同刻实读：run 866/867 `completed/success`，run 868 `fcce60c` 与 run 869 `bd5ee23` 仍 `in_progress` ⇒ 这两笔的绿读数本轮不作。主干工作树 clean，规范卷仍只 `:ro`，本轮零封证：**LAN 第二客户端在专服形状下的同 run 封证 0**。
