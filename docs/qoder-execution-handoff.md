@@ -1427,3 +1427,49 @@ docker run --rm --entrypoint /bin/bash -w /tmp \
 
 不声称：本轮没有触碰规范卷写权限、没有改判据/registry/封存 schema、没有替 E6 预先判定它的结论；
 判官 `rc=0` 只说明封存件自洽，不等于该 case 的门禁断言为真（那仍是 `rejudge` 的读数）。
+
+## 第三十四轮：E6 在工期间的边界预审与 CI 收口（主控只读）
+
+主控本轮不合并任何东西（E6 尚未 push），做的是两件可留档的只读量：把我自己三次 push 的
+CI 读数补成闭环，以及在 E6 落 bundle 之前把它选案与判据载体的对应关系量清楚，好让复审能按
+「最先失败层」归因而不是照抄 lane 的措辞。
+
+**CI 收口（REST 实读，非推断）**：`GET /repos/printlndarling/minekin/actions/runs?head_sha=…`
+对 `9a13dbd`、`7b99485`、`9d45b60` 三个主干 SHA 均 `status=completed / conclusion=success`；
+`9d45b60` 的 run `36298060824`（run_number 825）在 05:46:29Z 收敛。`main` 远端 ref 仍为
+`9d45b608df4b8172950fa0830bdb039870d4340a`。
+
+**E6 的现场读数（只读，零写入）**：worktree `../minekin-wt-e6`、分支
+`codex/minekin-v1201-join-seal`、HEAD 仍是 base `7b99485`、工作树干净、远端无 ref；卷上新建
+`kin-e6-j020`、`kin-e6-ctr`，`.tmp/e6/` 依次出现 `e6-prep.sh`（13:43）、`e6-live.sh`/`e6-drive.sh`
+（13:46/13:47）、`e6-reads.sh`（13:47）、`e6-counter.sh`（13:48）；规范卷 manifest 仍 112，
+即**封证尚未落地**。PRE 读数：`gate_payload_sha256=cfa0f1184bee30df6a1d9fcf45778c9cef074ece6761c47fe7d6b9f49863afd6`
+（与主干基线逐字节相同），`report_rc=1`，`overall_blocks=['REQUIRED_CASE_NOT_REGISTERED']`。
+
+**驱动脚本的边界预审（读 `e6-drive.sh` 全文得到，非其自述）**：它驱动主干原样
+`test-orchestrator/runner/domain.sh`（脚本内先 `sha256sum` 具名）、用**已登记**的 case
+`V1201-020`、对新 Kin `kin-e6-j020` 跑一轮、由 `domain.sh` 自己封存并自检，再把 `/tmp/domain-*`
+与本轮 `server-runs/run-*` 的材料拷到 out；脚本显式打印 `/src` 与 `/data` 的可写性。
+⇒ 没有新造 case id、没有改判据、没有仓库码改动，写面只在 E 自己的新 Kin；**不越主控保留决策门**。
+
+**选案语义的对应关系（`tools/assert_case_evidence.py` 源码实读）**：V1201-020 的三条断言恰好是
+1.20.1 加入链本身——`first_snapshot_admitted`（:1444）要 `join_line` + `run.snapshots_admitted ≥ 1`
++ `connection_state == "PLAYABLE"`；`leave_after_join_observed`（:1514）要服务端「joined the game」
+行早于「left the game」行；`server_observed_join_identity`（:1054）要服务端按名字派生的 offline
+UUID 与日志记录相等。V4 已量到的材料对上前两条（`snapshots_admitted=1`、`PLAYABLE`；
+`:222 04:55:52 Kin2 joined the game` 与 `:225 04:56:10 Kin2 left the game`），第三条只能由 E6
+bundle 里 asserter 自己的读数定，故列为复审必核项。该案 `mandatory: false` ⇒ 封成不会自行推门，
+门推进仍归主控决策。
+
+- **已合主干**：H1g、V4 的 1.20.1 活体加入记录、M 的 r32/r32b/r33 仪器与判官（`main = 9d45b60`）。
+- **仅在分支**：E6 的 live 封证在工、零提交、未 push。
+- **真实封证**：1.20.1 本地加入的规范卷 bundle 仍为 0。
+- **未验证**：E6 的 seal/verify/rejudge/report_promotion 四读、三条断言的实际结论、版本错配反例
+  原物是否保留、POST 门载荷增量。
+
+**续接点（下一轮照此执行，无需重新设计）**：`.tmp/m-r34-e6-review.sh` 后台等 ref，出现即自动跑
+`git merge-base`＋非 docs 改动面＋卷内 E6 bundle 普查＋`python /m/.tmp/m-r33-e6-seal-review.py
+--volume /data --repo /src --bundle <新 bundle> --require-snapshot-counter`（`:ro`）。日志落
+`.tmp/m-r34-e6-review.log`。
+
+不声称：本轮没有任何 1.20.1 封证；预审只证明 E6 的**边界与选案语义**在门内，不证明它的 run 为真。
