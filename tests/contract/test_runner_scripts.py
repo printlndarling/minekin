@@ -46,12 +46,14 @@ SCRIPTS = sorted(RUNNER.glob("*.sh"))
 _FORWARDED = re.compile(r'^([a-z_][a-z0-9_]*)="\$\{([A-Z_][A-Z0-9_]*):-', re.MULTILINE)
 
 
-#: The four names V1201-LAN-JOINER-BOUNDED-CONTROL-DRIVER-001 reads in `domain.sh` and
-#: which `run.sh` does **not** deliver. Not a fix for this card to make: the wrapper is
-#: outside its allowed paths, so a `run.sh domain` run cannot arm the joiner driver yet
-#: and the joiner-control readings below are taken by driving the shipped shell region
-#: directly. Pinned as an exact set by the parity check, so a fifth undelivered name —
-#: or these four turning up in `run.sh` — goes red there instead of widening the hole.
+#: The four names V1201-LAN-JOINER-BOUNDED-CONTROL-DRIVER-001 reads in `domain.sh`,
+#: registered there as an exact gap because the wrapper was outside that card's allowed
+#: paths. V1201-JOINER-CONTROL-RUNSH-FORWARDING-001 closed the gap on purpose: these four
+#: are now in `run.sh`'s forwarding list, the parity check below demands each of them by
+#: name, and the set stays exact so a fifth read-but-undelivered name — or a forwarded
+#: name that drifts out of this set — goes red instead of silently widening the roster.
+#: They must still never reach the *product* forwarding roster in
+#: `src/minekin_core/config.py`: that would widen the product's entry surface.
 JOINER_CONTROL_KNOBS = frozenset(
     {
         "MINEKIN_DOMAIN_JOIN_LOOK_YAW",
@@ -107,12 +109,13 @@ def test_every_knob_the_harness_reads_is_one_the_wrapper_hands_it() -> None:
     is a scenario that silently did not run, and one delivered and never read is a
     name the wrapper offers that nothing honours.
 
-    The one difference this check allows is named as an exact set, and it is allowed
-    because the gap is the finding rather than a bug to paper over: the four
-    joiner-control knobs are read on purpose, and `run.sh` cannot name them inside the
-    card that added them. A live `run.sh domain` run therefore cannot arm the joiner
-    driver yet — said in the validation record, and tested here by driving the shipped
-    shell region rather than by a run that would arrive with the names empty.
+    The four joiner-control knobs used to be the one registered exception, an exact set
+    asserted as *undelivered* while the card that added them could not touch the
+    wrapper. V1201-JOINER-CONTROL-RUNSH-FORWARDING-001 reversed that demand on purpose:
+    each of the four must now be forwarded, the difference must be empty — so a fifth
+    read-but-undelivered control name goes red exactly as the gap once did — and the
+    four stay out of the product's own forwarding roster in `config.py`, because a
+    runner knob crossing that line would widen the product's entry surface.
     """
 
     harness = (RUNNER / "domain.sh").read_text(encoding="utf-8")
@@ -124,17 +127,31 @@ def test_every_knob_the_harness_reads_is_one_the_wrapper_hands_it() -> None:
     # A parse that found nothing would make both comparisons below vacuous, and this
     # is the one check that would keep passing if the runner were renamed.
     assert read, "no domain knobs found in domain.sh; this check would pass vacuously"
-    # The one registered exception is the set the check started from, and it is exact:
-    # an empty difference would say the joiner-control knobs are delivered, and a wider
-    # one would say nothing about how much wider. See `JOINER_CONTROL_KNOBS`.
-    assert read - delivered == JOINER_CONTROL_KNOBS, (
-        "domain.sh reads these and run.sh never delivers them (beyond the registered "
-        f"joiner-control gap): {sorted(read - delivered - JOINER_CONTROL_KNOBS)}; "
-        f"joiner-control gap as measured: {sorted(read & (read - delivered))}"
+    # The reversal, by name: a forwarded knob that quietly fell out of the wrapper
+    # would still leave the set difference below empty, so the four are asked for
+    # individually. See `JOINER_CONTROL_KNOBS`.
+    undelivered = JOINER_CONTROL_KNOBS - delivered
+    assert not undelivered, (
+        f"domain.sh arms the joiner driver on these and run.sh stopped delivering them: "
+        f"{sorted(undelivered)}"
+    )
+    # Exact in both directions now that the registered gap is closed: a fifth name
+    # read and not delivered is a scenario that silently does not run, and a name
+    # delivered that nothing reads is a knob the wrapper offers into a void.
+    assert read - delivered == set(), (
+        f"domain.sh reads these and run.sh never delivers them: {sorted(read - delivered)}"
     )
     assert delivered - read == set(), (
         f"run.sh delivers these and nothing reads them: {sorted(delivered - read)}"
     )
+    # And the four stay runner-only. `config.FORWARDED_VARIABLES` is the *product's*
+    # environment roster; a knob entering it would let anything launch the CLI with
+    # the joiner driver armed, past every bound this wrapper's opt-in keeps default-off.
+    product_roster = (RUNNER.parents[1] / "src" / "minekin_core" / "config.py").read_text(
+        encoding="utf-8"
+    )
+    leaked = sorted(name for name in JOINER_CONTROL_KNOBS if name in product_roster)
+    assert not leaked, f"joiner-control knobs reached config.FORWARDED_VARIABLES: {leaked}"
 
 
 def test_every_deadline_loop_gives_the_clock_a_chance_to_advance() -> None:
