@@ -363,3 +363,25 @@ MSYS_NO_PATHCONV=1 docker run --rm -v minekin-h1k-live:/data:ro minekin-runner:l
 ```
 
 - **本轮没有发生的事**：没有写 lane 树、没有写规范卷、没有封存或撤销任何 attempt/bundle、没有改 case 判据或 registry 字节；失败材料（`live-a-rejected-singleword/`、`live-b/`、`domain.sh.h1k-pristine`、两组反例日志）全部原地保留。
+
+
+## §2.21 判别子跑完了：H1k 的专服形状在 M 的私有卷上真到达、真 PLAYABLE、真受控、真释放（第四十四轮，2026-09-27）
+
+- **为什么补这一轮**：§2.20 留了两条并列解释（容器引擎事件 vs 专服形状下宿主进不去），判别子只有一件事——在健康引擎上原样重跑。M 不做二次推测，直接重跑：脚本 `minekin/.tmp/m-r45-rerun.sh`，卷 `minekin-m-r45-live`（**M 自建的私有卷**），`/src` 与 `/drv` 以 `:ro` 挂 H lane 的树（跑前核 `domain.sh` 仍是 `d9a0acfc0771…`，跑后再核未变），种子 store 来自 `minekin-v4-join:/ro`，服务端 jar `:ro`，**规范卷 `minekin-runner-data` 全程未挂载**；材料落 `minekin/.tmp/m-r45-out/live-m/`。第一次尝试因 docker argv 顺序写错（`bash` 被当成镜像名拉了 `bash:latest`，`rc=127`）没有跑起来，改正后重跑。
+- **逐字读数（`90-readouts.txt`，`domain.sh rc=14 finished_utc=2026-09-27T12:11:36Z`）**：
+  * (a) 本轮自己的服务端目录与设置：`/data/server-runs/run-1`，`server-ip=127.0.0.1`、`server-port=25566`、`white-list=true`、`enforce-whitelist=true`、`max-players=2`、`online-mode=false`；`server.log` sha256 `09f89cf18f7671550dc1ebbcf0ee553b7b56eece4612b34442b982537ea0dcba`（19061 字节）。
+  * (b) H1k 新写的目的地行：`domain: the joining client dials the controlled server this run started at 127.0.0.1:25566, read from /data/server-runs/run-1/server.properties`。
+  * (c) 加入者 profile 文档（503 字节，sha256 `4cc3995e8eb6ac5bf58a1260c91f9a6f0b7deae3a699301ac897442d578c7e1f`）：`port 25566`、`host 127.0.0.1`、`auth_mode offline`、`allowed_versions ["1.20.1"]`、`target_authorization.basis` 只授本轮回环世界 ⇒ 目的地与授权都没放宽。
+  * (d) **到达与按名应答**：`[12:08:15] Kin joined the game`、`[12:08:16] Kin2 joined the game`；`Kin2 has the following entity data:` 共 **80 行**，首三行是 `[-2.5d, -60.0d, -3.5d]` / `[0.0f, 0.0f]` / `[-3.387…, -60.0d, -2.398…]`，末三行是 `[45.0f, -20.0f]` / `[2.853…, -60.0d, 6.462…]` / `[45.0f, -20.0f]` ⇒ 转体读数是 H1h 那对限定输入（yaw 45 / pitch −20），位置从 `-2.5,-3.5` 走到 `2.85,6.46` ⇒ 前进按住生效；**正对照同轮量到**：宿主名 `Kin has the following entity data` 计数 **0**（宿主自己从不被这样应答，所以这 80 行按名指向的确实是第二个客户端）。
+  * (e) `domain.sh` 自己说的那两句：`domain: the world heard Kin2 arrive`、`domain: Kin2 admitted its first snapshot of that world`。
+  * (f) 加入者自己的 run 文档末行：`connection_state: PLAYABLE`、`session_state: STOPPED`、`input_release_failed: false`、`status: ended`、`run_id fe0f26c044524ca5b2dba867f03c25d3`；台账事件类型含 `InputLeaseGranted`、`InputReleased`、`JoinObserved`、`PlayableEstablished`、`SessionInterrupted` ⇒ PLAYABLE→受控→**释放**这条链在专服形状上闭合。宿主文档同态：`connection_state PLAYABLE`、`input_release_failed false`、`run_id a2bbca0640fd45d58a21d13e4c9ac4ce`。
+  * (g) 停止侧：`session stop said {"asked": [342], "nothing_held": [342], "released": [], "unconfirmed": [], "terminated": [342], "status": "stopped"}`，随后 `session exited 14`，两份文档的 `outcome` 都是 `BRIDGE_LOST`。
+- **判读（能说到哪、不能说到哪）**：**能说**的是——H1k 的形状本身通：宿主进得了本轮专服世界、第二个客户端按 `server.properties` 的号 dial 并按名被服务端听见、PLAYABLE 拿到、限定输入生效、释放闭合；因此 `live-b` 的 0 字节会话文档与 `Kin2 never arrived` 归 §2.20 那条引擎事件，**不归这份字节**。**不能说**的是——这不是封证：材料在 M 的私有卷上，没有 attempt 登记、没有 bundle、没有四读，`rc=14` 与 `outcome: BRIDGE_LOST` 这两格是否落在 `assert_case_evidence.py` 的 PASS 判据内，本轮**未判**（判它属 V5′/M-C1，封它属 E7 独占规范卷）。同理，本轮也不改变任何门：`check_case_assertions` 仍 `150 registered`，主干门载荷仍是 §2.19 量到的 `cfa0f118…`。
+- **对 H1k 合入的口径（不变的那半 + 新的那半）**：lane 仍要交付 §2.17/#56 的三件（第七条组合拒止、同给两名 ⇒ `rc=2` 且不写 profile 的契约测试、默认关闭对照扩到该组合），并在**它自己的**记录里带上活体读数；M 这一轮的重跑作为**判别证据**登记，不代替 lane 的封证，也不作为合入判据里「活体已通」的替身——它证明的是「这形状今天能跑通」，所以 §2.20 里「归环境还是归字节」那一问已经关闭（任务 #57 由此收口）。
+- **复现**：
+
+```bash
+bash C:/Users/darling/Documents/agent_work/minekin/.tmp/m-r45-rerun.sh
+# 材料：minekin/.tmp/m-r45-out/live-m/{00-header.txt,90-readouts.txt,server.log,domain-join-profile.json,
+#       domain-join-session.json,domain-session.json,domain-stderr.log}
+```
