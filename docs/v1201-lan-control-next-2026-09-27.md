@@ -925,7 +925,7 @@ grep -n "world_args\|world_run_args\|seal_run_evidence" test-orchestrator/runner
 复算式：`grep -n "MINIMUM_STEP_BLOCKS\|_PROBE = \|def move_input_was_leased\|def the_bridge_carried\|def the_server_saw\|def the_probed_player" tools/assert_case_evidence.py`，位移按名拆解式见 `.tmp` 里本轮所用的 `N = re.compile(r"INFO\]: (\S+) has the following entity data: \[([^\]]*)\]")` 读法（输入 = `.tmp/v5p/out-host/*/server.log`）。
 
 
-## §2.53 H1i 交付、M 按真实 merge-base 独立复审入干（合并 `b243366`，远端已核）：门载荷 PRE==POST 的第七、八次同值，三枚具名拒止在容器里逐字复现——而交付同时把两处真实前置缺口量了出来 ⇒ 开 #63 H1o / #64 H1p（第五十八至六十一轮收束，2026-09-28 02:30 +0800，M 主控；规范卷只 `:ro`，lane 树全程只读未改）
+## §2.53 H1i 交付、M 按真实 merge-base 独立复审入干（合并 `b243366`，远端已核）：门载荷 PRE==POST 的第七、八次同值，三枚具名拒止在容器里逐字复现——而交付同时把两处真实前置缺口量了出来 ⇒ 开 #63 H1o / #64 H1p（第五十八至六十一轮收束，2026-09-28 02:05 +0800，M 主控；规范卷只 `:ro`，lane 树全程只读未改）
 
 **为什么这一节先摆事实链**：H1i 改了 `domain.sh`（封存命令面）与契约（+604 行），是本项目里最靠近「门载荷」的一次 runner 改动；复审必须让每个结论都有 M 自己的退出码，而不是转抄 lane 的表。
 
@@ -972,3 +972,36 @@ grep -n "world_args\|world_run_args\|seal_run_evidence" test-orchestrator/runner
   - #64 的收卡判据：量清 `:426–:434` × `:735` 互锁下 E7 到底能封哪种形状（战役路径 / dev 路径 / 需要宿主 run 补世界快照），**若结论要求放宽封存口径 ⇒ 停下申报，属主控保留决策**（记忆 `project-controller-reserved-decisions`），lane 与 M 都不得自行改 `world` 记录的语义。
 
 **⑦ 次序与四态**：H1i（#52）收口 ⇒ 下一格 **H1o（#63）**，其后才轮到 **M-C1（#48）**，再 E7（#49）需先有 H1p（#64）的可封形状判定；`#62 H1n` 与 H1o 不同文件（`domain.sh` vs `run.sh`）⇒ 可与 H1o 并行开树；按合并字节重读它的目标行是 **`:2617`**（`if grep -qE "${kick} (lost connection|left the game)" \n            "${server_directory}/server.log" 2>/dev/null; then`），§2.43 里的 `:2430` 与更早的 `:2472` 都是历史行号——H1i 的 `+161` 行把它推下去了，再次实证「行号不是字节」；`#58 (乙)` 仍待引擎窗。**真实封证仍 0**（LAN 第二客户端在受控专服形状下的同 run 封证未动；私有卷 dev-seal 读数不得冒充 sealed bundle）。已合主干且待读绿 = `b243366`（CI `919` 写本节时 `in_progress`）；仅在分支 = lane 的 `h1i`/`h1l`/`h1m` refs（均不删）。未验证 = H1o 全卡、H1p 全卡、M-C1 全卡、E7 全卡、M-G1 全卡、#58 (乙)。本轮 M 侧零 gradle、零新构建；容器只以 `:ro` 挂源码与规范卷读门载荷；未连用户远程服、未读 `.tmp/local-test-server.txt`、未放宽认证/地址/lease/判据、未翻 `mandatory`/registry、lane 材料与失败材料零改动未删。
+
+
+## §2.54 H1p 的判定：专服形状下加入者侧封存**只剩一条可封形状**（交回 `--server-profile` + `--server-directory` 并按形状弃 `--world-run-document`），而三条退路各自撞在字节上——是否采纳这条改口径属**主控保留决策**，本轮不实施（第六十二轮，2026-09-28 02:20 +0800，M 主控；只读主干字节 + 规范卷 `:ro` 的 100 份已封 bundle，零容器活体写入、零 JVM）
+
+**为什么这格必须 M 自己量**：E7（#49）是「独占规范卷的同 run 封证」，它要求 `case_on=joiner`；而 §2.53 记下战役路径两枚 `unsealed` 时只给了现象。判「E7 能不能封、要改哪一格」之前，得先把「加入者侧的 bundle 到底靠什么命名世界」量到构造级。
+
+**① 世界块的三条来源与它们各自的落点（`tools/seal_run_evidence.py:395–:444`，按判定顺序）**
+- 路线 1 `:422–:424`：本 run 自己的文档带 `run.world_snapshot` ⇒ `kind: lan`。
+- 路线 2 `:426–:435`：给了 `--world-run-document` ⇒ 取**宿主**文档的快照；`world_snapshot(宿主文档)` 为 None 时 `:434` 抛 `Unsealable("the run that hosted this world did not record a world of its own")`。
+- 路线 3 `:437–:442`：给了 `--server-profile`（`target` 非 None）⇒ `kind: dedicated`、`config_digest = target.revision`、`name = world_seed(server_directory)`（目录缺席才是 `none`；seed 读不到记 `unrecorded`，`:141–:157` 明写「缺席照实记，不拿配置值顶替」）。
+- 都没有 ⇒ `:444` `kind: none` + `EMPTY_DOCUMENT_SHA256`。
+
+**② 为什么专服形状下路线 2 结构性不通（不是「这次没跑到」）**：`src/minekin_core/cli/session.py:644–:657` 只在**核心会话自己播种世界**（`world_save is not None and world_name is not None`）时才写 `world_snapshot`；H1k 形状的服务端是 `domain.sh` 直接起的受控专服，核心从不播种 ⇒ 宿主文档**永远**没有 `run.world_snapshot` ⇒ `:427` 取到 None ⇒ `:434` 必抛。而加入者支 `domain.sh:3073` 是**无条件**递 `--world-run-document /tmp/domain-session.json` 的 ⇒ 只要 `case_on=joiner`，今日字节在专服形状下**必**拒。lane 的两枚 `ce_ab/30-campaign-switch-{on,off}.err` 逐字同值正是这条构造的两次实例（旋钮开否都不影响：拒在世界判定，早于 artifact 收集）。
+
+**③ 两条看着像出路的退路，字节上都堵**
+- 「干脆不递 `--world-run-document`」：`:735` 的守门在 `server_profile` 与 world 文档**同时**缺席时生效，读的是本 run 文档的 `connection_state` / `snapshots_admitted` 与台账里的 `PLAYABLE_ESTABLISHED` ⇒ 加入者跑到 PLAYABLE 就撞（注释 `:740–:742` 自己写明「Without that input this guard is what refuses a join」）。再退一步只交目录（= H1i 第①格现状）：`evidence.py:188–:195` 的 `WORLD_RECORD_INCONSISTENT` 顶住——**lane 的 `ce_ab2/50-switch-off.err` 就是这一枚**（`bundle.py:113` 抛出），而 switch-on 能封出 bundle 是因为那次把世界字段留空的路径没走到这条一致性检查（`MANIFEST world fields` 三格皆 null）。
+- 「让 `:428` 把『给了文档但文档没说世界』当成『没给』往下走路线 3」：`:411–:419` 的 docstring 就是把这条否定掉的——它记了一次真实测量（Kin 在 `kinworld` 里并已在 25570 发布，却封成 `kind: "none"` + 无之摘要），并写明「否认 Kin 生活过的世界的 bundle 比描述一个没人去过世界的更糟，因为旁边的 run 记录说不是」。**这判据不放宽。**
+
+**④ 规范卷 100 份已封 bundle 的现读（正对照齐备，`.tmp/m-r61-worldscan.log`，脚本 `.tmp/m-r61-bundle-worldscan.py`，容器只 `:ro` 挂卷）**
+- 世界块分布：`dedicated` **81** / `lan` **11** / `none` **8**。
+- **`probed_players` 在 100 份 bundle 的 `asserter-inputs.json` 里全部缺席**（`recorded: none`）⇒ `the_probed_player_is_this_run_s_kin`（`assert_case_evidence.py:1664–:1690`）今日对每一份已封 bundle 都只能回 `PROBE_ATTRIBUTION_NOT_RECORDED`（H1i 第②格之前按构造如此）。
+- **加入者侧封证的全部历史**就是那 6 份 `CORE-030`（`kin-02`×2、`kin-04`×2、`kin-e-rr-seal`、`kin-e-rr-seal2`；`username` 为 `Kin2` 或无），它们**全部**是路线 2 的产物：`kind: lan`、`name = 5c14c5638566a8b3f3`（宿主快照摘要）、**且一律没有 `server/server.log`**。⇒ 路线 2 只在「宿主真发布过世界」的 LAN 形状里成事，正是 §2.49/§2.50 的旧地图。
+- **路线 3 的正对照在卷上是真实的、且与目录载体共存**：`V1201-020` 的 `73a52bfb8f24…`（E6 的本地专服单客户端封证）为 `kind: dedicated`、`name = minekin-p0-control`、`server_config_digest = 77a19c94…`，**同一份 bundle 里 `server/server.log` 在列**。⇒ 「profile 命名的世界 + 日志载体」这个组合不是新造语义，而是卷内 81 份的常态。
+- 附注（要留给 H1q 实测的，不是本轮结论）：路线 3 的 `name` 取自 run 目录里 vanilla 落定后的 `level-seed`——同批 bundle 里既有 `minekin-p0-control`（V1201-040/V1201-080/V1201-020），也有 `unrecorded`（`ADMIT-110`，PASS 且照常入册）⇒ 采纳路线 3 时须量 1.20.1 受控专服的 run 目录落在哪一侧；`unrecorded` 是合法记录而非伪造，但它进不进 M-C1 的判据要另判。
+
+**⑤ 判定（E7 的可封形状）**：**唯一**可封形状 = 路线 3 的形状门版——加入者支在「本 run 确实起了那个被加入的专服」（`server_profile` 非空，且 H1i 第①格的三枚拒止已把 `case_on != joiner`（`:547`）/ profile 缺席（`:552`）/ black hole（`:556`）三种形状挡在前面，整段守门 `:546–:561`）时，把 `world_args` 交成 `--server-profile "${server_profile}" --server-directory "${server_directory}"`（`--server-jar` 仍**不**交：这一支不挂载 jar，`domain.sh:3035–:3040` 只在宿主支补它），并**同时弃** `--world-run-document`（否则 `:426` 先拒）。`--server-profile` 缺席时保持今日的完全丢弃 + 递 world 文档 ⇒ LAN 形状逐字节不变。
+
+**⑥ 为什么本轮不实施**：它改的是「加入者 bundle 的世界块允许由谁命名」——§2.43 补记与 §2.50 把「绝不带回 `--server-profile`/`--server-jar`」定成默认口径，理由是「profile 会让封存记下一个不同种类的世界」。该理由在 LAN 形状成立、在 H1k 专服形状**恰好不成立**（那枚 profile 就是本 run 起的那台专服，也就是加入者真站进去的世界）。**把口径按形状分裂是一项封存语义裁决**，按本项目纪律属主控保留（记忆 `project-controller-reserved-decisions`；同一类先例：`project-offline-100-triple-not-judgeable-by-construction` 的扩 schema、`project-bundles-do-not-pin-orchestrator-bytes` 的加 seal 字段）⇒ 本轮只落判定与卡面，不动 `domain.sh`。
+- **⇒ 新卡 #65 H1q（V1201-JOINER-WORLD-BY-DEDICATED-PROFILE-001）**：允许面 `test-orchestrator/runner/domain.sh` + 本族契约测试；形状门如上；须带具名拒止（至少：`--world-run-document` 与 `--server-profile` 同时在场 ⇒ 拒；旋钮打开但 profile 缺席 ⇒ 沿用 `:553` 那句；LAN 形状 ⇒ 逐字节不变）；默认关闭 ⇒ 门载荷仍须 `cfa0f118…`、`check_case_assertions` 仍 `150 registered`、加入者侧封存命令与今日逐字节相等。**开工前置 = 主控对该口径的裁决**（本卡只写形状，不预先实施）。
+
+**⑦ 次序随之定死**：**H1o（#63，在飞）⇒ M-C1（#48）可跑**（它冻结判据并登记新案，载体面 H1i 已给；但登记会动门载荷，须量 PRE/POST 并具名）；**E7（#49）在 H1q 的口径裁决落地前不可开跑**——它要求 `case_on=joiner` 的同 run 封证，而 §2.54 ②③ 表明该封证在专服形状下今日**按构造**封不出。E7 不得改用 `case_on=host` 顶替（宿主支封的是 `Kin` 这一格，`the_probed_player_is_this_run_s_kin` 会把「探加入者名」的案拒在归属那一格（`assert_case_evidence.py:1687`：本 run 的 `username` 不在 `probed_players` 里即 `PROBED_PLAYER_IS_NOT_THIS_RUN_S_KIN`）），也不得拿卷外/私有卷的 dev-seal 产物充数。M-G1（#50）为只读审计，排在 E7 之后。真实封证仍 **0**；本轮零 JVM、零 gradle、零容器写入，规范卷只 `:ro`（读 bundle 不写），未连用户远程服、未读 `.tmp/local-test-server.txt`、未放宽认证/地址/lease/判据、未翻 `mandatory`/registry、材料与失败材料未删、lane 树只读未改（`../minekin-wt-h1o` 归 H1o lane，M 未入其工作面）。
+
+**§2.54 具名更正与时点申报（同轮 02:20 +0800，M 主控；不静默覆盖）**：① §2.53 的落笔时点原写 `02:30 +0800`，本笔量到该记录笔 `b9b0d25` 的 commit date 实为 **`2026-09-28 02:05:12 +0800`** ⇒ 标题里的钟点改为 02:05（笔误，不是两个事件）。② §2.53 记「`919 b243366` 写本节时点为 `in_progress` ⇒ 不作绿」是 **02:06 的真实读数**，予以保留；02:18 一次 REST 重读（`.tmp/m-r61-ci.json`）为 `919 b243366 completed/success（updated_at 2026-09-27T17:59:46Z）`、`920 b9b0d25 completed/success` ⇒ **H1i 合并笔与其记录笔都判绿**，「已合主干且 CI 绿」前进到 `b9b0d25`。本轮（H1p）改面恰两份文档，未动 `domain.sh`/`run.sh`/契约/tools。
