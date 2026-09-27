@@ -89,6 +89,16 @@
 > `codex/minekin-v1201-join-seal`、起点 `7b99485`；尚无提交可审。M 不预判其结论：拿不到可封材料就按
 > `BLOCKED_EVIDENCE` 交回最先失败层，不凭 V4 文档写 `DONE`。
 
+> **状态（2026-09-27 第三十六轮回写）**：**已合主干**。lane 提交 `954b47a`（真实 merge-base `7b99485`，
+> 改动面只有 `docs/validation/v1201-local-join-seal-2026-09-27.md`，非 docs 路径 0），M 单卡合入并推远端：
+> `main = eba5821`。验收四读由 M 亲跑而非采信转述：`evidence verify` ⇒ `PASS/verified/artifacts=12/violations=[]`；
+> `rejudge` ⇒ `status=agrees`，V1201-020 三条断言 `failures=[]`；`replay` 工具侧与产品侧均 `rc=0`、19 事件投影到
+> `STOPPED`；`report_promotion` ⇒ `rc=1` 且 **POST 门载荷与 PRE 逐字符相同**（`cfa0f1184bee…63afd6`），
+> `attempts 76→77`、`bundles 112→113`。反例原物齐（`ADMISSION/launcher.profile` 具名拒用 + 真起 JVM 的成对控制），
+> V4 那一格缺已补。⇒ **1.20.1 本地加入首次拥有 M 逐字节复验过的规范卷 sealed bundle**
+> （V1201-020 / seq4 / run `73a52bfb…` / bundle `b2b4133b…`）。**这不推进任何门禁**：`W40` 仍
+> `promotable=False`，是否替换 registry 引用或把该案升级为 `mandatory` 属用户主控决定，本卡未提议、M 未实施。
+
 **允许面**：E 独占规范卷写窗、其 lane 的证据记录；只调用已登记的 1.20.1 case 和现行判据，不改 case/registry 求绿。新 Kin/新 attempt，旧 FAIL 与 PASS 原样保留。
 
 **验收**：当前 build 的同 run 真客户端、Bridge、JOIN、首快照，以及需要的释放/停止，按 case 封存后 `evidence verify`、独立 `rejudge`、适用 `replay`、`report_promotion` 四读和非空转反证；明确 run/bundle/attempt id、case_version、build 与门载荷前后差。材料不足保持 `BLOCKED_EVIDENCE`，不凭 V4 文档写 `DONE`。
@@ -96,6 +106,12 @@
 ### M 收口与下一段
 
 M 对 H1g/V4/E6 逐张复审、单独合入、推送、核远端 SHA，真实发生的状态再回写主计划和短 TODO。若 H1g 或 V4 暴露的下一前沿是产品 `metadata.py`/Bridge/预算等，M 只能基于**具名活体材料**另开一张窄卡，写 owner、允许面、反证和验收，再派对应 lane；不能让同一卡横跨 runner、产品和证据卷。1.20.1 本地证据收口后，V08 仍等待用户对**该次远程服连接**的明确授权；没有授权时继续推进互不依赖的 Dashboard Gateway 只读契约或 B2 case/证据设计，但不把待产品决定的链载体自动扩字段。
+
+> **状态（2026-09-27 第三十六轮回写）**：本节的 current_next 队列 `H1g → V4 → E6` **已按顺序走到底并全部合入主干**
+> （`main = 9987c33` 之前的 `eba5821` 为 E6 卡面合入点）。队列清空后的边界不是「无事可做」，而是三道主控决策门：
+> ① V1201-020 是否升级为 `mandatory` 或以 seq4 替换 registry 引用（两者必动门载荷）；② 跨 bundle 证据链载体与
+> 快照摘要扩字段（封存 schema `minekin.p0.evidence.v1` 变更＝重封全卷）；③ V08 远程服连接的显式授权。
+> 未获授权前，M 只在这三道门之外继续互不依赖的窄卡（Dashboard 只读契约、B2 剩余 case/证据设计）。
 
 ## 3. Qoder 单会话续跑提示词
 
