@@ -148,3 +148,21 @@ V5 是活体读数，不是封证，也不是 case。M 先把**今天就存在�
 2. **两条反例都被具名抓出**（`mutate`，写在工作树之外的临时文本上，不落 lane 树）：无条件把 `--server-directory` 交给加入者 ⇒ 「reaches the joiner seal unconditionally … the opt-in is not default-off」；opt-in 里顺手带上 `--server-profile` ⇒ 「is handed to the joiner seal (line 10), guarded or not」。⇒ H1i 只能加那一格，且必须在具名 env 的 guard 下。
 3. **正对照 + 判官自测的修正（申报）**：第一次 `compare` 拿主干对 H1h 在飞树，判 `equal: false`——唯一差是 `joiner_region_abs_start_line` 2481→2719（H1h 在其上方加了 238 行），两段内容 sha 逐字相同。这是**我口径的缺陷**（行号不是字节），已改为「行号只报告、不参与相等判断」，重跑后：主干 vs H1h ⇒ `equal: true rc=0`；主干 vs 植入无条件 `--server-directory` 的临时树 ⇒ `equal: false rc=1` 并具名同一条 fault。⇒ 这条对照现在既能证明「H1h 没碰到封存配方」，也不会把任何合法加行误读成配方漂移。
 4. **对排程的意义**：H1i 到货时 M 只需 `compare --base <merge-base 树> --tip <lane 树>`，要求两段 sha 只在 opt-in 打开的那一格不同，另跑一次「opt-in 名不存在 ⇒ 与主干逐字相同」。H1h 到货时的判据仍是 §2.3 的 `.tmp/m-r37-h1h-argv-judge.py` + `.tmp/m-r38-review-gates.sh`。本轮仍零封证、规范卷未被写（全程未挂 `/data`），registry 与 `mandatory` 未动。
+
+## §2.7 M-G1 的「改前」半张差分已量下来（E7 之后再也取不到）
+
+M-G1 卡面要求列出 registry 每条既有引用的当前 build/SEALED/复判状态，并做差分。差分有两半，**改前那一半只在 E7 写卷之前可取**，所以本轮（主干 `e458818`、规范卷全程 `:ro`）用 `.tmp/m-r41-mg1-census.py` 从 registry 本身枚举，不手挑 bundle：
+
+1. **18 条引用全部仍是当前构建的可判证据**：`1.20.1` 6 条（`V1201-010/020/040/060/070/080`）+ `1.21.4` 12 条（`ADMIT-070`、`CORE-010/020/060/060-CLIENT-001/060-SERVER-001/090/100`、`OFFLINE-010/020/030-ENUM-ALIGNED-001/030-PRISM-PARITY-001`）。逐条读数：bundle 在卷、`sha256(manifest.json)` 与 registry 记录的 `bundle_digest` 相同、`rejudge=agrees`、`re_judged.result == cited result == PASS`、`disagreements=0`、`unimplemented=[]`，判据条数 2~5（`criteria` 列）。汇总 `cited=18 absent_bundles=0 digest_mismatch=0`。日志 `.tmp/m-r41-mg1-census-before.log`。
+2. **溯源校验同向**：`tools/verify_tested_provenance.py --data-root /data` ⇒ `rc=0`、顶层 `verified: true`、`skipped_not_tested: []`、`registry_revision 35bdd1c043c188797060af0bc26b775541f78e597b6c819e279d22d8bc8eedad`。**注意跑法**：它要在持有两份桥 jar 的工作树里跑（本轮用 `../minekin-wt-v4`，其 `tests/fixtures/registry/reviewed-tested-bundles.json` 与主干 **sha256 逐字相同** `06cac798…`，所以引用集一致）；从 integration 树跑必报 `BRIDGE_JAR_MISSING`。日志 `.tmp/m-r41-provenance-before.log`。
+3. **对 §0 裁决的意义**：「不替换 registry 同构建引用」此前是**规约**，现在有了证据——被引用的 `V1201-020` 那条（`ece5d0cb…`）在当前构建下仍 `agrees/PASS`，没有任何一条引用需要修正；因此 E7 之后 M-G1 的差分只需看**新增**那一行，不必重查旧行。
+4. **复现命令**（Git Bash，`/src` 与 `/data` 全程只读）：
+   ```text
+   export MSYS_NO_PATHCONV=1
+   docker run --rm --entrypoint /bin/bash -v "$(cygpath -m "$PWD"):/src:ro" \
+     -v minekin-runner-data:/data:ro -e PYTHONPATH=/src/src -e MINEKIN_HOME=/data \
+     -e LD_LIBRARY_PATH=/opt/sqlite/lib minekin-runner:local \
+     -lc 'cd /src && python .tmp/m-r41-mg1-census.py'
+   ```
+   溯源那一条把 `-v` 换成 `$(cygpath -m ../minekin-wt-v4):/src:ro`、命令换成 `python tools/verify_tested_provenance.py --data-root /data`。
+5. **口径提示（M 自记）**：`rejudge_evidence.py` 的判定载荷在 `re_judged` 下（`expected/failures/observed/result/unimplemented`），顶层 `status` 只说「与自身记录是否一致」。只读 `status=agrees` 而不读 `re_judged.result`，会把「一致地 FAIL」也念成绿——census 因此两样都印。
