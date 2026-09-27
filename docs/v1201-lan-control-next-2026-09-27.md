@@ -900,3 +900,26 @@ grep -n "world_args\|world_run_args\|seal_run_evidence" test-orchestrator/runner
 4. **两枚 M 侧驱动缺陷具名申报（不改判据、不改材料）**：`.tmp/m-r56-v5p-all.sh` 记的 `rc(live)=0` 是 `drive.sh` 末段 `| tee` 的管道状态，权威值取每式打印的 `V5P: domain.sh rc=14`（`domain.sh:2731` `status=$?` → `:3090` `exit`，三式同为 14 ⇒ 不作判别量）；`drive.sh` 的 (d) 名单写死 `[host, join, PROBE_SECOND]`，本形状下 `join == PROBE_SECOND` ⇒ `Kin2` 那格重复打印两遍（数值一致）。⇒ 顺带一条给 M-C1 的口径：三式 `server.log` 行数 289/286/294 不等（探测节奏与时长的差），**行数是噪声、行内容是判据**。
 
 **次序随之更新**：V5′（#47）收完 ⇒ H1i（#52）的两个前置（V5′ 结束、`domain.sh` 无其它写者）此刻都成立，下一格即派工；`#62 H1n` 与 H1i **同改 `domain.sh`** ⇒ 二者不得并行，排到 H1i 复审入干之后再派。真实封证仍 **0**；本轮零 gradle、零新容器构建、规范卷未挂、未连用户远程服、未放宽认证/地址/lease/判据、材料与失败材料未删、lane 材料零改动。
+
+## §2.52 M-C1 的判据形状在今日字节上量清了：三段链已存在、唯一缺的是 `server.log` 载体；而「两名同 run」会把名字盲的位移判据变成**为错误的 Kin 作证**，所以新案必须落在**单名探测**的形状上（第五十七轮第二格，2026-09-28 00:31 +0800，M 主控；全程只读仓库字节 + 只读 §2.51 的私有卷材料，零容器、零 JVM、lane 材料零改动）
+
+**为什么现在量**：M-C1（#48）排在 H1i 之后，而它的判据此前只写到「按名答题行的内容差分」。§2.51 的三式材料落盘后，可以把这句话逐字段钉死，也能提前暴露一个会做出坏 case 的陷阱。
+
+**判据链已经在 `tools/assert_case_evidence.py` 里，不需要新造**（检查名→实现，登记面 `check_case_assertions.py:305–:307`，已在用的案：`tests/fixtures/cases/core-040.json`、`v1201-040.json`）：
+
+1. `move_input_was_leased :1602–:1618` —— 账本要有 `INPUT_LEASE_GRANTED` 且 `capability == MOVE_CAPABILITY`，否则 `NO_LEASE_GRANTED` / `LEASE_IS_NOT_FOR_A_MOVE:<caps>`（§2.51 的加入者账本事件序列里 `InputLeaseGranted` 与 `InputReleased` 都在）。
+2. `the_bridge_carried_the_input_out :1621–:1633` —— 读**本 run 自己的文档** `run.actions_applied / actions_refused`。§2.51 三式实测：`armed` 加入者文档 `applied=2, refused=0`；`control-off` `applied=0`；`ghost` `applied=2`；三式的**宿主**文档都是 `applied=0` ⇒ 该格在这一族形状上非恒真，且默认关闭式会落到 `NOTHING_WAS_APPLIED`。
+3. `the_server_saw_the_kin_move :1647–:1661` —— `probe_readings(material.server_log, 3)` 取首末两次位置、按 `_horizontal :1636–:1644`（忽略 Y）比对 `MINIMUM_STEP_BLOCKS = 2.0`。**这一格正是 H1i 第①格要喂的**：`server_log` 载体在加入者侧今天为空。
+
+**陷阱（本轮量出来的，不是推的）**：`_PROBE = re.compile(r"has the following entity data: \[([^\]]*)\]")`（`:246`）**不带名字**——它收日志里所有三元组。把 §2.51 的三份 `server.log` 按名拆开算：
+
+| 式 | 三元组读数 | 名字盲 首→末 水平位移 | 按名拆开 |
+| --- | --- | --- | --- |
+| `armed` | 83 | **3.926** | `Kin` 42 次 = 3.926；`Kin2` 41 次 = **8.627** |
+| `control-off` | 82 | 0.000 | `Kin` 0.000；`Kin2` 0.000 |
+| `ghost` | 40 | 8.627 | 只有 `Kin2`（探的是 `Ghostz`，宿主名 0 次） |
+
+⇒ `armed` 那份日志上，名字盲算出的 3.926 是**宿主自己走的那一段**，而加入者真实位移是 8.627。一个加入者案若直接复用第 3 格，就会拿宿主的成绩替加入者作证——而且两式的数都 `> 2.0`，**看不出问题**；只有把名字拆开对照才看得见（`control-off` 两项都是 0.000，所以「控制词是否生效」这一维仍判得对，坏掉的是**归属**这一维）。同族第 4 格 `the_probed_player_is_this_run_s_kin :1664–:1690` 更进一步：`probed_players` 多于一个就 `MORE_THAN_ONE_PLAYER_PROBED:<names>` ⇒ **两名 run 里这条现有检查根本不可能通过**（H1i 第②格交回两名时必被它拒）。
+
+**⇒ M-C1 的卡面据此钉死为「单名探测形状」**：新案的活体形状取 `MINEKIN_DOMAIN_PROBE = <加入者本人的名>` 且**不设** `MINEKIN_DOMAIN_PROBE_SECOND`。`ghost` 式恰好是这一形状的现成证据：日志里只剩该名的 40 次答题行，名字盲 ≡ 按名，污染面消失，且 `the_probed_player_is_this_run_s_kin` 在「恰一名且是本 run 的 Kin」上通过。判据四项落为：`move_input_was_leased` + `the_bridge_carried_the_input_out` + `the_server_saw_the_kin_move`（位移 8.627 ≫ 2.0，默认关闭式 0.000 ⇒ 反例在位）+ `the_probed_player_is_this_run_s_kin`（需 H1i ①② 才有载体）。**不新增、不改名、不放宽任何一条现有检查的口径**；朝向那格（`[45.0f, -20.0f]` = 两个赋值）今天**没有任何检查读它**（`probe_readings(..., 3)` 只收三元组，二元组被丢掉），要不要为它加一条具名检查属于 M-C1 的实现选择，登记新案不外溢旧案。
+复算式：`grep -n "MINIMUM_STEP_BLOCKS\|_PROBE = \|def move_input_was_leased\|def the_bridge_carried\|def the_server_saw\|def the_probed_player" tools/assert_case_evidence.py`，位移按名拆解式见 `.tmp` 里本轮所用的 `N = re.compile(r"INFO\]: (\S+) has the following entity data: \[([^\]]*)\]")` 读法（输入 = `.tmp/v5p/out-host/*/server.log`）。
