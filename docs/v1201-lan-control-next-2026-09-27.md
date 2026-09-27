@@ -751,3 +751,13 @@ $ grep -qE 'Stevedor (lost connection|left the game)' \n server.log 2>/dev/null;
 ⇒ 危险具体化为：工作目录一旦出现名为 `n` 且含 `${kick} (lost connection|left the game)` 的文件，`kicked` 就在服务端没有说过这句话时置 1（**假绿**，且正是离场/踢线那一格）；另一条次要后果是「日志无命中」（rc=1）与「grep 自己出错」（rc=2）在 `2>/dev/null` 之下不可分辨。修法面：`domain.sh` 一处续行 + 一条契约断言（扫 `domain.sh` 命令位置的字面 `\n`）+ 上面这两枚对照（`n` 缺席 ⇒ 不置位；`n` 在场 ⇒ 现字节置位、修后不置位）。独立独占面，与 H1m/H1i 无先后耦合（`:2424–:2435` 属 kick 等待支），可插空档派。
 
 **§2.43 补记（同轮 23:09 +0800，M 主控；不静默覆盖上一段）**：上面「缺口一」的处方里写了「连带 `--server-profile`/`--server-jar` 三条，形状与 `:2846–:2852` 同」，这与 M 早前的一条更严口径相冲（当时的判据是：**opt-in 打开时只补 `--server-directory`，绝不带回 `--server-profile`/`--server-jar`**，理由正是 `:2887–:2890` 那段注释所防的「记录一个从未跑过的世界」，且当时已量过加入者 bundle 的世界记录走 `seal_run_evidence.py` 的 `world_run_document` 分支并先返回 ⇒ 只加目录**不改 `world` 字段**）。**该口径此前只存在于 M 的记忆库里（那次「单 bundle 双载体是否需要扩 schema」的卷内实测：6 份 `CORE-030` 加入者 bundle 全不含 `server/server.log`），仓库文档里没有它的落点** ⇒ 本条补记即入册，并记下这条流程缺陷：**判据口径只进记忆不进文档，就会在下一轮被自己的处方顶替**。该口径**继续作默认**，上一段的改口不成立。⇒ H1i 的第①格按「只交 `--server-directory`」写死；`--server-profile`/`--server-jar` 是否要在专服形状下随件，**须先量 `server_profile` 在 sealer 里的实际用途再判**，量不出必要性就保持缺席。这是收窄、不是放宽。
+
+## §2.44 CI 三笔闭合、补记入册、H1m 的现场从「无提交」变成「允许面三文件在写」——#62 因此**不派**（第五十四轮末，2026-09-27 23:11 +0800，M 主控）
+
+**CI 一次读**（`.tmp/m-r54-ci2.json`）：`896`=`af514d1`、`897`=`c87089d`（§2.41 笔）、`898`=`38854ea`（§2.42 笔）三笔 `completed/success` ⇒ §2.41/§2.42 两笔记录笔由 CI 判绿，「已合主干且 CI 绿」的最近一笔前进到 `38854ea`；`899`=`3298532`、`900`=`095c852` 23:09 时点 `in_progress` ⇒ 不作绿，接手会话重读。远端 `main` 现场 `git ls-remote` = `095c8521ba5d0272aa16e4376b034acbda20bc03`。
+
+**§2.43 补记的意义要说白**：M 自己在上一段处方里把「加入者封存只交 `--server-directory`」这条更严口径顶替成了「连 profile 带 jar 三条一起交」，而该口径此前**只活在 M 的记忆库里、仓库文档无处可对** ⇒ 本轮以新笔（`095c852`，不 amend）收回，并把「判据口径只进记忆不进文档就会被自己的下一轮顶替」这条缺陷写进补记。**流程结论**：凡影响卡面的口径，落卡面文档才算存在；记忆库只作索引与提醒。
+
+**H1m 的现场升级（正面信号仍为零，但性质变了）**：`../minekin-wt-h1m` 分支头仍 `dc0067c`、远端仍无该分支 ref，而 `git status --short` 现读到**恰三个脏文件**——`test-orchestrator/runner/domain.sh`、`test-orchestrator/runner/run.sh`、`tests/contract/test_runner_scripts.py`，与派工允许面逐一对应、无越界文件 ⇒ 判「正在施工」，M 不进其树、不代提交（§2.35 口径：只有它自己的收尾回报或远端 ref 上它自己的提交才算收尾）。
+
+**⇒ #62 H1n 此刻不派**：它要改的 `domain.sh:2430` 与 H1m 在写的 `domain.sh` 是**同一个文件** ⇒ 「该文件无其它写者」这一前置不满足，按并行协议排到 H1m（及紧随其后的 H1i）落干之后再开树。#58 (乙) 同理仍需等引擎窗。**四态**：真实封证仍 **0**；已合主干且 CI 绿 = `38854ea`；`3298532`/`095c852` 已 push、CI 待读；仅在分支 = H1m（在写，未提交）与 lane 的 h1l ref（不删）；未验证 = V5′ 全卡、H1i 全卡、H1n 全卡、#58 (乙)。本轮零容器活体、规范卷未挂、未读 `.tmp/local-test-server.txt`、未放宽认证/地址/lease/判据、未翻 `mandatory`/registry、材料与失败材料未删（`.tmp/m-r54-nldefect.sh`/`.log`、`.tmp/m-r54-ci*.json`、`.tmp/m-r54*-diffcheck.log` 在案）。
