@@ -197,3 +197,45 @@ H1h 交付时把这条摆明：`test-orchestrator/runner/run.sh:88-110` 的转�
 - **正对照**：把 `tools` + `tests/fixtures/{cases,registry}` 原样拷进 `/tmp/fs` 再跑 ⇒ `OFFLINE-010 run=61b4f025 digest_matches=True rejudge=agrees result=PASS criteria=4`，`census: cited=18 absent_bundles=0 digest_mismatch=0`。即“拷贝”这一步本身不动读数。
 - **反对照**：只往 `offline-010.json` 的 `assertions` 里塞一个多余能力（`the_server_saw_the_kin_turn`）⇒ 该行翻成 `rejudge=unreadable rc=2`，诊断行写着 `… — the criteria moved, so the recorded verdict answers a question this repository no longer asks`，而 `OFFLINE-020`、`OFFLINE-030-ENUM-ALIGNED-001` 两行仍 `agrees/PASS`。**结论**：census 的绿是测量，不是常量；它按 case 逐行敏感，且不会把一次改动抹匀到 18 行。
 - **已知读法缺陷（记着，M-G1 后半要用）**：`rejudge_evidence.py` 在 case_version 不符时把诊断 JSON 打到 **stderr**、stdout 为空，于是 census 只能报 `unreadable`。判读要点在于翻绿的证据仍在 note 里；若 E7 之后要精确区分「未判」与「读不出」，得让 census 在 stdout 为空时回读 stderr（M 侧工具，不占 lane 面）。
+
+## §2.11 H1j 已合主干（第三十九轮，M 从真实 merge-base 复审后合入并推远端）
+
+- 审查从 merge-base `dcd914a` 起算。真实增量只有三个允许面文件：`test-orchestrator/runner/run.sh` +12/-1、`tests/contract/test_runner_scripts.py` +55/-20、新 `docs/validation/v1201-joiner-control-runsh-forwarding-2026-09-27.md`。`domain.sh`、`src/**`（含 `config.FORWARDED_VARIABLES`）、`tools/**`、fixtures、registry 全为 0 行 ⇒ 与主干这两笔类型/格式修复无重叠，自动合并干净。合入提交 `bcdaf17`，远端 `main` 已核为该 SHA。
+- M 在**合并后的树**上亲量（容器内 `/src` 与规范卷都挂 `:ro`）：`bash -n` 过、契约 64 passed、断言器单测 487 passed、`check_case_assertions` 150 registered、`verify_fixture_digests` OK、`check_boundaries` OK；两份对照 bundle 仍 `rc=0 / agrees / PASS`（OFFLINE-010 `78053e9e…`、V1201-020 `e7c3b722…`）；`gate_payload_sha256` 逐字节仍是 `cfa0f1184bee30df6a1d9fcf45778c9cef074ece6761c47fe7d6b9f49863afd6`，`overall_blocks` 仍只有 `REQUIRED_CASE_NOT_REGISTERED`；`domain.sh` 字节仍为 `baad190aaa5ee1695a88b52e98cc270c8e1a4bc878a0bcd2d0c27f94b74ff6f3`（本卡未动）。
+- **M 自己的反证**（`.tmp/m-r44-h1j-reversal.sh`，一次性副本跑在容器 `/tmp`，日志 `.tmp/m-r44-h1j-reversal.log`）：正对照（未改动的副本）`1 passed`；把转发名从 `run.sh` 删掉 ⇒ `AssertionError: … run.sh stopped delivering them: ['MINEKIN_DOMAIN_JOIN_HOLD_FORWARD_SECONDS', '…LOOK_PITCH', '…LOOK_YAW']`；只往 `domain.sh` 加第五个「读了而未转发」的名 ⇒ 同一检查在 `read - delivered` 上 FAIL。两条方向都抓得住，说明这条断言不是恒绿。**申报一处口径**：脚本按整行匹配只删到 4 名中的 3 名，因为 `MINEKIN_DOMAIN_JOIN_CONTROL_PRINT` 与数组的闭合 `)` 同行；这不影响该判据被抓住，但「删光四名」今天没有实量。
+- **CI 侧的收尾（与本卡平行，但是主干自己的账）**：`python` 作业在 `d19714f` 仍红，日志（job `108582287753`，356 行）里真实失败步是 `Run uv run pyright` —— 98 个错误全在 `tests/contract/test_runner_scripts.py:1793-2417`，即 H1h 新增区。根因两处 `subprocess.CompletedUnicode[str]`：该名字在 typeshed 里不存在（仓库其余 10 处一律 `subprocess.CompletedProcess[str]`），未知类型沿 helper 传播刷成 98 条；另有一处 `ids=lambda value: …` 把 `Any` 收窄成 `dict[Unknown, Unknown]`。`4ad3db2` 修完后 CI `python=success`（protocol/bridge-static 亦 success），恒不等对照：把 HEAD 版本另存为临时模块单独 `--collect-only`，7 条参数化 id 逐字节相同。
+- **流程缺口已钉进工具**：`.tmp/m-r43-host-gates.sh` 现在按 CI 的 `python` 作业原样跑三步（`ruff check` / `ruff format --check` / `pyright`）并把 pyright 行纳入 CI 抽取。此前 M 只跑 `ruff check`，连漏两次（format 与 pyright）都出自主干侧闸门不全，而非 lane 单方失守。
+
+## §2.12 对 §2.1 第 2 条的自我修正：服务端读数**不是**无名的（第三十九轮，M 在规范卷上复量后改判）
+
+V5a（`codex/minekin-v5-probe-target-preflight` @ `7f67aac`，交付物只有一份 `docs/validation/v5-probe-target-preflight-2026-09-27.md`）交回一条与 §2.1 相反的读数。M 没有采信报告，而是在**规范卷自己的封存字节**上复量（容器只读挂 `/data`，脚本内联于本轮记录）：
+
+- 卷内带 `server/server.log` 的 bundle 共 **78** 份，探针回答行共 **460** 条，形如 `[00:20:31] [Server thread/INFO]: Kin has the following entity data: [-5.5d, -60.0d, 4.5d]` —— **460/460 行内带被问名，裸形 0 条**。V5a 在私有活体材料上给的形状（c2 的 6 条按名回答、d/e 的 0 条回答 + `No entity was found`）与卷内形状一致。
+- 于是 §2.1 第 2 条「服务端位置读数是无名的」**只在“`data get entity <name>` 命令行不被回声”这个意义上成立**；回答行本身自带名字。而判官侧 `_PROBE`（`tools/assert_case_evidence.py:246`）是子串匹配，名字前缀并不妨碍它命中——它命中之后**把名字丢掉了**。这才是今天真正缺的东西，且缺在一个可以就地解析的位置。
+- **改判（写死 M-C1 的口径）**：M-C1 的归属判据应当**直接从 `server/server.log` 的行内名解析**（「被问过、且答案归属加入者用户名的读数 ≥2 条且首末不同」），不需要扩 `minekin.p0.evidence.v1`——该 schema 扩展仍是主控保留项，且今天被证明不必要。M-C0 的 `probed_players` 申报件不作废、但降级为**交叉判据**：`No entity was found` 行不带名，「本次 run 究竟问过谁」只有宿主申报件能回答；所以 M-C1 要同时要求「申报集合恰为 {加入者用户名}」与「行内名归属成立」，两者缺一即具名失败。
+- 这条改判不动任何既有 case 的判据，也不回头改 M-C0 的字节：M-C0 加的确实是加法（见 §2.14 的 census 差分）。
+
+## §2.13 第一真实停点：两种 run 形状互斥 ⇒ 新窄卡 H1k，V5/M-C1/E7 全部顺移（第三十九轮，M 裁决）
+
+- 主干字节上的形状事实（M 本轮逐行复核 `domain.sh`）：能回答 `data get entity` 的只有 `run_controlled_server.py`，它在 `:812` 起、且**只在 `--server-profile` 形状里被启动**；等待链是 `elif` 结构——`:1800` 起 `elif [ -n "${open_lan}" ]` 的分支等的是宿主**客户端** `latest.log` 里的 `Started serving on ${lan_port}`（`:1813`），随后 `join_the_published_world "${latest}"`（`:1823`）把加入者送进的是宿主客户端发布的 LAN 世界。也就是说 LAN 加入者形状里根本没有服务端日志可封（V5a 的 a4/b 实测 `server.log ABSENT`、回答行 0 条），而专服形状里加入者分支不被调用（V5a 的 e 形实测门 120s 永不打开）。
+- **结论**：§2.5 给 V5 预登记的验收（第二客户端 PLAYABLE → 服务端具名 look/move → release）在主干字节下**不可执行**。这不是 H1h/H1j 的缺陷，也不是判据过严——是载体不存在。按「前置不满足就按第一真实失败层开窄卡」的规矩，V5 从这里改挂 H1k，M-C1 与 E7 顺移；本轮不替换 registry 引用、不翻 mandatory，也不把 V5 写成「H1h 合入后自然会绿」。
+- 另记一条环境约束（V5a 申报、M 侧同型复算过）：Core 桥握手 30s 预算（`session.py:173`，无 CLI 旋钮）与并发 pytest 争用会烧掉整次活体 run。**V5/H1k 的活体窗口须预约静默**，同窗口不跑容器全量单测。
+
+### H1k `V1201-LAN-JOINER-ON-CONTROLLED-SERVER-001` — H lane，紧跟本卡面
+- **要解决的那一格**：给「有 `--server-profile` 且要有加入者」的 run 一条**默认关闭、显式选择**的路径，把第二客户端送进那个受控专服的世界（专服已经在答探针、日志已在 `${server_directory}/server.log`），而不是只能送进宿主客户端发布的 LAN 世界。今天这条路径不存在，所以「服务端看见加入者移动」在双客户端形状里无从谈起。
+- **允许面只有三样**：`test-orchestrator/runner/domain.sh`、`tests/contract/test_runner_scripts.py`、一份新 `docs/validation/v1201-joiner-on-controlled-server-<date>.md`。**规范卷不挂载**（本卡不封证）；`src/**`（含 `config.FORWARDED_VARIABLES`）、`tools/**`、fixtures、registry、schema 一律 0 行。
+- **形状要求**：新 `MINEKIN_DOMAIN_JOIN_*` 名字由 lane 自取并在记录里申报；它必须同时接进 `run.sh` 的转发名单（H1j 的四向名单是现成形状）——若 lane 判断这一步会扩到 `run.sh`，**停下来交 M 另立窄卡**，不要在本卡内越界实施。加入者的目标地址与端口只能读自**本次 run 自己的** `${server_directory}/server.properties`；就绪等待只能落在本 run 的服务端日志上。宿主客户端是否同进该世界，由 lane 在记录里明确申报它选了哪一种，并说明该选择对「两个名字都被问过」这一反证是否可用。
+- **硬边界（逐条要字节证据）**：绝不连接用户远程服，绝不硬编码或 widening 地址/认证/白名单/lease；`--allow-player` 的语义不变；`domain.sh` 的 auto+joiner 拒止条款与 H1h 驱动区字节不动（`baad190aaa5ee…` 之外只允许新增）；未设新名时既有三种形状的组出的 argv / 等待目标逐字不变（要 base↔tip 对照，不许只说"应该一样"）。
+- **验收读数（四条 + 两则反证）**：① 默认关闭等值的字节级对照；② 设了新名后加入者 argv 里目标确实来自本次 `server_directory`（打印来源行）；③ 专服日志里出现按加入者名的回答行（≥2 条、首末不同）；④ 契约里对三种形状的等待链各有一条形状断言，且 `check_case_assertions`/`verify_fixture_digests`/`check_boundaries` 全绿。反证两则：把端口写死成常量 → ②变红；把新名当默认开 → ①变红。
+- **门载荷上界**：H1k 不注册 case ⇒ `gate_payload_sha256` 必须仍是 `cfa0f118…`；变了就是越界，直接退回。
+- **交回前必跑（第三张卡漏了这一步，写死）**：`uv run ruff check .`、`uv run ruff format --check .`（**markdown 记录里的 python 代码块也算**）、`uv run pyright`（注解里不许出现 typeshed 没有的名字，`subprocess.CompletedUnicode` 就是上一张卡的教训），以及容器内 `python -m pytest -q tests/contract/test_runner_scripts.py`。
+- **四态口径**：H1k 的交付物最多算**仅在分支**；在它合入并有活体读数之前，V5 不得登记为 PASS，M-C1 不得登记 case，E7 不得排封证窗口。
+
+## §2.14 M-C0 已合主干（第三十九轮，census 差分为「改前」半张留档）
+
+- merge-base `5d0cd2a`，surface = `tools/assert_case_evidence.py` +118、`tools/seal_run_evidence.py` +25、新 `tests/unit/test_probe_target_carrier.py`（313 行 / 10 个用例）、新 `docs/validation/v1201-probe-target-carrier-2026-09-27.md`。没有注册 case、没有动 fixtures/registry、没有动 `minekin.p0.evidence.v1`。
+- **决定性差分（M-G1 的「改前」半张，E7 之后再取不到）**：同一份规范卷、registry 的 18 条 `tested` 引用，在主干树与 M-C0 树上分别跑 `.tmp/m-r41-mg1-census.py`，两份日志 `diff` 为空——`census: cited=18 absent_bundles=0 digest_mismatch=0`，每行 `rejudge=agrees result=<cited>` 一致（`--src` 换成 mc0 树即证「载体是加法，不动任何既有判据的读数」）。
+- 合并树上门禁同 §2.11 那一份清单（契约 64、断言器 487、carrier 10、150 registered、digests/boundaries OK、两份 bundle agrees/PASS、门载荷 `cfa0f118…`、`domain.sh` 字节不变）。
+- **主干侧修了一处 M 自己合入前该抓到的东西**：M-C0 那份 `docs/validation/` 记录内嵌的 python 代码块不合 `ruff format`（本仓 `format` 会检查 markdown 里的 python 块），合并树上表现为 `1 file would be reformatted`。M 已按 format 的建议改写该代码块（前后字节差只有那 5 行重排），并把「markdown 代码块也算」写进 H1k 卡面。至此**连续三张**卡（H1h、M-C0、H1j 自报未修）在同一个闸门上失守，根因是派工文本此前没有逐字列全 CI 的 `python` 作业三步——从 H1k 起列全。
+
+- **落地时序（第四十轮补，写清楚以防读数被误读成事后追认）**：本节 §2.11–§2.14 的 plan 回写在上一轮就已写进工作树，而 M-C0 的合并当时**只进了索引、没有提交**——`main` 与 `origin/main` 仍停在 `bcdaf17`（只含 H1j）。本轮恢复现场时按字节查出这一格（`git ls-tree HEAD` 里既无 `tests/unit/test_probe_target_carrier.py` 也无那份 `docs/validation/` 记录），随后在提交前把主干侧闸门重跑了一遍（`ruff check` 通过、`ruff format --check` 364 files already formatted、`pyright` 0 errors、boundaries / `150 registered` / digests / workflow-pins 全 OK），M-C0 合并以 `97dc0ef` 真正入干。合并树容器读数（门载荷、两份 bundle、census 差分、domain.sh 字节）来自上一轮亲跑的 `.tmp/m-r44-mc0-gates.log` 与 `.tmp/m-r44-census-{main,mc0}.log`，两份 census 日志本轮 `diff` 复确为空。也就是说：**§2.14 的“已合主干”在写作为时点上是提前了半轮，在本节补写之后才是事实**；这类“文档先于提交”的格子以后按同一方式当场纠正。
