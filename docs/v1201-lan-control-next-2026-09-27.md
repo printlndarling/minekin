@@ -498,3 +498,23 @@ lane 仍在收 §2.22 第③④项（它的容器窗在用，M 不进那棵树�
 **操作教训（省下一个人的时间）**：§2.29 那次 rc=**127** 与引擎无关，是 M 自己把卷源写成了反斜杠 `C:\Users\…` —— Docker Desktop 对 `-v` 源路径要 `C:/Users/…` 正斜杠配 `MSYS_NO_PATHCONV=1`，配错时报的是 `Error response from daemon: The system cannot find the file specified`，看起来像镜像坏了。镜像入口 `/__cacert_entrypoint…` 与 `python` 都正常（同轮最小探针 `docker run --rm minekin-runner:local python -c …` 返回 3、rc=0）。取读时 lane 的活体容器（`affectionate_ardinghelli`，Up 5 分钟）在飞，但 `minekin-runner-data` 只做 `:ro` 且本轮 E 不在写，未占他 lane 写窗。
 
 四态增量：真实封证仍 **0**；已合主干仍是 M-T1 那一笔；此轮只补读数、未动 case/registry/`mandatory`、未删任何材料（`.tmp/m-r49-report-post.json`、`.tmp/m-r49-report-post.err` 在案）。
+
+## §2.31 主干红了五次，红因是 M 自己：M-T1 漏跑 CI 的两道门（第五十轮，2026-09-27 21:57 +0800，M 主控）
+
+**这一节具名申报 M 的失误，并纠正 §2.29 的口径**。§2.29 那句「读数（退出码单步读）：…`ruff` / `check_boundaries` / … 全 rc=0」在它自己的时间点是如实的——它列的是 M 真跑过的那些——但它**不是 CI 的门禁清单**，读者有理由当成「CI 会过的全套」。真实情况：`.github/workflows/ci.yml:44-55` 里含 `ruff format --check .` 与 `pyright` 两道，M-T1 一道都没跑就落了地。
+
+**红范围（`/actions/runs?per_page=9`，21:57 单读）**：`876`（`17a6537`，M-T1 之前的主干）`completed/success` ⇒ `877`（分支上 `5ec0500`）、`878`（合入 `070390d`）、`879`（`7546ec9`）、`880`（`f29b77d`）、`881`（`8b66ccf`）五笔连续 `completed/failure` ⇒ **第一真实失败层就是 M-T1 的字节**，不是 lane 的在途改动（lane 从未 push，远端无其 ref），也不是引擎。jobs 端点对未认证请求仍 404，所以定位走的是「读 `ci.yml` 步骤清单 + 在本地逐道复跑」，不靠浏览器。
+
+**两道门各自红在哪（本地复量）**：
+* `ruff format --check .` ⇒ rc=**1**，`2 files would be reformatted, 363 files already formatted`（正是 M-T1 的两个文件）。
+* `pyright` ⇒ rc=**1**，3 errors 全在 `tests/contract/test_controlled_server_runner.py:616`：那里 M-T1 用内联 `lambda path, recipe: None` 作 `verify_jar` 的桩，参数类型未知 ⇒ `Argument type is partially unknown`。
+
+**修复（新提交，未 amend）**：`8b66356` 落 `codex/minekin-m-t1-multi-probe`——`ruff format .` 重排 2 文件（+6/-7，唯一实质是一处 `initial_block` 三元式收回一行），桩改成带注解的内嵌 `def skips_the_jar_pin(path: Path, recipe: _Recipe) -> None`。**无行为改动**。合入主干为 `d1ba27e`（真实 merge-base 是 `5ec0500`，评审过 merge diff 恰那 2 文件），push 后 `git ls-remote origin refs/heads/main` = **`d1ba27e61e9ad7bf5ba9c91e8c19327aba433485`**。CI：`882`（`8b66356`）与 `883`（`d1ba27e`）均 `completed/**success**` ⇒ 主干复绿。M-T1 的字节因此再动了一次，格式后的 `tools/run_controlled_server.py` sha256 是 `311ecf6a34875ed29faad215c8de87ccd817cc6d90e2ff6507e2555f3e4be820`（§2.29 里的 `263ce104…` 是格式前那一份，保留不 rewrite）。
+
+**在含修复的主干字节上把 §2.30 那格往后推一格里**：`docker run --rm -v minekin-runner-data:/data:ro -v C:/Users/…/minekin-wt-integration:/src:ro … python /src/tools/report_promotion.py --data-root /data` ⇒ rc=**1**、stdout 103,921 字节、`gate_payload_sha256 = cfa0f1184bee30df6a1d9fcf45778c9cef074ece6761c47fe7d6b9f49863afd6` ⇒ 与 §2.19/§2.30 同值，M-T1 的两笔（`5ec0500` + `8b66356`）都未移动门载荷。全程 `:ro`，未挂任何 lane 的活体树，E 的写窗未占。
+
+**本地按 `ci.yml` 逐项复量的全套（各自单独一步读 rc）**：`ruff format --check .` rc=0（`365 files already formatted`）、`ruff check .` rc=0、`pyright` rc=0（`0 errors`）、`pytest tests/contract/test_controlled_server_runner.py -q` rc=0（28 passed）、`check_boundaries` rc=0、`check_case_assertions` rc=0（`150 registered`）、`tools/verify_fixture_digests` rc=0、`check_workflow_pins` rc=0、全量 `pytest -q` rc=0（`2645 passed, 3 skipped in 284.61s`）、`git diff --check` rc=0。中途一次 `digest_rc=2` 是 M 把脚本路径记成了 `scripts/verify_fixture_digests.py`（实在 `tools/`），属读路径错、不是门失败，按 `ci.yml` 现读后重跑为 0。
+
+**方法（这一条才是本轮真正的产出）**：以后 M 落地前先 `sed` 现读 `ci.yml` 的 `- run:` 清单并逐道跑，commit message 只写那一份清单上的 rc；「跑了几道常见的门」不等于「CI 的门跑全了」。同一条已写进本轮给 H1k 续跑的验收里（明列 `ruff format --check` 与 `pyright`），避免 lane 交上来一笔同样红在主干上的合入。
+
+**现场与四态**：lane 树本轮 21:54 只读复量仍是 `29c5187` + 三处脏（`domain.sh` +169 / `test_runner_scripts.py` +953 / 未跟踪验证记录），最后写点是 21:35 的 `.tmp/h1k-recheck/`、`docker ps` 已空 ⇒ 判上一段会话已停，M 按「先确认在飞会话已停再派接手」这条硬前置派了续跑会话**收口 §2.22 并自己 push**（M 不代提交、不进其树）。已合主干＝M-T1 的修复两笔（`5ec0500`+`8b66356` → `d1ba27e`，CI 绿）；仅在分支＝H1k（在跑收口）；真实封证＝**0**（LAN 第二客户端在受控专服形状下的同 run 封证一格未动）；未验证＝lane ③ 的两轮活体、② 的大套件逐格红、CE 三组破桩（M 未复量），以及 H1m/V5′ 全卡。未连接用户远程服；未改判据/cases/registry/`mandatory`；失败材料（红 run 清单在 `.tmp/m-r50-ci.json`、`.tmp/m-r49-jobs.json`，各 `.tmp/g-*.log`）未删未覆盖。
