@@ -21,13 +21,16 @@
   three-run timeline), and the "no controlled triple exists yet" wording is replaced by the
   sealed `kin-e-aba` readings. `case_version` digests the registered function bytes plus the
   fixture, not this file, so none of this moves a registry digest or invalidates a bundle.
-- Round 15-17 trunk edits by 主控 (2026-09-27): §2.7's volume-wide positive control (round
+- Round 15-18 trunk edits by 主控 (2026-09-27): §2.7's volume-wide positive control (round
   15) and the new §2.8 — the file-level carrier injections, the digest guard on those very
   carriers, and what actually makes the Dashboard half answer (round 17) — replace the
   "file-level remains 未测" wording; §3.6's "9, 10 and 11 remain 未测" is replaced by E-CX's
-  readings plus 主控's independent recheck. Same scope rule as the round-14 bullet: these
-  edits touch prose only, no judgement byte, no fixture, no registry status, so no digest
-  moves and no bundle is invalidated. Nothing here closes OFFLINE-090 or OFFLINE-100.
+  readings plus 主控's independent recheck; the new §2.9 drives the 崩溃 half on a sealed
+  crash report and records two reading boundaries it exposed (a run document names no case,
+  and the directory-side volume count is 99, not the ledger-side 105/107). Same scope rule as
+  the round-14 bullet: these edits touch prose only, no judgement byte, no fixture, no
+  registry status, so no digest moves and no bundle is invalidated. Nothing here closes
+  OFFLINE-090 or OFFLINE-100.
 - Placement: this draft sits at `docs/p0-offline-090-100-case-spec-2026-09-27.md`, the E lane's existing per-card record convention under `docs/` (precedent: `docs/p0-core030-runner-rerun-2026-09-27.md`) and within this card's allowed paths; the previous session's invented top-level `harness/case-specs/` location is not a carrier in any ref of this repository and is not kept.
 
 ## 1. Contract source (verbatim, `docs/p0-offline-session-compatibility-contract.md`)
@@ -119,9 +122,9 @@ new — this case adds definitions only; a closed run needs the controlled isola
 | `client/stdout.log`, `client/stderr.log`, `client/latest.log` | `CLIENT_STREAM_ARTIFACTS` (`tools/assert_case_evidence.py:709`) | declared in 2/2 OFFLINE-010, 2/2 OFFLINE-020, 5/5 OFFLINE-030* bundles |
 | `server/server.log` | `SERVER_LOG_ARTIFACT` (`tools/assert_case_evidence.py:698`; sealed `tools/seal_run_evidence.py:256`) | 2/2, 2/2, 5/5 respectively |
 | `server/usercache.json` | `SERVER_IDENTITIES_ARTIFACT` (`tools/assert_case_evidence.py:699`; sealed `tools/seal_run_evidence.py:257`) | 2/2, 2/2, 5/5 |
-| `client/crash-reports/*` | sealed at `tools/seal_run_evidence.py:252-254` | **0 OFFLINE bundles carry it**; the only 3 crash artifacts on the whole volume belong to CORE-030 runs (`crash-2026-09-26_12.24.07/-17.19.18/-17.31.04-client.txt`) |
+| `client/crash-reports/*` | sealed at `tools/seal_run_evidence.py:252-254` | **0 OFFLINE bundles carry it**; the only 3 crash artifacts on the whole volume sit on `kin-04 / 8164024d…`, `kin-e-rr-seal / 787168062c…`, `kin-e-rr-seal2 / 6286f1e5…` (`crash-2026-09-26_12.24.07/-17.19.18/-17.31.04-client.txt`). **Round-18 correction (was: "belong to CORE-030 runs")**: a run document holds no case-identification field, so that attribution comes from E's records, not from bundle bytes — see §2.9 |
 | `bridge-trace.jsonl` (full ledger timeline) | `LEDGER_TIMELINE_ARTIFACT` (`src/minekin_core/adapters/evidence/trace.py:73`) | 2/2, 2/2, 5/5 |
-| Dashboard | **no sealed carrier exists** | all 107 bundles declare 53 distinct artifact paths; a case-insensitive scan for `dashboard/ui/panel/web` yields only two `checks/*.log` false positives whose "ui" comes from the substring in `uuid` ⇒ material-outside boundary (acceptance ④ of the card) |
+| Dashboard | **no sealed carrier exists** | the bundles of that scan declare 53 distinct artifact paths; a case-insensitive scan for `dashboard/ui/panel/web` yields only two `checks/*.log` false positives whose "ui" comes from the substring in `uuid` ⇒ material-outside boundary (acceptance ④ of the card). **Round-18 denominator note**: the row above quoted "all 107 bundles", which is the ledger-side底数 of that session; a whole-volume directory census now reads **99** bundle dirs (§2.9), and every count in this document that says "the volume holds N bundles" means that directory-side number |
 
 `orchestrator-trace.json` (declared in 107/107 bundles) is a harness-side record and is
 **not** the ledger — it must never be used as the 账本 carrier.
@@ -163,7 +166,9 @@ on current material only the sub-case half of this sentence can ever be green.
 4. Search each readable carrier of §2.3 under rules 2-3; assert exposure count 0.
 5. Crash half: same search over `client/crash-reports/*` **when declared** — 0 OFFLINE
    bundles declare it (§2.3), so on current material this sub-half rests on carrier
-   absence, not on scanned bytes.
+   absence, not on scanned bytes. Round 18 drove the search on a crash report that *is*
+   sealed elsewhere on the volume and named the exposure there (§2.9), which upgrades the
+   instrument's reach, not this row's evidence: 对 OFFLINE 系而言仍是载体缺席。
 6. Dashboard half: **not assertable from a bundle** (§2.3 last row) — it is carried by
    the parent case as a named evidence gap (§2.1), never closed by "0 exposures inside
    bundle".
@@ -323,6 +328,70 @@ verify` and `tools/rejudge_evidence.py`:
 answers `DASHBOARD_CARRIER_NOT_SEALED` for the Dashboard half (row `control` above, and the
 volume-wide 65/0 census of §2.7), the case stays `non_mandatory`, no 非门禁子案 id was
 created, and no carrier was sealed. Both clauses ran on `/tmp` copies only.
+
+### 2.9 The 崩溃 half, driven on a crash report that is genuinely sealed (主控, round 18, 2026-09-27)
+
+§2.7/§2.8 measured the log and JSONL carrier shapes. The row's second word — 崩溃 — was
+still only argued from suffixes, so this round drove it against real sealed crash-report
+bytes. Reproduce (canonical volume read-only; every mutation in a labelled `/tmp` copy;
+nothing sealed):
+
+```bash
+export MSYS_NO_PATHCONV=1; REPO="$(cygpath -m "$PWD")"
+docker run --rm --entrypoint /bin/bash -w /src -v "${REPO}:/src:ro" \
+  -v minekin-runner-data:/data:ro -e MINEKIN_HOME=/data -e PYTHONPATH=/src/src \
+  minekin-runner:local -lc 'bash /src/.tmp/m-r18-090-crash.sh'
+# log: .tmp/m-r18-090-crash.log (rc=0); attribution probe: .tmp/m-r18-case-attribution.sh
+```
+
+Census first, with a positive control (`.tmp/m-r18-090-crash.log`): of **99** bundles on the
+volume, **3** hold a sealed file under `client/crash-reports/` —
+`kin-04 / 8164024d769241c5a85d196fd4b1fe57` (`crash-2026-09-26_12.24.07-client.txt`),
+`kin-e-rr-seal / 787168062c4047b48e32620984d6d814`, and
+`kin-e-rr-seal2 / 6286f1e5a4a6403b9cfb3b564f2b3118`; while the `kin-e-aba` roots that carry
+OFFLINE-100's triple hold **5** bundles and **0** crash reports. The first is the bundle
+driven below: 10 text carriers, the crash report among them (`crash_carrier_declared=True`),
+`bundle_digest 70380d06e752403dcc484656b9ea39ce404058a9a8bca15441ca9001e57ed2c2`.
+
+The denominator was re-derived on purpose (`.tmp/m-r18-bundle-census.sh`,
+`.tmp/m-r18-bundle-census2.sh`): walking every `/data/<name-root>/*/run/evidence/<dir>`
+gives `total_bundle_dirs=99`, all under `/data/kin`, all named 32-hex, all holding a
+`manifest.json`, and no odd-named sibling (`odd_names=[] count=0`). So 99 is the
+directory-side whole volume, and the 105/107 figures quoted by earlier inventory rows are
+ledger-side counts — a census in this document states which of the two it used.
+
+| drive (line appended to the sealed crash report) | 载体半句 | Dashboard 半句 | `evidence verify` |
+| --- | --- | --- | --- |
+| `control` (untouched) | `None` | `DASHBOARD_CARRIER_NOT_SEALED` | `rc=0`, 10 artifacts |
+| `crash-json-real-secret` (`{"accessToken": "<64 a>"}`) | **`AUTH_BODY_EXPOSED:client/crash-reports/crash-2026-09-26_12.24.07-client.txt:accessToken`** | refusal | `rc=12` |
+| `crash-json-public-sentinel` (same line, body `0`) | `None` | refusal | `rc=12` |
+| `crash-flag-real-secret` (`--accessToken <64 a>`) | **`AUTH_BODY_EXPOSED:…:accessToken`** (same carrier) | refusal | `rc=12` |
+| `crash-flag-public-sentinel` (`--accessToken 0`) | `None` | refusal | `rc=12` |
+| `crash-clientid-xuid-sentinel` (`{"clientId": "0", "xuid": "0"}`) | `None` | refusal | `rc=12` |
+
+**What that settles.**
+- The 崩溃 half is judgeable at file level, not just in a unit test: a crash report is a  manifest-declared carrier (`.txt` ∈ `EXPOSURE_CARRIER_SUFFIXES`), and the judgement goes
+  red inside its real bytes under both field shapes — a JSON field and an `--option value`
+  pair — naming the carrier and the field.
+- The public-sentinel protection of §2.5 rule 3 survives the crash path: body `0` for
+  `accessToken`, `clientId` and `xuid` stays `None` in three separate drives, so the red in
+  rows 2/4 is caused by the body, not by the field name appearing.
+- The seal's digest guard covers this carrier class too: all five mutated copies are refused
+  with `rc=12`, including the three whose exposure verdict stayed green.
+- **A new reading boundary, and it cuts against a tempting claim.** `run-document.json`
+  carries no case-identification field (`.tmp/m-r18-case-attribution.sh`: distinct values
+  read from `case_id`/`case`/`case_ids` across all 99 bundles = `[]`), so *which case a crash
+  belongs to* is not readable from bundle bytes. The three carrier bundles are attributable
+  to the `CORE-030` family only through E's own records (`E-RR` names both `kin-e-rr-seal*`
+  re-runs), not through the carriers. Therefore 「OFFLINE 家族的崩溃载体为零」 is a statement
+  about named kin roots, and for the registered 090 row the crash half stays **无该家族载体**,
+  which is not the same fact as 「测过且计数为 0」.
+
+**What this does not do.** Nothing was sealed, no case was moved, and 090 is not closer to
+PASS: on its own registered evidence the row still has no crash-report carrier and still
+answers `DASHBOARD_CARRIER_NOT_SEALED` for the Dashboard half. The crash bytes driven above
+are another case's sealed run, used — as §2.8 used the log/JSONL carriers — to show the
+instrument reads files rather than an invented set.
 
 ## 3. OFFLINE-100
 

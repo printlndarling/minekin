@@ -782,3 +782,15 @@ V2 的绿读数暴露、M 在自己卷上重放确认：auto run 跨过早停后
 - 不声称 OFFLINE-090 整条闭合：日志/崩溃那一半是部分证据，Dashboard 半句仍具名缺口，父行仍 `DASHBOARD_CARRIER_NOT_SEALED`。
 - 不声称 OFFLINE-100 或 `OFFLINE-070` 有任何推进；070 仍是独立卡，其 `identity_revision`/人格根缺口不由本轮读数顺带修掉。
 - 不声称 Minekin 已完成。
+
+## 第十八轮（2026-09-27，M 主控）：OFFLINE-090 的崩溃半句在真实封存的崩溃工件上驱动过
+
+V3 交付前 M 继续做不依赖它的判官侧复量。全部在 `.tmp/m-r18-090-crash.sh`（日志
+`.tmp/m-r18-090-crash.log`，rc=0）+ 两份普查（`.tmp/m-r18-case-attribution.sh`、
+`.tmp/m-r18-bundle-census.sh`/`-census2.sh`）里，规范卷全程 `:ro`，副本在 `/tmp`，**零封存、零代码/fixture/registry 改动**。
+
+- **普查（正对照）**：全卷 bundle 目录 **99** 枚（全部在 `/data/kin` 下、全部 32-hex 命名、全部有 `manifest.json`、无异名兄弟 `odd_names=[]`），其中 **3** 枚在 `client/crash-reports/` 下有封存工件：`kin-04 / 8164024d…`、`kin-e-rr-seal / 787168062c…`、`kin-e-rr-seal2 / 6286f1e5…`；OFFLINE-100 三段所在的 `kin-e-aba` 有 5 枚 bundle、**0** 枚崩溃工件。
+- **驱动**（在第一枚真崩溃工件上追加一行，10 个文本载体、崩溃工件在册）：JSON 字段形状与 `--accessToken <值>` 参数形状各转红一次（`AUTH_BODY_EXPOSED:client/crash-reports/crash-2026-09-26_12.24.07-client.txt:accessToken`）；同一位置放公版哨兵 `0` 时 `accessToken`/`clientId`/`xuid` 三行全部保持 `None`；未改动副本 `verify_rc=0`（`bundle_digest 70380d06…`），五份被改副本一律 `rc=12` ⇒ 摘要哨兵覆盖崩溃载体，且崩溃判法与哨兵保护在文件路径上同时成立。
+- **两条新读界（都往「不能声称」的方向）**：① `run-document.json` 无 case 标识字段（全卷 `case_id`/`case`/`case_ids` 读出空集），**「这份崩溃属于哪条 case」不能从 bundle 字节读出**——上表那三枚归给 `CORE-030` 家族靠的是 E 的记录，不是载体，§2.3 那一行已按此更正；② 目录侧全量 **99** 与早期清单引用的台账侧 **105/107** 不等值（差异本轮未追查），普查分母一律具名。⇒ 对已登记的 OFFLINE-090，崩溃半句仍是**无该家族载体**，不等于「测过且计数为 0」，整条不得标 PASS 的判定不变。
+- 门：`verify_fixture_digests OK`、`check_case_assertions OK (150 registered)`、`check_boundaries OK`、`git diff --check` 净；门载荷本轮未重读（改面只有文档，`case_version` 不摘要文档字节，上一读数是第十七轮的 `cfa0f118…`）。
+- **四态**：已合入 main = 本轮两份文档笔（紧随 `7cf4284`）；仅在分支 = `codex/minekin-v3-1201-join-live-readout`（仍零提交、远端无该支）；真实封证 = 零；未验证 = V3 活体读数、被真实封存的 dashboard 载体端到端、OFFLINE-100 跨 bundle 三段链载体、门禁一律未点亮。
