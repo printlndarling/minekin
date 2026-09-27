@@ -1905,3 +1905,17 @@ the target allows 1.21.4"}`，配对文档 `mismatch.json` 是 `schema_version 2
 - **M 侧自我纠正**：普查脚本首版因引号状态未复位而无限循环，三次误猜环境；定位靠「同树 `uv run python -c print` 秒回」隔离。教训入 §2.57 ⑤。
 - **纪律面**：未碰 `../minekin` 与任何在飞 lane 的字节；规范卷本轮**未挂载**（零容器活体）；未连远程服；未改 mandatory/registry/晋级；无 `--amend`/`--no-verify`；私有读数不当 sealed bundle。
 - **下一步**：等 H1n 交付并按真实 merge-base 复审入干；**E7/M-G1 仍等 #65 H1q 的主控口径裁决**（§2.54 那条唯一可封形状），已向用户申报两条路，M 不代决定；`#58 (乙)` 待引擎窗。真实封证仍 **0**。
+
+## 第六十六轮：H1n 交付并由 M 按真实 merge-base `9fe3eb4` 独立复审入干（合并 `c1f6518`，远端已核）：判据在提交字节上复算、破桩反证、把 `domain.sh:2617` 那四行逐字提出来驱动语义（假绿消失 / 真信号保留），门载荷第十二次同值 ⇒ 队列只剩 `#58 (乙)` 与等口径的 E7/M-G1（第六十六轮，2026-09-28 04:35 +0800，M 主控；规范卷只 `:ro` 一次只读 `report_promotion`，零容器活体、零 JVM、未连用户远程服）
+
+**① 接手会话先读这一段。**
+
+- **写入时的现场（脚本当场读出）**：本地与远端 `main` = `c1f651845ba0e42c7c561ec86f76a72d22203cbc`（parents `7d97188`+`fdd9f88`，真实 merge-base `9fe3eb4`）；lane 分支远端 ref = `fdd9f88d092fc2f4b065e7f101c9d514a964cab0`；本合并笔的 CI run `36348081759`（编号 929）落档时 `in_progress` ⇒ **未读绿之前不得写「合并笔 CI 绿」**；`7d97188` 的 run 927 已逐步读为全 `success`（`non_success=[]`，jobs 原文 `.tmp/m-r66-ci-jobs-7d97188.json`）。
+- **H1n 闭合**：`domain.sh` 最终摘要 `16124b5b…`（提交=合并树=lane 报告三处同值）；契约扫描 1 枚 + 两枚判据常量入 `tests/contract/test_runner_scripts.py`；交付记录 `docs/validation/v1201-h1n-delivery-2026-09-28.md`。M 侧复审四组读数与转义陷阱入 §2.58 ②③④⑥。
+- **M 的语义驱动（这格是新做的，别只读 lane 的形状复现）**：`.tmp/m-r66-h1n-lifted-shape.py` 从 `domain.sh` 提出 `:2617` 起的四行执行，cwd 放一个内容为 kick 句的文件 `n` ⇒ 缺陷 blob `kicked=1`（假绿）、合并字节 `kicked=0`；而 `server.log` 真含 kick 句时合并字节仍 `kicked=1`（真信号保留）。
+- **门表（合并树，逐道读 rc，日志 `.tmp/m-r66-gate-*.log` 与 `.tmp/m-r66-pytest-full.log`）**：`bash -n` 0／契约 0（119 passed）／新测试 0／全量 pytest 0（`2707 passed, 2 skipped` ⇒ 可比量 2709 = 2708+1）／ruff check 0／ruff format --check 0（**373 files**，多的那一格是本卡新增的 `docs/validation` 文件，ruff 把 md 计入，lane 终态读数同形）／pyright 0／boundaries+digests+pins 0/0/0／`check_case_assertions` 0（`151 registered`）／门载荷 `cfa0f118…63afd6` 第十二次同值（103,921 B、rc=1 按构造 blocked）。
+- **已申报偏差已接受**：lane 用 `reset --soft` 重做了未推送的 `5f78720`→`3d95a31`（message 混入署名 trailer；内容字节不变，前后 `domain.sh` 同摘要；在记录 §0 具名申报）。M 侧口径升为一般规则并落 §2.58 ⑦：未推送提交可 `reset --soft` 重做 message，但必须具名申报 + 证明内容面零改动；**绝不**对已推送提交重写，**绝不** `--amend`/`--no-verify`。
+- **纪律面**：本轮 M 写入 = 3 个文件（`domain.sh`、契约测试、交付记录，均来自 lane 的合并）＋这两份主干文档；`../minekin` 与 `../minekin-h1n` 的字节未被 M 改动（只在 h1n 树 `worktree add` 时写过 `.tmp/` 卡面与基线材料）；规范卷只 `:ro`；未连远程服；未动 mandatory/registry/晋级；破桩用 `cp`+sha256 复验。
+- **下一步**：**E7/M-G1 等 #65 H1q 的用户/主控口径裁决**（§2.54 唯一可封形状；两条路已在第六十五轮向用户申报，M 不代决定）；引擎空档可做 `#58 (乙)`（非 auto 形状 `ONLINE_MODE=true` × 新名的真跑产物读数，只用 M 私有数据根）。**真实封证仍 0**。
+
+- **CI 时点移动（补记）**：上面「落档时 in_progress」之后的重读把合并笔读绿了——run `36348081759`（编号 929）`completed/success`，三 job 逐步 `non_success=[]`（`python` 18 / `protocol` 10 / `bridge-static` 9，`head_sha=c1f65184`、`run_attempt=1`；原文 `.tmp/m-r66-ci-jobs-c1f6518.json`）⇒ **「已合主干且 CI 绿」= `c1f6518`**，§2.58 ⑧ 的时点申报按「已落读数不改写」保留，补记落在 ⑨。

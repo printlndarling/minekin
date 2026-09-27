@@ -1132,3 +1132,36 @@ C1-only 字节上的读数（`.tmp/m-r64-c1-gates.log`）：`check_case_assertio
 **⑤ M 自己那枚普查脚本首版死循环（记账，不删）**：首版 `unquoted_spans()` 用变量 `quote` 记录引号状态，跳过带引号区间后**没有复位成 `None`** ⇒ 从第一条含引号的行起外层 `while` 既不推进也不退出，整脚本无限循环。连挂三次（两次后台 `uv run`、一次 `timeout 45`）我都先把原因猜成「lane 树要建 venv／引擎忙」，实际是脚本自己的 bug。定位姿势值得固化：同一棵树里 `timeout 60 uv run --frozen --offline python -c "print('hello')"` 秒回 rc=0 ⇒ 嫌疑才锁到脚本本身。**两条教训**：① 普查工具同样需要对照与超时归因，hang ≠ 环境；② 引号状态机必须在闭引号处复位，而且这种 naive toggle 对 `backend="… $(printf "%s" "${probe}" | tr "\n" " " …)"` 的嵌套写法本就不精确——修好复位后它仍把 `:1425` 报成命中（`bare-word literal backslash-n outside quotes=2`）。⇒ 最终契约判据**不依赖引号识别**，只用「两侧留白」一个条件，误报面为零（1 命中且正是缺陷行）。
 
 **⑥ 次序与欠账**：#62 H1n 在飞；E7（#49）与 M-G1（#50）仍阻塞在 **#65 H1q 的主控口径裁决**（§2.54：专服形状下加入者侧只剩一条可封形状——把 `--server-profile` + `--server-directory` 交回加入者侧并按形状弃 `--world-run-document`）。它改的是**证据口径**（加入者 bundle 的「世界」由谁命名），不是实现细节，按主控保留口径本轮不实施，已向用户申报并列出两条路（采纳 ⇒ 开 H1q 再 E7；不采纳 ⇒ E7 只能停在跨 bundle 形状，队列在此分裂）。`#58 (乙)` 待引擎窗。**真实封证仍 0**，M-C1 入册只让「有案可判」成立，没有产生判定。
+
+## §2.58 H1n 交付、M 按真实 merge-base 独立复审入干（合并 `c1f6518`，parents `7d97188`+`fdd9f88`，merge-base `9fe3eb4`）：判据复算 + 破桩反证 + **把提交字节逐字提出来驱动语义**，门载荷第十二次同值——并记下 M 自己在复跑时踩到的转义陷阱（第六十六轮，2026-09-28 04:35 +0800，M 主控；规范卷只 `:ro` 跑一次只读 `report_promotion`，零容器活体、零 JVM、未连用户远程服）
+
+**① 允许面与出处核查**：分支对 merge-base 只动 3 个路径——`test-orchestrator/runner/domain.sh`（+2/−1，只有 `:2617` 那一处续行）、`tests/contract/test_runner_scripts.py`（+92：1 枚测试 + helper + 两枚判据常量）、`docs/validation/v1201-h1n-delivery-2026-09-28.md`（+111）。合入时的硬核查式照旧成立：`git show fdd9f88:test-orchestrator/runner/domain.sh | sha256sum` = `16124b5bf3a18b2985d14ca27bf2514d3f630fe4db60827abb4b274e35988401`，与合并工作树读数、与 lane 报告**三者同值** ⇒ 「活体/测试取自最终提交字节」这一格由 M 自证而非取信旁证。
+
+**② M 复算判据（不取信 lane 的门表）**：`.tmp/m-r66-h1n-predicate-check.py` 用 `chr(92)` 构造字符、不依赖任何 shell 转义——
+- 合并后工作树：`lines=3252 loose=200 bare_word=0`；
+- merge-base 的 blob（`.tmp/m-r66-pre-fix-domain.sh`）：`lines=3251 loose=201 bare_word=1`，且报出的正是 `2617: … \n            "${server_directory}/server.log" …`。
+⇒ 修复的净效果在字节上是「行数 +1、松口径 −1、命令位裸词归零」，与 §2.57 ① 的派工前量材首尾相接。契约测试断言的是 `loose > 0 且 bare_word == 0` 成对，而不是钉死 201 这个会随别的卡移动的数——这一点做对了。
+
+**③ 破桩反证（M 在合并树上重跑那张卡的核心验收格）**：`cp` 备份 + 记 sha，再把缺陷逐字植入（`.tmp/m-r66-h1n-reversal.py`）——
+- 植入后 `domain.sh` 摘要**恰好回到** `df86c258df126b2d9c208243397cd6f425faac8ab21af22d439e155c80d640a2`（= §2.57 ④ 记的起点摘要）⇒ 证明「这一处修复」在字节上就是一行，没有夹带；
+- 新测试转红并具名：`AssertionError: a bare-word literal backslash-n survived in domain.sh (201 lines carry the loose shape; …)` + `domain.sh:2617: …`，`1 failed in 1.99s`；
+- 还原后摘要回到 `16124b5b…`、测试 `1 passed`，`git status` 只剩合并本身。全程未用 `checkout`/`restore`/`reset`/`stash`。
+
+**④ 按提交字节驱动语义（把 lane 的「谓词形状复现」升格为「驱动 domain.sh 自己的那四行」）**：`.tmp/m-r66-h1n-lifted-shape.py` 从文件里**定位并逐字提出** `:2617` 起的 grep 条件与 `kicked=1`/`break`，拼成可执行片段，在 cwd 里放一个内容为 `Kin lost connection` 的文件 `n`、另备两份 `server.log`（一份不含 kick 句、一份含）跑两式：
+
+| 取字节的来源 | server.log 不含 kick 句 | server.log 含 kick 句 |
+| --- | --- | --- |
+| merge-base blob（缺陷形状） | `kicked=1`（**假绿复现**） | `kicked=1` |
+| 合并后的 `domain.sh` | `kicked=0`（假绿消失） | `kicked=1`（**真信号未被抹掉**） |
+
+材料 `.tmp/m-r66-h1n-lifted-prefix.log`、`.tmp/m-r66-h1n-lifted-merged.log`。两行表就是这张卡的验收判据：它同时排除「恒假」（修好了但也读不到真离场）与「恒真」（没修也报好）。片段里那句 `break: only meaningful in a loop` 是 M 包装器的产物，不是 `domain.sh` 的行为。
+
+**⑤ 门表（M 在合并树逐道单跑、退出码单独读、日志落盘 `.tmp/m-r66-gate-*.log`）**：`bash -n domain.sh` rc=0；契约单文件 rc=0（`119 passed in 16.06s`）；新测试单枚 rc=0；全量 `pytest -q` rc=0（`2707 passed, 2 skipped in 297.39s` ⇒ 可比量 passed+skipped = **2709** = 基线 2708 + 本卡新增 1 枚；skip 与 lane 的 3 格差一格仍是 `test_tested_provenance.py:354` 的桥产物条件 skip，按旧口径归一后同值）；`ruff check` rc=0；`ruff format --check` rc=0（**373 files**，比第六十四轮的 372 多的唯一一格就是本卡新增的 `docs/validation/` 记录文件——ruff 0.16.8 把 md 计入文件数，lane 的 `ruff-format-final.log` 与 M 的读数同形，不是漂移）；`pyright` rc=0（`0 errors, 0 warnings, 0 informations`）；`check_boundaries`/`verify_fixture_digests`/`check_workflow_pins` rc=0/0/0；`check_case_assertions` rc=0（`OK (151 registered)`，本卡未注册案）。门载荷 POST（合并树、规范卷 `:ro`）= `cfa0f1184bee30df6a1d9fcf45778c9cef074ece6761c47fe7d6b9f49863afd6`、103,921 B、`report_promotion` rc=1（按构造 blocked）⇒ **第十二次同值**，与 §2.56 的 PRE 面一致。
+
+**⑥ 转义陷阱（M 本轮自己踩的，写成可复用的判据写法）**：通过本会话的命令层写 grep 判据时，单反斜杠形式 `'[[:space:]]\n[[:space:]]'`（bash 收到的是「一个反斜杠 + n」，ERE 把它读成**转义后的 n**，即匹配裸字母 n）会退化成匹配字母 n，于是 M 一度在合并树上「量到」一条新命中 `2773: n += 1; rss[n] = $2`——那是 awk 程序里的普通 `n`，不是字面反斜杠-n。同一形式作用在 merge-base blob 上时**没有**命中 `:2617`（真缺陷），这才暴露判据被转义层吞掉。**正确写法**：bash 单引号里要放两个反斜杠，即 `grep -nE '[[:space:]]\\n[[:space:]]'`（ERE `\n` = 一个字面反斜杠 + `n`）；更稳的做法是像 `.tmp/m-r66-h1n-predicate-check.py` 那样用 `chr(92)` 构造字符、绕开所有层。**通用后果**：任何以「反斜杠 + 字母」为判据的扫描，落盘前必须同时跑「缺陷 blob 必命中」与「修好的树必不命中」两式，缺一格就是假读数。
+
+**⑦ 已申报偏差的处理口径（入册为一般规则）**：lane 的第二笔提交首次落盘为 `5f78720`，因 commit message 混入不应有的署名 trailer，在**分支尚未推送**的前提下用 `git reset --soft` 原地重做为 `3d95a31`，内容字节逐字不变（前后 `domain.sh` 摘要同为 `16124b5b…`）并已在交付记录 §0 具名申报 ⇒ M 接受。口径：**未推送的本地提交允许以 `reset --soft` 重做 message，但必须（a）具名申报旧 SHA 与原因，（b）证明内容面零改动（按路径摘要配对），（c）不对已推送提交做任何重写**。这不改变「绝不 `--amend`、绝不 `--no-verify`」的既有边界。
+
+**⑧ 落点与次序**：`c1f651845ba0e42c7c561ec86f76a72d22203cbc` 已 push，`git ls-remote` 读回同值（`7d97188..c1f6518`）。CI：`7d97188` 的 run `36345957828`（编号 927）按 `ci.yml` 自有步骤逐步读为全 `success`（`python` 18 步、`protocol` 10 步、`bridge-static` 9 步，`non_success=[]`；jobs 原文 `.tmp/m-r66-ci-jobs-7d97188.json`）⇒「已合主干且 CI 绿」前进到 `7d97188`；本合并笔的 run `36348081759`（编号 **929**）落档时为 `in_progress`（只作时点申报，接手会话必须重读才可在文档写「合并笔 CI 绿」）。**E7（#49）与 M-G1（#50）仍阻塞在 #65 H1q 的主控/用户口径裁决**（§2.54 那条唯一可封形状：加入者 bundle 的「世界」由谁命名），M 不代决定；未开工存量剩 `#58 (乙)`（待引擎窗）。**真实封证仍 0**——本卡撤掉的是一枚读数面假绿的来源。
+
+**⑨ 时点移动（补记，不改写 ⑧ 的读数）**：⑧ 落笔时合并笔的 run 929 是 `in_progress`；随后的重读把它读绿了——`36348081759` = `completed/success`，jobs 端点留存 `.tmp/m-r66-ci-jobs-c1f6518.json`，按 `ci.yml` 自有步骤逐格核对：`python` 18 步、`protocol` 10 步、`bridge-static` 9 步，三 job 的 `non_success` 列表均为空，`head_sha` 前缀 `c1f65184`、`run_attempt=1` ⇒ **「已合主干且 CI 绿」前进到 `c1f6518`**，H1n 没有把主干弄红是 M 自读而非 lane 自报。⑧ 里那句时点申报按「已落读数不改写」的口径保留。
