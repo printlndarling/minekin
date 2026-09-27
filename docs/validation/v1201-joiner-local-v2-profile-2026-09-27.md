@@ -422,6 +422,13 @@ H1G: profile_version=1.21.4 launch_version=1.21.4 -> launcher.profile admission 
 | pyright（改动文件） | `uv run pyright tests/contract/test_runner_scripts.py` | `0 errors, 0 warnings, 0 informations` | **0** |
 | pyright（全仓） | `uv run pyright` | `43 errors, 0 warnings, 0 informations` —— **红**；43 条全部落在 `tests/unit/test_case_evidence_assertions.py`，本卡两个路径 0 条（见下） | **1** |
 
+时态说明（提交本卡时补记，勿把上表 43 条当作当前状态）：这条全仓 pyright 读数是**在本卡基线
+`0da7032` 上量的**，当时确实为红，保留以如实反映本卡验证现场；该红属 M 自有测试文件
+`tests/unit/test_case_evidence_assertions.py`，与本卡的两个交付路径无关。主干此后已由
+`518d199`（`test(evidence): name the asserter members the OFFLINE rows read`，补齐 `_Asserter`
+协议）单独修掉，主控侧在该提交上实测全仓 `uv run pyright` 读 `0 errors, 0 warnings,
+0 informations` —— 本卡未在本 worktree 复量这个转绿读数，仅具名引用主控结果。
+
 全仓 pyright 的红不是本卡造成的，且这是量出来的而不是推的：
 `git status --short tests/unit/test_case_evidence_assertions.py` 与
 `git diff --stat HEAD -- tests/unit/test_case_evidence_assertions.py` 双双为空（该文件与本卡
