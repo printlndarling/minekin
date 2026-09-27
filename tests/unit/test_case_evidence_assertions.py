@@ -110,6 +110,17 @@ class _Asserter(Protocol):
     ASSERTER_INPUTS: str
     ORCHESTRATOR_TRACE_ARTIFACT: str
 
+    #: The names a row's named-gap verdict is spelled with: the authentication field
+    #: family, the bodies that are public by construction, and the three carrier
+    #: constants the OFFLINE-090/100 rows refuse a rename into.
+    AUTHENTICATION_FIELD_NAMES: tuple[str, ...]
+    REDACTED_AUTHENTICATION_BODY: str
+    PUBLIC_AUTHENTICATION_BODIES: frozenset[str]
+    DASHBOARD_CARRIER_PREFIX: str
+    CONFLICT_CATEGORY_HAS_NO_RENAME_ENTRY: str
+    IDENTITY_REVISION_HAS_NO_CHANGE_CARRIER: str
+    IDENTITY_ROOT_MERGE_HAS_NO_SEALED_CARRIER: str
+
     def read_run_material(
         self,
         *,
@@ -122,6 +133,8 @@ class _Asserter(Protocol):
     ) -> _Material: ...
 
     def read_sealed_material(self, directory: Path) -> _Material: ...
+
+    def asserter_inputs_bytes(self, material: _Material, *, username: str) -> bytes: ...
 
     #: The server's own answers, one per probe that asked for this shape. Public
     #: because it is how this module reads a position or a rotation, and a case
@@ -6888,7 +6901,7 @@ OFFLINE_SERVER_PROPERTIES = (
 
 
 def ledger_row(
-    event_type: str, *, run: str, session: str, kin: str = "kin-01", **payload: object
+    event_type: str, *, run: str, session: str, kin: str = "kin-01", **payload: Any
 ) -> Mapping[str, object]:
     """One ledger row, carrying the attribution columns OFFLINE-100 reads.
 
