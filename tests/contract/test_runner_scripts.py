@@ -138,7 +138,23 @@ def test_every_knob_the_harness_reads_is_one_the_wrapper_hands_it() -> None:
     # Exact in both directions now that the registered gap is closed: a fifth name
     # read and not delivered is a scenario that silently does not run, and a name
     # delivered that nothing reads is a knob the wrapper offers into a void.
-    assert read - delivered == set(), (
+    #
+    # One gap is registered open, by name, and it is H1k's: `run.sh` is outside that
+    # card's three allowed files, so its knob is read and not yet forwarded. The
+    # registered name is demanded present below (a gap that names nothing is the same
+    # hole as no gap at all) and demanded *absent* from the wrapper, which is the
+    # direction that turns red the moment a later card forwards it — at which point the
+    # registered set is deleted, exactly as H1j deleted H1h's.
+    registered_gap = {JOINER_CONTROLLED_SERVER_KNOB}
+    assert JOINER_CONTROLLED_SERVER_KNOB in read, (
+        f"the registered run.sh gap names {JOINER_CONTROLLED_SERVER_KNOB}, which "
+        "domain.sh no longer reads; delete the registration rather than keeping it"
+    )
+    assert JOINER_CONTROLLED_SERVER_KNOB not in delivered, (
+        f"run.sh now forwards {JOINER_CONTROLLED_SERVER_KNOB}; the card that forwarded "
+        "it has to delete the registered gap in this test, not this assertion"
+    )
+    assert read - delivered == registered_gap, (
         f"domain.sh reads these and run.sh never delivers them: {sorted(read - delivered)}"
     )
     assert delivered - read == set(), (
@@ -518,8 +534,16 @@ def test_a_run_that_stops_at_a_named_supply_chain_refusal_exits_non_zero() -> No
 #: lines that unpack its arguments. Pinned in full because the whole card is about
 #: where line `minecraft_version` gets its value: a writer that still took two
 #: arguments could not carry a run's version even if the dict entry were renamed.
+#:
+#: V1201-LAN-JOINER-ON-CONTROLLED-SERVER-001 moved the *port* argument off `${lan_port}`
+#: and onto `${joiner_target_port}`, which is `${lan_port}` for every shape that existed
+#: before that card and this run's own `server.properties` reading under its new default-off
+#: name. The transcription below therefore tracks the shipped bytes on purpose, while the
+#: base-commit bytes stay pinned as `base_writer` in the reversal test below: that pairing
+#: is what lets the old line still be measured red.
 JOINER_PROFILE_WRITER = (
-    '    python - "${lan_port}" /tmp/domain-join-profile.json "${launched_version}" <<\'PY\'\n'
+    '    python - "${joiner_target_port}" /tmp/domain-join-profile.json "${launched_version}"'
+    " <<'PY'\n"
     "import json\n"
     "import sys\n"
     "\n"
@@ -1770,6 +1794,25 @@ JOINER_CONTROL_ASKS = {
 }
 
 #: What `session start` accepts beside those three and this driver never reaches for.
+#:
+#: The fifth `MINEKIN_DOMAIN_JOIN_*` name, and the one thing that makes it different from
+#: the four above: V1201-LAN-JOINER-ON-CONTROLLED-SERVER-001 was handed three files and
+#: `run.sh` was not one of them, so the name is *read* by the harness and deliberately not
+#: yet forwarded by the wrapper. That is the same registered gap H1h left for the four, and
+#: it is registered the same way — by name, in the parity check below, where the demand is
+#: pinned the *other* way round (`not delivered`) so the day a separate card forwards it
+#: that assertion goes red and tells the reader to drop the registered gap, instead of the
+#: gap silently outliving the card that needed it.
+JOINER_CONTROLLED_SERVER_KNOB = "MINEKIN_DOMAIN_JOIN_ON_CONTROLLED_SERVER"
+
+#: The shipped read of that name, byte for byte: read with an empty default, so unset and
+#: `0` and `false` all mean "the shapes this file had before this card". A default of `1`
+#: here is the counter-reading the equality test below exists to catch.
+JOINER_CONTROLLED_SERVER_READ = (
+    'join_on_controlled_server="${MINEKIN_DOMAIN_JOIN_ON_CONTROLLED_SERVER:-}"'
+)
+
+#: What `session start` accepts beside those three and this driver never reaches for.
 JOINER_CONTROL_FORBIDDEN_FLAGS = (
     "--hold-strafe",
     "--hold-jump",
@@ -2440,3 +2483,909 @@ def test_the_joiner_control_driver_is_not_an_always_true_claim(tmp_path: Path) -
         tag="rv-bound-exclusive",
     )
     refused(result, argv)
+
+
+# ---------------------------------------------------------------------------
+# V1201-LAN-JOINER-ON-CONTROLLED-SERVER-001 — a run that has a controlled dedicated
+# server *and* a joining second client can send that second client into the server's
+# own world, so the server that answers the position probes is the server both Kin
+# stand in. Before this card the two shapes were mutually exclusive: only a
+# `--server-profile` run started a server that answers `data get entity`, and only an
+# `MINEKIN_DOMAIN_OPEN_LAN` run was allowed a joiner, and that joiner went into the
+# hosting *client's* published world — a world with no server log to seal.
+# ---------------------------------------------------------------------------
+
+#: The four regions the card ships. Each is named by its own marker pair and extracted
+#: rather than retyped: as with the H1h driver, every reading below has to be a
+#: measurement of the bytes a run executes, so that changing them moves a test here
+#: before it moves a live run.
+JOINER_ON_SERVER_REGIONS = ("guard", "allowlist", "target", "wait")
+
+#: The wait oracle of each shape, stated as the words its branch actually contains.
+#: Three of these are the shapes that existed before the card — the LAN-published world,
+#: the dedicated-server single client, the run with no world at all — and the fourth is
+#: the new one. Which log a branch believes *is* this card's subject, so a shape that
+#: started reading a different file than it used to is exactly the regression pinned here;
+#: the byte-for-byte equality of the three against the base bytes is measured in the
+#: card's record.
+WAIT_SHAPE_ORACLES: dict[str, tuple[str, str, str]] = {
+    "lan_published_world": (
+        '[ -n "${open_lan}" ]',
+        'grep -q "Started serving on ${lan_port}" "${candidate}"',
+        'join_the_published_world "${latest}"',
+    ),
+    "dedicated_server_single_client": (
+        '[ -z "${server_profile}" ]',
+        "event_type='BridgeHelloAccepted'",
+        "domain: no handshake was recorded within",
+    ),
+    "no_world_at_all": (
+        "else",
+        "event_type='PlayableEstablished'",
+        "domain: the session is playable",
+    ),
+    "joiner_on_controlled_server": (
+        '[ "${join_on_controlled_server_asked}" -eq 1 ]',
+        'join_the_published_world "${server_directory}/server.log"',
+        "the joining client is sent into the controlled server world this run started",
+    ),
+}
+
+
+def joiner_on_server_cast(text: str) -> str:
+    """The shipped read of the new name and its numeric cast, verbatim.
+
+    The cast is part of what is driven, not scaffolding around it: `0`, `false` and unset
+    have to mean the shapes this file had before the card, `1`/`true` the new one, and
+    anything else a named refusal. Taking the shipped bytes from the read line down to that
+    same case's `esac` is what lets a default that flipped to on read red here.
+    """
+
+    start = text.index(JOINER_CONTROLLED_SERVER_READ)
+    end = text.index("\nesac\n", start) + len("\nesac\n")
+    return text[start:end]
+
+
+def joiner_on_server_region(text: str, name: str) -> str:
+    """One shipped region of the card, marker to marker, without its begin line."""
+
+    begin = f"# --- joiner-controlled-server-{name} begin"
+    end = f"# --- joiner-controlled-server-{name} end ---"
+    start = text.index(begin)
+    lines = text[start : text.index(end, start)].splitlines(keepends=True)
+    assert len(lines) > 3, f"the {name} region came out empty; wrong markers"
+    return "".join(lines[1:])
+
+
+def run_shelled(
+    tmp_path: Path,
+    body: str,
+    env: dict[str, str] | None,
+    tag: str,
+) -> subprocess.CompletedProcess[str]:
+    """Run a body of shipped shell in its own bash process, and say what it said.
+
+    The knob is stripped from the inherited environment before anything else, exactly as
+    `drive_joiner_control` strips the four control names: a value left over from a caller
+    would arm a shape a reading means to leave asleep.
+    """
+
+    work = tmp_path / tag
+    work.mkdir(parents=True, exist_ok=True)
+    script = work / f"{tag}.sh"
+    script.write_text(body, encoding="utf-8")
+    environment = dict(os.environ)
+    environment.pop(JOINER_CONTROLLED_SERVER_KNOB, None)
+    environment.update(env or {})
+    bash = shutil.which("bash")
+    assert bash, f"the shipped region is shell code and there is no bash to drive it ({tag})"
+    return subprocess.run(
+        [bash, script.as_posix()],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=environment,
+        cwd=str(work),
+    )
+
+
+def bracketed(result: subprocess.CompletedProcess[str]) -> list[str]:
+    """The words a driven body printed as `<word><word>` — one capture per word."""
+
+    return re.findall(r"<([^>]*)>", result.stdout)
+
+
+def guarded_shape_prelude(
+    *,
+    joiner: str = "kin-2",
+    server_profile: str = "/tmp/domain-server-profile.json",
+    open_lan: str = "",
+    black_hole: str = "",
+    no_server: str = "",
+    not_whitelisted: str = "",
+    refusal_asked: str = "0",
+) -> str:
+    """The locals the guard region reads: the argument scan's values and the top's reads.
+
+    `refusal_asked` belongs here for the same reason the other six do: the guard reads a
+    cast, never the raw environment name, and the first-snapshot refusal sets it from
+    `MINEKIN_DOMAIN_REFUSE_FIRST_SNAPSHOT` near the top of the file (the same pattern the
+    card's own name follows). A prelude without it would make the shipped region fail
+    under `set -u` rather than answer.
+    """
+
+    return "".join(
+        f"{name}={shlex.quote(value)}\n"
+        for name, value in (
+            ("joiner", joiner),
+            ("server_profile", server_profile),
+            ("open_lan", open_lan),
+            ("black_hole", black_hole),
+            ("no_server", no_server),
+            ("not_whitelisted", not_whitelisted),
+            ("refusal_asked", refusal_asked),
+        )
+    )
+
+
+def wait_chain_branches(text: str) -> list[tuple[str, str]]:
+    """The session wait chain as (condition, body) pairs, in the order a run tries them.
+
+    A column-zero `if`/`elif`/`else` marks a branch and everything up to the next mark is
+    that branch's body; the chain ends at its column-zero `fi`. This is a parser for one
+    shape and it says so when the shape is missing, because a chain that could not be
+    split would make every assertion that reads it vacuous.
+    """
+
+    start = text.index('if [ "${case_id}" = "ADMIT-040" ]; then')
+    chain = text[start : text.index("\n# Which run this is", start)]
+    branches: list[tuple[str, str]] = []
+    for line in chain.splitlines(keepends=True):
+        if not (line.startswith(("if ", "elif ")) or line in ("else\n", "fi\n")):
+            if branches:
+                branches[-1] = (branches[-1][0], branches[-1][1] + line)
+            continue
+        if line.startswith("fi"):
+            break
+        if line.startswith("else"):
+            branches.append(("else", ""))
+            continue
+        keyword_stripped = line.split(None, 1)[1]
+        assert keyword_stripped.endswith("]; then\n"), f"unparsed branch: {line!r}"
+        branches.append((keyword_stripped[: -len("; then\n")].strip(), ""))
+    assert len(branches) >= 8, f"the wait chain parsed to {len(branches)} branches"
+    return branches
+
+
+def branch_body(branches: list[tuple[str, str]], condition: str) -> str:
+    """The one body a condition has, or a failure saying how many it had."""
+
+    matched = [body for candidate, body in branches if candidate == condition]
+    assert len(matched) == 1, f"{condition}: {len(matched)} branches in the chain"
+    return matched[0]
+
+
+def joiner_target_is_read_from_this_run(text: str) -> bool:
+    """The joining client's port is read out of this run's own server settings.
+
+    Three clauses, because three ways of not reading it all print the same line: the value
+    has to come from `${server_directory}/server.properties` — a path this run numbered for
+    itself — through `sed`, it has to be what reaches the writer, and no branch of the
+    region may be a constant. A literal port in the region is the defect the card's own
+    counterexample plants, so it is refused here by shape as well as measured there by
+    behaviour.
+    """
+
+    try:
+        region = joiner_on_server_region(text, "target")
+    except ValueError:
+        return False
+    return (
+        'joiner_target_source="${server_directory}/server.properties"' in region
+        and "sed -n 's/^server-port=//p' \"${joiner_target_source}\"" in region
+        and 'joiner_target_port="${controlled_server_port}"' in region
+        and re.search(r"joiner_target_port=\"[0-9]", region) is None
+    )
+
+
+def joiner_wait_reads_its_own_server_log(text: str) -> bool:
+    """The new shape's arrival oracle is this run's server log, named as one path."""
+
+    try:
+        region = joiner_on_server_region(text, "wait")
+    except ValueError:
+        return False
+    return (
+        'join_the_published_world "${server_directory}/server.log"' in region
+        and "${latest}" not in region
+        and "latest.log" not in region
+    )
+
+
+def joiner_allowlist_entry_is_guarded(text: str) -> bool:
+    """One added whitelist name, taken from the run's own joiner username, under the guard.
+
+    `--allow-player` keeps meaning "a player this run starts itself"; what this card adds
+    is the second such name it does start, and only when the run asked for that world. A
+    literal player name on the line, an unguarded append, or a second added name each make
+    this false, for a different reason.
+    """
+
+    try:
+        region = joiner_on_server_region(text, "allowlist")
+    except ValueError:
+        return False
+    appends = re.findall(r"^\s*allow_args\+=\(.*\)$", region, re.MULTILINE)
+    guard = region.find('[ "${join_on_controlled_server_asked}" -eq 1 ]')
+    return (
+        appends == ['        allow_args+=(--allow-player "${join_username}")']
+        # The one append, and it sits *inside* the ask rather than beside it: a splice hoisted
+        # above the guard would add the name to every run.
+        and guard != -1
+        and guard < region.index(appends[0])
+        and '"Kin' not in region
+    )
+
+
+def test_the_controlled_server_joiner_name_is_read_once_and_default_off() -> None:
+    """The shape opens on one name, read beside the others and cast this file's own way.
+
+    This is the static half of the default-off equality; the dynamic half — assembled argv
+    and the waited-on log, base bytes against tip — is printed in the card's record. What
+    is pinned here is the shape that equality needs: one read, an empty default, a cast
+    that treats `0`/`false`/unset as "the old shapes", four regions each present exactly
+    once, and the controller-reserved auto+joiner refusal still answering first.
+    """
+
+    text = (RUNNER / "domain.sh").read_text(encoding="utf-8")
+
+    assert JOINER_CONTROLLED_SERVER_KNOB in JOINER_CONTROLLED_SERVER_READ
+    assert text.count(JOINER_CONTROLLED_SERVER_READ) == 1, (
+        "the knob is read more than once, so two reads can disagree about its default"
+    )
+    assert JOINER_CONTROLLED_SERVER_READ in text
+    assert f"{JOINER_CONTROLLED_SERVER_KNOB}:-1}}" not in text, "the knob defaults to on"
+    assert f"{JOINER_CONTROLLED_SERVER_KNOB}:-true}}" not in text, "the knob defaults to on"
+
+    cast = joiner_on_server_cast(text)
+    assert "join_on_controlled_server_asked=0\n" in cast, (
+        "the cast no longer starts from 'not asked for'"
+    )
+    assert '"" | 0 | false) : ;;' in cast
+    assert "1 | true) join_on_controlled_server_asked=1 ;;" in cast
+
+    for name in JOINER_ON_SERVER_REGIONS:
+        assert text.count(f"# --- joiner-controlled-server-{name} begin") == 1, name
+        assert text.count(f"# --- joiner-controlled-server-{name} end ---") == 1, name
+
+    refusal = "domain: an auto-bundle run cannot also ask for a joining second client"
+    assert text.count(refusal) == 1
+    assert text.index(refusal) < text.index("# --- joiner-controlled-server-guard begin")
+
+
+@pytest.mark.parametrize(
+    ("env", "expected_refusal"),
+    [
+        ({}, ""),
+        ({JOINER_CONTROLLED_SERVER_KNOB: "0"}, ""),
+        ({JOINER_CONTROLLED_SERVER_KNOB: "false"}, ""),
+        ({JOINER_CONTROLLED_SERVER_KNOB: "1"}, ""),
+        ({JOINER_CONTROLLED_SERVER_KNOB: "maybe"}, "must be 1/true or 0/false"),
+    ],
+    ids=["unset", "zero", "false", "one", "unparseable"],
+)
+def test_the_knob_cast_refuses_a_value_it_cannot_answer(
+    env: dict[str, str], expected_refusal: str, tmp_path: Path
+) -> None:
+    """The shipped cast alone: unset, `0` and `false` all answer `not asked for`."""
+
+    body = (
+        "set -euo pipefail\n"
+        + joiner_on_server_cast((RUNNER / "domain.sh").read_text(encoding="utf-8"))
+        + 'printf "<%s>" "${join_on_controlled_server_asked}"\n'
+    )
+    result = run_shelled(tmp_path, body, env, "cast")
+    if expected_refusal:
+        assert result.returncode != 0, result.stdout
+        assert expected_refusal in result.stderr
+        assert bracketed(result) == []
+        return
+    assert result.returncode == 0, result.stderr
+    # What the cast is asked to mean, computed here rather than read from it: the two words
+    # that arm the shape, and nothing else. `env.get(...)` itself would be a Python-truthy
+    # claim about the string `"0"`, which is exactly the value this row is about.
+    asked = env.get(JOINER_CONTROLLED_SERVER_KNOB, "") in ("1", "true")
+    assert bracketed(result) == ["1" if asked else "0"]
+
+
+#: What the seventh refusal says, word for word, in the two directions it has to be
+#: matched: the shipped `printf` operand and the sentence a driven run prints. A copy of
+#: the card's own wording here would let the guard rephrase itself and stay green, so the
+#: constant is compared against the shipped bytes before it is ever driven.
+FIRST_SNAPSHOT_COMBINATION_REFUSAL = (
+    "domain: MINEKIN_DOMAIN_JOIN_ON_CONTROLLED_SERVER and "
+    "MINEKIN_DOMAIN_REFUSE_FIRST_SNAPSHOT name two destinations for one wait; the chain "
+    "answers the snapshot refusal before any joining client is sent, so the prepared "
+    "joiner would never go -- refused rather than carried as a knob that does nothing"
+)
+
+#: Each half-set combination the guard refuses, with the words it says while refusing.
+CONTROLLED_SERVER_GUARD_REFUSALS: dict[str, tuple[dict[str, str], str]] = {
+    "no-joiner": (
+        {"joiner": ""},
+        "names where a joining client goes and this run has none",
+    ),
+    "no-server-profile": (
+        {"server_profile": ""},
+        "and this run starts none (--server-profile is absent)",
+    ),
+    "both-destinations": (
+        {"open_lan": "1"},
+        "name two worlds for one joining client",
+    ),
+    "black-hole": ({"black_hole": "1"}, "needs a world that answers"),
+    "no-server": ({"no_server": "1"}, "stops it before any client starts"),
+    "not-whitelisted": ({"not_whitelisted": "1"}, "empties the whitelist that world enforces"),
+    # The seventh: two asks, each legitimate alone, that reach one `elif` chain and can
+    # only be answered in one order. The wait chain's first-snapshot branch is upstream of
+    # this card's branch, so a run carrying both prepares a joining client it never sends.
+    "first-snapshot-combination": (
+        {"refusal_asked": "1"},
+        "name two destinations for one wait",
+    ),
+}
+
+
+@pytest.mark.parametrize(
+    ("overrides", "expected"),
+    list(CONTROLLED_SERVER_GUARD_REFUSALS.values()),
+    ids=list(CONTROLLED_SERVER_GUARD_REFUSALS),
+)
+def test_every_half_set_controlled_server_joiner_run_is_refused_by_name(
+    overrides: dict[str, str], expected: str, tmp_path: Path
+) -> None:
+    """Asked for with no single world to send the client into, and refused saying so."""
+
+    text = (RUNNER / "domain.sh").read_text(encoding="utf-8")
+    locals_ = {"joiner": "kin-2", "server_profile": "/tmp/sp.json"} | overrides
+    body = (
+        "set -euo pipefail\n"
+        + guarded_shape_prelude(**locals_)
+        + joiner_on_server_cast(text)
+        + joiner_on_server_region(text, "guard")
+        + "printf 'guard-passed\\n'\n"
+    )
+    result = run_shelled(tmp_path, body, {JOINER_CONTROLLED_SERVER_KNOB: "1"}, "guard-refusal")
+    assert result.returncode == 2, f"expected a named refusal, got rc={result.returncode}"
+    assert expected in result.stderr, result.stderr
+    assert "guard-passed" not in result.stdout
+
+
+def test_the_guard_passes_only_the_shape_it_describes(tmp_path: Path) -> None:
+    """The complete combination walks through, and the same body is inert without the ask."""
+
+    text = (RUNNER / "domain.sh").read_text(encoding="utf-8")
+    body = (
+        "set -euo pipefail\n"
+        + guarded_shape_prelude()
+        + joiner_on_server_cast(text)
+        + joiner_on_server_region(text, "guard")
+        + "printf 'guard-passed\\n'\n"
+    )
+    result = run_shelled(tmp_path, body, {JOINER_CONTROLLED_SERVER_KNOB: "1"}, "guard-pass")
+    assert result.returncode == 0, result.stderr
+    assert "guard-passed" in result.stdout
+
+    result = run_shelled(tmp_path, body, None, "guard-unset")
+    assert result.returncode == 0, result.stderr
+    assert "guard-passed" in result.stdout
+
+
+#: The joining client's plan document, at the one path the shipped script writes it to.
+JOINER_PLAN_PATH = "/tmp/domain-join-profile.json"
+
+
+def bash_probe(command: str) -> str:
+    """Ask bash itself about a path, so the answer uses the shell's own `/tmp`.
+
+    Read from Python as `Path("/tmp/...")`, that spelling means two different files in a
+    Windows checkout and in the image every real run happens in; asked of bash, it means
+    what the shipped `printf >` redirection means, which is the thing under test.
+    """
+
+    bash = shutil.which("bash")
+    assert bash, f"the guard is shell code and there is no bash to probe with: {command!r}"
+    result = subprocess.run(
+        [bash, "-c", command], capture_output=True, text=True, check=False, env=os.environ
+    )
+    return result.stdout.strip()
+
+
+def drive_guard_then_plan_writer(
+    tmp_path: Path,
+    text: str,
+    env: dict[str, str] | None,
+    tag: str,
+    *,
+    guard: str | None = None,
+) -> subprocess.CompletedProcess[str]:
+    """The shipped guard, then the plan write a shipped run reaches when told to.
+
+    The line under the region writes the same absolute path the run writes at
+    `JOINER_PROFILE_WRITER`, reached here because a refusal that only *says* it stopped the
+    run is not yet a refusal: what makes the seventh clause a reading rather than a sentence
+    is that everything downstream of it stops happening. The prelude arms the
+    first-snapshot refusal's cast; the environment arms this card's own name.
+    """
+
+    body = (
+        "set -euo pipefail\n"
+        + guarded_shape_prelude(refusal_asked="1")
+        + joiner_on_server_cast(text)
+        + (guard if guard is not None else joiner_on_server_region(text, "guard"))
+        + 'printf \'{"written_by": "driven downstream step"}\\n\' '
+        + f">{JOINER_PLAN_PATH}\n"
+        + "printf 'reached-joiner-plan\\n'\n"
+    )
+    bash_probe(f"rm -f {JOINER_PLAN_PATH}")
+    return run_shelled(tmp_path, body, env, tag)
+
+
+def joiner_guard_refuses_the_snapshot_combination(text: str) -> bool:
+    """The seventh refusal is *in* the guard, under the ask, and it stops the run.
+
+    Three things have to hold together or the sentence is decoration: the shipped printf
+    operand matches this file's copy word for word, the clause sits inside the
+    `join_on_controlled_server_asked` wrapper rather than beside it — hoisted above it, it
+    would refuse every first-snapshot run, a shape that predates this card — and the clause
+    carries its own `exit 2` before that wrapper closes.
+    """
+
+    try:
+        region = joiner_on_server_region(text, "guard")
+    except ValueError:
+        return False
+    shipped = f"printf '{FIRST_SNAPSHOT_COMBINATION_REFUSAL}\\n' >&2\n"
+    clause = '    if [ "${refusal_asked}" -eq 1 ]; then\n'
+    if region.count(shipped) != 1 or region.count(clause) != 1:
+        return False
+    start = region.index(clause)
+    return (
+        region.startswith('if [ "${join_on_controlled_server_asked}" -eq 1 ]; then\n')
+        and region.index('if [ "${join_on_controlled_server_asked}" -eq 1 ]; then') < start
+        and "exit 2" in region[start : region.index("\n    fi\n", start) + 1]
+    )
+
+
+def test_the_two_destination_combination_is_refused_before_any_plan_is_written(
+    tmp_path: Path,
+) -> None:
+    """`MINEKIN_DOMAIN_REFUSE_FIRST_SNAPSHOT` x this card's name: rc 2, and nothing behind it.
+
+    The wait chain is one `elif` ladder, and the first-snapshot branch sits upstream of the
+    branch this card adds, so a run asking for both never reaches the second: it prepares a
+    joining client, leaves it unsent, and prints readings from the host's own injection as
+    though the second Kin had gone somewhere. That is the shape the guard's own wording
+    exists to kill — *refused rather than carried as a knob that does nothing* — and it is
+    the gap the trunk review named. The demand here is three-part for that reason: the
+    combination answers `exit 2` with the sentence, the run reaches nothing downstream of the
+    guard, and no joiner plan document is left on disk to be read as a run that sent one.
+    """
+
+    text = (RUNNER / "domain.sh").read_text(encoding="utf-8")
+    assert joiner_guard_refuses_the_snapshot_combination(text)
+    region = joiner_on_server_region(text, "guard")
+    assert region.count("exit 2") == len(CONTROLLED_SERVER_GUARD_REFUSALS), (
+        "the guard no longer refuses exactly the combinations it enumerates"
+    )
+    # Every refusal the set names is the shipped file's own words, spoken inside the guard
+    # rather than somewhere in a three-thousand-line file.
+    for name, (_overrides, expected) in CONTROLLED_SERVER_GUARD_REFUSALS.items():
+        assert region.count(expected) == 1, f"{name}: its words are not the guard's own"
+
+    result = drive_guard_then_plan_writer(
+        tmp_path, text, {JOINER_CONTROLLED_SERVER_KNOB: "1"}, "combination"
+    )
+    assert result.returncode == 2, f"the combination walked through: rc={result.returncode}"
+    assert FIRST_SNAPSHOT_COMBINATION_REFUSAL in result.stderr, result.stderr
+    assert "reached-joiner-plan" not in result.stdout, result.stdout
+    assert bash_probe(f"test -e {JOINER_PLAN_PATH} && echo yes") != "yes", (
+        "a refused run still left a joiner plan document behind"
+    )
+
+    # `true` arms the same cast as `1`: the second name is a request, not a string to match.
+    result = drive_guard_then_plan_writer(
+        tmp_path, text, {JOINER_CONTROLLED_SERVER_KNOB: "true"}, "combination-true"
+    )
+    assert result.returncode == 2, result.stdout
+    assert FIRST_SNAPSHOT_COMBINATION_REFUSAL in result.stderr
+
+    # The refusal is a placement claim as well: the shipped plan writer sits downstream of
+    # the guard in the bytes a run executes, so nothing can write a plan before the answer.
+    assert text.index("# --- joiner-controlled-server-guard begin") < text.index(
+        JOINER_PROFILE_WRITER
+    ), "the joiner plan is now written above the guard that refuses this combination"
+
+
+def test_the_combination_stays_a_trunk_shape_while_the_new_name_is_off(
+    tmp_path: Path,
+) -> None:
+    """The default-off equality, extended to the combination the seventh refusal is about.
+
+    The card's first acceptance is that an unset name leaves the file's other shapes
+    byte-for-byte alone; the base-against-tip measurement of that is printed in the card's
+    record. This is the same control on the shipped guard: with the name unset, `0` or
+    `false` and the snapshot refusal armed, the guard answers *nothing at all* — neither
+    refuses nor comments — so the run goes on down the ladder into the branch that existed
+    before this card. A seventh clause that fired without the ask would be a new refusal in
+    a shape the trunk already gates, and it reads red here.
+    """
+
+    text = (RUNNER / "domain.sh").read_text(encoding="utf-8")
+    assert joiner_guard_refuses_the_snapshot_combination(text)
+
+    for env, tag in (
+        (None, "unset"),
+        ({JOINER_CONTROLLED_SERVER_KNOB: "0"}, "zero"),
+        ({JOINER_CONTROLLED_SERVER_KNOB: "false"}, "false"),
+    ):
+        result = drive_guard_then_plan_writer(tmp_path, text, env, f"inert-{tag}")
+        assert result.returncode == 0, (
+            f"{tag}: the guard spoke without being asked: {result.stderr}"
+        )
+        assert FIRST_SNAPSHOT_COMBINATION_REFUSAL not in result.stderr
+        assert result.stdout == "reached-joiner-plan\n", f"{tag}: the run stopped early"
+        assert result.stderr == "", f"{tag}: the guard comments on a shape it must not touch"
+    bash_probe(f"rm -f {JOINER_PLAN_PATH}")
+
+    # The ladder itself is untouched in the same shape: the snapshot refusal is still the
+    # branch such a run takes, still ahead of this card's, and still says nothing about a
+    # second client.
+    branches = wait_chain_branches(text)
+    conditions = [condition for condition, _ in branches]
+    refusal = '[ "${refusal_asked}" -eq 1 ]'
+    assert refusal in conditions, f"the first-snapshot wait branch is gone: {conditions}"
+    assert conditions.index(refusal) < conditions.index(
+        WAIT_SHAPE_ORACLES["joiner_on_controlled_server"][0]
+    ), f"the refusal branch no longer precedes the card's: {conditions}"
+    body = branch_body(branches, refusal)
+    assert "join_on_controlled_server" not in body, (
+        "the pre-existing first-snapshot wait branch now reads the new name"
+    )
+    assert "JoinObserved" in body, "the refusal branch no longer waits on the ledger join"
+
+
+def test_the_seventh_refusal_is_not_an_always_true_claim(tmp_path: Path) -> None:
+    """Both ways the new clause could stop being a reading, planted in copies of the bytes.
+
+    Turned into a remark, the combination walks straight through into the plan write it was
+    supposed to pre-empt — the exact fault the trunk review describes, and the reason the
+    driven test above checks the file on disk and not only the exit code. Hoisted out of the
+    ask's wrapper, it would answer for runs that never asked, which the shape predicate has
+    to see even though the sentence is still in the file either way.
+    """
+
+    text = (RUNNER / "domain.sh").read_text(encoding="utf-8")
+    region = joiner_on_server_region(text, "guard")
+
+    silenced = region.replace('    if [ "${refusal_asked}" -eq 1 ]; then\n', "    if false; then\n")
+    assert silenced != region, "the shipped clause moved; the mutation is stale"
+    assert not joiner_guard_refuses_the_snapshot_combination(text.replace(region, silenced, 1))
+    result = drive_guard_then_plan_writer(
+        tmp_path, text, {JOINER_CONTROLLED_SERVER_KNOB: "1"}, "ce-silenced", guard=silenced
+    )
+    assert result.returncode == 0, "the planted no-op still refused"
+    assert "reached-joiner-plan" in result.stdout
+    assert bash_probe(f"test -e {JOINER_PLAN_PATH} && echo yes") == "yes", (
+        "the mutation did not reproduce the unsent-joiner fault: nothing was measured"
+    )
+
+    hoisted = region.replace(
+        '    if [ "${refusal_asked}" -eq 1 ]; then\n',
+        'if [ "${refusal_asked}" -eq 1 ]; then\n',
+    )
+    assert hoisted != region
+    assert not joiner_guard_refuses_the_snapshot_combination(text.replace(region, hoisted, 1))
+    bash_probe(f"rm -f {JOINER_PLAN_PATH}")
+
+
+def drive_joiner_target_read(
+    tmp_path: Path,
+    *,
+    region: str | None = None,
+    knob: str | None = None,
+    ip: str = "127.0.0.1",
+    port: str = "25566",
+    properties: bool = True,
+    tag: str = "target",
+) -> tuple[subprocess.CompletedProcess[str], list[str]]:
+    """Drive the shipped target read as its own bash process, against a run's own file.
+
+    The prelude stands in for the two values the region reads and nothing else: the LAN
+    port the run named, and the run directory this run numbered, holding a
+    `server.properties` written for the occasion. What the region decides, it decides from
+    those bytes — which is why the same drive with a different port in the file is a
+    different reading and not a rerun.
+    """
+
+    text = (RUNNER / "domain.sh").read_text(encoding="utf-8")
+    if region is None:
+        region = joiner_on_server_region(text, "target")
+    work = tmp_path / tag
+    (work / "server-run").mkdir(parents=True, exist_ok=True)
+    settings = work / "server-run" / "server.properties"
+    settings.write_text(f"server-ip={ip}\nserver-port={port}\nwhite-list=true\n", encoding="utf-8")
+    if not properties:
+        settings.unlink()
+    body = (
+        "set -euo pipefail\n"
+        + 'lan_port="25570"\n'
+        + f"server_directory={shlex.quote((work / 'server-run').as_posix())}\n"
+        + joiner_on_server_cast(text)
+        + region
+        + 'printf "<%s>" "${joiner_target_port}"\n'
+    )
+    env = None if knob is None else {JOINER_CONTROLLED_SERVER_KNOB: knob}
+    result = run_shelled(tmp_path, body, env, tag)
+    return result, bracketed(result)
+
+
+def test_the_joiners_target_under_the_new_name_is_this_runs_own_server_endpoint(
+    tmp_path: Path,
+) -> None:
+    """Acceptance ②: the port the writer is handed is the one this run's file carries.
+
+    Unset, the joining client is aimed at the port the LAN shape has always named for it
+    (`25570`, the value the writer has been handed since before this card). Set, the value
+    that reaches the writer is the one this run's `server.properties` carries — read twice
+    from two different files whose numbers differ, so the answer cannot be a number the
+    region happened to end on. Both refusals the read can hit are named and leave no target
+    behind.
+    """
+
+    for knob in (None, "0", "false"):
+        result, words = drive_joiner_target_read(tmp_path, knob=knob, tag=f"old-{knob}")
+        assert result.returncode == 0, result.stderr
+        assert words == ["25570"], f"{knob}: a shape that predates the card moved"
+
+    result, words = drive_joiner_target_read(tmp_path, knob="1", port="25566", tag="one")
+    assert result.returncode == 0, result.stderr
+    assert words == ["25566"]
+    assert "server.properties" in result.stderr, (
+        "the read said nothing about where the endpoint came from"
+    )
+    result, words = drive_joiner_target_read(tmp_path, knob="1", port="25599", tag="other")
+    assert result.returncode == 0, result.stderr
+    assert words == ["25599"], "the target stopped tracking this run's own settings file"
+
+    # The address is read alongside it, and a non-loopback one is refused rather than
+    # dialled: this shape cannot name a machine this container did not start.
+    result, words = drive_joiner_target_read(tmp_path, knob="1", ip="198.51.100.20", tag="remote")
+    assert result.returncode == 2
+    assert words == []
+    assert "only the loopback literal the profile schema admits is dialled" in result.stderr
+
+    # A run that cannot read its own port writes no target at all, and the two ways that
+    # happens — an unreadable value, and no settings file — are both named.
+    result, words = drive_joiner_target_read(tmp_path, knob="1", port="not-a-port", tag="garbage")
+    assert result.returncode == 2
+    assert words == []
+    assert "cannot read the port its own controlled server bound" in result.stderr
+    result, words = drive_joiner_target_read(tmp_path, knob="1", properties=False, tag="absent")
+    assert result.returncode == 2
+    assert words == []
+    assert "cannot read the port its own controlled server bound" in result.stderr
+
+    # And the value the region lands on is the value the profile writer is handed.
+    text = (RUNNER / "domain.sh").read_text(encoding="utf-8")
+    assert JOINER_PROFILE_WRITER in text, "the writer stopped being handed the read port"
+    assert joiner_target_is_read_from_this_run(text)
+
+
+def test_the_second_whitelist_name_is_the_joiner_this_run_already_starts(
+    tmp_path: Path,
+) -> None:
+    """The dedicated world enforces its whitelist, so the run names its own second Kin.
+
+    Driven as the shipped splice on top of the shipped list-build, both ways: the ask adds
+    exactly one `--allow-player` word and its value is `${join_username}` — the name the
+    arrival grep, the ledger baseline and the seal's `subject_username` already use — and
+    with the ask absent the list is the one every earlier run handed the server. Nothing
+    here admits a name this run did not create: `--allow-player` still means one player
+    this run starts itself, and the count stays at the two Kin of this run.
+    """
+
+    text = (RUNNER / "domain.sh").read_text(encoding="utf-8")
+    assert joiner_allowlist_entry_is_guarded(text)
+    head = text.index('    allow_args=(--allow-player "${player}")')
+    build = text[head : text.index("# --- joiner-controlled-server-allowlist begin")]
+    assert "not_whitelisted" in build and "allow_args=()" in build
+    region = joiner_on_server_region(text, "allowlist")
+
+    def drive(knob: str | None, not_whitelisted: str = "") -> list[str]:
+        body = (
+            "set -euo pipefail\n"
+            + 'player="Kin"\njoin_username="Kin2"\n'
+            + f"not_whitelisted={shlex.quote(not_whitelisted)}\n"
+            + joiner_on_server_cast(text)
+            + build
+            + region
+            + 'for word in "${allow_args[@]}"; do printf "<%s>" "${word}"; done\n'
+            + 'printf "\\n"\n'
+        )
+        result = run_shelled(
+            tmp_path,
+            body,
+            None if knob is None else {JOINER_CONTROLLED_SERVER_KNOB: knob},
+            f"allow-{knob or 'unset'}-{'nl' if not_whitelisted else 'listed'}",
+        )
+        assert result.returncode == 0, result.stderr
+        return bracketed(result)
+
+    assert drive(None) == ["--allow-player", "Kin"]
+    assert drive("0") == ["--allow-player", "Kin"]
+    assert drive("false") == ["--allow-player", "Kin"]
+    assert drive("1") == ["--allow-player", "Kin", "--allow-player", "Kin2"]
+    assert drive(None, "1") == []
+
+    # The combination that would have emptied the list *and* added a name is refused before
+    # the server is ever started, so the refusal scenario stays a refusal scenario.
+    assert text.index("# --- joiner-controlled-server-guard begin") < text.index(
+        "# --- joiner-controlled-server-allowlist begin"
+    )
+
+
+def test_each_wait_shape_keeps_its_own_oracle_and_the_new_one_waits_on_this_runs_log() -> None:
+    """Acceptance ④: one shape assertion per shape, over the parsed wait chain.
+
+    The chain is read as branches in the order a run tries them, so the claim is about
+    which branch a shape takes and what that branch believes, not about a substring
+    appearing somewhere in a 2900-line file. The three shapes that existed before this
+    card keep their condition, their order and their oracle, and none of their bodies
+    mentions the new name at all; the new branch sits between the LAN world and the
+    no-server test, is gated on the cast rather than on the raw name (so `0` and `false`
+    take the old path), and its oracle is the log of the server this run started — the
+    same file the `data get entity` answers land in.
+    """
+
+    text = (RUNNER / "domain.sh").read_text(encoding="utf-8")
+    branches = wait_chain_branches(text)
+    conditions = [condition for condition, _ in branches]
+
+    order = [
+        WAIT_SHAPE_ORACLES["lan_published_world"][0],
+        WAIT_SHAPE_ORACLES["joiner_on_controlled_server"][0],
+        WAIT_SHAPE_ORACLES["dedicated_server_single_client"][0],
+    ]
+    positions = [conditions.index(condition) for condition in order]
+    assert len(set(positions)) == 3 and positions == sorted(positions), (
+        f"the new branch is not between the LAN world and the no-server test: {conditions}"
+    )
+
+    for shape, (condition, oracle, said) in WAIT_SHAPE_ORACLES.items():
+        body = branch_body(branches, condition)
+        assert oracle in body, f"{shape} no longer waits on {oracle}"
+        assert said in body, f"{shape} no longer says {said}"
+        if shape != "joiner_on_controlled_server":
+            assert "join_on_controlled_server" not in body, (
+                f"{shape}'s wait now reads the new name; the default-off equality is gone"
+            )
+
+    # Two call sites for the joining client in the whole file, one per shape that has a
+    # second client at all, and each hands over the arrival oracle of its own world.
+    assert text.count("join_the_published_world ") == 2, (
+        "a third shape started the joining client, or one of the two lost its call"
+    )
+    assert joiner_wait_reads_its_own_server_log(text)
+    assert "${server_directory}/server.log" not in branch_body(
+        branches, WAIT_SHAPE_ORACLES["lan_published_world"][0]
+    )
+    # The dedicated server this run started is still waited for on its own `Done (`, which
+    # is what lets the new branch wait on arrival rather than on the world existing.
+    assert "grep -q 'Done (' \"${server_directory}/server.log\"" in text
+
+
+def test_the_controlled_server_joiner_shape_is_not_an_always_true_claim(
+    tmp_path: Path,
+) -> None:
+    """The card's two counterexamples, planted in copies of the shipped bytes.
+
+    Each mutation is driven, not read: the port written as a constant still hands the
+    writer a number, and it is the *wrong* number as soon as the run's own settings say
+    something else — which is the reading the acceptance names. The knob defaulting to on
+    turns the default-off equality red on the shipped cast alone. The rest are the ways the
+    other two predicates could keep printing words while ceasing to be readings.
+    """
+
+    text = (RUNNER / "domain.sh").read_text(encoding="utf-8")
+    assert joiner_target_is_read_from_this_run(text)
+    assert joiner_wait_reads_its_own_server_log(text)
+    assert joiner_allowlist_entry_is_guarded(text)
+
+    # CE-1 (the card's counterexample a): the port as a constant. The shape still prints a
+    # target; the tie to this run's file is what goes red, measured by driving the mutated
+    # region against a settings file saying 25599.
+    region = joiner_on_server_region(text, "target")
+    hardcoded = region.replace(
+        '        joiner_target_port="${controlled_server_port}"\n',
+        '        joiner_target_port="25566"\n',
+        1,
+    )
+    assert hardcoded != region
+    result, words = drive_joiner_target_read(tmp_path, region=hardcoded, knob="1", tag="ce-1")
+    assert result.returncode == 0, result.stderr
+    assert words == ["25566"], "the planted constant did not take"
+    assert not joiner_target_is_read_from_this_run(text.replace(region, hardcoded, 1)), (
+        "a constant port still reads as this run's own endpoint"
+    )
+
+    # CE-1b: reading some other run's settings file — a path that is not this run's.
+    borrowed = region.replace(
+        'joiner_target_source="${server_directory}/server.properties"',
+        'joiner_target_source="/data/server-runs/run-1/server.properties"',
+        1,
+    )
+    assert borrowed != region
+    assert not joiner_target_is_read_from_this_run(text.replace(region, borrowed, 1))
+
+    # CE-2 (the card's counterexample b): the knob defaulting to on. The shipped cast,
+    # driven with the name stripped from the environment, now answers `asked` — and every
+    # reading that rests on default-off goes red with it. The same words on the same drive,
+    # one `1` in the default, is the whole difference.
+    shipped_cast = joiner_on_server_cast(text)
+    defaulted_cast = shipped_cast.replace(":-}", ":-1}", 1)
+    assert defaulted_cast != shipped_cast
+
+    def cast_words(cast: str, tag: str) -> list[str]:
+        result = run_shelled(
+            tmp_path,
+            "set -euo pipefail\n" + cast + 'printf "<%s>" "${join_on_controlled_server_asked}"\n',
+            None,
+            tag,
+        )
+        assert result.returncode == 0, result.stderr
+        return bracketed(result)
+
+    assert cast_words(defaulted_cast, "ce-2") == ["1"]
+    assert cast_words(shipped_cast, "ce-2-control") == ["0"], (
+        "the shipped cast is not default-off either, so nothing was measured"
+    )
+
+    # CE-3: the new branch's oracle moved back to a client log — the file that cannot say
+    # which server answered, which is the gap this card exists to close.
+    wait_region = joiner_on_server_region(text, "wait")
+    onto_client = wait_region.replace(
+        'join_the_published_world "${server_directory}/server.log"',
+        'join_the_published_world "${latest}"',
+        1,
+    )
+    assert onto_client != wait_region
+    assert not joiner_wait_reads_its_own_server_log(text.replace(wait_region, onto_client, 1))
+
+    # CE-4: the whitelist splice unguarded, so a run that asked for none of this still
+    # hands the server a second name.
+    allowlist = joiner_on_server_region(text, "allowlist")
+    unguarded = allowlist.replace(
+        '    if [ "${join_on_controlled_server_asked}" -eq 1 ]; then\n',
+        "    if true; then\n",
+        1,
+    )
+    assert unguarded != allowlist
+    assert not joiner_allowlist_entry_is_guarded(text.replace(allowlist, unguarded, 1))
+
+    # CE-5: one guard clause turned into a remark. The two-destination combination then
+    # walks through to a second client with no chosen world — the fault class the guard was
+    # written for, and the reason the refusals above are driven rather than read.
+    guard = joiner_on_server_region(text, "guard")
+    silenced = guard.replace('    if [ -n "${open_lan}" ]; then\n', "    if false; then\n", 1)
+    assert silenced != guard
+    body = (
+        "set -euo pipefail\n"
+        + guarded_shape_prelude(open_lan="1")
+        + joiner_on_server_cast(text)
+        + silenced
+        + "printf 'guard-passed\\n'\n"
+    )
+    result = run_shelled(tmp_path, body, {JOINER_CONTROLLED_SERVER_KNOB: "1"}, "ce-5")
+    assert result.returncode == 0, result.stderr
+    assert "guard-passed" in result.stdout
