@@ -1178,7 +1178,7 @@ def test_an_auto_bundle_run_is_captured_named_and_otherwise_refused() -> None:
     assert '--case "${case_file}" \\\n            "${seal_profile_args[@]}" \\' in text
 
 
-def test_the_console_probe_is_a_default_and_the_status_switch_is_read() -> None:
+def test_the_console_probe_is_a_default_and_the_status_switch_is_read(tmp_path: Path) -> None:
     """Two readings a run could not have before, and no new verdicts.
 
     The first is the server-side account of where the Kin is. `data get entity`
@@ -1213,12 +1213,227 @@ def test_the_console_probe_is_a_default_and_the_status_switch_is_read() -> None:
     assert 'probe_args=()\nif [[ -n "${probe}" ]]; then' not in text
     # And the judgement gate that reads those lines is still the knob, unchanged.
     assert '[[ -n "${probe}" && "${hold_requested}" -eq 1' in text
+    # V1201-LAN-SECOND-NAMED-PROBE-TARGET-001's second name joins this same pin and
+    # stays default-off in this same literal way: one read, beside the first name's,
+    # with an empty default; the construction line pinned above still built by itself
+    # exactly once in the file; and the second name reaches `probe_args` only after
+    # that line — never inside it, never in the first name's place. Together these
+    # are the byte-level equality an unset `MINEKIN_DOMAIN_PROBE_SECOND` owes.
+    assert text.count('probe_second="${MINEKIN_DOMAIN_PROBE_SECOND:-}"') == 1
+    assert (
+        text.count(
+            'probe_args=(--probe-player "${probe:-${player}}" '
+            '--probe-every-seconds "${probe_seconds}")'
+        )
+        == 1
+    )
+    assert '--probe-player "${probe_second:-' not in text
+    assert "${probe:-${probe_second}" not in text
+    # The driven half of the same equality, and the one counterexample (b) turns
+    # red: the shipped construction bytes, run with the knob unset, yield exactly
+    # the single-name argv they yielded before the second name existed. An append
+    # that loses its empty-guard adds a name nobody asked for — and this is where
+    # that reads red, since every other clause here still holds.
+    result = run_shelled(
+        tmp_path,
+        second_probe_prelude(probe="", probe_second="", use_target="")
+        + second_probe_region(text, "forge")
+        + PROBE_ARGS_CAPTURE,
+        None,
+        "default-off",
+    )
+    assert result.returncode == 0, result.stderr
+    assert bracketed(result) == ["--probe-player", "Kin", "--probe-every-seconds", "5"]
     # The status switch is read from the server's own settings and printed.
     assert "s/^enable-status=//p" in text
     assert "printf 'domain: the controlled server reports enable-status=%s\\n'" in text
     # An auto run whose server cannot answer stops by name, before the client.
     assert 'if [ -n "${auto_bundle}" ] && [ "${enable_status}" != "true" ]; then' in text
     assert "the auto path needs this server to answer status" in text
+
+
+#: The two named refusals of V1201-LAN-SECOND-NAMED-PROBE-TARGET-001, stored
+#: verbatim (`%s` and all). A paraphrase would let the guard rephrase itself and
+#: stay green, so the shipped bytes are compared against these words before the
+#: region that carries them is ever driven.
+SECOND_PROBE_SAME_NAME_REFUSAL = (
+    "domain: MINEKIN_DOMAIN_PROBE_SECOND names %s, and that is the name this run "
+    "already asks as its first probe target (MINEKIN_DOMAIN_PROBE, or the "
+    "whitelisted account when it is unset); one run asking the same name twice is "
+    "not a reading of two kins -- refused here, before anything is written"
+)
+SECOND_PROBE_USE_TARGET_REFUSAL = (
+    "domain: MINEKIN_DOMAIN_USE_TARGET places one block in the look of one probed "
+    "kin and MINEKIN_DOMAIN_PROBE_SECOND adds a second probed name (%s); the pair "
+    "does not say whose look the block is placed in -- refused here, before "
+    "anything is written"
+)
+
+#: Prints the array the shipped construction built, one bracketed word per argv slot.
+PROBE_ARGS_CAPTURE = """printf '  <%s>' "${probe_args[@]}"
+printf '\\n'
+"""
+
+
+def second_probe_prelude(*, probe: str, probe_second: str, use_target: str) -> str:
+    """The locals the second-probe regions read: the top-of-file reads, as a run sees them.
+
+    `player` is the whitelisted account the file defaults it to (`Kin`), `probe_seconds`
+    the default cadence; both are constants here because this card changes nothing about
+    them — what is driven is only what the second name does to the construction.
+    """
+
+    return (
+        "set -euo pipefail\n"
+        'player="Kin"\n'
+        'probe_seconds="5"\n'
+        f'probe="{probe}"\n'
+        f'probe_second="{probe_second}"\n'
+        f'use_target="{use_target}"\n'
+    )
+
+
+def second_probe_region(text: str, name: str) -> str:
+    """One shipped region of the second probe name, marker to marker, sans begin line.
+
+    Same rule the H1k regions follow: every reading here runs the bytes a run executes,
+    so changing them moves a test before it moves a live run. An empty extraction says
+    so rather than making every driven reading vacuous.
+    """
+
+    begin = f"# --- second-probe-{name} begin"
+    end = f"# --- second-probe-{name} end ---"
+    start = text.index(begin)
+    lines = text[start : text.index(end, start)].splitlines(keepends=True)
+    assert len(lines) > 2, f"the second-probe {name} region came out empty; wrong markers"
+    return "".join(lines[1:])
+
+
+def test_the_second_probe_name_rides_after_the_first_when_the_run_names_one(
+    tmp_path: Path,
+) -> None:
+    """Set, `MINEKIN_DOMAIN_PROBE_SECOND` appends a second `--probe-player`.
+
+    The card's words: appended *after* the unique construction point, never replacing
+    the first name — the first is what the walk-and-turn judgement gates read, and a
+    run that swapped the two would silently judge one kin while reporting another. The
+    static clause pins the append's shipped shape; the driven clause runs those bytes
+    with two distinct names and demands both names in the argv, in that order.
+    """
+
+    text = (RUNNER / "domain.sh").read_text(encoding="utf-8")
+
+    forge = second_probe_region(text, "forge")
+    assert text.count('probe_args+=(--probe-player "${probe_second}")') == 1
+    # The append is in the construction region, and it comes after the first
+    # name's line, never before it. That the append answers to an empty-guard is
+    # the default-off clause above: this case holds the other half — set a second
+    # name and the shipped bytes hand it to the server *after* the first.
+    assert forge.index("probe_args=(--probe-player") < forge.index(
+        'probe_args+=(--probe-player "${probe_second}")'
+    )
+
+    result = run_shelled(
+        tmp_path,
+        second_probe_prelude(probe="", probe_second="Kin2", use_target="")
+        + forge
+        + PROBE_ARGS_CAPTURE,
+        None,
+        "second-name",
+    )
+    assert result.returncode == 0, result.stderr
+    assert bracketed(result) == [
+        "--probe-player",
+        "Kin",
+        "--probe-every-seconds",
+        "5",
+        "--probe-player",
+        "Kin2",
+    ]
+
+
+def test_the_second_probe_refusals_are_shipped_verbatim_and_answer_before_any_write() -> None:
+    """The two combinations the second name cannot carry are refused by name, early.
+
+    Early means: before the construction the guard protects, before the server run
+    directory is numbered, before the joining client's profile document is written,
+    and before `run_controlled_server.py` is invoked — nothing this run could leave
+    on disk exists yet at the point the refusal is said. `tools/run_controlled_server.py`
+    refuses both shapes too; that is the backstop, not this card's criterion, so the
+    words and the `exit 2` demanded here are the harness's own.
+    """
+
+    text = (RUNNER / "domain.sh").read_text(encoding="utf-8")
+
+    assert text.count(SECOND_PROBE_SAME_NAME_REFUSAL) == 1
+    assert text.count(SECOND_PROBE_USE_TARGET_REFUSAL) == 1
+
+    guard = text.index("# --- second-probe-guard begin")
+    assert guard < text.index('probe_args=(--probe-player "${probe:-${player}}"')
+    assert guard < text.index('server_directory=""')
+    assert guard < text.index('python - "${joiner_target_port}" /tmp/domain-join-profile.json')
+    assert guard < text.index("python /src/tools/run_controlled_server.py")
+    # And it is its own guard, not a splice into the joiner region the H1k contract
+    # extracts marker-to-marker: adding names there would silently widen that card's
+    # extraction and its `exit 2` census.
+    assert guard > text.index("# --- joiner-controlled-server-guard end ---")
+    assert second_probe_region(text, "guard").count("exit 2") == 2
+
+
+@pytest.mark.parametrize(
+    ("probe", "use_target", "probe_second", "refusal", "refusal_word"),
+    [
+        ("", "", "", "", ""),
+        ("", "1", "", "", ""),
+        ("", "1", "Kin2", SECOND_PROBE_USE_TARGET_REFUSAL, "Kin2"),
+        ("", "", "Kin", SECOND_PROBE_SAME_NAME_REFUSAL, "Kin"),
+        ("Kin", "", "Kin", SECOND_PROBE_SAME_NAME_REFUSAL, "Kin"),
+        ("Kin1", "1", "Kin2", SECOND_PROBE_USE_TARGET_REFUSAL, "Kin2"),
+        ("Kin1", "", "Kin2", "", ""),
+    ],
+    ids=[
+        "all-off",
+        "target-alone",
+        "target-with-second",
+        "same-as-default-first",
+        "same-as-named-first",
+        "both-together",
+        "distinct-names",
+    ],
+)
+def test_the_second_probe_guard_answers_the_pairs_it_cannot_ask_about(
+    probe: str,
+    use_target: str,
+    probe_second: str,
+    refusal: str,
+    refusal_word: str,
+    tmp_path: Path,
+) -> None:
+    """The shipped guard region, driven: two refusals, three quiet shapes, no fourth.
+
+    `same-as-default-first` is the pair that needs the fallback to be read: with
+    `MINEKIN_DOMAIN_PROBE` unset the first name *is* the whitelisted account, and a
+    guard that only compared against the raw knob would let `Kin`/`Kin` through. The
+    use-target rows name the second kin because that is what the shipped message
+    substitutes. The quiet rows keep the refusals from being an always-true claim.
+    """
+
+    text = (RUNNER / "domain.sh").read_text(encoding="utf-8")
+    body = (
+        second_probe_prelude(probe=probe, probe_second=probe_second, use_target=use_target)
+        + second_probe_region(text, "guard")
+        + "printf '<passed>'\n"
+    )
+    result = run_shelled(tmp_path, body, None, f"guard-{probe or 'Kin'}-{probe_second}")
+
+    if refusal:
+        assert result.returncode == 2, f"{result.returncode}: {result.stdout}{result.stderr}"
+        assert result.stderr == refusal % refusal_word + "\n"
+        assert bracketed(result) == []
+    else:
+        assert result.returncode == 0, result.stderr
+        assert bracketed(result) == ["passed"]
+        assert result.stderr == ""
 
 
 def test_the_auto_path_hands_the_status_opt_in_to_the_controlled_launcher() -> None:

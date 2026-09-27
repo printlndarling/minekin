@@ -25,6 +25,14 @@ seconds="${MINEKIN_DOMAIN_SECONDS:-240}"
 player="${MINEKIN_USERNAME:-Kin}"
 summon="${MINEKIN_DOMAIN_SUMMON:-}"
 probe="${MINEKIN_DOMAIN_PROBE:-}"
+# The run's *second* probe target (V1201-LAN-SECOND-NAMED-PROBE-TARGET-001).
+# Default-off: unset means the run asks one name, exactly what every run did
+# before this knob existed. Set, it is taken up at the single probe
+# construction below, where it is *appended* as a second `--probe-player` and
+# never replaces the first — the first name is what the walk-and-turn judgement
+# gates read. Two combinations the second name cannot carry are refused there,
+# by name, before this run writes anything or starts anything.
+probe_second="${MINEKIN_DOMAIN_PROBE_SECOND:-}"
 kill="${MINEKIN_DOMAIN_KILL:-}"
 kick="${MINEKIN_DOMAIN_KICK:-}"
 silence="${MINEKIN_DOMAIN_SILENCE:-}"
@@ -791,7 +799,42 @@ fi
 # adds readings, not verdicts, and the judgement set is exactly what it was. The
 # default name is the account this run whitelists, which is the Kin those scenarios
 # put in the world.
+# --- second-probe-guard begin (the contract test extracts this region) ---
+# Two asks the second name cannot answer, said here rather than downstream. This
+# point is before the server's run directory is numbered, before the server JVM,
+# and before any document this run could write, so a refusal leaves nothing behind.
+# `tools/run_controlled_server.py` refuses both shapes as well, and that is only
+# the backstop: a harness that carried a contradictory ask to the tool has already
+# failed to answer it where the ask was made.
+#
+#   * the second name is the first name: asking one entity twice is not a reading
+#     of two, and the second name exists precisely to ask another than the first;
+#   * `MINEKIN_DOMAIN_USE_TARGET` places one block in one probed kin's look, and
+#     two probed names do not say whose look the block is for.
+if [[ -n "${probe_second}" ]]; then
+    if [[ "${probe_second}" == "${probe:-${player}}" ]]; then
+        printf 'domain: MINEKIN_DOMAIN_PROBE_SECOND names %s, and that is the name this run already asks as its first probe target (MINEKIN_DOMAIN_PROBE, or the whitelisted account when it is unset); one run asking the same name twice is not a reading of two kins -- refused here, before anything is written\n' \
+            "${probe:-${player}}" >&2
+        exit 2
+    fi
+    if [[ -n "${use_target}" ]]; then
+        printf 'domain: MINEKIN_DOMAIN_USE_TARGET places one block in the look of one probed kin and MINEKIN_DOMAIN_PROBE_SECOND adds a second probed name (%s); the pair does not say whose look the block is placed in -- refused here, before anything is written\n' \
+            "${probe_second}" >&2
+        exit 2
+    fi
+fi
+# --- second-probe-guard end ---
+#
+# The second name, when the run named one, is *appended* after the first and
+# never put in its place: the first name is what the judgement gates above read.
+# With the knob unset the branch below does not run, and `probe_args` stays
+# byte-identical to what it was before the second name existed.
+# --- second-probe-forge begin (the contract test extracts this region) ---
 probe_args=(--probe-player "${probe:-${player}}" --probe-every-seconds "${probe_seconds}")
+if [[ -n "${probe_second}" ]]; then
+    probe_args+=(--probe-player "${probe_second}")
+fi
+# --- second-probe-forge end ---
 if [[ -n "${use_target}" ]]; then
     probe_args+=(--use-target)
 fi
