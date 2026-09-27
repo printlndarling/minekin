@@ -67,7 +67,7 @@ H1h/V5/C1/E7 任一失败只阻断其依赖链，不把整个项目标成完成�
 
 M 在等 H1h 的窗口里把「有没有可判载体」量成了事实，结论改变了 M-C1 的形状：
 
-1. **单 bundle 双载体不需要扩 schema**：封存入口本就有 `--server-directory` 与 `--world-run-document` 两个参数（`tools/seal_run_evidence.py:869/898` 一带，分别封成 `server/server.log` 与 `host-run-document.json`）。卷内 6 份 `CORE-030` 加入者 bundle 之所以只有后者、没有前者，是因为当时那次封存没传 `--server-directory`——**缺的是参数，不是实现**。⇒ E7 仍是「一个 bundle、同一次 run」封证，不触主控保留的跨 bundle 链上载体。
+1. **单 bundle 双载体不需要扩 schema**：封存入口本就有 `--server-directory` 与 `--world-run-document` 两个参数（`tools/seal_run_evidence.py:870` 与 `:876`，分别封成 `server/server.log` 与 `host-run-document.json`）。卷内 6 份 `CORE-030` 加入者 bundle 之所以只有后者、没有前者，是因为当时那次封存没传 `--server-directory`——**缺的是参数，不是实现**。⇒ E7 仍是「一个 bundle、同一次 run」封证，不触主控保留的跨 bundle 链上载体。
 2. **但服务端位置读数是无名的，加入者的移动今天不能自证归属**。实测三件事：
    - `tools/run_controlled_server.py:489/507` 把探针发成 `data get entity <player> Pos|Rotation`，目标名只出现在**命令**里；
    - 卷内真 `server/server.log` 里只有答案行 `has the following entity data: [...]`，`data get entity <name>` 形式的命令行 **0 次出现**（抽样 CORE-060 ×3、CORE-020 ×1，答案行 0~6 条）；
