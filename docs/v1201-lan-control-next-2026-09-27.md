@@ -518,3 +518,38 @@ lane 仍在收 §2.22 第③④项（它的容器窗在用，M 不进那棵树�
 **方法（这一条才是本轮真正的产出）**：以后 M 落地前先 `sed` 现读 `ci.yml` 的 `- run:` 清单并逐道跑，commit message 只写那一份清单上的 rc；「跑了几道常见的门」不等于「CI 的门跑全了」。同一条已写进本轮给 H1k 续跑的验收里（明列 `ruff format --check` 与 `pyright`），避免 lane 交上来一笔同样红在主干上的合入。
 
 **现场与四态**：lane 树本轮 21:54 只读复量仍是 `29c5187` + 三处脏（`domain.sh` +169 / `test_runner_scripts.py` +953 / 未跟踪验证记录），最后写点是 21:35 的 `.tmp/h1k-recheck/`、`docker ps` 已空 ⇒ 判上一段会话已停，M 按「先确认在飞会话已停再派接手」这条硬前置派了续跑会话**收口 §2.22 并自己 push**（M 不代提交、不进其树）。已合主干＝M-T1 的修复两笔（`5ec0500`+`8b66356` → `d1ba27e`，CI 绿）；仅在分支＝H1k（在跑收口）；真实封证＝**0**（LAN 第二客户端在受控专服形状下的同 run 封证一格未动）；未验证＝lane ③ 的两轮活体、② 的大套件逐格红、CE 三组破桩（M 未复量），以及 H1m/V5′ 全卡。未连接用户远程服；未改判据/cases/registry/`mandatory`；失败材料（红 run 清单在 `.tmp/m-r50-ci.json`、`.tmp/m-r49-jobs.json`，各 `.tmp/g-*.log`）未删未覆盖。
+
+## §2.32 补正 §2.31 的「全套」：CI 侧逐步读数其实拿得到，而 M 本地那套仍漏了三道（第五十轮后半，2026-09-27 22:10 +0800）
+
+§2.31 有两处要说得更准，这里以新的一笔补上，原文不 rewrite。
+
+**其一：CI 的逐步结论不必靠浏览器。** §2.31 写「jobs 端点对未认证请求仍 404」——那 404 是 M 自己用了错的 run id。按 `actions/runs?per_page=9` 返回项里的真实 `id` 请求 `https://api.github.com/repos/printlndarling/minekin/actions/runs/<id>/jobs` 得到 **http=200**，`jobs[].steps[]` 就是逐步结论。材料已存在（`conclusion` 的原文取法见 `reference-github-ci-access-windows` 一节，本轮把它从「引用」变成「实测可用」）。真正拿不到的仍只是**日志正文**（`…/logs` 未认证 404）。
+
+**其二：M 本地跑的并不覆盖 `ci.yml` 的全部步骤。** 用 CI 自己的读数摆出来：
+
+- `881`（红，`8b66ccf`）的 `python` job：step 5 `ruff check` **success**、step 6 `Run uv run ruff format --check .` **failure**、step 7 `pyright` 及其后全部 **skipped**。⇒ CI 侧只证到 format 这一道；`pyright` 的红是 M 本地 `rc=1`（3 errors，`:616` 的内联 `lambda`）实测的，它的绿由 `883` step 7 **success** 证。两侧合起来才是这两道门的完整证据，任一单独引用都不足。
+- `883`（绿，`d1ba27e`）的 `python` job **15 步全 success**，含 M 本地从没跑过的 step 13 `uv build --wheel`、step 14 `check_wheel_boundary.py dist/*.whl`、step 15 `minekin --help` ⇒ §2.31 那句「全套按 `ci.yml` 现读逐项复量」在**清单意义上仍不完整**（现读了清单却只跑了 10/13 道）。这三道已在主干字节上补跑：`build_rc=0`、`wheel_rc=0`（`Wheel oracle boundary: OK dist\minekin_core-0.0.0-py3-none-any.whl`）、`help_rc=0`（`usage: minekin [-h] {init,doctor,bundle,launch-plan,session,server,evidence,replay} …`）。
+
+**因此把口径钉成一句可执行的话**：M 的门禁清单 = `.github/workflows/ci.yml` 里 `python` job 的**全部** `- run:` 步骤（现读到，不背），加上 `uv sync --locked --dev` 之外的所有道；对 lane 的派工同样把这三道列进去。
+
+## §2.33 H1k 已合主干（第五十轮，2026-09-27 22:10 +0800，M 从真实 merge-base 独立复审后合入并推远端）
+
+**lane 的收口（它自己提交、自己 push，M 未代做）**：分支 `codex/minekin-v1201-joiner-on-controlled-server` 首推，远端 = `84648c0f718985c12de3b49697c229f999b0b7d1`，三笔 `b0c816c`（harness：第七具名拒止 + 目标读法 + 等待支）/`727fe1c`/`84648c0`（验证记录 §11–§12）。lane 树工作区现已干净。**M 派工时把 `ruff format --check` 与 `pyright` 明写进验收**（§2.31 的教训直接用上了），lane 交回的退出码含这两道各自 0。
+
+**真实 merge-base 与改面**：`git merge-base origin/main origin/<lane>` = **`29c5187`**（M 施工支那两笔不在 lane 的祖先里，两侧自 `29c5187` 分叉）；merge diff 恰 **3 文件 `+1820/-4`**：`test-orchestrator/runner/domain.sh` +169、`tests/contract/test_runner_scripts.py` +953、`docs/validation/v1201-joiner-on-controlled-server-2026-09-27.md` +702。`--no-ff` 合入为 **`a452e84`**，push 后 `git ls-remote origin refs/heads/main` = `a452e8497cc17f84c593de2a896294bcada9a6a3`。
+
+**M 侧独立复审的落点（读 lane 字节本身，不读它的结论）**：
+1. **默认关闭是真关闭**：`join_on_controlled_server="${MINEKIN_DOMAIN_JOIN_ON_CONTROLLED_SERVER:-}"` + `case` 只对 `1|true` 置位、坏值 `exit 2`（不是静默忽略）。
+2. **七条具名拒止在任何落盘之前**：guard 块位于 `--server-profile` 已扫过、服务端目录未建、Kin 未造、JVM 未起之处；七条依次是 joiner 缺席 / `--server-profile` 缺席 / `open_lan` / `black_hole` / `no_server` / `not_whitelisted` / **`refuse_first_snapshot`（第七条，即 §2.17 的退回项 #56）**，每条都点名是哪两个名字打架并 `exit 2`。
+3. **允许面没有变宽**：`--allow-player` 只在置位时追加 `${join_username}` —— 本 run 自己启动的那个名字，也是入场 grep、账本基线、seal 的 `subject_username` 读的同一个值；白名单与 enforcement 未动；未写入任何字面玩家名。
+4. **地址面是收紧不是放宽**：加入者端口/地址从**本 run 自己的** `${server_directory}/server.properties` 读（读不到即具名拒），且 `server-ip != 127.0.0.1` ⇒ `exit 2`。这条正是「不连用户远程服」在 harness 侧的机器化：这一形状的 run 不可能 dial 到容器自己没起的那台机器。
+5. **oracle 归属清楚**：新等待支读 `${server_directory}/server.log`——与 `data get entity` 的应答同一份文件，故「服务端看见加入的 Kin 转向」是读数而不是客户端自述；`join_ready` 为 0 时打的是「没送任何客户端」的具名话术。
+6. **契约不是装饰**：11 个新案，含 `test_the_seventh_refusal_is_not_an_always_true_claim`、`test_the_controlled_server_joiner_shape_is_not_an_always_true_claim`、`test_the_combination_stays_a_trunk_shape_while_the_new_name_is_off`（默认关闭时字节等价扩到该组合）、`test_the_joiners_target_under_the_new_name_is_this_runs_own_server_endpoint`、`test_each_wait_shape_keeps_its_own_oracle_and_the_new_one_waits_on_this_runs_log`；`run.sh` 的转发缺口是**具名登记**（`registered_gap = {JOINER_CONTROLLED_SERVER_KNOB}` + 双向集合差断言），不是隐瞒 ⇒ 归 H1l（#59）。
+7. **§2.22 四件闭合**：① 第七条（上列）；② 新字节容器内契约 `85 passed`、三门 `150 registered`/digests/boundaries、静态五门含两道新列的、全量在宿 `0`；③ 私有卷 `minekin-h1k-live` 上 live-e（武装）/live-f（控制关闭）两条真 run，且**自报口径更正**：live-f 的位移含 `run-5/server.log:106 Kin2 was slain by Slime`，故纯净对是 live-e↔live-d、混淆对是 live-c↔live-f；④ 门载荷 PRE==POST==`cfa0f118…`。
+8. **#58 保持为待判问题**：lane 未验证清单第 (iv) 格正是 `ONLINE_MODE=true × 新名 × 非 ADMIT-040` 那格，与 §2.26 的撤回一致，未有人偷偷「顺手关掉」。
+
+**M 在合并树上重跑的读数（各自单步读 rc）**：`ruff check` 0、`ruff format --check` 0（`366 files already formatted`）、`pyright` 0、`check_boundaries` 0、`check_case_assertions` 0（`150 registered`）、`verify_fixture_digests` 0、`check_workflow_pins` 0、全量 `pytest -q` 0（**`2666 passed, 3 skipped in 292.44s`**，相对 `d1ba27e` 的 2645 恰多 21 格 ⇒ lane 的 11 个新案 + 参数化展开）、`uv build --wheel` 0、`check_wheel_boundary` 0、`minekin --help` 0、`git diff --check` 0；门载荷在合并树字节 + 规范卷 `:ro` 上 `report_promotion` rc=**1**、103,921 字节、`gate_payload_sha256` 仍 `cfa0f1184bee30df6a1d9fcf45778c9cef074ece6761c47fe7d6b9f49863afd6` ⇒ **H1k 一字未移门**，且 M 这次是自己量的而不是引用 lane 的。lane 报的「容器内全量 2 failed + 3 errors」M **未复现也未复量**（那是镜像侧 jsonschema 缺集与既有红，CI 的 `python` job 在 `uv sync --locked` 下跑，不受该缺陷影响），按未验证列报。
+
+**队列现在能动的三格**：H1k 入干 ⇒ **H1l（#59）解除 blocked**（它要改的 `tests/contract/test_runner_scripts.py` 已不再是脏文件）、**H1m（#61）解除 blocked**（派工文本 §2.29 已写死，`domain.sh` 单 owner 空出）、V5′ 仍排在 H1l 与 H1m **之后**——§2.16 第 4 条第一格「同 run 内另一具名实体读数不变」在 H1m 入干前仍取不到，M-T1 只把 tools 侧备好。
+
+**四态**：已合主干＝H1k（`a452e84`，CI 待读）+ M-T1 的修复两笔；仅在分支＝无（lane 已 push 并入干）；**真实封证仍为 0**（LAN 第二客户端在受控专服形状下的同 run 封证未动，私有卷 live-c/d/e/f 全部按 lane 自己的口径「不是封证」计）；未验证＝lane 自报 5 格（专用 `No entity was found` 对照 run、同 run 内主持有者读数不变、`rc=14/BRIDGE_LOST` 是否落在 PASS 判据内属 V5′/M-C1、#58 那格、容器 2 红的成因）+ M 未复量的 lane 活体两跑与 CE 三组 + `a452e84` 的 CI 结论。规范卷对 M 仍只 `:ro`；未连接用户远程服；未改判据/cases/registry/`mandatory`；材料未删（`.tmp/m-r50-jobs881.json`、`.tmp/m-r50-jobs883.json`、`.tmp/m-r50m-*.log` 在案）。
