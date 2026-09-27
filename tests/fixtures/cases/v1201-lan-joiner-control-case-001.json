@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "case_id": "V1201-LAN-JOINER-CONTROL-CASE-001",
+  "work_package": "W60",
+  "mandatory": false,
+  "inputs": [
+    "tests/fixtures/runtime-input/bundle-candidate-1.20.1.json",
+    "tests/fixtures/runtime-input/controlled-offline-server-1.20.1.json"
+  ],
+  "assertion_digests": {
+    "move_input_was_leased": "e1ec3b7cc22434b1a0b5a0a5895ea3cec72f98d048c6abbe13edd8712f1a1747",
+    "the_bridge_carried_the_input_out": "ef4e96df26354ad7536c94e5085b2dc27de694116c731b7b0c703e664c7e3b77",
+    "the_probed_player_is_this_run_s_kin": "05e9ea31eb1e3250c922b18389492ee3cd1e4286570d568e1228b70faf089515",
+    "the_server_saw_the_kin_move": "c9adaf9826d85999f5d71098df73845430859e206c79013a772cca269d9c52a9"
+  },
+  "assertions": [
+    "move_input_was_leased",
+    "the_bridge_carried_the_input_out",
+    "the_server_saw_the_kin_move",
+    "the_probed_player_is_this_run_s_kin"
+  ]
+}

@@ -141,6 +141,10 @@ class _Asserter(Protocol):
     #: about a turn reads the other one.
     def probe_readings(self, log: str, components: int) -> tuple[tuple[float, ...], ...]: ...
 
+    #: The name-side of the same rule: the test helpers below hand names over the way
+    #: a harness does, one at a time, and read them back through the tool's own set.
+    def recorded_probed_players(self, names: Sequence[str] | None) -> tuple[str, ...]: ...
+
     def pack_listing_bytes(self, overlay: Path | None) -> bytes: ...
 
     def evaluate(self, case: Mapping[str, object], material: _Material) -> _Verdict: ...
@@ -272,6 +276,7 @@ def material(
     client_pack_listing: str = "",
     argv: Sequence[str] | None = None,
     carriers: Sequence[tuple[str, str]] = (),
+    probed_players: Sequence[str] | None = None,
 ) -> _Material:
     previous_run_id, previous_run_events = previous
     soak_samples, soak_summary = soak
@@ -297,6 +302,7 @@ def material(
         client_pack_listing=client_pack_listing,
         session_argv=None if argv is None else tuple(argv),
         exposure_carriers=tuple(carriers),
+        probed_players=ASSERTER_MODULE.recorded_probed_players(probed_players),
     )
 
 
@@ -7471,3 +7477,151 @@ def test_the_070_row_is_registered_without_being_made_mandatory() -> None:
     assert set(digests) == set(cast(list[str], case["assertions"]))
     for name, digest in digests.items():
         assert isinstance(digest, str) and len(digest) == 64, name
+
+
+# --- M-C1: the 1.20.1 joiner's bounded control, attributed to the Kin it drove ---------
+LAN_JOINER_CONTROL_CASE = CASES / "v1201-lan-joiner-control-case-001.json"
+
+#: The name this run is about is "Kin" and the other client in the same world is the
+#: one below. `server.log` answers a position probe with no name in the reply line, so
+#: which trajectory the case is judging is a fact the harness has to write down — and
+#: §2.52 froze this case onto the shape where exactly one name was ever asked about.
+OTHER_CLIENT = "Kin2"
+
+#: Asked twice, once per probe, in the pairs the server actually writes: the position
+#: triple, then the heading pair. The horizontal gap between the first and the last
+#: triple is the 8.627 blocks the private-volume joiner run measured.
+JOINER_PROBE_ANSWERS = (
+    "has the following entity data: [12.0d, -60.0d, 3.0d]\n"
+    "has the following entity data: [0.0f, 0.0f]\n"
+    "has the following entity data: [12.0d, -60.0d, 11.627d]\n"
+    "has the following entity data: [45.0f, 0.0f]\n"
+)
+
+
+def lan_joiner_control_case() -> dict[str, object]:
+    return cast(dict[str, object], json.loads(LAN_JOINER_CONTROL_CASE.read_text(encoding="utf-8")))
+
+
+def driven_joiner(**changes: object) -> _Material:
+    """A joiner run the case can hold: leased, carried out, moved, and named once."""
+
+    arguments: dict[str, object] = {
+        "document": run_document(actions_applied=1, actions_refused=0),
+        "log": JOINER_PROBE_ANSWERS,
+        "events": (event("PlayableEstablished"), LEASE, RELEASE),
+        "probed_players": (USERNAME,),
+    }
+    arguments.update(changes)
+    return material(**arguments)  # type: ignore[arg-type]
+
+
+def test_the_driven_joiner_holds_the_registered_case() -> None:
+    """The positive control: this case is reachable from sealed bytes, not only nameable."""
+
+    verdict = ASSERTER_MODULE.evaluate(lan_joiner_control_case(), driven_joiner())
+
+    assert verdict.result == "PASS"
+    assert verdict.observed == verdict.expected
+    assert verdict.failures == ()
+    assert verdict.unimplemented == ()
+
+
+def test_the_case_the_driven_joiner_holds_names_four_attributed_cells() -> None:
+    """The grant, the carrying, the world's own reading, and whose reading it is."""
+
+    case = lan_joiner_control_case()
+
+    assert case["assertions"] == [
+        "move_input_was_leased",
+        "the_bridge_carried_the_input_out",
+        "the_server_saw_the_kin_move",
+        "the_probed_player_is_this_run_s_kin",
+    ]
+    assert set(cast(list[str], case["assertions"])) <= set(ASSERTER_MODULE.ASSERTIONS)
+    assert set(cast(list[str], case["assertions"])) <= set(CHECKER.IMPLEMENTATIONS)
+
+
+def test_the_joiner_control_case_is_registered_without_being_made_mandatory() -> None:
+    """What this card moves, and what stays the controller's.
+
+    The row goes from absent to registered by this fixture existing. `mandatory`, the
+    registry's status for it, and any gate's promotion are not this case's business —
+    and no bundle on the volume cites it yet, so it cannot be read as evidence of a
+    run that has not been sealed.
+    """
+
+    case = lan_joiner_control_case()
+
+    assert case["case_id"] == "V1201-LAN-JOINER-CONTROL-CASE-001"
+    assert case["mandatory"] is False
+    assert case["work_package"] == "W60"
+    assert case["inputs"] == [
+        "tests/fixtures/runtime-input/bundle-candidate-1.20.1.json",
+        "tests/fixtures/runtime-input/controlled-offline-server-1.20.1.json",
+    ]
+    digests = cast(Mapping[str, object], case["assertion_digests"])
+    assert set(digests) == set(cast(list[str], case["assertions"]))
+    for name, digest in digests.items():
+        assert isinstance(digest, str) and len(digest) == 64, name
+
+
+def test_a_trajectory_the_host_was_asked_about_is_not_this_kin_s() -> None:
+    """First counterexample: one name, and it is not this run's.
+
+    The walk in the log is real and large enough; what is wrong is whose walk it is.
+    Naming the other client is the only honest answer, because a pass here would be a
+    pass for the wrong Kin — reached on bytes nobody downstream can re-read with a
+    name added later.
+    """
+
+    verdict = ASSERTER_MODULE.evaluate(
+        lan_joiner_control_case(), driven_joiner(probed_players=(OTHER_CLIENT,))
+    )
+
+    assert verdict.result == "FAIL"
+    assert verdict.failures == (
+        f"the_probed_player_is_this_run_s_kin:PROBED_PLAYER_IS_NOT_THIS_RUN_S_KIN:{OTHER_CLIENT}",
+    )
+
+
+def test_a_run_that_asked_about_both_clients_cannot_attribute_its_own_trajectory() -> None:
+    """Second counterexample: two names in one log, so the first one proves nothing.
+
+    The same readings, and the same distance walked as the positive control above —
+    the walk is not what fails here. Two clients in one world is what §2.52 refused to
+    build a case on: with both names asked, either trajectory could be the one the case
+    is about.
+    """
+
+    verdict = ASSERTER_MODULE.evaluate(
+        lan_joiner_control_case(), driven_joiner(probed_players=(USERNAME, OTHER_CLIENT))
+    )
+
+    assert verdict.result == "FAIL"
+    assert verdict.failures == (
+        f"the_probed_player_is_this_run_s_kin:MORE_THAN_ONE_PLAYER_PROBED:{USERNAME},{OTHER_CLIENT}",
+    )
+
+
+def test_the_same_place_asked_twice_is_not_a_walk() -> None:
+    """Third counterexample: the readings identical, so the move cell refuses by name.
+
+    This is the control-off shape the campaign run has to be able to produce: the
+    harness leased the hold and the Bridge carried the input, and the world answered
+    with the same place twice. The other three cells stay green, which is the point —
+    a case that could not tell "nothing was driven" from "nothing was recorded" would
+    pass a still run on the strength of its ledger alone.
+    """
+
+    still = (
+        "has the following entity data: [12.0d, -60.0d, 3.0d]\n"
+        "has the following entity data: [0.0f, 0.0f]\n"
+        "has the following entity data: [12.0d, -60.0d, 3.0d]\n"
+        "has the following entity data: [0.0f, 0.0f]\n"
+    )
+
+    verdict = ASSERTER_MODULE.evaluate(lan_joiner_control_case(), driven_joiner(log=still))
+
+    assert verdict.result == "FAIL"
+    assert verdict.failures == ("the_server_saw_the_kin_move:MOVED_LESS_THAN_A_STEP:0.00",)
