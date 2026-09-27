@@ -1943,3 +1943,11 @@ the target allows 1.21.4"}`，配对文档 `mismatch.json` 是 `schema_version 2
 - **另记一次假读数**：M 第一次用错键（`name`，真实键 `path`）打印 artifacts ⇒ 得到 `server/* = []` 的假象；重读才纠正。口径：键名先从盘上读，再断言「缺席」。
 - **下一步（文档顺序）**：**#66 先派**（专服形状 + `--case` 战役路径下加入者未到达；E7 的前置），E7（#49）在 #66 之前只会封出 FAIL bundle ⇒ 不开。M-G1（#50）排最后；空档做 #58 (乙)。
 - **纪律面**：M 本轮只写这两份主干文档与自己的 `.tmp/`；lane 树与 `../minekin` 零写入；规范卷只 `:ro`（只读 `report_promotion`）；未连用户远程服、未读 `.tmp/local-test-server.txt`；未翻 `mandatory`/registry/晋级；无 `--amend`/`--no-verify`；材料与失败材料未删。**LAN 第二客户端在受控专服形状下的规范卷真实封证仍 = 0 ⇒ 目标未完成。**
+
+## 第六十八轮补格：#66 派工前把「加入者未到达」量成事实——加入者 JVM 在**游戏初始化**阶段崩于 GLFW（`0x1000E`），报告本来就在 bundle 里 ⇒ 靶面在 `--case` 一侧的客户端环境/启动次序，不在服务端判据、也不在 H1q 的封存 argv（2026-09-28 06:12 +0800，M 主控；M 私有卷只读取材、零新战役、规范卷未挂、未连用户远程服）
+
+- **新读数**：`client/crash-reports/crash-2026-09-27_21.36.07-client.txt`（7,036 B，`9f2db49e…`，与 manifest 记录同值）= `Failed to initialize GLFW … [0x1000E]`，`Description: Initializing game`，`Backend API: Unknown`，LWJGL 3.3.1 / MC 1.20.1。时间线：`21:35:35` 起 → `server ready` → 拨 `127.0.0.1:25566` → **`21:36:07` 崩** → `Kin2 never arrived within 420s` → `HANDSHAKE_TIMEOUT` → `case verdict FAIL`。崩前 env 行：`DISPLAY=:77 XDG_RUNTIME_DIR=<unset> XAUTHORITY=<unset> GL_BACKEND=llvmpipe GL_PROBE_RC=0 WRAPPER=direct`。
+- **判据切分**：§2.51 三式 V5′（同卷同形状、不带 `--case`）加入者到场并被按名探到 ⇒ 差集在 `--case` 一侧。候选具名四条（X 授权 / `XDG_RUNTIME_DIR` 未落 / 两枚 llvmpipe 并发 / 启动次序竞态），lane 先做「只去掉两枚 CASE 变量」的 A/B。
+- **派工**：lane 树 `C:/Users/darling/Documents/agent_work/minekin-wt-h66`，分支 `codex/minekin-h66-campaign-joiner-arrival`，起点 `527b6a7`；卡面 `.tmp/h66-brief.md`（允许面三文件 + 自己的 `.tmp/h66/**`；判到 `tools/`/`src/`/fixture/镜像/`run.sh`/判据即停手回报；基线 `domain.sh 65947145…`/3276 行、契约 123、全量 2711/2 skipped、ruff 374、151 registered、载荷 `cfa0f118…63afd6`）。写入时点 lane `HEAD=527b6a7`、porcelain 0 行、远端 ref 未创建 ⇒ 只申报「已派工、零正面信号」。
+- **次序**：#66 在飞 ⇒ E7（#49）继续等待（现在直接跑只会再封一枚 FAIL bundle）；M-G1（#50）排最后；空档做 #58 (乙)。**真实封证仍 0 ⇒ 目标未完成。**
+- **CI**：记录笔 `527b6a7` = run 935 `36353653574` `completed/success`，三 job 逐步读结论 `non_success=[]`（`.tmp/m-r68/ci-527b6a7-jobs.json`）⇒ 上一格「未读到绿之前不写绿」在此闭合。

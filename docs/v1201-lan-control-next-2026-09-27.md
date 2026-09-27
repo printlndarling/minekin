@@ -1242,3 +1242,25 @@ C1-only 字节上的读数（`.tmp/m-r64-c1-gates.log`）：`check_case_assertio
 - 失败与对照材料留存：`.tmp/m-r68/live/out-host/{joiner-seal,ce,ce2}/` 与 `dump-manifests.txt`、`run.log`。本轮无 revert ⇒ 不涉 `-FE1` 改名；#66 的「加入者未到达」材料在 `joiner-seal/domain-stderr.log`（`Kin2 never arrived within 420s` → `THE_WORLD_STATUS_IS_NOT_PROBEABLE` → `HANDSHAKE_TIMEOUT` → `the case verdict is FAIL`）。
 
 **⑦ 次序与四态**：#65 H1q 闭合（复审 ⇒ 合并 `f5b239e` ⇒ push ⇒ CI 934 逐步绿 ⇒ 本记录）。E7（#49）的**形状面**因此解锁，但活体证据显示它现在阻塞在 **#66**：专服形状 + `--case` 的战役路径里加入者 `HANDSHAKE_TIMEOUT`、四枚判据 FAIL ⇒ E7 现在直接开跑只会封出另一枚 FAIL bundle。下一步按文档顺序：先派 #66（窄卡：把加入者到场接进战役路径），空档做 #58 (乙)，M-G1（#50）排最后。四态：M 本轮写入只有这两份主干文档 + 自己的 `.tmp/`（判官、普查、门日志、活体脚本与读数）；lane 树 `../minekin-wt-h1q` tip `efd3169`、`git status --porcelain` **0 行**，M 未在其中写过字节；`../minekin` 未碰；规范卷只 `:ro`；未连用户远程服、未读 `.tmp/local-test-server.txt`；未翻 `mandatory`/registry/晋级；材料与失败材料未删；无 `--amend`/`--no-verify`。**LAN 第二客户端在受控专服形状下的规范卷真实封证仍 = 0。**
+
+## §2.62 #66 派工前把「加入者未到达」量成事实：加入者 JVM 在**游戏初始化**阶段就崩于 GLFW（`0x1000E`），崩溃报告本来就在 bundle 里——所以靶面不在服务端判据、也不在 H1q 的封存 argv，而在 `--case` 那一侧的客户端环境/启动次序（第六十八轮补格，2026-09-28 06:10 +0800，M 主控；M 私有卷 `minekin-m-v5p-live` 只读取材 + 宿主 bash，零新战役、零 JVM、规范卷未挂、未连用户远程服）
+
+**① 新读数（本轮才有的，lane 不必重做）**
+- 加入者 bundle `889828da…` 的 artifacts 里有一枚 `client/crash-reports/crash-2026-09-27_21.36.07-client.txt`（7,036 B，`9f2db49ebd1a05ea…`）。M 把这枚文件按原字节取出来复算摘要，与 manifest 记录**同值** ⇒ 取的是封进去的那份，不是同名副本。
+- 抬头逐字：`java.lang.IllegalStateException: Failed to initialize GLFW, errors: GLFW error during init: [0x1000E]125198044773776`；`Description: Initializing game`；栈 `com.mojang.blaze3d.platform.GLX._initGlfw` → `RenderSystem.initBackendSystem` → `net.minecraft.class_310.<init>` → `Main.main`；系统面 `Minecraft Version: 1.20.1`、`Backend library: LWJGL version 3.3.1 SNAPSHOT`、**`Backend API: Unknown`**、`Operating System: Linux (amd64) version 6.18.33.2-microsoft-standard-WSL2`。
+- 时间线（`domain-stderr.log` 逐行）：`21:35:35` run 起 ⇒ `server ready` ⇒ `enable-status=false` ⇒ 拨 `127.0.0.1:25566`（读自 `run-4/server.properties`）⇒ **`21:36:07` 加入者崩**（起 JVM 后 32s）⇒ `Kin2 never arrived within 420s` ⇒ 具名下游 `THE_WORLD_STATUS_IS_NOT_PROBEABLE … 25570` ⇒ `Kin2 arrived but never became playable within 420s` ⇒ 会话 `{'outcome': 'HANDSHAKE_TIMEOUT', 'connection_state': None, 'snapshots_admitted': 0, 'entities_admitted': 0}` ⇒ `the case verdict is FAIL` ⇒ `21:44:02` `domain.sh rc=1`。
+- 崩前那一行环境读数（`:6`）：`harness DISPLAY=:77 harness XDG_RUNTIME_DIR=<unset> harness XAUTHORITY=<unset> harness XDG_RUNTIME_DIR_ORIGIN=<unset> harness GL_BACKEND=llvmpipe (LLVM 20.1.2, 256 bits) harness GL_PROBE_RC=0 harness WRAPPER=direct`。
+
+**② 这一格切掉了什么、留下了什么**
+- **排除**：H1q 的封存 argv（同轮打开态照样封出 `kind=dedicated` 且 `violations=[]`，§2.61 ④）、服务端判据层、状态端点盲区（`:25570` 那条是**下游**读数，崩在前、探不到在后）、「加入者用哪枚 profile」那几格（`minecraft` 版本与地址都读到了才起 JVM）。
+- **留下**：同一容器同一次 run 里宿主支已起过一个 llvmpipe 客户端，加入者支再起一枚就死在 GLFW init；候选按便宜排序为 (甲) X 授权/`DISPLAY` 复用（`XAUTHORITY=<unset>`）；(乙) `XDG_RUNTIME_DIR` 未落到加入者 env（H1e 那格只管受控客户端的提供面）；(丙) 两枚 llvmpipe 上下文并发把 GL 初始化挤死；(丁) `--case` 支的启动次序竞态（joiner 起得比宿主 ready 早）。
+- **判据口径**：§2.51 的三式 V5′（同卷、同专服形状、**不带 `--case`**）里加入者到场且被按名探到（`Kin` 72 / `Kin2` 66 行）。⇒ 差集在 `--case` 一侧。本卡第一格就是把这两式在**同一份 `domain.sh` 字节**上再做一次 A/B，把差集钉成读数而不是记忆。
+
+**③ #66 卡面（`V1201-CAMPAIGN-JOINER-ARRIVAL-001`）**
+- 允许面只有 `test-orchestrator/runner/domain.sh`、`tests/contract/test_runner_scripts.py`、新交付记录 `docs/validation/v1201-h66-campaign-joiner-arrival-2026-09-28.md` 与 lane 自己的 `.tmp/h66/**`；判到 `tools/`、`src/`、fixture、镜像、`run.sh`、判据口径就**停手回报**（`project-controller-reserved-decisions` 同族）。
+- 验收：(1) A/B 两式（只动 `MINEKIN_DOMAIN_CASE`/`MINEKIN_DOMAIN_CASE_ON`）各自打印加入者 env 行、`Kin2 never arrived` 是否复现、崩溃报告是否再出现；(2) 若 `--case` 支才崩 ⇒ 定位到具名那一层，字节面与活体面各一条支撑；(3) 若两式都崩 ⇒ 结论改为「§2.51 那组读数在当前字节上不再成立」，并列出变了的字节（`domain.sh` 摘要 / 镜像 / 桥产物 / 卷），**同样是合格交付**；(4) 改行为必配能红的契约格 + 关闭态逐字节等值 + 每对冲突组合具名拒止（`project-knob-conflict-named-refusals`）；(5) 门名单取自 `ci.yml` 自有 `- run:` 行逐道读 rc，基线 `domain.sh 65947145…`/3276 行、契约 123 passed、全量 2711 passed 2 skipped、ruff format 374 files、151 registered、门载荷仍 `cfa0f118…63afd6`；(6) 私有卷新根 `minekin-h66-live`，Kin 根用 `cp -a` 整份复制（跨卷 `cp -al` 不可用，WAL 台账不能 `:ro` 开），**不得删改** `kin-v5p-*` 与 `server-runs/run-1..run-4`。
+- 卡面落在 `C:/Users/darling/Documents/agent_work/minekin-wt-h66/.tmp/h66-brief.md`，材料与复现脚本副本在同目录 `.tmp/h66/`（9 份文件逐摘要见卡面 §6），M 主干树对该 lane 只读。
+
+**④ 派工现场与 CI（脚本当场读，不凭记忆）**：lane 树 `HEAD=527b6a75adeba6fd0bc0c13e40e1ce6838fec74f`、`git status --porcelain` 0 行（只有 M 写进去的 `.tmp/h66/**`，未入库）、远端分支 ref 尚未创建 ⇒ 本格只申报「已派工、零正面信号」，不宣布交付。记录笔 `527b6a7` 的 CI 已在 push 后立即用 REST 读到：run **935 `36353653574`** `completed/success`，jobs 端点逐 job 逐步读结论后 `non_success=[]`、步数 `{python 18, protocol 10, bridge-static 9}`（原文 `.tmp/m-r68/ci-527b6a7.json`、`.tmp/m-r68/ci-527b6a7-jobs.json`）⇒ §2.58 ⑧ 那格口径（未读到绿之前不得写 CI 绿）在此闭合。
+
+**⑤ 四态**：M 本轮（含补格）写入只有这两份主干文档 + 自己的 `.tmp/m-r68/**`（判官、普查、门日志、活体脚本与读数、取出的崩溃报告）；`../minekin` 未碰；lane 树只在它自己的 `.tmp/` 写过材料；规范卷未挂；未连用户远程服、未读 `.tmp/local-test-server.txt`；未翻 `mandatory`/registry/晋级；材料与失败材料未删；无 `--amend`/`--no-verify`。**LAN 第二客户端在受控专服形状下的规范卷真实封证仍 = 0。**
