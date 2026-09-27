@@ -342,3 +342,24 @@ python .tmp/trunk_digest.py /tmp/promotion.json
 - **这把 §2.18 的 ① 从「未验证」改成「主干侧已复核」**：仍**没有**的那半是 H1k 合入后在合并树上的同一读数（PRE==POST 的对照要等 lane 交付），所以 §2.18 里那句「`cfa0f118…` 今天仍是未验证」在 §2.18 自身的时间点是如实的，本节只把时点往后推一格，不回收它。
 - **§2.18 的 ②（推送不可用）在同一轮后半已经不复存在**：外连恢复后 `git -c credential.helper= -c credential.helper=wincred push origin HEAD:main` 报 `ceb079f..4a8fec3  HEAD -> main`（`rc=0`），本节的提交随后一并推上去并核远端 SHA。CI 结论仍按协议在浏览器/REST 里读过才写，本节不预先声称。
 - **一个纯操作性的坑，记下来省下一轮**：Git Bash 会把 `C:/Users/...` 这类 Windows 路径当 POSIX 路径吃掉（第一次 `docker run -v C:/…:/src:ro` 变成在容器里找 `/work/C:/…`，`rc=2` 且 stdout 为空）。带盘符的挂载源要用反斜杠原样写并置 `MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*'`。
+
+
+## §2.20 live-b 的第一真实失败层：材料指向容器引擎事件而不是 H1k 的字节（第四十三轮收尾，M 只读取证，2026-09-27）
+
+- **取证口径**：`live-b` 的容器 `h1k-live-b` 是 `Exited (255)` 而不是被正常拆掉的，`/tmp` 还在容器层里 ⇒ `docker cp h1k-live-b:/tmp` 到 M 自己的 `.tmp/m-r43-btmp/`（不写 lane 树，不动任何卷）；卷侧用一次性 `--rm` 容器以 `minekin-h1k-live:/data:ro` 读（这是 H 的私有卷，**不是**规范卷 `minekin-runner-data`）。
+- **量到的形状**：
+  * H1k 新写的加入者 profile **是对的**（`/tmp/domain-join-profile.json`，503 字节）：`schema_version 2`、`host 127.0.0.1`、`port 25566`（正是这轮 `server.properties` 的号）、`auth_mode offline`、`allowed_versions ["1.20.1"]`、`target_authorization.basis` 写明「只授予本受控 runner 为这一轮起的回环世界，不点名任何回环外或操作员给的地址」⇒ §2.16 的目的地判据在这一格是**通过了**，且没有放宽认证/地址。
+  * 服务端真的起来了：`/data/server-runs/run-1/server.log` 80 行，最后一行 INFO 是 `[10:48:03] [Server thread/INFO]: Done (5.395s)!`；此后**没有任何 join 行**（`Kin2|joined the game|has the following entity data` 三类 grep 全空）。
+  * **宿主自己也没进去**：`/tmp/domain-session.json` 与 `/tmp/domain-join-session.json`、`/tmp/domain-join-session.err`、`/tmp/domain-server.log` **全为 0 字节**——两条 CLI 连一个字节都没来得及写出，而 joiner 的 kin 根 `/data/kin/kin-h1k-join/run/` 已建好，`client-environment.txt` 有 502 字节、`session/` 与 `bundle/` 目录也在。
+  * 同一分钟里 `:1459` 报 `Read-only file system`，而更早的写入（`:1301`、launch 探针）成功过；紧接着 lane 下一次要用引擎时拿到 `request returned 500 Internal Server Error … /pipe/dockerDesktopLinuxEngine/_ping`（`../minekin-wt-h1k/.tmp/h1k-gate-payload.log`，18:48 之后那轮）。现在 `docker version` 报 `linux/amd64`、Server `29.5.3`，引擎是活的。
+- **判读（照实两条，不提前定案）**：最 Supported 的解释是**容器引擎在 10:48 前后出事**，把 `/data` 打成只读、把宿主与加入者两条 CLI 一起掐掉 ⇒ 容器 `Exited (255)`，于是 `Kin2 never arrived within 420s` 与 0 字节会话文档都是这件事的影子，而不是 H1k 的形状不通。**未被排除的另一条**是专服形状下宿主根本进不去自己那格世界（若如此，重跑会稳定复现）。两者的判别子只有**在健康引擎上重跑一轮**：如果宿主进得去、`Kin2 joined the game` 出现、两条会话文档非空，就归环境；如果仍然 0 字节且 `Done` 之后无 join 行，才轮到 H1k 的字节背。
+- **对合入的后果（M 的复审口径）**：`live-b` 现在**不能作为 H1k 的活体封证**，也**不能作为 H1k 的反证**；§2.18 里「①–④ 一格未封 ⇒ 不合入」不变，退回项仍是 #56（组合拒止）加这一条重跑要求。复现命令：
+
+```bash
+docker ps -a --format '{{.Names}} {{.Status}}'
+docker cp h1k-live-b:/tmp/. <M 自己的 .tmp>/m-r43-btmp
+MSYS_NO_PATHCONV=1 docker run --rm -v minekin-h1k-live:/data:ro minekin-runner:local \
+  bash -c 'wc -l /data/server-runs/run-1/server.log; grep -nE "joined the game|has the following entity data|Done \(" /data/server-runs/run-1/server.log | tail'
+```
+
+- **本轮没有发生的事**：没有写 lane 树、没有写规范卷、没有封存或撤销任何 attempt/bundle、没有改 case 判据或 registry 字节；失败材料（`live-a-rejected-singleword/`、`live-b/`、`domain.sh.h1k-pristine`、两组反例日志）全部原地保留。
