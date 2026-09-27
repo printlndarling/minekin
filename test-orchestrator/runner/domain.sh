@@ -146,6 +146,12 @@ lan_port="${MINEKIN_DOMAIN_LAN_PORT:-25570}"
 # itself is only reported in a run document printed when that run has ended.
 joiner="${MINEKIN_DOMAIN_JOIN:-}"
 join_username="${MINEKIN_DOMAIN_JOIN_USERNAME:-Kin2}"
+# Whether this run prints the joining client's command line and stops instead of
+# starting it. The readback has to be read here, where the other joiner names are,
+# because it is answered below the point the ask is composed and bounded — a print
+# of an unvalidated ask would be a claim about a line the run might never start.
+# `0` and unset both mean "run the run".
+join_control_print="${MINEKIN_DOMAIN_JOIN_CONTROL_PRINT:-}"
 # Which of the two runs a joining run's case is about. The harness seals one run per
 # bundle, and a run with a second client in it has two: the hosting session (whose
 # document is what every other case is judged on) and the joining one. Named rather
@@ -405,6 +411,233 @@ if [[ -n "${auto_bundle}" && -n "${joiner}" ]]; then
     printf 'domain: an auto-bundle run cannot also ask for a joining second client; the joiner is started from a named bundle profile\n' >&2
     exit 2
 fi
+
+# ---------------------------------------------------------------------------
+# Asking the *joining* client to look and move
+# (V1201-LAN-JOINER-BOUNDED-CONTROL-DRIVER-001).
+#
+# Every input ask this harness has carried so far belonged to the hosting
+# session: the `--hold-*` and `--look-*` flags a run passes on its own command
+# line drive the Kin that opened the world, and `MINEKIN_DOMAIN_LOOK` above is
+# that host-side reading knob — it names the turn the *host* is checked for and
+# has nothing to do with a second client. The joining client has been started
+# observe-only since H1b: V4 measured it reaching `JOIN` and `PLAYABLE`, and
+# nothing on its line ever asked it to turn or walk. That is why the 1.20.1
+# second-client control evidence is zero rather than thin — not a measurement
+# that came back negative, but an ask that has never existed.
+#
+# What this block adds is the ask, and only the ask: three default-off names
+# that can hand the joining client at most one look (yaw and/or pitch) and one
+# forward hold of at most two seconds, whose release is the lease lapsing. The
+# bounds are enforced *here*, in the runner, before a JVM starts: an
+# out-of-range value is refused by name — the message says which knob and which
+# bound — and is never clamped into a smaller ask and never passed through. A
+# driver that quietly narrowed an operator's request would produce a run whose
+# recorded ask is not the ask anyone made, which is the same class of fault the
+# version-at-the-joiner and baseline-per-Kin fixes above exist to kill.
+#
+# Three things it deliberately does not do.
+#
+# * It never reaches the hosting session's command line. The array composed
+#   below is spliced into exactly one place: the `session start` line the joining
+#   client is backgrounded with.
+# * It never reaches an auto-bundle run, and that is structural rather than
+#   policed: the refusal above this block is controller-reserved, untouched, and
+#   fires first. The contract test pins the order by index; no branch here
+#   pretends to catch a case that block has already stopped.
+# * It adds no product surface. `session start` already takes
+#   `--look-yaw-degrees`, `--look-pitch-degrees` and `--hold-forward-seconds`
+#   (the last of those documented as needing `--server-profile`, which this line
+#   already carries), and the lease it drives is already the joining Kin's own
+#   because the launch line sets `MINEKIN_KIN_ID="${joiner}"`. Nothing about
+#   admission, addressing, authentication or the bridge moves either: this is a
+#   shorter hold and a smaller turn than a host run is already allowed to take,
+#   aimed at a client that was already let in.
+#
+# What this block does *not* claim: that a real second client has honoured any
+# of it. The numbers below are this driver's construction — the widest ask the
+# card reviews — and the only thing measured here is the shape of the
+# composition and the fact of a refusal. The live readout (a joining client
+# actually turning and walking on a published 1.20.1 world) is the follow-on
+# card's, and until it runs this stays unverified.
+# ---------------------------------------------------------------------------
+# --- joiner-control-driver begin (the contract test extracts this region) ---
+# The bounds, in one place. A 45-degree yaw is well past what the server's
+# `Rotation` reading needs to show a heading that changed; 30 degrees of pitch
+# keeps the tilt inside the range vanilla reports without inverting the view;
+# two seconds is the longest hold whose *end* this harness can still tell apart
+# from a session that stopped, because its walk wait needs two settled readings
+# after the release. Chosen, not measured — see the paragraph above.
+joiner_control_max_yaw=45
+joiner_control_max_pitch=30
+joiner_control_max_forward_seconds=2
+
+# A value this driver can compare at all: an optional sign in front of a decimal.
+# Anything else — an empty string, a word, a list, `1.2.3` — is refused before it
+# reaches an arithmetic comparison that would read it as something it is not.
+joiner_control_is_number() {
+    if [[ "$1" =~ ^-?([0-9]+(\.[0-9]+)?|\.[0-9]+)$ ]]; then
+        return 0
+    fi
+    return 1
+}
+
+# Is the magnitude within the bound? Through awk, the way the host-side turn
+# comparison already does it: bash has no decimal operator.
+joiner_control_within() {
+    awk -v value="$1" -v bound="$2" \
+        'BEGIN { v = value + 0; if (v < 0) v = -v; exit !(v <= bound) }'
+}
+
+# Away from zero, in either direction. A look of no degrees is a request to do
+# nothing dressed as a request — and a look *is* signed on purpose
+# (`--look-yaw-degrees` positive is right, `--look-pitch-degrees` positive is
+# up), so the sign is kept and only the nothing-asked case is refused.
+joiner_control_is_nonzero() {
+    awk -v value="$1" 'BEGIN { exit !(value + 0 != 0) }'
+}
+
+# Strictly above nothing, for the one ask that has no negative shape: a hold of
+# zero or fewer seconds is a lease deadline already past. The product refuses both
+# of these too, but only after a client has been started for them.
+joiner_control_is_positive() {
+    awk -v value="$1" 'BEGIN { exit !(value + 0 > 0) }'
+}
+
+# The whole ask, validated and composed. Sets `joiner_control_args`, which is
+# empty when nothing was asked for — and an empty array spliced into the joining
+# client's line leaves that line exactly the words it carried before this driver
+# existed.
+compose_joiner_control_args() {
+    joiner_control_args=()
+    local yaw="${MINEKIN_DOMAIN_JOIN_LOOK_YAW:-}"
+    local pitch="${MINEKIN_DOMAIN_JOIN_LOOK_PITCH:-}"
+    local forward="${MINEKIN_DOMAIN_JOIN_HOLD_FORWARD_SECONDS:-}"
+    if [ -z "${yaw}" ] && [ -z "${pitch}" ] && [ -z "${forward}" ]; then
+        return 0
+    fi
+    # Which names armed the driver, so the two structural refusals below can name
+    # what they are refusing rather than only what is missing.
+    local asked=""
+    if [ -n "${yaw}" ]; then
+        asked="MINEKIN_DOMAIN_JOIN_LOOK_YAW"
+    fi
+    if [ -n "${pitch}" ]; then
+        asked="${asked:+${asked}, }MINEKIN_DOMAIN_JOIN_LOOK_PITCH"
+    fi
+    if [ -n "${forward}" ]; then
+        asked="${asked:+${asked}, }MINEKIN_DOMAIN_JOIN_HOLD_FORWARD_SECONDS"
+    fi
+    # Joiner-only, and said by name. An ask with no joining client would
+    # otherwise sit on this run's line doing nothing at all — the host session
+    # takes its own input from its own arguments, not from these names — and a
+    # knob that silently does nothing is the failure this file's first test
+    # exists to catch.
+    if [ -z "${joiner}" ]; then
+        printf 'domain: the ask (%s) needs a joining client to drive and this run has none (MINEKIN_DOMAIN_JOIN is unset); refused rather than carried as a knob that does nothing\n' \
+            "${asked}" >&2
+        exit 2
+    fi
+    # The phase a hold is asked at is read from this run's own arguments above.
+    # `join` is a refusal in the product by design — no lease before the world is
+    # real — so a joining run asking at the join has nothing to drive, and this
+    # driver refuses the combination instead of composing a line it knows is
+    # answered `no`. The host-side scan that skips its walk wait for this phase
+    # is untouched; that one waits, this one does not get asked.
+    if [ "${hold_at}" = "join" ]; then
+        printf 'domain: the ask (%s) needs a playable moment for the joining client, and this run asks for its hold at the join (--hold-at join); there is none to drive it from, so the ask is refused\n' \
+            "${asked}" >&2
+        exit 2
+    fi
+    if [ -n "${yaw}" ]; then
+        if ! joiner_control_is_number "${yaw}" ||
+            ! joiner_control_is_nonzero "${yaw}" ||
+            ! joiner_control_within "${yaw}" "${joiner_control_max_yaw}"; then
+            printf 'domain: MINEKIN_DOMAIN_JOIN_LOOK_YAW=%s is outside the bound this driver carries for it: one look of at most %s degrees in either direction, and never zero. Refused, never clamped.\n' \
+                "${yaw}" "${joiner_control_max_yaw}" >&2
+            exit 2
+        fi
+    fi
+    if [ -n "${pitch}" ]; then
+        if ! joiner_control_is_number "${pitch}" ||
+            ! joiner_control_is_nonzero "${pitch}" ||
+            ! joiner_control_within "${pitch}" "${joiner_control_max_pitch}"; then
+            printf 'domain: MINEKIN_DOMAIN_JOIN_LOOK_PITCH=%s is outside the bound this driver carries for it: one look of at most %s degrees in either direction, and never zero. Refused, never clamped.\n' \
+                "${pitch}" "${joiner_control_max_pitch}" >&2
+            exit 2
+        fi
+    fi
+    if [ -n "${forward}" ]; then
+        if ! joiner_control_is_number "${forward}" ||
+            ! joiner_control_is_positive "${forward}" ||
+            ! joiner_control_within "${forward}" "${joiner_control_max_forward_seconds}"; then
+            printf 'domain: MINEKIN_DOMAIN_JOIN_HOLD_FORWARD_SECONDS=%s is outside the bound this driver carries for it: one forward hold of more than 0 and at most %s seconds. Refused, never clamped.\n' \
+                "${forward}" "${joiner_control_max_forward_seconds}" >&2
+            exit 2
+        fi
+    fi
+    # The whole width of what this driver may hand over, and nothing besides it:
+    # no `--hold-strafe`, no `--hold-jump`, no `--hold-sneak`, no
+    # `--hold-use-seconds`, no `--hold-at`. The release is not a flag either — it
+    # is what the product does when the hold's lease lapses, which is why the
+    # bound on the hold's length is the bound on the release.
+    if [ -n "${yaw}" ]; then
+        joiner_control_args+=(--look-yaw-degrees "${yaw}")
+    fi
+    if [ -n "${pitch}" ]; then
+        joiner_control_args+=(--look-pitch-degrees "${pitch}")
+    fi
+    if [ -n "${forward}" ]; then
+        joiner_control_args+=(--hold-forward-seconds "${forward}")
+    fi
+}
+
+# The joining client's product call, in one array: the fixed words it has always
+# carried, then the bounded ask composed just above, in the order the client
+# receives them. `join_the_published_world` starts the client from this array and
+# the readback below prints it, so the two cannot become two claims about one
+# line — which is the drift the joiner-environment contract test already guards
+# by counting the literal `session start` command exactly once in this file.
+build_joiner_session_argv() {
+    joiner_session_argv=(
+        python -m minekin_core session start
+        --profile "${profile}"
+        --server-profile /tmp/domain-join-profile.json
+        "${joiner_control_args[@]}"
+    )
+}
+# --- joiner-control-driver end ---
+
+# Composed once, and before the server, the host client or the joining client
+# exists: an ask outside a bound has to cost a run nothing but its own exit.
+joiner_control_args=()
+compose_joiner_control_args
+joiner_session_argv=()
+build_joiner_session_argv
+
+# The readback an operator or a check can ask for with no world to join and no JVM
+# to start. It prints the words and stops, which is the only honest thing a
+# pre-launch readout can do: it says what *would* be handed over and never that it
+# was. `0` and an empty value mean "not asked", so a delivered-but-empty name does
+# not turn a normal run into a printout.
+if [ -n "${join_control_print}" ] && [ "${join_control_print}" != "0" ]; then
+    # A printout is a claim about the joining client's line, so it needs a joining
+    # client: a run with none would otherwise be handed words it would never start
+    # and a header that says it would.
+    if [ -z "${joiner}" ]; then
+        printf 'domain: a joiner-control printout describes a joining client and this run has none (MINEKIN_DOMAIN_JOIN is unset)\n' >&2
+        exit 2
+    fi
+    if [ -z "${profile}" ]; then
+        printf 'domain: a joiner-control printout names the bundle profile this run was given, and this run gave none\n' >&2
+        exit 2
+    fi
+    printf 'domain: the joining client of this run would be started with:\n' >&2
+    printf '%s\n' "${joiner_session_argv[@]}" | sed 's/^/domain:   /' >&2
+    printf 'domain: a printout launches nothing; this run stops here\n' >&2
+    exit 0
+fi
+# --- joiner-control wiring end ---
 
 # The server a run starts has to be the server the client it launches may join, so
 # the recipe is read from the bundle profile rather than named by the operator: a
@@ -1160,6 +1393,13 @@ join_the_published_world() {
     # allocation taken through the wrapper earlier. A staged probe file that is missing
     # names its own absence in the readout rather than going silently quiet, and cannot
     # stop the client from starting either way.
+    #
+    # The one input ask this joining client can be handed rides on the same line, in
+    # the same array the readback prints: `joiner_session_argv` is empty of control
+    # words unless a `MINEKIN_DOMAIN_JOIN_*` name was set and passed the bounds
+    # composed for it above, and then the words on this line are the words it carried
+    # before that driver existed. This is the only place the array is started at all —
+    # the hosting session's line is the run's own arguments, and never sees it.
     "${joiner_launch_wrapper[@]}" \
         env "${joiner_runtime_dir_env[@]}" MINEKIN_KIN_ID="${joiner}" \
             MINERUN_LAUNCH_DEPTH=inside-wrapper \
@@ -1176,9 +1416,7 @@ join_the_published_world() {
             fi
             exec "$@"
         ' minekin-joiner-launch \
-            python -m minekin_core session start \
-            --profile "${profile}" \
-            --server-profile /tmp/domain-join-profile.json \
+            "${joiner_session_argv[@]}" \
             >/tmp/domain-join-session.json 2>/tmp/domain-join-session.err &
     joiner_pid=$!
     deadline=$((SECONDS + seconds))

@@ -18,7 +18,10 @@ harness:
 from __future__ import annotations
 
 import json
+import os
 import re
+import shlex
+import shutil
 import subprocess
 import sys
 import tomllib
@@ -41,6 +44,22 @@ SCRIPTS = sorted(RUNNER.glob("*.sh"))
 # variable into a shell local. `${BASH_SOURCE[0]}` and `$(...)` assignments are
 # deliberately not matched: they read no caller input.
 _FORWARDED = re.compile(r'^([a-z_][a-z0-9_]*)="\$\{([A-Z_][A-Z0-9_]*):-', re.MULTILINE)
+
+
+#: The four names V1201-LAN-JOINER-BOUNDED-CONTROL-DRIVER-001 reads in `domain.sh` and
+#: which `run.sh` does **not** deliver. Not a fix for this card to make: the wrapper is
+#: outside its allowed paths, so a `run.sh domain` run cannot arm the joiner driver yet
+#: and the joiner-control readings below are taken by driving the shipped shell region
+#: directly. Pinned as an exact set by the parity check, so a fifth undelivered name —
+#: or these four turning up in `run.sh` — goes red there instead of widening the hole.
+JOINER_CONTROL_KNOBS = frozenset(
+    {
+        "MINEKIN_DOMAIN_JOIN_LOOK_YAW",
+        "MINEKIN_DOMAIN_JOIN_LOOK_PITCH",
+        "MINEKIN_DOMAIN_JOIN_HOLD_FORWARD_SECONDS",
+        "MINEKIN_DOMAIN_JOIN_CONTROL_PRINT",
+    }
+)
 
 
 def test_the_runner_has_shell_scripts_to_check() -> None:
@@ -87,6 +106,13 @@ def test_every_knob_the_harness_reads_is_one_the_wrapper_hands_it() -> None:
     Both directions, because they are different faults: a knob read and not delivered
     is a scenario that silently did not run, and one delivered and never read is a
     name the wrapper offers that nothing honours.
+
+    The one difference this check allows is named as an exact set, and it is allowed
+    because the gap is the finding rather than a bug to paper over: the four
+    joiner-control knobs are read on purpose, and `run.sh` cannot name them inside the
+    card that added them. A live `run.sh domain` run therefore cannot arm the joiner
+    driver yet — said in the validation record, and tested here by driving the shipped
+    shell region rather than by a run that would arrive with the names empty.
     """
 
     harness = (RUNNER / "domain.sh").read_text(encoding="utf-8")
@@ -98,8 +124,13 @@ def test_every_knob_the_harness_reads_is_one_the_wrapper_hands_it() -> None:
     # A parse that found nothing would make both comparisons below vacuous, and this
     # is the one check that would keep passing if the runner were renamed.
     assert read, "no domain knobs found in domain.sh; this check would pass vacuously"
-    assert read - delivered == set(), (
-        f"domain.sh reads these and run.sh never delivers them: {sorted(read - delivered)}"
+    # The one registered exception is the set the check started from, and it is exact:
+    # an empty difference would say the joiner-control knobs are delivered, and a wider
+    # one would say nothing about how much wider. See `JOINER_CONTROL_KNOBS`.
+    assert read - delivered == JOINER_CONTROL_KNOBS, (
+        "domain.sh reads these and run.sh never delivers them (beyond the registered "
+        f"joiner-control gap): {sorted(read - delivered - JOINER_CONTROL_KNOBS)}; "
+        f"joiner-control gap as measured: {sorted(read & (read - delivered))}"
     )
     assert delivered - read == set(), (
         f"run.sh delivers these and nothing reads them: {sorted(delivered - read)}"
@@ -1691,3 +1722,702 @@ def test_the_runtime_directory_provision_is_not_an_always_true_claim() -> None:
     assert hands_the_joiner_a_runtime_directory(onto_volume)
     assert names_the_runtime_directory_origin(onto_volume)
     assert not keeps_the_runtime_directory_off_the_sealed_material(onto_volume)
+
+
+# ---------------------------------------------------------------------------
+# V1201-LAN-JOINER-BOUNDED-CONTROL-DRIVER-001 — the *joining* client can be asked
+# to look and move, inside bounds the runner checks before it starts anything.
+# ---------------------------------------------------------------------------
+
+#: The shipped driver region and the wiring that calls it, marked in `domain.sh` and
+#: extracted from it rather than retyped. Every reading below runs the bytes a run
+#: would run — the same bound constants, the same comparisons, the same array — so a
+#: change to any of them moves a measurement here before it moves a live run.
+JOINER_CONTROL_DRIVER_BEGIN = "# --- joiner-control-driver begin"
+JOINER_CONTROL_DRIVER_END = "# --- joiner-control-driver end ---"
+JOINER_CONTROL_WIRING_END = "# --- joiner-control wiring end ---"
+
+#: The three bounds, as literals a reader can see. The region's own assignments are
+#: pinned against these, so widening one is a decision taken in the open.
+JOINER_CONTROL_BOUNDS = {
+    "joiner_control_max_yaw": "45",
+    "joiner_control_max_pitch": "30",
+    "joiner_control_max_forward_seconds": "2",
+}
+
+#: The only product flags this driver may hand over, and the name behind each.
+JOINER_CONTROL_ASKS = {
+    "MINEKIN_DOMAIN_JOIN_LOOK_YAW": "--look-yaw-degrees",
+    "MINEKIN_DOMAIN_JOIN_LOOK_PITCH": "--look-pitch-degrees",
+    "MINEKIN_DOMAIN_JOIN_HOLD_FORWARD_SECONDS": "--hold-forward-seconds",
+}
+
+#: What `session start` accepts beside those three and this driver never reaches for.
+JOINER_CONTROL_FORBIDDEN_FLAGS = (
+    "--hold-strafe",
+    "--hold-jump",
+    "--hold-sneak",
+    "--hold-use-seconds",
+    "--hold-at",
+)
+
+#: The joining client's product call at the card's base commit (`24ac6e0`, `domain.sh`
+#: sha256 ff69c879…, the line at :1179-1184), before any control driver existed. This
+#: is the observe-only line V4 measured reaching `JOIN` and `PLAYABLE`. Transcribed on
+#: purpose: the identity check below has to be able to fail, and a baseline recomputed
+#: from the current file could never say so.
+JOINER_BUNDLE_PROFILE = "/src/tests/fixtures/launcher/1.20.1.json"
+OBSERVE_ONLY_JOINER_ARGV = [
+    "python",
+    "-m",
+    "minekin_core",
+    "session",
+    "start",
+    "--profile",
+    JOINER_BUNDLE_PROFILE,
+    "--server-profile",
+    "/tmp/domain-join-profile.json",
+]
+
+
+def joiner_control_region(text: str, end_marker: str) -> str:
+    """The shipped driver bytes, from the begin marker to the marker named."""
+
+    start = text.index(JOINER_CONTROL_DRIVER_BEGIN)
+    end = text.index(end_marker, start)
+    lines = text[start:end].splitlines(keepends=True)
+    assert len(lines) > 20, "the joiner-control region came out empty; wrong markers"
+    return "".join(lines[1:])
+
+
+def drive_joiner_control(
+    tmp_path: Path,
+    *,
+    env: dict[str, str] | None = None,
+    joiner: str = "kin-2",
+    hold_at: str = "playable",
+    profile: str = JOINER_BUNDLE_PROFILE,
+    region: str | None = None,
+    wiring: bool = False,
+    tag: str = "plain",
+) -> tuple[subprocess.CompletedUnicode[str], list[str]]:
+    """Drive the shipped driver as its own shell process, and read back what it says.
+
+    `wiring=False` runs the composition and prints the argv it built, each word
+    bracketed, *through the same `bash -c '… "$@"'` seam* the joining client is exec'd
+    through — so a word that would split or merge on its way to the product reads wrong
+    here before it reads wrong in a run. `wiring=True` runs the region *plus* the call
+    and the printout block, so the readback surface itself — and the fact that a refusal
+    precedes any print — is what is being driven. Nothing is launched on either path:
+    this is the region, not the run.
+
+    The four control names are stripped from the inherited environment first. A knob
+    left over from a caller would arm a driver a reading meant to leave asleep, and the
+    empty-knob case is the one this card is most careful about.
+
+    The prelude stands in for the three reads the region sits below — `joiner` from its
+    environment name, `hold_at` and `profile` from the run's own argument scan — and
+    nothing else. What the region reads for itself, it reads from the environment
+    exactly as a run hands it.
+    """
+
+    work = tmp_path / f"joiner-control-{tag}"
+    work.mkdir(parents=True, exist_ok=True)
+    if region is None:
+        text = (RUNNER / "domain.sh").read_text(encoding="utf-8")
+        region = joiner_control_region(
+            text, JOINER_CONTROL_WIRING_END if wiring else JOINER_CONTROL_DRIVER_END
+        )
+    script = work / "driver.sh"
+    prelude = (
+        "set -euo pipefail\n"
+        f"joiner={shlex.quote(joiner)}\n"
+        f"hold_at={shlex.quote(hold_at)}\n"
+        f"profile={shlex.quote(profile)}\n"
+    )
+    if wiring:
+        # The wiring block reads one more name, at the top of the script rather than
+        # inside the region; this line is the shipped read, byte for byte, and the shape
+        # test below pins that it still is. Without it `set -u` would stop the driver on
+        # an unset name and the printout would never be reached.
+        prelude += 'join_control_print="${MINEKIN_DOMAIN_JOIN_CONTROL_PRINT:-}"\n'
+    tail = (
+        ""
+        if wiring
+        else "\n".join(
+            (
+                "joiner_control_args=()",
+                "compose_joiner_control_args",
+                "joiner_session_argv=()",
+                "build_joiner_session_argv",
+                # The same seam the joining client is started through: an outer shell
+                # expands the array for a `bash -c '… "$@"'` that execs it. `printf`
+                # stands in for `exec` so the reading never runs a product command, and
+                # each word is bracketed so a split or a merge cannot pass unnoticed.
+                "bash -c 'for w in \"$@\"; do printf \"<%s>\" \"$w\"; done;"
+                " printf \"\\n\"' minekin-joiner-launch \"${joiner_session_argv[@]}\"",
+            )
+        )
+        + "\n"
+    )
+    script.write_text(prelude + region + tail, encoding="utf-8")
+    environment = dict(os.environ)
+    for name in JOINER_CONTROL_KNOBS:
+        environment.pop(name, None)
+    environment.update(env or {})
+
+    bash = shutil.which("bash")
+    assert bash, "the joiner-control driver is shell code and there is no bash to drive it"
+    result = subprocess.run(
+        [bash, script.as_posix()],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=environment,
+        cwd=str(work),
+    )
+    return result, re.findall(r"<([^>]*)>", result.stdout)
+
+
+def refused(result: subprocess.CompletedUnicode[str], argv: list[str]) -> None:
+    """Refused, and said to be: no composed line, no exit 0, a message on stderr."""
+
+    assert result.returncode != 0, (
+        f"the driver answered rc=0 where it was expected to refuse: {argv}"
+    )
+    assert argv == [], f"a refusal still handed over a command line: {argv}"
+    assert result.stderr.strip(), "a refusal with nothing to say"
+
+
+def test_the_joiner_control_driver_keeps_its_bounds_and_reaches_one_line_only() -> None:
+    """The bounds are literals a reader sees, the flags are three, the splice is one.
+
+    Shape first, because the behaviour tests below are only worth what this pins: a
+    driver whose bound lives in a variable nobody can read is a driver that can be
+    widened without a diff saying so.
+    """
+
+    text = (RUNNER / "domain.sh").read_text(encoding="utf-8")
+    region = joiner_control_region(text, JOINER_CONTROL_DRIVER_END)
+
+    # Each bound is assigned exactly once, at the pinned number.
+    for name, value in JOINER_CONTROL_BOUNDS.items():
+        assert region.count(f"{name}={value}\n") == 1, f"{name} is not the bound it claims"
+        assert f"{name}=" in region
+
+    # Exactly three appends to the array, one per allowed flag, and no other flag name
+    # is ever written to it. The comment block inside the region *names* the forbidden
+    # flags to disclaim them, so the check is on the append lines and nowhere else.
+    appended = re.findall(r"joiner_control_args\+=\((--[a-z-]+)", region)
+    assert sorted(appended) == sorted(JOINER_CONTROL_ASKS.values()), appended
+    for flag in JOINER_CONTROL_FORBIDDEN_FLAGS:
+        assert f"joiner_control_args+=(--{flag.lstrip('-')}" not in region
+
+    # One product command line in the whole file, and it belongs to the joining client.
+    # It exists as an array — folded from the ask once, started once, printed once — so
+    # the readback and the launch cannot drift into two claims about one line. That is
+    # the same drift the joiner-environment test above guards by counting the literal.
+    assert text.count("python -m minekin_core session start") == 1
+    assert text.count('"${joiner_control_args[@]}"') == 1, (
+        "the bounded ask reaches somewhere other than the joining client's array"
+    )
+    assert text.count('"${joiner_session_argv[@]}"') == 2
+    function = text[text.index("join_the_published_world() {") : text.index("\nlogs_before=")]
+    launch = function[
+        function.index("' minekin-joiner-launch") : function.index("joiner_pid=$!")
+    ]
+    assert launch.count('"${joiner_session_argv[@]}" \\') == 1
+    assert "python -m minekin_core session start" not in launch
+    assert function.count('"${joiner_session_argv[@]}"') == 1
+    # Nothing at all on the way to the hosting session's line, which is the run's own
+    # arguments (`"$@"`) and untouched by this card.
+    host_start = text.index("minekin-session-supervisor")
+    host_launch = text[host_start : text.index("session_pid=$!", host_start)]
+    assert '"$@"' in host_launch
+    assert "joiner" not in host_launch
+
+    # The controller-reserved auto-bundle refusal is untouched and answers first, so
+    # there is no path from an auto run to this driver to guard against.
+    assert (
+        text.count(
+            "domain: an auto-bundle run cannot also ask for a joining second client; "
+            "the joiner is started from a named bundle profile"
+        )
+        == 1
+    )
+    assert text.index("an auto-bundle run cannot also ask") < text.index(
+        "\ncompose_joiner_control_args\n"
+    )
+
+
+def test_the_unarmed_joining_client_is_still_handed_the_observe_only_line(
+    tmp_path: Path,
+) -> None:
+    """Nothing set: the joining client's argv is the base commit's, word for word.
+
+    This is the regression guard for every run measured before this card, the frozen
+    1.21.4 v1 route included. A driver that armed itself by default would be invisible
+    to every other test in this file and visible only here, which is why the check is
+    an equality against a transcription of the old line rather than an absence of new
+    flags.
+    """
+
+    result, argv = drive_joiner_control(tmp_path, tag="unarmed")
+    assert result.returncode == 0, result.stderr
+    assert argv == OBSERVE_ONLY_JOINER_ARGV
+
+    # A name delivered and empty is the same ask as one never delivered — the shape
+    # `run.sh` would produce for a knob it passes through unset.
+    emptied = {name: "" for name in JOINER_CONTROL_KNOBS}
+    result, argv = drive_joiner_control(tmp_path, env=emptied, tag="empty-knobs")
+    assert result.returncode == 0, result.stderr
+    assert argv == OBSERVE_ONLY_JOINER_ARGV
+
+    # And no joining client at all is still not an ask: the line is the one that would
+    # have been started, unchanged, whether or not anyone ever starts it.
+    result, argv = drive_joiner_control(tmp_path, joiner="", tag="no-joiner-unarmed")
+    assert result.returncode == 0, result.stderr
+    assert argv == OBSERVE_ONLY_JOINER_ARGV
+
+
+@pytest.mark.parametrize(
+    ("env", "expected"),
+    [
+        ({"MINEKIN_DOMAIN_JOIN_LOOK_YAW": "22.5"}, ["--look-yaw-degrees", "22.5"]),
+        ({"MINEKIN_DOMAIN_JOIN_LOOK_YAW": "45"}, ["--look-yaw-degrees", "45"]),
+        ({"MINEKIN_DOMAIN_JOIN_LOOK_YAW": "-22.5"}, ["--look-yaw-degrees", "-22.5"]),
+        ({"MINEKIN_DOMAIN_JOIN_LOOK_PITCH": "-30"}, ["--look-pitch-degrees", "-30"]),
+        ({"MINEKIN_DOMAIN_JOIN_HOLD_FORWARD_SECONDS": "2"}, ["--hold-forward-seconds", "2"]),
+        (
+            {"MINEKIN_DOMAIN_JOIN_HOLD_FORWARD_SECONDS": "0.25"},
+            ["--hold-forward-seconds", "0.25"],
+        ),
+        (
+            {
+                "MINEKIN_DOMAIN_JOIN_LOOK_YAW": "22.5",
+                "MINEKIN_DOMAIN_JOIN_LOOK_PITCH": "-10",
+                "MINEKIN_DOMAIN_JOIN_HOLD_FORWARD_SECONDS": "1.5",
+            },
+            [
+                "--look-yaw-degrees",
+                "22.5",
+                "--look-pitch-degrees",
+                "-10",
+                "--hold-forward-seconds",
+                "1.5",
+            ],
+        ),
+    ],
+    ids=lambda value: "_".join(value) if isinstance(value, dict) else "+".join(value),
+)
+def test_an_armed_joining_client_is_handed_exactly_the_bounded_ask(
+    tmp_path: Path, env: dict[str, str], expected: list[str]
+) -> None:
+    """In range: the bounded look and one hold of at most two seconds, and nothing else.
+
+    The whole line is compared, not only the additions — an ask that also grew a
+    `--hold-jump` or lost its `--server-profile` would satisfy an `in`-check and break
+    the join.
+    """
+
+    result, argv = drive_joiner_control(tmp_path, env=env, tag="armed")
+    assert result.returncode == 0, result.stderr
+    assert argv == [*OBSERVE_ONLY_JOINER_ARGV, *expected]
+    assert "--profile" in argv and "--server-profile" in argv
+    assert argv[argv.index("--server-profile") + 1] == "/tmp/domain-join-profile.json"
+    handed = " ".join(argv)
+    for flag in JOINER_CONTROL_FORBIDDEN_FLAGS:
+        assert flag not in handed, f"the driver reached beyond its ask: {flag}"
+    # One look and one hold at most, however the ask was spelled.
+    assert handed.count("--look-yaw-degrees") <= 1
+    assert handed.count("--look-pitch-degrees") <= 1
+    assert handed.count("--hold-forward-seconds") <= 1
+    if "--hold-forward-seconds" in argv:
+        assert float(argv[argv.index("--hold-forward-seconds") + 1]) <= 2.0
+
+
+@pytest.mark.parametrize(
+    ("name", "value", "bound"),
+    [
+        ("MINEKIN_DOMAIN_JOIN_LOOK_YAW", "90", "45"),
+        ("MINEKIN_DOMAIN_JOIN_LOOK_YAW", "-46", "45"),
+        ("MINEKIN_DOMAIN_JOIN_LOOK_YAW", "0", "45"),
+        ("MINEKIN_DOMAIN_JOIN_LOOK_PITCH", "31", "30"),
+        ("MINEKIN_DOMAIN_JOIN_LOOK_PITCH", "-30.5", "30"),
+        ("MINEKIN_DOMAIN_JOIN_LOOK_PITCH", "0", "30"),
+        ("MINEKIN_DOMAIN_JOIN_HOLD_FORWARD_SECONDS", "10", "2"),
+        ("MINEKIN_DOMAIN_JOIN_HOLD_FORWARD_SECONDS", "2.5", "2"),
+        ("MINEKIN_DOMAIN_JOIN_HOLD_FORWARD_SECONDS", "0", "2"),
+        ("MINEKIN_DOMAIN_JOIN_HOLD_FORWARD_SECONDS", "-1", "2"),
+        ("MINEKIN_DOMAIN_JOIN_LOOK_YAW", "45x", "45"),
+        ("MINEKIN_DOMAIN_JOIN_LOOK_PITCH", "both", "30"),
+        ("MINEKIN_DOMAIN_JOIN_HOLD_FORWARD_SECONDS", "1; touch /tmp/pwned", "2"),
+    ],
+)
+def test_an_out_of_bounds_joiner_ask_is_refused_by_name(
+    tmp_path: Path, name: str, value: str, bound: str
+) -> None:
+    """The ask is refused with its own name and its own bound, and never passed through.
+
+    Three shapes are refused for three different reasons and all three arrive at the
+    same place: too wide (`90` against a bound of `45`), nothing at all (`0`, which the
+    product would accept as a look of no degrees only after a client had been started),
+    and not a number (`both`, `45x`, and a value carrying a shell metacharacter — which
+    is refused by the shape test before any comparison reads it as something else).
+    """
+
+    result, argv = drive_joiner_control(tmp_path, env={name: value}, tag=f"refused-{name}")
+    refused(result, argv)
+    assert name in result.stderr, f"the refusal did not say which knob: {result.stderr}"
+    assert bound in result.stderr, f"the refusal did not say which bound: {result.stderr}"
+    assert JOINER_CONTROL_ASKS[name] not in " ".join(argv)
+    assert value not in " ".join(argv)
+
+
+def test_arming_the_joiner_driver_without_a_joining_client_is_refused(
+    tmp_path: Path,
+) -> None:
+    """Control with no second client is a knob that does nothing, and says so.
+
+    The host session takes its input from its own arguments, never from these names, so
+    an armed driver on a run with no joiner would leave the run reading observe-only
+    while its environment claimed otherwise — the exact silent-absence failure this
+    file's first test exists to catch.
+    """
+
+    for name in JOINER_CONTROL_ASKS:
+        result, argv = drive_joiner_control(
+            tmp_path, env={name: "10"}, joiner="", tag=f"no-joiner-{name}"
+        )
+        refused(result, argv)
+        assert name in result.stderr
+        assert "MINEKIN_DOMAIN_JOIN" in result.stderr
+
+    # All three at once still names all three.
+    result, argv = drive_joiner_control(
+        tmp_path,
+        env={name: "10" for name in JOINER_CONTROL_ASKS},
+        joiner="",
+        tag="no-joiner-all",
+    )
+    refused(result, argv)
+    for name in JOINER_CONTROL_ASKS:
+        assert name in result.stderr
+
+    # And the refusal is about the combination: the same ask with a joining client named
+    # is a composed line, not a stop. `10` is inside the yaw and pitch bounds and
+    # outside the hold's, so the hold is asked at 1 second here.
+    result, argv = drive_joiner_control(
+        tmp_path,
+        env={"MINEKIN_DOMAIN_JOIN_LOOK_YAW": "10", "MINEKIN_DOMAIN_JOIN_LOOK_PITCH": "10"},
+        joiner="kin-2",
+        tag="joiner-present",
+    )
+    assert result.returncode == 0, result.stderr
+    assert argv == [
+        *OBSERVE_ONLY_JOINER_ARGV,
+        "--look-yaw-degrees",
+        "10",
+        "--look-pitch-degrees",
+        "10",
+    ]
+
+
+@pytest.mark.parametrize("armed", [True, False], ids=["armed", "observe-only"])
+def test_a_joining_ask_at_the_join_phase_is_refused_and_never_waited_for(
+    tmp_path: Path, armed: bool
+) -> None:
+    """`--hold-at join` stays a designed refusal, and the driver does not join it.
+
+    The phase is read from the run's own arguments, and the product refuses a hold
+    asked before the first snapshot by design. This driver's half is narrower: it will
+    not *compose* an ask whose moment cannot arrive. That is a refusal test rather than
+    a wait, and the host-side scan that skips its walk wait for the same phase is
+    untouched by this card — both halves are read here, because the pair is what says
+    the phase still means "no".
+    """
+
+    env = {"MINEKIN_DOMAIN_JOIN_HOLD_FORWARD_SECONDS": "1"} if armed else {}
+    result, argv = drive_joiner_control(tmp_path, env=env, hold_at="join", tag=f"at-join-{armed}")
+    if armed:
+        refused(result, argv)
+        assert "MINEKIN_DOMAIN_JOIN_HOLD_FORWARD_SECONDS" in result.stderr
+        assert "--hold-at join" in result.stderr
+    else:
+        # Not armed and asking early is a normal observe-only run: the refusal belongs
+        # to the driver's own combination, not to the phase alone.
+        assert result.returncode == 0, result.stderr
+        assert argv == OBSERVE_ONLY_JOINER_ARGV
+
+    text = (RUNNER / "domain.sh").read_text(encoding="utf-8")
+    # The base commit's host-side handling of the phase, unchanged: it says the hold was
+    # refused and that there is no walk to wait for, and the walk wait still reads the
+    # phase out of its own condition.
+    assert (
+        "domain: this run asks for its hold at the join, so it is refused and there is"
+        " no walk to wait for" in text
+    )
+    assert '&& "${hold_at}" != "join" ]]; then' in text
+    # And the phase is still read from the run's own arguments rather than from a knob
+    # this card could set.
+    assert '--hold-at) hold_at="${argument}" ;;' in text
+    # The driver never emits the phase flag, so a joining run cannot ask early through
+    # it whatever its own arguments say.
+    assert "--hold-at" not in " ".join(argv)
+
+
+def test_the_printout_reads_the_same_ask_back_and_launches_nothing(
+    tmp_path: Path,
+) -> None:
+    """`MINEKIN_DOMAIN_JOIN_CONTROL_PRINT` prints the line and stops, after the bounds.
+
+    The readback has to sit below the composition or it would be a claim about a line
+    the run might never start, and it has to stop rather than fall through: an operator
+    asking what a joining client would be handed is not asking for a JVM.
+    """
+
+    result, argv = drive_joiner_control(
+        tmp_path,
+        env={"MINEKIN_DOMAIN_JOIN_CONTROL_PRINT": "1"},
+        wiring=True,
+        tag="print-observe-only",
+    )
+    assert result.returncode == 0, result.stderr
+    assert argv == [], f"a printout printed on stdout as well: {argv}"
+    prefix = "domain:   "
+    printed = [
+        line[len(prefix) :]
+        for line in result.stderr.splitlines()
+        if line.startswith(prefix)
+    ]
+    assert printed == OBSERVE_ONLY_JOINER_ARGV
+    assert "a printout launches nothing" in result.stderr
+
+    # Armed and in range, the printout carries the ask; unset, it carries none.
+    result, _ = drive_joiner_control(
+        tmp_path,
+        env={
+            "MINEKIN_DOMAIN_JOIN_CONTROL_PRINT": "1",
+            "MINEKIN_DOMAIN_JOIN_LOOK_YAW": "22.5",
+            "MINEKIN_DOMAIN_JOIN_HOLD_FORWARD_SECONDS": "2",
+        },
+        wiring=True,
+        tag="print-armed",
+    )
+    assert result.returncode == 0, result.stderr
+    assert "--look-yaw-degrees" in result.stderr
+    assert "--hold-forward-seconds" in result.stderr
+
+    # A refusal comes first: an out-of-bounds ask is never printed as though it were the
+    # line a run would start.
+    result, argv = drive_joiner_control(
+        tmp_path,
+        env={"MINEKIN_DOMAIN_JOIN_CONTROL_PRINT": "1", "MINEKIN_DOMAIN_JOIN_LOOK_YAW": "90"},
+        wiring=True,
+        tag="print-out-of-bounds",
+    )
+    assert result.returncode != 0
+    assert argv == []
+    assert "would be started with" not in result.stderr
+
+    # `0` and empty mean "not asked", so a delivered-but-empty name cannot turn a
+    # normal run into a printout that exits before the world is started.
+    for spelling in ("", "0"):
+        result, argv = drive_joiner_control(
+            tmp_path,
+            env={
+                "MINEKIN_DOMAIN_JOIN_CONTROL_PRINT": spelling,
+                "MINEKIN_DOMAIN_JOIN_LOOK_YAW": "22.5",
+            },
+            wiring=True,
+            tag=f"print-{spelling or 'empty'}",
+        )
+        assert result.returncode == 0, result.stderr
+        assert argv == []
+        assert "a printout launches nothing" not in result.stderr
+        # The ask is still composed and still bounded on a run that does not print.
+        assert result.stderr == ""
+
+    text = (RUNNER / "domain.sh").read_text(encoding="utf-8")
+    # The printout is answered below the composition and above anything that starts,
+    # and it reads the one name its own top-of-file read hands it.
+    assert 'join_control_print="${MINEKIN_DOMAIN_JOIN_CONTROL_PRINT:-}"' in text
+    assert text.index("\ncompose_joiner_control_args\n") < text.index(
+        "a printout launches nothing"
+    )
+    assert text.index("a printout launches nothing") < text.index("trap stop_the_server EXIT")
+
+
+def joiner_control_region_mutated(region: str, needle: str, substitute: str) -> str:
+    """The shipped region with the `exit 2` after `needle` replaced, in the real bytes.
+
+    Located rather than transcribed: the anchor is searched for in the bytes the run
+    executes, so a refusal that moved, changed wording or lost its `exit 2` between
+    commits fails here with a `ValueError` instead of quietly reversing nothing.
+    """
+
+    anchor = region.index(needle) + len(needle)
+    stop = region.index("exit 2", anchor)
+    mutated = region[:stop] + substitute + region[stop + len("exit 2") :]
+    assert mutated != region, f"the mutation at {needle!r} changed nothing"
+    return mutated
+
+
+def test_the_joiner_control_driver_is_not_an_always_true_claim(tmp_path: Path) -> None:
+    """Delete a guard from a copy of the shipped bytes and its refusal stops happening.
+
+    Every reading above is taken from the shipped region, so each of them would also
+    pass on a region that had lost the guard it is meant to prove — a test that reads
+    `rc=2` cannot tell a refusal from a crash. The reversals below are therefore
+    measured the same way as the greens: a copy of the shipped bytes with exactly one
+    deletion or substitution, driven through the same bash path, with the outcome the
+    shipped bytes refuse printed next to the outcome the copy produces.
+    """
+
+    text = (RUNNER / "domain.sh").read_text(encoding="utf-8")
+    region = joiner_control_region(text, JOINER_CONTROL_DRIVER_END)
+
+    # Green on the shipped bytes first: a reading that is false on both sides of a
+    # mutation says nothing about the mutation.
+    result, argv = drive_joiner_control(tmp_path, region=region, tag="rv-shipped-unarmed")
+    assert (result.returncode, argv) == (0, OBSERVE_ONLY_JOINER_ARGV)
+    for ask, value in (
+        ("MINEKIN_DOMAIN_JOIN_LOOK_YAW", "90"),
+        ("MINEKIN_DOMAIN_JOIN_LOOK_PITCH", "31"),
+        ("MINEKIN_DOMAIN_JOIN_HOLD_FORWARD_SECONDS", "10"),
+    ):
+        result, argv = drive_joiner_control(
+            tmp_path, env={ask: value}, region=region, tag=f"rv-shipped-{ask}"
+        )
+        refused(result, argv)
+    result, argv = drive_joiner_control(
+        tmp_path,
+        env={"MINEKIN_DOMAIN_JOIN_LOOK_YAW": "10"},
+        joiner="",
+        region=region,
+        tag="rv-shipped-no-joiner",
+    )
+    refused(result, argv)
+    result, argv = drive_joiner_control(
+        tmp_path,
+        env={"MINEKIN_DOMAIN_JOIN_HOLD_FORWARD_SECONDS": "1"},
+        hold_at="join",
+        region=region,
+        tag="rv-shipped-at-join",
+    )
+    refused(result, argv)
+
+    # RV-1: the bound's `exit 2` turned into a bare `:`. The message still prints, so a
+    # check that only looked for a name on stderr would stay green; what the copy says is
+    # that a yaw of 90 went out on the joining client's line.
+    reported_only = joiner_control_region_mutated(
+        region, "MINEKIN_DOMAIN_JOIN_LOOK_YAW=%s is outside the bound", ":"
+    )
+    result, argv = drive_joiner_control(
+        tmp_path,
+        env={"MINEKIN_DOMAIN_JOIN_LOOK_YAW": "90"},
+        region=reported_only,
+        tag="rv-1-warning",
+    )
+    assert result.returncode == 0, result.stderr
+    assert "outside the bound" in result.stderr
+    assert argv[-2:] == ["--look-yaw-degrees", "90"]
+
+    # RV-2: the same refusal turned into the clamp this card refused. Nothing is
+    # refused, nothing is printed as a failure, and the ask that reaches the line is not
+    # the ask that was made — a run that reads as a 45-degree turn nobody asked for.
+    clamped = joiner_control_region_mutated(
+        region,
+        "MINEKIN_DOMAIN_JOIN_LOOK_YAW=%s is outside the bound",
+        'yaw="${joiner_control_max_yaw}"',
+    )
+    result, argv = drive_joiner_control(
+        tmp_path,
+        env={"MINEKIN_DOMAIN_JOIN_LOOK_YAW": "90"},
+        region=clamped,
+        tag="rv-2-clamp",
+    )
+    assert result.returncode == 0, result.stderr
+    assert argv[-2:] == ["--look-yaw-degrees", "45"]
+
+    # RV-3: the joiner-only guard turned into a report. The armed ask now composes a
+    # line for a joining client this run does not have, which is the shape of a knob
+    # that silently does nothing.
+    no_joiner_guard_off = joiner_control_region_mutated(
+        region, "refused rather than carried as a knob that does nothing", ":"
+    )
+    result, argv = drive_joiner_control(
+        tmp_path,
+        env={"MINEKIN_DOMAIN_JOIN_LOOK_YAW": "10"},
+        joiner="",
+        region=no_joiner_guard_off,
+        tag="rv-3-no-joiner",
+    )
+    assert result.returncode == 0, result.stderr
+    assert argv[-2:] == ["--look-yaw-degrees", "10"]
+
+    # RV-4: the phase guard off. A joining ask whose moment is refused by design now
+    # goes out anyway, and the run would wait on a walk that was never granted.
+    phase_guard_off = joiner_control_region_mutated(
+        region, "there is none to drive it from, so the ask is refused", ":"
+    )
+    result, argv = drive_joiner_control(
+        tmp_path,
+        env={"MINEKIN_DOMAIN_JOIN_HOLD_FORWARD_SECONDS": "1"},
+        hold_at="join",
+        region=phase_guard_off,
+        tag="rv-4-at-join",
+    )
+    assert result.returncode == 0, result.stderr
+    assert argv[-2:] == ["--hold-forward-seconds", "1"]
+
+    # RV-5: the default-off half. Taking out only the early return changes nothing —
+    # measured below, and worth saying: the per-flag conditions guard the same door, so
+    # the property is held twice and an unarmed run still composes the old line. It takes
+    # both gone before a control flag reaches a run that asked for nothing, and the
+    # identity reading above is what would catch it.
+    never_off = region.replace(
+        '    if [ -z "${yaw}" ] && [ -z "${pitch}" ] && [ -z "${forward}" ]; then\n'
+        "        return 0\n"
+        "    fi\n",
+        "",
+        1,
+    )
+    assert never_off != region
+    result, argv = drive_joiner_control(tmp_path, region=never_off, tag="rv-5a-early-return")
+    assert result.returncode == 0, result.stderr
+    assert argv == OBSERVE_ONLY_JOINER_ARGV, (
+        "the early return turned out to be the only guard; the comment above is wrong"
+    )
+
+    always_on = never_off.replace(
+        '    if [ -n "${yaw}" ]; then\n'
+        '        joiner_control_args+=(--look-yaw-degrees "${yaw}")\n'
+        "    fi\n",
+        '    joiner_control_args+=(--look-yaw-degrees "${yaw}")\n',
+        1,
+    )
+    assert always_on != never_off
+    result, argv = drive_joiner_control(tmp_path, region=always_on, tag="rv-5b-always-on")
+    assert result.returncode == 0, result.stderr
+    assert argv != OBSERVE_ONLY_JOINER_ARGV
+    assert "--look-yaw-degrees" in argv
+
+    # And the two refusals that are not mutations of a guard: the same ask with the
+    # driver's own bound kept is refused on the shipped bytes and accepted at the bound,
+    # so the number is what the message says it is.
+    result, argv = drive_joiner_control(
+        tmp_path,
+        env={"MINEKIN_DOMAIN_JOIN_LOOK_YAW": "45"},
+        region=region,
+        tag="rv-bound-inclusive",
+    )
+    assert result.returncode == 0, result.stderr
+    assert argv[-2:] == ["--look-yaw-degrees", "45"]
+    result, argv = drive_joiner_control(
+        tmp_path,
+        env={"MINEKIN_DOMAIN_JOIN_LOOK_YAW": "45.0001"},
+        region=region,
+        tag="rv-bound-exclusive",
+    )
+    refused(result, argv)
