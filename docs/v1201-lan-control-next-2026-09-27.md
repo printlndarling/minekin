@@ -724,3 +724,28 @@ job 级 `python`/`protocol`/`bridge-static` 三支对 `886` 全 `success`；步�
 **判停（具名，不改判据）**：§2.41 表里有两格标着「今天即可」（第 3 条、第 4 条第二格）。**V5′ 不拆成「今天跑两格 + 之后再跑五格」**，理由三条，都写死在此以免日后被顶替：① 第 4 条两格按判据原文要在**同一形状、同一节奏**下成对读，拆跑等于换成两次会话的比较，非恒真性下降；② 活体窗此刻被 H1m 占（它也要经真实 `run.sh` 跑两名），M 抢引擎会同时污染两边的 30s 握手预算；③ 半张卡的记录会留下一条「V5′ 部分绿」的口径，E7 封证与 M-C1 登记都只认整卡七条。⇒ 三式在 H1m 入干后**一次会话内串行发**，前置不满足（H1m 未入干 / 行号未重读 / 引擎不静默 / 灌种失败）则保留失败材料并就地停，不拿 B、C 两格冒充卡绿。
 
 **四态**：真实封证仍 **0**；已合主干且 CI 绿 = `af514d1`（`896` success，含 `dcc3e24` 的 H1l 合并链）；`c87089d` 已 push、CI `queued` 不作绿；仅在分支 = H1m（在飞，尚无提交、无远端 ref）与 lane 的 `codex/minekin-h1l-forward-join-name` ref；未验证 = V5′ 全卡（本节只写形状，未跑一发）、H1i 全卡、#58 (乙)。本轮零容器活体、规范卷未挂、未读 `.tmp/local-test-server.txt`（未连接用户远程服）、未放宽认证/地址/lease/判据、未翻 `mandatory`/registry、材料与失败材料未删（`.tmp/m-r54-ci.json` 在案）。
+
+## §2.43 H1i 的真缺口在 `38854ea` 的字节上是**两处**而不是「LAN 日志那格」；另开窄卡 H1n 收 `domain.sh:2430` 的字面 `\n`（第五十四轮后半，2026-09-27 23:05 +0800，M 主控；只读仓库字节，不挂引擎、不进 H1m 工作面）
+
+**为什么现在量**：H1i（#52）严格排在 H1m 之后，而它的卡面口径来自第四轮之前的世界——那时加入者只能进宿主的 LAN 世界。项目记忆里那条「LAN 日志那格是 `domain.sh:2472-2489` 有意丢弃」的编号早已失效（§2.39 的同一族教训），H1k 又把专服形状送了进来 ⇒ 不重读就派工，等于拿旧地图画新脸。本轮只读主干盘上字节（`domain.sh` = `38854ea` 树内），零容器。
+
+**缺口一（封存里根本没有服务端日志载体）**：`case_id` 分支 `:2825` 之内，`world_args` 在 `:2846–:2847` 被铸成 `--server-profile … --server-directory …`，但 `case_on=joiner` 那一支 `:2875–:2891` 把它**整组清空**——`:2887–:2890` 的注释逐字为「And this run's own world inputs are dropped, deliberately: a dedicated server profile is a *different* kind of world, and leaving it named would let a join with an unreadable host document fall back to recording one that never ran rather than being refused.」⇒ `seal_run_evidence.py:255–:258` 那三行按 `${server_directory}/server.log`、`usercache.json`、`server.properties` 取 artifact 的代码**不会跑到**（`server_directory is None`）。后果直白：E7 若按加入者侧封存，bundle 里没有 §2.16 第 2 条要的按名答题行载体。注释的理由属于「加入者进的是**别的 run** 的世界」那代形状；专服形状下起这个服务端的是**本 run 自己**（`:821` 置空、`:850` 铸 `server-runs/run-N`、`:923` 打印，`:1988` 等待读的就是同一份 `${server_directory}/server.log`）⇒ 该理由在这一支不成立，交出去是安全的、且默认关闭才有得谈。
+
+**缺口二（探针问的是谁，封存里读不出）**：`--probed-player` 在 `tools/**` 侧**已有承担者**（`seal_run_evidence.py:929` 收参数、`:337–:338` 拼进命令面、`:805` 带进材料；`assert_case_evidence.py:712/:1051` 读回），而 `grep -n "probed-player" test-orchestrator/runner/domain.sh` **回空** ⇒ `domain.sh:2984` 的那次 `seal_run_evidence.py` 调用从不递这个名。于是 M-C0 造的归属载体在战役路径上是**空转**的：判据能读「谁被探」，但没人把「谁被探」写进 bundle。这正是 §2.4 卡面里「探针目标交给加入者封存调用」那一半，且它不依赖 LAN 日志那格。
+
+**⇒ H1i 的卡面据此收窄为两格**（不放宽任何判据，只是把「宿主 LAN 日志」这一格换成它在今日字节上的等价物）：① 专服形状下把本 run 的 `--server-directory`（连带 `--server-profile`/`--server-jar` 三条，形状与 `:2846–:2852` 同）交回加入者侧的封存；② 把本 run 实际问过的名字按 `--probed-player <名>` 逐一递出（H1m 入干后是两名）。两格都要**默认关闭**：不设 `MINEKIN_DOMAIN_*` 新旋钮 ⇒ 加入者侧封存命令与今日逐字节相等（`world_args=()` 原样保留 = 旧行为不变），坏值落盘前具名 `exit 2`。反证照本族口径：(a) 破默认 ⇒ 加入者 bundle 多出 `server.log` artifact 且含按名答题行；(b) 不设旋钮 ⇒ 该 artifact **不出现**（否则该格恒真）；(c) 递出的名字里含一个本 run 从未问过的名 ⇒ 具名拒止。
+
+**H1n（新开窄卡，与本队列正交）**：`test-orchestrator/runner/domain.sh:2430` 的离场等待里，一条本该续行的语句被压成一行，行内留着**字面** `\n`——`if grep -qE "${kick} (lost connection|left the game)" \n            "${server_directory}/server.log" 2>/dev/null; then`。`git blame` 归到 `eb26bb0`（2026-09-20，本队列之外），`git log -S'left the game)" \n'` 同笔。bash 里未加引号的 `\n` 就是一个裸词 `n` ⇒ 该命令实为 `grep -qE <模式> n <server.log>`，`n` 被当作**文件操作数**，其打开失败的报错被 `2>/dev/null` 吞掉。
+
+**这不是推断，已按最小形状量过并留材**（`.tmp/m-r54-nldefect.sh` → `.tmp/m-r54-nldefect.log`，末两行 `n_absent_rc=2`、`n_present_rc=0`；两式只差一个名为 `n` 的文件，`server.log` 两式都**不含**该模式）：
+
+```text
+$ printf 'nothing relevant here\n' > server.log
+$ rm -f n; grep -qE 'Stevedor (lost connection|left the game)' \n server.log 2>/dev/null; echo $?
+2                       # n 缺席：rc=2（grep 的报错被吞，落到「继续等」）
+$ printf 'Stevedor lost connection\n' > n
+$ grep -qE 'Stevedor (lost connection|left the game)' \n server.log 2>/dev/null; echo $?
+0                       # n 在场且含该模式：rc=0 —— 服务端从未说过这句话
+```
+
+⇒ 危险具体化为：工作目录一旦出现名为 `n` 且含 `${kick} (lost connection|left the game)` 的文件，`kicked` 就在服务端没有说过这句话时置 1（**假绿**，且正是离场/踢线那一格）；另一条次要后果是「日志无命中」（rc=1）与「grep 自己出错」（rc=2）在 `2>/dev/null` 之下不可分辨。修法面：`domain.sh` 一处续行 + 一条契约断言（扫 `domain.sh` 命令位置的字面 `\n`）+ 上面这两枚对照（`n` 缺席 ⇒ 不置位；`n` 在场 ⇒ 现字节置位、修后不置位）。独立独占面，与 H1m/H1i 无先后耦合（`:2424–:2435` 属 kick 等待支），可插空档派。
