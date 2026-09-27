@@ -1862,15 +1862,16 @@ def test_the_joiner_forge_refuses_world_document_and_profile_together(tmp_path: 
     )
 
     # Earlier than any seal write, read off the shipped file's own byte offsets: the guard's
-    # `exit 2` sits inside the forge region, and the region closes before the first touch of
-    # `/tmp/domain-seal.json`, `/tmp/domain-seal.err`, or the sealer that builds the bundle.
+    # `exit 2` sits inside the forge region, and the region closes before the sealer is
+    # invoked or anything is redirected into `/tmp/domain-seal.*`. The scans are anchored on
+    # the redirect / invocation forms, not a bare mention, so they hit the writes themselves.
     begin = text.index("# --- joiner-server-log-seal-forge begin")
     end = text.index("# --- joiner-server-log-seal-forge end")
     guard_exit = text.index("exit 2", begin)
     assert begin < guard_exit < end, "the named rejection is not inside the forge region"
     for first_write in (
         text.index(": > /tmp/domain-seal.json"),
-        text.index("/tmp/domain-seal.err"),
+        text.index(">/tmp/domain-seal.err"),
         text.index("python /src/tools/seal_run_evidence.py"),
     ):
         assert end < first_write, "the guard region must close before the seal can write"
