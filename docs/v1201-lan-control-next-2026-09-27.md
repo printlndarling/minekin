@@ -286,3 +286,21 @@ H1i（§2.4：默认关闭地把宿主 LAN 日志与探针目标交给加入者�
 ### M-G1 的「改后」半张（本轮故意压后的那一份）
 
 H1k 在飞活体窗口期间 M 不往同一窗口塞容器读数（V5a 的三次 `HANDSHAKE_TIMEOUT` 是实测代价）。窗口关闭后立刻在合并树取：census 全行（与 §2.14 的「改前」配成一对）、门载荷、`report_promotion` 的 `promotable/blocks` 逐项、两份对照 bundle 的 `agrees/PASS`。
+
+## §2.17 H1k 的静态复审发现：拒止集合漏了 `MINEKIN_DOMAIN_REFUSE_FIRST_SNAPSHOT` 这一组合（第四十二轮，M 在活体读数存在之前读 lane 的未提交字节得到）
+
+- **测量对象**：`../minekin-wt-h1k` 的**未提交**工作树字节（`test-orchestrator/runner/domain.sh` sha256 `d9a0acfc…`、`tests/contract/test_runner_scripts.py` `7fe48b9d…`，与 `.tmp/m-r41-h1k-wip-hashes.txt` 逐字节相同）。本节只读 lane 字节与主干字节，不碰容器、不读规范卷；写下它是在任何活体读数之前，所以不构成对已交读数的追认。
+- **形状事实（逐行读得）**：新名在 `:167` cast、`:173` 具名拒坏值；`--- joiner-controlled-server-guard ---` 区间是 `:461–:488`，六条具名拒止分别在 `:464`（无 joiner）、`:468`（无 `--server-profile`）、`:472`（与 `MINEKIN_DOMAIN_OPEN_LAN` 冲突）、`:476`（黑洞）、`:480`（`MINEKIN_DOMAIN_NO_SERVER`）、`:484`（`MINEKIN_DOMAIN_NOT_WHITELISTED`）。等待链的次序是 `:1839 elif [ "${refusal_asked}" -eq 1 ]` ⇒ `:1936 elif [ -n "${open_lan}" ]` ⇒ `:1968 elif [ "${join_on_controlled_server_asked}" -eq 1 ]`（区间 `:1969–:1988`）⇒ `:1989 elif [ -z "${server_profile}" ]`。
+- **后果（静态可推，无需活体）**：`MINEKIN_DOMAIN_REFUSE_FIRST_SNAPSHOT=1`（`:106` 读、`:120` cast）与新名同给时，链在 `:1839` 就拐进首快照注入分支，`:1968` 永不执行 ⇒ 加入者已 `join_ready` 却从未被送出，run 交出的是宿主注入的读数，而调用方以为自己要的是「第二个 Kin 进了专服世界」。这正是那条 guard 自己的措辞要杀的形状——`:464` 写着 *refused rather than carried as a knob that does nothing*；也是 §2.13 说的「静默错答」这一类。
+- **要求（在 H1k 分支内补齐，不开第二张卡、不由 M 代 lane 写）**：① 在 `:461–:488` 那个区间里加第七条具名拒止，点名两个旋钮、说明「一次 run 只能选一个目的地」，`exit 2`，位置与其余六条同样在任何拆除点之前；② 契约测试补一条**同给两名 ⇒ `rc=2` 加那句具名 stderr、且 `/tmp/domain-join-profile.json` 没被写出**；③ 默认关闭的字节等价对照扩到这一组合（去掉新名 ⇒ `:1839` 分支的注入读数一字不变）。M 的复审口径：交付里没有这三件就不合入，按第一真实失败层退回。
+- **本节的复现命令（全部只读，M 本轮已逐条跑过）**：
+
+```bash
+cd ../minekin-wt-h1k
+grep -n 'MINEKIN_DOMAIN_JOIN_ON_CONTROLLED_SERVER\|joiner-controlled-server-guard begin\|joiner-controlled-server-guard end' test-orchestrator/runner/domain.sh
+grep -n '^elif \[ "${refusal_asked}" -eq 1 \]; then\|^elif \[ -n "${open_lan}" \]; then\|^elif \[ "${join_on_controlled_server_asked}" -eq 1 \]; then\|^elif \[ -z "${server_profile}" \]; then' test-orchestrator/runner/domain.sh
+grep -n 'REFUSE_FIRST_SNAPSHOT' tests/contract/test_runner_scripts.py
+```
+
+  第三条今天只命中 `:382/:384/:390` 那组「默认关闭 + 具名 cast + `run.sh` 转发」断言，没有任何一条把两个名字放在一起 ⇒ 这一组合今天未被覆盖。
+
