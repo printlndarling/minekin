@@ -1613,8 +1613,22 @@ provide_the_joiner_runtime_directory() {
 # and both are facts about the client half — but a reader who only sees them cannot tell
 # whether the world was even there, and "the server status is not probeable" has the same
 # shape as "the client never dialled" from downstream. So the two are read separately here:
-# whether anything answers the published port on loopback (nothing else — never a remote
-# address), and whether the client was handed a screen that could be measured.
+# whether anything answers the port on loopback (nothing else — never a remote address),
+# and whether the client was handed a screen that could be measured.
+#
+# The port probed is `${joiner_target_port}`, the one this run wrote into the joining
+# client's profile, and never `${lan_port}` read raw. The two are the same number on every
+# shape that predates `MINEKIN_DOMAIN_JOIN_ON_CONTROLLED_SERVER` — that block sets the
+# target to the LAN port when no controlled server was asked for — but they diverge on
+# the dedicated-server shape, which dials the port its own server bound (25566 in the
+# 1.20.1 runs) while the LAN port is never published at all. Probing the LAN port there
+# answers "nothing listens on 25570", which is a fact about a world this shape never
+# tried to publish, and the verdict then reads as evidence *about the world* while the
+# joining client was dying somewhere else. Measured: an H66 campaign run whose joiner JVM
+# crashed in `RenderSystem.initBackendSystem` (`GLFW 0x1000E`, screen measured at both
+# depths, `GL_PROBE_RC=0`) was called `THE_WORLD_STATUS_IS_NOT_PROBEABLE … evidence about
+# the world and not about the client environment`, and that line is what pointed the card
+# at the world side. The target is read from the run, exactly as the dialled address is.
 #
 # This names readings, on the branch where the joiner had not arrived when the wait
 # window closed — a reading about that moment, which a later arrival does not undo.
@@ -1623,10 +1637,11 @@ provide_the_joiner_runtime_directory() {
 # called a run that died on the client side, and this shape cannot know that much.
 # It changes no criterion, no gate and no bundle field, and a run it
 # describes is still the same FAIL it was before.
+# --- joiner-downstream-reading-target begin (the contract test extracts this region) ---
 classify_the_joiner_downstream_readings() {
     local listening=0
     local probe_rc=0
-    timeout 5 bash -c "exec 3<>/dev/tcp/127.0.0.1/${lan_port}" 2>/dev/null || probe_rc=$?
+    timeout 5 bash -c "exec 3<>/dev/tcp/127.0.0.1/${joiner_target_port}" 2>/dev/null || probe_rc=$?
     if [ "${probe_rc}" -eq 0 ]; then
         listening=1
     fi
@@ -1639,22 +1654,23 @@ classify_the_joiner_downstream_readings() {
     elif [ "${listening}" -eq 1 ]; then
         case "${backend}" in
             unmeasurable* | not-measured*)
-                verdict='THE_JOINER_SCREEN_WAS_UNMEASURABLE while the world was listening on 127.0.0.1:'"${lan_port}"' at the window close (screen: '"${backend}"'), so the environment the joiner was handed is what this run measures' ;;
+                verdict='THE_JOINER_SCREEN_WAS_UNMEASURABLE while the world was listening on 127.0.0.1:'"${joiner_target_port}"' at the window close (screen: '"${backend}"'), so the environment the joiner was handed is what this run measures' ;;
             *)
                 verdict='THE_JOINER_HAD_NOT_ARRIVED_IN_THE_WINDOW with a live world and a measurable screen ('"${backend}"'), so the client half rather than the world is where to look at the moment the window closed; a joiner arriving after the window would make this line about the window, not about the death' ;;
         esac
     else
         case "${backend}" in
             unmeasurable* | not-measured*)
-                verdict='BOTH_HALVES_NAMED_AND_BOTH_BAD: nothing answers 127.0.0.1:'"${lan_port}"' and the client was handed no measurable screen ('"${backend}"')' ;;
+                verdict='BOTH_HALVES_NAMED_AND_BOTH_BAD: nothing answers 127.0.0.1:'"${joiner_target_port}"' and the client was handed no measurable screen ('"${backend}"')' ;;
             *)
-                verdict='THE_WORLD_STATUS_IS_NOT_PROBEABLE: nothing answers 127.0.0.1:'"${lan_port}"' while the client screen measured ('"${backend}"'), so this run is evidence about the world and not about the client environment' ;;
+                verdict='THE_WORLD_STATUS_IS_NOT_PROBEABLE: nothing answers 127.0.0.1:'"${joiner_target_port}"' while the client screen measured ('"${backend}"'), so this run is evidence about the world and not about the client environment' ;;
         esac
     fi
     printf 'domain: downstream reading — %s\n' "${verdict}" >&2
     printf 'downstream %s\n' "${verdict}" >> "${client_environment_readout}" 2>/dev/null || true
     return 0
 }
+# --- joiner-downstream-reading-target end ---
 
 # Start the second client against the world the first one published, and wait for the
 # *world* to say somebody arrived. The joiner's own document is what that client
