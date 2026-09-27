@@ -1625,3 +1625,14 @@ the target allows 1.21.4"}`，配对文档 `mismatch.json` 是 `schema_version 2
 - **仅在分支**：H1h、M-C0（两树均**零提交**，故连「分支上的交付」都还没有；远端无 ref）。
 - **真实封证**：**1 个**——`73a52bfb…` / bundle `b2b4133b…`（`V1201-020`，本地专服 + 单客户端）；**LAN 第二客户端的控制封证 = 0**。
 - **未验证**：H1h 的限幅形状、M-C0 的探针目标归属、V5 活体读数、M-C1 登记、E7 同 run 封证、M-G1 审计；以及仍守主控决策门的 V08 远程服、HOST/PERSIST、跨 bundle 证据 schema、registry 引用替换、`mandatory` 翻转。
+
+### 第三十七轮补充三：受控镜像的 SQLite 假 FAIL（新工具形状陷阱）+ 复审闸门锁件 + H1h 断点续派
+
+**① 受控镜像少一个 `LD_LIBRARY_PATH` 就会假 FAIL 13 个判据测试**（本轮量出，此前未记录）：
+- 现象：`tests/unit/test_case_evidence_assertions.py` 在镜像里 `13 failed, 474 passed`，报错具名为 `SQLiteCompatibilityError: SQLite 3.45.1 is outside the validated multi-connection WAL safety set: this build accepts 3.51.3 or newer, or the backports 3.44.6 or 3.50.7`（`src/minekin_core/adapters/sqlite/connection.py:74`）。
+- 分层实测：镜像里**确实带着钉住的库** `/opt/sqlite/lib/libsqlite3.so.3.53.4`，但 `_sqlite3.so` 按 `ldd` 链到 `/lib/x86_64-linux-gnu/libsqlite3.so.0`（Debian 3.45.1），因为 `/opt/sqlite/lib` 不在 loader 路径上（`ldconfig -p | grep -c libsqlite3` = 1）。加上 `-e LD_LIBRARY_PATH=/opt/sqlite/lib` 后同一份代码 `487 passed`；宿主 `uv run pytest`（pysqlite 3.53.1）也是 `487 passed`。⇒ **不是主干回归，不是 lane 的错**，是调用形状。此前 M 的封存读数脚本（`.tmp/m-r36-e6-reads.sh:22`、`.tmp/m-v2-run.sh:4`）本就带这个变量，只是复审闸门脚本没带。
+- 处置：不为此开镜像卡（无产品/环境改动必要），把口径写进复审脚本头部。同时记入既有第三类陷阱清单（`jsonschema` 缺失导致全量套件 3 个收集错误、`verify_tested_provenance.py` 的 `BRIDGE_JAR_MISSING`）。
+
+**② 复审闸门已钉成一件可复算工具**：`.tmp/m-r38-review-gates.sh`，在主干 `52a6457` 上标定（输出 `.tmp/m-r38-review-gates-calibration.log`）——六项全 `rc=0`（`bash -n`、contract `37 passed`、asserter `487 passed`、case-assertions `150 registered`、fixture-digests、boundaries）、两份 parity 对照逐字 `agrees/PASS`、`gate_payload_sha256 cfa0f118…63afd6`、`domain.sh ff69c879…`、auto+joiner 拒止与 `world_args=()` 两处不变量按名可读。⇒ H1h/M-C0 到货后跑同一脚本对 `BASE_SHA..TIP_SHA`，改前改后只差在 lane 声明的那几格。修脚本时踩到一个小坑：`rejudge_evidence.py` 的 JSON 在 stdout、结论句在 stderr，`2>&1` 合并会让 `json.load` 假报 unreadable——已按流分开。
+
+**③ H1h 的 lane 断点与续派**：先前那枚 H1h 子代理停在 150 turn 上限，留下一件**未提交但已成形的实现**（`domain.sh +244`、`tests/contract/test_runner_scripts.py +734`，均在允许面内）：默认关闭的三个加入者控制名 + 边界常量（`max_yaw=45`/`max_pitch=30`/`max_forward_seconds=2`）+ 数值形状检查（拒非数、拒零、取绝对值比界，越界具名拒止不钳制）+ 一个 `MINEKIN_DOMAIN_JOIN_CONTROL_PRINT` 的读回口子；其注释已明确「不宣称真客户端转过/走过，活体读数属后续卡」，与预登记第 5 条一致。M 按既有规矩**续派完成而非重新设计**：只补 A–D 原始读数与反例、一份 `docs/validation/` 记录、提交并 push 分支（禁合主干、禁挂规范卷）。
