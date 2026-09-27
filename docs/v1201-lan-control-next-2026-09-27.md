@@ -303,4 +303,3 @@ grep -n 'REFUSE_FIRST_SNAPSHOT' tests/contract/test_runner_scripts.py
 ```
 
   第三条今天只命中 `:382/:384/:390` 那组「默认关闭 + 具名 cast + `run.sh` 转发」断言，没有任何一条把两个名字放在一起 ⇒ 这一组合今天未被覆盖。
-
