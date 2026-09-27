@@ -1044,3 +1044,59 @@ grep -n "world_args\|world_run_args\|seal_run_evidence" test-orchestrator/runner
 - 两发前后卷清单各 3 条、逐条相同 ⇒ 拒止确实早于任何落盘。合入后 `grep MINEKIN_DOMAIN_SEAL src/minekin_core/config.py` ⇒ 空 ⇒ 产品入口面 0 外溢。
 
 **⑦ 次序随之更新**：H1o 入干 ⇒ 战役路径今日**设得了**这两枚旋钮，**#48 M-C1 解锁可跑**（它冻结 §2.52 的单名判据并登记 `V1201-LAN-JOINER-CONTROL-CASE-001`；登记必动门载荷 ⇒ 量 PRE/POST 并具名申报，不改旧案 `core-040`/`v1201-040`）。**E7（#49）仍不可开跑**：转发只解决「设不设得了」，不解决 §2.54 判定的「专服形状封不封得出」——它阻塞在 **#65 H1q 的主控口径裁决**之上。真实封证仍 **0**。CI：`6fb974b`（文档笔）与 lane 分支 `f84d4c3` 均已 completed/success，合并笔 `77fd13d` 的读数写在 handoff 本轮。
+
+## §2.56 M-C1 落地并分两笔入干（`4a5d353` 登记 + `163e350` 注册）：`V1201-LAN-JOINER-CONTROL-CASE-001` 以 §2.52 的单名四格冻结，门载荷第十次、第十一次连两次同值——并且这一格「同值」这次带正对照：把「入册必动门载荷」改判为「只有 `REQUIRED_CASES` 点名的行才动载荷」（第六十四轮，2026-09-28 03:30 +0800，M 主控；只读规范卷 `:ro`、零容器活体、零 JVM、lane 树全程未碰、不连用户远程服）
+
+**⓪ 为什么分两笔**：§2.12 要求「每笔量 case_version 与门载荷前后差」，而本卡的改动天然有两个面——判据名册（`tools/` 两行）与案本身（fixture + manifest 行 + 测试）。合在一笔就只能回答「这六行字节合起来动没动门」，答不出「注册名册动没动门」。于是先只暂存两枚 `tools/` 文件提交（`4a5d353`，2 files / +3 行），再把 C2 的三份文件按备份字节复原后提交（`163e350`，3 files / +177 行），**每笔的读数都在那一笔自己的字节上取**：取 C1-only 读数时把 C2 三文件 `cp` 进 `.tmp/m-r64-c2stage/` 并记 sha256（`.tmp/m-r64-c2stage.sha`），manifest 与测试文件写回 `git show HEAD:<path>` 的字节、新 fixture 移出 cases 目录（`.tmp/m-r64-c2stage-removed-fixture.json`），量完逐份 `sha256sum -c` 复验回来（`493faf67…` / `47d13f93…` / `f4b94e03…` 三份 OK），全程不用 `checkout --` / `restore` / `reset` / `stash`。
+C1-only 字节上的读数（`.tmp/m-r64-c1-gates.log`）：`check_case_assertions` ⇒ `OK (151 registered)` rc=0、`verify_fixture_digests` ⇒ OK rc=0、`pyright` ⇒ `0 errors` rc=0、`pytest tests/unit/test_case_evidence_assertions.py tests/unit/test_case_registry.py tests/contract/test_runner_scripts.py -q` ⇒ `695 passed in 24.68s` rc=0；容器只读规范卷 ⇒ rc=1、103,921 B、`cfa0f118…`（与 trunk 同值）；载荷里新案名出现 0 次；case_version 全表 52 行与 PRE 逐行同值（`.tmp/m-r64-caseversions-C1.txt`，CR 归一后 diff 空）⇒ **只补名册不让任何旧案版本漂移**。
+
+**① 冻结的形状落在字节上**（判据形状由 §2.52 钉死，本节不改它，只把它写成登记）：
+
+- `tests/fixtures/cases/v1201-lan-joiner-control-case-001.json`（文件名 = `case_id.lower()+".json"`，`tests/unit/test_case_registry.py:224–:243` 的派生规矩）：`work_package W60`、`mandatory false`、inputs 为 `bundle-candidate-1.20.1.json` + `controlled-offline-server-1.20.1.json`（与 `v1201-040` 同一对受审 recipe / 受控 world pin），assertions 按 §2.52 的链序四条：`move_input_was_leased` → `the_bridge_carried_the_input_out` → `the_server_saw_the_kin_move` → `the_probed_player_is_this_run_s_kin`。
+- 两枚注册表各补一行：`tools/check_case_assertions.py:308` 的 `_runtime("the_probed_player_is_this_run_s_kin")`、`tools/assert_case_evidence.py:4162` 的 `ASSERTIONS` 同名条目。**这两行都是 M-C0 允许面之外的遗留**（M-C0 交付了函数本体，注册面属本卡），补上后 `test_the_registry_and_the_asserter_name_the_same_assertions` 两侧仍相等，登记枚数 `150 → 151 registered`。
+- `tests/fixtures/manifest.sha256` 追加一行 `afe9aa015722452d05e23660536fae70e2260e9b56e6f08e45b94528c0fa0a57`（= 该 JSON 的 CRLF→LF 归一字节摘要，88→89 行；`FROZEN_PATTERNS` 含 `tests/fixtures/**/*.json` ⇒ 漏行即 `unlisted frozen file` 事故）。
+- **§2.12 那句「断言至少覆盖首快照 / 释放后停止」在本案里没有落进 assertions**，具名申报而非静默：那两格今天分别由 `V1201-020`（`first_snapshot_admitted` + `leave_after_join_observed`）与 `the_lease_expired_and_was_released` 承担，而 §2.52 把这张卡的判据四项钉为「租约→桥接搬运→服务端位移→位移归属」，理由是位移格 `the_server_saw_the_kin_move` **名字盲**（`_PROBE :246` 不收行内名），两名同 run 时第 4 格必拒 ⇒ 冻结的形状只能是单名探测。旧口径下作废的读数为「新案自带首快照/停止」——它从未有过，本轮也没有把它写进去。
+
+**② 先拒后写（不拿叙述当证据）**：把 cases 目录整份 `cp` 成草稿副本（`.tmp/m-r64-nodigest-cases/`），只在新案那一份里用正则摘掉 `assertion_digests` 块（`.tmp/m-r64-strip-digests.py`，897→451 B），再 `check_case_assertions.py --cases-dir <草稿>` ⇒ **rc=1** 且四条逐名 `V1201-LAN-JOINER-CONTROL-CASE-001: assertion_digests has no entry for <name>`；同一命令指向真实目录 ⇒ rc=0、`151 registered`。⇒ 「摘要块是判据的门槛而不是装饰」是量出来的（材料 `.tmp/m-r64-reversals.log` 的 R0 段）。
+**`--record` 的作用域实测**：写前/写后对 53 份 case 文件逐个 sha256 列表（`.tmp/m-r64-cases-before.txt` / `-after.txt`）⇒ **只有新案那一份**移动，其余 52 份逐字节相同；`git status` 亦只列出新文件。三枚共用判据的记录摘要与 `core-040`/`v1201-040` 里的值逐字符相同（`e1ec3b7c…` / `ef4e96df…` / `c9adaf98…`），新格为 `05e9ea31…` ⇒ 旧案标准一字未移，不触发重封全卷（[[project-reseal-is-atomic]]）。
+**case_version 全表差分**：`git archive HEAD` 取出登记前的 cases 目录，两侧都用 `load_case_registry(...).cases[].digest` 打印（`.tmp/m-r64-caseversions-{PRE,POST}.txt`）⇒ 52 行逐行相同，只多出 `V1201-LAN-JOINER-CONTROL-CASE-001 1e31f0003b4e30e06506e086616335db73ec975b406874d219033f151b3f812a`。中间态也量了：C1-only 字节的表（`.tmp/m-r64-caseversions-C1.txt`，52 行）由与 `src/minekin_core/domain/cases.py:731` 同式的内联重算（`sha256(json.dumps(doc, sort_keys=True, separators=(",",":")))`）得到，它与 PRE 那份走 `load_case_registry` 的表逐行同值 ⇒ 两套算法互证，且版本漂移只发生在新增的那一案上（名册笔 0 行、注册笔 1 行）。
+
+**③ 反证三格 + 正对照，全部落在单测面上（§2.16 要求「不靠卷」）**：`tests/unit/test_case_evidence_assertions.py` 末节新增 6 条（该文件 `493 passed`）。共享的 `material()` 多了一个可选的 `probed_players=`，并**经 `ASSERTER_MODULE.recorded_probed_players` 归一**而不是在测试里抄一份排序去重规则。
+
+- 正对照：单名形状（只探这一 run 自己的 Kin，位置三元组首末水平差 8.627 块，取自 §2.51 私有卷真跑的那个数）⇒ `result PASS`、`failures ()`、`unimplemented ()`、`observed == expected`。
+- 反证 1 归属名换成主持有者 ⇒ `the_probed_player_is_this_run_s_kin:PROBED_PLAYER_IS_NOT_THIS_RUN_S_KIN:Kin2`。
+- 反证 2 申报集合含第二人 ⇒ `…:MORE_THAN_ONE_PLAYER_PROBED:Kin,Kin2`。
+- 反证 3 首末读数改成相同 ⇒ `the_server_saw_the_kin_move:MOVED_LESS_THAN_A_STEP:0.00`，**且另三格保持绿** ⇒ 这一格区分的是「没被驱动」而不是「什么都没记下来」。
+
+**④ 仪表非失灵：三笔破桩反证（材料 `.tmp/m-r64-reversals.log`；每笔先 `cp` 备份 + 记 sha256，复原后按 sha 复验，不用 `checkout`/`restore`/`reset`/`stash`）**
+
+- **M-A** 把 `the_probed_player_is_this_run_s_kin` 改成恒 `None` ⇒ 恰反证 1、2 两条转红（`FAIL → PASS`），正对照与反证 3 不动。
+- **M-B** 把 `MINIMUM_STEP_BLOCKS = 2.0` 改成 `0.0` ⇒ 恰反证 3 转红，其余不动。（第一版补丁没打上：那三行读取在位移格与转向格里各出现一次，锚点不唯一——按定义行改锚后才成立，量到 `count == 2` 才动手。）
+- **M-C** 摘掉 `check_case_assertions.py` 的新注册行 ⇒ 门 **rc=1** 且具名 `names an assertion nothing implements: the_probed_player_is_this_run_s_kin`，同时「四条判据命名一致」那条元测试转红 ⇒ 注册行本身被钉，不是装饰。
+- 三笔复原后 `assert_case_evidence.py = 8e358d1e…`、`check_case_assertions.py = 9c0e4470…` 与破桩前逐字节相同，`git diff --numstat` 回到本卡的 +2 / +1 行。
+
+**⑤ 门载荷：PRE==POST 第十次同值，这次配了正对照，所以它是读数而不是仪表失灵**
+
+| 量 | 出处 | 结果 |
+| --- | --- | --- |
+| PRE | `5795600` 代码字节上的 `.tmp/m-r63-post-payload.json`（上轮在合并字节上亲量） | `gate_payload_sha256=cfa0f1184bee30df6a1d9fcf45778c9cef074ece6761c47fe7d6b9f49863afd6`、103,921 B、`rc=1`（按构造 blocked） |
+| POST | 登记后的树，规范卷 `:ro` + 工作树 `:ro` 容器内 `report_promotion --data-root /data`（`.tmp/m-r64-post-payload.json`，提交前；`.tmp/m-r64-c2-payload.json`，C2 复原字节复量） | 同尺寸、同 `rc=1`、**同摘要**（第十次与第十一次连读两次同值）；26 行逐格表 diff 为空（`.tmp/m-r64-cells-{pre,post}.txt`）；新案 id 在整份载荷里出现 **0** 次 |
+| 正对照 | 同一命令，只把 cases 目录换成「删掉 `core-040.json` 的副本」（`.tmp/m-r64-positive-control.log`） | 摘要 `→23b3631e…`；`W60 promotable True→False`、`blocks -→REQUIRED_CASE_NOT_REGISTERED`、`p0-core.absent 9→10`、`overall.blocking 28→29` |
+
+⇒ **具名更正 §2.16 的前置口径**：「入册必动门载荷 ⇒ 先量后量各一次」只在**这一行属于 `REQUIRED_CASES` 策略**时成立。历史上 `OFFLINE-070` 入册确实把 W30/p0-core 的 `absent` 挪动过（它本来就在 required 名单里，见 `test_the_070_row_is_registered_without_being_made_mandatory` 的说明）；而一张 `mandatory:false`、不在 required 名单里的新案，按构造不会出现在 `work_packages`/`overall` 的任何一格——载荷只由 required 名单与卷上被引 bundle 驱动，新案两者都不是。量的规矩保留（仍逐格 diff），断言的强度降级为「若动则必须能指名是哪一格的哪一行」。
+**登记生效的正面读数在 `report_cases`**（不挂卷也能跑，`.tmp/m-r64-report-cases-{pre,post}.json`）：`cases 52→53`、`assertions 194→198`、`by_judge.run-material 32→33`，而 `mandatory 7→7`、`required 74→74`、`required_present 46→46`、`required_missing 28→28` 一字未动 ⇒ 「注册看得见、门不吃它」是同一次量测的两面，不是遗漏。
+
+**⑥ 门表（每道单跑、先读退出码再落笔；材料 `.tmp/m-r64-local-gates.log`）**
+
+| 门 | rc | 末行 | 与登记前 |
+| --- | --- | --- | --- |
+| `ruff check .` | 0 | `All checks passed!` | 同 |
+| `ruff format --check .` | 0 | **372** files already formatted | 同数（本卡只加 `.json` 与测试函数，ruff 不收 `.json`；§2.55 ④ 的「文档面敏感」口径继续适用） |
+| `check_boundaries` / `verify_fixture_digests` / `check_workflow_pins` | 0/0/0 | 三条 OK | 同 |
+| `check_case_assertions` | 0 | `OK (151 registered)` | 150 ⇒ +1，即本卡的全部注册面 |
+| `pyright` | 0 | `0 errors, 0 warnings, 0 informations` | 同 |
+| 全量 `pytest -q` | 0 | `2706 passed, 2 skipped in 286.48s` | 基线 2700 passed, 2 skipped ⇒ +6 条本卡新测试，无旧测试转红 |
+
+两笔各自的复量：C1-only ⇒ `check_case_assertions 151 registered` / `verify_fixture_digests OK` / `pyright 0 errors` / 定向三文件 `695 passed`，全 rc=0（`.tmp/m-r64-c1-gates.log`）；C2 复原字节 ⇒ `pyright 0 errors`、`pytest -k "joiner or probed_player or asked"` `44 passed`、`ruff check` 与 `ruff format --check`（本笔 3 文件 `already formatted`）全 rc=0（`.tmp/m-r64-c2-gates.log`）。提交前各自读 `git diff --cached --check` ⇒ rc=0。
+
+**⑦ 落点与次序**：两笔已入干——`4a5d353`（名册）、`163e350`（注册），`git push origin HEAD:main` 后 `ls-remote` 读回 `163e350d3213aa6b7bc429489fb33efbf2f78917`，`5795600..163e350`；CI run `36344057387` 首读 `in_progress`、重读 `completed/success`（`head_sha=163e350`、`run_attempt=1`），`python`/`protocol`/`bridge-static` 三 job 按 ci.yml 自有步骤逐步核过全 `success`（jobs 端点留存 `.tmp/m-r64-ci-jobs.json`）⇒ **「已合主干且 CI 绿」前进到 `163e350`**。M-C1 入册 ⇒ **E7（#49）的前置里「case 已在册」这一格闭合**，其余前置不变——它仍阻塞在 **#65 H1q 的主控口径裁决**（§2.54：专服形状下加入者侧只剩一条可封形状，采纳与否属主控保留决策），且 E7 必须是同一 run 的字节同时供给控制侧与读数侧。**真实封证仍 0**：本节新增的是一个**能判的案**，不是判定结果——判据在单测材料上绿，在卷上没有任何一份 bundle 引用它。文档顺序上下一个可动的是 **M-G1（#50，E7 之后的只读审计）**，其「改前」半张已在 §2.14 落档；未开工存量：`#62 H1n`（`domain.sh:2617` 字面 `\n` ⇒ kicked 可假绿）、`#58 (乙)`。本轮不碰 mandatory / registry / 晋级，不连用户远程服，私有卷读数不当作 sealed bundle。
