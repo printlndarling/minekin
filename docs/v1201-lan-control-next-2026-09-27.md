@@ -88,3 +88,20 @@ M 在等 H1h 的窗口里把「有没有可判载体」量成了事实，结论�
   - 向后兼容要求：既有 case 的判定结果不得改变（用真 bundle 重判做正对照）；新字段缺省时不得让旧 bundle 重判转红。
 - **H1i（排在 H1h 之后，同一文件不可并发）** `V1201-PROBE-TARGET-HANDOVER-001`，只动 `test-orchestrator/runner/domain.sh`：封存调用要把本 run 实际问过的名字（`domain.sh:482` 的 `${probe:-${player}}`）交给 `--probed-player`，且不得改动 auto+joiner 拒止段。
 - **M-C1 的相应收窄**：M-C1 不再实现载体，只在 V5 证明活体可判后冻结/登记 case（两次提交，逐次量 `case_version` 与门载荷 delta）。E7 的封证窗口以 M-C0 + H1i 已合入为前置。
+
+## §2.3 M-C0 的 parity 对照件与门载荷口径（第三十七轮，M 派工后亲量）
+
+M-C0 的验收里「既有 case 的判定结果不得改变」这条不能靠 lane 自选 bundle，M 先把哪些是真对照件量清楚（脚本 `.tmp/m-r38-base-readings.sh`，容器 `/src:ro` + `/data:ro`，输出 `.tmp/m-r38-mc0-base-readings.log`）：
+
+- **合法的改前改后对照（两份，改前逐字 `rc=0 / status agrees / PASS`）**：
+  - `kin-01/61b4f0253cc84e2183d8913f3ad77867` = `OFFLINE-010`，`case_version 78053e9e…`；
+  - `kin-01/87229052d24f4772a512dee497bab29c` = `V1201-020`，`case_version e7c3b722…`（与 E6 的 `73a52bfb…` 是不同 run，两枚都可用作正对照）。
+- **不是对照件**：`kin-01/01ca65e397354f1489a3a299e8c44973`（`CORE-060`）改前就 `rc=2 status unjudged`——封于 `case_version 30ac59a0…` 而当前是 `d1ea32d8…`，判据已移动。若 lane 拿它当「改前绿」基线，读数本身就错。
+- **M-C0 的改前门基线**（同一棵树 `77329dc`，不是引用旧记录）：`report_rc=1`、`status blocked`、`overall_blocks ['REQUIRED_CASE_NOT_REGISTERED']`、`promotable ['W00','W10','W20','W60']`、`attempts 77 / bundles 113 / from_another_build 61 / repo_checks_not_from_the_controlled_interpreter 9`、`visibility_gaps` 只有 `ORCHESTRATOR_REVISION_NOT_PINNED`；`gate_payload_sha256 = cfa0f1184bee30df6a1d9fcf45778c9cef074ece6761c47fe7d6b9f49863afd6`。
+- **口径（写死，避免 lane 自报不可比的数）**：`gate_payload_sha256` 不是 `tools/**` 打印的字段（全仓 grep `tools/ src/` 命中 0），而是 M 侧对 `report_promotion.py` 输出的 `{work_packages, overall}` 子集做 `json.dumps(..., sort_keys=True)` 后取 sha256（定义见 `.tmp/m-r12-payload.sh:8-12`）。报告顶层也没有 `promotable` 键（`tools/report_promotion.py:752-753` 只写 `gated`/`status`），那行 `promotable [...]` 是按各 work package 的 `promotable` 真值算出来的。M-C0/H1h 若自报门载荷，须以 M 的上述脚本口径为准。
+- **M-C0 不移动门的理由已核**：它只新增可选封存字段与一个新判定词，不注册 case、不动 registry ⇒ 上述子集应逐字节不变；一旦 `cfa0f118…` 变了，就是它把判据挂进了既有 case，按 §2.2 的边界即不成立。
+
+### 派工状态更新（本轮收口时的实读）
+- H1h：`minekin-wt-h1h` @ base `24ac6e0`，**零提交**，未提交改动只在 `domain.sh` + `tests/contract/test_runner_scripts.py`（允许面内）。
+- M-C0：`minekin-wt-mc0` @ base `5d0cd2a`，工作树干净、**零提交**。
+- H1i 仍不派（与 H1h 同改 `domain.sh`）。远端 ref 复核要用全称 pattern：`git ls-remote origin refs/heads/codex/minekin-lan-joiner-bounded-control refs/heads/codex/minekin-probe-target-carrier`（畸形 pattern 得到的空输出不构成「未推送」证据）。
