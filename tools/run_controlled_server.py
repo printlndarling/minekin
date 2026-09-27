@@ -909,9 +909,7 @@ def main() -> int:
             f"{len(probe_players)} --probe-player names do not say which: {probe_players}"
         )
     target = None if not args.use_target else use_target_command(probe_players[0])
-    initial_block = (
-        None if not args.use_target else initial_block_probe_command(probe_players[0])
-    )
+    initial_block = None if not args.use_target else initial_block_probe_command(probe_players[0])
     asked_about_block = args.use_target
     #: Every block the server has said it placed, oldest first. A list rather than
     #: one position because the block is placed again and again while the Kin
