@@ -200,9 +200,11 @@ launch WRAPPER=inside-wrapper
 同轮 harness stderr 交叉核对（说明该文件是本轮写的，runtime 目录名逐字同轮）：
 
 ```text
-domain: joiner client environment before its JVM: harness DISPLAY=:77 harness XDG_RUNTIME_DIR=<unset> harness XAUTHORITY=<unset> harness XDG_RUNTIME_DIR_ORIGIN=<unset> harness GL_BACKEND=llvmpipe (LLVM 20.1.2, 256 bits) harness GL_PROBE_RC=0 harness WRAPPER=direct 
+domain: joiner client environment before its JVM: harness DISPLAY=:77 harness XDG_RUNTIME_DIR=<unset> harness XAUTHORITY=<unset> harness XDG_RUNTIME_DIR_ORIGIN=<unset> harness GL_BACKEND=llvmpipe (LLVM 20.1.2, 256 bits) harness GL_PROBE_RC=0 harness WRAPPER=direct
 domain: joiner runtime directory: /tmp/minekin-client-runtime/runtime.03hzcE (provided by the harness at mode 0700; the name it would have inherited was unusable because it is not set in the environment this script holds)
 ```
+
+> 注：上列首行为 harness stderr 逐字转写，原文该行结尾带一个空格；为过主干 `git diff --check` 门，转写处省略该空格并在此注明（所读事实不变）。
 
 d2（base 字节）同深度只有随机名不同（`launch XDG_RUNTIME_DIR=/tmp/minekin-client-runtime/runtime.RRaaRB`），
 即 **H1e 的运行时目录补投在两侧字节上都真实发生**，与本卡问的版本字段无关。
