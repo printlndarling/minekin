@@ -166,3 +166,34 @@ M-G1 卡面要求列出 registry 每条既有引用的当前 build/SEALED/复判
    ```
    溯源那一条把 `-v` 换成 `$(cygpath -m ../minekin-wt-v4):/src:ro`、命令换成 `python tools/verify_tested_provenance.py --data-root /data`。
 5. **口径提示（M 自记）**：`rejudge_evidence.py` 的判定载荷在 `re_judged` 下（`expected/failures/observed/result/unimplemented`），顶层 `status` 只说「与自身记录是否一致」。只读 `status=agrees` 而不读 `re_judged.result`，会把「一致地 FAIL」也念成绿——census 因此两样都印。
+
+## §2.8 H1h 已合主干（第三十八轮，M 从真实 merge-base 复审后合入并推远端）
+
+- **合入**：`58856453510c24d63790545d38f6ea37d3981d68`（`705e58a..5885645`，远端 `refs/heads/main` 已用 `git ls-remote` 核到同一 SHA）。并入的两笔：`e941f96`（`domain.sh` +244 / `tests/contract/test_runner_scripts.py` +734）、`99a18ef`（一份 `docs/validation/v1201-lan-joiner-bounded-control-driver-2026-09-27.md`）。真实 merge-base = `24ac6e0`，允许面逐字未越界：`src/**`、`tools/**`、case fixture、registry、`test-orchestrator/runner/run.sh`、`config.FORWARDED_VARIABLES` 在 `git diff --stat 24ac6e0 99a18ef` 里均为 0 行。
+- **M 亲量（不是复述 lane）**：容器内六道门全绿（bash -n / 契约 64 passed / asserter 单元 487 passed / 150 registered / digests OK / boundaries OK），`/src:ro` + `/data:ro`，日志 `.tmp/m-r42-h1h-gates.log`；改前即 PASS 的两份对照件（`OFFLINE-010/61b4f025`、`V1201-020/87229052`）在新字节下仍 `agrees/PASS`；**门载荷逐字不变**：`gate_payload_sha256 cfa0f1184bee30df6a1d9fcf45778c9cef074ece6761c47fe7d6b9f49863afd6`、`promotable W00/W10/W20/W60`、`overall_blocks REQUIRED_CASE_NOT_REGISTERED`——本卡不注册 case，因此也不得动门。
+- **H1i 那一格没被顺手改**：`.tmp/m-r39-h1i-seal-argv-judge.py compare --base <24ac6e0> --tip <99a18ef>` ⇒ `equal:true`（加入者封存区间 sha `4270b51c…`、seal argv 区间 sha `7d83721f…` 双向相同）。同一工具在容器里跑不通（`Path.read_text(newline=)` 要 python≥3.13，镜像是 3.12），已换成 `read_bytes().decode()` 并在两份字节上复量；此前那份校准是 M 在宿主 python 3.13 上量的——**工具对解释器版本敏感**这一点记在这里，别再当成 lane 的差异。
+- **判官口径修正申报（第二次，同一类）**：`.tmp/m-r37-h1h-argv-judge.py` v1 把加入者区间锚在字面量 `python -m minekin_core session start` 上，本卡合法地把该字面量搬进 `build_joiner_session_argv()`，v1 于是在合入瞬间**失明**（报 `the joiner region has no ending redirection`）。v2 改锚在 `minekin-joiner-launch` 标记上，并把断言从「这一块字节不变」换成形状断言：控制旗标不得落在加入者启动行、旗标旁不得出现字面数字、三个上界不得宽于 45/30/2、数组只许在加入者区块内展开一次。v2 在基线字节与本卡字节上双双 `faults=[]`，六个植入反例（行内字面量、两个方向的越界上界、双 splice、splice 到别处、组线函数内硬编码数字）全部具名抓出；日志 `.tmp/m-r42-h1h-judges.log`。**教训**：判官若锚在“实现写法”上而不是“契约形状”上，它就会在被审卡片落地的同一刻静默失效——写判官时优先选不会被卡片合法重命名的标记。
+
+## §2.9 第一真实停点：`run.sh` 不转发四个新名字 ⇒ 独立窄卡 H1j（不扩 H1h 面）
+
+H1h 交付时把这条摆明：`test-orchestrator/runner/run.sh:88-110` 的转发名单里没有 `MINEKIN_DOMAIN_JOIN_LOOK_YAW / _LOOK_PITCH / _HOLD_FORWARD_SECONDS / _CONTROL_PRINT`，因此**经 `run.sh` 的真跑目前无法武装该驱动**；lane 还把它钉成契约里的精确集合（`JOINER_CONTROL_KNOBS`），使「第四名出现在 `run.sh`」这件事当前是**被测试要求为假**的。M 裁决：不在 H1h 里回补，另开一张窄卡，因为它改的是另一个文件、且必须**故意推翻**一条刚合入的契约断言——这种事要在自己的提交信息里发生，不能藏进上一张卡的尾巴。
+
+### H1j `V1201-JOINER-CONTROL-RUNSH-FORWARDING-001` — H lane，紧跟 H1h
+
+- **允许面**：`test-orchestrator/runner/run.sh`、`tests/contract/test_runner_scripts.py`、一份新的 `docs/validation/v1201-joiner-control-runsh-forwarding-<date>.md`。**禁**：`domain.sh`（H1h 已定形）、`src/**`（含 `config.FORWARDED_VARIABLES`——那是产品转发名单，把 runner 的名字加进去就是放宽产品入口）、`tools/**`、case fixture、registry、规范卷（**不挂载**）。
+- **实现边界**：只把四个既有名字加进 `run.sh` 的容器环境转发名单，语义为「宿主设了才带进去，没设就不带」；不得新增第五个名字、不得给任何名字加默认值、不得改 `domain.sh` 的限幅或拒止、不得改加入者/宿主两条命令行的构造。
+- **红绿验收（四条，全部要字面输出）**：
+  1. 四个名字一个都没设时，`run.sh` 组出的容器 argv 与基线逐字相同（把 argv 打印出来比对，不许只说“应该一样”）；
+  2. 只设其中一个时，它出现在 argv 且其余不出现；
+  3. 契约里那条精确集合断言被**有意翻转**：`JOINER_CONTROL_KNOBS` 的四名必须真出现在 `run.sh` 里、且仍不得出现在 `src/minekin_core/config.py`；出现第五个未转发的 `MINEKIN_DOMAIN_JOIN_*` 控制名仍要变红。翻转那一条测试是本卡唯一被允许改写的既有断言，必须在提交信息里点名；
+  4. 反证：把名单改成无条件 `-e NAME=`（不带值判断）→ 验收 1 变红；把名单加到第五个名字 → 验收 3 变红。
+- **门载荷上界**：H1j 不注册 case ⇒ `gate_payload_sha256` 必须仍是 `cfa0f1184bee30df6a1d9fcf45778c9cef074ece6761c47fe7d6b9f49863afd6`。若它变了，说明本卡越界动了 registry/fixture，直接退回。
+- **依赖关系**：H1j 不阻塞 V5——V5 走「容器内直接 `domain.sh` + 显式 `-e`」即可取活体读数；H1j 只补操作者路径（经 `run.sh` 的战役）与 E7 之后的可复现性。V5 的预登记判据仍按 §2.5，且**等 V5a 的探针目标归属读数**落地后才起。
+
+## §2.10 M 的 census 判官自身的非恒真控制（第三十八轮补）
+
+`.tmp/m-r41-mg1-census.py` 报「18/18 `agrees/PASS`」，一个恒真的读法同样能报出这句话，所以补了一次扰动实验（`.tmp/m-r41-census-negcontrol.sh`，全部写在容器 `/tmp`，`/src` 与 `/data` 只读）：
+
+- **正对照**：把 `tools` + `tests/fixtures/{cases,registry}` 原样拷进 `/tmp/fs` 再跑 ⇒ `OFFLINE-010 run=61b4f025 digest_matches=True rejudge=agrees result=PASS criteria=4`，`census: cited=18 absent_bundles=0 digest_mismatch=0`。即“拷贝”这一步本身不动读数。
+- **反对照**：只往 `offline-010.json` 的 `assertions` 里塞一个多余能力（`the_server_saw_the_kin_turn`）⇒ 该行翻成 `rejudge=unreadable rc=2`，诊断行写着 `… — the criteria moved, so the recorded verdict answers a question this repository no longer asks`，而 `OFFLINE-020`、`OFFLINE-030-ENUM-ALIGNED-001` 两行仍 `agrees/PASS`。**结论**：census 的绿是测量，不是常量；它按 case 逐行敏感，且不会把一次改动抹匀到 18 行。
+- **已知读法缺陷（记着，M-G1 后半要用）**：`rejudge_evidence.py` 在 case_version 不符时把诊断 JSON 打到 **stderr**、stdout 为空，于是 census 只能报 `unreadable`。判读要点在于翻绿的证据仍在 note 里；若 E7 之后要精确区分「未判」与「读不出」，得让 census 在 stdout 为空时回读 stderr（M 侧工具，不占 lane 面）。
