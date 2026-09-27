@@ -2614,7 +2614,8 @@ if [[ -n "${kick}" ]]; then
     for _ in $(seq 1 "${seconds}"); do
         kill -0 "${session_pid}" 2>/dev/null || break
         [ "${SECONDS}" -lt "${deadline}" ] || break
-        if grep -qE "${kick} (lost connection|left the game)" \n            "${server_directory}/server.log" 2>/dev/null; then
+        if grep -qE "${kick} (lost connection|left the game)" \
+            "${server_directory}/server.log" 2>/dev/null; then
             kicked=1
             break
         fi
