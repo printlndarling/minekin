@@ -553,3 +553,14 @@ lane 仍在收 §2.22 第③④项（它的容器窗在用，M 不进那棵树�
 **队列现在能动的三格**：H1k 入干 ⇒ **H1l（#59）解除 blocked**（它要改的 `tests/contract/test_runner_scripts.py` 已不再是脏文件）、**H1m（#61）解除 blocked**（派工文本 §2.29 已写死，`domain.sh` 单 owner 空出）、V5′ 仍排在 H1l 与 H1m **之后**——§2.16 第 4 条第一格「同 run 内另一具名实体读数不变」在 H1m 入干前仍取不到，M-T1 只把 tools 侧备好。
 
 **四态**：已合主干＝H1k（`a452e84`，CI 待读）+ M-T1 的修复两笔；仅在分支＝无（lane 已 push 并入干）；**真实封证仍为 0**（LAN 第二客户端在受控专服形状下的同 run 封证未动，私有卷 live-c/d/e/f 全部按 lane 自己的口径「不是封证」计）；未验证＝lane 自报 5 格（专用 `No entity was found` 对照 run、同 run 内主持有者读数不变、`rc=14/BRIDGE_LOST` 是否落在 PASS 判据内属 V5′/M-C1、#58 那格、容器 2 红的成因）+ M 未复量的 lane 活体两跑与 CE 三组 + `a452e84` 的 CI 结论。规范卷对 M 仍只 `:ro`；未连接用户远程服；未改判据/cases/registry/`mandatory`；材料未删（`.tmp/m-r50-jobs881.json`、`.tmp/m-r50-jobs883.json`、`.tmp/m-r50m-*.log` 在案）。
+
+## §2.34 §2.33 那格「CI 待读」当场闭合：H1k 入干后主干绿，lane 分支自己也是绿的（第五十一轮后半，2026-09-27 22:14 +0800）
+
+`/actions/runs?per_page=4` 单读（材料 `.tmp/m-r51-ci.json`）：
+
+- `885` = lane 分支 `codex/minekin-v1201-joiner-on-controlled-server` @ `84648c0` ⇒ **`completed/success`**（lane 自己的字节在 CI 上就是过的，包括 §2.31 漏跑过的那两道门）。
+- `886` = 主干合并笔 **`a452e84`** ⇒ **`completed/success`** ⇒ **H1k 入干没有把主干弄红**，第五十轮那五次红的教训在这张卡上闭合（派工时把 `ruff format --check` 与 `pyright` 明列进验收的直接效果）。
+- `884` = `4df1b2f`（§2.31 那笔文档）⇒ `completed/success`。
+- `887` = `ac1d7fb`（本轮 §2.32/§2.33 文档笔）在 22:14 时点 `in_progress` ⇒ **本笔不作绿读数**，接手会话须重读。
+
+job 级 `python`/`protocol`/`bridge-static` 三支对 `886` 全 `success`；步骤级读数按 §2.32 的姿势可复算（`/actions/runs/36324944629/jobs` ⇒ http=200），本轮不重复挂一遍。**四态增量**：`a452e84` 由「已合主干、CI 待读」升为「已合主干、CI 绿」；真实封证仍 **0**（这条路的封证是 E7 的活，H1k 只把形状与守卫接上）；`run.sh` 转发那一格由 H1l 在飞，H1m 排其后。
