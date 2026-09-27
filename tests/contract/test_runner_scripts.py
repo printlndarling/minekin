@@ -63,6 +63,29 @@ JOINER_CONTROL_KNOBS = frozenset(
     }
 )
 
+#: The two seal-handover switches V1201-PROBE-TARGET-HANDOVER-001 (H1i) reads in
+#: `domain.sh`, registered here as an *exact* read-but-not-yet-forwarded gap for the
+#: same reason and in the same shape the four joiner-control knobs once were: the card's
+#: allowed surface is `domain.sh` and this file only, and `run.sh` — the wrapper that
+#: names which environment crosses the `docker run` boundary — is outside it. The gap is
+#: safe in a way the joiner-control gap was not, because both switches are default-off:
+#: an undelivered name arrives empty, `domain.sh` casts empty to "not asked for", and the
+#: joiner seal stays `world_args=()` with no `--probed-player`, byte-for-byte the trunk
+#: command line (§2.50). Nothing about the sealed bundle changes while the knob is off, so
+#: a `run.sh`-launched run cannot silently hand over evidence for a switch nobody flipped.
+#: The set is asserted *exactly* so a third read-but-undelivered name still goes red, and
+#: each name is asserted absent from `run.sh` so the forwarding card that closes this gap
+#: has to move the name out of the registered set in the same commit that adds it to the
+#: wrapper — the reversal `V1201-JOINER-CONTROL-RUNSH-FORWARDING-001` performed above.
+#: They must still never reach `src/minekin_core/config.py`: a runner knob crossing that
+#: line would widen the product's entry surface.
+SEAL_HANDOVER_KNOBS = frozenset(
+    {
+        "MINEKIN_DOMAIN_SEAL_JOINER_SERVER_LOG",
+        "MINEKIN_DOMAIN_SEAL_PROBED_PLAYERS",
+    }
+)
+
 
 def test_the_runner_has_shell_scripts_to_check() -> None:
     assert SCRIPTS, f"no shell scripts under {RUNNER}"
@@ -154,8 +177,26 @@ def test_every_knob_the_harness_reads_is_one_the_wrapper_hands_it() -> None:
         "and not delivered arrives empty, takes domain.sh's 'not asked for' branch, and "
         "the run seals evidence for a scenario that never happened"
     )
-    assert read - delivered == set(), (
-        f"domain.sh reads these and run.sh never delivers them: {sorted(read - delivered)}"
+    # H1i registers its two seal-handover switches as an exact read-but-not-yet-forwarded
+    # gap (see `SEAL_HANDOVER_KNOBS`): `run.sh` is outside that card's allowed surface, so
+    # the wrapper cannot name them yet. Both directions stay pinned by name — each must be
+    # read by domain.sh, and each must be *absent* from the wrapper — so the difference
+    # below cannot quietly grow to a third undelivered name, and a future forwarding card
+    # has to move each name out of the registered set in the same commit that puts it into
+    # `run.sh`. The reversal is exactly the one the joiner-control set above records.
+    for handover_knob in sorted(SEAL_HANDOVER_KNOBS):
+        assert handover_knob in read, (
+            f"domain.sh no longer reads {handover_knob}; if the switch was dropped, remove "
+            "it from SEAL_HANDOVER_KNOBS and from the seal together"
+        )
+        assert handover_knob not in delivered, (
+            f"run.sh now forwards {handover_knob} while this test still registers it as an "
+            "undelivered gap — delete it from SEAL_HANDOVER_KNOBS in the same commit that "
+            "adds the -e, the way the joiner-control gap was closed"
+        )
+    assert read - delivered == SEAL_HANDOVER_KNOBS, (
+        "domain.sh reads and run.sh never delivers something other than the exact registered "
+        f"H1i gap {sorted(SEAL_HANDOVER_KNOBS)}: {sorted(read - delivered)}"
     )
     assert delivered - read == set(), (
         f"run.sh delivers these and nothing reads them: {sorted(delivered - read)}"
@@ -166,8 +207,10 @@ def test_every_knob_the_harness_reads_is_one_the_wrapper_hands_it() -> None:
     product_roster = (RUNNER.parents[1] / "src" / "minekin_core" / "config.py").read_text(
         encoding="utf-8"
     )
-    leaked = sorted(name for name in JOINER_CONTROL_KNOBS if name in product_roster)
-    assert not leaked, f"joiner-control knobs reached config.FORWARDED_VARIABLES: {leaked}"
+    leaked = sorted(
+        name for name in (*JOINER_CONTROL_KNOBS, *SEAL_HANDOVER_KNOBS) if name in product_roster
+    )
+    assert not leaked, f"a runner knob reached config.FORWARDED_VARIABLES: {leaked}"
 
 
 def test_every_deadline_loop_gives_the_clock_a_chance_to_advance() -> None:
@@ -1434,6 +1477,554 @@ def test_the_second_probe_guard_answers_the_pairs_it_cannot_ask_about(
         assert result.returncode == 0, result.stderr
         assert bracketed(result) == ["passed"]
         assert result.stderr == ""
+
+
+#: ---------------------------------------------------------------------------
+#: V1201-PROBE-TARGET-HANDOVER-001, cell 1: the joiner's server-log carrier.
+#:
+#: The gap this switch closes is measured, not remembered: `domain.sh`'s joiner branch
+#: emptied `world_args` unconditionally, so `tools/seal_run_evidence.py` never received a
+#: `--server-directory` and its three per-directory artifacts (`server.log`,
+#: `usercache.json`, `server.properties`) were never collected for a bundle sealed on the
+#: joining run. A switch on the *host* branch would not help — that branch already carries
+#: all three. Handing the profile and the jar back alongside it is the overreach this card
+#: refuses: the comment the switch narrows rather than deletes says why, and it says it in
+#: the first person about a world that never ran.
+#: ---------------------------------------------------------------------------
+
+JOINER_SERVER_LOG_KNOB = "MINEKIN_DOMAIN_SEAL_JOINER_SERVER_LOG"
+
+#: The three shapes that leave this run with no directory to hand over, and the bad value.
+#: Stored verbatim (`%q` and all) for the same reason the second-probe refusals are: a
+#: paraphrase would let the guard rephrase itself and stay green.
+JOINER_SERVER_LOG_NOT_JOINER_REFUSAL = (
+    "domain: MINEKIN_DOMAIN_SEAL_JOINER_SERVER_LOG hands the server log back to a case "
+    "sealed on the joining run and this run seals its case on the host (MINEKIN_DOMAIN_CA"
+    "SE_ON is %q); the hosting branch already carries this directory, so the switch would "
+    "do nothing here"
+)
+JOINER_SERVER_LOG_NO_SERVER_REFUSAL = (
+    "domain: MINEKIN_DOMAIN_SEAL_JOINER_SERVER_LOG names the log of the dedicated server "
+    "this run starts, and this run starts none (--server-profile is absent); the world th"
+    "is joiner would be sealed into is somebody else's, and naming a directory of this ru"
+    "n for it would record a world that never ran"
+)
+JOINER_SERVER_LOG_BLACK_HOLE_REFUSAL = (
+    "domain: MINEKIN_DOMAIN_SEAL_JOINER_SERVER_LOG names a run directory holding a server "
+    "log and this run answers its own profile with a silent listener instead; no such dire"
+    "ctory is ever created, so there is nothing to hand over"
+)
+JOINER_SERVER_LOG_BAD_VALUE = "MINEKIN_DOMAIN_SEAL_JOINER_SERVER_LOG must be 1/true or 0/false"
+
+
+def handover_region(text: str, name: str) -> str:
+    """One shipped region of the probe-target handover, marker to marker, sans begin line.
+
+    The same rule the second-probe and joiner-controlled-server regions follow: every
+    reading below runs the bytes a run executes, so changing them moves a test before it
+    moves a live run. An empty extraction says so rather than making every driven reading
+    vacuous.
+    """
+
+    begin = f"# --- {name} begin"
+    end = f"# --- {name} end ---"
+    start = text.index(begin)
+    lines = text[start : text.index(end, start)].splitlines(keepends=True)
+    assert len(lines) > 2, f"the {name} region came out empty; wrong markers"
+    return "".join(lines[1:])
+
+
+def env_cast_region(text: str, *, knob: str, local: str) -> str:
+    """The shipped `case` that casts one environment name into its counted question.
+
+    Anchored on the read itself rather than on markers: this is the shape every other
+    default-off switch in the file uses, and copying those bytes is the point — a cast
+    that grew a default of `1` would still leave every marker region below green.
+    """
+
+    start = text.index(f'{local}="${{{knob}:-}}"')
+    end = text.index("\nesac", start)
+    lines = text[start : end + len("\nesac")].splitlines(keepends=True)
+    assert len(lines) > 3, f"the cast for {knob} came out empty; wrong anchor"
+    return "set -euo pipefail\n" + "".join(lines) + "\n"
+
+
+@pytest.mark.parametrize(
+    ("asked", "case_on", "server_profile", "black_hole", "refusal"),
+    [
+        (0, "joiner", "", "", ""),
+        (0, "joiner", "/tmp/server-profile.json", "", ""),
+        (1, "joiner", "/tmp/server-profile.json", "", ""),
+        (
+            1,
+            "host",
+            "/tmp/server-profile.json",
+            "",
+            JOINER_SERVER_LOG_NOT_JOINER_REFUSAL.replace("%q", "host"),
+        ),
+        (1, "joiner", "", "", JOINER_SERVER_LOG_NO_SERVER_REFUSAL),
+        (
+            1,
+            "joiner",
+            "/tmp/server-profile.json",
+            "1",
+            JOINER_SERVER_LOG_BLACK_HOLE_REFUSAL,
+        ),
+    ],
+    ids=[
+        "off-no-server",
+        "off-joiner-with-server",
+        "on-joiner-with-server",
+        "on-case-on-host",
+        "on-no-dedicated-server",
+        "on-black-hole",
+    ],
+)
+def test_the_joiner_server_log_guard_answers_only_the_shapes_with_a_directory_to_hand(
+    asked: int,
+    case_on: str,
+    server_profile: str,
+    black_hole: str,
+    refusal: str,
+    tmp_path: Path,
+) -> None:
+    """The shipped guard, driven: three refusals, three quiet shapes, and no fourth.
+
+    The quiet rows keep the refusals from being an always-true claim, and
+    `off-joiner-with-server` is the default-off row: with the switch unset the guard says
+    nothing even in the one shape it exists for.
+    """
+
+    text = (RUNNER / "domain.sh").read_text(encoding="utf-8")
+    body = (
+        "set -euo pipefail\n"
+        f"seal_joiner_server_log_asked={asked}\n"
+        f"case_on={shlex.quote(case_on)}\n"
+        f"server_profile={shlex.quote(server_profile)}\n"
+        f"black_hole={shlex.quote(black_hole)}\n"
+        + handover_region(text, "joiner-server-log-seal-guard")
+        + "printf '<passed>'\n"
+    )
+    result = run_shelled(tmp_path, body, None, f"cell1-guard-{asked}-{case_on}")
+
+    if refusal:
+        assert result.returncode == 2, f"{result.returncode}: {result.stdout}{result.stderr}"
+        assert result.stderr == refusal + "\n"
+        assert bracketed(result) == []
+    else:
+        assert result.returncode == 0, result.stderr
+        assert bracketed(result) == ["passed"]
+        assert result.stderr == ""
+
+
+def test_the_joiner_server_log_guard_is_its_own_guard_and_answers_before_any_write() -> None:
+    """Early means before the harness can leave anything behind, and that is checkable.
+
+    The refusal has to be said before the server run directory is numbered, before the
+    joining client's profile document is written, and before `run_controlled_server.py` is
+    invoked — the same bar V1201-LAN-SECOND-NAMED-PROBE-TARGET-001 set for its guard, and
+    the bar this card's second cell sets for the names it hands over.
+    """
+
+    text = (RUNNER / "domain.sh").read_text(encoding="utf-8")
+
+    guard = text.index("# --- joiner-server-log-seal-guard begin")
+    assert guard < text.index('probe_args=(--probe-player "${probe:-${player}}"')
+    assert guard < text.index('server_directory="${runs}/run-${n}"')
+    assert guard < text.index("python /src/tools/run_controlled_server.py")
+    assert guard < text.index('python - "${joiner_target_port}" /tmp/domain-join-profile.json')
+    # Its own region, not a splice into the joiner-controlled-server guard or the
+    # second-probe guard: widening either would silently move that card's extraction and
+    # its `exit 2` census.
+    assert guard > text.index("# --- joiner-controlled-server-guard end ---")
+    assert guard < text.index("# --- second-probe-guard begin")
+    assert handover_region(text, "joiner-server-log-seal-guard").count("exit 2") == 3
+
+
+def test_the_joiner_server_log_switch_is_cast_on_its_own_and_refuses_a_bad_value(
+    tmp_path: Path,
+) -> None:
+    """One switch, read once, default-off, and a bad value refused where it is read.
+
+    Independence from the handover's second switch is the point of the census: the two
+    counterexamples read different things, and one knob driving both would let either
+    mask the other.
+    """
+
+    text = (RUNNER / "domain.sh").read_text(encoding="utf-8")
+
+    assert text.count(f'"${{{JOINER_SERVER_LOG_KNOB}:-}}"') == 1, "the knob is read more than once"
+    assert f"{JOINER_SERVER_LOG_KNOB}:-1}}" not in text, "the knob defaults to on"
+    assert f"{JOINER_SERVER_LOG_KNOB}:-true}}" not in text, "the knob defaults to on"
+    assert JOINER_SERVER_LOG_BAD_VALUE in text
+
+    for value, asked in (("", 0), ("0", 0), ("false", 0), ("1", 1), ("true", 1)):
+        result = run_shelled(
+            tmp_path,
+            env_cast_region(text, knob=JOINER_SERVER_LOG_KNOB, local="seal_joiner_server_log")
+            + 'printf "<%s>" "${seal_joiner_server_log_asked}"\n',
+            {JOINER_SERVER_LOG_KNOB: value} if value else {},
+            f"cell1-cast-{value or 'unset'}",
+        )
+        assert result.returncode == 0, result.stderr
+        assert bracketed(result) == [str(asked)], f"{value}: {bracketed(result)}"
+
+    refused = run_shelled(
+        tmp_path,
+        env_cast_region(text, knob=JOINER_SERVER_LOG_KNOB, local="seal_joiner_server_log"),
+        {JOINER_SERVER_LOG_KNOB: "maybe"},
+        "cell1-bad-value",
+    )
+    assert refused.returncode == 2, f"{refused.returncode}: {refused.stdout}{refused.stderr}"
+    assert refused.stderr.startswith(f"domain: {JOINER_SERVER_LOG_BAD_VALUE}, got maybe")
+
+
+#: Captures an argv one bracketed word per slot, in the file's own two-space shape.
+#: `bracketed` above is the right reader for a *non-empty* argv and the shipped
+#: second-probe tests all drive one; the joiner branch is asked to yield the empty argv
+#: when its switch is unset, and there the trailing `printf '\n'` contributes a final
+#: empty record that no shell quoting can keep out of `findall`. `seal_argv` drops
+#: exactly that record and nothing else, so "handed over nothing" reads as `[]` instead
+#: of `['']` without hiding a real empty argument.
+SEAL_ARGV_CAPTURE = """printf '  <%s>' "${world_args[@]}"
+printf '\\n'
+"""
+
+
+def seal_argv(result: subprocess.CompletedProcess[str]) -> list[str]:
+    """The argv a driven region built, with the capture's terminal newline dropped."""
+
+    words = bracketed(result)
+    if words[-1:] == [""] and result.stdout.endswith("<>\n"):
+        return words[:-1]
+    return words
+
+
+def test_the_joiner_branch_hands_back_the_directory_and_nothing_else(tmp_path: Path) -> None:
+    """The argv the joiner seal is built with, both ways, from the shipped bytes.
+
+    Unset has to come out empty — that is the card's byte-equality clause, measured here
+    rather than asserted from the shape of the `if`. Set, it has to come out with exactly
+    one flag: the directory, and never the profile or the jar.
+    """
+
+    text = (RUNNER / "domain.sh").read_text(encoding="utf-8")
+    forge = handover_region(text, "joiner-server-log-seal-forge")
+
+    for asked, name in ((0, "default-off"), (1, "switch-open")):
+        result = run_shelled(
+            tmp_path,
+            "set -euo pipefail\n"
+            f"seal_joiner_server_log_asked={asked}\n"
+            'server_directory="/data/server-runs/run-1"\n' + forge + SEAL_ARGV_CAPTURE,
+            None,
+            name,
+        )
+        assert result.returncode == 0, result.stderr
+        assert seal_argv(result) == (
+            [] if asked == 0 else ["--server-directory", "/data/server-runs/run-1"]
+        ), f"{name}: {seal_argv(result)}"
+
+    # And the narrower claim, read off the shipped bytes rather than off a run: neither
+    # refused flag appears anywhere in the region, and the directory appears once.
+    assert "--server-profile" not in forge
+    assert "--server-jar" not in forge
+    assert forge.count("--server-directory") == 1
+
+
+#: ---------------------------------------------------------------------------
+#: V1201-PROBE-TARGET-HANDOVER-001, cell 2: the names this run actually asked about.
+#:
+#: The server's reply to `data get entity <name> Pos` is a bare `[x, y, z]`: it never
+#: says whose. `tools/seal_run_evidence.py` already accepted the names one per
+#: `--probed-player`, `tools/assert_case_evidence.py` already read them back, and
+#: `the_probed_player_is_this_run_s_kin` already refuses a bundle that never recorded
+#: attribution — while `domain.sh`, the only party that knows who it asked, handed over
+#: nothing. Measured before this card: `grep -n "probed-player" domain.sh` was empty.
+#: V1201-LAN-SECOND-NAMED-PROBE-TARGET-001's live `ghost` shape put the same gap on the
+#: private volume: a name the server was never asked about and a name that was never
+#: asked are indistinguishable in the log, so the only channel that can tell them apart
+#: is this one.
+#: ---------------------------------------------------------------------------
+
+SEALED_PROBE_NAMES_KNOB = "MINEKIN_DOMAIN_SEAL_PROBED_PLAYERS"
+SEALED_PROBE_NAMES_EMPTY_REFUSAL = (
+    "domain: MINEKIN_DOMAIN_SEAL_PROBED_PLAYERS would seal an empty probe target, and "
+    "an empty name is nobody -- refused here, before anything is written"
+)
+SEALED_PROBE_NAMES_SHAPE_REFUSAL = "domain: MINEKIN_DOMAIN_SEAL_PROBED_PLAYERS would seal "
+SEALED_PROBE_NAMES_SHAPE_REFUSAL_TAIL = (
+    " as a probed name and that is not a vanilla player name (3 to 16 characters of A-Z "
+    "a-z 0-9 _); the server was never able to answer a probe for it -- refused here, "
+    "before anything is written"
+)
+SEALED_PROBE_NAMES_UNASKED_REFUSAL_HEAD = "domain: the sealed probe set names "
+SEALED_PROBE_NAMES_UNASKED_REFUSAL_TAIL = (
+    ", which this run never asked the server about (the probe arguments name "
+)
+
+
+def sealed_probe_prelude(
+    *, asked: int, probe: str, probe_second: str, use_target: str = "", plant: str = ""
+) -> str:
+    """The locals the cell-2 region reads, with the shipped construction in front of it.
+
+    The construction is not restated here: the second-probe forge region is extracted
+    from the shipped bytes and run first, so what the handover reads is the argv the run
+    actually hands `run_controlled_server.py`. That is the whole design of this cell —
+    the names are the ones asked, not the ones some later code re-derived from the
+    environment — and a prelude that built `probe_args` by hand would test nothing.
+
+    `plant` goes between the construction and the handover: it is where a future edit
+    would put its own append, and the two refusals below are driven through it rather
+    than asserted about.
+    """
+
+    text = (RUNNER / "domain.sh").read_text(encoding="utf-8")
+    return (
+        second_probe_prelude(probe=probe, probe_second=probe_second, use_target=use_target)
+        + f"seal_probed_players_asked={asked}\n"
+        + second_probe_region(text, "forge")
+        + plant
+        + handover_region(text, "seal-probed-players-guard")
+    )
+
+
+@pytest.mark.parametrize(
+    ("asked", "probe", "probe_second", "expected", "case"),
+    [
+        (0, "", "", [], "default-off-one-name"),
+        (0, "Kin1", "Kin2", [], "default-off-two-names"),
+        (1, "", "", ["--probed-player", "Kin"], "asked-falls-back-to-the-player"),
+        (1, "Kin1", "", ["--probed-player", "Kin1"], "asked-names-the-first-only"),
+        (
+            1,
+            "Kin1",
+            "Kin2",
+            ["--probed-player", "Kin1", "--probed-player", "Kin2"],
+            "asked-hands-both-names",
+        ),
+        (
+            1,
+            "",
+            "Kin2",
+            ["--probed-player", "Kin", "--probed-player", "Kin2"],
+            "asked-fallback-plus-second",
+        ),
+    ],
+    ids=lambda value: value if isinstance(value, str) else "",
+)
+def test_the_sealed_probe_names_are_the_ones_this_run_asked(
+    asked: int, probe: str, probe_second: str, expected: list[str], case: str, tmp_path: Path
+) -> None:
+    """The shipped argv, driven: the names come out of `probe_args` and nowhere else.
+
+    `asked-falls-back-to-the-player` is the counterexample the card names as (d): with
+    `MINEKIN_DOMAIN_PROBE` unset the run probes the whitelisted account, so the sealed
+    set says `Kin` — neither empty, nor the raw environment name. `default-off-*` are the
+    byte-equality rows: unset hands the sealer nothing, in one shape and in two.
+    """
+
+    result = run_shelled(
+        tmp_path,
+        sealed_probe_prelude(asked=asked, probe=probe, probe_second=probe_second)
+        + SEAL_PROBED_ARGS_CAPTURE,
+        None,
+        f"cell2-{case}",
+    )
+    assert result.returncode == 0, result.stderr
+    assert seal_argv(result) == expected, f"{case}: {seal_argv(result)}"
+
+
+#: Captures the handover's own argv. Two spaces before the first bracket, so
+#: `seal_argv` can tell the capture's trailing newline apart from a real empty name.
+SEAL_PROBED_ARGS_CAPTURE = """printf '  <%s>' "${seal_probed_player_args[@]}"
+printf '\\n'
+"""
+
+
+@pytest.mark.parametrize(
+    ("probe", "needle", "prefix"),
+    [
+        ("Ki", "Ki", SEALED_PROBE_NAMES_SHAPE_REFUSAL),
+        ("a b", "a", SEALED_PROBE_NAMES_SHAPE_REFUSAL),
+        ("Kin-1", "Kin-1", SEALED_PROBE_NAMES_SHAPE_REFUSAL),
+        (
+            "KinTooLongToBeAVanillaName",
+            "KinTooLongToBeAVanillaName",
+            SEALED_PROBE_NAMES_SHAPE_REFUSAL,
+        ),
+    ],
+    ids=["two-characters", "embedded-space", "embedded-dash", "over-sixteen"],
+)
+def test_a_probe_name_the_server_could_never_have_answered_is_refused_before_the_seal(
+    probe: str, needle: str, prefix: str, tmp_path: Path
+) -> None:
+    """A bad name is refused by name, at the cast's own exit, not sealed as a fact.
+
+    These are the shapes that would otherwise travel into the asserter's input document
+    as attribution the run never earned. `tools/run_controlled_server.py` refuses to
+    build a probe command for any of them, so a run carrying one never asked the server
+    anything — sealing it would be the exact wrongness the card's bad-value clause names.
+    """
+
+    result = run_shelled(
+        tmp_path,
+        sealed_probe_prelude(asked=1, probe=probe, probe_second="") + SEAL_PROBED_ARGS_CAPTURE,
+        None,
+        f"cell2-bad-{needle[:8]}",
+    )
+    assert result.returncode == 2, f"{result.returncode}: {result.stdout}{result.stderr}"
+    assert result.stderr.startswith(prefix), result.stderr
+    assert result.stderr.endswith(SEALED_PROBE_NAMES_SHAPE_REFUSAL_TAIL + "\n"), result.stderr
+    assert needle in result.stderr
+    assert bracketed(result) == []
+
+
+def test_an_empty_probe_target_is_refused_by_name(tmp_path: Path) -> None:
+    """The empty name, driven through the shipped region's own empty branch.
+
+    `probe_args` as the file ships it cannot hold an empty name, so the argv is planted
+    the way a future edit would plant it — one more `--probe-player` appended after the
+    construction. That is the shape this refusal exists for, and driving it is the only
+    way to see whether the branch answers.
+    """
+
+    result = run_shelled(
+        tmp_path,
+        sealed_probe_prelude(
+            asked=1, probe="Kin", probe_second="", plant='probe_args+=(--probe-player "")\n'
+        )
+        + SEAL_PROBED_ARGS_CAPTURE,
+        None,
+        "cell2-empty-name",
+    )
+    assert result.returncode == 2, f"{result.returncode}: {result.stdout}{result.stderr}"
+    assert result.stderr == SEALED_PROBE_NAMES_EMPTY_REFUSAL + "\n", result.stderr
+    assert bracketed(result) == []
+
+
+@pytest.mark.parametrize(
+    ("drift", "prefix", "tail"),
+    [
+        (
+            '    seal_probed_player_args+=(--probed-player "Ghostz")\n',
+            "domain: the sealed probe set holds ",
+            "the two have to be the same set",
+        ),
+        (
+            '    seal_probed_player_args=(--probed-player "Ghostz")\n',
+            SEALED_PROBE_NAMES_UNASKED_REFUSAL_HEAD,
+            SEALED_PROBE_NAMES_UNASKED_REFUSAL_TAIL,
+        ),
+    ],
+    ids=["appended-a-second-name", "swapped-for-a-name-never-asked"],
+)
+def test_a_name_this_run_never_asked_cannot_ride_the_handover(
+    drift: str, prefix: str, tail: str, tmp_path: Path
+) -> None:
+    """Counterexample (c): a name in the sealed set that is not in the asked set.
+
+    The handover reads its names out of the probe argv, so the shipped bytes cannot
+    invent one — which is exactly the claim worth breaking. The two plants are the two
+    ways a later edit can drift: one adds a name on top of the asked set, which the count
+    clause catches, and one *replaces* the set with a name from elsewhere, which keeps
+    the count honest and can only be caught by reading each sealed name back against the
+    probe arguments. Both refusals name the offender and what this run actually asked, so
+    a transcript can tell the two faults apart.
+    """
+
+    text = (RUNNER / "domain.sh").read_text(encoding="utf-8")
+    region = handover_region(text, "seal-probed-players-guard")
+    anchor = '        seal_probed_player_args+=(--probed-player "${asked_player}")\n    done\n'
+    assert region.count(anchor) == 1, "the append loop moved; this counterexample has no anchor"
+    planted = region.replace(anchor, anchor + drift)
+    assert planted != region, "the plant found no anchor; this counterexample is vacuous"
+    result = run_shelled(
+        tmp_path,
+        second_probe_prelude(probe="Kin", probe_second="", use_target="")
+        + "seal_probed_players_asked=1\n"
+        + second_probe_region(text, "forge")
+        + planted
+        + SEAL_PROBED_ARGS_CAPTURE,
+        None,
+        f"cell2-unasked-{prefix[20:28]}",
+    )
+    assert result.returncode == 2, f"{result.returncode}: {result.stdout}{result.stderr}"
+    assert result.stderr.startswith(prefix), result.stderr
+    assert tail in result.stderr, result.stderr
+    assert result.stderr.endswith("-- refused here, before anything is written\n"), result.stderr
+    assert "Ghostz" in result.stderr and "Kin" in result.stderr
+    assert bracketed(result) == []
+
+
+def test_the_sealed_probe_name_switch_is_cast_on_its_own_and_refuses_a_bad_value(
+    tmp_path: Path,
+) -> None:
+    """The second switch, independent of the first: one read, default-off, bad value out.
+
+    Independence is what keeps the two cells' counterexamples from masking each other, so
+    the census here is against the *other* switch's name as well.
+    """
+
+    text = (RUNNER / "domain.sh").read_text(encoding="utf-8")
+
+    assert text.count(f'"${{{SEALED_PROBE_NAMES_KNOB}:-}}"') == 1
+    assert f"{SEALED_PROBE_NAMES_KNOB}:-1}}" not in text, "the knob defaults to on"
+    assert f"{SEALED_PROBE_NAMES_KNOB}:-true}}" not in text, "the knob defaults to on"
+    assert "MINEKIN_DOMAIN_SEAL_JOINER_SERVER_LOG" in text, "the first switch was folded in"
+
+    for value, asked in (("", 0), ("0", 0), ("false", 0), ("1", 1), ("true", 1)):
+        result = run_shelled(
+            tmp_path,
+            env_cast_region(text, knob=SEALED_PROBE_NAMES_KNOB, local="seal_probed_players")
+            + 'printf "<%s>" "${seal_probed_players_asked}"\n',
+            {SEALED_PROBE_NAMES_KNOB: value} if value else {},
+            f"cell2-cast-{value or 'unset'}",
+        )
+        assert result.returncode == 0, result.stderr
+        assert bracketed(result) == [str(asked)], f"{value}: {bracketed(result)}"
+
+    refused = run_shelled(
+        tmp_path,
+        env_cast_region(text, knob=SEALED_PROBE_NAMES_KNOB, local="seal_probed_players"),
+        {SEALED_PROBE_NAMES_KNOB: "maybe"},
+        "cell2-bad-value",
+    )
+    assert refused.returncode == 2, f"{refused.returncode}: {refused.stdout}{refused.stderr}"
+    assert refused.stderr.startswith(
+        "domain: MINEKIN_DOMAIN_SEAL_PROBED_PLAYERS must be 1/true or 0/false, got maybe"
+    )
+
+
+def test_the_probe_name_handover_answers_before_any_write_and_travels_once() -> None:
+    """Where the region sits, and how many times its output reaches the seal.
+
+    Before any write is the card's own bar, shared with the second-probe guard: the run
+    directory is not yet numbered, the joining client's profile document is not yet
+    written, and the server has not been started. And the argv it builds is spliced into
+    the seal exactly once — a second splice would seal each name twice, which the sealer
+    reads back as one set and the transcript cannot tell from a run that asked once.
+    """
+
+    text = (RUNNER / "domain.sh").read_text(encoding="utf-8")
+
+    region = text.index("# --- seal-probed-players-guard begin")
+    assert region > text.index("# --- second-probe-forge end ---")
+    assert region < text.index('server_directory="${runs}/run-${n}"')
+    assert region < text.index("python /src/tools/run_controlled_server.py")
+    assert region < text.index('python - "${joiner_target_port}" /tmp/domain-join-profile.json')
+    assert region < text.index('if [[ -n "${case_id}" ]]; then')
+    assert text.count('"${seal_probed_player_args[@]}" \\') == 1
+    # The splice is inside the seal command, between the world document and the fault
+    # record — nowhere else can it be read as a different tool's argument.
+    seal_call = text[text.index("python /src/tools/seal_run_evidence.py") :]
+    assert seal_call.index('"${seal_probed_player_args[@]}"') < seal_call.index(
+        '"${fault_args[@]}"'
+    )
+    # And the harness still names `--probed-player` in exactly the one place that builds
+    # the argv, so no second source of names opened up alongside this one.
+    assert text.count("(--probed-player ") == 1
 
 
 def test_the_auto_path_hands_the_status_opt_in_to_the_controlled_launcher() -> None:
@@ -2790,6 +3381,11 @@ def run_shelled(
     script.write_text(body, encoding="utf-8")
     environment = dict(os.environ)
     environment.pop(JOINER_CONTROLLED_SERVER_KNOB, None)
+    # The same protection for the handover switch this card ships first: every region
+    # driven below is read with its switch *absent* unless the row says otherwise, and a
+    # value left over from whoever ran pytest would arm a shape a reading means to leave
+    # asleep — which is the failure `run_shelled` exists to prevent, not a new one.
+    environment.pop(JOINER_SERVER_LOG_KNOB, None)
     environment.update(env or {})
     bash = shutil.which("bash")
     assert bash, f"the shipped region is shell code and there is no bash to drive it ({tag})"

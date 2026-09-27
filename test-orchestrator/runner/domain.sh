@@ -196,6 +196,42 @@ case "${case_on}" in
         exit 2
         ;;
 esac
+# The two seals this card hands over, each with its own switch and each default-off.
+# They are deliberately *not* one knob: (a) and (b) of the card's counterexamples read
+# the server-log carrier's presence, and a single switch that also moved the probe names
+# would let the two hide each other's answer. Both are cast to a counted question the
+# way `join_on_controlled_server_asked` above is — `0`, `false` and unset are the same
+# request, and anything else is refused here rather than carried.
+#
+#   * MINEKIN_DOMAIN_SEAL_JOINER_SERVER_LOG hands this run's own `--server-directory`
+#     back to the joining side's seal, so a bundle sealed on the joiner can carry the
+#     server's log at all. Only the directory: a dedicated-server profile and jar name
+#     a world this joiner never ran, and the comment at the joiner branch below is kept
+#     exactly for that.
+#   * MINEKIN_DOMAIN_SEAL_PROBED_PLAYERS hands the names this run actually asked the
+#     server about to the same seal as `--probed-player`, one per name.
+seal_joiner_server_log="${MINEKIN_DOMAIN_SEAL_JOINER_SERVER_LOG:-}"
+seal_joiner_server_log_asked=0
+case "${seal_joiner_server_log}" in
+    "" | 0 | false) : ;;
+    1 | true) seal_joiner_server_log_asked=1 ;;
+    *)
+        printf 'domain: MINEKIN_DOMAIN_SEAL_JOINER_SERVER_LOG must be 1/true or 0/false, got %q\n' \
+            "${seal_joiner_server_log}" >&2
+        exit 2
+        ;;
+esac
+seal_probed_players="${MINEKIN_DOMAIN_SEAL_PROBED_PLAYERS:-}"
+seal_probed_players_asked=0
+case "${seal_probed_players}" in
+    "" | 0 | false) : ;;
+    1 | true) seal_probed_players_asked=1 ;;
+    *)
+        printf 'domain: MINEKIN_DOMAIN_SEAL_PROBED_PLAYERS must be 1/true or 0/false, got %q\n' \
+            "${seal_probed_players}" >&2
+        exit 2
+        ;;
+esac
 # How often the server is asked about the Kin. A look is over within a second
 # of the join, so a run that wants a reading on both sides of it asks more
 # often than the default — the pair is what shows a heading changed.
@@ -498,6 +534,31 @@ if [ "${join_on_controlled_server_asked}" -eq 1 ]; then
     fi
 fi
 # --- joiner-controlled-server-guard end ---
+
+# ---------------------------------------------------------------------------
+# The joiner's server-log carrier (V1201-PROBE-TARGET-HANDOVER-001, cell 1).
+# --- joiner-server-log-seal-guard begin (the contract test extracts this region) ---
+# Asked, and refused here rather than at the seal, because the seal is the last thing
+# this run does: by then the world has been started, both clients have been through it,
+# and a knob that cannot be honoured would have cost the whole run to say so. Each
+# refusal below names the shape the carrier needs and the fact about this run that is
+# missing from it.
+if [ "${seal_joiner_server_log_asked}" -eq 1 ]; then
+    if [ "${case_on}" != "joiner" ]; then
+        printf 'domain: MINEKIN_DOMAIN_SEAL_JOINER_SERVER_LOG hands the server log back to a case sealed on the joining run and this run seals its case on the host (MINEKIN_DOMAIN_CASE_ON is %q); the hosting branch already carries this directory, so the switch would do nothing here\n' \
+            "${case_on}" >&2
+        exit 2
+    fi
+    if [ -z "${server_profile}" ]; then
+        printf 'domain: MINEKIN_DOMAIN_SEAL_JOINER_SERVER_LOG names the log of the dedicated server this run starts, and this run starts none (--server-profile is absent); the world this joiner would be sealed into is somebody else'"'"'s, and naming a directory of this run for it would record a world that never ran\n' >&2
+        exit 2
+    fi
+    if [ -n "${black_hole}" ]; then
+        printf 'domain: MINEKIN_DOMAIN_SEAL_JOINER_SERVER_LOG names a run directory holding a server log and this run answers its own profile with a silent listener instead; no such directory is ever created, so there is nothing to hand over\n' >&2
+        exit 2
+    fi
+fi
+# --- joiner-server-log-seal-guard end ---
 
 # ---------------------------------------------------------------------------
 # Asking the *joining* client to look and move
@@ -838,6 +899,89 @@ fi
 if [[ -n "${use_target}" ]]; then
     probe_args+=(--use-target)
 fi
+#
+# Who this run asked the server about, for the bundle that has to say so
+# (V1201-PROBE-TARGET-HANDOVER-001, cell 2).
+# --- seal-probed-players-guard begin (the contract test extracts this region) ---
+# The server's reply to `data get entity <name> Pos` is `[x, y, z]` and never says
+# whose, so a bundle that carries a displacement without the names it was asked for
+# cannot be attributed after the fact. `tools/seal_run_evidence.py` already takes the
+# names one per `--probed-player` and `tools/assert_case_evidence.py` already reads
+# them back; the harness was the only link missing, and it is wired here rather than
+# at the seal because the seal is the last thing this run does.
+#
+# The names are read out of `probe_args` — the argv this run actually hands the server
+# two lines above — and never out of the environment again. Re-reading the environment
+# is the wrong source twice over: with `MINEKIN_DOMAIN_PROBE` unset the run probes the
+# whitelisted account, which the raw knob does not hold, and a knob edited between the
+# construction and the seal would seal a name this run never spoke.
+#
+# Default-off: unset, `seal_probed_player_args` stays empty and the seal command line
+# is byte-for-byte what it was before this switch existed.
+seal_probed_player_args=()
+if [ "${seal_probed_players_asked}" -eq 1 ]; then
+    asked_player_names=()
+    argument_index=0
+    while [ "${argument_index}" -lt "${#probe_args[@]}" ]; do
+        if [ "${probe_args[${argument_index}]}" = "--probe-player" ]; then
+            asked_player_names+=("${probe_args[$((argument_index + 1))]}")
+        fi
+        argument_index=$((argument_index + 1))
+    done
+    for asked_player in "${asked_player_names[@]}"; do
+        if [ -z "${asked_player}" ]; then
+            printf 'domain: MINEKIN_DOMAIN_SEAL_PROBED_PLAYERS would seal an empty probe target, and an empty name is nobody -- refused here, before anything is written\n' >&2
+            exit 2
+        fi
+        # The same shape `tools/run_controlled_server.py` refuses its probes at
+        # (`minekin_core.domain.offline_identity.is_valid_username`), checked here so a
+        # name that would never have reached the server cannot reach the bundle either.
+        # An unquoted regex is bash's own rule; quoting it would ask for a literal.
+        if [[ ! "${asked_player}" =~ ^[A-Za-z0-9_]{3,16}$ ]]; then
+            printf 'domain: MINEKIN_DOMAIN_SEAL_PROBED_PLAYERS would seal %q as a probed name and that is not a vanilla player name (3 to 16 characters of A-Z a-z 0-9 _); the server was never able to answer a probe for it -- refused here, before anything is written\n' \
+                "${asked_player}" >&2
+            exit 2
+        fi
+    done
+    for asked_player in "${asked_player_names[@]}"; do
+        seal_probed_player_args+=(--probed-player "${asked_player}")
+    done
+    # And the whole argv that is about to be handed over is read back the way the
+    # server's arguments were, name by name. This is the check that keeps the handover
+    # honest rather than merely derived: anything that puts a name into the sealed set
+    # without putting it into `probe_args` — a future append, a re-read of an
+    # environment value, a name copied from a sibling run — is refused here, and the
+    # count is compared as well so a dropped name reads red instead of sealing a short
+    # set that still looks plausible.
+    sealed_player_names=()
+    argument_index=0
+    while [ "${argument_index}" -lt "${#seal_probed_player_args[@]}" ]; do
+        if [ "${seal_probed_player_args[${argument_index}]}" = "--probed-player" ]; then
+            sealed_player_names+=("${seal_probed_player_args[$((argument_index + 1))]}")
+        fi
+        argument_index=$((argument_index + 1))
+    done
+    if [ "${#sealed_player_names[@]}" -ne "${#asked_player_names[@]}" ]; then
+        printf 'domain: the sealed probe set holds %s names and this run asked %s (%s); the two have to be the same set -- refused here, before anything is written\n' \
+            "${#sealed_player_names[@]}" "${#asked_player_names[@]}" \
+            "${sealed_player_names[*]-}" >&2
+        exit 2
+    fi
+    for sealed_player in "${sealed_player_names[@]}"; do
+        asked_again=0
+        for asked_player in "${asked_player_names[@]}"; do
+            if [ "${sealed_player}" = "${asked_player}" ]; then
+                asked_again=1
+            fi
+        done
+        if [ "${asked_again}" -eq 0 ]; then
+            printf 'domain: the sealed probe set names %s, which this run never asked the server about (the probe arguments name %s) -- refused here, before anything is written\n' \
+                "${sealed_player}" "${asked_player_names[*]-}" >&2
+            exit 2
+        fi
+    done
+fi
+# --- seal-probed-players-guard end ---
 
 # And a run that is verifying the release a death causes has to be able to kill the
 # Kin, which only the server can do.
@@ -2931,7 +3075,23 @@ if [[ -n "${case_id}" ]]; then
         # profile is a *different* kind of world, and leaving it named would let a join
         # with an unreadable host document fall back to recording one that never ran
         # rather than being refused.
+        #
+        # The drop stays total by default. With the switch open it gives back one thing
+        # only — this run's own server directory — and the reason it is safe to give
+        # that one thing back is that the dedicated server answering this joiner's
+        # probes is the one *this* run started, so naming its directory names a world
+        # that demonstrably ran. The profile and the jar are still not handed over: the
+        # first is what would let the seal record a world of a different kind, the
+        # second claims bytes this branch never mounts, and neither is needed for the
+        # one thing this is for — `server.log`, `usercache.json` and `server.properties`
+        # are collected from the directory, and `--server-directory` alone moves none of
+        # the three world fields the bundle records.
+        # --- joiner-server-log-seal-forge begin (the contract test extracts this region) ---
         world_args=()
+        if [ "${seal_joiner_server_log_asked}" -eq 1 ]; then
+            world_args=(--server-directory "${server_directory}")
+        fi
+        # --- joiner-server-log-seal-forge end ---
     fi
     named_run=(--run-document "${subject_document}")
     if ! holds_run_document "${subject_document}"; then
@@ -3031,6 +3191,7 @@ PY
             "${world_args[@]}" \
             "${named_run[@]}" \
             "${world_run_args[@]}" \
+            "${seal_probed_player_args[@]}" \
             "${fault_args[@]}" \
             "${soak_args[@]}" \
             --username "${subject_username}" \
