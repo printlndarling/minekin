@@ -22,6 +22,7 @@ import os
 import re
 import shlex
 import shutil
+import socket
 import subprocess
 import sys
 import tomllib
@@ -2465,6 +2466,213 @@ def test_a_joiner_that_never_arrived_is_told_apart_from_an_unprobeable_world() -
     assert text.index("    classify_the_joiner_downstream_readings\n") < text.index(
         "admitted its first snapshot of that world"
     )
+
+
+#: The marker pair of the shipped downstream-reading classifier. Named once because the
+#: cells below both extract the region by it and re-run it against mutated bytes.
+DOWNSTREAM_READING_REGION = "joiner-downstream-reading-target"
+
+
+def downstream_reading_region(text: str) -> str:
+    """The shipped classifier, marker to marker, without its begin line."""
+
+    begin = f"# --- {DOWNSTREAM_READING_REGION} begin"
+    end = f"# --- {DOWNSTREAM_READING_REGION} end ---"
+    start = text.index(begin)
+    lines = text[start : text.index(end, start)].splitlines(keepends=True)
+    assert len(lines) > 3, "the downstream-reading region came out empty; wrong markers"
+    return "".join(lines[1:])
+
+
+def a_loopback_listener() -> tuple[socket.socket, int]:
+    """A loopback port this test itself is holding open, so something really answers it.
+
+    The socket travels with the number: a helper that closed it before returning would
+    leave the cell's 'live world' a port nobody listens on, and the reading would flip for
+    a reason that has nothing to do with the bytes under test. Ephemeral allocation rather
+    than a constant, because a hardcoded number may already be held by another process on
+    this machine.
+    """
+
+    probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    probe.bind(("127.0.0.1", 0))
+    probe.listen(16)
+    return probe, int(probe.getsockname()[1])
+
+
+def a_closed_loopback_port() -> int:
+    """A loopback port number this machine has just released: nothing answers it now."""
+
+    probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    probe.bind(("127.0.0.1", 0))
+    port = int(probe.getsockname()[1])
+    probe.close()
+    return port
+
+
+def drive_downstream_reading(
+    tmp_path: Path,
+    *,
+    region: str,
+    lan_port: str,
+    dialled_port: str,
+    screen: str,
+    tag: str,
+) -> str:
+    """Run one shipped classifier body over two differently numbered ports; return its line.
+
+    The prelude stands in for the two values the region reads and nothing else: the LAN
+    port the run named at the top, and the port the same run wrote into its joining
+    client's profile. On every shape before `MINEKIN_DOMAIN_JOIN_ON_CONTROLLED_SERVER`
+    the target block sets the second to the first, so the two numbers are equal there and
+    only that shape; the dedicated-server shape is the one that can tell them apart, and
+    telling them apart is the reading. The screen line is the launch-depth one the
+    classifier greps for, staged by hand.
+    """
+
+    work = tmp_path / tag
+    work.mkdir(parents=True, exist_ok=True)
+    readout = work / "client-environment.txt"
+    readout.write_text(f"harness DISPLAY=:77\nlaunch GL_BACKEND={screen}\n", encoding="utf-8")
+    body = (
+        "set -uo pipefail\n"
+        f'lan_port="{lan_port}"\n'
+        f'joiner_target_port="{dialled_port}"\n'
+        f'client_environment_readout="{readout.as_posix()}"\n' + region + "\n"
+        "classify_the_joiner_downstream_readings\n"
+    )
+    result = run_shelled(tmp_path, body, None, tag)
+    assert result.returncode == 0, f"{tag}: {result.stderr}"
+    assert readout.is_file(), f"{tag}: the classifier wrote no line into {readout}"
+    written = [
+        line[len("downstream ") :]
+        for line in readout.read_text(encoding="utf-8").splitlines()
+        if line.startswith("downstream ")
+    ]
+    assert len(written) == 1, f"{tag}: expected exactly one downstream line, got {written}"
+    return written[0]
+
+
+def test_the_downstream_reading_probes_the_port_this_run_dialled(tmp_path: Path) -> None:
+    """`THE_WORLD_STATUS_IS_NOT_PROBEABLE` has to be about the world this run started.
+
+    Measured on H66's private volume, and it is a misattribution rather than a
+    reproduction: an M campaign run whose joining client died in
+    `RenderSystem.initBackendSystem` (`Failed to initialize GLFW … [0x1000E]`, `Description:
+    Initializing game`, screen measured at both depths with `GL_PROBE_RC=0`) printed
+    `THE_WORLD_STATUS_IS_NOT_PROBEABLE: nothing answers 127.0.0.1:25570 while the client
+    screen measured (llvmpipe …), so this run is evidence about the world and not about the
+    client environment`. That sentence was not about its own world: the shape is
+    `MINEKIN_DOMAIN_JOIN_ON_CONTROLLED_SERVER=1`, which dials the port the controlled
+    server this run bound (`127.0.0.1:25566`, read from this run's `server.properties`),
+    and it never publishes `${lan_port}` at all — so the probe answered a question about a
+    door this run never opened, and the card it fed was pointed at the world side while the
+    client half was the half that was dying. The same bytes on the same volume, run twice
+    as the campaign shape, arrived (`the world heard Kin2 arrive`,
+    `Kin2 admitted its first snapshot`, no new crash report), which is the other half of
+    why the sentence had to be about the wrong port.
+
+    `${joiner_target_port}` is the port this run wrote into the joining client's profile,
+    set by the `joiner-controlled-server-target` block: to `${lan_port}` when no controlled
+    server was asked for, and to this run's own bound port when it was. Probing it means the
+    classifier asks the same endpoint the client was sent to — one variable read from the
+    run rather than one number assumed, which is the rule the whole file already follows.
+
+    The mutation below is driven, not read: the shipped bytes and the same bytes with the
+    target put back to `${lan_port}` are run against a real loopback listener on the dialled
+    port and a closed port as the LAN number. They disagree there — which is what makes the
+    green reading a reading and not a restatement — and they agree to the byte when the two
+    numbers are one number, which is every shape that predates the knob.
+    """
+
+    text = (RUNNER / "domain.sh").read_text(encoding="utf-8")
+    region = downstream_reading_region(text)
+
+    # The pre-change shape of the same region, as bytes: one variable name, in four places.
+    lan_shaped = region.replace("${joiner_target_port}", "${lan_port}")
+    assert lan_shaped != region, "the planted mutation changed nothing; nothing was measured"
+    assert "${lan_port}" in lan_shaped
+
+    live_world, listening = a_loopback_listener()
+    unopened = a_closed_loopback_port()
+    also_unopened = a_closed_loopback_port()
+    screen = "llvmpipe (LLVM 20.1.2, 256 bits)"
+
+    # The dedicated-server shape: the world this run started answers, the LAN port never did.
+    shipped = drive_downstream_reading(
+        tmp_path,
+        region=region,
+        lan_port=str(unopened),
+        dialled_port=str(listening),
+        screen=screen,
+        tag="dialled-answers",
+    )
+    mutated = drive_downstream_reading(
+        tmp_path,
+        region=lan_shaped,
+        lan_port=str(unopened),
+        dialled_port=str(listening),
+        screen=screen,
+        tag="dialled-answers-mutated",
+    )
+    assert shipped.startswith("THE_JOINER_HAD_NOT_ARRIVED_IN_THE_WINDOW"), shipped
+    assert mutated.startswith("THE_WORLD_STATUS_IS_NOT_PROBEABLE"), mutated
+
+    # And when nothing answers either port, the verdict names the one this run was dialled
+    # at: a sentence about the world the client was sent to, not about a door never opened.
+    nothing = drive_downstream_reading(
+        tmp_path,
+        region=region,
+        lan_port=str(unopened),
+        dialled_port=str(also_unopened),
+        screen=screen,
+        tag="nothing-answers",
+    )
+    assert nothing.startswith("THE_WORLD_STATUS_IS_NOT_PROBEABLE: nothing answers 127.0.0.1:")
+    assert f"127.0.0.1:{also_unopened}" in nothing, nothing
+    assert f"127.0.0.1:{unopened}" not in nothing, nothing
+
+    # Default-off equality: on a shape where the target *is* the LAN port, the shipped bytes
+    # and the pre-change bytes print the same sentence character for character, in both of
+    # the branches that name a port.
+    assert live_world.fileno() != -1, "this test's own listener closed; the cells measured nothing"
+    for tag, same_numbers, screen_line, expected in (
+        ("equal-world-down", str(also_unopened), screen, "THE_WORLD_STATUS_IS_NOT_PROBEABLE"),
+        (
+            "equal-screen-blind",
+            str(listening),
+            "unmeasurable (no DISPLAY)",
+            "THE_JOINER_SCREEN_WAS_UNMEASURABLE",
+        ),
+    ):
+        before = drive_downstream_reading(
+            tmp_path,
+            region=lan_shaped,
+            lan_port=same_numbers,
+            dialled_port=same_numbers,
+            screen=screen_line,
+            tag=f"{tag}-before",
+        )
+        after = drive_downstream_reading(
+            tmp_path,
+            region=region,
+            lan_port=same_numbers,
+            dialled_port=same_numbers,
+            screen=screen_line,
+            tag=f"{tag}-after",
+        )
+        assert after == before, f"{tag}: the default-off shape moved: {before!r} != {after!r}"
+        assert after.startswith(expected), after
+        assert f"127.0.0.1:{same_numbers}" in after, after
+
+    # The whole file still asks its one loopback question, and it asks it of the run's own
+    # target: no remote address, and no LAN literal left inside the classifier.
+    assert re.findall(r"/dev/tcp/([^/\"]+)/", text) == ["127.0.0.1"]
+    assert "/dev/tcp/127.0.0.1/${lan_port}" not in region
+    # And of the whole region, not only of the probe line: `${lan_port}` is a value the run
+    # does set (the target block starts from it), so this is a statement about what the
+    # classifier *reads*, not about what exists.
+    assert "lan_port" not in region
 
 
 def test_the_launch_depth_reading_travels_on_the_line_that_execs_the_client() -> None:
