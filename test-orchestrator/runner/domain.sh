@@ -152,6 +152,29 @@ join_username="${MINEKIN_DOMAIN_JOIN_USERNAME:-Kin2}"
 # of an unvalidated ask would be a claim about a line the run might never start.
 # `0` and unset both mean "run the run".
 join_control_print="${MINEKIN_DOMAIN_JOIN_CONTROL_PRINT:-}"
+# Which world a second client is sent into when this run *also* started a controlled
+# dedicated server. Unset means every shape this file had before: a joiner still needs
+# `MINEKIN_DOMAIN_OPEN_LAN`, and a `--server-profile` run still starts no second client
+# at all (its wait chain waits for its own host Kin and nothing else). Set, it opens the
+# one route V1201-LAN-JOINER-ON-CONTROLLED-SERVER-001 exists for — the joining client
+# dials the world this run's own `run_controlled_server.py` started, so the server that
+# answers `data get entity` probes is the server both clients stand in, and its log is
+# the readout that can say the *joining* Kin turned or walked. It is default-off, it is
+# refused by name for every combination that cannot hold exactly one world for two
+# clients, and it names no address or port of its own: the endpoint is read out of this
+# run's `server.properties` below. `0` and unset are the same request, cast here once so
+# no branch downstream has to guess (the `refuse_first_snapshot` above set that pattern).
+join_on_controlled_server="${MINEKIN_DOMAIN_JOIN_ON_CONTROLLED_SERVER:-}"
+join_on_controlled_server_asked=0
+case "${join_on_controlled_server}" in
+    "" | 0 | false) : ;;
+    1 | true) join_on_controlled_server_asked=1 ;;
+    *)
+        printf 'domain: MINEKIN_DOMAIN_JOIN_ON_CONTROLLED_SERVER must be 1/true or 0/false, got %q\n' \
+            "${join_on_controlled_server}" >&2
+        exit 2
+        ;;
+esac
 # Which of the two runs a joining run's case is about. The harness seals one run per
 # bundle, and a run with a second client in it has two: the hosting session (whose
 # document is what every other case is judged on) and the joining one. Named rather
@@ -411,6 +434,62 @@ if [[ -n "${auto_bundle}" && -n "${joiner}" ]]; then
     printf 'domain: an auto-bundle run cannot also ask for a joining second client; the joiner is started from a named bundle profile\n' >&2
     exit 2
 fi
+
+# ---------------------------------------------------------------------------
+# Asking for the *controlled dedicated server* as the joining client's world
+# (V1201-LAN-JOINER-ON-CONTROLLED-SERVER-001).
+#
+# The name is read and cast near the top of this file, beside the other joiner names;
+# what this block adds is only the refusal set, and it is placed at the first point
+# where the run's own arguments have been scanned (`--server-profile` above) and before
+# anything exists to be torn down: no server directory is made, no Kin created, no JVM
+# started.
+#
+# Why refusals rather than a quietly-ignored request: the name selects a *destination*.
+# Half the combinations that could be asked for have no single world for the second
+# client, and a harness that accepted one of them would produce a run whose recorded
+# target is a place nobody dialled — the same class of fault the version-at-the-joiner
+# and baseline-per-Kin fixes above exist to kill. Each line below therefore says which
+# combination it refuses and names the knob that asked.
+#
+# What this block does not do: it adds no product surface, no address an operator
+# supplied, and no new allowance. `--allow-player` keeps its meaning (one name of a
+# player this run starts itself), the whitelist and its enforcement are untouched, and
+# the joining client's endpoint is read from this run's own server settings further
+# down rather than written here.
+# ---------------------------------------------------------------------------
+# --- joiner-controlled-server-guard begin (the contract test extracts this region) ---
+if [ "${join_on_controlled_server_asked}" -eq 1 ]; then
+    if [ -z "${joiner}" ]; then
+        printf 'domain: MINEKIN_DOMAIN_JOIN_ON_CONTROLLED_SERVER names where a joining client goes and this run has none (MINEKIN_DOMAIN_JOIN is unset); refused rather than carried as a knob that does nothing\n' >&2
+        exit 2
+    fi
+    if [ -z "${server_profile}" ]; then
+        printf 'domain: MINEKIN_DOMAIN_JOIN_ON_CONTROLLED_SERVER sends the joining client into the controlled dedicated server this run starts, and this run starts none (--server-profile is absent)\n' >&2
+        exit 2
+    fi
+    if [ -n "${open_lan}" ]; then
+        printf 'domain: MINEKIN_DOMAIN_JOIN_ON_CONTROLLED_SERVER and MINEKIN_DOMAIN_OPEN_LAN name two worlds for one joining client; this run has to pick the one it sends it into\n' >&2
+        exit 2
+    fi
+    if [ -n "${black_hole}" ]; then
+        printf 'domain: MINEKIN_DOMAIN_JOIN_ON_CONTROLLED_SERVER needs a world that answers, and this run puts a listener that never speaks on the port instead\n' >&2
+        exit 2
+    fi
+    if [ -n "${no_server}" ]; then
+        printf 'domain: MINEKIN_DOMAIN_JOIN_ON_CONTROLLED_SERVER needs this run to keep its server up and MINEKIN_DOMAIN_NO_SERVER stops it before any client starts\n' >&2
+        exit 2
+    fi
+    if [ -n "${not_whitelisted}" ]; then
+        printf 'domain: MINEKIN_DOMAIN_JOIN_ON_CONTROLLED_SERVER sends a second Kin into the dedicated world this run started and MINEKIN_DOMAIN_NOT_WHITELISTED empties the whitelist that world enforces; the two ask for opposite runs\n' >&2
+        exit 2
+    fi
+    if [ "${refusal_asked}" -eq 1 ]; then
+        printf 'domain: MINEKIN_DOMAIN_JOIN_ON_CONTROLLED_SERVER and MINEKIN_DOMAIN_REFUSE_FIRST_SNAPSHOT name two destinations for one wait; the chain answers the snapshot refusal before any joining client is sent, so the prepared joiner would never go -- refused rather than carried as a knob that does nothing\n' >&2
+        exit 2
+    fi
+fi
+# --- joiner-controlled-server-guard end ---
 
 # ---------------------------------------------------------------------------
 # Asking the *joining* client to look and move
@@ -780,6 +859,23 @@ elif [ -n "${server_profile}" ]; then
     if [ -n "${not_whitelisted}" ]; then
         allow_args=()
     fi
+    # --- joiner-controlled-server-allowlist begin (the contract test extracts this region) ---
+    # The shape this name opens puts a *second* Kin in this dedicated world, and that
+    # world enforces its whitelist (`white-list=true`, `enforce-whitelist=true`, both
+    # written by tools/run_controlled_server.py from the frozen profile) — so a joiner
+    # whose own username is not in it is refused at the login handshake and the run
+    # would report the shape as unreachable rather than as refused. The one name added
+    # here is `${join_username}`: the value this run already launches the joining client
+    # with, the value the arrival grep, the ledger baseline and the seal's
+    # `subject_username` all read. It is a name of a player this run starts itself, which
+    # is exactly what `--allow-player` has always meant; nothing is admitted that this
+    # run did not create, no address, mode or count is widened, and no literal player
+    # name is written here. With the name unset, the list is the one every run before
+    # this card handed the server.
+    if [ "${join_on_controlled_server_asked}" -eq 1 ]; then
+        allow_args+=(--allow-player "${join_username}")
+    fi
+    # --- joiner-controlled-server-allowlist end ---
     pack_args=()
     if [ -n "${resource_pack}" ]; then
         pack_args=(--resource-pack)
@@ -919,7 +1015,7 @@ set +e
 # option the fixture gets to take.
 join_ready=0
 if [ -n "${joiner}" ]; then
-    if [ -z "${open_lan}" ]; then
+    if [ -z "${open_lan}" ] && [ "${join_on_controlled_server_asked}" -eq 0 ]; then
         printf 'domain: a joiner needs a world to join; set MINEKIN_DOMAIN_OPEN_LAN=1\n' >&2
         exit 2
     fi
@@ -972,7 +1068,55 @@ if [ -n "${joiner}" ]; then
         printf 'domain: the joining client must carry the version this run launched, and this run launched none it could name; refusing to write a joiner profile at a guessed version\n' >&2
         exit 2
     fi
-    python - "${lan_port}" /tmp/domain-join-profile.json "${launched_version}" <<'PY'
+    # --- joiner-controlled-server-target begin (the contract test extracts this region) ---
+    # The endpoint the joining client is pointed at. Two sources, and both of them this
+    # run's own:
+    #
+    #   * every shape that existed before this card — the LAN world the hosting client is
+    #     told to publish, on the port that run named for it (`${lan_port}`);
+    #   * `MINEKIN_DOMAIN_JOIN_ON_CONTROLLED_SERVER` — what the dedicated server this run
+    #     started actually bound, read out of `${server_directory}/server.properties`,
+    #     the settings file the controlled launcher wrote for this run and no other.
+    #
+    # Read, never assumed, for the reason this whole file keeps running into: a port
+    # taken from a fixture is a join to a different world, and the run would then report
+    # probes answered about a server nobody joined. The address is read alongside it and
+    # accepted only when it *is* the loopback literal the frozen profile schema admits
+    # and the document below emits — a `server-ip` naming anything else is a named
+    # refusal, never something to dial, so no run of this shape can reach a machine that
+    # this container did not start. The value a refusal leaves behind is nothing: the run
+    # stops before the profile exists.
+    joiner_target_port="${lan_port}"
+    if [ "${join_on_controlled_server_asked}" -eq 1 ]; then
+        joiner_target_source="${server_directory}/server.properties"
+        # `-r` before either read: under `set -euo pipefail` a `sed` that cannot open the
+        # file would abort the run on a signal and leave the refusal unsaid, which is the
+        # one outcome worse than naming the missing file.
+        if [ -r "${joiner_target_source}" ]; then
+            controlled_server_ip="$(sed -n 's/^server-ip=//p' "${joiner_target_source}" | tail -1)"
+            controlled_server_port="$(sed -n 's/^server-port=//p' "${joiner_target_source}" | tail -1)"
+        else
+            controlled_server_ip=""
+            controlled_server_port=""
+        fi
+        case "${controlled_server_port}" in
+            '' | *[!0-9]*)
+                printf 'domain: this run cannot read the port its own controlled server bound from %s (server-port=%s), so no target is written into the joining client profile\n' \
+                    "${joiner_target_source}" "${controlled_server_port:-unreadable}" >&2
+                exit 2
+                ;;
+        esac
+        if [ "${controlled_server_ip}" != "127.0.0.1" ]; then
+            printf 'domain: this run sends its joining client to its own controlled server, which reads server-ip=%s from %s; only the loopback literal the profile schema admits is dialled, so the run stops rather than naming a different address\n' \
+                "${controlled_server_ip}" "${joiner_target_source}" >&2
+            exit 2
+        fi
+        joiner_target_port="${controlled_server_port}"
+        printf 'domain: the joining client dials the controlled server this run started at %s:%s, read from %s\n' \
+            "${controlled_server_ip}" "${joiner_target_port}" "${joiner_target_source}" >&2
+    fi
+    # --- joiner-controlled-server-target end ---
+    python - "${joiner_target_port}" /tmp/domain-join-profile.json "${launched_version}" <<'PY'
 import json
 import sys
 
@@ -1825,6 +1969,27 @@ elif [ -n "${open_lan}" ]; then
     else
         printf 'domain: nothing was published on %s within %ss\n' "${lan_port}" "${seconds}" >&2
     fi
+elif [ "${join_on_controlled_server_asked}" -eq 1 ]; then
+    # --- joiner-controlled-server-wait begin (the contract test extracts this region) ---
+    # Nothing in this branch reads a client log. The world already exists and already
+    # answered: the dedicated server this run started was waited for above on its own
+    # `Done (`, so what is still missing is the *joining* client arriving in it, and the
+    # dedicated server says that in the same words the LAN shape reads out of its
+    # publisher. The oracle here is therefore `${server_directory}/server.log` — this
+    # run's own server log, at a path this run made when it numbered its run directory,
+    # never a log a reader has to guess the owner of — and it is the same file the
+    # `data get entity` answers land in. That identity is the whole point of the card:
+    # the server that is asked where the Kin is, and the server that says the Kin
+    # arrived, are one server, so "the server saw the joining Kin turn" becomes a
+    # reading instead of an inference from a client that believes it moved.
+    printf 'domain: the joining client is sent into the controlled server world this run started, %s\n' \
+        "${server_directory}/server.log" >&2
+    if [ "${join_ready}" -eq 1 ]; then
+        join_the_published_world "${server_directory}/server.log"
+    else
+        printf 'domain: this run asked for its joiner in the controlled server world and prepared no joining client; nothing was sent\n' >&2
+    fi
+    # --- joiner-controlled-server-wait end ---
 elif [ -z "${server_profile}" ]; then
     # A run with no world to join never becomes playable, and waiting for it
     # would spend the whole budget on a state that cannot happen. What it does do
