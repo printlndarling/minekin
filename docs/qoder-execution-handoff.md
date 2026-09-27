@@ -945,3 +945,30 @@ V lane 的第一段 `bbf0daf` 已在第二十一轮并入主干（合并 `3ffc79
   ⑤ 家族在已启动客户端上的一般性排除、§3.6 条目 4 的字面 uuid 改写、OFFLINE-090 的 Dashboard 载体、
   OFFLINE-100 跨 bundle 三段链载体、门禁一律未点亮（载荷最后实读 `cfa0f118…`，`W30`/`p0-core` `promotable False`）。
 - **不声称**：不声称 V3 让 1.20.1 JOIN 变绿，不声称 B1 已解，不声称任何 case 闭合或门禁点亮，不声称 Minekin 完成。
+
+## 第二十四轮（2026-09-27，M 主控）：V3 合入后的门载荷实读 + 全远端分支待审普查
+
+- **现场核对**：本地 `main` = 远端 `refs/heads/main` = `42a60142e559139648c23db64233c17dc2eb4d80`（`git rev-parse HEAD`/
+  `origin/main` 同枚）；工作树 `git status --porcelain` 空。V 支 `codex/minekin-v3-1201-join-live-readout = bd23f45`、
+  B1-b 支 `codex/minekin-offline-090-100 = b9c40a7`，两者都已是 `main` 的祖先。
+- **待审普查（25 枚远端 head 逐枚 `git rev-list --count origin/main..origin/<b>`）**：唯一 `ahead≠0` 的是
+  `codex/parallel-execution-plan ahead=2`。这两笔（`21ffbac`、`e472897`）各自只改 `docs/parallel-execution-plan.md`
+  （+78 / +7-1），而主干已有同主题提交 `13b84a8`、`432cc37`；`git diff --stat origin/main origin/codex/parallel-execution-plan`
+  = `100 files changed, 119 insertions(+), 16956 deletions(-)` ⇒ 该支严格落后于主干、无待审内容，**不是**「仅在分支的未合并工作」。
+  ⇒ 结论：今天没有 lane 分支等 M 审；`PARALLEL-INTEGRATION-GATE-001` 的队列是空的。
+- **门载荷实读（补齐第二十三轮那句「只动文档故未重读」）**：在当前主干树（含 `3ffc79c` + `bd7bd56` 两笔 V3 合并）上
+  只读跑 `tools/report_promotion.py --data-root /data`（`.tmp/m-r12-payload.sh`，容器内 `/src:ro` + 规范卷 `:ro`，
+  读数存 `.tmp/m-r24-payload-after-v3-increment.log`）：`report_rc=1`、`gate_payload_sha256` 仍是
+  `cfa0f1184bee30df6a1d9fcf45778c9cef074ece6761c47fe7d6b9f49863afd6`、`overall_blocks ['REQUIRED_CASE_NOT_REGISTERED']`、
+  `W30 promotable False`（`NO_MANDATORY_CASES` + `REQUIRED_CASE_NOT_REGISTERED`）、`p0-core promotable False`，
+  `W30` `absent` 仍是 `OFFLINE-060/080`、`non_mandatory 11` / `p0-core 24`、`misattributed 0`。
+  ⇒ V3 的记录合并既没搬门也没造「别的构建」；这一句现在是量出来的而不是预期。
+- **四态**：已合入 main = 本轮只加本段回写（无代码/fixture/registry 改动）；仅在分支 = 无待审 lane 内容（过期支
+  `codex/parallel-execution-plan` 按上面量化后排除）；真实封证 = 零（本轮未写卷、未新建 attempt/bundle）；
+  未验证 = 1.20.1 加入者 JVM 侧与端到端 JOIN（B1，产品钉住版本/准入语义＝主控保留）、⑤ 家族在已启动客户端上的一般性排除、
+  §3.6 条目 4 的字面 uuid 改写、OFFLINE-090 的 Dashboard 载体、OFFLINE-100 跨 bundle 三段链载体、门禁一律未点亮。
+- **主控保留（本轮只命名，不实施、不派卡去绕）**：① B1 的钉住版本/准入语义（`src/minekin_core/adapters/launcher/server_profile.py:32`）；
+  ② OFFLINE-100 的三段链载体＝`minekin.p0.evidence.v1` 扩字段；在它有决定之前，E 的 A→B→A 真跑即使排进独占写窗也只能产出
+  判官按构造读不出的材料（父行常量 `A_B_A_TRIPLE_NOT_SEALED`），故本轮不派；③ B2 剩余范围（非 mandatory ADMIT 行 + 卡面后半段）
+  与 OFFLINE-090 拆非门禁子案的 case-id 分配。
+- **不声称**：不声称队列里有可安全自派的下一张工程卡，不声称 1.20.1 JOIN 变绿，不声称 B1 已解，不声称任何 case 闭合或门禁点亮，不声称 Minekin 完成。
