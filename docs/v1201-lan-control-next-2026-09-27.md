@@ -702,3 +702,25 @@ job 级 `python`/`protocol`/`bridge-static` 三支对 `886` 全 `success`；步�
 **这条判停要留在文档里**：§2.16 第 5 条当初写成条件句（「H1k **若**申报宿主不同进该专服世界」）是因为写它时（第四十一轮）专服形状还不存在。H1k 落地后字节给的是反面 ⇒ 该条件不成立，替代格降级为附加对照。**这不是改判据**（第 4/5 条要求的读数一个都没少，只是取法从「只能间接」变成「可以直读」），按本节具名，不静默替换。
 
 **时效**：本节的 `:794`、`:1973–:1992`、`:1692–:1695` 三处行号在 H1m 入干后必须由 M 当场重读一遍才可写进 V5′ 派工文本——H1m 正是改 `:794` 那一段的卡（§2.39 的教训已在案，不再重复一遍错法）。**四态**：真实封证仍 **0**；已合主干且 CI 绿 = `dcc3e24`（`895`=`dc0067c` 22:51 读为 `completed/success`，`896`=`af514d1` 时点 `in_progress` 不作绿）；仅在分支 = H1m（在飞，尚无提交）与 lane 的 `codex/minekin-h1l-forward-join-name` ref；未验证 = V5′ 全卡、H1i 全卡、#58 的 (乙) 格。本轮零容器活体（不与 H1m 抢引擎）、规范卷未挂；未连接用户远程服；未放宽认证/地址/lease/判据；未翻 `mandatory`/registry；材料未删。
+
+## §2.42 V5′ 的派工草案已在 H1k 的活体脚本上写死（三式形状 + M 自己的私有卷），并具名判停「不拆卡提前跑今天可得的格」（第五十四轮，2026-09-27 23:00 +0800，M 主控；H1m 在飞，本节不挂引擎）
+
+**CI 一笔闭合**（`.tmp/m-r54-ci.json`，一次 REST 读）：`896`=`af514d1` **`completed/success`** ⇒ §2.41 里那格 `in_progress` 现读已闭合；`897`=`c87089d`（本节所属的 §2.41 记录笔）22:59 时点 `queued` ⇒ 不作绿，须由接手会话重读。远端 `main` 经 `git ls-remote` 现场核为 `c87089d2ddefd13e0414fc917a9e36e5c1e99ce7`，本地 `main` 同值。§2.41 入干笔 = `c87089d`（改面恰 1 个 docs 文件、`git diff --cached --check` rc=0 先读后写）。
+
+**H1m 的在飞现场（正面信号仍为零，故不动它）**：`../minekin-wt-h1m` 分支头仍 `dc0067c`、`git status --short` 回空、`git diff --stat dc0067c..HEAD` 回空；`git ls-remote` 全仓只有 `refs/heads/main` 与 lane 的 `codex/minekin-h1l-forward-join-name`（`1ce9dc0`），**无 H1m 分支的 ref** ⇒ 按 §2.35 口径它仍在飞，M 不进它的工作面、不代提交、不派第二写者。
+
+**为什么这一节值得在等待窗写**：V5′ 的七条判据里，真正欠的只有「同一 run 问两个具名名字」这一格，而**命令形状 H1k 已经在盘上留全了**。M 只读、不改 lane 材料：`../minekin-wt-h1k/.tmp/h1k-live/run-live-c.sh`（outer，含挂载与全部具名 env）与 `drive-c.sh`/`drive.sh`（inner，含读数清单）⇒ V5′ 派工不必重新设计，只改五处，且每处都能落到字面。
+
+**三式形状（全部经真实 `run.sh` 的 docker 形状，`minekin-runner:local`，`MINEKIN_HOME=/data`，`PYTHONPATH=/src/src`，`LD_LIBRARY_PATH=/opt/sqlite/lib`，`--server-profile /src/tests/fixtures/runtime-input/controlled-offline-server-1.20.1.json`）**：
+
+| 式 | env 面（相对 H1k live-c 的差量） | 取哪条判据 |
+| --- | --- | --- |
+| **A 双名 armed**（主证） | `MINEKIN_DOMAIN_PROBE` **不设**（⇒ 第一名走默认 `${probe:-${player}}` = 宿主 `Kin`）、加 `-e MINEKIN_DOMAIN_PROBE_SECOND=Kin2`、保留三名 `JOIN_LOOK_YAW=45`/`LOOK_PITCH=-20`/`HOLD_FORWARD_SECONDS=2` | 第 2 条（按 `Kin2` 行内名读首末差）、第 4 条第一格（同 run 内 `Kin` 首末**必须不变**）、第 5 条（两名都被问过 = 直读）、第 3 条（`PlayableEstablished`+`position>baseline` 与 `the world heard … arrive` 分记） |
+| **B 同形状 control-off**（非恒真对照） | 与 A 同，**抽掉**那三名控制词（H1k 的 `H1K_SHAPE=control-off` 分支已是这个形状）⇒ 加入者首末读数应**不变** | 第 4 条第二格：区分「H1h 驱动真在动」与「探针节奏自己在动」 |
+| **C 不存在的名字**（附加对照，非唯一出路） | 与 A 同，另 `-e MINEKIN_DOMAIN_PROBE=<本 run 从未加入的名>`（第二名仍 `Kin2`）⇒ 该名的答案行应为 `No entity was found`，`Kin2` 仍应有答案行 | §2.16 第 5 条的替代格，§2.41 已把它从「唯一出路」降级为「附加非恒真对照」 |
+
+**M 侧的隔离面**（不共用 lane 卷、不冒充封证）：私有数据根用**新卷** `minekin-m-v5p-live`，按 H1k `prep.sh` 的同款从 `minekin-v4-join:/ro` 灌种（记忆 `kin-01-stale-process-markers` 的教训 ⇒ 宿主与加入者都用**全新 Kin**：`MINEKIN_KIN_ID=kin-v5p-host`、`MINEKIN_DOMAIN_JOIN=kin-v5p-join`，加入者名 `MINEKIN_DOMAIN_JOIN_USERNAME=Kin2`）；jar 仍指主机 `.tmp/mc-1.20.1-server.jar:ro`；材料落 `minekin-wt-integration/.tmp/v5p/`；**规范卷 `minekin-runner-data` 全程不挂**（E 的写窗），三式读数一律写作「M 私有卷活体读数」而非 sealed bundle。活体窗须先看 `docker ps` 静默并预约（§2.13 末的 30s 握手预算 ⇒ 三式串行、不并行）。
+
+**判停（具名，不改判据）**：§2.41 表里有两格标着「今天即可」（第 3 条、第 4 条第二格）。**V5′ 不拆成「今天跑两格 + 之后再跑五格」**，理由三条，都写死在此以免日后被顶替：① 第 4 条两格按判据原文要在**同一形状、同一节奏**下成对读，拆跑等于换成两次会话的比较，非恒真性下降；② 活体窗此刻被 H1m 占（它也要经真实 `run.sh` 跑两名），M 抢引擎会同时污染两边的 30s 握手预算；③ 半张卡的记录会留下一条「V5′ 部分绿」的口径，E7 封证与 M-C1 登记都只认整卡七条。⇒ 三式在 H1m 入干后**一次会话内串行发**，前置不满足（H1m 未入干 / 行号未重读 / 引擎不静默 / 灌种失败）则保留失败材料并就地停，不拿 B、C 两格冒充卡绿。
+
+**四态**：真实封证仍 **0**；已合主干且 CI 绿 = `af514d1`（`896` success，含 `dcc3e24` 的 H1l 合并链）；`c87089d` 已 push、CI `queued` 不作绿；仅在分支 = H1m（在飞，尚无提交、无远端 ref）与 lane 的 `codex/minekin-h1l-forward-join-name` ref；未验证 = V5′ 全卡（本节只写形状，未跑一发）、H1i 全卡、#58 (乙)。本轮零容器活体、规范卷未挂、未读 `.tmp/local-test-server.txt`（未连接用户远程服）、未放宽认证/地址/lease/判据、未翻 `mandatory`/registry、材料与失败材料未删（`.tmp/m-r54-ci.json` 在案）。
