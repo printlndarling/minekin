@@ -124,3 +124,18 @@ M-C0 的验收里「既有 case 的判定结果不得改变」这条不能靠 la
 3. 探针目标（§2.2 M-C0 的 `--probed-player`）与这一格同批交给封存调用，来源都是 `domain.sh:482` 的 `${probe:-${player}}`；不得动 `:400-406` 的 auto+joiner 拒止。
 4. H1i 的验收含一条反证：opt-in 关闭时 joiner 的封存 argv 与当前主干逐字相同（默认关闭等值的同一口径，H1h 已用 `.tmp/m-r37-h1h-argv-judge.py` 立过形状）。
 5. 排程不变：H1i 等 H1h 与 M-C0 都合入后再派（同改 `domain.sh`，不并发）。V5 的活体读数**不依赖** H1i——H1i 只服务「同 run 封证」（E7）与 case 登记（M-C1）。
+
+## §2.5 V5 的预登记验收判据（M 在 V lane 交付前写下，不事后发明）
+
+V5 是活体读数，不是封证，也不是 case。M 先把**今天就存在的载体**逐条钉住（行号取自主干 `6af5a77`）：
+
+1. **探针目标今天就能指向加入者，无需任何代码改动**：`domain.sh:27` 读 `MINEKIN_DOMAIN_PROBE`、`:165` 读 `MINEKIN_DOMAIN_PROBE_SECONDS`（默认 5），二者进 `:482` 的 `--probe-player "${probe:-${player}}"`。V5 的 run 必须显式把 `MINEKIN_DOMAIN_PROBE` 设为**加入者用户名**，否则默认探的是主持有者 `${player}`，日志里的位移读数就不是加入者的。⇒ V5 是单目标 run，§2.1 的归属歧义在活体读数上不成立，但**封进 bundle 后读不出被问过谁**——这正是 M-C0 存在的理由，两者别混。
+2. **PLAYABLE 的载体是加入者自己的账本**：`/data/kin/<joiner>/kin.sqlite3` 里 `event_type='PlayableEstablished'` 且 `position > <baseline>`（`domain.sh:1211-1213`）。`arrived` 与 `playable` 是两条独立读数（`:1195` 的「the world heard … arrive」只证明服务端听到了 join 行），V5 记录必须分别报，不得把「听到了 arrival」写成「已可判 PLAYABLE」。
+3. **位移的载体是服务端自己的答案行**：`${server_directory}/server.log` 里的 `has the following entity data: [...]`（判据侧的解析常量见 `assert_case_evidence.py:246`），V5 要按第 1 条的目标名读数并报**首末两次的具体坐标/朝向差**。
+4. **释放（release）**：加入者 session 文档 `/tmp/domain-join-session.json` 与客户端流 `logs/latest.log` 是客户端侧的账；服务端侧只到 `<join_username> left the game`。V5 记录要说明 release 是从哪一侧读到的，不得用服务端离场行冒充 lease 释放。
+5. **非恒真要求（两条都必须出现在 V5 记录里）**：
+   - 同一 run 的**主持有者**读数首末不变（否则「加入者动了」与「整个世界在漂/重生噪声」分不开）；
+   - 一次**关闭控制**的对照 run，加入者首末读数不变。
+   做不到这两条，V5 只能是「看到数字变了」，不构成可判载体。
+6. **边界**：V5 只写一份带日期的 `docs/validation/` 记录 + 私有数据根；**不挂规范卷、不封存、不注册 case、不动 registry 或 mandatory**；不得引用 E6 的 `V1201-020` seq4 作为 LAN 第二客户端的证据（§0 的裁决）。
+7. **停止条件**：若控制已 arm 而 PLAYABLE 未到，第一真实失败层在「H1h 的 argv 是否真到达加入者客户端」，V5 就地停并报告，不得在 V 卡里顺手改 runner。
