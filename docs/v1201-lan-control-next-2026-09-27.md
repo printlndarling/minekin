@@ -62,3 +62,18 @@ H1h/V5/C1/E7 任一失败只阻断其依赖链，不把整个项目标成完成�
 - 派工面按本文 §2 原样收窄：只允许 `test-orchestrator/runner/domain.sh`、`tests/contract/test_runner_scripts.py`、一份新 `docs/validation/` 记录；规范卷**不挂载**（H1h 不封证）。
 - 派工前 M 亲量的新增事实：加入者的产品调用（`domain.sh:1179-1184`）只有 `--profile` 与 `--server-profile`，而 `session start` 已接受 `--hold-forward-seconds/--look-yaw-degrees/--look-pitch-degrees`（`parser.py:115/172/179`）且 hold 只 needs `--server-profile`；加入者启动时已注入 `MINEKIN_KIN_ID="${joiner}"`（`~:1166`）⇒ **lease 定向第二客户端不需要新产物 API**，本卡应为零 `src/**` 改动。若 lane 实际停在 lease 层，按 §2 的规定交 M 另立单独产品卡，不在本卡内越界实施。
 - V5/M-C1/E7/M-G1 未派工；registry 引用不替换、`mandatory` 不翻转（本文 §0 的裁决仍生效）。
+
+## §2.1 M-C1 的前置裁决（2026-09-27 第三十七轮，M 派工前实测后补）
+
+M 在等 H1h 的窗口里把「有没有可判载体」量成了事实，结论改变了 M-C1 的形状：
+
+1. **单 bundle 双载体不需要扩 schema**：封存入口本就有 `--server-directory` 与 `--world-run-document` 两个参数（`tools/seal_run_evidence.py:869/898` 一带，分别封成 `server/server.log` 与 `host-run-document.json`）。卷内 6 份 `CORE-030` 加入者 bundle 之所以只有后者、没有前者，是因为当时那次封存没传 `--server-directory`——**缺的是参数，不是实现**。⇒ E7 仍是「一个 bundle、同一次 run」封证，不触主控保留的跨 bundle 链上载体。
+2. **但服务端位置读数是无名的，加入者的移动今天不能自证归属**。实测三件事：
+   - `tools/run_controlled_server.py:489/507` 把探针发成 `data get entity <player> Pos|Rotation`，目标名只出现在**命令**里；
+   - 卷内真 `server/server.log` 里只有答案行 `has the following entity data: [...]`，`data get entity <name>` 形式的命令行 **0 次出现**（抽样 CORE-060 ×3、CORE-020 ×1，答案行 0~6 条）；
+   - 判据侧 `tools/assert_case_evidence.py:246,266-280` 的 `_PROBE`/`probe_readings` 与 `the_server_saw_the_kin_move`(`:1599`) 取的是**全日志所有答案行的首尾两次读数**，只按分量数区分位置/朝向，不按名字区分；
+   - 卷内 100 份 `orchestrator-trace.json` 里**没有一份提到 probe** ⇒ 探针目标今天没有被封进任何产物。
+   单客户端时这不成问题（一次 run 只问一个名字，且 `domain.sh:482` 的 `--probe-player "${probe:-${player}}"` 只有一个目标）；两客户端时，若两个名字都被问过，轨迹就会被错配。
+3. **裁决（写死 M-C1 的边界）**：M-C1 的**第一份提交**必须先补「探针目标归属」这一格载体——把本次 run 被问过的玩家名记进**已有**封存产物 `asserter-inputs.json`（`seal_run_evidence.py:795` 的 `ASSERTER_INPUTS`），并在 case 判据里要求「被问过的名字恰为加入者用户名，且仅此一个」。这是 `tools/**` 面内的新增字段/新增 artifact 名，沿用既有名字常量纪律，**不是** `minekin.p0.evidence.v1` 的 schema 扩展。
+4. **反证要求**：M-C1 必须现场演示——把同一份日志的归属换成主客户端名字、或塞进第二个被探针的名字，判据要**具名失败**（`the_server_saw_the_kin_move` 不得在归属不成立时仍返回 None）。做不到这一条，M-C1 不得登记 case，E7 不得排封证窗口。
+5. **不因此改动现有 case 的判据**：既有单客户端案的「一个目标」前提不变，H1h/V5 之前也不依赖本节。
