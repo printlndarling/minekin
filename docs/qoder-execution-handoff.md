@@ -925,3 +925,23 @@ V lane 的第一段 `bbf0daf` 已在第二十一轮并入主干（合并 `3ffc79
   真实封证 = 零；未验证 = 1.20.1 加入者 JVM 侧与端到端 JOIN（B1）、⑤ 家族在已启动客户端上的一般性排除、
   §3.6 条目 4 的字面 uuid 改写、OFFLINE-090 的 Dashboard 载体、OFFLINE-100 跨 bundle 三段链载体、门禁一律未点亮。
 - **不声称**：不声称 `1dad5f5` 已并入，不声称 1.20.1 JOIN 变绿，不声称 B1 已解，不声称 Minekin 完成。
+
+## 第二十三轮（2026-09-27，M 主控）：V3 增量退回后修正并合入；B1 常量落到产品面
+
+- **退回→修正→合入**：`1dad5f5`（+259 -0，纯增量、同一份记录）因 `git show --check` 命中一条行尾空格被按字节退回；
+  V 自己以**新提交** `bd23f45`（+3 -1：删该空格并在其下注明原文该行带一个空格、所读事实不变）修正，
+  M 未进 V 工作树、未 amend 已推提交。修正后 M 以合并 **`bd7bd56`** 入 `main`，远端 `refs/heads/main`
+  已核为 `bd7bd56b6dda360635fa62baf9b1b3c3a30547b2`；合并后 `git diff --check` `rc=0`、`ruff check` 绿。
+- **M 对增量的字节级抽查**：记录指认的准入钉住点在主干为真——
+  `src/minekin_core/adapters/launcher/server_profile.py:32` `MINECRAFT_VERSION = "1.21.4"`（`:200` 用它比较），
+  同族第二处 `src/minekin_core/adapters/launcher/metadata.py:16`（`:392`/`:544` 以其为默认版本参数）；
+  自报全量 `2596 passed / 3 skipped` 与第十六轮起的主干基线一字相同 ⇒ 无测试计数漂移。
+  增量的边界披露（bridge jar 字节被 `cp` 进 V 私有树、正本卷全程 `:ro`、未新建 attempt/bundle、零封存）随记录接受。
+- **流程一条**：本轮出现同一张卡的**两个 V 会话先后交付**（`bbf0daf` 与 `1dad5f5`）。结论是分支仍单调快进
+  （`bbf0daf` 是 `bd23f45` 的祖先、改面只有那一份文档），M 的 merge-base 审查因此能逐段守住；
+  但下次派续命会话前应先确认原会话是否仍在写同一支，避免同树并发。
+- **四态**：已合入 main = V3 的全部记录（`3ffc79c` + `bd7bd56`）与本轮回写；仅在分支 = 无；
+  真实封证 = 零（V3 不封证）；未验证 = 1.20.1 加入者 JVM 侧与端到端 JOIN（B1，产品钉住版本/准入语义＝主控保留）、
+  ⑤ 家族在已启动客户端上的一般性排除、§3.6 条目 4 的字面 uuid 改写、OFFLINE-090 的 Dashboard 载体、
+  OFFLINE-100 跨 bundle 三段链载体、门禁一律未点亮（载荷最后实读 `cfa0f118…`，`W30`/`p0-core` `promotable False`）。
+- **不声称**：不声称 V3 让 1.20.1 JOIN 变绿，不声称 B1 已解，不声称任何 case 闭合或门禁点亮，不声称 Minekin 完成。
