@@ -1143,3 +1143,44 @@ V lane 的第一段 `bbf0daf` 已在第二十一轮并入主干（合并 `3ffc79
   `metadata.py:16` 默认值是否下一前沿。
 - **不声称**：不声称 V4 已达标或已通过（本轮只声称 hygiene 判官在 scratch 上零外部端点、操作员地址零命中），
   不声称 scratch JSON 等于已审记录，不声称任何 case 闭合、门禁点亮或 Minekin 完成。
+
+
+## 第二十九轮（2026-09-27，M 主控）：V4 在飞材料被 M 三组独立读数覆盖，第二件复审仪器（逐阶段具名覆盖判官）预登记并自测通过
+
+- **现场**：起点远端 `refs/heads/main = fbc3576`（第二十八轮 M 自己的提交）。V4 分支
+  `codex/minekin-v4-local-join-after-v2` 仍尖派发基线 `8b357b6`，`git status --porcelain` 空、`origin` 上无该分支，
+  `docs/**` 无新文件，`docker ps` 无在跑容器 ⇒ V4 在写记录前的空档；本轮 M **不**据 scratch 放行 E6。
+- **卷边界读数（`.tmp/m-r28-v4-volume-boundary.log`）**：规范卷 `minekin-runner-data` 以 `:ro` 挂载后逐字段实读
+  `14` 个 Kin 根、`99` 枚 bundle、匹配 `*v4*` 的 Kin 根 **0** 个，写探针 `[Errno 30] Read-only file system:
+  '/data/.m-r7-write-probe'` ⇒ V4 没有碰 E 独占面。V4 私有卷 `minekin-v4-join` 内 `kin-v4-host / kin-v4-host1214 /
+  kin-v4-join / kin-v4-join1214` 四根、`0` 枚 bundle、4 个 generation 目录（V4 卡面本就不封存）。
+  本轮另留一次方法教训：`find /data/kin -maxdepth 3 -name manifest.json` 读到 `0`，是 glob 深度不足而非「没有 bundle」，
+  正确深度实读为 `99`（与既有记忆里的错 glob 陷阱同类，改用不限深度后才有读数）。
+- **门载荷未动**：`bash /src/.tmp/m-r7-baseline.sh` 在容器内（`/src:ro` + `/data:ro` + `MINEKIN_HOME=/data`）跑，
+  日志 `.tmp/m-r28-baseline-fbc3576.log`：`gate_payload_sha256 cfa0f1184bee30df6a1d9fcf45778c9cef074ece6761c47fe7d6b9f49863afd6`、
+  `promotable ['W00','W10','W20','W60']`、`overall_blocks ['REQUIRED_CASE_NOT_REGISTERED']`、`report_rc=1`（blocked 即预期形状）。
+  ⇒ 第二十八轮那枚文档提交没移动门禁载荷。同一次读数先在宿主跑出了 `ModuleNotFoundError: No module named 'minekin_core'`
+  与 `cd: /src: No such file or directory`——那是脚本该在容器里跑的工具形状，不是主干回归，按既有规矩先诊断再引用。
+- **V4 scratch 的逐案形状（`.tmp/m-r28-v4-case-shapes.log`，中间读数）**：
+  case A 交给加入者的文档是 `schema_version 2` + `host 127.0.0.1` + `auth_mode offline` +
+  `allowed_versions ["1.20.1"]` + `target_authorization{granted_by: controlled-runner}`，客户端日志
+  `Loading Minecraft 1.20.1 with Fabric Loader 0.19.5`，joiner session 读到
+  `connection_state=PLAYABLE / snapshots_admitted=1 / perceived_information_class=PLAYER_EQUIVALENT`；
+  case B（`shape=v4b-live-1214` 正对照）文档仍是 `schema_version 1` + `minecraft_version "1.21.4"`，客户端
+  `Loading Minecraft 1.21.4 with Fabric Loader 0.16.9`，同样 `PLAYABLE / snapshots_admitted=1`。
+  两案都记录 `outcome=BRIDGE_LOST / session_state=STOPPED`（收尾形状），case A 宿主世界日志另有第二加入者行。
+  ⇒ 版本没有互串（1.20.1 的 run 就加载 1.20.1），v1 的 1.21.4 形状未被改写；但**这仍不是 V4 的结论**，
+  真 JOIN/首快照要由 V4 自己的记录承担、M 按允许面复审。
+- **第二件预登记仪器**：`.tmp/m-r29-v4-record-coverage.py`（逐阶段具名 + 判定词 + 反例/正对照/桥 jar sha256/
+  `127.0.0.1`/`schema_version 2`/runner 字节六项控制的形状门，缺项 exit 1）。
+  四例自测（`.tmp/m-r29-coverage-selftest.sh` → `.tmp/m-r29-coverage-selftest.log`）：
+  完整合成记录 `SHAPE_COMPLETE rc=0`；空心记录 **12 项**缺失（`first-snapshot NOT-NAMED`、五阶段 `verdict=NONE`、
+  六项控制 `MISSING`）`rc=1`；真实 H1g 主干记录被判 `NEEDS_REVISION missing_or_unverdict=4 rc=1`
+  ⇒ 判官并非恒绿，能区分「H 卡的记录」与「V 卡要求的形状」；不存在的路径打印 `record MISSING rc=1` 且不抛栈。
+  已知宽松处如实登记：判定词是在「提到该阶段的任一分块」里找第一个，因此阶段名与 PASS 的**配对语义**不由它保证，
+  它只保证六阶段各自具名且带判定词、六项控制在场；语义仍要 M 逐条读。
+- **四态**：已合主干 = 本轮无新增（远端尖仍 `fbc3576`）；仅在分支 = V4（scratch 材料 + 三组 M 读数，无提交）；
+  真实封证 = 零；未验证 = 1.20.1 真 JOIN/首快照作为**已审记录**、E6 封存、门禁（载荷 `cfa0f118…` 未动）、
+  `metadata.py:16` 是否下一前沿。
+- **不声称**：不声称 V4 已达标、已提交或已推送，不声称 scratch JSON 等于记录，不声称 E6 可放行，
+  不声称任何 case 闭合、门禁点亮或 Minekin 完成。
