@@ -4200,3 +4200,95 @@ def test_the_controlled_server_joiner_shape_is_not_an_always_true_claim(
     result = run_shelled(tmp_path, body, {JOINER_CONTROLLED_SERVER_KNOB: "1"}, "ce-5")
     assert result.returncode == 0, result.stderr
     assert "guard-passed" in result.stdout
+
+
+# ---------------------------------------------------------------------------
+# H1n — the kick wait's grep must read the server log and nothing else.
+# ---------------------------------------------------------------------------
+
+#: The bare-word shape: a literal backslash and the letter `n` with whitespace on
+#: both sides — the only way the pair can sit in a shell word position. A real line
+#: continuation is a backslash at *end* of line, so nothing follows it on that line
+#: and this never sees it; a format newline inside a string carries the backslash
+#: directly after the quote (or after another string character), so the quoted
+#: `printf`/`tr` shapes below stay out of reach too. What is left standing is exactly
+#: the defect V1201-DOMAIN-KICK-GREP-LITERAL-N-001 removes: space-backslash-n-space
+#: shipped where the continuation belonged, bash expanded the survivor to the bare
+#: word `n`, and grep took it as a second file operand — a file named `n` in the
+#: workdir could then answer for a kick the server log never recorded.
+_BARE_LITERAL_NEWLINE_WORD = re.compile(r"[ \t]\\n[ \t]")
+
+#: The loose reading: any literal backslash-n anywhere on a line, quoted or not.
+#: domain.sh carries it on hundreds of lines and almost all of them are format
+#: newlines, so this count being large while the predicate above stays at zero is
+#: the pair that shows the scan reads the right file without swallowing the strings.
+_LOOSE_LITERAL_NEWLINE = re.compile(r"\\n")
+
+
+def bare_literal_newline_words(text: str) -> list[tuple[int, str]]:
+    """The (line number, line) pairs where a bare-word literal backslash-n sits."""
+
+    return [
+        (number, line)
+        for number, line in enumerate(text.splitlines(), 1)
+        if _BARE_LITERAL_NEWLINE_WORD.search(line)
+    ]
+
+
+def test_the_kick_wait_hands_grep_only_the_server_log(tmp_path: Path) -> None:
+    """No wait in domain.sh may hand grep a stray word where a continuation belongs.
+
+    The scan is driven over both controls first, so the shipped-file assertion below
+    cannot pass by looking at the wrong file, and cannot fail by matching every
+    format newline in it.
+    """
+
+    # Control one: the legitimate shapes answer zero. A format newline inside a
+    # string and a real line continuation are the two ways backslash-n bytes are
+    # correct shell, and neither may register.
+    legal = "\n".join(
+        [
+            "printf 'a\\nb\\n' >&2",
+            'probe=$(printf "%s" "${probe}" | tr "\\n" " " | cut -c1-90)',
+            'if grep -qE "${kick} (lost connection|left the game)" \\',
+            '    "${server_directory}/server.log" 2>/dev/null; then',
+        ]
+    )
+    assert bare_literal_newline_words(legal) == [], (
+        "the predicate reaches inside quoted strings or onto a real continuation; "
+        f"it stopped being a word-shape scan: {bare_literal_newline_words(legal)}"
+    )
+
+    # Control two: the defect shape, transcribed from the shipped line verbatim into
+    # a temp file, answers exactly one hit, on the line it was planted. The round
+    # trip is checked too — a write that ate the backslash would empty the scan by
+    # accident and prove nothing.
+    planted_line = (
+        '        if grep -qE "${kick} (lost connection|left the game)" '
+        "\\n            "
+        '"${server_directory}/server.log" 2>/dev/null; then'
+    )
+    sample = tmp_path / "kick-wait-shape.sh"
+    sample.write_text('kick="Kin"\n' + planted_line + "\n", encoding="utf-8")
+    written = sample.read_text(encoding="utf-8")
+    assert written.splitlines()[1] == planted_line
+    planted = bare_literal_newline_words(written)
+    assert [number for number, _ in planted] == [2], (
+        f"the defect shape does not register exactly once on its own line: {planted}"
+    )
+
+    # The shipped file, both readings paired: the loose count is not empty — if it
+    # were, the file had moved out from under this test — and the bare-word count is
+    # zero. Each offender is named by line number and first 170 characters.
+    domain = RUNNER / "domain.sh"
+    text = domain.read_text(encoding="utf-8")
+    loose = sum(1 for line in text.splitlines() if _LOOSE_LITERAL_NEWLINE.search(line))
+    assert loose, "domain.sh carries no literal backslash-n at all; wrong file?"
+    offenders = bare_literal_newline_words(text)
+    assert not offenders, (
+        f"a bare-word literal backslash-n survived in domain.sh ({loose} lines carry "
+        "the loose shape; only the lines below carry the word): bash expands it to "
+        "the word `n` and grep takes it as a second file operand, so a file named "
+        "`n` in the workdir can fake the kick readout —\n"
+        + "\n".join(f"  domain.sh:{number}: {line[:170]}" for number, line in offenders)
+    )
