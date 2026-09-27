@@ -321,3 +321,24 @@ probe 'open_lan=25570; refuse_first_snapshot=1'
 - **候选字节上的门禁读数（每条单独一步、先读退出码再落字）**：`bash -n test-orchestrator/runner/domain.sh` ⇒ `rc=0`；`uv run --frozen --offline pytest tests/contract/test_runner_scripts.py -q` ⇒ `81 passed`（`rc=0`，M 侧独立复量，lane 自报的那轮是整树 `578 passed in 64.79s`，见 `../minekin-wt-h1k/.tmp/h1k-suites.log`）；`ruff check .` / `ruff format --check .`（`365 files already formatted`）/ `pyright`（`0 errors, 0 warnings`）/ `check_boundaries.py` / `check_case_assertions.py`（`OK (150 registered)` ⇒ 这份字节没有登记任何 case）/ `verify_fixture_digests.py` / `check_workflow_pins.py` / `git diff --check` ⇒ **各自 `rc=0`**。合入门禁的静态面今天是清的。
 - **lane 侧的失败材料完好、且规范卷确实一次都没挂**（M 只读 `docker inspect h1k-live-b` 核）：挂载为 `/src`=`../minekin-wt-h1k` **只读**、`/data`=私有卷 `minekin-h1k-live`、`/out` 可写、服务端 jar `:ro`；`minekin-runner-data` 不在列表里。该容器 `Exited (255)`。两轮活体都留下了材料而没有覆盖：`live-a-rejected-singleword/` 在 header 的 `session argv` 里明明带着 `--server-profile …`，guard 却报 `:468` 那句 `--server-profile is absent`（argv 形状问题，属 lane 的驱动侧），lane 把目录改名保留后另起 `live-b`；`live-b/` 过了 guard（`domain: server run directory /data/server-runs/run-1`、`server ready`、`enable-status=false`），新名的两条具名行都打了出来（`… dials the controlled server this run started at 127.0.0.1:25566, read from /data/server-runs/run-1/server.properties` 与 `… is sent into the controlled server world this run started …`）⇒ **§2.16 要的目的地读数已经出现**；但随后 `domain: Kin2 never arrived within 420s`（而 `:1563–:1564` 的等待循环带 `kill -0 … || break`，容器实跑约 1 分钟 ⇒ 加入者进程早已退出，`/tmp/domain-join-session.err` 当时为空），`client-environment.txt` 的写入报 `Read-only file system`（`:1459` 那句 `>>` 的失败由 bash 自己报出，脚本 `|| true` 吞掉；`:1301` 早就用 `if ! : > "${client_environment_readout}"` 容忍了这个文件不可写，所以这是一条噪声而不是新的阻因），下游判语 `THE_WORLD_STATUS_IS_NOT_PROBEABLE: nothing answers 127.0.0.1:25570`——探针目标 `25570` 是 LAN 形状的旧端口，而这轮目的地是 `25566`，两者不一致正是 H1i/#52 要交接的那一格。**所以 `live-b` 只到「目的地读对」，①–④ 的到达/PLAYABLE/受控/释放读数一格都还没封出，H1k 不能凭这份材料合入**；第一真实失败层在加入者进程自身为何早退，归 lane 判。
 - **本轮未量的两格（照实登记，不补口径）**：① 合并树的门载荷仍要 `report_promotion.py --data-root /data` 才能算，lane 侧那次尝试被引擎挡回（`../minekin-wt-h1k/.tmp/h1k-gate-payload.log` 全文是 `request returned 500 Internal Server Error … /pipe/dockerDesktopLinuxEngine/_ping`）；M 侧本轮也没能挂 `:ro` 复算 ⇒ 该读数留到 H1k 交付后在合并树上量，`cfa0f118…` 的相等结论今天仍是「未验证」而不是「已复核」。② 主干推送：`git fetch origin` 报 `Failed to connect to github.com port 443 via 127.0.0.1`（本机代理此刻拒绝外连，`uv` 走索引时同因失败，故上面所有 Python 门禁都改用 `--offline`）⇒ 本节只能先落本地提交，远端 SHA 与 CI 结论等网络恢复再核，不据此声称已合入远端。
+
+
+## §2.19 同一轮里的补量：门载荷在主干字节上重新算到了，§2.18 那两格空白收掉一格（第四十三轮后半，2026-09-27）
+
+- **门载荷（`report_promotion` 的 `work_packages` + `overall` 整段按 `sort_keys` 序列化再取 sha256）在当前主干字节上复算**：容器 `minekin-runner:local`，规范卷 `minekin-runner-data:/data` 以 **:ro** 挂、`/src` 挂主干 worktree（同样 `:ro`），`LD_LIBRARY_PATH=/opt/sqlite/lib`、`PYTHONPATH=/src/src`：
+
+```bash
+cd ../minekin-wt-integration
+MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*' docker run --rm \
+  -v minekin-runner-data:/data:ro \
+  -v 'C:\Users\darling\Documents\agent_work\minekin-wt-integration:/src:ro' \
+  -e LD_LIBRARY_PATH=/opt/sqlite/lib -e PYTHONPATH=/src/src \
+  minekin-runner:local python /src/tools/report_promotion.py --data-root /data > /tmp/promotion.json
+echo "rc=$?"                       # 读数是 1
+python .tmp/trunk_digest.py /tmp/promotion.json
+```
+
+  本轮输出：`rc=1`、`/tmp/promotion.json` 103921 字节、`gate_payload_sha256=cfa0f1184bee30df6a1d9fcf45778c9cef074ece6761c47fe7d6b9f49863afd6` ⇒ **与登记的常量逐字相同，而且这次是量出来的而不是引用的**。跑前 `docker ps` 为空（无并发活体窗口），跑时只读挂载、未封存任何 attempt/bundle。
+- **这把 §2.18 的 ① 从「未验证」改成「主干侧已复核」**：仍**没有**的那半是 H1k 合入后在合并树上的同一读数（PRE==POST 的对照要等 lane 交付），所以 §2.18 里那句「`cfa0f118…` 今天仍是未验证」在 §2.18 自身的时间点是如实的，本节只把时点往后推一格，不回收它。
+- **§2.18 的 ②（推送不可用）在同一轮后半已经不复存在**：外连恢复后 `git -c credential.helper= -c credential.helper=wincred push origin HEAD:main` 报 `ceb079f..4a8fec3  HEAD -> main`（`rc=0`），本节的提交随后一并推上去并核远端 SHA。CI 结论仍按协议在浏览器/REST 里读过才写，本节不预先声称。
+- **一个纯操作性的坑，记下来省下一轮**：Git Bash 会把 `C:/Users/...` 这类 Windows 路径当 POSIX 路径吃掉（第一次 `docker run -v C:/…:/src:ro` 变成在容器里找 `/work/C:/…`，`rc=2` 且 stdout 为空）。带盘符的挂载源要用反斜杠原样写并置 `MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*'`。
