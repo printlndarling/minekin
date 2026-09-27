@@ -2,7 +2,7 @@
 
 > 2026-09-27 新交棒点（规划分支 `codex/minekin-next-1201`，基线远端 `main=e3b1c6f`；须经 M 审查合入才激活）：第二十四轮“lane 待审队列为空”仅说明没有待合分支，**不说明 Minekin 已完成**。用户此前已经选定 1.20.1 主线及按服务器版本自动选受审客户端；下一条可执行的本地解阻路径见[H1g → V4 → E6 连续任务卡与单会话提示词](v1201-local-join-next-2026-09-27.md)。主干唯一 `current_next` 仍是 `PARALLEL-INTEGRATION-GATE-001`，H1g 是 H lane 的下一张。先保留 v1 的 1.21.4 冻结行为，用现成 v2 的 loopback/offline/单版本受管目标验证 1.20.1 加入者；不要把 V3 未起 JVM 的记录说成已排除 GLFW 故障。远程服 V08 和证据 schema 决策没有因本次排卡获得授权。下文旧“无安全下一张”段落是其当时读数，以本交棒点和现行主计划顶部覆盖段为准。
 
-更新：2026-09-27（最新一轮是文末的「M 主控第十二轮」，其前的第五至第十一轮按同一格式顺排在该节之前）。旧 875 行交接（包括 Qoder 未提交的第七类审计草稿）完整保存在[历史交接](qoder-execution-handoff-history-through-cef712b.md)；其中旧 `NEXT`、旧 run 读数、旧“队列为空”不再指挥执行。现行唯一队列是[执行计划](development-execution-plan.md)。
+更新：2026-09-27（本文的轮次按「第 N 轮」顺排，**文末最后一节即最新一轮**；旧轮次正文里「最新一轮是第十二轮」那句只是当时的读数）。旧 875 行交接（包括 Qoder 未提交的第七类审计草稿）完整保存在[历史交接](qoder-execution-handoff-history-through-cef712b.md)；其中旧 `NEXT`、旧 run 读数、旧“队列为空”不再指挥执行。现行唯一队列是[执行计划](development-execution-plan.md)。
 
 ## 每次启动与上下文丢失后的恢复步骤
 
@@ -976,3 +976,44 @@ V lane 的第一段 `bbf0daf` 已在第二十一轮并入主干（合并 `3ffc79
   重跑一次不推进任何东西，也不需再排 E 的写窗；要动的是扩字段那一记决定。③ B2 剩余范围（非 mandatory ADMIT 行 + 卡面后半段）
   与 OFFLINE-090 拆非门禁子案的 case-id 分配。
 - **不声称**：不声称队列里有可安全自派的下一张工程卡，不声称 1.20.1 JOIN 变绿，不声称 B1 已解，不声称任何 case 闭合或门禁点亮，不声称 Minekin 完成。
+
+## 第二十五轮（2026-09-27，M 主控）：合入 1.20.1 本地加入排期分支；M 独立量到 v2 准入今天就容得下 1.20.1
+
+- **现场核对**：起点远端 `refs/heads/main = e3b1c6f`；规划分支 `codex/minekin-next-1201` 尖 `0da7032`，
+  `git log -1 --format=%P` 显示其 parent **恰为 `e3b1c6f`**，`rev-list --left-right --count` = `0 1` ⇒ 干净的单笔后继。
+  `git worktree list` 共 35 个；规划 worktree（`~/.codex/worktrees/minekin-next-1201/minekin`）与 M 的集成分支 worktree
+  `git status --porcelain` 都为空。
+- **真实增量审查**：`git diff --stat $(merge-base) 0da7032` = 4 份 `docs/**`、`+61 -0`（新增
+  `v1201-local-join-next-2026-09-27.md` 55 行 + 三处入口覆盖段），**零代码/fixture/registry/判据改动**；
+  `git show --check` rc=0。覆盖段逐条守门：主干仍只有一个 `current_next`、v1 的 1.21.4 冻结行为不改、不连用户远程服、
+  V08/HOST/PERSIST/跨 bundle schema 不代答。
+- **卡面承重代码声明按字节复核**（主干 `e3b1c6f`，全部为真）：`server_profile.py:31/32/34` 三枚常量、
+  `:164` v1 loader（`:200` 拒任何非 `1.21.4`）、`:403 load_joinable_session_target`（`:424` 只容 loopback、
+  `:429` 只容恰一项版本）、`:439 require_target_allows_launch`、`:464 load_session_server_profile`；
+  v2 字段面为 `_V2_REQUIRED_KEYS` 八项 + 可选 `pinned_bundle_id`，`_VERSION_POLICY_MODES = {"explicit_allowlist"}`，
+  `auth_mode` 只容 `offline`，`resource_pack_policy ∈ {deny, prompt}`，`target_authorization` 恰 `{granted_by, basis}`；
+  仓库里已有 v2 样例 `tests/fixtures/managed-remote-target-example.json`（其 `host` 是 TEST-NET-1 文档地址，非 loopback）。
+- **M 的独立前瞻探针（不是复述卡面）**：`.tmp/m-r25-v2-loopback-probe.sh`，同一受控镜像、`/src:ro`、**规范卷全程未挂载**，
+  直接在容器里驱动产品 loader ——
+  `docker run --rm --entrypoint /bin/bash -w /src -v "${REPO}:/src:ro" -e PYTHONPATH=/src/src minekin-runner:local -lc 'bash /src/.tmp/m-r25-v2-loopback-probe.sh'`
+  （日志 `.tmp/m-r25-v2-loopback-probe.log`）。读数：**P1 `127.0.0.1` + `offline` + 单版本 `1.20.1` 且本次启动 1.20.1 ⇒ 已接受**
+  （`ManagedTargetProfile`，`revision 168854d9f2cc64c1…`）；五种情形各自具名拒止且都落在 `ADMISSION`：
+  P2 版本错配「launches 1.21.4, the target allows 1.20.1」、P3 非 loopback「remote joining needs its own authorization card」、
+  P4 多项 allowlist、P5 `auth_mode: online`「v2 profiles have no online-mode admission path」、P6 授权字段不合规。
+  ⇒ **H1g 的前沿确实在 runner 写出的文档形状上，不在产品准入里**：如果 H1g 回报「现成 v2 路径承载不了」，
+  那是与这条读数冲突的新事实，M 会按字节重查而不是采信措辞。
+- **合入与远端核验**：`git merge --ff-only origin/codex/minekin-next-1201`（`e3b1c6f..0da7032`）→ `git push origin main`
+  → `git ls-remote origin refs/heads/main = 0da7032ab34403830fbd0a3dea71f5fe65032615`；合入树 `git diff --check` rc=0。
+  本轮另改一处主干现时态错述：交接首页「最新一轮是文末的第十二轮」→ 改为「文末最后一节即最新一轮」（第十二轮那句是当时读数）。
+- **H1g 已派工（在工）**：卡面取自新入干的 `v1201-local-join-next-2026-09-27.md` §2。新 worktree
+  `../minekin-wt-h1g`、新支 `codex/minekin-joiner-local-v2-profile`、base `0da7032`；允许面恰
+  `test-orchestrator/runner/domain.sh` + `tests/contract/test_runner_scripts.py` + 一份新
+  `docs/validation/v1201-joiner-local-v2-profile-2026-09-27.md`；硬边界＝不改 `src/**`（含 `metadata.py:16`）、
+  不改判据/registry/门禁/封存 schema、不动 `domain.sh:404-407` 的 auto+joiner 拒止、不封证、规范卷至多 `:ro`、
+  1.21.4 控制组字节不漂移、六个具名拒止都要在客户端 JVM 之前、必须带一项非空转反向。**卡的目标上限是「加入者越过
+  `launcher.profile`」，不是 JOIN。**
+- **四态**：已合入 main = 规划分支 `0da7032` 的全部内容（H1g→V4→E6 队列与三处入口覆盖段）+ 首页现时态更正；
+  仅在分支 = H1g（施工中，尚无提交）；真实封证 = 零（本轮 M 与 H 都不写卷，规范卷未挂载）；
+  未验证 = 1.20.1 加入者 JVM 真启动、Bridge 握手、JOIN/首快照（V4 的前题）、`metadata.py` 默认值是否是下一前沿（本轮无证据）、
+  E6 的同 run 封存、门禁一律未点亮（载荷最后实读 `cfa0f118…`，`W30`/`p0-core` `promotable False`）。
+- **不声称**：不声称 H1g 已通过或已合入，不声称 1.20.1 能加入，不声称 v2 路径解除了任何产品安全策略，不声称任何 case 闭合或门禁点亮，不声称 Minekin 完成。
