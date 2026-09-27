@@ -864,3 +864,37 @@ V3 仍零提交（worktree 干净停在 base `5dbcc8a`、远端无该支），M 
   真实封证 = 零（本轮不建 attempt、不封 bundle）；未验证 = 1.20.1 加入者的 JVM 侧与端到端 JOIN、§3.6 条目 4 的字面 uuid 改写、
   跨 bundle 三段链载体、门禁一律未点亮。
 - **不声称**：成对条款可变红不等于三段可判；不声称 OFFLINE-100 任一条闭合，不声称 V3 已并入，不声称 Minekin 完成。
+
+## 第二十一轮（2026-09-27，M 主控）：V3 双审合入主干（`PARTIAL`），并复量其四条承重读数
+
+V lane 的停摆会话按「完成并交付」规则恢复：支 `codex/minekin-v3-1201-join-live-readout` 提交 `bbf0daf`
+（base `5dbcc8a`，含 `H1f` `2ef64a8`），改面恰一份新记录 `docs/validation/v1201-join-live-readout-after-h1f-2026-09-27.md`
+（`git diff --stat 5dbcc8a..bbf0daf` = 1 文件 / +139；真实 merge-base 与 lane 自报同为 `5dbcc8a`）。
+M 以合并 `3ffc79c` 入 `main` 并核远端 SHA。V 全程未挂规范卷、零封存。
+
+- **M 的独立复量（只读 V 已落盘的字节，不重写任何读数）**：
+  `sha256(git show 5dbcc8a:test-orchestrator/runner/domain.sh)` 实读 `f8624ac6713301460288b439ac9644a0b4b1026e218e19f107c9678758ffe0c5`，
+  与 d1/d3/d4/d5/d6 挂载的那份 `.tmp/v3/src` 副本、以及主干 worktree 的文件逐字相同；反转型 d2 用的那份 base 前副本是 `9883a788…`。
+  ① 加入者 profile：d1 `1.20.1` / d4（真仓库树）`1.20.1` / d2 `1.21.4` / d3 **未写 profile**；
+  ② 的 stderr：d1 与 d2 的 `domain-client-environment.err` 都是 **0 字节**，全输出树无 `XDG_RUNTIME_DIR is invalid`；
+  准入两段逐字对上：d1 `"server profile minecraft_version is outside the pinned bundle"`、
+  d2 `"the session launches Minecraft 1.20.1, the profile pins 1.21.4"`；
+  ③ d5 的 `/tmp/domain-session.err` 含 `3639 of 3639 artifacts … 738432269 bytes … [BUDGET_UNDECLARED]`，
+  d4 给 `launcher.recipe` 的「Bridge jar has not been built」；④ 反转（d1↔d2）与正对照（d3 无版本即拒写）都在盘上。
+- **一条措辞更正（M 侧新量，写在这里而不是改 V 的文档）**：`grep -rl "0x1000E"` 在 V 的输出目录**会**命中——命中的是
+  `90-readouts.txt` 里那行检查标签自身（`V3: files under /data or /tmp mentioning 0x1000E:`），不是客户端字节。
+  ⇒ ② 的正确表述是「客户端字节不含 ⑤ 家族」，且那份 stderr 只在走到客户端环境段的两次 run（d1/d2）存在，
+  d3-d6 更早停住（正是 B1 的形状）。这不是 V 的读数错，是把「grep 无命中」这种可被标签行反驳的写法换成字节口径。
+- **新落阻断 B1 登记给主控**：H1f 之后 profile 诚实报 `1.20.1`，`launcher.profile` 的 pinned-bundle 准入随即拒绝它，
+  加入者 JVM 从未起 ⇒ 1.20.1 端到端 JOIN 仍不可观测，⑤ 家族的排除保持**有界**。解阻需要 registry/准入语义的产品决定
+  （钉住的 bundle 是否为准入放行 `1.20.1`），属主控保留 ⇒ V 的 `lane_next` 置空，不重排活体卡。
+- **门**：合并前后 `ruff check` / `ruff format --check`（354 files）、`check_case_assertions (150 registered)`、
+  `verify_fixture_digests`、`check_boundaries` 全 `rc=0`（V 侧那两门 `rc=127`＝宿主与镜像都无 ruff，按其自报记为未跑，由 M 补齐）；
+  全量 pytest 本轮未复跑（改面只有文档）。合并后重读门载荷：`cfa0f1184bee30df6a1d9fcf45778c9cef074ece6761c47fe7d6b9f49863afd6`
+  一字未动、`report_rc=1`、`W30`/`p0-core` 仍 `promotable False`、`W30.absent = OFFLINE-060/080`、
+  `non_mandatory 11/24`、`misattributed 0`（`.tmp/m-r21-payload-after-v3.log`）。
+- **四态**：已合入 main = `bbf0daf` 的记录（合并 `3ffc79c`）+ 本轮计划表回写；仅在分支 = 无新增（V 支停在已合提交）；
+  真实封证 = 零（V3 不封证，封证需求具名交给 E/主控）；未验证 = 1.20.1 加入者的 JVM 侧与端到端 JOIN（B1）、
+  ⑤ 家族在**已启动**客户端上的一般性排除、§3.6 条目 4 的字面 uuid 改写、OFFLINE-090 的 Dashboard 载体、
+  OFFLINE-100 跨 bundle 三段链载体、门禁一律未点亮。
+- **不声称**：不声称 V3 让 1.20.1 的 JOIN 变绿，不声称 ⑤ 家族已被一般性排除，不声称任何 case 闭合或门禁点亮，不声称 Minekin 完成。
