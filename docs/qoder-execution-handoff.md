@@ -794,3 +794,36 @@ V3 交付前 M 继续做不依赖它的判官侧复量。全部在 `.tmp/m-r18-0
 - **两条新读界（都往「不能声称」的方向）**：① `run-document.json` 无 case 标识字段（全卷 `case_id`/`case`/`case_ids` 读出空集），**「这份崩溃属于哪条 case」不能从 bundle 字节读出**——上表那三枚归给 `CORE-030` 家族靠的是 E 的记录，不是载体，§2.3 那一行已按此更正；② 目录侧全量 **99** 与早期清单引用的台账侧 **105/107** 不等值（差异本轮未追查），普查分母一律具名。⇒ 对已登记的 OFFLINE-090，崩溃半句仍是**无该家族载体**，不等于「测过且计数为 0」，整条不得标 PASS 的判定不变。
 - 门：`verify_fixture_digests OK`、`check_case_assertions OK (150 registered)`、`check_boundaries OK`、`git diff --check` 净；门载荷本轮未重读（改面只有文档，`case_version` 不摘要文档字节，上一读数是第十七轮的 `cfa0f118…`）。
 - **四态**：已合入 main = 本轮两份文档笔（紧随 `7cf4284`）；仅在分支 = `codex/minekin-v3-1201-join-live-readout`（仍零提交、远端无该支）；真实封证 = 零；未验证 = V3 活体读数、被真实封存的 dashboard 载体端到端、OFFLINE-100 跨 bundle 三段链载体、门禁一律未点亮。
+
+## 第十九轮（2026-09-27，M 主控）：OFFLINE-100 的服务端证据条款逐合取项驱动过
+
+V3 仍零提交（worktree 干净停在 base `5dbcc8a`、远端无该支），M 继续做不依赖它的判官侧复量。全部在
+`.tmp/m-r19-100-server-clause.sh`（日志 `.tmp/m-r19-100-server-clause.log`，rc=0）+
+`.tmp/m-r19-payload-after-r18.log` 里，规范卷全程 `:ro`，副本在 `/tmp`，**零封存、零代码/fixture/registry 改动**。
+
+- **现场核对**：远端 `main` = 本地 `main` = `e22c106`；`origin` 上 lane 支 21+ 枚，V3 那支不存在 ⇒ V 的活体读数本轮仍只能标未验证。
+- **`kin-e-aba` 全根普查**：5 枚封存 bundle，其中 `7ff026e4…`/`a26e2c35…`/`cd215ca1…` 三条对该条款答 `None`，
+  `c96aa8bd…`/`fd516eb6…` 两条答具名 `JOIN_NOT_LOGGED`（按 §2.9 的读界只点名、不归因）。被驱动的正对照是干净三条里的
+  第一枚（E 的 A2，`bundle_digest 0cc1fb99…`，13 件工件，控制副本 `verify rc=0`），其自身封存字节为
+  `Preparing level "world"` / `level-name=world` / `profile_id=p0-controlled-offline-loopback` /
+  `revision=c742c476…`。
+- **逐合取项的九行驱动（`docs/p0-offline-090-100-case-spec-2026-09-27.md` §3.7）**：日志不再点名世界 ⇒
+  `SERVER_LOG_NEVER_NAMED_THE_WORLD_IT_OPENED`；日志与 properties 不一致 ⇒
+  `SERVER_OPENED_A_WORLD_OTHER_THAN_ITS_PROPERTIES:m19-other-world`；删 `level-name` ⇒
+  `SERVER_PROPERTIES_SAY_NOTHING_ABOUT_THE_WORLD`；`revision` 非摘要 ⇒ `SERVER_PROFILE_HAS_NO_REVISION_DIGEST:'not-a-digest'`；
+  `profile_id` 置空 ⇒ `SERVER_PROFILE_NAMES_NO_WORLD`；删 `trusted/server-profile.json` ⇒ `NO_SEALED_SERVER_PROFILE`；
+  `server/usercache.json` 换成非列表 ⇒ `read_sealed_material` 抛 `Unreadable`；**删 `usercache.json` ⇒
+  `IDENTITY_NOT_RECORDED`，此时 profile/properties/log 三者仍全部一致** ⇒ 卡面第 2 条要的「外部身份取服务端证据」
+  在文件路径上确有牙齿，run 不能只靠客户端自称过这一款。每份被改副本一律被封存通道拒收（`verify rc=12`），
+  与 §2.8 相同：判据与完整性是两台独立仪器。
+- **读界不变**：该条款可变红不等于整条可判——父行仍 `FAIL / A_B_A_TRIPLE_NOT_SEALED`，「首尾 A 同一获确认 world
+  context」「三次不同会话」仍按构造不可判（跨 bundle 载体属主控保留）。§3.6 的现在时陈旧表述按本轮实测改写：
+  1-3、5-6 仍为设计，4 只驱动了同族的删/坏缓存而非 uuid 改写。
+- **门**：`verify_fixture_digests`、`check_case_assertions`、`check_boundaries`、`ruff format --check`/`ruff check`、
+  `git diff --check` 见下方收口笔；门载荷本轮**重读**（`.tmp/m-r19-payload-after-r18.log`）仍
+  `cfa0f1184bee30df6a1d9fcf45778c9cef074ece6761c47fe7d6b9f49863afd6`，`report_rc=1`，`W30`/`p0-core` 仍
+  `promotable False`（`NO_MANDATORY_CASES` + `REQUIRED_CASE_NOT_REGISTERED`，`W30.absent` = OFFLINE-060/080）。
+- **四态**：已合入 main = 本轮 §3.6/§3.7 文档笔；仅在分支 = `codex/minekin-v3-1201-join-live-readout`（零提交、远端无该支）；
+  真实封证 = 零（本轮不建 attempt、不封 bundle）；未验证 = V3 的 1.20.1 活体读数、端到端真 Dashboard 载体、OFFLINE-100
+  跨 bundle 三段链载体、门禁一律未点亮。
+- **不声称**：不声称 OFFLINE-100 任何一条闭合，不声称 `non_mandatory` 登记是晋级，不声称 Minekin 完成。

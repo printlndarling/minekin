@@ -21,7 +21,7 @@
   three-run timeline), and the "no controlled triple exists yet" wording is replaced by the
   sealed `kin-e-aba` readings. `case_version` digests the registered function bytes plus the
   fixture, not this file, so none of this moves a registry digest or invalidates a bundle.
-- Round 15-18 trunk edits by 主控 (2026-09-27): §2.7's volume-wide positive control (round
+- Round 15-19 trunk edits by 主控 (2026-09-27): §2.7's volume-wide positive control (round
   15) and the new §2.8 — the file-level carrier injections, the digest guard on those very
   carriers, and what actually makes the Dashboard half answer (round 17) — replace the
   "file-level remains 未测" wording; §3.6's "9, 10 and 11 remain 未测" is replaced by E-CX's
@@ -567,7 +567,7 @@ still answers `A_B_A_TRIPLE_NOT_SEALED` and the definition still closes nothing:
 needs 主控 to decide whether evidence schema `minekin.p0.evidence.v1` grows a field, which
 would re-seal the volume.
 
-### 3.6 Minimal counterexamples / positive controls (design; runtime part 未测 this session)
+### 3.6 Minimal counterexamples / positive controls (design; runtime state per item below)
 
 Positive controls (available material): runs `3d5606ced37849e3b17a4c418fa33ab4`
 (OFFLINE-020, previous `f2ecb728df754826abf4a052be138a2d` sealed),
@@ -581,8 +581,11 @@ controlled run for clauses C1-C5 — every C-clause probe below was design-only,
 update paragraph), and with it the positive control for C1, C2, C4 (corrected scope) and
 C5 is measured on real sealed bytes rather than designed — 主控 re-read all three bundles
 independently with `rejudge_evidence` + `evidence verify` on the current trunk bytes. The
-counterexamples below are a different axis: they stay un-executed except 8's first half
-(E's labelled-copy trial, §6 of the run record). Counterexamples, each a single
+counterexamples are a different axis: at round 14 only 8's first half had been run
+(E's labelled-copy trial, §6 of the run record); the round-16 note below adds 9, 10 and 11,
+and §3.7 drives the server-side clause of 4's family (dropping or malforming the identity
+cache, not the uuid remap this item names). Items 1-3 and 5-6 stay design-only.
+Counterexamples, each a single
 named-field edit on an in-memory copy of those sealed bytes (never the
 volume):
 
@@ -625,6 +628,66 @@ Triple counterexamples for §3.5 C (each designed against an A1/B/A2 triple; the
 11. delete `server/usercache.json` from one segment ⇒ that segment is **not green**:
     the registered rule returns the named `IDENTITY_NOT_RECORDED`
     (`tools/assert_case_evidence.py:1037-1038`) — 不可探/证据缺, reported as such.
+
+### 3.7 The server-evidence clause, driven conjunct by conjunct (主控, round 19, 2026-09-27)
+
+§3.6 left the fifth requirement — 外部身份取服务端证据 — as design. The registered clause
+(`the_world_and_the_identity_are_the_server_s_record`, `tools/assert_case_evidence.py:3778`)
+reads four third-party accounts and requires three to agree before it even looks at the join,
+so this round asked whether *each* of those conditions can actually fail, on sealed bytes.
+Reproduce (volume `:ro`, mutations in labelled `/tmp` copies, nothing sealed):
+
+```bash
+export MSYS_NO_PATHCONV=1; REPO="$(cygpath -m "$PWD")"
+docker run --rm --entrypoint /bin/bash -w /src -v "${REPO}:/src:ro" \
+  -v minekin-runner-data:/data:ro -e MINEKIN_HOME=/data -e PYTHONPATH=/src/src \
+  minekin-runner:local -lc 'bash /src/.tmp/m-r19-100-server-clause.sh'
+# log: .tmp/m-r19-100-server-clause.log (rc=0)
+```
+
+First the whole `kin-e-aba` root: **5** sealed bundles, of which three answer `None` from the
+clause and two — `c96aa8bd26b2477fabd869214b2ed44c`, `fd516eb623704d0db454fe636af7dbc0` —
+answer **`JOIN_NOT_LOGGED`** (named, not attributed: see the case-field boundary in §2.9).
+The driven bundle is the first of the clean three, `7ff026e4bca646c58f8eee2c2b000867`
+(E's A2; `bundle_digest 0cc1fb99111d4cef11c47dcb86305784130b6a9746bc77251d5289a80dfb92b7`,
+13 artifacts, control `verify rc=0`). What its own sealed bytes say: server log
+`Preparing level "world"`, `server.properties level-name=world`,
+`profile_id=p0-controlled-offline-loopback`,
+`revision=c742c47670997ac5f8f9e9f3bcca6304a041b253fe953dc0906923affb798d4b`.
+
+| mutation (one field per copy) | clause answer |
+| --- | --- |
+| control | `None` |
+| log stops naming the world it opened | `SERVER_LOG_NEVER_NAMED_THE_WORLD_IT_OPENED` |
+| log names `m19-other-world` while the properties still say `world` | `SERVER_OPENED_A_WORLD_OTHER_THAN_ITS_PROPERTIES:m19-other-world` |
+| `level-name` removed from `server.properties` | `SERVER_PROPERTIES_SAY_NOTHING_ABOUT_THE_WORLD` |
+| profile `revision` set to a non-digest | `SERVER_PROFILE_HAS_NO_REVISION_DIGEST:'not-a-digest'` |
+| profile `profile_id` emptied | `SERVER_PROFILE_NAMES_NO_WORLD` |
+| `trusted/server-profile.json` dropped | `NO_SEALED_SERVER_PROFILE` |
+| `server/usercache.json` replaced by an empty player list | `read_sealed_material` raises `Unreadable: … usercache.json is not a list of identities` |
+| `server/usercache.json` dropped | **`IDENTITY_NOT_RECORDED`** — with profile, properties and log all still agreeing |
+
+Every mutated copy was refused by the seal (`evidence verify rc=12`), so the clause and the
+integrity channel stay independent instruments, as in §2.8.
+
+**What that settles.**
+- The clause is neither always-true nor single-condition: seven distinct named refusals, each
+  caused by exactly one changed field, and each reachable through the file path rather than a
+  hand-built `RunMaterial`.
+- The 服务端证据 requirement has teeth: with the server's own join record removed, the clause
+  answers `IDENTITY_NOT_RECORDED` even though the world-side accounts all agree — so a run
+  cannot satisfy this clause out of the client's claims, which is what 卡面第 2 条 asked for.
+- A malformed identity cache is named rather than silently read as "nobody joined"; a missing
+  one is `IDENTITY_NOT_RECORDED`. Those are different answers and both are reachable.
+- The gate side is unchanged after rounds 17-19: `gate_payload_sha256` still
+  `cfa0f1184bee30df6a1d9fcf45778c9cef074ece6761c47fe7d6b9f49863afd6`, `report_rc=1`,
+  `W30`/`p0-core` still `promotable False` (`.tmp/m-r19-payload-after-r18.log`).
+
+**What this does not do.** It does not make OFFLINE-100 judgeable: the parent row still
+answers `A_B_A_TRIPLE_NOT_SEALED`, 「首尾 A 同一获确认 world context」 and 「三次不同会话」
+stay unjudgeable by construction (§3.6 and the by-construction note in
+[[project-offline-100-triple-not-judgeable-by-construction]]), the two `JOIN_NOT_LOGGED` runs
+are named without a case attribution, and nothing was sealed, registered or promoted.
 
 ## 4. Gate consequences of registering the two manifests (acceptance ③)
 
