@@ -251,3 +251,38 @@ V5a（`codex/minekin-v5-probe-target-preflight` @ `7f67aac`，交付物只有一
 - **真实封证**：本轮**零新增**。LAN 第二客户端控制封证仍为 **0**；E6 的 `V1201-020 seq4` 仍是本地专服单客户端封证，不冒充 V4/V5 那一格。
 - **未验证 / 顺移**：V5 活体读数、M-C1 的 case 冻结与登记、E7 的同 run 封证全部仍挂在 H1k 之后（§2.13）。M-G1 的「改后」census 与门载荷复量本可在 `4640983` 上做，但**故意压后**：H1k 的活体窗口需要静默（Core 桥 30s 握手预算 + 并发争用已烧掉 V5a 三次尝试，见 §2.13 末与 V5a §0），M 不再往同一窗口里塞容器读数。H1k 交回后、或活体窗口关闭后，M 立刻取这一份「改后」读数并把 §2.14 的差分补成完整一对。
 - **下一格可安全推进的**：等 H1k 的交回（含它自取的新名与「宿主是否同进专服世界」的申报）；其间不排任何要独占卷或活体窗口的卡。
+
+## §2.16 H1k 之后各卡的判据预登记（第四十一轮，M 在活体读数存在之前写下）
+
+本节的全部判据在 H1k 交付、V5′ 真跑、M-C1 登记、E7 封证**之前**写定。之后任何一条若要改口径，必须另起一节具名申报「改了哪条、为什么、旧口径下哪些读数作废」，不得静默替换——§2.5 的第 1 条刚被 V5a 活体证否，就是这条规矩的来由。
+
+### 排程裁决：H1i 仍排在 H1k 之后，不合并施工
+
+H1i（§2.4：默认关闭地把宿主 LAN 日志与探针目标交给加入者的**封存**调用）与 H1k 改的是同一个文件 `test-orchestrator/runner/domain.sh`，且都在加入者区段附近动笔。按并行协议「同一文件仅一名 owner」，两张卡不得同时在飞；顺序为 **H1k → H1i**：H1k 决定加入者进哪个世界、读哪份服务端日志，H1i 才知道要把哪条路径交给 `seal_run_evidence.py`。§2.6 那件判官工具（`compare --base --tip`，两段 sha、行号只报告不参与相等判断）届时直接复用，且 H1i 的反证仍是「无条件把 `--server-directory` 递给加入者 ⇒ 具名 fault」。
+
+### V5′（H1k 落地后的活体量测）判据
+
+1. **载体行号不许沿用 §2.5**：H1k 入干后由 M 当场重读 `domain.sh`，把「加入者目标地址/端口来源行」「就绪等待落点行」「`--probe-player` 生效行」三处行号写进 V5′ 的派工文本；派工前量不到就不派（旧行号已在 §2.13 里失效过一次）。
+2. **首末差必须按加入者的名字读**：`${server_directory}/server.log` 里 `has the following entity data:` 的**行内名**须等于加入者用户名，≥2 条，且首末**至少一个分量不同**（Pos 三元组或 Rotation 二元组）。仅「计数增加」不算。
+3. **PLAYABLE 与 arrival 分别取证**（沿用 §2.5 第 2 条，载体不变）：加入者账本 `PlayableEstablished` 且 `position > baseline`；`the world heard … arrive` 只算服务端听到 join 行，不得写成「已可判 PLAYABLE」。
+4. **两条非恒真对照，缺一即 V5′ 判不成立**：
+   - 同一 run 内**主持有者**（或专服世界里另一具名实体）的读数首末**不变**——否则「加入者动了」与「整个世界在漂/加载噪声」分不开；
+   - 一次**控制关闭**的同形状对照 run，加入者首末读数**不变**——这是 H1h 驱动真的在动、而不是探针节奏自己在动的唯一分界。
+5. **目标归属的反证**：H1k 若申报「宿主不同进该专服世界」，则「两个名字都被问过」这条反证在该形状下不可用，V5′ 必须改用一个显式设 `MINEKIN_DOMAIN_PROBE=<世界里不存在的名>` 的具名失败格（V5a 的 run d 已证该形状产出 `No entity was found` 而非答案行），并在记录里说明这一替代。
+6. **release 一侧**（沿用 §2.5 第 4 条）：客户端侧 `/tmp/domain-join-session.json` + `logs/latest.log` 为账；服务端侧只到 `<join_username> left the game`。不得用服务端离场行冒充 lease 释放。
+7. **边界与停止条件**：V5′ 只写一份带日期的 `docs/validation/` 记录 + 私有数据根；不挂规范卷、不封存、不注册 case、不动 registry/`mandatory`；控制已 arm 而 PLAYABLE 未到 ⇒ 第一真实失败层是「H1h 的 argv 是否真到达加入者客户端」，就地停并报告，不在 V 卡里改 runner。活体窗口须预约静默（§2.13 末的 30s 握手预算）。
+
+### M-C1（登记 `V1201-LAN-JOINER-CONTROL-CASE-001`）判据与面
+
+- **判据冻结（§2.12 的改判口径，双条缺一不可）**：① 从 `server/server.log` 解析**行内名**归属，「被问过且归属加入者用户名的读数 ≥2 条、首末不同」；② `asserter-inputs.json` 的申报集合（M-C0 载体）恰为 `{加入者用户名}`。V5a 已证失败行 `No entity was found` 不带名 ⇒ 「本次究竟问过谁」只有申报件能答，所以两条并列，任一缺即具名失败。
+- **允许面**：`tools/assert_case_evidence.py`、`tools/check_case_assertions.py` 的 `IMPLEMENTATIONS`、新 `tests/fixtures/cases/*.json` + `tests/fixtures/manifest.sha256` 行、`tests/unit/test_case_evidence_assertions.py`。由 **M 独占实施**（判官与登记同面，不派 lane）。
+- **入册必动门载荷 ⇒ 先量后量各一次**：登记前取 `gate_payload_sha256`（今天 `cfa0f118…`）与 `W30.absent/non_mandatory`、`p0-core.absent` 逐项，登记后再取一次，逐格报差异；新 case 以 `mandatory: false` 入册，**不翻 mandatory、不晋级任何门**；`--record` 只允许移动新 case 那一个文件的摘要，否则即为重封全卷事故，立即退回。
+- **反证要有**：把归属名换成主持有者 ⇒ 判据具名失败；把申报集合换成含第二个人 ⇒ 具名失败；首末读数改成相同 ⇒ 具名失败。三条都在单测面上，不靠卷。
+
+### E7（同 run 封证）窗口条件
+
+只有 V5′ 的 §2.16 第 2/4 条**全部成立**、且 M-C1 的 case 已在册，才开 E7 的规范卷独占写窗。E7 必须是**同一 run 的字节**同时供给控制侧与读数侧，不得用两次 run 拼；封成的 bundle 过 `rejudge_evidence.py` 要 `agrees`；E6 的 `V1201-020` seq4 是本地专服单客户端封证，**不得**被引用或复制成本卡那一格。
+
+### M-G1 的「改后」半张（本轮故意压后的那一份）
+
+H1k 在飞活体窗口期间 M 不往同一窗口塞容器读数（V5a 的三次 `HANDSHAKE_TIMEOUT` 是实测代价）。窗口关闭后立刻在合并树取：census 全行（与 §2.14 的「改前」配成一对）、门载荷、`report_promotion` 的 `promotable/blocks` 逐项、两份对照 bundle 的 `agrees/PASS`。
