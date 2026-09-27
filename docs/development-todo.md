@@ -1,5 +1,7 @@
 # 当前开发 TODO（短入口）
 
+> 2026-09-27 当前接续：远端 `main=e3b1c6f` 时，第二十四轮待审分支为空但项目未完成；新排[1.20.1 本地加入 H1g → V4 → E6](v1201-local-join-next-2026-09-27.md)。本规划分支经 M 合入后激活 H1g；V4/E6 按证据前置顺序提升。主干唯一 integration `NEXT` 不变。v1 1.21.4 准入不改、V08 用户远程服不连接、跨 bundle schema 不猜决定。下方旧轮次 TODO 若写“无卡可领”，按此覆盖段解释。
+
 更新：2026-09-27（第六轮 M 主控）。唯一状态源是[执行计划](development-execution-plan.md) 的 `current_next`（主干 integration `NEXT`；已划清独占路径的 lane 另读 §2 激活表里的 `lane_next`，`lane_next` 不构成主干 `NEXT`、也不写成主干 `DONE`）；本页仅便于看进度。此前 3601 行已完成事项、原始读数和 Qoder 未提交的第七类审计草稿保存在[历史 TODO](development-todo-history-through-cef712b.md)，没有丢弃。
 
 ## 当前
