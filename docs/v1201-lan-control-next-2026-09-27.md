@@ -409,3 +409,15 @@ bash C:/Users/darling/Documents/agent_work/minekin/.tmp/m-r45-rerun.sh
 ### 2.24 第四十六轮补：§2.23 的字节读数只活到它自己的时点
 
 20:32 复量同一 lane 树：`domain.sh` 仍是 `e1d8dbb9…`（156,467 字节），`tests/contract/test_runner_scripts.py` 已从 §2.23 记录的 `02ec23c2…`（161,021 字节）移动到 `33f7d7f02222dd4f…`（171,525 字节），分支 HEAD 仍 `29c5187`、仍未提交 ⇒ lane 在第①项内持续加契约面，§2.22 的第②③④项尚无读数。**下一位接手者不要引用 §2.23 的测试摘要作为候选字节**：复审前必须自己重取 sha256。CI 同刻实读：run 866/867 `completed/success`，run 868 `fcce60c` 与 run 869 `bd5ee23` 仍 `in_progress` ⇒ 这两笔的绿读数本轮不作。主干工作树 clean，规范卷仍只 `:ro`，本轮零封证：**LAN 第二客户端在专服形状下的同 run 封证 0**。
+
+### 2.25 第四十七轮：H1k 在途字节上的 M 侧冲突对普查——第八对缺口 `ONLINE_MODE=true` × `JOIN_ON_CONTROLLED_SERVER=1`（未做活体对照）
+
+lane 的第①项已落字节（guard 区间由 §2.18 的 `:461–:488` 变为 `:461–:492`，第七条 `refusal_asked` 具名拒止在位，盘上 sha256 `domain.sh e1d8dbb98d5f760d…`／测试 `33f7d7f02222dd4f…`，本节读数为 20:53 时点，复审时须自取）。M 按 §2.17 的路子把新旋钮与盘上全部 `MINEKIN_DOMAIN_*` 名字做逐对普查，得到两类结论。
+
+**已被既有拒止覆盖的对（不追）**：`--server-profile` 缺席、joiner 缺席、`OPEN_LAN`、`BLACK_HOLE`、`NO_SERVER`、`NOT_WHITELISTED`、`REFUSE_FIRST_SNAPSHOT` 七对在 guard 内；`auto_bundle × joiner` 由 `domain.sh:433` 的既有早停承担 ⇒ 「auto run 强制 `--online-mode`」那条 H3/V2 时期记录无法经由 auto 路径污染新形状（auto 根本带不了加入者）。
+
+**缺口一对**：`MINEKIN_DOMAIN_ONLINE_MODE=true` × `MINEKIN_DOMAIN_JOIN_ON_CONTROLLED_SERVER=1`。字节证据三条：`:88` 取变量；`:883–:886` 把 `true` 铸成 `online_args=(--online-mode)`、`false` 铸成 `--no-online-mode`、空串不传；`:914` 把这组 argv 直接拼进 `--server-profile` 那条受控专服启动调用（与 `:920` 的 `--keep-running` 同一条命令）。新形状把加入者送进的正是这条命令起起来的专服（等待分支 `:1988` `join_the_published_world "${server_directory}/server.log"`，答题行按加入者名读自同一文件——§2.21 的私有卷重跑在默认可铸形状下量到 80 条按名回答行，即该文件确实载着判据）。于是 `true` 那一式要求服务端向 Mojang 校验加入者，而受控加入者没有凭据路径：这一 run 会以「加入者从未到达」的超时／`BRIDGE_LOST` 形状收场，而不是具名拒止——**与 §2.17 同一失败族**（冲突对缺具名拒止 ⇒ run 不可判），且让它变绿的唯一「修法」是放宽认证，属目标硬禁。
+
+**本节未做活体对照**，缺口只按字节形状申报。判别实验（谁都能重跑，须在该 lane 的活体窗之外）：A 式 `MINEKIN_DOMAIN_ONLINE_MODE=true` + `JOIN_ON_CONTROLLED_SERVER=1` + `--server-profile` ⇒ 期望当前为超时形状、补第八条拒止后为 `rc=2` 且不落 `/tmp/domain-join-profile.json`；B 式（正对照）把 `ONLINE_MODE` 置 `false` ⇒ 期望仍走到 §2.21 那种按名回答；C 式（默认关闭等值）不设新名 ⇒ 加入者 argv 与 base 逐字节相同（lane 读数① 已在盘上字节做过五组 base↔tip 对照）。
+
+**处置**：登记为 H1k 的复审退回项 #58，排在 §2.22 四项之后（同一 `domain.sh` 独占面，不另开 lane、不并行改）。M 不在 lane 在飞时改它的面，也不代为提交。
