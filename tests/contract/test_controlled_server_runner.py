@@ -239,9 +239,7 @@ class _ListeningServerProcess:
         return None
 
 
-def run_the_console(
-    base: Path, monkeypatch: pytest.MonkeyPatch, *flags: str
-) -> list[str]:
+def run_the_console(base: Path, monkeypatch: pytest.MonkeyPatch, *flags: str) -> list[str]:
     """Every console line the tool would hand a server for these flags, oldest first.
 
     Drives the real `main()` through the `--keep-running` wait, standing in for the
@@ -613,7 +611,10 @@ def test_a_use_target_says_which_kin_it_stops_or_refuses(
 ) -> None:
     """One block, one look: two named kins leave the run unable to say whose walk it stopped."""
 
-    monkeypatch.setattr(RUNNER, "verify_jar", lambda path, recipe: None)
+    def skips_the_jar_pin(path: Path, recipe: _Recipe) -> None:
+        return None
+
+    monkeypatch.setattr(RUNNER, "verify_jar", skips_the_jar_pin)
     monkeypatch.setattr(
         sys,
         "argv",
