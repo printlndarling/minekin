@@ -447,6 +447,13 @@ class RunMaterial:
     #: cases is not an answer to that. Empty means nothing was readable, which that
     #: case reports rather than counting as a clean result.
     exposure_carriers: tuple[tuple[str, str], ...] = ()
+    #: Every name this run asked the server about, as the harness recorded it. The
+    #: server's own answer to a position probe carries no name — the name is only in
+    #: the command that was typed — so a trajectory in `server_log` is attributable to
+    #: a particular Kin only if somebody wrote down which name was asked about. `None`
+    #: means nobody wrote it down, which is a different answer from a run that wrote
+    #: one name and wrote the wrong one, and the two refuse under different names.
+    probed_players: tuple[str, ...] | None = None
 
     def recorded(self, event_type: str) -> tuple[Mapping[str, object], ...]:
         """Every event of one type this run recorded."""
@@ -516,6 +523,21 @@ def recorded_argv(values: Sequence[str] | None) -> tuple[str, ...] | None:
     return recorded or None
 
 
+def recorded_probed_players(names: Sequence[str] | None) -> tuple[str, ...] | None:
+    """The set of names a run asked the server about, read the same way twice.
+
+    Sorted and de-duplicated, because this is a *set* handed over one name at a time
+    on a command line: the same two names asked in the other order have to seal to the
+    same bytes, or a re-judge would be holding a different document from the one the
+    verdict was reached on. And, exactly as `recorded_argv` does, an empty sequence
+    reads as None: nobody naming a probe and a run naming a probe of nobody are the
+    same claim about what the bundle cannot attribute.
+    """
+
+    recorded = tuple(sorted(set(names or ())))
+    return recorded or None
+
+
 def read_run_material(
     *,
     run_document: Path | None,
@@ -530,6 +552,7 @@ def read_run_material(
     world_run_document: Mapping[str, object] | None = None,
     server_profile: Mapping[str, object] | None = None,
     session_argv: Sequence[str] | None = None,
+    probed_players: Sequence[str] | None = None,
 ) -> RunMaterial:
     """Read a finished run's material, refusing anything that is not readable.
 
@@ -686,6 +709,7 @@ def read_run_material(
         server_profile=server_profile,
         client_pack_listing=pack_listing_bytes(overlay).decode("utf-8"),
         session_argv=recorded_argv(session_argv),
+        probed_players=recorded_probed_players(probed_players),
         exposure_carriers=_run_exposure_carriers(
             overlay=overlay,
             server_directory=server_directory,
@@ -769,23 +793,46 @@ def _trace_argv(trace: Mapping[str, object] | None) -> tuple[str, ...] | None:
     return recorded_argv(cast("list[str]", argv))
 
 
-def asserter_inputs_bytes(material: RunMaterial, *, username: str) -> bytes:
+def _sealed_probed_players(inputs: Mapping[str, object] | None) -> tuple[str, ...] | None:
+    """Which names a sealed run asked the server about, or None when it never said.
+
+    The same reading rule as `_trace_argv`: a value that is not a list of text is the
+    bundle saying nothing, not a bundle saying something unreadable. Every bundle
+    sealed before this field existed says nothing, and a re-judge of one has to give
+    the answer the original judge gave rather than one coloured by the missing key.
+    """
+
+    names = None if inputs is None else inputs.get("probed_players")
+    if not isinstance(names, list) or not all(
+        isinstance(item, str) for item in cast("list[object]", names)
+    ):
+        return None
+    return recorded_probed_players(cast("list[str]", names))
+
+
+def asserter_inputs_bytes(
+    material: RunMaterial, *, username: str, probed_players: Sequence[str] | None = None
+) -> bytes:
     """What the judge was given, in the one shape a re-judge can be handed it in."""
 
-    return (
-        json.dumps(
-            {
-                "schema_version": 1,
-                "kin_id": material.kin_id,
-                "run_id": material.run_id,
-                "username": username,
-                "previous_run_id": material.previous_run_id,
-            },
-            indent=2,
-            sort_keys=True,
-        )
-        + "\n"
-    ).encode("utf-8")
+    document: dict[str, object] = {
+        "schema_version": 1,
+        "kin_id": material.kin_id,
+        "run_id": material.run_id,
+        "username": username,
+        "previous_run_id": material.previous_run_id,
+    }
+    # The names a run was probed under travel here and nowhere else: the server's
+    # answer to a position probe says `[x, y, z]` and never says whose. Written only
+    # when there is a name to write, because a run whose harness named none has
+    # nothing to record, and an empty list here would be a bundle claiming to have
+    # asked about nobody — a different claim from one that never said. A sealer that
+    # wrote a name the reader did not know would not fail, it would read as "this run
+    # had none of that", which is why `_sealed_probed_players` reads this exact key.
+    recorded = recorded_probed_players(probed_players)
+    if recorded is not None:
+        document["probed_players"] = list(recorded)
+    return (json.dumps(document, indent=2, sort_keys=True) + "\n").encode("utf-8")
 
 
 def _sealed(directory: Path, name: str) -> str | None:
@@ -1001,6 +1048,7 @@ def read_sealed_material(directory: Path) -> RunMaterial:
         server_profile=_sealed_json(directory, SERVER_PROFILE_ARTIFACT),
         client_pack_listing=_sealed(directory, CLIENT_PACK_LISTING_ARTIFACT) or "",
         session_argv=_trace_argv(_sealed_json(directory, ORCHESTRATOR_TRACE_ARTIFACT)),
+        probed_players=_sealed_probed_players(inputs),
         exposure_carriers=_sealed_exposure_carriers(directory),
     )
 
@@ -1610,6 +1658,34 @@ def the_server_saw_the_kin_move(material: RunMaterial) -> str | None:
     horizontal = _horizontal(positions[0], positions[-1])
     if horizontal < MINIMUM_STEP_BLOCKS:
         return f"MOVED_LESS_THAN_A_STEP:{horizontal:.2f}"
+    return None
+
+
+def the_probed_player_is_this_run_s_kin(material: RunMaterial) -> str | None:
+    """That the trajectory above belongs to *this* Kin, and to nobody else.
+
+    `the_server_saw_the_kin_move` measures the server's readings and takes the first
+    and the last of whatever is in the log; the log itself never says whose position it
+    answered with, because the name is in the command typed at the console and not in
+    the reply. One name per run makes that harmless. Two clients in one world do not:
+    a host's walk would satisfy a judgement about the joiner, and the bundle would
+    carry a pass for the wrong Kin — a judgement nobody downstream could un-make,
+    because the bytes it rests on cannot be re-read with a name added later.
+
+    So this asks one narrow question of the names the harness recorded: was there
+    exactly one, and was it this run's own. Three refusals, each a different fact —
+    a bundle that never recorded attribution, a bundle that asked about two players,
+    and a bundle whose single player is somebody else — because the third is a bug in
+    one case and the first is a build that predates the field entirely.
+    """
+
+    recorded = material.probed_players
+    if recorded is None:
+        return "PROBE_ATTRIBUTION_NOT_RECORDED"
+    if len(recorded) > 1:
+        return f"MORE_THAN_ONE_PLAYER_PROBED:{','.join(recorded)}"
+    if material.username not in recorded:
+        return f"PROBED_PLAYER_IS_NOT_THIS_RUN_S_KIN:{','.join(recorded)}"
     return None
 
 
@@ -4390,6 +4466,17 @@ def main(argv: list[str] | None = None) -> int:
             "for is recorded nowhere else"
         ),
     )
+    parser.add_argument(
+        "--probed-player",
+        action="append",
+        default=[],
+        metavar="NAME",
+        help=(
+            "a player this run asked the server about; repeat for each name. The "
+            "server's probe answer carries no name, so an unnamed trajectory belongs "
+            "to nobody in particular — absent for a run nobody named"
+        ),
+    )
     args = parser.parse_args(argv)
 
     session_argv: Sequence[str] | None = None
@@ -4497,6 +4584,7 @@ def main(argv: list[str] | None = None) -> int:
             world_run_document=world_run_document,
             server_profile=server_profile_document,
             session_argv=session_argv,
+            probed_players=args.probed_player,
         )
         verdict = evaluate(cast(Mapping[str, object], case), material)
     except Unreadable as error:

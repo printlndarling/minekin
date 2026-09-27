@@ -274,6 +274,7 @@ def run_asserter(
     world_run_document: str | None = None,
     server_profile_document: str | None = None,
     session_argv: Sequence[str] | None = None,
+    probed_players: Sequence[str] | None = None,
     python: str = sys.executable,
 ) -> dict[str, object]:
     """The case's verdict, from the one module that judges rather than writes.
@@ -329,6 +330,12 @@ def run_asserter(
         arguments += ["--server-profile-document-json", server_profile_document]
     if session_argv is not None:
         arguments += ["--session-argv-json", json.dumps(list(session_argv))]
+    # The probed names go the same route as the command line, for the same reason:
+    # nothing on disk holds them but this seal. A judge that never saw them would
+    # refuse an attribution on `PROBE_ATTRIBUTION_NOT_RECORDED` while the bundle this
+    # same seal writes says exactly whom the server was asked about.
+    for name in probed_players or ():
+        arguments += ["--probed-player", name]
     completed = subprocess.run(
         arguments,
         capture_output=True,
@@ -571,6 +578,7 @@ def seal(
     java: Path | None = None,
     renderer_display: str = "unmeasured",
     session_argv: Sequence[str] = (),
+    probed_players: Sequence[str] = (),
     secrets: Sequence[str] = (),
     fault_injection_path: Path | None = None,
     soak_samples_path: Path | None = None,
@@ -710,6 +718,7 @@ def seal(
         world_run_document=world_run_text,
         server_profile_document=server_profile_text,
         session_argv=session_argv,
+        probed_players=probed_players,
     )
     material = read_run_material(
         run_document=run_document_path,
@@ -792,7 +801,9 @@ def seal(
     # came before it — a run whose Core was killed never wrote the document that would
     # have said. Without this a re-judge would be answering a question slightly
     # different from the one the bundle records an answer to.
-    artifacts[ASSERTER_INPUTS] = asserter_inputs_bytes(material, username=username)
+    artifacts[ASSERTER_INPUTS] = asserter_inputs_bytes(
+        material, username=username, probed_players=probed_players
+    )
     # And when this run followed another one in the same ledger, that run's rows
     # travel with it. A case about a restart reads them, and a judgement whose
     # material is only half inside the bundle is one nobody else can reproduce.
@@ -915,6 +926,17 @@ def main(argv: list[str] | None = None) -> int:
         help="an environment variable whose value must never be sealed",
     )
     parser.add_argument(
+        "--probed-player",
+        action="append",
+        default=[],
+        metavar="NAME",
+        help=(
+            "one player this run had the server probe; repeat for each name. The "
+            "server's answer to `data get entity <name> Pos` names nobody, so a run "
+            "that asked about two is recording two trajectories it cannot tell apart"
+        ),
+    )
+    parser.add_argument(
         "--session-argv",
         nargs=argparse.REMAINDER,
         default=[],
@@ -939,6 +961,7 @@ def main(argv: list[str] | None = None) -> int:
             java=args.java,
             renderer_display=args.renderer_display,
             session_argv=args.session_argv,
+            probed_players=args.probed_player,
             fault_injection_path=args.fault_injection,
             soak_samples_path=args.soak_samples,
             soak_summary_path=args.soak_summary,
