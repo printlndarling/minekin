@@ -753,3 +753,32 @@ V2 的绿读数暴露、M 在自己卷上重放确认：auto run 跨过早停后
 - **未验证**：H1f 新字节下的整程 live server+joiner（1.20.1 / 1.21.4 各一次）——本轮已据此派 `V3`；E 的 `evaluate` 判官层父行 failures 逐字与三枚 bundle 摘要自算（M 侧未复量，采信其记录）；090 的文件级副本注入与单字节摘要哨兵；OFFLINE-090 Dashboard 半句；§3.6-8 后半（A2 载体整体搬到 B 的真实世界）；1.20.1 侧 `GLFW 0x1000E`/`XDG_RUNTIME_DIR` 的复现或排除；门禁一律未点亮。
 
 不声称 Minekin 已完成：本轮只把两张在工卡收口，并让 OFFLINE-090/100 的「已测」与「按构造不可测」第一次有了分层留证。
+
+## 第十七轮（2026-09-27，M 主控）：把 OFFLINE-090 剩下两句「未测」量成文件级事实
+
+### 现场核对（本轮亲量）
+
+- 远端 `main`：本轮起点 `8fe96aa` → M 侧 090 读证文档笔 `776bc44`，推后 `git ls-remote origin refs/heads/main` = `776bc44523c4af37d324aefbb5735235936a95a7`（逐字一致）。这份回写落在其后，不移动任何登记字节。
+- M 集成 worktree `../minekin-wt-integration` 在写入前 `git status --porcelain` 为空；规范卷 `minekin-runner-data` 全程 `:ro`，伪造只发生在带标签的 `/tmp` 副本，**零封存**。
+- `V3` 仍在工、未交付：`../minekin-wt-v3` 处于 base `5dbcc8a` 且工作树干净（无提交），远端 `git ls-remote origin | grep v3` 为空 ⇒ 上一轮「仅在分支」那句仍成立，判据不因此改变。
+
+### 本轮量出来的五件事（`.tmp/m-r17-090-filelevel.sh`，日志 `.tmp/m-r17-090-filelevel.log`，rc=0）
+
+1. **判官读的是 manifest 声明的文件，不是它自己挑的子集**：全卷普查 `bundles=99`、`readable_bundles=65`、其中 **49** 个 bundle 的文件级载体里出现认证字段名。这里刻意留了正对照——若把「零命中」当成结论，先要证明同一读法在别处能命中。
+2. **具名样本**：`kin-01 / 03bd3a22f6ac43aea07d470222cd2c92`，`bundle_digest 368d206ccf535efeb4c23ba948962d3ffea45924fd18ee93249908d3a65b9bab`，文件级载体 **14** 个（含 `client/latest.log`、`bridge-trace.jsonl`、`server/server.log`、`asserter-inputs.json`）。控制组：`bundle_clause=None` + `dashboard_clause='DASHBOARD_CARRIER_NOT_SEALED'` + `verify_rc=0`。
+3. **注入反例在两种载体形状上都成立，且哨兵不背锅**：`client/latest.log` 塞真 token → `AUTH_BODY_EXPOSED:client/latest.log:accessToken`；同一份塞公版哨兵 `0` → 仍 `None`。`bridge-trace.jsonl` 塞合法 JSON 行（账本形状）→ `AUTH_BODY_EXPOSED:bridge-trace.jsonl:accessToken`，哨兵形状 → `None`。也就是说卡面第 1 条要求的「不把任意数字 0 算作泄漏、按字段/参数上下文判」现在是**驱动出来的**，不是注释里的声称。同时 `bridge-trace.jsonl` 追加非 JSON 散文行会让 `read_sealed_material` 具名抛 `Unreadable`——不可读的账本被指名，不会被算成干净。
+4. **Dashboard 半句的拒止是载体驱动、不是常量**（这正是等主控那一行的实质内容）：往 `/tmp` 副本塞一个不声明的 `dashboard/view.txt` → 载体侧仍 `DASHBOARD_CARRIER_NOT_SEALED`，而封存通道报 `UNDECLARED_FILE:dashboard/view.txt`；把它**写进 manifest** → `carriers=15`，此时干净文件两半句皆 `None`、含真 token 的文件答 `AUTH_BODY_EXPOSED:dashboard/view.txt:accessToken`。但手写 manifest 条目缺 `size` 时封存通道直接 `MinekinError: evidence manifest artifact size must be an integer`（`rejudge_rc=1`）。⇒ 父行今天要真答，需要的不是改判据而是**一个被真实封存的 dashboard 载体**，即扩展 `minekin.p0.evidence.v1`——仍属主控保留决策，本轮不实施。另外把 manifest 里全部文本载体剥掉 → 答案变成 `NO_EXPOSURE_CARRIERS_READABLE`，与「扫过且干净」是两种具名读数。
+5. **门载荷未漂移**（`.tmp/m-r17-payload-after-090-doc.log`，同一 `report_promotion.py --data-root /data`、`:ro`）：`gate_payload_sha256` 仍 **`cfa0f1184bee30df6a1d9fcf45778c9cef074ece6761c47fe7d6b9f49863afd6`**，`report_rc=1`，`W30.promotable False`（`NO_MANDATORY_CASES` + `REQUIRED_CASE_NOT_REGISTERED`）、`p0-core.promotable False`；`non_mandatory` 仍 11（070/090/100 俱在），`misattributed 0`。OFFLINE-090 因此**没有**借非门禁登记被暗示为闭合。
+
+### 四态报告
+
+- **已合入 main**：`776bc44`（只改 `docs/p0-offline-090-100-case-spec-2026-09-27.md`：§2.7 的两句现在时「未测」改指 §2.8、新增 §2.8 记录上述十次驱动、§3.6 的 9/10/11 改引 E-CX `5dbcc8a` + M 侧复量脚本）与这一份 handoff 回写。远端 SHA 逐字核过。
+- **仅在分支**：`codex/minekin-v3-1201-join-live-readout`（`V3` 在工，base `5dbcc8a`，本轮核对时零提交、远端无该支）。
+- **真实封证**：本轮零新增封存；卷上仍是 E 第十四轮那三段 `SEALED` bundle，M 全程至多 `:ro`。
+- **未验证**：`V3` 的全部活体读数（尚未交付）；1.20.1 侧 `GLFW 0x1000E`/`XDG_RUNTIME_DIR` 的复现或排除；OFFLINE-090 **被真实封存的** dashboard 载体端到端（本轮只证明该拒止随载体变化，未封任何载体）；其余 8 对文本形状仍在单测层而非文件级（本轮量的是 log/JSONL 两对）；OFFLINE-100 的跨 bundle 三段链载体与 `world_context_id`；门禁一律未点亮。
+
+### 不声称
+
+- 不声称 OFFLINE-090 整条闭合：日志/崩溃那一半是部分证据，Dashboard 半句仍具名缺口，父行仍 `DASHBOARD_CARRIER_NOT_SEALED`。
+- 不声称 OFFLINE-100 或 `OFFLINE-070` 有任何推进；070 仍是独立卡，其 `identity_revision`/人格根缺口不由本轮读数顺带修掉。
+- 不声称 Minekin 已完成。
