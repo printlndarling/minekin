@@ -93,6 +93,7 @@ class _Runner(Protocol):
 
     def summon_command(self, entity_type: str) -> str: ...
     def position_probe_command(self, player: str) -> str: ...
+    def probe_console_commands(self, players: list[str]) -> list[str]: ...
     def kill_command(self, player: str) -> str: ...
 
     def main(self) -> int: ...
@@ -201,6 +202,94 @@ def run_the_launcher(
         signal.signal(signal.SIGTERM, saved_term)
         signal.signal(signal.SIGINT, saved_int)
     return code, directory
+
+
+class _ListeningServerProcess:
+    """A JVM that stays up long enough to have its console read, and no longer.
+
+    `_StubServerProcess` is gone before the wait loop turns, so it can show what the
+    tool refuses but never what the tool actually asks. This one is up for a bounded
+    three turns of that loop and keeps every console line written to it, which is the
+    only way a test can say "the second kin's question reached the server" rather than
+    "the tool built a string for it somewhere".
+    """
+
+    pid = 0
+    returncode = 1
+
+    def __init__(self) -> None:
+        self.console = io.BytesIO()
+        self._turns = 0
+
+    @property
+    def stdin(self) -> io.BytesIO:
+        return self.console
+
+    def poll(self) -> int | None:
+        self._turns += 1
+        return None if self._turns <= 3 else self.returncode
+
+    def wait(self, timeout: float | None = None) -> int:
+        return self.returncode
+
+    def terminate(self) -> None:
+        return None
+
+    def kill(self) -> None:
+        return None
+
+
+def run_the_console(
+    base: Path, monkeypatch: pytest.MonkeyPatch, *flags: str
+) -> list[str]:
+    """Every console line the tool would hand a server for these flags, oldest first.
+
+    Drives the real `main()` through the `--keep-running` wait, standing in for the
+    three things a test cannot have: the pinned artifact check, the JVM, and the
+    ready marker. What stays real is the argument parsing, the refusals, the probe
+    construction and the writing of it to the server's standard input, which is the
+    half a run's evidence depends on.
+    """
+
+    directory = base / "run"
+    server = _ListeningServerProcess()
+
+    def skips_the_jar_pin(path: Path, recipe: _Recipe) -> None:
+        return None
+
+    def is_ready(log: Path, process: object, timeout_s: float) -> bool:
+        return True
+
+    def starts_this_one(*args: object, **kwargs: object) -> _ListeningServerProcess:
+        return server
+
+    monkeypatch.setattr(RUNNER, "verify_jar", skips_the_jar_pin)
+    monkeypatch.setattr(RUNNER, "wait_for_ready", is_ready)
+    monkeypatch.setattr(subprocess, "Popen", starts_this_one)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            TOOL,
+            "--directory",
+            str(directory),
+            "--jar",
+            str(base / "server.jar"),
+            "--java",
+            str(base / "java"),
+            "--accept-eula",
+            "--keep-running",
+            *flags,
+        ],
+    )
+    saved_term = signal.getsignal(signal.SIGTERM)
+    saved_int = signal.getsignal(signal.SIGINT)
+    try:
+        RUNNER.main()
+    finally:
+        signal.signal(signal.SIGTERM, saved_term)
+        signal.signal(signal.SIGINT, saved_int)
+    return [line for line in server.console.getvalue().decode().splitlines() if line.strip()]
 
 
 def written_status_line(directory: Path) -> str:
@@ -437,6 +526,116 @@ def test_a_position_probe_is_a_console_line_and_never_a_second_command() -> None
     for injection in ("Kin\nstop", "Kin; stop", "Kin`stop`", "Ki n", "", "Kin\n", "ab"):
         with pytest.raises(SystemExit, match="not a vanilla player name"):
             RUNNER.position_probe_command(injection)
+
+
+def test_probe_tick_asks_position_then_rotation_for_every_named_kin() -> None:
+    """The order one run asks its kins in, and what one name still asks.
+
+    The one-name pair is the shape every sealed run so far has: position then
+    rotation. A change that reordered them would sample the look after the kin had
+    walked again, and a look is only visible in the reading taken before the walk.
+    """
+
+    assert RUNNER.probe_console_commands([]) == []
+    assert RUNNER.probe_console_commands(["Kin"]) == [
+        "data get entity Kin Pos",
+        "data get entity Kin Rotation",
+    ]
+    assert RUNNER.probe_console_commands(["Kin", "Joiner_Kin"]) == [
+        "data get entity Kin Pos",
+        "data get entity Kin Rotation",
+        "data get entity Joiner_Kin Pos",
+        "data get entity Joiner_Kin Rotation",
+    ]
+
+
+def test_the_console_of_one_run_receives_the_question_of_every_named_kin(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Two names reach the server's console in one run; one name reaches what it always did.
+
+    Three readings of the same question. With no name nothing is asked, so the repeat
+    is not a default that fires on its own; with one name the lines are what a
+    single-name run has always sent; with two, the second kin is asked on the same tick
+    instead of being left to another run. Only that last shape lets one run say *this*
+    kin held still while that one moved, which is what a movement reading cannot
+    conclude without.
+    """
+
+    assert run_the_console(tmp_path / "none", monkeypatch) == []
+    assert run_the_console(tmp_path / "one", monkeypatch, "--probe-player", "Kin") == [
+        "data get entity Kin Pos",
+        "data get entity Kin Rotation",
+    ]
+    asked = run_the_console(
+        tmp_path / "two", monkeypatch, "--probe-player", "Kin", "--probe-player", "Joiner_Kin"
+    )
+    assert asked == [
+        "data get entity Kin Pos",
+        "data get entity Kin Rotation",
+        "data get entity Joiner_Kin Pos",
+        "data get entity Joiner_Kin Rotation",
+    ]
+
+
+def test_repeated_probe_names_are_refused_before_the_run_is_written(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The same name twice is not two kins, and a run must not be allowed to think it is."""
+
+    directory = tmp_path / "run"
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            TOOL,
+            "--directory",
+            str(directory),
+            "--jar",
+            str(tmp_path / "server.jar"),
+            "--java",
+            str(tmp_path / "java"),
+            "--accept-eula",
+            "--probe-player",
+            "Kin",
+            "--probe-player",
+            "Kin",
+        ],
+    )
+
+    assert RUNNER.main() == 2
+    assert "must be distinct" in capsys.readouterr().err
+    assert not directory.exists()
+
+
+def test_a_use_target_says_which_kin_it_stops_or_refuses(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """One block, one look: two named kins leave the run unable to say whose walk it stopped."""
+
+    monkeypatch.setattr(RUNNER, "verify_jar", lambda path, recipe: None)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            TOOL,
+            "--directory",
+            str(tmp_path / "run"),
+            "--jar",
+            str(tmp_path / "server.jar"),
+            "--java",
+            str(tmp_path / "java"),
+            "--accept-eula",
+            "--use-target",
+            "--probe-player",
+            "Kin",
+            "--probe-player",
+            "Joiner_Kin",
+        ],
+    )
+
+    with pytest.raises(SystemExit, match="do not say which"):
+        RUNNER.main()
 
 
 def test_a_kill_is_a_console_line_and_never_a_second_command() -> None:

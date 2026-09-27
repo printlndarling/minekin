@@ -520,6 +520,28 @@ def rotation_probe_command(player: str) -> str:
     return f"data get entity {player} Rotation"
 
 
+def probe_console_commands(players: list[str]) -> list[str]:
+    """Every console line one probe tick owes, in the order the server must read them.
+
+    Position then rotation, per named kin, and the pair stays adjacent because a
+    look shows up in exactly one of the two: asking both kins one half first would
+    let the second half land after the kin had turned again. One name therefore
+    yields the same two lines in the same order the tool asked them before this
+    could take more than one, and no name yields no line at all.
+
+    The reason more than one name is worth the repetition is a reading a single
+    name cannot give: one run has to be able to ask a still entity and a moving one
+    in the same tick, or "the joiner walked" and "the whole world drifted" are the
+    same bytes in the log.
+    """
+
+    commands: list[str] = []
+    for player in players:
+        commands.append(position_probe_command(player))
+        commands.append(rotation_probe_command(player))
+    return commands
+
+
 def use_target_command(player: str) -> str:
     """The console line that puts a use-able block in front of a player.
 
@@ -738,9 +760,14 @@ def main() -> int:
     )
     parser.add_argument(
         "--probe-player",
-        default=None,
+        action="append",
+        default=[],
         metavar="NAME",
-        help="make the server report this player's position, so a run can show movement",
+        help=(
+            "make the server report this player's position, so a run can show "
+            "movement; may be repeated, and every named kin is then asked on the "
+            "same tick, so one run can hold one still while another moves"
+        ),
     )
     parser.add_argument(
         "--probe-every-seconds",
@@ -800,6 +827,16 @@ def main() -> int:
     if args.probe_every_seconds <= 0:
         print("--probe-every-seconds must be positive", file=sys.stderr)
         return 2
+    if len(set(args.probe_player)) != len(args.probe_player):
+        # Refused rather than deduplicated: two names that are the same name ask one
+        # kin twice, and a run that reports "still Kin, moving Kin" from one entity
+        # is the one failure this harness cannot tell apart from a real contrast.
+        print(
+            "--probe-player names must be distinct, a repeated one asks the same kin "
+            f"twice: {args.probe_player}",
+            file=sys.stderr,
+        )
+        return 2
     if args.kill_after_join_seconds <= 0:
         print("--kill-after-join-seconds must be positive", file=sys.stderr)
         return 2
@@ -858,15 +895,22 @@ def main() -> int:
     )
 
     summon = None if args.summon is None else summon_command(args.summon)
-    probe = None if args.probe_player is None else position_probe_command(args.probe_player)
-    rotation = None if args.probe_player is None else rotation_probe_command(args.probe_player)
-    if args.use_target and args.probe_player is None:
+    probe_players = list(args.probe_player)
+    probe = probe_console_commands(probe_players)
+    if args.use_target and not probe_players:
         # Refused rather than defaulted: "in front of" is in front of somebody,
         # and a block in front of nobody is a block this run never asked about.
         raise SystemExit("--use-target needs --probe-player to put it in front of")
-    target = None if not args.use_target else use_target_command(args.probe_player or "")
+    if args.use_target and len(probe_players) > 1:
+        # Same reason, one step further: the block goes into one kin's look, so two
+        # names leave the run unable to say whose walk it stopped.
+        raise SystemExit(
+            "--use-target puts a block in front of one kin's look, and "
+            f"{len(probe_players)} --probe-player names do not say which: {probe_players}"
+        )
+    target = None if not args.use_target else use_target_command(probe_players[0])
     initial_block = (
-        None if not args.use_target else initial_block_probe_command(args.probe_player or "")
+        None if not args.use_target else initial_block_probe_command(probe_players[0])
     )
     asked_about_block = args.use_target
     #: Every block the server has said it placed, oldest first. A list rather than
@@ -874,11 +918,10 @@ def main() -> int:
     #: turns: only the one it is looking at when a press lands can be touched.
     blocks: list[tuple[int, int, int]] = []
     placements = 0
-    #: Whether the burst that is owed the moment the Kin is in the world has
-    #: happened. Kept apart from the cadence for the reason the comment below the
-    #: loop gives: five seconds after a join is five seconds of a moving Kin.
-    probed_at_join = False
-    probed_player = str(args.probe_player or "")
+    #: The names whose owed-at-join burst has happened. Kept per name rather than as
+    #: one flag for the reason the comment below the loop gives: five seconds after a
+    #: join is five seconds of a moving Kin, and the second kin joins on its own clock.
+    bursted: set[str] = set()
     kill = None if args.kill_player is None else kill_command(args.kill_player)
     kick = None if args.kick_player is None else kick_command(args.kick_player)
     pending: list[tuple[str, str]] = []
@@ -926,18 +969,18 @@ def main() -> int:
                     # Measured on a run that waited for a five second cadence: the
                     # heading it turned from was never sampled, so a turn showed up
                     # as no turn and the case failed on a clock.
-                    joined = (
-                        not probed_at_join
-                        and bool(probed_player)
-                        and has_joined(log, probed_player)
-                    )
+                    joined = [
+                        name
+                        for name in probe_players
+                        if name not in bursted and has_joined(log, name)
+                    ]
                     if (
-                        probe is not None
+                        probe
                         and process.stdin is not None
                         and (time.monotonic() >= next_probe or joined)
                     ):
                         if joined:
-                            probed_at_join = True
+                            bursted.update(joined)
                         # Every block the server has said it placed, which is the
                         # only way to ask about one of them later without knowing
                         # the world's geometry.
@@ -946,7 +989,7 @@ def main() -> int:
                                 blocks.append(position)
                         if (
                             target is not None
-                            and probed_at_join
+                            and bursted
                             and placements < MAX_USE_TARGETS
                             and not block_spoken_of(log)
                         ):
@@ -973,14 +1016,8 @@ def main() -> int:
                             if initial_block is not None:
                                 process.stdin.write((initial_block + "\n").encode())
                                 process.stdin.flush()
-                        process.stdin.write((probe + "\n").encode())
-                        process.stdin.flush()
-                        if rotation is not None:
-                            # Asked alongside the position rather than behind a
-                            # flag of its own: they are the two things a server
-                            # can be asked about a Kin, and a look shows up in
-                            # exactly one of them.
-                            process.stdin.write((rotation + "\n").encode())
+                        for command in probe:
+                            process.stdin.write((command + "\n").encode())
                             process.stdin.flush()
                         next_probe = time.monotonic() + args.probe_every_seconds
                     # The block the Kin is at, asked far more often than anything
