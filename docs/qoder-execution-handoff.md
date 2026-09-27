@@ -1107,3 +1107,39 @@ V lane 的第一段 `bbf0daf` 已在第二十一轮并入主干（合并 `3ffc79
   真实封证 = 零；未验证 = 1.20.1 真 JOIN/首快照（V4）、E6 封存、门禁（载荷 `cfa0f118…` 未动）、
   `metadata.py:16` 默认值是否下一前沿。
 - **不声称**：不声称 V4 已达标，不声称 1.20.1 加入路径端到端可用，不声称任何 case 闭合、门禁点亮或 Minekin 完成。
+
+
+## 第二十八轮（2026-09-27，M 主控）：V4 复审仪器预登记完毕，先抓出判官自己三处缺陷，再对在飞材料量到第一枚目标卫生读数
+
+- **为什么要预登记**：V4 卡面有两句是否定式（「只连本次受控 runner 启起的本地 1.20.1 服」「操作员地址从未进入任何文件」）。
+  否定式靠眼睛读是这里已经错过的同类断言，所以判官必须先于材料存在、必须先自证能抓到反面。
+- **判官自检先转出三处真缺陷**（`.tmp/m-r27-v4-target-hygiene.py`，五例自测 `.tmp/m-r27-v4-hygiene-selftest.sh`，
+  日志 `.tmp/m-r27-hygiene-selftest.log` 第一轮 → `.tmp/m-r27-hygiene-selftest-2.log` 修复后）：
+  ① TEST-NET 文档段被判成 `rfc1918-private`（Python `ipaddress` 把三段文档地址都算 private）， planted 远程目标会读成普通内网跳，
+  修法是把 `TEST_NET_PREFIXES` 判在 `is_private` 之前；② `::1` 完全不计（点分四段式看不见 IPv6），而 v2 准入确实容 `::1`，
+  修法是单列 `IPV6` 捕获并要求 `::` 或 ≥3 枚冒号（否则 `12:50:03` 这类时钟读数会变成假端点）；
+  ③ `keyed_target_values` 把 `profile[`、`*.sh` 路径当目标值（在 H1g 真实记录上实测到），修法是 `looks_like_host()` 先过滤。
+  修复后五例逐条正确：clean 例 `loopback count=3` 且含 `::1`；反例例把 `198.51.100.20:25565`/`203.0.113.9` 具名为
+  `test-net-documentation`、`10.1.2.3` 具名 `rfc1918-private`、`mc.attacker-target.dev` 具名 `domain-name`，
+  `.sh` 路径不再出现在 keyed 行；操作员例 `operator_reference tokens=1` 且 `operator_token token=d861b7e9 hits=1`；
+  空材料例打印 `endpoints_found=0 (VACUOUS …)` 而不是静默通过。
+- **对 V4 在飞 scratch 的 hygiene 读数（中间读数，不是审查结论）**：`.tmp/m-r27-v4-hygiene-on-v4.sh`，
+  三枚只读挂载（V4 工作树 `:/src:ro`、M 集成树 `:/m:ro`、主仓 `:/main:ro` 仅为按路径交出操作员参照，
+  判官只输出 `sha8` 掩码，全脚本不打印地址），规范卷全程未挂载：
+  `docker run --rm --entrypoint /bin/bash -w /src -v "${V4}:/src:ro" -v "${M}:/m:ro" -v "${MAIN}:/main:ro" minekin-runner:local -lc 'bash /m/.tmp/m-r27-v4-hygiene-on-v4.sh'`
+  （日志 `.tmp/m-r27-v4-hygiene-on-v4.log`）。读数：`scanned_files=32`、`class loopback count=13`（全部 `127.0.0.1`／`127.0.0.1:25570`）、
+  `keyed_target_values=7` 且逐条都是 `127.0.0.1`、**零** `rfc1918-private`／`test-net-documentation`／`link-local`／`multicast`／
+  `other-external`／`domain-name`、`operator_token token=78168a76 hits=0`。这枚读数的非恒真性由上一节的反例自检提供。
+- **V4 现场（本轮实读）**：分支 `codex/minekin-v4-local-join-after-v2` 仍尖 `8b357b6`（即派发时的 base），
+  `git status --porcelain` 空、`origin` 上无该分支 ⇒ 尚未提交、尚未推送。工作树 `.tmp/v4/` 内已存在三条驱动：
+  `drive.sh`／`launch.sh`／`drive_mismatch.sh`（版本错配反例），案例 `a` = 1.20.1 真跑，案例 `b` = `shape=v4b-live-1214`
+  的 1.21.4 正对照（其 `00-header.txt` 自证 `/src/test-orchestrator/runner/domain.sh` 用字节 `ff69c879…`、桥 jar
+  `minekin-bridge-1201-0.0.0.jar` sha256 `e50d61c2…`）。案例 `a` 的 `domain-join-session.json` 呈现
+  `connection_state=PLAYABLE`、`snapshots_admitted=1`、`entities_admitted=11`、`perceived_information_class=PLAYER_EQUIVALENT`，
+  台账事件序列含 `JoinObserved`→`PlayableEstablished`，宿主世界日志出现第二加入者行。
+  ⇒ 形状与 E6 的放行条件一致，但**本轮不据此放行**：V4 的结论要由它自己的记录承担，M 的审查从「已推送的提交 + 允许面」起步。
+- **四态**：已合主干 = 本轮无新增（远端尖仍 `98d1f47`）；仅在分支 = V4（在飞 scratch 材料，无提交）；真实封证 = 零；
+  未验证 = 1.20.1 真 JOIN/首快照（scratch 读数待 V4 记录与 M 复审确认）、E6 封存、门禁（载荷 `cfa0f118…` 未动）、
+  `metadata.py:16` 默认值是否下一前沿。
+- **不声称**：不声称 V4 已达标或已通过（本轮只声称 hygiene 判官在 scratch 上零外部端点、操作员地址零命中），
+  不声称 scratch JSON 等于已审记录，不声称任何 case 闭合、门禁点亮或 Minekin 完成。
