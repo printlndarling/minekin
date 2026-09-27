@@ -385,3 +385,13 @@ bash C:/Users/darling/Documents/agent_work/minekin/.tmp/m-r45-rerun.sh
 # 材料：minekin/.tmp/m-r45-out/live-m/{00-header.txt,90-readouts.txt,server.log,domain-join-profile.json,
 #       domain-join-session.json,domain-session.json,domain-stderr.log}
 ```
+
+
+## §2.22 lane 的记录到了、双方判定一致，而引擎已经活了：H1k 下一轮的具体三件（第四十五轮，M 主控裁决，2026-09-27 20:20 +0800）
+
+- **lane 交付的现场（M 只读核对，不代 lane 提交）**：`../minekin-wt-h1k/docs/validation/v1201-joiner-on-controlled-server-2026-09-27.md`（389 行，`19:35` 落盘，仍是未跟踪状态；分支仍是 `29c5187` + 未提交的 `domain.sh d9a0acfc…` / `test_runner_scripts.py 7fe48b9d…`）。记录里两处与 M 直接相关：
+  * §5 把 `live-b` 的第一真实失败层**具名为基础设施**：`500 Internal Server Engine … dockerDesktopLinuxEngine`、`docker info` 超时 `rc=124`、私有卷 `minekin-h1k-live` 在宿主机侧被降级为只读，并写了引擎恢复尝试（重启 Docker Desktop ×2、`wsl --terminate docker-desktop` 后轮询 ≥10 分钟）。这与 M 的 §2.20 取证同因、与 §2.21 的判别子结论一致 ⇒ **归因两侧闭合，不是分歧**。
+  * §9 逐字复确 §2.17 的三条形状事实（guard 恰六条无第七条、`:1839` 在 `:1968` 之前拐走注入组合、`REFUSE_FIRST_SNAPSHOT` 在契约测试里只有 `:382/:384/:390` 那组断言），如实申报「本交付未含」三件，四态封顶为「仅在分支、待 §2.17 补齐」并**不请求合入**。理由也成立：加第七条拒止会让 `d9a0acfc…` 失效，§2/§3/§4 的容器内读数必须在新字节上整体重跑，而当时引擎挂死——本卡的纪律是不交未重测的改动。**M 接受这个口径：H1k 未合入是双方共同的判定，M 不在此处替 lane 动字节。**
+- **解锁事实（这是本轮唯一的新外部状态）**：引擎自 20:05 起是活的——M 在 §2.21 里用 `minekin-runner:local` 起了三个容器并跑完整程（`domain.sh rc=14`，服务端日志 `Kin joined the game` 12:08:15 / `Kin2 joined the game` 12:08:16 / 80 行按名应答）。所以 lane 下一轮不再有「做不了半套」这个约束。
+- **主控裁决（H1k 下一轮的范围，按序）**：① 在 guard 区间加第七条具名拒止 + 契约测试「同给两名 ⇒ `rc=2` 且不写 `/tmp/domain-join-profile.json`」+ 默认关闭字节等价对照扩到该组合；② 在新字节上整体重跑 §2/§3/§4 的容器内读数与两组反证（旧字节的那批读数在记录里保留为历史，不改写）；③ 在 `minekin-h1k-live` 卷上补一轮活体 ③（卡面 §2.13 只认真实 run 的 `server.log`；M 的私有卷重跑**不代替**这一格，只证明形状可通）；④ 量 `report_promotion` 门载荷（引擎已可用，§2.19 的命令形状可直接复用）。四件齐了才进入 M 的合入复审。
+- **队列一寸未动**：主干唯一 `current_next` 仍是 `PARALLEL-INTEGRATION-GATE-001`；H lane 的 `lane_next` 仍是 **H1k（仅在分支，待 §2.17 三件 + ③ 补读 + 门载荷）**，其后严格接 H1i（同一 `domain.sh` 面）；V 的 `lane_next` V5′ 仍停等 H1k 入干；E lane 仍不派工，规范卷写窗仍归 E 独占、本轮 M 只以 `:ro` 读。真实封证计数不变：LAN 第二客户端在专服形状下的同 run 封证 **0**。
