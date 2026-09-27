@@ -1236,3 +1236,123 @@ V lane 的第一段 `bbf0daf` 已在第二十一轮并入主干（合并 `3ffc79
   未验证 = V4 记录的形状与语义、1.20.1 真 JOIN 作为**已审结论**、E6 封存、门禁（载荷 `cfa0f118…` 未动）。
 - **不声称**：不声称 V4 已达标/已提交，不声称 match 案完成了加入，不声称 E6 可放行，不声称任何 case 闭合、
   门禁点亮或 Minekin 完成。
+---
+
+## 第三十二轮（M）：复审 V4 的 1.20.1 活体加入复测，合入并按载体重读裁决三处超出
+
+### 1. 现场核对
+
+- 远端：`refs/heads/main = cfab3ff`（本轮合入前）；`refs/heads/codex/minekin-v4-local-join-after-v2 = 8d9189ed5a3d64a53f1f7c0d3113c753e1bde4b8`。
+- 真实 merge-base：`git merge-base origin/main 8d9189e` = **`8b357b6`**（含 H1g 的那次基线，V4 未 rebase 未 merge）。
+- V4 增量面：`git diff --stat 8b357b6 8d9189e` ⇒ **一份文件、193 行插入**：
+  `docs/validation/v1201-local-join-after-v2-2026-09-27.md`。卡片允许面（V 私有根 + 一份新 `docs/validation/` 记录）兑现。
+- 主控工作树 `main = cfab3ff`，`git status --porcelain -uno` 空。
+- 合入前候选树：`git merge-tree --write-tree origin/main 8d9189e` = **`23e9655`**；
+  `git diff --name-only origin/main^{tree} 23e9655` ⇒ 只多那一份记录；
+  `git diff --name-only 0512f17 23e9655 | grep -v '^docs/' | wc -l` = **0**
+  ⇒ 第二十九~三十轮在 `0512f17` 上量过的五门容器读数（`rc=0`）与全套基线**按字节继承**，无需重跑。
+
+### 2. 把 V4 的关键判定从「记录转写」升级为「产品载体重读」
+
+复现命令（三份日志都在 `minekin-wt-integration/.tmp/`）：
+
+```bash
+# m-r32-v4-review.sh：两个预登记判官 + 逐条摘要复核 + 规范卷边界
+docker run --rm --entrypoint /bin/bash -w /src \
+  -v <wt-v4>:/src:ro -v <wt-integration>:/m:ro -v <main-repo>:/main:ro \
+  -v minekin-runner-data:/ro:ro -e PYTHONPATH=/src/src minekin-runner:local \
+  -lc 'bash /m/.tmp/m-r32-v4-review.sh'
+# m-r32b-v4-review.sh：判官 v2 自测 + 运行文档嵌套字段 + per-Kin 台账 + c 组在盘件
+docker run --rm --entrypoint /bin/bash -w /src \
+  -v <wt-v4>:/src:ro -v <wt-integration>:/m:ro -v minekin-v4-join:/v4data:ro \
+  -e PYTHONPATH=/src/src minekin-runner:local -lc 'bash /m/.tmp/m-r32b-v4-review.sh'
+```
+
+逐字读数（`m-r32-v4-review.log` / `m-r32b-v4-review.log`）：
+
+- **字节身份全部相等**：`domain.sh = ff69c87994f15be37a07090c664c60fdbf8cd620689bfd07fe3a837431e982c4`；
+  v2 加入者文档 `038dcf1e7331884a91a7c795d3b1ef8960d80405b049d1c5fc270df9fbb1f771`（`schema_version=2`、
+  `minecraft_version` **ABSENT**、`version_policy={"mode":"explicit_allowlist","allowed_versions":["1.20.1"]}`、
+  `target_authorization.granted_by=controlled-runner`）；1.21.4 冻结 v1 `634abc28ac0c4652fd40f2e82867f632cf68b2354eccd7ba75c62c7f49148137`
+  （`schema_version=1`、`minecraft_version` PRESENT）；两枚桥 jar `e50d61c2…`、`0ee2070b…`；
+  c 组 crash `1917cd55…`、stderr `f88c93af…`。`out/a/00-header.txt` 里那两行身份逐字在盘。
+- **阶段判定（记录只给了转写，M 读的是运行文档，字段嵌套在 `run` 下）**：
+  run a 加入者 `kin-v4-join` / session `3629bff1c1894a8292b024ebfe878bf3`：
+  `connection_state=PLAYABLE`、`snapshots_admitted=1`、`snapshot_rejections=[]`、`entities_admitted=11`、
+  `entities_rejected=3`、`perceived_information_class=PLAYER_EQUIVALENT`、`world_snapshot=null`、`outcome=BRIDGE_LOST`；
+  host 半边 `lan_publication={phase: LAN_OPENED, port: 25570}`、`world_snapshot.digest=5c14c563…`；
+  run b（1.21.4 正对照）加入者 `PLAYABLE`、`snapshots_admitted=1`、`entities_admitted=73`。
+- **per-Kin 台账（`kin-v4-join/kin.sqlite3`，19 行，先 `cp` 出卷再读——WAL 只读打不开）**：
+  `SessionProcessStarted → BridgeHelloAccepted → JoinObserved → SessionIdentityCompared → PlayableEstablished → SessionInterrupted`；
+  `WorldSnapshotAdmitted: False` ⇒ 「首快照」在台账里**没有事件载体**，只有计数器 + 客户端日志行。
+- **⑤ 家族**：run a 的 `/tmp/domain-session.err`、`domain-join-session.err`、`domain-client-environment.err` 全 0 字节、
+  `0x1000E=0`、`XDG-invalid=0`；c 组裸驱动在盘原件里两串各 1 命中，crash 第 7 行逐字
+  `java.lang.IllegalStateException: Failed to initialize GLFW, errors: GLFW error during init: [0x1000E]135947197726096`。
+- **握手与加入行**在 run a 自己的 `90-readouts.txt` 里逐字在盘：`CONNECTION_PHASE_LOGIN_NEGOTIATING`（194 行）→
+  `PLAY_INIT`（195）→ `JOIN_SEEN`（196）、`222:[04:55:52] [Server thread/INFO]: Kin2 joined the game`。
+- **反证半边**：`out/c/mismatch.err`（230 B）逐字 `{"category": "ADMISSION", "component": "launcher.profile", … "message": "the session launches Minecraft 1.20.1, the target allows 1.21.4", …}`；
+  `out/c/match.err` 0 B、`mismatch.session.json` 0 B（JVM 前被拒 ⇒ 无会话文档，形状自洽）。
+- **规范卷边界**：卷上 `*v4*` 命名条目 **0**；`kin_roots=14`、`manifest=112`（E 的 B2 证据提交并入后计数从 99 涨到 112）、
+  `manifests_newer_than_H1g_domain_bytes=0`；V4 私有卷 `minekin-v4-join` 里 5 个 Kin 根、`manifest=0` ⇒ V 没封存、E 的独占窗完好。
+
+### 3. 卫生判官：两份 negation 现在是量出来的
+
+`m-r27-v4-target-hygiene.py --scan <V4 记录> --operator-file /main/.tmp/local-test-server.txt`（操作者地址按路径交给判官，输出只报掩码）：
+
+```text
+operator_reference tokens=1 (reported masked only)
+scanned_files=1
+class loopback                   count=5   （127.0.0.1 / 127.0.0.1:25570 / ::1）
+operator_token token=78168a76 hits=0
+hygiene_rc=0
+```
+
+零外部/零 rfc1918/零 TEST-NET/零域名/零 keyed 远程目标；「没连远程服」与「没写入操作者地址」两条否证各有计数与行号。
+
+### 4. 形状判官的两处自身缺陷（**看到 V4 材料之后才修**，如实申报）
+
+`m-r29-v4-record-coverage.py` 第一次跑 V4 记录给出 `NEEDS_REVISION missing=1`，其中两项是判官自己的错：
+
+1. `bridge-handshake NOT-NAMED`：模式 `桥\s*握手` 认不出记录写法「Bridge 握手」，而该行表格里有 `**PASS**`。
+2. `session-start verdict=FAIL (block@125)`：判定词按**裸子串**匹配，把被引的崩溃原文 `Failed to initialize GLFW` 读成了 FAIL——
+   一段“否证性引用”冒充了判定。全记录里 `grep -n "FAIL"` 命中数为 0。
+
+修正（脚本内已写进注释，未改判据要求本身）：握手识别加 `桥?\s*握手`/`BridgeHelloAccepted`；判定词改词边界匹配并计数（`PASS×N`）；
+markdown 表格行自成一个 block（七项读数型记录就是把判定挂在行上）。修后自测仍**说不**：
+合成空壳记录 12 项 `rc=1`、主干 H1g 记录 6 项 `rc=1`、合成完整记录 `SHAPE_COMPLETE rc=0`、路径不存在 `record MISSING rc=1`。
+
+对 V4 记录修后读数：`launcher-profile/client-jvm/bridge-handshake/join/first-snapshot` 全部 `named≥3 verdict=PASS×1`，
+六项 control 全部 present；**剩余唯一一项** `session-start verdict=NONE`——`session start` 只出现在 §2 命令形状与 §5 反证块里，
+那些块不带判定词。M 裁决：这是**记录形状**问题而非阶段缺失，因为该阶段的事实由运行文档独立证实
+（`argv_digest=39ae79fb…`、`started_at=2026-09-27T04:55:08Z`、台账 `SessionProcessStarted`）。不为此退回 V4 重写。
+
+### 5. 三处超出/缺陷的裁决（写进 merge 提交信息）
+
+1. **§1.1b 复制 1.21.4 桥 jar**（卡片只开了 `bridge-1201` 那枚的口子）：**接受**。gitignored、M 复核
+   `0ee2070b97ba6583ca004cc3f0e4a0e547697d0693dc635c3143c655cc2475f4` 与 fixture pin 逐字相等、
+   且它是卡片自己要求的正对照的前置；不构建成、不编造取料源。
+2. **§6 披露 1：a/b 的 harness stderr 行属 `docker logs` 转写**（容器已删）：**接受为 V 侧读数**，但据此立一条约束——
+   **E6 的封存面不得依赖转写行**，须以运行文档 + per-Kin 台账 + 在盘原件为准（M 已在派工简报里写死）。
+3. **M 新发现：§5 现场种下的 `match.json`/`mismatch.json` 母文档未随材料保留**（`out/c` 只剩输出侧，
+   `allowed_versions` 只在 `run-console.log` 里出现过）⇒ 「只改一个字段」无法从盘上重放，反证可重放性降级；
+   **E6 必须自种反证件并保留 sha256**，不得引用 V4 的文档。
+
+### 6. 合入与推送
+
+- `git merge --no-ff -F .tmp/m-r32-merge-msg.txt 8d9189e` ⇒ **`7b994853fe52ef6b87facb3c81922b1fcc01f5c6`**；
+  `push origin HEAD:main` ⇒ `cfab3ff..7b99485`；`git ls-remote origin refs/heads/main` 回读 **`7b994853fe52ef6b87facb3c81922b1fcc01f5c6`** = 本地 HEAD。
+- 派工 **E6 `V1201-LOCAL-JOIN-SEAL-001`**（后台子代理，工作树 `minekin-wt-e6`，分支 `codex/minekin-v1201-join-seal`，起点 `7b99485`）：
+  派工前 `docker ps` 为空 ⇒ 规范卷独占写窗成立；简报里绑死允许面（新 Kin/attempt/bundle + 一份新记录）、
+  四读（verify/rejudge/replay/report_promotion）、非恒转反证、以及第 5 节三条约束与「首快照无 joiner 摘要载体」的措辞限制。
+
+### 7. 四态
+
+- **已合主干**：H1g（`ff69c879…`）、V4 的 1.20.1 活体加入复测记录（merge `7b99485`，远端已核）。
+- **仅在分支**：E6 `codex/minekin-v1201-join-seal`（刚派出，尚无提交）；B1-b 之后的 E 侧余料与既有停放分支不变。
+- **真实封证**：**仍为零**——V4 是 V 私有活体读数，E6 尚未在规范卷产出 bundle。1.20.1 本地加入的「JOIN/首快照/PLAYABLE」
+  现在有主控独立重读的活体证据（运行文档 + 台账 + 在盘原件 + 字节摘要），但它不等于 sealed evidence。
+- **未验证**：`::1` IPv6 loopback 形状、`--auto-bundle`×joiner、多 joiner/并发、在线认证、任何远程目标（不连）、
+  PLAYABLE 之后的输入/动作半边、1.20.1 的**规范卷封存**（正是 E6 要问的）。主控侧未复量项一律沿用记录原口径。
+
+不声称：本轮没有推进任何判据/registry/封存 schema，没有提升门禁，没有触碰 V08 或用户远程服；
+V4 的记录通过复审只意味着「1.20.1 真到达可封的 JOIN/首快照」这一前置成立，不意味着 1.20.1 已有封存证据。

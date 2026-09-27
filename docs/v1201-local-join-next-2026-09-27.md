@@ -45,6 +45,16 @@
 > `codex/minekin-v4-local-join-after-v2`、base `8b357b6`；派工时该分支无远端 ref、工作树干净，
 > 因此本节尚未有任何 V4 交付可审。M 不预判其结论：V4 只有逐阶段量到加入者 JVM 真起＋Bridge 握手＋JOIN/首快照，
 > E6 才可提升；停在更早一层就按那一层开窄卡。
+>
+> **状态（2026-09-27 第三十二轮回写）**：**已合主干**。V4 交付 `docs/validation/v1201-local-join-after-v2-2026-09-27.md`
+> （分支 `codex/minekin-v4-local-join-after-v2` 提交 `8d9189e`，真实 merge-base `8b357b6`，增量面只有那一份记录），
+> M 以 `7b994853fe52ef6b87facb3c81922b1fcc01f5c6` 合入 `main` 并核过远端 SHA。结论不再停在准入之后：run a 的加入者
+> 运行文档（字段嵌套在 `run` 下，M 在只读挂载下自读）是 `connection_state=PLAYABLE`、`snapshots_admitted=1`、
+> `snapshot_rejections=[]`、`entities_admitted=11`，per-Kin 台账 19 行含 `BridgeHelloAccepted → JoinObserved →
+> PlayableEstablished`，`90-readouts.txt` 里 `CONNECTION_PHASE_JOIN_SEEN` 与 `Kin2 joined the game` 逐字在盘；
+> 1.21.4 正对照同形状到 `PLAYABLE` 且 v1 文档摘要 `634abc28…` 与 H1g 读数③ 相等，版本错配反证在 JVM 之前被
+> `launcher.profile` 具名拒用。⇒ **E6 的材料前置成立**，但受三条约束：封存面不得依赖 `docker logs` 转写行、
+> 「首快照」没有 joiner 侧摘要载体（`world_snapshot=null`，摘要只在 host 半边）、V4 未保留现场种下的反证母文档故 E6 须自种。
 
 **允许面**：V 私有本地测试根和一份新 `docs/validation/` 记录；规范卷 `:ro` 或不挂，产品/runner/判据/registry 零改动。仅连接由受控 runner 本次启动的本地 1.20.1 服，不读、不用用户远程目标配置。
 
@@ -73,6 +83,11 @@
   （`domain.sh:713-727`）。V4 必须在**已备好物料的私有 store** 上跑，且不得把这一句读成 1.20.1 的预算/Bridge 前沿。
 
 ### E6 `V1201-LOCAL-JOIN-SEAL-001` — 仅 V4 真正达到可封的 JOIN/首快照后提升 E lane
+
+> **状态（2026-09-27 第三十二轮回写）**：**已派工**。前置由 V4 的复审满足（见上一小节），M 在派工前量到
+> `docker ps` 为空 ⇒ 规范卷 `minekin-runner-data` 独占写窗成立。工作树 `../minekin-wt-e6`、分支
+> `codex/minekin-v1201-join-seal`、起点 `7b99485`；尚无提交可审。M 不预判其结论：拿不到可封材料就按
+> `BLOCKED_EVIDENCE` 交回最先失败层，不凭 V4 文档写 `DONE`。
 
 **允许面**：E 独占规范卷写窗、其 lane 的证据记录；只调用已登记的 1.20.1 case 和现行判据，不改 case/registry 求绿。新 Kin/新 attempt，旧 FAIL 与 PASS 原样保留。
 
