@@ -115,7 +115,10 @@ def test_every_knob_the_harness_reads_is_one_the_wrapper_hands_it() -> None:
     each of the four must now be forwarded, the difference must be empty — so a fifth
     read-but-undelivered control name goes red exactly as the gap once did — and the
     four stay out of the product's own forwarding roster in `config.py`, because a
-    runner knob crossing that line would widen the product's entry surface.
+    runner knob crossing that line would widen the product's entry surface. H1k left a
+    second registered gap of exactly this shape for `MINEKIN_DOMAIN_JOIN_ON_CONTROLLED_
+    SERVER`, and V1201-RUN-SH-FORWARD-CONTROLLED-SERVER-JOIN-NAME-001 closed it the same
+    way: registration deleted, assertions kept, the name now demanded delivered too.
     """
 
     harness = (RUNNER / "domain.sh").read_text(encoding="utf-8")
@@ -135,26 +138,23 @@ def test_every_knob_the_harness_reads_is_one_the_wrapper_hands_it() -> None:
         f"domain.sh arms the joiner driver on these and run.sh stopped delivering them: "
         f"{sorted(undelivered)}"
     )
-    # Exact in both directions now that the registered gap is closed: a fifth name
-    # read and not delivered is a scenario that silently does not run, and a name
-    # delivered that nothing reads is a knob the wrapper offers into a void.
-    #
-    # One gap is registered open, by name, and it is H1k's: `run.sh` is outside that
-    # card's three allowed files, so its knob is read and not yet forwarded. The
-    # registered name is demanded present below (a gap that names nothing is the same
-    # hole as no gap at all) and demanded *absent* from the wrapper, which is the
-    # direction that turns red the moment a later card forwards it — at which point the
-    # registered set is deleted, exactly as H1j deleted H1h's.
-    registered_gap = {JOINER_CONTROLLED_SERVER_KNOB}
+    # Exact in both directions: a name read and not delivered is a scenario that
+    # silently does not run, and a name delivered that nothing reads is a knob the
+    # wrapper offers into a void. The gap H1k registered here is closed: V1201-RUN-SH-
+    # FORWARD-CONTROLLED-SERVER-JOIN-NAME-001 forwarded the name, so the registered set
+    # is deleted exactly as H1j deleted H1h's — the assertions stay, and the name is
+    # now demanded *delivered* by name, the same way the four above are, so it cannot
+    # quietly fall back out of the wrapper.
     assert JOINER_CONTROLLED_SERVER_KNOB in read, (
-        f"the registered run.sh gap names {JOINER_CONTROLLED_SERVER_KNOB}, which "
-        "domain.sh no longer reads; delete the registration rather than keeping it"
+        f"domain.sh no longer reads {JOINER_CONTROLLED_SERVER_KNOB}; if that is intended, "
+        "drop the name from run.sh's forwarding list and from this test together"
     )
-    assert JOINER_CONTROLLED_SERVER_KNOB not in delivered, (
-        f"run.sh now forwards {JOINER_CONTROLLED_SERVER_KNOB}; the card that forwarded "
-        "it has to delete the registered gap in this test, not this assertion"
+    assert JOINER_CONTROLLED_SERVER_KNOB in delivered, (
+        f"run.sh stopped forwarding {JOINER_CONTROLLED_SERVER_KNOB}: a knob that is read "
+        "and not delivered arrives empty, takes domain.sh's 'not asked for' branch, and "
+        "the run seals evidence for a scenario that never happened"
     )
-    assert read - delivered == registered_gap, (
+    assert read - delivered == set(), (
         f"domain.sh reads these and run.sh never delivers them: {sorted(read - delivered)}"
     )
     assert delivered - read == set(), (
@@ -1795,14 +1795,13 @@ JOINER_CONTROL_ASKS = {
 
 #: What `session start` accepts beside those three and this driver never reaches for.
 #:
-#: The fifth `MINEKIN_DOMAIN_JOIN_*` name, and the one thing that makes it different from
-#: the four above: V1201-LAN-JOINER-ON-CONTROLLED-SERVER-001 was handed three files and
-#: `run.sh` was not one of them, so the name is *read* by the harness and deliberately not
-#: yet forwarded by the wrapper. That is the same registered gap H1h left for the four, and
-#: it is registered the same way — by name, in the parity check below, where the demand is
-#: pinned the *other* way round (`not delivered`) so the day a separate card forwards it
-#: that assertion goes red and tells the reader to drop the registered gap, instead of the
-#: gap silently outliving the card that needed it.
+#: The fifth `MINEKIN_DOMAIN_JOIN_*` name. V1201-LAN-JOINER-ON-CONTROLLED-SERVER-001 was
+#: handed three files and `run.sh` was not one of them, so the name was *read* by the
+#: harness and registered, by name, as the one gap the wrapper still left open — the
+#: same way H1h registered the four. V1201-RUN-SH-FORWARD-CONTROLLED-SERVER-JOIN-NAME-001
+#: was that separate card: the registered gap is deleted here, the parity assertions in
+#: the check below are kept, and the name is now demanded *delivered* like the four, so
+#: it cannot quietly fall back out of the wrapper and reopen the gap.
 JOINER_CONTROLLED_SERVER_KNOB = "MINEKIN_DOMAIN_JOIN_ON_CONTROLLED_SERVER"
 
 #: The shipped read of that name, byte for byte: read with an empty default, so unset and
