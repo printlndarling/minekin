@@ -434,3 +434,24 @@ lane 的第①项已落字节（guard 区间由 §2.18 的 `:461–:488` 变为 
 ⇒ **不新增第八条 guard 拒止**；`guard 461–492 未列该对` 不等于 `无人拒止该对`。#58 由「复审退回项」降级为一条**待判问题**并保留材料不删：真正没读过的只剩一格——`JOIN_ON_CONTROLLED_SERVER=1` 与 `ONLINE_MODE=true` 都被显式设、而 `case_id` **不是** ADMIT-040 时，产物是「具名失配」还是「加入者静默超时」。这一格要么靠一次容器内形状断言、要么靠一次活体，M 不在 lane 的活体窗里抢跑，也不拿 §2.21 的默认可铸形状冒充它的读数。
 
 **方法申报（防同类错判）**：判「冲突对缺不缺具名拒止」之前，除 guard 区间外必须先 grep `tools/**` 与 `tests/unit/**` 里有没有该形状的既有具名承担者（本案的承担者是 `AUTH_MODE_MISMATCH` + ADMIT-040 的 case 门）。§2.25 那句「唯一让它变绿的『修法』是放宽认证，属硬禁」仍然成立，但它推出的正确动作是**先找既有失配再谈补拒止**，不是补拒止。
+
+### 2.27 第四十八轮：#56 的契约侧在 H1k 当前候选字节上预检通过（M 自己的树，含 4-fail 反证与还原）
+
+lane 仍在收 §2.22 第③④项（它的容器窗在用，M 不进那棵树、不代提交）。M 用等待期只做一件事：**把退回项 #56 的验收要求拿到 M 自己的审查树上按当前候选字节量一遍**，好让真正合入时不靠推测。
+
+**候选字节仍是 §2.23/§2.24 记的那对，无需再开过期申报**：`test-orchestrator/runner/domain.sh = e1d8dbb98d5f…`（156,467 B，mtime 20:50:45 起未再动）、`tests/contract/test_runner_scripts.py = 33f7d7f02222…`（171,525 B）。M 审查树里原有的两份是**旧副本**（`d9a0acfc…`/156,083 与 `7fe48b9d…`/159,426——前者正是 lane 记录里那次破桩前的备份），已按当前字节覆盖并重新 sha256 验证。
+
+**lane 交付的内容对上了 M 退回时提的口径**（行号读自 `tests/contract/test_runner_scripts.py` 当前候选字节）：
+
+1. **逐字引用而非转述**：`:2806–:2810` 的 `FIRST_SNAPSHOT_COMBINATION_REFUSAL` 把那句拒止按两个方向存下来，且注释明写「A copy of the card's own wording here would let the guard rephrase itself and stay green, so the constant is compared against the shipped bytes before it is ever driven」。
+2. **`rc=2` 且不留下会被误读成「发送过加入者」的载体**：`:2963` 起那条测试是三段式——组合答案 `exit 2` + 那句原文、下游 `reached-joiner-plan` 不出现、`bash_probe "test -e /tmp/domain-join-profile.json"` 不为 `yes`（用 bash 自己问路径，避开 Windows 与镜像里 `/tmp` 的异义），并额外钉了**位置条款**：`# --- joiner-controlled-server-guard begin` 必须仍在 `JOINER_PROFILE_WRITER` 上游。
+3. **默认关闭等值延伸到这一对**：`:3011` 的 `test_the_combination_stays_a_trunk_shape_while_the_new_name_is_off` 要求新名未开时第七条款**一个字都不说**（既不拒也不评论），否则它就成了主干既有形状里的一条新拒止。
+4. 非恒真另有两道：guard 区间内 `exit 2` 计数必须恰等于 `CONTROLLED_SERVER_GUARD_REFUSALS` 的 7 条、每条拒止的话在区间内恰好出现一次；lane 另自己写了 `test_the_seventh_refusal_is_not_an_always_true_claim`。
+
+**M 侧读数（全部在 `../minekin-wt-m-r45`，分支 `m-r45-h1k-review`）**：
+
+- 当前候选字节契约全绿：`uv run --frozen --offline python -m pytest tests/contract/test_runner_scripts.py -q` ⇒ **`85 passed in 32.62s`**。lane 记录里那份是 `81 passed` ⇒ 那串数字早于它自己追加的这 4 个案（第七拒止的参数化行 + 三条专测），**不是矛盾，是过期**：lane 仍须按最终字节重跑本地/Docker 门禁，这也正是本轮目标写死的动作。
+- M 自放的反向证明：只删 guard 里那 4 行（`:487–:490`，`refusal_asked` 出现次数 8→7）⇒ **`4 failed, 81 passed in 12.85s`**，红的正是 `…[first-snapshot-combination]`、`test_the_two_destination_combination_is_refused_before_any_plan_is_written`、`test_the_combination_stays_a_trunk_shape_while_the_new_name_is_off`、`test_the_seventh_refusal_is_not_an_always_true_claim`。破桩前先备份 `../minekin-wt-m-r45/.tmp/m-r46-domain-before-break`（sha256 `e1d8dbb9…` 已验），还原后两份副本 sha256 与候选一致 ⇒ 这 4 个案不是恒真断言。
+- CI 欠账：`52e78b5` 的远端作业 `completed / success`；`e33d109` 本轮单次读为 `in_progress`（创建于 13:01:45Z），下一轮按「每轮一次读」续读。
+
+**#56 的契约侧到此可判「已满足」**，但 M 不在候选未提交时合它，也不替 lane 跑它的活体。合入时点仍需四件：①lane 自己 push 的提交 SHA；②真实 merge-base `29c5187` 上的合并 diff 复审；③第③项活体读数（§2.21 的 M 私有卷重跑**不替代**它，且那次读数是 `rc=14 / BRIDGE_LOST`，本就不是封证）；④`report_promotion` 门载荷前后一对。
