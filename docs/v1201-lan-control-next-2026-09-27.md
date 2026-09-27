@@ -587,3 +587,19 @@ job 级 `python`/`protocol`/`bridge-static` 三支对 `886` 全 `success`；步�
 - 一处 lane 文档行号小差：其 §11.1 记 `:488–:489`，实测第七条在 `:487–:490` ⇒ 不涉判据，留给 lane 下次追加节自正（M 不改 lane 的记录）。
 
 **四态增量**：本轮 M 的派工瑕疵一处（已具名，材料在 `.tmp/h1k-final/` 与两份会话回报）；已合主干且 CI 绿的仍 `a452e84`；真实封证仍 **0**。
+
+## §2.36 V5′ 派工文本的前置：§2.16 第 1 条的三处载体行号在主干字节上现读（第五十二轮，2026-09-27 22:19 +0800，M 主控）
+
+§2.16 第 1 条要求「**H1k 入干后**由 M 当场重读 `domain.sh`」，把三处行号写进 V5′ 的派工文本，量不到就不派。H1k 已在 `a452e84` 入干 ⇒ 这一格的门今天开了，所以在 H1l/H1m 之外并行做掉。
+
+**测量对象（主干字节，逐字复现）**：`6429725703d044c2315ae255f306e53586199be3` 的 `test-orchestrator/runner/domain.sh` ⇒ blob `1254e6fb9fdcb93ecf615ca8cf3a28c72ae663a2`、sha256 `e1d8dbb98d5f760db5c2583f001941e48485e0240f61b8061120504c36714015`、156,467 字节。盘上工作树同摘要（`sha256sum` 直接量到同一串），即该文件在主干是 LF 钉住的，行号可对盘上读。
+
+1. **「加入者目标地址/端口来源行」= `:1089–:1119`**（`# --- joiner-controlled-server-target ---` 区）。逐点：`:1089` 默认仍取 `joiner_target_port="${lan_port}"`；`:1090` 新名的 `if`；`:1091` 源文件为本 run 自己的 `${server_directory}/server.properties`；`:1096/:1097` 分别 `sed -n 's/^server-ip=//p'`、`s/^server-port=//p` 并 `tail -1`；`:1102–:1108` 端口不可读/非数字 ⇒ 具名 `exit 2`；`:1109–:1113` `server-ip != 127.0.0.1` ⇒ 具名 `exit 2`；`:1114` 才把 `${controlled_server_port}` 赋给目的地；`:1115–:1116` 打印「dials the controlled server this run started at `%s:%s`, read from `%s`」；`:1119` 起 python 把该端口铸进 `/tmp/domain-join-profile.json`。⇒ **V5′ 的目的地判据（§2.16 第 1 条要的那处）有单一承载，且不问任何非回环地址。**
+2. **「就绪等待落点行」= 函数 `:1472`，两个落点 `:1967`（LAN 形状，读 `${latest}`）与 `:1988`（新形状，读 `${server_directory}/server.log`）**，新区间为 `:1973–:1992`，其中 `:1985–:1986` 先打印目的地日志路径、`:1990` 是 `join_ready=0` 时的「备好了但没送出」具名行。⇒ 两种形状的 oracle 各自独立，V5′ 若走专服形状就只能引 `:1988` 那条。
+3. **「`--probe-player` 生效行」= `:794`（全仓唯一铸名点，仍是单值 `${probe:-${player}}`）+ `:795–:797`（`--use-target`）+ `:917`（拼进 `:908` 那条 `python /src/tools/run_controlled_server.py` 调用，同一命令还带 `:920` 的 `--keep-running`）**。M-T1 已把 tools 侧转成可重复 `--probe-player`，**主干这处仍是单值** ⇒ §2.16 第 4 条第一格（同 run 内另一具名实体读数不变）在 H1m 入干前依然取不到，与 §2.27 的前置缺口 B 一致。
+
+**这三处的时效（写死在派工口径里，免得下一个人沿用）**：第 1、2 处只被 `domain.sh` 的加入者区段改动，H1l 不动它们；**第 3 处正是 H1m 要改的那一行**（`:794` 由单值变两名、或新增铸名点），所以 V5′ 的派工文本必须在 **H1m 入干后**按当轮字节把第 3 处再读一遍才可引用——本轮记录只作「H1k 入干时点成立」的证据，不作 V5′ 的最终行号。§2.16 第 1 条那句「旧行号曾在 §2.13 里失效过一次」就是这条时效的来由。
+
+**顺带量到、与 H1l/H1m 排程有关的一件**：主干 `run.sh` 的 `-e MINEKIN_DOMAIN_*` 名单实测跨 `:88–:120`，其中 **既无 `MINEKIN_DOMAIN_JOIN_ON_CONTROLLED_SERVER`（H1l 要加的）也无 `MINEKIN_DOMAIN_PROBE_SECOND`（H1m 要加的）**，两卡都写这同一段 ⇒ §2.29 那句「H1m 严格排在 H1l 之后」在字节面上成立，不是保守排程。契约侧的登记缺口在 `tests/contract/test_runner_scripts.py:148–:157`（`registered_gap = {JOINER_CONTROLLED_SERVER_KNOB}` 与「转发了它就删登记、别删断言」那三条），名字常量在 `:1806`。
+
+**四态增量**：本轮零封证、零改判据/registry/门禁，主干只动这一节文档；真实封证仍 **0**（LAN 第二客户端在受控专服形状下的同 run 封证未动）；已合主干且 CI 绿的最近一笔仍 `a452e84`（`ac1d7fb` 14:12Z 已 `completed/success`，`a1c9f45`/`6429725` 14:14/14:15Z 起跑、本笔读为 `in_progress` ⇒ 不作绿，接手会话须重读）。H1l 仍在飞：lane 树 `../minekin-wt-h1k` 的 `run.sh`、`tests/contract/test_runner_scripts.py` 两文件未提交、分支 HEAD 仍 `ac1d7fb`——按 §2.35 的口径，这只算 22:17 的**时点读数**，M 不据此判它停过、不进它的工作面、不代提交。规范卷 `minekin-runner-data` 本轮未挂。
