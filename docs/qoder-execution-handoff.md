@@ -717,3 +717,39 @@ V2 的绿读数暴露、M 在自己卷上重放确认：auto run 跨过早停后
 - 不声称 `H1f` 会让 1.20.1 的 JOIN 变绿——它的目标只是让加入者 profile 声称的版本来自本次真正起起来的世界。
 - 不声称 V lane 已解锁：V 的下一张活体卡仍排在 `H1f` 收口并入主干之后。
 - 不声称任何 case 闭合、任何门禁点亮，不声称 Minekin 完成。
+
+## 第十六轮（2026-09-27，M 主控）
+
+### 现场核对（每轮必做）
+
+- 远端 `main`：本轮起点 `41cff82` → M 文档笔 `12d6fbb` → H1f 合并 `2ef64a8` → E-CX 合并 `5dbcc8a`；每次推送后 `git ls-remote origin refs/heads/main` 逐字复核，三次一致。
+- 两条 lane 分支按**真实 merge-base** 审：H1f base `ea97c5c`（lane 三笔 `02a8b4b`/`258009a`/`403ec6b`），E-CX base `7aa5d14`（三笔 `8c38f1d`/`9fdc4dd`/`446c8df`，逐文件 diff 只一个新文档）。两卡的允许路径都守住：H1f 只写 `test-orchestrator/runner/domain.sh` + `tests/contract/test_runner_scripts.py` + 自己的 dated 文档；E-CX 只写一个 dated 文档，`tools/**`、fixture、registry、`src/**` 一字未动。
+- 派工：`V3-1201-JOIN-LIVE-READOUT-AFTER-H1F` 在 `H1f` 并入后即刻派到支 `codex/minekin-v3-1201-join-live-readout` @ `../minekin-wt-v3`（base `5dbcc8a`）。只用本地隔离服、不连用户远程服；规范卷对该支 `:ro`，活体材料只写 V 私有 data root；`domain.sh:404-407` 的 auto+joiner 拒止保持闭合。
+
+### 本轮量出来的三件事（全部 M 侧独立复量，不是抄 lane 报告）
+
+1. **H1f 的版本来源**：M 自建复审 worktree `minekin-wt-m-r16`（branch `m-r16-h1f-review` @ `258009a`），把**基线块**（`git show ea97c5c:…domain.sh` 的 728-745）与**新字节块**（738-759）逐字抽出来在容器里驱动（`.tmp/m-r16-h1f-probe.sh`，日志 `.tmp/m-r16-h1f-probe.log`，规范卷全程不挂载）：
+   - 基线：`launched_version=1.20.1` 进 → profile 仍写 `"minecraft_version": "1.21.4"`（rc 0、无拒止）；版本置空 → 仍写 `1.21.4`。缺陷读数成立。
+   - 新字节：`1.20.1`→`1.20.1`、`1.21.4`→`1.21.4`；置空 → `rc=2` + 一句具名拒止 + `/tmp/domain-join-profile.json` **不存在**（`new_empty_profile_exists=no`）⇒ 没有常量兜底。
+   - 正对照：除 `minecraft_version` 外七个字段与键集与基线逐字一致（`non_version_fields_identical True`、`keys_equal True`）。
+   - 门：`bash -n` OK、`tests/contract/test_runner_scripts.py` 29 passed、`ruff format --check` 353 files OK、`ruff check` OK；合并后主干全量 `2596 passed, 3 skipped in 386.43s`（`.tmp/m-r16-full-suite-merged.log`；= 基线 2594 + 新契约 2）。
+2. **E-CX 的三条 clause 非恒真**：M 自写复量脚本 `.tmp/m-r16-cx-recheck.sh`（卷 `:ro`，伪造只发生在 `/tmp` 带标签副本，日志 `.tmp/m-r16-cx-recheck.log`），对 A2 bundle `7ff026e4…` 三份副本各跑「clause + `evidence verify`」两层：
+   - `control`（未伪造）→ `kin_clause=None session_clause=None verify_rc=0`；
+   - `cx9`（`kin_id` 改成 `kin-e-aba-forged`）→ `KIN_ID_NOT_CONTINUOUS:kin-e-aba,kin-e-aba-forged`、`verify_rc=12`；
+   - `cx10b`（把 A2 自身 session 换成 A1 的 `f0a28733…`，即 §3.6-10 的**字面**三段形状）→ 两条 clause **仍 `None`**、`verify_rc=12`。
+   - 仓库字节侧复核该构造性质：`SESSIONS_NOT_THREE_DISTINCT` / `KIN_ID_NOT_SINGLE_ACROSS_TRIPLE` 在 `tools/assert_case_evidence.py` 出现 **0 次**；C2 clause（`:3867-3895`）只比 `previous_run_events` 一个相邻对 ⇒ **「首尾两次 run 的 session 不同」在今天的注册判据里根本不可判**，正是卡面对「相邻两 run session 不同不足以证明整条」的最硬证据。
+3. **门载荷未漂移**：两次合并之后再读一次（`:ro` 容器、同一 `report_promotion.py --data-root /data`，日志 `.tmp/m-r16-payload-after-merges.log`；文档笔那一笔的读数在 `.tmp/m-r15-payload-after-doc.log`）：`gate_payload_sha256` 仍 **`cfa0f1184bee30df6a1d9fcf45778c9cef074ece6761c47fe7d6b9f49863afd6`**；`report_rc=1`；`W30.promotable False`（blocks `NO_MANDATORY_CASES` + `REQUIRED_CASE_NOT_REGISTERED`）、`p0-core.promotable False`；`W30.absent` 仍 `OFFLINE-060/080`、`non_mandatory` 仍 11（含 070/090/100）、`misattributed 0`。`verify_fixture_digests OK`、`check_case_assertions OK (150 registered)`、`check_boundaries OK`、`git diff --check` 净。
+
+### 等主控（用户）表态的两项，本轮不实施
+
+- **跨 bundle 三段链载体**：OFFLINE-100 的字面 10 与「首尾 A 同一获确认 world context」要新载体 ⇒ 扩展封存 schema `minekin.p0.evidence.v1`（会重封全卷）。E-CX 与 M 的读数都证明这是**构造边界**而非「再测一下就绿」。真跑侧本轮不再等待：受控本地 A→B→A 的三段（seq 3/4/5、bundle `670aec0b…`/`0314121c…`/`0cc1fb99…`，摘要为 E-CX §2 自量、**M 侧未复量**）早已封存并在 E-CX 里逐条对过，H 的写卷任务（`H1f`）也已让窗——缺的只有跨 bundle 载体这一项，因此该 case 保持未完成而不补排 E 窗。
+- **OFFLINE-090 的 Dashboard 载体**：父行今天恒答 `DASHBOARD_CARRIER_NOT_SEALED`；日志/崩溃那一半已按第十五轮读数确认为**部分证据**，整条不得标 PASS。
+
+### 四态报告
+
+- **已合入 main**：`12d6fbb`（090 §2.7 的真实读数）、`2ef64a8`（H1f：`domain.sh` +17/−3、契约测试 +184、dated 记录 +292）、`5dbcc8a`（E-CX：dated 反例记录 +210）；远端 SHA 三次逐一核过。
+- **仅在分支**：`codex/minekin-v3-1201-join-live-readout`（`V3` 在工，base `5dbcc8a`，本轮派工时尚无提交）。其余 lane 支（`codex/minekin-offline-070` @ `9d43de6`、`codex/minekin-offline-090-100` @ `b9c40a7`）经 `git merge-base --is-ancestor` 逐一确认已在主干内，不再是待审分支。
+- **真实封证**：本轮**零新增封存**（卷全程 `:ro`；E-CX 明确写试探回 `Errno 30`）。
+- **未验证**：H1f 新字节下的整程 live server+joiner（1.20.1 / 1.21.4 各一次）——本轮已据此派 `V3`；E 的 `evaluate` 判官层父行 failures 逐字与三枚 bundle 摘要自算（M 侧未复量，采信其记录）；090 的文件级副本注入与单字节摘要哨兵；OFFLINE-090 Dashboard 半句；§3.6-8 后半（A2 载体整体搬到 B 的真实世界）；1.20.1 侧 `GLFW 0x1000E`/`XDG_RUNTIME_DIR` 的复现或排除；门禁一律未点亮。
+
+不声称 Minekin 已完成：本轮只把两张在工卡收口，并让 OFFLINE-090/100 的「已测」与「按构造不可测」第一次有了分层留证。
