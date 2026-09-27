@@ -117,7 +117,16 @@ if [[ "${1:-}" == "domain" ]]; then
         -e MINEKIN_DOMAIN_JOIN_LOOK_YAW
         -e MINEKIN_DOMAIN_JOIN_LOOK_PITCH
         -e MINEKIN_DOMAIN_JOIN_HOLD_FORWARD_SECONDS
-        -e MINEKIN_DOMAIN_JOIN_CONTROL_PRINT)
+        -e MINEKIN_DOMAIN_JOIN_CONTROL_PRINT
+        # The joining client's controlled-server destination, forwarded by name at last.
+        # `domain.sh` has read this knob since H1k and `run.sh` never delivered it: a run
+        # started through this wrapper read the name as empty, took the "not asked for"
+        # branch, completed, sealed — and was evidence for a different shape than the one
+        # the operator asked for. That is the same defect H1j closed for the four names
+        # above, so it is closed the same way: the bare declaration below forwards the
+        # host's value when the operator set one and leaves the name unset when they did
+        # not. This line casts no default of its own.
+        -e MINEKIN_DOMAIN_JOIN_ON_CONTROLLED_SERVER)
     if [[ "${world}" -eq 1 ]]; then
         EXTRA_ARGS+=(-v "${SERVER_JAR}:/server/server.jar:ro")
     fi
