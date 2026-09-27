@@ -881,3 +881,22 @@ grep -n "world_args\|world_run_args\|seal_run_evidence" test-orchestrator/runner
 - **派工时点**：V5′ 三式活体结束后（`domain.sh` 无其它写者，且不与活体量测抢 CPU）。
 
 **本轮收束与四态**：V5′ 已开跑并过了 prep（`rc(prep)=0`；`kin-v5p-host` 于 `16:09:16Z` 建成、`7565` 个 blob 与宿主一致；header 打印 `domain.sh = e04524d640adec2473f1137c46b6706b7a855753669c9e3b64af6264c4498954`、桥 jar = `e50d61c209be98136216b34aadbb6d5a12db8def8aa63a536f32cda8e287006f`，两值逐字对上 §2.49 的硬核口径），三式 `armed/control-off/ghost` 的读数待下一格记录，**私有卷读数不得冒充 sealed bundle**；CI 已读到 `909`（`edfd8c5`）与 `908`（`012f56b`）均 `completed success`，`906/907` 亦绿；真实封证仍 **0**；本轮 lane 材料零改动、`#62 H1n` 仍未派（`domain.sh` 现由 M 只读、V5′ 在飞）、`#58 (乙)` 待引擎窗；未连用户远程服、未放宽认证/地址/lease/判据、未翻 `mandatory`/registry、材料与失败材料未删。
+
+## §2.51 V5′ 三式活体读数入册：控制词在专服形状下真的改动了被探者的位置与朝向、默认关闭时不动，而「问一个从未到场的名」在日志面上与「没问」不可分辨（第五十六轮第三格，2026-09-28 00:24 +0800，M 主控；私有本地卷 `minekin-m-v5p-live`，规范卷 `minekin-runner-data` **未挂载**，桥 jar 以 `:ro` 挂入，未连用户远程服）
+
+**逐字记录**：`docs/validation/v1201-lan-joiner-local-control-readout-2026-09-28.md`（三式并列表、复算式、材料落点、两处 M 侧驱动缺陷的具名申报都在里面；材料 `.tmp/v5p/out-host/<shape>/` 未删，私有卷未清理）。本轮是**私有卷活体读数**，不是 sealed bundle，不进 `mandatory`/registry，也不支撑任何 `tested` 晋级。
+
+**三式的判别面（同一 `domain.sh` 字节 `e04524d6…`、同一钉值桥 jar `e50d61c2…`）**：
+
+| 式 | 差异 | `server.log`（sha256 前 8 / 行数） | `Kin` 答题行 | `Kin2` 首→末位置 | `Kin2` 末朝向行 |
+| --- | --- | --- | --- | --- | --- |
+| `armed` | 三名齐发（yaw 45 / pitch -20 / hold-forward 2s） | `c6052d38` / 294 | 84 | `[10.5,-60,-9.5]` → `[4.399447156,-60,-3.399447156]` | `[45.0f, -20.0f]` |
+| `control-off` | 三名全部 unset | `975ecd6d` / 286 | 84 | `[10.5,-60,-8.5]` → `[10.5,-60,-8.5]`（未动） | `[0.0f, 0.0f]` |
+| `ghost` | `armed` + `MINEKIN_DOMAIN_PROBE=Ghostz` | `d7bfbcdc` / 289 | **0** | 有位移 | `[45.0f, -20.0f]` |
+
+1. **判据 4（控制词生效）在活体路径上成立且非恒真**：`armed` 的朝向末值与两个赋值逐字相等、位置发生位移；默认关闭的 `control-off` 两项都不动 ⇒ §2.5 的断言第一次拿到活体证据（此前只有契约与静态判定）。
+2. **H1m 的第二具名目标在活体上真被回答**：`armed` 同一份 `server.log` 里 `Kin` 84 行、`Kin2` 82 行，时间戳交错。
+3. **`ghost` 式给出缺口二的最强证据**：`grep -c 'Ghostz' .tmp/v5p/out-host/ghost/server.log` = **0**、`answer-lines-Kin.txt` **0 字节**、`domain-stderr.log` 里也没有一句关于该名——「探过一个不存在的名字」与「没探」在服务端日志面上**不可分辨**。能把「本 run 问过谁」写进 bundle 的唯一通道是 `--probed-player` 交回（H1i 第②格；`tools/seal_run_evidence.py:929` 收参数、`:337–:338` 拼命令面、`:721` 带进 `run_asserter` 已在位），而 `domain.sh` 三式的 (c) 格全是 `(no probe-target line)` ⇒ §2.43 缺口二在活体路径复现。
+4. **两枚 M 侧驱动缺陷具名申报（不改判据、不改材料）**：`.tmp/m-r56-v5p-all.sh` 记的 `rc(live)=0` 是 `drive.sh` 末段 `| tee` 的管道状态，权威值取每式打印的 `V5P: domain.sh rc=14`（`domain.sh:2731` `status=$?` → `:3090` `exit`，三式同为 14 ⇒ 不作判别量）；`drive.sh` 的 (d) 名单写死 `[host, join, PROBE_SECOND]`，本形状下 `join == PROBE_SECOND` ⇒ `Kin2` 那格重复打印两遍（数值一致）。⇒ 顺带一条给 M-C1 的口径：三式 `server.log` 行数 289/286/294 不等（探测节奏与时长的差），**行数是噪声、行内容是判据**。
+
+**次序随之更新**：V5′（#47）收完 ⇒ H1i（#52）的两个前置（V5′ 结束、`domain.sh` 无其它写者）此刻都成立，下一格即派工；`#62 H1n` 与 H1i **同改 `domain.sh`** ⇒ 二者不得并行，排到 H1i 复审入干之后再派。真实封证仍 **0**；本轮零 gradle、零新容器构建、规范卷未挂、未连用户远程服、未放宽认证/地址/lease/判据、材料与失败材料未删、lane 材料零改动。
