@@ -45,6 +45,16 @@
   2026-09-27 实测 `minekin/` 与 `minekin-wt-evidence/` 各有一枚，sha256 `e50d61c209be98136216b34aadbb6d5a12db8def8aa63a536f32cda8e287006f`、
   1310604 字节；`minekin-wt-integration/` 与 `minekin-wt-h1g/` 里没有。V4 要把已核字节那枚**复制进自己的 worktree**
   （`find_workspace_root` 把 workspace 根解析为容器里的 `/src`），并在记录里写明 sha256 与落点；不重新构建、不伪造取料源。
+- **物料不必从零取件（M 于 2026-09-27 在规范卷 `:ro` 上实测）**：store 是内容寻址的
+  `blobs/sha1/<前两位>/<sha1>/<文件名>`，卷上 12 枚 Kin store 中 `kin-04`、`kin-e-*`、`kin-v07-*` 各 **7565 个 blob**，
+  `kin-auto-inst-20260925T134134Z/141055Z` 各 3639 个。**1.20.1 的料已经在那些 7565-blob store 里**，可点名：
+  `1.20.1.jar`（sha1 `0c3ec587af28e5a785c0b4a7b8a30f9a8f78f838`）、`intermediary-1.20.1.jar`
+  （`97d0bff94981e37bd7a4362deee53c9a84e3fb21`）、`fabric-api-0.92.12+1.20.1.jar`
+  （`3e9cdd3e2f827ca9a259df9eb8e31949437b6bd4`）。所以 V4 可以用 `cp -a`／`cp -al` 从只读挂载的规范卷
+  **播种自己的私有根**，不必跑约 25 分钟的整店取件；规范卷全程 `:ro`，不写。
+  边界说清楚：**「store 里有这几枚 blob」不等于「1.20.1 的 launch set 完整」**——缺失与否要以产品自己的
+  缺失计数读数为判据（`session start` 在供给层打印的那一句 `N of M artifacts are not in the store yet`），
+  不得用 blob 存在来声称可起。若播种后仍报缺失，逐字保留那一行并按具名缺失层归因。
 - 越过 `launcher.profile` 之后的第一停点**已由 H1g 读数②c 量到**（`主控侧未复量`）：一次性空 store 下
   `3638 of 3638 artifacts are not in the store yet, starting with com.mojang:minecraft:1.20.1`。
   那是空 store 的形状产物，不是出厂路径：真实受控 run 会把 host Kin 的 store `cp -a` 给 joiner
