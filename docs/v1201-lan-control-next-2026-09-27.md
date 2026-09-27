@@ -603,3 +603,24 @@ job 级 `python`/`protocol`/`bridge-static` 三支对 `886` 全 `success`；步�
 **顺带量到、与 H1l/H1m 排程有关的一件**：主干 `run.sh` 的 `-e MINEKIN_DOMAIN_*` 名单实测跨 `:88–:120`，其中 **既无 `MINEKIN_DOMAIN_JOIN_ON_CONTROLLED_SERVER`（H1l 要加的）也无 `MINEKIN_DOMAIN_PROBE_SECOND`（H1m 要加的）**，两卡都写这同一段 ⇒ §2.29 那句「H1m 严格排在 H1l 之后」在字节面上成立，不是保守排程。契约侧的登记缺口在 `tests/contract/test_runner_scripts.py:148–:157`（`registered_gap = {JOINER_CONTROLLED_SERVER_KNOB}` 与「转发了它就删登记、别删断言」那三条），名字常量在 `:1806`。
 
 **四态增量**：本轮零封证、零改判据/registry/门禁，主干只动这一节文档；真实封证仍 **0**（LAN 第二客户端在受控专服形状下的同 run 封证未动）；已合主干且 CI 绿的最近一笔仍 `a452e84`（`ac1d7fb` 14:12Z 已 `completed/success`，`a1c9f45`/`6429725` 14:14/14:15Z 起跑、本笔读为 `in_progress` ⇒ 不作绿，接手会话须重读）。H1l 仍在飞：lane 树 `../minekin-wt-h1k` 的 `run.sh`、`tests/contract/test_runner_scripts.py` 两文件未提交、分支 HEAD 仍 `ac1d7fb`——按 §2.35 的口径，这只算 22:17 的**时点读数**，M 不据此判它停过、不进它的工作面、不代提交。规范卷 `minekin-runner-data` 本轮未挂。
+
+## §2.37 #58 那一格在主干字节上分裂成两格：`--enable-status` 的谓词决定哪一半才有起服前的具名拒止（第五十二轮后半，2026-09-27 22:24 +0800，M 主控）
+
+**为什么现在做**：H1l 在飞、引擎窗不抢，#58 是队列里唯一不依赖真跑就能推进的待判问题。它从 §2.25（M 判「缺第八条具名拒止」）经 §2.26（M 撤回，改说「早有具名承担者 `AUTH_MODE_MISMATCH`」）走到这里——**本轮按当轮字节逐字读，两笔各自说对了一半，合起来的正确句子第一次写下来。**
+
+**三条字节证据**（`4a2778f` 的主干）：
+
+1. `tools/run_controlled_server.py:238–:272` 的 `status_switch_refusal(profile, *, online_mode, enable_status)` 第一句是 `:254  if not enable_status: return None` ⇒ 那条点名 `(AUTH_MODE_MISMATCH)` 的具名拒止（`:264–:271`）**只在被要求开状态端口时才成立**；文案本身说得很清楚，它拒的是「一台要求会话校验的服务器还对外应答 status ping」。
+2. `test-orchestrator/runner/domain.sh:904–:907`：`status_args=()` 为空，只有 `[ -n "${auto_bundle}" ]` 才 `status_args=(--enable-status)` ⇒ 同一个 `--online-mode` 是否撞上一条落盘前的拒止，就分在这一行。`:883–:886` 仍按 `MINEKIN_DOMAIN_ONLINE_MODE` 铸 `true/false/空` 三式，`:914` 把它拼进同一条启动调用。
+3. 判据侧另有承担者，但层级不同：`tools/assert_case_evidence.py:195` 定义 `AUTH_MODE_MISMATCH = "ADMISSION_FAILURE_REASON_AUTH_MODE_MISMATCH"`，`:2700–:2722` 的 `the_auth_mode_mismatch_was_classified_in_the_ledger` 要 ledger 里有一条 `phase=FAILED` **且** `reason=` 该枚举 **且** `source=BRIDGE` **且** `trust_class=BRIDGE_FILTERED` 的 `SessionInterrupted`，否则报 `NO_CLASSIFIED_AUTH_MODE_MISMATCH`；`:2724–` 的第二条再要求「拒止之后只有一份策略、一个进程」。**它读的是加入者客户端 ledger 里已经发生过的分类，不是起服之前的拒止。**
+
+**于是那一格分成两格**：
+
+- **(甲) `ONLINE_MODE=true × JOIN_ON_CONTROLLED_SERVER=1 × --auto-bundle`** ⇒ `run_controlled_server.py:264–:271` 在 run 目录出现之前 `rc=2` 具名收口（H2 收卡时 M 侧容器复量已直接量到过这一式：`--enable-status --online-mode` ⇒ rc=2 具名 `AUTH_MODE_MISMATCH` 且 run 目录不存在）。这一格 **不需要第八条 guard**，§2.26 的撤回在它是站得住的。
+- **(乙) 同一对旋钮的非 auto 形状**（正是 H1k 的 live-c…f 那类 run 的形状）⇒ **没有**任何起服前的具名拒止：服务端照写 `online-mode=true`，加入者以 `auth_mode: offline` 打它，按契约这一式「必须**不**被绕开」；编排侧看到的是加入者永不到达 ⇒ 等待超时／`rc=14`。§2.25 说的「guard 未列该对」在这格是字面真的；§2.26 说的「有具名承担者」也真——但承担者在 **ledger 判定层**（第 3 条那两式），不在 guard 层。当时那句撤回没错，只是它把「有人在判」写成了像是「有人在门口拒」。
+
+**剩下唯一的未知，以及它归谁**：(乙) 那格真跑一次会留下什么——加入者 ledger 是否真落 `ADMISSION_FAILURE_REASON_AUTH_MODE_MISMATCH`（+「一次策略、一个进程」），编排侧又停在哪一层——按构造只能由一次真跑回答（420s 等待预算）。**不开新卡**：#58 的口径收窄为「只问 (乙) 的实测」，且排在 H1m 入干之后的引擎窗，只用 M 的私有数据根、不挂规范卷、不封存。
+
+**本轮明确不做的动作**（写给下一个读到这节的人）：不因 (乙) 缺门口拒止就去补第八条 guard、不改 `MINEKIN_DOMAIN_*` 的默认、不动判据/registry/`mandatory`；让 (乙)「变可判」的唯一快法是给受控加入者一条在线凭据路径，那是硬禁，不在任何卡的面上。
+
+**四态增量**：零封证、零改判据，主干只动本节与账目；真实封证仍 **0**；`4d04f3b`/`4a2778f` 的 CI 绿读数仍待重读（`a1c9f45`、`6429725` 14:17Z 读为 `in_progress`）；H1l 在飞（22:16 时点两文件未提交），M 未进其工作面。规范卷 `minekin-runner-data` 本轮未挂；未连接用户远程服；未放宽认证/地址/lease/判据；旧材料与失败材料一字未删。
