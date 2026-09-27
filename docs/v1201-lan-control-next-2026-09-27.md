@@ -105,3 +105,22 @@ M-C0 的验收里「既有 case 的判定结果不得改变」这条不能靠 la
 - H1h：`minekin-wt-h1h` @ base `24ac6e0`，**零提交**，未提交改动只在 `domain.sh` + `tests/contract/test_runner_scripts.py`（允许面内）。
 - M-C0：`minekin-wt-mc0` @ base `5d0cd2a`，工作树干净、**零提交**。
 - H1i 仍不派（与 H1h 同改 `domain.sh`）。远端 ref 复核要用全称 pattern：`git ls-remote origin refs/heads/codex/minekin-lan-joiner-bounded-control refs/heads/codex/minekin-probe-target-carrier`（畸形 pattern 得到的空输出不构成「未推送」证据）。
+
+## §2.4 H1i 的精确形状：加入者 bundle 缺服务端日志是 `domain.sh` 的**有意丢弃**（本轮读源码量清，含对 §2.1 第 1 条的自我修正）
+
+§2.1 第 1 条说「缺的是 `--server-directory` 参数，不是实现」。读了封存调用现场后要修正一半：**sealer 侧确实现成，但 `domain.sh` 的 joiner 分支是主动把它清掉的**，所以这一格不是「E7 补传参数」就能拿到，必须走 H1i 的 runner 改动。
+
+实测字节（主干 `3d46686`）：
+- `test-orchestrator/runner/domain.sh:2443-2444`：主持有形状把 `--server-profile` 与 `--server-directory "${server_directory}"` 一起放进 `world_args`。
+- `:2472-2489`：`case_on=joiner` 时改成 `subject_document=/tmp/domain-join-session.json`、`subject_username="${join_username}"`、`world_run_args=(--world-run-document /tmp/domain-session.json)`，并且 **`world_args=()`**（`:2484-2487` 的注释给出理由：专用服务器 profile 是**另一种世界**，留着名字会让「宿主文档不可读」的加入 run 退化成记录一个从未跑过的世界，而不是被拒）。⇒ 这就是全卷「同时含 `server/server.log` 与 `host-run-document.json` 的 bundle = 0 份」的机制，不是遗漏。
+- 关键副作用检查（决定 H1i 能不能只加一个参数）：
+  - `tools/seal_run_evidence.py:255-258`：`server_directory` 一旦给出就封**三件**产物（`server.log`、`usercache.json`、`server.properties`）；
+  - `:419-428`：加入者 bundle 的世界记录走 `world_run_document` 分支并**先返回** ⇒ 加 `--server-directory` **不会**改动 `world` 字段（`:434` 的 `world_seed` 分支在 joiner 形状上根本到不了）。这条先量清楚，否则 H1i 会被误判成「会改世界身份，因而不许做」；
+  - `:529-531`：`server_observed_name_uuid` 从 `""` 变成按 `subject_username` 查宿主 `usercache.json` 的读数——而 `subject_username` 在 joiner 形状正是 `${join_username}`（`domain.sh:2482`、`:2590`）。⇒ 这一格加的不是噪声，是**服务端自己对加入者身份的记账**，与 §2.1 第 3 条要求的归属正好同向。
+
+**M 对 H1i 卡面的裁决（默认关闭，别碰已登记案）**：
+1. 只在**新的 opt-in** 下补传：给加入者封存分支加一个默认关闭的开关（旗标名由 H lane 定），置位时才把 `--server-directory "${server_directory}"` 加回 joiner 的 `world_args`。默认关闭 ⇒ 未来再跑的 `CORE-030` 加入者 bundle 形状逐字节不变，已封存 bundle 更不受影响（重判读的是 bundle 内字节）。
+2. **绝不**因此把 `--server-profile` / `--server-jar` 带回来——`:2484-2487` 的拒止理由要原样成立；契约测试要盯住「opt-in 打开时 argv 里出现 `--server-directory` 且不出现 `--server-profile`」。
+3. 探针目标（§2.2 M-C0 的 `--probed-player`）与这一格同批交给封存调用，来源都是 `domain.sh:482` 的 `${probe:-${player}}`；不得动 `:400-406` 的 auto+joiner 拒止。
+4. H1i 的验收含一条反证：opt-in 关闭时 joiner 的封存 argv 与当前主干逐字相同（默认关闭等值的同一口径，H1h 已用 `.tmp/m-r37-h1h-argv-judge.py` 立过形状）。
+5. 排程不变：H1i 等 H1h 与 M-C0 都合入后再派（同改 `domain.sh`，不并发）。V5 的活体读数**不依赖** H1i——H1i 只服务「同 run 封证」（E7）与 case 登记（M-C1）。
