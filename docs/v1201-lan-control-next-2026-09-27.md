@@ -1165,3 +1165,34 @@ C1-only 字节上的读数（`.tmp/m-r64-c1-gates.log`）：`check_case_assertio
 **⑧ 落点与次序**：`c1f651845ba0e42c7c561ec86f76a72d22203cbc` 已 push，`git ls-remote` 读回同值（`7d97188..c1f6518`）。CI：`7d97188` 的 run `36345957828`（编号 927）按 `ci.yml` 自有步骤逐步读为全 `success`（`python` 18 步、`protocol` 10 步、`bridge-static` 9 步，`non_success=[]`；jobs 原文 `.tmp/m-r66-ci-jobs-7d97188.json`）⇒「已合主干且 CI 绿」前进到 `7d97188`；本合并笔的 run `36348081759`（编号 **929**）落档时为 `in_progress`（只作时点申报，接手会话必须重读才可在文档写「合并笔 CI 绿」）。**E7（#49）与 M-G1（#50）仍阻塞在 #65 H1q 的主控/用户口径裁决**（§2.54 那条唯一可封形状：加入者 bundle 的「世界」由谁命名），M 不代决定；未开工存量剩 `#58 (乙)`（待引擎窗）。**真实封证仍 0**——本卡撤掉的是一枚读数面假绿的来源。
 
 **⑨ 时点移动（补记，不改写 ⑧ 的读数）**：⑧ 落笔时合并笔的 run 929 是 `in_progress`；随后的重读把它读绿了——`36348081759` = `completed/success`，jobs 端点留存 `.tmp/m-r66-ci-jobs-c1f6518.json`，按 `ci.yml` 自有步骤逐格核对：`python` 18 步、`protocol` 10 步、`bridge-static` 9 步，三 job 的 `non_success` 列表均为空，`head_sha` 前缀 `c1f65184`、`run_attempt=1` ⇒ **「已合主干且 CI 绿」前进到 `c1f6518`**，H1n 没有把主干弄红是 M 自读而非 lane 自报。⑧ 里那句时点申报按「已落读数不改写」的口径保留。
+## §2.59 主控对 §2.54 那格口径的裁决：**采纳**「按形状分裂」——专服形状下加入者 bundle 的世界块由**本 run 自己起的** `--server-profile` 命名，并据此派 #65 H1q（第六十七轮，2026-09-28 04:41 +0800，M 主控；只读仓库字节 + 只读 REST，零容器活体、零 JVM、未连用户远程服、未读 `.tmp/local-test-server.txt`）
+
+**⓪ 落笔现场（脚本当场读，不凭记忆）**：远端 `main` = `354f34e`（`ls-remote` 回 `354f34e`），`domain.sh` 最后一次改动是 `3d95a31`（H1n），本轮起摘要 `\16124b5bf3a18b2…`、3252 行；Case assertion implementations: OK (151 registered)；记录笔 `354f34e` 的 CI run 930 = `completed/success`，三作业步数 {"bridge-static": 9, "protocol": 10, "python": 18}、`non_success=[]`（原文 `.tmp/m-r67-ci-jobs-354f34e.json`，第一次抓时 python 作业尚在 step 8，随后整读全绿 ⇒ §2.58 ⑧ 那格「未读绿之前不得写合并笔 CI 绿」在此闭合）。
+
+**① 裁决**：§2.54 ⑤ 那条唯一可封形状**采纳**——加入者支在「本 run 确实起了那台被加入的专服」时，把世界输入交成 `--server-profile "${server_profile}" --server-directory "${server_directory}"`，并**同时弃** `--world-run-document`；`--server-profile` 缺席的 LAN 形状逐字节不变。`--server-jar` 仍**不**交（加入者支不挂载 jar，`domain.sh:3035–:3040` 只在宿主支补它）。
+- **这格属主控、不属用户**：§2.54 ⑥ 把它判给「主控保留」，而本项目里主控就是 M（本会话）。用户在第六十六轮目标里给的口径是「按文档顺序推进 …E7、M-G1，前置不满足就保留失败材料并开对应窄卡」——E7 的前置正是这条口径，卡（#65）也已开；把它当作用户决策往上顶会停在原地。记忆 `project-controller-reserved-decisions` 保留的是**晋级门、V08/真实用户服、HOST 侧封存与实施**三样，封存形状不在其列。
+
+**② 为什么只有这一条形状（三段都在字节上，不是「这次没跑到」）**
+- **(a) 递宿主文档必拒**：`tools/seal_run_evidence.py:426–:434`——给了 `--world-run-document` 就取宿主快照，宿主无 `run.world_snapshot` 时 `:434` 抛 `the run that hosted this world did not record a world of its own`；而 `src/minekin_core/cli/session.py:644–:657` 只在核心自己播种时写该字段，H1k 形状的服务端由 `domain.sh` 直接起 ⇒ 按构造为空。加入者支今日无条件递（今日字节上是 `:3074` 那一行）⇒ `case_on=joiner` 在专服形状下**必**拒。
+- **(b) 只交目录也封不出**：`_world_record` 的路线 3 在 `target is None` 时按 `kind: none` 走，而 `name` 取自目录（`world_seed`）⇒ `src/minekin_core/domain/evidence.py:189–:193` 的一致性判据 `no_kind != unnamed` 命中 `WORLD_RECORD_INCONSISTENT`（`bundle.py:113` 抛出）。这就是 H1p 量到的 `ce_ab2/50-switch-off.err`，也是 H1i 第①格「只补 `--server-directory`」在今日字节上的**唯一**结局——那一格本身封不出 bundle，它的价值在把载体（`server.log` 等三件）接进采集。
+- **(c) 交 profile + 目录才自洽**：路线 3 的 `target` 非空 ⇒ `kind: dedicated`、`config_digest = target.revision`（非空）、`name = world_seed(目录)` ⇒ 三格同侧，`evidence.py:189–:193` 无 violation。规范卷 100 份 bundle 的现读（§2.54 ④）证明这不是新造语义：`dedicated` 81 份，其中 E6 的 `73a52bfb…` 同一份 bundle 里 `server/server.log` 在列。
+
+**③ 这不是「放宽」，而是补完一个只有一半的口径**：`seal_run_evidence.py:411–:419` 的 docstring 否定的是「给了文档、文档没说世界 ⇒ 当成没给、往下走路线 3」，本裁决一处都不碰它——被弃的是**注定被 `:434` 拒**的那次递件，且只在 profile 在场时弃。§2.43 补记 / §2.50 那句「绝不带回 `--server-profile`」的理由是「profile 会记下一个不同种类的世界」，该理由在 LAN 形状成立、在 H1k 专服形状**恰好不成立**（那枚 profile 就是本 run 起的那台专服，也是加入者真站进去的世界）。默认关闭、LAN 逐字节不变、`:546–:561` 三枚拒止全保留 ⇒ 关闭态与今日等价。
+
+**④ 复用现有旋钮 `MINEKIN_DOMAIN_SEAL_JOINER_SERVER_LOG`，不新开第三枚**：该旋钮打开时 `:552` 已保证 `server_profile` 非空、`:556` 已排除 black hole、`:547` 已要求 `case_on=joiner` ⇒ 打开态的**全部**可达形状都满足「profile 就是本 run 的专服」，交 profile 不需要新的守门；新开一枚只会给冲突矩阵添一对需要具名拒止的组合（记忆 `project-knob-conflict-named-refusals`）。代价是该旋钮的名字只说了「server log」而它从现在起交两件——所以 `:206–:210` 那段注释必须同步改写，且契约要按名要求两格同时在场。**回退条件（具名）**：若 H1q 的活体读数显示「只交目录」在某形状下能干净封出 bundle（即 (b) 被证否），本裁决作废、回到两枚旋钮的形状，失败材料留在 lane 的 `.tmp/` 里改名 `-FE1` 保存。
+
+**⑤ 今日字节锚点（`grep -n` 现读；H1n 在 `:2617` 净 +1 行 ⇒ §2.54 里 `:2617` 之后的行号一律 +1）**
+- 旋钮读法与取值判定：`domain.sh:206–:210`（注释，含「Only the directory」那句要改）、`:213–:222`（`seal_joiner_server_log_asked`）。
+- 三枚拒止的守门区域：`:540` begin / `:546` `if asked` / `:547` `case_on != joiner` / `:552` `server_profile` 缺席 / `:556` black hole / `:561` end（区域名 `joiner-server-log-seal-guard`，契约按名提取）。
+- 加入者封存支：`:3062` `world_run_args=()` / `:3074` 无条件递 `/tmp/domain-session.json` / `:3090–:3095` 区域 `joiner-server-log-seal-forge`（`:3091` 清空、`:3093` 只给目录）。**本裁决要动的两处**：`:3074` 的条件化与 `:3091–:3094` 的 argv；契约现在只提取 forge 区域 ⇒ 两处必须落在**同一具名区域**内（或新增第二个区域并在契约里逐名要求），否则「两格同时在场即拒」这条判据在契约面上读不到。
+- 封存调用拼接：`:3192` `"${world_args[@]}"` / `:3194` `"${world_run_args[@]}"`；宿主支 `:3034–:3040`（对照用，不改）。
+- sealer 侧：`tools/seal_run_evidence.py:426/:427/:434`（路线 2）、`:437–:442`（路线 3）、`:735`（profile 与 world 文档同时缺席时的守门）、`:141–:157`（`world_seed`，读不到记 `unrecorded`）；`src/minekin_core/domain/evidence.py:189–:193`。**这些本轮全部零改动。**
+
+**⑥ #65 H1q 卡面（`V1201-JOINER-WORLD-BY-DEDICATED-PROFILE-001`）**
+- 允许面两份：`test-orchestrator/runner/domain.sh`、`tests/contract/test_runner_scripts.py`；交付记录另落 `docs/validation/v1201-h1q-joiner-world-by-dedicated-profile-2026-09-28.md`。**不动** `tools/`、`src/`、`tests/fixtures/cases/**`、`run.sh`（H1o 已转发该旋钮）。
+- 改动：打开态下加入者支交 `--server-profile` + `--server-directory` 且不交 `--world-run-document`；关闭态逐字节等于今日（含继续无条件递宿主文档）；`:206–:210` 注释改写；新增具名拒止：**同一 argv 上 `--world-run-document` 与 `--server-profile` 同时在场 ⇒ `exit 2`**，且必须早于任何封存落盘（按 `project-knob-conflict-named-refusals` 的行号法对首次落盘证明）。
+- 验收格：(1) 关闭态加入者封存 argv 与主干逐字节相等（契约提取比对）；(2) 打开态 argv 恰为两件、不含 world 文档、不含 `--server-jar`；(3) LAN 形状（profile 缺席）沿用 `:553` 那句；(4) 冲突拒止 `rc=2` + 具名 + 未落盘；(5) `bash -n` ×2 + `ci.yml` 自有步骤全表 + 契约；(6) **活体一读**（lane 自有私有卷，规范卷不挂）：专服形状 `case_on=joiner` + 旋钮开 ⇒ 真封出 bundle，并打印 `manifest` 的 `world_kind / seed_or_snapshot_id / server_config_digest` 三格与 `violations()`，回答 §2.54 附注那格（1.20.1 受控专服的 run 目录落 `minekin-…` 还是 `unrecorded`；`unrecorded` 合法但须具名入册）。
+- 门基线（lane 的 PRE 必须与这些值逐字同源）：`domain.sh` 摘要 `\16124b5bf3a18b2985d14ca27bf2514d3f630fe4db60827abb4b274e35988401` / 3252 行；Case assertion implementations: OK (151 registered)；门载荷仍 `cfa0f118…63afd6`（第 12 次同值是在 `3d95a31` 之后的合并字节上量的，`354f34e` 起 `domain.sh`/`tools/`/`tests/fixtures/` 零改动 ⇒ 该值仍是当前基线）。POST 须与之配对：非 `REQUIRED_CASES` 的注册才不动载荷（§2.56），本卡不注册案 ⇒ 载荷必须仍同值。
+- 只 push 自己的分支；M 按真实 `git merge-base` 独立复审后才合 `main`。
+
+**⑦ 次序随之前进**：H1q（#65，本轮派）⇒ 复审入干 ⇒ **E7（#49）可开跑**（它要的就是 `case_on=joiner` 的同 run 封证，载体面 H1i、旋钮转发面 H1o、判据案面 M-C1 均已入干，形状面本轮裁决）⇒ M-G1（#50）只读审计排最后。空档仍做 #58 (乙)。**LAN 第二客户端在受控专服形状下的同 run 真实封证仍 = 0**；本轮零 JVM、零 gradle、零容器写入、规范卷未挂、未翻 `mandatory`/registry、材料与失败材料未删、未碰任何 lane 工作面（`../minekin-wt-h1n` 归 H1n lane）。
