@@ -1196,3 +1196,16 @@ C1-only 字节上的读数（`.tmp/m-r64-c1-gates.log`）：`check_case_assertio
 - 只 push 自己的分支；M 按真实 `git merge-base` 独立复审后才合 `main`。
 
 **⑦ 次序随之前进**：H1q（#65，本轮派）⇒ 复审入干 ⇒ **E7（#49）可开跑**（它要的就是 `case_on=joiner` 的同 run 封证，载体面 H1i、旋钮转发面 H1o、判据案面 M-C1 均已入干，形状面本轮裁决）⇒ M-G1（#50）只读审计排最后。空档仍做 #58 (乙)。**LAN 第二客户端在受控专服形状下的同 run 真实封证仍 = 0**；本轮零 JVM、零 gradle、零容器写入、规范卷未挂、未翻 `mandatory`/registry、材料与失败材料未删、未碰任何 lane 工作面（`../minekin-wt-h1n` 归 H1n lane）。
+
+## §2.60 H1q 的复审判据在 lane 交付之前就写成了可复算脚本：把加入者分支**逐字提出来在桩环境里执行**，读 bash 真正拼出的 argv（第六十七轮补格，2026-09-28 04:51 +0800，M 主控；宿主 bash + 只读仓库字节，零容器、零 JVM、规范卷未挂）
+
+**为什么不用文本扫描**：这张卡要判的是「旋钮开/关时封存调用拿到哪几个 argv」，注释、字符串、区域外的行都能骗过模式匹配。§2.58 ④ 已经用过一次更硬的办法——把提交字节提出来的执行——本轮沿用它：`.tmp/m-r67-h1q-joiner-argv-judge.py`（`report` / `compare --base --tip` / `mutate`）。它按 `if [ "${case_on}" = "joiner" ]; then` 起、到四个空格缩进的 `fi` 止切出整段加入者分支，配一份只含既有变量名的桩（`case_on/join_ready/player/join_username/server_profile/server_directory/black_hole/两枚 asked`），在 `set -u` 下跑两遍（`seal_joiner_server_log_asked=0/1`），打印 `world_args` 与 `world_run_args` 的**实际内容**。桩里若引用了新变量名，`set -u` 会直接把它暴露成 rc≠0，而不是静默漏判。
+
+**校准三格（全部落在 `.tmp/m-r67-h1q-judge-calibration.log`，脚本 `.tmp/m-r67-h1q-reference-shape.py`）**
+- **(甲) 主干今日字节 = 判官必须报出 §2.59 ② 的两格**：`domain.sh` 摘要 `16124b5bf3a18b29…`（与派工值同值；校准副本落在 `.tmp/m-r67-shape/trunk`）；`closed: branch :3063+34 sha=7767e883 rc=0 world_args=[] world_run_args=[--world-run-document /tmp/domain-session.json]`；`open: branch :3063+34 sha=7767e883 rc=0 world_args=[--server-directory /tmp/domain-run/server] world_run_args=[--world-run-document /tmp/domain-session.json]` ⇒ faults=2，逐字为 `open state does not hand --server-profile` 与 `open state still hands the host run document (route 2 refuses it)`。**这就是「打开态今日封不出 bundle」在 argv 面上的形状**（②(a)/(b)）。
+- **(乙) 采纳形状必须被判官接受**：把 `:3074` 的无条件递件挪进 `else`、`world_args` 改交两件（profile + directory），`bash -n rc=0`，打开态读到 `open: branch :3063+41 sha=6b37342e rc=0 world_args=[--server-profile /tmp/domain-join-profile.json --server-directory /tmp/domain-run/server] world_run_args=[]`，faults=0；`compare --base trunk --tip adopted` 给出 `VERDICT accept`，且关闭态 argv 逐字不变（`--world-run-document` 仍在、`world_args` 仍空）。⇒ §2.59 ⑤ 的形状在 bash 里**可满足**，卡面不是空要求。**注意坑**：这一版把弃件写成 `else` ⇒ 冲突守门成为死码；真交付若同形，契约的「删掉该分支必红」变异格（卡面 §4.3）必须自己抓到它，判官不代替契约。
+- **(丙) 非恒真对照**：另造 `both-handed` 形状（保留 `:3074` 的递件，同时打开态交 profile + 目录）⇒ 冲突守门真触发，`rc=2` 且 stderr 打出那句具名拒止，判官报 `open state exited rc=2`。⇒ 「两格同时在场即拒」这条判据有判别力，不是恒真也不是恒假。
+
+**判官自己的两处首版缺陷（当场修，记账以免重犯）**：① 提取起点原先锚在 `subject_document=` 那一行 ⇒ 切出来的片段少了 `if … then`，bash 报 `syntax error near unexpected token 'fi'`，而 `classify` 把它翻译成「关闭态不再递宿主文档」的假故障——**没有这条 rc≠0 的读数，一次语法错误就会被我当成形状判定**；现锚在分支开句，并要求 `subject_document=` 必须落在片段之内。② `compare` 原先拿区段 sha 判「关闭态未变」⇒ 源码面必然变（多一个分支），行为面才是等值；改为只比 `rc / world_args / world_run_args`（与 [[project-v1201-lan-control-queue]] 里「行号不是字节」同族：**sha 也不是 argv**）。③ 顺带记一次编号口径：`report` 起初把 1-based 行号自加了两遍（显示 `:3064`，`grep -n` 实为 `:3063`），已修。
+
+**四态增量**：本轮 M 只写这两份主干文档与自己的 `.tmp/`（判官、参考形状、校准日志）；`domain.sh` 与契约测试零改动（校准副本全在 `.tmp/m-r67-shape/`，摘要 `16124b5b…` 仍与派工时同值）；lane 树未碰；规范卷未挂；未连用户远程服；未动 mandatory/registry/晋级；材料与失败材料未删。**真实封证仍 0**。
