@@ -770,3 +770,26 @@ $ grep -qE 'Stevedor (lost connection|left the game)' \n server.log 2>/dev/null;
 - `python /src/tools/check_case_assertions.py` ⇒ **rc=0**、末行 `Case assertion implementations: OK (150 registered)`（材料 `.tmp/m-r54-assertions-e.log`）。
 
 **为什么要实测而不是引用**：`d95e59d` 之后主干连着落了八笔纯 docs（`dcc3e24`、`dc0067c`、`af514d1`、`c87089d`、`38854ea`、`3298532`、`095c852`、`eb8aaa9`），此前每笔都按「门载荷输入面不含 `docs/**`」判它不动——那是**构造性论断**，本轮把它换成一次现读。⇒ 这就是 H1i / V5′ / H1n 三张卡的 **PRE 基线**：交付时 `POST` 必须仍等于 `cfa0f118…63afd6`、`report_promotion` 仍 rc=1、`check_case_assertions` 仍 `150 registered`（这三张卡都不注册 case；若谁动了 registry，就要按 OFFLINE 那族的规矩量出差值并具名）。**四态增量**：真实封证仍 **0**；本轮零 JVM/零引擎活体、规范卷只 `:ro`；未连接用户远程服；未放宽认证/地址/lease/判据；未翻 `mandatory`/registry；材料未删。
+
+## §2.46 V5′ 的第二条前置量到字节：集成树没有 1.20.1 桥产物——失败面是**具名拒止**（不是静默降级），而「就地建一次」不会动 recipe 的 source 钉（第五十四轮末第三格，2026-09-27 23:22 +0800，M 主控；全程只读，零 JVM、零 gradle、零容器、规范卷未挂）
+
+**缺口本身**：`ls minekin-wt-integration/bridge-1201/build/libs/` ⇒ `No such file or directory`（该目录下 `build/` 整层不存在）。而 lane 两棵树各有一份产物，且**同摘要**：
+
+```text
+e50d61c209be98136216b34aadbb6d5a12db8def8aa63a536f32cda8e287006f  2026-09-27 18:45:12 +0800  1310604  minekin-wt-h1k/bridge-1201/build/libs/minekin-bridge-1201-0.0.0.jar
+e50d61c209be98136216b34aadbb6d5a12db8def8aa63a536f32cda8e287006f  2026-09-27 23:14:43 +0800  1310604  minekin-wt-h1m/bridge-1201/build/libs/minekin-bridge-1201-0.0.0.jar
+```
+
+两棵树、相隔 4.5 小时、字节相同 ⇒ 「在集成树现建一次会拿到什么摘要」这一格不必猜：期望值就是 `e50d61c2…7006f` / `1,310,604 B`，它同时是 `recipe.py:72–:73` 的钉值（`BRIDGE_1201_JAR_SHA256` / `_JAR_SIZE`）。
+
+**失败面读到了码，不是推断**：1.20.1 的桥在 recipe 里是 `source: "workspace:bridge-1201"`（`recipe.py:274`），装 mod 那一步对 `workspace:` 来源只问一件事——文件在不在：`src/minekin_core/adapters/launcher/mods.py:93–:97` 对缺失路径抛 `… has not been built: {jar} is missing`，`ErrorCategory.SUPPLY_CHAIN` + `Retryability.OPERATOR_ACTION`。⇒ V5′ 若直接拿主干树起活体，会在**任何世界动作之前**具名拒止，可判、可读、不会伪装成一次通过的读数。这是「前置不满足就保留失败材料」那一类里最省事的一种：拒止即证据。
+
+**但另一轴是沉默的，必须写进 V5′ 验收**：盘上那份 jar 的字节**从不被 rehash**——`BRIDGE_1201_JAR_SHA256` 只在 recipe 审计里与 bundle 记录里的 `digest`/`size` 字段比对（`recipe.py:267–:280`），`workspace:` 分支只 `is_file()`（`mods.py:95`）。⇒「在位但内容不对的桥」会照常起程。所以 V5′ 的记录必须**自己 `sha256sum` 它挂进 `/src` 的那一份并写值**，正如 H1k 的 `.tmp/h1k-live/drive.sh` 已经在 `00-header.txt` 里做的那样（其读数 = 钉值，本轮已在盘上核到）。这条是取数要求，不是改判据。
+
+**「就地建一次」为什么不会碰钉**：`_candidate_1201_audit` 除比摘要外还比 `source_digest = source_tree_sha256(workspace_root / "bridge-1201")`（`recipe.py:281–:283`，不符 ⇒ `candidate Bridge source tree digest differs from the bundle recipe`）。而 `source_tree_sha256` 在 `recipe.py:138–:145` 具名剔除路径分量属于 `{".gradle", "build"}` 的一切 ⇒ gradle 的产物落进 `build/` 之后，源树摘要**逐字节不变**，那一格不会被自己碰响。⇒ 前置动作 = 在集成树跑一次 `bridge-1201/gradlew :bridge-1201:jar`（注意 wrapper 在 `bridge-1201/` 下，仓库根无 wrapper），然后核摘要；**若新摘要 ≠ `e50d61c2…` 就停**：那说明在盘两份与主干源树有差异，先具名差异再判，M 不改钉（改钉 = 重封全卷级别，主控保留决策）。
+
+**H1m 的现场从「三文件在写」升级为「正在真跑 armed 形状」**（仍不构成交付）：`docker ps` 读到 `friendly_mcclintock`，`docker inspect` 留存 `.tmp/m-r54-h1m-inspect.txt` ⇒ `/src` = `C:/Users/darling/Documents/agent_work/minekin-wt-h1m` 只读、`/data` = `minekin-h1m-live` 读写、`/server/server.jar` = 主目录 `.tmp/mc-1.20.1-server.jar` 只读、`StartedAt = 2026-09-27T15:16:18Z`；具名 env 里读到了 **`MINEKIN_DOMAIN_PROBE_SECOND=Kin2`** 与 `MINEKIN_DOMAIN_PROBE=Kin`、`MINEKIN_DOMAIN_JOIN=kin-h1m-join`、`MINEKIN_KIN_ID=kin-h1m-host`、`MINEKIN_DOMAIN_JOIN_USERNAME=Kin2`、`MINEKIN_DOMAIN_JOIN_ON_CONTROLLED_SERVER=1`、`PROBE_SECONDS=4`、`DOMAIN_SECONDS=300`、`SOAK_SECONDS=120`、`SOAK_INTERVAL=15` ⇒ §2.29 的 armed 形状正在它自己的私有卷上跑。其树 HEAD 仍 `dc0067c`、远端仍无该分支 ref ⇒ 按 §2.35 仍是「在飞」，M 不挂容器、不跑 gradle（不与它抢 CPU/引擎）、不进其树、不代提交。
+
+**三条 probe 相关远端 ref 的归属已核，都不是新的在途 lane 工作**：`8b66356`（21:53，M-T1 的格式化笔）、`1e42ea6`（16:19，M-C0 探针载体）、`7f67aac`（16:37，V5a 前置量测）三笔 `git merge-base --is-ancestor … HEAD` 全部 YES ⇒ 早已合主干；卷 `minekin-v5-probe` 同源于那一轮 ⇒ V5′ 仍按 §2.42 用**新建**的 `minekin-m-v5p-live`，不复用它、也不清它。
+
+**⇒ V5′ 派工前置合并为三条**（全部 M 可控、全部不动认证/地址/lease/判据）：① H1m 入干（§2.42、§2.45）；② 集成树桥产物在位且摘要 = `e50d61c2…`（本节，含「摘要写进记录」那条新增验收）；③ `docker ps` 静默（引擎窗）。**四态**：真实封证仍 **0**；已合主干且 CI 绿前进到 **`e8fc436`**——一次读 `.tmp/m-r54-ci3.json`（23:22 +0800）把 §2.44/§2.45 欠的四笔一次闭合：`899`=`3298532`、`900`=`095c852`、`901`=`eb8aaa9`、`902`=`e8fc436` 全 `completed/success`（连同 `895`–`898` 亦 success，即第五十四轮全部记录笔 CI 判绿，本轮无 `in_progress` 欠账）；仅在分支 = H1m（在飞，真跑中、尚无提交）与 lane 的 `codex/minekin-h1l-forward-join-name` ref（不删）；未验证 = V5′ 全卡、H1i 全卡、H1n 全卡、#58 (乙)。**M 自己的手误具名**：本节量测中途把 `docker inspect` 的落盘写进了 `../minekin/.tmp/`（那是 E/lane 的 `codex/core-state-transition` 工作树，M 的边界是不进它的工作面）⇒ 已 `mv` 回 `minekin-wt-integration/.tmp/m-r54-h1m-inspect.txt`，主目录该项现不存在。记下以免重复：**M 的只读材料只写自己的树**。本轮零 JVM、零 gradle、零容器活体、规范卷未挂、未读 `.tmp/local-test-server.txt`、未放宽认证/地址/lease/判据、未翻 `mandatory`/registry、材料与失败材料未删（`.tmp/m-r54-h1m-inspect.txt`、`.tmp/m-r54-ci3.json` 在案）。
