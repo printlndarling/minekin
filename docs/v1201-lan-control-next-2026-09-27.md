@@ -139,3 +139,12 @@ V5 是活体读数，不是封证，也不是 case。M 先把**今天就存在�
    做不到这两条，V5 只能是「看到数字变了」，不构成可判载体。
 6. **边界**：V5 只写一份带日期的 `docs/validation/` 记录 + 私有数据根；**不挂规范卷、不封存、不注册 case、不动 registry 或 mandatory**；不得引用 E6 的 `V1201-020` seq4 作为 LAN 第二客户端的证据（§0 的裁决）。
 7. **停止条件**：若控制已 arm 而 PLAYABLE 未到，第一真实失败层在「H1h 的 argv 是否真到达加入者客户端」，V5 就地停并报告，不得在 V 卡里顺手改 runner。
+
+## §2.6 H1i 的验收判据已钉成可复算工具（M 侧 `.tmp/m-r39-h1i-seal-argv-judge.py`）
+
+§2.4 第 4 条要求「opt-in 关闭时 joiner 的封存 argv 与当前主干逐字相同」，此前只是话。本轮把它写成与 H1h 判官同形状的一件工具（`report` / `compare --base --tip` / `mutate`），并在主干 `95b1b00`（`domain.sh ff69c879…`）标定，日志 `.tmp/m-r39-h1i-judge-calibration.log`：
+
+1. **主干基线**：加入者封存区段（`subject_document=/tmp/domain-join-session.json` 起至该分支 `fi`，绝对首行 2481、共 9 行）sha `4270b51cba07e4da32b9dc979f531afa96026596548b2a059d651e8a04763dee`；封存调用区段（`python /src/tools/seal_run_evidence.py` 至 `--session-argv`）sha `7d83721fdf0138216da051cdd5653d6bb10bbfe29a56225394e7ade7f5c2b9a6`；`world_args=()` 在位；三个外部旗标 `--server-directory/--server-profile/--server-jar` 在加入者区段内出现 0 次；`faults: []`；四条不变量（auto+joiner 拒止、非 PLAYABLE 分支、账本 `PlayableEstablished`、`--world-run-document /tmp/domain-session.json`）全在。
+2. **两条反例都被具名抓出**（`mutate`，写在工作树之外的临时文本上，不落 lane 树）：无条件把 `--server-directory` 交给加入者 ⇒ 「reaches the joiner seal unconditionally … the opt-in is not default-off」；opt-in 里顺手带上 `--server-profile` ⇒ 「is handed to the joiner seal (line 10), guarded or not」。⇒ H1i 只能加那一格，且必须在具名 env 的 guard 下。
+3. **正对照 + 判官自测的修正（申报）**：第一次 `compare` 拿主干对 H1h 在飞树，判 `equal: false`——唯一差是 `joiner_region_abs_start_line` 2481→2719（H1h 在其上方加了 238 行），两段内容 sha 逐字相同。这是**我口径的缺陷**（行号不是字节），已改为「行号只报告、不参与相等判断」，重跑后：主干 vs H1h ⇒ `equal: true rc=0`；主干 vs 植入无条件 `--server-directory` 的临时树 ⇒ `equal: false rc=1` 并具名同一条 fault。⇒ 这条对照现在既能证明「H1h 没碰到封存配方」，也不会把任何合法加行误读成配方漂移。
+4. **对排程的意义**：H1i 到货时 M 只需 `compare --base <merge-base 树> --tip <lane 树>`，要求两段 sha 只在 opt-in 打开的那一格不同，另跑一次「opt-in 名不存在 ⇒ 与主干逐字相同」。H1h 到货时的判据仍是 §2.3 的 `.tmp/m-r37-h1h-argv-judge.py` + `.tmp/m-r38-review-gates.sh`。本轮仍零封证、规范卷未被写（全程未挂 `/data`），registry 与 `mandatory` 未动。
