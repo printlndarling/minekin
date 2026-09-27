@@ -4158,6 +4158,8 @@ ASSERTIONS: dict[str, Callable[[RunMaterial], str | None]] = {
     "move_input_was_leased": move_input_was_leased,
     "the_bridge_carried_the_input_out": the_bridge_carried_the_input_out,
     "the_server_saw_the_kin_move": the_server_saw_the_kin_move,
+    # M-C0 landed the function; the registration line was outside its surface.
+    "the_probed_player_is_this_run_s_kin": the_probed_player_is_this_run_s_kin,
     "the_lease_expired_and_was_released": the_lease_expired_and_was_released,
     "the_bridge_released_the_input_when_the_ipc_was_lost": (
         the_bridge_released_the_input_when_the_ipc_was_lost
