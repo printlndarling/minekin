@@ -1588,3 +1588,14 @@ the target allows 1.21.4"}`，配对文档 `mismatch.json` 是 `schema_version 2
 - **仅在分支**：H1h 在工，远端尚无该 ref；本轮没有任何待合分支被 M 见到。
 - **真实封证**：**1 个**——`73a52bfb…` / bundle `b2b4133b…`（`V1201-020`，本地专服 + 单客户端）。**LAN 第二客户端的控制封证 = 0。**
 - **未验证**：H1h（控制驱动形状）、V5（活体 look/move/release）、M-C1（可判 case）、E7（同 run 封证）、M-G1（门禁与 registry 只读审计）；以及所有仍守主控决策门的项（V08 远程服、HOST/PERSIST、跨 bundle 证据 schema、registry 引用替换、`mandatory` 翻转）。
+
+### 第三十七轮补充：M-C1/E7 的「可判载体」已提前量清（只读，规范卷未写）
+
+派工等待期做的独立工作：把 M-C1 的前置问题——**加入者控制判据有没有单 bundle 载体**——从卷内既有 bundle 量成事实，而不是等 M-C1 开工才发现。
+
+- 扫描口径：容器 `minekin-runner:local`，`-v minekin-runner-data:/data:ro`（**只读**），glob `kin/*/*/evidence/*/manifest.json` ⇒ `bundles=100`。
+- **控制类判据词在卷内是活的**：`move_input_was_leased` 出现在 27 份 bundle、`the_server_saw_the_kin_move` 8 份、`the_lease_expired_and_was_released` 8 份、`the_bridge_released_input_when_play_ended` 3 份。
+- **LAN 侧的 6 份 `CORE-030` bundle 里，没有任何一份含 `server/server.log`**；其中 5 份含 `host-run-document.json`（kin-02 / kin-04 ×2 / kin-e-rr-seal / kin-e-rr-seal2）。全卷同时含 `server/server.log` 与 `host-run-document.json` 的 bundle = **0 份**（含前者者 78 份，均在主机侧/专服侧）。
+- 机制定位（仓库字节，无需真跑）：`tools/seal_run_evidence.py:256` 从 `server_directory / "server.log"` 封 `SERVER_LOG_ARTIFACT`，`:807` 另封 `HOST_RUN_DOCUMENT_ARTIFACT`；判据侧 `tools/assert_case_evidence.py:720` 用同一名字读服务端日志，`join_line()` 在 `:465-468` 按 `<username> joined the game` 定位，位置探针走 `probe_readings(material.server_log, 3)`（`:1607/:1674/:2446`）。
+- **结论（决定 M-C1 的形状）**：加入者的 lease/look/释放证据在它自己的 bundle 里，而「服务端看到这个 Kin 移动」要读的是**主持有者那台 LAN 服务器的日志**。当前 sealer 只从本 run 自己的 `server_directory` 取日志，加入者 run 没有这个目录 ⇒ 单 bundle 载体缺的是「把宿主侧 LAN 日志带进加入者 bundle」这一格。**这是 `tools/**` 的封存入口问题，属 M 独占面，不是 `minekin.p0.evidence.v1` schema 扩展，也不是主控保留的跨 bundle 链上载体**。M-C1 若按此实施，E7 仍是单 bundle 同 run 封证。
+- 若后续实测发现必须跨 bundle 串联，那才触主控保留门：届时的正确动作是停在 M-C1 并报告，不是实施。
