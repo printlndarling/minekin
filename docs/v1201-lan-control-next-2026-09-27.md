@@ -303,3 +303,21 @@ grep -n 'REFUSE_FIRST_SNAPSHOT' tests/contract/test_runner_scripts.py
 ```
 
   第三条今天只命中 `:382/:384/:390` 那组「默认关闭 + 具名 cast + `run.sh` 转发」断言，没有任何一条把两个名字放在一起 ⇒ 这一组合今天未被覆盖。
+
+
+## §2.18 H1k 候选字节上 M 侧的独立复审读数：组合缺口的活体演示、七项门禁、以及这轮量到的两格空白（第四十三轮，2026-09-27）
+
+- **测量对象**：H lane 工作树 `../minekin-wt-h1k` 的**未提交字节**（`domain.sh` sha256 `d9a0acfc07719f0eab35305ba21e5a0821a88e100c86b016a80226e695f51a5c`、`tests/contract/test_runner_scripts.py` `7fe48b9d6f92db6f966dfc8d854eb5a5f0403dd0d4fc3bec39e883387ca6419d`，与 §2.17 记的同一对，本轮 `sha256sum` 逐字复现）。M 不在 lane 树里写任何东西：把这两个文件复制进 M 自建的只读复审树 `../minekin-wt-m-r45`（`git worktree add -B m-r45-h1k-review … main`，起点 `ceb079f`），在那里量。
+- **§2.17 那条缺口从静态推升级为活体演示（带正对照，非恒真）**：把 `:461–:488` 的 guard 区间用 `sed` 逐字抽出来，前面预置「新名已问、`joiner` 有、`--server-profile` 有、其余六条各自为空」，只换最后一个变量：
+
+```bash
+cd ../minekin-wt-m-r45
+probe() { { echo 'join_on_controlled_server_asked=1; joiner=kin-probe; server_profile=/tmp/p.json; black_hole=""; no_server=""; not_whitelisted=""'; echo "$1"; sed -n '/joiner-controlled-server-guard begin/,/joiner-controlled-server-guard end/p' test-orchestrator/runner/domain.sh; echo 'echo REACHED_END_OF_GUARD'; } > /tmp/gp.sh; bash /tmp/gp.sh; echo "rc=$?"; }
+probe 'refuse_first_snapshot=1'
+probe 'open_lan=25570; refuse_first_snapshot=1'
+```
+
+  读数：第一条打印 `REACHED_END_OF_GUARD` 且 `rc=0` ⇒ `MINEKIN_DOMAIN_REFUSE_FIRST_SNAPSHOT=1` 与新名同给时 guard 原样放行，§2.17 推出的「加入者被备好却从未送出」这条路在这份字节上确实可达；第二条 `rc=2` 并打印 `MINEKIN_DOMAIN_JOIN_ON_CONTROLLED_SERVER and MINEKIN_DOMAIN_OPEN_LAN name two worlds…` 那句 ⇒ 探针真的走进了 guard 区间，第一条的 `rc=0` 不是探针没接上。复现只读、不碰产品 `src/**`、不挂载任何卷。
+- **候选字节上的门禁读数（每条单独一步、先读退出码再落字）**：`bash -n test-orchestrator/runner/domain.sh` ⇒ `rc=0`；`uv run --frozen --offline pytest tests/contract/test_runner_scripts.py -q` ⇒ `81 passed`（`rc=0`，M 侧独立复量，lane 自报的那轮是整树 `578 passed in 64.79s`，见 `../minekin-wt-h1k/.tmp/h1k-suites.log`）；`ruff check .` / `ruff format --check .`（`365 files already formatted`）/ `pyright`（`0 errors, 0 warnings`）/ `check_boundaries.py` / `check_case_assertions.py`（`OK (150 registered)` ⇒ 这份字节没有登记任何 case）/ `verify_fixture_digests.py` / `check_workflow_pins.py` / `git diff --check` ⇒ **各自 `rc=0`**。合入门禁的静态面今天是清的。
+- **lane 侧的失败材料完好、且规范卷确实一次都没挂**（M 只读 `docker inspect h1k-live-b` 核）：挂载为 `/src`=`../minekin-wt-h1k` **只读**、`/data`=私有卷 `minekin-h1k-live`、`/out` 可写、服务端 jar `:ro`；`minekin-runner-data` 不在列表里。该容器 `Exited (255)`。两轮活体都留下了材料而没有覆盖：`live-a-rejected-singleword/` 在 header 的 `session argv` 里明明带着 `--server-profile …`，guard 却报 `:468` 那句 `--server-profile is absent`（argv 形状问题，属 lane 的驱动侧），lane 把目录改名保留后另起 `live-b`；`live-b/` 过了 guard（`domain: server run directory /data/server-runs/run-1`、`server ready`、`enable-status=false`），新名的两条具名行都打了出来（`… dials the controlled server this run started at 127.0.0.1:25566, read from /data/server-runs/run-1/server.properties` 与 `… is sent into the controlled server world this run started …`）⇒ **§2.16 要的目的地读数已经出现**；但随后 `domain: Kin2 never arrived within 420s`（而 `:1563–:1564` 的等待循环带 `kill -0 … || break`，容器实跑约 1 分钟 ⇒ 加入者进程早已退出，`/tmp/domain-join-session.err` 当时为空），`client-environment.txt` 的写入报 `Read-only file system`（`:1459` 那句 `>>` 的失败由 bash 自己报出，脚本 `|| true` 吞掉；`:1301` 早就用 `if ! : > "${client_environment_readout}"` 容忍了这个文件不可写，所以这是一条噪声而不是新的阻因），下游判语 `THE_WORLD_STATUS_IS_NOT_PROBEABLE: nothing answers 127.0.0.1:25570`——探针目标 `25570` 是 LAN 形状的旧端口，而这轮目的地是 `25566`，两者不一致正是 H1i/#52 要交接的那一格。**所以 `live-b` 只到「目的地读对」，①–④ 的到达/PLAYABLE/受控/释放读数一格都还没封出，H1k 不能凭这份材料合入**；第一真实失败层在加入者进程自身为何早退，归 lane 判。
+- **本轮未量的两格（照实登记，不补口径）**：① 合并树的门载荷仍要 `report_promotion.py --data-root /data` 才能算，lane 侧那次尝试被引擎挡回（`../minekin-wt-h1k/.tmp/h1k-gate-payload.log` 全文是 `request returned 500 Internal Server Error … /pipe/dockerDesktopLinuxEngine/_ping`）；M 侧本轮也没能挂 `:ro` 复算 ⇒ 该读数留到 H1k 交付后在合并树上量，`cfa0f118…` 的相等结论今天仍是「未验证」而不是「已复核」。② 主干推送：`git fetch origin` 报 `Failed to connect to github.com port 443 via 127.0.0.1`（本机代理此刻拒绝外连，`uv` 走索引时同因失败，故上面所有 Python 门禁都改用 `--offline`）⇒ 本节只能先落本地提交，远端 SHA 与 CI 结论等网络恢复再核，不据此声称已合入远端。
