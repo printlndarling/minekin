@@ -1509,3 +1509,46 @@ run 用的字节仍是主干字节：`domain.sh ff69c87994f15be3…`、1.20.1 �
 **续接点**：E6 push 后 → 核 ref → `merge-base`＋非 docs 改动面应为 0 → 主控亲跑
 `evidence verify`/`rejudge`/`report_promotion` 并量 POST `gate_payload_sha256` → 卫生判官带
 `--operator-file` 过它的记录 → 单卡合入、`push origin HEAD:main`、核远端 SHA → 第三十六轮四态回写。
+
+## 第三十六轮：E6 收口——1.20.1 本地加入的规范卷封证合入主干
+
+lane 提交并 push `954b47a6f9fb0255ae4107c5dd908a76d86bec7a`（真实 merge-base `7b99485`，
+改动面只有 `docs/validation/v1201-local-join-seal-2026-09-27.md` 一份，`nondocs=0`），
+主控单卡合入并推远端：`main = eba5821eb58b85d0df3c65415a3b7010121fc15a`（`git ls-remote` 回读同值）。
+
+**主控亲跑四读（规范卷 `:ro`、`/src writable False`，日志 `.tmp/m-r36-e6-reads.log`）**：
+`python -m minekin_core evidence verify 73a52bfb…` ⇒ `result=PASS verified=true artifacts=12 violations=[] rc=0`，
+bundle 摘要 `b2b4133b3e3ce030542ddb99aa18c6dd48bff60a36a62a75da2d7330865da8d9`；
+`tools/rejudge_evidence.py` ⇒ `status=agrees rc=0`，三条断言 `failures=[]` 且 observed 齐（`server_observed_join_identity /
+first_snapshot_admitted / leave_after_join_observed`）；`tools/replay_evidence.py` 与 `python -m minekin_core replay`
+两侧 `rc=0 status=projected`，19 事件投影到 `STOPPED`，`trace_sha256=b803bce5cbbaf474…`；
+`tools/report_promotion.py` ⇒ `rc=1`，`POST gate_payload_sha256=cfa0f1184bee30df6a1d9fcf45778c9cef074ece6761c47fe7d6b9f49863afd6`
+**与 PRE 逐字符相同**，`W40 promotable=False blocks=['REQUIRED_CASE_NOT_REGISTERED']`，`promotable=['W00','W10','W20','W60']`，
+`attempts 76→77`、`bundles 112→113`，V1201-020 四 seq 全 `PASS/AGREES`，seq4 `from_repository_build=True`。
+
+**反例与卫生**：版本错配反例留了原物（`.tmp/e6/out/counter/mismatch.stderr` 逐字为
+`{"category":"ADMISSION","component":"launcher.profile","message":"the session launches Minecraft 1.20.1,
+the target allows 1.21.4"}`，配对文档 `mismatch.json` 是 `schema_version 2`、`allowed_versions:["1.21.4"]`、
+`host 127.0.0.1`），并配了真起 JVM 的成对控制——V4 那一格「反例文档未留」的缺已补。
+记录文本 179 行、`sha256=a61b58391ded6c8eaadf52477e64923fdb8d3de71e553aa738abd299caa65807`；
+按路径比对操作者目标地址：`hits=0`，且同一扫描对地址文件本身 `self_hits=1`（正对照非恒真）；
+记录内 IP 形状只有 `127.0.0.1`（4 处）与 `::1`（1 处）。
+
+**主控裁决 D1（E6 申报的超出）**：专服形状需要 `/server/server.jar`，卡面只点名桥 jar；E6 用
+`run_controlled_server.py` 自 pin 的字节（sha1 `84194a2f…`／47791053 B 双测）复制进自己的 `.tmp`，
+**没有重构建、没有改仓库码**。裁决：接受——它是受控 runner 物料的取用，不改判据也不入仓库；
+约束是记录必须具名其摘要（已具名），且不得据此声称 pin 集变化。
+
+- **已合主干**：H1g、V4 活体复测记录、E6 封证记录（`main = eba5821`，远端已核）；M 的 r32–r36 仪器与日志。
+- **仅在分支**：无待审 lane 交付（E6 已收口）。
+- **真实封证**：1.20.1 本地加入在规范卷上有 **1 个 M 逐字节复验过的 sealed bundle**
+  （V1201-020 / seq4 / `73a52bfb…` / `b2b4133b…`），当前 build 真跑、rejudge `agrees`。
+- **未验证**：门禁推进（`W40` 仍不可提升，要动 `mandatory` 或登记属主控保留决策）、
+  跨 bundle 证据链载体、快照摘要扩字段、`::1` 半边、`--auto-bundle`×joiner、多 joiner、在线认证、
+  V08 远程服、PLAYABLE 之后的输入半边。
+
+**下一格待定（不在本 goal 自行推进）**：是否让 seq4 替换 registry 引用、是否把 V1201-020 升级为
+`mandatory`——两者都会动门载荷，均归用户主控决定。
+
+不声称：合上这份记录不等于 1.20.1 加入链已经门禁化或产品完工；它只把「真跑到 JOIN/首快照」
+从 lane 的转述升级成规范卷里可重哈希、可重判的封存件。
