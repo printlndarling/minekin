@@ -1800,7 +1800,7 @@ def drive_joiner_control(
     region: str | None = None,
     wiring: bool = False,
     tag: str = "plain",
-) -> tuple[subprocess.CompletedUnicode[str], list[str]]:
+) -> tuple[subprocess.CompletedProcess[str], list[str]]:
     """Drive the shipped driver as its own shell process, and read back what it says.
 
     `wiring=False` runs the composition and prints the argv it built, each word
@@ -1879,7 +1879,7 @@ def drive_joiner_control(
     return result, re.findall(r"<([^>]*)>", result.stdout)
 
 
-def refused(result: subprocess.CompletedUnicode[str], argv: list[str]) -> None:
+def refused(result: subprocess.CompletedProcess[str], argv: list[str]) -> None:
     """Refused, and said to be: no composed line, no exit 0, a message on stderr."""
 
     assert result.returncode != 0, (
@@ -1978,6 +1978,14 @@ def test_the_unarmed_joining_client_is_still_handed_the_observe_only_line(
     assert argv == OBSERVE_ONLY_JOINER_ARGV
 
 
+def bounded_ask_case_id(value: dict[str, str] | list[str]) -> str:
+    """Knob names for the environment half of a case, flag words for the expected line."""
+
+    if isinstance(value, dict):
+        return "_".join(value)
+    return "+".join(value)
+
+
 @pytest.mark.parametrize(
     ("env", "expected"),
     [
@@ -2006,7 +2014,7 @@ def test_the_unarmed_joining_client_is_still_handed_the_observe_only_line(
             ],
         ),
     ],
-    ids=lambda value: "_".join(value) if isinstance(value, dict) else "+".join(value),
+    ids=bounded_ask_case_id,
 )
 def test_an_armed_joining_client_is_handed_exactly_the_bounded_ask(
     tmp_path: Path, env: dict[str, str], expected: list[str]
