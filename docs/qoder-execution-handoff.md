@@ -1017,3 +1017,83 @@ V lane 的第一段 `bbf0daf` 已在第二十一轮并入主干（合并 `3ffc79
   未验证 = 1.20.1 加入者 JVM 真启动、Bridge 握手、JOIN/首快照（V4 的前题）、`metadata.py` 默认值是否是下一前沿（本轮无证据）、
   E6 的同 run 封存、门禁一律未点亮（载荷最后实读 `cfa0f118…`，`W30`/`p0-core` `promotable False`）。
 - **不声称**：不声称 H1g 已通过或已合入，不声称 1.20.1 能加入，不声称 v2 路径解除了任何产品安全策略，不声称任何 case 闭合或门禁点亮，不声称 Minekin 完成。
+
+## 第二十六轮（2026-09-27，M 主控）：H1g 双审通过并合入；M 自己造成的 43 处 pyright 红按协议补全；V4 派工
+
+- **现场核对**：起点远端 `refs/heads/main = 0da7032`（上轮落点）。`git worktree list` 36 个（新增
+  `../minekin-wt-h1g`、`../minekin-wt-v4`）。H1g 分支 `codex/minekin-joiner-local-v2-profile` 真实 merge-base
+  `git merge-base main origin/...` = `0da7032`，`git diff --stat` 恰三个允许路径：`domain.sh +37`、
+  `tests/contract/test_runner_scripts.py +356`、新记录 `docs/validation/v1201-joiner-local-v2-profile-2026-09-27.md`。
+  **无 `src/**` 改动**——与「这一格的前言在 H 独占面」的判读一致。
+- **双审 A（实现字节）**：+37 全在 joiner-profile 的内嵌 python heredoc 内，按本次 launched version 分派：
+  1.21.4 仍走原 v1 文档，非 1.21.4 写 `schema_version 2` + `explicit_allowlist [version]` + 具名 loopback
+  `target_authorization`，且**复用** v1 分支已有的 `host/port/auth_mode/resource_pack_policy` 值而非重述。
+  交付字节 sha256 `ff69c87994f15be37a07090c664c60fdbf8cd620689bfd07fe3a837431e982c4`（blob `19947e64…`），基线字节
+  `f8624ac6713301460288b439ac9644a0b4b1026e218e19f107c9678758ffe0c5`；`domain.sh:404-407` 的 auto+joiner 拒止与
+  `FORWARDED_VARIABLES` 未进 diff。
+- **双审 B（测试质量）**：测试把 **shipped heredoc 抽出来跑**（`joiner_profile_writer_source` 截到 `\nPY\n`）并经
+  真实 loader 判定，不是重述形状；分派字面 `if version != "1.21.4":` 与 `MINECRAFT_VERSION` 常量钉住；三份文档字面
+  冻结（v1 `634abc28…`、v1@1.20.1 `24eddf0a…`、v2 `038dcf1e…`）；六个放宽形状各自具名拒止；四项反向
+  （RV-0 `if False:`、RV-1 分支倒置、RV-2 放宽 allowlist、RV-3 host 移向 `198.51.100.20`）证明该判据非恒真。
+- **M 的两个预登记判官在合入树上复量**（`.tmp/m-r27-review-gates.sh`，容器 `python`、`/src:ro`、规范卷 `:ro`）：
+  judge A `rc=0` ⇒ `1.20.1 ⇒ ACCEPTED ManagedTargetProfile a51407f412850459`、
+  `1.21.4 ⇒ ACCEPTED ServerProfile c74d94a4e4f99a81`（**与基线同值 ⇒ v1 的 1.21.4 冻结行为未漂移**，
+  这一条是 M 独立量的，不依赖 lane 的断言）；judge B `rc=0`，12 项放宽形状逐项具名拒止。
+- **合入树门**：容器五项 `rc=0`（`bash -n`、contract `37 passed`、case-assertions、fixture-digests、boundaries）；
+  宿主 `ruff format --check` = `357 files already formatted`、`ruff check` = `All checks passed!`、
+  `git diff --check` `rc=0`。**门载荷未动**：`gate_payload_sha256 = cfa0f1184bee30df6a1d9fcf45778c9cef074ece6761c47fe7d6b9f49863afd6`，
+  `report_promotion` 仍 `status: blocked` / `rc=1`。规范卷只读由**真写探针**证明：
+  `OSError: [Errno 30] Read-only file system: '/data/.m-r25-probe'`。**本轮零封证。**
+- **M 自己造成的红，按补全而非屏蔽修掉**：合入前主干全仓 `uv run pyright` 有 **43 处错**，全在 M 上一轮写的
+  `tests/unit/test_case_evidence_assertions.py`——`_Asserter` 协议没列出 OFFLINE 行读的常量成员与
+  `asserter_inputs_bytes`，`ledger_row` 缺 `kin` 关键字。`518d199` 把这些成员**具名补进协议**（弃用的替代方案是
+  `# type: ignore`，那会把真实的接口漂移重新藏起来）⇒ 全仓 pyright **0 错**。
+- **M 的两处自纠（都不是结论级动摇，但都是错误措述）**：① 我曾把 3 个 pytest collection error 归因为「缺数据根」，
+  复量后是 `ModuleNotFoundError: No module named 'jsonschema'`（镜像不装 dev group），已改正
+  `.tmp/m-r27-review-gates.sh` 头注；② 该脚本把判官路径写死 `/src/.tmp`，复审 lane 树时读到 `rc=2`（文件不存在），
+  改为 `M_SCRIPTS` 可覆盖——同字节的独立判官读数一直是 `rc=0`，所以判据本身从未可疑。
+- **双进程竞争的坦白与核验**：H1g worktree 里同时有原 lane 会话与 M 的续投会话。M **只合并已推送的 ref**：
+  `ab93668`（12:39，并 `dd76a1d`+`1edf1a4`）、`8b357b6`（12:42，并 `bbd8432`）。对未推的那份重复提交，M 在
+  `ab93668` 正文里具名披露；随后量到 `bbd8432` 的 post-image blob `400cfa49` 与那份重复的 post-image **相同**，
+  于是把这条更正写进后续 merge 正文而不是静默调和。lane 原会话最终以「达到轮次上限」结束（其最后一句
+  「Full suite green (2604 passed)」与 M 自己的宿主复量同值）。
+- **V4 派工前置两条按字节量清（`965dcc4`、`8715f25`，只动排期文档）**：① 1.20.1 桥**已构建**——
+  `minekin-bridge-1201-0.0.0.jar` sha256 `e50d61c2…`、1310604 字节，在 `minekin/` 与 `minekin-wt-evidence/` 都在，
+  在 `-integration`/`-h1g` 皆无 ⇒ 缺口是**放置**（`find_workspace_root` 把根定在被挂载的那份工作树），不是造不出；
+  ② 规范卷三个大 Kin 存料**各 7565 blobs 且已含 1.20.1 工件**（按 blob 文件名尾串 grep 才量到——内容寻址布局下
+  `-path "*1.20.1*"` 对 1.21.4 也返 0，那枚 0 就是自己的负对照）⇒ 播种代替 ~25 分钟 × 3639 文件的抓取。
+  边界写进文档：**blob 在 ≠ launch 集合全**，判据只能是产品自己那行 `N of M artifacts are not in the store yet`。
+  H1g 记录里的 ②c 供应拒止据此归因为「一次性空 store」，M 侧未复量。
+- **V4 已派工（在工）**：worktree `../minekin-wt-v4`、分支 `codex/minekin-v4-local-join-after-v2`、base `8b357b6`。
+  要求逐阶段 `PASS/FAIL/未达到该阶段`、一份新日期化 `docs/validation/` 记录、一枚 1.21.4 正对照、一枚版本错配反例，
+  只连本次受控 runner 自起的 loopback 服。
+- **四态**：已合主干 = H1g 的 `domain.sh +37`、契约测试 `+356`、其验证记录，以及 M 的 `518d199`（pyright 补全）与
+  排期文档两处前置；仅在分支 = 无（H1g 分支已全部落干）；真实封证 = 零（本轮无 attempt、无 bundle、卷只读）；
+  未验证 = **1.20.1 加入者 JVM 真起、Bridge 握手、JOIN/首快照**（V4 在量）、H1g 的 ②c 供应拒止成因（主控侧未复量）、
+  E6 的同 run 封存、门禁一律未点亮（载荷 `cfa0f118…`）。
+- **不声称**：不声称 1.20.1 已能加入（只声称 loader/契约层面越过了 `launcher.profile`），不声称任何 case 闭合或门禁点亮，
+  不声称 V4 会通过，不声称 Minekin 完成。
+
+## 第二十七轮（2026-09-27，M 主控）：合入后全量套转绿并落数；H1g 分支尾提交按 parent 核为快进后合入
+
+- **合入树全量套（宿主 uv）**：`2604 passed, 3 skipped in 296.39s`（日志 `.tmp/m-r25-fullsuite-after-h1g.log`），
+  对比基线 `2596 passed, 3 skipped in 295.78s`（`f82c368`）⇒ **+8**，恰为 H1g 的两项行为测试加六个具名拒止；
+  无既测用例转红。
+- **H1g 分支的尾提交 `b0c7a34`（12:43）审查**：真实 merge-base 已是主干内的 `bbd8432`，`git diff --name-only`
+  只有一份验证记录（+20 -7）。它把「已合主干：无／仅在分支」改成按**合入时刻**记，并披露拓扑。M 逐句复核：
+  `git show origin/main:test-orchestrator/runner/domain.sh | sha256sum` = `ff69c879…`（＝全部新字节读数所依据的那份）；
+  `test_runner_scripts.py` 在 main 与分支同为 blob `471536f4…`、`domain.sh` 同为 `19947e64…` ⇒ 合并没改写被测量；
+  `git log -1 --format=%P b0c7a34` 只有 parent `bbd8432` ⇒ **快进，未重写已发布历史**；它点名的压缩提交
+  `0a42b2c`（tree `ce8db956`、parent `0da7032`）确为**未被引用的本地对象**、不在远端 ref 祖先里 ⇒ 「非快进被拒后停手、
+  没有 force-push」这条披露为真。
+- **合入与远端核验**：`cbe00ac = Merge branch 'codex/minekin-joiner-local-v2-profile' (H1g four-state dating)`，
+  `git push origin HEAD:main` → `git ls-remote origin refs/heads/main = cbe00ac3e3553d345de9a57f108666ffa06844f7`。
+  合入树上重跑审查门（`.tmp/m-r27-gates-cbe00ac.log`）：容器五项 `rc=0` + `37 passed`；judge A `rc=0`
+  （`1.20.1 ⇒ ACCEPTED ManagedTargetProfile a51407f412850459`、`1.21.4 ⇒ ACCEPTED ServerProfile c74d94a4e4f99a81`）；
+  judge B `rc=0`。纯文档增量，故未重跑宿主全量套（记 主控侧未复量）。
+- **V4 仍在工**：`minekin-wt-v4` 工作树干净、分支尚无远端 ref（`git ls-remote origin | grep v4` 为空）⇒
+  本轮没有可审的 V4 材料，M 不预判其结论。
+- **四态**：已合主干 = 上述全部（H1g 三枚分支提交 + M 的门/协议侧修复，远端尖 `cbe00ac`）；仅在分支 = V4（在工，尚无提交）；
+  真实封证 = 零；未验证 = 1.20.1 真 JOIN/首快照（V4）、E6 封存、门禁（载荷 `cfa0f118…` 未动）、
+  `metadata.py:16` 默认值是否下一前沿。
+- **不声称**：不声称 V4 已达标，不声称 1.20.1 加入路径端到端可用，不声称任何 case 闭合、门禁点亮或 Minekin 完成。
