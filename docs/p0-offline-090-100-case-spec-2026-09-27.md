@@ -21,6 +21,13 @@
   three-run timeline), and the "no controlled triple exists yet" wording is replaced by the
   sealed `kin-e-aba` readings. `case_version` digests the registered function bytes plus the
   fixture, not this file, so none of this moves a registry digest or invalidates a bundle.
+- Round 15-17 trunk edits by 主控 (2026-09-27): §2.7's volume-wide positive control (round
+  15) and the new §2.8 — the file-level carrier injections, the digest guard on those very
+  carriers, and what actually makes the Dashboard half answer (round 17) — replace the
+  "file-level remains 未测" wording; §3.6's "9, 10 and 11 remain 未测" is replaced by E-CX's
+  readings plus 主控's independent recheck. Same scope rule as the round-14 bullet: these
+  edits touch prose only, no judgement byte, no fixture, no registry status, so no digest
+  moves and no bundle is invalidated. Nothing here closes OFFLINE-090 or OFFLINE-100.
 - Placement: this draft sits at `docs/p0-offline-090-100-case-spec-2026-09-27.md`, the E lane's existing per-card record convention under `docs/` (precedent: `docs/p0-core030-runner-rerun-2026-09-27.md`) and within this card's allowed paths; the previous session's invented top-level `harness/case-specs/` location is not a carrier in any ref of this repository and is not kept.
 
 ## 1. Contract source (verbatim, `docs/p0-offline-session-compatibility-contract.md`)
@@ -196,11 +203,12 @@ on current material only the sub-case half of this sentence can ever be green.
   {"client/stdout.log": b"...token=<secret>..."}, secrets=["<secret>"])` raises
   `MinekinError` and writes no directory.
 
-### 2.7 Minimal counterexample / positive control (design; partly executed by 主控, round 15)
+### 2.7 Minimal counterexample / positive control (design; file-level half executed by 主控, round 17 — see §2.8)
 
 All three below were designed to run on a **labelled copy outside the volume** (`/tmp`,
 never `/data`), against §2.5's pinned reading. **主控 (round 15, 2026-09-27) executed two
-of the shapes and they are no longer 未测; the file-level copy injection still is.**
+of the shapes; the file-level copy injection was executed by 主控 on 2026-09-27 (round 17)
+and its readings are §2.8.**
 
 - **Executed by 主控 (round 15) — positive control over real sealed bytes.** The registered
   judgement was driven read-only over every bundle on the canonical volume: 99 bundles,
@@ -222,27 +230,99 @@ of the shapes and they are no longer 未测; the file-level copy injection still
   (`client_id_present`/`xuid_present`), and a flag followed by an ordinary word
   (`--xuid none configured`). Ten pairs, all matching the pinned expectation.
   **This is the 公版哨兵保护 of §2.5 rule 3 measured rather than asserted**, and it holds
-  at the text level only: the same ten pairs injected into a *copy* of a carrier and
-  re-judged through `read_sealed_material` remain **未测**.
+  at the text level only: of the ten pairs, the two that matter for this case — the JSON
+  field/body pair and the ledger-row nesting — were since re-judged through
+  `read_sealed_material` over a carrier *file* (§2.8); the other eight remain text-level
+  readings.
 - Counterexample (红), file-level: inject into one carrier of the copy a context-bearing
   exposure — argv-shaped `--accessToken <fabricated-secret>` or JSON `"auth_access_token":
   "<fabricated-secret>"` — ⇒ exposure count ≥ 1 ⇒ assertion red with a named violation.
-  **未测.**
+  **Executed by 主控 (round 17) in both file shapes a bundle holds — a `.log` carrier and a
+  JSONL ledger row — readings in §2.8.**
 - Reverse control (不得红): inject into the same copy bare `0` occurrences — the digit
   `0` as a standalone value in counting/coordinate/latency positions, and `EMPTY_ARGV`
   empty values — ⇒ exposure count stays 0 ⇒ the assertion must stay green. This is the
-  公版哨兵保护, straight from §2.5 rule 3. **Executed at the text level above; the
-  file-level copy remains 未测.**
+  公版哨兵保护, straight from §2.5 rule 3. **Executed at the text level above, and at the
+  file level by 主控 (round 17): the same carrier appended with `{"accessToken": "0"}` stays
+  green in both file shapes (§2.8, `log-public-sentinel` / `trace-row-public-sentinel`).**
 - Positive control: the same reading over the unaltered sealed bytes → count 0 (every
   authentication field in a sealed bundle is either the public sentinel or redacted,
   §2.5 rule 7). **Executed by 主控 as the 65/0 volume reading above** (the earlier carrier
-  census behind it is in §5).
+  census behind it is in §5), and again per-copy in §2.8 (`control`: 14 carriers, both
+  clauses green/refusing, `verify rc=0`).
 - Digest guard (per card acceptance ②, generic): tamper one byte of a declared artifact in
   a `/tmp` copy of a bundle → `python -m minekin_core evidence verify <run>` exits
   `ExitCode.STORAGE = 12` (`src/minekin_core/domain/errors.py:39`) with violation
   `ARTIFACT_DIGEST_MISMATCH:<path>` (`src/minekin_core/adapters/evidence/bundle.py:255`);
   restore → exit 0. (Design cites current repo bytes; the run was executed in prior
-  conversation only — **未测 this session**.)
+  conversation only — **未测 this session**; **round 17 measured it on the exposure
+  carriers themselves, §2.8**.)
+
+### 2.8 File-level carriers, digest guard and the Dashboard refusal's mechanism (主控, round 17, 2026-09-27)
+
+§2.7 left one present-tense claim standing: the exposure judgement had only ever been
+driven over strings, never over a carrier *file* that the reader opens from disk. This
+section measures that, plus the seal's digest guard on those same files, plus what actually
+makes the Dashboard half answer. Drive: `bash /src/.tmp/m-r17-090-filelevel.sh` under the
+standard read-only container mount (`-v minekin-runner-data:/data:ro`, no writes to the
+volume; log `.tmp/m-r17-090-filelevel.log`).
+
+**Census, file-level.** Of 99 bundles, 65 load through `read_sealed_material`, and **49 of
+those carry one of `AUTHENTICATION_FIELD_NAMES` inside a carrier file the reader actually
+opens**. The driven bundle is `kin-01 / run 03bd3a22f6ac43aea07d470222cd2c92`
+(`bundle_digest 368d206ccf535efeb4c23ba948962d3ffea45924fd18ee93249908d3a65b9bab`), which
+declares 14 text carriers: `asserter-inputs.json`, `bridge-trace.jsonl`,
+`client/latest.log`, `client/server-resource-packs.json`, `client/stderr.log`,
+`client/stdout.log`, `fault-injection.json`, `orchestrator-trace.json`,
+`previous-run-trace.jsonl`, `run-document.json`, `server/server.log`,
+`server/server.properties`, `server/usercache.json`, `trusted/server-profile.json`.
+(Note the shape of the list: `asserter-inputs.json` is a carrier like any other, and the
+exposures below are made in the run's own logs and ledger — not in that file.)
+
+Each row below appends **one line** to a `/tmp` copy of the named carrier, then re-reads
+the copy through `read_sealed_material` and asks the two registered clauses, `evidence
+verify` and `tools/rejudge_evidence.py`:
+
+| drive | 载体半句 | Dashboard 半句 | verify / rejudge |
+| --- | --- | --- | --- |
+| `control` (untouched) | `None` | `DASHBOARD_CARRIER_NOT_SEALED` | `rc=0` / `rc=0` `Rejudge evidence: OK` |
+| `log-real-secret` (`client/latest.log` += `{"accessToken": "<64 a>"}`) | **`AUTH_BODY_EXPOSED:client/latest.log:accessToken`** | refusal | `rc=12` / `rc=2 ARTIFACT_DIGEST_MISMATCH:client/latest.log` |
+| `log-public-sentinel` (same line, body `0`) | `None` | refusal | `rc=12` / `rc=2` same mismatch |
+| `trace-row-real-secret` (`bridge-trace.jsonl` += a well-formed JSON row with the secret) | **`AUTH_BODY_EXPOSED:bridge-trace.jsonl:accessToken`** | refusal | `rc=12` / `rc=2 ARTIFACT_DIGEST_MISMATCH:bridge-trace.jsonl` |
+| `trace-row-public-sentinel` (same row, body `0`) | `None` | refusal | `rc=12` / `rc=2` same mismatch |
+| `trace-prose-not-json` (append non-JSON prose to the ledger) | `read_sealed_material` raises `Unreadable: …/bridge-trace.jsonl has a line that is not JSON` | — | — |
+| `dashboard-undeclared-clean` (add `dashboard/view.txt`, leave the manifest alone) | `None` | `DASHBOARD_CARRIER_NOT_SEALED` | `rc=12` / `rc=2 UNDECLARED_FILE:dashboard/view.txt` |
+| `dashboard-declared-clean` (add the file **and** a manifest `artifacts` entry) | `None` | **`None`** — carriers 14 → 15 | `rc=12 evidence manifest artifact size must be an integer` / `rc=1 MinekinError` |
+| `dashboard-declared-secret` (declared entry, body in the file) | `None` | **`AUTH_BODY_EXPOSED:dashboard/view.txt:accessToken`** | same `rc=12` / `rc=1` |
+| `manifest-without-text-carriers` (drop every text-suffixed entry) | **`NO_EXPOSURE_CARRIERS_READABLE`** | refusal | `rc=12` / `rc=2 BUNDLE_DIGEST_MISMATCH, UNDECLARED_FILE:asserter-inp…` |
+
+**What that settles.**
+- The judgement is not a string-only instrument: the two red rows are read out of files the
+  manifest declares, by name (`client/latest.log`, `bridge-trace.jsonl`), and the same
+  field with the public sentinel body stays green in both file shapes — so the 公版哨兵保护
+  of §2.5 rule 3 holds *through* the file path, and the red is caused by the body rather
+  than by the field name appearing.
+- The digest guard covers the exposure carriers themselves: every tampered copy is refused
+  (`ARTIFACT_DIGEST_MISMATCH:<the very carrier>`, `verify rc=12`, rejudge `unjudged`), and
+  the guard answers even when the exposure verdict is green (`log-public-sentinel`,
+  `trace-row-public-sentinel`) — the two instruments are independent, so a run cannot be
+  quietly rewritten into a clean 090.
+- An unreadable ledger is not a clean ledger: making the trace non-JSON raises `Unreadable`
+  by name rather than returning zero exposures.
+- **The Dashboard half's refusal is carrier-driven, not a constant**: the clause answers
+  (`None`, and red on a real body) the moment a `dashboard/` carrier is declared in the
+  manifest — while the *seal* channel refuses the hand-made entry for lacking a well-formed
+  `size`, and refuses the undeclared file as `UNDECLARED_FILE`. That is the exact shape of
+  the 主控保留 decision this document keeps open: a Dashboard answer requires genuinely
+  sealing such a carrier (schema `minekin.p0.evidence.v1`, which re-seals the volume), not
+  editing a judgement.
+- `NO_EXPOSURE_CARRIERS_READABLE` is reached and named, so "nothing to scan" is not
+  reportable as a clean scan.
+
+**What this does not do.** It closes nothing: on real sealed bytes the parent row still
+answers `DASHBOARD_CARRIER_NOT_SEALED` for the Dashboard half (row `control` above, and the
+volume-wide 65/0 census of §2.7), the case stays `non_mandatory`, no 非门禁子案 id was
+created, and no carrier was sealed. Both clauses ran on `/tmp` copies only.
 
 ## 3. OFFLINE-100
 
@@ -452,7 +532,15 @@ Triple counterexamples for §3.5 C (each designed against an A1/B/A2 triple; the
  carriers are the sealed three, so an edit is made on a labelled out-of-volume copy and
  the canonical volume is never written. **Updated by 主控 (round 14, 2026-09-27): the
  triple now exists** — `kin-e-aba` sequences 3/4/5, digests in §3.5 C's update paragraph.
- 8's first half has been run on such a copy; 9, 10 and 11 remain 未测):
+ 8's first half has been run on such a copy; **round 16 (2026-09-27) executed 9, 10 and 11**
+ — E's `p0-offline-100-counterexamples-2026-09-27.md`, merged as `5dbcc8a`, and 主控's
+ independent recheck (`.tmp/m-r16-cx-recheck.sh`, log `.tmp/m-r16-cx-recheck.log`):
+ 9 → `KIN_ID_NOT_CONTINUOUS:kin-e-aba,kin-e-aba-forged` with `verify rc=12`, 10's cross
+ variant → `SESSION_ID_SHARED_ACROSS_RUNS:<A1's session>`, 11 → `IDENTITY_NOT_RECORDED` with
+ `ARTIFACT_MISSING:server/usercache.json`. **10's literal variant (A1's `session_id` reused
+ by A2) answers `None` on both clauses** — the registered judgement compares only the
+ adjacent pair, so 「两次相邻 run 的 session_id 不同」 is not evidence for the triple, and
+ making it judgeable would need the cross-bundle carrier listed under 主控保留 below):
 
 8. forge A2's carriers so its confirmed context names **B's** world (server.properties
    `level-name` / `Preparing level` moved to B's, or B's `server-profile.json` tuple)
