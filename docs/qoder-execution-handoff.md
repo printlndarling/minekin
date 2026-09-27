@@ -827,3 +827,40 @@ V3 仍零提交（worktree 干净停在 base `5dbcc8a`、远端无该支），M 
   真实封证 = 零（本轮不建 attempt、不封 bundle）；未验证 = V3 的 1.20.1 活体读数、端到端真 Dashboard 载体、OFFLINE-100
   跨 bundle 三段链载体、门禁一律未点亮。
 - **不声称**：不声称 OFFLINE-100 任何一条闭合，不声称 `non_mandatory` 登记是晋级，不声称 Minekin 完成。
+
+## 第二十轮（2026-09-27，M 主控）：OFFLINE-100 的重启成对条款逐字段驱动（§3.8）；V3 交付到分支
+
+判官侧复量在 `.tmp/m-r20-100-ab-clauses.sh`（`.log`）+ 两个追加探测 `.tmp/m-r20b-previous-run-id.sh`、
+`.tmp/m-r20c-asserter-inputs.sh`（各自 `.log`，rc=0）里，规范卷全程 `:ro`，副本在 `/tmp`，
+**零封存、零代码/fixture/registry 改动**。
+
+- **同一枚 A2 bundle 的双载体普查**：`kin-e-aba / 7ff026e4…`，`previous_run_id = a26e2c35…`，
+  本 run 载体 `bridge-trace.jsonl` 与本 run 之外那份 `previous-run-trace.jsonl` 各 **19** 行，
+  `here_sessions ['ed3fdc06…']` / `prev_sessions ['4ba0825e…']`，未改副本两条款 `None / None` 且 `verify rc=0`。
+- **§3.6 条目 1/2/3/5/6 自此是实测**：改上一份的 `kin_id` ⇒ `KIN_ID_NOT_CONTINUOUS:kin-e-aba,kin-m20-foreign`；
+  改本 run 一份行的 `kin_id` ⇒ 同一具名从另一侧到达；previous 单行 `run_id` 外来的 ⇒
+  `PREVIOUS_ROWS_NOT_ONE_RUN:…`；本 run 单行 `run_id` 外来的 ⇒ `THIS_TIMELINE_ROWS_ARE_NOT_ONE_RUN:…`；
+  `kin_id` 清空 ⇒ `LEDGER_ROW_NAMES_NO_KIN`；把本 run 的 session 塞进 previous 载体 ⇒
+  `SESSION_ID_SHARED_ACROSS_RUNS:ed3fdc06…`；**只在本次行里加一枚外来 session ⇒ 两条款仍 `None`**
+  ⇒ 这条规则判的是「跨 run 共享」而不是「唯一」，即 5 的反恒真正对照。
+- **缺证据一律具名拒绝、不当计数为绿**：清空 previous 载体 ⇒ 两条款 `PREVIOUS_TRACE_NOT_SEALED`；
+  previous 行不具 session ⇒ `PREVIOUS_RUN_HAS_NO_SESSION_ATTRIBUTION`；本次行不具 session ⇒
+  `NO_SESSION_ATTRIBUTION_IN_LEDGER`。除控制与两次空操作外，每份被改副本一律 `verify rc=12`。
+- **本轮量到的字段落点更正（一次失败驱动换来的读数）**：清 `run-document.json` 里的 `previous_run_id` 是**空操作**
+  （实读其顶层键 = `argv_digest/generation/kin_id/overlay/pid/recovery/run/run_id/schema_version/session_id/started_at/status`，
+  条款仍 `None/None`、`rc=0`）；该字段实际在 **`asserter-inputs.json`**，其完整键集实测恰为
+  `['kin_id','previous_run_id','run_id','schema_version','username']` ⇒ 清它即两条款 `PREVIOUS_IS_FIRST_RUN`，
+  且同时清空 previous 载体仍是 `PREVIOUS_IS_FIRST_RUN`（字段先于载体判空）。同一份键集也再次量出卡面第 1 条的前提：
+  `asserter-inputs.json` 里没有 token/xuid/clientId 可读。
+- **门**：本轮 `ruff check` + `ruff format --check`（354 files 已格式化）、`verify_fixture_digests`、
+  `check_case_assertions (150 registered)`、`check_boundaries`、`git diff --check` 全 `rc=0`（收口笔前复跑）；
+  门载荷重读仍 `cfa0f118…`、`report_rc=1`、`W30`/`p0-core` `promotable False`、
+  `W30.absent = OFFLINE-060/080`、`non_mandatory 11/24`、`misattributed 0`。
+- **V3 交付**：停摆的 V lane 会话按「完成并交付」恢复规则重派，产出支 `codex/minekin-v3-1201-join-live-readout`
+  提交 `bbf0daf`（base `5dbcc8a`，含 `H1f`），改面恰一份新记录 `docs/validation/v1201-join-live-readout-after-h1f-2026-09-27.md`。
+  自报四读数里 **② 是具名阻断不是排除**（1.20.1 加入者停在 `launcher.profile` 的 pinned-bundle 准入，未起 JVM），
+  并声明 `ruff` 在其环境不可用（`rc=127`，按未跑记录）⇒ 按惯例进入 M 的 merge-base 复审与独立复量，本轮尚未合入。
+- **四态**：已合入 main = 本轮 §3.8 文档笔；仅在分支 = `codex/minekin-v3-1201-join-live-readout @ bbf0daf`（待 M 复审）；
+  真实封证 = 零（本轮不建 attempt、不封 bundle）；未验证 = 1.20.1 加入者的 JVM 侧与端到端 JOIN、§3.6 条目 4 的字面 uuid 改写、
+  跨 bundle 三段链载体、门禁一律未点亮。
+- **不声称**：成对条款可变红不等于三段可判；不声称 OFFLINE-100 任一条闭合，不声称 V3 已并入，不声称 Minekin 完成。

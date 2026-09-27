@@ -689,6 +689,78 @@ stay unjudgeable by construction (§3.6 and the by-construction note in
 [[project-offline-100-triple-not-judgeable-by-construction]]), the two `JOIN_NOT_LOGGED` runs
 are named without a case attribution, and nothing was sealed, registered or promoted.
 
+### 3.8 The restart-pair clauses, driven field by field (主控, round 20, 2026-09-27)
+
+§3.6 left items 1, 2, 3 and the 5/6 pair as design. They are now driven on the same sealed
+A2 bytes §3.7 used — one changed field per labelled `/tmp` copy, volume `:ro`, nothing sealed:
+
+```bash
+export MSYS_NO_PATHCONV=1; REPO="$(cygpath -m "$PWD")"
+docker run --rm --entrypoint /bin/bash -w /src -v "${REPO}:/src:ro" \
+  -v minekin-runner-data:/data:ro -e MINEKIN_HOME=/data -e PYTHONPATH=/src/src \
+  minekin-runner:local -lc 'bash /src/.tmp/m-r20-100-ab-clauses.sh'      # log …/m-r20-100-ab-clauses.log
+# then, for the field-location question that follow-up answered:
+#   .tmp/m-r20b-previous-run-id.sh  and  .tmp/m-r20c-asserter-inputs.sh
+```
+
+Census of the driven pair (all read from the bundle, not asserted): `kin-e-aba` /
+`7ff026e4…`, `previous_run_id = a26e2c35b66e498b828900877397a73f`, **19** rows on this run's
+carrier `bridge-trace.jsonl` and **19** on the previous run's carrier
+`previous-run-trace.jsonl`, `here_sessions = ['ed3fdc067e294d5e9b356c34ca9a058b']`,
+`prev_sessions = ['4ba0825eee234506bcdca524d1631df9']`; the unmodified copy answers `None /
+None` with `verify rc=0` (13 artifacts, `bundle_digest 0cc1fb99…`).
+
+| mutation (one field, one carrier) | `kin_id` clause | `session` clause |
+| --- | --- | --- |
+| control | `None` | `None` |
+| §3.6 1 — previous carrier's `kin_id` → `kin-m20-foreign` | `KIN_ID_NOT_CONTINUOUS:kin-e-aba,kin-m20-foreign` | `None` |
+| §3.6 2 — one previous row's `run_id` → foreign | `PREVIOUS_ROWS_NOT_ONE_RUN:m20-not-the-previous-run` | `None` |
+| §3.6 3 — one **this-run** row's `kin_id` → foreign | `KIN_ID_NOT_CONTINUOUS:kin-e-aba,kin-m20-foreign` | `None` |
+| one this-run row's `run_id` → foreign | `THIS_TIMELINE_ROWS_ARE_NOT_ONE_RUN:m20-not-this-run` | `None` |
+| one this-run row's `kin_id` emptied | `LEDGER_ROW_NAMES_NO_KIN` | `None` |
+| §3.6 5 — previous carrier takes **this run's** session | `None` | `SESSION_ID_SHARED_ACROSS_RUNS:ed3fdc06…` |
+| §3.6 6 — a foreign session only in this run's rows | `None` | **`None`** (the control for 5) |
+| previous carrier emptied | `PREVIOUS_TRACE_NOT_SEALED` | `PREVIOUS_TRACE_NOT_SEALED` |
+| previous rows name no session | `None` | `PREVIOUS_RUN_HAS_NO_SESSION_ATTRIBUTION` |
+| this-run rows name no session | `None` | `NO_SESSION_ATTRIBUTION_IN_LEDGER` |
+
+**What that settles.**
+- Items 1, 2, 3, 5 and 6 of §3.6 are measurements now, not design: each named refusal is
+  reachable through a file the reader actually opens, and the two sides of the comparison are
+  separately reachable (the same `KIN_ID_NOT_CONTINUOUS` message arrives from the previous
+  carrier *and* from this run's carrier).
+- Item 6 is the non-vacuity proof for item 5: adding a session value that appears **only** in
+  this run's rows leaves both clauses green, so the rule really tests *crossing*, not
+  uniqueness — the pair cannot be satisfied by inventing a new session either.
+- Absence is refused rather than counted: an empty previous carrier is
+  `PREVIOUS_TRACE_NOT_SEALED`, and rows that exist but name no session are
+  `PREVIOUS_RUN_HAS_NO_SESSION_ATTRIBUTION` / `NO_SESSION_ATTRIBUTION_IN_LEDGER` — three
+  different answers, all reachable, so neither side of the pair can go green on a hole.
+- **Where `previous_run_id` actually lives** (this round's second, unplanned measurement):
+  clearing it in `run-document.json` is a **no-op** — the first drive printed the real
+  top-level keys (`argv_digest, generation, kin_id, overlay, pid, recovery, run, run_id,
+  schema_version, session_id, started_at, status`) and the clause stayed `None / None` with
+  `verify rc=0`. The field is carried in **`asserter-inputs.json`**, whose complete key set is
+  `['kin_id', 'previous_run_id', 'run_id', 'schema_version', 'username']`; clearing that one
+  field makes both clauses answer **`PREVIOUS_IS_FIRST_RUN`**, and it still answers
+  `PREVIOUS_IS_FIRST_RUN` when the previous trace carrier is emptied too — the field test is
+  checked before carrier emptiness. That key inventory re-measures, at field-name level, the
+  premise of 卡面第 1 条: `asserter-inputs.json` carries no `token`/`xuid`/`clientId` to read.
+- Every forged copy above was refused by the seal (`evidence verify rc=12`); the only copies
+  that stayed `rc=0` were the control and the two no-op edits, which is the same
+  instrument-independence as §2.8 and §3.7.
+- Gate side unchanged: payload still `cfa0f1184bee30df6a1d9fcf45778c9cef074ece6761c47fe7d6b9f49863afd6`,
+  `report_rc=1`, `W30`/`p0-core` `promotable False`, `W30.absent = OFFLINE-060/080`,
+  `non_mandatory 11 (W30) / 24 (p0-core)`, `misattributed 0`
+  (`.tmp/m-r20c-asserter-inputs.log`).
+
+**What this does not do.** These are the **pair** clauses (the 重启 half, §3.5 A/B). Driving
+them does not touch the triple: the parent row still answers `A_B_A_TRIPLE_NOT_SEALED`, and
+「首尾 A 同一获确认 world context」/「三次不同会话」 stay unjudgeable by construction (§3.6,
+[[project-offline-100-triple-not-judgeable-by-construction]]). §3.6 item 4's literal uuid
+remap (`SERVER_SAW_ANOTHER_IDENTITY`) is still design — §3.7 drove the neighbouring
+drop/malform refusals, not that edit. Nothing was sealed, registered, or promoted.
+
 ## 4. Gate consequences of registering the two manifests (acceptance ③)
 
 - Both ids leave `requirement.absent` and appear in `requirement.non_mandatory`
