@@ -421,3 +421,16 @@ lane 的第①项已落字节（guard 区间由 §2.18 的 `:461–:488` 变为 
 **本节未做活体对照**，缺口只按字节形状申报。判别实验（谁都能重跑，须在该 lane 的活体窗之外）：A 式 `MINEKIN_DOMAIN_ONLINE_MODE=true` + `JOIN_ON_CONTROLLED_SERVER=1` + `--server-profile` ⇒ 期望当前为超时形状、补第八条拒止后为 `rc=2` 且不落 `/tmp/domain-join-profile.json`；B 式（正对照）把 `ONLINE_MODE` 置 `false` ⇒ 期望仍走到 §2.21 那种按名回答；C 式（默认关闭等值）不设新名 ⇒ 加入者 argv 与 base 逐字节相同（lane 读数① 已在盘上字节做过五组 base↔tip 对照）。
 
 **处置**：登记为 H1k 的复审退回项 #58，排在 §2.22 四项之后（同一 `domain.sh` 独占面，不另开 lane、不并行改）。M 不在 lane 在飞时改它的面，也不代为提交。
+
+### 2.26 第四十七轮纠正：§2.25 的「第八对缺口」归因错了，撤回「补第八条拒止」的处置
+
+**上一笔（`52e78b5`）的判定不成立，按新证据改正，不修改它写下的历史句子。** §2.25 把 `MINEKIN_DOMAIN_ONLINE_MODE=true` × `MINEKIN_DOMAIN_JOIN_ON_CONTROLLED_SERVER=1` 判成 §2.17 同族的「冲突对缺具名拒止」。M 当时只读了 `domain.sh` 的 `:88/:883–:886/:914/:1988` 四条字节，没读 tools 侧与案名侧的既有承担者。补读之后：
+
+- `tools/run_controlled_server.py:226–:235`：`_online_mode_text` 在 `online_mode is None` 时按 `profile.auth_mode` 派生，显式传入时才强制——**强制是设计出来的出口，不是漏网**。
+- 同文件 `:303–:312` 的 docstring 逐字写着：这个 override 存在的唯一理由就是「an offline client dialling a server that requires session verification」，而该形状「must end in `AUTH_MODE_MISMATCH` and must never be worked around」，并明说「the point of that case is that the client cannot satisfy the server, not that it should try」。
+- 该案有名字：`tests/unit/test_case_evidence_assertions.py:3715` ⇒ 「ADMIT-040: an offline identity that met a server demanding online authentication」；`domain.sh:1788` 把这一形状收在 `case_id = ADMIT-040` 的判定分支里，且要求 `--server-profile` 在场，缺任一即 `rc=2`；契约测试 `tests/contract/test_runner_scripts.py:299` 钉着那条拒止文案。
+- 同族护栏还在别处：`tools/run_controlled_server.py:264–:271` 在强制 online-mode 的形状下**拒绝** `--enable-status`，理由正是「不给一个客户端进得去的服务器打广告」。
+
+⇒ **不新增第八条 guard 拒止**；`guard 461–492 未列该对` 不等于 `无人拒止该对`。#58 由「复审退回项」降级为一条**待判问题**并保留材料不删：真正没读过的只剩一格——`JOIN_ON_CONTROLLED_SERVER=1` 与 `ONLINE_MODE=true` 都被显式设、而 `case_id` **不是** ADMIT-040 时，产物是「具名失配」还是「加入者静默超时」。这一格要么靠一次容器内形状断言、要么靠一次活体，M 不在 lane 的活体窗里抢跑，也不拿 §2.21 的默认可铸形状冒充它的读数。
+
+**方法申报（防同类错判）**：判「冲突对缺不缺具名拒止」之前，除 guard 区间外必须先 grep `tools/**` 与 `tests/unit/**` 里有没有该形状的既有具名承担者（本案的承担者是 `AUTH_MODE_MISMATCH` + ADMIT-040 的 case 门）。§2.25 那句「唯一让它变绿的『修法』是放宽认证，属硬禁」仍然成立，但它推出的正确动作是**先找既有失配再谈补拒止**，不是补拒止。
