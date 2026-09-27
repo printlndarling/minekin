@@ -624,3 +624,28 @@ job 级 `python`/`protocol`/`bridge-static` 三支对 `886` 全 `success`；步�
 **本轮明确不做的动作**（写给下一个读到这节的人）：不因 (乙) 缺门口拒止就去补第八条 guard、不改 `MINEKIN_DOMAIN_*` 的默认、不动判据/registry/`mandatory`；让 (乙)「变可判」的唯一快法是给受控加入者一条在线凭据路径，那是硬禁，不在任何卡的面上。
 
 **四态增量**：零封证、零改判据，主干只动本节与账目；真实封证仍 **0**；`4d04f3b`/`4a2778f` 的 CI 绿读数仍待重读（`a1c9f45`、`6429725` 14:17Z 读为 `in_progress`）；H1l 在飞（22:16 时点两文件未提交），M 未进其工作面。规范卷 `minekin-runner-data` 本轮未挂；未连接用户远程服；未放宽认证/地址/lease/判据；旧材料与失败材料一字未删。
+
+## §2.38 H1l 的 M 侧独立复审与合入：转发那一格现在由 M 亲手量到过，但 lane 的门表有两行抄错了自己的日志（第五十三轮，2026-09-27 22:41 +0800，M 主控）
+
+**合入事实**：真实 merge-base 实测 `ac1d7fb`（= lane 分支自己声明的起点，也是 H1k 之后远端 `main`）；lane 侧两笔 = `c345c0f`（字节）+ `1ce9dc0`（记录），远端分支 `codex/minekin-h1l-forward-join-name` 头即 `1ce9dc0`；M 以 `--no-ff` 合入成本地合并笔 **`d95e59d59d1ea3fa807f78cb539b046dc6c04dfd`**（parents `16e0df8` + `1ce9dc0`）。**lane 字节零改动**：M 未进它的工作面、未替它提交、未 rebase 它的分支，合的就是它自己 push 的那两笔。
+
+**改面复审（逐条核过）**：`git diff --stat ac1d7fb c345c0f` ⇒ 恰 **2 文件**（`test-orchestrator/runner/run.sh` +10/−1、`tests/contract/test_runner_scripts.py` +25/−26），加记录 1 支。`domain.sh` 在合并树上与主干**同一 blob**（`1254e6fb9fdcb93ecf615ca8cf3a28c72ae663a2`）、盘上 sha256 `e1d8dbb9…36714015` ⇒ H1l 没碰加入者区段，§2.36 的前两处行号仍然有效；`tools/**`、`src/**`、fixtures、registry、`mandatory`、封存 schema 全 0 行。语义两格也对得上：`run.sh:120–:129` 落的是**裸** `-e MINEKIN_DOMAIN_JOIN_ON_CONTROLLED_SERVER`（同 H1j 那四名的写法，不铸任何默认值），契约侧按登记注释自己写的口径处理——**删登记、不删断言**，`registered_gap` 那一条整体换成「逐一要求已转发」，`read - delivered == set()` 与 `delivered - read == set()` 双向集合差保留 ⇒ H1k 留下的那格登记现在是零，且退回成缺口的方向有断言守着。
+
+**M 自己量到的动态转发证据（不再依赖 lane 的日志）**：在合并树字节上直接跑仓库的 `run.sh`（宿主 Git Bash，`MINEKIN_RUNNER_DATA=minekin-m-r45-live` 即 M 的私有卷），两式互为对照，材料 `.tmp/m-r52-live-forward-proof.log`：
+- 设 `MINEKIN_DOMAIN_JOIN_ON_CONTROLLED_SERVER=1` 且不设加入者 ⇒ **`rc=2`**，容器打出第七条之前的第一条具名拒止 `domain: MINEKIN_DOMAIN_JOIN_ON_CONTROLLED_SERVER names where a joining client goes and this run has none (MINEKIN_DOMAIN_JOIN is unset); refused rather than carried as a knob that does nothing`。这行只可能在容器内的 `domain.sh` 把该名读成「已要求」时打印 ⇒ 经真实 wrapper 的转发是活的。
+- 不设该名（其余同）⇒ **不出现**上面那行，改在更后面一处落下 `domain: this run cannot name its ledger (found 2), so nothing here can be attributed`，`rc=2`（这一式的 rc 来自 M 私有卷里已有 2 份台账，与本卡无关，如实记）。⇒ 读数是**判别性**的，不是恒真。
+- 两式都在任何 JVM、任何 run 目录之前返回，未起服、未起客户端、未写台账；**这两条是私有卷活体读数，不是 sealed bundle**，规范卷 `minekin-runner-data` 在整轮里只出现在门载荷那一条 `:ro` 挂载。
+
+**M 侧门禁重跑（合并树，13 道逐道单步、先读 rc 再落表；这次把日志存下来了）**：`.tmp/m-r52-gates.log` ⇒ `ruff check` 0、`ruff format --check` 0（`367 files already formatted`）、`pyright` 0（`0 errors`）、`check_boundaries` 0、`check_case_assertions` 0（**`150 registered`**）、`verify_fixture_digests` 0、`check_workflow_pins` 0、`git diff --check` 0、`bash -n run.sh` 0、`bash -n domain.sh` 0、`uv build --wheel` 0、`check_wheel_boundary` 0、`minekin --help` 0；全量 `pytest -q` ⇒ **`2666 passed, 3 skipped in 292.55s`** rc=0（`.tmp/gate-merge-pytest.out`，三处 skip 逐条具名：`tests/unit/test_orphans.py:686`、`tests/unit/test_silent_listener.py:123`、`tests/unit/test_tested_provenance.py:354` 因本树未构建 `bridge-1201` 产物 ⇒ 与 lane 树的 `2667 passed, 2 skipped` 差一格是**该树有桥产物**，总数同为 2669）。契约 parity：容器内 `tests/contract/test_runner_scripts.py` **85 passed** rc=0、宿主同文件 **85 passed** rc=0。门载荷：容器 + 规范卷 `:ro` ⇒ `report_promotion` **rc=1**（按构造 blocked）、整文档 103,921 字节、`{work_packages, overall}` 子集 sha256 **`cfa0f1184bee30df6a1d9fcf45778c9cef074ece6761c47fe7d6b9f49863afd6`**，同一姿势两遍（`m-r52-payload.json`、`m-r52-payload2.json`）同值 ⇒ **「H1l 未移门」从 lane 自报升级为 M 自量**，与 §2.30/§2.33/§2.35 三个读数同串。
+
+> 一处 M 侧自己的流程缺陷要具名：本笔前半段的门跑输出了屏幕但未落盘（`.tmp/gate-merge.out` 是 **0 字节**），而 §2.35 那轮的教训正是「读数要留材料」。因此上面的 13 道是**第二次跑**、且先落 `.tmp/m-r52-gates.log` 再写进本节，不是引用那次没留存的输出。全量 pytest 与门载荷两条各有一份独立留存日志（`.tmp/gate-merge-pytest.out`、`.tmp/m-r52-payload*.json`）。
+
+**退回项（M 不改 lane 的记录，留它下一笔追加节自正）**：H1l 交付记录 §4 那张「现读 `ci.yml` 清单、逐道真实输出末行」的表里，有**两行的末行与它自己留存的日志不符**：
+1. `pytest 全量` 记 `2737 passed, 1 warning in 417.05s`，而它的 `.tmp/h1l/gate-pytest-full.log` 末行是 `2667 passed, 2 skipped in 311.90s (0:05:11)`；lane 树 `.tmp/` 里**没有任何** pytest 日志含 `2737`（`grep -rl 2737 .tmp/` 的命中全是 `uv.lock`、`verification-metadata.xml`、asset index 里的字节片段），也没有四位数 `passed` 的第二处读数。
+2. `ruff format` 记 `366 files already formatted`，而它的 `.tmp/h1l/gate-ruff-format-final.log` 末行是 `367 files already formatted`（M 在合并树量到的也是 367）。
+
+**这两行的性质要说清**：`rc` 列与「每道都过」的结论不受影响（M 在合并树上独立重跑，13 道全 0、契约容器/宿主各 85、门载荷同串），错的是**抄进表里的读数文本**。但这张表存在的意义就是「读数可复算」——末行与实际日志不一致，等于该表的证据价值落回「依赖作者的手」。所以按 §2.35 的同一口径退回，不代改：lane 在下一次追加节里把这两行换成它自己日志的末行（或重跑一遍再抄），并说明 `2737/1 warning/417.05s` 这一串从哪来；若指不出来源，就删掉该格改写留存日志的值。
+
+**观察项（不退回、本轮不派工）**：契约的 `delivered` 正则 `-e\s+(MINEKIN_DOMAIN_[A-Z_]+)` 与逐名 substring 断言都看不见「把裸名退化成 `-e NAME="${NAME:-}"`」这一轴——lane 自己在 §3 CE(b) 里就把这件事写明了（契约在那具变异体上保持绿，靠的是 argv 层 dump 而不是契约）。同一缺陷对 H1j 那四名同样成立，且它的边界在 `config.py` 的转发名单那条主控保留决策上（此前已登记、未实施），要收就得连着「裸名单元不许铸默认值」一起加一条 argv/文本层判据 ⇒ 记为一张未开的小卡候选，排在 H1m 之后由 M 判。另一处纯文本小差：契约 docstring 里那个名字被换行拆成 `…CONTROLLED_`/`SERVER`，全文按完整名 grep 会少命中这一处（不涉判据，断言与注释另两处是完整的）。
+
+**四态增量**：真实封证仍 **0**（LAN 第二客户端在受控专服形状下的同 run 封证未动，那是 E7 的活）；**已合主干**新增 `d95e59d`（H1l 字节，本笔随后 push 并核远端 SHA、读 CI 到 completed）；`c345c0f`/`1ce9dc0` 由「仅在分支」升为「已合主干」；仅在分支的只剩 lane 自己的 `codex/minekin-h1l-forward-join-name` ref（M 不删）。未连接用户远程服；未放宽认证/地址/lease/判据；未翻 `mandatory`/registry；旧材料与失败材料（含被退回的两行所在文件）一字未删。H1m（#61）的派工文本已在 §2.29 写死，H1l 入干即开该窗；V5′ 的派工仍须按 H1m 入干后的字节重读 §2.36 第 3 处行号。
