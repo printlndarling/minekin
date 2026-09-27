@@ -1093,6 +1093,16 @@ V lane 的第一段 `bbf0daf` 已在第二十一轮并入主干（合并 `3ffc79
   judge B `rc=0`。纯文档增量，故未重跑宿主全量套（记 主控侧未复量）。
 - **V4 仍在工**：`minekin-wt-v4` 工作树干净、分支尚无远端 ref（`git ls-remote origin | grep v4` 为空）⇒
   本轮没有可审的 V4 材料，M 不预判其结论。
+- **全远端分支普查（第二十七轮重量，方法写在结论前）**：对 27 枚远端分支（不含 `origin/HEAD` 别名）逐枚
+  `git merge-base --is-ancestor <branch> main` ⇒ 26 枚（含 `main` 自己）已在主干，唯一「非祖先」的工程/规划分支是
+  `codex/parallel-execution-plan`（`ahead=2`、真实 merge-base `6f0f562`、1 文件 `+84`）。**但它没有待合内容**：
+  主干上同名文件是**另一笔提交加进去的**（`git log --diff-filter=A -1 main -- docs/parallel-execution-plan.md`
+  ⇒ `13b84a8`，subject 与分支那笔相同），且
+  `git diff origin/codex/parallel-execution-plan:docs/parallel-execution-plan.md main:docs/parallel-execution-plan.md`
+  给 `+27 / -4`，那 4 行减号是**主干后来扩写的四段**（版本行、V 行、H 行、冲突表）⇒ 主干那份是分支那份的超集。
+  **教训：「不是 main 的祖先」不等于「有待审增量」**——分支内容若被重新落过干（此处 `23d04d5` 之后的回写就是这种情况），
+  判据要落到 blob/内容比对，而不是只看 ancestry；否则每轮都会把这枚僵尸分支重新审一遍。
+  ⇒ 本轮审卡队列实读为**空**（与第二十四轮那次同结论，理由不同：那次是「无未合分支」，这次是「唯一未合分支已被超集覆盖」）。
 - **四态**：已合主干 = 上述全部（H1g 三枚分支提交 + M 的门/协议侧修复，远端尖 `cbe00ac`）；仅在分支 = V4（在工，尚无提交）；
   真实封证 = 零；未验证 = 1.20.1 真 JOIN/首快照（V4）、E6 封存、门禁（载荷 `cfa0f118…` 未动）、
   `metadata.py:16` 默认值是否下一前沿。
