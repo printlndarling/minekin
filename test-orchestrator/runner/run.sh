@@ -107,7 +107,17 @@ if [[ "${1:-}" == "domain" ]]; then
         -e MINEKIN_DOMAIN_USE_TARGET -e MINEKIN_DOMAIN_OPEN_LAN -e MINEKIN_DOMAIN_LAN_PORT
         -e MINEKIN_DOMAIN_JOIN -e MINEKIN_DOMAIN_JOIN_USERNAME
         -e MINEKIN_DOMAIN_CASE_ON
-        -e MINEKIN_DOMAIN_SECONDS)
+        -e MINEKIN_DOMAIN_SECONDS
+        # The four joiner-control knobs of the bounded control driver. Same pass-through
+        # rule as every name above — `-e NAME` carries the host's value when the operator
+        # set one and leaves the name unset when they did not — because the driver is
+        # default-off and an unset knob reads as "not asked for". Forwarding them is the
+        # whole of this wrapper's involvement: the bound and refusal logic lives in
+        # `domain.sh`, and this line invents no default of its own.
+        -e MINEKIN_DOMAIN_JOIN_LOOK_YAW
+        -e MINEKIN_DOMAIN_JOIN_LOOK_PITCH
+        -e MINEKIN_DOMAIN_JOIN_HOLD_FORWARD_SECONDS
+        -e MINEKIN_DOMAIN_JOIN_CONTROL_PRINT)
     if [[ "${world}" -eq 1 ]]; then
         EXTRA_ARGS+=(-v "${SERVER_JAR}:/server/server.jar:ro")
     fi
