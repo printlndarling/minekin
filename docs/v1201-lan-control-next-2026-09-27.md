@@ -77,3 +77,14 @@ M 在等 H1h 的窗口里把「有没有可判载体」量成了事实，结论�
 3. **裁决（写死 M-C1 的边界）**：M-C1 的**第一份提交**必须先补「探针目标归属」这一格载体——把本次 run 被问过的玩家名记进**已有**封存产物 `asserter-inputs.json`（`seal_run_evidence.py:795` 的 `ASSERTER_INPUTS`），并在 case 判据里要求「被问过的名字恰为加入者用户名，且仅此一个」。这是 `tools/**` 面内的新增字段/新增 artifact 名，沿用既有名字常量纪律，**不是** `minekin.p0.evidence.v1` 的 schema 扩展。
 4. **反证要求**：M-C1 必须现场演示——把同一份日志的归属换成主客户端名字、或塞进第二个被探针的名字，判据要**具名失败**（`the_server_saw_the_kin_move` 不得在归属不成立时仍返回 None）。做不到这一条，M-C1 不得登记 case，E7 不得排封证窗口。
 5. **不因此改动现有 case 的判据**：既有单客户端案的「一个目标」前提不变，H1h/V5 之前也不依赖本节。
+
+## §2.2 拆分：M-C0 载体卡 + H1i 交接卡（第三十七轮，M 裁决）
+
+§2.1 的归属载体横跨两个面，而 M-C1 还排在 V5 之后。为不浪费时间又不越序，把它拆成两张各自独立可判的卡：
+
+- **M-C0（先派，不依赖 H1h/V5）** `V1201-PROBE-TARGET-CARRIER-001`，只动 `tools/**`：
+  - `tools/seal_run_evidence.py` 新增可选、可重复的 `--probed-player`，把它原样记进**已有**的封存产物 `asserter-inputs.json`（`:795` 的 `ASSERTER_INPUTS`），不新增 artifact 名、不动 `minekin.p0.evidence.v1`。
+  - `tools/assert_case_evidence.py` 暴露该读数，并新增一个判定词：被问过的名字**恰为**本 run 的 `--username` 且仅此一个；缺失时**具名失败**而不是当作「没问过」。
+  - 向后兼容要求：既有 case 的判定结果不得改变（用真 bundle 重判做正对照）；新字段缺省时不得让旧 bundle 重判转红。
+- **H1i（排在 H1h 之后，同一文件不可并发）** `V1201-PROBE-TARGET-HANDOVER-001`，只动 `test-orchestrator/runner/domain.sh`：封存调用要把本 run 实际问过的名字（`domain.sh:482` 的 `${probe:-${player}}`）交给 `--probed-player`，且不得改动 auto+joiner 拒止段。
+- **M-C1 的相应收窄**：M-C1 不再实现载体，只在 V5 证明活体可判后冻结/登记 case（两次提交，逐次量 `case_version` 与门载荷 delta）。E7 的封证窗口以 M-C0 + H1i 已合入为前置。
