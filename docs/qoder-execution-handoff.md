@@ -1210,3 +1210,29 @@ V lane 的第一段 `bbf0daf` 已在第二十一轮并入主干（合并 `3ffc79
   真实封证 = 零；未验证 = V4 记录的形状与语义、版本错配反例、E6 封存、门禁（载荷 `cfa0f118…` 未动）。
 - **不声称**：不声称台账读数等于 V4 的结论（阶段链是真的，但记录归 V4 写、复审归 M 做），不声称 E6 可放行，
   不声称任何 case 闭合、门禁点亮或 Minekin 完成。
+
+
+## 第三十轮（2026-09-27，M 主控）：版本错配反例已量到非空转，V4 合入前的主干基线取妥
+
+- **反例读数（`.tmp/m-r30-v4-counterexample.log`，中间读数）**：V4 的 case C 落在
+  `.tmp/v4/out/c/{match,mismatch}.{err,session.json}` 四件上，M 逐字节读后成对成立——
+  `mismatch.err` 是具名拒止 `{"category": "ADMISSION", "component": "launcher.profile",
+  "message": "the session launches Minecraft 1.20.1, the target allows 1.21.4", "operation": "load",
+  "retryability": "OPERATOR_ACTION"}`，且 `mismatch.session.json` **0 字节** ⇒ 那一侧连 session 文档都没写出，
+  客户端 JVM 没起（这正是卡面要求的「拒止落在 JVM 之前」）；同形状的 `match` 侧 `match.err` 0 字节、
+  `match.session.json` 1724 字节、`kin_id=kin-v4-c`、`connection_state=REQUEST_ACCEPTED`。
+  ⇒ 差别只在目标允许的版本，一侧准入一侧拒 ⇒ 反向非空转。**注意形状**：match 侧只跑到 `REQUEST_ACCEPTED`
+  就被收尾（`session_state=STOPPED`、`snapshots_admitted=0`），它是准入对照不是完整加入，别把它当第二枚 JOIN。
+- **合入前基线（`.tmp/m-r30-premerge-baseline-0512f17.log`）**：在远端尖 `0512f17` 的树上跑
+  `bash /src/.tmp/m-r27-review-gates.sh`（容器内、`/src:ro`、不挂规范卷）：五枚门
+  `bash-syntax / contract-tests / case-assertions / fixture-digests / boundaries` **全部 rc=0**；
+  M 判官 A 两枚都接受且**修订号与第二十六/七轮一致**——1.20.1 侧 `ACCEPTED ManagedTargetProfile a51407f412850459`、
+  1.21.4 侧 `ACCEPTED ServerProfile c74d94a4e4f99a81`（⇒ v1 冻结行为无漂移）；判官 B 的 12 枚松形状逐条具名拒止
+  （含「列两个版本」「授权字段缺失」「host 离开 loopback」「auth_mode 非 offline」「未审字段」等），`matrix rc=0`。
+  ⇒ V4 合入后的同套读数若偏离这组数字，就是 V4 带进来的，而不是主干本来就红。
+- **V4 现场**：分支仍尖 `8b357b6`、工作树干净、`origin` 无该分支；case C 四件写于 13:18，
+  私有卷已有第五根 `kin-v4-c` ⇒ lane 在跑第三案之后、写记录之前。E6 依旧不放行。
+- **四态**：已合主干 = 无新增（远端尖 `0512f17`）；仅在分支 = V4（A/B/C 三案 scratch，无提交）；真实封证 = 零；
+  未验证 = V4 记录的形状与语义、1.20.1 真 JOIN 作为**已审结论**、E6 封存、门禁（载荷 `cfa0f118…` 未动）。
+- **不声称**：不声称 V4 已达标/已提交，不声称 match 案完成了加入，不声称 E6 可放行，不声称任何 case 闭合、
+  门禁点亮或 Minekin 完成。
