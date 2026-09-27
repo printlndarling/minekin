@@ -427,7 +427,10 @@ H1G: profile_version=1.21.4 launch_version=1.21.4 -> launcher.profile admission 
 `tests/unit/test_case_evidence_assertions.py`，与本卡的两个交付路径无关。主干此后已由
 `518d199`（`test(evidence): name the asserter members the OFFLINE rows read`，补齐 `_Asserter`
 协议）单独修掉，主控侧在该提交上实测全仓 `uv run pyright` 读 `0 errors, 0 warnings,
-0 informations` —— 本卡未在本 worktree 复量这个转绿读数，仅具名引用主控结果。
+0 informations` —— 本卡未在本 worktree 复量这个转绿读数，仅具名引用主控结果。本卡只自行核了两件事：
+`518d199` 确在 `main`/`origin/main` 上、不是本卡基线 `0da7032` 的祖先（`git merge-base --is-ancestor`
+读「否」），且它只改 `tests/unit/test_case_evidence_assertions.py` 一个文件（`git show --stat` = +14/-1），
+补的正是上面那 7 个 `_Asserter` 名字。
 
 全仓 pyright 的红不是本卡造成的，且这是量出来的而不是推的：
 `git status --short tests/unit/test_case_evidence_assertions.py` 与
