@@ -1554,3 +1554,37 @@ the target allows 1.21.4"}`，配对文档 `mismatch.json` 是 `schema_version 2
 
 不声称：合上这份记录不等于 1.20.1 加入链已经门禁化或产品完工；它只把「真跑到 JOIN/首快照」
 从 lane 的转述升级成规范卷里可重哈希、可重判的封存件。
+
+## 第三十七轮：规划分支 `codex/minekin-local-control-next` 合入，H1h 开工（LAN 加入者限幅控制驱动）
+
+### 恢复现场读数（本轮亲量）
+- 远端 `main` = 本地 `main` = `24ac6e0ee69cb1926fb4ce5c8439834caaa37fb3`；integration 工作树 `git status --porcelain` 空。
+- 38 个 worktree；`minekin-runner-data` 卷存在且**没有任何运行中容器挂载它** ⇒ 规范卷写窗空闲（本轮 H1h 不封证，派工命令里明确禁止挂载）。
+- 卷内既有计数沿用上一轮读数：`kin_roots=16`、`manifests=113`、attempts 77。
+
+### 规划分支审查与合入（`0552e10` → merge `24ac6e0`）
+- 真实增量：`git diff --name-only d26a2dd 24ac6e0 | grep -v '^docs/' | wc -l` = **0**，纯文档规划。
+- 两条承重 claim 由 M 复量后才合：
+  1. **E6 的 `V1201-020` seq4 是「本地专服 + 单客户端」形状**，不是 V4 的 LAN 第二客户端——合入前 M 已按 `MINEKIN_DOMAIN_CASE=V1201-020` + `--server-profile …controlled-offline-server-1.20.1.json` 的命令行形状与卷内 run document 复核；结论：范围缺口，不是 bundle 失效。
+  2. **registry 现有引用仍为真**：`tools/verify_tested_provenance.py --data-root /data` 从 integration 树跑会 `BRIDGE_JAR_MISSING`（构建产物不在此树），改从持有两份桥 jar 的 `../minekin-wt-v4` 跑 ⇒ `rc=0`、两个条目 `verified True`、`findings []`。本轮不替换引用、不翻 `mandatory`。
+- CI：run `36301474388` = `completed / success`。
+
+### H1h 派工前 M 亲量的事实（决定这张卡零产品改动）
+- `test-orchestrator/runner/domain.sh`@`ff69c879…`：加入者的产品调用（`:1179-1184`）只有 `session start --profile "${profile}" --server-profile /tmp/domain-join-profile.json`，**没有任何控制旗标** ⇒ 今天的 LAN 加入者是纯 observe-only。
+- `src/minekin_core/cli/parser.py`：`session start` 已接受 `--hold-forward-seconds`(`:115`)、`--hold-strafe`(`:130`)、`--hold-jump/--hold-sneak`、`--hold-use-seconds`、`--hold-at`(`:165`, `playable|join`)、`--look-yaw-degrees`(`:172`)、`--look-pitch-degrees`(`:179`)；hold 只「needs `--server-profile`」，而加入者本就传它。
+- `src/minekin_core/cli/session.py`：`:1072-1078` 拒「有轴无时长」、`:1100-1103` 拒非正时长、`:788-792` 产品自己已限幅单次 look、`:538` `select_kin(root, kin_selector)`；加入者进程启动时已注入 `MINEKIN_KIN_ID="${joiner}"`(`~:1166`) ⇒ **lease 天然定向第二客户端，不需要新产物 API**。
+- 由此派工面收窄为：runner 侧默认关闭 + 硬限幅（一次 look、forward ≤ 2 s、随 run 结束释放）+ 契约级 A/B/C/D 读数，禁止 `src/**`、禁碰 `:400-406` 的 auto+joiner 拒止、禁碰 `FORWARDED_VARIABLES`。
+- 工作树 `../minekin-wt-h1h`，分支 `codex/minekin-lan-joiner-bounded-control`，base `24ac6e0`。
+
+### H1h 的预登记复审判据（M 在 lane 交付前写下，不事后发明）
+1. **默认关闭等值**：未设 opt-in 时加入者 argv 与 `24ac6e0` 的形状逐字节等值（这是 v1/1.21.4 冻结行为的回归护栏，必须是有提交的契约测试而非口头断言）。
+2. **限幅是拒止不是钳制**：越界（如 `yaw=90`、`forward=10`）具名拒止且该 argv 不出现；无 joiner 而 arm 具名拒止。
+3. **不变量未被顺手改动**：`domain.sh` 的 auto+joiner 拒止段、`--hold-at join` 的拒止语义、`config.FORWARDED_VARIABLES` 全部保持原字节；`git diff --name-only 24ac6e0 HEAD` 只允许 `test-orchestrator/runner/domain.sh`、`tests/contract/test_runner_scripts.py`、一份新 `docs/validation/` 记录。
+4. **门载荷不动**：H1h 不注册 case、不动 registry ⇒ `gate_payload_sha256` 必须仍是 `cfa0f1184bee30df6a1d9fcf45778c9cef074ece6761c47fe7d6b9f49863afd6`；lane 若报出别的值即为越界。
+5. **不得越级报告**：H1h 记录里若出现「加入者已能走/看」这类活体结论，即为不成立——真测属 V5。
+
+### 四态口径（本轮）
+- **已合主干**：规划分支 `0552e10`（4 份 docs、零代码）→ `24ac6e0`；E6 的专服单客户端封证记录仍在其位。
+- **仅在分支**：H1h 在工，远端尚无该 ref；本轮没有任何待合分支被 M 见到。
+- **真实封证**：**1 个**——`73a52bfb…` / bundle `b2b4133b…`（`V1201-020`，本地专服 + 单客户端）。**LAN 第二客户端的控制封证 = 0。**
+- **未验证**：H1h（控制驱动形状）、V5（活体 look/move/release）、M-C1（可判 case）、E7（同 run 封证）、M-G1（门禁与 registry 只读审计）；以及所有仍守主控决策门的项（V08 远程服、HOST/PERSIST、跨 bundle 证据 schema、registry 引用替换、`mandatory` 翻转）。
