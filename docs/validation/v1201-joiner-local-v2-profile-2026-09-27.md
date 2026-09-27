@@ -503,11 +503,21 @@ $ uv run --frozen pytest "tests/unit/test_session_supervision.py::test_a_deadlin
 
 ## 6. 四态
 
-- **已合主干**：**无**。本卡没有任何东西由 H 合入 `main`；M 未合入前，改动只存在于分支。
+- **已合主干**（按合入时刻记，不写「当前」）：本卡写字节的那一刻是「未合」，随后 M 两次并入：
+  `ab93668`（2026-09-27 12:39:48，`Merge branch 'codex/minekin-joiner-local-v2-profile' (H1g) into main`，
+  父 `8715f25` + `1edf1a4`，真实 merge-base `0da7032`）并入了本卡的改动提交 `dd76a1d`
+  （三个允许路径：`domain.sh` +37、契约测试 +356、本记录）与本记录的时态补记 `1edf1a4`；
+  `8b357b6`（12:42:03，H1g doc follow-up）并入了本记录的核证补句 `bbd8432`（4 行，仅本文件）。
+  主干回读：`git show origin/main:test-orchestrator/runner/domain.sh | sha256sum`
+  = `ff69c879…`（＝本卡全部新字节读数所依据的那一份），`tests/contract/test_runner_scripts.py`
+  blob `471536f4` 与分支同一份 —— 合入没有改写被测字节。
   前置的 H1f（`02a8b4b` 经 `2ef64a8`）、V3 记录在基线 `0da7032` 里，是本卡的输入而不是本卡的产出。
-- **仅在分支**（等 M 按真实 merge-base `0da7032` 审后合入）：
-  `test-orchestrator/runner/domain.sh` 的 +37（新字节 `ff69c879…`）、
-  `tests/contract/test_runner_scripts.py` 的 +356、本记录。
+- **仅在分支**：**无**（截至 12:42 本卡的三个提交都已在 `main` 上，见上条时刻）。
+- **拓扑坦白**：卡片要求「提交一次」。改动本身确实只有 `dd76a1d` 一次提交并带齐五条 trailer；
+  `1edf1a4`/`bbd8432` 是同一 worktree 里第二个进程在 12:36–12:41 对本记录追加的行（M 在 `ab93668`
+  正文里已具名披露该重复进程）。本卡**没有**用 force-push 改写已发布历史，也没有 rebase/merge `main`；
+  曾把两次提交压成单次（`0a42b2c`，树 `ce8db956`）试过，但远端在那之前已被推送，非快进被拒后按
+  安全边界停在原地，改为对齐远端并只做快进推送。
 - **真实封证**：**零**。本卡不封存任何东西，不建 attempt/bundle，不写规范卷
   （`minekin-runner-data` 全程未挂载，连 `:ro` 都不需要）。本节「量到」＝在容器/宿主上按上面命令
   复跑可重现，不等于 sealed evidence。
@@ -531,9 +541,12 @@ $ uv run --frozen pytest "tests/unit/test_session_supervision.py::test_a_deadlin
 
 ## 7. 交付与回读
 
-- 提交：一次，仅上述三个路径。
+- 提交：改动本身一次 —— `dd76a1d`（三个允许路径 + 五条 trailer 齐备）；其后的 `1edf1a4`、`bbd8432`
+  只往本记录里追加行，不改任何字节面（§6「拓扑坦白」已具名说明成因与未用 force-push）。
 - 推送：`git push -u origin codex/minekin-joiner-local-v2-profile`，
-  并以 `git ls-remote origin refs/heads/codex/minekin-joiner-local-v2-profile` 核远端 SHA。
-- M 审查起点（真实 merge-base）：`0da7032ab34403830fbd0a3dea71f5fe65032615`。
+  并以 `git ls-remote origin refs/heads/codex/minekin-joiner-local-v2-profile` 核远端 SHA：
+  核到 `bbd8432f889ea2a8381c8a6ab22e34670b409bae`（12:41 推；随后 M 于 12:42:03 以 `8b357b6` 并入）。
+- M 审查起点（本卡分支时的真实 merge-base）：`0da7032ab34403830fbd0a3dea71f5fe65032615`；
+  本卡回读时 `main` 已到 `8b357b6`（含本卡三个提交）。
 - 复现本卡全部活体读数所需的驱动器脚本在 `/tmp/h1g/`（`drive_loader.py`、`drive_refusals.py`、
   `drive_gate.sh`、`drive_cli.sh`），**未入库**（本卡允许面不含它们）；本文已逐字给出其定义与调用形。
