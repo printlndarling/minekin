@@ -38,6 +38,18 @@
 
 **验收**：同一 run 明列服务端实际版本、加入者 profile schema/version、客户端 JVM 是否启动、Bridge 握手、JOIN/首快照、`GLFW 0x1000E` 与 `XDG_RUNTIME_DIR`、预算/Bridge 取料停点；逐项区分 `PASS`、`FAIL`、`未达到该阶段`。配一个 1.21.4 正对照与一项版本错配反证。若完整加入并达到 `PLAYABLE`，仍仅记为 V 私有活体读数，不冒充规范卷 sealed evidence；若失败，保留 stdout/stderr/crash 原物，按单一最先失败层归因并交 M 排独立修复卡。
 
+**派工前置（桥产物落点由 M 在 2026-09-27 按字节实测；供给停点那条注明出处）**：
+
+- 1.20.1 的 `minekin-bridge` 是 `workspace:` 取料，相对路径写死在 `recipe.py:74`
+  （`bridge-1201/build/libs/minekin-bridge-1201-0.0.0.jar`）。该 jar 是**未入库的构建产物，不随分支走**：
+  2026-09-27 实测 `minekin/` 与 `minekin-wt-evidence/` 各有一枚，sha256 `e50d61c209be98136216b34aadbb6d5a12db8def8aa63a536f32cda8e287006f`、
+  1310604 字节；`minekin-wt-integration/` 与 `minekin-wt-h1g/` 里没有。V4 要把已核字节那枚**复制进自己的 worktree**
+  （`find_workspace_root` 把 workspace 根解析为容器里的 `/src`），并在记录里写明 sha256 与落点；不重新构建、不伪造取料源。
+- 越过 `launcher.profile` 之后的第一停点**已由 H1g 读数②c 量到**（`主控侧未复量`）：一次性空 store 下
+  `3638 of 3638 artifacts are not in the store yet, starting with com.mojang:minecraft:1.20.1`。
+  那是空 store 的形状产物，不是出厂路径：真实受控 run 会把 host Kin 的 store `cp -a` 给 joiner
+  （`domain.sh:713-727`）。V4 必须在**已备好物料的私有 store** 上跑，且不得把这一句读成 1.20.1 的预算/Bridge 前沿。
+
 ### E6 `V1201-LOCAL-JOIN-SEAL-001` — 仅 V4 真正达到可封的 JOIN/首快照后提升 E lane
 
 **允许面**：E 独占规范卷写窗、其 lane 的证据记录；只调用已登记的 1.20.1 case 和现行判据，不改 case/registry 求绿。新 Kin/新 attempt，旧 FAIL 与 PASS 原样保留。
