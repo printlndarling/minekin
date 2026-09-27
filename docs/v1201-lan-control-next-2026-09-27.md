@@ -1289,3 +1289,33 @@ C1-only 字节上的读数（`.tmp/m-r64-c1-gates.log`）：`check_case_assertio
 **⑥ 次序随之改写**：#66 的卡面**不需要**证明「加入者能到场并受控」——case2 已经证了；它要收的仍是那一条确定性缺陷（下游读数探 `lan_port` 而非本 run 实际拨向的 `joiner_target_port`）＋相应文案与具名拒止。E7 的阻塞从「四枚判据不成立」改写为「一次配方正确的同 run 封证」，前置只剩 **#66 入干**（同一份 `domain.sh`，不并行）。M-G1（#50）仍排最后，`#58 (乙)` 待引擎窗。
 
 **⑦ 四态**：真实封证仍 **0**；已合主干且 CI 绿 = `6bf5546`；仅在分支 = `codex/minekin-h66-campaign-joiner-arrival`（在飞）与 lane 的历史 refs（均不删）；未验证 = E7 全卡、M-G1 全卡、`#58 (乙)`、③ 那条 stale-kin 推断（翻转条件已具名）。本轮 M 写入只有这份文档与自己的 `.tmp/`；lane 树只读未改；容器只以 `:ro` 挂了 `minekin-h66-live` 与 `minekin-m-v5p-live` 做核卷，规范卷未挂；未连用户远程服、未读 `.tmp/local-test-server.txt`；未翻 `mandatory`/registry/晋级；材料与失败材料未删；无 `--amend`/`--no-verify`。**LAN 第二客户端在受控专服形状下的规范卷真实封证仍 = 0。**
+## §2.64 `LEDGER_UNREADABLE` 的来路量到行级：复制 Kin 根只换目录名、不换账本里的身份行 ⇒ E7 的准备形状由字节定死（第七十轮，2026-09-28 07:10 +0800，M 主控；仓库字节 + 只读容器核卷（规范卷本论以 `:ro` 挂过两次）+ 账本副本只进内存 tmpfs，零 JVM、零 gradle、零引擎活体战役、未读 `.tmp/local-test-server.txt`、lane 材料一字节未改）
+
+**⓪ 落笔现场（脚本当场读，不凭记忆）**：远端 `main` = `953dfeda46e1b15d0733b7ba1d8962c13de5781c`（`git ls-remote origin main` 现读），M 主干树 `git status --porcelain` **0 行**；#66 lane 树 HEAD 仍 `527b6a7`、`git status --porcelain` 两行（`test-orchestrator/runner/domain.sh` + `tests/contract/test_runner_scripts.py`）、`git ls-remote origin 'refs/heads/codex/minekin-h66*'` 空 ⇒ 仍判在飞，M 未代提交、未碰它一字节。CI 本轮 REST 读到：`af32e35` 的 run 937（`36356906385`）= `completed/success`；`953dfed` 的 run 938（`36357157810`）读时 `in_progress` ⇒ **不写绿**。
+
+**① §2.63 ③ 那条「有据推断」升为已量，但来路换了一句。** 不一致的不是含糊的「复制体内部记录的 kin 身份」，而是**账本 `kin_identity` 表里的那一行**：
+- 行级读数（⑤ 第 4 条命令，`SELECT kin_id, local_profile_id, username FROM kin_identity WHERE singleton = 1`）：`minekin-h66-live` 上 `kin-h66-join` 的账本给 `('kin-v5p-join', 'kin-v5p-join-r1', 'Kin2')`，`kin-h66-host` 给 `('kin-v5p-host', 'kin-v5p-host-r1', 'Kin')` ⇒ 两根的**目录名与身份行逐字符不同**，且两侧同形（不是加入者独有）。
+- 卷级：同卷第三个根 `kin-v5p-join` **没有 `kin.sqlite3`**（`sqlite=0`），`kin-h66-host` / `kin-h66-join` 各有（`=1`）⇒ 判据拼出的 `/data/kin/kin-v5p-join/kin.sqlite3` 不存在。
+- 正对照（规范卷，`:ro`）：16 个根**全部** `sqlite=1`；抽两行 `kin-01 → ('kin-01', 'kin-01-r1', 'Kin')`、`kin-e6-j020 → ('kin-e6-j020', 'kin-e6-j020-r1', 'Kin')` ⇒ 身份与目录同名是规范卷的现状，这一格失配只是那次驱动准备的形状。
+- 零引擎旁证：M 自己 v5p 材料 `.tmp/v5p/out-host/{armed,control-off,ghost}` 里 9 份文档的 `kin_id` 与 `overlay` 的 Kin 段 **9/9 相同**（`.tmp/m-r70-kinid-pairing.py` → `paired 9 mismatched 0`，rc=0）。
+
+**② 字节链（主干 `953dfed` 的工作树现读；引用前按 `git log --oneline -1 -- <file>` 重核。本轮量到的各文件最后触及笔：`session.py = 5c643c63`、`identity_store.py = 0ad3aab9`、`init.py = ac271f7d`、`assert_case_evidence.py = 4a5d353`、`domain.sh = 68a748a`）**
+- 一份 session 文档里的两个字段来自两处：`src/minekin_core/cli/session.py:538` 用选择器定 `kin_id`，`:547` 再从**账本行**取 `identity = read_identity_root(connection)`；`:579` 的 `runs = run_root(root, kin_id)` 用**选择器**（overlay 落在新根），`:694` 的 `kin_id=str(identity.kin_id)` 用**账本行**（文档名字停在旧根）⇒ 一个复制体天然产出「overlay 在新根、`kin_id` 在旧根」的文档，两处各自都不是 bug。
+- 那一行的来源：`src/minekin_core/adapters/sqlite/identity_store.py:18–:20` 的 `_SELECT` 就是 `kin_identity WHERE singleton = 1`，`:64–:69` 的 `read_identity_root` 只读不造（缺行即拒 `identity root is missing; only an explicit init may create one`）；只有 `src/minekin_core/cli/init.py:64–:91` 的 `initialise_identity` 会把 `--kin-id` 写进去（`:76` 的 `local_profile_id = f"{kin_id}-r{INITIAL_IDENTITY_REVISION}"` 与 ① 里两行都带 `-r1` 同形）。
+- runner 侧的触发条件：`test-orchestrator/runner/domain.sh:1222–:1230` 的 init **只在 `/data/kin/${joiner}` 不存在时**执行，`:1229` 那句 `the joining Kin %s was created as %s` 也只在这一支里打印 ⇒ 驱动先把种子根复制成新名字，就等于让加入者沿用种子的身份行，而这一块**不会为此说任何一个字**（无提示、无拒止）。
+- 判据侧为什么报「读不到」而不是「拒止」：`tools/assert_case_evidence.py:604` 取 `run.kin_id`；`:615–:620` 那格「按卷内唯一 store 猜」的回退**只在文档没说名字时**才走到 ⇒ 非空的过期名字永远走不到回退；`:632` 把路径拼成 `kin_directory(data_root, KinId(kin)) / kin.sqlite3`，`:644` 仅当它是文件且打开成功才 `readable = True`，`:698` 交给 `ledger_readable`，`:1610` 的 `move_input_was_leased` 第一句就返回 `LEDGER_UNREADABLE`。
+
+**③ §2.63 ③ 的翻转条件按字面已经触发，但裁决不是「编排缺陷」**：case2 的目录名（`kin-h66-host` / `kin-h66-join`）本来就是全新名字，仍不一致 ⇒ 那句「用全新名仍不一致」的前提成立；但它写下的推论（升级编排缺陷、开窄卡）**不成立**，因为不一致的来路在驱动的种子复制，不在 runner 的名字传递。按字面执行「推断作废」的那半：§2.63 ③ 里「复制体带旧身份」这句现在有了行级出处，不再是需要翻转正理的推断。**不开新卡。** 新的具名回退条件：E7 若在规范卷用「该卷从未出现过的名字、由 `domain.sh:1222` 那一支自己 init 的加入者根」跑出 `run.kin_id ≠ 目录名`，则本裁决作废，升级为编排缺陷并由 M 开窄卡修加入者支的 kin 身份传递。
+
+**④ E7 的准备形状（进卡面的硬前置，起跑前可自检）**：宿主与加入者两侧的 Kin 根都必须满足 **目录名 == 该根 `kin_identity` 里的 `kin_id`**。规范卷里最省的姿势是给 `MINEKIN_KIN_ID` / `MINEKIN_DOMAIN_JOIN` 两个**该卷从未出现过**的名字（⑤ 第 3 条列出的 16 个现名之外，例如带日期后缀的新名），让 `domain.sh:1222` 那一支自己 init 加入者根；宿主根同样不得是复制体。起跑前自检（任一行不等就**拒绝起跑**，不要等封存报 `LEDGER_UNREADABLE`）：把 ⑤ 第 4 条脚本里的 `CASES` 换成 E7 要用的两个根名再跑一次。
+
+**⑤ 复算命令（五条，全部只读；Windows Git Bash 下先 `export MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*'`；读数已落 `.tmp/m-r70-ledger-root-readings.log`）**
+1. `grep -o '"failures": \[[^]]*\]' ../minekin-wt-h66/.tmp/h66/out/case2/domain-stderr.log | tail -1` ⇒ 两枚残余逐字 `move_input_was_leased:LEDGER_UNREADABLE`、`the_probed_player_is_this_run_s_kin:PROBE_ATTRIBUTION_NOT_RECORDED`。
+2. `docker run --rm -v minekin-h66-live:/h66:ro python:3.12-slim sh -c 'ls -1 /h66/kin; for d in /h66/kin/*; do echo "$d sqlite=$(ls "$d/kin.sqlite3" 2>/dev/null | wc -l)"; done'` ⇒ 三根，`kin-v5p-join sqlite=0`，另两根 `=1`。
+3. `docker run --rm -v minekin-runner-data:/data:ro python:3.12-slim sh -c 'for d in /data/kin/*; do echo "$d sqlite=$(ls "$d/kin.sqlite3" 2>/dev/null | wc -l)"; done'` ⇒ 16 行全部 `sqlite=1`。
+4. `docker run --rm --tmpfs /work -v minekin-h66-live:/h66:ro -v minekin-runner-data:/data:ro -v "$PWD/.tmp:/drv:ro" python:3.12-slim python /drv/m-r70-identity-rows.py` ⇒ ① 那四行读数；账本副本只进内存 tmpfs，两个卷都只 `:ro`。
+5. `python .tmp/m-r70-kinid-pairing.py .tmp/v5p/out-host` ⇒ `paired 9 mismatched 0`、rc=0（脚本 rc 的口径：有任何 mismatch 才非 0）。
+
+**⑥ 口径面申报（这一条修正 §2.63 ⑦ 的「规范卷未挂」）**：第七十轮 M 以 `:ro` 挂过规范卷两次（列根、读身份行用的账本副本），**没有**以可写方式挂过、没有写过它任何一字节；`kin.sqlite3` 与它的 `-wal`/`-shm` 都留在原处。时点移动另起此句，§2.63 ⑦ 原文不改。
+
+**⑦ 四态**：真实封证仍 **0**；已合主干且 CI 绿 = `af32e35`（run 937 本轮读到 `completed/success`），更正笔 `953dfed` 的 run 938 读时 `in_progress`；仅在分支 = `codex/minekin-h66-campaign-joiner-arrival`（在飞：HEAD `527b6a7` + 两文件脏 + 远端无 ref）与 lane 的历史 refs（均不删）；未验证 = E7 全卡、M-G1 全卡、`#58 (乙)`。本轮 M 写入只有这份文档、handoff 的一节与自己的 `.tmp/`；未连用户远程服、未读 `.tmp/local-test-server.txt`；未翻 `mandatory`/registry/晋级；材料与失败材料未删；无 `--amend`/`--no-verify`。**LAN 第二客户端在受控专服形状下的规范卷真实封证仍 = 0。**
