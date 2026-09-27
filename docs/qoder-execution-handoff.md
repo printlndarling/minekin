@@ -968,7 +968,9 @@ V lane 的第一段 `bbf0daf` 已在第二十一轮并入主干（合并 `3ffc79
   未验证 = 1.20.1 加入者 JVM 侧与端到端 JOIN（B1，产品钉住版本/准入语义＝主控保留）、⑤ 家族在已启动客户端上的一般性排除、
   §3.6 条目 4 的字面 uuid 改写、OFFLINE-090 的 Dashboard 载体、OFFLINE-100 跨 bundle 三段链载体、门禁一律未点亮。
 - **主控保留（本轮只命名，不实施、不派卡去绕）**：① B1 的钉住版本/准入语义（`src/minekin_core/adapters/launcher/server_profile.py:32`）；
-  ② OFFLINE-100 的三段链载体＝`minekin.p0.evidence.v1` 扩字段；在它有决定之前，E 的 A→B→A 真跑即使排进独占写窗也只能产出
-  判官按构造读不出的材料（父行常量 `A_B_A_TRIPLE_NOT_SEALED`），故本轮不派；③ B2 剩余范围（非 mandatory ADMIT 行 + 卡面后半段）
+  ② OFFLINE-100 的三段链载体＝`minekin.p0.evidence.v1` 扩字段。**这条 not-派 的理由不是「还没跑」**：A→B→A 的三段真跑
+  早在第十四轮就封进规范卷（A1 `cd215ca1…`／B `a26e2c35…`／A2 `7ff026e4…`，各自 `evidence verify` 与复判 `agrees`），
+  缺的只是将三段连成一条链的载体——父行 `tools/assert_case_evidence.py:3919` 至今恒答 `A_B_A_TRIPLE_NOT_SEALED` ⇒
+  重跑一次不推进任何东西，也不需再排 E 的写窗；要动的是扩字段那一记决定。③ B2 剩余范围（非 mandatory ADMIT 行 + 卡面后半段）
   与 OFFLINE-090 拆非门禁子案的 case-id 分配。
 - **不声称**：不声称队列里有可安全自派的下一张工程卡，不声称 1.20.1 JOIN 变绿，不声称 B1 已解，不声称任何 case 闭合或门禁点亮，不声称 Minekin 完成。
