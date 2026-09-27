@@ -1,6 +1,6 @@
 # Qoder / 新会话连续执行交接
 
-> 2026-09-27 第三十六轮后交棒点（规划分支 `codex/minekin-local-control-next`，基线 `main=d26a2dd`；**第三十七轮：M 审查后已合入，merge `24ac6e0`，非 docs 改动面 0，CI run `36301474388` success**）：E6 真封证有效，但它是**专服单客户端** `V1201-020`，不是 V4 的**第二客户端 LAN 世界**复现；`reviewed-tested-bundles.json` 已有该案同构建 seq2 PASS 引用，当前不替换、不翻 mandatory 求绿。下一条可执行本地路线见[H1h→V5→M-C1→E7→M-G1 连续任务卡与单会话提示词](v1201-lan-control-next-2026-09-27.md)。主干唯一 integration `NEXT` 不变；**第三十七轮在工的是 H lane 的 H1h（仅在分支 `codex/minekin-lan-joiner-bounded-control`，base `24ac6e0`，工作树 `minekin-wt-h1h`），V5/M-C1/E7/M-G1 未开始，LAN 第二客户端控制封证仍为 0**。V08、HOST/PERSIST、跨 bundle schema 等未因本规划获得授权。下方旧“只剩三道门/无安全下一张”仅是当时读数，以本交棒点为准。
+> 2026-09-27 第三十六轮后交棒点（规划分支 `codex/minekin-local-control-next`，基线 `main=d26a2dd`；**第三十七轮：M 审查后已合入，merge `24ac6e0`，非 docs 改动面 0，CI run `36301474388` success**）：E6 真封证有效，但它是**专服单客户端** `V1201-020`，不是 V4 的**第二客户端 LAN 世界**复现；`reviewed-tested-bundles.json` 已有该案同构建 seq2 PASS 引用，当前不替换、不翻 mandatory 求绿。下一条可执行本地路线见[H1h→V5→M-C1→E7→M-G1 连续任务卡与单会话提示词](v1201-lan-control-next-2026-09-27.md)。主干唯一 integration `NEXT` 不变；**第三十七轮在工的是 H lane 的 H1h（仅在分支 `codex/minekin-lan-joiner-bounded-control`，base `24ac6e0`，工作树 `minekin-wt-h1h`）与 M 的载体卡 M-C0（仅在分支 `codex/minekin-probe-target-carrier`，base `5d0cd2a`，工作树 `minekin-wt-mc0`），两树到本轮收口时都还是零提交；H1i 依 §2.2 排在两者之后，V5/M-C1/E7/M-G1 未开始，LAN 第二客户端控制封证仍为 0**。V08、HOST/PERSIST、跨 bundle schema 等未因本规划获得授权。下方旧“只剩三道门/无安全下一张”仅是当时读数，以本交棒点为准。
 
 > 2026-09-27 新交棒点（规划分支 `codex/minekin-next-1201`，基线远端 `main=e3b1c6f`；须经 M 审查合入才激活）：第二十四轮“lane 待审队列为空”仅说明没有待合分支，**不说明 Minekin 已完成**。用户此前已经选定 1.20.1 主线及按服务器版本自动选受审客户端；下一条可执行的本地解阻路径见[H1g → V4 → E6 连续任务卡与单会话提示词](v1201-local-join-next-2026-09-27.md)。主干唯一 `current_next` 仍是 `PARALLEL-INTEGRATION-GATE-001`；H1g 是 H lane 的下一张（**第二十六~二十七轮回写：H1g 已双审合入主干，准入层解阻已量到；当前在工的是 V lane 的 V4，E6 未提升**）。先保留 v1 的 1.21.4 冻结行为，用现成 v2 的 loopback/offline/单版本受管目标验证 1.20.1 加入者；不要把 V3 未起 JVM 的记录说成已排除 GLFW 故障。远程服 V08 和证据 schema 决策没有因本次排卡获得授权。下文旧“无安全下一张”段落是其当时读数，以本交棒点和现行主计划顶部覆盖段为准。
 
@@ -1599,3 +1599,29 @@ the target allows 1.21.4"}`，配对文档 `mismatch.json` 是 `schema_version 2
 - 机制定位（仓库字节，无需真跑）：`tools/seal_run_evidence.py:256` 从 `server_directory / "server.log"` 封 `SERVER_LOG_ARTIFACT`，`:807` 另封 `HOST_RUN_DOCUMENT_ARTIFACT`；判据侧 `tools/assert_case_evidence.py:720` 用同一名字读服务端日志，`join_line()` 在 `:465-468` 按 `<username> joined the game` 定位，位置探针走 `probe_readings(material.server_log, 3)`（`:1607/:1674/:2446`）。
 - **结论（决定 M-C1 的形状）**：加入者的 lease/look/释放证据在它自己的 bundle 里，而「服务端看到这个 Kin 移动」要读的是**主持有者那台 LAN 服务器的日志**。当前 sealer 只从本 run 自己的 `server_directory` 取日志，加入者 run 没有这个目录 ⇒ 单 bundle 载体缺的是「把宿主侧 LAN 日志带进加入者 bundle」这一格。**这是 `tools/**` 的封存入口问题，属 M 独占面，不是 `minekin.p0.evidence.v1` schema 扩展，也不是主控保留的跨 bundle 链上载体**。M-C1 若按此实施，E7 仍是单 bundle 同 run 封证。
 - 若后续实测发现必须跨 bundle 串联，那才触主控保留门：届时的正确动作是停在 M-C1 并报告，不是实施。
+
+### 第三十七轮补充二：§2.2 拆分生效、M-C0 派工，M 侧「改前基线」亲量并存档
+
+派工等待期的第二批只读工作（规范卷仍全程 `:ro`，本轮零写入、零封证）。
+
+**派工现场读数（`77329dc`，远端逐字一致）**
+- H1h：`../minekin-wt-h1h` @ `codex/minekin-lan-joiner-bounded-control`，`git log` 尖仍是 base `24ac6e0` ⇒ **零提交、在工**；未提交改动恰好落在允许面内（`M test-orchestrator/runner/domain.sh`、`M tests/contract/test_runner_scripts.py`），无越界文件。
+- M-C0：`../minekin-wt-mc0` @ `codex/minekin-probe-target-carrier`，base `5d0cd2a`，工作树干净、零提交 ⇒ 尚未交付。
+- 远端 ref 复核按**全称**做（上一轮用 `refs/heads/codeminekin*` 这类畸形 pattern 得到空输出，那是读法坏了，不是「分支不存在」的证据）：`git ls-remote origin refs/heads/codex/minekin-lan-joiner-bounded-control refs/heads/codex/minekin-probe-target-carrier` → 无输出，与两树本地零提交相互印证。
+- H1i（`V1201-PROBE-TARGET-HANDOVER-001`，只动 `domain.sh`）依 §2.2 阻塞在 H1h 与 M-C0 之后，本轮不派，避免两条 lane 同改一个 runner 文件。
+
+**M 侧改前基线（复现命令 + 实测输出，供 M-C0 的 parity 主张与 M-G1 的基线核对）**
+脚本 `.tmp/m-r38-base-readings.sh`，容器 `minekin-runner:local`、`/src:ro` + `/data:ro`，输出全量存 `.tmp/m-r38-mc0-base-readings.log`：
+- `tools/rejudge_evidence.py --cases-dir /src/tests/fixtures/cases <bundle>` 三份：
+  - `kin-01/61b4f0253cc84e2183d8913f3ad77867`（`OFFLINE-010`，case_version `78053e9e…`）⇒ `rc=0`、`status agrees`、`result PASS`；
+  - `kin-01/87229052d24f4772a512dee497bab29c`（`V1201-020`，case_version `e7c3b722…`）⇒ `rc=0`、`status agrees`、`result PASS`；
+  - `kin-01/01ca65e397354f1489a3a299e8c44973`（`CORE-060`）⇒ **`rc=2` `status unjudged`**：封于 case_version `30ac59a0…` 而现为 `d1ea32d8…`，判据已移动。**⇒ 这一份不是合法的改前改后 parity 对照**（它本来就不与当前 case 一致）；M-C0 的 parity 只拿前两份（外加 E6 的 `73a52bfb…`）逐字比。
+- `tools/report_promotion.py --data-root /data --cases-dir /src/tests/fixtures/cases` ⇒ `report_rc=1`、`status blocked`、`overall_blocks ['REQUIRED_CASE_NOT_REGISTERED']`、`gated null`；`promotable ['W00','W10','W20','W60']`；`W30 False ['NO_MANDATORY_CASES','REQUIRED_CASE_NOT_REGISTERED']`、`W40 False ['REQUIRED_CASE_NOT_REGISTERED']`、`p0-core False ['REQUIRED_CASE_NOT_REGISTERED']`；底数 `attempts 77 / bundles 113 / from_another_build 61 / repo_checks_not_from_the_controlled_interpreter 9`，`sealed_without_bundle / unreadable / unsealed / unverified` 全 `0`；唯一 `visibility_gaps` 仍是 `ORCHESTRATOR_REVISION_NOT_PINNED`（`gates_promotion false`）。
+- **门载荷**：`gate_payload_sha256 = cfa0f1184bee30df6a1d9fcf45778c9cef074ece6761c47fe7d6b9f49863afd6` ⇒ 与主干既有基线逐字符相同，这一枚现在是**在 `77329dc` 上重新量出来的**，不是引用旧记录。
+- **口径澄清（本轮查清，之前只当常量用）**：`gate_payload_sha256` 不是仓库工具打印的字段——`grep -rn gate_payload_sha256 tools/ src/` 命中 **0**。它是 M 侧读法：对 `report_promotion.py` 的 `{work_packages, overall}` 子集做 `json.dumps(..., sort_keys=True)` 再 sha256（定义见 `.tmp/m-r12-payload.sh:8-12`、`.tmp/m-r7-baseline.sh:26`）。同理，报告**顶层没有 `promotable` 键**（`tools/report_promotion.py:752-753` 只写 `gated` 与 `status`），基线里那行 `promotable ['W00',…]` 是由各 work package 的 `promotable` 真值算出的（`m-r7-baseline.sh:32`）。⇒ **lane 若自报门载荷，必须用同一子集口径，否则数值不可比**；H1h/M-C0 的「门不动」一条由 M 用上述脚本亲量为准。
+
+**四态口径（本轮，替代上一节的同口径段）**
+- **已合主干**：`24ac6e0`（规划分支）+ `2acb13d / 48e3eb3 / 5d0cd2a / 77329dc`（载体预量、§2.1 裁决、行号自纠、§2.2 拆分）；E6 的专服单客户端封证记录仍在位。
+- **仅在分支**：H1h、M-C0（两树均**零提交**，故连「分支上的交付」都还没有；远端无 ref）。
+- **真实封证**：**1 个**——`73a52bfb…` / bundle `b2b4133b…`（`V1201-020`，本地专服 + 单客户端）；**LAN 第二客户端的控制封证 = 0**。
+- **未验证**：H1h 的限幅形状、M-C0 的探针目标归属、V5 活体读数、M-C1 登记、E7 同 run 封证、M-G1 审计；以及仍守主控决策门的 V08 远程服、HOST/PERSIST、跨 bundle 证据 schema、registry 引用替换、`mandatory` 翻转。
