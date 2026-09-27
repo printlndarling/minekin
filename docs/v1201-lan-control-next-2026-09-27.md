@@ -239,3 +239,15 @@ V5a（`codex/minekin-v5-probe-target-preflight` @ `7f67aac`，交付物只有一
 - **主干侧修了一处 M 自己合入前该抓到的东西**：M-C0 那份 `docs/validation/` 记录内嵌的 python 代码块不合 `ruff format`（本仓 `format` 会检查 markdown 里的 python 块），合并树上表现为 `1 file would be reformatted`。M 已按 format 的建议改写该代码块（前后字节差只有那 5 行重排），并把「markdown 代码块也算」写进 H1k 卡面。至此**连续三张**卡（H1h、M-C0、H1j 自报未修）在同一个闸门上失守，根因是派工文本此前没有逐字列全 CI 的 `python` 作业三步——从 H1k 起列全。
 
 - **落地时序（第四十轮补，写清楚以防读数被误读成事后追认）**：本节 §2.11–§2.14 的 plan 回写在上一轮就已写进工作树，而 M-C0 的合并当时**只进了索引、没有提交**——`main` 与 `origin/main` 仍停在 `bcdaf17`（只含 H1j）。本轮恢复现场时按字节查出这一格（`git ls-tree HEAD` 里既无 `tests/unit/test_probe_target_carrier.py` 也无那份 `docs/validation/` 记录），随后在提交前把主干侧闸门重跑了一遍（`ruff check` 通过、`ruff format --check` 364 files already formatted、`pyright` 0 errors、boundaries / `150 registered` / digests / workflow-pins 全 OK），M-C0 合并以 `97dc0ef` 真正入干。合并树容器读数（门载荷、两份 bundle、census 差分、domain.sh 字节）来自上一轮亲跑的 `.tmp/m-r44-mc0-gates.log` 与 `.tmp/m-r44-census-{main,mc0}.log`，两份 census 日志本轮 `diff` 复确为空。也就是说：**§2.14 的“已合主干”在写作为时点上是提前了半轮，在本节补写之后才是事实**；这类“文档先于提交”的格子以后按同一方式当场纠正。
+
+## §2.15 第四十轮落地：M-C0 与 V5a 入干、H1k 开工（M 的 integration gate 读数）
+
+- **恢复现场抓到的不实陈述（本轮第一个动作）**：§2.14 写作时 M-C0 的合并只进了索引、没有提交，`main`/`origin/main` 仍停在 `bcdaf17`。按字节证据确认（`git ls-tree -r HEAD` 里查不到 `tests/unit/test_probe_target_carrier.py` 与那份 `docs/validation/v1201-probe-target-carrier-2026-09-27.md`，而两文件在工作树里；`.git/MERGE_HEAD` 仍在，指向 `1e42ea6`）后，先重跑主干侧闸门再把合并落成真 SHA。这类“文档先于提交”已写进 §2.14 末尾的时序申报。
+- **已合主干**（远端 `main` 逐笔 `git ls-remote` 核过）：
+  - `97dc0ef` = M-C0 合并（四文件：`tools/assert_case_evidence.py` +118、`tools/seal_run_evidence.py` +25、新 carrier 单测 313 行 / 10 用例、新验证记录）。容器侧六项门禁 + 门载荷 `cfa0f118…` 未动 + 两份对照 bundle 仍 `agrees/PASS` + `domain.sh` 仍 `baad190aaa5ee…` + census 差分 `diff` 为空，全部沿用 `29c5187` 提交信息里逐条列出的亲跑读数。
+  - `29c5187` = plan §2.11–§2.14 回写（纯文档）。**CI 三门对 `29c5187` 全绿**：`protocol=success`、`python=success`、`bridge-static=success`（REST `check-runs` 读数）。
+  - `4640983` = V5a 合并（只一个新文件 `docs/validation/v5-probe-target-preflight-2026-09-27.md`，145 行含 M 的两处现在时修正）。**M 修的两处**：`domain.sh` 的 `ff69c879…` 收窄为「等于本卡 base `8dfeac6`」而非「等于主干」（入干时主干已是 `baad190…`，宿主 `sha256sum` 与容器读数一致，`run.sh` = `70349060…`）；§4「主干没有任何加入者控制驱动」收窄为「本卡测量时的 base 字节没有」。历史读数与逐字材料一律不追改。合并树 `ruff check` 通过、`ruff format --check` 365 files already formatted、`git diff --check` 干净；`4640983` 的 CI `python` 作业截至本节写作仍 `in_progress`。
+- **仅在分支**：`codex/minekin-v1201-joiner-on-controlled-server`（H1k，worktree `minekin-wt-h1k`，起点 `29c5187`）。已按 §2.13 卡面派工，约束逐条写进派工文本：三个允许面文件、**不挂规范卷**（活体 run 只能用私有数据根）、新名默认关闭、目标地址/端口只读自本次 run 自己的 `server_directory/server.properties`、就绪等待只落在本 run 的服务端日志、`run.sh` 若需扩面即停手交回、门载荷必须仍是 `cfa0f118…`、四条验收 + 两则反证要字面输出、交回前必跑 `ruff check` / `ruff format --check`（含 markdown 代码块）/ `pyright` / `bash -n` / 容器内契约测试。
+- **真实封证**：本轮**零新增**。LAN 第二客户端控制封证仍为 **0**；E6 的 `V1201-020 seq4` 仍是本地专服单客户端封证，不冒充 V4/V5 那一格。
+- **未验证 / 顺移**：V5 活体读数、M-C1 的 case 冻结与登记、E7 的同 run 封证全部仍挂在 H1k 之后（§2.13）。M-G1 的「改后」census 与门载荷复量本可在 `4640983` 上做，但**故意压后**：H1k 的活体窗口需要静默（Core 桥 30s 握手预算 + 并发争用已烧掉 V5a 三次尝试，见 §2.13 末与 V5a §0），M 不再往同一窗口里塞容器读数。H1k 交回后、或活体窗口关闭后，M 立刻取这一份「改后」读数并把 §2.14 的差分补成完整一对。
+- **下一格可安全推进的**：等 H1k 的交回（含它自取的新名与「宿主是否同进专服世界」的申报）；其间不排任何要独占卷或活体窗口的卡。
