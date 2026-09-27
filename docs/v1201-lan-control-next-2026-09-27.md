@@ -55,3 +55,10 @@ H1h/V5/C1/E7 任一失败只阻断其依赖链，不把整个项目标成完成�
 ```text
 /goal 你是 Minekin 的 M 集成主控。先按 docs/qoder-execution-handoff.md 恢复现场，核 main/工作树/规范卷写窗，再审查并合入 codex/minekin-local-control-next 的文档增量；与真实 main 冲突就停在具体差异，不覆盖活动 lane。读 docs/v1201-lan-control-next-2026-09-27.md：E6 的 V1201-020 seq4 是本地专服单客户端 sealed JOIN，不是 V4 的第二客户端 LAN 加入封证；registry 已有同构建 V1201-020 seq2 PASS，所以现在不替换引用、不翻 mandatory。维持唯一主干 current_next=PARALLEL-INTEGRATION-GATE-001，顺序派 H1h（受控 LAN 加入者显式限幅控制驱动）→V5（1.20.1 私有本地真实控制读数）→M-C1（冻结/登记能诚实判 LAN 加入者控制的 case）→E7（规范卷独占同 run 封证）→M-G1（只读门禁/registry 差分审计）；每张依赖满足才提升，逐卡本地/Docker 验证、双审、commit、push、核远端 SHA，失败按第一真实停点开独立窄卡，推进不依赖的只读 Gateway 或非 HOST case 设计，不因暂时无待合分支结束 goal。绝不连接用户远程服、不放宽认证/地址/lease、不删历史材料、不把单测或私有活体记录写成规范卷 PASS。按“已合主干／仅在分支／真实封证／未验证”四态报告；重大 HOST/PERSIST、跨 bundle schema、V08 授权仍留决策门。
 ```
+
+## 派工状态（2026-09-27 第三十七轮，M 回写）
+
+- **H1h 已派工**：工作树 `minekin-wt-h1h`，分支 `codex/minekin-lan-joiner-bounded-control`，base `24ac6e0`；卡在工、远端尚无该 ref，因此**仅在分支**一格目前为空。
+- 派工面按本文 §2 原样收窄：只允许 `test-orchestrator/runner/domain.sh`、`tests/contract/test_runner_scripts.py`、一份新 `docs/validation/` 记录；规范卷**不挂载**（H1h 不封证）。
+- 派工前 M 亲量的新增事实：加入者的产品调用（`domain.sh:1179-1184`）只有 `--profile` 与 `--server-profile`，而 `session start` 已接受 `--hold-forward-seconds/--look-yaw-degrees/--look-pitch-degrees`（`parser.py:115/172/179`）且 hold 只 needs `--server-profile`；加入者启动时已注入 `MINEKIN_KIN_ID="${joiner}"`（`~:1166`）⇒ **lease 定向第二客户端不需要新产物 API**，本卡应为零 `src/**` 改动。若 lane 实际停在 lease 层，按 §2 的规定交 M 另立单独产品卡，不在本卡内越界实施。
+- V5/M-C1/E7/M-G1 未派工；registry 引用不替换、`mandatory` 不翻转（本文 §0 的裁决仍生效）。
