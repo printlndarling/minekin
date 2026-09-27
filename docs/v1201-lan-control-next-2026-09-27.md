@@ -490,3 +490,11 @@ lane 仍在收 §2.22 第③④项（它的容器窗在用，M 不进那棵树�
 **欠账（如实，不冒充）**：门载荷的 POST 没量到。这次 `docker run --rm -v <树>:/src:ro -v minekin-runner-data:/data:ro … minekin-runner:local python tools/report_promotion.py --data-root /data` 返回 **rc=127**（M 的调用姿势问题，该镜像入口是 `/__cacert_entrypoint…`，需按镜像入口复核），且取读时 lane 的活体容器 `unruffled_goldstine` 正在飞 ⇒ 不抢引擎。所以 `cfa0f118…` 在这一节只能作为 §2.19 的 **PRE** 引用，M-T1 的入干不构成「门载荷已在新字节上复量」。**CI**：`070390d`（含 `5ec0500`）待读；`873/874/875` 已读为 `completed/success`（`21a0784`/`5379d3a`/`8bbf3ab`），`876`（`17a6537`）在 21:23 单读仍 `in_progress`。
 
 **四态**：已合主干＝M-T1（`5ec0500` → `070390d`，远端 SHA 已核）；仅在分支＝H1k 候选**仍未提交未 push**（lane 树停在 `29c5187` + 同样三处脏改动，`.tmp/h1k-recheck/` 21:34 还在写 ⇒ lane 会话在飞，M 不进其树、不代提交）；真实封证＝**0**（LAN 第二客户端在受控专服形状下的同 run 封证一格未动，`E6` 的 `V1201-020` seq4 仍是本地专服单客户端，不得顶替）；未验证＝M-T1 的门载荷 POST、H1m 全卡、V5′ 第 4 条第二格（控制关闭的同形状对照）。规范卷对 M 仍只 `:ro` 且本轮未写成；未连接用户远程服；未改判据/registry/`mandatory`；备份原字节与两枚 CE 日志（`.tmp/m-t1-ce-a.log`、`.tmp/m-t1-ce-b.log`）逐条申报未删未覆盖。
+
+## §2.30 §2.29 那格欠账当场补上：门载荷在含 M-T1 的主干字节上重测，PRE==POST（第四十九轮后半，2026-09-27 21:41 +0800）
+
+在 `7546ec9`（已含 M-T1 的合入 `070390d`）的树字节上、规范卷 `:ro`、私有工作树未挂写：`report_promotion` rc=**1**（按构造 blocked），整份文档 103,921 字节，`{work_packages, overall}` 子集（`sort_keys=True`）sha256 = **`cfa0f1184bee30df6a1d9fcf45778c9cef074ece6761c47fe7d6b9f49863afd6`** ⇒ **与 §2.19 的 PRE 同值**，M-T1 入干没有移动门载荷。逐格未变：`W30.promotable False`（`NO_MANDATORY_CASES` + `REQUIRED_CASE_NOT_REGISTERED`）、`p0-core` 仍 `REQUIRED_CASE_NOT_REGISTERED`、`overall_blocks` 仍是那一条、`W30` 的 `absent` 两条 OFFLINE（060/080）与 `non_mandatory` 11 条、`p0-core` 的 9/24 条、`misattributed` 两侧为 0。这不是「所以可以晋级」的相反论断，只是把 §2.29 里那格「只能引用 PRE」换成量到的读数。
+
+**操作教训（省下一个人的时间）**：§2.29 那次 rc=**127** 与引擎无关，是 M 自己把卷源写成了反斜杠 `C:\Users\…` —— Docker Desktop 对 `-v` 源路径要 `C:/Users/…` 正斜杠配 `MSYS_NO_PATHCONV=1`，配错时报的是 `Error response from daemon: The system cannot find the file specified`，看起来像镜像坏了。镜像入口 `/__cacert_entrypoint…` 与 `python` 都正常（同轮最小探针 `docker run --rm minekin-runner:local python -c …` 返回 3、rc=0）。取读时 lane 的活体容器（`affectionate_ardinghelli`，Up 5 分钟）在飞，但 `minekin-runner-data` 只做 `:ro` 且本轮 E 不在写，未占他 lane 写窗。
+
+四态增量：真实封证仍 **0**；已合主干仍是 M-T1 那一笔；此轮只补读数、未动 case/registry/`mandatory`、未删任何材料（`.tmp/m-r49-report-post.json`、`.tmp/m-r49-report-post.err` 在案）。
