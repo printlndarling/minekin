@@ -131,7 +131,20 @@ if [[ "${1:-}" == "domain" ]]; then
         # the whole of the wrapper's involvement, the append and the two named
         # refusals live in `domain.sh`, and — like every name above — this line
         # casts no default of its own.
-        -e MINEKIN_DOMAIN_PROBE_SECOND)
+        -e MINEKIN_DOMAIN_PROBE_SECOND
+        # The two seal-handover switches of the probe-target carrier. Forwarding them
+        # is the whole of this wrapper's involvement: the value casting, the triple
+        # and pair of named refusals all live in `domain.sh`, and these lines invent
+        # no default of their own. They have to be named here at all because a knob
+        # `domain.sh` reads and this wrapper does not deliver arrives empty, takes the
+        # "not asked for" branch, and the run then completes and seals — evidence for
+        # a different shape than the one the operator asked for, which is the exact
+        # defect H1j and H1l closed for the names above. The default-off face does not
+        # move because of the pass-through: unset on the host, docker leaves the name
+        # unset in the container, and the joiner's seal command stays byte-for-byte
+        # the trunk one.
+        -e MINEKIN_DOMAIN_SEAL_JOINER_SERVER_LOG
+        -e MINEKIN_DOMAIN_SEAL_PROBED_PLAYERS)
     if [[ "${world}" -eq 1 ]]; then
         EXTRA_ARGS+=(-v "${SERVER_JAR}:/server/server.jar:ro")
     fi

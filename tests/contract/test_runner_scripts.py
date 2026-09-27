@@ -64,21 +64,19 @@ JOINER_CONTROL_KNOBS = frozenset(
 )
 
 #: The two seal-handover switches V1201-PROBE-TARGET-HANDOVER-001 (H1i) reads in
-#: `domain.sh`, registered here as an *exact* read-but-not-yet-forwarded gap for the
-#: same reason and in the same shape the four joiner-control knobs once were: the card's
-#: allowed surface is `domain.sh` and this file only, and `run.sh` — the wrapper that
-#: names which environment crosses the `docker run` boundary — is outside it. The gap is
-#: safe in a way the joiner-control gap was not, because both switches are default-off:
-#: an undelivered name arrives empty, `domain.sh` casts empty to "not asked for", and the
-#: joiner seal stays `world_args=()` with no `--probed-player`, byte-for-byte the trunk
-#: command line (§2.50). Nothing about the sealed bundle changes while the knob is off, so
-#: a `run.sh`-launched run cannot silently hand over evidence for a switch nobody flipped.
-#: The set is asserted *exactly* so a third read-but-undelivered name still goes red, and
-#: each name is asserted absent from `run.sh` so the forwarding card that closes this gap
-#: has to move the name out of the registered set in the same commit that adds it to the
-#: wrapper — the reversal `V1201-JOINER-CONTROL-RUNSH-FORWARDING-001` performed above.
-#: They must still never reach `src/minekin_core/config.py`: a runner knob crossing that
-#: line would widen the product's entry surface.
+#: `domain.sh`. H1i registered them there as an exact read-but-not-yet-forwarded gap
+#: because the wrapper was outside that card's allowed paths. V1201-FORWARD-SEAL-KNOBS-001
+#: (H1o) closed the gap on purpose, reversing the demand in the same commit that added the
+#: two `-e` names to `run.sh`'s forwarding list: each is now demanded *delivered* by name
+#: below, the set stays exact so a third read-but-undelivered name — or a forwarded name
+#: that drifts out of this set — goes red instead of silently widening the roster, and
+#: `read - delivered` must be empty. This is the reversal `JOINER_CONTROL_KNOBS` records
+#: above, performed on H1i's registration the way H1j performed it on H1h's. The switches
+#: were default-off while registered, so nothing about a sealed bundle moved before the
+#: forwarding landed; with the forwarding landed the name arrives whenever the operator
+#: sets one, which is what makes flipping them through the canonical entry point possible
+#: at all. They must still never reach the *product* forwarding roster in
+#: `src/minekin_core/config.py`: that would widen the product's entry surface.
 SEAL_HANDOVER_KNOBS = frozenset(
     {
         "MINEKIN_DOMAIN_SEAL_JOINER_SERVER_LOG",
@@ -142,6 +140,8 @@ def test_every_knob_the_harness_reads_is_one_the_wrapper_hands_it() -> None:
     second registered gap of exactly this shape for `MINEKIN_DOMAIN_JOIN_ON_CONTROLLED_
     SERVER`, and V1201-RUN-SH-FORWARD-CONTROLLED-SERVER-JOIN-NAME-001 closed it the same
     way: registration deleted, assertions kept, the name now demanded delivered too.
+    V1201-FORWARD-SEAL-KNOBS-001 closed H1i's registered gap for the two seal-handover
+    switches the same way in the same commit that added their `-e` names to the wrapper.
     """
 
     harness = (RUNNER / "domain.sh").read_text(encoding="utf-8")
@@ -177,26 +177,27 @@ def test_every_knob_the_harness_reads_is_one_the_wrapper_hands_it() -> None:
         "and not delivered arrives empty, takes domain.sh's 'not asked for' branch, and "
         "the run seals evidence for a scenario that never happened"
     )
-    # H1i registers its two seal-handover switches as an exact read-but-not-yet-forwarded
-    # gap (see `SEAL_HANDOVER_KNOBS`): `run.sh` is outside that card's allowed surface, so
-    # the wrapper cannot name them yet. Both directions stay pinned by name — each must be
-    # read by domain.sh, and each must be *absent* from the wrapper — so the difference
-    # below cannot quietly grow to a third undelivered name, and a future forwarding card
-    # has to move each name out of the registered set in the same commit that puts it into
-    # `run.sh`. The reversal is exactly the one the joiner-control set above records.
+    # H1i's two seal-handover switches were registered here as an exact read-but-not-yet-
+    # forwarded gap because `run.sh` sat outside that card's allowed surface. V1201-FORWARD-
+    # SEAL-KNOBS-001 closed the gap: the registration is retired the same way H1j retired
+    # H1h's and each name is now pinned in both directions — each must still be read by
+    # domain.sh, and each must now be *delivered* by the wrapper — so neither a dropped read
+    # nor a dropped `-e` can pass, and the set stays exact so a third read-but-undelivered
+    # name goes red instead of silently widening the gap.
     for handover_knob in sorted(SEAL_HANDOVER_KNOBS):
         assert handover_knob in read, (
             f"domain.sh no longer reads {handover_knob}; if the switch was dropped, remove "
             "it from SEAL_HANDOVER_KNOBS and from the seal together"
         )
-        assert handover_knob not in delivered, (
-            f"run.sh now forwards {handover_knob} while this test still registers it as an "
-            "undelivered gap — delete it from SEAL_HANDOVER_KNOBS in the same commit that "
-            "adds the -e, the way the joiner-control gap was closed"
+        assert handover_knob in delivered, (
+            f"domain.sh arms the seal handover on {handover_knob} and run.sh stopped "
+            "delivering it: the name arrives empty, domain.sh takes its 'not asked for' "
+            "branch, the run completes and seals — evidence for a different shape than the "
+            "one the operator asked for"
         )
-    assert read - delivered == SEAL_HANDOVER_KNOBS, (
-        "domain.sh reads and run.sh never delivers something other than the exact registered "
-        f"H1i gap {sorted(SEAL_HANDOVER_KNOBS)}: {sorted(read - delivered)}"
+    assert read - delivered == set(), (
+        "domain.sh reads a knob and run.sh never delivers it: the run takes the 'not asked "
+        f"for' branch and seals another shape anyway: {sorted(read - delivered)}"
     )
     assert delivered - read == set(), (
         f"run.sh delivers these and nothing reads them: {sorted(delivered - read)}"
