@@ -395,3 +395,13 @@ bash C:/Users/darling/Documents/agent_work/minekin/.tmp/m-r45-rerun.sh
 - **解锁事实（这是本轮唯一的新外部状态）**：引擎自 20:05 起是活的——M 在 §2.21 里用 `minekin-runner:local` 起了三个容器并跑完整程（`domain.sh rc=14`，服务端日志 `Kin joined the game` 12:08:15 / `Kin2 joined the game` 12:08:16 / 80 行按名应答）。所以 lane 下一轮不再有「做不了半套」这个约束。
 - **主控裁决（H1k 下一轮的范围，按序）**：① 在 guard 区间加第七条具名拒止 + 契约测试「同给两名 ⇒ `rc=2` 且不写 `/tmp/domain-join-profile.json`」+ 默认关闭字节等价对照扩到该组合；② 在新字节上整体重跑 §2/§3/§4 的容器内读数与两组反证（旧字节的那批读数在记录里保留为历史，不改写）；③ 在 `minekin-h1k-live` 卷上补一轮活体 ③（卡面 §2.13 只认真实 run 的 `server.log`；M 的私有卷重跑**不代替**这一格，只证明形状可通）；④ 量 `report_promotion` 门载荷（引擎已可用，§2.19 的命令形状可直接复用）。四件齐了才进入 M 的合入复审。
 - **队列一寸未动**：主干唯一 `current_next` 仍是 `PARALLEL-INTEGRATION-GATE-001`；H lane 的 `lane_next` 仍是 **H1k（仅在分支，待 §2.17 三件 + ③ 补读 + 门载荷）**，其后严格接 H1i（同一 `domain.sh` 面）；V 的 `lane_next` V5′ 仍停等 H1k 入干；E lane 仍不派工，规范卷写窗仍归 E 独占、本轮 M 只以 `:ro` 读。真实封证计数不变：LAN 第二客户端在专服形状下的同 run 封证 **0**。
+
+### 2.23 第四十六轮：H1k 第①项的 M 侧只读预读（lane 字节已移动），以及本轮的停放状态
+
+**本轮只读、只量、不写 lane 面。** 20:30 复量 `../minekin-wt-h1k` 的未提交候选字节，相对 §2.18 已移动：`test-orchestrator/runner/domain.sh` 由 `d9a0acfc07719f0eab35305ba21e5a0821a88e100c86b016a80226e695f51a5c` 变为 `e1d8dbb98d5f760d…`（156,083 → 156,467 字节），`tests/contract/test_runner_scripts.py` 由 `7fe48b9d6f92db6f966dfc8d854eb5a5f0403dd0d4fc3bec39e883387ca6419d` 变为 `02ec23c2586aa79d…`（159,426 → 161,021 字节）⇒ §2.22 的第①项在飞，第②③④项尚无读数。
+
+**第七条组合拒止已在 guard 区间内（只读确认，不代表复审通过）**：新块以 `if [ "${join_on_controlled_server_asked}" -eq 1 ]; then` 包住整段，七条具名拒止依次是 joiner 缺席、`--server-profile` 缺席、`open_lan`、`black_hole`、`no_server`、`not_whitelisted`，第七条为 `if [ "${refusal_asked}" -eq 1 ]`，文案具名「name two destinations for one wait; the chain answers the snapshot refusal before any joining client is sent」并 `exit 2`。两条置位读法逐行核过：`refusal_asked` 在 `domain.sh:120` 置 0、`:122` 仅对 `1|true` 置 1；`join_on_controlled_server_asked` 在 `:168` 置 0、`:171` 同形状 ⇒ 默认关闭时整段惰，不新增允许面、不引入操作者未给的地址（§2.22 第①项的「两名字同真 ⇒ rc=2 且不落 `/tmp/domain-join-profile.json`」契约断言与「默认关闭字节相等扩展到该组合」仍待 lane 交付与 M 复跑）。契约侧已有逐字引用：`tests/contract/test_runner_scripts.py:2807`、`:2834`。
+
+**CI 读数（各自单独一步，`/actions/runs?per_page=3`）**：run 866 `d933fbe` `completed/success`、run 867 `c982a32` `completed/success`、run 868 `fcce60c` 在 20:30:49Z 时点 `in_progress` ⇒ 该笔的绿读数本轮不作。主干工作树 `git status --short` 空、`git ls-remote origin refs/heads/main` = `fcce60cb41dadb5a42a931d3c834a19c35ddaa01`。
+
+**停放状态（供接手会话）**：M 侧无未提交改动，规范卷写窗仍归 E 独占且 M 全程只 `:ro`；H lane 的续跑会话在飞，允许面未变（`domain.sh`、`tests/contract/test_runner_scripts.py`、`docs/validation/v1201-joiner-on-controlled-server-2026-09-27.md`），其未提交候选必须先备份 + 记 sha256 再动，禁止 `git checkout --`/`restore`/`reset --hard`。下一格仍是 §2.22 的第②③④项，其后才是 M 的合入复审与 V5′→M-C1→E7→M-G1。真实封证计数不变：**LAN 第二客户端在专服形状下的同 run 封证 0**。
