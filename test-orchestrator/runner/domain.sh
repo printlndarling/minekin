@@ -203,11 +203,16 @@ esac
 # way `join_on_controlled_server_asked` above is — `0`, `false` and unset are the same
 # request, and anything else is refused here rather than carried.
 #
-#   * MINEKIN_DOMAIN_SEAL_JOINER_SERVER_LOG hands this run's own `--server-directory`
-#     back to the joining side's seal, so a bundle sealed on the joiner can carry the
-#     server's log at all. Only the directory: a dedicated-server profile and jar name
-#     a world this joiner never ran, and the comment at the joiner branch below is kept
-#     exactly for that.
+#   * MINEKIN_DOMAIN_SEAL_JOINER_SERVER_LOG hands this run's own dedicated-server
+#     profile and `--server-directory` back to the joining side's seal, so a bundle
+#     sealed on the joiner names the world it actually stood in and can carry the
+#     server's log at all. The profile names the very server *this* run started, so it
+#     is not the "different kind of world" a directory-only carve-out guarded against:
+#     with it the seal records `kind: dedicated`, the seed read from the directory names
+#     it, and the two agree; the host run document is then dropped, because a profile and
+#     a host document are two mutually exclusive sources for the one world block, and the
+#     guard at the joiner branch below refuses that pairing. The jar is still not handed
+#     over — this branch mounts none.
 #   * MINEKIN_DOMAIN_SEAL_PROBED_PLAYERS hands the names this run actually asked the
 #     server about to the same seal as `--probed-player`, one per name.
 seal_joiner_server_log="${MINEKIN_DOMAIN_SEAL_JOINER_SERVER_LOG:-}"
@@ -3071,26 +3076,45 @@ if [[ -n "${case_id}" ]]; then
         fi
         subject_document=/tmp/domain-join-session.json
         subject_username="${join_username}"
-        world_run_args=(--world-run-document /tmp/domain-session.json)
-        # And this run's own world inputs are dropped, deliberately: a dedicated server
-        # profile is a *different* kind of world, and leaving it named would let a join
-        # with an unreadable host document fall back to recording one that never ran
-        # rather than being refused.
-        #
-        # The drop stays total by default. With the switch open it gives back one thing
-        # only — this run's own server directory — and the reason it is safe to give
-        # that one thing back is that the dedicated server answering this joiner's
-        # probes is the one *this* run started, so naming its directory names a world
-        # that demonstrably ran. The profile and the jar are still not handed over: the
-        # first is what would let the seal record a world of a different kind, the
-        # second claims bytes this branch never mounts, and neither is needed for the
-        # one thing this is for — `server.log`, `usercache.json` and `server.properties`
-        # are collected from the directory, and `--server-directory` alone moves none of
-        # the three world fields the bundle records.
         # --- joiner-server-log-seal-forge begin (the contract test extracts this region) ---
+        # Two inputs can name the joiner's world and only one of them is ever right, so
+        # both are built inside this one region, where the guard at the bottom can read the
+        # argv it produced.
+        #
+        # Closed (the default): a joining client has no snapshot of its own, so the world it
+        # joined is named by the run that hosted it — the host's run document is the only
+        # place a hosted world's identity was measured — and this run's own server inputs
+        # stay dropped.
+        world_run_args=(--world-run-document /tmp/domain-session.json)
         world_args=()
+        # Open: the dedicated server answering this joiner's probes is the one *this* run
+        # started, so the world it stood in is named by that server's own profile — the
+        # configuration it booted, `kind: dedicated` on the sealer's route 3 — together with
+        # its directory, which carries the seed and the `server.log`. The profile names that
+        # world outright, so the host document is dropped rather than handed: keeping both
+        # would be two mutually exclusive sources for the one world block, and the guard
+        # below refuses that pairing. The jar is still not handed over — this branch mounts
+        # none — while `server.log`, `usercache.json` and `server.properties` are collected
+        # from the directory this run's own server wrote.
         if [ "${seal_joiner_server_log_asked}" -eq 1 ]; then
-            world_args=(--server-directory "${server_directory}")
+            world_args=(--server-profile "${server_profile}"
+                --server-directory "${server_directory}")
+            world_run_args=()
+        fi
+        # Named refusal, read off the argv this region just built. `--world-run-document`
+        # and `--server-profile` together describe the same world block from two sources
+        # that cannot both be true — the host document of a world this run did not record,
+        # and this run's own dedicated-server profile — so the seal could not be told which
+        # world the joiner stood in. It is refused here, before the sealer is invoked at the
+        # foot of this block, so nothing has reached `/tmp/domain-seal.json`,
+        # `/tmp/domain-seal.err` or the bundle directory by the time this exits.
+        has_world_document=0
+        has_server_profile=0
+        case " ${world_run_args[*]} " in *" --world-run-document "*) has_world_document=1 ;; esac
+        case " ${world_args[*]} " in *" --server-profile "*) has_server_profile=1 ;; esac
+        if [ "${has_world_document}" -eq 1 ] && [ "${has_server_profile}" -eq 1 ]; then
+            printf 'domain: the joining run'"'"'s seal was handed both --world-run-document and --server-profile; those name the same world block from two sources that cannot both be true -- the host document of a world this run did not record, and this run'"'"'s own dedicated-server profile -- so the seal cannot be told which world the joiner stood in; refused here, before the sealer runs and writes anything\n' >&2
+            exit 2
         fi
         # --- joiner-server-log-seal-forge end ---
     fi

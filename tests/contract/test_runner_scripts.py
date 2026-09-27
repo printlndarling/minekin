@@ -1701,36 +1701,232 @@ def seal_argv(result: subprocess.CompletedProcess[str]) -> list[str]:
     return words
 
 
-def test_the_joiner_branch_hands_back_the_directory_and_nothing_else(tmp_path: Path) -> None:
-    """The argv the joiner seal is built with, both ways, from the shipped bytes.
+#: ---------------------------------------------------------------------------
+#: V1201-JOINER-WORLD-BY-DEDICATED-PROFILE-001 (#65 H1q).
+#:
+#: The joiner branch used to hand back exactly one world input when its switch was open
+#: — `--server-directory` — while `--world-run-document` kept being handed above the
+#: region. Neither shape seals on the controlled-dedicated-server run this switch exists
+#: for: a server `domain.sh` started itself records no `run.world_snapshot` in the host
+#: document, so `tools/seal_run_evidence.py:434` rejects the handoff by construction, and
+#: a bare directory paired with `kind: none` trips the consistency check at
+#: `src/minekin_core/domain/evidence.py:189-193`. The only self-consistent shape (§2.59):
+#: open state hands `--server-profile` together with `--server-directory` and drops the
+#: host document; closed state stays byte-for-byte what it is today. `--server-jar` is
+#: still not handed — this branch mounts none.
+#: ---------------------------------------------------------------------------
 
-    Unset has to come out empty — that is the card's byte-equality clause, measured here
-    rather than asserted from the shape of the `if`. Set, it has to come out with exactly
-    one flag: the directory, and never the profile or the jar.
+FORGE_SERVER_PROFILE = "/tmp/server-profile.json"
+FORGE_SERVER_DIRECTORY = "/data/server-runs/run-1"
+FORGE_WORLD_RUN_ARG = "--world-run-document"
+FORGE_WORLD_RUN_DOCUMENT = "/tmp/domain-session.json"
+
+#: Capture both argv the forge region builds, tagged so a reader can tell `world_args`
+#: from `world_run_args` without a second drive. `printf '<%s>'` runs once per array word,
+#: so an empty array contributes no `<...>` group and reads back as `[]`.
+FORGE_BOTH_ARRAY_CAPTURE = (
+    "printf 'ARGS['\n"
+    'for _a in "${world_args[@]}"; do printf \'<%s>\' "${_a}"; done\n'
+    "printf ']RARGS['\n"
+    'for _a in "${world_run_args[@]}"; do printf \'<%s>\' "${_a}"; done\n'
+    "printf ']\\n'\n"
+)
+
+
+def forge_prelude(asked: int, *, server_profile: str = FORGE_SERVER_PROFILE) -> str:
+    """The three locals the joiner forge region reads, cast the way the shipped file has them."""
+
+    return (
+        "set -euo pipefail\n"
+        f"seal_joiner_server_log_asked={asked}\n"
+        f"server_profile={shlex.quote(server_profile)}\n"
+        f"server_directory={shlex.quote(FORGE_SERVER_DIRECTORY)}\n"
+    )
+
+
+def seal_two_arrays(result: subprocess.CompletedProcess[str]) -> tuple[list[str], list[str]]:
+    """`(world_args, world_run_args)` the driven forge region built, in argv order."""
+
+    match = re.search(r"ARGS\[(.*?)\]RARGS\[(.*?)\]", result.stdout, re.S)
+    assert match, f"the forge capture did not print both arrays: {result.stdout!r}"
+    return (
+        re.findall(r"<([^>]*)>", match.group(1)),
+        re.findall(r"<([^>]*)>", match.group(2)),
+    )
+
+
+def test_the_joiner_forge_close_state_is_byte_equal_to_the_starting_handoff(
+    tmp_path: Path,
+) -> None:
+    """Closed switch: the joiner seal still hands the host document and nothing else.
+
+    This is the card's byte-equality clause, driven off the shipped region rather than
+    asserted from the shape of the `if`: unset must yield exactly the argv it yields today
+    — `--world-run-document /tmp/domain-session.json` handed, `world_args` empty — so the
+    default-off path is provably unmoved.
+    """
+
+    forge = handover_region(
+        (RUNNER / "domain.sh").read_text(encoding="utf-8"), "joiner-server-log-seal-forge"
+    )
+    result = run_shelled(
+        tmp_path,
+        forge_prelude(0) + forge + FORGE_BOTH_ARRAY_CAPTURE,
+        None,
+        "h1q-close",
+    )
+    assert result.returncode == 0, f"{result.returncode}: {result.stdout}{result.stderr}"
+    world_args, world_run_args = seal_two_arrays(result)
+    assert world_args == [], f"close state must hand no world args: {world_args}"
+    assert world_run_args == [FORGE_WORLD_RUN_ARG, FORGE_WORLD_RUN_DOCUMENT], (
+        f"close state must still hand the host document: {world_run_args}"
+    )
+
+
+def test_the_joiner_forge_open_state_hands_profile_and_directory_and_no_jar(
+    tmp_path: Path,
+) -> None:
+    """Open switch: the world is named by this run's own dedicated server, two flags only.
+
+    `--server-profile` names the configuration this run booted and `--server-directory`
+    carries its seed and log — the sealer's route 3, `kind: dedicated`. The host document
+    is dropped in the same branch (a joining run would otherwise hand two sources for one
+    world block), and `--server-jar` never appears, because this branch mounts no jar.
     """
 
     text = (RUNNER / "domain.sh").read_text(encoding="utf-8")
     forge = handover_region(text, "joiner-server-log-seal-forge")
+    result = run_shelled(
+        tmp_path,
+        forge_prelude(1) + forge + FORGE_BOTH_ARRAY_CAPTURE,
+        None,
+        "h1q-open",
+    )
+    assert result.returncode == 0, f"{result.returncode}: {result.stdout}{result.stderr}"
+    world_args, world_run_args = seal_two_arrays(result)
+    assert world_args == [
+        "--server-profile",
+        FORGE_SERVER_PROFILE,
+        "--server-directory",
+        FORGE_SERVER_DIRECTORY,
+    ], f"open state must hand exactly the profile and directory: {world_args}"
+    assert world_run_args == [], f"open state must drop the host document: {world_run_args}"
+    assert "--server-jar" not in forge, "the joiner branch must never hand the jar"
 
-    for asked, name in ((0, "default-off"), (1, "switch-open")):
-        result = run_shelled(
-            tmp_path,
-            "set -euo pipefail\n"
-            f"seal_joiner_server_log_asked={asked}\n"
-            'server_directory="/data/server-runs/run-1"\n' + forge + SEAL_ARGV_CAPTURE,
-            None,
-            name,
-        )
-        assert result.returncode == 0, result.stderr
-        assert seal_argv(result) == (
-            [] if asked == 0 else ["--server-directory", "/data/server-runs/run-1"]
-        ), f"{name}: {seal_argv(result)}"
 
-    # And the narrower claim, read off the shipped bytes rather than off a run: neither
-    # refused flag appears anywhere in the region, and the directory appears once.
-    assert "--server-profile" not in forge
-    assert "--server-jar" not in forge
-    assert forge.count("--server-directory") == 1
+def test_the_joiner_forge_refuses_world_document_and_profile_together(tmp_path: Path) -> None:
+    """Both sources for one world block on the same seal argv is refused before any write.
+
+    The guard only fires on a shape the shipped region never builds (the open branch drops
+    the document), so the driven bytes here are the shipped region with that drop removed —
+    the exact forbidden shape — and it must `exit 2` naming both sources. The mutation then
+    deletes the guard's `exit 2` from those same bytes: the rejection falls away (rc is no
+    longer 2), which is what keeps this cell from grading an always-true claim. The
+    line-offset census proves the refusal is earlier than the first seal write.
+    """
+
+    text = (RUNNER / "domain.sh").read_text(encoding="utf-8")
+    forge = handover_region(text, "joiner-server-log-seal-forge")
+    assert FORGE_WORLD_RUN_ARG in forge and "--server-profile" in forge, (
+        "the both-present guard is not inside the extracted region"
+    )
+
+    # The forbidden shape: keep the open-state profile argv but leave the document handed.
+    with_both = (
+        "\n".join(line for line in forge.splitlines() if line.strip() != "world_run_args=()") + "\n"
+    )
+    refused = run_shelled(
+        tmp_path,
+        forge_prelude(1) + with_both + FORGE_BOTH_ARRAY_CAPTURE,
+        None,
+        "h1q-conflict",
+    )
+    assert refused.returncode == 2, f"both-present must be refused, got {refused.returncode}"
+    assert FORGE_WORLD_RUN_ARG in refused.stderr and "--server-profile" in refused.stderr, (
+        f"the refusal must name both sources: {refused.stderr}"
+    )
+
+    # Mutation: strip the guard's rejection from the same bytes and the cell must go red —
+    # the rc falls back off 2, because nothing refuses the two sources any more.
+    without_guard = (
+        "\n".join(line for line in with_both.splitlines() if line.strip() != "exit 2") + "\n"
+    )
+    mutation = run_shelled(
+        tmp_path,
+        forge_prelude(1) + without_guard + FORGE_BOTH_ARRAY_CAPTURE,
+        None,
+        "h1q-mutation",
+    )
+    assert mutation.returncode != 2, (
+        f"deleting the guard branch must make the rejection fail, got rc={mutation.returncode}"
+    )
+
+    # Earlier than any seal write, read off the shipped file's own byte offsets: the guard's
+    # `exit 2` sits inside the forge region, and the region closes before the sealer is
+    # invoked or anything is redirected into `/tmp/domain-seal.*`. The scans are anchored on
+    # the redirect / invocation forms, not a bare mention, so they hit the writes themselves.
+    begin = text.index("# --- joiner-server-log-seal-forge begin")
+    end = text.index("# --- joiner-server-log-seal-forge end")
+    guard_exit = text.index("exit 2", begin)
+    assert begin < guard_exit < end, "the named rejection is not inside the forge region"
+    for first_write in (
+        text.index(": > /tmp/domain-seal.json"),
+        text.index(">/tmp/domain-seal.err"),
+        text.index("python /src/tools/seal_run_evidence.py"),
+    ):
+        assert end < first_write, "the guard region must close before the seal can write"
+
+
+def _numbered_matches(text: str, needle: str) -> list[int]:
+    """1-based line numbers whose content contains `needle` verbatim."""
+
+    return [index for index, line in enumerate(text.splitlines(), start=1) if needle in line]
+
+
+def test_the_joiner_only_directory_world_shape_is_named_and_the_shipped_file_has_none() -> None:
+    """The superseded 'directory only' joiner argv is named, and the shipped file has none.
+
+    Both sides are driven so the predicate cannot be dead: the defective bytes must hit a
+    named line (the 'directory only' world assignment the open branch used to build), while
+    the shipped file — where the open branch names the world by `--server-profile` — matches
+    nothing. The scan is a plain substring test, so no backslash-escape class is in play.
+    """
+
+    only_directory_shape = 'world_args=(--server-directory "'
+    defect_sample = (
+        "world_args=()\n"
+        'if [ "${seal_joiner_server_log_asked}" -eq 1 ]; then\n'
+        '    world_args=(--server-directory "${server_directory}")\n'
+        "fi\n"
+    )
+    defect_hits = _numbered_matches(defect_sample, only_directory_shape)
+    assert defect_hits, "the predicate failed to name the defective directory-only line"
+
+    shipped_hits = _numbered_matches(
+        (RUNNER / "domain.sh").read_text(encoding="utf-8"), only_directory_shape
+    )
+    assert shipped_hits == [], (
+        f"the shipped joiner branch still hands a directory-only world: {shipped_hits}"
+    )
+
+
+def test_the_joiner_server_log_knob_comment_no_longer_claims_only_the_directory() -> None:
+    """The switch now hands two world inputs, so its comment cannot say 'Only the directory'.
+
+    Comment and argv have to agree — that agreement is the whole reason this region is
+    contract-tested rather than eyeballed. The open-state cell already proves the branch
+    hands `--server-profile`; this cell proves the knob's own comment was rewritten to
+    match, so the two can never drift apart in silence again.
+    """
+
+    text = (RUNNER / "domain.sh").read_text(encoding="utf-8")
+    forge = handover_region(text, "joiner-server-log-seal-forge")
+    assert "--server-profile" in forge, (
+        "the open branch must hand the profile before its comment is vouched for"
+    )
+    assert "Only the directory" not in text, (
+        "the knob comment still claims only the directory is handed back"
+    )
 
 
 #: ---------------------------------------------------------------------------
