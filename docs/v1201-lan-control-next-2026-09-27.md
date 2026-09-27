@@ -749,3 +749,5 @@ $ grep -qE 'Stevedor (lost connection|left the game)' \n server.log 2>/dev/null;
 ```
 
 ⇒ 危险具体化为：工作目录一旦出现名为 `n` 且含 `${kick} (lost connection|left the game)` 的文件，`kicked` 就在服务端没有说过这句话时置 1（**假绿**，且正是离场/踢线那一格）；另一条次要后果是「日志无命中」（rc=1）与「grep 自己出错」（rc=2）在 `2>/dev/null` 之下不可分辨。修法面：`domain.sh` 一处续行 + 一条契约断言（扫 `domain.sh` 命令位置的字面 `\n`）+ 上面这两枚对照（`n` 缺席 ⇒ 不置位；`n` 在场 ⇒ 现字节置位、修后不置位）。独立独占面，与 H1m/H1i 无先后耦合（`:2424–:2435` 属 kick 等待支），可插空档派。
+
+**§2.43 补记（同轮 23:09 +0800，M 主控；不静默覆盖上一段）**：上面「缺口一」的处方里写了「连带 `--server-profile`/`--server-jar` 三条，形状与 `:2846–:2852` 同」，这与 M 早前的一条更严口径相冲（当时的判据是：**opt-in 打开时只补 `--server-directory`，绝不带回 `--server-profile`/`--server-jar`**，理由正是 `:2887–:2890` 那段注释所防的「记录一个从未跑过的世界」，且当时已量过加入者 bundle 的世界记录走 `seal_run_evidence.py` 的 `world_run_document` 分支并先返回 ⇒ 只加目录**不改 `world` 字段**）。**该口径此前只存在于 M 的记忆库里（那次「单 bundle 双载体是否需要扩 schema」的卷内实测：6 份 `CORE-030` 加入者 bundle 全不含 `server/server.log`），仓库文档里没有它的落点** ⇒ 本条补记即入册，并记下这条流程缺陷：**判据口径只进记忆不进文档，就会在下一轮被自己的处方顶替**。该口径**继续作默认**，上一段的改口不成立。⇒ H1i 的第①格按「只交 `--server-directory`」写死；`--server-profile`/`--server-jar` 是否要在专服形状下随件，**须先量 `server_profile` 在 sealer 里的实际用途再判**，量不出必要性就保持缺席。这是收窄、不是放宽。
