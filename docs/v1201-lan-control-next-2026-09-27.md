@@ -470,3 +470,23 @@ lane 仍在收 §2.22 第③④项（它的容器窗在用，M 不进那棵树�
 **CI 与方法一条**：`52e78b5`/`e33d109`/`21a0784` 已于 21:13 复读为 `completed/success`；`5379d3a`、`8bbf3ab` 在 21:15 单读为 `in_progress` ⇒ 绿读数不作。**方法**：凡判据要求「同 run 内两个名字/两个目标」的格，派工之前必须先 grep 铸名点与被调 CLI 的取值形状（本轮就是 M 在派工前量到取不到，符合 §2.16 第 1 条那句「量不到就不派」，也避免了把一张注定红在载体缺失上的活体卡派出去）。
 
 **四态**：已合主干＝本轮零（主干只动了 §2.27/交接/todo 三笔文档）；仅在分支＝H1k 四项读数齐但**未提交未 push**；真实封证＝**0**（lane ③ 自己写明不是封证，M 私有卷那次也不是；LAN 第二客户端在受控专服形状下的同 run 封证仍为 0）；未验证＝M 未复量的 ③/②大套件/CE 三组，以及上面 A、B 两格的闭合。规范卷对 M 仍只 `:ro` 且本轮未挂；未连接用户远程服；未改判据/registry/门禁；失败材料（`live-a-rejected-singleword/`、`live-b/`、旧红字 log、私有卷 `run-1`）逐条申报未删未覆盖。
+
+## §2.29 M-T1 落地：同一 run 现在能问两个具名实体，H1m 的派工文本按已定接口写死（第四十九轮，2026-09-27 21:39 +0800，M 主控）
+
+**收掉的是 §2.28 的 B 格，且在 M 自己的独占面上收**。`tools/run_controlled_server.py` 的 `--probe-player` 由单值转为可重复（`action="append"`、`default=[]`），新 `probe_console_commands()` 把每个名字的 `Pos` 与 `Rotation` 成对相邻排出，at-join 的补测由单 flag 改为逐名 `bursted` 集合；两条具名拒止同时立：重名 ⇒ rc=2 且在落盘前，`--use-target` 配多名 ⇒ 拒（一块方块只挡得住一个视线）。单名形状逐字不变——这不是修辞，是下面那条零名/单名/双名三读里的一格。改面恰 2 文件（该工具 + `tests/contract/test_controlled_server_runner.py`），`domain.sh` 那半张归 H1m。
+
+**读数（退出码单步读）**：契约文件 `28 passed in 3.38s` rc=0；全量 `2645 passed, 3 skipped in 301.14s` rc=0；`ruff` / `check_boundaries` / `check_case_assertions`（仍 `150 registered`，未新增 case）/ `verify_fixture_digests` / `git diff --check` 全 rc=0。两枚反证各自红在该红的案上：`for command in probe:` 改 `probe[:2]` ⇒ 恰 `test_the_console_of_one_run_receives_the_question_of_every_named_kin` 1 failed（零名与单名两案仍绿）；重名拒止改 `if False and …` ⇒ 恰 `test_repeated_probe_names_are_refused_before_the_run_is_written` 1 failed。种桩前先把原字节备份到 `.tmp/m-t1-pre-ce/run_controlled_server.py.orig` 并记 sha256，还原后复量仍 `263ce1046e19e0b3337af4174a84b5cce778c42390a6e8ef068a600e6dfc9466`；全程未对该文件用 `git checkout --`/`restore`/`reset`。
+
+**合入**：施工支 `codex/minekin-m-t1-multi-probe` @ `5ec0500`（真实 merge-base 就是当时的主干 `17a6537`，未动他人面），`--no-ff` 合入主干为 `070390d`，push 后 `git ls-remote origin refs/heads/main` = `070390d1dd7024b6a2655176d2a0a01403e4a611`；分支同轮已 push。
+
+**H1m 的派工文本（接口已定，不必再猜 tools 侧形状）**
+- 载体行号（`domain.sh`，主干字节现读）：`:27` `probe="${MINEKIN_DOMAIN_PROBE:-}"`、`:133` `use_target="${MINEKIN_DOMAIN_USE_TARGET:-}"`、`:171` `probe_seconds`、`:715` 唯一铸名点 `probe_args=(--probe-player "${probe:-${player}}" --probe-every-seconds "${probe_seconds}")`、`:716–:717` 的 `--use-target` 追加分支、`:821` `"${probe_args[@]}"` 交给 `run_controlled_server.py`。
+- 新旋钮 `MINEKIN_DOMAIN_PROBE_SECOND`，默认关闭：未设 ⇒ `probe_args` 与今日逐字节相等（契约测试按 `:715` 的字面串钉住，沿用 `test_runner_scripts.py` 现在钉 `--probe-player "${probe:-${player}}"` 的写法）；设了 ⇒ 在 `:715` 之后追加**第二个** `--probe-player <该名字>`，不替换第一个。
+- 两条具名拒止要在 domain.sh 的 guard 区里早退，不把下游 rc 当自己的判据：① 第二名与第一名同名；② `MINEKIN_DOMAIN_USE_TARGET` × 第二名（tools 侧那句 `--use-target puts a block in front of one kin's look, and 2 --probe-player names do not say which` 是兜底，不是替代）。
+- `run.sh` 的 `-e MINEKIN_DOMAIN_*` 名单必须带上这个新名，否则容器里读到空、旋钮什么都不做——与 H1l 同一族缺陷，允许面 `test-orchestrator/runner/run.sh` + `tests/contract/test_runner_scripts.py`，验收里要有一次**经 run.sh 的**真实形状读（两名都被问过）。
+- 反证三枚：删追加分支 ⇒ 两名案红；放宽默认关闭的等值断言 ⇒ 单名案红；删同名早退 ⇒ 具名拒止案红。门载荷前后一对（本卡不动 cases/registry ⇒ 期望 PRE==POST）。
+- 排程：H1m 严格排在 H1k 收口之后（同文件一名 owner）；V5′ 排在 H1l 与 H1m 之后，§2.16 第 4 条第一格到那时才可取。
+
+**欠账（如实，不冒充）**：门载荷的 POST 没量到。这次 `docker run --rm -v <树>:/src:ro -v minekin-runner-data:/data:ro … minekin-runner:local python tools/report_promotion.py --data-root /data` 返回 **rc=127**（M 的调用姿势问题，该镜像入口是 `/__cacert_entrypoint…`，需按镜像入口复核），且取读时 lane 的活体容器 `unruffled_goldstine` 正在飞 ⇒ 不抢引擎。所以 `cfa0f118…` 在这一节只能作为 §2.19 的 **PRE** 引用，M-T1 的入干不构成「门载荷已在新字节上复量」。**CI**：`070390d`（含 `5ec0500`）待读；`873/874/875` 已读为 `completed/success`（`21a0784`/`5379d3a`/`8bbf3ab`），`876`（`17a6537`）在 21:23 单读仍 `in_progress`。
+
+**四态**：已合主干＝M-T1（`5ec0500` → `070390d`，远端 SHA 已核）；仅在分支＝H1k 候选**仍未提交未 push**（lane 树停在 `29c5187` + 同样三处脏改动，`.tmp/h1k-recheck/` 21:34 还在写 ⇒ lane 会话在飞，M 不进其树、不代提交）；真实封证＝**0**（LAN 第二客户端在受控专服形状下的同 run 封证一格未动，`E6` 的 `V1201-020` seq4 仍是本地专服单客户端，不得顶替）；未验证＝M-T1 的门载荷 POST、H1m 全卡、V5′ 第 4 条第二格（控制关闭的同形状对照）。规范卷对 M 仍只 `:ro` 且本轮未写成；未连接用户远程服；未改判据/registry/`mandatory`；备份原字节与两枚 CE 日志（`.tmp/m-t1-ce-a.log`、`.tmp/m-t1-ce-b.log`）逐条申报未删未覆盖。
