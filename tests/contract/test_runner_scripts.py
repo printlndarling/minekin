@@ -1854,8 +1854,8 @@ def drive_joiner_control(
                 # expands the array for a `bash -c '… "$@"'` that execs it. `printf`
                 # stands in for `exec` so the reading never runs a product command, and
                 # each word is bracketed so a split or a merge cannot pass unnoticed.
-                "bash -c 'for w in \"$@\"; do printf \"<%s>\" \"$w\"; done;"
-                " printf \"\\n\"' minekin-joiner-launch \"${joiner_session_argv[@]}\"",
+                'bash -c \'for w in "$@"; do printf "<%s>" "$w"; done;'
+                ' printf "\\n"\' minekin-joiner-launch "${joiner_session_argv[@]}"',
             )
         )
         + "\n"
@@ -1923,9 +1923,7 @@ def test_the_joiner_control_driver_keeps_its_bounds_and_reaches_one_line_only() 
     )
     assert text.count('"${joiner_session_argv[@]}"') == 2
     function = text[text.index("join_the_published_world() {") : text.index("\nlogs_before=")]
-    launch = function[
-        function.index("' minekin-joiner-launch") : function.index("joiner_pid=$!")
-    ]
+    launch = function[function.index("' minekin-joiner-launch") : function.index("joiner_pid=$!")]
     assert launch.count('"${joiner_session_argv[@]}" \\') == 1
     assert "python -m minekin_core session start" not in launch
     assert function.count('"${joiner_session_argv[@]}"') == 1
@@ -2186,9 +2184,7 @@ def test_the_printout_reads_the_same_ask_back_and_launches_nothing(
     assert argv == [], f"a printout printed on stdout as well: {argv}"
     prefix = "domain:   "
     printed = [
-        line[len(prefix) :]
-        for line in result.stderr.splitlines()
-        if line.startswith(prefix)
+        line[len(prefix) :] for line in result.stderr.splitlines() if line.startswith(prefix)
     ]
     assert printed == OBSERVE_ONLY_JOINER_ARGV
     assert "a printout launches nothing" in result.stderr
@@ -2242,9 +2238,7 @@ def test_the_printout_reads_the_same_ask_back_and_launches_nothing(
     # The printout is answered below the composition and above anything that starts,
     # and it reads the one name its own top-of-file read hands it.
     assert 'join_control_print="${MINEKIN_DOMAIN_JOIN_CONTROL_PRINT:-}"' in text
-    assert text.index("\ncompose_joiner_control_args\n") < text.index(
-        "a printout launches nothing"
-    )
+    assert text.index("\ncompose_joiner_control_args\n") < text.index("a printout launches nothing")
     assert text.index("a printout launches nothing") < text.index("trap stop_the_server EXIT")
 
 
