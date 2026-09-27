@@ -1473,3 +1473,39 @@ bundle 里 asserter 自己的读数定，故列为复审必核项。该案 `mand
 `.tmp/m-r34-e6-review.log`。
 
 不声称：本轮没有任何 1.20.1 封证；预审只证明 E6 的**边界与选案语义**在门内，不证明它的 run 为真。
+
+## 第三十五轮：E6 的 bundle 先于其 push 出现，主控做只读早读
+
+E6 在写卡面之前先把 live 封证落到了规范卷：`/data/kin/kin-e6-j020/run/evidence/73a52bfb8f24462794ff571c46267e2e`，
+卷上 manifest 从 112 增到 113。lane 仍零提交、远端无 ref ⇒ 主控**不能合**（只合已 push 的 ref），
+但把复审证据先取下来存盘，日志 `.tmp/m-r34b-e6-bundle-early-read.log`（脚本 `.tmp/m-r34b-e6-bundle-read.sh`，
+全部 `:ro` 挂载、host 侧重定向，容器内实读 `/src writable False`）。
+
+**封存件自身的读数（产品记录，非 lane 转述）**：`case_id=V1201-020`、`case_version=e7c3b72235d90766`、
+`schema=minekin.p0.evidence.v1`、`result="PASS"`、`assertions.failures=[]`，三条 expected 全部 observed
+（`server_observed_join_identity` / `first_snapshot_admitted` / `leave_after_join_observed`）；
+`world.server_config_digest=77a19c94c4467231…`；环境行具名 `openjdk 21.0.12.1 Temurin-21.0.12.1+1`、
+`llvmpipe (LLVM 20.1.2, 256 bits)`。
+
+**主控独立重算（不采信产品自检）**：声明 12 个 artifact 逐一重哈希与重量 ⇒
+`verified_ok=12 digest_or_size_mismatch=0 absent=0 present_not_declared=0`；
+`bundle.sha256` 边车 `b2b4133b3e3ce030` 等于主控对 manifest 字节重算的 sha256；
+时间线载体 `bridge-trace.jsonl` 19 行，含 `SessionProcessStarted / BridgeHelloAccepted / JoinObserved /
+PlayableEstablished / SessionInterrupted`；`run-document.json` 里 `snapshots_admitted=1 rejections=[]`。
+run 用的字节仍是主干字节：`domain.sh ff69c87994f15be3…`、1.20.1 桥 jar `e50d61c209be9813…`。
+判官的 rc=0 有非恒真保证：r33 的八项植入缺陷各自 `rc=1`（`.tmp/m-r33-e6-seal-selftest-2.log`）。
+
+- **已合主干**：H1g、V4 记录、M 的 r32/r32b/r33 仪器、第三十四轮 handoff（`main = 43a0ed3`，远端已核）。
+- **仅在分支**：E6 的卡面文档与提交（bundle 已成形，仓库侧尚无 commit、未 push）。
+- **真实封证**：1.20.1 本地加入的规范卷 sealed bundle **首次非零 = 1**（`73a52bfb…`），
+  M 独立重哈希与载体读数均为 PASS。
+- **未验证**：`evidence verify` / `rejudge` / `report_promotion` 三项的主控亲跑、POST 门载荷增量、
+  版本错配反例原物是否随卡保留、E6 的 `docs/validation/` 记录本身。
+
+不声称：bundle 的 `result="PASS"` 只说明该案 asserter 在这份封存件上判为通过，不推进任何门禁
+（V1201-020 是 `mandatory:false`，门载荷预期仍含 `REQUIRED_CASE_NOT_REGISTERED`）；也不说明
+1.20.1 加入链的其余未测面（多 joiner、在线认证、远程服、PLAYABLE 之后的输入半边）已被覆盖。
+
+**续接点**：E6 push 后 → 核 ref → `merge-base`＋非 docs 改动面应为 0 → 主控亲跑
+`evidence verify`/`rejudge`/`report_promotion` 并量 POST `gate_payload_sha256` → 卫生判官带
+`--operator-file` 过它的记录 → 单卡合入、`push origin HEAD:main`、核远端 SHA → 第三十六轮四态回写。
