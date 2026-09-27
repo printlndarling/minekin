@@ -1005,3 +1005,42 @@ grep -n "world_args\|world_run_args\|seal_run_evidence" test-orchestrator/runner
 **⑦ 次序随之定死**：**H1o（#63，在飞）⇒ M-C1（#48）可跑**（它冻结判据并登记新案，载体面 H1i 已给；但登记会动门载荷，须量 PRE/POST 并具名）；**E7（#49）在 H1q 的口径裁决落地前不可开跑**——它要求 `case_on=joiner` 的同 run 封证，而 §2.54 ②③ 表明该封证在专服形状下今日**按构造**封不出。E7 不得改用 `case_on=host` 顶替（宿主支封的是 `Kin` 这一格，`the_probed_player_is_this_run_s_kin` 会把「探加入者名」的案拒在归属那一格（`assert_case_evidence.py:1687`：本 run 的 `username` 不在 `probed_players` 里即 `PROBED_PLAYER_IS_NOT_THIS_RUN_S_KIN`）），也不得拿卷外/私有卷的 dev-seal 产物充数。M-G1（#50）为只读审计，排在 E7 之后。真实封证仍 **0**；本轮零 JVM、零 gradle、零容器写入，规范卷只 `:ro`（读 bundle 不写），未连用户远程服、未读 `.tmp/local-test-server.txt`、未放宽认证/地址/lease/判据、未翻 `mandatory`/registry、材料与失败材料未删、lane 树只读未改（`../minekin-wt-h1o` 归 H1o lane，M 未入其工作面）。
 
 **§2.54 具名更正与时点申报（同轮 02:20 +0800，M 主控；不静默覆盖）**：① §2.53 的落笔时点原写 `02:30 +0800`，本笔量到该记录笔 `b9b0d25` 的 commit date 实为 **`2026-09-28 02:05:12 +0800`** ⇒ 标题里的钟点改为 02:05（笔误，不是两个事件）。② §2.53 记「`919 b243366` 写本节时点为 `in_progress` ⇒ 不作绿」是 **02:06 的真实读数**，予以保留；02:18 一次 REST 重读（`.tmp/m-r61-ci.json`）为 `919 b243366 completed/success（updated_at 2026-09-27T17:59:46Z）`、`920 b9b0d25 completed/success` ⇒ **H1i 合并笔与其记录笔都判绿**，「已合主干且 CI 绿」前进到 `b9b0d25`。本轮（H1p）改面恰两份文档，未动 `domain.sh`/`run.sh`/契约/tools。
+
+## §2.55 H1o 交付、M 按真实 merge-base 独立复审入干（合并 `77fd13d`，远端已核）：契约的 delivered 方向三笔反证非恒真，跨界改由「换回 trunk 包装器」做实对照，门载荷第九次同值（第六十三轮，2026-09-28 02:45 +0800，M 主控；私有卷 `minekin-m-r63-live`，规范卷只 `:ro`，lane 树全程只读未改）
+
+**① lane 事实链**：lane 树 `../minekin-wt-h1o`、分支 `codex/minekin-h1o-forward-seal-knobs`、起点 `b9b0d25`（= 派工时的远端 `main`）。交付为单笔 `f84d4c397130f20a767e13a83eba2b9b5db4a4c0`（commit date `2026-09-28 02:22:14 +0800`），远端分支 SHA 与本地一致、lane 工作树干净、`.tmp/h1o/` 材料在位（25 项）。**真实 merge-base = `b9b0d25`** ⇒ 主干在 lane 起飞后只多出文档笔 `6fb974b`，与代码面无交叉；合并后 `git diff f84d4c3 HEAD` 只剩那两份文档（48 insertions / 1 deletion）。lane diffstat 恰三文件：`test-orchestrator/runner/run.sh` 14+/1-、`tests/contract/test_runner_scripts.py` 30+/29-、新 validation 记录 198+/0-；`domain.sh` 与 `tools/**` **0 行**——合并字节上复算 `df86c258df126b2d9c208243397cd6f425faac8ab21af22d439e155c80d640a2` / `4970381c…` / `d89bf64b…`，逐字节等于主干。转发名单现 25 枚 `-e MINEKIN_DOMAIN_*`，末两枚即 `:146` `:147` 的 `SEAL_JOINER_SERVER_LOG` / `SEAL_PROBED_PLAYERS`，均为裸 `-e NAME`、不铸默认值。
+
+**② 门表（POST 全部是 M 在合并字节上单跑亲量，材料 `.tmp/m-r63-h1o-post-gates.log`；PRE 出处逐格具名，未亲量的不写「同值」）**
+
+| 门 | POST rc | POST 末行读数 | PRE 出处（同一命令） |
+| --- | --- | --- | --- |
+| `bash -n domain.sh` / `bash -n run.sh` | 0 / 0 | 无输出 | lane §6 同命令 0；`domain.sh` 本笔 0 改动 |
+| 契约 `pytest tests/contract/test_runner_scripts.py` | 0 | `118 passed in 16.06s` | **本轮亲量 `6fb974b` ⇒ `118 passed in 15.94s`**（同数） |
+| `check_case_assertions` | 0 | `OK (150 registered)` | `.tmp/m-r62-doc-gates.log` 同读数 |
+| `check_boundaries` / `verify_fixture_digests` / `check_workflow_pins` | 0 / 0 / 0 | 三条 OK | 同上 |
+| `ruff check` | 0 | `All checks passed!` | 同上 |
+| `ruff format --check` | 0 | **372** files already formatted | 上轮同树 371 ⇒ +1 的成因见 ④，不作代码面漂移 |
+| `pyright` | 0 | `0 errors, 0 warnings, 0 informations` | 同上 |
+| 全量 `pytest -q` | 0 | `2700 passed, 2 skipped in 289.55s` | 主干基线 2700/2 **同数**；lane 自报 2699/3，判定见 ⑤ |
+| `git diff --cached --check`（提交前） | 0 | 无输出 | — |
+| 容器只读 `report_promotion --data-root /data` | **1**（按构造 blocked，本卡不注册 case） | 文档 103,921 B、`gate_payload_sha256=cfa0f1184bee30df6a1d9fcf45778c9cef074ece6761c47fe7d6b9f49863afd6` | §2.53/§2.54 的 PRE 同值 ⇒ **PRE==POST 第九次同值**，门载荷一字未移 |
+
+**③ 契约非恒真：M 亲跑三笔（材料 `.tmp/m-r63-h1o-reversals.log`，全程在 M 自己的树里，破桩前 `cp` 备份 + 记 sha256，复原后按 sha 复验，不用 `checkout`/`restore`/`reset`/`stash`）**
+
+- **M1** 摘掉 `run.sh` 的 `-e MINEKIN_DOMAIN_SEAL_JOINER_SERVER_LOG` 一行 ⇒ `bash -n` 仍 0、契约 **rc=1**，红消息逐名：`domain.sh arms the seal handover on MINEKIN_DOMAIN_SEAL_JOINER_SERVER_LOG and run.sh stopped delivering it: … evidence for a different shape than the one the operator asked for`（`1 failed, 117 passed`）。
+- **M2** 只删 `SEAL_PROBED_PLAYERS` 前面的 `-e` 前缀（数组元素退化成裸词，语法仍合法）⇒ 契约 **rc=1**、逐名同一句式 ⇒ 两枚各自被钉，删一枚不会靠另一枚蒙过。
+- **M3** 把 `domain.sh` 里的读取整体改名 ⇒ 契约 **rc=1** 且首条红消息走 `domain.sh no longer reads …` 支，同时同族另外三段具名拒止断言一起转红 ⇒ `in read` 方向也是活的，不只有 `in delivered`。
+- 三笔复原后：`run.sh = 93642dd3…`、`domain.sh = df86c258…` 与破桩前逐字节相同，`git diff`（worktree vs index）0 行，契约回到 `118 passed`。
+- 断言的**强度方向**核过：旧面是「每枚必须缺席于 `run.sh`」+「`read - delivered == SEAL_HANDOVER_KNOBS`」，新面是「每枚必须在 `run.sh`」+「`read - delivered == set()`」⇒ 精确登记缺口退役，但集合仍 exact、`delivered - read == set()` 与 config.py 外溢断言原样保留，缺任何一枚都红。
+
+**④ `ruff format --check` 的 371→372 实测归因**：ruff 0.16.8 的 `format` 遍历把 markdown 一并计入（`ruff format --check docs/validation/v1201-h1o-forward-seal-knobs-2026-09-28.md` ⇒ `1 file already formatted`）⇒ 新增一份 validation 文档就给这个数 +1；lane 现字节同命令亦报 **372**（与它 §6 自报 371 只差在它自己落笔文档的前后）。此后引用该数须说明它是文档面敏感的，不能当代码面漂移的证据。
+
+**⑤ 全量 pytest 差一格的判定（M 亲量到条件本身）**：lane `2699 passed, 3 skipped` vs M `2700 passed, 2 skipped`，收集总数同为 2702 ⇒ 无增删测试函数。差异实测落在 `tests/unit/test_tested_provenance.py:354` 的 `BRIDGE_1201_JAR_RELATIVE_PATH` 条件跳过：M 树有 `bridge-1201/build/` 与 loom 缓存（本机建过 1.20.1 桥），lane 新树只到 gradle wrapper ⇒ 那一格在 lane 上 skip。M 树单跑该文件族读数 `60 passed, 2 skipped`（两条 skip 具名为 `test_silent_listener.py:123`「a Windows terminate is not a signal」与 `test_orphans.py:686`）⇒ lane §6.1 的「平台/材料条件、非本卡因果」归因成立，不追环境、不改数字。
+
+**⑥ docker 边界的反对照（H1o 卡面本体，M 不采信 lane 自报；材料 `.tmp/m-r63-boundary.log`）**：私有卷 `minekin-m-r63-live`（新建，规范卷 `minekin-runner-data` 不出现在这两条命令里），发前 `docker ps` 空列表核验。同一 env（`MINEKIN_DOMAIN_SEAL_JOINER_SERVER_LOG=maybe` + `PROBE=PROBE_SECOND=kin-mr63dup`）、同一参数（`domain session start --profile /src/tests/fixtures/launcher/1.20.1.json`）：
+
+- **正例（合并后 `run.sh`，`93642dd3…`）** ⇒ **rc=2**，stderr 里 SEAL 句恰 **1** 次：`domain: MINEKIN_DOMAIN_SEAL_JOINER_SERVER_LOG must be 1/true or 0/false, got maybe`。该句只可能由容器内 `domain.sh` 的取值 case 打印 ⇒ 值确实经 `-e` 跨过了 `docker run` 边界，且它**抢在**同命令更晚的重复名守卫之前回答。
+- **反对照（同形状，只把包装器换成 `git show b9b0d25:test-orchestrator/runner/run.sh` 的临时副本 `323f521a…`，跑完即删）** ⇒ 同样 **rc=2**，但 stderr 中 SEAL 句 **0** 次，落到更晚的 `MINEKIN_DOMAIN_PROBE_SECOND` 重复名守卫。这一格比「不设旋钮」的负对照更强：它把差异**钉在包装器字节上**，直接证明 H1o 之前战役路径问不到这枚旋钮、run 会带着「not asked for」继续走下去。
+- 两发前后卷清单各 3 条、逐条相同 ⇒ 拒止确实早于任何落盘。合入后 `grep MINEKIN_DOMAIN_SEAL src/minekin_core/config.py` ⇒ 空 ⇒ 产品入口面 0 外溢。
+
+**⑦ 次序随之更新**：H1o 入干 ⇒ 战役路径今日**设得了**这两枚旋钮，**#48 M-C1 解锁可跑**（它冻结 §2.52 的单名判据并登记 `V1201-LAN-JOINER-CONTROL-CASE-001`；登记必动门载荷 ⇒ 量 PRE/POST 并具名申报，不改旧案 `core-040`/`v1201-040`）。**E7（#49）仍不可开跑**：转发只解决「设不设得了」，不解决 §2.54 判定的「专服形状封不封得出」——它阻塞在 **#65 H1q 的主控口径裁决**之上。真实封证仍 **0**。CI：`6fb974b`（文档笔）与 lane 分支 `f84d4c3` 均已 completed/success，合并笔 `77fd13d` 的读数写在 handoff 本轮。
