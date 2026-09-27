@@ -126,7 +126,12 @@ if [[ "${1:-}" == "domain" ]]; then
         # above, so it is closed the same way: the bare declaration below forwards the
         # host's value when the operator set one and leaves the name unset when they did
         # not. This line casts no default of its own.
-        -e MINEKIN_DOMAIN_JOIN_ON_CONTROLLED_SERVER)
+        -e MINEKIN_DOMAIN_JOIN_ON_CONTROLLED_SERVER
+        # The run's second named probe target, forwarded the same bare way: this is
+        # the whole of the wrapper's involvement, the append and the two named
+        # refusals live in `domain.sh`, and — like every name above — this line
+        # casts no default of its own.
+        -e MINEKIN_DOMAIN_PROBE_SECOND)
     if [[ "${world}" -eq 1 ]]; then
         EXTRA_ARGS+=(-v "${SERVER_JAR}:/server/server.jar:ro")
     fi
