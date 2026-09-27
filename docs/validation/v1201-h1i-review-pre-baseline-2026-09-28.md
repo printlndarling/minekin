@@ -35,3 +35,20 @@
 ## 四、CI 与远端
 
 `b35bc37` 的 CI 运行号 911 = `completed success`；906–910 亦全 success（`fbfd9d0`/`dff4550`/`012f56b`/`edfd8c5`/`0ce94f1`）。**真实封证仍为 0**：本节只是复审基线，不构成任何 case 的 sealed bundle，也不改 registry/mandatory。
+
+## 五、补测：把 H1i 反证 (a)(b) 的 tools 侧一半先量掉（同轮 00:46 +0800，M 主控，零容器、零 JVM）
+
+**为什么补这一格**：§2.50 要求 lane 交四枚反证，其中 (a)「开旋钮 ⇒ 加入者 bundle 多出 `server/server.log` 且含按名答题行」与 (b)「不设旋钮 ⇒ 该 artifact 不出现」同时依赖 runner 与 sealer 两侧。sealer 侧今天就能单独量；量完 ⇒ 复审时**不必取信于 lane**：改后若仍不出 artifact，责任只在 `domain.sh` 有没有把目录递过去。
+
+**形状**：直接调 `tools/seal_run_evidence.py:194 collect_artifacts`，输入 = V5′ `armed` 式落盘的私有材料目录，其余入参按「这次 run 没有」给空（`overlay=None`、`run_document=b"{}"`、`fault_injection=b""`、`soak_samples/soak_summary=b""`、`orchestrator={}`）。脚本与读数各留一份：`.tmp/m-r58-carrier-control.py` → `.tmp/m-r58-carrier-control.log`（复算式即 `PYTHONPATH=src:. .venv/Scripts/python.exe .tmp/m-r58-carrier-control.py`）。
+
+| 调用 | 收到的 artifact 名 |
+| --- | --- |
+| `server_directory=<armed 目录>` | `orchestrator-trace.json`、`run-document.json`、**`server/server.log`**、**`server/server.properties`** |
+| `server_directory=None`（= 今日加入者侧的实际形状） | 只有 `orchestrator-trace.json`、`run-document.json` |
+
+差集逐字 = `['server/server.log', 'server/server.properties']`。被封进去的 `server.log` = 27,569 字节，按名答题行随之读得出：`Kin has the following entity data` **84** 行、`Kin2 has the following entity data` **82** 行。这与 §2.52 表里的「三元组 83（`Kin` 42 / `Kin2` 41）」**不矛盾**，本轮当场拆开量清：一次探测打**两**行——位置行是三元组、朝向行是二元组，故 `Kin` = 42+42 = 84、`Kin2` = 41+41 = 82，全文 `has the following entity data` 共 **166** 行。⇒ 顺带把 §2.52 那句「朝向那格今天没有任何检查读它」钉实：`probe_readings(..., 3)` 只收三元组，166 行里 83 行位置被读、83 行朝向被丢弃。`server/usercache.json` **未**出现不是缺陷，而是 `:180–:192 _artifact` 的「在才收」口径（那份私有目录里本来就没有该文件）；复审 (a) 时按同一条读，不得要求它必在。
+
+⇒ 钉两条结论：① **H1i 第①格只需要 `--server-directory`**——给了目录就多出两件服务端 artifact、按名答题行随之可读，不给则该格恒假。本枚测量**没有**放宽「只交目录、不带回 `--server-profile`/`--server-jar`」的口径。② 反证 (b) 的负对照在 tools 侧**天然成立**（`server_directory=None` 时键集就只有两个），所以 (b) 的全部判别力都落在 runner 侧：默认关闭时 `domain.sh` 必须仍然把 `world_args` 清空。
+
+**一次真实失败（不掩饰）**：第一次用 `importlib` 装载该模块时抛 `AttributeError: 'NoneType' object has no attribute '__dict__'`，起因是 `@dataclass(frozen=True, slots=True)` 要从 `sys.modules` 取回自身模块，而 `exec_module` 之前未注册 ⇒ 脚本里 `sys.modules["sealer"] = module` 是必需行，已在文件内注明并复跑通过。
