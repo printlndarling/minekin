@@ -844,3 +844,40 @@ H1m 仍未交付（其树 `dc0067c` + 允许面三文件脏、远端无 ref；23
 - **H1i 锚点按合并后字节重测（present-tense 更正，旧值只作历史）**：`probe_second` 绑 `domain.sh:35`、guard `:802–:826`（应答句 `:814–:822`）、forge `:834–:837`；`hold_requested=0` `:403`、`hold_at="playable"` `:408`、旗标 `:416`、`--hold-at` `:423`；armed 等待环 `:2182`（H1m 前 `:2139`）；`refuse_first_snapshot` 绑 `:114`、其客户端环境注入 `:1686`；加入者侧 `world_args=()` 清空在 `:2869`（另一次 `:2934`）、`--server-directory` 只出现在 `:2890`、`--probed-player` 在 `domain.sh` **零命中**（该面的载体在 `tools/assert_case_evidence.py` 的 `probed_players` 输入侧）⇒ §2.43 的两格在合并字节上位置成立，行号以本条为准。
 
 **四态（本轮收束）**：真实封证仍 **0**；已合主干且 CI 绿 = 远端 `main` **`012f56b`**（`908` `completed/success`，连同 `906`=`fbfd9d0`、lane 自己的构建 `907`=`dff4550`）；仅在分支 = lane 的 `h1l`、`h1m` ref（均不删，后者已入干但分支保留）；未验证 = V5′ 全卡、H1i 全卡、H1n 全卡、#58 (乙)。本轮 M 侧起了 1 次 gradle（`:remapJar` + `:checkHostBoundaryArtifacts`，只写 `bridge-1201/build/**`）与两枚容器拒止真跑（`/src:ro`，无任何加入者 JVM 到场）；规范卷只 `:ro` 挂载读门载荷；未连任何外部地址、未读 `.tmp/local-test-server.txt`、未放宽认证/地址/lease/判据、未翻 `mandatory`/registry、lane 树只读未改、FE1 失败材料保留未删。
+
+## §2.50 H1i 第①格的前置量测闭合：`server_profile` 在 sealer 里的实际用途逐处都量得出「不必随件」，「只交 `--server-directory`」由记忆口径升级为字节判定（第五十六轮第二格，2026-09-28 00:16 +0800，M 主控；全程只读主干字节 + 只读容器，零 JVM、零 gradle、规范卷未挂；V5′ 三式活体在飞，本节不与其抢窗）
+
+**为什么现在量**：§2.43 补记留下一笔债——「`--server-profile`/`--server-jar` 是否随件，须先量 `server_profile` 在 sealer 里的实际用途再判，量不出必要性就保持缺席」。当时支撑该口径的只有 M 的记忆库和一段 `domain.sh` 注释；H1m 入干（§2.49）后锚点整体 +43，正是把这笔债以今日字节还清的时点。H1i 卡面要写死，就必须让第①格的口径**可复算**，而不是让 lane 信 M 的转述。
+
+**量法（复算式，全部只读）**：
+
+```bash
+grep -n '"--server-profile"\|"--server-directory"\|"--world-run-document"\|"--server-jar"\|"--probed-player"' tools/seal_run_evidence.py
+sed -n '690,706p;735,755p;760,790p' tools/seal_run_evidence.py   # profile → 判官输入/sealed bytes/guard/manifest/artifact
+sed -n '466,540p' tools/seal_run_evidence.py                      # build_manifest：target 只喂 _world_record 与 server_config_digest
+sed -n '422,463p' tools/seal_run_evidence.py                      # _world_record 的判定顺序：hosted → 宿主文档 → target → none
+grep -n "world_args\|world_run_args\|seal_run_evidence" test-orchestrator/runner/domain.sh
+```
+
+**`server_profile` 在 sealer 里的四处实际用途**（`tools/seal_run_evidence.py` 当前主干字节）：① `:692–:705` 用产品自己的门 `load_session_server_profile(...)` 校验一次，产出 `SERVER_PROFILE_ARTIFACT` 的 sealed bytes；② `:719` 把同一份文本以 `--server-profile-document-json` 递给判官（`:329–:330`）；③ `:766` → `build_manifest :499–:504` 的 `target`，它唯一的下游是 `_world_record :395`（世界三元组 `kind/config_digest/name`，其中 `server_config_digest` 取自 `target.revision`）；④ `:783` 把 ① 的 bytes 交 `collect_artifacts`（`:235–:239`）。另有一条**负向**用途：`:735–:754` 的守门只在 `server_profile is None **且** world_run_document_path is None` 时才因「记录显示有世界」而拒封。
+
+**三条构造结论**（加入者侧、且只补 `--server-directory`）：
+
+1. **世界三元组不动**：`_world_record :395–:463` 的顺序是先看本 run 文档的 hosted 快照、再看宿主 run 文档（`:422` → `:426` 一带），两支都在 `target` 那支**之前**返回；joiner 案 `domain.sh:2929` 恒递 `--world-run-document /tmp/domain-session.json`，所以走的正是「由宿主文档命名世界」那一支。⇒ 加目录不改 `world_kind/server_config_digest/seed_or_snapshot_id`。
+2. **不会新增拒止**：`:735` 的守门要求 profile 与 world-run-document **同时**缺席，而加入者侧的 world-run-document 恒在 ⇒ 只补目录不会触发「no server profile was given, but the record shows a world」。
+3. **真正变化的只有三处**：`collect_artifacts :255–:258` 按 `${server_directory}/server.log`、`usercache.json`、`server.properties` 取三件 artifact（`_artifact :189–:192` 的语义是「在才收，不在就不出现」）；`build_manifest :536–:538` 的 `server_observed_name_uuid` 从 `""` 变为按 `subject_username`（= 加入者名）读该 `usercache.json`；判官 `:319` 多收到一个 `--server-directory`。`--server-jar` 缺席 ⇒ `server_jar_sha1 :528` 仍为 `""`。
+
+⇒ **`--server-profile`/`--server-jar` 量不出必要性**：① 世界记录不需要它；② 拒止面不需要它；③ 按名答题行的载体（缺口一要的 `server.log`）只来自目录。§2.43 补记的口径由「记忆＋注释推断」升为「字节判定」，**继续作默认**：H1i 第①格只交 `--server-directory` 一条。
+
+**必须写进卡面的风险面（这是要实测的，不是我已判的）**：结论 3 的第三处——判官多看见一个 `--server-directory`——意味着凡「按服务端日志取证」的检查从『无载体可读』变成『有载体可读』。默认关闭 ⇒ 今日 150 案的登记读数与封存命令面逐字节不变（`check_case_assertions.py` 仍须 `150 registered`）；但**若把开关顺手用于已登记的 joiner 案，就是在改旧案的 verdict 口径**，那正是 §2.43 补记点过的流程缺陷族。⇒ M-C1 只登记**新案**，E7 只封该新案；旧案不得回指求绿。
+
+**⇒ H1i 卡面定稿（#52，两格、两枚独立旋钮、默认全关）**
+
+- **① 日志载体交回**：`case_on=joiner` 支（`domain.sh:2918–:2935`）在旋钮打开时把 `world_args` 从 `()` 换成**只含** `--server-directory "${server_directory}"` 的一组；`--server-profile`/`--server-jar` 按本节结论保持缺席。旋钮名由 lane 定（建议 `MINEKIN_DOMAIN_SEAL_JOINER_SERVER_LOG`），**必须与②的旋钮互相独立**，否则 (a)(b) 两枚反证会互相掩盖。
+- **② 实际探过的名字逐一递出**：`domain.sh` 现在从不递 `--probed-player`（缺口二），而 `tools/**` 侧承担者齐备（sealer `:929` 收参数、`:337–:338` 拼进命令面、`:721` 带进本次 `run_asserter`；`assert_case_evidence.py` 读回）。递出的名字**必须取自 `probe_args` 的实际值**（`:833` 的 `"${probe:-${player}}"` 与 `:835` 的 `"${probe_second}"`），**不得**重新读 env：`MINEKIN_DOMAIN_PROBE` 未设时 launcher 探的是**玩家本人**，重读 env 会递出空名或一个本 run 没问过的名。② 的两枚名与 H1m 的守门（`:814–:822`）共用同一处真值，因此不引入新的名字来源。
+- **坏值落盘前具名 `exit 2`**：沿用 H1m 的形状（守门早于 run 目录编号 `:892` 与服务端起动 `:953`）。
+- **反证四枚**：(a) 破默认（打开旋钮①）⇒ 加入者 bundle 多出 `server/server.log` artifact 且其中含按名答题行；(b) 关闭旋钮① ⇒ 该 artifact **不出现**（否则该格恒真）；(c) ② 递出一个本 run 从未问过的名 ⇒ 具名拒止；(d) 未设 `MINEKIN_DOMAIN_PROBE` 而打开 ② ⇒ 递出的名 = 玩家本人（非空、非 env 名），且未设 `MINEKIN_DOMAIN_PROBE_SECOND` 时**只递一名**。
+- **允许面**：`test-orchestrator/runner/domain.sh` + 本族契约测试；起点 `edfd8c5`（H1m 入干后的记录笔）。门载荷输入面不含 runner/tests 字节 ⇒ 合入侧须实测仍为 `cfa0f1184bee30df6a1d9fcf45778c9cef074ece6761c47fe7d6b9f49863afd6`（第四次同值后的第五次），不等即退回。
+- **派工时点**：V5′ 三式活体结束后（`domain.sh` 无其它写者，且不与活体量测抢 CPU）。
+
+**本轮收束与四态**：V5′ 已开跑并过了 prep（`rc(prep)=0`；`kin-v5p-host` 于 `16:09:16Z` 建成、`7565` 个 blob 与宿主一致；header 打印 `domain.sh = e04524d640adec2473f1137c46b6706b7a855753669c9e3b64af6264c4498954`、桥 jar = `e50d61c209be98136216b34aadbb6d5a12db8def8aa63a536f32cda8e287006f`，两值逐字对上 §2.49 的硬核口径），三式 `armed/control-off/ghost` 的读数待下一格记录，**私有卷读数不得冒充 sealed bundle**；CI 已读到 `909`（`edfd8c5`）与 `908`（`012f56b`）均 `completed success`，`906/907` 亦绿；真实封证仍 **0**；本轮 lane 材料零改动、`#62 H1n` 仍未派（`domain.sh` 现由 M 只读、V5′ 在飞）、`#58 (乙)` 待引擎窗；未连用户远程服、未放宽认证/地址/lease/判据、未翻 `mandatory`/registry、材料与失败材料未删。
