@@ -1100,3 +1100,35 @@ C1-only 字节上的读数（`.tmp/m-r64-c1-gates.log`）：`check_case_assertio
 两笔各自的复量：C1-only ⇒ `check_case_assertions 151 registered` / `verify_fixture_digests OK` / `pyright 0 errors` / 定向三文件 `695 passed`，全 rc=0（`.tmp/m-r64-c1-gates.log`）；C2 复原字节 ⇒ `pyright 0 errors`、`pytest -k "joiner or probed_player or asked"` `44 passed`、`ruff check` 与 `ruff format --check`（本笔 3 文件 `already formatted`）全 rc=0（`.tmp/m-r64-c2-gates.log`）。提交前各自读 `git diff --cached --check` ⇒ rc=0。
 
 **⑦ 落点与次序**：两笔已入干——`4a5d353`（名册）、`163e350`（注册），`git push origin HEAD:main` 后 `ls-remote` 读回 `163e350d3213aa6b7bc429489fb33efbf2f78917`，`5795600..163e350`；CI run `36344057387` 首读 `in_progress`、重读 `completed/success`（`head_sha=163e350`、`run_attempt=1`），`python`/`protocol`/`bridge-static` 三 job 按 ci.yml 自有步骤逐步核过全 `success`（jobs 端点留存 `.tmp/m-r64-ci-jobs.json`）⇒ **「已合主干且 CI 绿」前进到 `163e350`**。M-C1 入册 ⇒ **E7（#49）的前置里「case 已在册」这一格闭合**，其余前置不变——它仍阻塞在 **#65 H1q 的主控口径裁决**（§2.54：专服形状下加入者侧只剩一条可封形状，采纳与否属主控保留决策），且 E7 必须是同一 run 的字节同时供给控制侧与读数侧。**真实封证仍 0**：本节新增的是一个**能判的案**，不是判定结果——判据在单测材料上绿，在卷上没有任何一份 bundle 引用它。文档顺序上下一个可动的是 **M-G1（#50，E7 之后的只读审计）**，其「改前」半张已在 §2.14 落档；未开工存量：`#62 H1n`（`domain.sh:2617` 字面 `\n` ⇒ kicked 可假绿）、`#58 (乙)`。本轮不碰 mandatory / registry / 晋级，不连用户远程服，私有卷读数不当作 sealed bundle。
+
+## §2.57 #62 H1n 的派工前量材：`domain.sh:2617` 的字面 `\n` 在整棵 `test-orchestrator/` 里是**唯一**一处「命令位裸词」，而它双向都坏——有 `n` 文件 ⇒ 假绿 `rc=0`，无 `n` 文件 ⇒ 错误码 2 被 `2>/dev/null` 一起吞掉；顺带记 M 自己那枚普查脚本的死循环（第六十五轮，2026-09-28 04:05 +0800，M 主控；只读仓库字节 + 主机 bash 临时目录，零容器活体、零 JVM、lane 树只在它的 `.tmp/` 写过材料，不连用户远程服）
+
+**⓪ 远端与 CI 时点**：`main = 9fe3eb455a6a68a80c782f666e0fc6065ec55efd`，其 CI run `36344447789`（`run_number=926`）读回 `completed/success`，jobs 端点留存 `.tmp/m-r65-ci-jobs-9fe3eb4.json`，三 job 按 `ci.yml` 自有步骤逐步核过全 `success`（`python` 15 步：`uv sync --locked --dev`、`ruff check`、`ruff format --check`、`pyright`、`pytest`、`check_boundaries`、`check_case_assertions`、`verify_fixture_digests`、`check_workflow_pins`、`uv build --wheel`、`check_wheel_boundary`、`minekin --help`；`protocol`：buf build/lint/format + 校验签入的 Python protobuf；`bridge-static`：3 步）⇒ **「已合主干且 CI 绿」前进到 `9fe3eb4`**。
+**具名更正（不 amend）**：`9fe3eb4` 自己的 commit message 把 `163e350` 的 CI 运行号写成了 `16344057387`，正确值是 `36344057387`——该笔正文里（§2.56 ⑦ 与 handoff 第六十四轮）的数字是对的，只有 message 手误。按纪律用新提交具名更正，绝不 `--amend`。
+
+**① 缺陷字节（行号当场重读，不沿用别节）**：`grep -nE '[[:space:]]\\n[[:space:]]' test-orchestrator/runner/domain.sh` ⇒ 只命中一行；同一命令在整棵 `test-orchestrator/` 递归也**只命中这一行**：
+
+```
+2617:        if grep -qE "${kick} (lost connection|left the game)" \n            "${server_directory}/server.log" 2>/dev/null; then
+```
+
+⇒ 契约扫描的判据形状就取「**两侧留白的裸词 `\n`**」，零误报、也不需要注释豁免。对照口径：判据若放宽成「行内任何位置出现反斜杠紧跟字母 n」，该文件命中 **201 行**（复跑：`grep -cE '\\n' test-orchestrator/runner/domain.sh` = 201），绝大多数是 `printf`/`tr` 串内的合法换行 ⇒ 判据若取松口径必假红一片。这就是卡面把判据写死成命令位裸词的原因，也是给 lane 的正对照（合法串内换行样本必须命中 0）。
+
+**② 语义双向读数**（主机 bash 临时目录，材料 `.tmp/m-r65-kick-grep-shape.log` 与 `.tmp/m-r65-kick-grep-shape2.log`，同名 `.sh` 可复跑；`grep (GNU grep) 3.0`）：
+
+| 量 | 形状 | 读数 | 判读 |
+| --- | --- | --- | --- |
+| 词表 | `for w in "${pattern}" \n server.log` | `[Kin (lost connection|left the game)] [n] [server.log]` | `\n` 就是一个裸词 `n` ⇒ grep 的第二操作数 |
+| 假绿 | `server.log` **无** kick 句 + 内容为 `Kin lost connection` 的文件 `n` | `false_green_test_server_says_nothing_n_says_kick=0` | `kicked=1` ⇒ 报 `domain: the server ended the session while the client kept running` |
+| 错误码被吞 | `server.log` 无句 + **无** `n` 文件 | `shipped_shape_with_n_absent=2`（不是 1） | `if` 只看非零 ⇒「grep 报错」与「没发生」在字节上不可分辨 |
+| 真信号（起点形状） | `server.log` 含句 + 无 `n` | `A_shipped_kick_present_no_n_file=0` | 起点形状不是恒假，改判据前它是靠匹配文件拿到 0 的 |
+| 修复形状 + 假绿环境 | 真续行 + `n` 在场 + `server.log` 无句 | `fixed_shape_server_says_nothing_n_present=1` | 假绿消失 |
+| 修复形状对照 | 真续行 + `server.log` 含句 | `fixed_shape_server_says_kick_present=0` | 非恒真：真读数没被一起抹掉 |
+
+**③ 伤害面按构造只到读数**：`kicked` 在 `:2623–:2627` 只决定打印哪一行 stderr，既不置 `injection_failed` 也不参与 outcome；但这行读数在 `test-orchestrator/runner/README.md:834` 被当成可观察量登记 ⇒ 修它是**撤掉一枚假绿的来源**，不解锁任何封证。lane 的交付记录不得写成「修好后某案可判」。
+
+**④ 派工落点**：`../minekin-wt-h1n`（分支 `codex/minekin-h1n-kick-grep-literal-n`，起点 `9fe3eb4`；`git worktree add` 后 `git status --porcelain` 为空，`domain.sh` 摘要 `df86c258df126b2d9c208243397cd6f425faac8ab21af22d439e155c80d640a2` 与集成树逐字节相同 ⇒ ①②的读数对该起点直接有效）。卡面 `.tmp/h1n-brief.md`；允许面恰两文件（`domain.sh` 一处续行 + `tests/contract/test_runner_scripts.py`）加 `.tmp/h1n/**` 与一份 `docs/validation/v1201-h1n-delivery-2026-09-28.md`；两笔提交**先红后绿**（红段原文落 `.tmp/h1n/contract-red.log`）；门表逐道单跑读 rc；门载荷 PRE/POST 必须仍 `cfa0f1184bee30df6a1d9fcf45778c9cef074ece6761c47fe7d6b9f49863afd6`（`domain.sh` 不在载荷输入面）；只 push 自己的分支，M 不代提交不代合并。M 侧基线材料 7 份已放进 `.tmp/h1n-baseline/`（扫描器 + 两枚形状脚本与日志 + `trunk_digest.py`）。
+
+**⑤ M 自己那枚普查脚本首版死循环（记账，不删）**：首版 `unquoted_spans()` 用变量 `quote` 记录引号状态，跳过带引号区间后**没有复位成 `None`** ⇒ 从第一条含引号的行起外层 `while` 既不推进也不退出，整脚本无限循环。连挂三次（两次后台 `uv run`、一次 `timeout 45`）我都先把原因猜成「lane 树要建 venv／引擎忙」，实际是脚本自己的 bug。定位姿势值得固化：同一棵树里 `timeout 60 uv run --frozen --offline python -c "print('hello')"` 秒回 rc=0 ⇒ 嫌疑才锁到脚本本身。**两条教训**：① 普查工具同样需要对照与超时归因，hang ≠ 环境；② 引号状态机必须在闭引号处复位，而且这种 naive toggle 对 `backend="… $(printf "%s" "${probe}" | tr "\n" " " …)"` 的嵌套写法本就不精确——修好复位后它仍把 `:1425` 报成命中（`bare-word literal backslash-n outside quotes=2`）。⇒ 最终契约判据**不依赖引号识别**，只用「两侧留白」一个条件，误报面为零（1 命中且正是缺陷行）。
+
+**⑥ 次序与欠账**：#62 H1n 在飞；E7（#49）与 M-G1（#50）仍阻塞在 **#65 H1q 的主控口径裁决**（§2.54：专服形状下加入者侧只剩一条可封形状——把 `--server-profile` + `--server-directory` 交回加入者侧并按形状弃 `--world-run-document`）。它改的是**证据口径**（加入者 bundle 的「世界」由谁命名），不是实现细节，按主控保留口径本轮不实施，已向用户申报并列出两条路（采纳 ⇒ 开 H1q 再 E7；不采纳 ⇒ E7 只能停在跨 bundle 形状，队列在此分裂）。`#58 (乙)` 待引擎窗。**真实封证仍 0**，M-C1 入册只让「有案可判」成立，没有产生判定。
