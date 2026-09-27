@@ -754,6 +754,43 @@ profile = {
     "visibility": "isolated_test_only",
     "resource_pack_policy": "deny",
 }
+# The document above is the frozen *v1* shape, and v1 admission
+# (`server_profile.MINECRAFT_VERSION`) pins exactly one Minecraft version: 1.21.4. So a
+# run that launched any other version had its honest profile refused before the joining
+# client's JVM started (`launcher.profile`, "server profile minecraft_version is outside
+# the pinned bundle") — measured on these bytes, and named as V's blocker B1.
+#
+# The reviewed v2 managed-target shape is the one that already carries a version policy
+# instead of a pinned constant, and `load_session_server_profile` dispatches on the saved
+# `schema_version`. A run whose client is not 1.21.4 therefore hands the joiner a v2
+# document for the very endpoint it started: the same loopback host and port taken from
+# the profile above rather than restated here, still `offline`, and a version policy
+# naming exactly the version this run launched. Nothing is widened to get there — a v2
+# session target outside loopback, with online auth, or with an allowlist of more than
+# the run's own version is refused by the same loader.
+#
+# 1.21.4 keeps the v1 bytes above, byte for byte and refusal for refusal: what moved is
+# the version source, not the criteria V01 froze for the pinned route.
+if version != "1.21.4":
+    profile = {
+        "schema_version": 2,
+        "profile_id": profile["profile_id"],
+        "host": profile["host"],
+        "port": profile["port"],
+        "auth_mode": profile["auth_mode"],
+        "version_policy": {
+            "mode": "explicit_allowlist",
+            "allowed_versions": [version],
+        },
+        "resource_pack_policy": profile["resource_pack_policy"],
+        "target_authorization": {
+            "granted_by": "controlled-runner",
+            "basis": (
+                "the loopback world this controlled runner started for this very run; "
+                "no address outside loopback and no operator-supplied target is named here"
+            ),
+        },
+    }
 with open(path, "w", encoding="utf-8") as document:
     document.write(json.dumps(profile, indent=2) + "\n")
 PY

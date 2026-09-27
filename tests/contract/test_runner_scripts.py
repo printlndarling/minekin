@@ -17,11 +17,22 @@ harness:
 
 from __future__ import annotations
 
+import json
 import re
+import subprocess
+import sys
 import tomllib
 from pathlib import Path
 
 import pytest
+
+from minekin_core.adapters.launcher.server_profile import (
+    MINECRAFT_VERSION,
+    ManagedTargetProfile,
+    ServerProfile,
+    load_session_server_profile,
+)
+from minekin_core.domain.errors import MinekinError
 
 RUNNER = Path(__file__).resolve().parents[2] / "test-orchestrator" / "runner"
 SCRIPTS = sorted(RUNNER.glob("*.sh"))
@@ -637,6 +648,351 @@ def test_the_joiner_version_contract_is_not_an_always_true_claim() -> None:
     assert moved != text
     assert not joiner_version_refusal_is_named(moved)
     assert joiner_profile_version_comes_from_the_run(moved)
+
+
+# ---------------------------------------------------------------------------
+# H1g — which reviewed shape the joining client is handed is decided by the version
+# this run launched, and only by that.
+# ---------------------------------------------------------------------------
+
+#: The one branch the emitted shape turns on. v1 admission pins exactly one Minecraft
+#: version (`server_profile.MINECRAFT_VERSION`), so a run whose client is not that
+#: version cannot be served by a v1 document at all: its honest profile is refused at
+#: `launcher.profile` before the joining client's JVM starts, which is the stop V's
+#: readout named B1. The reviewed v2 managed target is the shape that carries a version
+#: *policy* rather than a constant, and `load_session_server_profile` dispatches on the
+#: saved `schema_version`. The literal is pinned against the constant it mirrors below,
+#: because a dispatch that silently stopped matching it would hand the pinned route a
+#: document its own admission refuses.
+JOINER_V2_DISPATCH = 'if version != "1.21.4":\n'
+
+#: The v1 document the pinned route has to keep emitting, byte for byte. Transcribed
+#: from what the base bytes emit in the controlled image (sha256
+#: 634abc28ac0c4652fd40f2e82867f632cf68b2354eccd7ba75c62c7f49148137); this test compares
+#: the new bytes against it rather than recomputing it from the writer, so a control
+#: that drifted would read red here and not "the same thing, differently written".
+V1_JOINER_DOCUMENT = """{
+  "schema_version": 1,
+  "profile_id": "p0-lan-host-fixture",
+  "host": "127.0.0.1",
+  "port": 25570,
+  "auth_mode": "offline",
+  "minecraft_version": "1.21.4",
+  "visibility": "isolated_test_only",
+  "resource_pack_policy": "deny"
+}
+"""
+
+#: That same frozen document, with only the version line carrying a run's version — the
+#: base bytes' 1.20.1 profile (sha256 24eddf0a93521beadda25c6907841292493a94fdbbb5b12
+#: 33fb32c6e9c51fc06), the one v1 admission refuses.
+V1_JOINER_DOCUMENT_1201 = V1_JOINER_DOCUMENT.replace(
+    '"minecraft_version": "1.21.4",', '"minecraft_version": "1.20.1",'
+)
+
+#: The v2 document a 1.20.1 run has to emit: the same loopback endpoint, port and
+#: offline auth as the frozen fixture, the run's own version as the only entry of an
+#: explicit allowlist, and an authorization whose basis attributes the target to this
+#: controlled runner and to nothing else. Stated as a literal so the test names the
+#: shape instead of trusting the writer's arithmetic.
+V2_JOINER_DOCUMENT: dict[str, object] = {
+    "schema_version": 2,
+    "profile_id": "p0-lan-host-fixture",
+    "host": "127.0.0.1",
+    "port": 25570,
+    "auth_mode": "offline",
+    "version_policy": {"mode": "explicit_allowlist", "allowed_versions": ["1.20.1"]},
+    "resource_pack_policy": "deny",
+    "target_authorization": {
+        "granted_by": "controlled-runner",
+        "basis": (
+            "the loopback world this controlled runner started for this very run; "
+            "no address outside loopback and no operator-supplied target is named here"
+        ),
+    },
+}
+
+
+def with_change(document: dict[str, object], key: str, value: object) -> dict[str, object]:
+    """One refused shape: the emitted target with a single field replaced."""
+
+    mutated = dict(document)
+    mutated[key] = value
+    return mutated
+
+
+def without_key(document: dict[str, object], key: str) -> dict[str, object]:
+    """One refused shape: the emitted target with a required field absent."""
+
+    mutated = dict(document)
+    mutated.pop(key)
+    return mutated
+
+
+#: Each refused target document, the version its run launches, and the exact sentence
+#: the loader says for it. Every one is raised inside `load_session_server_profile`,
+#: which is the call `cli/session.py:1006` makes before anything is created, so each is
+#: a refusal the joining client's JVM never gets past rather than a later fault. The
+#: non-loopback entry is a TEST-NET-1 documentation address and is never contacted.
+JOINER_V2_REFUSALS: dict[str, tuple[dict[str, object], str, str]] = {
+    "empty-allowlist": (
+        with_change(
+            V2_JOINER_DOCUMENT,
+            "version_policy",
+            {"mode": "explicit_allowlist", "allowed_versions": []},
+        ),
+        "1.20.1",
+        "server profile version_policy allowed_versions must not be empty",
+    ),
+    "version-mismatch": (
+        dict(V2_JOINER_DOCUMENT),
+        "1.21.4",
+        "the session launches Minecraft 1.21.4, the target allows 1.20.1",
+    ),
+    "multi-entry-allowlist": (
+        with_change(
+            V2_JOINER_DOCUMENT,
+            "version_policy",
+            {"mode": "explicit_allowlist", "allowed_versions": ["1.20.1", "1.21.4"]},
+        ),
+        "1.20.1",
+        "a managed session target must allow exactly one version, this one lists 1.20.1, 1.21.4",
+    ),
+    "non-loopback-host": (
+        with_change(V2_JOINER_DOCUMENT, "host", "198.51.100.20"),
+        "1.20.1",
+        "a managed session may only join a loopback target; remote joining needs its "
+        "own authorization card",
+    ),
+    "online-auth": (
+        with_change(V2_JOINER_DOCUMENT, "auth_mode", "online"),
+        "1.20.1",
+        "v2 profiles have no online-mode admission path",
+    ),
+    "missing-target-authorization": (
+        without_key(V2_JOINER_DOCUMENT, "target_authorization"),
+        "1.20.1",
+        "server profile is missing fields: target_authorization",
+    ),
+}
+
+
+def joiner_profile_writer_source(text: str) -> str:
+    """The joiner writer's Python, exactly as the shipped script holds it.
+
+    The heredoc is extracted rather than retyped: what this test drives has to be the
+    bytes the run executes, including the branch and the values it reads from the
+    document above it.
+    """
+
+    head = text.index(JOINER_PROFILE_WRITER)
+    body_end = text.index("\nPY\n", head)
+    lines = text[head:body_end].splitlines(keepends=True)
+    return "".join(lines[1:])
+
+
+def run_joiner_profile_writer(
+    source: str, tmp_path: Path, version: str, tag: str, port: int = 25570
+) -> tuple[Path, bytes]:
+    """Drive the shipped writer as its own process, the way the run's heredoc is driven."""
+
+    work = tmp_path / tag
+    work.mkdir(parents=True, exist_ok=True)
+    script = work / "joiner-profile-writer.py"
+    script.write_text(source, encoding="utf-8")
+    emitted = work / "domain-join-profile.json"
+    result = subprocess.run(
+        [sys.executable, str(script), str(port), str(emitted), version],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, f"the writer exited {result.returncode}: {result.stderr}"
+    assert emitted.exists(), "the writer produced no profile document"
+    return emitted, emitted.read_bytes()
+
+
+def as_document_text(data: bytes) -> str:
+    """The writer's output as text, with the platform's line translation undone.
+
+    The writer opens its output in the default text mode, so the newlines it writes are
+    the host's — LF in the controlled image every real run uses, CRLF on a Windows
+    checkout. The byte-for-byte control below is measured inside that image and quoted
+    by digest in `docs/validation/`; here the same document is compared as content, so
+    the claim stays checkable on either host instead of turning red on the separator.
+    """
+
+    return data.decode("utf-8").replace("\r\n", "\n")
+
+
+def test_the_joiner_profile_shape_is_chosen_by_the_version_this_run_launched(
+    tmp_path: Path,
+) -> None:
+    """A 1.20.1 run gets the reviewed v2 target; the 1.21.4 route keeps its v1 bytes.
+
+    Measured in the controlled image against the real loader, on the base bytes
+    (`domain.sh` = f8624ac6…): the joiner profile a 1.20.1 run wrote was a v1 document
+    carrying `"minecraft_version": "1.20.1"` (sha256 24eddf0a…), and
+    `load_session_server_profile(path, minecraft_version="1.20.1")` — the call
+    `cli/session.py:1006` makes, with the version read from the very bundle the run was
+    started from — refused it: `ADMISSION / launcher.profile / server profile
+    minecraft_version is outside the pinned bundle`. The joining client's JVM never
+    started, which is the only reason V's readout could not exclude the ⑤-family client
+    endings for 1.20.1. The same drive over the new bytes loads the emitted document as
+    a `ManagedTargetProfile` on 127.0.0.1, `offline`, with one allowed version equal to
+    the launched one, and the real `session start` command line moves its first refusal
+    off `launcher.profile` onto the artifact supply chain (rc 17 -> rc 11).
+
+    The pinned route is a control, not a casualty: driving the same writer with
+    `1.21.4` still emits the frozen v1 document byte for byte, and the version source
+    H1f installed (`launched_version`, with the named refusal above the writer) is
+    unchanged — this card moved which reviewed shape carries that version, never where
+    the version comes from.
+    """
+
+    text = (RUNNER / "domain.sh").read_text(encoding="utf-8")
+
+    # One dispatch, and it sits under the refusal that guarantees a version to dispatch on.
+    assert text.count(JOINER_V2_DISPATCH) == 1
+    assert text.index(JOINER_VERSION_REFUSAL) < text.index(JOINER_V2_DISPATCH)
+    # The branch mirrors the constant v1 admission enforces, rather than a copy of it.
+    branch_at_the_product_constant = f'if version != "{MINECRAFT_VERSION}":\n'
+    assert branch_at_the_product_constant == JOINER_V2_DISPATCH
+
+    source = joiner_profile_writer_source(text)
+
+    # Control group: the pinned version still gets the frozen v1 bytes, and still loads
+    # through the v1 branch of the session loader.
+    pinned_path, pinned_bytes = run_joiner_profile_writer(
+        source, tmp_path, MINECRAFT_VERSION, "pinned"
+    )
+    assert as_document_text(pinned_bytes) == V1_JOINER_DOCUMENT
+    pinned = load_session_server_profile(pinned_path, minecraft_version=MINECRAFT_VERSION)
+    assert isinstance(pinned, ServerProfile)
+    assert pinned.minecraft_version == MINECRAFT_VERSION
+
+    # A run launched at anything else gets the reviewed v2 managed target instead.
+    other_version = "1.20.1"
+    managed_path, managed_bytes = run_joiner_profile_writer(
+        source, tmp_path, other_version, "managed"
+    )
+    assert json.loads(managed_bytes) == V2_JOINER_DOCUMENT
+    target = load_session_server_profile(managed_path, minecraft_version=other_version)
+    assert isinstance(target, ManagedTargetProfile)
+    assert target.host == "127.0.0.1"
+    assert target.port == 25570
+    assert target.is_loopback
+    assert target.auth_mode == "offline"
+    assert target.version_policy_mode == "explicit_allowlist"
+    # The version the target names is the version this run launched, and it is the only
+    # one it names: the document cannot carry a version the run did not start.
+    assert target.allowed_versions == (other_version,)
+    assert target.authorization_granted_by == "controlled-runner"
+
+    # And the refusal this card answers still fires for the shape it was measured on: a
+    # v1 document honestly saying 1.20.1 is not admitted, whatever the session loader
+    # would make of a v2 one.
+    legacy_path = tmp_path / "legacy"
+    legacy_path.write_text(V1_JOINER_DOCUMENT_1201, encoding="utf-8")
+    with pytest.raises(MinekinError) as legacy:
+        load_session_server_profile(legacy_path, minecraft_version=other_version)
+    assert legacy.value.component == "launcher.profile"
+    assert (
+        legacy.value.safe_message == "server profile minecraft_version is outside the pinned bundle"
+    )
+
+    # Neither shape is allowed to state a version the other does not: a v2 document
+    # carries a version policy and no pinned field, so the v1 keys are not merely
+    # unused, they are unreviewed and refused.
+    mixed = with_change(dict(V2_JOINER_DOCUMENT), "minecraft_version", other_version)
+    mixed_path = tmp_path / "mixed.json"
+    mixed_path.write_text(json.dumps(mixed, indent=2) + "\n", encoding="utf-8")
+    with pytest.raises(MinekinError) as refused:
+        load_session_server_profile(mixed_path, minecraft_version=other_version)
+    assert refused.value.safe_message == "server profile has unreviewed fields: minecraft_version"
+
+
+@pytest.mark.parametrize("case", sorted(JOINER_V2_REFUSALS))
+def test_every_widened_joiner_target_is_refused_by_name(case: str, tmp_path: Path) -> None:
+    """The six ways out of this card's narrow door each say which rule they broke.
+
+    Loopback-only, offline-only and a single allowed version are the three rules that
+    make the 1.20.1 door the same width as the old one, and each is read from the
+    document rather than assumed: replacing the field it governs moves the refusal to
+    that field's own sentence, at `launcher.profile`, before the joining client's JVM.
+    The version-mismatch case is the honest-run case with a dishonest launch: a target
+    naming 1.20.1 refused for a client launched at 1.21.4, which is the misjoin this
+    module exists to make impossible.
+    """
+
+    document, launch_version, message = JOINER_V2_REFUSALS[case]
+    path = tmp_path / f"{case}.json"
+    path.write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
+
+    with pytest.raises(MinekinError) as refusal:
+        load_session_server_profile(path, minecraft_version=launch_version)
+
+    assert refusal.value.component == "launcher.profile"
+    assert refusal.value.safe_message == message
+
+
+def test_the_joiner_version_dispatch_is_not_an_always_true_claim(tmp_path: Path) -> None:
+    """Turn the dispatch off, invert it, or widen what it emits, and the readings go red.
+
+    The green reading above is one branch and one field list, so it is worth exactly as
+    much as these four mutations say it is: each keeps the writer, the heredoc and the
+    version argument standing, and changes only the thing the claim is about.
+    """
+
+    source = joiner_profile_writer_source((RUNNER / "domain.sh").read_text(encoding="utf-8"))
+
+    # RV-0: the dispatch never opens — every run gets a v1 document again, which is the
+    # base bytes' behaviour and the base bytes' red.
+    never = source.replace(JOINER_V2_DISPATCH, "if False:\n", 1)
+    assert never != source
+    never_path, never_bytes = run_joiner_profile_writer(never, tmp_path, "1.20.1", "rv-never")
+    assert b'"schema_version": 1' in never_bytes
+    with pytest.raises(MinekinError) as red:
+        load_session_server_profile(never_path, minecraft_version="1.20.1")
+    assert red.value.safe_message == "server profile minecraft_version is outside the pinned bundle"
+
+    # RV-1: the branch inverted — the pinned route is the one handed a v2 document, so
+    # the control group's frozen bytes are gone.
+    inverted = source.replace(JOINER_V2_DISPATCH, 'if version == "1.21.4":\n', 1)
+    assert inverted != source
+    _, inverted_bytes = run_joiner_profile_writer(
+        inverted, tmp_path, MINECRAFT_VERSION, "rv-invert"
+    )
+    assert b'"schema_version": 2' in inverted_bytes
+    assert as_document_text(inverted_bytes) != V1_JOINER_DOCUMENT
+
+    # RV-2: the allowlist widened to a second version — the loader refuses the run it
+    # would otherwise have admitted, so the single-version rule is being read and not
+    # decoration-written.
+    widened = source.replace(
+        '"allowed_versions": [version],',
+        '"allowed_versions": [version, "1.21.4"],',
+        1,
+    )
+    assert widened != source
+    widened_path, _ = run_joiner_profile_writer(widened, tmp_path, "1.20.1", "rv-widen")
+    with pytest.raises(MinekinError) as multi:
+        load_session_server_profile(widened_path, minecraft_version="1.20.1")
+    assert multi.value.safe_message == (
+        "a managed session target must allow exactly one version, this one lists 1.20.1, 1.21.4"
+    )
+
+    # RV-3: the endpoint widened off loopback — refused by name, and refused before the
+    # joining client exists.
+    remote = source.replace('"host": profile["host"],', '"host": "198.51.100.20",', 1)
+    assert remote != source
+    remote_path, _ = run_joiner_profile_writer(remote, tmp_path, "1.20.1", "rv-remote")
+    with pytest.raises(MinekinError) as loopback:
+        load_session_server_profile(remote_path, minecraft_version="1.20.1")
+    assert loopback.value.safe_message == (
+        "a managed session may only join a loopback target; remote joining needs its own "
+        "authorization card"
+    )
 
 
 def _pip_install_arguments(dockerfile: str) -> list[str]:
