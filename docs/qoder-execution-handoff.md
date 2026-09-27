@@ -1356,3 +1356,74 @@ markdown 表格行自成一个 block（七项读数型记录就是把判定挂�
 
 不声称：本轮没有推进任何判据/registry/封存 schema，没有提升门禁，没有触碰 V08 或用户远程服；
 V4 的记录通过复审只意味着「1.20.1 真到达可封的 JOIN/首快照」这一前置成立，不意味着 1.20.1 已有封存证据。
+---
+
+## 第三十三轮（M）：E6 在工期间的独立安全任务——把「封存复审判官」在材料存在之前预登记并标定
+
+E6 `V1201-LOCAL-JOIN-SEAL-001` 已派工（分支 `codex/minekin-v1201-join-seal`，起点 `7b99485`），此刻尚未推送提交
+（`git ls-remote` 无该 ref；`docker ps` 为空）。审卡队列另一轴复量仍为空（唯一未合分支是已定性的僵尸 `origin/codex/parallel-execution-plan`
+`e472897`：base `6f0f562`、ahead 2、1 份 docs 文件、非 docs 差异 0）。所以本轮做的是**下一张卡的判据工具**，
+按惯例在 E6 的 bundle 存在之前写好并标定。
+
+### 1. 新预登记工具：`minekin-wt-integration/.tmp/m-r33-e6-seal-review.py`（+ 自测 `m-r33-e6-seal-selftest.sh`）
+
+它复审的是**封存件本身**，不是记录对封存的转述：manifest 声明的每一件工件逐个重算 `sha256`+`size`；
+缺失/摘要不符/在场未申报三类分开计数；账本时间线载体名与封存侧车名**都从产品源码常量解析**
+（`LEDGER_TIMELINE_ARTIFACT`、`DIGEST_NAME`，见 `src/minekin_core/adapters/evidence/trace.py:73`、
+`src/minekin_core/adapters/evidence/bundle.py:36,147,231-232`），不按业务词猜字符串 —— 这是上一轮
+「拿 `ledger` 去搜工件名结果错判缺载体」的直接教训落地；侧车内容还要等于 `sha256(manifest bytes)`；
+载体逐行 JSON 解析并 demanded 事件名（`--require-event JoinObserved …`）；`--require-snapshot-counter`
+要求某件申报的 JSON 真的带 `snapshots_admitted`；`--expect-case` 要求该 case 在 `tests/fixtures/cases` 已登记。
+任何一项不满足 `rc=1`。
+
+### 2. 标定读数（卷全程 `:ro`，破坏性动作只做在容器 `/tmp` 的拷贝上）
+
+```bash
+docker run --rm --entrypoint /bin/bash -w /tmp \
+  -v <wt-integration>:/m:ro -v minekin-runner-data:/data:ro -e PYTHONPATH=/m/src \
+  minekin-runner:local -lc 'bash /m/.tmp/m-r33-e6-seal-selftest.sh'
+```
+
+- **正对照（真件未动）**：`kin-e-aba/run/evidence/7ff026e4…`（`case_id=OFFLINE-100`、
+  `case_version=a44289e8cdbc0643`、`schema="minekin.p0.evidence.v1"`）⇒
+  `declared=13 verified_ok=13 mismatch=0 absent=0 present_not_declared=0`、
+  `carrier=bridge-trace.jsonl rows=19`、`seal_sidecar … MATCH`、`bundle_check=PASS rc=0`。
+- **反证八格全部被点名**（各 `rc=1`）：删掉最大工件 ⇒ `absent=1`；追加一字节 ⇒
+  `digest/size mismatch … declared f01ce04a59e4/34005 measured 1c0c4970d8f7/34012`；加未申报文件 ⇒
+  `present_not_declared=1: planted-undeclared.txt`；清空载体 + 索要 JOIN 事件 ⇒
+  `rows=0 kinds=[]` + `carrier 'bridge-trace.jsonl' is empty` + `carrier names no 'JoinObserved' row`；
+  空卷 ⇒ `NO bundles found … this is a MISS, not a pass`；不存在的 case ⇒ `NOT registered`；
+  伪造侧车 ⇒ `declared=f000000000000000 measured=0cc1fb99111d4cef MISMATCH`；
+  从 manifest 里抽掉 `run-document.json` ⇒ `no declared JSON carries snapshots_admitted`（同时被抓到侧车不符）。
+- 一处自测预期落空也要如实记下：自测 case 6 本想让「向一枚非 JOIN 件索要 `JoinObserved`」显红，
+  结果那枚 **OFFLINE-100** 件的载体里本来就有 `JoinObserved`/`PlayableEstablished` 两行 ⇒ `rc=0`。
+  所以事件轴的「能说不」由 case 5（清空载体后 `names no 'JoinObserved' row`）承担；
+  这同时说明该判官的事件要求**不能**被当成区分 JOIN 与否的判据，只是载体完整性判据。
+- 过程中判官自身也被纠了一格：真 bundle 里 `bundle.sha256` 是**产品自己的封存侧车**，
+  第一版把它报成 `present_not_declared` ⇒ 白名单改为从 `DIGEST_NAME` 常量解析并**反向校验其值**。
+  该修正在看到正对照材料之后做出，如实申报；修正后正对照 `rc=0`、七格反证仍全部 `rc=1`。
+
+### 3. 顺带量到的一条实质事实（收窄 E6 的措辞风险）
+
+已封的 OFFLINE-100 件里 `run-document.json` 就是**首快照计数的封存载体**：逐字
+`snapshots_admitted=1 rejections=[] world_snapshot=null`。⇒ 「首快照」**不需要**扩封存 schema 就能封
+（此前担心的「无载体」是错的：载体是工件，不是台账事件名）；同时 `world_snapshot=null` 也再次证实
+**加入者侧没有快照摘要**，摘要只在 host 半边。E6 的允许面因此不变，其记录措辞按第二十九条约束执行。
+
+### 4. 规范卷只读普查（本轮）
+
+`/data/kin` 下 `manifest.json` = **99** 份，卷上全量 = **112** 份，差值 13 份全部在 `repo-evidence/`
+之下（仓库自检通道本就没有 bridge 会话）—— 与 `project-ledger-timeline-carrier` 记录的正对照口径一致；
+`kin_roots=14`；`*v4*` 命名条目 **0**（V4 未写过规范卷）。
+
+### 5. 四态
+
+- **已合主干**：不变（H1g `ff69c879…`、V4 记录 merge `7b99485`、本轮之前的主干文档 `9a13dbd`）。
+- **仅在分支**：E6（已派工、无提交）；僵尸分支 `e472897` 维持不追认。
+- **真实封证**：**仍为零新增**——本轮只读了卷上**既有** sealed bundle 来做判官标定，没有产出一份新证据；
+  1.20.1 本地加入的规范卷封证依然是 E6 要交付的东西。
+- **未验证**：E6 的 run/bundle/attempt、四读（verify/rejudge/replay/report_promotion）与它的反证；
+  `::1`、`--auto-bundle`×joiner、多 joiner、在线认证、远程服、PLAYABLE 之后的输入半边。
+
+不声称：本轮没有触碰规范卷写权限、没有改判据/registry/封存 schema、没有替 E6 预先判定它的结论；
+判官 `rc=0` 只说明封存件自洽，不等于该 case 的门禁断言为真（那仍是 `rejudge` 的读数）。
