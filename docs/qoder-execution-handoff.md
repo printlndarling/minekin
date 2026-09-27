@@ -1184,3 +1184,29 @@ V lane 的第一段 `bbf0daf` 已在第二十一轮并入主干（合并 `3ffc79
   `metadata.py:16` 是否下一前沿。
 - **不声称**：不声称 V4 已达标、已提交或已推送，不声称 scratch JSON 等于记录，不声称 E6 可放行，
   不声称任何 case 闭合、门禁点亮或 Minekin 完成。
+
+
+### 第二十九轮补（同日，M 主控）：绕过 lane 抄出的副本，直接从私有卷的 `kin.sqlite3` 台账读加入者的阶段链
+
+- **为什么单独记**：E6 的放行条件是「真达到 JOIN/首快照」。lane 抄到 scratch 的 `domain-join-session.json`
+  是 runner 写的副本，产品自己写的载体是每个 Kin 的 SQLite 台账。M 读后者。
+- **探针形状（先修工具再引用读数）**：WAL 模式的 `kin.sqlite3` **不能**只读打开——`sqlite3.connect("file:…?mode=ro", uri=True)`
+  抛 `OperationalError: unable to open database file`，即使卷本身以 `:ro` 挂载。修法是把 `.db` 复制进容器 `/tmp` 再读，
+  卷内零写入。脚本 `.tmp/m-r29-v4-ledger-read.sh`，日志 `.tmp/m-r29-v4-ledger-read.log`，
+  复现：`docker run --rm --entrypoint /bin/bash -v minekin-v4-join:/d:ro -v "${REPO}:/src:ro" minekin-runner:local -lc 'bash /src/.tmp/m-r29-v4-ledger-read.sh'`。
+- **读数（19 行事件，两案逐字节同构）**：`join-1.20.1` 与 `join-1.21.4` 的链都是
+  `SessionStateTransitioned×2 → AuthPolicyFrozen → SessionProcessStarted → …WAITING_BRIDGE→HANDSHAKING → BridgeHelloAccepted →
+  ResourcePackPolicyApplied → CONNECTING → JOINED_UNVERIFIED → JoinObserved{phase:JOIN_SEEN} → SessionIdentityCompared{matched:1} →
+  PLAYABLE → PlayableEstablished → FAILED → STOPPING → STOPPED → SessionInterrupted{outcome:BRIDGE_LOST}`；
+  状态序列 `PREPARING→STARTING_CLIENT→WAITING_BRIDGE→HANDSHAKING→READY_MENU→CONNECTING→JOINED_UNVERIFIED→PLAYABLE→FAILED→STOPPING→STOPPED`。
+- **两条对后续证据设计有约束的发现**：① 台账里**没有任何快照事件**（`ledger snapshot events: NONE`），
+  「首快照已准入」只存在于 session JSON 的计数器 `run.snapshots_admitted=1` 加客户端日志的
+  `bridge collected 14 entity candidate(s) …, 14 confirmed visible`（1.21.4 案为 76/76）——因此断言「首快照」时
+  必须点名这两处，不能暗示台账里有对应事件；② `PLAYABLE→FAILED→STOPPED / BRIDGE_LOST` 这个尾巴是**收尾形状**，
+  1.21.4 正对照的台账以同样的方式结束，不能读成 1.20.1 独有的断裂。
+- **lane 仍在跑**：私有卷出现第五个根 `kin-v4-c`（第三种情形），`git status --porcelain` 仍空、分支仍尖 `8b357b6`
+  ⇒ 记录尚未写出、尚未提交。E6 依旧不放行。
+- **四态**：已合主干 = 无新增（远端尖 `0e8522a`）；仅在分支 = V4（三案 scratch + 第五根 `kin-v4-c` 在跑，无提交）；
+  真实封证 = 零；未验证 = V4 记录的形状与语义、版本错配反例、E6 封存、门禁（载荷 `cfa0f118…` 未动）。
+- **不声称**：不声称台账读数等于 V4 的结论（阶段链是真的，但记录归 V4 写、复审归 M 做），不声称 E6 可放行，
+  不声称任何 case 闭合、门禁点亮或 Minekin 完成。
