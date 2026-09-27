@@ -669,6 +669,33 @@ PRE == POST: yes     POST == registered constant: yes
 - 本会话提交面：`domain.sh` + 契约测试一笔、本记录一笔，只推
   `codex/minekin-v1201-joiner-on-controlled-server`；远端 SHA 以 `git ls-remote origin refs/heads/codex/minekin-v1201-joiner-on-controlled-server`
   的实读为准，写进交回报告，不在本文自引用。**不请求合入**——四件已齐，等 M 复审。
+
+## 12. 提交/推送窗口的字节身份（含一处必须点名的行尾口径，勿让读者误判「推上去的不是测过的字节」）
+
+派工基线 `29c5187` 之上两笔（本 lane 分支，`main` 0 次触碰）：
+
+```text
+b0c816c  feat(harness): 第七Named拒绝 …      domain.sh + tests/contract/test_runner_scripts.py（+1118/−4）
+727fe1c  docs(validation): 本记录            docs/validation/v1201-joiner-on-controlled-server-2026-09-27.md（+675，新文件）
+```
+
+提交后逐 blob 复核（`git show <sha>:<path> | sha256sum`）：
+
+| 文件 | 盘上候选字节（本文全程引用） | 提交进库的 blob | 是否相同 |
+| --- | --- | --- | --- |
+| `test-orchestrator/runner/domain.sh` | `e1d8dbb98d5f…36714015` (156467 B) | `e1d8dbb98d5f…36714015` | **完全相同** |
+| `tests/contract/test_runner_scripts.py` | `33f7d7f02222…848d75f1c7` (171525 B) | `e059ed58f5a347afb5135ced4d6036bc62d308164b0f0c23c81476084be3cff8` | **数值不同，成因唯一且已证** |
+| 本记录（追加 §12 之前） | `92b8105b09ca…83a2665f` (63125 B / 675 行) | `92b8105b09ca…83a2665f` | 完全相同 |
+
+- **点名口径**：`.gitattributes` 只把 `*.sh`/`gradlew` 钉成 `eol=lf`，`*.py` 未钉；本检出 `core.autocrlf=true`，
+  故 Python 模块在盘上是 CRLF、在库里是 LF。实测 `tr -d '\r' < 盘上文件 | sha256sum` = `e059ed58f5a3…`，
+  **与库内 blob 逐字节相等** ⇒ 两数之差的成因**只有**行尾，没有任何一行内容差异。
+  `git ls-files --eol` 读作 `i/lf w/crlf attr/`，与 `tests/contract/` 下其余模块同形，是先于本卡、本卡不改的仓库现状。
+  ⇒ 门禁里所有对**被测字节**的逐字比较都落在 `domain.sh` 上，而它是 `eol=lf` 钉死的（盘上 = 库内 = `e1d8dbb9…`），
+  所以第七拒绝的 stderr 断言不受本口径影响；契约测试模块自身的摘要在两个形态下各自稳定，本文两处都写清了。
+- 本会话未在提交后重跑门（提交未改内容字节，只改行尾形态）；若复审要在**干净检出**（LF）上取契约模块摘要，
+  应以 `e059ed58…` 为准，别拿本文头那对盘上值当库内值用。
+- §12 本身随**第三笔** `docs(validation)` 落在同一分支（内容只此一节，代码 0 行）；这也是本文追加 §12 后不再自引用自身摘要的原因。
 - **本节没有发生的事**：没有写 `tools/**`、`schemas/**`、`src/**`、`run.sh`、case 判据/fixture、registry、控制器文档；
   没有连接任何本 run 之外的地址（`tests/fixtures` 之外未打开 `local-test-server.txt`）；规范卷只 `:ro` 读；
   失败与旧材料（`live-a-rejected-singleword/`、`live-b/`、`run-1…run-3`、各破坏前备份与反证日志）原地保留，
