@@ -761,3 +761,12 @@ $ grep -qE 'Stevedor (lost connection|left the game)' \n server.log 2>/dev/null;
 **H1m 的现场升级（正面信号仍为零，但性质变了）**：`../minekin-wt-h1m` 分支头仍 `dc0067c`、远端仍无该分支 ref，而 `git status --short` 现读到**恰三个脏文件**——`test-orchestrator/runner/domain.sh`、`test-orchestrator/runner/run.sh`、`tests/contract/test_runner_scripts.py`，与派工允许面逐一对应、无越界文件 ⇒ 判「正在施工」，M 不进其树、不代提交（§2.35 口径：只有它自己的收尾回报或远端 ref 上它自己的提交才算收尾）。
 
 **⇒ #62 H1n 此刻不派**：它要改的 `domain.sh:2430` 与 H1m 在写的 `domain.sh` 是**同一个文件** ⇒ 「该文件无其它写者」这一前置不满足，按并行协议排到 H1m（及紧随其后的 H1i）落干之后再开树。#58 (乙) 同理仍需等引擎窗。**四态**：真实封证仍 **0**；已合主干且 CI 绿 = `38854ea`；`3298532`/`095c852` 已 push、CI 待读；仅在分支 = H1m（在写，未提交）与 lane 的 h1l ref（不删）；未验证 = V5′ 全卡、H1i 全卡、H1n 全卡、#58 (乙)。本轮零容器活体、规范卷未挂、未读 `.tmp/local-test-server.txt`、未放宽认证/地址/lease/判据、未翻 `mandatory`/registry、材料与失败材料未删（`.tmp/m-r54-nldefect.sh`/`.log`、`.tmp/m-r54-ci*.json`、`.tmp/m-r54*-diffcheck.log` 在案）。
+
+## §2.45 门载荷在当前主干字节 `eb8aaa9` 上的 PRE 基线：实测未动（不是「按构造」推出来的）（第五十四轮收尾，2026-09-27 23:13 +0800，M 主控；容器只读，规范卷 `:ro`，零 JVM）
+
+`docker ps` 现场为空 ⇒ 不与 H1m 抢窗。两枚读数（`minekin-runner:local`，`/src:ro` 挂主干树，`-e LD_LIBRARY_PATH=/opt/sqlite/lib -e PYTHONPATH=/src/src`）：
+
+- `python /src/tools/report_promotion.py --data-root /data`（规范卷 **只读**挂载）⇒ **rc=1**（按构造 blocked）、stdout `103,921 B`、`{work_packages, overall}` 子集 sha256 = **`cfa0f1184bee30df6a1d9fcf45778c9cef074ece6761c47fe7d6b9f49863afd6`**（材料 `.tmp/m-r54-payload-e.json` / `.err`，摘要手 `.tmp/trunk_digest.py`）。
+- `python /src/tools/check_case_assertions.py` ⇒ **rc=0**、末行 `Case assertion implementations: OK (150 registered)`（材料 `.tmp/m-r54-assertions-e.log`）。
+
+**为什么要实测而不是引用**：`d95e59d` 之后主干连着落了八笔纯 docs（`dcc3e24`、`dc0067c`、`af514d1`、`c87089d`、`38854ea`、`3298532`、`095c852`、`eb8aaa9`），此前每笔都按「门载荷输入面不含 `docs/**`」判它不动——那是**构造性论断**，本轮把它换成一次现读。⇒ 这就是 H1i / V5′ / H1n 三张卡的 **PRE 基线**：交付时 `POST` 必须仍等于 `cfa0f118…63afd6`、`report_promotion` 仍 rc=1、`check_case_assertions` 仍 `150 registered`（这三张卡都不注册 case；若谁动了 registry，就要按 OFFLINE 那族的规矩量出差值并具名）。**四态增量**：真实封证仍 **0**；本轮零 JVM/零引擎活体、规范卷只 `:ro`；未连接用户远程服；未放宽认证/地址/lease/判据；未翻 `mandatory`/registry；材料未删。
