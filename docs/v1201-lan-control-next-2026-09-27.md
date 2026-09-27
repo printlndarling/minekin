@@ -679,3 +679,26 @@ job 级 `python`/`protocol`/`bridge-static` 三支对 `886` 全 `success`；步�
 **H1m 的派工（已发，独占面已隔离）**：M 为主干之外新建工作树 `C:\Users\darling\Documents\agent_work\minekin-wt-h1m`，分支 `codex/minekin-h1m-second-probe-target`，起点 = 当时的远端 `main`（`dc0067cdcbc962266750c5ccbaa5535a0972945d`），与上一张卡的交付树 `../minekin-wt-h1k`（停在 `1ce9dc0`）零重叠。派工文本按 §2.29 的接口 + §2.39 的更正行号写死：`MINEKIN_DOMAIN_PROBE_SECOND` 默认关闭、未设时 `probe_args` 与今日逐字节相等、设了就在 `domain.sh:794` 之后追加第二个 `--probe-player <名>`；两条落盘前具名早退（同名、`USE_TARGET × 第二名`，不许拿 tools 侧兜底顶替）；新名以**裸声明**接进 `run.sh:88–:129` 名单末尾；契约的默认关闭等值断言加在既有字面钉处 `tests/contract/test_runner_scripts.py:1210`，且**不得新增 `registered_gap`**。验收要求里点名了三件本族最容易漏的：一次经真实 `run.sh` 的两名都被问过的形状读（用 lane 自己的私有卷 `minekin-h1m-live`）、三枚各红在该红案上的反证（破桩前备份 + 记 sha256，禁用 `checkout --`/`restore`/`reset`/`stash`）、门表每一格必须逐字取自自己落盘的 `.tmp/h1m/gate-*.log` 末行（§2.38 那条退回项就是给它看的）。门载荷按期望 PRE==POST==`cfa0f118…`（本卡不注册 case）。
 
 **四态增量**：真实封证仍 **0**（LAN 第二客户端在受控专服形状下的同 run 封证未动，那是 E7 的活）；已合主干且 CI 绿 = `dcc3e24`（含 H1l 的 `d95e59d`）；仅在分支 = lane 的 `codex/minekin-h1l-forward-join-name` ref（M 不删）与 H1m 的新分支（刚建，尚无提交）；未验证 = §2.39 那笔的 CI（`895` 时点 `in_progress`）、H1m 全卡、V5′ 全卡、#58 的 (乙) 格。排序不变：**H1i 严格排在 H1m 之后**（同一 `domain.sh` 独占面），V5′ 派工前须按 H1m 入干后的字节重读 §2.36 第 3 处（现为 `:794/:795–:796/:917`）。本轮 M 侧材料未删（`.tmp/m-r52-gates.log`、`.tmp/m-r52-container.log`、`.tmp/m-r52-contract.log`、`.tmp/m-r52-contract-host.log`、`.tmp/gate-merge-pytest.out`、`.tmp/m-r52-payload*.json`、`.tmp/m-r52-live-forward-proof.log`、`.tmp/m-r53-ci*.json`、`.tmp/gate-merge.out`（0 字节，M 自身缺陷留证））；规范卷对 M 仍只 `:ro`；未连接用户远程服（未读 `.tmp/local-test-server.txt`）；未放宽认证/地址/lease/判据；未翻 `mandatory`/registry。
+
+## §2.41 V5′ 判据落在字节上的映射：专服形状里两个客户端同在一个世界，所以 §2.16 第 4 条第一格自 H1m 起是**可取**的（第五十四轮，2026-09-27 22:54 +0800，M 主控；H1m 在飞，本节只读仓库字节、不挂引擎）
+
+派工前把 §2.16 那七条逐条钉到 `af514d1` 的主干字节上（`domain.sh` blob `1254e6fb9f…`、sha256 `e1d8dbb9…`/156,467 B）。**这一节要解决的是排程里最容易被顶替的一格**：V5′ 的判据第 4 条要求「同一 run 内主持有者的读数首末不变」，而这一格在 H1m 之前按构造读不出（`domain.sh` 只会问一个名字）——但**它究竟能不能读出来**，取决于专服形状里宿主到底进不进那个世界。逐点量过：
+
+1. **宿主的名字与探针的默认名同出一处**：`:25` `player="${MINEKIN_USERNAME:-Kin}"` 是本 run 自己的账号名；`:794` 的唯一铸名点是 `probe_args=(--probe-player "${probe:-${player}}" …)` ⇒ `MINEKIN_DOMAIN_PROBE` 未设时，被问的第一个名字**就是宿主自己的名字**，且默认每个专服 run 都带这个问句（`:786–:793` 的注释写明「asking is a default」）。
+2. **宿主真的进了那个专服世界**：宿主会话的启动行 `:1692–:1695` 是 `python -m minekin_core "$@" "${lan_args[@]}"`，而 `:1633–:1635` 说明 `lan_args` 只在 `MINEKIN_DOMAIN_OPEN_LAN` 时才带 `--open-lan` ⇒ 专服形状下宿主拿到的正是它自己的 `--server-profile`（`:413` 从同一串参数里扫出来）。这条不是推断：E6 封成的 `V1201-020` seq4 就是「本地专服 + 单客户端」的 sealed bundle，那个客户端只能经由 `--server-profile` 进服。
+3. **加入者进的是同一个世界**：`:684` 让加入者 `session start` 带 `--server-profile /tmp/domain-join-profile.json`（该文件由 `:1119` 起按本 run 自己的 `server.properties` 铸出，端口在 `:1114` 才定），而 H1k 写在这条支路入口的注释 `:155–:162` 逐字写着：设了这个名 ⇒「**the server that answers `data get entity` probes is the server both clients stand in**」。白名单侧同向：`:875–:877` 只在 `join_on_controlled_server_asked=1` 时把 `${join_username}` **追加**进 `allow_args`（该值默认 `:148` = `Kin2`），没有放宽任何地址、模式或人数。
+4. **到达判据与读数同源**：新形状的等待支 `:1973–:1992` 读 `${server_directory}/server.log`（`:1988` 调用、`:1985–:1986` 打印路径），与 `data get entity` 的答案行是**同一份文件** ⇒ §2.16 第 2 条的「行内名归属加入者 + 首末不同」与第 3 条的 arrival 取证在同一 run 内可分读。
+
+**于是 V5′ 的判据映射可以写死**（H1m 入干后即成立，接口由 §2.29 定）：
+
+| §2.16 条 | 在专服形状下的取法 | 何时才可取 |
+| --- | --- | --- |
+| 第 2 条（首末差按加入者名读） | `MINEKIN_DOMAIN_PROBE_SECOND=${join_username}`（默认 `Kin2`）⇒ `server.log` 里行内名等于该名的读数 ≥2 条、首末至少一分量不同 | H1m 入干后 |
+| 第 4 条第一格（主持有者不变） | 第一名仍走默认 `${probe:-${player}}` = 宿主 `Kin`，同一 run 内它的首末读数**必须不变** | H1m 入干后（此前按构造不可取） |
+| 第 4 条第二格（控制关闭对照） | 同形状、不铸任何 `MINEKIN_DOMAIN_JOIN_*` 控制词，加入者首末不变 | 今天即可 |
+| 第 5 条（归属反证） | **不再需要替代格**：本形状两个客户端同在世界，「两名都被问过」是直接读数。`MINEKIN_DOMAIN_PROBE=<不存在名>` 那格降级为**额外的非恒真对照**，不再是唯一出路 | H1m 入干后 |
+| 第 3 条（PLAYABLE 与 arrival 分开） | 载体不变：`${joiner}` 账本 `PlayableEstablished` 且 `position > baseline`（`:1590–:1600` 的读法）与 `the world heard … arrive`（`:1577`）各记各的 | 今天即可 |
+
+**这条判停要留在文档里**：§2.16 第 5 条当初写成条件句（「H1k **若**申报宿主不同进该专服世界」）是因为写它时（第四十一轮）专服形状还不存在。H1k 落地后字节给的是反面 ⇒ 该条件不成立，替代格降级为附加对照。**这不是改判据**（第 4/5 条要求的读数一个都没少，只是取法从「只能间接」变成「可以直读」），按本节具名，不静默替换。
+
+**时效**：本节的 `:794`、`:1973–:1992`、`:1692–:1695` 三处行号在 H1m 入干后必须由 M 当场重读一遍才可写进 V5′ 派工文本——H1m 正是改 `:794` 那一段的卡（§2.39 的教训已在案，不再重复一遍错法）。**四态**：真实封证仍 **0**；已合主干且 CI 绿 = `dcc3e24`（`895`=`dc0067c` 22:51 读为 `completed/success`，`896`=`af514d1` 时点 `in_progress` 不作绿）；仅在分支 = H1m（在飞，尚无提交）与 lane 的 `codex/minekin-h1l-forward-join-name` ref；未验证 = V5′ 全卡、H1i 全卡、#58 的 (乙) 格。本轮零容器活体（不与 H1m 抢引擎）、规范卷未挂；未连接用户远程服；未放宽认证/地址/lease/判据；未翻 `mandatory`/registry；材料未删。
