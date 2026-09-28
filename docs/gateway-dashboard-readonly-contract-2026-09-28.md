@@ -166,6 +166,12 @@ D1 把 alerts 解码成裸数组（`gatewayAdapter.ts:334-371`），而 Core 没
 - mock 与 gateway 两个适配器跑同一套面板测试；未配置 base URL 时零网络调用（`gatewayAdapter.ts:445-458` 的形状保持）。
 - `alerts` 走信封形状（§5.3），且「没告警」与「无告警源」在 UI 上是两个不同呈现。
 - 撤下 §3 判为 C 档的字段（`session.mode`、`resolvedVersion`、`lastSequence`、`dimension`、`guiOpen`）或显式渲染成 `not_wired`，不得留一个会自填默认值的解析分支。
+- 落地侧证据（2026-09-28，提交 `a37f3c3`，远端 `main` 已核对该 SHA）：
+  - 四条验收逐条：① `SNAPSHOT_SCHEMA_VERSION = "kin-dashboard-readmodel/1.0.0"`（`src/domain/model.ts:8`），端点表注释从「PROPOSAL」改成指名本记录（`gatewayAdapter.ts:56`），解码失败文案也直接引用它（`:584`）。② `src/panels/panelAdapters.test.tsx` 用同一套面板断言跑 mock 与 gateway 两个适配器，`config.ts:74` 保持「没有 base URL 就不构造取数器」的形状。③ `AlertsPanel.tsx` 分三种 DOM（有告警的列表 / `alerts-empty` / `alerts-no-source`），「没告警」与「无告警源」在界面上是两屏。④ §3 判为 C 档的字段已从模型撤下（`SelfState` 不再带 `dimension`/`guiOpen`，`KinRuntimeState` 收窄为 Core 的三值），且 `decodeField`（`gatewayAdapter.ts:159-195`）要求成员恰有 `value` 或 `gap` 之一——`value:null` 与无 `reason` 的 gap 直接判红，没有会自填默认值的分支。
+  - 针对性测试：`dashboard` 内 `pnpm typecheck`（`tsc --noEmit`）rc=0；`pnpm test`（vitest）7 文件 75 passed（本卡前是 5 文件 35 条）。
+  - 「不用 mock 冒充完成」按真字节量，而不是按 fixture 自证：把 §6.2 那次真 HTTP 读数的原始响应（`.tmp/gates/g-card-live-http-out.json`，真 `sourceRef` 形如 `core://status/kin-e7-join-0928/<组>`、`bundle://a224f6c3…/manifest.json`、`ledger://kin-e7-join-0928/<n>`）直接喂给 `decodeSnapshotPayload` / `decodeTimelinePayload` / `decodeAlertsPayload` ⇒ 三条零 issue；抽出 `bridgeHeartbeat.sourceRef` 后快照解码必须红。该探针要跨仓库读文件，跑完即删、未入库；把真字节形状固化进仓库的是 `src/test/realGatewayWire.ts`（成员 gap 的 `reason` 文案与真字节逐字一致，kin 名与时间戳做了中性化）。
+  - 主干门读数（本卡只动 `dashboard/**`，Python 侧字节未变）：`uv sync --locked --dev`、`ruff check`、`ruff format --check`（390 files）、`pyright`（0 errors）、`uv run pytest -q`（2776 passed, 2 skipped）、`check_boundaries`、`check_case_assertions`（151 registered）、`verify_fixture_digests`、`check_workflow_pins`、`uv build --wheel` + `check_wheel_boundary`、`minekin --help`、`git diff --check` 全部 rc=0。门载荷未动：本卡不新增 case、不碰 mandatory/registry。
+  - 一个未闭合的格子：`.github/workflows/ci.yml` 的 `- run:` 步里没有任何 `pnpm` / `dashboard` 步 ⇒ 上面两条 Dashboard 读数是本机会话量到的，不是 CI 量到的。要不要给 Dashboard 加 CI 门属共享基础设施变更，停在主控决定，本卡未动 `ci.yml`。
 
 ## 7. 本轮读数的可复现路径
 
@@ -185,7 +191,7 @@ D1 把 alerts 解码成裸数组（`gatewayAdapter.ts:334-371`），而 Core 没
 
 ## 8. 未验证 / 停在决策门的格子
 
-- **服务端已经落地并跑过真 HTTP 读**（见 §6.2 落地侧证据，提交 `0bcdc84`）：仍然未测的是浏览器侧的真实界面读数（D 卡当前在飞）、多客户端并发读同一个 SQLite 台账的行为、以及 3 秒超时下的时延分布。
+- **服务端已经落地并跑过真 HTTP 读**（见 §6.2 落地侧证据，提交 `0bcdc84`），**浏览器侧的解码面也已落地**（见 §6.3 落地侧证据，提交 `a37f3c3`，含「真 HTTP 字节过 D 的解码器零 issue」这条）：仍然未测的是在真实浏览器里操作一次界面的读数（§6.3 的量法是 vitest + 真字节，不是 Playwright 活体）、多客户端并发读同一个 SQLite 台账的行为、以及 3 秒超时下的时延分布。
 - **`world.worldContext` / `epoch` 的值能不能给用户看**未裁决：它们与世界 seed、存档目录名相邻，而 §4 只保证凭据不外泄，没有覆盖「世界坐标类信息」。⇒ 属主控/产品决定，本轮把它留在 B 档并显式标出。
 - **哪些 run document 拒止算「告警」**是产品语义（`cognition_refusals`、`report_refusals`、`snapshot_rejections`、`input_refusal` 都在文档里，但没人规定阈值）。⇒ §5.3 先按「无源」封住，等有决定再开。
 - **跨 bundle / 跨世界的长期视图**（Live View、多 Kin 总览）仍在本契约之外：`P2 媒体` 与 `HOST/PERSIST` 各守原决策门。
