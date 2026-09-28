@@ -2055,3 +2055,15 @@ the target allows 1.21.4"}`，配对文档 `mismatch.json` 是 `schema_version 2
 - **未做的事（具名）**：本轮没重取 `gate_payload_sha256` 子集摘要（命令与挂载未变，同一天已取到第 18 次同值 `cfa0f118…afd6`）；`1c98773` 自身的 CI 也不在本节宣称。§3 两类可独立推进的工作（只读 Gateway 契约设计 / 非 HOST case 的 oracle 先行设计）**仍未开工**。
 - **落盘与推送**：`main = 1c98773`（上一格）→ 本轮新笔提交后 `git push origin main:main`，远端 `ls-remote` 回读同值；本地门逐道单跑并先读 rc（`ruff check` / `ruff format --check` / staged `git diff --check`），计数写进 commit message。lane 树 tip `1ce9dc0`、脏 0、`origin/main..HEAD = 0` ⇒ 无在途 lane 工作，M 不代提交、不 reset、不覆盖分支。
 - **四态**：已合主干且 CI 绿 = `c3a3bf5` 及其前（`1c98773` 的 CI 待补记）；真实封证 = **1**（未变）；仅在分支 = 无待合产品工作；未验证/待判 = **#68**、`rc=14` 同码是否接成判据、`1c98773` 自身 CI、§3 两类独立工作、V08/远程服与 HOST/PERSIST。主干唯一 `current_next` 仍是 `PARALLEL-INTEGRATION-GATE-001`；本轮不新增 `NEXT`，也不因轮次或队列走空而宣称 goal 完成。
+
+
+## 第七十九轮（2026-09-28 11:23 +0800，M 主控）：两笔欠账 CI 读到步骤级，队列 §3 甲类独立工作落成 `DASHBOARD-GATEWAY-READONLY-CONTRACT-001`
+
+- **这一轮做什么**：先补第七十八轮留下的那格欠账（`1c98773`、`5c73f6a` 自身 CI 的步骤级读数），再开工 §3 第一类可独立推进的工作——只读 Gateway / Dashboard 契约设计。全程只读仓库字节与 Actions REST，零 JVM、零 gradle、**未挂载任何数据卷**（连 `:ro` 都不需要，全部读数取仓库字节）、未读 `.tmp/local-test-server.txt`、未连用户远程服、lane 在途材料一字节未改。
+- **CI 读数**：`1c98773` → run `36371327681`、`5c73f6a` → run `36371529203`，皆 `completed/success`，三 job（`python` 18 / `protocol` 10 / `bridge-static` 9 步）逐 `NON_SUCCESS_STEPS []`、`JOB_CONCLUSION_BREAKS []`。踩到一格工具口径：Actions REST 的 `head_sha` 必须传 **40 位全 SHA**，短 SHA 返回 0 条——本轮先按短 SHA 取到空集，改全 SHA 才拿到 run。
+- **交付**：新增冻结记录 `docs/gateway-dashboard-readonly-contract-2026-09-28.md`（179 行 / 25,732 B），并在主计划 §4 登记该卡 `DONE`（设计面）+ 两张下游卡 `GATEWAY-READONLY-PROJECTION-001`（G 候补，独占新增 `gateway/**`）与 `DASHBOARD-GATEWAY-WIRING-001`（D，独占 `dashboard/**`），两者 `QUEUED` 且都不是 `NEXT`；并行协议「另设候补 G」段加了带日期的冻结时点。零实现面：`dashboard/**`、`src/**`、`gateway/**`、`bridge*/**`、判据/registry/`mandatory` 一字节未动。
+- **自伤两处（都已按实测改写，不掩盖）**：① 我先写下「契约文本里四个写动词出现 0 次」，而这句话自己就在那一行里用了这四个词——现替换为两条可复算命令，实测端点表 3 行全 `GET`、`gatewayAdapter.ts` 写动词命中 0 且唯一 `method:` 在 `:400` 为 `"GET"`；判据判端点方法与请求动词，不判散文遣词。② 三处行号漂移（`domain/adapter.ts` 四方法接口 `:48-53`、`unreadableSnapshot` `:59-79`；asserter 键集合从登记的 `:747-763` 漂到 `:813-836`），文档里具名申报漂移而不是悄悄换号。
+- **门读数（逐道单跑、先读 rc 才写进 commit message）**：`ruff check .` rc=0（`All checks passed!`）；`ruff format --check .` rc=0（`377 files already formatted`，比上一格 376 恰 +1，多的就是新加那份 `.md`——见 §2.65 该门含 `.md`）；staged `git diff --check` rc=0。**本轮未重取** `gate_payload_sha256`（纯文档按构造不动载荷；同一天第 18 次同值 `cfa0f118…afd6` 仍是 §2.72 ③ 的读数，本轮未挂卷故不当作新读数）。
+- **落盘与推送**：`main = 5c73f6a` → 本轮新笔 `git push origin main:main`，远端 `ls-remote` 回读后把 SHA 写进 §2.74 的下一格；**本笔自身 CI 不在本轮宣称**。
+- **四态**：已合主干且 CI 绿 = **`5c73f6a` 及其前**（本轮补记这两笔的自身 CI）；真实封证 = **1**（未变）；仅在分支 = 无待合产品工作；未验证/待判 = **#68**、`rc=14` 同码是否接成判据、契约记录 §8 的四格产品决定、§3 第二类独立工作（乙）、V08/远程服、HOST/PERSIST、本笔自身 CI。
+- **不宣称完成**：主干唯一 `current_next` 仍是 `PARALLEL-INTEGRATION-GATE-001`，本轮不新增 `NEXT`，也不因轮次富余或暂无待合分支而收口 goal。

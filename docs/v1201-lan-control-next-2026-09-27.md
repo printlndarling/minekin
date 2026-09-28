@@ -1778,3 +1778,32 @@ python .tmp/ci_steps.py c43a6d3   # 日志：.tmp/m-r74-ci-c43a6d3.log
 - 主干 `main = 1c98773`（远端 `ls-remote` 逐字同值）；**该笔自身 CI 不在本节宣称**，按纪律留到下一格补记。真实封证仍 = 1。仅在分支 = 无待合产品工作。
 - 待判/主控保留不变：**#68** 未请求自行位移可单独满足位移门、`rc=14` 对三种相反事实同码是否接成判据、HOST/PERSIST、V08/远程服。§3 两类可独立推进的工作（只读 Gateway 契约设计、非 HOST case 的 oracle 先行设计）**仍未开工**——本轮只补了卷面这一格。
 - 主干唯一 `current_next` 仍是 `PARALLEL-INTEGRATION-GATE-001`；不新增 `NEXT`，也不以补记落轮次或把 goal 收口。
+
+
+## §2.74 两笔欠账的 CI 读到步骤级，并把队列 §3 的甲类独立工作落成一张卡：只读 Gateway / Dashboard 契约冻结记录入册（第七十九轮，2026-09-28 11:23 +0800，M 主控；仓库字节 + GitHub Actions REST 只读，零 JVM、零 gradle、零规范卷挂载、未读 `.tmp/local-test-server.txt`、未连用户远程服、lane 材料一字节未改）
+
+### ① 欠账：`1c98773` 与 `5c73f6a` 自身的 CI（步骤级）
+
+- 取法：`GET /repos/<owner>/<repo>/actions/runs?head_sha=<40 位全 SHA>`，再逐 job 读 `steps[].conclusion`。**短 SHA 返回 0 条**（本轮按全 SHA 重取才拿到 run）；token 只从默认凭据助手取且从不回显。脚本 `.tmp/m-r79/ci_read.py`、日志 `.tmp/m-r79/ci-read.log`（未入版本控制，故命令写在上面）。
+- `1c98773` = `1c9877335274af211790abbe6c3d78f2433ce61e` → run `36371327681`（name `CI`）`status=completed conclusion=success`；3 jobs 逐进步骤级 `NON_SUCCESS_STEPS []`：`python` 18 步、`protocol` 10 步、`bridge-static` 9 步；`JOB_CONCLUSION_BREAKS []`。
+- `5c73f6a` = `5c73f6ac46e281f78e7e26e081decd65cf91e64f` → run `36371529203` 同形状：`python` 18 / `bridge-static` 9 / `protocol` 10 全 `completed/success`，`NON_SUCCESS_STEPS []`、`JOB_CONCLUSION_BREAKS []`。
+- 口径：这两笔都是纯文档笔，CI 绿只说明「文档笔没打破仓库门」，不构成晋级、封证或 `tested` 依据。
+
+### ② §3 甲类独立工作落地：`DASHBOARD-GATEWAY-READONLY-CONTRACT-001`
+
+- 交付：新增 `docs/gateway-dashboard-readonly-contract-2026-09-28.md`（179 行 / 25,732 B / 纯 CRLF）；`docs/development-execution-plan.md` §4 末尾把该卡登记为 `DONE`（设计面）并登记两张下游卡 `GATEWAY-READONLY-PROJECTION-001`（G 候补 lane，独占新增 `gateway/**`）与 `DASHBOARD-GATEWAY-WIRING-001`（D lane，独占 `dashboard/**`），两张都是 `QUEUED`、都不是 `NEXT`；`docs/parallel-execution-plan.md` 的「另设候补 G」段追加了带日期的冻结时点。§2 激活表 D 行那个巨型单元格一字节未改写（降风险），「前置已满足」这件事由新小节引用它的原话来说明。
+- 冻结面：三条只读 GET 与载荷形状、signal 信封的五值 `status` + 非 `known` 必填 `reason` + provenance 三件套、七种失败分类与 `401/403 → permission_denied`、`404 → contract_mismatch`、版本号 `kin-dashboard-readmodel/1.0.0`、身份面只以存在性或已归约字段出现、`alerts` 必须也走信封（新增具名构造缺陷 `ALERT_SOURCE_AMBIGUITY`：裸空数组会把「无告警源」读成「没有告警」）。
+- 字段→载体普查（可复算命令 `grep -rni --include=*.py -w <名字> src tools test-orchestrator`；共 133 个 `.py`）：**0 命中** = `resolved_version`、`current_screen`、`guiOpen`、`last_sequence`、`alert`、`live_view`、`webrtc`、`mjpeg`、`hls`、`permission_denied`、`source_ref`/`sourceRef`、`paused`、`recovering`、`companion`；**有载体** = `world_context_id` 15（首处 `domain/world_activation.py:81`）、`epoch` 55（首处 `domain/hosted_world.py:9`）、`interval_ms` 10、`input_lease` 12、`bundle_digest` 42、`observed_at` 12；`standalone` 仅 1 处且是无关 docstring（`adapters/evidence/trace.py:4`）；`sealed_at` 不在 `src/**`、只在 `tools/seal_repo_case.py:207`。⇒ 按字段分档：今天能诚实 `known` 的是 6 组，必须具名 `not_wired` 的是 6 个外加整条 `alerts`。
+
+### ③ 本轮自伤两处，都落在自己的判据上（已按实测改写）
+
+- 「契约 v1 文本里 `POST|PUT|PATCH|DELETE` 出现次数 0」这句被本记录自己证否：初版中这四个词各出现 1 次，就在写下这句判据的那一行。现改成两条可直接复算的命令并按实测填数——端点表 3 行方法列全为 `GET`（非 GET 0 行）；`gatewayAdapter.ts` 里四个写动词命中 0，且该文件唯一的 `method:` 在 `:400` 且值为 `"GET"`。⇒ 判据判的是**端点方法与请求动词**，不是散文遣词；这条口径本身写进了记录 §5.2。
+- 行号漂移三处更正：`dashboard/src/domain/adapter.ts` 的四方法接口是 `:48-53`（不是 `:52-57`）、`unreadableSnapshot` 是 `:59-79`；另外主干既有记录把 asserter 键集合登记在 `tools/assert_case_evidence.py:747-763`，现字节已被 H1i/M-C1 的增行推到 `:813-836`（键集合未变）——文档里具名申报这次漂移，而不是悄悄换号。
+
+### ④ 门读数与四态
+
+- 逐道单跑并先读 rc（日志 `.tmp/m-r79/gates/`）：`ruff check .` **rc=0**（`All checks passed!`）；`ruff format --check .` **rc=0**（`377 files already formatted`）——比上一格的 376 恰 +1，多的就是本卡新增那一份 `.md`（该门的文件数含 `.md`，见 §2.65），不是漂移；staged `git diff --check` **rc=0**（空输出）。
+- **本轮未重取** `gate_payload_sha256`：本卡零 `src/**`/`tools/**`/判据/registry/`mandatory` 字节，纯文档按构造不动门载荷；同一天第 18 次同值读数仍是 `cfa0f118…afd6`（§2.72 ③），本轮全程未挂规范卷，所以不把它当本轮新读数引用。真实封证仍 = **1**（`5086ee42…64f6` / run `a224f6c3…`）。
+- 主干 `main = 5c73f6a`（本轮起点，远端 `ls-remote` 逐字同值）；**本笔自身 CI 不在本节宣称**，留下一格补记。仅在分支 = 无待合产品工作（H1k tip `1ce9dc0` 等 lane 在途材料一字节未读未改，未代提交）。
+- 未验证 / 主控保留不变：**#68** 未请求的自行位移、`rc=14` 同码是否接成判据、`world.worldContext`/`epoch` 的值可否对用户展示、哪些 run document 拒止算「告警」、HOST/PERSIST、V08/远程服。G 的实现卡与 D 的接线卡本轮都不代做。
+- 主干唯一 `current_next` 仍是 `PARALLEL-INTEGRATION-GATE-001`；§3 第二类独立工作（乙：非 HOST case 的 oracle/载体先行设计）仍未开工；不新增 `NEXT`，不因轮次富余或暂无待合分支把 goal 收口。

@@ -326,6 +326,21 @@ B1 的卡面判据是「只把有明确必要性的 missing case 排成独立实
 
 每个任务簇进入执行前写卡：目标/依赖、允许/禁止路径、可观察验收、负例、证据级别、停止条件、回滚。任何契约冲突或重大产品选择仍停下请用户拍板；此长程簿保证“不知道下一阶段是什么”不再成为理由，但**不伪装未来细节已冻结**。
 
+### `DASHBOARD-GATEWAY-READONLY-CONTRACT-001` — `DONE`（设计面，M 主控，2026-09-28，第七十九轮）
+
+D1 只读外壳（合并 `8aab153`）在源码注释里自称「端点与字段是提案、不是契约」（`dashboard/src/adapters/gatewayAdapter.ts:34-39`），§2 激活表 D 行因此把 D2 的真实接线停在「等 G lane 冻结 Gateway 只读契约后由 M 派卡」。本卡做那件被等待的事，冻结记录在[只读 Gateway / Dashboard 契约冻结记录](gateway-dashboard-readonly-contract-2026-09-28.md)：三条只读 GET 及载荷形状、signal 信封的五值 `status` 与非 `known` 必填 `reason`、provenance 三件套、七种失败分类、版本号 `kin-dashboard-readmodel/1.0.0`、身份面只以存在性或已归约字段出现、写动词的可复算判据，以及 `alerts` 的具名构造缺陷 `ALERT_SOURCE_AMBIGUITY`。
+
+| 下游卡 | 状态 | owner 与独占面 |
+| --- | --- | --- |
+| `GATEWAY-READONLY-PROJECTION-001` | `QUEUED`（前置=上面那份冻结记录，已满足；**不是 `NEXT`**，不占主干 `NEXT` 名额） | G 候补 lane（[并行作业协议](parallel-execution-plan.md)的「另设候补 G」段，尚未进 §2 激活表）；独占新增 `gateway/**` |
+| `DASHBOARD-GATEWAY-WIRING-001` | `QUEUED`（前置=上面那张卡先产出可用响应） | D lane；独占 `dashboard/**` |
+
+- 本卡零实现面：不改 `dashboard/**`、`src/**`、`gateway/**`、`bridge*/**`、case 判据、registry、`mandatory`，不新建 case ⇒ 门载荷按构造不动。
+- 主干唯一的 integration `NEXT` 仍是 `PARALLEL-INTEGRATION-GATE-001`（§4 B 表同名行），本卡不提升为 `NEXT`，也不给任何 lane 占 `lane_next`。
+- 冻结记录里唯一非仓库字节的读数取自 M 的私有卷活体台账行，只证明字段形状存在，**不是 sealed bundle**，不作任何晋级依据。
+- 停在决策门的格子：`world.worldContext`/`epoch` 的值可否对用户展示、哪些 run document 拒止算「告警」、Live View 与多 Kin 总览 —— 见该记录 §8，本轮不代答。
+- 真实接线仍未开始：在 `SNAPSHOT_SCHEMA_VERSION` 升到 `kin-dashboard-readmodel/1.0.0` 之前，任何真实 Gateway 响应都会被前端判 `contract_mismatch`，那是期望行为而不是回归。
+
 ## 5. 明确的决策与禁止推断
 
 - V08 远程目标：用户曾提供测试服且声明 offline 1.20.1，但又明确选择“V08 暂不提升”。要新的本次探测/入服许可；A1–A3 绝不连接该服。V09 的控制必须另行明确动作边界。

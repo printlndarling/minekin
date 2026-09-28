@@ -21,6 +21,8 @@
 
 另设候补 **G Gateway 只读投影**：待 M 冻结浏览器读模型与 P2 进程形态后，单独拥有新 `gateway/**`；不可在 P0 Core 里偷偷塞 FastAPI/WS，不可直接暴露 SQLite、Bridge socket 或带凭据原始事件。**P2 媒体**也待真实采集和授权接口冻结后开新 lane；不能用假画面充 Live View。
 
+**2026-09-28 更新（M 第七十九轮）**：上面那句「待 M 冻结浏览器读模型」的前置**已满足** —— 冻结记录见[只读 Gateway / Dashboard 契约冻结记录](gateway-dashboard-readonly-contract-2026-09-28.md)（三条只读 GET 与载荷形状、signal 信封与七种失败分类、版本号 `kin-dashboard-readmodel/1.0.0`、身份与脱敏边界、写动词的可复算判据、`alerts` 的 `ALERT_SOURCE_AMBIGUITY`）。G 的实现卡登记为 `GATEWAY-READONLY-PROJECTION-001`（`QUEUED`，主计划 §4）：**仍未开 lane、未进本文件的激活表、不是 `NEXT`**。「不可在 P0 Core 里偷偷塞 FastAPI/WS」这条禁令不变，该记录 §2.4 显式裁决契约 v1 只做轮询式三条 GET、不实现 WebSocket 推送，也暂不引入管理员 token（§4 与 §5.1 说明了为什么写面今天没有实现面可答）。
+
 同一文件仅一名 owner。任何跨 lane 修改都先在 M 的冲突表登记：需求、目标文件、当前 owner、移交时点；不能两边各写一半再指望 Git 自动合。每张卡附 base SHA、diff stat、测试原始结果、未测、阻断；分支 commit 后立即 push 本分支供审查，**只有 M 能更新 `main`**，且仅在证据/测试通过后按依赖顺序集成。失败分支保留，不能靠重写历史隐藏失败。
 
 **M 侧审查的写操作边界（2026-09-27 第四轮补，起因是 M 自己的一次越界）**：M 对 lane 卡的复量、反向证明和任何写文件的动作，只在**自己新建的 worktree / 自己的容器卷**里做，或在该 lane 会话明确停笔之后做；**不得在被审 lane 的活动 worktree 内写文件，不得替 lane 提交或重排它的提交**。同一条约束反过来也约束 lane：lane 不得为了让审查通过而改动 M 的合并说明。`Constraint`/`Not-tested` 这类 trailer 的口径由**做过该测量的一方**负责——M 未复量应写「M 侧未复量」，不得写成「未做」，那会把 lane 真实跑过的测量抹掉（第四轮 H2 上真实发生过一次，lane 已按事实更正）。
