@@ -17,6 +17,7 @@ import json
 from collections.abc import Callable, Sequence
 from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -36,7 +37,7 @@ from minekin_core.cli.auto_session import (
     require_agreeing_facts,
 )
 from minekin_core.cli.parser import parse_args
-from minekin_core.cli.session import session_overlay_path
+from minekin_core.cli.session import DEFAULT_HANDSHAKE_TIMEOUT_S, session_overlay_path
 from minekin_core.domain.errors import ErrorCategory, ExitCode, MinekinError
 from minekin_core.domain.version_probe import ProbeObservation, ProbeOutcome
 from minekin_core.domain.version_resolution import (
@@ -555,6 +556,101 @@ def test_the_explicit_entry_without_a_budget_still_reaches_the_launch(
             stderr=io.StringIO(),
         )
     assert handed == [tmp_path / "recipe.json"]
+
+
+def both_start_entries(tmp_path: Path) -> list[list[str]]:
+    """The two ways a session start names the client it launches, as argv."""
+
+    return [
+        ["session", "start", "--profile", str(tmp_path / "recipe.json")],
+        [
+            "session",
+            "start",
+            "--auto-bundle",
+            str(REGISTRY),
+            "--server-profile",
+            str(TARGET),
+        ],
+    ]
+
+
+def handshake_timeouts_handed_off(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, extra: list[str]
+) -> list[float]:
+    """Run each start entry as far as its hand-off and report what each was given.
+
+    Only the deciding and the supervising are replaced: the argument building the two
+    entries share is the product's own, so a switch that reaches one call site and not
+    the other shows up here as two different numbers.
+    """
+
+    handed: list[float] = []
+
+    def fake_start(**kwargs: Any) -> Any:
+        handed.append(kwargs["handshake_timeout"])
+        raise AssertionError("the hand-off reached the supervisor")
+
+    def fake_prepare(**_kwargs: Any) -> Any:
+        return SimpleNamespace(recipe=tmp_path / "resolved.json", as_document=dict)
+
+    def fake_select_kin(_root: Path, _selector: object) -> str:
+        return "kin-01"
+
+    def fake_run_root(_root: Path, _kin: object) -> Path:
+        return tmp_path / "run"
+
+    monkeypatch.setattr(bootstrap_module, "start_and_supervise", fake_start)
+    monkeypatch.setattr(bootstrap_module, "prepare_auto_bundle_start", fake_prepare)
+    monkeypatch.setattr(bootstrap_module, "select_kin", fake_select_kin)
+    monkeypatch.setattr(bootstrap_module, "run_root", fake_run_root)
+    monkeypatch.setattr(bootstrap_module, "data_root", lambda: tmp_path)
+    monkeypatch.setattr(bootstrap_module, "java_executable", lambda: tmp_path / "java")
+
+    for argv in both_start_entries(tmp_path):
+        with pytest.raises(AssertionError, match="supervisor"):
+            bootstrap_module.run(
+                [*argv, *extra],
+                stdout=io.StringIO(),
+                stderr=io.StringIO(),
+            )
+    return handed
+
+
+def test_an_asked_for_handshake_wait_reaches_both_start_entries(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The wait for the client's Bridge is operator-settable on either entry.
+
+    Four of the seven 1.20.1 bundles this project has kept ended `HANDSHAKE_TIMEOUT`
+    with the Bridge reporting `BRIDGE_FAULT` one second after its own `Setting user`
+    line, and every one of those clients reached that line 30.7 s or more after Core
+    recorded the launch, while every bundle that got into the world reached it in
+    21.8 s or less. The 30 s window had closed the listener the Bridge dials, so a
+    refused connect was filed as the Bridge's fault. A slow host has to be able to ask
+    for more of that wait — through `--auto-bundle`, which is the entry the demo and
+    the runner use, not only through the recipe it names outright.
+    """
+
+    handed = handshake_timeouts_handed_off(
+        tmp_path, monkeypatch, extra=["--handshake-timeout-seconds", "90"]
+    )
+    assert handed == [90.0, 90.0]
+
+
+def test_an_unasked_handshake_wait_is_still_the_reviewed_window(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The paired negative control: adding the switch changes no run that omits it.
+
+    A start that does not ask gets the same 30 s every sealed run in the registry was
+    produced under, on both entries — the switch widens nothing by default.
+    """
+
+    assert handshake_timeouts_handed_off(tmp_path, monkeypatch, extra=[]) == [
+        DEFAULT_HANDSHAKE_TIMEOUT_S,
+        DEFAULT_HANDSHAKE_TIMEOUT_S,
+    ]
+    assert DEFAULT_HANDSHAKE_TIMEOUT_S == 30.0
 
 
 def test_an_incomplete_fill_is_a_supply_chain_refusal(

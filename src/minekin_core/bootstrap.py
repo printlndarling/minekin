@@ -30,6 +30,7 @@ from minekin_core.cli.parser import parse_args
 from minekin_core.cli.server_probe import probe_exit_ok, run_probe
 from minekin_core.cli.session import (
     DEFAULT_CONNECTION_TIMEOUT_S,
+    DEFAULT_HANDSHAKE_TIMEOUT_S,
     run_root,
     select_kin,
     start_and_supervise,
@@ -146,6 +147,11 @@ def _session_start_auto(args: argparse.Namespace, *, stdout: TextIO, stderr: Tex
             kin_selector=selector,
             forward_environment=forwarded_environment(),
             server_profile=Path(args.server_profile),
+            handshake_timeout=(
+                DEFAULT_HANDSHAKE_TIMEOUT_S
+                if args.handshake_timeout_seconds is None
+                else float(args.handshake_timeout_seconds)
+            ),
             connection_timeout=(
                 DEFAULT_CONNECTION_TIMEOUT_S
                 if args.connection_timeout_seconds is None
@@ -308,6 +314,11 @@ def run(
                 # the code's.
                 forward_environment=forwarded_environment(),
                 server_profile=(None if args.server_profile is None else Path(args.server_profile)),
+                handshake_timeout=(
+                    DEFAULT_HANDSHAKE_TIMEOUT_S
+                    if args.handshake_timeout_seconds is None
+                    else float(args.handshake_timeout_seconds)
+                ),
                 connection_timeout=(
                     DEFAULT_CONNECTION_TIMEOUT_S
                     if args.connection_timeout_seconds is None

@@ -106,6 +106,24 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="SECONDS",
         help="how long to wait for the named world before giving up on the attempt",
     )
+    # How long the managed client has to prove its Bridge before Core ends the
+    # session. The default stays the reviewed 30 s; this name exists because of a
+    # measurement, not a hypothesis. Four of the seven 1.20.1 bundles this project
+    # has kept ended `HANDSHAKE_TIMEOUT` with the Bridge reporting `BRIDGE_FAULT`
+    # one second after its own `Setting user` line, and every one of those clients
+    # reached that line 30.7 s or more after Core recorded the launch, while every
+    # bundle that got into the world reached it in 21.8 s or less. So Core had
+    # already closed the listener the Bridge dials: the Bridge's connect is refused,
+    # and a refused connect is not the Bridge's fault. A run on a slow host has to
+    # be able to ask for more of this wait without touching a lease, an admission
+    # bound or a distance threshold — which is what the two clocks above cannot do.
+    session_start.add_argument(
+        "--handshake-timeout-seconds",
+        type=float,
+        default=None,
+        metavar="SECONDS",
+        help="how long to wait for the client's Bridge to prove its session",
+    )
     # The third optional input document, and the same reasoning as the second:
     # a run that should hold a movement key is a property of this run, not of a
     # session that would have to be re-opened in another process to change it.
