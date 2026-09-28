@@ -2,9 +2,21 @@ import { describe, expect, it } from "vitest";
 import { decodeAlertsPayload, decodeSnapshotPayload, READ_ENDPOINTS } from "./gatewayAdapter";
 import { DEFAULT_TIMEOUT_MS } from "./config";
 import { SNAPSHOT_SCHEMA_VERSION, fieldValue, fieldGap } from "../domain/model";
+import type { Signal } from "../domain/signals";
 import { isKnown } from "../domain/signals";
 import { cloneWire, wireFilled } from "../test/wireFixture";
-import { REAL_ALERTS_ENVELOPE_WIRE, REAL_JOINED_RUN_SNAPSHOT_WIRE } from "../test/realGatewayWire";
+import {
+  REAL_AFTER_SESSION_SNAPSHOT_WIRE,
+  REAL_ALERTS_ENVELOPE_WIRE,
+  REAL_IN_SESSION_SNAPSHOT_WIRE,
+  REAL_JOINED_RUN_SNAPSHOT_WIRE,
+} from "../test/realGatewayWire";
+
+/** A gap where the capture says `known` is a decode failure, not a null to tolerate. */
+function mustKnow<T>(signal: Signal<T>, what: string): T {
+  if (!isKnown(signal)) throw new Error(`${what} 应是 known，实际 ${signal.status}：${signal.reason}`);
+  return signal.value;
+}
 
 /** The joined-run bytes plus one `known` selfState group, so member tests have a live group. */
 function realWire(): Record<string, unknown> {
@@ -69,6 +81,65 @@ describe("真实 Gateway 字节：解码器必须按现字节工作，而不是�
     expect(decoded.snapshot.selfState.status).toBe("unavailable");
     expect(decoded.snapshot.evidence.status).toBe("unknown");
     expect(decoded.snapshot.liveView.status).toBe("not_wired");
+  });
+});
+
+describe("当前构建的活体网关字节：会话内 / 会话后（§2.97）", () => {
+  it("两份捕获都零问题解码", () => {
+    for (const wire of [REAL_IN_SESSION_SNAPSHOT_WIRE, REAL_AFTER_SESSION_SNAPSHOT_WIRE]) {
+      const decoded = decodeSnapshotPayload(wire, "gateway");
+      if (!decoded.ok) throw new Error(`issues: ${decoded.issues.join(" | ")}`);
+      expect(decoded.snapshot.schemaVersion).toBe(SNAPSHOT_SCHEMA_VERSION);
+    }
+  });
+
+  it("会话中：两条链路都 connected、世界已入服，租约与状态仍是跨容器的具名缺口", () => {
+    const decoded = decodeSnapshotPayload(REAL_IN_SESSION_SNAPSHOT_WIRE, "gateway");
+    if (!decoded.ok) throw new Error("应解码成功");
+    const snapshot = decoded.snapshot;
+    expect(mustKnow(snapshot.kinId, "kinId")).toBe("kin-lan87b-join");
+    expect(mustKnow(snapshot.bridgeLink, "bridgeLink")).toBe("connected");
+    expect(mustKnow(snapshot.serverLink, "serverLink")).toBe("connected");
+    expect(fieldValue(mustKnow(snapshot.world, "world").joined)).toBe(true);
+    // §2.96.6 留下的两格：被操作的客户端活在另一个容器里，网关的存活探针取不到它的 pid，
+    // 所以会话进行中 runtimeState 仍是 idle、租约仍读 false。这里按原样钉住，不粉饰。
+    expect(mustKnow(snapshot.runtimeState, "runtimeState")).toBe("idle");
+    expect(fieldValue(mustKnow(snapshot.bridgeHeartbeat, "bridgeHeartbeat").inputLeaseHeld)).toBe(false);
+    expect(snapshot.evidence.status).toBe("unknown");
+    expect(snapshot.versions.status).toBe("unavailable");
+  });
+
+  it("会话后：链路回落 disconnected、已入服转 false，封证与版本改由清单作答", () => {
+    const decoded = decodeSnapshotPayload(REAL_AFTER_SESSION_SNAPSHOT_WIRE, "gateway");
+    if (!decoded.ok) throw new Error("应解码成功");
+    const snapshot = decoded.snapshot;
+    expect(mustKnow(snapshot.bridgeLink, "bridgeLink")).toBe("disconnected");
+    expect(mustKnow(snapshot.serverLink, "serverLink")).toBe("disconnected");
+    expect(fieldValue(mustKnow(snapshot.world, "world").joined)).toBe(false);
+
+    const evidence = mustKnow(snapshot.evidence, "evidence");
+    expect(fieldValue(evidence.runId)).toBe("c131e8e782954991bf13d2c2ba4c1742");
+    expect(fieldValue(evidence.attempt)).toBe(7);
+    expect(fieldValue(evidence.bundleDigest)).toBe("ae6a52e4536d6168edad88bdbdc4117e32806e0e21a271106fcbdcd5425e9472");
+    expect(fieldGap(evidence.sealedAt)?.status).toBe("not_wired");
+
+    const versions = mustKnow(snapshot.versions, "versions");
+    expect(fieldValue(versions.runtime)).toBe("1.20.1");
+    expect(fieldValue(versions.fabricLoader)).toBe("0.19.5");
+    expect(fieldValue(versions.java)).toContain("Temurin-21.0.12.1+1");
+    expect(fieldGap(versions.bridge)?.status).toBe("not_wired");
+    expect(fieldGap(versions.clientBundle)?.status).toBe("not_wired");
+  });
+
+  it("同一 Kin 根的两份字节在派生字段上真的相反：链路断言不是恒真", () => {
+    const inSession = decodeSnapshotPayload(REAL_IN_SESSION_SNAPSHOT_WIRE, "gateway");
+    const closed = decodeSnapshotPayload(REAL_AFTER_SESSION_SNAPSHOT_WIRE, "gateway");
+    if (!inSession.ok || !closed.ok) throw new Error("两份捕获都应解码成功");
+    expect(inSession.snapshot.bridgeLink.value).not.toBe(closed.snapshot.bridgeLink.value);
+    expect(inSession.snapshot.serverLink.value).not.toBe(closed.snapshot.serverLink.value);
+    expect(inSession.snapshot.evidence.status).not.toBe(closed.snapshot.evidence.status);
+    // 具名值只出现在自己那份里：把它们写反了就抓不住。
+    expect(closed.snapshot.bridgeLink.value).toBe("disconnected");
   });
 });
 

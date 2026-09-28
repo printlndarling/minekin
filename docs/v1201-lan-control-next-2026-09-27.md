@@ -2277,3 +2277,74 @@ AssertionError: assert 'disconnected' == 'connected'
 4. 沿用 §2.95.5：`matched=false` 一侧仍没有活体行，所以 §2.94 的拒止读法仍只有单元/fixture 级证据；`not_wired`/`unavailable` 那批字段按构造取不到。
 5. 沿用 §2.94 第 7 条③：同一 run 双 JVM 全绿的形状仍未成立。
 6. `.tmp/p3-lan-gateway/` 里留下了本卡的失败材料与反照（`old_vs_new_links.py`、`oldrun/`、`headtest/`、`live3-transitions.txt`、`oldrun-control.txt`）：可复用的判据已经在 `tests/unit/test_gateway_readmodel.py` 的参数表里，这几份只是取证现场，不再往里加逻辑。
+
+## §2.97 Dashboard 的字节 fixture 重采到当前构建的活体网关：会话内与会话后两份捕获并置，锚定行的必要性用反证钉住（第九十七轮，2026-09-29 03:05 +0800，M 亲跑，判据/fixture 摘要/registry/门载荷零位移）
+
+本卡收的是 §2.96.6 第 3 条点名的那一步：`dashboard/src/test/realGatewayWire.ts` 里那份捕获当时记的是旧推导 + Windows `UNKNOWN` 探针下的形状（`runtimeState unresolved`、两面 `disconnected`），decoder 与面板的断言因此钉在一份已经过时的字节上。§2.96.6 的原文要求是「下一张该在 `--gateway` 卷上重采一次并把它标成两份 fixture（采集，不是判据）」，本卡照此做，不动 `gateway/` 与 `src/` 的任何字节。
+
+### 2.97.1 采集现场（真实 run，不是 mock）
+
+* 演示 run `05f0532772b44812998a860bb797f515`，加入者 run `c131e8e782954991bf13d2c2ba4c1742`，会话 `8b53ac5ad74648edab87e196d496b8d0`（客户端 pid 382），Kin 根 `kin-lan87b-join`，卷 `minekin-m87b-lan`。
+* 读数来自仍在运行的 Gateway 容器（镜像 `minekin-runner:local`，发布 `127.0.0.1:8791`，`--data-root /data` 挂同一枚卷），路径就是契约冻结的三条只读 GET：`/api/v1/dashboard/snapshot`、`/timeline?limit=50`、`/alerts`。轮询器与原始材料在 `.tmp/p3-lan-gateway/cap4/`（`cap4_raw.py`、`steady-*`、`closed-*`、`poll-log.txt`）。
+* 采到两份同根不同时刻的快照：**会话内**（客户端还在世界里）与**拆除后**（同一根再读一次，台账已封存、会话已拆）。二者在同一批字段上给出相反字面量，这正是本卡要的判别形状。
+
+| 字段 | 会话内 | 拆除后 |
+| --- | --- | --- |
+| `kinId` | `kin-lan87b-join` | `kin-lan87b-join` |
+| `bridgeLink` / `serverLink` | `connected` / `connected` | `disconnected` / `disconnected` |
+| `world.joined` | `true` | `false` |
+| `runtimeState` / `inputLeaseHeld` | `idle` / `false` | （会话行已离场） |
+| `evidence` | `unknown` | `known`：`runId c131e8e7…`、`attempt 7`、`bundleDigest ae6a52e4…`、`sealedAt` 仍是 `not_wired` 缺口 |
+| `versions` | `unavailable` | `known`：runtime `1.20.1`、fabricLoader `0.19.5`、java `Temurin-21.0.12.1+1`；bridge 与 clientBundle 各自保留缺口 |
+
+`runtimeState=idle` 与 `inputLeaseHeld=false` 同时成立就是 §2.96.6 第 1 条那条跨 PID namespace 盲区的新字节证据，本卡把它原样钉进 fixture，没有抹平。
+
+### 2.97.2 改动落点（三份 TS 文件，工作树字节都是纯 LF）
+
+| 文件 | LF 行 | 字节 | blob |
+| --- | --- | --- | --- |
+| `dashboard/src/test/realGatewayWire.ts` | 759 | 26300 | `bbb19b8691afeb8c154706ed907ef7c11286de13` |
+| `dashboard/src/adapters/contractDecoder.test.ts` | 275 | 13870 | `e9f39ae75c2973f10b331ede25240da731f5426f` |
+| `dashboard/src/App.gateway.test.tsx` | 202 | 11047 | `50ff62c4b26ee16fb43d7ef9d877d8cfbf885389` |
+
+* fixture 文件现在带两代字节，并在文件头把两代的来历写清：`REAL_JOINED_RUN_SNAPSHOT_WIRE` / `REAL_TIMELINE_WIRE` 是 §2.96 之前的历史捕获（保留，不删，它仍是 decoder 的旧形状回归材料）；`REAL_IN_SESSION_SNAPSHOT_WIRE`（L147）、`REAL_AFTER_SESSION_SNAPSHOT_WIRE`（L311）、`REAL_IN_SESSION_TIMELINE_WIRE`（L509，15 行、最新在前、按启动行截断）、`REAL_ALERTS_ENVELOPE_WIRE`（L695）是当前构建的活体捕获。
+* `contractDecoder.test.ts` 加一个 describe、4 条测试：两份新捕获各自零 issue 解码；会话内钉 `kin-lan87b-join`、两面 `connected`、`joined true`、`idle` + `inputLeaseHeld false`、`evidence unknown` / `versions unavailable`；拆除后钉两面 `disconnected`、`joined false` 与 evidence/versions 的字面量及两处缺口；再加一条配对非空判定，断言两份主体在 `bridgeLink`/`serverLink`/`evidence.status` 上确实不同。新增 `mustKnow()` 小辅助：捕获说 `known` 的位置一旦解成缺口就是解码失败，不当作可容忍的 null。
+* `App.gateway.test.tsx` 加一个 describe、3 条测试：`serveTimeline()` 多了可选的快照参数（默认仍是历史那份，原有 5 条读数的字节不变）；会话内渲染「已连接」×2 且没有「已失联」、租约授予 2 次、已观测 6 / 未观测 1、最远到「输入租约已释放」、`progress-running` 说本会话尚未离场且没有终态行、`progress-unpinned` 不出现；拆除后「已失联」×2 且没有「已连接」；第三条是反照（见 2.97.3）。
+
+### 2.97.3 本卡当场发现并明确修掉的两个缺陷（不是收尾时才写「已知限制」）
+
+1. **截断把锚定行截掉了，面板会读成「无法锚定到单次会话」**。50 行稳定捕获里 `SessionProcessStarted` 在第 15 行（index 14，台账位置 129），而 §2.96 前后沿用过的「取最新 8 行」切法正好落在它之后。`deriveSessionProgress()` 的锚定规则（`dashboard/src/domain/sessionProgress.ts:76`）是取最新那条启动行、只统计它及之后的行；没有启动行就返回 `pinned=false`，面板于是渲染 `progress-unpinned` 而不是这次会话的真实阶段。修法是让采集脚本按启动行程序化截断（`launch_at = next(i for i,row in enumerate(rows) if row["title"]=="SessionProcessStarted")`，取 `rows[:launch_at+1]`），并在 `App.gateway.test.tsx` 里加**反照**：同一份字节再切回最新 8 行，其余计数照旧能读出，只有锚定消失——不断言这条就没人知道那 15 行里的第 15 行是有承重作用的。
+2. **拼接器写出的字节从来没跑过**。`.tmp/p3-lan-gateway/build_wire_fixtures.py` 的 `ts_block()` 自己写了 `= {`，又把 `json.dumps` 的外层花括号一起贴上去，得到 `= { {`。表现是 `npx vitest run` 连收集都失败：`realGatewayWire.ts:148:2 ERROR: Expected identifier but found "{"`（rc 非 0，日志在 `.tmp/p3-lan-gateway/`）。这同时证明上下文断裂之前那次拼接的 fixture 从未被执行过——坏字节没有进过任何出货产物。修法是把 `json.dumps` 的首尾行各自交还给外层模板（`lines[0]` 当开括号、`lines[-1]` 当闭括号，中间整体缩进两格），改后同一命令 97 条全绿。
+
+### 2.97.4 门读数（全部在最终字节上跑；日志 `.tmp/p3-lan-gateway/gates-run4.txt`，逐步 rc 已读）
+
+| 门 | 结果 | rc |
+| --- | --- | --- |
+| `npx vitest run` | 9 files / **97 passed**（本卡前 90） | 0 |
+| `npm run typecheck`（`tsc --noEmit`） | 无输出 | 0 |
+| `E2E_LIVE_GATEWAY=1 MINEKIN_GATEWAY_TARGET=http://127.0.0.1:8791 npx playwright test` | **11 passed (12.2s)**，跑在仍在线的真实网关上 | 0 |
+| `ruff check .` | All checks passed! | 0 |
+| `ruff format --check .` | **394 files already formatted**（零位移） | 0 |
+| `pyright` | 0 errors, 0 warnings | 0 |
+| `pytest` | 2810 passed, 2 skipped | 0 |
+| `python tools/check_boundaries.py` | OK | 0 |
+| `python tools/check_case_assertions.py` | OK (**151 registered**) | 0 |
+| `python tools/verify_fixture_digests.py` | W00 schema and fixture digests: OK | 0 |
+| `python tools/check_workflow_pins.py` | OK | 0 |
+| `uv build --wheel` → `python tools/check_wheel_boundary.py dist/*.whl` | 构建成功 / OK | 0 / 0 |
+| `minekin --help` | 用法输出 | 0 |
+
+活体 e2e 这条是本卡在最终字节上重取的，不拿 §2.96.4 那次的 11 passed 顶替；它跑的时候容器还在，服务的是**拆除后**状态，所以会话内那一侧的渲染证据是 fixture 级（stubbed fetch 上的真实字节回放），不是浏览器对在线网关的读数。这一点按 §2.95.5 第 3 条的同类口径记着，不写成「面板已全绿」。
+
+判定性结论：本卡只动 `dashboard/src/` 的三份 TS 测试/fixture 文件；`gateway/`、`src/`、判据表、registry、fixture 摘要、门载荷字节零位移。仓库内没有任何 Python 工具或测试引用 `dashboard/src`，`verify_fixture_digests.py` 做的是文本归一、不覆盖这些 TS fixture，所以重采不影响任何已封存 run 的可判性；ruff 的文件计数也仍是 394（本轮没新增被格式门收录的文件）。
+
+### 2.97.5 具名缺口与下一步（不要读成「Dashboard 只读面已全绿」）
+
+1. **跨 PID namespace 的存活盲区仍在**：会话内字节照样同时给出 `runtimeState=idle` 与 `inputLeaseHeld=false`。本卡只把它钉成 fixture，没有修；两条出路（Gateway 容器与客户端共享 PID namespace，或 Core 侧给出主机可证的存活信号）都超出窄范围缺陷修复，属主控保留。
+2. **attempt 7 的 bundle `ae6a52e4536d6168edad88bdbdc4117e32806e0e21a271106fcbdcd5425e9472` 只是读模型的自陈**：本轮没有跑 `tools/assert_case_evidence.py` 对它的证据做独立复判，因此本卡不能把它记成 `verified=true, violations=[]`。这条是本卡的读数，不是 registry 摘要的替换。
+3. **`connecting` 这一档在跨容器读者上仍取不到**，沿用 §2.96.6 第 2 条；本轮没有为凑这一档发明读数。
+4. 沿用 §2.95.5 第 1、2 条：`matched=false` 一侧仍无活体行，`not_wired`/`unavailable` 那批字段按构造取不到；同一 run 双 JVM 全绿的形状仍未成立（第 4 条）。
+5. **P2 只读面到此收口**：真实 Kin、版本准备进度（仍是具名缺口，没画成进度条）、连接状态、会话阶段、错误/拒绝原因、loading/断连/失败/重试/停止态都由冻结契约的三条 GET 撑起，mock 只存在于显式标注的模拟场景分支。Dashboard 的写/控制面按契约仍另卡待决策，本卡没有把只读授权扩成写权限。
+6. 下一张回 P4：恢复（crash/重连）与异常准入两侧的活体验证，需要在同一枚 `--gateway` 卷上再跑一次**破坏性**会话并把结果同样重采成 fixture；随后是离线身份与长跑。`.tmp/p3-lan-gateway/cap4/` 这几份继续只当取证现场，不往里加逻辑。
+
+本轮不宣称 goal 完成。

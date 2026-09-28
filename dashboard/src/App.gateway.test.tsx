@@ -5,6 +5,9 @@ import type { DashboardConfig } from "./adapters/config";
 import { READ_ENDPOINTS } from "./adapters/gatewayAdapter";
 import {
   REAL_ALERTS_ENVELOPE_WIRE,
+  REAL_AFTER_SESSION_SNAPSHOT_WIRE,
+  REAL_IN_SESSION_SNAPSHOT_WIRE,
+  REAL_IN_SESSION_TIMELINE_WIRE,
   REAL_JOINED_RUN_SNAPSHOT_WIRE,
   REAL_TIMELINE_WIRE,
   gatewayLedgerWires,
@@ -32,12 +35,15 @@ function jsonResponse(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), { status, headers: { "content-type": "application/json" } });
 }
 
-function serveTimeline(rows: readonly Record<string, unknown>[]): string[] {
+function serveTimeline(
+  rows: readonly Record<string, unknown>[],
+  snapshot: Record<string, unknown> = REAL_JOINED_RUN_SNAPSHOT_WIRE,
+): string[] {
   const requested: string[] = [];
   globalThis.fetch = (async (input: RequestInfo | URL) => {
     const url = String(input);
     requested.push(url);
-    if (url.includes(READ_ENDPOINTS.snapshot)) return jsonResponse(REAL_JOINED_RUN_SNAPSHOT_WIRE);
+    if (url.includes(READ_ENDPOINTS.snapshot)) return jsonResponse(snapshot);
     if (url.includes(READ_ENDPOINTS.timeline)) return jsonResponse(rows);
     if (url.includes(READ_ENDPOINTS.alerts)) return jsonResponse(REAL_ALERTS_ENVELOPE_WIRE);
     return jsonResponse({ detail: "not found" }, 404);
@@ -147,5 +153,50 @@ describe("Gateway 真实传输：会话阶段只从台账行读出", () => {
     expect(screen.getByTestId("progress-failure")).toHaveTextContent("时间线读取失败（disconnected）");
     expect(screen.queryByTestId("progress-counts")).toBeNull();
     expect(screen.getByTestId("data-source-banner")).toHaveTextContent("真实读数");
+  });
+});
+
+describe("Gateway 活体捕获：会话内与会话后各自渲染自己的读数（§2.97）", () => {
+  it("会话进行中：两条链路都报已连接，阶段锚定在本次会话且不报离场", async () => {
+    serveTimeline(REAL_IN_SESSION_TIMELINE_WIRE, REAL_IN_SESSION_SNAPSHOT_WIRE);
+    render(<App config={CONFIG} />);
+
+    expect(await screen.findByTestId("data-source-banner")).toHaveTextContent("真实读数");
+    expect((await screen.findAllByText("kin-lan87b-join")).length).toBeGreaterThan(0);
+
+    const kin = screen.getByTestId("panel-kin");
+    await waitFor(() => expect(within(kin).getAllByText("已连接")).toHaveLength(2));
+    expect(kin).not.toHaveTextContent("已失联");
+
+    await waitFor(() => expect(screen.getByTestId("progress-counts")).toHaveTextContent("租约授予 2 次"));
+    expect(screen.queryByTestId("progress-unpinned")).toBeNull();
+    const panel = screen.getByTestId("panel-session-progress");
+    expect(within(panel).getAllByText("已观测")).toHaveLength(6);
+    expect(within(panel).getAllByText("未观测")).toHaveLength(1);
+    expect(screen.getByTestId("progress-counts")).toHaveTextContent("最远到：输入租约已释放");
+    expect(screen.getByTestId("progress-running")).toHaveTextContent("本会话尚未离场");
+    expect(screen.queryByTestId("progress-terminal")).toBeNull();
+  });
+
+  it("会话结束后：同一面板改报两条已失联，链路读数跟着台账行序走", async () => {
+    serveTimeline(REAL_IN_SESSION_TIMELINE_WIRE, REAL_AFTER_SESSION_SNAPSHOT_WIRE);
+    render(<App config={CONFIG} />);
+
+    const kin = screen.getByTestId("panel-kin");
+    await waitFor(() => expect(within(kin).getAllByText("已失联")).toHaveLength(2));
+    expect(kin).not.toHaveTextContent("已连接");
+    expect((await screen.findAllByText("kin-lan87b-join")).length).toBeGreaterThan(0);
+  });
+
+  it("同一份捕获截掉启动行：锚定消失，阶段计数不变 —— 前一条不是恒真", async () => {
+    // The newest eight rows are the same bytes minus `SessionProcessStarted` and the rows
+    // between it and the window head: everything the panel counts still arrives, only the
+    // attempt anchor is gone. Without this reading the eight-row cut would pass silently.
+    serveTimeline(REAL_IN_SESSION_TIMELINE_WIRE.slice(0, 8), REAL_IN_SESSION_SNAPSHOT_WIRE);
+    render(<App config={CONFIG} />);
+
+    expect(await screen.findByTestId("progress-unpinned")).toHaveTextContent("无法锚定到单次会话");
+    expect(screen.getByTestId("progress-counts")).toHaveTextContent("租约授予 2 次");
+    expect(screen.getByTestId("progress-counts")).toHaveTextContent("最远到：输入租约已释放");
   });
 });
