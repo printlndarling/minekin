@@ -62,6 +62,14 @@ export function SessionProgressPanel({ progress, nowMs, isLoading, failure }: Se
             <span>最远到：{progress.furthest?.label ?? "无已观测阶段"}</span>
             <span>租约授予 {progress.granted} 次</span>
             <span>释放 {progress.released} 次</span>
+            {progress.releases.handedBack + progress.releases.withoutLease > 0 ? (
+              <span data-testid="release-breakdown">
+                （其中 {progress.releases.handedBack} 次交还了租约、{progress.releases.withoutLease} 次手上已无租约）
+              </span>
+            ) : null}
+            {progress.releases.unrecorded > 0 ? (
+              <span data-testid="release-unrecorded">（{progress.releases.unrecorded} 次的行没写有没有租约，不计入上面两类）</span>
+            ) : null}
             <span>拒止 {progress.refused} 次</span>
           </p>
           {progress.terminal ? (

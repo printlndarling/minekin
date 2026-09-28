@@ -116,6 +116,36 @@ describe("会话进度派生", () => {
     expect(state(progress, "release")).toBe("observed");
   });
 
+  it("释放分开数：真有租约交还的与手上已经没租约的不是同一件事", () => {
+    const progress = deriveSessionProgress([
+      row(1, "SessionProcessStarted"),
+      row(2, "InputReleased", "reason=TIMEOUT, had_lease=True"),
+      row(3, "InputReleased", "reason=TIMEOUT, had_lease=True"),
+      row(4, "InputReleased", "reason=EXPLICIT, had_lease=False"),
+    ]);
+    expect(progress.released).toBe(3);
+    expect(progress.releases).toEqual({ total: 3, handedBack: 2, withoutLease: 1, unrecorded: 0 });
+  });
+
+  it("没写有没有租约的释放行不靠猜：两类都不加，单列为未记录", () => {
+    const progress = deriveSessionProgress([
+      row(1, "SessionProcessStarted"),
+      row(2, "InputReleased"),
+      row(3, "InputReleased", "reason=EXPLICIT"),
+      row(4, "InputReleased", "had_lease=1"),
+      row(5, "InputReleased", "reason=TIMEOUT, had_lease=True"),
+    ]);
+    expect(progress.releases).toEqual({ total: 4, handedBack: 1, withoutLease: 0, unrecorded: 3 });
+  });
+
+  it("上一段会话的释放行不进本次的分拆", () => {
+    const previous = [row(1, "SessionProcessStarted"), row(2, "InputReleased", "reason=EXPLICIT, had_lease=True")];
+    const current = [row(3, "SessionProcessStarted"), row(4, "InputReleased", "reason=TIMEOUT, had_lease=False")];
+    const progress = deriveSessionProgress([...previous, ...current]);
+    expect(progress.pinned).toBe(true);
+    expect(progress.releases).toEqual({ total: 1, handedBack: 0, withoutLease: 1, unrecorded: 0 });
+  });
+
   it("没有启动行时不假装锚定：整窗都算进来看，并申报未锚定", () => {
     const progress = deriveSessionProgress([row(1, "BridgeHelloAccepted"), row(2, "JoinObserved")]);
     expect(progress.pinned).toBe(false);

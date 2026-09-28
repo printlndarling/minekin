@@ -28,12 +28,27 @@ export interface SessionTerminal {
   readonly failed: boolean;
 }
 
+/**
+ * How the release rows in the current attempt divide by whether a lease was still held.
+ *
+ * Reads Core's own `had_lease` through the Gateway's projection. A row whose detail carries no
+ * boolean — a pre-projection ledger, or a lookalike `1` that is not a boolean — counts as
+ * `unrecorded` so the panel says it is unknown rather than sorting it either way.
+ */
+export interface ReleaseBreakdown {
+  readonly total: number;
+  readonly handedBack: number;
+  readonly withoutLease: number;
+  readonly unrecorded: number;
+}
+
 export interface SessionProgress {
   readonly stages: readonly SessionStage[];
   readonly furthest: SessionStage | null;
   readonly terminal: SessionTerminal | null;
   readonly granted: number;
   readonly released: number;
+  readonly releases: ReleaseBreakdown;
   readonly refused: number;
   readonly refusalReasons: readonly string[];
   readonly attemptStartedAt: string | null;
@@ -110,6 +125,7 @@ export function deriveSessionProgress(events: readonly TimelineEvent[]): Session
   );
   const terminalSpec = terminalRow === null ? undefined : TERMINAL_SPECS.find((spec) => spec.eventType === terminalRow.title);
   const refusals = attempt.filter((event) => event.title === "InputRefused");
+  const releases = breakdownOf(attempt, "InputReleased");
   return {
     stages,
     furthest,
@@ -118,7 +134,8 @@ export function deriveSessionProgress(events: readonly TimelineEvent[]): Session
         ? { label: terminalSpec.label, at: terminalRow.at, detail: terminalRow.detail, failed: terminalSpec.failed }
         : null,
     granted: countOf(attempt, "InputLeaseGranted"),
-    released: countOf(attempt, "InputReleased"),
+    released: releases.total,
+    releases,
     refused: refusals.length,
     refusalReasons: [...new Set(refusals.map((event) => event.detail ?? "reason 未记录"))].sort(),
     attemptStartedAt: newestOf(attempt, LAUNCH_ROW)?.at ?? null,
@@ -129,4 +146,21 @@ export function deriveSessionProgress(events: readonly TimelineEvent[]): Session
 
 function countOf(events: readonly TimelineEvent[], eventType: string): number {
   return events.filter((event) => event.title === eventType).length;
+}
+
+/** Core's own boolean as the Gateway projects it into `detail`: `had_lease=True` / `had_lease=False`. */
+const HAD_LEASE: RegExp = /had_lease=(True|False)(?:,|$)/;
+
+function breakdownOf(events: readonly TimelineEvent[], eventType: string): ReleaseBreakdown {
+  const rows = events.filter((event) => event.title === eventType);
+  let handedBack = 0;
+  let withoutLease = 0;
+  let unrecorded = 0;
+  for (const row of rows) {
+    const match = HAD_LEASE.exec(row.detail ?? "");
+    if (match === null) unrecorded += 1;
+    else if (match[1] === "True") handedBack += 1;
+    else withoutLease += 1;
+  }
+  return { total: rows.length, handedBack, withoutLease, unrecorded };
 }

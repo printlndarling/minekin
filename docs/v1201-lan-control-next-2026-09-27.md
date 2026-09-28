@@ -2712,3 +2712,109 @@ Python 侧本轮**没有改任何 `.py`、契约脚本、fixture 或 registry**�
 6. **只读面照旧**：三条只读 GET 之外的写路径仍 405，`V1201-DASHBOARD-WRITE-SURFACE-DECISION`（`docs/standalone-runtime-dashboard.md:180 / :206`）仍在主控手上，本卡没有把只读授权扩成写权限。
 
 本轮不宣称 goal 完成。
+
+## §2.103 全卷台账普查：异常准入在现有本地卷里零行可读，#90 改判为「必须先造一次专门受控会话」（第一百零三轮，2026-09-29 06:20 +0800，M 亲跑，判据/fixture/registry/门载荷零位移）
+
+### 2.103.1 为什么先普查而不是再排一张"重读台账"的卡
+
+#90 要的是异常准入的活体行：`SessionIdentityCompared` 里 `matched=false`、`AuthPolicyFrozen` 里非 offline 的形状、或者 `SessionProcessFailed`。§2.102.6 的缺口 1 与缺口 4 都写着"活体缺对照"，而这两格加上缺口 4 是同一类问题：读不出来究竟是**没扫到**还是**没有**。落卡前先量一次全卷，量不出来就不安排任何"再读一遍现有材料"的卡。
+
+普查脚本 `.tmp/scan_ledgers_90.py`（sha256 `2a4b6e3fa14ef320586df933f6f6766c3d966788414929a3fdaf2d91f00c4a4c`）遍历所有受控卷根下的 `kin.sqlite3`，以只读方式打开，逐份输出行数、`matched` 三态计数、`AuthPolicyFrozen` 的 `auth_mode/online_adapter_enabled` 形状集合、`SessionProcessFailed` 计数与该卷出现过的全部事件类型。输出落盘 `.tmp/scan_ledgers_90.out`（sha256 `7447b4ed613cde4a547b5b3ba61ba0191f21042405e487d57dc9dbe52aa0470b`）。
+
+### 2.103.2 聚合读数（41 份台账 / 3307 行）
+
+| 判据 | 普查读数 |
+| --- | --- |
+| 扫到的台账份数 / 事件行总数 | 41 / 3307 |
+| `SessionIdentityCompared` 的 `matched` 三态 | `true` 合计 88 行、`false` 合计 **0** 行、其它形状 **0** 行 |
+| `AuthPolicyFrozen` 的认证形状 | 只出现一种：`offline / online_adapter_enabled=False`；无 online 值、无缺键形状 |
+| `SessionProcessFailed` 行数 | 全卷 **0** |
+| 含 `InputRefused` 的台账 | 1 份（`vol10/kin-01`，2216 行） |
+| 含 `InputReleased` 的台账 | 7 份（其余卷没有租约类事件） |
+| 空台账 | 4 份（`kin-e-rr-rev`、`kin-m82-host-0928`、`kin-demo-0928a`、`kin-m-p1-host`，均 0 行） |
+
+### 2.103.3 正对照：零读数不是脚本瞎
+
+同一次普查在 `vol10/kin-01` 读出 2216 行并且事件类型里含 `InputRefused`，在 20 份台账里读出 88 行 `matched=true` — 也就是"拒止类事件"和"身份比对事件"两条通路都是亮的。所以 `false=0`、`SessionProcessFailed=0`、认证形状唯一，是这批本地卷**确实没有产生过**这些形状，不是扫描判据读不出。
+
+### 2.103.4 判读与 #90 重定范围
+
+据此 #90 不能靠重读现有材料推进，只剩两条路，本卡不替用户裁决：
+
+1. **先造一次专门受控会话**：在本地受控的 1.20.1 离线环境里故意制造一次具名拒止（身份不匹配或准入拒止），用同一份普查脚本读出行形状，再落投影与面板展示。同一次 run 顺带能补 §2.102.6 缺口 1 需要的 `AuthPolicyFrozen` 对照。边界照旧：只在 loopback 受控环境，不连接也不修改用户远程测试服，不改动在线认证策略。
+2. **按构造性阻塞登记**：认定现有受控编排没有一等入口能造出该形状，把 #90 记为 blocked-by-construction，并把本节普查作为证据链接。
+
+裁决前，§2.102.6 缺口 1、缺口 4 今天都不可证；本 lane 后续不再排"再读一遍台账找异常准入"的卡。
+
+### 2.103.5 材料归属
+
+普查脚本与输出留在 `.tmp`：它是一次性全卷盘点，不是可复用的验收判据，按交付纪律不迁进 `tools/`；输出文件是本节读数的唯一载体，本卡不删。
+
+本轮不宣称 goal 完成。
+
+## §2.104 「释放 N 次」现在拆成两格：交还了租约 / 手上已无租约，没写的行明说没记录（第一百零四轮，2026-09-29 06:20 +0800，M 亲跑，判据/fixture/registry/门载荷零位移）
+
+### 2.104.1 落点：关掉 §2.102.6 缺口 3
+
+§2.102 让每一行释放都能在阶段行里看清 `had_lease=`，但汇总数字仍是行数和。本卡把它拆开，并且**不靠字符串猜**：读的是 §2.102 已经投影出来的那一枚布尔文本，读不出的行单独进 `unrecorded` 一格，宁可说"没记录"也不静默归类。
+
+改动 5 份文件（工作树字节均为 LF；blob sha256 用 `git add` 后 `git show :path | sha256sum` 量）：
+
+| 文件 | 落点 | blob sha256（LF） |
+| --- | --- | --- |
+| `dashboard/src/domain/sessionProgress.ts` | 新增 `ReleaseBreakdown { total, handedBack, withoutLease, unrecorded }`；`SessionProgress` 加 `releases` 字段；`breakdownOf()` 以 `HAD_LEASE = /had_lease=(True\|False)(?:,\|$)/` 逐行判三分支 | `9fe5416b178f3febbe2f163fe2b77c0b94ee66f454ca5d6527f8cf84fc316859` |
+| `dashboard/src/panels/SessionProgressPanel.tsx` | 计数区在「释放 N 次」后追加 `release-breakdown`（两类之和 > 0 才渲染）与 `release-unrecorded`（有未记录行才渲染） | `55d010e6559a982aedc1da9ecb8865fa946255f5f53a9c93023496284e87287e` |
+| `dashboard/src/domain/sessionProgress.test.ts` | 三条新单测：真交还与空手回不是一回事；没写布尔的行不靠猜（含形似真值的 `had_lease=1`）；上一段会话的行不进本次分拆 | `eff6f21531e481d7a296d26682eb427c014a51fbd98a4c10cb850308ff85bd74` |
+| `dashboard/src/App.gateway.test.tsx` | `LEASE_SPLIT` fixture（一行 True 一行 False）+ 两条 App 级测试：分拆逐行来自台账；没写就说没记录 | `0430aba285dfa05dc739d5c8583bca8c20cc32dc17097003dd31f5925e8e3561` |
+| `dashboard/e2e/live-gateway-session.spec.ts` | `WireRow` 补上服务端确实下发的 `detail`；活体断言两类之和等于释放行数，且面板文字与"网关字节自算值"逐字相等 | `ac14fa3002160ba5996b6150e5af766a92ef7e101d0a9d3ca54f94b5b856bca8` |
+
+`released` 保留为 `releases.total`，所以既有那串连写断言「释放 N 次」没破。布尔渲染形状来自 `gateway/readmodel.py` 的 `_detail()`（`str(value)` → `had_lease=True/False`），正则因此要求大小写精确的字面量，并把 `had_lease=1` 这种形似值判为未记录。
+
+### 2.104.2 判别力：预埋缺陷只打红新判据
+
+备份 `sessionProgress.ts`（`.tmp/sp.94.before.ts`，sha256 与定稿同值）后，把 `breakdownOf` 的判据改回"不看 `had_lease`，一律计入 `handedBack`"（即修复前行为的等价形），`npx vitest run src/domain/sessionProgress.test.ts src/App.gateway.test.tsx` → **rc=1，`Tests 5 failed \| 19 passed (24)`**（日志 `.tmp/g94_red.log`），红的恰好是本卡新加的 5 条：
+
+- `释放分开数：真有租约交还的与手上已经没租约的不是同一件事` → `expected { total: 3, handedBack: 3, … } to deeply equal { total: 3, handedBack: 2, … }`
+- `没写有没有租约的释放行不靠猜：两类都不加，单列为未记录` → `handedBack: 4` vs 期望 `1`
+- `上一段会话的释放行不进本次的分拆` → `handedBack: 1` vs 期望 `0`
+- `释放的分拆逐行来自台账：交还租约与空手归还各报各的次数` → `toHaveTextContent()` 不匹配
+- `释放行没写有没有租约时，面板说没记录，不把它塞进任一类` → `expected <span …></span> to be null`
+
+`cp` 复位后同命令 24 全绿，且复位文件 sha256 回到 `9fe5416b…`。
+
+### 2.104.3 门读数（逐条读 rc；本卡零 Python 改动，不动 bundle/registry/封证）
+
+| 门 | 读数 | rc |
+| --- | --- | --- |
+| 全量前端单测 | `npx vitest run` → `Test Files 10 passed (10)` / `Tests 105 passed (105)` | 0 |
+| 类型 | `npx tsc --noEmit` | 0 |
+| 构建 | `npm run build` → `dist/assets/index-CNNoy4Ut.js 305.45 kB` | 0 |
+| 全量 e2e（非活体，mock 场景） | `npx playwright test` → `10 passed (10.3s)`，3 skipped | 0 |
+| 活体 e2e | `MINEKIN_GATEWAY_TARGET=http://127.0.0.1:8799 E2E_LIVE_GATEWAY=1 npx playwright test e2e/live-gateway-session.spec.ts` → `1 passed (4.0s)` | 0 |
+
+活体 e2e 的这条读数跑在文档定稿之前的同一份 Dashboard 字节上（`9fe5416b…` 未变）。Python 侧本卡零改动，只作为回归跑：`ruff check .`、`ruff format --check .`（394 files already formatted，与 §2.102 同数——本卡新增的是 `.md`，不进这份计数）、`tools/check_boundaries.py`、`tools/check_case_assertions.py`（151 registered）、`tools/verify_fixture_digests.py`、`tools/check_workflow_pins.py`、`pyright`（0 errors）逐条 rc=0；`uv run pytest -q` 的全量读数见 2.104.3.1。
+
+#### 2.104.3.1 全量 Python 单测（跑在 Dashboard 五份定稿字节上，日志 `.tmp/pytest_94.log`）
+
+`uv run pytest -q` → **2821 passed, 2 skipped in 406.83s，rc=0**。两条 skip 与 §2.102 同源（平台性跳过：`test_orphans.py:686`、`test_silent_listener.py:123`），不是本卡引入。这次读数之后本卡只再改过本节自己的文档文字，Dashboard 与 Python 字节未动。
+
+### 2.104.4 活体读数（网关 8799，容器 `0c546b6e365b`，同一已封存卷）
+
+`/timeline?limit=50` 窗口里 4 行 `InputReleased`，`had_lease` 分布 `False×2 / True×2`。构建产物喂活体字节后面板字面：
+
+```
+最远到：输入租约已释放
+租约授予 2 次
+释放 2 次（其中 1 次交还了租约、1 次手上已无租约）
+拒止 0 次
+```
+
+阶段行同时给出逐行值：`已观测 · 输入租约已释放 · 2026/9/29 02:38:17 · 3 小时前 · reason=EXPLICIT, had_lease=False`。截图 `.tmp/g94_panel.png`。
+
+### 2.104.5 具名缺口与下一步
+
+1. **字符串耦合是本卡的价格**：分拆读的是 Gateway 投影出的 `had_lease=` 文本。投影形状一旦变（例如换成结构化 `detail`），这条判据要同步改；`unrecorded` 那格保证它不会静默错分，但不会自动变绿。
+2. **只读面照旧**：三条只读 GET 之外的写路径仍 405，`V1201-DASHBOARD-WRITE-SURFACE-DECISION`（`docs/standalone-runtime-dashboard.md:180 / :206`）仍在主控手上，本卡没有把只读授权扩成写权限。
+3. **下一张**：#90 按 §2.103.4 二选一裁决；#91 恢复侧破坏性验证 + Dashboard 断连/重试字节重采；#86 未到达加入者的具名分布。
+
+本轮不宣称 goal 完成。

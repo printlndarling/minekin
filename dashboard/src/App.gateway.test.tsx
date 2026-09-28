@@ -70,6 +70,13 @@ const CLEAN_RUN: readonly LedgerRowSpec[] = [
 const STILL_PLAYING: readonly LedgerRowSpec[] = CLEAN_RUN.slice(0, 8);
 const UNPINNED_WINDOW: readonly LedgerRowSpec[] = CLEAN_RUN.slice(3);
 
+/** The shape the live LAN joiner's ledger actually holds: half the hand-backs found no lease. */
+const LEASE_SPLIT: readonly LedgerRowSpec[] = [
+  { title: "SessionProcessStarted", kind: "session", outcome: "applied", detail: "argv_digest=abc123, phase=launch" },
+  { title: "InputReleased", kind: "input", outcome: "released", detail: "reason=TIMEOUT, had_lease=True" },
+  { title: "InputReleased", kind: "input", outcome: "released", detail: "reason=EXPLICIT, had_lease=False" },
+];
+
 describe("Gateway 真实传输：会话阶段只从台账行读出", () => {
   it("干净入服并停止：七个阶段全部已观测，终态带 Core 的 reason", async () => {
     const requested = serveTimeline(gatewayLedgerWires(CLEAN_RUN));
@@ -101,6 +108,24 @@ describe("Gateway 真实传输：会话阶段只从台账行读出", () => {
 
     expect(requested).toContain(`${BASE_URL}${READ_ENDPOINTS.snapshot}`);
     expect(requested.some((url) => url.includes(`${READ_ENDPOINTS.timeline}?limit=50`))).toBe(true);
+  });
+
+  it("释放的分拆逐行来自台账：交还租约与空手归还各报各的次数", async () => {
+    serveTimeline(gatewayLedgerWires(LEASE_SPLIT));
+    render(<App config={CONFIG} />);
+
+    await waitFor(() => expect(screen.getByTestId("progress-counts")).toHaveTextContent("释放 2 次"));
+    expect(screen.getByTestId("release-breakdown")).toHaveTextContent("其中 1 次交还了租约、1 次手上已无租约");
+    expect(screen.queryByTestId("release-unrecorded")).toBeNull();
+  });
+
+  it("释放行没写有没有租约时，面板说没记录，不把它塞进任一类", async () => {
+    serveTimeline(gatewayLedgerWires(CLEAN_RUN));
+    render(<App config={CONFIG} />);
+
+    await waitFor(() => expect(screen.getByTestId("progress-counts")).toHaveTextContent("释放 1 次"));
+    expect(screen.queryByTestId("release-breakdown")).toBeNull();
+    expect(screen.getByTestId("release-unrecorded")).toHaveTextContent("1 次的行没写有没有租约");
   });
 
   it("仍在会话中：释放与离场按未观测呈现，终态行说还没有离场", async () => {

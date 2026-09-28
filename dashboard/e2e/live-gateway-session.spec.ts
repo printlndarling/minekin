@@ -32,6 +32,7 @@ const TERMINAL_ROWS: readonly { eventType: string; label: string }[] = [
 interface WireRow {
   readonly title: string;
   readonly sourceRef: string;
+  readonly detail: string | null;
 }
 
 function positionOf(row: WireRow): number {
@@ -81,6 +82,18 @@ test.describe("真实 Gateway 下的会话进度", () => {
     await expect(page.getByTestId("progress-counts")).toContainText(`租约授予 ${countOf("InputLeaseGranted")} 次`);
     await expect(page.getByTestId("progress-counts")).toContainText(`释放 ${countOf("InputReleased")} 次`);
     await expect(page.getByTestId("progress-counts")).toContainText(`拒止 ${countOf("InputRefused")} 次`);
+
+    // Core 给每一行释放都写下 had_lease，Gateway 把它投影进 detail：两类之和必须等于释放行数，
+    // 面板显示的分拆必须是网关字节自己算出来的，而不是「所有释放都交还了租约」的假设。
+    const releaseRows = attempt.filter((row) => row.title === "InputReleased");
+    if (releaseRows.length > 0) {
+      const handedBack = releaseRows.filter((row) => /had_lease=True(?:,|$)/.test(row.detail ?? "")).length;
+      const emptyHandBack = releaseRows.filter((row) => /had_lease=False(?:,|$)/.test(row.detail ?? "")).length;
+      await expect(handedBack + emptyHandBack, "台账里的释放行必须都带着 had_lease").toBe(releaseRows.length);
+      await expect(page.getByTestId("release-breakdown")).toContainText(
+        `其中 ${handedBack} 次交还了租约、${emptyHandBack} 次手上已无租约`,
+      );
+    }
 
     if (terminal === undefined) {
       await expect(page.getByTestId("progress-running")).toBeVisible();
