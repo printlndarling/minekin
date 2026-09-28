@@ -38,6 +38,7 @@ import sys
 import uuid
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
+from datetime import datetime
 from pathlib import Path, PurePosixPath
 from typing import TypeGuard, cast
 from urllib.parse import urlsplit
@@ -1644,20 +1645,318 @@ def _horizontal(before: tuple[float, ...], after: tuple[float, ...]) -> float:
     return ((after[0] - before[0]) ** 2 + (after[2] - before[2]) ** 2) ** 0.5
 
 
+#: Vanilla's server writes a whole-second clock at the head of every line and no date,
+#: and that is the only clock its own answers carry. Matching a whole line at a time
+#: keeps the position in the log too, which is what orders a reading against the line
+#: saying this Kin left or died — a dateless reading and a dated lease have no shared
+#: clock face to compare, but they do share the order the server wrote them in.
+_STAMPED_LINE = re.compile(r"^\[(\d{2}):(\d{2}):(\d{2})\][^\r\n]*", re.MULTILINE)
+
+#: One day, and half of one. The half turns a midnight crossing into a count instead
+#: of a guess about morning or afternoon: two readings written one after the other in
+#: one run cannot really be twelve hours apart, so a decrease that large is the date
+#: rolling over. It is also the longest series whose day can still be chosen — past
+#: half a day, two whole-day anchorings of the same log are equally plausible, and a
+#: judge would be picking one without saying it did.
+DAY_SECONDS = 86400
+DAY_HALF_SECONDS = DAY_SECONDS // 2
+
+#: The sentences the server writes when this Kin stops being something it can report a
+#: position for. Death is here rather than assumed, because a dead Kin keeps reporting
+#: one: the position freezes, and the last reading of a log is then a corpse's
+#: coordinates rather than the end of a walk. `left the game` is the session end, and
+#: the two are what a run can reach without the harness meaning to.
+DEATH_SENTENCES = (
+    "was slain by",
+    "was killed by",
+    "died",
+    "fell from a high place",
+    "hit the ground too hard",
+    "suffocated in a block",
+    "went up in flames",
+    "burned to death",
+    "drowned",
+    "was squashed by a block",
+    "tried to swim in lava",
+    "was blown up by",
+    "was fireballed by",
+    "was shot by",
+    "went off with a boom",
+    "was electrocuted",
+)
+
+
+def _death_sentence(name: str) -> re.Pattern[str]:
+    """Where the server said this Kin died, if it said so.
+
+    Grouped rather than bare, because the alternation would otherwise split the whole
+    sentence pattern at the top level and `died` alone would match any line.
+    """
+
+    return re.compile(_LINE.format(name=re.escape(name), event=f"(?:{'|'.join(DEATH_SENTENCES)})"))
+
+
+def _utc_epoch(value: object) -> float | None:
+    """A ledger stamp as seconds since the epoch, or None when it is not one.
+
+    The writer's shape is an aware UTC clock rendered by `datetime.isoformat()` — the
+    measured bundle carries `2026-09-27T23:58:17.982650Z`. The trailing `Z` is swapped
+    for an offset rather than the format being re-declared, and a stamp that carries
+    no zone at all is refused: an hour of silent drift between two clocks is worse
+    than a window that says it could not be resolved.
+    """
+
+    if not isinstance(value, str):
+        return None
+    text = value.strip()
+    if text.endswith("Z"):
+        text = text[:-1] + "+00:00"
+    try:
+        moment = datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    if moment.tzinfo is None:
+        return None
+    return moment.timestamp()
+
+
+@dataclass(frozen=True, slots=True)
+class StampedPosition:
+    """One of the server's position answers, placed on the window's timeline.
+
+    `line` is where in the log it was written, so a reading can be ordered against the
+    departure and death lines without needing a date the server never writes.
+    """
+
+    clock: str
+    line: int
+    at: float
+    position: tuple[float, float, float]
+
+
+@dataclass(frozen=True, slots=True)
+class MoveWindow:
+    """The authorised window and the readings that sit at its ends.
+
+    A resolution rather than a verdict. `failure` names why no window could be
+    attributed; the boundary slots may be empty without that being a refusal, because
+    a lease that opened and closed between two probes genuinely has no reading inside
+    it — which is a fact about sampling, and it says so.
+    """
+
+    failure: str | None
+    granted_at: float | None = None
+    released_at: float | None = None
+    window_seconds: float | None = None
+    before: StampedPosition | None = None
+    inside: tuple[StampedPosition, ...] = ()
+    after: StampedPosition | None = None
+    start: StampedPosition | None = None
+    endpoint: StampedPosition | None = None
+
+
+def stamped_position_readings(log: str) -> tuple[StampedPosition, ...]:
+    """Every stamped position answer in the log, in the order the server wrote them.
+
+    The numbers are parsed exactly as `probe_readings` parses them — the same trailing
+    `d` or `f`, the same component count — so two readers of one log cannot disagree
+    about *where* the Kin was while disagreeing about *when*.
+    """
+
+    readings: list[StampedPosition] = []
+    for line in _STAMPED_LINE.finditer(log):
+        answer = _PROBE.search(line.group(0))
+        if answer is None:
+            continue
+        parts = [part.strip().rstrip("df") for part in answer.group(1).split(",")]
+        if len(parts) != 3:
+            continue
+        try:
+            x, y, z = (float(part) for part in parts)
+        except ValueError:
+            continue
+        hours, minutes, seconds = (int(group) for group in line.groups())
+        readings.append(
+            StampedPosition(
+                clock=f"[{hours:02d}:{minutes:02d}:{seconds:02d}]",
+                line=line.start(),
+                at=float(hours * 3600 + minutes * 60 + seconds),
+                position=(x, y, z),
+            )
+        )
+    return tuple(readings)
+
+
+def _carried_forward(readings: Sequence[StampedPosition]) -> list[StampedPosition]:
+    """The same readings with their seconds of day carried across midnight.
+
+    Each reading is compared with the one before it *after* that one was adjusted, so
+    a log that crosses two midnights gets two days rather than one and a half.
+    """
+
+    carried: list[StampedPosition] = []
+    for index, reading in enumerate(readings):
+        if index and reading.at - carried[index - 1].at < -DAY_HALF_SECONDS:
+            carried.append(replace(reading, at=reading.at + DAY_SECONDS))
+        else:
+            carried.append(reading)
+    return carried
+
+
+def move_window_attribution(
+    ledger_events: Sequence[Mapping[str, object]],
+    server_log: str,
+    *,
+    username: str | None = None,
+) -> MoveWindow:
+    """Put the server's readings on either side of the window Core authorised a move in.
+
+    Two carriers join here. The ledger holds the grant and the release as dated UTC
+    instants — the release being the one that says it was *holding* a lease, since a
+    session winding down records a release that held nothing. The server's log holds
+    the positions under a dateless whole-second clock. So the stamped series is carried
+    across midnight and then shifted by the whole number of days that puts its start
+    nearest the grant, which is the only day that can be picked from these two clocks
+    without guessing.
+
+    `start` is the last reading before the authorisation opened and `endpoint` the last
+    still covered by it: everything past the release is where unrequested drift starts,
+    and a reading past this Kin's departure or death is not evidence of a walk at all.
+    When `username` is given, those readings are dropped before the ends are chosen.
+
+    A helper rather than a registered assertion: the repository refuses an
+    implementation no case can reach, so the name enters the dispatch table in the same
+    change that registers a case for it. Nothing here decides a verdict.
+    """
+
+    grants = [
+        event
+        for event in ledger_events
+        if event.get("event_type") == INPUT_LEASE_GRANTED
+        and payload(event).get("capability") == MOVE_CAPABILITY
+    ]
+    if not grants:
+        return MoveWindow(failure="NO_MOVE_LEASE_GRANTED")
+    grant_times = [
+        moment
+        for moment in (_utc_epoch(event.get("observed_at_utc")) for event in grants)
+        if moment is not None
+    ]
+    if not grant_times:
+        return MoveWindow(failure="LEASE_GRANT_UNSTAMPED")
+    granted_at = min(grant_times)
+
+    held = [
+        event
+        for event in ledger_events
+        if event.get("event_type") == INPUT_RELEASED and payload(event).get("had_lease") is True
+    ]
+    if not held:
+        return MoveWindow(failure="NO_LEASE_RELEASE_RECORDED", granted_at=granted_at)
+    release_times = [
+        moment
+        for moment in (_utc_epoch(event.get("observed_at_utc")) for event in held)
+        if moment is not None
+    ]
+    if not release_times:
+        return MoveWindow(failure="LEASE_RELEASE_UNSTAMPED", granted_at=granted_at)
+    candidates = [moment for moment in release_times if moment > granted_at]
+    if not candidates:
+        return MoveWindow(
+            failure="LEASE_RELEASE_BEFORE_GRANT",
+            granted_at=granted_at,
+            released_at=min(release_times),
+        )
+    released_at = min(candidates)
+    window_seconds = released_at - granted_at
+
+    unanchored = stamped_position_readings(server_log)
+    incomplete = MoveWindow(
+        failure=None,
+        granted_at=granted_at,
+        released_at=released_at,
+        window_seconds=window_seconds,
+    )
+    if not unanchored:
+        return replace(incomplete, failure="NO_STAMPED_POSITION_READINGS")
+
+    carried = _carried_forward(unanchored)
+    span = carried[-1].at - carried[0].at
+    if span > DAY_HALF_SECONDS:
+        return replace(incomplete, failure=f"READINGS_SPAN_AMBIGUOUS:{span:.0f}")
+    shift = round((granted_at - carried[0].at) / DAY_SECONDS) * DAY_SECONDS
+    anchored = tuple(replace(reading, at=reading.at + shift) for reading in carried)
+
+    usable = anchored
+    if username is not None:
+        departures = [
+            offset
+            for offset in (
+                _sentence(username, "left the game").search(server_log),
+                _death_sentence(username).search(server_log),
+            )
+            if offset is not None
+        ]
+        if departures:
+            limit = min(match.start() for match in departures)
+            usable = tuple(reading for reading in anchored if reading.line < limit)
+            if not usable:
+                return replace(incomplete, failure="NO_READING_BEFORE_DEPARTURE_OR_DEATH")
+
+    before = [reading for reading in usable if reading.at < granted_at]
+    inside = tuple(reading for reading in usable if granted_at <= reading.at <= released_at)
+    after = [reading for reading in usable if reading.at > released_at]
+    if not inside:
+        return replace(
+            incomplete,
+            failure="NO_READING_INSIDE_WINDOW",
+            before=before[-1] if before else None,
+            after=after[0] if after else None,
+        )
+    start = before[-1] if before else inside[0]
+    return MoveWindow(
+        failure=None,
+        granted_at=granted_at,
+        released_at=released_at,
+        window_seconds=window_seconds,
+        before=before[-1] if before else None,
+        inside=inside,
+        after=after[0] if after else None,
+        start=start,
+        endpoint=inside[-1],
+    )
+
+
 def the_server_saw_the_kin_move(material: RunMaterial) -> str | None:
-    """The Kin's displacement, measured by the server rather than by the Kin.
+    """The displacement the world saw while the input was authorised.
 
     What the client believes it did is not evidence that it moved: the server's
     own readings are, and this is the point of the whole chain — an input that
     was legal and carried out is still not a movement until the world says so.
+
+    Measured on a real sealed bundle, "the world says so" still needed a window.
+    The first and last reading of a log also count a Kin the client moved on its
+    own — gravity, a wander, a shove from a summoned pig — and that unrequested
+    displacement was on its own enough to clear the step threshold. So the two
+    readings compared here are the ends of the authorisation rather than the ends
+    of the log, and a reading written after this Kin left the world or died in it
+    is not an endpoint at all. The distance a step has to be has not moved.
     """
 
-    positions = probe_readings(material.server_log, 3)
-    if len(positions) < 2:
-        return "NO_SERVER_READINGS"
-    horizontal = _horizontal(positions[0], positions[-1])
+    if not material.ledger_readable:
+        return "LEDGER_UNREADABLE"
+    window = move_window_attribution(
+        material.ledger_events, material.server_log, username=material.username
+    )
+    if window.failure is not None:
+        return window.failure
+    start = window.start
+    endpoint = window.endpoint
+    if start is None or endpoint is None:
+        return "NO_AUTHORISED_READING_PAIR"
+    horizontal = _horizontal(start.position, endpoint.position)
     if horizontal < MINIMUM_STEP_BLOCKS:
-        return f"MOVED_LESS_THAN_A_STEP:{horizontal:.2f}"
+        return f"MOVED_LESS_THAN_A_STEP_IN_WINDOW:{horizontal:.2f}"
     return None
 
 

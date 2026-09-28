@@ -95,6 +95,28 @@ class _Verdict(Protocol):
     result: str
 
 
+class _StampedReading(Protocol):
+    """One position answer, with the server's own clock face on it."""
+
+    clock: str
+    at: float
+    position: tuple[float, ...]
+
+
+class _MoveWindow(Protocol):
+    """What the attribution found: a named failure, or the two readings to compare."""
+
+    failure: str | None
+    granted_at: float | None
+    released_at: float | None
+    window_seconds: float | None
+    before: _StampedReading | None
+    inside: tuple[_StampedReading, ...]
+    after: _StampedReading | None
+    start: _StampedReading | None
+    endpoint: _StampedReading | None
+
+
 class _Asserter(Protocol):
     #: The material record, constructed rather than read.
     RunMaterial: Callable[..., _Material]
@@ -103,6 +125,7 @@ class _Asserter(Protocol):
     EXIT_HELD: int
     EXIT_FAILED: int
     EXIT_UNJUDGED: int
+    MINIMUM_STEP_BLOCKS: float
 
     #: Two artifact names, and the reader that walks a bundle it did not watch happen.
     #: The seal-side test needs all three: it writes what the sealer names and reads it
@@ -140,6 +163,19 @@ class _Asserter(Protocol):
     #: because it is how this module reads a position or a rotation, and a case
     #: about a turn reads the other one.
     def probe_readings(self, log: str, components: int) -> tuple[tuple[float, ...], ...]: ...
+
+    #: The same answers with the server's whole-second clock kept, and the window the
+    #: move is attributed inside. Read directly by the cases below, because a verdict
+    #: that says "1.20 blocks" is worth less than the pair of readings it came from.
+    def stamped_position_readings(self, log: str) -> tuple[_StampedReading, ...]: ...
+
+    def move_window_attribution(
+        self,
+        events: Sequence[Mapping[str, object]],
+        server_log: str,
+        *,
+        username: str | None = None,
+    ) -> _MoveWindow: ...
 
     #: The name-side of the same rule: the test helpers below hand names over the way
     #: a harness does, one at a time, and read them back through the tool's own set.
@@ -220,6 +256,7 @@ def event(
     source: str | None = None,
     trust_class: str | None = None,
     position: int | None = None,
+    at_utc: str | None = None,
     **payload: object,
 ) -> Mapping[str, object]:
     """One ledger row, carrying the fields a case reads.
@@ -237,6 +274,11 @@ def event(
     that says "before the client started" or "as the Bridge filtered it" names
     them, and then refuses a run whose timeline lost them rather than reading an
     absent column as a disagreement.
+
+    `at_utc` is the ledger's own dated instant, `observed_at_utc`. The writer sets it
+    from its clock on every real row, so a row without one is a row the asserter
+    cannot place in time — which is what the move window now refuses by name rather
+    than guessing the epoch for.
     """
 
     row: dict[str, object] = {
@@ -246,6 +288,8 @@ def event(
         "generation": str(row_generation),
         "payload_json": json.dumps(payload, sort_keys=True),
     }
+    if at_utc is not None:
+        row["observed_at_utc"] = at_utc
     if source is not None:
         row["source"] = source
     if trust_class is not None:
@@ -473,18 +517,44 @@ def block_reading(word: str) -> str:
     return f"[19:28:12] [Server thread/INFO]: [Server] {word}\n"
 
 
+#: One answer to one position probe, stamped with the whole-second clock the server
+#: writes at the head of every log line. `stamped_position_readings` reads the stamp,
+#: so a fixture without one is a log the world never time-stamped — the shape is the
+#: real one, not a convenience: every line the pinned server writes begins this way.
+#: The horizontal distance between two positions, spelled out here rather than read
+#: off the asserter's own private helper: these tests are checking the number a verdict
+#: quotes, and a check that reuses the judged formula cannot catch that formula being
+#: wrong. The judgement's own distance is what the verdict strings report.
+def horizontal_blocks(before: Sequence[float], after: Sequence[float]) -> float:
+    return ((after[0] - before[0]) ** 2 + (after[2] - before[2]) ** 2) ** 0.5
+
+
+def reading(clock: str, x: str, y: str, z: str) -> str:
+    return f"[{clock}] has the following entity data: [{x}d, {y}d, {z}d]\n"
+
+
+#: The lease window the movement judgement reads its two ends from. Two seconds is
+#: what a real grant held: measured on the sealed joiner bundle, `23:58:17.982650Z`
+#: to `23:58:19.983252Z`.
+GRANT_AT = "2026-09-19T19:28:10.000000Z"
+RELEASE_AT = "2026-09-19T19:28:12.000000Z"
+
 CORE_040_READINGS = (
-    # Standing at spawn, facing north, the lever in front of the Kin unpowered.
-    "has the following entity data: [-7.5d, -60.0d, 4.5d]\n"
-    "has the following entity data: [0.0f, 0.0f]\n"
+    # Standing at spawn, facing north, the lever in front of the Kin unpowered —
+    # the last reading before Core authorised the move.
+    reading("19:28:04", "-7.5", "-60.0", "4.5")
+    + "has the following entity data: [0.0f, 0.0f]\n"
     + block_reading(SERVER_TOOL.BLOCK_INITIAL)
-    # Walking, then turning while still walking, with the use key held.
-    + "has the following entity data: [-7.5d, -60.0d, 17.663647774198928d]\n"
-    "has the following entity data: [45.0f, 0.0f]\n"
+    # Walking, then turning while still walking, with the use key held. This is the
+    # reading the authorisation window still covers, so it is the move's endpoint.
+    + reading("19:28:11", "-7.5", "-60.0", "17.663647774198928")
+    + "has the following entity data: [45.0f, 0.0f]\n"
     + block_reading(SERVER_TOOL.BLOCK_CHANGED)
-    # Stopped where it was, facing where it turned to.
-    + "has the following entity data: [-7.5d, -60.0d, 17.663647774198928d]\n"
-    "has the following entity data: [45.0f, 0.0f]\n" + block_reading(SERVER_TOOL.BLOCK_CHANGED)
+    # Stopped where it was, facing where it turned to — written after the key was
+    # released, so it is no part of what the input is credited with.
+    + reading("19:28:14", "-7.5", "-60.0", "17.663647774198928")
+    + "has the following entity data: [45.0f, 0.0f]\n"
+    + block_reading(SERVER_TOOL.BLOCK_CHANGED)
 )
 
 #: The same log with no block reading in it at all, which is what a run whose
@@ -494,9 +564,12 @@ NO_BLOCK_READINGS = "".join(
 )
 
 LEASE = event(
-    "InputLeaseGranted", capability="control.move.v1", lease_id="e4929e876af04ea29aad535e4142ee70"
+    "InputLeaseGranted",
+    at_utc=GRANT_AT,
+    capability="control.move.v1",
+    lease_id="e4929e876af04ea29aad535e4142ee70",
 )
-RELEASE = event("InputReleased", generation=1, had_lease=True, reason="TIMEOUT")
+RELEASE = event("InputReleased", at_utc=RELEASE_AT, generation=1, had_lease=True, reason="TIMEOUT")
 
 
 def movement_case() -> dict[str, object]:
@@ -552,7 +625,8 @@ def test_the_displacement_is_measured_by_the_server_not_the_client() -> None:
 
     The turn and the block are supplied, so that the reading the server is
     missing is the only thing this material is missing: one position is not a
-    displacement, however the run describes itself.
+    displacement, however the run describes itself — and inside the window it is
+    the same reading on both sides of itself.
     """
 
     verdict = ASSERTER_MODULE.evaluate(
@@ -560,8 +634,8 @@ def test_the_displacement_is_measured_by_the_server_not_the_client() -> None:
         material(
             document=run_document(actions_applied=1, actions_refused=0),
             log=(
-                "has the following entity data: [-7.5d, -60.0d, 4.5d]\n"
-                "has the following entity data: [0.0f, 0.0f]\n"
+                reading("19:28:11", "-7.5", "-60.0", "4.5")
+                + "has the following entity data: [0.0f, 0.0f]\n"
                 "has the following entity data: [45.0f, 0.0f]\n"
                 "minekin-target-initial\n"
                 "minekin-target-changed\n"
@@ -570,16 +644,18 @@ def test_the_displacement_is_measured_by_the_server_not_the_client() -> None:
         ),
     )
 
-    assert verdict.failures == ("the_server_saw_the_kin_move:NO_SERVER_READINGS",)
+    assert verdict.failures == (
+        "the_server_saw_the_kin_move:MOVED_LESS_THAN_A_STEP_IN_WINDOW:0.00",
+    )
 
 
 def test_a_shove_is_not_a_step() -> None:
     """Measured: walking is 4.3 blocks a second, a wandering pig is well under one."""
 
     shuffled = (
-        "has the following entity data: [-7.5d, -60.0d, 4.5d]\n"
-        "has the following entity data: [-6.2d, -60.0d, 5.1d]\n"
-        "has the following entity data: [0.0f, 0.0f]\n"
+        reading("19:28:09", "-7.5", "-60.0", "4.5")
+        + reading("19:28:11", "-6.2", "-60.0", "5.1")
+        + "has the following entity data: [0.0f, 0.0f]\n"
         "has the following entity data: [45.0f, 0.0f]\n"
         "minekin-target-initial\n"
         "minekin-target-changed\n"
@@ -594,7 +670,9 @@ def test_a_shove_is_not_a_step() -> None:
         ),
     )
 
-    assert verdict.failures == ("the_server_saw_the_kin_move:MOVED_LESS_THAN_A_STEP:1.43",)
+    assert verdict.failures == (
+        "the_server_saw_the_kin_move:MOVED_LESS_THAN_A_STEP_IN_WINDOW:1.43",
+    )
 
 
 def test_a_turn_the_server_never_saw_is_named() -> None:
@@ -605,11 +683,11 @@ def test_a_turn_the_server_never_saw_is_named() -> None:
         material(
             document=run_document(actions_applied=1, actions_refused=0),
             log=(
-                "has the following entity data: [-7.5d, -60.0d, 4.5d]\n"
-                "has the following entity data: [45.0f, 0.0f]\n"
+                reading("19:28:04", "-7.5", "-60.0", "4.5")
+                + "has the following entity data: [45.0f, 0.0f]\n"
                 "minekin-target-initial\n"
-                "has the following entity data: [-7.5d, -60.0d, 17.663647774198928d]\n"
-                "has the following entity data: [45.0f, 0.0f]\n"
+                + reading("19:28:11", "-7.5", "-60.0", "17.663647774198928")
+                + "has the following entity data: [45.0f, 0.0f]\n"
                 "minekin-target-changed\n"
             ),
             events=(LEASE, RELEASE),
@@ -865,7 +943,14 @@ def test_a_lease_for_something_else_is_not_a_lease_to_move() -> None:
         ),
     )
 
-    assert verdict.failures == ("move_input_was_leased:LEASE_IS_NOT_FOR_A_MOVE:control.look.v1",)
+    # The walk cell now refuses alongside the lease cell: with no move authorisation
+    # there is no window to attribute a displacement to, and crediting the log's own
+    # first-to-last drift to a run that was only ever handed a look is the false green
+    # this gate had. The readings are unchanged — this is a *both-cells* shape now.
+    assert verdict.failures == (
+        "move_input_was_leased:LEASE_IS_NOT_FOR_A_MOVE:control.look.v1",
+        "the_server_saw_the_kin_move:NO_MOVE_LEASE_GRANTED",
+    )
 
 
 def test_an_input_with_no_lease_at_all_is_named() -> None:
@@ -5612,7 +5697,7 @@ def identity_row(
     an observation and the criteria do not pre-set it.
     """
 
-    record: dict[str, object] = {
+    record: dict[str, Any] = {
         "session_id": session_id,
         "generation": generation,
         "identity_candidate_id": candidate,
@@ -7490,12 +7575,14 @@ OTHER_CLIENT = "Kin2"
 
 #: Asked twice, once per probe, in the pairs the server actually writes: the position
 #: triple, then the heading pair. The horizontal gap between the first and the last
-#: triple is the 8.627 blocks the private-volume joiner run measured.
+#: triple is the 8.627 blocks the private-volume joiner run measured. The stamps are
+#: the shape that measurement was attributed with: the first answer landed before the
+#: lease opened, the second inside the two seconds it held.
 JOINER_PROBE_ANSWERS = (
-    "has the following entity data: [12.0d, -60.0d, 3.0d]\n"
-    "has the following entity data: [0.0f, 0.0f]\n"
-    "has the following entity data: [12.0d, -60.0d, 11.627d]\n"
-    "has the following entity data: [45.0f, 0.0f]\n"
+    reading("19:28:09", "12.0", "-60.0", "3.0")
+    + "has the following entity data: [0.0f, 0.0f]\n"
+    + reading("19:28:11", "12.0", "-60.0", "11.627")
+    + "has the following entity data: [45.0f, 0.0f]\n"
 )
 
 
@@ -7615,13 +7702,332 @@ def test_the_same_place_asked_twice_is_not_a_walk() -> None:
     """
 
     still = (
-        "has the following entity data: [12.0d, -60.0d, 3.0d]\n"
-        "has the following entity data: [0.0f, 0.0f]\n"
-        "has the following entity data: [12.0d, -60.0d, 3.0d]\n"
-        "has the following entity data: [0.0f, 0.0f]\n"
+        reading("19:28:09", "12.0", "-60.0", "3.0")
+        + "has the following entity data: [0.0f, 0.0f]\n"
+        + reading("19:28:11", "12.0", "-60.0", "3.0")
+        + "has the following entity data: [0.0f, 0.0f]\n"
     )
 
     verdict = ASSERTER_MODULE.evaluate(lan_joiner_control_case(), driven_joiner(log=still))
 
     assert verdict.result == "FAIL"
-    assert verdict.failures == ("the_server_saw_the_kin_move:MOVED_LESS_THAN_A_STEP:0.00",)
+    assert verdict.failures == (
+        "the_server_saw_the_kin_move:MOVED_LESS_THAN_A_STEP_IN_WINDOW:0.00",
+    )
+
+
+# --- the move attributed to the authorisation, not to the whole log -------------------
+#
+# These are the counterexamples V1201-MOVE-WINDOW-ATTRIBUTION-001 exists for. Measured
+# on a real sealed bundle (`.tmp/m-r89/window_check.log`, 2026-09-28): the distance
+# between the first and last position in that log was 23.565 blocks, and the distance
+# inside the two seconds Core authorised was 1.202 — the Kin had drifted on its own
+# (gravity and a summoned pig move it without any input), and that drift alone cleared
+# the step threshold. Every test below is built so the old shape reads green and the
+# window shape refuses, which is the only way to know the correction bites.
+def drift_log() -> str:
+    """A Kin that barely moved while authorised, then slid five blocks after release."""
+
+    return (
+        reading("19:28:08", "12.0", "-60.0", "3.0")
+        + "has the following entity data: [0.0f, 0.0f]\n"
+        + reading("19:28:11", "12.0", "-60.0", "3.5")
+        + "has the following entity data: [45.0f, 0.0f]\n"
+        + reading("19:28:20", "12.0", "-60.0", "8.5")
+        + "has the following entity data: [45.0f, 0.0f]\n"
+    )
+
+
+def test_a_drift_after_the_key_was_released_is_not_a_walk() -> None:
+    """The release ends what the input is credited with — including a fall.
+
+    First and last of this log differ by 5.5 blocks, which is a step and a half, so the
+    whole-log reading passed. Nothing in the authorised window moved that far.
+    """
+
+    verdict = ASSERTER_MODULE.evaluate(lan_joiner_control_case(), driven_joiner(log=drift_log()))
+
+    assert verdict.result == "FAIL"
+    assert verdict.failures == (
+        "the_server_saw_the_kin_move:MOVED_LESS_THAN_A_STEP_IN_WINDOW:0.50",
+    )
+
+
+def test_the_same_drift_still_clears_the_threshold_measured_across_the_whole_log() -> None:
+    """The counterexample's other half: this log is not refusing for lack of distance.
+
+    Without this, a fixture that fails the new gate because it fails *any* reading
+    would look like proof of attribution. The first-to-last displacement is 5.5 blocks,
+    over the two-block step the judgement still demands.
+    """
+
+    readings = ASSERTER_MODULE.probe_readings(drift_log(), 3)
+    assert len(readings) == 3
+    whole_log = horizontal_blocks(readings[0], readings[-1])
+
+    assert whole_log == pytest.approx(5.5)
+    assert whole_log >= ASSERTER_MODULE.MINIMUM_STEP_BLOCKS
+
+
+def test_a_position_frozen_after_death_is_not_the_end_of_a_walk() -> None:
+    """A dead Kin keeps being reported, at the coordinates it died at.
+
+    The readings after the death sentence here are 9 blocks off the authorised start,
+    so a judge that takes the last thing the server said would credit the input with a
+    walk that ended in a grave. The window still covers a reading, and it is a still one.
+    """
+
+    died_mid_window = (
+        reading("19:28:08", "12.0", "-60.0", "3.0")
+        + reading("19:28:11", "12.0", "-60.0", "3.0")
+        + "[19:28:11] [Server thread/INFO]: Kin fell from a high place\n"
+        + reading("19:28:12", "12.0", "-60.0", "12.0")
+    )
+
+    verdict = ASSERTER_MODULE.evaluate(
+        lan_joiner_control_case(), driven_joiner(log=died_mid_window)
+    )
+
+    assert verdict.failures == (
+        "the_server_saw_the_kin_move:MOVED_LESS_THAN_A_STEP_IN_WINDOW:0.00",
+    )
+
+
+def test_a_reading_written_after_the_kin_left_the_world_is_dropped() -> None:
+    """Session end is the same refusal in a different sentence.
+
+    `left the game` at 19:28:11 is followed by a report 12 blocks further on — the shape
+    a run produces when the harness probes one last time into a world that no longer has
+    this Kin in it. What the window can still use agrees with the authorised start.
+    """
+
+    left_then_drifted = (
+        reading("19:28:08", "12.0", "-60.0", "3.0")
+        + reading("19:28:11", "12.0", "-60.0", "3.0")
+        + f"{LEFT}\n"
+        + reading("19:28:12", "12.0", "-60.0", "15.0")
+    )
+
+    verdict = ASSERTER_MODULE.evaluate(
+        lan_joiner_control_case(), driven_joiner(log=left_then_drifted)
+    )
+
+    assert verdict.failures == (
+        "the_server_saw_the_kin_move:MOVED_LESS_THAN_A_STEP_IN_WINDOW:0.00",
+    )
+
+
+def test_a_walk_that_crossed_midnight_is_still_one_walk() -> None:
+    """The server's clock has no date; the lease does, and they cross midnight together.
+
+    The grant is at 00:00:01 and the reading the walk ends on at 00:00:02, so a judge
+    comparing clock faces would put the inside reading *before* the authorisation by
+    nearly a whole day and refuse the walk for having no reading in its window. The
+    crossing is carried forward, then anchored to the day the ledger names.
+    """
+
+    crossed = (
+        reading("23:59:58", "12.0", "-60.0", "3.0")
+        + reading("00:00:02", "12.0", "-60.0", "11.0")
+        + reading("00:00:05", "12.0", "-60.0", "11.0")
+    )
+
+    window = ASSERTER_MODULE.move_window_attribution(
+        (
+            event(
+                "InputLeaseGranted",
+                at_utc="2026-09-20T00:00:01.000000Z",
+                capability="control.move.v1",
+            ),
+            event(
+                "InputReleased",
+                at_utc="2026-09-20T00:00:03.000000Z",
+                had_lease=True,
+                reason="TIMEOUT",
+            ),
+        ),
+        crossed,
+        username=USERNAME,
+    )
+
+    assert window.failure is None
+    assert window.start is not None and window.start.clock == "[23:59:58]"
+    assert window.endpoint is not None and window.endpoint.clock == "[00:00:02]"
+    assert window.window_seconds == pytest.approx(2.0)
+    assert horizontal_blocks(window.start.position, window.endpoint.position) == (
+        pytest.approx(8.0)
+    )
+
+
+def test_a_log_whose_day_cannot_be_chosen_refuses_instead_of_picking_one() -> None:
+    """Past half a day, two anchorings of one log are equally plausible.
+
+    The readings here run from 00:00:00 to 12:01:00. Shifted to the grant's day they
+    could be the same day or the grant could sit a day before them, and the window's
+    two ends would be different pairs of readings either way.
+    """
+
+    window = ASSERTER_MODULE.move_window_attribution(
+        (LEASE, RELEASE),
+        reading("00:00:00", "12.0", "-60.0", "3.0") + reading("12:01:00", "12.0", "-60.0", "20.0"),
+        username=USERNAME,
+    )
+
+    assert window.failure == "READINGS_SPAN_AMBIGUOUS:43260"
+
+
+def test_a_position_line_the_server_never_stamped_is_not_a_window_edge() -> None:
+    """A log of answers without their clock cannot be put next to a dated lease.
+
+    The bytes below would have passed the whole-log judgement outright. They are what a
+    transcript, a copy, or a hand-written excerpt looks like — not what the server
+    writes — and the refusal names the missing stamp rather than inventing a time.
+    """
+
+    unstamped = (
+        "has the following entity data: [12.0d, -60.0d, 3.0d]\n"
+        "has the following entity data: [12.0d, -60.0d, 20.0d]\n"
+    )
+
+    verdict = ASSERTER_MODULE.evaluate(
+        lan_joiner_control_case(), driven_joiner(log=unstamped, probed_players=(USERNAME,))
+    )
+
+    assert verdict.failures == ("the_server_saw_the_kin_move:NO_STAMPED_POSITION_READINGS",)
+
+
+@pytest.mark.parametrize(
+    ("events", "reason"),
+    [
+        # No grant at all, and a grant for a capability that is not the move.
+        ((RELEASE,), "NO_MOVE_LEASE_GRANTED"),
+        (
+            (
+                event("InputLeaseGranted", at_utc=GRANT_AT, capability="control.look.v1"),
+                RELEASE,
+            ),
+            "NO_MOVE_LEASE_GRANTED",
+        ),
+        # A grant the ledger never dated: the window has no opening edge.
+        (
+            (
+                event("InputLeaseGranted", capability="control.move.v1"),
+                RELEASE,
+            ),
+            "LEASE_GRANT_UNSTAMPED",
+        ),
+        # Released, but the release says it was holding nothing — a session winding
+        # down records that, and it does not bound anyone's move.
+        (
+            (
+                event("InputLeaseGranted", at_utc=GRANT_AT, capability="control.move.v1"),
+                event("InputReleased", at_utc=RELEASE_AT, had_lease=False, reason="PLAY_ENDED"),
+            ),
+            "NO_LEASE_RELEASE_RECORDED",
+        ),
+        (
+            (event("InputLeaseGranted", at_utc=GRANT_AT, capability="control.move.v1"),),
+            "NO_LEASE_RELEASE_RECORDED",
+        ),
+        # Dated, but written before the grant: no window opens backwards.
+        (
+            (
+                event("InputLeaseGranted", at_utc=GRANT_AT, capability="control.move.v1"),
+                event(
+                    "InputReleased",
+                    at_utc="2026-09-19T19:28:05.000000Z",
+                    had_lease=True,
+                    reason="TIMEOUT",
+                ),
+            ),
+            "LEASE_RELEASE_BEFORE_GRANT",
+        ),
+    ],
+)
+def test_an_unbounded_authorisation_is_refused_by_name(
+    events: tuple[Mapping[str, object], ...],
+    reason: str,
+) -> None:
+    """Each way the window can fail to exist gets its own name.
+
+    A single generic refusal would let a run with no release row and a run whose
+    release predates its grant look like the same accident, and they need different
+    fixes — one is the Bridge not recording, the other is the ledger ordering.
+    """
+
+    window = ASSERTER_MODULE.move_window_attribution(
+        events, JOINER_PROBE_ANSWERS, username=USERNAME
+    )
+
+    assert window.failure == reason
+
+
+def test_a_window_the_server_never_answered_inside_is_named_apart_from_no_answer_at_all() -> None:
+    """Readings exist and are stamped; none of them falls inside the two seconds.
+
+    This is the shape the one-second probe default is there to make impossible, and the
+    name is how a run that still hits it (a slower cadence, a clock that skipped) reads
+    instead of silently borrowing the nearest outside reading.
+    """
+
+    outside_only = reading("19:28:05", "12.0", "-60.0", "3.0") + reading(
+        "19:28:30", "12.0", "-60.0", "20.0"
+    )
+
+    window = ASSERTER_MODULE.move_window_attribution(
+        (LEASE, RELEASE), outside_only, username=USERNAME
+    )
+
+    assert window.failure == "NO_READING_INSIDE_WINDOW"
+    assert window.start is None or window.start.clock == "[19:28:05]"
+    assert window.before is not None and window.before.clock == "[19:28:05]"
+    assert window.after is not None and window.after.clock == "[19:28:30]"
+
+
+def test_the_sealed_joiner_window_reports_the_distance_it_really_covered() -> None:
+    """The correction read against the numbers a real bundle carries.
+
+    The bundle is `a224f6c3fa0f45f2ae4c922277220fcf` (case V1201-LAN-JOINER-CONTROL-CASE-001,
+    bundle `5086ee42…`), sealed on the canonical volume on 2026-09-28 and read back with
+    `.tmp/m-r89/window_check.py`. Its lease ran 23:58:17.982650Z to 23:58:19.983252Z; the
+    server answered at 23:58:14 (4.5, -60.0, -6.5) and at 23:58:18 (3.763, -60.0, -5.55),
+    then again at 23:58:22 well past the release. Inside the authorisation the Kin covered
+    1.202 blocks — under the two it has to cover — and the whole log's first-to-last was
+    23.565. So this bundle does not hold under the corrected gate, and this test is the
+    honest record of that, not a fixture tuned to pass: the old bundle stays as historical
+    evidence of what the old gate accepted, and a fresh run at the one-second cadence is
+    what has to re-seal the claim.
+    """
+
+    sealed = (
+        reading("23:58:14", "4.5", "-60.0", "-6.5")
+        + reading("23:58:18", "3.763", "-60.0", "-5.55")
+        + reading("23:58:22", "3.763", "-60.0", "-28.0")
+    )
+
+    window = ASSERTER_MODULE.move_window_attribution(
+        (
+            event(
+                "InputLeaseGranted",
+                at_utc="2026-09-27T23:58:17.982650Z",
+                capability="control.move.v1",
+            ),
+            event(
+                "InputReleased",
+                at_utc="2026-09-27T23:58:19.983252Z",
+                had_lease=True,
+                reason="TIMEOUT",
+            ),
+        ),
+        sealed,
+        username=OTHER_CLIENT,
+    )
+
+    assert window.failure is None
+    assert window.window_seconds == pytest.approx(2.000602)
+    assert window.start is not None and window.start.clock == "[23:58:14]"
+    assert window.endpoint is not None and window.endpoint.clock == "[23:58:18]"
+    assert len(window.inside) == 1
+    assert horizontal_blocks(window.start.position, window.endpoint.position) == (
+        pytest.approx(1.202, abs=0.001)
+    )

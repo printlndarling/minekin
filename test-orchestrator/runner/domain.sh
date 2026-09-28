@@ -239,8 +239,18 @@ case "${seal_probed_players}" in
 esac
 # How often the server is asked about the Kin. A look is over within a second
 # of the join, so a run that wants a reading on both sides of it asks more
-# often than the default — the pair is what shows a heading changed.
-probe_seconds="${MINEKIN_DOMAIN_PROBE_SECONDS:-5}"
+# often than the old default — the pair is what shows a heading changed.
+#
+# The cadence is a default of one now because the movement judgement reads the
+# authorisation window rather than the whole log: it compares the last reading
+# before the lease was granted against the last reading inside it, and that
+# window is two seconds. At five seconds a window can hold no reading at all,
+# and a run that moved is judged as one that did not; at four seconds it holds
+# one, which is the start of the window wearing the endpoint's name. Asking
+# every second puts at least two readings inside any two-second window
+# whatever the phase, so the endpoint is a reading taken after the walk.
+# Neither the distance threshold nor the window moved to meet the sampling.
+probe_seconds="${MINEKIN_DOMAIN_PROBE_SECONDS:-1}"
 silenced=0
 #: Set when the harness itself failed to do what the run asked for — a fault
 #: that was not injected, or a seal that did not happen. A run that did not do

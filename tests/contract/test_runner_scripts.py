@@ -1288,7 +1288,7 @@ def test_the_console_probe_is_a_default_and_the_status_switch_is_read(tmp_path: 
         "default-off",
     )
     assert result.returncode == 0, result.stderr
-    assert bracketed(result) == ["--probe-player", "Kin", "--probe-every-seconds", "5"]
+    assert bracketed(result) == ["--probe-player", "Kin", "--probe-every-seconds", "1"]
     # The status switch is read from the server's own settings and printed.
     assert "s/^enable-status=//p" in text
     assert "printf 'domain: the controlled server reports enable-status=%s\\n'" in text
@@ -1325,13 +1325,16 @@ def second_probe_prelude(*, probe: str, probe_second: str, use_target: str) -> s
 
     `player` is the whitelisted account the file defaults it to (`Kin`), `probe_seconds`
     the default cadence; both are constants here because this card changes nothing about
-    them — what is driven is only what the second name does to the construction.
+    them — what is driven is only what the second name does to the construction. The
+    cadence matches the shipped default (one second, see
+    `test_the_probe_default_is_dense_enough_for_a_move_window`); the second name rides
+    whatever cadence the run was given, so this constant only ever has to be a number.
     """
 
     return (
         "set -euo pipefail\n"
         'player="Kin"\n'
-        'probe_seconds="5"\n'
+        'probe_seconds="1"\n'
         f'probe="{probe}"\n'
         f'probe_second="{probe_second}"\n'
         f'use_target="{use_target}"\n'
@@ -1352,6 +1355,55 @@ def second_probe_region(text: str, name: str) -> str:
     lines = text[start : text.index(end, start)].splitlines(keepends=True)
     assert len(lines) > 2, f"the second-probe {name} region came out empty; wrong markers"
     return "".join(lines[1:])
+
+
+def test_the_probe_default_is_dense_enough_for_a_move_window(tmp_path: Path) -> None:
+    """The default cadence is one second, because the movement reading is a window now.
+
+    `the_server_saw_the_kin_move` used to compare the first and last position the server
+    ever reported in the log, so a Kin that fell off a ledge at the end of the run moved
+    just as well as one the input walked. Attributing the move to the input means
+    comparing the last reading *before* the lease against the last one *inside* it, and
+    the lease window is two seconds — measured on a real sealed bundle at
+    `23:58:17.982650Z → 23:58:19.983252Z`. At the five-second default a window of that
+    length can hold no server reading at all, and a run that genuinely moved would be
+    judged as one that did not; the same bundle, recorded at four seconds, held exactly
+    one reading inside, which is the window's own start wearing the endpoint's name.
+    One-second asking puts at least two readings inside any two-second window whatever
+    the phase, so the endpoint is a reading taken after the walk rather than before it.
+
+    Nothing moved to meet the sampling: the distance the server must see is still
+    `MINIMUM_STEP_BLOCKS`, and the window is still the lease's own two seconds. The
+    cadence is the thing that had to become able to see the move at all.
+    """
+
+    text = (RUNNER / "domain.sh").read_text(encoding="utf-8")
+
+    line = 'probe_seconds="${MINEKIN_DOMAIN_PROBE_SECONDS:-1}"'
+    assert text.count(line) == 1
+    # The five-second default is gone from the file, not merely accompanied.
+    assert "MINEKIN_DOMAIN_PROBE_SECONDS:-5" not in text
+
+    # Driven: the shipped line, with the knob absent, yields the dense default; with the
+    # knob set, the run still wins — a scenario that wants a slower look is not stopped
+    # by this card, it only loses the guarantee.
+    unset = run_shelled(
+        tmp_path,
+        "unset MINEKIN_DOMAIN_PROBE_SECONDS\n" + line + '\nprintf "<%s>\\n" "${probe_seconds}"\n',
+        None,
+        "cadence-unset",
+    )
+    assert unset.returncode == 0, unset.stderr
+    assert bracketed(unset) == ["1"]
+
+    over = run_shelled(
+        tmp_path,
+        line + '\nprintf "<%s>\\n" "${probe_seconds}"\n',
+        {"MINEKIN_DOMAIN_PROBE_SECONDS": "3"},
+        "cadence-overridden",
+    )
+    assert over.returncode == 0, over.stderr
+    assert bracketed(over) == ["3"]
 
 
 def test_the_second_probe_name_rides_after_the_first_when_the_run_names_one(
@@ -1391,7 +1443,7 @@ def test_the_second_probe_name_rides_after_the_first_when_the_run_names_one(
         "--probe-player",
         "Kin",
         "--probe-every-seconds",
-        "5",
+        "1",
         "--probe-player",
         "Kin2",
     ]
