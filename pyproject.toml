@@ -32,13 +32,16 @@ packages = ["src/minekin_core"]
 [tool.pytest.ini_options]
 addopts = "-ra --strict-config --strict-markers"
 testpaths = ["tests"]
+# The Gateway lives outside the shipped package (see `check_wheel_boundary.py`), so the
+# tests import it as a top-level module from the repository root.
+pythonpath = ["."]
 
 # The generated package still ships `.pyi` stubs, so hand-written code gets real
 # types for `Envelope`, `Capability` and friends. `ignore` only silences
 # diagnostics *inside* protoc's own stubs, which use bare `Mapping` parameters
 # and cannot satisfy strict mode. Do not drop the stubs to satisfy this entry.
 [tool.pyright]
-include = ["src", "tests", "tools"]
+include = ["src", "tests", "tools", "gateway"]
 ignore = ["src/minekin_core/generated"]
 pythonVersion = "3.12"
 typeCheckingMode = "strict"
@@ -46,7 +49,7 @@ typeCheckingMode = "strict"
 [tool.ruff]
 target-version = "py312"
 line-length = 100
-src = ["src", "tests", "tools"]
+src = ["src", "tests", "tools", "gateway"]
 # Generated modules carry a multi-kilobyte serialized descriptor on one line and
 # dependency imports that exist only for descriptor registration.
 extend-exclude = ["src/minekin_core/generated"]
@@ -69,6 +72,8 @@ known-first-party = [
     "evidence_provenance",
     "fault_injection",
     "fault_support",
+    "gateway",
+    "gateway_support",
     "minekin_core",
     "session_support",
 ]
