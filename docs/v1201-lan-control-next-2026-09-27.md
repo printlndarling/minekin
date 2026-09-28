@@ -3014,3 +3014,94 @@ auth_mode=offline, online_adapter_enabled=False, server_profile_id=p0-lan-host-f
 下一步：#86 未到达加入者的具名分布。P3 的 Demo 入口与 Dashboard 页面这条路径不受本卡影响——时间线那一格只是多印了一段字样，解码器与契约字段都没动。主控保留：写面、在线认证、门禁晋级。
 
 本轮不宣称 goal 完成。
+
+## §2.107 加入者「未到达」现在有一个具名读数（第一百零七轮，2026-09-29 07:45 +0800，M 亲跑，判据/case 摘要/registry/bundle/门载荷零位移）
+
+### 2.107.1 卡面先补上：#86 此前只有一行登记，没有 owner、允许路径或验收
+
+§2.93 第 11 条把 `#86 V1201-LAN-JOINER-ARRIVAL-DIAGNOSIS-001` 记成"下一张执行卡（登记不入册为 integration NEXT）"，但没写卡面。§3（`docs/v1201-lan-control-next-2026-09-27.md:49`）要求动手前先有 owner / allowed_paths / 验收，且主干只保留一个 integration `NEXT`。本轮按同一份 §2 第 21 行的既有先例（`domain.sh` + `tests/contract/test_runner_scripts.py` + 一条 `docs/validation/` 记录，不碰 `src/**`、Bridge、case 判据、registry）把卡面补齐：
+
+- **owner**：M（本会话）。主干唯一 integration `NEXT` 仍是 `PARALLEL-INTEGRATION-GATE-001`，本卡不入册。
+- **允许路径**：`tools/**`、`tests/unit/**`、本文档。`test-orchestrator/**` 与 `src/**` 不在本卡写面内。
+- **验收（三条，逐条要读数）**：① 每个"未到达"的 run 落进一个具名 token，token 集合与 Core 的 `SessionOutcome` 四成员一致，工具不自造诊断；② 每个 token 由它引用的那一行决定——把那一行删掉，token 必须改；③ 在同一批真实活体日志上跑出分布，并具名说清哪些 token 目前还没有真实材料。
+- **停止条件**：本卡不改 `demo-lan.sh` 的自动重跑（卡面写的是"量成分布后再决定"），不降任何门槛，不接管别的会话的进程。
+
+### 2.107.2 正式改动：把散在 stderr 里的自述读回来
+
+| 文件 | 暂存 blob 内容 sha256 | 改动 |
+|---|---|---|
+| `tools/tally_joiner_arrival.py` | `7da355ac4854f3daba5019e950ba315fa7cd095dd015f30d4861c329e35363d7` | 新工具：逐份 launcher 日志分类成一个具名 token，并输出分布表 |
+| `tests/unit/test_tally_joiner_arrival.py` | `951e9fc4e3be2af3d689a5a0aa345d19b2e667055c1c36491e40d0417f4c1809` | 11 条：形状覆盖、优先级、封闭枚举、删行的反对照、`main()` 报表与拒空输入 |
+
+改动前"未到达"能说的话散在四处，没有任何一处读回来：等待窗口的两种结尾（启动器还在试 / 已经自己走掉，`test-orchestrator/runner/domain.sh:1879-1885`）、加入者自己的遗言与崩溃报告（`:1749-1758`）、宿主侧对世界与屏幕的下游判读（`:1692-1723`）、以及加入者自己写下的结论行里那个 `'outcome': '<四成员之一>'`。卡面要的三分（GL 初始化崩 / 握手超时 / 桥断）因此在仓库里没有任何一个单一具名词。
+
+工具定的只有一件事——优先级，且每条都能被反驳：
+
+1. 先问世界有没有听见加入（`the world heard X arrive`）。一次健康入服**同样**会打印自己的结束行（实测 `CLIENT_EXITED`），先问这一句才不把成功入服数进死亡分布。
+2. 再问加入者自己写下哪个结局；宿主侧的下游判读描述的是世界不是客户端，客户端的自述优先。
+3. `CLIENT_EXITED` 且旁边有崩溃报告 ⇒ `CLIENT_DIED_AT_BOOT_WITH_CRASH_REPORT`；没有报告 ⇒ `JOINER_ENDED_WITH_CLIENT_EXITED`。这两格的修法不同，能分开的只有那份报告。
+4. 枚举外的 token（如 `'outcome': 'MYSTERY_ENDING'`）按"没写结论"处理，落到启动器那两句上——工具不替构建发明诊断。
+5. 一句到达都没提的日志报 `ARRIVAL_NOT_REPORTED_IN_THIS_LOG`，不静默计成死亡。
+
+### 2.107.3 活体读数：现有材料上的分布是 3/3 握手超时
+
+命令（全本地，只读 `.tmp` 里的真跑日志）：
+
+```
+uv run python tools/tally_joiner_arrival.py --dir .tmp/m87 --glob '*.log' \
+  --log .tmp/m-r68/live/joiner-seal/domain-stderr.log \
+  --log .tmp/m82/run1.log --log .tmp/m82/run2.log \
+  --log .tmp/m84/clean-kill-run.log --log .tmp/m85/clean-headstart-run.log \
+  --log .tmp/m86/death-run.log --show-evidence
+```
+
+原始输出 `.tmp/g86_tally_real.log`（sha256 `cc71a5de78154160…`，按字节留在 `.tmp`）：
+
+| token | 计数 | 样本 |
+|---|---|---|
+| `ARRIVED` | 4 | `run2.log` `lan-run-1.log` `lan-run-3-noask.log` `lan-run-4-kill.log` |
+| `JOINER_ENDED_WITH_HANDSHAKE_TIMEOUT` | 3 | `clean-kill-run.log` `clean-headstart-run.log` `lan-run-2-kill.log` |
+| `ARRIVAL_NOT_REPORTED_IN_THIS_LOG` | 2 | `run1.log` `death-run.log`（宿主侧日志，不含加入者到达段） |
+| **TOTAL** | **9** | |
+
+三行未到达都指同一格：握手跑满了窗口，`'connection_state': None`、`snapshots_admitted: 0`。这不是一次入服的偶发，而是本环境目前唯一会走到的死法——它和 `docs/validation/v1201-h66-campaign-joiner-arrival-2026-09-28.md:277` 那句"GLFW `[0x1000E]` 崩溃为什么单发：本环境未复现（三式都 `no NEW crash report`）"读的是同一件事，只是这次由工具说而不是由人转述。
+
+具名说清没有真实材料的那几格：`CLIENT_DIED_AT_BOOT_WITH_CRASH_REPORT`、`JOINER_ENDED_WITH_BRIDGE_LOST`、`JOINER_ENDED_WITH_HANDSHAKE_FAILED`、`LAUNCHER_STILL_TRYING_AT_WINDOW_CLOSE`、`JOINER_LEFT_NO_SESSION_DIRECTORY`、`JOINER_LEFT_AN_EMPTY_LAST_WORDS_FILE`、`UNARRIVED_WITH_NO_JOINER_WORDS` 本轮只由合成行驱动（行文本逐字抄自上面的真跑日志），**没有活体样本**。本轮不把这些格子说成测过。
+
+### 2.107.4 判别力：反照做在测试内部，逐格删行
+
+不用一次性预埋也能证明每条读的是那一行——这些控制直接进了正式测试：
+
+1. 健康入服那格：`ARRIVED + 遗言 + 'outcome': 'CLIENT_EXITED'` ⇒ `ARRIVED`；删掉到达句 ⇒ `JOINER_ENDED_WITH_CLIENT_EXITED`（`test_a_run_that_arrived_is_never_counted_as_a_death`）。这一条锁死"到达优先"，否则成功入服会被数进死亡分布。
+2. `CLIENT_EXITED` 带崩溃报告 ⇒ `CLIENT_DIED_AT_BOOT_WITH_CRASH_REPORT`；同一份日志删掉报告行 ⇒ `JOINER_ENDED_WITH_CLIENT_EXITED`。
+3. 同一批行有 `HANDSHAKE_TIMEOUT` ⇒ 具名；删掉结论行 ⇒ `UNARRIVED_WITH_NO_JOINER_WORDS`（`test_the_token_for_an_unarrived_run_moves_when_its_evidence_line_moves`）——这条排除"只认那句 never arrived"的假分类器。
+4. 客户端自述压过宿主判读：`BARE + THE_WORLD_STATUS_IS_NOT_PROBEABLE + 'outcome': 'HANDSHAKE_TIMEOUT'` ⇒ 具名为握手超时，且 evidence 里不含 downstream 行。这是 §2.93 记的那次误归因（把 25570 端口没人应答当成结论）的反面。
+5. 窗口两种结尾不塌成一格。
+6. 枚举封闭：`MYSTERY_ENDING` 不成为新 token。
+7. `main()` 层：`--only-unarrived` 只隐藏到达样本（计数表仍报 `ARRIVED 4`，测试因此只看逐条列表段），无输入返回 2 而不是交出一张空分布。
+
+### 2.107.5 门读数（逐条读 rc，全部本地）
+
+| 门 | rc | 读数 |
+|---|---|---|
+| `uv run pytest -q tests/unit/test_tally_joiner_arrival.py` | 0 | 11 passed |
+| `uv run ruff check .` | 0 | All checks passed |
+| `uv run ruff format --check .` | 0 | 396 files already formatted（394 → 396：本卡新增两份 `.py`，该门数发现的文件数） |
+| `uv run pyright` | 0 | 0 errors, 0 warnings |
+| `tools/check_boundaries.py` | 0 | package dependency boundaries: OK |
+| `tools/check_case_assertions.py` | 0 | 151 registered（与 §2.106 同数 ⇒ 判据/registry 零位移） |
+| `tools/verify_fixture_digests.py` | 0 | W00 schema and fixture digests: OK |
+| `tools/check_workflow_pins.py` | 0 | Workflow pins: OK |
+| `uv run pytest -q` | 0 | 2834 passed / 2 skipped（412.06 s；§2.106 那轮 2823，+11 正是本卡的 11 条新测试） |
+
+只动 `tools/**` 与 `tests/unit/**`：没动判据、case 摘要、registry、bundle 或封证 ⇒ 门载荷零位移；Dashboard 与 `test-orchestrator/**` 字节未动，TS 侧四条门与战役重跑不在本卡。
+
+### 2.107.6 缺口与下一步
+
+1. **分布还需要真发数**：验收 ③ 要求"若干发"。现有 9 份日志里未到达只有 3 份且同一格。跑更多样本要在既有入口上按 `--again`（`test-orchestrator/runner/demo-lan.sh:150`）对同一私有卷重复，然后把新日志交给同一条 `tools/tally_joiner_arrival.py` 命令——本轮不启动这些活体 run，因为它们要在用户机器上真起 JVM 与容器，且卡面决定（是否给 `demo-lan.sh` 加自动重跑）本来就排在读数之后。
+2. **崩溃报告那一格只能从客户端目录读**：工具读的是 stderr 日志里那句 `it left a crash report: <路径>`，报告正文不进分布；要把 `[0x1000E]` 与"客户端自己 OOM"分开，得再读一份 `crash-reports/` 的首行，本卡没做，也不谎称分得开。
+3. **宿主侧日志不是加入者样本**：`ARRIVAL_NOT_REPORTED_IN_THIS_LOG` 是有意的一格，防止把宿主 run 日志数进死亡分布；它不是产品结论。
+4. **`#86` 只闭合到读数层**：分布具名之后，"要不要自动重跑、重跑几发"仍是需要样本量支撑的下一步，本卡不替它决定。
+5. **主控保留**：写面（`V1201-DASHBOARD-WRITE-SURFACE-DECISION`，`docs/standalone-runtime-dashboard.md:180 / :206`）、在线认证策略、门禁晋级。
+
+本轮不宣称 goal 完成。
