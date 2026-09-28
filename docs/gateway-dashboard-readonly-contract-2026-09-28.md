@@ -150,7 +150,15 @@ D1 把 alerts 解码成裸数组（`gatewayAdapter.ts:334-371`），而 Core 没
 - 全部 `not_wired` 字段带非空 `reason`；`alerts` 返回信封形状。
 - 响应体里凭据字面量扫描为空（复用 `_find_secret` 的名字表，不重造）。
 - 不挂规范卷、不连用户远程服；离线可跑（只用 `session status` 与已封 bundle 的读路径）。
-- 新增 case 一律**不登记** ⇒ 门载荷必须仍是 `cfa0f1184bee30df6a1d9fcf45778c9cef074ece6761c47fe7d6b9f49863afd6`，前后各量一次并配对。
+- 新增 case 一律**不登记** ⇒ 门载荷必须与实施前逐字节相同（前后各量一次并配对）。
+  - 本节原先写的期望字面值是 `cfa0f1184bee30df6a1d9fcf45778c9cef074ece6761c47fe7d6b9f49863afd6`，那是 **H1i 时代的历史读数**，保留在此不删，但它已不是当前基线：#68 的移动窗口判据变更把 `V1201-LAN-JOINER-CONTROL-CASE-001` 的 `case_version` 从 `1e31f0003b4e30e06506e086616335db73ec975b406874d219033f151b3f812a` 移到了 `397cefb…`，于是那条已封真证被改判 `re_judged=UNJUDGED`，W60 与 p0-core 各多出一条 `CASE_VERSION_MISMATCH`，overall blocks 变为 `["CASE_VERSION_MISMATCH","REQUIRED_CASE_NOT_REGISTERED"]`。⇒ 判据变更合法地移动了门，与 G 卡无关。
+  - G 卡落地时的配对读数：同一份规范卷、同一容器，**前**取 `git archive HEAD` 导出的干净树、**后**取含 `gateway/**` 的工作树，两遍 `report_promotion.py` 各 rc=1、报告 106296 字节、逐字节相同，`gate_payload_sha256` 均为 `e7e8f32f5a2261c62ce999fe690a96ae4bdf746cfddcd39a5276745c00ef8baf`。⇒ 本卡自身零门位移动，且未登记任何 case、未改任何 mandatory/registry。
+- 落地侧证据（2026-09-28，提交 `0bcdc84`，远端 `main` 已核对该 SHA）：
+  - 服务端与读模型在 `gateway/`（`readmodel.py` 投影、`server.py` 三条 GET 循环环绑定、`signals.py` 信封），测试在 `tests/gateway_support.py` + `tests/unit/test_gateway_readmodel.py` / `test_gateway_server.py`，共 46 条针对性用例绿。
+  - 三门复量：`ruff check` 通过、`ruff format --check` 390 files、`pyright` 0 errors、`git diff --check` 净、wheel 边界 OK（`gateway` 不入包）。`pyproject.toml` 为此把 `gateway` 加进 pyright/ruff 的 `src`/`include`、把 `.` 加进 pytest `pythonpath`（读模型在产品包之外，见 `docs/adr/0001-p0-modular-monolith.md`）。
+  - 真 HTTP 读数（挂规范卷 `:ro`、只读，未连任何远程服）：`kin-e7-join-0928` 上三条路由各 200（snapshot 4264 B / timeline 25 限 6770 B 实得 23 行 / alerts 256 B），POST/PUT/DELETE/PATCH 全部 405 `{"error": "the read model serves GET only"}`，表外路径 404，SIGINT 后进程 rc=0。信封规则（§2.2 四条键 + 非 known 必带非空 reason + `sourceRef` 非空串）在真字节上零违规。原始读数 `.tmp/gates/g-card-live-http-out.json`。
+  - 该 kin 的真实面：`evidence` 与 `versions` 今天能 `known`（已封 bundle `a224f6c3…`、digest `5086ee42…`、`fabricLoader 0.19.5`、`java Temurin-21.0.12.1+1`、minecraft `1.20.1`），`selfState` 具名 `unavailable`，`liveView` 具名 `not_wired`，`alerts` 返回 `{status:"not_wired", reason:"Core 无告警源…", alerts:[]}`。
+  - 一个字段语义澄清（下游 D 卡要用）：`versions.runtime` 装的是 bundle 清单记的**游戏运行时版本（Minecraft）**，不是 Core 自己的版本号；Core 版本今天仍无具名读接口，所以 `clientBundle` 与 `bridge` 留在 `not_wired`。UI 标签要照这个口径写，别让人读成「产品运行时 1.20.1」。
 
 ### 6.3 `DASHBOARD-GATEWAY-WIRING-001`（D lane，`dashboard/**`）
 
@@ -170,9 +178,14 @@ D1 把 alerts 解码成裸数组（`gatewayAdapter.ts:334-371`），而 Core 没
 - 既有 Dashboard / IPC 契约文本：`docs/standalone-runtime-dashboard.md`（全文 241 行；Gateway 职责、HTTPS/WSS、P0 以 CLI 代替、WS 不暴露密钥那几段）、`docs/runtime-ipc-deployment-contract.md:7-17,23-39,83-92`（进程所有权表与必验项 5）。本记录不推翻它们，只把「浏览器读什么」落到字段级。
 - 口径提醒：本记录里唯一非仓库字节的读数是 §3 `world.profileId/profileName` 那格提到的台账行，它取自 **M 的私有卷活体**（`.tmp/r75e/out-host/r75e-online-false/90-readouts.txt` 第 (g) 段）⇒ 它证明字段形状存在，**不是 sealed bundle**，也不作为任何晋级依据。其余全部读数只取仓库字节，本卡全程未挂载任何数据卷。
 
+- G 卡侧的可复现命令（读模型 + 真 HTTP 读，两条都只挂 `:ro`）：
+  - 针对性测试：容器内 `PYTHONPATH=/src:/src/src LD_LIBRARY_PATH=/opt/sqlite/lib python -m pytest tests/unit/test_gateway_readmodel.py tests/unit/test_gateway_server.py` ⇒ 46 passed。
+  - 起服务端并读三条路由：同一容器里 `python -m gateway.server --data-root <卷根> --kin <kin 名> --host 127.0.0.1 --port 8787`，脚本 `.tmp/gates/g-card-live-http.py` 会自己拉起子进程、GET 三条、对四条写动词各打一枪、再探一个表外路径，并把结果打成一份 JSON 报告。根目录是 `MINEKIN_HOME` 那一层，kin 名在它下面的 `kin/` 里（卷根有 18 个 kin，所以 `--kin` 必填）。
+  - 中文全角标点走 `gateway/readmodel.py` 文件级 `# ruff: noqa: RUF001` 加三行理由（与 `restart_rules.py` 同法）；**不**放开全局 `allowed-confusables`，那会让已有文件的 noqa 变成 RUF100，等于改写未触及文件的门读数。
+
 ## 8. 未验证 / 停在决策门的格子
 
-- **没有实现服务端**：本记录只冻结读模型与边界，真实响应形状、时延、并发读一个 SQLite 台账的行为全部未测（G 卡第一件事就是把它跑红跑绿）。
+- **服务端已经落地并跑过真 HTTP 读**（见 §6.2 落地侧证据，提交 `0bcdc84`）：仍然未测的是浏览器侧的真实界面读数（D 卡当前在飞）、多客户端并发读同一个 SQLite 台账的行为、以及 3 秒超时下的时延分布。
 - **`world.worldContext` / `epoch` 的值能不能给用户看**未裁决：它们与世界 seed、存档目录名相邻，而 §4 只保证凭据不外泄，没有覆盖「世界坐标类信息」。⇒ 属主控/产品决定，本轮把它留在 B 档并显式标出。
 - **哪些 run document 拒止算「告警」**是产品语义（`cognition_refusals`、`report_refusals`、`snapshot_rejections`、`input_refusal` 都在文档里，但没人规定阈值）。⇒ §5.3 先按「无源」封住，等有决定再开。
 - **跨 bundle / 跨世界的长期视图**（Live View、多 Kin 总览）仍在本契约之外：`P2 媒体` 与 `HOST/PERSIST` 各守原决策门。
