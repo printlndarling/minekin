@@ -30,24 +30,27 @@ export interface ReadHealth {
 }
 
 /**
- * Counts read results by object identity. TanStack hands back the same `data`
- * reference until a poll replaces it, so a re-render (including React's strict
- * double-render) cannot inflate the streak or move the last success.
+ * Counts settled reads, keyed on the moment the read landed rather than on the
+ * result object's identity. Two consecutive failures that say exactly the same
+ * thing are one fact to TanStack — structural sharing hands back the same
+ * reference — so identity would freeze the streak at 1 while the polls kept
+ * failing. `dataUpdatedAt` advances with every settled read, and a re-render
+ * (including React's strict double-render) cannot advance it.
  */
-function useReadHealth(adapterId: string, data: ReadResult<unknown> | undefined): ReadHealth {
-  const seen = useRef<{ adapterId: string; data: ReadResult<unknown> | undefined; streak: number; lastSuccessAtMs: number | null }>({
-    adapterId,
-    data: undefined,
-    streak: 0,
-    lastSuccessAtMs: null,
-  });
-  if (seen.current.adapterId !== adapterId || seen.current.data !== data) {
+function useReadHealth(adapterId: string, data: ReadResult<unknown> | undefined, readAtMs: number): ReadHealth {
+  const seen = useRef<{
+    adapterId: string;
+    readAtMs: number;
+    streak: number;
+    lastSuccessAtMs: number | null;
+  }>({ adapterId, readAtMs: -1, streak: 0, lastSuccessAtMs: null });
+  if (seen.current.adapterId !== adapterId || seen.current.readAtMs !== readAtMs) {
     seen.current =
       data === undefined
-        ? { adapterId, data, streak: 0, lastSuccessAtMs: null }
+        ? { adapterId, readAtMs, streak: 0, lastSuccessAtMs: null }
         : data.ok
-          ? { adapterId, data, streak: 0, lastSuccessAtMs: Date.now() }
-          : { adapterId, data, streak: seen.current.streak + 1, lastSuccessAtMs: seen.current.lastSuccessAtMs };
+          ? { adapterId, readAtMs, streak: 0, lastSuccessAtMs: Date.now() }
+          : { adapterId, readAtMs, streak: seen.current.streak + 1, lastSuccessAtMs: seen.current.lastSuccessAtMs };
   }
   const { streak, lastSuccessAtMs } = seen.current;
   return { failureStreak: streak, lastSuccessAtMs };
@@ -66,7 +69,7 @@ export function useSnapshot(adapter: KinReadAdapter): SnapshotRead {
     staleTime: POLL_INTERVAL_MS - 500,
     refetchOnWindowFocus: false,
   });
-  const health = useReadHealth(descriptor.id, query.data);
+  const health = useReadHealth(descriptor.id, query.data, query.dataUpdatedAt);
 
   return useMemo<SnapshotRead>(() => {
     const data = query.data;

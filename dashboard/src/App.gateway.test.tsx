@@ -1,8 +1,9 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
 import type { DashboardConfig } from "./adapters/config";
 import { READ_ENDPOINTS } from "./adapters/gatewayAdapter";
+import { POLL_INTERVAL_MS } from "./hooks/useKinReads";
 import {
   REAL_ALERTS_ENVELOPE_WIRE,
   REAL_AFTER_SESSION_SNAPSHOT_WIRE,
@@ -29,6 +30,7 @@ const CONFIG: DashboardConfig = { adapter: "gateway", scenario: "healthy_run_07"
 const originalFetch = globalThis.fetch;
 afterEach(() => {
   globalThis.fetch = originalFetch;
+  vi.useRealTimers();
 });
 
 function jsonResponse(data: unknown, status = 200): Response {
@@ -153,6 +155,35 @@ describe("Gateway 真实传输：会话阶段只从台账行读出", () => {
     expect(screen.getByTestId("progress-failure")).toHaveTextContent("时间线读取失败（disconnected）");
     expect(screen.queryByTestId("progress-counts")).toBeNull();
     expect(screen.getByTestId("data-source-banner")).toHaveTextContent("真实读数");
+  });
+
+  it("断连计数跟着每次失败的轮询走，不把断开只记一次", async () => {
+    // The live shape this guards: every failed poll says exactly the same thing, so
+    // TanStack's structural sharing hands back the same result reference. Counting by
+    // that reference left the banner reading 「连续 1 次」 after half a minute of outage.
+    let polls = 0;
+    globalThis.fetch = (async () => {
+      polls += 1;
+      throw new Error("Connection refused");
+    }) as unknown as typeof fetch;
+
+    vi.useFakeTimers();
+    render(<App config={CONFIG} />);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(screen.getByTestId("poll-state")).toHaveTextContent("断连 · 连续 1 次读取失败");
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3 * POLL_INTERVAL_MS);
+    });
+    // Non-vacuity: the wait really spanned several intervals, so the count cannot be 1
+    // because only one read ever happened.
+    expect(polls).toBeGreaterThanOrEqual(3);
+    expect(screen.getByTestId("poll-state")).toHaveTextContent(/连续 ([3-9]|\d{2,}) 次读取失败/);
+    expect(screen.getByTestId("data-source-banner")).toHaveTextContent("真实读数");
+    expect(screen.getByTestId("data-source-banner")).not.toHaveTextContent("模拟数据");
   });
 });
 

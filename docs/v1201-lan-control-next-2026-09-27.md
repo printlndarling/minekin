@@ -2434,3 +2434,87 @@ dashboard 侧的 vitest（97 passed）与 Playwright 活体 e2e（11 passed）�
 6. 下一张回 P4：破坏性会话（crash/重连）与异常准入两侧的活体读数需要在同一枚 `--gateway` 卷上真跑并把结果同样重采成 fixture；随后是离线身份与长跑。`.tmp/browse/` 这几份继续只当取证现场，不往里加逻辑。
 
 本轮不宣称 goal 完成。
+
+## §2.99 面板的「连续 N 次读取失败」永远停在 1：断连计数改按读数落点走，并把断开与恢复两侧接进正式 e2e（第九十九轮，2026-09-29 04:40 +0800，M 亲跑，判据/fixture/registry/门载荷零位移）
+
+本轮从队列 #91（恢复侧活体验证）起步，做的仍然是「让面板说的话可证」。区别在于：这次量到的红色落在产品字节上，不在入口脚本上。
+
+### 2.99.1 两条红色各自是什么（材料都留着）
+
+第一条是本轮新测试自己的错。恢复用例写了 `expect(banner).toContainText("读数正常", { timeout: 180_000 })`，Playwright 仍然在 30 秒判失败——`dashboard/playwright.config.ts` 没有设 `timeout`，用例级默认 30 s，断言级超时越不过它。`.tmp/recover/e2e_recover_cut_at_30s.log` 里那行 `Test timeout of 30000ms exceeded.` 就是这条。把用例级提到 240 s 之后，同一条入口在网关回到 8799 时给出 `读数正常 · 每 5 秒轮询`（§2.99.4）。
+
+第二条是产品缺陷，而且第一次跑就已经露出来：那份红色材料里的横幅文字，在页面开了约 28 秒之后仍写着 `断连 · 连续 1 次读取失败 · 尚无成功读数`。轮询间隔 5 s ⇒ 至少 5 次失败读数已经过去，计数没有动。
+
+根因在 `dashboard/src/hooks/useKinReads.ts` 的 `useReadHealth`：它按 `data` 的**对象身份**判断「这是新的一次读数」。TanStack Query 写入缓存前做结构共享，两次内容完全相同的失败读数在它看来是同一个事实，于是回抛同一个引用；`App.tsx:45` 又钉了 `retry: false`，每轮询只 settle 一次。断开期间 `seen.current.data !== data` 恒不成立，`failureStreak` 只能从 0 走到 1，再也不会往前走。同一句里的 `每 5 秒自动重试` 仍然对——它读的是常量；错的是「连续 N 次」里的那个 N。也就是说，面板在断连时报出的是一条**构造上无法增长**的计数。
+
+既有测试为什么没抓到：`App.gateway.test.tsx` 里唯一驱动断连的那条只等第一次失败就断言 `连续 1 次`，从不推进第二个轮询周期——这条判据从来没有被第二个轮询驱动过。
+
+### 2.99.2 改法：按落点时间计数，并让这条判据真的跑过第二个轮询
+
+`useReadHealth(adapterId, data, readAtMs)` 现在以 `query.dataUpdatedAt` 为「一次读数落地」的凭据：每次 settle 都推进它，而重渲染（含 React strict 双渲染）不能。失败 → `streak + 1`、`lastSuccessAtMs` 不动；成功 → 归零并记下这次落点；`data === undefined` → 两者都归零，保持「从未有读数」与「有过读数后断开」可分。
+
+新增正式测试 `App.gateway.test.tsx` 第 177 行起：「断连计数跟着每次失败的轮询走，不把断开只记一次」。`vi.useFakeTimers()` 下先断言 `连续 1 次`，再推进 `3 × POLL_INTERVAL_MS`，要求匹配 `/连续 ([3-9]|\d{2,}) 次读取失败/`，并同时断言 fetch 真被调了 ≥3 次——后者是非恒真对照：没有它，「计数没动」也可能只是因为根本没发生第二次读数。
+
+种红读数（把 `HEAD` 版 hook 放回工作树，只跑这一条用例，`RC[vitest-streak-red]=1`）：
+
+```
+expected: /连续 ([3-9]|\d{2,}) 次读取失败/
+received: 断连 · 连续 1 次读取失败 · 尚无成功读数 · 每 5 秒自动重试
+```
+
+同一条用例在修复字节上转绿（`RC[vitest-streak]=0`，该文件 10 passed）。种红前把改好的 hook 备份到 `.tmp/recover/useKinReads.fixed.ts`，跑完按 `sha256sum` 对回工作树字节一致（`fafec54d743e…`），没有用 `git checkout --` 撤自己的未提交改动。
+
+### 2.99.3 新增的正式 e2e：断开与恢复两条都是 opt-in 活体入口
+
+`dashboard/e2e/live-gateway-disconnect.spec.ts`（73 行）两条都靠环境变量门控，因为需要 preview 的代理目标**此刻无人应答**：
+
+- `E2E_LIVE_GATEWAY_DOWN=1` ⇒ 「断连说清连续失败次数与重试间隔，并且不回落到模拟读数」：先断 `真实读数`、`断连`、`连续 \d+ 次`、`每 5 秒自动重试`、不出现 `模拟数据` 与 `读数正常`，再等两个轮询周期要求计数 ≥2。用例级 60 s。
+- `E2E_LIVE_GATEWAY_DOWN=1 E2E_LIVE_GATEWAY_RECOVER=1` ⇒ 「Gateway 重新应答后同一个页面自己回到读数正常」：同一页面先 `断连`，随后只等待——把网关起回同一端口是操作者的动作，测试不扮演运维（契约是轮询式的，也没有推送）。用例级 240 s（`RECOVER_TIMEOUT_MS + 60_000`，注释写明了为什么）。
+
+配套配方就写在文件 docstring 里：停掉 `demo-lan.sh --gateway`，跑上面第一条命令，约一分钟后在同一目录再跑一次 `demo-lan.sh --gateway`。
+
+### 2.99.4 活体读数（构建产物 + 已封存台账卷 `minekin-m87b-lan` / `kin-lan87b-join`，网关 8799）
+
+传输层先量清，再让面板说话（材料 `.tmp/recover/phase_ab.log`、`phase_c.log`）：
+
+| 相位 | 三条代理路由 `/gateway/api/v1/dashboard/{snapshot,timeline,alerts}` | 直连 `127.0.0.1:8799` |
+| --- | --- | --- |
+| A 起程 | 200，4252 / 15057 / 255 B | 200，同长同字节 |
+| B 停掉本轮自己起的网关容器 | 500，0 B | `http=000`，curl rc=7（连接被拒） |
+| C 用 `demo-lan.sh --gateway` 起回同一端口 | 200，与 A 逐字节相等（叶子差异只有 `observedAt`，4 / 1 / 0 处） | 200 |
+
+面板侧（`pnpm build` 后由 `vite preview` 服务同一份 dist，`MINEKIN_GATEWAY_TARGET=http://127.0.0.1:8799`）：
+
+* 断开用例：`ok 1 … 断连说清连续失败次数与重试间隔，并且不回落到模拟读数 (5.9s)`。5.9 s 只够两轮询，说明计数在真实 HTTP 500 之路上确实走到了 ≥2 —— §2.99.1 那条「构造上无法增长」的读数在修复字节上不再出现。
+* 恢复用例：`ok 2 … Gateway 重新应答后同一个页面自己回到读数正常 (1.3m)`，收尾 `2 passed (1.4m)`、`RC[e2e-recover2]=0`。这一条里网关在第 75 秒起回 8799，页面没有重载过。
+* 断开期间 vite 代理同时报出两种上游形状：`connect ECONNREFUSED 127.0.0.1:8799` 与 `socket hang up`（后者出现在起停的那一下）。面板对两者给同一句断连，因为它判的是「这次读数没有落地」，不是上游异常的种类。
+* 完整套件（`E2E_LIVE_GATEWAY=1`，网关在线）：`11 passed, 2 skipped`，`RC[e2e-full]=0`——两条断连用例没有活的死目标时如实 skip，不冒充跑过。
+
+### 2.99.5 门读数与交付字节（全部在最终字节上）
+
+| 门 | 结果 | rc |
+| --- | --- | --- |
+| `pnpm typecheck`（`tsc --noEmit`） | 无输出 | 0 |
+| `pnpm test`（vitest 全量） | 9 files / 98 passed（§2.98 那笔是 97，+1 即本轮新增那条） | 0 |
+| `pnpm build` | `dist/assets/index-DCSJ5DtU.js` 304.32 kB | 0 |
+| `pnpm e2e`（网关在线，`E2E_LIVE_GATEWAY=1`） | 11 passed, 2 skipped | 0 |
+| `pnpm e2e e2e/live-gateway-disconnect.spec.ts`（网关断开 + 中途起回） | 2 passed (1.4m) | 0 |
+
+| 交付文件 | 行数(LF) | 字节 | sha256（LF 归一） |
+| --- | --- | --- | --- |
+| `dashboard/src/hooks/useKinReads.ts` | 136 | 5713 | `2ad4b3b07d3bb57c9d3e98c87b7b6c9342c75752edc2b739498504821736bd04` |
+| `dashboard/src/App.gateway.test.tsx` | 233 | 12463 | `b9ea735c1ea9ffd83337dfb7b43ec955703c35d65dc58145ead08e1819836395` |
+| `dashboard/e2e/live-gateway-disconnect.spec.ts` | 73 | 3842 | `9441cdd4a6ad26cac5e327ff34b08acbc0df9745b3b4431c66699ab281ab59b1` |
+
+Python 侧本轮**没有改任何 `.py`、契约脚本、fixture 或 registry**：判据、case 摘要、门载荷字节零位移，既有封证不受影响（见本卡标题）。但仓库里多了一份 `.md` 与 `.ts` 字节的变化，Python 门仍按最终字节重跑一轮，逐步 rc 记在 `.tmp/recover/gates4.txt`（单写者批次；此前那枚 `gates3.txt` 被两批任务先后追加写过，同一份文件里混着两种 rc 行格式，已不可归因，故不引用）；`ruff format --check .` 的文件计数不含 `.ts`，`.md` 只改未增，故仍报 394 份。批次里 `ruff check / ruff format / pyright` 三步跑在这段话定稿之前，只有读 `.md` 的两步需要补量：本节最后一次字改动之后把 `uv run ruff check .` 与 `uv run ruff format --check .` 再各跑一遍，输出记在 `.tmp/recover/ruff_final2.txt`，rc 均 0、仍 `394 files already formatted`；pytest（2817 passed, 2 skipped）与其后各步都在最终字节上。
+
+### 2.99.6 具名缺口与下一步（不要读成「断连状态已经全部可证」）
+
+1. **计数会说「连续几次」，仍不会说「断开发生在何时」**：`lastSuccessAtMs` 只在成功落点写；一场从未成功过的会话只能报 `尚无成功读数`。要给出「断开已持续 X 秒」需要一个不依赖成功读数的起点，本轮没有引入。
+2. **恢复那半条不能进无人值守套件**：它要操作者把网关起回同一端口。这是刻意的（契约无推送，测试不该扮演运维），代价是只有环境变量门控下才跑，CI 里它保持 skip。
+3. **240 s 的用例级超时是经验值**：真机重启一枚只读容器在 5–20 s 量级，余量给的是操作者手速，不是产品承诺；换机器不保证同形。
+4. **跨 PID namespace 的存活盲区沿用 §2.97.5 第 1 条 / §2.98.6 第 2 条**：本轮没触碰 `runtimeState` 与 `inputLeaseHeld` 的构造性缺口。
+5. **`--browse` 起到的仍是只读面**：三条只读 GET 之外的写路径照旧 405，`V1201-DASHBOARD-WRITE-SURFACE-DECISION`（`docs/standalone-runtime-dashboard.md:180 / :206`）仍在主控手上；本轮没有把只读授权扩成写权限。
+6. **活体证据仍来自同一份已封存台账**（`kin-lan87b-join`，会话 `8b53ac5a…`）：破坏性会话（crash/重连）与异常准入两侧的读数还没在同一枚 `--gateway` 卷上真跑过，那是 #90 与 #91 剩下的部分。
+
+本轮不宣称 goal 完成。
