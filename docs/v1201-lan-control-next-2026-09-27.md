@@ -1719,3 +1719,34 @@ python .tmp/ci_steps.py c43a6d3   # 日志：.tmp/m-r74-ci-c43a6d3.log
   - lane 侧：`codex/minekin-lan-joiner-bounded-control` tip `1ce9dc0`、脏 0 行、`origin/main..HEAD = 0` ⇒ §2.22 与 H1k 的在途工作全部已在主干，M 本轮对 lane 树零写入、零代提交；主目录检出的 `codex/core-state-transition@6a02ac6` 亦 `ahead=0`。
 - **未验证/待判**：`#58 (乙)` 本轮**判完**（三式：A 具名失配落两份台账 / ④ 单名同拒 / ⑤ 显式 `false` 两名 PLAYABLE 且谓词命中 0 ⇒ 两层层分裂 + 非恒真）；仍开放的是 **#68**（未请求自行位移可单独满足 `the_server_saw_the_kin_move`，属判据与封存 schema 侧 ⇒ 主控保留）、⑤ 新登记的「退出码 14 无判别力」是否要接成判据（同样主控保留，本轮不动判据）、§3 两类独立工作（只读 Gateway 契约设计、B2 非 HOST case 先设 oracle 后真跑）、V08/远程服与 HOST/PERSIST 侧。
 - **队列**：主干唯一 `current_next` 仍是 `PARALLEL-INTEGRATION-GATE-001`；本节不新增 `NEXT`，也不以「三式跑完」或「暂无待合分支」作为 goal 完成条件。
+
+## §2.72 第七十六轮欠的两格补记：`c3a3bf5` 自身的 CI 已读到步骤级，规范卷「卷面」这一格反而暴露出口径不成立（第七十七轮，M 主控）
+
+### ① 为什么单独补一节
+
+§2.71（判完 `#58 (乙)`）落盘并按规矩提交后，账上欠两格：那笔提交**自身的** CI（按纪律不在本节宣称，也不许引用上一笔的绿充数），和 §2.70 起沿用的规范卷「卷面」三元组。前者本轮读到了；后者本轮量出来发现**口径本身站不住**，所以两格一起补，并把其中一格改成具名空白。
+
+### ② `c3a3bf5` 的 CI：三张 job、步骤级逐张取数
+
+- 主干远端逐字同值：`git ls-remote origin refs/heads/main` = `c3a3bf5cec49c2dc9e74fab106aaa8e32f3db09f` = 本地 `HEAD`。
+- 该 SHA 只有 **1** 条 workflow run：`36370970368`「CI」，本轮从 `in_progress` 第 5 次轮转 `completed / success`（轮询 `actions/runs/<id>`，具名等待而非事后追认）。
+- 步骤级读数取自 `actions/runs/36370970368/jobs`：`python` job 全部步 `completed/success`（`ruff check`、`ruff format --check`、`pyright`、`pytest`、四道 `tools/check*` 与 `tools/verify*`、`uv build --wheel`、`minekin --help`），`bridge-static` 9 步全 `success`，`protocol` 10 步全 `success`；脚本按 `conclusion not in (success, skipped)` 汇总的红步清单 = **空列表**（`NON_SUCCESS_STEPS []`）。原始 JSON 留在 `.tmp/m-r76/{run,jobs}.json`。
+- 本地侧同样逐道单跑并先读 rc 才写进 commit message：`ruff check` rc=0、`ruff format --check` rc=0（`376 files already formatted`）、staged `git diff --check` rc=0（日志 `.tmp/m-r76/gates/`）。
+
+### ③ 门载荷复量与一处我自己写错的口径（具名更正）
+
+- 安静窗（`docker ps` 只命中别项目的 `statefix-audit`，无 MC 引擎）、`minekin-runner-data:/data:ro` + `/src:ro`，按登记的配方（`.tmp/m-r12-payload.sh`）重跑：`report_rc=1`、**`gate_payload_sha256` 第 18 次同值 `cfa0f1184bee30df6a1d9fcf45778c9cef074ece6761c47fe7d6b9f49863afd6`**、`overall_blocks` 仍只有 `REQUIRED_CASE_NOT_REGISTERED`、`W30.absent` 2（`OFFLINE-060/080`）/`non_mandatory` 11/`misattributed` 0，`p0-core.absent` 9/`non_mandatory` 24/`misattributed` 0。⇒ §2.71 那三式零新封、零登记，门不位移，这一点是被量出来的。
+- **更正 §2.70 的 `size=104680`**：同一份报告，stdout 单流是 **104681** 字节，104680 是把 stderr 并进同一文件后的计数——两件东西，此前混写过一次。此后本节一律报单流数。
+
+### ④ 规范卷「卷面」这一格：三元组无可指配方，本轮不复用旧数
+
+- 本轮想复量 `101/18/186`，但在卷上只量到两件可对号的事实：`/data/kin` 目录条目 **18**，与三元组中项同值；全卷 `find /data -name manifest.json` = **114**（样例路径 `/data/kin/kin-02/run/evidence/35fa702d…/manifest.json`），它既不等于 101 也不等于 186。`/data/evidence` 在卷上不存在，`/data/runs` 为空。
+- ⇒ 那个三元组**没有一条我能当场复现的计数配方**（全仓与本轮文档 grep 只找到引用它的句子，找不到产出它的命令）。按「读数必须当场取得」的规矩，本轮不把它当本轮读数引用，也不改写 §2.70 的历史记录；这一格改记为**具名空白**：卷面 bundles/kins/cases 的配方待从 `report_promotion` 的具名字段（`attempts`/`bundles`/`from_another_build` 那一组）取，取到之后再入册，届时会具名申报三元组各来自哪个字段。
+- 顺带一条脚手架教训（不改产物）：我第一次用自写的 glob 猜 `bundles/*/*/manifest.json` 形状，在卷上命中 0；改用全卷 `find` 才拿到 114，但那一次扫描超过门内时限转后台。**先读代码里真实的字段名，再断言「缺载体」**——这条在 §2.71 是谓词命中数，在这一格是计数配方，同一个坑的两面。
+
+### ⑤ 队列、约束与下一步
+
+- 主干唯一 `current_next` 仍是 `PARALLEL-INTEGRATION-GATE-001`；本轮不新增 `NEXT`，也不以「§2.71/§2.72 都落了」作为 goal 完成条件。
+- 待判/主控保留（本轮都不实施）：**#68** 未请求自行位移可单独满足位移门；⑤ 式那格「`rc=14` 对三种相反事实同码」是否接成判据；HOST/PERSIST 侧；V08/用户远程服。
+- 约束逐条：本轮零封存、零 registry/mandatory 变更、零 `src/**`/`tools/**`/`test-orchestrator/**` 字节改动（只动两份文档）；规范卷只 `:ro`；未连接用户远程服，`.tmp/local-test-server.txt` 未打开；lane 树 `../minekin-wt-h1k` 未写入、未代提交（tip `1ce9dc0`、脏 0、`origin/main..HEAD = 0`）。
+- 下一格可推进的独立工作按文档 §3 只有两类：只读 Gateway 契约设计（`DASHBOARD-GATEWAY-READONLY-CONTRACT-001`，不接线上真实写接口），或非 HOST case 的「先设计 oracle/载体、后真跑」。**本轮尚未开工**，不是已完成——先写 owner/allowed_paths/验收再动笔。
