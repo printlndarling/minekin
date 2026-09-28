@@ -185,26 +185,36 @@ def _follows(
 
 
 def _alive(report: StatusReport) -> bool:
+    """Whether a client this host can see is live.
+
+    The probe asks the reading process' own PID namespace, and a Kin root can be shared
+    with a reader that has none (the Demo mounts the store into a gateway container). Such
+    a reader reports `GONE` for a client that is alive elsewhere, because `Liveness` has no
+    carrier that names the namespace a pid belongs to. So this bool may only *withhold*
+    confirmation; it is never evidence that a row the ledger already wrote did not happen.
+    """
+
     return any(client.liveness is Liveness.ALIVE for client in report.clients)
 
 
 def bridge_link(rows: Sequence[EventRow], *, alive: bool) -> str:
     """The Core-to-Bridge channel, read off row order rather than a state machine.
 
-    `BridgeHelloAccepted` is the row Core writes once it has verified the client's
-    proof; the end-of-run rows are the ones it writes when that channel stopped
-    mattering. A launch with a process row and no hello has not proved anything yet,
-    which is the one honest meaning of `connecting` — and only while a client lives,
-    because a dead one cannot be about to finish.
+    `BridgeHelloAccepted` is the row Core writes once it has verified the client's proof,
+    so it is a recorded fact, and only a newer end-of-run row can undo it — a probe that
+    cannot see the pid says nothing about whether the hello happened. `connecting` is the
+    one reading that is about *now* rather than about the ledger: a launch with no hello
+    is still in progress only while a client is live, because a dead one cannot be about
+    to finish, and that is where `alive` decides.
     """
 
     last = _latest(rows, _BRIDGE_ROWS)
-    if last is None or not alive:
+    if last is None:
         return "disconnected"
     if last.event_type == HELLO_ACCEPTED:
         return "connected"
     if last.event_type == PROCESS_STARTED:
-        return "connecting"
+        return "connecting" if alive else "disconnected"
     return "disconnected"
 
 
@@ -212,16 +222,19 @@ def server_link(rows: Sequence[EventRow], *, alive: bool) -> str:
     """The client-to-server connection, from the same kind of row order.
 
     A hello says a client exists, not that it is in a world, so it reads as connecting;
-    only a join or playable row says connected. A hello *after* a join belongs to a new
-    generation that has not joined yet, which is why the newest row decides.
+    only a join or playable row says connected, and only a newer end row or hello undoes
+    it. A hello *after* a join belongs to a new generation that has not joined yet, which
+    is why the newest row decides.
     """
 
     last = _latest(rows, _SERVER_ROWS)
-    if last is None or not alive:
+    if last is None:
         return "disconnected"
     if last.event_type in _JOIN_ROWS:
         return "connected"
-    return "connecting" if last.event_type == HELLO_ACCEPTED else "disconnected"
+    if last.event_type == HELLO_ACCEPTED:
+        return "connecting" if alive else "disconnected"
+    return "disconnected"
 
 
 def lease_held(rows: Sequence[EventRow], *, alive: bool) -> bool:
@@ -229,7 +242,10 @@ def lease_held(rows: Sequence[EventRow], *, alive: bool) -> bool:
 
     A released or refused ask after a grant is the answer to it, and so is a run that ended
     without one — a client that failed or was interrupted holds nothing whatever its last
-    grant row says, and a dead process holds nothing either.
+    grant row says. A client the reader cannot see holds nothing either, and that refusal
+    is kept on purpose even though it can read false beside `server_link`: this is the one
+    member the panels might act on, so an unconfirmable authority claim goes unanswered
+    rather than optimistic.
     """
 
     if not alive:

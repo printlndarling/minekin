@@ -4,10 +4,11 @@ import { expect, test } from "@playwright/test";
  * Live read-through against a real Gateway, so the session-progress panel is proven on
  * the shipped transport and Core's own ledger bytes rather than on a stubbed fetch.
  *
- * It is opt-in because it needs a running Gateway (`demo.sh --gateway`) and a Kin whose
- * ledger exists: without `E2E_LIVE_GATEWAY=1` the case skips instead of inventing a run.
- * The expectations are recomputed here from the wire the same proxied endpoint answers, so
- * this is a second reader of the ledger and not a restatement of the derivation.
+ * It is opt-in because it needs a running Gateway (`demo.sh --gateway` or
+ * `demo-lan.sh --gateway`) and a Kin whose ledger exists: without `E2E_LIVE_GATEWAY=1` the
+ * case skips instead of inventing a run. The expectations are recomputed here from the wire
+ * the same proxied endpoint answers, so this is a second reader of the ledger and not a
+ * restatement of the derivation.
  */
 
 const LAUNCH_ROW = "SessionProcessStarted";

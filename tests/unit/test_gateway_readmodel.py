@@ -270,18 +270,25 @@ def test_a_newer_boundary_row_undoes_the_older_reading(
 
 
 def test_a_dead_client_holds_no_lease_though_its_last_grant_row_remains(tmp_path: Path) -> None:
-    """A frozen position is not a valid endpoint, and a frozen grant is not held input."""
+    """A frozen position is not a valid endpoint, and a frozen grant is not held input.
+
+    The two links are the other half of the reading, and they keep the ledger's answer:
+    a hello and a join are recorded facts, and a probe that reports `GONE` cannot tell
+    whether they happened — it can only say it cannot see that pid. `runtimeState` stays
+    Core's own host-side read, and `inputLeaseHeld` stays fail-closed, so the panel reads
+    "the ledger recorded a connection this host cannot confirm" rather than a clean cut.
+    """
 
     joined_run(tmp_path)
 
     document = snapshot_of(tmp_path, probe=gone)
 
     assert signal(document, "runtimeState")["value"] == "idle"
-    assert signal(document, "bridgeLink")["value"] == "disconnected"
-    assert signal(document, "serverLink")["value"] == "disconnected"
+    assert signal(document, "bridgeLink")["value"] == "connected"
+    assert signal(document, "serverLink")["value"] == "connected"
     assert reported(signal(document, "bridgeHeartbeat"), "inputLeaseHeld") is False
     # `joined` is the ledger's own record that a run reached a world, so it survives the client
-    # leaving it; the two links are claims about now, so they do not.
+    # leaving it; the lease is a claim about now, so it does not.
     assert reported(signal(document, "world"), "joined") is True
 
 
@@ -337,6 +344,35 @@ def test_a_dead_client_holds_no_lease_though_its_last_grant_row_remains(tmp_path
             False,
         ),
         ((row(1, INPUT_LEASE_GRANTED),), False, "disconnected", "disconnected", False),
+        # The reader-blind shape: a gateway container shares the Kin root but not the client's
+        # PID namespace, so `alive` is False beside rows that record a proved hello and a join.
+        # A recorded fact outranks a probe that cannot see the pid; only the live-authority
+        # claim and the un-proved handshake yield to it.
+        (
+            (row(1, PROCESS_STARTED), row(2, HELLO_ACCEPTED)),
+            False,
+            "connected",
+            "disconnected",
+            False,
+        ),
+        (
+            (row(1, PROCESS_STARTED), row(2, HELLO_ACCEPTED), row(3, JOIN_OBSERVED)),
+            False,
+            "connected",
+            "connected",
+            False,
+        ),
+        # The probe still decides the middle it is honest about: nothing proved a channel, so
+        # a client nobody can see is not a handshake in progress.
+        ((row(1, PROCESS_STARTED),), False, "disconnected", "disconnected", False),
+        # And an end row closes the reading whichever way the probe answers.
+        (
+            (row(1, PROCESS_STARTED), row(2, JOIN_OBSERVED), row(3, CLIENT_EXITED)),
+            False,
+            "disconnected",
+            "disconnected",
+            False,
+        ),
     ],
 )
 def test_the_projections_answer_from_row_order(

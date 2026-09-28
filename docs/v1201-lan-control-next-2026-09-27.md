@@ -2182,3 +2182,98 @@ python .tmp/ci_steps.py c43a6d3   # 日志：.tmp/m-r74-ci-c43a6d3.log
 * 落点：`test-orchestrator/runner/demo-lan.sh`、`test-orchestrator/runner/demo.sh`、`tests/contract/test_runner_scripts.py`、`test-orchestrator/runner/README.md` 与本文档；`src/`、`gateway/`、`dashboard/`、判据表、registry、fixture 摘要零位移。`.tmp/p3-lan-gateway/breaks/` 只留植入器与两份字节备份，可复用判据已在正式测试里。
 * 下一张：把 2.95.5 第 3 条补成一次真读数——用同一份 `--gateway` 卷起 `pnpm --dir dashboard dev`，取面板对 `kin-lan87b-join` 的渲染与断连/重试形状；随后回 P4 的恢复与异常准入。
 * 本轮不宣称 goal 完成。
+
+## §2.96 Gateway 的连接读数不再让跨容器的存活探针否决台账已经写下的行：`bridgeLink`/`serverLink` 按行序落值，`inputLeaseHeld` 保持失败闭合（第九十六轮，2026-09-29 02:26 +0800，M 亲跑，判据/fixture/registry/门载荷零位移）
+
+### 2.96.1 缺陷形状与修法
+
+缺陷是 §2.95.5 第 3 条追出来的，不是猜的：同一份卷 `minekin-m87b-lan`、同一个加入者根 `kin-lan87b-join`，加入者已经进了世界（演示日志 18:13:37 `CONNECTION_PHASE_JOIN_SEEN for generation 1`），而 Gateway 的 `/snapshot` 仍报 `bridgeLink=disconnected`、`serverLink=disconnected`、`world.joined=false`。面板于是和 `minekin status` 打架。
+
+根因在读取者的位置，不在数据：Gateway 跑在把自己的容器里，`os.kill(pid, 0)` 问的是它自己的 PID namespace，对宿主容器里活着的 398 号只会得到 `ProcessLookupError` ⇒ `Liveness.GONE` ⇒ `_alive()` 为 False。旧推导把这个 False 当成否决位——`bridge_link`/`server_link` 在 `last is None or not alive` 时一并回落 `disconnected`。而 `ProcessIdentity` 只带 `pid`/`started_at`/`argv_digest`，`Liveness` 没有任何「这个 pid 属于哪个 namespace」的载体，所以跨 namespace 的读者按构造区分不了「进程没了」与「进程在别处活着」。
+
+修法（`gateway/readmodel.py`，28 加 / 12 删）把两者分工写死：**行序是已经记录的事实，探针只能扣留确认，不能否决记录**。
+
+* `bridge_link`：无行 ⇒ `disconnected`；最新是 `BridgeHelloAccepted` ⇒ `connected`（不再要求可见的存活进程，只有更新的收摊行能撤销它）；最新是 `SessionProcessStarted` ⇒ `connecting if alive else disconnected`——「正在握手」是关于*现在*的读数，进程不可见时不给这个乐观中间态。
+* `server_link` 同形：`JoinObserved`/`PlayableEstablished` ⇒ `connected` 不再要求存活；`BridgeHelloAccepted` ⇒ `connecting if alive else disconnected`。
+* `lease_held` 明确保持失败闭合：即使它可能在同一份快照里读起来和 `serverLink=connected` 相反，也宁可不作答。理由写在 docstring 里——这是面板唯一可能据以行动的字段，不可确认的授权主张不能报成「现在有权」。
+* `runtimeState` 继续逐字透传 Core 的 `report.state.value`，Gateway 不自造状态机；`_session_group`/`_world_group`/`_heartbeat_group` 的 `staleAfterMs` 仍按存活给值或给 `None`；`world.joined` 本来就是纯行序读法，未动。
+
+契约核对：`bridgeLink`/`serverLink` 是 A 档「由事件行序投影，不得自造链接状态机」，本轮是把投影放回行序而不是新增状态；三值枚举（`disconnected/connecting/connected`）与 `KIN_STATES`/`LINK_STATES` 白名单都没变，所以 `dashboard/` 的 decoder 与 UI 零改动，只在 live e2e 的 docstring 里补了 `demo-lan.sh --gateway` 这个入口名。
+
+### 2.96.2 改动落点（三份文件，工作树字节都是纯 LF）
+
+| 文件 | blob(sha1) | 工作树 sha256 | 行数 | diff |
+| --- | --- | --- | --- | --- |
+| `gateway/readmodel.py` | `e4f29ec26779be0e9407e1c67688c194adbfc410` | `0fb4b675602ebd028a42eb786cab43aeb6d79dba083b05734ef28ce6774fa2cd` | 658 | 28 加 / 12 删 |
+| `tests/unit/test_gateway_readmodel.py` | `d16689396735d35e2b295e30bf07f49a985352be` | `e248f354f47a9358742f4fa4663409a425cfb42f2519e13fd3232f9e3f6941ce` | 658 | 40 加 / 4 删 |
+| `dashboard/e2e/live-gateway-session.spec.ts` | `06a1561614fb904b7e7648ec96e9d3a018ed67bd` | `779d69e071e9942850fc04bb286b51183db38bbd02789147300f336432fca920` | 97 | 5 加 / 4 删（仅 docstring） |
+
+`src/`、判据表、registry、fixture 摘要、`gateway/signals.py` 与三份 GET 路径零位移。消费者面也量过：`bridge_link`/`server_link`/`lease_held` 除 `gateway/readmodel.py` 自己和 `tests/unit/test_gateway_readmodel.py` 外无其他引用。
+
+测试侧的落点：
+* 重写 `test_a_dead_client_holds_no_lease_though_its_last_grant_row_remains`（`probe=gone` 的整份快照）：`runtimeState=idle`、`bridgeLink=connected`、`serverLink=connected`、`bridgeHeartbeat.inputLeaseHeld=false`、`world.joined=true`，docstring 说明握手与入服是 `GONE` 探针撤不掉的记录，而租约是关于*现在*的主张。
+* 在 `test_the_projections_answer_from_row_order` 的参数表尾部追加 **4 行** `alive=False` 的形状：hello 已证、hello+join（这两行是新读法），只有启动行、join 后被 `ClientProcessExited` 收摊（这两行钉住探针仍然说了算的两处）。采集数因此从 34 到 38，全量从 2806 到 2810（下面 2.96.5 的读数与此一致）。
+* 原有钉子未动：从未跑过的 Kin 仍报 gap 而非零值；`connecting` 只在存活时出现；更新的边界行仍撤销旧读数；凭证脱敏与信封键集合两条照旧绿。
+
+### 2.96.3 判定性读数：新测试跑在旧推导上必须红
+
+正照（树上的最终字节）：`uv run pytest tests/unit/test_gateway_readmodel.py -q` ⇒ **38 passed**。
+
+反照（非恒真控制）：把同一份测试文件与 `tests/gateway_support.py` 拷到 `.tmp/p3-lan-gateway/oldrun/`，旁边放一份 `git show HEAD:gateway/readmodel.py` 的旧包，`conftest.py` 断言 `gateway.readmodel.__file__` 的父目录确实是 oldrun 里那份（先证明影子生效，再谈红）。跑 `uv run pytest test_gateway_readmodel.py -q -p no:cacheprovider` ⇒ **3 failed, 35 passed，rc=1**：
+
+```
+FAILED test_a_dead_client_holds_no_lease_though_its_last_grant_row_remains
+FAILED test_the_projections_answer_from_row_order[rows11-False-connected-disconnected-False]
+FAILED test_the_projections_answer_from_row_order[rows12-False-connected-connected-False]
+AssertionError: assert 'disconnected' == 'connected'
+```
+
+函数级对照（同一份旧/新实现各读 6 种行形状 × `alive` 两种取值；`.tmp/p3-lan-gateway/old_vs_new_links.py`）：`alive=False` 时「hello 已证」「join 已观测」「已达可玩」三行由 `('disconnected','disconnected',False)` 变成 `('connected',…)`，而「只有启动行」「收摊行在后」「只有授予行」三行新旧一致（仍 `disconnected`，仍不报租约）；`alive=True` 时六种形状全部 `same`。⇒ 改动只把「记录过的事实被不可见的进程否决」这一类形状放开，其余一律不变。
+
+### 2.96.4 同一 run 的活体轨迹（第三次演示，会话内外各读到一次）
+
+入口 `MINEKIN_SERVER_JAR=… bash test-orchestrator/runner/demo-lan.sh --again`（卷 `minekin-m87b-lan`，宿主 `kin-lan87b-host`、加入者 `kin-lan87b-join`），Gateway 容器按 `/src` 挂载读工作树字节、`--data-root /data` 只读那份卷。5 秒轮询 `/snapshot` 与 `/timeline`（材料 `.tmp/p3-lan-gateway/{same-run-session3.log,poll-live3.jsonl,live3-transitions.txt}`，run `03746d9e90a64c42a620b2731df5912d`，加入者会话 `8ec2de50ccd6470fb43d8404009cda59` / pid 398）：
+
+| 时刻(Z) | 最新行位 | `bridgeLink` | `serverLink` | `world.joined` | 读法 |
+| --- | --- | --- | --- | --- | --- |
+| 18:12:31 | 102 | disconnected | disconnected | false | 上一轮的行，本 run 未启动 |
+| 18:13:06 | 108 | disconnected | disconnected | false | 只有启动行，握手未证 ⇒ 不落 `connecting`（进程在本容器不可见） |
+| 18:13:26 | 110 | connected | disconnected | false | `BridgeHelloAccepted` 落账 ⇒ 桥已连；服务端面最新仍是 hello ⇒ 不落 `connecting` |
+| 18:13:41 | 119 | connected | connected | true | `JoinObserved`/`PlayableEstablished` ⇒ 两面都连、已在世界 |
+| 18:13:46–18:16:12 | 120 | connected | connected | true | 会话内稳态，共 30 次同读数（覆盖转向/按住/释放窗口） |
+| 18:16:17 | 125 | disconnected | disconnected | false | 收摊行落账 ⇒ 回到断开、`joined` 回落 |
+
+同一份快照在会话内仍报 `runtimeState=idle`、`bridgeHeartbeat.inputLeaseHeld=false`——这正是本卡明确**不**修的两处（见 2.96.6 第 1 条）。
+
+面板侧真读数（同一次演示的卷，非 mock）：`E2E_LIVE_GATEWAY=1 MINEKIN_GATEWAY_TARGET=http://127.0.0.1:8791 npx playwright test -c playwright.config.ts` ⇒ **11 passed**，其中 `live-gateway-session.spec.ts` 那一条是走 `vite preview` 的 `/gateway` 代理打真实 Gateway，逐行断言七个阶段行各出现一次、租约授予/释放/拒止计数、终局行 `会话已停止 · <label>`，并断言没有任何进度条；`npx vitest run` ⇒ **90 passed（9 个文件）**。
+
+本跑还顺带封出一枚等强度的额外通过（记入读数，不动 registry）：`V1201-LAN-JOINER-CONTROL-CASE-001` ⇒ `result=PASS`、`status=sealed`、`attempt_sequence 6`、bundle `f50891723c8a1541037ebd6de2589edcb834a1b1da3ee6b2431bcf7d5565f9f4`（15 件产物），`evidence verify` ⇒ `verified=true, violations=[]`。
+
+### 2.96.5 门读数（全部在最终字节上跑；日志 `.tmp/p3-lan-gateway/gates-run3.txt`，逐步 rc 已读）
+
+| 步骤（按 `ci.yml` 名单） | 读数 | rc |
+| --- | --- | --- |
+| `ruff check .` | `All checks passed!` | 0 |
+| `ruff format --check .` | `394 files already formatted`（与 §2.95 同数：本卡没有新增仓库内的 `.md`，`.tmp/` 以点开头被 ruff 跳过） | 0 |
+| `pyright` | `0 errors, 0 warnings, 0 informations` | 0 |
+| `pytest -q` | **2810 passed, 2 skipped in 420.25s**（+4 与 2.96.2 的采集数一致；两枚 skip 仍是 `tests/unit/test_orphans.py:686` 与 `tests/unit/test_silent_listener.py:123` 的具名平台限制） | 0 |
+| `check_boundaries.py` | `Minekin package dependency boundaries: OK` | 0 |
+| `check_case_assertions.py` | `Case assertion implementations: OK (151 registered)` ⇒ 判据登记数未动 | 0 |
+| `verify_fixture_digests.py` | `W00 schema and fixture digests: OK` | 0 |
+| `check_workflow_pins.py` | `Workflow pins: OK (every action is a commit, and each names its release)` | 0 |
+| `uv build --wheel` | `Successfully built dist\minekin_core-0.0.0-py3-none-any.whl` | 0 |
+| `check_wheel_boundary.py` | `Wheel oracle boundary: OK (dist\minekin_core-0.0.0-py3-none-any.whl)`（脚手架已按真实产物名取，不再钉 0.1.0） | 0 |
+| `minekin --help` | 十二个子命令照常列出 | 0 |
+
+前端两道在 `dashboard/` 上单独跑：`npx vitest run` ⇒ 9 files / **90 passed**（rc 0）；`E2E_LIVE_GATEWAY=1 npx playwright test` ⇒ **11 passed**（rc 0，见 2.96.4）。
+
+判定性结论：判据表、fixture 摘要、registry、门载荷零位移 ⇒ 本轮不使任何已有封证失去可判性，也不新增可判性；`gateway/` 的字节不出现在任何 case 的门载荷里（本卡前量过一次：仓库内除 `gateway/` 自身与其测试外无引用）。
+
+### 2.96.6 具名缺口与下一步（不要读成「Dashboard 连接状态已全绿」）
+
+1. **跨 PID namespace 的存活盲区没有修，只把后果分成了两类**：会话内同一份快照仍报 `runtimeState=idle` 与 `inputLeaseHeld=false`，面板读到的是「台账记过连接，而这台主机确认不了」。两条出路都超出窄范围缺陷修复——(甲) 让 Gateway 容器与客户端共享 PID namespace（改 `demo-lan.sh` 的容器运行形态，并把网关生命周期绑到宿主容器上）；(乙) 给 `ProcessIdentity` 与台账加「pid 属于哪个 namespace/host」的载体（扩 ledger schema ⇒ 相关 run 全部重封）。两者都要动封存面或运行形态 ⇒ **主控保留**，本轮未自行实施，也未改用猜测性的 gap 信封来掩盖它。
+2. **`connecting` 这一档在跨容器读者上永远取不到**：它只在 `alive=True` 时才给，这按本卡的规则是对的（未证的握手是关于*现在*的主张），但要在 Demo 形状里看到 `connecting`，得让读者和客户端在同一 namespace 里读同一根。本轮没有为凑这一档发明读数。
+3. **`dashboard/src/test/realGatewayWire.ts` 那份捕获字节现在是历史样本**：它记的是旧推导 + Windows `UNKNOWN` 探针下的 `runtimeState unresolved` / 两面 `disconnected`，作为 decoder 的字节 fixture 仍然有效（90/11 两道都拿它跑过），但它不再是一次会话内快照的当前形状。下一张该在 `--gateway` 卷上重采一次并把它标成两份 fixture（采集，不是判据）。
+4. 沿用 §2.95.5：`matched=false` 一侧仍没有活体行，所以 §2.94 的拒止读法仍只有单元/fixture 级证据；`not_wired`/`unavailable` 那批字段按构造取不到。
+5. 沿用 §2.94 第 7 条③：同一 run 双 JVM 全绿的形状仍未成立。
+6. `.tmp/p3-lan-gateway/` 里留下了本卡的失败材料与反照（`old_vs_new_links.py`、`oldrun/`、`headtest/`、`live3-transitions.txt`、`oldrun-control.txt`）：可复用的判据已经在 `tests/unit/test_gateway_readmodel.py` 的参数表里，这几份只是取证现场，不再往里加逻辑。
