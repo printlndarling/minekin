@@ -2110,3 +2110,75 @@ python .tmp/ci_steps.py c43a6d3   # 日志：.tmp/m-r74-ci-c43a6d3.log
 ### 2.94.7 落点与下一步
 
 提交 `7b984a8`（`fix(gateway): report an identity comparison by its own verdict, not as applied`），已推 `origin main`，远端 `git ls-remote` 核对为 `7b984a897b836b1473ca49c836af827589c8392e` == 本地 HEAD。`.tmp/p2-identity/` 保留三个实验件（`countercheck.py`、`before_after.py`、两份 timeline JSON）与字节备份 `readmodel.orig`，其反证已迁入正式测试（三条新测试即覆盖 outcome/detail/边界三面），故 `.tmp` 里不再留可复用判据。下一张：P2 仍欠的是**契约允许的启动/停止操作面**——只读契约下不能自行扩权，控制接口是另一待决策卡（§3 已登记）；P3 的干净/重复两次真跑已闭（任务 #80）。本轮不宣称 goal 完成。
+
+## §2.95 两客户端 Demo 现在自带读回话的那一半：`demo-lan.sh --gateway` 免 jar 起只读模型，并把带端口的面板命令一起打给用户（第九十五轮，2026-09-29 01:39 +0800，M 亲跑，判据/fixture/registry/门载荷零位移）
+
+### 2.95.1 改动（runner 入口两文件 + 一份正式契约测试 + README 一节；`src/`、`gateway/`、`dashboard/` 字节零位移）
+
+1. **`test-orchestrator/runner/demo-lan.sh`（330 行纯 LF，sha256 `8cd3d061ad20b5ba4ff6d87e076d6dc8982c91d5462b2b8a7220e13b293ffd77`；diff 59 加 / 10 删）**：新增 `--gateway` 半程，让「刚跑完的那次两客户端演示」在不经开发者临时脚本的前提下也能被读出来。
+   * 参数面：未知参数的拒止文案改列为 `expected --again, --gateway, or nothing`。
+   * 两枚新旋钮：`MINEKIN_DEMO_LAN_GATEWAY_PORT`（默认 8787）、`MINEKIN_DEMO_LAN_GATEWAY_KIN`（默认加入者根 `kin-lan-join`，也就是演示实际操控的那一个；宿主根 `kin-lan-host` 要点名才服务）。
+   * 前置顺序重排：镜像检查与 `kin_exists()` 移到分支之前，`--gateway` 只要求「镜像在 + 根在」，因此**不再要 `MINEKIN_SERVER_JAR`**——只读模型投影的是卷里已有的台账与封证，不需要世界。
+   * 缺根拒止：卷里没有那个根时以 rc 2 具名拒绝（报 `does not hold`）并且一次都不碰 docker，而不是把面板指向一个空根。
+   * 起法：`MINEKIN_RUNNER_PUBLISH=<port>` 交给 `run.sh`，容器内 `python -m gateway.server --data-root /data --kin <root> --host 0.0.0.0 --port <port>`；宿主侧绑定仍由 `run.sh` 钉死成 `127.0.0.1:port:port`，公网面没动。
+   * 读数收尾处补 `the panel` 一段，把面板命令连端口一起打印出来。
+2. **`test-orchestrator/runner/demo.sh`（238 行纯 LF，sha256 `d9502c48702d2a5a46f03f1ecef12412da6fd71c36d90740a219b2c33efb73fe`；diff 8 加 / 4 删）**：单客户端入口原本只说「开 http://127.0.0.1:5175/?adapter=gateway&gateway=/gateway」，端口挪动后面板会去读一个没人应答的端口并显示自己断连。现在起始提示与 readback 段都打印 `MINEKIN_GATEWAY_TARGET=http://127.0.0.1:<port> pnpm --dir dashboard dev`。
+3. **`tests/contract/test_runner_scripts.py`（EOF 纯追加 223 行，1–4974 行字节原样保留；5195 行 CRLF、lone_lf 0）**：把 `.tmp` 里的一次性验证迁成两枚正式契约测试，桩 `docker` 只把 argv 记到日志、不起容器、不接触网络。
+   * `test_the_lan_demo_serves_the_operated_kin_on_the_port_it_prints`（`V1201-LAN-DEMO-GATEWAY-ENTRY-001`）三读：`armed`（8791，默认加入者根）、`moved`（8792 + `MINEKIN_DEMO_LAN_GATEWAY_KIN=kin-lan-host`）、`refused`（8793 + 空根）。断言 `-p 127.0.0.1:8791:8791`、命令行里有 `--kin kin-lan-join` 而没有宿主根、`--port 8791`、stdout 里有 `…8791 pnpm --dir dashboard dev`、argv 里不含 `server.jar`；拒止一读断 rc 2 + `does not hold` + docker 一次未跑。
+   * `test_both_demo_entries_print_the_panel_command_for_their_own_port`：`one`（`demo.sh`/8794/`kin-local-demo`）与 `lan`（`demo-lan.sh`/8795/`kin-lan-join`）两行，各断打印的目标、绑定、`--kin`、`--port` 四件事同端口一致。
+4. **`test-orchestrator/runner/README.md`（1241 行，新增 48 行）**：在 `## The whole domain in one container` 之前插入 `## The two-client demo entry point`——这一发驱动什么（≤45° 转向、≤30° 俯仰、≤2 s 按住、1 s 探测、150 s 浸泡）、三条命令、一卷两根两账号与所封 case、为什么点名 bundle 而不走 `--auto-bundle`、`--again`、种子卷旋钮，以及 `--gateway` 半程的免 jar 行为、缺根拒止、两枚网关旋钮和「世界随它自己的容器一起走了」的 Ctrl-C 口径。
+
+### 2.95.2 门读数（全部在最终字节上跑；日志 `.tmp/p3-lan-gateway/gates.log`，逐步 rc 已读）
+
+| 步骤（按 `ci.yml` 名单） | 读数 | rc |
+| --- | --- | --- |
+| `ruff check .` | `All checks passed!` | 0 |
+| `ruff format --check .` | `394 files already formatted` | 0 |
+| `pyright` | `0 errors, 0 warnings, 0 informations` | 0 |
+| `pytest -q` | **2806 passed, 2 skipped in 357.39s**（两枚 skip 仍是 `tests/unit/test_orphans.py:686` 与 `tests/unit/test_silent_listener.py:123` 的具名平台限制） | 0 |
+| `check_boundaries.py` | `Minekin package dependency boundaries: OK` | 0 |
+| `check_case_assertions.py` | `Case assertion implementations: OK (151 registered)` ⇒ 判据登记数未动 | 0 |
+| `verify_fixture_digests.py` | `W00 schema and fixture digests: OK` | 0 |
+| `check_workflow_pins.py` | `Workflow pins: OK` | 0 |
+| `uv build --wheel` | `Successfully built dist\minekin_core-0.0.0-py3-none-any.whl` | 0 |
+| `check_wheel_boundary.py` | 首次 rc=1：**我的 `gates.sh` 把文件名钉成 `minekin_core-0.1.0-…whl`，而仓库版本是 `0.0.0`**（脚手架的错，不是产品的错）；按真实产物重跑 → `Wheel oracle boundary: OK (dist\minekin_core-0.0.0-py3-none-any.whl)` | 1→0 |
+| `minekin --help` | 十二个子命令照常列出 | 0 |
+
+追加本卡之后再读一次两枚格式门：`ruff check .` → `All checks passed!`（rc 0）、`ruff format --check .` → `394 files already formatted`（rc 0）。文件数没动是因为本卡追加进已有文档，而不是新建一份——口径另量一次坐实：临时放一份 `docs/tmp-md-probe.md` 该门即报 395，删掉回到 394（`*.md` 确实计入 `ruff format --check .` 的文件数）。
+
+判定性结论：判据表、fixture 摘要、registry、门载荷全部零位移 ⇒ 本轮不使任何已有封证失去可判性，也不新增可判性。
+
+### 2.95.3 反证（四种植入形状 + 一枚正对照，都在同一份最终字节上；`.tmp/p3-lan-gateway/breaks/plant_all.py`、`plant_demo_row.py`）
+
+| 植入形状 | 改的那一处 | 红在哪条断言 |
+| --- | --- | --- |
+| 默认根换人 | `GATEWAY_KIN` 的默认从 `${JOIN_KIN}` 改成 `${HOST_KIN}` | `assert '--kin kin-lan-join' in 'python -m gateway.server … --kin kin-lan-host --host 0.0.0.0 --port 8791'` |
+| LAN 面板目标丢 | 打印段里删掉 `MINEKIN_GATEWAY_TARGET=http://127.0.0.1:%s ` | `assert 'MINEKIN_GATEWAY_TARGET=http://127.0.0.1:8791 pnpm --dir dashboard dev' in <stdout>` |
+| 空根不再拒 | `if ! kin_exists "${GATEWAY_KIN}"; then` 改成 `if false; then` | `an empty volume was accepted: rc 0` / `assert 0 == 2` |
+| 单客户端面板目标丢 | `demo.sh` 打印段同形删除 | `demo.sh printed no proxy target: …`（`panel_command` 的行序 `one` 在前，本行即红，`lan` 行未取到读数） |
+
+每种形状复原后字节一致：`demo-lan.sh` 回到 `8cd3d061ad20b5ba4ff6d87e076d6dc8982c91d5462b2b8a7220e13b293ffd77`、`demo.sh` 回到 `d9502c48702d2a5a46f03f1ecef12412da6fd71c36d90740a219b2c33efb73fe`。正对照（干净字节，`pytest tests/contract/test_runner_scripts.py -q -k "lan_demo or panel_command or publish_knob"`）→ **3 passed, 131 deselected in 7.28s**，rc 0；四种植入的 pytest rc 都是 1。
+
+### 2.95.4 活体 HTTP 读数（真实卷的只读投影，loopback `127.0.0.1:8791`；材料 `.tmp/p3-lan-gateway/{gateway.log,snapshot.json,timeline.json,alerts.json}`）
+
+起点是 `demo-lan.sh --gateway`（无 jar），服务的是演示实际操控过的那份卷 `minekin-m87b-lan` 的加入者根 `kin-lan87b-join`。三个 GET 路径都照常应答，读数如下：
+
+* `/timeline`：**56 行**，按 title 计数 `SessionStateTransitioned 29 | InputLeaseGranted 4 | InputReleased 4 | AuthPolicyFrozen 3 | SessionInterrupted 3 | SessionProcessStarted 3 | BridgeHelloAccepted 2 | JoinObserved 2 | PlayableEstablished 2 | ResourcePackPolicyApplied 2 | SessionIdentityCompared 2`。
+* 两枚身份行 `ledger://kin-lan87b-join/46` 与 `/23`：`outcome=applied`，detail 恰好是契约 §4 点名的七个字段——`session_username=Kin2, session_uuid=20d2112d-ecc9-3e0b-a7f4-5b830b9e6451, matched=True, client_id_present=False, xuid_present=False, credential_values_exposed=False`。
+* 凭证面复量：全文里 `auth_access_token` 与 `auth_xuid` 作为键出现 **0 次**；`xuid` 只以字段名 `xuid_present=` 出现 2 次且取值是 `False`，没有任何凭据取值。
+* `/snapshot`：`kinId=kin-lan87b-join`、`runtimeState=idle`、`bridgeLink=disconnected`、`serverLink=disconnected`——这是一次已结束的演示之后的卷，形状与「世界随它自己的容器一起走了」一致；`evidence` 钉在 `runId 9c181bea6fd4427fb79c283b06240c61` / `attempt 3` / `bundleDigest 82ffa011c4ba5016a5ea91dd9e54de45da05811bafbd8fce0572ef4c88a7f522`；`versions` 出 `runtime 1.20.1`、`fabricLoader 0.19.5`、`java openjdk 21.0.12.1 Temurin-21.0.12.1+1`；`session` 出 `sessionId d7caf8c56f5e43248aa937fdb150f24d`、`generation 1`、`pid 398`；`world` 出 `profileId p0-lan-host-fixture`、`joined=false`。
+* `/alerts`：`status=not_wired`。
+* 端口可达性只验到 HTTP 层：容器在自己的 published 端口上应答过，读回三份 JSON 后由 M `docker stop` 掉（该容器是本轮起的，未动他人进程），`docker ps` 现已为空。
+
+### 2.95.5 具名缺口（不要读成「Demo + Dashboard 闭环已验收」）
+
+1. **`matched=false` 一侧仍无活体行**：这两枚身份行都是 `matched=True`，任何卷里都还没出现过被拒的比对行，所以 §2.94 修的「拒止不再报成 applied」至今只有单元/fixture 级证据，本轮没升级它。
+2. **`not_wired` 与 `unavailable` 面按构造取不到**：bridge 版本串、clientBundle 名/版本、`sealed_at`、`world_context`/`epoch`、`resolvedVersion`、`profileName`、`session.mode`、`selfState`（health/food）、`liveView`、`lastSequence` 的 gap——这些是 Core 侧载体缺失，其中 world 坐标可见性与画面属主控/产品保留，本轮不自行补事件类型。
+3. **面板 UI 只验到「入口把端口说清楚」**：`pnpm --dir dashboard dev` 在这枚 `--gateway` 卷上的真实渲染读数（loading、断连、重试、停止态在 8791 上的形状）本轮没重取，不能拿 §2.94 之前那次面板读数顶替。
+4. **同一 run 双 JVM 全绿的形状仍未成立**（沿用 §2.94 第 7 条③：宿主 `session exited 1` 与加入者 GLFW 初始化自杀两种失败各有在案日志）。
+
+### 2.95.6 落点与下一步
+
+* 落点：`test-orchestrator/runner/demo-lan.sh`、`test-orchestrator/runner/demo.sh`、`tests/contract/test_runner_scripts.py`、`test-orchestrator/runner/README.md` 与本文档；`src/`、`gateway/`、`dashboard/`、判据表、registry、fixture 摘要零位移。`.tmp/p3-lan-gateway/breaks/` 只留植入器与两份字节备份，可复用判据已在正式测试里。
+* 下一张：把 2.95.5 第 3 条补成一次真读数——用同一份 `--gateway` 卷起 `pnpm --dir dashboard dev`，取面板对 `kin-lan87b-join` 的渲染与断连/重试形状；随后回 P4 的恢复与异常准入。
+* 本轮不宣称 goal 完成。
