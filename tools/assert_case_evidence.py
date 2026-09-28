@@ -4001,10 +4001,13 @@ def the_world_switch_returned_to_the_confirmed_world(material: RunMaterial) -> s
 # ---------------------------------------------------------------------------
 
 #: What the refusal is read from: the same ledger event the whitelist and auth-mode rows
-#: read, carrying the phase and the category together. The server's sentence is not
-#: available to a re-judge at all — the contract keeps arbitrary server text out of product
-#: events — so the category is the only thing that can travel, and the reading below is the
-#: one already proven on its two sibling categories (`the_refusal_was_classified_in_the_ledger`).
+#: read, carrying the phase and the category together. The contract keeps arbitrary server
+#: text out of product events, so the category is the only thing that travels this far, and
+#: the reading below is the one already proven on its two sibling categories
+#: (`the_refusal_was_classified_in_the_ledger`). The sentence itself is not lost to a
+#: re-judge: the Bridge logs it while it is still in hand (LoginDisconnectMixin.java:38-39,
+#: CommonDisconnectMixin.java:35) and `CLIENT_STREAM_ARTIFACTS` seals that log, so a clause
+#: that needs the server's own words reads `material.client_log`.
 DUPLICATE_LOGIN_PHASE = "FAILED"
 
 #: The names this row reports instead of a silent red. The last three are clauses with no
