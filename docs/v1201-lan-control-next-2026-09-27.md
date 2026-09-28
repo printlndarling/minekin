@@ -1750,3 +1750,31 @@ python .tmp/ci_steps.py c43a6d3   # 日志：.tmp/m-r74-ci-c43a6d3.log
 - 待判/主控保留（本轮都不实施）：**#68** 未请求自行位移可单独满足位移门；⑤ 式那格「`rc=14` 对三种相反事实同码」是否接成判据；HOST/PERSIST 侧；V08/用户远程服。
 - 约束逐条：本轮零封存、零 registry/mandatory 变更、零 `src/**`/`tools/**`/`test-orchestrator/**` 字节改动（只动两份文档）；规范卷只 `:ro`；未连接用户远程服，`.tmp/local-test-server.txt` 未打开；lane 树 `../minekin-wt-h1k` 未写入、未代提交（tip `1ce9dc0`、脏 0、`origin/main..HEAD = 0`）。
 - 下一格可推进的独立工作按文档 §3 只有两类：只读 Gateway 契约设计（`DASHBOARD-GATEWAY-READONLY-CONTRACT-001`，不接线上真实写接口），或非 HOST case 的「先设计 oracle/载体、后真跑」。**本轮尚未开工**，不是已完成——先写 owner/allowed_paths/验收再动笔。
+
+## §2.73 卷面这一格补上具名配方：`evidence` 段的四个字段当场取到，`101/18/186` 就此作废为口径（第七十八轮，M 主控）
+
+### ① 只补 §2.72 ④ 那一格
+
+上一节把「规范卷卷面」记成具名空白，理由是那个三元组没有当场可复现的计数配方。本轮把配方找齐并取数——配方不在我的 glob 里，在 `report_promotion` 自己的输出里（`tools/report_promotion.py:678-712` 的 `evidence` 段，注释逐字段说明含义）。
+
+### ② 当场读数（`minekin-runner-data:/data:ro` + `/src:ro`，`rc=1`、stdout 单流 104681 B）
+
+- `evidence.count` = **114**、`evidence.bundles` 长度 = **114**
+- `evidence.attempts` 长度 = **78**
+- `evidence.from_another_build` = **61**、`evidence.repo_checks_not_from_the_controlled_interpreter` = **9**
+- `evidence.sealed_without_bundle` / `unverified` / `unsealed` / `unreadable` 全 = **0**
+- `reading_interpreter` = `controlled_check_interpreter` = `/opt/minekin/bin/python3`（即这份报告的读者就是受控解释器，该格不再是缺口）
+- 卷侧独立对撞（不经过该工具）：全卷 `find /data -name manifest.json` = **114**（§2.72 ④ 已量），`/data/kin` 目录条目 = **18**。两条路同为 114 ⇒ 该计数不是工具自说。
+
+### ③ 与主干既有句子的对账，以及为什么宣布旧三元组作废
+
+- 主干既有记录里同一组字段出现过 `attempts 77 / bundles 113 / from_another_build 61 / repo_checks_not_from_the_controlled_interpreter 9`（M-C0 改前基线那一格）。本轮相对它：`attempts +1`、`bundles +1`，另两项一字不变 ⇒ 与「E7 之后新封了一枚同 run bundle」这一件**已发生且已登记**的事同向，没有额外的卷写入。
+- `101/18/186` 那三个数不对应上面任何两个字段（`bundles` 现 114、`attempts` 现 78），我也不去附会。**该三元组自本节起作废为口径**，卷面一律以 `evidence` 段的具名字段报；历史记录（§2.70/§2.71/§2.72 与 handoff 里引用过它的句子）按规矩保留原文不改写，读者以本节为最新口径。
+- 本轮**未**重取 `gate_payload_sha256` 子集摘要：命令与挂载未变，同一天已取到第 18 次同值 `cfa0f118…afd6`（§2.72 ③），本节只报本轮真量到的 `rc` 与字节数。
+
+### ④ 约束与四态
+
+- 本轮零封存、零 registry/mandatory/判据变更、零 `src/**`/`tools/**`/`test-orchestrator/**` 字节改动（只动两份文档，加一份 `.tmp` 材料）；规范卷只 `:ro`；未连接用户远程服；lane 树未写入、未代提交（tip `1ce9dc0`、脏 0、`origin/main..HEAD = 0`）。
+- 主干 `main = 1c98773`（远端 `ls-remote` 逐字同值）；**该笔自身 CI 不在本节宣称**，按纪律留到下一格补记。真实封证仍 = 1。仅在分支 = 无待合产品工作。
+- 待判/主控保留不变：**#68** 未请求自行位移可单独满足位移门、`rc=14` 对三种相反事实同码是否接成判据、HOST/PERSIST、V08/远程服。§3 两类可独立推进的工作（只读 Gateway 契约设计、非 HOST case 的 oracle 先行设计）**仍未开工**——本轮只补了卷面这一格。
+- 主干唯一 `current_next` 仍是 `PARALLEL-INTEGRATION-GATE-001`；不新增 `NEXT`，也不以补记落轮次或把 goal 收口。

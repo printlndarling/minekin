@@ -2047,3 +2047,11 @@ the target allows 1.21.4"}`，配对文档 `mismatch.json` 是 `schema_version 2
 - **自伤一处（不改产物）**：第一次用自写 glob 猜 `bundles/*/*/manifest.json`，在卷上命中 0；换全卷 `find` 拿到 114，但那次扫描超时转后台。与 §2.71 的谓词命中数是同一个坑的两面——**先读代码里真实的字段名/配方，再断言读数或缺载体**。
 - **四态**：已合主干且 CI 绿 = **`c3a3bf5` 及其前**（本轮补记其自身 CI）；真实封证 = **1**（`5086ee42…64f6` / run `a224f6c3…`，未变）；仅在分支 = **无待合产品工作**（`ahead≠0` 的两格已在 §2.71 ⑥ 具名为不可合陈旧副本）；未验证/待判 = **#68**、`rc=14` 同码是否接成判据、§2.72 ④ 那格卷面配方、§3 两类独立工作（**本轮尚未开工**，不是已完成）、V08/远程服与 HOST/PERSIST。`#58 (乙)` 与 `#67` 保持判完。
 - **不宣称完成**：主干唯一 `current_next` 仍是 `PARALLEL-INTEGRATION-GATE-001`，本轮不新增 `NEXT`；goal 的推进面还剩 §3 两类独立工作与三格主控保留判据，不因轮次富余或队列暂无待合分支而收口。
+## 第七十八轮（2026-09-28 10:52 +0800，M 主控）：卷面这一格找到具名配方（`evidence` 段四字段当场取到），旧三元组 `101/18/186` 作废为口径
+
+- **这一轮做什么**：只补 §2.72 ④ 自己留下的具名空白。配方不在我猜的 glob 里，而在 `tools/report_promotion.py:678-712` 的 `evidence` 段——先读代码里的真字段名再取数，正是上一节那条坑的另一半。
+- **当场读数**（`minekin-runner-data:/data:ro` + `/src:ro`，`report_promotion` `rc=1`、stdout 单流 104681 B）：`evidence.count=114`、`bundles=114`、`attempts=78`、`from_another_build=61`、`repo_checks_not_from_the_controlled_interpreter=9`、`sealed_without_bundle/unverified/unsealed/unreadable` 全 0，`reading_interpreter == controlled_check_interpreter == /opt/minekin/bin/python3`。卷侧独立对撞：全卷 `find -name manifest.json` 也是 **114**、`/data/kin` 条目 **18** ⇒ 两条路同为 114，不是工具自说。
+- **对账**：主干既有那句 `attempts 77 / bundles 113 / from_another_build 61 / repo_checks 9` 与本轮相差 `+1/+1/0/0` ⇒ 与「E7 之后新封一枚同 run bundle」这件已登记的事同向，卷上没有额外写入。`101/18/186` 不对应任何两个真字段，**自本节起作废为口径**；历史句子按规矩保留原文，读者以 §2.73 为最新口径。
+- **未做的事（具名）**：本轮没重取 `gate_payload_sha256` 子集摘要（命令与挂载未变，同一天已取到第 18 次同值 `cfa0f118…afd6`）；`1c98773` 自身的 CI 也不在本节宣称。§3 两类可独立推进的工作（只读 Gateway 契约设计 / 非 HOST case 的 oracle 先行设计）**仍未开工**。
+- **落盘与推送**：`main = 1c98773`（上一格）→ 本轮新笔提交后 `git push origin main:main`，远端 `ls-remote` 回读同值；本地门逐道单跑并先读 rc（`ruff check` / `ruff format --check` / staged `git diff --check`），计数写进 commit message。lane 树 tip `1ce9dc0`、脏 0、`origin/main..HEAD = 0` ⇒ 无在途 lane 工作，M 不代提交、不 reset、不覆盖分支。
+- **四态**：已合主干且 CI 绿 = `c3a3bf5` 及其前（`1c98773` 的 CI 待补记）；真实封证 = **1**（未变）；仅在分支 = 无待合产品工作；未验证/待判 = **#68**、`rc=14` 同码是否接成判据、`1c98773` 自身 CI、§3 两类独立工作、V08/远程服与 HOST/PERSIST。主干唯一 `current_next` 仍是 `PARALLEL-INTEGRATION-GATE-001`；本轮不新增 `NEXT`，也不因轮次或队列走空而宣称 goal 完成。
