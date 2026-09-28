@@ -433,6 +433,38 @@ def test_a_timeline_row_for_a_comparison_reports_it_as_an_observation(tmp_path: 
     assert events[0]["detail"] == "matched=True"
 
 
+def test_an_interrupted_row_reports_the_outcome_that_ended_it(tmp_path: Path) -> None:
+    """Which of the two causes stopped the session is a reading, not a guess.
+
+    The live LAN Kin holds six interruption rows carrying `BRIDGE_LOST` and one carrying
+    `HANDSHAKE_TIMEOUT`. Before this projection named `outcome` the served detail was None
+    for all seven, so the panel said 会话被中断 and left the operator to guess — the row's
+    own `outcome` field only ever said `rejected`, which is the classification, not the cause.
+    """
+
+    seed_kin(tmp_path, with_marker=False)
+    record(tmp_path, SESSION_INTERRUPTED, {"outcome": "BRIDGE_LOST"})
+    record(tmp_path, SESSION_INTERRUPTED, {"outcome": "HANDSHAKE_TIMEOUT"})
+
+    events = build_timeline(tmp_path, limit=5)
+
+    assert [str(event["outcome"]) for event in events] == ["rejected", "rejected"]
+    assert str(events[0]["detail"]) == "outcome=HANDSHAKE_TIMEOUT"
+    assert str(events[1]["detail"]) == "outcome=BRIDGE_LOST"
+
+
+def test_naming_the_outcome_does_not_open_the_payload_to_a_dump(tmp_path: Path) -> None:
+    """The counterexample for the clause above: a credential riding the same row stays out."""
+
+    seed_kin(tmp_path, with_marker=False)
+    record(tmp_path, SESSION_INTERRUPTED, {"outcome": "BRIDGE_LOST", "auth_access_token": CANARY})
+
+    events = build_timeline(tmp_path, limit=5)
+
+    assert str(events[0]["detail"]) == "outcome=BRIDGE_LOST"
+    assert CANARY not in json.dumps(events, ensure_ascii=False)
+
+
 def test_a_refused_comparison_reports_itself_as_a_rejection_and_names_why(tmp_path: Path) -> None:
     """Core writes this row for a read it then refuses, in exactly the shape of a matched one.
 

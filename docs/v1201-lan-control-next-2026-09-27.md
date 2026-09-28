@@ -2579,3 +2579,65 @@ Python 侧本轮**没有改任何 `.py`、契约脚本、fixture 或 registry**�
 6. **跨 PID namespace 的存活盲区沿用 §2.97.5 第 1 条 / §2.98.6 第 2 条**；破坏性会话（crash/重连）与异常准入两侧的活体读数仍开放，那是 #90 与 #91 剩下的部分。
 
 本轮不宣称 goal 完成。
+
+## §2.101 面板现在会说会话「为什么」中止：`SessionInterrupted` 的 `outcome` 进入只读投影（第一百零一轮，2026-09-29 05:47 +0800，M 亲跑，判据/fixture/registry/门载荷零位移）
+
+### 2.101.1 落点：这是一条已经在台账里、却被投影丢掉的原因，不是新字段
+
+`kin-lan87b-join` 的活体台账里有 7 条 `SessionInterrupted`，其中 6 条载荷带 `outcome=BRIDGE_LOST`、1 条带 `outcome=HANDSHAKE_TIMEOUT`（原始 dump `.tmp/interrupt_payloads.txt`，载荷键全量普查 `.tmp/payload_keys.txt`）。投影只把 `_DETAIL_FIELDS` 里具名的字段送进 `detail`，`outcome` 不在名单上，所以 `/timeline` 对这 7 行一律返回 `detail: null`。于是 `sessionProgress.ts` 的终态只能渲染「会话被中断」，操作员无法区分是桥掉了还是握手超时——而这两者的处置动作完全不同。
+
+注意别读成「行里本来就有原因」：行顶层那个 `outcome` 字段是投影自己的分类字段（`_EVENT_KIND_OUTCOME` 给 `SessionInterrupted` 映的是 `rejected`），它说的是"这行被归类为失败"，不是"会话为何中止"。载荷里的 `outcome` 才是 Core 写入的原因名。本卡只把后者具名加入名单，仍沿用本模块既有的身份规则：**只投影点名过的字段，Core 以后新增的任何字段都不会顺着通用 dump 漂出来**。
+
+### 2.101.2 改动落点（两份文件，工作树字节都是纯 LF）
+
+| 文件 | 落点 | blob sha256（LF） |
+| --- | --- | --- |
+| `gateway/readmodel.py` | `_DETAIL_FIELDS` 由单行展开为具名元组并加入 `"outcome"`（含判别式注释） | `e18c609b6cab69d01f616c973697d4003fd10dfcbc4f27aa7fcf9ca63884b220` |
+| `tests/unit/test_gateway_readmodel.py` | 新增两条单测：中断行把中止原因说出来；点名 `outcome` 不等于把载荷开放成 dump | `0b6eee582b7d055733428e870943f0f644767012cc52851c6022c811c2e6a122` |
+
+`_detail()` 本身没动：它只对 `str|int` 取值拼 `name=value`，所以 `outcome` 一旦点名就自动出现在 `detail` 里，面板端零改动即拿到读数（`sessionProgress.ts` 的终态 `detail` 早就在渲染路径上）。
+
+### 2.101.3 判别力：把 `"outcome",` 删掉必须先红
+
+- 复位前先备份 `gateway/readmodel.py`（`.tmp/readmodel.fixed.py`），再把名单里那一行删除 → `uv run pytest tests/unit/test_gateway_readmodel.py -q` **2 failed，rc=1**，失败原文就是 `assert 'None' == 'outcome=BRIDGE_LOST'`。
+- 用 `cp` 从备份复位（不用 `git checkout --`），复位后文件 sha256 与表内字节一致 → 同一命令 **40 passed，rc=0**。
+- 第二条单测是同一改法的反例：在同一行载荷里塞一个 `auth_access_token` 具名凭据，断言 `detail` 仍只有 `outcome=BRIDGE_LOST` 且整份响应体不含 CANARY。所以这条卡面不能读成"多投影一个字段顺手放宽了名单"。
+
+### 2.101.4 活体读数（同一已封存卷 `minekin-m87b-lan` / `kin-lan87b-join`，网关 8799）
+
+起新容器那条路今天没走通（镜像默认 entrypoint 是 cacert 包装，`--entrypoint /bin/bash -w /src` 在 Git-Bash 下被 MSYS 改路径，空响应留在 `.tmp/live_timeline_92.json` 的 0 字节文件里，材料保留）。本 lane 自己的容器 `0c546b6e365b` 本来就以 `ro` 挂着这份工作树、ENTRYPOINT `/bin/bash`、WORKDIR `/src`，所以 `docker restart 0c546b6e365b` 就是"仓库字节下的 gateway 进程"，日志回到 `gateway reading /data on http://0.0.0.0:8799`。
+
+`curl -s "http://127.0.0.1:8799/api/v1/dashboard/timeline?limit=200"` → 148 行，落盘 `.tmp/live_timeline_92.json`（44623 字节）。
+
+| 读数 | 结果 |
+| --- | --- |
+| 7 条 `SessionInterrupted` 的 `detail` | `outcome=BRIDGE_LOST` ×6、`outcome=HANDSHAKE_TIMEOUT` ×1（本卡之前同一端点这 7 行都是 `null`） |
+| 这 7 行的顶层 `outcome` | 仍全是 `rejected`，说明分类语义没被原因字段顶掉 |
+| 全量 `detail` 键位普查 | `from`/`to` 各 73、`reason`/`capability`/`phase` 各 12、`outcome` 7、身份六键各 6、`resource_pack_policy` 7、`detail=null` 20 行 —— 只有 `outcome` 是新增项，其余计数与本卡之前一致 |
+| 凭据 | 载荷键普查里没有任何具名凭据字段漂出，`credential_values_exposed` 仍是布尔名 |
+
+### 2.101.5 门读数与交付字节（全部逐条读 rc；本卡没动 bundle/registry/封证）
+
+| 门 | 命令 | rc |
+| --- | --- | --- |
+| 全量单测 | `uv run pytest -q` → 2819 passed, 2 skipped in 420.45s | 0 |
+| Lint | `uv run ruff check .` | 0 |
+| 格式 | `uv run ruff format --check .` → 394 files already formatted（跑在本节文字落盘之前） | 0 |
+| 类型 | `uv run pyright` → 0 errors, 0 warnings | 0 |
+| 边界 | `uv run python tools/check_boundaries.py` | 0 |
+| case 摘要 | `uv run python tools/check_case_assertions.py` | 0 |
+| fixture 摘要 | `uv run python tools/verify_fixture_digests.py` | 0 |
+| workflow 钉住 | `uv run python tools/check_workflow_pins.py` | 0 |
+
+后四步是本卡"门载荷零位移"的机器证据：判据表、case 摘要、fixture 与 registry 字节都没被这份投影改动牵动，因此既有封证全部继续有效，本卡也没有晋级任何门禁。`.md` 会计入 `ruff format --check` 的文件数，故本节文字落盘后再单独重跑 `ruff check .` 与 `ruff format --check .`（读数记在 2.101.6 之后的交付说明里），本节之后不再改动仓库字节。
+
+### 2.101.6 具名缺口与下一步（不要读成「中断原因已经全部可证」）
+
+1. **只覆盖 `SessionInterrupted`**：`SessionProcessFailed` 的失败原因载荷键今天还没有具名名单项，启动失败那侧仍只能说"启动失败"。要看清它需要另一次载荷键普查，不是本卡的名单能顺手带上的。
+2. **4xx 仍被归为断连**：`gatewayAdapter.ts` 的 `classifyStatus` 对非 401/403/404 一律返回 `disconnected` 并丢掉响应体原因，所以 limit 越界的 400 会被读成"网关不可达"。当前 UI 用 `limit=50` 打不到这条分支，故本卡不顺手改；它是独立的一张缺陷卡。
+3. **版本准备进度仍无台账行**：客户端包准备计数在 Core 侧没有任何事件行，本卡不造进度条，沿用 §2.100.6 的具名缺口口径。
+4. **#89 的 wire fixture 没有落后**：`sessionProgress.test.ts` 用的是合成 `reason=watchdog` 行，`live-gateway-session.spec.ts` 是 `E2E_LIVE_GATEWAY=1` 的 opt-in 活体读且不断言 `detail` 内容——两处都不因本卡变化，本卡不重采 fixture、不动封存网关字节。
+5. **破坏性会话与异常准入两侧仍开放**（#90 / #91）：本卡只是把已有 7 行读出来，没有新跑一次 crash/重连会话。
+6. **只读面照旧**：三条只读 GET 之外的写路径仍 405，`V1201-DASHBOARD-WRITE-SURFACE-DECISION`（`docs/standalone-runtime-dashboard.md:180 / :206`）仍在主控手上，本卡没有把只读授权扩成写权限。
+
+本轮不宣称 goal 完成。

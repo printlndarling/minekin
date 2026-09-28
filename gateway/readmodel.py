@@ -85,7 +85,18 @@ _NO_BUNDLE: Final = "本 run 还没有已封的证据 bundle：封证只在 case
 
 # The identity rule applied to this module's own surface: only these named payload
 # fields are ever projected out, so a field Core adds later cannot ride a generic dump.
-_DETAIL_FIELDS: Final = ("reason", "phase", "resource_pack_policy", "from", "to", "capability")
+# `outcome` joins it because it is the only carrier for *why* a session stopped: Core
+# writes the SessionOutcome name into the interruption row, and without it the panel can
+# only say 会话被中断 and the operator cannot tell a lost bridge from a timed-out handshake.
+_DETAIL_FIELDS: Final = (
+    "reason",
+    "phase",
+    "resource_pack_policy",
+    "from",
+    "to",
+    "capability",
+    "outcome",
+)
 
 # The identity comparison row carries the only refusal signal Core writes for an offline
 # session, and the generic list above projects none of it. Contract §4 rule 1 names these
