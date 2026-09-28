@@ -1,7 +1,7 @@
 import type { AdapterDescriptor, ReadFailure } from "../domain/adapter";
 import { MOCK_SCENARIOS, type MockScenarioId } from "../fixtures/mockFixtures";
 import { POLL_INTERVAL_MS, type ReadHealth } from "../hooks/useKinReads";
-import { formatAge } from "../lib/format";
+import { formatAge, formatSpan } from "../lib/format";
 import styles from "./DataSourceBanner.module.css";
 
 export interface DataSourceBannerProps {
@@ -22,8 +22,9 @@ export interface DataSourceBannerProps {
  */
 function healthText(health: ReadHealth, isFetching: boolean, nowMs: number): string {
   if (health.failureStreak > 0) {
+    const broke = health.firstFailureAtMs === null ? "断开起点未记录" : `已持续 ${formatSpan(nowMs - health.firstFailureAtMs)}`;
     const lastSuccess = health.lastSuccessAtMs === null ? "尚无成功读数" : `末次成功 ${formatAge(new Date(health.lastSuccessAtMs).toISOString(), nowMs)}`;
-    return `断连 · 连续 ${health.failureStreak} 次读取失败 · ${lastSuccess} · 每 ${POLL_INTERVAL_MS / 1000} 秒自动重试`;
+    return `断连 · 连续 ${health.failureStreak} 次读取失败 · ${broke} · ${lastSuccess} · 每 ${POLL_INTERVAL_MS / 1000} 秒自动重试`;
   }
   if (health.lastSuccessAtMs === null) return isFetching ? "首次读取中…" : "等待首次读取";
   return `读数正常 · 末次成功 ${formatAge(new Date(health.lastSuccessAtMs).toISOString(), nowMs)} · 每 ${POLL_INTERVAL_MS / 1000} 秒轮询`;

@@ -151,13 +151,15 @@ describe("Gateway 真实传输：会话阶段只从台账行读出", () => {
     render(<App config={CONFIG} />);
 
     expect(await screen.findByTestId("read-failure")).toHaveTextContent("disconnected");
-    expect(screen.getByTestId("poll-state")).toHaveTextContent("断连 · 连续 1 次读取失败 · 尚无成功读数 · 每 5 秒自动重试");
+    expect(screen.getByTestId("poll-state")).toHaveTextContent(
+      /^断连 · 连续 1 次读取失败 · 已持续 \d+ 秒 · 尚无成功读数 · 每 5 秒自动重试$/,
+    );
     expect(screen.getByTestId("progress-failure")).toHaveTextContent("时间线读取失败（disconnected）");
     expect(screen.queryByTestId("progress-counts")).toBeNull();
     expect(screen.getByTestId("data-source-banner")).toHaveTextContent("真实读数");
   });
 
-  it("断连计数跟着每次失败的轮询走，不把断开只记一次", async () => {
+  it("断连计数跟着每次失败的轮询走，断开时长从首次失败起算", async () => {
     // The live shape this guards: every failed poll says exactly the same thing, so
     // TanStack's structural sharing hands back the same result reference. Counting by
     // that reference left the banner reading 「连续 1 次」 after half a minute of outage.
@@ -174,6 +176,7 @@ describe("Gateway 真实传输：会话阶段只从台账行读出", () => {
       await vi.advanceTimersByTimeAsync(0);
     });
     expect(screen.getByTestId("poll-state")).toHaveTextContent("断连 · 连续 1 次读取失败");
+    expect(screen.getByTestId("poll-state")).toHaveTextContent(/已持续 \d+ 秒/);
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(3 * POLL_INTERVAL_MS);
@@ -182,6 +185,9 @@ describe("Gateway 真实传输：会话阶段只从台账行读出", () => {
     // because only one read ever happened.
     expect(polls).toBeGreaterThanOrEqual(3);
     expect(screen.getByTestId("poll-state")).toHaveTextContent(/连续 ([3-9]|\d{2,}) 次读取失败/);
+    // And the span must be measured from the first failure, not re-stamped by the last
+    // one: re-stamping would hold it under one poll interval (≤ 5 秒) forever.
+    expect(screen.getByTestId("poll-state")).toHaveTextContent(/已持续 ([1-5]\d|60) 秒/);
     expect(screen.getByTestId("data-source-banner")).toHaveTextContent("真实读数");
     expect(screen.getByTestId("data-source-banner")).not.toHaveTextContent("模拟数据");
   });

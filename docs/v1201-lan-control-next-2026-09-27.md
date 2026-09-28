@@ -2518,3 +2518,64 @@ Python 侧本轮**没有改任何 `.py`、契约脚本、fixture 或 registry**�
 6. **活体证据仍来自同一份已封存台账**（`kin-lan87b-join`，会话 `8b53ac5a…`）：破坏性会话（crash/重连）与异常准入两侧的读数还没在同一枚 `--gateway` 卷上真跑过，那是 #90 与 #91 剩下的部分。
 
 本轮不宣称 goal 完成。
+
+## §2.100 面板现在会说「断开已经持续多久」：首次失败起点接进断连读数，时长的增长在构建产物上真跑过（第一百轮，2026-09-29 05:25 +0800，M 亲跑，判据/fixture/registry/门载荷零位移）
+
+§2.99.6 第 1 条点出的缺口是这一刀的题目：计数会说「连续几次」，仍不会说断开发生在何时。本卡把它变成看得见的读数——`断连 · 连续 N 次读取失败 · 已持续 X 秒 · …`，并且用一次真实断开证明 X 随时间走，而不是每次失败都重戳成 0。
+
+### 2.100.1 落点为什么不能借既有载体
+
+- `ReadHealth` 新增 `firstFailureAtMs`：只在**本串失败的第一次落点**写入，成功落点或尚无落点（`data === undefined`）时归 `null`。判据仍在 `dashboard/src/hooks/useKinReads.ts`，没有新通道、没有新端点。
+- 为什么必须另起一个时间戳：`lastSuccessAtMs` 只随成功落点走，一场从未成功过的会话只能报 `尚无成功读数`，任何「距末次成功 X」的写法在那种形状下无值可给。
+- 为什么用新的 `formatSpan` 而不是复用 `formatAge`：后者把一个时刻渲染成「15 秒前」，那是时间点不是时长；操作者要的是「面板已经聋了多久」。`formatSpan` 走秒/分/小时三段。
+- 秒针从哪来：`App.tsx:65` 的 `useNow(1_000)` 本来就在滴答，时长由 `nowMs - firstFailureAtMs` 现算，不需要额外的读数落点，也不引入第二条轮询。
+
+### 2.100.2 改动落点（五份 TS 文件 + 一份新单测，工作树字节都是纯 LF）
+
+| 文件 | 行数(LF) | 字节 | sha256（LF blob，`git show :path`） |
+| --- | --- | --- | --- |
+| `dashboard/src/hooks/useKinReads.ts` | 145 | 5987 | `51c8fb7f4692b97f487fba2e620c44aefbc5327b55035b52ef1f6a5f83af4af9` |
+| `dashboard/src/components/DataSourceBanner.tsx` | 76 | 3544 | `dfacad7e07460e81ed53ed618dd2d47b16e9d70c2c79369e501252238184e8ba` |
+| `dashboard/src/lib/format.ts` | 49 | 2023 | `7354841f2fb165d3267b94f2f98974fc1e6cd45806646971cd0e06405f22b305` |
+| `dashboard/src/lib/format.test.ts` | 18 | 682 | `a9cac4e33ca6002eea36a4355585d2ca93cebce11686f60a3fe596cd1b2c29a8` |
+| `dashboard/src/App.gateway.test.tsx` | 239 | 12858 | `d59569f6d2379180fa1ab0b1ddb248fcebaa150b7a589bd4d531d9744896d9c9` |
+| `dashboard/e2e/live-gateway-disconnect.spec.ts` | 93 | 4853 | `e22e61f0fcad15f9a44df5198858bc2b4ee5887fcc1f3c9fdc69c1f81e1f9e39` |
+
+### 2.100.3 判别力：把起点改成「每次失败都重戳」必须先红
+
+- 种子反例（改 `useKinReads.ts` 为每次失败重盖 `firstFailureAtMs`，改前先备份并哈希）：`RC[seeded-red]=1`，那条活体形状用例收到 `断连 · 连续 4 次读取失败 · 已持续 0 秒 · 尚无成功读数 · 每 5 秒自动重试`——重戳形状永远停在一次轮询之内。材料 `.tmp/recover/vitest_span_red.log`；按备份 `cp` 恢复并核哈希 `RESTORE_OK`，未用 `git checkout --` 覆盖脏文件。
+- 修好后的确定性单测（`App.gateway.test.tsx`，假计时器）：`advanceTimersByTimeAsync(3 * POLL_INTERVAL_MS)` 之后同时断言 `polls >= 3`、`连续 ([3-9]|\d{2,}) 次读取失败` 与 `已持续 ([1-5]\d|60) 秒`——时长必须跨过多个轮询间隔，不能由最后一次失败撑着；重戳形状只能停在一次间隔之内（≤ 5 秒）。——时长必须跨过多个轮询间隔，不能由最后一次失败撑着。
+- `formatSpan` 的边界单测（新文件 `format.test.ts`）：`0` 与 `-5000` → `0 秒`（负数不反着走）、`15400` → `15 秒`、`59999` → `59 秒`、`60000` → `1 分 0 秒`、`95000` → `1 分 35 秒`、`3600000` → `1 小时 0 分`、`7320000` → `2 小时 2 分`。
+
+### 2.100.4 活体读数（构建产物 + 已封存台账卷 `minekin-m87b-lan` / `kin-lan87b-join`，网关 8799）
+
+跑法 `.tmp/recover/live_span_run.sh`（单写者日志 `.tmp/recover/e2e_span.log`）：停掉本 lane 自己起的网关容器 → 跑断开/恢复对 → 以「第一条用例已报读」为门把网关起回同一端口，这样恢复不会落在测量中间。
+
+- `E2E_LIVE_GATEWAY_DOWN=1 E2E_LIVE_GATEWAY_RECOVER=1`：**2 passed (20.8s)，RC[e2e-span]=0**。断开那条 7.0s：`真实读数` + `断连` + `连续 N 次` + `已持续 N 秒` + `每 5 秒自动重试` 同时在场，随后 `已持续` 被轮询到严格大于首次读数；`outageSeconds()` 读不到该形状时返回 `-1`，增长断言只能失败而不能恒过。恢复那条 10.8s：同一页面自己回到 `读数正常 · … · 每 5 秒轮询`。
+- **正对照（本卡新量）**：网关**在线**时强跑 `E2E_LIVE_GATEWAY_DOWN=1` ⇒ `1 failed`，面板给的是 `读数正常 · 末次成功 5 秒前 · 每 5 秒轮询`（材料 `.tmp/recover/e2e_span_downonly.log` + 该用例的 `error-context.md`）。这条入口不是恒绿：没有真的断开，它就红。
+- 完整套件 `MINEKIN_GATEWAY_TARGET=http://127.0.0.1:8799 E2E_LIVE_GATEWAY=1 pnpm e2e`：**11 passed, 2 skipped，RC[e2e-live-full]=0**（`.tmp/recover/node_span3.txt`）。
+- 踩到的门陷阱（保留材料，别读成产品缺陷）：第一次跑全套时漏了 `MINEKIN_GATEWAY_TARGET`，preview 的 `/gateway` 代理落到默认的 8787，无人应答时返回**空体 500**，`live-gateway-session` 那条以 `SyntaxError: Unexpected end of JSON input` 红（`.tmp/recover/e2e_span_full.log`）。补齐目标后同一条转绿——这条活体入口对代理目标是敏感的，跑法必须显式命名端口，否则红的是跑法不是面板。
+
+### 2.100.5 门读数与交付字节（全部在最终字节上）
+
+| 门 | 结果 | rc |
+| --- | --- | --- |
+| `pnpm typecheck`（`tsc --noEmit`） | 无输出 | 0 |
+| `pnpm test`（vitest 全量） | 10 files / 100 passed（§2.99 那笔是 98，+2 即本卡 `format.test.ts` 两条） | 0 |
+| `pnpm build` | `dist/assets/index-CvIKGfJ6.js` 304.76 kB | 0 |
+| `pnpm e2e`（网关在线，`E2E_LIVE_GATEWAY=1`） | 11 passed, 2 skipped | 0 |
+| `pnpm e2e e2e/live-gateway-disconnect.spec.ts`（网关断开 + 中途起回） | 2 passed (20.8s) | 0 |
+| Python 门批 12 步（`.tmp/recover/gates5.txt`，单写者，逐步 rc 已读） | `uv_sync / ruff_check / ruff_format / pyright / pytest / boundaries / case_assertions / fixture_digests / workflow_pins / build_wheel / wheel_boundary / cli_help` 全 0 | 0 |
+
+Python 侧本轮**没有改任何 `.py`、契约脚本、fixture 或 registry**：判据、case 摘要、门载荷字节零位移，既有封证不受影响。`gates5.txt` 里 `ruff_check`/`ruff_format` 两步跑在本节文字落盘之前，而该门会把 `.md` 计入文件数，故本节写完后再单独重跑这两步（材料 `.tmp/recover/ruff_span_final.txt`），本节之后不再改动仓库字节。
+
+### 2.100.6 具名缺口与下一步（不要读成「断连时长已经全部可证」）
+
+1. **起点只在内存里**：面板进程一重启，`firstFailureAtMs` 归零，时长从头算。契约既不推送也不给持久化通道，本卡不自行造一条。
+2. **时长用的是客户端墙钟**：断开时取不到网关侧时间，只能用 `Date.now()`；跨机时钟偏移会直接读进「已持续」里。
+3. **分/小时两段只有单测覆盖**：活体一次断开只有几十秒，`1 分 35 秒` / `2 小时 2 分` 这类形状还没在真机上呈现过。
+4. **恢复那半条仍要有人把网关起回同端口**（沿用 §2.99.6 第 2 条）：CI 里它保持 skip。
+5. **只读面照旧**：三条只读 GET 之外的写路径仍 405，`V1201-DASHBOARD-WRITE-SURFACE-DECISION`（`docs/standalone-runtime-dashboard.md:180 / :206`）仍在主控手上，本卡没有把只读授权扩成写权限。
+6. **跨 PID namespace 的存活盲区沿用 §2.97.5 第 1 条 / §2.98.6 第 2 条**；破坏性会话（crash/重连）与异常准入两侧的活体读数仍开放，那是 #90 与 #91 剩下的部分。
+
+本轮不宣称 goal 完成。

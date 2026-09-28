@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Locator } from "@playwright/test";
 
 /**
  * Live read-through of the break itself, so the disconnect and recovery states are proven on
@@ -24,12 +24,22 @@ import { expect, test } from "@playwright/test";
 const RETRY_TEXT = "每 5 秒自动重试";
 const POLL_TEXT = "每 5 秒轮询";
 const RECOVER_TIMEOUT_MS = 180_000;
+
+/**
+ * Reads the 「已持续 N 秒」 the banner paints. This outage is measured in tens of
+ * seconds, so the seconds-only branch is the only shape expected; anything else
+ * returns -1 and fails the growth check loudly instead of passing vacuously.
+ */
+async function outageSeconds(banner: Locator): Promise<number> {
+  const matched = (await banner.innerText()).match(/已持续 (\d+) 秒/);
+  return matched ? Number(matched[1]) : -1;
+}
 // The config sets no per-test timeout, so the built-in 30 s would cut the operator-paced
 // restart short and report the wait as a product failure.
 const RECOVER_TEST_TIMEOUT_MS = RECOVER_TIMEOUT_MS + 60_000;
 
 test.describe("真实 Gateway 断开与恢复时面板说什么", () => {
-  test("断连说清连续失败次数与重试间隔，并且不回落到模拟读数", async ({ page }) => {
+  test("断连说清连续失败次数、断开时长与重试间隔，并且不回落到模拟读数", async ({ page }) => {
     test.skip(
       process.env.E2E_LIVE_GATEWAY_DOWN !== "1",
       "需要把 preview 的 /gateway 指向一个此刻无人应答的端口：先停掉 `demo-lan.sh --gateway`，" +
@@ -44,6 +54,7 @@ test.describe("真实 Gateway 断开与恢复时面板说什么", () => {
     await expect(banner).toContainText("真实读数");
     await expect(banner).toContainText("断连");
     await expect(banner).toContainText(/连续 \d+ 次读取失败/);
+    await expect(banner).toContainText(/已持续 \d+ 秒/);
     await expect(banner).toContainText(RETRY_TEXT);
     await expect(banner).not.toContainText("模拟数据");
     await expect(banner).not.toContainText("读数正常");
@@ -51,6 +62,15 @@ test.describe("真实 Gateway 断开与恢复时面板说什么", () => {
     // 「连续 N 次」is only an honest reading if N advances with the polls that fail. A
     // stuck 1 would mean the panel counts the break once and then stops watching.
     await expect(banner).toContainText(/连续 (?:[2-9]|[1-9]\d) 次读取失败/, { timeout: 30_000 });
+
+    // The count says how many polls failed; the span says how long the panel has been deaf.
+    // A span re-stamped by every failure would sit near zero for the whole outage, so growth
+    // is the part worth proving on the shipped bundle.
+    const firstSpan = await outageSeconds(banner);
+    expect(firstSpan).toBeGreaterThanOrEqual(0);
+    await expect
+      .poll(() => outageSeconds(banner), { timeout: 20_000, intervals: [1_000] })
+      .toBeGreaterThan(firstSpan);
   });
 
   test("Gateway 重新应答后同一个页面自己回到读数正常", async ({ page }) => {

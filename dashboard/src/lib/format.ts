@@ -26,6 +26,19 @@ export function formatNumber(value: number, digits: number = 1): string {
 }
 
 /**
+ * Wall time as a span rather than a point in the past. The disconnect counter
+ * needs it: "连续 N 次" says nothing about how long the panel has been deaf, and
+ * `formatAge` would render the outage start as「15 秒前」, a timestamp, not a duration.
+ */
+export function formatSpan(elapsedMs: number): string {
+  const seconds = Math.max(0, Math.floor(elapsedMs / 1_000));
+  if (seconds < 60) return `${seconds} 秒`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes} 分 ${seconds % 60} 秒`;
+  return `${Math.floor(minutes / 60)} 小时 ${minutes % 60} 分`;
+}
+
+/**
  * How one member of a `known` group renders: its formatted value, or the gap's
  * own status label plus Core's reason verbatim. A gap never collapses into a
  * default here either.

@@ -26,6 +26,8 @@ export interface SnapshotRead {
  */
 export interface ReadHealth {
   readonly failureStreak: number;
+  /** When the streak now running began; null while nothing has failed. */
+  readonly firstFailureAtMs: number | null;
   readonly lastSuccessAtMs: number | null;
 }
 
@@ -42,18 +44,25 @@ function useReadHealth(adapterId: string, data: ReadResult<unknown> | undefined,
     adapterId: string;
     readAtMs: number;
     streak: number;
+    firstFailureAtMs: number | null;
     lastSuccessAtMs: number | null;
-  }>({ adapterId, readAtMs: -1, streak: 0, lastSuccessAtMs: null });
+  }>({ adapterId, readAtMs: -1, streak: 0, firstFailureAtMs: null, lastSuccessAtMs: null });
   if (seen.current.adapterId !== adapterId || seen.current.readAtMs !== readAtMs) {
     seen.current =
       data === undefined
-        ? { adapterId, readAtMs, streak: 0, lastSuccessAtMs: null }
+        ? { adapterId, readAtMs, streak: 0, firstFailureAtMs: null, lastSuccessAtMs: null }
         : data.ok
-          ? { adapterId, readAtMs, streak: 0, lastSuccessAtMs: Date.now() }
-          : { adapterId, readAtMs, streak: seen.current.streak + 1, lastSuccessAtMs: seen.current.lastSuccessAtMs };
+          ? { adapterId, readAtMs, streak: 0, firstFailureAtMs: null, lastSuccessAtMs: Date.now() }
+          : {
+              adapterId,
+              readAtMs,
+              streak: seen.current.streak + 1,
+              firstFailureAtMs: seen.current.firstFailureAtMs ?? Date.now(),
+              lastSuccessAtMs: seen.current.lastSuccessAtMs,
+            };
   }
-  const { streak, lastSuccessAtMs } = seen.current;
-  return { failureStreak: streak, lastSuccessAtMs };
+  const { streak, firstFailureAtMs, lastSuccessAtMs } = seen.current;
+  return { failureStreak: streak, firstFailureAtMs, lastSuccessAtMs };
 }
 
 /**
