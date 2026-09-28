@@ -216,6 +216,56 @@ describe("Gateway 真实传输：会话阶段只从台账行读出", () => {
     expect(screen.getByTestId("data-source-banner")).toHaveTextContent("真实读数");
     expect(screen.getByTestId("data-source-banner")).not.toHaveTextContent("模拟数据");
   });
+
+  it("断连之后又读到了：健康行仍说出刚才聋了多久，不与从未断过的页面混淆", async () => {
+    // The live shape: the operator left the page open, the Gateway went away for four
+    // polls, and came back on its own. Before this, the recovered banner read exactly
+    // like a page that had never lost a read — the outage, which is the fact the
+    // operator came back to check, was erased the moment it stopped being true.
+    let snapshotPolls = 0;
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes(READ_ENDPOINTS.snapshot)) {
+        snapshotPolls += 1;
+        // One clean read first, then three refusals, then the Gateway answers again.
+        if (snapshotPolls >= 2 && snapshotPolls <= 4) throw new Error("Connection refused");
+        return jsonResponse(REAL_JOINED_RUN_SNAPSHOT_WIRE);
+      }
+      if (url.includes(READ_ENDPOINTS.timeline)) return jsonResponse(gatewayLedgerWires(CLEAN_RUN));
+      if (url.includes(READ_ENDPOINTS.alerts)) return jsonResponse(REAL_ALERTS_ENVELOPE_WIRE);
+      return jsonResponse({ detail: "not found" }, 404);
+    }) as unknown as typeof fetch;
+
+    vi.useFakeTimers();
+    render(<App config={CONFIG} />);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    // Internal control: a page that has only ever read cleanly says nothing about breaks.
+    expect(screen.getByTestId("poll-state")).toHaveTextContent(/^读数正常/);
+    expect(screen.getByTestId("poll-state")).not.toHaveTextContent("中断");
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3 * POLL_INTERVAL_MS);
+    });
+    expect(screen.getByTestId("poll-state")).toHaveTextContent("断连 · 连续 3 次读取失败");
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS);
+    });
+    expect(snapshotPolls).toBeGreaterThanOrEqual(5);
+    expect(screen.getByTestId("poll-state")).toHaveTextContent(
+      /^读数正常 · 末次成功 .* · 每 5 秒轮询 · 已自行恢复 1 次读取中断（最近连续 3 次失败、持续 \d+ 秒）$/,
+    );
+    // The span is the whole break, not the gap since the last refusal: three failed
+    // intervals after the chain broke cannot read as under one interval (≤ 5 秒).
+    expect(screen.getByTestId("poll-state")).toHaveTextContent(/持续 (1[0-9]|[2-9]\d|\d{3,}) 秒/);
+    // Recovery is not a new source: still the same real Gateway, no mock descriptor.
+    expect(screen.getByTestId("data-source-banner")).toHaveTextContent("真实读数");
+    expect(screen.getByTestId("data-source-banner")).not.toHaveTextContent("模拟数据");
+    expect(screen.queryByTestId("read-failure")).toBeNull();
+  });
 });
 
 describe("Gateway 活体捕获：会话内与会话后各自渲染自己的读数（§2.97）", () => {

@@ -2818,3 +2818,102 @@ Python 侧本轮**没有改任何 `.py`、契约脚本、fixture 或 registry**�
 3. **下一张**：#90 按 §2.103.4 二选一裁决；#91 恢复侧破坏性验证 + Dashboard 断连/重试字节重采；#86 未到达加入者的具名分布。
 
 本轮不宣称 goal 完成。
+
+## 2.105 #91：恢复侧破坏性重采，和它测出来的一个真实缺口
+
+### 2.105.1 卡的实际动作，不是"再读一遍日志"
+
+#91 原样写的是"恢复侧字节重采"。真跑之后它变成两件：**测**（正对照 → 真断连 → 真自愈，各跑两遍）和**修**（测出来的缺口落进正式面板代码）。动作全在本地 loopback，只碰本任务自己起的 8799 网关容器，不连远程服、不改在线认证。
+
+入口就是产品入口，没有临时脚本：
+
+```bash
+# 网关在跑：正对照（只读穿透，证明面板读的是当前 attempt 的台账）
+E2E_LIVE_GATEWAY=1 npx playwright test e2e/live-gateway-session.spec.ts
+
+# 断连：停掉 demo-lan.sh 起的容器，面板只能看见代理拒绝
+docker stop <gateway容器>
+E2E_LIVE_GATEWAY_DOWN=1 npx playwright test e2e/live-gateway-disconnect.spec.ts
+
+# 自愈：页面开着的时候，由操作者把网关按原配方叫回来
+E2E_LIVE_GATEWAY_DOWN=1 E2E_LIVE_GATEWAY_RECOVER=1 npx playwright test e2e/live-gateway-disconnect.spec.ts
+# 约 20 秒后：
+MINEKIN_DEMO_LAN_VOLUME=minekin-m87b-lan MINEKIN_DEMO_LAN_GATEWAY_KIN=kin-lan87b-join \
+MINEKIN_DEMO_LAN_GATEWAY_PORT=8799 bash test-orchestrator/runner/demo-lan.sh --gateway
+```
+
+**重启必须走产品入口**，不能用 `docker start`：网关容器是 `demo-lan.sh` 以 `docker run --rm` 起的，`docker stop` 当场把容器删掉（第一次实测就撞上了 `No such container: 0c546b6e365b`、恢复计数 0）。用 `docker start` 只会让活体测到一条产品里不存在的恢复路径。
+
+### 2.105.2 活体读数（网关 8799，同一已封存卷 `kin-lan87b-join`）
+
+| 读数 | 结果 | 关键行 |
+|---|---|---|
+| 正对照（改动前） | 1 passed, 877 ms | 逐行读数来自当前 attempt 的台账，不引入窗口外的阶段 |
+| 断连（改动前字节） | 1 passed, 7.0 s | 两轮 `connect ECONNREFUSED 127.0.0.1:8799`（06:38:33 / 06:38:38），面板报「断连 · 连续 N 次读取失败 · 已持续 … · 末次成功 … · 每 5 秒自动重试」，未回落 mock |
+| 自愈（改动前字节） | 1 passed, 30.9 s | 15 轮 ECONNREFUSED + 容器启动期 3 轮 `socket hang up`，页面自己回到「读数正常 · 末次成功 0 秒前 · 每 5 秒轮询」 |
+| 断连（改动后字节） | 1 passed, 6.9 s | 同上形状，6 轮 ECONNREFUSED |
+| 自愈（改动后字节） | 1 passed, 30.9 s | 18 轮 ECONNREFUSED，恢复后的健康行字面打印：`读数正常 · 末次成功 0 秒前 · 每 5 秒轮询 · 已自行恢复 1 次读取中断（最近连续 6 次失败、持续 30 秒）` |
+
+`socket hang up` 与 `ECONNREFUSED` 是两种不同的坏：前者是有人接了但没答完（容器正在起），后者是端口上根本没人。断连判据只数"这次读没落地"，所以两种都进同一条 streak，这是对的；活体日志里两者都留了原样。
+
+### 2.105.3 测出来的缺口：恢复把中断这件事擦干净了
+
+改动前那两条活体都"绿"，但绿得不完整。自愈之后面板只说「读数正常 · 末次成功 0 秒前」，**刚才聋了 30 秒这件事在页面上没有任何残留**。操作者回来看到的第一眼和"从未断过"完全一样，只有 reload 才会丢的都不丢、该留的也不留。这不是渲染 bug，是 `useReadHealth` 的模型缺一条事实：它记 streak，但成功一次就把 `firstFailureAtMs` 清空，不记下这次中断的规模。
+
+补法落在正式代码两处：
+
+- `dashboard/src/hooks/useKinReads.ts`：`ReadHealth` 增加 `recoveredCount` 与 `lastOutage: { failedReads, spanMs } | null`。计数仍锚在 `dataUpdatedAt`（读数落地的时刻）而不是结果对象引用，所以 TanStack 的 structural sharing 把两次相同失败合成同一对象时 streak 照样递增，strict 双渲染也不会虚增。`spanMs` 用 `Math.max(0, ...)` 夹住，避免时钟回退给出负数时长。
+- `dashboard/src/components/DataSourceBanner.tsx`：健康分支追加 ` · 已自行恢复 N 次读取中断（最近连续 K 次失败、持续 T）`。措辞刻意不含「断连」二字——恢复用例本身断言页面 `not.toContainText("断连")`，写成语义相同但字面不同的表达，两条判据才都有效。
+
+`read-failure` 段落（`读取失败 · {kind}：{message} 面板值全部按未知显示。`）是 #91 之前就在的，错误原因展示不需要新做。
+
+### 2.105.4 判别力：三次预埋，其中一次没落，如实记着
+
+新单元用例「断连之后又读到了：健康行仍说出刚才聋了多久，不与从未断过的页面混淆」内部自带两条对照：同一页面早期断言 `^读数正常` 且 `not.toHaveTextContent("中断")`（从未断过时不许出现恢复字样），后期断言整行字面正则。三次预埋：
+
+1. **措辞锚（红）**：把「已自行恢复」改成「已恢复」→ `VITEST_RC=1`，收到 `… · 已恢复 1 次读取中断（最近连续 3 次失败、持续 14 秒）`。这条先修的是我自己写的测试：正则漏了「最近」，并且时长下限设成 15 秒而 `formatSpan` 把 14.9 秒向下取整成 14。修法是把非空判据改成"至少两个轮询间隔（≥10 秒）"，而不是放宽成恒真。
+2. **第一次语义预埋（未落，不作数）**：Python 锚 `assert count(old)==1` 因缩进不匹配直接抛错，`RED2_RC=0` 只证明脚本没改到文件，**不证明任何判别力**。改用 index 切片定位后重做。
+3. **第二次语义预埋（红）**：把 `lastOutage: { failedReads: ..., spanMs: ... }` 换成 `lastOutage: null` → `RED3_RC=1`，健康行退回 `读数正常 · 末次成功 0 秒前 · 每 5 秒轮询`，**正是改动前的行为**。这条才真正说明新判据读的是新事实，而不是读一句多余的措辞。
+
+每次预埋前 `cp` 备份并 `sha256sum`（`.tmp/useKinReads.95.before.ts`、`.tmp/DataSourceBanner.95.before.tsx`），预埋后按字节还原。
+
+### 2.105.5 落点与门载荷
+
+本卡只动 Dashboard（TS/TSX）与本文档，**零 Python 改动** ⇒ 不动 case 摘要、registry、bundle 或封证；`V1201-040` 等强制判定与门载荷字节与本卡无关。
+
+| 文件 | 暂存 blob 内容 sha256 | 改动 |
+|---|---|---|
+| `dashboard/src/hooks/useKinReads.ts` | `61d26c891e683d08946c64a76a069d2a50d74c347d0386c9788f95182e522c77` | `ReadHealth` 扩 `recoveredCount` / `lastOutage` |
+| `dashboard/src/components/DataSourceBanner.tsx` | `62fb1773091bab4c90ce0844526e5158cdf52e8b52750e3c8a749629659e4c4f` | 健康行说出刚断过多久 |
+| `dashboard/src/App.gateway.test.tsx` | `cf7c0cd4cd253520928b4ff5501191c3f0293c209dfa01ceba663d64cf36bd75` | 断连→自愈单元用例（含内部对照） |
+| `dashboard/e2e/live-gateway-disconnect.spec.ts` | `fc429300785060c83e893cb2f80b8b7eaaa508d4f9b491314084215a771adf97` | 恢复用例增加自愈字样与字面打印 |
+
+摘要行取 `git show :<path>` 的字节再 `sha256sum`（LF blob，与 worktree CRLF 无关）。
+
+### 2.105.6 门读数（逐条读 rc，全部本地）
+
+| 门 | rc | 读数 |
+|---|---|---|
+| `npx vitest run` | 0 | 10 files / 106 tests passed（含新用例） |
+| `npx tsc --noEmit` | 0 | 无输出 |
+| `npm run build` | 0 | `dist/assets/index-DLU27aAR.js` |
+| `npx playwright test`（非活体批） | 0 | 10 passed / 3 skipped（三条活体按 opt-in 跳过） |
+| `uv run ruff check .` | 0 | All checks passed |
+| `uv run ruff format --check .` | 0 | 394 files already formatted（本文档追加后复测仍 0/394：该门数的是发现的文件数，往已有 `.md` 追加不 +1） |
+| `uv run pyright` | 0 | 0 errors |
+| `tools/check_boundaries.py` | 0 | — |
+| `tools/check_case_assertions.py` | 0 | 151 registered |
+| `tools/verify_fixture_digests.py` | 0 | — |
+| `tools/check_workflow_pins.py` | 0 | — |
+| `uv run pytest -q` | 0 | 2821 passed / 2 skipped（417.70 s，后台跑完才记账；本卡零 Python 改动，此门只作回归基线） |
+
+活体三条都不进 CI：它们要操作者在页面开着的时候掐端口，跳过是有意的，不能拿"CI 绿"冒充这条测过。
+
+### 2.105.7 具名缺口与下一步
+
+1. **streak 只跟着 snapshot 这一路读**：`useReadHealth` 装在 `useSnapshot` 上，时间线与告警各自失败不会单独进这条计数。面板说的是"读不到 Kin 了"，不是"三个端点各自的死活"。要分端点报就得扩 `ReadHealth` 的键，本卡没做。
+2. **`recoveredCount` 只在页面存活期内累计**：不跨 reload 持久化（契约没给写面，localStorage 会把"面板看过什么"变成第二份状态源）。所以恢复次数说的是"这个页面自己扛过来几次"，不说"今天这个 Kin 断过几次"。
+3. **仍只读**：三条只读 GET 之外的写路径照旧 405，`V1201-DASHBOARD-WRITE-SURFACE-DECISION`（`docs/standalone-runtime-dashboard.md:180 / :206`）仍在主控手上，本卡没把只读授权扩成写权限。
+4. **下一张**：#90 按 §2.103.4 二选一裁决；#86 未到达加入者的具名分布。
+
+本轮不宣称 goal 完成。

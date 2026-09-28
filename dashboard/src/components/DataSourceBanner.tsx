@@ -27,7 +27,13 @@ function healthText(health: ReadHealth, isFetching: boolean, nowMs: number): str
     return `断连 · 连续 ${health.failureStreak} 次读取失败 · ${broke} · ${lastSuccess} · 每 ${POLL_INTERVAL_MS / 1000} 秒自动重试`;
   }
   if (health.lastSuccessAtMs === null) return isFetching ? "首次读取中…" : "等待首次读取";
-  return `读数正常 · 末次成功 ${formatAge(new Date(health.lastSuccessAtMs).toISOString(), nowMs)} · 每 ${POLL_INTERVAL_MS / 1000} 秒轮询`;
+  // A page that went deaf and got its reads back is not the same fact as one that never
+  // missed a poll, so the closed break stays in the healthy line instead of vanishing.
+  const recovered =
+    health.lastOutage === null
+      ? ""
+      : ` · 已自行恢复 ${health.recoveredCount} 次读取中断（最近连续 ${health.lastOutage.failedReads} 次失败、持续 ${formatSpan(health.lastOutage.spanMs)}）`;
+  return `读数正常 · 末次成功 ${formatAge(new Date(health.lastSuccessAtMs).toISOString(), nowMs)} · 每 ${POLL_INTERVAL_MS / 1000} 秒轮询${recovered}`;
 }
 
 /** Loud about provenance: mock readings must never be mistaken for a live Kin. */

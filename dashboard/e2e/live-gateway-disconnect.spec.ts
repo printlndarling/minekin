@@ -89,5 +89,11 @@ test.describe("真实 Gateway 断开与恢复时面板说什么", () => {
     await expect(banner).toContainText(POLL_TEXT);
     await expect(banner).not.toContainText("断连");
     await expect(banner).not.toContainText("模拟数据");
+
+    // Recovering is not the same fact as never having broken. The line that says
+    // 「读数正常」 has to keep naming the break it just closed, or an operator who
+    // returns to this page cannot tell a self-healed session from an untouched one.
+    await expect(banner).toContainText(/已自行恢复 \d+ 次读取中断（最近连续 \d+ 次失败、持续 \d+ 秒）/);
+    console.log(`[live] 恢复后的健康行字面：${await page.getByTestId("poll-state").innerText()}`);
   });
 });

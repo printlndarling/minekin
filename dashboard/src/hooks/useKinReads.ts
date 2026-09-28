@@ -24,11 +24,25 @@ export interface SnapshotRead {
  * of failed reads, and the honest reading of a streak is the count plus the
  * moment the chain broke.
  */
+/**
+ * A break that has already closed. The streak itself is gone with the failed reads, so
+ * what survives is the two facts the operator asked for while it was deaf: how many
+ * polls went unanswered, and how long the panel was deaf for.
+ */
+export interface ClosedOutage {
+  readonly failedReads: number;
+  readonly spanMs: number;
+}
+
 export interface ReadHealth {
   readonly failureStreak: number;
   /** When the streak now running began; null while nothing has failed. */
   readonly firstFailureAtMs: number | null;
   readonly lastSuccessAtMs: number | null;
+  /** Breaks this panel has recovered from without being reloaded. */
+  readonly recoveredCount: number;
+  /** The most recent closed break; null while the page has only ever read cleanly. */
+  readonly lastOutage: ClosedOutage | null;
 }
 
 /**
@@ -38,6 +52,12 @@ export interface ReadHealth {
  * reference — so identity would freeze the streak at 1 while the polls kept
  * failing. `dataUpdatedAt` advances with every settled read, and a re-render
  * (including React's strict double-render) cannot advance it.
+ *
+ * A success that follows a streak closes that streak into `lastOutage` rather than
+ * dropping it. Wiping the streak is correct for「连续 N 次」— the chain is over — but
+ * leaving no trace at all made a page that had just gone 6 polls deaf read exactly
+ * like one that had never missed a beat, so the operator could not tell a recovered
+ * session from an untouched one.
  */
 function useReadHealth(adapterId: string, data: ReadResult<unknown> | undefined, readAtMs: number): ReadHealth {
   const seen = useRef<{
@@ -46,23 +66,47 @@ function useReadHealth(adapterId: string, data: ReadResult<unknown> | undefined,
     streak: number;
     firstFailureAtMs: number | null;
     lastSuccessAtMs: number | null;
-  }>({ adapterId, readAtMs: -1, streak: 0, firstFailureAtMs: null, lastSuccessAtMs: null });
+    recoveredCount: number;
+    lastOutage: ClosedOutage | null;
+  }>({
+    adapterId,
+    readAtMs: -1,
+    streak: 0,
+    firstFailureAtMs: null,
+    lastSuccessAtMs: null,
+    recoveredCount: 0,
+    lastOutage: null,
+  });
   if (seen.current.adapterId !== adapterId || seen.current.readAtMs !== readAtMs) {
+    const previous = seen.current;
     seen.current =
       data === undefined
-        ? { adapterId, readAtMs, streak: 0, firstFailureAtMs: null, lastSuccessAtMs: null }
+        ? { ...previous, adapterId, readAtMs, streak: 0, firstFailureAtMs: null }
         : data.ok
-          ? { adapterId, readAtMs, streak: 0, firstFailureAtMs: null, lastSuccessAtMs: Date.now() }
+          ? previous.streak > 0
+            ? {
+                adapterId,
+                readAtMs,
+                streak: 0,
+                firstFailureAtMs: null,
+                lastSuccessAtMs: Date.now(),
+                recoveredCount: previous.recoveredCount + 1,
+                lastOutage: {
+                  failedReads: previous.streak,
+                  spanMs: Math.max(0, Date.now() - (previous.firstFailureAtMs ?? Date.now())),
+                },
+              }
+            : { ...previous, adapterId, readAtMs, lastSuccessAtMs: Date.now() }
           : {
+              ...previous,
               adapterId,
               readAtMs,
-              streak: seen.current.streak + 1,
-              firstFailureAtMs: seen.current.firstFailureAtMs ?? Date.now(),
-              lastSuccessAtMs: seen.current.lastSuccessAtMs,
+              streak: previous.streak + 1,
+              firstFailureAtMs: previous.firstFailureAtMs ?? Date.now(),
             };
   }
-  const { streak, firstFailureAtMs, lastSuccessAtMs } = seen.current;
-  return { failureStreak: streak, firstFailureAtMs, lastSuccessAtMs };
+  const { streak, firstFailureAtMs, lastSuccessAtMs, recoveredCount, lastOutage } = seen.current;
+  return { failureStreak: streak, firstFailureAtMs, lastSuccessAtMs, recoveredCount, lastOutage };
 }
 
 /**
