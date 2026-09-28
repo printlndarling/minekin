@@ -87,6 +87,19 @@ _NO_BUNDLE: Final = "本 run 还没有已封的证据 bundle：封证只在 case
 # fields are ever projected out, so a field Core adds later cannot ride a generic dump.
 _DETAIL_FIELDS: Final = ("reason", "phase", "resource_pack_policy", "from", "to", "capability")
 
+# The identity comparison row carries the only refusal signal Core writes for an offline
+# session, and the generic list above projects none of it. Contract §4 rule 1 names these
+# fields as allowed to appear, so this one event type gets them appended to its detail.
+_IDENTITY_DETAIL_FIELDS: Final = (
+    "session_username",
+    "session_uuid",
+    "matched",
+    "mismatches",
+    "client_id_present",
+    "xuid_present",
+    "credential_values_exposed",
+)
+
 
 class EventRow(NamedTuple):
     """One ledger row, in the shape the projections below need."""
@@ -225,13 +238,52 @@ def lease_held(rows: Sequence[EventRow], *, alive: bool) -> bool:
     return last is not None and last.event_type == INPUT_LEASE_GRANTED
 
 
+def _identity_detail(payload: Mapping[str, Any]) -> list[str]:
+    """The comparison's own reading: whose identity was asked about, and whether it held.
+
+    These are the fields contract §4 rule 1 names, and nothing else: a member Core adds
+    later stays in the ledger. An empty `mismatches` says nothing, so it is left out.
+    """
+
+    parts: list[str] = []
+    for name in _IDENTITY_DETAIL_FIELDS:
+        value = payload.get(name)
+        if name == "mismatches":
+            if isinstance(value, list | tuple):
+                items = cast("Sequence[object]", value)
+                names = [item for item in items if isinstance(item, str)]
+                if names and len(names) == len(items):
+                    parts.append(f"{name}={'|'.join(names)}")
+        elif isinstance(value, bool | str):
+            parts.append(f"{name}={value}")
+    return parts
+
+
 def _detail(row: EventRow) -> str | None:
     parts = [
         f"{name}={row.payload[name]}"
         for name in _DETAIL_FIELDS
         if isinstance(row.payload.get(name), str | int)
     ]
+    if row.event_type == SESSION_IDENTITY_COMPARED:
+        parts += _identity_detail(row.payload)
     return ", ".join(parts) if parts else None
+
+
+def _identity_outcome(payload: Mapping[str, Any]) -> str:
+    """An identity comparison is applied only when Core says the identity matched.
+
+    Core writes this row for every read attempt, including the ones it then refuses, so a
+    fixed reading would present a rejected session as an accepted one. `matched` has to be
+    Core's own boolean: a lookalike `1` is not a match.
+    """
+
+    matched = payload.get("matched")
+    if matched is True:
+        return "applied"
+    if matched is False:
+        return "rejected"
+    return "unknown"
 
 
 def _current_client(report: StatusReport, rows: Sequence[EventRow]) -> ClientSummary | None:
@@ -546,7 +598,9 @@ TIMELINE_READING: Final[Mapping[str, tuple[str, str]]] = {
     RESOURCE_PACK_POLICY_APPLIED: ("decision", "applied"),
     CLIENT_EXITED: ("session", "unknown"),
     SESSION_STATE_TRANSITIONED: ("session", "applied"),
-    SESSION_IDENTITY_COMPARED: ("observation", "applied"),
+    # The one row whose outcome this table cannot carry: whether it was applied is a reading
+    # of its own payload, so the entry below is only the fallback when that reading fails.
+    SESSION_IDENTITY_COMPARED: ("observation", "unknown"),
 }
 
 
@@ -567,6 +621,8 @@ def build_timeline(
     events: list[dict[str, Any]] = []
     for row in reversed(rows):
         kind, outcome = TIMELINE_READING.get(row.event_type, ("observation", "unknown"))
+        if row.event_type == SESSION_IDENTITY_COMPARED:
+            outcome = _identity_outcome(row.payload)
         events.append(
             {
                 "eventId": row.event_id,

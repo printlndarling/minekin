@@ -65,9 +65,29 @@ from minekin_core.adapters.sqlite.session_log import (
 )
 from minekin_core.application.ports.clock import FakeClock
 from minekin_core.cli.session import database_for
+from minekin_core.domain.session_material import (
+    MISMATCH_UUID,
+    MISMATCH_XUID_PRESENCE,
+)
 
 ENVELOPE_KEYS = ("status", "sourceRef", "observedAt", "staleAfterMs")
 STATUSES = frozenset({"known", "unknown", "unavailable", "not_wired", "permission_denied"})
+
+# A marker for the two members of Core's identity row that §4 rule 1 does not list.
+CANDIDATE_MARKER = "candidate-value-that-must-stay-in-the-ledger"
+
+# The seven fields §4 rule 1 names as allowed to appear for an identity comparison.
+CONTRACT_NAMED_IDENTITY_FIELDS = frozenset(
+    {
+        "session_username",
+        "session_uuid",
+        "matched",
+        "mismatches",
+        "client_id_present",
+        "xuid_present",
+        "credential_values_exposed",
+    }
+)
 
 
 def snapshot_of(tmp_path: Path, *, probe: Callable[[int], Liveness] = alive) -> dict[str, object]:
@@ -374,6 +394,107 @@ def test_a_timeline_row_for_a_comparison_reports_it_as_an_observation(tmp_path: 
 
     assert events[0]["kind"] == "observation"
     assert events[0]["outcome"] == "applied"
+    assert events[0]["detail"] == "matched=True"
+
+
+def test_a_refused_comparison_reports_itself_as_a_rejection_and_names_why(tmp_path: Path) -> None:
+    """Core writes this row for a read it then refuses, in exactly the shape of a matched one.
+
+    Before this reading the panels said `applied` to both, so the one ledger row that carries
+    an offline-identity refusal was shown as a success — the opposite of what §5 asks the
+    timeline to be. The mismatches are Core's own names, not a re-invented vocabulary.
+    """
+
+    seed_kin(tmp_path, with_marker=False)
+    record(
+        tmp_path,
+        SESSION_IDENTITY_COMPARED,
+        {
+            "session_username": "Tester",
+            "session_uuid": "25519000-0000-4000-8000-000000000000",
+            "observed_account_type": "XBL",
+            "client_id_present": True,
+            "xuid_present": False,
+            "credential_values_exposed": False,
+            "matched": False,
+            "mismatches": [MISMATCH_UUID, MISMATCH_XUID_PRESENCE],
+        },
+    )
+
+    events = build_timeline(tmp_path, limit=5)
+
+    assert events[0]["kind"] == "observation"
+    assert events[0]["outcome"] == "rejected"
+    assert "matched=False" in events[0]["detail"]
+    assert f"mismatches={MISMATCH_UUID}|{MISMATCH_XUID_PRESENCE}" in events[0]["detail"]
+    assert "session_username=Tester" in events[0]["detail"]
+    assert "client_id_present=True" in events[0]["detail"]
+    assert "xuid_present=False" in events[0]["detail"]
+    assert "credential_values_exposed=False" in events[0]["detail"]
+
+
+def test_a_comparison_row_that_says_nothing_about_the_verdict_reads_as_unknown(
+    tmp_path: Path,
+) -> None:
+    """The table entry is a fallback, not a claim: no verdict in the row means no verdict shown.
+
+    `matched` has to be Core's boolean. A lookalike `1` is a payload that was not written by
+    `identity_ledger_record`, so the projection has no reading to report and says so.
+    """
+
+    seed_kin(tmp_path, with_marker=False)
+    record(tmp_path, SESSION_IDENTITY_COMPARED, {"session_username": "Tester"})
+    record(tmp_path, SESSION_IDENTITY_COMPARED, {"matched": 1, "mismatches": []})
+
+    events = build_timeline(tmp_path, limit=5)
+
+    assert events[1]["outcome"] == "unknown"
+    assert events[1]["detail"] == "session_username=Tester"
+    assert events[0]["outcome"] == "unknown"
+    assert events[0]["detail"] is None
+    assert TIMELINE_READING[SESSION_IDENTITY_COMPARED] == ("observation", "unknown")
+
+
+def test_the_identity_projection_stays_inside_the_fields_the_contract_names(
+    tmp_path: Path,
+) -> None:
+    """§4 rule 1 names seven fields; the other two members of Core's row stay in the ledger.
+
+    `identity_candidate_id` and `observed_account_type` are real payload members of every
+    row, so the markers here are the widening this projection must not do — a field is only
+    listable because the contract lists it, not because Core wrote it.
+    """
+
+    seed_kin(tmp_path, with_marker=False)
+    record(
+        tmp_path,
+        SESSION_IDENTITY_COMPARED,
+        {
+            "identity_candidate_id": CANDIDATE_MARKER,
+            "session_username": "Tester",
+            "session_uuid": "25519000-0000-4000-8000-000000000000",
+            "observed_account_type": CANDIDATE_MARKER,
+            "client_id_present": True,
+            "xuid_present": True,
+            "credential_values_exposed": False,
+            "matched": False,
+            "mismatches": [MISMATCH_UUID],
+        },
+    )
+
+    events = build_timeline(tmp_path, limit=5)
+
+    assert CANDIDATE_MARKER not in json.dumps(events, ensure_ascii=False)
+    assert "observed_account_type" not in events[0]["detail"]
+    assert "identity_candidate_id" not in events[0]["detail"]
+    # The mismatch names do appear, which is what makes the two absences above a reading.
+    assert f"mismatches={MISMATCH_UUID}" in events[0]["detail"]
+    assert "session_uuid=25519000-0000-4000-8000-000000000000" in events[0]["detail"]
+
+    # Read the emitted surface itself, not the list it was built from: this row carries all
+    # seven named members, so a projection that adds a field or drops one shows up here.
+    detail = str(events[0]["detail"])
+    assert {part.split("=", 1)[0] for part in detail.split(", ")} == CONTRACT_NAMED_IDENTITY_FIELDS
 
 
 def test_the_timeline_limit_bounds_the_rows_it_returns(tmp_path: Path) -> None:
