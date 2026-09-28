@@ -2102,3 +2102,14 @@ the target allows 1.21.4"}`，配对文档 `mismatch.json` 是 `schema_version 2
 7. **落盘与推送**：base `5d31951a1aedf05cf7d2be85d2481e9c28c4a783`，一笔提交后 `push origin main:main`，再 `git ls-remote origin refs/heads/main` 回读，并核 `git status --porcelain` 0 行。新晋 main 的 CI 步骤级读数留下一轮。
 8. **四态**：设计卡已入干 / 登记与真跑未开工 / 无 sealed bundle 新增（0 次挂卷）/ 无强制用例集位移。门载荷未取卷复量（无位移预期，也未测）。
 9. **不宣称完成**：goal 的每一半（H1k 在途工作由 lane 自收、V5′/H1i/M-C1/E7/M-G1 按文档顺序推进）仍未全部达成；本轮只是 §3 第二类独立工作又走一张卡。
+## 第八十三轮（2026-09-28 12:35 +0800，M 主控，doc-only）
+
+1. **做什么**：按队列 §3 第二类独立工作走该族第四张卡——`ADMIT-090` / `ADMIT-120` 的 oracle 与载体先行设计。全程只读仓库字节，零挂卷、零 JVM、未读 `.tmp/local-test-server.txt`、未连用户远程服、未 dial 非 loopback、lane 材料一字节未读未改。
+2. **交付**：新文档 `docs/p0-admit-090-120-case-spec-2026-09-28.md`（101 行 LF，卡片 `P0-ADMIT-090-120-CASE-SPEC-001`）；三处主干登记（本节、v1201 §2.78、计划表一行）。**本轮零代码改动**。上一格落盘的是 `b3e753de19533c3da9034f8b47139904db2fa623`（远端已核，工作树开工时 0 脏）。
+3. **三条新结论**：① `ADMIT-090` 的「人格不重建」**不是**「无载体」——`SessionIdentityCompared` 由产品写（`session_log.py:75`、`cli/session.py:1556-1566`），上一条 run 的该行在 `previous-run-trace.jsonl` 里（`seal_run_evidence.py:811`），所以跨 run 的人格等式是「有载体、无判据」；旧清单 `p0-evidence-inventory-2026-09-26.md:165` 的读数以新字节为准改正，历史行不 rewrite。② 「重连同一服」强读法场景不可达（`domain.sh:1038-1042` 每 run 一份全新服务端目录且拒绝非空），契约 `:208` 的两连跑只证「同 Kin、新 run、新 world」。③ `ADMIT-120` 仓库/构建侧已有四道门（含 `check_wheel_boundary.py` 的值级扫描），运行期那半缺的第一样是**放置机制**而不是判据（`domain.sh` 全文 `canary` 0 命中）。
+4. **两处口径警告**：`the_restart_runs_as_a_new_session` 判的是 `(session_id, generation)` 一对而非 generation 单独一项（拒止文本只报 session），且改它会移 `CORE-090` 的断言摘要 ⇒ 要单独判 generation 必须新写断言；`ADMIT-120` 若接了放置，扫描域必须**排除 oracle 自己的载体**（验收器侧那份时间线按定义含 canary 值），否则判据必然红。
+5. **门读数（最终字节，逐道先读 rc）**：`ruff check .` 0、`ruff format --check .` 0（381 files，+1 为本卡）、`git diff --check` 0（stdout 空）、`check_case_assertions.py` 0（151 registered）、`verify_fixture_digests.py` 0。未跑并具名列出：pyright、pytest、`check_boundaries`、`check_workflow_pins`、`uv build --wheel` + wheel 边界、`minekin --help`、buf 三条、bridge 两条。
+6. **CI 欠账**：第八十二轮落盘的 `b3e753d…` 自身步骤级读数**本轮未取**（push 之后约十分钟一趟），留下一轮按 `ci.yml` 自身清单逐步读 `NON_SUCCESS_STEPS`；本轮不写任何 CI 结论。
+7. **落盘与推送**：base `b3e753de19533c3da9034f8b47139904db2fa623`，一笔提交后 `push origin main:main`，再 `git ls-remote origin refs/heads/main` 回读，并核 `git status --porcelain` 0 行。新晋 main 的 CI 步骤级读数留下一轮。
+8. **四态**：设计卡已入干 / 登记与真跑未开工 / 无 sealed bundle 新增（0 次挂卷）/ 无强制用例集位移。真实封证仍 **1**（`5086ee42…64f6` / run `a224f6c3…`，出处 `docs/validation/v1201-lan-joiner-control-seal-2026-09-28.md:6-7`）。
+9. **不宣称完成**：objective 的每一半（lane 在途工作由 lane 自收并按文档顺序推进 V5′/H1i/M-C1/E7/M-G1 之后的格）仍未全部达成；本族的晋级、`mandatory`/registry 位移、V08 与用户远程服、HOST 一切仍属主控保留，本轮只写设计卡。
