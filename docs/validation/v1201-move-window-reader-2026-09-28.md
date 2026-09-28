@@ -126,7 +126,7 @@ uv run ruff check tools tests/unit/test_read_move_window.py                     
 uv run pyright tools/read_move_window.py tests/unit/test_read_move_window.py         # rc=0, 0 errors
 uv run python tools/check_case_assertions.py                                         # rc=0, 151 registered
 uv run python -m pytest tests/unit/test_read_move_window.py -q                       # 18 passed
-uv run python -m pytest tests/unit tests/contract -q                                 # 见 .tmp/m82/final-gates-0928.log
+uv run python -m pytest tests/unit tests/contract -q                                 # 2799 passed, 2 skipped（.tmp/m82/final-gates-0928.log）
 bash -n test-orchestrator/runner/demo-lan.sh                                         # rc=0
 ```
 
