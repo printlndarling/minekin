@@ -69,13 +69,19 @@
 }
 
 .pollBusy,
-.pollIdle {
+.pollIdle,
+.pollFailed {
   font-size: 11px;
   color: var(--text-faint);
 }
 
 .pollBusy {
   color: var(--warn-ink);
+}
+
+.pollFailed {
+  color: var(--bad-ink);
+  font-weight: 600;
 }
 
 .failure {

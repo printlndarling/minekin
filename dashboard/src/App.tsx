@@ -3,11 +3,13 @@ import { useMemo, useState } from "react";
 import { createAdapter, readDashboardConfig, type DashboardConfig } from "./adapters/config";
 import { DataSourceBanner } from "./components/DataSourceBanner";
 import type { MockScenarioId } from "./fixtures/mockFixtures";
+import { deriveSessionProgress } from "./domain/sessionProgress";
 import { useAlerts, useSnapshot, useTimeline } from "./hooks/useKinReads";
 import { useNow } from "./hooks/useNow";
 import { AlertsPanel } from "./panels/AlertsPanel";
 import { LiveViewPanel } from "./panels/LiveViewPanel";
 import { OverviewPanel } from "./panels/OverviewPanel";
+import { SessionProgressPanel } from "./panels/SessionProgressPanel";
 import { TimelinePanel } from "./panels/TimelinePanel";
 import { UnavailablePanel } from "./panels/UnavailablePanel";
 import styles from "./App.module.css";
@@ -64,6 +66,7 @@ function Dashboard({
   const snapshotRead = useSnapshot(adapter);
   const timelineRead = useTimeline(adapter, [], 50);
   const alertsRead = useAlerts(adapter);
+  const sessionProgress = useMemo(() => deriveSessionProgress(timelineRead.items), [timelineRead.items]);
 
   const changeScenario = (next: MockScenarioId): void => {
     setScenario(next);
@@ -90,6 +93,8 @@ function Dashboard({
         onScenarioChange={changeScenario}
         failure={snapshotRead.failure}
         isFetching={snapshotRead.isFetching}
+        health={snapshotRead.health}
+        nowMs={nowMs}
       />
 
       <nav className={styles.tabs} aria-label="面板">
@@ -107,7 +112,17 @@ function Dashboard({
       </nav>
 
       <main className={styles.main}>
-        {tab === "overview" ? <OverviewPanel snapshot={snapshotRead.snapshot} nowMs={nowMs} /> : null}
+        {tab === "overview" ? (
+          <>
+            <OverviewPanel snapshot={snapshotRead.snapshot} nowMs={nowMs} />
+            <SessionProgressPanel
+              progress={sessionProgress}
+              nowMs={nowMs}
+              isLoading={timelineRead.isLoading}
+              failure={timelineRead.failure}
+            />
+          </>
+        ) : null}
         {tab === "timeline" ? (
           <TimelinePanel items={timelineRead.items} isLoading={timelineRead.isLoading} failure={timelineRead.failure} />
         ) : null}

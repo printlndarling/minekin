@@ -162,3 +162,39 @@ export const REAL_TIMELINE_WIRE: readonly Record<string, unknown>[] = [
     sourceRef: "ledger://kin-01/41",
   },
 ];
+
+export interface LedgerRowSpec {
+  readonly title: string;
+  readonly kind: string;
+  readonly outcome: string;
+  readonly detail?: string | null;
+}
+
+/**
+ * One attempt's worth of rows in the shape `build_timeline` answers, newest first.
+ *
+ * The field set, the enum values and the `ledger://{kin_id}/{position}` reference are
+ * the shipped ones; only the row sequence is chosen here, so a case can describe more
+ * than the two-row capture above holds. `specs` is oldest first and positions ascend
+ * with it, which is what the attempt pinning reads.
+ */
+export function gatewayLedgerWires(specs: readonly LedgerRowSpec[], firstPosition = 41): Record<string, unknown>[] {
+  const origin = Date.parse("2000-01-01T00:00:00Z");
+  return specs
+    .map((spec, index) => {
+      const position = firstPosition + index;
+      return {
+        eventId: `evt-${position}`,
+        kind: spec.kind,
+        at: new Date(origin + position * 1_000).toISOString(),
+        monotonicMs: null,
+        generation: 1,
+        sequence: null,
+        title: spec.title,
+        detail: spec.detail ?? null,
+        outcome: spec.outcome,
+        sourceRef: `ledger://kin-01/${position}`,
+      };
+    })
+    .reverse();
+}

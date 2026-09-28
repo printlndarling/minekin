@@ -165,3 +165,14 @@ uv run pytest -q tests/contract/test_runner_scripts.py -k publish
 - **run 文档逐字段**（与上表「重复启动」那一列同形状）：`auto_bundle installed 0 / reused 3639 / status ready`、`connection_state PLAYABLE`、`entities_admitted 20 / rejected 0`、`snapshots_admitted 1`、`events_applied 5 / ignored 0`、`actions_applied 2 / refused 0`、`input_release_failed false`、`session stop` 释放 `{"asked": [276], "released": [276], "terminated": [276], "unconfirmed": []}`、`outcome BRIDGE_LOST` / `session_state STOPPED`、编排层 rc=14。
 - **本卡的增量含义**：`domain: the server saw the Kin walk and stop` 那一格现在背后有可判的窗口归因——同一份服务端日志在 7.996514 秒的授权窗内给出 **8 枚**带戳位置读数、窗内水平位移 **32.6308 格**；反对照与逐字段读数见 `docs/v1201-lan-control-next-2026-09-27.md` §2.89。
 - **原始材料**：`.tmp/r90-demo-again.log`、卷 `minekin-local-demo` 的 `/data/server-runs/run-3`（未清理、未封存，`MINEKIN_DEMO_CASE` 未设，故不产 sealed bundle）。
+
+## 同一份台账在 Dashboard 里的会话进度读数（同日 20:50，P2 实施）
+
+- **落点（正式代码）**：`dashboard/src/domain/sessionProgress.ts` 把冻结时间线端点的台账行读成「阶段／终态／拒止」——阶段只按 Core 写下的事件名成立，并把读数锚定在最新的 `SessionProcessStarted`；`dashboard/src/panels/SessionProgressPanel.tsx` 在总览标签下逐条呈现；断连与末次成功时间由 `DataSourceBanner` 说。`dashboard/vite.config.ts` 的 `/gateway` 反代同时接到 `preview`，所以 `vite preview` 起的构建版面板也能读活的 Gateway。
+- **真跑形状**：卷 `minekin-m-demo-live2`、Kin `kin-demo-0928b`，Gateway 用 `MINEKIN_DEMO_GATEWAY_PORT=8787 bash test-orchestrator/runner/demo.sh --gateway` 起；台账 33 行、含两个 attempt（1–10 握手失败、11–33 成功加入）。
+- **浏览器里的实际读数**（Chromium 打开 `?adapter=gateway&gateway=/gateway`，无页面错误）：六个阶段「已观测」、「客户端进程已离场」为「未观测」；最远到「输入租约已释放」；租约授予 2 次／释放 2 次／拒止 0 次；终态「会话已停止 · 会话被中断（失败）」；版本准备进度按缺口点名而不是画进度条。
+- **锚定确实起作用**：上一 attempt 独有的行（含位置 10 的那条 `SessionInterrupted`）没有进入本轮读数——终态取的是位置 33 那一行。
+- **正式测试**：`pnpm --dir dashboard test` → 9 files / 90 tests；`pnpm --dir dashboard build`（含 `tsc --noEmit`）→ 0；`pnpm --dir dashboard exec playwright test` → 11 passed，其中新增的 opt-in 用例 `dashboard/e2e/live-gateway-session.spec.ts` 对同一批 wire 字节做**第二个读者**（在测试侧独立重算 observed／counts／terminal），入口是 `E2E_LIVE_GATEWAY=1`，未设则跳过而不是造 run。
+- **反照**：把 `JoinObserved` 改名并把拒止计数换成授予计数后重建，live 用例即红（`未观测服务端观察到入服`）；恢复后 `sessionProgress.ts` 的字节摘要与植入前一致（`8f17979ab563a5767effc7ae74a716bfc1118ab8d060a892098236508943819b`）。
+- **踩到的一次假失败**：`dist/` 里残留 0.1.0-proposal 时期的旧构建时，面板会对真实字节以 `contract_mismatch` 失败关闭（页头读数是「未知」）。⇒ 复算式里必须**先 `pnpm build` 再看板**；重跑构建后同一批真字节读数正常。
+

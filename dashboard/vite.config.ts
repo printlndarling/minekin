@@ -12,24 +12,29 @@ import react from "@vitejs/plugin-react";
 // the Gateway on a port the operator picks.
 const gatewayTarget = process.env.MINEKIN_GATEWAY_TARGET ?? "http://127.0.0.1:8787";
 
+// The same forward for `vite dev` and `vite preview`, so the built panel the demo
+// ships reads a live Gateway the same way the dev server does.
+const gatewayProxy = {
+  "/gateway": {
+    target: gatewayTarget,
+    changeOrigin: true,
+    rewrite: (path: string) => path.replace(/^\/gateway/, ""),
+  },
+};
+
 export default defineConfig({
   plugins: [react()],
   server: {
     host: "127.0.0.1",
     port: 5175,
     strictPort: false,
-    proxy: {
-      "/gateway": {
-        target: gatewayTarget,
-        changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/gateway/, ""),
-      },
-    },
+    proxy: gatewayProxy,
   },
   preview: {
     host: "127.0.0.1",
     port: 5176,
     strictPort: false,
+    proxy: gatewayProxy,
   },
   test: {
     environment: "jsdom",
