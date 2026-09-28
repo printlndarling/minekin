@@ -1,13 +1,18 @@
 import type { ReadFailure } from "../domain/adapter";
-import { ALERT_COMPONENT_LABELS, ALERT_SEVERITY_LABELS, ALERT_STATE_LABELS } from "../domain/labels";
-import type { Alert } from "../domain/model";
+import {
+  ALERT_COMPONENT_LABELS,
+  ALERT_SEVERITY_LABELS,
+  ALERT_STATE_LABELS,
+  SIGNAL_STATUS_LABELS,
+} from "../domain/labels";
+import type { AlertsEnvelope, Alert } from "../domain/model";
 import { formatDateTime } from "../lib/format";
 import { Panel } from "../components/Panel";
 import { Pill, type Tone } from "../components/Pill";
 import styles from "./alerts.module.css";
 
 export interface AlertsPanelProps {
-  readonly items: readonly Alert[];
+  readonly envelope: AlertsEnvelope | null;
   readonly isLoading: boolean;
   readonly failure: ReadFailure | null;
 }
@@ -18,12 +23,38 @@ const SEVERITY_TONE: Record<Alert["severity"], Tone> = {
   critical: "bad",
 };
 
-export function AlertsPanel({ items, isLoading, failure }: AlertsPanelProps) {
+function itemsOf(envelope: AlertsEnvelope | null): readonly Alert[] {
+  return envelope === null ? [] : envelope.alerts;
+}
+
+/**
+ * Three facts, three renderings (§5.3): real alerts listed; a source that
+ * answered with nothing (「没有告警」); or no alert source at all
+ * （「无告警源」 + the reason）. The last two are separate DOM branches — an
+ * empty list from a live source must never look like the absence of a source.
+ */
+export function AlertsPanel({ envelope, isLoading, failure }: AlertsPanelProps) {
+  const items = itemsOf(envelope);
+  const hasSource = envelope !== null && envelope.status === "known";
   return (
     <Panel title="告警与健康摘要" note="告警只呈现，不在此确认或消除；确认动作属于未来的管理写接口。" testId="panel-alerts">
       {failure ? <p className={styles.empty}>读取失败（{failure.kind}）：不展示任何缓存告警。</p> : null}
       {isLoading ? <p className={styles.empty}>首次读取中…</p> : null}
-      {!failure && !isLoading && items.length === 0 ? <p className={styles.empty}>当前无告警。</p> : null}
+      {!failure && !isLoading && envelope === null ? (
+        <p className={styles.empty} data-testid="alerts-no-source">
+          无告警源：尚未读到告警信封。
+        </p>
+      ) : null}
+      {!failure && !isLoading && envelope !== null && hasSource && items.length === 0 ? (
+        <p className={styles.empty} data-testid="alerts-empty">
+          没有告警：告警源已读到，当前清单为空。
+        </p>
+      ) : null}
+      {!failure && !isLoading && envelope !== null && !hasSource ? (
+        <p className={styles.noSource} data-testid="alerts-no-source">
+          无告警源（{SIGNAL_STATUS_LABELS[envelope.status]}）：{envelope.reason}
+        </p>
+      ) : null}
       <ul className={styles.list}>
         {items.map((alertItem) => (
           <li key={alertItem.alertId} className={styles.item}>

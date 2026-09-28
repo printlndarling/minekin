@@ -1,4 +1,4 @@
-import type { Alert, KinSnapshot, TimelineEvent, TimelineKind } from "./model";
+import type { AlertsEnvelope, KinSnapshot, TimelineEvent, TimelineKind } from "./model";
 import { gap, type DataSourceKind, type SignalContext } from "./signals";
 
 export type ReadFailureKind =
@@ -49,7 +49,8 @@ export interface KinReadAdapter {
   describe(): AdapterDescriptor;
   snapshot(signal?: AbortSignal): Promise<ReadResult<KinSnapshot>>;
   timeline(query: TimelineQuery, signal?: AbortSignal): Promise<ReadResult<readonly TimelineEvent[]>>;
-  alerts(signal?: AbortSignal): Promise<ReadResult<readonly Alert[]>>;
+  /** The §5.3 envelope, never a bare array: "no alerts" and "no alert source" are different facts. */
+  alerts(signal?: AbortSignal): Promise<ReadResult<AlertsEnvelope>>;
 }
 
 /**

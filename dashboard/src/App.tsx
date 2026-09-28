@@ -112,7 +112,7 @@ function Dashboard({
           <TimelinePanel items={timelineRead.items} isLoading={timelineRead.isLoading} failure={timelineRead.failure} />
         ) : null}
         {tab === "alerts" ? (
-          <AlertsPanel items={alertsRead.items} isLoading={alertsRead.isLoading} failure={alertsRead.failure} />
+          <AlertsPanel envelope={alertsRead.envelope} isLoading={alertsRead.isLoading} failure={alertsRead.failure} />
         ) : null}
         {tab === "live" ? <LiveViewPanel signal={snapshotRead.snapshot.liveView} nowMs={nowMs} /> : null}
         {tab === "mind" ? (
@@ -127,7 +127,7 @@ function Dashboard({
 
       <footer className={styles.footer}>
         <p>
-          本面板是 P2 前置的只读外壳：Gateway 只读 API、事件游标与媒体通道尚未实现，缺失字段一律显示未知/未接入。
+          本面板是 P2 前置的只读外壳：读端点按 2026-09-28 冻结契约的三条 GET 接线；事件游标与媒体通道仍未实现，缺失字段一律显示未知/未接入。
         </p>
         <p>P0 Core 不依赖 Node；构建产物是静态文件，可由未来的 Gateway 或反向代理直接托管。</p>
       </footer>

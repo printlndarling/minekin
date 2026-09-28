@@ -1,7 +1,7 @@
 import { KIN_STATE_LABELS, LINK_STATE_LABELS, SESSION_MODE_LABELS } from "../domain/labels";
 import type { KinSnapshot } from "../domain/model";
 import { isKnown } from "../domain/signals";
-import { formatDateTime, formatNumber } from "../lib/format";
+import { fieldText, formatDateTime, formatNumber } from "../lib/format";
 import { Panel } from "../components/Panel";
 import { SignalValue } from "../components/SignalValue";
 
@@ -18,7 +18,9 @@ export function OverviewPanel({ snapshot, nowMs }: { readonly snapshot: KinSnaps
           label="Bridge 心跳"
           signal={snapshot.bridgeHeartbeat}
           nowMs={nowMs}
-          format={(v) => `seq ${v.lastSequence} · 间隔 ${formatNumber(v.intervalMs, 0)}ms · lease ${v.inputLeaseHeld ? "持有" : "无"}`}
+          format={(v) =>
+            `序列 ${fieldText(v.lastSequence, (n) => String(n))} · 间隔 ${fieldText(v.intervalMs, (n) => `${formatNumber(n, 0)}ms`)} · lease ${fieldText(v.inputLeaseHeld, (b) => (b ? "持有" : "无"))}`
+          }
         />
       </Panel>
 
@@ -27,27 +29,32 @@ export function OverviewPanel({ snapshot, nowMs }: { readonly snapshot: KinSnaps
           label="会话"
           signal={snapshot.session}
           nowMs={nowMs}
-          format={(v) => `${v.sessionId} · gen ${v.generation} · ${SESSION_MODE_LABELS[v.mode]} · 起于 ${formatDateTime(v.startedAt)}`}
+          format={(v) =>
+            `${fieldText(v.sessionId, (s) => s)} · gen ${fieldText(v.generation, (g) => String(g))} · 模式 ${fieldText(v.mode, (m) => SESSION_MODE_LABELS[m])} · 起于 ${fieldText(v.startedAt, formatDateTime)} · pid ${fieldText(v.pid, (p) => String(p))} · 覆盖层 ${fieldText(v.overlay, (o) => o)}`
+          }
+          showSource
         />
         <SignalValue
           label="世界上下文"
           signal={snapshot.world}
           nowMs={nowMs}
           format={(v) =>
-            `${v.profileName} · ${v.worldContext} · epoch ${v.epoch} · ${v.joined ? "已入服" : "未入服"} · 版本 ${v.resolvedVersion}`
+            `入服 ${fieldText(v.joined, (b) => (b ? "已入服" : "未入服"))} · profile ${fieldText(v.profileId, (p) => p)} · 名称 ${fieldText(v.profileName, (n) => n)} · 上下文 ${fieldText(v.worldContext, (c) => c)} · epoch ${fieldText(v.epoch, (e) => String(e))} · resolvedVersion ${fieldText(v.resolvedVersion, (r) => r)}`
           }
         />
         <SignalValue
           label="版本集合"
           signal={snapshot.versions}
           nowMs={nowMs}
-          format={(v) => `runtime ${v.runtime} · bridge ${v.bridge} · bundle ${v.clientBundle} · java ${v.java} · loader ${v.fabricLoader}`}
+          format={(v) =>
+            `runtime ${fieldText(v.runtime, (r) => r)} · java ${fieldText(v.java, (j) => j)} · loader ${fieldText(v.fabricLoader, (f) => f)} · bridge ${fieldText(v.bridge, (b) => b)} · bundle ${fieldText(v.clientBundle, (c) => c)}`
+          }
         />
         <SignalValue
           label="自身状态（玩家可知）"
           signal={snapshot.selfState}
           nowMs={nowMs}
-          format={(v) => `生命 ${formatNumber(v.health)} · 饥饿 ${formatNumber(v.food, 0)} · ${v.dimension} · GUI ${v.guiOpen ? "打开" : "关闭"}`}
+          format={(v) => `生命 ${formatNumber(v.health)} · 饥饿 ${formatNumber(v.food, 0)}`}
         />
       </Panel>
 
@@ -56,7 +63,9 @@ export function OverviewPanel({ snapshot, nowMs }: { readonly snapshot: KinSnaps
           label="证据引用"
           signal={snapshot.evidence}
           nowMs={nowMs}
-          format={(v) => `run ${v.runId} · attempt ${v.attempt} · ${v.bundleDigest} · 封存于 ${formatDateTime(v.sealedAt)}`}
+          format={(v) =>
+            `run ${fieldText(v.runId, (r) => r)} · attempt ${fieldText(v.attempt, (a) => String(a))} · ${fieldText(v.bundleDigest, (d) => d)} · 封存 ${fieldText(v.sealedAt, formatDateTime)}`
+          }
           showSource
         />
         <SignalValue label="Live View" signal={snapshot.liveView} nowMs={nowMs} format={(v) => v.transport} />

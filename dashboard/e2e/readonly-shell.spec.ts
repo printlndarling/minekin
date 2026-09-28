@@ -16,9 +16,13 @@ test.describe("只读 Dashboard 外壳关键流程", () => {
   test("健康场景：状态、会话与证据面板给出已知读数并标注模拟来源", async ({ page }) => {
     await openMock(page, "healthy_run_07");
     await expect(page.getByTestId("panel-kin")).toContainText("运行中");
-    await expect(page.getByTestId("panel-session")).toContainText("B 独立");
+    // §3 的 C 档成员渲染为 not_wired 缺口并带 Core 的理由，而不是自填的模式值。
+    await expect(page.getByTestId("panel-session")).toContainText("未接入");
+    await expect(page.getByTestId("panel-session")).toContainText("Core 尚无会话模式枚举");
+    await expect(page.getByTestId("panel-session")).not.toContainText("B 独立");
     await expect(page.getByTestId("panel-evidence")).toContainText("mock://");
-    await expect(page.getByTestId("schema-version")).toContainText("proposal");
+    await expect(page.getByTestId("schema-version")).toContainText("kin-dashboard-readmodel/1.0.0");
+    await expect(page.getByTestId("schema-version")).not.toContainText("proposal");
   });
 
   test("失联场景：Bridge 显示已失联而不是猜测值", async ({ page }) => {
@@ -76,6 +80,13 @@ test.describe("只读 Dashboard 外壳关键流程", () => {
     for (const word of ["确认", "消除", "忽略"]) {
       await expect(page.getByRole("button", { name: new RegExp(word) })).toHaveCount(0);
     }
+    // 「没有告警」（有源为空）与「无告警源」（信封缺口）是两个不同呈现（§5.3）。
+    await page.getByLabel("模拟场景").selectOption("stale_observations");
+    await expect(page.getByTestId("alerts-empty")).toContainText("没有告警");
+    await expect(page.getByTestId("alerts-no-source")).toHaveCount(0);
+    await page.getByLabel("模拟场景").selectOption("fields_unknown");
+    await expect(page.getByTestId("alerts-no-source")).toContainText("无告警源");
+    await expect(page.getByTestId("alerts-empty")).toHaveCount(0);
   });
 
   test("只读边界：无表单、无文本/密码输入，按钮文案不含写操作动词", async ({ page }) => {

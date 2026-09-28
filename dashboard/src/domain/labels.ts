@@ -1,11 +1,11 @@
 import type { AlertComponent, AlertSeverity, AlertState, KinRuntimeState, LinkState, SessionMode, TimelineKind, TimelineOutcome } from "./model";
 import type { Freshness, SignalStatus } from "./signals";
 
+// Only the three states Core's ObservedState carries; `paused`/`recovering` were
+// dropped by the contract census (§3) because no producer exists.
 export const KIN_STATE_LABELS: Record<KinRuntimeState, string> = {
   idle: "空闲",
   running: "运行中",
-  paused: "已暂停",
-  recovering: "恢复中",
   unresolved: "未定（无法判定）",
 };
 

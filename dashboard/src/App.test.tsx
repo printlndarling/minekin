@@ -13,12 +13,18 @@ function mockConfig(scenario: MockScenarioId, initialTab?: "overview" | "timelin
 const ACTION_WORDS = ["启动", "暂停", "停止", "急停", "接管", "发送", "注入", "连接服务器", "执行"];
 
 describe("关键流程：只读外壳在同一界面上呈现四种缺失", () => {
-  it("正常场景：显示模拟标注 + 新鲜读数", async () => {
+  it("正常场景：显示模拟标注 + 新鲜读数 + C 档成员按缺口呈现", async () => {
     render(<App {...mockConfig("healthy_run_07")} />);
     expect(screen.getByTestId("data-source-banner")).toHaveTextContent("模拟数据 MOCK");
     await screen.findByText("kin_nova_01");
     expect(screen.getByText("运行中")).toBeInTheDocument();
-    expect(screen.getByText(/read model/)).toHaveTextContent("kin-dashboard-readmodel/0.1.0-proposal");
+    expect(screen.getByText(/read model/)).toHaveTextContent("kin-dashboard-readmodel/1.0.0");
+    // §3 的 C 档字段不再有自填默认值的分支：模式 / resolvedVersion / 序列号都是带理由的缺口。
+    expect(screen.getByTestId("panel-session")).toHaveTextContent("未接入");
+    expect(screen.getByTestId("panel-session")).toHaveTextContent("Core 尚无会话模式枚举");
+    expect(document.body.textContent).not.toContain("B 独立");
+    expect(document.body.textContent).not.toContain("1.20.1+fabric");
+    expect(screen.getByTestId("panel-kin")).toHaveTextContent("台账 position 是记账顺序");
   });
 
   it("失联场景：runtime 判为未定，链路显示已失联", async () => {
@@ -62,7 +68,7 @@ describe("关键流程：只读外壳在同一界面上呈现四种缺失", () =
     expect(screen.getByTestId("data-source-banner")).toHaveTextContent("真实读数");
     const banner = await screen.findByTestId("read-failure");
     expect(banner).toHaveTextContent("未配置");
-    expect(banner).toHaveTextContent("无 G lane 契约");
+    expect(banner).toHaveTextContent("零网络调用");
     expect(screen.getByTestId("panel-session")).toBeInTheDocument();
     expect(screen.getAllByText("未知").length).toBeGreaterThan(6);
   });
@@ -84,6 +90,26 @@ describe("关键流程：只读外壳在同一界面上呈现四种缺失", () =
     await user.click(screen.getByRole("button", { name: "输入" }));
     await waitFor(() => expect(screen.queryByText("Bridge 心跳续期")).toBeNull());
     expect(screen.getByText("输入 W 按下")).toBeInTheDocument();
+  });
+
+  it("告警标签：条目 / 有源为空 / 无告警源是三种不同呈现（§5.3）", async () => {
+    const { unmount } = render(<App {...mockConfig("healthy_run_07", "alerts")} />);
+    await screen.findByText("客户端 bundle 已按已验证 recipe 就位");
+    expect(screen.queryByTestId("alerts-empty")).toBeNull();
+    expect(screen.queryByTestId("alerts-no-source")).toBeNull();
+    unmount();
+
+    const empty = render(<App {...mockConfig("stale_observations", "alerts")} />);
+    await empty.findByTestId("alerts-empty");
+    expect(screen.getByTestId("alerts-empty")).toHaveTextContent("没有告警");
+    expect(screen.queryByTestId("alerts-no-source")).toBeNull();
+    empty.unmount();
+
+    render(<App {...mockConfig("fields_unknown", "alerts")} />);
+    await screen.findByTestId("alerts-no-source");
+    expect(screen.getByTestId("alerts-no-source")).toHaveTextContent("无告警源");
+    expect(screen.getByTestId("alerts-no-source")).toHaveTextContent("Core 无告警源");
+    expect(screen.queryByTestId("alerts-empty")).toBeNull();
   });
 
   it("Live View 标签不渲染任何画面元素，并说明缺什么", async () => {

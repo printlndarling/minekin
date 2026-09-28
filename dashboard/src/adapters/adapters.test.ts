@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { createMockAdapter } from "./mockAdapter";
-import { createAdapter, parseDashboardConfig } from "./config";
-import { createGatewayAdapter, decodeSnapshotPayload, PROPOSED_ENDPOINTS } from "./gatewayAdapter";
-import { buildMockBundle } from "../fixtures/mockFixtures";
-import { wireSnapshot } from "../test/wireFixture";
+import { createAdapter, DEFAULT_TIMEOUT_MS, parseDashboardConfig } from "./config";
+import { createGatewayAdapter, decodeSnapshotPayload, READ_ENDPOINTS } from "./gatewayAdapter";
+import { cloneWire } from "../test/wireFixture";
+import { REAL_ALERTS_ENVELOPE_WIRE, REAL_JOINED_RUN_SNAPSHOT_WIRE, REAL_TIMELINE_WIRE } from "../test/realGatewayWire";
 import { isKnown } from "../domain/signals";
+import { fieldValue, type KinSnapshot } from "../domain/model";
 
 function jsonResponse(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), { status, headers: { "content-type": "application/json" } });
@@ -48,7 +49,7 @@ describe("mock read adapter", () => {
   });
 });
 
-describe("gateway read adapter（契约未冻结，失败关闭）", () => {
+describe("gateway read adapter（冻结契约，失败关闭）", () => {
   it("未配置 base URL 时零网络调用并报告 not_configured", async () => {
     let calls = 0;
     const original = globalThis.fetch;
@@ -59,21 +60,22 @@ describe("gateway read adapter（契约未冻结，失败关闭）", () => {
     try {
       const adapter = createGatewayAdapter(null);
       expect(adapter.describe().mock).toBe(false);
-      const result = await adapter.snapshot();
-      expect(!result.ok && result.failure.kind).toBe("not_configured");
+      const snapshot = await adapter.snapshot();
+      const alerts = await adapter.alerts();
+      expect(!snapshot.ok && snapshot.failure.kind).toBe("not_configured");
+      expect(!alerts.ok && alerts.failure.kind).toBe("not_configured");
       expect(calls).toBe(0);
     } finally {
       globalThis.fetch = original;
     }
   });
 
-  it("符合提议契约的响应可解码为只读快照", async () => {
-    const wire = wireSnapshot(buildMockBundle("healthy_run_07", Date.now()).snapshot);
+  it("真实 Gateway 字节可解码为只读快照", async () => {
     const original = globalThis.fetch;
     const urls: string[] = [];
     globalThis.fetch = ((input: RequestInfo | URL) => {
       urls.push(String(input));
-      return Promise.resolve(jsonResponse(wire));
+      return Promise.resolve(jsonResponse(REAL_JOINED_RUN_SNAPSHOT_WIRE));
     }) as typeof fetch;
     try {
       const adapter = createGatewayAdapter({ baseUrl: "http://127.0.0.1:8000/", timeoutMs: 1_000 });
@@ -81,26 +83,58 @@ describe("gateway read adapter（契约未冻结，失败关闭）", () => {
       expect(result.ok).toBe(true);
       if (result.ok) {
         expect(result.source).toBe("gateway");
-        expect(isKnown(result.value.session)).toBe(true);
-        if (isKnown(result.value.session)) expect(result.value.session.value.generation).toBe(3);
-        expect(result.value.kinId.status).toBe("known");
+        const snapshot = result.value as KinSnapshot;
+        expect(isKnown(snapshot.session)).toBe(true);
+        if (isKnown(snapshot.session)) expect(fieldValue(snapshot.session.value.generation)).toBe(1);
+        expect(snapshot.kinId.status).toBe("known");
       }
       // 传入带尾斜杠的 base URL，也必须只打一个斜杠。
-      expect(urls).toEqual([`http://127.0.0.1:8000${PROPOSED_ENDPOINTS.snapshot}`]);
+      expect(urls).toEqual([`http://127.0.0.1:8000${READ_ENDPOINTS.snapshot}`]);
     } finally {
       globalThis.fetch = original;
     }
   });
 
-  it("契约不匹配时列出问题且不猜测字段", async () => {
-    const wire = wireSnapshot(buildMockBundle("healthy_run_07", Date.now()).snapshot) as Record<string, unknown>;
-    const broken = { ...wire, session: { status: "known", sourceRef: "x", observedAt: null, staleAfterMs: null, value: { sessionId: "s" } } };
+  it("真实 alerts 信封读取为信封而非裸数组", async () => {
     const original = globalThis.fetch;
-    globalThis.fetch = (async () => jsonResponse(broken)) as typeof fetch;
+    globalThis.fetch = (async () => jsonResponse(REAL_ALERTS_ENVELOPE_WIRE)) as typeof fetch;
+    try {
+      const result = await createGatewayAdapter({ baseUrl: "http://127.0.0.1:8000", timeoutMs: 1_000 }).alerts();
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value.status).toBe("not_wired");
+        expect(result.value.reason).toContain("无告警源");
+        expect(result.value.alerts).toEqual([]);
+      }
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+
+  it("真实 timeline 数组读取", async () => {
+    const original = globalThis.fetch;
+    globalThis.fetch = (async () => jsonResponse(REAL_TIMELINE_WIRE)) as typeof fetch;
+    try {
+      const result = await createGatewayAdapter({ baseUrl: "http://127.0.0.1:8000", timeoutMs: 1_000 }).timeline({ limit: 50, kinds: [] });
+      expect(result.ok).toBe(true);
+      if (result.ok) expect(result.value[0]?.sourceRef).toBe("ledger://kin-01/42");
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+
+  it("抽掉一个 provenance 字段即整读判红（§6.2 判别式）", async () => {
+    const wire = cloneWire(REAL_JOINED_RUN_SNAPSHOT_WIRE);
+    delete (wire.session as Record<string, unknown>).sourceRef;
+    const original = globalThis.fetch;
+    globalThis.fetch = (async () => jsonResponse(wire)) as typeof fetch;
     try {
       const result = await createGatewayAdapter({ baseUrl: "http://127.0.0.1:8000", timeoutMs: 1_000 }).snapshot();
       expect(!result.ok && result.failure.kind).toBe("contract_mismatch");
-      if (!result.ok) expect(result.failure.message).toContain("session");
+      if (!result.ok) {
+        expect(result.failure.message).toContain("session");
+        expect(result.failure.message).toContain("provenance");
+      }
     } finally {
       globalThis.fetch = original;
     }
@@ -108,22 +142,21 @@ describe("gateway read adapter（契约未冻结，失败关闭）", () => {
 
   it("HTTP 404 记为接口未实现，403 记为无权限，网络异常记为失联", async () => {
     const original = globalThis.fetch;
-    const snapshot = buildMockBundle("healthy_run_07", Date.now()).snapshot;
-    const cases: readonly (() => Promise<Response> | Response)[] = [
-      () => jsonResponse({ detail: "not found" }, 404),
-      () => jsonResponse({ detail: "forbidden" }, 403),
-      () => {
-        throw new TypeError("fetch failed");
-      },
-    ];
-    const expected = ["contract_mismatch", "permission_denied", "disconnected"] as const;
     try {
+      const cases: readonly (() => Promise<Response> | Response)[] = [
+        () => jsonResponse({ detail: "not found" }, 404),
+        () => jsonResponse({ detail: "forbidden" }, 403),
+        () => {
+          throw new TypeError("fetch failed");
+        },
+      ];
+      const expected = ["contract_mismatch", "permission_denied", "disconnected"] as const;
       for (const [index, behavior] of cases.entries()) {
         globalThis.fetch = (async () => await behavior()) as typeof fetch;
         const result = await createGatewayAdapter({ baseUrl: "http://127.0.0.1:8000", timeoutMs: 1_000 }).snapshot();
         expect(!result.ok && result.failure.kind, String(index)).toBe(expected[index]);
       }
-      const decoded = decodeSnapshotPayload({ ...wireSnapshot(snapshot), schemaVersion: "kin-dashboard-readmodel/0.0.9" });
+      const decoded = decodeSnapshotPayload({ ...REAL_JOINED_RUN_SNAPSHOT_WIRE, schemaVersion: "kin-dashboard-readmodel/0.1.0-proposal" }, "gateway");
       expect(decoded.ok).toBe(false);
     } finally {
       globalThis.fetch = original;
@@ -144,5 +177,9 @@ describe("adapter 选择", () => {
     expect(parseDashboardConfig("?adapter=gateway&gateway=http://127.0.0.1:8000//").gatewayBaseUrl).toBe("http://127.0.0.1:8000");
     expect(createAdapter(parseDashboardConfig("")).describe().kind).toBe("mock");
     expect(createAdapter(parseDashboardConfig("?adapter=gateway")).describe().id).toBe("gateway:unconfigured");
+  });
+
+  it("超时按契约 §2.1 钉在 3000ms", () => {
+    expect(DEFAULT_TIMEOUT_MS).toBe(3_000);
   });
 });

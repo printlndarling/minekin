@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
 import { unreadableSnapshot, type KinReadAdapter, type ReadFailure, type ReadResult } from "../domain/adapter";
-import type { Alert, KinSnapshot, TimelineEvent, TimelineKind } from "../domain/model";
+import type { AlertsEnvelope, KinSnapshot, TimelineEvent, TimelineKind } from "../domain/model";
 import { ctxForFailure } from "./readContext";
 
 export const POLL_INTERVAL_MS = 5_000;
@@ -67,18 +67,28 @@ export function useTimeline(adapter: KinReadAdapter, kinds: readonly TimelineKin
   }, [query.data, query.isLoading]);
 }
 
-export function useAlerts(adapter: KinReadAdapter): ListRead<Alert> {
+/**
+ * The §5.3 envelope goes to the panel whole: "known with zero alerts" and
+ * "no alert source" are different facts and must stay distinguishable.
+ */
+export interface AlertsRead {
+  readonly envelope: AlertsEnvelope | null;
+  readonly failure: ReadFailure | null;
+  readonly isLoading: boolean;
+}
+
+export function useAlerts(adapter: KinReadAdapter): AlertsRead {
   const query = useQuery({
     queryKey: ["alerts", adapter.describe().id],
-    queryFn: ({ signal }) => adapter.alerts(signal) as Promise<ReadResult<readonly Alert[]>>,
+    queryFn: ({ signal }) => adapter.alerts(signal) as Promise<ReadResult<AlertsEnvelope>>,
     refetchInterval: POLL_INTERVAL_MS,
     refetchOnWindowFocus: false,
   });
-  return useMemo<ListRead<Alert>>(() => {
+  return useMemo<AlertsRead>(() => {
     const data = query.data;
-    if (data === undefined) return { items: [], failure: null, isLoading: query.isLoading };
+    if (data === undefined) return { envelope: null, failure: null, isLoading: query.isLoading };
     return data.ok
-      ? { items: data.value, failure: null, isLoading: false }
-      : { items: [], failure: data.failure, isLoading: false };
+      ? { envelope: data.value, failure: null, isLoading: false }
+      : { envelope: null, failure: data.failure, isLoading: false };
   }, [query.data, query.isLoading]);
 }

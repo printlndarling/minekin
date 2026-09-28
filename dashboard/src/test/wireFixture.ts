@@ -1,34 +1,22 @@
-import type { KinSnapshot } from "../domain/model";
-import type { Signal } from "../domain/signals";
+import type { FieldGapStatus } from "../domain/model";
 
-/** Encodes a snapshot into the wire shape the gateway adapter expects. */
-export function wireSignal<T>(signal: Signal<T>): Record<string, unknown> {
-  const base: Record<string, unknown> = {
-    status: signal.status,
-    value: signal.value,
-    sourceRef: signal.sourceRef,
-    observedAt: signal.observedAt,
-    staleAfterMs: signal.staleAfterMs,
-  };
-  if (signal.status !== "known") {
-    base.reason = signal.reason;
-  }
-  return base;
+/**
+ * Wire-shape helpers for tests. The mock fixtures already ship wire-shaped
+ * documents (one decoder path, no drift), so the remaining jobs here are
+ * building member envelopes for hand-made bytes and safely mutating copies.
+ */
+
+/** A member of a `known` group that has a carrier. */
+export function wireFilled(value: unknown): Record<string, unknown> {
+  return { value };
 }
 
-export function wireSnapshot(snapshot: KinSnapshot): Record<string, unknown> {
-  return {
-    schemaVersion: snapshot.schemaVersion,
-    kinId: wireSignal(snapshot.kinId),
-    runtimeState: wireSignal(snapshot.runtimeState),
-    bridgeLink: wireSignal(snapshot.bridgeLink),
-    serverLink: wireSignal(snapshot.serverLink),
-    session: wireSignal(snapshot.session),
-    world: wireSignal(snapshot.world),
-    versions: wireSignal(snapshot.versions),
-    bridgeHeartbeat: wireSignal(snapshot.bridgeHeartbeat),
-    selfState: wireSignal(snapshot.selfState),
-    evidence: wireSignal(snapshot.evidence),
-    liveView: wireSignal(snapshot.liveView),
-  };
+/** A member of a `known` group that does not. */
+export function wireGapField(status: FieldGapStatus, reason: string): Record<string, unknown> {
+  return { gap: { status, reason } };
+}
+
+/** Deep copy so a discriminator test can break exactly one key. */
+export function cloneWire<T>(document: T): T {
+  return JSON.parse(JSON.stringify(document)) as T;
 }
