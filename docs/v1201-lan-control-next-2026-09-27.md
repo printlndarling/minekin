@@ -1538,3 +1538,49 @@ PY'
 ### ⑧ 四态与队列
 
 已合主干且 CI 绿 = `88dc441` 及其前；本轮记录笔 push 后要读 CI 才算绿（**不在读数之前宣称**）。仅在分支 = 无。真实封证 = **1**（`5086ee42…64f6` / run `a224f6c3…`，attempt 序列 1；② 只更正一处引用值，不改判据结论）。未验证/待判 = `#58 (乙)`、**#67（新登记）**、§3 两类独立工作（`DASHBOARD-GATEWAY-READONLY-CONTRACT-001`、B2 尚无 fixture 的非 HOST case）、V08/远程服与 HOST 侧（各守主控决策门）。主干唯一 `current_next` 仍是 `PARALLEL-INTEGRATION-GATE-001`；**队列走空、轮次充裕都不构成本目标的完成条件**，目标里点名要推进的五格与 H1k 都已落到笔号，晋级那一格按卡面停在主控保留。
+
+## §2.69 补上 §2.68 预留的那两格读数：记录笔已 push 且远端 SHA 回读一致，该笔 CI 三 job 步骤级无红（第七十四轮，2026-09-28 09:49 +0800，M 主控；零 JVM、零写卷、未连用户远程服）
+
+### ① 本节只补两格，不重开审计
+
+§2.68 ⑦/⑧ 留了两条前瞻句：「远端 `main` = 本地 `HEAD` = `88dc441…`（本节记录笔 push 后另读一次）」和「本轮记录笔 push 后要读 CI 才算绿（未在读数前不宣称）」。本节把这两格按实际字节填上，并附一次 lane 工作树的现测。审计本身（八→九枚合并笔映射、发现一/发现二）已在 §2.68 闭合，不在本节范围。
+
+### ② push 与远端 SHA 回读（具名操作顺序）
+
+- 记录笔 `c43a6d31475330a1c1b63e9b33ac3daa72336a16`（§2.68 那 138 行 + handoff 第七十三轮那 11 行）落在 `main` 上，本地主树 `minekin-wt-integration` 工作树 `git status --porcelain | wc -l` = **0**。
+- push 用显式 refspec，**不用 `HEAD:main`**：M 的默认目录 `Documents/agent_work/minekin` 当前检出的是另一条 lane 分支 `codex/core-state-transition`（`6a02ac6`），若在此目录 `push HEAD:main` 会把 lane 的历史推上主干。实际命令：
+  `git -c credential.helper= -c credential.helper=wincred push origin main:main`（在 `minekin-wt-integration` 内）
+  ⇒ 输出 `88dc441..c43a6d3  main -> main`，token 只经默认凭据助手取用、未回显。
+- 回读：`git ls-remote origin refs/heads/main` = **`c43a6d31475330a1c1b63e9b33ac3daa72336a16`** = 本地 `main` ⇒ §2.68 ⑦ 那格从「push 前值 `88dc441`」更新为「push 后值 `c43a6d3`」，`88dc441` 作为其前驱读数原样留在 §2.68，不改写。
+
+### ③ 该笔 CI 的逐步读数（先取数、后宣称）
+
+复跑命令（同 §2.32 姿势，REST 不需 token 也能读 public 仓库的 workflow runs）：
+
+```bash
+python .tmp/ci_steps.py c43a6d3   # 日志：.tmp/m-r74-ci-c43a6d3.log
+```
+
+现读（run `36367171883`，`head_sha` 用全 40 位）：
+
+| job | status | conclusion | 步数 | 步骤级 non_success |
+| --- | --- | --- | --- | --- |
+| `python` | completed | success | 18 | 无 |
+| `bridge-static` | completed | success | 9 | 无 |
+| `protocol` | completed | success | 10 | 无 |
+
+三 job 的步骤清单里没有 `failure/cancelled/timed_out` 行 ⇒ 才写「`c43a6d3` CI 绿」。补充两格口径：① 首次轮询时 `python` 显示 **17 步**，是最后一步（Post-run/收尾）当时尚未生成，跑完才成 18 步，不是多插了一道门；② push 后约 3.5 分钟才 completed，中间那次「仍 in_progress」的读数也留在 `.tmp/m-r74/` 两份日志里（`m-r74-ci-final.log` 取到 completed 前一刻）。本节自身这笔记录（§2.69 落地笔）的 CI **不在本节宣称**，按同一规则由下一次读数补记。
+
+### ④ lane 工作树现测（objective 点名的第一格，本轮再量一次）
+
+- `minekin-wt-h1k` 检出分支 `codex/minekin-h1l-forward-join-name`，tip = **`1ce9dc0dfdd6a939e1b0e70c08959b30f5541bf7`**，与 `git ls-remote origin` 同名分支的远端值逐字相同 ⇒ lane 自己的提交已自己推上去，没有「M 代提交」的形状。
+- `git status --porcelain` = **0 行**：§2.33 合入时该树里在途的未提交文件，现在已由 lane 自己落成 `1ce9dc0`（H1l 的读数/反证/全部门记录）并入干（合并笔 `d95e59d`）。这不代表 lane 停工——只代表此刻没有待复审的脏字节。
+- 失败材料仍在案：该树 `.tmp/` 下 `h1k-*` 计 **47** 个文件未删；M 本轮在该树零写入，也未删任何 ref。
+
+### ⑤ 约束逐条对号（本轮实际做的事只有 push + 只读）
+
+零 JVM、零写规范卷（本轮没跑任何 run，只读 `.tmp/v5p/`、`.tmp/m-r73/gates/` 既有材料）；未连用户远程服、未打开 `.tmp/local-test-server.txt`；未改 `mandatory`/registry/判据/封存 schema（本轮 diff 只含两份既有 `docs/*.md` 的追加）；私有卷 `minekin-m-v5p-live` 的成功读数仍按「不是 sealed bundle」计；§2.68 的两处更正（发现一换判别承担者、发现二作废一句引用）不削弱那枚真封证（`5086ee42…64f6` / run `a224f6c3…`，4/4 held、`agrees/PASS`）；晋级那一格仍停在主控保留，`gate_payload_sha256` 不因本节位移。
+
+### ⑥ 四态与队列（本节的净变化只有一格）
+
+已合主干且 CI 绿 = **`c43a6d3`**（本节实测）及其前；真实封证 = **1**（`5086ee42…64f6`，未变）；仅在分支 = 无；未验证/待判 = `#58 (乙)`、`#67`（都要引擎窗）、§3 两类独立工作（`DASHBOARD-GATEWAY-READONLY-CONTRACT-001`、B2 尚未做 fixture 的非 HOST case）、V08/远程服与 HOST 侧（各守主控决策门）。主干唯一 `current_next` 仍是 `PARALLEL-INTEGRATION-GATE-001`，本节不新增 `NEXT`；队列走空与轮次富余都不构成本目标的完成条件——点名要推进的 H1k + V5′/H1i/M-C1/E7/M-G1 五格已落到笔号且远端 SHA 与 CI 均有读数，剩余的待判格与保留决策仍开放。
