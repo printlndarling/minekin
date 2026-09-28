@@ -2079,3 +2079,15 @@ the target allows 1.21.4"}`，配对文档 `mismatch.json` 是 `schema_version 2
 - **落盘与推送**：一笔提交 `docs/**` 四文件；commit message 只写上面这些量过的门；push `main:main` 后用 `git ls-remote` 回读远端 SHA 再记 SHA。CI 读数按队列口径在下一轮补，本轮不预先宣称本笔自身的 CI。
 - **四态**：已合主干 = 本轮四份文档（SHA 待回读）；仅在分支 = 无待合产品工作；真实封证 = 1（`5086ee42…64f6` / run `a224f6c3…`）；未验证/待判 = 080 全部运行时判法、封禁分类与登记拆分两条主控决定、`#68`、`rc=14` 判据、契约记录 §8 四格、V08/远程服、HOST/PERSIST、§3 第二类独立工作其余行。
 - **不宣称完成**：主干唯一 `current_next` 仍是 `PARALLEL-INTEGRATION-GATE-001`，本轮不新增 `NEXT`，也不因轮次富余或暂无待合分支而收口 goal。
+
+## 第八十一轮（2026-09-28 12:05 +0800，M 主控，doc-only + 一笔注释级更正）
+
+1. **做什么**：续 §3 第二类独立工作（`ADMIT-030`/`ADMIT-050` 的 oracle/载体先行设计），并结清上一轮具名预留的欠账（`2b8e0e1` 自身 CI 的步骤级读数）。
+2. **交付**：`docs/p0-admit-030-050-case-spec-2026-09-28.md`（新）；本文件第八十一轮；`docs/v1201-lan-control-next-2026-09-27.md` §2.76；`docs/development-execution-plan.md` 卡表加一行。另有一笔独立提交 `tools/assert_case_evidence.py:4003-4010` 的注释更正。
+3. **本轮亲量**（全部取仓库字节，未挂卷）：契约两行 `docs/p0-remote-admission-contract.md:132`、`:134` 与阶段表 `:113-119`；三值枚举 `observation.proto:27/:29/:48`；分类器 `ConnectFailure.java:32-43`；两处 hook `ConnectFailureMixin.java:44-56/:59-76/:78-83`；跨线程 `ClientAdmissionController.java:459/:461-463/:472-481`；Core 侧 `cli/session.py:148-158/:1524-1537/:191/:1223-1266/:1618-1622`；050 分类器 `:426-449` 六支与 Java 对照 `ClientAdmissionControllerTest.java:264-286/:289-302/:304-320`；注入面只有两类 `schemas/fault-injection.schema.json:61/:214/:222`；fixture 底数 53 份、admit 系 7 份且 030/050 缺席；`banned` 在 `bridge/src/main/java`、`bridge/src/test/java` 中 0 命中。
+4. **一处旧口径被本轮证否并改正**：`tools/assert_case_evidence.py` 里「服务端原话对复审者完全不可得」过头——原话进了客户端日志（`LoginDisconnectMixin.java:38-39/:43-46`、`CommonDisconnectMixin.java:35`），而该流本就被封（`:755`）并被装配为 `material.client_log`（`:659-664`）。注释级，不改判定行为；`case_version` 取 case 定义摘要（`tools/seal_run_evidence.py:518`）⇒ 无重封。
+5. **交主控的四条决定（本卡一律不代为冻结）**：030/050 的 case id 拆分；封禁是否成为独立准入分类（与 `OFFLINE-080` 同一笔，代价含 jar 摘要移动 ⇒ 重封全卷）；是否为 030 dial 静默地址 / 是否扩展 profile 以携带不可解析名；「有界重试」的具名上限写在哪、取几。
+6. **门读数**：五道仓库内门逐道单跑、先读 rc（见 §2.76 第 4 节）；`ruff format --check` 计数 378 → 379（新增 1 份 `.md`，既有口径）；`check_case_assertions` 仍 `OK (151 registered)`；未动 registry / `mandatory` / 判据 / 门载荷。未跑的门在卡里具名列出。
+7. **落盘与推送**：两笔提交（注释更正一笔、设计卡一笔），`git push origin main:main`，随后 `git ls-remote origin refs/heads/main` 回读，并核 `git status --porcelain` 为 0 行。
+8. **四态**：未合并新实现 / 仅主干文档与一处注释 / 无真封存证据新增（0 次挂卷）/ 断言运行读法尚未量。
+9. **不宣称完成**：goal 的每一半（H1k 在途工作由 lane 自收、V5′/H1i/M-C1/E7/M-G1 按文档顺序推进）仍未全部达成；本轮只是 §3 第二类独立工作又走一张卡。

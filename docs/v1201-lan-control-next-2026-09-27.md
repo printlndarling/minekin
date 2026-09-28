@@ -1838,3 +1838,41 @@ python .tmp/ci_steps.py c43a6d3   # 日志：.tmp/m-r74-ci-c43a6d3.log
 四态：已合主干 = 本卡与两处登记（本轮笔次待 push 后回读）；仅在分支 = 无新增；真实封证 = 仍 1 份（`5086ee42…64f6` / run `a224f6c3…`，出处 `docs/validation/v1201-lan-joiner-control-seal-2026-09-28.md:6-7`）；未验证/待判 = `OFFLINE-080` 全部运行时判法、封禁格的服务端文案与摆法、`identity_candidate_id` 在真实拒止 run 里是否总有值、§3.5 三条路线的载荷代价。
 
 不宣称完成：主干唯一 `current_next` 仍是 `PARALLEL-INTEGRATION-GATE-001`；§3 第二类独立工作的其余非 HOST 行（`ADMIT-010/020/030/050/090/120`、`CORE-080`、`OFFLINE-060`、`NAV-EXP-010`）尚未逐张排卡；HOST/PERSIST、V08/远程服、`#68` 与 `rc=14` 判据仍在主控保留格。
+
+## §2.76 ADMIT-030 / ADMIT-050 的 oracle 与载体设计入干（第八十一轮，2026-09-28 12:05 +0800，M 回写）
+
+### 1. 上一轮的欠账结清：`2b8e0e1` 自身 CI 的步骤级读数
+
+远端 `main = 2b8e0e17e2861b911fb1d819a83de118951554b0` 的 CI：run `36374994652`，`status=completed`、`conclusion=success`。逐 job 读步骤（不是只看 job 结论）：
+
+| job | steps | NON_SUCCESS_STEPS |
+|---|---|---|
+| python | 18 | `[]` |
+| bridge-static | 9 | `[]` |
+| protocol | 10 | `[]` |
+
+`JOB_CONCLUSION_BREAKS []`。读数脚本与日志：`.tmp/m-r81/read_ci_steps.py`、`.tmp/m-r81/ci-steps-2b8e0e1.log`（`.tmp/**` 未入版本控制；复现需 GitHub 凭据，走默认凭据助手且不回显）。
+
+### 2. 新卡：`P0-ADMIT-030-050-CASE-SPEC-001`（§3 第二类独立工作的第二张）
+
+交付 `docs/p0-admit-030-050-case-spec-2026-09-28.md`。两条形制相同（一个 case id 装三个互斥场景）故共用一张卡，但**逐格分开判**。全程 doc-only：不写断言、不加 fixture、不动 `manifest.sha256`/registry/`mandatory`/任何门、不改 `src/**`、`bridge*/**`、`schemas/**`、`test-orchestrator/**`、**未挂任何卷**、未连远端、未 dial 非 loopback 地址。
+
+本轮量出来的三条新事实（都改变下一步的形状，不只是补全）：
+
+1. **`ADMIT-030` 的「无 DNS」那一格不是缺断言、也不是缺分类词，而是场景不可达**：分类词汇与代码分支全在（`observation.proto:27` 的 `DNS_FAILED=2`、`ConnectFailure.java:33-34`、`ConnectFailureMixin.java:44-56`、Java 单测 `ConnectFailureTest.java:29-31`），但 profile 层根本不允许携带可解析名字——`src/minekin_core/adapters/launcher/server_profile.py:287-289` 的具名拒止逐字写着「server profile host must be an explicit IP literal, not a resolvable name」，v1 schema 更只允许两枚 loopback 字面量（`schemas/server-profile.schema.json:11`）。schema 的 v2 pattern（`:11` `^[0-9a-fA-F:.]+$`）看似能漏进一个「全是十六进制字母的假名字」，但同一函数 `:286` 的 `ipaddress.ip_address()` 先拒 ⇒ 该漏洞不成立（字面读码判定，未跑）。
+2. **「无无限重试」有正载体、没有负载体**：Bridge 两面（`bridge/`、`bridge-1201/`）的 `src/main/java` 里 `reconnect|retry|retries` **0 命中**；Core 侧 `reconnect` 5 处全是注释/守卫（唯一可执行的一条是 `domain/connection.py:164-165`「未关闭当前 generation 就不许再 begin」），唯一的 `max_attempts` 回路属工件下载（`adapters/launcher/fetch.py:33/:143-155/:239`），与连接路径无关。可判的一面是具名有界：`cli/session.py:191` 的 30 秒 ⇒ `:1223-1266` 发 `CancelConnection(TIMEOUT)`、关 generation、把 `"TIMEOUT"` 记进 run 文档字段 `connection_cancelled`（`:1618-1622`）；再加 dial 行计数（判官侧 `tools/assert_case_evidence.py:1379` 已按 `generation` 分组）。⇒ 卡里把这一句写成「计数 ≤ 具名 N 且本 run 有终态」两条同时成立，并声明 N 由谁定属主控。
+3. **一处我上一轮的口径过头了**：主干 `tools/assert_case_evidence.py` 的 `OFFLINE-070` 段注释写「The server's sentence is not available to a re-judge at all」。本轮读到 `LoginDisconnectMixin.java:38-39`、`:43-46` 与 `CommonDisconnectMixin.java:35` 把服务端原话就地写进客户端日志，而那份日志正是 `CLIENT_STREAM_ARTIFACTS`（`tools/assert_case_evidence.py:755`）封存、`:659-664` 装配为 `material.client_log` 的字节。正确的说法是：**原话不进产品事件，但复审者读得到**。这条更正见 §3。
+
+### 3. 注释级更正（一笔独立提交，不动判定行为）
+
+`tools/assert_case_evidence.py:4003-4010` 的 `DUPLICATE_LOGIN_PHASE` 上方注释改写：保留「分类是唯一能传到这一层的东西」与兄弟判据出处，删去「原话对复审者完全不可得」，补上「Bridge 就地记日志、客户端流里读得到，需要原话的条款读 `material.client_log`」。
+
+不触发重封的证明：bundle 里的 `case_version` 取的是 **case 定义摘要**（`tools/seal_run_evidence.py:518` `case_version=definition.digest`），与 asserter 自身字节无关；本轮也未改任何 fixture、`src/**`、`bridge*/**`、`proto/**`。
+
+副作用（申报，不掩饰）：这一处更正使 `ADMIT-050` 的「保留原因」从「只有 ledger 一个载体」变成「ledger 分类 + 客户端流原话两个载体」，卡里据此把该格写成两条必须分别成立（§3.3⑧）；`OFFLINE-070` 的 `CONFLICT_CATEGORY_HAS_NO_RENAME_ENTRY` 仍然成立——那条拒的是**产品事件里的具名分类**缺一个改名/大小写值，本轮更正没有为它制造新分类。
+
+### 4. 门读数与四态
+
+本轮五道仓库内门逐道单跑、先读 rc 再写进提交信息（`ruff check .`、`ruff format --check .`、`git diff --check`、`tools/check_case_assertions.py`、`tools/verify_fixture_digests.py`）；本轮新增 1 份 `.md` ⇒ `ruff format --check` 的计数按既有口径从 378 → 379。未跑并在卡里具名列出的其余门：pyright、pytest、check_boundaries、check_workflow_pins、`uv build --wheel` + check_wheel_boundary、`minekin --help`、buf 三条、bridge 两条。
+
+四态：**未合并 main / 仅在主干 `2b8e0e1` 之后的 M 提交里 / 无真封存证据新增（本轮 0 次挂卷）/ 断言运行读法尚未量。** 真实封证底数不变：1 份（bundle `5086ee42…64f6` / run `a224f6c3…`，出处 `docs/validation/v1201-lan-joiner-control-seal-2026-09-28.md:6-7`）；门载荷本轮**未取卷复量**（无位移预期，也未测）。030/050 卷上 bundle 仍为 0 份（本轮未复量卷面）。
