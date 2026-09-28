@@ -2091,3 +2091,14 @@ the target allows 1.21.4"}`，配对文档 `mismatch.json` 是 `schema_version 2
 7. **落盘与推送**：两笔提交（注释更正一笔、设计卡一笔），`git push origin main:main`，随后 `git ls-remote origin refs/heads/main` 回读，并核 `git status --porcelain` 为 0 行。
 8. **四态**：未合并新实现 / 仅主干文档与一处注释 / 无真封存证据新增（0 次挂卷）/ 断言运行读法尚未量。
 9. **不宣称完成**：goal 的每一半（H1k 在途工作由 lane 自收、V5′/H1i/M-C1/E7/M-G1 按文档顺序推进）仍未全部达成；本轮只是 §3 第二类独立工作又走一张卡。
+## 第八十二轮（2026-09-28 12:20 +0800，M 主控，doc-only）
+
+1. **做什么**：结清上一轮具名预留的 CI 欠账（`595591a` / `5d31951` 自身步骤级读数），并按队列 §3 第二类独立工作走该族第三张卡——`ADMIT-010` / `ADMIT-020` 的 oracle 与载体先行设计。全程只读仓库字节 + GitHub Actions REST，零挂卷、零 JVM、未读 `.tmp/local-test-server.txt`、未连用户远程服、lane 材料一字节未改。
+2. **交付**：新文档 `docs/p0-admit-010-020-case-spec-2026-09-28.md`（133 行 LF，卡片 `P0-ADMIT-010-020-CASE-SPEC-001`）；三处主干登记（本节、v1201 §2.77、计划表一行）。**本轮零代码改动**。
+3. **CI 读数（本轮亲跑）**：`5d31951…` → run `36376247455` completed/success，python 18 / bridge-static 9 / protocol 10 步，各 job `NON_SUCCESS_STEPS []`、`JOB_CONCLUSION_BREAKS []`。`595591a…` → push run **0 条**：它是 `2b8e0e1..5d31951` 单次 push 的非 tip 父提交，GitHub 只为 ref 目标起 run，所以它的字节只被 tip run 覆盖——不是失败，是没有 run。
+4. **本轮新事实（三条）**：① `ADMIT-010` 的 LAN 格**双重不可达**（v1 加载期具名拒 `server_profile.py:190-195`；v2 可存 LAN 字面量但会话路径关回 loopback `:424-428`；Java 门禁 `AdmissionCommandGate.java:23`/`:64-66`）；② `ADMIT-020` 的「实际 endpoint」在加入路径**无载体**（拨号日志打在 connect 之前，`ClientAdmissionController.java:606-622` vs `:630`，之后只读回资源包策略 `:610-613`）；③「重定向仍过策略」今天只有探针域级判得动且判的是注入式 fake resolver（`server_probe.py:290-299` + `tests/unit/test_server_probe.py:89-104`、`:42-46`），不得冒充真实重定向被拦住。
+5. **一处真空缺与一条门禁审计面事实**：`_DIALLED` 的两处既有使用者都没把拨出地址与封存 profile 相比（`assert_case_evidence.py:1353-1358`、`:1401-1402`）⇒ 「只连已保存 profile」的拨号等式无人判过；断言摘要按具名函数自身源码取（`check_case_assertions.py:94-124`）⇒ 改 `:1379` 的 `_DIALLED` 常量会静默改判法而不移任何 `case_version`（本轮只登记，不实施检查）。
+6. **门读数（逐道先读 rc，全 0）**：`ruff check .` / `ruff format --check .`（380 files，+1 为本卡 `.md`）/ `git diff --check`（stdout 空）/ `check_case_assertions.py`（151 registered）/ `verify_fixture_digests.py`（OK）。未跑并具名列出：pyright、pytest、`check_boundaries`、`check_workflow_pins`、`uv build --wheel` + wheel 边界、`minekin --help`、buf 三条、bridge 两条。**落盘前按最终字节复跑这五道，仍全 rc=0**；`git diff --check` stdout 依然 0 字节，stderr 只有 1 行 handoff 的 CRLF 归一化警告（该文件工作树为纯 LF，非空白错误）。
+7. **落盘与推送**：base `5d31951a1aedf05cf7d2be85d2481e9c28c4a783`，一笔提交后 `push origin main:main`，再 `git ls-remote origin refs/heads/main` 回读，并核 `git status --porcelain` 0 行。新晋 main 的 CI 步骤级读数留下一轮。
+8. **四态**：设计卡已入干 / 登记与真跑未开工 / 无 sealed bundle 新增（0 次挂卷）/ 无强制用例集位移。门载荷未取卷复量（无位移预期，也未测）。
+9. **不宣称完成**：goal 的每一半（H1k 在途工作由 lane 自收、V5′/H1i/M-C1/E7/M-G1 按文档顺序推进）仍未全部达成；本轮只是 §3 第二类独立工作又走一张卡。

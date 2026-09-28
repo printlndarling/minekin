@@ -1876,3 +1876,25 @@ python .tmp/ci_steps.py c43a6d3   # 日志：.tmp/m-r74-ci-c43a6d3.log
 本轮五道仓库内门逐道单跑、先读 rc 再写进提交信息（`ruff check .`、`ruff format --check .`、`git diff --check`、`tools/check_case_assertions.py`、`tools/verify_fixture_digests.py`）；本轮新增 1 份 `.md` ⇒ `ruff format --check` 的计数按既有口径从 378 → 379。未跑并在卡里具名列出的其余门：pyright、pytest、check_boundaries、check_workflow_pins、`uv build --wheel` + check_wheel_boundary、`minekin --help`、buf 三条、bridge 两条。
 
 四态：**未合并 main / 仅在主干 `2b8e0e1` 之后的 M 提交里 / 无真封存证据新增（本轮 0 次挂卷）/ 断言运行读法尚未量。** 真实封证底数不变：1 份（bundle `5086ee42…64f6` / run `a224f6c3…`，出处 `docs/validation/v1201-lan-joiner-control-seal-2026-09-28.md:6-7`）；门载荷本轮**未取卷复量**（无位移预期，也未测）。030/050 卷上 bundle 仍为 0 份（本轮未复量卷面）。
+## §2.77 ADMIT-010 / ADMIT-020 的 oracle 与载体设计入干，并结清 `5d31951` 的 CI 步骤级读数（第八十二轮，2026-09-28 12:20 +0800，M 回写）
+
+### 1. 上一轮欠账的 CI 读数（步骤级，只读 GitHub Actions REST）
+
+- `5d31951a1aedf05cf7d2be85d2481e9c28c4a783`：push run `36376247455` completed / success；python 18 步、bridge-static 9 步、protocol 10 步，各 job `NON_SUCCESS_STEPS []`，`JOB_CONCLUSION_BREAKS []`。
+- `595591af15c43d86e0a475404340c02e8a970e56`：`/actions/runs?head_sha=…&event=push` 返回 **0 条 run**。口径写清：这不是失败，是**没有 run**——该 SHA 是 `2b8e0e1..5d31951` 那一次 push 的非 tip 父提交，GitHub 只为 ref 目标起 workflow，它的字节只被 tip run 覆盖。
+
+### 2. 新卡 `P0-ADMIT-010-020-CASE-SPEC-001`（该族第三张 doc-only 设计卡）
+
+交付 `docs/p0-admit-010-020-case-spec-2026-09-28.md`（133 行 LF）：两案逐格的 oracle / 载体 / 反例 / 阳性对照 + 12 行载体底数表 + 四条交主控决定 + 复现命令 A–L + 四态 + 六条未测。本轮新读出的三条结论：
+
+1. `ADMIT-010` 的「LAN 地址」格今天**双重不可达**：v1 在加载期具名拒（`server_profile.py:190-195`，消息含 `no LAN scan or DNS name`），v2 允许把 LAN 字面量存进 profile（`_literal_host:283-297` 只要求 IP 字面量）却把会话目标关回 loopback（`:424-428`，消息自己点名「remote joining needs its own authorization card」），Java 命令门禁另只认两枚 loopback 字面量（`AdmissionCommandGate.java:23`、`:64-66`）。⇒ 该格今天只能判「拒」那一侧，建议具名缺口 `LAN_TARGET_SCENARIO_NOT_REACHABLE_IN_P0`。
+2. `ADMIT-020` 的「实际 endpoint」格在**加入路径无载体**：Bridge 的拨号日志行打在 `ConnectScreen.connect` 之前，内容是由命令 `original_host:port` 构造的 `ServerAddress`（`ClientAdmissionController.java:606-622` 对 `:630`），vanilla 解析之后 Bridge 读回的唯一东西是资源包策略（`:610-613`）。⇒ 真实重定向下「被要求的地址」与「实际 socket 端点」在封存材料里字节不可区分；建议具名缺口 `RESOLVED_ENDPOINT_HAS_NO_CARRIER_ON_JOIN_PATH`。
+3. 「重定向仍过策略」今天只有**探针域级**那条判得动（`server_probe.py:290-299` 在 transport 之前重决策；`tests/unit/test_server_probe.py:89-104` 已用 `10.0.0.5` 的 `as-saved` 与 `via_srv` 两形都判 `POLICY_REFUSAL` 且 `transport.calls == []`），而 resolver 是测试注入的 `FakeResolver`（`:42-46`）——按 `ADMIT-070` 已落地的同一口径，不得当作一次真实 SRV 重定向被拦住。真 SRV 场景另被 profile 层堵死（域名在加载期即拒，`admission.py:134-137` 的 `NOT_A_LITERAL` 与 `server_profile.py:283-297`）。
+
+另两处附带读数：`_DIALLED` 的两处既有使用者（`assert_case_evidence.py:1353-1358`、`:1401-1402`）**都没有**把拨出的 `host:port` 与封存 profile 比过 ⇒ 「只连已保存 profile」的拨号等式是一格真空缺；断言摘要取的是「该具名函数自己的源码文本」（`check_case_assertions.py:94-124`，含 docstring、LF 归一），故改模块级常量（如 `:1379` 的 `_DIALLED`）会静默改变判法而**不移任何 case_version**——本轮只登记这条门禁审计面事实，不实施检查。
+
+### 3. 门读数与四态
+
+本轮五道门逐道先读 rc，全 rc=0：`ruff check .`（All checks passed）、`ruff format --check .`（**380** files already formatted，比上一轮 +1 = 本卡新增的 `.md`，按 `project-ruff-format-counts-md` 口径归一）、`git diff --check`（stdout 空）、`tools/check_case_assertions.py`（`OK (151 registered)`，未新增注册项）、`tools/verify_fixture_digests.py`（`W00 schema and fixture digests: OK`）。未跑并具名列出：pyright、pytest、`check_boundaries`、`check_workflow_pins`、`uv build --wheel` + wheel 边界、`minekin --help`、buf 三条、bridge 两条。
+
+**四态：设计卡已入干 / 登记与真跑未开工 / 无 sealed bundle 新增（本轮 0 次挂卷）/ 无强制用例集位移。** 真实封证底数不变：1 份（bundle `5086ee42…64f6` / run `a224f6c3…`，出处 `docs/validation/v1201-lan-joiner-control-seal-2026-09-28.md:6-7`）；门载荷本轮**未取卷复量**（无位移预期，也未测）；`ADMIT-010` / `ADMIT-020` 的卷上 bundle 仍为 0 份（本轮未复量卷面）。
