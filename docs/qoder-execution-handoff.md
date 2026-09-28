@@ -2114,3 +2114,14 @@ the target allows 1.21.4"}`，配对文档 `mismatch.json` 是 `schema_version 2
 8. **四态**：设计卡已入干 / 登记与真跑未开工 / 无 sealed bundle 新增（0 次挂卷）/ 无强制用例集位移。真实封证仍 **1**（`5086ee42…64f6` / run `a224f6c3…`，出处 `docs/validation/v1201-lan-joiner-control-seal-2026-09-28.md:6-7`）。
 9. **不宣称完成**：objective 的每一半（lane 在途工作由 lane 自收并按文档顺序推进 V5′/H1i/M-C1/E7/M-G1 之后的格）仍未全部达成；本族的晋级、`mandatory`/registry 位移、V08 与用户远程服、HOST 一切仍属主控保留，本轮只写设计卡。
 10. **同轮补记（CI 欠账已清）**：`b3e753d…` 的 push run `36377489950` = `completed/success`，三 job 步骤数 9/18/10、`NON_SUCCESS_STEPS` 与 `JOB_CONCLUSION_BREAKS` 全空 ⇒ 第八十二轮留下的那笔读数闭合。`d18a199`（本轮落盘笔）自身的 run 未取，留下一轮。日志 `.tmp/m-r83/ci-steps.log`。
+## 第八十四轮（2026-09-28 12:50 +0800，M 主控，doc-only）
+
+1. **做什么**：按队列 §3 第二类独立工作走该族第五张 doc-only 设计卡——`CORE-080` 与 `OFFLINE-060` 的 oracle、载体、反例与阳性对照。全程只读仓库字节，零挂卷、零 JVM、未读 `.tmp/local-test-server.txt`、未连用户远程服、lane 材料一字节未改。
+2. **交付**：新文档 `docs/p0-core-080-offline-060-case-spec-2026-09-28.md`（112 行纯 LF，卡片 `P0-CORE-080-OFFLINE-060-CASE-SPEC-001`）；三处主干登记（本节、v1201 §2.80、计划表一行）。**本轮零代码改动**。
+3. **本轮新事实（三条）**：① `CORE-080` 的运行期那半**有门禁也有载体**（`information_class.py:81-87` 五键表无 `TEST_ORACLE`；`session_runtime.py:511-514` 先问门后处理、拒止按原因计数；`:177-178`/`:756-757` 入 run document；`test_session_runtime.py:773-774,:857-858` 断言到具体计数值）⇒ 旧清单 `p0-evidence-inventory-2026-09-26.md:167` 的「无断言亦无材料」按新字节作废一半，缺的是放置端；② 走线放置会按构造弄红 `test_information_class.py:139` 那条 totality 钉（`:148` 只能靠 monkeypatch 走到 `:153`），世界侧放置则完全绕开认知门；③ `OFFLINE-060` 的 `OFF-D/OFF-N` 三重锁（`parser.py:236-242` choices / `offline_session.py:56-62` 禁空 / `:115`+`:197-199` 空值即拒），且 `OFF-N` 已有判据 `CANDIDATE_NOT_REVIEWED:`（`assert_case_evidence.py:3345-3346`）却无可出现的载体。
+4. **一处结构错位与一处误读风险**：`cases.py:340-355` 把 `OFFLINE-060` 登记为 `RUNTIME_REQUIRED`，而契约 `p0-offline-session-compatibility-contract.md:104` 要的「未知类型可检测」今天只可能以仓库级断言成立；`tests/unit/test_case_registry.py:1012` 的 `absent` 三元组判的是自造合成 registry，不得读成真卷行数。
+5. **门读数（最终字节，逐道先读 rc，全 0）**：`ruff check .` / `ruff format --check .`（**382 files**，+1 为本卡 `.md`）/ `git diff --check`（stdout 0 字节）/ `check_case_assertions.py`（`OK (151 registered)`）/ `verify_fixture_digests.py`（OK）。未跑并具名列出：pyright、pytest、`check_boundaries`、`check_workflow_pins`、`uv build --wheel` + wheel 边界、`minekin --help`、buf 三条、bridge 两条。门载荷未取卷复量（无位移预期，也未测）。
+6. **CI 读数**：本轮未取——`d568048…`（上一笔落盘）与本轮落盘笔自身的 push run 都留下一轮补记；本节不写任何 CI 结论。
+7. **落盘与推送**：base `d5680489208c852272a9405d757de8f2fcb2ef1e`，一笔提交后 `push origin main:main`，再 `git ls-remote origin refs/heads/main` 回读，并核 `git status --porcelain` 0 行。
+8. **四态**：设计卡已入干 / 登记与真跑未开工 / 无 sealed bundle 新增（0 次挂卷）/ 无强制用例集位移。
+9. **不宣称完成**：goal 的每一半（H1k 在途工作由 lane 自收、V5′/H1i/M-C1/E7/M-G1 按文档顺序推进）仍未全部达成；本轮只是 §3 第二类独立工作又走一张卡。该族剩余未排卡的非 HOST 行是 `NAV-EXP-010`。
