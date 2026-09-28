@@ -5193,3 +5193,594 @@ def test_both_demo_entries_print_the_panel_command_for_their_own_port(tmp_path: 
         command = gateway_command(runs)
         assert f"--kin {kin}" in command, f"{script}: {command}"
         assert f"--port {port}" in command, f"{script}: {command}"
+
+
+#: The scripts a browsable-panel reading needs. They are copied into a temporary layout
+#: rather than driven from the repository, because `panel.sh` derives its repository root
+#: from its own location and refuses to serve a panel whose `dashboard/node_modules` is
+#: absent — and CI installs no dashboard dependencies at all, so the shipped tree is the
+#: wrong place to ask what this entry does once its preflight passes.
+PANEL_SCRIPTS = ("run.sh", "panel.sh", "demo.sh", "demo-lan.sh")
+
+#: A `docker` that contacts nothing and answers from files in its working directory:
+#: `image inspect` obeys `STUB_IMAGE_RC`, the `[ -d /data/kin/<root> ]` probe is answered
+#: from `STUB_ROOTS`, `run` records the argv it was given and marks the `--name` it carries
+#: as running (unless `STUB_RUN_DIES` says the process was gone before the probe), `ps`
+#: reports exactly the names marked running, and `stop` unmarks one and records it.
+PANEL_DOCKER_STUB = """#!/usr/bin/env bash
+set -uo pipefail
+record() { printf '%s\\n' "$*" >> docker.log; }
+
+case "$1" in
+    image)
+        exit "${STUB_IMAGE_RC:-0}"
+        ;;
+    volume)
+        exit 0
+        ;;
+    logs)
+        printf 'gateway reading /data on http://0.0.0.0:8799\\n'
+        exit 0
+        ;;
+    stop)
+        rm -f "running/$2"
+        record "STOP:<$2>"
+        printf '%s\\n' "$2"
+        exit 0
+        ;;
+    port)
+        exit 0
+        ;;
+    rm)
+        exit 0
+        ;;
+    ps)
+        want=""
+        seen=""
+        for arg in "$@"; do
+            case "${arg}" in
+                -a) seen=all ;;
+                name=*) want="${arg#name=}" ;;
+            esac
+        done
+        name="${want#^}"
+        name="${name#/}"
+        name="${name%$}"
+        if [ -n "${name}" ] && [ -f "running/${name}" ]; then
+            printf '%s\\n' 0123456789ab
+        fi
+        exit 0
+        ;;
+    run)
+        for arg in "$@"; do
+            case "${arg}" in
+                "[ -d /data/kin/"*)
+                    root=${arg#"[ -d /data/kin/"}
+                    root=${root%% ]*}
+                    case " ${STUB_ROOTS:-} " in
+                        *" ${root} "*) exit 0 ;;
+                        *) exit 1 ;;
+                    esac
+                    ;;
+            esac
+        done
+        name=""
+        previous=""
+        for arg in "$@"; do
+            if [ "${previous}" = "--name" ]; then name="${arg}"; fi
+            previous="${arg}"
+        done
+        {
+            printf 'RUN\\n'
+            printf 'ARG:<%s>\\n' "$@"
+        } >> docker.log
+        if [ -z "${STUB_RUN_DIES:-}" ] && [ -n "${name}" ]; then
+            : > "running/${name}"
+        fi
+        printf '%s\\n' 0123456789ab
+        exit 0
+        ;;
+    *)
+        exit 0
+        ;;
+esac
+"""
+
+#: A `curl` that contacts nothing, records every word it was handed, and fails the first
+#: `STUB_CURL_FAIL_FIRST` calls before obeying `STUB_CURL_RC`. A `/dev/null` operand is
+#: recorded on its own line, because that is the one shape this entry must never send:
+#: `panel.sh` exports `MSYS_NO_PATHCONV=1`, so on Windows the literal path reaches curl
+#: unconverted and every probe comes back rc=23 about a service that is answering fine.
+#: `STUB_RUN_DIES` answers nothing at all, which is what a container that exited early
+#: looks like from the probe's side — the port is closed, so there is no "first failure"
+#: followed by a recovery.
+PANEL_CURL_STUB = """#!/usr/bin/env bash
+set -uo pipefail
+printf 'CURL:<%s>\\n' "$@" >> curl.log
+for arg in "$@"; do
+    if [ "${arg}" = "/dev/null" ]; then printf 'NULLOUT\\n' >> curl.log; fi
+done
+if [ -n "${STUB_RUN_DIES:-}" ]; then exit 7; fi
+n=0
+if [ -f curl_count ]; then n=$(cat curl_count); fi
+n=$((n + 1))
+printf '%s' "${n}" > curl_count
+if [ -f probe_dead ] && [ "${n}" -gt "${STUB_PROBE_ALIVE_FIRST:-0}" ]; then exit 7; fi
+if [ "${n}" -le "${STUB_CURL_FAIL_FIRST:-0}" ]; then exit 7; fi
+exit "${STUB_CURL_RC:-0}"
+"""
+
+#: A `pnpm` that records its argv, the proxy target it was handed and the directory it was
+#: asked to serve from, then exits. The directory is what a path-conversion mistake breaks:
+#: an MSYS `/c/Users/...` reaching a Windows pnpm as an argument reads as `C:\\c`. The log
+#: goes to `STUB_LOG_DIR` rather than the current directory, because the entry is meant to
+#: `cd` into `dashboard` before it serves, and a relative log would land there.
+PANEL_PNPM_STUB = """#!/usr/bin/env bash
+set -uo pipefail
+{
+    printf 'PNPM:<%s>\\n' "$*"
+    printf 'TARGET:<%s>\\n' "${MINEKIN_GATEWAY_TARGET:-}"
+    printf 'CWD:<%s>\\n' "$(pwd)"
+} >> "${STUB_LOG_DIR:-.}/pnpm.log"
+exit "${STUB_PNPM_RC:-0}"
+"""
+
+#: Every knob the panel entry and the two demo entries read. A value left over from
+#: whoever ran pytest would name a different volume, Kin root or port.
+PANEL_ENV_NAMES = (
+    "MINEKIN_PANEL_VOLUME",
+    "MINEKIN_PANEL_KIN",
+    "MINEKIN_PANEL_GATEWAY_PORT",
+    "MINEKIN_PANEL_PORT",
+    "MINEKIN_PANEL_CONTAINER",
+    "MINEKIN_PANEL_WAIT_SECONDS",
+    "MINEKIN_PANEL_GATEWAY_ARGS",
+    "MINEKIN_PANEL_AGENT",
+    "MINEKIN_DEMO_VOLUME",
+    "MINEKIN_DEMO_KIN",
+    "MINEKIN_DEMO_GATEWAY_PORT",
+    "MINEKIN_DEMO_PANEL_PORT",
+    "MINEKIN_DEMO_PANEL_CONTAINER",
+    "MINEKIN_DEMO_LAN_VOLUME",
+    "MINEKIN_DEMO_LAN_HOST_KIN",
+    "MINEKIN_DEMO_LAN_JOIN_KIN",
+    "MINEKIN_DEMO_LAN_GATEWAY_KIN",
+    "MINEKIN_DEMO_LAN_GATEWAY_PORT",
+    "MINEKIN_DEMO_LAN_PANEL_PORT",
+    "MINEKIN_DEMO_LAN_PANEL_CONTAINER",
+    "MINEKIN_RUNNER_PUBLISH",
+    "MINEKIN_RUNNER_DETACH",
+    "MINEKIN_RUNNER_NAME",
+    "MINEKIN_RUNNER_DATA",
+    "MINEKIN_RUNNER_IMAGE",
+    "MINEKIN_SERVER_JAR",
+    "STUB_ROOTS",
+    "STUB_IMAGE_RC",
+    "STUB_RUN_DIES",
+    "STUB_CURL_RC",
+    "STUB_CURL_FAIL_FIRST",
+    "STUB_PNPM_RC",
+    "STUB_PROBE_ALIVE_FIRST",
+    "STUB_LOG_DIR",
+)
+
+PANEL_VOLUME = "minekin-panel-stub"
+PANEL_KIN = "kin-panel-stub"
+PANEL_HOST_KIN = "kin-panel-host"
+PANEL_GATEWAY_PORT = "8799"
+PANEL_PANEL_PORT = "5199"
+PANEL_CONTAINER = "minekin-stub-gateway"
+
+
+def panel_home(tmp_path: Path, label: str) -> Path:
+    """Lay out a copied runner directory, its stub tools and an empty dashboard.
+
+    `panel.sh` builds its repository root from `BASH_SOURCE`, so the copies have to sit at
+    the same relative depth with a `dashboard/node_modules` two levels up; that directory
+    is what the entry checks before it serves a panel, and CI has no dashboard install.
+
+    `label` becomes a directory name the entries are run inside of, so it stays free of the
+    characters MSYS bash cannot work in — a bracketed one killed the shell with an access
+    violation before the entry ran at all.
+    """
+
+    home = tmp_path / label
+    runner = home / "test-orchestrator" / "runner"
+    runner.mkdir(parents=True, exist_ok=True)
+    for name in PANEL_SCRIPTS:
+        shutil.copy(RUNNER / name, runner / name)
+    (home / "dashboard" / "node_modules").mkdir(parents=True, exist_ok=True)
+    bin_dir = home / "bin"
+    bin_dir.mkdir(exist_ok=True)
+    for name, body in (
+        ("docker", PANEL_DOCKER_STUB),
+        ("curl", PANEL_CURL_STUB),
+        ("pnpm", PANEL_PNPM_STUB),
+    ):
+        stub = bin_dir / name
+        stub.write_text(body, encoding="utf-8", newline="\n")
+        stub.chmod(0o755)
+    (home / "running").mkdir(exist_ok=True)
+    return home
+
+
+def panel_drive(
+    tmp_path: Path,
+    label: str,
+    *,
+    script: str = "panel.sh",
+    args: tuple[str, ...] = (),
+    overrides: dict[str, str] | None = None,
+    roots: tuple[str, ...] = (PANEL_KIN,),
+) -> tuple[subprocess.CompletedProcess[str], Path]:
+    """Run one copied entry with the stub tools on PATH and nothing contacted.
+
+    The working directory is the copied home, so every log the stubs write is per reading
+    and one row cannot read another row's containers. The stubs head `PATH`, which is what
+    keeps this off the host's own `docker`, `curl` and `pnpm` — and it is also why an absent
+    tool cannot be asked about by removing a stub: the host's copy is still further down
+    the same path. `MINEKIN_PANEL_AGENT` names one instead.
+
+    `STUB_LOG_DIR` pins the panel agent's log to the home, because the entry changes
+    directory into `dashboard` before it serves, and a relative log would land there.
+    """
+
+    home = panel_home(tmp_path, label)
+    environment = dict(os.environ)
+    for name in PANEL_ENV_NAMES:
+        environment.pop(name, None)
+    environment.update(
+        {
+            "MINEKIN_PANEL_VOLUME": PANEL_VOLUME,
+            "MINEKIN_PANEL_KIN": PANEL_KIN,
+            "MINEKIN_PANEL_GATEWAY_PORT": PANEL_GATEWAY_PORT,
+            "MINEKIN_PANEL_PORT": PANEL_PANEL_PORT,
+            "MINEKIN_PANEL_CONTAINER": PANEL_CONTAINER,
+            "MINEKIN_PANEL_WAIT_SECONDS": "5",
+            "STUB_ROOTS": " ".join(roots),
+            "STUB_LOG_DIR": str(home),
+        }
+    )
+    if overrides is not None:
+        environment.update(overrides)
+    stub_bin = str(home / "bin")
+    keep = [entry for entry in environment["PATH"].split(os.pathsep) if entry != stub_bin]
+    environment["PATH"] = os.pathsep.join([stub_bin, *keep])
+
+    bash = shutil.which("bash")
+    assert bash is not None, f"no bash on PATH to drive {script} with"
+    result = subprocess.run(
+        [bash, str(home / "test-orchestrator" / "runner" / script), *args],
+        capture_output=True,
+        check=False,
+        cwd=str(home),
+        env=environment,
+        text=True,
+    )
+    return result, home
+
+
+def stub_lines(home: Path, log: str, marker: str) -> list[str]:
+    path = home / log
+    if not path.exists():
+        return []
+    return [
+        line[len(marker) : -1]
+        for line in path.read_text(encoding="utf-8").splitlines()
+        if line.startswith(marker) and line.endswith(">")
+    ]
+
+
+def panel_container_runs(home: Path) -> list[list[str]]:
+    """Each `docker run` the entry reached, as the argv the real docker would have seen."""
+
+    log = home / "docker.log"
+    if not log.exists():
+        return []
+    sections = [part for part in log.read_text(encoding="utf-8").split("RUN\n") if part.strip()]
+    return [
+        [line[5:-1] for line in part.splitlines() if line.startswith("ARG:<")] for part in sections
+    ]
+
+
+def panel_stopped(home: Path) -> list[str]:
+    log = home / "docker.log"
+    if not log.exists():
+        return []
+    return [
+        line[len("STOP:<") : -1]
+        for line in log.read_text(encoding="utf-8").splitlines()
+        if line.startswith("STOP:<")
+    ]
+
+
+def test_the_detached_run_carries_the_name_its_caller_has_to_stop_with(tmp_path: Path) -> None:
+    """V1201-PANEL-ONE-COMMAND-ENTRY-001: a detached container is a named one.
+
+    `run.sh` had no detach half, so an entry that had to bring the read model up, use it
+    and take it down again could not name what it was stopping. Four readings:
+
+    * Detached with a name, the argv gains exactly `-d` and `--name <that name>` and every
+      other word is the undetached row's argv unchanged — the clause a detach that also
+      dropped `--rm`, or reordered the mounts, would turn red on.
+    * Asked to detach with no name, it refuses by name with rc 2 and never reaches docker.
+      A detached unnamed container is unreadable from the outside, which is the trap.
+    * A name that does not start with a letter is refused, because a caller must not be
+      able to pass a flag through it: `-rf` as a name is how an entry becomes destructive.
+    * A detach value other than `1` is refused, so `MINEKIN_RUNNER_DETACH=yes` cannot arm
+      half of the shape.
+    """
+
+    def run_row(label: str, detach: dict[str, str]) -> tuple[int, str, list[str]]:
+        environment = {"MINEKIN_RUNNER_PUBLISH": PANEL_GATEWAY_PORT, **detach}
+        result, home = panel_drive(
+            tmp_path, label, script="run.sh", args=("--shell", "true"), overrides=environment
+        )
+        runs = panel_container_runs(home)
+        assert len(runs) <= 1, f"{label} reached docker more than once: {runs}"
+        # The repository mount names the row's own temporary directory, which is the one
+        # word two rows cannot share; every other word has to be comparable as written.
+        words = runs[0] if runs else []
+        argv = ["<repo>:/src:ro" if w.endswith(":/src:ro") else w for w in words]
+        return result.returncode, result.stderr, argv
+
+    plain_rc, plain_err, plain = run_row("detach-plain", {})
+    assert plain_rc == 0, f"{plain_rc}: {plain_err}"
+    assert "-d" not in plain and "--name" not in plain, plain
+
+    armed_rc, armed_err, armed = run_row(
+        "detach-armed", {"MINEKIN_RUNNER_DETACH": "1", "MINEKIN_RUNNER_NAME": PANEL_CONTAINER}
+    )
+    assert armed_rc == 0, f"{armed_rc}: {armed_err}"
+    assert "-d" in armed and armed[armed.index("--name") + 1] == PANEL_CONTAINER, armed
+    assert [w for w in armed if w not in ("-d", "--name", PANEL_CONTAINER)] == plain, (
+        f"detaching moved something besides -d and --name: {armed}"
+    )
+
+    for label, detach, expected in (
+        ("detach-unamed", {"MINEKIN_RUNNER_DETACH": "1"}, "MINEKIN_RUNNER_NAME"),
+        (
+            "detach-flagname",
+            {"MINEKIN_RUNNER_DETACH": "1", "MINEKIN_RUNNER_NAME": "-rf"},
+            "MINEKIN_RUNNER_NAME",
+        ),
+        (
+            "detach-yes",
+            {"MINEKIN_RUNNER_DETACH": "yes", "MINEKIN_RUNNER_NAME": PANEL_CONTAINER},
+            "MINEKIN_RUNNER_DETACH",
+        ),
+    ):
+        rc, err, reached = run_row(label, detach)
+        assert rc == 2, f"{label} was accepted: rc {rc}"
+        assert expected in err, f"{expected} was not named in the refusal: {err}"
+        assert reached == [], f"a refused detach still reached docker: {reached}"
+
+
+def test_the_panel_entry_starts_one_named_gateway_and_stops_it_again(tmp_path: Path) -> None:
+    """V1201-PANEL-ONE-COMMAND-ENTRY-001: the browsable panel is one command, and it cleans up.
+
+    Before this the operator assembled the second terminal by hand, and the reading that
+    made it worth assembling was the one that came back as a timeout about a service that
+    was answering fine. Five clauses, each the counterexample for one of the others:
+
+    * Exactly one container is started, detached, named as this entry's own, bound to
+      loopback on the port it was given, and running the read model over the Kin root that
+      was named — the default root, not the host's.
+    * The panel is served with the gateway's own port inside `MINEKIN_GATEWAY_TARGET`. The
+      dev server proxies `/gateway` to 8787 unless told otherwise, and a run on 8799 with a
+      bare target leaves the panel showing itself disconnected over a healthy session;
+      that is what the first live attempt measured as `connect ECONNREFUSED 127.0.0.1:8787`.
+    * The body of the readiness probe is discarded by the shell, never as curl's `-o`
+      operand. Recorded on Windows as `curl: (23) client returned ERROR on write of 4252
+      bytes` against a gateway that was serving the same bytes fine.
+    * Whatever the panel does on the way out, the container this entry started is stopped
+      by this entry — and a port the probe had to wait on is still a pass, so the wait is
+      real rather than an assumption that the container answers at once.
+    * Nothing here opens the network: the binding is loopback, so the published read model
+      is reachable from this machine only.
+    """
+
+    result, home = panel_drive(tmp_path, "happy", overrides={"STUB_CURL_FAIL_FIRST": "2"})
+    assert result.returncode == 0, f"rc {result.returncode}: {result.stderr}\n{result.stdout}"
+
+    runs = panel_container_runs(home)
+    assert len(runs) == 1, f"expected one container, got {len(runs)}: {runs}"
+    argv = runs[0]
+    assert "-d" in argv, argv
+    assert argv[argv.index("--name") + 1] == PANEL_CONTAINER, argv
+    binding = f"127.0.0.1:{PANEL_GATEWAY_PORT}:{PANEL_GATEWAY_PORT}"
+    assert argv[argv.index("-p") + 1] == binding, argv
+    assert argv.count("-p") == 1, f"a second binding was published: {argv}"
+    command = gateway_command(runs)
+    assert f"--kin {PANEL_KIN}" in command, command
+    assert f"--port {PANEL_GATEWAY_PORT}" in command, command
+
+    served = stub_lines(home, "pnpm.log", "PNPM:<")
+    assert served and served[0].startswith("dev"), served
+    assert f"--port {PANEL_PANEL_PORT}" in served[0], served
+    assert "--strictPort" in served[0], served
+    targets = stub_lines(home, "pnpm.log", "TARGET:<")
+    assert targets == [f"http://127.0.0.1:{PANEL_GATEWAY_PORT}"], targets
+
+    probed = stub_lines(home, "curl.log", "CURL:<")
+    assert probed, f"nothing probed the published port: {result.stdout}"
+    assert all(f"/api/v1/dashboard/{p}" in " ".join(probed) for p in ("snapshot",)), probed
+    assert "NULLOUT" not in (home / "curl.log").read_text(encoding="utf-8"), (
+        "the probe handed curl a /dev/null operand; under MSYS_NO_PATHCONV=1 that is the "
+        "rc=23 shape this entry was broken by"
+    )
+
+    assert panel_stopped(home) == [PANEL_CONTAINER], panel_stopped(home)
+
+
+def test_the_panel_entry_refuses_before_it_starts_anything(tmp_path: Path) -> None:
+    """V1201-PANEL-ONE-COMMAND-ENTRY-001: every mistake this entry can make is named.
+
+    Each row is a mistake that would otherwise show up as a container listening on a port
+    nobody asked for, or a panel pointed at nothing. The invariant across all of them is
+    that no container is started, because a half-started gateway is the one outcome the
+    operator has to clean up by hand.
+    """
+
+    rows = (
+        ("bad-port", {"MINEKIN_PANEL_GATEWAY_PORT": "0.0.0.0:8787"}, "MINEKIN_PANEL_GATEWAY_PORT"),
+        ("zero-port", {"MINEKIN_PANEL_PORT": "0"}, "MINEKIN_PANEL_PORT"),
+        ("slow-wait", {"MINEKIN_PANEL_WAIT_SECONDS": "12s"}, "MINEKIN_PANEL_WAIT_SECONDS"),
+        ("no-volume", {"MINEKIN_PANEL_VOLUME": ""}, "MINEKIN_PANEL_VOLUME"),
+        ("no-kin", {"MINEKIN_PANEL_KIN": ""}, "MINEKIN_PANEL_KIN"),
+        ("no-image", {"STUB_IMAGE_RC": "1"}, "image"),
+    )
+    for label, overrides, needle in rows:
+        result, home = panel_drive(tmp_path, label, overrides=overrides)
+        assert result.returncode == 2, f"{label}: rc {result.returncode} — {result.stderr}"
+        assert needle in result.stderr, f"{label} refused without naming {needle}: {result.stderr}"
+        assert panel_container_runs(home) == [], f"{label} started a container anyway"
+
+    # An agent that is not on PATH is the same kind of answer, asked by naming a command
+    # nobody has: the stub `pnpm` only *shadows* the host's own copy, so taking the stub out
+    # of view would leave the real one further down the same PATH and ask nothing at all.
+    absent = "minekin-panel-agent-absent"
+    result, home = panel_drive(tmp_path, "no-agent", overrides={"MINEKIN_PANEL_AGENT": absent})
+    assert result.returncode == 2, f"an absent panel agent was accepted: rc {result.returncode}"
+    assert absent in result.stderr, result.stderr
+    assert "MINEKIN_PANEL_AGENT" in result.stderr, (
+        f"the refusal did not name the knob it offers: {result.stderr}"
+    )
+    assert panel_container_runs(home) == [], "a refused agent still started a container"
+
+    empty = panel_drive(tmp_path, "no-root", roots=())
+    assert empty[0].returncode == 2, empty[0].stderr
+    assert "is not on volume" in empty[0].stderr, empty[0].stderr
+    assert panel_container_runs(empty[1]) == [], "a gateway was published over an empty root"
+
+    # A name the machine already holds is refused rather than taken over. The marker goes
+    # into the row's own home before the entry runs, because a container this command
+    # started is removed again on its way out — the leftover this clause is about is one
+    # that survived a killed run or belongs to somebody else entirely.
+    clash_home = panel_home(tmp_path, "name-clash")
+    (clash_home / "running" / PANEL_CONTAINER).touch()
+    clash = panel_drive(tmp_path, "name-clash")
+    assert clash[0].returncode == 2, f"an owned name was taken over: {clash[0].stderr}"
+    assert "already registered" in clash[0].stderr, clash[0].stderr
+    assert panel_container_runs(clash_home) == [], "the clash row started a container"
+    assert panel_stopped(clash_home) == [], "the clash row stopped a container it did not start"
+
+
+def test_the_panel_entry_reports_a_gateway_that_died_instead_of_waiting(tmp_path: Path) -> None:
+    """V1201-PANEL-ONE-COMMAND-ENTRY-001: a dead gateway is not reported as a slow one.
+
+    The wait is the only thing between "starting the container" and "the panel is served",
+    so it has to tell a process that died from a machine that is merely slow. Two rows:
+
+    * The container is gone before the first probe: the entry exits 1 naming the container,
+      says it is not running any more, and still stops nothing else.
+    * The container stays and never answers: the refusal quotes the container's own last
+      lines instead of guessing that a port is held, which is the reading that cost the
+      first two live attempts — each timed out about a gateway that was serving.
+    """
+
+    dead, dead_home = panel_drive(tmp_path, "dead-gateway", overrides={"STUB_RUN_DIES": "1"})
+    assert dead.returncode == 1, f"a vanished container was not reported: rc {dead.returncode}"
+    assert PANEL_CONTAINER in dead.stderr, dead.stderr
+    assert "not running any more" in dead.stderr, dead.stderr
+    assert panel_stopped(dead_home) == [PANEL_CONTAINER], panel_stopped(dead_home)
+
+    silent, quiet_home = panel_drive(
+        tmp_path,
+        "silent-gateway",
+        overrides={"STUB_CURL_RC": "7", "MINEKIN_PANEL_WAIT_SECONDS": "2"},
+    )
+    assert silent.returncode == 1, f"a silent gateway was not refused: rc {silent.returncode}"
+    assert "did not answer" in silent.stderr, silent.stderr
+    assert "gateway reading /data" in silent.stderr, (
+        f"the refusal guessed about the port instead of quoting the container: {silent.stderr}"
+    )
+    assert panel_stopped(quiet_home) == [PANEL_CONTAINER], panel_stopped(quiet_home)
+
+
+def test_both_demo_entries_route_browse_to_their_own_volume_and_kin(tmp_path: Path) -> None:
+    """V1201-PANEL-ONE-COMMAND-ENTRY-001: `--browse` is the two-terminal path in one command.
+
+    `demo.sh --gateway` prints the panel command the operator still has to assemble, which
+    is what made the demo a developer's procedure rather than a user's entry. `--browse`
+    hands the same volume, the same Kin root and the same port to `panel.sh`, so the two
+    halves cannot drift apart:
+
+    * The single-client demo serves its own default root and publishes the port its own
+      knob names, on its own panel port.
+    * The LAN demo serves the joining root it operated, not the host's, which is the clause
+      a host-first implementation turns red on: the host's ledger holds the world it
+      started, not the controls that were judged.
+    * Both refuse an argument they do not know, and the refusal names `--browse`, so a
+      typo cannot fall through to a clean run that fetches the bundle again.
+    """
+
+    rows = (
+        (
+            "one",
+            "demo.sh",
+            {
+                "MINEKIN_DEMO_VOLUME": PANEL_VOLUME,
+                "MINEKIN_DEMO_KIN": PANEL_KIN,
+                "MINEKIN_DEMO_GATEWAY_PORT": PANEL_GATEWAY_PORT,
+                "MINEKIN_DEMO_PANEL_PORT": PANEL_PANEL_PORT,
+                "MINEKIN_DEMO_PANEL_CONTAINER": PANEL_CONTAINER,
+            },
+            "--browse",
+            PANEL_KIN,
+            PANEL_GATEWAY_PORT,
+            PANEL_PANEL_PORT,
+        ),
+        (
+            "lan",
+            "demo-lan.sh",
+            {
+                "MINEKIN_DEMO_LAN_VOLUME": PANEL_VOLUME,
+                "MINEKIN_DEMO_LAN_GATEWAY_KIN": PANEL_KIN,
+                "MINEKIN_DEMO_LAN_GATEWAY_PORT": PANEL_GATEWAY_PORT,
+                "MINEKIN_DEMO_LAN_PANEL_PORT": PANEL_PANEL_PORT,
+                "MINEKIN_DEMO_LAN_PANEL_CONTAINER": PANEL_CONTAINER,
+            },
+            "--browse",
+            PANEL_KIN,
+            PANEL_GATEWAY_PORT,
+            PANEL_PANEL_PORT,
+        ),
+    )
+    for label, script, overrides, argument, kin, gateway_port, panel_port in rows:
+        result, home = panel_drive(
+            tmp_path,
+            label,
+            script=script,
+            args=(argument,),
+            overrides=overrides,
+        )
+        assert result.returncode == 0, (
+            f"{label} {argument}: rc {result.returncode}: {result.stderr}"
+        )
+        runs = panel_container_runs(home)
+        assert len(runs) == 1, f"{label} {argument} started {len(runs)} containers: {runs}"
+        argv = runs[0]
+        assert argv[argv.index("-p") + 1] == f"127.0.0.1:{gateway_port}:{gateway_port}", argv
+        launched = " ".join(word for word in argv if "gateway.server" in word)
+        assert f"--kin {kin}" in launched, f"{label}: {launched}"
+        assert f"--port {gateway_port}" in launched, f"{label}: {launched}"
+        assert stub_lines(home, "pnpm.log", "TARGET:<") == [f"http://127.0.0.1:{gateway_port}"]
+        assert f"http://127.0.0.1:{panel_port}/" in result.stdout, result.stdout
+
+    for label, script in (("typo-one", "demo.sh"), ("typo-lan", "demo-lan.sh")):
+        result, home = panel_drive(
+            tmp_path,
+            label,
+            script=script,
+            args=("--nope",),
+            overrides={
+                "MINEKIN_DEMO_LAN_VOLUME": PANEL_VOLUME,
+                "MINEKIN_DEMO_VOLUME": PANEL_VOLUME,
+            },
+        )
+        assert result.returncode == 2, f"{script} accepted an unknown argument"
+        assert "--browse" in result.stderr, (
+            f"{script} did not name the argument it added: {result.stderr}"
+        )
+        assert panel_container_runs(home) == [], f"{script} started something before refusing"

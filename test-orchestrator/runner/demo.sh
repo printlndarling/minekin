@@ -13,12 +13,15 @@
 #   MINEKIN_SERVER_JAR=<path> bash test-orchestrator/runner/demo.sh
 #   MINEKIN_SERVER_JAR=<path> bash test-orchestrator/runner/demo.sh --again
 #   bash test-orchestrator/runner/demo.sh --gateway
+#   bash test-orchestrator/runner/demo.sh --browse
 #
 # `--again` is the repeat-start check: same volume, same Kin root, so the store is
 # already filled and the run should go straight to the world. `--gateway` serves
 # the read-only Dashboard projection over whatever this demo's volume holds and
 # publishes it on this machine's loopback, which is what lets a browser on the host
-# read the session the demo just ran.
+# read the session the demo just ran. `--browse` is that plus the panel: it brings up
+# the read model, waits for it, and serves the Dashboard against it in one command, so
+# the operator is not left assembling a second terminal's environment by hand.
 #
 # Environment (all but the jar have defaults):
 #   MINEKIN_DEMO_VOLUME      named volume holding the Kin root      (minekin-local-demo)
@@ -38,6 +41,7 @@
 #                                  it  (30) — the death is the release's other cause, so it
 #                                  has to land behind the walk, not in the middle of it
 #   MINEKIN_DEMO_GATEWAY_PORT  the loopback port --gateway publishes (8787)
+#   MINEKIN_DEMO_PANEL_PORT    the loopback port --browse serves the panel on (5175)
 #   MINEKIN_DEMO_CASE        name a registered case to seal this run against (unset)
 #
 set -euo pipefail
@@ -105,13 +109,18 @@ HANDSHAKE_SECONDS="${MINEKIN_DEMO_HANDSHAKE_SECONDS:-90}"
 # both halves and because a machine already holding 8787 needs to say so once.
 GATEWAY_PORT="${MINEKIN_DEMO_GATEWAY_PORT:-8787}"
 
+# Where `--browse` serves the panel. The dev server forwards `/gateway/*` to the port
+# above, so this number only has to differ when the machine already holds 5175.
+PANEL_PORT="${MINEKIN_DEMO_PANEL_PORT:-5175}"
+
 command="${1:-}"
 case "${command}" in
     --again) command="again" ;;
     --gateway) command="gateway" ;;
+    --browse) command="browse" ;;
     "") command="clean" ;;
     *)
-        printf 'demo: unknown argument %q (expected --again, --gateway, or nothing)\n' "${command}" >&2
+        printf 'demo: unknown argument %q (expected --again, --gateway, --browse, or nothing)\n' "${command}" >&2
         exit 2
         ;;
 esac
@@ -153,6 +162,17 @@ if [ "${command}" = "gateway" ]; then
         bash "${HERE}/run.sh" --shell \
         "python -m gateway.server --data-root /data --kin ${KIN} \
 --host 0.0.0.0 --port ${GATEWAY_PORT} ${GATEWAY_ARGS:-}"
+fi
+
+# The one-command reading of the same session: the entry that owns the volume and the
+# Kin root names them here, and `panel.sh` brings up the read model, waits for the
+# published port, and serves the Dashboard against it until the operator stops it.
+if [ "${command}" = "browse" ]; then
+    exec env MINEKIN_PANEL_VOLUME="${VOLUME}" MINEKIN_PANEL_KIN="${KIN}" \
+        MINEKIN_PANEL_GATEWAY_PORT="${GATEWAY_PORT}" \
+        MINEKIN_PANEL_PORT="${PANEL_PORT}" \
+        MINEKIN_PANEL_CONTAINER="${MINEKIN_DEMO_PANEL_CONTAINER:-minekin-demo-panel-gateway}" \
+        bash "${HERE}/panel.sh"
 fi
 
 SERVER_JAR="${MINEKIN_SERVER_JAR:-}"
@@ -231,8 +251,10 @@ printf '  Kin root      : volume %s, /data/kin/%s\n' "${VOLUME}" "${KIN}"
 printf '  run document  : the last JSON line above (Core'"'"'s own counts)\n'
 printf '  evidence      : bash test-orchestrator/runner/run.sh --shell "python -m minekin_core evidence verify <run_id>"\n'
 printf '                  with MINEKIN_RUNNER_DATA=%s\n' "${VOLUME}"
-printf '  dashboard     : bash test-orchestrator/runner/demo.sh --gateway\n'
-printf '                  then in another shell, naming the same port as the proxy target:\n'
-printf '                  MINEKIN_GATEWAY_TARGET=http://127.0.0.1:%s pnpm --dir dashboard dev, and open\n' "${GATEWAY_PORT}"
-printf '                  http://127.0.0.1:5175/?adapter=gateway&gateway=/gateway\n'
-printf '                  Ctrl-C stops the read model; the Kin root on volume %s keeps the run.\n' "${VOLUME}"
+printf '  dashboard     : bash test-orchestrator/runner/demo.sh --browse\n'
+printf '                  one command: the read model, the wait for it, and the panel on\n'
+printf '                  http://127.0.0.1:%s/?adapter=gateway&gateway=/gateway\n' "${PANEL_PORT}"
+printf '                  Ctrl-C stops the panel and the read model with it; the Kin root on\n'
+printf '                  volume %s keeps the run.\n' "${VOLUME}"
+printf '                  To serve the two halves separately, use --gateway and then name that\n'
+printf '                  port as the dev server'"'"'s proxy target.\n'

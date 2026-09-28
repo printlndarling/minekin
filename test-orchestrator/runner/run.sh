@@ -16,6 +16,9 @@
 #         bash test-orchestrator/runner/run.sh --shell glxinfo -B
 #         MINEKIN_RUNNER_PUBLISH=8787 bash test-orchestrator/runner/run.sh --shell \
 #             python -m gateway.server --host 0.0.0.0 --port 8787
+#         MINEKIN_RUNNER_PUBLISH=8787 MINEKIN_RUNNER_DETACH=1 \
+#             MINEKIN_RUNNER_NAME=minekin-panel-gateway \
+#             bash test-orchestrator/runner/run.sh --shell python -m gateway.server --kin kin-01
 #         bash test-orchestrator/runner/run.sh server --accept-eula --allow-player Kin
 #         MINEKIN_SERVER_JAR=<path> bash test-orchestrator/runner/run.sh domain \
 #             session start --profile <bundle> --server-profile <server profile>
@@ -50,6 +53,32 @@ if [[ -n "${MINEKIN_RUNNER_PUBLISH:-}" ]]; then
         exit 2
     fi
     PUBLISH_ARGS=(-p "127.0.0.1:${MINEKIN_RUNNER_PUBLISH}:${MINEKIN_RUNNER_PUBLISH}")
+fi
+
+# Start the container in the background under a name the caller can stop, for the
+# one shape where a single command has to bring a service up, use it, and take it
+# down again on the way out — the browsable Dashboard, which reads the published
+# gateway while it serves the panel. `--rm` alone cannot answer that: a container
+# nobody named cannot be stopped by whoever started it. So a detached run has to
+# carry a name, and the name is checked here rather than left for docker to
+# interpret, because a caller must not be able to pass a flag through it.
+DETACH_ARGS=()
+NAME_ARGS=()
+if [[ -n "${MINEKIN_RUNNER_DETACH:-}" ]]; then
+    if [[ "${MINEKIN_RUNNER_DETACH}" != "1" ]]; then
+        echo "MINEKIN_RUNNER_DETACH takes 1 or nothing: ${MINEKIN_RUNNER_DETACH}" >&2
+        exit 2
+    fi
+    if [[ -z "${MINEKIN_RUNNER_NAME:-}" ]]; then
+        echo "MINEKIN_RUNNER_DETACH needs MINEKIN_RUNNER_NAME, so the caller can stop what it started." >&2
+        exit 2
+    fi
+    if [[ ! "${MINEKIN_RUNNER_NAME}" =~ ^[A-Za-z][A-Za-z0-9_.-]*$ ]]; then
+        echo "MINEKIN_RUNNER_NAME must start with a letter and hold only letters, digits, dot, dash, underscore: ${MINEKIN_RUNNER_NAME}" >&2
+        exit 2
+    fi
+    DETACH_ARGS=(-d)
+    NAME_ARGS=(--name "${MINEKIN_RUNNER_NAME}")
 fi
 
 # The base image's entrypoint execs its arguments as a program, so it has to be
@@ -221,6 +250,8 @@ exec docker run --rm \
     -v "${DATA_VOLUME}:/data" \
     "${EXTRA_ARGS[@]}" \
     "${PUBLISH_ARGS[@]}" \
+    "${NAME_ARGS[@]}" \
+    "${DETACH_ARGS[@]}" \
     -e MINEKIN_HOME=/data \
     -e MINEKIN_USERNAME="${USERNAME}" \
     -e MINEKIN_KIN_ID \

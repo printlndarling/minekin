@@ -18,11 +18,14 @@
 #   MINEKIN_SERVER_JAR=<path> bash test-orchestrator/runner/demo-lan.sh
 #   MINEKIN_SERVER_JAR=<path> bash test-orchestrator/runner/demo-lan.sh --again
 #   bash test-orchestrator/runner/demo-lan.sh --gateway
+#   bash test-orchestrator/runner/demo-lan.sh --browse
 #
 # `--again` repeats on the Kin roots this demo already filled, so neither client
 # has to fetch the bundle a second time. `--gateway` serves the read-only Dashboard
 # projection over whatever this demo's volume holds, which is what lets a browser on
-# this machine read the session the joining Kin just had.
+# this machine read the session the joining Kin just had. `--browse` is the same
+# reading in one command: the read model comes up, the panel is served against it, and
+# stopping the command stops the container it started.
 #
 # Environment (all but the jar have defaults):
 #   MINEKIN_DEMO_LAN_VOLUME       named volume holding both Kin roots   (minekin-lan-demo)
@@ -50,6 +53,7 @@
 #                                  it  (12, i.e. behind the hold and its release)
 #   MINEKIN_DEMO_LAN_GATEWAY_PORT  the loopback port --gateway publishes  (8787)
 #   MINEKIN_DEMO_LAN_GATEWAY_KIN   which Kin root --gateway serves        (the joining one)
+#   MINEKIN_DEMO_LAN_PANEL_PORT    the loopback port --browse serves the panel on (5175)
 #
 # The three control bounds are the driver's, not this script's: `domain.sh`
 # refuses an ask outside them rather than clamping it, so widening one here is
@@ -96,6 +100,10 @@ KILL_AFTER="${MINEKIN_DEMO_LAN_KILL_AFTER:-12}"
 GATEWAY_PORT="${MINEKIN_DEMO_LAN_GATEWAY_PORT:-8787}"
 GATEWAY_KIN="${MINEKIN_DEMO_LAN_GATEWAY_KIN:-${JOIN_KIN}}"
 
+# Where `--browse` serves the panel. The dev server forwards `/gateway/*` to the port
+# above, so this number only has to change when the machine already holds 5175.
+PANEL_PORT="${MINEKIN_DEMO_LAN_PANEL_PORT:-5175}"
+
 # The death timing is a count of whole seconds, and `domain.sh` refuses anything it
 # cannot place. Refusing the bad ask here means the operator hears about it before the
 # volume work, not after a container has started.
@@ -141,9 +149,10 @@ command="${1:-}"
 case "${command}" in
     --again) command="again" ;;
     --gateway) command="gateway" ;;
+    --browse) command="browse" ;;
     "") command="clean" ;;
     *)
-        printf 'demo-lan: unknown argument %q (expected --again, --gateway, or nothing)\n' "${command}" >&2
+        printf 'demo-lan: unknown argument %q (expected --again, --gateway, --browse, or nothing)\n' "${command}" >&2
         exit 2
         ;;
 esac
@@ -190,6 +199,17 @@ if [ "${command}" = "gateway" ]; then
         bash "${HERE}/run.sh" --shell \
         "python -m gateway.server --data-root /data --kin ${GATEWAY_KIN} \
 --host 0.0.0.0 --port ${GATEWAY_PORT} ${GATEWAY_ARGS:-}"
+fi
+
+# The one-command reading of the joining Kin's ledger: this entry names the volume and
+# the root it projects, and `panel.sh` brings the read model up, waits for the published
+# port, and serves the panel against it until the operator stops it.
+if [ "${command}" = "browse" ]; then
+    exec env MINEKIN_PANEL_VOLUME="${VOLUME}" MINEKIN_PANEL_KIN="${GATEWAY_KIN}" \
+        MINEKIN_PANEL_GATEWAY_PORT="${GATEWAY_PORT}" \
+        MINEKIN_PANEL_PORT="${PANEL_PORT}" \
+        MINEKIN_PANEL_CONTAINER="${MINEKIN_DEMO_LAN_PANEL_CONTAINER:-minekin-lan-panel-gateway}" \
+        bash "${HERE}/panel.sh"
 fi
 
 SERVER_JAR="${MINEKIN_SERVER_JAR:-}"

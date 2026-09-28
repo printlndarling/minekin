@@ -2348,3 +2348,89 @@ AssertionError: assert 'disconnected' == 'connected'
 6. 下一张回 P4：恢复（crash/重连）与异常准入两侧的活体验证，需要在同一枚 `--gateway` 卷上再跑一次**破坏性**会话并把结果同样重采成 fixture；随后是离线身份与长跑。`.tmp/p3-lan-gateway/cap4/` 这几份继续只当取证现场，不往里加逻辑。
 
 本轮不宣称 goal 完成。
+
+## §2.98 「一条命令看到这次会话」现在真的存在：`panel.sh` + 两个 demo 入口的 `--browse`，四个 Windows 活体缺陷逐条种红（第九十八轮，2026-09-29 04:00 +0800，M 亲跑，判据/fixture/registry/门载荷零位移）
+
+§2.95 把 `--gateway` 做成免 jar 的只读模型，但它交给用户的仍然是**两条命令**：一条起容器、另一条在另一个终端里带着正确的反代目标起面板。P3 的验收要求是「用户不依赖开发者临时脚本也能运行」，所以这一环不能停在打印命令。本卡把那条组装落进正式代码：新增 `test-orchestrator/runner/panel.sh`（222 行，本卡首次入库），`run.sh` 拿到 `MINEKIN_RUNNER_DETACH` / `MINEKIN_RUNNER_NAME` 两枚后台旋钮，`demo.sh` 与 `demo-lan.sh` 各加 `--browse` 一条分支把本入口的卷与 Kin 根交给它。判据、registry、fixture 摘要与门载荷字节零位移。
+
+### 2.98.1 这条命令做的事，以及它凭什么拒
+
+前置核验全在 `docker run` 之前：端口与等待秒数是整数、卷与 Kin 根有名、runner 镜像在位、`MINEKIN_PANEL_AGENT`（默认 `pnpm`）在 PATH 上、`dashboard/node_modules` 在位、`curl` 在位、容器名未被 Docker 登记、`kin_exists()` 真在卷上探到该根。任一不满足 ⇒ rc=2 且指名那一枚，容器一次都没起。缺件之所以要在起容器之前问清：dev-server 是这条命令里长跑的那一半，缺工具只在网关已经监听之后才发现，等于把半成品交给用户。同名容器是**拒不是接管**——这条命令只 `docker stop` 自己按名启动的那一个，对不是它启动的进程不声称任何收回权。
+
+之后：以 `--rm --name <容器> -d -p 127.0.0.1:<网关口>:<网关口>` 起 Gateway，轮询**发布端口本身**直到真答（`curl -fsS --max-time 5 <探针 URL>`，失败则按 `docker logs --tail 10` 打印容器自述并在超时后退出），再 `cd dashboard` 带 `MINEKIN_GATEWAY_TARGET=http://127.0.0.1:<网关口>` 起面板。EXIT 陷阱收容器，INT/TERM 陷阱先收面板。
+
+### 2.98.2 四个 Windows 活体缺陷（每个都是本卡当场量到的，不是推断）
+
+| # | 症状与读数 | 根因 | 落点 |
+| --- | --- | --- | --- |
+| 1 | 就绪探测永不绿，`curl` rc=23 | `MSYS_NO_PATHCONV=1` 下 `-o /dev/null` 让 curl 自己写「/dev/null」这个 Windows 打不开的路径 ⇒ 写输出失败 | 只留 shell 重定向 `>/dev/null`，不向宿主要求 `-o` |
+| 2 | `lstat 'C:\c'` | 同一半角：MSYS 风格路径参数原样交给 Windows 侧工具，被当成 `C:\c` | 探测 URL 与容器内路径分开写：宿主机只碰 `http://127.0.0.1:…`，`/data/kin/…` 只进容器 |
+| 3 | 面板起来却 `ECONNREFUSED 127.0.0.1:8787` | dev-server 的 `/gateway` 反代目标是**独立的第二个绑定**（默认 8787），发布在别的端口却不带它就是读到空口 | 起面板那一步显式导出 `MINEKIN_GATEWAY_TARGET`，端口只有一个来源 |
+| 4 | 脚本退出、容器还在监听 | 单次外部 TERM 只打到 shell 自己的 PID，trap 不跑；面板也不在它管不到的地方等它 | 容器半边由 `trap cleanup EXIT` 收，命名容器只由这条命令自己 `docker stop`；`.tmp/browse/run1.log`…`run5.log` 是失败材料 |
+
+第 1 条的 rc=23 与第 2 条的 `lstat 'C:\c'` 是同一枚 `MSYS_NO_PATHCONV=1` 的两种表现：`run.sh`/`demo.sh`/`demo-lan.sh`/`panel.sh` 都导出它（否则 Docker 会把 `/data/kin/...` 这类容器内路径改写成 `C:/Program Files/Git/...`），代价是同一进程收到的**路径形状参数**不再由 MSYS 翻译。⇒ 半角结论：`/dev/null` 只能作为 shell 重定向出现。
+
+### 2.98.3 正式测试、四条「种红」反照，以及一次新量到的环境陷阱
+
+`tests/contract/test_runner_scripts.py` 的面板桩现在真能驱动这条入口：`docker`/`curl`/`pnpm` 三枚桩离线跑，记录 `RUN` + 逐词 `ARG:`、`CURL:`、`STOP:<名>`、`PNPM:<…>` / `TARGET:<…>` / `CWD:<…>`。驱动 `--browse` 的新卡 5 张：后台 argv 的形状与三枚具名拒止、面板起一个命名网关并再停掉它、缺件在起任何东西之前拒、网关中途死掉要报出来而不是干等 60 秒、两个 demo 入口把 `--browse` 路由到自己的卷与根。`-k "detach or panel or browse"` 命中 8 张（另 3 张是两枚通用参数化测试自动把 `panel.sh` 收了进去——LF 与可执行 shebang、"转发的环境变量真被用到"——加上 §2.95 那张打印面板命令的卡）。该文件 **141 passed**（本卡前 134：新写的 5 张 + `panel.sh` 进参数化名单后自动多出的 2 张）。
+
+四条缺陷的「植入即红」逐条量到，恢复后 `panel.sh` 字节摘要回到 `0434a57f0496cbf8f57ba307acb2d988a2bb960faf006e72b10b5546ccf73a95` / 10799 B / 0 CR：
+| 植入 | 红的断言（真实报错文本） |
+| --- | --- |
+| 探测改回 `curl -o /dev/null <url>` | `AssertionError: the probe handed curl a /dev/null operand; under MSYS_NO_PATHCONV=1 that is the rc=23 shape this entry was broken by` |
+| `docker stop` 那半空心化（不写 `STOP:`） | `panel_stopped(home) == [PANEL_CONTAINER]` 一侧为空 ⇒ 1 failed |
+| 去掉 `cd "${REPOSITORY_ROOT}/dashboard"` | `CWD:<` 读到的是临时 HOME 而不是 dashboard ⇒ 1 failed |
+| `MINEKIN_GATEWAY_TARGET=…` 换成 `MINEKIN_UNUSED=1` | `AssertionError: ['']` / `assert [''] == ['http://127.0.0.1:8799']` |
+
+桩的边界也要记：这台机器上 `docker`/`curl`/`pnpm` 本来就有，桩目录前置 PATH 只是**遮住**它们，所以「工具缺失」这一问不能靠把桩摘掉来问（摘掉照样命中宿主的真工具——本卡一度因此拿到假绿：真 `pnpm` 在复制出的空 dashboard 里返回 rc=1）。⇒ 「缺失」通过 `MINEKIN_PANEL_AGENT` 点名一个人人都没有的命令来问，并断言 `docker` 一次都没被调用。
+
+新量到的环境陷阱（与产品无关但会咬测试）：**MSYS bash 的工作目录路径含 `[` 或 `]` 时，shell 自己以 3221225477（`0xC0000005` 访问违例）死掉且 stderr 为空**。两条独立读数定点：标签 `detach-None-[]` ⇒ 3221225477、`detach-plain-none` ⇒ 0。pytest 的临时目录名带参数化标签，标签一含括号就是这条死法 ⇒ 传给 bash 的目录标签保持无括号，这一点写进了 `panel_home()` 的注释。
+
+### 2.98.4 活体读数：一条 `--browse` 在同一份台账上给出与直连等长的字节
+
+形状：卷 `minekin-m87b-lan`、Kin 根 `kin-lan87b-join`（宿主根 `kin-lan87b-host`）、会话 `8b53ac5ad74648edab87e196d496b8d0`；网关 8798、面板 5181（8791 上那台 `modest_ptolemy` 不是本卡启动的，未触碰）。原始材料 `.tmp/browse/run5.log` 与四份 JSON 捕获。
+
+- `--browse` 一行命令打出 `the read model answers on http://127.0.0.1:8798/...`、面板地址、以及「Ctrl-C 停面板与本命令自己的网关容器」，`vite ready in 599 ms`。
+- **反代与直连逐字节等长**：snapshot 4252 B / 4252 B、timeline 15057 B / 15057 B、alerts 255 B / 255 B。本卡提交前重新逐字段解析这四份捕获：叶子数 87 / 500 / 4 两侧相同，差异叶数 **4 / 0 / 1**，且**每一条都是 `observedAt`**（同一字段两次抓取的时刻差），其余字段全等 ⇒ 反代没有改写、丢帧或换根。
+- 写面拒止照旧：`POST` 三条只读路由各 405，body `{"error": "the read model serves GET only"}`。本卡没有为「面板能操作」扩任何授权。
+- 收尾复量（写这张卡之前刚跑）：`docker ps -a` 里已无 panel/gateway 容器（`run.sh` 带 `--rm`，故停即消失），`netstat` 在 8798 与 5181 上无监听。Ctrl-C 那一下 `pnpm` 包装器打印 `[ELIFECYCLE] Command failed with exit code 1.`——这是被中断的正常表现，不是新缺陷。
+
+### 2.98.5 门读数（全部在最终字节上跑；日志 `.tmp/browse/gates2.txt`，逐步 rc 已读）
+
+| 门 | 结果 | rc |
+| --- | --- | --- |
+| `uv run ruff check .` | All checks passed! | 0 |
+| `uv run ruff format --check .` | 394 files already formatted | 0 |
+| `uv run pyright` | 0 errors, 0 warnings, 0 informations | 0 |
+| `uv run pytest -q tests/contract/test_runner_scripts.py` | 141 passed in 68.91s（本卡前 134） | 0 |
+| `uv run python tools/check_boundaries.py` | Minekin package dependency boundaries: OK | 0 |
+| `uv run python tools/check_case_assertions.py` | Case assertion implementations: OK (151 registered) | 0 |
+| `uv run python tools/verify_fixture_digests.py` | W00 schema and fixture digests: OK | 0 |
+| `uv run python tools/check_workflow_pins.py` | Workflow pins: OK | 0 |
+| `uv build --wheel --out-dir .tmp/browse/dist` | Successfully built `.tmp\browse\dist\minekin_core-0.0.0-py3-none-any.whl` | 0 |
+| `uv run python tools/check_wheel_boundary.py .tmp/browse/dist/minekin_core-0.0.0-py3-none-any.whl` | Wheel oracle boundary: OK (同一枚 wheel，路径按 Windows 形式打印) | 0 |
+| `uv run minekin --help` | 用法输出 | 0 |
+| `uv run pytest -q` | 2817 passed, 2 skipped in 428.31s（§2.97 那笔是 2810） | 0 |
+
+第一次门跑（`.tmp/browse/gates.txt`）在三条门上是红的，且红色全部落在本卡新增的测试字节上，不是既有债务：
+
+* `ruff check` 9 条：8 条 `E501`（行宽 101–107）加 1 条 `RUF059`（`dead, home = panel_drive(...)` 的 `home` 从未使用）。
+* `ruff format --check` 同一条长断言要拆成括号形式；`1 file would be reformatted, 393 files already formatted`。
+* `pyright` 1 条：同一处 `reportUnusedVariable`。
+
+修法不是把行拆短就交差：`RUF059` 那一处说明「容器已消失」那一行**根本没量停止面**，而它的 docstring 写着「still stops nothing else」。改成 `assert panel_stopped(dead_home) == [PANEL_CONTAINER]` 之后，这条 docstring 断言第一次被驱动，未使用变量也随之消失。其余 8 条按 `ruff format` 的形状拆行，字节语义不变。
+
+Wheel 那两条红了两轮，都是门脚本自己的写法问题，产品字节无涉：第一次 `error: Failed to spawn: build / program not found`（rc=2），因为脚本写的是 `uv run --offline build --wheel`，而 `build` 从来不是本项目的依赖——CI 用的是 uv 原生的 `uv build --wheel`。第二次换成 `--out` 又是 `unexpected argument '--out' found / tip: a similar argument exists: '--out-dir'`（rc=2）。`wheel-boundary` 每轮都跟着红，是同一个原因的下半段：没有 wheel，glob 无匹配而把字面 `*.whl` 交给了 python，于是 `OSError: [Errno 22] Invalid argument: '.tmp\\browse\\dist\\*.whl'`。改成 `uv build --wheel --out-dir .tmp/browse/dist` 后两条一起转绿（重取的 rc 与读数记在 `.tmp/browse/wheel2.log`，`gates2.txt` 里那两条 `RC[wheel]=2` / `RC[wheel-boundary]=1` 是修正前的原始红色，保留不动）。本卡把 wheel 产物放 `.tmp/browse/dist` 而不是仓库根 `dist/`，是为了不污染工作树；被检的是同一枚 wheel 字节，检查器本身没动。
+
+dashboard 侧的 vitest（97 passed）与 Playwright 活体 e2e（11 passed）本轮**没有重跑**，理由是本轮没有动 `dashboard/` 的任何字节：本轮只改 `test-orchestrator/runner/` 的入口脚本、`tests/contract/` 与两份文档。§2.97 那 97/11 的读数仍钉在 `dashboard/src/` 的当前字节上。
+
+### 2.98.6 具名缺口与下一步（不要读成「一条命令已经覆盖所有形状」）
+
+1. **`--browse` 起的是只读面，不是操作面**：面板能看这次会话，三条只读 GET 之外的写路径依旧 405；Dashboard 的启动/停止/控制仍是 `docs/standalone-runtime-dashboard.md:180 / :206` 记着的、由主控裁决的保留项（卡 `V1201-DASHBOARD-WRITE-SURFACE-DECISION`）。本轮没有把只读授权扩成写权限。
+2. **跨 PID namespace 的存活盲区沿用 §2.97.5 第 1 条**：`panel.sh` 起的网关容器看不到宿主机客户端 pid，所以会话内字节仍可能同时给出 `runtimeState=idle` 与 `inputLeaseHeld=false`。这是构造性缺口，入口脚本修不了。
+3. **Ctrl-C 那一下 `pnpm` 打印 `[ELIFECYCLE] Command failed with exit code 1.`**：中断的子进程非零退出是 pnpm 包装器的正常表现，但它会让用户以为出错。已在 §2.98.4 的收尾复量里具名，没有为消掉这行字去改中断处理——那需要区分「被信号中断」与「自己死了」，属产品细节而非本卡范围。
+4. **清理只在脚本活着的时候有效**：`panel.sh` 的 EXIT trap 收的是它自己按名启动的那一枚容器，Ctrl-C 打到整个前台进程组，所以活体那一次是干净的；从外部只对面板包装器发单个 TERM 时 vite 的孙进程可能仍在监听，`SIGKILL` 更是直接留下容器。这两条本轮都没重取读数，沿用「已命名的限制」那一段（本卡文档 §2.98 之前的入口固化卡），因此不写成「任何退出方式都干净」。
+5. **`--browse` 的活体证据仍来自同一份已封存台账**（`kin-lan87b-join`，会话 `8b53ac5a…`），且面板那一侧的渲染证据是 §2.97 的 fixture 级重放；本轮没有第二次「客户端还在世界里时开着面板」的浏览器读数，因为跑一次新的加入者会话要独占规范卷，属 §2.97.5 第 6 条那张 P4 卡的范围。
+6. 下一张回 P4：破坏性会话（crash/重连）与异常准入两侧的活体读数需要在同一枚 `--gateway` 卷上真跑并把结果同样重采成 fixture；随后是离线身份与长跑。`.tmp/browse/` 这几份继续只当取证现场，不往里加逻辑。
+
+本轮不宣称 goal 完成。

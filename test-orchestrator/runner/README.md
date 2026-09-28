@@ -94,12 +94,28 @@ harness stops the client it started, so a run that did everything asked of it en
 non-zero (`14` / `BRIDGE_LOST`) — and `connection_state`, `entities_admitted`,
 `actions_applied` and `actions_refused` in the document are what say how it went.
 `--gateway` then answers the three read-only Dashboard routes against the same volume,
-so what the session did is visible in a browser rather than only in a terminal.
+so what the session did is visible in a browser rather than only in a terminal, and
+`--browse` is that projection with the panel served over it in one command.
 
 ### Reading it from a browser
 
-`--gateway` publishes the same volume's read model on this machine, and `run.sh` does
-the publishing:
+`--browse` is the one command. It hands this demo's volume and Kin root to `panel.sh`, which
+starts the read model over them, waits until the published port actually answers, serves the
+Dashboard against it, and on the way out stops the gateway container it started:
+
+```text
+bash test-orchestrator/runner/demo.sh --browse
+    # then http://127.0.0.1:5175/?adapter=gateway&gateway=/gateway
+```
+
+`MINEKIN_DEMO_PANEL_PORT` moves the panel off 5175 and `MINEKIN_DEMO_PANEL_CONTAINER` names
+the gateway container this command owns — the only container it is allowed to stop. Everything
+the entry needs is knowable before it starts anything, so a missing image, `pnpm`,
+`dashboard/node_modules`, `curl`, or a Kin root that is not on the volume is refused with rc=2
+and nothing left listening. A name Docker already holds is refused too rather than taken over.
+
+What the command assembles underneath is the two-terminal shape `--gateway` prints, and
+`run.sh` does the publishing:
 
 ```text
 MINEKIN_RUNNER_PUBLISH=8787 bash test-orchestrator/runner/run.sh --shell \
@@ -150,6 +166,7 @@ this entry — not `demo.sh` — is the demo of a client being controlled.
 MINEKIN_SERVER_JAR=.tmp/mc-1.20.1-server.jar bash test-orchestrator/runner/demo-lan.sh
 MINEKIN_SERVER_JAR=.tmp/mc-1.20.1-server.jar bash test-orchestrator/runner/demo-lan.sh --again
 bash test-orchestrator/runner/demo-lan.sh --gateway
+bash test-orchestrator/runner/demo-lan.sh --browse
 ```
 
 Both clients run on one named volume (`minekin-lan-demo`) under two Kin roots
@@ -165,24 +182,28 @@ already filled, which is the difference between a cold fetch of the 1.20.1 bundl
 that starts walking; the seed is mounted read-only. Everything else is a knob with a
 default, listed at the top of the script.
 
-`--gateway` is the browser half, and it is the whole reason to look at the joining root:
+`--browse` is the browser half in one command, and it is the whole reason to look at the
+joining root:
 
 ```text
-bash test-orchestrator/runner/demo-lan.sh --gateway
-MINEKIN_GATEWAY_TARGET=http://127.0.0.1:8787 pnpm --dir dashboard dev
+bash test-orchestrator/runner/demo-lan.sh --browse
     # then http://127.0.0.1:5175/?adapter=gateway&gateway=/gateway
 ```
+
+`--gateway` is the same read model on its own, for the operator who already has a panel
+running somewhere: it publishes the port and prints back the `MINEKIN_GATEWAY_TARGET=` the
+dev server has to be started with. That target is a second, independent binding and it
+defaults to 8787, which is why one command is worth having — an entry that published 8791
+and printed a bare `pnpm dev` would hand over a panel reading a port nothing answered on,
+showing itself disconnected about an intact session.
 
 The read model needs nothing but the volume: no server jar, and no session still running,
 because it projects the ledger and the sealed evidence already on disk. It asks for the
 joining root by default — the applied controls, the refusals and the identity comparisons
 are all in that ledger, while the host's holds the world it started — and it refuses by
 name, before starting a container, if that root is not on the volume. `MINEKIN_DEMO_LAN_GATEWAY_KIN`
-points it at the other one and `MINEKIN_DEMO_LAN_GATEWAY_PORT` moves the loopback port; the
-port is printed back as the `MINEKIN_GATEWAY_TARGET=` the dev server has to be started with,
-because the panel's proxy target is a second, independent binding that defaults to 8787. An
-entry that published 8791 and printed a bare `pnpm dev` would hand over a panel reading a
-port nothing answered on — a panel showing itself disconnected about an intact session.
+points it at the other one, `MINEKIN_DEMO_LAN_GATEWAY_PORT` moves the loopback port, and
+`MINEKIN_DEMO_LAN_PANEL_PORT` moves the panel off 5175.
 Ctrl-C stops the read model and leaves both Kin roots, and everything the run wrote, on the
 volume; the world itself went with its own container.
 

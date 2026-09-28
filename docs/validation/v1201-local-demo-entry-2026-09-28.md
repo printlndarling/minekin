@@ -176,3 +176,55 @@ uv run pytest -q tests/contract/test_runner_scripts.py -k publish
 - **反照**：把 `JoinObserved` 改名并把拒止计数换成授予计数后重建，live 用例即红（`未观测服务端观察到入服`）；恢复后 `sessionProgress.ts` 的字节摘要与植入前一致（`8f17979ab563a5767effc7ae74a716bfc1118ab8d060a892098236508943819b`）。
 - **踩到的一次假失败**：`dist/` 里残留 0.1.0-proposal 时期的旧构建时，面板会对真实字节以 `contract_mismatch` 失败关闭（页头读数是「未知」）。⇒ 复算式里必须**先 `pnpm build` 再看板**；重跑构建后同一批真字节读数正常。
 
+## 一条命令看完这次会话：`--browse` 与 `panel.sh`（同日 22:10，P3 收口）
+
+- **承载字节**：`test-orchestrator/runner/panel.sh` `0434a57f0496cbf8f57ba307acb2d988a2bb960faf006e72b10b5546ccf73a95`（222 行，本卡首次入库）、`run.sh` `c30f69758138a278bc1a5c66732ce2d01ee9b53d0e7319ac53fdbdc7ef216e81`（新增 `MINEKIN_RUNNER_DETACH` / `MINEKIN_RUNNER_NAME` 两枚旋钮）、`demo.sh` `aba29410fa050e2c98ecaa326188a93b7dbf0c094c5361688e6c52f06c5599ec`、`demo-lan.sh` `87d9d1298f616b0a8de7a4f7fd73a314550a428edfe1dcff76fb49f1ff6f2cd9`。
+- **新增业务能力**：前几节里「一条命令起只读模型，再另开终端起面板」的组装现在收成一条命令——
+  `bash test-orchestrator/runner/demo.sh --browse` 与 `bash test-orchestrator/runner/demo-lan.sh --browse`。
+  它先把这次 demo 的卷与 Kin 根交给 `panel.sh`：核验端口/等待是整数、卷与 Kin 根有名、runner 镜像在位、
+  `pnpm` 与 `curl` 在位、`dashboard/node_modules` 在位、容器名未被占用、Kin 根真在卷上；任一缺件都在
+  `docker run` 之前以 rc=2 指名退出。然后以后台方式起 Gateway（名字归这条命令所有），轮询**发布端口真答了**
+  再 `cd dashboard` 起面板，退出时 `docker stop` 自己起的那一个。面板地址与前面两节一致：
+  `http://127.0.0.1:<panel-port>/?adapter=gateway&gateway=/gateway`。
+- **为什么必须自己等端口**：dev-server 的反代目标是**独立**的第二个绑定（默认 8787），起了面板不等于读到了
+  模型；不轮询就把「8791 上发布、8787 上读取」这种形状交给用户，看到的是一台对完好会话报「已断连」的面板。
+- **Windows 上四个真实缺陷与读数**（失败材料留在 `.tmp/browse/`：`run1.log`…`run5.log`、`diag1.log`）：
+  1. 就绪探测写成 `curl -o /dev/null …` ⇒ 在 `MSYS_NO_PATHCONV=1` 下 rc=23（写不出去），探测永远不绿 ⇒ 只留
+     `>/dev/null` shell 重定向，不把路径形状的东西交给 curl。
+  2. 同半角的另一种读法：MSYS 路径参数交给 Windows 侧工具时变成 `lstat 'C:\c'` ⇒ 这条入口不向宿主要求任何
+     容器内路径参数。
+  3. 面板起了却读 8787 ⇒ 浏览器侧 `ECONNREFUSED 127.0.0.1:8787` ⇒ 起面板那一步必须显式带
+     `MINEKIN_GATEWAY_TARGET=http://127.0.0.1:<gateway-port>`。
+  4. 脚本退出而容器活着 ⇒ 网关容器由 `trap cleanup EXIT` 收；只碰这条命令自己按名启动的容器，Docker 里已存在
+     同名时是拒不是接管。
+- **活体读数**（卷 `minekin-m87b-lan`、Kin `kin-lan87b-join`、session `8b53ac5ad74648edab87e196d496b8d0`，
+  网关 8798 / 面板 5181）：一条 `--browse` 起后 `vite ready`，三端点 **反代与直连逐字节等长**——
+  snapshot 4252 B / timeline 15057 B / alerts 255 B；逐字段比对差异叶数 4 / 0 / 1，**全部落在 `observedAt`
+  两次抓取的时间戳上**（87 / 500 / 4 个叶子中其余全等）；`POST` 三端点各 405，body
+  `{"error": "the read model serves GET only"}`。收尾读数在本卡提交前复量：`docker ps -a` 里已无 panel/gateway
+  容器（`run.sh` 带 `--rm`），8798 与 5181 无监听；此前就在跑的 `modest_ptolemy`（`127.0.0.1:8791`）未被触碰。
+- **正式测试与反照**：`tests/contract/test_runner_scripts.py` 新增 5 张面板/`--browse` 契约测试（`docker`/`curl`/
+  `pnpm` 三桩、纯离线），该文件 **141 passed**。四条缺陷各自「植入即红」已逐条量到：`-o /dev/null` ⇒ `NULLOUT`
+  断言红；`docker stop` 空心化 ⇒ 缺 `STOP:` 行红；去掉 `cd dashboard` ⇒ `CWD:<` 红；把
+  `MINEKIN_GATEWAY_TARGET=…` 换成 `MINEKIN_UNUSED=1` ⇒ `TARGET:<…>` 断言红
+  （`[''] != ['http://127.0.0.1:8799']`）。恢复后 `panel.sh` 摘要回到 `0434a57f0496…` / 10799 B / 0 CR。
+- **新测到的一次环境陷阱（与产品无关但会咬测试）**：MSYS bash 的工作目录路径含 `[` 或 `]` 时，shell 自己以
+  3221225477（`0xC0000005`）死掉且 stderr 为空。已用两条独立读数定点：标签 `detach-None-[]` ⇒ 3221225477，
+  `detach-plain-none` ⇒ 0。⇒ 传给 bash 的临时目录标签保持无括号，这一点写进了 `panel_home()` 的注释。
+- **已命名的限制**：`--browse` 只保证收掉**它自己按名启动**的网关容器；若面板进程是从外部以单 PID 收到 TERM
+  （而不是终端里的 Ctrl-C，它打到整个前台进程组），vite 的孙进程可能仍在监听 ⇒ 这条入口不声称能收回不是它启动的
+  进程，操作者按端口自行确认。写面（启动/停止/简单控制）不在冻结契约授权内，未自行扩权，仍单列
+  `V1201-DASHBOARD-WRITE-SURFACE-DECISION`。
+
+复算：
+
+```bash
+cd C:/Users/darling/Documents/agent_work/minekin-wt-integration
+MINEKIN_DEMO_LAN_VOLUME=<你的卷> MINEKIN_DEMO_LAN_GATEWAY_PORT=8798 \
+  MINEKIN_DEMO_LAN_PANEL_PORT=5181 \
+  bash test-orchestrator/runner/demo-lan.sh --browse
+curl -s -w '\n%{http_code} %{size_download}\n' \
+  http://127.0.0.1:5181/gateway/api/v1/dashboard/snapshot
+uv run pytest -q tests/contract/test_runner_scripts.py -k "panel or browse or detach"
+```
+
