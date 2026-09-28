@@ -2067,3 +2067,15 @@ the target allows 1.21.4"}`，配对文档 `mismatch.json` 是 `schema_version 2
 - **落盘与推送**：`main = 5c73f6a` → 本轮新笔 `git push origin main:main`，远端 `ls-remote` 回读后把 SHA 写进 §2.74 的下一格；**本笔自身 CI 不在本轮宣称**。
 - **四态**：已合主干且 CI 绿 = **`5c73f6a` 及其前**（本轮补记这两笔的自身 CI）；真实封证 = **1**（未变）；仅在分支 = 无待合产品工作；未验证/待判 = **#68**、`rc=14` 同码是否接成判据、契约记录 §8 的四格产品决定、§3 第二类独立工作（乙）、V08/远程服、HOST/PERSIST、本笔自身 CI。
 - **不宣称完成**：主干唯一 `current_next` 仍是 `PARALLEL-INTEGRATION-GATE-001`，本轮不新增 `NEXT`，也不因轮次富余或暂无待合分支而收口 goal。
+
+## 第八十轮（2026-09-28 11:45 +0800，M 主控）—— OFFLINE-080 的 oracle/载体先行设计 + `efe8c66` 自身 CI 欠账
+
+- **做什么**：接续 §3 第二类独立工作（乙），开 `P0-OFFLINE-080-CASE-SPEC-001` —— 给「尚无 fixture 的非 HOST case」按「先设计 oracle/载体、后真跑」的顺序排第一张卡。base `efe8c66e0760004e3747b613a5c4e5324a32dc5c`（写文件前 `git status --porcelain` 0 行，`git ls-remote origin refs/heads/main` 同值）。全程 doc-only、**未挂任何数据卷**、不连远端。
+- **交付**：新建 `docs/p0-offline-080-case-spec-2026-09-28.md`；登记两笔 —— `docs/development-execution-plan.md` §4 新增一行（`P0-OFFLINE-080-CASE-SPEC-001`，状态「设计已闭环（doc-only）」，排在 070 登记行之后）、`docs/v1201-lan-control-next-2026-09-27.md` §2.75。卡面 owner/allowed_paths/验收/停止条件写在文件头六行内。
+- **本轮亲量**（要点，全读数见 §2.75②）：封禁格既缺枚举词也缺分类分支（`ClientAdmissionController.java:426-449` 与孪生面 `bridge-1201/…:441-464` 的 `ban` 词族命中 0；`observation.proto:24-49` 17 成员无 ban 名）；「不循环换身份」的现成读法只对认证场景存在（`tools/assert_case_evidence.py:2725-2755` 锚点硬编码，`:2742` 具名拒答）；`identity_candidate_id` 有载体但无人读「拒止后换身份」；53 份 fixture 无 `offline-080.json`，而 `cases.py:353` 已在册 ⇒ 缺判据不缺 registry。
+- **申报的代价（不申报就是偷偷重封）**：参数化 `:2725` 会移 `ADMIT-040` 当前构建 `case_version daeb4ed5…`（`docs/p0-admit-five-run-2026-09-26.md:102`）⇒ 该 bundle 掉回别的构建、须重封；替代是新写只服务 080 的读法。三格互斥场景与 any-satisfying-bundle 的冲突摆成三条登记路线（同先例：`cases.py:336-339`、契约 `:189` 第 7 条），**选择权在主控**，本卡不选。
+- **结清的欠账**：`efe8c66` 自身 CI = run `36373649061`，`completed/success`，3 job（python 18 / bridge-static 9 / protocol 10 步）全 `NON_SUCCESS_STEPS []`、run 级 `JOB_CONCLUSION_BREAKS []`。
+- **门读数（逐道单跑先读 rc）**：`ruff check` rc=0；`ruff format --check` rc=0 且 `378 files already formatted`（+1 = 本卡新 `.md`）；`git diff --check` rc=0（stdout 空；stderr 只有一枚 LF→CRLF 归一化提示，来自 `docs/qoder-execution-handoff.md` 自身是 LF 工作树字节遇上 `core.autocrlf=true`，非空白错误）；`check_case_assertions.py` rc=0 `OK (151 registered)`（登记数未动）；`verify_fixture_digests.py` rc=0 `W00 schema and fixture digests: OK`（无摘要漂移）。其余门（pyright / pytest / 边界 / workflow pins / wheel / `--help` / buf / bridge）本轮未量，不写成通过；门载荷未取卷复量，维持上一轮值属预期不是本轮读数。
+- **落盘与推送**：一笔提交 `docs/**` 四文件；commit message 只写上面这些量过的门；push `main:main` 后用 `git ls-remote` 回读远端 SHA 再记 SHA。CI 读数按队列口径在下一轮补，本轮不预先宣称本笔自身的 CI。
+- **四态**：已合主干 = 本轮四份文档（SHA 待回读）；仅在分支 = 无待合产品工作；真实封证 = 1（`5086ee42…64f6` / run `a224f6c3…`）；未验证/待判 = 080 全部运行时判法、封禁分类与登记拆分两条主控决定、`#68`、`rc=14` 判据、契约记录 §8 四格、V08/远程服、HOST/PERSIST、§3 第二类独立工作其余行。
+- **不宣称完成**：主干唯一 `current_next` 仍是 `PARALLEL-INTEGRATION-GATE-001`，本轮不新增 `NEXT`，也不因轮次富余或暂无待合分支而收口 goal。

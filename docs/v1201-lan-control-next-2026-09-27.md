@@ -1807,3 +1807,34 @@ python .tmp/ci_steps.py c43a6d3   # 日志：.tmp/m-r74-ci-c43a6d3.log
 - 主干 `main = 5c73f6a`（本轮起点，远端 `ls-remote` 逐字同值）；**本笔自身 CI 不在本节宣称**，留下一格补记。仅在分支 = 无待合产品工作（H1k tip `1ce9dc0` 等 lane 在途材料一字节未读未改，未代提交）。
 - 未验证 / 主控保留不变：**#68** 未请求的自行位移、`rc=14` 同码是否接成判据、`world.worldContext`/`epoch` 的值可否对用户展示、哪些 run document 拒止算「告警」、HOST/PERSIST、V08/远程服。G 的实现卡与 D 的接线卡本轮都不代做。
 - 主干唯一 `current_next` 仍是 `PARALLEL-INTEGRATION-GATE-001`；§3 第二类独立工作（乙：非 HOST case 的 oracle/载体先行设计）仍未开工；不新增 `NEXT`，不因轮次富余或暂无待合分支把 goal 收口。
+
+## §2.75 OFFLINE-080 的 oracle/载体先行设计与 `efe8c66` 的自身 CI（第八十轮，2026-09-28 11:45 +0800，M 回写）
+
+### ① 上一轮具名预留的欠账结清：`efe8c66` 自身 CI（步骤级）
+
+主干 `efe8c66e0760004e3747b613a5c4e5324a32dc5c` 的 Actions 读数：**run `36373649061`**，`name=CI`、`status=completed`、`conclusion=success`，共 3 个 job 且全部 `completed/success` —— `python` 18 步、`bridge-static` 9 步、`protocol` 10 步，三者 `NON_SUCCESS_STEPS []`，run 级 `JOB_CONCLUSION_BREAKS []`。取数方式：REST `/repos/.../actions/runs?head_sha=<40位全SHA>`（短 SHA 会返回 0 条），token 只从默认凭据助手读且不回显。脚本与日志：`.tmp/m-r79/ci_read_push.py`、`.tmp/m-r79/ci-read-r79push.log` —— **两者都未入版本控制**，读者需自备同形请求，本仓库不携带可复算路径。
+
+### ② 新卡 `P0-OFFLINE-080-CASE-SPEC-001`（§3 第二类独立工作「乙」的第一张）
+
+交付 [`docs/p0-offline-080-case-spec-2026-09-28.md`](p0-offline-080-case-spec-2026-09-28.md)：doc-only、全程未挂任何卷（连 `:ro` 都不需要）、不写断言函数、不加 fixture、不动 `manifest.sha256` / registry / `mandatory` / 任何门。契约行 `docs/p0-offline-session-compatibility-contract.md:154` 是**三格场景 × 两格判据**，本卡按六格逐格给 oracle / 载体 / 反例 / 阳性对照，不拿一格的绿替另一格。
+
+本轮亲量的关键读数（base 字节；脚本 `.tmp/m-r80/carrier_census.py`，仓库内等价命令写在该卡 §6）：
+
+- **封禁那格既缺词也缺分支**：`classifyDisconnect` = `bridge/src/main/java/org/minekin/bridge/runtime/ClientAdmissionController.java:426-449`，六个分支依次为 blank / 白名单 / 重名 / 认证 / 版本 / 资源包，末尾回落 `UNEXPECTED_DISCONNECT`（`:448`）；函数体与整份文件的 `ban` 词族命中 **0**，1.20.1 孪生面 `bridge-1201/…:441-464` 同样为 0。枚举块 `proto/minekin/v1/observation.proto:24-49` 共 17 成员（`UNSPECIFIED=0` + 16 具名，末位 `CONNECTION_REFUSED = 16`），**无 ban 名**。
+- **「不循环换身份」只对认证场景存在读法**：`the_refusal_left_the_run_on_one_policy_and_one_process:2725-2755` 的锚点硬编码 `AUTH_MODE_MISMATCH`（`:2739`），交给白名单 run 会返回具名 `NO_AUTH_MODE_REFUSAL_TO_ORDER_AGAINST`（`:2742`）而不是绿；其 docstring `:2728-2731` 明说「进程数单独只证明没重启」。而「拒止后又起过一个不同身份」这一项，字节全在（`PROCESS_STARTED:102`、`AUTH_POLICY_FROZEN:196`、`SESSION_IDENTITY_COMPARED` import `:56`、`identity_candidate_id` `:3184/:3379/:3421/:3472`）却**没有一条断言这样读**。
+- **代码侧没有换身份回路，但不因此省判据**：`candidate_by_id` 对未知 id 抛错（`src/minekin_core/adapters/launcher/offline_session.py:104-110`）、候选集封闭两条（`:67-87`）、CLI `choices` 取自同集（`cli/parser.py:238`），两处 `for candidate` 是选择/校验而非重试（`offline_session.py:106`、`cli/session.py:334`）⇒ 判据问的是「这次 run 记下了什么」，结构上不可能 ≠ 材料里没记。
+- **底数**：`tests/fixtures/cases/` 共 **53** 份、`offline-*` 11 份，**无 `offline-080.json`**（同族 070/090/100 都在）；`OFFLINE-080` 已在 `cases.py:353`（`RUNTIME_REQUIRED` / `"W30"`，块 `:341-356`）⇒ 缺的是 fixture 与判据，不是 registry 行。
+
+### ③ 本卡申报的两笔代价与一处旧口径更正
+
+- 把 `:2725` 的锚点 reason 参数化会改**已注册函数字节** ⇒ `ADMIT-040` 当前构建 `case_version daeb4ed5150734e7…2be61545`（`docs/p0-admit-five-run-2026-09-26.md:102`）漂移、那份 bundle 掉回「别的构建」，要重封才补得上。替代形状是**新写一条只服务 080 的读法**（零摘要漂移；先例是 `the_auth_mode_mismatch…` docstring `:2705-2708` 里那句「白名单那条不能顶替它」）。两条都摆出来，选哪条属主控。
+- 一个 case id 装三格互斥场景 ⇒ promotion 的 any-satisfying-bundle 语义下「跑了一个场景也算过」。仓库已两次承认这一族（`cases.py:336-339` 的 `OFFLINE-030` 父子拆、`docs/p0-validation-evidence-contract.md:189` 第 7 条对 `CORE-060` 的按进程边界拆）。三条登记路线写在本卡 §3.5，**本卡不选**；第 (2) 路线要动 `cases.py`，出本卡面。
+- 更正旧口径（dated 原文照引不改）：`docs/p0-evidence-inventory-2026-09-26.md:170` 把分类器写成 `:426-447`，现字节为 `:426-449`；同句「16 个具名分类（另加 `UNSPECIFIED`）」本轮按字节成立。
+
+### ④ 门读数与四态
+
+本轮五道门单跑、先读 rc（日志 `.tmp/m-r80/gates/`）：`ruff check .` **rc=0**（`All checks passed!`）；`ruff format --check .` **rc=0**（`378 files already formatted`，较上一轮 377 **+1 = 本卡新那份 `.md` 自身**，按已知口径不是漂移）；`git diff --check` **rc=0**，stdout 空、stderr 一枚归一化提示 （`in the working copy of 'docs/qoder-execution-handoff.md', LF will be replaced by CRLF the next time Git touches it` —— 该文件工作树字节本就是 LF，与 `core.autocrlf=true` 相遇所致，不是空白错误）；`tools/check_case_assertions.py` **rc=0**（`OK (151 registered)`，与上一轮同值 ⇒ 本轮零登记）；`tools/verify_fixture_digests.py` **rc=0**（`W00 schema and fixture digests: OK` ⇒ 无 fixture 摘要漂移，也就没有已封 bundle 被本轮判失效）。**未跑**：`pyright`、`pytest`、`check_boundaries`、`check_workflow_pins`、`uv build --wheel` + `check_wheel_boundary`、`minekin --help`、protocol 的 buf 三条、bridge 两条 —— 改动虽全在 `docs/**`，这些门本轮就是**未量**，不写成通过。门载荷本轮**未取卷复量**（未挂卷），维持上一轮具名值 `cfa0f118…63afd6` 不变的说法属**预期**而非本轮读数。
+
+四态：已合主干 = 本卡与两处登记（本轮笔次待 push 后回读）；仅在分支 = 无新增；真实封证 = 仍 1 份（`5086ee42…64f6` / run `a224f6c3…`，出处 `docs/validation/v1201-lan-joiner-control-seal-2026-09-28.md:6-7`）；未验证/待判 = `OFFLINE-080` 全部运行时判法、封禁格的服务端文案与摆法、`identity_candidate_id` 在真实拒止 run 里是否总有值、§3.5 三条路线的载荷代价。
+
+不宣称完成：主干唯一 `current_next` 仍是 `PARALLEL-INTEGRATION-GATE-001`；§3 第二类独立工作的其余非 HOST 行（`ADMIT-010/020/030/050/090/120`、`CORE-080`、`OFFLINE-060`、`NAV-EXP-010`）尚未逐张排卡；HOST/PERSIST、V08/远程服、`#68` 与 `rc=14` 判据仍在主控保留格。
