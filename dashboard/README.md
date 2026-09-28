@@ -42,6 +42,8 @@ pnpm test               # Vitest（jsdom）
 pnpm run e2e            # Playwright，自动起 vite preview（127.0.0.1:5176）
 ```
 
+读真实 Gateway 时不要从面板直连它的端口：契约只答三条 GET、自己不回应跨域预检，浏览器会在请求到达 Gateway 之前拒掉 `127.0.0.1:5175 → 127.0.0.1:8787`。开发服务器因此把 `/gateway/*` 反代到 Gateway（`vite.config.ts` 的 `server.proxy`，目标由 `MINEKIN_GATEWAY_TARGET` 覆盖，默认 `http://127.0.0.1:8787`），出浏览器的路径是 `/gateway/api/v1/dashboard/snapshot`，到达的是契约自己的 `/api/v1/dashboard/snapshot`。Gateway 的起法见 `test-orchestrator/runner/README.md` 的「Reading it from a browser」：`bash test-orchestrator/runner/demo.sh --gateway` 把 Demo 卷的只读模型发布在 `127.0.0.1:8787`，随后 `pnpm dev` 打开 `http://127.0.0.1:5175/?adapter=gateway&gateway=/gateway`。
+
 ## 目录
 
 ```text
@@ -58,7 +60,7 @@ e2e/            真浏览器关键流程
 
 每个字段都是 `Signal<T>`：要么 `known`（带 `value` + 观测时间 + 新鲜度预算），要么 `gap`（带 `status` ∈ `unknown/unavailable/not_wired/permission_denied`、非空 `reason`、以及 `source`/`sourceRef`/`observedAt` 溯源）。渲染层只有一个 `SignalValue`，因此不存在"某个面板偷偷把缺失值当 0 或默认值显示"的路径。
 
-新鲜度（实时 / 陈旧 / 无观测时间）由共享时钟按 `staleAfterMs` 计算，不靠文案猜测。`schemaVersion` 为 `kin-dashboard-readmodel/0.1.0-proposal`，**是提案不是契约**：G lane 尚未冻结只读 API，页头会一直显示它是 proposal。
+新鲜度（实时 / 陈旧 / 无观测时间）由共享时钟按 `staleAfterMs` 计算，不靠文案猜测。`schemaVersion` 解码器只认 `kin-dashboard-readmodel/1.0.0`——2026-09-28 冻结的只读契约（`docs/gateway-dashboard-readonly-contract-2026-09-28.md`）；页头显示的是字节自带的那个版本串，对不上就整屏失败关闭，不会退回猜测。写这一句时它还只是前端提案（`0.1.0-proposal`）。
 
 ## 切换数据源
 
@@ -85,7 +87,7 @@ e2e/            真浏览器关键流程
 
 按阻塞顺序，D2 之后要接上真数据需要：
 
-1. **G lane 冻结只读契约**（最大阻塞项）。当前端点 `/api/v1/dashboard/{snapshot,timeline,alerts}` 与 `.../0.1.0-proposal` 的字段名都是前端提案。需要 Core/Gateway 侧给出：稳定 `schemaVersion`、每个字段的 `source`/`sourceRef`/`observedAt`/`staleAfterMs` 语义、缺失时的 `status` 枚举。没有它，接入只能停在"解码即拒绝"。
+1. **G lane 冻结只读契约**——已于 2026-09-28 冻结并被面板解码，不再是阻塞项。当时端点 `/api/v1/dashboard/{snapshot,timeline,alerts}` 与 `.../0.1.0-proposal` 的字段名都是前端提案。需要 Core/Gateway 侧给出：稳定 `schemaVersion`、每个字段的 `source`/`sourceRef`/`observedAt`/`staleAfterMs` 语义、缺失时的 `status` 枚举。没有它，接入只能停在"解码即拒绝"。
 2. **鉴权与来源策略**。默认只监听 127.0.0.1；远程需要 TLS 反代、独立管理员认证、短时配对/撤销、CSRF/origin 校验。Dashboard 绝不能拿到 Bridge token，也不能把凭据写进前端——这部分依赖 Gateway 实现，前端只预留 header 注入点。
 3. **事件游标与增量流**。时间线现在是整页拉取 + 5 秒轮询；契约缺 `cursor`/`generation` 语义和 WSS 增量通道（状态快照、事件、日志尾部、告警）。WebSocket 序列化格式、最大频率、背压与断线重放窗口仍是文档里列出的"待原型决定"项。
 4. **证据/封存读数端点**。`panel-evidence` 需要能引用 Core 已封存的 run evidence（hash + 元数据 + 可核验链接），才能做到"面板只引用已封装配额，不据此宣称 tested 或在线"。

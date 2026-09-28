@@ -4748,3 +4748,91 @@ def test_the_kick_wait_hands_grep_only_the_server_log(tmp_path: Path) -> None:
         "`n` in the workdir can fake the kick readout —\n"
         + "\n".join(f"  domain.sh:{number}: {line[:170]}" for number, line in offenders)
     )
+
+
+#: What `run.sh` builds when the publish knob is asked for: one `-p` word and one
+#: binding whose host half this test file, the script and the operator cannot change.
+PUBLISH_BINDING = "127.0.0.1:8787:8787"
+
+#: Values that name something other than one port, each refused before docker is reached.
+#: `0` is a real port-0 request, `5175:8787` a host-to-container pair, and the rest ask
+#: for an interface — the one thing the knob is not allowed to express.
+PUBLISH_REFUSALS = ("0", "878700000", "5175:8787", "0.0.0.0:8787", "127.0.0.1:8787:8787", "8p")
+
+
+def run_sh_docker_argv(tmp_path: Path, *, publish: str | None) -> subprocess.CompletedProcess[str]:
+    """Hand the shipped `run.sh` a `docker` that only records the argv it was given.
+
+    Nothing is contacted and no container starts: the stub prints one `ARG:<word>` line per
+    argument, so what comes back is the `docker run` line the real script would have run.
+    The knob is stripped from the inherited environment unless this row sets it, for the
+    same reason `run_shelled` strips the control names — a value left over from whoever ran
+    pytest would arm a publish that a reading means to leave asleep.
+    """
+
+    work = tmp_path / "publish"
+    work.mkdir(parents=True, exist_ok=True)
+    stub = work / "docker"
+    stub.write_text(
+        '#!/usr/bin/env bash\nprintf "ARG:<%s>\\n" "$@"\n', encoding="utf-8", newline="\n"
+    )
+    stub.chmod(0o755)
+
+    environment = dict(os.environ)
+    environment.pop("MINEKIN_RUNNER_PUBLISH", None)
+    if publish is not None:
+        environment["MINEKIN_RUNNER_PUBLISH"] = publish
+    environment["PATH"] = os.pathsep.join([str(work), environment["PATH"]])
+
+    bash = shutil.which("bash")
+    assert bash is not None, "no bash on PATH to drive run.sh with"
+    return subprocess.run(
+        [bash, str(RUNNER / "run.sh"), "--shell", "true"],
+        capture_output=True,
+        check=False,
+        env=environment,
+        text=True,
+    )
+
+
+def recorded_docker_argv(result: subprocess.CompletedProcess[str]) -> list[str]:
+    return [line[5:-1] for line in result.stdout.splitlines() if line.startswith("ARG:<")]
+
+
+def test_the_publish_knob_arms_one_loopback_binding_and_nothing_else(tmp_path: Path) -> None:
+    """V1201-DEMO-GATEWAY-BROWSABLE-001: the wrapper can hand the host a read-only port.
+
+    `demo.sh --gateway` publishes the Gateway so a browser on the host can read the
+    session the demo just ran, and this is the surface that decides what that means.
+    Three readings, each of which is the counterexample for one of the others:
+
+    * Unset, `run.sh` reaches docker with **no** `-p` at all. That is what keeps every
+      sealed-evidence path byte-for-byte the command it was before this knob existed,
+      and it is the clause an unconditional `-p` turns red on.
+    * Asked for a port, the added pair is exactly `-p 127.0.0.1:8787:8787` and the rest
+      of the argv is the unset row's argv unchanged — so the knob adds a binding without
+      moving a mount, an environment name or the command.
+    * Asked for anything that names an interface, a port pair, or port zero, it refuses
+      by name with rc 2 and never reaches docker. That is the clause a loosened pattern
+      (one that let `0.0.0.0:8787` through and published the read model on every
+      adapter) turns red on.
+    """
+
+    quiet = run_sh_docker_argv(tmp_path, publish=None)
+    assert quiet.returncode == 0, quiet.stderr
+    quiet_argv = recorded_docker_argv(quiet)
+    assert quiet_argv, f"run.sh never reached docker: {quiet.stderr}"
+    assert "-p" not in quiet_argv
+    assert not any(word.startswith("127.0.0.1:") for word in quiet_argv)
+
+    armed = run_sh_docker_argv(tmp_path, publish="8787")
+    assert armed.returncode == 0, armed.stderr
+    armed_argv = recorded_docker_argv(armed)
+    assert armed_argv[armed_argv.index("-p") + 1] == PUBLISH_BINDING
+    assert [word for word in armed_argv if word not in ("-p", PUBLISH_BINDING)] == quiet_argv
+
+    for value in PUBLISH_REFUSALS:
+        refused = run_sh_docker_argv(tmp_path, publish=value)
+        assert refused.returncode == 2, f"{value!r} was accepted: rc {refused.returncode}"
+        assert "MINEKIN_RUNNER_PUBLISH" in refused.stderr, refused.stderr
+        assert recorded_docker_argv(refused) == [], f"{value!r} reached docker anyway"

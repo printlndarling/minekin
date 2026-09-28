@@ -43,6 +43,73 @@ MINEKIN_SERVER_JAR=<path> MINEKIN_DOMAIN_NO_SERVER=1 \
 bash test-orchestrator/runner/run.sh --shell 'glxinfo -B'   # or any other command
 ```
 
+## The demo entry point
+
+`demo.sh` is the one command that shows the whole loop end to end: read the version the
+server allows, prepare the client bundle the reviewed registry names for it, join the
+world, walk, look, and stop.
+
+```text
+MINEKIN_SERVER_JAR=.tmp/mc-1.20.1-server.jar bash test-orchestrator/runner/demo.sh
+MINEKIN_SERVER_JAR=.tmp/mc-1.20.1-server.jar bash test-orchestrator/runner/demo.sh --again
+MINEKIN_SERVER_JAR=.tmp/mc-1.20.1-server.jar bash test-orchestrator/runner/demo.sh --gateway
+```
+
+It composes `run.sh` rather than replacing it, and it does not know which Minecraft
+version it is demonstrating: the Server Profile says what it allows, Core resolves that
+against `tests/fixtures/registry/reviewed-tested-bundles.json`, and the client is
+prepared through the product's own `--auto-bundle --max-bytes` path — not by a
+directory somebody seeded beforehand. The two prerequisites stop with rc=2 and print
+the command that satisfies them: `tools/verify_supply_chain.py` for the server jar, the
+`Dockerfile` build for the runner image.
+
+The first invocation is a *clean* run: it owns a Kin root nobody has used, and refuses
+to start if that root already carries a store, which is what keeps `--again` a repeat of
+the same session rather than a second clean run. The bound differs between the two for
+one reason — becoming playable is not one wait but two. A cold store has to fetch the
+bundle before Core spawns anything, and a runner that waits as long for that as for a
+warm boot reports "never became playable" about a client that had not started yet. So a
+clean run asks for up to 45 minutes and a repeat for 10; `MINEKIN_DEMO_SECONDS` overrides
+either.
+
+Everything else is a knob with a default: the volume and Kin root this demo owns
+(`MINEKIN_DEMO_VOLUME`, `MINEKIN_DEMO_KIN`), the profile and registry it reads
+(`MINEKIN_DEMO_SERVER_PROFILE`, `MINEKIN_DEMO_REGISTRY`), the byte budget for the
+prepare (`MINEKIN_DEMO_MAX_BYTES`), how long the launched client has to prove its
+Bridge session (`MINEKIN_DEMO_HANDSHAKE_SECONDS`, 90; Core's own default is 30 s and
+is kept for every run that does not ask), and the walk itself
+(`MINEKIN_DEMO_WALK_SECONDS`, `MINEKIN_DEMO_TURN_DEGREES`, `MINEKIN_DEMO_PROBE_SECONDS`).
+`MINEKIN_DEMO_CASE` names a registered case to seal the run against; unset, the run
+still prints its own document, which is where Core's verdicts live.
+
+The reading to look at is the **run document** on the last line, not the exit code. The
+harness stops the client it started, so a run that did everything asked of it ends
+non-zero (`14` / `BRIDGE_LOST`) — and `connection_state`, `entities_admitted`,
+`actions_applied` and `actions_refused` in the document are what say how it went.
+`--gateway` then answers the three read-only Dashboard routes against the same volume,
+so what the session did is visible in a browser rather than only in a terminal.
+
+### Reading it from a browser
+
+`--gateway` publishes the same volume's read model on this machine, and `run.sh` does
+the publishing:
+
+```text
+MINEKIN_RUNNER_PUBLISH=8787 bash test-orchestrator/runner/run.sh --shell \
+    'python -m gateway.server --data-root /data --kin <kin> --host 0.0.0.0 --port 8787'
+pnpm --dir dashboard dev    # then http://127.0.0.1:5175/?adapter=gateway&gateway=/gateway
+```
+
+The binding is always `127.0.0.1:<port>:<port>` and the knob accepts one port number and
+nothing else: `0.0.0.0:8787`, `5175:8787`, `8787:8787` and `8p` each stop with rc=2 before
+`docker run` is reached, which is what keeps "publish for the panel" from becoming "expose
+on the public interface". `--host 0.0.0.0` *inside* the container is not a reachability
+claim either — it is the address Docker forwards the published port to, and the exposure
+that matters is the host-side binding. The panel then reads through the dev server's
+`/gateway` proxy rather than fetching the port directly, because the frozen contract
+answers no CORS preflight and a cross-origin request from `127.0.0.1:5175` would be
+refused by the browser before it reached the Gateway.
+
 ### A server that requires a pack, and a client that refuses one
 
 `MINEKIN_DOMAIN_RESOURCE_PACK=1` builds a resource pack, serves it on loopback, and

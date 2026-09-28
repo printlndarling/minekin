@@ -206,6 +206,25 @@ B2 的剩余范围没有因为这一刀而消失：`OFFLINE-030`、5 条 `only_a
 - 未测：远程入服（V08 未获授权，本卡完全不碰）、1.21.4 必要回归、杀进程/断连引起的释放、资源包与恶意 status/SRV、多 Kin 并发、`--hold-use-seconds` 等其余输入轴。registry 的 `status/gaps` 未做任何翻转，provenance 读数留给 A3 的只读复核。
 - 复现：`MSYS_NO_PATHCONV=1 docker run --rm -v <repo>:/src:ro -v minekin-v1201demo3:/data -e MINEKIN_HOME=/data -e PYTHONPATH=/src/src -e LD_LIBRARY_PATH=/opt/sqlite/lib --entrypoint /bin/bash -w /src minekin-runner:local -lc 'bash /src/.tmp/v1201-demo-rehearsal3.sh'`；反证：同镜像同卷 `python /src/.tmp/v1201-rhs-counterexamples.py <bundle-dir>`。三次运行都用 `tests/fixtures/registry/reviewed-tested-bundles.json` 的自动解析和 `--look-yaw-degrees 45 --hold-forward-seconds 2`。
 
+### `V1201-LOCAL-DEMO-ENTRY-001` — `DONE`（M 主控，2026-09-28；正式代码入 `main`，读数见[Demo 入口与两次真跑记录](v1201-local-demo-entry-2026-09-28.md)）
+
+- 业务能力：`session start --handshake-timeout-seconds SECONDS`（`src/minekin_core/cli/parser.py` + `bootstrap.py` 两个入服调用点，默认仍 `30.0`）；`test-orchestrator/runner/demo.sh` 首次入库成为用户可跑的一条命令端到端入口（`clean` / `--again` / `--gateway`，缺件 rc=2 并打印补齐命令，版本由 Server Profile 决定，脚本内不硬编码版本号）；`test-orchestrator/runner/README.md` 的旋钮清单同步。
+- 缺陷定位（量出来的，不是猜的）：Core 固定 30 秒握手窗 vs 客户端 JVM 启动耗时。同一格判据（`process.json.started_at` → 客户端日志 `Setting user`）实测：干净冷装 **52 秒**（`10:09:57.965993Z` → `[10:10:50]`，日志带 `Fabric is preparing JARs on first launch`）、热 store 重复启动 **约 17 秒**与 **22 秒**（两卷各一次）；历史 7 枚 bundle 的成功三枚在同一格是 +17.0/+17.4/+21.8 秒，失败四枚 ≥ +30.7 秒。⇒ 30 秒跑得通重复启动、跑不通干净启动。
+- 两次真跑（同一入口，`MINEKIN_DEMO_CASE` 未设 ⇒ 活体读数、不封存）：干净 run `322972450e114cc98f58f1a9d9bdc0c4` 与重复 run `7ac542ce30c5440b92169a47816a4d78` 均 `connection_state: PLAYABLE`、`entities_rejected 0`、`actions_applied 2 / refused 0`、`events_applied 5`、`input_release_failed false`、`session stop` 逐 pid `released/terminated`、`outcome BRIDGE_LOST`（harness 停掉自己起的客户端 ⇒ rc=14 是正常收尾）；`auto_bundle` 从 `installed 3639 / reused 0` 变 `installed 0 / reused 3639`，`launch_plan_digest 83299ad5…` 两次相同。
+- 测试：正对照两个入口都交到 `90.0`；负对照不传时两处仍是 `DEFAULT_HANDSHAKE_TIMEOUT_S` 且断言等于 `30.0`；反证＝删 `bootstrap.py` 的传参 ⇒ 两测同时 `KeyError` 变红。门：`ci.yml` Python 作业 11 个步骤逐步骤 rc=0（`pytest` 2778 passed / 2 skipped），`uv run pyright` 0 errors；本卡不含任何 case/registry/mandatory 文件，`gate_payload_sha256` 未在本卡重取（当前字节里 `grep gate_payload tools/ src/` 回空，取法与 #82 一并量）。
+- 仍未支持（具名，不求绿掩盖）：Demo 不封证；`--gateway` 起的 Gateway 没有宿主端口发布（`test-orchestrator/runner/run.sh:196–207` 那条 `docker run` 不带 `-p`），宿主浏览器打不开 `dashboard/`（⇒ 同日由 `V1201-DEMO-GATEWAY-BROWSABLE-001` 闭合）；Bridge 在握手超时后把拒连归 `BRIDGE_FAULT` 且 `run()` 的 catch 不打印异常本身（改 `bridge-1201` 会动 registry 钉住的 jar 摘要 ⇒ 全卷重封，主控保留）；Dashboard 仍是只读面，未自行扩写权限。
+- **主干 integration `NEXT` 转为 `V1201-DEMO-GATEWAY-BROWSABLE-001`**：给 Demo 卷的 Gateway 一条 loopback 端口发布通路，让 `dashboard/` 在宿主浏览器里真读到这次会话；写面（启动/停止/控制）不在契约授权内，仍单列待决策卡。#82（新判据字节下的加入者控制真跑 + 反对照）与 `V1201-MOVE-WINDOW-ATTRIBUTION-001` 的 (B) 接管那笔（需先问用户）不受本卡影响。
+
+### `V1201-DEMO-GATEWAY-BROWSABLE-001` — `DONE`（M 主控，2026-09-28；正式代码入 `main`，读数见[Demo 入口与两次真跑记录](v1201-local-demo-entry-2026-09-28.md)文末新增小节）
+
+- 业务能力：`demo.sh --gateway` 起的只读模型现在真能在宿主浏览器里读到这次 Demo 会话——`run.sh` 新增 `MINEKIN_RUNNER_PUBLISH`（绑定写死 `127.0.0.1:<port>:<port>`，只接受单个端口号 ⇒ `0`/`878700000`/`5175:8787`/`0.0.0.0:8787`/`127.0.0.1:8787:8787`/`8p` 各 rc=2 且 `docker` 从未被调用），`demo.sh` 用它发布 Demo 卷的 Gateway 并回显面板地址，`dashboard/vite.config.ts` 把 `/gateway/*` 反代到 `MINEKIN_GATEWAY_TARGET`（默认 `http://127.0.0.1:8787`）——面板与只读契约同源，契约本身不改一行、不回应 CORS 也不新增路由。
+- 活体读数（卷 `minekin-local-demo`、Kin `kin-local-demo`）：`docker ps` 显示 `127.0.0.1:8787->8787/tcp`；直连三条 GET `200` = 3664 B / 11731 B（40 行）/ 254 B；经 `:5175/gateway/...` 同样 `200` 同字节，逐字段比对只差 `kinId`/`runtimeState` 的 `observedAt`（两次请求的时间戳），40 行 `eventId` 全等；经代理 POST 三条各 `405`、表外路径 `404` ⇒ 只读面在代理之后仍然成立。
+- 面板读到的是会话本身不是 fixture：Kin ID `kin-local-demo`（新鲜度「5 秒前」）、runtime_state 空闲、Bridge/服务器链路「已失联·陈旧·1 小时前」、会话 `d58a052b29054607be991d2cd2ee8399` · gen 1 · pid 378、世界上下文 profile `p0-controlled-offline-loopback-1201`、页头 `kin-dashboard-readmodel/1.0.0`；版本五件套/相干性/告警/Live View 一律「未接入·不可用」带原因，无 mock 路径。
+- 测试与门：`uv run pytest -q tests/contract/test_runner_scripts.py -q` 128 passed（新用例用 PATH 上的 `docker` 桩记录 argv，成对对照「未置名 ⇒ argv 无 `-p`」与「置名 ⇒ `-p` 后一字恰为 `127.0.0.1:8787:8787`」，六个拒止形状各自断言 `docker` 未被触达）；`uv run pytest -q` 2779 passed / 2 skipped、`pyright` 0 errors、`ruff check` 通过、`ruff format --check` 391 files；`pnpm --dir dashboard typecheck` 0、`pnpm --dir dashboard test` 75 passed。
+- 暴露口径：宿主侧绑定才是暴露面，`--host 0.0.0.0` 只是容器内 Docker 转发的目标地址；公网访问未扩大，远程测试服/在线认证/HOST/PERSIST/门禁晋级一律未触碰。收尾 `docker stop` 了本次 Gateway 容器并结束 dev 进程，`8787/5175` 复归无监听。
+- 仍未支持（具名）：Dashboard 写面（启动/停止/简单控制）不在 2026-09-28 冻结契约授权内，未自行扩权 ⇒ 单列决策卡 `V1201-DASHBOARD-WRITE-SURFACE-DECISION`（等主控裁决）；事件游标增量流、媒体通道、版本五件套读数仍按契约显示「未接入」。
+- **主干 integration `NEXT` 转为 `V1201-SAMPLING-DENSITY-IN-WINDOW-001`**：P1 项 2 的实现面——受控 runner 在服务端位置读数落进输入窗口的那一侧加密采样，使窗口内读数足以归因（配合已入干的 helper `#76 (A′)`），验收仍要实际输入 + 服务端观察 + 释放结果 + 反对照。#82（新判据字节下的真跑重封 + 反对照）与 `V1201-MOVE-WINDOW-ATTRIBUTION-001` 的 (B) 接管那笔（需先问用户）不受本卡影响。
+
 ## 3. P0 到可操作的 1.20.1 demo（按序，不跳门）
 
 | 顺位 / ID | 状态 | 交付、验收和停止边界 |

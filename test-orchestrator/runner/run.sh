@@ -14,6 +14,8 @@
 # Usage:  bash test-orchestrator/runner/run.sh doctor
 #         bash test-orchestrator/runner/run.sh init --kin-id kin-01
 #         bash test-orchestrator/runner/run.sh --shell glxinfo -B
+#         MINEKIN_RUNNER_PUBLISH=8787 bash test-orchestrator/runner/run.sh --shell \
+#             python -m gateway.server --host 0.0.0.0 --port 8787
 #         bash test-orchestrator/runner/run.sh server --accept-eula --allow-player Kin
 #         MINEKIN_SERVER_JAR=<path> bash test-orchestrator/runner/run.sh domain \
 #             session start --profile <bundle> --server-profile <server profile>
@@ -33,6 +35,22 @@ fi
 IMAGE="${MINEKIN_RUNNER_IMAGE:-minekin-runner:local}"
 DATA_VOLUME="${MINEKIN_RUNNER_DATA:-minekin-runner-data}"
 USERNAME="${MINEKIN_USERNAME:-Kin}"
+
+# Publishing one container port on the host, for the shapes where something outside
+# the container has to reach a service inside it — today that is only the Dashboard's
+# read model. It is off by default, and what it takes is a port number and nothing
+# else: the host half of the binding is written here as 127.0.0.1, so the operator
+# cannot name an interface with it and the demo cannot grow into a public listener by
+# passing a different string. A service that is published this way is reachable from
+# this machine's loopback and from no other address.
+PUBLISH_ARGS=()
+if [[ -n "${MINEKIN_RUNNER_PUBLISH:-}" ]]; then
+    if [[ ! "${MINEKIN_RUNNER_PUBLISH}" =~ ^[1-9][0-9]{0,4}$ ]]; then
+        echo "MINEKIN_RUNNER_PUBLISH must be one port number, and it is published on 127.0.0.1 only: ${MINEKIN_RUNNER_PUBLISH}" >&2
+        exit 2
+    fi
+    PUBLISH_ARGS=(-p "127.0.0.1:${MINEKIN_RUNNER_PUBLISH}:${MINEKIN_RUNNER_PUBLISH}")
+fi
 
 # The base image's entrypoint execs its arguments as a program, so it has to be
 # replaced: the thing to run here is the CLI module, not a binary called
@@ -198,6 +216,7 @@ exec docker run --rm \
     -v "${REPOSITORY_ROOT}:/src:ro" \
     -v "${DATA_VOLUME}:/data" \
     "${EXTRA_ARGS[@]}" \
+    "${PUBLISH_ARGS[@]}" \
     -e MINEKIN_HOME=/data \
     -e MINEKIN_USERNAME="${USERNAME}" \
     -e MINEKIN_KIN_ID \
