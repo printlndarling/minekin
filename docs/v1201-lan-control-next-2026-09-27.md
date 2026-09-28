@@ -2917,3 +2917,100 @@ MINEKIN_DEMO_LAN_GATEWAY_PORT=8799 bash test-orchestrator/runner/demo-lan.sh --g
 4. **下一张**：#90 按 §2.103.4 二选一裁决；#86 未到达加入者的具名分布。
 
 本轮不宣称 goal 完成。
+
+## §2.106 冻结策略行现在说得出它认了哪个 Server Profile revision（第一百零六轮，2026-09-29 07:26 +0800，M 亲跑，判据/fixture/registry/门载荷零位移）
+
+### 2.106.1 落点：把 §2.102.6 缺口 1 里今天可证的那半做完
+
+`AuthPolicyFrozen` 这一行在面板上一直印成 `detail=null`：看得到"策略冻结过"，看不到"认了哪个 Server Profile 的哪个 revision"。§2.103 的普查和本轮的活体读数都证明这不是空缺口——本地卷里真有 36 行冻结策略、5 种不同载荷形状，其中 4 种带 profile 对。
+
+本轮只改一件事：让 Core 已经写下的那四个名字成员出现在时间线那一格，其余一个都不进。
+
+### 2.106.2 契约判定先于代码
+
+- `docs/gateway-dashboard-readonly-contract-2026-09-28.md` §3 把 `server_profile_id` / `server_profile_revision` 归在"Core 已有具名载体、直接投影"的那一档：取 Core 已记的值，不重新推导。
+- §4 规则 2 禁的是凭据**值**。`AuthPolicy.as_event_payload()`（`src/minekin_core/domain/auth_policy.py:46-52`）只写 `auth_mode`、`online_adapter_enabled`、`server_profile_id`、`server_profile_revision` 四样，一个凭据字段都不带。
+- `docs/standalone-runtime-dashboard.md:186` 明确 Dashboard 见得到"身份档案和认证状态"，`:142` 主页本就展示当前 Server Profile。
+
+⇒ 落在只读授权范围内：没有把只读扩成写，没有碰 `V1201-DASHBOARD-WRITE-SURFACE-DECISION`，也没有改在线认证策略。
+
+### 2.106.3 正式改动
+
+| 文件 | 暂存 blob 内容 sha256 | 改动 |
+|---|---|---|
+| `gateway/readmodel.py` | `654f662735450e1de591ba58e435daab7dae456c62b8cb926655970793751bec` | 新增 `_AUTH_DETAIL_FIELDS` 白名单 + `_detail()` 的 `AUTH_POLICY_FROZEN` 分支 |
+| `tests/gateway_support.py` | `47d6bfd5d4d5f474c5d3e44a656a6369a7278686e488354ff6744ced31c7ad92` | `policy_payload()` 逐成员对齐 `as_event_payload()` 的真实形状 |
+| `tests/unit/test_gateway_readmodel.py` | `112c02b87e733c257808f1e4f7585a93923bb8b47895b62c14408a9f63eadd53` | 三种活体形状的正例 + 白名单越界反例；joined-run 那格改断言整串字面量 |
+
+投影只在成员值为 `str | bool` 时进入，缺成员不印 `None`；`server_profile_id`/`server_profile_revision` 同为 `null` 的那一档只印前两个成员，因为世界分组已经用"没有记下"说过这件事，印 `=None` 是把同一个空缺当成读数。
+
+fixture 一侧原来是 `auth_mode="OFFLINE"`、`server_profile_revision=1`——都不是 Core 真会写的形状（`AuthPolicy.__post_init__` 在 `src/minekin_core/domain/auth_policy.py:31-34` 要求小写 64-hex revision，`_REVISION` 的正则在 `:14`）。留着它，投影就能在一个 Core 从不发出的形状上"测过"，所以这条必须先修。
+
+### 2.106.4 活体读数：同一批台账，HEAD 字节 vs 新字节
+
+脚本 `.tmp/live_detail_90.py`（sha256 `ae75f9bb1de93f0c83ace248cbea978443ed090fdaca5de6dce33b92c2e4de27`）在受控容器里只读挂 10 个演示/战役卷（其中一卷没有 `kin` 台账，实到 9 卷 / 23 份台账），WAL 先拷进容器 `/tmp` 再打开，挂载卷零写入；同一个 Kin 根分别喂给 HEAD 的 `gateway/readmodel.py`（从 `git show HEAD:` 取出的 `.tmp/readmodel_head_90.py`，sha256 `a368b556b0c5a90a779ca5bb5b0510b634929acff515a8ef805c950f9787dea4`）和工作区新字节，逐行对拉：
+
+| 读数 | HEAD 字节 | 新字节 |
+|---|---|---|
+| `AuthPolicyFrozen` 行数 | 36 | 36 |
+| 该行 `detail` 为 `null` | 36 | 0 |
+| `eventId` 漂移 | — | 0 |
+
+投影出去的 detail 共 5 种形状，与普查到的 5 种载荷形状一一对应（修订号此处按台账原文全量抄录）：
+
+```
+auth_mode=offline, online_adapter_enabled=False, server_profile_id=p0-controlled-offline-loopback-1201, server_profile_revision=77a19c94c4467231e0431891939b09a94e3acd72c8e25edf3d28b24fb66f4df8   × 18
+auth_mode=offline, online_adapter_enabled=False, server_profile_id=p0-lan-host-fixture, server_profile_revision=9874a7e17928773b468a175a62e254e270ecbb83ad0363776b3089bbec83399b                      × 13
+auth_mode=offline, online_adapter_enabled=False, server_profile_id=p0-lan-host-fixture, server_profile_revision=7f8843030f23c27779a23a0da272d861c86920913a1d13e554dcfceadf863049                      × 2
+auth_mode=offline, online_adapter_enabled=False, server_profile_id=p0-lan-host-fixture, server_profile_revision=d58d14d83da62370c5bb5986c6e1ced2f8c7e79c22d3dcc5536267eeb8b269d9                      × 1
+auth_mode=offline, online_adapter_enabled=False                                                                                                                                            × 2
+```
+
+HTTP 层再对一次（网关 8799，`kin-lan87b-join`，同一已封存卷）。改动前那个进程（容器 `dc9b9cc40f5b`）加载的是 HEAD 字节：`GET /api/v1/dashboard/timeline` 回 148 条事件、其中 7 条冻结策略、`detail` 全为 `null`。按 `demo-lan.sh --gateway` 的既有入口重启（容器 `e4c020364a7f`）后回同样 148 条、同样 7 条，`detail` 零 `null`，其中一条原文：
+
+```
+auth_mode=offline, online_adapter_enabled=False, server_profile_id=p0-lan-host-fixture, server_profile_revision=9874a7e17928773b468a175a62e254e270ecbb83ad0363776b3089bbec83399b
+```
+
+原始材料：`.tmp/live_detail_90.out`（sha256 `4fa3a3da1c36466e7c1de99070bd84dc10e003bb692d04044467b8dd44a42297`）、`.tmp/timeline_90_http_before.raw`（`825b6d57d0b70e065428376950c1d5247aaf2d36fff75e3b216f27758f3d80aa`）、`.tmp/timeline_90_http_after.raw`（`37553bf658a37a956334168f9aa14e296eb919965fabbb01509decfa4cd2758f`）。
+
+### 2.106.5 判别力：两次预埋，都在最终字节上重做
+
+1. **A｜删掉新分支**（整段投影移除）⇒ `RED_A_RC=1`，3 failed / 41 passed，红的正是三条：新形态正例、joined-run 那一格、白名单例。说明这几条读的是新投影本身，不是多余措辞。
+2. **B｜把白名单换成整份 payload 通投** ⇒ `RED_B_RC=1`，2 failed / 42 passed：`test_the_frozen_policy_row_names_what_it_committed_to`（`(null, null)` 那一档必须只印两个成员，通投会印出 `server_profile_id=None`）与 `test_the_policy_projection_stops_at_the_four_named_members`（canary 与额外成员会漏进面板）。joined-run 那条在 B 下**仍然绿**——它的 fixture 恰好只有那四个成员——这正是为什么要有白名单例，而不是只留一条形状例。
+3. 每次预埋前 `cp` 备份并 `sha256sum`（`.tmp/readmodel.96.before.py`，sha256 `654f662735450e1de591ba58e435daab7dae456c62b8cb926655970793751bec`），预埋后按字节还原；还原后 `sha256sum` 与备份一致，针对性测试复绿（`44 passed`）。红日志留在 `.tmp/g90_redA.log`、`.tmp/g90_redB.log`。
+
+### 2.106.6 门读数（逐条读 rc，全部本地）
+
+| 门 | rc | 读数 |
+|---|---|---|
+| `uv run pytest -q tests/unit/test_gateway_readmodel.py` | 0 | 44 passed（最终字节，非预埋态） |
+| `uv run ruff check .` | 0 | All checks passed |
+| `uv run ruff format --check .` | 0 | 394 files already formatted（追加本文档后复测仍 0/394：该门数发现的文件数，往已有 `.md` 追加不 +1） |
+| `uv run pyright` | 0 | 0 errors, 0 warnings |
+| `tools/check_boundaries.py` | 0 | package dependency boundaries: OK |
+| `tools/check_case_assertions.py` | 0 | 151 registered |
+| `tools/verify_fixture_digests.py` | 0 | W00 schema and fixture digests: OK |
+| `tools/check_workflow_pins.py` | 0 | Workflow pins: OK |
+| `uv run pytest -q` | 0 | 2823 passed / 2 skipped（403.49 s；§2.105 那轮是 2821，+2 正是本卡新增的两条） |
+
+`ruff check` 第一次是红的（rc=1）：新注释里抄契约原文时带了全角逗号，触发 RUF003——该文件顶部的 `# ruff: noqa` 只放行 RUF001。改成 ASCII 措辞后复绿，契约条目按 §号引用而不是抄中文原句。
+
+本卡改的是 `gateway/**` 与 `tests/**`，没动判据、case 摘要、registry、bundle 或封证 ⇒ 门载荷零位移；`tools/verify_fixture_digests.py` 的 rc=0 是这件事的机器读数。Dashboard 字节未动，TS 侧四条门不在本卡。
+
+### 2.106.7 仍不可证的那半：按构造挡住，具名登着
+
+`#90` 卡面后半段要的是"异常准入的活体具名拒止行"。本轮把它拆成两格，只有前一格今天可证：
+
+1. **`auth_mode` 的对比**：投影已经能说出 `auth_mode` 与 `online_adapter_enabled`，但活体两处各只有一个值——P0 冻不出别的。`src/minekin_core/domain/auth_policy.py:25-26` 直接拒非 offline 或启用在线适配器，`require_offline_launch()`（`:40-44`）在启动路径再拒一次，`src/minekin_core/adapters/launcher/server_profile.py:197` 与 `:359` 在档案装填时拒 `auth_mode != "offline"`，`src/minekin_core/domain/version_resolution.py:37` 把 `SUPPORTED_AUTH_MODES` 钉成 `{"offline"}` 并在 `:432` 拒注册表条目自行改口。要跑出一行 `online` 的冻结策略就得改在线认证策略本身，那在授权边界之外，也是主控保留决策。
+2. **`matched=false` 与 `SessionProcessFailed`**：前者要 `src/minekin_core/domain/session_material.py:108-132` 的比较真产出一项不匹配，也就是被启动的客户端报告出与记录不同的身份——需要操作者侧覆盖启动身份；后者要 `src/minekin_core/cli/session.py:748-756` 那条 `supervisor.start()` 抛 `MinekinError` 才落 `PROCESS_FAILED`。两者都不是只读投影能补的，本卡不自造。
+
+⇒ `#90` 的可证部分到此闭合；剩下的"要不要为异常准入专门造一次受控会话"仍是主控手上的产品决定，本卡不替用户决定，也不以此宣称卡面全部完成。
+
+### 2.106.8 材料归属与下一步
+
+`.tmp/live_detail_90.py` 是一次性活体读数脚本（只读、先拷 WAL、不写挂载卷），留在 `.tmp` 并附 sha；它要判别的可复用事实已经进了 `tests/unit/test_gateway_readmodel.py`，不进 `tools/`：脚本对挂载布局有假设，正式测试不需要那层假设。
+
+下一步：#86 未到达加入者的具名分布。P3 的 Demo 入口与 Dashboard 页面这条路径不受本卡影响——时间线那一格只是多印了一段字样，解码器与契约字段都没动。主控保留：写面、在线认证、门禁晋级。
+
+本轮不宣称 goal 完成。

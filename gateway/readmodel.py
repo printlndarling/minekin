@@ -115,6 +115,21 @@ _IDENTITY_DETAIL_FIELDS: Final = (
     "credential_values_exposed",
 )
 
+# The frozen-policy row is the only place Core says which Server Profile revision admitted this
+# run, and the generic list above projects none of it: on live ledgers the panel could show that
+# the decision happened but not what was committed to. Contract §3 puts `server_profile_id` and
+# `server_profile_revision` in the tier Core already records — the projection takes that value
+# instead of re-deriving it — and `docs/standalone-runtime-dashboard.md:186` gives the Dashboard
+# the identity profile and the authentication status, which is these four members and nothing
+# else. None of them is a credential value (§4 rule 2), and a row that froze no profile pair keeps
+# both keys out rather than printing `None`: the world group already says 没有记下 in words.
+_AUTH_DETAIL_FIELDS: Final = (
+    "auth_mode",
+    "online_adapter_enabled",
+    "server_profile_id",
+    "server_profile_revision",
+)
+
 
 class EventRow(NamedTuple):
     """One ledger row, in the shape the projections below need."""
@@ -298,6 +313,12 @@ def _detail(row: EventRow) -> str | None:
     ]
     if row.event_type == SESSION_IDENTITY_COMPARED:
         parts += _identity_detail(row.payload)
+    if row.event_type == AUTH_POLICY_FROZEN:
+        parts += [
+            f"{name}={row.payload[name]}"
+            for name in _AUTH_DETAIL_FIELDS
+            if isinstance(row.payload.get(name), str | bool)
+        ]
     return ", ".join(parts) if parts else None
 
 

@@ -33,6 +33,7 @@ from gateway_support import (
     KIN_ID,
     PID,
     PROFILE_ID,
+    PROFILE_REVISION,
     RUN_ID,
     SESSION_ID,
     alive,
@@ -88,6 +89,12 @@ CONTRACT_NAMED_IDENTITY_FIELDS = frozenset(
         "credential_values_exposed",
     }
 )
+
+# The two profile revisions the read-only census of the local volumes actually read (see the lane
+# card's AuthPolicyFrozen shape listing), plus the prefix every one of those rows now opens with.
+LOOPBACK_REVISION = "77a19c94c4467231e0431891939b09a94e3acd72c8e25edf3d28b24fb66f4df8"
+LAN_HOST_REVISION = "9874a7e17928773b468a175a62e254e270ecbb83ad0363776b3089bbec83399b"
+POLICY_PREFIX = "auth_mode=offline, online_adapter_enabled=False, "
 
 
 def snapshot_of(tmp_path: Path, *, probe: Callable[[int], Liveness] = alive) -> dict[str, object]:
@@ -416,8 +423,12 @@ def test_the_timeline_reports_rows_newest_first_and_names_their_position(tmp_pat
     assert events[3]["title"] == HELLO_ACCEPTED
     assert events[3]["detail"] is None
     assert events[5]["title"] == AUTH_POLICY_FROZEN
-    # The frozen policy row is the one place the profile id is a reading, not a re-derivation.
-    assert events[5]["detail"] is None
+    # The frozen policy row names which profile revision it committed to, as a reading of the
+    # ledger rather than a re-derivation.
+    assert events[5]["detail"] == (
+        f"auth_mode=offline, online_adapter_enabled=False, "
+        f"server_profile_id={PROFILE_ID}, server_profile_revision={PROFILE_REVISION}"
+    )
 
 
 def test_a_timeline_row_for_a_comparison_reports_it_as_an_observation(tmp_path: Path) -> None:
@@ -654,6 +665,77 @@ def test_the_projection_never_echoes_a_credential_held_by_a_ledger_row(tmp_path:
     assert "access_token" not in document.lower()
     assert "authorization" not in document.lower()
     assert "clientid" not in document.lower()
+
+
+def test_the_frozen_policy_row_names_what_it_committed_to(tmp_path: Path) -> None:
+    """The projection has discriminative power, so three live shapes read three different ways.
+
+    The census in the lane card found four distinct (`server_profile_id`, `server_profile_revision`)
+    pairs and one row with neither, all of them `auth_mode=offline`. Those rows reached the panel as
+    `detail=None`: the operator could see a policy had been frozen but not which profile revision
+    admitted the run. These payloads are copied from those readings.
+    """
+
+    shapes = [
+        ("p0-controlled-offline-loopback-1201", LOOPBACK_REVISION),
+        ("p0-lan-host-fixture", LAN_HOST_REVISION),
+        (None, None),
+    ]
+    details: list[str] = []
+    for index, (profile_id, revision) in enumerate(shapes):
+        root = tmp_path / f"kin{index}"
+        seed_kin(root, with_marker=False)
+        record(
+            root,
+            AUTH_POLICY_FROZEN,
+            {
+                "auth_mode": "offline",
+                "online_adapter_enabled": False,
+                "server_profile_id": profile_id,
+                "server_profile_revision": revision,
+            },
+        )
+        details.append(str(build_timeline(root, limit=5)[0]["detail"]))
+
+    assert details[0].startswith(POLICY_PREFIX)
+    assert "server_profile_id=p0-controlled-offline-loopback-1201" in details[0]
+    assert f"server_profile_revision={LOOPBACK_REVISION}" in details[0]
+    assert details[1].startswith(POLICY_PREFIX)
+    assert "server_profile_id=p0-lan-host-fixture" in details[1]
+    assert f"server_profile_revision={LAN_HOST_REVISION}" in details[1]
+    # Absent rather than `None`: the world group already says 没有记下 in words.
+    assert details[2] == "auth_mode=offline, online_adapter_enabled=False"
+    assert len(set(details)) == len(details)
+
+
+def test_the_policy_projection_stops_at_the_four_named_members(tmp_path: Path) -> None:
+    """A member Core adds later, or a credential on the same row, stays in the ledger.
+
+    The same row's `auth_mode` is the in-document control: the detail path is live, so an absent
+    name is the projection refusing rather than the row being unread.
+    """
+
+    seed_kin(tmp_path, with_marker=False)
+    record(
+        tmp_path,
+        AUTH_POLICY_FROZEN,
+        {
+            "auth_mode": "offline",
+            "access_token": CANARY,
+            "identity_candidate_id": CANDIDATE_MARKER,
+            "server_profile_name": CANDIDATE_MARKER,
+        },
+    )
+
+    document = json.dumps(build_timeline(tmp_path, limit=5), ensure_ascii=False)
+
+    assert "auth_mode=offline" in document
+    assert CANARY not in document
+    assert CANDIDATE_MARKER not in document
+    assert "access_token" not in document.lower()
+    assert "server_profile_name" not in document
+    # Present-but-null members are not rendered as a value the operator could mistake for one.
+    assert "online_adapter_enabled" not in document
 
 
 def test_the_projection_never_builds_a_field_from_a_command_line(tmp_path: Path) -> None:

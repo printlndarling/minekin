@@ -33,6 +33,9 @@ RUN_ID = "0366d190e32f41baac1cf24c2dd6e6b6"
 SESSION_ID = "e14d02e5f33e48ecb3b23bc6f17418d9"
 PID = 4242
 PROFILE_ID = "srv-profile-00000000000000000000"
+#: A revision byte-for-byte in the shape Core requires: this literal is one a live LAN ledger
+#: actually froze for `p0-lan-host-fixture`.
+PROFILE_REVISION = "9874a7e17928773b468a175a62e254e270ecbb83ad0363776b3089bbec83399b"
 
 OURS_ARGV = ("java", "-jar", "ours.jar")
 #: A value that would be a credential if it ever reached a panel. Fixtures below carry one
@@ -68,11 +71,18 @@ def command_line_with_credential(_pid: int) -> bytes | None:
 
 
 def policy_payload() -> dict[str, object]:
+    """What `AuthPolicy.as_event_payload()` writes, member for member.
+
+    `auth_mode` is the dataclass default and the revision is the 64-hex form
+    `AuthPolicy.__post_init__` requires, so a fixture cannot make a projection pass on a shape
+    Core never emits.
+    """
+
     return {
-        "auth_mode": "OFFLINE",
+        "auth_mode": "offline",
         "online_adapter_enabled": False,
         "server_profile_id": PROFILE_ID,
-        "server_profile_revision": 1,
+        "server_profile_revision": PROFILE_REVISION,
     }
 
 
