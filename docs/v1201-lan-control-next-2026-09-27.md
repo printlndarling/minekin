@@ -1400,3 +1400,141 @@ C1-only 字节上的读数（`.tmp/m-r64-c1-gates.log`）：`check_case_assertio
 **⑤ 晋级这一格按卡面停在原地**。旧 `V1201-020` 引用仍全绿 ⇒ **维持不替换**；没有真实失败 ⇒ 不需要引用修正卡。任何 `mandatory`/registry/capabilities/gaps 或 tested 晋级都要「完整 required-case 策略 + 反例 + 独立提交」，本只读卡一律没顺手改：registry 字节在审计前后同值、门载荷同值、`report_promotion` 仍 `rc=1`。若要让这枚证据进门，路径是把它接进 `REQUIRED_CASES`（那会动门载荷，须 PRE/POST 配对并具名）——那是主控保留决策，不是本轮的活。
 
 **⑥ 队列到此的形状**：H1h→V5′→M-C1→E7→M-G1 **全部闭合**；`docs/v1201-lan-control-next-2026-09-27.md` §1 的序走完，真实封证从 0 变 1。仍开着的存量只有 `#58 (乙)`（非 auto 形状 `ONLINE_MODE=true` × 新名的真跑产物读数，要引擎窗）与 §3 的两类独立工作（`DASHBOARD-GATEWAY-READONLY-CONTRACT-001`、B2 尚无 fixture 的非 HOST case）。主干唯一的 `current_next` 仍是 `PARALLEL-INTEGRATION-GATE-001`；本轮不新增 `NEXT`，也不因队列走空而把目标当完成——V08/远程服、HOST 侧、跨 bundle schema 仍在各自决策门后。
+
+## §2.68 完成度审计把两格「已闭合」拆开重量：§2.16 第 4 条第一格被活体字节证否，而 E7 记录里引的加入者「末位姿」不是序列末（第七十三轮，2026-09-28 09:28 +0800，M 主控；只读私有卷材料 + 规范卷 `:ro`，零 JVM、零写卷、未连用户远程服）
+
+**为什么还有这一节**：目标要求把「H1k 的 §2.22 四件」与 V5′/H1i/M-C1/E7/M-G1 逐格映射到证据（映射本身闭合，见 ⑤）。映射之外我做的是**按字节重读判据**，量出两处「记录里没报数」与「报了数但那值不是序列值」。两处都只读、都可复算，没有新增任何产品字节。
+
+### ① §2.16 第 4 条第一格（同一 run 内主持有者读数首末不变）—— 三式按名首末，M 现量
+
+载体：`.tmp/v5p/out-host/{armed,control-off,ghost}/server.log`（V5′ 私有卷材料，仍在盘上；三份摘要逐字等于 §2.51 表里那三枚 `c6052d38…`/`975ecd6d…`/`d7bfbcdc…`）。判据读的是**行内名**（`<name> has the following entity data: [`），成对形状按 `40 位姿 + 40 朝向` 计（§「成对读数」的旧教训）。
+
+| 式 | 名 | 位姿行数 | 首（行号 / 值） | 末（行号 / 值） | 水平位移 | 末朝向 |
+| --- | --- | --- | --- | --- | --- | --- |
+| `armed` | `Kin`（宿主） | 42 | L112 `[-4.5d, -60.0d, -5.5d]` | L278 `[-1.6246148188670095d, -60.0d, -2.8268089999550146d]` | **3.926040** | L279 `[0.0f, 0.0f]` |
+| `armed` | `Kin2`（加入者） | 41 | L114 `[10.5d, -60.0d, -9.5d]` | L274 `[4.399447156057091d, -60.0d, -3.399447156057091d]` | 8.627485 | L275 `[45.0f, -20.0f]` |
+| `control-off` | `Kin` | 42 | L98 `[8.5d, -60.0d, 7.5d]` | L266 `[8.5d, -60.0d, 7.5d]` | **0.000000** | L267 `[0.0f, 0.0f]` |
+| `control-off` | `Kin2` | 40 | L106 `[10.5d, -60.0d, -8.5d]` | L262 `[10.5d, -60.0d, -8.5d]` | **0.000000** | L263 `[0.0f, 0.0f]` |
+| `ghost` | `Kin` | **0** | — | — | — | — |
+| `ghost` | `Kin2` | 40 | L113 `[4.5d, -60.0d, -4.5d]` | L269 `[-1.6005528439429093d, -60.0d, 1.6005528439429093d]` | 8.627485 | L270 `[45.0f, -20.0f]` |
+
+**量到的与 §2.41 的预言相反**：§2.41 那格写的是「第一名仍走默认 `${probe:-${player}}` = 宿主 `Kin`，同一 run 内它的**首末读数必须不变**」。`armed` 式里宿主名的首末**确实变了**（3.926040 格），`control-off` 式里两名都不动。⇒ **§2.16 第 4 条第一格的字面形状在专服形状下不成立**，而 §2.51 从没报过这一格的数（只报了 `Kin` 的答题行数 84）。行数不是判据、行内容才是——这条我自己在 §2.51 末写过，本轮被自己绊了一下。
+
+**具名改口径（§2.16 开篇要求的申报，不静默替换）**：
+- 改哪条：第 4 条第一格。旧口径「同一 run 内另一具名实体首末不变」；新口径「同一份 `server.log` 上按名取**加入者**的位姿/朝向序列做首末差，并要求 `control-off` 同形状对照里**两名**的首末位移都是 `0.000000`」。
+- 为什么：`armed` 的宿主名位移是实测（3.926040），旧口径的「不变」被字节证否；把判别力放在「同名按行的控制关闭对照」上，判别面不缩小（仍能区分「驱动在动」与「世界在漂」）。
+- 旧口径下哪些读数作废：**没有任何已登记判据以「宿主不变」为条件**，故无读数作废；受限的是一句**未登记**的说法——「三枚控制词只作用于加入者」。`armed` 里宿主名自己在动而 `control-off` 里不动，动因（宿主也吃到注入 / 世界内推力）本轮未辨 ⇒ 登记为待判问题 **#67**，可判形状具名：`MINEKIN_DOMAIN_PROBE=Kin` 单名 + 三枚 `MINEKIN_DOMAIN_JOIN_*` 控制词全开 ⇒ 宿主末朝向等于 `[45,-20]` 即注入到宿主，仍 `[0,0]` 而位移非零即环境。要引擎窗，与 `#58 (乙)` 同窗；**不开工是因为没有已登记判据等它**。
+
+### ② E7 封证 bundle 内的按名序列读数（规范卷 `:ro`，M 自算）—— 更正一处引用值
+
+同一枚 bundle：`/data/kin/kin-e7-join-0928/run/evidence/a224f6c3fa0f45f2ae4c922277220fcf`，`server/server.log` 的 manifest 条目 `3c0318252314ee443b51d4c4a2d7ba251696d8e2190ad048f81ee64d85290aa8` / `18049` B；M 只读重算 sha256 与 size ⇒ **逐字一致**（`EQUAL`，非引用 lane 的打印）。
+
+| 名 | 答题行数 | 位姿 / 朝向 | 首 | 末 | 水平位移 |
+| --- | --- | --- | --- | --- | --- |
+| `Kin`（宿主） | **0** | 0 / 0 | — | — | — |
+| `Kin2`（加入者） | 80 | 40 / 40 | L81 `[4.5d, -60.0d, -6.5d]`（23:58:14） | L161 `[23.061931239375966d, -60.0d, 8.017035575966826d]`（00:00:50） | **23.564584** |
+
+末朝向 L162 `[45.0f, -20.0f]`（逐字等于 `JOIN_LOOK_YAW=45`/`JOIN_LOOK_PITCH=-20`）。离场链 L164 `Kin2 left the game`（00:00:53）→ L168 `Kin left the game`（00:00:57）。
+
+**更正**：交付记录 `docs/validation/v1201-lan-joiner-control-seal-2026-09-28.md:58` 写的是「`Kin2` 位姿从 `[4.5d,-60.0d,-6.5d]` 移到 `[-1.447917…d,-60.0d,-0.336223…d]`，位移 ≈ 8.6 格 ≥ 2.0」。那枚 `[-1.44791743550326d, -60.0d, -0.33622349608875957d]` 在日志里是**一段静止平台**（L85–L113，23:58:22 到 23:59:18 重复同一坐标，共 15 行）的中段值，不是序列末。⇒ 该句引用作废，以本节的 L81→L161 / **23.564584 格** 为准。**判据结论不动**：`the_server_saw_the_kin_move` 要的是「按加入者名、首末至少一分量不同、位移 ≥2.0」，真实首末位移比引用值更大，`agrees/PASS` 与 4/4 held 无需重跑；`move_input_was_leased`/`the_bridge_carried_the_input_out`/`the_probed_player_is_this_run_s_kin` 三条的载体本轮未重量（`rejudge` 的 `agrees` 已在 §2.66 ② 落盘，引用不重复主张）。
+
+**为什么这一格反而更硬**：封证 run 的宿主名答题行是 **0**（单名探测形状：`MINEKIN_DOMAIN_PROBE=Kin2` 且未设 `…_PROBE_SECOND`），`asserter-inputs.json` 的 `probed_players` 恰 `["Kin2"]` ⇒ ① 里那句「宿主也在动」的混淆在这枚 bundle 里**没有可被误读的第二名字**，名字盲（把宿主位移记成加入者）在此形状按构造不可发生。
+
+### ③ 复算式（两条都零 JVM；第二段跑在容器里，卷只 `:ro`）
+
+```bash
+# 私有卷材料：三式按名首末
+sha256sum .tmp/v5p/out-host/*/server.log
+for s in armed control-off ghost; do echo "## $s"; \
+  for n in Kin Kin2; do \
+    f=.tmp/v5p/out-host/$s/answer-lines-$n.txt; \
+    [ -f "$f" ] || continue; \
+    echo "-- $n lines=$(wc -l <"$f")"; \
+    grep -oE 'entity data: \[[0-9.,eE+-]+d, [0-9.,eE+-]+d, [0-9.,eE+-]+d\]' "$f" | sed -n '1p;$p'; \
+  done; done
+```
+
+```bash
+# 规范卷里的封证 bundle：manifest 比对 + 按名序列（导出到 MSYS 路径需先关路径转换）
+export MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*'
+docker run --rm --entrypoint /bin/bash -v minekin-runner-data:/data:ro minekin-runner:local -lc 'python3 - <<PY
+import json,hashlib,math,re
+d="/data/kin/kin-e7-join-0928/run/evidence/a224f6c3fa0f45f2ae4c922277220fcf"
+m=json.load(open(d+"/manifest.json")); by={a["path"]:a for a in m["artifacts"]}
+raw=open(d+"/server/server.log","rb").read(); p="server/server.log"
+print("manifest", by[p]["sha256"], by[p]["size"])
+print("measured", hashlib.sha256(raw).hexdigest(), len(raw))
+txt=raw.decode("utf-8","replace").splitlines()
+for n in ("Kin","Kin2"):
+    pos=[(i,re.search(r"data: \[([0-9.,eE+-]+)d, ([0-9.,eE+-]+)d, ([0-9.,eE+-]+)d\]",l).groups())
+         for i,l in enumerate(txt,1)
+         if (" "+n+" has the following entity data: [") in l and "d," in l]
+    print(n, "pose_lines", len(pos), pos[0] if pos else "-", pos[-1] if pos else "-")
+PY'
+```
+
+**我本轮自己引入又当场改掉的一处读数错**：第一次核卷把上面那段写成了内联 `python3 -c`，比较摘要时用的是 `for` 循环**退出后的最后一个 `a`**（那是 `trusted/server-profile.json`），于是打印出 `MISMATCH` 而 manifest/measured 两行字节其实同为 `3c031825…aa8`。按 `by[p]` 取回条目重算即 `EQUAL`。⇒ ③ 里给的是改正后的形状；`MISMATCH` 那次输出是脚手架作用域漏了，不是卷或 bundle 的缺陷，材料 `.tmp/m-r73/` 未删。
+
+### ④ M-G1 与 registry 侧本轮零位移（不重复主张，只补一句现读）
+
+`git diff --name-only 82e199c..HEAD` 仍恰三份 `docs/`（交接、本文、E7 交付记录）⇒ E7 与 M-G1 两格没动产品字节；`tests/fixtures/cases/v1201-lan-joiner-control-case-001.json` 现读 `mandatory = False`、`work_package = W60`，`src/minekin_core/domain/cases.py:288` 的 W60 required 集仍不含该案 ⇒ 晋级那一格按 §2.67 ⑤ 停在主控保留，本轮没有任何动作碰它。
+
+### ⑤ 审计映射（每格「lane 自己提交并推送 ⇒ M 按真实 merge-base 复审合入 ⇒ push 并核远端 SHA」的笔号证据）
+
+现读姿势：`git rev-list --parents -n1 <merge>`、`git merge-base <trunk_parent> <lane_parent>`、`git branch -r --contains <lane_tip>`、`git merge-base --is-ancestor <lane_commit> HEAD`。
+
+| 格 | 合并笔 | trunk 父 | lane 父（在哪个远端分支上） | 真实 merge-base |
+| --- | --- | --- | --- | --- |
+| H1k（§2.22 四件 → §2.33 第 7 条） | `a452e84` | `4df1b2f` | `84648c0` @ `origin/codex/minekin-v1201-joiner-on-controlled-server` | `29c5187` |
+| H1l（转发） | `d95e59d` | `16e0df8` | `1ce9dc0`（其父 `c345c0f` 是字节笔）@ `origin/codex/minekin-h1l-forward-join-name` | `ac1d7fb` |
+| H1m（第二具名目标） | `012f56b` | `fbfd9d0` | `dff4550` @ `origin/codex/minekin-h1m-second-probe-target` | `dc0067c` |
+| V5′（活体读数） | 私有卷记录笔 `docs/validation/v1201-lan-joiner-local-control-readout-2026-09-28.md` 在主干在场 | — | — | — |
+| H1i（两格交回） | `b243366` | `4776f26` | `9cd58aa` @ `origin/codex/minekin-h1i-probe-target-handover` | `b35bc37` |
+| H1o（旋钮转发） | `77fd13d` | `6fb974b` | `f84d4c3` @ `origin/codex/minekin-h1o-forward-seal-knobs` | `b9b0d25` |
+| H1n（字面 `\n`） | `c1f6518` | `7d97188` | `fdd9f88` @ `origin/codex/minekin-h1n-kick-grep-literal-n` | `9fe3eb4` |
+| H1q（按形状交回 profile） | `f5b239e` | `483eb76` | `efd3169` @ `origin/codex/minekin-h1q-joiner-world-dedicated-profile` | `354f34e` |
+| #66（加入者到达） | `82e199c` | `adc6a3f` | `a4dfef4` @ `origin/codex/minekin-h66-campaign-joiner-arrival` | `527b6a7` |
+| M-C1（登记 + 注册） | `4a5d353` + `163e350`（M 独占实施，卡面即如此） | — | — | — |
+| E7（规范卷封证） | `d01bc5e` | `cf6d2fc` | `a7c1f99` @ `origin/codex/minekin-v1201-lan-joiner-control-seal` | `82e199c` |
+| M-G1（改后半张） | §2.67（只读审计，无产品笔） | — | — | — |
+
+表里九枚 `--no-ff` 合并笔的第二个父都在自己的远端分支上（lane 自己 push 的），merge-base 一律早于 trunk 父 ⇒ 没有「M 代 lane 提交」的形状；H1k 工作树自 `a452e84` 入干后未再被 M 写过一字。远端 `main` 本轮 `git ls-remote origin main` = 本地 `HEAD`（值见 ⑦）。
+
+### ⑥ 约束遵守（本轮逐条对号）
+
+规范卷只 `:ro` 读、未写（卷上 evidence 目录数与 Kin 根数未变）；未连用户远程服，`.tmp/local-test-server.txt` 未打开、本文不出现任何远程 `IP:端口`（容器 loopback `127.0.0.1:25566` 是本 harness 自己的端点）；未改 `mandatory`/registry/判据/封存 schema/`domain.sh`；私有卷 `minekin-m-v5p-live` 三式 run 目录保留未清理，其读数仍按「不是 sealed bundle」计；lane 树（`../minekin-wt-e7`、`../minekin-wt-h1k`、`../minekin`）零改动、历史 refs 不删；本轮改动只有既有两份 `.md` 的追加。
+
+### ⑦ 门表与门载荷（本轮现读，逐道单跑先读 rc）
+
+门清单仍按 `.github/workflows/ci.yml` 自己的 `- run:` 步取（派生脚本 `.tmp/m-r73-audit-gates.sh`，日志逐道落 `.tmp/m-r73/gates/`）。**跑门时点**：本节与交接记录**追加之前**的主干字节（`88dc441`）——追加只往两份既有 `.md` 里写段落、不新增文件，故对 `ruff format --check` 的文件数无影响；落笔之后我把 markdown 敏感的三道门（`ruff check` / `ruff format --check` / `git diff --check`）在同一棵树上重跑，逐字 `rc=0` 且 `376 files already formatted` 不变。
+
+| 步 | rc | 逐字尾行 |
+| --- | --- | --- |
+| `bash -n domain.sh` | 0 | （空） |
+| `bash -n run.sh` | 0 | （空） |
+| `pytest contract/test_runner_scripts.py`（host uv） | 0 | `124 passed in 55.10s` |
+| `uv sync --locked --dev` | 0 | `Checked 18 packages in 9ms` |
+| `ruff check .` | 0 | `All checks passed!` |
+| `ruff format --check .` | 0 | `376 files already formatted` |
+| `pyright` | 0 | `0 errors, 0 warnings, 0 informations` |
+| `pytest -q`（全量，host） | 0 | `2712 passed, 2 skipped in 476.11s (0:07:56)` |
+| `check_boundaries.py` | 0 | `Minekin package dependency boundaries: OK` |
+| `check_case_assertions.py` | 0 | `Case assertion implementations: OK (151 registered)` |
+| `verify_fixture_digests.py` | 0 | `W00 schema and fixture digests: OK` |
+| `check_workflow_pins.py` | 0 | `Workflow pins: OK (every action is a commit, and each names its release)` |
+| `uv build --wheel` | 0 | `Successfully built dist\minekin_core-0.0.0-py3-none-any.whl` |
+| `check_wheel_boundary.py dist/*.whl` | 0 | `Wheel oracle boundary: OK (dist\minekin_core-0.0.0-py3-none-any.whl)` |
+| `minekin --help` | 0 | `-h, --help   show this help message and exit` |
+| `git diff --check` | 0 | （空） |
+| `pytest contract`（容器 CPython 3.12） | 0 | `124 passed, 1 warning in 3.85s` |
+| 三枚具名单元 `-k "sealed_probe_names or joiner_server_log_guard or joiner_control_driver"`（容器） | 0 | `15 passed, 109 deselected, 1 warning in 0.64s` |
+| `report_promotion.py --data-root /data`（容器，规范卷 `:ro`） | **1** | `size=104680`（预期阻塞形状） |
+
+全量套件的**计数与基线逐字相同**（`2712 passed, 2 skipped`），只是耗时从 335.86s 变成 476.11s —— 这段窗内我自己另挂了两次只读容器核卷（② 与 ⑥ 的卷面普查），宿主争用属预期，不是套件变慢。
+
+门载荷：`gate_payload_sha256=cfa0f1184bee30df6a1d9fcf45778c9cef074ece6761c47fe7d6b9f49863afd6`，M 侧第 **16** 次同值；`rc=1` 的阻塞清单仍由 HOST/HOSTCOMMIT/HOSTCTL 一族点名 ⇒ 晋级那一格与本轮无接触。远端与本地的落点：`git ls-remote origin refs/heads/main` = 本地 `HEAD` = `88dc44116d8f356bd10e2ca6ba6acfe7abd526bb`（本节记录笔 push 后另读一次）。
+
+
+### ⑧ 四态与队列
+
+已合主干且 CI 绿 = `88dc441` 及其前；本轮记录笔 push 后要读 CI 才算绿（**不在读数之前宣称**）。仅在分支 = 无。真实封证 = **1**（`5086ee42…64f6` / run `a224f6c3…`，attempt 序列 1；② 只更正一处引用值，不改判据结论）。未验证/待判 = `#58 (乙)`、**#67（新登记）**、§3 两类独立工作（`DASHBOARD-GATEWAY-READONLY-CONTRACT-001`、B2 尚无 fixture 的非 HOST case）、V08/远程服与 HOST 侧（各守主控决策门）。主干唯一 `current_next` 仍是 `PARALLEL-INTEGRATION-GATE-001`；**队列走空、轮次充裕都不构成本目标的完成条件**，目标里点名要推进的五格与 H1k 都已落到笔号，晋级那一格按卡面停在主控保留。
