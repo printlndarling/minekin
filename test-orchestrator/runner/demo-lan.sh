@@ -39,11 +39,19 @@
 #   MINEKIN_DEMO_LAN_SOAK_SECONDS  how long the world is watched        (150)
 #   MINEKIN_DEMO_LAN_SECONDS       how long the session may take        (900)
 #   MINEKIN_DEMO_LAN_CASE          the registered case to seal          (v1201-lan-joiner-control-case-001)
+#   MINEKIN_DEMO_LAN_KILL          a player the world kills; empty leaves the world
+#                                  alone. Name the joining account to get the shape the
+#                                  window reader's death control is about: the walk
+#                                  inside the window, then readings of a corpse.
+#   MINEKIN_DEMO_LAN_KILL_AFTER    seconds after that player's join line the world kills
+#                                  it  (12, i.e. behind the hold and its release)
 #
 # The three control bounds are the driver's, not this script's: `domain.sh`
 # refuses an ask outside them rather than clamping it, so widening one here is
 # not possible. Nothing in this file lowers a distance threshold or an
-# authorisation window.
+# authorisation window. The kill is a cause the world starts on its own, after the
+# named player's join line, so it lands behind the hold and its release rather than
+# replacing them.
 #
 # This script never writes the canonical runner volume. Point
 # MINEKIN_DEMO_LAN_VOLUME at your own volume.
@@ -71,6 +79,49 @@ SOAK_SECONDS="${MINEKIN_DEMO_LAN_SOAK_SECONDS:-150}"
 SECONDS_LIMIT="${MINEKIN_DEMO_LAN_SECONDS:-900}"
 CASE="${MINEKIN_DEMO_LAN_CASE:-v1201-lan-joiner-control-case-001}"
 HANDSHAKE_SECONDS="${MINEKIN_DEMO_LAN_HANDSHAKE_SECONDS:-90}"
+KILL_PLAYER="${MINEKIN_DEMO_LAN_KILL:-}"
+KILL_AFTER="${MINEKIN_DEMO_LAN_KILL_AFTER:-12}"
+
+# The death timing is a count of whole seconds, and `domain.sh` refuses anything it
+# cannot place. Refusing the bad ask here means the operator hears about it before the
+# volume work, not after a container has started.
+case "${KILL_AFTER}" in
+    '' | *[!0-9]*)
+        printf 'demo-lan: MINEKIN_DEMO_LAN_KILL_AFTER must be a whole number of seconds, got %q.\n' \
+            "${MINEKIN_DEMO_LAN_KILL_AFTER:-}" >&2
+        exit 2
+        ;;
+esac
+if [ "${KILL_AFTER}" -le 0 ]; then
+    printf 'demo-lan: MINEKIN_DEMO_LAN_KILL_AFTER=%s asks for a death at or before the join; it has to be a positive number of seconds.\n' \
+        "${KILL_AFTER}" >&2
+    exit 2
+fi
+# A timing with no death aimed at is a wrong ask, and `domain.sh` says so inside the
+# container only if this entry lets it through.
+if [ -z "${KILL_PLAYER}" ] && [ -n "${MINEKIN_DEMO_LAN_KILL_AFTER:-}" ]; then
+    printf 'demo-lan: MINEKIN_DEMO_LAN_KILL_AFTER=%s asks when to kill a player, but MINEKIN_DEMO_LAN_KILL names none.\n' \
+        "${KILL_AFTER}" >&2
+    exit 2
+fi
+
+# A kill aimed at a name this run never admits would have the world waiting for
+# a join that cannot happen, and the run would read as a hang rather than as a
+# wrong ask.
+if [ -n "${KILL_PLAYER}" ] && [ "${KILL_PLAYER}" != "${HOST_USERNAME}" ] \
+    && [ "${KILL_PLAYER}" != "${JOIN_USERNAME}" ]; then
+    printf 'demo-lan: MINEKIN_DEMO_LAN_KILL names %s, which this run does not admit; the accounts are %s and %s.\n' \
+        "${KILL_PLAYER}" "${HOST_USERNAME}" "${JOIN_USERNAME}" >&2
+    exit 2
+fi
+
+# The two death asks travel together or not at all: `domain.sh` refuses a death timing
+# that names no player, so forwarding the default next to an empty player would stop a
+# run that asks for nobody to die.
+death_env=()
+if [ -n "${KILL_PLAYER}" ]; then
+    death_env=(MINEKIN_DOMAIN_KILL="${KILL_PLAYER}" MINEKIN_DOMAIN_KILL_AFTER_SECONDS="${KILL_AFTER}")
+fi
 
 command="${1:-}"
 case "${command}" in
@@ -174,6 +225,10 @@ printf 'demo-lan: the joiner is asked to look %s°/%s° and hold forward %ss, th
 printf 'demo-lan: the world is asked for the joiner'"'"'s position every %ss for %ss\n' \
     "${PROBE_SECONDS}" "${SOAK_SECONDS}"
 printf 'demo-lan: the case sealed against the joining run is %s\n' "${CASE}"
+if [ -n "${KILL_PLAYER}" ]; then
+    printf 'demo-lan: the world will kill %s %ss after its join line, so the walk has a corpse after it\n' \
+        "${KILL_PLAYER}" "${KILL_AFTER}"
+fi
 printf 'demo-lan: this run may take up to %ss before the harness stops asking\n' "${SECONDS_LIMIT}"
 
 # `--server-profile` is what makes this run own its world; the joiner goes into
@@ -208,6 +263,7 @@ env MINEKIN_RUNNER_DATA="${VOLUME}" \
     MINEKIN_DOMAIN_JOIN_LOOK_YAW="${TURN_DEGREES}" \
     MINEKIN_DOMAIN_JOIN_LOOK_PITCH="${PITCH_DEGREES}" \
     MINEKIN_DOMAIN_JOIN_HOLD_FORWARD_SECONDS="${HOLD_SECONDS}" \
+    "${death_env[@]}" \
     MINEKIN_DOMAIN_CASE="${CASE}" \
     MINEKIN_DOMAIN_CASE_ON=joiner \
     MINEKIN_DOMAIN_SEAL_JOINER_SERVER_LOG=1 \
@@ -217,7 +273,9 @@ env MINEKIN_RUNNER_DATA="${VOLUME}" \
 printf '\ndemo-lan: readback\n'
 printf '  Kin roots     : volume %s, /data/kin/%s and /data/kin/%s\n' "${VOLUME}" "${HOST_KIN}" "${JOIN_KIN}"
 printf '  run document  : the last JSON line above (Core'"'"'s own counts)\n'
-printf '  the window    : uv run python tools/read_move_window.py --kin %s \\\n' "${JOIN_KIN}"
-printf '                      --data-root-volume %s\n' "${VOLUME}"
-printf '  evidence      : bash test-orchestrator/runner/run.sh --shell "python -m minekin_core evidence verify <run_id>"\n'
-printf '                  with MINEKIN_RUNNER_DATA=%s\n' "${VOLUME}"
+printf '  the window    : the seal line above names an evidence_directory. Read the walk\n'
+printf '      that directory was sealed from, and what the name gate credits, with\n'
+printf '      env MINEKIN_RUNNER_DATA=%s bash test-orchestrator/runner/run.sh --shell \\\n' "${VOLUME}"
+printf '        "PYTHONPATH=/src/src python /src/tools/read_move_window.py --bundle <evidence_directory> --all-controls"\n'
+printf '  evidence      : env MINEKIN_RUNNER_DATA=%s bash test-orchestrator/runner/run.sh --shell \\\n' "${VOLUME}"
+printf '        "python -m minekin_core evidence verify <run_id>"\n'

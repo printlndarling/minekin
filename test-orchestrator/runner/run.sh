@@ -106,6 +106,10 @@ if [[ "${1:-}" == "domain" ]]; then
     EXTRA_ARGS=(-e MINEKIN_DOMAIN_SUMMON
         -e MINEKIN_DOMAIN_PROBE -e MINEKIN_DOMAIN_PROBE_SECONDS -e MINEKIN_DOMAIN_LOOK
         -e MINEKIN_DOMAIN_KILL -e MINEKIN_DOMAIN_KICK -e MINEKIN_DOMAIN_KILL_CORE
+        # When that death happens is a separate ask, and `domain.sh` reads it by name;
+        # undelivered it would silently fall back to the launcher's own six seconds, which
+        # is not behind a walk longer than six.
+        -e MINEKIN_DOMAIN_KILL_AFTER_SECONDS
         -e MINEKIN_DOMAIN_KILL_SERVER
         -e MINEKIN_DOMAIN_KILL_CLIENT
         -e MINEKIN_DOMAIN_SOAK_SECONDS -e MINEKIN_DOMAIN_SOAK_INTERVAL

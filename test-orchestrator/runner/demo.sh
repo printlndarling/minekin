@@ -33,6 +33,10 @@
 #   MINEKIN_DEMO_HANDSHAKE_SECONDS  how long the client's Bridge has to prove
 #                                  its session once the JVM is launched     (90)
 #   MINEKIN_DEMO_PROBE_SECONDS how often the run asks the world     (1)
+#   MINEKIN_DEMO_KILL          the player the world kills mid-session (unset = nobody dies)
+#   MINEKIN_DEMO_KILL_AFTER_SECONDS  how long after that player's join line the world kills
+#                                  it  (30) — the death is the release's other cause, so it
+#                                  has to land behind the walk, not in the middle of it
 #   MINEKIN_DEMO_GATEWAY_PORT  the loopback port --gateway publishes (8787)
 #   MINEKIN_DEMO_CASE        name a registered case to seal this run against (unset)
 #
@@ -54,6 +58,36 @@ WALK_SECONDS="${MINEKIN_DEMO_WALK_SECONDS:-8}"
 TURN_DEGREES="${MINEKIN_DEMO_TURN_DEGREES:-45}"
 PROBE_SECONDS="${MINEKIN_DEMO_PROBE_SECONDS:-1}"
 DEMO_CASE="${MINEKIN_DEMO_CASE:-}"
+KILL_PLAYER="${MINEKIN_DEMO_KILL:-}"
+KILL_AFTER_SECONDS="${MINEKIN_DEMO_KILL_AFTER_SECONDS:-30}"
+
+# The death is a cause the world starts on its own, and the window reader's death control
+# is about what a run looks like when the tail readings are a corpse's. For that to be a
+# real reading the death has to come after the walk and its release, so an ask that places
+# it inside the hold is refused here, before the volume work, rather than clamped.
+death_env=()
+if [ -n "${KILL_PLAYER}" ]; then
+    case "${KILL_AFTER_SECONDS}" in
+        '' | *[!0-9]*)
+            printf 'demo: MINEKIN_DEMO_KILL_AFTER_SECONDS must be a whole number of seconds, got %q.\n' \
+                "${MINEKIN_DEMO_KILL_AFTER_SECONDS}" >&2
+            exit 2
+            ;;
+    esac
+    if [ "${KILL_AFTER_SECONDS}" -le "${WALK_SECONDS}" ]; then
+        printf 'demo: MINEKIN_DEMO_KILL_AFTER_SECONDS=%s places the death inside the %ss hold it is supposed to follow.\n' \
+            "${KILL_AFTER_SECONDS}" "${WALK_SECONDS}" >&2
+        exit 2
+    fi
+    if [ "${KILL_PLAYER}" != "${USERNAME}" ]; then
+        printf 'demo: MINEKIN_DEMO_KILL names %s, which this run does not admit; the account is %s.\n' \
+            "${KILL_PLAYER}" "${USERNAME}" >&2
+        exit 2
+    fi
+    death_env=(MINEKIN_DOMAIN_KILL="${KILL_PLAYER}" MINEKIN_DOMAIN_KILL_AFTER_SECONDS="${KILL_AFTER_SECONDS}")
+    printf 'demo: the world will kill %s %ss after its join line, so the walk has a corpse after it\n' \
+        "${KILL_PLAYER}" "${KILL_AFTER_SECONDS}"
+fi
 
 # Core's own reviewed wait is 30 s, and on this host that is not enough to boot a
 # client JVM. Measured on the 1.20.1 bundles this project has kept: the three that got
@@ -176,7 +210,8 @@ session_args=(
     --look-yaw-degrees "${TURN_DEGREES}"
 )
 
-env MINEKIN_RUNNER_DATA="${VOLUME}" \
+env "${death_env[@]}" \
+    MINEKIN_RUNNER_DATA="${VOLUME}" \
     MINEKIN_SERVER_JAR="${SERVER_JAR}" \
     MINEKIN_KIN_ID="${KIN}" \
     MINEKIN_USERNAME="${USERNAME}" \

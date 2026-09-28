@@ -34,6 +34,42 @@ probe="${MINEKIN_DOMAIN_PROBE:-}"
 # by name, before this run writes anything or starts anything.
 probe_second="${MINEKIN_DOMAIN_PROBE_SECOND:-}"
 kill="${MINEKIN_DOMAIN_KILL:-}"
+# When, after its join, the world kills the player `MINEKIN_DOMAIN_KILL` names. Unset
+# leaves the launcher's own six seconds, which is what every run before this knob used —
+# and six seconds after a join is not always behind the walk: a run that holds the forward
+# key for eight seconds dies in the middle of the hold, so the movement the authorised
+# window was supposed to carry never happened and the only tail reading is a corpse's.
+# Measured on the 2026-09-28 attempts: the ask with the default timing had nothing to
+# kill, because the client it was aimed at had died in its own graphics initialisation.
+kill_after_seconds="${MINEKIN_DOMAIN_KILL_AFTER_SECONDS:-}"
+if [ -n "${kill_after_seconds}" ]; then
+    case "${kill_after_seconds}" in
+        *[!0-9]*)
+            printf 'domain: MINEKIN_DOMAIN_KILL_AFTER_SECONDS must be a whole number of seconds, got %q\n' \
+                "${kill_after_seconds}" >&2
+            exit 2
+            ;;
+    esac
+    if [ "${kill_after_seconds}" -le 0 ]; then
+        printf 'domain: MINEKIN_DOMAIN_KILL_AFTER_SECONDS=%s asks for a death at or before the join; it has to be a positive number of seconds. Refused, never clamped.\n' \
+            "${kill_after_seconds}" >&2
+        exit 2
+    fi
+fi
+# A death timing aimed at no death is a wrong ask, and it would read as a run that
+# quietly did nothing rather than as a run that was told something impossible.
+if [ -n "${kill_after_seconds}" ] && [ -z "${kill}" ]; then
+    printf 'domain: MINEKIN_DOMAIN_KILL_AFTER_SECONDS=%s asks when to kill a player, but MINEKIN_DOMAIN_KILL names none -- there is no death for this timing to place. Refused here, before anything is written.\n' \
+        "${kill_after_seconds}" >&2
+    exit 2
+fi
+# And a death scheduled beyond the run's own ask ceiling never fires inside the run that
+# asked for it, which would leave the release looking like it had no cause.
+if [ -n "${kill_after_seconds}" ] && [ "${kill_after_seconds}" -ge "${seconds}" ]; then
+    printf 'domain: MINEKIN_DOMAIN_KILL_AFTER_SECONDS=%s is at or beyond MINEKIN_DOMAIN_SECONDS=%s, the time this run may take; the death would fall outside the run. Refused, never clamped.\n' \
+        "${kill_after_seconds}" "${seconds}" >&2
+    exit 2
+fi
 kick="${MINEKIN_DOMAIN_KICK:-}"
 silence="${MINEKIN_DOMAIN_SILENCE:-}"
 look="${MINEKIN_DOMAIN_LOOK:-}"
@@ -1003,6 +1039,11 @@ fi
 kill_args=()
 if [[ -n "${kill}" ]]; then
     kill_args=(--kill-player "${kill}")
+    if [[ -n "${kill_after_seconds}" ]]; then
+        kill_args+=(--kill-after-join-seconds "${kill_after_seconds}")
+        printf 'domain: the world will kill %s %ss after its join line, not at the launcher'"'"'s own six\n' \
+            "${kill}" "${kill_after_seconds}" >&2
+    fi
 fi
 
 # Same for the other ending a server can start: a kick, which ends the session

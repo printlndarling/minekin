@@ -134,7 +134,9 @@ bash -n test-orchestrator/runner/demo-lan.sh                                    
 
 ## 8. 仍未支持 / 未闭合（具名）
 
-- 带真实死亡语句的 1.20.1 活体跑还没有；`demo-lan.sh` 自身的端到端一发也还没有（它这次只是入口固化 + 语法门）。
+- **会话内真死一次已在单客户端形状上活体取到**（2026-09-28 23:00 +0800，材料 `.tmp/m86/death-run.log`、读回 `.tmp/m86/death-run-readout.txt`）：`demo.sh --again` × 受控 1.20.1 专服，`MINEKIN_DEMO_KILL=Kin MINEKIN_DEMO_KILL_AFTER_SECONDS=30`，服务端 `14:51:11 joined the game` → `14:51:42 was killed` → `14:52:31 left the game`，run `622e36f0…`；窗 `8.006 s` 内 8 条带戳答案，记入 `30.82 blocks` ⇒ `the window carries a step`，松键后一秒的 `(-20.91, 30.91)` 未记入终点。死亡之所以能在战役路径里被安置到移动之后，靠的是本轮把 `--kill-after-join-seconds` 接进 `domain.sh`/`run.sh`（此前只转发 `--kill-player`，启动器自己的六秒会把击杀落在按住之中）。
+- 加入者（LAN 两客户端）侧的会话内真死仍未活体取到：`.tmp/m84/clean-kill-run.log` 那一发带上了击杀 ask（`MINEKIN_DEMO_LAN_KILL=Kin2`），但加入者在自己的 GLFW 初始化里就退了，击杀没有落点；`MINEKIN_DEMO_KILL_AFTER_SECONDS` 现在也能从 `demo-lan.sh` 传下去，缺的是那台 JVM 能起来。见队列文档 §2.91、§2.92。
+- 本节先前那句「`demo-lan.sh` 自身的端到端一发也还没有」已被推翻，现记录为：**端到端已经跑过**。`.tmp/m82/run2.log` 的 `--again` 一发封出 PASS `a8690e61…`（run `1025f9d5…`），而该 run 的宿主 session 是 `session exited 1`；`.tmp/m84/clean-kill-run.log` 的干净一发封出 FAIL `02cd1055…`。
 - 「两次 run 是不是同一份编排字节」按构造读不出（bundle 不钉编排层字节），属主控保留。
 - 门禁晋级、V08/远程测试服、HOST/PERSIST、Dashboard 写端点仍在主控手里，本卡未触碰。
 
@@ -144,3 +146,7 @@ bash -n test-orchestrator/runner/demo-lan.sh                                    
 控制演示（含松键后停止），拿 `tools/read_move_window.py` 的读数与 `evidence verify` 的复判各一份；其中要包含
 **会话内真死一次**的形状（让世界里的僵尸在授权窗内打死加入者），把 §4 第 2 点那条缺口从「单测证明」升级成
 「活体证明」。规范卷只读，不动登记。
+
+> 2026-09-28 补充：「会话内真死一次」已在**单客户端（宿主 Kin）形状**上取到活体读数（见 §8 第 1 条与
+> 队列文档 §2.92），`--kill-after-join-seconds` 的转发也已落地；本卡剩下的只有**加入者侧**那一发，
+> 其阻断仍是加入者 JVM 的 `Failed to initialize GLFW`（§2.91 的证伪记录）。

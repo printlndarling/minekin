@@ -82,6 +82,13 @@ is kept for every run that does not ask), and the walk itself
 `MINEKIN_DEMO_CASE` names a registered case to seal the run against; unset, the run
 still prints its own document, which is where Core's verdicts live.
 
+A death is a separate ask. `MINEKIN_DEMO_KILL=Kin` has the world kill that Kin during
+the session and `MINEKIN_DEMO_KILL_AFTER_SECONDS` says how long after its join line the
+world does it (30). Unset, nobody dies. The entry refuses a timing that is not a whole
+number of seconds, one that places the death inside the walk it was asked to perform, and
+one aimed at a player this run does not admit — so a corpse always arrives after the
+release it is there to explain, never in the middle of the movement it would be read as.
+
 The reading to look at is the **run document** on the last line, not the exit code. The
 harness stops the client it started, so a run that did everything asked of it ends
 non-zero (`14` / `BRIDGE_LOST`) — and `connection_state`, `entities_admitted`,
@@ -1085,6 +1092,17 @@ verifiable, and no longer evidence for the reviewed case, exactly as
 A held key has to come up when the client stops taking input, and the run can
 make that happen in exactly one way: `MINEKIN_DOMAIN_KILL=Kin` has the server
 kill the Kin a few seconds after it joins, while it is holding forward.
+
+Which few seconds is now an ask of its own: `MINEKIN_DOMAIN_KILL_AFTER_SECONDS`
+overrides the launcher's built-in six with a count of seconds after that player's join
+line, and `MINEKIN_DEMO_KILL_AFTER_SECONDS` / `MINEKIN_DEMO_LAN_KILL_AFTER` carry it from
+the demo entries. Six is right when the death is the point — the key has to come up
+mid-hold — and wrong when the same run also has to show the walk: a client holding
+forward for eight seconds then killed at six dies in the middle of its own movement, and
+the tail reading is a frozen corpse. Unset, every run keeps the six it always had. The
+ask stops with rc=2 rather than clamping when the value is not a whole number of seconds,
+is zero or negative, names no player to kill, or lands at or beyond this run's own
+`MINEKIN_DOMAIN_SECONDS` ceiling — where it could never fire inside the run.
 
 ```text
 server   [18:17:37] Kin joined the game
