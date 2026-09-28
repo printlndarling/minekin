@@ -158,3 +158,10 @@ curl -s -o /dev/null -w '%{http_code} %{size_download}\n' \
 pnpm --dir dashboard dev                                  # 另开一个终端
 uv run pytest -q tests/contract/test_runner_scripts.py -k publish
 ```
+
+## 同一条入口在 1 秒采样节奏下的第三次真跑（同日 20:08，`9884ef1f60f849409cd27da9d8b9461e`）
+
+- **承载字节**：这次跑的是当前主干字节——`c168320`（`test-orchestrator/runner/domain.sh` 的 1 秒服务端探测节奏 + `tools/assert_case_evidence.py` 的授权窗归因）与 `6530427`（上一节的只读模型发布）都已在干上，不是历史脚本的复刻。
+- **run 文档逐字段**（与上表「重复启动」那一列同形状）：`auto_bundle installed 0 / reused 3639 / status ready`、`connection_state PLAYABLE`、`entities_admitted 20 / rejected 0`、`snapshots_admitted 1`、`events_applied 5 / ignored 0`、`actions_applied 2 / refused 0`、`input_release_failed false`、`session stop` 释放 `{"asked": [276], "released": [276], "terminated": [276], "unconfirmed": []}`、`outcome BRIDGE_LOST` / `session_state STOPPED`、编排层 rc=14。
+- **本卡的增量含义**：`domain: the server saw the Kin walk and stop` 那一格现在背后有可判的窗口归因——同一份服务端日志在 7.996514 秒的授权窗内给出 **8 枚**带戳位置读数、窗内水平位移 **32.6308 格**；反对照与逐字段读数见 `docs/v1201-lan-control-next-2026-09-27.md` §2.89。
+- **原始材料**：`.tmp/r90-demo-again.log`、卷 `minekin-local-demo` 的 `/data/server-runs/run-3`（未清理、未封存，`MINEKIN_DEMO_CASE` 未设，故不产 sealed bundle）。
