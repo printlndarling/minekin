@@ -67,6 +67,7 @@
 - **开工前取回上一笔**：`d568048…` 的 push run `36378797135` = `completed`/`success`，`protocol` 10 步 / `bridge-static` 9 步 / `python` 18 步，三 job `NON_SUCCESS_STEPS=[]`、`JOB_CONCLUSION_BREAKS=[]`（日志 `.tmp/m-r84/ci-d568048.log`）⇒ 第八十三轮那笔 CI 欠账与其后续一起闭合。日志正文仍不可得，故本节不写任何「CI 说了什么话」的结论。
 - **同轮补记（清第八十三轮的欠账）**：`d18a199…` 的 push run `36378464126` = `completed`/`success`，`bridge-static` 9 / `python` 18 / `protocol` 10 步，三 job `NON_SUCCESS_STEPS=[]`、`JOB_CONCLUSION_BREAKS=[]`（日志 `.tmp/m-r84/ci-d18a199.log`）⇒ `P0-ADMIT-090-120-CASE-SPEC-001` §5 留下的「`d18a199` 自身的 run 仍未取」至此闭合；那两笔都是 doc-only 提交，步骤级全绿不改变任何封证或位移计数。
 - **最后一笔如实登记**：`535e033…`（第八十四轮落盘笔）的 run `36379470293` 本轮取到的是 **`in_progress`**（`conclusion=None`，日志 `.tmp/m-r84/ci-535e033.log`）⇒ 本节不据此作任何绿声明，留下一轮复取。
+- **第八十六轮复取（本节第 5 条最后一格的结局）**：`535e033…` 的 run `36379470293` 已是 `completed`/`success`（`protocol` 10 / `bridge-static` 9 / `python` 18 步，`NON_SUCCESS_STEPS=[]`、`JOB_CONCLUSION_BREAKS=[]`，日志 `.tmp/m-r86/ci-535e033.log`），本卡落盘笔 `0d080c0…` 自身的 run `36379827665` 也是 `completed`/`success`（日志 `.tmp/m-r86/ci-0d080c0.log`）⇒ 上面那句 `in_progress` 与「留下一轮复取」保留为当时读数，本行只补结局，不作任何封证或位移结论。
 
 ## 6. 复现命令（全部只读，工作树根目录）
 
