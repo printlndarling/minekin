@@ -1340,3 +1340,63 @@ C1-only 字节上的读数（`.tmp/m-r64-c1-gates.log`）：`check_case_assertio
 4. `git ls-remote origin refs/heads/main` ⇒ `82e199c…`；`git log --format='%H %P' -1` ⇒ `82e199c… adc6a3f… a4dfef4…`（两个 parent，真实 merge-base 用 `git merge-base adc6a3f a4dfef4` = `527b6a7`）。
 
 **⑦ 四态**：真实封证仍 **0**（E7 在飞，其结果未读回）；已合主干且 CI 绿 = `82e199c`；仅在分支 = `codex/minekin-v1201-lan-joiner-control-seal`（E7，在飞）与 lane 的历史 refs（均不删）；未验证 = E7 的封证与它的门表、M-G1（#50）全卡、`#58 (乙)`。本轮 M 写入只有这份文档、handoff 与自己的 `.tmp/`；lane 树只读未改；容器只以 `:ro` 挂了 `minekin-runner-data` 一次读门载荷；未连用户远程服、未读 `.tmp/local-test-server.txt`；未翻 `mandatory`/registry/晋级；材料与失败材料未删；无 `--amend`/`--no-verify`。**LAN 第二客户端在受控专服形状下的规范卷真实封证仍 = 0。**
+## §2.66 E7 封成入干（合并 `d01bc5e`，parents `cf6d2fc`+`a7c1f99`，真实 merge-base `82e199c`，远端已核）：**LAN 第二客户端在受控专服形状下的规范卷真实封证从 0 变 1** —— bundle `5086ee42…64f6`／run `a224f6c3…`，M 用出货 asserter 独立复判四枚判据全 `agrees/PASS`，门载荷第十五次同值而卷面普查恰 +1（第七十二轮，2026-09-28 08:40 +0800，M 主控；宿主 bash + 只读容器 + 规范卷只 `:ro`、lane 树只读未改、零 M 侧 JVM 战役、未读 `.tmp/local-test-server.txt`）
+
+**⓪ 现场与交付面**。起点远端 `main` = `cf6d2fc`（§2.65 那笔）。E7 的执行体在 150 轮上限处中断，但它已把 campaign 跑完、封成、并把门表跑在盘上；M 按 [[只收尾不重设计]] 的姿势派续接体，简报 `.tmp/e7-resume-brief.md` 只列三件事（改一处读数标注、重跑受影响三道门、提交并只推自己分支）。交付恰一笔 `a7c1f99`：`git diff --name-status main...a7c1f99` = **`A docs/validation/v1201-lan-joiner-control-seal-2026-09-28.md`（126 行，一枚文件）**，`git merge-base main a7c1f99` = `82e199c`（正是简报要求的起点），`ls-remote` 的分支 ref 与本地 `rev-parse HEAD` 逐字相等。**产品字节零改动**：分支上的 `test-orchestrator/runner/domain.sh` 提出来的 sha256 = `cbec5b85142d2168afcb46551d879dcd23159e62c89f21e422c7a69221ab8a82`／3292 行，与 M 第七十一轮在合并字节上量的 POST 值逐字相同 ⇒ 它的活体读数取自最终出货字节，不是中途草稿。三枚被引 fixture 摘要也在 M 树现量对上：`bundle-candidate-1.20.1.json` = `709a8899…ef185`、`controlled-offline-server-1.20.1.json` = `3864edda…3aa2`、`tests/fixtures/cases/v1201-lan-joiner-control-case-001.json` = `f4b94e03…d8ff`。
+
+**① 封出来的是什么**。规范卷 `minekin-runner-data` 上 `/data/kin/kin-e7-join-0928/run/evidence/a224f6c3fa0f45f2ae4c922277220fcf`：`case_id V1201-LAN-JOINER-CONTROL-CASE-001`、`case_version 1e31f0003b4e30e0…`、`attempt_sequence 1`、`result PASS`、`failures []`、`status sealed`、bundle `5086ee42659033a0db15c180f0b0e051961718b5d64bf3ac750ceda5f01464f6`、14 件 artifacts；`evidence verify` = `verified true / violations [] / 14 artifacts`。世界块 `kind = dedicated`、`seed_or_snapshot_id = minekin-p0-controlled`、`server_config_digest = 77a19c94c4467231e0431891939b09a94e3acd72c8e25edf3d28b24fb66f4df8`（与 `trusted/server-profile.json` 的 `revision` 同值）⇒ §2.59 裁决的「专服形状下由本 run 自己的 `--server-profile` 命名世界块」按预期兑现。同一 run 的阶段链在 `20-domain-stderr.log`：`server run directory /data/server-runs/run-186` → `the joining Kin kin-e7-join-0928 was created as Kin2` → `the world heard Kin2 arrive` → 首快照 → soak → `BRIDGE_LOST / PLAYABLE / snapshots_admitted 1 / entities_admitted 27`。全程只连容器 loopback `127.0.0.1:25566`。
+
+**② M 的独立复判（不是读 lane 的日志，是 M 自己重跑）**。脚本 `.tmp/m-r71-e7-verify.py`（只读、规范卷 `:ro`），日志 `.tmp/m-r71/e7-verify.log`：按 run id 在卷上定位到 **恰 1 枚** bundle、重算 manifest sha256 = `5086ee42…` ⇒ `digest agrees with the seal JSON: True`；用**出货 asserter**（不克隆、不打补丁）`tools/rejudge_evidence.py` ⇒ `rc=0 status=agrees result=PASS criteria=4 disagreements=[] unimplemented=[]`，四枚判据逐名 `move_input_was_leased` / `the_bridge_carried_the_input_out` / `the_server_saw_the_kin_move` / `the_probed_player_is_this_run_s_kin`；`asserter-inputs.json` 的 `probed_players = ["Kin2"]`；`server.log` 172 行、`joined_the_game` 2、按名 `entity_data` 行 80、`no_entity_found` 28、`Kin2` 提及 85，离场链 `Kin2 lost connection 00:00:53` 早于 `Kin 00:00:57`。§2.63 的两枚残余（探针归属未记、台账根对不上）在这枚 bundle 里都**不存在**，且解法全在配方侧：`MINEKIN_DOMAIN_SEAL_PROBED_PLAYERS=1` + 两枚全新自建 Kin 根（`kin-e7-host-0928`/`kin-e7-join-0928`，目录名 == 账本 `kin_identity.kin_id`，M 与 lane 各量一次）。**没动 `mandatory`、registry、判据、封存 schema。**
+
+**③ M 本轮新量的一条：这枚封证属当前构建**。封存前后两份 `report_promotion` 报告按条目做集合差，新增恰 **1 枚 bundle + 1 枚 attempt**，且那枚 bundle 条目带 `from_repository_build: true`、`re_judged: "AGREES"`、`result PASS`、`verified true`、`violations []`、`bridge_digest e50d61c2…006f`、`launch_plan_digest 83299ad5e224959de8e30c72c5937a2434c4d7bba92c62f4d22cf8d89f5f6181` —— 与同报告 `repository_build.builds[minecraft=1.20.1].plan_sha256` **逐字相同**；`evidence.from_another_build` 前后都是 61（新 bundle 没进那个清单）。⇒ 它不是「旧构建引用」，将来若要入 registry 不需为重封而重跑。
+
+**④ M 亲跑的 POST 门表（合并字节 `d01bc5e`，按 `ci.yml` 自有 `- run:` 步逐道单跑、先读 rc）**
+
+| `bash -n domain.sh` | 0 | （空） |
+| `bash -n run.sh` | 0 | （空） |
+| `pytest contract/test_runner_scripts.py（host uv）` | 0 | 124 passed in 36.16s |
+| `uv sync --locked --dev` | 0 | Checked 18 packages in 2ms |
+| `ruff check .` | 0 | All checks passed! |
+| `ruff format --check .` | 0 | 376 files already formatted |
+| `pyright` | 0 | 0 errors, 0 warnings, 0 informations |
+| `pytest -q（全量，host）` | 0 | 2712 passed, 2 skipped in 335.86s (0:05:35) |
+| `check_boundaries.py` | 0 | Minekin package dependency boundaries: OK |
+| `check_case_assertions.py` | 0 | Case assertion implementations: OK (151 registered) |
+| `verify_fixture_digests.py` | 0 | W00 schema and fixture digests: OK |
+| `check_workflow_pins.py` | 0 | Workflow pins: OK (every action is a commit, and each names its release) |
+| `uv build --wheel` | 0 | Successfully built dist\minekin_core-0.0.0-py3-none-any.whl |
+| `check_wheel_boundary.py dist/*.whl` | 0 | Wheel oracle boundary: OK (dist\minekin_core-0.0.0-py3-none-any.whl) |
+| `minekin --help` | 0 |   -h, --help            show this help message and exit |
+| `git diff --check` | 0 | （空） |
+| `pytest contract（容器 CPython 3.12）` | 0 | 124 passed, 1 warning in 2.00s |
+| `契约三枚具名单元（容器：sealed_probe_names / joiner_server_log_guard / joiner_control_driver）` | 0 | 15 passed, 109 deselected, 1 warning in 0.54s |
+| `report_promotion.py --data-root /data（容器，规范卷 :ro）` | 1 | size=104680 |
+
+
+三道具名契约单元（容器内）是这张卡的验收格本身：`sealed_probe_names`（记名交给封存）、`joiner_server_log_guard`（默认关闭 + 形状拒止）、`joiner_control_driver`（加入者控制限幅且只到一行）。`report_promotion` 的 `rc=1` 是构造性 blocked，不是失败。**`ruff format --check` 读到 376**（M 第七十一轮在同一主干上是 375）——这正是 §2.65 ④ 那条口径的第二次兑现：E7 新增的那一枚 `docs/validation/*.md` 让该门 +1，**是口径不是漂移**。注意位移只来自**新增文件**：本轮 M 的记录笔只往两份既有 `.md` 追加段落，该门现读仍是 376（`.tmp/m-r72/record-ruff-format.log`，`rc=0`）。
+
+**⑤ 门载荷第十五次同值，但报告字节动了 —— M 撤掉自己那句没量过的断言之后由实测收口**。`gate_payload_sha256` 封前封后逐字都是 `cfa0f1184bee30df6a1d9fcf45778c9cef074ece6761c47fe7d6b9f49863afd6`（两枚 `gate-payload-{pre,post}.digest.txt` 由 appender 现读校验，不等即拒绝落盘）；被哈希的子集（`work_packages` + `overall`）逐字未变，动的是顶层 `evidence` 普查：`count 113 → 114`、`bundles 113 → 114`、`attempts 77 → 78`，`sealed_without_bundle / unsealed / unreadable / unverified` 前后皆 `0`，`status` 前后都是 `blocked`。报告体积：`bytes= 103920 → 104679`（`gate-payload-{pre,post}.digest.txt` 首行口径）／文件尺寸 `103921 → 104680`（`wc -c` 口径），两种取法增量都是 **+759**。⇒ §2.56 那条改判（只有 `REQUIRED_CASES` 点名的行入册才动载荷）在「封证」这一侧同样成立：**封一枚非 mandatory 案不点亮任何门**。
+
+**⑥ 复审退回的一处标注，以提交前修正收口**。lane 首稿 §5 把 `wc -c` 的文件尺寸（103921/104680）当成 `bytes=` 这个键的值写进正文，而材料里 `bytes=` 实为 103920/104679。M 在派只收尾简报前就 `head -1` + `wc -c` 两侧各量一次、把两条命令原样写进简报要求「改完把取数命令贴回来，别凭记忆」；lane 的 `a7c1f99` 已把这两行改成「两个来源各自具名」，其余 §1–§4、§6–§8 未动（`git show --numstat` = `126 0` 一枚新文件，无整文件重写；CRLF 126 行保持）。**它同时如实点名了自己脚手架的两处崩**（`e7-drive.sh` 一处 bash 语法错、一处 `require_store_complete` 调用签名错报 `'dict' object has no attribute 'resolve'` 并打出 `E7-STOP` 却没 `exit`）——两处都发生在封存之后或只影响预检，证据面完整，且修正后的只读复核给出 `launchable=True / plan artifacts 3638 / verified 3638 / missing 0`。M 侧不替它重跑战役，也不把这两处当仓库缺陷；**驱动守卫「打了 STOP 却没停」这类形状，后续任何复用 `e7-drive.sh` 的卡都应先修成 `exit`**（记在未跟踪材料里，不入库）。
+
+**⑦ 时点移动：§2.65 ⑦ 那句「真实封证仍 0」被本轮读数推翻**。那是 07:40 的现场（当时 E7 结果未读回），按 [[dated-findings]] 口径旧读数原样保留，本节只改现在时断言：**LAN 第二客户端在同一受控专服 run 里的规范卷封证 = 1**（`5086ee42…`）。另更正 M 自己第七十一轮的一次读数错误：`kin_id` 是 run-document 的**顶层键**（值 `kin-e7-join-0928` == 目录名），不在 `run` 对象里；我当时用 `doc["run"]["kin_id"]` 读出 `None` 并误以为 §2.64 的机制有变，实为键位取错，正读已落 `.tmp/m-r71/e7-rundoc-keys.log` 与 `.tmp/m-r71/e7-rundoc-topkey.log`。
+
+**⑧ 落点与 CI**。合并笔 `d01bc5e34c39f28f480fc0df43c9098b5131b987`（parents `cf6d2fc5accc1b7bfbbf55c6d02d1e7ff3000002` + `a7c1f9958495c9283800f919e367c6a0f5bb0844`，真实 merge-base `82e199c`）已 push，`git ls-remote origin refs/heads/main` 读回同值；run `36363094622` 首读 `in_progress`、重读 `completed/success`，三 job 按 `ci.yml` 自有步骤逐条读为 `python` 18 步 / `bridge-static` 9 步 / `protocol` 10 步全 `success`、`non_success_jobs=[]`（原文 `.tmp/m-r72/ci-jobs-d01bc5e.json`）⇒ **「已合主干且 CI 绿」前进到 `d01bc5e`**。E7（#49）到此闭合；本轮 M 侧写入只有这两份主干文档 + 自己的 `.tmp/`，lane 树 `../minekin-wt-e7` 在 M 复审期间只读未改（M 只 `sha256sum`/`head`/`wc` 过它的材料）。
+
+## §2.67 M-G1（#50）的「改后」半张跑完了：18 条 registry 引用逐条仍 `agrees/PASS`、`digest_mismatch=0`，而 **E7 的真封证对门报告是零位移** —— W40/W60/p0-core 的 `work_packages` 在封存前后**逐字节相同**，这枚证据的价值在证据面不在门（第七十二轮补格，2026-09-28 08:55 +0800，M 主控；全程只读，规范卷 `:ro`、源码树 `:ro`，唯一 rw 挂载是持有桥 jar 的 `../minekin-wt-v4`（跑后 `git status --porcelain` 仍 0 行、HEAD 仍 `8d9189e`），零 JVM 战役、未读 `.tmp/local-test-server.txt`、未做任何晋级）
+
+**① 为什么现在能取**。§2.7 早就写明差分分两半、改前那一半只在 E7 写卷之前可取（`.tmp/m-r41-mg1-census-before.log`、`.tmp/m-r41-provenance-before.log`）；改后这半张脚本 `.tmp/m-r72-mg1-after.sh` 先核「跑审计的树与主干的 registry 字节相同」再跑，实测两侧 `tests/fixtures/registry/reviewed-tested-bundles.json` 都是 `06cac79867e879bc00b6fc1eb3f20691d8356492b7fe1d60e67d26434bd26107`（脚本那行 stdout 里的 `\06…` 是 bash `printf` 把开头 `0` 当八进制转义的显示假象，`sha256sum` 直读无此问题）。
+
+**② 四道读数（日志 `.tmp/m-r72/mg1-after/`）**：
+- **census（18 条既有引用逐条）** `rc=0`，末行 `census: cited=18 absent_bundles=0 digest_mismatch=0` ⇒ 与 §2.7 的改前那份**逐字同值**，没有任何一条引用需要修正。
+- **provenance** `verify_tested_provenance.py --data-root /data` `rc=0`。
+- **门载荷** `report_promotion` `rc=1`（构造性 blocked）＋ `gate_payload_sha256 = cfa0f1184bee30df6a1d9fcf45778c9cef074ece6761c47fe7d6b9f49863afd6`（M 侧第十五次同值）。M 在合并字节上另跑一份（`.tmp/m-r72/gates-merge/payload-post.json`，`104680` B）与 E7 lane 的封后那份（`../minekin-wt-e7/.tmp/e7/out/gate-payload-post.json`，同 `104680` B、其脚本首行 `bytes=104679`）摘要逐字相同。注意口径：`bytes=` 那行只存在于 lane 那份 `trunk_digest.py` 的输出里，M 这份从 `gate_payload_sha256=` 起头 ⇒ 比对取「文件尺寸 + sha256」两格，别把 `bytes=` 当通用字段。
+- **卷面**：evidence 目录 **101**，Kin 根 **18** 枚（清单里 `kin-e7-host-0928`、`kin-e7-join-0928` 在场，其余 16 枚与 §2.64 那次普查同名同数）。
+
+**③ 卡面要的 W40/W60/p0-core 差分：答案是「零位移」，而且是按字节读出来的零**。把封存前后两份报告按字段比，`work_packages`（11 个门：`W00 W10 W20 W30 W40 W50 W60 W70 p0-core p0-nav-exp host-integrated`）**序列化后逐字节相同**；位移只在顶层 `evidence` 普查。逐格现读：`W40` `promotable=false`、`blocks=["REQUIRED_CASE_NOT_REGISTERED"]`、`requirement.absent` 5 条（`ADMIT-010/020/030/050/090`）、`non_mandatory` 6 条；`p0-core` 同形但 `absent` 9 条（多 `ADMIT-120 CORE-080 OFFLINE-060 OFFLINE-080`）；`W60` `promotable=true`、`blocking_cases=[]`、`blocks=[]`、`absent=[]`、`satisfied=true`。**关键一条**：`W60` 的 required 集由 `src/minekin_core/domain/cases.py:288` 那三枚定（`CORE-040`/`CORE-050`/`CORE-070`），**不含** `V1201-LAN-JOINER-CONTROL-CASE-001`（它是 `mandatory: false`，只带 `work_package: W60` 标签）⇒ W60 在 E7 写卷**之前**就已经是 `promotable=true`。所以这枚真封证不点亮、也不改变任何一格的可晋级性；它在报告里只以 2 处出现（普查的 bundle 行 + attempt 行），`5086ee42…` 这个 bundle 摘要本身根本不作为字段出现。
+
+**④ 新 LAN 证据的范围（如实写）**：`V1201-LAN-JOINER-CONTROL-CASE-001`／`case_version 1e31f000…`／attempt 序列 1 的**一枚** bundle，形状是「同一 run：受控 1.20.1 专服 + 战役 `--case` + `case_on=joiner` + 限幅 look/move/release」，14 件 artifacts 内含 `server/server.log`、`asserter-inputs.json`（`probed_players=["Kin2"]`）、`run-document.json`、`trusted/server-profile.json`、`bridge-trace.jsonl`；`from_repository_build=true`、`re_judged=AGREES`。**不覆盖**：跨 bundle 链、用户远程服（V08 未获本轮授权）、HOST 侧封存、`OFFLINE-100` 的三件套（[[project-offline-100-triple-not-judgeable-by-construction]] 仍然成立）。
+
+**⑤ 晋级这一格按卡面停在原地**。旧 `V1201-020` 引用仍全绿 ⇒ **维持不替换**；没有真实失败 ⇒ 不需要引用修正卡。任何 `mandatory`/registry/capabilities/gaps 或 tested 晋级都要「完整 required-case 策略 + 反例 + 独立提交」，本只读卡一律没顺手改：registry 字节在审计前后同值、门载荷同值、`report_promotion` 仍 `rc=1`。若要让这枚证据进门，路径是把它接进 `REQUIRED_CASES`（那会动门载荷，须 PRE/POST 配对并具名）——那是主控保留决策，不是本轮的活。
+
+**⑥ 队列到此的形状**：H1h→V5′→M-C1→E7→M-G1 **全部闭合**；`docs/v1201-lan-control-next-2026-09-27.md` §1 的序走完，真实封证从 0 变 1。仍开着的存量只有 `#58 (乙)`（非 auto 形状 `ONLINE_MODE=true` × 新名的真跑产物读数，要引擎窗）与 §3 的两类独立工作（`DASHBOARD-GATEWAY-READONLY-CONTRACT-001`、B2 尚无 fixture 的非 HOST case）。主干唯一的 `current_next` 仍是 `PARALLEL-INTEGRATION-GATE-001`；本轮不新增 `NEXT`，也不因队列走空而把目标当完成——V08/远程服、HOST 侧、跨 bundle schema 仍在各自决策门后。
