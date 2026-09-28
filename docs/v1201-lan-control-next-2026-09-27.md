@@ -1651,3 +1651,71 @@ python .tmp/ci_steps.py c43a6d3   # 日志：.tmp/m-r74-ci-c43a6d3.log
 ### ⑧ 四态与队列
 
 #67 → **判完（否，不作用于宿主）**，并作废 §2.68 那个无判别力的形状；新登记 **#68**（未请求的自行位移 ⇒ 位移门的按方向分段/同 run 对照，属判据与 schema 侧，主控保留）。已合主干且 CI 绿 = `050f371` 及其前；真实封证 = 1；仅在分支 = 无；未验证/待判 = `#58 (乙)`、`#68`、§3 两类独立工作、V08/远程服与 HOST 侧。主干唯一 `current_next` 仍是 `PARALLEL-INTEGRATION-GATE-001`，本轮不新增 `NEXT`；以上任何一格都不因队列走空或轮次富余而算目标完成。
+
+## §2.71 (乙) 的真读数：`ONLINE_MODE=true` 的专服形状把具名失配落在**两份台账**，而编排层只知道超时（第七十六轮，M 主控；私有卷三式活体，规范卷一字未挂）
+
+### ① 为什么补这一节
+
+§2.26 撤回 §2.25 的「第八对缺口」之后，#58 只剩一格没读：`JOIN_ON_CONTROLLED_SERVER=1` 与 `ONLINE_MODE=true` 都被显式设、而 `case_id` **不是** ADMIT-040 时，产物是「具名失配」还是「加入者静默超时」。§2.25 还留了三个式名（A=该组合、B=正对照 `false`、C=默认关闭字节等价）。本轮把 A 跑出来，并各加一式做判别。
+
+### ② 字节侧的三件前置事实（现字节；§2.25/§2.26 的历史行号按规矩原样保留不改写）
+
+- guard 区间 `test-orchestrator/runner/domain.sh:511-540` 恰七条具名拒止（joiner 缺席 / `--server-profile` 缺席 / `open_lan` / `black_hole` / `no_server` / `not_whitelisted` / `refusal_asked`），**没有任何一条涉及 `MINEKIN_DOMAIN_ONLINE_MODE`** ⇒ 「非 auto 形状无门口拒止」在当前字节上成立，本轮的 A 式也确实没被拒止截住（它跑到了起服务端、起了两个客户端）。
+- 强制 online-mode 的通路：`:96` 取值 → `:1076-1085` 铸 `--online-mode` / `--no-online-mode` → `:1100-1112` 拼进**同一条** `tools/run_controlled_server.py … --keep-running` 命令 ⇒ 一个服务端进程、一份 `server.properties`。
+- 既有具名承担者的位置在现字节上漂了，本轮重取：`tests/unit/test_case_evidence_assertions.py:3715` → **:3721**；`tests/contract/test_runner_scripts.py:299` → **:360**；`domain.sh:1788` 的 ADMIT-040 判定分支 → **:1992**（形状前置 `:1996-1999`，台账谓词 SQL `:2004-2006`）。漂移来源是 H1h/H1i/H1k 先后往同两个文件加面，不是判据换过。
+
+### ③ A 式 `r75e-online-join`（`ONLINE_MODE=true` × 专服加入者，`--case` 未设）
+
+材料 `.tmp/r75e/out-host/r75e-online-join/`；容器 `rc(live)=0`，**`domain.sh rc=14`**（02:23:14Z→02:28:43Z）。
+
+- 落盘的服务端设置：`/data/server-runs/run-7/server.properties` 第 34 行 `online-mode=true`，同档 `white-list=true` / `enforce-whitelist=true` / `server-port=25566` / `level-seed=minekin-p0-controlled`；`run_controlled_server.py` 自己的日志回读 `enable-status: asked for false, the settings written say false` ⇒ 本轮没有顺手打开 status 面。
+- **失配不是加入者专属**：`server.log`（sha256 `c68e1a315a7a70ba5a54b8f7786d612c0464facc423be160cdee10aaccbce219` / 16379 B）里两名都被拒 —— `02:24:13 … GameProfile@5f22f747[id=<null>,name=Kin2 …] lost connection: Disconnected`、`02:24:14 … GameProfile@3dbdc3cb[id=<null>,name=Kin …] lost connection: Disconnected`。两个 `id=<null>` 逐字说明服务端没拿到可校验的身份：一个进程一份策略，宿主和加入者同受。
+- **具名失配落在两份台账**（只取本 run 追加的行；baseline host=105 / joiner=120）：两名都走 `AuthPolicyFrozen{auth_mode:"offline", online_adapter_enabled:false}` → `…READY_MENU→CONNECTING→FAILED`，并在 `FAILED` 处落下同一条 `SessionInterrupted src=BRIDGE trust=BRIDGE_FILTERED payload={"phase":"FAILED","reason":"ADMISSION_FAILURE_REASON_AUTH_MODE_MISMATCH"}`（host position 117 / joiner position 132），随后 `STOPPING→STOPPED` 与 `SessionInterrupted src=CORE payload={"outcome":"BRIDGE_LOST"}`。按 ADMIT-040 那条谓词逐台账问一次：**host 命中 1、joiner 命中 1**。两份的 `AuthPolicyFrozen` 各自指着不同 profile（宿主 `p0-controlled-offline-loopback-1201`、加入者 `p0-lan-host-fixture`），⇒ 该判定不依赖某一个 profile 文档，是形状属性。
+- **编排层不知道这件事**：`domain: Kin2 never arrived within 150s` + `downstream reading — THE_JOINER_HAD_NOT_ARRIVED_IN_THE_WINDOW …` + `domain: Kin2 arrived but never became playable within 150s`，宿主 run document 给 `connection_state=FAILED / outcome=BRIDGE_LOST / snapshots_admitted=0 / cognition_refusals{"MANAGEMENT_ONLY_DTO":50}`，退出码 **14**。⇒ (乙) 的答案是**两层分裂的同一 run**：ledger 判定层具名、编排层只报超时；既不是「只有静默超时」，也不是「run 被具名判成失配」。
+- 加入者客户端 `domain-join-session.err` 是**空文件**（sha256 `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`，size 0）⇒ 拒绝发生在服务端握手侧，客户端一句没说。
+- 同一份 `server.log` 的三个计数把「谁拒的」钉住：`joined the game` **0 次**、`has the following entity data:` 应答行 **0 次**（没人进世界，探针按构造无话可说）、含 `whitelist` 的行 **0 次** ⇒ 拦下两人的是会话校验而不是白名单，尽管 `white-list=true` 且 `enforce-whitelist=true` 在场、两名也确实都在 `--allow-player` 名单里（`§2.13` 那条加入者名单在位）。这也把 §2.20 那类「两名是否因白名单被挡」的解释在本式排除。
+
+### ④ 单 Kin 判别式 `r75e-online-hostonly`（同一开关，加入者面撤掉）
+
+材料 `.tmp/r75e/out-host/r75e-online-hostonly/`；**`domain.sh rc=14`**（02:28:48Z→02:31:45Z）。这一式只为回答「失配是不是加入者专属」：
+
+- 同一份开关落到同一份落盘：`/data/server-runs/run-8/server.properties` 第 34 行仍是 `online-mode=true`（`white-list=true`/`enforce-whitelist=true`/`25566`），`run-8` 而非 `run-7` ⇒ 每 run 一个新目录的规矩在私有卷上同样生效。
+- 服务端日志（sha256 `087e16746e5c4b1925ae7818ffe4c79a450d6ec24ac36ec4d67cd9118a022ab3` / 12287 B）只有一条拒绝：`02:29:41 … GameProfile@428b13b1[id=<null>,name=Kin …] lost connection: Disconnected` —— **只有一个 Kin，也被同样拒掉**。
+- 宿主台账在 baseline 120 之后追加的第 132 行就是那条具名失配（`SessionInterrupted src=BRIDGE trust=BRIDGE_FILTERED payload={"phase":"FAILED","reason":"ADMISSION_FAILURE_REASON_AUTH_MODE_MISMATCH"}`，ADMIT-040 谓词命中 **1**），加入者台账一字未动（命中 **0**，且 `domain-join-profile.json` / `domain-join-session.json` / `domain-join-session.err` 三件全部 `WAS NOT WRITTEN`）。
+- 编排侧同 A 式一样静默：只打印 run document（`connection_state=FAILED / outcome=BRIDGE_LOST / snapshots_admitted=0`）就退到 **rc=14**，没有「the session recorded the expected auth mismatch」那句 —— 那句属于 `case_id=ADMIT-040` 的等待分支（`:1992-2017`），本式没点 case ⇒ 具名行在台账里，而 harness 的判词只在点了该案时才说。
+
+⇒ 「一次策略 / 一个进程」为**真**，且**失配不是加入者专属**：A 式里两名同被拒、本式里单 Kin 也被拒。加入者在不在场只改变「几行具名失配被记下」（A 式两份台账各 1 行；本式宿主 1 行、加入者 0 行），不改变被拒这件事本身。
+
+### ⑤ B 式正对照 `r75e-online-false`（显式 `false`，其余与 A 式逐字同）
+
+材料 `.tmp/r75e/out-host/r75e-online-false/`；`rc(live)=0`，**`domain.sh rc=14`**（02:32:01Z→02:33:19Z）。这一式只问一件事：A 式那两格命中是不是恒真构造。
+
+- 落盘端只差了那一个开关：`/data/server-runs/run-9/server.properties` 第 34 行 **`online-mode=false`**，同档 `white-list=true` / `enforce-whitelist=true` / `server-port=25566` / `level-seed=minekin-p0-controlled` 与 A 式逐字同；`run_controlled_server.py` 自己的日志仍回读 `enable-status: asked for false, the settings written say false` ⇒ status 面没被顺手打开。服务端在 `server.log` 第 43 行自己警告 `The server will make no attempt to authenticate usernames. Beware.`
+- **两名都进了世界**：`02:32:48 Kin joined the game`、`02:32:58 Kin2 joined the game`（sha256 `9833ae2cde889c30fe2cccc5819634ea95ac6d062ec833b62678df6b83688dfd` / 10799 B）。同一套计数与 A 式对撞：`joined the game` **2**、`id=<null>` **0**、探针应答行 `has the following entity data:` **6**（A 式对应 0 / 2 / 0）⇒ A 式那三个零计数是形状后果，不是读法 artefact。
+- **具名失配消失，且是按同一条谓词消失的**：两份台账（baseline 都取在 135）各自走完 `CONNECTING→JOINED_UNVERIFIED→PLAYABLE`，各有一条 `SessionIdentityCompared`（宿主 `session_username:"Kin"`、加入者 `"Kin2"`，两条都 `matched:true / mismatches:[] / credential_values_exposed:false`）与一条 `PlayableEstablished`，全程没有 `ADMISSION_FAILURE_REASON_AUTH_MODE_MISMATCH`；逐台账再问一次那条 ADMIT-040 谓词：**host 命中 0、joiner 命中 0**（A 式 1/1，④ 式 1/0）⇒ 该谓词有判别力，A 式的命中不是恒真。
+- 编排层也第一次说到了事：`domain: the world heard Kin2 arrive`、`domain: Kin2 admitted its first snapshot of that world`，加入者收尾 `{'outcome': 'BRIDGE_LOST', 'connection_state': 'PLAYABLE', 'snapshots_admitted': 1, 'entities_admitted': 25}`，宿主 run document `connection_state=PLAYABLE / snapshots_admitted=1 / entities_admitted=16 / perceived_information_class=PLAYER_EQUIVALENT`。
+- **`rc=14` 在本式同样出现 ⇒ 退出码在这一族里无判别力**：A（两名被拒）、④（单名被拒）、本式（两名 PLAYABLE 且服务端记到进世界）三式都退 14。它只说「会话没走到 harness 要的终局」，不说谁被拒、也不说有没有到达；本式也没打印「the session recorded the expected auth mismatch」那句判词，因为 `--case` 未点。**这一格比我上一轮写下的「编排层只知道超时」更硬**：不止编排层少说话，而是它给三种相反事实同一个码。判别只能落在台账与握手行上。
+- 一处自伤的坑（具名登记以便复跑）：campaign 里 `==== R75E r75e-online-hostonly rc=2` 那格外层码不是产物停点 —— 真实原因是 **④ 式仍在执行时我改了同一份 `run-shape.sh`**（bash 按字节偏移惰性读脚本，改后偏移错位 → `.tmp/r75e/run-shape.sh: line 89: syntax error near unexpected token 'then'`）。它发生在 drive.sh 的读数全部打完之后 ⇒ ④ 的台账/日志/落盘三件数据完整，只丢了收尾那行 `rc(live)`；同一份新字节随后被 ⑤ 式干净读完（`bash -n` 现通过，`rc(live)=0`）。规矩：**式与式之间不写脚手架**。
+
+### ⑥ 顺带核到的一格四态更正：`codex/parallel-execution-plan` 是陈旧副本，M 不合入
+
+- 全分支普查（`git rev-list --count origin/main..<每支>`）里它是唯一 `ahead=2` 的分支（笔题 `21ffbac`「define isolated parallel Minekin development lanes」／`e472897`「add isolated 1.20.1 live-validation lane」，merge-base `6f0f562`）。
+- 复审看的不是它缺什么，而是它相对主干**多什么**：`docs/parallel-execution-plan.md` 在主干是 blob `06c9204f…`、在该分支是 `7bb8446b…`，两 blob 互 diff = **+3/−26** —— 分支那份缺掉主干的「M 侧审查的写操作边界（第四轮补）」整段与整张「冲突表登记」，版本行也停在「2026-09-26」而没有主干那句「已与主干状态原子对齐」。
+- 同笔笔题已在主干：`git log origin/main --grep=` 给 `13b84a8` 与 `432cc37` ⇒ `ahead=2` 是重写过的同名提交，不是未合的新工作。
+- ⇒ **合入它会让主干计划文档倒退 26 行**（删掉既有写边界与登记表），M 拒绝合并；分支按协议保留不删。四态的「仅在分支」因此仍是**无待合产品工作**，但这一格从此具名：不可合的陈旧副本，而非空。
+- 同时复量的 lane 面：`../minekin-wt-h1k` tip `1ce9dc0`、脏 0 行、`origin/main..HEAD = 0` ⇒ §2.22 的 ①②③④ 与该 lane 的在途工作已全部在主干，M 本轮对 lane 树零写入。
+
+### ⑦ 约束逐条对号
+
+三式活体都在 M 私有卷 `minekin-m-v5p-live`，规范卷 `minekin-runner-data` **一字未挂**（连 `:ro` 都没有）⇒ 本节的读数不是 sealed bundle，也不冒充；零连接用户远程服（`.tmp/local-test-server.txt` 未打开，端点只有容器 loopback `127.0.0.1:25566`）；`mandatory`/registry/判据/封存 schema 一字未动（本轮只把「既有具名承担者的位置」重取成新行号）；未给加入者开任何在线凭据路径、未放宽认证/地址/lease（A 式就是按硬禁的形状跑到它自己停的地方）。私有卷材料留在 `.tmp/r75e/out-host/`。
+
+### ⑧ 四态与队列
+
+- **已合主干且 CI 绿**：`c63b8dd`（= 远端 `refs/heads/main` 逐字同值）及其前；该笔自身 run `36369358628` = completed/success（python 18 步 / bridge-static 9 步 / protocol 10 步，步骤级无红）。**本节这笔提交自身的 CI 不在本节宣称**，留给下一笔补记。
+- **真实封证**：仍 **1**（bundle `5086ee42…64f6` / run `a224f6c3…`）。本轮三式活体全在私有卷、规范卷一字未挂 ⇒ 零新封、零移动，§2.70 对那枚封证的 #68 收窄不变。
+- **仅在分支**：**无待合产品工作**，但普查里两格「ahead≠0」本轮都具名成「不可合的陈旧副本」而非「未合的新工作」：
+  - `codex/parallel-execution-plan` `ahead=2`（远端也在）⇒ ⑥ 已量：主干那份计划文档会被倒退 26 行，M 拒合、分支保留。
+  - `worktree-plan-coverage-001` `ahead=1`（本地从未推远端）⇒ 它那一笔 `c864666`「feat(cases): make required coverage explicit」与主干 `6863be91` **patch-id 完全相同**（`8a492580…`），即同一改动已重写入干；且该笔所触 `src/minekin_core/domain/cases.py` 在主干已前进（branch `80f6a98d` → main `d1859a90`）⇒ 合它同样会倒退。普查里其余分支 `ahead=0`，含 `worktree-case-core-001`（tip `f1cbe63` 是主干祖先）。
+  - lane 侧：`codex/minekin-lan-joiner-bounded-control` tip `1ce9dc0`、脏 0 行、`origin/main..HEAD = 0` ⇒ §2.22 与 H1k 的在途工作全部已在主干，M 本轮对 lane 树零写入、零代提交；主目录检出的 `codex/core-state-transition@6a02ac6` 亦 `ahead=0`。
+- **未验证/待判**：`#58 (乙)` 本轮**判完**（三式：A 具名失配落两份台账 / ④ 单名同拒 / ⑤ 显式 `false` 两名 PLAYABLE 且谓词命中 0 ⇒ 两层层分裂 + 非恒真）；仍开放的是 **#68**（未请求自行位移可单独满足 `the_server_saw_the_kin_move`，属判据与封存 schema 侧 ⇒ 主控保留）、⑤ 新登记的「退出码 14 无判别力」是否要接成判据（同样主控保留，本轮不动判据）、§3 两类独立工作（只读 Gateway 契约设计、B2 非 HOST case 先设 oracle 后真跑）、V08/远程服与 HOST/PERSIST 侧。
+- **队列**：主干唯一 `current_next` 仍是 `PARALLEL-INTEGRATION-GATE-001`；本节不新增 `NEXT`，也不以「三式跑完」或「暂无待合分支」作为 goal 完成条件。
