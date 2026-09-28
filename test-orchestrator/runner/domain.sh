@@ -1723,6 +1723,42 @@ classify_the_joiner_downstream_readings() {
 }
 # --- joiner-downstream-reading-target end ---
 
+# What the joining client itself said before it stopped. This is a reading on the branch
+# that reports a joiner which never arrived, and it changes no criterion, no gate and no
+# bundle field.
+name_the_joiner_client_last_words() {
+    # The joining client's own text does not go to the launcher's stderr. Measured on a
+    # private volume: a client that crashed at its GL init left its whole boot log under
+    # /data/kin/${joiner}/run/session/ <session>/generation-1/logs/stdout.log, with the
+    # crash report beside it, while the launcher's stderr held 65 bytes about an
+    # unrelated directory. A branch that reads only that stderr reports a death it cannot
+    # see, and the silence invites a conclusion the run never measured. The newest
+    # session is the one this launch made, because a repeated run reuses the Kin root, and
+    # the file is named with its path so the attribution can be checked rather than
+    # trusted. Nothing here can end the run it is reporting on.
+    local session_root newest generation log crash
+    session_root="/data/kin/${joiner}/run/session/"
+    newest=$(ls -t "${session_root}" 2>/dev/null | head -n 1) || true
+    if [ -z "${newest}" ]; then
+        printf 'domain: no session directory under %s, so the joining client left no words to read\n' \
+            "${session_root}" >&2
+        return 0
+    fi
+    generation="${session_root}${newest}/generation-1"
+    log="${generation}/logs/stdout.log"
+    if [ -s "${log}" ]; then
+        printf "domain: the joining client's own last words, from %s:\n" "${log}" >&2
+        tail -n 20 "${log}" >&2 2>/dev/null || true
+    else
+        printf "domain: the joining client's own last words, from %s: nothing there\n" "${log}" >&2
+    fi
+    crash=$(ls -t "${generation}/crash-reports/" 2>/dev/null | head -n 1) || true
+    if [ -n "${crash}" ]; then
+        printf 'domain: it left a crash report: %s\n' "${generation}/crash-reports/${crash}" >&2
+    fi
+    return 0
+}
+
 # Start the second client against the world the first one published, and wait for the
 # *world* to say somebody arrived. The joiner's own document is what that client
 # believes happened; the hosting client's server thread is the side that cannot be
@@ -1835,9 +1871,21 @@ join_the_published_world() {
     if [ "${joined}" -eq 1 ]; then
         printf 'domain: the world heard %s arrive\n' "${join_username}" >&2
     else
-        printf 'domain: %s never arrived within %ss\n' "${join_username}" "${seconds}" >&2
+        # The wait ends two different ways — the launcher walked out, or the window ran
+        # out with it still trying — and one bare line stood for both. Measured cost: a
+        # joining JVM that had exited on its own five minutes in was read as a display
+        # limit of the container, because nothing else in the output said the process
+        # had left at all (the client's own stderr, printed on the next line, was empty).
+        if kill -0 "${joiner_pid}" 2>/dev/null; then
+            printf 'domain: %s never arrived within %ss, and its launcher was still running when the window closed\n' \
+                "${join_username}" "${seconds}" >&2
+        else
+            printf 'domain: %s never arrived: its own launcher had already exited, %ss into the %ss window\n' \
+                "${join_username}" "$((SECONDS - deadline + seconds))" "${seconds}" >&2
+        fi
         tr -d '\n' </tmp/domain-join-session.err >&2 || true
         printf '\n' >&2
+        name_the_joiner_client_last_words
         classify_the_joiner_downstream_readings
     fi
     # Being *playable* is the joining client's own conclusion about the first snapshot

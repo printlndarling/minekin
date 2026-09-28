@@ -2520,6 +2520,140 @@ def test_a_joiner_that_never_arrived_is_told_apart_from_an_unprobeable_world() -
     )
 
 
+#: The two endings the arrival wait can tell apart, and the one line it used to print
+#: for both of them. Named here because the guard below and its counterexample both
+#: spell them out.
+ARRIVAL_STILL_RUNNING = "never arrived within %ss, and its launcher was still running"
+ARRIVAL_LAUNCHER_GONE = "never arrived: its own launcher had already exited"
+#: The one line that used to stand for both endings, kept here as the negative control.
+#: Raw because the file holds the two characters `\` and `n`, not a newline.
+ARRIVAL_BARE_LINE = r"""printf 'domain: %s never arrived within %ss\n'"""
+
+
+def test_the_arrival_wait_names_which_of_its_two_endings_closed_the_window() -> None:
+    """A joining client that had not arrived stopped waiting for one of two reasons, and
+    the branch can see which — so it has to say which.
+
+    The wait loop breaks on a launcher that is no longer there *and* on a window that ran
+    out, and one bare `never arrived within 900s` was printed for both. Measured cost: a
+    run whose joining JVM exited on its own about five minutes in was read as a screen
+    limit of the container, and the reading went as far as a recorded conclusion that a
+    second resident client JVM cannot boot — from a line that had never measured the
+    screen and never claimed the process was gone. The same branch then prints the client's
+    own stderr, which in that run was empty, so nothing in the output said the process had
+    left at all.
+
+    Both endings now name themselves, the exited one with how far into its own window the
+    launcher left, and the bare line is gone rather than being one of the two. No criterion,
+    no gate, no bundle field and no wait length moves: this is what the branch already knew
+    and did not say.
+    """
+
+    text = (RUNNER / "domain.sh").read_text(encoding="utf-8")
+
+    assert text.count(ARRIVAL_STILL_RUNNING) == 1
+    assert text.count(ARRIVAL_LAUNCHER_GONE) == 1
+    # The line that stood for both endings is not left standing beside the two that
+    # separate them.
+    assert ARRIVAL_BARE_LINE not in text
+
+    # The liveness test is the same one the loop already trusted, not a new probe: the
+    # branch asks it in the `kill -0` form the loop breaks on, and the loop's own use is
+    # the only other one in this region.
+    assert text.count('if kill -0 "${joiner_pid}" 2>/dev/null; then') == 1
+    assert text.count('kill -0 "${joiner_pid}" 2>/dev/null') == 4
+
+    # The elapsed figure is read off the deadline the loop itself set, so it cannot be
+    # negative and cannot be a second window.
+    assert "deadline=$((SECONDS + seconds))" in text
+    assert "$((SECONDS - deadline + seconds))" in text
+
+    # It stays inside the arrival branch: before the downstream reading that this card
+    # deliberately did not touch, and before the playable wait.
+    gone = text.index(ARRIVAL_LAUNCHER_GONE)
+    assert gone < text.index("    classify_the_joiner_downstream_readings\n")
+    assert gone < text.index("    playable=0")
+
+    # Counterexample: put the bare line back and the two names disappear with it, so the
+    # guard above is about this edit and not about text the script never had.
+    reverted = text.replace(ARRIVAL_STILL_RUNNING, "%s", 1).replace(ARRIVAL_LAUNCHER_GONE, "%s", 1)
+    assert reverted.count(ARRIVAL_STILL_RUNNING) == 0
+    assert reverted.count(ARRIVAL_LAUNCHER_GONE) == 0
+
+
+#: The one place the joining client's own words are handed to the run's output, and the
+#: heading it prints them under. Named apart from the launcher's stderr because the two
+#: are different files: the launcher's is empty in the shape this guard is about.
+JOINER_LAST_WORDS_HELPER = "name_the_joiner_client_last_words"
+JOINER_LAST_WORDS_HEAD = "the joining client's own last words, from"
+JOINER_CRASH_REPORT_HEAD = "it left a crash report:"
+
+
+def joiner_last_words_region(text: str) -> str:
+    """The shipped helper, brace to brace, so its reads are checked and not guessed."""
+
+    begin = f"{JOINER_LAST_WORDS_HELPER}() {{"
+    start = text.index(begin)
+    end = text.index("\n}\n", start)
+    region = text[start : end + 2]
+    assert len(region) > 120, "the last-words helper came out empty; wrong name"
+    return region
+
+
+def test_a_joiner_that_never_arrived_has_its_own_last_words_read_out() -> None:
+    """A client that died before arriving is not silent: it wrote where its own text
+    goes, and the branch that reports it has to read that and not the launcher's stderr.
+
+    The measured shape: a joining JVM that crashed at its GL init left
+    `#@!@# Game crashed! Crash report saved to: …/crash-reports/crash-…-client.txt` as
+    the last line of its own `stdout.log`, and left the launcher's stderr file empty —
+    so the run's output said `never arrived within 900s`, printed an empty reading, and a
+    conclusion about the container's display was drawn from that silence instead of from
+    the crash report sitting two directories away. The reading stays inside the joining
+    Kin's own root, takes the newest of its session directories (a repeated run reuses
+    the root, so an older attempt's log must not be quoted as this one's) and prints
+    which file it quoted, so the reader can check the attribution rather than trust it.
+
+    It is a reading and not a judgement: no criterion, no gate, no bundle field moves, and
+    a run whose client left nothing behind still just says so.
+    """
+
+    text = (RUNNER / "domain.sh").read_text(encoding="utf-8")
+
+    assert text.count(f"{JOINER_LAST_WORDS_HELPER}() {{") == 1
+    assert text.count(f"\n        {JOINER_LAST_WORDS_HELPER}\n") == 1
+
+    body = joiner_last_words_region(text)
+
+    # Only the joining Kin's own root is opened, and the host's root is not.
+    roots = re.findall(r"/data/kin/[^\s\"]+", body)
+    assert roots
+    assert all(root == "/data/kin/${joiner}/run/session/" for root in roots)
+    assert "${host" not in body
+
+    # The newest session wins, and it is named — that is what makes an older attempt's
+    # log impossible to quote as this run's by accident.
+    assert "ls -t" in body
+    assert "head -n 1" in body
+    assert JOINER_LAST_WORDS_HEAD in body
+
+    # The crash report is named only if it is there, and a missing file is not a failure:
+    # every read is guarded, so this cannot end the run it is reporting on.
+    assert "crash-reports" in body
+    assert JOINER_CRASH_REPORT_HEAD in body
+    assert body.count("2>/dev/null") >= 2
+    assert "|| true" in body
+    assert "set -e" not in body
+
+    # Both arrival endings read it out, and it happens after the launcher's own stderr
+    # and before the downstream reading — the silence it replaces came from there.
+    call = text.index(f"\n        {JOINER_LAST_WORDS_HELPER}\n")
+    assert call > text.index("tr -d '\\n' </tmp/domain-join-session.err")
+    assert call < text.index("    classify_the_joiner_downstream_readings\n")
+    assert text.index(ARRIVAL_STILL_RUNNING) < call
+    assert text.index(ARRIVAL_LAUNCHER_GONE) < call
+
+
 #: The marker pair of the shipped downstream-reading classifier. Named once because the
 #: cells below both extract the region by it and re-run it against mutated bytes.
 DOWNSTREAM_READING_REGION = "joiner-downstream-reading-target"
