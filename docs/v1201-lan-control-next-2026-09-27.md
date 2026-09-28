@@ -2641,3 +2641,74 @@ Python 侧本轮**没有改任何 `.py`、契约脚本、fixture 或 registry**�
 6. **只读面照旧**：三条只读 GET 之外的写路径仍 405，`V1201-DASHBOARD-WRITE-SURFACE-DECISION`（`docs/standalone-runtime-dashboard.md:180 / :206`）仍在主控手上，本卡没有把只读授权扩成写权限。
 
 本轮不宣称 goal 完成。
+
+## §2.102 面板现在会说这次松键到底还回没回租约：`InputReleased` 的 `had_lease` 进入只读投影，并记下按事件类型的载荷键普查（第一百零二轮，2026-09-29 05:59 +0800，M 亲跑，判据/fixture/registry/门载荷零位移）
+
+### 2.102.1 落点：活体台账里 12 条释放行有两半，投影此前只说得出其中一半
+
+上一轮之后先做了一次按事件类型的载荷键普查（材料 `.tmp/payload_keys_by_type_92.txt`，读的是同一份已封存卷 `kin-lan87b-join`，窗口 400）：
+
+| 事件类型 | 行数 | 载荷键（×次数） | 投影现状 |
+| --- | --- | --- | --- |
+| `SessionStateTransitioned` | 73 | from、to | 已投影 |
+| `InputReleased` | 12 | generation×12、had_lease×12、reason×12 | 只投影 `reason` |
+| `InputLeaseGranted` | 12 | action_id、capability、deadline_monotonic_ns、lease_id、priority | 只投影 `capability` |
+| `SessionInterrupted` | 7 | outcome | §2.101 起已投影 |
+| `SessionProcessStarted` | 7 | argv_digest、client_instance_id、generation、session_id | 无（设计上不投影） |
+| `AuthPolicyFrozen` | 7 | auth_mode、online_adapter_enabled、server_profile_id、server_profile_revision | 未投影（本节缺口 1） |
+| `PlayableEstablished` / `JoinObserved` | 6 / 6 | phase | 已投影 |
+| `SessionIdentityCompared` | 6 | 身份六键 + generation、identity_candidate_id、mismatches、observed_account_type、session_id | 契约 §4 名单内已投影 |
+| `ResourcePackPolicyApplied` | 6 | generation、resource_pack_policy | 已投影 |
+| `BridgeHelloAccepted` | 6 | 无键 | 无载荷可读 |
+
+普查里最刺眼的是 `InputReleased`：12 行里 6 行 `had_lease=True reason=TIMEOUT`、6 行 `had_lease=False reason=EXPLICIT`（逐行值 `.tmp/authpolicy_values_92.txt`）。`reason` 在名单里、`had_lease` 不在，所以 `/timeline` 对这 12 行都只说得出一个词，而 `sessionProgress.ts` 的 `release` 阶段和「释放 N 次」计数把它们一律读成"租约已释放"。`had_lease=False` 那 6 行说的是**松键时手里已经没有租约**（到期后空手回），这正是"执行结果"与"看起来执行了"的差别，也是本 Demo 里可靠简单控制要展示的东西——面板此前把 12 次都算成真实归还。
+
+### 2.102.2 改动落点（仍只点名，不做通用 dump；两份文件，工作树字节纯 LF）
+
+| 文件 | 落点 | blob sha256（LF） |
+| --- | --- | --- |
+| `gateway/readmodel.py` | `_DETAIL_FIELDS` 加入 `"had_lease"` | `a368b556b0c5a90a779ca5bb5b0510b634929acff515a8ef805c950f9787dea4` |
+| `tests/unit/test_gateway_readmodel.py` | 新增两条单测：释放行说出手里有没有租约；点名这枚布尔不把租约内部标识带出来 | `ed2a9768c878028ece4e3b1409e87b13c458b71035ec17245d313df753f3e266` |
+
+`_detail()` 里的取值判据是 `str | int`，Python 的 `bool` 是 `int` 子类，所以这枚布尔不需要改判据就能投影，形状与身份行里的 `matched=True` 一致。Dashboard 侧零改动：`SessionProgressPanel.tsx:57` 本来就逐字渲染 `stage.detail`，`sessionProgress.ts` 也照旧把行原样交给阶段——这与 §2.101 的终态 `detail` 是同一条通路。
+
+### 2.102.3 判别力：删掉 `"had_lease",` 必须先红
+
+- 备份 `gateway/readmodel.py`（`.tmp/readmodel.93.before.py`，sha256 `24b8dff4d22ad9b3e3f5358f0cde23ccbc2d0e3b57e8e6a415b89bd6e3db8a7b`）后从名单里删除那一枚字段 → `uv run pytest tests/unit/test_gateway_readmodel.py -q` **2 failed，rc=1**（两条新单测都断在 `had_lease=` 缺失上）。
+- `cp` 复位到备份字节 → 同一命令 **42 passed，rc=0**。
+- 第二条单测是这一改法的反例：同一行里带上 `lease_id`、`action_id`、`deadline_monotonic_ns`，断言 `detail` 仍只有 `reason=EXPLICIT, had_lease=False`，且这三枚名字/值都不出现在响应体里。所以本卡不能读成"名单越放越松"。
+
+### 2.102.4 活体读数（同一已封存卷，网关 8799，容器 `0c546b6e365b`）
+
+改完注释定稿字节后再 `docker restart` 一次并重新 `curl /timeline?limit=200`（落盘 `.tmp/live_timeline_93.json`），读数与定稿前一致：
+
+| 读数 | 结果 |
+| --- | --- |
+| 服务行数 | 148 |
+| `InputReleased` 行数 | 12，`detail` 分布 `reason=EXPLICIT, had_lease=False` ×6 / `reason=TIMEOUT, had_lease=True` ×6（本卡之前这 12 行只有 `reason=` 一段） |
+| 租约内部标识 | 全响应体不含 `lease_id`、`deadline_monotonic_ns` 字样（判别式扫描） |
+| 阶段渲染 | 面板「输入租约已释放」那条现在会跟着显示 `reason=EXPLICIT, had_lease=False`，操作员能看出这次松键是空手回 |
+
+### 2.102.5 门读数与交付字节（逐条读 rc；本卡没动 bundle/registry/封证）
+
+| 门 | 读数 | rc |
+| --- | --- | --- |
+| 全量单测 | `uv run pytest -q` → 2821 passed, 2 skipped in 408.43s（跑在注释定稿之前的同一份投影逻辑上） | 0 |
+| Lint | `uv run ruff check .` 定稿前 **rc=1**：`E501 Line too long (101 > 100)` 在 `gateway/readmodel.py:93` 的注释行；缩短注释后重跑 `All checks passed!` | 1 → 0 |
+| 格式 | `uv run ruff format --check .` → 394 files already formatted（定稿后重跑） | 0 |
+| 针对性单测 | `uv run pytest tests/unit/test_gateway_readmodel.py -q` → 42 passed（定稿后重跑） | 0 |
+| 类型 | `uv run pyright` → 0 errors | 0 |
+| 边界 / case 摘要 / fixture 摘要 / workflow 钉住 | `check_boundaries.py`、`check_case_assertions.py`、`verify_fixture_digests.py`、`check_workflow_pins.py` | 全 0 |
+
+注释定稿只改了 `#` 行字节，与判据无关：定稿后重跑的是 lint、格式与针对性单测三步，全量单测的 rc=0 读数取自定稿前那一次，本卡没有把它冒充成定稿后的全量读数。判据表、case 摘要、fixture 与 registry 字节零位移，既有封证继续有效，本卡不晋级任何门禁。
+
+### 2.102.6 具名缺口与下一步（不要读成「控制结果已经全部可证」）
+
+1. **`AuthPolicyFrozen` 四枚键仍未投影**：7 行活体值全为 `auth_mode=offline online_adapter_enabled=False server_profile_id=p0-lan-host-fixture server_profile_revision=9874a7e1…`，本卡之前那 7 行 `detail` 都是 `null`。这次普查没有 offline/online 的活体对照（7 行同值），所以那条投影要等 #90/#91 跑出不同形状的会话再落，否则判别力只能靠合成行——本卡不把它混进来冒充已证。
+2. **`InputLeaseGranted` 的 `priority`/`action_id` 仍未投影**：活体 12 行 `priority` 恒为 `NORMAL`，`action_id` 是 32 位十六进制内部标识。前者同样缺活体对照，后者是有意不投影（见 2.102.3 反例）。
+3. **「释放 N 次」这个计数本身仍是行数和**：面板现在能在阶段行里看清哪一次是空手回，但汇总数字没有拆成"真归还 / 空手回"两格。拆分需要在客户端读 `had_lease=` 文本，属字符串耦合，另开一张卡再判，不在本卡顺手改。
+4. **`SessionProcessFailed` 在活体卷里没有行**：§2.101.6 第 1 条那条缺口今天仍然无法活体验证，不是被本卡关掉的。
+5. **4xx 仍被归为断连**（沿用 §2.101.6 第 2 条）；**版本准备进度仍无台账行**（沿用 §2.100.6）。
+6. **只读面照旧**：三条只读 GET 之外的写路径仍 405，`V1201-DASHBOARD-WRITE-SURFACE-DECISION`（`docs/standalone-runtime-dashboard.md:180 / :206`）仍在主控手上，本卡没有把只读授权扩成写权限。
+
+本轮不宣称 goal 完成。

@@ -88,6 +88,9 @@ _NO_BUNDLE: Final = "本 run 还没有已封的证据 bundle：封证只在 case
 # `outcome` joins it because it is the only carrier for *why* a session stopped: Core
 # writes the SessionOutcome name into the interruption row, and without it the panel can
 # only say 会话被中断 and the operator cannot tell a lost bridge from a timed-out handshake.
+# `had_lease` joins it for the same reason on the other side of a control action: Core writes it
+# into every release row, and only there does a hand-back say whether a lease was still held.
+# With just `reason` an already-expired lease and a real one both read as 释放.
 _DETAIL_FIELDS: Final = (
     "reason",
     "phase",
@@ -96,6 +99,7 @@ _DETAIL_FIELDS: Final = (
     "to",
     "capability",
     "outcome",
+    "had_lease",
 )
 
 # The identity comparison row carries the only refusal signal Core writes for an offline

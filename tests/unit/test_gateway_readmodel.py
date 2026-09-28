@@ -465,6 +465,50 @@ def test_naming_the_outcome_does_not_open_the_payload_to_a_dump(tmp_path: Path) 
     assert CANARY not in json.dumps(events, ensure_ascii=False)
 
 
+def test_a_release_row_says_whether_a_lease_was_actually_held(tmp_path: Path) -> None:
+    """A hand-back that released nothing is a different reading from one that did.
+
+    The live LAN Kin holds 12 release rows: 6 with `had_lease=True reason=TIMEOUT` and 6 with
+    `had_lease=False reason=EXPLICIT`. Projecting only `reason` served both as a plain release, so
+    the panel's 释放 N 次 counted an empty hand-back (the deadline had already lapsed) as a real one
+    and the operator could not see which key presses actually gave the lease back.
+    """
+
+    seed_kin(tmp_path, with_marker=False)
+    record(tmp_path, INPUT_RELEASED, {"reason": "TIMEOUT", "had_lease": True})
+    record(tmp_path, INPUT_RELEASED, {"reason": "EXPLICIT", "had_lease": False})
+
+    events = build_timeline(tmp_path, limit=5)
+
+    assert str(events[0]["detail"]) == "reason=EXPLICIT, had_lease=False"
+    assert str(events[1]["detail"]) == "reason=TIMEOUT, had_lease=True"
+
+
+def test_naming_the_lease_flag_does_not_leak_the_lease_internals(tmp_path: Path) -> None:
+    """The counterexample for the clause above: identifiers and a deadline stay in the ledger."""
+
+    seed_kin(tmp_path, with_marker=False)
+    record(
+        tmp_path,
+        INPUT_RELEASED,
+        {
+            "reason": "EXPLICIT",
+            "had_lease": False,
+            "lease_id": "lease-9031",
+            "action_id": CANARY,
+            "deadline_monotonic_ns": 16605403739239,
+        },
+    )
+
+    events = build_timeline(tmp_path, limit=5)
+
+    assert str(events[0]["detail"]) == "reason=EXPLICIT, had_lease=False"
+    document = json.dumps(events, ensure_ascii=False)
+    assert CANARY not in document
+    assert "lease-9031" not in document
+    assert "deadline_monotonic_ns" not in document
+
+
 def test_a_refused_comparison_reports_itself_as_a_rejection_and_names_why(tmp_path: Path) -> None:
     """Core writes this row for a read it then refuses, in exactly the shape of a matched one.
 
