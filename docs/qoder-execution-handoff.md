@@ -2113,3 +2113,4 @@ the target allows 1.21.4"}`，配对文档 `mismatch.json` 是 `schema_version 2
 7. **落盘与推送**：base `b3e753de19533c3da9034f8b47139904db2fa623`，一笔提交后 `push origin main:main`，再 `git ls-remote origin refs/heads/main` 回读，并核 `git status --porcelain` 0 行。新晋 main 的 CI 步骤级读数留下一轮。
 8. **四态**：设计卡已入干 / 登记与真跑未开工 / 无 sealed bundle 新增（0 次挂卷）/ 无强制用例集位移。真实封证仍 **1**（`5086ee42…64f6` / run `a224f6c3…`，出处 `docs/validation/v1201-lan-joiner-control-seal-2026-09-28.md:6-7`）。
 9. **不宣称完成**：objective 的每一半（lane 在途工作由 lane 自收并按文档顺序推进 V5′/H1i/M-C1/E7/M-G1 之后的格）仍未全部达成；本族的晋级、`mandatory`/registry 位移、V08 与用户远程服、HOST 一切仍属主控保留，本轮只写设计卡。
+10. **同轮补记（CI 欠账已清）**：`b3e753d…` 的 push run `36377489950` = `completed/success`，三 job 步骤数 9/18/10、`NON_SUCCESS_STEPS` 与 `JOB_CONCLUSION_BREAKS` 全空 ⇒ 第八十二轮留下的那笔读数闭合。`d18a199`（本轮落盘笔）自身的 run 未取，留下一轮。日志 `.tmp/m-r83/ci-steps.log`。
