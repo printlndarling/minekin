@@ -2058,3 +2058,55 @@ python .tmp/ci_steps.py c43a6d3   # 日志：.tmp/m-r74-ci-c43a6d3.log
 10. **仍未纳（具名）**：LAN 形状里宿主 session 恒 `session exited 14`、run document 是宿主侧 `outcome BRIDGE_LOST`，本卡照记录不修饰；把 `BRIDGE_FAULT`/`reasonFor` 的异常文本落进封证要改 `bridge/` 字节，不属本卡；未到达的机制未命名（第 8 条）；旧封证 `5086ee42…` 与 run 2 的 FAIL `62e648fa…` 保留为历史证据，registry 未做摘要互换。
 11. **下一张执行卡（登记不入册为 integration NEXT）**：`#86 V1201-LAN-JOINER-ARRIVAL-DIAGNOSIS-001`——用现在能报遗言的字节，在同一私有卷上按同一 ask 重跑若干发，把「未到达」按遗言分类（GL 初始化崩 / 握手超时 / 桥断）量成具名分布，再决定是否给 `demo-lan.sh` 加自动重跑。主干唯一 integration `NEXT` 仍是 `PARALLEL-INTEGRATION-GATE-001`；`V1201-MOVE-WINDOW-ATTRIBUTION-001`、`V1201-PROBE-SAMPLE-CADENCE-001` 仍 `QUEUED`。
 12. **不变量**：判据、fixture、registry、`case_version`、封存 schema、`MINIMUM_STEP_BLOCKS` 与授权窗长度零位移；`domain.sh` 的字节未被任何摘要钉住（registry 里只有路径字符串），本卡不触发重封；真实封证数量未变；未连接用户远程服、未扩公网、未改在线认证、未替用户决定 HOST/PERSIST、未晋级产品门禁、未删除失败材料（run 2 的崩溃与两条已证伪解释的 diff 均保留）、规范卷只读。本轮不宣称 goal 完成。
+
+## §2.94 账本的身份比对行不再把拒止报成 applied：outcome 改读该行自己的 matched，detail 只出契约 §4 点名的七个字段（第九十四轮，2026-09-29 01:05 +0800，M 亲跑，判据/fixture/registry/门载荷零位移）
+
+**这一轮修的是 P2 的一个真实读数缺陷，不是补文档。** 目标里 P2 要求 Dashboard「展示契约允许暴露的真实观察数据」并「展示执行与拒绝结果」，而账本时间线此前对 `SessionIdentityCompared` 这一行硬编码成 `("observation", "applied")` 且 `detail` 为空。Core 的写入点在 `minekin_core/domain/session_runtime.py:640-648`——它**先落行、后判定**，所以每一次读取尝试都留一行，包括随后被拒的那些。结果就是：一次被拒的离线身份快照在面板上和一次成功的会话完全一样，而且说不出为什么被拒。这是把拒止冒充接受，属于「不用 mock 数据冒充完成」的反面。
+
+### 2.94.1 改动（正式代码两文件，均在出货字节上量过）
+
+- `gateway/readmodel.py`
+  - 新增具名列表 `_IDENTITY_DETAIL_FIELDS`（七个：`session_username`、`session_uuid`、`matched`、`mismatches`、`client_id_present`、`xuid_present`、`credential_values_exposed`）——即契约 `docs/gateway-dashboard-readonly-contract-2026-09-28.md` §4 规则 1 点名的那七个，一个不多。
+  - 新增 `_identity_outcome(payload)`：`matched is True` → `applied`；`is False` → `rejected`；其余（缺失、或写成 `1` 这种形似值）→ `unknown`。必须是 Core 自己的布尔，形似值不算匹配。
+  - 新增 `_identity_detail(payload)`：只渲染上面七个具名字段，`mismatches` 为空时整段不出现（空列表什么都没说）；`TIMELINE_READING[SESSION_IDENTITY_COMPARED]` 从 `("observation", "applied")` 改成 `("observation", "unknown")`，只作为读不出判定时的兜底；`build_timeline` 循环里对该行覆写 outcome。
+  - **通用投影 ` _DETAIL_FIELDS` 逐字节保持原样**：身份字段只通过 `if row.event_type == SESSION_IDENTITY_COMPARED` 追加，不扩到通用路径。（中途我曾把通用循环改成按类型分表的写法，自查发现那会让非身份事件上的列表值 `from/to/phase` 也开始外溢，已回退。）
+- `tests/unit/test_gateway_readmodel.py`：+3 个测试（拒止侧具名原因 / 读不出判定时报 unknown 且 detail 为空 / 投影不越出 §4 点名的字段集），并给既有的观察行测试加 `detail == "matched=True"`。凭据金丝雀那个既有测试（正对照 `reason=identity matched` + `access_token`/`Authorization`/`clientId` 缺席）原样保留且仍绿。前端无需改动：`dashboard/src/adapters/gatewayAdapter.ts:82` 的 `TIMELINE_OUTCOMES` 已含 `rejected`/`unknown`，`dashboard/src/panels/TimelinePanel.tsx:54-61` 已有 `applied→ok / unknown→muted / 其余→warn` 的色调并渲染 `event.detail`。
+
+### 2.94.2 同一份被拒行上的改前 / 改后（`.tmp/p2-identity/before_after.py`，把 HEAD 字节按模块加载后跑同一 fixture 行）
+
+- HEAD（改前）：`outcome 'applied'`，`detail None`
+- 出货字节（改后）：`outcome 'rejected'`，`detail 'session_username=Tester, session_uuid=25519000-0000-4000-8000-000000000000, matched=False, mismatches=uuid, client_id_present=True, xuid_present=False, credential_values_exposed=False'`
+
+### 2.94.3 门读数（全部在最终字节上跑）
+
+- `pytest tests/unit/test_gateway_readmodel.py` → **34 passed**。
+- `pytest tests/unit tests/contract` → **2804 passed, 2 skipped**（基线 2801 + 本卡 3 条新测试；两条 skip 是既有的平台性 skip：`test_orphans.py:686`、`test_silent_listener.py:123`）。
+- `pyright gateway tests/unit/test_gateway_readmodel.py` → **0 errors**。先量到 3 处由本卡引入，都是真问题并已在提交前修掉：`_identity_detail` 里遍历 `Any` 得到的两处 `reportUnknownVariableType`/`reportUnknownArgumentType`（改用本模块既有的 `cast("Sequence[object]", …)` 写法），以及测试里 import 私有 `_IDENTITY_DETAIL_FIELDS` 的 `reportPrivateUsage`——那条不是加 `# pyright: ignore`，而是把断言换成黑盒读法：既然 fixture 行带齐七个具名字段，就直接解析 `detail` 报出的键集并要求 **等于** 契约点名的七元集（比检查声明用的元组更强：多报一个字段或少报一个字段都会红）。全仓 `uv run pyright` 未重跑（本卡只碰这两个文件）。
+- `ruff check .` → All checks passed。`ruff format --check .` → **394 files already formatted**（与本轮前的数一致：本卡未新增受版本控制的文件；按 [[project-ruff-format-counts-md]] 该数含 `.md`，多一份交付文档就 +1）。
+- `tools/check_case_assertions.py` → **OK (151 registered)**；`tools/check_boundaries.py` → **Minekin package dependency boundaries: OK**。⇒ 判据 / fixture / registry / 门载荷零位移：本卡没碰 `src/`、`tools/`、`test-orchestrator/`，也没有新增台账事件类型（Core 的 `SESSION_EVENT_TYPES` 是评审门控的白名单，私自加类型会在构造台账时 `ValueError`）。
+
+### 2.94.4 反证（五种形状，`.tmp/p2-identity/countercheck.py`；最终字节 `readmodel.py` = `242b3b414745ab5cf0d03345bd277482bec0fbae7b1a6ed92ff59a5fa7c4889a`）
+
+| 形状 | 失败测试数 | 抓到它的测试 |
+| --- | --- | --- |
+| A HEAD 字节（改前缺陷） | 4 | 观察行 / 拒止具名 / unknown 兜底 / 字段不越界 |
+| B 出货字节 | 0（34 passed） | —— |
+| C 把 outcome 钉成「永远 matched」 | 2 | 拒止具名、unknown 兜底 |
+| D 关掉身份 detail 投影 | 4 | 四个身份测试全红 |
+| E 把字段表加宽到 §4 未点名的 `identity_candidate_id`、`observed_account_type` | 1 | 字段不越界 |
+
+跑完还原并复核摘要：`restored: 242b3b41…  matches backup: True`。形状 A 在修 pyright 前测不出行为（它因导入私有名而收集期 rc=2），现在它是 4 条真实失败——改前缺陷的可读性因此也被重新量过。E 的 `identity_candidate_id` 会作为 `mismatches` 的**值**合法出现，所以那条测试用的是 `MISMATCH_UUID`，并同时断言 `mismatches=uuid` 确实报出（否则两次「缺席」只是巧合而非读数）——这是我在这张卡上唯一一次自己写错断言并被测试纠正。
+
+### 2.94.5 活体 HTTP 读数（最终字节，loopback 127.0.0.1:8778，服务真实台账的只读副本）
+
+数据根：`.tmp/p2-identity/live/kin/kin-lan87b-join/kin.sqlite3`（90112 B，从 `minekin-m87b-lan` 卷以 `:ro` 绑挂后取出的副本；加入者的库带 `-wal/-shm`，按 [[project-join-stage-carriers]] 的 `:ro` WAL 陷阱不能原地只读打开，故取副本、原卷从未以写方式打开）。`GET /api/v1/dashboard/timeline?kin=kin-lan87b-join&limit=50` → **50 行，其中 2 条身份比对行**：
+
+- `ledger://kin-lan87b-join/46` 与 `ledger://kin-lan87b-join/23`：`kind observation`、`outcome applied`、`detail session_username=Kin2, session_uuid=20d2112d-ecc9-3e0b-a7f4-5b830b9e6451, matched=True, client_id_present=False, xuid_present=False, credential_values_exposed=False`（存盘 `.tmp/p2-identity/timeline-live-final.json`）。报出的是台账里真写着的名字与 UUID，不是占位。
+
+### 2.94.6 具名缺口（不要把它读成「拒止一侧已验收」）
+
+七个卷的台账里**没有任何一条 `matched=false` 的身份比对行**：m87-lan、m85-campaign、m82-campaign、v4-join、local-demo、m-p1-live、runner-data（含 `kin-01` 的 48 行）。⇒ 拒止（`rejected`）与读不出判定（`unknown`）这两侧目前只有按 Core payload 形状构造的单测材料支撑，没有活体例子；离线形状下 Core 尚未写过一次拒止。要拿到活体拒止需要在线认证或凭据失配场景，那属于本任务边界外（不改变在线认证策略、不连远程服），因此**不为本卡制造**，按原样登记。
+
+### 2.94.7 落点与下一步
+
+提交 `7b984a8`（`fix(gateway): report an identity comparison by its own verdict, not as applied`），已推 `origin main`，远端 `git ls-remote` 核对为 `7b984a897b836b1473ca49c836af827589c8392e` == 本地 HEAD。`.tmp/p2-identity/` 保留三个实验件（`countercheck.py`、`before_after.py`、两份 timeline JSON）与字节备份 `readmodel.orig`，其反证已迁入正式测试（三条新测试即覆盖 outcome/detail/边界三面），故 `.tmp` 里不再留可复用判据。下一张：P2 仍欠的是**契约允许的启动/停止操作面**——只读契约下不能自行扩权，控制接口是另一待决策卡（§3 已登记）；P3 的干净/重复两次真跑已闭（任务 #80）。本轮不宣称 goal 完成。
