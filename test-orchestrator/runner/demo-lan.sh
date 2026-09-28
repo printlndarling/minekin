@@ -17,9 +17,12 @@
 # Usage:
 #   MINEKIN_SERVER_JAR=<path> bash test-orchestrator/runner/demo-lan.sh
 #   MINEKIN_SERVER_JAR=<path> bash test-orchestrator/runner/demo-lan.sh --again
+#   bash test-orchestrator/runner/demo-lan.sh --gateway
 #
 # `--again` repeats on the Kin roots this demo already filled, so neither client
-# has to fetch the bundle a second time.
+# has to fetch the bundle a second time. `--gateway` serves the read-only Dashboard
+# projection over whatever this demo's volume holds, which is what lets a browser on
+# this machine read the session the joining Kin just had.
 #
 # Environment (all but the jar have defaults):
 #   MINEKIN_DEMO_LAN_VOLUME       named volume holding both Kin roots   (minekin-lan-demo)
@@ -45,6 +48,8 @@
 #                                  inside the window, then readings of a corpse.
 #   MINEKIN_DEMO_LAN_KILL_AFTER    seconds after that player's join line the world kills
 #                                  it  (12, i.e. behind the hold and its release)
+#   MINEKIN_DEMO_LAN_GATEWAY_PORT  the loopback port --gateway publishes  (8787)
+#   MINEKIN_DEMO_LAN_GATEWAY_KIN   which Kin root --gateway serves        (the joining one)
 #
 # The three control bounds are the driver's, not this script's: `domain.sh`
 # refuses an ask outside them rather than clamping it, so widening one here is
@@ -81,6 +86,15 @@ CASE="${MINEKIN_DEMO_LAN_CASE:-v1201-lan-joiner-control-case-001}"
 HANDSHAKE_SECONDS="${MINEKIN_DEMO_LAN_HANDSHAKE_SECONDS:-90}"
 KILL_PLAYER="${MINEKIN_DEMO_LAN_KILL:-}"
 KILL_AFTER="${MINEKIN_DEMO_LAN_KILL_AFTER:-12}"
+
+# Where the read model is published for `--gateway`, and which of the two Kin roots it
+# projects. The joining one is the default because it is the client this demo operates:
+# the control chain's applied actions, refusals and identity comparisons are all in that
+# ledger, while the host's holds the world it started. 8787 is `gateway.server`'s own
+# default port and the dev server's own proxy target, named here because both halves
+# have to agree on the number and a machine already holding 8787 needs to say so once.
+GATEWAY_PORT="${MINEKIN_DEMO_LAN_GATEWAY_PORT:-8787}"
+GATEWAY_KIN="${MINEKIN_DEMO_LAN_GATEWAY_KIN:-${JOIN_KIN}}"
 
 # The death timing is a count of whole seconds, and `domain.sh` refuses anything it
 # cannot place. Refusing the bad ask here means the operator hears about it before the
@@ -126,15 +140,56 @@ fi
 command="${1:-}"
 case "${command}" in
     --again) command="again" ;;
+    --gateway) command="gateway" ;;
     "") command="clean" ;;
     *)
-        printf 'demo-lan: unknown argument %q (expected --again or nothing)\n' "${command}" >&2
+        printf 'demo-lan: unknown argument %q (expected --again, --gateway, or nothing)\n' "${command}" >&2
         exit 2
         ;;
 esac
 if [ -n "${2:-}" ]; then
     printf 'demo-lan: takes at most one argument, got %q and %q\n' "${command}" "$2" >&2
     exit 2
+fi
+
+if ! docker image inspect "${IMAGE}" >/dev/null 2>&1; then
+    printf 'demo-lan: the runner image %s is not present. Build it with:\n' "${IMAGE}" >&2
+    printf '      docker build -f test-orchestrator/runner/Dockerfile -t %s .\n' "${IMAGE}" >&2
+    exit 2
+fi
+
+kin_exists() {
+    env MINEKIN_RUNNER_DATA="${VOLUME}" bash "${HERE}/run.sh" --shell \
+        "[ -d /data/kin/$1 ]" >/dev/null 2>&1
+}
+
+# The gateway half reads one of this demo's two Kin roots and needs nothing else: no
+# jar, and no session still running, because it projects the ledger and the sealed
+# evidence that are already on disk. A volume holding two roots is the one shape where
+# `--kin` is not a detail the server can guess for itself, so this entry names the root
+# it serves rather than leaving the operator to reproduce the argument list.
+#
+# `--host 0.0.0.0` is not this service reaching the network — see demo.sh. What decides
+# who can connect is the host-side binding, and `run.sh` writes that as 127.0.0.1.
+if [ "${command}" = "gateway" ]; then
+    if ! kin_exists "${GATEWAY_KIN}"; then
+        printf 'demo-lan: --gateway would serve Kin root %s, which volume %s does not hold.\n' "${GATEWAY_KIN}" "${VOLUME}" >&2
+        printf '      Run this demo first, or point MINEKIN_DEMO_LAN_GATEWAY_KIN at a root it has filled.\n' >&2
+        exit 2
+    fi
+    printf 'demo-lan: the read model for Kin %s will be reachable at http://127.0.0.1:%s -- from this machine only\n' \
+        "${GATEWAY_KIN}" "${GATEWAY_PORT}"
+    printf 'demo-lan: then serve the panel, naming this port as its proxy target, and open\n'
+    printf 'demo-lan:   MINEKIN_GATEWAY_TARGET=http://127.0.0.1:%s pnpm --dir dashboard dev\n' "${GATEWAY_PORT}"
+    printf 'demo-lan:   http://127.0.0.1:5175/?adapter=gateway&gateway=/gateway\n'
+    printf 'demo-lan: (the panel reaches the published gateway through the dev-server proxy; the\n'
+    printf 'demo-lan:  target defaults to 8787, so a run on another port has to say so or the\n'
+    printf 'demo-lan:  panel reads a port nothing answered on and shows itself disconnected)\n'
+    exec env MINEKIN_RUNNER_DATA="${VOLUME}" MINEKIN_KIN_ID="${GATEWAY_KIN}" \
+        MINEKIN_RUNNER_PUBLISH="${GATEWAY_PORT}" \
+        bash "${HERE}/run.sh" --shell \
+        "python -m gateway.server --data-root /data --kin ${GATEWAY_KIN} \
+--host 0.0.0.0 --port ${GATEWAY_PORT} ${GATEWAY_ARGS:-}"
 fi
 
 SERVER_JAR="${MINEKIN_SERVER_JAR:-}"
@@ -144,17 +199,7 @@ if [ -z "${SERVER_JAR}" ] || [ ! -f "${SERVER_JAR}" ]; then
     printf '          --version 1.20.1 --save-server .tmp/mc-1.20.1-server.jar --max-bytes 60000000\n' >&2
     exit 2
 fi
-if ! docker image inspect "${IMAGE}" >/dev/null 2>&1; then
-    printf 'demo-lan: the runner image %s is not present. Build it with:\n' "${IMAGE}" >&2
-    printf '      docker build -f test-orchestrator/runner/Dockerfile -t %s .\n' "${IMAGE}" >&2
-    exit 2
-fi
 docker volume create "${VOLUME}" >/dev/null
-
-kin_exists() {
-    env MINEKIN_RUNNER_DATA="${VOLUME}" bash "${HERE}/run.sh" --shell \
-        "[ -d /data/kin/$1 ]" >/dev/null 2>&1
-}
 
 if [ "${command}" = "clean" ]; then
     if kin_exists "${HOST_KIN}"; then
@@ -279,3 +324,7 @@ printf '      env MINEKIN_RUNNER_DATA=%s bash test-orchestrator/runner/run.sh --
 printf '        "PYTHONPATH=/src/src python /src/tools/read_move_window.py --bundle <evidence_directory> --all-controls"\n'
 printf '  evidence      : env MINEKIN_RUNNER_DATA=%s bash test-orchestrator/runner/run.sh --shell \\\n' "${VOLUME}"
 printf '        "python -m minekin_core evidence verify <run_id>"\n'
+printf '  the panel     : bash test-orchestrator/runner/demo-lan.sh --gateway\n'
+printf '                  then the two commands that entry prints. The world this run started is\n'
+printf '                  gone with its container; Ctrl-C stops the read model, and the Kin roots\n'
+printf '                  on volume %s keep what the run wrote.\n' "${VOLUME}"

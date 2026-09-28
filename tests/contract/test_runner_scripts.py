@@ -4970,3 +4970,226 @@ def test_the_publish_knob_arms_one_loopback_binding_and_nothing_else(tmp_path: P
         assert refused.returncode == 2, f"{value!r} was accepted: rc {refused.returncode}"
         assert "MINEKIN_RUNNER_PUBLISH" in refused.stderr, refused.stderr
         assert recorded_docker_argv(refused) == [], f"{value!r} reached docker anyway"
+
+
+#: Which of the two roots a LAN volume's read model serves. The volume holds both, and
+#: only one of them is the client the demo operated.
+LAN_GATEWAY_DEFAULT_ROOT = "kin-lan-join"
+LAN_GATEWAY_HOST_ROOT = "kin-lan-host"
+
+#: The Kin root the single-client demo owns by default. Named here because the shared
+#: printout reading checks that each entry serves its own root and not the other's.
+ONE_KIN_DEFAULT_ROOT = "kin-local-demo"
+
+#: The half of the printed panel command that carries the port. The dev server's proxy
+#: target defaults to 8787 and is set outside these entries, so an entry that publishes
+#: another port has to print the number as part of the command it hands over.
+GATEWAY_TARGET_PREFIX = "MINEKIN_GATEWAY_TARGET=http://127.0.0.1:"
+
+#: A `docker` that contacts nothing. `image inspect` always succeeds, the `[ -d … ]`
+#: probe is answered from the roots the test declares, and every other call is one
+#: container the real script would have started — kept verbatim as argv.
+GATEWAY_DOCKER_STUB = """#!/usr/bin/env bash
+set -uo pipefail
+if [ "$1" = "image" ]; then
+    exit 0
+fi
+for arg in "$@"; do
+    case "${arg}" in
+        "[ -d /data/kin/"*)
+            root=${arg#"[ -d /data/kin/"}
+            root=${root%% ]*}
+            case " ${STUB_ROOTS:-} " in
+                *" ${root} "*) exit 0 ;;
+                *) exit 1 ;;
+            esac
+            ;;
+    esac
+done
+{
+    printf 'RUN\\n'
+    printf 'ARG:<%s>\\n' "$@"
+} >>docker-argv.log
+exit 0
+"""
+
+#: Every knob the two demo entries read. A value left over from whoever ran pytest would
+#: move a volume, name a different Kin, or ask for a death, so all of them are stripped
+#: unless the row itself sets them. `MINEKIN_SERVER_JAR` is always stripped — that is the
+#: clause saying the read model needs no world to read.
+DEMO_GATEWAY_ENV_NAMES = (
+    "MINEKIN_SERVER_JAR",
+    "MINEKIN_RUNNER_PUBLISH",
+    "MINEKIN_DEMO_VOLUME",
+    "MINEKIN_DEMO_KIN",
+    "MINEKIN_DEMO_GATEWAY_PORT",
+    "MINEKIN_DEMO_KILL",
+    "MINEKIN_DEMO_KILL_AFTER_SECONDS",
+    "MINEKIN_DEMO_LAN_VOLUME",
+    "MINEKIN_DEMO_LAN_HOST_KIN",
+    "MINEKIN_DEMO_LAN_JOIN_KIN",
+    "MINEKIN_DEMO_LAN_GATEWAY_KIN",
+    "MINEKIN_DEMO_LAN_GATEWAY_PORT",
+    "MINEKIN_DEMO_LAN_KILL",
+    "MINEKIN_DEMO_LAN_KILL_AFTER",
+    "STUB_ROOTS",
+)
+
+
+def demo_gateway_run(
+    tmp_path: Path,
+    label: str,
+    script: str,
+    *,
+    overrides: dict[str, str] | None = None,
+    roots: tuple[str, ...] = (LAN_GATEWAY_DEFAULT_ROOT, LAN_GATEWAY_HOST_ROOT),
+) -> tuple[subprocess.CompletedProcess[str], list[list[str]]]:
+    """Drive a shipped demo entry's `--gateway` against a docker that only records.
+
+    Both entries reach the container through `run.sh`, so what comes back is the argv of
+    the one container the real script would have started. Each reading gets its own working
+    directory, so one row can never read the containers an earlier row started; the log is
+    written relative to that directory, which keeps no host path shape out of the bash side.
+    """
+
+    work = tmp_path / label
+    work.mkdir(parents=True, exist_ok=True)
+    stub = work / "docker"
+    stub.write_text(GATEWAY_DOCKER_STUB, encoding="utf-8", newline="\n")
+    stub.chmod(0o755)
+
+    environment = dict(os.environ)
+    for name in DEMO_GATEWAY_ENV_NAMES:
+        environment.pop(name, None)
+    environment["STUB_ROOTS"] = " ".join(roots)
+    environment["PATH"] = os.pathsep.join([str(work), environment["PATH"]])
+    if overrides is not None:
+        environment.update(overrides)
+
+    bash = shutil.which("bash")
+    assert bash is not None, f"no bash on PATH to drive {script} with"
+    result = subprocess.run(
+        [bash, str(RUNNER / script), "--gateway"],
+        capture_output=True,
+        check=False,
+        cwd=str(work),
+        env=environment,
+        text=True,
+    )
+    log = work / "docker-argv.log"
+    runs = [
+        [line[5:-1] for line in section.splitlines() if line.startswith("ARG:<")]
+        for section in (log.read_text(encoding="utf-8").split("RUN\n") if log.exists() else [])
+        if section.strip()
+    ]
+    return result, runs
+
+
+def gateway_command(runs: list[list[str]]) -> str:
+    """The in-container command of the single container one reading started.
+
+    `run.sh --shell` reaches docker with that command twice — once as the `-lc` operand and
+    once as what is left of its own argument list — so the shape this names is one command
+    handed two ways, and a second *different* launch is what turns red here.
+    """
+
+    assert len(runs) == 1, f"expected one container, got {len(runs)}"
+    words = {word for word in runs[0] if "gateway.server" in word}
+    assert len(words) == 1, f"the read model was launched more than one way: {sorted(words)}"
+    return words.pop()
+
+
+def test_the_lan_demo_serves_the_operated_kin_on_the_port_it_prints(tmp_path: Path) -> None:
+    """V1201-LAN-DEMO-GATEWAY-ENTRY-001: the two-client session is readable in a browser.
+
+    `demo.sh --gateway` could already publish the one-Kin demo's read model; the LAN demo,
+    which is the one that actually operates a client, could not — `--gateway` was not even
+    an argument it knew. Three readings, each the counterexample for one of the others:
+
+    * Asked on a non-default port with no root named, it publishes exactly that port on
+      loopback, serves **the joining** root rather than the hosting one, and prints the
+      panel command with the same port baked into `MINEKIN_GATEWAY_TARGET`. The last
+      clause is the one a `--gateway` that only knew 8787 turns red on: the dev server's
+      proxy target is a second, independent binding, so publishing 8791 and printing a
+      bare `pnpm dev` hands the operator a panel reading a port nothing answered on — and
+      a panel showing itself disconnected is not a product failure the run document can
+      see. Defaulting to the joiner is the clause a host-first implementation turns red
+      on: the host's ledger holds the world it started, not the controls that were judged.
+    * Named at the hosting root, it serves that one instead, which is what keeps the
+      default a choice rather than the only behaviour.
+    * On a volume that holds neither root it refuses by name with rc 2 and publishes
+      nothing — the alternative is a container listening on a loopback port behind an
+      empty read model.
+
+    Every reading is also a jar-free one: `MINEKIN_SERVER_JAR` is stripped before the
+    entry runs, so a `--gateway` that still asked for the world's jar would exit 2 here.
+    """
+
+    armed, armed_runs = demo_gateway_run(
+        tmp_path, "armed", "demo-lan.sh", overrides={"MINEKIN_DEMO_LAN_GATEWAY_PORT": "8791"}
+    )
+    assert armed.returncode == 0, f"{armed.returncode}: {armed.stderr}"
+    argv = armed_runs[0]
+    assert argv[argv.index("-p") + 1] == "127.0.0.1:8791:8791", argv
+    command = gateway_command(armed_runs)
+    assert f"--kin {LAN_GATEWAY_DEFAULT_ROOT}" in command, command
+    assert f"--kin {LAN_GATEWAY_HOST_ROOT}" not in command, command
+    assert "--port 8791" in command, command
+    assert f"{GATEWAY_TARGET_PREFIX}8791 pnpm --dir dashboard dev" in armed.stdout, armed.stdout
+    assert not any("server.jar" in word for word in argv), argv
+
+    moved, moved_runs = demo_gateway_run(
+        tmp_path,
+        "moved",
+        "demo-lan.sh",
+        overrides={
+            "MINEKIN_DEMO_LAN_GATEWAY_PORT": "8792",
+            "MINEKIN_DEMO_LAN_GATEWAY_KIN": LAN_GATEWAY_HOST_ROOT,
+        },
+    )
+    assert moved.returncode == 0, f"{moved.returncode}: {moved.stderr}"
+    host_command = gateway_command(moved_runs)
+    assert f"--kin {LAN_GATEWAY_HOST_ROOT}" in host_command, host_command
+    assert f"{GATEWAY_TARGET_PREFIX}8792 pnpm --dir dashboard dev" in moved.stdout, moved.stdout
+
+    refused, refused_runs = demo_gateway_run(
+        tmp_path,
+        "refused",
+        "demo-lan.sh",
+        overrides={"MINEKIN_DEMO_LAN_GATEWAY_PORT": "8793"},
+        roots=(),
+    )
+    assert refused.returncode == 2, f"an empty volume was accepted: rc {refused.returncode}"
+    assert "does not hold" in refused.stderr, refused.stderr
+    assert refused_runs == [], f"a gateway was published over an empty volume: {refused_runs}"
+
+
+def test_both_demo_entries_print_the_panel_command_for_their_own_port(tmp_path: Path) -> None:
+    """V1201-LAN-DEMO-GATEWAY-ENTRY-001: publishing the port and naming it are one act.
+
+    The read model being reachable is half of a browser reading a session. The other half
+    is the line the operator copies into a second shell, and the dev server's proxy target
+    is an independent binding that defaults to 8787 outside these entries — so an entry
+    that publishes 8794 while printing a bare `pnpm --dir dashboard dev` hands over a panel
+    pointed at a port nothing answered on. That panel shows itself disconnected while the
+    session it was meant to display is intact, which is a failure the run document cannot
+    see. Both entries are read at the same non-default port with the same two clauses,
+    because the rule is one rule and the LAN demo inherits the shape from the single-Kin
+    one: a fix landed on one entry is the same break left open on the other. Each row also
+    serves its own entry's Kin root rather than the other's.
+    """
+
+    rows = (
+        ("one", "demo.sh", "MINEKIN_DEMO_GATEWAY_PORT", "8794", ONE_KIN_DEFAULT_ROOT),
+        ("lan", "demo-lan.sh", "MINEKIN_DEMO_LAN_GATEWAY_PORT", "8795", LAN_GATEWAY_DEFAULT_ROOT),
+    )
+    for label, script, port_env, port, kin in rows:
+        result, runs = demo_gateway_run(tmp_path, label, script, overrides={port_env: port})
+        assert result.returncode == 0, f"{script}: rc {result.returncode}: {result.stderr}"
+        haystack = f"{GATEWAY_TARGET_PREFIX}{port} pnpm --dir dashboard dev"
+        assert haystack in result.stdout, f"{script} printed no proxy target: {result.stdout}"
+        argv = runs[0]
+        assert argv[argv.index("-p") + 1] == f"127.0.0.1:{port}:{port}", f"{script}: {argv}"
+        command = gateway_command(runs)
+        assert f"--kin {kin}" in command, f"{script}: {command}"
+        assert f"--port {port}" in command, f"{script}: {command}"

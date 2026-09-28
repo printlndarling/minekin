@@ -138,6 +138,54 @@ too, and anything else stops the run rather than guessing. The product deliberat
 has no online-mode admission path, so the disagreement is created on the server the
 case starts, and only there.
 
+## The two-client demo entry point
+
+`demo-lan.sh` is the same loop with a second Kin. One hosts the world, the other joins it,
+and the joining one is what the harness drives and then asks the world about: a look of at
+most 45° yaw and 30° pitch, one forward hold of at most 2 s, and a position probe every
+second for the soak window. That is the shape the reliable-control judgement is made on, so
+this entry — not `demo.sh` — is the demo of a client being controlled.
+
+```text
+MINEKIN_SERVER_JAR=.tmp/mc-1.20.1-server.jar bash test-orchestrator/runner/demo-lan.sh
+MINEKIN_SERVER_JAR=.tmp/mc-1.20.1-server.jar bash test-orchestrator/runner/demo-lan.sh --again
+bash test-orchestrator/runner/demo-lan.sh --gateway
+```
+
+Both clients run on one named volume (`minekin-lan-demo`) under two Kin roots
+(`kin-lan-host`, `kin-lan-join`) and two accounts (`Kin`, `Kin2`), and the run seals against
+`v1201-lan-joiner-control-case-001` on the joining side. The world is the fixed
+`controlled-offline-server-1.20.1` profile and the recipe is the fixed
+`bundle-candidate-1.20.1` profile — a named bundle rather than `--auto-bundle`, because the
+entry starts a second client and an auto resolution would prepare the joiner from whatever
+recipe it happened to land on mid-run. `--again` repeats on the roots the volume already
+holds, so neither client fetches the bundle a second time. `MINEKIN_DEMO_LAN_SEED_VOLUME`
+with `MINEKIN_DEMO_LAN_SEED_KIN` copies the artifact store from a volume this project
+already filled, which is the difference between a cold fetch of the 1.20.1 bundle and one
+that starts walking; the seed is mounted read-only. Everything else is a knob with a
+default, listed at the top of the script.
+
+`--gateway` is the browser half, and it is the whole reason to look at the joining root:
+
+```text
+bash test-orchestrator/runner/demo-lan.sh --gateway
+MINEKIN_GATEWAY_TARGET=http://127.0.0.1:8787 pnpm --dir dashboard dev
+    # then http://127.0.0.1:5175/?adapter=gateway&gateway=/gateway
+```
+
+The read model needs nothing but the volume: no server jar, and no session still running,
+because it projects the ledger and the sealed evidence already on disk. It asks for the
+joining root by default — the applied controls, the refusals and the identity comparisons
+are all in that ledger, while the host's holds the world it started — and it refuses by
+name, before starting a container, if that root is not on the volume. `MINEKIN_DEMO_LAN_GATEWAY_KIN`
+points it at the other one and `MINEKIN_DEMO_LAN_GATEWAY_PORT` moves the loopback port; the
+port is printed back as the `MINEKIN_GATEWAY_TARGET=` the dev server has to be started with,
+because the panel's proxy target is a second, independent binding that defaults to 8787. An
+entry that published 8791 and printed a bare `pnpm dev` would hand over a panel reading a
+port nothing answered on — a panel showing itself disconnected about an intact session.
+Ctrl-C stops the read model and leaves both Kin roots, and everything the run wrote, on the
+volume; the world itself went with its own container.
+
 ## The whole domain in one container
 
 The `domain` mode is the three file modes above with both halves running at once:

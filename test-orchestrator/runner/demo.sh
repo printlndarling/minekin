@@ -142,10 +142,12 @@ fi
 if [ "${command}" = "gateway" ]; then
     printf 'demo: the read model will be reachable at http://127.0.0.1:%s -- from this machine only\n' \
         "${GATEWAY_PORT}"
-    printf 'demo: then serve the panel and open\n'
-    printf 'demo:   pnpm --dir dashboard dev\n'
+    printf 'demo: then serve the panel, naming this port as its proxy target, and open\n'
+    printf 'demo:   MINEKIN_GATEWAY_TARGET=http://127.0.0.1:%s pnpm --dir dashboard dev\n' "${GATEWAY_PORT}"
     printf 'demo:   http://127.0.0.1:5175/?adapter=gateway&gateway=/gateway\n'
-    printf 'demo: (the panel talks to the published gateway through the dev-server proxy)\n'
+    printf 'demo: (the panel reaches the published gateway through the dev-server proxy; the\n'
+    printf 'demo:  target defaults to 8787, so a run on another port has to say so or the\n'
+    printf 'demo:  panel reads a port nothing answered on and shows itself disconnected)\n'
     exec env MINEKIN_RUNNER_DATA="${VOLUME}" MINEKIN_KIN_ID="${KIN}" \
         MINEKIN_RUNNER_PUBLISH="${GATEWAY_PORT}" \
         bash "${HERE}/run.sh" --shell \
@@ -230,5 +232,7 @@ printf '  run document  : the last JSON line above (Core'"'"'s own counts)\n'
 printf '  evidence      : bash test-orchestrator/runner/run.sh --shell "python -m minekin_core evidence verify <run_id>"\n'
 printf '                  with MINEKIN_RUNNER_DATA=%s\n' "${VOLUME}"
 printf '  dashboard     : bash test-orchestrator/runner/demo.sh --gateway\n'
-printf '                  then in another shell: pnpm --dir dashboard dev, and open\n'
+printf '                  then in another shell, naming the same port as the proxy target:\n'
+printf '                  MINEKIN_GATEWAY_TARGET=http://127.0.0.1:%s pnpm --dir dashboard dev, and open\n' "${GATEWAY_PORT}"
 printf '                  http://127.0.0.1:5175/?adapter=gateway&gateway=/gateway\n'
+printf '                  Ctrl-C stops the read model; the Kin root on volume %s keeps the run.\n' "${VOLUME}"
