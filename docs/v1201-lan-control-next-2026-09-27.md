@@ -3181,3 +3181,63 @@ uv run python tools/tally_joiner_arrival.py --dir .tmp/m87 --glob '*.log' \
 三份 bundle 已从卷内只读取出到 `.tmp/m96/bundles/`；原始材料 `.tmp/m96/run-{1,2,3}.log`、`.tmp/m96/rc.txt`、`.tmp/m96/bytes.txt`、`.tmp/m96/promotion-head.log`、`.tmp/m96/gates.log`、`.tmp/m96/gates-pytest.log`（含那次失败的完整 traceback）全部保留未删。这些都是**私有卷读数**，按 registry 纪律不入规范卷登记、不动 `mandatory`、不动 `case_version`、不晋级门禁。
 
 下一张：M 侧已授权范围内无待实施卡；`#90` 后半段与 `V1201-DASHBOARD-WRITE-SURFACE-DECISION`、`#76 (B)` 接管、门禁晋级/`#82` 重封进规范 registry、V08/远程服、HOST/PERSIST、在线认证、跨 bundle schema 均为**主控保留决策**，需要用户选择后才继续。
+
+## §2.109 #97 的负载竞速已修在正式测试里：等待界从「假设」改成「按线报测量」（第一百零九轮，2026-09-29 09:29 +0800，M 亲跑，判据/case 摘要/registry/bundle/门载荷零位移）
+
+**这一卡不新增业务能力，只修一条会咬人的测试缺陷**：`tests/unit/test_session_supervision.py::test_a_deadline_does_not_cancel_a_world_the_kin_is_already_in` 在机器负载高时会红（§2.108.5 记下的那一格）。改动只落在这份正式测试文件里，`src/` 与 `tools/` 一个字节都没动。已入干：提交 `8fdc414`，远端 `main` = `8fdc414e309594b39675b5dd2ac98e4a7a7ae264`（`ls-remote` 核回），本笔只补卡面记录。
+
+### 2.109.1 根因是读代码定位的，不是猜的
+
+红点表面在 `tests/unit/test_session_supervision.py:141` 的 `_wait_until(..., timeout: float = 5.0)`，但真正与负载竞速的是**该用例交给会话的产品侧窗口** `connection_timeout=0.3`（原 `:1442`）：
+
+- 窗口起点是 Core 发出 `ConnectWorld` 的那一刻，`attempt_deadline[0] = Deadline.after(MonotonicInstant(monotonic_ns()), int(connection_timeout * 1_000_000_000))`（`src/minekin_core/cli/session.py:1198–1201`），同一枚 deadline 也装在命令里发给桥（`:1202–1208`）。
+- 睡到点由 `until_connection_deadline()` 承担（`:1210–1221`），到点后 `on_connection_deadline()`（`:1223–…`）决定是否发出取消。
+- 用例必须在这 0.3 秒**真实时间**内完成：读回命令帧 → 写 4 枚生命周期阶段 → 写首快照 → 等 `PLAYABLE_ESTABLISHED` 落进台账。机器上同时压着活体 run 时这一轮询输掉竞速 ⇒ 窗口 mid-attempt 到期、取消发出、PLAYABLE 不成立 ⇒ 那一格的等待抛 `TimeoutError`。
+
+⇒ 缺陷性质是**测试自己造了一场墙钟竞速**，不是产品判据的门槛问题。P1 那条「不为求绿扩大授权窗口」说的是 `tools/` 与 `test-orchestrator/` 侧的移动归因窗（本卡没碰那两枚门槛：距离门、归因窗、采样节奏全部零位移）；这里挪的是**一份测试交给会话的入服窗口**，并把「窗已过」从假设改成测量。
+
+### 2.109.2 落地的修法（三处，全在正式测试内）
+
+1. **窗口取 `window = 3.0`，并断言入服真的落在窗内**：`arrived = time.monotonic() - launched`（`launched` 取在 `create_task` 之前，因此 `assert arrived < window` 严格蕴含「入服早于 deadline」，因为 deadline ≥ `launched + window`）。窗口不再是「赌投递赶得上」的 0.3 秒。
+2. **「过点」按线报测量，不按常数假设**：等完 PLAYABLE 后读回命令里那枚 deadline——`remaining_ns = command.deadline_monotonic_ns - monotonic_ns()`，仅在 `remaining_ns > 0` 时睡 `remaining_ns/1e9 + past_the_window`（`past_the_window = 0.2`）。用的就是 Core 盖章的同一时钟：`monotonic_ns()` 取自 `minekin_core.adapters.bridge.ipc`，实体为 `max(1, time.monotonic_ns())`（`src/minekin_core/adapters/bridge/ipc.py:698–709`），与 `time.monotonic_ns()` 的实测差 **0 ns**。原来的写法是 `connection_timeout=0.3` 配 `await asyncio.sleep(0.6)`，即「假设 0.6 秒已过点」——那一格从来没有被量过。
+3. **等待界具名**：`_wait_until(predicate, *, what=..., timeout=5.0)` 抛错时点名是哪一格的谓词没成立（`TimeoutError: the world was reached never held`）。默认值 5.0 **没有调大**；5.0 那一格红过一次是投递被压死，改用例自己的产品窗才是正解。
+
+### 2.109.3 反照与恢复读数（判据非恒真）
+
+- 植入 `window = 0.01` 后重建：`1 failed in 5.82s`，失败信息 `TimeoutError: the world was reached never held` ⇒ 新的等待界与断言都是活的。植入材料留在 `.tmp/m97/planted.py`。
+- 恢复：`cp .tmp/m97/backup.py tests/unit/test_session_supervision.py` ⇒ 字节摘要回到 `2cac5d12e0d52011c86f88c932a41affec7abd4fc1a35c5ae70efe8edbbaf577`（与本卡最终字节一致，本轮再量一次同值）。**未**用 `git checkout --` 回滚。
+
+### 2.109.4 读数
+
+| 项 | 读数 |
+| --- | --- |
+| 单测（该用例，空载） | `1 passed in 6.90s` |
+| 整文件 `tests/unit/test_session_supervision.py`（空载） | `22 passed in 32.89s` |
+| 同一用例连打 12 发，同时压 6 枚 CPU spinner（各 900 秒） | `VERDICT repeats=12/12`，每发 `1 passed`，`elapsed` 4–12 秒 |
+| 整文件（同一负载下） | `22 passed in 35.32s` rc=0 |
+| 全量 `pytest -q`（同一负载下） | `full suite rc=0 elapsed=571s` |
+| `uv run ruff format --check tests/unit/test_session_supervision.py` | `1 file already formatted` |
+| `uv run ruff check tests/unit/test_session_supervision.py` | `All checks passed!` |
+| `uv run pyright tests/unit/test_session_supervision.py` | `0 errors, 0 warnings, 0 informations` |
+| 仓库级门（§2.108 基线，本卡零位移） | `ruff format --check .` 396 files、`check_case_assertions` 151 registered、fixture digests OK |
+| 改动文件面 | `git status --porcelain` 只有 `tests/unit/test_session_supervision.py`（另有他会话的 `M tools/assert_case_evidence.py`，未 stage；本卡按 `git hash-object` 与 `git rev-parse HEAD:` 同值确认那份是出货字节） |
+
+**负载验证的第一批怎么废掉的（一条要记的读法）**：第一发用 `bash` 后台起 6 枚 busy-loop spinner 再压全量 `uv run pytest -q`，任务尾打了 `pytest-load rc=0`，可日志停在 `[  2%]` 的进度行、没有汇总行，旁边是 `dofork: child -1 ... exit code 0xC000026B` / `fork: retry: Resource temporarily unavailable` ⇒ **MSYS 的进程表被压死，是测量工具断了，不是测试绿了**。这一格不能当读数引用。第二批（`run_load.py` 09:18 起）把 spinner 换成 `powershell Start-Process`（不进 MSYS 的 fork 表）、把步骤与 rc 逐行落盘，才拿到上面那三行负载读数。复算材料：`.tmp/m97/run_load.py`、`.tmp/m97/pytest-load.log`。
+
+门载荷 `gate_payload_sha256`：本卡不含 case 定义/registry/mandatory/`tools/` 判据字节 ⇒ 无位移；`ruff format --check .` 的文件数也不变（没有新增文件）。
+
+### 2.109.5 仍未闭合的与下一步
+
+- 同一条等待界在 `tests/contract/test_session_runtime.py:81` 有一份**复制**（同样的 `TimeoutError("the condition never held")`）。本卡只按登记范围修 `test_session_supervision.py`，那份复制留给下一张：要么抽进 `tests/unit/session_support.py` 共享，要么同样具名——共享是更好的修法，因为它把「负载下如何等待」变成一条仓库级约定。
+- #78 的欠账仍在（`ea24276` / `d323030` 与本笔 `8fdc414`、`d672084` 的 CI 步骤级读数）；本轮按交付纪律优先本地/Docker 验证，不轮询 CI 代替开发。
+- 主干唯一 `NEXT` 仍是 `PARALLEL-INTEGRATION-GATE-001`；本卡之后主控队列的下一张是 **M-C2（规范卷在当前提交字节下的 LAN 控制真跑与封证）**，见 §2.110。
+
+复算：
+
+```bash
+cd C:/Users/darling/Documents/agent_work/minekin-wt-integration
+uv run pytest -q tests/unit/test_session_supervision.py
+sha256sum tests/unit/test_session_supervision.py   # 2cac5d12e0d52011c86f88c932a41affec7abd4fc1a35c5ae70efe8edbbaf577
+# 反照：把 window 改成 0.01 后重跑该用例 ⇒ TimeoutError: the world was reached never held
+# 负载：uv run python .tmp/m97/run_load.py（12 发该用例 + 整文件 + 全量，全程压 6 枚 spinner）
+```
