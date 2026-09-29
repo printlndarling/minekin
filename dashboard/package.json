@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Minekin Kin runtime console - read-only shell (D1). Mock-backed; no Gateway API exists yet.",
+  "description": "Minekin Kin runtime console - real-data shell over the frozen Gateway reads, plus the one authorized stopped-only identity rename.",
   "packageManager": "pnpm@11.21.0",
   "engines": {
     "node": ">=22.12"

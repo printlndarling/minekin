@@ -19,6 +19,8 @@
   --bad-ink: #ff6b6b;
   --bad-bg: #2b1719;
   --bad-line: #55292e;
+  --radius: 8px;
+  --focus: #6f8bff;
   color-scheme: dark;
 }
 
@@ -33,6 +35,17 @@ body {
   font-family: system-ui, "Segoe UI", "Noto Sans SC", sans-serif;
   font-size: 14px;
   line-height: 1.5;
+}
+
+button,
+select,
+input {
+  font: inherit;
+}
+
+:where(button, a, input, select):focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
 }
 
 .muted {

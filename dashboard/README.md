@@ -1,30 +1,37 @@
-# Minekin Dashboard（D1：只读外壳）
+# Minekin Dashboard（只读外壳 + 唯一被授权的身份写面）
 
-卡片：`DASHBOARD-READONLY-SHELL-001`（并行计划 D lane）。独占路径 `dashboard/**`；本目录之外的文件不属于本卡。
+卡片：`DASHBOARD-READONLY-SHELL-001`（并行计划 D lane）与后续的 `S1` 外壳重做。独占路径 `dashboard/**`；本目录之外的文件不属于这些卡。
 
-依据文档：`docs/standalone-runtime-dashboard.md`、`docs/technical-stack-selection.md`。冲突时以那两份文档与真实 P0 证据为准。
+依据文档：`docs/standalone-runtime-dashboard.md`、`docs/gateway-dashboard-readonly-contract-2026-09-28.md`、`docs/stable-player-name-2026-09-29.md`。冲突时以那几份文档与真实 P0 证据为准。
 
-## 本卡是什么
+## 这一层是什么
 
-一个**只读**的 Kin 观测外壳：总览（运行状态 / 会话与版本 / 证据来源）、时间线、告警、Live View 占位、Mind 与成本占位。所有数值都来自一个可替换的 read adapter，当前唯一真实数据源是**明确标注的模拟数据**。
+一个 Kin 运行控制台：**五条页面全部由真实读数支撑**——总览（运行状态 / 会话与版本 / 证据来源 + 当前会话阶段）、时间线、告警、身份 · 改名、数据源与缺口。所有数值都来自一个可替换的 read adapter，默认接**本地 Gateway 的真实只读契约**；模拟数据只有显式 `?adapter=mock` 时才用，并在页头横幅上具名标注。
+
+顶部常驻的**上下文条**用一屏回答操作者真正要问的四件事：它是谁（身份读数 + revision + 离线 UUID）、在哪个世界（profile / epoch / 是否入服）、正在干什么（运行态、链路、租约、台账里最远阶段）、为什么没运行或没完成（连续未落地的读取、会话收尾行、输入被拒原因、无告警源、活动告警）。左侧导航的每一项带该页读路的实时状态（在读 / 读取中 / 连续 N 次未落 / 失败 · 具名原因），页面由地址片段选择，可直接深链 `#timeline`、`#alerts`、`#identity`、`#data`。
+
+**没有占位页。** 观战画面、心智/目标/成本、事件游标这些还没有权威数据源的能力，只在「数据源与缺口」页按具名原因列为 `未接入`；Dashboard 的通用写控制端点是产品阶段有意保留的边界，单独标为 `暂不开放`，两者不混同、也不渲染任何编造内容。
 
 边界（并用测试固定，不只是写在文档里）：
 
-- 不启动、不暂停、不急停、不注入游戏输入，不提供任何写操作入口；
+- 不启动、不暂停、不急停、不注入游戏输入；除身份改名外不提供任何写操作入口；
 - 不连 Bridge、不连数据库、不持有凭据（页面上不出现 token/密钥字段）；
-- 不伪造 Live View：没有真帧源时该面板只显示"未接入"和前置条件清单，不渲染 `<video>/<canvas>/<img>`；
-- 不改动 P0 Core：Core 侧不新增 Node 依赖，本目录构建产物是静态文件，未来由 Gateway 或反向代理托管。
+- 不伪造 Live View：没有真帧源时不渲染 `<video>/<canvas>/<img>`，只显示具名缺口与前置条件；
+- 唯一的写面：`docs/stable-player-name-2026-09-29.md` 授权的那一次改名，只在会话停止时可用、需显式确认、按身份修订号做 compare-and-swap，服务器具名拒止原样回显；
+- 不改动 P0 Core：Core 侧不新增 Node 依赖，本目录构建产物是静态文件，由 Gateway 或反向代理托管。
 
 ## 已验证内容（真实读数）
 
-同一条链路（typecheck → Vitest → build → Playwright）在 Node 24.13.0 与 Node 22.22.3 上各完整跑过一遍，pnpm 11.21.0，结果一致：
+2026-09-29 外壳重做后，同一条链路（typecheck → Vitest → build → Playwright）在 Node 24.18.0 + pnpm 11.21.0 上的读数：
 
 | 命令 | 结果 |
 | --- | --- |
-| `node ./node_modules/typescript/bin/tsc --noEmit` | 无输出（通过） |
-| `node ./node_modules/vitest/vitest.mjs run` | 5 文件 / 35 用例全绿 |
-| `node ./node_modules/vite/bin/vite.js build` | 102 modules，`dist/assets/index-*.js` 293.75 kB（gzip 92.96 kB），1.89s |
-| `node ./node_modules/@playwright/test/cli.js test` | 10 用例全绿（`vite preview` 真浏览器关键流程） |
+| `node ./node_modules/typescript/bin/tsc --noEmit` | 无输出（通过，含 `e2e/`） |
+| `node ./node_modules/vitest/vitest.mjs run` | 12 文件 / 127 用例全绿 |
+| `node ./node_modules/vite/bin/vite.js build` | 114 modules，`dist/assets/index-*.js` 330.20 kB（gzip 104.66 kB），2.27s |
+| `node ./node_modules/@playwright/test/cli.js test e2e/readonly-shell.spec.ts` | 12 用例全绿（`vite preview` 真浏览器关键流程，含上下文条、片段深链、缺口页与只读边界） |
+
+D1 时期的同一链路读数（Node 24.13.0 与 Node 22.22.3 各一遍，结果一致）保留如下，作为当时的记录：5 测试文件 / 35 用例、102 modules / 293.75 kB（gzip 92.96 kB）、Playwright 10 用例。
 
 Playwright 浏览器下载在默认 CDN 上出现 `ECONNRESET`，改用镜像可完成：
 
@@ -47,20 +54,21 @@ pnpm run e2e            # Playwright，自动起 vite preview（127.0.0.1:5176�
 ## 目录
 
 ```text
-src/domain/     Signal 读模型、快照/时间线/告警类型、adapter 接口、中文标签
-src/fixtures/   六个模拟场景（唯一的"数据源"）
+src/domain/     Signal 读模型、快照/时间线/告警/身份类型、adapter 接口、中文标签、会话阶段推导
+src/fixtures/   六个模拟场景（只有显式 mock 适配器才用）
 src/adapters/   mockAdapter（脚本化）、gatewayAdapter（真实 fetch + fail-closed 解码）、config（URL/env 切换）
-src/hooks/      useNow 时钟、TanStack Query 读数封装
-src/components/ Pill / Panel / SignalValue / DataSourceBanner
-src/panels/     总览、时间线、告警、Live View 占位、未接入占位
-e2e/            真浏览器关键流程
+src/hooks/      useNow 时钟、TanStack Query 读数封装、身份读数与改名控制器
+src/shell/      导航模型、地址片段路由、读状态文案、能力清单
+src/components/ Pill / Panel / SignalValue / DataSourceBanner / ContextBar
+src/panels/     总览、会话阶段、时间线、告警、身份 · 改名、数据源与缺口
+e2e/            真浏览器关键流程（只读外壳 + 需 E2E_LIVE_* 才跑的真实网关/改名会话）
 ```
 
 ## 读模型：为什么"没有值"是一等公民
 
 每个字段都是 `Signal<T>`：要么 `known`（带 `value` + 观测时间 + 新鲜度预算），要么 `gap`（带 `status` ∈ `unknown/unavailable/not_wired/permission_denied`、非空 `reason`、以及 `source`/`sourceRef`/`observedAt` 溯源）。渲染层只有一个 `SignalValue`，因此不存在"某个面板偷偷把缺失值当 0 或默认值显示"的路径。
 
-新鲜度（实时 / 陈旧 / 无观测时间）由共享时钟按 `staleAfterMs` 计算，不靠文案猜测。`schemaVersion` 解码器只认 `kin-dashboard-readmodel/1.0.0`——2026-09-28 冻结的只读契约（`docs/gateway-dashboard-readonly-contract-2026-09-28.md`）；页头显示的是字节自带的那个版本串，对不上就整屏失败关闭，不会退回猜测。写这一句时它还只是前端提案（`0.1.0-proposal`）。
+新鲜度（实时 / 陈旧 / 无观测时间）由共享时钟按 `staleAfterMs` 计算，不靠文案猜测。`schemaVersion` 解码器只认 `kin-dashboard-readmodel/1.0.0`——2026-09-28 冻结的只读契约（`docs/gateway-dashboard-readonly-contract-2026-09-28.md`）；页头显示的是字节自带的那个版本串，对不上就整屏失败关闭，不会退回猜测。
 
 ## 切换数据源
 
@@ -68,12 +76,13 @@ e2e/            真浏览器关键流程
 
 | 参数 | 环境变量 | 取值 |
 | --- | --- | --- |
-| `?adapter=` | `VITE_DASHBOARD_ADAPTER` | `mock`（默认）/ `gateway` |
-| `?scenario=` | `VITE_MOCK_SCENARIO` | `healthy_run_07` `stale_observations` `bridge_disconnected` `fields_unknown` `permission_restricted` `read_failed` |
+| `?adapter=` | `VITE_DASHBOARD_ADAPTER` | `gateway`（默认）/ `mock`；认不出的值留在 `gateway`，不会因为一次拼错就悄悄改用编造的 Kin |
+| `?scenario=` | `VITE_MOCK_SCENARIO` | `healthy_run_07` `stale_observations` `bridge_disconnected` `fields_unknown` `permission_restricted` `read_failed`（仅 `mock` 有意义） |
 | `?gateway=` | `VITE_GATEWAY_BASE_URL` | Gateway 基址；缺省时所有读取返回 `not_configured` |
 | `?latency=` | `VITE_MOCK_LATENCY_MS` | 模拟延迟 |
 
-`?adapter=gateway` 且未给基址时，面板不会发起任何 `/api/` 请求（e2e 用例断言请求列表为空），并整屏显示未配置/未知。`GatewayReadAdapter` 已经写出真实 `fetch`、超时/取消和契约解码，解码器对枚举、溯源字段和 `schemaVersion` 严格拒绝，因此**任何未被 G lane 实现的字段都只能显示为未知，不可能被前端编造出来**。
+`?adapter=gateway` 且未给基址时，面板不会发起任何 `/api/` 请求（e2e 用例断言请求列表为空），并整屏显示未配置/未知。`GatewayReadAdapter` 已经写出真实 `fetch`、超时/取消和契约解码，解码器对枚举、溯源字段和 `schemaVersion` 严格拒绝，因此**任何契约未冻结的字段都只能显示为未知，不可能被前端编造出来**。
+
 
 ## 工具链与供应链注记
 

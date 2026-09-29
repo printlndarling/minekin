@@ -22,7 +22,10 @@ export interface DashboardConfig {
 }
 
 const ENV_DEFAULTS: DashboardEnv = {
-  adapter: "mock",
+  // The real Gateway first: a console that opened on scripted fixtures would answer the
+  // operator's question with a made-up Kin. `?adapter=mock` (or VITE_DASHBOARD_ADAPTER) is
+  // still one parameter away for offline development and the fixture-driven tests.
+  adapter: "gateway",
   scenario: DEFAULT_SCENARIO,
   gatewayBaseUrl: "",
   latencyMs: String(DEFAULT_LATENCY_MS),
@@ -42,7 +45,9 @@ export function parseDashboardConfig(search: string, env: Partial<DashboardEnv> 
   };
   const params = new URLSearchParams(search.startsWith("?") ? search.slice(1) : search);
   const adapterRaw = params.get("adapter") ?? merged.adapter;
-  const adapter = adapterRaw === "gateway" ? "gateway" : "mock";
+  // Only a literal `mock` selects the fixtures; an unreadable value stays on the real
+  // Gateway rather than quietly swapping the console onto a made-up Kin.
+  const adapter = adapterRaw === "mock" ? "mock" : "gateway";
   const scenarioRaw = params.get("scenario") ?? merged.scenario;
   const scenario = isMockScenarioId(scenarioRaw) ? scenarioRaw : DEFAULT_SCENARIO;
   const gatewayBaseUrl = (params.get("gateway") ?? merged.gatewayBaseUrl).trim();

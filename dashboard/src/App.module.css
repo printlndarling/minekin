@@ -1,7 +1,7 @@
 .shell {
-  max-width: 1100px;
+  max-width: 1280px;
   margin: 0 auto;
-  padding: 20px 20px 40px;
+  padding: 22px 22px 44px;
 }
 
 .header {
@@ -9,11 +9,13 @@
   justify-content: space-between;
   align-items: flex-end;
   gap: 16px;
-  margin-bottom: 14px;
+  margin-bottom: 12px;
 }
 
 .title {
-  font-size: 20px;
+  font-size: 21px;
+  font-weight: 650;
+  letter-spacing: 0.01em;
   margin: 0 0 4px;
 }
 
@@ -21,38 +23,123 @@
   margin: 0;
   font-size: 12px;
   color: var(--text-dim);
+  max-width: 76ch;
 }
 
 .schema {
   margin: 0;
   font-size: 11px;
   color: var(--text-faint);
+  white-space: nowrap;
 }
 
-.tabs {
+.body {
+  display: grid;
+  grid-template-columns: 190px minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
+}
+
+@media (max-width: 860px) {
+  .body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .nav {
+    flex-direction: row;
+    flex-wrap: wrap;
+    position: static;
+  }
+}
+
+.nav {
   display: flex;
-  gap: 6px;
-  margin-bottom: 14px;
-  border-bottom: 1px solid var(--line);
-  padding-bottom: 8px;
+  flex-direction: column;
+  gap: 14px;
+  position: sticky;
+  top: 14px;
 }
 
-.tab,
-.tabActive {
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.groupLabel {
+  margin: 0 0 3px;
+  padding-left: 8px;
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.navItem,
+.navActive {
   font: inherit;
   font-size: 13px;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  text-align: left;
+  width: 100%;
   color: var(--text-dim);
   background: transparent;
   border: 1px solid transparent;
-  border-radius: 6px;
-  padding: 4px 12px;
+  border-radius: var(--radius);
+  padding: 6px 8px;
   cursor: pointer;
 }
 
-.tabActive {
+.navItem:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.navActive {
   color: var(--text);
   background: var(--surface-2);
   border-color: var(--line);
+}
+
+.navText {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.navLabel {
+  font-weight: 550;
+}
+
+.navStatus {
+  font-size: 10px;
+  color: var(--text-faint);
+}
+
+.dotOk,
+.dotWarn,
+.dotBad {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  margin-top: 6px;
+  border-radius: 50%;
+  background: var(--line);
+}
+
+.dotOk {
+  background: var(--ok-ink);
+}
+
+.dotWarn {
+  background: var(--warn-ink);
+}
+
+.dotBad {
+  background: var(--bad-ink);
 }
 
 .main {
@@ -60,7 +147,7 @@
 }
 
 .footer {
-  margin-top: 24px;
+  margin-top: 26px;
   border-top: 1px solid var(--line);
   padding-top: 12px;
   font-size: 12px;

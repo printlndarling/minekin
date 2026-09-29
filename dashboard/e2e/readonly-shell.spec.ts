@@ -57,18 +57,30 @@ test.describe("只读 Dashboard 外壳关键流程", () => {
     expect(apiRequests).toEqual([]);
   });
 
-  test("Live View 标签：没有帧源时只有声明与前置条件，没有画面元素", async ({ page }) => {
+  test("常驻上下文条：四个问题一起在场，且都来自读数", async ({ page }) => {
     await openMock(page, "healthy_run_07");
-    await page.getByRole("button", { name: "Live View" }).click();
-    await expect(page.getByTestId("panel-liveview")).toContainText("未接入");
-    await expect(page.getByTestId("liveview-statement")).toContainText("没有真实帧源");
+    await expect(page.getByTestId("context-who")).toContainText("它是谁");
+    await expect(page.getByTestId("context-where")).toContainText("在哪个世界");
+    await expect(page.getByTestId("context-doing")).toContainText("最远阶段");
+    await expect(page.getByTestId("context-why")).toContainText("为什么没运行");
+    await expect(page.getByTestId("context-who")).toContainText("minekin");
+  });
+
+  test("数据源与缺口页：观战帧源按未接入具名说明，不渲染任何画面元素", async ({ page }) => {
+    await openMock(page, "healthy_run_07");
+    await page.getByRole("button", { name: "数据源与缺口" }).click();
+    await expect(page.getByTestId("panel-capability")).toContainText("没有 framebuffer 采集");
+    await expect(page.getByTestId("read-route-table")).toContainText("/api/v1/dashboard/snapshot");
     await expect(page.locator("video, canvas, img")).toHaveCount(0);
   });
 
-  test("Mind / 成本标签：整页按未接入呈现", async ({ page }) => {
-    await openMock(page, "healthy_run_07");
-    await page.getByRole("button", { name: "Mind / 成本" }).click();
-    await expect(page.getByTestId("panel-mind")).toContainText("未接入");
+  test("数据源与缺口页：未实现的心智面按缺口列，保留边界按「暂不开放」列", async ({ page }) => {
+    await page.goto(`${url("mock", "healthy_run_07")}#data`);
+    const panel = page.getByTestId("panel-capability");
+    await expect(panel).toContainText("未接入");
+    await expect(panel).toContainText("Core 尚无权威的人格、目标与成本读数");
+    // 通用写面是有意不开放，不能和「读不到」混成一种呈现。
+    await expect(panel).toContainText("暂不开放");
   });
 
   test("时间线与告警标签：只呈现条目，不含确认或消除控件", async ({ page }) => {
@@ -87,19 +99,22 @@ test.describe("只读 Dashboard 外壳关键流程", () => {
     await page.getByLabel("模拟场景").selectOption("fields_unknown");
     await expect(page.getByTestId("alerts-no-source")).toContainText("无告警源");
     await expect(page.getByTestId("alerts-empty")).toHaveCount(0);
+    // 切换场景不能把操作者送回总览：页面由片段决定，片段要跟着留住。
+    await expect(page).toHaveURL(/#alerts/);
   });
 
   test("只读边界：无表单、无文本/密码输入，按钮文案不含写操作动词", async ({ page }) => {
+    // 身份页是已授权的例外，单独由 live-identity-rename 覆盖；这里只查纯只读页。
     for (const scenario of ["healthy_run_07", "bridge_disconnected", "permission_restricted", "read_failed"]) {
       await openMock(page, scenario);
-      for (const tab of ["总览", "时间线", "告警", "Live View", "Mind / 成本"]) {
-        await page.getByRole("button", { name: tab, exact: true }).click();
+      for (const entry of ["总览", "时间线", "告警", "数据源与缺口"]) {
+        await page.getByRole("button", { name: entry }).click();
         await expect(page.locator("form")).toHaveCount(0);
         await expect(page.locator('input[type="text"], input[type="password"], textarea')).toHaveCount(0);
         const labels = await page.getByRole("button").allInnerTexts();
         for (const label of labels) {
           const hit = ACTION_WORDS.find((word) => label.includes(word));
-          expect(hit, `${scenario}/${tab} 按钮 "${label}" 含写操作动词`).toBeUndefined();
+          expect(hit, `${scenario}/${entry} 按钮 "${label}" 含写操作动词`).toBeUndefined();
         }
       }
       const body = (await page.locator("body").innerText()).toLowerCase();
@@ -107,6 +122,12 @@ test.describe("只读 Dashboard 外壳关键流程", () => {
         expect(body).not.toContain(secret);
       }
     }
+  });
+
+  test("直接打开片段地址会选中对应页面", async ({ page }) => {
+    await page.goto(url("mock", "healthy_run_07") + "#alerts");
+    await expect(page.getByTestId("page-alerts")).toBeVisible();
+    await expect(page.getByTestId("data-source-banner")).toContainText("模拟数据 MOCK");
   });
 
   test("切换模拟场景会改变同一界面的呈现并同步 URL", async ({ page }) => {

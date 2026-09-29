@@ -165,18 +165,22 @@ describe("gateway read adapter（冻结契约，失败关闭）", () => {
 });
 
 describe("adapter 选择", () => {
-  it("默认使用 mock，URL 参数可切场景与网关", () => {
+  it("默认走真实 Gateway，fixture 要显式点名才用", () => {
     expect(parseDashboardConfig("")).toEqual({
-      adapter: "mock",
+      adapter: "gateway",
       scenario: "healthy_run_07",
       gatewayBaseUrl: null,
       latencyMs: 120,
     });
     expect(parseDashboardConfig("?scenario=bridge_disconnected").scenario).toBe("bridge_disconnected");
     expect(parseDashboardConfig("?scenario=nope").scenario).toBe("healthy_run_07");
+    expect(parseDashboardConfig("?adapter=mock").adapter).toBe("mock");
     expect(parseDashboardConfig("?adapter=gateway&gateway=http://127.0.0.1:8000//").gatewayBaseUrl).toBe("http://127.0.0.1:8000");
-    expect(createAdapter(parseDashboardConfig("")).describe().kind).toBe("mock");
+    // 认不出的值留在真实档上：后台不能因为一次拼错就悄悄改用编造的 Kin。
+    expect(parseDashboardConfig("?adapter=Gateway").adapter).toBe("gateway");
+    expect(createAdapter(parseDashboardConfig("")).describe().id).toBe("gateway:unconfigured");
     expect(createAdapter(parseDashboardConfig("?adapter=gateway")).describe().id).toBe("gateway:unconfigured");
+    expect(createAdapter(parseDashboardConfig("?adapter=mock")).describe().kind).toBe("mock");
   });
 
   it("超时按契约 §2.1 钉在 3000ms", () => {

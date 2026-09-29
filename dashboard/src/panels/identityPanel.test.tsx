@@ -17,7 +17,7 @@ function mockIdentityConfig(scenario: MockScenarioId): DashboardConfig {
 }
 
 function openIdentity(scenario: MockScenarioId): void {
-  render(<App config={mockIdentityConfig(scenario)} initialTab="identity" />);
+  render(<App config={mockIdentityConfig(scenario)} initialPage="identity" />);
 }
 
 describe("身份面板：显示已持久化的身份", () => {
@@ -121,7 +121,7 @@ describe("身份面板：改名只在会话停止且显式确认时可用", () =
       render(
         <App
           config={{ adapter: "gateway", scenario: "healthy_run_07", gatewayBaseUrl: "http://127.0.0.1:8000", latencyMs: 0 }}
-          initialTab="identity"
+          initialPage="identity"
         />,
       );
       await screen.findByTestId("identity-username");

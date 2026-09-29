@@ -1,0 +1,52 @@
+.bar {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.cell {
+  border: 1px solid var(--line);
+  border-left-width: 3px;
+  border-radius: var(--radius);
+  background: var(--surface);
+  padding: 9px 11px;
+  min-height: 84px;
+}
+
+.ok {
+  border-left-color: var(--ok-ink);
+}
+
+.warn {
+  border-left-color: var(--warn-ink);
+}
+
+.bad {
+  border-left-color: var(--bad-ink);
+}
+
+.muted {
+  border-left-color: var(--line);
+}
+
+.question {
+  margin: 0 0 5px;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+}
+
+.lines {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 12px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.lines li + li {
+  margin-top: 2px;
+  color: var(--text-dim);
+}

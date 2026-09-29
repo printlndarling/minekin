@@ -1,23 +1,30 @@
+import { beforeEach, describe, expect, it } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
 import { App } from "./App";
 import type { DashboardConfig } from "./adapters/config";
 import type { MockScenarioId } from "./fixtures/mockFixtures";
+import type { PageId } from "./shell/navigation";
 
-function mockConfig(scenario: MockScenarioId, initialTab?: "overview" | "timeline" | "alerts" | "live" | "mind") {
+function mockConfig(scenario: MockScenarioId, initialPage?: PageId) {
   const config: DashboardConfig = { adapter: "mock", scenario, gatewayBaseUrl: null, latencyMs: 0 };
-  return initialTab === undefined ? { config } : { config, initialTab };
+  return initialPage === undefined ? { config } : { config, initialPage };
 }
 
 const ACTION_WORDS = ["启动", "暂停", "停止", "急停", "接管", "发送", "注入", "连接服务器", "执行"];
 
-describe("关键流程：只读外壳在同一界面上呈现四种缺失", () => {
+beforeEach(() => {
+  // The page is selected from the address fragment, so a fragment left behind by the
+  // previous render would decide which panel the next one opens on.
+  window.history.replaceState(null, "", window.location.pathname);
+});
+
+describe("关键流程：外壳在同一界面上呈现四种缺失", () => {
   it("正常场景：显示模拟标注 + 新鲜读数 + C 档成员按缺口呈现", async () => {
     render(<App {...mockConfig("healthy_run_07")} />);
     expect(screen.getByTestId("data-source-banner")).toHaveTextContent("模拟数据 MOCK");
-    await screen.findByText("kin_nova_01");
-    expect(screen.getByText("运行中")).toBeInTheDocument();
+    expect((await screen.findAllByText("kin_nova_01")).length).toBeGreaterThan(0);
+    expect(screen.getAllByText("运行中").length).toBeGreaterThan(0);
     expect(screen.getByText(/read model/)).toHaveTextContent("kin-dashboard-readmodel/1.0.0");
     // §3 的 C 档字段不再有自填默认值的分支：模式 / resolvedVersion / 序列号都是带理由的缺口。
     expect(screen.getByTestId("panel-session")).toHaveTextContent("未接入");
@@ -38,19 +45,20 @@ describe("关键流程：只读外壳在同一界面上呈现四种缺失", () =
   it("陈旧场景：保留最后读数并标注陈旧", async () => {
     render(<App {...mockConfig("stale_observations")} />);
     await waitFor(() => expect(screen.getAllByText("陈旧").length).toBeGreaterThan(2));
-    expect(screen.getByText("kin_nova_01")).toBeInTheDocument();
+    expect((await screen.findAllByText("kin_nova_01")).length).toBeGreaterThan(0);
   });
 
   it("无真源场景：多数面板显示未知而非默认值", async () => {
     render(<App {...mockConfig("fields_unknown")} />);
-    await screen.findByText("kin_nova_01");
+    expect((await screen.findAllByText("kin_nova_01")).length).toBeGreaterThan(0);
     expect(screen.getAllByText("未知").length).toBeGreaterThan(5);
     expect(document.body.textContent).not.toContain("ses_2026");
   });
 
   it("无权限场景：敏感读数显示无权限与原因", async () => {
     render(<App {...mockConfig("permission_restricted")} />);
-    await screen.findByText(/需只读脱敏视图/);
+    // 同一条具名原因既在常驻上下文条里，也在它自己的面板里，两处都在场。
+    expect((await screen.findAllByText(/需只读脱敏视图/)).length).toBeGreaterThan(1);
     expect(screen.getAllByText("无权限").length).toBeGreaterThan(2);
   });
 
@@ -112,25 +120,59 @@ describe("关键流程：只读外壳在同一界面上呈现四种缺失", () =
     expect(screen.queryByTestId("alerts-empty")).toBeNull();
   });
 
-  it("Live View 标签不渲染任何画面元素，并说明缺什么", async () => {
-    const { container } = render(<App {...mockConfig("healthy_run_07", "live")} />);
-    await screen.findByTestId("liveview-statement");
+  it("未接入的能力只以具名原因列出，不渲染任何画面或人格内容", async () => {
+    const { container } = render(<App {...mockConfig("healthy_run_07", "data")} />);
+    await screen.findByTestId("panel-capability");
     expect(container.querySelector("video")).toBeNull();
     expect(container.querySelector("canvas")).toBeNull();
-    expect(screen.getByTestId("liveview-statement")).toHaveTextContent("没有真实帧源");
-    expect(await screen.findByText(/帧缓冲采集/)).toBeInTheDocument();
+    expect(screen.getByTestId("panel-capability")).toHaveTextContent("没有 framebuffer 采集");
+    expect(screen.getByTestId("panel-capability")).toHaveTextContent("Core 尚无权威的人格、目标与成本读数");
+    // 保留边界与缺陷分开命名：通用写面是有意不开放，不是读不到。
+    expect(screen.getByTestId("panel-capability")).toHaveTextContent("暂不开放");
+    expect(screen.getByTestId("read-route-table")).toHaveTextContent("/api/v1/dashboard/snapshot");
   });
 
-  it("Mind / 成本页面只声明未接入", async () => {
-    render(<App {...mockConfig("healthy_run_07", "mind")} />);
-    await screen.findByTestId("panel-mind");
-    expect(screen.getByText(/Persona Manifest/)).toBeInTheDocument();
-    expect(screen.getByTestId("panel-mind")).toHaveTextContent("未接入");
+  it("常驻上下文条一次回答四个问题，身份读数与阻断一起在场", async () => {
+    render(<App {...mockConfig("healthy_run_07")} />);
+    await screen.findByTestId("context-bar");
+    expect(screen.getByTestId("context-who")).toHaveTextContent("它是谁");
+    expect(screen.getByTestId("context-where")).toHaveTextContent("在哪个世界");
+    expect(screen.getByTestId("context-doing")).toHaveTextContent("最远阶段");
+    expect(screen.getByTestId("context-why")).toHaveTextContent("为什么没运行");
+    // 身份读到的名字在总览页就在场，不需要先点开身份页。
+    await waitFor(() => expect(screen.getByTestId("context-who")).toHaveTextContent("minekin"));
+  });
+
+  it("读取失败在导航上就说那条读路不读，不必打开页面才知道", async () => {
+    const config: DashboardConfig = { adapter: "gateway", scenario: "healthy_run_07", gatewayBaseUrl: null, latencyMs: 0 };
+    render(<App config={config} />);
+    await waitFor(() => expect(screen.getAllByText("失败 · 未配置").length).toBeGreaterThan(0));
+    expect(screen.getByTestId("context-why")).toHaveTextContent("未配置");
+  });
+
+  it("地址片段选择页面：#alerts 直接打开告警页", async () => {
+    window.location.hash = "#alerts";
+    render(<App {...mockConfig("healthy_run_07")} />);
+    await screen.findByText("客户端 bundle 已按已验证 recipe 就位");
+    expect(screen.getByTestId("page-alerts")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /告警/ })).toHaveAttribute("aria-current", "page");
+  });
+
+  it("导航切换写回地址片段，且不丢查询串", async () => {
+    const user = userEvent.setup();
+    // 片段写回走相对 URL，所以查询串（决定 adapter 的那一半）必须原样留着。
+    window.history.replaceState(null, "", "?adapter=mock&scenario=healthy_run_07");
+    render(<App config={{ adapter: "mock", scenario: "healthy_run_07", gatewayBaseUrl: null, latencyMs: 0 }} initialPage="overview" />);
+    await screen.findByText("运行中");
+    await user.click(screen.getByRole("button", { name: /身份 · 改名/ }));
+    expect(window.location.hash).toBe("#identity");
+    expect(window.location.search).toContain("adapter=mock");
+    expect(await screen.findByTestId("panel-identity")).toBeInTheDocument();
   });
 
   it("只读边界：没有写操作控件，也不泄漏凭据", async () => {
     render(<App {...mockConfig("healthy_run_07")} />);
-    await screen.findByText("kin_nova_01");
+    expect((await screen.findAllByText("kin_nova_01")).length).toBeGreaterThan(0);
     const buttons = screen.getAllByRole("button");
     expect(buttons.length).toBeGreaterThan(0);
     for (const button of buttons) {
