@@ -21,6 +21,7 @@ USERNAME_VARIABLE = "MINEKIN_USERNAME"
 DEFAULT_USERNAME = "minekin"
 JAVA_VARIABLE = "MINEKIN_JAVA"
 KIN_VARIABLE = "MINEKIN_KIN_ID"
+PERSONA_SEED_VARIABLE = "MINEKIN_PERSONA_SEED"
 
 # The host facts a managed client is allowed to observe. This is a list in the
 # code rather than an operator-supplied list on purpose: a forwarded value comes
@@ -101,6 +102,24 @@ def kin_selector(environ: Mapping[str, str] | None = None) -> str | None:
     source = os.environ if environ is None else environ
     value = source.get(KIN_VARIABLE, "").strip()
     return value or None
+
+
+def configured_persona_seed(environ: Mapping[str, str] | None = None) -> str | None:
+    """The seed the operator states for a new Kin's persona, or none at all.
+
+    Absent is not a mistake: `init` then draws one and persists it, so the person
+    the Kin got is still reproducible afterwards. A name that is present but empty
+    is a stated seed nobody filled in, and drawing a different one would quietly
+    answer a request the operator did not make.
+    """
+
+    source = os.environ if environ is None else environ
+    if PERSONA_SEED_VARIABLE not in source:
+        return None
+    value = source[PERSONA_SEED_VARIABLE]
+    if not value.strip():
+        raise _reject(f"{PERSONA_SEED_VARIABLE} is set but empty; unset it to let init draw one")
+    return value
 
 
 def forwarded_environment(environ: Mapping[str, str] | None = None) -> dict[str, str]:

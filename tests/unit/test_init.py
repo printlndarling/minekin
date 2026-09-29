@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from minekin_core.adapters.filestore.persona_store import PERSONA_FILE_NAME
 from minekin_core.adapters.sqlite.connection import connect_reader
 from minekin_core.adapters.sqlite.identity_store import read_identity_root
 from minekin_core.adapters.system.clock import SystemClock
@@ -195,13 +196,14 @@ def test_the_report_is_evidence_ready(tmp_path: Path) -> None:
     report = initialise_identity(KIN_ID, root=tmp_path, username="Kin", clock=FakeClock())
 
     assert report.as_dict() == {
-        "schema_version": 1,
+        "schema_version": 2,
         "status": "created",
         "kin_id": "kin-01",
         "username": "Kin",
         "identity_revision": 1,
         "database": str(tmp_path / "kin" / "kin-01" / DATABASE_NAME),
         "run_root": str(tmp_path / "kin" / "kin-01" / RUN_DIRECTORY),
+        "persona_file": str(tmp_path / "kin" / "kin-01" / PERSONA_FILE_NAME),
     }
 
 

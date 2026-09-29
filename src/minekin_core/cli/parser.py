@@ -51,6 +51,15 @@ def build_parser() -> argparse.ArgumentParser:
 
     commands.add_parser("doctor", help="run read-only host diagnostics")
 
+    # Read-only by design: the persona is drawn once at `init` and a command that
+    # could redraw it would be the restart-redraws-the-persona bug with a UI.
+    persona_parser = commands.add_parser("persona", help="read a Kin's initial persona")
+    persona_commands = persona_parser.add_subparsers(dest="persona_command", required=True)
+    persona_show = persona_commands.add_parser(
+        "show", help="read the persisted persona manifest and how it was derived"
+    )
+    persona_show.add_argument("--kin-id", default=None, metavar="KIN_ID")
+
     bundle_parser = commands.add_parser("bundle", help="inspect an immutable version bundle")
     bundle_commands = bundle_parser.add_subparsers(dest="bundle_command", required=True)
     bundle_verify = bundle_commands.add_parser("verify", help="verify a bundle profile")

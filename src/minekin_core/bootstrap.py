@@ -27,6 +27,7 @@ from minekin_core.cli.doctor import diagnose
 from minekin_core.cli.evidence import verify_run
 from minekin_core.cli.init import initialise_identity
 from minekin_core.cli.parser import parse_args
+from minekin_core.cli.persona import persona_report
 from minekin_core.cli.rename import RENAME_NOTICE, rename_identity, show_identity
 from minekin_core.cli.server_probe import probe_exit_ok, run_probe
 from minekin_core.cli.session import (
@@ -40,6 +41,7 @@ from minekin_core.cli.session import (
 from minekin_core.cli.session_runtime import SessionOutcome, SessionRun
 from minekin_core.cli.status import ObservedState, read_status
 from minekin_core.config import (
+    configured_persona_seed,
     configured_username,
     data_root,
     forwarded_environment,
@@ -350,6 +352,7 @@ def run(
             root=data_root(),
             username=configured_username(),
             clock=SystemClock(),
+            persona_seed=configured_persona_seed(),
         )
         _emit(report.as_dict(), stdout)
         return int(ExitCode.OK)
@@ -365,6 +368,11 @@ def run(
 
     if args.command == "identity" and args.identity_command == "rename":
         return _identity_rename(args, stdout=stdout, stderr=stderr)
+
+    if args.command == "persona" and args.persona_command == "show":
+        root = data_root()
+        _emit(persona_report(root, _target_kin(root, args.kin_id)), stdout)
+        return int(ExitCode.OK)
 
     if args.command == "session" and args.session_command == "start":
         if args.auto_bundle is not None:

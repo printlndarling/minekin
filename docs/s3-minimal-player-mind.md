@@ -48,6 +48,13 @@ S3 只做调度契约五种对象中的两样：**当前意图**与一项**长�
   与 `safety`（生命值/饥饿值读数）。数值是排序用的内部变量，不生成台词。
 - 稳定初始人格由 `kin_id` + 人格种子派生并持久化，重启后读回同一份；人格版本与派生算法
   一起记录，绝不在每次入服时重新随机。
+- 人格的这一版已落地：`domain/persona.py` 用 `persona-blake2b-v1` 从 `(kin_id, seed)` 派生
+  五项 1..9 的广义倾向和六项价值的排序，`adapters/filestore/persona_store.py` 把它写成 Kin
+  根目录下的 `persona.json`——文件已存在即拒写（`PERSONA_ALREADY_INITIALISED`），缺失即具名
+  报出（`PERSONA_NOT_INITIALISED`），不给读的人编一个人。种子取自 `MINEKIN_PERSONA_SEED`；
+  未设置时 `init` 抽取一次并连同人格持久化，因此这个 Kin 是谁事后仍可由它自己的目录复现。
+  `minekin persona show` 只读回人格与算法/版本，不回显种子。人格没有进 SQLite，`schema.sql`
+  与迁移的冻结摘要因此不变。
 - 失败归因先实现四类真实可判的：`RESOURCE_UNAVAILABLE`、`SKILL_NOT_IMPLEMENTED`、
   `ACTION_NOT_EFFECTIVE`、`INSUFFICIENT_INFORMATION`。同一失败上下文签名耗尽重试预算后
   必须换方法、等待或放弃，不得原样重放。
