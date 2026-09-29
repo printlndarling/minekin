@@ -3794,3 +3794,56 @@ IPv4-mapped 字面量整类拒掉（`server profile host must not be an IPv4-map
 `drive.sh` 首版把 `blocking_cases` 读在报告顶层（`d.get('blocking_cases')`），PRE 那轮因此打印 `blocking count: 0`——**与既往记录的 28 相反，是我的键错**。
 POST 改成递归找键，读到 `blocking_cases paths found: [28, 0, 0, 0, 2, 5, 2, 0, 0, 18, 9, 1]`，首条 28 正是历史口径那一份名单。
 凡读 `report_promotion` 的名单，先确认路径在 `evidence`/`work_packages` 之下，不要在顶层按名字猜。
+
+## 2.116. H1v：规范卷 × 当前字节的 LAN 控制续封（两发：一发失败材料，一发封成 PASS）
+
+基线 `17f0c66`（其后是 H1t 的交付笔 `5115ac9` 与记录笔 `17f0c66`，`domain.sh`/`run.sh`/两份 asserter 与 sealer 的字节自 M-C2 起只被 H1r 那笔动过）。配方不重写：从上一枚规范卷封证自己的 `orchestrator-trace.json` 读出 `session start --profile bundle-candidate-1.20.1 --server-profile controlled-offline-server-1.20.1 --handshake-timeout-seconds 90`，经用户可跑入口 `demo-lan.sh` 驱动。卷＝规范卷 `minekin-runner-data`，Kin 根＝`kin-h1v-lan-host`/`kin-h1v-lan-join`，观测窗 `MINEKIN_DEMO_LAN_SOAK_SECONDS=600`、run 上限 `MINEKIN_DEMO_LAN_SECONDS=1200`。材料：`.tmp/h1v/{drive.sh,drive2.sh,bytes.txt,run-canonical.log,run-canonical-2.log,read-back.log,rc.txt}`。
+
+### 2.116.1 第一发：加入者在到达阶段真死，**不封存**（失败材料全部留在原地）
+
+`domain: Kin2 never arrived: its own launcher had already exited, 43s into the 1200s window` + 下游判词 `THE_JOINER_HAD_NOT_ARRIVED_IN_THE_WINDOW`。崩溃报告按名仍在卷上（第二发之后也没被覆盖，两发的会话目录不同名）：
+`/data/kin/kin-h1v-lan-join/run/session/5be0a4f33f514c6fbae1c31f815449a5/generation-1/crash-reports/crash-2026-09-29_05.42.11-client.txt` —
+`Description: Initializing game` / `java.lang.IllegalStateException: Failed to initialize GLFW, errors: GLFW error during init: [0x1000E]…`（`knot//com.mojang.blaze3d.platform.GLX._initGlfw(GLX.java:75)` → `RenderSystem.initBackendSystem` → `net.minecraft.class_310.<init>`），同代 `logs/stderr.log` 第一行 `error: XDG_RUNTIME_DIR is invalid or not set in the environment.`。⇒ 「加入者 JVM 崩在自己的 GL 初始化」这一族（§2.62 首先量到并列出四候选，§2.91 试过「错开两台 JVM 的启动时序」那条解释并把私卷样本记到 §2.94 第 4 条）在**规范卷**上有了第一枚在案样本：该案旧的两枚 attempt（seq1 `a224f6c3…`、seq2 `c4507960…`）都到达，此前没有这一族的规范卷读数。
+
+harness 这一半已经做了：编排层把一枚 0700 的运行时目录名写在加入者自己的 `env` 行上并打印来源（日志第 13 行的具名读数），而崩溃仍带着那句 `XDG_RUNTIME_DIR is invalid or not set` ⇒ 方向与 §2.62 候选 (乙)（名字到不了那个 JVM）一致，因为 Core 用封闭名单 `config.FORWARDED_VARIABLES` 重建客户端环境；**但同一份字节、同一枚卷、同两个 Kin 根的第二发到达了** ⇒ 这一枚不判别那四个候选，也不把该名字写成死因。把名字送进名单是已登记的主控保留决策（任务 #35），本卡不实施。
+
+处置与两格诚实账：
+
+1. **不封存这一发**——案上多一枚 FAIL attempt 会顶掉规范卷上 M-C2 那枚 PASS 的序列位置，而失败原因属已知环境形状而非本卡字节。按 `--again` 重跑（第二发），判据、`case_version`、registry、`mandatory`、距离门 2.0、`HOLD_SECONDS`（授权窗 2s）**一字节未动**；抬的只有观测窗。
+2. 第一发跑完前的卷面核查（只读）：manifest 仍 **117**、两枚 `kin-h1v-lan-*` 根下 sealed bundle **0 枚** ⇒ 半途而止的 run 没留下半成品封存。
+3. 驱动看到的第一发 `rc=137` **不是**编排层的 `rc=14`：判读在 05:42:08 已打完，之后进程树（含宿主会话的客户端 JVM）仍活着且不再输出，M 于 05:51 终止了那只仍在等待的容器，`docker` 的 kill 信号被记成了那一发的退出码。⇒ **失败收尾有一段「判读已出、进程未退」的空窗，其成因本卡未量**（被 M 主动终止，时长不构成测量）；第二次跑到同一处时进程自己走完了收尾（`ATTEMPT2 RUN rc=0`）。
+
+### 2.116.2 第二发：封成 PASS（attempt 3，supersedes M-C2 那枚）
+
+`demo-lan.sh --again`（复用两枚已填充的 Kin 根，不重播 artifact）⇒ `rc=0`。活体链：`the world heard Kin2 arrive` ⇒ `Kin2 admitted its first snapshot of that world` ⇒ 自陈 `[05:54:26] … CONNECTION_PHASE_JOIN_SEEN for generation 1 (terminal=false, reason=ADMISSION_FAILURE_REASON_UNSPECIFIED)`、1 tick 后见到 12 枚实体候选 ⇒ 观测窗 60 次采样（客户端 RSS `1060..1336 MB`、线程峰值 107；服务端 RSS `1007..1028 MB`、峰值 67）⇒ `stopping the session` / `the joining session has stopped` ⇒ `session stop said … asked [426] / nothing_held [426] / released [] / terminated [426] / unresolved []` ⇒ `session exited 14`，加入者收尾自陈 `{'outcome': 'BRIDGE_LOST', 'connection_state': 'PLAYABLE', 'snapshots_admitted': 1, 'entities_admitted': 12}`。释放计数按 #94 口径读作「手上已无租约」，不是「交还了租约」。
+
+封证：`status: sealed`、`result: PASS`、`failures: []`、`attempt_sequence: 3`、`supersedes_run_id: c450796045ea4712ab8fbbe20f516f8a`、`case_version 397cefbdee68…`（未动）、`bundle_digest 9fe50e1818c180893cbe0691df642b6d53650197fc649709a57479d7f03a9801`、落点 `/data/kin/kin-h1v-lan-join/run/evidence/f8420ef301bf4e65b6f08ac6194daf37`（会话 run_id 是 `963661f2100b4bb4878680ae671c808f`，与证据目录名不同名，读回接目录那一枚）、artifacts **15 件**。identity `Kin2/20d2112d-ecc9-3e0b-a7f4-5b830b9e6451`；world `kind: dedicated`、`seed minekin-p0-controlled`、`server_config_digest 77a19c94c446…`。四枚判据 expected==observed==`[move_input_was_leased, the_bridge_carried_the_input_out, the_server_saw_the_kin_move, the_probed_player_is_this_run_s_kin]`。
+
+### 2.116.3 六读（`bash .tmp/m98/read-back.sh f8420ef3… kin-h1v-lan-join` ⇒ `.tmp/h1v/read-back.log`，逐项读 rc）
+
+| 路 | 读数 |
+| --- | --- |
+| 0 摘要自证 | `sha256sum manifest.json` == `bundle.sha256` ⇒ `digest agrees with the seal file: True` |
+| 1 `evidence verify` | rc=0，`status: verified`、`verified: true`、`violations: []`、artifacts 15 |
+| 2 `rejudge_evidence.py` | rc=0，`status: agrees`、`disagreements: []`、`re_judged.result PASS`、`unimplemented []` ⇒ 当前出货字节的复判与 bundle 记录一致 |
+| 3 `replay_evidence.py` ×2 | 两次都 rc=0、23 条事件、`projected.state STOPPED`、`trace_sha256 dd0bbf7cfc05…`（size 16841）⇒ 幂等 |
+| 4 `read_move_window.py --all-controls` | rc=0，verdict「the window carries a step」 |
+| 5 `report_promotion.py --data-root /data` | rc=1、`status blocked`（见 §2.116.4） |
+
+第 4 路的窗与五枚具名对照：
+
+- 授权窗 `05:54:29.399260Z → 05:54:31.386927Z` = **1.988 s**，服务端日志里 **610** 条打戳回答，**窗内 2 枚** ⇒ 计入的位移 `[05:54:29] (-1.68,-60.00,-8.32) → [05:54:31] (-7.59,-60.00,-2.41) = 8.36 blocks` 完全落在授权窗内，不借 release 之后的读数（M-C2 §2.110.4 同形：窗 `2.001 s`、窗内 2 枚、credited 8.18；本枚只是观测窗拉到分钟级后重测的一份）。
+- `whole-log-pair` ⇒ 首尾 `[05:54:24] → [06:04:35] = 20.53 blocks`，也判「有步伐」⇒ **#68 那类「未授权位移独自越门」在 600 s 观测窗下的规范卷 LAN 材料上依旧存在**（20.53 对 8.36 的差即窗后漂移），本卡只记不改判据。
+- `drop-window-readings`（删掉窗内那 2 枚）⇒ `NO_READING_INSIDE_WINDOW` ⇒ 这一路的判读非恒真。
+- `first-window-reading-only` ⇒ credited 收窄到 `4.67 blocks`（端点由窗内末枚决定）。
+- `death-before-tail` / `departure-before-tail` ⇒ gated `4.67` 对 ungated `8.36` ⇒ 尸体的冻结坐标与离场后的尾读数都不被接受当端点。
+
+### 2.116.4 卷面与门：只多了一枚 AGREES，其余一字未动
+
+`find /data -name manifest.json` **117 ⇒ 118**；全卷复判 tally `AGREES 62 / UNJUDGED 54 / DISAGREES 1` ⇒ **`AGREES 63 / UNJUDGED 54 / DISAGREES 1`**（+1 恰是本枚）；`status blocked`、`blocking_cases` 首条 **28**、`from_another_build 61`、`repo_checks_not_from_the_controlled_interpreter 9`、`unreadable/unsealed/unverified/sealed_without_bundle` 全 0。该案三枚 attempt 同框且旧 attempt 原样在：seq1 `a224f6c3…`（`UNJUDGED`，`case_version` 移动的历史，未改写）、seq2 `c4507960…`（`AGREES`）、seq3 `f8420ef3…`（`AGREES`、`violations []`、`from_repository_build True`）。registry 引用 / `mandatory` / 晋级状态零位移，`p0-core` 仍不点亮 ⇒ **封成 ≠ 晋级**（晋级属主控保留）。本卡的仓库字节只动文档与 `.tmp/` ⇒ 判据、case 摘要、门载荷按构造不移动。
+
+### 2.116.5 一处工具坑与下一步
+
+`tools/rejudge_evidence.py` 只接 `bundle` 位置参数，**没有 `--all`**（本卡第一次想要全卷 tally 时以 `rc=2` 撞在这里）⇒ 全卷复判 tally 从 `report_promotion.py` 的 `evidence.bundles[]` 逐枚 `re_judged` 计数得出，别猜工具旗标。
+
+下一张 **H1s（#102）**：受控镜像缺 `jsonschema` 使 `W00-CONTRACT-001` 的三格 pytest-kind 判据在镜像内恒红（§2.113.5）。Dockerfile 的闭包钉法已在工作树、尚未提交也未构建；活体窗已安静，重建 `minekin-runner:local` 后按名复量三格并跑四项仓库门。
