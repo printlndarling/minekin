@@ -115,6 +115,30 @@ def test_the_address_is_normalized_rather_than_echoed() -> None:
     assert decide_endpoint(OPEN_POLICY, "::FFFF:7F00:1", 25565).address == "::ffff:127.0.0.1"
 
 
+def test_every_spelling_of_one_mapped_literal_renders_the_same_way() -> None:
+    """The dotted-quad form comes from this code, so no input spelling can move it.
+
+    `str()` on a parsed address is spelling-independent too, but on CPython
+    3.12.3 it prints the hex form; the fixed expectation above is what breaks
+    there, and this one is what keeps the fix honest on both interpreters.
+    """
+
+    for host in (
+        "::FFFF:7F00:1",
+        "::ffff:7f00:1",
+        "::ffff:127.0.0.1",
+        "0:0:0:0:0:ffff:7f00:1",
+    ):
+        assert decide_endpoint(OPEN_POLICY, host, 25565).address == "::ffff:127.0.0.1"
+
+
+def test_only_the_ipv4_mapped_range_is_rendered_as_dotted_quad() -> None:
+    """NAT64 and a plain v6 literal keep their own form: no blanket rewrite."""
+
+    assert decide_endpoint(OPEN_POLICY, "64:ff9b::127.0.0.1", 25565).address == "64:ff9b::7f00:1"
+    assert decide_endpoint(OPEN_POLICY, "2001:db8::1", 25565).address == "2001:db8::1"
+
+
 def test_a_policy_must_allow_something() -> None:
     with pytest.raises(ValueError, match="at least one network"):
         AddressPolicy(())

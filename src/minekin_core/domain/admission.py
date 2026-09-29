@@ -118,6 +118,21 @@ def _parse_literal(host: str) -> Address | None:
         return None
 
 
+def _render_literal(address: Address) -> str:
+    """Give the address one fixed textual form, whatever the interpreter prints.
+
+    A CPython patch release changed how an IPv4-mapped IPv6 literal renders
+    (`::ffff:7f00:1` on 3.12.3 against `::ffff:127.0.0.1` on 3.12.13), and this
+    string goes into evidence, so the dotted-quad half is named here.
+    """
+
+    if isinstance(address, ipaddress.IPv6Address):
+        mapped = address.ipv4_mapped
+        if mapped is not None:
+            return f"::ffff:{mapped}"
+    return address.compressed
+
+
 def decide_endpoint(policy: AddressPolicy, host: str, port: object) -> EndpointDecision:
     """Decide whether a resolved endpoint may be connected to.
 
@@ -146,5 +161,5 @@ def decide_endpoint(policy: AddressPolicy, host: str, port: object) -> EndpointD
     return EndpointDecision(
         allowed=not reasons,
         reasons=tuple(sorted(reasons)),
-        address=str(address),
+        address=_render_literal(address),
     )
