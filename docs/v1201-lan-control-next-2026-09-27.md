@@ -3515,3 +3515,155 @@ bash .tmp/m99/blocking-read.sh                                                # 
 # 真跑配方与完整输出：.tmp/m99/drive-v040.sh / .tmp/m99/run-v040.log
 # 旧 attempt 仍在：/data/kin/kin-01/run/evidence/6a86da0353e746829cc5966ac272ef9d（UNJUDGED，未被改写）
 ```
+
+## §2.113 H1r 收口：未到达的宿主客户端现在报出自己启动器的话（第一百一十三轮，2026-09-29 12:35 +0800，M 亲跑，判据/case 摘要/registry/退出码零位移）
+
+### 2.113.1 这一卡补的是 §2.111.2 登记的那一格（测量，不是推测）
+
+M-C3 的第一次尝试把桥产物拿掉以后，算子流只留得下一句泛化的界：`.tmp/m99/run-core040.log:15` 是
+`domain: the session never became playable within 240s (the session exited first)`，该 run `rc=1`（同文件 :26）。
+产品侧真正说过的那句话——那枚把未筑桥产物具名拒止的 JSON——写进容器内的 `/tmp/domain-session.err`，
+而 `test-orchestrator/runner/run.sh:247` 无条件 `--rm`：容器一停，那句话随之销毁，事后只能靠 `docker cp` 从已退出的容器里捞。
+「一处具名的 frontier 拒止」与「一次普通的界到」要读的是不同的东西，所以报后者的分支必须把前者抄出来。
+
+本卡的口径与加入者侧那格（§2.85，`V1201-LAN-JOINER-*` 未到达分支报出自己遗言）一致：**只加可见性，不动判词**。
+判据、case 摘要、registry 引用、`mandatory`、距离门、授权窗、bundle 字段、退出码一律未变；
+`run.sh` 一个字节未改（`git diff --numstat` 只有 `domain.sh` 与契约测试两份）。
+
+**与登记口径的偏差在此具名申报**：§2.111.8 登记那张卡时写的是「把关键行在容器销毁前抄进 **run 目录**」（§2.112.6 的下一步行沿用同一说法）。本卡交付的是抄进**算子流**（run 的 stderr），
+没有把它写成 run 目录里的工件——后者要让封存侧多收一份材料（`--server-directory`/bundle schema 那一侧的形状），属主控保留决策，本卡不请求它。
+抄进算子流已经足够让那句话不再随容器销毁：被 `--rm` 销毁的是容器文件系统，`>&2` 的那一行早已落在宿主侧 run 的输出里。
+
+### 2.113.2 改动面：`domain.sh` 三处（+39/−1，3391 → 3429 行）
+
+- `:1999-2005` 把那个错误文件具名成 `session_error_file=/tmp/domain-session.err`，重定向改用变量。路径抄两遍就会有一遍漂，读它的分支与写它的分支必须是同一个名字。
+- `:2030-2045` 新增 `name_the_session_launch_last_words()`：先 `[ -s ]` 再 `wc -c` 取**字节数**（不是行数），把 `domain: the session launcher's own last words, from <路径> (<N> byte(s)):` 与 `tail -n 20` 的正文一起送到 `>&2`；文件为空或不存在时说 `wrote nothing to <路径>`，两条路都 `return 0`——这是一段读数，不是第二次判决，它不能让一个本来会成功的 run 失败。取字节数是因为一段没有行尾的 JSON 用 `wc -l` 读成 0 行；截尾 20 行是因为「起得来但卡住」的客户端会在这份文件里留下整份 Minecraft 日志。
+- `:2359`、`:2394` 各接一个调用点：一条在 `:2358` 的 `no handshake was recorded within %ss` 之后（同分支上方 `:2356` 已有 `the handshake was recorded by Core` 那行作为锚），一条在 `:2392-2393` 的 `the session never became playable within %ss (%s)` 之后。
+- **第三格明确不接**：`:2276` 那条同样打印 `no handshake was recorded within %ss` 的分支属于黑洞形状，它自带载体 `/tmp/domain-black-hole.log`，并在其后立刻报「拨到黑洞」或「无人连接」。把宿主侧的启动遗言抄进那一格会把两种不同的事实混成一句。
+
+### 2.113.3 出货字节上的两路独立证明
+
+**（甲）容器内直驱这份 helper**（`bash .tmp/h1r/drive2.sh` ⇒ `.tmp/h1r/drive.log`，`/src` 只读、只写容器自己的 `/tmp`）五种形状：
+
+| 形状 | 读数 |
+| --- | --- |
+| 一枚 77 字节的具名拒止 | 标题 `(77 byte(s))` + 原文逐字回到算子流 |
+| 空文件 | `wrote nothing to /tmp/h1r-empty.err`，rc=0 |
+| 路径不存在 | 同上那句 `wrote nothing …`，且**没有** `No such file or directory` 泄漏 |
+| 40 行洪水 | 只回 `line-21`…`line-40`，`line-20` 不见 ⇒ 截尾生效 |
+| 无行尾的单行 JSON | 标题 `(27 byte(s))` + 原行，rc=0 |
+
+**（乙）三张契约格**（`tests/contract/test_runner_scripts.py` +192 行，整文件 `144 passed`）：
+
+1. 形状格：helper 定义恰好一次、调用点恰好两处、`session_error_file=/tmp/domain-session.err` 与 `2>"${session_error_file}"` 都在、`/tmp/domain-session.err` 字面量在文件里只出现 1 次（另一处是变量赋值）、读 `wc -c` 而不读 `wc -l`、`tail -n 20` 在、两条标题都在、helper 内不出现 `set -e`、不出现加入者侧的 `domain-join-session` 或 `/data/kin`，并逐字匹配两个调用点各自行上方的 printf。
+2. 驱动格：把仓库里的 helper 区域原样抽出来，在 `run_shelled` 下真跑 bash—— staged 拒止 ⇒ 标题 + 原文 + 正确字节数；空文件与缺路径 ⇒ `wrote nothing` 且 rc=0、无 `No such file`；40 行 ⇒ 截尾。
+3. 反证格：删掉 `tail -n 20 "${session_error_file}" >&2 2>/dev/null || true` 那一行（先证 `mutated != shipped`，否则什么都没量到）⇒ 标题仍打印、被抄的话不出现 ⇒ 承重的是那一行读，不是 printf 本身。
+
+### 2.113.4 一次私有卷活体拒止读数（不是封证）
+
+配方：`bash .tmp/h1r/live.sh` ⇒ `.tmp/h1r/live.log`。私有卷 `minekin-h1r-live` 由规范卷 `kin-01` 以 `cp -a` 播种（规范卷全程 `:ro`，本卡未写规范卷一个字节），把 1.21.4 桥产物暂存改名以复现 §2.111.2 那枚启动拒止，其余旋钮与 M-C3 首刀同形（`--profile bundle-p0-core-1.21.4.json --server-profile controlled-offline-server.json`、`--hold-forward-seconds 8 --hold-use-seconds 8 --look-yaw-degrees 45`、界压到 40 秒）。
+
+- run 头：HEAD `3a02857`、`domain.sh` sha256 `b1d5feee3f73a0409fa66d6beec4abf4fe805b9b9468752fd078356774be04e6`（工作树字节，本卡未提交前）、`run.sh` sha256 `c30f69758138a278bc1a5c66732ce2d01ee9b53d0e7319ac53fdbdc7ef216e81`（与主干已提交字节相同 ⇒ 本卡确实没碰它）。播种 `cp -a` 完成：`/live/kin/kin-01` 13G，`SEED rc=0`。
+- **前后对照**：`.tmp/m99/run-core040.log:15` 的旧形状只有 `domain: the session never became playable within 240s (the session exited first)` 一句泛化的界。同一形状在现在的算子流里是 `live.log:15` + `:16` + `:17` 三行：
+
+  ```
+  domain: the session never became playable within 40s (the session exited first)
+  domain: the session launcher's own last words, from /tmp/domain-session.err (311 byte(s)):
+  {"category": "SUPPLY_CHAIN", "component": "launcher.recipe", … "message": "the Bridge jar has not been built: /src/bridge/build/libs/minekin-bridge-0.0.0.jar is missing; run `./gradlew build` in the bridge directory", … "retryability": "OPERATOR_ACTION"}
+  ```
+
+  也就是说 §2.111.2 那格「具名的 frontier 拒止」在 `--rm` 销毁容器文件系统之前抄了出来，落点正是 §2.113.2 里 `:2394` 那个调用点之后。那句 `SUPPLY_CHAIN` 是**产品侧自己的 JSON**（`live.log:17`），不是编排层的判词——本卡文本里它只出现在这份引文里，`domain.sh` 一处没有（§2.113.6 的契约守的就是这条界）。
+- 该 run 收尾 `rc=1`（`live.log:28`）。它**没有**在私有卷上封出任何 bundle：`live.log:18` `domain: this run is `（空）、`:23` `domain: the run document said `（空）、`:25-27` 依次说「`/tmp/domain-session.json` 里没有 run 文档」「自己的行里没有 Kin 所以封证认不出是谁」「the run could not be sealed (exit 2) … status: unsealed」。
+  卷面末尾 `find /data -name manifest.json` 读数 89，**全部来自 `cp -a` 播种的那份存储**，本 run 新增 0 枚。私有卷读数不作封证、不引 registry、不入规范卷；这里的「封不出」是引擎按具名理由自己拒的，不是脚本 `rm` 掉的——这一格顺带反证了可见性修复没有把一次失败 run 洗成可读的成证。
+- 归还证明：`live.log:29` `restored bridge/build/libs/minekin-bridge-0.0.0.jar.h1r-set-aside -> bridge/build/libs/minekin-bridge-0.0.0.jar`，随后 `live.log:31` 的 `sha256sum` 复回 `0ee2070b97ba6583ca004cc3f0e4a0e547697d0693dc635c3143c655cc2475f4`（1,310,646 B，未重建、未改动，与 `live.log:10` 暂存前那行逐字相同）。
+- 活体读数之后再量规范卷卷面（`minekin-runner-data` 全程只 `:ro` 挂过）：`find /data -name manifest.json` **117**、`/data/kin` **104**、`/data/repo-evidence` **13**，与 §2.112 收口那三个数一字未动 ⇒ 「本卡未写规范卷」是复量过的读数，不是宣言。
+
+### 2.113.5 门读数（`bash .tmp/h1r/gates2.sh` ⇒ `.tmp/h1r/gates2.log`，逐项读退出码）
+
+| 门 | 退出码 | 读数 |
+| --- | --- | --- |
+| `bash -n domain.sh` / `run.sh` | 0 / 0 | — |
+| `check_case_assertions.py` | 0 | `151 registered`（不变 ⇒ 判据零位移） |
+| `verify_fixture_digests.py` | 0 | `W00 schema and fixture digests: OK` |
+| `check_boundaries.py` | 0 | `Minekin package dependency boundaries: OK` |
+| `tests/contract/test_runner_scripts.py`（容器） | 0 | 144 passed |
+| 容器全量 pytest（`--ignore` 三枚 jsonschema 模块，第一次砍刀） | 2（**M 提前 `kill -TERM` 的形状，不是测试结论**） | 砍刀时已 `1661 passed, 1 skipped in 962.22s`，即约 16 分钟仍在推进。**先前把它记成「≈15 分钟不收敛」是 M 的误诊**：`wchan=futex_do_wait` 与累计 CPU 近 0 在这套挂载形状下是等待而不是卡死。真正的缺陷是这行的取法——`gates2.sh` 给该步接了 `tail -2` 管道，于是 KeyboardInterrupt 收尾顺带记下的那 `1 failed` **测试名进了管道就没进日志**。该读数不作绿也不作红使用，改以完整输出重跑认领（下一行）|
+| 容器全量 pytest（同上三枚 ignore，完整输出重跑） | 1 | `2 failed, 2692 passed, 5 skipped in 2609.06s`。**两枚失配都已具名，且都不是本卡带来的**（对照见下段）：`tests/unit/test_admission_address.py::test_the_address_is_normalized_rather_than_echoed` 与 `tests/unit/test_run_repo_case.py::test_the_command_exits_by_what_it_found` |
+| `ruff format --check .`（宿主） | 0 | `396 files already formatted`（与基线同值 ⇒ 本卡零新文件） |
+| `ruff check .`（宿主） | 0 | `All checks passed!` |
+| 宿主全量 pytest | 0 | `2837 passed, 2 skipped in 533.00s`。基线 2834 → 2837 的 +3 正是 §2.113.3（乙）那三格契约，其余一格未动 ⇒ 本卡在宿主侧的全量回归无位移 |
+| `git diff --check` | 0 | 无空白错误 |
+
+镜像里 `jsonschema` 缺席是本卡的既有环境事实，不是回归：`tests/contract/test_fixture_boundaries.py`、
+`tests/contract/test_server_profile_schema.py`、`tests/unit/test_fault_injection.py` 三枚模块在该镜像内 collection 即
+`ModuleNotFoundError`（第一次跑门时以 3 errors 现形，逐条读过 traceback 才归类为环境缺口），故这三枚只能忽略后在镜像外读；
+镜像内那一次全量又被 M 提前砍掉（见上表），所以本卡改用完整输出重跑一次，把「砍刀顺带记下的那一枚 failed」的**名字**追回来，
+而不是让一个自己造成的形状替本卡下结论。宿主行与镜像行各报各的，不合并成一行绿。
+
+**两枚镜像侧失配的归因（各带一枚对照）**
+
+1. `test_the_command_exits_by_what_it_found`：该格把仓库自带的 `W00-CONTRACT-001` case 用 `tools/run_repo_case.py` 真跑一遍并要求 `EXIT_HELD`。同一命令在镜像内的逐格读数是
+   `result: FAIL`、`rc=1`、`failures` 三格 `schemas_are_versioned / runtime_input_does_not_reference_oracle / product_package_does_not_import_test_orchestrator` 全部
+   `CHECK_FAILED:exit 4`，其 `detail` 都是 `ERROR: found no collectors for /src/tests/contract/test_fixture_boundaries.py::…`；
+   只有 `kind: tool` 那一格 `fixture_digests_match_manifest`（`exit_code: 0`）进了 `observed`。
+   也就是说它红的**原因与上面那三枚 ignore 同一个**：镜像没有 `jsonschema` ⇒ `test_fixture_boundaries.py` 采不到 ⇒ W00 的三格 pytest-kind 判据在镜像内判不了 ⇒ 整枚 case 报 FAIL。
+   这是镜像侧的既有缺口第一次以「全量里一枚红」的形状现形（以前只以 collection error 的形状现形，所以被 ignore 掉了）。
+2. `test_the_address_is_normalized_rather_than_echoed`：直接量两台解释器对同一个字面量的归一化结果——
+   镜像 `/opt/minekin/bin/python` 是 `3.12.3`，`ipaddress.ip_address('::ffff:127.0.0.1')` 读回 `::ffff:7f00:1`；
+   宿主 `uv` 解释器是 `3.12.13`，读回 `::ffff:127.0.0.1`。同一大版本、不同补丁级的 `ipaddress` 行为差，测试期望的是宿主那一种（`test_admission_address.py:115`）。
+   这一格值得单独记下，因为它不只是测试脆：`src/minekin_core/domain/admission.py:149` 落的是 `address=str(address)`，
+   ⇒ **同一条准入决定在不同补丁级的解释器上会写成两种字符串**。判定（`allowed`/`reasons`）不受影响，受影响的是被记录、可能被摘要比对的地址形状。
+   这一格在本卡之前就是红的，本卡只把它从「全量里一个名字」提升成「一条有载体的具名读数」。
+3. **本卡未参与的对照**：把 `HEAD`（`3a02857`，未含本卡字节，`domain.sh` 3391 行且不含新 helper，`git archive HEAD | tar -x`）导出成干净树，在同一镜像内只跑这两格：
+   `2 failed in 4.27s`、`BASE-CONTROL rc=1`，两条断言消息与全量那一行逐字同形（`'::ffff:7f00:1' == '::ffff:127.0.0.1'`、`assert 1 == 0 … "result": "FAIL"`）。
+   ⇒ 两枚红都在本卡之前就红在镜像里，本卡的字节没有参与这两格的判定；本卡不为它们求绿，也不把它们记成绿。修它们各需自己的卡：一枚要么给镜像补 `jsonschema`（环境侧）要么让 W00 具名容忍采不到（判据侧，会动门载荷口径）；另一枚要判的是「准入地址的归一化该不该依赖解释器补丁级」，那是 `src/` 准入路径的产品问题，不在一张可见性卡里顺手改。
+
+### 2.113.6 中途量到的一格真实防线：判词不属于编排层
+
+第一轮门套件把既有契约打红了一格——`test_a_run_that_stops_at_a_named_supply_chain_refusal_exits_non_zero`
+断言 `assert "SUPPLY_CHAIN" not in text`，而本卡初稿把「Core 说过的那句话」逐字引在 `domain.sh` 的注释里，
+于是被自己新增的注释触红（`1 failed, 143 passed`，`.tmp/h1r/gates.log`）。
+这条断言不是形式主义：它把「harness 只传播它已经握着的数字，不新造判决」钉在字节上。
+修法是把注释改成不含该 token 的散文（"that category such an unbuilt jar is refused under"），
+**保留测量事实、去掉具名判决**；改后同文件 `144 passed`。
+这一格值得记下，因为它说明可见性与判词之间的界是机器守的，不是作者自律。
+
+### 2.113.7 仍未闭合的与下一步
+
+- `/tmp/domain-session.err` 仍在容器内：本卡把关键行在销毁前抄进**算子流**（run 的 stderr），没有把它抄进 **run 目录工件**。
+  要把那份文件持久化成 bundle 侧材料，需要动封存形状（`--server-directory`/schema 一侧），那是主控保留决策，与 H1q 同族，本卡不请求。
+- 黑洞分支 `:2276` 仍不抄宿主启动遗言，理由见 §2.113.2 末条。
+- 镜像侧全量的两枚既有红（`test_admission_address` 的解释器补丁级依赖、`test_run_repo_case` 里 W00 三格 pytest-kind 判据因镜像缺 `jsonschema` 而采不到）在本卡之后仍然红着，本卡只把它们**具名并归因**（§2.113.5 末段），不顺手改：前者要判的是准入地址归一化能否依赖 `ipaddress` 的补丁级行为，后者要在「给镜像补依赖」与「让 W00 具名容忍」之间选，两者都会动到本卡声明为零位移的那两侧（`src/` 准入路径 / 门载荷口径）。
+- CI 欠账本轮清掉两笔（`.tmp/h1r/ci_reads.py` ⇒ `.tmp/h1r/ci-reads.log`）：`8983390`、`3a02857` 各 1 个 run，
+  `protocol`/`bridge-static`/`python` 三 job 全 `completed/success` 且步骤级 `non_success=[]`（10/9/18 步）。
+- 仍开着的旧项不变：`tests/contract/test_session_runtime.py:81` 那份 `_wait_until` 复制未抽共享（§2.109.5）；
+  `gate_payload_sha256` 仍是已登记的测量缺口。
+- 下一张：按 §0 覆盖段的口径回到 **P4 的恢复与异常准入读数**。本卡之后可安全自派的是**长窗稳定性读数**——在既有 `test-orchestrator/runner/demo-lan.sh` 入口与自建私有卷上，把授权窗从秒级拉到分钟级重复真跑，读台账里心跳/租约/`SessionInterrupted` 是否跨分钟保持（账本时间线的载体是 `bridge-trace.jsonl`，已在手上），**不立 case 符号、不注册断言、不封存、不动门载荷**。异常准入那一半的后段（`CORE-080`/`OFFLINE-060`/`ADMIT-010`/`ADMIT-020`）要的是新 oracle 与新断言登记，属 §4 的 case 设计与 `P0-GATE-PROMOTION-001` 一侧；本卡的门载荷读数是 `151 registered` 一字未动，所以那几格不在本卡射程内，也不被本卡宣称推进。
+
+复算：
+
+```bash
+cd C:/Users/darling/Documents/agent_work/minekin-wt-integration
+bash .tmp/h1r/drive2.sh            # 甲路：容器内直驱出货 helper（五形状）
+bash .tmp/h1r/gates2.sh            # 门读数：容器 + 宿主，逐项 rc
+bash .tmp/h1r/gates3-container.sh  # 镜像内全量，完整输出（不经管道截断）⇒ .tmp/h1r/container-pytest.log
+bash .tmp/h1r/live.sh              # 乙环：私有卷活体拒止读数（会暂改名桥产物，跑完自动归还并核 sha）
+python .tmp/h1r/ci_reads.py        # 8983390 / 3a02857 的步骤级 CI
+MSYS_NO_PATHCONV=1 docker run --rm -v "$PWD":/src:ro -e PYTHONPATH=/src/src \
+  --entrypoint python minekin-runner:local -m pytest -q -p no:cacheprovider \
+  tests/contract/test_runner_scripts.py
+
+# 两枚镜像侧红的归因与对照（对照树按 SHA 取，本卡之后 HEAD 已含新字节）
+rm -rf .tmp/h1r/base && mkdir -p .tmp/h1r/base && git archive 3a02857 | tar -x -C .tmp/h1r/base
+MSYS_NO_PATHCONV=1 docker run --rm -v "$PWD/.tmp/h1r/base":/src:ro -e MINEKIN_HOME=/tmp/home \
+  -e PYTHONPATH=/src/src -e LD_LIBRARY_PATH=/opt/sqlite/lib --entrypoint /bin/bash \
+  minekin-runner:local -c 'cd /src && python -m pytest -q -p no:cacheprovider --tb=line \
+    tests/unit/test_admission_address.py::test_the_address_is_normalized_rather_than_echoed \
+    tests/unit/test_run_repo_case.py::test_the_command_exits_by_what_it_found'   # ⇒ 2 failed，逐字同形
+MSYS_NO_PATHCONV=1 docker run --rm -v "$PWD/.tmp/h1r/base":/src:ro -e PYTHONPATH=/src/src \
+  -e LD_LIBRARY_PATH=/opt/sqlite/lib --entrypoint /bin/bash minekin-runner:local -c \
+  'cd /src && python tools/run_repo_case.py --case tests/fixtures/cases/w00-contract-001.json'
+python -c "import sys,ipaddress;print(sys.version, ipaddress.ip_address('::ffff:127.0.0.1'))"  # 宿主 3.12.13 ⇒ ::ffff:127.0.0.1
+```
+
+镜像侧那两枚红另有一格 harness 教训记在这里，以免下一次又把它读成「不收敛」：`gates2.sh` 给全量那步接了 `tail -2` 管道，于是**红的那格名字**没能进日志；一行 `1 failed` 只有配上具名才是读数，否则只是形状。全量这类命令要把完整输出落到文件里再取，退出码从 `$?`/`PIPESTATUS` 读，名字从 `--tb=` 与 `-rf` 读。

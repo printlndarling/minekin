@@ -1996,9 +1996,13 @@ if [ ! -e "/tmp/.X11-unix/X${display_no}" ]; then
 fi
 export DISPLAY="${session_display}"
 
+# Named rather than spelled at the redirect, because the branch that reports this client
+# never got there reads the same file back out (see `name_the_session_launch_last_words`),
+# and a path copied twice is a path one of the two can drift from.
+session_error_file=/tmp/domain-session.err
 sh -c '"$@"; session_rc=$?; exit "${session_rc}"' minekin-session-supervisor \
     "${client_env[@]}" python -m minekin_core "$@" "${lan_args[@]}" \
-    >/tmp/domain-session.json 2>/tmp/domain-session.err &
+    >/tmp/domain-session.json 2>"${session_error_file}" &
 session_pid=$!
 if ! read -r session_starttime_ticks session_pid_namespace_inode \
         <<<"$(read_process_identity "${session_pid}" 2>/dev/null)" ||
@@ -2007,6 +2011,38 @@ if ! read -r session_starttime_ticks session_pid_namespace_inode \
     exit 2
 fi
 set -e
+
+# What this run's own launcher wrote while it was failing to become a session. A reading
+# on the two branches that report a client that never got there; it changes no criterion,
+# no gate and no bundle field, and it cannot end the run it is reporting on.
+#
+# That file is the only place a launch-time refusal is written, and `run.sh` runs this
+# container with `--rm`, so it is gone before anyone outside can open it. Measured on a
+# CORE-040 attempt whose Bridge jar had not been built: Core wrote its own named frontier
+# refusal there — the category such an unbuilt jar is refused under, and the message
+# saying the jar had not been built — while the run's output could only report a generic
+# bound, and that reason had to be recovered afterwards from the exited container with
+# `docker cp`. A named frontier refusal and a generic bound are
+# answered by reading different things, so the branch that says the second one has to
+# quote the first. The size travels with the words so a reader can tell a short launch from
+# a truncated one; the tail is bounded because a client that boots and then hangs has a
+# whole Minecraft log on this file.
+name_the_session_launch_last_words() {
+    local size
+    size=''
+    if [ -s "${session_error_file}" ]; then
+        size=$(wc -c <"${session_error_file}" 2>/dev/null | tr -d ' \r') || size=''
+    fi
+    if [ -z "${size}" ]; then
+        printf 'domain: the session launcher wrote nothing to %s, so this run has no words to read\n' \
+            "${session_error_file}" >&2
+        return 0
+    fi
+    printf "domain: the session launcher's own last words, from %s (%s byte(s)):\n" \
+        "${session_error_file}" "${size}" >&2
+    tail -n 20 "${session_error_file}" >&2 2>/dev/null || true
+    return 0
+}
 
 # The wait is for the join, not for a duration: a clock long enough for this
 # machine is a clock that is wrong on a slower one.
@@ -2320,6 +2356,7 @@ elif [ -z "${server_profile}" ]; then
         printf 'domain: the handshake was recorded by Core\n' >&2
     else
         printf 'domain: no handshake was recorded within %ss\n' "${seconds}" >&2
+        name_the_session_launch_last_words
     fi
 else
     deadline=$((SECONDS + seconds))
@@ -2354,6 +2391,7 @@ else
     else
         printf 'domain: the session never became playable within %ss (%s)\n' \
             "${seconds}" "${ended}" >&2
+        name_the_session_launch_last_words
     fi
 fi
 

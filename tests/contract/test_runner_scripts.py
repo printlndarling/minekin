@@ -2654,6 +2654,198 @@ def test_a_joiner_that_never_arrived_has_its_own_last_words_read_out() -> None:
     assert text.index(ARRIVAL_LAUNCHER_GONE) < call
 
 
+#: Where this run's own launcher sends its stderr, the heading those words are quoted
+#: under, and the line said when the file holds nothing. Named apart from the joining
+#: client's because the two are different files on different branches: this one is created
+#: by the redirect at the session launch and, before this card, was read by nothing.
+SESSION_LAST_WORDS_HELPER = "name_the_session_launch_last_words"
+SESSION_ERROR_FILE_VAR = "session_error_file"
+SESSION_LAST_WORDS_HEAD = "the session launcher's own last words, from"
+SESSION_LAST_WORDS_EMPTY_HEAD = "wrote nothing to"
+#: The refusal this card is about, worded as a CORE-040 attempt that never built its
+#: Bridge jar wrote it. It reached the operator only through `docker cp` of the exited
+#: container, because `run.sh` runs that container with `--rm`.
+SUPPLY_CHAIN_REFUSAL = (
+    '{"category": "SUPPLY_CHAIN", "component": "launcher.recipe", '
+    '"message": "the Bridge jar has not been built: '
+    '/src/bridge/build/libs/minekin-bridge-0.0.0.jar is missing"}'
+)
+
+
+def session_last_words_region(text: str) -> str:
+    """The shipped helper, brace to brace, so its reads are driven and not guessed."""
+
+    begin = f"{SESSION_LAST_WORDS_HELPER}() {{"
+    start = text.index(begin)
+    end = text.index("\n}\n", start)
+    region = text[start : end + 2]
+    assert len(region) > 200, "the session last-words helper came out empty; wrong name"
+    return region
+
+
+def drive_session_last_words(
+    tmp_path: Path,
+    *,
+    tag: str,
+    staged: str | None,
+    region: str | None = None,
+) -> subprocess.CompletedProcess[str]:
+    """Run the shipped helper over a launch-error file this test staged in its place.
+
+    `session_error_file` is the only value the region reads, so the prelude supplies just
+    it — the same seam the joining client's helper has in `${joiner}`. `staged=None` leaves
+    the path nonexistent, which is a launcher that never got as far as writing anything.
+    """
+
+    work = tmp_path / tag
+    work.mkdir(parents=True, exist_ok=True)
+    error_file = work / "domain-session.err"
+    if staged is not None:
+        # The staged bytes are this test's own material, so they are written with the
+        # newline the test counts on rather than the platform default.
+        error_file.write_text(staged, encoding="utf-8", newline="\n")
+    shipped = session_last_words_region((RUNNER / "domain.sh").read_text(encoding="utf-8"))
+    body = (
+        "set -euo pipefail\n"
+        f'{SESSION_ERROR_FILE_VAR}="{error_file.as_posix()}"\n'
+        + (region or shipped)
+        + "\n"
+        + SESSION_LAST_WORDS_HELPER
+        + "\n"
+    )
+    return run_shelled(tmp_path, body, None, tag)
+
+
+def test_a_session_that_never_arrived_quotes_its_own_launcher_stderr() -> None:
+    """A client that never became a session is not silent either: it named why, somewhere
+    the harness has to be told to look.
+
+    Measured on a CORE-040 attempt whose Bridge jar had not been built. Core printed
+    `{"category": "SUPPLY_CHAIN", …, "message": "the Bridge jar has not been built: …"}`
+    onto its own stderr, and the run's output said `the session never became playable
+    within 240s (the session exited first)` and nothing else — the file was inside the
+    container, and `run.sh` runs it with `--rm`, so by the time anyone read the run the
+    reason had been destroyed with it. Recovering that reason took `docker cp` off the
+    exited container, which is not a step the next reader can be expected to guess. A
+    named supply-chain frontier and an expired bound are answered by reading different
+    things, so the branch that reports the second one now quotes the first.
+
+    It is a reading, not a judgement: no criterion, no gate, no bundle field and no exit
+    code moves, and a launcher that left nothing behind is reported as leaving nothing.
+    """
+
+    text = (RUNNER / "domain.sh").read_text(encoding="utf-8")
+
+    assert text.count(f"{SESSION_LAST_WORDS_HELPER}() {{") == 1
+    # Two never-arrived prongs on the main client's wait, and nothing else calls it: the
+    # joining client already has its own last words, read on its own branch.
+    assert text.count(f"\n        {SESSION_LAST_WORDS_HELPER}\n") == 2
+
+    # The path is written down once and the launch redirects into that name, so the branch
+    # cannot be reading a file the client never had.
+    assert f"{SESSION_ERROR_FILE_VAR}=/tmp/domain-session.err" in text
+    assert f'2>"${{{SESSION_ERROR_FILE_VAR}}}"' in text
+    assert text.count("/tmp/domain-session.err") == 1
+
+    body = session_last_words_region(text)
+
+    # Bytes, not lines: a refusal Core wrote without a trailing newline is content, and a
+    # line count reads zero for exactly that shape — which is the same silence again.
+    assert "wc -c" in body
+    assert "wc -l" not in body
+    # An empty file is named as empty rather than quoted as if it said something, and the
+    # quoted words are bounded so a client that booted and then hung cannot flood the run.
+    assert "[ -s " in body
+    assert "tail -n 20" in body
+    assert SESSION_LAST_WORDS_HEAD in body
+    assert SESSION_LAST_WORDS_EMPTY_HEAD in body
+    # The file it quotes is named in the heading, so the attribution is checkable.
+    assert '"${session_error_file}" >&2' in body
+    assert ">&2" in body
+    # Every read is guarded, so this can never end the run it is reporting on.
+    assert body.count("2>/dev/null") >= 2
+    assert "|| true" in body
+    assert "|| size=''" in body
+    assert "set -e" not in body
+    # The joining client's carriers stay on the joining branch; this one opens no Kin root.
+    assert "domain-join-session" not in body
+    assert "/data/kin" not in body
+
+    # Both calls sit on the failure prong, immediately after the sentence that used to be
+    # the whole of what the branch said.
+    assert (
+        text.count(
+            "printf 'domain: no handshake was recorded within %ss\\n' \"${seconds}\" >&2\n"
+            f"        {SESSION_LAST_WORDS_HELPER}\n"
+        )
+        == 1
+    )
+    assert (
+        text.count(
+            "printf 'domain: the session never became playable within %ss (%s)\\n' \\\n"
+            '            "${seconds}" "${ended}" >&2\n'
+            f"        {SESSION_LAST_WORDS_HELPER}\n"
+        )
+        == 1
+    )
+
+
+def test_the_session_last_words_hands_the_launcher_s_words_to_the_run(tmp_path: Path) -> None:
+    """Drive the shipped helper over a launch error this test stages, on both shapes.
+
+    The two shapes the branch has to tell apart are a launcher that named a refusal and one
+    that left nothing behind; printing the same sentence for both would be the defect with
+    one line moved, so each is read on its own.
+    """
+
+    named = drive_session_last_words(tmp_path, tag="named", staged=SUPPLY_CHAIN_REFUSAL + "\n")
+    assert named.returncode == 0, named.stderr
+    assert SESSION_LAST_WORDS_HEAD in named.stderr
+    assert "the Bridge jar has not been built" in named.stderr
+    assert f"({len(SUPPLY_CHAIN_REFUSAL) + 1} byte(s))" in named.stderr
+
+    silent = drive_session_last_words(tmp_path, tag="silent", staged="")
+    assert silent.returncode == 0, silent.stderr
+    assert SESSION_LAST_WORDS_EMPTY_HEAD in silent.stderr
+    assert "the Bridge jar has not been built" not in silent.stderr
+
+    never_written = drive_session_last_words(tmp_path, tag="never-written", staged=None)
+    assert never_written.returncode == 0, never_written.stderr
+    assert SESSION_LAST_WORDS_EMPTY_HEAD in never_written.stderr
+    # The emptiness is tested for, not discovered by a failing read: a stray shell error on
+    # this stream is what a reader would later mistake for the run's own reason.
+    assert "No such file or directory" not in never_written.stderr
+
+    flooded = drive_session_last_words(
+        tmp_path, tag="flooded", staged="".join(f"boot-line-{index}\n" for index in range(1, 41))
+    )
+    assert flooded.returncode == 0, flooded.stderr
+    assert "boot-line-40" in flooded.stderr
+    assert "boot-line-20" not in flooded.stderr
+
+
+def test_the_session_last_words_reading_is_the_line_that_carries_it(tmp_path: Path) -> None:
+    """Plant the defect back and watch the cell go red — otherwise the heading alone passes.
+
+    The mutation is the pre-card shape of the branch: say the words were looked for, read
+    nothing. If this cell still passes over it, the reading above is checking a `printf` and
+    not a file.
+    """
+
+    shipped = session_last_words_region((RUNNER / "domain.sh").read_text(encoding="utf-8"))
+    mutated = shipped.replace(
+        '    tail -n 20 "${session_error_file}" >&2 2>/dev/null || true\n', ""
+    )
+    assert mutated != shipped, "the planted mutation changed nothing; nothing was measured"
+
+    result = drive_session_last_words(
+        tmp_path, tag="mutated", staged=SUPPLY_CHAIN_REFUSAL + "\n", region=mutated
+    )
+    assert result.returncode == 0, result.stderr
+    assert SESSION_LAST_WORDS_HEAD in result.stderr
+    assert "the Bridge jar has not been built" not in result.stderr
+
+
 #: The marker pair of the shipped downstream-reading classifier. Named once because the
 #: cells below both extract the region by it and re-run it against mutated bytes.
 DOWNSTREAM_READING_REGION = "joiner-downstream-reading-target"
