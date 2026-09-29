@@ -3326,3 +3326,119 @@ bash .tmp/m98/reasons.sh                                                      # 
 # 真跑配方与完整输出：.tmp/m98/drive-canonical.sh / .tmp/m98/run-canonical.log
 # 旧 attempt 仍在：/data/kin/kin-e7-join-0928/run/evidence/a224f6c3fa0f45f2ae4c922277220fcf（UNJUDGED，未被改写）
 ```
+
+## §2.111 M-C3 收口：CORE-040 在当前提交字节下的规范卷续封（第一百一十一轮，2026-09-29 10:18 +0800，M 亲跑，判据/case 摘要/registry/mandatory 零位移）
+
+**这一卡补的是 §2.110.5 点名的最后一格**：`CORE-040` 在 `blocking_cases` 名单里而当前**零枚** `AGREES`。现在规范卷有一枚在它自己的构建产物下封成、且按当前字节复判一致的 CORE-040 封证，`report_promotion` 的 blocking 名单随之从 29 条变 28 条——这是证据到位的读数，不是门禁被改动。
+
+### 2.111.1 为什么这一卡是必需的（测量，不是推测）
+
+- `c168320` 把 `the_server_saw_the_kin_move` 的判据摘要推进了三张 case，`CORE-040` 是其中在 blocking 名单内的一张（case 摘要现为 `3197e6767fd43fcb…`）。
+- 封前卷面：`CORE-040` 共 5 枚 bundle，全部 `UNJUDGED`，理由逐条点名旧 version —— `63fb31a5…` ×3、`22906123…` ×1、`043066a0…` ×1（`.tmp/m99/census.log` 的 reason tally）。
+- `tools/assert_case_evidence.py` 自 `c168320` 起一字未变（`git diff --stat c168320..HEAD -- tools/assert_case_evidence.py` 为空，§2.110.5 已量）⇒ **判据侧无缺口，缺的只有这枚证据本身**（规则 4：不把已发生的接管再列为待授权）。
+
+### 2.111.2 第一次尝试失败与归因：harness 把启动拒止读成了超时
+
+第一次真跑（`.tmp/m99/run-core040.log`，全部保留为失败材料）失败在活体阶段：
+
+```
+domain: the session never became playable within 240s (the session exited first)
+domain: session exited 11
+domain: no run is named: neither a run document nor a run id   → status: unsealed
+CORE-040 RUN rc=1        （卷面 census 未变，没有留下半枚 bundle）
+```
+
+编排层只给出一句「240 秒内没变 PLAYABLE」，读不出原因。归因方法：把 `run.sh` 的挂载原样搬进一个**不带 `--rm` 的命名容器**（`.tmp/m99/diag-session.sh`），事后 `docker cp` 出容器内的 `/tmp/domain-session.err`（`.tmp/m99/diag/`），第一行就是具名拒止：
+
+```json
+{"category": "SUPPLY_CHAIN", "component": "launcher.recipe", "operation": "verify",
+ "message": "the Bridge jar has not been built: /src/bridge/build/libs/minekin-bridge-0.0.0.jar is missing; run `./gradlew build` in the bridge directory",
+ "retryability": "OPERATOR_ACTION"}
+```
+
+⇒ 客户端在握手之前就因**本工作树从未筑过 1.21.4 的桥产物**而退出；「never became playable」是它的下游表象。**登记一处 harness 缺陷（本卡不修）**：`test-orchestrator/runner/run.sh:247` 的 `exec docker run --rm` 无条件 ⇒ 会话 stderr 只在容器内，容器一销毁就再也拿不回来，产品侧的具名启动拒止在编排层一律降级成超时读数。可派一张窄卡把 `/tmp/domain-session.err` 的关键行在 `--rm` 之前抄进 run 目录（改 runner 字节会使以后的 run 与今天不同，故按窄卡走，不与续封混做）。
+
+### 2.111.3 前置修复：不动仓库一个字节地筑出桥产物
+
+桥产物是 workspace 型输入，profile 自己钉住它的摘要（`tests/fixtures/runtime-input/bundle-p0-core-1.21.4.json` 的 artifact `minekin-bridge`：`digest 0ee2070b97ba6583ca004cc3f0e4a0e547697d0693dc635c3143c655cc2475f4`、`size 1310646`、`source_digest a4a53cacb38d83339d46f94d651d25da004e743dded48333ce0e67db4c36413c`）：
+
+1. 先证明**这份源码就是那被审过的源码**：`source_tree_sha256(bridge)` 实测 `a4a53cac…`，与 pin 逐字符相同（复算命令见本节末）。
+2. 再筑：`JAVA_HOME='D:/env/jdk-21.0.12.1' ./bridge/gradlew --no-daemon -p bridge remapJar --console=plain -Dorg.gradle.dependency.verification=off` ⇒ 产物 `bridge/build/libs/minekin-bridge-0.0.0.jar`，1,310,646 B，sha256 `0ee2070b97ba…` ⇒ **与 pin 逐字节相同**，一次性验证旗标带来的信任由摘要自证收回。
+3. 落点与旗标两格都是量出来的：`bridge/` 是单根 Gradle 工程（`minekin-bridge`），任务路径不带 `:bridge:` 前缀；`jar` 只写 `build/devlibs/*-dev.jar`，**`build/libs/` 里那枚由 `remapJar` 产生**。
+4. 记一处**供应链钉住的不对称**（不属本卡修复范围）：`bridge/gradle/verification-metadata.xml` 里没有 `intermediary` 组件的任何 pin（`bridge-1201/gradle/verification-metadata.xml:820` 有 1.20.1 那枚），只 trust `net_fabricmc_yarn_.*` 与 `net.minecraft` ⇒ 冷缓存下筑 1.21.4 必然验证失败。补 pin 属重钉，归主控保留。
+
+### 2.111.4 真跑配方与当时字节
+
+工作树 `minekin-wt-integration`，`HEAD a1db937`（即 §2.110 那笔记录合入后）。驱动脚本 `.tmp/m99/drive-core040.sh`，完整输出 `.tmp/m99/run-core040-r2.log`。配方取自 [CORE-040/050 真跑记录](p0-core-040-050-run-2026-09-26.md) §38-45，只放宽了一枚等待上限：
+
+```bash
+MINEKIN_SERVER_JAR="${ROOT}/.tmp/mc-1.21.4-server.jar" \
+MINEKIN_RUNNER_DATA=minekin-runner-data MINEKIN_KIN_ID=kin-01 \
+MINEKIN_DOMAIN_CASE=CORE-040 MINEKIN_DOMAIN_PROBE=Kin MINEKIN_DOMAIN_USE_TARGET=1 \
+MINEKIN_DOMAIN_PROBE_SECONDS=1 MINEKIN_DOMAIN_SECONDS=1800 \
+bash test-orchestrator/runner/run.sh domain session start \
+  --profile tests/fixtures/runtime-input/bundle-p0-core-1.21.4.json \
+  --server-profile tests/fixtures/runtime-input/controlled-offline-server.json \
+  --hold-forward-seconds 8 --hold-use-seconds 8 --look-yaw-degrees 45
+```
+
+`MINEKIN_DOMAIN_SECONDS` 240 → **1800** 只作用于「等 PLAYABLE 出现」这一件事：等待在读到 `PlayableEstablished` 后立刻结束，所以它只在失败那次才花掉时间（第一次失败正是冷 store 装机被读成「never became playable」）。**距离门 2.0 blocks、授权窗 8 秒、`--look-yaw-degrees 45`、探测节奏 1 秒全部未动。**
+
+run 校验过的输入字节（同一次 run 的账）：`domain.sh` blob `f3be7025…` / sha256 `464981ef…`、`run.sh` blob `4f31f473…` / sha256 `c30f6975…`（两枚 sha256 与 §2.110 逐字符相同 ⇒ runner 未漂移）、`tools/seal_run_evidence.py` blob `e83de80d…`、`tools/assert_case_evidence.py` blob `0a96713e…`、`tests/fixtures/cases/core-040.json` blob `c985f8b9…`；桥产物 sha256 `0ee2070b…`（= pin）；服务端 jar `.tmp/mc-1.21.4-server.jar` sha256 `1066970b09e9c671844572291c4a871cc1ac2b85838bf7004fa0e778e10f1358`、56,880,250 B。
+
+### 2.111.5 活体读数（入服 → 授权窗 → 释放 → 停止）
+
+- 入服：`domain: server ready` → `domain: the controlled server reports enable-status=false` → `domain: the session is playable`；服务端 run 目录 `/data/server-runs/run-190`（本 run 自起自停）。
+- 授权窗与移动：`domain: the server saw the Kin walk and stop; its height moved through 0.00 blocks`；窗口读数器量到 grant `02:18:41.662785Z` → release `02:18:49.670305Z`，窗 **8.008 s**、窗内 **8** 条按 `Kin` 名的答题、整份日志 16 条打戳回答。
+- 释放与停止：`session stop` 说 `release {asked [213], released [213], nothing_held [], unconfirmed []}`、`terminated [213]`、`unresolved []`、`status stopped`，`session exited 14`；run document 收尾 `connection_state PLAYABLE`、`session_state STOPPED`、`outcome BRIDGE_LOST`、`actions_applied 3 / actions_refused 0`、`events_applied 5`、`entities_admitted 8`、`snapshots_admitted 1`。
+- 封证：`status: sealed`、`result: PASS`、`failures: []`、`the case verdict is PASS`、`attempt_sequence: 2`、`supersedes_run_id 85a97e3b5a3f42bb84a90fee3fa69b7d`、`case_version 3197e6767fd43fcb…`（当前值）、`bundle_digest bd56585e63fbe363f01bd28252de4ee7599fc147088a284880bc8ffad3732acf`、落点 `/data/kin/kin-01/run/evidence/22ce8374dcab4da882fcce1dd1c25bc9`（会话 run_id 与证据目录名同为 `22ce8374…`，这一枚恰好同名，读回时仍按目录名取）。工件 13 件，含 `previous-run-trace.jsonl` ⇒ 被取代那次的 trace 一并留下。
+
+### 2.111.6 六路独立读数（`bash .tmp/m99/read-back.sh 22ce8374dcab4da882fcce1dd1c25bc9 kin-01 CORE-040` ⇒ `.tmp/m99/read-back-core040.log`）
+
+| 路 | 读数 |
+| --- | --- |
+| 0 摘要自证 | `manifest.json` 的 sha256 == bundle 记录值 ⇒ `digest agrees with the seal file: True`；identity `Kin/8f40376b-c23f-3ef1-b553-5564eea75639`，world `dedicated/minekin-p0-controlled`；六条判据 expected==observed、`failures []` |
+| 1 `evidence verify` | rc=0，`status: verified`、`verified: true`、`violations: []`、artifacts 13 |
+| 2 `rejudge_evidence.py` | rc=0，`status: agrees`、`disagreements: []`、`re_judged.result PASS` ⇒ **当前字节复判一致**（提示语「these bytes produce the verdict the bundle records」，case 版本 `3197e676…`） |
+| 3 `replay_evidence.py` ×2 | 两次都 rc=0、24 条事件、`projected.state STOPPED`、`trace_sha256 1cf0c2cf79742fe7…`（size 17474）、`violations: []` ⇒ 幂等 |
+| 4 `read_move_window.py --all-controls` | verdict「the window carries a step」；credited `[02:18:41] (6.32,-60.00,9.26) → [02:18:49] (-17.46,-60.00,33.11) = 33.68 blocks`；整程对照 `[02:18:38] → [02:18:53] = 34.34 blocks` |
+| 5 `report_promotion.py --data-root /data` | rc=1、`status blocked`；`unreadable/unsealed/unverified/sealed_without_bundle` 全 0，`from_another_build 61`、`repo_checks_not_from_the_controlled_interpreter 9`（两枚计数与 §2.110.4 相同）；本 case 6 枚：seq1 `UNJUDGED`、**seq2 `AGREES`（`from_repository_build True`、`violations []`）**、另 4 枚旧 run 仍 `UNJUDGED` 且 `from_repository_build False` |
+
+第 4 路的五枚具名反对照在本枚封证上全部到位（判据非恒真的直接证据）：`whole-log-pair` 仍判「carries a step」（这一 run 整程与窗内同向，门本身仍只认窗内）；`drop-window-readings` ⇒ `NO_READING_INSIDE_WINDOW`；`first-window-reading-only` ⇒ credited 收窄到 4.29 blocks；`death-before-tail` 与 `departure-before-tail` ⇒ gated 4.29 而 ungated 仍 33.68 ⇒ 尸体冻结坐标与离场后的尾读数都不被接受当端点（#68 那格在 1.21.4 单客户端形状上复现）。
+
+### 2.111.7 卷面底色与 #76(B) 对账（两种普查口径要说清）
+
+`.tmp/m99/census.sh` ⇒ `.tmp/m99/census.log`：
+
+- **整卷口径**（`find /data -name manifest.json`，与 §2.110 用的同一口径）：115 → **116**。
+- **kin 证据口径**（`ls /data/kin/*/run/evidence/*/manifest.json`，本卡驱动脚本里的 pre/post 对照）：102 → **103**。两口径差额 13 枚全在 `/data/repo-evidence/` ⇒ 116 = 103 + 13，读数互证。
+- 全卷复判分布：`AGREES 60 → 61`、`UNJUDGED 54 → 54`、`DISAGREES 1 → 1`。**只有本卡那一枚转成 `AGREES`，没有别枚被移动**；`CORE-040` 的 5 枚 `UNJUDGED` 一条不少地留在卷上（旧 attempt 未改写、未删除）。
+- `blocking_cases` 29 → **28**，被拿掉的那条正是 `CORE-040`；`p0-core.promotable` 仍 `False`，blocks 仍是 `REQUIRED_CASE_NOT_REGISTERED`，其 blocking 名单从 10 条变 9 条（ADMIT-010/020/030/050/090/120、CORE-080、OFFLINE-060/080）。总体 `status` 仍 `blocked`。
+- **registry 一字未改**：`tests/fixtures/registry/reviewed-tested-bundles.json` 里 `CORE_040_UNSEALED_ON_THIS_BUILD` 这行 gap 仍在，而它现在与卷面相反（本枚就是当前构建上的 sealed + AGREES）。**换引用属主控保留的晋级动作**，本卡不碰；也不动 `mandatory`、不改距离门/授权窗。
+- 门位移的本卡证明走仓库字节：提交里只含 `docs/**` 与 `.tmp/**`（`git diff --name-only a1db937..HEAD` 可核），判据/case/registry/`src/`/`tools/` 一个字节都没动。`gate_payload_sha256` 这一具名读数在当前字节里仍取不到（`grep gate_payload tools/ src/` 回空，§development-execution-plan.md:220 已登记该口径缺口），本卡不假称其值。
+- `#76(B)` 的三张内移 case 现状：`V1201-LAN-JOINER-CONTROL-CASE-001` 1 枚 `AGREES`（§2.110）、`CORE-040` 1 枚 `AGREES`（本卡）、`V1201-040` 3 枚全 `UNJUDGED` 且不在 blocking 名单 ⇒ 排在其后。
+
+### 2.111.8 仍未闭合的与下一步
+
+- 下一张 **M-C4：`V1201-040` 在当前字节下的规范卷续封**（同因内移、3 枚全 `UNJUDGED`、不在当前 blocking 名单；强度与 M-C2/M-C3 同级，属已授权的证据生产）。
+- 新登记的窄卡 **H1r：`--rm` 之前把会话 stderr 的关键行抄进 run 目录**（§2.111.2 的归因缺口）；改 runner 字节，单卡做。
+- registry 的 `CORE_040_UNSEALED_ON_THIS_BUILD` 与卷面相反 ⇒ **主控保留**（引用替换/晋级/#82 式重封一起裁）。
+- `tests/contract/test_session_runtime.py:81` 那份 `_wait_until` 复制仍未抽共享（§2.109.5）。
+- #78 的欠账本轮已清：`.tmp/m99/ci_reads.py` 读了 `ea24276 d323030 d672084 8fdc414 10facc1 a1db937` 六笔自身 CI，全部 `completed/success`、三个 job（python 18 步 / bridge-static 9 步 / protocol 10 步）`non_success_steps` 皆空（`.tmp/m99/ci-reads.log`）。
+- 主控保留决策未变（Dashboard 写面保持只读、门禁晋级与 #82 式重封、V08/用户远程服、HOST/PERSIST、在线认证、跨 bundle schema、1.21.4 桥的验证钉补 pin）。
+
+复算：
+
+```bash
+cd C:/Users/darling/Documents/agent_work/minekin-wt-integration
+# 桥源码与 pin 相同（应回 a4a53cacb38d83339d46f94d651d25da004e743dded48333ce0e67db4c36413c）
+uv run --frozen python -c "from pathlib import Path; from minekin_core.adapters.launcher.recipe import source_tree_sha256; print(source_tree_sha256(Path('bridge')))"
+# 筑产物（应回 0ee2070b97ba… / 1310646 B）
+JAVA_HOME='D:/env/jdk-21.0.12.1' ./bridge/gradlew --no-daemon -p bridge remapJar --console=plain -Dorg.gradle.dependency.verification=off
+bash .tmp/m99/drive-core040.sh                                        # 真跑 + 封存（完整输出 .tmp/m99/run-core040-r2.log）
+bash .tmp/m99/read-back.sh 22ce8374dcab4da882fcce1dd1c25bc9 kin-01 CORE-040   # 六路读数
+bash .tmp/m99/census.sh                                               # 两种普查口径 + 复判分布
+bash .tmp/m99/blocking-read.sh                                        # blocking 名单与 p0-core 读数
+# 失败材料：.tmp/m99/run-core040.log（rc=1 那次）、.tmp/m99/diag-session.sh、.tmp/m99/diag/domain-session.err
+# 旧 attempt 仍在：/data/kin/kin-01/run/evidence/85a97e3b5a3f42bb84a90fee3fa69b7d（UNJUDGED，未被改写）
+```
