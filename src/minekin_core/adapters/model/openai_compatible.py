@@ -1,0 +1,449 @@
+"""The one provider that talks to an endpoint: OpenAI-compatible chat completions.
+
+`POST {base_url}/chat/completions`, one call per decision, one record per call.
+
+The rule that shapes this whole module is that a provider is a stranger. It answers with
+free text, it can be a proxy that echoes the request back inside an error, and its 500 page
+can quote the prompt that just carried an `Authorization` header. So nothing that arrives is
+ever put into a log line, a message or a `repr()`: the outcome vocabulary in
+`domain/model_access.py` is an enum plus an integer precisely so that "the endpoint returned
+503" is fully informative without any of its body being repeated. The status code and the
+usage numbers are the only facts kept.
+
+Three more things are bounded by construction rather than by trust:
+
+**The response is read once, up to a limit.** An endpoint that streams forever is not a
+decision, and a run that dies on a hostile mirror would be a stopped Kin — which §1 of the
+contract forbids.
+
+**The credential never rides a redirect.** urllib forwards a request's headers when it
+follows a redirect, including to another host and another scheme, so the key is sent as an
+*unredirected* header and any redirect at all is refused by name. A configured `https` root
+that walks onto plain `http` would carry the key across a readable hop, which is the exact
+thing `model_config` refuses to configure in the first place.
+
+**The spend gate is consulted before a request is built.** `CostLedger.may_start_call` says
+no without a socket being opened. That stops calls; the Kin goes on reflecting, and the
+ledger records the refusal so a reader can tell "the model got too expensive" from "the
+model was never asked".
+"""
+
+from __future__ import annotations
+
+import contextlib
+import json
+import logging
+import urllib.error
+import urllib.request
+from collections.abc import Mapping
+from dataclasses import dataclass
+from typing import cast
+
+from minekin_core.domain.errors import MinekinError
+from minekin_core.domain.model_access import (
+    CallOutcome,
+    CostLedger,
+    Decision,
+    DecisionRequest,
+    ModelConfig,
+    ModelUnavailable,
+    UnavailableReason,
+    compose_decision,
+    cost_ledger_for,
+    key_for,
+)
+
+logger = logging.getLogger(__name__)
+
+#: The one path this module builds. A configured base URL is a root, not an endpoint.
+COMPLETIONS_PATH: str = "/chat/completions"
+
+#: How much of a response is read. A structured decision is a few hundred bytes, so this is
+#: a generous ceiling on an answer and a hard one on an endpoint that keeps writing.
+MAX_RESPONSE_BYTES: int = 65_536
+
+#: The shape asked for. `json_object` is the OpenAI-compatible way of saying "answer with one
+#: object"; the object's fields are re-checked here rather than trusted, because
+#: `response_format` is a request to an endpoint and not a guarantee from it.
+RESPONSE_FORMAT: Mapping[str, object] = {"type": "json_object"}
+
+SYSTEM_PROMPT: str = (
+    "You are choosing the next single step for an autonomous Minecraft player called the "
+    "Kin. You do not control its keys and you do not declare anything finished. Pick exactly "
+    "one skill_id from the feasible list offered; you may not name an item, a place, a skill "
+    "or a fact that the request did not offer. Answer with one JSON object and nothing else: "
+    '{"skill_id": <one offered id>, "reason": <one short sentence>, "intent_generation": '
+    "<the number the request carried>}."
+)
+
+
+@dataclass(frozen=True, slots=True)
+class _Counts:
+    """The usage an endpoint reported, kept apart from its text.
+
+    Absent stays `None` rather than becoming zero: the ledger has to tell a count it was not
+    given apart from a completion that cost nothing, and `0` would be a number reported for a
+    measurement nobody took.
+    """
+
+    request_tokens: int | None = None
+    response_tokens: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class _Accepted:
+    """A reply that was at least a JSON object, whatever it chooses to contain."""
+
+    choice: Mapping[str, object]
+    counts: _Counts
+
+
+@dataclass(frozen=True, slots=True)
+class _Rejected:
+    """A reply that never became an object, with the named reason and any usage it carried."""
+
+    refusal: ModelUnavailable
+    counts: _Counts
+
+
+class _CallFailed(Exception):
+    """A call that produced nothing, carrying only what is safe to say about it.
+
+    The reason is an enum and the status an integer. There is no field for text, so raising
+    this, catching it, logging it or leaving it in a traceback cannot repeat what the endpoint
+    wrote.
+    """
+
+    def __init__(self, reason: UnavailableReason, status_code: int | None = None) -> None:
+        super().__init__(reason.value)
+        self.reason = reason
+        self.status_code = status_code
+
+
+def _non_negative_int(value: object) -> int | None:
+    """Read a usage figure without letting a remote string into the ledger."""
+
+    if isinstance(value, bool) or not isinstance(value, int):
+        return None
+    return value if value >= 0 else None
+
+
+def _text(value: object) -> str | None:
+    if isinstance(value, str):
+        return value
+    return None
+
+
+def _mapping_or_none(value: object) -> Mapping[str, object] | None:
+    """A JSON object as a mapping, or `None` when the value was not one.
+
+    The keys of anything `json.loads` produced are strings, which is what lets the cast be
+    a statement about JSON rather than about an arbitrary mapping. `value` arrives typed as
+    `object` and is never pre-narrowed at a call site, because an unknown-typed dict is
+    exactly what strict typing must not be allowed to spread into the ledger.
+    """
+
+    if isinstance(value, Mapping):
+        return cast(Mapping[str, object], value)
+    return None
+
+
+def _list_or_none(value: object) -> list[object] | None:
+    if isinstance(value, list):
+        return cast(list[object], value)
+    return None
+
+
+def _as_mapping(value: object) -> Mapping[str, object]:
+    """The same check with an empty mapping for "not an object", for optional fields."""
+
+    found = _mapping_or_none(value)
+    return found if found is not None else {}
+
+
+def _echoed_generation(value: object) -> int | None:
+    """The generation a reply claims to answer for, if it said one.
+
+    A reply that says nothing is stamped with this call's own by `compose_decision`. A reply
+    that says another is the late answer §2 describes, and it is refused rather than honoured.
+    """
+
+    return _non_negative_int(value)
+
+
+def _counts_of(envelope: Mapping[str, object]) -> _Counts:
+    usage = _as_mapping(envelope.get("usage"))
+    return _Counts(
+        request_tokens=_non_negative_int(usage.get("prompt_tokens")),
+        response_tokens=_non_negative_int(usage.get("completion_tokens")),
+    )
+
+
+def _content_of(envelope: Mapping[str, object]) -> str | None:
+    """The first choice's message content as text, or `None`.
+
+    `message.content` is what an OpenAI-compatible endpoint returns; the `text` fallback is
+    read because some compatible endpoints answer that shape instead. Both are checked rather
+    than trusted, and a content that is not a string is no content at all.
+    """
+
+    choices = _list_or_none(envelope.get("choices"))
+    if not choices:
+        return None
+    first = _as_mapping(choices[0])
+    content = _text(_as_mapping(first.get("message")).get("content"))
+    return content if content is not None else _text(first.get("text"))
+
+
+def _drain(error: urllib.error.HTTPError) -> None:
+    """Read and discard an error body so abandoning a request cannot hang a server.
+
+    Discarded unread: a provider's error page quotes prompts, and a quoted prompt is not
+    evidence. The bytes go nowhere, including nowhere a caller could see them.
+    """
+
+    with contextlib.suppress(OSError, ValueError):
+        error.read(MAX_RESPONSE_BYTES)
+    with contextlib.suppress(OSError):
+        error.close()
+
+
+class OpenAICompatibleProvider:
+    """Ask one OpenAI-compatible endpoint for one decision, and account for it either way."""
+
+    def __init__(
+        self,
+        config: ModelConfig,
+        environ: Mapping[str, str] | None = None,
+        *,
+        ledger: CostLedger | None = None,
+    ) -> None:
+        self._config = config
+        # `None` means this process's own environment, which is how a test states an
+        # environment instead of letting the provider reach for a real credential.
+        self._environ = environ
+        self._ledger = ledger if ledger is not None else cost_ledger_for(config)
+
+    @property
+    def config(self) -> ModelConfig:
+        return self._config
+
+    @property
+    def ledger(self) -> CostLedger:
+        """This provider's account, for the read-only projection the dashboard shows."""
+
+        return self._ledger
+
+    def decide(self, request: DecisionRequest) -> Decision | ModelUnavailable:
+        """One call for one decision, and never an exception for a model's own failure.
+
+        A `Decision` is returned only once `compose_decision` has checked it against the
+        request's feasible set and generation. Every other path is a `ModelUnavailable` naming
+        its reason, and every path that reached the endpoint — or was stopped by the spend cap
+        from reaching it — appends exactly one ledger record.
+        """
+
+        generation = request.intent_generation
+        if not request.feasible_skill_ids:
+            # Nothing was asked, so nothing is accounted for: a call that never started has
+            # no business in the run's spend.
+            return ModelUnavailable(UnavailableReason.NOTHING_FEASIBLE)
+
+        if not self._ledger.may_start_call():
+            refusal = ModelUnavailable(UnavailableReason.RUN_COST_CAP_REACHED)
+            self._account(refusal, generation)
+            logger.warning(
+                "model call not started: run cost cap reached (spent=%d cap=%d generation=%d)",
+                self._ledger.spent,
+                self._ledger.run_cost_cap,
+                generation,
+            )
+            return refusal
+
+        try:
+            key = key_for(self._config, self._environ)
+        except MinekinError as error:
+            # The operator named a variable that is not set. That is a model which is not
+            # available, not a game that has to stop — and the message names the variable
+            # only, never a value.
+            refusal = ModelUnavailable(UnavailableReason.KEY_UNRESOLVED)
+            self._account(refusal, generation)
+            logger.warning("model key unavailable: %s", error.safe_message)
+            return refusal
+
+        try:
+            status, payload = self._exchange(request, key)
+        except _CallFailed as failed:
+            refusal = ModelUnavailable(failed.reason, failed.status_code)
+            self._account(refusal, generation)
+            logger.warning(
+                "model call failed: reason=%s status=%s generation=%d",
+                refusal.reason.value,
+                refusal.status_code,
+                generation,
+            )
+            return refusal
+        except Exception as error:
+            # The last net, so that nothing here can stop the Kin. An unexpected failure is
+            # reported by its type name and nothing else: an exception's text can carry a URL,
+            # and a URL can carry what was sent to it.
+            refusal = ModelUnavailable(UnavailableReason.TRANSPORT_FAILURE)
+            self._account(refusal, generation)
+            logger.warning(
+                "model call raised %s; treated as unavailable (generation=%d)",
+                type(error).__name__,
+                generation,
+            )
+            return refusal
+
+        read = self._read_reply(payload)
+        if isinstance(read, _Rejected):
+            self._account(read.refusal, generation, read.counts)
+            logger.warning(
+                "model reply unusable: reason=%s status=%d generation=%d",
+                read.refusal.reason.value,
+                status,
+                generation,
+            )
+            return read.refusal
+
+        decision = compose_decision(
+            request,
+            _text(read.choice.get("skill_id")) or "",
+            _text(read.choice.get("reason")) or "",
+            _echoed_generation(read.choice.get("intent_generation")),
+            # The key this call put on the wire, handed to the gate so a proxy that echoed it
+            # back inside the completion has it removed before anything in Core holds the text.
+            secrets=() if key is None else (key,),
+        )
+        self._account(decision, generation, read.counts)
+        logger.info(
+            "model call returned: status=%d prompt_tokens=%s completion_tokens=%s "
+            "generation=%d outcome=%s",
+            status,
+            read.counts.request_tokens,
+            read.counts.response_tokens,
+            generation,
+            "ok" if isinstance(decision, Decision) else decision.outcome.value,
+        )
+        return decision
+
+    def _exchange(self, request: DecisionRequest, key: str | None) -> tuple[int, bytes]:
+        """Send one bounded request and return its status and bytes.
+
+        Raises `_CallFailed` for every way an exchange can fail, carrying none of the other
+        side's text.
+        """
+
+        body = json.dumps(self._body(request)).encode("utf-8")
+        url = f"{self._config.base_url}{COMPLETIONS_PATH}"
+        call = urllib.request.Request(url, data=body, method="POST")
+        call.add_header("Accept", "application/json")
+        call.add_header("Content-Type", "application/json")
+        if key is not None:
+            # Unredirected on purpose: `add_header` values are forwarded when urllib follows a
+            # redirect, to another host and to another scheme if the endpoint asks for one.
+            call.add_unredirected_header("Authorization", f"Bearer {key}")
+
+        try:
+            with urllib.request.urlopen(call, timeout=self._config.timeout_ms / 1000) as reply:
+                status = reply.status
+                final_url = str(reply.geturl())
+                payload = reply.read(MAX_RESPONSE_BYTES)
+        except urllib.error.HTTPError as error:
+            _drain(error)
+            raise _CallFailed(UnavailableReason.PROVIDER_STATUS, error.code) from None
+        except TimeoutError:
+            raise _CallFailed(UnavailableReason.TIMEOUT) from None
+        except urllib.error.URLError as error:
+            # Only the reason's type is read: it can be a string naming the URL that was tried.
+            if isinstance(error.reason, TimeoutError):
+                raise _CallFailed(UnavailableReason.TIMEOUT) from None
+            raise _CallFailed(UnavailableReason.TRANSPORT_FAILURE) from None
+        except OSError:
+            raise _CallFailed(UnavailableReason.TRANSPORT_FAILURE) from None
+
+        if final_url != url:
+            raise _CallFailed(UnavailableReason.REDIRECTED, status)
+        if status >= 400:
+            raise _CallFailed(UnavailableReason.PROVIDER_STATUS, status)
+        return status, payload
+
+    def _body(self, request: DecisionRequest) -> dict[str, object]:
+        """The JSON body: this run's model name, and the request restated as data.
+
+        The feasible list, the generation and the remaining budget are the numbers it carries,
+        and the observation arrives as a reference — the world itself stays in Core, so a call
+        cannot reveal more of it than the summary already named.
+        """
+
+        offer: dict[str, object] = {
+            "observation_ref": request.observation_ref,
+            "active_goal": request.active_goal,
+            "needs": dict(sorted(request.needs.items())),
+            "feasible_skill_ids": list(request.feasible_skill_ids),
+            "persona_seed": request.persona_seed,
+            "budget_remaining": request.budget_remaining_micro,
+            "intent_generation": request.intent_generation,
+        }
+        return {
+            "model": self._config.model,
+            "stream": False,
+            "response_format": dict(RESPONSE_FORMAT),
+            "messages": [
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": json.dumps(offer)},
+            ],
+        }
+
+    def _read_reply(self, payload: bytes) -> _Accepted | _Rejected:
+        """Read the completion, or name the way it failed to be one.
+
+        Four shapes are refused before anything is chosen: bytes that are not JSON, a JSON
+        envelope that is not an object, an envelope with no message content, and content that
+        is not the object the schema asks for. The last covers an object missing the fields
+        required of it — a reply that is not the thing asked for is not a different kind of
+        reply.
+        """
+
+        try:
+            decoded: object = json.loads(payload.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            return _Rejected(ModelUnavailable(UnavailableReason.RESPONSE_MALFORMED_JSON), _Counts())
+        envelope = _mapping_or_none(decoded)
+        if envelope is None:
+            return _Rejected(ModelUnavailable(UnavailableReason.RESPONSE_MALFORMED_JSON), _Counts())
+
+        counts = _counts_of(envelope)
+        content = _content_of(envelope)
+        if content is None:
+            return _Rejected(ModelUnavailable(UnavailableReason.RESPONSE_MISSING_CONTENT), counts)
+        try:
+            inner: object = json.loads(content)
+        except json.JSONDecodeError:
+            return _Rejected(ModelUnavailable(UnavailableReason.RESPONSE_MALFORMED_JSON), counts)
+        choice = _mapping_or_none(inner)
+        if choice is None:
+            return _Rejected(ModelUnavailable(UnavailableReason.RESPONSE_NOT_OBJECT), counts)
+        return _Accepted(choice, counts)
+
+    def _account(
+        self,
+        outcome: Decision | ModelUnavailable,
+        intent_generation: int,
+        counts: _Counts | None = None,
+    ) -> None:
+        """Append the one record this call owes, priced from reported counts only."""
+
+        reported = counts if counts is not None else _Counts()
+        decided = isinstance(outcome, Decision)
+        self._ledger.record_call(
+            self._config.provider,
+            self._config.model,
+            intent_generation,
+            CallOutcome.OK if decided else outcome.outcome,
+            request_tokens=reported.request_tokens,
+            response_tokens=reported.response_tokens,
+            reason=None if decided else outcome.reason,
+            status_code=None if decided else outcome.status_code,
+        )
