@@ -1161,19 +1161,32 @@ def test_every_package_the_image_pip_installs_is_pinned_to_the_lock() -> None:
             f"the image pins {name}=={version} but uv.lock resolves {locked[name]}"
         )
 
-    # The point of the layer: pytest is in the image, at the dev-group version.
-    assert pinned.get("pytest") == locked["pytest"], "the image must carry a pinned pytest"
+    # Both layers carry a root the controlled environment has to be able to run:
+    # pytest judges the repository checks, jsonschema collects the modules that
+    # validate the fixtures. Each is pinned at the lockfile version.
+    for root in ("pytest", "jsonschema"):
+        assert pinned.get(root) == locked[root], f"the image must carry a pinned {root}"
 
-    # And pytest's own locked dependency closure is pinned here too, except the
-    # ones that only exist on Windows: the image builds on Linux.
-    pytest_package = next(
-        package for package in lock["package"] if str(package["name"]) == "pytest"
-    )
-    for dependency in pytest_package.get("dependencies", []):
-        if "win32" in str(dependency.get("marker", "")):
+    # And the locked dependency closure of both roots is pinned here too, except
+    # the members that only exist on Windows: the image builds on Linux. The
+    # image's interpreter is below 3.13, so `typing-extensions`, which
+    # `referencing` requires only there, is part of the closure it must carry.
+    by_name = {str(package["name"]).lower(): package for package in lock["package"]}
+    seen: set[str] = set()
+    queue = ["pytest", "jsonschema"]
+    while queue:
+        name = queue.pop()
+        if name in seen:
             continue
-        name = str(dependency["name"]).lower()
-        assert name in pinned, f"the image installs pytest but not its locked dependency {name}"
+        seen.add(name)
+        for dependency in by_name[name].get("dependencies", []):
+            if "win32" in str(dependency.get("marker", "")):
+                continue
+            child = str(dependency["name"]).lower()
+            assert child in pinned, (
+                f"the image installs {name} but not its locked dependency {child}"
+            )
+            queue.append(child)
 
 
 def test_an_auto_bundle_run_is_captured_named_and_otherwise_refused() -> None:

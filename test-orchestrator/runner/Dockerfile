@@ -90,13 +90,37 @@ ENV PATH=/opt/minekin/bin:$PATH
 # four Linux-side locked dependencies, pinned together so pip cannot float any
 # transitive closure — no bare `pip install pytest`. `colorama` is the fifth
 # locked dependency but carries `sys_platform == 'win32'`, so it is not
-# installed here; `tests/conftest.py` and the unit tests these cases point at
-# import nothing beyond pytest, the source tree and protobuf already above.
+# installed here. The claim that closed that paragraph — that these cases import
+# nothing beyond pytest, the source tree and protobuf — turned out to hold only
+# for the OFFLINE/ADMIT family; the next layer is the same environment-shaped
+# false FAIL found where it did not.
 RUN /opt/minekin/bin/pip install --no-cache-dir --disable-pip-version-check \
       "pytest==9.1.1" \
       "iniconfig==2.3.0" \
       "packaging==26.3" \
       "pluggy==1.6.0" \
       "pygments==2.21.0" >/dev/null
+
+# `W00-CONTRACT-001` is judged the same way and its three `pytest`-kind
+# assertions point at `tests/contract/test_fixture_boundaries.py`, which imports
+# `jsonschema`. Measured on this image before the layer below: that module cannot
+# even be collected (`ModuleNotFoundError: No module named 'jsonschema'`, `1
+# error during collection`), so `tools/run_repo_case.py` reports the whole case
+# `FAIL` with `CHECK_FAILED:exit 4` on those three and names no product
+# disagreement — the environment is answering (docs/v1201-lan-control-next-
+# 2026-09-27.md §2.113.5). The validator is a test-time dependency of this
+# repository, so the environment that judges the repository has to carry it.
+#
+# Again every version is the `uv.lock` resolution rather than a floating install:
+# jsonschema 4.26.0 with its four locked runtime dependencies, plus
+# typing-extensions 4.16.0 because `referencing` requires it below Python 3.13
+# and this image's interpreter is 3.12.3.
+RUN /opt/minekin/bin/pip install --no-cache-dir --disable-pip-version-check \
+      "jsonschema==4.26.0" \
+      "attrs==26.1.0" \
+      "jsonschema-specifications==2025.9.1" \
+      "referencing==0.37.0" \
+      "rpds-py==2026.6.3" \
+      "typing-extensions==4.16.0" >/dev/null
 
 WORKDIR /work

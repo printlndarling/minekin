@@ -3847,3 +3847,69 @@ harness 这一半已经做了：编排层把一枚 0700 的运行时目录名写
 `tools/rejudge_evidence.py` 只接 `bundle` 位置参数，**没有 `--all`**（本卡第一次想要全卷 tally 时以 `rc=2` 撞在这里）⇒ 全卷复判 tally 从 `report_promotion.py` 的 `evidence.bundles[]` 逐枚 `re_judged` 计数得出，别猜工具旗标。
 
 下一张 **H1s（#102）**：受控镜像缺 `jsonschema` 使 `W00-CONTRACT-001` 的三格 pytest-kind 判据在镜像内恒红（§2.113.5）。Dockerfile 的闭包钉法已在工作树、尚未提交也未构建；活体窗已安静，重建 `minekin-runner:local` 后按名复量三格并跑四项仓库门。
+
+## 2.117. H1s：受控镜像补上 `jsonschema` 闭包，W00 的三格 pytest 判据在镜像内不再恒红（第一百一十七轮，2026-09-29，M 亲跑，判据/case 摘要/registry/门载荷零位移）
+
+### 2.117.1 这一卡补的是 §2.113.5 点名的那一格，且只剩这一格
+
+§2.113.5 把镜像侧两枚既有红各自具名并给了修法：`test_admission_address.py::test_the_address_is_normalized_rather_than_echoed` 由 H1t 在 `admission.py` 定形解决（§2.115.2/§2.115.3 读数 2：镜像内同文件改前 `1 failed`、改后 `41 passed`），另一枚 `test_run_repo_case.py::test_the_command_exits_by_what_it_found` 的原因是**镜像没有 `jsonschema`** ⇒ `tests/contract/test_fixture_boundaries.py` 采不到 ⇒ `W00-CONTRACT-001` 的三格 pytest-kind 判据在受控环境里判不了 ⇒ 整枚 case 报 FAIL。本卡只动环境侧。
+
+改前四格（`.tmp/h1s/cells-pre.log`，配方 `.tmp/h1s/cells.sh`，起在旧镜像 `b67a4d917306`）：
+
+| 格 | 改前读数 | rc |
+| --- | --- | --- |
+| ① 镜像能 `import jsonschema` | `ModuleNotFoundError: No module named 'jsonschema'`（解释器 `Python 3.12.3`） | 1 |
+| ② 三枚曾被 `--ignore` 的模块能采集 | `Interrupted: 3 errors during collection`、`no tests collected, 3 errors in 1.09s` | 2 |
+| ③ `tools/run_repo_case.py --case tests/fixtures/cases/w00-contract-001.json` | `result FAIL`、三格 `CHECK_FAILED:exit 4`（`schemas_are_versioned`/`runtime_input_does_not_reference_oracle`/`product_package_does_not_import_test_orchestrator`）、`observed` 只剩 `fixture_digests_match_manifest` | 1 |
+| ④ 两枚具名单元测试 | `1 failed, 57 passed`（红的正是 `test_the_command_exits_by_what_it_found`）⇒ **顺带证明 H1t 那一格在镜像内已绿**，本卡不承担它 | 1 |
+
+### 2.117.2 改动面：Dockerfile 一枚 RUN 层 + 契约把闭包检查泛化到两枚根
+
+- `test-orchestrator/runner/Dockerfile`：+24/−2。新增一层 `pip install` 装六枚钉死版本（`jsonschema==4.26.0`、`attrs==26.1.0`、`jsonschema-specifications==2025.9.1`、`referencing==0.37.0`、`rpds-py==2026.6.3`、`typing-extensions==4.16.0`），逐枚等于 `uv.lock` 的解析值（对锁读数：`grep -A2 '^name = ...' uv.lock`）；末段同时改写 H1a 那段「这些 case 除 pytest、源树与 protobuf 外不 import 任何东西」的收束句——**那句话只对 OFFLINE/ADMIT 家族成立**，本卡就是它不成立之处。改前照 `pip freeze` 核过：镜像里就是这六枚 + 原有五枚，没有浮动进来的第 7 枚。
+- `tests/contract/test_runner_scripts.py::test_every_package_the_image_pip_installs_is_pinned_to_the_lock`：`_pip_install_arguments` 本来就扫**所有** `pip install` 块 ⇒ 新层天然进入既有的「每枚钉都要等于锁」检查；本卡把「pytest 一枚根 + 其直接依赖」泛化成「pytest 与 jsonschema 两枚根 + 传递闭包（BFS，只跳 `win32` 成员）」。`typing-extensions` 因此是被**要求**的：`referencing` 在 `python_full_version < '3.13'` 下要它，而镜像解释器是 3.12.3。
+
+### 2.117.3 四格复量（同一配方起在新镜像 `5ee34e6ee13b`，`.tmp/h1s/cells-post.log`）
+
+| 格 | 改后读数 | rc |
+| --- | --- | --- |
+| ① | `import ok 4.26.0` | 0 |
+| ② | `140 tests collected in 1.24s` | 0 |
+| ③ | `result PASS failures []`、`expected == observed ==` 四格全在 | 0 |
+| ④ | `58 passed in 24.42s` | 0 |
+
+三枚曾被忽略的模块在镜像内不只是可采集，而是**整体通过**：`140 passed in 39.89s`（`.tmp/h1s/three-modules.log`）。镜像重建 = `docker build -f test-orchestrator/runner/Dockerfile -t minekin-runner:local .` rc=0（`.tmp/h1s/build.log`）。
+
+### 2.117.4 四枚具名反对照：拿走任一枚都必须红，且红在该具名处
+
+`bash`（实为 `uv run python`）`.tmp/h1s/counterexamples.py` ⇒ `.tmp/h1s/counterexamples.log`。备份 + `sha256sum` 在先（`b44434570a0c79…`），恢复后摘要逐字回原且该格必须再绿；四枚都在**工作树出货字节的副本**上植入，判官读的就是那份文件：
+
+| 植入形状 | 必须红在哪句 |
+| --- | --- |
+| `no-jsonschema-layer`（整层删掉） | `AssertionError: the image must carry a pinned jsonschema` |
+| `floating-jsonschema`（`==` 改成 `>=`） | `pip argument 'jsonschema>=4.26.0' is not an exact \`name==version\` pin` |
+| `jsonschema-version-drift`（钉成 `4.25.0`） | `the image pins jsonschema==4.25.0 but uv.lock resolves 4.26.0` |
+| `closure-member-missing`（拿走 `typing-extensions`） | `the image installs referencing but not its locked dependency typing-extensions` |
+
+基线与恢复后的同一格都 rc=0 ⇒ 这四枚红的都是植入体本身，不是判官脆。
+
+### 2.117.5 门读数（逐项读退出码；本卡的持久防线在契约那一行，不在镜像里）
+
+| 门 | rc | 读数 |
+| --- | --- | --- |
+| 容器全量 pytest（**不再带那三枚 `--ignore`**） | 0 | `2836 passed, 5 skipped in 3938.73s (1:05:38)` |
+| 宿主全量 pytest | 0 | `2839 passed, 2 skipped in 601.07s (0:10:01)` |
+| `ruff check .` / `ruff format --check .` | 0 / 0 | `All checks passed!` / `396 files already formatted`（与基线同值 ⇒ 本卡零新文件） |
+| `pyright` | 0 | `0 errors, 0 warnings, 0 informations` |
+| `check_case_assertions.py` / `verify_fixture_digests.py` / `check_boundaries.py` | 0 / 0 / 0 | `151 registered` / `W00 schema and fixture digests: OK` / `boundaries: OK` |
+| `report_promotion.py --data-root /data` | 1 | `status blocked`、`bundles 118`（**没有因为本卡多一枚**）、`blocking_cases` 28；`.tmp/h1s/promotion-post.json` |
+| 门载荷（M 侧读法：对 `tools/report_promotion.py` 输出的 `work_packages`+`overall` 子集取 sha256） | — | `cfa0f1184bee30df6a1d9fcf45778c9cef074ece6761c47fe7d6b9f49863afd6` ⇒ 与本队列第 15 次同值。本卡动的是 `test-orchestrator/runner/Dockerfile` 与 `tests/contract/**`，`tools/report_promotion.py` 按构造只读 `tests/fixtures/cases` 与卷上的 registry/bundle |
+
+「去掉 `--ignore` 的容器全量」是这张卡的**真实增量**：那 140 枚此前只能镜像外读，现在受控环境自己能读；而 §2.113.5 里那枚以「全量里一个红名字」现形的缺口，从今往后在镜像内是绿的。CI 侧（`.github/workflows/ci.yml`）只有 `uv run pytest`，不在镜像内跑 ⇒ 镜像缺件的持久防线是本卡泛化后的那枚契约，它跑在 CI 的宿主全量里。
+
+顺带一格并发负载复证：两枚全量是**同窗跑**的（容器 14:33 起、宿主 14:39–14:49 全程与它重叠），宿主那枚在 `601.07s` 里没有红在 `tests/unit/test_session_supervision.py:141` 的等待界上 ⇒ §2.108.5 记下、§2.109 修掉的那格「负载高时可红」在双全量并发下未复现（一次读数，不是判别实验）。
+
+### 2.117.6 仍未闭合的与下一步
+
+- 三枚镜像外/镜像内重复读（`test_fixture_boundaries.py` 等）现在两处都跑，这是有意的：宿主读是 CI 的门，镜像读是受控环境的门，两者不合并成一行绿。
+- §2.113.5 末段列的镜像侧两枚红至此**都已闭合**（H1t 一枚、本卡一枚）。
+- 下一张 **H1w（P4 稳定侧，任务 #106）**：空窗的成因已只读量清（2026-09-29 现读 `domain.sh`）——到达循环 `:1862`–`:1870` 之后，未到达分支 `:1873`–`:1890` 打完两句具名判词即结束，而 `:1896` 又起**第二枚** `deadline=$((SECONDS + seconds))` 的 playable 等待（`:1898`–`:1909`），对已经自己退出的加入者 JVM 再等一整段 `seconds`（H1v 那发是 1200 s）；`:1913` 还对**从未到达**的加入者打印 `arrived but never became playable`。收尾那段本身有界（`:2984`–`:2991`：60 次 `kill -0` ⇒ `kill -TERM` ⇒ `wait`），所以范围只有 playable 这一窗。修法＝把该等待与那句判词收在 `joined -eq 1` 之下，未到达时印一句具名说明；宿主侧先例是 `:2337` 与 `:2369` 那两道同样的门。带契约测试 + 非恒真反对照，不动判据、不抬观测窗、不碰 `config.FORWARDED_VARIABLES`。
