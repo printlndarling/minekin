@@ -1893,24 +1893,36 @@ join_the_published_world() {
     # stopping as soon as the world heard the arrival ended one run at `PLAY_INIT` with
     # no snapshot admitted at all, which is the difference between arriving somewhere
     # and being able to see it.
-    deadline=$((SECONDS + seconds))
-    playable=0
-    for _ in $(seq 1 "${seconds}"); do
-        [ "${SECONDS}" -lt "${deadline}" ] || break
-        recorded=$(/opt/sqlite/bin/sqlite3 "/data/kin/${joiner}/kin.sqlite3" \
-            "select 1 from event where position > ${baseline} and \
+    if [ "${joined}" -eq 1 ]; then
+        deadline=$((SECONDS + seconds))
+        playable=0
+        for _ in $(seq 1 "${seconds}"); do
+            [ "${SECONDS}" -lt "${deadline}" ] || break
+            recorded=$(/opt/sqlite/bin/sqlite3 "/data/kin/${joiner}/kin.sqlite3" \
+                "select 1 from event where position > ${baseline} and \
 event_type='PlayableEstablished' limit 1;" \
-            2>/dev/null || true)
-        if [ -n "${recorded}" ]; then
-            playable=1
-            break
+                2>/dev/null || true)
+            if [ -n "${recorded}" ]; then
+                playable=1
+                break
+            fi
+            sleep 1
+        done
+        if [ "${playable}" -eq 1 ]; then
+            printf 'domain: %s admitted its first snapshot of that world\n' "${join_username}" >&2
+        else
+            printf 'domain: %s arrived but never became playable within %ss\n' \
+                "${join_username}" "${seconds}" >&2
         fi
-        sleep 1
-    done
-    if [ "${playable}" -eq 1 ]; then
-        printf 'domain: %s admitted its first snapshot of that world\n' "${join_username}" >&2
     else
-        printf 'domain: %s arrived but never became playable within %ss\n' \
+        # Asking a client to become playable is a question about the world it admitted, and
+        # a client that never got into a server admitted none. Measured on three recorded
+        # runs: the arrival branch said the non-arrival, named the downstream readings, and
+        # then this window still ran its full length (420s on a JVM that had crashed 32s in,
+        # 150s in the auth-mode shape) before printing a sentence that opens by claiming the
+        # client had arrived. The host side of this script already refuses to wait for a
+        # playability its own run shape cannot produce.
+        printf 'domain: %s never arrived, so this run asks it no second %ss window to become playable\n' \
             "${join_username}" "${seconds}" >&2
     fi
     # What the joining client itself reports, read from the overlay this run created

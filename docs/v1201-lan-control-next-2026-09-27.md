@@ -3913,3 +3913,67 @@ harness 这一半已经做了：编排层把一枚 0700 的运行时目录名写
 - 三枚镜像外/镜像内重复读（`test_fixture_boundaries.py` 等）现在两处都跑，这是有意的：宿主读是 CI 的门，镜像读是受控环境的门，两者不合并成一行绿。
 - §2.113.5 末段列的镜像侧两枚红至此**都已闭合**（H1t 一枚、本卡一枚）。
 - 下一张 **H1w（P4 稳定侧，任务 #106）**：空窗的成因已只读量清（2026-09-29 现读 `domain.sh`）——到达循环 `:1862`–`:1870` 之后，未到达分支 `:1873`–`:1890` 打完两句具名判词即结束，而 `:1896` 又起**第二枚** `deadline=$((SECONDS + seconds))` 的 playable 等待（`:1898`–`:1909`），对已经自己退出的加入者 JVM 再等一整段 `seconds`（H1v 那发是 1200 s）；`:1913` 还对**从未到达**的加入者打印 `arrived but never became playable`。收尾那段本身有界（`:2984`–`:2991`：60 次 `kill -0` ⇒ `kill -TERM` ⇒ `wait`），所以范围只有 playable 这一窗。修法＝把该等待与那句判词收在 `joined -eq 1` 之下，未到达时印一句具名说明；宿主侧先例是 `:2337` 与 `:2369` 那两道同样的门。带契约测试 + 非恒真反对照，不动判据、不抬观测窗、不碰 `config.FORWARDED_VARIABLES`。
+
+## 2.118. H1w：未到达的加入者不再被问第二整窗 playable——等待与判词同收在 `joined` 之下（第一百一十八轮，2026-09-29，M 亲跑，判据/case 摘要/registry/门载荷零位移）
+
+### 2.118.1 改动面：两份文件，判据一字未动
+
+| 文件 | 改面 | 形状 |
+| --- | --- | --- |
+| `test-orchestrator/runner/domain.sh` | `+27/−15` | `join_the_published_world()` 里那枚 playable 等待（`deadline=$((SECONDS + seconds))` 起的整段循环与它的两句判词）整体收进 `if [ "${joined}" -eq 1 ]`；`else` 不再等，只印一句具名短路：`domain: <名> never arrived, so this run asks it no second <N>s window to become playable` |
+| `tests/contract/test_runner_scripts.py` | `+87/0` | 新增 `test_the_playable_window_is_asked_only_of_a_joiner_that_arrived`（从真实脚本抽出加入者分支区段，钉住「等待在 `joined` 门之后」「`arrived but never became playable` 与第二窗同门」「未到达时那句具名短路存在」三件事）；文件计数 `144 ⇒ 145` |
+
+`local playable`（`:1775`）在新形状里只在已赋值分支内被读，`set -u`（`:22`）下没有未绑定风险——这一条由两发活体 run 各自跑到 `rc=14` 收尾证明，不靠推理。registry 引用、`mandatory`、`case_version`、判据文本、距离门、授权窗**一字节未动**。
+
+### 2.118.2 观测窗是量出来的，不是猜的，也没有抬任何授权窗
+
+形状＝私有卷 `minekin-m-v5p-live` 上各跑一发专服形状的加入者 run，只差 `domain.sh` 字节。窗取 `MINEKIN_DOMAIN_SECONDS=30`，依据是该卷在案材料：加入者会话约在 run 起后 27 s 才起跳、其到达约在起跳后 37 s（`.tmp/v5p/out-host/armed`），30 s 恰好把「服务端就绪」留在预算内、把「到达」推到窗外。默认值是 240 s（`domain.sh:24`），本卡没改它，也没改任何判据的门限。
+
+### 2.118.3 活的判别对（同一卷、同一环境、同一窗，逐 run 记录 `domain.sh` 摘要）
+
+| 读数 | `fixed`（树字节 `37648e8fb89a…`） | `head`（改前字节 `b1d5feee3f73…`） |
+| --- | --- | --- |
+| 到达判词 | `08:23:14`：`domain: Kin2 never arrived within 30s, and its launcher was still running when the window closed` | `08:24:26`：`domain: Kin2 never arrived within 30s, and its launcher was still running when the window closed` |
+| 判词之后的下一句 playable | `08:23:14`：`domain: Kin2 never arrived, so this run asks it no second 30s window to become playable` | `08:24:39`：`domain: Kin2 admitted its first snapshot of that world` |
+| **两句之间的间隔** | **0 s**（短路，不再起第二窗） | **13 s**（第二窗被花掉） |
+| `arrived but never became playable` 出现次数 | 0 | 0 |
+| 具名短路出现次数 | 1 | 0 |
+| stderr 打戳行数 / 首末跨度 | 22 行 / 62 s | 24 行 / 73 s |
+| `domain.sh` 退出码 | 14 | 14 |
+
+改前那格「第二窗等满」的代价在案的不是推测：`.tmp/m87/lan-run-2-kill.log` 里 900 s 判词之后紧跟 `arrived but never became playable within 900s`（bundle `62e648fa…`），H1v 那发是 1200 s 窗（§2.116）。
+
+### 2.118.4 非恒真：同一枚契约测试，树字节绿、改前字节红，且不落工作树
+
+把 HEAD 的 `domain.sh` 以 bind-mount 盖在只读 `/src` 内的同一路径上（`.tmp/h1w/domain.sh.head`），在受控镜像里只跑那一名测试 ⇒ 变体 `tree`（`37648e8fb89a…`）`1 passed` rc=0，变体 `head`（`b1d5feee3f73…`）`1 failed` 红在 `tests/contract/test_runner_scripts.py::test_the_playable_window_is_asked_only_of_a_joiner_that_arrived`。测试读的就是仓库出货字节，所以红的是被钉的形状而不是植入体；工作树全程未被改写。
+
+### 2.118.5 不回归读数＋一条如实记下的取舍
+
+- **省掉第二窗没有切断到达证据**：`fixed` 那发的 `server.log` 里 `Kin2 joined the game` 仍在（`08:23:17`，即其到达判词之后数秒），宿主会话在此之后还跑了探测与收尾；到达这件事的载体是服务端日志与加入者自己的账本，不依赖 runner 再等一等。
+- **记下这条边界（对改前字节有利的一面）**：30 s 窗低于真实到达延迟（约 37 s），所以两种字节都先打出「未到达」；`head` 用那第二枚窗把这位「迟到的到达者」读成了 `domain: Kin2 admitted its first snapshot of that world`，而 `fixed` 在该形状下不再问、也就不再打印这句。差别只在**窗小于到达延迟**时才显形：默认 240 s 相对 37 s 有 6 倍余量，常规配置走的是 `joined=1` 那一支。本卡不为此抬窗，也不把第二窗加回来——一句把从未到达者说成 `arrived but …` 的判词，配上为它花的第二整窗，正是这张卡要消掉的形状。
+
+### 2.118.6 一处 harness 侧具名缺陷：受控镜像的 `mawk` 给不出逐行时刻
+
+本测量前两次拿到的日志里**整程所有行同一秒**（材料保留：`.tmp/h1w/out-attempt3`、`out-attempt4`），根因不在 `tee` 缓冲，而在镜像的 `mawk 1.3.4 20240123` 把时钟冻在程序启动：镜像内 `(echo one; sleep 3; echo two) | awk '{ print strftime("%T", systime()), $0 }'` 两行同为 `08:21:31`，而同一股流走 `while read; do date +%T; done` 得 `08:21:25` / `08:21:28`。⇒ 打戳器改为 bash read 循环，并先过一枚自检（`.tmp/h1w/selftest.sh`：两行时间必须不同、`PIPESTATUS[0]` 必须仍带写者的 `rc=14`，两项皆 `usable`）。凡在镜像内用 awk 打时间戳的测量都受这一条约束，这是环境事实，不是本卡的产品结论。
+
+### 2.118.7 门读数（逐项读退出码）
+
+| 门 | rc | 读数 |
+| --- | --- | --- |
+| `bash -n test-orchestrator/runner/domain.sh` | 0 | — |
+| 宿主 `pytest tests/contract/test_runner_scripts.py` | 0 | `145 passed in 54.97s` |
+| 镜像内同一文件 | 0 | `145 passed, 1 warning in 7.23s` |
+| 宿主全量 pytest | 0 | `2840 passed, 2 skipped in 542.79s` |
+| `ruff check` / `ruff format --check` | 0 / 0 | `All checks passed!` / `396 files already formatted`（与基线同值 ⇒ 本卡零新文件） |
+| `pyright` | 0 | `0 errors, 0 warnings, 0 informations` |
+| `check_case_assertions` / `verify_fixture_digests` / `check_boundaries` / `check_workflow_pins` | 0 / 0 / 0 / 0 | `Case assertion implementations: OK (151 registered)` |
+| `git diff --check` | 0 | 只有一句 `tools/assert_case_evidence.py` 的 LF→CRLF 提示（该文件本卡不stage，属既有 EOL 噪声） |
+| `report_promotion.py --data-root /data` | 1 | `status blocked`、`promotable false`、`blocking_cases` 首条 28（与基线同值） |
+| 门载荷（`work_packages`+`overall` 取 sha256） | — | `cfa0f1184bee…63afd6` ⇒ **MATCHES**，与本队列第 16 次同值 |
+| 规范卷写保护 | — | `touch /data/PROBE-H1W` ⇒ `Read-only file system` ⇒ 本卡全程未封一枚、未改一行旧 attempt |
+
+### 2.118.8 仍未闭合的与下一步
+
+- 这一格量的是**runner 的等待成本与判词形状**，不是封证：两发都在私有卷、未挂规范卷写窗，所以不产生 `V1201-LAN-JOINER-CONTROL-CASE-001` 的新 attempt，也不进 `tools/tally_joiner_arrival.py` 的具名分布（那枚工具读的是卷上 sealed bundle，本轮没有新封）。
+- 契约测试钉的是脚本形状而非活体时序；§2.118.3 那对逐行时刻是它的一次活体判别，未来若有人把第二窗挪回门外，红的会是那枚契约。
+- 队列里仍未闭合且需主控裁决的格子没有变化（见 §0 最新段的「剩余重大决策」清单）：Dashboard 写面、门禁晋级/registry 替换/整卷重封、给 LAN 案或 `CORE-100` 补 soak 与两客户端判据（动 `case_version`）、把加入者 JVM 纳入 soak 采样、`config.FORWARDED_VARIABLES` 送 `XDG_RUNTIME_DIR`（任务 #35）、V08/用户远程服、HOST/PERSIST、在线认证、跨 bundle schema、`/tmp/domain-session.err` 的工件化、`verification-metadata.xml` 的 `intermediary` 重钉。

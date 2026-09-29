@@ -2594,6 +2594,93 @@ def test_the_arrival_wait_names_which_of_its_two_endings_closed_the_window() -> 
     assert reverted.count(ARRIVAL_LAUNCHER_GONE) == 0
 
 
+#: The two verdicts the playable wait prints, the guard that now sits in front of the whole
+#: wait, and the shape it replaced. The bare window line is the negative control: it is what
+#: this branch used to run even for a client whose launcher had already left.
+PLAYABLE_HEADLINE = "arrived but never became playable within %ss"
+PLAYABLE_REFUSAL = "never arrived, so this run asks it no second %ss window to become playable"
+PLAYABLE_GUARD = 'if [ "${joined}" -eq 1 ]; then\n        deadline=$((SECONDS + seconds))'
+UNGATED_PLAYABLE_WINDOW = "    deadline=$((SECONDS + seconds))\n    playable=0"
+
+
+def joiner_branch_region(text: str) -> str:
+    """The shipped joining-client branch, brace to brace, so its waiting loops are counted
+    inside the branch rather than across a 3400-line script."""
+
+    begin = "join_the_published_world() {"
+    start = text.index(begin)
+    return text[start : text.index("\n}\n", start)]
+
+
+def test_the_playable_window_is_asked_only_of_a_joiner_that_arrived() -> None:
+    """A joining client that never got into the world is not asked whether it can see it,
+    and the branch now says that instead of waiting to find out.
+
+    The arrival wait and the playable wait were two back-to-back windows of `${seconds}`
+    each, and the second one ran whatever the first one had concluded. Measured cost, in the
+    project's own recorded runs: a joining JVM that crashed 32 seconds in had its non-arrival
+    named, its downstream readings classified, and then this window still ran its full 420s
+    before printing `Kin2 arrived but never became playable within 420s` — a sentence that
+    opens by claiming the arrival the branch had just denied. The same pair appears at 150s
+    on a run that ended in `rc=14`, and a third run of this shape was stopped by hand at the
+    end of its second window (`rc=137`) with the reading already decided.
+
+    The wait and both of its verdicts now sit under the `joined` flag this branch computed,
+    the non-arrival branch prints one named line saying the second window is not asked, and
+    the branch as a whole still holds exactly the three loops it held before. No bound, no
+    criterion, no gate and no ledger read moves: `${MINEKIN_DOMAIN_SECONDS:-240}` is the same
+    default the arrival wait uses.
+    """
+
+    text = (RUNNER / "domain.sh").read_text(encoding="utf-8")
+    region = joiner_branch_region(text)
+
+    assert text.count(PLAYABLE_HEADLINE) == 1
+    assert text.count(PLAYABLE_REFUSAL) == 1
+    # The ungated shape is gone, not shadowed by a second copy.
+    assert UNGATED_PLAYABLE_WINDOW not in text
+
+    # The window is nested under the guard: the guard opens it, and the guard's own line is
+    # the two-line form because the arrival verdict above uses the same bare condition.
+    assert text.count(PLAYABLE_GUARD) == 1
+    assert region.count("        deadline=$((SECONDS + seconds))") == 1
+    assert region.count("        playable=0") == 1
+
+    # Order inside the branch: guard, the wait it gates, the arrival verdict, the refusal.
+    guard = text.index(PLAYABLE_GUARD)
+    assert guard < text.index("        playable=0")
+    assert text.index("        playable=0") < text.index(PLAYABLE_HEADLINE)
+    assert text.index(PLAYABLE_HEADLINE) < text.index(PLAYABLE_REFUSAL)
+
+    # The refusal comes after the non-arrival has already been named and its downstream
+    # readings classified, so a reader meets it in the branch that denied the arrival.
+    assert text.index("    classify_the_joiner_downstream_readings\n") < text.index(
+        PLAYABLE_REFUSAL
+    )
+
+    # Two bounded windows in the branch, not three, and the loop count is unchanged: arrival,
+    # playable, and the overlay readout. A fourth waiting loop would have to be intentional.
+    assert region.count('for _ in $(seq 1 "${seconds}")') == 2
+    assert region.count("for _ in $(seq 1 30)") == 1
+    assert region.count("sleep 1") == 3
+
+    # The bound the gated window uses is the run-wide one, untouched by this card.
+    assert 'seconds="${MINEKIN_DOMAIN_SECONDS:-240}"' in text
+
+    # Counterexample: put the ungated window back and the guard disappears with it, so the
+    # reads above are about this nesting and not about text the branch never had. The named
+    # refusal survives it — what the mutation takes away is the gate, not the sentence.
+    ungated = text.replace(
+        f"    {PLAYABLE_GUARD}\n        playable=0",
+        UNGATED_PLAYABLE_WINDOW,
+        1,
+    )
+    assert ungated != text
+    assert ungated.count(PLAYABLE_GUARD) == 0
+    assert UNGATED_PLAYABLE_WINDOW in ungated
+    assert ungated.count(PLAYABLE_REFUSAL) == 1
+
+
 #: The one place the joining client's own words are handed to the run's output, and the
 #: heading it prints them under. Named apart from the launcher's stderr because the two
 #: are different files: the launcher's is empty in the shape this guard is about.
