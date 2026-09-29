@@ -1,8 +1,8 @@
 """Frozen P0 runtime requirements and operator-supplied locations.
 
 Nothing here creates anything. Reading the environment is how the operator states
-where data lives and which name a Kin plays under; see
-`docs/run-directory-proposal.md` for why those two have no defaults.
+where data lives. A new offline Kin defaults to the stable name `minekin`;
+existing identities are read from their persisted ledger, not regenerated here.
 """
 
 from __future__ import annotations
@@ -18,6 +18,7 @@ from minekin_core.domain.offline_identity import is_valid_username
 
 DATA_ROOT_VARIABLE = "MINEKIN_HOME"
 USERNAME_VARIABLE = "MINEKIN_USERNAME"
+DEFAULT_USERNAME = "minekin"
 JAVA_VARIABLE = "MINEKIN_JAVA"
 KIN_VARIABLE = "MINEKIN_KIN_ID"
 
@@ -81,10 +82,10 @@ def data_root(environ: Mapping[str, str] | None = None) -> Path:
 
 
 def configured_username(environ: Mapping[str, str] | None = None) -> str:
-    """The name this Kin plays under, as stated by the operator."""
+    """The initial name for a new Kin; never a rename of a persisted identity."""
 
     source = os.environ if environ is None else environ
-    value = source.get(USERNAME_VARIABLE, "")
+    value = source.get(USERNAME_VARIABLE, DEFAULT_USERNAME)
     if not value.strip():
         raise _reject(f"{USERNAME_VARIABLE} is required and has no default")
     if not is_valid_username(value):

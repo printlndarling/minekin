@@ -116,9 +116,26 @@ def test_an_unusable_username_is_refused(value: str) -> None:
     assert raised.value.category is ErrorCategory.CONFIG
 
 
-def test_the_username_has_no_default_at_all() -> None:
-    with pytest.raises(MinekinError, match="required and has no default"):
-        configured_username({})
+def test_a_new_identity_defaults_to_the_stable_minekin_name() -> None:
+    assert configured_username({}) == "minekin"
+
+
+def test_default_identity_survives_reopening_its_ledger(tmp_path: Path) -> None:
+    first = initialise_identity(
+        KIN_ID, root=tmp_path, username=configured_username({}), clock=FakeClock()
+    )
+    connection = connect_reader(Path(first.database))
+    try:
+        initial = read_identity_root(connection).material
+    finally:
+        connection.close()
+    connection = connect_reader(Path(first.database))
+    try:
+        reopened = read_identity_root(connection).material
+    finally:
+        connection.close()
+    assert initial.username == reopened.username == "minekin"
+    assert initial.uuid == reopened.uuid
 
 
 def test_init_creates_the_identity_root_and_the_run_directory(tmp_path: Path) -> None:
@@ -213,16 +230,23 @@ def test_the_cli_refuses_to_create_a_kin_without_a_data_root(
     assert DATA_ROOT_VARIABLE in capsys.readouterr().err
 
 
-def test_the_cli_refuses_to_create_a_kin_without_a_username(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+def test_the_cli_creates_a_kin_with_the_default_username(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv(DATA_ROOT_VARIABLE, str(tmp_path))
     monkeypatch.delenv(USERNAME_VARIABLE, raising=False)
 
-    code = main(["init", "--kin-id", "kin-01"])
+    stdout = io.StringIO()
+    code = run(["init", "--kin-id", "kin-01"], stdout=stdout, stderr=io.StringIO())
 
-    assert code == int(ExitCode.CONFIG)
-    assert USERNAME_VARIABLE in capsys.readouterr().err
+    assert code == int(ExitCode.OK)
+    report = json.loads(stdout.getvalue())
+    assert report["username"] == "minekin"
+    connection = connect_reader(Path(report["database"]))
+    try:
+        assert read_identity_root(connection).material.username == "minekin"
+    finally:
+        connection.close()
 
 
 @pytest.mark.parametrize("kin_id", ["", "with space", "semi;colon", "slash/name"])
