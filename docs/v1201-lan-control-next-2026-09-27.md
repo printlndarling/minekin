@@ -3241,3 +3241,88 @@ sha256sum tests/unit/test_session_supervision.py   # 2cac5d12e0d52011c86f88c932a
 # 反照：把 window 改成 0.01 后重跑该用例 ⇒ TimeoutError: the world was reached never held
 # 负载：uv run python .tmp/m97/run_load.py（12 发该用例 + 整文件 + 全量，全程压 6 枚 spinner）
 ```
+
+## §2.110 M-C2 收口：当前提交字节下的规范卷 LAN 控制真跑封成并复判一致（第一百一十轮，2026-09-29 09:48 +0800，M 亲跑，判据/case 摘要/registry/bundle/门载荷零位移）
+
+**这一卡不写新判据，只补一件被字节移动作废掉的事**：#76(B) 的判据接管早已随 `c168320` 落地，缺的是它作废的那格证据本身。规范卷现在有一枚在当前提交字节下封成、且按当前字节复判一致的 LAN 控制封证。
+
+### 2.110.1 为什么这一卡是必需的（测量，不是推测）
+
+- `c168320`（fix(evidence): judge kin movement only inside the authorised window）把 `the_server_saw_the_kin_move` 的判据摘要推进了三张 case：`tests/fixtures/cases/core-040.json`、`v1201-040.json`、`v1201-lan-joiner-control-case-001.json`（该笔 `--stat` 只有这三张 case 文件各 1 行 + `manifest.sha256`）。摘要在 case 体内 ⇒ `case_version` 随之内移。
+- 规范卷上 E7 那枚 LAN 控制封证（`kin-e7-join-0928` / run `a224f6c3fa0f45f2ae4c922277220fcf`，`case_version 1e31f0003b4e…`）按当前字节复判：`rejudge rc=2`、`status: unjudged`、原文「sealed against case version 1e31f0003b4e… and V1201-LAN-JOINER-CONTROL-CASE-001 is now 397cefbdee68…」（`.tmp/m98/e7-canonical-rejudge.txt`）。
+- ⇒ 旧封证不能为当前字节作证。续封是新 attempt，**不改写、不删除**旧 attempt（E7 那枚仍在卷上，见 2.110.5 的普查）。
+
+### 2.110.2 真跑配方与当时字节
+
+工作树 `minekin-wt-integration`，`HEAD 8fdc414`；runner 字节 `demo-lan.sh 87d9d129…`、`domain.sh 464981ef…`、`run.sh c30f6975…`、`tools/seal_run_evidence.py 4970381c…`（逐条记录在 `.tmp/m98/bytes.txt`）。驱动脚本 `.tmp/m98/drive-canonical.sh`，完整输出 `.tmp/m98/run-canonical.log`：
+
+```bash
+MINEKIN_SERVER_JAR=<本工作树 .tmp/mc-1.20.1-server.jar> \
+MINEKIN_DEMO_LAN_VOLUME=minekin-runner-data \
+MINEKIN_DEMO_LAN_HOST_KIN=kin-m98-lan-host \
+MINEKIN_DEMO_LAN_JOIN_KIN=kin-m98-lan-join \
+MINEKIN_DEMO_LAN_SEED_VOLUME=minekin-m87b-lan \
+MINEKIN_DEMO_LAN_SEED_KIN=kin-lan87b-host \
+bash test-orchestrator/runner/demo-lan.sh
+```
+
+卷是**规范卷** `minekin-runner-data`（不是私有 demo 卷）；seed 卷只读挂进来，只为跳过 740 MB 取包，产物集仍由 `bundle-candidate-1.20.1` 配方钉住并按 store 校验启动计划。世界 `controlled-offline-server-1.20.1`（服务端日志 `/data/server-runs/run-187/server.log`，本 run 自起自停），两名：宿主 `Kin`、加入者 `Kin2`；控制 ask 45°/-20° 与 2 秒前推后释放；探测 1 秒一次、soak 150 秒。
+
+### 2.110.3 活体读数（入服 → 授权窗 → 释放 → 停止）
+
+- 入服：`domain: the world heard Kin2 arrive`、`domain: Kin2 admitted its first snapshot of that world`；加入者自陈 `[01:32:43] bridge reporting CONNECTION_PHASE_JOIN_SEEN for generation 1 (terminal=false, reason=ADMISSION_FAILURE_REASON_UNSPECIFIED)`，随后 1 tick 见到 25 枚、11 tick 见到 24 枚实体候选。
+- 授权窗与释放由窗口读数器按线报量出（见 2.110.4 第 4 路）：grant `01:32:46.225442Z` → release `01:32:48.226094Z`，窗 `2.001 s`，窗内服务端答了 **2** 条位置。
+- soak：15 个采样，客户端 RSS `1289..1304 MB`、线程峰值 105；服务端 RSS `1087..1097 MB`、线程峰值 65。
+- 停止：`session stop` 说 `asked [433] / terminated [433] / released [] / nothing_held [433] / unresolved []`，`session exited 14`；加入者收尾自陈 `{'outcome': 'BRIDGE_LOST', 'connection_state': 'PLAYABLE', 'snapshots_admitted': 1, 'entities_admitted': 24}`。释放计数的分格口径（#94）在这里第三次对上：手上已无租约，不是交还了租约。
+- 封证：`status: sealed`、`result: PASS`、`failures: []`、`attempt_sequence: 2`、`supersedes_run_id: a224f6c3…`、`case_version 397cefbdee68…`、`bundle_digest 13c7a32ee013a549f7e2d31ec545b828e7a7252bac60be5e769c7b19462d0093`、落点 `/data/kin/kin-m98-lan-join/run/evidence/c450796045ea4712ab8fbbe20f516f8a`（会话 run_id 是 `ece044c8a3f14644a1dcf0aa8733b91f`，与证据目录名不同名，读回时别混）。run 内那一次 `evidence verify` 已说 `verified: true, violations: []`。
+
+### 2.110.4 六路独立读数（`bash .tmp/m98/read-back.sh` ⇒ `.tmp/m98/read-back.log`）
+
+| 路 | 读数 |
+| --- | --- |
+| 0 摘要自证 | `manifest.json` 的 sha256 == `bundle.sha256` 记录值 ⇒ `digest agrees with the seal file: True`；identity `Kin2/20d2112d-…`，world `dedicated/minekin-p0-controlled`；四枚判据 expected==observed、failures `[]` |
+| 1 `evidence verify` | rc=0，`status: verified`、`verified: true`、`violations: []`、artifacts 14 |
+| 2 `rejudge_evidence.py` | rc=0，`status: agrees`、`disagreements: []`，`re_judged.result PASS`；提示语「these bytes produce the verdict the bundle records」⇒ **当前字节复判一致** |
+| 3 `replay_evidence.py` ×2 | 两次都 rc=0、23 条事件、`projected.state STOPPED`、`trace_sha256 199f68e59c1d…`（size 16807）、`violations: []` ⇒ 幂等 |
+| 4 `read_move_window.py --all-controls` | verdict「the window carries a step」；credited `[01:32:46] (3.06,-60.00,-5.06) → [01:32:48] (-2.73,-60.00,0.73) = 8.18 blocks`；整程对照 `[01:32:41] → [01:35:21] = 8.84 blocks`；服务端日志里 161 条打戳回答 |
+| 5 `report_promotion.py --data-root /data` | rc=1、`status blocked`；`integrity unreadable/unsealed/unverified/sealed_without_bundle` 全 0，`from_another_build` 61、`repo_checks_not_from_the_controlled_interpreter` 9；本 case 两枚：seq1 `UNJUDGED`、seq2 `AGREES`（且 `from_repository_build True`、`violations []`） |
+
+第 4 路的五枚具名反对照都在（判据非恒真的直接证据）：
+
+- `whole-log-pair`：按首尾量而不按窗 ⇒ 仍判「carries a step」，说明这条 run 里整程量与窗内量恰好同向，门本身仍只认窗内。
+- `drop-window-readings`：删掉窗内那 2 条 ⇒ `NO_READING_INSIDE_WINDOW`（窗内无读数就不判）。
+- `first-window-reading-only`：只留第一条 ⇒ credited 降到 4.51 blocks（端点确实由窗内最后一条决定）。
+- `death-before-tail`：把「Kin2 被 Zombie 击杀」写在窗内第一条回答之后 ⇒ gated credited 收窄到 4.51，ungated 仍是 8.18 ⇒ 尸体的冻结坐标被拒绝当端点，这一格在规范卷真跑上复现（#68 的私有卷读数之外）。
+- `departure-before-tail`：同形，写在离场之后 ⇒ 同样 4.51 vs 8.18。
+
+门载荷：本卡仓库字节**只动文档与 `.tmp/`**，`src/`、`tools/`、`tests/fixtures/`、registry 一个字节都没动 ⇒ 判据/case 摘要/门载荷零位移；规范卷卷面普查 114 → 115 枚 manifest，旧 attempt 全在。
+
+### 2.110.5 #76(B) 对账（规则 4：不重复实施已接管的判据）
+
+一次全卷只读普查（`bash .tmp/m98/reasons.sh`）：
+
+- **判据侧无缺口**：`git diff --stat c168320..HEAD -- tools/assert_case_evidence.py` 为空 ⇒ asserter 自接管那笔起未再变；`domain.sh` 的 1 秒探测节奏也已在 trunk。旧卡描述的「实现」部分已经发生，不再列为待授权。
+- **证据侧缺口按 case 分开数**：115 枚 bundle ⇒ `AGREES 60 / UNJUDGED 54 / DISAGREES 1`。`c168320` 内移的三张 case 现状是：
+  - `V1201-LAN-JOINER-CONTROL-CASE-001`：本卡补到 1 枚 `AGREES`（seq2），旧的 1 枚 `UNJUDGED` 保留 ⇒ **本卡的接管范围闭合**。
+  - `CORE-040`：5 枚全 `UNJUDGED`（三个更早的 version `63fb31a5…`/`22906123…`/`043066a0…`，当前是 `3197e676…`），且它在 `blocking_cases` 名单里 ⇒ 这是 #76(B) 唯一还欠的续封，另立一卡（M-C3，见 §2.111）。
+  - `V1201-040`：3 枚全 `UNJUDGED`（`2ef224d8…` → 现 `286e6505…`），但不在当前 `blocking_cases` 名单里 ⇒ 排期在 CORE-040 之后。
+- 其余 46 枚 `UNJUDGED` 来自更早已合入的 asserter/登记变更（CORE-010/020/030/050/060/070/090/100、ADMIT-070/100/110、HOST-030/040、V1201-010、W00-CONTRACT-001），不属于本次接管造成的位移，本卡不动它们。
+- 唯一一枚 `DISAGREES`：`ADMIT-060` seq1（run `3c17aa78…`，recorded `FAIL`、re-judged `PASS`），`case_version` 没动（`8ee31d23…`）⇒ 是单枚历史记录与当前判据的差异，不是摘要移动；照实记下，不改写、不据此求绿。
+- promotion 依旧 `blocked`（29 枚 blocking cases，`host-integrated` 18、`p0-core` 10）。**封成 ≠ 晋级**：晋级是主控保留决策，本卡只生产证据。
+
+### 2.110.6 仍未闭合的与下一步
+
+- 下一张 **M-C3：CORE-040 在当前字节下的规范卷续封**（mandatory-blocking、当前零枚 AGREES），见 §2.111。
+- `tests/contract/test_session_runtime.py:81` 那份 `_wait_until` 复制仍未抽共享（§2.109.5）。
+- #78 的欠账仍在（`ea24276` / `d323030`，本轮新增待读 `d672084` / `8fdc414` / `10facc1`）；按交付纪律优先本地/Docker 验证，不轮询 CI 代替开发。
+- 主控保留决策未变（Dashboard 写面保持只读、#82 式重封与晋级、#76 之外的门禁接管、V08/远程服、HOST/PERSIST、在线认证、跨 bundle schema）。
+
+复算：
+
+```bash
+cd C:/Users/darling/Documents/agent_work/minekin-wt-integration
+bash .tmp/m98/read-back.sh c450796045ea4712ab8fbbe20f516f8a kin-m98-lan-join   # 六路读数
+bash .tmp/m98/reasons.sh                                                      # 全卷 re_judge 原因普查
+# 真跑配方与完整输出：.tmp/m98/drive-canonical.sh / .tmp/m98/run-canonical.log
+# 旧 attempt 仍在：/data/kin/kin-e7-join-0928/run/evidence/a224f6c3fa0f45f2ae4c922277220fcf（UNJUDGED，未被改写）
+```
