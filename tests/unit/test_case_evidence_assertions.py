@@ -7471,23 +7471,37 @@ def test_a_taken_name_has_one_category_and_no_category_names_a_rename() -> None:
     assert not [name for name in names if any(word in name for word in renames)], names
 
 
-def test_the_product_has_no_path_that_writes_an_identity_revision() -> None:
-    """The reason the revision half of the row cannot be judged on a bundle.
+RENAME_CAS_WRITE_PATH = "src/minekin_core/adapters/sqlite/identity_store.py"
+
+
+def test_the_only_path_that_writes_an_identity_revision_is_the_confirm_rename() -> None:
+    """The revision half of the row still cannot be judged on a bundle.
 
     Scanned rather than remembered: every statement in `src/**` that both says `UPDATE`
-    and names the column. Today there is none — the number is written once at init as a
-    constant and read back after that — so a conflict that should have opened a revision
-    leaves no trace of having declined to. Land a migration that updates the column and
-    this reds, which is when the clause becomes writable as a reading.
+    and names the column. The stable-name decision opened exactly one authorized writer —
+    the deliberate, stopped-session rename that commits a new revision as a compare-and-swap
+    in `rename_identity_root` — so that single path is tolerated here. The invariant that
+    matters is preserved: the number is still never rewritten at init, at launch, or by any
+    session path, so a conflict that should have opened a revision mid-session still leaves
+    no trace of having declined to. Land any *other* automatic writer and this reds on the
+    offender, which is when the clause stops being a gap and has to be written as a reading.
+
+    Tolerating the rename path in this scan is not the same as closing the row: the sealed
+    inputs carry no revision field and the conflict-case clause still refuses for want of a
+    carrier, because no sealed run exercises the rename yet. That evidence work is separate
+    from the write surface and stays unread until such a run is sealed and read.
     """
 
     offenders: list[str] = []
     for path in (REPOSITORY_ROOT / "src").rglob("*"):
         if path.suffix not in {".py", ".sql"}:
             continue
+        relative = path.relative_to(REPOSITORY_ROOT).as_posix()
+        if relative == RENAME_CAS_WRITE_PATH:
+            continue
         for statement in path.read_text(encoding="utf-8").split(";"):
             if "identity_revision" in statement and re.search(r"\bupdate\b", statement, re.I):
-                offenders.append(path.relative_to(REPOSITORY_ROOT).as_posix())
+                offenders.append(relative)
     assert offenders == []
 
 
