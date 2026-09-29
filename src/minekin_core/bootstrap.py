@@ -27,6 +27,7 @@ from minekin_core.cli.doctor import diagnose
 from minekin_core.cli.evidence import verify_run
 from minekin_core.cli.init import initialise_identity
 from minekin_core.cli.parser import parse_args
+from minekin_core.cli.rename import RENAME_NOTICE, rename_identity, show_identity
 from minekin_core.cli.server_probe import probe_exit_ok, run_probe
 from minekin_core.cli.session import (
     DEFAULT_CONNECTION_TIMEOUT_S,
@@ -37,7 +38,7 @@ from minekin_core.cli.session import (
     stop_session,
 )
 from minekin_core.cli.session_runtime import SessionOutcome, SessionRun
-from minekin_core.cli.status import read_status
+from minekin_core.cli.status import ObservedState, read_status
 from minekin_core.config import (
     configured_username,
     data_root,
@@ -70,7 +71,13 @@ def _exit_code_for(run: SessionRun) -> ExitCode:
 
 def _command_name(args: argparse.Namespace) -> str:
     parts = [str(args.command)]
-    for attribute in ("bundle_command", "session_command", "server_command", "evidence_command"):
+    for attribute in (
+        "bundle_command",
+        "session_command",
+        "server_command",
+        "evidence_command",
+        "identity_command",
+    ):
         value = getattr(args, attribute, None)
         if value is not None:
             parts.append(str(value))
@@ -92,6 +99,77 @@ def _install_store_root(explicit: str | None) -> Path:
         return Path(explicit).resolve()
     root = data_root()
     return run_root(root, select_kin(root, kin_selector())) / STORE_DIRECTORY
+
+
+def _target_kin(root: Path, kin_id_arg: str | None) -> KinId:
+    """The Kin an identity command acts on: named outright, or this root's only Kin."""
+
+    if kin_id_arg is not None:
+        try:
+            return KinId(str(kin_id_arg))
+        except ValueError as error:
+            raise MinekinError(
+                "cli",
+                "identity",
+                ErrorCategory.CONFIG,
+                Retryability.OPERATOR_ACTION,
+                f"--kin-id is not a usable identifier: {error}",
+            ) from error
+    return select_kin(root, kin_selector())
+
+
+def _identity_rename(args: argparse.Namespace, *, stdout: TextIO, stderr: TextIO) -> int:
+    """Rename a stopped Kin's identity, behind confirmation and a live-session guard.
+
+    Both gates come before anything is written. Without `--confirm` the command is
+    a request that has not yet accepted the UUID consequence, so it answers with
+    the consequence and changes nothing. A Kin whose session the host can see
+    running is refused outright — a rename landing under a live client would
+    strand that client on an identity the ledger no longer holds.
+    """
+
+    root = data_root()
+    kin_id = _target_kin(root, args.kin_id)
+
+    if not args.confirm:
+        _emit(
+            {
+                "schema_version": 1,
+                "command": "identity rename",
+                "status": "confirmation_required",
+                "kin_id": str(kin_id),
+                "reason": "RENAME_NOT_CONFIRMED",
+                "message": RENAME_NOTICE,
+            },
+            stderr,
+        )
+        return int(ExitCode.USAGE)
+
+    observed = read_status(root, kin_selector=str(kin_id))
+    if observed.state is not ObservedState.IDLE:
+        _emit(
+            {
+                "schema_version": 1,
+                "command": "identity rename",
+                "status": "refused",
+                "kin_id": str(kin_id),
+                "reason": "SESSION_NOT_STOPPED",
+                "state": observed.state.value,
+                "message": "this Kin's session is not stopped; stop it before renaming so "
+                "no live client is left on an identity the ledger no longer holds",
+            },
+            stderr,
+        )
+        return int(ExitCode.CONTROL_SAFETY)
+
+    report = rename_identity(
+        kin_id,
+        root=root,
+        username=str(args.username),
+        expected_revision=(None if args.expected_revision is None else int(args.expected_revision)),
+    )
+    _emit(report.as_dict(), stdout)
+    return int(ExitCode.OK)
 
 
 def _session_start_auto(args: argparse.Namespace, *, stdout: TextIO, stderr: TextIO) -> int:
@@ -275,6 +353,18 @@ def run(
         )
         _emit(report.as_dict(), stdout)
         return int(ExitCode.OK)
+
+    if args.command == "identity" and args.identity_command == "show":
+        root = data_root()
+        view = show_identity(root, _target_kin(root, args.kin_id))
+        _emit(
+            {"schema_version": 1, "command": "identity show", "status": "ok", **view.as_dict()},
+            stdout,
+        )
+        return int(ExitCode.OK)
+
+    if args.command == "identity" and args.identity_command == "rename":
+        return _identity_rename(args, stdout=stdout, stderr=stderr)
 
     if args.command == "session" and args.session_command == "start":
         if args.auto_bundle is not None:

@@ -61,6 +61,38 @@ def create_identity_root(
     return IdentityRoot(kin_id=kin_id, material=material)
 
 
+def rename_identity_root(
+    connection: sqlite3.Connection, *, material: OfflineIdentityMaterial, expected_revision: int
+) -> None:
+    """Commit a deliberate rename as a new identity revision, or refuse.
+
+    This is the only supported mutation of an existing identity root, and it is a
+    compare-and-swap on `identity_revision`: the UPDATE carries the revision the
+    caller reviewed, so a row another writer already advanced matches nothing and
+    this refuses rather than clobbering the newer identity. `kin_id` and
+    `created_at_utc` are deliberately not in the SET list — a rename changes who a
+    Kin is called, not which Kin it is or when it first appeared. The player UUID
+    is derived from `username`, so committing a new name is exactly what makes the
+    next launch resolve a new offline UUID; no event or run row is touched here.
+    """
+
+    cursor = connection.execute(
+        "UPDATE kin_identity SET local_profile_id = ?, identity_revision = ?, username = ? "
+        "WHERE singleton = 1 AND identity_revision = ?",
+        (
+            str(material.local_profile_id),
+            material.identity_revision,
+            material.username,
+            expected_revision,
+        ),
+    )
+    if cursor.rowcount != 1:
+        raise _reject(
+            f"identity revision {expected_revision} is no longer current; "
+            f"review the live identity before renaming again"
+        )
+
+
 def read_identity_root(connection: sqlite3.Connection) -> IdentityRoot:
     """Read the identity root, or refuse; this never creates one."""
 

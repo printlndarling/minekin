@@ -20,6 +20,35 @@ def build_parser() -> argparse.ArgumentParser:
     init_parser = commands.add_parser("init", help="initialize one Kin identity")
     init_parser.add_argument("--kin-id", required=True, metavar="KIN_ID")
 
+    # The one identity mutation the P0 surface allows. `show` is the read an
+    # operator performs before they can name the revision they are changing;
+    # `rename` requires the live UUID and an explicit confirmation because it
+    # resolves a different offline player identity. It is not a session control
+    # and reaches no server: it edits this Kin's own stored identity row.
+    identity_parser = commands.add_parser("identity", help="inspect or rename a Kin identity")
+    identity_commands = identity_parser.add_subparsers(dest="identity_command", required=True)
+    identity_show = identity_commands.add_parser(
+        "show", help="read the stored name and offline UUID"
+    )
+    identity_show.add_argument("--kin-id", default=None, metavar="KIN_ID")
+    identity_rename = identity_commands.add_parser(
+        "rename", help="rename a stopped Kin's identity, deliberately"
+    )
+    identity_rename.add_argument("--kin-id", default=None, metavar="KIN_ID")
+    identity_rename.add_argument("--username", required=True, metavar="NAME")
+    identity_rename.add_argument(
+        "--expected-revision",
+        type=int,
+        default=None,
+        metavar="N",
+        help="the identity revision read by `identity show`; a moved row is refused",
+    )
+    identity_rename.add_argument(
+        "--confirm",
+        action="store_true",
+        help="accept that a rename resolves a new offline UUID and does not migrate player data",
+    )
+
     commands.add_parser("doctor", help="run read-only host diagnostics")
 
     bundle_parser = commands.add_parser("bundle", help="inspect an immutable version bundle")
