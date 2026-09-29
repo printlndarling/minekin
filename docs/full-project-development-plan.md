@@ -44,9 +44,9 @@ Minekin 是一个**能像玩家一样生活的独立 Minecraft 角色系统**，
 | 阶段 | 产品目标与主要工作 | 阶段交付/通过条件 | 当前状态 |
 | --- | --- | --- | --- |
 | S0 运行底座收口 | 自动装机、版本识别、真实加入、合法输入、稳定身份、启停恢复、数据与诊断入口 | 新数据根可启动 1.20.1 客户端；真实加入与限幅操作；正常停止松键；失败可解释、重启不换角色 | 进行中，已有本地受控闭环 |
-| S1 可用 Web 管理后台 | 重做信息结构与视觉；角色/服务器设置；明确生命周期；身份改名；后续安全启停与观战 | 用户不用翻日志拼命令就能看懂和管理一次会话；页面接真实服务、错误可恢复；未实现能力清楚标示 | 进行中，只读基础与身份设置已可用，布局/导航/视觉重做待开发 |
-| S2 基础游玩能力 | 玩家等价观察、走路避障、目标选择、砍木拾取、背包/GUI、真实合成与放置 | 从当前可见资源完成“获取木头→制作基础工具”，条件变化可中断；不凭空加物品或读隐藏矿物 | 待开发/集成 |
-| S3 第一条自主游玩闭环 | 模型接入、初始人格与需求、目标调度、技能调用、结果核对、失败改计划、成本限额 | 不预设动作序列，自主选定一个可行目标并达成或合理退出；模型超时不会无限动手；后台能解释决策与结果 | 待开发 |
+| S1 可用 Web 管理后台 | 重做信息结构与视觉；角色/服务器设置；明确生命周期；身份改名；后续安全启停与观战 | 用户不用翻日志拼命令就能看懂和管理一次会话；页面接真实服务、错误可恢复；未实现能力清楚标示 | 进行中，后台已按真实网关读数重做布局/导航/状态反馈并删掉两处占位页，身份设置已接入；观战媒体旁路待接入 |
+| S2 基础游玩能力 | 玩家等价观察、走路避障、目标选择、砍木拾取、背包/GUI、真实合成与放置 | 从当前可见资源完成“获取木头→制作基础工具”，条件变化可中断；不凭空加物品或读隐藏矿物 | 进行中，观察与动作的线格式、能力名和结果核对表已冻结入主干（[契约](s2-world-observation-and-actions.md)），Bridge 与 Core 实现待集成 |
+| S3 第一条自主游玩闭环 | 模型接入、初始人格与需求、目标调度、技能调用、结果核对、失败改计划、成本限额 | 不预设动作序列，自主选定一个可行目标并达成或合理退出；模型超时不会无限动手；后台能解释决策与结果 | 待开发，配置/密钥隔离/可声明范围已冻结（[契约](s3-minimal-player-mind.md)） |
 | S4 基础生存与持续生活 | 食物、夜晚避险、工具补给、熔炼储物、基础庇护、危险反射、死亡后的取舍 | 多个游戏日无需逐步指令能维持生活；死亡/物资不足/受阻后可调整；不要求永不死亡或持续生产 | 待开发 |
 | S5 连续人格与记忆 | 自定义/随机人格、稳定自称、关系种子、事件/信念分离、检索、承诺、心境与长期目标 | 清空模型上下文、重启后仍是同一个角色；旧经历真实影响行为；资料/传闻/亲历可区分，反证可修订 | 待开发/设计已有 |
 | S6 社会互动与学习 | 交流注意、请求与拒绝、关系/权属、合作、误伤/归因、研究、方法复用 | 同样请求会因真实情境与人格产生不同选择；合作有实际动作；研究转成试做与反馈，不只生成笔记 | 待开发 |
@@ -160,8 +160,8 @@ Minekin 是一个**能像玩家一样生活的独立 Minecraft 角色系统**，
 
 | 项目 | 本次规划基线的读数 |
 | --- | --- |
-| 当前产品阶段 | S0 收口，S1 只读基础与身份设置已可用，正在推进 S1 后台重做与 S2 基础技能；S3 自主闭环未交付 |
-| 已能演示 | 本地 1.20.1 入服、受控 move/look/release/stop、状态后台、稳定离线身份、CLI 与 Web 后台确认式改名 |
+| 当前产品阶段 | S0 收口，S1 后台重做与身份设置已可用，正在实施 S2 基础技能与 S3 自主闭环；S3 未交付 |
+| 已能演示 | 本地 1.20.1 入服、受控 move/look/release/stop、状态后台、稳定离线身份、CLI 与 Web 后台确认式改名、以真实网关读数重建的后台会话面板 |
 | 下一可用里程碑 | 重做后台 + Web 身份设置 + 基础资源技能 + 第一条自主闭环（S0–S3 demo） |
 | 正在执行的任务 | 由当前主干 execution plan 的 current_next/lane_next 读取；本文未新领卡，未改变在工分支 |
 | 产品欠缺 | 自主生活、完整生存、人格记忆驱动选择、社交学习、完整管理/观战、完整运行模式与发行验收 |
@@ -173,8 +173,8 @@ Minekin 是一个**能像玩家一样生活的独立 Minecraft 角色系统**，
 不再重新写一套相互矛盾的细节契约，领取阶段时查对应已有资料：
 
 - 运行/部署：[客户端底座](client-foundation.md)、[受管 Runtime](managed-client-runtime.md)、[Launcher 供应链](launcher-supply-chain-contract.md)、[IPC](runtime-ipc-deployment-contract.md)、[生命周期](lifecycle.md)、[跨版本路线](version-auto-to-server-control-plan.md)。
-- 身体/生存：[感知](perception-policy.md)、[动作](action-contracts.md)、[输入仲裁](input-arbitration-contract.md)、[基础生存](vanilla-survival-loop.md)、[GUI 合成](recipe-knowledge-gui-contract.md)、[建筑](building-placement-contract.md)、[反射](reflex-latency-contract.md)。
-- 自主/人物：[PlayerMind](player-mind.md)、[目标调度](autonomous-goal-scheduler.md)、[人格](persona-generation-contract.md)、[自主权](decision-agency.md)、[人物数据](mind-data-contract.md)、[记忆检索](memory-retrieval-consolidation-contract.md)、[关系归因](social-attribution-contract.md)、[学习](learning.md)、[研究技能](research-skill-contract.md)、[指令边界](instruction-boundary.md)。
+- 身体/生存：[感知](perception-policy.md)、[动作](action-contracts.md)、[S2 观察与动作实施契约](s2-world-observation-and-actions.md)、[输入仲裁](input-arbitration-contract.md)、[基础生存](vanilla-survival-loop.md)、[GUI 合成](recipe-knowledge-gui-contract.md)、[建筑](building-placement-contract.md)、[反射](reflex-latency-contract.md)。
+- 自主/人物：[PlayerMind](player-mind.md)、[目标调度](autonomous-goal-scheduler.md)、[S3 最小 PlayerMind 实施契约](s3-minimal-player-mind.md)、[人格](persona-generation-contract.md)、[自主权](decision-agency.md)、[人物数据](mind-data-contract.md)、[记忆检索](memory-retrieval-consolidation-contract.md)、[关系归因](social-attribution-contract.md)、[学习](learning.md)、[研究技能](research-skill-contract.md)、[指令边界](instruction-boundary.md)。
 - 世界/连续性：[世界上下文](world-context-contract.md)、[持久恢复](persistence-recovery-contract.md)、[托管模式](world-hosting-mode-contract.md)、[HOST 准入设计](host-admission-session-coordinate-design.md)、[托管存储](hosted-world-storage-lifecycle-contract.md)、[提交恢复](hosted-world-commit-recovery-contract.md)。
 - 后台/验收：[后台产品设计](standalone-runtime-dashboard.md)、[现有只读契约](gateway-dashboard-readonly-contract-2026-09-28.md)、[固定名称与窄改名授权](stable-player-name-2026-09-29.md)、[媒体](headless-client-media-contract.md)、[成本](telemetry-cost-acceptance.md)、[证据契约](p0-validation-evidence-contract.md)、[多 Kin](multi-kin.md)。
 
