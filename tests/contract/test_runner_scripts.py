@@ -262,6 +262,37 @@ def test_the_domain_soak_is_bounded_and_fails_closed() -> None:
     assert "the soak did not sample both JVMs on every pass" in text
 
 
+def test_the_domain_soak_measures_the_joiner_without_judging_it() -> None:
+    """A two-client soak has to watch the joining JVM, but not as a gate condition.
+
+    The gap this closes: a long run with a second client sampled the host client and
+    the world and never the process that joined them, so a joining JVM that leaked or
+    died went unseen through the whole baseline. It is now measured onto its own file
+    and reported to the operator, while the judged carrier — the samples the sealer is
+    handed and the case asserts against — stays client+server only. Folding the joiner
+    into that gate would be a criterion change, which is a reserved decision rather
+    than something a sampling fix may quietly do.
+    """
+
+    text = (RUNNER / "domain.sh").read_text(encoding="utf-8")
+
+    # The joining JVM has its own telemetry file, named beside the judged one.
+    assert "soak_joiner_file=/tmp/domain-soak-joiner.txt" in text
+    # Its sample is redirected there through the fourth argument, and only when a run
+    # actually carries a joining client.
+    assert 'sample "${joiner_process}" joiner "${elapsed}" "${soak_joiner_file}" || true' in text
+    assert 'if [ -n "${joiner_pid:-}" ]; then' in text
+    assert "domain: joiner RSS" in text
+    # `sample` now takes a destination that defaults to the judged file, so the two
+    # host JVMs are unchanged and the joiner is the only thing landing elsewhere.
+    assert '>> "${4:-${soak_file}}"' in text
+    # The joiner is never folded into the gate: it adds no client/server count, and the
+    # carrier handed to the sealer is still only the judged soak file.
+    assert "joiner_samples" not in text
+    assert '--soak-samples "${soak_file}"' in text
+    assert '--soak-samples "${soak_joiner_file}"' not in text
+
+
 def test_the_kill_paths_name_their_target_instead_of_guessing() -> None:
     """The two faults used to be aimed by a pattern match over the container.
 

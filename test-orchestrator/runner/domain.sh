@@ -96,6 +96,12 @@ soak_interval="${MINEKIN_DOMAIN_SOAK_INTERVAL:-10}"
 #: this run soaked. Only a soak run leaves files here.
 soak_file=/tmp/domain-soak.txt
 soak_summary=/tmp/domain-soak.json
+#: The joining client's JVM, when a run has one, is measured onto its own file. It is
+#: not part of the judged baseline carrier above and is never sealed with it: a
+#: two-client soak reported the host client and the world and said nothing about the
+#: process that joined them, which left a whole JVM unwatched through the longest runs.
+#: This is operator telemetry, so it adds no gate and no failing condition.
+soak_joiner_file=/tmp/domain-soak-joiner.txt
 case "${soak_seconds}" in
     ''|*[!0-9]*)
         printf 'domain: MINEKIN_DOMAIN_SOAK_SECONDS must be a non-negative integer, got %q\n' \
@@ -2850,18 +2856,22 @@ fi
 # from a client that is too unhealthy to answer.
 if [ "${soak_seconds}" -gt 0 ]; then
     : > "${soak_file}"
+    if [ -n "${joiner_pid:-}" ]; then : > "${soak_joiner_file}"; fi
     sample() {
         # One line per process per round: the label, the resident size in KB, the
         # thread count and how far into the soak this look happened, all as the
         # kernel holds them. The elapsed second is what makes the sample a
         # *timeline* rather than a bag of numbers: a set of readings with no
-        # times cannot say whether they span the interval that was asked for.
+        # times cannot say whether they span the interval that was asked for. An
+        # explicit fourth argument redirects the line onto another file, which is how
+        # the joining client's samples land on their own telemetry rather than the
+        # judged carrier; without it they join the soak file like every other label.
         [ -n "$1" ] && [ -r "/proc/$1/status" ] || return 1
         awk -v label="$2" -v elapsed="$3" '/^VmRSS:/ { rss = $2 } /^Threads:/ { threads = $2 }
              END {
                  if (rss == "" || threads == "") exit 1
                  printf "%s %s %s %s\n", label, rss, threads, elapsed
-             }' "/proc/$1/status" 2>/dev/null >> "${soak_file}"
+             }' "/proc/$1/status" 2>/dev/null >> "${4:-${soak_file}}"
     }
     # Name the JVM, not a launcher's first child. Both halves can have wrappers,
     # and a JVM may start after the soak begins, so discovery is repeated until
@@ -2910,6 +2920,15 @@ if [ "${soak_seconds}" -gt 0 ]; then
         else
             sample_failed=1
         fi
+        # The joining client is read on the same clock as the two judged JVMs but sent
+        # to its own file, and folded into neither the client/server counts nor
+        # `sample_failed`: it is telemetry, not a gate condition, so a run cannot begin
+        # failing because a joiner appeared late or left partway. Under `set -e` the
+        # failed sample of a process that has already gone is swallowed by `|| true`.
+        if [ -n "${joiner_pid:-}" ]; then
+            joiner_process=$(find_java_descendant "${joiner_pid}")
+            sample "${joiner_process}" joiner "${elapsed}" "${soak_joiner_file}" || true
+        fi
         remaining=$((deadline - SECONDS))
         nap="${soak_interval}"
         if [ "${nap}" -gt "${remaining}" ]; then
@@ -2954,6 +2973,28 @@ if [ "${soak_seconds}" -gt 0 ]; then
                        label, rss[1] / 1024, rss[n] / 1024, low / 1024, high / 1024, n, threads
             }' "${soak_file}" >&2 || true
     done
+    if [ -n "${joiner_pid:-}" ]; then
+        # The joining client's resources, reported for the operator and nothing else.
+        # This block sets no threshold, never touches `injection_failed`, and reads a
+        # different file than the judged one above: it closes the blind spot where a
+        # two-client soak watched the host client and the world but said nothing about
+        # the JVM that joined them. A joiner that arrived late or left on its own just
+        # shows fewer samples here, which the count states instead of hiding.
+        awk '
+            { n += 1; rss[n] = $2
+                if (n == 1 || $2 < low) low = $2
+                if (n == 1 || $2 > high) high = $2
+                if ($3 > threads) threads = $3
+            }
+            END {
+                if (n == 0) {
+                    printf "domain: the joining client was never sampled during the soak\n"
+                    exit 0
+                }
+                printf "domain: joiner RSS %.0f MB at first, %.0f MB at last, %.0f..%.0f MB over %d samples, %d threads at most\n",
+                       rss[1] / 1024, rss[n] / 1024, low / 1024, high / 1024, n, threads
+            }' "${soak_joiner_file}" >&2 || true
+    fi
     # What the harness was asked for and what it did, written where the sealer can
     # read it. The samples above are the measurement; this is the request, and the
     # two are checked against each other rather than one standing in for the other.
