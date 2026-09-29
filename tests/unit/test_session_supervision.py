@@ -45,6 +45,7 @@ from minekin_core.adapters.bridge.ipc import (
     USE_INPUT_TYPE,
     BridgeIpcHost,
     BridgeSession,
+    monotonic_ns,
 )
 from minekin_core.adapters.launcher.offline_session import OFFLINE_SESSION_CANDIDATES
 from minekin_core.adapters.launcher.saves import settings_digest, world_snapshot_digest
@@ -133,12 +134,17 @@ def _material(root: Path) -> OfflineIdentityMaterial:
         connection.close()
 
 
-async def _wait_until(predicate: Callable[[], bool], timeout: float = 5.0) -> None:
+async def _wait_until(
+    predicate: Callable[[], bool], *, what: str = "the condition", timeout: float = 5.0
+) -> None:
+    """Name the thing that never happened, because a wall-clock wait that expires
+    on a loaded machine is otherwise indistinguishable from a dead session."""
+
     loop = asyncio.get_running_loop()
     deadline = loop.time() + timeout
     while not predicate():
         if loop.time() > deadline:
-            raise TimeoutError("the condition never held")
+            raise TimeoutError(f"{what} never held")
         await asyncio.sleep(0.005)
 
 
@@ -1424,8 +1430,15 @@ def test_a_deadline_does_not_cancel_a_world_the_kin_is_already_in(
     process = LiveProcess()
     supervisor = live_supervisor(process, descriptor_path(tmp_path), [])
     database = root / "kin" / "kin-01" / "kin.sqlite3"
+    # The attempt's window, and the margin it is waited out by. Both halves of the
+    # timing claim are measured rather than assumed from a fixed sleep: a window
+    # shorter than the test's own frame delivery loses a race on a loaded machine,
+    # and the cancel that follows closes a world the Kin was already arriving in.
+    window = 3.0
+    past_the_window = 0.2
 
-    async def scenario() -> tuple[SessionRun, list[str]]:
+    async def scenario() -> tuple[SessionRun, list[str], float]:
+        launched = time.monotonic()
         running = asyncio.create_task(
             start_and_supervise(
                 root=root,
@@ -1437,9 +1450,7 @@ def test_a_deadline_does_not_cancel_a_world_the_kin_is_already_in(
                 handshake_timeout=5.0,
                 exit_poll_s=0.01,
                 server_profile=SERVER_PROFILE,
-                # Short enough to pass while the test waits; the world is reached
-                # long before it, which is the whole point.
-                connection_timeout=0.3,
+                connection_timeout=window,
             )
         )
         path = descriptor_path(root)
@@ -1496,19 +1507,28 @@ def test_a_deadline_does_not_cancel_a_world_the_kin_is_already_in(
             ),
         )
         await _wait_until(
-            lambda: any(row[0] == PLAYABLE_ESTABLISHED for row in _ledger_rows(database))
+            lambda: any(row[0] == PLAYABLE_ESTABLISHED for row in _ledger_rows(database)),
+            what="the world was reached",
         )
-        # Well past the deadline, which is what the run is about.
-        await asyncio.sleep(0.6)
+        arrived = time.monotonic() - launched
+        # Past the deadline the command carries, on the clock Core stamped it with:
+        # the wait is read off the wire rather than assumed from a constant that has
+        # to guess how long the delivery took.
+        remaining_ns = command.deadline_monotonic_ns - monotonic_ns()
+        if remaining_ns > 0:
+            await asyncio.sleep(remaining_ns / 1_000_000_000 + past_the_window)
 
         seen = await _control_types_after(control_reader)
         process.exited = True
         _launch, run = await asyncio.wait_for(running, 10)
         await close_writers(control_writer, event_writer)
-        return run, seen
+        return run, seen, arrived
 
-    run, seen = asyncio.run(scenario())
+    run, seen, arrived = asyncio.run(scenario())
 
+    # The world arrived while the attempt still had a window to arrive in, and the
+    # run went past that window without taking the world away.
+    assert arrived < window
     assert CANCEL_CONNECTION_TYPE not in seen
     assert run.connection_cancelled == ""
     # And the session is still in the world it reached, which is what the cancel
