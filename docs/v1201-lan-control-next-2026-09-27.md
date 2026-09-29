@@ -3727,3 +3727,70 @@ MSYS_NO_PATHCONV=1 docker run --rm --entrypoint /bin/bash -v "$PWD":/src:ro -v m
 ```
 
 一处自查记在这里：`read-back.sh` 首版的 promotion 那格用**小写 fixture 名**过滤 `case_id`，于是打印 `bundles for this case on this volume: 0`——那是我的过滤键错，不是卷上没有。改用 manifest 里的大写 `V1201-LAN-JOINER-CONTROL-CASE-001` 后同一条命令读到 `bundles for this case: 11`。凡按 `case_id` 过滤，键取 manifest 的大写形态，卡面的小写名只是文件名。
+
+## 2.115. H1t：准入决定的地址文本改由代码定形（`src/` 窄修复，不动任何封证）
+
+### 2.115.1 先量后改：同一个字面量在两台解释器上是两种文本
+
+| 解释器 | `str(ipaddress.ip_address("::ffff:7f00:1"))` |
+| --- | --- |
+| 受控镜像 3.12.3 | `::ffff:7f00:1` |
+| 宿主 3.12.13 | `::ffff:127.0.0.1` |
+
+`decide_endpoint()` 原本把 `str(address)` 直接写进 `EndpointDecision.address`，而这一字段属于「证据可记的稳定决策」（`as_document()` 会带出 `address`）⇒
+文本形态该由代码给出，不该随解释器补丁级漂移。改前镜像读数：`tests/unit/test_admission_address.py` **1 failed in 0.59s**，红的正是既有的
+`test_the_address_is_normalized_rather_than_echoed`；宿主同文件全绿 ⇒ 同一份字节、两种判法。
+
+### 2.115.2 改动面：`admission.py` 一处定形 + 两格对照测试
+
+新增 `_render_literal()`（`:121`）：IPv6 且 `ipv4_mapped` 非空时拼 `f"::ffff:{mapped}"`，其余取 `address.compressed`；`decide_endpoint()` 末尾
+（`:164`）从 `address=str(address)` 改为 `address=_render_literal(address)`。`tests/unit/test_admission_address.py` 补两格：
+① 四种拼法（`::FFFF:7F00:1`／`::ffff:7f00:1`／`::ffff:127.0.0.1`／`0:0:0:0:0:ffff:7f00:1`）都得同一串 `::ffff:127.0.0.1`，钉住「定形来自代码」；
+② NAT64 `64:ff9b::127.0.0.1` 仍渲染 `64:ff9b::7f00:1`、纯 v6 `2001:db8::1` 原样 ⇒ 分支只覆盖 mapped，没有做成整串重写。
+
+### 2.115.3 读数
+
+| # | 读数 | 结果 |
+| --- | --- | --- |
+| 1 | 宿主 3.12.13 针对性 `uv run pytest tests/unit/test_admission_address.py` | `41 passed` rc=0 |
+| 2 | 镜像 3.12.3 同一文件（`-v $PWD:/src:ro -e PYTHONPATH=/src/src`） | `41 passed` rc=0（改前 `1 failed`） |
+| 3 | 对照 A：镜像内直读 | `str()→::ffff:7f00:1` 对 `_render_literal()→::ffff:127.0.0.1`；`64:ff9b::7f00:1`／`2001:db8::1`／`127.0.0.1` 三格与改前一致 ⇒ 分支真的做事且未越界 |
+| 4 | 对照 B（植旧字节非恒真）：容器内把 `HEAD:` 的旧 `admission.py` 放进私有目录并用 `PYTHONPATH` 指向它跑同一份测试 | `2 failed, 39 passed`，红的恰是归一化那格与新增的四种拼法那格 |
+| 5 | 仓库门（逐项读退出码，`ci.yml` 自己的口径） | `ruff check .` rc=0／`ruff format --check .` rc=0 `396 files already formatted`（未新增文件）／`check_boundaries.py` rc=0／`pyright` rc=0 `0 errors` |
+| 6 | 宿主全量 pytest（最终字节） | `2839 passed, 2 skipped in 463.82s` rc=0 —— 基线 `2837/2` ⇒ 恰为本卡新增两格，skip 仍是具名的 `test_orphans.py:686`、`test_silent_listener.py:123` |
+| 7 | 全卷复判配对（同一配方 `bash .tmp/h1t/tally.sh <PRE\|POST> <导出树>`，`git archive` 整树导出 × 规范卷可挂；PRE＝`3c2f875` 字节，POST＝`5115ac9` 字节） | **逐格相同**：`bundles listed 117`、`re_judge tally {AGREES 62, UNJUDGED 54, DISAGREES 1}`、`status blocked`、`promotion rc=1`、六格 integrity `unreadable/unsealed/unverified/sealed_without_bundle = 0`、`from_another_build 61`、`repo_checks_not_from_the_controlled_interpreter 9`、`blocking_cases` 首条长度 **28**、`p0-core promotable False / blocks [REQUIRED_CASE_NOT_REGISTERED]` ⇒ **本修复没移动任何一枚既有封证的判法** |
+
+复算命令（两格解释器都要跑，镜像那格才是曾经红的那台）：
+
+```bash
+R=/c/Users/darling/Documents/agent_work/minekin-wt-integration
+cd "$R" && uv run pytest tests/unit/test_admission_address.py -p no:cacheprovider -q
+MSYS_NO_PATHCONV=1 docker run --rm --entrypoint /bin/bash -v "$R":/src:ro \
+  -e PYTHONPATH=/src/src minekin-runner:local -c \
+  'cd /src && python -m pytest tests/unit/test_admission_address.py -p no:cacheprovider -q'
+```
+
+### 2.115.4 为什么这张卡按构造动不到任何既有封证
+
+`EndpointDecision` 这个名字在本模块之外**没有引用点**：`grep -rn "EndpointDecision" src tools tests` 只命中 `src/minekin_core/domain/admission.py`；
+模块外的用法全部是 `decide_endpoint(...)` 的布尔判据（`src/minekin_core/adapters/launcher/server_probe.py:290`、
+`src/minekin_core/adapters/launcher/server_profile.py:95/190/245/377`），而这两份文件与整个 `tools/` 里读 `.address` 的行数为 **0**，
+`as_document()` 也只有本模块自己定义。⇒ 卷上封存的 bundle 里不存在这个字段的旧文本形态，改后复判与 `case_version` 都不受影响。
+判据、case 摘要、registry、`mandatory`、距离门、授权窗、bundle 字段一律未变；规范卷本轮只被读数，未新封一枚、未改写旧 attempt。
+
+### 2.115.5 同类的第二处：已具名、本卡不动
+
+`src/minekin_core/adapters/launcher/server_profile.py:291` 的 `if str(parsed) != host:` 也是解释器级文本比较，但它后面 `:293` 就把
+IPv4-mapped 字面量整类拒掉（`server profile host must not be an IPv4-mapped IPv6 literal`）⇒ 两种解释器下 mapped 输入**都被拒**，
+只是先撞哪一条、报哪句理由随版本变。它不改准入结果、不入证据，只改一句边界错误文本 ⇒ 记在这里，要与 `:291` 的归一化措辞一起收，属另一张窄卡。
+
+### 2.115.6 本卡的 CI 欠账同时清掉了上一笔
+
+`3c2f875`（H1u 记录笔）自身 CI run `36524226466` 步骤级读数：`bridge-static` 9 步／`protocol` 10 步／`python` 18 步，
+三个 job 的 `non_success_steps` 全空、总体 `completed success`。
+
+### 2.115.7 一处自查（键错，不是卷上没有）
+
+`drive.sh` 首版把 `blocking_cases` 读在报告顶层（`d.get('blocking_cases')`），PRE 那轮因此打印 `blocking count: 0`——**与既往记录的 28 相反，是我的键错**。
+POST 改成递归找键，读到 `blocking_cases paths found: [28, 0, 0, 0, 2, 5, 2, 0, 0, 18, 9, 1]`，首条 28 正是历史口径那一份名单。
+凡读 `report_promotion` 的名单，先确认路径在 `evidence`/`work_packages` 之下，不要在顶层按名字猜。
