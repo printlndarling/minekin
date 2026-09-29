@@ -3105,3 +3105,79 @@ uv run python tools/tally_joiner_arrival.py --dir .tmp/m87 --glob '*.log' \
 5. **主控保留**：写面（`V1201-DASHBOARD-WRITE-SURFACE-DECISION`，`docs/standalone-runtime-dashboard.md:180 / :206`）、在线认证策略、门禁晋级。
 
 本轮不宣称 goal 完成。
+
+## §2.108 #96 的样本量补到 12 份日志：重复形状零失败，所以 `demo-lan.sh` 不加自动重跑（第一百零八轮，2026-09-29 08:20 +0800，M 亲跑，判据/case 摘要/registry/bundle/门载荷零位移）
+
+卡面问的是「把崩溃报告/桥断那几格跑出来，再据分布决定要不要给 `demo-lan.sh` 自动重跑」。这一节把三件事一起结：新活的三发读数、 shipped 字节下的独立复判、以及据 12 份日志分布作出的**不加自动重跑**裁决。
+
+### 2.108.1 字节出处
+
+`.tmp/m96/bytes.txt`（每次 run 起跑前打印，同一文件也在日志头部）：
+
+- `HEAD a1083df4a8941b6c88ba8eab6fb51841fd1edbc4`
+- `test-orchestrator/runner/demo-lan.sh` = `87d9d1298f616b0a8de7a4f7fd73a314550a428edfe1dcff76fb49f1ff6f2cd9`
+- `test-orchestrator/runner/domain.sh` = `464981ef0298a57fa2dac65f74de50a70dd984d08d604afad412a84107092424`
+- `test-orchestrator/runner/run.sh` = `c30f69758138a278bc1a5c66732ce2d01ee9b53d0e7319ac53fdbdc7ef216e81`
+
+驱动 `.tmp/m96/drive.sh`：私有卷 `minekin-m87b-lan`，宿主 `kin-lan87b-host` × 加入者 `kin-lan87b-join`，`MINEKIN_DEMO_LAN_SOAK_SECONDS=60`、`MINEKIN_DEMO_LAN_SECONDS=600`，形状 `demo-lan.sh --again`（`demo-lan.sh:150`）。
+
+### 2.108.2 三发重复启动的真跑读数
+
+`rc.txt`：`RUN 1 rc=0`、`RUN 2 rc=0`、`RUN 3 rc=0`。三发都在各自日志第 14 行打印具名到达行 `domain: the world heard Kin2 arrive`；出货的 `tools/tally_joiner_arrival.py --dir /m96 --glob 'run-*.log'` 在容器里读三份日志得 `ARRIVED 3 runs=run-1.log run-2.log run-3.log，TOTAL 3`（0 个 `UNREADABLE_LOG`，正对照是同一工具在 §2.107 里把 9 份日志分成三 token）。
+
+三发的加入者侧封存（`attempt_sequence` 8/9/10，同一 supersede 链上）：
+
+| run | attempt | bundle_digest | evidence_directory | result |
+| --- | --- | --- | --- | --- |
+| run-1 | 8 | `f3285ddd8e8ec9f750b95d6d5a3a24fa6a30e680d1977e90556b6887060a48c3` | `/data/kin/kin-lan87b-join/run/evidence/0f3a6457af634d748d2c01ee8b8fa4e1` | PASS |
+| run-2 | 9 | `1a56323ef1f8198ead3f7e75deaeff5f8266de220abeb2ab5522254b3e1d03fc` | `/data/kin/kin-lan87b-join/run/evidence/b8f030fe09ec4aabb81519be0e30a804` | PASS |
+| run-3 | 10 | `f3a8b4666d12e5292750cb44fd38eaa231cc93f9a949fa1b792644003ba522e1` | `/data/kin/kin-lan87b-join/run/evidence/043298cb6fd64c299ee53d991a931df6` | PASS |
+
+三者都是 `case_id V1201-LAN-JOINER-CONTROL-CASE-001`、`case_version 397cefbdee685bc298243b76ad040e27d5fc415c2a3806c6085093812d13357d`、`failures []`、15 件产物（含 `server/server.log`、`asserter-inputs.json`、`bridge-trace.jsonl`、`trusted/server-profile.json`、`soak-samples.txt`）。Core 自己的 `evidence verify` 对每一发都报 `{"artifacts": 15, ..., "verified": true, "violations": [], "status": "verified"}`。
+
+三发的加入者遗言都是 `{'outcome': 'BRIDGE_LOST', 'connection_state': 'PLAYABLE', 'snapshots_admitted': 1, 'entities_admitted': 15}`（run-1 第 26 行），即**到场并成为可玩之后**在 soak 结束处断桥，不是入场失败；宿主文档同形（`kin-lan87b-host`、`outcome BRIDGE_LOST`、`actions_applied 0 / actions_refused 0`）。
+
+### 2.108.3 不在 dirty asserter 上判：shipped 字节独立复判
+
+工作树此刻有一行 `M tools/assert_case_evidence.py`（另一会话的在飞字节），所以复判不能用工作树。做法：`git archive HEAD` 全树导出到 `.tmp/m96/fulltree`，核对该树里的 `tools/assert_case_evidence.py` 摘要 `ce4853772991656c0c16ad597bd3e299dffde005fd3fd4aa87411cc63c586960`、内容 = blob `0a96713e0b106f95db551fe183f60a99af5440fd` = `git rev-parse HEAD:tools/assert_case_evidence.py`；随后容器内跑 `tools/report_promotion.py --data-root /data`（`.tmp/m96/promotion-head.log`，16,089 B）。第一次尝试只挂 `tools src tests` 三目录时该工具在仓库根找不到 `bridge/gradle.lockfile` 而报 `{"status":"unusable"}` ⇒ 整树导出是必须的，这条具名失败留在日志里。
+
+读数：`rc=1`、`status blocked`；三份新 bundle 全部 `re_judged "AGREES"`、`result "PASS"`、`verified true`、`violations []`、`from_repository_build true`、`check_interpreters []`；`evidence.count = 10`，`unreadable / unsealed / unverified / sealed_without_bundle / from_another_build / repo_checks_not_from_the_controlled_interpreter` 六格全 `[]`；`controlled_check_interpreter = /opt/minekin/bin/python3`。`work_packages.W60` = `promotable false`，但理由与本卡无关（`blocking_cases [CORE-040, CORE-050, CORE-070]`、`blocks [CASE_WITHOUT_EVIDENCE]`），而 `requirement.satisfied = true`。卷挂载用可写形式：台账是 WAL sqlite，`:ro` 打不开，本节只记录这一用法约束。
+
+### 2.108.4 12 份日志的具名分布与裁决
+
+合并 §2.107 的 9 份与本轮 3 份：
+
+| token | count | 来源 |
+| --- | --- | --- |
+| `ARRIVED` | 7 | `m82/run2`、`m87/lan-run-1`、`lan-run-3-noask`、`lan-run-4-kill` + 本轮 `m96/run-1..3` |
+| `JOINER_ENDED_WITH_HANDSHAKE_TIMEOUT` | 3 | `m84/clean-kill-run`、`m85/clean-headstart-run`、`m87/lan-run-2-kill` |
+| `ARRIVAL_NOT_REPORTED_IN_THIS_LOG` | 2 | `m82/run1`、`m86/death-run` |
+
+**裁决：不给 `demo-lan.sh` 加自动重跑。** 理由三条，都能落到字节或读数上：
+
+1. 三枚 handshake-timeout 全部来自冷启动/首装形状（干净 Kin 根 + 首次资产获取/开局），而「已填充 Kin 根的重复形状」在本卷样本里 0 失败（本轮 3/3、§2.107 的 `lan-run-*` 重复式也全绿）。把重试加进入口等于用一次成功掩盖冷形状的可观察失败，而 §2.107 刚把那条失败的具名遗言做出来。
+2. 正确的入口已经在文档里：先跑一次干净启动，再 `--again` 复用种子卷与已填充 Kin 根（`MINEKIN_DEMO_LAN_SEED_VOLUME/_SEED_KIN`），不需要隐藏重试。
+3. 自动重试会在同一 case 上推高 `attempt_sequence` 并串起 supersede 链（§2.108.3 的 10←9←8 就是这条链），一次演示变成多发不可归因记录；这与「用户不依赖临时脚本也能运行」的入口质量目标相反。
+
+仍**只有合成行覆盖、不得当作活体读数**的 token：崩溃报告分支、以「未到达」形态出现的 `BRIDGE_LOST`（本轮三发的 `BRIDGE_LOST` 都发生在到场之后）、`HANDSHAKE_FAILED`、`launcher was still running when the window closed` 那一支、无 session 目录、空词表、裸 token。`m82/run1` 与 `m86/death-run` 的 `ARRIVAL_NOT_REPORTED_IN_THIS_LOG` 是日志形状问题，不是加入者未到场，不能计入失败率。
+
+### 2.108.5 门表与位移申报
+
+本轮零仓库字节变动：改动只有本节文档（`.md` 追加不改 `ruff format` 文件数 ⇒ 仍 396）。`gate_payload_sha256` 按构造不受 `docs/**` 影响，故不重取规范卷值；私卷 `minekin-m87b-lan` 数据根下的载荷子集 sha 记为 `83bc6a3a757ec77d791dd935ff599abdc65e212cb61cb178091a05884986c9e0`，仅供本节复算，不与规范卷值互换使用。逐格 rc（合并树 `a1083df` + 本节，日志 `.tmp/m96/gates.log`）：
+
+| 门 | rc | 末行 |
+| --- | --- | --- |
+| `uv run ruff check .` | 0 | All checks passed! |
+| `uv run ruff format --check .` | 0 | 396 files already formatted |
+| `uv run pyright` | 0 | 0 errors, 0 warnings, 0 informations |
+| `uv run python tools/check_boundaries.py` | 0 | — |
+| `uv run python tools/check_case_assertions.py` | 0 | Case assertion implementations: OK (151 registered) |
+| `uv run python tools/verify_fixture_digests.py` | 0 | — |
+| `uv run python tools/check_workflow_pins.py` | 0 | — |
+| `uv run pytest -q` | 1 | 1 failed, 2833 passed, 2 skipped in 453.23s |
+
+**全量 pytest 这一格不绿，具名如下**，不当作已通过引用：失败的是 `tests/unit/test_session_supervision.py::test_a_deadline_does_not_cancel_a_world_the_kin_is_already_in`，`TimeoutError: the condition never held`（`tests/unit/test_session_supervision.py:141`，即该测试自己的 `_wait_until(..., timeout: float = 5.0)` 等待界，不是产品判据的距离/窗口门槛）。同一次跑的总时长 453.23 秒对基线记录的约 314 秒 ⇒ 机器上同时有本卡的三发活体在跑。单独复跑两次都绿：工作树 `1 passed, 21 deselected in 1.90s`、干净 HEAD 导出树 `.tmp/m96/fulltree` `1 passed, 21 deselected in 6.56s`。⇒ 记为**负载敏感的测试等待界**，本卡不改那个常数（改它等于挪门槛），单独列为待办：要么给该等待界加与负载无关的注入式时钟，要么让该测试与并发的活体窗互斥。**在这一格读到 rc=1 的期间，主干的 CI 状态不引用本读数**（见 #78 的欠账：CI 步骤级读数按笔各自取）。
+
+三份 bundle 已从卷内只读取出到 `.tmp/m96/bundles/`；原始材料 `.tmp/m96/run-{1,2,3}.log`、`.tmp/m96/rc.txt`、`.tmp/m96/bytes.txt`、`.tmp/m96/promotion-head.log`、`.tmp/m96/gates.log`、`.tmp/m96/gates-pytest.log`（含那次失败的完整 traceback）全部保留未删。这些都是**私有卷读数**，按 registry 纪律不入规范卷登记、不动 `mandatory`、不动 `case_version`、不晋级门禁。
+
+下一张：M 侧已授权范围内无待实施卡；`#90` 后半段与 `V1201-DASHBOARD-WRITE-SURFACE-DECISION`、`#76 (B)` 接管、门禁晋级/`#82` 重封进规范 registry、V08/远程服、HOST/PERSIST、在线认证、跨 bundle schema 均为**主控保留决策**，需要用户选择后才继续。
