@@ -184,16 +184,13 @@ class InventorySummary(_message.Message):
     def __init__(self, revision: _Optional[int] = ..., stacks: _Optional[_Iterable[_Union[InventoryStack, _Mapping]]] = ...) -> None: ...
 
 class VisibleEntity(_message.Message):
-    __slots__ = ("observation_id", "entity_type", "relative_x", "relative_y", "relative_z", "line_of_sight", "absolute_x", "absolute_y", "absolute_z", "item_id", "item_count")
+    __slots__ = ("observation_id", "entity_type", "relative_x", "relative_y", "relative_z", "line_of_sight", "item_id", "item_count")
     OBSERVATION_ID_FIELD_NUMBER: _ClassVar[int]
     ENTITY_TYPE_FIELD_NUMBER: _ClassVar[int]
     RELATIVE_X_FIELD_NUMBER: _ClassVar[int]
     RELATIVE_Y_FIELD_NUMBER: _ClassVar[int]
     RELATIVE_Z_FIELD_NUMBER: _ClassVar[int]
     LINE_OF_SIGHT_FIELD_NUMBER: _ClassVar[int]
-    ABSOLUTE_X_FIELD_NUMBER: _ClassVar[int]
-    ABSOLUTE_Y_FIELD_NUMBER: _ClassVar[int]
-    ABSOLUTE_Z_FIELD_NUMBER: _ClassVar[int]
     ITEM_ID_FIELD_NUMBER: _ClassVar[int]
     ITEM_COUNT_FIELD_NUMBER: _ClassVar[int]
     observation_id: str
@@ -202,12 +199,9 @@ class VisibleEntity(_message.Message):
     relative_y: float
     relative_z: float
     line_of_sight: bool
-    absolute_x: float
-    absolute_y: float
-    absolute_z: float
     item_id: str
     item_count: int
-    def __init__(self, observation_id: _Optional[str] = ..., entity_type: _Optional[str] = ..., relative_x: _Optional[float] = ..., relative_y: _Optional[float] = ..., relative_z: _Optional[float] = ..., line_of_sight: bool = ..., absolute_x: _Optional[float] = ..., absolute_y: _Optional[float] = ..., absolute_z: _Optional[float] = ..., item_id: _Optional[str] = ..., item_count: _Optional[int] = ...) -> None: ...
+    def __init__(self, observation_id: _Optional[str] = ..., entity_type: _Optional[str] = ..., relative_x: _Optional[float] = ..., relative_y: _Optional[float] = ..., relative_z: _Optional[float] = ..., line_of_sight: bool = ..., item_id: _Optional[str] = ..., item_count: _Optional[int] = ...) -> None: ...
 
 class InitialObservation(_message.Message):
     __slots__ = ("generation", "game_tick", "self", "inventory", "visible_entities", "authoritative", "session_identity")
@@ -228,22 +222,22 @@ class InitialObservation(_message.Message):
     def __init__(self_, generation: _Optional[int] = ..., game_tick: _Optional[int] = ..., self: _Optional[_Union[SelfState, _Mapping]] = ..., inventory: _Optional[_Union[InventorySummary, _Mapping]] = ..., visible_entities: _Optional[_Iterable[_Union[VisibleEntity, _Mapping]]] = ..., authoritative: bool = ..., session_identity: _Optional[_Union[_session_pb2.SessionIdentityReport, _Mapping]] = ...) -> None: ...
 
 class AimTarget(_message.Message):
-    __slots__ = ("game_tick", "kind", "block", "block_state_id", "entity_observation_id", "entity_type", "distance")
+    __slots__ = ("game_tick", "kind", "block", "targeted_block_id", "entity_observation_id", "entity_type", "distance")
     GAME_TICK_FIELD_NUMBER: _ClassVar[int]
     KIND_FIELD_NUMBER: _ClassVar[int]
     BLOCK_FIELD_NUMBER: _ClassVar[int]
-    BLOCK_STATE_ID_FIELD_NUMBER: _ClassVar[int]
+    TARGETED_BLOCK_ID_FIELD_NUMBER: _ClassVar[int]
     ENTITY_OBSERVATION_ID_FIELD_NUMBER: _ClassVar[int]
     ENTITY_TYPE_FIELD_NUMBER: _ClassVar[int]
     DISTANCE_FIELD_NUMBER: _ClassVar[int]
     game_tick: int
     kind: AimTargetKind
     block: _control_pb2.BlockTarget
-    block_state_id: str
+    targeted_block_id: str
     entity_observation_id: str
     entity_type: str
     distance: float
-    def __init__(self, game_tick: _Optional[int] = ..., kind: _Optional[_Union[AimTargetKind, str]] = ..., block: _Optional[_Union[_control_pb2.BlockTarget, _Mapping]] = ..., block_state_id: _Optional[str] = ..., entity_observation_id: _Optional[str] = ..., entity_type: _Optional[str] = ..., distance: _Optional[float] = ...) -> None: ...
+    def __init__(self, game_tick: _Optional[int] = ..., kind: _Optional[_Union[AimTargetKind, str]] = ..., block: _Optional[_Union[_control_pb2.BlockTarget, _Mapping]] = ..., targeted_block_id: _Optional[str] = ..., entity_observation_id: _Optional[str] = ..., entity_type: _Optional[str] = ..., distance: _Optional[float] = ...) -> None: ...
 
 class MiningProgress(_message.Message):
     __slots__ = ("game_tick", "target", "progress")

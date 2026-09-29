@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from minekin_core.generated.minekin.v1 import observation_pb2
+from minekin_core.generated.minekin.v1 import control_pb2, observation_pb2
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 CANARY = REPOSITORY_ROOT / "tests" / "oracle" / "canary.json"
@@ -22,6 +22,13 @@ OBSERVATION_MESSAGES = (
     observation_pb2.InventorySummary,
     observation_pb2.VisibleEntity,
     observation_pb2.InitialObservation,
+    # The recurring read added for S2 is the same surface as the first snapshot, so
+    # it is covered by the same shape guard rather than left for a function to check.
+    observation_pb2.AimTarget,
+    control_pb2.BlockTarget,
+    observation_pb2.MiningProgress,
+    observation_pb2.GuiScreen,
+    observation_pb2.WorldObservation,
 )
 
 # Concepts a player cannot read off the screen. A field whose name mentions one
@@ -59,6 +66,22 @@ REVIEWED_ENTITY_FIELDS = {
     "relative_y",
     "relative_z",
     "line_of_sight",
+    # Reviewed for S2: a dropped item renders as itself, so what it is and how many
+    # lie on the same side of the line as `entity_type`. Only the Bridge's item
+    # branch fills them, and an entity's own inventory stays unread.
+    "item_id",
+    "item_count",
+}
+
+REVIEWED_WORLD_OBSERVATION_FIELDS = {
+    "generation",
+    "game_tick",
+    "self",
+    "aim",
+    "inventory",
+    "visible_entities",
+    "mining",
+    "gui",
 }
 
 
@@ -79,6 +102,12 @@ def test_a_visible_entity_has_exactly_the_reviewed_fields() -> None:
     descriptor = observation_pb2.VisibleEntity.DESCRIPTOR
 
     assert {field.name for field in descriptor.fields} == REVIEWED_ENTITY_FIELDS
+
+
+def test_the_recurring_observation_has_exactly_the_reviewed_fields() -> None:
+    descriptor = observation_pb2.WorldObservation.DESCRIPTOR
+
+    assert {field.name for field in descriptor.fields} == (REVIEWED_WORLD_OBSERVATION_FIELDS)
 
 
 def test_no_observation_field_names_a_concept_a_player_cannot_see() -> None:

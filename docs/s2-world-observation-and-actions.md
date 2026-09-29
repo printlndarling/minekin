@@ -27,10 +27,10 @@
 
 字段口径：
 
-- `self`：客户端自己玩家的位置、朝向、手持。缺的字段就是不填（proto3 `optional`），**零不是"没读到"**。`main_hand_item_id` 缺失表示手上确实空着，`selected_slot` 缺失表示这次没读热bard。
-- `aim`：`MinecraftClient.crosshairTarget` 的一次读取。`AIM_TARGET_KIND_MISS` 是"看了，什么都没有"，与整个 `aim` 缺席（没看）是两件事。只填 `kind` 选中的分支；`block_state_id` 只描述命中那格正在渲染的方块，不是对邻格或墙后的授权。
+- `self`：客户端自己玩家的位置、朝向、手持。缺的字段就是不填（proto3 `optional`），**零不是"没读到"**。`main_hand_item_id` 缺失表示手上确实空着，`selected_slot` 缺失表示这次没读热键栏。
+- `aim`：`MinecraftClient.crosshairTarget` 的一次读取。`AIM_TARGET_KIND_MISS` 是"看了，什么都没有"，与整个 `aim` 缺席（没看）是两件事。只填 `kind` 选中的分支；`targeted_block_id` 只说命中那格在渲染什么方块（原版 F3 也给任何玩家这一行），不是对邻格或墙后的授权，也不带方块属性列表。
 - `inventory`：与 `InitialObservation` 同一份 `InventorySummary` 形状，`revision` 仍是读取时的 game tick。动作后的物品核对只认这里的增量。
-- `visible_entities`：沿用 `ClientSnapshot` 的半径与遮挡规则，新增绝对坐标；`item_id`/`item_count` 只填客户端渲染成掉落物的实体，别的实体一律不填（实体自己的背包不是"看见"的东西）。
+- `visible_entities`：沿用 `ClientSnapshot` 的半径与遮挡规则，位置只有相对观察者自己的 `relative_*`。实体不带世界坐标：那是把渲染器持有的每个实体（包括没人看的）都摆到服务端真值上，`tests/unit/test_observation_boundary.py` 按构造拒收。要回到某处，用 `self` 自己的坐标加相对偏移。`item_id`/`item_count` 只填客户端渲染成掉落物的实体，别的实体一律不填（实体自己的背包不是"看见"的东西）。
 - `mining`：客户端自己的破坏动画进度，0..1。它是玩家看得见的那条进度，不是剩余 tick 的推算。
 - `gui`：当前屏幕的类名标签与 `sync_id`。没有开屏幕时 `sync_id` 缺席，因为 0 是合法 handler id（玩家自带背包），不能兼职当"无"。
 
@@ -54,7 +54,7 @@
 
 | 动作 | confirmed 需要的读数 | failed / interrupted 的读数 |
 | --- | --- | --- |
-| 挖掉一格木头 | `aim.block_state_id` 不再是该方块，或 `visible_entities` 出现对应掉落物 | `mining.progress` 长时间不动、租约到期、目标丢失 |
+| 挖掉一格木头 | `aim.targeted_block_id` 不再是该方块，或 `visible_entities` 出现对应掉落物 | `mining.progress` 长时间不动、租约到期、目标丢失 |
 | 拾取掉落物 | `inventory` 同名 item 的总数在同步后的 revision 上增加，且掉落物减少或消失 | 掉落物被别人拿走/烧毁/过期 ⇒ `failed` 或 `unknown` |
 | 合成 | 材料减少与产物增加**同时**出现在同步后的 `inventory` 里 | 只发了包、只开了窗、只点了格子都不算 |
 | 换手 | 后续 `self.selected_slot` / `main_hand_item_id` 与请求一致 | 读数仍指回原槽 ⇒ `unknown` |

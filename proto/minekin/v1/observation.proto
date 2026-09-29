@@ -173,19 +173,17 @@ message VisibleEntity {
   float relative_y = 4;
   float relative_z = 5;
   bool line_of_sight = 6;
-  // The entity's own position in the world, and absent when the Bridge did not read
-  // one. Relative offsets alone cannot carry a Kin back to a place, so navigation
-  // needs this; it is the same position the relative offset was computed from, not a
-  // second source of truth.
-  optional double absolute_x = 7;
-  optional double absolute_y = 8;
-  optional double absolute_z = 9;
   // Only for a dropped item the client can see: what it is and how many. A player
   // picks up an item stack they can identify, so the pair is admitted for entities
   // the client renders as items and for nothing else — an entity's hidden inventory
   // is not part of what looking at it shows.
-  optional string item_id = 10;
-  optional uint32 item_count = 11;
+  //
+  // There is deliberately no world position here. `relative_*` is measured from the
+  // observer, which is what a client sees, while a world coordinate would locate
+  // every entity the renderer holds against server truth — including the ones nobody
+  // is looking at. Navigation uses the observer's own position from `SelfState`.
+  optional string item_id = 7;
+  optional uint32 item_count = 8;
 }
 
 message InitialObservation {
@@ -222,11 +220,13 @@ message AimTarget {
   // Set when `kind` is BLOCK. The face is the one the client's own hit result
   // carries, which is what a placement or a break is resolved against.
   BlockTarget block = 3;
-  // The state the client is rendering at that position, as the game names it
-  // (`minecraft:oak_log[axis=y]`). Recognising the block in front of the crosshair
-  // is something a player does by looking at it, so this is the ceiling of what the
-  // ray may say and not a licence to ask about a block the ray missed.
-  string block_state_id = 4;
+  // What the client is rendering under the crosshair, as the game names the block
+  // (`minecraft:oak_log`). Recognising the block in front of you is something a
+  // player does by looking at it — vanilla's own debug overlay shows exactly this for
+  // the targeted block — so it is the ceiling of what the ray may say, and not a
+  // licence to ask about a block the ray missed. The name of the field is the
+  // targeting, not the block's internal state: no property list and no neighbours.
+  string targeted_block_id = 4;
   // Set when `kind` is ENTITY, using the same `observation_id` vocabulary
   // `VisibleEntity` publishes, so a target and the entity list agree with each other.
   string entity_observation_id = 5;
