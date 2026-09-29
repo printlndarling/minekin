@@ -3667,3 +3667,63 @@ python -c "import sys,ipaddress;print(sys.version, ipaddress.ip_address('::ffff:
 ```
 
 镜像侧那两枚红另有一格 harness 教训记在这里，以免下一次又把它读成「不收敛」：`gates2.sh` 给全量那步接了 `tail -2` 管道，于是**红的那格名字**没能进日志；一行 `1 failed` 只有配上具名才是读数，否则只是形状。全量这类命令要把完整输出落到文件里再取，退出码从 `$?`/`PIPESTATUS` 读，名字从 `--tb=` 与 `-rf` 读。
+
+## 2.114. H1u 长窗稳定性读数：跨分钟保持的量在哪一格、不在哪一格（私有卷活体，不是封证）
+
+起点是 §2.113.7 末条给下一张卡写的处方：「读台账里心跳/租约/`SessionInterrupted` 是否跨分钟保持」。**派工前先把这句自己的前提量了一遍，两半都不成立，卡面因此改写**（这是 M 写错的处方，按纪律另起一节说明时点移动，不 amend 旧段）：
+
+- **「台账里的心跳」没有载体**：`bridge-trace.jsonl` 的事件类型全集里没有任何 heartbeat 类事件。健康 run 的账本就只在状态跃迁处写字——本次 600 秒那枚 bundle 的按分钟直方图是 `{0: 18, 10: 5}`，**中间十分钟一个字都没有**；上一枚 600 秒的规范卷 bundle（`CORE-100` att2 `cf01a54b277c4bce…`，span 629.153 s）同样是 `{0: 15, 10: 4}`。所以「跨分钟保持」在账本这一侧读不出来，不是没跑，是它不记。
+- **「没有长窗证据」也不成立**：当前字节下已经有一枚 600 秒的规范卷封证在判绿（`the_soak_held_for_the_duration_it_was_asked_for` 与 `both_jvms_were_sampled_throughout_the_soak` 两条已注册判据就在 `CORE-100` 上）。真正没量过的只剩一格：**两客户端 LAN 形状下的分钟级 run**。这一格才是本卡的内容。
+
+### 2.114.1 派工前的普查（只读，`bash .tmp/h1u/answer-census.sh` ⇒ `.tmp/h1u/pre-answer-census.log`）
+
+私有卷 `minekin-m87b-lan` 上加入者侧 bundle 共 **10 枚**，全部同时带 `server/server.log` 与 `soak-samples.txt`。按名统计探针答题行（`<名字> has the following entity data`）：
+
+- **`Kin`（宿主名）在 10 枚里全是 0 行**，`Kin2` 从 140 到 326 行不等 ⇒ 「探针目标只有加入者」是非恒真读数，不是默认假设。另有一枚 `e4c25580a17d411b…` 两名皆 0（该 run 有服务端日志但无人答题），天然作负对照。
+- 最长的几枚（`1e610382…`、`54249771…`、`71e28800…`、`c131e8e7…`）span 已经跨 **4 个分钟键**，但请求长度仍是 150 秒级；分钟级 `requested_seconds` 只出现在 `043298cb…` 那枚 60 秒以下与本次新增之前无 LAN 形状可比。
+
+### 2.114.2 活体 run：只把观测窗拉到分钟级，其余一个字节没动
+
+`bash .tmp/h1u/live-long.sh` ⇒ `.tmp/h1u/live-long.log`，`H1U LIVE rc=0`。出货字节摘要在起跑时打印（`domain.sh b1d5feee…`、`demo-lan.sh 87d9d129…`、`run.sh c30f6975…`、桥 jar `3af73a9d…`），HEAD `6a5c02c`。
+
+**改的只有观测长度**：`MINEKIN_DEMO_LAN_SOAK_SECONDS=600`（默认 150）、`MINEKIN_DEMO_LAN_SECONDS=1500`（总止损上界）。**没改的**（全部仍是 `demo-lan.sh:85-87` 的默认值）：`HOLD_SECONDS=2` 授权窗、`PROBE_SECONDS=1` 探测节奏、45°/−20° 转向限幅、`CASE=v1201-lan-joiner-control-case-001`、registry、`mandatory`、`MINIMUM_STEP_BLOCKS = 2.0` 位移门。**「把授权窗拉到分钟级」这句话本身是错的**——`SOAK_SECONDS` 是「看着这个世界多久」，不是「允许 kin 走多久」；本轮授权窗仍是 2 秒，见 §2.114.3 的窗读数。
+
+封存结果（`bash .tmp/h1u/read-back.sh 65fbf999ebb94f21bf44cfcba9c6c5c4` ⇒ `.tmp/h1u/post-read-back.log`）：
+
+| 读数 | 值 |
+| --- | --- |
+| run / bundle | `65fbf999ebb94f21bf44cfcba9c6c5c4` / `7505d1ddf0e990deca2e77d4c342831045cbfe99866bf3d39b11fc8b96e82116`（`manifest.json` 实测同值） |
+| attempt | sequence **11**，`supersedes_run_id 043298cb…`（旧 attempt 一枚未改写） |
+| 判定 | `result PASS`、4/4 断言 `expected == observed`、`failures []`、`case_version 397cefbd…` |
+| verify | `evidence verify` rc=0、`artifacts 15`、`verified true`、`violations []` |
+| rejudge | `status agrees` rc=0（出货字节复现 bundle 记录的判决） |
+| soak 载体 | `soak-summary.json` = `requested 600 / interval 10 / passes 60 / samples {client 60, server 60} / ended_early false / failed_samples false`；`soak-samples.txt` 120 行，elapsed `0..596` |
+| 两条已注册 soak 判据**按名套用**到本 bundle | 双双 **PASS**（`the_soak_held_for_…`、`both_jvms_were_sampled_…`） |
+| 账本 | span **635.761 s**、`per-minute {0: 18, 10: 5}`；租约对 `InputLeaseGranted ×2`（move+look）@04:44:16 → `InputReleased had_lease=true reason=TIMEOUT` @04:44:18 → `InputReleased had_lease=false reason=EXPLICIT` @04:54:19 → 末事件 `SessionInterrupted {outcome: BRIDGE_LOST}` |
+| 探针答题行 | `Kin2` **1216 行跨 11 个分钟键**（首 `[04:44:11]`、末 `[04:54:19]`）；`Kin` **0 行** |
+| 授权窗 | `tools/read_move_window.py --all-controls` rc=0：窗内 2 条应答，计入 `(3.32,−60,−8.32) → (−2.48,−60,−2.37) = **8.32 blocks**`；全 log 首末对照 `10.54 blocks` 另计；五路具名对照（`drop-window-readings ⇒ NO_READING_INSIDE_WINDOW`、只留首条 ⇒ 4.24、阵亡/离场截断等）逐字回读 |
+| 私有卷 promotion | rc=1、`status blocked`、`attempts/bundles 11`、全 `AGREES` 且 `verified True`、`from_another_build 0`、`unreadable/unsealed/unverified/sealed_without_bundle 0` |
+
+**promotion 被阻塞是如实读数，不是待修目标**：`blocks = [CASE_WITHOUT_EVIDENCE, REQUIRED_CASE_NOT_REGISTERED]`、`promotable false`。这一列取自**私有卷** `/data`（`minekin-m87b-lan`），与规范卷 `minekin-runner-data` 的卷面不同源，**不与规范卷门载荷互换**；本卡对规范卷一个字节未写（读侧全程 `:ro`，写侧只挂私有卷）。
+
+### 2.114.3 这一轮量到的产品缺口（只具名，不实施）
+
+1. **加入者的 JVM 从来没被 soak 采过。** 字节面：`demo-lan.sh:317-336` 只起**一次** `run.sh domain`，`MINEKIN_KIN_ID` 是宿主 kin；`domain.sh` 的采样循环只对 `find_java_descendant "${session_pid}"` 与 `"${server_pid}"` 各取一次（`:2889/:2890`，收尾 `:2912/:2913`），标签固定 `client`/`server`。加入者那一支的 pid 变量是 `joiner_pid`（`:1860`），它在整份脚本里只用于存活探测（`:1863/:1879`）与拆场（`:2982-:2990`），**从未进入采样路径**。后果：`both_jvms_were_sampled_throughout_the_soak` 在 LAN 形状下判的是「宿主 + 专服」，名字里的 both 不含加入者——本次 120/120 条样本里没有一枚是加入者的内存或线程数。
+2. **分钟级 soak 在 LAN 形状下没有注册判据。** `V1201-LAN-JOINER-CONTROL-CASE-001` 在册四条（`move_input_was_leased`／`the_bridge_carried_the_input_out`／`the_server_saw_the_kin_move`／`the_probed_player_is_this_run_s_kin`）一条 soak 判据都没有；两条 soak 判据挂在 `CORE-100`（`W70`，单客户端本地形状）。于是本 bundle 里的 `soak-samples.txt`/`soak-summary.json` 是**有载体、无判决**。修法要么给 LAN 案加断言，要么给 `CORE-100` 加两客户端形状——两者都动 `case_version`，按已知规则会作废对应案的现有封证（`CASE_VERSION_MISMATCH` + rejudge 拒判），属 §4 的 case 设计与门禁晋级一侧，**本卡不请求也不实施**。
+3. `SessionInterrupted {outcome: BRIDGE_LOST}` 是**每一枚 PASS bundle 的最后一个事件**（本次、三枚 LAN bundle、规范卷 600 秒那枚都是）。所以任何把该 token 当异常读的面板/恢复读数都必须先判它前面的状态跃迁；这不是本卡的修法。
+
+### 2.114.4 复算
+
+```bash
+cd C:/Users/darling/Documents/agent_work/minekin-wt-integration
+bash .tmp/h1u/answer-census.sh   # 派工前普查：按名答题行 + 分钟键 + soak 载体在位
+bash .tmp/h1u/live-long.sh       # 活体：只把 SOAK_SECONDS 拉到 600（容器需安静，约 11 分钟）
+bash .tmp/h1u/readback.sh        # 新 bundle 的 soak/账本/按名读数（卷 :ro）
+bash .tmp/h1u/read-back.sh 65fbf999ebb94f21bf44cfcba9c6c5c4   # verify + rejudge + 两条 soak 判据按名套用
+# 授权窗与 promotion（写侧只挂私有卷）
+MSYS_NO_PATHCONV=1 docker run --rm --entrypoint /bin/bash -v "$PWD":/src:ro -v minekin-m87b-lan:/data \
+  -e MINEKIN_HOME=/data -e PYTHONPATH=/src/src -e LD_LIBRARY_PATH=/opt/sqlite/lib minekin-runner:local -c \
+  'cd /src && python tools/read_move_window.py --bundle /data/kin/kin-lan87b-join/run/evidence/65fbf999ebb94f21bf44cfcba9c6c5c4 --all-controls'
+```
+
+一处自查记在这里：`read-back.sh` 首版的 promotion 那格用**小写 fixture 名**过滤 `case_id`，于是打印 `bundles for this case on this volume: 0`——那是我的过滤键错，不是卷上没有。改用 manifest 里的大写 `V1201-LAN-JOINER-CONTROL-CASE-001` 后同一条命令读到 `bundles for this case: 11`。凡按 `case_id` 过滤，键取 manifest 的大写形态，卡面的小写名只是文件名。
