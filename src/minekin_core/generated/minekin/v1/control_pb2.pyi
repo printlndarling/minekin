@@ -2,7 +2,7 @@ from google.protobuf.internal import containers as _containers
 from google.protobuf.internal import enum_type_wrapper as _enum_type_wrapper
 from google.protobuf import descriptor as _descriptor
 from google.protobuf import message as _message
-from collections.abc import Iterable as _Iterable
+from collections.abc import Iterable as _Iterable, Mapping as _Mapping
 from typing import ClassVar as _ClassVar, Optional as _Optional, Union as _Union
 
 DESCRIPTOR: _descriptor.FileDescriptor
@@ -37,6 +37,31 @@ class ActionStatus(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     ACTION_STATUS_FAILED: _ClassVar[ActionStatus]
     ACTION_STATUS_CANCELLED: _ClassVar[ActionStatus]
     ACTION_STATUS_UNKNOWN_AFTER_DISCONNECT: _ClassVar[ActionStatus]
+
+class BlockFace(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+    __slots__ = ()
+    BLOCK_FACE_UNSPECIFIED: _ClassVar[BlockFace]
+    BLOCK_FACE_UNKNOWN: _ClassVar[BlockFace]
+    BLOCK_FACE_DOWN: _ClassVar[BlockFace]
+    BLOCK_FACE_UP: _ClassVar[BlockFace]
+    BLOCK_FACE_NORTH: _ClassVar[BlockFace]
+    BLOCK_FACE_SOUTH: _ClassVar[BlockFace]
+    BLOCK_FACE_WEST: _ClassVar[BlockFace]
+    BLOCK_FACE_EAST: _ClassVar[BlockFace]
+
+class ScreenControl(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+    __slots__ = ()
+    SCREEN_CONTROL_UNSPECIFIED: _ClassVar[ScreenControl]
+    SCREEN_CONTROL_OPEN_INVENTORY: _ClassVar[ScreenControl]
+    SCREEN_CONTROL_CLOSE: _ClassVar[ScreenControl]
+
+class SlotClickMode(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+    __slots__ = ()
+    SLOT_CLICK_MODE_UNSPECIFIED: _ClassVar[SlotClickMode]
+    SLOT_CLICK_MODE_PICK: _ClassVar[SlotClickMode]
+    SLOT_CLICK_MODE_QUICK_MOVE: _ClassVar[SlotClickMode]
+    SLOT_CLICK_MODE_SWAP: _ClassVar[SlotClickMode]
+    SLOT_CLICK_MODE_THROW: _ClassVar[SlotClickMode]
 RESOURCE_PACK_POLICY_UNSPECIFIED: ResourcePackPolicy
 RESOURCE_PACK_POLICY_DENY: ResourcePackPolicy
 RESOURCE_PACK_POLICY_PROMPT: ResourcePackPolicy
@@ -56,6 +81,22 @@ ACTION_STATUS_SUCCEEDED: ActionStatus
 ACTION_STATUS_FAILED: ActionStatus
 ACTION_STATUS_CANCELLED: ActionStatus
 ACTION_STATUS_UNKNOWN_AFTER_DISCONNECT: ActionStatus
+BLOCK_FACE_UNSPECIFIED: BlockFace
+BLOCK_FACE_UNKNOWN: BlockFace
+BLOCK_FACE_DOWN: BlockFace
+BLOCK_FACE_UP: BlockFace
+BLOCK_FACE_NORTH: BlockFace
+BLOCK_FACE_SOUTH: BlockFace
+BLOCK_FACE_WEST: BlockFace
+BLOCK_FACE_EAST: BlockFace
+SCREEN_CONTROL_UNSPECIFIED: ScreenControl
+SCREEN_CONTROL_OPEN_INVENTORY: ScreenControl
+SCREEN_CONTROL_CLOSE: ScreenControl
+SLOT_CLICK_MODE_UNSPECIFIED: SlotClickMode
+SLOT_CLICK_MODE_PICK: SlotClickMode
+SLOT_CLICK_MODE_QUICK_MOVE: SlotClickMode
+SLOT_CLICK_MODE_SWAP: SlotClickMode
+SLOT_CLICK_MODE_THROW: SlotClickMode
 
 class ConnectWorld(_message.Message):
     __slots__ = ("request_id", "generation", "server_profile_id", "server_profile_revision", "original_host", "port", "resource_pack_policy", "deadline_monotonic_ns")
@@ -190,3 +231,111 @@ class OpenLan(_message.Message):
     port: int
     deadline_monotonic_ns: int
     def __init__(self, request_id: _Optional[str] = ..., generation: _Optional[int] = ..., port: _Optional[int] = ..., deadline_monotonic_ns: _Optional[int] = ...) -> None: ...
+
+class BlockTarget(_message.Message):
+    __slots__ = ("x", "y", "z", "face")
+    X_FIELD_NUMBER: _ClassVar[int]
+    Y_FIELD_NUMBER: _ClassVar[int]
+    Z_FIELD_NUMBER: _ClassVar[int]
+    FACE_FIELD_NUMBER: _ClassVar[int]
+    x: int
+    y: int
+    z: int
+    face: BlockFace
+    def __init__(self, x: _Optional[int] = ..., y: _Optional[int] = ..., z: _Optional[int] = ..., face: _Optional[_Union[BlockFace, str]] = ...) -> None: ...
+
+class AimInput(_message.Message):
+    __slots__ = ("action_id", "lease_id", "generation", "yaw_degrees", "pitch_degrees", "deadline_monotonic_ns")
+    ACTION_ID_FIELD_NUMBER: _ClassVar[int]
+    LEASE_ID_FIELD_NUMBER: _ClassVar[int]
+    GENERATION_FIELD_NUMBER: _ClassVar[int]
+    YAW_DEGREES_FIELD_NUMBER: _ClassVar[int]
+    PITCH_DEGREES_FIELD_NUMBER: _ClassVar[int]
+    DEADLINE_MONOTONIC_NS_FIELD_NUMBER: _ClassVar[int]
+    action_id: str
+    lease_id: str
+    generation: int
+    yaw_degrees: float
+    pitch_degrees: float
+    deadline_monotonic_ns: int
+    def __init__(self, action_id: _Optional[str] = ..., lease_id: _Optional[str] = ..., generation: _Optional[int] = ..., yaw_degrees: _Optional[float] = ..., pitch_degrees: _Optional[float] = ..., deadline_monotonic_ns: _Optional[int] = ...) -> None: ...
+
+class MineInput(_message.Message):
+    __slots__ = ("action_id", "lease_id", "generation", "mining", "target", "deadline_monotonic_ns")
+    ACTION_ID_FIELD_NUMBER: _ClassVar[int]
+    LEASE_ID_FIELD_NUMBER: _ClassVar[int]
+    GENERATION_FIELD_NUMBER: _ClassVar[int]
+    MINING_FIELD_NUMBER: _ClassVar[int]
+    TARGET_FIELD_NUMBER: _ClassVar[int]
+    DEADLINE_MONOTONIC_NS_FIELD_NUMBER: _ClassVar[int]
+    action_id: str
+    lease_id: str
+    generation: int
+    mining: bool
+    target: BlockTarget
+    deadline_monotonic_ns: int
+    def __init__(self, action_id: _Optional[str] = ..., lease_id: _Optional[str] = ..., generation: _Optional[int] = ..., mining: bool = ..., target: _Optional[_Union[BlockTarget, _Mapping]] = ..., deadline_monotonic_ns: _Optional[int] = ...) -> None: ...
+
+class HotbarSelectInput(_message.Message):
+    __slots__ = ("action_id", "lease_id", "generation", "slot", "deadline_monotonic_ns")
+    ACTION_ID_FIELD_NUMBER: _ClassVar[int]
+    LEASE_ID_FIELD_NUMBER: _ClassVar[int]
+    GENERATION_FIELD_NUMBER: _ClassVar[int]
+    SLOT_FIELD_NUMBER: _ClassVar[int]
+    DEADLINE_MONOTONIC_NS_FIELD_NUMBER: _ClassVar[int]
+    action_id: str
+    lease_id: str
+    generation: int
+    slot: int
+    deadline_monotonic_ns: int
+    def __init__(self, action_id: _Optional[str] = ..., lease_id: _Optional[str] = ..., generation: _Optional[int] = ..., slot: _Optional[int] = ..., deadline_monotonic_ns: _Optional[int] = ...) -> None: ...
+
+class ScreenInput(_message.Message):
+    __slots__ = ("action_id", "lease_id", "generation", "control", "deadline_monotonic_ns")
+    ACTION_ID_FIELD_NUMBER: _ClassVar[int]
+    LEASE_ID_FIELD_NUMBER: _ClassVar[int]
+    GENERATION_FIELD_NUMBER: _ClassVar[int]
+    CONTROL_FIELD_NUMBER: _ClassVar[int]
+    DEADLINE_MONOTONIC_NS_FIELD_NUMBER: _ClassVar[int]
+    action_id: str
+    lease_id: str
+    generation: int
+    control: ScreenControl
+    deadline_monotonic_ns: int
+    def __init__(self, action_id: _Optional[str] = ..., lease_id: _Optional[str] = ..., generation: _Optional[int] = ..., control: _Optional[_Union[ScreenControl, str]] = ..., deadline_monotonic_ns: _Optional[int] = ...) -> None: ...
+
+class GuiSlotClick(_message.Message):
+    __slots__ = ("slot_id", "button", "mode")
+    SLOT_ID_FIELD_NUMBER: _ClassVar[int]
+    BUTTON_FIELD_NUMBER: _ClassVar[int]
+    MODE_FIELD_NUMBER: _ClassVar[int]
+    slot_id: int
+    button: int
+    mode: SlotClickMode
+    def __init__(self, slot_id: _Optional[int] = ..., button: _Optional[int] = ..., mode: _Optional[_Union[SlotClickMode, str]] = ...) -> None: ...
+
+class GuiRecipeClick(_message.Message):
+    __slots__ = ("recipe_id", "craft_all")
+    RECIPE_ID_FIELD_NUMBER: _ClassVar[int]
+    CRAFT_ALL_FIELD_NUMBER: _ClassVar[int]
+    recipe_id: str
+    craft_all: bool
+    def __init__(self, recipe_id: _Optional[str] = ..., craft_all: bool = ...) -> None: ...
+
+class GuiClickInput(_message.Message):
+    __slots__ = ("action_id", "lease_id", "generation", "sync_id", "slot", "recipe", "deadline_monotonic_ns")
+    ACTION_ID_FIELD_NUMBER: _ClassVar[int]
+    LEASE_ID_FIELD_NUMBER: _ClassVar[int]
+    GENERATION_FIELD_NUMBER: _ClassVar[int]
+    SYNC_ID_FIELD_NUMBER: _ClassVar[int]
+    SLOT_FIELD_NUMBER: _ClassVar[int]
+    RECIPE_FIELD_NUMBER: _ClassVar[int]
+    DEADLINE_MONOTONIC_NS_FIELD_NUMBER: _ClassVar[int]
+    action_id: str
+    lease_id: str
+    generation: int
+    sync_id: int
+    slot: GuiSlotClick
+    recipe: GuiRecipeClick
+    deadline_monotonic_ns: int
+    def __init__(self, action_id: _Optional[str] = ..., lease_id: _Optional[str] = ..., generation: _Optional[int] = ..., sync_id: _Optional[int] = ..., slot: _Optional[_Union[GuiSlotClick, _Mapping]] = ..., recipe: _Optional[_Union[GuiRecipeClick, _Mapping]] = ..., deadline_monotonic_ns: _Optional[int] = ...) -> None: ...

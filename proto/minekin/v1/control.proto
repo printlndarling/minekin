@@ -135,3 +135,138 @@ message OpenLan {
   uint32 port = 3;
   uint64 deadline_monotonic_ns = 4;
 }
+
+// S2: the block face the client's own crosshair reports, named from the client's
+// `Direction`. `UNKNOWN` is what the client says when the hit carries no face
+// (a miss against a block it cannot resolve), and is deliberately not the same
+// value as "the Bridge never read its crosshair" — which is the absence of the
+// whole target record rather than a face of zero.
+enum BlockFace {
+  BLOCK_FACE_UNSPECIFIED = 0;
+  BLOCK_FACE_UNKNOWN = 1;
+  BLOCK_FACE_DOWN = 2;
+  BLOCK_FACE_UP = 3;
+  BLOCK_FACE_NORTH = 4;
+  BLOCK_FACE_SOUTH = 5;
+  BLOCK_FACE_WEST = 6;
+  BLOCK_FACE_EAST = 7;
+}
+
+// One block, with the face the client means. Position only, and never a neighbour
+// searched around it: the contract allows a Kin to act on the block its crosshair
+// is on, so the target it names has to be that one.
+message BlockTarget {
+  sint32 x = 1;
+  sint32 y = 2;
+  sint32 z = 3;
+  BlockFace face = 4;
+}
+
+// Turn the view to an absolute angle. Absolute rather than another delta because
+// the reader has to be able to tell an unfinished turn from a finished one, and
+// the only way it can is by comparing the angle it asked for with the angle the
+// next observation reports. The Bridge clamps how far one command may move the
+// view, so "turn to face the thing behind me" is a sequence of observable steps
+// and not one 180-degree snap.
+message AimInput {
+  string action_id = 1;
+  string lease_id = 2;
+  uint64 generation = 3;
+  float yaw_degrees = 4;
+  // -90 is straight up, 90 straight down, in the client's own units.
+  float pitch_degrees = 5;
+  uint64 deadline_monotonic_ns = 6;
+}
+
+// The attack key, held or let go — the same shape as `UseInput` for the same
+// reason: a player who is mining is a player holding a key down, and the way that
+// ends is the lease being withdrawn, not a second release path.
+//
+// The Bridge does the holding: once `mining` is true it keeps the break going on
+// the client thread at the client's own pace, which is what makes the mining
+// duration the vanilla one. A message per tick would be a second clock.
+//
+// `target` is checked and not believed. When the crosshair is not on that block
+// the Bridge refuses by name instead of breaking whatever is in front of it, so a
+// plan that has gone stale cannot hit an unintended block.
+message MineInput {
+  string action_id = 1;
+  string lease_id = 2;
+  uint64 generation = 3;
+  bool mining = 4;
+  BlockTarget target = 5;
+  uint64 deadline_monotonic_ns = 6;
+}
+
+// Put one of the nine hotbar slots in hand. Refused outside 0..8: this is the
+// hotbar and not the whole inventory, so a Kin that wants something else has to
+// move it into the hotbar the way a player does.
+message HotbarSelectInput {
+  string action_id = 1;
+  string lease_id = 2;
+  uint64 generation = 3;
+  uint32 slot = 4;
+  uint64 deadline_monotonic_ns = 5;
+}
+
+enum ScreenControl {
+  SCREEN_CONTROL_UNSPECIFIED = 0;
+  // The player's own inventory and its 2x2 crafting grid. There is no value here
+  // for "open the block in front of me": that is what the use key already does, and
+  // a second door to the same screen would be a second place to skip the check.
+  SCREEN_CONTROL_OPEN_INVENTORY = 1;
+  SCREEN_CONTROL_CLOSE = 2;
+}
+
+message ScreenInput {
+  string action_id = 1;
+  string lease_id = 2;
+  uint64 generation = 3;
+  ScreenControl control = 4;
+  uint64 deadline_monotonic_ns = 5;
+}
+
+enum SlotClickMode {
+  SLOT_CLICK_MODE_UNSPECIFIED = 0;
+  SLOT_CLICK_MODE_PICK = 1;
+  SLOT_CLICK_MODE_QUICK_MOVE = 2;
+  SLOT_CLICK_MODE_SWAP = 3;
+  SLOT_CLICK_MODE_THROW = 4;
+}
+
+// A click inside the screen the client already has open.
+//
+// `sync_id` is required and must equal the handler the client reports right now,
+// because the contract forbids carrying a stale syncId into the next container.
+// The Bridge answers a mismatch with a named refusal rather than sending the
+// packet, so a plan written against a closed window cannot land on whatever the
+// player opened afterwards.
+//
+// There is no creative-stroke path here. The one client method that hands an item
+// to the player without a transaction (`clickCreativeStack`) is absent by
+// construction rather than refused at runtime.
+message GuiSlotClick {
+  uint32 slot_id = 1;
+  uint32 button = 2;
+  SlotClickMode mode = 3;
+}
+
+// `recipe_id` is the namespaced id of a rule this game version actually has. The
+// client resolves it and the server validates it; neither side is asked to believe
+// a recipe name the Kin invented.
+message GuiRecipeClick {
+  string recipe_id = 1;
+  bool craft_all = 2;
+}
+
+message GuiClickInput {
+  string action_id = 1;
+  string lease_id = 2;
+  uint64 generation = 3;
+  uint32 sync_id = 4;
+  oneof click {
+    GuiSlotClick slot = 5;
+    GuiRecipeClick recipe = 6;
+  }
+  uint64 deadline_monotonic_ns = 7;
+}

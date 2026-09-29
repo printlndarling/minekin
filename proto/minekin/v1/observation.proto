@@ -126,6 +126,12 @@ message CallbackBudgetWindow {
   reserved 6 to 10;
 }
 
+// Where the client's own player is and what it is holding.
+//
+// The added fields are optional rather than defaulted, because "the Bridge did not
+// read this" and "the value is zero" are different facts and only one of them is
+// ordinary. A yaw of 0.0 read off the client is the player facing south; a yaw of
+// 0.0 invented because the read never happened would be a direction nobody observed.
 message SelfState {
   float health = 1;
   float max_health = 2;
@@ -134,6 +140,18 @@ message SelfState {
   bool on_ground = 5;
   bool alive = 6;
   string current_screen = 7;
+  optional double x = 8;
+  optional double y = 9;
+  optional double z = 10;
+  // The client's own look angles, in its own units: yaw is -180..180 around the
+  // vertical axis, pitch is -90 (up) to 90 (down).
+  optional float yaw_degrees = 11;
+  optional float pitch_degrees = 12;
+  // 0-based hotbar index of the stack in hand, and absent when nothing in the hotbar
+  // is held — an empty hand is a real state and is reported by `main_hand_item_id`
+  // being absent, not by this being zero.
+  optional uint32 selected_slot = 13;
+  optional string main_hand_item_id = 14;
 }
 
 message InventoryStack {
@@ -155,6 +173,19 @@ message VisibleEntity {
   float relative_y = 4;
   float relative_z = 5;
   bool line_of_sight = 6;
+  // The entity's own position in the world, and absent when the Bridge did not read
+  // one. Relative offsets alone cannot carry a Kin back to a place, so navigation
+  // needs this; it is the same position the relative offset was computed from, not a
+  // second source of truth.
+  optional double absolute_x = 7;
+  optional double absolute_y = 8;
+  optional double absolute_z = 9;
+  // Only for a dropped item the client can see: what it is and how many. A player
+  // picks up an item stack they can identify, so the pair is admitted for entities
+  // the client renders as items and for nothing else — an entity's hidden inventory
+  // is not part of what looking at it shows.
+  optional string item_id = 10;
+  optional uint32 item_count = 11;
 }
 
 message InitialObservation {
@@ -166,4 +197,81 @@ message InitialObservation {
   bool authoritative = 6;
   SessionIdentityReport session_identity = 7;
   reserved 8 to 10;
+}
+
+// What the client's crosshair is on, read on the client thread at a named tick.
+//
+// `MISS` is a positive statement — the read happened and hit nothing — and is not
+// the same as `UNSPECIFIED`, which means no read was reported. The distinction is
+// the whole of "did the client look and see nothing" versus "the Bridge never
+// looked", and a plan that treats them alike would break a block it never saw.
+//
+// Only the branch `kind` selects is filled. There are no fields for a block behind
+// the crosshair, for a neighbour of the hit block, or for anything the ray did not
+// reach: the observation surface is the ray, not the loaded chunk.
+enum AimTargetKind {
+  AIM_TARGET_KIND_UNSPECIFIED = 0;
+  AIM_TARGET_KIND_MISS = 1;
+  AIM_TARGET_KIND_BLOCK = 2;
+  AIM_TARGET_KIND_ENTITY = 3;
+}
+
+message AimTarget {
+  uint64 game_tick = 1;
+  AimTargetKind kind = 2;
+  // Set when `kind` is BLOCK. The face is the one the client's own hit result
+  // carries, which is what a placement or a break is resolved against.
+  BlockTarget block = 3;
+  // The state the client is rendering at that position, as the game names it
+  // (`minecraft:oak_log[axis=y]`). Recognising the block in front of the crosshair
+  // is something a player does by looking at it, so this is the ceiling of what the
+  // ray may say and not a licence to ask about a block the ray missed.
+  string block_state_id = 4;
+  // Set when `kind` is ENTITY, using the same `observation_id` vocabulary
+  // `VisibleEntity` publishes, so a target and the entity list agree with each other.
+  string entity_observation_id = 5;
+  string entity_type = 6;
+  // From the client's eyes to the hit point, in blocks, as the client's own hit
+  // result reports it. Absent when there is no hit to measure.
+  optional double distance = 7;
+}
+
+// The client's own break animation for the block it is currently hitting. This is
+// the player-visible progress bar, not a estimate of remaining ticks, so the reader
+// can see a break stall (wrong tool, target lost, other player) without guessing.
+message MiningProgress {
+  uint64 game_tick = 1;
+  BlockTarget target = 2;
+  float progress = 3;
+}
+
+// The screen the client has open, and the handler id its clicks have to match.
+// `sync_id` is absent when no screen is open, because syncId 0 is a real handler
+// (the player's own inventory) and cannot double as "there is none".
+message GuiScreen {
+  string screen_id = 1;
+  optional uint32 sync_id = 2;
+}
+
+// The recurring player-equivalent view: where the Kin is, what its crosshair is on,
+// what it carries, what it can see, and what is open.
+//
+// `InitialObservation` is the once-at-join admission proof and cannot carry the
+// read an action has to be checked against, so this is a second type rather than a
+// second use of the first. Everything in it is a re-read of the same client state
+// the first snapshot was built from, at the tick named here.
+//
+// The Bridge publishes it on a fixed tick interval while a Core session holds the
+// world-observation capability, so its cost is bounded by a constant of the build
+// and not by how often somebody asks.
+message WorldObservation {
+  uint64 generation = 1;
+  uint64 game_tick = 2;
+  SelfState self = 3;
+  AimTarget aim = 4;
+  InventorySummary inventory = 5;
+  repeated VisibleEntity visible_entities = 6;
+  optional MiningProgress mining = 7;
+  GuiScreen gui = 8;
+  reserved 9 to 12;
 }
