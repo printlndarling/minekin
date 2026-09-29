@@ -3442,3 +3442,76 @@ bash .tmp/m99/blocking-read.sh                                        # blocking
 # 失败材料：.tmp/m99/run-core040.log（rc=1 那次）、.tmp/m99/diag-session.sh、.tmp/m99/diag/domain-session.err
 # 旧 attempt 仍在：/data/kin/kin-01/run/evidence/85a97e3b5a3f42bb84a90fee3fa69b7d（UNJUDGED，未被改写）
 ```
+
+## §2.112 M-C4 收口：`V1201-040` 在当前提交字节下的规范卷续封（第一百一十二轮，2026-09-29 10:40 +0800，M 亲跑，判据/case 摘要/registry/封证引用零位移）
+
+### 2.112.1 这一卡补的是 §2.110.5 点名的最后一格
+
+`c168320` 把位移判据推进了三张 case。M-C2 补了 `V1201-LAN-JOINER-CONTROL-CASE-001`（§2.110），M-C3 补了 `CORE-040`（§2.111），本节补第三张：`V1201-040`（`W60`、`mandatory:false`、当前 `case_version 286e650581265cb0…`）。跑前它卷上有 3 枚且全为 `UNJUDGED`，理由句具名（`.tmp/m99/census.log`，M-C3 那轮）：`this bundle was sealed against case version 2ef224d8… and V1201-040 is now 286e6505…`，计数 3。它不在 `blocking_cases` 里 ⇒ 这张卡不动门禁，做的仍然是「当前字节下的真跑封证」本身。
+
+### 2.112.2 配方取自上一枚封证自己的记录，不照卡面重写
+
+- 从 seq3 bundle `6a86da0353e746829cc5966ac272ef9d` 的 `orchestrator-trace.json` 读回 `session_argv`（`.tmp/m99/v040-argv.sh`），拿到 `--profile tests/fixtures/runtime-input/bundle-candidate-1.20.1.json --server-profile tests/fixtures/runtime-input/controlled-offline-server-1.20.1.json --hold-forward-seconds 2 --look-yaw-degrees 45`。
+- 起跑字节：`HEAD 8983390`；blob `domain.sh f3be7025…`、`run.sh 4f31f473…`、`tools/assert_case_evidence.py 0a96713e…`、`tools/seal_run_evidence.py e83de80d…`、`tests/fixtures/cases/v1201-040.json bc90d668…`、两枚 runtime-input profile `f8de9fd0…` / `b799f863…`；工作字节 `domain.sh 464981ef…`、`run.sh c30f6975…` ⇒ 与 §2.108/§2.110/§2.111 四次读数同值，三份 runner 自那一轮起未动。
+- 构建产物**核过再跑、不重建**：`bridge-1201/build/libs/minekin-bridge-1201-0.0.0.jar` = `e50d61c209be9813…` / 1,310,604 B，逐字等于该 profile 记的桥摘要（正对照：§2.111.3 里 1.21.4 那枚必须先建）；服务端 jar `.tmp/mc-1.20.1-server.jar` = `3af73a9d…`。
+- 驱动 `.tmp/m99/drive-v040.sh` → 完整输出 `.tmp/m99/run-v040.log`：
+
+```bash
+MINEKIN_SERVER_JAR="${ROOT}/.tmp/mc-1.20.1-server.jar" \
+    MINEKIN_RUNNER_DATA=minekin-runner-data MINEKIN_KIN_ID=kin-01 \
+    MINEKIN_DOMAIN_CASE=V1201-040 MINEKIN_DOMAIN_PROBE=Kin \
+    MINEKIN_DOMAIN_PROBE_SECONDS=1 MINEKIN_DOMAIN_SECONDS=1800 \
+    bash test-orchestrator/runner/run.sh domain session start \
+    --profile tests/fixtures/runtime-input/bundle-candidate-1.20.1.json \
+    --server-profile tests/fixtures/runtime-input/controlled-offline-server-1.20.1.json \
+    --hold-forward-seconds 2 --look-yaw-degrees 45
+```
+
+披露口径与 §2.111.4 相同：`MINEKIN_DOMAIN_SECONDS=1800` 只是各等待阶段的界（默认 240 装不下 1.20.1 冷 store 的自检路径）；**距离门 2.0 blocks、授权窗、`--look-yaw-degrees 45`、`--hold-forward-seconds 2`、探测节奏 1 秒一字节未动**。
+
+### 2.112.3 活体读数（入服 → 授权窗 → 释放 → 停止 → 封存）
+
+- 服务端 `/data/server-runs/run-191`，`domain: the controlled server reports enable-status=false`、`domain: the session is playable`、`domain: this run is 9214f24dc2e14af0857bcb168b3e1ce5`。
+- 走动：`domain: the server saw the Kin walk and stop; its height moved through 0.00 blocks`。
+- 授权窗由窗口读数器按线报量（第 4 路）：grant `02:36:11.730128Z` → release `02:36:13.722820Z` = **1.993 s**，窗内服务端答了 **2** 条位置；整份日志 20 条打戳回答。
+- 停止：`session stop` 报 `asked [242] / terminated [242] / released [242] / nothing_held [] / unresolved []`，`session exited 14`。`left_alone` 那 25 个 pid 是清理阶段见到的进程集合，不是未决租约——释放计数的分格口径（#94）在这里第四次对上：手上已无租约。
+- 运行文档：`outcome BRIDGE_LOST`、`connection_state PLAYABLE`、`session_state STOPPED`、`actions_applied 2`、`actions_refused 0`、`events_applied 5`、`snapshots_admitted 1`、`entities_admitted 21`。
+- 封证：`status sealed`、`result PASS`、`failures []`、`attempt_sequence 4`、`supersedes_run_id 6a86da03…`、`case_version 286e6505…`（未动）、`bundle_digest e30bea47512ee2a6d38247468aae54a59079a67ef3a15b517a9167bad62312a0`、落点 `/data/kin/kin-01/run/evidence/9214f24dc2e14af0857bcb168b3e1ce5`。run 内那一次 `evidence verify` 已 `verified: true, violations: []`。
+
+### 2.112.4 六路独立读数（`bash .tmp/m99/read-back.sh 9214f24dc2e14af0857bcb168b3e1ce5 kin-01 V1201-040` ⇒ `.tmp/m99/read-back-v040.log`）
+
+| 路 | 读数 |
+| --- | --- |
+| 0 摘要自证 | `sha256(manifest.json)` == `bundle.sha256` ⇒ `digest agrees with the seal file: True`；identity `Kin/8f40376b-c23f-3ef1-b553-5564eea75639` + `configured_profile bundle-candidate-1.20.1.json#709a889977b10857`；world `dedicated / minekin-p0-controlled / config_digest 77a19c94…`；五枚判据 expected==observed、failures `[]` |
+| 1 `evidence verify` | rc=0、`status: verified`、`verified: true`、`violations: []`、artifacts 13 |
+| 2 `rejudge_evidence.py` | rc=0、`status: agrees`、`disagreements: []`、`re_judged.result PASS`、`unimplemented []` ⇒ **当前字节复判一致** |
+| 3 `replay_evidence.py` ×2 | 两次都 rc=0、23 条事件、`projected.state STOPPED`、`trace_sha256 36a997f76048bba5…`（16,647 B）、`violations: []` ⇒ 幂等 |
+| 4 `read_move_window.py --all-controls` | verdict「the window carries a step」；credited `[02:36:11] (-3.80,-60.00,-3.00) → [02:36:13] (-9.44,-60.00,2.65) = 7.98 blocks`；整程对照 `[02:36:01] → [02:36:19] = 8.57 blocks` |
+| 5 `report_promotion.py --data-root /data` | rc=1、`status blocked`；`integrity unreadable/unsealed/unverified/sealed_without_bundle` 全 0，`from_another_build 61`、`repo_checks_not_from_the_controlled_interpreter 9`；本 case 4 枚：seq1/2/3 `UNJUDGED`、**seq4 `AGREES`**（`from_repository_build True`、`violations []`） |
+
+第 4 路的五枚具名反对照（判据非恒真的直接证据）：`whole-log-pair` 按首尾量 ⇒ 同判 7.98；`drop-window-readings` 删掉窗内 2 条 ⇒ `NO_READING_INSIDE_WINDOW`；`first-window-reading-only` ⇒ credited 降到 4.29（端点由窗内最后一条决定）；`death-before-tail` 把「Kin was slain by Zombie」写在窗内第一条回答之后 ⇒ gated 4.29 对 ungated 7.98（尸体的冻结坐标不能当端点）；`departure-before-tail` 同形 4.29 对 7.98。
+
+### 2.112.5 卷面与门禁对账（`.tmp/m99/census-v040.log`、`.tmp/m99/blocking-read-v040.log`）
+
+- 两套基数各 +1，不是回退：`find /data -name manifest.json` 116⇒**117**；`/data/kin` 下 103⇒**104**；`/data/repo-evidence` 恒 13 枚（差异是仓库检查案的 bundle，与 Kin 根不同一层）。
+- 全卷 `re_judge` tally：`AGREES 61⇒62 / UNJUDGED 54 不变 / DISAGREES 1 不变`。`V1201-040` 的 `2ef224d8…` 理由行仍是 3 枚 ⇒ 本卡那枚落进 `AGREES`，旧 attempt 仍挂在卷上未改写。唯一那枚 `DISAGREES` 仍是 `ADMIT-060` seq1（recorded `FAIL`、re-judged `PASS`、`case_version` 未动）：单枚历史记录与当前判据的差异，照实记下、不据此求绿。
+- `blocking count 28`（M-C3 已从 29 降到 28，本卡不再动）、`CORE-040 still blocking: False`；`p0-core promotable False` 且 blocks 仍是 `['REQUIRED_CASE_NOT_REGISTERED']`。`report_promotion` 整体仍 `blocked`（28 枚：HOST/HOSTCOMMIT/HOSTCTL/ADMIT-010/020/030/050/090/120/CORE-080/OFFLINE-060/080/NAV-EXP-010）。**封成 ≠ 晋级**，晋级是主控保留决策。
+- 本卡仓库字节只动文档与 `.tmp/` ⇒ 判据/case 摘要/registry/封证引用零位移。`gate_payload_sha256` 本卡不重取，理由与 §2.111.7 一致：出货字节里该字段取不到（`grep -rln gate_payload_sha256 tools/ src/ tests/` 命中 0；本轮在报告里遍历到的只有 `gated`、`repository_build/gates_promotion`、`visibility_gaps[0]/gates_promotion` 三枚同形键），这是一格**已登记的测量缺口**，不是绿读数。
+
+### 2.112.6 判据移动造成的缺口到此三张全闭
+
+`c168320` 内移的三张 case 现在各有一枚当前字节下的真跑封证：`V1201-LAN-JOINER-CONTROL-CASE-001`（§2.110）、`CORE-040`（§2.111）、`V1201-040`（本节）。#76(B) 的「证据侧」到此闭合，而判据侧从未欠实施——`git diff --stat c168320..HEAD -- tools/assert_case_evidence.py` 为空，因此按规则 4 不重复实施它。
+
+- 下一张不再是续封类：`H1r`（`run.sh:247` 的无条件 `--rm` 吞掉 `/tmp/domain-session.err`，§2.111.2 已登记）是可自主执行的窄缺陷卡。
+- 仍开着的：`tests/contract/test_session_runtime.py:81` 那份 `_wait_until` 复制未抽共享（§2.109.5）；CI 欠账 = `8983390` 与本轮记录笔自身的 run；主控保留决策未变（晋级 / registry 换引用 / #82 式整卷重封 / Dashboard 写面 / V08 与远程服 / HOST/PERSIST / 在线认证 / 跨 bundle schema / 供应链重钉）。
+
+复算：
+
+```bash
+cd C:/Users/darling/Documents/agent_work/minekin-wt-integration
+bash .tmp/m99/read-back.sh 9214f24dc2e14af0857bcb168b3e1ce5 kin-01 V1201-040   # 六路读数
+bash .tmp/m99/census.sh                                                       # 两套基数 + re_judge 原因普查
+bash .tmp/m99/blocking-read.sh                                                # blocking 名单与 p0-core 读数
+# 真跑配方与完整输出：.tmp/m99/drive-v040.sh / .tmp/m99/run-v040.log
+# 旧 attempt 仍在：/data/kin/kin-01/run/evidence/6a86da0353e746829cc5966ac272ef9d（UNJUDGED，未被改写）
+```
