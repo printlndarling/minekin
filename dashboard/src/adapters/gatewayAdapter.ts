@@ -1,4 +1,5 @@
 import {
+  IDENTITY_SCHEMA_VERSION,
   SNAPSHOT_SCHEMA_VERSION,
   filled,
   gapField,
@@ -11,10 +12,15 @@ import {
   type Field,
   type FieldGapStatus,
   type Heartbeat,
+  type IdentityInfo,
+  type IdentityViewSnapshot,
   type KinRuntimeState,
   type KinSnapshot,
   type LinkState,
   type MediaStreamRef,
+  type RenameRequest,
+  type RenameResult,
+  type RenameStatus,
   type SelfState,
   type SessionInfo,
   type SessionMode,
@@ -65,6 +71,20 @@ export const READ_ENDPOINTS = {
   timeline: "/api/v1/dashboard/timeline",
   alerts: "/api/v1/dashboard/alerts",
 } as const;
+
+/**
+ * The identity surface `docs/stable-player-name-2026-09-29.md` opens: one GET that answers
+ * who the Kin is (and hands out the per-process CSRF token), and the one POST rename the
+ * card authorizes. They are kept apart from `READ_ENDPOINTS` because that tuple is the
+ * frozen read-only contract; these two are the documented exception.
+ */
+export const IDENTITY_ENDPOINTS = {
+  identity: "/api/v1/dashboard/identity",
+  rename: "/api/v1/dashboard/identity/rename",
+} as const;
+
+/** The header `gateway/identity.py` requires the rename to echo the identity-GET token back in. */
+export const CSRF_HEADER = "X-Minekin-CSRF-Token";
 
 const KIN_STATES: readonly KinRuntimeState[] = ["idle", "running", "unresolved"];
 const LINK_STATES: readonly LinkState[] = ["connected", "connecting", "disconnected"];
@@ -517,6 +537,127 @@ export function decodeAlertsPayload(raw: unknown): AlertsDecode {
   return { ok: true, envelope: { status, reason, alerts } };
 }
 
+const RENAME_STATUSES: readonly RenameStatus[] = ["renamed", "unchanged"];
+
+export type IdentityDecode =
+  | { readonly ok: true; readonly identity: IdentityInfo; readonly csrfToken: string }
+  | { readonly ok: false; readonly issues: readonly string[] };
+
+/**
+ * The identity read `gateway/identity.py::identity_read` answers: a flat document, so any
+ * missing field or out-of-enum value is a whole-document mismatch rather than a partial
+ * fill. `csrfToken` is returned beside the model but deliberately left OUT of `IdentityInfo`
+ * — a panel must not be able to render the token, and the adapter keeps it for the rename.
+ */
+export function decodeIdentityPayload(raw: unknown): IdentityDecode {
+  const rec = asRecord(raw);
+  if (rec === null) return { ok: false, issues: ["$: 身份响应不是 object"] };
+  const issues: string[] = [];
+  if (asString(rec.schemaVersion) !== IDENTITY_SCHEMA_VERSION) {
+    issues.push(`$.schemaVersion: 期望 ${IDENTITY_SCHEMA_VERSION}`);
+  }
+  const kinId = asString(rec.kinId);
+  const username = asString(rec.username);
+  const uuidCanonical = asString(rec.uuidCanonical);
+  const identityRevision = asInteger(rec.identityRevision);
+  const state = oneOf(rec.state, KIN_STATES);
+  const renameAllowed = asBoolean(rec.renameAllowed);
+  const notice = asString(rec.notice);
+  const csrfToken = asString(rec.csrfToken);
+  const observedAt = asString(rec.observedAt);
+  const staleAfterMs = asNumber(rec.staleAfterMs);
+  if (kinId === null) issues.push("$.kinId: 缺失或非字符串");
+  if (username === null) issues.push("$.username: 缺失或非字符串");
+  if (uuidCanonical === null) issues.push("$.uuidCanonical: 缺失或非字符串");
+  if (identityRevision === null) issues.push("$.identityRevision: 缺失或非整数");
+  if (state === null) issues.push("$.state: 未知取值");
+  if (renameAllowed === null) issues.push("$.renameAllowed: 缺失或非布尔");
+  if (notice === null) issues.push("$.notice: 缺失或非字符串");
+  if (csrfToken === null) issues.push("$.csrfToken: 缺失（无法改名）");
+  if (observedAt === null) issues.push("$.observedAt: 缺失或非字符串");
+  if (staleAfterMs === null) issues.push("$.staleAfterMs: 缺失或非数值");
+  if (issues.length > 0) return { ok: false, issues };
+  return {
+    ok: true,
+    csrfToken: csrfToken as string,
+    identity: {
+      kinId: kinId as string,
+      username: username as string,
+      uuidCanonical: uuidCanonical as string,
+      identityRevision: identityRevision as number,
+      state: state as KinRuntimeState,
+      renameAllowed: renameAllowed as boolean,
+      notice: notice as string,
+      observedAt: observedAt as string,
+      staleAfterMs: staleAfterMs as number,
+    },
+  };
+}
+
+function parseIdentityView(raw: unknown, path: string, issues: string[]): IdentityViewSnapshot | null {
+  const rec = asRecord(raw);
+  if (rec === null) {
+    issues.push(`${path}: 期望 object`);
+    return null;
+  }
+  const username = asString(rec.username);
+  const uuidCanonical = asString(rec.uuidCanonical);
+  const identityRevision = asInteger(rec.identityRevision);
+  if (username === null || uuidCanonical === null || identityRevision === null) {
+    issues.push(`${path}: 字段缺失或类型不符`);
+    return null;
+  }
+  return { username, uuidCanonical, identityRevision };
+}
+
+export type RenameDecode =
+  | { readonly ok: true; readonly result: RenameResult }
+  | { readonly ok: false; readonly issues: readonly string[] };
+
+/**
+ * A rename that the server accepted (HTTP 2xx): the before/after views, whether the UUID
+ * moved, and Core's notice. A refusal never reaches this decoder — the transport routes a
+ * non-2xx answer through `decodeRefusalPayload` instead, so the named reason survives.
+ */
+export function decodeRenamePayload(raw: unknown): RenameDecode {
+  const rec = asRecord(raw);
+  if (rec === null) return { ok: false, issues: ["$: 改名响应不是 object"] };
+  const issues: string[] = [];
+  if (asString(rec.schemaVersion) !== IDENTITY_SCHEMA_VERSION) {
+    issues.push(`$.schemaVersion: 期望 ${IDENTITY_SCHEMA_VERSION}`);
+  }
+  const status = oneOf(rec.status, RENAME_STATUSES);
+  if (status === null) issues.push("$.status: 未知改名结果");
+  const kinId = asString(rec.kinId);
+  if (kinId === null) issues.push("$.kinId: 缺失或非字符串");
+  const uuidChanged = asBoolean(rec.uuidChanged);
+  if (uuidChanged === null) issues.push("$.uuidChanged: 缺失或非布尔");
+  const notice = asString(rec.notice);
+  if (notice === null) issues.push("$.notice: 缺失或非字符串");
+  const before = parseIdentityView(rec.before, "$.before", issues);
+  const after = parseIdentityView(rec.after, "$.after", issues);
+  if (status === null || kinId === null || uuidChanged === null || notice === null || before === null || after === null) {
+    return { ok: false, issues };
+  }
+  return { ok: true, result: { status, kinId, before, after, uuidChanged, notice } };
+}
+
+/**
+ * The body of a refused rename (`gateway/identity.py::refusal`): `{schemaVersion, error,
+ * message}`. `error` is the named reason — `session_not_stopped`, `stale_revision`,
+ * `invalid_request`, `missing_or_bad_csrf_token`, `cross_origin`, `forbidden_host`,
+ * `unsupported_media_type` — so the panel says which check tripped instead of folding every
+ * refusal into one generic failure.
+ */
+export function decodeRefusalPayload(raw: unknown): { readonly code: string; readonly message: string } | null {
+  const rec = asRecord(raw);
+  if (rec === null) return null;
+  const error = asString(rec.error);
+  const message = asString(rec.message);
+  if (error === null || message === null) return null;
+  return { code: error, message };
+}
+
 function classifyStatus(status: number, url: string): ReadFailure {
   if (status === 401 || status === 403) {
     return { kind: "permission_denied", message: `${url} → HTTP ${status}：需要 Gateway 管理员只读鉴权。` };
@@ -567,6 +708,77 @@ export interface GatewayAdapterOptions {
   readonly timeoutMs: number;
 }
 
+type PostResult =
+  | { readonly kind: "ok"; readonly data: unknown }
+  | { readonly kind: "refusal"; readonly code: string; readonly message: string }
+  | { readonly kind: "failure"; readonly failure: ReadFailure };
+
+function parseMaybeJson(text: string): unknown {
+  if (text === "") return null;
+  try {
+    return JSON.parse(text) as unknown;
+  } catch {
+    return undefined; // present but not JSON — distinct from `null` (an empty body)
+  }
+}
+
+/**
+ * The one POST the identity card authorizes. It carries the per-process CSRF token in
+ * `CSRF_HEADER` and `content-type: application/json` — the two headers that together make a
+ * cross-site request impossible to forge (a cross-site form cannot set either without a
+ * preflight, and this browser→same-origin call is not cross-site). A server refusal comes
+ * back as a `refusal` with its named reason; a transport break comes back as a `failure`.
+ */
+async function postRename(
+  baseUrl: string,
+  path: string,
+  timeoutMs: number,
+  body: RenameRequest,
+  csrfToken: string,
+  outerSignal?: AbortSignal,
+): Promise<PostResult> {
+  const url = `${baseUrl}${path}`;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort("timeout"), timeoutMs);
+  const onAbort = (): void => controller.abort("cancelled");
+  outerSignal?.addEventListener("abort", onAbort);
+  try {
+    const response = await fetch(url, {
+      method: "POST",
+      signal: controller.signal,
+      headers: { accept: "application/json", "content-type": "application/json", [CSRF_HEADER]: csrfToken },
+      body: JSON.stringify(body),
+    });
+    const parsed = parseMaybeJson(await response.text());
+    if (response.ok) {
+      if (parsed === undefined) {
+        return { kind: "failure", failure: { kind: "contract_mismatch", message: `${url} → 响应不是合法 JSON。` } };
+      }
+      return { kind: "ok", data: parsed };
+    }
+    if (typeof parsed === "object" && parsed !== null) {
+      const refusal = decodeRefusalPayload(parsed);
+      if (refusal !== null) return { kind: "refusal", code: refusal.code, message: refusal.message };
+    }
+    return { kind: "failure", failure: classifyStatus(response.status, url) };
+  } catch (error) {
+    const reason = controller.signal.reason;
+    if (reason === "cancelled" || outerSignal?.aborted === true) {
+      return { kind: "failure", failure: { kind: "cancelled", message: "改名请求已取消。" } };
+    }
+    if (reason === "timeout") {
+      return { kind: "failure", failure: { kind: "timeout", message: `${url} 在 ${timeoutMs}ms 内未响应。` } };
+    }
+    return {
+      kind: "failure",
+      failure: { kind: "disconnected", message: `${url} 不可达：${error instanceof Error ? error.message : String(error)}` },
+    };
+  } finally {
+    clearTimeout(timer);
+    outerSignal?.removeEventListener("abort", onAbort);
+  }
+}
+
 /**
  * Real-transport adapter for the frozen Gateway. With no base URL configured it
  * performs zero network calls and reports `not_configured`, which the UI shows
@@ -581,7 +793,7 @@ export function createGatewayAdapter(options: GatewayAdapterOptions | null): Kin
     note:
       options === null
         ? "未设置 VITE_GATEWAY_BASE_URL：契约已冻结，等待 Gateway 基址，期间零网络调用。"
-        : "按 docs/gateway-dashboard-readonly-contract-2026-09-28.md 冻结的三条只读 GET 读取，任何不匹配都会失败关闭而不是猜测。",
+        : "按 docs/gateway-dashboard-readonly-contract-2026-09-28.md 冻结的三条只读 GET 读取，任何不匹配都会失败关闭而不是猜测；身份页只做 docs/stable-player-name-2026-09-29.md 授权的一次改名写入。",
   });
 
   if (options === null) {
@@ -598,11 +810,21 @@ export function createGatewayAdapter(options: GatewayAdapterOptions | null): Kin
       async alerts(): Promise<ReadResult<AlertsEnvelope>> {
         return unconfigured();
       },
+      async identity(): Promise<ReadResult<IdentityInfo>> {
+        return unconfigured();
+      },
+      async renameIdentity(): Promise<ReadResult<RenameResult>> {
+        return unconfigured();
+      },
     };
   }
 
   const { baseUrl: rawBaseUrl, timeoutMs } = options;
   const baseUrl = rawBaseUrl.replace(/\/+$/, "");
+  // Captured from the identity GET and echoed on the rename POST. The token is per-process,
+  // so it is refreshed on every identity poll; a rename before the first successful read has
+  // nothing to echo and the server refuses it — which is the correct, honest outcome.
+  let csrfToken = "";
   return {
     describe,
     async snapshot(signal?: AbortSignal): Promise<ReadResult<KinSnapshot>> {
@@ -633,6 +855,28 @@ export function createGatewayAdapter(options: GatewayAdapterOptions | null): Kin
         return fail("contract_mismatch", `告警契约不匹配：${decoded.issues.slice(0, 6).join("；")}`);
       }
       return ok(decoded.envelope, "gateway", `gateway://${READ_ENDPOINTS.alerts}`);
+    },
+    async identity(signal?: AbortSignal): Promise<ReadResult<IdentityInfo>> {
+      const response = await fetchJson(baseUrl, IDENTITY_ENDPOINTS.identity, timeoutMs, signal);
+      if (!response.ok) return { ok: false, failure: response.failure };
+      const decoded = decodeIdentityPayload(response.data);
+      if (!decoded.ok) {
+        return fail("contract_mismatch", `身份契约不匹配：${decoded.issues.slice(0, 6).join("；")}`);
+      }
+      csrfToken = decoded.csrfToken;
+      return ok(decoded.identity, "gateway", `gateway://${IDENTITY_ENDPOINTS.identity}`);
+    },
+    async renameIdentity(request: RenameRequest, signal?: AbortSignal): Promise<ReadResult<RenameResult>> {
+      const result = await postRename(baseUrl, IDENTITY_ENDPOINTS.rename, timeoutMs, request, csrfToken, signal);
+      if (result.kind === "failure") return { ok: false, failure: result.failure };
+      if (result.kind === "refusal") {
+        return fail("write_refused", `${result.code}：${result.message}`);
+      }
+      const decoded = decodeRenamePayload(result.data);
+      if (!decoded.ok) {
+        return fail("contract_mismatch", `改名结果契约不匹配：${decoded.issues.slice(0, 6).join("；")}`);
+      }
+      return ok(decoded.result, "gateway", `gateway://${IDENTITY_ENDPOINTS.rename}`);
     },
   };
 }

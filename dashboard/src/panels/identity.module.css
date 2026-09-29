@@ -1,0 +1,147 @@
+.fields {
+  margin: 0 0 10px;
+  display: grid;
+  gap: 4px;
+}
+
+.field {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 10px;
+  align-items: baseline;
+}
+
+.label {
+  font-size: 12px;
+  color: var(--text-dim);
+  font-weight: 500;
+}
+
+.value {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text);
+}
+
+.mono {
+  margin: 0;
+  font-size: 12px;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  color: var(--text);
+  word-break: break-all;
+}
+
+.freshness {
+  margin: 0 0 8px;
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+.state,
+.readFailure {
+  margin: 0 0 8px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.readFailure {
+  color: var(--danger, #b3261e);
+}
+
+.notice {
+  margin: 8px 0;
+  padding: 10px 12px;
+  border: 1px solid var(--warn-line, #b8860b);
+  border-left-width: 4px;
+  border-radius: 6px;
+  background: var(--warn-surface, rgba(184, 134, 11, 0.08));
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text);
+}
+
+.stability {
+  margin: 0 0 12px;
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+.form {
+  display: grid;
+  gap: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+
+.inputLabel {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.input {
+  font: inherit;
+  font-size: 13px;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface-2);
+  color: var(--text);
+  max-width: 240px;
+}
+
+.input:disabled {
+  color: var(--text-faint);
+}
+
+.hint {
+  margin: 0;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.confirm {
+  display: flex;
+  gap: 6px;
+  align-items: flex-start;
+  font-size: 12px;
+  color: var(--text);
+}
+
+.confirm input {
+  margin-top: 2px;
+}
+
+.submit {
+  font: inherit;
+  font-size: 13px;
+  justify-self: start;
+  padding: 6px 16px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface-2);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.submit:disabled {
+  color: var(--text-faint);
+  cursor: not-allowed;
+}
+
+.caption {
+  margin: 0;
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+.result {
+  margin: 10px 0 0;
+  font-size: 12px;
+  color: var(--ok, #1b7f3a);
+}
+
+.refusal {
+  margin: 10px 0 0;
+  font-size: 12px;
+  color: var(--danger, #b3261e);
+}

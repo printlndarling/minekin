@@ -7,6 +7,7 @@ import { deriveSessionProgress } from "./domain/sessionProgress";
 import { useAlerts, useSnapshot, useTimeline } from "./hooks/useKinReads";
 import { useNow } from "./hooks/useNow";
 import { AlertsPanel } from "./panels/AlertsPanel";
+import { IdentityPanel } from "./panels/IdentityPanel";
 import { LiveViewPanel } from "./panels/LiveViewPanel";
 import { OverviewPanel } from "./panels/OverviewPanel";
 import { SessionProgressPanel } from "./panels/SessionProgressPanel";
@@ -18,13 +19,15 @@ const TABS = [
   { id: "overview", label: "总览" },
   { id: "timeline", label: "时间线" },
   { id: "alerts", label: "告警" },
+  { id: "identity", label: "身份 · 改名" },
   { id: "live", label: "Live View" },
   { id: "mind", label: "Mind / 成本" },
 ] as const;
 
 export type TabId = (typeof TABS)[number]["id"];
 
-export const READ_ONLY_STATEMENT = "只读面板：不启动、不暂停、不注入游戏输入，也不持有任何凭据。";
+export const READ_ONLY_STATEMENT =
+  "只读面板：不启动、不暂停、不注入游戏输入，也不持有任何凭据；唯一被授权的例外是身份页那次需显式确认、只在会话停止时生效的改名。";
 
 const MIND_SECTIONS: readonly { label: string; reason: string }[] = [
   { label: "Persona Manifest 与变化时间线", reason: "PlayerMind/Persona 属 P1，Core 尚无权威数据可读。" },
@@ -129,6 +132,7 @@ function Dashboard({
         {tab === "alerts" ? (
           <AlertsPanel envelope={alertsRead.envelope} isLoading={alertsRead.isLoading} failure={alertsRead.failure} />
         ) : null}
+        {tab === "identity" ? <IdentityPanel adapter={adapter} nowMs={nowMs} /> : null}
         {tab === "live" ? <LiveViewPanel signal={snapshotRead.snapshot.liveView} nowMs={nowMs} /> : null}
         {tab === "mind" ? (
           <UnavailablePanel

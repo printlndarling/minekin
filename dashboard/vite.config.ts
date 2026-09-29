@@ -14,10 +14,18 @@ const gatewayTarget = process.env.MINEKIN_GATEWAY_TARGET ?? "http://127.0.0.1:87
 
 // The same forward for `vite dev` and `vite preview`, so the built panel the demo
 // ships reads a live Gateway the same way the dev server does.
+//
+// `changeOrigin` stays false on purpose. The three frozen reads ignore the `Host` header,
+// but the one authorized identity write (`gateway.identity.authorize_write`) proves a
+// rename is same-origin by requiring its `Origin` to equal the `Host` it reached. Rewriting
+// `Host` to the target would make that check see `127.0.0.1:8787` against a browser
+// `Origin` of `127.0.0.1:5176` and refuse the sanctioned rename as `cross_origin`. Passing
+// the panel's own `Host` through is what lets the approved write clear the guard a
+// cross-site request could not.
 const gatewayProxy = {
   "/gateway": {
     target: gatewayTarget,
-    changeOrigin: true,
+    changeOrigin: false,
     rewrite: (path: string) => path.replace(/^\/gateway/, ""),
   },
 };

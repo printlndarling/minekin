@@ -178,3 +178,59 @@ export interface AlertsEnvelope {
   readonly reason: string;
   readonly alerts: readonly Alert[];
 }
+
+/**
+ * The identity read model of `docs/stable-player-name-2026-09-29.md`. Unlike the three
+ * frozen snapshot reads, this is a flat document — `gateway/identity.py` answers it whole
+ * for one stopped Kin, so there is no per-field Signal to degrade. A decode mismatch is a
+ * whole-read `contract_mismatch`, never a partial fill.
+ */
+export const IDENTITY_SCHEMA_VERSION = "kin-dashboard-identity/1.0.0";
+
+/**
+ * Who this Kin currently is, as Core's identity service stores it. `renameAllowed`
+ * mirrors the exact predicate the write enforces (a stopped session), so the panel
+ * disables the form for the same reason the server would refuse rather than guessing
+ * from a poll that raced a launch.
+ */
+export interface IdentityInfo {
+  readonly kinId: string;
+  readonly username: string;
+  readonly uuidCanonical: string;
+  readonly identityRevision: number;
+  readonly state: KinRuntimeState;
+  readonly renameAllowed: boolean;
+  readonly notice: string;
+  readonly observedAt: string;
+  readonly staleAfterMs: number;
+}
+
+/** One identity snapshot as a rename report carries it: the name and its derived UUID. */
+export interface IdentityViewSnapshot {
+  readonly username: string;
+  readonly uuidCanonical: string;
+  readonly identityRevision: number;
+}
+
+/**
+ * A confirmed rename submission. `confirm` is the literal `true` type so no call site can
+ * submit without having consciously set the confirmation flag, and `expectedRevision` is
+ * the revision the operator reviewed — the compare-and-swap that refuses a stale write.
+ */
+export interface RenameRequest {
+  readonly username: string;
+  readonly confirm: true;
+  readonly expectedRevision: number;
+}
+
+/** Core's two outcomes: it either moved to a new name or the name was already current. */
+export type RenameStatus = "renamed" | "unchanged";
+
+export interface RenameResult {
+  readonly status: RenameStatus;
+  readonly kinId: string;
+  readonly before: IdentityViewSnapshot;
+  readonly after: IdentityViewSnapshot;
+  readonly uuidChanged: boolean;
+  readonly notice: string;
+}

@@ -17,6 +17,7 @@ from typing import Any, cast
 
 import pytest
 
+from gateway.identity import IDENTITY_PATH, RENAME_PATH
 from gateway.readmodel import (
     ALERTS_PATH,
     MAX_TIMELINE_LIMIT,
@@ -25,7 +26,14 @@ from gateway.readmodel import (
     SNAPSHOT_PATH,
     TIMELINE_PATH,
 )
-from gateway.server import GatewayServer, ReadRequestHandler, ReadService, build_parser, main
+from gateway.server import (
+    ROUTE_TABLE,
+    GatewayServer,
+    ReadRequestHandler,
+    ReadService,
+    build_parser,
+    main,
+)
 from gateway_support import joined_run
 from minekin_core.application.ports.clock import FakeClock
 
@@ -179,15 +187,24 @@ def test_responses_are_json_with_a_declared_charset(base_url: str) -> None:
         assert int(response.headers["Content-Length"]) > 0
 
 
-def test_the_route_table_lists_three_paths_and_only_get(capsys: pytest.CaptureFixture[str]) -> None:
-    """The recalculation contract §5.2 asks for: the registered routes, each with its method."""
+def test_the_route_table_lists_the_reads_and_the_one_rename(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The recalculation contract §5.2 asks for, widened for the identity card's exception.
+
+    The three frozen reads stay GET-only; the table gains exactly one POST, and it is the
+    rename — no start/stop/move verb creeps in under the identity exception.
+    """
 
     assert main(["--routes"]) == 0
     lines = [line for line in capsys.readouterr().out.splitlines() if line.strip()]
 
-    assert lines == [f"GET {path}" for path in ROUTES]
-    assert len(lines) == 3
-    assert not [line for line in lines if re.search(r"\b(POST|PUT|PATCH|DELETE)\b", line)]
+    assert lines == [f"{method} {path}" for method, path in ROUTE_TABLE]
+    assert [f"GET {path}" for path in ROUTES] == lines[: len(ROUTES)]
+    posts = [line for line in lines if line.startswith("POST ")]
+    assert posts == [f"POST {RENAME_PATH}"]
+    assert f"GET {IDENTITY_PATH}" in lines
+    assert not [line for line in lines if re.search(r"\b(PUT|PATCH|DELETE)\b", line)]
 
 
 def test_the_default_bind_is_loopback(tmp_path: Path) -> None:

@@ -1,10 +1,12 @@
-"""Serving the three frozen reads over loopback HTTP, and nothing else.
+"""Serving the frozen reads over loopback HTTP, plus the one authorized identity write.
 
 `docs/adr/0001-p0-modular-monolith.md` keeps P0 Core free of a web layer, so this is a
 separate process that imports Core's reads rather than a module inside it. Being outside
 the product is the point: there is no path from a request handled here to a lease, an
 admission decision, or a client process, because nothing in this file is able to ask for
-one.
+one. `docs/stable-player-name-2026-09-29.md` opens exactly one narrow exception to the
+read-only Dashboard — the identity-settings rename in `gateway.identity` — and nothing
+else: no start, stop, or move control.
 
 The server owns no state and no cache. Every request re-derives its answer from the
 ledger and the overlays, which is what lets a panel's `observedAt` mean the reading
@@ -16,12 +18,24 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from collections.abc import Mapping
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Any, ClassVar
+from typing import Any, ClassVar, cast
 from urllib.parse import parse_qs, urlparse
 
+from gateway.identity import (
+    CSRF_HEADER,
+    IDENTITY_PATH,
+    MAX_RENAME_BODY_BYTES,
+    RENAME_PATH,
+    authorize_write,
+    identity_read,
+    new_csrf_token,
+    refusal,
+    rename_from_request,
+)
 from gateway.readmodel import (
     ALERTS_PATH,
     DEFAULT_TIMELINE_LIMIT,
@@ -43,14 +57,29 @@ DEFAULT_PORT = 8787
 #: sort the whole table for a panel that shows fifty rows.
 TIMELINE_PARAMETER = "limit"
 
+#: The whole authorized surface, methods and all: the three frozen reads, the identity
+#: read the rename form reviews, and the one rename write the identity card excepts.
+#: `--routes` prints this so the verb scan sees a POST only where one is sanctioned.
+ROUTE_TABLE: tuple[tuple[str, str], ...] = (
+    *(("GET", path) for path in ROUTES),
+    ("GET", IDENTITY_PATH),
+    ("POST", RENAME_PATH),
+)
+
 
 class ReadService:
-    """The three reads, as callables the handler can reach without knowing Core."""
+    """The Dashboard's reads, plus the one authorized identity write, as callables.
+
+    The CSRF token is generated once per process and handed out only by the identity
+    read; a rename must echo it back, so a page that could not read it (any origin but
+    this one) cannot write either.
+    """
 
     def __init__(self, *, root: Path, kin_selector: str | None, clock: Clock) -> None:
         self._root = root
         self._kin_selector = kin_selector
         self._clock = clock
+        self.csrf_token = new_csrf_token()
 
     def snapshot(self) -> dict[str, Any]:
         return build_snapshot(self._root, kin_selector=self._kin_selector, clock=self._clock)
@@ -63,13 +92,26 @@ class ReadService:
             str(select_kin(self._root, self._kin_selector)), self._clock.utc_now().isoformat()
         )
 
+    def identity(self) -> dict[str, Any]:
+        return identity_read(
+            self._root,
+            kin_selector=self._kin_selector,
+            clock=self._clock,
+            csrf_token=self.csrf_token,
+        )
+
+    def rename(self, body: Mapping[str, Any]) -> tuple[int, dict[str, Any]]:
+        return rename_from_request(self._root, kin_selector=self._kin_selector, body=body)
+
 
 class ReadRequestHandler(BaseHTTPRequestHandler):
-    """GET on one of three paths, or a refusal.
+    """GET on a read path, the one sanctioned rename POST, or a refusal.
 
     The refusal matters as much as the read: `404` is what makes the frontend's
     `contract_mismatch` branch ("Gateway 只读接口尚未实现") true rather than a guess, and
-    `405` is the answer to a verb this contract does not have.
+    `405` is the answer to a verb this surface does not have on a given path. A POST to
+    anywhere but the rename route still gets that `405`, so the identity write is the
+    only hole in an otherwise write-refusing surface.
     """
 
     protocol_version = "HTTP/1.1"
@@ -91,13 +133,61 @@ class ReadRequestHandler(BaseHTTPRequestHandler):
         if parsed.path == ALERTS_PATH:
             self._respond(HTTPStatus.OK, self.service.alerts())
             return
+        if parsed.path == IDENTITY_PATH:
+            self._respond(HTTPStatus.OK, self.service.identity())
+            return
         self._respond(HTTPStatus.NOT_FOUND, {"error": f"{parsed.path} is not a read model path"})
+
+    def do_POST(self) -> None:
+        parsed = urlparse(self.path)
+        if parsed.path != RENAME_PATH:
+            self._refuse()
+            return
+        self._handle_rename()
+
+    def _handle_rename(self) -> None:
+        # Read the body first, then authorize, then parse: a request whose source or token
+        # is wrong never has its JSON interpreted, and a keep-alive connection cannot be
+        # left with an unread body to mis-read as the next request.
+        raw, guard = self._read_body()
+        if guard is not None:
+            self._respond(*guard)
+            return
+        denial = authorize_write(
+            origin=self.headers.get("Origin"),
+            host=self.headers.get("Host"),
+            content_type=self.headers.get("Content-Type"),
+            supplied_token=self.headers.get(CSRF_HEADER),
+            csrf_token=self.service.csrf_token,
+        )
+        if denial is not None:
+            self._respond(*denial)
+            return
+        try:
+            document = json.loads(raw.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            self._respond(*refusal(400, "invalid_request", "the rename body is not valid JSON"))
+            return
+        if not isinstance(document, dict):
+            self._respond(*refusal(400, "invalid_request", "the rename body must be a JSON object"))
+            return
+        # A decoded JSON object always has string keys; the `dict` check above is the runtime proof.
+        self._respond(*self.service.rename(cast("dict[str, Any]", document)))
+
+    def _read_body(self) -> tuple[bytes, tuple[int, dict[str, Any]] | None]:
+        """The rename body, or the refusal that stopped before reading it."""
+
+        declared = self.headers.get("Content-Length")
+        if not declared or not declared.isdigit():
+            return b"", refusal(400, "invalid_request", "a rename must declare a Content-Length")
+        size = int(declared)
+        if size > MAX_RENAME_BODY_BYTES:
+            self.close_connection = True
+            return b"", refusal(413, "invalid_request", "the rename body is too large")
+        return self.rfile.read(size), None
 
     def _refuse(self) -> None:
         self._respond(HTTPStatus.METHOD_NOT_ALLOWED, {"error": "the read model serves GET only"})
-
-    def do_POST(self) -> None:
-        self._refuse()
 
     def do_PUT(self) -> None:
         self._refuse()
@@ -115,7 +205,7 @@ class ReadRequestHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", "0")
         self.end_headers()
 
-    def _respond(self, status: HTTPStatus, payload: Any) -> None:
+    def _respond(self, status: int, payload: Any) -> None:
         body = json.dumps(payload, ensure_ascii=False, sort_keys=False).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
@@ -154,7 +244,10 @@ class GatewayServer(ThreadingHTTPServer):
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="gateway.server",
-        description="Serve the read-only Dashboard API over loopback; it cannot change anything.",
+        description=(
+            "Serve the read-only Dashboard API over loopback, plus the one identity "
+            "rename the stable-player-name card authorizes; it cannot start, stop or move."
+        ),
     )
     parser.add_argument(
         "--data-root",
@@ -180,8 +273,8 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def print_routes() -> int:
-    for path in ROUTES:
-        print(f"GET {path}")
+    for method, path in ROUTE_TABLE:
+        print(f"{method} {path}")
     return 0
 
 
@@ -205,8 +298,8 @@ def main(argv: list[str] | None = None) -> int:
     print(
         f"gateway reading {args.data_root} on http://{args.host}:{server.server_port}", flush=True
     )
-    for path in ROUTES:
-        print(f"GET {path}", flush=True)
+    for method, path in ROUTE_TABLE:
+        print(f"{method} {path}", flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:

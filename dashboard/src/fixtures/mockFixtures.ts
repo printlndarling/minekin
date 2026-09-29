@@ -41,6 +41,14 @@ export interface MockWireBundle {
   readonly alerts: Record<string, unknown>;
 }
 
+/**
+ * The per-process CSRF token the mock hands out over its identity read and requires back on
+ * a rename. It is a fixed string because there is no server process here, but the panel and
+ * the mock adapter treat it exactly like the real token: captured from the read, echoed on
+ * the write, never rendered in the UI.
+ */
+export const MOCK_IDENTITY_CSRF = "mock-csrf-token";
+
 const MINUTE = 60_000;
 const SECOND = 1_000;
 
@@ -361,4 +369,66 @@ export function buildMockBundle(scenario: MockScenarioId, nowMs: number): MockWi
       };
     }
   }
+}
+
+/**
+ * A mock offline UUID: deterministic from the name (so the same name always resolves the
+ * same value, and a rename always changes it), UUID-shaped so the panel exercises the real
+ * display width. It is NOT `offline_player_uuid` — the mock never claims to run Core's MD5
+ * rule; the descriptor and every `sourceRef` mark these readings as mock.
+ */
+export function mockOfflineUuid(username: string): string {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < username.length; i += 1) {
+    h ^= username.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  const hex = (salt: number): string => {
+    let x = (h ^ salt) >>> 0;
+    let out = "";
+    for (let i = 0; i < 8; i += 1) {
+      out += ((x >>> (i * 3)) & 0xf).toString(16);
+    }
+    return out;
+  };
+  return `${hex(1)}-${hex(2).slice(0, 4)}-3${hex(3).slice(0, 3)}-a${hex(4).slice(0, 3)}-${hex(5)}${hex(6)}${hex(2)}`.slice(0, 36);
+}
+
+/** The session state the identity read reports for a scenario, mirroring its snapshot. */
+export function mockIdentityState(scenario: MockScenarioId): "idle" | "running" | "unresolved" {
+  switch (scenario) {
+    case "fields_unknown":
+      return "idle";
+    case "bridge_disconnected":
+      return "unresolved";
+    default:
+      return "running";
+  }
+}
+
+const MOCK_IDENTITY_NOTICE =
+  "离线玩家的 UUID 由名字本身推导而来。改名会解析出新的离线 UUID：已加入过的服务器会把它当作另一个玩家，" +
+  "背包、位置与进度都不迁移。请只在会话停止时改名。";
+
+/**
+ * The identity document `gateway/identity.py::identity_read` answers, in the exact wire
+ * shape the shared `decodeIdentityPayload` parses. A Kin defaults to `minekin` at revision 1
+ * and keeps its name; `renameAllowed` is true only for the stopped (`idle`) scenario, so the
+ * mock reproduces the same "rename only while stopped" fact the real write enforces.
+ */
+export function buildMockIdentity(scenario: MockScenarioId, nowMs: number, username = "minekin", identityRevision = 1): Record<string, unknown> {
+  const state = mockIdentityState(scenario);
+  return {
+    schemaVersion: "kin-dashboard-identity/1.0.0",
+    kinId: "kin_nova_01",
+    username,
+    uuidCanonical: mockOfflineUuid(username),
+    identityRevision,
+    state,
+    renameAllowed: state === "idle",
+    notice: MOCK_IDENTITY_NOTICE,
+    csrfToken: MOCK_IDENTITY_CSRF,
+    observedAt: iso(nowMs),
+    staleAfterMs: 8_000,
+  };
 }
