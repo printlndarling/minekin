@@ -28,7 +28,7 @@ from __future__ import annotations
 
 import asyncio
 import math
-from collections.abc import Callable, Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from typing import Final, Protocol
 
@@ -87,6 +87,18 @@ AIM_ARRIVAL_TOLERANCE_DEGREES: Final[float] = 2.0
 #: Bridge's build (10 tick), so a skill that never saw a newer reading inside
 #: its own window is reporting the channel's silence, not the world's.
 DEFAULT_STEP_TIMEOUT_NS: Final[int] = 5_000_000_000
+
+#: How often a step's wait asks the launcher's supervisor about the client process.
+#: The readings answer on the client's own cadence, so asking about the process far
+#: more often costs nothing and bounds how long a step can keep waiting for a
+#: verdict from a JVM that has already exited.
+CLIENT_EXIT_POLL_S: Final[float] = 0.25
+
+#: The reason a step carries when the thing that ended its wait was the client's own
+#: exit rather than a reading. Named apart from `NO_CONFIRMING_OBSERVATION` because
+#: the second is a channel that may still answer and the first is a process that
+#: never will, and a plan that cannot tell them the same is a plan that retries.
+CLIENT_EXITED: Final[str] = "CLIENT_EXITED"
 
 #: How long one *correction* step of a chase lasts, in seconds. The plan's own
 #: `walk_seconds` sizes the first approach to a drop; after that the Kin is
@@ -358,6 +370,26 @@ def _turn_reading(
     return predicate
 
 
+class ClientProcessExited(RuntimeError):
+    """The client this run started has exited, so no later reading can arrive.
+
+    A skill's verdict comes from a reading the client makes after the command, and a
+    gone client will never make one. Waiting out the step would spend the whole
+    timeout to conclude `UNKNOWN` about a fact Core can already prove from its own
+    child process, so the wait gives up and names this instead. It derives from
+    `RuntimeError` because a wait that reaches a caller which does not ask after the
+    client must still end the run rather than hang.
+    """
+
+    def __init__(self, exit_code: int) -> None:
+        super().__init__(f"the client process exited with code {exit_code}")
+        self.exit_code = exit_code
+
+
+def _client_still_running() -> int | None:
+    return None
+
+
 class WorldSkills:
     """The four S2 skills over one sender, one lease-holder and one store."""
 
@@ -368,11 +400,22 @@ class WorldSkills:
         observations: WorldObservationStore,
         capabilities: frozenset[str],
         action_id: Callable[[], str] = lambda: OpaqueId.new().value,
+        client_exit: Callable[[], int | None] = _client_still_running,
     ) -> None:
         self._sender = sender
         self._observations = observations
         self._capabilities = capabilities
         self._action_id = action_id
+        self._client_exit = client_exit
+
+    def client_exit_code(self) -> int | None:
+        """What the launcher's supervisor says about the client process, right now.
+
+        `None` while it runs. The plan executor asks before a command goes out, so a
+        Kin whose client is already gone is refused by name instead of timing out.
+        """
+
+        return self._client_exit()
 
     async def turn_to(
         self,
@@ -1153,14 +1196,46 @@ class WorldSkills:
         current one) satisfies the predicate, and `None` only when the deadline
         runs out first. That is the whole of the observation-reading protocol:
         act, then let the next admitted words of the client decide.
+
+        The one thing that can end the wait besides those two is the client process
+        itself going away, which is asked of the supervisor in `client_exit`: no
+        reading will ever arrive afterwards, so a step that kept waiting would be
+        spending its window to conclude about a JVM that is gone.
         """
 
         remaining_ns = deadline - monotonic_ns()
         if remaining_ns <= 0:
             return None
-        return await self._observations.wait_until(
-            predicate, timeout_s=remaining_ns / 1_000_000_000
+        gone = self._client_exit()
+        if gone is not None:
+            raise ClientProcessExited(gone)
+        return await self._outlive_client(
+            self._observations.wait_until(predicate, timeout_s=remaining_ns / 1_000_000_000)
         )
+
+    async def _outlive_client(
+        self, wait: Awaitable[WorldObservationValue | None]
+    ) -> WorldObservationValue | None:
+        """Let the client's own exit interrupt a wait, and cancel the wait for it.
+
+        The store is the only thing that can answer a skill, so the wait is not
+        replaced — it is raced. Whichever ends first decides, and a client that is
+        still running changes nothing about how long the wait may take.
+        """
+
+        pending = asyncio.ensure_future(wait)
+        try:
+            while True:
+                finished, _ = await asyncio.wait({pending}, timeout=CLIENT_EXIT_POLL_S)
+                if finished:
+                    return pending.result()
+                gone = self._client_exit()
+                if gone is not None:
+                    raise ClientProcessExited(gone)
+        finally:
+            if not pending.done():
+                pending.cancel()
+                await asyncio.gather(pending, return_exceptions=True)
 
     async def _sleep(self, seconds: float) -> None:
         if seconds <= 0:

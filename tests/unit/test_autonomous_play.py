@@ -38,6 +38,7 @@ from minekin_core.application.player_mind import (
 )
 from minekin_core.application.world_observation import WorldObservationStore
 from minekin_core.application.world_skills import (
+    CLIENT_EXITED,
     DEFAULT_STEP_TIMEOUT_NS,
     ActionAuthority,
     WorldSkills,
@@ -554,3 +555,32 @@ def test_an_ask_over_an_unknown_name_authorises_no_invented_capability() -> None
     assert AutonomousAsk(skills=("fly",), step_budget=1, step_seconds=1.0).capabilities == (
         frozenset()
     )
+
+
+def test_a_step_that_lost_its_client_ends_the_run_by_name() -> None:
+    """A dead JVM is not a stalled world.
+
+    The loop would otherwise keep the mind asking a client that can no longer answer,
+    and the document would read as a mind that tried everything rather than a run whose
+    process exited. The step is still recorded, with the exit code the supervisor gave.
+    """
+
+    stage = Stage(reading(items=((0, LOG, 3),)))
+    skills = TapeSkills(
+        stage,
+        {
+            "craft_take_result": SkillOutcome(
+                result=ActionResultClass.UNKNOWN,
+                reason=CLIENT_EXITED,
+                action_id="",
+                details={"exit_code": "143"},
+            )
+        },
+    )
+
+    result = run(stage, skills, off_mind())
+
+    assert result.stop_reason == CLIENT_EXITED
+    assert result.stop_detail == "143"
+    assert len(result.steps) == 1
+    assert result.steps[0].outcome.reason == CLIENT_EXITED

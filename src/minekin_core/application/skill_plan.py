@@ -30,7 +30,13 @@ from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Final, cast
 
-from minekin_core.application.world_skills import ActionAuthority, SkillCall, WorldSkills
+from minekin_core.application.world_skills import (
+    CLIENT_EXITED,
+    ActionAuthority,
+    ClientProcessExited,
+    SkillCall,
+    WorldSkills,
+)
 from minekin_core.domain.recipe_catalog import PLAYER_GRID_SIDE, Recipe, resolve_craft
 from minekin_core.domain.world_actions import (
     ActionResultClass,
@@ -405,8 +411,10 @@ async def perform_skill(
 ) -> SkillOutcome:
     """Ask one skill for one thing, refusing a call this build cannot express.
 
-    Both refusals below happen before a command is built, so the reason a Kin did
-    not act is never left to be inferred from a timeout it did not cause.
+    Every refusal below happens before a command is built, so the reason a Kin did
+    not act is never left to be inferred from a timeout it did not cause — which is
+    also what makes a client that is already gone a named precondition rather than a
+    step that timed out waiting for a JVM that will never read it.
     """
 
     if skill_capabilities(call.name) is None:
@@ -424,6 +432,31 @@ async def perform_skill(
             action_id="",
             details={"skill": call.name, "missing": ",".join(missing)},
         )
+    gone = skills.client_exit_code()
+    if gone is not None:
+        return _client_exited_outcome(gone)
+    try:
+        return await _dispatch(skills, call, authority=authority, timeout_ns=timeout_ns)
+    except ClientProcessExited as exit_error:
+        # The wait gave up because the process that would have answered it is gone.
+        # `UNKNOWN` rather than `FAILED`: the command went out and the world may have
+        # changed by the time the JVM died, which is a fact this run cannot read.
+        return _client_exited_outcome(exit_error.exit_code)
+
+
+async def _dispatch(
+    skills: WorldSkills,
+    call: SkillCall,
+    *,
+    authority: ActionAuthority,
+    timeout_ns: int,
+) -> SkillOutcome:
+    """Ask the one skill the call names, under the plan's lease.
+
+    Nothing here decides a verdict: each skill concludes from its own readings, and
+    this function only maps a call's name onto the method that carries it.
+    """
+
     if call.name == "turn_to":
         return await skills.turn_to(
             yaw_degrees=call.yaw_degrees,
@@ -468,6 +501,17 @@ async def perform_skill(
         authority=authority,
         expected_item_id=call.expected_item_id or None,
         timeout_ns=timeout_ns,
+    )
+
+
+def _client_exited_outcome(exit_code: int) -> SkillOutcome:
+    """The one shape a step takes when its client is the reason it cannot be settled."""
+
+    return SkillOutcome(
+        result=ActionResultClass.UNKNOWN,
+        reason=CLIENT_EXITED,
+        action_id="",
+        details={"exit_code": str(exit_code)},
     )
 
 

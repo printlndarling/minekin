@@ -1651,6 +1651,10 @@ async def start_and_supervise(
             sender=host,
             observations=observations,
             capabilities=bridge_session.capabilities,
+            # The supervisor owns the child process, so it is the only thing that can
+            # say whether the client a step is waiting for still exists. A step whose
+            # client has exited ends on that fact rather than on its timeout.
+            client_exit=prepared.supervisor.poll,
         )
         authority = ActionAuthority(
             lease_id=lease.lease_id,

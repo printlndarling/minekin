@@ -34,6 +34,7 @@ from minekin_core.adapters.bridge.ipc import (
 from minekin_core.application.world_observation import WorldObservationStore
 from minekin_core.application.world_skills import (
     ActionAuthority,
+    ClientProcessExited,
     WorldSkills,
 )
 from minekin_core.domain.perception import (
@@ -1193,5 +1194,158 @@ def test_an_unnamed_window_is_still_a_window_the_close_has_to_answer_for() -> No
         assert outcome.details["newest_screen_id"] == ""
         assert outcome.details["newest_sync_id"] == "7"
         assert sender.types() == [SCREEN_INPUT_TYPE]
+
+    asyncio.run(scenario())
+
+
+# ---------------------------------------------------------------------------
+# The client's own exit, asked beside the readings
+# ---------------------------------------------------------------------------
+
+
+class ClientAnswer:
+    """The supervisor's answer about the child process, changed by hand.
+
+    `None` is a client that runs; a number is one the operating system has already
+    finished. This is not the world's word — the readings still decide every verdict,
+    and it only says whether a reading can still arrive at all.
+    """
+
+    def __init__(self, code: int | None = None) -> None:
+        self.code = code
+
+    def __call__(self) -> int | None:
+        return self.code
+
+    def go_after(self, delay: float, code: int) -> None:
+        asyncio.get_running_loop().call_later(delay, self._set, code)
+
+    def _set(self, code: int) -> None:
+        self.code = code
+
+
+def skills_with_client(store: WorldObservationStore, client: ClientAnswer) -> WorldSkills:
+    return WorldSkills(
+        sender=RecordingSender(),
+        observations=store,
+        capabilities=ALL_CAPABILITIES,
+        client_exit=client,
+    )
+
+
+def test_the_skills_answer_what_the_supervisor_said_about_the_client() -> None:
+    assert skills_with_client(store_with(reading()), ClientAnswer(143)).client_exit_code() == 143
+    assert skills_with_client(store_with(reading()), ClientAnswer()).client_exit_code() is None
+
+
+def test_a_step_that_loses_its_client_while_waiting_names_the_exit() -> None:
+    """The wait is raced, not replaced: a client that exits ends it by name.
+
+    The step timeout here is a minute and no reading ever comes, because the process
+    that would have made it is gone. A skill that could not see that would spend the
+    whole window concluding about a silence it had a named reason for.
+    """
+
+    async def scenario() -> None:
+        store = _open_screen_store((0, LOG, 1))
+        client = ClientAnswer()
+        skills = skills_with_client(store, client)
+        client.go_after(0.02, 137)
+        started = monotonic_ns()
+
+        raised: ClientProcessExited | None = None
+        try:
+            await skills.close_screen(authority=authority(), timeout_ns=60_000_000_000)
+        except ClientProcessExited as exit_error:
+            raised = exit_error
+
+        assert raised is not None
+        assert raised.exit_code == 137
+        assert monotonic_ns() - started < 10_000_000_000
+
+    asyncio.run(scenario())
+
+
+def test_a_step_refuses_to_wait_at_all_when_the_client_is_already_gone() -> None:
+    async def scenario() -> None:
+        store = _open_screen_store((0, LOG, 1))
+        sender = RecordingSender()
+        skills = WorldSkills(
+            sender=sender,
+            observations=store,
+            capabilities=ALL_CAPABILITIES,
+            client_exit=ClientAnswer(1),
+        )
+
+        raised: ClientProcessExited | None = None
+        try:
+            await skills.close_screen(authority=authority(), timeout_ns=60_000_000_000)
+        except ClientProcessExited as exit_error:
+            raised = exit_error
+
+        assert raised is not None
+        assert raised.exit_code == 1
+        # The ask still went out: this is the wait giving up, not a refusal to act.
+        assert sender.types() == [SCREEN_INPUT_TYPE]
+
+    asyncio.run(scenario())
+
+
+def test_a_live_client_leaves_a_silent_step_to_its_own_deadline() -> None:
+    """The watch is inert while the process runs, so the readings still decide."""
+
+    async def scenario() -> None:
+        store = _open_screen_store((0, LOG, 1))
+        skills = skills_with_client(store, ClientAnswer())
+
+        outcome = await skills.close_screen(authority=authority(), timeout_ns=50_000_000)
+
+        assert outcome.result is ActionResultClass.UNKNOWN
+        assert outcome.reason == "NO_CONFIRMING_OBSERVATION"
+
+    asyncio.run(scenario())
+
+
+def test_a_client_that_exits_ends_a_chase_that_keeps_getting_readings() -> None:
+    """Not only a silent channel: a step whose world is moving stops on its client.
+
+    `collect_dropped` re-steps toward a drop it can still see, so its wait is answered
+    by reading after reading. The exit has to interrupt that too, or a Kin would walk
+    after a log for the length of the window with nobody driving the client.
+    """
+
+    async def scenario() -> None:
+        store = store_with(
+            reading(tick=100, inventory_value=inventory(100), entities=(oak_log_drop(tick=100),))
+        )
+        client = ClientAnswer()
+        skills = skills_with_client(store, client)
+        client.go_after(0.06, 143)
+
+        async def feed() -> None:
+            for tick in range(101, 140):
+                await asyncio.sleep(0.01)
+                store.admit(
+                    reading(
+                        tick=tick,
+                        inventory_value=inventory(tick),
+                        entities=(oak_log_drop(tick=tick),),
+                    ),
+                    (),
+                )
+
+        feeding = asyncio.create_task(feed())
+
+        raised: ClientProcessExited | None = None
+        try:
+            await skills.collect_dropped(
+                item_id=LOG, authority=authority(), walk_seconds=0.01, timeout_ns=60_000_000_000
+            )
+        except ClientProcessExited as exit_error:
+            raised = exit_error
+        await feeding
+
+        assert raised is not None
+        assert raised.exit_code == 143
 
     asyncio.run(scenario())

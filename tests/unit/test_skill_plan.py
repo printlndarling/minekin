@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Final, cast
 
@@ -21,12 +21,14 @@ import pytest
 from google.protobuf.message import Message
 
 from minekin_core.application.skill_plan import (
+    CLIENT_EXITED,
     SKILL_ARGUMENT_MISSING,
     SKILL_UNKNOWN,
     STEP_LEASE_HEADROOM_S,
     SkillCall,
     SkillPlan,
     SkillPlanError,
+    SkillStep,
     parse_skill_plan,
     perform_skill,
     run_skill_plan,
@@ -36,6 +38,7 @@ from minekin_core.application.world_observation import WorldObservationStore
 from minekin_core.application.world_skills import (
     DEFAULT_STEP_TIMEOUT_NS,
     ActionAuthority,
+    ClientProcessExited,
     WorldSkills,
 )
 from minekin_core.domain.control_vocabulary import (
@@ -87,7 +90,12 @@ class _TapeSkills(WorldSkills):
     a test's own mistake look like the behaviour it is checking for.
     """
 
-    def __init__(self, outcomes: Mapping[str, SkillOutcome], sender: _RecordingSender) -> None:
+    def __init__(
+        self,
+        outcomes: Mapping[str, SkillOutcome],
+        sender: _RecordingSender,
+        client_exit: Callable[[], int | None] = lambda: None,
+    ) -> None:
         super().__init__(
             sender=sender,
             observations=WorldObservationStore(),
@@ -101,6 +109,7 @@ class _TapeSkills(WorldSkills):
                     HOTBAR_CAPABILITY,
                 }
             ),
+            client_exit=client_exit,
         )
         self._outcomes = outcomes
         self.ran: list[str] = []
@@ -592,3 +601,87 @@ def test_the_committed_example_plans_all_parse_and_ask_for_no_more_than_they_nam
                 HOTBAR_CAPABILITY,
             }
         )
+
+
+# ----------------------------------------------------------------------- the client's own exit
+
+
+class _ClientGoneTape(_TapeSkills):
+    """A tape whose client dies while a step is waiting, as the wait reports it."""
+
+    async def close_screen(
+        self, *, authority: ActionAuthority, timeout_ns: int = DEFAULT_STEP_TIMEOUT_NS
+    ) -> SkillOutcome:
+        del authority, timeout_ns
+        self.ran.append("close_screen")
+        raise ClientProcessExited(143)
+
+
+def test_a_step_is_refused_by_name_when_the_client_is_already_gone() -> None:
+    """A dead client is a precondition, not a timeout.
+
+    The plan's own argument refusals come first, because those are mistakes in the
+    document; once the call is expressible, the one thing that can settle it is a
+    reading, and a JVM the operating system has already finished makes none.
+    """
+
+    async def scenario() -> None:
+        sender = _RecordingSender()
+        skills = _TapeSkills({}, sender, client_exit=lambda: 1)
+
+        outcome = await perform_skill(
+            skills, _plan("close_screen").calls[0], authority=AUTHORITY, timeout_ns=1
+        )
+
+        assert outcome.result is ActionResultClass.UNKNOWN
+        assert outcome.reason == CLIENT_EXITED
+        assert outcome.details["exit_code"] == "1"
+        assert skills.ran == []
+        assert sender.sent == []
+
+    asyncio.run(scenario())
+
+
+def test_a_step_names_the_client_that_went_while_it_was_waiting() -> None:
+    async def scenario() -> None:
+        skills = _ClientGoneTape(
+            {"close_screen": _outcome(ActionResultClass.CONFIRMED)}, _RecordingSender()
+        )
+
+        outcome = await perform_skill(
+            skills, _plan("close_screen").calls[0], authority=AUTHORITY, timeout_ns=1
+        )
+
+        assert outcome.result is ActionResultClass.UNKNOWN
+        assert outcome.reason == CLIENT_EXITED
+        assert outcome.details["exit_code"] == "143"
+        assert skills.ran == ["close_screen"]
+
+    asyncio.run(scenario())
+
+
+def test_a_plan_stops_at_the_step_that_lost_its_client() -> None:
+    """No later step can be settled either, so the sequence ends where the process did."""
+
+    async def scenario() -> None:
+        skills = _ClientGoneTape(
+            {"craft": _outcome(ActionResultClass.CONFIRMED)}, _RecordingSender()
+        )
+        steps: list[SkillStep] = []
+
+        async def record(step: SkillStep) -> None:
+            steps.append(step)
+
+        sequence = await run_skill_plan(
+            skills,
+            _plan("craft", "close_screen", "craft"),
+            authority=AUTHORITY,
+            timeout_ns=1,
+            on_step=record,
+        )
+
+        assert [step.name for step in steps] == ["craft", "close_screen"]
+        assert sequence.stopped_at == "close_screen"
+        assert steps[1].outcome.reason == CLIENT_EXITED
+
+    asyncio.run(scenario())

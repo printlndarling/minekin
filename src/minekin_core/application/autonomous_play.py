@@ -42,6 +42,7 @@ from minekin_core.application.player_mind import (
 )
 from minekin_core.application.skill_plan import perform_skill
 from minekin_core.application.world_skills import (
+    CLIENT_EXITED,
     DEFAULT_STEP_TIMEOUT_NS,
     ActionAuthority,
     WorldSkills,
@@ -210,6 +211,14 @@ async def run_autonomous_loop(
             # watching a long run asks is what the Kin is doing *now*, and the answer has
             # to be on the ledger before the next step's reading replaces it.
             await on_step(steps[-1])
+        if outcome.reason == CLIENT_EXITED:
+            # The step is on the ledger with the exit code, and no step after it can be
+            # concluded either: the client that would have answered it is the process
+            # that just went. Spending the mind's budget asking a dead JVM for readings
+            # would look, on the document, like a mind that kept trying.
+            stop_reason = CLIENT_EXITED
+            stop_detail = outcome.details.get("exit_code", "")
+            break
         held = after if after is not None else reading
         if held is not None and goal_in_hand(held):
             stop_reason = GOAL_HELD_IN_HAND
