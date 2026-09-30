@@ -39,6 +39,13 @@ from minekin_core.domain.model_access import (
     UnavailableReason,
 )
 from minekin_core.domain.perception import WorldObservationValue
+from minekin_core.domain.recipe_catalog import (
+    CRAFT_GRID_TOO_SMALL,
+    CRAFT_MATERIALS_MISSING,
+    PLAYER_GRID_SIDE,
+    RECIPES,
+    Recipe,
+)
 from minekin_core.domain.world_actions import (
     ActionResultClass,
     SkillOutcome,
@@ -68,7 +75,8 @@ SCAN_PITCH_DEGREES: Final = -18.0
 #: same on both sides of this module, as it already is on both sides of the IPC channel.
 NO_LATEST_OBSERVATION: Final = "NO_LATEST_OBSERVATION"
 NO_CONFIRMING_OBSERVATION: Final = "NO_CONFIRMING_OBSERVATION"
-CRAFT_MATERIALS_MISSING: Final = "CRAFT_MATERIALS_MISSING"
+# `CRAFT_MATERIALS_MISSING` and `CRAFT_GRID_TOO_SMALL` are imported from the recipe catalog
+# rather than restated here: one word per precondition, defined once, whoever asks.
 #: The mind's own two holds. Both say "do nothing"; only one of them says the run should
 #: go on waiting, and the projection shows which.
 GOAL_ACHIEVED: Final = "GOAL_ACHIEVED"
@@ -80,7 +88,12 @@ DECISION_FROM_LOCAL: Final = "local_reflection"
 #: Which refusal words mean which of §3's four attributions. Anything unlisted lands in
 #: `ACTION_NOT_EFFECTIVE`: the four codes are deliberately coarse, and the skill's own
 #: `reason` is kept beside the code so the distinction a fix needs is never lost.
-_NOT_IMPLEMENTED_REASONS: Final = frozenset({SKILL_UNKNOWN, SKILL_ARGUMENT_MISSING})
+#: A grid that cannot hold the shape is `SKILL_NOT_IMPLEMENTED` rather than a missing
+#: resource: more wood would not move it, and the thing that is absent is a skill for the
+#: screen the recipe needs.
+_NOT_IMPLEMENTED_REASONS: Final = frozenset(
+    {SKILL_UNKNOWN, SKILL_ARGUMENT_MISSING, CRAFT_GRID_TOO_SMALL}
+)
 _UNREADABLE_REASONS: Final = frozenset({NO_LATEST_OBSERVATION, NO_CONFIRMING_OBSERVATION})
 _ABSENT_REASONS: Final = frozenset(
     {"NO_SEEN_DROP", CRAFT_MATERIALS_MISSING, "MINE_TARGET_NOT_AIMED"}
@@ -104,16 +117,31 @@ class CraftStage:
 
     product_id: str
     required_total: int
-    materials: tuple[tuple[str, int], ...]
+    #: The game's own recipe, read out of the catalog by product id. The stage does not carry
+    #: an ingredient list of its own so there is exactly one place a recipe can be wrong.
+    recipe: Recipe
+
+    @property
+    def materials(self) -> tuple[tuple[str, int], ...]:
+        return self.recipe.ingredients
 
 
-#: The mind's whole recipe knowledge. A tuple in build order rather than a lookup table
-#: because "which craft is next" is answered by position: a mind that could reach for any
-#: recipe could also invent one, and §2 says it may not.
+def _fixture_stage(product_id: str, required_total: int) -> CraftStage:
+    return CraftStage(
+        product_id=product_id, required_total=required_total, recipe=RECIPES[product_id]
+    )
+
+
+#: A DEMO FIXTURE, not the product's recipe knowledge: the game facts live in
+#: `domain.recipe_catalog`, and what is declared here is only the demo's own milestone — how
+#: many of each thing the scripted 1.20.1 trunk run is meant to be holding. It is a tuple in
+#: build order rather than a lookup because "which craft is next" is answered by position: a
+#: mind that could reach for any recipe could also invent one, and §2 says it may not. A real
+#: goal selection replaces this table; it does not need new recipe code.
 CRAFT_CHAIN: Final[tuple[CraftStage, ...]] = (
-    CraftStage("minecraft:oak_planks", 3, (("minecraft:oak_log", 1),)),
-    CraftStage("minecraft:stick", 2, (("minecraft:oak_planks", 2),)),
-    CraftStage(GOAL_PRODUCT_ID, 1, (("minecraft:oak_planks", 3), ("minecraft:stick", 2))),
+    _fixture_stage("minecraft:oak_planks", 3),
+    _fixture_stage("minecraft:stick", 2),
+    _fixture_stage(GOAL_PRODUCT_ID, 1),
 )
 
 
@@ -196,21 +224,48 @@ def shortfalls(reading: WorldObservationValue) -> tuple[CraftStage, ...]:
     )
 
 
-def next_craft(reading: WorldObservationValue) -> CraftStage | None:
-    """The first stage still needed whose materials this inventory can pay for.
+def next_craft(
+    reading: WorldObservationValue, *, grid_side: int = PLAYER_GRID_SIDE
+) -> CraftStage | None:
+    """The first stage still needed whose materials this inventory can pay for and whose shape
+    the grid being opened can hold.
 
     Strictly in chain order, and a stage is only offered when its materials are already in
     the bag: the precondition check the contract asks for happens here, before a command is
-    built, so a craft that cannot be honoured is never sent.
+    built, so a craft that cannot be honoured is never sent. The grid is checked in the same
+    place for the same reason — a three-by-three shape clicked into the inventory's
+    two-by-two is a command the world can only shrug at, and a `CONFIRMED` verdict belongs to
+    crafts that could have happened.
     """
 
     for stage in shortfalls(reading):
+        if not stage.recipe.fits(grid_side):
+            continue
         affordable = all(
             item_total(reading.inventory, item_id) >= count for item_id, count in stage.materials
         )
         if affordable:
             return stage
     return None
+
+
+def craft_blocker(reading: WorldObservationValue, *, grid_side: int = PLAYER_GRID_SIDE) -> str:
+    """Why no craft can run on this reading, in the name of the precondition, or empty.
+
+    The distinction is not decoration: `CRAFT_MATERIALS_MISSING` sends the Kin back to the
+    trunk, and `CRAFT_GRID_TOO_SMALL` says the milestone needs a screen this build has no
+    skill for. A mind that got the first word for the second fact would gather wood it already
+    has enough of until the harness stopped it.
+    """
+
+    if next_craft(reading, grid_side=grid_side) is not None:
+        return ""
+    needed = shortfalls(reading)
+    if not needed:
+        return ""
+    if any(stage.recipe.fits(grid_side) for stage in needed):
+        return CRAFT_MATERIALS_MISSING
+    return CRAFT_GRID_TOO_SMALL
 
 
 def feasible_skill_ids(reading: WorldObservationValue) -> tuple[str, ...]:
@@ -486,13 +541,13 @@ class PlayerMind:
         if skill == "craft_take_result":
             stage = next_craft(reading)
             if stage is None:
-                return None, CRAFT_MATERIALS_MISSING
+                return None, craft_blocker(reading) or CRAFT_MATERIALS_MISSING
             return (
                 SkillPlan(
                     (
                         SkillCall(
                             name="craft_take_result",
-                            recipe_id=stage.product_id,
+                            recipe_id=stage.recipe.recipe_id,
                             product_id=stage.product_id,
                             materials=stage.materials,
                         ),

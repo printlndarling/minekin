@@ -32,6 +32,7 @@ from minekin_core.application.player_mind import (
     MindDecisionKind,
     PlayerMind,
     attribute_failure,
+    craft_blocker,
     feasible_skill_ids,
     mind_for,
     needs_from,
@@ -56,6 +57,7 @@ from minekin_core.domain.perception import (
     SelfStateValue,
     WorldObservationValue,
 )
+from minekin_core.domain.recipe_catalog import CRAFT_GRID_TOO_SMALL, PLAYER_GRID_SIDE
 from minekin_core.domain.world_actions import ActionResultClass, SkillOutcome, skill_capabilities
 
 LOG = "minecraft:oak_log"
@@ -196,9 +198,56 @@ def test_no_craft_is_offered_when_every_stage_is_short_of_materials() -> None:
 def test_the_chain_is_walked_in_build_order() -> None:
     # Three planks pay for the sticks the pickaxe needs, so the next stage is the sticks.
     assert next_craft(reading(items=((0, PLANKS, 3),))) == CRAFT_CHAIN[1]
-    paid = reading(items=((0, PLANKS, 3), (1, STICK, 2)))
-    assert next_craft(paid) == CRAFT_CHAIN[2]
     assert next_craft(reading(items=((0, PICKAXE, 1),))) is None
+
+
+def test_a_stage_the_open_grid_cannot_hold_is_never_offered_as_a_craft() -> None:
+    """The pickaxe is a three-by-three shape and the only screen the craft skill opens is the
+    inventory's two-by-two. Offering it anyway was a command the world could only shrug at;
+    the reading that pays for it is now the reading that says it cannot run."""
+
+    paid = reading(items=((0, PLANKS, 3), (1, STICK, 2)))
+
+    assert next_craft(paid) is None
+    assert next_craft(paid, grid_side=3) == CRAFT_CHAIN[2]
+    assert "craft_take_result" not in feasible_skill_ids(paid)
+
+
+def test_the_blocked_craft_names_the_precondition_that_is_true_of_the_reading() -> None:
+    assert craft_blocker(reading(items=((0, LOG, 1),))) == ""
+    assert craft_blocker(reading()) == CRAFT_MATERIALS_MISSING
+    assert craft_blocker(reading(items=((0, PLANKS, 3), (1, STICK, 2)))) == CRAFT_GRID_TOO_SMALL
+    # Every stage's total already in the bag: nothing is short, so no precondition is being
+    # asked about. A pickaxe alone does not satisfy this one — the chain is short of the
+    # planks and sticks its fixture says the run should also be holding.
+    assert craft_blocker(reading(items=((0, PLANKS, 3), (1, STICK, 2), (2, PICKAXE, 1)))) == ""
+    assert craft_blocker(reading(items=((0, PICKAXE, 1),))) == CRAFT_MATERIALS_MISSING
+
+
+def test_a_model_asking_for_a_craft_the_grid_cannot_hold_produces_no_craft_command() -> None:
+    """The offer is built from the same resolution as the command, so an endpoint that asks
+    for `craft_take_result` on a reading whose only shortfall needs three by three gets the
+    out-of-bounds refusal and the conservative look — never a click into a grid that cannot
+    hold the shape."""
+
+    paid = reading(items=((0, PLANKS, 3), (1, STICK, 2)))
+    mind, _ = mind_with(
+        Decision(skill_id="craft_take_result", reason="make the pickaxe", intent_generation=1)
+    )
+
+    intent = mind.next_intent(paid)
+
+    assert [call.name for call in intent.plan.calls] == ["turn_to"]
+    assert intent.model_refusal == "DECISION_OUT_OF_BOUNDS"
+
+
+def test_a_fixture_stage_carries_the_recipe_the_catalog_names_it_by() -> None:
+    """The recipe id is read from the curated entry rather than guessed from the product id,
+    so the demo chain cannot drift from the game's own naming without a test noticing."""
+
+    assert [stage.recipe.recipe_id for stage in CRAFT_CHAIN] == [PLANKS, STICK, PICKAXE]
+    assert CRAFT_CHAIN[2].recipe.grid_width == 3
+    assert not CRAFT_CHAIN[2].recipe.fits(PLAYER_GRID_SIDE)
 
 
 def test_an_aiming_that_is_a_miss_does_not_offer_a_mine() -> None:
@@ -292,7 +341,7 @@ def test_the_local_order_finishes_the_chain_before_it_looks() -> None:
     mind = mind_for(OffModelProvider(), ledger)
 
     assert (
-        mind.next_intent(reading(items=((0, PLANKS, 3), (1, STICK, 2)))).skill
+        mind.next_intent(reading(items=((0, LOG, 1), (1, PLANKS, 1), (2, STICK, 2)))).skill
         == "craft_take_result"
     )
     assert mind.next_intent(reading(entities=(drop(),))).skill == "collect_dropped"
@@ -356,6 +405,7 @@ def test_the_cost_cap_refuses_calls_and_not_playing() -> None:
         ("MINE_TARGET_NOT_AIMED", FailureCode.RESOURCE_UNAVAILABLE),
         ("SKILL_UNKNOWN", FailureCode.SKILL_NOT_IMPLEMENTED),
         ("SKILL_ARGUMENT_MISSING", FailureCode.SKILL_NOT_IMPLEMENTED),
+        (CRAFT_GRID_TOO_SMALL, FailureCode.SKILL_NOT_IMPLEMENTED),
         ("NO_CONFIRMING_OBSERVATION", FailureCode.INSUFFICIENT_INFORMATION),
         ("MINING_STALLED", FailureCode.ACTION_NOT_EFFECTIVE),
         ("SCREEN_NOT_CONFIRMED", FailureCode.ACTION_NOT_EFFECTIVE),
@@ -443,7 +493,7 @@ def test_a_decision_that_claims_the_goal_does_not_close_it() -> None:
             skill_id="craft_take_result", reason="this finishes the pickaxe", intent_generation=1
         )
     )
-    subject = reading(items=((0, PLANKS, 3), (1, STICK, 2)))
+    subject = reading(items=((0, LOG, 1), (1, PLANKS, 1), (2, STICK, 2)))
     intent = mind.next_intent(subject)
 
     assert intent.skill == "craft_take_result"

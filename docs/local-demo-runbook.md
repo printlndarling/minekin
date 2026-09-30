@@ -88,7 +88,7 @@ export MINEKIN_RUNNER_FORWARD_ENV=<存放密钥的那个变量名>  # 逗号分�
 10. **合成的默认点击换成了那一笔会把成品放进背包的交易。** 依据是量出来的两件事：配方书的单点（`clickRecipe` 的非 craftAll）把成品留在**光标**上，而 Core 读得到的 `inventory` 与 `GuiScreenValue` 都不报光标那一格（`src/minekin_core/domain/perception.py`），于是 §4 那条「材料减少与产物增加同时出现在同步后的 revision 上」的判据在那一笔点击之后不可能满足——这正是历次 demo 把 `craft` 收尾成 `UNKNOWN / NO_CONFIRMING_OBSERVATION` 的形状。现在 `craft` 默认发 `craft_all=true`；技能计划可以逐条写 `"craft_all": false` 要回单点，非布尔值会在解析期具名拒止（`skills[i] (craft) needs craft_all to be true or false`），而 run 文档的 `details.craft_all` 写明那一次实际发出的是哪一笔。**这批只动 Python 字节**：`craft_all` 早就存在于 proto 与 bridge-1201 的**已封字节**里（`proto/minekin/v1/control.proto` 的 `GuiRecipeClick`、`BridgeIpcWorker` 的 `clickRecipe(..., craftAll)`），所以 V1201 六案的封证不受影响，证据 schema 也没动。**活体读数仍未取到**：`craft` 是否真的转成 CONFIRMED 要看下一次 `demo.sh --skills` / `--autonomous` 的 run 文档——2026-09-30 复量时受控 runner 的容器引擎仍对 `docker version` 返回 500（客户端 29.5.3 / API 1.54 那半有答复，Linux 引擎那半没有），跑不了真跑。**这一格后来量到了，答案是否定的**：引擎恢复后冷卷 run `615eb862eb754aebb6a555904709821d` 的 `craft` 仍是 `UNKNOWN / NO_CONFIRMING_OBSERVATION`，`details` 说 `craft_all=true`、`gui_open=true`、revision 19068→19167（帧到了而背包没给出确认）。默认点击不是收口，收口在第 11 条。
 11. **仍欠的一格是「取走结果槽/光标那一笔」的显式技能——这一格已经在 2026-09-30 补上。** `craft_take_result` 按既有 GUI/输入契约发三笔：先 `GuiRecipeClick(craft_all=false)` 让配方书把材料铺进网格，再对结果槽 0 发 `GuiSlotClick(button=1, mode=QUICK_MOVE)`，只有在读数说材料已减而产物始终没进包时才补第三笔 `mode=PICK` 的存放点击，且只放进**最新一帧读数报为空**的那一格（放不进去就具名停在 `CRAFT_NO_EMPTY_SLOT`，因为"光标上那件东西无处可放"和"根本没合成"在读数上长得一样）。槽位坐标是换算的：读数报的是 PlayerInventory 的格子号（0–8 快捷栏、9–35 主包、空的不报），而界面点击吃的是当前容器的格子号（玩家 2×2 界面：结果 0、网格 1–4、主包 5–31、快捷栏 32–40）。**活体读数已取到**（run `e1e981553a0d4ea69468f6bc07a88fb5`，热卷，同一卷的上一次运行是 `615eb862eb754aebb6a555904709821d`）：`oak_planks` 与 `stick` 两步都是 CONFIRMED，`details` 为 `clicks=recipe_fill+result_quick_move`、`craft_all=false`、`gui_open=true`，第二笔之后 revision 1699→1732→1754 就满足了 §4 的判据，因此第三笔存放点击没有被需要。**服务端自己存下来的 player.dat 是独立的一格证据**：那次运行结束时背包里是 `minecraft:stick ×4`（槽 7）与 `minecraft:oak_planks ×2`（槽 8），没有 `Carried`——成品确实进了背包，而不是桥自报成功。
 12. **craft_all 这一笔在活字节上仍不足，这一次是有名字的。** 冷卷 run `615eb862…` 的三件证据把范围收到一处：客户端日志里 `bridge clicked recipe minecraft:oak_planks (craftAll=true)` 说点击确实发出并被接受；`advancements/…/oak_planks` 的 `done: true`（`has_logs` 在点击前两秒达成）和存档 `recipeBook` 里的 4 条配方说明配方书侧是开着的，"配方书不认识这笔点击"那条猜测被排除；而同一份 player.dat 里 `Inventory` 是 **0 格**、没有 `Carried`。合起来的读数只支持一种说法：材料离开了 PlayerInventory（进了 2×2 网格），到存盘那一刻没有任何东西回到背包。于是第 10 条那句"默认点击已换成会把成品放进背包的那一笔"在活字节上并不成立，`craft` 保留原样而收口改用第 11 条的技能。
-13. **木镐这一步卡在 2×2 网格，不在技能上。** `craft_take_result` 已经在 2×2 里连过两配方（木板、木棍），但 `minecraft:wooden_pickaxe` 需要 3×3 工作台的网格；玩家自带界面装不下它，而本项目还没有"放下一个工作台"的技能（`SKILL_OFFER` 里没有放置这一步）。也就是说"最终取得木镐"这一目标欠的是**放置技能 + 木板数量**（一次采木 = 4 板，镐要 3 板 + 2 棍，还要先摆台），不是合成判据。这一条留给主控决定要不要把 S2 的收口范围扩到放置。
+13. **木镐这一步卡在 2×2 网格，不在技能上。** `craft_take_result` 已经在 2×2 里连过两配方（木板、木棍），但 `minecraft:wooden_pickaxe` 需要 3×3 工作台的网格；玩家自带界面装不下它，而本项目还没有"放下一个工作台"的技能（`SKILL_OFFER` 里没有放置这一步）。也就是说"最终取得木镐"这一目标欠的是**放置技能 + 木板数量**（一次采木 = 4 板，镐要 3 板 + 2 棍，还要先摆台），不是合成判据。这一条留给主控决定要不要把 S2 的收口范围扩到放置。**2026-09-30 起这一格多了一层：Core 不再把 3×3 的配方发给只开 2×2 的技能。** 配方现在按产物从 `src/minekin_core/domain/recipe_catalog.py` 解析，装不下的形状具名返回 `CRAFT_GRID_TOO_SMALL`（归因 `SKILL_NOT_IMPLEMENTED`），心因此永远不会为木镐发出那一笔点击——见第 16 条与六之四。
 14. **`collect_dropped` 现在会追掉落物，但它要求的"看得见"并不恒成立。** 三次运行里两次 CONFIRMED（`615eb862…` 的 `steps=1, newest_checked_tick=19068`；`e1e98155…` 的 `steps=1, newest_checked_tick=1699`），一次 `FAILED / NO_SEEN_DROP`（run `8b8412ca182c4bb7b3764df5a5304d76`：`break_seen_block` 在 tick 1640 就 CONFIRMED，紧接着的 `collect_dropped` 在同一个 tick 的一帧里没读到掉落物）。所以这一步不是恒败，但也不是恒过——它把"那一帧里看得见"当成了前提，而木头从被破坏的那一格掉到地上时可能正好在视野锥之外。这一步的健壮性还欠一次改动（要么允许多帧重试，要么在破坏后重新瞄准掉落点）。
 15. ~~面板说不出"心自己按名字停的线"~~ **已收口（2026-09-30，活体）**：台账加了 `AutonomousRunHalted` 一行，`goal / stop_reason / error / steps / confirmed / excluded_skills` 六个具名成员按 allowlist 投影进时间线，`action_id`、`lease_id` 与异常文本都不外泄（契约 §10、六之三）。面板那一格现在是 `decision AutonomousRunHalted | goal=hold_a_wooden_pickaxe, stop_reason=CONTROL_CHANNEL_LOST, error=ConnectionResetError, steps=4, confirmed=4`。仍然没收到的答案是"那个客户端 JVM 为什么走"——`error` 说的是哪一侧断的手（`ConnectionResetError` ⇒ 客户端那一侧重置了套接字），不是它离开的原因。
 
@@ -163,4 +163,57 @@ export MINEKIN_RUNNER_FORWARD_ENV=<存放密钥的那个变量名>  # 逗号分�
 1. 客户端 JVM 为什么在 10:12:14~18 之间消失，现有工件答不出——而循环把异常对象吞了，只剩一个笼统的 `CONTROL_CHANNEL_LOST`。已按 TDD 补上名字：`AutonomousRun.stop_detail` 记**异常类名**（不含 message，理由见契约 §10），同名写进 run 文档 `autonomous.stop_detail`，并以 `error` 成员落进那一行台账。同一条命令再跑一次的 run `78be6675c11d4661bb9f2bc86f6fb283`（server run 目录 `run-6`，台账位置 176）就是这个名字的第一条真实字节：`stop_reason=CONTROL_CHANNEL_LOST, error=ConnectionResetError, steps=4, confirmed=4`，四条 `SkillStepRecorded` 与上一档同形（`break_seen_block → collect_dropped → craft_take_result×2` 全 CONFIRMED），释放读数仍是失败的那一条（`release: {"asked": [387], "nothing_held": [], "released": [], "unconfirmed": [387]}`、`input_release_failed: true`、退出码 14）。⇒ **`ConnectionResetError` 说明是客户端那一侧把套接字重置的，不是 Core 关掉自己的监听**，而这已是当前工件能答到的边界；至于那个 JVM 为什么走，要的是桥/客户端侧的下一次观测，不是这里再猜。
 2. 第 5 步的 `GUI_CONFLICT` 暴露的是改线缺口：连续两次 `craft_take_result` 之后物品栏仍开着，心的下一个 `break_seen_block` 因此被桥按契约拒掉（`actions_refused: 8`），而它没有"先关界面"这一步可试——`SKILL_OFFER` 里没有 `close_screen`。这属 S3 的改线范围，与第 13 条的放置技能各是一格，都不在本档声明之内。
 
+16. **合成现在是"按产物表达意图、按目录解析配方"，不再是写死的动作序列（2026-09-30，活体）。** 技能层早就参数化了（`craft` / `craft_take_result` 收 recipe id 与材料表，本身不认识"木"），写死的其实是**配方知识**：它此前只存在于 `player_mind.py` 的 `CRAFT_CHAIN` 表和技能计划里逐条手抄的 `recipe_id` + `materials` + `product_id`。现在配方知识有一处数据定义——`src/minekin_core/domain/recipe_catalog.py`（它就是 `docs/recipe-knowledge-gui-contract.md` 三分对象里的第一类：公开知识；不是账号配方书，也不是任何确认）——计划条目可以只写 `{"skill": "craft_take_result", "product": "minecraft:oak_planks"}`，`skill_plan.py` 从目录取回那三件再交给同一个技能；旧写法照旧解析（已提交的计划本身就是证据，不为新写法重写历史）。三种不可能各自有一个名字，不靠空结果让调用方猜：`CRAFT_RECIPE_UNAVAILABLE`（目录里没有这个产物）、`CRAFT_GRID_TOO_SMALL`（要开的网格装不下这个形状，检查在背包之前——对着装不下的形状多采木头是错的反应）、`CRAFT_MATERIALS_MISSING`（配方已知也放得下，这只包付不起）。前两个在解析期就具名拒止，模型编不出配方：它自造的 recipe id 到客户端只会是 `REFUSED_GUI_RECIPE_UNKNOWN`，它自造的材料表会花掉错的物品。`CRAFT_CHAIN` 同时降格为**演示夹具**——它的用途只剩"给 demo 一条走得完的顺序"，不再是产品的配方知识，真正的目标选择接替它时不需要新配方代码。**活体复用已量到**（六之四，run `461bbbf77d884b12a6d1cb814e8901db`）：只写产物的木板那一步 CONFIRMED（同步 revision 986→1019，§4 判据），而客户端日志里出现了 `bridge clicked recipe minecraft:crafting_table (craftAll=false)`——工作台这一产物不出现在任何夹具或旧计划里，它的 id 与材料表只可能来自目录这一处。**这一条不声明工作台已合成**：那一笔点击之后的判定停在第 17 条那一格。
+
+17. **GUI 点击之后观测流会整段安静，这是历次 `craft UNKNOWN` 现在最像的真实成因（2026-09-30，两次运行同一形状）。** 六之四那两发都不是配方问题也不是材料问题：run `d7fafc30…` 的木板步在 `recipe_fill` 点击之后拿不到比 tick 1064 更新的一帧；run `461bbbf7…` 更干净——第 4 步 CONFIRMED 收在 1019，第 5 步（工作台）从 `pre` 到放弃都是 1019，`newest_checked_tick == pre_tick` 按第 9 条的读法就是**一帧都没到 Core**，而客户端自己的日志在同一时刻还在往前写（12:04:24 槽位点击、12:04:25 配方点击），`crash-reports/` 空、`stderr.log` 空 ⇒ 渲染线程活着，报帧的那条路没活着。同一格还有第二处证据：这两发的停止读数都是 `input_release_failed: true`（逐字 `unconfirmed: [246]` / `unconfirmed: [242]`，harness 只能把 JVM `terminated`），因为释放要走的就是这条已经安静的频道——键没有留在世界上（桥日志里每次 `pressed` 都配了 `released`），悬着的只有那个还开着的物品栏界面。**答不出的部分照原样登记**：界面开着时观测为什么不再报，要到桥/客户端侧的下一次观测才答得出，而 bridge-1201 是已封字节，本档不猜也不动。
+
 `goal_met: false`、`model_enabled: false / model_calls: 0`、`perceived_information_class: PLAYER_EQUIVALENT`、`cognition_refusals: {MANAGEMENT_ONLY_DTO: 4}`、`entities_admitted: 13`、`snapshots_admitted: 1`、`actions_applied: 6`。这一档声明的是：收尾名已经能从台账读出来，且一次频道丢失被诚实记成 `CONTROL_CHANNEL_LOST` 加一条失败的释放读数，而不是被折成成功。
+
+## 六之四、按产物合成读到的那两发（2026-09-30，runs `d7fafc30bbec4231ba1b52a30b7be6a8` 与 `461bbbf77d884b12a6d1cb814e8901db`）
+
+同一枚热卷（同卷同 Kin 根 `kin-local-demo`，第二发是 server run 目录 `run-7` 之后的下一次会话），计划换成第 16 条那份只写产物的：
+
+```bash
+MINEKIN_SERVER_JAR=.tmp/mc-1.20.1-server.jar \
+MINEKIN_DEMO_SKILL_PLAN=/src/examples/skill-plan-craft-by-product.json \
+  bash test-orchestrator/runner/demo.sh --skills --again
+```
+
+计划五条：`turn_to` → `break_seen_block` → `collect_dropped` → `{"skill":"craft_take_result","product":"minecraft:oak_planks"}` → `{"skill":"craft_take_result","product":"minecraft:crafting_table"}`。两条合成条目**没有** `recipe_id`、也没有 `materials`——它们由目录解析出来，run 文档 `skill_plan` 那一格仍是 `["turn_to","break_seen_block","collect_dropped","craft_take_result","craft_take_result"]`，技能层看不出意图换了写法。
+
+第一发 `d7fafc30…`（11:59:55 起，12:00:29 收）：
+
+| 步 | 技能 | 结果 | `details` | 依据的读数 → 核对的读数 |
+| --- | --- | --- | --- | --- |
+| 1 | turn_to | CONFIRMED | — | tick=911 → 922 |
+| 2 | break_seen_block | CONFIRMED | — | 922 → 987 |
+| 3 | collect_dropped | CONFIRMED | `steps=4` | 987 → 1053 |
+| 4 | craft_take_result（木板） | UNKNOWN / `NO_CONFIRMING_OBSERVATION` | `clicks=recipe_fill`、`craft_all=false`、`gui_open=true`、revision 1053→1064 | 1053 → **`post_tick: null`** |
+
+`actions_applied: 10`、`actions_refused: 7`、`input_release_failed: true`（逐字 `{"asked": [246], "unconfirmed": [246], "terminated": [246], "left_alone": []}`）、`outcome: BRIDGE_LOST`、退出码 14。
+
+第二发 `461bbbf7…`（12:03:57 起，12:04:30 收）在同一枚卷上把木板那一步走成了 CONFIRMED，并走到了第二配方：
+
+| 步 | 技能 | 结果 | `details` | 依据的读数 → 核对的读数 |
+| --- | --- | --- | --- | --- |
+| 1 | turn_to | CONFIRMED | — | tick=871 → 888 |
+| 2 | break_seen_block | CONFIRMED | — | 888 → 953 |
+| 3 | collect_dropped | CONFIRMED | `steps=1` | 953 → 986 |
+| 4 | craft_take_result（**按产物**的木板） | CONFIRMED | `clicks=recipe_fill+result_quick_move`、`craft_all=false`、`gui_open=true`、revision 986→1019 | 986 → 1019 |
+| 5 | craft_take_result（**按产物**的工作台） | UNKNOWN / `NO_CONFIRMING_OBSERVATION` | `clicks=recipe_fill`、`craft_all=false`、`gui_open=true`、`pre_inventory_revision = newest_inventory_revision = 1019` | 1019 → **`post_tick: null`** |
+
+`actions_applied: 4`、`actions_refused: 6`、`input_release_failed: true`（逐字 `{"asked": [242], "unconfirmed": [242], "terminated": [242], "left_alone": [246]}`）、`outcome: BRIDGE_LOST`、退出码 14。
+
+客户端自己那一侧的日志（只读卷上 `…/logs/latest.log` 末行，第二发）逐字是：
+
+```text
+[12:04:23] bridge tapped screen.inventory
+[12:04:23] bridge applied screen bfa60c96… (SCREEN_CONTROL_OPEN_INVENTORY)
+[12:04:23] bridge clicked recipe minecraft:oak_planks (craftAll=false)
+[12:04:24] bridge clicked slot 0 (button 1, SLOT_CLICK_MODE_QUICK_MOVE)
+[12:04:24] Loaded 16 advancements
+[12:04:25] bridge clicked recipe minecraft:crafting_table (craftAll=false)
+```
+
+这两发合起来能声明的与不能声明的：**能声明**的是第 16 条那半——只写产物的意图经目录解析成真实点击，木板那一步由同步 revision 986→1019 事后读数确认（不是桥自报），而 `minecraft:crafting_table` 这个在任何夹具里都没出现过的 recipe id 被客户端接受并点击（配方书侧没有具名拒止它）。**不能声明**的是工作台已经合成：第 5 步从依据帧到放弃一帧未更新（`newest_checked_tick == pre_tick == 1019`），按第 9 条的读法是通道安静而非"帧到了没确认"，所以这一笔的判定停在第 17 条登记的那一格，`goal_met: false`，本档不把它读成成功。第一发的木板同形：它在 `recipe_fill` 之后也再没等到新帧，同一技能在第二发是 CONFIRMED ⇒ 这一格不是恒败，也不是恒过。
+

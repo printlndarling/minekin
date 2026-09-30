@@ -31,6 +31,7 @@ from dataclasses import dataclass
 from typing import Any, Final, cast
 
 from minekin_core.application.world_skills import ActionAuthority, SkillCall, WorldSkills
+from minekin_core.domain.recipe_catalog import PLAYER_GRID_SIDE, Recipe, resolve_craft
 from minekin_core.domain.world_actions import (
     ActionResultClass,
     SkillOutcome,
@@ -57,7 +58,9 @@ _DEFAULTED: Final[dict[str, tuple[str, ...]]] = {
 }
 
 #: The argument each skill requires, by name. Empty for a skill that can run on
-#: the world's own state.
+#: the world's own state. A craft may instead be spelled by product alone, which
+#: is not a defaulted argument — it is a different question, "what should the Kin
+#: be holding afterwards?" — and the recipe it resolves to comes from the catalog.
 _REQUIRED: Final[dict[str, tuple[str, ...]]] = {
     "turn_to": (),
     "break_seen_block": (),
@@ -67,10 +70,23 @@ _REQUIRED: Final[dict[str, tuple[str, ...]]] = {
     "select_hotbar": ("slot",),
 }
 
+#: The keys that replace a skill's whole required set rather than defaulting one
+#: of its arguments. Only a craft has such a spelling, and only because a recipe
+#: is a fact about the game that a plan author is not obliged to know.
+_ALTERNATIVES: Final[dict[str, tuple[str, ...]]] = {
+    "craft": ("product",),
+    "craft_take_result": ("product",),
+    "turn_to": (),
+    "break_seen_block": (),
+    "collect_dropped": (),
+    "select_hotbar": (),
+}
+
 #: Every key a plan may use, so a typo is refused by name instead of being
 #: ignored and leaving a skill to run on defaults nobody chose.
 _KNOWN_KEYS: Final[dict[str, frozenset[str]]] = {
-    name: frozenset((*required, *_DEFAULTED[name])) for name, required in _REQUIRED.items()
+    name: frozenset((*required, *_DEFAULTED[name], *_ALTERNATIVES[name]))
+    for name, required in _REQUIRED.items()
 }
 
 #: The stable token for a plan that names something which is not a skill. One
@@ -209,23 +225,79 @@ def _parse_call(item: Mapping[str, Any], index: int) -> SkillCall:
     unknown = sorted(str(key) for key in item if key != "skill" and key not in known)
     if unknown:
         raise SkillPlanError(f"skills[{index}] ({name}) has keys it does not take: {unknown}")
-    missing = [required for required in _REQUIRED[name] if item.get(required) is None]
-    if missing:
-        raise SkillPlanError(f"skills[{index}] ({name}) is missing {missing}")
+    by_product = _by_product(item, index, name)
+    if not by_product:
+        missing = [required for required in _REQUIRED[name] if item.get(required) is None]
+        if missing:
+            raise SkillPlanError(f"skills[{index}] ({name}) is missing {missing}")
+    recipe_id, product_id, materials = _craft_arguments(item, index, name, by_product=by_product)
     return SkillCall(
         name=name,
         yaw_degrees=_number(item, index, name, "yaw_degrees", 0.0),
         pitch_degrees=_number(item, index, name, "pitch_degrees", 0.0),
         item_id=_text(item, index, name, "item_id"),
         slot=_int(item, index, name, "slot", -1),
-        recipe_id=_text(item, index, name, "recipe_id"),
-        product_id=_text(item, index, name, "product_id"),
+        recipe_id=recipe_id,
+        product_id=product_id,
         expected_drop_item=_text(item, index, name, "expected_drop_item"),
         expected_item_id=_text(item, index, name, "expected_item_id"),
         walk_seconds=_number(item, index, name, "walk_seconds", 1.0),
-        materials=_materials(item, index, name),
+        materials=materials,
         craft_all=_flag(item, index, name, "craft_all", True),
     )
+
+
+def _by_product(item: Mapping[str, Any], index: int, name: str) -> bool:
+    """Whether this entry spells its craft by the item it wants to end up holding.
+
+    The key's shape is checked here rather than at the read below so that a plan
+    author who wrote `product: 4` is told which word is wrong, not which recipe is
+    missing.
+    """
+
+    if item.get("product") is None:
+        return False
+    _text(item, index, name, "product")
+    return True
+
+
+def _craft_arguments(
+    item: Mapping[str, Any], index: int, name: str, *, by_product: bool
+) -> tuple[str, str, tuple[tuple[str, int], ...]]:
+    """Which recipe a craft entry will run, from the catalog or from the plan's own words.
+
+    A product-only entry is where the parameterised design pays for itself: the plan says what
+    the Kin should be holding afterwards and the catalog answers with the recipe id, the
+    ingredients and their counts. The unrunnable answers are refused here, in words, before a
+    client exists — `CRAFT_RECIPE_UNAVAILABLE` for a product nobody has curated and
+    `CRAFT_GRID_TOO_SMALL` for a shape the screen this skill opens cannot hold. An entry that
+    names both the product and its own recipe is refused rather than adjudicated: two sources
+    for one game fact is the mistake, whether or not they agree.
+
+    The other branch is the plan that spells the trio itself, unchanged from before the
+    catalog existed, because a committed plan is evidence of what an operator asked for and
+    this layer's job is to read evidence, not to rewrite it. A skill that crafts nothing reads
+    the same three fields as empty strings and an empty tuple, which is what they already were.
+    """
+
+    if not by_product:
+        return (
+            _text(item, index, name, "recipe_id"),
+            _text(item, index, name, "product_id"),
+            _materials(item, index, name),
+        )
+    product = _text(item, index, name, "product")
+    spelled = [key for key in ("recipe_id", "materials", "product_id") if item.get(key) is not None]
+    if spelled:
+        raise SkillPlanError(
+            f"skills[{index}] ({name}) names a product and also its own {spelled}: a "
+            "product-only entry takes its recipe from the catalog, which is the one source of "
+            "that fact"
+        )
+    resolved = resolve_craft(product, grid_side=PLAYER_GRID_SIDE)
+    if not isinstance(resolved, Recipe):
+        raise SkillPlanError(f"skills[{index}] ({name}) cannot craft {product!r}: {resolved}")
+    return (resolved.recipe_id, resolved.product_id, resolved.ingredients)
 
 
 def _flag(item: Mapping[str, Any], index: int, name: str, key: str, default: bool) -> bool:

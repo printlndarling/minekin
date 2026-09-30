@@ -46,12 +46,22 @@ from minekin_core.domain.control_vocabulary import (
     MOVE_CAPABILITY,
     SCREEN_CAPABILITY,
 )
+from minekin_core.domain.recipe_catalog import CRAFT_GRID_TOO_SMALL, CRAFT_RECIPE_UNAVAILABLE
 from minekin_core.domain.world_actions import ActionResultClass, SkillOutcome
 
 EXAMPLES: Final = Path(__file__).resolve().parents[2] / "examples"
 AUTHORITY: Final = ActionAuthority(
     lease_id="lease-1", generation=3, deadline_monotonic_ns=DEFAULT_STEP_TIMEOUT_NS * 2
 )
+
+#: Item ids the product-only plan tests ask the catalog about. The values are the game's, and
+#: the tests below name them rather than spelling them out so a change to the catalog shows up
+#: as a refused plan instead of a passing test about a renamed item.
+LOG: Final = "minecraft:oak_log"
+PLANKS: Final = "minecraft:oak_planks"
+STICK: Final = "minecraft:stick"
+TABLE: Final = "minecraft:crafting_table"
+PICKAXE: Final = "minecraft:wooden_pickaxe"
 
 
 def _outcome(result: ActionResultClass) -> SkillOutcome:
@@ -241,6 +251,88 @@ def test_a_craft_all_on_the_take_result_craft_is_refused_by_name() -> None:
         parse_skill_plan({"schema_version": 1, "skills": [entry]}, source="test")
 
 
+# ----------------------------------------------------------------------- a craft named by product
+
+
+def test_a_craft_entry_named_only_by_product_carries_the_catalog_recipe() -> None:
+    """The parameterised spelling of a craft: the plan says which item the Kin wants to hold
+    afterwards, and the recipe id, the ingredients and their counts come from the catalog. A
+    plan author who does not know Minecraft cannot be wrong about Minecraft."""
+
+    plan = parse_skill_plan(
+        {"schema_version": 1, "skills": [{"skill": "craft_take_result", "product": STICK}]},
+        source="test",
+    )
+
+    call = plan.calls[0]
+    assert (call.name, call.recipe_id, call.product_id) == (
+        "craft_take_result",
+        STICK,
+        STICK,
+    )
+    assert call.materials == ((PLANKS, 2),)
+
+
+def test_a_product_only_entry_reaches_the_skill_with_the_resolved_arguments() -> None:
+    """Resolution is a parse-time act, so the dispatch that follows needs no knowledge of it:
+    the call it hands over is the same shape an explicit trio would have produced."""
+
+    plan = parse_skill_plan(
+        {"schema_version": 1, "skills": [{"skill": "craft", "product": TABLE}]},
+        source="test",
+    )
+    skills = _TapeSkills({"craft": _outcome(ActionResultClass.CONFIRMED)}, _RecordingSender())
+
+    asyncio.run(
+        run_skill_plan(skills, plan, authority=AUTHORITY, timeout_ns=DEFAULT_STEP_TIMEOUT_NS)
+    )
+
+    assert skills.ran == ["craft"]
+
+
+def test_a_product_the_catalog_does_not_have_refuses_the_plan_by_name() -> None:
+    entry: dict[str, object] = {"skill": "craft", "product": "minecraft:diamond_pickaxe"}
+
+    with pytest.raises(SkillPlanError, match=CRAFT_RECIPE_UNAVAILABLE):
+        parse_skill_plan({"schema_version": 1, "skills": [entry]}, source="test")
+
+
+def test_a_product_needing_more_grid_than_the_inventory_screen_opens_refuses_by_name() -> None:
+    """`craft_take_result` opens the inventory, whose grid is two by two. A plan asking for a
+    three-by-three shape through it is refused here, in words, rather than sent into a world
+    that will not answer."""
+
+    entry: dict[str, object] = {"skill": "craft_take_result", "product": PICKAXE}
+
+    with pytest.raises(SkillPlanError, match=CRAFT_GRID_TOO_SMALL):
+        parse_skill_plan({"schema_version": 1, "skills": [entry]}, source="test")
+
+
+def test_a_product_entry_that_also_spells_its_own_recipe_is_refused() -> None:
+    """Two sources of one game fact is the mistake, even when they happen to agree: the entry
+    says which it means by naming only the product, and a redundant trio is refused rather
+    than silently preferred."""
+
+    entry: dict[str, object] = {"skill": "craft", "product": STICK, "materials": {PLANKS: 2}}
+
+    with pytest.raises(SkillPlanError, match="materials"):
+        parse_skill_plan({"schema_version": 1, "skills": [entry]}, source="test")
+
+
+def test_a_product_key_on_a_skill_that_crafts_nothing_is_refused_as_an_unknown_key() -> None:
+    entry: dict[str, object] = {"skill": "collect_dropped", "item_id": LOG, "product": STICK}
+
+    with pytest.raises(SkillPlanError, match="product"):
+        parse_skill_plan({"schema_version": 1, "skills": [entry]}, source="test")
+
+
+def test_a_product_that_is_not_a_string_is_refused_as_the_argument_it_is() -> None:
+    entry: dict[str, object] = {"skill": "craft", "product": 4}
+
+    with pytest.raises(SkillPlanError, match="product"):
+        parse_skill_plan({"schema_version": 1, "skills": [entry]}, source="test")
+
+
 #: Every shape a plan document can have that an operator should not have to debug
 #: from a stack trace. Each is refused by name, with the entry's position.
 _UNREADABLE: Final[list[tuple[object, str]]] = [
@@ -420,6 +512,21 @@ def test_a_call_this_build_cannot_express_is_refused_before_the_wire() -> None:
     )
     assert missing.details["missing"] == "materials"
     assert sender.sent == []
+
+
+def test_the_committed_product_only_plan_resolves_to_the_catalog_recipes() -> None:
+    """The example an operator is pointed at for the parameterised spelling is checked against
+    the catalog it reads, so a plan that promises "just name the product" cannot silently
+    drift from the recipes the build actually knows."""
+
+    path = EXAMPLES / "skill-plan-craft-by-product.json"
+
+    plan = parse_skill_plan(json.loads(path.read_text(encoding="utf-8")), source=path.name)
+
+    crafts = [call for call in plan.calls if call.name == "craft_take_result"]
+    assert [call.product_id for call in crafts] == [PLANKS, TABLE]
+    assert [call.recipe_id for call in crafts] == [PLANKS, TABLE]
+    assert [call.materials for call in crafts] == [((LOG, 1),), ((PLANKS, 4),)]
 
 
 def test_the_committed_example_plans_all_parse_and_ask_for_no_more_than_they_name() -> None:

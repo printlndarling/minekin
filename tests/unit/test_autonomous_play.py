@@ -281,50 +281,70 @@ def run(
 # ------------------------------------------------------------------------ the closed loop
 
 
-def test_the_loop_walks_the_whole_milestone_chain_without_a_written_plan() -> None:
+def test_the_loop_walks_the_chain_as_far_as_the_grid_it_can_open() -> None:
     # Every reading is what the previous confirmed step would leave behind. Nothing here names
     # a skill: the order comes from the mind, and the stopping comes from a reading.
     stage = Stage(
         reading(tick=100, items=((0, LOG, 3),)),
         reading(tick=140, items=((0, LOG, 2), (1, PLANKS, 4))),
-        reading(tick=180, items=((0, LOG, 2), (1, PLANKS, 4), (2, STICK, 2))),
-        reading(tick=220, items=((0, LOG, 2), (1, PLANKS, 1), (3, PICKAXE, 1))),
-        reading(tick=260, items=((0, LOG, 2), (1, PLANKS, 1), (3, PICKAXE, 1)), selected_slot=3),
+        reading(tick=180, items=((0, LOG, 2), (1, PLANKS, 4), (2, STICK, 4))),
+        reading(tick=220, items=((0, LOG, 2), (1, PLANKS, 4), (2, STICK, 4))),
     )
-    skills = TapeSkills(stage, {"craft_take_result": confirmed(), "select_hotbar": confirmed()})
+    skills = TapeSkills(
+        stage,
+        {"craft_take_result": confirmed(), "turn_to": confirmed()},
+    )
+    mind = off_mind()
+
+    result = run(stage, skills, mind, step_budget=3)
+
+    # The third shortfall is the pickaxe, a three-by-three shape, and the only screen the
+    # craft skill opens is the inventory's two-by-two. Clicking it there is a command the
+    # world cannot honour, so the ask never leaves: the chain walks to planks and sticks and
+    # then the mind looks, which is the conservative step the offer always carries.
+    assert [name for name, _ in skills.ran] == [
+        "craft_take_result",
+        "craft_take_result",
+        "turn_to",
+    ]
+    assert [kwargs.get("recipe_id") for _, kwargs in skills.ran] == [PLANKS, STICK, None]
+    # The mind asks for the transaction whose product lands where a reading can see it: the
+    # recipe click alone leaves the result on the cursor or in the grid, and 2026-09-30's two
+    # live runs showed nothing coming back from either, so a chain built on it cannot close.
+    assert all(name == "craft_take_result" for name, _ in skills.ran[:2])
+    assert result.stop_reason == STEP_BUDGET_SPENT
+    assert mind.goal_met is False
+    assert len(result.steps) == 3
+
+
+def test_the_loop_closes_on_a_reading_that_shows_the_tool_held() -> None:
+    """Where the tool came from is not this loop's business; what ends the direction is a
+    reading that shows it in the selected slot. The bag here gets the pickaxe from outside the
+    skills this build has — no recipe in the inventory's two-by-two grid makes it — which is
+    precisely why a reading, and not a step's own claim, is what closes the run."""
+
+    stage = Stage(
+        reading(tick=100, items=((3, PICKAXE, 1),)),
+        reading(tick=140, items=((3, PICKAXE, 1),), selected_slot=3),
+    )
+    skills = TapeSkills(stage, {"select_hotbar": confirmed()})
     mind = off_mind()
 
     result = run(stage, skills, mind)
 
+    assert [name for name, _ in skills.ran] == ["select_hotbar"]
+    assert skills.ran[0][1] == {"slot": 3, "expected_item_id": PICKAXE}
     assert result.stop_reason == GOAL_HELD_IN_HAND
-    assert [name for name, _ in skills.ran] == [
-        "craft_take_result",
-        "craft_take_result",
-        "craft_take_result",
-        "select_hotbar",
-    ]
-    assert [kwargs.get("recipe_id") for _, kwargs in skills.ran] == [
-        PLANKS,
-        STICK,
-        PICKAXE,
-        None,
-    ]
-    assert skills.ran[3][1] == {"slot": 3, "expected_item_id": PICKAXE}
-    # The mind asks for the transaction whose product lands where a reading can see it: the
-    # recipe click alone leaves the result on the cursor or in the grid, and 2026-09-30's two
-    # live runs showed nothing coming back from either, so a chain built on it cannot close.
-    assert all(name == "craft_take_result" for name, _ in skills.ran[:3])
     assert mind.goal_met is True
-    assert len(result.steps) == 4
 
 
 def test_a_decision_that_claims_the_tool_does_not_end_the_run() -> None:
     # The provider says the craft finishes the milestone; the bag says it did not. The run
     # keeps going and the direction stays unmet, which is the whole of §4's rule.
     stage = Stage(
-        reading(tick=100, items=((0, PLANKS, 3), (1, STICK, 2))),
-        reading(tick=140, items=((0, PLANKS, 3), (1, STICK, 2))),
-        reading(tick=180, items=((0, PLANKS, 3), (1, STICK, 2))),
+        reading(tick=100, items=((0, LOG, 1), (1, PLANKS, 1), (2, STICK, 2))),
+        reading(tick=140, items=((0, LOG, 1), (1, PLANKS, 1), (2, STICK, 2))),
+        reading(tick=180, items=((0, LOG, 1), (1, PLANKS, 1), (2, STICK, 2))),
     )
     skills = TapeSkills(stage, {"craft_take_result": confirmed()})
     mind = mind_for(
