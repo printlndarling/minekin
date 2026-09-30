@@ -175,6 +175,8 @@ export MINEKIN_RUNNER_FORWARD_ENV=<存放密钥的那个变量名>  # 逗号分�
 
 20. **"进程并没有走"这半句现在由 Core 自己回答，而它给的是相反的答案（2026-09-30，run `8203e46e8fa947ffb82281678a39e768`，逐字读数见六之七）。** 技能步的等待不再只问世界：`application/world_skills.py` 的 `_wait_until` 把"还有没有子进程"和"有没有更晚的一帧"放在同一次等待里跑（`_outlive_client`，每 `CLIENT_EXIT_POLL_S = 0.25` 秒问一次 launcher 自己的 `supervisor.poll`），客户端一没，这一步立刻按名字停下——`reason: CLIENT_EXITED`、`details.exit_code`，不再烧完那 150 秒；发令之前子进程就已经没了也同样具名停下（那一笔还是发出去，只是不等人）。计划层 `skill_plan.perform_skill` 把这种离开收成 `UNKNOWN` 而不是 `FAILED`：命令已经出门，世界在那台 JVM 倒下之前可能已经变过，这是这一发读不出来的事实。自主循环 `autonomous_play` 据此把整次运行按同一个名字停住（`stop_reason: CLIENT_EXITED`，`stop_detail` 带退出码）。**于是第 18 条那两个候选第一次被分开**：那一发的第 5 步在几秒之内拿到 `{"skill":"close_screen","result":"UNKNOWN","reason":"CLIENT_EXITED","details":{"exit_code":"143"},"action_id":""}`、`skill_stop: close_screen`，而同一发的 `session stop` 说 `terminated: [253]`——同一个 pid，一份读数说它已经退了，另一份说还活着并且由它把它停掉。**这两份不能同时是事实，本档不选边，只登记为什么选不出来**：`adapters/launcher/orphans.py` 的止路在发信号之前只比命令行的摘要（`prove_process_identity` 读 `/proc/<pid>/cmdline`），marker 里记了 `started_at` 却不比对，所以"名字对得上"和"还是那一个进程"是两回事；这也是 `left_alone: [438, 335]` 那两行能出现的同一个机制（前几发的 pid 号在这台新容器里被 reuse，摘要不配 ⇒ 不动手，这是设计在生效）。**这一条同时把 18/19 两条的时间形状更正一次**：这一发不是"进入世界之后一小段时间就没了"——`started_at 15:03:39`（JVM）、服务器 `15:03:58 Kin joined the game`、`15:04:08 Kin lost connection: Disconnected`，而客户端日志的**最后一行**就是 `15:04:08 bridge applied screen … (SCREEN_CONTROL_CLOSE)`，Core 读到的退出码 143 是 JVM 收到 SIGTERM 之后自己 `exit(143)` 的那一个形状（不是 137，`memory.events` 那几发的 `oom_kill` 都是 0）。**新的前沿因此换了名字**：这一发 `outcome: BRIDGE_LOST` 在 `cli/session_runtime.py:506` 只有一个来源——观测 reader 抛了 `IpcProtocolError`——而 CLI 的退出码 14 就是 `bootstrap.py` 给的 `ExitCode.IPC_PROTOCOL`。所以结束的形状是"控制频道上先有一次契约破坏，然后会话收尾，然后那台客户端不在了"，而不是"客户端自己走掉把频道弄安静"。**答不出的那半句也有了具体的形状**：`IpcProtocolError` 在 `adapters/bridge/ipc.py` 有九处抛出点、每一处都带自己那句消息，可这句消息不进 run 文档，于是下一次活体还是只能靠三份日志对齐。**下一格因此不碰已封字节**：把那次契约破坏的理由名记进 run 文档（Core 侧、可单测），跑一发就知道是哪一条规矩被破。另外两处 Core 侧的诚实缺口一并登记：其一，`perform_skill` 的 `CLIENT_EXITED` 行带 `action_id: ""`，而那笔关屏的 id 是 Core 自己造的、已经发出去并被应用了（`81132da822274377b09b9cdb23e32892`）——行里丢了一个本可知道的事实；其二，`BridgeIpcWorker.applyScreen` 的顺序是先 `view.closeScreen()` 再 `publishResult(ACCEPTED)` 最后打那行日志，所以那行日志证明 `client.setScreen(null)` **返回了**，而 Core 仍只能判 `UNKNOWN`（这是规则在生效，不是缺陷）。**输入释放这一发是干净的那一种**：客户端日志里 `mine.attack` 与 `move.forward` 各 pressed 1 / released 1，`unconfirmed: [253]` 只是确认回不来，没有键悬在世界上。**采样账**：`.tmp/census-v13.log` 那份宿主机 `/proc/stat` 采样按构造就读不出被探的那个 pid（它不打印 pid，只数全机进程 churn，且从 pass 7 起容器已经不在了，六行之后全是 `No such container`），所以 v13 不再补，改由 Core 自己的 poll 作答。**不声明**：木镐仍未取得（第 13 条那一格没动），run-9 那一发（会话 `fee8b3c8…`）没有留下 run 文档，本档按"不是成一次运行"记、不当证据。
 
+21. **第 20 条登记的两处具名诚实缺口各自有了一发读数，而合起来它们改写了"频道先坏、客户端后走"那句次序（2026-09-30，run `ec5330b5a7c74258a2bd20476e99ea0d`（server run 目录 `run-11`）与 run `dbc65e316e534364add732307926c020`（`run-12`，逐字读数见六之八）。** 其一，run 文档现在带 `bridge_lost_reason`——那句理由名是 Core 自己写的（`adapters/bridge/ipc.py` 九个抛出点各自一句固定的话，不含对端文本），两发读回的都是**同一句** `"IPC channel closed before a complete frame header"`。这一句把第 20 条末段那个推断更正了：那一支是**在帧边界上读到套接字关闭**时抛的，也就是说这几发里的"契约破坏"就是那台客户端离开的那一刻，不是它的前因——`BRIDGE_LOST` 与 `CLIENT_EXITED` 在这两发里是同一件事的两个名字，而不是链条上的两段。第 20 条那句"新的前沿因此换了名字"到此答完；仍然答不出的那句换了回去：**那个 JVM 为什么会收到 SIGTERM**（143 = 128+15），而它不在 Core 现有字节能答的范围里——要它得看 bridge-1201 的网络线程侧，那是已封字节，是主控的决定（B 分支），不是本卡继续猜的理由。其二，`CLIENT_EXITED` 那一行现在带上在飞的那笔 id：run-12 的第 5 步是 `{"skill":"close_screen","result":"UNKNOWN","reason":"CLIENT_EXITED","action_id":"bcb5aafb3f9241c99d1a1d354f4de909","details":{"exit_code":"143"}}`，而这个 id 在**客户端自己的日志里出现 0 次**（同一份日志的最后一行是 `16:04:34` 的 `Loaded 16 advancements`，它的上一条就是第 4 步那笔 `63aab7c5…` 的配方与槽位点击）⇒ 那一笔关屏**从 Core 发出去了、客户端没有应用它**。在把 id 带出来之前，那一行是空的，这一个问题根本问不出来——这就是这一格的全部用途。发令之前子进程就已经没了的那一支仍写空 id（`skill_plan.perform_skill` 的 pre-send 路径），两种形状各由一条单测钉住（`tests/unit/test_world_skills.py::test_the_exit_names_the_ask_that_was_in_flight_when_the_client_went`、`tests/unit/test_skill_plan.py` 那一对）。**输入释放这一发是"没有键悬着"的那一种**：`move.forward` pressed 2 / released 2、`mine.attack` pressed 1 / released 1，日志里最后一条 applied 是 `holding []`，`unconfirmed: [243]` 只说明确认回不来；悬在世界上的只有那个还开着的物品栏界面。**同一处矛盾第四次复现**：`supervisor.poll` 给 143（步内），同一发的 `session stop` 说 `terminated: [243]`（还活着且由它把它停掉），成因仍是第 20 条那一格——`orphans.py` 的止路在发信号之前只比命令行摘要，marker 里的 `started_at` 从不比对。这一发还顺带量到那机制的另一半：`left_alone: [438, 263, 248, 249, 253]`——前三发留在卷上的 marker 让每一次停止都多探四个 pid，而它们在新容器里命令行摘要不配 ⇒ 不动手（设计在生效，但"marker 会一发的接一发的留在卷上、每次停止都多探几个 pid"这一格本档登记出来，不改写）。**不声明**：木镐仍未取得（第 13 条那一格没动），`close_screen` 仍不在 `player_mind.SKILL_OFFER` 里（第 19 条那格仍归 S3），B 分支仍归主控。
+
 ## 六之四、按产物合成读到的那两发（2026-09-30，runs `d7fafc30bbec4231ba1b52a30b7be6a8` 与 `461bbbf77d884b12a6d1cb814e8901db`）
 同一枚热卷（同卷同 Kin 根 `kin-local-demo`，第二发是 server run 目录 `run-7` 之后的下一次会话），计划换成第 16 条那份只写产物的：
 
@@ -350,3 +352,66 @@ domain: session exited 14
 ```
 
 `terminated: [253]` 按 `orphans.py` 的规矩只列探针说还活着、且命令行摘要与 marker 对得上的那个 pid；`14` 是 `ExitCode.IPC_PROTOCOL`（`bootstrap.py` 把 `SessionOutcome.BRIDGE_LOST` 映射到它）。`left_alone: [438, 335]` 是 `run-8`、`run-6` 留下的 marker 在这台新容器里被 reuse 的结果——摘要不配，所以没动手。这一档能声明的到为止：这一步**几秒内按名字停下**了、名字是 `CLIENT_EXITED`、退出码 `143`、整条会话按 `BRIDGE_LOST` 收；不能声明的是那台客户端为什么不在——`outcome` 说观测 reader 抛了 `IpcProtocolError`，而那一句消息没有进 run 文档，所以第 20 条把"把破坏契约的那条规矩名记进 run 文档"列为下一格（Core 侧，不碰 bridge-1201 的已封字节）。
+
+## 六之八、那两个名字各自落进字节的那两发（2026-09-30，run `ec5330b5a7c74258a2bd20476e99ea0d`（server run 目录 `run-11`，会话 `4eecf4202da64cb1ae762e3a80c6b33c`，客户端 pid 263）与 run `dbc65e316e534364add732307926c020`（`run-12`，会话 `71010219aa67421fbaaf0de6e44ed7a4`，客户端 pid 243））
+
+同一冷卷、同一份计划，两发只差中间那次提交（`246bd2d`）。命令逐字：
+
+```bash
+MINEKIN_SERVER_JAR=.tmp/mc-1.20.1-server.jar \
+MINEKIN_DEMO_VOLUME=minekin-local-demo2 \
+MINEKIN_DEMO_SKILL_PLAN=/src/examples/skill-plan-craft-by-product-with-close.json \
+  bash test-orchestrator/runner/demo.sh --skills --again
+```
+
+**两发的收尾那两格，逐字**（`run` 段里的字段，宿主日志原样）：
+
+```text
+run-11  started_at 15:32:17.878568Z   outcome BRIDGE_LOST   bridge_lost_reason "IPC channel closed before a complete frame header"   skill_stop craft_take_result   input_release_failed true
+run-12  started_at 16:04:05.925487Z   outcome BRIDGE_LOST   bridge_lost_reason "IPC channel closed before a complete frame header"   skill_stop close_screen        input_release_failed true
+```
+
+那一句话是 `adapters/bridge/ipc.py` 里"在帧边界上读到套接字已经关闭"那一个抛出点自己的句子，而两发都是它 ⇒ 第 20 条那句"控制频道上先有一次契约破坏，然后那台客户端不在了"的**次序在这一发上不成立**：被点名的这次契约破坏就是那台客户端离开的那一刻本身。
+
+**run-11 的五行**（旧字节：`CLIENT_EXITED` 那一条带的是空 id）：
+
+```text
+{"skill":"turn_to","result":"CONFIRMED","reason":"","action_id":"4afb25ac2122482dad9d9a597293ef2a","pre_tick":1042,"post_tick":1053,"details":{}}
+{"skill":"break_seen_block","result":"CONFIRMED","reason":"","action_id":"3ae27d03ac814a0c9eae436677a34398","pre_tick":1053,"post_tick":1119,"details":{}}
+{"skill":"collect_dropped","result":"CONFIRMED","reason":"","action_id":"70ac664063ec474993e2b6c5e49de906","pre_tick":1119,"post_tick":1152,"details":{"steps":"1","newest_checked_tick":"1152"}}
+{"skill":"craft_take_result","result":"UNKNOWN","reason":"CLIENT_EXITED","action_id":"","pre_tick":null,"post_tick":null,"details":{"exit_code":"143"}}
+```
+
+**run-12 的五行**（同一发多走了一步，而 `CLIENT_EXITED` 那一条带着那笔在飞的 id）：
+
+```text
+{"skill":"turn_to","result":"CONFIRMED","reason":"","action_id":"515285afa23449088ab7bf511a88bed8","pre_tick":929,"post_tick":940,"details":{}}
+{"skill":"break_seen_block","result":"CONFIRMED","reason":"","action_id":"b8eb093121264b8ca61323a7bd4836de","pre_tick":940,"post_tick":1006,"details":{}}
+{"skill":"collect_dropped","result":"CONFIRMED","reason":"","action_id":"fec775e1d0f14fd5a80a36ea61ec0e90","pre_tick":1006,"post_tick":1050,"details":{"steps":"2","newest_checked_tick":"1050"}}
+{"skill":"craft_take_result","result":"CONFIRMED","reason":"","action_id":"63aab7c54b5b46a19f018122a7ff3567","pre_tick":1050,"post_tick":1083,"details":{"clicks":"recipe_fill+result_quick_move","craft_all":"false","gui_open":"true","pre_inventory_revision":"1050","newest_inventory_revision":"1083","newest_checked_tick":"1083"}}
+{"skill":"close_screen","result":"UNKNOWN","reason":"CLIENT_EXITED","action_id":"bcb5aafb3f9241c99d1a1d354f4de909","pre_tick":null,"post_tick":null,"details":{"exit_code":"143"}}
+```
+
+第 4 步按 §4 的判据在**更晚的一帧**上确认（背包 revision 1050→1083，`world_observations` 是 `admitted 17 / refused 0 / stale_tick_dropped 0 / newest_admitted_tick 1083`），也就是"取木→拾取→按产物合成→成品进背包"这一段在这一发又量到了一次；`collect_dropped` 这次追了两步（`steps: "2"`）。
+
+**那个 id 换来的新事实**：把 `bcb5aafb3f9241c99d1a1d354f4de909` 拿去问客户端自己的日志（卷上只读挂载 `grep -c`），答案是 **0 次**，而那份日志的最后五行是——
+
+```text
+[16:04:34] bridge applied screen 63aab7c54b5b46a19f018122a7ff3567 (SCREEN_CONTROL_OPEN_INVENTORY)
+[16:04:34] bridge clicked recipe minecraft:oak_planks (craftAll=false)
+[16:04:34] bridge clicked recipe minecraft:oak_planks in 63aab7c54b5b46a19f018122a7ff3567
+[16:04:34] bridge clicked slot 0 (button 1, SLOT_CLICK_MODE_QUICK_MOVE)
+[16:04:34] bridge clicked slot 0 in 63aab7c54b5b46a19f018122a7ff3567
+[16:04:34] Loaded 16 advancements        ← 整份日志的最后一行
+```
+
+所以那一笔关屏**从 Core 发出去了、客户端没有应用它**，而这与 Core 在同一时刻从 `supervisor.poll` 读到的 143 是同一件事的两半。id 还没带出来的时候（run-11 那一行）这一个问题问不出来——这就是这一格的全部用途。输入侧的账是配对的：`move.forward` pressed 2 / released 2、`mine.attack` pressed 1 / released 1，最后一条 applied 写的是 `holding []`。
+
+**同一次收尾里那两份互相矛盾的 Core 读数，第四次复现**，逐字：
+
+```text
+domain: session stop said {"command": "session stop", "kin_id": "kin-local-demo", "left_alone": [438, 263, 248, 249, 253], "release": {"asked": [243], "nothing_held": [], "released": [], "unconfirmed": [243]}, "schema_version": 1, "status": "stopped", "terminated": [243], "unresolved": []}
+domain: session exited 14
+```
+
+`terminated: [243]` 与步内的 143 不能同时是事实，本档按第 20 条同一格原样登记（止路只比命令行摘要、marker 的 `started_at` 从不比对）。`left_alone` 这次带着前几发留在同一卷上的 marker（`438/263/248/249/253`，其中 `263` 是上一发 `run-11` 自己的客户端 pid）：它们在这台新容器里命令行摘要不配 ⇒ 一个都没动手，这是设计在生效，同时说明**marker 会一发一发地留在卷上**，每次停止都把它们再探一遍。**不声明**：木镐仍未取得；`close_screen` 还不在 `SKILL_OFFER` 里；那个 JVM 为什么收到 SIGTERM 仍未答出，而答它需要 bridge-1201 网络线程侧的一次观测——那是已封字节，归主控。
