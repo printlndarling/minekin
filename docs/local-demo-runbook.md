@@ -165,12 +165,13 @@ export MINEKIN_RUNNER_FORWARD_ENV=<存放密钥的那个变量名>  # 逗号分�
 
 16. **合成现在是"按产物表达意图、按目录解析配方"，不再是写死的动作序列（2026-09-30，活体）。** 技能层早就参数化了（`craft` / `craft_take_result` 收 recipe id 与材料表，本身不认识"木"），写死的其实是**配方知识**：它此前只存在于 `player_mind.py` 的 `CRAFT_CHAIN` 表和技能计划里逐条手抄的 `recipe_id` + `materials` + `product_id`。现在配方知识有一处数据定义——`src/minekin_core/domain/recipe_catalog.py`（它就是 `docs/recipe-knowledge-gui-contract.md` 三分对象里的第一类：公开知识；不是账号配方书，也不是任何确认）——计划条目可以只写 `{"skill": "craft_take_result", "product": "minecraft:oak_planks"}`，`skill_plan.py` 从目录取回那三件再交给同一个技能；旧写法照旧解析（已提交的计划本身就是证据，不为新写法重写历史）。三种不可能各自有一个名字，不靠空结果让调用方猜：`CRAFT_RECIPE_UNAVAILABLE`（目录里没有这个产物）、`CRAFT_GRID_TOO_SMALL`（要开的网格装不下这个形状，检查在背包之前——对着装不下的形状多采木头是错的反应）、`CRAFT_MATERIALS_MISSING`（配方已知也放得下，这只包付不起）。前两个在解析期就具名拒止，模型编不出配方：它自造的 recipe id 到客户端只会是 `REFUSED_GUI_RECIPE_UNKNOWN`，它自造的材料表会花掉错的物品。`CRAFT_CHAIN` 同时降格为**演示夹具**——它的用途只剩"给 demo 一条走得完的顺序"，不再是产品的配方知识，真正的目标选择接替它时不需要新配方代码。**活体复用已量到**（六之四，run `461bbbf77d884b12a6d1cb814e8901db`）：只写产物的木板那一步 CONFIRMED（同步 revision 986→1019，§4 判据），而客户端日志里出现了 `bridge clicked recipe minecraft:crafting_table (craftAll=false)`——工作台这一产物不出现在任何夹具或旧计划里，它的 id 与材料表只可能来自目录这一处。**这一条不声明工作台已合成**：那一笔点击之后的判定停在第 17 条那一格。
 
-17. **GUI 点击之后观测流会整段安静，这是历次 `craft UNKNOWN` 现在最像的真实成因（2026-09-30，两次运行同一形状）。** 六之四那两发都不是配方问题也不是材料问题：run `d7fafc30…` 的木板步在 `recipe_fill` 点击之后拿不到比 tick 1064 更新的一帧；run `461bbbf7…` 更干净——第 4 步 CONFIRMED 收在 1019，第 5 步（工作台）从 `pre` 到放弃都是 1019，`newest_checked_tick == pre_tick` 按第 9 条的读法就是**一帧都没到 Core**，而客户端自己的日志在同一时刻还在往前写（12:04:24 槽位点击、12:04:25 配方点击），`crash-reports/` 空、`stderr.log` 空 ⇒ 渲染线程活着，报帧的那条路没活着。同一格还有第二处证据：这两发的停止读数都是 `input_release_failed: true`（逐字 `unconfirmed: [246]` / `unconfirmed: [242]`，harness 只能把 JVM `terminated`），因为释放要走的就是这条已经安静的频道——键没有留在世界上（桥日志里每次 `pressed` 都配了 `released`），悬着的只有那个还开着的物品栏界面。**答不出的部分照原样登记**：界面开着时观测为什么不再报，要到桥/客户端侧的下一次观测才答得出，而 bridge-1201 是已封字节，本档不猜也不动。
+17. **GUI 点击之后观测流会整段安静，这是历次 `craft UNKNOWN` 现在最像的真实成因（2026-09-30，两次运行同一形状）。** 六之四那两发都不是配方问题也不是材料问题：run `d7fafc30…` 的木板步在 `recipe_fill` 点击之后拿不到比 tick 1064 更新的一帧；run `461bbbf7…` 更干净——第 4 步 CONFIRMED 收在 1019，第 5 步（工作台）从 `pre` 到放弃都是 1019，`newest_checked_tick == pre_tick` 按第 9 条的读法就是**一帧都没到 Core**，而客户端自己的日志在同一时刻还在往前写（12:04:24 槽位点击、12:04:25 配方点击），`crash-reports/` 空、`stderr.log` 空 ⇒ 渲染线程活着，报帧的那条路没活着。同一格还有第二处证据：这两发的停止读数都是 `input_release_failed: true`（逐字 `unconfirmed: [246]` / `unconfirmed: [242]`，harness 只能把 JVM `terminated`），因为释放要走的就是这条已经安静的频道——键没有留在世界上（桥日志里每次 `pressed` 都配了 `released`），悬着的只有那个还开着的物品栏界面。**答不出的部分照原样登记**：界面开着时观测为什么不再报，要到桥/客户端侧的下一次观测才答得出，而 bridge-1201 是已封字节，本档不猜也不动。**这一条的成因在下一格被换了名字**（第 18 条，run `514bb121…`）：新增的读数计数排除了"帧到了却被按 replay 丢掉"这一支，而那一发的客户端日志**没有**继续往前写——所以本节上一句"渲染线程活着"只对 `461bbbf7…` 成立，不是两发的共同事实。
 
 `goal_met: false`、`model_enabled: false / model_calls: 0`、`perceived_information_class: PLAYER_EQUIVALENT`、`cognition_refusals: {MANAGEMENT_ONLY_DTO: 4}`、`entities_admitted: 13`、`snapshots_admitted: 1`、`actions_applied: 6`。这一档声明的是：收尾名已经能从台账读出来，且一次频道丢失被诚实记成 `CONTROL_CHANNEL_LOST` 加一条失败的释放读数，而不是被折成成功。
 
-## 六之四、按产物合成读到的那两发（2026-09-30，runs `d7fafc30bbec4231ba1b52a30b7be6a8` 与 `461bbbf77d884b12a6d1cb814e8901db`）
+18. **观测流为什么安静，现在有了名字：客户端在那一刻离开了世界，而 JVM 还活着（2026-09-30，run `514bb121303d493394101126c07858e3`，读数见六之五）。** 第 17 条留的那一问有两个候选，Core 一侧先各补了一个计数再跑：`WorldObservationStore` 把"到了但不比手上那帧新"从静默 `return False` 变成 `stale_tick_dropped` + `newest_stale_tick`，`SessionRun` 文档长出 `world_observations`（store 自己的台账）与 `world_observations_unheld`（帧到了却没人接）。那一发读回的是 `{"admitted": 16, "refused": 0, "refusal_reasons": {}, "stale_tick_dropped": 0, "newest_stale_tick": null, "newest_admitted_tick": 1108}`——**没有一帧被按 replay 丢掉，也没有一帧被完整性规则拒掉；1108 之后 store 什么都没收到**。"桥持续报同一 tick、store 静默丢帧"这一支由此排除，剩下的是客户端不再报帧。客户端日志给了同一时刻的另一半：最后一行是 `12:36:57.047`（`Loaded 16 advancements`，logger `net.minecraft.class_163`）在它上一条点击 `bridge clicked slot 0 … QUICK_MOVE`（`12:36:57.026`）之后 21 ms，而受控服务器同一秒写 `Kin lost connection: Disconnected` + `Kin left the game`；Core 的第二笔 `recipe_fill` 是 `12:36:57.5+` 才发的，客户端日志里**没有对应的 `bridge clicked recipe` 行** ⇒ 那一笔根本没被应用，第 5 步的 `NO_CONFIRMING_OBSERVATION` 是后果不是成因。进程并没有走：`session stop` 的 `terminated: [251]` 按 `adapters/launcher/orphans.py` 的规矩只列**探针说还活着**的 pid（已经没了的会被跳过、两个列表都不进），`left_alone: [357]` 是那台不归本会话管的受控服务器。于是这三份字节合起来说的是：进程活着、世界已经离开、渲染线程不再产出任何一行日志——报帧的 `END_CLIENT_TICK`、应用 GUI 点击的线程、桥那句"这次断线要分类"的日志（`bridge observed a disconnect…` / `bridge classified the disconnect as…`，一条都没出现）要走的全是同一条线程。**还答不出的**：客户端为什么恰在第一次取结果之后 21 ms 离开世界。`crash-reports/` 空、`/data` 下无 `hs_err*` 也无 `.hprof`、`stderr.log` 零字节、`logs/telemetry/` 空——现有工件里没有那次离开的理由，而要拿到它得在桥的网络线程上多看一眼，那是已封字节。本档到此为止把它记成"客户端侧的一次离开"，不再记成"Core 的观测通道丢了帧"。
 
+## 六之四、按产物合成读到的那两发（2026-09-30，runs `d7fafc30bbec4231ba1b52a30b7be6a8` 与 `461bbbf77d884b12a6d1cb814e8901db`）
 同一枚热卷（同卷同 Kin 根 `kin-local-demo`，第二发是 server run 目录 `run-7` 之后的下一次会话），计划换成第 16 条那份只写产物的：
 
 ```bash
@@ -217,3 +218,51 @@ MINEKIN_DEMO_SKILL_PLAN=/src/examples/skill-plan-craft-by-product.json \
 
 这两发合起来能声明的与不能声明的：**能声明**的是第 16 条那半——只写产物的意图经目录解析成真实点击，木板那一步由同步 revision 986→1019 事后读数确认（不是桥自报），而 `minecraft:crafting_table` 这个在任何夹具里都没出现过的 recipe id 被客户端接受并点击（配方书侧没有具名拒止它）。**不能声明**的是工作台已经合成：第 5 步从依据帧到放弃一帧未更新（`newest_checked_tick == pre_tick == 1019`），按第 9 条的读法是通道安静而非"帧到了没确认"，所以这一笔的判定停在第 17 条登记的那一格，`goal_met: false`，本档不把它读成成功。第一发的木板同形：它在 `recipe_fill` 之后也再没等到新帧，同一技能在第二发是 CONFIRMED ⇒ 这一格不是恒败，也不是恒过。
 
+## 六之五、那份新计数第一次改变结论的那一发（2026-09-30，run `514bb121303d493394101126c07858e3`）
+
+同一枚热卷、同一份只写产物的计划（server run 目录 `run-9`，会话 `058d3f4d89b84567ab6d755d4c743b91`，12:36:27 起、12:37:02 收）。这一档要回答的是第 17 条留下的那一问：**GUI 点击之后那一整段安静，是"帧到了 Core 却被丢掉"，还是"根本没有帧"**。为此 Core 先各补了一个计数（第 18 条），再用同一条命令跑回来。
+
+| 步 | 技能 | 结果 | `details` | 依据的读数 → 核对的读数 |
+| --- | --- | --- | --- | --- |
+| 1 | turn_to | CONFIRMED | — | tick=965 → 976 |
+| 2 | break_seen_block | CONFIRMED | — | 976 → 1042 |
+| 3 | collect_dropped | CONFIRMED | `steps=1` | 1042 → 1075 |
+| 4 | craft_take_result（**按产物**的木板） | CONFIRMED | `clicks=recipe_fill+result_quick_move`、`craft_all=false`、`gui_open=true`、revision 1075→1108 | 1075 → 1108 |
+| 5 | craft_take_result（**按产物**的工作台） | UNKNOWN / `NO_CONFIRMING_OBSERVATION` | `clicks=recipe_fill`、`gui_open=true`、`pre_inventory_revision = newest_inventory_revision = 1108` | 1108 → **`post_tick: null`** |
+
+run 文档里那一格新字节，逐字：
+
+```text
+"world_observations": {"admitted": 16, "newest_admitted_tick": 1108, "newest_stale_tick": null,
+                       "refusal_reasons": {}, "refused": 0, "stale_tick_dropped": 0},
+"world_observations_unheld": 0
+```
+
+`stale_tick_dropped: 0` 与 `refused: 0` 一起把"桥持续报同一 tick、store 按 replay 静默丢掉"那一支划掉了：1108 之后 store 什么都没收到。`world_observations_unheld: 0` 说明接线是通的（`events_ignored: 0` 同向）。其余计数：`actions_applied: 4`、`actions_refused: 5`、`snapshots_admitted: 1`、`entities_admitted: 1`、`entities_rejected: 1`、`cognition_refusals: {MANAGEMENT_ONLY_DTO: 2}`、`perceived_information_class: PLAYER_EQUIVALENT`、`input_release_failed: true`、`outcome: BRIDGE_LOST`、退出码 14。
+
+三份字节把时刻对到了一起（都是同一卷上的字节）：
+
+```text
+客户端 logs/latest.log 末两行
+[12:36:57] bridge clicked slot 0 (button 1, SLOT_CLICK_MODE_QUICK_MOVE)
+[12:36:57] Loaded 16 advancements            ← logger=net.minecraft.class_163, 1790771817047
+
+受控服务器 /data/server-runs/run-9/logs/latest.log
+[12:36:57] Kin lost connection: Disconnected
+[12:36:57] Kin left the game
+[12:36:58…12:37:03] No entity was found       ← 服务器还在跑，世界里已经没有人
+
+台账（本会话）
+12:36:57.523877 SkillStepRecorded  第4步 CONFIRMED
+12:37:02.552048 SkillStepRecorded  第5步 UNKNOWN / NO_CONFIRMING_OBSERVATION
+12:37:02.566549 SessionStateTransitioned PLAYABLE→FAILED
+12:37:02.607889 SessionInterrupted {"outcome":"BRIDGE_LOST"}
+```
+
+客户端最后一行的毫秒是 `12:36:57.047`，在它前一条点击（`1790771817026`）之后 21 ms；Core 的第 5 步是在 `12:36:57.52` 记下 CONFIRMED 之后才发出那笔 `recipe_fill` 的。客户端日志里**没有** `bridge clicked recipe minecraft:crafting_table` 这一行——那一笔点击没有被应用。合起来：第 5 步的 UNKNOWN 不是"点击生效了但没有读数"，而是**发出点击的那一侧已经没有人接了**。
+
+进程仍然活着：`session stop` 逐字 `{"terminated": [251], "left_alone": [357], "release": {"asked": [251], "nothing_held": [], "released": [], "unconfirmed": [251]}}`，而 `adapters/launcher/orphans.py` 的规格里 `terminated` 只列探针说还活着的 pid（已经没了的那个不进任何列表），`left_alone: [357]` 是那台不归本会话管的受控服务器。⇒ 那一刻是**进程活着、世界已离开、渲染线程不再产出任何一行日志**。报帧的 `END_CLIENT_TICK`、应用 GUI 点击的循环、桥自己那句"这次断线要分类"的日志（`bridge observed a disconnect…` / `bridge classified the disconnect as…`，整卷一条都没出现）要走的都是这条线程，这与第 17 条观察到的"整段安静"完全一致。
+
+释放那一格按"同步检查输入释放"的要求再核一次：桥日志里每次 `pressed` 都配了 `released`，最后一次是 `bridge applied 5b6575ee…: holding []`（12:36:56），第 4、5 步都不按键；`unconfirmed: [251]` 说的是"Core 没能道别"，不是"键被留在世界上"。世界悬着的只有那个开着的物品栏界面——第 13 条那格缺口（`SKILL_OFFER` 里没有关界面这一步）的又一发依据。
+
+这一发能声明的：木板仍由只写产物的意图合成并 CONFIRMED（同步 revision 1075→1108，§4 判据），新增的两个计数在真实 run 上第一次把 UNKNOWN 的成因从"Core 的观测通道丢帧"改写成"客户端在那一刻离开世界"，且 `stale_tick_dropped` 不是靠单测而是靠活体字节站住的。不能声明的：工作台已经合成（`goal_met: false`），以及**客户端为什么离开世界**——`crash-reports/` 空、`/data` 下无 `hs_err*` 也无 `.hprof`、`stderr.log` 零字节、`logs/telemetry/` 空，现有工件里没有那次离开的理由；再往前一步要在已封的 bridge-1201 网络线程上多看一眼，那是主控的决定，不是本档的推断。

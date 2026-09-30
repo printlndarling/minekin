@@ -19,7 +19,7 @@ post-state.
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Final
 
@@ -52,6 +52,8 @@ class WorldObservationStore:
     _latest: WorldObservationValue | None = field(default=None, init=False)
     _refusals: tuple[ObservationRefusal, ...] = field(default=(), init=False)
     _accepted: int = field(default=0, init=False)
+    _stale_ticks: int = field(default=0, init=False)
+    _newest_stale_tick: int | None = field(default=None, init=False)
     _wake: asyncio.Event = field(default_factory=asyncio.Event, init=False)
 
     @property
@@ -66,8 +68,62 @@ class WorldObservationStore:
     def refused(self) -> Sequence[ObservationRefusal]:
         return self._refusals
 
+    @property
+    def refusal_count(self) -> int:
+        return len(self._refusals)
+
+    @property
+    def stale_tick_count(self) -> int:
+        """How many readings arrived too late in the Bridge's own clock to be a
+        post-state. Counted, not dropped silently: a run that saw no world
+        change after a GUI click needs to say whether frames came at all."""
+
+        return self._stale_ticks
+
+    @property
+    def newest_stale_tick(self) -> int | None:
+        """The highest tick among those stale readings — the one frame that got
+        closest. `None` when nothing was stale-dropped."""
+
+        return self._newest_stale_tick
+
+    def as_document(self) -> Mapping[str, object]:
+        """What the store did with the readings it was given, as one aggregate.
+
+        The run document keeps counts rather than the refusal list because the
+        question a failed step raises is which of three things happened: the
+        client reported nothing, it reported something the coherence rules could
+        not take, or it reported a tick the store had already seen. Each of those
+        has its own number here, and a reader who sees `admitted: 0` with
+        `stale_tick_dropped: 40` is reading a different failure from one who
+        sees both at zero.
+        """
+
+        reasons: dict[str, int] = {}
+        for refusal in self._refusals:
+            names = [violation.value for violation in refusal.violations]
+            if refusal.stale_generation:
+                names.append("STALE_GENERATION")
+            for name in names:
+                reasons[name] = reasons.get(name, 0) + 1
+        return {
+            "admitted": self._accepted,
+            "refused": len(self._refusals),
+            "refusal_reasons": dict(sorted(reasons.items())),
+            "stale_tick_dropped": self._stale_ticks,
+            "newest_stale_tick": self._newest_stale_tick,
+            "newest_admitted_tick": None if self._latest is None else self._latest.game_tick,
+        }
+
     def admit(self, value: WorldObservationValue, violations: Sequence[IntegrityViolation]) -> bool:
-        """Take one decoded reading, or count it as refused. Returns which."""
+        """Take one decoded reading, or count it as refused. Returns which.
+
+        A reading that is neither admitted nor refused is the third case: one
+        that is intact but no longer newer than what the store already holds.
+        It is counted on `stale_tick_count` rather than left uncounted, so a run
+        can tell "the client stopped reporting" apart from "the client kept
+        reporting the same tick".
+        """
 
         stale = self.expected_generation is None or value.generation != self.expected_generation
         if violations or stale:
@@ -83,6 +139,9 @@ class WorldObservationStore:
         # Ticks are the Bridge's clock: never go backwards, so a replayed or
         # reordered frame cannot turn a post-state back into a pre-state.
         if self._latest is not None and value.game_tick <= self._latest.game_tick:
+            self._stale_ticks += 1
+            if self._newest_stale_tick is None or value.game_tick > self._newest_stale_tick:
+                self._newest_stale_tick = value.game_tick
             return False
         self._latest = value
         self._accepted += 1

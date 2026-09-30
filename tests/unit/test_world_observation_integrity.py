@@ -257,6 +257,43 @@ def test_ticks_never_go_backwards_in_the_store() -> None:
     assert store.latest.game_tick == 100
 
 
+def test_a_frame_that_is_not_newer_is_counted_and_says_which_tick_it_brought() -> None:
+    """The count and the tick together are the point. A skill that timed out with
+    `newest_checked_tick == pre_tick` can mean the client stopped producing readings
+    or that it kept producing readings whose clock never moved, and the fix for those
+    two is on opposite sides of the channel. Only the frame the store refused can say
+    which, so the refusal is kept as a number rather than dropped on the floor."""
+
+    store = WorldObservationStore(expected_generation=1)
+    assert admit(store, reading(100)) is True
+    assert store.stale_tick_count == 0
+    assert store.newest_stale_tick is None
+
+    assert admit(store, reading(100)) is False
+    assert admit(store, reading(97)) is False
+
+    assert store.stale_tick_count == 2
+    assert store.newest_stale_tick == 100
+    assert store.accepted_count == 1
+
+
+def test_a_replayed_frame_is_not_counted_as_a_refused_one() -> None:
+    """Two different refusals, two different counters: an incoherent reading says the
+    Bridge reported something impossible, a frame on an old tick says only that the
+    world has not moved since. Folding the second into the first would let a quiet
+    world look like a lying bridge."""
+
+    store = WorldObservationStore(expected_generation=1)
+    assert admit(store, reading(100)) is True
+    bad = observation(game_tick=101, self_state=replace(HEALTHY, yaw_degrees=270.0))
+
+    assert admit(store, bad) is False
+    assert admit(store, reading(100)) is False
+
+    assert store.refusal_count == 1
+    assert store.stale_tick_count == 1
+
+
 def test_wait_for_newer_delivers_the_reading_after_the_action() -> None:
     async def scenario() -> None:
         store = WorldObservationStore(expected_generation=1)

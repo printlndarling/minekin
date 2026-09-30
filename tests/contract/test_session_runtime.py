@@ -33,10 +33,12 @@ from minekin_core.adapters.bridge.ipc import (
     HOST_LIFECYCLE_TYPE,
     INITIAL_OBSERVATION_TYPE,
     RELEASE_ALL_INPUTS_TYPE,
+    WORLD_OBSERVATION_TYPE,
     BridgeIpcHost,
     BridgeSession,
 )
 from minekin_core.adapters.launcher.offline_session import OFFLINE_SESSION_CANDIDATES
+from minekin_core.application.world_observation import WorldObservationStore
 from minekin_core.cli.session_runtime import SessionOutcome, SessionRun, supervise_session
 from minekin_core.domain.connection import ConnectionGenerations, ConnectionState
 from minekin_core.domain.ids import OpaqueId
@@ -314,6 +316,44 @@ class Peer:
             ),
         )
 
+    async def world_observation(
+        self, *, game_tick: int, generation: int = 1, yaw_degrees: float | None = None
+    ) -> None:
+        """One recurring player-equivalent reading, as the wire carries it.
+
+        Coherent unless a test asks for the other case: `yaw_degrees` outside the
+        ring is the shape the integrity gate refuses, and the generation is what
+        the store's own gate reads.
+        """
+
+        assert self.event_writer is not None
+        self.sequence += 1
+        message = observation_pb2.WorldObservation(
+            generation=generation,
+            game_tick=game_tick,
+            self=observation_pb2.SelfState(
+                health=20.0, max_health=20.0, food=20, saturation=5.0, alive=True
+            ),
+            inventory=observation_pb2.InventorySummary(
+                revision=game_tick,
+                stacks=[
+                    observation_pb2.InventoryStack(slot=0, item_id="minecraft:oak_log", count=3)
+                ],
+            ),
+        )
+        if yaw_degrees is not None:
+            message.self.yaw_degrees = yaw_degrees
+        await write_frame(
+            self.event_writer,
+            envelope(
+                self.bridge,
+                WORLD_OBSERVATION_TYPE,
+                envelope_pb2.CHANNEL_EVENT,
+                self.sequence,
+                message.SerializeToString(deterministic=True),
+            ),
+        )
+
     async def close(self) -> None:
         await close_writers(
             *(writer for writer in (self.control_writer, self.event_writer) if writer is not None)
@@ -335,6 +375,7 @@ async def _supervise(
     until_connection_deadline: Callable[[], Awaitable[object]] | None = None,
     on_connection_deadline: Callable[[], Awaitable[None]] | None = None,
     on_session_identity: Callable[[int, Mapping[str, object]], Awaitable[None]] | None = None,
+    world_observations: WorldObservationStore | None = None,
 ) -> SessionRun:
     return await asyncio.wait_for(
         supervise_session(
@@ -351,6 +392,7 @@ async def _supervise(
             until_connection_deadline=until_connection_deadline,
             on_connection_deadline=on_connection_deadline,
             on_session_identity=on_session_identity,
+            world_observations=world_observations,
         ),
         timeout,
     )
@@ -775,6 +817,99 @@ def test_a_management_report_does_not_become_what_the_kin_knows(tmp_path: Path) 
         # And the report still reached the document, as a fact about the world
         # rather than as something the Kin knows.
         assert document["lan_publication"] == {"phase": "LAN_OPENED", "port": 25565}
+
+    asyncio.run(scenario())
+
+
+def test_the_run_document_keeps_the_store_ledger_of_recurring_readings(
+    tmp_path: Path,
+) -> None:
+    """What the Kin's world model took in, frame by frame — including the ones it did not.
+
+    The live runs keep ending in an outcome whose only evidence is that no newer
+    reading arrived, and there are two very different ways for that to be true: the
+    client stopped reporting, or it reported the same tick over and over and the
+    store refused it as a replay. The store already knows which; this is the field
+    that says so in the document, so a `UNKNOWN` step can be read without a
+    second instrumented run.
+    """
+
+    async def scenario() -> None:
+        bridge = session()
+        host = BridgeIpcHost(bridge)
+        descriptor = await host.prepare(tmp_path / "descriptor.pb")
+        machine, connections = _in_handshake()
+        exit_event = asyncio.Event()
+        peer = Peer(descriptor, bridge)
+        store = WorldObservationStore(expected_generation=1)
+
+        async def client() -> None:
+            await _drive_to_playable(peer, machine)
+            await peer.world_observation(game_tick=100)
+            await peer.world_observation(game_tick=110)
+            await peer.world_observation(game_tick=110)  # a replay, not a post-state
+            await peer.world_observation(game_tick=120, yaw_degrees=270.0)  # incoherent
+            await _wait_until(lambda: store.accepted_count == 2)
+            exit_event.set()
+            await peer.close()
+
+        running = asyncio.create_task(client())
+        run = await _supervise(
+            host, machine, connections, exit_event=exit_event, world_observations=store
+        )
+        await running
+
+        assert store.latest is not None
+        document = run.as_dict()
+        assert document["world_observations"] == {
+            "admitted": 2,
+            "refused": 1,
+            "refusal_reasons": {"YAW_OUT_OF_RANGE": 1},
+            "stale_tick_dropped": 1,
+            "newest_stale_tick": 110,
+            "newest_admitted_tick": 110,
+        }
+        # The readings are acted on, so none of them is the runtime's 'ignored'
+        # bucket — that bucket is for event types this build cannot handle at all.
+        assert document["events_ignored"] == 0
+
+    asyncio.run(scenario())
+
+
+def test_a_recurring_reading_with_no_store_to_hold_it_is_counted_as_unheld(
+    tmp_path: Path,
+) -> None:
+    """Frames arrived and nothing kept them is a third fact, and a nameable one.
+
+    A skill run wires a store; a plain session does not. Without this counter a
+    document with no `world_observations` section cannot tell "nobody was holding
+    readings" from "the client sent none", which is exactly the distinction a
+    diagnosis has to start from.
+    """
+
+    async def scenario() -> None:
+        bridge = session()
+        host = BridgeIpcHost(bridge)
+        descriptor = await host.prepare(tmp_path / "descriptor.pb")
+        machine, connections = _in_handshake()
+        exit_event = asyncio.Event()
+        peer = Peer(descriptor, bridge)
+
+        async def client() -> None:
+            await _drive_to_playable(peer, machine)
+            await peer.world_observation(game_tick=100)
+            await peer.world_observation(game_tick=110)
+            await asyncio.sleep(0.05)
+            exit_event.set()
+            await peer.close()
+
+        running = asyncio.create_task(client())
+        run = await _supervise(host, machine, connections, exit_event=exit_event)
+        await running
+
+        document = run.as_dict()
+        assert document["world_observations"] is None
+        assert document["world_observations_unheld"] == 2
 
     asyncio.run(scenario())
 

@@ -80,6 +80,19 @@ class SessionRun:
     snapshot_rejections: tuple[str, ...] = ()
     entities_admitted: int = 0
     entities_rejected: int = 0
+    #: What the recurring readings did, read off the store's own ledger: how many
+    #: became the Kin's world, how many were refused and for what, and how many
+    #: arrived no newer than what was already held. Null for a run that never
+    #: wired a store — see `world_observations_unheld`.
+    #:
+    #: This is the difference between two readings of a step that ended UNKNOWN:
+    #: the client stopped reporting, and the client kept reporting the same tick
+    #: while the store refused each one as a replay. Both leave no post-state, and
+    #: only one of them is a silent channel.
+    world_observations: Mapping[str, object] | None = None
+    #: Recurring readings that arrived while nothing was holding them, so that the
+    #: absence above is a fact about the wiring rather than about the world.
+    world_observations_unheld: int = 0
     actions_applied: int = 0
     actions_refused: int = 0
     release_failed: bool = False
@@ -164,6 +177,14 @@ class SessionRun:
             # dropped everything, and those are different facts.
             "entities_admitted": self.entities_admitted,
             "entities_rejected": self.entities_rejected,
+            # And the same for the recurring readings: the world the Kin was
+            # allowed to see after the first snapshot. Kept as the store's ledger
+            # rather than as a yes/no, because the question a failed step asks is
+            # *which* of the readings arrived and what was done with them.
+            "world_observations": (
+                None if self.world_observations is None else dict(self.world_observations)
+            ),
+            "world_observations_unheld": self.world_observations_unheld,
             # Whether the Bridge carried out what it was told to do. A
             # refused command is the difference between a Kin that did not
             # move and a Kin that was never able to.
@@ -235,6 +256,11 @@ class _Progress:
     snapshot_rejections: set[str] = field(default_factory=lambda: set[str]())
     entities_admitted: int = 0
     entities_rejected: int = 0
+    #: Recurring readings that arrived with no store wired to hold them. The
+    #: store's own ledger cannot speak for this case — there is no ledger when
+    #: nobody is listening — and "the client sent nothing" and "nobody was there
+    #: to keep it" are different facts to start a diagnosis from.
+    world_observations_unheld: int = 0
     actions_applied: int = 0
     actions_refused: int = 0
     release_failed: bool = False
@@ -505,7 +531,7 @@ async def supervise_session(
                 progress.release_failed = True
         await host.close()
 
-    return _report(outcome, session, connection_state, progress)
+    return _report(outcome, session, connection_state, progress, world_observations)
 
 
 async def _awaited(moment: Callable[[], Awaitable[object]]) -> None:
@@ -644,6 +670,11 @@ async def _read_events(
                 )
                 observation = decode_world_observation(message)
                 world_observations.admit(observation, world_observation_violations(observation))
+            elif knowledge.admitted:
+                # Kept, but with nobody holding it: a reading the gate let through
+                # that no store was wired to receive. Without this the absence of
+                # a ledger below reads as a client that never reported.
+                progress.world_observations_unheld += 1
             continue
         if not isinstance(message, observation_pb2.ConnectionLifecycle):
             # Counted rather than dropped silently: an event type this build
@@ -806,6 +837,7 @@ def _report(
     session: SessionStateMachine,
     connection_state: ConnectionState | None,
     progress: _Progress,
+    world_observations: WorldObservationStore | None,
 ) -> SessionRun:
     return SessionRun(
         outcome=outcome,
@@ -817,6 +849,12 @@ def _report(
         snapshot_rejections=tuple(sorted(progress.snapshot_rejections)),
         entities_admitted=progress.entities_admitted,
         entities_rejected=progress.entities_rejected,
+        # The store is its own ledger, so the document reads it rather than
+        # keeping a second set of counters that could fall out of agreement.
+        world_observations=(
+            None if world_observations is None else world_observations.as_document()
+        ),
+        world_observations_unheld=progress.world_observations_unheld,
         actions_applied=progress.actions_applied,
         actions_refused=progress.actions_refused,
         release_failed=progress.release_failed,
