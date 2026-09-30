@@ -217,6 +217,11 @@ if [[ "${1:-}" == "domain" ]]; then
         -e MINEKIN_MODEL_PROVIDER -e MINEKIN_MODEL_BASE_URL -e MINEKIN_MODEL
         -e MINEKIN_MODEL_API_KEY_ENV -e MINEKIN_MODEL_TIMEOUT_MS
         -e MINEKIN_MODEL_RUN_COST_CAP
+        # Which port this container should host a fake completions endpoint on, for the run that
+        # proves the wiring above end to end. It is a port number, not an address and not a
+        # credential: the listener binds loopback inside the container, and unset means no
+        # listener at all, so every other case is unaffected byte for byte.
+        -e MINEKIN_DOMAIN_FAKE_MODEL_PORT
         -e MINEKIN_PERSONA_SEED)
     # The operator's own credential variable, named by them and never by this script.
     # A key must not be written into the repository or a log, so there is no flag for a

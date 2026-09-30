@@ -2053,6 +2053,38 @@ if [ ! -e "/tmp/.X11-unix/X${display_no}" ]; then
 fi
 export DISPLAY="${session_display}"
 
+# The model wiring's own half of this run. `domain/model_access.py` refuses plain http to any
+# host but loopback, so the only fake endpoint a live run can be pointed at is one inside this
+# container, answering on this container's 127.0.0.1. Unset means no listener is started and no
+# call is made — the run keeps reporting `local_reflection`, which is what every other case in
+# this harness depends on. Nothing here names a credential: the operator's own variable names
+# arrive by name through MINEKIN_RUNNER_FORWARD_ENV, as they always have.
+if [ -n "${MINEKIN_DOMAIN_FAKE_MODEL_PORT:-}" ]; then
+    if ! [[ "${MINEKIN_DOMAIN_FAKE_MODEL_PORT}" =~ ^[0-9]+$ ]]; then
+        printf 'domain: MINEKIN_DOMAIN_FAKE_MODEL_PORT must be one port number: %s\n' \
+            "${MINEKIN_DOMAIN_FAKE_MODEL_PORT}" >&2
+        exit 2
+    fi
+    python /src/tools/run_fake_model_endpoint.py "${MINEKIN_DOMAIN_FAKE_MODEL_PORT}" \
+        >/tmp/domain-fake-model.log 2>&1 &
+    fake_model_pid=$!
+    # Wait on the line the server prints after it has the port, not on a fixed sleep: a call
+    # that arrives before the bind is a refused connection, and that would read as the provider
+    # being broken rather than as the harness starting too fast.
+    for _ in $(seq 1 100); do
+        grep -q 'serving /chat/completions' /tmp/domain-fake-model.log && break
+        kill -0 "${fake_model_pid}" 2>/dev/null || break
+        sleep 0.1
+    done
+    if ! grep -q 'serving /chat/completions' /tmp/domain-fake-model.log; then
+        printf 'domain: the fake model endpoint never came up on port %s\n' \
+            "${MINEKIN_DOMAIN_FAKE_MODEL_PORT}" >&2
+        exit 2
+    fi
+    printf 'domain: the fake model endpoint is serving on 127.0.0.1:%s for this container\n' \
+        "${MINEKIN_DOMAIN_FAKE_MODEL_PORT}"
+fi
+
 # Named rather than spelled at the redirect, because the branch that reports this client
 # never got there reads the same file back out (see `name_the_session_launch_last_words`),
 # and a path copied twice is a path one of the two can drift from.
