@@ -105,6 +105,14 @@ class SessionRun:
     #: Whether the cancel could not be delivered. Its own flag rather than the
     #: release's: they are two different things Core owed the Bridge.
     connection_cancel_failed: bool = False
+    #: Which rule of the frozen local IPC contract was broken, empty when none
+    #: was. `BRIDGE_LOST` on its own says only that the reader ended on a contract
+    #: violation; the places that break it each say a different thing, and those
+    #: are different diagnoses — a frame that does not parse is not a sequence
+    #: that ran out is not a queue that overflowed. The sentence is one this
+    #: process wrote for itself rather than words the peer sent, so carrying it is
+    #: not a channel for anything the Bridge chose to say.
+    bridge_lost_reason: str = ""
     #: The world this run put in the client's game directory, when it put one
     #: there: the level it was told to enter and a digest of the bytes as they
     #: were handed over. §5 names no session event for "a world was placed here"
@@ -203,6 +211,11 @@ class SessionRun:
             # in the wire enum's words. Empty when no attempt was abandoned.
             "connection_cancelled": self.connection_cancelled,
             "connection_cancel_failed": self.connection_cancel_failed,
+            # Which clause of the contract the reader ended on, in this process's
+            # own fixed words. `outcome: BRIDGE_LOST` without it says the channel
+            # broke and leaves the next person to line up three logs to find out
+            # what broke.
+            "bridge_lost_reason": self.bridge_lost_reason,
             # Which world this run seeded, if any: null rather than an empty
             # object, because a run that seeded nothing has no world to name.
             "world_snapshot": (None if self.world_snapshot is None else dict(self.world_snapshot)),
@@ -266,6 +279,10 @@ class _Progress:
     release_failed: bool = False
     connection_cancelled: str = ""
     connection_cancel_failed: bool = False
+    #: Which clause of the IPC contract the reader ended on, kept here because the
+    #: run is assembled from this record and the exception itself is dropped once
+    #: the outcome is chosen.
+    bridge_lost_reason: str = ""
     #: The last thing the Bridge said about publishing the world this Kin hosts.
     #: A report rather than a command's echo: it arrives when it arrives, and an
     #: attempt is answered by the outcome it ends in.
@@ -502,6 +519,7 @@ async def supervise_session(
                     # bug in this process and must not be folded into a network
                     # outcome, so it propagates and the CLI reports an internal
                     # invariant.
+                    progress.bridge_lost_reason = str(error)
                     await _wind_down(session, failed=True, on_transition=on_transition)
                     outcome = SessionOutcome.BRIDGE_LOST
                 elif error is not None:
@@ -860,6 +878,7 @@ def _report(
         release_failed=progress.release_failed,
         connection_cancelled=progress.connection_cancelled,
         connection_cancel_failed=progress.connection_cancel_failed,
+        bridge_lost_reason=progress.bridge_lost_reason,
         lan_publication=progress.lan_publication,
         perceived_information_class=progress.perceived_information_class,
         cognition_refusals=dict(progress.cognition_refusals),

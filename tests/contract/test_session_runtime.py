@@ -443,6 +443,9 @@ def test_a_session_follows_the_reported_phases_and_stops_with_the_client(
         await running
 
         assert run.outcome is SessionOutcome.CLIENT_EXITED
+        # The absence is part of the fact: a run that ended with its client had no
+        # contract break to name, and an empty field is how the document says so.
+        assert run.bridge_lost_reason == ""
         assert run.events_applied == 6
         assert run.events_ignored == 0
         # A snapshot that does not describe the recorded identity is refused, and
@@ -595,8 +598,60 @@ def test_a_bridge_lost_at_the_menu_stops_the_session_rather_than_failing_it(
         await running
 
         assert run.outcome is SessionOutcome.BRIDGE_LOST
+        # The other name, for the other break: nothing arrived and then the sockets
+        # were gone. Which of the two a run ended on is the difference between a
+        # Bridge that said something incomprehensible and one that stopped saying
+        # anything, and a reader of the document can only see it if it is recorded.
+        assert run.bridge_lost_reason == "IPC channel closed before a complete frame header"
         assert run.session_state is SessionState.STOPPED
         assert connections.active is None
+
+    asyncio.run(scenario())
+
+
+def test_a_bridge_lost_run_names_the_clause_of_the_contract_it_broke(
+    tmp_path: Path,
+) -> None:
+    """`BRIDGE_LOST` says the reader ended on a break; which clause broke it is the diagnosis.
+
+    The sentence is one this process wrote about its own reader, not words the peer
+    sent, so carrying it costs nothing in trust. And the breaks are not one fact: a
+    frame that does not fit the negotiated connection is not a channel that went
+    away mid-stream, which is why the test below asks for the first while the test
+    above produces the second.
+    """
+
+    async def scenario() -> None:
+        bridge = session()
+        host = BridgeIpcHost(bridge)
+        descriptor = await host.prepare(tmp_path / "descriptor.pb")
+        machine, connections = _in_handshake()
+        peer = Peer(descriptor, bridge)
+
+        async def client() -> None:
+            await peer.prove()
+            assert peer.event_writer is not None
+            # Well-formed as a frame and carrying every identifier the connection
+            # negotiated, with nothing inside it — the one rule this envelope breaks
+            # is the envelope rule, so the name has only one thing it can mean.
+            await write_frame(
+                peer.event_writer,
+                envelope(
+                    bridge,
+                    CONNECTION_LIFECYCLE_TYPE,
+                    envelope_pb2.CHANNEL_EVENT,
+                    peer.sequence + 1,
+                    b"",
+                ),
+            )
+
+        running = asyncio.create_task(client())
+        run = await _supervise(host, machine, connections, exit_event=asyncio.Event())
+        await running
+
+        assert run.outcome is SessionOutcome.BRIDGE_LOST
+        assert run.bridge_lost_reason == "IPC envelope violates the negotiated connection"
+        assert run.as_dict()["bridge_lost_reason"] == run.bridge_lost_reason
 
     asyncio.run(scenario())
 
