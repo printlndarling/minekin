@@ -1349,3 +1349,38 @@ def test_a_client_that_exits_ends_a_chase_that_keeps_getting_readings() -> None:
         assert raised.exit_code == 143
 
     asyncio.run(scenario())
+
+
+def test_the_exit_names_the_ask_that_was_in_flight_when_the_client_went() -> None:
+    """The step's own id travels with the exit, because it is not a guess.
+
+    Core made that id and the command carrying it had already left for the client, so
+    a row that reports the exit without it drops a fact this process still holds — and
+    the reader cannot tell "waiting on a click that went out" from "waiting before
+    anything was sent", which are different worlds of a run.
+    """
+
+    async def scenario() -> None:
+        store = _open_screen_store((0, LOG, 1))
+        sender = RecordingSender()
+        client = ClientAnswer()
+        skills = WorldSkills(
+            sender=sender,
+            observations=store,
+            capabilities=ALL_CAPABILITIES,
+            client_exit=client,
+        )
+        client.go_after(0.02, 143)
+
+        raised: ClientProcessExited | None = None
+        try:
+            await skills.close_screen(authority=authority(), timeout_ns=60_000_000_000)
+        except ClientProcessExited as exit_error:
+            raised = exit_error
+
+        assert raised is not None
+        assert sender.types() == [SCREEN_INPUT_TYPE]
+        assert raised.action_id == sender.sent[0][1].action_id
+        assert raised.action_id != ""
+
+    asyncio.run(scenario())

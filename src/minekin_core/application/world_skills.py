@@ -381,9 +381,14 @@ class ClientProcessExited(RuntimeError):
     client must still end the run rather than hang.
     """
 
-    def __init__(self, exit_code: int) -> None:
+    def __init__(self, exit_code: int, *, action_id: str) -> None:
         super().__init__(f"the client process exited with code {exit_code}")
         self.exit_code = exit_code
+        #: The ask this step was waiting on when the process went, empty when nothing
+        #: had been sent yet. Core made that id itself and the command carrying it had
+        #: already left, so an exit that does not name it drops the one fact about the
+        #: in-flight command that this run still holds.
+        self.action_id = action_id
 
 
 def _client_still_running() -> int | None:
@@ -465,7 +470,7 @@ class WorldSkills:
             if base is None:
                 # Asked to turn before any reading had arrived: wait out the
                 # window once, and the arriving reading becomes the pre-state.
-                base = await self._wait_until(lambda latest: True, deadline)
+                base = await self._wait_until(lambda latest: True, deadline, action_id=action_id)
             if base is None:
                 return SkillOutcome(
                     result=ActionResultClass.UNKNOWN,
@@ -474,7 +479,9 @@ class WorldSkills:
                 )
             pre = base
             post = await self._wait_until(
-                _turn_reading(base.game_tick, yaw_degrees, pitch_degrees), deadline
+                _turn_reading(base.game_tick, yaw_degrees, pitch_degrees),
+                deadline,
+                action_id=action_id,
             )
             if post is None:
                 remaining = deadline - monotonic_ns()
@@ -553,7 +560,9 @@ class WorldSkills:
         deadline = monotonic_ns() + timeout_ns
         chain = pre
         while True:
-            post = await self._wait_until(_newer_reading(chain.game_tick), deadline)
+            post = await self._wait_until(
+                _newer_reading(chain.game_tick), deadline, action_id=action_id
+            )
             if post is None:
                 # Either the window ran out or it is still open; only a closed
                 # window ends the wait.
@@ -623,7 +632,9 @@ class WorldSkills:
         steps = 1
         await self._walk_toward(action_id, authority, first_drops[0], walk_seconds)
         while True:
-            post = await self._wait_until(_newer_reading(chain.game_tick), deadline)
+            post = await self._wait_until(
+                _newer_reading(chain.game_tick), deadline, action_id=action_id
+            )
             if post is None:
                 break
             chain = post
@@ -748,6 +759,7 @@ class WorldSkills:
             opened = await self._wait_until(
                 lambda latest: latest.gui is not None and latest.gui.sync_id is not None,
                 deadline,
+                action_id=action_id,
             )
             if opened is None:
                 return SkillOutcome(
@@ -795,7 +807,9 @@ class WorldSkills:
         # not a second click.
         chain = pre
         while True:
-            post = await self._wait_until(_newer_reading(chain.game_tick), deadline)
+            post = await self._wait_until(
+                _newer_reading(chain.game_tick), deadline, action_id=action_id
+            )
             if post is None:
                 if monotonic_ns() >= deadline:
                     return SkillOutcome(
@@ -874,6 +888,7 @@ class WorldSkills:
             opened = await self._wait_until(
                 lambda latest: latest.gui is not None and latest.gui.sync_id is not None,
                 deadline,
+                action_id=action_id,
             )
             if opened is None:
                 screen = self._observations.latest or pre
@@ -908,7 +923,9 @@ class WorldSkills:
             ),
         )
         clicks.append("recipe_fill")
-        filled = await self._wait_until(_newer_reading(current.game_tick), deadline)
+        filled = await self._wait_until(
+            _newer_reading(current.game_tick), deadline, action_id=action_id
+        )
         if filled is None:
             return SkillOutcome(
                 result=ActionResultClass.UNKNOWN,
@@ -947,7 +964,9 @@ class WorldSkills:
         clicks.append("result_quick_move")
         deposit_slot: int | None = None
         while True:
-            post = await self._wait_until(_newer_reading(chain.game_tick), deadline)
+            post = await self._wait_until(
+                _newer_reading(chain.game_tick), deadline, action_id=action_id
+            )
             if post is None:
                 return SkillOutcome(
                     result=ActionResultClass.UNKNOWN,
@@ -1065,7 +1084,9 @@ class WorldSkills:
             ),
         )
         closed = await self._wait_until(
-            lambda latest: latest.gui is None or latest.gui.sync_id is None, deadline
+            lambda latest: latest.gui is None or latest.gui.sync_id is None,
+            deadline,
+            action_id=action_id,
         )
         if closed is not None:
             return SkillOutcome(
@@ -1132,7 +1153,9 @@ class WorldSkills:
             ),
         )
         deadline = monotonic_ns() + timeout_ns
-        post = await self._wait_until(lambda latest: latest.game_tick > pre.game_tick, deadline)
+        post = await self._wait_until(
+            lambda latest: latest.game_tick > pre.game_tick, deadline, action_id=action_id
+        )
         if post is None:
             return SkillOutcome(
                 result=ActionResultClass.UNKNOWN,
@@ -1188,7 +1211,11 @@ class WorldSkills:
         )
 
     async def _wait_until(
-        self, predicate: Callable[[WorldObservationValue], bool], deadline: int
+        self,
+        predicate: Callable[[WorldObservationValue], bool],
+        deadline: int,
+        *,
+        action_id: str,
     ) -> WorldObservationValue | None:
         """Run the store's predicate wait inside the caller's own deadline.
 
@@ -1201,6 +1228,10 @@ class WorldSkills:
         itself going away, which is asked of the supervisor in `client_exit`: no
         reading will ever arrive afterwards, so a step that kept waiting would be
         spending its window to conclude about a JVM that is gone.
+
+        The caller names the ask it is waiting on, and says so with the empty string
+        when it has sent nothing yet — that difference is the fact the exit row
+        carries, and a default here would let a site decide it by accident.
         """
 
         remaining_ns = deadline - monotonic_ns()
@@ -1208,13 +1239,14 @@ class WorldSkills:
             return None
         gone = self._client_exit()
         if gone is not None:
-            raise ClientProcessExited(gone)
+            raise ClientProcessExited(gone, action_id=action_id)
         return await self._outlive_client(
-            self._observations.wait_until(predicate, timeout_s=remaining_ns / 1_000_000_000)
+            self._observations.wait_until(predicate, timeout_s=remaining_ns / 1_000_000_000),
+            action_id=action_id,
         )
 
     async def _outlive_client(
-        self, wait: Awaitable[WorldObservationValue | None]
+        self, wait: Awaitable[WorldObservationValue | None], *, action_id: str
     ) -> WorldObservationValue | None:
         """Let the client's own exit interrupt a wait, and cancel the wait for it.
 
@@ -1231,7 +1263,7 @@ class WorldSkills:
                     return pending.result()
                 gone = self._client_exit()
                 if gone is not None:
-                    raise ClientProcessExited(gone)
+                    raise ClientProcessExited(gone, action_id=action_id)
         finally:
             if not pending.done():
                 pending.cancel()

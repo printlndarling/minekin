@@ -434,14 +434,17 @@ async def perform_skill(
         )
     gone = skills.client_exit_code()
     if gone is not None:
-        return _client_exited_outcome(gone)
+        # Nothing had been asked of this client yet, so there is no in-flight id to
+        # carry — the emptiness is the fact, and the step below proves the row can
+        # name one when there was.
+        return _client_exited_outcome(gone, "")
     try:
         return await _dispatch(skills, call, authority=authority, timeout_ns=timeout_ns)
     except ClientProcessExited as exit_error:
         # The wait gave up because the process that would have answered it is gone.
         # `UNKNOWN` rather than `FAILED`: the command went out and the world may have
         # changed by the time the JVM died, which is a fact this run cannot read.
-        return _client_exited_outcome(exit_error.exit_code)
+        return _client_exited_outcome(exit_error.exit_code, exit_error.action_id)
 
 
 async def _dispatch(
@@ -504,13 +507,18 @@ async def _dispatch(
     )
 
 
-def _client_exited_outcome(exit_code: int) -> SkillOutcome:
-    """The one shape a step takes when its client is the reason it cannot be settled."""
+def _client_exited_outcome(exit_code: int, action_id: str) -> SkillOutcome:
+    """The one shape a step takes when its client is the reason it cannot be settled.
+
+    `action_id` is the ask that was in flight, which the step itself knows: empty when
+    nothing had been sent yet, and the id of a command that had left for the client
+    otherwise. Dropping it would report the exit as if no command had been asked.
+    """
 
     return SkillOutcome(
         result=ActionResultClass.UNKNOWN,
         reason=CLIENT_EXITED,
-        action_id="",
+        action_id=action_id,
         details={"exit_code": str(exit_code)},
     )
 

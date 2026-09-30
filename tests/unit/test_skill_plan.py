@@ -606,6 +606,9 @@ def test_the_committed_example_plans_all_parse_and_ask_for_no_more_than_they_nam
 # ----------------------------------------------------------------------- the client's own exit
 
 
+GONE_ACTION_ID = "a" * 32
+
+
 class _ClientGoneTape(_TapeSkills):
     """A tape whose client dies while a step is waiting, as the wait reports it."""
 
@@ -614,7 +617,7 @@ class _ClientGoneTape(_TapeSkills):
     ) -> SkillOutcome:
         del authority, timeout_ns
         self.ran.append("close_screen")
-        raise ClientProcessExited(143)
+        raise ClientProcessExited(143, action_id=GONE_ACTION_ID)
 
 
 def test_a_step_is_refused_by_name_when_the_client_is_already_gone() -> None:
@@ -636,6 +639,9 @@ def test_a_step_is_refused_by_name_when_the_client_is_already_gone() -> None:
         assert outcome.result is ActionResultClass.UNKNOWN
         assert outcome.reason == CLIENT_EXITED
         assert outcome.details["exit_code"] == "1"
+        # Empty here on purpose, and the other test asks for the opposite: nothing
+        # was sent, so there is no ask in flight to name.
+        assert outcome.action_id == ""
         assert skills.ran == []
         assert sender.sent == []
 
@@ -655,6 +661,10 @@ def test_a_step_names_the_client_that_went_while_it_was_waiting() -> None:
         assert outcome.result is ActionResultClass.UNKNOWN
         assert outcome.reason == CLIENT_EXITED
         assert outcome.details["exit_code"] == "143"
+        # The ask went out under this id and the client may have acted on it before it
+        # died; the row that names the exit without it loses the one command this run
+        # can still point at.
+        assert outcome.action_id == GONE_ACTION_ID
         assert skills.ran == ["close_screen"]
 
     asyncio.run(scenario())
