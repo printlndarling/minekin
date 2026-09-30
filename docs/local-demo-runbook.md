@@ -74,13 +74,13 @@ export MINEKIN_RUNNER_FORWARD_ENV=<存放密钥的那个变量名>  # 逗号分�
 ## 五、已知限制（具名，不用测试数量掩盖）
 
 1. **合成这一步在 2026-09-29 那次运行里拿不到确认。** 那次真实运行的读数是：`break_seen_block`（取木）和 `collect_dropped`（拾取）都是 CONFIRMED，而 `craft` 是 `UNKNOWN / NO_CONFIRMING_OBSERVATION`，归因 `INSUFFICIENT_INFORMATION`。当时量到的边界是：配方点击确实发出去了，客户端进程和服务端连接在整段 5 秒判据窗口里都还活着（服务端日志里能看到加入与 15 秒后的断开），但那一步窗口内**没有任何新的被采纳读数到达** Core。**当时记下的那句"要区分就得扩 run 文档 / 封存 schema，那是主控保留的决定"已经按新读数作废**：run 文档本来就带 `details` 这个自由字段，现在它把三种收尾分开说（`newest_checked_tick` 等于 `pre_tick` ⇒ 通道安静；大于 ⇒ 帧到了而背包同步号没动；`gui_open=false` ⇒ 界面根本没被看见打开），schema 一格没扩。**"通过真实背包/GUI 制作基础工具"这一项目前的完成度**：点击已发出并被桥接受、判据窗口会说明它为什么没确认、默认点击已换成会把成品放进背包的那一笔（下面第 10 条），而"世界确认合成成功"那一格仍待活体读数。**那一格在 2026-09-30 由第 11 条的技能补上并量到了**（run `e1e981553a0d4ea69468f6bc07a88fb5`：木板与木棍两步 CONFIRMED，服务端存档背包 4 根木棍 + 2 块木板），而 `craft` 这一条本身按第 12 条停在 `UNKNOWN`。
-2. **合成产物落在结果槽之后无人取走。** Core 没有"从结果槽点击取物"这个技能，契约里也没有。**这一条原先记的"这一步要改桥字节"已经按读数作废**：1.20.1 的桥在**已封的字节上**就吃槽位点击（`docs/validation/v1201-autonomous-loop-and-registry-renewal-2026-09-30.md` 第八节有 file:line），缺的只是 Core 侧的技能与判据。它现在仍然单独存在，挂在下面第 10、11 条上。
+2. **合成产物落在结果槽之后无人取走——这一格已经在 2026-09-30 关掉。** 原先的说法（Core 没有"从结果槽点击取物"这个技能、契约里也没有）**按读数作废**：1.20.1 的桥在**已封的字节上**就吃槽位点击（`docs/validation/v1201-autonomous-loop-and-registry-renewal-2026-09-30.md` 第八节有 file:line），而 Core 侧现在有了 `craft_take_result`（第 11 条）。它读到的确认不靠桥自报：run `e1e98155…` 的 `details` 写明两笔点击、revision 1699→1732→1754，服务端存档背包 4 根木棍 + 2 块木板。仍然在的是第 11 条末尾那一格——光标存放的第三笔在活字节上还没被需要过，也就还没被活字节验证过。
 3. **面板上的技能行不带模型的配置与花费。** `model_enabled`、provider、`model_calls`、`model_spent_micro`、`model_cap_refusals` 只记在 run 文档的 mind 段里；台账的技能行不携带，只读投影不解析 bundle 的 run 文档。面板对这两格会直接写明 `not_wired` 的理由，而不是留空白。
-4. **本次演示里"目标"不是大模型选的。** 这台机器上没有可用的模型凭据，所以四次意图全部来自 `local_reflection`（`MODEL_NOT_CONFIGURED`）。"由大模型自主选定目标"这件事**尚未在真实游戏里验证过**；已经验证的是：没有人类逐步指令、没有预设动作序列，Kin 依然按读数一步步试下来，并在失败后调整（合成 UNKNOWN 之后转为 `turn_to` 继续找里程碑需要的东西）。
+4. **本次演示里"目标"不是大模型选的。** 这台机器上没有可用的模型凭据，所以意图全部来自 `local_reflection`（`MODEL_NOT_CONFIGURED`）。"由大模型自主选定目标"这件事**尚未在真实游戏里验证过**；已经验证的是：没有人类逐步指令、没有预设动作序列，Kin 依然按读数一步步试下来，并在失败后调整。2026-09-30 的那次自主运行把"调整"量到了名字这一层：七步里前四步 CONFIRMED，随后 `turn_to` 连撞三次 `AIM_STALLED`，mind 段于是写下 `excluded_skills: ["turn_to"]`、`retry_budget: 2` 并以 `NO_FEASIBLE_SKILL` 具名收尾（见六之二）——这是改线，不是重试同一笔。
 5. **桥字节与已封证据不一致这件事已经闭合（2026-09-30）。** 起因是本轮修了两处桥缺陷（界面其实没打开；观察者采集器在界面真打开后会让客户端崩一次），bundle 摘要变了，而 `tests/fixtures/registry/reviewed-tested-bundles.json` 那条 1.20.1 行还指着旧的 recipe/bridge 摘要。当时不是推测：2026-09-29 在本机用默认（registry）路径跑了一次 demo，安装在取 bundle 前就具名拒止并以 rc=11 退出，逐字读数：
    `{"category": "SUPPLY_CHAIN", "component": "launcher.provision", "operation": "fetch", "retryability": "OPERATOR_ACTION", "message": "recipe tests/fixtures/runtime-input/bundle-candidate-1.20.1.json digests to bd6afaee…, not the reviewed 8ce43e26…"}`。
    那两天里本说明的 2)、3) 因此带上 `MINEKIN_DEMO_BUNDLE_PROFILE`——这个旋钮是为"字节已经动了、封证还没续"准备的**证据中立的读法**，不是绕过。V1201 六案在新桥字节下续封、registry 行 renew 之后（读数见 `docs/validation/v1201-autonomous-loop-and-registry-renewal-2026-09-30.md`），默认路径已实测恢复：2026-09-30 本机 `demo.sh --again` 不带任何 profile 旋钮跑通，run `f19caae6a1be42608b0f833fe79dfbdb` 的 `auto_bundle` 段是 `{"bundle_id": "1.20.1-linux-x86_64-offline-java21", "recipe_path": "/src/tests/fixtures/runtime-input/bundle-candidate-1.20.1.json", "launch_plan_digest": "924931e574de…6cc0", "registry_revision": "c2aace9aed0b…", "status": "ready", "reused": 3639, "installed": 0}`，随后 `the session is playable`，前进与停止都被服务端看到，退出码 14 是 harness 到点停问（正常收尾），rc=11 的供应链拒止没有再出现。2)、3) 的命令因此回到默认路径；`MINEKIN_DEMO_BUNDLE_PROFILE` 仍然可用，用途是下一次"字节动了、封证未续"的窗口。旧封证与上面那条 rc=11 读数作为历史读数保留，不改写。
-6. **会话是被停下来的，不是自己收尾的。** 本次 run 文档：`stop_reason: CONTROL_CHANNEL_LOST`、`outcome: BRIDGE_LOST`、`input_release_failed: true`（停止指令里那把租约 `unconfirmed: [290]`）。也就是说"交还按键"这一步在自主收尾路径上还没有确认闭环。
+6. **会话是被停下来的，不是自己收尾的。** 本次 run 文档：`stop_reason: CONTROL_CHANNEL_LOST`、`outcome: BRIDGE_LOST`、`input_release_failed: true`（停止指令里那把租约 `unconfirmed: [290]`）。也就是说"交还按键"这一步在自主收尾路径上还没有确认闭环。**这一格在 2026-09-30 的自主运行里量到了闭环**：run `1d681c16750d4805a7603973f7175f99` 是 `input_release_failed: false`、`session_state: STOPPED`、`connection_state: PLAYABLE`，停止指令逐字为 `{"asked": [385], "released": [385], "unconfirmed": [], "nothing_held": [], "left_alone": [], "terminated": [385], "unresolved": []}`，而它的收尾原因是 `autonomous.stop_reason: NO_FEASIBLE_SKILL`（心的改线自己停下来的），不是控制器丢通道。历史上那次 `unconfirmed: [290]` 的读数原样保留，不改写。
 7. **只在 loopback 上跑。** 不连接、不修改任何远程测试服；无 HOST/PERSIST、无在线认证、无公网访问。Dashboard 的通用写控制端点未开放，唯一已授权的写面是身份改名。
 8. **`--gateway`/`--browse` 需要宿主机能起容器端口**，且 `--browse` 会在本机监听 8787 与 5175；脚本只会关掉自己起的那个容器，已经在跑的容器原样保留并报告。
 
@@ -90,6 +90,7 @@ export MINEKIN_RUNNER_FORWARD_ENV=<存放密钥的那个变量名>  # 逗号分�
 12. **craft_all 这一笔在活字节上仍不足，这一次是有名字的。** 冷卷 run `615eb862…` 的三件证据把范围收到一处：客户端日志里 `bridge clicked recipe minecraft:oak_planks (craftAll=true)` 说点击确实发出并被接受；`advancements/…/oak_planks` 的 `done: true`（`has_logs` 在点击前两秒达成）和存档 `recipeBook` 里的 4 条配方说明配方书侧是开着的，"配方书不认识这笔点击"那条猜测被排除；而同一份 player.dat 里 `Inventory` 是 **0 格**、没有 `Carried`。合起来的读数只支持一种说法：材料离开了 PlayerInventory（进了 2×2 网格），到存盘那一刻没有任何东西回到背包。于是第 10 条那句"默认点击已换成会把成品放进背包的那一笔"在活字节上并不成立，`craft` 保留原样而收口改用第 11 条的技能。
 13. **木镐这一步卡在 2×2 网格，不在技能上。** `craft_take_result` 已经在 2×2 里连过两配方（木板、木棍），但 `minecraft:wooden_pickaxe` 需要 3×3 工作台的网格；玩家自带界面装不下它，而本项目还没有"放下一个工作台"的技能（`SKILL_OFFER` 里没有放置这一步）。也就是说"最终取得木镐"这一目标欠的是**放置技能 + 木板数量**（一次采木 = 4 板，镐要 3 板 + 2 棍，还要先摆台），不是合成判据。这一条留给主控决定要不要把 S2 的收口范围扩到放置。
 14. **`collect_dropped` 现在会追掉落物，但它要求的"看得见"并不恒成立。** 三次运行里两次 CONFIRMED（`615eb862…` 的 `steps=1, newest_checked_tick=19068`；`e1e98155…` 的 `steps=1, newest_checked_tick=1699`），一次 `FAILED / NO_SEEN_DROP`（run `8b8412ca182c4bb7b3764df5a5304d76`：`break_seen_block` 在 tick 1640 就 CONFIRMED，紧接着的 `collect_dropped` 在同一个 tick 的一帧里没读到掉落物）。所以这一步不是恒败，但也不是恒过——它把"那一帧里看得见"当成了前提，而木头从被破坏的那一格掉到地上时可能正好在视野锥之外。这一步的健壮性还欠一次改动（要么允许多帧重试，要么在破坏后重新瞄准掉落点）。
+15. **面板说不出"心自己按名字停的线"。** 自主收尾的名字（`autonomous.stop_reason`、`excluded_skills`、`current_intent.kind: BLOCKED`）只活在 run 文档里，台账没有对应的一行；只看面板会读到 `SessionInterrupted | outcome=BRIDGE_LOST`。逐行读数见六之二末尾。这一格是 S3-C 要动的地方：把名字落进台账，而不是把 run 文档塞进投影。
 
 ## 六、本次演示的读数（2026-09-29，run `0c10d0774f704f47a909728cf745135e`）
 
@@ -107,3 +108,31 @@ export MINEKIN_RUNNER_FORWARD_ENV=<存放密钥的那个变量名>  # 逗号分�
 只读投影在同一份台账上的读数（`build_snapshot(/data, kin-local-demo)`）：`skillSteps` 状态 `known`，`stepIndex=4 / stepCount=4`、`goal=hold_a_wooden_pickaxe`、`skill=turn_to`、`result=STARTED`、`reason=AIM_IN_PROGRESS`、`attribution=ACTION_NOT_EFFECTIVE`、`decisionSource=local_reflection`、`modelRefusal=MODEL_NOT_CONFIGURED`，`modelConfig` 与 `modelCost` 两组为 `not_wired` 并写明理由。
 
 这一档只声明"本地 1.20.1 的这条 demo 跑通了"，不声明 Minekin 整体完工。
+
+## 六之二、自主闭环的那一份读数（2026-09-30，run `1d681c16750d4805a7603973f7175f99`）
+
+`--autonomous`，热卷（同卷同 Kin 根，上一次是 `615eb862…`），`auto_bundle` 走默认 registry 路径（`status: ready`、`reused: 3639`、`installed: 0`、`registry_revision: c2aace9aed0b…`）。这一档和上一档的区别是**它跑的是第 11 条的技能**：心问的是 `craft_take_result`，不是 `craft`。
+
+| 步 | 意图（`intent.reason`） | 结果 | 失败原因 / 归因 | 依据的读数 → 核对的读数 |
+| --- | --- | --- | --- | --- |
+| 1 | break the block in view for minecraft:oak_log | CONFIRMED | — | tick=1885 → tick=1960 |
+| 2 | collect the minecraft:oak_log in view | CONFIRMED | — | 1960 → 1982 |
+| 3 | craft minecraft:oak_planks for hold_a_wooden_pickaxe | CONFIRMED | — | 1982 → 2015 |
+| 4 | craft minecraft:stick for hold_a_wooden_pickaxe | CONFIRMED | — | 2015 → 2037 |
+| 5 | look for the next thing the milestone needs | FAILED | AIM_STALLED / ACTION_NOT_EFFECTIVE | 2037 → 2059 |
+| 6 | look for the next thing the milestone needs | FAILED | AIM_STALLED / ACTION_NOT_EFFECTIVE | 2059 → 2081 |
+| 7 | look for the next thing the milestone needs | FAILED | AIM_STALLED / ACTION_NOT_EFFECTIVE | 2081 → 2103 |
+
+于是"取木→拾取→合成→成品进入背包"这一条链**在自主路径上也是靠读数确认的**（`autonomous.confirmed: 4`），不再只在技能计划那档里成立。
+
+停止是心自己收的线，不是通道丢的：三次 `turn_to` 撞同一堵（`AIM_STALLED`）之后，mind 段是 `excluded_skills: ["turn_to"]`、`retry_budget: 2`、`current_intent: {kind: BLOCKED, reason: NO_FEASIBLE_SKILL, observation_ref: "tick=2103;generation=1"}`，`autonomous.stop_reason: NO_FEASIBLE_SKILL`；会话侧 `session_state: STOPPED`、`input_release_failed: false`，停止指令逐字 `release: {"asked": [385], "released": [385], "unconfirmed": []}`（第 6 条那一格因此闭环）。`outcome: BRIDGE_LOST` 仍是 harness 到点停问的收尾，退出码 14。
+
+其余读数：`direction: hold_a_wooden_pickaxe`、`goal_met: false`、`intent_generation: 7`、`model_enabled: false / model_calls: 0 / model_refusal: MODEL_NOT_CONFIGURED`、四次意图全来自 `local_reflection`、`perceived_information_class: PLAYER_EQUIVALENT`、`cognition_refusals: {MANAGEMENT_ONLY_DTO: 4}`、`entities_admitted: 19`、`snapshots_admitted: 1`、`actions_applied: 6 / actions_refused: 13`。
+
+同一份台账上的只读投影（`build_snapshot(/data, kin-local-demo)` 与 `build_timeline`，2026-09-30 本机对同一卷取的读数）与上面**逐行一致**：本次会话 33 行，`SkillStepRecorded` 七行按 `step_index=1..7` 排开，前四行 `result=CONFIRMED`（第 3、4 行的 `skill` 就是 `craft_take_result`）、后三行 `turn_to / FAILED / AIM_STALLED / ACTION_NOT_EFFECTIVE`，七行都带 `goal=hold_a_wooden_pickaxe, decision_source=local_reflection, model_refusal=MODEL_NOT_CONFIGURED`；快照的 `skillSteps` 取最后一行，因此面板那格是 `stepIndex=7 / stepCount=7`。输入释放也有行：六条 `InputLeaseGranted`（`control.{gui,aim,hotbar,move,mine,screen}.v1`）之后一条 `InputReleased | reason=EXPLICIT, had_lease=True`，再接 `FAILED→STOPPING→STOPPED`。`modelConfig`/`modelCost` 两格仍是 `not_wired` 并写明理由（第 3 条）。
+
+**这一档量到一处 S3 要修的解释缺口**：心的收尾名没有落到台账上。run 文档里 `autonomous.stop_reason: NO_FEASIBLE_SKILL`、`excluded_skills: ["turn_to"]`、`current_intent.kind: BLOCKED` 都在，而台账那 33 行里**没有任何一行写这个名**——面板最新一行的解释是第 7 步的 `AIM_STALLED`，会话侧则是 `SessionInterrupted | outcome=BRIDGE_LOST`。只看面板的人会读成"通道被掐了"，而真实读数说"心自己按名字停的线，通道只是随后被 harness 停掉"。这一格排在 S3-C：把自主收尾的名字落进台账，让面板不靠 run 文档也能说出停在哪。
+
+`goal_met: false` 与第 13 条一致：木镐要 3×3 工作台，而 `SKILL_OFFER` 里没有放置这一步。**这一档不声明木镐已取得**，它声明的是：S2 这条链在自主路径上按读数收口了（取木→拾取→合成→成品进包，四步全靠后来的读数确认），心在撞墙之后按读数把 `turn_to` 排除掉并具名停下，而面板对同一次 run 的七行解释与 run 文档逐行一致——除上面点名的那格收尾解释。
+
+这一档只声明"本地 1.20.1 的这条自主链按读数收口了"，不声明 Minekin 整体完工。
