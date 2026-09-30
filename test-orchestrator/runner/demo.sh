@@ -55,6 +55,19 @@
 #   MINEKIN_DEMO_WALK_SECONDS  how long the forward key is held     (8)
 #   MINEKIN_DEMO_TURN_DEGREES  how far the run looks to the right   (45)
 #   MINEKIN_DEMO_AUTONOMOUS_STEPS  how many skills --autonomous may attempt (12)
+#   MINEKIN_DEMO_GOAL_PRODUCT  what --autonomous works toward, as an item id
+#                                  (minecraft:wooden_pickaxe). Set it empty to ask for a Kin with
+#                                  no standing craft target at all — Core reads no default item,
+#                                  so an unset goal is a different run, not the pickaxe one.
+#   MINEKIN_DEMO_GOAL_QUANTITY  how many of that item the run wants        (1)
+#   MINEKIN_DEMO_GOAL_SOURCE_ITEM  the raw item the build starts from      (minecraft:oak_log)
+#   MINEKIN_DEMO_GOAL_DIRECTION  a heading the run turns to before it works  (unset)
+#                                  These four are where the demo's wooden-pickaxe chain lives.
+#                                  Any item id the recipe table knows takes the pickaxe's place,
+#                                  which is how one run shows the same craft code on something
+#                                  else; only --autonomous is handed them, because a skill plan
+#                                  names its own steps and a mind with no plan is the only thing
+#                                  that reads a standing goal.
 #   MINEKIN_DEMO_SECONDS     how long the session may take          (2700 clean / 600 repeat)
 #   MINEKIN_DEMO_HANDSHAKE_SECONDS  how long the client's Bridge has to prove
 #                                  its session once the JVM is launched     (90)
@@ -124,6 +137,30 @@ fi
 # one costs its timeout, so a bound the operator can read in the command line beats one
 # that only appears in the run document.
 AUTONOMOUS_STEPS="${MINEKIN_DEMO_AUTONOMOUS_STEPS:-12}"
+# The standing goal, which is the demo's, not Core's. `MINEKIN_GOAL_*` is the name the
+# product reads and it carries no default item — a run that hands it nothing has no
+# milestone to hold, which is the shape that proves the point — so the wooden-pickaxe
+# chain this demo has always walked is stated here and nowhere below it. `${VAR-default}`
+# rather than `${VAR:-default}` on purpose: setting `MINEKIN_DEMO_GOAL_PRODUCT=` empty is
+# an ask, and a colon would silently answer it with the pickaxe.
+GOAL_PRODUCT="${MINEKIN_DEMO_GOAL_PRODUCT-minecraft:wooden_pickaxe}"
+GOAL_QUANTITY="${MINEKIN_DEMO_GOAL_QUANTITY-1}"
+GOAL_SOURCE_ITEM="${MINEKIN_DEMO_GOAL_SOURCE_ITEM-minecraft:oak_log}"
+GOAL_DIRECTION="${MINEKIN_DEMO_GOAL_DIRECTION-}"
+if [ -n "${GOAL_QUANTITY}" ]; then
+    case "${GOAL_QUANTITY}" in
+        *[!0-9]*)
+            printf 'demo: MINEKIN_DEMO_GOAL_QUANTITY must be a whole number of items, got %q.\n' \
+                "${GOAL_QUANTITY}" >&2
+            exit 2
+            ;;
+    esac
+    if [ "${GOAL_QUANTITY}" -lt 1 ]; then
+        printf 'demo: MINEKIN_DEMO_GOAL_QUANTITY=%s asks for a goal of none; the Kin cannot hold zero of an item.\n' \
+            "${GOAL_QUANTITY}" >&2
+        exit 2
+    fi
+fi
 PROBE_SECONDS="${MINEKIN_DEMO_PROBE_SECONDS:-1}"
 DEMO_CASE="${MINEKIN_DEMO_CASE:-}"
 KILL_PLAYER="${MINEKIN_DEMO_KILL:-}"
@@ -332,6 +369,17 @@ case "${command}" in
             "${SERVER_PROFILE##*/}" "${bundle_source}" "${AUTONOMOUS_STEPS}"
         printf 'demo: nobody names the steps for this run -- which skills it attempts is what the readings decide,\n'
         printf 'demo: so this line cannot tell you the sequence, and neither can the log until the steps land\n'
+        if [ -n "${GOAL_PRODUCT}" ]; then
+            goal_facing=""
+            [ -z "${GOAL_DIRECTION}" ] || goal_facing=", facing ${GOAL_DIRECTION}"
+            printf 'demo: this demo hands the mind a standing goal: %s of %s, from %s%s\n' \
+                "${GOAL_QUANTITY}" "${GOAL_PRODUCT}" "${GOAL_SOURCE_ITEM}" "${goal_facing}"
+            printf 'demo: the item is named here and not in Core, so any recipe the table knows can stand in\n'
+            printf 'demo:   for it, and a run that names a different one is the same code asked for that\n'
+        else
+            printf 'demo: no standing goal is handed to this run, so the mind holds nothing it was told to want\n'
+            printf 'demo: and chooses from what the Kin sees -- this is the shape with no default item\n'
+        fi
         ;;
     *)
         printf 'demo: probing %s, preparing %s for it, joining, then walking %ss and turning %s%s\n' \
@@ -363,6 +411,7 @@ fi
 # it names no steps at all, and the mind asks for one skill at a time against the
 # reading it has. All three need the same thing from the world — something in view that
 # a skill can act on — so the trunk ask belongs to both skill shapes, not to one.
+goal_env=()
 case "${command}" in
     skills)
         session_args+=(--skill-plan "${SKILL_PLAN}")
@@ -371,6 +420,15 @@ case "${command}" in
     autonomous)
         session_args+=(--autonomous --autonomous-steps "${AUTONOMOUS_STEPS}")
         trunk_env=(MINEKIN_DOMAIN_RESOURCE_TRUNK=1)
+        # Handed to the session by name, and only for this shape: a skill plan names its
+        # own steps and the scripted hold/look run builds no mind at all, so a goal on
+        # those two commands would be a knob nothing reads.
+        goal_env=(
+            MINEKIN_GOAL_PRODUCT="${GOAL_PRODUCT}"
+            MINEKIN_GOAL_QUANTITY="${GOAL_QUANTITY}"
+            MINEKIN_GOAL_SOURCE_ITEM="${GOAL_SOURCE_ITEM}"
+            MINEKIN_GOAL_DIRECTION="${GOAL_DIRECTION}"
+        )
         ;;
     *)
         session_args+=(
@@ -395,6 +453,7 @@ fi
 
 env "${death_env[@]}" \
     "${trunk_env[@]}" \
+    "${goal_env[@]}" \
     MINEKIN_RUNNER_DATA="${VOLUME}" \
     MINEKIN_SERVER_JAR="${SERVER_JAR}" \
     MINEKIN_KIN_ID="${KIN}" \

@@ -6,18 +6,27 @@ carries when a decision really came back over a socket: `decision_source: model`
 document and on the panel, with `model_calls` counted and a cost priced from reported usage.
 This script is the endpoint half of that measurement. It is started inside the session's own
 container, on that container's loopback, which is the only address the provider's base-URL rule
-accepts for plain http (`domain/model_access.py` refuses a non-loopback http hop because the
-key would cross it in the clear). Nothing here is published on a port, nothing listens on an
-interface but `127.0.0.1`, and no real provider is contacted.
+accepts for plain http (`domain/model_access.py` refuses a non-loopback http hop because the key
+would cross it in the clear). Nothing here is published beyond that loopback, and no real provider
+is contacted.
 
-It answers one way and one way only: the first skill id the request offered, with the
-generation the request carried echoed back. That is deliberately not a good player — it is a
-known answer, so a run document that says the model chose can be checked against a choice
-nobody could have produced by `local_reflection`.
+The base URL that reaches it is the bare address — `http://127.0.0.1:<port>`, no `/v1` on it —
+because `OpenAICompatibleProvider` appends `/chat/completions` itself and this handler answers 404
+for every other path. A run that points at `/v1` gets `model_refusal: PROVIDER_STATUS` on every
+ask, which is the honest filing but shows nothing.
+
+It answers one way and one way only: the first skill the request offered whose required arguments
+this script can state from the request's own observation summary — a craft it can name a
+`target_item` for, from the `craft_options` the summary lists, with a `quantity` of one — and
+otherwise the first offer it can run without arguments. The generation the request carried is
+echoed back. That is deliberately not a good player — it is a known answer, so a run document that
+says the model chose can be checked against a choice nobody could have produced by
+`local_reflection`, and against a product nobody in Core named.
 
 Nothing it receives is written out. The request's `Authorization` header is never read, and the
 prompt text is never logged: an operator pointing a real key at this would still find neither
-the key nor the world's description in a log line.
+the key nor the world's description in a log line. The only thing echoed is the parameter this
+script chose, which is a game item id read back out of the offer it was handed.
 """
 
 from __future__ import annotations
@@ -31,7 +40,110 @@ from typing import cast
 COMPLETIONS_PATH = "/chat/completions"
 MAX_REQUEST_BYTES = 1_048_576
 
+#: The one quantity this script ever asks for. A batch is the smallest complete statement of a
+#: craft, and a number invented here would be indistinguishable from one the summary supported.
+FAKE_QUANTITY = 1
+
 counts = {"calls": 0, "refusals": 0}
+
+
+def _string_list(value: object) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [item for item in cast("list[object]", value) if isinstance(item, str)]
+
+
+def _as_dict(value: object) -> dict[str, object]:
+    return cast("dict[str, object]", value) if isinstance(value, dict) else {}
+
+
+def _first_key(value: object) -> str:
+    for key in _as_dict(value):
+        if key:
+            return key
+    return ""
+
+
+def _arguments_for(parameters: list[object], observation: dict[str, object]) -> dict[str, object]:
+    """Fill this skill's declared parameters from the summary the request carried.
+
+    Nothing here looks anything up in the recipe table or the reading: the request already holds
+    the list the local layer computed, and this script chooses from it the way the ask vocabulary
+    intends — which is the point of running it against a live session.
+    """
+
+    craft_options = _string_list(observation.get("craft_options"))
+    drop = _first_key(observation.get("dropped_items"))
+    arguments: dict[str, object] = {}
+    for entry in parameters:
+        if not isinstance(entry, dict):
+            continue
+        field = cast("dict[str, object]", entry)
+        name = field.get("name")
+        kind = field.get("kind")
+        if not isinstance(name, str) or not isinstance(kind, str):
+            continue
+        if kind == "item_id":
+            value = craft_options[0] if name == "target_item" and craft_options else drop
+            if value:
+                arguments[name] = value
+        elif kind == "quantity":
+            arguments[name] = FAKE_QUANTITY
+    return arguments
+
+
+def _required_names(parameters: list[object]) -> list[str]:
+    """Which of this skill's declared arguments it cannot run without."""
+
+    names: list[str] = []
+    for entry in parameters:
+        if not isinstance(entry, dict):
+            continue
+        field = cast("dict[str, object]", entry)
+        name = field.get("name")
+        if field.get("required") is True and isinstance(name, str):
+            names.append(name)
+    return names
+
+
+def _parameters_of(skill_parameters: dict[str, object], candidate: str) -> list[object]:
+    declared = skill_parameters.get(candidate)
+    return cast("list[object]", declared) if isinstance(declared, list) else []
+
+
+def _choice_of(
+    skill_ids: list[object], skill_parameters: dict[str, object], observation: dict[str, object]
+) -> tuple[str, dict[str, object]]:
+    """The skill this script answers, and the arguments it can state for it.
+
+    Preference goes to the first offer with a required argument whose value the summary really
+    supplied — a craft it can name a product for. That is not a guess at good play: an offer where
+    a required argument is fillable is the offer where the ask vocabulary has something to say, and
+    the run is being measured on whether a product named over the socket is what the world did. An
+    argument-free skill is the fallback, and the first offer with an empty ask last, which is the
+    honest shape: the refusal the gate then returns is what the run document reports, rather than
+    this script inventing a product the summary never showed.
+    """
+
+    fallback = ""
+    plain: tuple[str, dict[str, object]] | None = None
+    for candidate in skill_ids:
+        if not isinstance(candidate, str):
+            continue
+        if fallback == "":
+            fallback = candidate
+        parameters = _parameters_of(skill_parameters, candidate)
+        required = _required_names(parameters)
+        arguments = _arguments_for(parameters, observation)
+        if any(name not in arguments for name in required):
+            continue
+        if required:
+            return candidate, arguments
+        if plain is None:
+            plain = (candidate, arguments)
+    if plain is not None:
+        return plain
+    return fallback, {}
 
 
 class FakeCompletionsHandler(BaseHTTPRequestHandler):
@@ -60,25 +172,33 @@ class FakeCompletionsHandler(BaseHTTPRequestHandler):
             self._reply(422, {"error": {"message": "the request offered no skill"}})
             return
         offered = cast("list[object]", skill_ids)
-        if not offered or not isinstance(offered[0], str):
+        if not offered:
             counts["refusals"] += 1
             self._reply(422, {"error": {"message": "the request offered no skill"}})
             return
-        chosen = offered[0]
+        chosen, arguments = _choice_of(
+            offered, _as_dict(offer.get("skill_parameters")), _as_dict(offer.get("observation"))
+        )
+        if not chosen:
+            counts["refusals"] += 1
+            self._reply(422, {"error": {"message": "the request offered no skill"}})
+            return
         generation = offer.get("intent_generation")
         prompt_tokens = max(1, len(body) // 4)
         completion_tokens = max(1, len(chosen) // 4)
         content = json.dumps(
             {
                 "skill_id": chosen,
-                "reason": "the fake endpoint names the first offer",
+                "arguments": arguments,
+                "reason": "the fake endpoint names the first offer it can fill in",
                 "intent_generation": generation if isinstance(generation, int) else 0,
             }
         )
         counts["calls"] += 1
-        # Only counts and the chosen id: no header, no prompt, no observation text.
+        # Only counts, the chosen id and the parameter it named: no header, no prompt, no
+        # observation text.
         print(
-            f"fake-model: call {counts['calls']} chose {chosen} "
+            f"fake-model: call {counts['calls']} chose {chosen} {json.dumps(arguments)} "
             f"from {len(offered)} offered (generation={generation})",
             flush=True,
         )

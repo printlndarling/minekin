@@ -52,6 +52,7 @@ from minekin_core.domain.model_access import (
     cost_ledger_for,
     key_for,
 )
+from minekin_core.domain.skill_parameters import parameters_for
 
 logger = logging.getLogger(__name__)
 
@@ -70,10 +71,14 @@ RESPONSE_FORMAT: Mapping[str, object] = {"type": "json_object"}
 SYSTEM_PROMPT: str = (
     "You are choosing the next single step for an autonomous Minecraft player called the "
     "Kin. You do not control its keys and you do not declare anything finished. Pick exactly "
-    "one skill_id from the feasible list offered; you may not name an item, a place, a skill "
-    "or a fact that the request did not offer. Answer with one JSON object and nothing else: "
-    '{"skill_id": <one offered id>, "reason": <one short sentence>, "intent_generation": '
-    "<the number the request carried>}."
+    "one skill_id from the feasible list offered and fill in the arguments that skill's entry "
+    'in "skill_parameters" asks for: an item id only in the spelling the request shows, a '
+    "quantity only within the bounds it states, and nothing else — no key you were not given, "
+    "no item the request did not name, no recipe, no slot number and no coordinates. The "
+    "request carries the Kin's own observation summary and the Kin, not you, decides what a "
+    "product costs and whether a step is possible. Answer with one JSON object and nothing "
+    'else: {"skill_id": <one offered id>, "arguments": <the object that skill takes>, "reason": '
+    '<one short sentence>, "intent_generation": <the number the request carried>}.'
 )
 
 
@@ -169,6 +174,18 @@ def _echoed_generation(value: object) -> int | None:
     """
 
     return _non_negative_int(value)
+
+
+def _echoed_arguments(value: object) -> Mapping[str, object]:
+    """The ask a reply filled in, as a mapping — or an empty one.
+
+    Not a `None` and not a refusal, because "no arguments" is a legal answer for a skill that
+    takes none and the two cases are indistinguishable from an endpoint that ignored the field.
+    What separates them is the declaration, and `compose_decision` consults it: an answer with no
+    arguments for a skill that cannot run without one comes back `MODEL_ARGUMENTS_MISSING`.
+    """
+
+    return _as_mapping(value)
 
 
 def _counts_of(envelope: Mapping[str, object]) -> _Counts:
@@ -312,6 +329,10 @@ class OpenAICompatibleProvider:
             _text(read.choice.get("skill_id")) or "",
             _text(read.choice.get("reason")) or "",
             _echoed_generation(read.choice.get("intent_generation")),
+            # The ask, unchecked here on purpose: the declaration in `domain.skill_parameters` is
+            # the one reader of what an argument may be, and it is the same one the mind's own
+            # fallback answer is written against.
+            arguments=_echoed_arguments(read.choice.get("arguments")),
             # The key this call put on the wire, handed to the gate so a proxy that echoed it
             # back inside the completion has it removed before anything in Core holds the text.
             secrets=() if key is None else (key,),
@@ -372,16 +393,25 @@ class OpenAICompatibleProvider:
     def _body(self, request: DecisionRequest) -> dict[str, object]:
         """The JSON body: this run's model name, and the request restated as data.
 
-        The feasible list, the generation and the remaining budget are the numbers it carries,
-        and the observation arrives as a reference — the world itself stays in Core, so a call
-        cannot reveal more of it than the summary already named.
+        Three things travel, and each is there because the answer needs it rather than because an
+        endpoint might like it: the feasible list with the arguments each of those skills takes,
+        the observation summary this side read off the newest player-equivalent reading, and the
+        numbers the spend and staleness checks are written against. An answerer asked to name a
+        product has to be shown what the bag holds; asking it blind is how a build ends up
+        refusing a decision it never gave the model a way to make correctly.
+
+        What does not travel is the world: no coordinates, no block positions, no entity ids, no
+        session material, no credential. `observation_ref` still names the reading the summary
+        came from, so a reader can tie an ask back to the bytes rather than to this body.
         """
 
         offer: dict[str, object] = {
             "observation_ref": request.observation_ref,
+            "observation": dict(request.observation_summary),
             "active_goal": request.active_goal,
             "needs": dict(sorted(request.needs.items())),
             "feasible_skill_ids": list(request.feasible_skill_ids),
+            "skill_parameters": parameters_for(request.feasible_skill_ids),
             "persona_seed": request.persona_seed,
             "budget_remaining": request.budget_remaining_micro,
             "intent_generation": request.intent_generation,

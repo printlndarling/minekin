@@ -37,6 +37,12 @@ from minekin_core.adapters.launcher.server_profile import (
     load_session_server_profile,
 )
 from minekin_core.domain.errors import MinekinError
+from minekin_core.domain.goal_spec import (
+    GOAL_DIRECTION_VARIABLE,
+    GOAL_PRODUCT_VARIABLE,
+    GOAL_QUANTITY_VARIABLE,
+    GOAL_SOURCE_ITEM_VARIABLE,
+)
 
 RUNNER = Path(__file__).resolve().parents[2] / "test-orchestrator" / "runner"
 SCRIPTS = sorted(RUNNER.glob("*.sh"))
@@ -213,6 +219,39 @@ def test_every_knob_the_harness_reads_is_one_the_wrapper_hands_it() -> None:
         name for name in (*JOINER_CONTROL_KNOBS, *SEAL_HANDOVER_KNOBS) if name in product_roster
     )
     assert not leaked, f"a runner knob reached config.FORWARDED_VARIABLES: {leaked}"
+
+
+def test_the_goal_the_demo_names_is_the_goal_the_wrapper_delivers() -> None:
+    """The standing goal is a Demo fixture now, and a fixture has to survive two hops.
+
+    Core reads no default item: whoever wants a pickaxe says so. `demo.sh` says it, and the
+    name then crosses two boundaries before the CLI reads it — the `env NAME=value` the demo
+    puts in front of `run.sh`, and the `-e NAME` list `run.sh` gives `docker`. Drop either
+    hop and the run does not fail: it simply has no milestone, which is a different ask the
+    operator will read as the one they made. That is the same silent-shape fault the test
+    above exists for, one script further out, and it is why both halves are asserted here.
+
+    The roster comes from `goal_spec` rather than a copy, so a rename in the product turns
+    this red instead of leaving the harness handing over a name nothing reads.
+    """
+
+    expected = {
+        GOAL_PRODUCT_VARIABLE,
+        GOAL_QUANTITY_VARIABLE,
+        GOAL_SOURCE_ITEM_VARIABLE,
+        GOAL_DIRECTION_VARIABLE,
+    }
+
+    demo = (RUNNER / "demo.sh").read_text(encoding="utf-8")
+    wrapper = (RUNNER / "run.sh").read_text(encoding="utf-8")
+
+    handed = set(re.findall(r"\b(MINEKIN_GOAL_[A-Z_]+)=", demo))
+    delivered = set(re.findall(r"-e\s+(MINEKIN_GOAL_[A-Z_]+)", wrapper))
+
+    assert handed == expected, f"demo.sh hands these goal names to the session: {sorted(handed)}"
+    assert delivered == expected, (
+        f"run.sh forwards these goal names into the container: {sorted(delivered)}"
+    )
 
 
 def test_every_deadline_loop_gives_the_clock_a_chance_to_advance() -> None:

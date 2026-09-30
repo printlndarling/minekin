@@ -181,6 +181,8 @@ export MINEKIN_RUNNER_FORWARD_ENV=<存放密钥的那个变量名>  # 逗号分�
 
 23. **改线那一格现在按"更晚的一帧能不能把它说反"分道，而收尾行把那个名字带到面板上（2026-09-30，run `ced217a0d068418385a439084e3a47ca`，server run 目录 `run-14`，逐字读数见六之十）。** 三个具名前提在 `player_mind.record_result` 里不再走同一条路：`CRAFT_MATERIALS_MISSING` 是**能更线的**（背包空不空由世界说，往后一帧完全可能把它讲反），于是不烧任何重试额度（`attempts` 保持空），下一次直接问"有没有掉在地上的东西可捡"，而合成这一步本身留在候选里等下一批材料；`CRAFT_GRID_TOO_SMALL` 与 `CRAFT_RECIPE_UNAVAILABLE` 是**死路**（没有任何一帧能让 2×2 装下 3×3、也没有任何一帧能让目录里不存在的配方存在出来），第一句就把它排除。顺带补上归因的一处洞：`CRAFT_RECIPE_UNAVAILABLE` 原先不在 `_NOT_IMPLEMENTED_REASONS` 里，会被折成 `ACTION_NOT_EFFECTIVE`，读起来像"试过了没成"而不是"这张表里没有这个东西"。那个名字同名穿过四张面：`mind.last_precondition` → mind 段（run 文档）→ 台账 `AutonomousRunHalted` 的第七个具名成员 → gateway 的 allowlist（契约 §11），空串按 §10 既有的规矩整格省略；确认一步把它清空。**活体读到的那一格是省略那一格**：这一发的收尾行 raw payload 七个成员全在，`last_precondition` 为 `""`、`excluded_skills` 为 `[]`，面板字节因此是 `goal=hold_a_wooden_pickaxe, stop_reason=CLIENT_EXITED, error=143, steps=5, confirmed=4`，两格都没有渲染成 `=` 或 `[]`。**这一格因此只判成"更线路径的代码与契约完成"，不判成活体完成**：更线路径上的具名失败（`CRAFT_MATERIALS_MISSING` 从世界上回来）在这一发以及此前任何一发里都没有读到过——历发活体上的失败名字一直是 `CLIENT_EXITED`。另两处按实登记、不改写：其一，`error` 那一格代码路子上是 `halted.stop_detail` 原样投影，所以它在 `CONTROL_CHANNEL_LOST` 上是异常类名（六之三那个 `ConnectionResetError`）、在 `CLIENT_EXITED` 上是那台 JVM 的终止信号（这一发的 `143`），§10 那句"其余收尾为空串"说的是"没有 detail 的收尾"，本条按字节更正；其二，输入释放这一发又回到 `input_release_failed: true` 那一形状（`{"asked": [237], "released": [], "unconfirmed": [237]}`，而 `terminated: [237]` 是第 20 条那处矛盾的第六次复现），第 6 条那句"这一格已经量到闭环"只对 `NO_FEASIBLE_SKILL` 那种自己停下来的收尾成立，客户端先没的那一发确认永远回不来。**不声明**：木镐仍未取得（`goal_met: false`，第 13 条那一格没动），3×3 摆格、B 分支与 `close_screen` 进 `SKILL_OFFER` 仍归主控。
 
+24. **固定木镐那一串目标从产品路径上换了下来，而"模型提出 skill + arguments"那一格在活体上读到了（2026-10-01，run `785936d2ffca4461ae11ea444c5d6643`，server run 目录 `run-17`，逐字读数见六之十一）。** 两面新的面把职责分开了：`domain/skill_parameters.py` 把"每个行为吃哪些参数"写成数据（种类、必带与否、上下界，加上 `MODEL_ARGUMENTS_UNKNOWN / MODEL_ARGUMENTS_MISSING / MODEL_ARGUMENTS_INVALID` 三个拒止名），`domain/goal_spec.py` 把里程碑写成一个 product id 加一个数量加一个来源物加一个朝向，从 `MINEKIN_GOAL_PRODUCT / QUANTITY / SOURCE_ITEM / DIRECTION` 读——**Core 不再持有任一默认产物**：环境不给就是"没有常驻目标的 Kin"（这是支持的形状，不是坏掉的），给了而拼错按 `GOAL_NOT_CONFIGURED` 拒在配置阶段。请求侧带上这次读数的真实摘要（`inventory` 计数、`craft_options`、`dropped_items`、`selected_slot`、瞄准的方块、生命与食物，以及里程碑那一格）和只就可行集声明的 `skill_parameters`；答复侧带 `arguments`。`PlayerMind._call_for` 是询问词汇变成计划词汇的那唯一一处，校验不过就按那个名字退回本地反思并把 `model_refusal` 记进文档，绝不换一个本地产物顶上。**木镐那一串现在只住在两处夹具里**：`demo.sh` 的四个 `MINEKIN_DEMO_GOAL_*` 旋钮（用的是 `${VAR-default}` 而不是带冒号那一种，所以 `MINEKIN_DEMO_GOAL_PRODUCT=` 空是一句真问——"给我一个无常驻目标的 Kin"），以及单测的 fixture。`application/player_mind.py`、`domain/goal_spec.py`、`domain/skill_parameters.py`、`adapters/model/openai_compatible.py` 四个文件里 `oak_planks / oak_log / stick / wooden_pickaxe / crafting_table` 五个名字一次都不出现，`src/` 全树除 `domain/recipe_catalog.py` 那四行配方表外只剩两处注释文字提到 item id（`model_access.py:509`、`perception.py:351`）；`tests/unit/test_goal_spec.py` 与 `tests/unit/test_skill_parameters.py` 各带一枚源码扫描钉住这一句，配方表一格未加。**复用**在两层都量到：同一枚循环对 `minecraft:stick` 里程碑与对"无里程碑"各走一遍（`tests/unit/test_autonomous_play.py` 的新格，其中 `test_the_loop_walks_the_plan_as_far_as_the_grid_it_can_open` 现在按 `CRAFT_GRID_TOO_SMALL` 那一个名字停下而不是耗到步数上限），活的那一发则把 `{"target_item": "minecraft:oak_planks", "quantity": 1}`（CONFIRMED 910→943）与 `{"target_item": "minecraft:stick", "quantity": 1}` 两笔从 socket 那头收进来，四步全部 `decision_source: model`。**本课先量的那一格要记下来**：前一发 run `31c3a430e5ad46ee8ce4689e72c3b2fe`（`run-16`）每一步都是 `model_refusal: PROVIDER_STATUS`、`model_calls: 5`，成因是本机脚本把 base URL 写成 `http://127.0.0.1:8818/v1`，而 provider 自己拼 `/chat/completions`（`openai_compatible.py:360`），harness 端点只对这一个路径答话、其余一律 404 ⇒ 拒止名老实记下了这次错配，也说明"接线通没通"这一问在活体上必须先去掉 `/v1` 再问；这一句已写进 `tools/run_fake_model_endpoint.py` 的模块说明。**不声明**：`goal_met: false`，第 4 步那笔在飞的 `craft minecraft:stick` 停在 `UNKNOWN / CLIENT_EXITED`（`stop_detail: "143"`、`outcome: BRIDGE_LOST`、`bridge_lost_reason: "IPC channel closed before a complete frame header"`），而客户端日志里那笔的 id 出现 **2 次**（`bridge clicked recipe minecraft:stick in ed3ef888…`、`bridge clicked slot 0 in ed3ef888…`）⇒ 那是"发了且应用了、只是那一帧之后没有确认读数回来"，第 20/21 条那面墙的第八次复现，判据与已封字节都不在本卡范围内；`input_release_failed: true` 同旧形状（`{"asked": [238], "unconfirmed": [238]}`）。按主控方向，**不再因"木镐尚未取得"追加专用业务步骤**。另具名登记一处可答而未答：模型的 `arguments` 进了 run 文档的 `steps[i].intent.arguments` 与 mind 段的 `executing_arguments`，但没有进台账 `SkillStepRecorded` / `AutonomousRunHalted` 那一行——面板因此说不出"模型当时要的是哪个产物、要几个"，而加那一名是证据格式决定，归主控。
+
 ## 六之四、按产物合成读到的那两发（2026-09-30，runs `d7fafc30bbec4231ba1b52a30b7be6a8` 与 `461bbbf77d884b12a6d1cb814e8901db`）
 同一枚热卷（同卷同 Kin 根 `kin-local-demo`，第二发是 server run 目录 `run-7` 之后的下一次会话），计划换成第 16 条那份只写产物的：
 
@@ -544,3 +546,71 @@ domain: session exited 14
 ```
 
 `input_release_failed: true` 是"确认回不来"那一形状（客户端先没了，Core 的 `session stop` 对着一具空频道发释放），不是"键没松"——这一格与第 6 条那句"闭环"的边界要一起读：闭环只在心自己按名字停下的那种收尾（`NO_FEASIBLE_SKILL`）上被量到；`left_alone` 那六个是历发留在同一卷上的 marker，逐个在新容器里比命令行摘要、不配 ⇒ 不动手。**不声明**：更线那条路径（`CRAFT_MATERIALS_MISSING` 从世界上回来、心因此改问 `collect_dropped`）至今没有在活体上读到过，它由三条单测钉住；木镐仍未取得；3×3 摆格、B 分支、`close_screen` 进 `SKILL_OFFER` 与 marker 累积都仍归主控。
+## 六之十一、第一个从 socket 那头报来的产物（2026-10-01，run `31c3a430e5ad46ee8ce4689e72c3b2fe`（server run 目录 `run-16`，会话 `020c19b4ff1240bbbefb13a514383302`，客户端 pid 255）与 run `785936d2ffca4461ae11ea444c5d6643`（`run-17`，会话 `a0d1b7908a16428ba0f275b5fcb076d7`，客户端 pid 238））
+
+这一发读的是第 24 条那一格：模型能不能提出 `skill + arguments`，而本地那句校验、那条知识来源、那个前提判断和那次按读数的确认，是不是仍然只由 Core 说了算。命令逐字（`.tmp/run-live-v17.sh`，两端点都是 harness 在本次会话自己的容器里起的假端点，不联系任何真实供应商，`MINEKIN_FAKE_MODEL_KEY=local-not-a-secret` 是一枚占位串，不读 `env.txt`）：
+
+```bash
+GOAL_COUNT=16 LOGFILE=.tmp/demo-live-v18.log bash .tmp/run-live-v17.sh   ← run-16，写错地址的那一发
+GOAL_COUNT=16 LOGFILE=.tmp/demo-live-v19.log bash .tmp/run-live-v17.sh   ← run-17，读数对了的那一发
+```
+
+harness 逐字三行（两发一样，只有 server run 目录与 run id 换）：
+
+```text
+demo: the Kin root kin-local-demo already has a store on minekin-local-demo2 -- running on that filled store
+demo: this demo hands the mind a standing goal: 16 of minecraft:stick, from minecraft:oak_log
+domain: the fake model endpoint is serving on 127.0.0.1:8818 for this container
+```
+
+**先记错的那一发（run-16）里，里程碑那一格已经是对的，决策那一格不是**：`milestone {"product_id": "minecraft:stick", "quantity": 16, "source_item_id": "minecraft:oak_log"}`、`direction: hold_stick`，五步全 `source: local_reflection`、全带 `model_refusal: PROVIDER_STATUS`、`model_calls: 5`、`model_spent_micro: 0`——成因是本机脚本把 base URL 写成 `http://127.0.0.1:8818/v1`，provider 自己再拼 `/chat/completions`，而 harness 端点只对那一条路径答话（模块说明已按这一句写死）。这一发因此是"拒止名老实记下了配置错配"的现成对照，不是接线成功的证据。它的五步仍值得逐字留着，因为那是本地反思在非木镐里程碑上的形状：
+
+```text
+step1 break_seen_block  {expected_drop_item: minecraft:oak_log}  CONFIRMED  tick 848 -> 914   reason "break the block in view for minecraft:oak_log"
+step2 break_seen_block  同上                                      CONFIRMED  tick 914 -> 924
+step3 collect_dropped   {item_id: minecraft:oak_log}             CONFIRMED  tick 924 -> 946   reason "collect the minecraft:oak_log in view"
+step4 craft_take_result {target_item: minecraft:stick, quantity: 16} CONFIRMED  tick 946 -> 991  reason "craft minecraft:oak_planks toward minecraft:stick"
+step5 craft_take_result 同上                                      UNKNOWN / CLIENT_EXITED  结果帧 tick 991
+```
+
+第 4 步那句 reason 是"问的是 stick、跑的是木板"——`target_item` 是询问词汇，真跑哪张配方由 `domain/recipe_catalog.py` 在那一刻的背包上算出来，两件事在字节里就分开着。
+
+**读数对了的那一发（run-17）**：四步全 `decision_source: model`、`model_refusal: ""`，`model_calls: 4`、`model_spent_micro: 12`、`model_cap_refusals: 0`、`model_enabled: true`。`steps[i].intent` 逐字：
+
+```text
+step1 break_seen_block   {expected_drop_item: minecraft:oak_log}           CONFIRMED  tick 812 -> 888   ac5a81441f6143f388217693b1d42a2e
+step2 collect_dropped    {item_id: minecraft:oak_log}                      CONFIRMED  tick 888 -> 910   de402700b9514f64a6e6538ae705499f
+step3 craft_take_result  {target_item: minecraft:oak_planks, quantity: 1}  CONFIRMED  tick 910 -> 943   b2325279ca3a4ddd8b7c5b46b7149e6b
+step4 craft_take_result  {target_item: minecraft:stick,  quantity: 1}      UNKNOWN / CLIENT_EXITED  结果帧 tick 954  ed3ef8888d1d469685f49646cdd75850
+```
+
+每步的 `reason` 都是同一句 `the fake endpoint names the first offer it can fill in`，每步的 `model_refusal` 都是空串。**这两笔产物是答复方自己说的**：那个脚本对 `target_item` 只填 `observation.craft_options[0]`、对 `quantity` 只填常量 `1`，所以第 3、4 步读出两个不同的产物名 ⇒ 摘要真到了 socket 那头，而答案跟着读数换；`confirmed: 3 / steps: 4`。
+
+**一处新形状按实登记**：端点说 `quantity: 1`，本地反思那一发说的是 `16`。这不是谁更对——`quantity` 是"这一笔要合成几个"的询问词汇，里程碑的计数住在 `Milestone.quantity`，`goal_met` 由 `held(reading)` 对着世界读数判，不会因为答复写了 1 就被蒙过去。这一发因此读到的正是接口要的分工：答复给参数，本地给校验与判定。
+
+**收尾那一组，逐字**：
+
+```text
+stop_reason CLIENT_EXITED   stop_detail "143"   outcome BRIDGE_LOST
+bridge_lost_reason "IPC channel closed before a complete frame header"
+failure_attribution INSUFFICIENT_INFORMATION   goal_met false   excluded_skills []   last_precondition ""   retry_budget 2
+decision_source model   model_enabled true   model_calls 4   model_spent_micro 12   model_refusal ""
+input_release_failed true   entities_admitted 5   actions_applied 6   actions_refused 7
+world_observations {"admitted": 16, "refused": 0, "stale_tick_dropped": 0, "newest_admitted_tick": 954}
+```
+
+**第 4 步那一笔在客户端自己的日志里出现 2 次**（同一卷、只读挂载 `grep -n`，一个字节都没写），而它是整份日志的结尾：
+
+```text
+[19:18:02] bridge clicked recipe minecraft:oak_planks in b2325279ca3a4ddd8b7c5b46b7149e6b   ← 第 3 步，该 id 共命中 3 次
+[19:18:02] bridge clicked slot 0 in b2325279ca3a4ddd8b7c5b46b7149e6b
+[19:18:03] bridge clicked recipe minecraft:stick (craftAll=false)
+[19:18:03] bridge clicked recipe minecraft:stick in ed3ef8888d1d469685f49646cdd75850
+[19:18:03] bridge clicked slot 0 (button 1, SLOT_CLICK_MODE_QUICK_MOVE)
+[19:18:03] bridge clicked slot 0 in ed3ef8888d1d469685f49646cdd75850
+[19:18:03] Loaded 23 advancements                                              ← 整份日志最后一行
+```
+
+于是第 20/21 条那面墙第八次复现，形状和六之十那发一样：发了、客户端按名字应用了（连点法都写了 `craftAll=false`）、Core 却在下一帧之前失去了频道，于是那一步只能记 `UNKNOWN / CLIENT_EXITED`、归因 `INSUFFICIENT_INFORMATION`。**这一格不判成合成失败**，也不判成成功——它判的是"确认那一帧没回来"，与 `decision_source` 无关：把两发并排看，`local_reflection` 那一发和 `model` 那一发停在同一面墙上、同一格 `stop_detail: "143"`。
+
+**输入侧**：`session stop said {"asked": [238], "released": [], "unconfirmed": [238], "terminated": [238]}`、`left_alone` 八个历发 marker（本容器里逐个比命令行摘要、不配 ⇒ 不动手）、`session exited 14` ⇒ `input_release_failed: true` 仍是"确认回不来"那一形状，边界照第 6 条与第 23 条那句话读。**不声明**：`goal_met: false`（16 枚木棍这一发没数够，第 4 步那笔在飞）；更线那条路径（`CRAFT_MATERIALS_MISSING` 从世界上回来）至今没在活体上读到过，这一发的 `last_precondition` 也是空串；**不再因"木镐尚未取得"追加专用业务步骤**（主控方向，第 24 条）。3×3 摆格、B 分支（重封 bridge-1201）、`close_screen` 进 `SKILL_OFFER`、`started_at` 进 pid 证明、卷上 marker 累积、台账行要不要多带 `arguments` 这一名，仍全部归主控。

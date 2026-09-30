@@ -29,10 +29,12 @@ from minekin_core.application.autonomous_play import (
     run_autonomous_loop,
 )
 from minekin_core.application.player_mind import (
+    CRAFT_GRID_TOO_SMALL,
     CRAFT_MATERIALS_MISSING,
     GOAL_ACHIEVED,
     NO_LATEST_OBSERVATION,
     SKILL_OFFER,
+    MindDecisionKind,
     PlayerMind,
     mind_for,
 )
@@ -51,6 +53,7 @@ from minekin_core.domain.control_vocabulary import (
     MOVE_CAPABILITY,
     SCREEN_CAPABILITY,
 )
+from minekin_core.domain.goal_spec import Milestone
 from minekin_core.domain.model_access import (
     CostLedger,
     Decision,
@@ -70,6 +73,13 @@ PLANKS = "minecraft:oak_planks"
 STICK = "minecraft:stick"
 PICKAXE = "minecraft:wooden_pickaxe"
 CAP = 1_000_000
+
+#: The milestone these cells walk the loop against. It is a parameter of the fixture and not a
+#: constant of the product: `PlayerMind` now asks its caller what to hold, so a run built without
+#: one would be a Kin with nothing to craft toward, and the chain below would never be asked for.
+#: Another item id standing in for this one changes nothing in the loop — that reuse is what
+#: `test_player_mind.py` pins, and the live run names it in the harness.
+GOAL = Milestone(product_id=PICKAXE, source_item_id=LOG)
 
 ALL_CAPABILITIES = frozenset(
     {AIM_CAPABILITY, MINE_CAPABILITY, HOTBAR_CAPABILITY, SCREEN_CAPABILITY, GUI_CAPABILITY}
@@ -250,11 +260,19 @@ def failed(reason: str = "MINING_STALLED") -> SkillOutcome:
     return SkillOutcome(result=ActionResultClass.FAILED, reason=reason, action_id="a-1")
 
 
-def off_mind() -> PlayerMind:
+def off_mind(goal: Milestone | None = GOAL) -> PlayerMind:
+    """A mind on the shipped `off` provider, holding the milestone the fixture names.
+
+    The goal is an argument here rather than a default the product carries: which of these cells
+    walks a craft chain and which one wanders a world with nothing to want is decided by what the
+    caller hands in, and the loop's own behaviour must read the same either way.
+    """
+
     return mind_for(
         OffModelProvider(),
         CostLedger(run_cost_cap=CAP),
         kin_id="kin-01",
+        goal=goal,
         model_enabled=False,
     )
 
@@ -284,7 +302,7 @@ def run(
 
 def test_the_loop_walks_the_plan_as_far_as_the_grid_it_can_open() -> None:
     # Every reading is what the previous confirmed step would leave behind. Nothing here names
-    # a skill: the order comes from the mind, and the stopping comes from a reading.
+    # a skill: the order comes from the mind, and so does the stopping — by a precondition's name.
     stage = Stage(
         reading(tick=100, items=((0, LOG, 3),)),
         reading(tick=140, items=((0, LOG, 2), (1, PLANKS, 4))),
@@ -292,36 +310,39 @@ def test_the_loop_walks_the_plan_as_far_as_the_grid_it_can_open() -> None:
         reading(tick=220, items=((0, LOG, 1), (1, PLANKS, 6), (2, STICK, 4))),
         reading(tick=260, items=((0, LOG, 1), (1, PLANKS, 6), (2, STICK, 4))),
     )
-    skills = TapeSkills(
-        stage,
-        {"craft_take_result": confirmed(), "turn_to": confirmed()},
-    )
+    skills = TapeSkills(stage, {"craft_take_result": confirmed()})
     mind = off_mind()
 
     result = run(stage, skills, mind, step_budget=4)
 
+    # The mind asks for the transaction whose product lands where a reading can see it: the
+    # recipe click alone leaves the result on the cursor or in the grid, and 2026-09-30's two
+    # live runs showed nothing coming back from either, so a chain built on it cannot close.
+    assert all(name == "craft_take_result" for name, _ in skills.ran)
+    # Each of those calls was answered as an order: the ask names the milestone's product on every
+    # step, and the plan says which ingredient craft the reading could run for it. Two vocabularies
+    # on one document, which is what lets a reader tell what was wanted from what was clicked.
+    assert [dict(step.intent.arguments) for step in result.steps] == [
+        {"target_item": PICKAXE, "quantity": 1}
+    ] * 3
     # Two plank batches before the sticks, where the demo fixture's chain asked for one: the
     # tool eats three planks and the stick batch it also eats eats two more, so the job is five
     # planks and a batch of four leaves the reading still short of one. `yields` in the recipe
     # table is what says so, and no call in this loop names a count.
-    assert [name for name, _ in skills.ran] == [
-        "craft_take_result",
-        "craft_take_result",
-        "craft_take_result",
-        "turn_to",
-    ]
-    assert [kwargs.get("recipe_id") for _, kwargs in skills.ran] == [PLANKS, PLANKS, STICK, None]
-    # The mind asks for the transaction whose product lands where a reading can see it: the
-    # recipe click alone leaves the result on the cursor or in the grid, and 2026-09-30's two
-    # live runs showed nothing coming back from either, so a chain built on it cannot close.
-    assert all(name == "craft_take_result" for name, _ in skills.ran[:3])
-    # The last shortfall is the pickaxe, a three-by-three shape, and the only screen the craft
-    # skill opens is the inventory's two-by-two. Clicking it there is a command the world cannot
-    # honour, so the ask never leaves and the mind looks instead — the conservative step the
-    # offer always carries.
-    assert result.stop_reason == STEP_BUDGET_SPENT
+    assert [kwargs.get("recipe_id") for _, kwargs in skills.ran] == [PLANKS, PLANKS, STICK]
+    # The last ask is the milestone's own product, a three-by-three shape, and the only screen this
+    # build opens is the inventory's two-by-two. The offer carries craft because the *table* can
+    # pay for a step, so the local reflection asks; the precondition is judged here, before a
+    # command is built, and the ask never leaves. That is the dead end of §3's three named
+    # preconditions — no later reading could answer it differently, so the loop stops by that name
+    # instead of looking around until the harness spends its budget on a Kin that cannot craft.
+    # The budget is deliberately larger than the run: the name is what ended it, not the count.
+    assert mind.last_intent is not None
+    assert mind.last_intent.kind is MindDecisionKind.HOLD
+    assert mind.last_intent.reason == CRAFT_GRID_TOO_SMALL
+    assert result.stop_reason == CRAFT_GRID_TOO_SMALL
     assert mind.goal_met is False
-    assert len(result.steps) == 4
+    assert len(result.steps) == 3
 
 
 def test_the_loop_closes_on_a_reading_that_shows_the_tool_held() -> None:
@@ -512,7 +533,8 @@ def test_the_run_document_says_who_chose_and_what_the_world_said() -> None:
     assert steps[0]["result_observation_ref"] == "tick=140;generation=1"
     assert steps[1]["result_observation_ref"] == steps[0]["result_observation_ref"]
     block = mind_row(document)
-    assert block["direction"] == "hold_a_wooden_pickaxe"
+    assert block["direction"] == "hold_wooden_pickaxe"
+    assert block["milestone"] == GOAL.as_document()
     assert block["goal_met"] is False
     assert block["model_refusal"] == "MODEL_NOT_CONFIGURED"
     assert block["model_calls"] == 0
@@ -532,6 +554,57 @@ def test_a_step_that_failed_carries_its_attribution_into_the_document() -> None:
     assert step["result"] == ActionResultClass.FAILED.value
     assert step["attribution"] == "RESOURCE_UNAVAILABLE"
     assert mind_row(document)["failure_attribution"] == "RESOURCE_UNAVAILABLE"
+
+
+def test_the_same_loop_walks_a_milestone_other_than_the_fixture_one() -> None:
+    """One item stands in for another and the loop does not notice.
+
+    The pickaxe is a parameter of these cells, not a constant of this module's subject, so the
+    honest check is that a different milestone is walked by the same code and closes on *its*
+    being held. The arguments ride along in the intent: what the ask named is what the step was
+    built for, and that is the half a live run has to agree with.
+    """
+
+    stage = Stage(
+        reading(tick=100, items=((0, PLANKS, 5),)),
+        reading(tick=140, items=((3, STICK, 4),), selected_slot=3),
+    )
+    skills = TapeSkills(stage, {"craft_take_result": confirmed()})
+    mind = off_mind(goal=Milestone(product_id=STICK, source_item_id=PLANKS))
+
+    result = run(stage, skills, mind)
+    document = result.as_document()
+
+    assert result.stop_reason == GOAL_HELD_IN_HAND
+    step = step_rows(document)[0]
+    assert intent_row(step)["skill"] == "craft_take_result"
+    assert intent_row(step)["arguments"] == {"target_item": STICK, "quantity": 1}
+    assert mind_row(document)["direction"] == "hold_stick"
+
+
+def test_a_mind_with_no_milestone_still_asks_and_never_stops_on_a_held_item() -> None:
+    """A session that named no goal is a shape of run, not a misconfiguration.
+
+    Nothing in Core wants the pickaxe on the Kin's own behalf, so the loop has to keep working off
+    the readings alone when the milestone is absent — and it must not end on `GOAL_HELD_IN_HAND`,
+    because no item was ever asked to be held. The run document says so in the same two fields a
+    reader of a run with a goal reads.
+    """
+
+    stage = Stage(
+        reading(tick=100, items=((0, LOG, 3),)),
+        reading(tick=140, items=((0, LOG, 2), (1, PLANKS, 4)), selected_slot=0),
+    )
+    skills = TapeSkills(stage, {"craft_take_result": confirmed()})
+
+    document = run(stage, skills, off_mind(goal=None)).as_document()
+
+    block = mind_row(document)
+    assert document["stop_reason"] == NO_FRESH_OBSERVATION
+    assert block["milestone"] is None
+    assert block["direction"] == ""
+    assert block["goal_met"] is False
+    assert intent_row(step_rows(document)[0])["skill"] == "craft_take_result"
 
 
 def test_the_ask_covers_the_whole_offer_and_nothing_the_offer_does_not_use() -> None:

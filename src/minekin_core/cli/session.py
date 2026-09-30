@@ -139,6 +139,7 @@ from minekin_core.domain.auth_policy import AuthPolicy
 from minekin_core.domain.connection import ConnectionGenerations, ConnectionState
 from minekin_core.domain.errors import ErrorCategory, MinekinError, Retryability
 from minekin_core.domain.events import EventSource, TrustClass
+from minekin_core.domain.goal_spec import milestone_from_environment
 from minekin_core.domain.ids import ClientInstanceId, KinId, OpaqueId, RunId
 from minekin_core.domain.input_control import (
     InputArbiter,
@@ -1020,6 +1021,10 @@ def _mind_for_run(kin_id: str) -> PlayerMind:
     when the run starts. A configured-but-disabled model still builds a mind — it
     answers with `MODEL_NOT_CONFIGURED` and the run documents that, which is the
     honest reading of "no credentials" and not a reason to refuse to play.
+
+    The milestone comes from `MINEKIN_GOAL_PRODUCT` and its three companions, and an
+    environment that names none gets a Kin with no standing craft target. Core holds no
+    default product to fall back to: the demo that wants a pickaxe says so, in the harness.
     """
 
     config = model_config()
@@ -1029,6 +1034,7 @@ def _mind_for_run(kin_id: str) -> PlayerMind:
         ledger,
         kin_id=kin_id,
         persona_seed=configured_persona_seed() or "",
+        goal=milestone_from_environment(),
         model_enabled=config.enabled,
     )
 

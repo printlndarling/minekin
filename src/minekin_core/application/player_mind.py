@@ -1,24 +1,45 @@
 """What the Kin wants, what it is therefore allowed to try, and what the world said back.
 
-This is §3 of `docs/s3-minimal-player-mind.md`: one long-running direction, one current
-intent, two needs read from player-equivalent observation, and failure attribution that
-changes the next ask rather than repeating it. It contains no keystrokes. A decision becomes
-a `SkillPlan` and the S2 seam (`application.skill_plan`) is what runs it, because "the mind
-chose it" and "it happened" are two different claims and only the second is worth a log line.
+This is §3 of `docs/s3-minimal-player-mind.md`: one standing milestone, one current intent, two
+needs read from player-equivalent observation, and failure attribution that changes the next ask
+rather than repeating it. It contains no keystrokes. A decision becomes a `SkillPlan` and the S2
+seam (`application.skill_plan`) is what runs it, because "the mind chose it" and "it happened" are
+two different claims and only the second is worth a log line.
+
+**The milestone is an argument, not a constant.** This module used to name a wooden pickaxe and
+derive its build order at import time, which made the goal a second source of truth about what the
+Kin is for and made a new product a code change. It now takes a `domain.goal_spec.Milestone` — a
+product id, a quantity, the raw item it is built from — from whoever builds the mind, and holds no
+default of its own. `None` is a supported milestone: a Kin with no standing craft target still
+breaks what it is aimed at, picks up what it sees and looks around, and a remote answerer may still
+ask it for a craft, which this side resolves and judges exactly as it judges one the standing
+milestone implied. Every function here is therefore written against a product it was handed.
+
+**The ask is data, and this layer is the only reader of it.** `domain.skill_parameters` declares
+what a behavior takes and what a legal value is; `domain.model_access.compose_decision` refuses an
+answer that does not match; `domain.recipe_catalog` answers what a product costs; the reading
+decides whether the bag can pay; and a later reading decides whether it happened. What the mind
+does with an argument is turn one ask into one call — `_call_for` is the single place where a
+`target_item` becomes a `recipe_id` and a `materials` map, so no parameter has two readers that
+could disagree about it. The `DecisionRequest` also carries `observation_summary`, built here from
+the newest reading, because an answerer asked to choose a product has to be shown what the Kin
+holds; the summary names items and counts and no coordinates, and it is the same reading the
+precondition checks run against.
 
 The provider is a structural protocol declared here rather than imported from
-`adapters/model`: the frozen dependency direction forbids this layer from naming an adapter,
-and a one-method port is exactly the kind of seam both sides should describe alone.
+`adapters/model`: the frozen dependency direction forbids this layer from naming an adapter, and a
+one-method port is exactly the kind of seam both sides should describe alone.
 
 `off` is a supported shape, not a degraded one. When there is no model — no credentials, a
-stopped endpoint, a spend already at the cap — the provider's named refusal is recorded and
-the local reflection below picks the next step from the same feasible set the model was
+stopped endpoint, a spend already at the cap — the provider's named refusal is recorded and the
+local reflection below picks the next step from the same feasible set the model was
 offered. Such a run reports a decision source of `local_reflection` in every projection of
 it, so nobody reading the dashboard can mistake a deterministic shortlist for a model.
 """
 
 from __future__ import annotations
 
+import math
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -30,6 +51,7 @@ from minekin_core.application.skill_plan import (
     SkillPlan,
 )
 from minekin_core.application.world_skills import SkillCall
+from minekin_core.domain.goal_spec import Milestone
 from minekin_core.domain.model_access import (
     MAX_REASON_CHARS,
     CostLedger,
@@ -38,29 +60,22 @@ from minekin_core.domain.model_access import (
     ModelUnavailable,
     UnavailableReason,
 )
-from minekin_core.domain.perception import WorldObservationValue
+from minekin_core.domain.perception import EntityCandidate, WorldObservationValue
 from minekin_core.domain.recipe_catalog import (
     CRAFT_GRID_TOO_SMALL,
     CRAFT_MATERIALS_MISSING,
     CRAFT_RECIPE_UNAVAILABLE,
     PLAYER_GRID_SIDE,
+    RECIPES,
     BuildStep,
     build_plan,
 )
+from minekin_core.domain.skill_parameters import BEHAVIOR_PARAMETERS, MAX_QUANTITY
 from minekin_core.domain.world_actions import (
     ActionResultClass,
     SkillOutcome,
     item_total,
-    seen_drops,
 )
-
-#: The one long-running direction S3 ships: get a wooden pickaxe and keep holding it.
-#: Phrased as a milestone rather than a task because its completion condition is a reading
-#: of the inventory, which is the only place §4 lets a goal be closed.
-LONG_TERM_DIRECTION: Final = "hold_a_wooden_pickaxe"
-GOAL_PRODUCT_ID: Final = "minecraft:wooden_pickaxe"
-#: The raw resource the milestone is built from, and the only drop this mind looks for.
-SOURCE_ITEM_ID: Final = "minecraft:oak_log"
 
 #: How many times one skill may fail the same way before the mind stops calling it that
 #: way. Two is a retry and a second attempt; a third identical failure against the same
@@ -116,37 +131,134 @@ _ABSENT_REASONS: Final = frozenset(
 _PRECONDITION_REROUTE: Final = frozenset({CRAFT_MATERIALS_MISSING})
 _PRECONDITION_DEAD_END: Final = frozenset({CRAFT_GRID_TOO_SMALL, CRAFT_RECIPE_UNAVAILABLE})
 
-#: The order the feasible set is reported in, and so the order a scan of it reads. Listed
-#: once here because a model's offer and the local fallback have to be the same list, not
-#: two lists that happen to agree today.
-SKILL_OFFER: Final = (
-    "break_seen_block",
-    "collect_dropped",
-    "craft_take_result",
-    "select_hotbar",
-    "turn_to",
+
+def _checked_offer(offer: tuple[str, ...]) -> tuple[str, ...]:
+    """The offer, after the check that makes it the same list the arguments are judged from.
+
+    A skill can only be offered if `domain.skill_parameters` declares what it takes: an answerer
+    given a name with no declaration would be asked to fill in a shape nobody can check, and the
+    refusal it came back with would be this build's fault rather than the endpoint's.
+    """
+
+    missing = sorted(name for name in offer if name not in BEHAVIOR_PARAMETERS)
+    if missing:
+        raise LookupError(f"offered skills with no declared parameters: {', '.join(missing)}")
+    return offer
+
+
+#: The order the feasible set is reported in, and so the order a scan of it reads. Listed once here
+#: because a model's offer and the local fallback have to be the same list, not two lists that
+#: happen to agree today. `close_screen` is deliberately absent: it is the one skill whose every
+#: reading is already a success, so offering it would invite a step spent to change nothing.
+SKILL_OFFER: Final = _checked_offer(
+    (
+        "break_seen_block",
+        "collect_dropped",
+        "craft_take_result",
+        "select_hotbar",
+        "turn_to",
+    )
 )
 
 
-def _goal_steps() -> tuple[BuildStep, ...]:
-    planned = build_plan(GOAL_PRODUCT_ID)
+def owed_steps(
+    reading: WorldObservationValue, product_id: str, quantity: int = 1
+) -> tuple[BuildStep, ...] | str:
+    """The steps still outstanding for one product on this reading, in build order.
+
+    The plan is the catalog's and the credit is the reading's: the inventory is handed to
+    `build_plan`, so a step is listed only while the bag holds less of its product than the ask
+    consumes. That is what closes an ask from a reading rather than from a decision — a bag holding
+    the product owes nothing, including the ingredients that already went into it, which no fixed
+    shopping list could tell from the same inventory.
+    """
+
+    planned = build_plan(product_id, quantity=quantity, inventory=reading.inventory)
     if isinstance(planned, str):
-        raise LookupError(f"{GOAL_PRODUCT_ID}: {planned}")
-    return planned
+        return planned
+    return tuple(step for step in planned if step.required_total > 0)
 
 
-#: The milestone as an order of crafts, obtained by asking the curated catalog what a wooden
-#: pickaxe implies. Nobody types this list in, which is the whole reason it can be trusted to
-#: be the game's arithmetic — planks, then sticks, then the tool, with the counts multiplied
-#: out of each recipe's own yield — and the reason a different goal product is a different
-#: argument here rather than a new table. The demo's own scripted order is not this constant
-#: and never was read from it: it lives in `examples/skill-plan-*.json`.
-#:
-#: Resolved when this module loads, because the failure it guards against is a missing row in
-#: the curated table. A mind that imported anyway would run a whole session that could not
-#: build the thing it exists to build; `LookupError` at import says which product and which
-#: catalog word is missing.
-GOAL_BUILD_PLAN: Final[tuple[BuildStep, ...]] = _goal_steps()
+def step_to_run(
+    reading: WorldObservationValue,
+    product_id: str,
+    quantity: int = 1,
+    *,
+    grid_side: int = PLAYER_GRID_SIDE,
+) -> BuildStep | None:
+    """The first step still owed whose shape the screen being opened can hold and whose materials
+    this bag can pay for.
+
+    Strictly in build order, and a step is only returned when its materials are already in the
+    bag: the precondition check the contract asks for happens here, before a command is built, so
+    a craft that cannot be honoured is never sent. The grid is checked in the same place for the
+    same reason — a three-by-three shape clicked into the inventory's two-by-two is a command the
+    world can only shrug at, and a `CONFIRMED` verdict belongs to crafts that could have happened.
+
+    The ask may name the product at the end of the chain while the step that runs now is one of its
+    ingredients' crafts. That is not a substitution: it is what an order means, and the run
+    document says which step it ran and which ask it was running toward.
+    """
+
+    needed = owed_steps(reading, product_id, quantity)
+    if isinstance(needed, str):
+        return None
+    for step in needed:
+        if not step.recipe.fits(grid_side):
+            continue
+        affordable = all(
+            item_total(reading.inventory, item_id) >= count for item_id, count in step.materials
+        )
+        if affordable:
+            return step
+    return None
+
+
+def blocker_for(
+    reading: WorldObservationValue,
+    product_id: str,
+    quantity: int = 1,
+    *,
+    grid_side: int = PLAYER_GRID_SIDE,
+) -> str:
+    """Why no craft can run toward this ask on this reading, named by the precondition, or empty.
+
+    The distinction is not decoration: `CRAFT_MATERIALS_MISSING` sends the Kin back to the resource,
+    and `CRAFT_GRID_TOO_SMALL` says the ask needs a screen this build has no skill for. A mind that
+    got the first word for the second fact would gather wood it already has enough of until the
+    harness stopped it. `GOAL_ACHIEVED` is the empty answer for an ask the bag already satisfies,
+    and the caller turns that into a hold rather than a click that would waste materials.
+    """
+
+    if step_to_run(reading, product_id, quantity, grid_side=grid_side) is not None:
+        return ""
+    needed = owed_steps(reading, product_id, quantity)
+    if isinstance(needed, str):
+        return needed
+    if not needed:
+        return GOAL_ACHIEVED
+    if any(step.recipe.fits(grid_side) for step in needed):
+        return CRAFT_MATERIALS_MISSING
+    return CRAFT_GRID_TOO_SMALL
+
+
+def craft_options(
+    reading: WorldObservationValue, *, grid_side: int = PLAYER_GRID_SIDE
+) -> tuple[str, ...]:
+    """Which products in the curated table this bag could be moving toward right now.
+
+    Read out of the table rather than from a list of items this module knows, so a new curated row
+    is a new option here without a line of code changing and an item nobody has curated is absent
+    because it is absent — not because somebody deleted a name. This is what makes an ask checkable
+    in the operator's own terms: it is the list the answerer is shown, and it is the same list the
+    precondition is judged from.
+    """
+
+    return tuple(
+        product_id
+        for product_id in RECIPES
+        if step_to_run(reading, product_id, grid_side=grid_side) is not None
+    )
 
 
 class FailureCode(StrEnum):
@@ -194,126 +306,130 @@ def attribute_failure(outcome: SkillOutcome) -> FailureCode:
     return FailureCode.ACTION_NOT_EFFECTIVE
 
 
-def goal_held(reading: WorldObservationValue) -> bool:
-    return item_total(reading.inventory, GOAL_PRODUCT_ID) > 0
+def goal_held(milestone: Milestone | None, reading: WorldObservationValue) -> bool:
+    """Whether a reading says the standing milestone is met. No milestone, nothing met."""
+
+    return milestone is not None and milestone.held(reading) >= milestone.quantity
 
 
-def _goal_slot(reading: WorldObservationValue) -> int | None:
+def goal_slot(milestone: Milestone | None, reading: WorldObservationValue) -> int | None:
+    if milestone is None:
+        return None
     for stack in reading.inventory.stacks:
-        if stack.item_id == GOAL_PRODUCT_ID:
+        if stack.item_id == milestone.product_id:
             return stack.slot
     return None
 
 
-def goal_in_hand(reading: WorldObservationValue) -> bool:
+def goal_in_hand(milestone: Milestone | None, reading: WorldObservationValue) -> bool:
     """Whether the milestone item is the slot the player has selected.
 
-    The direction is *hold* the tool, not obtain it once, so "in hand" is the condition that
-    ends the run rather than "in the bag somewhere". An unread `selected_slot` counts as not
-    in hand: the ask that follows is the cheap one, and it is filed against a reading that
-    did not say the tool was already held.
+    The direction is *hold* the thing, not obtain it once, so "in hand" is the condition that ends
+    a run rather than "in the bag somewhere". An unread `selected_slot` counts as not in hand: the
+    ask that follows is the cheap one, and it is filed against a reading that did not say the item
+    was already held.
     """
 
-    slot = _goal_slot(reading)
+    if milestone is None:
+        return False
+    slot = goal_slot(milestone, reading)
     return slot is not None and slot == reading.self_state.selected_slot
 
 
-def shortfalls(reading: WorldObservationValue) -> tuple[BuildStep, ...] | str:
-    """The steps the milestone still owes on this reading, in build order.
+def shortfalls(
+    milestone: Milestone | None, reading: WorldObservationValue
+) -> tuple[BuildStep, ...] | str:
+    """The steps the standing milestone still owes on this reading, in build order.
 
-    The plan is the catalog's and the credit is the reading's: the inventory is handed to
-    `build_plan`, so a step is listed only while the bag holds less of its product than the
-    milestone consumes. That is also what closes the milestone from a reading instead of from a
-    decision — a bag holding the pickaxe owes nothing, including the planks and sticks that
-    already went into it, which no fixed shopping list could tell from the same inventory.
+    A view of `owed_steps` with the milestone's own product and quantity; no milestone owes
+    nothing, which is the same answer an ask already satisfied gives.
     """
 
-    planned = build_plan(GOAL_PRODUCT_ID, inventory=reading.inventory)
-    if isinstance(planned, str):
-        return planned
-    return tuple(step for step in planned if step.required_total > 0)
+    if milestone is None:
+        return ()
+    return owed_steps(reading, milestone.product_id, milestone.quantity)
 
 
 def next_craft(
-    reading: WorldObservationValue, *, grid_side: int = PLAYER_GRID_SIDE
+    milestone: Milestone | None,
+    reading: WorldObservationValue,
+    *,
+    grid_side: int = PLAYER_GRID_SIDE,
 ) -> BuildStep | None:
-    """The first step still owed whose materials this inventory can pay for and whose shape the
-    grid being opened can hold.
+    """The step the standing milestone can run now, or `None`.
 
-    Strictly in build order, and a step is only offered when its materials are already in the
-    bag: the precondition check the contract asks for happens here, before a command is built,
-    so a craft that cannot be honoured is never sent. The grid is checked in the same place for
-    the same reason — a three-by-three shape clicked into the inventory's two-by-two is a
-    command the world can only shrug at, and a `CONFIRMED` verdict belongs to crafts that could
-    have happened.
+    A view of `step_to_run` for the milestone's product; the ask itself is what decides which
+    product that is, and a model's ask is answered in `_call_for` rather than here.
     """
 
-    needed = shortfalls(reading)
-    if isinstance(needed, str):
+    if milestone is None:
         return None
-    for step in needed:
-        if not step.recipe.fits(grid_side):
-            continue
-        affordable = all(
-            item_total(reading.inventory, item_id) >= count for item_id, count in step.materials
-        )
-        if affordable:
-            return step
-    return None
+    return step_to_run(reading, milestone.product_id, milestone.quantity, grid_side=grid_side)
 
 
-def craft_blocker(reading: WorldObservationValue, *, grid_side: int = PLAYER_GRID_SIDE) -> str:
-    """Why no craft can run on this reading, in the name of the precondition, or empty.
+def craft_blocker(
+    milestone: Milestone | None,
+    reading: WorldObservationValue,
+    *,
+    grid_side: int = PLAYER_GRID_SIDE,
+) -> str:
+    """Why the standing milestone cannot be advanced by a craft on this reading, or empty.
 
-    The distinction is not decoration: `CRAFT_MATERIALS_MISSING` sends the Kin back to the
-    trunk, and `CRAFT_GRID_TOO_SMALL` says the milestone needs a screen this build has no
-    skill for. A mind that got the first word for the second fact would gather wood it already
-    has enough of until the harness stopped it.
+    `GOAL_ACHIEVED` is mapped back to empty here and only here: the milestone view answers "is
+    there an obstacle", and a met milestone is not an obstacle. An ask keeps the name, because the
+    question an ask answers is why nothing ran, and "this bag already has four of them" is the
+    answer.
     """
 
-    if next_craft(reading, grid_side=grid_side) is not None:
+    if milestone is None:
         return ""
-    needed = shortfalls(reading)
-    if isinstance(needed, str):
-        return needed
-    if not needed:
-        return ""
-    if any(step.recipe.fits(grid_side) for step in needed):
-        return CRAFT_MATERIALS_MISSING
-    return CRAFT_GRID_TOO_SMALL
+    blocker = blocker_for(reading, milestone.product_id, milestone.quantity, grid_side=grid_side)
+    return "" if blocker == GOAL_ACHIEVED else blocker
 
 
-def feasible_skill_ids(reading: WorldObservationValue) -> tuple[str, ...]:
+def feasible_skill_ids(
+    milestone: Milestone | None, reading: WorldObservationValue
+) -> tuple[str, ...]:
     """What this reading supports — the only set a model gets to choose inside.
 
     `turn_to` is offered whenever there is a reading at all, because it is the conservative
     action: it changes what is in view without spending a resource or leaving a block broken
     halfway. A mind with nothing else to do looks around rather than stalls.
+
+    `craft_take_result` is offered on the table's own answer — whether some curated product has a
+    step this bag can pay for — and not on the milestone's, which is what lets an ask that came
+    from an answerer be honoured in a session that has no standing goal at all. `collect_dropped`
+    is offered for any dropped item in view, not only for one the milestone names, for the same
+    reason: the ask chooses among what the summary shows, and this side only judges whether the
+    world could carry it out.
     """
 
     feasible = {
         "break_seen_block" if reading.aim is not None and reading.aim.block is not None else "",
-        "collect_dropped" if seen_drops(reading.visible_entities, SOURCE_ITEM_ID) else "",
-        "craft_take_result" if next_craft(reading) is not None else "",
+        "collect_dropped" if _nearest_drop(reading) is not None else "",
+        "craft_take_result" if craft_options(reading) else "",
         "select_hotbar"
-        if _goal_slot(reading) not in (None, reading.self_state.selected_slot)
+        if goal_slot(milestone, reading) not in (None, reading.self_state.selected_slot)
         else "",
         "turn_to",
     }
     return tuple(name for name in SKILL_OFFER if name in feasible)
 
 
-def needs_from(reading: WorldObservationValue) -> dict[str, int]:
+def needs_from(milestone: Milestone | None, reading: WorldObservationValue) -> dict[str, int]:
     """The two needs §3 allows, as ordering numbers and nothing else.
 
-    `resource_security` is about the milestone, not about wood: holding planks is less
-    secure than holding the tool those planks were meant to become. `safety` reads health and
+    `resource_security` is about the ask, not about a particular item: holding the thing the
+    milestone wants is more secure than holding something a craft could turn into, which is more
+    secure than holding what the mind cannot do anything with. With no milestone standing the
+    middle rung is the table's answer — some craft could run — so the needs say something about
+    the reading rather than about a product this module used to name. `safety` reads health and
     food and only orders actions — no number here generates a line of dialogue.
     """
 
-    if goal_held(reading):
+    if goal_held(milestone, reading):
         resource_security = 1
-    elif item_total(reading.inventory, GOAL_BUILD_PLAN[0].product_id) > 0:
+    elif craft_options(reading) or (milestone is not None and milestone.held(reading) > 0):
         resource_security = 5
     else:
         resource_security = 9
@@ -331,12 +447,134 @@ def needs_from(reading: WorldObservationValue) -> dict[str, int]:
     return {"resource_security": resource_security, "safety": safety}
 
 
+def _nearest_drop(reading: WorldObservationValue) -> EntityCandidate | None:
+    """The nearest dropped item in view, whatever it is.
+
+    Deliberately not filtered to one item id: an ask may name anything the summary shows, and the
+    question this answers is whether there is a thing on the ground to walk to at all. The list is
+    the Bridge's own radius-and-occlusion answer, so nothing here sees more than the client did.
+    """
+
+    drops = _visible_item_entities(reading)
+    if not drops:
+        return None
+    return min(
+        drops,
+        key=lambda entity: math.dist(
+            (entity.relative_x, entity.relative_y, entity.relative_z), (0.0, 0.0, 0.0)
+        ),
+    )
+
+
+def observation_summary(
+    milestone: Milestone | None, reading: WorldObservationValue
+) -> dict[str, object]:
+    """What this side read, in the fields an answerer needs in order to fill an argument in.
+
+    The point of the summary is that a choice about a product is a choice about a number the Kin
+    holds: asked to name a `target_item` while blind, an answerer can only guess, and a guess is
+    then refused as a missing recipe or an unaffordable bag — which reads like a bad decision and
+    is a badly-posed question. So the counts come from the same reading every precondition check
+    below is made against, and nothing else does.
+
+    What is not here is the world's geometry: no coordinates, no block positions, no entity ids,
+    no session material. Relative offsets are what the Bridge renders and the mind walks to, which
+    is not a fact an answerer can use — it has no map — and a name-and-number view is what lets the
+    ask be checked against the reading afterwards instead of argued about.
+
+    `craft_options` is the table's answer for this bag, not a list of items this module knows, so a
+    session with a new curated row shows it without a code change and a session with no milestone
+    still has something true to say about what the bag could become.
+    """
+
+    counts: dict[str, int] = {}
+    for stack in reading.inventory.stacks:
+        counts[stack.item_id] = counts.get(stack.item_id, 0) + stack.count
+    dropped: dict[str, int] = {}
+    for entity in _visible_item_entities(reading):
+        item_id = entity.item_id or ""
+        dropped[item_id] = dropped.get(item_id, 0) + (entity.item_count or 0)
+    aim = reading.aim
+    summary: dict[str, object] = {
+        "game_tick": reading.game_tick,
+        "inventory": dict(sorted(counts.items())),
+        "selected_slot": reading.self_state.selected_slot,
+        "held_item": reading.self_state.main_hand_item_id or "",
+        "aimed_block": aim.targeted_block_id if aim is not None and aim.block is not None else "",
+        "dropped_items": dict(sorted(dropped.items())),
+        "crafting_grid_side": PLAYER_GRID_SIDE,
+        "craft_options": list(craft_options(reading)),
+        "health": reading.self_state.health,
+        "max_health": reading.self_state.max_health,
+        "food": reading.self_state.food,
+        "alive": reading.self_state.alive,
+    }
+    if milestone is not None:
+        summary["goal"] = {
+            "product_id": milestone.product_id,
+            "quantity": milestone.quantity,
+            "held": milestone.held(reading),
+            "direction": milestone.label,
+        }
+    return summary
+
+
+def _visible_item_entities(reading: WorldObservationValue) -> tuple[EntityCandidate, ...]:
+    """The rendered entities the client reports as dropped items, item fields and all."""
+
+    return tuple(
+        entity
+        for entity in reading.visible_entities
+        if entity.item_id and entity.item_count is not None
+    )
+
+
+def _asked_text(arguments: Mapping[str, object], key: str) -> str:
+    """One argument as the text this side will use, or empty for "the answer did not say".
+
+    Nothing coerces: a value that is not a string is not a statement about an item, and an empty
+    return sends the caller to its own source — the milestone, then the reading — which is the
+    order the ask vocabulary's defaults are defined by.
+    """
+
+    value = arguments.get(key)
+    return value if isinstance(value, str) else ""
+
+
+def _asked_number(arguments: Mapping[str, object], key: str) -> float | None:
+    """One argument as a number, or `None`. `bool` is not a number here, whatever Python says."""
+
+    value = arguments.get(key)
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return None
+    return float(value)
+
+
+def _asked_quantity(arguments: Mapping[str, object], milestone: Milestone | None) -> int:
+    """How many of a product the ask wants: the answer's number, or the milestone's, then one.
+
+    The bounds are re-checked rather than trusted, even though `compose_decision` judged them,
+    because the local fallback reaches here with no answer at all and the same arithmetic then has
+    to hold. A quantity is capped at a stack because that is what the ask vocabulary says, and a
+    plan that wanted more is a sequence of asks, not one of them.
+    """
+
+    asked = _asked_number(arguments, "quantity")
+    if asked is not None and asked.is_integer() and 1 <= asked <= MAX_QUANTITY:
+        return int(asked)
+    if milestone is not None:
+        return milestone.quantity
+    return 1
+
+
 def observation_ref(reading: WorldObservationValue) -> str:
     """A reference to one reading, not a copy of it.
 
     Tick and generation together identify it inside a session and say nothing about its
-    contents, which is what keeps the model's world to what §2 promises: a pointer to the
-    summary, never the summary's items or coordinates.
+    contents. The summary that goes with it travels as a separate field of the request; this is
+    the handle that ties an answer back to the bytes it was made from, which is what lets a
+    reader check the ask against the reading rather than against whatever the world looks like
+    now.
     """
 
     return f"tick={reading.game_tick};generation={reading.generation}"
@@ -346,10 +584,17 @@ def observation_ref(reading: WorldObservationValue) -> str:
 class MindIntent:
     """One decision, in the shape the session needs to lease and run it.
 
-    `plan` carries the arguments a chosen skill cannot invent — which recipe, which item,
-    which slot — filled from the reading this intent was built on. `observation_ref` names
-    that reading, so the projection can say what the ask was based on rather than implying
-    it was based on whatever the world looks like now.
+    `arguments` is the ask as this side honoured it: the keys the chosen skill declares, with the
+    values that came from the answer — or, for a step the local reflection chose, the values the
+    milestone and the reading imply. It is kept beside `plan` rather than folded into it because
+    the two are different claims: the ask says what was wanted, the call says which craft that
+    turned into, and a run that ended with the wrong item in hand is argued about from those two
+    numbers and nothing else.
+
+    `plan` carries what a chosen skill cannot invent — which recipe, which item, which slot —
+    filled from the reading this intent was built on. `observation_ref` names that reading, so the
+    projection can say what the ask was based on rather than implying it was based on whatever the
+    world looks like now.
     """
 
     kind: MindDecisionKind
@@ -359,6 +604,7 @@ class MindIntent:
     intent_generation: int = 0
     observation_ref: str = ""
     model_refusal: str = ""
+    arguments: Mapping[str, object] = field(default_factory=dict[str, object])
 
     @property
     def skill(self) -> str:
@@ -379,24 +625,29 @@ class MindIntent:
             "intent_generation": self.intent_generation,
             "observation_ref": self.observation_ref,
             "model_refusal": self.model_refusal,
+            "arguments": dict(self.arguments),
         }
 
 
 @dataclass
 class PlayerMind:
-    """The smallest thing that can want a wooden pickaxe and be told it does not have one.
+    """The smallest thing that can want a product and be told it does not have it.
 
-    Mutable and single-threaded by design: this is one Kin's running state — the direction,
-    the generation it is on, which skills have spent their retries — read by exactly one
-    session loop. Nothing about the world is cached here beyond the one reading an intent was
-    built on; `WorldObservationStore` stays the only judge of what things look like.
+    Mutable and single-threaded by design: this is one Kin's running state — the milestone, the
+    generation it is on, which skills have spent their retries — read by exactly one session loop.
+    Nothing about the world is cached here beyond the one reading an intent was built on;
+    `WorldObservationStore` stays the only judge of what things look like.
+
+    `goal` is supplied, not assumed: whoever builds the mind says what the Kin is working toward,
+    and `None` means it is working toward nothing in particular. That is the whole of the milestone
+    surface — the mind never asks what a pickaxe is, only what it was handed.
     """
 
     provider: DecisionProvider
     ledger: CostLedger
     kin_id: str = ""
     persona_seed: str = ""
-    direction: str = LONG_TERM_DIRECTION
+    goal: Milestone | None = None
     model_enabled: bool = True
     intent_generation: int = 0
     goal_met: bool = field(default=False, init=False)
@@ -411,30 +662,54 @@ class PlayerMind:
     last_precondition: str = field(default="", init=False)
     last_model_refusal: str = field(default="", init=False)
 
+    @property
+    def direction(self) -> str:
+        """The heading the run document prints, which is the milestone's and not this module's."""
+
+        return "" if self.goal is None else self.goal.label
+
+    def holds_goal(self, reading: WorldObservationValue) -> bool:
+        """Whether the standing milestone is in hand on this reading — the loop's stop condition.
+
+        A method rather than a module function at the call site because the caller has the mind and
+        not the milestone: a session with no standing goal never stops on a held item, and the place
+        that decides which item would is this one.
+        """
+
+        return goal_in_hand(self.goal, reading)
+
     def observe(self, reading: WorldObservationValue | None) -> None:
         """Say whether the direction is met, off a reading, because nothing else may say it.
 
-        The skill that crafted the pickaxe already reached a `CONFIRMED` verdict of its own,
-        and that verdict was itself derived from a pair of readings — this is a later one,
-        taken after the intent was recorded. §4 closes a goal on the world's word, not on a
-        decision's self-report, so it reads the inventory here. It reads it in both
-        directions: the milestone is *holding* the tool, so a later reading that no longer
-        has one un-closes it and the Kin goes back to work rather than reporting a pickaxe it
-        has lost.
+        The skill that crafted the product already reached a `CONFIRMED` verdict of its own, and
+        that verdict was itself derived from a pair of readings — this is a later one, taken after
+        the intent was recorded. §4 closes a goal on the world's word, not on a decision's
+        self-report, so it reads the inventory here. It reads it in both directions: the milestone
+        is *holding* the thing, so a later reading that no longer has enough of one un-closes it and
+        the Kin goes back to work rather than reporting an item it has lost.
         """
 
         if reading is not None:
-            self.goal_met = goal_held(reading)
+            self.goal_met = goal_held(self.goal, reading)
 
     def next_intent(self, reading: WorldObservationValue | None) -> MindIntent:
-        """Ask — of the model, or of the reflection below — what to do about this reading."""
+        """Ask — of the model, or of the reflection below — what to do about this reading.
+
+        The answer's arguments go to `_call_for` with the skill it names, and the reading decides:
+        an ask this bag cannot pay for, or for a shape this screen cannot hold, becomes a hold
+        filed under the name of that precondition rather than a click and not a silent substitution
+        of the local choice. That is the local half of "本地负责前提判断" and it is what the run
+        document is read for afterwards.
+        """
 
         if reading is None:
             return self._hold(NO_LATEST_OBSERVATION, None)
         self.observe(reading)
-        if goal_in_hand(reading):
+        if self.holds_goal(reading):
             return self._hold(GOAL_ACHIEVED, reading)
-        feasible = tuple(name for name in feasible_skill_ids(reading) if name not in self.excluded)
+        feasible = tuple(
+            name for name in feasible_skill_ids(self.goal, reading) if name not in self.excluded
+        )
         if not feasible:
             intent = MindIntent(
                 kind=MindDecisionKind.BLOCKED,
@@ -448,17 +723,19 @@ class PlayerMind:
         self.intent_generation += 1
         request = DecisionRequest(
             observation_ref=observation_ref(reading),
-            needs=needs_from(reading),
+            needs=needs_from(self.goal, reading),
             active_goal=self.direction,
             feasible_skill_ids=feasible,
+            observation_summary=observation_summary(self.goal, reading),
             persona_seed=self.persona_seed,
             budget_remaining_micro=self.ledger.remaining(),
             intent_generation=self.intent_generation,
         )
         answer = self.provider.decide(request)
-        needs = needs_from(reading)
+        needs = needs_from(self.goal, reading)
         refusal = ""
         reason = ""
+        arguments: Mapping[str, object] = {}
         if isinstance(answer, Decision):
             # The shipped port already files this as `DECISION_OUT_OF_BOUNDS`, so the branch
             # is for a provider that answers with a `Decision` it built itself. Keeping the
@@ -470,6 +747,7 @@ class PlayerMind:
                     DECISION_FROM_MODEL,
                     answer.reason[:MAX_REASON_CHARS],
                 )
+                arguments = answer.arguments
             else:
                 refusal = UnavailableReason.DECISION_OUT_OF_BOUNDS.value
                 skill, source = self._reflect(feasible, needs), DECISION_FROM_LOCAL
@@ -477,7 +755,7 @@ class PlayerMind:
             refusal = answer.reason.value
             skill, source = self._reflect(feasible, needs), DECISION_FROM_LOCAL
         self.last_model_refusal = refusal
-        plan, built_reason = self._call_for(skill, reading)
+        plan, built_reason, honoured = self._call_for(skill, reading, arguments)
         if plan is None:
             return self._hold(built_reason, reading)
         intent = MindIntent(
@@ -488,6 +766,7 @@ class PlayerMind:
             intent_generation=self.intent_generation,
             observation_ref=request.observation_ref,
             model_refusal=refusal,
+            arguments=honoured,
         )
         self.last_intent = intent
         return intent
@@ -559,19 +838,34 @@ class PlayerMind:
             return "collect_dropped"
         return "turn_to"
 
-    def _call_for(self, skill: str, reading: WorldObservationValue) -> tuple[SkillPlan | None, str]:
-        """Attach one skill's arguments from this reading, or say why there is nothing to run.
+    def _call_for(
+        self, skill: str, reading: WorldObservationValue, arguments: Mapping[str, object]
+    ) -> tuple[SkillPlan | None, str, Mapping[str, object]]:
+        """Turn one ask into one call, from this reading, or say why there is nothing to run.
 
-        The two `None` branches guard a provider that answered with a skill the feasible set
-        did not carry: the shipped providers cannot (the port judges the answer against the
-        offer), but this is the boundary where an operator's endpoint speaks, and a mind that
-        crashed on a bad answer would turn a provider bug into a stopped session.
+        This is the single place where the ask vocabulary becomes the plan-document vocabulary: a
+        `target_item` becomes a recipe id and a materials map by way of `recipe_catalog`, a
+        `quantity` becomes the count the plan is net of this bag, and an item id becomes the drop
+        this mind walks to. Values the answer did not state are supplied here — never in the
+        reader of a plan, and never by an adapter — so a document's `arguments` says what the ask
+        was and its `plan` says what ran, which are two different sentences.
+
+        The `None` branches guard a provider that answered with a skill the feasible set did not
+        carry: the shipped providers cannot (the port judges the answer against the offer), but
+        this is the boundary where an operator's endpoint speaks, and a mind that crashed on a bad
+        answer would turn a provider bug into a stopped session. They refuse with a precondition
+        name, which is what the projection and the attribution table already read.
         """
 
         if skill == "craft_take_result":
-            step = next_craft(reading)
+            target = self._asked_product(arguments, reading)
+            if not target:
+                return None, NO_FEASIBLE_SKILL, {}
+            quantity = _asked_quantity(arguments, self.goal)
+            ask: dict[str, object] = {"target_item": target, "quantity": quantity}
+            step = step_to_run(reading, target, quantity)
             if step is None:
-                return None, craft_blocker(reading) or CRAFT_MATERIALS_MISSING
+                return None, blocker_for(reading, target, quantity) or CRAFT_MATERIALS_MISSING, ask
             return (
                 SkillPlan(
                     (
@@ -583,43 +877,94 @@ class PlayerMind:
                         ),
                     )
                 ),
-                f"craft {step.product_id} for {self.direction}",
+                (
+                    f"craft {step.product_id}"
+                    if step.product_id == target
+                    else f"craft {step.product_id} toward {target}"
+                ),
+                ask,
             )
         if skill == "collect_dropped":
+            item_id = _asked_text(arguments, "item_id") or self._resource_id(reading)
+            if not item_id:
+                return None, "NO_SEEN_DROP", {}
             return (
-                SkillPlan((SkillCall(name="collect_dropped", item_id=SOURCE_ITEM_ID),)),
-                f"collect the {SOURCE_ITEM_ID} in view",
+                SkillPlan((SkillCall(name="collect_dropped", item_id=item_id),)),
+                f"collect the {item_id} in view",
+                {"item_id": item_id},
             )
         if skill == "break_seen_block":
             if reading.aim is None or reading.aim.block is None:
-                return None, "MINE_TARGET_NOT_AIMED"
+                return None, "MINE_TARGET_NOT_AIMED", {}
+            expected = _asked_text(arguments, "expected_drop_item")
+            if not expected:
+                expected = self.goal.source_item_id if self.goal is not None else ""
             return (
-                SkillPlan((SkillCall(name="break_seen_block", expected_drop_item=SOURCE_ITEM_ID),)),
-                f"break the block in view for {SOURCE_ITEM_ID}",
+                SkillPlan((SkillCall(name="break_seen_block", expected_drop_item=expected),)),
+                f"break the block in view for {expected or 'what it drops'}",
+                {"expected_drop_item": expected},
             )
         if skill == "select_hotbar":
-            slot = _goal_slot(reading)
+            if self.goal is None:
+                return None, NO_FEASIBLE_SKILL, {}
+            slot = goal_slot(self.goal, reading)
             if slot is None:
-                return None, GOAL_ACHIEVED
+                return None, GOAL_ACHIEVED, {}
             return (
                 SkillPlan(
-                    (SkillCall(name="select_hotbar", slot=slot, expected_item_id=GOAL_PRODUCT_ID),)
+                    (
+                        SkillCall(
+                            name="select_hotbar", slot=slot, expected_item_id=self.goal.product_id
+                        ),
+                    )
                 ),
-                f"hold the {GOAL_PRODUCT_ID} in hand",
+                f"hold the {self.goal.product_id} in hand",
+                {"slot": slot, "expected_item_id": self.goal.product_id},
             )
         self.scan_step += 1
+        yaw = _asked_number(arguments, "yaw_degrees")
+        pitch = _asked_number(arguments, "pitch_degrees")
+        if yaw is None:
+            yaw = (self.scan_step * SCAN_YAW_STEP_DEGREES) % 360.0
+        if pitch is None:
+            pitch = SCAN_PITCH_DEGREES
         return (
             SkillPlan(
-                (
-                    SkillCall(
-                        name="turn_to",
-                        yaw_degrees=(self.scan_step * SCAN_YAW_STEP_DEGREES) % 360.0,
-                        pitch_degrees=SCAN_PITCH_DEGREES,
-                    ),
-                )
+                (SkillCall(name="turn_to", yaw_degrees=yaw, pitch_degrees=pitch),),
             ),
             "look for the next thing the milestone needs",
+            {"yaw_degrees": yaw, "pitch_degrees": pitch},
         )
+
+    def _asked_product(
+        self, arguments: Mapping[str, object], reading: WorldObservationValue
+    ) -> str:
+        """Which product a craft ask is for: the answer's, then the milestone's, then the table's.
+
+        The last rung is what lets a session with no standing milestone honour a craft ask at all —
+        and it is the table's own first option, not a default item this module remembers, so a
+        reflection with nothing to work toward still starts from a product the reading can pay for.
+        """
+
+        asked = _asked_text(arguments, "target_item")
+        if asked:
+            return asked
+        if self.goal is not None:
+            return self.goal.product_id
+        options = craft_options(reading)
+        return options[0] if options else ""
+
+    def _resource_id(self, reading: WorldObservationValue) -> str:
+        """The item to pick up: the milestone's named resource, or the nearest one on the ground.
+
+        A standing goal may say what it is built from; with no such name the mind takes what it can
+        see, which is the item-agnostic answer and the one the summary already showed.
+        """
+
+        if self.goal is not None and self.goal.source_item_id:
+            return self.goal.source_item_id
+        drop = _nearest_drop(reading)
+        return "" if drop is None or drop.item_id is None else drop.item_id
 
     def _hold(self, reason: str, reading: WorldObservationValue | None) -> MindIntent:
         intent = MindIntent(
@@ -644,9 +989,11 @@ class PlayerMind:
         result = self.last_result
         return {
             "direction": self.direction,
+            "milestone": None if self.goal is None else self.goal.as_document(),
             "goal_met": self.goal_met,
             "current_intent": None if intent is None else intent.as_document(),
             "executing_skill": "" if intent is None else intent.skill,
+            "executing_arguments": {} if intent is None else dict(intent.arguments),
             "intent_observation_ref": "" if intent is None else intent.observation_ref,
             "decision_source": "" if intent is None else intent.source,
             "last_result": "" if result is None else result.result.value,
@@ -670,14 +1017,18 @@ def mind_for(
     *,
     kin_id: str = "",
     persona_seed: str = "",
+    goal: Milestone | None = None,
     model_enabled: bool = True,
 ) -> PlayerMind:
     """Build a mind for one session from what the session already resolved.
 
-    A function rather than a longer argument list at the call site, because the three things
-    a caller has to settle first — which provider this operator configured, what is left of
-    the run cap, whose persona this is — are the same three the CLI already reads for the
-    model and identity surfaces.
+    A function rather than a longer argument list at the call site, because the four things a
+    caller has to settle first — which provider this operator configured, what is left of the run
+    cap, whose persona this is, and what the Kin is working toward — are the same four the CLI
+    already reads for the model and identity surfaces.
+
+    `goal` has no default item. A caller that names none gets a mind that breaks what it is aimed
+    at, collects what it sees, looks around, and crafts only what an ask tells it to.
     """
 
     return PlayerMind(
@@ -685,5 +1036,6 @@ def mind_for(
         ledger=ledger,
         kin_id=kin_id,
         persona_seed=persona_seed,
+        goal=goal,
         model_enabled=model_enabled,
     )

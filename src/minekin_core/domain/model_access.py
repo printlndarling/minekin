@@ -15,9 +15,11 @@ in this package that reads a secret from the environment.
 
 **The provider only chooses.** `DecisionRequest` carries the feasible skill ids the local
 layer already computed, and `compose_decision` refuses any choice outside them or from
-another `intent_generation`. That enforcement is code rather than prose because both
-failures it prevents are silent: an out-of-bounds id would be handed to a task adapter
-that has no such skill, and a late reply would write an already-cancelled intent back onto
+another `intent_generation`. It also refuses an ask whose arguments the chosen skill does not
+take, cannot do without, or cannot hold — the check is `domain.skill_parameters`'s, called here
+so that no provider gets to decide what a parameter means. That enforcement is code rather than
+prose because both failures it prevents are silent: an out-of-bounds id would be handed to a task
+adapter that has no such skill, and a late reply would write an already-cancelled intent back onto
 the keys.
 
 **Money is not latency.** `docs/s3-minimal-player-mind.md` §4 says so explicitly:
@@ -43,6 +45,7 @@ from enum import StrEnum
 from typing import Final, Literal, cast
 
 from minekin_core.domain.errors import ErrorCategory, MinekinError, Retryability, redact_text
+from minekin_core.domain.skill_parameters import validate_arguments
 
 #: The operator-facing names, kept together because §1 of the contract is a table: a
 #: renamed variable must be renamed in the docs, in the refusal text, and in the tests.
@@ -151,6 +154,16 @@ class UnavailableReason(StrEnum):
     DECISION_OUT_OF_BOUNDS = "DECISION_OUT_OF_BOUNDS"
     #: The answer belongs to another intent generation, so it is late.
     STALE_GENERATION = "STALE_GENERATION"
+    #: The answer names an argument the chosen skill does not take, so nothing here knows what
+    #: it was for. Refused rather than dropped: an answerer that invents a key is telling this
+    #: side its picture of the interface is wrong, and that is worth a line in the ledger.
+    MODEL_ARGUMENTS_UNKNOWN = "MODEL_ARGUMENTS_UNKNOWN"
+    #: The answer chose a skill that cannot run without one of its arguments.
+    MODEL_ARGUMENTS_MISSING = "MODEL_ARGUMENTS_MISSING"
+    #: An argument is there but is not a value of the declared kind or inside its bounds — which
+    #: includes the id spellings, since an invented item id is an invalid value, not a missing
+    #: recipe. `recipe_catalog` never sees either of these.
+    MODEL_ARGUMENTS_INVALID = "MODEL_ARGUMENTS_INVALID"
 
 
 class CallOutcome(StrEnum):
@@ -180,6 +193,9 @@ _OUTCOME_BY_REASON: Final[Mapping[UnavailableReason, CallOutcome]] = {
     UnavailableReason.RESPONSE_NOT_OBJECT: CallOutcome.REJECTED,
     UnavailableReason.DECISION_OUT_OF_BOUNDS: CallOutcome.REJECTED,
     UnavailableReason.STALE_GENERATION: CallOutcome.REJECTED,
+    UnavailableReason.MODEL_ARGUMENTS_UNKNOWN: CallOutcome.REJECTED,
+    UnavailableReason.MODEL_ARGUMENTS_MISSING: CallOutcome.REJECTED,
+    UnavailableReason.MODEL_ARGUMENTS_INVALID: CallOutcome.REJECTED,
 }
 
 
@@ -433,16 +449,20 @@ class DecisionRequest:
     """Everything the model is shown, and everything it is allowed to choose between.
 
     The request is the whole of the model's world for one call, so it is worth naming what
-    is *not* in it: no item stack, no coordinates beyond what the observation summary
-    reference points at, no skill the local layer has not already found feasible, and no
-    credential. A model cannot invent an inventory it was never shown.
+    is *not* in it: no coordinates, no skill the local layer has not already found feasible,
+    and no credential. What it does carry is the `observation_summary` — the counts and names
+    this side read off the newest player-equivalent reading — because an answerer asked to
+    choose a craft cannot be asked to guess what the bag holds. A summary of facts the Kin
+    actually has is the difference between a decision and a hallucination, and it is also the
+    reason the answer's arguments can be checked rather than merely shaped: the same reading
+    that produced the numbers is the one the local layer checks them against.
 
     The invariants are internal ones and raise `ValueError` in the style of `domain/ids.py`:
     a request that cannot be judged is a caller bug, and it is caught before any money is
     spent answering it.
     """
 
-    #: A reference to the observation summary this was built from, not a copy of it.
+    #: A reference to the observation summary this was built from, as well as the summary itself.
     observation_ref: str
     #: Need name to urgency. An ordering signal and nothing else — the numbers never
     #: become dialogue (§3).
@@ -451,6 +471,10 @@ class DecisionRequest:
     active_goal: str = ""
     #: The feasible skill ids, computed locally. The provider may only choose inside these.
     feasible_skill_ids: tuple[str, ...] = ()
+    #: What this side read, in the fields an answerer needs to fill an argument in: item counts,
+    #: which of them a craft could turn into, what is aimed at, what is in hand. Built by
+    #: `application.player_mind`, which is the only layer holding the reading.
+    observation_summary: Mapping[str, object] = field(default_factory=dict[str, object])
     #: The persisted persona seed, so the same Kin answers differently.
     persona_seed: str = ""
     #: What is left of the run cap when the request was built. Advisory: it informs the
@@ -480,17 +504,27 @@ class Decision:
 
     `skill_id` is a request to the task adapter, which re-checks its own preconditions and
     reports what actually happened; a decision's existence does not mean the action will.
+
+    `arguments` is the ask, in the vocabulary `domain.skill_parameters` declares for the chosen
+    skill — `{"target_item": "minecraft:stick", "quantity": 2}` says what the answerer wants to
+    end up holding and how much of it, and says nothing about which recipe that is, which items
+    it eats, or which slot gets clicked. Those four are this side's job: the catalog resolves the
+    recipe, the newest reading decides whether the bag can pay, the skill layer opens the screen,
+    and a later reading decides whether it happened. An answer that has no arguments is a
+    complete sentence for the skills that take none and is honoured as such.
     """
 
     skill_id: str
     reason: str
     intent_generation: int
+    arguments: Mapping[str, object] = field(default_factory=dict[str, object])
 
     def as_document(self) -> dict[str, object]:
         return {
             "skill_id": self.skill_id,
             "reason": self.reason,
             "intent_generation": self.intent_generation,
+            "arguments": dict(self.arguments),
         }
 
 
@@ -536,16 +570,27 @@ def compose_decision(
     skill_id: str,
     reason: str,
     intent_generation: int | None = None,
+    *,
+    arguments: Mapping[str, object] | None = None,
     secrets: tuple[str, ...] = (),
 ) -> Decision | ModelUnavailable:
-    """Judge one proposed choice against the offer it was made from.
+    """Judge one proposed choice, and the ask that came with it, against the offer.
 
-    Two refusals, both enforced here instead of left to the caller's discipline:
-    `DECISION_OUT_OF_BOUNDS` for a skill the local layer never offered, and
-    `STALE_GENERATION` for an answer belonging to another intent. A `None` generation means
-    this call's own — the port stamps the number, so a provider that never saw one cannot
+    Five refusals, all enforced here instead of left to the caller's discipline:
+    `DECISION_OUT_OF_BOUNDS` for a skill the local layer never offered, `STALE_GENERATION` for
+    an answer belonging to another intent, and the three `MODEL_ARGUMENTS_*` names for an ask
+    whose keys, required arguments or value ranges this side cannot honour. A `None` generation
+    means this call's own — the port stamps the number, so a provider that never saw one cannot
     quietly answer for a cancelled intent, while an answer that does carry one is checked
     against the request rather than trusted.
+
+    The argument check is the reason the port and not the mind owns this. `craft(target_item)`
+    is only a request to look a recipe up, and a lookup on a value that arrived as remote text
+    is the one place an invented item id could turn into a click; refusing it here means no
+    caller — present or future — has to remember to sanitise. A skill this build does not
+    declare parameters for is checked as far as it can be: an empty ask passes, a non-empty one
+    is `MODEL_ARGUMENTS_UNKNOWN`, because this side has no declaration that would say what the
+    extra key means.
 
     The reason is remote text headed for a log line, so it is redacted and then bounded before
     anything holds it. A provider sits behind a proxy that may echo a request header back
@@ -560,10 +605,15 @@ def compose_decision(
         return ModelUnavailable(UnavailableReason.STALE_GENERATION)
     if skill_id not in request.feasible_skill_ids:
         return ModelUnavailable(UnavailableReason.DECISION_OUT_OF_BOUNDS)
+    given = {} if arguments is None else dict(arguments)
+    honoured = validate_arguments(skill_id, given)
+    if isinstance(honoured, str):
+        return ModelUnavailable(UnavailableReason(honoured))
     return Decision(
         skill_id=skill_id,
         reason=redact_text(reason, secrets=secrets)[:MAX_REASON_CHARS],
         intent_generation=request.intent_generation,
+        arguments=honoured,
     )
 
 

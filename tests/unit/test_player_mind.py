@@ -14,6 +14,8 @@ tested is which verdicts change the next ask.
 
 from __future__ import annotations
 
+from typing import cast
+
 import pytest
 
 from minekin_core.adapters.model import OffModelProvider
@@ -22,8 +24,6 @@ from minekin_core.application.player_mind import (
     DECISION_FROM_LOCAL,
     DECISION_FROM_MODEL,
     GOAL_ACHIEVED,
-    GOAL_BUILD_PLAN,
-    LONG_TERM_DIRECTION,
     NO_FEASIBLE_SKILL,
     NO_LATEST_OBSERVATION,
     RETRY_BUDGET_PER_SIGNATURE,
@@ -33,12 +33,14 @@ from minekin_core.application.player_mind import (
     PlayerMind,
     attribute_failure,
     craft_blocker,
+    craft_options,
     feasible_skill_ids,
     mind_for,
     needs_from,
     next_craft,
     shortfalls,
 )
+from minekin_core.domain.goal_spec import Milestone
 from minekin_core.domain.model_access import (
     CallOutcome,
     CostLedger,
@@ -62,6 +64,8 @@ from minekin_core.domain.recipe_catalog import (
     CRAFT_GRID_TOO_SMALL,
     CRAFT_RECIPE_UNAVAILABLE,
     PLAYER_GRID_SIDE,
+    BuildStep,
+    build_plan,
 )
 from minekin_core.domain.world_actions import ActionResultClass, SkillOutcome, skill_capabilities
 
@@ -69,7 +73,31 @@ LOG = "minecraft:oak_log"
 PLANKS = "minecraft:oak_planks"
 STICK = "minecraft:stick"
 PICKAXE = "minecraft:wooden_pickaxe"
+TABLE = "minecraft:crafting_table"
+COAL = "minecraft:coal"
 CAP = 1_000_000
+
+#: The pickaxe is a test parameter here, not a fact about the product: nothing in
+#: `minekin_core` names it any more, and every one of these cells passes the milestone in the
+#: way an operator's environment would. A second milestone over the same reading — see
+#: `PLANK_GOAL` — is what says the arithmetic was never about this item.
+GOAL = Milestone(product_id=PICKAXE, source_item_id=LOG, direction="hold_a_wooden_pickaxe")
+PLANK_GOAL = Milestone(product_id=PLANKS, source_item_id=LOG, quantity=8)
+
+
+def plan_of(product_id: str) -> tuple[BuildStep, ...]:
+    """The milestone's build order, taken from the catalog rather than written out here.
+
+    A test that restates `planks, sticks, pickaxe` by hand proves nothing about the order; this
+    asks the same table the mind asks, so a wrong row in the table fails where it is written.
+    """
+
+    planned = build_plan(product_id)
+    assert isinstance(planned, tuple)
+    return planned
+
+
+PICKAXE_PLAN = plan_of(PICKAXE)
 
 
 def state(
@@ -161,9 +189,20 @@ class ScriptedProvider:
         return self.answers.pop(0)
 
 
-def mind_with(*answers: Decision | ModelUnavailable) -> tuple[PlayerMind, CostLedger]:
+def mind_with(
+    *answers: Decision | ModelUnavailable, goal: Milestone | None = GOAL
+) -> tuple[PlayerMind, CostLedger]:
+    """A mind over a scripted provider and one milestone, which the caller names.
+
+    The milestone is a parameter of the helper rather than a constant inside it because the point
+    of these cells is that the same mind runs a different product: a test that could only be run
+    about a pickaxe would be testing the fixture, not the interface.
+    """
+
     ledger = CostLedger(run_cost_cap=CAP)
-    mind = mind_for(ScriptedProvider(*answers), ledger, kin_id="kin-01", persona_seed="seed-9")
+    mind = mind_for(
+        ScriptedProvider(*answers), ledger, kin_id="kin-01", persona_seed="seed-9", goal=goal
+    )
     return mind, ledger
 
 
@@ -175,36 +214,50 @@ def outcome(result: ActionResultClass, reason: str = "") -> SkillOutcome:
 
 
 def test_a_log_block_in_view_offers_the_mine_and_a_look() -> None:
-    assert set(feasible_skill_ids(reading(aim=block_aim()))) == {"break_seen_block", "turn_to"}
+    assert set(feasible_skill_ids(GOAL, reading(aim=block_aim()))) == {
+        "break_seen_block",
+        "turn_to",
+    }
 
 
 def test_nothing_in_view_offers_only_the_conservative_look() -> None:
-    assert feasible_skill_ids(reading()) == ("turn_to",)
+    assert feasible_skill_ids(GOAL, reading()) == ("turn_to",)
 
 
-def test_a_seen_drop_offers_collecting_and_another_items_does_not() -> None:
-    assert "collect_dropped" in feasible_skill_ids(reading(entities=(drop(),)))
-    assert "collect_dropped" not in feasible_skill_ids(reading(entities=(drop("minecraft:coal"),)))
+def test_any_seen_drop_offers_collecting_and_the_ask_names_which() -> None:
+    """Collecting is offered for what is on the ground, not for one item the product remembers.
+
+    The narrowing used to be here: a coal drop did not offer collecting because the milestone was
+    built from a log. With the ask carried as a parameter the offer is the honest one — there is a
+    thing in view to walk to — and the choice of which is the ask's, checked against the summary
+    that showed it.
+    """
+
+    assert "collect_dropped" in feasible_skill_ids(GOAL, reading(entities=(drop(),)))
+    assert "collect_dropped" in feasible_skill_ids(
+        GOAL, reading(entities=(drop("minecraft:coal"),))
+    )
+    assert "collect_dropped" not in feasible_skill_ids(GOAL, reading())
 
 
 def test_a_craft_is_offered_only_when_the_bag_can_already_pay_for_it() -> None:
     one_log = reading(items=((0, LOG, 1),))
-    stage = next_craft(one_log)
+    stage = next_craft(GOAL, one_log)
     assert stage is not None
     assert stage.product_id == PLANKS
-    assert "craft_take_result" in feasible_skill_ids(one_log)
+    assert "craft_take_result" in feasible_skill_ids(GOAL, one_log)
 
 
 def test_no_craft_is_offered_when_every_stage_is_short_of_materials() -> None:
-    assert next_craft(reading()) is None
-    assert "craft_take_result" not in feasible_skill_ids(reading())
+    assert next_craft(GOAL, reading()) is None
+    assert "craft_take_result" not in feasible_skill_ids(GOAL, reading())
 
 
 def test_the_plan_is_walked_in_build_order() -> None:
     # Three planks pay for the sticks the pickaxe needs, and for none more planks: the log the
     # first step would cost is not in the bag, so the next step the reading supports is sticks.
-    assert next_craft(reading(items=((0, PLANKS, 3),))) == GOAL_BUILD_PLAN[1]
-    assert next_craft(reading(items=((0, PICKAXE, 1),))) is None
+    assert next_craft(GOAL, reading(items=((0, PLANKS, 3),))) == PICKAXE_PLAN[1]
+    assert next_craft(GOAL, reading(items=((0, PICKAXE, 1),))) is None
 
 
 def test_a_stage_the_open_grid_cannot_hold_is_never_offered_as_a_craft() -> None:
@@ -214,21 +267,25 @@ def test_a_stage_the_open_grid_cannot_hold_is_never_offered_as_a_craft() -> None
 
     paid = reading(items=((0, PLANKS, 3), (1, STICK, 2)))
 
-    assert next_craft(paid) is None
-    assert next_craft(paid, grid_side=3) == GOAL_BUILD_PLAN[2]
-    assert "craft_take_result" not in feasible_skill_ids(paid)
+    assert next_craft(GOAL, paid) is None
+    assert next_craft(GOAL, paid, grid_side=3) == PICKAXE_PLAN[2]
+    assert "craft_take_result" not in feasible_skill_ids(GOAL, paid)
 
 
 def test_the_blocked_craft_names_the_precondition_that_is_true_of_the_reading() -> None:
-    assert craft_blocker(reading(items=((0, LOG, 1),))) == ""
-    assert craft_blocker(reading()) == CRAFT_MATERIALS_MISSING
-    assert craft_blocker(reading(items=((0, PLANKS, 3), (1, STICK, 2)))) == CRAFT_GRID_TOO_SMALL
+    assert craft_blocker(GOAL, reading(items=((0, LOG, 1),))) == ""
+    assert craft_blocker(GOAL, reading()) == CRAFT_MATERIALS_MISSING
+    assert (
+        craft_blocker(GOAL, reading(items=((0, PLANKS, 3), (1, STICK, 2)))) == CRAFT_GRID_TOO_SMALL
+    )
     # The whole job already in the bag, in whatever shape the crafts left it: nothing is owed,
     # so no precondition is being asked about. The planks that went into the tool are not
     # counted against it — that is the difference between a plan netted off a reading and a
     # shopping list, and the reason a finished run can stop instead of gathering again.
-    assert craft_blocker(reading(items=((0, PLANKS, 3), (1, STICK, 2), (2, PICKAXE, 1)))) == ""
-    assert craft_blocker(reading(items=((0, PICKAXE, 1),))) == ""
+    assert (
+        craft_blocker(GOAL, reading(items=((0, PLANKS, 3), (1, STICK, 2), (2, PICKAXE, 1)))) == ""
+    )
+    assert craft_blocker(GOAL, reading(items=((0, PICKAXE, 1),))) == ""
 
 
 def test_a_milestone_closed_from_a_reading_asks_for_no_craft() -> None:
@@ -239,9 +296,9 @@ def test_a_milestone_closed_from_a_reading_asks_for_no_craft() -> None:
 
     finished = reading(items=((0, PICKAXE, 1),))
 
-    assert shortfalls(finished) == ()
-    assert next_craft(finished) is None
-    assert "craft_take_result" not in feasible_skill_ids(finished)
+    assert shortfalls(GOAL, finished) == ()
+    assert next_craft(GOAL, finished) is None
+    assert "craft_take_result" not in feasible_skill_ids(GOAL, finished)
 
 
 def test_a_model_asking_for_a_craft_the_grid_cannot_hold_produces_no_craft_command() -> None:
@@ -267,10 +324,10 @@ def test_the_milestone_plan_is_the_catalogs_and_not_a_list_typed_in_here() -> No
     fixture said three, because the stick batch the pickaxe eats is itself made of them — the
     kind of thing a hand-written table gets wrong in a way no reading would notice."""
 
-    assert [step.recipe.recipe_id for step in GOAL_BUILD_PLAN] == [PLANKS, STICK, PICKAXE]
-    assert [step.required_total for step in GOAL_BUILD_PLAN] == [5, 2, 1]
-    assert GOAL_BUILD_PLAN[2].recipe.grid_width == 3
-    assert not GOAL_BUILD_PLAN[2].recipe.fits(PLAYER_GRID_SIDE)
+    assert [step.recipe.recipe_id for step in PICKAXE_PLAN] == [PLANKS, STICK, PICKAXE]
+    assert [step.required_total for step in PICKAXE_PLAN] == [5, 2, 1]
+    assert PICKAXE_PLAN[2].recipe.grid_width == 3
+    assert not PICKAXE_PLAN[2].recipe.fits(PLAYER_GRID_SIDE)
 
 
 def test_a_bag_partway_through_the_plan_is_credited_rather_than_asked_to_start_again() -> None:
@@ -280,32 +337,32 @@ def test_a_bag_partway_through_the_plan_is_credited_rather_than_asked_to_start_a
 
     halfway = reading(items=((0, PLANKS, 5),))
 
-    owed = shortfalls(halfway)
+    owed = shortfalls(GOAL, halfway)
     assert not isinstance(owed, str)
     assert [(step.product_id, step.required_total) for step in owed] == [(STICK, 2), (PICKAXE, 1)]
-    assert next_craft(halfway) == owed[0]
+    assert next_craft(GOAL, halfway) == owed[0]
 
 
 def test_an_aiming_that_is_a_miss_does_not_offer_a_mine() -> None:
     miss = AimTargetValue(game_tick=100, kind=AimKind.MISS)
-    assert "break_seen_block" not in feasible_skill_ids(reading(aim=miss))
+    assert "break_seen_block" not in feasible_skill_ids(GOAL, reading(aim=miss))
 
 
 # --------------------------------------------------------------------------------- the needs
 
 
 def test_resource_security_reads_the_milestone_not_the_wood() -> None:
-    assert needs_from(reading())["resource_security"] == 9
+    assert needs_from(GOAL, reading())["resource_security"] == 9
     with_wood = reading(items=((0, PLANKS, 3),))
-    assert needs_from(with_wood)["resource_security"] == 5
-    assert needs_from(reading(items=((0, PICKAXE, 1),)))["resource_security"] == 1
+    assert needs_from(GOAL, with_wood)["resource_security"] == 5
+    assert needs_from(GOAL, reading(items=((0, PICKAXE, 1),)))["resource_security"] == 1
 
 
 def test_safety_reads_the_health_and_food_it_was_given() -> None:
-    assert needs_from(reading())["safety"] == 1
-    assert needs_from(reading(self_state=state(health=8.0)))["safety"] == 7
-    assert needs_from(reading(self_state=state(food=2)))["safety"] == 7
-    assert needs_from(reading(self_state=state(health=0.0, alive=False)))["safety"] == 9
+    assert needs_from(GOAL, reading())["safety"] == 1
+    assert needs_from(GOAL, reading(self_state=state(health=8.0)))["safety"] == 7
+    assert needs_from(GOAL, reading(self_state=state(food=2)))["safety"] == 7
+    assert needs_from(GOAL, reading(self_state=state(health=0.0, alive=False)))["safety"] == 9
 
 
 # -------------------------------------------------------------------------- the ask it builds
@@ -314,19 +371,19 @@ def test_safety_reads_the_health_and_food_it_was_given() -> None:
 def test_the_ask_carries_only_what_the_local_layer_computed() -> None:
     provider = ScriptedProvider()
     ledger = CostLedger(run_cost_cap=CAP)
-    mind = mind_for(provider, ledger, kin_id="kin-01", persona_seed="seed-9")
+    mind = mind_for(provider, ledger, kin_id="kin-01", persona_seed="seed-9", goal=GOAL)
     subject = reading(aim=block_aim(), items=((0, LOG, 1),))
     mind.next_intent(subject)
 
     request = provider.requests[0]
     assert request.observation_ref == "tick=100;generation=1"
-    assert request.active_goal == LONG_TERM_DIRECTION
+    assert request.active_goal == GOAL.label
     assert set(request.feasible_skill_ids) == {
         "break_seen_block",
         "craft_take_result",
         "turn_to",
     }
-    assert request.needs == needs_from(subject)
+    assert request.needs == needs_from(GOAL, subject)
     assert request.persona_seed == "seed-9"
     assert request.budget_remaining_micro == ledger.remaining()
     assert request.intent_generation == 1
@@ -351,12 +408,240 @@ def test_a_choice_inside_the_offer_becomes_a_plan_with_arguments() -> None:
     assert intent.capabilities == skill_capabilities("collect_dropped")
 
 
+# ------------------------------------------------------------------- the arguments an ask carries
+
+
+@pytest.mark.parametrize(
+    ("milestone", "target", "quantity", "items", "ran", "cost"),
+    [
+        # The pickaxe milestone, an ask for sticks: the argument chose the product.
+        (GOAL, STICK, 2, ((0, PLANKS, 5),), STICK, ((PLANKS, 2),)),
+        # A planks milestone of eight, an ask for the four planks one log's batch yields.
+        (PLANK_GOAL, PLANKS, 4, ((0, LOG, 3),), PLANKS, ((LOG, 1),)),
+        # No standing milestone at all, and a product neither of the other two rows names.
+        (None, TABLE, 1, ((0, PLANKS, 8),), TABLE, ((PLANKS, 4),)),
+    ],
+)
+def test_the_same_craft_code_honours_a_different_product_every_time(
+    milestone: Milestone | None,
+    target: str,
+    quantity: int,
+    items: tuple[tuple[int, str, int], ...],
+    ran: str,
+    cost: tuple[tuple[str, int], ...],
+) -> None:
+    """One implementation, three products, and no line of Core that names any of them.
+
+    This is the reuse proof the interface exists for: the ask says which item and how many, the
+    catalog supplies the recipe, and the reading says whether it can be paid. The milestone varies
+    across the rows — including the one with no milestone — so a pass cannot be the old
+    pickaxe-specific order showing up again under a new argument name.
+    """
+
+    mind, _ = mind_with(
+        Decision(
+            skill_id="craft_take_result",
+            reason="the ask names it",
+            intent_generation=1,
+            arguments={"target_item": target, "quantity": quantity},
+        ),
+        goal=milestone,
+    )
+
+    intent = mind.next_intent(reading(items=items))
+
+    assert intent.source == DECISION_FROM_MODEL
+    assert intent.model_refusal == ""
+    assert intent.skill == "craft_take_result"
+    assert intent.arguments == {"target_item": target, "quantity": quantity}
+    call = intent.plan.calls[0]
+    assert (call.recipe_id, call.product_id) == (ran, ran)
+    assert call.materials == cost
+    assert intent.reason == "the ask names it"
+
+
+def test_an_ask_for_a_product_the_table_does_not_know_holds_the_uncurated_word() -> None:
+    """`minecraft:iron_sword` is a well-spelled item id, so the port honours the argument and this
+    side refuses it by the name of the precondition: no recipe was curated. The Kin is not sent
+    clicking at a grid that holds no such shape, and no new row was needed to say so."""
+
+    mind, _ = mind_with(
+        Decision(
+            skill_id="craft_take_result",
+            reason="make me a sword",
+            intent_generation=1,
+            arguments={"target_item": "minecraft:iron_sword", "quantity": 1},
+        )
+    )
+
+    intent = mind.next_intent(reading(items=((0, PLANKS, 5),)))
+
+    assert intent.kind is MindDecisionKind.HOLD
+    assert intent.reason == CRAFT_RECIPE_UNAVAILABLE
+    assert intent.plan.calls == ()
+
+
+def test_an_ask_the_bag_cannot_pay_for_holds_the_materials_word() -> None:
+    """The offer was built from a craft the bag *can* pay for (two planks make sticks), while the
+    ask named a product whose chain it cannot (a table wants four planks). The two questions are
+    separate, so the answer is honoured as a choice and refused as a plan, under the word that
+    sends the Kin back to the resource rather than the one that gives the skill up."""
+
+    mind, _ = mind_with(
+        Decision(
+            skill_id="craft_take_result",
+            reason="make a crafting table",
+            intent_generation=1,
+            arguments={"target_item": TABLE, "quantity": 1},
+        )
+    )
+
+    intent = mind.next_intent(reading(items=((0, PLANKS, 2),)))
+
+    assert intent.kind is MindDecisionKind.HOLD
+    assert intent.reason == CRAFT_MATERIALS_MISSING
+
+
+def test_an_ask_for_a_shape_the_open_grid_cannot_hold_holds_the_grid_word() -> None:
+    """A bag that has already paid for the whole chain but the tool: the only step owed is the
+    three-by-three, and the screen this build opens is two-by-two. Nothing is clicked, and the
+    word is the one no later reading can undo — which the reroute table acts on downstream."""
+
+    mind, _ = mind_with(
+        Decision(
+            skill_id="craft_take_result",
+            reason="make the pickaxe",
+            intent_generation=1,
+            arguments={"target_item": PICKAXE, "quantity": 1},
+        )
+    )
+
+    intent = mind.next_intent(reading(items=((0, PLANKS, 5), (1, STICK, 2))))
+
+    assert intent.kind is MindDecisionKind.HOLD
+    assert intent.reason == CRAFT_GRID_TOO_SMALL
+
+
+def test_an_ask_names_the_drop_it_wants_even_when_the_milestone_named_another() -> None:
+    """The milestone says this goal is built from logs; the answer says go and get the coal. The
+    argument wins, because the ask vocabulary is what an answerer is offered and the milestone is
+    only a default — and the walk is still this side's to plan and the world's to confirm."""
+
+    mind, _ = mind_with(
+        Decision(
+            skill_id="collect_dropped",
+            reason="it is on the ground",
+            intent_generation=1,
+            arguments={"item_id": COAL},
+        )
+    )
+
+    intent = mind.next_intent(reading(entities=(drop(COAL),)))
+
+    assert intent.skill == "collect_dropped"
+    assert intent.arguments == {"item_id": COAL}
+    assert intent.plan.calls[0].item_id == COAL
+
+
+def test_an_ask_of_an_angle_replaces_the_scan_step() -> None:
+    """With no argument the look is the mind's own incremental scan; with one it is the angle that
+    was asked for, unchanged. The two are the same skill over different parameters, which is the
+    difference between a behavior interface and a fixed routine."""
+
+    mind, _ = mind_with(
+        Decision(
+            skill_id="turn_to",
+            reason="look east and down",
+            intent_generation=1,
+            arguments={"yaw_degrees": 90.0, "pitch_degrees": -45.0},
+        )
+    )
+
+    intent = mind.next_intent(reading())
+
+    call = intent.plan.calls[0]
+    assert (call.yaw_degrees, call.pitch_degrees) == (90.0, -45.0)
+
+
+def test_a_local_choice_carries_the_arguments_the_milestone_and_reading_imply() -> None:
+    """An ask nobody put to a model still gets its parameters filled, from the milestone and the
+    reading, and the document says which: `source=local` beside an `arguments` map that names the
+    product the mind was working toward. Without this the fallback would be a second, undocumented
+    way of deciding what a craft is for."""
+
+    provider = OffModelProvider()
+    ledger = CostLedger(run_cost_cap=CAP)
+    mind = mind_for(provider, ledger, goal=PLANK_GOAL, model_enabled=False)
+
+    intent = mind.next_intent(reading(items=((0, LOG, 1),)))
+
+    assert intent.source == DECISION_FROM_LOCAL
+    assert intent.skill == "craft_take_result"
+    assert intent.arguments == {"target_item": PLANKS, "quantity": 8}
+    assert intent.plan.calls[0].product_id == PLANKS
+    assert intent.as_document()["arguments"] == {"target_item": PLANKS, "quantity": 8}
+    assert mind.as_document()["executing_arguments"] == {"target_item": PLANKS, "quantity": 8}
+    assert mind.as_document()["milestone"] == PLANK_GOAL.as_document()
+
+
+# ------------------------------------------------------------------------- the summary an ask reads
+
+
+def test_the_ask_shows_the_counts_an_argument_has_to_be_chosen_from() -> None:
+    """Asked to name a `target_item`, an answerer can only guess if it is not told what the bag
+    holds — and a guess comes back refused as a missing recipe or a short bag, which reads like a
+    bad decision and is a badly-posed question. So the counts travel: the same reading the
+    precondition is judged from, in fields a choice is made of.
+
+    What does not travel is the geometry. No coordinates, no entity ids, no block positions: the
+    answerer has no map and no keys, and §2's promise is a pointer plus a summary, not a view.
+    """
+
+    provider = ScriptedProvider()
+    ledger = CostLedger(run_cost_cap=CAP)
+    mind = mind_for(provider, ledger, kin_id="kin-01", persona_seed="seed-9", goal=GOAL)
+    subject = reading(items=((0, LOG, 2), (1, PLANKS, 5)), entities=(drop(COAL),))
+
+    mind.next_intent(subject)
+
+    summary = provider.requests[0].observation_summary
+    assert summary["game_tick"] == 100
+    assert summary["inventory"] == {LOG: 2, PLANKS: 5}
+    assert summary["dropped_items"] == {COAL: 1}
+    assert summary["crafting_grid_side"] == PLAYER_GRID_SIDE
+    assert summary["craft_options"] == list(craft_options(subject))
+    assert summary["goal"] == {
+        "product_id": PICKAXE,
+        "quantity": 1,
+        "held": 0,
+        "direction": GOAL.label,
+    }
+    for absent in ("x", "y", "z", "relative_x", "entities", "coordinates", "session"):
+        assert absent not in summary
+
+
+def test_a_session_with_no_milestone_asks_about_the_world_and_not_about_a_goal() -> None:
+    """No standing product means no `goal` field rather than a fabricated one: the summary keeps
+    saying what the bag could become, because that is the table's answer and not the milestone's,
+    and an answerer told about a goal the session does not have would be deciding a fiction."""
+
+    provider = ScriptedProvider()
+    ledger = CostLedger(run_cost_cap=CAP)
+    mind = mind_for(provider, ledger, kin_id="kin-01", persona_seed="seed-9")
+
+    mind.next_intent(reading(items=((0, PLANKS, 5),)))
+
+    summary = provider.requests[0].observation_summary
+    assert "goal" not in summary
+    assert STICK in cast("list[str]", summary["craft_options"])
+
+
 # ------------------------------------------------------------- refusals take the local path
 
 
 def test_the_off_provider_leaves_a_named_refusal_and_a_local_choice() -> None:
     ledger = CostLedger(run_cost_cap=CAP)
-    mind = mind_for(OffModelProvider(), ledger, model_enabled=False)
+    mind = mind_for(OffModelProvider(), ledger, model_enabled=False, goal=GOAL)
     intent = mind.next_intent(reading(aim=block_aim()))
 
     assert intent.source == DECISION_FROM_LOCAL
@@ -374,7 +659,7 @@ def test_the_off_provider_leaves_a_named_refusal_and_a_local_choice() -> None:
 
 def test_the_local_order_finishes_the_chain_before_it_looks() -> None:
     ledger = CostLedger(run_cost_cap=CAP)
-    mind = mind_for(OffModelProvider(), ledger)
+    mind = mind_for(OffModelProvider(), ledger, goal=GOAL)
 
     assert (
         mind.next_intent(reading(items=((0, LOG, 1), (1, PLANKS, 1), (2, STICK, 2)))).skill
@@ -403,7 +688,7 @@ def test_a_late_answer_takes_the_same_conservative_path_as_a_timeout() -> None:
 
     assert intent.model_refusal == "STALE_GENERATION"
     assert intent.source == DECISION_FROM_LOCAL
-    assert mind.direction == LONG_TERM_DIRECTION
+    assert mind.direction == GOAL.label
     assert mind.goal_met is False
 
 
@@ -420,6 +705,7 @@ def test_the_cost_cap_refuses_calls_and_not_playing() -> None:
         OffModelProvider(reason=UnavailableReason.RUN_COST_CAP_REACHED),
         ledger,
         model_enabled=False,
+        goal=GOAL,
     )
     intent = mind.next_intent(reading(aim=block_aim(), items=((0, LOG, 1),)))
 
@@ -669,7 +955,7 @@ def test_a_fresh_projection_names_every_gap_instead_of_filling_it() -> None:
     mind, _ = mind_with()
     document = mind.as_document()
 
-    assert document["direction"] == LONG_TERM_DIRECTION
+    assert document["direction"] == GOAL.label
     assert document["goal_met"] is False
     assert document["current_intent"] is None
     assert document["executing_skill"] == ""

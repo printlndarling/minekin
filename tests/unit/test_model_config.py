@@ -544,6 +544,136 @@ def test_a_bare_echoed_key_is_removed_by_the_secret_the_caller_sent() -> None:
     assert FAKE_KEY not in chosen.reason
 
 
+# ---------------------------------------------------------------------------
+# §2: the arguments an answer fills in
+# ---------------------------------------------------------------------------
+
+
+#: An offer of behaviors the ask vocabulary declares parameters for, so a filled-in answer is
+#: judged by the same table the adapter shows the endpoint. `close_screen` is one of them because
+#: its declaration is empty, which is a statement about the behavior and not an omission.
+DECLARED_OFFER: tuple[str, ...] = (
+    "craft_take_result",
+    "collect_dropped",
+    "turn_to",
+    "close_screen",
+)
+PLANKS = "minecraft:oak_planks"
+
+
+def declared_offer() -> DecisionRequest:
+    return offer(feasible_skill_ids=DECLARED_OFFER)
+
+
+def test_an_answer_that_fills_in_the_ask_carries_it_into_the_decision() -> None:
+    """The gate is the one judge of an argument, and what it returns is the canonical map.
+
+    `quantity` arrives as the number the endpoint wrote and leaves as the same number this side
+    checked — which is what lets a run document be read afterwards as "the ask said four planks"
+    rather than as whatever the plan happened to do.
+    """
+
+    chosen = compose_decision(
+        declared_offer(),
+        "craft_take_result",
+        "four planks from what the bag holds",
+        arguments={"target_item": PLANKS, "quantity": 4},
+    )
+
+    assert isinstance(chosen, Decision)
+    assert chosen.arguments == {"target_item": PLANKS, "quantity": 4}
+    assert chosen.as_document()["arguments"] == {"target_item": PLANKS, "quantity": 4}
+
+
+def test_an_answer_that_omits_a_required_argument_is_refused_by_name() -> None:
+    """`craft` without a product is not a craft of a default item. This side does not guess:
+    the refusal is the answer, and the Kin plays on its local reflection."""
+
+    refused = compose_decision(
+        declared_offer(), "craft_take_result", "make something", arguments={"quantity": 2}
+    )
+
+    assert isinstance(refused, ModelUnavailable)
+    assert refused.reason is UnavailableReason.MODEL_ARGUMENTS_MISSING
+    assert refused.outcome is CallOutcome.REJECTED
+
+
+@pytest.mark.parametrize(
+    ("skill_id", "arguments", "expected"),
+    [
+        ("craft_take_result", {"target_item": PLANKS, "quantity": 4, "slot": 3}, "unknown"),
+        ("craft_take_result", {"item": PLANKS}, "unknown"),
+        ("craft_take_result", {"target_item": "Wooden Pickaxe"}, "invalid"),
+        ("craft_take_result", {"target_item": PLANKS, "quantity": 0}, "invalid"),
+        ("craft_take_result", {"target_item": PLANKS, "quantity": 999}, "invalid"),
+        ("craft_take_result", {"target_item": PLANKS, "quantity": True}, "invalid"),
+        ("craft_take_result", {"target_item": PLANKS, "quantity": 2.5}, "invalid"),
+        ("collect_dropped", {"item_id": "minecraft:coal", "walk_seconds": "12"}, "invalid"),
+        ("collect_dropped", {"item_id": "coal"}, "invalid"),
+        ("turn_to", {"yaw_degrees": 1000.0}, "invalid"),
+        ("close_screen", {"look_at": "the log"}, "unknown"),
+    ],
+)
+def test_an_argument_that_is_not_a_value_the_behavior_means_is_refused_by_which_one(
+    skill_id: str, arguments: Mapping[str, object], expected: str
+) -> None:
+    """A key nobody declared and a value of the wrong kind or outside the bound are two different
+    sentences, and the run document says which was said.
+
+    `True` is the case only a check written against Python can miss: it is an `int`, and a
+    quantity of `true` is not a request for one item. `close_screen` has no parameters at all, so
+    the only thing an answerer can get wrong about it is to claim one.
+    """
+
+    reason = (
+        UnavailableReason.MODEL_ARGUMENTS_UNKNOWN
+        if expected == "unknown"
+        else UnavailableReason.MODEL_ARGUMENTS_INVALID
+    )
+    refused = compose_decision(declared_offer(), skill_id, "an argument", arguments=arguments)
+
+    assert isinstance(refused, ModelUnavailable)
+    assert refused.reason is reason
+    assert refused.outcome is CallOutcome.REJECTED
+
+
+def test_a_stale_or_out_of_bounds_answer_is_refused_before_its_arguments_are_read() -> None:
+    """The order is the boundary: an invented skill and an answer from another intent are the
+    older, more serious refusals, and a bad argument never gets to be the reason instead."""
+
+    stale = compose_decision(
+        declared_offer(),
+        "craft_take_result",
+        "late",
+        6,
+        arguments={"target_item": PLANKS},
+    )
+    assert isinstance(stale, ModelUnavailable)
+    assert stale.reason is UnavailableReason.STALE_GENERATION
+
+    invented = compose_decision(
+        declared_offer(), "fly_to_the_log", "sure", arguments={"target_item": PLANKS}
+    )
+    assert isinstance(invented, ModelUnavailable)
+    assert invented.reason is UnavailableReason.DECISION_OUT_OF_BOUNDS
+
+
+def test_an_answer_about_a_behavior_nobody_declared_is_judged_only_by_the_offer() -> None:
+    """A behavior with no row in the parameter table is not a behavior with no parameters — but
+    an empty ask for it is honourable, because there is nothing this side would have to know to
+    run it. A non-empty one is a parameter nobody declared, and that is a refusal."""
+
+    empty = compose_decision(offer(), "wait", "nothing safe yet")
+    assert isinstance(empty, Decision)
+    assert empty.arguments == {}
+
+    claimed = compose_decision(
+        offer(), "wait", "nothing safe yet", arguments={"target_item": PLANKS}
+    )
+    assert isinstance(claimed, ModelUnavailable)
+    assert claimed.reason is UnavailableReason.MODEL_ARGUMENTS_UNKNOWN
+
+
 def test_a_request_must_be_judgable_before_it_is_paid_for() -> None:
     """An unjudged request is a caller bug, caught while it still costs nothing."""
 

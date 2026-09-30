@@ -39,6 +39,7 @@ from minekin_core.adapters.model import (
     OpenAICompatibleProvider,
     model_provider_for,
 )
+from minekin_core.adapters.model.openai_compatible import SYSTEM_PROMPT
 from minekin_core.domain.errors import MinekinError
 from minekin_core.domain.model_access import (
     PROVIDER_OFF,
@@ -232,8 +233,15 @@ def envelope(content: str, *, prompt_tokens: int = 1_234, completion_tokens: int
     ).encode("utf-8")
 
 
-def decision_content(skill_id: str, reason: str, generation: int | None = GENERATION) -> bytes:
+def decision_content(
+    skill_id: str,
+    reason: str,
+    generation: int | None = GENERATION,
+    arguments: Mapping[str, object] | None = None,
+) -> bytes:
     payload: dict[str, object] = {"skill_id": skill_id, "reason": reason}
+    if arguments is not None:
+        payload["arguments"] = arguments
     if generation is not None:
         payload["intent_generation"] = generation
     return envelope(json.dumps(payload))
@@ -265,12 +273,14 @@ def offer(
     *,
     feasible_skill_ids: tuple[str, ...] = FEASIBLE,
     intent_generation: int = GENERATION,
+    observation_summary: Mapping[str, object] | None = None,
 ) -> DecisionRequest:
     return DecisionRequest(
         observation_ref="obs-1042",
         needs={"safety": 2, "resource_security": 7},
         active_goal="obtain-and-keep-basic-tools",
         feasible_skill_ids=feasible_skill_ids,
+        observation_summary={} if observation_summary is None else dict(observation_summary),
         persona_seed="kin-77:curious",
         budget_remaining_micro=400_000,
         intent_generation=intent_generation,
@@ -284,14 +294,19 @@ def body_field(arrival: Arrival, name: str) -> object:
     return document.get(name)
 
 
-def offered_skills(arrival: Arrival) -> list[str]:
-    """The feasible set as the endpoint saw it, read back out of the body it received."""
+def shown_offer(arrival: Arrival) -> dict[str, object]:
+    """The `user` message as the endpoint read it: the offer, restated as data."""
 
     document = cast(dict[str, object], json.loads(arrival.body))
     messages = cast(list[object], document["messages"])
     user = cast(dict[str, object], messages[1])
-    shown = cast(dict[str, object], json.loads(cast(str, user["content"])))
-    return cast(list[str], shown["feasible_skill_ids"])
+    return cast(dict[str, object], json.loads(cast(str, user["content"])))
+
+
+def offered_skills(arrival: Arrival) -> list[str]:
+    """The feasible set as the endpoint saw it, read back out of the body it received."""
+
+    return cast(list[str], shown_offer(arrival)["feasible_skill_ids"])
 
 
 def leak_in(texts: list[str]) -> str | None:
@@ -497,6 +512,163 @@ def test_the_off_shape_answers_without_a_request_a_cost_or_an_exception(
     assert answered.reason is UnavailableReason.MODEL_NOT_CONFIGURED
     assert answered.outcome is CallOutcome.UNAVAILABLE
     assert endpoint.arrivals == []
+
+
+# ---------------------------------------------------------------------------
+# The ask, in both directions: parameters out, arguments back
+# ---------------------------------------------------------------------------
+
+
+#: A feasible set of behaviors the ask vocabulary declares parameters for, so the body the
+#: endpoint receives is the declaration and not only the names.
+DECLARED: tuple[str, ...] = ("craft_take_result", "collect_dropped", "turn_to")
+PLANKS = "minecraft:oak_planks"
+SUMMARY: dict[str, object] = {
+    "game_tick": 1042,
+    "inventory": {PLANKS: 5},
+    "craft_options": ["minecraft:stick"],
+    "goal": {"product_id": PLANKS, "quantity": 8, "held": 5},
+}
+
+
+def test_the_ask_shows_the_parameter_declaration_for_the_behaviors_it_may_choose(
+    serve: Callable[[Behavior], Endpoint],
+) -> None:
+    """An answerer that is offered `craft_take_result` and nothing else can only guess what to put
+    in `target_item`. The declaration travels with the offer: kinds, requiredness and bounds, for
+    the offered behaviors alone.
+
+    The endpoint is a stranger, so this is a courtesy and not a contract — the values that come
+    back are re-checked at the gate either way.
+    """
+
+    endpoint = serve(Behavior(body=decision_content("turn_to", "look around")))
+    provider = OpenAICompatibleProvider(config_for(endpoint), environment())
+
+    provider.decide(offer(feasible_skill_ids=DECLARED))
+
+    shown = shown_offer(endpoint.arrivals[0])
+    skills = cast(dict[str, object], shown["skill_parameters"])
+    assert set(skills) == set(DECLARED)
+    craft = cast(list[dict[str, object]], skills["craft_take_result"])
+    assert {row["name"] for row in craft} == {"target_item", "quantity"}
+    assert {"name": "target_item", "kind": "item_id", "required": True} in craft
+    assert cast(list[str], shown["feasible_skill_ids"]) == list(DECLARED)
+
+
+def test_the_observation_the_answerer_sees_is_the_summary_and_not_the_world(
+    serve: Callable[[Behavior], Endpoint],
+) -> None:
+    """§2 promises a pointer to the reading plus a summary, and the summary is what makes an
+    argument checkable afterwards: counts, the held item, what the bag could become.
+
+    What is deliberately not sent is the geometry. The request already carries `observation_ref`,
+    and a body that held coordinates would say more about the world than the local layer decided to
+    show — while adding nothing an answerer can use, because it has no map and no keys.
+    """
+
+    endpoint = serve(Behavior(body=decision_content("turn_to", "look around")))
+    provider = OpenAICompatibleProvider(config_for(endpoint), environment())
+
+    provider.decide(offer(feasible_skill_ids=DECLARED, observation_summary=SUMMARY))
+
+    shown = shown_offer(endpoint.arrivals[0])
+    assert shown["observation"] == SUMMARY
+    assert shown["observation_ref"] == "obs-1042"
+    for absent in ("x", "y", "z", "coordinates", "entities"):
+        assert absent not in cast(dict[str, object], shown["observation"])
+
+
+def test_a_request_that_shows_nothing_sends_an_empty_summary(
+    serve: Callable[[Behavior], Endpoint],
+) -> None:
+    """A session that has nothing to show says so with `{}` rather than with an invented world."""
+
+    endpoint = serve(Behavior(body=decision_content("wait", "nothing safe yet")))
+    provider = OpenAICompatibleProvider(config_for(endpoint), environment())
+
+    provider.decide(offer())
+
+    assert shown_offer(endpoint.arrivals[0])["observation"] == {}
+
+
+def test_an_answer_that_fills_in_the_ask_comes_back_with_it(
+    serve: Callable[[Behavior], Endpoint],
+) -> None:
+    """The round trip the interface is: the endpoint names a product and a count, and the `Decision`
+    the port returns carries exactly those values for whoever builds the call.
+
+    Nothing is interpreted here. `minecraft:iron_sword` is a well-spelled item id, so it is honoured
+    as an argument; whether any recipe exists for it is a question the local layer answers later.
+    """
+
+    endpoint = serve(
+        Behavior(
+            body=decision_content(
+                "craft_take_result",
+                "make four planks",
+                arguments={"target_item": PLANKS, "quantity": 4},
+            )
+        )
+    )
+    provider = OpenAICompatibleProvider(config_for(endpoint), environment())
+
+    answered = provider.decide(offer(feasible_skill_ids=DECLARED))
+
+    assert isinstance(answered, Decision)
+    assert answered.skill_id == "craft_take_result"
+    assert answered.arguments == {"target_item": PLANKS, "quantity": 4}
+
+
+def test_an_answer_that_leaves_a_required_argument_out_is_refused_by_that_name(
+    serve: Callable[[Behavior], Endpoint],
+) -> None:
+    """A skill name with nothing filled in is not a craft of some default item, and the provider
+    does not supply the missing half out of the reading it was not asked to judge."""
+
+    endpoint = serve(
+        Behavior(body=decision_content("craft_take_result", "make something", arguments={}))
+    )
+    provider = OpenAICompatibleProvider(config_for(endpoint), environment())
+
+    refused = provider.decide(offer(feasible_skill_ids=DECLARED))
+
+    assert isinstance(refused, ModelUnavailable)
+    assert refused.reason is UnavailableReason.MODEL_ARGUMENTS_MISSING
+    assert refused.outcome is CallOutcome.REJECTED
+
+
+def test_an_answer_whose_arguments_are_not_an_object_is_read_as_an_empty_ask(
+    serve: Callable[[Behavior], Endpoint],
+) -> None:
+    """`arguments` arrives as free text from a stranger, and `"hurry"` is not a map. It becomes the
+    ask nobody filled in rather than a parse error, because the difference between those two is
+    which side of the contract failed — and a string is a choice, not a transport fault."""
+
+    payload = json.dumps(
+        {
+            "skill_id": FEASIBLE[0],
+            "reason": "chop it",
+            "arguments": "hurry",
+            "intent_generation": GENERATION,
+        }
+    )
+    endpoint = serve(Behavior(body=envelope(payload)))
+    provider = OpenAICompatibleProvider(config_for(endpoint), environment())
+
+    answered = provider.decide(offer())
+
+    assert isinstance(answered, Decision)
+    assert answered.arguments == {}
+
+
+def test_the_instruction_asks_for_arguments_and_forbids_inventing_a_name() -> None:
+    """The system prompt is the only place the expected shape is stated to the endpoint, and a
+    model that invents an item, a recipe or a slot has to be told not to before it answers."""
+
+    assert '"arguments"' in SYSTEM_PROMPT
+    for forbidden in ("no item the request did not name", "the feasible list"):
+        assert forbidden in SYSTEM_PROMPT
 
 
 # ---------------------------------------------------------------------------

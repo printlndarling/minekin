@@ -217,6 +217,13 @@ if [[ "${1:-}" == "domain" ]]; then
         -e MINEKIN_MODEL_PROVIDER -e MINEKIN_MODEL_BASE_URL -e MINEKIN_MODEL
         -e MINEKIN_MODEL_API_KEY_ENV -e MINEKIN_MODEL_TIMEOUT_MS
         -e MINEKIN_MODEL_RUN_COST_CAP
+        # The standing milestone, which since this build's parameterization is an argument and not
+        # a constant: `goal_spec.py` reads these four and holds no default item, so a name that is
+        # not delivered is a Kin with no standing craft target rather than the pickaxe one. A demo
+        # names its product here, an operator names another, and the run document prints whichever
+        # arrived. Ids and a count — no credential, and no address.
+        -e MINEKIN_GOAL_PRODUCT -e MINEKIN_GOAL_QUANTITY
+        -e MINEKIN_GOAL_SOURCE_ITEM -e MINEKIN_GOAL_DIRECTION
         # Which port this container should host a fake completions endpoint on, for the run that
         # proves the wiring above end to end. It is a port number, not an address and not a
         # credential: the listener binds loopback inside the container, and unset means no
