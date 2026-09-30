@@ -204,11 +204,16 @@ class TapeSkills(WorldSkills):
         materials: Mapping[str, int],
         product_id: str,
         authority: ActionAuthority,
+        craft_all: bool = True,
         timeout_ns: int = DEFAULT_STEP_TIMEOUT_NS,
     ) -> SkillOutcome:
         del authority, timeout_ns
         return await self._answer(
-            "craft", recipe_id=recipe_id, product_id=product_id, materials=dict(materials)
+            "craft",
+            recipe_id=recipe_id,
+            product_id=product_id,
+            materials=dict(materials),
+            craft_all=craft_all,
         )
 
     async def select_hotbar(
@@ -302,6 +307,14 @@ def test_the_loop_walks_the_whole_milestone_chain_without_a_written_plan() -> No
         None,
     ]
     assert skills.ran[3][1] == {"slot": 3, "expected_item_id": PICKAXE}
+    # The mind asks for the transaction whose product lands in the bag: a single
+    # recipe-book pick leaves the result on the cursor, which no synced reading
+    # reports, so a chain built on it can never close on a reading.
+    assert [kwargs.get("craft_all") for name, kwargs in skills.ran if name == "craft"] == [
+        True,
+        True,
+        True,
+    ]
     assert mind.goal_met is True
     assert len(result.steps) == 4
 

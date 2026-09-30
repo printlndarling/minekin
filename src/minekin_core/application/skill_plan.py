@@ -51,7 +51,7 @@ _DEFAULTED: Final[dict[str, tuple[str, ...]]] = {
     "turn_to": ("yaw_degrees", "pitch_degrees"),
     "break_seen_block": ("expected_drop_item",),
     "collect_dropped": ("walk_seconds",),
-    "craft": (),
+    "craft": ("craft_all",),
     "select_hotbar": ("expected_item_id",),
 }
 
@@ -222,7 +222,22 @@ def _parse_call(item: Mapping[str, Any], index: int) -> SkillCall:
         expected_item_id=_text(item, index, name, "expected_item_id"),
         walk_seconds=_number(item, index, name, "walk_seconds", 1.0),
         materials=_materials(item, index, name),
+        craft_all=_flag(item, index, name, "craft_all", True),
     )
+
+
+def _flag(item: Mapping[str, Any], index: int, name: str, key: str, default: bool) -> bool:
+    """A plan's yes-or-no, or the skill's own default.
+
+    Only a real bool is accepted: `craft_all: "true"` is a plan whose author
+    guessed at the shape, and a coercing reader would quietly agree with a
+    different sentence than the one written.
+    """
+
+    value = item.get(key, default)
+    if not isinstance(value, bool):
+        raise SkillPlanError(f"skills[{index}] ({name}) needs {key} to be true or false")
+    return bool(value)
 
 
 def _text(item: Mapping[str, Any], index: int, name: str, key: str) -> str:
@@ -358,6 +373,7 @@ async def perform_skill(
             materials=dict(call.materials),
             product_id=call.product_id,
             authority=authority,
+            craft_all=call.craft_all,
             timeout_ns=timeout_ns,
         )
     return await skills.select_hotbar(

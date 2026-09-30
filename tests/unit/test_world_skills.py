@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable
-from typing import Final
+from typing import Final, cast
 
 from google.protobuf.message import Message
 
@@ -48,6 +48,7 @@ from minekin_core.domain.perception import (
     WorldObservationValue,
 )
 from minekin_core.domain.world_actions import ActionResultClass
+from minekin_core.generated.minekin.v1 import control_pb2
 
 ALL_CAPABILITIES: Final = frozenset(
     {
@@ -604,6 +605,7 @@ def test_craft_names_channel_silence_as_the_reason_a_click_was_left_unconfirmed(
             "pre_inventory_revision": "100",
             "newest_inventory_revision": "100",
             "gui_open": "true",
+            "craft_all": "true",
         }
 
     asyncio.run(scenario())
@@ -671,6 +673,73 @@ def test_craft_reports_the_window_was_never_seen_open() -> None:
         assert outcome.details["gui_open"] == "false"
         assert outcome.details["newest_checked_tick"] == "100"
         assert GUI_CLICK_INPUT_TYPE not in [message_type for message_type, _ in sender.sent]
+
+    asyncio.run(scenario())
+
+
+def test_craft_sends_the_click_that_leaves_the_result_in_the_inventory() -> None:
+    """The default is the transaction that finishes the job.
+
+    A plain recipe click is the recipe book's single pick: it leaves one result on
+    the cursor, and the cursor is not part of the synced inventory the Kin reads.
+    A window spent on that click can watch the materials fall and still never see a
+    product, which is the shape the demo kept reporting. The craft-all click is the
+    one whose result lands where the next reading can find it."""
+
+    async def scenario() -> None:
+        loaded = inventory(100, (0, PLANKS, 6), (1, "minecraft:stick", 2))
+        store = store_with(
+            reading(
+                tick=100,
+                inventory_value=loaded,
+                gui=GuiScreenValue(screen_id="crafting", sync_id=3),
+            )
+        )
+        skills, sender = skill_with(store)
+
+        await skills.craft(
+            recipe_id="wooden_pickaxe",
+            materials={PLANKS: 3, "minecraft:stick": 2},
+            product_id=PICKAXE,
+            authority=authority(),
+            timeout_ns=50_000_000,
+        )
+
+        clicks = [
+            message for message_type, message in sender.sent if message_type == GUI_CLICK_INPUT_TYPE
+        ]
+        assert len(clicks) == 1
+        assert cast(control_pb2.GuiClickInput, clicks[0]).recipe.craft_all is True
+
+    asyncio.run(scenario())
+
+
+def test_a_caller_can_ask_for_the_single_pick_and_the_run_says_which_went_out() -> None:
+    async def scenario() -> None:
+        loaded = inventory(100, (0, PLANKS, 6), (1, "minecraft:stick", 2))
+        store = store_with(
+            reading(
+                tick=100,
+                inventory_value=loaded,
+                gui=GuiScreenValue(screen_id="crafting", sync_id=3),
+            )
+        )
+        skills, sender = skill_with(store)
+
+        outcome = await skills.craft(
+            recipe_id="wooden_pickaxe",
+            materials={PLANKS: 3, "minecraft:stick": 2},
+            product_id=PICKAXE,
+            authority=authority(),
+            craft_all=False,
+            timeout_ns=50_000_000,
+        )
+
+        clicks = [
+            message for message_type, message in sender.sent if message_type == GUI_CLICK_INPUT_TYPE
+        ]
+        assert cast(control_pb2.GuiClickInput, clicks[0]).recipe.craft_all is False
+        assert outcome.details["craft_all"] == "false"
 
     asyncio.run(scenario())
 

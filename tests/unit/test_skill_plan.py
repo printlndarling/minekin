@@ -94,6 +94,7 @@ class _TapeSkills(WorldSkills):
         )
         self._outcomes = outcomes
         self.ran: list[str] = []
+        self.craft_alls: list[bool] = []
 
     async def _answer(self, name: str) -> SkillOutcome:
         if name not in self._outcomes:
@@ -129,9 +130,11 @@ class _TapeSkills(WorldSkills):
         materials: Mapping[str, int],
         product_id: str,
         authority: ActionAuthority,
+        craft_all: bool = True,
         timeout_ns: int = DEFAULT_STEP_TIMEOUT_NS,
     ) -> SkillOutcome:
         del recipe_id, materials, product_id, authority, timeout_ns
+        self.craft_alls.append(craft_all)
         return await self._answer("craft")
 
 
@@ -165,6 +168,35 @@ def test_a_plan_is_read_in_order_with_typed_arguments() -> None:
     assert plan.calls[1].materials == (("minecraft:oak_log", 1),)
     assert plan.calls[2].slot == 0
     assert len(plan) == 3
+
+
+def test_a_plan_can_name_which_craft_transaction_and_the_skill_receives_it() -> None:
+    """A plan is the only place an author says which of the two recipe clicks they want,
+    so the word has to survive both the reading and the dispatch. The plain click leaves
+    the result on the cursor rather than in the synced inventory, which is why the choice
+    is a plan argument and not something the skill layer infers."""
+
+    def craft_entry(**extra: object) -> dict[str, object]:
+        return {
+            "skill": "craft",
+            "recipe_id": "minecraft:oak_planks",
+            "materials": {"minecraft:oak_log": 1},
+            "product_id": "minecraft:oak_planks",
+            **extra,
+        }
+
+    plan = parse_skill_plan(
+        {"schema_version": 1, "skills": [craft_entry(), craft_entry(craft_all=False)]},
+        source="test",
+    )
+
+    assert [call.craft_all for call in plan.calls] == [True, False]
+
+    skills = _TapeSkills({"craft": _outcome(ActionResultClass.CONFIRMED)}, _RecordingSender())
+    asyncio.run(
+        run_skill_plan(skills, plan, authority=AUTHORITY, timeout_ns=DEFAULT_STEP_TIMEOUT_NS)
+    )
+    assert skills.craft_alls == [True, False]
 
 
 #: Every shape a plan document can have that an operator should not have to debug
@@ -202,6 +234,21 @@ _UNREADABLE: Final[list[tuple[object, str]]] = [
             ],
         },
         "positive number",
+    ),
+    (
+        {
+            "schema_version": 1,
+            "skills": [
+                {
+                    "skill": "craft",
+                    "recipe_id": "r",
+                    "product_id": "p",
+                    "materials": {"minecraft:oak_log": 1},
+                    "craft_all": "false",
+                }
+            ],
+        },
+        "needs craft_all to be true or false",
     ),
 ]
 

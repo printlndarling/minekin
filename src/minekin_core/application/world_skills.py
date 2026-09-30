@@ -141,7 +141,7 @@ class ActionAuthority:
 class SkillCall:
     """One skill named with everything it needs.
 
-    The flat shape is deliberate: five skills, eight possible arguments, and a
+    The flat shape is deliberate: five skills, nine possible arguments, and a
     caller that has to say which of them it means without a branch per skill.
     Which arguments a name requires is `application.skill_plan`'s business, and
     the defaults here are what a call carries when nobody said — `slot=-1` is
@@ -164,6 +164,7 @@ class SkillCall:
     expected_item_id: str = ""
     walk_seconds: float = 1.0
     materials: tuple[tuple[str, int], ...] = ()
+    craft_all: bool = True
 
 
 def _refusal_outcome(
@@ -199,7 +200,11 @@ def _chase_details(steps: int, newest: WorldObservationValue) -> dict[str, str]:
 
 
 def _craft_details(
-    pre: WorldObservationValue, newest: WorldObservationValue, *, gui_open: bool
+    pre: WorldObservationValue,
+    newest: WorldObservationValue,
+    *,
+    gui_open: bool,
+    craft_all: bool,
 ) -> dict[str, str]:
     """Which of the three ways a craft can end without a word is the one that
     happened, in the field the run document already carries.
@@ -212,6 +217,11 @@ def _craft_details(
     the third — `verify_craft` can only conclude on a rise in the synced
     revision, so a pair that never moved means no frame worth concluding on
     ever reached it.
+
+    `craft_all` names which click went out, because the two recipe clicks are
+    different transactions: the plain one leaves the result on the cursor, which
+    the synced inventory does not report, so a window can watch materials fall
+    and still have nothing to confirm on.
     """
 
     return {
@@ -219,6 +229,7 @@ def _craft_details(
         "pre_inventory_revision": str(pre.inventory.revision),
         "newest_inventory_revision": str(newest.inventory.revision),
         "gui_open": "true" if gui_open else "false",
+        "craft_all": "true" if craft_all else "false",
     }
 
 
@@ -548,12 +559,22 @@ class WorldSkills:
         materials: Mapping[str, int],
         product_id: str,
         authority: ActionAuthority,
+        craft_all: bool = True,
         timeout_ns: int = DEFAULT_STEP_TIMEOUT_NS,
     ) -> SkillOutcome:
         """The 2x2 surface: check the materials are in the synced inventory,
         open the player's own screen through its real key path, click the
         recipe the game actually has — and confirm only on materials down and
-        product up, both on the same synced revision."""
+        product up, both on the same synced revision.
+
+        `craft_all` defaults to the transaction that finishes the job. The plain
+        recipe click is the recipe book's single pick, which leaves the result on
+        the cursor; the cursor is not part of the synced inventory the Kin reads,
+        so a window spent watching that click can see materials fall and still
+        never see a product. The craft-all click is the one that puts the result
+        where the next reading can find it, which is also why it is spelled out
+        in `details` rather than left implied.
+        """
 
         for capability in (SCREEN_CAPABILITY, GUI_CAPABILITY):
             refusal = self._require(capability)
@@ -590,7 +611,12 @@ class WorldSkills:
                     reason="SCREEN_NOT_CONFIRMED",
                     action_id=action_id,
                     pre_tick=pre.game_tick,
-                    details=_craft_details(pre, self._observations.latest or pre, gui_open=False),
+                    details=_craft_details(
+                        pre,
+                        self._observations.latest or pre,
+                        gui_open=False,
+                        craft_all=craft_all,
+                    ),
                 )
         screen = self._observations.latest
         if screen is None or screen.gui is None or screen.gui.sync_id is None:
@@ -599,7 +625,12 @@ class WorldSkills:
                 reason="SCREEN_NOT_CONFIRMED",
                 action_id=action_id,
                 pre_tick=pre.game_tick,
-                details=_craft_details(pre, screen or pre, gui_open=False),
+                details=_craft_details(
+                    pre,
+                    screen or pre,
+                    gui_open=False,
+                    craft_all=craft_all,
+                ),
             )
         refusal = gui_click_refusal(screen, screen.gui.sync_id)
         if refusal.refusal is not None:
@@ -611,7 +642,7 @@ class WorldSkills:
                 lease_id=authority.lease_id,
                 generation=authority.generation,
                 sync_id=screen.gui.sync_id,
-                recipe=control_pb2.GuiRecipeClick(recipe_id=recipe_id),
+                recipe=control_pb2.GuiRecipeClick(recipe_id=recipe_id, craft_all=craft_all),
                 deadline_monotonic_ns=authority.deadline_monotonic_ns,
             ),
         )
@@ -628,7 +659,7 @@ class WorldSkills:
                         reason="NO_CONFIRMING_OBSERVATION",
                         action_id=action_id,
                         pre_tick=pre.game_tick,
-                        details=_craft_details(pre, chain, gui_open=True),
+                        details=_craft_details(pre, chain, gui_open=True, craft_all=craft_all),
                     )
                 continue
             verdict = verify_craft(
@@ -641,7 +672,7 @@ class WorldSkills:
                     action_id=action_id,
                     pre_tick=pre.game_tick,
                     post_tick=post.game_tick,
-                    details=_craft_details(pre, post, gui_open=True),
+                    details=_craft_details(pre, post, gui_open=True, craft_all=craft_all),
                 )
             chain = post
 
