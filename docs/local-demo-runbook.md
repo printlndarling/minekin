@@ -177,6 +177,8 @@ export MINEKIN_RUNNER_FORWARD_ENV=<存放密钥的那个变量名>  # 逗号分�
 
 21. **第 20 条登记的两处具名诚实缺口各自有了一发读数，而合起来它们改写了"频道先坏、客户端后走"那句次序（2026-09-30，run `ec5330b5a7c74258a2bd20476e99ea0d`（server run 目录 `run-11`）与 run `dbc65e316e534364add732307926c020`（`run-12`，逐字读数见六之八）。** 其一，run 文档现在带 `bridge_lost_reason`——那句理由名是 Core 自己写的（`adapters/bridge/ipc.py` 九个抛出点各自一句固定的话，不含对端文本），两发读回的都是**同一句** `"IPC channel closed before a complete frame header"`。这一句把第 20 条末段那个推断更正了：那一支是**在帧边界上读到套接字关闭**时抛的，也就是说这几发里的"契约破坏"就是那台客户端离开的那一刻，不是它的前因——`BRIDGE_LOST` 与 `CLIENT_EXITED` 在这两发里是同一件事的两个名字，而不是链条上的两段。第 20 条那句"新的前沿因此换了名字"到此答完；仍然答不出的那句换了回去：**那个 JVM 为什么会收到 SIGTERM**（143 = 128+15），而它不在 Core 现有字节能答的范围里——要它得看 bridge-1201 的网络线程侧，那是已封字节，是主控的决定（B 分支），不是本卡继续猜的理由。其二，`CLIENT_EXITED` 那一行现在带上在飞的那笔 id：run-12 的第 5 步是 `{"skill":"close_screen","result":"UNKNOWN","reason":"CLIENT_EXITED","action_id":"bcb5aafb3f9241c99d1a1d354f4de909","details":{"exit_code":"143"}}`，而这个 id 在**客户端自己的日志里出现 0 次**（同一份日志的最后一行是 `16:04:34` 的 `Loaded 16 advancements`，它的上一条就是第 4 步那笔 `63aab7c5…` 的配方与槽位点击）⇒ 那一笔关屏**从 Core 发出去了、客户端没有应用它**。在把 id 带出来之前，那一行是空的，这一个问题根本问不出来——这就是这一格的全部用途。发令之前子进程就已经没了的那一支仍写空 id（`skill_plan.perform_skill` 的 pre-send 路径），两种形状各由一条单测钉住（`tests/unit/test_world_skills.py::test_the_exit_names_the_ask_that_was_in_flight_when_the_client_went`、`tests/unit/test_skill_plan.py` 那一对）。**输入释放这一发是"没有键悬着"的那一种**：`move.forward` pressed 2 / released 2、`mine.attack` pressed 1 / released 1，日志里最后一条 applied 是 `holding []`，`unconfirmed: [243]` 只说明确认回不来；悬在世界上的只有那个还开着的物品栏界面。**同一处矛盾第四次复现**：`supervisor.poll` 给 143（步内），同一发的 `session stop` 说 `terminated: [243]`（还活着且由它把它停掉），成因仍是第 20 条那一格——`orphans.py` 的止路在发信号之前只比命令行摘要，marker 里的 `started_at` 从不比对。这一发还顺带量到那机制的另一半：`left_alone: [438, 263, 248, 249, 253]`——前三发留在卷上的 marker 让每一次停止都多探四个 pid，而它们在新容器里命令行摘要不配 ⇒ 不动手（设计在生效，但"marker 会一发的接一发的留在卷上、每次停止都多探几个 pid"这一格本档登记出来，不改写）。**不声明**：木镐仍未取得（第 13 条那一格没动），`close_screen` 仍不在 `player_mind.SKILL_OFFER` 里（第 19 条那格仍归 S3），B 分支仍归主控。
 
+22. **里程碑那一串合成不再是"谁手敲的一张表"，而是配方表算出来的顺序，活体读回的就是那一串（2026-09-30，run `78a12962a7b142aabe68718cf99474ef`，server run 目录 `run-13`，逐字读数见六之九）。** 这一格换掉的是 mind 自己：`CRAFT_CHAIN` 与 `CraftStage` 从产品路径上退下来（那串手写顺序本来就是 Demo 夹具，真正在跑的那份顺序一直住在 `examples/skill-plan-*.json` 里、从没被 mind 读过），`player_mind.GOAL_BUILD_PLAN` 改由 `domain/recipe_catalog.py` 的 `build_plan` 按配方推出来 ⇒ "想要一个产物"从此是一个 product id 加一个数量，不是一张有人抄过的表。**那条算术被当场量到**：木镐要 5 块木板而不是旧夹具写的 3，因为那把镐自己吃的木棍那一批还要再花两块木板（`3 planks + 2 sticks` 与 `2 planks → 4 sticks` 两行乘出来的），而这种错在世界上没有任何东西会发现。**活体上的切换**：第 3 步的参数是 `minecraft:oak_planks`（CONFIRMED，tick 1010→1044）、第 4 步换成了 `minecraft:stick`（`UNKNOWN`/`CLIENT_EXITED`，结果帧 1055）——两笔都不是计划文件写死的，是 mind 从当时那一帧背包算出来再交给 `craft_take_result` 的。第 3→4 那一换本身就是 netting 的读数：一批木板（yield 4）之后需求就清了 ⇒ 这一发进这一格时背包并不空（harness 自己那句 `the Kin root kin-local-demo already has a store on minekin-local-demo2 -- running on that filled store` 说的是同一件事），若在空背包上 5>4 会再要一批木板——那一支目前只有单测钉住（`tests/unit/test_autonomous_play.py::test_the_loop_walks_the_plan_as_far_as_the_grid_it_can_open`），**活体还没读到**。取木→拾取那一段在同一条新路径上又各确认了一次（`break_seen_block` 911→988、`collect_dropped` 988→1010）。**决策来源记清**：`decision_source: local_reflection`、`model_enabled: false`、`model_refusal: MODEL_NOT_CONFIGURED`、`model_calls: 0` ⇒ 这一发没有联系任何付费端点，走的正是无凭据那一条路。**第 21 条那两种形状在这一发上分开**：在飞的那笔 id `0843e155a7624d3ea97cc1250420d7b5` 在客户端日志里出现 **2 次**（`bridge clicked recipe minecraft:stick in …` 与 `bridge clicked slot 0 … QUICK_MOVE` 各一次），而 run-12 那笔关屏出现 0 次 ⇒ "发出去了"与"客户端应用了"从此是可分辨的两个事实，这一发是**发了且应用了、只是那一帧之后那台 JVM 不在了**。**输入释放是配对的那一种**：`move.forward` pressed 1 / released 1、`mine.attack` pressed 1 / released 1，最后一条 applied 写 `holding []`，`unconfirmed: [240]` 只说明确认回不来。**同一处矛盾第五次复现**：`session stop` 说 `terminated: [240]` 而步内读的是 143，本档按第 20 条原样登记、不选边；`left_alone: [438, 341, 243, 249, 253]` 是那四个（这次多了一个 `341`）早期 marker 再各探一遍。**不声明**：5 块木板这一需求未在活体上读到（这一发停在第 4 步），木镐仍未取得（第 13 条那一格没动），3×3 摆格与 B 分支仍归主控，`close_screen` 仍不在 `player_mind.SKILL_OFFER` 里。
+
 ## 六之四、按产物合成读到的那两发（2026-09-30，runs `d7fafc30bbec4231ba1b52a30b7be6a8` 与 `461bbbf77d884b12a6d1cb814e8901db`）
 同一枚热卷（同卷同 Kin 根 `kin-local-demo`，第二发是 server run 目录 `run-7` 之后的下一次会话），计划换成第 16 条那份只写产物的：
 
@@ -415,3 +417,56 @@ domain: session exited 14
 ```
 
 `terminated: [243]` 与步内的 143 不能同时是事实，本档按第 20 条同一格原样登记（止路只比命令行摘要、marker 的 `started_at` 从不比对）。`left_alone` 这次带着前几发留在同一卷上的 marker（`438/263/248/249/253`，其中 `263` 是上一发 `run-11` 自己的客户端 pid）：它们在这台新容器里命令行摘要不配 ⇒ 一个都没动手，这是设计在生效，同时说明**marker 会一发一发地留在卷上**，每次停止都把它们再探一遍。**不声明**：木镐仍未取得；`close_screen` 还不在 `SKILL_OFFER` 里；那个 JVM 为什么收到 SIGTERM 仍未答出，而答它需要 bridge-1201 网络线程侧的一次观测——那是已封字节，归主控。
+
+## 六之九、那一串顺序是配方表算出来的：第 22 条那一发（2026-09-30，run `78a12962a7b142aabe68718cf99474ef`，server run 目录 `run-13`，会话 `0590451866b44888abca64ac69a03fb8`，客户端 pid 240）
+
+自主那一档现在不再由任何人写步骤——走的是 mind 从读数里选出来的那一条，所以它是这一格的活体入口。命令逐字（宿主上的 `.tmp/run-live-v15.sh`，与这里等价）：
+
+```bash
+MINEKIN_SERVER_JAR=.tmp/mc-1.20.1-server.jar \
+MINEKIN_DEMO_VOLUME=minekin-local-demo2 \
+MINEKIN_DEMO_AUTONOMOUS_STEPS=16 \
+  bash test-orchestrator/runner/demo.sh --autonomous --again
+```
+
+harness 第一行就说明了这一发落在哪种世界上，逐字：`demo: the Kin root kin-local-demo already has a store on minekin-local-demo2 -- running on that filled store` ⇒ 第 22 条那句"背包进这一格时并不空"由这一行说话，不是推断。
+
+**那四步，逐字**（run 文档 `autonomous.steps`，字段顺序照 Core 的写法）：
+
+```text
+step1 break_seen_block  CONFIRMED  ""            87ea586f4d2a43228af09aae6fc28c78  tick 911 -> 988
+step2 collect_dropped   CONFIRMED  ""            d44512d820a7490ca50317581035790a  tick 988 -> 1010
+step3 craft planks      CONFIRMED  ""            13f00a1e05cb4557a1d7c40086be41a9  tick 1010 -> 1044
+step4 craft stick       UNKNOWN    CLIENT_EXITED 0843e155a7624d3ea97cc1250420d7b5  结果帧 tick 1055
+```
+
+两笔合成的 `reason` 字段逐字是 `"craft minecraft:oak_planks for hold_a_wooden_pickaxe"` 与 `"craft minecraft:stick for hold_a_wooden_pickaxe"`——product id 是 `build_plan` 从配方表推出来的那一个，不是谁在这一次的计划文件里写下的字符串（`--autonomous` 这一档根本没有计划文件，`skill_plan: []`、`skills: []`、`skill_stop: ""` 三格都是空的，第 22 条那句"参数由读数算出"就是在这一格上成立）。第 3 步之后需求从木板换到木棍 ⇒ netting 在真背包上过了一次；**5 块木板这个数量本身在这一发没被量到**（空背包要两批木板那一条只有单测）。
+
+**收尾那两格，逐字**：
+
+```text
+started_at 2026-09-30T16:33:16.675048Z   outcome BRIDGE_LOST   bridge_lost_reason "IPC channel closed before a complete frame header"
+stop_reason CLIENT_EXITED   stop_detail "143"   failure_attribution INSUFFICIENT_INFORMATION   goal_met false
+world_observations {"admitted": 16, "refused": 0, "refusal_reasons": {}, "stale_tick_dropped": 0, "newest_admitted_tick": 1055}
+cognition_refusals {"MANAGEMENT_ONLY_DTO": 2}   entities_admitted 7   actions_applied 4   actions_refused 6
+```
+
+`decision_source: local_reflection`、`model_enabled: false`、`model_refusal: MODEL_NOT_CONFIGURED`、`model_calls: 0`、`model_spent_micro: 0` ⇒ 这一发没联系任何端点，走的正是无凭据那一条路。改线额度这一格要说准：`UNKNOWN` 无论带哪个 reason 都归 `INSUFFICIENT_INFORMATION`（`player_mind.attribute_failure` 的第一条规矩），所以第 4 步那一次离开**确实**在 `(craft_take_result, INSUFFICIENT_INFORMATION)` 上记了一次尝试；`retry_budget: 2` 是"同一签名超过两次才排除"，`excluded_skills: []` 说的是一次还没到那个数，而循环在下一步之前就按 `CLIENT_EXITED` 停住了（`autonomous_play` 的那一段注释写得很清楚：向一台已经不在了的 JVM 再要三次读数，在文档上会长成一个"还在试"的心）。
+
+**那个 id 这次问得出相反的答案**：拿 `0843e155a7624d3ea97cc1250420d7b5` 去问客户端自己的日志（同一冷卷、只读挂载 `grep -c`），命中 **2 次**，而整份日志的最后四行是——
+
+```text
+[16:33:45] bridge clicked recipe minecraft:stick in 0843e155a7624d3ea97cc1250420d7b5
+[16:33:45] bridge clicked slot 0 (button 1, SLOT_CLICK_MODE_QUICK_MOVE)
+[16:33:45] bridge clicked slot 0 in 0843e155a7624d3ea97cc1250420d7b5
+[16:33:45] Loaded 23 advancements        ← 整份日志的最后一行
+```
+
+与 run-12 那 0 次并排放，第 21 条那句"id 还没带出来时这一个问题问不出来"现在有了两种答案的形状：**这一发是发了且被应用了**（配方点击 + 取结果槽的 quick_move 都在），只是那台 JVM 在同一秒之后不在了；run-12 那一发是**发了而客户端没应用**。`UNKNOWN` 对这两种形状仍然都写 `UNKNOWN`，这是规则在生效而不是缺陷：等待的那一件事实是"取结果之后背包变了"，而答案由离开那一边先给出。顺带登记一格可答而未答的问题——那一步的 `result_observation_ref` 写的是 `tick=1055`（`autonomous_play` 在落这一步时读 `observations.latest`，store 也确认收到了 1055 那一帧），也就是说 Core 手上其实有一帧比发令那帧更晚的读数，可 `CLIENT_EXITED` 那一行的 details 只带 `exit_code`，**没有把那一帧上的背包内容读进这一格**。要么把它读进来（对 `UNKNOWN` 仍然不改判，只是多一句"最后一帧上有没有那件产物"），要么按原样留着——那是下一格的决定，不是这一发要补的字。输入侧的账配对：`move.forward` pressed 1 / released 1、`mine.attack` pressed 1 / released 1，最后一条 applied 是 `holding []`（在 `d44512d8…` 那一步之内）。**同一处矛盾第五次复现**，逐字：
+
+```text
+domain: session stop said {"command": "session stop", "kin_id": "kin-local-demo", "left_alone": [438, 341, 243, 249, 253], "release": {"asked": [240], "nothing_held": [], "released": [], "unconfirmed": [240]}, "schema_version": 1, "status": "stopped", "terminated": [240], "unresolved": []}
+domain: session exited 14
+```
+
+`terminated: [240]` 与步内的 143 不能同时是事实，本档按第 20 条那一格原样登记（止路只比命令行摘要、marker 的 `started_at` 从不比对）；`left_alone` 里的 `341` 是上一发 `run-12` 之外另一发的 marker，marker 依旧一发一发地累积、每次停止都再探一遍。**不声明**：木镐仍未取得（`goal_met: false`），"5 块木板"这一需求未在活体上读到，第 13 条那一格（3×3 摆格）没动，`close_screen` 仍不在 `player_mind.SKILL_OFFER` 里，B 分支（为什么那个 JVM 收到 SIGTERM）仍归主控。
