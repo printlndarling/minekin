@@ -13,9 +13,11 @@ answered `SUCCEEDED`: that answer means the client let go of the key, and every
 row of §4 is about what the world looked like afterwards. Equally, a conclusion
 of `UNKNOWN` is returned as `UNKNOWN` — the contract forbids auto-retrying a
 click with a side effect on that word, and a skill that quietly retried would be
-indistinguishable from a Kin that crafted the same pickaxe twice. Only the turn
-re-sends while it works, because steering the view has no side effect and the
-S2 spec names `STARTED` + `AIM_IN_PROGRESS` as its normal answer.
+indistinguishable from a Kin that crafted the same pickaxe twice. Only steering
+is re-sent while a skill works: the turn re-asks its angle because §3 names
+`STARTED` + `AIM_IN_PROGRESS` as that skill's normal answer, and a collect
+re-steps toward a drop it has not picked up yet, because walking to a thing is
+the same class of command and a player chases what it can still see.
 
 The lease is the caller's: like `InputPlan`, a skill asks under a lease it was
 handed (`ActionAuthority`) and never arms the watchdog itself, so one arbiter
@@ -54,6 +56,7 @@ from minekin_core.domain.perception import (
     AimFace,
     AimKind,
     BlockTargetValue,
+    EntityCandidate,
     WorldObservationValue,
 )
 from minekin_core.domain.world_actions import (
@@ -83,6 +86,21 @@ AIM_ARRIVAL_TOLERANCE_DEGREES: Final[float] = 2.0
 #: Bridge's build (10 tick), so a skill that never saw a newer reading inside
 #: its own window is reporting the channel's silence, not the world's.
 DEFAULT_STEP_TIMEOUT_NS: Final[int] = 5_000_000_000
+
+#: How long one *correction* step of a chase lasts, in seconds. The plan's own
+#: `walk_seconds` sizes the first approach to a drop; after that the Kin is
+#: adjusting its position, and a full second approach per reading would spend the
+#: whole step window walking. This is the same kind of internal sizing as the
+#: turn's re-ask: it does not decide whether the pickup worked.
+CHASE_STEP_SECONDS: Final[float] = 0.5
+
+#: The window a chase needs left over, after the step's own walk, before it sends
+#: another one: at least one observation interval (the Bridge reports every 10
+#: tick), so the step has a newer reading to be concluded on rather than being
+#: sent into a deadline that has already closed. A caller may ask for a
+#: zero-second walk — the unit tests do — and without this floor such a chase
+#: would re-send until the timeout.
+CHASE_STEP_MIN_REMAINING_NS: Final[int] = 600_000_000
 
 #: The wire's face enum, keyed by the domain token that names it. Closed
 #: mapping: a face this build cannot spell is a refusal here, not a default on
@@ -164,6 +182,20 @@ def _wire_target(target: BlockTargetValue) -> control_pb2.BlockTarget:
     if face is None:
         raise ValueError(f"the client reported a face this build cannot name: {target.face}")
     return control_pb2.BlockTarget(x=target.x, y=target.y, z=target.z, face=face)
+
+
+def _chase_details(steps: int, newest: WorldObservationValue) -> dict[str, str]:
+    """What the chase did, in the field the run document already carries for it.
+
+    `post_tick` keeps its meaning — the reading that confirmed the pickup, so a
+    null still says nothing confirmed it — and these two say whether anything
+    arrived at all: how many steps went out, and the newest reading they were
+    concluded against. Without them a `NO_CONFIRMING_OBSERVATION` cannot be told
+    apart from the channel going silent, and the two are answered by changing
+    different things.
+    """
+
+    return {"steps": str(steps), "newest_checked_tick": str(newest.game_tick)}
 
 
 def _newer_reading(game_tick: int) -> Callable[[WorldObservationValue], bool]:
@@ -383,7 +415,16 @@ class WorldSkills:
         timeout_ns: int = DEFAULT_STEP_TIMEOUT_NS,
     ) -> SkillOutcome:
         """Walk toward a drop that is on the visible list, and let the synced
-        inventory say whether it came away. Nothing unseen is ever aimed at."""
+        inventory say whether it came away. Nothing unseen is ever aimed at.
+
+        The walk is chased, not fired once: a player that steps toward an item
+        and does not have it looks at where the item is now and takes another
+        step, and a Kin that stopped after one blind walk was a client that
+        never looked again. Only movement is repeated here — §4's ban on
+        auto-retrying a side-effecting click covers the craft click, not how the
+        Kin gets to a thing it already sees — and the number of steps this sent
+        is named in `details`, so the run document shows what went out.
+        """
 
         for capability in (MOVE_CAPABILITY, AIM_CAPABILITY):
             refusal = self._require(capability)
@@ -393,13 +434,57 @@ class WorldSkills:
         action_id = self._action_id()
         if pre is None:
             return _refusal_outcome("NO_LATEST_OBSERVATION", action_id, pre)
-        drops = seen_drops(pre.visible_entities, item_id)
-        if not drops:
+        first_drops = seen_drops(pre.visible_entities, item_id)
+        if not first_drops:
             return _refusal_outcome("NO_SEEN_DROP", action_id, pre)
-        nearest = drops[0]
-        yaw, pitch = angle_to_degrees(
-            dx=nearest.relative_x, dy=nearest.relative_y, dz=nearest.relative_z
+        deadline = monotonic_ns() + timeout_ns
+        chain = pre
+        # The plan sizes the approach; the corrections after it are this module's
+        # own short steps, so a whole window is not spent walking.
+        steps = 1
+        await self._walk_toward(action_id, authority, first_drops[0], walk_seconds)
+        while True:
+            post = await self._wait_until(_newer_reading(chain.game_tick), deadline)
+            if post is None:
+                break
+            chain = post
+            verdict = verify_item_collected(pre=pre, post=post, item_id=item_id)
+            if verdict is not ActionResultClass.UNKNOWN:
+                return SkillOutcome(
+                    result=verdict,
+                    reason="" if verdict is ActionResultClass.CONFIRMED else "DROP_NO_LONGER_SEEN",
+                    action_id=action_id,
+                    pre_tick=pre.game_tick,
+                    post_tick=post.game_tick,
+                    details=_chase_details(steps, post),
+                )
+            drops = seen_drops(post.visible_entities, item_id)
+            walk_ns = round(CHASE_STEP_SECONDS * 1_000_000_000)
+            if not drops or deadline - monotonic_ns() < walk_ns + CHASE_STEP_MIN_REMAINING_NS:
+                # Nothing to walk toward, or the correction no longer fits with a
+                # reading to conclude on: the Kin stands where the last step left
+                # it and the rest of the window is spent listening, not walking.
+                continue
+            steps += 1
+            await self._walk_toward(action_id, authority, drops[0], CHASE_STEP_SECONDS)
+        return SkillOutcome(
+            result=ActionResultClass.UNKNOWN,
+            reason="NO_CONFIRMING_OBSERVATION",
+            action_id=action_id,
+            pre_tick=pre.game_tick,
+            details=_chase_details(steps, chain),
         )
+
+    async def _walk_toward(
+        self,
+        action_id: str,
+        authority: ActionAuthority,
+        drop: EntityCandidate,
+        walk_seconds: float,
+    ) -> None:
+        """Aim at where this reading says the drop is, step, and stop."""
+
+        yaw, pitch = angle_to_degrees(dx=drop.relative_x, dy=drop.relative_y, dz=drop.relative_z)
         await self._sender.send_control(
             AIM_INPUT_TYPE,
             control_pb2.AimInput(
@@ -411,52 +496,26 @@ class WorldSkills:
                 deadline_monotonic_ns=authority.deadline_monotonic_ns,
             ),
         )
-        await self._sender.send_control(
-            MOVE_INPUT_TYPE,
-            control_pb2.MoveInput(
-                action_id=action_id,
-                lease_id=authority.lease_id,
-                generation=authority.generation,
-                forward=1.0,
-                deadline_monotonic_ns=authority.deadline_monotonic_ns,
-            ),
-        )
+        await self._send_walk(action_id, authority, forward=1.0)
         await self._sleep(walk_seconds)
         # The same named release the movement contract already guarantees — a
-        # walk with no stop would be a Kin still walking into whatever is there.
+        # walk with no stop would be a Kin still walking into whatever is there,
+        # and that is true of the last step of a chase as much as of the first.
+        await self._send_walk(action_id, authority, forward=0.0)
+
+    async def _send_walk(
+        self, action_id: str, authority: ActionAuthority, *, forward: float
+    ) -> None:
         await self._sender.send_control(
             MOVE_INPUT_TYPE,
             control_pb2.MoveInput(
                 action_id=action_id,
                 lease_id=authority.lease_id,
                 generation=authority.generation,
-                forward=0.0,
+                forward=forward,
                 deadline_monotonic_ns=authority.deadline_monotonic_ns,
             ),
         )
-        deadline = monotonic_ns() + timeout_ns
-        chain = pre
-        while True:
-            post = await self._wait_until(_newer_reading(chain.game_tick), deadline)
-            if post is None:
-                if monotonic_ns() >= deadline:
-                    return SkillOutcome(
-                        result=ActionResultClass.UNKNOWN,
-                        reason="NO_CONFIRMING_OBSERVATION",
-                        action_id=action_id,
-                        pre_tick=pre.game_tick,
-                    )
-                continue
-            verdict = verify_item_collected(pre=pre, post=post, item_id=item_id)
-            if verdict is not ActionResultClass.UNKNOWN:
-                return SkillOutcome(
-                    result=verdict,
-                    reason="" if verdict is ActionResultClass.CONFIRMED else "DROP_NO_LONGER_SEEN",
-                    action_id=action_id,
-                    pre_tick=pre.game_tick,
-                    post_tick=post.game_tick,
-                )
-            chain = post
 
     async def craft(
         self,

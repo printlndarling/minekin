@@ -26,6 +26,7 @@ from minekin_core.adapters.bridge.ipc import (
     MINE_CAPABILITY,
     MINE_INPUT_TYPE,
     MOVE_CAPABILITY,
+    MOVE_INPUT_TYPE,
     SCREEN_CAPABILITY,
     monotonic_ns,
 )
@@ -365,6 +366,146 @@ def test_collect_refuses_to_walk_toward_a_drop_it_never_saw() -> None:
         assert outcome.result is ActionResultClass.FAILED
         assert outcome.reason == "NO_SEEN_DROP"
         assert sender.sent == []
+
+    asyncio.run(scenario())
+
+
+def oak_log_drop(*, tick: int, distance: float = 2.0) -> EntityCandidate:
+    return EntityCandidate(
+        observation_id=f"drop-{tick}",
+        entity_type="item",
+        relative_x=0.0,
+        relative_y=0.0,
+        relative_z=distance,
+        line_of_sight=True,
+        item_id="minecraft:oak_log",
+        item_count=1,
+    )
+
+
+def test_collect_chases_a_drop_it_can_still_see_and_confirms_on_the_later_rise() -> None:
+    async def scenario() -> None:
+        # One blind step is what this skill used to end on: the reading after it
+        # said the log was still on the ground half a block ahead, and the skill
+        # waited out its window instead of taking the next step.
+        still_there = reading(
+            tick=110,
+            inventory_value=inventory(100),
+            entities=(oak_log_drop(tick=110, distance=0.6),),
+        )
+        came_away = reading(
+            tick=120,
+            inventory_value=inventory(120, (0, "minecraft:oak_log", 1)),
+            entities=(),
+        )
+        store = store_with(
+            reading(
+                tick=100,
+                inventory_value=inventory(100),
+                entities=(oak_log_drop(tick=100),),
+            )
+        )
+        skills, sender = skill_with(store)
+        queued = [still_there, came_away]
+
+        def answer(message_type: str) -> None:
+            # Each step is answered by the next reading, the way the client
+            # reports every 10 tick: the first answer is "still on the ground".
+            if message_type == AIM_INPUT_TYPE and queued:
+                store.admit(queued.pop(0), ())
+
+        sender.on_send = answer
+        outcome = await skills.collect_dropped(
+            item_id="minecraft:oak_log",
+            authority=authority(),
+            walk_seconds=0.0,
+            timeout_ns=10_000_000_000,
+        )
+
+        assert outcome.result is ActionResultClass.CONFIRMED
+        assert outcome.pre_tick == 100
+        assert outcome.post_tick == 120
+        assert outcome.details["steps"] == "2"
+        # Two steps, and each one of them stopped: a chase that left the key
+        # down would be a Kin still walking when it reports.
+        assert sender.types().count(AIM_INPUT_TYPE) == 2
+        moves = [
+            message for message_type, message in sender.sent if message_type == MOVE_INPUT_TYPE
+        ]
+        assert [message.forward for message in moves] == [1.0, 0.0, 1.0, 0.0]  # type: ignore[attr-defined]
+
+    asyncio.run(scenario())
+
+
+def test_collect_reports_that_no_newer_reading_arrived_when_the_channel_was_silent() -> None:
+    async def scenario() -> None:
+        store = store_with(
+            reading(
+                tick=100,
+                inventory_value=inventory(100),
+                entities=(oak_log_drop(tick=100),),
+            )
+        )
+        skills, _sender = skill_with(store)
+
+        outcome = await skills.collect_dropped(
+            item_id="minecraft:oak_log",
+            authority=authority(),
+            walk_seconds=0.0,
+            timeout_ns=50_000_000,
+        )
+
+        assert outcome.result is ActionResultClass.UNKNOWN
+        assert outcome.reason == "NO_CONFIRMING_OBSERVATION"
+        assert outcome.post_tick is None
+        # The newest reading it concluded on is the pre-state itself: nothing
+        # newer ever arrived, which is the channel's silence and not the world's.
+        assert outcome.details == {"steps": "1", "newest_checked_tick": "100"}
+
+    asyncio.run(scenario())
+
+
+def test_collect_reports_the_frames_a_failed_chase_did_look_at() -> None:
+    async def scenario() -> None:
+        store = store_with(
+            reading(
+                tick=100,
+                inventory_value=inventory(100),
+                entities=(oak_log_drop(tick=100),),
+            )
+        )
+        skills, sender = skill_with(store)
+        next_tick = 110
+
+        def answer(message_type: str) -> None:
+            # Readings keep arriving and the drop keeps being visible with the
+            # inventory on the same revision: nothing here has been picked up,
+            # and that is a different story from a silent channel.
+            nonlocal next_tick
+            if message_type != AIM_INPUT_TYPE:
+                return
+            store.admit(
+                reading(
+                    tick=next_tick,
+                    inventory_value=inventory(100),
+                    entities=(oak_log_drop(tick=next_tick),),
+                ),
+                (),
+            )
+            next_tick += 10
+
+        sender.on_send = answer
+        outcome = await skills.collect_dropped(
+            item_id="minecraft:oak_log",
+            authority=authority(),
+            walk_seconds=0.0,
+            timeout_ns=1_500_000_000,
+        )
+
+        assert outcome.result is ActionResultClass.UNKNOWN
+        assert outcome.reason == "NO_CONFIRMING_OBSERVATION"
+        assert int(outcome.details["steps"]) >= 2
+        assert int(outcome.details["newest_checked_tick"]) > 100
 
     asyncio.run(scenario())
 
