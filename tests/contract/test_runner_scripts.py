@@ -254,6 +254,99 @@ def test_the_goal_the_demo_names_is_the_goal_the_wrapper_delivers() -> None:
     )
 
 
+#: The four names `demo.sh` reads for its standing goal. These are the demo's own spelling, not
+#: `goal_spec`'s: this is the layer that is allowed to state the fixture item at all.
+DEMO_GOAL_KNOBS = (
+    "MINEKIN_DEMO_GOAL_PRODUCT",
+    "MINEKIN_DEMO_GOAL_QUANTITY",
+    "MINEKIN_DEMO_GOAL_SOURCE_ITEM",
+    "MINEKIN_DEMO_GOAL_DIRECTION",
+)
+
+
+def drive_goal_knobs(tmp_path: Path, body: str, values: dict[str, str]) -> dict[str, str]:
+    """Read the demo's goal knobs the way the shipped script reads them, with nothing inherited.
+
+    Each name is stripped from the inherited environment before anything else: a value left over
+    from whoever ran pytest would arm a shape this reading means to leave unset, and the unset
+    row is the one that carries the fixture's default.
+    """
+
+    environment = dict(os.environ)
+    for name in DEMO_GOAL_KNOBS:
+        environment.pop(name, None)
+    environment.update(values)
+    script = tmp_path / "goal-knobs.sh"
+    script.write_text(body, encoding="utf-8")
+    bash = shutil.which("bash")
+    assert bash, "the shipped knobs are shell code and there is no bash to drive them"
+    result = subprocess.run(
+        [bash, script.as_posix()],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=environment,
+    )
+    assert result.returncode == 0, result.stderr
+    return {
+        match.group(1): match.group(2) for match in re.finditer(r"<([A-Z_]+)=(.*?)>", result.stdout)
+    }
+
+
+def test_an_empty_goal_knob_is_an_ask_the_demo_does_not_answer_with_a_pickaxe(
+    tmp_path: Path,
+) -> None:
+    """The colon-less `${VAR-default}` is the whole fixture arrangement, so it gets driven.
+
+    Core reads no default item, which leaves exactly one place a wooden pickaxe may still be the
+    standing goal: this shell. `${VAR:-default}` would read `MINEKIN_DEMO_GOAL_PRODUCT=` — an
+    operator asking for a Kin with no milestone — as unset and answer it with the pickaxe,
+    silently substituting the fixture for the one ask that proves the generality. Driven through
+    bash over the assignment lines read back out of `demo.sh`, in three shapes: unset, named,
+    named-empty.
+    """
+
+    demo = (RUNNER / "demo.sh").read_text(encoding="utf-8")
+    shipped = [
+        (match.group(1), match.group(2))
+        for match in re.finditer(
+            r'^(GOAL_[A-Z_]+)="(\$\{MINEKIN_DEMO_GOAL_[A-Z_]+-[^}]*\})"$', demo, re.MULTILINE
+        )
+    ]
+    assert [name for name, _ in shipped] == [
+        "GOAL_PRODUCT",
+        "GOAL_QUANTITY",
+        "GOAL_SOURCE_ITEM",
+        "GOAL_DIRECTION",
+    ], f"the demo states its fixture goal in this order: {shipped}"
+
+    body = "".join(f'{name}="{value}"\n' for name, value in shipped)
+    body += "".join(f'printf "<{name}=%s>" "${{{name}}}"\n' for name, _ in shipped)
+
+    untouched = drive_goal_knobs(tmp_path, body, {})
+    assert untouched["GOAL_PRODUCT"] == "minecraft:wooden_pickaxe", (
+        "the demo is where the pickaxe is allowed to live, so an unset environment still gets it"
+    )
+    assert untouched["GOAL_QUANTITY"] == "1"
+
+    named = drive_goal_knobs(
+        tmp_path,
+        body,
+        {"MINEKIN_DEMO_GOAL_PRODUCT": "minecraft:stick", "MINEKIN_DEMO_GOAL_QUANTITY": "16"},
+    )
+    assert named == {
+        "GOAL_PRODUCT": "minecraft:stick",
+        "GOAL_QUANTITY": "16",
+        "GOAL_SOURCE_ITEM": "minecraft:oak_log",
+        "GOAL_DIRECTION": "",
+    }
+
+    asked = drive_goal_knobs(tmp_path, body, {"MINEKIN_DEMO_GOAL_PRODUCT": ""})
+    assert asked["GOAL_PRODUCT"] == "", (
+        "an explicit empty is the ask 'no standing goal'; a colon would print the pickaxe here"
+    )
+
+
 def test_every_deadline_loop_gives_the_clock_a_chance_to_advance() -> None:
     """A budget measured in `SECONDS` around a body with no `sleep` is not a budget.
 
