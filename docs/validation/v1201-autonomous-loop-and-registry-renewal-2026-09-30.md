@@ -162,3 +162,64 @@ request returned 500 Internal Server Error for API route and version http://%2F%
 所以本节能声明的止于「判据与读法已经进产品、过了 CI 与本机的门」，**不声明拾取已在真实游戏里被重验**，也不声明合成能拿到世界确认。同一句限制在 `docs/local-demo-runbook.md` 第 9 条里也写着，等引擎恢复就补跑一次 `demo.sh --skills` 并把读数续到那批字节上。
 
 保留边界本轮同样一处未动：不接远程测试服、不解冻 HOST/PERSIST 与在线认证、不扩证据 schema（`details` 是既有字段）、不移动任何门禁；Dashboard 的通用写控制端点继续关闭，唯一的已授权写面仍是停止态改名。
+
+## 九、合成那一笔换成会落进背包的点击（2026-09-30，`5000106` + `b757282`）
+
+**这批字节改的是「合成发哪一种点击」，不动桥、不动协议、不动 registry。** 第八节量到的形状是：配方书的普通点击（`craftAll=false`）把成品留在**光标**上，而 `GuiScreenValue`（`src/minekin_core/domain/perception.py:369-375`）只报 `screen_id` 与 `sync_id`、`inventory` 也不报光标那一格——所以 `verify_craft` 可以在材料下降的那一帧之后一直等不到成品上涨，demo 反复报的 `NO_CONFIRMING_OBSERVATION` 就是这个形状。craft-all 才是把成品放进同步背包的那一笔事务。
+
+### 1. 落地的能力
+
+| 面 | 变化 | 用户现在能做什么 |
+| --- | --- | --- |
+| 技能 | `world_skills.craft(..., craft_all: bool = True)`；线上传 `control_pb2.GuiRecipeClick(recipe_id=..., craft_all=...)` | 调用合成默认拿到的就是「成品进背包」那一笔 |
+| 判定 | `_craft_details(...)` 现在多一个键 `craft_all`，随 `SkillOutcome.details` 投影进 run 文档与面板 | 面板/日志能读出这一笔发的是哪种点击，不用再猜 |
+| 计划 | `skill_plan.py` 的 `_DEFAULTED["craft"] = ("craft_all",)`，`_flag` 只接受真正的布尔；`craft_all: "true"` 这种字符串会**具名拒止**（`skills[i] (craft) needs craft_all to be true or false`） | JSON 计划可以自己点名要哪一种事务，写错形状会被拒绝而不是被猜 |
+| 心智 | `player_mind.py` 的 `CRAFT_CHAIN` 不传该参 ⇒ 继承默认 True | 自主链条每一步的合成都落在可读回的地方 |
+| 文档 | s2 契约 §3 的 `GuiClickInput` 行、§4 craft 行、§5「技能做五件事」；启动说明第五节 10–11 条与 `MINEKIN_DEMO_SKILL_PLAN`；总规划 S2/S3 行 | 启动说明里那条「合成拿不到世界确认」的口径按新字节重写 |
+
+`examples/skill-plan-gather-and-craft.json` 故意**不加** `craft_all`：默认值就是能收尾的那一笔，示例计划不该重复它。
+
+### 2. 为什么这一批不需要续封
+
+`git diff --name-only 146de05 HEAD` 只列出这 8 个文件（3 份文档 + 2 份产品源 + 3 份测试），对 `^(bridge/|bridge-1201/|proto/|tests/fixtures/registry/|tests/fixtures/manifest\.sha256)` 的命中数是 **0**（`grep -Ec` 现量并打印 `grep rc=1`）。桥字节、协议字节、registry 行与 manifest 自钉都没动 ⇒ 第八节引用的六枚 sealed bundle 仍引用当前桥字节，无需新一轮续封。`details` 是既有自由字段，填一个键**不是**证据 schema 扩展。
+
+### 3. 本机门读数（逐条量，未量的不写）
+
+| 门 | 命令 | 读数 |
+| --- | --- | --- |
+| ruff check | `.venv/Scripts/ruff.exe check .` | `All checks passed!`，rc=0 |
+| ruff format | `.venv/Scripts/ruff.exe format --check .` | rc=0，`433 files already formatted` |
+| pyright（按改动文件） | `.venv/Scripts/pyright.exe src/.../world_skills.py src/.../skill_plan.py tests/unit/{test_world_skills,test_skill_plan,test_autonomous_play}.py` | `0 errors, 4 warnings`，4 条都是既有的 `google.protobuf.message` 无源码告警 |
+| 全量单测 | `.venv/Scripts/python.exe -m pytest -q -p no:randomly` | rc=0，`3241 passed, 2 skipped in 416.95s (0:06:56)` |
+
+全量这一枚是确定性顺序重跑，日志留在 `.tmp/pytest-craft-all2.txt`。第一次跑（`.tmp/pytest-craft-all.txt`）是 **7 failed / 3234 passed**，如实记在这里：其中 6 枚是 `TypeError: TapeSkills.craft() got an unexpected keyword argument 'craft_all'`，落在 `tests/unit/test_autonomous_play.py` 的假技能上（`skill_plan.py` 派发处新增关键字），修法是让那枚 tape 收下并记录 `craft_all`；第 7 枚 `test_renaming_a_read_route_is_a_405_not_a_rename` 抛 `ConnectionAbortedError: [WinError 10053]`，单独跑那两份文件是绿的，判定为本机 socket 在负载下的抖动，确定性重跑里也没有再出现。第一次跑还有一处读数事故值得记：命令写成 `pytest … ; echo rc=$? ; tail -3 …`，后台任务返回的是复合命令的退出码 0，而 pytest 自己是红的——第二枚跑把 pytest 当唯一命令，退出码才是判据。
+
+### 4. CI 自己读到的字节
+
+远端 `main` 逐字读回 `b75728273f225ec14d6d8b4f6612f1fbeba021a4`（`git ls-remote origin refs/heads/main`）。该 SHA 触发自己的 run `36670641061`（`https://github.com/printlndarling/minekin/actions/runs/36670641061`），三枚作业都在 2026-09-30T05:32Z 复量时 `status=completed / conclusion=success`，**逐作业逐步**：
+
+| 作业 | 步 | 读数 |
+| --- | --- | --- |
+| `python` | 4 `uv sync --locked --dev`、5 `uv run ruff check .`、6 `uv run ruff format --check .`、**7 `uv run pyright`**、**8 `uv run pytest`**、9–12 四份工具门（`check_boundaries` / `check_case_assertions` / `verify_fixture_digests` / `check_workflow_pins`）、13 `uv build --wheel`、14 `check_wheel_boundary.py`、15 `minekin --help` | 15 步（含 Set up/checkout/setup-uv）全部 `success` |
+| `protocol` | 4 `buf build`、5 `buf lint`、6 `buf format --diff --exit-code`、7 校验仓库内生成的 protobuf | 全 `success` |
+| `bridge-static` | 4 无下载校验钉住的桥脚手架、5 拒止桥宿主适配器之外的服务端状态、6 无依赖的桥协议与适配器检查 | 全 `success` |
+
+第 8 步这一步单独值得点出：CI 的 `uv run pytest` 跑的就是这批 Python 字节，它绿 ⇒ 「本机全量绿」不是只有我这台机器能读到。取法（token 只进 shell 变量、不打印）沿用第八节那两条 `curl`，把 `head_sha` 换成上面这枚即可。
+
+### 5. 本节没有取的读数（具名）
+
+新的默认点击在真实 1.20.1 上的活体重跑还没拿到：`craft` 是否因此转 CONFIRMED、`collect_dropped` 在追物那批字节下的活体结论，都要等受控 runner 起得来。2026-09-30T04:51Z 与 05:33Z 两次复量 `docker version`，客户端半边都正常（Context: desktop-linux），服务端半边逐字回
+
+```
+request returned 500 Internal Server Error for API route and version http://%2F%2F.%2Fpipe%2FdockerDesktopLinuxEngine/v1.54/version, check if the server supports the requested API version
+```
+
+`tasklist` 里 Docker Desktop 与 `com.docker.backend.exe` 都在，所以是 Linux 引擎不健康而不是没装；操作者已认领「重启 Docker Desktop 后由我补跑」这一格。因此本节只声明「判据与点击形状已经进产品、过了本机与 CI 的门」，**不声明合成已在真实游戏里拿到世界确认**。同一句限制写在 `docs/local-demo-runbook.md` 第五节第 10 条。引擎恢复后要跑的是同一条入口：
+
+```bash
+MINEKIN_SERVER_JAR=.tmp/mc-1.20.1-server.jar bash test-orchestrator/runner/demo.sh --skills
+```
+
+读数落在 run 文档的技能逐步行里，判法就是第八节那张 `reason` × `details` 形状表；这一批之后它多了一列可读的键。若仍回 `NO_CONFIRMING_OBSERVATION` 且 `newest_checked_tick > pre_tick`、两枚背包同步号相等，而 `details.craft_all == "true"`，那才说明 craft-all 也没让同步背包动，缺口就落在结果槽/光标取物那一格（启动说明第 11 条）。
+
+保留边界本轮同样一处未动：不接远程测试服、不解冻 HOST/PERSIST 与在线认证、不扩证据 schema、不移动任何门禁；Dashboard 的通用写控制端点继续关闭，唯一的已授权写面仍是停止态改名。
