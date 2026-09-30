@@ -59,6 +59,15 @@
 #   MINEKIN_DEMO_HANDSHAKE_SECONDS  how long the client's Bridge has to prove
 #                                  its session once the JVM is launched     (90)
 #   MINEKIN_DEMO_PROBE_SECONDS how often the run asks the world     (1)
+#   MINEKIN_DEMO_STEP_SECONDS  how long one skill step may wait for a later reading
+#                                  (unset = Core's own 5 s). It exists for the diagnosis of
+#                                  a silent channel: with the default window a step that
+#                                  gets no reading concludes UNKNOWN in 5 s and the harness
+#                                  tears the world down, so the five seconds in which an
+#                                  operator can look at the client are gone. Naming it
+#                                  longer changes no verdict — the step still reports what
+#                                  the readings said — it only keeps the world up while the
+#                                  question is being asked.
 #   MINEKIN_DEMO_KILL          the player the world kills mid-session (unset = nobody dies)
 #   MINEKIN_DEMO_KILL_AFTER_SECONDS  how long after that player's join line the world kills
 #                                  it  (30) — the death is the release's other cause, so it
@@ -95,6 +104,21 @@ TURN_DEGREES="${MINEKIN_DEMO_TURN_DEGREES:-45}"
 # The skill plan `--skills` hands the session. The repository is mounted read-only at
 # `/src` inside the runner, so the in-container path is what the CLI is given.
 SKILL_PLAN="${MINEKIN_DEMO_SKILL_PLAN:-/src/examples/skill-plan-gather-and-craft.json}"
+STEP_SECONDS="${MINEKIN_DEMO_STEP_SECONDS:-}"
+if [ -n "${STEP_SECONDS}" ]; then
+    case "${STEP_SECONDS}" in
+        '' | *[!0-9]*)
+            printf 'demo: MINEKIN_DEMO_STEP_SECONDS must be a whole number of seconds, got %q.\n' \
+                "${STEP_SECONDS}" >&2
+            exit 2
+            ;;
+    esac
+    if [ "${STEP_SECONDS}" -le 0 ]; then
+        printf 'demo: MINEKIN_DEMO_STEP_SECONDS=%s asks for a step that may not wait at all.\n' \
+            "${STEP_SECONDS}" >&2
+        exit 2
+    fi
+fi
 # How many skills the autonomous run may attempt. Core's own budget default is 24; the
 # demo asks for half of that because a step is a real action in a real world and a wrong
 # one costs its timeout, so a bound the operator can read in the command line beats one
@@ -356,6 +380,18 @@ case "${command}" in
         trunk_env=()
         ;;
 esac
+# Only the two shapes that run steps have a step to be patient about; the scripted
+# hold/look run names its own seconds and a `--skill-step-seconds` ask there would
+# be a knob for a number the run never reads.
+if [ -n "${STEP_SECONDS}" ]; then
+    case "${command}" in
+        skills | autonomous)
+            session_args+=(--skill-step-seconds "${STEP_SECONDS}")
+            printf 'demo: each skill step is given %ss for the reading that will answer it\n' \
+                "${STEP_SECONDS}"
+            ;;
+    esac
+fi
 
 env "${death_env[@]}" \
     "${trunk_env[@]}" \

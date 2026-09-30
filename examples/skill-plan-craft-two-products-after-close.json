@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "skills": [
+    { "skill": "turn_to", "yaw_degrees": 0.0, "pitch_degrees": -18.0 },
+    { "skill": "break_seen_block", "expected_drop_item": "minecraft:oak_log" },
+    { "skill": "collect_dropped", "item_id": "minecraft:oak_log", "walk_seconds": 2.0 },
+    { "skill": "craft_take_result", "product": "minecraft:oak_planks" },
+    { "skill": "close_screen" },
+    { "skill": "craft_take_result", "product": "minecraft:stick" }
+  ]
+}

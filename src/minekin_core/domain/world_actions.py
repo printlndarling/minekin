@@ -59,6 +59,9 @@ SKILL_CAPABILITIES: Final[Mapping[str, frozenset[str]]] = {
     "collect_dropped": frozenset({MOVE_CAPABILITY, AIM_CAPABILITY}),
     "craft": frozenset({SCREEN_CAPABILITY, GUI_CAPABILITY}),
     "craft_take_result": frozenset({SCREEN_CAPABILITY, GUI_CAPABILITY}),
+    # Leaving a window touches no container, so it asks for the screen and not
+    # for the click that operates one.
+    "close_screen": frozenset({SCREEN_CAPABILITY}),
     "select_hotbar": frozenset({HOTBAR_CAPABILITY}),
 }
 

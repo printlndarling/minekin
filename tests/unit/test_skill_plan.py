@@ -159,6 +159,15 @@ class _TapeSkills(WorldSkills):
         del recipe_id, materials, product_id, authority, timeout_ns
         return await self._answer("craft_take_result")
 
+    async def close_screen(
+        self,
+        *,
+        authority: ActionAuthority,
+        timeout_ns: int = DEFAULT_STEP_TIMEOUT_NS,
+    ) -> SkillOutcome:
+        del authority, timeout_ns
+        return await self._answer("close_screen")
+
 
 def _plan(*skills: str) -> SkillPlan:
     """A plan of the named skills, each with the arguments that skill requires."""
@@ -184,6 +193,7 @@ _ARGUMENTS: Final[dict[str, dict[str, object]]] = {
         "materials": {"minecraft:oak_log": 1},
         "product_id": "minecraft:oak_planks",
     },
+    "close_screen": {},
     "select_hotbar": {"slot": 0},
 }
 
@@ -412,6 +422,12 @@ def test_a_skill_name_carries_the_capabilities_it_will_ask_for() -> None:
     assert _plan("break_seen_block").capabilities == frozenset({MINE_CAPABILITY})
     assert _plan("collect_dropped").capabilities == frozenset({MOVE_CAPABILITY, AIM_CAPABILITY})
     assert _plan("craft").capabilities == frozenset({SCREEN_CAPABILITY, GUI_CAPABILITY})
+    # Leaving the window is not a click, so it asks for less than the craft that
+    # opened it, and a plan ending in the close gets a lease that says so.
+    assert _plan("close_screen").capabilities == frozenset({SCREEN_CAPABILITY})
+    assert _plan("craft_take_result", "close_screen").capabilities == frozenset(
+        {SCREEN_CAPABILITY, GUI_CAPABILITY}
+    )
     # One lease for the whole plan, and no more than the plan asks for.
     assert _plan("turn_to", "select_hotbar").capabilities == frozenset(
         {AIM_CAPABILITY, HOTBAR_CAPABILITY}
@@ -480,6 +496,32 @@ def test_a_plan_that_confirms_every_step_has_no_stop_marker() -> None:
 
     assert sequence.stopped_at == ""
     assert len(sequence.steps) == 3
+
+
+def test_the_close_is_a_plan_step_of_its_own_and_runs_after_the_craft() -> None:
+    """A plan is the only place an author says the chain ends by leaving the
+    window, and the step has no arguments of its own — the world says which
+    window, if any, is standing."""
+
+    skills = _TapeSkills(
+        {
+            "craft_take_result": _outcome(ActionResultClass.CONFIRMED),
+            "close_screen": _outcome(ActionResultClass.CONFIRMED),
+        },
+        _RecordingSender(),
+    )
+
+    sequence = asyncio.run(
+        run_skill_plan(
+            skills,
+            _plan("craft_take_result", "close_screen"),
+            authority=AUTHORITY,
+            timeout_ns=DEFAULT_STEP_TIMEOUT_NS,
+        )
+    )
+
+    assert skills.ran == ["craft_take_result", "close_screen"]
+    assert sequence.stopped_at == ""
 
 
 def test_a_call_this_build_cannot_express_is_refused_before_the_wire() -> None:

@@ -264,6 +264,49 @@ def _take_result_details(
     return details
 
 
+def _window_sync_id(observation: WorldObservationValue) -> str:
+    """The handler id the reading says was standing, or ``""`` for no window.
+
+    A `screen_id` cannot be the whole report: the live client names the player's own
+    crafting window with an empty screen id while still giving its handler an id,
+    so the id pair is the only field that distinguishes 'nothing was open' from
+    'my inventory was' — and a `SCREEN_STILL_OPEN` argued without it is unreadable.
+    """
+
+    if observation.gui is None or observation.gui.sync_id is None:
+        return ""
+    return str(observation.gui.sync_id)
+
+
+def _close_screen_details(
+    pre: WorldObservationValue,
+    newest: WorldObservationValue,
+    *,
+    already_closed: bool = False,
+) -> dict[str, str]:
+    """Which window the skill set out to leave, and what the newest reading says
+    is standing now.
+
+    A close has only one fact to be concluded on — whether a handler id is still
+    reported — and the two readings that answer it are the pre-state's window and
+    the newest one. Naming both means a `SCREEN_STILL_OPEN` can be argued against
+    the window the client reported rather than against the one Core asked about.
+    """
+
+    open_now = newest.gui is not None and newest.gui.sync_id is not None
+    details = {
+        "newest_checked_tick": str(newest.game_tick),
+        "pre_screen_id": pre.gui.screen_id if pre.gui is not None else "",
+        "pre_sync_id": _window_sync_id(pre),
+        "newest_screen_id": newest.gui.screen_id if open_now and newest.gui is not None else "",
+        "newest_sync_id": _window_sync_id(newest),
+        "screen_open": "true" if open_now else "false",
+    }
+    if already_closed:
+        details["already_closed"] = "true"
+    return details
+
+
 def _player_screen_slot(inventory_slot: int) -> int | None:
     """One slot of the player's own inventory in the open screen's numbering.
 
@@ -929,6 +972,86 @@ class WorldSkills:
                 )
                 clicks.append("cursor_deposit")
             chain = post
+
+    async def close_screen(
+        self,
+        *,
+        authority: ActionAuthority,
+        timeout_ns: int = DEFAULT_STEP_TIMEOUT_NS,
+    ) -> SkillOutcome:
+        """Let go of the window the craft left standing, and conclude only on the
+        reading that reports no handler.
+
+        Every screen skill here ends with the window open — the craft's own
+        contract forbids confirming a click before a frame says so — and none of
+        them had a way back out, so a chain that stopped mid-craft left the
+        player inside a container holding the keyboard. Closing is the client's
+        own escape, named in the contract this build already answers, and the one
+        fact that confirms it is the absence of a sync id: `0` is a legal handler
+        for the player's inventory, so no id is the only reading that can say
+        there is no window.
+        """
+
+        capability = self._require(SCREEN_CAPABILITY)
+        if capability is not None:
+            return capability
+        pre = self._observations.latest
+        action_id = self._action_id()
+        if pre is None:
+            return _refusal_outcome("NO_LATEST_OBSERVATION", action_id, pre)
+        if pre.gui is None or pre.gui.sync_id is None:
+            # The world already reads as asked. Nothing went out, because there
+            # was nothing to escape.
+            return SkillOutcome(
+                result=ActionResultClass.CONFIRMED,
+                reason="",
+                action_id=action_id,
+                pre_tick=pre.game_tick,
+                post_tick=pre.game_tick,
+                details=_close_screen_details(pre, pre, already_closed=True),
+            )
+        deadline = monotonic_ns() + timeout_ns
+        await self._sender.send_control(
+            SCREEN_INPUT_TYPE,
+            control_pb2.ScreenInput(
+                action_id=action_id,
+                lease_id=authority.lease_id,
+                generation=authority.generation,
+                control=control_pb2.SCREEN_CONTROL_CLOSE,
+                deadline_monotonic_ns=authority.deadline_monotonic_ns,
+            ),
+        )
+        closed = await self._wait_until(
+            lambda latest: latest.gui is None or latest.gui.sync_id is None, deadline
+        )
+        if closed is not None:
+            return SkillOutcome(
+                result=ActionResultClass.CONFIRMED,
+                reason="",
+                action_id=action_id,
+                pre_tick=pre.game_tick,
+                post_tick=closed.game_tick,
+                details=_close_screen_details(pre, closed),
+            )
+        newest = self._observations.latest or pre
+        if newest.game_tick > pre.game_tick:
+            # A frame arrived and says the window is still standing. That is the
+            # reading contradicting the escape, not a channel that never spoke.
+            return SkillOutcome(
+                result=ActionResultClass.FAILED,
+                reason="SCREEN_STILL_OPEN",
+                action_id=action_id,
+                pre_tick=pre.game_tick,
+                post_tick=newest.game_tick,
+                details=_close_screen_details(pre, newest),
+            )
+        return SkillOutcome(
+            result=ActionResultClass.UNKNOWN,
+            reason="NO_CONFIRMING_OBSERVATION",
+            action_id=action_id,
+            pre_tick=pre.game_tick,
+            details=_close_screen_details(pre, newest),
+        )
 
     async def select_hotbar(
         self,

@@ -28,6 +28,7 @@ from minekin_core.adapters.bridge.ipc import (
     MOVE_CAPABILITY,
     MOVE_INPUT_TYPE,
     SCREEN_CAPABILITY,
+    SCREEN_INPUT_TYPE,
     monotonic_ns,
 )
 from minekin_core.application.world_observation import WorldObservationStore
@@ -205,6 +206,7 @@ def test_each_skill_refuses_its_ungranted_capability_by_name() -> None:
             await skills.craft_take_result(
                 recipe_id="r", materials={PLANKS: 1}, product_id=PLANKS, authority=lease
             ),
+            await skills.close_screen(authority=lease),
             await skills.select_hotbar(slot=3, authority=lease),
         ]
         for outcome in outcomes:
@@ -1031,5 +1033,165 @@ def test_hotbar_selection_confirms_from_the_next_self_reading() -> None:
 
         assert outcome.result is ActionResultClass.CONFIRMED
         assert sender.types()[0] == "minekin.v1.HotbarSelectInput"
+
+    asyncio.run(scenario())
+
+
+# ---------------------------------------------------------------------------
+# close_screen: the window the craft left open is closed by the player's own
+# escape, and only a reading that reports no handler confirms it
+# ---------------------------------------------------------------------------
+
+
+def _open_screen_store(*pairs: tuple[int, str, int]) -> WorldObservationStore:
+    """The player's own 2x2 window, open, at tick 100 — the state every craft
+    skill ends in and no skill so far had a way out of."""
+
+    return store_with(
+        reading(
+            tick=100,
+            inventory_value=inventory(101, *pairs),
+            gui=GuiScreenValue(screen_id="minecraft:crafting", sync_id=3),
+        )
+    )
+
+
+def test_close_screen_confirms_only_from_a_reading_that_reports_no_window() -> None:
+    async def scenario() -> None:
+        store = _open_screen_store((0, LOG, 1))
+        skills, sender = skill_with(store)
+        closed = reading(tick=110, inventory_value=inventory(102, (0, LOG, 1)))
+        task = asyncio.create_task(admit_later(store, closed))
+
+        outcome = await skills.close_screen(authority=authority(), timeout_ns=2_000_000_000)
+        await task
+
+        assert outcome.result is ActionResultClass.CONFIRMED
+        assert outcome.post_tick == 110
+        assert outcome.details["screen_open"] == "false"
+        assert outcome.details["pre_sync_id"] == "3"
+        assert outcome.details["newest_sync_id"] == ""
+        assert sender.types() == [SCREEN_INPUT_TYPE]
+        command = sender.sent[0][1]
+        assert isinstance(command, control_pb2.ScreenInput)
+        assert command.control == control_pb2.SCREEN_CONTROL_CLOSE
+
+    asyncio.run(scenario())
+
+
+def test_closing_a_window_is_not_a_click_and_needs_no_click_capability() -> None:
+    """The guard is the screen's, not the GUI's: an escape that lands while no
+    container is open touches nothing, so a Kin that was never granted the click
+    capability can still stop holding the window it is standing in."""
+
+    async def scenario() -> None:
+        store = _open_screen_store((0, LOG, 1))
+        skills, sender = skill_with(store, capabilities=frozenset({SCREEN_CAPABILITY}))
+        closed = reading(tick=110, inventory_value=inventory(102, (0, LOG, 1)))
+        task = asyncio.create_task(admit_later(store, closed))
+
+        outcome = await skills.close_screen(authority=authority(), timeout_ns=2_000_000_000)
+        await task
+
+        assert outcome.result is ActionResultClass.CONFIRMED
+        assert sender.types() == [SCREEN_INPUT_TYPE]
+
+    asyncio.run(scenario())
+
+
+def test_close_screen_says_the_window_was_already_out_of_the_way() -> None:
+    async def scenario() -> None:
+        store = store_with(reading(tick=100, inventory_value=inventory(101)))
+        skills, sender = skill_with(store)
+
+        outcome = await skills.close_screen(authority=authority(), timeout_ns=50_000_000)
+
+        assert outcome.result is ActionResultClass.CONFIRMED
+        assert outcome.reason == ""
+        assert outcome.details["screen_open"] == "false"
+        assert outcome.details["already_closed"] == "true"
+        assert sender.sent == []
+
+    asyncio.run(scenario())
+
+
+def test_close_screen_reports_channel_silence_as_no_confirming_observation() -> None:
+    async def scenario() -> None:
+        store = _open_screen_store((0, LOG, 1))
+        skills, sender = skill_with(store)
+
+        outcome = await skills.close_screen(authority=authority(), timeout_ns=50_000_000)
+
+        assert outcome.result is ActionResultClass.UNKNOWN
+        assert outcome.reason == "NO_CONFIRMING_OBSERVATION"
+        assert outcome.details["screen_open"] == "true"
+        assert outcome.details["newest_checked_tick"] == "100"
+        assert outcome.details["pre_sync_id"] == "3"
+        assert outcome.details["newest_sync_id"] == "3"
+        assert sender.types() == [SCREEN_INPUT_TYPE]
+
+    asyncio.run(scenario())
+
+
+def test_close_screen_fails_when_every_later_reading_still_reports_the_window() -> None:
+    """A frame that arrives and says the window is still there is not silence:
+    it is the reading that contradicts the escape, and §4 lets the skill say so."""
+
+    async def scenario() -> None:
+        store = _open_screen_store((0, LOG, 1))
+        skills, sender = skill_with(store)
+        still = reading(
+            tick=110,
+            inventory_value=inventory(102, (0, LOG, 1)),
+            gui=GuiScreenValue(screen_id="minecraft:crafting", sync_id=3),
+        )
+        task = asyncio.create_task(admit_later(store, still))
+
+        outcome = await skills.close_screen(authority=authority(), timeout_ns=200_000_000)
+        await task
+
+        assert outcome.result is ActionResultClass.FAILED
+        assert outcome.reason == "SCREEN_STILL_OPEN"
+        assert outcome.details["newest_screen_id"] == "minecraft:crafting"
+        assert outcome.details["newest_sync_id"] == "3"
+        assert sender.types() == [SCREEN_INPUT_TYPE]
+
+    asyncio.run(scenario())
+
+
+def test_an_unnamed_window_is_still_a_window_the_close_has_to_answer_for() -> None:
+    """The live shape the names cannot describe on their own.
+
+    The client reports the player's own crafting window with an empty `screen_id`
+    and a present handler id, so an empty name is not evidence of an empty screen —
+    and a skill that concluded from `screen_id` alone would confirm a close that
+    never happened. The handler id is what the row has to carry.
+    """
+
+    async def scenario() -> None:
+        store = store_with(
+            reading(
+                tick=100,
+                inventory_value=inventory(101, (0, LOG, 1)),
+                gui=GuiScreenValue(screen_id="", sync_id=7),
+            )
+        )
+        skills, sender = skill_with(store)
+        still = reading(
+            tick=110,
+            inventory_value=inventory(102, (0, LOG, 1)),
+            gui=GuiScreenValue(screen_id="", sync_id=7),
+        )
+        task = asyncio.create_task(admit_later(store, still))
+
+        outcome = await skills.close_screen(authority=authority(), timeout_ns=200_000_000)
+        await task
+
+        assert outcome.result is ActionResultClass.FAILED
+        assert outcome.reason == "SCREEN_STILL_OPEN"
+        assert outcome.details["screen_open"] == "true"
+        assert outcome.details["newest_screen_id"] == ""
+        assert outcome.details["newest_sync_id"] == "7"
+        assert sender.types() == [SCREEN_INPUT_TYPE]
 
     asyncio.run(scenario())
