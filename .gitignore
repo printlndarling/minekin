@@ -5,14 +5,33 @@ __pycache__/
 .ruff_cache/
 .mypy_cache/
 .pyright/
+.uv-cache/
+
+# Local agent instructions and credentials must stay on this machine.
+/CLAUDE.md
+/claude.md
+/.claude/
+/env.txt
+.env
+.env.*
+!.env.example
 
 # Scratch space for task-created tooling and downloads. Never committed.
 .tmp/
 
 .gradle/
 bridge/build/
+bridge-1201/build/
+bridge-1201/.gradle/
 .wrapper-bootstrap/
 bridge/.wrapper-bootstrap/
+
+dashboard/node_modules/
+dashboard/dist/
+dashboard/.tmp/
+dashboard/test-results/
+dashboard/playwright-report/
+dashboard/coverage/
 
 .idea/
 .vscode/
