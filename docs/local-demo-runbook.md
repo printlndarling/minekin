@@ -179,6 +179,8 @@ export MINEKIN_RUNNER_FORWARD_ENV=<存放密钥的那个变量名>  # 逗号分�
 
 22. **里程碑那一串合成不再是"谁手敲的一张表"，而是配方表算出来的顺序，活体读回的就是那一串（2026-09-30，run `78a12962a7b142aabe68718cf99474ef`，server run 目录 `run-13`，逐字读数见六之九）。** 这一格换掉的是 mind 自己：`CRAFT_CHAIN` 与 `CraftStage` 从产品路径上退下来（那串手写顺序本来就是 Demo 夹具，真正在跑的那份顺序一直住在 `examples/skill-plan-*.json` 里、从没被 mind 读过），`player_mind.GOAL_BUILD_PLAN` 改由 `domain/recipe_catalog.py` 的 `build_plan` 按配方推出来 ⇒ "想要一个产物"从此是一个 product id 加一个数量，不是一张有人抄过的表。**那条算术被当场量到**：木镐要 5 块木板而不是旧夹具写的 3，因为那把镐自己吃的木棍那一批还要再花两块木板（`3 planks + 2 sticks` 与 `2 planks → 4 sticks` 两行乘出来的），而这种错在世界上没有任何东西会发现。**活体上的切换**：第 3 步的参数是 `minecraft:oak_planks`（CONFIRMED，tick 1010→1044）、第 4 步换成了 `minecraft:stick`（`UNKNOWN`/`CLIENT_EXITED`，结果帧 1055）——两笔都不是计划文件写死的，是 mind 从当时那一帧背包算出来再交给 `craft_take_result` 的。第 3→4 那一换本身就是 netting 的读数：一批木板（yield 4）之后需求就清了 ⇒ 这一发进这一格时背包并不空（harness 自己那句 `the Kin root kin-local-demo already has a store on minekin-local-demo2 -- running on that filled store` 说的是同一件事），若在空背包上 5>4 会再要一批木板——那一支目前只有单测钉住（`tests/unit/test_autonomous_play.py::test_the_loop_walks_the_plan_as_far_as_the_grid_it_can_open`），**活体还没读到**。取木→拾取那一段在同一条新路径上又各确认了一次（`break_seen_block` 911→988、`collect_dropped` 988→1010）。**决策来源记清**：`decision_source: local_reflection`、`model_enabled: false`、`model_refusal: MODEL_NOT_CONFIGURED`、`model_calls: 0` ⇒ 这一发没有联系任何付费端点，走的正是无凭据那一条路。**第 21 条那两种形状在这一发上分开**：在飞的那笔 id `0843e155a7624d3ea97cc1250420d7b5` 在客户端日志里出现 **2 次**（`bridge clicked recipe minecraft:stick in …` 与 `bridge clicked slot 0 … QUICK_MOVE` 各一次），而 run-12 那笔关屏出现 0 次 ⇒ "发出去了"与"客户端应用了"从此是可分辨的两个事实，这一发是**发了且应用了、只是那一帧之后那台 JVM 不在了**。**输入释放是配对的那一种**：`move.forward` pressed 1 / released 1、`mine.attack` pressed 1 / released 1，最后一条 applied 写 `holding []`，`unconfirmed: [240]` 只说明确认回不来。**同一处矛盾第五次复现**：`session stop` 说 `terminated: [240]` 而步内读的是 143，本档按第 20 条原样登记、不选边；`left_alone: [438, 341, 243, 249, 253]` 是那四个（这次多了一个 `341`）早期 marker 再各探一遍。**不声明**：5 块木板这一需求未在活体上读到（这一发停在第 4 步），木镐仍未取得（第 13 条那一格没动），3×3 摆格与 B 分支仍归主控，`close_screen` 仍不在 `player_mind.SKILL_OFFER` 里。
 
+23. **改线那一格现在按"更晚的一帧能不能把它说反"分道，而收尾行把那个名字带到面板上（2026-09-30，run `ced217a0d068418385a439084e3a47ca`，server run 目录 `run-14`，逐字读数见六之十）。** 三个具名前提在 `player_mind.record_result` 里不再走同一条路：`CRAFT_MATERIALS_MISSING` 是**能更线的**（背包空不空由世界说，往后一帧完全可能把它讲反），于是不烧任何重试额度（`attempts` 保持空），下一次直接问"有没有掉在地上的东西可捡"，而合成这一步本身留在候选里等下一批材料；`CRAFT_GRID_TOO_SMALL` 与 `CRAFT_RECIPE_UNAVAILABLE` 是**死路**（没有任何一帧能让 2×2 装下 3×3、也没有任何一帧能让目录里不存在的配方存在出来），第一句就把它排除。顺带补上归因的一处洞：`CRAFT_RECIPE_UNAVAILABLE` 原先不在 `_NOT_IMPLEMENTED_REASONS` 里，会被折成 `ACTION_NOT_EFFECTIVE`，读起来像"试过了没成"而不是"这张表里没有这个东西"。那个名字同名穿过四张面：`mind.last_precondition` → mind 段（run 文档）→ 台账 `AutonomousRunHalted` 的第七个具名成员 → gateway 的 allowlist（契约 §11），空串按 §10 既有的规矩整格省略；确认一步把它清空。**活体读到的那一格是省略那一格**：这一发的收尾行 raw payload 七个成员全在，`last_precondition` 为 `""`、`excluded_skills` 为 `[]`，面板字节因此是 `goal=hold_a_wooden_pickaxe, stop_reason=CLIENT_EXITED, error=143, steps=5, confirmed=4`，两格都没有渲染成 `=` 或 `[]`。**这一格因此只判成"更线路径的代码与契约完成"，不判成活体完成**：更线路径上的具名失败（`CRAFT_MATERIALS_MISSING` 从世界上回来）在这一发以及此前任何一发里都没有读到过——历发活体上的失败名字一直是 `CLIENT_EXITED`。另两处按实登记、不改写：其一，`error` 那一格代码路子上是 `halted.stop_detail` 原样投影，所以它在 `CONTROL_CHANNEL_LOST` 上是异常类名（六之三那个 `ConnectionResetError`）、在 `CLIENT_EXITED` 上是那台 JVM 的终止信号（这一发的 `143`），§10 那句"其余收尾为空串"说的是"没有 detail 的收尾"，本条按字节更正；其二，输入释放这一发又回到 `input_release_failed: true` 那一形状（`{"asked": [237], "released": [], "unconfirmed": [237]}`，而 `terminated: [237]` 是第 20 条那处矛盾的第六次复现），第 6 条那句"这一格已经量到闭环"只对 `NO_FEASIBLE_SKILL` 那种自己停下来的收尾成立，客户端先没的那一发确认永远回不来。**不声明**：木镐仍未取得（`goal_met: false`，第 13 条那一格没动），3×3 摆格、B 分支与 `close_screen` 进 `SKILL_OFFER` 仍归主控。
+
 ## 六之四、按产物合成读到的那两发（2026-09-30，runs `d7fafc30bbec4231ba1b52a30b7be6a8` 与 `461bbbf77d884b12a6d1cb814e8901db`）
 同一枚热卷（同卷同 Kin 根 `kin-local-demo`，第二发是 server run 目录 `run-7` 之后的下一次会话），计划换成第 16 条那份只写产物的：
 
@@ -470,3 +472,75 @@ domain: session exited 14
 ```
 
 `terminated: [240]` 与步内的 143 不能同时是事实，本档按第 20 条那一格原样登记（止路只比命令行摘要、marker 的 `started_at` 从不比对）；`left_alone` 里的 `341` 是上一发 `run-12` 之外另一发的 marker，marker 依旧一发一发地累积、每次停止都再探一遍。**不声明**：木镐仍未取得（`goal_met: false`），"5 块木板"这一需求未在活体上读到，第 13 条那一格（3×3 摆格）没动，`close_screen` 仍不在 `player_mind.SKILL_OFFER` 里，B 分支（为什么那个 JVM 收到 SIGTERM）仍归主控。
+
+## 六之十、第七个名字落进收尾行的那一发（2026-09-30，run `ced217a0d068418385a439084e3a47ca`，server run 目录 `run-14`，会话 `7f3d76b80df745ce8a8df760c0ebb4af`，客户端 pid 237）
+
+这一发读的是第 23 条那一格：改线的规矩（更线 / 死路两种）加进了 `player_mind`，收尾行跟着多了第七个具名成员 `last_precondition`，判据只有两格——**空即省略**，以及"取木→拾取→合成→成品进背包"在新字节上不退化。命令逐字（`.tmp/run-live-v16.sh`）：
+
+```bash
+MINEKIN_SERVER_JAR=.tmp/mc-1.20.1-server.jar \
+MINEKIN_DEMO_VOLUME=minekin-local-demo2 \
+MINEKIN_DEMO_AUTONOMOUS_STEPS=16 \
+  bash test-orchestrator/runner/demo.sh --autonomous --again
+```
+
+harness 第一行逐字仍是那一句 filled store：`demo: the Kin root kin-local-demo already has a store on minekin-local-demo2 -- running on that filled store`。
+
+**投影是怎么读到的（方法要记，因为它决定了这些字节可复现）**：`-v …:/data:ro` 那份只读挂载下 SQLite 打不开这个库（`sqlite3.OperationalError: unable to open database file`——WAL 库要建 `-shm`），所以这一次是在一个 `--rm` 容器里把 `kin/` 整棵树 `cp` 到容器可写临时目录，再让 `build_snapshot` / `build_timeline` 指向那份副本。卷上一个字节都没写。脚本 `.tmp/read_projection_v16.py`，窗口 `LEDGER_WINDOW = 400`，`schemaVersion` 读回 `kin-dashboard-readmodel/1.0.0`。
+
+**那五步，逐字**（run 文档 `autonomous.steps`）：
+
+```text
+step1 break_seen_block  CONFIRMED  ""            1879f1a70004429f906651253bdb6728  tick 791 -> 864
+step2 collect_dropped   CONFIRMED  ""            f92746e4a5a94bac969b4a9ffe82c729  tick 864 -> 886
+step3 craft oak_planks  CONFIRMED  ""            bfe581346e564dad900e20f52f2f7a74  tick 886 -> 919
+step4 craft stick       CONFIRMED  ""            cdce69708b97494ebf6bb2d561d2709e  tick 919 -> 941
+step5 turn_to           UNKNOWN    CLIENT_EXITED dd69e95b1c874c1e90fd6aa59f3dd6f3  结果帧 tick 941
+```
+
+**第 4 步不再是他杀**：六之九那一发（run-13）停在同一笔 `craft minecraft:stick` 上、读成 `UNKNOWN / CLIENT_EXITED`，这一发它在 919→941 上 `CONFIRMED`。所以"合成这一步在活字节上恒败"这个假设到这里被排除了——那一步能不能过，取决于那台 JVM 有没有活到下一帧，而不取决于 `craft_take_result` 自己。链本身（取木→拾取→木板→木棍）四格连着 CONFIRMED，`confirmed: 4 / steps: 5`。
+
+**收尾那一行，两侧同源，逐字**：
+
+```text
+# run 文档
+stop_reason CLIENT_EXITED   stop_detail "143"   outcome BRIDGE_LOST
+bridge_lost_reason "IPC channel closed before a complete frame header"
+failure_attribution INSUFFICIENT_INFORMATION   goal_met false   excluded_skills []   retry_budget 2
+last_precondition ""   decision_source local_reflection   model_enabled false   model_calls 0   model_spent_micro 0
+input_release_failed true   entities_admitted 8   actions_applied 6   actions_refused 8
+world_observations {"admitted": 16, "refused": 0, "stale_tick_dropped": 0, "newest_admitted_tick": 941}
+
+# 台账 raw payload（位置 396；上一条位置 365 是 run-13 那一发，没有第七名）
+{"confirmed": 4, "error": "143", "excluded_skills": [], "goal": "hold_a_wooden_pickaxe",
+ "last_precondition": "", "steps": 5, "stop_reason": "CLIENT_EXITED"}
+
+# 面板字节（时间线 sequence 27，kind=decision / outcome=applied）
+goal=hold_a_wooden_pickaxe, stop_reason=CLIENT_EXITED, error=143, steps=5, confirmed=4
+```
+
+**这一发读到的就是那一格判据**：七个成员在字节里全在，两个按构造为空（`excluded_skills: []`、`last_precondition: ""`），面板上两格都**没有**渲染成 `excluded_skills=[]` 或 `last_precondition=`——投影里的整份快照加时间线，`action_id`、`lease_id` 各出现 **0 次**。§11 由此从"待补"转为已读。
+
+**两处按实登记、不改写**：
+
+其一，`error` 那一格走的是代码里 `halted.stop_detail` 的原样投影，所以它跟着收尾词换形状：`CONTROL_CHANNEL_LOST` 上是异常类名（六之三读到的 `ConnectionResetError`），这一发 `CLIENT_EXITED` 上是那台 JVM 的终止信号 `143`。§10 那句"其余收尾为空串"因此要说准：空的是**没有 detail 的收尾**，`CLIENT_EXITED` 一直带着退出码。契约 §11 已按这句更正，代码不动（改它等于为了文档好看去改冻结口径）。
+
+其二，第 5 步那笔 `turn_to` 客户端**答了话**，而 Core 记的是"它不在了"。拿 `dd69e95b1c874c1e90fd6aa59f3dd6f3` 去问客户端自己的日志（同一卷、只读挂载 `grep -c`）：命中 **1 次**，而它是整份日志的**最后一行**——
+
+```text
+[17:19:41] bridge applied screen bfe581346e564dad900e20f52f2f7a74 (SCREEN_CONTROL_OPEN_INVENTORY)
+[17:19:43] bridge clicked slot 0 in cdce69708b97494ebf6bb2d561d2709e   ← 第 4 步取木棍，命中 2 次
+[17:19:43] Loaded 23 advancements
+[17:19:44] bridge refused aim dd69e95b1c874c1e90fd6aa59f3dd6f3: GUI_CONFLICT   ← 整份日志最后一行
+```
+
+于是第 21 条那两种形状之外多了**第三种**：发了、客户端收到了、并且**按名字拒了**（`GUI_CONFLICT`，因为第 3 步开的那个 `screen.inventory` 到最后一行都没关）；而 Core 那一步的 `reason` 是 `CLIENT_EXITED`。同一秒内两侧各留一句、粒度到秒，本档不排先后——这是第 20 条那处矛盾的第七次复现，也是它第一次由客户端留下一句具名回答。顺带把"木镐为什么停在第 4 步之后"往前挪了一格：链不是断在合成上，是断在**合成之后那个界面还开着、下一笔非 GUI 的动作被具名拒止**，而关界面那一步至今不在 `player_mind.SKILL_OFFER` 里（技能本身在第 7 条那发已活体站住）。这是给主控的那格范围决定的新读数，不是本卡自己扩范围的理由。
+
+**输入侧的账**：`move.forward` pressed 2 / released 2、`mine.attack` pressed 1 / released 1，最后一条 applied 写 `holding []` ⇒ 没有键悬在世界上；`session stop` 那半逐字：
+
+```text
+domain: session stop said {"command": "session stop", "kin_id": "kin-local-demo", "left_alone": [438, 240, 248, 243, 249, 253], "release": {"asked": [237], "nothing_held": [], "released": [], "unconfirmed": [237]}, "schema_version": 1, "status": "stopped", "terminated": [237], "unresolved": []}
+domain: session exited 14
+```
+
+`input_release_failed: true` 是"确认回不来"那一形状（客户端先没了，Core 的 `session stop` 对着一具空频道发释放），不是"键没松"——这一格与第 6 条那句"闭环"的边界要一起读：闭环只在心自己按名字停下的那种收尾（`NO_FEASIBLE_SKILL`）上被量到；`left_alone` 那六个是历发留在同一卷上的 marker，逐个在新容器里比命令行摘要、不配 ⇒ 不动手。**不声明**：更线那条路径（`CRAFT_MATERIALS_MISSING` 从世界上回来、心因此改问 `collect_dropped`）至今没有在活体上读到过，它由三条单测钉住；木镐仍未取得；3×3 摆格、B 分支、`close_screen` 进 `SKILL_OFFER` 与 marker 累积都仍归主控。
