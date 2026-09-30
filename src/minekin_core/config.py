@@ -8,8 +8,9 @@ existing identities are read from their persisted ledger, not regenerated here.
 from __future__ import annotations
 
 import os
+import re
 import shutil
-from collections.abc import Mapping
+from collections.abc import Mapping, MutableMapping
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -22,6 +23,8 @@ DEFAULT_USERNAME = "minekin"
 JAVA_VARIABLE = "MINEKIN_JAVA"
 KIN_VARIABLE = "MINEKIN_KIN_ID"
 PERSONA_SEED_VARIABLE = "MINEKIN_PERSONA_SEED"
+LOCAL_ENV_FILE_NAME = ".env"
+LOCAL_ENV_FILE_VARIABLE = "MINEKIN_ENV_FILE"
 
 # The host facts a managed client is allowed to observe. This is a list in the
 # code rather than an operator-supplied list on purpose: a forwarded value comes
@@ -159,6 +162,76 @@ def java_executable(environ: Mapping[str, str] | None = None) -> Path:
     if found is None:
         raise _reject(f"java was not found on PATH; set {JAVA_VARIABLE} to name one")
     return Path(found)
+
+
+LOCAL_ENV_NAME_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+def parse_local_environment(text: str) -> dict[str, str]:
+    """Read a `.env` body into names and values.
+
+    A line that is blank, a comment, or carries no `=` is not a variable, so a
+    half-typed line cannot set a name nobody typed. Surrounding quotes are the
+    file's delimiters rather than part of the value, because the values this file
+    holds are URLs and keys that an operator pastes with quotes around them.
+    """
+
+    parsed: dict[str, str] = {}
+    for line in text.splitlines():
+        entry = line.strip()
+        if not entry or entry.startswith("#"):
+            continue
+        if entry.startswith("export "):
+            entry = entry[len("export ") :].strip()
+        name, separator, value = entry.partition("=")
+        if not separator:
+            continue
+        name = name.strip()
+        if not LOCAL_ENV_NAME_PATTERN.match(name):
+            continue
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in {'"', "'"}:
+            value = value[1:-1]
+        parsed[name] = value
+    return parsed
+
+
+def local_environment_path(
+    environ: Mapping[str, str] | None = None, cwd: Path | None = None
+) -> Path:
+    """Which file carries the operator's names: the one they point at, else `./.env`."""
+
+    source = os.environ if environ is None else environ
+    explicit = source.get(LOCAL_ENV_FILE_VARIABLE, "").strip()
+    if explicit:
+        return Path(explicit)
+    return (Path.cwd() if cwd is None else cwd) / LOCAL_ENV_FILE_NAME
+
+
+def load_local_environment(
+    environ: MutableMapping[str, str] | None = None, cwd: Path | None = None
+) -> tuple[str, ...]:
+    """Put the file's names into the environment, and say which ones went in.
+
+    This is the one place a file is allowed to speak for the environment, and it is
+    called at the process boundary rather than from a reader: the environment stays
+    the interface every other module sees. A name the operator already exported
+    outranks the file, since the shell's own statement was made later and on
+    purpose. Only the names are returned — a value that came back from this
+    function is a value that can end up in a log.
+    """
+
+    source = os.environ if environ is None else environ
+    path = local_environment_path(environ=source, cwd=cwd)
+    if not path.is_file():
+        return ()
+    loaded: tuple[str, ...] = ()
+    for name, value in parse_local_environment(path.read_text(encoding="utf-8")).items():
+        if name in source:
+            continue
+        source[name] = value
+        loaded = (*loaded, name)
+    return loaded
 
 
 @dataclass(frozen=True, slots=True)

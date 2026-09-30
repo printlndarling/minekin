@@ -55,6 +55,7 @@ from minekin_core.config import (
     forwarded_environment,
     java_executable,
     kin_selector,
+    load_local_environment,
 )
 from minekin_core.domain.errors import (
     ErrorCategory,
@@ -611,6 +612,12 @@ def run(
 
 def main(argv: Sequence[str] | None = None) -> int:
     try:
+        # The operator's `.env` is read here and nowhere deeper: a command that
+        # runs from the repository picks up the names it carries, while a caller
+        # that hands `run` its own environment still sees exactly what it was
+        # given. Which names went in is not said aloud, because a name that went
+        # in is a value that can be printed.
+        load_local_environment()
         return run(argv)
     except KeyboardInterrupt:
         return int(ExitCode.INTERRUPTED)
