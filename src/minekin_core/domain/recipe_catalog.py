@@ -14,6 +14,12 @@ the grid being opened cannot hold that shape, this bag cannot pay for it. A reso
 answered those with an empty result would push the interpretation onto every caller, which is
 how a build ends up with five slightly different ways of saying "no".
 
+The same table answers the second question a goal raises, which is not whether one craft can
+run but what has to run before it: `build_plan` walks the recipes in demand order and
+multiplies the counts out of each recipe's own yield, so wanting an item is a product id and a
+quantity rather than a list somebody wrote out by hand. A hand-written build order is the one
+place this repository could have the wrong arithmetic and nothing in the world would notice.
+
 The numbers here are facts about Minecraft 1.20.1, and the comments say which of them this
 repository has watched the game confirm and which are still only curated. In
 `docs/recipe-knowledge-gui-contract.md` these rows are the first of its three objects: public
@@ -153,3 +159,110 @@ def resolve_craft(
     ):
         return CRAFT_MATERIALS_MISSING
     return recipe
+
+
+@dataclass(frozen=True, slots=True)
+class BuildStep:
+    """One position in a build order: the craft to run, and how many of its product the goal
+    still wants."""
+
+    recipe: Recipe
+    #: Items of `recipe.product_id` still outstanding, which is a demand rather than a
+    #: production target: a batch that yields four is asked for by a goal that owes two. The
+    #: caller compares this to an inventory, so rounding it up to whole batches here would
+    #: promise a bag that stays short after the last craft.
+    required_total: int
+
+    @property
+    def product_id(self) -> str:
+        return self.recipe.product_id
+
+    @property
+    def materials(self) -> tuple[tuple[str, int], ...]:
+        """One batch's cost. The game only ever pays one batch at a time, so a check against
+        the bag is a check against these counts and not against `required_total`, which is the
+        number of products the goal wants across however many batches that takes."""
+
+        return self.recipe.ingredients
+
+
+def build_plan(
+    product_id: str,
+    *,
+    quantity: int = 1,
+    inventory: InventoryValue | None = None,
+) -> tuple[BuildStep, ...] | str:
+    """The order of crafts that leads from a bag to `quantity` of a product, or a name.
+
+    `CRAFT_RECIPE_UNAVAILABLE` if the table cannot answer for the goal or for something it
+    eats; otherwise one step per craftable item, ingredients before the products that consume
+    them. The caller asks about a product and receives a sequence of recipes — it does not
+    hand over the recipes, and neither does a model.
+
+    The counts are multiplied out of `yields`, which is the only arithmetic that turns a
+    shape into a number of items: a pickaxe eats three planks and two sticks, and those two
+    sticks are one batch, which eats two more planks, so the job is five planks and not the
+    three a glance at the pickaxe alone would say.
+
+    `inventory` is optional in the same sense `resolve_craft` means it: with no bag handed over
+    every count is the gross one, and with a bag each step's count is what that bag still
+    owes once the items already held are credited. Crediting happens before a step's demand is
+    pushed onto its ingredients, so a partially-built job is short only the remainder, and a
+    finished one asks for nothing — which is what lets a later reading, rather than a plan
+    author, decide that the work is over.
+    """
+
+    if product_id not in RECIPES:
+        return CRAFT_RECIPE_UNAVAILABLE
+
+    order: list[str] = []
+    visited: set[str] = set()
+
+    def visit(product: str, path: frozenset[str]) -> str | None:
+        """Depth-first, appending after the ingredients so a recipe is never listed before
+        something it eats. A row that eats its own product is a wrong row, not a world
+        condition, and the word for it is the one the caller already handles."""
+
+        if product in path:
+            return CRAFT_RECIPE_UNAVAILABLE
+        recipe = RECIPES.get(product)
+        if recipe is None or product in visited:
+            return None  # gathered rather than crafted: the plan ends where the table does.
+        for item_id, _ in recipe.ingredients:
+            failure = visit(item_id, path | {product})
+            if failure is not None:
+                return failure
+        visited.add(product)
+        order.append(product)
+        return None
+
+    if visit(product_id, frozenset()) is not None:
+        return CRAFT_RECIPE_UNAVAILABLE
+
+    gross = dict.fromkeys(order, 0)
+    gross[product_id] = quantity
+    owed: dict[str, int] = {}
+    for product in reversed(order):
+        recipe = RECIPES[product]
+        still_needed = gross[product]
+        if inventory is not None:
+            still_needed -= item_total(inventory, product)
+        still_needed = max(still_needed, 0)
+        owed[product] = still_needed
+        if still_needed == 0:
+            continue
+        batches = _batches_for(still_needed, recipe.yields)
+        for item_id, count in recipe.ingredients:
+            if item_id in gross:
+                gross[item_id] += batches * count
+
+    return tuple(
+        BuildStep(recipe=RECIPES[product], required_total=owed[product]) for product in order
+    )
+
+
+def _batches_for(items: int, yields: int) -> int:
+    """How many whole batches of a recipe make at least `items` — the ceiling division a plan's
+    counts are built out of, written once so the rounding is not re-invented per caller."""
+
+    return -(-items // yields)

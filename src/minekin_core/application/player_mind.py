@@ -43,8 +43,8 @@ from minekin_core.domain.recipe_catalog import (
     CRAFT_GRID_TOO_SMALL,
     CRAFT_MATERIALS_MISSING,
     PLAYER_GRID_SIDE,
-    RECIPES,
-    Recipe,
+    BuildStep,
+    build_plan,
 )
 from minekin_core.domain.world_actions import (
     ActionResultClass,
@@ -111,38 +111,25 @@ SKILL_OFFER: Final = (
 )
 
 
-@dataclass(frozen=True, slots=True)
-class CraftStage:
-    """One link of the milestone chain: what it makes, how many, and what it costs."""
-
-    product_id: str
-    required_total: int
-    #: The game's own recipe, read out of the catalog by product id. The stage does not carry
-    #: an ingredient list of its own so there is exactly one place a recipe can be wrong.
-    recipe: Recipe
-
-    @property
-    def materials(self) -> tuple[tuple[str, int], ...]:
-        return self.recipe.ingredients
+def _goal_steps() -> tuple[BuildStep, ...]:
+    planned = build_plan(GOAL_PRODUCT_ID)
+    if isinstance(planned, str):
+        raise LookupError(f"{GOAL_PRODUCT_ID}: {planned}")
+    return planned
 
 
-def _fixture_stage(product_id: str, required_total: int) -> CraftStage:
-    return CraftStage(
-        product_id=product_id, required_total=required_total, recipe=RECIPES[product_id]
-    )
-
-
-#: A DEMO FIXTURE, not the product's recipe knowledge: the game facts live in
-#: `domain.recipe_catalog`, and what is declared here is only the demo's own milestone — how
-#: many of each thing the scripted 1.20.1 trunk run is meant to be holding. It is a tuple in
-#: build order rather than a lookup because "which craft is next" is answered by position: a
-#: mind that could reach for any recipe could also invent one, and §2 says it may not. A real
-#: goal selection replaces this table; it does not need new recipe code.
-CRAFT_CHAIN: Final[tuple[CraftStage, ...]] = (
-    _fixture_stage("minecraft:oak_planks", 3),
-    _fixture_stage("minecraft:stick", 2),
-    _fixture_stage(GOAL_PRODUCT_ID, 1),
-)
+#: The milestone as an order of crafts, obtained by asking the curated catalog what a wooden
+#: pickaxe implies. Nobody types this list in, which is the whole reason it can be trusted to
+#: be the game's arithmetic — planks, then sticks, then the tool, with the counts multiplied
+#: out of each recipe's own yield — and the reason a different goal product is a different
+#: argument here rather than a new table. The demo's own scripted order is not this constant
+#: and never was read from it: it lives in `examples/skill-plan-*.json`.
+#:
+#: Resolved when this module loads, because the failure it guards against is a missing row in
+#: the curated table. A mind that imported anyway would run a whole session that could not
+#: build the thing it exists to build; `LookupError` at import says which product and which
+#: catalog word is missing.
+GOAL_BUILD_PLAN: Final[tuple[BuildStep, ...]] = _goal_steps()
 
 
 class FailureCode(StrEnum):
@@ -214,38 +201,47 @@ def goal_in_hand(reading: WorldObservationValue) -> bool:
     return slot is not None and slot == reading.self_state.selected_slot
 
 
-def shortfalls(reading: WorldObservationValue) -> tuple[CraftStage, ...]:
-    """The chain stages this reading does not yet hold enough of, in build order."""
+def shortfalls(reading: WorldObservationValue) -> tuple[BuildStep, ...] | str:
+    """The steps the milestone still owes on this reading, in build order.
 
-    return tuple(
-        stage
-        for stage in CRAFT_CHAIN
-        if item_total(reading.inventory, stage.product_id) < stage.required_total
-    )
+    The plan is the catalog's and the credit is the reading's: the inventory is handed to
+    `build_plan`, so a step is listed only while the bag holds less of its product than the
+    milestone consumes. That is also what closes the milestone from a reading instead of from a
+    decision — a bag holding the pickaxe owes nothing, including the planks and sticks that
+    already went into it, which no fixed shopping list could tell from the same inventory.
+    """
+
+    planned = build_plan(GOAL_PRODUCT_ID, inventory=reading.inventory)
+    if isinstance(planned, str):
+        return planned
+    return tuple(step for step in planned if step.required_total > 0)
 
 
 def next_craft(
     reading: WorldObservationValue, *, grid_side: int = PLAYER_GRID_SIDE
-) -> CraftStage | None:
-    """The first stage still needed whose materials this inventory can pay for and whose shape
-    the grid being opened can hold.
+) -> BuildStep | None:
+    """The first step still owed whose materials this inventory can pay for and whose shape the
+    grid being opened can hold.
 
-    Strictly in chain order, and a stage is only offered when its materials are already in
-    the bag: the precondition check the contract asks for happens here, before a command is
-    built, so a craft that cannot be honoured is never sent. The grid is checked in the same
-    place for the same reason — a three-by-three shape clicked into the inventory's
-    two-by-two is a command the world can only shrug at, and a `CONFIRMED` verdict belongs to
-    crafts that could have happened.
+    Strictly in build order, and a step is only offered when its materials are already in the
+    bag: the precondition check the contract asks for happens here, before a command is built,
+    so a craft that cannot be honoured is never sent. The grid is checked in the same place for
+    the same reason — a three-by-three shape clicked into the inventory's two-by-two is a
+    command the world can only shrug at, and a `CONFIRMED` verdict belongs to crafts that could
+    have happened.
     """
 
-    for stage in shortfalls(reading):
-        if not stage.recipe.fits(grid_side):
+    needed = shortfalls(reading)
+    if isinstance(needed, str):
+        return None
+    for step in needed:
+        if not step.recipe.fits(grid_side):
             continue
         affordable = all(
-            item_total(reading.inventory, item_id) >= count for item_id, count in stage.materials
+            item_total(reading.inventory, item_id) >= count for item_id, count in step.materials
         )
         if affordable:
-            return stage
+            return step
     return None
 
 
@@ -261,9 +257,11 @@ def craft_blocker(reading: WorldObservationValue, *, grid_side: int = PLAYER_GRI
     if next_craft(reading, grid_side=grid_side) is not None:
         return ""
     needed = shortfalls(reading)
+    if isinstance(needed, str):
+        return needed
     if not needed:
         return ""
-    if any(stage.recipe.fits(grid_side) for stage in needed):
+    if any(step.recipe.fits(grid_side) for step in needed):
         return CRAFT_MATERIALS_MISSING
     return CRAFT_GRID_TOO_SMALL
 
@@ -298,7 +296,7 @@ def needs_from(reading: WorldObservationValue) -> dict[str, int]:
 
     if goal_held(reading):
         resource_security = 1
-    elif item_total(reading.inventory, CRAFT_CHAIN[0].product_id) > 0:
+    elif item_total(reading.inventory, GOAL_BUILD_PLAN[0].product_id) > 0:
         resource_security = 5
     else:
         resource_security = 9
@@ -539,21 +537,21 @@ class PlayerMind:
         """
 
         if skill == "craft_take_result":
-            stage = next_craft(reading)
-            if stage is None:
+            step = next_craft(reading)
+            if step is None:
                 return None, craft_blocker(reading) or CRAFT_MATERIALS_MISSING
             return (
                 SkillPlan(
                     (
                         SkillCall(
                             name="craft_take_result",
-                            recipe_id=stage.recipe.recipe_id,
-                            product_id=stage.product_id,
-                            materials=stage.materials,
+                            recipe_id=step.recipe.recipe_id,
+                            product_id=step.product_id,
+                            materials=step.materials,
                         ),
                     )
                 ),
-                f"craft {stage.product_id} for {self.direction}",
+                f"craft {step.product_id} for {self.direction}",
             )
         if skill == "collect_dropped":
             return (

@@ -8,11 +8,16 @@ reason a craft cannot run, rather than an empty outcome a caller would have to i
 
 Nothing here reads the world. The bag is passed in as an argument precisely so that the
 material check is a decision made *from a reading* by whoever holds one, and never a claim
-this module makes about a world it has not seen.
+this module makes about a world it has not seen. The same argument covers the counts a plan is
+netted to: `build_plan` can say what a pickaxe owes, and only a caller that has been handed an
+inventory can say what this Kin still owes.
 """
 
 from __future__ import annotations
 
+import pytest
+
+from minekin_core.domain import recipe_catalog
 from minekin_core.domain.perception import InventoryStackValue, InventoryValue
 from minekin_core.domain.recipe_catalog import (
     CRAFT_GRID_TOO_SMALL,
@@ -20,7 +25,9 @@ from minekin_core.domain.recipe_catalog import (
     CRAFT_RECIPE_UNAVAILABLE,
     PLAYER_GRID_SIDE,
     RECIPES,
+    BuildStep,
     Recipe,
+    build_plan,
     resolve_craft,
 )
 
@@ -112,3 +119,147 @@ def test_every_entry_names_itself_by_product_and_costs_a_positive_amount() -> No
         assert recipe.grid_width >= 1 and recipe.grid_height >= 1
         assert all(count >= 1 for _, count in recipe.ingredients)
         assert recipe.fits(3)
+
+
+# ------------------------------------------------------------------ what a goal implies, in order
+
+
+def shaped(plan: object) -> list[tuple[str, int]]:
+    """The plan as `(product, how many it still wants)`, which is every decision a caller makes
+    from it. Written once so the tests below say the order and the counts and nothing else."""
+
+    assert isinstance(plan, tuple)
+    return [(step.product_id, step.required_total) for step in plan]
+
+
+def test_a_goal_product_becomes_the_build_order_its_recipes_imply() -> None:
+    planned = build_plan(PICKAXE)
+
+    assert shaped(planned) == [(PLANKS, 5), (STICK, 2), (PICKAXE, 1)]
+    assert [step.recipe.recipe_id for step in planned] == [PLANKS, STICK, PICKAXE]
+
+
+def test_the_counts_come_from_the_recipes_yields_not_from_a_number_somebody_typed_in() -> None:
+    """Five planks, where the demo fixture said three: the pickaxe eats three and the one stick
+    batch it also eats eats two more. `yields` is the only thing that turns a shape into a
+    count, and a plan that skipped it would send the Kin back to the trunk for a load that
+    cannot finish the job — a wrong number is the failure mode this whole module exists to have
+    no room for."""
+
+    planks = build_plan(PICKAXE)[0]
+
+    assert (planks.product_id, planks.required_total) == (PLANKS, 5)
+    assert planks.recipe.yields == 4
+    assert planks.materials == ((LOG, 1),)
+
+
+def test_the_same_call_answers_for_products_no_chain_names() -> None:
+    """The reuse the slice is judged on: three different goals, one call, no per-goal code."""
+
+    assert shaped(build_plan(TABLE)) == [(PLANKS, 4), (TABLE, 1)]
+    assert shaped(build_plan(STICK)) == [(PLANKS, 2), (STICK, 1)]
+    assert shaped(build_plan(PLANKS)) == [(PLANKS, 1)]
+
+
+def test_an_ingredient_nobody_crafts_stops_the_plan_there_instead_of_inventing_a_craft() -> None:
+    """Oak logs are gathered, not crafted, and the plan's last step is allowed to cost them:
+    the thing a caller acts on is 'break a trunk', which is a skill it already has."""
+
+    planned = build_plan(PLANKS)
+
+    assert shaped(planned) == [(PLANKS, 1)]
+    assert planned[0].materials == ((LOG, 1),)
+
+
+def test_asking_for_more_scales_the_counts_without_repeating_a_step() -> None:
+    """Five sticks is two batches and four planks. The step's number stays what the goal owes
+    rather than what the batches leave over, because a caller compares it to an inventory."""
+
+    assert shaped(build_plan(STICK, quantity=5)) == [(PLANKS, 4), (STICK, 5)]
+
+
+def test_a_bag_that_holds_part_of_the_plan_is_credited_against_it() -> None:
+    """Netting, which is the difference between a plan and a script: three planks and two
+    sticks is exactly one pickaxe's worth of intermediates, so the only step still owed is the
+    pickaxe. Four planks is one short of what the whole job eats, so planks stay on the list
+    with the remainder — not with the gross figure."""
+
+    assert shaped(build_plan(PICKAXE, inventory=bag((PLANKS, 3), (STICK, 2)))) == [
+        (PLANKS, 0),
+        (STICK, 0),
+        (PICKAXE, 1),
+    ]
+    assert shaped(build_plan(PICKAXE, inventory=bag((PLANKS, 4)))) == [
+        (PLANKS, 1),
+        (STICK, 2),
+        (PICKAXE, 1),
+    ]
+
+
+def test_a_bag_that_already_holds_the_goal_leaves_no_step_outstanding() -> None:
+    assert shaped(build_plan(PICKAXE, inventory=bag((PICKAXE, 1)))) == [
+        (PLANKS, 0),
+        (STICK, 0),
+        (PICKAXE, 0),
+    ]
+
+
+def test_a_goal_the_table_cannot_answer_for_is_refused_by_name() -> None:
+    assert build_plan("minecraft:diamond_pickaxe") == CRAFT_RECIPE_UNAVAILABLE
+
+
+def test_a_recipe_that_eats_itself_is_refused_by_name_rather_than_recursed_into(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Nothing curated today loops, and a wrong row is the realistic way a plan meets one. The
+    alternative is a `RecursionError` where the caller was promised one of the named words."""
+
+    monkeypatch.setattr(
+        recipe_catalog,
+        "RECIPES",
+        {
+            PLANKS: Recipe(
+                product_id=PLANKS,
+                recipe_id=PLANKS,
+                ingredients=((STICK, 1),),
+                grid_width=1,
+                grid_height=1,
+                yields=4,
+            ),
+            STICK: Recipe(
+                product_id=STICK,
+                recipe_id=STICK,
+                ingredients=((PLANKS, 1),),
+                grid_width=1,
+                grid_height=2,
+                yields=4,
+            ),
+        },
+    )
+
+    assert build_plan(PLANKS) == CRAFT_RECIPE_UNAVAILABLE
+    assert build_plan(STICK) == CRAFT_RECIPE_UNAVAILABLE
+
+
+def test_the_plan_orders_steps_without_deciding_which_grid_they_run_in() -> None:
+    """Which screen holds a shape is a fact about the reading, not about the recipe, and a
+    resolver that dropped the three-by-three step here would hide the two steps that do fit —
+    the Kin would be told to gather for a job its grid cannot ever show. `resolve_craft`, and
+    the mind that holds a reading, are where a grid gets named."""
+
+    planned = build_plan(PICKAXE)
+
+    assert not planned[-1].recipe.fits(PLAYER_GRID_SIDE)
+    assert planned[-1].recipe.fits(3)
+    assert all(step.recipe.fits(PLAYER_GRID_SIDE) for step in planned[:-1])
+
+
+def test_a_step_carries_no_knowledge_but_the_recipe_it_was_read_from() -> None:
+    """A step is a recipe plus a count. It re-declares neither the product id nor the
+    ingredients, so there stays exactly one place a game fact can be wrong."""
+
+    planned = build_plan(TABLE)
+
+    assert all(isinstance(step, BuildStep) for step in planned)
+    assert all(step.product_id == step.recipe.product_id for step in planned)
+    assert all(step.materials == step.recipe.ingredients for step in planned)

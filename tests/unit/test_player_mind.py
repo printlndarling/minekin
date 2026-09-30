@@ -18,11 +18,11 @@ import pytest
 
 from minekin_core.adapters.model import OffModelProvider
 from minekin_core.application.player_mind import (
-    CRAFT_CHAIN,
     CRAFT_MATERIALS_MISSING,
     DECISION_FROM_LOCAL,
     DECISION_FROM_MODEL,
     GOAL_ACHIEVED,
+    GOAL_BUILD_PLAN,
     LONG_TERM_DIRECTION,
     NO_FEASIBLE_SKILL,
     NO_LATEST_OBSERVATION,
@@ -37,6 +37,7 @@ from minekin_core.application.player_mind import (
     mind_for,
     needs_from,
     next_craft,
+    shortfalls,
 )
 from minekin_core.domain.model_access import (
     CallOutcome,
@@ -195,9 +196,10 @@ def test_no_craft_is_offered_when_every_stage_is_short_of_materials() -> None:
     assert "craft_take_result" not in feasible_skill_ids(reading())
 
 
-def test_the_chain_is_walked_in_build_order() -> None:
-    # Three planks pay for the sticks the pickaxe needs, so the next stage is the sticks.
-    assert next_craft(reading(items=((0, PLANKS, 3),))) == CRAFT_CHAIN[1]
+def test_the_plan_is_walked_in_build_order() -> None:
+    # Three planks pay for the sticks the pickaxe needs, and for none more planks: the log the
+    # first step would cost is not in the bag, so the next step the reading supports is sticks.
+    assert next_craft(reading(items=((0, PLANKS, 3),))) == GOAL_BUILD_PLAN[1]
     assert next_craft(reading(items=((0, PICKAXE, 1),))) is None
 
 
@@ -209,7 +211,7 @@ def test_a_stage_the_open_grid_cannot_hold_is_never_offered_as_a_craft() -> None
     paid = reading(items=((0, PLANKS, 3), (1, STICK, 2)))
 
     assert next_craft(paid) is None
-    assert next_craft(paid, grid_side=3) == CRAFT_CHAIN[2]
+    assert next_craft(paid, grid_side=3) == GOAL_BUILD_PLAN[2]
     assert "craft_take_result" not in feasible_skill_ids(paid)
 
 
@@ -217,11 +219,25 @@ def test_the_blocked_craft_names_the_precondition_that_is_true_of_the_reading() 
     assert craft_blocker(reading(items=((0, LOG, 1),))) == ""
     assert craft_blocker(reading()) == CRAFT_MATERIALS_MISSING
     assert craft_blocker(reading(items=((0, PLANKS, 3), (1, STICK, 2)))) == CRAFT_GRID_TOO_SMALL
-    # Every stage's total already in the bag: nothing is short, so no precondition is being
-    # asked about. A pickaxe alone does not satisfy this one — the chain is short of the
-    # planks and sticks its fixture says the run should also be holding.
+    # The whole job already in the bag, in whatever shape the crafts left it: nothing is owed,
+    # so no precondition is being asked about. The planks that went into the tool are not
+    # counted against it — that is the difference between a plan netted off a reading and a
+    # shopping list, and the reason a finished run can stop instead of gathering again.
     assert craft_blocker(reading(items=((0, PLANKS, 3), (1, STICK, 2), (2, PICKAXE, 1)))) == ""
-    assert craft_blocker(reading(items=((0, PICKAXE, 1),))) == CRAFT_MATERIALS_MISSING
+    assert craft_blocker(reading(items=((0, PICKAXE, 1),))) == ""
+
+
+def test_a_milestone_closed_from_a_reading_asks_for_no_craft() -> None:
+    """One pickaxe, with nothing left of the planks that made it: the goal product is held, so
+    the plan owes nothing, so there is no craft to offer and nothing to be blocked about. This
+    is §4 closing a direction on the world's word, reached through the recipe table rather
+    than through a fixture that listed the intermediates as things to keep holding."""
+
+    finished = reading(items=((0, PICKAXE, 1),))
+
+    assert shortfalls(finished) == ()
+    assert next_craft(finished) is None
+    assert "craft_take_result" not in feasible_skill_ids(finished)
 
 
 def test_a_model_asking_for_a_craft_the_grid_cannot_hold_produces_no_craft_command() -> None:
@@ -241,13 +257,29 @@ def test_a_model_asking_for_a_craft_the_grid_cannot_hold_produces_no_craft_comma
     assert intent.model_refusal == "DECISION_OUT_OF_BOUNDS"
 
 
-def test_a_fixture_stage_carries_the_recipe_the_catalog_names_it_by() -> None:
-    """The recipe id is read from the curated entry rather than guessed from the product id,
-    so the demo chain cannot drift from the game's own naming without a test noticing."""
+def test_the_milestone_plan_is_the_catalogs_and_not_a_list_typed_in_here() -> None:
+    """The mind asks what a pickaxe implies and takes the answer: planks, then sticks, then the
+    tool, the counts multiplied out of each recipe's own yield. Five planks where the demo
+    fixture said three, because the stick batch the pickaxe eats is itself made of them — the
+    kind of thing a hand-written table gets wrong in a way no reading would notice."""
 
-    assert [stage.recipe.recipe_id for stage in CRAFT_CHAIN] == [PLANKS, STICK, PICKAXE]
-    assert CRAFT_CHAIN[2].recipe.grid_width == 3
-    assert not CRAFT_CHAIN[2].recipe.fits(PLAYER_GRID_SIDE)
+    assert [step.recipe.recipe_id for step in GOAL_BUILD_PLAN] == [PLANKS, STICK, PICKAXE]
+    assert [step.required_total for step in GOAL_BUILD_PLAN] == [5, 2, 1]
+    assert GOAL_BUILD_PLAN[2].recipe.grid_width == 3
+    assert not GOAL_BUILD_PLAN[2].recipe.fits(PLAYER_GRID_SIDE)
+
+
+def test_a_bag_partway_through_the_plan_is_credited_rather_than_asked_to_start_again() -> None:
+    """Five planks is the whole job's worth of planks, so the only steps still owed are the
+    sticks and the tool — and the craft the reading supports is the stick one, which is what
+    those five planks were for."""
+
+    halfway = reading(items=((0, PLANKS, 5),))
+
+    owed = shortfalls(halfway)
+    assert isinstance(owed, tuple)
+    assert [(step.product_id, step.required_total) for step in owed] == [(STICK, 2), (PICKAXE, 1)]
+    assert next_craft(halfway) == owed[0]
 
 
 def test_an_aiming_that_is_a_miss_does_not_offer_a_mine() -> None:

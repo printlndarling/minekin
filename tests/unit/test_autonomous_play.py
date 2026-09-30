@@ -282,14 +282,15 @@ def run(
 # ------------------------------------------------------------------------ the closed loop
 
 
-def test_the_loop_walks_the_chain_as_far_as_the_grid_it_can_open() -> None:
+def test_the_loop_walks_the_plan_as_far_as_the_grid_it_can_open() -> None:
     # Every reading is what the previous confirmed step would leave behind. Nothing here names
     # a skill: the order comes from the mind, and the stopping comes from a reading.
     stage = Stage(
         reading(tick=100, items=((0, LOG, 3),)),
         reading(tick=140, items=((0, LOG, 2), (1, PLANKS, 4))),
-        reading(tick=180, items=((0, LOG, 2), (1, PLANKS, 4), (2, STICK, 4))),
-        reading(tick=220, items=((0, LOG, 2), (1, PLANKS, 4), (2, STICK, 4))),
+        reading(tick=180, items=((0, LOG, 1), (1, PLANKS, 8))),
+        reading(tick=220, items=((0, LOG, 1), (1, PLANKS, 6), (2, STICK, 4))),
+        reading(tick=260, items=((0, LOG, 1), (1, PLANKS, 6), (2, STICK, 4))),
     )
     skills = TapeSkills(
         stage,
@@ -297,25 +298,30 @@ def test_the_loop_walks_the_chain_as_far_as_the_grid_it_can_open() -> None:
     )
     mind = off_mind()
 
-    result = run(stage, skills, mind, step_budget=3)
+    result = run(stage, skills, mind, step_budget=4)
 
-    # The third shortfall is the pickaxe, a three-by-three shape, and the only screen the
-    # craft skill opens is the inventory's two-by-two. Clicking it there is a command the
-    # world cannot honour, so the ask never leaves: the chain walks to planks and sticks and
-    # then the mind looks, which is the conservative step the offer always carries.
+    # Two plank batches before the sticks, where the demo fixture's chain asked for one: the
+    # tool eats three planks and the stick batch it also eats eats two more, so the job is five
+    # planks and a batch of four leaves the reading still short of one. `yields` in the recipe
+    # table is what says so, and no call in this loop names a count.
     assert [name for name, _ in skills.ran] == [
+        "craft_take_result",
         "craft_take_result",
         "craft_take_result",
         "turn_to",
     ]
-    assert [kwargs.get("recipe_id") for _, kwargs in skills.ran] == [PLANKS, STICK, None]
+    assert [kwargs.get("recipe_id") for _, kwargs in skills.ran] == [PLANKS, PLANKS, STICK, None]
     # The mind asks for the transaction whose product lands where a reading can see it: the
     # recipe click alone leaves the result on the cursor or in the grid, and 2026-09-30's two
     # live runs showed nothing coming back from either, so a chain built on it cannot close.
-    assert all(name == "craft_take_result" for name, _ in skills.ran[:2])
+    assert all(name == "craft_take_result" for name, _ in skills.ran[:3])
+    # The last shortfall is the pickaxe, a three-by-three shape, and the only screen the craft
+    # skill opens is the inventory's two-by-two. Clicking it there is a command the world cannot
+    # honour, so the ask never leaves and the mind looks instead — the conservative step the
+    # offer always carries.
     assert result.stop_reason == STEP_BUDGET_SPENT
     assert mind.goal_met is False
-    assert len(result.steps) == 3
+    assert len(result.steps) == 4
 
 
 def test_the_loop_closes_on_a_reading_that_shows_the_tool_held() -> None:
