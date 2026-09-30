@@ -124,19 +124,29 @@ def test_every_entry_names_itself_by_product_and_costs_a_positive_amount() -> No
 # ------------------------------------------------------------------ what a goal implies, in order
 
 
-def shaped(plan: object) -> list[tuple[str, int]]:
+def steps(plan: tuple[BuildStep, ...] | str) -> tuple[BuildStep, ...]:
+    """The plan, or the named precondition that stopped it. `build_plan` answers with one of
+    the two, and a test that indexed into that answer without saying which it expected would
+    assert against whichever type a reader guessed — so the narrowing happens once, in the
+    open, and fails loudly with the word the catalog chose."""
+
+    if isinstance(plan, str):
+        raise AssertionError(plan)
+    return plan
+
+
+def shaped(plan: tuple[BuildStep, ...] | str) -> list[tuple[str, int]]:
     """The plan as `(product, how many it still wants)`, which is every decision a caller makes
     from it. Written once so the tests below say the order and the counts and nothing else."""
 
-    assert isinstance(plan, tuple)
-    return [(step.product_id, step.required_total) for step in plan]
+    return [(step.product_id, step.required_total) for step in steps(plan)]
 
 
 def test_a_goal_product_becomes_the_build_order_its_recipes_imply() -> None:
     planned = build_plan(PICKAXE)
 
     assert shaped(planned) == [(PLANKS, 5), (STICK, 2), (PICKAXE, 1)]
-    assert [step.recipe.recipe_id for step in planned] == [PLANKS, STICK, PICKAXE]
+    assert [step.recipe.recipe_id for step in steps(planned)] == [PLANKS, STICK, PICKAXE]
 
 
 def test_the_counts_come_from_the_recipes_yields_not_from_a_number_somebody_typed_in() -> None:
@@ -146,7 +156,7 @@ def test_the_counts_come_from_the_recipes_yields_not_from_a_number_somebody_type
     cannot finish the job — a wrong number is the failure mode this whole module exists to have
     no room for."""
 
-    planks = build_plan(PICKAXE)[0]
+    planks = steps(build_plan(PICKAXE))[0]
 
     assert (planks.product_id, planks.required_total) == (PLANKS, 5)
     assert planks.recipe.yields == 4
@@ -168,7 +178,7 @@ def test_an_ingredient_nobody_crafts_stops_the_plan_there_instead_of_inventing_a
     planned = build_plan(PLANKS)
 
     assert shaped(planned) == [(PLANKS, 1)]
-    assert planned[0].materials == ((LOG, 1),)
+    assert steps(planned)[0].materials == ((LOG, 1),)
 
 
 def test_asking_for_more_scales_the_counts_without_repeating_a_step() -> None:
@@ -247,7 +257,7 @@ def test_the_plan_orders_steps_without_deciding_which_grid_they_run_in() -> None
     the Kin would be told to gather for a job its grid cannot ever show. `resolve_craft`, and
     the mind that holds a reading, are where a grid gets named."""
 
-    planned = build_plan(PICKAXE)
+    planned = steps(build_plan(PICKAXE))
 
     assert not planned[-1].recipe.fits(PLAYER_GRID_SIDE)
     assert planned[-1].recipe.fits(3)
@@ -258,8 +268,7 @@ def test_a_step_carries_no_knowledge_but_the_recipe_it_was_read_from() -> None:
     """A step is a recipe plus a count. It re-declares neither the product id nor the
     ingredients, so there stays exactly one place a game fact can be wrong."""
 
-    planned = build_plan(TABLE)
+    planned = steps(build_plan(TABLE))
 
-    assert all(isinstance(step, BuildStep) for step in planned)
     assert all(step.product_id == step.recipe.product_id for step in planned)
     assert all(step.materials == step.recipe.ingredients for step in planned)

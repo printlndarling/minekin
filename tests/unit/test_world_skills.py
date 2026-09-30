@@ -1380,7 +1380,9 @@ def test_the_exit_names_the_ask_that_was_in_flight_when_the_client_went() -> Non
 
         assert raised is not None
         assert sender.types() == [SCREEN_INPUT_TYPE]
-        assert raised.action_id == sender.sent[0][1].action_id
+        command = sender.sent[0][1]
+        assert isinstance(command, control_pb2.ScreenInput)
+        assert raised.action_id == command.action_id
         assert raised.action_id != ""
 
     asyncio.run(scenario())

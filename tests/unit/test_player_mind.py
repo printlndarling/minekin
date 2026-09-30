@@ -277,7 +277,7 @@ def test_a_bag_partway_through_the_plan_is_credited_rather_than_asked_to_start_a
     halfway = reading(items=((0, PLANKS, 5),))
 
     owed = shortfalls(halfway)
-    assert isinstance(owed, tuple)
+    assert not isinstance(owed, str)
     assert [(step.product_id, step.required_total) for step in owed] == [(STICK, 2), (PICKAXE, 1)]
     assert next_craft(halfway) == owed[0]
 
