@@ -79,6 +79,11 @@ SESSION_IDENTITY_COMPARED = "SessionIdentityCompared"
 #: end — a reader watching a long autonomous run needs the step that is happening now, and
 #: needs to see a FAILED three steps back rather than only the reason the run stopped.
 SKILL_STEP_RECORDED = "SkillStepRecorded"
+#: The word that ended an autonomous run, as the mind itself produced it. The run document has
+#: this answer and the step rows do not: a halt is not a step, so a reader of the ledger alone
+#: would see the last step's failure reason and `SessionInterrupted` and conclude the channel
+#: went, when the readings say the mind excluded a skill and stopped by name.
+AUTONOMOUS_RUN_HALTED = "AutonomousRunHalted"
 
 SESSION_EVENT_TYPES = frozenset(
     {
@@ -97,6 +102,7 @@ SESSION_EVENT_TYPES = frozenset(
         SESSION_STATE_TRANSITIONED,
         SESSION_IDENTITY_COMPARED,
         SKILL_STEP_RECORDED,
+        AUTONOMOUS_RUN_HALTED,
     }
 )
 

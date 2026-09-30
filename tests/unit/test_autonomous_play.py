@@ -397,6 +397,43 @@ def test_a_channel_that_goes_out_from_under_a_step_ends_the_run_by_name() -> Non
     assert result.steps == ()
 
 
+def test_a_lost_channel_names_the_error_that_lost_it() -> None:
+    """Which error ended the channel is a fact the run has to carry out of the loop.
+
+    `CONTROL_CHANNEL_LOST` says the loop stopped; only the error's own name says whether the
+    bridge closed a socket or refused a write, and after the channel is gone no later reading
+    can answer that — the run that lost it is the only witness.
+    """
+
+    stage = Stage(reading(items=((0, LOG, 3),)))
+    skills = TapeSkills(
+        stage, {"craft_take_result": confirmed()}, breaks=frozenset({"craft_take_result"})
+    )
+    mind = off_mind()
+
+    result = run(stage, skills, mind)
+
+    assert result.stop_detail == "ConnectionError"
+    assert result.as_document()["stop_detail"] == "ConnectionError"
+
+
+def test_a_stop_the_world_caused_names_no_channel_error() -> None:
+    """A run that stopped for a reading's own reason carried no error, and says so empty.
+
+    The name belongs to the channel branch alone; inventing one elsewhere would let a reader
+    mistake a stalled world for a lost bridge.
+    """
+
+    stage = Stage(None)
+    skills = TapeSkills(stage, {})
+    mind = off_mind()
+
+    result = run(stage, skills, mind)
+
+    assert result.stop_reason == NO_LATEST_OBSERVATION
+    assert result.stop_detail == ""
+
+
 def test_the_step_budget_bounds_one_turn_rather_than_the_session() -> None:
     stage = Stage(*[reading(tick=100 + step) for step in range(10)])
     skills = TapeSkills(stage, {"turn_to": confirmed()})

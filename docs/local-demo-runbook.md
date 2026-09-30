@@ -90,7 +90,7 @@ export MINEKIN_RUNNER_FORWARD_ENV=<存放密钥的那个变量名>  # 逗号分�
 12. **craft_all 这一笔在活字节上仍不足，这一次是有名字的。** 冷卷 run `615eb862…` 的三件证据把范围收到一处：客户端日志里 `bridge clicked recipe minecraft:oak_planks (craftAll=true)` 说点击确实发出并被接受；`advancements/…/oak_planks` 的 `done: true`（`has_logs` 在点击前两秒达成）和存档 `recipeBook` 里的 4 条配方说明配方书侧是开着的，"配方书不认识这笔点击"那条猜测被排除；而同一份 player.dat 里 `Inventory` 是 **0 格**、没有 `Carried`。合起来的读数只支持一种说法：材料离开了 PlayerInventory（进了 2×2 网格），到存盘那一刻没有任何东西回到背包。于是第 10 条那句"默认点击已换成会把成品放进背包的那一笔"在活字节上并不成立，`craft` 保留原样而收口改用第 11 条的技能。
 13. **木镐这一步卡在 2×2 网格，不在技能上。** `craft_take_result` 已经在 2×2 里连过两配方（木板、木棍），但 `minecraft:wooden_pickaxe` 需要 3×3 工作台的网格；玩家自带界面装不下它，而本项目还没有"放下一个工作台"的技能（`SKILL_OFFER` 里没有放置这一步）。也就是说"最终取得木镐"这一目标欠的是**放置技能 + 木板数量**（一次采木 = 4 板，镐要 3 板 + 2 棍，还要先摆台），不是合成判据。这一条留给主控决定要不要把 S2 的收口范围扩到放置。
 14. **`collect_dropped` 现在会追掉落物，但它要求的"看得见"并不恒成立。** 三次运行里两次 CONFIRMED（`615eb862…` 的 `steps=1, newest_checked_tick=19068`；`e1e98155…` 的 `steps=1, newest_checked_tick=1699`），一次 `FAILED / NO_SEEN_DROP`（run `8b8412ca182c4bb7b3764df5a5304d76`：`break_seen_block` 在 tick 1640 就 CONFIRMED，紧接着的 `collect_dropped` 在同一个 tick 的一帧里没读到掉落物）。所以这一步不是恒败，但也不是恒过——它把"那一帧里看得见"当成了前提，而木头从被破坏的那一格掉到地上时可能正好在视野锥之外。这一步的健壮性还欠一次改动（要么允许多帧重试，要么在破坏后重新瞄准掉落点）。
-15. **面板说不出"心自己按名字停的线"。** 自主收尾的名字（`autonomous.stop_reason`、`excluded_skills`、`current_intent.kind: BLOCKED`）只活在 run 文档里，台账没有对应的一行；只看面板会读到 `SessionInterrupted | outcome=BRIDGE_LOST`。逐行读数见六之二末尾。这一格是 S3-C 要动的地方：把名字落进台账，而不是把 run 文档塞进投影。
+15. ~~面板说不出"心自己按名字停的线"~~ **已收口（2026-09-30，活体）**：台账加了 `AutonomousRunHalted` 一行，`goal / stop_reason / error / steps / confirmed / excluded_skills` 六个具名成员按 allowlist 投影进时间线，`action_id`、`lease_id` 与异常文本都不外泄（契约 §10、六之三）。面板那一格现在是 `decision AutonomousRunHalted | goal=hold_a_wooden_pickaxe, stop_reason=CONTROL_CHANNEL_LOST, error=ConnectionResetError, steps=4, confirmed=4`。仍然没收到的答案是"那个客户端 JVM 为什么走"——`error` 说的是哪一侧断的手（`ConnectionResetError` ⇒ 客户端那一侧重置了套接字），不是它离开的原因。
 
 ## 六、本次演示的读数（2026-09-29，run `0c10d0774f704f47a909728cf745135e`）
 
@@ -136,3 +136,31 @@ export MINEKIN_RUNNER_FORWARD_ENV=<存放密钥的那个变量名>  # 逗号分�
 `goal_met: false` 与第 13 条一致：木镐要 3×3 工作台，而 `SKILL_OFFER` 里没有放置这一步。**这一档不声明木镐已取得**，它声明的是：S2 这条链在自主路径上按读数收口了（取木→拾取→合成→成品进包，四步全靠后来的读数确认），心在撞墙之后按读数把 `turn_to` 排除掉并具名停下，而面板对同一次 run 的七行解释与 run 文档逐行一致——除上面点名的那格收尾解释。
 
 这一档只声明"本地 1.20.1 的这条自主链按读数收口了"，不声明 Minekin 整体完工。
+
+## 六之三、收尾名落进台账的那一份读数（2026-09-30，run `a1d749937d864203ac50de8f98884882`）
+
+`--autonomous`，同一枚热卷（server run 目录 `run-5`），`MINEKIN_DEMO_AUTONOMOUS_STEPS=8`。这一档是六之二末点名那一格（S3-C）的活体依据：**心的收尾名字第一次作为台账行存在**。
+
+| 步 | 意图（`intent.reason`） | 结果 | 依据的读数 → 核对的读数 |
+| --- | --- | --- | --- |
+| 1 | break the block in view for minecraft:oak_log | CONFIRMED | tick=1602 → 1659 |
+| 2 | collect the minecraft:oak_log in view | CONFIRMED | 1659 → 1680 |
+| 3 | craft minecraft:oak_planks for hold_a_wooden_pickaxe | CONFIRMED | 1680 → 1713 |
+| 4 | craft minecraft:stick for hold_a_wooden_pickaxe | CONFIRMED | 1713 → 1735 |
+
+四条 `SkillStepRecorded` 之后是那一行新字节（台账位置 146，只读投影逐字一致）：
+
+```text
+26 decision AutonomousRunHalted | goal=hold_a_wooden_pickaxe, stop_reason=CONTROL_CHANNEL_LOST, steps=4, confirmed=4 | applied
+```
+
+它与六之二那一档的区别正是这一行要回答的：那一次是心把 `turn_to` 排除后具名停下（`NO_FEASIBLE_SKILL`），这一次是频道真的没了（`CONTROL_CHANNEL_LOST`）。`excluded_skills` 这次为空 ⇒ 按投影规整格省略，不渲染成 `[]`。本次会话投影 30 行，`action_id` 与 `lease_id` 零出现。
+
+**这次量到的失败读数：`input_release_failed: true`。** 它不是"键被按在世界里没松"，而是"Core 没能道别"，两条要分开。时间线（都是同一卷上的字节）：第 4 步落在 10:12:13.933 → 桥的最后一条日志 10:12:13.972（`bridge refused mine 17e651ef274640338c65980f8b08b048: GUI_CONFLICT`）→ 台账 5.0 秒空档 → Core 的收尾从 10:12:18.960 开始（halt 行、`PLAYABLE→FAILED→STOPPING→STOPPED`、19.041 `SessionInterrupted`）→ 受控服务器 10:12:18 `Kin lost connection: Disconnected`、10:12:19 `Kin left the game`。`crash-reports/` 为空、`stderr.log` 为空、没有 `ClientExited` 行，而 `domain.sh` 的等待环以 `kill -0 ${session_pid}` 为条件、"stopping the session" 打印在 CLI 已退出之后 —— 所以次序是**客户端先没了，Core 的第 5 次发送撞上空频道**（`run_autonomous_loop` 把 `OSError/RuntimeError` 折成 `CONTROL_CHANNEL_LOST`），harness 随后的 `session stop` 对着一具空频道发释放，只能记 `true`。
+键没有留在世界上：桥的日志里每次 `pressed` 都配了对应的 `released`，最后一次是 `applied 54aa5727…: holding []`（10:12:11），第 5 步的 mine 是被**拒**的（根本没按下）；停在世界里的只有开着的物品栏界面。§12 那层"桥在自己频道断掉时松手"的看门狗此时没有键可松。
+
+两处具名缺口由此登记：
+1. 客户端 JVM 为什么在 10:12:14~18 之间消失，现有工件答不出——而循环把异常对象吞了，只剩一个笼统的 `CONTROL_CHANNEL_LOST`。已按 TDD 补上名字：`AutonomousRun.stop_detail` 记**异常类名**（不含 message，理由见契约 §10），同名写进 run 文档 `autonomous.stop_detail`，并以 `error` 成员落进那一行台账。同一条命令再跑一次的 run `78be6675c11d4661bb9f2bc86f6fb283`（server run 目录 `run-6`，台账位置 176）就是这个名字的第一条真实字节：`stop_reason=CONTROL_CHANNEL_LOST, error=ConnectionResetError, steps=4, confirmed=4`，四条 `SkillStepRecorded` 与上一档同形（`break_seen_block → collect_dropped → craft_take_result×2` 全 CONFIRMED），释放读数仍是失败的那一条（`release: {"asked": [387], "nothing_held": [], "released": [], "unconfirmed": [387]}`、`input_release_failed: true`、退出码 14）。⇒ **`ConnectionResetError` 说明是客户端那一侧把套接字重置的，不是 Core 关掉自己的监听**，而这已是当前工件能答到的边界；至于那个 JVM 为什么走，要的是桥/客户端侧的下一次观测，不是这里再猜。
+2. 第 5 步的 `GUI_CONFLICT` 暴露的是改线缺口：连续两次 `craft_take_result` 之后物品栏仍开着，心的下一个 `break_seen_block` 因此被桥按契约拒掉（`actions_refused: 8`），而它没有"先关界面"这一步可试——`SKILL_OFFER` 里没有 `close_screen`。这属 S3 的改线范围，与第 13 条的放置技能各是一格，都不在本档声明之内。
+
+`goal_met: false`、`model_enabled: false / model_calls: 0`、`perceived_information_class: PLAYER_EQUIVALENT`、`cognition_refusals: {MANAGEMENT_ONLY_DTO: 4}`、`entities_admitted: 13`、`snapshots_admitted: 1`、`actions_applied: 6`。这一档声明的是：收尾名已经能从台账读出来，且一次频道丢失被诚实记成 `CONTROL_CHANNEL_LOST` 加一条失败的释放读数，而不是被折成成功。

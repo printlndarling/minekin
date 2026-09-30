@@ -32,6 +32,7 @@ from minekin_core.adapters.launcher.orphans import Liveness, default_cmdline, de
 from minekin_core.adapters.sqlite.connection import connect_reader
 from minekin_core.adapters.sqlite.session_log import (
     AUTH_POLICY_FROZEN,
+    AUTONOMOUS_RUN_HALTED,
     CLIENT_EXITED,
     HELLO_ACCEPTED,
     INPUT_LEASE_GRANTED,
@@ -157,6 +158,19 @@ _SKILL_STEP_DETAIL_FIELDS: Final = (
     "decision_source",
     "model_refusal",
     "goal",
+)
+
+# The halt row is the run's own last word, and it is a different shape from a step: counts
+# rather than a verdict, and the skills the mind stopped offering. `excluded_skills` is the one
+# member that is a list of names, joined the way the identity row joins its mismatches. The
+# same allowlist rule applies: `action_id` stays in the ledger.
+_AUTONOMOUS_HALT_DETAIL_FIELDS: Final = (
+    "goal",
+    "stop_reason",
+    "error",
+    "steps",
+    "confirmed",
+    "excluded_skills",
 )
 
 # The member-gap sentences for the snapshot's `skillSteps` group. They are module constants
@@ -364,6 +378,18 @@ def _identity_detail(payload: Mapping[str, Any]) -> list[str]:
 
 
 def _detail(row: EventRow) -> str | None:
+    if row.event_type == AUTONOMOUS_RUN_HALTED:
+        parts: list[str] = []
+        for name in _AUTONOMOUS_HALT_DETAIL_FIELDS:
+            value = row.payload.get(name)
+            if isinstance(value, list | tuple):
+                items = cast("Sequence[object]", value)
+                names = [item for item in items if isinstance(item, str)]
+                if names and len(names) == len(items):
+                    parts.append(f"{name}={'|'.join(names)}")
+            elif isinstance(value, str | int) and value != "":
+                parts.append(f"{name}={value}")
+        return ", ".join(parts) if parts else None
     if row.event_type == SKILL_STEP_RECORDED:
         # This row projects its own named fields rather than the generic list: `reason` is
         # already in `_DETAIL_FIELDS` and would double-project, and an empty-by-construction
@@ -874,6 +900,9 @@ TIMELINE_READING: Final[Mapping[str, tuple[str, str]]] = {
     # reading of its own `result`, so this entry is only the fallback when that reading
     # fails — the same shape as the identity row one line below.
     SKILL_STEP_RECORDED: ("intent", "unknown"),
+    # The run's last word, in the same family as the two decision rows above: `applied` says
+    # Core recorded the halt, not that the halt was a success — the name is in `stop_reason`.
+    AUTONOMOUS_RUN_HALTED: ("decision", "applied"),
     # The one row whose outcome this table cannot carry: whether it was applied is a reading
     # of its own payload, so the entry below is only the fallback when that reading fails.
     SESSION_IDENTITY_COMPARED: ("observation", "unknown"),

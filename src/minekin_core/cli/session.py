@@ -88,6 +88,7 @@ from minekin_core.adapters.sqlite.connection import connect_reader
 from minekin_core.adapters.sqlite.identity_store import read_identity_root
 from minekin_core.adapters.sqlite.session_log import (
     AUTH_POLICY_FROZEN,
+    AUTONOMOUS_RUN_HALTED,
     CLIENT_EXITED,
     HELLO_ACCEPTED,
     INPUT_LEASE_GRANTED,
@@ -1720,6 +1721,23 @@ async def start_and_supervise(
                     step_budget=ask.step_budget,
                     timeout_ns=timeout_ns,
                     on_step=on_autonomous_step,
+                )
+                halted = autonomous_outcome[0]
+                # The name the mind stopped on is a fact per run, not per step, and it is the
+                # only thing that separates "the channel went" from "the mind ran out of things
+                # it was willing to try". The ledger has to be able to say which.
+                await record(
+                    AUTONOMOUS_RUN_HALTED,
+                    {
+                        "goal": mind.direction,
+                        "stop_reason": halted.stop_reason,
+                        "error": halted.stop_detail,
+                        "steps": len(halted.steps),
+                        "confirmed": halted.as_document()["confirmed"],
+                        "excluded_skills": sorted(mind.excluded),
+                    },
+                    source=EventSource.CORE,
+                    trust_class=TrustClass.CORE,
                 )
             else:
                 skill_outcome[0] = await run_skill_plan(

@@ -134,11 +134,16 @@ class AutonomousRun:
 
     steps: tuple[AutonomousStep, ...] = ()
     stop_reason: str = ""
+    #: The class name of the error that ended a `CONTROL_CHANNEL_LOST` run, empty for every
+    #: other stop. The channel's own end is the one fact no later reading can recover — by the
+    #: time the loop notices, the witness is gone — so the loop names it as it catches it.
+    stop_detail: str = ""
     mind_document: Mapping[str, object] = MappingProxyType({})
 
     def as_document(self) -> dict[str, object]:
         return {
             "stop_reason": self.stop_reason,
+            "stop_detail": self.stop_detail,
             "steps": [step.as_document() for step in self.steps],
             "confirmed": sum(
                 1 for step in self.steps if step.outcome.result is ActionResultClass.CONFIRMED
@@ -169,6 +174,7 @@ async def run_autonomous_loop(
 
     steps: list[AutonomousStep] = []
     stop_reason = STEP_BUDGET_SPENT
+    stop_detail = ""
     asked_on = ""
     for _ in range(step_budget):
         reading = observations.latest
@@ -191,8 +197,9 @@ async def run_autonomous_loop(
                 authority=authority,
                 timeout_ns=timeout_ns,
             )
-        except (OSError, RuntimeError):
+        except (OSError, RuntimeError) as error:
             stop_reason = CONTROL_CHANNEL_LOST
+            stop_detail = type(error).__name__
             break
         after = observations.latest
         attribution = mind.record_result(intent, outcome, after)
@@ -207,4 +214,6 @@ async def run_autonomous_loop(
         if held is not None and goal_in_hand(held):
             stop_reason = GOAL_HELD_IN_HAND
             break
-    return AutonomousRun(tuple(steps), stop_reason, MappingProxyType(mind.as_document()))
+    return AutonomousRun(
+        tuple(steps), stop_reason, stop_detail, MappingProxyType(mind.as_document())
+    )

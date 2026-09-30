@@ -51,6 +51,7 @@ from minekin_core.adapters.launcher.orphans import Liveness
 from minekin_core.adapters.sqlite.connection import connect_writer
 from minekin_core.adapters.sqlite.session_log import (
     AUTH_POLICY_FROZEN,
+    AUTONOMOUS_RUN_HALTED,
     CLIENT_EXITED,
     HELLO_ACCEPTED,
     INPUT_LEASE_GRANTED,
@@ -638,6 +639,7 @@ def test_every_ledger_event_type_has_a_timeline_reading() -> None:
     assert not missing, f"timeline readings are missing for {sorted(missing)}"
     assert TIMELINE_READING[PROCESS_FAILED] == ("fault", "rejected")
     assert TIMELINE_READING[INPUT_RELEASED] == ("input", "released")
+    assert TIMELINE_READING[AUTONOMOUS_RUN_HALTED] == ("decision", "applied")
 
 
 def test_the_projection_never_echoes_a_credential_held_by_a_ledger_row(tmp_path: Path) -> None:
@@ -917,6 +919,98 @@ def test_the_skill_step_timeline_row_reads_the_step_own_verdict(tmp_path: Path) 
     document = json.dumps(events, ensure_ascii=False)
     assert CANARY not in document
     assert "action_id" not in document
+
+
+def test_the_halt_row_says_the_name_the_mind_stopped_on(tmp_path: Path) -> None:
+    """The word that ended an autonomous run is a ledger row, not only a run-document field.
+
+    Without it the newest explanation a panel reader gets is the last step's failure reason
+    plus `SessionInterrupted`, which reads as "the channel went" when the readings said the
+    mind excluded a skill and halted by name.
+    """
+
+    joined_run(tmp_path)
+    record(
+        tmp_path,
+        SKILL_STEP_RECORDED,
+        skill_step(
+            1, "turn_to", "FAILED", "AIM_STALLED", "ACTION_NOT_EFFECTIVE", "local_reflection"
+        ),
+    )
+    record(
+        tmp_path,
+        AUTONOMOUS_RUN_HALTED,
+        {
+            "stop_reason": "NO_FEASIBLE_SKILL",
+            "goal": SKILL_GOAL,
+            "steps": 1,
+            "confirmed": 0,
+            "excluded_skills": ["turn_to"],
+            "action_id": CANARY,
+        },
+    )
+
+    events = build_timeline(tmp_path, limit=3)
+
+    assert events[0]["title"] == AUTONOMOUS_RUN_HALTED
+    assert events[0]["kind"] == "decision"
+    assert events[0]["outcome"] == "applied"
+    assert events[0]["detail"] == (
+        f"goal={SKILL_GOAL}, stop_reason=NO_FEASIBLE_SKILL, steps=1, confirmed=0, "
+        "excluded_skills=turn_to"
+    )
+    assert CANARY not in json.dumps(events, ensure_ascii=False)
+
+
+def test_a_halt_row_with_nothing_excluded_names_only_the_stop(tmp_path: Path) -> None:
+    """The budget spent is a stop too, and an empty exclusion list is omitted, not `[]`.
+
+    A run that stopped because it ran out of steps has no re-routing to show; projecting an
+    empty member would read as a projection bug rather than as the run's actual answer.
+    """
+
+    joined_run(tmp_path)
+    record(
+        tmp_path,
+        AUTONOMOUS_RUN_HALTED,
+        {"stop_reason": "STEP_BUDGET_SPENT", "goal": "", "steps": 0, "confirmed": 0},
+    )
+
+    events = build_timeline(tmp_path, limit=2)
+
+    assert events[0]["detail"] == "stop_reason=STEP_BUDGET_SPENT, steps=0, confirmed=0"
+
+
+def test_a_halt_on_a_lost_channel_names_the_error_that_lost_it(tmp_path: Path) -> None:
+    """`CONTROL_CHANNEL_LOST` alone cannot tell a socket close from a refused write.
+
+    The run that lost the channel is the only witness — every reading after it is already
+    gone — so the error's name has to reach the panel from this row, and no other field of
+    the payload may.
+    """
+
+    joined_run(tmp_path)
+    record(
+        tmp_path,
+        AUTONOMOUS_RUN_HALTED,
+        {
+            "stop_reason": "CONTROL_CHANNEL_LOST",
+            "goal": SKILL_GOAL,
+            "error": "ConnectionError",
+            "steps": 4,
+            "confirmed": 4,
+            "excluded_skills": [],
+            "reason": CANARY,
+        },
+    )
+
+    events = build_timeline(tmp_path, limit=2)
+
+    assert events[0]["detail"] == (
+        f"goal={SKILL_GOAL}, stop_reason=CONTROL_CHANNEL_LOST, error=ConnectionError, "
+        "steps=4, confirmed=4"
+    )
+    assert CANARY not in json.dumps(events, ensure_ascii=False)
 
 
 def test_a_scripted_run_names_the_goal_gap_instead_of_an_empty_value(tmp_path: Path) -> None:
