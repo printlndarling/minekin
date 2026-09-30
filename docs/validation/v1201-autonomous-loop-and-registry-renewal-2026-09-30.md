@@ -84,8 +84,8 @@
 
 ## 六、仍然存在的缺口（具名）
 
-1. **合成没有世界侧确认**：`craft` 仍是 `UNKNOWN / NO_CONFIRMING_OBSERVATION`，归因 `INSUFFICIENT_INFORMATION`；区分「客户端 tick 停住」与「Core 拒了每一帧」要扩 run 文档/封存 schema，那是主控保留的决定。
-2. **结果槽产物无人取走**：Core 还没有「从结果槽点击取物」的技能与契约。这一步会改桥字节 ⇒ 又是一轮续封，故排在本次入库之后。
+1. **合成没有世界侧确认**：`craft` 仍是 `UNKNOWN / NO_CONFIRMING_OBSERVATION`，归因 `INSUFFICIENT_INFORMATION`。这条缺口当初记的是「区分『客户端 tick 停住』与『Core 拒了每一帧』要扩 run 文档/封存 schema，那是主控保留的决定」——**那个前提已经不成立**：run 文档本来就带 `details` 这个自由字段，第八节把它填上了，三种收尾（帧没到 / 帧到了但背包同步号没动 / 界面没被看见打开）现在可以从同一份 run 文档判读，没有动任何 schema。剩下的缺口因此收窄为「合成确实没被世界确认」这一件，而不是「读不出来为什么」。
+2. **结果槽产物无人取走**：Core 还没有「从结果槽/光标把成品放回背包」的技能与契约。**这一条原先记的『这一步会改桥字节 ⇒ 又是一轮续封』按新读数不成立**（第八节）：1.20.1 的桥在**已封的字节上**就吃槽位点击，缺的只是 Core 侧的技能与判据。
 3. **1.20.1 行的 Java 口径未变**：`java_major 21` 是密封实际用的运行时，recipe 自己声明 17，`RUNNER_JDK_17_UNSEALED` 仍在 `gaps` 里；Linux Temurin-21 交叉复现也没在本轮重做。
 4. **默认 registry 路径已实测恢复**：见第七节的活体读数。`docs/local-demo-runbook.md` 的 `--skills`/`--autonomous` 命令因此回到默认路径，2026-09-29 那条 rc=11 具名拒止作为历史读数保留。
 5. **本次只声明这一批能力入库并把证据续到它自己的字节上**，不声明 1.20.1 线整体完成，也不移动任何门禁。
@@ -110,3 +110,55 @@ MINEKIN_SERVER_JAR=.tmp/mc-1.20.1-server.jar MINEKIN_DEMO_SECONDS=600 \
 | 收尾 | `input_release_failed=false`、release `asked=[516] released=[516] unconfirmed=[]`、`outcome=BRIDGE_LOST`、退出码 14（harness 到点停问，正常收尾） |
 
 这条读数的用途限于一件事：**证明默认（registry）路径在这批字节上重新可用**，因此 `docs/local-demo-runbook.md` 的 `--skills`/`--autonomous` 不再需要 `MINEKIN_DEMO_BUNDLE_PROFILE`。它不是脚本化底座那一步之外的技能判据读数，也不改变任何 case 的封存状态。
+
+## 八、拾取会追、收尾会说的这批字节（2026-09-30，`9cef84a` → `67ec7fd` → `a5fe378`）
+
+第七节之后又推了三枚提交，改动面只有三份文件（判别读数：`git diff --name-only f2c6351 a5fe378` 逐字返回 `docs/local-demo-runbook.md`、`src/minekin_core/application/world_skills.py`、`tests/unit/test_world_skills.py` 三行；对 `bridge/`、`bridge-1201/`、`proto/`、`tests/fixtures/registry/`、`tests/fixtures/manifest.sha256` 的过滤命中 **0** 枚）。桥字节与协议字节一根没动，所以**本节不移动任何 case 的封存状态**：第五节那六枚 V1201 引用和第七节的 `f19caae6…` 读数继续对它们自己的字节有效。
+
+三枚给用户的是两件事：
+
+| 提交 | 用户现在多出来的能力 |
+| --- | --- |
+| `9cef84a` | `collect_dropped` 不再「走一步就站着听」。它在窗口内每读到一帧更新的观测就朝掉落物重新转向，再迈 0.5 秒修正步——只有当剩余窗口还容得下「一次迈步 + 一帧能拿去判据的读数」时才迈，其余时间继续听。重复的仍然只有转向与移动；§4 那条「有副作用的点击绝不自动重试」原样保留。这修的是 run `974a2d19a0a741ad9514437bbee7fc14` 那种收尾：走到木头前面差一步，然后站着等到窗口关闭。 |
+| `67ec7fd` | `docs/local-demo-runbook.md` 第 9/10 条把这一步的读法写成入口：操作者不改代码就能分开「通道静音」与「帧到了但东西还在地上」。 |
+| `a5fe378` | `craft` 的每种收尾都带它究竟看过什么：最后拿去校验的 tick、窗口前后的背包同步号、脚下那帧有没有报出打开的界面。 |
+
+`details` 是 run 文档本来就带着的自由字段（`SkillOutcome.details` ⇒ 封存文档里的 `"details": {}`），这三枚只是把它填上，**没有扩任何 schema**，所以第六节 1) 里「要区分得先扩 schema」那条前提被按新读数收窄。现在三种合成收尾可以从同一份 run 文档判读：
+
+| `reason` | `details` 的形状 | 结论 |
+| --- | --- | --- |
+| `NO_CONFIRMING_OBSERVATION` 且 `newest_checked_tick == pre_tick` | 帧没到 | 窗口内 Core 一帧新读数都没收到——是客户端/通道那边停了 |
+| `NO_CONFIRMING_OBSERVATION` 且 `newest_checked_tick > pre_tick`，两枚背包同步号相等 | 帧到了、背包没重同步 | Core 收得到 tick，但配方点击没让**同步背包**变化（这一枚以前完全读不出来） |
+| `SCREEN_NOT_CONFIRMED` 且 `gui_open=false` | 界面没被看见打开 | 打开指令发出去了，脚下那帧仍不报 GUI；该臂不发出 `GuiClickInput`，单测按「没发点击」钉住 |
+
+**顺带量到的一件，改写了第六节 2) 的口径**：1.20.1 桥在已封字节上就支持槽位点击——`bridge-1201/src/main/java/org/minekin/bridge/runtime/BridgeIpcWorker.java:726-735` 的 `case SLOT -> view.clickSlot(...)`，`action/WorldActionController.java:129-137` 把它接到 `clickSlot(currentScreenHandler.syncId, slotId, button, toSlotAction(mode), player)`，`runtime/BridgeIpcWorker.java:1663-1671` 对「没指名模式的槽位点击」具名拒止。协议侧 `GuiSlotClick`/`SlotClickMode`（PICK/QUICK_MOVE/SWAP/THROW）也早已进 `proto/minekin/v1/control.proto:248-252` 与生成的 `control_pb2`。所以「取成品」这一步**不需要动桥字节、不需要新一轮续封**；它是 Core 侧欠的一个技能和一条判据。判据的形状也量清了：观察面 `GuiScreenValue`（`src/minekin_core/domain/perception.py:369-375`）只带 `screen_id` 与 `sync_id`，**看不到结果槽或光标**，因此取物后的确认只能落在同步背包上——这与 `verify_craft` 要求「成品在同一枚同步 revision 上上涨」是同一件事，也解释了为什么配方点击发出去了而合成拿不到 CONFIRMED。本节只记录这条读数，取物技能排在它自己的提交里，未与这三枚混批。
+
+本地门读数（`cd` 到本工作树、`export PYTHONPATH="$(pwd)/src"`）：
+
+| 门 | 命令 | 读数 |
+| --- | --- | --- |
+| ruff check | `.venv/Scripts/ruff.exe check .` | `All checks passed!`，rc=0 |
+| ruff format | `.venv/Scripts/ruff.exe format --check .` | rc=0，`433 files already formatted` |
+| 技能单测 | `.venv/Scripts/python.exe -m pytest tests/unit/test_world_skills.py -q` | `19 passed in 4.38s`（本批前 16 枚） |
+| 全量单测 | `.venv/Scripts/python.exe -m pytest -q` | rc=0，`3237 passed, 2 skipped in 652.55s (0:10:52)`，跑的就是 `a5fe378` 这批字节（本机全量比 CI 慢，但结论一致：CI 第 8 步 `uv run pytest` 三枚 SHA 都 `success`） |
+| pyright（本机，按文件） | `.venv/Scripts/pyright.exe src/minekin_core/application/world_skills.py` | `0 errors, 1 warning`（那条 warning 是 `google.protobuf.message` 无源码，与本轮无关）。整树那 16 枚 `approx` 噪声仍落在本轮未改的三份测试文件里，判别方法见第五节的 `git archive` 对照 |
+
+CI 自己的步骤级读数：三枚推送 SHA 各触发一枚 run，`9cef84a`→`36663998358`、`67ec7fd`→`36664241107`、`a5fe378`→`36665047666`，三枚都 `status=completed / conclusion=success`。**逐作业逐步**：`python` 作业 15 步（第 4 步 `uv sync --locked --dev`、5 `ruff check`、6 `ruff format --check`、**7 `uv run pyright`**、8 `uv run pytest`、9–12 四份工具门、13 `uv build --wheel`、14 `check_wheel_boundary.py`、15 `minekin --help`）三枚全 `success`；`protocol`（buf build/lint/format + 校验仓库内 protobuf）与 `bridge-static` 每一步也 `success`。取法（token 只进 shell 变量、不打印）：
+
+```bash
+TOKEN=$(printf "protocol=https\nhost=github.com\n\n" | git credential fill | sed -n 's/^password=//p')
+curl -s -H "Authorization: Bearer $TOKEN" \
+  "https://api.github.com/repos/printlndarling/minekin/actions/runs?head_sha=$(git rev-parse HEAD)"
+curl -s -H "Authorization: Bearer $TOKEN" \
+  "https://api.github.com/repos/printlndarling/minekin/actions/runs/<run_id>/jobs"
+```
+
+**本节没有取的读数（具名）**：新的迈步逻辑在真实 1.20.1 上的活体重跑——即 `collect_dropped` 是否因此转 CONFIRMED，或仍 UNKNOWN 时 `details` 点名哪一臂——还没拿到。受控 runner 起不来：2026-09-30T03:47Z 复量 `docker version`，客户端半边正常（Docker 29.5.3 / API 1.54 / desktop-linux），服务端半边逐字回
+
+```
+request returned 500 Internal Server Error for API route and version http://%2F%2F.%2Fpipe%2FdockerDesktopLinuxEngine/v1.54/version, check if the server supports the requested API version
+```
+
+所以本节能声明的止于「判据与读法已经进产品、过了 CI 与本机的门」，**不声明拾取已在真实游戏里被重验**，也不声明合成能拿到世界确认。同一句限制在 `docs/local-demo-runbook.md` 第 9 条里也写着，等引擎恢复就补跑一次 `demo.sh --skills` 并把读数续到那批字节上。
+
+保留边界本轮同样一处未动：不接远程测试服、不解冻 HOST/PERSIST 与在线认证、不扩证据 schema（`details` 是既有字段）、不移动任何门禁；Dashboard 的通用写控制端点继续关闭，唯一的已授权写面仍是停止态改名。
