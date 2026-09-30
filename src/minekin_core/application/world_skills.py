@@ -198,6 +198,30 @@ def _chase_details(steps: int, newest: WorldObservationValue) -> dict[str, str]:
     return {"steps": str(steps), "newest_checked_tick": str(newest.game_tick)}
 
 
+def _craft_details(
+    pre: WorldObservationValue, newest: WorldObservationValue, *, gui_open: bool
+) -> dict[str, str]:
+    """Which of the three ways a craft can end without a word is the one that
+    happened, in the field the run document already carries.
+
+    The craft's `NO_CONFIRMING_OBSERVATION` has always been the least readable
+    row in the demo: the client's tick stopped, or every frame was refused on
+    the way in, or frames arrived whose inventory was never re-synced, are three
+    different things to fix. These three say which: the newest tick read against
+    the skill's own pre-tick answers the first two, and the revision pair answers
+    the third — `verify_craft` can only conclude on a rise in the synced
+    revision, so a pair that never moved means no frame worth concluding on
+    ever reached it.
+    """
+
+    return {
+        "newest_checked_tick": str(newest.game_tick),
+        "pre_inventory_revision": str(pre.inventory.revision),
+        "newest_inventory_revision": str(newest.inventory.revision),
+        "gui_open": "true" if gui_open else "false",
+    }
+
+
 def _newer_reading(game_tick: int) -> Callable[[WorldObservationValue], bool]:
     """A predicate on the tick it was made against, not on a variable that can
     still move: the wait chains across readings, and a closure over the loop's
@@ -566,6 +590,7 @@ class WorldSkills:
                     reason="SCREEN_NOT_CONFIRMED",
                     action_id=action_id,
                     pre_tick=pre.game_tick,
+                    details=_craft_details(pre, self._observations.latest or pre, gui_open=False),
                 )
         screen = self._observations.latest
         if screen is None or screen.gui is None or screen.gui.sync_id is None:
@@ -574,6 +599,7 @@ class WorldSkills:
                 reason="SCREEN_NOT_CONFIRMED",
                 action_id=action_id,
                 pre_tick=pre.game_tick,
+                details=_craft_details(pre, screen or pre, gui_open=False),
             )
         refusal = gui_click_refusal(screen, screen.gui.sync_id)
         if refusal.refusal is not None:
@@ -602,6 +628,7 @@ class WorldSkills:
                         reason="NO_CONFIRMING_OBSERVATION",
                         action_id=action_id,
                         pre_tick=pre.game_tick,
+                        details=_craft_details(pre, chain, gui_open=True),
                     )
                 continue
             verdict = verify_craft(
@@ -614,6 +641,7 @@ class WorldSkills:
                     action_id=action_id,
                     pre_tick=pre.game_tick,
                     post_tick=post.game_tick,
+                    details=_craft_details(pre, post, gui_open=True),
                 )
             chain = post
 

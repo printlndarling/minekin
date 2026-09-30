@@ -576,6 +576,105 @@ def test_craft_never_retries_an_inconclusive_click() -> None:
     asyncio.run(scenario())
 
 
+def test_craft_names_channel_silence_as_the_reason_a_click_was_left_unconfirmed() -> None:
+    async def scenario() -> None:
+        loaded = inventory(100, (0, PLANKS, 6), (1, "minecraft:stick", 2))
+        store = store_with(
+            reading(
+                tick=100,
+                inventory_value=loaded,
+                gui=GuiScreenValue(screen_id="crafting", sync_id=3),
+            )
+        )
+        skills, _sender = skill_with(store)
+
+        outcome = await skills.craft(
+            recipe_id="wooden_pickaxe",
+            materials={PLANKS: 3, "minecraft:stick": 2},
+            product_id=PICKAXE,
+            authority=authority(),
+            timeout_ns=50_000_000,
+        )
+
+        assert outcome.reason == "NO_CONFIRMING_OBSERVATION"
+        # The newest reading it concluded on is its own pre-state: nothing newer
+        # ever reached the skill, which is the client's silence.
+        assert outcome.details == {
+            "newest_checked_tick": "100",
+            "pre_inventory_revision": "100",
+            "newest_inventory_revision": "100",
+            "gui_open": "true",
+        }
+
+    asyncio.run(scenario())
+
+
+def test_craft_names_a_channel_that_kept_reporting_without_resyncing_the_inventory() -> None:
+    """The other half of the same question, and the one the demo actually needs:
+    frames arriving all the way through the window whose synced revision never
+    moves. `verify_craft` may only conclude on a rise in that revision, so this
+    is the reading that says the answer is on the client's inventory sync, not in
+    the tick rate or the perception gate."""
+
+    async def scenario() -> None:
+        loaded = inventory(100, (0, PLANKS, 6), (1, "minecraft:stick", 2))
+        store = store_with(
+            reading(
+                tick=100,
+                inventory_value=loaded,
+                gui=GuiScreenValue(screen_id="crafting", sync_id=3),
+            )
+        )
+        skills, _sender = skill_with(store)
+        reporting = reading(
+            tick=110,
+            inventory_value=inventory(100, (0, PLANKS, 6), (1, "minecraft:stick", 2)),
+            gui=GuiScreenValue(screen_id="crafting", sync_id=3),
+        )
+
+        task = asyncio.create_task(admit_later(store, reporting))
+        outcome = await skills.craft(
+            recipe_id="wooden_pickaxe",
+            materials={PLANKS: 3, "minecraft:stick": 2},
+            product_id=PICKAXE,
+            authority=authority(),
+            timeout_ns=600_000_000,
+        )
+        await task
+
+        assert outcome.reason == "NO_CONFIRMING_OBSERVATION"
+        assert outcome.details["newest_checked_tick"] == "110"
+        assert outcome.details["pre_inventory_revision"] == "100"
+        assert outcome.details["newest_inventory_revision"] == "100"
+
+    asyncio.run(scenario())
+
+
+def test_craft_reports_the_window_was_never_seen_open() -> None:
+    async def scenario() -> None:
+        loaded = inventory(100, (0, PLANKS, 6), (1, "minecraft:stick", 2))
+        store = store_with(reading(tick=100, inventory_value=loaded))
+        skills, sender = skill_with(store)
+
+        outcome = await skills.craft(
+            recipe_id="wooden_pickaxe",
+            materials={PLANKS: 3, "minecraft:stick": 2},
+            product_id=PICKAXE,
+            authority=authority(),
+            timeout_ns=50_000_000,
+        )
+
+        assert outcome.reason == "SCREEN_NOT_CONFIRMED"
+        # The screen open went out and no reading ever reported a window, so no
+        # recipe click was sent — and `gui_open` says which of the two ends of
+        # the craft's window this failure sits at.
+        assert outcome.details["gui_open"] == "false"
+        assert outcome.details["newest_checked_tick"] == "100"
+        assert GUI_CLICK_INPUT_TYPE not in [message_type for message_type, _ in sender.sent]
+
+    asyncio.run(scenario())
+
+
 # ---------------------------------------------------------------------------
 # select_hotbar: the §4 row's sender, refusing the tenth slot before the wire
 # ---------------------------------------------------------------------------
