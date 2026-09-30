@@ -60,6 +60,7 @@ ALL_CAPABILITIES: Final = frozenset(
         MOVE_CAPABILITY,
     }
 )
+LOG = "minecraft:oak_log"
 PLANKS = "minecraft:oak_planks"
 PICKAXE = "minecraft:wooden_pickaxe"
 
@@ -175,6 +176,13 @@ async def admit_later(store: WorldObservationStore, value: WorldObservationValue
     store.admit(value, ())
 
 
+async def admit_after(
+    store: WorldObservationStore, delay: float, value: WorldObservationValue
+) -> None:
+    await asyncio.sleep(delay)
+    store.admit(value, ())
+
+
 # ---------------------------------------------------------------------------
 # Capability refusals: each named skill, before it touches the wire
 # ---------------------------------------------------------------------------
@@ -193,6 +201,9 @@ def test_each_skill_refuses_its_ungranted_capability_by_name() -> None:
             ),
             await skills.craft(
                 recipe_id="r", materials={PLANKS: 1}, product_id=PICKAXE, authority=lease
+            ),
+            await skills.craft_take_result(
+                recipe_id="r", materials={PLANKS: 1}, product_id=PLANKS, authority=lease
             ),
             await skills.select_hotbar(slot=3, authority=lease),
         ]
@@ -740,6 +751,235 @@ def test_a_caller_can_ask_for_the_single_pick_and_the_run_says_which_went_out() 
         ]
         assert cast(control_pb2.GuiClickInput, clicks[0]).recipe.craft_all is False
         assert outcome.details["craft_all"] == "false"
+
+    asyncio.run(scenario())
+
+
+# ---------------------------------------------------------------------------
+# craft_take_result: the fill click, the result-slot click, and — only if a
+# reading says the product is stuck out of the synced inventory — the click
+# that empties the cursor into a slot the reading says is empty.
+# ---------------------------------------------------------------------------
+
+
+def _player_screen_store(*pairs: tuple[int, str, int]) -> WorldObservationStore:
+    return store_with(
+        reading(
+            tick=100,
+            inventory_value=inventory(100, *pairs),
+            gui=GuiScreenValue(screen_id="PlayerScreen", sync_id=0),
+        )
+    )
+
+
+def _gui_clicks(sender: RecordingSender) -> list[control_pb2.GuiClickInput]:
+    return [
+        cast(control_pb2.GuiClickInput, message)
+        for message_type, message in sender.sent
+        if message_type == GUI_CLICK_INPUT_TYPE
+    ]
+
+
+def test_craft_take_result_refuses_before_the_wire_when_materials_are_short() -> None:
+    async def scenario() -> None:
+        store = _player_screen_store((0, PLANKS, 1))
+        skills, sender = skill_with(store)
+
+        outcome = await skills.craft_take_result(
+            recipe_id="oak_planks",
+            materials={LOG: 1},
+            product_id=PLANKS,
+            authority=authority(),
+        )
+        assert outcome.result is ActionResultClass.FAILED
+        assert outcome.reason == "CRAFT_MATERIALS_MISSING"
+        assert sender.sent == []
+
+    asyncio.run(scenario())
+
+
+def test_craft_take_result_confirms_from_the_quick_move_alone_when_the_product_arrives() -> None:
+    """The transaction that the plain recipe click never finished: fill through
+    the recipe book, then shift-click result slot 0. When the shift-click puts
+    the product where the synced reading can see it, there is nothing to deposit
+    and the skill sends exactly two clicks."""
+
+    async def scenario() -> None:
+        store = _player_screen_store((0, LOG, 1))
+        skills, sender = skill_with(store)
+        fill = reading(
+            tick=110,
+            inventory_value=inventory(101),
+            gui=GuiScreenValue(screen_id="PlayerScreen", sync_id=0),
+        )
+        done = reading(
+            tick=120,
+            inventory_value=inventory(102, (0, PLANKS, 4)),
+            gui=GuiScreenValue(screen_id="PlayerScreen", sync_id=0),
+        )
+        first = asyncio.create_task(admit_after(store, 0.01, fill))
+        second = asyncio.create_task(admit_after(store, 0.05, done))
+
+        outcome = await skills.craft_take_result(
+            recipe_id="oak_planks",
+            materials={LOG: 1},
+            product_id=PLANKS,
+            authority=authority(),
+            timeout_ns=2_000_000_000,
+        )
+        await first
+        await second
+
+        assert outcome.result is ActionResultClass.CONFIRMED
+        clicks = _gui_clicks(sender)
+        assert len(clicks) == 2
+        assert clicks[0].recipe.craft_all is False
+        assert clicks[0].recipe.recipe_id == "oak_planks"
+        assert clicks[1].slot.slot_id == 0
+        assert clicks[1].slot.mode == control_pb2.SLOT_CLICK_MODE_QUICK_MOVE
+
+    asyncio.run(scenario())
+
+
+def test_craft_take_result_deposits_a_product_the_reading_says_is_stuck_outside_the_inventory() -> (
+    None
+):
+    """The §5.10 shape: materials fell and no frame ever shows the product. That
+    is the cursor, and the synced inventory cannot see it — so one left-click on
+    a slot the newest reading says is empty puts it where the next reading can.
+    The deposit goes to the first empty slot in the nine the player already
+    counts in the same coordinates the reading reports, mapped into the open
+    screen's numbering."""
+
+    async def scenario() -> None:
+        store = _player_screen_store((0, LOG, 1))
+        skills, sender = skill_with(store)
+        fill = reading(
+            tick=110,
+            inventory_value=inventory(101),
+            gui=GuiScreenValue(screen_id="PlayerScreen", sync_id=0),
+        )
+        still_stuck = reading(
+            tick=120,
+            inventory_value=inventory(102),
+            gui=GuiScreenValue(screen_id="PlayerScreen", sync_id=0),
+        )
+        deposited = reading(
+            tick=130,
+            inventory_value=inventory(103, (0, PLANKS, 4)),
+            gui=GuiScreenValue(screen_id="PlayerScreen", sync_id=0),
+        )
+        tasks = [
+            asyncio.create_task(admit_after(store, 0.01, fill)),
+            asyncio.create_task(admit_after(store, 0.05, still_stuck)),
+            asyncio.create_task(admit_after(store, 0.10, deposited)),
+        ]
+
+        outcome = await skills.craft_take_result(
+            recipe_id="oak_planks",
+            materials={LOG: 1},
+            product_id=PLANKS,
+            authority=authority(),
+            timeout_ns=2_000_000_000,
+        )
+        for task in tasks:
+            await task
+
+        assert outcome.result is ActionResultClass.CONFIRMED
+        clicks = _gui_clicks(sender)
+        assert len(clicks) == 3
+        assert clicks[2].slot.slot_id == 32
+        assert clicks[2].slot.mode == control_pb2.SLOT_CLICK_MODE_PICK
+        assert clicks[2].slot.button == 0
+        assert outcome.details["deposit_slot"] == "32"
+
+    asyncio.run(scenario())
+
+
+def test_craft_take_result_refuses_a_deposit_click_when_no_slot_is_read_empty() -> None:
+    """Clicking a slot the reading does not say is empty would trade the cursor
+    for whatever stands there. With the nine and the twenty-seven all occupied,
+    the skill stops at two clicks and names why."""
+
+    async def scenario() -> None:
+        occupied = tuple((slot, "minecraft:stone", 1) for slot in range(1, 36))
+        every_slot = tuple((slot, "minecraft:stone", 1) for slot in range(36))
+        store = _player_screen_store((0, LOG, 1), *occupied)
+        skills, sender = skill_with(store)
+        fill = reading(
+            tick=110,
+            inventory_value=inventory(101, *every_slot),
+            gui=GuiScreenValue(screen_id="PlayerScreen", sync_id=0),
+        )
+        stuck = reading(
+            tick=120,
+            inventory_value=inventory(102, *every_slot),
+            gui=GuiScreenValue(screen_id="PlayerScreen", sync_id=0),
+        )
+        tasks = [
+            asyncio.create_task(admit_after(store, 0.01, fill)),
+            asyncio.create_task(admit_after(store, 0.05, stuck)),
+        ]
+
+        outcome = await skills.craft_take_result(
+            recipe_id="oak_planks",
+            materials={LOG: 1},
+            product_id=PLANKS,
+            authority=authority(),
+            timeout_ns=2_000_000_000,
+        )
+        for task in tasks:
+            await task
+
+        assert outcome.result is ActionResultClass.UNKNOWN
+        assert outcome.reason == "CRAFT_NO_EMPTY_SLOT"
+        assert len(_gui_clicks(sender)) == 2
+
+    asyncio.run(scenario())
+
+
+def test_craft_take_result_reports_silence_without_a_second_click() -> None:
+    async def scenario() -> None:
+        store = _player_screen_store((0, LOG, 1))
+        skills, sender = skill_with(store)
+
+        outcome = await skills.craft_take_result(
+            recipe_id="oak_planks",
+            materials={LOG: 1},
+            product_id=PLANKS,
+            authority=authority(),
+            timeout_ns=50_000_000,
+        )
+
+        assert outcome.result is ActionResultClass.UNKNOWN
+        assert outcome.reason == "NO_CONFIRMING_OBSERVATION"
+        clicks = _gui_clicks(sender)
+        assert len(clicks) == 1
+        assert outcome.details["newest_checked_tick"] == "100"
+
+    asyncio.run(scenario())
+
+
+def test_craft_take_result_stops_when_the_window_closes_after_the_fill_click() -> None:
+    async def scenario() -> None:
+        store = _player_screen_store((0, LOG, 1))
+        skills, sender = skill_with(store)
+        closed = reading(tick=110, inventory_value=inventory(101))
+        task = asyncio.create_task(admit_later(store, closed))
+
+        outcome = await skills.craft_take_result(
+            recipe_id="oak_planks",
+            materials={LOG: 1},
+            product_id=PLANKS,
+            authority=authority(),
+            timeout_ns=2_000_000_000,
+        )
+        await task
+
+        assert outcome.result is ActionResultClass.UNKNOWN
+        assert outcome.reason == "SCREEN_NOT_CONFIRMED"
+        assert outcome.details["gui_open"] == "false"
+        assert len(_gui_clicks(sender)) == 1
 
     asyncio.run(scenario())
 

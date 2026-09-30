@@ -52,6 +52,7 @@ _DEFAULTED: Final[dict[str, tuple[str, ...]]] = {
     "break_seen_block": ("expected_drop_item",),
     "collect_dropped": ("walk_seconds",),
     "craft": ("craft_all",),
+    "craft_take_result": (),
     "select_hotbar": ("expected_item_id",),
 }
 
@@ -62,6 +63,7 @@ _REQUIRED: Final[dict[str, tuple[str, ...]]] = {
     "break_seen_block": (),
     "collect_dropped": ("item_id",),
     "craft": ("recipe_id", "materials", "product_id"),
+    "craft_take_result": ("recipe_id", "materials", "product_id"),
     "select_hotbar": ("slot",),
 }
 
@@ -374,6 +376,14 @@ async def perform_skill(
             product_id=call.product_id,
             authority=authority,
             craft_all=call.craft_all,
+            timeout_ns=timeout_ns,
+        )
+    if call.name == "craft_take_result":
+        return await skills.craft_take_result(
+            recipe_id=call.recipe_id,
+            materials=dict(call.materials),
+            product_id=call.product_id,
+            authority=authority,
             timeout_ns=timeout_ns,
         )
     return await skills.select_hotbar(

@@ -57,6 +57,7 @@ from minekin_core.domain.perception import (
     AimKind,
     BlockTargetValue,
     EntityCandidate,
+    InventoryValue,
     WorldObservationValue,
 )
 from minekin_core.domain.world_actions import (
@@ -231,6 +232,63 @@ def _craft_details(
         "gui_open": "true" if gui_open else "false",
         "craft_all": "true" if craft_all else "false",
     }
+
+
+def _take_result_details(
+    pre: WorldObservationValue,
+    newest: WorldObservationValue,
+    *,
+    gui_open: bool,
+    clicks: list[str],
+    deposit_slot: int | None = None,
+) -> dict[str, str]:
+    """Which clicks went out and which reading each was decided from.
+
+    The transaction has three possible clicks, and each one that did not happen
+    has a reading that says why it did not need to or could not. `clicks` is
+    that sentence in order; `deposit_slot` names the slot the newest reading
+    said was empty when the cursor click went out, so a later argument about
+    what the cursor held can be had against bytes rather than memory.
+    """
+
+    details = {
+        "newest_checked_tick": str(newest.game_tick),
+        "pre_inventory_revision": str(pre.inventory.revision),
+        "newest_inventory_revision": str(newest.inventory.revision),
+        "gui_open": "true" if gui_open else "false",
+        "craft_all": "false",
+        "clicks": "+".join(clicks),
+    }
+    if deposit_slot is not None:
+        details["deposit_slot"] = str(deposit_slot)
+    return details
+
+
+def _player_screen_slot(inventory_slot: int) -> int | None:
+    """One slot of the player's own inventory in the open screen's numbering.
+
+    The synced reading reports `PlayerInventory` slots — the nine first — while
+    a GUI click lands on the handler the screen opened: result 0, grid 1..4,
+    then the twenty-seven, then the nine, then the armor. This mapping is that
+    difference for the thirty-six carryable slots, and nothing else.
+    """
+
+    if 0 <= inventory_slot < 9:
+        return inventory_slot + 32
+    if 9 <= inventory_slot < 36:
+        return inventory_slot - 4
+    return None
+
+
+def _first_empty_screen_slot(inventory: InventoryValue) -> int | None:
+    """The first of the thirty-six a reading says carries nothing, or `None`.
+    The bridge lists only non-empty stacks, so absence is the report of empty."""
+
+    taken = {stack.slot for stack in inventory.stacks}
+    for slot in range(36):
+        if slot not in taken:
+            return _player_screen_slot(slot)
+    return None
 
 
 def _newer_reading(game_tick: int) -> Callable[[WorldObservationValue], bool]:
@@ -674,6 +732,202 @@ class WorldSkills:
                     post_tick=post.game_tick,
                     details=_craft_details(pre, post, gui_open=True, craft_all=craft_all),
                 )
+            chain = post
+
+    async def craft_take_result(
+        self,
+        *,
+        recipe_id: str,
+        materials: Mapping[str, int],
+        product_id: str,
+        authority: ActionAuthority,
+        timeout_ns: int = DEFAULT_STEP_TIMEOUT_NS,
+    ) -> SkillOutcome:
+        """Finish the craft by clicking the result slot, not by trusting the
+        recipe book's hand-off.
+
+        Both recipe-book clicks were measured and neither ends where the Kin can
+        read: the plain one leaves the product on the cursor, which the synced
+        inventory does not report, and the craft-all one has never produced a
+        confirming frame on the live bytes. This is the third way a player
+        crafts: let the game fill the grid — it still owns the shape — and then
+        shift-click result slot 0, the same click that puts a stack in the
+        player's own hand.
+
+        Every later click is decided from a reading and none is retried. The
+        deposit exists only when the frames say the quick-move could not have
+        delivered — materials gone, product unseen — and it aims at a slot the
+        newest reading says is empty, because left-clicking an occupied one
+        would trade the cursor for whatever stands there. If no slot reads
+        empty the skill stops by name rather than gambling on a swap.
+        """
+
+        for capability in (SCREEN_CAPABILITY, GUI_CAPABILITY):
+            refusal = self._require(capability)
+            if refusal is not None:
+                return refusal
+        pre = self._observations.latest
+        action_id = self._action_id()
+        if pre is None:
+            return _refusal_outcome("NO_LATEST_OBSERVATION", action_id, pre)
+        if any(item_total(pre.inventory, item) < want for item, want in materials.items()):
+            return _refusal_outcome("CRAFT_MATERIALS_MISSING", action_id, pre)
+        deadline = monotonic_ns() + timeout_ns
+        clicks: list[str] = []
+        if pre.gui is None or pre.gui.sync_id is None:
+            await self._sender.send_control(
+                SCREEN_INPUT_TYPE,
+                control_pb2.ScreenInput(
+                    action_id=action_id,
+                    lease_id=authority.lease_id,
+                    generation=authority.generation,
+                    control=control_pb2.SCREEN_CONTROL_OPEN_INVENTORY,
+                    deadline_monotonic_ns=authority.deadline_monotonic_ns,
+                ),
+            )
+            opened = await self._wait_until(
+                lambda latest: latest.gui is not None and latest.gui.sync_id is not None,
+                deadline,
+            )
+            if opened is None:
+                screen = self._observations.latest or pre
+                return SkillOutcome(
+                    result=ActionResultClass.UNKNOWN,
+                    reason="SCREEN_NOT_CONFIRMED",
+                    action_id=action_id,
+                    pre_tick=pre.game_tick,
+                    details=_take_result_details(pre, screen, gui_open=False, clicks=clicks),
+                )
+        current = self._observations.latest
+        if current is None or current.gui is None or current.gui.sync_id is None:
+            return SkillOutcome(
+                result=ActionResultClass.UNKNOWN,
+                reason="SCREEN_NOT_CONFIRMED",
+                action_id=action_id,
+                pre_tick=pre.game_tick,
+                details=_take_result_details(pre, current or pre, gui_open=False, clicks=clicks),
+            )
+        refusal = gui_click_refusal(current, current.gui.sync_id)
+        if refusal.refusal is not None:
+            return _refusal_outcome(refusal.refusal.value, action_id, current)
+        await self._sender.send_control(
+            GUI_CLICK_INPUT_TYPE,
+            control_pb2.GuiClickInput(
+                action_id=action_id,
+                lease_id=authority.lease_id,
+                generation=authority.generation,
+                sync_id=current.gui.sync_id,
+                recipe=control_pb2.GuiRecipeClick(recipe_id=recipe_id, craft_all=False),
+                deadline_monotonic_ns=authority.deadline_monotonic_ns,
+            ),
+        )
+        clicks.append("recipe_fill")
+        filled = await self._wait_until(_newer_reading(current.game_tick), deadline)
+        if filled is None:
+            return SkillOutcome(
+                result=ActionResultClass.UNKNOWN,
+                reason="NO_CONFIRMING_OBSERVATION",
+                action_id=action_id,
+                pre_tick=pre.game_tick,
+                details=_take_result_details(pre, current, gui_open=True, clicks=clicks),
+            )
+        chain = filled
+        if chain.gui is None or chain.gui.sync_id is None:
+            return SkillOutcome(
+                result=ActionResultClass.UNKNOWN,
+                reason="SCREEN_NOT_CONFIRMED",
+                action_id=action_id,
+                pre_tick=pre.game_tick,
+                details=_take_result_details(pre, chain, gui_open=False, clicks=clicks),
+            )
+        refusal = gui_click_refusal(chain, chain.gui.sync_id)
+        if refusal.refusal is not None:
+            return _refusal_outcome(refusal.refusal.value, action_id, chain)
+        await self._sender.send_control(
+            GUI_CLICK_INPUT_TYPE,
+            control_pb2.GuiClickInput(
+                action_id=action_id,
+                lease_id=authority.lease_id,
+                generation=authority.generation,
+                sync_id=chain.gui.sync_id,
+                slot=control_pb2.GuiSlotClick(
+                    slot_id=0,
+                    button=1,
+                    mode=control_pb2.SLOT_CLICK_MODE_QUICK_MOVE,
+                ),
+                deadline_monotonic_ns=authority.deadline_monotonic_ns,
+            ),
+        )
+        clicks.append("result_quick_move")
+        deposit_slot: int | None = None
+        while True:
+            post = await self._wait_until(_newer_reading(chain.game_tick), deadline)
+            if post is None:
+                return SkillOutcome(
+                    result=ActionResultClass.UNKNOWN,
+                    reason="NO_CONFIRMING_OBSERVATION",
+                    action_id=action_id,
+                    pre_tick=pre.game_tick,
+                    details=_take_result_details(
+                        pre, chain, gui_open=True, clicks=clicks, deposit_slot=deposit_slot
+                    ),
+                )
+            verdict = verify_craft(
+                pre=pre, post=post, material_ids=tuple(materials), product_id=product_id
+            )
+            if verdict is not ActionResultClass.UNKNOWN:
+                return SkillOutcome(
+                    result=verdict,
+                    reason="",
+                    action_id=action_id,
+                    pre_tick=pre.game_tick,
+                    post_tick=post.game_tick,
+                    details=_take_result_details(
+                        pre, post, gui_open=True, clicks=clicks, deposit_slot=deposit_slot
+                    ),
+                )
+            gone = all(
+                item_total(post.inventory, item) < item_total(pre.inventory, item)
+                for item in materials
+            )
+            if gone and "cursor_deposit" not in clicks:
+                empty = _first_empty_screen_slot(post.inventory)
+                if empty is None:
+                    return SkillOutcome(
+                        result=ActionResultClass.UNKNOWN,
+                        reason="CRAFT_NO_EMPTY_SLOT",
+                        action_id=action_id,
+                        pre_tick=pre.game_tick,
+                        details=_take_result_details(pre, post, gui_open=True, clicks=clicks),
+                    )
+                if post.gui is None or post.gui.sync_id is None:
+                    return SkillOutcome(
+                        result=ActionResultClass.UNKNOWN,
+                        reason="SCREEN_NOT_CONFIRMED",
+                        action_id=action_id,
+                        pre_tick=pre.game_tick,
+                        details=_take_result_details(pre, post, gui_open=False, clicks=clicks),
+                    )
+                refusal = gui_click_refusal(post, post.gui.sync_id)
+                if refusal.refusal is not None:
+                    return _refusal_outcome(refusal.refusal.value, action_id, post)
+                deposit_slot = empty
+                await self._sender.send_control(
+                    GUI_CLICK_INPUT_TYPE,
+                    control_pb2.GuiClickInput(
+                        action_id=action_id,
+                        lease_id=authority.lease_id,
+                        generation=authority.generation,
+                        sync_id=post.gui.sync_id,
+                        slot=control_pb2.GuiSlotClick(
+                            slot_id=empty,
+                            button=0,
+                            mode=control_pb2.SLOT_CLICK_MODE_PICK,
+                        ),
+                        deadline_monotonic_ns=authority.deadline_monotonic_ns,
+                    ),
+                )
+                clicks.append("cursor_deposit")
             chain = post
 
     async def select_hotbar(

@@ -137,6 +137,18 @@ class _TapeSkills(WorldSkills):
         self.craft_alls.append(craft_all)
         return await self._answer("craft")
 
+    async def craft_take_result(
+        self,
+        *,
+        recipe_id: str,
+        materials: Mapping[str, int],
+        product_id: str,
+        authority: ActionAuthority,
+        timeout_ns: int = DEFAULT_STEP_TIMEOUT_NS,
+    ) -> SkillOutcome:
+        del recipe_id, materials, product_id, authority, timeout_ns
+        return await self._answer("craft_take_result")
+
 
 def _plan(*skills: str) -> SkillPlan:
     """A plan of the named skills, each with the arguments that skill requires."""
@@ -153,6 +165,11 @@ _ARGUMENTS: Final[dict[str, dict[str, object]]] = {
     "break_seen_block": {},
     "collect_dropped": {"item_id": "minecraft:oak_log"},
     "craft": {
+        "recipe_id": "minecraft:oak_planks",
+        "materials": {"minecraft:oak_log": 1},
+        "product_id": "minecraft:oak_planks",
+    },
+    "craft_take_result": {
         "recipe_id": "minecraft:oak_planks",
         "materials": {"minecraft:oak_log": 1},
         "product_id": "minecraft:oak_planks",
@@ -197,6 +214,31 @@ def test_a_plan_can_name_which_craft_transaction_and_the_skill_receives_it() -> 
         run_skill_plan(skills, plan, authority=AUTHORITY, timeout_ns=DEFAULT_STEP_TIMEOUT_NS)
     )
     assert skills.craft_alls == [True, False]
+
+
+def test_a_plan_can_name_the_take_result_craft_and_the_skill_receives_it() -> None:
+    plan = _plan("craft_take_result")
+    skills = _TapeSkills(
+        {"craft_take_result": _outcome(ActionResultClass.CONFIRMED)}, _RecordingSender()
+    )
+    asyncio.run(
+        run_skill_plan(skills, plan, authority=AUTHORITY, timeout_ns=DEFAULT_STEP_TIMEOUT_NS)
+    )
+
+    assert skills.ran == ["craft_take_result"]
+
+
+def test_a_craft_all_on_the_take_result_craft_is_refused_by_name() -> None:
+    """The take-result transaction does not choose between the two recipe clicks:
+    it is the click that fills the grid followed by the one that takes the result.
+    A plan that still writes `craft_all` is agreeing to a sentence this skill
+    cannot say, so it is refused instead of being quietly ignored."""
+
+    entry: dict[str, object] = {"skill": "craft_take_result", **_ARGUMENTS["craft_take_result"]}
+    entry["craft_all"] = True
+
+    with pytest.raises(SkillPlanError, match="craft_all"):
+        parse_skill_plan({"schema_version": 1, "skills": [entry]}, source="test")
 
 
 #: Every shape a plan document can have that an operator should not have to debug
