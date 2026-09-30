@@ -169,7 +169,11 @@ export MINEKIN_RUNNER_FORWARD_ENV=<存放密钥的那个变量名>  # 逗号分�
 
 `goal_met: false`、`model_enabled: false / model_calls: 0`、`perceived_information_class: PLAYER_EQUIVALENT`、`cognition_refusals: {MANAGEMENT_ONLY_DTO: 4}`、`entities_admitted: 13`、`snapshots_admitted: 1`、`actions_applied: 6`。这一档声明的是：收尾名已经能从台账读出来，且一次频道丢失被诚实记成 `CONTROL_CHANNEL_LOST` 加一条失败的释放读数，而不是被折成成功。
 
-18. **观测流为什么安静，现在有了名字：客户端在那一刻离开了世界，而 JVM 还活着（2026-09-30，run `514bb121303d493394101126c07858e3`，读数见六之五）。** 第 17 条留的那一问有两个候选，Core 一侧先各补了一个计数再跑：`WorldObservationStore` 把"到了但不比手上那帧新"从静默 `return False` 变成 `stale_tick_dropped` + `newest_stale_tick`，`SessionRun` 文档长出 `world_observations`（store 自己的台账）与 `world_observations_unheld`（帧到了却没人接）。那一发读回的是 `{"admitted": 16, "refused": 0, "refusal_reasons": {}, "stale_tick_dropped": 0, "newest_stale_tick": null, "newest_admitted_tick": 1108}`——**没有一帧被按 replay 丢掉，也没有一帧被完整性规则拒掉；1108 之后 store 什么都没收到**。"桥持续报同一 tick、store 静默丢帧"这一支由此排除，剩下的是客户端不再报帧。客户端日志给了同一时刻的另一半：最后一行是 `12:36:57.047`（`Loaded 16 advancements`，logger `net.minecraft.class_163`）在它上一条点击 `bridge clicked slot 0 … QUICK_MOVE`（`12:36:57.026`）之后 21 ms，而受控服务器同一秒写 `Kin lost connection: Disconnected` + `Kin left the game`；Core 的第二笔 `recipe_fill` 是 `12:36:57.5+` 才发的，客户端日志里**没有对应的 `bridge clicked recipe` 行** ⇒ 那一笔根本没被应用，第 5 步的 `NO_CONFIRMING_OBSERVATION` 是后果不是成因。进程并没有走：`session stop` 的 `terminated: [251]` 按 `adapters/launcher/orphans.py` 的规矩只列**探针说还活着**的 pid（已经没了的会被跳过、两个列表都不进），`left_alone: [357]` 是那台不归本会话管的受控服务器。于是这三份字节合起来说的是：进程活着、世界已经离开、渲染线程不再产出任何一行日志——报帧的 `END_CLIENT_TICK`、应用 GUI 点击的线程、桥那句"这次断线要分类"的日志（`bridge observed a disconnect…` / `bridge classified the disconnect as…`，一条都没出现）要走的全是同一条线程。**还答不出的**：客户端为什么恰在第一次取结果之后 21 ms 离开世界。`crash-reports/` 空、`/data` 下无 `hs_err*` 也无 `.hprof`、`stderr.log` 零字节、`logs/telemetry/` 空——现有工件里没有那次离开的理由，而要拿到它得在桥的网络线程上多看一眼，那是已封字节。本档到此为止把它记成"客户端侧的一次离开"，不再记成"Core 的观测通道丢了帧"。
+18. **观测流为什么安静，现在有了名字：客户端在那一刻离开了世界，而 JVM 还活着（2026-09-30，run `514bb121303d493394101126c07858e3`，读数见六之五）。** 第 17 条留的那一问有两个候选，Core 一侧先各补了一个计数再跑：`WorldObservationStore` 把"到了但不比手上那帧新"从静默 `return False` 变成 `stale_tick_dropped` + `newest_stale_tick`，`SessionRun` 文档长出 `world_observations`（store 自己的台账）与 `world_observations_unheld`（帧到了却没人接）。那一发读回的是 `{"admitted": 16, "refused": 0, "refusal_reasons": {}, "stale_tick_dropped": 0, "newest_stale_tick": null, "newest_admitted_tick": 1108}`——**没有一帧被按 replay 丢掉，也没有一帧被完整性规则拒掉；1108 之后 store 什么都没收到**。"桥持续报同一 tick、store 静默丢帧"这一支由此排除，剩下的是客户端不再报帧。客户端日志给了同一时刻的另一半：最后一行是 `12:36:57.047`（`Loaded 16 advancements`，logger `net.minecraft.class_163`）在它上一条点击 `bridge clicked slot 0 … QUICK_MOVE`（`12:36:57.026`）之后 21 ms，而受控服务器同一秒写 `Kin lost connection: Disconnected` + `Kin left the game`；Core 的第二笔 `recipe_fill` 是 `12:36:57.5+` 才发的，客户端日志里**没有对应的 `bridge clicked recipe` 行** ⇒ 那一笔根本没被应用，第 5 步的 `NO_CONFIRMING_OBSERVATION` 是后果不是成因。进程并没有走：`session stop` 的 `terminated: [251]` 按 `adapters/launcher/orphans.py` 的规矩只列**探针说还活着**的 pid（已经没了的会被跳过、两个列表都不进），`left_alone: [357]` 是那台不归本会话管的受控服务器。于是这三份字节合起来说的是：进程活着、世界已经离开、渲染线程不再产出任何一行日志——报帧的 `END_CLIENT_TICK`、应用 GUI 点击的线程、桥那句"这次断线要分类"的日志（`bridge observed a disconnect…` / `bridge classified the disconnect as…`，一条都没出现）要走的全是同一条线程。**还答不出的**：客户端为什么恰在第一次取结果之后 21 ms 离开世界。`crash-reports/` 空、`/data` 下无 `hs_err*` 也无 `.hprof`、`stderr.log` 零字节、`logs/telemetry/` 空——现有工件里没有那次离开的理由，而要拿到它得在桥的网络线程上多看一眼，那是已封字节。本档到此为止把它记成"客户端侧的一次离开"，不再记成"Core 的观测通道丢了帧"。**这一条里"进程并没有走"那半句在下一格被更正**（第 19、20 条，run `4543d50a…` 的整张进程表）。
+
+19. **关界面这一步在活体上站住了，而"第二次合成才出事"这个假设被时间线否证（2026-09-30，同一冷卷 `minekin-local-demo2` 上七发 run，逐字读数见六之六）。** 三件事各自有了字节。其一，`close_screen` 三次由**更晚的一帧**确认：run `354415bb…` 22724→22735、`8beea122…` 1394→1404、`2b88fc02…` 1080→1091，三发的 details 都是 `pre_sync_id "0"` → `newest_sync_id ""`、`screen_open "false"`（客户端给自己的合成界面报的是**空** `screen_id` 配 `sync_id 0`，所以这一对字段才进 details）；同一批字节也划掉了"关屏把通道弄安静了"这一支——关屏之后 store 仍在收帧（`354415bb…` 里重开界面和那笔配方点击都是在这之后被应用的）。其二，**UNKNOWN 与第几步无关**：`e23da02e…` 停在第 4 步（木板）的第一笔 `recipe_fill`，`4543d50a…` 同样停在第 4 步，`8beea122…` 与 `2b88fc02…` 停在第 6 步的 `SCREEN_NOT_CONFIRMED`（`clicks ""`、`gui_open false`，即重开界面的那一下没人接），`a44fcbd7…` 停在走路里的 `CONTROL_CHANNEL_LOST`，`47f72e29…` 停在 `collect_dropped` 的 `NO_SEEN_DROP`。把七发对在一起的是服务器那三行：每发都是 `joined the game` 之后 **5–14 秒**写 `Kin lost connection: Disconnected` + `left the game`（run-1…run-7 分别 11/10/5/14/11/10/10 秒），而那一刻在跑哪一步七发各不相同 ⇒ 成因的形状是"**客户端在进入世界之后一小段时间就不在了**"，不是"按产物合成这条路本身走不通"，也不是工作台或木棍这两个产物里的任何一个。其三，按"同步检查输入释放"的要求把七发的释放读数都留下：六发 `input_release_failed: true` 且 `release.unconfirmed: [pid]`，唯一一发 `false` 的是 `47f72e29…`（`{"asked": [248], "released": [248], "unconfirmed": []}`，客户端日志 `bridge released 0 input(s) after CORE_REQUEST (EXPLICIT)`）——它是提前停在 `NO_SEEN_DROP` 那一发，也就是唯一一发 Core 还来得及道别的。**这一发要说清安全边界**：`a44fcbd7…` 的桥日志里最后一次 `bridge pressed move.forward` **没有**配对的 `released` 行，也就是说"每次 pressed 都配了 released"只对之前那几发成立；那一发的键是随那个已经不在世界里的客户端一起没的，Core 只能记 `unconfirmed: [249]`。**不声明**：木镐没有取得（`goal_met: false`，七发都是），第 6 步的工作台/木棍没有一发拿到 CONFIRMED，且"客户端为什么离开世界"仍未答出。
+
+20. **"进程并没有走"这半句现在由 Core 自己回答，而它给的是相反的答案（2026-09-30，run `8203e46e8fa947ffb82281678a39e768`，逐字读数见六之七）。** 技能步的等待不再只问世界：`application/world_skills.py` 的 `_wait_until` 把"还有没有子进程"和"有没有更晚的一帧"放在同一次等待里跑（`_outlive_client`，每 `CLIENT_EXIT_POLL_S = 0.25` 秒问一次 launcher 自己的 `supervisor.poll`），客户端一没，这一步立刻按名字停下——`reason: CLIENT_EXITED`、`details.exit_code`，不再烧完那 150 秒；发令之前子进程就已经没了也同样具名停下（那一笔还是发出去，只是不等人）。计划层 `skill_plan.perform_skill` 把这种离开收成 `UNKNOWN` 而不是 `FAILED`：命令已经出门，世界在那台 JVM 倒下之前可能已经变过，这是这一发读不出来的事实。自主循环 `autonomous_play` 据此把整次运行按同一个名字停住（`stop_reason: CLIENT_EXITED`，`stop_detail` 带退出码）。**于是第 18 条那两个候选第一次被分开**：那一发的第 5 步在几秒之内拿到 `{"skill":"close_screen","result":"UNKNOWN","reason":"CLIENT_EXITED","details":{"exit_code":"143"},"action_id":""}`、`skill_stop: close_screen`，而同一发的 `session stop` 说 `terminated: [253]`——同一个 pid，一份读数说它已经退了，另一份说还活着并且由它把它停掉。**这两份不能同时是事实，本档不选边，只登记为什么选不出来**：`adapters/launcher/orphans.py` 的止路在发信号之前只比命令行的摘要（`prove_process_identity` 读 `/proc/<pid>/cmdline`），marker 里记了 `started_at` 却不比对，所以"名字对得上"和"还是那一个进程"是两回事；这也是 `left_alone: [438, 335]` 那两行能出现的同一个机制（前几发的 pid 号在这台新容器里被 reuse，摘要不配 ⇒ 不动手，这是设计在生效）。**这一条同时把 18/19 两条的时间形状更正一次**：这一发不是"进入世界之后一小段时间就没了"——`started_at 15:03:39`（JVM）、服务器 `15:03:58 Kin joined the game`、`15:04:08 Kin lost connection: Disconnected`，而客户端日志的**最后一行**就是 `15:04:08 bridge applied screen … (SCREEN_CONTROL_CLOSE)`，Core 读到的退出码 143 是 JVM 收到 SIGTERM 之后自己 `exit(143)` 的那一个形状（不是 137，`memory.events` 那几发的 `oom_kill` 都是 0）。**新的前沿因此换了名字**：这一发 `outcome: BRIDGE_LOST` 在 `cli/session_runtime.py:506` 只有一个来源——观测 reader 抛了 `IpcProtocolError`——而 CLI 的退出码 14 就是 `bootstrap.py` 给的 `ExitCode.IPC_PROTOCOL`。所以结束的形状是"控制频道上先有一次契约破坏，然后会话收尾，然后那台客户端不在了"，而不是"客户端自己走掉把频道弄安静"。**答不出的那半句也有了具体的形状**：`IpcProtocolError` 在 `adapters/bridge/ipc.py` 有九处抛出点、每一处都带自己那句消息，可这句消息不进 run 文档，于是下一次活体还是只能靠三份日志对齐。**下一格因此不碰已封字节**：把那次契约破坏的理由名记进 run 文档（Core 侧、可单测），跑一发就知道是哪一条规矩被破。另外两处 Core 侧的诚实缺口一并登记：其一，`perform_skill` 的 `CLIENT_EXITED` 行带 `action_id: ""`，而那笔关屏的 id 是 Core 自己造的、已经发出去并被应用了（`81132da822274377b09b9cdb23e32892`）——行里丢了一个本可知道的事实；其二，`BridgeIpcWorker.applyScreen` 的顺序是先 `view.closeScreen()` 再 `publishResult(ACCEPTED)` 最后打那行日志，所以那行日志证明 `client.setScreen(null)` **返回了**，而 Core 仍只能判 `UNKNOWN`（这是规则在生效，不是缺陷）。**输入释放这一发是干净的那一种**：客户端日志里 `mine.attack` 与 `move.forward` 各 pressed 1 / released 1，`unconfirmed: [253]` 只是确认回不来，没有键悬在世界上。**采样账**：`.tmp/census-v13.log` 那份宿主机 `/proc/stat` 采样按构造就读不出被探的那个 pid（它不打印 pid，只数全机进程 churn，且从 pass 7 起容器已经不在了，六行之后全是 `No such container`），所以 v13 不再补，改由 Core 自己的 poll 作答。**不声明**：木镐仍未取得（第 13 条那一格没动），run-9 那一发（会话 `fee8b3c8…`）没有留下 run 文档，本档按"不是成一次运行"记、不当证据。
 
 ## 六之四、按产物合成读到的那两发（2026-09-30，runs `d7fafc30bbec4231ba1b52a30b7be6a8` 与 `461bbbf77d884b12a6d1cb814e8901db`）
 同一枚热卷（同卷同 Kin 根 `kin-local-demo`，第二发是 server run 目录 `run-7` 之后的下一次会话），计划换成第 16 条那份只写产物的：
@@ -266,3 +270,83 @@ run 文档里那一格新字节，逐字：
 释放那一格按"同步检查输入释放"的要求再核一次：桥日志里每次 `pressed` 都配了 `released`，最后一次是 `bridge applied 5b6575ee…: holding []`（12:36:56），第 4、5 步都不按键；`unconfirmed: [251]` 说的是"Core 没能道别"，不是"键被留在世界上"。世界悬着的只有那个开着的物品栏界面——第 13 条那格缺口（`SKILL_OFFER` 里没有关界面这一步）的又一发依据。
 
 这一发能声明的：木板仍由只写产物的意图合成并 CONFIRMED（同步 revision 1075→1108，§4 判据），新增的两个计数在真实 run 上第一次把 UNKNOWN 的成因从"Core 的观测通道丢帧"改写成"客户端在那一刻离开世界"，且 `stale_tick_dropped` 不是靠单测而是靠活体字节站住的。不能声明的：工作台已经合成（`goal_met: false`），以及**客户端为什么离开世界**——`crash-reports/` 空、`/data` 下无 `hs_err*` 也无 `.hprof`、`stderr.log` 零字节、`logs/telemetry/` 空，现有工件里没有那次离开的理由；再往前一步要在已封的 bridge-1201 网络线程上多看一眼，那是主控的决定，不是本档的推断。
+
+## 六之六、关界面那一段的八发（2026-09-30，冷卷 `minekin-local-demo2`，计划 `examples/skill-plan-craft-by-product-with-close.json`，逐字取自每发的 run 文档）
+
+八发都在同一个 Kin 根 `kin-local-demo` 上，计划是第 19 条那份：`turn_to → break_seen_block → collect_dropped → craft_take_result(木板，只写产物) → close_screen → craft_take_result(第二件，只写产物)`。前四步的字节每次都一样地往前走，出事的位置每次都不同：
+
+| 服务器 run | run_id（会话） | 客户端 pid | 走到哪一步 | 停下的判定 |
+| --- | --- | --- | --- | --- |
+| run-1 | `354415bb…`（`1a030934…`） | 8461 | 第 5 步关屏 CONFIRMED（22724→22735） | 第 6 步 `UNKNOWN / NO_CONFIRMING_OBSERVATION`，`clicks=recipe_fill`，`newest_checked_tick 22746` |
+| run-2 | `a44fcbd7…`（`7be1c01e…`） | 249 | 走路中频道就没了 | `skill_stop: CONTROL_CHANNEL_LOST`，run 文档里没有 `skills` 行，`newest_admitted_tick 1043` |
+| run-3 | `47f72e29…`（`6bceb9a5…`） | 248 | 第 3 步拾取 | `FAILED / NO_SEEN_DROP`（945 之后没有更新的帧），**唯一一发释放成功** |
+| run-4 | `8beea122…`（`738c4e06…`） | 378 | 第 5 步关屏 CONFIRMED（1394→1404） | 第 6 步 `UNKNOWN / SCREEN_NOT_CONFIRMED`，`clicks ""`、`gui_open false` |
+| run-5 | `e23da02e…`（`65e47607…`） | 358 | 第 4 步木板 | `UNKNOWN / NO_CONFIRMING_OBSERVATION`，`clicks=recipe_fill`，1477→1488 |
+| run-6 | `2b88fc02…`（`c3915263…`） | 335 | 第 5 步关屏 CONFIRMED（1080→1091） | 第 6 步 `UNKNOWN / SCREEN_NOT_CONFIRMED`，`clicks ""` |
+| run-7 | `4543d50a…`（`4921578f…`） | 341 | 第 4 步木板 | `UNKNOWN / NO_CONFIRMING_OBSERVATION`，`clicks=recipe_fill`，1107→1129 |
+| run-8 | `9e4f674f…`（`00085e9d…`） | 438 | 第 4 步木板 CONFIRMED（1143→1187），第 5 步关屏 | `UNKNOWN / NO_CONFIRMING_OBSERVATION`，`screen_open "true"`、`pre_sync_id = newest_sync_id = "0"`、`newest_checked_tick = pre_tick = 1187` |
+
+**关屏这一格收下了**：三发的 details 逐字同形——
+
+```text
+{"newest_checked_tick":"22735","newest_screen_id":"","newest_sync_id":"","pre_screen_id":"","pre_sync_id":"0","screen_open":"false"}   (run-1)
+{"newest_checked_tick":"1404","newest_screen_id":"","newest_sync_id":"","pre_screen_id":"","pre_sync_id":"0","screen_open":"false"}     (run-4)
+{"newest_checked_tick":"1091","newest_screen_id":"","newest_sync_id":"","pre_screen_id":"","pre_sync_id":"0","screen_open":"false"}     (run-6)
+```
+
+每一次都是**更晚的一帧**说界面不在了（`post_tick` 比 `pre_tick` 新，而 store 的计数在那之后还在涨），所以 CONFIRMED 不是桥的自报。run-8 那一发反过来把同一套判据的空档也记下来了：`SCREEN_CONTROL_CLOSE` 在客户端日志里**有**应用的那一行（`14:43:18 bridge applied screen 230ab6512ae94598a8fdc7eae6d7a249 (SCREEN_CONTROL_CLOSE)`），但那之后一帧都没有（`newest_checked_tick` 停在 `pre_tick` 的 1187）⇒ 判 `UNKNOWN`，不判成功，也不判失败。这正是"不凭桥自报成功"要的形状。
+
+**七发到八发的时间轴对在一起**（受控服务器每发的 `joined the game` / `lost connection` 都在同一卷上）：`run-1…run-7` 分别是进入世界后 11、10、5、14、11、10、10 秒写 `Kin lost connection: Disconnected`，run-8 是同一形状（`14:43:07` 进入、`14:43:18` 离开，11 秒）。客户端日志的最后一行每次都停在这同一秒附近，且**没有**任何关闭序列：没有 `Stopping!`、没有 `Saving worlds`、没有 `bridge observed a disconnect…` / `bridge classified the disconnect as…`、`crash-reports/` 空、`stderr.log` 零字节。于是第 19 条那句"与第几步无关"有了更强的形状：**会话寿命本身只有十秒上下，哪一步都可能撞上去**。
+
+第 18 条里"进程并没有走"这半句，在 run-8 上被一份直接读数更正了。探针在那台容器里盯着受控服务器的日志，`lost connection` 从 7 变 8 的那一瞬间打印整张进程表（逐字）：
+
+```text
+    PID    PPID STAT   RSS     ELAPSED COMMAND
+      1       0 Ss    4692       01:11 bash /src/test-orchestrator/runner/domain.sh session start …
+     11       1 S    24864       01:11 python /src/tools/run_controlled_server.py --directory /data/server-runs/run-8 …
+     17      11 Sl  1110580       01:11 /opt/java/openjdk/bin/java -Xms512M -Xmx1024M -jar /server/server.jar nogui
+    187       1 S    65092       01:00 Xvfb :77 -screen 0 1280x720x24
+    190       1 S     1808       01:00 sh -c "$@"; … minekin-session-supervisor python -m minekin_core session start …
+    193     190 Sl   71756       01:00 python -m minekin_core session start …
+--- cgroup memory:  max / current 2469941248
+--- memory.events:  low 0  high 0  max 0  oom 0  oom_kill 0  oom_group_kill 0     pids.max: max
+```
+
+这张表说的是三件事：**容器里没有客户端 JVM 的进程，也没有僵尸**（`ps` 会把已退未收的列成 `STAT Z`，这里一行都没有）；**不是 OOM 杀的**（`oom_kill 0`，容器根本没有内存上限 `memory.max = max`）；**显示器和 Core 都还在**（Xvfb `:77` 活着，pid 193 活着，服务器 JVM 活着并继续跑）。`dmesg` 在这台容器里读不到任何行。⇒ 第 18 条据以说"JVM 还活着"的那条 `terminated: [pid]` **不能当作进程还在的证据**：它是 `adapters/launcher/orphans.py` 的探针答案（`os.kill(pid, 0)` + 命令行摘要相符），而同一发在更近的时刻由整张进程表直接答"没有这个进程"。这两份答案现在彼此矛盾，矛盾本身按原样登记：run-8 自己的停止行仍然是 `{"terminated": [438], "left_alone": [], "release": {"asked": [438], "nothing_held": [], "released": [], "unconfirmed": [438]}}`，而 438 在 14:43:19 的进程表里不存在。要在容器里按 15 秒一次反复采样同一枚 `process.json` 与 `/proc/<pid>` 的答复，才能说清是探针读错、还是进程在停止那一刻又回来了；这份采样是第 20 条的内容，本档不在这格猜。
+
+**这一档能声明的**：关屏这一步三次由更晚的一帧确认、一次由"没有更晚的帧"诚实判成 `UNKNOWN`；只写产物的木板在这八发里拿到四次 CONFIRMED（run-1 22691→22724、run-4 1360→1394、run-6 1047→1080、run-8 1143→1187，都是同步 revision 上的 §4 判据）；`stale_tick_dropped` 八发全为 0、`refused` 全为 0，所以历次安静都不是 store 丢帧。**不能声明的**：木镐未取得，第二件产物（工作台/木棍）一次 CONFIRMED 都没有，`goal_met` 八发全为 `false`；客户端进程为什么在进入世界约十秒后消失，以及 Core 为什么在自己的运行文档里对这次消失一无所知（run 文档里没有一行记录客户端进程的退出，技能步只能把整个超时等完）——后者是本档登记的下一个 Core 侧具名缺口，不需要动已封字节。
+
+## 六之七、Core 自己回答"那台客户端还在不在"的那一发（2026-09-30，run `8203e46e8fa947ffb82281678a39e768`，服务器 run 目录 `run-10`，会话 `c17e0694c03b453197c25f18292d5d50`，客户端 pid 253）
+
+六之六那八发之后又跑了三发。`run-9`（会话 `fee8b3c8082a4dd691cea0932a4c5e64`）没有留下 run 文档——`domain: the run document said` 后面是空的，收尾是 `the session did not stop; killing it, so this run proves nothing` + `session exited 143`——本档把它记成"不是成一次运行"，不作证据。`run-10` 是这一格要的那一发，计划与六之六同一份（`examples/skill-plan-craft-by-product-with-close.json`，`--skills` 那条路，`autonomous: null`）。
+
+**五步的 run 文档行，逐字**（`action_id` 保留，因为第 5 行那个空 `action_id` 正是第 20 条登记的那一格）：
+
+```text
+{"skill":"turn_to","result":"CONFIRMED","reason":"","action_id":"eb83e82702ed4483a720249a9939bc4a","pre_tick":940,"post_tick":951,"details":{}}
+{"skill":"break_seen_block","result":"CONFIRMED","reason":"","action_id":"2449020afa0d4275ac0e0a2b57099bd5","pre_tick":951,"post_tick":1017,"details":{}}
+{"skill":"collect_dropped","result":"CONFIRMED","reason":"","action_id":"867c57aa1b304068aa6077471f00848e","pre_tick":1017,"post_tick":1050,"details":{"newest_checked_tick":"1050","steps":"1"}}
+{"skill":"craft_take_result","result":"CONFIRMED","reason":"","action_id":"8c247ea3d9ee4190a23ca0daae1ea5b5","pre_tick":1050,"post_tick":1083,"details":{"clicks":"recipe_fill+result_quick_move","craft_all":"false","gui_open":"true","newest_checked_tick":"1083","newest_inventory_revision":"1083","pre_inventory_revision":"1050"}}
+{"skill":"close_screen","result":"UNKNOWN","reason":"CLIENT_EXITED","action_id":"","pre_tick":null,"post_tick":null,"details":{"exit_code":"143"}}
+```
+
+`skill_stop: "close_screen"`。前四步全是 CONFIRMED 且判据都在**更晚的一帧**上（940→951→1017→1050→1083，`world_observations.newest_admitted_tick` 收在 1083，`refused: 0`、`stale_tick_dropped: 0`），也就是"取木→拾取→把成品从结果槽取进背包"这一段在真实读数上又一次成立；这一次新长的是第 5 行：**那一步是被 Core 对自己子进程的了解打断的，不是被 150 秒的等待耗尽的**。
+
+**三份互不相干的字节把那一刻钉在同一秒**（都是本机这一卷里存着的东西，不是推断）：
+
+```text
+/data/kin/…/generation-1/logs/latest.log   [15:04:08] bridge applied screen 81132da822274377b09b9cdb23e32892 (SCREEN_CONTROL_CLOSE)   ← 整份日志的最后一行
+/data/server-runs/run-10/logs/latest.log   [15:03:58] Kin joined the game   /   [15:04:08] Kin lost connection: Disconnected   /   [15:04:09] Stopping the server
+marker process.json                        {"pid":253,"started_at":"2026-09-30T15:03:39.661462Z","argv_digest":"1add67ae…"}   +   Core 的 supervisor.poll → 143
+```
+
+客户端的 `stderr.log` 是 0 字节，`crash-reports/` 空，`logs/telemetry/` 空；那一发输入侧的账是配对的：`mine.attack` pressed 1 / released 1、`move.forward` pressed 1 / released 1。也就是说第 18、19 条那句"渲染线程还在写、报帧的路没活"对这一发不成立——这一发**渲染线程连关屏那一笔都应用完并答了**（`applyScreen` 先 `closeScreen()`、后 `publishResult(ACCEPTED)`、最后才打那行日志），然后同一秒里整个 JVM 就不在了。
+
+**同一次收尾里两份 Core 读数互相矛盾**，逐字：
+
+```text
+domain: session stop said {"command": "session stop", "kin_id": "kin-local-demo", "left_alone": [438, 335], "release": {"asked": [253], "nothing_held": [], "released": [], "unconfirmed": [253]}, "schema_version": 1, "status": "stopped", "terminated": [253], "unresolved": []}
+domain: session exited 14
+```
+
+`terminated: [253]` 按 `orphans.py` 的规矩只列探针说还活着、且命令行摘要与 marker 对得上的那个 pid；`14` 是 `ExitCode.IPC_PROTOCOL`（`bootstrap.py` 把 `SessionOutcome.BRIDGE_LOST` 映射到它）。`left_alone: [438, 335]` 是 `run-8`、`run-6` 留下的 marker 在这台新容器里被 reuse 的结果——摘要不配，所以没动手。这一档能声明的到为止：这一步**几秒内按名字停下**了、名字是 `CLIENT_EXITED`、退出码 `143`、整条会话按 `BRIDGE_LOST` 收；不能声明的是那台客户端为什么不在——`outcome` 说观测 reader 抛了 `IpcProtocolError`，而那一句消息没有进 run 文档，所以第 20 条把"把破坏契约的那条规矩名记进 run 文档"列为下一格（Core 侧，不碰 bridge-1201 的已封字节）。
