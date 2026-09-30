@@ -197,23 +197,21 @@ class TapeSkills(WorldSkills):
         del authority, walk_seconds, timeout_ns
         return await self._answer("collect_dropped", item_id=item_id)
 
-    async def craft(
+    async def craft_take_result(
         self,
         *,
         recipe_id: str,
         materials: Mapping[str, int],
         product_id: str,
         authority: ActionAuthority,
-        craft_all: bool = True,
         timeout_ns: int = DEFAULT_STEP_TIMEOUT_NS,
     ) -> SkillOutcome:
         del authority, timeout_ns
         return await self._answer(
-            "craft",
+            "craft_take_result",
             recipe_id=recipe_id,
             product_id=product_id,
             materials=dict(materials),
-            craft_all=craft_all,
         )
 
     async def select_hotbar(
@@ -293,13 +291,18 @@ def test_the_loop_walks_the_whole_milestone_chain_without_a_written_plan() -> No
         reading(tick=220, items=((0, LOG, 2), (1, PLANKS, 1), (3, PICKAXE, 1))),
         reading(tick=260, items=((0, LOG, 2), (1, PLANKS, 1), (3, PICKAXE, 1)), selected_slot=3),
     )
-    skills = TapeSkills(stage, {"craft": confirmed(), "select_hotbar": confirmed()})
+    skills = TapeSkills(stage, {"craft_take_result": confirmed(), "select_hotbar": confirmed()})
     mind = off_mind()
 
     result = run(stage, skills, mind)
 
     assert result.stop_reason == GOAL_HELD_IN_HAND
-    assert [name for name, _ in skills.ran] == ["craft", "craft", "craft", "select_hotbar"]
+    assert [name for name, _ in skills.ran] == [
+        "craft_take_result",
+        "craft_take_result",
+        "craft_take_result",
+        "select_hotbar",
+    ]
     assert [kwargs.get("recipe_id") for _, kwargs in skills.ran] == [
         PLANKS,
         STICK,
@@ -307,14 +310,10 @@ def test_the_loop_walks_the_whole_milestone_chain_without_a_written_plan() -> No
         None,
     ]
     assert skills.ran[3][1] == {"slot": 3, "expected_item_id": PICKAXE}
-    # The mind asks for the transaction whose product lands in the bag: a single
-    # recipe-book pick leaves the result on the cursor, which no synced reading
-    # reports, so a chain built on it can never close on a reading.
-    assert [kwargs.get("craft_all") for name, kwargs in skills.ran if name == "craft"] == [
-        True,
-        True,
-        True,
-    ]
+    # The mind asks for the transaction whose product lands where a reading can see it: the
+    # recipe click alone leaves the result on the cursor or in the grid, and 2026-09-30's two
+    # live runs showed nothing coming back from either, so a chain built on it cannot close.
+    assert all(name == "craft_take_result" for name, _ in skills.ran[:3])
     assert mind.goal_met is True
     assert len(result.steps) == 4
 
@@ -327,10 +326,14 @@ def test_a_decision_that_claims_the_tool_does_not_end_the_run() -> None:
         reading(tick=140, items=((0, PLANKS, 3), (1, STICK, 2))),
         reading(tick=180, items=((0, PLANKS, 3), (1, STICK, 2))),
     )
-    skills = TapeSkills(stage, {"craft": confirmed()})
+    skills = TapeSkills(stage, {"craft_take_result": confirmed()})
     mind = mind_for(
         _OneShotProvider(
-            Decision(skill_id="craft", reason="this finishes the pickaxe", intent_generation=1)
+            Decision(
+                skill_id="craft_take_result",
+                reason="this finishes the pickaxe",
+                intent_generation=1,
+            )
         ),
         CostLedger(run_cost_cap=CAP),
     )
@@ -339,7 +342,7 @@ def test_a_decision_that_claims_the_tool_does_not_end_the_run() -> None:
 
     assert result.stop_reason == STEP_BUDGET_SPENT
     assert mind.goal_met is False
-    assert [name for name, _ in skills.ran] == ["craft", "craft"]
+    assert [name for name, _ in skills.ran] == ["craft_take_result", "craft_take_result"]
 
 
 # ------------------------------------------------------------------------- its named endings
@@ -347,13 +350,13 @@ def test_a_decision_that_claims_the_tool_does_not_end_the_run() -> None:
 
 def test_a_reading_that_has_not_moved_stops_the_loop_before_it_asks_again() -> None:
     stage = Stage(reading(tick=100, items=((0, LOG, 3),)))
-    skills = TapeSkills(stage, {"craft": failed()})
+    skills = TapeSkills(stage, {"craft_take_result": failed()})
     mind = off_mind()
 
     result = run(stage, skills, mind)
 
     # The tape had no follow-up, so the world is the one the first intent was already built on.
-    assert [name for name, _ in skills.ran] == ["craft"]
+    assert [name for name, _ in skills.ran] == ["craft_take_result"]
     assert result.stop_reason == NO_FRESH_OBSERVATION
     assert len(result.steps) == 1
 
@@ -383,7 +386,9 @@ def test_the_milestone_held_in_hand_before_the_first_ask_needs_no_step() -> None
 
 def test_a_channel_that_goes_out_from_under_a_step_ends_the_run_by_name() -> None:
     stage = Stage(reading(items=((0, LOG, 3),)))
-    skills = TapeSkills(stage, {"craft": confirmed()}, breaks=frozenset({"craft"}))
+    skills = TapeSkills(
+        stage, {"craft_take_result": confirmed()}, breaks=frozenset({"craft_take_result"})
+    )
     mind = off_mind()
 
     result = run(stage, skills, mind)
@@ -426,7 +431,7 @@ def test_the_run_document_says_who_chose_and_what_the_world_said() -> None:
         reading(tick=100, items=((0, LOG, 3),)),
         reading(tick=140, items=((0, LOG, 2), (1, PLANKS, 4))),
     )
-    skills = TapeSkills(stage, {"craft": confirmed()})
+    skills = TapeSkills(stage, {"craft_take_result": confirmed()})
     mind = off_mind()
 
     document = run(stage, skills, mind).as_document()
@@ -454,7 +459,7 @@ def test_a_step_that_failed_carries_its_attribution_into_the_document() -> None:
         reading(tick=100, items=((0, LOG, 3),)),
         reading(tick=140, items=((0, LOG, 3),)),
     )
-    skills = TapeSkills(stage, {"craft": failed(CRAFT_MATERIALS_MISSING)})
+    skills = TapeSkills(stage, {"craft_take_result": failed(CRAFT_MATERIALS_MISSING)})
     mind = off_mind()
 
     document = run(stage, skills, mind).as_document()

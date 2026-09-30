@@ -92,7 +92,7 @@ _ABSENT_REASONS: Final = frozenset(
 SKILL_OFFER: Final = (
     "break_seen_block",
     "collect_dropped",
-    "craft",
+    "craft_take_result",
     "select_hotbar",
     "turn_to",
 )
@@ -224,7 +224,7 @@ def feasible_skill_ids(reading: WorldObservationValue) -> tuple[str, ...]:
     feasible = {
         "break_seen_block" if reading.aim is not None and reading.aim.block is not None else "",
         "collect_dropped" if seen_drops(reading.visible_entities, SOURCE_ITEM_ID) else "",
-        "craft" if next_craft(reading) is not None else "",
+        "craft_take_result" if next_craft(reading) is not None else "",
         "select_hotbar"
         if _goal_slot(reading) not in (None, reading.self_state.selected_slot)
         else "",
@@ -464,8 +464,8 @@ class PlayerMind:
 
         if "select_hotbar" in feasible:
             return "select_hotbar"
-        if "craft" in feasible:
-            return "craft"
+        if "craft_take_result" in feasible:
+            return "craft_take_result"
         if "collect_dropped" in feasible and needs.get("resource_security", 0) >= 5:
             return "collect_dropped"
         if "break_seen_block" in feasible and needs.get("safety", 0) < 7:
@@ -483,7 +483,7 @@ class PlayerMind:
         crashed on a bad answer would turn a provider bug into a stopped session.
         """
 
-        if skill == "craft":
+        if skill == "craft_take_result":
             stage = next_craft(reading)
             if stage is None:
                 return None, CRAFT_MATERIALS_MISSING
@@ -491,7 +491,7 @@ class PlayerMind:
                 SkillPlan(
                     (
                         SkillCall(
-                            name="craft",
+                            name="craft_take_result",
                             recipe_id=stage.product_id,
                             product_id=stage.product_id,
                             materials=stage.materials,

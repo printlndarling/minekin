@@ -185,12 +185,12 @@ def test_a_craft_is_offered_only_when_the_bag_can_already_pay_for_it() -> None:
     stage = next_craft(one_log)
     assert stage is not None
     assert stage.product_id == PLANKS
-    assert "craft" in feasible_skill_ids(one_log)
+    assert "craft_take_result" in feasible_skill_ids(one_log)
 
 
 def test_no_craft_is_offered_when_every_stage_is_short_of_materials() -> None:
     assert next_craft(reading()) is None
-    assert "craft" not in feasible_skill_ids(reading())
+    assert "craft_take_result" not in feasible_skill_ids(reading())
 
 
 def test_the_chain_is_walked_in_build_order() -> None:
@@ -238,7 +238,7 @@ def test_the_ask_carries_only_what_the_local_layer_computed() -> None:
     assert request.active_goal == LONG_TERM_DIRECTION
     assert set(request.feasible_skill_ids) == {
         "break_seen_block",
-        "craft",
+        "craft_take_result",
         "turn_to",
     }
     assert request.needs == needs_from(subject)
@@ -291,7 +291,10 @@ def test_the_local_order_finishes_the_chain_before_it_looks() -> None:
     ledger = CostLedger(run_cost_cap=CAP)
     mind = mind_for(OffModelProvider(), ledger)
 
-    assert mind.next_intent(reading(items=((0, PLANKS, 3), (1, STICK, 2)))).skill == "craft"
+    assert (
+        mind.next_intent(reading(items=((0, PLANKS, 3), (1, STICK, 2)))).skill
+        == "craft_take_result"
+    )
     assert mind.next_intent(reading(entities=(drop(),))).skill == "collect_dropped"
     hurt = reading(aim=block_aim(), self_state=state(health=6.0))
     assert mind.next_intent(hurt).skill == "turn_to"
@@ -436,12 +439,14 @@ def test_a_confirmation_clears_the_history_it_was_building_up() -> None:
 
 def test_a_decision_that_claims_the_goal_does_not_close_it() -> None:
     mind, _ = mind_with(
-        Decision(skill_id="craft", reason="this finishes the pickaxe", intent_generation=1)
+        Decision(
+            skill_id="craft_take_result", reason="this finishes the pickaxe", intent_generation=1
+        )
     )
     subject = reading(items=((0, PLANKS, 3), (1, STICK, 2)))
     intent = mind.next_intent(subject)
 
-    assert intent.skill == "craft"
+    assert intent.skill == "craft_take_result"
     assert "this finishes the pickaxe" in intent.reason
     assert mind.goal_met is False
 
@@ -463,7 +468,7 @@ def test_a_reading_that_loses_the_tool_sends_the_mind_back_to_work() -> None:
     lost = reading(tick=200, items=((0, LOG, 1),))
     mind.observe(lost)
     assert mind.goal_met is False
-    assert mind.next_intent(lost).skill == "craft"
+    assert mind.next_intent(lost).skill == "craft_take_result"
 
 
 def test_holding_the_tool_in_hand_is_the_end_of_the_run_not_another_ask() -> None:
