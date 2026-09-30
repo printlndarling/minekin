@@ -6,6 +6,8 @@
 
 ## 0. 状态与证据口径
 
+> 2026-09-30 状态更正段（M 直接落主干，基线 `7df326a`）：**本段取代上方及下方所有段落里「主干唯一 `current_next` 是 `PARALLEL-INTEGRATION-GATE-001`」的说法，以及各 lane（H/V/E/S/D）的 `lane_next` 领取记录。** 并行 lane 模式已终止：旧工作树与 `codex/*` lane 分支均已清理，不再逐卡审并合并 lane 分支。主干唯一 `current_next` 现为 **`S2-BASIC-SKILL-CHAIN-CLOSURE-001`：本地 1.20.1 基础技能链收口**——用 `demo.sh --skills` / `--autonomous` 的真实世界读数收口「取木→拾取→合成→成品进背包→取得木镐」，排查 `craft UNKNOWN / NO_CONFIRMING_OBSERVATION` 的真实成因，并按需在 Core 侧补取结果槽技能（判据见 `local-demo-runbook.md` §5 第 9–11 条）。S2 收口后的下一段是 S3（PlayerMind 目标选择/失败改线与 Dashboard 解释对同一次真实 run 的一致性核对）。下方各日期化段落保留为历史时点读数，不改写。V08/用户远程服、HOST/PERSIST、在线认证、门禁晋级与 registry 替换等主控保留决策一字不变。
+
 > 2026-09-27 E6 后续覆盖段（基线 `d26a2dd`，须经 M 合入后生效）：H1g→V4→E6 队列已收，但 E6 的 `V1201-020` seq4 是**本地专服单客户端** sealed JOIN，不是 V4 的第二客户端 LAN 世界 sealed 控制。下一段按[1.20.1 LAN 加入者控制连续任务卡](v1201-lan-control-next-2026-09-27.md)派 H1h→V5→M-C1→E7→M-G1；主干唯一 `current_next` 仍是 `PARALLEL-INTEGRATION-GATE-001`，各 lane 逐张提升。registry 已引用同构建的 `V1201-020` seq2 PASS，当前不因 seq4 新 PASS 替换引用、不翻该案 mandatory；这两项不是 LAN 控制的前置，门禁晋级另审。V08 用户远程服仍无新连接授权，下文旧“队列全完／只剩三道门”是第三十六轮时点的说法，以本覆盖段为准。
 
 > 2026-09-27 1.20.1 本地加入解阻覆盖段（基线 `e3b1c6f`；M 合入本分支后生效）：**主干唯一 `current_next` 仍是 `PARALLEL-INTEGRATION-GATE-001`**。第二十四轮远端分支普查得到“当前无待审增量”，不等于后续卡全部完成。按[1.20.1 本地加入连续任务卡](v1201-local-join-next-2026-09-27.md)顺序激活 H lane `H1g V1201-JOINER-LOCAL-V2-PROFILE-001`；其合入后才提升 V lane `V4 V1201-LOCAL-JOIN-AFTER-V2-001`；V4 真达到 JOIN/首快照后才提升 E lane `E6 V1201-LOCAL-JOIN-SEAL-001`。下方旧 H/V `lane_next` 行和旧轮次长记录保留历史读数，若写“无安全可派卡”，以本覆盖段为准。v1 本地 profile 的 1.21.4 冻结行为不改；1.20.1 加入者只在受控 loopback/offline/单版本范围使用已审 v2 准入，不以放宽 v1 或连接用户远程服解阻。V08、HOST/PERSIST、跨 bundle 证据格式仍各守自己的决策门。
