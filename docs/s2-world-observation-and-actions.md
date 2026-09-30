@@ -46,7 +46,7 @@
 - **`MineInput`**：攻击键按住/松开，形状照 `UseInput`。`mining=true` 时 `target` 必须与客户端当前 `crosshairTarget` 的方块与面一致，否则具名拒绝 `MINE_TARGET_NOT_AIMED`；在范围内则 `attackBlock`，之后由 tick 钩子按客户端自己的节奏继续 `updateBlockBreakingProgress`，松手或租约到期即 `cancelBlockBreaking`。**没有** `breakBlock`、没有瞬挖、没有跳过时长的快捷路径。
 - **`HotbarSelectInput`**：只接受 0..8，越界拒 `HOTBAR_SLOT_OUT_OF_RANGE`。它等价于玩家按数字键，不改物品分布。
 - **`ScreenInput`**：`OPEN_INVENTORY` 走客户端自己的 `inventoryKey` 按键路径（和人手按 E 是同一条），`CLOSE` 是关屏。这里刻意没有"打开面前的方块"这一格：那已经是 `UseInput` 的能力，多开一扇门就多一处漏掉检查的地方。
-- **`GuiClickInput`**：`sync_id` 必须等于客户端此刻报告的 handler，否则拒 `GUI_SYNC_ID_MISMATCH`（契约禁止带着旧 syncId 点下一个容器）。`slot` 分支映射到 `clickSlot`，`recipe` 分支映射到 `clickRecipe` 并要求 `recipe_id` 是本游戏版本存在的规则 id。客户端解析 id 失败即拒 `GUI_RECIPE_UNKNOWN`。`clickCreativeStack` 在这套线格式里**不存在**，不是"运行时拒绝"。
+- **`GuiClickInput`**：`sync_id` 必须等于客户端此刻报告的 handler，否则拒 `GUI_SYNC_ID_MISMATCH`（契约禁止带着旧 syncId 点下一个容器）。`slot` 分支映射到 `clickSlot`，`recipe` 分支映射到 `clickRecipe` 并要求 `recipe_id` 是本游戏版本存在的规则 id。客户端解析 id 失败即拒 `GUI_RECIPE_UNKNOWN`。`recipe` 分支还带 `craft_all`：Core 默认发 `true`，因为普通选择（配方书的单点）把成品留在**光标**上，而光标不在 `inventory` 报出的同步内容里，下面那张表的核对条件在那一帧之后仍然读不出来；运行文档的 `details.craft_all` 写明这一次发出去的是哪一笔。`clickCreativeStack` 在这套线格式里**不存在**，不是"运行时拒绝"。
 
 ## 4. 结果核对
 
@@ -56,14 +56,14 @@
 | --- | --- | --- |
 | 挖掉一格木头 | `aim.targeted_block_id` 不再是该方块，或 `visible_entities` 出现对应掉落物 | `mining.progress` 长时间不动、租约到期、目标丢失 |
 | 拾取掉落物 | `inventory` 同名 item 的总数在同步后的 revision 上增加，且掉落物减少或消失 | 掉落物被别人拿走/烧毁/过期 ⇒ `failed` 或 `unknown` |
-| 合成 | 材料减少与产物增加**同时**出现在同步后的 `inventory` 里 | 只发了包、只开了窗、只点了格子都不算 |
+| 合成 | 材料减少与产物增加**同时**出现在同步后的 `inventory` 里 | 只发了包、只开了窗、只点了格子都不算；停在光标上的成品也不算，因为 `inventory` 与 `GuiScreenValue` 都不报光标那一格 |
 | 换手 | 后续 `self.selected_slot` / `main_hand_item_id` 与请求一致 | 读数仍指回原槽 ⇒ `unknown` |
 
 `unknown` 不自动重试有副作用的点击（GUI/挖掘）；无副作用的读数类动作可以重试。每一次动作记录：决策时的观察（tick + aim + 相关 revision）、实际发出的输入、服务端确认后的读数、结论与具名原因。
 
 ## 5. 首版技能面
 
-技能只做四件事，且都以"已见"为前提：`turn_to`（绝对朝向，受角速度限制）、`break_seen_block`（目标是 `aim` 报出的那一格）、`collect_dropped`（走向已见的掉落物，靠背包增量确认）、`craft`（先用已有材料验前提，再走真实 GUI）。
+技能做五件事，且都以"已见"为前提：`turn_to`（绝对朝向，受角速度限制）、`break_seen_block`（目标是 `aim` 报出的那一格）、`collect_dropped`（走向已见的掉落物，靠背包增量确认）、`craft`（先用已有材料验前提，再走真实 GUI）、`select_hotbar`（按数字键换手，由下一帧 `self` 说明手里是什么）。
 
 不做的：读墙后、扫描已加载区块找木头、给自己加物品、`clickCreativeStack`、无限堆叠、跳过挖掘时长。首版合成面限制在 2x2 网格内可完成的木板/木棍/木镐（工作台配方留给 GUI 打开后的同一套点击）。
 
