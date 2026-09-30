@@ -73,6 +73,12 @@ SESSION_STATE_TRANSITIONED = "SessionStateTransitioned"
 #: what it can never be is an inference from the launch arguments, because no argv
 #: text and no credential value reaches it.
 SESSION_IDENTITY_COMPARED = "SessionIdentityCompared"
+#: One world-skill step, as the readings concluded it: what was asked, whether the world
+#: confirmed it, and the reason it did not. Its own event rather than a run-document field
+#  because a run answers this question once per step and the document is written once at the
+#: end — a reader watching a long autonomous run needs the step that is happening now, and
+#: needs to see a FAILED three steps back rather than only the reason the run stopped.
+SKILL_STEP_RECORDED = "SkillStepRecorded"
 
 SESSION_EVENT_TYPES = frozenset(
     {
@@ -90,6 +96,7 @@ SESSION_EVENT_TYPES = frozenset(
         CLIENT_EXITED,
         SESSION_STATE_TRANSITIONED,
         SESSION_IDENTITY_COMPARED,
+        SKILL_STEP_RECORDED,
     }
 )
 

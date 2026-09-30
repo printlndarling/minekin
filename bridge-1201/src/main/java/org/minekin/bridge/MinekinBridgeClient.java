@@ -3,6 +3,7 @@ package org.minekin.bridge;
 import java.nio.file.Path;
 import java.time.Duration;
 import io.minekin.protocol.v1.CallbackBudgetWindow;
+import io.minekin.protocol.v1.WorldObservation;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientLifecycleEvents;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
@@ -14,15 +15,19 @@ import net.minecraft.client.gui.screen.GameMenuScreen;
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.client.gui.screen.TitleScreen;
 import net.minecraft.client.gui.screen.ConnectScreen;
+import org.minekin.bridge.action.WorldActionController;
+import org.minekin.bridge.action.WorldActions;
 import org.minekin.bridge.input.BridgeInputController;
 import org.minekin.bridge.input.VanillaKeySink;
 import org.minekin.bridge.input.VanillaViewSink;
+import org.minekin.bridge.protocol.HandshakeGate;
 import org.minekin.bridge.runtime.BridgeIpcWorker;
 import org.minekin.bridge.runtime.BridgeMetrics;
 import org.minekin.bridge.runtime.BridgePhaseMachine;
 import org.minekin.bridge.runtime.ClientAdmissionController;
 import org.minekin.bridge.runtime.ClientRuntimeIdentity;
 import org.minekin.bridge.runtime.HostController;
+import org.minekin.bridge.runtime.WorldObservationCollector;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -33,6 +38,16 @@ public final class MinekinBridgeClient implements ClientModInitializer {
     private static final int MAX_NOTICES_PER_TICK = 8;
     private BridgeIpcWorker worker;
     private ClientAdmissionController admission;
+    /**
+     * Ticks counted toward the next {@code WorldObservation}.
+     *
+     * <p>A field on the single client instance rather than a local: the observation is a
+     * recurring action tied to the client's own clock, and there is exactly one client tick
+     * driving it, so no synchronisation is needed and the cadence simply walks down every tick
+     * it is spent in a world. Reset while the client is not in one, so a rejoin publishes
+     * promptly rather than waiting out a countdown held against a world that was gone.
+     */
+    private int observationTicksElapsed;
 
     @Override
     public void onInitializeClient() {
@@ -45,6 +60,7 @@ public final class MinekinBridgeClient implements ClientModInitializer {
         }
 
         BridgePhaseMachine phases = new BridgePhaseMachine();
+        VanillaKeySink keySink = new VanillaKeySink();
         BridgeIpcWorker created = new BridgeIpcWorker(
                 Path.of(descriptor),
                 ClientRuntimeIdentity.current(),
@@ -52,8 +68,13 @@ public final class MinekinBridgeClient implements ClientModInitializer {
                 Duration.ofSeconds(5),
                 16,
                 phases,
-                new VanillaKeySink(),
+                keySink,
                 new VanillaViewSink());
+        // The S2 actions are applied through the same client bindings the movement path uses,
+        // so they are wired to one key sink rather than a second one — pressing the inventory
+        // key and holding the attack key are the same vanilla state the movement keys write.
+        // Attached before start so no command can be drained before the Minecraft seam exists.
+        created.attachWorldView(new WorldActionController(keySink));
         ClientAdmissionController controller = new ClientAdmissionController(
                 phases, created::publishLifecycle, created::publishObservation);
         HostController hostController = new HostController(created::publishHostLifecycle);
@@ -74,11 +95,22 @@ public final class MinekinBridgeClient implements ClientModInitializer {
                                         controller.handle(client, message);
                                     }
                                 } catch (RuntimeException error) {
+                                    // Named, and the message named with it: this is the one
+                                    // fault path on the tick that reads a command rather than
+                                    // the world, so a stopped client with no cause here is a
+                                    // run that cannot say which command it was holding. The
+                                    // variant's own class name is the command — the inbox
+                                    // carries the sealed ClientMessage set, not a wire enum.
+                                    LOGGER.error(
+                                            "bridge fault while handling {} from Core",
+                                            message.getClass().getSimpleName(),
+                                            error);
                                     stopSafely(
                                             client,
                                             controller,
                                             created,
-                                            BridgeInputController.ReleaseReason.BRIDGE_FAULT);
+                                            BridgeInputController.ReleaseReason.BRIDGE_FAULT,
+                                            error);
                                 }
                             });
                     // A command to publish a world that had none when it arrived is
@@ -95,7 +127,8 @@ public final class MinekinBridgeClient implements ClientModInitializer {
                                 client,
                                 controller,
                                 created,
-                                BridgeInputController.ReleaseReason.BRIDGE_FAULT);
+                                BridgeInputController.ReleaseReason.BRIDGE_FAULT,
+                                error);
                     }
                     try {
                         hostController.tick(client);
@@ -109,7 +142,8 @@ public final class MinekinBridgeClient implements ClientModInitializer {
                                 client,
                                 controller,
                                 created,
-                                BridgeInputController.ReleaseReason.BRIDGE_FAULT);
+                                BridgeInputController.ReleaseReason.BRIDGE_FAULT,
+                                error);
                     }
                     // The input watchdog's clock. Ticking it from the client thread is the
                     // whole reason it exists beside the heartbeat loop: that loop cannot
@@ -121,7 +155,8 @@ public final class MinekinBridgeClient implements ClientModInitializer {
                                 client,
                                 controller,
                                 created,
-                                BridgeInputController.ReleaseReason.BRIDGE_FAULT);
+                                BridgeInputController.ReleaseReason.BRIDGE_FAULT,
+                                error);
                     }
                     // Who owns the keyboard. §12 makes this a release trigger, and
                     // the client tick is where it is observable — nothing else in the
@@ -134,7 +169,8 @@ public final class MinekinBridgeClient implements ClientModInitializer {
                                 client,
                                 controller,
                                 created,
-                                BridgeInputController.ReleaseReason.BRIDGE_FAULT);
+                                BridgeInputController.ReleaseReason.BRIDGE_FAULT,
+                                error);
                     }
                     // Finish pending connection failures and login failures on the
                     // client tick. The latter waits for vanilla's reason callback,
@@ -147,7 +183,8 @@ public final class MinekinBridgeClient implements ClientModInitializer {
                                 client,
                                 controller,
                                 created,
-                                BridgeInputController.ReleaseReason.BRIDGE_FAULT);
+                                BridgeInputController.ReleaseReason.BRIDGE_FAULT,
+                                error);
                     }
                     // The first snapshot's clock, and it is a tick rather than the join
                     // event on purpose: the join is reported before the server's world
@@ -160,7 +197,23 @@ public final class MinekinBridgeClient implements ClientModInitializer {
                                 client,
                                 controller,
                                 created,
-                                BridgeInputController.ReleaseReason.BRIDGE_FAULT);
+                                BridgeInputController.ReleaseReason.BRIDGE_FAULT,
+                                error);
+                    }
+                    // The recurring player-equivalent view: what this client can honestly
+                    // say about itself right now. Published on a fixed tick cadence and only
+                    // while a Core session holds observe.world.v1, so its cost is a constant of
+                    // the build and not how urgently the other side asks. It reads the world on
+                    // this thread because every value in it is client-thread state.
+                    try {
+                        publishWorldObservation(client, created);
+                    } catch (RuntimeException error) {
+                        stopSafely(
+                                client,
+                                controller,
+                                created,
+                                BridgeInputController.ReleaseReason.BRIDGE_FAULT,
+                                error);
                     }
                     // Last, so the recorded cost is the whole callback: this is what
                     // the mod adds to the client's frame, and taking it anywhere else
@@ -219,6 +272,43 @@ public final class MinekinBridgeClient implements ClientModInitializer {
         admission = controller;
         worker = created;
         created.start();
+    }
+
+    /**
+     * Publishes one {@code WorldObservation} every {@code WORLD_OBSERVATION_INTERVAL_TICKS}
+     * ticks, and only while the session warrants it.
+     *
+     * <p>Two gates, both cheap and both honest. The capability gate asks the worker whether
+     * Core negotiated {@code observe.world.v1} for this session — observation is read-only and
+     * switches apart from every action surface, so a session that never asked for it never
+     * pays for it. The world gate asks whether the client actually has a player and a level:
+     * the Bridge's phase machine has no PLAYABLE reached on the client side yet, so what a Kin
+     * may observe is grounded in the one fact that is a real read — a client that is in a world
+     * can describe itself, and one that is not sends nothing rather than a snapshot of zeroes.
+     *
+     * <p>Collecting can fail to describe the client at all (the world went away between the
+     * gate and the read); that is a dropped frame, not a fault, and the collector returns null
+     * for it. A collection that throws is a Bridge bug and stops the client like every other
+     * throw on this tick.
+     */
+    private void publishWorldObservation(MinecraftClient client, BridgeIpcWorker worker) {
+        if (!worker.hasCapability(HandshakeGate.OBSERVE_WORLD_CAPABILITY)) {
+            return;
+        }
+        if (client.player == null || client.world == null) {
+            observationTicksElapsed = WorldActions.WORLD_OBSERVATION_INTERVAL_TICKS;
+            return;
+        }
+        if (observationTicksElapsed < WorldActions.WORLD_OBSERVATION_INTERVAL_TICKS) {
+            observationTicksElapsed++;
+            return;
+        }
+        observationTicksElapsed = 0;
+        WorldObservation observation =
+                WorldObservationCollector.collect(client, worker.sessionGeneration());
+        if (observation != null) {
+            worker.publishWorldObservation(observation);
+        }
     }
 
     /**
@@ -329,11 +419,31 @@ public final class MinekinBridgeClient implements ClientModInitializer {
             ClientAdmissionController controller,
             BridgeIpcWorker worker,
             BridgeInputController.ReleaseReason reason) {
+        stopSafely(client, controller, worker, reason, null);
+    }
+
+    private static void stopSafely(
+            MinecraftClient client,
+            ClientAdmissionController controller,
+            BridgeIpcWorker worker,
+            BridgeInputController.ReleaseReason reason,
+            RuntimeException error) {
         // Logged because this is the Bridge stopping the client, and a client
         // that simply stops with no cause recorded anywhere is unreadable: the
         // server it was talking to sees a connection that went away, and the
         // session sees a verdict rather than a reason.
-        LOGGER.error("bridge is stopping the client: {}", reason);
+        //
+        // The cause is logged with it, and that is the whole point of the
+        // overload. Every wrapped site on the tick passes the exception it
+        // caught into a signature that then dropped it, which is how runs
+        // stopped at the same millisecond after the join with nothing in either
+        // log but the reason enum: the informative half of the fault was in hand
+        // at the call site and thrown away here.
+        if (error == null) {
+            LOGGER.error("bridge is stopping the client: {}", reason);
+        } else {
+            LOGGER.error("bridge is stopping the client: {}", reason, error);
+        }
         try {
             controller.safeStop(client);
         } finally {

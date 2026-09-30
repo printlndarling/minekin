@@ -11,6 +11,7 @@ import { AlertsPanel } from "./panels/AlertsPanel";
 import { CapabilityPanel } from "./panels/CapabilityPanel";
 import { OverviewPanel } from "./panels/OverviewPanel";
 import { SessionProgressPanel } from "./panels/SessionProgressPanel";
+import { SkillStepPanel } from "./panels/SkillStepPanel";
 import { TimelinePanel } from "./panels/TimelinePanel";
 import { ContextBar } from "./components/ContextBar";
 import { NAV_GROUPS, pageLabel, type PageId } from "./shell/navigation";
@@ -155,6 +156,7 @@ function Dashboard({
                 isLoading={timelineRead.isLoading}
                 failure={timelineRead.failure}
               />
+              <SkillStepPanel snapshot={snapshotRead.snapshot} />
             </>
           ) : null}
           {page === "timeline" ? (

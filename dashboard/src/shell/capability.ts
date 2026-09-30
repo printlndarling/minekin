@@ -58,10 +58,20 @@ export const CAPABILITY_ROWS: readonly CapabilityRow[] = [
     detail: "没有 framebuffer 采集、媒体鉴权与画面 provenance 之前不渲染任何画面，也不放示例视频。",
   },
   {
-    surface: "心智 / 目标 / 关系 / 模型成本",
+    surface: "自主目标 / 技能步读数 / 失败归因 / 决策来源",
+    state: "live",
+    source: "GET /api/v1/dashboard/snapshot · skillSteps 组",
+    detail:
+      "逐行来自台账 SkillStepRecorded：只在一步结论时落行，读的是最近一步而非执行中的那一步；" +
+      "脚本运行没有自主目标就是具名缺口，没跑过技能就是具名缺口，都不折成空值或 0 步。",
+  },
+  {
+    surface: "人格摘要 / 关系 / 模型调用花费与配置状态",
     state: "gap",
-    source: "缺 PlayerMind 与 Tool Gateway 记账",
-    detail: "Core 尚无权威的人格、目标与成本读数；没有真源就不显示人格摘要或花费数字。",
+    source: "只在 run document 的 mind 段记录",
+    detail:
+      "调用花费（model_calls/model_spent_micro/model_cap_refusals）与模型配置不进台账行；" +
+      "未封的 run 只读面取不到，封证后也要读 bundle 里的 run document，本投影不解析它。没有真源就不显示人格摘要或花费数字。",
   },
   {
     surface: "事件游标与增量订阅",

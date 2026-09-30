@@ -1,6 +1,8 @@
 package org.minekin.bridge.input;
 
 import net.minecraft.client.MinecraftClient;
+import net.minecraft.client.option.KeyBinding;
+import net.minecraft.client.util.InputUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -40,6 +42,50 @@ public final class VanillaKeySink implements KeySink {
     @Override
     public void release(String capability) {
         apply(capability, false);
+    }
+
+    @Override
+    public void tap(String capability) {
+        InputBinding.of(capability)
+                .ifPresentOrElse(
+                        binding -> {
+                            MinecraftClient client = runningClient();
+                            if (client == null) {
+                                LOGGER.warn(
+                                        "bridge could not tap {} because the client no longer exists",
+                                        capability);
+                                return;
+                            }
+                            if (!client.isOnThread()) {
+                                throw new IllegalStateException(
+                                        "Minecraft input may only change on the client thread");
+                            }
+                            KeyBinding target = binding.select(client.options);
+                            // The name a binding answers to is the one the client registered for
+                            // it, so the edge below lands on the key this player chose rather
+                            // than on the default one. A binding the client cannot name is an
+                            // action with no key, and no key event would open anything.
+                            InputUtil.Key key =
+                                    InputUtil.fromTranslationKey(
+                                            target.getBoundKeyTranslationKey());
+                            if (key.equals(InputUtil.UNKNOWN_KEY)) {
+                                LOGGER.warn(
+                                        "bridge could not tap {} because the client has no key"
+                                            + " bound to it",
+                                        capability);
+                                return;
+                            }
+                            // What the window's own key callback leaves for the client's poll:
+                            // the edge first, then the same hand letting go. `setPressed` writes
+                            // only the held state, and a screen that opens on the edge never sees
+                            // it — measured on 1.20.1, where the press and the release were both
+                            // in this log and the window never appeared.
+                            KeyBinding.onKeyPressed(key);
+                            KeyBinding.setKeyPressed(key, false);
+                            LOGGER.info("bridge tapped {}", capability);
+                        },
+                        () -> LOGGER.warn(
+                                "bridge was asked for an input it does not drive: {}", capability));
     }
 
     private void apply(String capability, boolean pressed) {

@@ -100,6 +100,31 @@ export interface EvidenceRef {
   readonly sealedAt: Field<string>;
 }
 
+/**
+ * The `skillSteps` group: the newest `SkillStepRecorded` ledger row of the newest run,
+ * as `gateway/readmodel.py::_skill_steps_group` projects it. Every member is a `Field`
+ * because each one is empty *by construction* for some legal run shape — a scripted
+ * `--skill-plan` run has no goal, a CONFIRMED step has no failure reason, a local
+ * decision never reached a model — and the Gateway renders those as named gaps rather
+ * than as `""` or `0`. `result` and `decisionSource` stay plain strings: they are Core's
+ * own enum tokens projected verbatim, and a new token from Core must render rather than
+ * fail the whole snapshot decode. `modelCost`/`modelConfig` never carry a value: Core
+ * records them only in the run document, which this read surface does not parse.
+ */
+export interface SkillStepInfo {
+  readonly goal: Field<string>;
+  readonly stepIndex: Field<number>;
+  readonly skill: Field<string>;
+  readonly result: Field<string>;
+  readonly reason: Field<string>;
+  readonly attribution: Field<string>;
+  readonly decisionSource: Field<string>;
+  readonly modelRefusal: Field<string>;
+  readonly stepCount: Field<number>;
+  readonly modelCost: Field<string>;
+  readonly modelConfig: Field<string>;
+}
+
 export interface MediaStreamRef {
   readonly available: boolean;
   readonly transport: "webrtc" | "hls" | "mjpeg";
@@ -115,6 +140,7 @@ export interface KinSnapshot {
   readonly serverLink: Signal<LinkState>;
   readonly session: Signal<SessionInfo>;
   readonly world: Signal<WorldInfo>;
+  readonly skillSteps: Signal<SkillStepInfo>;
   readonly versions: Signal<VersionSet>;
   readonly bridgeHeartbeat: Signal<Heartbeat>;
   readonly selfState: Signal<SelfState>;

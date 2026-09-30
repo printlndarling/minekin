@@ -14,13 +14,24 @@ import struct
 from collections.abc import Collection
 
 from minekin_core.adapters.bridge.ipc import BridgeSession
+from minekin_core.domain.control_vocabulary import BASELINE_CAPABILITIES
 from minekin_core.generated.minekin.v1 import (
     envelope_pb2,
     session_pb2,
 )
 
 
-def session() -> BridgeSession:
+def session(
+    capabilities: frozenset[str] = BASELINE_CAPABILITIES,
+) -> BridgeSession:
+    """One peer session, offered `capabilities`.
+
+    The default is the baseline rather than the full vocabulary because the offer is
+    a claim about a particular reviewed Bridge (see `recipe.session_capabilities`),
+    and a shared helper may not make one. A test that wants the S2 verbs passes them,
+    and the hello proves the set it was given.
+    """
+
     return BridgeSession(
         kin_id="kin-1",
         session_id="session-1",
@@ -33,6 +44,7 @@ def session() -> BridgeSession:
         launch_nonce=b"n" * 32,
         session_key=b"k" * 32,
         heartbeat_interval_ms=100,
+        capabilities=capabilities,
     )
 
 

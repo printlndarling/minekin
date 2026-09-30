@@ -23,7 +23,13 @@ from minekin_core.adapters.launcher import process
 from minekin_core.domain import budget
 
 BRIDGE_ROOT = Path(__file__).resolve().parents[2] / "bridge" / "src" / "main" / "java"
-WORKER = BRIDGE_ROOT / "org" / "minekin" / "bridge" / "runtime" / "BridgeIpcWorker.java"
+# The product line's root. S2's observation and action vocabulary lives here and
+# nowhere else, so the checks that must hold in both directions read this tree:
+# the baseline below still refuses every S2 envelope, and pinning its spelling to
+# Core's full vocabulary would assert a capability it does not implement.
+PRODUCT_BRIDGE_ROOT = Path(__file__).resolve().parents[2] / "bridge-1201" / "src" / "main" / "java"
+WORKER = PRODUCT_BRIDGE_ROOT / "org" / "minekin" / "bridge" / "runtime" / "BridgeIpcWorker.java"
+BASELINE_WORKER = BRIDGE_ROOT / "org" / "minekin" / "bridge" / "runtime" / "BridgeIpcWorker.java"
 CLIENT = BRIDGE_ROOT / "org" / "minekin" / "bridge" / "MinekinBridgeClient.java"
 ADMISSION_CONTROLLER = (
     BRIDGE_ROOT / "org" / "minekin" / "bridge" / "runtime" / "ClientAdmissionController.java"
@@ -32,7 +38,30 @@ INPUT_CONTROLLER = (
     BRIDGE_ROOT / "org" / "minekin" / "bridge" / "input" / "BridgeInputController.java"
 )
 METRICS = BRIDGE_ROOT / "org" / "minekin" / "bridge" / "runtime" / "BridgeMetrics.java"
-HANDSHAKE_GATE = BRIDGE_ROOT / "org" / "minekin" / "bridge" / "protocol" / "HandshakeGate.java"
+HANDSHAKE_GATE = (
+    PRODUCT_BRIDGE_ROOT / "org" / "minekin" / "bridge" / "protocol" / "HandshakeGate.java"
+)
+BASELINE_GATE = BRIDGE_ROOT / "org" / "minekin" / "bridge" / "protocol" / "HandshakeGate.java"
+
+# S2's own cells: five action surfaces and one observation surface, named from
+# docs/s2-world-observation-and-actions.md rather than from a root's current source,
+# so that the absence check below cannot be satisfied by deleting a constant.
+S2_CAPABILITY_NAMES = {
+    "AIM_CAPABILITY",
+    "MINE_CAPABILITY",
+    "HOTBAR_CAPABILITY",
+    "SCREEN_CAPABILITY",
+    "GUI_CAPABILITY",
+    "OBSERVE_WORLD_CAPABILITY",
+}
+S2_TYPE_NAMES = {
+    "WORLD_OBSERVATION_TYPE",
+    "AIM_INPUT_TYPE",
+    "MINE_INPUT_TYPE",
+    "HOTBAR_SELECT_INPUT_TYPE",
+    "SCREEN_INPUT_TYPE",
+    "GUI_CLICK_INPUT_TYPE",
+}
 
 _TYPE_CONSTANT = re.compile(r'String\s+(\w+_TYPE)\s*=\s*"([^"]+)"')
 _LABEL_CONSTANT = re.compile(r'String\s+(\w+_LABEL)\s*=\s*"([^"]+)"')
@@ -113,6 +142,30 @@ def test_the_budget_series_labels_are_spelled_the_same_on_both_sides() -> None:
     assert set(declared.values()) == set(budget.BUDGET_LABELS)
 
 
+def test_the_baseline_carries_no_s2_surface_yet() -> None:
+    """Name the 1.21.4 root's real shape instead of letting the pins above imply it.
+
+    The two both-directions checks read the product root, so nothing would stop this
+    file from implying the regression baseline had S2 too. It has not: the 1.21.4 root
+    routes the S1 set and refuses every S2 envelope at the gate, so it declares none of
+    these names. Asserting the absence is the honest half of the parity claim, and a
+    future port of S2 onto that root has to renew this cell together with the digest it
+    would move.
+    """
+
+    baseline_caps = set(_constants(BASELINE_GATE, _CAPABILITY))
+    baseline_types = set(_constants(BASELINE_WORKER, _TYPE_CONSTANT))
+
+    assert not (baseline_caps & S2_CAPABILITY_NAMES), sorted(baseline_caps & S2_CAPABILITY_NAMES)
+    assert not (baseline_types & S2_TYPE_NAMES), sorted(baseline_types & S2_TYPE_NAMES)
+    # The baseline's own spelling still has to match Core's, or a run on it would
+    # negotiate names Core never offered.
+    for name, value in _constants(BASELINE_GATE, _CAPABILITY).items():
+        assert getattr(ipc, name) == value, name
+    for name, value in _constants(BASELINE_WORKER, _TYPE_CONSTANT).items():
+        assert getattr(ipc, name) == value, name
+
+
 def test_the_capability_vocabulary_is_spelled_the_same_on_both_sides() -> None:
     """What may be negotiated, and the names two processes have to agree on first.
 
@@ -122,7 +175,9 @@ def test_the_capability_vocabulary_is_spelled_the_same_on_both_sides() -> None:
     offers something the Bridge never accepts, or the Bridge refuses a command it had
     already negotiated, and both arrive as a protocol violation rather than as a
     rename. That is the failure this file exists for, and it was covered for message
-    types and for the movement flags but not for the six identifiers themselves.
+    types and for the movement flags but not for the identifiers themselves. Read
+    from the product root, which is the one that negotiates all twelve; the
+    baseline's smaller set is pinned by name in the test above.
 
     Compared by constant *name* rather than as two sets of strings, because a name is
     what says which capability moved: `{"a","b"} != {"a","c"}` says something

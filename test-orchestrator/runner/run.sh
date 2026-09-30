@@ -23,6 +23,9 @@
 #         MINEKIN_SERVER_JAR=<path> bash test-orchestrator/runner/run.sh domain \
 #             session start --profile <bundle> --server-profile <server profile>
 #
+# MINEKIN_RUNNER_FORWARD_ENV=<NAME,NAME> hands those host variables into a domain run by
+# name — the shape an operator uses to get their model's key variable inside the container
+# without this repository ever naming it or printing its value.
 set -euo pipefail
 
 # On MSYS the shell rewrites anything that looks like a path before docker sees
@@ -183,6 +186,13 @@ if [[ "${1:-}" == "domain" ]]; then
         # refusals live in `domain.sh`, and — like every name above — this line
         # casts no default of its own.
         -e MINEKIN_DOMAIN_PROBE_SECOND
+        # The world-skill run's breakable resource, forwarded the same bare way. It is
+        # a knob `domain.sh` reads, so it must be named here: undelivered it arrives
+        # empty, `domain.sh` takes its "not asked for" branch, and the run completes on
+        # the trunk-less flat world it was never meant to demonstrate — the exact defect
+        # H1j, H1l and H1o closed for the names around it. The append and the three
+        # named refusals live in `domain.sh`; this line casts no default of its own.
+        -e MINEKIN_DOMAIN_RESOURCE_TRUNK
         # The two seal-handover switches of the probe-target carrier. Forwarding them
         # is the whole of this wrapper's involvement: the value casting, the triple
         # and pair of named refusals all live in `domain.sh`, and these lines invent
@@ -195,7 +205,37 @@ if [[ "${1:-}" == "domain" ]]; then
         # unset in the container, and the joiner's seal command stays byte-for-byte
         # the trunk one.
         -e MINEKIN_DOMAIN_SEAL_JOINER_SERVER_LOG
-        -e MINEKIN_DOMAIN_SEAL_PROBED_PLAYERS)
+        -e MINEKIN_DOMAIN_SEAL_PROBED_PLAYERS
+        # The PlayerMind's own configuration. These are the names `model_access.py`
+        # reads, and none of them is a credential: `MINEKIN_MODEL_API_KEY_ENV` names the
+        # variable that holds the key, and the key itself arrives by that name through
+        # MINEKIN_RUNNER_FORWARD_ENV below. Forwarded by name for the same reason as
+        # every knob above — undelivered a knob arrives empty, the mind takes its
+        # "no model configured" branch, and the run then reports a decision it made
+        # locally as though the operator's model had been asked. `MINEKIN_PERSONA_SEED`
+        # belongs here for the same reason: an unseeded persona is a different Kin.
+        -e MINEKIN_MODEL_PROVIDER -e MINEKIN_MODEL_BASE_URL -e MINEKIN_MODEL
+        -e MINEKIN_MODEL_API_KEY_ENV -e MINEKIN_MODEL_TIMEOUT_MS
+        -e MINEKIN_MODEL_RUN_COST_CAP
+        -e MINEKIN_PERSONA_SEED)
+    # The operator's own credential variable, named by them and never by this script.
+    # A key must not be written into the repository or a log, so there is no flag for a
+    # value here: `MINEKIN_RUNNER_FORWARD_ENV` carries comma-separated variable NAMES and
+    # each is passed as `-e NAME`, which is docker's own "forward the host's value for
+    # this name". Nothing prints a value, and the repo never learns what the name is.
+    if [[ -n "${MINEKIN_RUNNER_FORWARD_ENV:-}" ]]; then
+        IFS=',' read -r -a forward_names <<<"${MINEKIN_RUNNER_FORWARD_ENV}"
+        for forward_name in "${forward_names[@]}"; do
+            if [[ ! "${forward_name}" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+                # Refused rather than passed: a name that is not an identifier would carry
+                # a flag or a value into docker's argument list, and this wrapper has no
+                # business interpreting what the operator typed.
+                echo "MINEKIN_RUNNER_FORWARD_ENV must hold comma-separated variable names (letters, digits, underscore; not starting with a digit): ${forward_name}" >&2
+                exit 2
+            fi
+            EXTRA_ARGS+=(-e "${forward_name}")
+        done
+    fi
     if [[ "${world}" -eq 1 ]]; then
         EXTRA_ARGS+=(-v "${SERVER_JAR}:/server/server.jar:ro")
     fi

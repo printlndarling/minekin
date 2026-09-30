@@ -33,6 +33,7 @@ from minekin_core.domain.information_class import (
     DTO_INFORMATION_CLASSES,
     HOST_LIFECYCLE,
     INITIAL_OBSERVATION,
+    WORLD_OBSERVATION,
     CognitionRefusal,
     InformationClass,
     admit_to_cognition,
@@ -47,6 +48,13 @@ REVIEWED_CLASSES = {
     INITIAL_OBSERVATION: InformationClass.PLAYER_EQUIVALENT,
     CONNECTION_LIFECYCLE: InformationClass.PLAYER_EQUIVALENT,
     ACTION_RESULT: InformationClass.PLAYER_EQUIVALENT,
+    # The recurring player-equivalent reading: the same snapshot's client state,
+    # re-read on a cadence. It carries nothing the first snapshot withheld — same
+    # health, same inventory, same seen entities — so its class is not a new
+    # decision about what the Kin may know, and the review here is that it is the
+    # *same* decision made once, in the table, rather than a special case in a
+    # router. A player sees this every tick by playing; no gate is being widened.
+    WORLD_OBSERVATION: InformationClass.PLAYER_EQUIVALENT,
     HOST_LIFECYCLE: InformationClass.MANAGEMENT_ONLY,
     # The Bridge's own callback cost. Management-only for a different reason than
     # the hosting status is: nobody could have seen it by playing, and it is a

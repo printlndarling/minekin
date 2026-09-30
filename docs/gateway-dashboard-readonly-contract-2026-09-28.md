@@ -196,3 +196,17 @@ D1 把 alerts 解码成裸数组（`gatewayAdapter.ts:334-371`），而 Core 没
 - **哪些 run document 拒止算「告警」**是产品语义（`cognition_refusals`、`report_refusals`、`snapshot_rejections`、`input_refusal` 都在文档里，但没人规定阈值）。⇒ §5.3 先按「无源」封住，等有决定再开。
 - **跨 bundle / 跨世界的长期视图**（Live View、多 Kin 总览）仍在本契约之外：`P2 媒体` 与 `HOST/PERSIST` 各守原决策门。
 - 本卡的门读数（`ruff check`/`ruff format --check`/`git diff --check`、门载荷是否移动）与这笔提交自身的 CI，写在 `docs/v1201-lan-control-next-2026-09-27.md` §2.74 与 `docs/qoder-execution-handoff.md` 第七十九轮，不在这里预先宣称。
+
+## 9. 修订（2026-09-30）：台账新增 `SkillStepRecorded`，快照新增 `skillSteps` 组
+
+本节是追加修订，上文各节字节不动。Core 侧（只读参照，非本卡面）已在 `src/minekin_core/adapters/sqlite/session_log.py` 加上事件类型 `SKILL_STEP_RECORDED = "SkillStepRecorded"`，并在 `src/minekin_core/cli/session.py` 的 `on_run_skills` 里**每个结论了的世界技能步骤**向同一枚台账追加一行，payload 键全为 JSON 标量：`step_index`（1 起的 int）、`skill`、`result`、`reason`、`action_id`、`attribution`、`decision_source`、`model_refusal`、`goal`。`result` 是 Core 由**后续世界读数**判出的 verdict，三值 `CONFIRMED/FAILED/UNKNOWN`，不是 Bridge 上报的 `SUCCEEDED`。
+
+冻结口径的增量与不变量：
+
+- **读源与路由计数不变**：还是 §2.1 的三条 GET，`skillSteps` 取自既有的台账只读路径（`connect_reader`，窗口 `LEDGER_WINDOW = 400`），不新增读源、不新增端点、不读活 Bridge / 其它进程 / argv。`SNAPSHOT_SCHEMA_VERSION` 保持 `kin-dashboard-readmodel/1.0.0` 不升——升版会让两侧落地前的每一读假红，与本组「向后兼容缺组字节」的解码规则（末条）二选一即可。
+- **快照组 `skillSteps`**（`gateway/readmodel.py` `_skill_steps_group`，信封 `known`，`observedAt` = 最近一行的 `observed_at_utc`，`staleAfterMs = null`：与 §3 `bridgeHeartbeat.lastObservedAt` 同一口径——它是台账时间，不按时间判陈旧）。值成员恰 11 个（camelCase）：`goal / stepIndex / skill / result / reason / attribution / decisionSource / modelRefusal / stepCount / modelCost / modelConfig`，每个都是 §2.2 第 4 条同族的 `{value}` 或 `{gap}` 成员。投影走**具名 allowlist**（`_SKILL_STEP_DETAIL_FIELDS`，timeline 的 detail 同源）：`action_id` 按 §4 的恒规属台账内部标识，**绝不进面板**——两侧（`readmodel` 测试与 `gatewayAdapter.ts` `parseSkillSteps` 的 canary）各有一条测试钉住它出现即整读拒绝。
+- **具名缺口的两档语义**（措辞是 `readmodel.py` 的模块常量，`dashboard/src/fixtures/mockFixtures.ts` 逐字镜像，防两侧漂移）：Core **按构造**写了空串的成员渲染为 `unavailable` 具名缺口而不是空值——脚本运行（`--skill-plan`，`decision_source = OPERATOR_PLAN`）的 `goal`、`CONFIRMED` 步的 `reason` 与 `attribution`、非模型决策或模型作答了的 `model_refusal`；行里缺失/形状不符的才是 `unknown`。`modelCost` 与 `modelConfig` 恒为 `not_wired`：调用花费（`model_calls / model_spent_micro / model_cap_refusals`）与模型配置状态只在 run document 的 mind 段记录，技能步行与已封 bundle 的清单都不携带，本投影不解析 run document。
+- **不折零**：该 kin 台账里没有这类行 ⇒ 整组 `unknown` 缺口（「台账里没有技能步行（SkillStepRecorded）：最近这个 run 没有跑过世界技能——只连接、只演示输入的运行不会有这类行，这里不把它折成「0 步」。」），而不是 `stepCount: 0` 的假事实。`stepCount` 只在 400 行窗口**未满**时是确切值；窗满则降级为带窗内读数的 `unknown`（确切总步数不可得）。
+- **时间线**：`SkillStepRecorded` 加入 `TIMELINE_READING`（kind `intent`），outcome 按 verdict 映射 `CONFIRMED→applied / FAILED→rejected / UNKNOWN→unknown`；它不进 `_BRIDGE_ROWS`/`_SERVER_ROWS`/`END_OF_RUN` 任何一组——一步结论既不是链接态也不是会话边界。
+- **读端向后兼容**：§6.3 固化的逐字历史捕获（`dashboard/src/test/realGatewayWire.ts`）没有 `skillSteps` 键。解码规则：键缺失 ⇒ 合成组级 `not_wired` 缺口（`sourceRef = "snapshot://absent/skillSteps"`，理由具名「产自加上该投影之前的 Gateway」），**不**判 `contract_mismatch`、**不**重采捕获、**不**改捕获字节；键存在但形状不符 ⇒ 照 §2.2 整读失败关闭。`result`/`decisionSource` 在 Dashboard 侧解码为普通字符串而非钉死枚举：Core 日后新增 verdict 词时按原值渲染，而不是把整份快照拒红（有一条测试专门钉这一点）。
+- **锚点**：Gateway 侧 `tests/unit/test_gateway_readmodel.py`（新行投影最近步 + 计数、脚本运行的 goal 缺口、无行 kin 的组缺口、timeline 判别含 `action_id` 不外泄）；Dashboard 侧 `contractDecoder.test.ts`（缺组旧字节 / 带组新字节 / 成员判别 / 新 token）、`panels/skillStepPanel.test.tsx`、`fixtures.test.ts`、`App.test.tsx`。面板 `SkillStepPanel.tsx` 挂在总览页会话进度之后；能力表（`shell/capability.ts`）把「自主目标 / 技能步读数 / 失败归因 / 决策来源」登记为 live 行，「人格摘要 / 关系 / 模型调用花费与配置状态」留在缺口行——有真源的与没有真源的不混在一格。

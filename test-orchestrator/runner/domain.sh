@@ -181,6 +181,14 @@ esac
 # is a block the ray cannot miss at any distance — one the Kin walks into and
 # stops against, which is also the walk-and-stop this harness waits for.
 use_target="${MINEKIN_DOMAIN_USE_TARGET:-}"
+# A breakable resource stacked in the Kin's look, for a world-skill run whose first
+# step is `break_seen_block`. The controlled world is flat and fixed-seed, so it grows
+# no trees and there is nothing for the Kin to see and break; this puts three oak logs
+# there. `tools/run_controlled_server.py` writes them once, at the same moment the use
+# target is owed, and the reasons it picks oak_log and three blocks out are given there.
+# Default-off: unset adds nothing to the probe arguments, exactly what every run did
+# before this knob existed.
+resource_trunk="${MINEKIN_DOMAIN_RESOURCE_TRUNK:-}"
 # A session that is meant to *host*: the client is put in a world it owns and asked to
 # publish it to LAN. The port is named rather than chosen by the client, because the
 # point of publishing is that something else can be pointed at it — and a client that
@@ -943,6 +951,29 @@ if [[ -n "${probe_second}" ]]; then
 fi
 # --- second-probe-guard end ---
 #
+# The trunk's own two refusals, said at the same point the second name's are — before
+# the server's run directory is numbered, before the JVM, before anything this run could
+# leave on disk. `tools/run_controlled_server.py` refuses the same shapes as its backstop.
+#
+#   * `MINEKIN_DOMAIN_PROBE_SECOND` makes two probed names, and the trunk goes into one
+#     kin's look, so the pair does not say whose look the logs are stacked in — the same
+#     reason `MINEKIN_DOMAIN_USE_TARGET` is refused against the second name above;
+#   * `MINEKIN_DOMAIN_USE_TARGET` already puts a block in that same look, and two blocks
+#     in one look do not say which one the Kin is supposed to break.
+# --- resource-trunk-guard begin (the contract test extracts this region) ---
+if [[ -n "${resource_trunk}" ]]; then
+    if [[ -n "${probe_second}" ]]; then
+        printf 'domain: MINEKIN_DOMAIN_RESOURCE_TRUNK stacks oak logs in the look of one probed kin and MINEKIN_DOMAIN_PROBE_SECOND adds a second probed name (%s); the pair does not say whose look the trunk is placed in -- refused here, before anything is written\n' \
+            "${probe_second}" >&2
+        exit 2
+    fi
+    if [[ -n "${use_target}" ]]; then
+        printf 'domain: MINEKIN_DOMAIN_RESOURCE_TRUNK and MINEKIN_DOMAIN_USE_TARGET both put a block in the look of one probed kin; two blocks in the same look do not say which one the Kin is supposed to break -- refused here, before anything is written\n' >&2
+        exit 2
+    fi
+fi
+# --- resource-trunk-guard end ---
+#
 # The second name, when the run named one, is *appended* after the first and
 # never put in its place: the first name is what the judgement gates above read.
 # With the knob unset the branch below does not run, and `probe_args` stays
@@ -956,6 +987,14 @@ fi
 if [[ -n "${use_target}" ]]; then
     probe_args+=(--use-target)
 fi
+# The trunk, when the run asked for one, appended the same default-off way the second
+# name and the use target are: unset, this branch does not run and `probe_args` stays
+# byte-identical to what it was before the knob existed.
+# --- resource-trunk-forge begin (the contract test extracts this region) ---
+if [[ -n "${resource_trunk}" ]]; then
+    probe_args+=(--resource-trunk)
+fi
+# --- resource-trunk-forge end ---
 #
 # Who this run asked the server about, for the bundle that has to say so
 # (V1201-PROBE-TARGET-HANDOVER-001, cell 2).

@@ -34,6 +34,11 @@ final class BridgeInputControllerTest {
         public void release(String capability) {
             events.add("release:" + capability);
         }
+
+        @Override
+        public void tap(String capability) {
+            events.add("tap:" + capability);
+        }
     }
 
     private static final class RecordingView implements ViewSink {

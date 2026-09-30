@@ -24,6 +24,7 @@ import {
   type SelfState,
   type SessionInfo,
   type SessionMode,
+  type SkillStepInfo,
   type TimelineEvent,
   type TimelineKind,
   type TimelineOutcome,
@@ -320,6 +321,58 @@ function parseEvidence(raw: unknown, issues: string[]): EvidenceRef | null {
   return { runId, attempt, bundleDigest, sealedAt };
 }
 
+/**
+ * The `skillSteps` group as `gateway/readmodel.py::_skill_steps_group` answers it.
+ * Every member is a `{value}`/`{gap}` field on the wire — the projection names its
+ * own empties (a scripted run's goal, a confirmed step's reason) instead of sending
+ * `""`, so there is no defaulted branch here either. `result` and `decisionSource`
+ * decode as plain strings rather than pinned enums: they are Core's tokens passed
+ * through verbatim, and a token Core adds later must render rather than fail-close
+ * the whole snapshot.
+ */
+function parseSkillSteps(raw: unknown, issues: string[]): SkillStepInfo | null {
+  const rec = asRecord(raw);
+  if (rec === null) {
+    issues.push("skillSteps: 期望 object");
+    return null;
+  }
+  // §4 rule 1 taken literally: the allowlist is the whole projected surface, and the two
+  // ledger-internal identifiers a SkillStepRecorded row carries must not reach a panel.
+  // Like `selfState`'s refused `dimension`/`guiOpen`, a response carrying them is a
+  // contract mismatch, not something to silently drop.
+  if ("action_id" in rec || "lease_id" in rec || "actionId" in rec || "leaseId" in rec) {
+    issues.push("skillSteps.value: 台账内部标识 action_id/lease_id 不得进投影");
+    return null;
+  }
+  const goal = decodeField(rec.goal, "skillSteps.goal", issues, parseString);
+  const stepIndex = decodeField(rec.stepIndex, "skillSteps.stepIndex", issues, asInteger);
+  const skill = decodeField(rec.skill, "skillSteps.skill", issues, parseString);
+  const result = decodeField(rec.result, "skillSteps.result", issues, parseString);
+  const reason = decodeField(rec.reason, "skillSteps.reason", issues, parseString);
+  const attribution = decodeField(rec.attribution, "skillSteps.attribution", issues, parseString);
+  const decisionSource = decodeField(rec.decisionSource, "skillSteps.decisionSource", issues, parseString);
+  const modelRefusal = decodeField(rec.modelRefusal, "skillSteps.modelRefusal", issues, parseString);
+  const stepCount = decodeField(rec.stepCount, "skillSteps.stepCount", issues, asInteger);
+  const modelCost = decodeField(rec.modelCost, "skillSteps.modelCost", issues, parseString);
+  const modelConfig = decodeField(rec.modelConfig, "skillSteps.modelConfig", issues, parseString);
+  if (
+    goal === null ||
+    stepIndex === null ||
+    skill === null ||
+    result === null ||
+    reason === null ||
+    attribution === null ||
+    decisionSource === null ||
+    modelRefusal === null ||
+    stepCount === null ||
+    modelCost === null ||
+    modelConfig === null
+  ) {
+    return null;
+  }
+  return { goal, stepIndex, skill, result, reason, attribution, decisionSource, modelRefusal, stepCount, modelCost, modelConfig };
+}
+
 function bareField<T>(
   rec: Record<string, unknown>,
   key: string,
@@ -367,6 +420,21 @@ export function decodeSnapshotPayload(raw: unknown, source: DataSourceKind = "ga
   const serverLink = decodeAndType<LinkState>(rec.serverLink, "serverLink", issues, (v) => oneOf(v, LINK_STATES), source);
   const session = decodeAndType<SessionInfo>(rec.session, "session", issues, parseSession, source);
   const world = decodeAndType<WorldInfo>(rec.world, "world", issues, parseWorld, source);
+  // `skillSteps` is the one group that may be legitimately ABSENT from the bytes: the
+  // verbatim historical captures in `src/test/realGatewayWire.ts` were frozen before this
+  // projection landed, and they must keep decoding. A missing key therefore synthesizes a
+  // group-level `not_wired` gap naming its absence — the same two-level rule the contract
+  // applies inside a known group, lifted to the group itself. A key that IS present must
+  // still decode strictly.
+  const skillSteps: Signal<SkillStepInfo> | null =
+    rec.skillSteps === undefined
+      ? gap("not_wired", "响应字节里没有 skillSteps 组：这枚快照产自加上该投影之前的 Gateway。", {
+          source,
+          sourceRef: "snapshot://absent/skillSteps",
+          observedAt: null,
+          staleAfterMs: null,
+        })
+      : decodeAndType<SkillStepInfo>(rec.skillSteps, "skillSteps", issues, parseSkillSteps, source);
   const versions = decodeAndType<VersionSet>(rec.versions, "versions", issues, parseVersions, source);
   const bridgeHeartbeat = decodeAndType<Heartbeat>(rec.bridgeHeartbeat, "bridgeHeartbeat", issues, parseHeartbeat, source);
   const selfState = decodeAndType<SelfState>(rec.selfState, "selfState", issues, parseSelfState, source);
@@ -380,6 +448,7 @@ export function decodeSnapshotPayload(raw: unknown, source: DataSourceKind = "ga
     serverLink === null ||
     session === null ||
     world === null ||
+    skillSteps === null ||
     versions === null ||
     bridgeHeartbeat === null ||
     selfState === null ||
@@ -399,6 +468,7 @@ export function decodeSnapshotPayload(raw: unknown, source: DataSourceKind = "ga
       serverLink,
       session,
       world,
+      skillSteps,
       versions,
       bridgeHeartbeat,
       selfState,

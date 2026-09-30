@@ -22,6 +22,13 @@ from minekin_core.adapters.launcher.provision import (
     reviewed_entry,
 )
 from minekin_core.adapters.system.clock import SystemClock
+from minekin_core.application.autonomous_play import DEFAULT_STEP_BUDGET, AutonomousAsk
+from minekin_core.application.player_mind import SKILL_OFFER
+from minekin_core.application.skill_plan import (
+    SkillPlan,
+    SkillPlanError,
+    parse_skill_plan,
+)
 from minekin_core.cli.auto_session import prepare_auto_bundle_start, require_spendable_budget
 from minekin_core.cli.doctor import diagnose
 from minekin_core.cli.evidence import verify_run
@@ -33,6 +40,7 @@ from minekin_core.cli.server_probe import probe_exit_ok, run_probe
 from minekin_core.cli.session import (
     DEFAULT_CONNECTION_TIMEOUT_S,
     DEFAULT_HANDSHAKE_TIMEOUT_S,
+    DEFAULT_SKILL_STEP_TIMEOUT_S,
     run_root,
     select_kin,
     start_and_supervise,
@@ -56,6 +64,7 @@ from minekin_core.domain.errors import (
     fail_closed,
 )
 from minekin_core.domain.ids import KinId, SessionId
+from minekin_core.domain.model_access import model_config
 
 # A run that ended because the client left is the command succeeding; anything
 # else is why it did not.
@@ -174,6 +183,71 @@ def _identity_rename(args: argparse.Namespace, *, stdout: TextIO, stderr: TextIO
     return int(ExitCode.OK)
 
 
+def _skill_plan_inputs(args: argparse.Namespace) -> tuple[SkillPlan | None, float]:
+    """Read `--skill-plan` and `--skill-step-seconds` into the session's two arguments.
+
+    The file is opened here, at the edge, and an unusable one is refused here: a
+    plan is an operator's document and a typo in it is theirs to fix, so the
+    answer has to come back before a client is started for it. The parse's own
+    words are kept, because they already name which entry and which field.
+    """
+
+    path = args.skill_plan
+    plan = None
+    if path is not None:
+        try:
+            document = json.loads(Path(path).read_text(encoding="utf-8"))
+            plan = parse_skill_plan(document, source=str(path))
+        except (OSError, ValueError, SkillPlanError) as error:
+            raise MinekinError(
+                "cli",
+                "session start",
+                ErrorCategory.CONFIG,
+                Retryability.OPERATOR_ACTION,
+                f"--skill-plan is not a usable plan: {error}",
+            ) from error
+    step_seconds = (
+        DEFAULT_SKILL_STEP_TIMEOUT_S
+        if args.skill_step_seconds is None
+        else float(args.skill_step_seconds)
+    )
+    return plan, step_seconds
+
+
+def _autonomous_ask(args: argparse.Namespace, skill_step_seconds: float) -> AutonomousAsk | None:
+    """Read `--autonomous` into the ask that replaces a plan.
+
+    The offered set is the shipped one rather than something an operator re-picks
+    per run: what this flag bounds is how many times the Kin may change its mind,
+    not which skills exist, and an offer the lease never covered would be refused
+    mid-run by the arbiter.
+
+    The model configuration is read here, before the run resolves anything, and
+    left unread otherwise. A half-entered provider is the operator's to fix, and a
+    run that finds out only after it has launched a client has spent a world to
+    say what an environment variable already did.
+    """
+
+    if args.autonomous_steps is not None and not args.autonomous:
+        raise MinekinError(
+            "cli",
+            "session start",
+            ErrorCategory.CONFIG,
+            Retryability.OPERATOR_ACTION,
+            "--autonomous-steps is only meaningful with --autonomous",
+        )
+    if not args.autonomous:
+        return None
+    model_config()
+    return AutonomousAsk(
+        skills=SKILL_OFFER,
+        step_budget=(
+            DEFAULT_STEP_BUDGET if args.autonomous_steps is None else int(args.autonomous_steps)
+        ),
+        step_seconds=skill_step_seconds,
+    )
+
+
 def _session_start_auto(args: argparse.Namespace, *, stdout: TextIO, stderr: TextIO) -> int:
     """`session start --auto-bundle`: resolve the target, then launch what it resolved to.
 
@@ -210,6 +284,11 @@ def _session_start_auto(args: argparse.Namespace, *, stdout: TextIO, stderr: Tex
         if done == total or done % 100 == 0:
             print(f"fetching {done}/{total}", file=stderr, flush=True)
 
+    # Read before the fetch: an unusable plan should not be discovered after
+    # thousands of artifacts have already been pulled down for a run that cannot
+    # start.
+    skill_plan, skill_step_seconds = _skill_plan_inputs(args)
+    autonomous = _autonomous_ask(args, skill_step_seconds)
     decision = prepare_auto_bundle_start(
         registry_path=Path(args.auto_bundle),
         server_profile=Path(args.server_profile),
@@ -258,6 +337,9 @@ def _session_start_auto(args: argparse.Namespace, *, stdout: TextIO, stderr: Tex
             ),
             open_lan=bool(args.open_lan),
             open_lan_port=int(args.open_lan_port),
+            skill_plan=skill_plan,
+            skill_step_seconds=skill_step_seconds,
+            autonomous=autonomous,
         )
     )
     _emit(
@@ -398,6 +480,8 @@ def run(
                 stderr,
             )
             return int(ExitCode.USAGE)
+        skill_plan, skill_step_seconds = _skill_plan_inputs(args)
+        autonomous = _autonomous_ask(args, skill_step_seconds)
         launch, run = asyncio.run(
             start_and_supervise(
                 root=data_root(),
@@ -443,6 +527,9 @@ def run(
                 ),
                 open_lan=bool(args.open_lan),
                 open_lan_port=int(args.open_lan_port),
+                skill_plan=skill_plan,
+                skill_step_seconds=skill_step_seconds,
+                autonomous=autonomous,
             )
         )
         _emit({**launch.as_dict(), "run": run.as_dict()}, stdout)

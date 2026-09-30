@@ -12,11 +12,26 @@
 # Usage:
 #   MINEKIN_SERVER_JAR=<path> bash test-orchestrator/runner/demo.sh
 #   MINEKIN_SERVER_JAR=<path> bash test-orchestrator/runner/demo.sh --again
+#   MINEKIN_SERVER_JAR=<path> bash test-orchestrator/runner/demo.sh --skills
+#   MINEKIN_SERVER_JAR=<path> bash test-orchestrator/runner/demo.sh --autonomous
 #   bash test-orchestrator/runner/demo.sh --gateway
 #   bash test-orchestrator/runner/demo.sh --browse
 #
 # `--again` is the repeat-start check: same volume, same Kin root, so the store is
-# already filled and the run should go straight to the world. `--gateway` serves
+# already filled and the run should go straight to the world. `--skills` runs the world-
+# skill plan (`examples/skill-plan-gather-and-craft.json`) instead of the scripted walk
+# and turn: it asks the world for a breakable trunk (`MINEKIN_DOMAIN_RESOURCE_TRUNK`,
+# which stacks oak logs in the Kin's look because the flat fixed-seed world grows no
+# trees) and hands the session `--skill-plan` rather than `--hold-forward-seconds`/
+# `--look-yaw-degrees`, so the Kin acts only on what its own observation reported.
+# `--autonomous` hands the session `--autonomous` instead of a plan, and that is the
+# whole difference: nobody names the steps. The PlayerMind picks a goal from what the
+# Kin can currently see and has, asks for one skill, and reads the next observation to
+# decide whether the world agreed — so the sequence this run performs is a result of
+# the run rather than an input to it, and an operator cannot say beforehand which skills
+# it will attempt. It gets the same trunk ask, because a mind with nothing in view has
+# nothing to choose. `MINEKIN_DEMO_AUTONOMOUS_STEPS` bounds how many skills it may try.
+# `--gateway` serves
 # the read-only Dashboard projection over whatever this demo's volume holds and
 # publishes it on this machine's loopback, which is what lets a browser on the host
 # read the session the demo just ran. `--browse` is that plus the panel: it brings up
@@ -29,9 +44,17 @@
 #   MINEKIN_DEMO_USERNAME    the account the world admits           (Kin)
 #   MINEKIN_DEMO_SERVER_PROFILE  in-container Server Profile path   (the 1.20.1 controlled one)
 #   MINEKIN_DEMO_REGISTRY    in-container bundle registry path      (the reviewed tested bundles)
+#   MINEKIN_DEMO_BUNDLE_PROFILE  name a bundle profile instead of a registry: the run admits
+#                                exactly one bundle source, so setting this stops --auto-bundle
+#                                from being passed and refuses the run if the registry was also
+#                                named by hand. It exists for the shape where the bundle's bytes
+#                                have moved and its sealed evidence has not been renewed yet: the
+#                                registry is then a truthful refusal, not a bug to route around,
+#                                and the local demo still has a reproducible entry.
 #   MINEKIN_DEMO_MAX_BYTES   what an automatic bundle fill may fetch (2000000000)
 #   MINEKIN_DEMO_WALK_SECONDS  how long the forward key is held     (8)
 #   MINEKIN_DEMO_TURN_DEGREES  how far the run looks to the right   (45)
+#   MINEKIN_DEMO_AUTONOMOUS_STEPS  how many skills --autonomous may attempt (12)
 #   MINEKIN_DEMO_SECONDS     how long the session may take          (2700 clean / 600 repeat)
 #   MINEKIN_DEMO_HANDSHAKE_SECONDS  how long the client's Bridge has to prove
 #                                  its session once the JVM is launched     (90)
@@ -57,9 +80,26 @@ KIN="${MINEKIN_DEMO_KIN:-kin-local-demo}"
 USERNAME="${MINEKIN_DEMO_USERNAME:-Kin}"
 SERVER_PROFILE="${MINEKIN_DEMO_SERVER_PROFILE:-/src/tests/fixtures/runtime-input/controlled-offline-server-1.20.1.json}"
 REGISTRY="${MINEKIN_DEMO_REGISTRY:-/src/tests/fixtures/registry/reviewed-tested-bundles.json}"
+# Which bundle source the session is given. Only one may be named, and the CLI's own
+# admission refuses a run that names both, so this decides it here rather than letting
+# the argument list carry two sources to a process that will reject them.
+BUNDLE_PROFILE="${MINEKIN_DEMO_BUNDLE_PROFILE:-}"
+if [ -n "${BUNDLE_PROFILE}" ] && [ -n "${MINEKIN_DEMO_REGISTRY:-}" ]; then
+    printf 'demo: MINEKIN_DEMO_BUNDLE_PROFILE names a bundle profile and MINEKIN_DEMO_REGISTRY names a registry; one run admits exactly one bundle source.\n' >&2
+    printf '      Drop one of them -- the profile is the evidence-neutral read, the registry is the sealed-evidence one.\n' >&2
+    exit 2
+fi
 MAX_BYTES="${MINEKIN_DEMO_MAX_BYTES:-2000000000}"
 WALK_SECONDS="${MINEKIN_DEMO_WALK_SECONDS:-8}"
 TURN_DEGREES="${MINEKIN_DEMO_TURN_DEGREES:-45}"
+# The skill plan `--skills` hands the session. The repository is mounted read-only at
+# `/src` inside the runner, so the in-container path is what the CLI is given.
+SKILL_PLAN="${MINEKIN_DEMO_SKILL_PLAN:-/src/examples/skill-plan-gather-and-craft.json}"
+# How many skills the autonomous run may attempt. Core's own budget default is 24; the
+# demo asks for half of that because a step is a real action in a real world and a wrong
+# one costs its timeout, so a bound the operator can read in the command line beats one
+# that only appears in the run document.
+AUTONOMOUS_STEPS="${MINEKIN_DEMO_AUTONOMOUS_STEPS:-12}"
 PROBE_SECONDS="${MINEKIN_DEMO_PROBE_SECONDS:-1}"
 DEMO_CASE="${MINEKIN_DEMO_CASE:-}"
 KILL_PLAYER="${MINEKIN_DEMO_KILL:-}"
@@ -116,14 +156,39 @@ PANEL_PORT="${MINEKIN_DEMO_PANEL_PORT:-5175}"
 command="${1:-}"
 case "${command}" in
     --again) command="again" ;;
+    --skills) command="skills" ;;
+    --autonomous) command="autonomous" ;;
     --gateway) command="gateway" ;;
     --browse) command="browse" ;;
     "") command="clean" ;;
     *)
-        printf 'demo: unknown argument %q (expected --again, --gateway, --browse, or nothing)\n' "${command}" >&2
+        printf 'demo: unknown argument %q (expected --again, --skills, --autonomous, --gateway, --browse, or nothing)\n' "${command}" >&2
         exit 2
         ;;
 esac
+
+case "${AUTONOMOUS_STEPS}" in
+    '' | *[!0-9]*)
+        printf 'demo: MINEKIN_DEMO_AUTONOMOUS_STEPS must be a whole number of skills, got %q.\n' \
+            "${AUTONOMOUS_STEPS}" >&2
+        exit 2
+        ;;
+esac
+if [ -n "${BUNDLE_PROFILE}" ]; then
+    # The value is an in-container path, and `/src` is this repository, so the file has
+    # to be found under the name the container will read it by. Checked here rather than
+    # left for the CLI because a profile that names nothing on disk would carry all the
+    # way to the admission step and stop the run there: same refusal, worse sentence.
+    host_path="${BUNDLE_PROFILE}"
+    case "${BUNDLE_PROFILE}" in
+        /src/*) host_path="${REPOSITORY_ROOT}/${BUNDLE_PROFILE#/src/}" ;;
+    esac
+    if [ ! -f "${host_path}" ] && [ ! -f "${BUNDLE_PROFILE}" ]; then
+        printf 'demo: MINEKIN_DEMO_BUNDLE_PROFILE=%s names no file (%s is not readable from here).\n' \
+            "${BUNDLE_PROFILE}" "${host_path}" >&2
+        exit 2
+    fi
+fi
 
 # One bound covers both waits the runner makes — becoming playable and the world
 # seeing the walk — and only the first one is affected by whether the store has
@@ -131,8 +196,9 @@ esac
 # fetching the bundle the registry names (about 740 MB), so 240 seconds is a
 # window that expires while the download is still in flight and reports "never
 # became playable" about a client that had not been launched yet. A repeat run
-# resumes from a filled store and needs only the boot.
-if [ "${command}" = "clean" ]; then
+# resumes from a filled store and needs only the boot. `--skills` and `--autonomous`
+# are first runs of the same kind, so they get the same window.
+if [ "${command}" = "clean" ] || [ "${command}" = "skills" ] || [ "${command}" = "autonomous" ]; then
     SECONDS_LIMIT="${MINEKIN_DEMO_SECONDS:-2700}"
 else
     SECONDS_LIMIT="${MINEKIN_DEMO_SECONDS:-600}"
@@ -191,18 +257,28 @@ fi
 docker volume create "${VOLUME}" >/dev/null
 
 # A clean run owns a Kin root nobody has used yet; a repeat run uses the one this
-# demo filled. Probing it from inside the container is what keeps the answer about
-# the volume rather than about the host directory tree.
-if [ "${command}" = "clean" ]; then
+# demo filled. `--skills` and `--autonomous` are the same two cases asked with a
+# different action on the end: the store is what decides, not the action, so a demo that
+# has already filled one gets to run its skills on it instead of downloading 740 MB a
+# second time. Probing from inside the container is what keeps the answer about the
+# volume rather than about the host directory tree.
+if [ "${command}" = "clean" ] || [ "${command}" = "skills" ] || [ "${command}" = "autonomous" ]; then
     if env MINEKIN_RUNNER_DATA="${VOLUME}" bash "${HERE}/run.sh" --shell \
         "[ -d /data/kin/${KIN} ]" >/dev/null 2>&1; then
-        printf 'demo: the Kin root %s already has a store on %s; ask for --again, or point\n' "${KIN}" "${VOLUME}" >&2
-        printf '      MINEKIN_DEMO_KIN at a name this demo has not used.\n' >&2
-        exit 2
+        # The plain demo run refuses a filled root because its own point is the download;
+        # the two skill runs have no such point, so they carry on under the repeat's words.
+        if [ "${command}" = "clean" ]; then
+            printf 'demo: the Kin root %s already has a store on %s; ask for --again, or point\n' "${KIN}" "${VOLUME}" >&2
+            printf '      MINEKIN_DEMO_KIN at a name this demo has not used.\n' >&2
+            exit 2
+        fi
+        printf 'demo: the Kin root %s already has a store on %s -- running on that filled store\n' \
+            "${KIN}" "${VOLUME}"
+    else
+        printf 'demo: initialising the Kin root %s on volume %s\n' "${KIN}" "${VOLUME}"
+        env MINEKIN_RUNNER_DATA="${VOLUME}" MINEKIN_KIN_ID="${KIN}" MINEKIN_USERNAME="${USERNAME}" \
+            bash "${HERE}/run.sh" init --kin-id "${KIN}"
     fi
-    printf 'demo: initialising the Kin root %s on volume %s\n' "${KIN}" "${VOLUME}"
-    env MINEKIN_RUNNER_DATA="${VOLUME}" MINEKIN_KIN_ID="${KIN}" MINEKIN_USERNAME="${USERNAME}" \
-        bash "${HERE}/run.sh" init --kin-id "${KIN}"
 else
     if ! env MINEKIN_RUNNER_DATA="${VOLUME}" bash "${HERE}/run.sh" --shell \
         "[ -d /data/kin/${KIN} ]" >/dev/null 2>&1; then
@@ -214,25 +290,75 @@ else
 fi
 
 # The version is asked of the world, not read from this script: the Server Profile
-# says what it allows, Core resolves that against the registry, and the store fill
-# downloads whatever the resolved recipe needs — which is why a clean run on an
-# empty store takes minutes and a repeat takes seconds.
-printf 'demo: probing %s, preparing the bundle the registry names for it, joining, then walking %ss and turning %s%s\n' \
-    "${SERVER_PROFILE##*/}" "${WALK_SECONDS}" "${TURN_DEGREES}" "°"
+# says what it allows, Core resolves that against the bundle source this run names, and
+# the store fill downloads whatever the resolved recipe needs — which is why a clean run
+# on an empty store takes minutes and a repeat takes seconds.
+if [ -n "${BUNDLE_PROFILE}" ]; then
+    bundle_source="the bundle profile ${BUNDLE_PROFILE##*/}"
+else
+    bundle_source="the bundle the registry names"
+fi
+case "${command}" in
+    skills)
+        printf 'demo: probing %s, preparing %s for it, joining, then running the skill plan %s (the world stacks an oak trunk in the Kin'"'"'s look to break)\n' \
+            "${SERVER_PROFILE##*/}" "${bundle_source}" "${SKILL_PLAN##*/}"
+        ;;
+    autonomous)
+        printf 'demo: probing %s, preparing %s for it, joining, then letting the PlayerMind choose up to %s skills from what the Kin sees (the world stacks an oak trunk in the Kin'"'"'s look to break)\n' \
+            "${SERVER_PROFILE##*/}" "${bundle_source}" "${AUTONOMOUS_STEPS}"
+        printf 'demo: nobody names the steps for this run -- which skills it attempts is what the readings decide,\n'
+        printf 'demo: so this line cannot tell you the sequence, and neither can the log until the steps land\n'
+        ;;
+    *)
+        printf 'demo: probing %s, preparing %s for it, joining, then walking %ss and turning %s%s\n' \
+            "${SERVER_PROFILE##*/}" "${bundle_source}" "${WALK_SECONDS}" "${TURN_DEGREES}" "°"
+        ;;
+esac
 printf 'demo: this run may take up to %ss before the harness stops asking\n' "${SECONDS_LIMIT}"
 printf 'demo: the client is given %ss to prove its session once its JVM starts\n' "${HANDSHAKE_SECONDS}"
 
 session_args=(
     session start
-    --auto-bundle "${REGISTRY}"
     --server-profile "${SERVER_PROFILE}"
-    --max-bytes "${MAX_BYTES}"
     --handshake-timeout-seconds "${HANDSHAKE_SECONDS}"
-    --hold-forward-seconds "${WALK_SECONDS}"
-    --look-yaw-degrees "${TURN_DEGREES}"
 )
+# Exactly one bundle source, and which one it is came from the environment above rather
+# than from a switch: the CLI's own admission refuses a run that names both, and it also
+# refuses `--max-bytes` under a profile — the budget bounds an automatic fill, and a named
+# recipe is not an automatic fill. So the budget travels with the registry and no further.
+if [ -n "${BUNDLE_PROFILE}" ]; then
+    session_args+=(--profile "${BUNDLE_PROFILE}")
+else
+    session_args+=(--auto-bundle "${REGISTRY}" --max-bytes "${MAX_BYTES}")
+fi
+# The scripted run holds the forward key and turns; `--skills` runs the world-skill
+# plan instead — every step acting only on what the client's own observation reported.
+# The CLI is asked for the plan *alone*, with no `--hold-forward-seconds`/
+# `--look-yaw-degrees`: the plan carries its own walk to the drop, and the two shapes
+# are alternatives rather than a combined ask. `--autonomous` is the third alternative:
+# it names no steps at all, and the mind asks for one skill at a time against the
+# reading it has. All three need the same thing from the world — something in view that
+# a skill can act on — so the trunk ask belongs to both skill shapes, not to one.
+case "${command}" in
+    skills)
+        session_args+=(--skill-plan "${SKILL_PLAN}")
+        trunk_env=(MINEKIN_DOMAIN_RESOURCE_TRUNK=1)
+        ;;
+    autonomous)
+        session_args+=(--autonomous --autonomous-steps "${AUTONOMOUS_STEPS}")
+        trunk_env=(MINEKIN_DOMAIN_RESOURCE_TRUNK=1)
+        ;;
+    *)
+        session_args+=(
+            --hold-forward-seconds "${WALK_SECONDS}"
+            --look-yaw-degrees "${TURN_DEGREES}"
+        )
+        trunk_env=()
+        ;;
+esac
 
 env "${death_env[@]}" \
+    "${trunk_env[@]}" \
     MINEKIN_RUNNER_DATA="${VOLUME}" \
     MINEKIN_SERVER_JAR="${SERVER_JAR}" \
     MINEKIN_KIN_ID="${KIN}" \
@@ -249,6 +375,21 @@ env "${death_env[@]}" \
 printf '\ndemo: readback\n'
 printf '  Kin root      : volume %s, /data/kin/%s\n' "${VOLUME}" "${KIN}"
 printf '  run document  : the last JSON line above (Core'"'"'s own counts)\n'
+if [ "${command}" = "skills" ]; then
+    printf '                for the skill plan the verdict is in three fields: `skills` (the\n'
+    printf '                skills that ran), `skill_stop` (where the sequence stopped and why),\n'
+    printf '                and `skill_plan` (the steps this run was asked to carry)\n'
+fi
+if [ "${command}" = "autonomous" ]; then
+    printf '                for the autonomous run the verdict is one field: `autonomous` — the goal\n'
+    printf '                the mind held, each intent it formed on which reading, what the later\n'
+    printf '                reading said about it, and the word in `stop_reason` that ended the run.\n'
+    printf '                `steps` is the sequence, and it is the run'"'"'s own answer rather than\n'
+    printf '                this script'"'"'s: nothing here knew it before the run started\n'
+    printf '  per step      : the ledger carries one SkillStepRecorded row per step as it concluded,\n'
+    printf '                so the panel can show the step that happened while the run was still\n'
+    printf '                going. bash test-orchestrator/runner/demo.sh --browse reads them.\n'
+fi
 printf '  evidence      : bash test-orchestrator/runner/run.sh --shell "python -m minekin_core evidence verify <run_id>"\n'
 printf '                  with MINEKIN_RUNNER_DATA=%s\n' "${VOLUME}"
 printf '  dashboard     : bash test-orchestrator/runner/demo.sh --browse\n'

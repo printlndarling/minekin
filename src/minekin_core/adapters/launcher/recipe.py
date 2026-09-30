@@ -8,6 +8,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
 
+from minekin_core.domain.control_vocabulary import (
+    BASELINE_CAPABILITIES,
+    WORLD_ACTION_CAPABILITIES,
+)
 from minekin_core.domain.errors import ErrorCategory, MinekinError, Retryability
 
 # The recipe's `fabric` section is what a reviewer reads to learn what the bundle
@@ -66,11 +70,17 @@ FABRIC_API_1201_SHA1 = "3e9cdd3e2f827ca9a259df9eb8e31949437b6bd4"
 # inside `bridge/`: the 1.21.4 recipe pins `source_digest` over that tree, so
 # adding a second version's sources there would silently move the pinned
 # identity of a bundle that has already been accepted. Its jar is pinned the
-# same way 1.21.4's is — built twice, once on Windows with JDK 21.0.12.1+1-LTS-4
-# and once in a Linux x86_64 Temurin 21 container, both producing the digest
-# below from an empty Gradle cache with dependency verification enforced.
-BRIDGE_1201_JAR_SHA256 = "e50d61c209be98136216b34aadbb6d5a12db8def8aa63a536f32cda8e287006f"
-BRIDGE_1201_JAR_SIZE = 1_310_604
+# same way 1.21.4's is — a digest this file's reader refuses other bytes for.
+#
+# What is NOT carried over is the older pins' two-platform claim. These bytes
+# were produced once, on Windows with JDK 21.0.12.1+1-LTS-4
+# (`./gradlew --no-daemon -p bridge-1201 remapJar`), from the `bridge-1201/`
+# tree whose digest is recorded in the 1.20.1 candidate recipe; the Linux
+# Temurin 21 cross-build that the previous digest went through has not been
+# re-run on these. Treating "built twice" as current would be a claim about a
+# machine this pin has not seen, so it is an open task rather than a comment.
+BRIDGE_1201_JAR_SHA256 = "ff2540824ee354149cdc7230d40f9d1eacbbed267ef9cf9936f6f64778672519"
+BRIDGE_1201_JAR_SIZE = 1_442_677
 BRIDGE_1201_JAR_RELATIVE_PATH = "bridge-1201/build/libs/minekin-bridge-1201-0.0.0.jar"
 
 
@@ -113,6 +123,31 @@ def bridge_identity(minecraft_version: str) -> BridgeIdentity:
             jar_size=BRIDGE_1201_JAR_SIZE,
         )
     raise _reject(f"no reviewed Bridge jar is pinned for Minecraft {minecraft_version}")
+
+
+#: The reviewed versions whose Bridge source root routes S2's action and
+#: observation messages. Only 1.20.1's root does today: `bridge/` still refuses
+#: every S2 envelope at its gate, so offering those names to a 1.21.4 session
+#: would have Core advertise a surface its own Bridge answers with an IOException.
+#: This is the Python half of a claim pinned from the other side by
+#: `tests/contract/test_bridge_java_constants.py`, which reads both roots' source.
+WORLD_ACTION_VERSIONS: frozenset[str] = frozenset({MINECRAFT_1201_VERSION})
+
+
+def session_capabilities(minecraft_version: str) -> frozenset[str]:
+    """The capability set one version's reviewed Bridge can be offered at hello.
+
+    The offer is part of the BridgeHello proof, so this cannot be "everything the
+    vocabulary names": a set past what the far side accepts moves every session's
+    proof and still fails the handshake. Anything not listed above gets the
+    baseline, which is the failure in the safe direction — a Kin that is not
+    offered a skill sees `CAPABILITY_NOT_GRANTED`, where a Bridge offered a skill
+    it never implemented sees a rejected hello.
+    """
+
+    if minecraft_version in WORLD_ACTION_VERSIONS:
+        return BASELINE_CAPABILITIES | WORLD_ACTION_CAPABILITIES
+    return BASELINE_CAPABILITIES
 
 
 def _reject(message: str) -> MinekinError:

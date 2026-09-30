@@ -10,13 +10,51 @@ from typing import Any
 
 import pytest
 
+from minekin_core import bootstrap
 from minekin_core.adapters.launcher.launch_plan import find_workspace_root
 from minekin_core.adapters.sqlite.connection import SQLiteCompatibilityError
-from minekin_core.bootstrap import main, run
+from minekin_core.application.autonomous_play import DEFAULT_STEP_BUDGET
+from minekin_core.application.player_mind import SKILL_OFFER
+from minekin_core.bootstrap import (
+    _autonomous_ask,  # pyright: ignore[reportPrivateUsage]
+    _skill_plan_inputs,  # pyright: ignore[reportPrivateUsage]
+    main,
+    run,
+)
 from minekin_core.cli.doctor import diagnose
 from minekin_core.cli.parser import parse_args
+from minekin_core.cli.session import DEFAULT_SKILL_STEP_TIMEOUT_S
 from minekin_core.config import RuntimeRequirements
-from minekin_core.domain.errors import ErrorCategory, ExitCode, MinekinError
+from minekin_core.domain.errors import ErrorCategory, ExitCode, MinekinError, Retryability
+from minekin_core.domain.model_access import (
+    MODEL_API_KEY_ENV_VARIABLE,
+    MODEL_BASE_URL_VARIABLE,
+    MODEL_PROVIDER_VARIABLE,
+    MODEL_RUN_COST_CAP_VARIABLE,
+    MODEL_TIMEOUT_MS_VARIABLE,
+    MODEL_VARIABLE,
+    PROVIDER_OPENAI_COMPATIBLE,
+)
+
+#: Every variable the model configuration is read from. Listed because the operator's
+#: shell is not this file's input: a run that reads none of them and a run that reads a
+#: half-entered set have to be set up the same way, and a variable added to §1's table
+#: without joining this list would leave a test inheriting whatever the machine had set.
+ALL_MODEL_VARIABLES = (
+    MODEL_PROVIDER_VARIABLE,
+    MODEL_BASE_URL_VARIABLE,
+    MODEL_VARIABLE,
+    MODEL_API_KEY_ENV_VARIABLE,
+    MODEL_TIMEOUT_MS_VARIABLE,
+    MODEL_RUN_COST_CAP_VARIABLE,
+)
+
+
+def clear_model_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Start a model-config test from a known shell rather than from this machine's."""
+
+    for name in ALL_MODEL_VARIABLES:
+        monkeypatch.delenv(name, raising=False)
 
 
 @pytest.mark.parametrize(
@@ -366,3 +404,135 @@ def test_the_workspace_check_reads_the_checkout_without_changing_it(tmp_path: Pa
     assert check.ok is True
     assert check.summary == f"workspace at {root}"
     assert sorted(path.relative_to(root).as_posix() for path in root.rglob("*")) == before
+
+
+# ---------------------------------------------------------------------------
+# The ask that stands in for a written plan
+# ---------------------------------------------------------------------------
+
+
+def test_autonomous_takes_the_shipped_offer_at_the_shipped_bounds(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """What `--autonomous` bounds is how often the Kin may change its mind.
+
+    Not which skills exist: an offer the lease does not cover is a step the arbiter
+    refuses mid-run, and a run has no way back from that, so the set is the shipped one
+    rather than something an operator re-picks and gets wrong in a new way each time.
+    """
+
+    clear_model_environment(monkeypatch)
+    args = parse_args(["session", "start", "--profile", "profile.json", "--autonomous"])
+    _, step_seconds = _skill_plan_inputs(args)
+
+    ask = _autonomous_ask(args, step_seconds)
+
+    assert ask is not None, "--autonomous produced no ask, so these readings are vacuous"
+    assert ask.skills == SKILL_OFFER
+    assert ask.step_budget == DEFAULT_STEP_BUDGET
+    assert ask.step_seconds == DEFAULT_SKILL_STEP_TIMEOUT_S
+
+
+def test_the_lease_the_watchdog_arms_is_the_two_numbers_multiplied(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The watchdog is armed in seconds, so a step count means its product.
+
+    An operator who says eight steps of two and a half seconds is authorising twenty
+    seconds of world, and a lease that carried only one of the two would have the run
+    cut off while a step was still waiting for the reading that confirms it — which
+    reads as a hung client, not as a CLI that mis-multiplied its own flags.
+    """
+
+    clear_model_environment(monkeypatch)
+    args = parse_args(
+        [
+            "session",
+            "start",
+            "--profile",
+            "profile.json",
+            "--autonomous",
+            "--autonomous-steps",
+            "8",
+            "--skill-step-seconds",
+            "2.5",
+        ]
+    )
+    _, step_seconds = _skill_plan_inputs(args)
+
+    ask = _autonomous_ask(args, step_seconds)
+
+    assert ask is not None, "--autonomous produced no ask, so these readings are vacuous"
+    assert ask.step_budget == 8
+    assert ask.step_seconds == 2.5
+    assert ask.lease_seconds == 20.0
+
+
+def test_a_step_budget_without_the_flag_that_would_use_it_is_refused(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A half-entered knob has to refuse rather than go quiet.
+
+    Dropping the guard leaves a run with no plan and no mind: the number typed is the
+    one that would have bounded it, and nothing says otherwise until a session has come
+    up and done nothing. The message names `--autonomous`, because that is the next
+    thing the operator types.
+    """
+
+    clear_model_environment(monkeypatch)
+    args = parse_args(["session", "start", "--profile", "profile.json", "--autonomous-steps", "8"])
+
+    with pytest.raises(MinekinError) as raised:
+        _autonomous_ask(args, DEFAULT_SKILL_STEP_TIMEOUT_S)
+
+    assert raised.value.category is ErrorCategory.CONFIG
+    assert raised.value.retryability is Retryability.OPERATOR_ACTION
+    # Not merely the knob's own name, which any message about it would repeat.
+    assert "with --autonomous" in raised.value.safe_message
+
+
+def test_an_unusable_model_config_refuses_before_there_is_an_ask(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The mind is checked for callability where a wrong answer costs nothing.
+
+    A named provider with no endpoint and no model is half a configuration, and
+    `--autonomous` has to find that out here rather than hand the session a bound it
+    cannot keep: the alternative is a launched client and a mounted world spent to say
+    what an environment variable already said. No key variable is set, so there is no
+    credential in play for the refusal to print, and the ask is never constructed.
+    """
+
+    clear_model_environment(monkeypatch)
+    monkeypatch.setenv(MODEL_PROVIDER_VARIABLE, PROVIDER_OPENAI_COMPATIBLE)
+
+    def build(*_arguments: Any, **_keywords: Any) -> Any:
+        raise AssertionError("an ask must not be built from a config that cannot be read")
+
+    monkeypatch.setattr(bootstrap, "AutonomousAsk", build)
+    args = parse_args(["session", "start", "--profile", "profile.json", "--autonomous"])
+
+    with pytest.raises(MinekinError, match="MODEL_NOT_CONFIGURED") as raised:
+        _autonomous_ask(args, DEFAULT_SKILL_STEP_TIMEOUT_S)
+
+    # The model's own refusal, not the CLI's: the config was read, and it failed.
+    assert raised.value.component == "model.config"
+
+
+def test_a_scripted_run_does_not_read_the_model_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """This one is a control, and its value is set to be a refusal if touched.
+
+    `anthropic` is not a provider this build knows, so the call that reads it raises
+    `MODEL_PROVIDER_UNKNOWN`; `None` can only come back if no read happened at all.
+    That is the property worth holding: a run playing a plan an operator wrote asks a
+    model nothing, and it must not fall over because of how somebody's shell is
+    configured.
+    """
+
+    clear_model_environment(monkeypatch)
+    monkeypatch.setenv(MODEL_PROVIDER_VARIABLE, "anthropic")
+    args = parse_args(["session", "start", "--profile", "profile.json"])
+
+    assert _autonomous_ask(args, DEFAULT_SKILL_STEP_TIMEOUT_S) is None

@@ -4,7 +4,7 @@ import { DEFAULT_TIMEOUT_MS } from "./config";
 import { SNAPSHOT_SCHEMA_VERSION, fieldValue, fieldGap } from "../domain/model";
 import type { Signal } from "../domain/signals";
 import { isKnown } from "../domain/signals";
-import { cloneWire, wireFilled } from "../test/wireFixture";
+import { cloneWire, wireFilled, wireGapField } from "../test/wireFixture";
 import {
   REAL_AFTER_SESSION_SNAPSHOT_WIRE,
   REAL_ALERTS_ENVELOPE_WIRE,
@@ -207,6 +207,111 @@ describe("信封与组内成员的判别式（失败关闭，不补默认值）"
     const decoded = decodeSnapshotPayload(wire, "gateway");
     expect(decoded.ok).toBe(false);
     if (!decoded.ok) expect(decoded.issues.join("；")).toContain("evidence.reason");
+  });
+});
+
+describe("skillSteps 组：缺组的旧字节、带组的新字节与成员判别", () => {
+  /** 当前 Gateway 快照（`build_snapshot` 的 skillSteps 组）按 `readmodel.py` 形状落在旧捕获上。 */
+  function withSkillSteps(wire: Record<string, unknown>, value: Record<string, unknown>): Record<string, unknown> {
+    const patched = cloneWire(wire);
+    patched.skillSteps = {
+      status: "known",
+      // 成员对象也深拷贝一份：变异测试改的是拷贝，绝不允许把传入的常量（如 FAILED_STEP）本身写脏。
+      value: cloneWire(value),
+      sourceRef: "core://status/kin-01/skillSteps",
+      observedAt: "2000-01-01T00:00:00Z",
+      staleAfterMs: null,
+    };
+    return patched;
+  }
+
+  const FAILED_STEP: Record<string, unknown> = {
+    goal: wireFilled("先挖到木头，再合成木镐"),
+    stepIndex: wireFilled(2),
+    skill: wireFilled("craft"),
+    result: wireFilled("FAILED"),
+    reason: wireFilled("SCREEN_NOT_CONFIRMED"),
+    attribution: wireFilled("ACTION_NOT_EFFECTIVE"),
+    decisionSource: wireFilled("DECISION_FROM_MODEL"),
+    modelRefusal: wireGapField("unavailable", "模型作答了这一步：model_refusal 是空串，没有拒止可报。"),
+    stepCount: wireFilled(2),
+    modelCost: wireGapField(
+      "not_wired",
+      "调用花费（model_calls / model_spent_micro / model_cap_refusals）只在 run document 的 mind 段里记录，" +
+        "技能步行不携带；未封的 run 只读面取不到，封证后也要读 bundle 里的 run document，本投影不解析它。",
+    ),
+    modelConfig: wireGapField(
+      "not_wired",
+      "模型配置状态（model_enabled 与所配置的 provider）与花费同处：只在 run document 的 mind 段里记录，" +
+        "台账行不携带，本投影只读台账与已封 bundle 的清单。",
+    ),
+  };
+
+  it("三份历史捕获没有 skillSteps 组 ⇒ 仍零问题解码，并合成具名的组级 not_wired 缺口", () => {
+    for (const wire of [REAL_JOINED_RUN_SNAPSHOT_WIRE, REAL_IN_SESSION_SNAPSHOT_WIRE, REAL_AFTER_SESSION_SNAPSHOT_WIRE]) {
+      expect("skillSteps" in wire, "捕获必须保持逐字原样：本不该有这个组").toBe(false);
+      const decoded = decodeSnapshotPayload(wire, "gateway");
+      if (!decoded.ok) throw new Error(`issues: ${decoded.issues.join(" | ")}`);
+      const group = decoded.snapshot.skillSteps;
+      expect(group.status).toBe("not_wired");
+      if (isKnown(group)) throw new Error("缺组字节应合成为缺口");
+      expect(group.reason).toContain("skillSteps");
+      expect(group.sourceRef).toBe("snapshot://absent/skillSteps");
+    }
+  });
+
+  it("带组的当前字节逐成员解码：值照收，按构造为空处以具名缺口而非默认值", () => {
+    const decoded = decodeSnapshotPayload(withSkillSteps(realWire(), FAILED_STEP), "gateway");
+    if (!decoded.ok) throw new Error("应解码成功");
+    const group = mustKnow(decoded.snapshot.skillSteps, "skillSteps");
+    expect(fieldValue(group.goal)).toBe("先挖到木头，再合成木镐");
+    expect(fieldValue(group.stepIndex)).toBe(2);
+    expect(fieldValue(group.result)).toBe("FAILED");
+    expect(fieldValue(group.reason)).toBe("SCREEN_NOT_CONFIRMED");
+    expect(fieldValue(group.decisionSource)).toBe("DECISION_FROM_MODEL");
+    expect(fieldGap(group.modelRefusal)?.status).toBe("unavailable");
+    expect(fieldValue(group.modelCost)).toBeNull();
+    expect(fieldGap(group.modelConfig)?.status).toBe("not_wired");
+    expect(fieldGap(group.modelCost)?.reason).toContain("run document");
+  });
+
+  it("脚本运行：goal 是 unavailable 具名缺口，拒止标注「不经过模型」，不冒充空值", () => {
+    const scripted = { ...FAILED_STEP };
+    scripted.goal = wireGapField("unavailable", "这是一次 --skill-plan 脚本运行：操作者写下的序列按构造没有自主目标，Core 把 goal 记为空串。");
+    scripted.decisionSource = wireFilled("OPERATOR_PLAN");
+    scripted.modelRefusal = wireGapField("unavailable", "这一步的决策来源不经过模型（DECISION_FROM_LOCAL 或 OPERATOR_PLAN）：拒止概念不适用。");
+    const decoded = decodeSnapshotPayload(withSkillSteps(realWire(), scripted), "gateway");
+    if (!decoded.ok) throw new Error("应解码成功");
+    const group = mustKnow(decoded.snapshot.skillSteps, "skillSteps");
+    expect(fieldValue(group.goal)).toBeNull();
+    expect(fieldGap(group.goal)?.status).toBe("unavailable");
+    expect(fieldGap(group.goal)?.reason).toContain("--skill-plan");
+    expect(fieldGap(group.modelRefusal)?.reason).toContain("不经过模型");
+  });
+
+  it("成员判别：抽掉 stepIndex、缺口无理由、多出 action_id 都整读拒绝", () => {
+    const missingMember = withSkillSteps(realWire(), FAILED_STEP);
+    delete ((missingMember.skillSteps as Record<string, unknown>).value as Record<string, unknown>).stepIndex;
+    const missing = decodeSnapshotPayload(missingMember, "gateway");
+    expect(missing.ok).toBe(false);
+    if (!missing.ok) expect(missing.issues.join("；")).toContain("skillSteps.stepIndex");
+
+    const reasonless = withSkillSteps(realWire(), FAILED_STEP);
+    ((reasonless.skillSteps as Record<string, unknown>).value as Record<string, unknown>).modelCost = { gap: { status: "not_wired", reason: "" } };
+    expect(decodeSnapshotPayload(reasonless, "gateway").ok).toBe(false);
+
+    // §4 的恒规：action_id 属于台账内部标识，绝不允许出现在投影里——出现即契约不匹配。
+    const withActionId = { ...FAILED_STEP, action_id: wireFilled("act-1") };
+    const canary = decodeSnapshotPayload(withSkillSteps(realWire(), withActionId), "gateway");
+    expect(canary.ok).toBe(false);
+    if (!canary.ok) expect(canary.issues.join("；")).toContain("skillSteps.value");
+  });
+
+  it("Core 之后的新 result token 仍按原值渲染：不钉死三值枚举而把新 verdict 拒成整读失败", () => {
+    const futureToken = { ...FAILED_STEP, result: wireFilled("INTERRUPTED") };
+    const decoded = decodeSnapshotPayload(withSkillSteps(realWire(), futureToken), "gateway");
+    if (!decoded.ok) throw new Error("应解码成功");
+    expect(fieldValue(mustKnow(decoded.snapshot.skillSteps, "skillSteps").result)).toBe("INTERRUPTED");
   });
 });
 

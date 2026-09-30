@@ -27,6 +27,8 @@ from minekin_core.adapters.bridge.admission import accept_snapshot, apply_lifecy
 from minekin_core.adapters.bridge.ipc import BridgeIpcHost, IpcProtocolError
 from minekin_core.adapters.bridge.perception import admit_first_snapshot
 from minekin_core.adapters.bridge.session_report import decode_session_identity
+from minekin_core.adapters.bridge.world_observation import decode_world_observation
+from minekin_core.application.world_observation import WorldObservationStore
 from minekin_core.domain.budget import BudgetLedger, read_window
 from minekin_core.domain.connection import (
     CallbackDisposition,
@@ -39,6 +41,7 @@ from minekin_core.domain.host_publication import (
     host_publication,
 )
 from minekin_core.domain.information_class import admit_to_cognition
+from minekin_core.domain.perception import world_observation_violations
 from minekin_core.domain.session_material import (
     RecordedSessionMaterial,
     identity_ledger_record,
@@ -101,6 +104,25 @@ class SessionRun:
     #: A fact about the world rather than about the session, so it lives on the
     #: document beside the snapshot and not in the ledger.
     lan_publication: Mapping[str, object] | None = None
+    #: The skills this run was asked to perform, in plan order. Empty for a run
+    #: that only held a key or looked around.
+    skill_plan: tuple[str, ...] = ()
+    #: One entry per skill step actually attempted, each carrying the §4 verdict
+    #: that a *later reading* gave — never the Bridge's receipt. On the document
+    #: rather than in the ledger because §5 names no event for a skill's verdict,
+    #: and a verdict is the reading's word about the world, not a fact Core
+    #: decided at the moment it sent a command.
+    skills: tuple[Mapping[str, object], ...] = ()
+    #: Why the sequence stopped where it did, in the plan's own words: the name of
+    #: the step that did not confirm, or a refusal token when nothing ran. Empty
+    #: when every step confirmed.
+    skill_stop: str = ""
+    #: The autonomous turn's own account, when the run was asked for one: each
+    #: intent with the reading it was formed on, the later reading's verdict, the
+    #: mind's spend, and the word that ended the loop. Null for a run that was
+    #: never asked to decide for itself — the absence is the fact, and a run that
+    #: was asked and never got a lease still carries the reason it stopped.
+    autonomous: Mapping[str, object] | None = None
 
     #: The class of the information this run let the Kin perceive, empty when it
     #: perceived none. The contract's third gate says only player-equivalent
@@ -169,6 +191,13 @@ class SessionRun:
             "lan_publication": (
                 None if self.lan_publication is None else dict(self.lan_publication)
             ),
+            # What this run asked the Kin to do, what each step's later reading
+            # said about it, and where the sequence gave up. The plan's names
+            # first so a reader can see how far the truth got.
+            "skill_plan": list(self.skill_plan),
+            "skills": [dict(step) for step in self.skills],
+            "skill_stop": self.skill_stop,
+            "autonomous": (None if self.autonomous is None else dict(self.autonomous)),
             # What the Kin was allowed to know, in the gate's own words, and what
             # the gate kept out of its model of the world. Recorded rather than
             # assumed: "only player-equivalent information reached the mind" is the
@@ -252,6 +281,9 @@ async def supervise_session(
     until_stop_request: Callable[[], Awaitable[object]] | None = None,
     on_stop_request: Callable[[], Awaitable[None]] | None = None,
     recorded: RecordedSessionMaterial | None = None,
+    world_observations: WorldObservationStore | None = None,
+    until_skills_ready: Callable[[], Awaitable[object]] | None = None,
+    on_run_skills: Callable[[], Awaitable[None]] | None = None,
 ) -> SessionRun:
     """Wait for the handshake, follow the Bridge, and stop when the client does.
 
@@ -314,6 +346,19 @@ async def supervise_session(
     Bridge releases everything it holds when the channel goes away — that is §12's
     second watchdog, and this call only makes it explicit.
 
+    `world_observations` is the store the recurring player-equivalent readings
+    land in, when the caller has one. The runtime only decodes, gates by the
+    active generation and admits — the store owns what a reading is worth, and a
+    caller with no store leaves the readings unread rather than inventing one,
+    because a second holder of "what the client last said" is a second source of
+    truth with the same name.
+
+    `until_skills_ready` / `on_run_skills` is the fourth caller-owned moment: the
+    world is real and the lease is held, so this is when a Kin may act in it. The
+    runtime does not know what a skill is — it waits for the moment, runs what the
+    caller asks, and goes back to supervising, which is why a Kin that spends
+    twenty seconds mining a log does not end its own session.
+
     The callbacks report what this run observed — that the Bridge proved its
     session, and which connection state an attempt reached *and why it stopped
     there*. The reason is the Bridge's stable classification, not a server's
@@ -358,6 +403,7 @@ async def supervise_session(
                     recorded,
                     on_resource_pack_policy,
                     on_session_identity,
+                    world_observations,
                 ),
                 name="minekin-bridge-events",
             )
@@ -380,6 +426,15 @@ async def supervise_session(
                 branches[
                     asyncio.create_task(_awaited(until_stop_request), name="minekin-stop-request")
                 ] = on_stop_request
+            if until_skills_ready is not None and on_run_skills is not None:
+                # Its own branch rather than a call inside `on_playable`, and the
+                # reason is the reader: `on_playable` is awaited by the task that
+                # reads the Bridge's events, and a skill spends its whole life in
+                # that task waiting for an event that the same task would have to
+                # be free to deliver. Here the wait runs beside the reader.
+                branches[
+                    asyncio.create_task(_awaited(until_skills_ready), name="minekin-skills-ready")
+                ] = on_run_skills
             watched: set[asyncio.Task[None]] = {reader, client, *branches}
             try:
                 while True:
@@ -490,6 +545,7 @@ async def _read_events(
     recorded: RecordedSessionMaterial | None,
     on_resource_pack_policy: Callable[[int, str], Awaitable[None]] | None = None,
     on_session_identity: Callable[[int, Mapping[str, object]], Awaitable[None]] | None = None,
+    world_observations: WorldObservationStore | None = None,
 ) -> None:
     """Apply every reported phase until the channel ends or the run is cancelled."""
 
@@ -574,6 +630,20 @@ async def _read_events(
                 progress.budgets.refuse(refusal)
             elif window is not None:
                 progress.budgets.observe(window)
+            continue
+        if isinstance(message, observation_pb2.WorldObservation):
+            # The recurring reading, gated twice over before it is held: by the
+            # information class (a reclassified event must starve the Kin's model,
+            # not feed it) and by the store itself, which admits only the active
+            # generation's coherent readings. The runtime decodes and hands over;
+            # deciding what a reading is worth belongs to whoever acts on it.
+            if world_observations is not None and knowledge.admitted:
+                attempt = connections.active
+                world_observations.expected_generation = (
+                    None if attempt is None else attempt.generation.value
+                )
+                observation = decode_world_observation(message)
+                world_observations.admit(observation, world_observation_violations(observation))
             continue
         if not isinstance(message, observation_pb2.ConnectionLifecycle):
             # Counted rather than dropped silently: an event type this build

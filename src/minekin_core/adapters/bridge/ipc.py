@@ -13,7 +13,6 @@ import hmac
 import os
 import re
 import struct
-import time
 from collections.abc import Collection
 from contextlib import suppress
 from dataclasses import dataclass
@@ -22,6 +21,40 @@ from typing import Final, cast
 
 from google.protobuf.message import Message
 
+from minekin_core.domain.control_vocabulary import (
+    ADMISSION_CAPABILITY,
+    AIM_CAPABILITY,
+    AIM_INPUT_TYPE,
+    BASELINE_CAPABILITIES,
+    CANCEL_CONNECTION_TYPE,
+    CAPABILITY_NOT_GRANTED,
+    CONNECT_WORLD_TYPE,
+    GUI_CAPABILITY,
+    GUI_CLICK_INPUT_TYPE,
+    HANDSHAKE_CAPABILITY,
+    HOST_LAN_CAPABILITY,
+    HOTBAR_CAPABILITY,
+    HOTBAR_SELECT_INPUT_TYPE,
+    LOOK_CAPABILITY,
+    LOOK_INPUT_TYPE,
+    MINE_CAPABILITY,
+    MINE_INPUT_TYPE,
+    MOVE_CAPABILITY,
+    MOVE_INPUT_TYPE,
+    OPEN_LAN_TYPE,
+    RELEASE_ALL_INPUTS_TYPE,
+    SCREEN_CAPABILITY,
+    SCREEN_INPUT_TYPE,
+    USE_CAPABILITY,
+    USE_INPUT_TYPE,
+    monotonic_ns,
+)
+from minekin_core.domain.control_vocabulary import (
+    # Carried for the cross-language parity check, which reads Python's capability
+    # vocabulary off this module: this one gates the inbound observation rather than
+    # a command the send path below would look up.
+    OBSERVE_WORLD_CAPABILITY as OBSERVE_WORLD_CAPABILITY,
+)
 from minekin_core.generated.minekin.v1 import (
     control_pb2,
     envelope_pb2,
@@ -31,26 +64,12 @@ from minekin_core.generated.minekin.v1 import (
 
 PROTOCOL_MAJOR: Final = 1
 PROTOCOL_MINOR: Final = 0
-HANDSHAKE_CAPABILITY: Final = "session.handshake.v1"
-ADMISSION_CAPABILITY: Final = "admission.connect.v1"
-# The contract names input capabilities `control.<skill>.v1`. Movement is the
-# first one, and it is negotiated rather than assumed: a client can be admitted
-# to a world without being steerable, and the two must be able to differ.
-MOVE_CAPABILITY: Final = "control.move.v1"
-# And looking, which is its own capability for the same reason: a client can be
-# steerable without being turnable, and the two must be able to differ.
-LOOK_CAPABILITY: Final = "control.look.v1"
-# And using what is in front of it, its own capability for the same reason again:
-# a client can be steerable and turnable without being allowed to touch anything,
-# and that is the capability that lets a Kin act on the world rather than only
-# move through it.
-USE_CAPABILITY: Final = "control.use.v1"
-# Publishing the world the client is hosting is not an input skill and is not
-# named like one: it is a lifecycle operation on the server in this same process,
-# which is why it is the one capability the boundary contract lets the Bridge's
-# host adapter touch. It is negotiated like the others, because a client can be
-# steerable, turnable and able to use things without being able to host at all.
-HOST_LAN_CAPABILITY: Final = "host.lan.v1"
+# The negotiated capability names, the command message types, the named refusal
+# for an ungated command and the clock a deadline is expressed in are the
+# contract's own words, not this transport's, so they are written once in
+# `domain/control_vocabulary.py`. The skill layer that refuses before it sends
+# lives above this module and reaches them there; this one imports them for the
+# send path and the gate table below.
 MOVEMENT_CAPABILITIES: Final = frozenset(
     {"move.forward", "move.back", "move.left", "move.right", "move.jump", "move.sneak"}
 )
@@ -66,16 +85,10 @@ BRIDGE_HELLO_TYPE: Final = "minekin.v1.BridgeHello"
 VERSION_TEXT: Final[re.Pattern[str]] = re.compile(r"^[0-9][0-9A-Za-z.\-_]{0,31}$")
 CORE_HELLO_TYPE: Final = "minekin.v1.CoreHello"
 HEARTBEAT_TYPE: Final = "minekin.v1.Heartbeat"
-CONNECT_WORLD_TYPE: Final = "minekin.v1.ConnectWorld"
-CANCEL_CONNECTION_TYPE: Final = "minekin.v1.CancelConnection"
 CONNECTION_LIFECYCLE_TYPE: Final = "minekin.v1.ConnectionLifecycle"
-OPEN_LAN_TYPE: Final = "minekin.v1.OpenLan"
 HOST_LIFECYCLE_TYPE: Final = "minekin.v1.HostLifecycle"
-RELEASE_ALL_INPUTS_TYPE: Final = "minekin.v1.ReleaseAllInputs"
-MOVE_INPUT_TYPE: Final = "minekin.v1.MoveInput"
-LOOK_INPUT_TYPE: Final = "minekin.v1.LookInput"
-USE_INPUT_TYPE: Final = "minekin.v1.UseInput"
 INITIAL_OBSERVATION_TYPE: Final = "minekin.v1.InitialObservation"
+WORLD_OBSERVATION_TYPE: Final = "minekin.v1.WorldObservation"
 ACTION_RESULT_TYPE: Final = "minekin.v1.ActionResult"
 BUDGET_WINDOW_TYPE: Final = "minekin.v1.CallbackBudgetWindow"
 _UINT64_MAX: Final = (1 << 64) - 1
@@ -91,13 +104,39 @@ _CONTROL_TYPES: Final = {
     MOVE_INPUT_TYPE: control_pb2.MoveInput,
     LOOK_INPUT_TYPE: control_pb2.LookInput,
     USE_INPUT_TYPE: control_pb2.UseInput,
+    AIM_INPUT_TYPE: control_pb2.AimInput,
+    MINE_INPUT_TYPE: control_pb2.MineInput,
+    HOTBAR_SELECT_INPUT_TYPE: control_pb2.HotbarSelectInput,
+    SCREEN_INPUT_TYPE: control_pb2.ScreenInput,
+    GUI_CLICK_INPUT_TYPE: control_pb2.GuiClickInput,
     OPEN_LAN_TYPE: control_pb2.OpenLan,
     HEARTBEAT_TYPE: session_pb2.Heartbeat,
+}
+#: The control message types that are only sendable under a negotiated capability,
+#: one entry per gate. The named refusal for every one of them is
+#: `CAPABILITY_NOT_GRANTED` — checked on the way out as well as on the way in, so
+#: a Bridge that was never told it may be driven refuses, and Core's own sender
+#: refuses first and says which side of the negotiation was wrong.
+_CONTROL_CAPABILITIES: Final = {
+    CONNECT_WORLD_TYPE: ADMISSION_CAPABILITY,
+    CANCEL_CONNECTION_TYPE: ADMISSION_CAPABILITY,
+    MOVE_INPUT_TYPE: MOVE_CAPABILITY,
+    LOOK_INPUT_TYPE: LOOK_CAPABILITY,
+    USE_INPUT_TYPE: USE_CAPABILITY,
+    AIM_INPUT_TYPE: AIM_CAPABILITY,
+    MINE_INPUT_TYPE: MINE_CAPABILITY,
+    HOTBAR_SELECT_INPUT_TYPE: HOTBAR_CAPABILITY,
+    SCREEN_INPUT_TYPE: SCREEN_CAPABILITY,
+    GUI_CLICK_INPUT_TYPE: GUI_CAPABILITY,
+    # Publishing a world is a lifecycle change to the server in the client's own
+    # process, so it is gated like an input skill rather than assumed.
+    OPEN_LAN_TYPE: HOST_LAN_CAPABILITY,
 }
 _SENDABLE_CONTROL_TYPES: Final = frozenset(_CONTROL_TYPES) - {HEARTBEAT_TYPE}
 _EVENT_TYPES: Final = {
     CONNECTION_LIFECYCLE_TYPE: observation_pb2.ConnectionLifecycle,
     INITIAL_OBSERVATION_TYPE: observation_pb2.InitialObservation,
+    WORLD_OBSERVATION_TYPE: observation_pb2.WorldObservation,
     HOST_LIFECYCLE_TYPE: observation_pb2.HostLifecycle,
     ACTION_RESULT_TYPE: control_pb2.ActionResult,
     BUDGET_WINDOW_TYPE: observation_pb2.CallbackBudgetWindow,
@@ -113,6 +152,42 @@ class IpcProtocolError(RuntimeError):
     """An untrusted peer violated the frozen local IPC contract."""
 
 
+class CapabilityNotGranted(RuntimeError):
+    """Core is about to send a command whose capability was never negotiated.
+
+    A named refusal rather than a sentence: the S2 contract says the gate at both
+    ends of the channel answers under one word — `CAPABILITY_NOT_GRANTED` on the
+    Bridge, and the same word here on the way out — so that a run document can
+    tell "this build could not ask" from "the client could not do". It subclasses
+    `RuntimeError` because every caller that already survives a dead control
+    channel survives exactly that class, and a refusal that forced new exception
+    handling would be a refusal that silently escapes it.
+    """
+
+    reason_code: Final[str] = CAPABILITY_NOT_GRANTED
+
+    def __init__(self, message_type: str, capability: str) -> None:
+        super().__init__(
+            f"{CAPABILITY_NOT_GRANTED}: {message_type} needs {capability}, which was not negotiated"
+        )
+        self.message_type = message_type
+        self.capability = capability
+
+
+def check_control_capability(granted: Collection[str], message_type: str) -> str | None:
+    """The capability a control message needs, refusing before the wire.
+
+    Pure and public because the refusal must be testable without a live Bridge:
+    `send_control` calls this and raises what it returns, so the named gate and
+    the transport that obeys it are the same code path.
+    """
+
+    capability = _CONTROL_CAPABILITIES.get(message_type)
+    if capability is not None and capability not in granted:
+        return capability
+    return None
+
+
 @dataclass(frozen=True, slots=True)
 class BridgeSession:
     kin_id: str
@@ -125,16 +200,7 @@ class BridgeSession:
     fabric_loader_version: str
     launch_nonce: bytes
     session_key: bytes
-    capabilities: frozenset[str] = frozenset(
-        {
-            HANDSHAKE_CAPABILITY,
-            ADMISSION_CAPABILITY,
-            MOVE_CAPABILITY,
-            LOOK_CAPABILITY,
-            USE_CAPABILITY,
-            HOST_LAN_CAPABILITY,
-        }
-    )
+    capabilities: frozenset[str] = BASELINE_CAPABILITIES
     max_frame_bytes: int = DEFAULT_MAX_FRAME_BYTES
     heartbeat_interval_ms: int = DEFAULT_HEARTBEAT_INTERVAL_MS
 
@@ -335,24 +401,14 @@ class BridgeIpcHost:
         expected_type = _CONTROL_TYPES[message_type]
         if not isinstance(message, expected_type):
             raise TypeError(f"{message_type} payload has the wrong protobuf type")
-        if (
-            message_type in {CONNECT_WORLD_TYPE, CANCEL_CONNECTION_TYPE}
-            and ADMISSION_CAPABILITY not in self.session.capabilities
-        ):
-            raise RuntimeError("admission capability was not negotiated")
-        if message_type == MOVE_INPUT_TYPE and MOVE_CAPABILITY not in self.session.capabilities:
+        capability = check_control_capability(self.session.capabilities, message_type)
+        if capability is not None:
             # Checked on the way out as well as on the way in: a Bridge that was
-            # never told it may be steered would refuse this, and failing here
-            # says which side of the negotiation was wrong.
-            raise RuntimeError("movement capability was not negotiated")
-        if message_type == USE_INPUT_TYPE and USE_CAPABILITY not in self.session.capabilities:
-            raise RuntimeError("use capability was not negotiated")
-        if message_type == LOOK_INPUT_TYPE and LOOK_CAPABILITY not in self.session.capabilities:
-            raise RuntimeError("look capability was not negotiated")
-        if message_type == OPEN_LAN_TYPE and HOST_LAN_CAPABILITY not in self.session.capabilities:
-            # Publishing a world is a lifecycle change to the server in the client's
-            # own process, so it is gated like an input skill rather than assumed.
-            raise RuntimeError("host capability was not negotiated")
+            # never told it may be driven would refuse this, and failing here
+            # says which side of the negotiation was wrong — under one name for
+            # every gated type, which is what lets a run and a test name the
+            # refusal without a live channel.
+            raise CapabilityNotGranted(message_type, capability)
         await self._send_control(message_type, message)
 
     async def receive_event(self) -> BridgeEvent:
@@ -693,16 +749,3 @@ def _is_loopback_pair(peer: object, local: object) -> bool:
         and local_address
         and local_address[0] == "127.0.0.1"
     )
-
-
-def monotonic_ns() -> int:
-    """The clock every outbound envelope is stamped with.
-
-    Public because a deadline Core puts *inside* a message has to be expressed in
-    the same clock as the `monotonic_ns` of the envelope that carries it — that
-    difference is the only duration two processes without a shared origin can
-    agree on — and two definitions of "now" would silently stop being the same
-    clock.
-    """
-
-    return max(1, time.monotonic_ns())

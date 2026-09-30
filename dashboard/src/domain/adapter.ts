@@ -89,6 +89,7 @@ export function unreadableSnapshot(ctx: SignalContext, reason: string): KinSnaps
     serverLink: blank(),
     session: blank(),
     world: blank(),
+    skillSteps: blank(),
     versions: blank(),
     bridgeHeartbeat: blank(),
     selfState: blank(),

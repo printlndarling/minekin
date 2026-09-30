@@ -94,6 +94,7 @@ class _Runner(Protocol):
     def summon_command(self, entity_type: str) -> str: ...
     def position_probe_command(self, player: str) -> str: ...
     def probe_console_commands(self, players: list[str]) -> list[str]: ...
+    def resource_trunk_commands(self, player: str) -> list[str]: ...
     def kill_command(self, player: str) -> str: ...
 
     def main(self) -> int: ...
@@ -636,6 +637,76 @@ def test_a_use_target_says_which_kin_it_stops_or_refuses(
     )
 
     with pytest.raises(SystemExit, match="do not say which"):
+        RUNNER.main()
+
+
+def test_the_resource_trunk_is_three_oak_logs_stacked_in_the_look() -> None:
+    """The flat fixed-seed world grows no trees, so the harness stacks the resource itself.
+
+    Three `minecraft:oak_log` blocks at relative feet, eye and above-eye, each kept: the
+    whole point of the `keep` suffix is that an occupied space says so rather than being
+    carved for the run to succeed.
+    """
+
+    assert RUNNER.resource_trunk_commands("Kin") == [
+        "execute at Kin run setblock ^ ^ ^3 minecraft:oak_log keep",
+        "execute at Kin run setblock ^ ^1 ^3 minecraft:oak_log keep",
+        "execute at Kin run setblock ^ ^2 ^3 minecraft:oak_log keep",
+    ]
+
+
+def test_the_resource_trunk_refuses_a_name_that_is_not_a_player() -> None:
+    """A console command takes the name verbatim, so the trunk is checked, not escaped."""
+
+    for injection in ("Kin\nstop", "Kin; stop", "Kin`op`", "Ki n", "", "Kin\n", "ab"):
+        with pytest.raises(SystemExit, match="not a vanilla player name"):
+            RUNNER.resource_trunk_commands(injection)
+
+
+@pytest.mark.parametrize(
+    ("flags", "match"),
+    [
+        (["--resource-trunk"], "needs --probe-player"),
+        (
+            ["--resource-trunk", "--probe-player", "Kin", "--probe-player", "Joiner_Kin"],
+            "do not say which",
+        ),
+        (
+            ["--resource-trunk", "--use-target", "--probe-player", "Kin"],
+            "supposed to break",
+        ),
+    ],
+    ids=["no-probe-player", "two-probe-names", "with-use-target"],
+)
+def test_the_resource_trunk_refuses_the_asks_it_cannot_answer(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    flags: list[str],
+    match: str,
+) -> None:
+    """Three named refusals: no look to put it in, two looks, or a look already used."""
+
+    def skips_the_jar_pin(path: Path, recipe: _Recipe) -> None:
+        return None
+
+    monkeypatch.setattr(RUNNER, "verify_jar", skips_the_jar_pin)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            TOOL,
+            "--directory",
+            str(tmp_path / "run"),
+            "--jar",
+            str(tmp_path / "server.jar"),
+            "--java",
+            str(tmp_path / "java"),
+            "--accept-eula",
+            *flags,
+        ],
+    )
+
+    with pytest.raises(SystemExit, match=match):
         RUNNER.main()
 
 

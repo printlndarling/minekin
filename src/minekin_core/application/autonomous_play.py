@@ -1,0 +1,210 @@
+"""The turn that makes a mind and a skill into a run: read, want, act once, believe the reading.
+
+`PlayerMind` decides; `skill_plan` performs. Neither of them plays. This module is the loop
+between the two — one reading, one intent, one skill, one verdict — and it exists as its own
+layer because the two halves have to be able to be tested without the third: the mind is
+judged on what it asks, the skills on what the readings say about a command, and what is judged
+here is only whether a run keeps those two honest to each other.
+
+Three rules the loop is built to keep:
+
+* **One intent, one step.** An intent carries exactly one call, and the next intent is asked
+  only after the world has answered. An operator-written plan can chain six skills and stop at
+  the first unconfirmed step; a mind does not get to chain at all, because every link in a
+  chain it invented is a step nobody re-read the world for.
+* **A step needs a newer reading.** Two intents built on the same reading would be the same
+  decision twice, and the second one spends the retry budget of the first. When nothing newer
+  has arrived, the loop names that and ends rather than spinning.
+* **Every exit is a reason.** The run document always carries the word that ended it — the
+  milestone held in hand, an offer that ran out, a spend at the cap, a channel lost — because
+  "the Kin stopped" has many causes and a projection that cannot tell them apart is the one
+  thing a dashboard must not be.
+
+Nothing here holds a lease, an arbiter, or a clock. The caller supplies one authority for the
+whole turn, which is where the session's own authorisation lives, so the loop can be run against
+a real client and against a tape with the same lines of code.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Awaitable, Callable, Mapping
+from dataclasses import dataclass
+from types import MappingProxyType
+from typing import Final, Protocol
+
+from minekin_core.application.player_mind import (
+    FailureCode,
+    MindDecisionKind,
+    MindIntent,
+    PlayerMind,
+    goal_in_hand,
+    observation_ref,
+)
+from minekin_core.application.skill_plan import perform_skill
+from minekin_core.application.world_skills import (
+    DEFAULT_STEP_TIMEOUT_NS,
+    ActionAuthority,
+    WorldSkills,
+)
+from minekin_core.domain.perception import WorldObservationValue
+from minekin_core.domain.world_actions import (
+    ActionResultClass,
+    SkillOutcome,
+    skill_capabilities,
+)
+
+#: How many steps one call to the loop may take. Twenty-four is several passes of the milestone
+#: chain at the slowest skill, and a run that needs more than that is a run whose world is not
+#: changing; the caller can call the loop again, so this bounds one turn rather than the session.
+DEFAULT_STEP_BUDGET: Final = 24
+
+#: The loop's own three endings, beside the reasons an intent already carries.
+GOAL_HELD_IN_HAND: Final = "GOAL_HELD_IN_HAND"
+NO_FRESH_OBSERVATION: Final = "NO_FRESH_OBSERVATION"
+STEP_BUDGET_SPENT: Final = "STEP_BUDGET_SPENT"
+#: The same words the session uses when the channel goes: a loop that ended because the Bridge
+#: stopped answering has to be filed under the reason a reader already knows.
+CONTROL_CHANNEL_LOST: Final = "CONTROL_CHANNEL_LOST"
+
+
+class ObservationSource(Protocol):
+    """The readings as the loop needs them: the newest one, or nothing yet.
+
+    `latest` is a property, the same shape `WorldObservationStore` and the skill layer
+    already use. Declaring it as a method would type-check only against a test double that
+    happens to define a method, and the wired session store would raise on the first read.
+    """
+
+    @property
+    def latest(self) -> WorldObservationValue | None: ...
+
+
+@dataclass(frozen=True, slots=True)
+class AutonomousAsk:
+    """What the operator authorises before the mind has chosen anything.
+
+    A lease is one object covering everything a run may ask for, so an autonomous run has to
+    name its bounds up front: the skills it may be offered, how many steps it may take, and how
+    long a step may wait for the reading that confirms it. The capability union is derived from
+    the offer rather than typed, because an offer the lease does not cover is a step the arbiter
+    would refuse mid-run.
+    """
+
+    skills: tuple[str, ...]
+    step_budget: int
+    step_seconds: float
+
+    @property
+    def capabilities(self) -> frozenset[str]:
+        wanted: set[str] = set()
+        for name in self.skills:
+            wanted |= skill_capabilities(name) or frozenset()
+        return frozenset(wanted)
+
+    @property
+    def lease_seconds(self) -> float:
+        """Long enough for every step the mind may take, at the slowest step's window."""
+
+        return self.step_budget * self.step_seconds
+
+
+@dataclass(frozen=True, slots=True)
+class AutonomousStep:
+    """One intent, the verdict the readings gave it, and the reading that verdict was taken on."""
+
+    intent: MindIntent
+    outcome: SkillOutcome
+    attribution: FailureCode | None
+    result_ref: str
+
+    def as_document(self) -> dict[str, object]:
+        return {
+            "intent": self.intent.as_document(),
+            "result": self.outcome.result.value,
+            "reason": self.outcome.reason,
+            "action_id": self.outcome.action_id,
+            "attribution": None if self.attribution is None else self.attribution.value,
+            "result_observation_ref": self.result_ref,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class AutonomousRun:
+    """Every step one turn of the loop took, and the word that ended it."""
+
+    steps: tuple[AutonomousStep, ...] = ()
+    stop_reason: str = ""
+    mind_document: Mapping[str, object] = MappingProxyType({})
+
+    def as_document(self) -> dict[str, object]:
+        return {
+            "stop_reason": self.stop_reason,
+            "steps": [step.as_document() for step in self.steps],
+            "confirmed": sum(
+                1 for step in self.steps if step.outcome.result is ActionResultClass.CONFIRMED
+            ),
+            "mind": dict(self.mind_document),
+        }
+
+
+async def run_autonomous_loop(
+    *,
+    mind: PlayerMind,
+    skills: WorldSkills,
+    observations: ObservationSource,
+    authority: ActionAuthority,
+    step_budget: int = DEFAULT_STEP_BUDGET,
+    timeout_ns: int = DEFAULT_STEP_TIMEOUT_NS,
+    on_step: Callable[[AutonomousStep], Awaitable[None]] | None = None,
+) -> AutonomousRun:
+    """Play one turn of the loop: keep asking until the world or the mind says stop.
+
+    `authority` is the run's lease, the same object the operator-written plan path hands to every
+    step: the authorisation is one thing covering the whole run, and a mind that could ask for a
+    fresh one per step would be a mind holding a second door around the arbiter.
+    `mind.record_result` is given the newest reading rather than the one the intent was built on
+    — the direction closes on what the bag looks like now, which is the only place §4 allows it
+    to close.
+    """
+
+    steps: list[AutonomousStep] = []
+    stop_reason = STEP_BUDGET_SPENT
+    asked_on = ""
+    for _ in range(step_budget):
+        reading = observations.latest
+        current_ref = "" if reading is None else observation_ref(reading)
+        if steps and current_ref == asked_on:
+            stop_reason = NO_FRESH_OBSERVATION
+            break
+        intent = mind.next_intent(reading)
+        if intent.kind is not MindDecisionKind.INTENT:
+            stop_reason = intent.reason
+            break
+        # The ask is stamped, not the answer: the next turn may not be built on the reading this
+        # intent already used, which is what makes a stalled world a named stop instead of a
+        # retry loop that spends the mind's budget on one unchanged moment.
+        asked_on = intent.observation_ref
+        try:
+            outcome = await perform_skill(
+                skills,
+                intent.plan.calls[0],
+                authority=authority,
+                timeout_ns=timeout_ns,
+            )
+        except (OSError, RuntimeError):
+            stop_reason = CONTROL_CHANNEL_LOST
+            break
+        after = observations.latest
+        attribution = mind.record_result(intent, outcome, after)
+        result_ref = "" if after is None else observation_ref(after)
+        steps.append(AutonomousStep(intent, outcome, attribution, result_ref))
+        if on_step is not None:
+            # Reported as it lands rather than when the run ends: the question a reader
+            # watching a long run asks is what the Kin is doing *now*, and the answer has
+            # to be on the ledger before the next step's reading replaces it.
+            await on_step(steps[-1])
+        held = after if after is not None else reading
+        if held is not None and goal_in_hand(held):
+            stop_reason = GOAL_HELD_IN_HAND
+            break
+    return AutonomousRun(tuple(steps), stop_reason, MappingProxyType(mind.as_document()))

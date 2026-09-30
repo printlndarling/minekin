@@ -63,6 +63,7 @@ from minekin_core.adapters.sqlite.session_log import (
     SESSION_EVENT_TYPES,
     SESSION_IDENTITY_COMPARED,
     SESSION_INTERRUPTED,
+    SKILL_STEP_RECORDED,
 )
 from minekin_core.application.ports.clock import FakeClock
 from minekin_core.cli.session import database_for
@@ -814,3 +815,171 @@ def test_a_snapshot_answers_the_same_twice(tmp_path: Path) -> None:
     second = json.dumps(snapshot_of(tmp_path), sort_keys=True)
 
     assert first == second
+
+
+# The payload shape `cli/session.py::on_run_skills` writes: one row per concluded step,
+# all-JSON scalars, and every empty member written as the empty string rather than omitted.
+SKILL_GOAL = "先挖到木头，再合成木镐"  # noqa: RUF001 -- the fullwidth comma is Chinese prose, not a typo
+
+
+def skill_step(
+    index: int,
+    skill: str,
+    result: str,
+    reason: str,
+    attribution: str,
+    decision_source: str,
+    goal: str = SKILL_GOAL,
+    action_id: str | None = None,
+) -> dict[str, object]:
+    return {
+        "step_index": index,
+        "skill": skill,
+        "result": result,
+        "reason": reason,
+        "action_id": action_id if action_id is not None else f"act-{index}",
+        "attribution": attribution,
+        "decision_source": decision_source,
+        "model_refusal": "",
+        "goal": goal,
+    }
+
+
+def test_skill_step_rows_project_the_newest_step_and_the_count(tmp_path: Path) -> None:
+    """The autonomous readings the operator asked the ledger to carry reach the snapshot.
+
+    The two rows are the two verdicts the later world readings can give: a confirmed step,
+    whose failure members are empty by construction, and a failed one, whose reason token
+    and FailureCode come straight from Core rather than from anything this projection
+    guesses. The count is the run's own rows, not a zero padded to look like a reading.
+    """
+
+    joined_run(tmp_path)
+    record(
+        tmp_path,
+        SKILL_STEP_RECORDED,
+        skill_step(1, "break_seen_block", "CONFIRMED", "", "", "DECISION_FROM_MODEL"),
+    )
+    record(
+        tmp_path,
+        SKILL_STEP_RECORDED,
+        skill_step(
+            2,
+            "craft",
+            "FAILED",
+            "SCREEN_NOT_CONFIRMED",
+            "ACTION_NOT_EFFECTIVE",
+            "DECISION_FROM_MODEL",
+        ),
+    )
+
+    group = signal(snapshot_of(tmp_path), "skillSteps")
+    assert reported(group, "goal") == SKILL_GOAL
+    assert reported(group, "stepIndex") == 2
+    assert reported(group, "skill") == "craft"
+    assert reported(group, "result") == "FAILED"
+    assert reported(group, "reason") == "SCREEN_NOT_CONFIRMED"
+    assert reported(group, "attribution") == "ACTION_NOT_EFFECTIVE"
+    assert reported(group, "decisionSource") == "DECISION_FROM_MODEL"
+    assert named_gap(group, "modelRefusal")
+    assert reported(group, "stepCount") == 2
+    # Cost and model config are not ledger readings: named gaps that say where they live.
+    assert "run document" in named_gap(group, "modelCost")
+    assert "run document" in named_gap(group, "modelConfig")
+
+
+def test_the_skill_step_timeline_row_reads_the_step_own_verdict(tmp_path: Path) -> None:
+    """CONFIRMED applies, FAILED rejects, and neither leaks its action identifier.
+
+    The table entry alone would call every step `unknown`; this pins that the outcome is a
+    reading of `result`, and the canary in `action_id` pins the field allowlist — the detail
+    shows the named step fields and nothing else from the payload.
+    """
+
+    seed_kin(tmp_path, with_marker=False)
+    record(
+        tmp_path,
+        SKILL_STEP_RECORDED,
+        skill_step(
+            1, "break_seen_block", "CONFIRMED", "", "", "DECISION_FROM_MODEL", action_id=CANARY
+        ),
+    )
+
+    events = build_timeline(tmp_path, limit=5)
+
+    assert events[0]["title"] == SKILL_STEP_RECORDED
+    assert events[0]["kind"] == "intent"
+    assert events[0]["outcome"] == "applied"
+    assert events[0]["detail"] == (
+        f"step_index=1, skill=break_seen_block, result=CONFIRMED, "
+        f"decision_source=DECISION_FROM_MODEL, goal={SKILL_GOAL}"
+    )
+    document = json.dumps(events, ensure_ascii=False)
+    assert CANARY not in document
+    assert "action_id" not in document
+
+
+def test_a_scripted_run_names_the_goal_gap_instead_of_an_empty_value(tmp_path: Path) -> None:
+    """`--skill-plan` writes `goal=""` by construction; the panel reads that as a named gap.
+
+    The same shape answers the other two by-construction empties here: a local decision was
+    never refused by a model, and an UNKNOWN step whose mind gave no attribution says so in
+    words rather than rendering as a blank or a zero.
+    """
+
+    joined_run(tmp_path)
+    record(
+        tmp_path,
+        SKILL_STEP_RECORDED,
+        skill_step(
+            1,
+            "collect_dropped",
+            "UNKNOWN",
+            "NO_CONFIRMING_OBSERVATION",
+            "",
+            "OPERATOR_PLAN",
+            goal="",
+        ),
+    )
+
+    group = signal(snapshot_of(tmp_path), "skillSteps")
+    goal_gap = named_gap(group, "goal")
+    assert "--skill-plan" in goal_gap
+    goal_member = member(group, "goal")
+    gap = as_object(goal_member["gap"], "the goal row is a reading, not a gap")
+    assert gap["status"] == "unavailable"
+    assert reported(group, "decisionSource") == "OPERATOR_PLAN"
+    refusal_gap = named_gap(group, "modelRefusal")
+    assert "不经过模型" in refusal_gap
+    assert reported(group, "result") == "UNKNOWN"
+    assert reported(group, "reason") == "NO_CONFIRMING_OBSERVATION"
+    assert "attribution" in named_gap(group, "attribution").lower()
+
+    events = build_timeline(tmp_path, limit=2)
+    assert events[0]["outcome"] == "unknown"
+    # The empty goal is omitted from the timeline detail, the way a null profile pair is.
+    assert events[0]["detail"] == (
+        "step_index=1, skill=collect_dropped, result=UNKNOWN, reason=NO_CONFIRMING_OBSERVATION, "
+        "decision_source=OPERATOR_PLAN"
+    )
+
+
+def test_a_kin_that_never_drove_skills_shows_the_gap_not_a_zero_count(tmp_path: Path) -> None:
+    """Steps that were never run have no count: the group answers as a whole named gap.
+
+    A `{stepCount: 0}` beside a known group would read as "this run chose to do nothing",
+    which is a fact nothing recorded. The joined run is the non-vacuity control beside the
+    never-ran kin: both answer the same way because both have no such rows.
+    """
+
+    joined_run(tmp_path)
+    document = snapshot_of(tmp_path)
+    group = signal(document, "skillSteps")
+    assert group["status"] == "unknown"
+    assert "SkillStepRecorded" in str(group["reason"])
+    assert group["value"] is None
+
+    seed_kin(tmp_path / "fresh", with_marker=False)
+    never = signal(snapshot_of(tmp_path / "fresh"), "skillSteps")
+    assert never["status"] == "unknown"
+    assert never["value"] is None

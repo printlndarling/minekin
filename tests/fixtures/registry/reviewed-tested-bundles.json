@@ -10,10 +10,10 @@
       "protocol": 763,
       "os_arch": "linux-x86_64",
       "java_major": 21,
-      "bridge_digest": "e50d61c209be98136216b34aadbb6d5a12db8def8aa63a536f32cda8e287006f",
-      "launch_plan_digest": "83299ad5e224959de8e30c72c5937a2434c4d7bba92c62f4d22cf8d89f5f6181",
+      "bridge_digest": "ff2540824ee354149cdc7230d40f9d1eacbbed267ef9cf9936f6f64778672519",
+      "launch_plan_digest": "924931e574de30351df22428efbfc38daef07d06e96511dc693c1066cef76cc0",
       "recipe_path": "tests/fixtures/runtime-input/bundle-candidate-1.20.1.json",
-      "recipe_digest": "8ce43e26b2e17b10e161a9367b990b62a5350132dd81662a97b4e734a1be0ea0",
+      "recipe_digest": "bd6afaeee9dd51e144175d0cab6cedae5869530be784ef05258cc41cafd72c78",
       "auth_mode": "offline",
       "capabilities": [
         "a_refused_first_snapshot_became_no_lease_and_no_playable",
@@ -49,57 +49,57 @@
       "evidence": [
         {
           "case_id": "V1201-010",
-          "run_id": "8665b021bb594f64baa9256ccbc70366",
-          "bundle_digest": "dc30bdaa0ac100bf6e7f25c1399d45340d342ac733b41c5fea134eaf85448494",
-          "bridge_digest": "e50d61c209be98136216b34aadbb6d5a12db8def8aa63a536f32cda8e287006f",
-          "launch_plan_digest": "83299ad5e224959de8e30c72c5937a2434c4d7bba92c62f4d22cf8d89f5f6181",
+          "run_id": "9dd6cfd4c4f243e98a134ef000857ed1",
+          "bundle_digest": "eac79134c76c77d010dddcce497346b1ec68c37453a677d052520724100378eb",
+          "bridge_digest": "ff2540824ee354149cdc7230d40f9d1eacbbed267ef9cf9936f6f64778672519",
+          "launch_plan_digest": "924931e574de30351df22428efbfc38daef07d06e96511dc693c1066cef76cc0",
           "result": "PASS",
-          "attempt": 3
+          "attempt": 5
         },
         {
           "case_id": "V1201-020",
-          "run_id": "ece5d0cb282946f786088bced9fbf4b1",
-          "bundle_digest": "bc987a3208a22a099a0effd29d94fdcd1c447585ed49846eb8970fc25533ad1f",
-          "bridge_digest": "e50d61c209be98136216b34aadbb6d5a12db8def8aa63a536f32cda8e287006f",
-          "launch_plan_digest": "83299ad5e224959de8e30c72c5937a2434c4d7bba92c62f4d22cf8d89f5f6181",
+          "run_id": "b96cd43a91644272991fd435d44daf9b",
+          "bundle_digest": "d02e844c5c5ff1906f1e5774659f5ae158ccf559cc707fb6c3a7d583ece0cfdc",
+          "bridge_digest": "ff2540824ee354149cdc7230d40f9d1eacbbed267ef9cf9936f6f64778672519",
+          "launch_plan_digest": "924931e574de30351df22428efbfc38daef07d06e96511dc693c1066cef76cc0",
           "result": "PASS",
-          "attempt": 2
+          "attempt": 6
         },
         {
           "case_id": "V1201-040",
-          "run_id": "155dcb4a527643618a6c09d94b39dce0",
-          "bundle_digest": "435ab159045b18f222a011f9acea96c849c29e271ce926df382e4899afdd8bc3",
-          "bridge_digest": "e50d61c209be98136216b34aadbb6d5a12db8def8aa63a536f32cda8e287006f",
-          "launch_plan_digest": "83299ad5e224959de8e30c72c5937a2434c4d7bba92c62f4d22cf8d89f5f6181",
+          "run_id": "5ff5210fee9544acaa9d14ac4b133640",
+          "bundle_digest": "eeb154fb886e55a9cca6677c5c2a85a91517f99e6f34f8a29defa9f06c7c6e19",
+          "bridge_digest": "ff2540824ee354149cdc7230d40f9d1eacbbed267ef9cf9936f6f64778672519",
+          "launch_plan_digest": "924931e574de30351df22428efbfc38daef07d06e96511dc693c1066cef76cc0",
           "result": "PASS",
-          "attempt": 2
+          "attempt": 6
         },
         {
           "case_id": "V1201-060",
-          "run_id": "f71c56f03c7e4d1b9f36028a1edfb945",
-          "bundle_digest": "90d490cea3a64fa239f82fa916e29cf562f52f059f1b7dba5df9469b12b38f3b",
-          "bridge_digest": "e50d61c209be98136216b34aadbb6d5a12db8def8aa63a536f32cda8e287006f",
-          "launch_plan_digest": "83299ad5e224959de8e30c72c5937a2434c4d7bba92c62f4d22cf8d89f5f6181",
+          "run_id": "186ecd0ea129415c9d9f723f01f660be",
+          "bundle_digest": "ed0a7dd0fb34f88dc7772da7d707c550cb2e07ee2c9c367f13e21b902752027e",
+          "bridge_digest": "ff2540824ee354149cdc7230d40f9d1eacbbed267ef9cf9936f6f64778672519",
+          "launch_plan_digest": "924931e574de30351df22428efbfc38daef07d06e96511dc693c1066cef76cc0",
           "result": "PASS",
-          "attempt": 1
+          "attempt": 3
         },
         {
           "case_id": "V1201-070",
-          "run_id": "ecebb08084be468ea6372ba1d43c27d5",
-          "bundle_digest": "eb054c0af2aa91d81ad105061f0bd0bd0abc1371746ba9ae10836a09f925a0c8",
-          "bridge_digest": "e50d61c209be98136216b34aadbb6d5a12db8def8aa63a536f32cda8e287006f",
-          "launch_plan_digest": "83299ad5e224959de8e30c72c5937a2434c4d7bba92c62f4d22cf8d89f5f6181",
+          "run_id": "fc96c6bad6c84fb2bc55f0f4970878af",
+          "bundle_digest": "1b7b6f4f0c293601e3cbc486787f3cb473f916b5950138a48b8793cc015810a4",
+          "bridge_digest": "ff2540824ee354149cdc7230d40f9d1eacbbed267ef9cf9936f6f64778672519",
+          "launch_plan_digest": "924931e574de30351df22428efbfc38daef07d06e96511dc693c1066cef76cc0",
           "result": "PASS",
-          "attempt": 2
+          "attempt": 4
         },
         {
           "case_id": "V1201-080",
-          "run_id": "484675e4938b4134b788a971e195619b",
-          "bundle_digest": "22fb57f34abb22ec9c217a06e3083c1e8ae0c7355b9ada1d205d3739221ffe1a",
-          "bridge_digest": "e50d61c209be98136216b34aadbb6d5a12db8def8aa63a536f32cda8e287006f",
-          "launch_plan_digest": "83299ad5e224959de8e30c72c5937a2434c4d7bba92c62f4d22cf8d89f5f6181",
+          "run_id": "2c25e6a35d924fddbf4f3644e98dadf8",
+          "bundle_digest": "f435bcdc5ee4bdda78dc77bdb1d6d21beed5cb9aeb274462e8f3a85cce6c1e0e",
+          "bridge_digest": "ff2540824ee354149cdc7230d40f9d1eacbbed267ef9cf9936f6f64778672519",
+          "launch_plan_digest": "924931e574de30351df22428efbfc38daef07d06e96511dc693c1066cef76cc0",
           "result": "PASS",
-          "attempt": 3
+          "attempt": 5
         }
       ]
     },

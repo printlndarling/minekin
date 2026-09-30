@@ -33,7 +33,12 @@ final class InputBindingTest {
                         "move.right",
                         "move.jump",
                         "move.sneak",
-                        "use.hand"),
+                        "use.hand",
+                        // The S2 action keys: mining holds the attack key, screens tap the
+                        // inventory key. Both are wire vocabulary now, reviewed against
+                        // docs/s2-world-observation-and-actions.md §3.
+                        "mine.attack",
+                        "screen.inventory"),
                 Arrays.stream(InputBinding.values()).map(InputBinding::capability).toList());
     }
 

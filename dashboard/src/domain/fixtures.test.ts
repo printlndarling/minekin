@@ -23,6 +23,7 @@ function signals(snapshot: KinSnapshot): readonly (Signal<unknown> & { label: st
     { label: "serverLink", ...snapshot.serverLink },
     { label: "session", ...snapshot.session },
     { label: "world", ...snapshot.world },
+    { label: "skillSteps", ...snapshot.skillSteps },
     { label: "versions", ...snapshot.versions },
     { label: "bridgeHeartbeat", ...snapshot.bridgeHeartbeat },
     { label: "selfState", ...snapshot.selfState },
@@ -84,7 +85,7 @@ describe("mock fixtures 的自述性", () => {
 
   it("无真源场景显示缺口而不是默认值", () => {
     const snapshot = decodedSnapshot("fields_unknown");
-    for (const label of ["session", "world", "selfState", "evidence", "bridgeHeartbeat"] as const) {
+    for (const label of ["session", "world", "skillSteps", "selfState", "evidence", "bridgeHeartbeat"] as const) {
       expect(["unknown", "unavailable"], label).toContain(snapshot[label].status);
     }
     expect(snapshot.kinId.status).toBe("known");

@@ -32,8 +32,8 @@ REGISTRY_PATH = Path("tests/fixtures/registry/reviewed-tested-bundles.json")
 MANIFEST_PATH = Path("tests/fixtures/manifest.sha256")
 OS_ARCH = "linux-x86_64"
 
-BRIDGE_1201 = "e50d61c209be98136216b34aadbb6d5a12db8def8aa63a536f32cda8e287006f"
-PLAN_1201 = "83299ad5e224959de8e30c72c5937a2434c4d7bba92c62f4d22cf8d89f5f6181"
+BRIDGE_1201 = "ff2540824ee354149cdc7230d40f9d1eacbbed267ef9cf9936f6f64778672519"
+PLAN_1201 = "924931e574de30351df22428efbfc38daef07d06e96511dc693c1066cef76cc0"
 BRIDGE_1214 = "faeec4a9df83abb9ca0404863e04d20cfd87ac0f3afd5e74b6858e3e15372f55"
 PLAN_1214 = "9e0e0ccca9d0a589a38a3f3be40ddbf957f71a51cffe08caf5436153954bfea4"
 ID_1201 = "1.20.1-linux-x86_64-offline-java21"

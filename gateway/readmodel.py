@@ -45,6 +45,7 @@ from minekin_core.adapters.sqlite.session_log import (
     SESSION_IDENTITY_COMPARED,
     SESSION_INTERRUPTED,
     SESSION_STATE_TRANSITIONED,
+    SKILL_STEP_RECORDED,
 )
 from minekin_core.application.ports.clock import Clock
 from minekin_core.cli.evidence import locate_bundle
@@ -78,10 +79,18 @@ _JOIN_ROWS: Final = frozenset({JOIN_OBSERVED, PLAYABLE_ESTABLISHED})
 _LEASE_ROWS: Final = frozenset({INPUT_LEASE_GRANTED, INPUT_RELEASED, INPUT_REFUSED})
 _BRIDGE_ROWS: Final = frozenset({PROCESS_STARTED, HELLO_ACCEPTED}) | END_OF_RUN
 _SERVER_ROWS: Final = frozenset({HELLO_ACCEPTED}) | _JOIN_ROWS | END_OF_RUN
+# `SkillStepRecorded` joins none of these groups: a step concluding is neither a link state
+# nor a session boundary, so the newest step row cannot undo a hello and cannot end a run.
+# It reaches the timeline through `TIMELINE_READING` below, like every other ledger row,
+# and the snapshot reads it in its own `skillSteps` group rather than through these sets.
 
 _NO_CLIENTS: Final = "这个 Kin 没有记录的客户端进程：还没有启动过会话，或上一次已经收摊。"
 _EMPTY_LEDGER: Final = "台账里没有任何事件行：这个 Kin 还没有启动过会话。"
 _NO_BUNDLE: Final = "本 run 还没有已封的证据 bundle：封证只在 case 判定之后写入。"
+_NO_SKILL_STEPS: Final = (
+    "台账里没有技能步行（SkillStepRecorded）：最近这个 run 没有跑过世界技能——"
+    "只连接、只演示输入的运行不会有这类行，这里不把它折成「0 步」。"
+)
 
 # The identity rule applied to this module's own surface: only these named payload
 # fields are ever projected out, so a field Core adds later cannot ride a generic dump.
@@ -128,6 +137,55 @@ _AUTH_DETAIL_FIELDS: Final = (
     "online_adapter_enabled",
     "server_profile_id",
     "server_profile_revision",
+)
+
+# The skill-step row is what a running autonomous/skill session leaves in the ledger: one
+# concluded step with the verdict of the *later world readings*, never the Bridge's own
+# "SUCCEEDED". The names below are the whole projected surface, in rendering order —
+# `action_id` is deliberately absent: the lease tests already pin that an action identifier
+# stays in the ledger, and a skill row carries one per step. `result` and `decision_source`
+# are Core's own enum tokens (`ActionResultClass` / the mind's decision sources), and
+# `reason`/`attribution`/`model_refusal` are named tokens that are empty strings when the
+# run's shape leaves nothing to report — a confirmed step has no failure reason, a scripted
+# plan has no goal, a local decision never reached a model.
+_SKILL_STEP_DETAIL_FIELDS: Final = (
+    "step_index",
+    "skill",
+    "result",
+    "reason",
+    "attribution",
+    "decision_source",
+    "model_refusal",
+    "goal",
+)
+
+# The member-gap sentences for the snapshot's `skillSteps` group. They are module constants
+# because `dashboard/src/fixtures/mockFixtures.ts` mirrors them verbatim — the file's own
+# rule is that a mock gap and a real gap must render identically.
+_SKILL_SCRIPTED_GOAL: Final = (
+    "这是一次 --skill-plan 脚本运行：操作者写下的序列按构造没有自主目标，Core 把 goal 记为空串。"
+)
+_SKILL_CONFIRMED_REASON: Final = (
+    "这一步的结果是 CONFIRMED：没有失败原因可报，Core 按约定把 reason 写成空串。"
+)
+_SKILL_CONFIRMED_ATTRIBUTION: Final = (
+    "已确认的步骤没有失败可归因：attribution 只在失败步携带 mind 的 FailureCode 名。"
+)
+_SKILL_FAILURE_UNATTRIBUTED: Final = (
+    "这一步失败了，但 mind 没有给出归因：attribution 是空串，不是没读到，是没有记下。"
+)
+_SKILL_MODEL_ANSWERED: Final = "模型作答了这一步：model_refusal 是空串，没有拒止可报。"
+_SKILL_MODEL_NOT_ASKED: Final = (
+    "这一步的决策来源不经过模型（DECISION_FROM_LOCAL 或 OPERATOR_PLAN）：拒止概念不适用。"
+)
+_SKILL_MODEL_COST: Final = (
+    "调用花费（model_calls / model_spent_micro / model_cap_refusals）只在 run document 的 "
+    "mind 段里记录，技能步行不携带；未封的 run 只读面取不到，封证后也要读 bundle 里的 "
+    "run document，本投影不解析它。"
+)
+_SKILL_MODEL_CONFIG: Final = (
+    "模型配置状态（model_enabled 与所配置的 provider）与花费同处：只在 run document 的 "
+    "mind 段里记录，台账行不携带，本投影只读台账与已封 bundle 的清单。"
 )
 
 
@@ -306,6 +364,17 @@ def _identity_detail(payload: Mapping[str, Any]) -> list[str]:
 
 
 def _detail(row: EventRow) -> str | None:
+    if row.event_type == SKILL_STEP_RECORDED:
+        # This row projects its own named fields rather than the generic list: `reason` is
+        # already in `_DETAIL_FIELDS` and would double-project, and an empty-by-construction
+        # member (`goal=""` for a scripted plan) is omitted here the way the auth projection
+        # omits a null member — the snapshot group spells out why it is empty, in words.
+        parts = [
+            f"{name}={row.payload[name]}"
+            for name in _SKILL_STEP_DETAIL_FIELDS
+            if isinstance(row.payload.get(name), str | int) and row.payload[name] != ""
+        ]
+        return ", ".join(parts) if parts else None
     parts = [
         f"{name}={row.payload[name]}"
         for name in _DETAIL_FIELDS
@@ -336,6 +405,24 @@ def _identity_outcome(payload: Mapping[str, Any]) -> str:
     if matched is False:
         return "rejected"
     return "unknown"
+
+
+#: Core's `ActionResultClass` names, as the ledger row carries them. The verdict comes from
+#: later world readings, so `CONFIRMED` is the only name that may render as applied — the
+#: table's `unknown` fallback is what an unreadable row gets, never a guess.
+_STEP_RESULT_VERDICTS: Final = {"CONFIRMED": "applied", "FAILED": "rejected", "UNKNOWN": "unknown"}
+
+
+def _step_outcome(payload: Mapping[str, Any]) -> str:
+    """A skill step is applied only when a later reading confirmed it.
+
+    The same rule as the identity row one level over: Core wrote this row for every step
+    that concluded, whatever the verdict, so `rejected` for a FAILED step is the step's own
+    reading rather than the row's, and a `result` that is not one of the three names says
+    nothing this projection may answer with.
+    """
+
+    return _STEP_RESULT_VERDICTS.get(str(payload.get("result", "")), "unknown")
 
 
 def _current_client(report: StatusReport, rows: Sequence[EventRow]) -> ClientSummary | None:
@@ -424,6 +511,7 @@ def build_snapshot(
         ),
         "session": _session_group(report, rows, now, source, alive),
         "world": _world_group(rows, now, source, alive),
+        "skillSteps": _skill_steps_group(rows, source),
         "versions": _versions_group(root, rows, now, source),
         "bridgeHeartbeat": _heartbeat_group(report, rows, source, alive),
         "selfState": gap(
@@ -523,6 +611,138 @@ def _world_group(
         source_ref=source("world"),
         observed_at=now if frozen.observed_at_utc == "" else frozen.observed_at_utc,
         stale_after_ms=STALE_AFTER_MS if alive else None,
+    )
+
+
+def _skill_steps_group(rows: Sequence[EventRow], source: Callable[[str], str]) -> dict[str, Any]:
+    """What the newest run's skill steps recorded, read from the ledger rows alone.
+
+    One row per concluded step, written by `cli/session.py` beside the event reader; the
+    newest such row's `run_id` picks the run this group describes, and the count is over the
+    same run's rows inside the read window. Every empty-by-construction member renders as a
+    named gap rather than as `""` or `0`: a scripted plan has no goal, a confirmed step has
+    no failure reason, and a Kin that never drove skills has no steps at all — which stays a
+    group gap here rather than a group whose count says zero.
+    """
+
+    step_rows = [row for row in rows if row.event_type == SKILL_STEP_RECORDED]
+    if not step_rows:
+        return gap(
+            "unknown",
+            _NO_SKILL_STEPS,
+            source_ref=source("skillSteps"),
+            observed_at=None,
+            stale_after_ms=None,
+        )
+    newest = step_rows[-1]
+    payload = newest.payload
+    same_run = [row for row in step_rows if row.run_id == newest.run_id]
+
+    def named(name: str) -> str | None:
+        value = payload.get(name)
+        return value if isinstance(value, str) and value else None
+
+    goal = named("goal")
+    if goal is not None:
+        goal_field = present(goal)
+    elif payload.get("goal") == "":
+        goal_field = missing("unavailable", _SKILL_SCRIPTED_GOAL)
+    else:
+        goal_field = missing(
+            "unknown", "最近一步的行没有记下 goal 字符串，这一行不是当前形状的 SkillStepRecorded。"
+        )
+
+    step_index = payload.get("step_index")
+    index_field = (
+        present(step_index)
+        if isinstance(step_index, int) and not isinstance(step_index, bool)
+        else missing("unknown", "最近一步的行没有记下具名的 step_index 整数（1 起的步序）。")
+    )
+    skill = named("skill")
+    skill_field = (
+        present(skill)
+        if skill is not None
+        else missing(
+            "unknown",
+            "最近一步的行没有记下技能 id（如 break_seen_block、collect_dropped、craft）。",
+        )
+    )
+    result = named("result")
+    result_field = (
+        present(result)
+        if result is not None
+        else missing(
+            "unknown", "最近一步的行没有记下 result（CONFIRMED / FAILED / UNKNOWN 之一）。"
+        )
+    )
+
+    reason = named("reason")
+    if reason is not None:
+        reason_field = present(reason)
+    elif result == "CONFIRMED":
+        reason_field = missing("unavailable", _SKILL_CONFIRMED_REASON)
+    else:
+        reason_field = missing(
+            "unknown", "这一步没有记下失败原因的具名 token（reason 为空或缺失）。"
+        )
+
+    attribution = named("attribution")
+    if attribution is not None:
+        attribution_field = present(attribution)
+    elif result == "CONFIRMED":
+        attribution_field = missing("unavailable", _SKILL_CONFIRMED_ATTRIBUTION)
+    else:
+        attribution_field = missing("unknown", _SKILL_FAILURE_UNATTRIBUTED)
+
+    decision = named("decision_source")
+    decision_field = (
+        present(decision)
+        if decision is not None
+        else missing(
+            "unknown",
+            "这一行没有记下决策来源"
+            "（DECISION_FROM_MODEL / DECISION_FROM_LOCAL / OPERATOR_PLAN 之一）。",
+        )
+    )
+    refusal = named("model_refusal")
+    if refusal is not None:
+        refusal_field = present(refusal)
+    elif decision == "DECISION_FROM_MODEL":
+        refusal_field = missing("unavailable", _SKILL_MODEL_ANSWERED)
+    elif decision is not None:
+        refusal_field = missing("unavailable", _SKILL_MODEL_NOT_ASKED)
+    else:
+        refusal_field = missing("unknown", "这一步没有记下决策来源，因此拒止与否也无从判断。")
+
+    if len(rows) >= LEDGER_WINDOW:
+        count_field = missing(
+            "unknown",
+            f"台账读数只取最近 {LEDGER_WINDOW} 行且这一窗已被填满：窗内计得 {len(same_run)} 步，"
+            "更早的技能步行可能在窗内之外，确切步数无法给出。",
+        )
+    else:
+        count_field = present(len(same_run))
+
+    value = {
+        "goal": goal_field,
+        "stepIndex": index_field,
+        "skill": skill_field,
+        "result": result_field,
+        "reason": reason_field,
+        "attribution": attribution_field,
+        "decisionSource": decision_field,
+        "modelRefusal": refusal_field,
+        "stepCount": count_field,
+        # Not gaps of this projection's making — Core never writes these into any ledger
+        # row, so they name where the reading lives instead of inventing a number.
+        "modelCost": missing("not_wired", _SKILL_MODEL_COST),
+        "modelConfig": missing("not_wired", _SKILL_MODEL_CONFIG),
+    }
+    return known(
+        value,
+        source_ref=source("skillSteps"),
+        observed_at=newest.observed_at_utc,
+        stale_after_ms=None,
     )
 
 
@@ -650,6 +870,10 @@ TIMELINE_READING: Final[Mapping[str, tuple[str, str]]] = {
     RESOURCE_PACK_POLICY_APPLIED: ("decision", "applied"),
     CLIENT_EXITED: ("session", "unknown"),
     SESSION_STATE_TRANSITIONED: ("session", "applied"),
+    # A step that concluded is the mind's intent meeting the world; the verdict is a
+    # reading of its own `result`, so this entry is only the fallback when that reading
+    # fails — the same shape as the identity row one line below.
+    SKILL_STEP_RECORDED: ("intent", "unknown"),
     # The one row whose outcome this table cannot carry: whether it was applied is a reading
     # of its own payload, so the entry below is only the fallback when that reading fails.
     SESSION_IDENTITY_COMPARED: ("observation", "unknown"),
@@ -675,6 +899,8 @@ def build_timeline(
         kind, outcome = TIMELINE_READING.get(row.event_type, ("observation", "unknown"))
         if row.event_type == SESSION_IDENTITY_COMPARED:
             outcome = _identity_outcome(row.payload)
+        if row.event_type == SKILL_STEP_RECORDED:
+            outcome = _step_outcome(row.payload)
         events.append(
             {
                 "eventId": row.event_id,

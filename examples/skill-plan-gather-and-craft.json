@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "skills": [
+    { "skill": "turn_to", "yaw_degrees": 0.0, "pitch_degrees": -18.0 },
+    { "skill": "break_seen_block", "expected_drop_item": "minecraft:oak_log" },
+    { "skill": "collect_dropped", "item_id": "minecraft:oak_log", "walk_seconds": 2.0 },
+    {
+      "skill": "craft",
+      "recipe_id": "minecraft:oak_planks",
+      "materials": { "minecraft:oak_log": 1 },
+      "product_id": "minecraft:oak_planks"
+    },
+    {
+      "skill": "craft",
+      "recipe_id": "minecraft:stick",
+      "materials": { "minecraft:oak_planks": 2 },
+      "product_id": "minecraft:stick"
+    },
+    {
+      "skill": "craft",
+      "recipe_id": "minecraft:wooden_pickaxe",
+      "materials": { "minecraft:oak_planks": 3, "minecraft:stick": 2 },
+      "product_id": "minecraft:wooden_pickaxe"
+    }
+  ]
+}

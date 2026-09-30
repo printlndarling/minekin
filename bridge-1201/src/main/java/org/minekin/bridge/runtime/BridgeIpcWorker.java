@@ -1,6 +1,7 @@
 package org.minekin.bridge.runtime;
 
 import com.google.protobuf.ByteString;
+import io.minekin.protocol.v1.AimInput;
 import io.minekin.protocol.v1.ActionResult;
 import io.minekin.protocol.v1.ActionStatus;
 import io.minekin.protocol.v1.AdmissionFailureReason;
@@ -13,27 +14,37 @@ import io.minekin.protocol.v1.ConnectionLifecycle;
 import io.minekin.protocol.v1.ConnectionPhase;
 import io.minekin.protocol.v1.CoreHello;
 import io.minekin.protocol.v1.Envelope;
+import io.minekin.protocol.v1.GuiClickInput;
+import io.minekin.protocol.v1.GuiRecipeClick;
+import io.minekin.protocol.v1.GuiSlotClick;
 import io.minekin.protocol.v1.Heartbeat;
+import io.minekin.protocol.v1.HotbarSelectInput;
 import io.minekin.protocol.v1.HostLifecycle;
 import io.minekin.protocol.v1.HostPhase;
 import io.minekin.protocol.v1.InitialObservation;
 import io.minekin.protocol.v1.LookInput;
+import io.minekin.protocol.v1.MineInput;
 import io.minekin.protocol.v1.MoveInput;
 import io.minekin.protocol.v1.OpenLan;
 import io.minekin.protocol.v1.ProtocolVersion;
 import io.minekin.protocol.v1.ReleaseAllInputs;
 import io.minekin.protocol.v1.ResourcePackPolicy;
+import io.minekin.protocol.v1.ScreenInput;
 import io.minekin.protocol.v1.UseInput;
+import io.minekin.protocol.v1.WorldObservation;
 import java.io.IOException;
 import java.net.SocketTimeoutException;
 import java.nio.channels.SocketChannel;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.minekin.bridge.action.WorldActions;
+import org.minekin.bridge.action.WorldClientView;
 import org.minekin.bridge.protocol.AdmissionCommandGate;
 import org.minekin.bridge.protocol.BootstrapDescriptorAdapter;
 import org.minekin.bridge.protocol.DescriptorLoader;
@@ -63,6 +74,17 @@ public final class BridgeIpcWorker implements AutoCloseable {
     public static final String OPEN_LAN_TYPE = "minekin.v1.OpenLan";
     public static final String HOST_LIFECYCLE_TYPE = "minekin.v1.HostLifecycle";
     public static final String BUDGET_WINDOW_TYPE = "minekin.v1.CallbackBudgetWindow";
+    // S2's five inbound action types and its one recurring observation type, spelled the
+    // way the wire names them. Each is gated by its own capability before it is queued, and
+    // refused by name (`CAPABILITY_NOT_GRANTED`) rather than fail-closed when that capability
+    // was never negotiated — the mistake is Core's to see, and a named code in the reply is
+    // where it becomes visible instead of a stopped client.
+    public static final String AIM_INPUT_TYPE = "minekin.v1.AimInput";
+    public static final String MINE_INPUT_TYPE = "minekin.v1.MineInput";
+    public static final String HOTBAR_SELECT_INPUT_TYPE = "minekin.v1.HotbarSelectInput";
+    public static final String SCREEN_INPUT_TYPE = "minekin.v1.ScreenInput";
+    public static final String GUI_CLICK_INPUT_TYPE = "minekin.v1.GuiClickInput";
+    public static final String WORLD_OBSERVATION_TYPE = "minekin.v1.WorldObservation";
     private static final Logger LOGGER = LoggerFactory.getLogger("minekin-bridge");
     /**
      * How many heartbeat intervals of silence the Bridge tolerates before it lets go of
@@ -108,6 +130,25 @@ public final class BridgeIpcWorker implements AutoCloseable {
     private volatile BridgeInputController.ReleaseReason faultReason =
             BridgeInputController.ReleaseReason.BRIDGE_FAULT;
     private volatile BridgeInputController input;
+    /**
+     * The capabilities Core accepted at handshake, kept for the whole session.
+     *
+     * <p>Read on two threads: the heartbeat loop refuses an inbound action whose capability
+     * is not here, and the client tick asks whether the recurring observation is granted
+     * before it spends a tick reading the world. Both read the same immutable snapshot Core
+     * agreed to, so the field is volatile and its value a {@link Set} copied at handshake.
+     */
+    private volatile Set<String> negotiatedCapabilities = Set.of();
+    /** The generation this session answers for, so an observation names the right one. */
+    private volatile long sessionGeneration;
+    /**
+     * The Minecraft side of the S2 actions, injected from the client entrypoint.
+     *
+     * <p>The worker owns sockets, decisions and the lease ledger and holds no Minecraft type;
+     * this is the one seam through which an applied command reads a crosshair, writes a slot,
+     * or taps a key. It is attached before {@link #start()} and read only on the client tick.
+     */
+    private volatile WorldClientView worldView;
 
     public BridgeIpcWorker(
             Path descriptorPath,
@@ -146,6 +187,32 @@ public final class BridgeIpcWorker implements AutoCloseable {
 
     public BridgePhaseMachine.Phase phase() {
         return phases.phase();
+    }
+
+    /**
+     * Whether Core negotiated a capability for this session.
+     *
+     * <p>False until the handshake records what was accepted, so a client tick that runs
+     * before activation asks a question with a clear answer rather than a null set.
+     */
+    public boolean hasCapability(String capability) {
+        return negotiatedCapabilities.contains(capability);
+    }
+
+    /** The generation a recurring observation must name, and 0 before one is negotiated. */
+    public long sessionGeneration() {
+        return sessionGeneration;
+    }
+
+    /**
+     * Attaches the Minecraft half the S2 actions are applied through.
+     *
+     * <p>Called from the client entrypoint before {@link #start()}. The worker keeps the seam
+     * behind an interface precisely so it can be tested with the socket, lease and result
+     * logic exercised and no running game on the other side of it.
+     */
+    public void attachWorldView(WorldClientView worldView) {
+        this.worldView = java.util.Objects.requireNonNull(worldView, "worldView");
     }
 
     /**
@@ -249,6 +316,26 @@ public final class BridgeIpcWorker implements AutoCloseable {
             applyUse(use.value());
             return true;
         }
+        if (message instanceof AimCommand aim) {
+            applyAim(aim);
+            return true;
+        }
+        if (message instanceof MineCommand mine) {
+            applyMine(mine);
+            return true;
+        }
+        if (message instanceof HotbarSelectCommand hotbar) {
+            applyHotbar(hotbar);
+            return true;
+        }
+        if (message instanceof ScreenCommand screen) {
+            applyScreen(screen);
+            return true;
+        }
+        if (message instanceof GuiClickCommand gui) {
+            applyGui(gui);
+            return true;
+        }
         if (message == Notice.SAFE_STOP) {
             // The reason the worker failed closed with, not a default: this notice is
             // how a fault reaches the client thread, and the release it triggers is the
@@ -328,6 +415,373 @@ public final class BridgeIpcWorker implements AutoCloseable {
                                         ? ActionStatus.ACTION_STATUS_ACCEPTED
                                         : ActionStatus.ACTION_STATUS_FAILED)
                         .setReasonCode(outcome.refusalCode())
+                        .build());
+    }
+
+    /**
+     * Turns the view one clamped step toward an absolute heading, and answers for it.
+     *
+     * <p>The clamp and the "is the heading reached yet" decision are the controller's and the
+     * arithmetic is {@link WorldActions}'s; this method only supplies the two facts neither
+     * can know — the client's angles this instant (read through the world view) and the result
+     * status Core reads back. A turn that has more movement owed reports {@code STARTED} with
+     * the {@code AIM_IN_PROGRESS} signal, never a {@code SUCCEEDED} it did not earn, because a
+     * snapped heading is exactly the teleport the clamp exists to forbid and a reader would
+     * otherwise see a completed turn that was a jump.
+     */
+    private void applyAim(AimCommand command) {
+        BridgeInputController controller = input;
+        if (controller == null) {
+            return;
+        }
+        AimInput value = command.value();
+        WorldClientView view = worldView;
+        WorldActions.LookAngles angles = view == null ? null : view.lookAngles();
+        if (angles == null) {
+            publishResult(
+                    value.getActionId(),
+                    value.getGeneration(),
+                    ActionStatus.ACTION_STATUS_FAILED,
+                    WorldActions.REFUSED_NOT_IN_WORLD);
+            LOGGER.warn("bridge refused aim {}: {}", value.getActionId(), WorldActions.REFUSED_NOT_IN_WORLD);
+            return;
+        }
+        BridgeInputController.AimOutcome outcome =
+                controller.aim(
+                        monotonicNow(),
+                        command.deadlineNanos(),
+                        value.getGeneration(),
+                        angles.yawDegrees(),
+                        angles.pitchDegrees(),
+                        value.getYawDegrees(),
+                        value.getPitchDegrees());
+        if (!outcome.applied()) {
+            publishResult(
+                    value.getActionId(),
+                    value.getGeneration(),
+                    ActionStatus.ACTION_STATUS_FAILED,
+                    outcome.refusalCode());
+            LOGGER.warn("bridge refused aim {}: {}", value.getActionId(), outcome.refusalCode());
+            return;
+        }
+        if (outcome.inProgress()) {
+            publishResult(
+                    value.getActionId(),
+                    value.getGeneration(),
+                    ActionStatus.ACTION_STATUS_STARTED,
+                    WorldActions.AIM_IN_PROGRESS);
+            LOGGER.info("bridge stepped aim {} toward {}°/{}°", value.getActionId(),
+                    value.getYawDegrees(), value.getPitchDegrees());
+        } else {
+            publishResult(
+                    value.getActionId(),
+                    value.getGeneration(),
+                    ActionStatus.ACTION_STATUS_SUCCEEDED,
+                    "");
+            LOGGER.info("bridge reached aim {} at {}°/{}°", value.getActionId(),
+                    value.getYawDegrees(), value.getPitchDegrees());
+        }
+    }
+
+    /**
+     * Holds the attack key to mine, or lets it go, and answers for it.
+     *
+     * <p>The lease guard runs first (a stale or deadlined command is refused the same way a
+     * movement command is), and only then is the target checked against the client's own
+     * crosshair — a command for a block the client has since looked away from is refused by
+     * name ({@code MINE_TARGET_NOT_AIMED}) rather than breaking whatever is now in front of
+     * it. Starting a break reports {@code STARTED} and not {@code SUCCEEDED}: the bridge holds
+     * the key at the client's own pace and whether the block actually fell is a fact the next
+     * {@code WorldObservation} records, not one the press of a key can claim.
+     */
+    private void applyMine(MineCommand command) {
+        BridgeInputController controller = input;
+        if (controller == null) {
+            return;
+        }
+        MineInput value = command.value();
+        boolean mining = value.getMining();
+        WorldClientView view = worldView;
+        if (mining) {
+            BridgeInputController.Outcome guard =
+                    controller.preflight(
+                            monotonicNow(),
+                            command.deadlineNanos(),
+                            value.getGeneration(),
+                            true);
+            if (!guard.applied()) {
+                publishResult(
+                        value.getActionId(),
+                        value.getGeneration(),
+                        ActionStatus.ACTION_STATUS_FAILED,
+                        guard.refusalCode());
+                LOGGER.warn("bridge refused mine {}: {}", value.getActionId(), guard.refusalCode());
+                return;
+            }
+            if (view == null || !view.inWorld()) {
+                publishResult(
+                        value.getActionId(),
+                        value.getGeneration(),
+                        ActionStatus.ACTION_STATUS_FAILED,
+                        WorldActions.REFUSED_NOT_IN_WORLD);
+                LOGGER.warn(
+                        "bridge refused mine {}: {}",
+                        value.getActionId(),
+                        WorldActions.REFUSED_NOT_IN_WORLD);
+                return;
+            }
+            Optional<String> refusal =
+                    WorldActions.mineTargetRefusal(value.getTarget(), view.crosshair());
+            if (refusal.isPresent()) {
+                publishResult(
+                        value.getActionId(),
+                        value.getGeneration(),
+                        ActionStatus.ACTION_STATUS_FAILED,
+                        refusal.get());
+                LOGGER.warn("bridge refused mine {}: {}", value.getActionId(), refusal.get());
+                return;
+            }
+        }
+        BridgeInputController.Outcome outcome =
+                controller.mine(
+                        monotonicNow(),
+                        command.deadlineNanos(),
+                        value.getGeneration(),
+                        mining);
+        if (!outcome.applied()) {
+            publishResult(
+                    value.getActionId(),
+                    value.getGeneration(),
+                    ActionStatus.ACTION_STATUS_FAILED,
+                    outcome.refusalCode());
+            LOGGER.warn("bridge refused mine {}: {}", value.getActionId(), outcome.refusalCode());
+            return;
+        }
+        publishResult(
+                value.getActionId(),
+                value.getGeneration(),
+                mining ? ActionStatus.ACTION_STATUS_STARTED : ActionStatus.ACTION_STATUS_ACCEPTED,
+                "");
+        LOGGER.info("bridge applied mine {} (mining={})", value.getActionId(), mining);
+    }
+
+    /**
+     * Puts a hotbar slot in hand, and answers for it.
+     *
+     * <p>Guarded like gameplay (a screen owning the keyboard refuses it), then range-checked
+     * by {@link WorldActions} against the nine the message may name, then written through the
+     * world view. {@code ACCEPTED} rather than {@code SUCCEEDED}: writing the held slot is the
+     * input, and that the hand now holds the intended stack is a reading the next observation's
+     * {@code selected_slot} confirms.
+     */
+    private void applyHotbar(HotbarSelectCommand command) {
+        BridgeInputController controller = input;
+        if (controller == null) {
+            return;
+        }
+        HotbarSelectInput value = command.value();
+        BridgeInputController.Outcome guard =
+                controller.preflight(
+                        monotonicNow(), command.deadlineNanos(), value.getGeneration(), true);
+        if (!guard.applied()) {
+            publishResult(
+                    value.getActionId(),
+                    value.getGeneration(),
+                    ActionStatus.ACTION_STATUS_FAILED,
+                    guard.refusalCode());
+            LOGGER.warn("bridge refused hotbar {}: {}", value.getActionId(), guard.refusalCode());
+            return;
+        }
+        Optional<String> refusal = WorldActions.hotbarRefusal(value.getSlot());
+        if (refusal.isPresent()) {
+            publishResult(
+                    value.getActionId(),
+                    value.getGeneration(),
+                    ActionStatus.ACTION_STATUS_FAILED,
+                    refusal.get());
+            LOGGER.warn("bridge refused hotbar {}: {}", value.getActionId(), refusal.get());
+            return;
+        }
+        WorldClientView view = worldView;
+        if (view == null || !view.selectHotbar(value.getSlot())) {
+            publishResult(
+                    value.getActionId(),
+                    value.getGeneration(),
+                    ActionStatus.ACTION_STATUS_FAILED,
+                    WorldActions.REFUSED_NOT_IN_WORLD);
+            LOGGER.warn(
+                    "bridge refused hotbar {}: {}", value.getActionId(), WorldActions.REFUSED_NOT_IN_WORLD);
+            return;
+        }
+        publishResult(
+                value.getActionId(), value.getGeneration(), ActionStatus.ACTION_STATUS_ACCEPTED, "");
+    }
+
+    /**
+     * Opens or closes a screen, and answers for it.
+     *
+     * <p>The two directions share the lease guard but not the keyboard rule: opening the
+     * player's inventory is gameplay and a screen already holding the keyboard refuses it,
+     * while closing is about the screen itself, so a screen is its precondition rather than a
+     * reason to refuse. {@code OPEN_INVENTORY} goes through the client's own inventory key
+     * path, not {@code setScreen} — the contract asks that opening the inventory be the
+     * player's own key, and a screen installed behind it would be a second door to the same
+     * window.
+     */
+    private void applyScreen(ScreenCommand command) {
+        BridgeInputController controller = input;
+        if (controller == null) {
+            return;
+        }
+        ScreenInput value = command.value();
+        boolean open =
+                value.getControl()
+                        == io.minekin.protocol.v1.ScreenControl.SCREEN_CONTROL_OPEN_INVENTORY;
+        BridgeInputController.Outcome guard =
+                controller.preflight(
+                        monotonicNow(), command.deadlineNanos(), value.getGeneration(), open);
+        if (!guard.applied()) {
+            publishResult(
+                    value.getActionId(),
+                    value.getGeneration(),
+                    ActionStatus.ACTION_STATUS_FAILED,
+                    guard.refusalCode());
+            LOGGER.warn("bridge refused screen {}: {}", value.getActionId(), guard.refusalCode());
+            return;
+        }
+        WorldClientView view = worldView;
+        if (view == null || !view.inWorld()) {
+            publishResult(
+                    value.getActionId(),
+                    value.getGeneration(),
+                    ActionStatus.ACTION_STATUS_FAILED,
+                    WorldActions.REFUSED_NOT_IN_WORLD);
+            LOGGER.warn(
+                    "bridge refused screen {}: {}",
+                    value.getActionId(),
+                    WorldActions.REFUSED_NOT_IN_WORLD);
+            return;
+        }
+        if (open) {
+            view.openInventory();
+        } else {
+            view.closeScreen();
+        }
+        publishResult(
+                value.getActionId(), value.getGeneration(), ActionStatus.ACTION_STATUS_ACCEPTED, "");
+        LOGGER.info("bridge applied screen {} ({})", value.getActionId(), value.getControl());
+    }
+
+    /**
+     * Clicks inside the screen the client already has open, and answers for it.
+     *
+     * <p>A GUI click is about the open container, so the guard does not require a free
+     * keyboard — a screen holding it is the precondition, not a refusal. Then the sync id is
+     * checked against the handler the client reports this instant ({@code GUI_SYNC_ID_MISMATCH}
+     * if they differ, so a stale plan cannot click into a container the player opened
+     * afterwards), and a recipe branch additionally refuses an id the version does not have
+     * ({@code GUI_RECIPE_UNKNOWN}). A click that dispatches reports {@code STARTED}: the packet
+     * left, and whether items actually moved is a fact the next observation's inventory delta
+     * decides, never one the click itself may confirm.
+     */
+    private void applyGui(GuiClickCommand command) {
+        BridgeInputController controller = input;
+        if (controller == null) {
+            return;
+        }
+        GuiClickInput value = command.value();
+        BridgeInputController.Outcome guard =
+                controller.preflight(
+                        monotonicNow(), command.deadlineNanos(), value.getGeneration(), false);
+        if (!guard.applied()) {
+            publishResult(
+                    value.getActionId(),
+                    value.getGeneration(),
+                    ActionStatus.ACTION_STATUS_FAILED,
+                    guard.refusalCode());
+            LOGGER.warn("bridge refused gui click {}: {}", value.getActionId(), guard.refusalCode());
+            return;
+        }
+        WorldClientView view = worldView;
+        if (view == null) {
+            publishResult(
+                    value.getActionId(),
+                    value.getGeneration(),
+                    ActionStatus.ACTION_STATUS_FAILED,
+                    WorldActions.REFUSED_NOT_IN_WORLD);
+            return;
+        }
+        Optional<String> refusal =
+                WorldActions.guiSyncIdRefusal(
+                        value.getSyncId(), view.screenOpen(), view.screenSyncId());
+        if (refusal.isPresent()) {
+            publishResult(
+                    value.getActionId(),
+                    value.getGeneration(),
+                    ActionStatus.ACTION_STATUS_FAILED,
+                    refusal.get());
+            LOGGER.warn("bridge refused gui click {}: {}", value.getActionId(), refusal.get());
+            return;
+        }
+        switch (value.getClickCase()) {
+            case SLOT -> {
+                GuiSlotClick slot = value.getSlot();
+                view.clickSlot(slot.getSlotId(), slot.getButton(), slot.getMode());
+                publishResult(
+                        value.getActionId(),
+                        value.getGeneration(),
+                        ActionStatus.ACTION_STATUS_STARTED,
+                        "");
+                LOGGER.info("bridge clicked slot {} in {}", slot.getSlotId(), value.getActionId());
+            }
+            case RECIPE -> {
+                GuiRecipeClick recipe = value.getRecipe();
+                if (!view.recipeKnown(recipe.getRecipeId())) {
+                    publishResult(
+                            value.getActionId(),
+                            value.getGeneration(),
+                            ActionStatus.ACTION_STATUS_FAILED,
+                            WorldActions.REFUSED_GUI_RECIPE_UNKNOWN);
+                    LOGGER.warn(
+                            "bridge refused gui click {}: {}",
+                            value.getActionId(),
+                            WorldActions.REFUSED_GUI_RECIPE_UNKNOWN);
+                    return;
+                }
+                view.clickRecipe(recipe.getRecipeId(), recipe.getCraftAll());
+                publishResult(
+                        value.getActionId(),
+                        value.getGeneration(),
+                        ActionStatus.ACTION_STATUS_STARTED,
+                        "");
+                LOGGER.info(
+                        "bridge clicked recipe {} in {}", recipe.getRecipeId(), value.getActionId());
+            }
+            default -> {
+                // Reachable only if a command with no click slipped past the inbound shape
+                // check; refused by name rather than silently applied to nothing.
+                publishResult(
+                        value.getActionId(),
+                        value.getGeneration(),
+                        ActionStatus.ACTION_STATUS_FAILED,
+                        WorldActions.REFUSED_MALFORMED_CLICK);
+                LOGGER.warn(
+                        "bridge refused gui click {}: {}",
+                        value.getActionId(),
+                        WorldActions.REFUSED_MALFORMED_CLICK);
+            }
+        }
+    }
+
+    /** Publishes one action's answer, so every apply* method ends with a reply Core reads. */
+    private void publishResult(
+            String actionId, long generation, ActionStatus status, String reasonCode) {
+        publishActionResult(
+                ActionResult.newBuilder()
+                        .setActionId(actionId)
+                        .setGeneration(generation)
+                        .setStatus(status)
+                        .setReasonCode(reasonCode == null ? "" : reasonCode)
                         .build());
     }
 
@@ -492,6 +946,48 @@ public final class BridgeIpcWorker implements AutoCloseable {
         return true;
     }
 
+    /**
+     * The recurring player-equivalent view, published best-effort.
+     *
+     * <p>Unlike a lifecycle phase, a first snapshot or an action result, an observation the
+     * outbox had no room for is dropped rather than failing the client closed. It is a fresh
+     * read of the same state the next tick reads again; stopping a running client because one
+     * snapshot of it could not be delivered would make the view a cause of the fault it exists
+     * to reveal. The dropped frames simply make the delivered ticks non-contiguous, which a
+     * reader can see.
+     */
+    public boolean publishWorldObservation(WorldObservation observation) {
+        java.util.Objects.requireNonNull(observation, "observation");
+        if (stopping.get() || !started.get() || event == null) {
+            return false;
+        }
+        if (!eventOutbox.offer(new EventMessage(WORLD_OBSERVATION_TYPE, observation))) {
+            LOGGER.warn(
+                    "bridge dropped a world observation for generation {}: the event outbox"
+                            + " is full ({} held)",
+                    observation.getGeneration(),
+                    eventOutbox.size());
+            return false;
+        }
+        return true;
+    }
+
+    /**
+     * Answers an inbound action whose capability Core never negotiated, by name.
+     *
+     * <p>Refused rather than dropped or failed-closed: §1 makes honoring a command the
+     * negotiation never covered the dangerous direction of the mistake, and the safe one is
+     * a named {@code CAPABILITY_NOT_GRANTED} in the reply — visible to Core as its own bug
+     * rather than silent, and never a reason to stop a client that is otherwise running.
+     */
+    private void publishCapabilityRefusal(String actionId, long generation) {
+        publishResult(
+                actionId,
+                generation,
+                ActionStatus.ACTION_STATUS_FAILED,
+                WorldActions.REFUSED_CAPABILITY_NOT_GRANTED);
+    }
+
     @Override
     public void close() {
         if (!stopping.compareAndSet(false, true)) {
@@ -577,7 +1073,12 @@ public final class BridgeIpcWorker implements AutoCloseable {
                         RELEASE_ALL_INPUTS_TYPE,
                         MOVE_INPUT_TYPE,
                         LOOK_INPUT_TYPE,
-                        USE_INPUT_TYPE));
+                        USE_INPUT_TYPE,
+                        AIM_INPUT_TYPE,
+                        MINE_INPUT_TYPE,
+                        HOTBAR_SELECT_INPUT_TYPE,
+                        SCREEN_INPUT_TYPE,
+                        GUI_CLICK_INPUT_TYPE));
         Envelope reply = control.read(handshakeTimeout);
         gate.validate(reply);
         if (!CORE_HELLO_TYPE.equals(reply.getMessageType())) {
@@ -600,6 +1101,12 @@ public final class BridgeIpcWorker implements AutoCloseable {
                 descriptor.expected().generation());
         created.observeCoreMessage(monotonicNow());
         input = created;
+        // Kept for the whole session: the heartbeat loop refuses an action whose capability is
+        // not here, and the client tick asks whether the recurring observation is granted
+        // before it reads the world. The generation is the descriptor's — the one value both
+        // this Bridge and Core agreed the session is numbered with.
+        negotiatedCapabilities = Set.copyOf(accepted.acceptedCapabilities());
+        sessionGeneration = descriptor.expected().generation();
         return new HeartbeatState(
                 gate,
                 Duration.ofMillis(
@@ -730,6 +1237,66 @@ public final class BridgeIpcWorker implements AutoCloseable {
                 if (!clientInbox.offer(new UseCommand(command))) {
                     throw new IOException("client inbox is full for UseInput");
                 }
+            } else if (AIM_INPUT_TYPE.equals(envelope.getMessageType())) {
+                AimInput command = AimInput.parseFrom(envelope.getPayload());
+                validateAim(command);
+                handleActionOrRefuseCapability(
+                        state,
+                        HandshakeGate.AIM_CAPABILITY,
+                        command.getActionId(),
+                        command.getGeneration(),
+                        command.getDeadlineMonotonicNs(),
+                        envelope.getMonotonicNs(),
+                        deadline -> new AimCommand(command, deadline),
+                        "AimInput");
+            } else if (MINE_INPUT_TYPE.equals(envelope.getMessageType())) {
+                MineInput command = MineInput.parseFrom(envelope.getPayload());
+                validateMine(command);
+                handleActionOrRefuseCapability(
+                        state,
+                        HandshakeGate.MINE_CAPABILITY,
+                        command.getActionId(),
+                        command.getGeneration(),
+                        command.getDeadlineMonotonicNs(),
+                        envelope.getMonotonicNs(),
+                        deadline -> new MineCommand(command, deadline),
+                        "MineInput");
+            } else if (HOTBAR_SELECT_INPUT_TYPE.equals(envelope.getMessageType())) {
+                HotbarSelectInput command = HotbarSelectInput.parseFrom(envelope.getPayload());
+                validateHotbar(command);
+                handleActionOrRefuseCapability(
+                        state,
+                        HandshakeGate.HOTBAR_CAPABILITY,
+                        command.getActionId(),
+                        command.getGeneration(),
+                        command.getDeadlineMonotonicNs(),
+                        envelope.getMonotonicNs(),
+                        deadline -> new HotbarSelectCommand(command, deadline),
+                        "HotbarSelectInput");
+            } else if (SCREEN_INPUT_TYPE.equals(envelope.getMessageType())) {
+                ScreenInput command = ScreenInput.parseFrom(envelope.getPayload());
+                validateScreen(command);
+                handleActionOrRefuseCapability(
+                        state,
+                        HandshakeGate.SCREEN_CAPABILITY,
+                        command.getActionId(),
+                        command.getGeneration(),
+                        command.getDeadlineMonotonicNs(),
+                        envelope.getMonotonicNs(),
+                        deadline -> new ScreenCommand(command, deadline),
+                        "ScreenInput");
+            } else if (GUI_CLICK_INPUT_TYPE.equals(envelope.getMessageType())) {
+                GuiClickInput command = GuiClickInput.parseFrom(envelope.getPayload());
+                validateGui(command);
+                handleActionOrRefuseCapability(
+                        state,
+                        HandshakeGate.GUI_CAPABILITY,
+                        command.getActionId(),
+                        command.getGeneration(),
+                        command.getDeadlineMonotonicNs(),
+                        envelope.getMonotonicNs(),
+                        deadline -> new GuiClickCommand(command, deadline),
+                        "GuiClickInput");
             } else if (OPEN_LAN_TYPE.equals(envelope.getMessageType())) {
                 OpenLan command = OpenLan.parseFrom(envelope.getPayload());
                 validateOpenLanDeadline(command, envelope.getMonotonicNs());
@@ -1026,6 +1593,159 @@ public final class BridgeIpcWorker implements AutoCloseable {
         return Float.isFinite(value) && value >= -1.0f && value <= 1.0f;
     }
 
+    /**
+     * The identity every inbound action shares: an action to answer for, a generation that
+     * could exist, and a lease that names one. A blank or over-long id, or a generation of
+     * zero, is a command that cannot be answered at all — not a stale one — so it is a shape
+     * fault (fail-closed), exactly like a movement command's, rather than a named refusal.
+     */
+    private static boolean identityOk(String actionId, String leaseId, long generation) {
+        return !actionId.isBlank()
+                && actionId.length() <= 128
+                && generation != 0
+                && !leaseId.isBlank()
+                && leaseId.length() <= 128;
+    }
+
+    /**
+     * A turn that is not a turn is refused before it reaches the client, on the same identity
+     * bounds as a movement command plus the finite-angle rule a look uses: an angle that is
+     * not a number is not an aim that would move a little, it is a command with no heading.
+     */
+    static void validateAim(AimInput command) {
+        if (!identityOk(command.getActionId(), command.getLeaseId(), command.getGeneration())
+                || !Float.isFinite(command.getYawDegrees())
+                || !Float.isFinite(command.getPitchDegrees())) {
+            throw new IllegalArgumentException("AimInput violates the negotiated input bounds");
+        }
+    }
+
+    /** The attack key held or let go; the target match is a semantic check made on the tick. */
+    static void validateMine(MineInput command) {
+        if (!identityOk(command.getActionId(), command.getLeaseId(), command.getGeneration())) {
+            throw new IllegalArgumentException("MineInput violates the negotiated input bounds");
+        }
+    }
+
+    /** Slot range is a named refusal ({@code HOTBAR_SLOT_OUT_OF_RANGE}), not a shape fault. */
+    static void validateHotbar(HotbarSelectInput command) {
+        if (!identityOk(
+                command.getActionId(), command.getLeaseId(), command.getGeneration())) {
+            throw new IllegalArgumentException(
+                    "HotbarSelectInput violates the negotiated input bounds");
+        }
+    }
+
+    /** A screen control that names no action this build can take is a command with no meaning. */
+    static void validateScreen(ScreenInput command) {
+        io.minekin.protocol.v1.ScreenControl control = command.getControl();
+        if (!identityOk(command.getActionId(), command.getLeaseId(), command.getGeneration())
+                || control == io.minekin.protocol.v1.ScreenControl.UNRECOGNIZED
+                || control == io.minekin.protocol.v1.ScreenControl.SCREEN_CONTROL_UNSPECIFIED) {
+            throw new IllegalArgumentException(
+                    "ScreenInput violates the negotiated input bounds");
+        }
+    }
+
+    /**
+     * A GUI click must name a click: oneof empty, a slot mode the build cannot map, or a
+     * recipe id that is blank are each a command that cannot be answered, so they fail closed
+     * like a malformed movement. The sync id and the recipe's existence are semantic checks
+     * made on the tick, refused by name there, because a stale id is a real click against the
+     * wrong window rather than a command with no window to speak of.
+     */
+    static void validateGui(GuiClickInput command) {
+        if (!identityOk(command.getActionId(), command.getLeaseId(), command.getGeneration())
+                || command.getClickCase() == GuiClickInput.ClickCase.CLICK_NOT_SET) {
+            throw new IllegalArgumentException(
+                    "GuiClickInput violates the negotiated input bounds");
+        }
+        switch (command.getClickCase()) {
+            case SLOT -> {
+                io.minekin.protocol.v1.SlotClickMode mode = command.getSlot().getMode();
+                if (mode == io.minekin.protocol.v1.SlotClickMode.UNRECOGNIZED
+                        || mode == io.minekin.protocol.v1.SlotClickMode.SLOT_CLICK_MODE_UNSPECIFIED) {
+                    throw new IllegalArgumentException(
+                            "GuiClickInput slot click names no supported mode");
+                }
+            }
+            case RECIPE -> {
+                if (command.getRecipe().getRecipeId().isBlank()) {
+                    throw new IllegalArgumentException(
+                            "GuiClickInput recipe click names no recipe");
+                }
+            }
+            default -> throw new IllegalArgumentException(
+                    "GuiClickInput names neither a slot nor a recipe");
+        }
+    }
+
+    /**
+     * Restates a command's deadline in this JVM's clock, the same way {@code onLocalClock}
+     * restates a movement's.
+     *
+     * <p>The deadline and the envelope's stamp are both Core's clock, so only their difference
+     * is a duration two processes can agree on; comparing the raw deadline against
+     * {@code System.nanoTime()} would compare unrelated numbers and pass by accident. Unlike a
+     * connect, a late input command is not an error: it is a command Core stopped waiting for,
+     * and the controller refuses exactly that with a code, so an elapsed deadline is moved one
+     * nanosecond into the past rather than thrown on.
+     */
+    static long restampDeadline(long coreDeadline, long receivedAtNanos) {
+        if (coreDeadline == 0) {
+            return 0;
+        }
+        long remaining;
+        try {
+            remaining = Math.subtractExact(coreDeadline, receivedAtNanos);
+        } catch (ArithmeticException overflow) {
+            remaining = 0;
+        }
+        if (remaining <= 0) {
+            return monotonicNow() - 1;
+        }
+        return Math.addExact(monotonicNow(), remaining);
+    }
+
+    /**
+     * The one path every S2 action takes after its shape is validated: refuse by name if its
+     * capability was never negotiated, otherwise restate its deadline and hand it to the
+     * client tick.
+     *
+     * <p>Deliberately not the movement path's rule. A movement or use command that arrives
+     * without its capability throws and fails the Bridge closed, because honoring a steering
+     * command nobody agreed to is unsafe to leave running; an S2 action is refused by name
+     * instead, which answers Core's own bug back to it and stops nothing that is otherwise
+     * healthy. The command reaches the client only when the capability is present, so a
+     * refused command never reads a crosshair or taps a key.
+     */
+    private void handleActionOrRefuseCapability(
+            HeartbeatState state,
+            String capability,
+            String actionId,
+            long generation,
+            long coreDeadline,
+            long receivedAtNanos,
+            java.util.function.LongFunction<ClientMessage> commandFactory,
+            String label)
+            throws IOException {
+        if (!state.capabilities().contains(capability)) {
+            publishCapabilityRefusal(actionId, generation);
+            observeCoreMessage();
+            LOGGER.warn(
+                    "bridge refused {}: {} (capability {} was not negotiated)",
+                    actionId,
+                    WorldActions.REFUSED_CAPABILITY_NOT_GRANTED,
+                    capability);
+            return;
+        }
+        long deadline = restampDeadline(coreDeadline, receivedAtNanos);
+        observeCoreMessage();
+        if (!clientInbox.offer(commandFactory.apply(deadline))) {
+            throw new IOException("client inbox is full for " + label);
+        }
+    }
+
     private void failClosed() {
         failClosed(BridgeInputController.ReleaseReason.BRIDGE_FAULT);
     }
@@ -1118,7 +1838,12 @@ public final class BridgeIpcWorker implements AutoCloseable {
                     ReleaseCommand,
                     MoveCommand,
                     LookCommand,
-                    UseCommand {}
+                    UseCommand,
+                    AimCommand,
+                    MineCommand,
+                    HotbarSelectCommand,
+                    ScreenCommand,
+                    GuiClickCommand {}
 
     public enum Notice implements ClientMessage {
         OBSERVE_ONLY,
@@ -1145,6 +1870,28 @@ public final class BridgeIpcWorker implements AutoCloseable {
     public record LookCommand(LookInput value) implements ClientMessage {}
 
     public record UseCommand(UseInput value) implements ClientMessage {}
+
+    /**
+     * An S2 action queued for the client tick, with its deadline already restated into this
+     * JVM's clock.
+     *
+     * <p>The restamped deadline travels beside the message rather than being written back into
+     * it because protobuf has no common supertype for the five builders, and a command that
+     * could not carry its sender's stamp forward would be compared against an unrelated clock.
+     * Each record is its own type so the client-thread router answers each with the guard and
+     * the status its contract specifies.
+     */
+    public record AimCommand(AimInput value, long deadlineNanos) implements ClientMessage {}
+
+    public record MineCommand(MineInput value, long deadlineNanos) implements ClientMessage {}
+
+    public record HotbarSelectCommand(
+            HotbarSelectInput value, long deadlineNanos) implements ClientMessage {}
+
+    public record ScreenCommand(ScreenInput value, long deadlineNanos) implements ClientMessage {}
+
+    public record GuiClickCommand(
+            GuiClickInput value, long deadlineNanos) implements ClientMessage {}
 
     private record HeartbeatState(EnvelopeGate gate, Duration timeout, Set<String> capabilities) {
         private HeartbeatState {

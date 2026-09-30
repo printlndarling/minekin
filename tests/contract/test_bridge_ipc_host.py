@@ -25,18 +25,23 @@ from minekin_core.adapters.bridge.admission import (
 )
 from minekin_core.adapters.bridge.ipc import (
     ADMISSION_CAPABILITY,
+    AIM_CAPABILITY,
     BRIDGE_HELLO_TYPE,
     CONNECT_WORLD_TYPE,
     CONNECTION_LIFECYCLE_TYPE,
     CORE_HELLO_TYPE,
+    GUI_CAPABILITY,
     HANDSHAKE_CAPABILITY,
     HEARTBEAT_TYPE,
     HOST_LAN_CAPABILITY,
+    HOTBAR_CAPABILITY,
     LOOK_CAPABILITY,
     LOOK_INPUT_TYPE,
+    MINE_CAPABILITY,
     MOVE_CAPABILITY,
     MOVE_INPUT_TYPE,
     RELEASE_ALL_INPUTS_TYPE,
+    SCREEN_CAPABILITY,
     USE_CAPABILITY,
     USE_INPUT_TYPE,
     BridgeIpcHost,
@@ -48,6 +53,11 @@ from minekin_core.domain.connection import (
     CallbackDisposition,
     ConnectionGenerations,
     ConnectionState,
+)
+from minekin_core.domain.control_vocabulary import (
+    BASELINE_CAPABILITIES,
+    OBSERVE_WORLD_CAPABILITY,
+    WORLD_ACTION_CAPABILITIES,
 )
 from minekin_core.domain.ids import Generation, OpaqueId
 from minekin_core.domain.input_control import InputLease, InputPriority
@@ -82,7 +92,11 @@ def lease() -> InputLease:
 
 def test_loopback_handshake_heartbeat_commands_and_events(tmp_path: Path) -> None:
     async def scenario() -> None:
-        bridge_session = session()
+        # The full offer, named here rather than inherited from the helper's default:
+        # which capabilities a session is given is a claim about a particular
+        # reviewed Bridge, and what this scenario asks is what the host does with the
+        # set it was handed.
+        bridge_session = session(BASELINE_CAPABILITIES | WORLD_ACTION_CAPABILITIES)
         host = BridgeIpcHost(bridge_session)
         descriptor_path = tmp_path / "private" / "bridge-bootstrap.pb"
         descriptor = await host.prepare(descriptor_path)
@@ -103,6 +117,16 @@ def test_loopback_handshake_heartbeat_commands_and_events(tmp_path: Path) -> Non
             # and it is advertised rather than assumed for the same reason: a Bridge
             # that cannot host must be able to say so before it is asked to.
             HOST_LAN_CAPABILITY,
+            # The S2 set: the five control verbs and the recurring observation,
+            # advertised under exactly the names §1 gives them. The proof that the
+            # hello echoes these is the same one the handshake holds for movement —
+            # the Core's accepted set must equal this set, or the proof fails.
+            AIM_CAPABILITY,
+            MINE_CAPABILITY,
+            HOTBAR_CAPABILITY,
+            SCREEN_CAPABILITY,
+            GUI_CAPABILITY,
+            OBSERVE_WORLD_CAPABILITY,
         }
 
         control_reader, control_writer = await connect(descriptor, envelope_pb2.CHANNEL_CONTROL)

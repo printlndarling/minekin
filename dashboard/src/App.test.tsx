@@ -32,6 +32,10 @@ describe("关键流程：外壳在同一界面上呈现四种缺失", () => {
     expect(document.body.textContent).not.toContain("B 独立");
     expect(document.body.textContent).not.toContain("1.20.1+fabric");
     expect(screen.getByTestId("panel-kin")).toHaveTextContent("台账 position 是记账顺序");
+    // 技能步面板在同一总览页在场：最近一步与步数直接可读，花费/配置是具名缺口而不是数字。
+    expect(screen.getByTestId("panel-skill-steps")).toHaveTextContent("先挖到木头，再合成木镐");
+    expect(screen.getByTestId("panel-skill-steps")).toHaveTextContent("4 步");
+    expect(screen.getByTestId("panel-skill-steps")).toHaveTextContent("model_calls");
   });
 
   it("失联场景：runtime 判为未定，链路显示已失联", async () => {
@@ -126,7 +130,8 @@ describe("关键流程：外壳在同一界面上呈现四种缺失", () => {
     expect(container.querySelector("video")).toBeNull();
     expect(container.querySelector("canvas")).toBeNull();
     expect(screen.getByTestId("panel-capability")).toHaveTextContent("没有 framebuffer 采集");
-    expect(screen.getByTestId("panel-capability")).toHaveTextContent("Core 尚无权威的人格、目标与成本读数");
+    expect(screen.getByTestId("panel-capability")).toHaveTextContent("没有真源就不显示人格摘要或花费数字");
+    expect(screen.getByTestId("panel-capability")).toHaveTextContent("只在 run document 的 mind 段记录");
     // 保留边界与缺陷分开命名：通用写面是有意不开放，不是读不到。
     expect(screen.getByTestId("panel-capability")).toHaveTextContent("暂不开放");
     expect(screen.getByTestId("read-route-table")).toHaveTextContent("/api/v1/dashboard/snapshot");

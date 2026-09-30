@@ -30,6 +30,18 @@ public final class HandshakeGate {
     // And using what is in front of it: the capability that lets a Kin act on the
     // world rather than only move through it.
     public static final String USE_CAPABILITY = "control.use.v1";
+    // S2's five action surfaces and its one observation surface, each its own cell of
+    // the negotiation table for the reason the table already states: a client that can
+    // turn may not be allowed to break, one that can break may not be allowed to touch
+    // a GUI, and observation is read-only and switches apart from all of them. A command
+    // whose capability was never negotiated is refused by name (`CAPABILITY_NOT_GRANTED`)
+    // rather than acted on, on both directions of the mistake.
+    public static final String AIM_CAPABILITY = "control.aim.v1";
+    public static final String MINE_CAPABILITY = "control.mine.v1";
+    public static final String HOTBAR_CAPABILITY = "control.hotbar.v1";
+    public static final String SCREEN_CAPABILITY = "control.screen.v1";
+    public static final String GUI_CAPABILITY = "control.gui.v1";
+    public static final String OBSERVE_WORLD_CAPABILITY = "observe.world.v1";
     // And publishing the world this client is hosting. Not an input skill, so not
     // named like one: it is the one lifecycle operation on the integrated server
     // that the boundary contract lets the Bridge's host adapter reach for, and a

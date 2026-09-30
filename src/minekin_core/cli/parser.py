@@ -238,6 +238,48 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="DEGREES",
         help="tilt the view this far (positive is up) once the session is playable",
     )
+    # The plan, which is the shortest form of "then do these things": a JSON
+    # document naming the skills in order. It is a file rather than a repeated
+    # flag because a plan has arguments per step (a recipe names its materials),
+    # and it is a *plan* rather than a script because every step's verdict still
+    # comes from a later reading — the Kin stops at the first step the world did
+    # not confirm, so a wrong plan is a short run, not a long mistake.
+    session_start.add_argument(
+        "--skill-plan",
+        type=Path,
+        default=None,
+        metavar="PATH",
+        help=(
+            "a JSON file naming the skills to perform in order, once the session "
+            "is playable (needs --server-profile)"
+        ),
+    )
+    session_start.add_argument(
+        "--skill-step-seconds",
+        type=float,
+        default=None,
+        metavar="SECONDS",
+        help="how long one skill step may wait for the reading that confirms it",
+    )
+    # The same skills, chosen by the Kin instead of by the operator. The ask names
+    # bounds rather than steps, because there is no step to name: the lease has to
+    # cover whatever the mind may pick before it has picked anything, and the only
+    # free choice left to a run is how many times it may change its mind.
+    session_start.add_argument(
+        "--autonomous",
+        action="store_true",
+        help=(
+            "let the Kin choose each next skill from what it can see, instead of "
+            "following --skill-plan (needs --server-profile; excludes --skill-plan)"
+        ),
+    )
+    session_start.add_argument(
+        "--autonomous-steps",
+        type=int,
+        default=None,
+        metavar="N",
+        help="how many skills an autonomous run may attempt before it stops",
+    )
     # A world to place in this client's game directory, and the level name to
     # give it. Both, or neither: a save with no name is not enterable, and a name
     # with nothing behind it is not a world. This is what a session that is meant

@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any, Final, cast
 
 from minekin_core.adapters.bridge.ipc import VERSION_TEXT, BridgeSession
+from minekin_core.adapters.launcher.recipe import session_capabilities
 from minekin_core.domain.errors import ErrorCategory, MinekinError, Retryability
 from minekin_core.domain.ids import KinId
 
@@ -103,8 +104,14 @@ def bridge_session_for(
     until Loom's output is shown to be reproducible on a second platform — so
     recording a source digest is the honest value available. It binds Core and
     the client to the same source; it is not a claim about the shipped bytes.
+
+    `capabilities` comes from the recipe rather than from this call site. The
+    offered set is inside the hello the Bridge proves back, so offering a skill
+    that version's reviewed Bridge never implemented does not degrade to a
+    refused command — it rejects the handshake and the client never starts.
     """
 
+    minecraft_version = _bundle_version(plan, "minecraft")
     return BridgeSession(
         kin_id=str(kin_id),
         session_id=session_id,
@@ -112,8 +119,9 @@ def bridge_session_for(
         client_instance_id=client_instance_id,
         bundle_digest=_digest(plan, "plan_sha256"),
         bridge_digest=_digest(plan, "bridge_source_sha256"),
-        minecraft_version=_bundle_version(plan, "minecraft"),
+        minecraft_version=minecraft_version,
         fabric_loader_version=_bundle_version(plan, "fabric_loader"),
+        capabilities=session_capabilities(minecraft_version),
         launch_nonce=_secret(nonce),
         session_key=_secret(session_key),
     )

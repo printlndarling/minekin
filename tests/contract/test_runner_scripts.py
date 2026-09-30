@@ -1358,13 +1358,30 @@ SECOND_PROBE_USE_TARGET_REFUSAL = (
     "anything is written"
 )
 
+#: The trunk's two named refusals, stored verbatim the same way, because a paraphrase
+#: would let the guard rephrase itself and stay green. The probe-second one carries the
+#: second name as its `%s`; the use-target one carries no placeholder at all.
+RESOURCE_TRUNK_PROBE_SECOND_REFUSAL = (
+    "domain: MINEKIN_DOMAIN_RESOURCE_TRUNK stacks oak logs in the look of one probed "
+    "kin and MINEKIN_DOMAIN_PROBE_SECOND adds a second probed name (%s); the pair does "
+    "not say whose look the trunk is placed in -- refused here, before anything is "
+    "written"
+)
+RESOURCE_TRUNK_USE_TARGET_REFUSAL = (
+    "domain: MINEKIN_DOMAIN_RESOURCE_TRUNK and MINEKIN_DOMAIN_USE_TARGET both put a "
+    "block in the look of one probed kin; two blocks in the same look do not say which "
+    "one the Kin is supposed to break -- refused here, before anything is written"
+)
+
 #: Prints the array the shipped construction built, one bracketed word per argv slot.
 PROBE_ARGS_CAPTURE = """printf '  <%s>' "${probe_args[@]}"
 printf '\\n'
 """
 
 
-def second_probe_prelude(*, probe: str, probe_second: str, use_target: str) -> str:
+def second_probe_prelude(
+    *, probe: str, probe_second: str, use_target: str, resource_trunk: str = ""
+) -> str:
     """The locals the second-probe regions read: the top-of-file reads, as a run sees them.
 
     `player` is the whitelisted account the file defaults it to (`Kin`), `probe_seconds`
@@ -1373,6 +1390,8 @@ def second_probe_prelude(*, probe: str, probe_second: str, use_target: str) -> s
     cadence matches the shipped default (one second, see
     `test_the_probe_default_is_dense_enough_for_a_move_window`); the second name rides
     whatever cadence the run was given, so this constant only ever has to be a number.
+    `resource_trunk` joins it defaulting to empty so every existing second-probe row is
+    unchanged, while the trunk regions — which read it under `set -u` — get a value.
     """
 
     return (
@@ -1382,7 +1401,24 @@ def second_probe_prelude(*, probe: str, probe_second: str, use_target: str) -> s
         f'probe="{probe}"\n'
         f'probe_second="{probe_second}"\n'
         f'use_target="{use_target}"\n'
+        f'resource_trunk="{resource_trunk}"\n'
     )
+
+
+def resource_trunk_region(text: str, name: str) -> str:
+    """One shipped region of the resource trunk, marker to marker, sans begin line.
+
+    Same rule the second-probe regions follow: every reading here runs the bytes a run
+    executes, so changing them moves a test before it moves a live run. An empty
+    extraction says so rather than making every driven reading vacuous.
+    """
+
+    begin = f"# --- resource-trunk-{name} begin"
+    end = f"# --- resource-trunk-{name} end ---"
+    start = text.index(begin)
+    lines = text[start : text.index(end, start)].splitlines(keepends=True)
+    assert len(lines) > 2, f"the resource-trunk {name} region came out empty; wrong markers"
+    return "".join(lines[1:])
 
 
 def second_probe_region(text: str, name: str) -> str:
@@ -1575,6 +1611,169 @@ def test_the_second_probe_guard_answers_the_pairs_it_cannot_ask_about(
         assert result.returncode == 0, result.stderr
         assert bracketed(result) == ["passed"]
         assert result.stderr == ""
+
+
+def test_the_resource_trunk_knob_is_read_once_and_default_off() -> None:
+    """`MINEKIN_DOMAIN_RESOURCE_TRUNK` is read the one literal way and appends once.
+
+    The read is the same shape every default-off knob here takes — one assignment beside
+    the use target it is refused against, empty by default — and the append is a guarded
+    branch, so an unset knob does not touch `probe_args` at all.
+    """
+
+    text = (RUNNER / "domain.sh").read_text(encoding="utf-8")
+
+    assert text.count('resource_trunk="${MINEKIN_DOMAIN_RESOURCE_TRUNK:-}"') == 1
+    assert text.count("probe_args+=(--resource-trunk)") == 1
+    # The append is a guarded branch on the local, never an unconditional one and never
+    # a re-read of the environment, so an unset knob cannot move `probe_args`.
+    forge = resource_trunk_region(text, "forge")
+    assert 'if [[ -n "${resource_trunk}" ]]; then' in forge
+    assert forge.index('if [[ -n "${resource_trunk}"') < forge.index(
+        "probe_args+=(--resource-trunk)"
+    )
+    # And it never borrows another knob's name or replaces an earlier argument.
+    assert "--use-target" not in forge
+    assert 'probe_args=(--probe-player "${resource_trunk' not in text
+
+
+def test_the_resource_trunk_refusals_are_shipped_verbatim_and_answer_before_any_write() -> None:
+    """Both trunk refusals are the shipped words, said before the run can leave anything.
+
+    Early means before the construction the guard protects, before the server run
+    directory is numbered, before the joining client's profile is written and before
+    `run_controlled_server.py` is invoked — nothing on disk exists yet when the refusal
+    is said, exactly like the second-probe guard beside it. The tool refuses the same
+    shapes; that is its backstop, not this card's criterion.
+    """
+
+    text = (RUNNER / "domain.sh").read_text(encoding="utf-8")
+
+    assert text.count(RESOURCE_TRUNK_PROBE_SECOND_REFUSAL) == 1
+    assert text.count(RESOURCE_TRUNK_USE_TARGET_REFUSAL) == 1
+
+    guard = text.index("# --- resource-trunk-guard begin")
+    assert guard < text.index('probe_args=(--probe-player "${probe:-${player}}"')
+    assert guard < text.index('server_directory=""')
+    assert guard < text.index("python /src/tools/run_controlled_server.py")
+    # Its own guard, not spliced into the second-probe region that card extracts:
+    # adding names there would silently widen that extraction and its exit-2 census.
+    assert guard > text.index("# --- second-probe-guard end ---")
+    assert resource_trunk_region(text, "guard").count("exit 2") == 2
+
+
+@pytest.mark.parametrize(
+    ("resource_trunk", "probe_second", "use_target", "expected_stderr"),
+    [
+        ("", "", "", ""),
+        ("1", "", "", ""),
+        ("", "Kin2", "", ""),
+        ("", "", "1", ""),
+        (
+            "1",
+            "Kin2",
+            "",
+            RESOURCE_TRUNK_PROBE_SECOND_REFUSAL % "Kin2",
+        ),
+        ("1", "", "1", RESOURCE_TRUNK_USE_TARGET_REFUSAL),
+        (
+            "1",
+            "Kin2",
+            "1",
+            RESOURCE_TRUNK_PROBE_SECOND_REFUSAL % "Kin2",
+        ),
+    ],
+    ids=[
+        "all-off",
+        "trunk-alone",
+        "second-alone",
+        "target-alone",
+        "trunk-with-second",
+        "trunk-with-target",
+        "trunk-second-and-target",
+    ],
+)
+def test_the_resource_trunk_guard_answers_the_pairs_it_cannot_ask_about(
+    resource_trunk: str,
+    probe_second: str,
+    use_target: str,
+    expected_stderr: str,
+    tmp_path: Path,
+) -> None:
+    """The shipped trunk guard, driven: two refusals, and the shapes that stay quiet.
+
+    `trunk-alone` and the second/target-alone rows are the refusals' counterexamples — a
+    knob asked on its own, or two knobs the trunk is not combined with, must not refuse.
+    `trunk-second-and-target` proves the probe-second refusal is said first, so a
+    contradictory ask reports the name clash rather than the block clash.
+    """
+
+    text = (RUNNER / "domain.sh").read_text(encoding="utf-8")
+    body = (
+        second_probe_prelude(
+            probe="",
+            probe_second=probe_second,
+            use_target=use_target,
+            resource_trunk=resource_trunk,
+        )
+        + resource_trunk_region(text, "guard")
+        + "printf '<passed>'\n"
+    )
+    result = run_shelled(
+        tmp_path, body, None, f"trunk-guard-{resource_trunk}-{probe_second}-{use_target}"
+    )
+
+    if expected_stderr:
+        assert result.returncode == 2, f"{result.returncode}: {result.stdout}{result.stderr}"
+        assert result.stderr == expected_stderr + "\n"
+        assert bracketed(result) == []
+    else:
+        assert result.returncode == 0, result.stderr
+        assert bracketed(result) == ["passed"]
+        assert result.stderr == ""
+
+
+def test_the_resource_trunk_append_leaves_probe_args_byte_identical_when_unset(
+    tmp_path: Path,
+) -> None:
+    """The default-off face: an unset trunk knob does not move `probe_args` by a byte.
+
+    The driven half is the construction plus the trunk append run in sequence: with the
+    knob absent the argv is exactly the single-name one the run built before this knob
+    existed; set, the one flag the tool refuses without a probe player lands last.
+    """
+
+    text = (RUNNER / "domain.sh").read_text(encoding="utf-8")
+
+    off = run_shelled(
+        tmp_path,
+        second_probe_prelude(probe="", probe_second="", use_target="", resource_trunk="")
+        + second_probe_region(text, "forge")
+        + resource_trunk_region(text, "forge")
+        + PROBE_ARGS_CAPTURE,
+        None,
+        "trunk-off",
+    )
+    assert off.returncode == 0, off.stderr
+    assert bracketed(off) == ["--probe-player", "Kin", "--probe-every-seconds", "1"]
+
+    on = run_shelled(
+        tmp_path,
+        second_probe_prelude(probe="", probe_second="", use_target="", resource_trunk="1")
+        + second_probe_region(text, "forge")
+        + resource_trunk_region(text, "forge")
+        + PROBE_ARGS_CAPTURE,
+        None,
+        "trunk-on",
+    )
+    assert on.returncode == 0, on.stderr
+    assert bracketed(on) == [
+        "--probe-player",
+        "Kin",
+        "--probe-every-seconds",
+        "1",
+        "--resource-trunk",
+    ]
 
 
 #: ---------------------------------------------------------------------------

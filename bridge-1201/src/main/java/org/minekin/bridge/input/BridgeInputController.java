@@ -4,6 +4,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 import java.util.TreeSet;
+import org.minekin.bridge.action.WorldActions;
 
 /**
  * The Bridge's whole input surface: one ledger, one watchdog, one sink.
@@ -49,6 +50,26 @@ public final class BridgeInputController {
         }
     }
 
+    /**
+     * What an aim command did, which is a movement answer plus one more fact.
+     *
+     * <p>The extra fact is whether the heading was reached or only stepped toward: an
+     * absolute turn the clamp could not finish is still in progress, and the reader has
+     * to be able to tell that apart from a turn that overshot to the target in one
+     * command — which is exactly the teleport the clamp exists to forbid.
+     */
+    public record AimOutcome(
+            boolean applied, String refusalCode, boolean inProgress, List<String> held) {
+
+        static AimOutcome refused(String code) {
+            return new AimOutcome(false, code, false, List.of());
+        }
+
+        static AimOutcome stepped(List<String> held, boolean inProgress) {
+            return new AimOutcome(true, "", inProgress, List.copyOf(held));
+        }
+    }
+
     /** The capabilities a movement command can hold down. */
     public static final String FORWARD = "move.forward";
     public static final String BACK = "move.back";
@@ -59,6 +80,16 @@ public final class BridgeInputController {
     // Not a movement, and named as what it is: the key a player holds to use
     // whatever they are looking at.
     public static final String USE = "use.hand";
+    // The attack key, held while a block is being broken. Its own capability rather
+    // than a re-use of USE because mining changes the world and use does not, and the
+    // one release path has to lift exactly what a command put down. Named outside the
+    // `move.` range the movement ledger reserves so it is not mistaken for an axis.
+    public static final String MINE = "mine.attack";
+    // The player's own inventory key. Unlike the movement and use keys this is never
+    // carried in the ledger: a screen is opened by one press, so the sink taps it
+    // (down then up) rather than holding it. Named outside `move.` for the same reason
+    // `MINE` is, and outside `mine.` because it does not change the world.
+    public static final String INVENTORY = "screen.inventory";
 
     public static final String REFUSED_STALE_GENERATION = "STALE_GENERATION";
     public static final String REFUSED_DEADLINE_EXCEEDED = "DEADLINE_EXCEEDED";
@@ -222,6 +253,128 @@ public final class BridgeInputController {
 
     private static boolean turn(float degrees) {
         return Float.isFinite(degrees) && Math.abs(degrees) <= MAX_TURN_DEGREES;
+    }
+
+    /**
+     * Turns the view one clamped step toward an absolute heading, and answers for it.
+     *
+     * <p>An aim is not held state, so — like a look — it never enters the ledger and
+     * there is nothing for a release to lift. It differs from a look in one essential
+     * way: the caller asked for a heading, not a delta, and the Bridge moves at most
+     * {@link WorldActions#MAX_AIM_DEGREES_PER_COMMAND} degrees per command. So the
+     * current angles are supplied (only the client knows them), the delta is computed as
+     * the clamped difference, and the answer says whether the heading was reached or only
+     * stepped toward. Writing the angle directly would be a teleport the contract forbids,
+     * and would bypass the client's own pitch clamp and yaw wrap.
+     *
+     * @param currentYaw   the client's own yaw this instant, in degrees
+     * @param currentPitch the client's own pitch this instant, in degrees
+     * @param targetYaw    the absolute yaw the command asks to face
+     * @param targetPitch  the absolute pitch the command asks to face
+     */
+    public synchronized AimOutcome aim(
+            long nowNanos,
+            long deadlineNanos,
+            long generation,
+            float currentYaw,
+            float currentPitch,
+            float targetYaw,
+            float targetPitch) {
+        observeCoreMessage(nowNanos);
+        if (generation != ownership.generation()) {
+            return AimOutcome.refused(REFUSED_STALE_GENERATION);
+        }
+        if (inputBlocked) {
+            return AimOutcome.refused(REFUSED_GUI_CONFLICT);
+        }
+        if (deadlineNanos != 0 && nowNanos > deadlineNanos) {
+            return AimOutcome.refused(REFUSED_DEADLINE_EXCEEDED);
+        }
+        if (!Float.isFinite(currentYaw)
+                || !Float.isFinite(currentPitch)
+                || !Float.isFinite(targetYaw)
+                || !Float.isFinite(targetPitch)) {
+            return AimOutcome.refused(REFUSED_MALFORMED_TURN);
+        }
+        WorldActions.AimStep step =
+                WorldActions.clampAim(currentYaw, currentPitch, targetYaw, targetPitch);
+        if (step.deltaYaw() != 0.0F || step.deltaPitch() != 0.0F) {
+            view.turn(step.deltaYaw(), step.deltaPitch());
+        }
+        return AimOutcome.stepped(ownership.held(), step.inProgress());
+    }
+
+    /**
+     * Holds the attack key to mine, or lets it go, and answers for it.
+     *
+     * <p>The same shape as {@link #use}, and for the same reason: mining is a key held
+     * for the length of the lease, and the single release path is what lifts it. The
+     * Bridge does not run a break of its own — pressing the attack key makes the client
+     * break the block under its crosshair at the client's own pace, which is what keeps
+     * the mining duration vanilla's rather than a second clock. The check that the
+     * crosshair is actually on the block the command names is made by the caller before
+     * this point, because reading the crosshair is a Minecraft fact and this class holds
+     * none.
+     */
+    public synchronized Outcome mine(
+            long nowNanos, long deadlineNanos, long generation, boolean mining) {
+        observeCoreMessage(nowNanos);
+        if (generation != ownership.generation()) {
+            return Outcome.refused(REFUSED_STALE_GENERATION);
+        }
+        if (inputBlocked) {
+            return Outcome.refused(REFUSED_GUI_CONFLICT);
+        }
+        if (deadlineNanos != 0 && nowNanos > deadlineNanos) {
+            return Outcome.refused(REFUSED_DEADLINE_EXCEEDED);
+        }
+        Set<String> wanted = new TreeSet<>(ownership.held());
+        if (mining) {
+            wanted.add(MINE);
+        } else {
+            wanted.remove(MINE);
+        }
+        apply(wanted);
+        return Outcome.applied(ownership.held());
+    }
+
+    /**
+     * The guard every S2 action shares, before a Minecraft side effect is attempted.
+     *
+     * <p>Hotbar selection, opening a screen, and a GUI click are not held keys and not a
+     * view turn, so they do not run through {@link #mine} or {@link #aim}; but they carry
+     * the same lease, generation and deadline, and must be refused in the same order and
+     * with the same codes when those fail. This is that shared prefix, exposed once so a
+     * stale or deadlined command is refused identically for a key it presses and for a
+     * slot it selects.
+     *
+     * <p>{@code requireFreeKeyboard} splits the two kinds the contract keeps apart. A
+     * hotbar change and a mining press are gameplay: a screen that owns the keyboard must
+     * refuse them as {@code GUI_CONFLICT}. A screen close and a GUI click are about the
+     * screen itself, so the keyboard being owned by a screen is the precondition, not a
+     * reason to refuse.
+     */
+    public synchronized Outcome preflight(
+            long nowNanos,
+            long deadlineNanos,
+            long generation,
+            boolean requireFreeKeyboard) {
+        observeCoreMessage(nowNanos);
+        if (generation != ownership.generation()) {
+            return Outcome.refused(REFUSED_STALE_GENERATION);
+        }
+        if (requireFreeKeyboard && inputBlocked) {
+            return Outcome.refused(REFUSED_GUI_CONFLICT);
+        }
+        if (deadlineNanos != 0 && nowNanos > deadlineNanos) {
+            return Outcome.refused(REFUSED_DEADLINE_EXCEEDED);
+        }
+        return Outcome.applied(ownership.held());
+    }
+
+    /** The generation this controller answers commands for, and nothing older. */
+    public synchronized boolean isCurrentGeneration(long generation) {
+        return generation == ownership.generation();
     }
 
     /**

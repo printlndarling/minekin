@@ -20,7 +20,14 @@ public enum InputBinding {
     RIGHT(BridgeInputController.RIGHT),
     JUMP(BridgeInputController.JUMP),
     SNEAK(BridgeInputController.SNEAK),
-    USE(BridgeInputController.USE);
+    USE(BridgeInputController.USE),
+    // The attack key, held while a block is being broken. Pressing it is what makes
+    // the client break the block its crosshair is on at the client's own pace, so the
+    // mining duration is vanilla's and not a second clock the Bridge would run.
+    ATTACK(BridgeInputController.MINE),
+    // The player's own inventory key. Not held: a screen is opened by one press, the
+    // same transition a hand makes on `E`, so this is tapped rather than carried.
+    INVENTORY(BridgeInputController.INVENTORY);
 
     private final String capability;
 
@@ -51,6 +58,8 @@ public enum InputBinding {
             case JUMP -> options.jumpKey;
             case SNEAK -> options.sneakKey;
             case USE -> options.useKey;
+            case ATTACK -> options.attackKey;
+            case INVENTORY -> options.inventoryKey;
         };
     }
 }

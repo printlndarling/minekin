@@ -19,7 +19,7 @@ f35bfb5585f5ccc64e085f582e14e236506e30d6ba009d23909bfbc63e860ad9  proto/minekin/
 166d2c481798328397ea99b7135a0543e266aabf8f1ee4df7f34e4e6704e85a5  tests/fixtures/cases/host-040.json
 741fe39980bec574968cd46b2485035c502f4fc84ae2214797ad1ea5a6872e94  tests/fixtures/cases/core-030.json
 e3bfbae8f41914ee83bce3041b7b91db8df6b24507ee2d0cdca71133661ceae2  tests/fixtures/runtime-input/bundle-p0-core-1.21.4.json
-8ce43e26b2e17b10e161a9367b990b62a5350132dd81662a97b4e734a1be0ea0  tests/fixtures/runtime-input/bundle-candidate-1.20.1.json
+bd6afaeee9dd51e144175d0cab6cedae5869530be784ef05258cc41cafd72c78  tests/fixtures/runtime-input/bundle-candidate-1.20.1.json
 ee722d8bb2727b833920ce67ef37ea9d6e7fe217e1d83296192f49c4b44db4f9  tests/fixtures/runtime-input/controlled-offline-server.json
 d7cab733f636f73017d148bf946ea007c355dec6cc79f98e56d0ad9f2871a0f4  tests/fixtures/runtime-input/controlled-offline-server-1.20.1.json
 0a9fd3b5a2732c256df44742376618270511c6c60af03416909c0971c99065d4  tests/fixtures/launcher/managed-remote-target-example.json
@@ -86,4 +86,4 @@ e848db79574bc9c6b912a7930f55c307ff89fff8d3bb1ed82af59d0345aa8b78  tests/fixtures
 11fb2c0223cd366c31cb4eb6cce23a0b4de9e53809a377899662ddbb9e1ab0a9  tests/fixtures/cases/v1201-060.json
 f4ef3adf5d6260bb66145b0ee1e7664f3d770daec33becb2bee342fac0bd2945  tests/fixtures/cases/v1201-080.json
 037808b3ea7b55f8270536f72f807b35cc5a2ef86120d3ac6b9f68c4dc494a35  tests/fixtures/cases/v1201-lan-joiner-control-case-001.json
-6dd2f4218388781b05c13d82e974df1c46eda9618f37a6e50295f21d8ec2feb9  tests/fixtures/registry/reviewed-tested-bundles.json
+f1c5d2bc19f63667193d6c6bbf833b2d594d294c1fc094ccc1c25e31c2ffae24  tests/fixtures/registry/reviewed-tested-bundles.json

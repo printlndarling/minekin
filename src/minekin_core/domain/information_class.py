@@ -41,6 +41,7 @@ from typing import Final
 #: other, because the domain does not import the wire's generated modules.
 CONNECTION_LIFECYCLE: Final = "minekin.v1.ConnectionLifecycle"
 INITIAL_OBSERVATION: Final = "minekin.v1.InitialObservation"
+WORLD_OBSERVATION: Final = "minekin.v1.WorldObservation"
 HOST_LIFECYCLE: Final = "minekin.v1.HostLifecycle"
 ACTION_RESULT: Final = "minekin.v1.ActionResult"
 BUDGET_WINDOW: Final = "minekin.v1.CallbackBudgetWindow"
@@ -72,15 +73,19 @@ class InformationClass(StrEnum):
 #: decision, and the totality test is what turns forgetting to make it into a
 #: failing test rather than a quiet default.
 #:
-#: The three player-equivalent entries carry no world state: a connection phase,
-#: a snapshot already filtered by `domain/perception.py`, and the disposition of
-#: the Kin's own action. The two management-only entries are the control side's
-#: reports about the machinery — the hosting status of a world, and how long the
-#: Bridge's own callbacks took. The Kin meets the world it hosts by being in it, and
-#: it meets its own client's cost by the client being fast, not by reading either.
+#: The four player-equivalent entries carry no second world: a connection phase,
+#: a snapshot already filtered by `domain/perception.py`, the recurring re-read of
+#: that same snapshot's client state (the S2 `WorldObservation` — a further look
+#: by the same eyes on the same reading path, not a second source of truth, which
+#: is why its class is the same), and the disposition of the Kin's own action. The
+#: two management-only entries are the control side's reports about the machinery —
+#: the hosting status of a world, and how long the Bridge's own callbacks took. The
+#: Kin meets the world it hosts by being in it, and it meets its own client's cost
+#: by the client being fast, not by reading either.
 DTO_INFORMATION_CLASSES: Final[dict[str, InformationClass]] = {
     CONNECTION_LIFECYCLE: InformationClass.PLAYER_EQUIVALENT,
     INITIAL_OBSERVATION: InformationClass.PLAYER_EQUIVALENT,
+    WORLD_OBSERVATION: InformationClass.PLAYER_EQUIVALENT,
     ACTION_RESULT: InformationClass.PLAYER_EQUIVALENT,
     HOST_LIFECYCLE: InformationClass.MANAGEMENT_ONLY,
     BUDGET_WINDOW: InformationClass.MANAGEMENT_ONLY,

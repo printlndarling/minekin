@@ -67,6 +67,22 @@ const SEALED_AT_GAP = "manifest.json 没有具名密封时间字段；sealed_at_
 const LIVE_VIEW_GAP = "没有 framebuffer 采集与媒体中继进程，画面这一面不存在。";
 const NO_ALERT_SOURCE_GAP =
   "Core 无告警源：只有台账事件与 run document 的拒止计数，哪些算告警属产品决定。";
+// Skill-step sentences are `gateway/readmodel.py`'s own constants, verbatim: the group
+// gap and every member gap a mock shows must render exactly as the real projection's.
+const NO_SKILL_STEPS_GAP =
+  "台账里没有技能步行（SkillStepRecorded）：最近这个 run 没有跑过世界技能——" +
+  "只连接、只演示输入的运行不会有这类行，这里不把它折成「0 步」。";
+const SKILL_CONFIRMED_REASON_GAP = "这一步的结果是 CONFIRMED：没有失败原因可报，Core 按约定把 reason 写成空串。";
+const SKILL_CONFIRMED_ATTRIBUTION_GAP =
+  "已确认的步骤没有失败可归因：attribution 只在失败步携带 mind 的 FailureCode 名。";
+const SKILL_MODEL_ANSWERED_GAP = "模型作答了这一步：model_refusal 是空串，没有拒止可报。";
+const SKILL_MODEL_COST_GAP =
+  "调用花费（model_calls / model_spent_micro / model_cap_refusals）只在 run document 的 " +
+  "mind 段里记录，技能步行不携带；未封的 run 只读面取不到，封证后也要读 bundle 里的 " +
+  "run document，本投影不解析它。";
+const SKILL_MODEL_CONFIG_GAP =
+  "模型配置状态（model_enabled 与所配置的 provider）与花费同处：只在 run document 的 " +
+  "mind 段里记录，台账行不携带，本投影只读台账与已封 bundle 的清单。";
 
 function iso(ms: number): string {
   return new Date(ms).toISOString();
@@ -235,6 +251,29 @@ function evidenceGroup(): Record<string, unknown> {
   };
 }
 
+/**
+ * The newest concluded step of a scripted autonomous run: a model-chosen craft that the
+ * later world readings confirmed. A confirmed step carries no failure reason, no
+ * attribution and no refusal — each one a member gap with the Gateway's own sentence,
+ * never `""`. Cost and model config are `not_wired` member gaps: Core records them only
+ * in the run document, which the read surface does not parse.
+ */
+function skillStepsGroup(): Record<string, unknown> {
+  return {
+    goal: wireFilled("先挖到木头，再合成木镐"),
+    stepIndex: wireFilled(4),
+    skill: wireFilled("craft"),
+    result: wireFilled("CONFIRMED"),
+    reason: wireGapField("unavailable", SKILL_CONFIRMED_REASON_GAP),
+    attribution: wireGapField("unavailable", SKILL_CONFIRMED_ATTRIBUTION_GAP),
+    decisionSource: wireFilled("DECISION_FROM_MODEL"),
+    modelRefusal: wireGapField("unavailable", SKILL_MODEL_ANSWERED_GAP),
+    stepCount: wireFilled(4),
+    modelCost: wireGapField("not_wired", SKILL_MODEL_COST_GAP),
+    modelConfig: wireGapField("not_wired", SKILL_MODEL_CONFIG_GAP),
+  };
+}
+
 function joinedRunSnapshot(scenario: MockScenarioId, nowMs: number, ageMs: number): Record<string, unknown> {
   const observed = nowMs - ageMs;
   return {
@@ -245,6 +284,7 @@ function joinedRunSnapshot(scenario: MockScenarioId, nowMs: number, ageMs: numbe
     serverLink: envelopeKnown(scenario, "serverLink", "connected", observed, 15 * SECOND),
     session: envelopeKnown(scenario, "session", sessionGroup(nowMs - 42 * MINUTE), observed, 15 * SECOND),
     world: envelopeKnown(scenario, "world", worldGroup(), observed, MINUTE),
+    skillSteps: envelopeKnown(scenario, "skillSteps", skillStepsGroup(), observed, null),
     versions: envelopeKnown(scenario, "versions", versionsGroup(), observed, 10 * MINUTE),
     bridgeHeartbeat: envelopeKnown(scenario, "bridgeHeartbeat", heartbeatGroup(observed), observed, 15 * SECOND),
     // health/food have a carrier (`SelfStateValue`, §3 A-tier); dimension/guiOpen do
@@ -296,6 +336,8 @@ export function buildMockBundle(scenario: MockScenarioId, nowMs: number): MockWi
           serverLink: envelopeKnown(scenario, "serverLink", "disconnected", observed, 15 * SECOND),
           session: envelopeKnown(scenario, "session", sessionGroup(nowMs - 42 * MINUTE), observed, 15 * SECOND),
           world: envelopeGap(scenario, "world", "unknown", "失联后不重放旧 world context。", observed, 15 * SECOND),
+          // 该场景是只连了桥、没跑过世界技能就失联的 run：与真实投影一致，组级缺口而不是 0 步。
+          skillSteps: envelopeGap(scenario, "skillSteps", "unknown", NO_SKILL_STEPS_GAP),
           versions: envelopeKnown(scenario, "versions", versionsGroup(), observed, 10 * MINUTE),
           bridgeHeartbeat: envelopeGap(scenario, "bridgeHeartbeat", "unavailable", lostReason, observed, 15 * SECOND),
           selfState: envelopeGap(scenario, "selfState", "unknown", "世界状态已标记陈旧，不虚构游戏结果。", observed, 15 * SECOND),
@@ -327,6 +369,7 @@ export function buildMockBundle(scenario: MockScenarioId, nowMs: number): MockWi
           serverLink: envelopeGap(scenario, "serverLink", "unknown", "台账里没有任何事件行：这个 Kin 还没有启动过会话。", null, null),
           session: envelopeGap(scenario, "session", "unknown", "这个 Kin 没有记录的客户端进程：还没有启动过会话，或上一次已经收摊。", null, null),
           world: envelopeGap(scenario, "world", "unknown", "台账里没有任何事件行：这个 Kin 还没有启动过会话。", null, null),
+          skillSteps: envelopeGap(scenario, "skillSteps", "unknown", NO_SKILL_STEPS_GAP),
           versions: envelopeGap(scenario, "versions", "unavailable", "本 run 还没有已封的证据 bundle：封证只在 case 判定之后写入。 版本五件套没有统一读接口，只有已封 bundle 的清单能答其中三个。", null, null),
           bridgeHeartbeat: envelopeGap(scenario, "bridgeHeartbeat", "unknown", "台账里没有任何事件行：这个 Kin 还没有启动过会话。", null, null),
           selfState: envelopeGap(scenario, "selfState", "unavailable", "Core 不落相干性快照行：health/food 只在会话内存里，只读投影取不到。", null, null),

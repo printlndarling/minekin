@@ -573,6 +573,47 @@ def use_target_command(player: str) -> str:
     return f"execute at {player} run setblock ^ ^1 ^3 minecraft:note_block[note=0] keep"
 
 
+def resource_trunk_commands(player: str) -> list[str]:
+    """The three console lines that stack a breakable resource in front of a player.
+
+    The controlled world is flat and fixed-seed (see `FIXED_WORLD_SEED` and the
+    `minecraft:flat` `level-type`), so it grows no trees and a world-skill run whose
+    first step is `break_seen_block` would have nothing in the Kin's look to break.
+    This puts the resource there itself, three blocks ahead of the named kin, and
+    every choice is settled by measurement rather than preference:
+
+    * **`minecraft:oak_log`, because it is the one block the plan can work with.** A
+      full cube, so the look's ray cannot miss it at any distance — the same reason
+      `use_target_command` abandoned the lever for a note block. It is breakable bare-
+      handed, which is what a survival Kin holding nothing has, and its drop is the
+      item the plan then walks to collect: `collect_dropped` reaches for exactly the
+      thing the breaking left behind.
+
+    * **Three blocks, for the same geometry `use_target_command` documents.** The reach
+      is four and a half blocks and the Kin walks into what is in front of it, so three
+      blocks out is within reach without being inside the body, and the walk-and-stop it
+      forces is the one the harness waits for.
+
+    * **Three stacked, feet / eye / above-eye (`^ ^ ^3`, `^ ^1 ^3`, `^ ^2 ^3`).** One
+      log yields four planks and the plan spends five, so a single block could not
+      carry the craft; three logs stacked at those relative heights put the whole trunk
+      in the look without the Kin having to aim up or down to reach all of it.
+
+    `keep` rather than `replace`, for the reason this tool already gives above: if a
+    space is not free the command says so instead of carving the world to make the test
+    pass. Unlike the use target, these are written once — the point of a resource is
+    that breaking it makes it go away and leave a drop, so re-placing it every turn
+    would erase the very change the run exists to observe.
+    """
+
+    _checked_player(player)
+    return [
+        f"execute at {player} run setblock ^ ^ ^3 minecraft:oak_log keep",
+        f"execute at {player} run setblock ^ ^1 ^3 minecraft:oak_log keep",
+        f"execute at {player} run setblock ^ ^2 ^3 minecraft:oak_log keep",
+    ]
+
+
 #: What the block probe has the server say, one state each. Named here because
 #: the asserter reads them and the two sides have to be one string. The state is
 #: asked as a predicate rather than read as data, for a measured reason: `data get
@@ -759,6 +800,15 @@ def main() -> int:
         help="put a block in front of the probed player and ask the server for its state",
     )
     parser.add_argument(
+        "--resource-trunk",
+        action="store_true",
+        help=(
+            "stack three oak logs in the probed player's look, so a world-skill run has "
+            "a breakable resource in front of it on the flat world; written once, at the "
+            "same moment the use target is owed, and refused alongside --use-target"
+        ),
+    )
+    parser.add_argument(
         "--probe-player",
         action="append",
         default=[],
@@ -908,8 +958,32 @@ def main() -> int:
             "--use-target puts a block in front of one kin's look, and "
             f"{len(probe_players)} --probe-player names do not say which: {probe_players}"
         )
+    if args.resource_trunk and not probe_players:
+        # The same shape as `--use-target`: the trunk is stacked in somebody's look,
+        # and a trunk in front of nobody is a resource this run never aimed at.
+        raise SystemExit("--resource-trunk needs --probe-player to put it in front of")
+    if args.resource_trunk and len(probe_players) > 1:
+        # And the same one step further: the trunk goes into one kin's look, so two
+        # names leave the run unable to say whose breaking it is waiting for.
+        raise SystemExit(
+            "--resource-trunk stacks blocks in front of one kin's look, and "
+            f"{len(probe_players)} --probe-player names do not say which: {probe_players}"
+        )
+    if args.resource_trunk and args.use_target:
+        # Both ask for a block in the one kin's look, and a look holding two does not
+        # say which one the Kin is meant to break — the note block is pressed, the oak
+        # log is broken, and a run carrying both cannot tell the two scenes apart.
+        raise SystemExit(
+            "--resource-trunk and --use-target both put a block in the same kin's look, "
+            "and two blocks do not say which one the Kin is supposed to break"
+        )
     target = None if not args.use_target else use_target_command(probe_players[0])
     initial_block = None if not args.use_target else initial_block_probe_command(probe_players[0])
+    resource_trunk = None if not args.resource_trunk else resource_trunk_commands(probe_players[0])
+    #: Whether the trunk's three logs have gone in. Kept once, and the whole reason it
+    #: is once rather than a cadence: unlike the use target the trunk is not re-placed
+    #: while the Kin turns, because its breaking is the observation the run wants.
+    trunk_placed = False
     asked_about_block = args.use_target
     #: Every block the server has said it placed, oldest first. A list rather than
     #: one position because the block is placed again and again while the Kin
@@ -1014,6 +1088,22 @@ def main() -> int:
                             if initial_block is not None:
                                 process.stdin.write((initial_block + "\n").encode())
                                 process.stdin.flush()
+                        if resource_trunk is not None and bursted and not trunk_placed:
+                            # The same owed-at-join moment as the use target, and for the
+                            # same measured reason: `setblock` at a player who has not
+                            # joined fails with "No entity was found", a line in a console
+                            # nobody reads. But written once and never again — the trunk is
+                            # the resource the Kin breaks, and re-placing it each turn would
+                            # erase the drop the plan is there to collect.
+                            trunk_placed = True
+                            for line in resource_trunk:
+                                process.stdin.write((line + "\n").encode())
+                                process.stdin.flush()
+                            print(
+                                f"placed the resource trunk for {probe_players[0]}: "
+                                "three minecraft:oak_log blocks stacked in its look at "
+                                "^ ^3 (feet ^ ^ ^3, eye ^ ^1 ^3, above-eye ^ ^2 ^3)"
+                            )
                         for command in probe:
                             process.stdin.write((command + "\n").encode())
                             process.stdin.flush()

@@ -83,6 +83,7 @@ from minekin_core.adapters.launcher.stop_request import (
     write_request,
 )
 from minekin_core.adapters.launcher.supervisor import ProcessIdentity, ProcessSupervisor
+from minekin_core.adapters.model import model_provider_for
 from minekin_core.adapters.sqlite.connection import connect_reader
 from minekin_core.adapters.sqlite.identity_store import read_identity_root
 from minekin_core.adapters.sqlite.session_log import (
@@ -98,11 +99,33 @@ from minekin_core.adapters.sqlite.session_log import (
     SESSION_IDENTITY_COMPARED,
     SESSION_INTERRUPTED,
     SESSION_STATE_TRANSITIONED,
+    SKILL_STEP_RECORDED,
     SessionEventLog,
     reconcile_outbox_async,
 )
 from minekin_core.adapters.system.clock import SystemClock
+from minekin_core.application.autonomous_play import (
+    DEFAULT_STEP_BUDGET,
+    AutonomousAsk,
+    AutonomousRun,
+    AutonomousStep,
+    run_autonomous_loop,
+)
+from minekin_core.application.player_mind import PlayerMind, mind_for
 from minekin_core.application.recovery_service import RecoveryReport
+from minekin_core.application.skill_plan import (
+    SkillPlan,
+    SkillSequence,
+    SkillStep,
+    run_skill_plan,
+    sequence_lease_seconds,
+)
+from minekin_core.application.world_observation import WorldObservationStore
+from minekin_core.application.world_skills import (
+    DEFAULT_STEP_TIMEOUT_NS,
+    ActionAuthority,
+    WorldSkills,
+)
 from minekin_core.cli.init import DATABASE_NAME, KIN_DIRECTORY, kin_directory, run_root
 from minekin_core.cli.session_runtime import (
     SessionOutcome,
@@ -110,6 +133,7 @@ from minekin_core.cli.session_runtime import (
     advance_session,
     supervise_session,
 )
+from minekin_core.config import configured_persona_seed
 from minekin_core.domain.auth_policy import AuthPolicy
 from minekin_core.domain.connection import ConnectionGenerations, ConnectionState
 from minekin_core.domain.errors import ErrorCategory, MinekinError, Retryability
@@ -125,6 +149,7 @@ from minekin_core.domain.input_control import (
     ReleaseReason,
 )
 from minekin_core.domain.lease_watchdog import LeaseWatchdog
+from minekin_core.domain.model_access import cost_ledger_for, model_config
 from minekin_core.domain.recovery import START_CLIENT
 from minekin_core.domain.session_material import RecordedSessionMaterial
 from minekin_core.domain.session_state import SessionState, SessionStateMachine
@@ -793,6 +818,13 @@ MAX_LOOK_DEGREES = 360.0
 # lease is only long enough to carry the command and be withdrawn.
 DEFAULT_LOOK_LEASE_S = 5.0
 
+# How long one skill step may wait, by default, for the reading that confirms it.
+# Taken from the skill layer's own constant rather than restated: the Bridge
+# publishes readings on a fixed tick cadence, so the sensible window is a property
+# of that cadence and one number for both places is the only version that cannot
+# drift.
+DEFAULT_SKILL_STEP_TIMEOUT_S = DEFAULT_STEP_TIMEOUT_NS / 1_000_000_000
+
 # When a run asks for its hold. `playable` is the only moment that can succeed:
 # the lease means "the client may be driven", and the first snapshot is what makes
 # that true. `join` exists because a run has to be able to ask *too early* and have
@@ -830,6 +862,23 @@ class InputPlan:
     yaw_degrees: float = 0.0
     pitch_degrees: float = 0.0
     look: bool = False
+    #: The skills this run asks after the hold, if it asks any. Carried here
+    #: rather than kept beside the plan because the lease is one object covering
+    #: everything the run asks for: a plan that walks and then crafts needs a
+    #: lease that authorises both, and the list of what a lease covers is
+    #: computed from the plan's own fields.
+    skill_plan: SkillPlan | None = None
+    #: How long one step may wait for the reading that confirms it. A knob rather
+    #: than a constant because the honest number belongs to the machine: mining a
+    #: log and waiting for the world to say so is slow on a shared host, and a
+    #: step that ran out its window is reported as `UNKNOWN` rather than retried.
+    skill_step_seconds: float = DEFAULT_SKILL_STEP_TIMEOUT_S
+    #: What the run hands the mind instead of a plan: the bounds the lease has to
+    #: cover before anything is chosen. Its own field rather than a flagged-up
+    #: `skill_plan`, because an autonomous run has no plan — the point of the ask
+    #: is that the steps are not known yet, while the capabilities they may need
+    #: are, and the lease is decided once, up front.
+    autonomous: AutonomousAsk | None = None
     arbiter: InputArbiter | None = None
     lease: InputLease | None = None
     watchdog: LeaseWatchdog = field(default_factory=LeaseWatchdog)
@@ -856,6 +905,10 @@ class InputPlan:
             wanted.add(LOOK_CAPABILITY)
         if self.use_seconds is not None:
             wanted.add(USE_CAPABILITY)
+        if self.skill_plan is not None:
+            wanted |= self.skill_plan.capabilities
+        if self.autonomous is not None:
+            wanted |= self.autonomous.capabilities
         return frozenset(wanted)
 
     @property
@@ -866,9 +919,17 @@ class InputPlan:
         as the longest of them: a lease that covered the movement and lapsed
         before the use did would take a key back that was still wanted, and the
         release is one instruction for all of them either way.
+
+        A skill plan is the longest of them by construction, because its steps
+        run one after another under this same lease rather than holding their
+        own. The plan's own arithmetic is what says how long that is.
         """
 
         holds = [value for value in (self.hold_seconds, self.use_seconds) if value is not None]
+        if self.skill_plan is not None:
+            holds.append(sequence_lease_seconds(self.skill_plan.calls, self.skill_step_seconds))
+        if self.autonomous is not None:
+            holds.append(self.autonomous.lease_seconds)
         return max(holds) if holds else DEFAULT_LOOK_LEASE_S
 
     def commands(self, lease: InputLease, deadline_ns: int) -> list[tuple[str, str, Message]]:
@@ -950,6 +1011,27 @@ def launched_minecraft_version(profile: Path) -> str:
     return version
 
 
+def _mind_for_run(kin_id: str) -> PlayerMind:
+    """The mind for one run, from what this operator's environment configures.
+
+    Built here rather than passed in from `bootstrap`: the run's own cost account has
+    to be the one the session's spend projection reads, and only this module knows
+    when the run starts. A configured-but-disabled model still builds a mind — it
+    answers with `MODEL_NOT_CONFIGURED` and the run documents that, which is the
+    honest reading of "no credentials" and not a reason to refuse to play.
+    """
+
+    config = model_config()
+    ledger = cost_ledger_for(config)
+    return mind_for(
+        model_provider_for(config, ledger=ledger),
+        ledger,
+        kin_id=kin_id,
+        persona_seed=configured_persona_seed() or "",
+        model_enabled=config.enabled,
+    )
+
+
 async def start_and_supervise(
     *,
     root: Path,
@@ -981,6 +1063,9 @@ async def start_and_supervise(
     open_lan: bool = False,
     open_lan_timeout: float = DEFAULT_LAN_OPEN_TIMEOUT_S,
     open_lan_port: int = 0,
+    skill_plan: SkillPlan | None = None,
+    skill_step_seconds: float = DEFAULT_SKILL_STEP_TIMEOUT_S,
+    autonomous: AutonomousAsk | None = None,
 ) -> tuple[SessionLaunch, SessionRun]:
     """Start a managed session with a live Bridge and stay with it until it ends.
 
@@ -1073,7 +1158,11 @@ async def start_and_supervise(
         raise _reject("holding an axis needs --hold-forward-seconds: it is the hold's length")
     plan = (
         None
-        if hold_forward is None and not wants_look and hold_use is None
+        if hold_forward is None
+        and not wants_look
+        and hold_use is None
+        and skill_plan is None
+        and autonomous is None
         else InputPlan(
             hold_seconds=hold_forward,
             use_seconds=hold_use,
@@ -1083,6 +1172,9 @@ async def start_and_supervise(
             look=wants_look,
             yaw_degrees=0.0 if look_yaw_degrees is None else look_yaw_degrees,
             pitch_degrees=0.0 if look_pitch_degrees is None else look_pitch_degrees,
+            skill_plan=skill_plan,
+            skill_step_seconds=skill_step_seconds,
+            autonomous=autonomous,
         )
     )
     if plan is not None and server_profile is None:
@@ -1093,6 +1185,32 @@ async def start_and_supervise(
         raise _reject("--hold-use-seconds must be positive")
     if hold_at not in HOLD_PHASES:
         raise _reject(f"--hold-at must be one of {', '.join(HOLD_PHASES)}")
+    if skill_step_seconds <= 0:
+        # A step with no window would confirm nothing and report nothing: the
+        # wait is what turns a sent command into a reading.
+        raise _reject("--skill-step-seconds must be positive")
+    if skill_plan is not None and hold_at == HOLD_AT_JOIN:
+        # The two asks are incompatible rather than merely redundant: `join`
+        # grants the lease before the first snapshot, and a skill spends that
+        # lease waiting for a later snapshot that the phase guarantees will not
+        # have arrived. Refused by name rather than left to produce a run full of
+        # `UNKNOWN`.
+        raise _reject("--hold-at join cannot carry a skill plan: a skill needs the world")
+    if autonomous is not None and skill_plan is not None:
+        # One run, one source of the next step: a plan says what happens after
+        # this step, an autonomous ask says the Kin decides it from the reading
+        # that follows. Both would run whichever hook fired first and leave the
+        # other's verdict with nothing behind it.
+        raise _reject("--autonomous cannot also carry --skill-plan")
+    if autonomous is not None and hold_at == HOLD_AT_JOIN:
+        # The reason the plan's guard gives, in the ask's own words: the phase
+        # grants the lease before the server's world has reached the client, and
+        # a decision is made from a reading that cannot have arrived yet.
+        raise _reject("--hold-at join cannot carry --autonomous: a decision needs the world")
+    if autonomous is not None and not 1 <= autonomous.step_budget <= DEFAULT_STEP_BUDGET:
+        # The budget bounds one turn and the caller may ask for another, so a
+        # bigger number is not a longer run — it is a shape nothing here runs.
+        raise _reject(f"--autonomous-steps must be between 1 and {DEFAULT_STEP_BUDGET}")
     if plan is None and hold_at != HOLD_AT_PLAYABLE:
         # A phase with no request behind it: the operator asked *when* to ask
         # without asking for anything.
@@ -1439,6 +1557,185 @@ async def start_and_supervise(
             return
         await release_inputs(plan.arbiter, ReleaseReason.TIMEOUT)
 
+    # The readings the skills act on and conclude from, and the two cells the
+    # hooks below fill in for the run document to read afterwards. A store only
+    # when a plan will read it, because the runtime gates observation intake on
+    # its presence.
+    observations = (
+        WorldObservationStore() if skill_plan is not None or autonomous is not None else None
+    )
+    skill_outcome: list[SkillSequence | None] = [None]
+    skill_stop: list[str] = [""]
+    autonomous_outcome: list[AutonomousRun | None] = [None]
+
+    async def until_skills_ready() -> None:
+        """Wait for the lease this run's plan runs under, then hand over.
+
+        The same event the hold's watcher waits on, because it is the same
+        authorisation: `present_the_plan` sets it only once the lease is granted
+        and armed, so a plan that begins here begins under a lease the arbiter
+        will still answer for.
+        """
+
+        if plan is None:
+            return
+        await plan.playable.wait()
+
+    async def on_run_skills() -> None:
+        """Do the plan's steps under the granted lease and keep the readings' verdicts.
+
+        This runs *beside* the event reader rather than inside `on_playable`, and
+        the reason is the wait: a skill spends its whole life looking for a newer
+        reading, and `on_playable` is awaited by the very task that delivers
+        readings. The hold's own watcher is the other end of the lease — if it
+        lapses mid-plan, the arbiter says so at the next step and the sequence
+        stops with that reason rather than driving a client it no longer may.
+        """
+
+        if plan is None or plan.arbiter is None or plan.lease is None or observations is None:
+            # The checker's hazard: `playable` is only set once a lease exists.
+            # A refusal to *start* is already recorded by `present_the_plan`, so
+            # nothing is added here and the reason stays in `plan.refusal`.
+            return
+        # One of the two asks, never both: `--autonomous` refuses beside a
+        # `--skill-plan`, because an operator-written sequence and a mind that
+        # writes its own are answers to different questions. The capability set
+        # below is therefore exactly the one this run was asked for.
+        ask: SkillPlan | AutonomousAsk | None = skill_plan if skill_plan is not None else autonomous
+        if ask is None:
+            # The checker's hazard again, and only it: the store this hook needs
+            # exists for one of the two asks, and the guard above left without one.
+            return
+        lease = plan.lease
+        deadline = plan.deadline_monotonic_ns
+        now = MonotonicInstant(monotonic_ns())
+        # Ask the arbiter again, at this instant, for each capability the ask
+        # needs. The grant said a lease exists; the per-capability answer is what
+        # says this particular kind of command may go out *now*, which is the
+        # difference between an authorised Kin and one whose window closed.
+        already_sent = {capability for capability, _, _ in plan.commands(lease, deadline)}
+        for capability in sorted(ask.capabilities):
+            authorised = plan.arbiter.decide(
+                InputRequest(
+                    lease_id=lease.lease_id,
+                    generation=lease.generation,
+                    capability=capability,
+                    deadline_monotonic_ns=deadline,
+                ),
+                now=now,
+            )
+            if not authorised.accepted:
+                skill_stop[0] = ",".join(item.value for item in authorised.refusals)
+                await record_refusal(ConnectionState.PLAYABLE.value, authorised.refusals)
+                return
+            if capability not in already_sent:
+                # Only the capabilities the hold did not already announce get a
+                # row here: a plan that both walks and mines holds one lease for
+                # both, and a second `granted` for the walk would read as a
+                # second authorisation. The per-step ids are on the run document,
+                # where the verdicts are.
+                await record(
+                    INPUT_LEASE_GRANTED,
+                    {
+                        "capability": capability,
+                        "lease_id": lease.lease_id,
+                        "action_id": plan.action_id,
+                        "deadline_monotonic_ns": deadline,
+                        "priority": InputPriority.NORMAL.name,
+                    },
+                    source=EventSource.CORE,
+                    trust_class=TrustClass.CORE,
+                )
+        skills = WorldSkills(
+            sender=host,
+            observations=observations,
+            capabilities=bridge_session.capabilities,
+        )
+        authority = ActionAuthority(
+            lease_id=lease.lease_id,
+            generation=int(lease.generation),
+            deadline_monotonic_ns=deadline,
+        )
+        timeout_ns = int(plan.skill_step_seconds * 1_000_000_000)
+        mind = _mind_for_run(str(prepared.kin_id))
+        # One counter across whichever ask this run carries: the ledger reader's question
+        # is "which step of the sequence is this", and a scripted plan and a mind-written
+        # one both answer it with a position rather than with a timestamp nobody aligns.
+        step_index = [0]
+
+        async def record_skill_step(payload: dict[str, Any]) -> None:
+            step_index[0] += 1
+            await record(
+                SKILL_STEP_RECORDED,
+                {"step_index": step_index[0], **payload},
+                source=EventSource.CORE,
+                trust_class=TrustClass.CORE,
+            )
+
+        async def on_autonomous_step(step: AutonomousStep) -> None:
+            # The goal is the mind's own direction rather than a name the operator typed:
+            # the run document is the only other place it appears, and nothing downstream
+            # of this process can read that until the run is sealed.
+            await record_skill_step(
+                {
+                    "skill": step.intent.skill,
+                    "result": step.outcome.result.value,
+                    "reason": step.outcome.reason,
+                    "action_id": step.outcome.action_id,
+                    "attribution": ("" if step.attribution is None else step.attribution.value),
+                    "decision_source": step.intent.source,
+                    "model_refusal": step.intent.model_refusal,
+                    "goal": mind.direction,
+                }
+            )
+
+        async def on_plan_step(step: SkillStep) -> None:
+            # A scripted sequence has no goal and no model to refuse, so the two names the
+            # mind would carry are written empty rather than omitted: an omitted field reads
+            # as a projection bug, an empty one reads as the answer this run actually has.
+            await record_skill_step(
+                {
+                    "skill": step.name,
+                    "result": step.outcome.result.value,
+                    "reason": step.outcome.reason,
+                    "action_id": step.outcome.action_id,
+                    "attribution": "",
+                    "decision_source": "OPERATOR_PLAN",
+                    "model_refusal": "",
+                    "goal": "",
+                }
+            )
+
+        try:
+            if isinstance(ask, AutonomousAsk):
+                # The mind writes the steps and the readings conclude from them, so
+                # what lands on the document is the whole exchange rather than an
+                # operator's rows: each intent, the later reading's verdict, and the
+                # word that ended the run.
+                autonomous_outcome[0] = await run_autonomous_loop(
+                    mind=mind,
+                    skills=skills,
+                    observations=observations,
+                    authority=authority,
+                    step_budget=ask.step_budget,
+                    timeout_ns=timeout_ns,
+                    on_step=on_autonomous_step,
+                )
+            else:
+                skill_outcome[0] = await run_skill_plan(
+                    skills,
+                    ask,
+                    authority=authority,
+                    timeout_ns=timeout_ns,
+                    on_step=on_plan_step,
+                )
+        except (OSError, RuntimeError):
+            # The channel went out from under the Kin. Nothing is re-raised: the
+            # Bridge releases what it holds when the channel closes, so a step
+            # Core could not deliver is a recorded ending, not a run that failed
+            # for a reason nobody asked about.
+            skill_stop[0] = "CONTROL_CHANNEL_LOST"
+
     async def until_stop_request() -> None:
         """Wait for the operator to ask, from another process, that this run stop.
 
@@ -1614,6 +1911,14 @@ async def start_and_supervise(
         until_stop_request=until_stop_request,
         on_stop_request=on_stop_request,
         recorded=prepared.recorded,
+        # The readings only have somewhere to go once a plan will read them, and
+        # the plan's own branch is armed for the same reason: with no plan there is
+        # a watcher that can never fire.
+        world_observations=observations,
+        until_skills_ready=(
+            None if (skill_plan is None and autonomous is None) else until_skills_ready
+        ),
+        on_run_skills=(None if (skill_plan is None and autonomous is None) else on_run_skills),
     )
     if cancelled[0]:
         # The same shape `input_refusal` has: only this caller knows Core gave up
@@ -1631,6 +1936,36 @@ async def start_and_supervise(
         # rather than left in a hook, so "the Kin was told to walk and could not"
         # survives even when there was nothing to release.
         run = replace(run, input_refusal=plan.refusal)
+    if skill_plan is not None:
+        sequence = skill_outcome[0]
+        # What the plan asked, what each step's later reading said, and where it
+        # gave up — on the document, because §5 names no event for a skill's
+        # verdict and the verdict is the readings' conclusion rather than a fact
+        # Core decided when it sent a command. `skill_stop` wins over the
+        # sequence's own marker because "nothing ran" has no last step.
+        run = replace(
+            run,
+            skill_plan=tuple(call.name for call in skill_plan.calls),
+            skills=(
+                () if sequence is None else tuple(step.as_document() for step in sequence.steps)
+            ),
+            skill_stop=skill_stop[0] or ("" if sequence is None else sequence.stopped_at),
+        )
+    if autonomous is not None:
+        # The mind's own account of the turn — which intent it formed on which reading,
+        # what the later reading said about it, and the word that ended the run — on the
+        # document for the same reason the plan's verdicts are: §5 names no event for a
+        # conclusion the readings reached. A run that never got to ask has no steps, and
+        # its `stop_reason` is whatever `skill_stop` recorded, which is the honest shape
+        # of "asked for a mind, never got a lease to run one under".
+        run = replace(
+            run,
+            autonomous=(
+                autonomous_outcome[0]
+                if autonomous_outcome[0] is not None
+                else AutonomousRun(stop_reason=skill_stop[0])
+            ).as_document(),
+        )
     # How the run ended is Core's own observation, whatever the Bridge reported
     # along the way.
     await record(
