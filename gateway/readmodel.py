@@ -162,8 +162,12 @@ _SKILL_STEP_DETAIL_FIELDS: Final = (
 
 # The halt row is the run's own last word, and it is a different shape from a step: counts
 # rather than a verdict, and the skills the mind stopped offering. `excluded_skills` is the one
-# member that is a list of names, joined the way the identity row joins its mismatches. The
-# same allowlist rule applies: `action_id` stays in the ledger.
+# member that is a list of names, joined the way the identity row joins its mismatches.
+# `last_precondition` is the word the world last named — a short bag, a grid too small, a recipe
+# nobody curated — and it is what separates "this skill spent its retries" from "this skill was
+# refused on a fact it cannot retry", which the exclusion list alone cannot say. It carries the
+# mind's own field name so one grep finds both sides of the same run.
+# The same allowlist rule applies: `action_id` stays in the ledger.
 _AUTONOMOUS_HALT_DETAIL_FIELDS: Final = (
     "goal",
     "stop_reason",
@@ -171,6 +175,7 @@ _AUTONOMOUS_HALT_DETAIL_FIELDS: Final = (
     "steps",
     "confirmed",
     "excluded_skills",
+    "last_precondition",
 )
 
 # The member-gap sentences for the snapshot's `skillSteps` group. They are module constants

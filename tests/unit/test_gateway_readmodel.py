@@ -68,6 +68,7 @@ from minekin_core.adapters.sqlite.session_log import (
 )
 from minekin_core.application.ports.clock import FakeClock
 from minekin_core.cli.session import database_for
+from minekin_core.domain.recipe_catalog import CRAFT_GRID_TOO_SMALL
 from minekin_core.domain.session_material import (
     MISMATCH_UUID,
     MISMATCH_XUID_PRESENCE,
@@ -1009,6 +1010,37 @@ def test_a_halt_on_a_lost_channel_names_the_error_that_lost_it(tmp_path: Path) -
     assert events[0]["detail"] == (
         f"goal={SKILL_GOAL}, stop_reason=CONTROL_CHANNEL_LOST, error=ConnectionError, "
         "steps=4, confirmed=4"
+    )
+    assert CANARY not in json.dumps(events, ensure_ascii=False)
+
+
+def test_a_halt_row_carries_the_precondition_the_world_named(tmp_path: Path) -> None:
+    """`excluded_skills` cannot tell a skill whose budget ran out from one the world refused on a
+    named precondition, and the two want different fixes — a bigger screen or a curated recipe row
+    versus nothing at all. The mind's own document already carries the word; the panel's last row
+    has to carry the same one, or the two explain the same run differently.
+    """
+
+    joined_run(tmp_path)
+    record(
+        tmp_path,
+        AUTONOMOUS_RUN_HALTED,
+        {
+            "stop_reason": "STEP_BUDGET_SPENT",
+            "goal": SKILL_GOAL,
+            "steps": 3,
+            "confirmed": 1,
+            "excluded_skills": ["craft_take_result"],
+            "last_precondition": CRAFT_GRID_TOO_SMALL,
+            "action_id": CANARY,
+        },
+    )
+
+    events = build_timeline(tmp_path, limit=2)
+
+    assert events[0]["detail"] == (
+        f"goal={SKILL_GOAL}, stop_reason=STEP_BUDGET_SPENT, steps=3, confirmed=1, "
+        f"excluded_skills=craft_take_result, last_precondition={CRAFT_GRID_TOO_SMALL}"
     )
     assert CANARY not in json.dumps(events, ensure_ascii=False)
 

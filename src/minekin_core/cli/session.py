@@ -1730,6 +1730,10 @@ async def start_and_supervise(
                 # The name the mind stopped on is a fact per run, not per step, and it is the
                 # only thing that separates "the channel went" from "the mind ran out of things
                 # it was willing to try". The ledger has to be able to say which.
+                # `last_precondition` carries the mind's own field name and the word the world
+                # said, not the coarse code: an excluded skill plus `CRAFT_GRID_TOO_SMALL` is a
+                # missing screen, the same exclusion plus `CRAFT_MATERIALS_MISSING` would be a
+                # bag that never filled, and a reader cannot tell them apart from the list alone.
                 await record(
                     AUTONOMOUS_RUN_HALTED,
                     {
@@ -1739,6 +1743,7 @@ async def start_and_supervise(
                         "steps": len(halted.steps),
                         "confirmed": halted.as_document()["confirmed"],
                         "excluded_skills": sorted(mind.excluded),
+                        "last_precondition": mind.last_precondition,
                     },
                     source=EventSource.CORE,
                     trust_class=TrustClass.CORE,

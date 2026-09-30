@@ -58,7 +58,11 @@ from minekin_core.domain.perception import (
     SelfStateValue,
     WorldObservationValue,
 )
-from minekin_core.domain.recipe_catalog import CRAFT_GRID_TOO_SMALL, PLAYER_GRID_SIDE
+from minekin_core.domain.recipe_catalog import (
+    CRAFT_GRID_TOO_SMALL,
+    CRAFT_RECIPE_UNAVAILABLE,
+    PLAYER_GRID_SIDE,
+)
 from minekin_core.domain.world_actions import ActionResultClass, SkillOutcome, skill_capabilities
 
 LOG = "minecraft:oak_log"
@@ -438,6 +442,7 @@ def test_the_cost_cap_refuses_calls_and_not_playing() -> None:
         ("SKILL_UNKNOWN", FailureCode.SKILL_NOT_IMPLEMENTED),
         ("SKILL_ARGUMENT_MISSING", FailureCode.SKILL_NOT_IMPLEMENTED),
         (CRAFT_GRID_TOO_SMALL, FailureCode.SKILL_NOT_IMPLEMENTED),
+        (CRAFT_RECIPE_UNAVAILABLE, FailureCode.SKILL_NOT_IMPLEMENTED),
         ("NO_CONFIRMING_OBSERVATION", FailureCode.INSUFFICIENT_INFORMATION),
         ("MINING_STALLED", FailureCode.ACTION_NOT_EFFECTIVE),
         ("SCREEN_NOT_CONFIRMED", FailureCode.ACTION_NOT_EFFECTIVE),
@@ -514,6 +519,75 @@ def test_a_confirmation_clears_the_history_it_was_building_up() -> None:
     assert mind.attempts == {}
     assert mind.last_failure is None
     assert mind.as_document()["failure_attribution"] == ""
+
+
+# ------------------------------------------------------ what each named precondition changes
+
+
+def test_a_short_bag_changes_the_ask_without_spending_the_craft_skill() -> None:
+    """The skill checks its materials against the newest reading, so a craft refused for a short
+    bag is a fact about the bag and not about the skill: the ask that follows is the one that
+    fixes it, and once the bag pays again the same skill is offered with its budget untouched.
+    Charging three refusals to `craft_take_result` would exclude the very skill the gathered
+    wood was going to be spent on — the Kin is sent to the trunk and then told it may never
+    craft again."""
+
+    mind, _ = mind_with()
+    can_pay = reading(items=((0, LOG, 1),))
+    a_drop_in_view = reading(entities=(drop(),))
+    refused = outcome(ActionResultClass.FAILED, CRAFT_MATERIALS_MISSING)
+
+    for _ in range(RETRY_BUDGET_PER_SIGNATURE + 1):
+        intent = mind.next_intent(can_pay)
+        assert intent.skill == "craft_take_result"
+        assert (
+            mind.record_result(intent, refused, a_drop_in_view) is FailureCode.RESOURCE_UNAVAILABLE
+        )
+        assert mind.attempts == {}
+        assert "craft_take_result" not in mind.excluded
+
+    assert mind.next_intent(a_drop_in_view).skill == "collect_dropped"
+    assert mind.next_intent(can_pay).skill == "craft_take_result"
+    document = mind.as_document()
+    assert document["last_precondition"] == CRAFT_MATERIALS_MISSING
+    assert document["excluded_skills"] == []
+
+    intent = mind.next_intent(can_pay)
+    assert mind.record_result(intent, outcome(ActionResultClass.CONFIRMED), can_pay) is None
+    assert mind.as_document()["last_precondition"] == ""
+
+
+@pytest.mark.parametrize(
+    ("reason", "expected"),
+    [
+        (CRAFT_GRID_TOO_SMALL, FailureCode.SKILL_NOT_IMPLEMENTED),
+        (CRAFT_RECIPE_UNAVAILABLE, FailureCode.SKILL_NOT_IMPLEMENTED),
+    ],
+)
+def test_a_precondition_no_reading_can_undo_gives_the_skill_up_on_the_first_word(
+    reason: str, expected: FailureCode
+) -> None:
+    """Neither name is something the world can change by being waited on: no amount of wood makes
+    a three-by-three shape fit a two-by-two grid, and no reading makes an uncurated product
+    craftable. Asking the same skill a second time would be the replay §3 forbids, so the first
+    word is enough to take the skill off the offer for the run — and the word, not just the
+    coarse code, is what the document carries."""
+
+    mind, _ = mind_with()
+    can_pay = reading(items=((0, LOG, 1),))
+    intent = mind.next_intent(can_pay)
+    assert intent.skill == "craft_take_result"
+
+    assert mind.record_result(intent, outcome(ActionResultClass.FAILED, reason), None) is expected
+    assert "craft_take_result" in mind.excluded
+    assert mind.attempts == {}
+    document = mind.as_document()
+    assert document["excluded_skills"] == ["craft_take_result"]
+    assert document["last_precondition"] == reason
+
+    after = mind.next_intent(can_pay)
+    assert after.skill != "craft_take_result"
+    assert after.skill == "turn_to"
 
 
 # -------------------------------------------------------------------- the goal and its readings

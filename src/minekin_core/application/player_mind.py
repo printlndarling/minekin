@@ -42,6 +42,7 @@ from minekin_core.domain.perception import WorldObservationValue
 from minekin_core.domain.recipe_catalog import (
     CRAFT_GRID_TOO_SMALL,
     CRAFT_MATERIALS_MISSING,
+    CRAFT_RECIPE_UNAVAILABLE,
     PLAYER_GRID_SIDE,
     BuildStep,
     build_plan,
@@ -90,14 +91,30 @@ DECISION_FROM_LOCAL: Final = "local_reflection"
 #: `reason` is kept beside the code so the distinction a fix needs is never lost.
 #: A grid that cannot hold the shape is `SKILL_NOT_IMPLEMENTED` rather than a missing
 #: resource: more wood would not move it, and the thing that is absent is a skill for the
-#: screen the recipe needs.
+#: screen the recipe needs. A product the table has no row for is absent in the same way —
+#: no reading makes it craftable, and the missing thing is curated knowledge, not material.
 _NOT_IMPLEMENTED_REASONS: Final = frozenset(
-    {SKILL_UNKNOWN, SKILL_ARGUMENT_MISSING, CRAFT_GRID_TOO_SMALL}
+    {SKILL_UNKNOWN, SKILL_ARGUMENT_MISSING, CRAFT_GRID_TOO_SMALL, CRAFT_RECIPE_UNAVAILABLE}
 )
 _UNREADABLE_REASONS: Final = frozenset({NO_LATEST_OBSERVATION, NO_CONFIRMING_OBSERVATION})
 _ABSENT_REASONS: Final = frozenset(
     {"NO_SEEN_DROP", CRAFT_MATERIALS_MISSING, "MINE_TARGET_NOT_AIMED"}
 )
+
+#: Which named preconditions the world can still undo. The two sets decide what a refusal
+#: costs the skill, and the line is drawn by whether a later reading could answer differently:
+#: a short bag can be filled, so charging the craft skill for `CRAFT_MATERIALS_MISSING` would
+#: exclude the very skill the gathered wood was going to be spent on — the Kin is sent to the
+#: trunk and then told it may never craft. The other two are facts about the screen and the
+#: table; replaying the same click is what §3 forbids, so the first word takes the skill off
+#: the offer for the rest of the run.
+#:
+#: A reroute name spends no budget at all, which is honest about what bounds it: a mind whose
+#: reading keeps paying for a craft the skill keeps refusing is stopped by the run's own step
+#: budget, not by this one. The name going into the document is what makes that loop visible
+#: instead of merely finite.
+_PRECONDITION_REROUTE: Final = frozenset({CRAFT_MATERIALS_MISSING})
+_PRECONDITION_DEAD_END: Final = frozenset({CRAFT_GRID_TOO_SMALL, CRAFT_RECIPE_UNAVAILABLE})
 
 #: The order the feasible set is reported in, and so the order a scan of it reads. Listed
 #: once here because a model's offer and the local fallback have to be the same list, not
@@ -391,6 +408,7 @@ class PlayerMind:
     last_intent: MindIntent | None = field(default=None, init=False)
     last_result: SkillOutcome | None = field(default=None, init=False)
     last_failure: FailureCode | None = field(default=None, init=False)
+    last_precondition: str = field(default="", init=False)
     last_model_refusal: str = field(default="", init=False)
 
     def observe(self, reading: WorldObservationValue | None) -> None:
@@ -486,6 +504,14 @@ class PlayerMind:
         to keep a ledger against. A failure attributes, then either leaves the skill available
         or excludes it for the rest of the run — §3's "换方法、等待或放弃", where waiting and
         giving up arrive on their own once the feasible set empties.
+
+        A named precondition is decided by that question rather than by the retry budget: if a
+        later reading could answer differently, the skill keeps its whole budget and only the
+        name is filed, because the ask that follows is the one that changes the world; if no
+        reading could, the skill is given up on the first telling rather than replayed until
+        the count runs out. Both branches leave the same `last_precondition` behind for the
+        document, so the difference is readable after the run rather than inferable from a
+        missing skill.
         """
 
         self.last_result = outcome
@@ -493,10 +519,16 @@ class PlayerMind:
             for code in FailureCode:
                 self.attempts.pop((intent.skill, code), None)
             self.last_failure = None
+            self.last_precondition = ""
             self.observe(reading_after)
             return None
         failure = attribute_failure(outcome)
         self.last_failure = failure
+        if outcome.reason in _PRECONDITION_REROUTE or outcome.reason in _PRECONDITION_DEAD_END:
+            self.last_precondition = outcome.reason
+            if outcome.reason in _PRECONDITION_DEAD_END:
+                self.excluded.add(intent.skill)
+            return failure
         key = (intent.skill, failure)
         count = self.attempts.get(key, 0) + 1
         self.attempts[key] = count
@@ -620,6 +652,7 @@ class PlayerMind:
             "last_result": "" if result is None else result.result.value,
             "last_result_reason": "" if result is None else result.reason,
             "failure_attribution": "" if self.last_failure is None else self.last_failure.value,
+            "last_precondition": self.last_precondition,
             "model_enabled": self.model_enabled,
             "model_refusal": self.last_model_refusal,
             "intent_generation": self.intent_generation,
