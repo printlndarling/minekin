@@ -20,6 +20,7 @@ import pytest
 from minekin_core.domain import recipe_catalog
 from minekin_core.domain.perception import InventoryStackValue, InventoryValue
 from minekin_core.domain.recipe_catalog import (
+    CATALOG_GAME_VERSION,
     CRAFT_GRID_TOO_SMALL,
     CRAFT_MATERIALS_MISSING,
     CRAFT_RECIPE_UNAVAILABLE,
@@ -27,7 +28,9 @@ from minekin_core.domain.recipe_catalog import (
     RECIPES,
     BuildStep,
     Recipe,
+    RecipeProvenance,
     build_plan,
+    recipe_coverage,
     resolve_craft,
 )
 
@@ -235,6 +238,7 @@ def test_a_recipe_that_eats_itself_is_refused_by_name_rather_than_recursed_into(
                 grid_width=1,
                 grid_height=1,
                 yields=4,
+                provenance=RecipeProvenance.CURATED_UNWATCHED,
             ),
             STICK: Recipe(
                 product_id=STICK,
@@ -243,6 +247,7 @@ def test_a_recipe_that_eats_itself_is_refused_by_name_rather_than_recursed_into(
                 grid_width=1,
                 grid_height=2,
                 yields=4,
+                provenance=RecipeProvenance.CURATED_UNWATCHED,
             ),
         },
     )
@@ -272,3 +277,56 @@ def test_a_step_carries_no_knowledge_but_the_recipe_it_was_read_from() -> None:
 
     assert all(step.product_id == step.recipe.product_id for step in planned)
     assert all(step.materials == step.recipe.ingredients for step in planned)
+
+
+# -------------------------------------------------------------- the coverage boundary, as data
+
+
+def test_every_recipe_declares_how_the_build_came_to_know_it() -> None:
+    """The boundary criterion 6 asks for has to be a field, not a comment.
+
+    A row that names no provenance would let the catalog read as though every craft were watched,
+    which is exactly the "curated set faked as universal knowledge" the goal forbids — so each
+    row must say which side of the line it is on.
+    """
+
+    for product_id, recipe in RECIPES.items():
+        assert isinstance(recipe.provenance, RecipeProvenance), product_id
+
+
+def test_the_catalog_declares_itself_a_bounded_fallback_not_a_universal_source() -> None:
+    """The whole point the small curated set is permitted to exist for: it says out loud that it
+    covers a handful of 1.20.1 products and does not claim to know every craft."""
+
+    boundary = recipe_coverage()
+
+    assert boundary.universal is False
+    assert boundary.game_version == CATALOG_GAME_VERSION
+    # Covered is exactly the keys, and the watched/curated split partitions it with no overlap —
+    # a product is on one side or the other, never both, so the boundary cannot hide a row.
+    assert boundary.covered == frozenset(RECIPES)
+    assert boundary.live_confirmed | boundary.curated_only == boundary.covered
+    assert not (boundary.live_confirmed & boundary.curated_only)
+
+
+def test_the_boundary_actually_straddles_both_sides_rather_than_reading_as_all_watched() -> None:
+    """Non-vacuity for the split.
+
+    If every row were marked watched, the `universal=False` above would be a formality and no
+    live run would ever be prompted to promote a curated craft. The two products the demo has
+    crafted are on the watched side; the table and the pickaxe are still only curated until a run
+    that needs them confirms the result, which is the boundary a reader is meant to see."""
+
+    boundary = recipe_coverage()
+
+    assert {PLANKS, STICK} <= boundary.live_confirmed
+    assert {TABLE, PICKAXE} <= boundary.curated_only
+
+
+def test_a_product_the_catalog_cannot_answer_for_is_outside_the_declared_cover() -> None:
+    """The resolver's refusal and the published boundary agree, rather than being two separate
+    claims a reader could catch contradicting each other: a diamond pickaxe is both outside
+    `covered` and answered with the named unavailability, never with a guess."""
+
+    assert "minecraft:diamond_pickaxe" not in recipe_coverage().covered
+    assert resolve_craft("minecraft:diamond_pickaxe") == CRAFT_RECIPE_UNAVAILABLE

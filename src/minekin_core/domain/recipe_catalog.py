@@ -20,8 +20,12 @@ multiplies the counts out of each recipe's own yield, so wanting an item is a pr
 quantity rather than a list somebody wrote out by hand. A hand-written build order is the one
 place this repository could have the wrong arithmetic and nothing in the world would notice.
 
-The numbers here are facts about Minecraft 1.20.1, and the comments say which of them this
-repository has watched the game confirm and which are still only curated. In
+The numbers here are facts about one Minecraft version, and each row carries, as data rather
+than as a comment, the way this build came to hold it: watched crafted on the controlled server,
+or curated from the game's own data and not yet watched. `recipe_coverage` reports that boundary —
+the version, the covered products, the watched/curated split, and `universal=False` — so no caller
+mistakes this finite fallback for a general crafting source. A product outside the cover is
+answered with `CRAFT_RECIPE_UNAVAILABLE`, never with a guess. In
 `docs/recipe-knowledge-gui-contract.md` these rows are the first of its three objects: public
 knowledge about a craft, which is what lets the Kin *intend* one. They are not the account's
 recipe book and they are not a confirmation of anything — whether a craft happened is still
@@ -32,6 +36,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
+from enum import StrEnum
 from types import MappingProxyType
 from typing import Final
 
@@ -56,6 +61,27 @@ CRAFT_MATERIALS_MISSING: Final = "CRAFT_MATERIALS_MISSING"
 #: shape that does not fit.
 CRAFT_GRID_TOO_SMALL: Final = "CRAFT_GRID_TOO_SMALL"
 
+#: The single game version these rows claim to describe. A craft is a fact about a version, and
+#: a catalog that did not name its own would let a 1.21.4 server be answered with 1.20.1 shapes
+#: and call that knowledge. `recipe_coverage` reports it so no caller has to trust a comment.
+CATALOG_GAME_VERSION: Final = "1.20.1"
+
+
+class RecipeProvenance(StrEnum):
+    """How this build came to hold a row — watched in the game, or curated and not yet watched.
+
+    The distinction is the boundary criterion 6 asks for, kept as data rather than prose so a
+    panel, a run document, or a verifier can read exactly which crafts the Kin has seen happen
+    and which are still only a claim lifted from the game's data. A curated row is not a lie: it
+    is a recipe the resolver will honour, marked with the one thing that is still missing — a
+    live run that crafted it and read the result back.
+    """
+
+    #: Watched being crafted on the controlled 1.20.1 server, `CONFIRMED` by the readings after.
+    LIVE_CONFIRMED = "live_confirmed"
+    #: Curated from the game's own 1.20.1 data; no live run has confirmed this craft end to end.
+    CURATED_UNWATCHED = "curated_unwatched"
+
 
 @dataclass(frozen=True, slots=True)
 class Recipe:
@@ -77,6 +103,11 @@ class Recipe:
     #: reason about how many batches to ask for, and a catalog without it would be a catalog
     #: that cannot say what one log is worth.
     yields: int
+    #: How this build came to hold the row: watched in the game, or curated and not yet watched.
+    #: Not used by any precondition check either — it is the coverage boundary made readable, so
+    #: a caller can tell a craft it has seen from one it has only been told, without parsing a
+    #: comment. See `recipe_coverage`.
+    provenance: RecipeProvenance
 
     def fits(self, grid_side: int) -> bool:
         """Whether this shape can be laid out in a `grid_side` by `grid_side` grid.
@@ -91,7 +122,8 @@ class Recipe:
 #: The whole of this build's recipe knowledge, keyed by product. Two of these rows have been
 #: watched being crafted on the controlled 1.20.1 server (planks from a log, sticks from
 #: planks, both `CONFIRMED` by the readings after them); the other two are curated from the
-#: game's own data and are marked as such by the first live run that uses them.
+#: game's own data. That distinction is not left in this comment — each row carries a
+#: `provenance`, and `recipe_coverage` reports the boundary as data.
 RECIPES: Final[Mapping[str, Recipe]] = MappingProxyType(
     {
         "minecraft:oak_planks": Recipe(
@@ -101,6 +133,7 @@ RECIPES: Final[Mapping[str, Recipe]] = MappingProxyType(
             grid_width=1,
             grid_height=1,
             yields=4,
+            provenance=RecipeProvenance.LIVE_CONFIRMED,
         ),
         "minecraft:stick": Recipe(
             product_id="minecraft:stick",
@@ -109,6 +142,7 @@ RECIPES: Final[Mapping[str, Recipe]] = MappingProxyType(
             grid_width=1,
             grid_height=2,
             yields=4,
+            provenance=RecipeProvenance.LIVE_CONFIRMED,
         ),
         "minecraft:crafting_table": Recipe(
             product_id="minecraft:crafting_table",
@@ -117,6 +151,7 @@ RECIPES: Final[Mapping[str, Recipe]] = MappingProxyType(
             grid_width=2,
             grid_height=2,
             yields=1,
+            provenance=RecipeProvenance.CURATED_UNWATCHED,
         ),
         "minecraft:wooden_pickaxe": Recipe(
             product_id="minecraft:wooden_pickaxe",
@@ -125,9 +160,58 @@ RECIPES: Final[Mapping[str, Recipe]] = MappingProxyType(
             grid_width=3,
             grid_height=3,
             yields=1,
+            provenance=RecipeProvenance.CURATED_UNWATCHED,
         ),
     }
 )
+
+
+@dataclass(frozen=True, slots=True)
+class CoverageBoundary:
+    """What this catalog honestly claims to know, as data rather than as a comment.
+
+    A panel or a run document renders from this instead of from a prose paragraph, which is the
+    only way criterion 6 holds: the small curated set is allowed as a fallback precisely because
+    it says so out loud — the version it describes, the products it covers, which of those it has
+    watched, and above all `universal=False`. Nothing here promises a craft the table cannot name;
+    an out-of-cover product is answered with `CRAFT_RECIPE_UNAVAILABLE`, not a guess.
+    """
+
+    game_version: str
+    #: Every product id the resolver can answer for — the whole of the covered region.
+    covered: frozenset[str]
+    #: The covered subset watched being crafted on the controlled server.
+    live_confirmed: frozenset[str]
+    #: The covered subset curated from the game's data and not yet watched; the first live run
+    #: that crafts one and reads the result is what moves it into `live_confirmed`.
+    curated_only: frozenset[str]
+    #: Whether this catalog claims to know every craft in the game. It never does, and the field
+    #: is hard-wired to `False` so a caller cannot mistake a finite fallback for a universal
+    #: source the way a bare product list would allow.
+    universal: bool
+
+
+def recipe_coverage() -> CoverageBoundary:
+    """The catalog's boundary, computed from the rows themselves.
+
+    Derived rather than written so a row cannot be marked watched in one place and curated in
+    another: `covered` is the keys, and the provenance field on each row decides the split. A new
+    recipe is only ever a new `RECIPES` entry, and the boundary follows it without a second list
+    somebody could forget to update.
+    """
+
+    live = frozenset(
+        product_id
+        for product_id, recipe in RECIPES.items()
+        if recipe.provenance is RecipeProvenance.LIVE_CONFIRMED
+    )
+    return CoverageBoundary(
+        game_version=CATALOG_GAME_VERSION,
+        covered=frozenset(RECIPES),
+        live_confirmed=live,
+        curated_only=frozenset(RECIPES) - live,
+        universal=False,
+    )
 
 
 def resolve_craft(
