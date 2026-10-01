@@ -394,6 +394,42 @@ def test_the_domain_soak_is_bounded_and_fails_closed() -> None:
     assert "the soak did not sample both JVMs on every pass" in text
 
 
+def test_the_domain_autonomous_wait_is_bounded_default_off_and_precedes_the_stop() -> None:
+    """An autonomous run is let to its own verdict before the harness stops the client.
+
+    The fault this closes: `domain.sh` stopped a few seconds after playable, so a mind
+    still choosing had its client SIGTERM-ed mid-step (exit 143) before the cooperative
+    key release could be confirmed on a live channel. The fix waits for the loop's own
+    `AutonomousRunHalted` ledger row — bounded, and default-off so every other run shape
+    is byte-for-byte the old behaviour.
+    """
+
+    domain = (RUNNER / "domain.sh").read_text(encoding="utf-8")
+    demo = (RUNNER / "demo.sh").read_text(encoding="utf-8")
+    wrapper = (RUNNER / "run.sh").read_text(encoding="utf-8")
+
+    # Read once, default-off: an absent knob keeps the old "stop right after playable".
+    assert 'autonomous_wait_seconds="${MINEKIN_DOMAIN_AUTONOMOUS_WAIT_SECONDS:-0}"' in domain
+    assert 'case "${autonomous_wait_seconds}" in' in domain
+    assert "MINEKIN_DOMAIN_AUTONOMOUS_WAIT_SECONDS must be a non-negative integer" in domain
+    # The wait is gated on a positive bound and reads the halt event, not the exit code.
+    assert 'if [ "${autonomous_wait_seconds}" -gt 0 ]; then' in domain
+    assert "event_type='AutonomousRunHalted'" in domain
+    # It must give up if the client died, rather than waiting out the whole bound.
+    assert 'kill -0 "${session_pid}" 2>/dev/null || break' in domain
+
+    # The wait happens before the harness stops the session, or it guards nothing.
+    wait_at = domain.index("event_type='AutonomousRunHalted'")
+    stop_at = domain.index("printf 'domain: stopping the session\\n'")
+    assert 0 < wait_at < stop_at, "the autonomous wait must precede the stop line"
+
+    # Both hops deliver it: the demo arms it only for the autonomous shape, and the
+    # wrapper forwards the name the harness reads.
+    assert 'MINEKIN_DOMAIN_AUTONOMOUS_WAIT_SECONDS="${AUTONOMOUS_WAIT}"' in demo
+    assert "MINEKIN_DEMO_AUTONOMOUS_WAIT_SECONDS must be a positive number of seconds" in demo
+    assert "-e MINEKIN_DOMAIN_AUTONOMOUS_WAIT_SECONDS" in wrapper
+
+
 def test_the_domain_soak_measures_the_joiner_without_judging_it() -> None:
     """A two-client soak has to watch the joining JVM, but not as a gate condition.
 

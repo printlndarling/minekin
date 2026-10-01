@@ -55,6 +55,10 @@
 #   MINEKIN_DEMO_WALK_SECONDS  how long the forward key is held     (8)
 #   MINEKIN_DEMO_TURN_DEGREES  how far the run looks to the right   (45)
 #   MINEKIN_DEMO_AUTONOMOUS_STEPS  how many skills --autonomous may attempt (12)
+#   MINEKIN_DEMO_AUTONOMOUS_WAIT_SECONDS  how long the harness waits, after playable,
+#                                  for --autonomous to write its own halt verdict before
+#                                  it stops the client (300) — the cooperative key release
+#                                  needs a live channel, not a mid-step SIGTERM
 #   MINEKIN_DEMO_GOAL_PRODUCT  what --autonomous works toward, as an item id
 #                                  (minecraft:wooden_pickaxe). Set it empty to ask for a Kin with
 #                                  no standing craft target at all — Core reads no default item,
@@ -137,6 +141,12 @@ fi
 # one costs its timeout, so a bound the operator can read in the command line beats one
 # that only appears in the run document.
 AUTONOMOUS_STEPS="${MINEKIN_DEMO_AUTONOMOUS_STEPS:-12}"
+# How long, once the session is playable, the harness waits for the mind to write its own
+# `AutonomousRunHalted` before it stops the client. A real endpoint answers within its
+# timeout and a step waits for the reading that will confirm it, so a bound the whole
+# budget of steps fits inside lets the loop end on its own verdict — and the stop then
+# lands on a live channel, where the key release is confirmed rather than SIGTERM-ed.
+AUTONOMOUS_WAIT="${MINEKIN_DEMO_AUTONOMOUS_WAIT_SECONDS:-300}"
 # The standing goal, which is the demo's, not Core's. `MINEKIN_GOAL_*` is the name the
 # product reads and it carries no default item — a run that hands it nothing has no
 # milestone to hold, which is the shape that proves the point — so the wooden-pickaxe
@@ -232,6 +242,13 @@ case "${AUTONOMOUS_STEPS}" in
     '' | *[!0-9]*)
         printf 'demo: MINEKIN_DEMO_AUTONOMOUS_STEPS must be a whole number of skills, got %q.\n' \
             "${AUTONOMOUS_STEPS}" >&2
+        exit 2
+        ;;
+esac
+case "${AUTONOMOUS_WAIT}" in
+    '' | *[!0-9]* | 0)
+        printf 'demo: MINEKIN_DEMO_AUTONOMOUS_WAIT_SECONDS must be a positive number of seconds, got %q.\n' \
+            "${AUTONOMOUS_WAIT}" >&2
         exit 2
         ;;
 esac
@@ -419,7 +436,8 @@ case "${command}" in
         ;;
     autonomous)
         session_args+=(--autonomous --autonomous-steps "${AUTONOMOUS_STEPS}")
-        trunk_env=(MINEKIN_DOMAIN_RESOURCE_TRUNK=1)
+        trunk_env=(MINEKIN_DOMAIN_RESOURCE_TRUNK=1 \
+            MINEKIN_DOMAIN_AUTONOMOUS_WAIT_SECONDS="${AUTONOMOUS_WAIT}")
         # Handed to the session by name, and only for this shape: a skill plan names its
         # own steps and the scripted hold/look run builds no mind at all, so a goal on
         # those two commands would be a knob nothing reads.

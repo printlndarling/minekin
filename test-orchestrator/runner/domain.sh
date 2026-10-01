@@ -91,6 +91,13 @@ still="${MINEKIN_DOMAIN_STILL:-}"
 # did — a soak is a thing a run asks for, not a thing every run pays for.
 soak_seconds="${MINEKIN_DOMAIN_SOAK_SECONDS:-0}"
 soak_interval="${MINEKIN_DOMAIN_SOAK_INTERVAL:-10}"
+# How long to wait, after the session is playable, for the autonomous loop to write its
+# own terminal `AutonomousRunHalted` before the harness stops the client. Zero — the
+# default, and every run before this — keeps the old behaviour: the harness stops a few
+# seconds after playable. A positive bound is what a `--autonomous` run asks for, because
+# a mind that is still choosing has not finished, and stopping it mid-step SIGTERMs the
+# client (exit 143) before the cooperative key release can be confirmed on a live channel.
+autonomous_wait_seconds="${MINEKIN_DOMAIN_AUTONOMOUS_WAIT_SECONDS:-0}"
 #: Where a soak's measurement and its request are written, named here rather than
 #: inside the soak so the sealer can ask for them by the same names whether or not
 #: this run soaked. Only a soak run leaves files here.
@@ -113,6 +120,13 @@ case "${soak_interval}" in
     ''|*[!0-9]*|0)
         printf 'domain: MINEKIN_DOMAIN_SOAK_INTERVAL must be a positive integer, got %q\n' \
             "${soak_interval}" >&2
+        exit 2
+        ;;
+esac
+case "${autonomous_wait_seconds}" in
+    ''|*[!0-9]*)
+        printf 'domain: MINEKIN_DOMAIN_AUTONOMOUS_WAIT_SECONDS must be a non-negative integer, got %q\n' \
+            "${autonomous_wait_seconds}" >&2
         exit 2
         ;;
 esac
@@ -3088,6 +3102,34 @@ with open(path, "w", encoding="utf-8") as stream:
     json.dump(document, stream, sort_keys=True)
     stream.write("\n")
 PY
+fi
+
+# Before the harness takes the client away, an autonomous run is let to finish its own
+# thinking. The mind writes `AutonomousRunHalted` when it reaches a terminal verdict —
+# goal met, budget spent, or a stopped world — and stopping before that line SIGTERMs a
+# client mid-step (exit 143), which is the release the earlier runs could never confirm.
+# Waiting for the verdict means the stop lands on a still-live channel, where the
+# cooperative key release runs and reports back. A non-autonomous run never writes the
+# event, so a bound of zero — the default — skips this entirely and behaves as before.
+if [ "${autonomous_wait_seconds}" -gt 0 ]; then
+    deadline=$((SECONDS + autonomous_wait_seconds))
+    halted=''
+    for _ in $(seq 1 "${autonomous_wait_seconds}"); do
+        halted=$(/opt/sqlite/bin/sqlite3 "${ledger}" \
+            "select 1 from event where position > ${baseline} and event_type='AutonomousRunHalted' limit 1;" \
+            2>/dev/null || true)
+        [ -z "${halted}" ] || break
+        kill -0 "${session_pid}" 2>/dev/null || break
+        sleep 1
+    done
+    if [ -n "${halted}" ]; then
+        printf 'domain: the autonomous loop reached its own verdict; stopping on a live channel\n' >&2
+    elif ! kill -0 "${session_pid}" 2>/dev/null; then
+        printf 'domain: the session ended before the loop wrote its verdict\n' >&2
+    else
+        printf 'domain: the loop had not halted within %ss; stopping it\n' \
+            "${autonomous_wait_seconds}" >&2
+    fi
 fi
 
 printf 'domain: stopping the session\n' >&2
