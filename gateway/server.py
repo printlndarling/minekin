@@ -39,6 +39,7 @@ from gateway.config_write import (
 from gateway.config_write import (
     SCHEMA as CONFIG_SCHEMA,
 )
+from gateway.goal_read import GOAL_PATH, goal_read
 from gateway.identity import (
     CSRF_HEADER,
     IDENTITY_PATH,
@@ -83,15 +84,17 @@ DEFAULT_PORT = 8787
 TIMELINE_PARAMETER = "limit"
 
 #: The whole authorized surface, methods and all: the three frozen reads, the identity
-#: read the rename form reviews, the config read the settings form reviews, the session read,
-#: and the three writes those routes except (the rename, the config save and the stop).
-#: `--routes` prints this so the verb scan sees a POST only where one is sanctioned.
+#: read the rename form reviews, the config read the settings form reviews, the goal read the
+#: task panel reviews, the session read, and the three writes those routes except (the rename, the
+#: config save and the stop). `--routes` prints this so the verb scan sees a POST only where one is
+#: sanctioned. The goal path is a read only — setting a goal stays the config write's job.
 ROUTE_TABLE: tuple[tuple[str, str], ...] = (
     *(("GET", path) for path in ROUTES),
     ("GET", IDENTITY_PATH),
     ("POST", RENAME_PATH),
     ("GET", CONFIG_PATH),
     ("POST", CONFIG_SAVE_PATH),
+    ("GET", GOAL_PATH),
     ("GET", SESSION_PATH),
     ("POST", SESSION_STOP_PATH),
 )
@@ -136,6 +139,9 @@ class ReadService:
 
     def config(self) -> dict[str, Any]:
         return config_read(self._root, clock=self._clock, csrf_token=self.csrf_token)
+
+    def goal(self) -> dict[str, Any]:
+        return goal_read(self._root, clock=self._clock, csrf_token=self.csrf_token)
 
     def save_config(self, body: Mapping[str, Any]) -> tuple[int, dict[str, Any]]:
         return save_from_request(self._root, body=body)
@@ -189,6 +195,9 @@ class ReadRequestHandler(BaseHTTPRequestHandler):
             return
         if parsed.path == CONFIG_PATH:
             self._respond(HTTPStatus.OK, self.service.config())
+            return
+        if parsed.path == GOAL_PATH:
+            self._respond(HTTPStatus.OK, self.service.goal())
             return
         if parsed.path == SESSION_PATH:
             self._respond(HTTPStatus.OK, self.service.session())
