@@ -754,3 +754,40 @@ step6 turn_to {pitch:-30, yaw:0}                               FAILED (AIM_STALL
 第 1 步把目标原木敲下并 CONFIRMED，之后模型连选三次 `collect_dropped` 却都停在 `NO_CONFIRMING_OBSERVATION`（那截掉落物没有以一次可读的入包被确认——多半滚出了可达范围），mind 于是把 `collect_dropped` 写进 `excluded_skills`、改选 `turn_to` 调整朝向，第 5 步 CONFIRMED、第 6 步 `AIM_STALLED`，六步预算耗尽、`goal_met: false`。这条链的"改线"本身是对的（读数不确认就换招、并按名字排除，而不是重试同一笔死磕），卡点在"采拾未被入包读数确认"这一游戏侧方差，不是 143 那一处。
 
 **对第 5 条的诚实结论**：真实端点下"一条连续闭环（模型选→读数确认→合成→继续非 GUI→安全松键）"由六之十三那一发（`hold_stick`）达成；本发证明同一套修复与安全/调整机制**跨产物、跨数量**成立（`input_release_failed: false`、`STEP_BUDGET_SPENT` 自停、全步 `model`），但**完整合成链目前只在单一产物（木棍）上取到活体确认**——换到木板这一发止步于采拾确认、未触及合成，因此**不宣称通用合成已完备**，也不把"安全收尾的通用"当成"合成的通用"。要把通用合成钉死，需要一条换产物、且 `craft_take_result` 到 CONFIRMED、再关界面续跑的非木棍连续运行，或先处理 `collect_dropped` 在掉落物滚出可达时的那一格读数确认。
+
+
+## 六之十五、跨产物合成子链在活体上复现，3×3 那一步缺确定性的"立起工作台"（2026-10-01，run `9e01523a70fb4bb482b50f0214a34bbe`，server run 目录 `run-26`，会话 `c147cae428494072afb436dedac2baee`，客户端 pid 290）
+
+第 5 条要"换产物检查通用性"、第 7 条要"采集→拾取→合成→成品确认→关屏→后续世界动作→确认松键"的连续活体链。这一发把里程碑换成 `hold_wooden_pickaxe`（`product_id: minecraft:wooden_pickaxe`、`quantity: 1`、`source_item: minecraft:oak_log`）——木镐的形状装不进人物自带的 2×2，必须先立起 3×3 工作台才能合成，是 §四 通用性最难的一格。真实 OpenAI-compatible 端点，`model_enabled: true`、`model_calls: 14`、`decision_source: model`。
+
+**跨产物合成子链这一格在活体上取到**（不是单一木棍了）：`steps[i].intent` 逐字前九步——
+
+```text
+step1 break_seen_block {expected_drop_item: minecraft:oak_log}  CONFIRMED   1314 -> 1525   model
+step2 collect_dropped  {item_id: minecraft:oak_log}             CONFIRMED   1525 -> 1668   model
+step3 craft_take_result -> "craft minecraft:oak_planks toward minecraft:wooden_pickaxe"  CONFIRMED  1668 -> 1866  local_reflection (model TIMEOUT)
+step4 close_screen                                              CONFIRMED   1866 -> 2042  local_reflection (model TIMEOUT)
+step5 craft_take_result -> "craft minecraft:stick toward minecraft:wooden_pickaxe"       CONFIRMED  2042 -> 2240  local_reflection (model TIMEOUT)
+step6 close_screen   "2x2 造不出木镐，关掉去开 3x3 工作台"        CONFIRMED   2240 -> 2328   model
+step7 turn_to                                                 CONFIRMED   2328 -> 2504   model
+step8 turn_to                                                 CONFIRMED   2504 -> 2592   model
+step9 break_seen_block {expected_drop_item: minecraft:oak_log}  CONFIRMED   2592 -> 2790   model
+```
+
+即一次运行内、同一个木镐目标下，`build_plan` 推出的两个中间产物（木板、木棍）都被合成并被后续读数 CONFIRMED——这是"配方表算出顺序、按真实读数合成"跨产物成立的最强活体证据（六之十三只有木棍一种）。第 3、5 步在模型 `TIMEOUT` 时由本地反射接管，反射读同一份可行集、挑 build_plan 的下一笔可付步骤，证明"模型不可用→有界回退"这条线也在活字节上走通。
+
+**3×3 那一格没闭上，缺口点名且是通用侧、不是逐物品侧**：`steps[9..13]`——
+
+```text
+step10 collect_dropped  {item_id: minecraft:oak_log}   FAILED (NO_SEEN_DROP, RESOURCE_UNAVAILABLE)  2790 -> 2878  model
+step11 craft_take_result {target_item: minecraft:wooden_pickaxe}  UNKNOWN (SCREEN_NOT_CONFIRMED, INSUFFICIENT_INFORMATION)  2878 -> 3076  model
+step12 craft_take_result {target_item: minecraft:wooden_pickaxe}  UNKNOWN (SCREEN_NOT_CONFIRMED)  3076 -> 3263  model
+step13 craft_take_result {target_item: minecraft:wooden_pickaxe}  UNKNOWN (SCREEN_NOT_CONFIRMED)  3263 -> 3505  model
+step14 turn_to {pitch:-18, yaw:135}  "sweep to look for a spot to place a crafting table for the 3x3 pickaxe recipe"  FAILED (AIM_STALLED)  3505 -> 3648  model
+```
+
+`goal_met: false`、`stop_reason: STEP_BUDGET_SPENT`、`confirmed: 9`、`excluded_skills: ["craft_take_result"]`。第 6 步模型已正确读出 `larger_grid_needed` 并说"要去开 3×3 工作台"，但之后它反复直接对终产物 `craft_take_result(木镐)` 下手（终形状装不进任何已开窗口 ⇒ `SCREEN_NOT_CONFIRMED`/UNKNOWN，连撞三次后该技能被整场排除），第 7、8、14 步只会 `turn_to` 找落点。根因是**通用侧**：`build_plan` 把木镐展开成 3 木板 + 2 木棍这些**材料**，工作台是**网格前提**、不是材料，所以没有任何确定性步骤去"合成工作台→`select_hotbar`→瞄准地面→`use_target` 放置→瞄准工作台→`use_target` 打开"。放置/交互的 `use_target` 技能与 3×3 开窗后的合成读法都已实现并单测通过（§六 之前 #38–#40），`larger_grid_needed` 也进了观察摘要——唯独"立起工作台"这一序列目前完全交给模型自选，这一发的端点没有走出它。
+
+**安全收尾这一格照旧复现**：`the autonomous loop reached its own verdict; stopping on a live channel` → `session stop said {"release": {"asked": [290], "released": [290], "unconfirmed": []}, "status": "stopped", "terminated": [290]}`、`input_release_failed: false`、`session exited 0`。
+
+**诚实结论**：跨产物合成子链（木板+木棍，同一木镐目标）已活体 CONFIRMED，六之十四止步的"采拾确认"这一发也不再是卡点（第 2 步入包 CONFIRMED）；仍未在活字节上完整走通的是**需要 3×3 的终产物那一笔**，且卡点是通用机制缺一格"确定性立起工作台"，而非逐物品链或端点一次性失误。要钉死它，需要在 `larger_grid_needed` 且无更宽窗口可读时，让本地反射确定性地补出"合成工作台→放置→打开→在 3×3 内合成终产物"这一通用序列（不写木镐专用链），再跑一条活体确认持有木镐的运行。**据此第 7 条按字面（采集→拾取→合成→成品确认→关屏→后续非 GUI 世界动作→确认松键）已由六之十三（木棍）与六之九（四步入包）达成；第 5 条的跨产物合成子链由本发达成；3×3 终产物活体确认仍列为未完成。**
