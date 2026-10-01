@@ -15,10 +15,14 @@ product the bag holds and cannot assert the milestone is met — a `CONFIRMED` b
 reading, and inventing one here would be the exact "UNKNOWN 转述为 CONFIRMED" this project refuses.
 What it *can* answer from the saved fields alone is the two things the panel is for: which milestone
 the next session will work toward (label, product, quantity, source item), and whether the curated
-recipe catalog can even build it — the plan the product implies, or the one named precondition
-(`CRAFT_RECIPE_UNAVAILABLE`) that says the product sits outside the catalog's declared cover. That
-last is the criterion-6 boundary made visible: a goal the small curated set cannot serve is shown as
-a boundary, never as a silent green.
+recipe catalog can even build it — the plan the product implies, or the one named precondition that
+says the goal stops short of a runnable plan. Two preconditions reach this surface.
+`CRAFT_RECIPE_UNAVAILABLE` means the product sits outside the catalog's declared cover;
+`CRAFT_GRID_TOO_SMALL` means the catalog knows every craft but the plan's last step is a shape wider
+than the two-by-two grid this build can open (a pickaxe needs a placed worktable, which no skill yet
+places), so the plan would name crafts the Kin cannot perform. Either way it is the criterion-6
+boundary made visible: a goal the small curated set cannot serve is shown as a boundary, never as a
+silent green.
 
 The secret and origin boundaries are inherited, not re-drawn: the goal fields hold no credential,
 the same loopback/same-origin read posture the other `*_read` functions rely on, and the per-process
@@ -36,7 +40,11 @@ from minekin_core.application.ports.clock import Clock
 from minekin_core.domain.errors import MinekinError
 from minekin_core.domain.goal_spec import Milestone
 from minekin_core.domain.operator_config import OperatorConfig, load_operator_config
-from minekin_core.domain.recipe_catalog import BuildStep
+from minekin_core.domain.recipe_catalog import (
+    CRAFT_GRID_TOO_SMALL,
+    BuildStep,
+    plan_needs_larger_grid,
+)
 
 #: The read that projects the operator's saved goal. It is a GET only — setting a goal stays
 #: the config write's job, so this path cannot become a fourth hole in the write-refusing face.
@@ -53,6 +61,14 @@ def goal_read(root: Path, *, clock: Clock, csrf_token: str) -> dict[str, Any]:
     A hand-edited document that will not parse is reported through `loadError` with an empty
     projection the same way `config_read` does, so the surface stays usable and the operator is
     told the file is unreadable rather than being shown a goal that was never saved.
+
+    When the product is configured, `plan` and `precondition` are exclusive: a plan the Kin could
+    actually run fills `plan` and leaves `precondition` null, and any goal that stops short of a
+    runnable plan fills `precondition` and leaves `plan` null rather than printing a build order the
+    last step of which is a craft the current skills cannot perform. Two preconditions reach here —
+    `CRAFT_RECIPE_UNAVAILABLE` (outside the catalog's cover) and `CRAFT_GRID_TOO_SMALL` (in the
+    catalog, but a step needs a grid wider than this build can open) — both reported as the named
+    boundary rather than as a plan a reader would finish in their head.
     """
 
     load_error: str | None = None
@@ -91,6 +107,14 @@ def goal_read(root: Path, *, clock: Clock, csrf_token: str) -> dict[str, Any]:
             "milestone": milestone.as_document(),
             "plan": None,
             "precondition": planned,
+        }
+    if plan_needs_larger_grid(planned):
+        return {
+            **base,
+            "configured": True,
+            "milestone": milestone.as_document(),
+            "plan": None,
+            "precondition": CRAFT_GRID_TOO_SMALL,
         }
     return {
         **base,

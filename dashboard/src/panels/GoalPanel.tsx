@@ -13,9 +13,27 @@ function goalIsStale(observedAt: string, staleAfterMs: number, nowMs: number): b
 }
 
 /**
+ * Which known limit a null plan names, in the operator's words. Two boundaries reach this panel
+ * and they are not the same sentence: one says the catalog has no recipe for the product, the
+ * other says the recipe is known but a step needs a grid wider than this build can open. The raw
+ * token always rides along in the render, so the panel never paraphrases a boundary into hiding
+ * the exact word the read returned.
+ */
+function boundaryCopy(precondition: string): string {
+  if (precondition === "CRAFT_GRID_TOO_SMALL") {
+    return "该产物在精选目录内，但合成计划的最后一步是 3×3 形状，需要先放置工作台才能展开——当前版本没有可放置或打开工作台的技能，因此这里不投影一份无法执行的计划。这是执行能力的已知边界，不是通用合成能力。";
+  }
+  if (precondition === "CRAFT_RECIPE_UNAVAILABLE") {
+    return "该产物不在当前精选目录内，因此没有可投影的合成计划。这是目录覆盖的已知边界，不是通用合成能力；小目录只是暂时回退，不能冒充全量知识来源。";
+  }
+  return "该目标因一处前提限制无法投影出合成计划。这是已知边界，不是通用合成能力。";
+}
+
+/**
  * The 任务 page. It consumes the pure goal read (`gateway/goal_read.py`) through the adapter seam and
  * renders exactly what that document claims: the standing milestone, the gross build plan the curated
- * catalog implies, or — when the product is outside the catalog's cover — the named coverage boundary.
+ * catalog implies, or — when the goal stops short of a runnable plan — the one named boundary that
+ * says why (an out-of-cover recipe, or a grid this build cannot yet open).
  * There is no write here; a goal is set on the config page, and this panel deliberately reports no live
  * progress (the read carries gross counts, never a bag snapshot) so it can neither fake advancement nor
  * leak a token the seam already refuses to surface.
@@ -81,8 +99,7 @@ export function GoalPanel({ adapter, nowMs }: { readonly adapter: KinReadAdapter
 
               {goal.precondition !== null ? (
                 <p className={styles.boundary} data-testid="goal-boundary">
-                  配方覆盖边界：该产物不在当前精选目录内（{goal.precondition}），因此没有可投影的合成计划。
-                  这是目录的已知边界，不是通用合成能力；小目录只是暂时回退，不能冒充全量知识来源。
+                  合成边界：{boundaryCopy(goal.precondition)}（{goal.precondition}）
                 </p>
               ) : null}
 

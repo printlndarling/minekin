@@ -22,7 +22,7 @@ function openTask(scenario: DashboardConfig["scenario"]): void {
 }
 
 describe("任务面板：投影已保存的目标", () => {
-  it("已存的目录内目标显示里程碑与三步行计划，页面不含 CSRF 也不含编造的已有数量", async () => {
+  it("已存的目录内目标显示里程碑；越出两格合成面时给出具名网格边界而非可执行计划", async () => {
     openTask("healthy_run_07");
     expect(await screen.findByTestId("panel-goal")).toBeInTheDocument();
     const product = await screen.findByTestId("goal-product");
@@ -30,17 +30,78 @@ describe("任务面板：投影已保存的目标", () => {
     expect(screen.getByTestId("goal-quantity")).toHaveTextContent("1");
     expect(screen.getByTestId("goal-source")).toHaveTextContent("minecraft:oak_log");
 
-    const plan = await screen.findByTestId("goal-plan");
-    expect(plan).toBeInTheDocument();
-    expect(screen.getByTestId("goal-step-minecraft:oak_planks")).toBeInTheDocument();
-    expect(screen.getByTestId("goal-step-minecraft:stick")).toBeInTheDocument();
-    expect(screen.getByTestId("goal-step-minecraft:wooden_pickaxe")).toBeInTheDocument();
+    // 木镐在目录内，但其配方需要 3×3 网格——当前版本没有可放置/打开工作台的技能，
+    // 所以面板给出具名网格边界，而不是投影一份最后一步无法执行的计划。
+    const boundary = await screen.findByTestId("goal-boundary");
+    expect(boundary).toHaveTextContent("CRAFT_GRID_TOO_SMALL");
+    expect(boundary).toHaveTextContent("3×3");
+    expect(screen.queryByTestId("goal-plan")).toBeNull();
 
-    // No coverage boundary appears for a planned goal, and no token or invented progress shows.
-    expect(screen.queryByTestId("goal-boundary")).toBeNull();
+    // 页面不含 CSRF，也不含编造的已完成数量。
     expect(document.body.textContent?.toLowerCase()).not.toContain("csrf");
     expect(document.body).not.toHaveTextContent("mock-csrf-token");
-    expect(screen.getByTestId("goal-plan")).toHaveTextContent("非背包已有");
+  });
+
+  it("目录内两格即可合成的目标显示步行计划与「非背包已有」提示，不出现边界", async () => {
+    // 工作台只需 2×2，是当前技能可执行的计划。经真实的 gateway 解码路径（fetch 覆盖）呈现，
+    // 证明面板对「可执行计划」与「网格边界」两种已配置目标给出的是各自准确的读法。
+    const original = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/goal")) {
+        return new Response(
+          JSON.stringify({
+            schemaVersion: GOAL_SCHEMA_VERSION,
+            configured: true,
+            milestone: {
+              product_id: "minecraft:crafting_table",
+              quantity: 1,
+              source_item_id: "minecraft:oak_log",
+              direction: "做一张工作台",
+            },
+            plan: [
+              {
+                product_id: "minecraft:oak_planks",
+                required_total: 4,
+                materials: [{ item_id: "minecraft:oak_log", count: 1 }],
+              },
+              {
+                product_id: "minecraft:crafting_table",
+                required_total: 1,
+                materials: [{ item_id: "minecraft:oak_planks", count: 4 }],
+              },
+            ],
+            precondition: null,
+            loadError: null,
+            csrfToken: "a-live-csrf-token",
+            observedAt: new Date().toISOString(),
+            staleAfterMs: 8000,
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      return new Response("{}", { status: 404, headers: { "content-type": "application/json" } });
+    }) as typeof fetch;
+
+    try {
+      render(
+        <App
+          config={{ adapter: "gateway", scenario: "healthy_run_07", gatewayBaseUrl: "http://127.0.0.1:8000", latencyMs: 0 }}
+          initialPage="task"
+        />,
+      );
+      expect(await screen.findByTestId("goal-product")).toHaveTextContent("minecraft:crafting_table");
+      const plan = await screen.findByTestId("goal-plan");
+      expect(plan).toBeInTheDocument();
+      expect(screen.getByTestId("goal-step-minecraft:oak_planks")).toBeInTheDocument();
+      expect(screen.getByTestId("goal-step-minecraft:crafting_table")).toBeInTheDocument();
+      expect(plan).toHaveTextContent("非背包已有");
+      expect(screen.queryByTestId("goal-boundary")).toBeNull();
+      expect(document.body.textContent?.toLowerCase()).not.toContain("csrf");
+      expect(document.body).not.toHaveTextContent("a-live-csrf-token");
+    } finally {
+      globalThis.fetch = original;
+    }
   });
 
   it("未设置目标是空状态，而不是错误", async () => {

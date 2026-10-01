@@ -622,19 +622,25 @@ export function buildMockStopReport(state: "running" | "unresolved", kinId = "ki
 
 /**
  * A TS mirror of `minekin_core.domain.recipe_catalog.RECIPES`, keyed by product id with each
- * recipe's gross ingredient map and batch yield. It exists so `buildMockGoal` can compute the same
- * build order the Gateway projects, rather than hard-coding one pickaxe row: the four covered
- * products are exactly the current curated set, and anything else falls through to the same
- * `CRAFT_RECIPE_UNAVAILABLE` boundary. This is a fixture's belief about the catalog, not a second
- * source of truth — the real plan still comes only from `gateway/goal_read.py`, which the shared
- * `decodeGoalPayload` verifies.
+ * recipe's gross ingredient map, batch yield, and grid footprint. It exists so `buildMockGoal` can
+ * compute the same build order and the same grid boundary the Gateway projects, rather than
+ * hard-coding one pickaxe row: the four covered products are exactly the current curated set, an
+ * out-of-cover product falls through to `CRAFT_RECIPE_UNAVAILABLE`, and a plan whose last step needs
+ * a wider grid than this build can open falls through to `CRAFT_GRID_TOO_SMALL`. This is a fixture's
+ * belief about the catalog, not a second source of truth — the real plan and its boundary still come
+ * only from `gateway/goal_read.py`, which the shared `decodeGoalPayload` verifies.
  */
-const MOCK_RECIPES: Readonly<Record<string, { ingredients: readonly (readonly [string, number])[]; yields: number }>> = {
-  "minecraft:oak_planks": { ingredients: [["minecraft:oak_log", 1]], yields: 4 },
-  "minecraft:stick": { ingredients: [["minecraft:oak_planks", 2]], yields: 4 },
-  "minecraft:crafting_table": { ingredients: [["minecraft:oak_planks", 4]], yields: 1 },
-  "minecraft:wooden_pickaxe": { ingredients: [["minecraft:oak_planks", 3], ["minecraft:stick", 2]], yields: 1 },
+const MOCK_RECIPES: Readonly<
+  Record<string, { ingredients: readonly (readonly [string, number])[]; yields: number; width: number; height: number }>
+> = {
+  "minecraft:oak_planks": { ingredients: [["minecraft:oak_log", 1]], yields: 4, width: 1, height: 1 },
+  "minecraft:stick": { ingredients: [["minecraft:oak_planks", 2]], yields: 4, width: 1, height: 2 },
+  "minecraft:crafting_table": { ingredients: [["minecraft:oak_planks", 4]], yields: 1, width: 2, height: 2 },
+  "minecraft:wooden_pickaxe": { ingredients: [["minecraft:oak_planks", 3], ["minecraft:stick", 2]], yields: 1, width: 3, height: 3 },
 };
+
+/** `recipe_catalog.PLAYER_GRID_SIDE`, mirrored: the two-by-two grid the craft skills open. */
+const MOCK_PLAYER_GRID_SIDE = 2;
 
 /** The `Milestone.label` rule, verbatim: a supplied heading wins, else derive `hold_<path>`. */
 function mockMilestoneLabel(productId: string, direction: string): string {
@@ -648,11 +654,14 @@ function mockMilestoneLabel(productId: string, direction: string): string {
   return joined === "" ? "hold_the_goal_product" : `hold_${joined}`;
 }
 
-/** `build_plan(product_id, quantity, inventory=None)` mirrored without a bag: every count is gross. */
+/** `build_plan` + `plan_needs_larger_grid` mirrored without a bag: every count is gross. */
 function mockBuildPlan(
   productId: string,
   quantity: number,
-): readonly { product_id: string; required_total: number; materials: readonly { item_id: string; count: number }[] }[] | "CRAFT_RECIPE_UNAVAILABLE" {
+):
+  | readonly { product_id: string; required_total: number; materials: readonly { item_id: string; count: number }[] }[]
+  | "CRAFT_RECIPE_UNAVAILABLE"
+  | "CRAFT_GRID_TOO_SMALL" {
   if (!(productId in MOCK_RECIPES)) return "CRAFT_RECIPE_UNAVAILABLE";
   const order: string[] = [];
   const visited = new Set<string>();
@@ -668,6 +677,14 @@ function mockBuildPlan(
     return false;
   };
   if (visit(productId, new Set())) return "CRAFT_RECIPE_UNAVAILABLE";
+  // The grid boundary is read off the plan's own steps, exactly as `goal_read` applies
+  // `plan_needs_larger_grid` after `build_plan` — a known recipe whose shape will not fit is a
+  // named grid boundary, not a plan to print.
+  const needsLargerGrid = order.some((product) => {
+    const recipe = MOCK_RECIPES[product];
+    return recipe !== undefined && Math.max(recipe.width, recipe.height) > MOCK_PLAYER_GRID_SIDE;
+  });
+  if (needsLargerGrid) return "CRAFT_GRID_TOO_SMALL";
   const gross = new Map<string, number>(order.map((product) => [product, 0]));
   gross.set(productId, quantity);
   const owed = new Map<string, number>();
@@ -700,8 +717,9 @@ function mockBuildPlan(
  * `decodeGoalPayload` parses, derived from the CURRENT saved config fields (`configStore.fields` in
  * the adapter). This is the real coupling the panel must exercise: a goal is only what the config
  * write persisted, and this read projects it — unset product → `configured:false` with a null
- * projection, a covered product → milestone + gross build plan, an out-of-cover product →
- * milestone + the named `CRAFT_RECIPE_UNAVAILABLE` precondition (criterion 6's boundary). No live
+ * projection, a buildable covered product → milestone + gross build plan, and a goal that stops
+ * short of a runnable plan → milestone + its named precondition (out-of-cover → `CRAFT_RECIPE_UNAVAILABLE`,
+ * a step needing a wider grid → `CRAFT_GRID_TOO_SMALL`; both criterion 6's boundary). No live
  * progress number is ever fabricated: the plan carries gross counts only, matching `_step`'s
  * documented refusal to net against a bag this surface does not have. `csrfToken` rides along for
  * wire fidelity but the decoder never reads it into the model, so it stays out of the UI.
@@ -732,7 +750,7 @@ export function buildMockGoal(
     direction: mockMilestoneLabel(product, direction),
   };
   const planned = mockBuildPlan(product, quantity);
-  if (planned === "CRAFT_RECIPE_UNAVAILABLE") {
+  if (typeof planned === "string") {
     return { ...base, configured: true, milestone, plan: null, precondition: planned };
   }
   return { ...base, configured: true, milestone, plan: planned, precondition: null };

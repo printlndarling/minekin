@@ -345,6 +345,24 @@ def build_plan(
     )
 
 
+def plan_needs_larger_grid(
+    steps: tuple[BuildStep, ...],
+    *,
+    grid_side: int = PLAYER_GRID_SIDE,
+) -> bool:
+    """Whether any step lays out a shape the `grid_side` screen cannot hold.
+
+    `build_plan` answers what has to be crafted and never whether a single craft is runnable on
+    the grid being opened — that question belongs to `resolve_craft`, made against a live reading.
+    A caller with only a plan (a pre-run panel with no bag) still wants to know if the goal's last
+    step is a three-by-three shape this build cannot open, so the check lives here, read off each
+    step's own `recipe.fits`. A newly curated 3×3 row is caught by this without a line of the
+    caller changing.
+    """
+
+    return any(not step.recipe.fits(grid_side) for step in steps)
+
+
 def _batches_for(items: int, yields: int) -> int:
     """How many whole batches of a recipe make at least `items` — the ceiling division a plan's
     counts are built out of, written once so the rounding is not re-invented per caller."""
