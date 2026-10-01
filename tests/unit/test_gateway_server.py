@@ -1,10 +1,10 @@
-"""The Gateway's HTTP surface: the frozen reads, the two authorized writes, and refusals.
+"""The Gateway's HTTP surface: the frozen reads, the three authorized writes, and refusals.
 
 This is the part the contract's acceptance is written against — the three reads are GET-only,
 every other verb on a read path is a `405`, and the判别式 that a missing provenance field makes
-the frontend fail closed rather than guess. The surface's only two write holes — the identity
-rename and the operator-config save — are tested in their own files; here they appear only as
-route-table entries, so the verb scan proves nothing else is writable.
+the frontend fail closed rather than guess. The surface's three write holes — the identity
+rename, the operator-config save, and stopping a session — are tested in their own files; here
+they appear only as route-table entries, so the verb scan proves nothing else is writable.
 """
 
 from __future__ import annotations
@@ -38,6 +38,7 @@ from gateway.server import (
     build_parser,
     main,
 )
+from gateway.session_control import SESSION_PATH, SESSION_STOP_PATH
 from gateway_support import joined_run
 from minekin_core.application.ports.clock import FakeClock
 
@@ -191,14 +192,14 @@ def test_responses_are_json_with_a_declared_charset(base_url: str) -> None:
         assert int(response.headers["Content-Length"]) > 0
 
 
-def test_the_route_table_lists_the_reads_and_the_two_writes(
+def test_the_route_table_lists_the_reads_and_the_three_writes(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """The recalculation contract §5.2 asks for, widened for the two authorized settings writes.
+    """The recalculation contract §5.2 asks for, widened for the two settings writes plus stop.
 
-    The three frozen reads stay GET-only; the table gains exactly two POSTs — the identity
-    rename and the operator-config save — and no start/stop/move verb creeps in under those
-    exceptions.
+    The three frozen reads stay GET-only; the table gains exactly three POSTs — the identity
+    rename, the operator-config save, and stopping a session — and no start/pause/resume/move
+    verb creeps in under those exceptions.
     """
 
     assert main(["--routes"]) == 0
@@ -207,9 +208,14 @@ def test_the_route_table_lists_the_reads_and_the_two_writes(
     assert lines == [f"{method} {path}" for method, path in ROUTE_TABLE]
     assert [f"GET {path}" for path in ROUTES] == lines[: len(ROUTES)]
     posts = [line for line in lines if line.startswith("POST ")]
-    assert posts == [f"POST {RENAME_PATH}", f"POST {CONFIG_SAVE_PATH}"]
+    assert posts == [
+        f"POST {RENAME_PATH}",
+        f"POST {CONFIG_SAVE_PATH}",
+        f"POST {SESSION_STOP_PATH}",
+    ]
     assert f"GET {IDENTITY_PATH}" in lines
     assert f"GET {CONFIG_PATH}" in lines
+    assert f"GET {SESSION_PATH}" in lines
     assert not [line for line in lines if re.search(r"\b(PUT|PATCH|DELETE)\b", line)]
 
 

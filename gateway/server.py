@@ -1,14 +1,15 @@
-"""Serving the frozen reads over loopback HTTP, plus the two authorized writes.
+"""Serving the frozen reads over loopback HTTP, plus the three authorized writes.
 
 `docs/adr/0001-p0-modular-monolith.md` keeps P0 Core free of a web layer, so this is a
 separate process that imports Core's reads rather than a module inside it. Being outside
-the product is the point: there is no path from a request handled here to a lease, an
-admission decision, or a client process, because nothing in this file is able to ask for
-one. The read-only Dashboard has exactly two sanctioned exceptions, and each is a settings
-write, not a control verb: the identity rename in `gateway.identity` (opened by
-`docs/stable-player-name-2026-09-29.md`) and the operator-config save in
-`gateway.config_write` (opened by the whole-project goal's Phase D). Neither starts, stops,
-moves, or otherwise drives a session.
+the product is the point: there is no path from a request handled here to a lease or an
+admission decision, because nothing in this file is able to ask for one. The read-only
+Dashboard has exactly three sanctioned exceptions, opened by the whole-project goal's
+Phase D in a deliberate order — two settings writes, then one control verb: the identity
+rename in `gateway.identity` (opened by `docs/stable-player-name-2026-09-29.md`), the
+operator-config save in `gateway.config_write`, and the session stop in
+`gateway.session_control`. None starts, moves or drives a session's activity; stop only
+ends one, and only by delegating to Core's own `stop_session`.
 
 The server owns no state and no cache. Every request re-derives its answer from the
 ledger and the overlays, which is what lets a panel's `observedAt` mean the reading
@@ -20,6 +21,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import threading
 from collections.abc import Callable, Mapping
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -60,6 +62,16 @@ from gateway.readmodel import (
     build_snapshot,
     build_timeline,
 )
+from gateway.session_control import (
+    MAX_STOP_BODY_BYTES,
+    SESSION_PATH,
+    SESSION_STOP_PATH,
+    session_read,
+    stop_from_request,
+)
+from gateway.session_control import (
+    SCHEMA as SESSION_SCHEMA,
+)
 from minekin_core.adapters.system.clock import SystemClock
 from minekin_core.application.ports.clock import Clock
 from minekin_core.cli.session import select_kin
@@ -71,8 +83,8 @@ DEFAULT_PORT = 8787
 TIMELINE_PARAMETER = "limit"
 
 #: The whole authorized surface, methods and all: the three frozen reads, the identity
-#: read the rename form reviews, the config read the settings form reviews, and the two
-#: writes those forms except into the read-only surface (the rename and the config save).
+#: read the rename form reviews, the config read the settings form reviews, the session read,
+#: and the three writes those routes except (the rename, the config save and the stop).
 #: `--routes` prints this so the verb scan sees a POST only where one is sanctioned.
 ROUTE_TABLE: tuple[tuple[str, str], ...] = (
     *(("GET", path) for path in ROUTES),
@@ -80,14 +92,16 @@ ROUTE_TABLE: tuple[tuple[str, str], ...] = (
     ("POST", RENAME_PATH),
     ("GET", CONFIG_PATH),
     ("POST", CONFIG_SAVE_PATH),
+    ("GET", SESSION_PATH),
+    ("POST", SESSION_STOP_PATH),
 )
 
 
 class ReadService:
-    """The Dashboard's reads, plus the two authorized writes, as callables.
+    """The Dashboard's reads, plus the three authorized writes, as callables.
 
     The CSRF token is generated once per process and handed out only by the same-origin
-    identity and config reads; both writes must echo it back, so a page that could not read
+    identity, config and session reads; every write echoes it back, so a page that could not read
     it (any origin but this one) cannot write either.
     """
 
@@ -95,6 +109,7 @@ class ReadService:
         self._root = root
         self._kin_selector = kin_selector
         self._clock = clock
+        self._control_lock = threading.Lock()
         self.csrf_token = new_csrf_token()
 
     def snapshot(self) -> dict[str, Any]:
@@ -125,6 +140,20 @@ class ReadService:
     def save_config(self, body: Mapping[str, Any]) -> tuple[int, dict[str, Any]]:
         return save_from_request(self._root, body=body)
 
+    def session(self) -> dict[str, Any]:
+        return session_read(
+            self._root,
+            kin_selector=self._kin_selector,
+            clock=self._clock,
+            csrf_token=self.csrf_token,
+        )
+
+    def stop(self, body: Mapping[str, Any]) -> tuple[int, dict[str, Any]]:
+        # One control write at a time: the lock serialises a double-click so the second stop
+        # waits for the first to run rather than racing it through `stop_session`.
+        with self._control_lock:
+            return stop_from_request(self._root, kin_selector=self._kin_selector, body=body)
+
 
 class ReadRequestHandler(BaseHTTPRequestHandler):
     """GET on a read path, a sanctioned write POST, or a refusal.
@@ -132,8 +161,8 @@ class ReadRequestHandler(BaseHTTPRequestHandler):
     The refusal matters as much as the read: `404` is what makes the frontend's
     `contract_mismatch` branch ("Gateway 只读接口尚未实现") true rather than a guess, and
     `405` is the answer to a verb this surface does not have on a given path. A POST to
-    anywhere but the rename and config-save routes still gets that `405`, so the two
-    settings writes are the only holes in an otherwise write-refusing surface.
+    anywhere but the rename, config-save and session-stop routes still gets that `405`, so
+    the three sanctioned writes are the only holes in an otherwise write-refusing surface.
     """
 
     protocol_version = "HTTP/1.1"
@@ -161,6 +190,9 @@ class ReadRequestHandler(BaseHTTPRequestHandler):
         if parsed.path == CONFIG_PATH:
             self._respond(HTTPStatus.OK, self.service.config())
             return
+        if parsed.path == SESSION_PATH:
+            self._respond(HTTPStatus.OK, self.service.session())
+            return
         self._respond(HTTPStatus.NOT_FOUND, {"error": f"{parsed.path} is not a read model path"})
 
     def do_POST(self) -> None:
@@ -170,6 +202,9 @@ class ReadRequestHandler(BaseHTTPRequestHandler):
             return
         if parsed.path == CONFIG_SAVE_PATH:
             self._handle_write(MAX_CONFIG_BODY_BYTES, CONFIG_SCHEMA, self.service.save_config)
+            return
+        if parsed.path == SESSION_STOP_PATH:
+            self._handle_write(MAX_STOP_BODY_BYTES, SESSION_SCHEMA, self.service.stop)
             return
         self._refuse()
 
@@ -244,7 +279,25 @@ class ReadRequestHandler(BaseHTTPRequestHandler):
         return self.rfile.read(size), None
 
     def _refuse(self) -> None:
+        # A refused verb may still carry a body this handler never reads. On Windows a socket
+        # closed while receive data is pending sends RST (the peer sees WinError 10053), and a
+        # keep-alive connection must not hand those leftover bytes to the next request — so
+        # drain them first, and only flag the connection closed when it is too large to read.
+        self._discard_request_body()
         self._respond(HTTPStatus.METHOD_NOT_ALLOWED, {"error": "the read model serves GET only"})
+
+    def _discard_request_body(self) -> None:
+        # Read the declared body so a keep-alive socket never hands it to the next request and
+        # Windows never RSTs a close that leaves receive data pending. A body larger than the
+        # write cap is not worth buffering — flag the connection closed and leave it unread.
+        declared = self.headers.get("Content-Length")
+        if not declared or not declared.isdigit():
+            return
+        size = int(declared)
+        if size > MAX_STOP_BODY_BYTES:
+            self.close_connection = True
+            return
+        self.rfile.read(size)
 
     def do_PUT(self) -> None:
         self._refuse()
@@ -302,9 +355,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="gateway.server",
         description=(
-            "Serve the read-only Dashboard API over loopback, plus the two authorized "
-            "settings writes (the identity rename and the operator-config save); it "
-            "cannot start, stop or move a session."
+            "Serve the read-only Dashboard API over loopback, plus the three authorized "
+            "writes (the identity rename, the operator-config save, and stopping a "
+            "session); it cannot start, pause, resume, or move a session."
         ),
     )
     parser.add_argument(
