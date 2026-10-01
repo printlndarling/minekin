@@ -391,12 +391,14 @@ def test_collect_refuses_to_walk_toward_a_drop_it_never_saw() -> None:
     asyncio.run(scenario())
 
 
-def oak_log_drop(*, tick: int, distance: float = 2.0) -> EntityCandidate:
+def oak_log_drop(
+    *, tick: int, distance: float = 2.0, vertical: float = 0.0
+) -> EntityCandidate:
     return EntityCandidate(
         observation_id=f"drop-{tick}",
         entity_type="item",
         relative_x=0.0,
-        relative_y=0.0,
+        relative_y=vertical,
         relative_z=distance,
         line_of_sight=True,
         item_id="minecraft:oak_log",
@@ -620,6 +622,75 @@ def test_collect_keeps_chasing_while_the_drop_gets_nearer_and_confirms() -> None
         assert outcome.result is ActionResultClass.CONFIRMED
         assert outcome.post_tick == 130
         assert int(outcome.details["steps"]) == 3
+
+    asyncio.run(scenario())
+
+
+def test_collect_chases_a_drop_that_rests_below_the_walk_path() -> None:
+    """A drop lying below the ground the Kin walks on closes on the horizontal plane
+    while its three-dimensional offset plateaus at the vertical floor. The reachability
+    guard measures the plane the step actually moves, so this approach keeps chasing to
+    the confirming rise instead of calling it stalled after the allowed corrections —
+    the false stall that left the logged live run never reaching craft."""
+
+    async def scenario() -> None:
+        store = store_with(
+            reading(
+                tick=100,
+                inventory_value=inventory(100),
+                entities=(oak_log_drop(tick=100, distance=2.0, vertical=-3.0),),
+            )
+        )
+        skills, sender = skill_with(store)
+        # Each sighting is nearer along the ground by 0.4 (> the 0.25 close gate) yet
+        # the total offset barely shrinks past the 3-block drop, so a 3D measure would
+        # read the last of these as stalled. The chase continues and then confirms.
+        queued = [
+            reading(
+                tick=110,
+                inventory_value=inventory(100),
+                entities=(oak_log_drop(tick=110, distance=1.6, vertical=-3.0),),
+            ),
+            reading(
+                tick=120,
+                inventory_value=inventory(100),
+                entities=(oak_log_drop(tick=120, distance=1.2, vertical=-3.0),),
+            ),
+            reading(
+                tick=130,
+                inventory_value=inventory(100),
+                entities=(oak_log_drop(tick=130, distance=0.8, vertical=-3.0),),
+            ),
+            reading(
+                tick=140,
+                inventory_value=inventory(100),
+                entities=(oak_log_drop(tick=140, distance=0.4, vertical=-3.0),),
+            ),
+            reading(
+                tick=150,
+                inventory_value=inventory(150, (0, "minecraft:oak_log", 1)),
+                entities=(),
+            ),
+        ]
+
+        def answer(message_type: str) -> None:
+            if message_type == AIM_INPUT_TYPE and queued:
+                store.admit(queued.pop(0), ())
+
+        sender.on_send = answer
+        outcome = await skills.collect_dropped(
+            item_id="minecraft:oak_log",
+            authority=authority(),
+            walk_seconds=0.0,
+            timeout_ns=10_000_000_000,
+        )
+
+        assert outcome.result is ActionResultClass.CONFIRMED
+        assert outcome.reason == ""
+        assert outcome.post_tick == 150
+        # More walks than a stall would ever allow, and every one of them fired.
+        assert int(outcome.details["steps"]) == COLLECT_MAX_STALLED_CORRECTIONS + 2
+        assert sender.types().count(AIM_INPUT_TYPE) == COLLECT_MAX_STALLED_CORRECTIONS + 2
 
     asyncio.run(scenario())
 

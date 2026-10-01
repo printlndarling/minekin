@@ -254,13 +254,20 @@ def _chase_details(steps: int, newest: WorldObservationValue) -> dict[str, str]:
     return {"steps": str(steps), "newest_checked_tick": str(newest.game_tick)}
 
 
-def _drop_distance(drop: EntityCandidate) -> float:
-    """The client's own distance from the Kin to this sighting of a drop — the
-    relative offset's magnitude, which is the only reachability fact the surface
-    carries. Used to tell a walk that closed on the item from one that fired into
-    a wall and left the drop exactly as far away."""
+def _drop_approach_distance(drop: EntityCandidate) -> float:
+    """How far this sighting of the drop still lies along the ground the walk can
+    cross — the horizontal offset's magnitude. Used to tell a walk that closed on
+    the item from one that fired into a wall and left the drop exactly as far away.
 
-    return math.dist((drop.relative_x, drop.relative_y, drop.relative_z), (0.0, 0.0, 0.0))
+    Horizontal, not three-dimensional, because the walk that closes on a drop only
+    moves along the ground plane. A drop resting below the player — the block having
+    broken at their feet, or the item lying in a hollow — carries a vertical offset
+    no forward step can shrink, so a 3D measure would read that floor as an approach
+    that never nears and call a closing chase stalled. The pickup itself is confirmed
+    by the inventory delta, not by this number; this one only decides whether to keep
+    walking or hand the move back, and that choice belongs to the plane the step moves."""
+
+    return math.hypot(drop.relative_x, drop.relative_z)
 
 
 def _craft_details(
@@ -713,7 +720,7 @@ class WorldSkills:
         # own short steps, so a whole window is not spent walking.
         steps = 1
         chase_reason = "NO_CONFIRMING_OBSERVATION"
-        last_distance = _drop_distance(first_drops[0])
+        last_distance = _drop_approach_distance(first_drops[0])
         stalled = 0
         await self._walk_toward(action_id, authority, first_drops[0], walk_seconds)
         while True:
@@ -746,12 +753,12 @@ class WorldSkills:
                 # The correction no longer fits with a reading to conclude on: stop
                 # here with the window's remaining silence, not a fresh stall signal.
                 break
-            distance = _drop_distance(drops[0])
+            distance = _drop_approach_distance(drops[0])
             if distance > last_distance - COLLECT_CLOSE_APPROACH_METERS:
-                # A correction that did not bring the nearest sighting nearer: the
-                # step is not closing on the item. One is a reading caught mid-stride;
-                # this many is an approach that has stalled, and the next move is a
-                # different one, not the same walk fired again.
+                # A correction that did not bring the nearest sighting nearer along
+                # the ground: the step is not closing on the item. One is a reading
+                # caught mid-stride; this many is an approach that has stalled, and
+                # the next move is a different one, not the same walk fired again.
                 stalled += 1
                 if stalled >= COLLECT_MAX_STALLED_CORRECTIONS:
                     chase_reason = COLLECT_APPROACH_STALLED
