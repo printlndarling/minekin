@@ -59,6 +59,14 @@ logger = logging.getLogger(__name__)
 #: The one path this module builds. A configured base URL is a root, not an endpoint.
 COMPLETIONS_PATH: str = "/chat/completions"
 
+#: The client signature sent on every request. `urllib`'s default is `Python-urllib/3.x`, and an
+#: endpoint fronted by a CDN/WAF (Cloudflare among them) refuses that bare signature with a
+#: `403 error code: 1010` before the request ever reaches the completions route — so a real key on
+#: a real endpoint would read, from here, as an unusable provider. A generic HTTP client token is
+#: what an OpenAI-compatible call is; it names this build rather than masquerading as a browser,
+#: and it is the difference between the wiring reaching the model and being turned away at the edge.
+USER_AGENT: str = "minekin-core/1.0 (+openai-compatible)"
+
 #: How much of a response is read. A structured decision is a few hundred bytes, so this is
 #: a generous ceiling on an answer and a hard one on an endpoint that keeps writing.
 MAX_RESPONSE_BYTES: int = 65_536
@@ -361,6 +369,7 @@ class OpenAICompatibleProvider:
         call = urllib.request.Request(url, data=body, method="POST")
         call.add_header("Accept", "application/json")
         call.add_header("Content-Type", "application/json")
+        call.add_header("User-Agent", USER_AGENT)
         if key is not None:
             # Unredirected on purpose: `add_header` values are forwarded when urllib follows a
             # redirect, to another host and to another scheme if the endpoint asks for one.

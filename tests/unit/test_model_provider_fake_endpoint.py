@@ -39,7 +39,7 @@ from minekin_core.adapters.model import (
     OpenAICompatibleProvider,
     model_provider_for,
 )
-from minekin_core.adapters.model.openai_compatible import SYSTEM_PROMPT
+from minekin_core.adapters.model.openai_compatible import SYSTEM_PROMPT, USER_AGENT
 from minekin_core.domain.errors import MinekinError
 from minekin_core.domain.model_access import (
     PROVIDER_OFF,
@@ -77,6 +77,7 @@ class Arrival:
     method: str
     path: str
     authorization: str | None
+    user_agent: str | None
     body: str
 
 
@@ -133,7 +134,13 @@ class Endpoint:
             def _answer(self) -> None:
                 length = int(self.headers.get("Content-Length") or 0)
                 raw = self.rfile.read(length).decode("utf-8") if length else ""
-                arrival = Arrival(self.command, self.path, self.headers.get("Authorization"), raw)
+                arrival = Arrival(
+                    self.command,
+                    self.path,
+                    self.headers.get("Authorization"),
+                    self.headers.get("User-Agent"),
+                    raw,
+                )
                 outer.arrivals.append(arrival)
                 if outer.behavior.silent:
                     # Hang up without a status line: the client learns there is no endpoint here.
@@ -385,6 +392,29 @@ def test_the_request_asks_for_one_json_object_and_offers_only_what_is_feasible(
     assert body_field(arrival, "response_format") == {"type": "json_object"}
     assert body_field(arrival, "stream") is False
     assert offered_skills(arrival) == list(FEASIBLE)
+
+
+def test_the_request_names_this_build_rather_than_urllib_default(
+    serve: Callable[[Behavior], Endpoint],
+) -> None:
+    """A CDN/WAF in front of a real endpoint refuses `Python-urllib/3.x` before the route.
+
+    The provider reached a live OpenAI-compatible endpoint and got `403 error code: 1010` — a
+    client-signature refusal, not a bad key or a bad body — until it stopped sending urllib's
+    default `User-Agent`. This is the wire proof that the fix is on every request: the endpoint
+    sees this build's token and not the interpreter's.
+    """
+
+    endpoint = serve(Behavior(body=decision_content("chop_tree", "there is a tree")))
+    provider = OpenAICompatibleProvider(config_for(endpoint), environment())
+
+    provider.decide(offer())
+
+    arrival = endpoint.arrivals[0]
+    assert arrival.user_agent == USER_AGENT
+    # The negative control: urllib's own default signature is what got refused at the edge, so
+    # the header must not be it. `Python-urllib/` is that default's stable prefix.
+    assert not (arrival.user_agent or "").startswith("Python-urllib/")
 
 
 def test_the_timeout_shape_is_named_and_the_caller_still_gets_a_value(
