@@ -725,3 +725,32 @@ step6 close_screen     {}                                                       
 这一发把第 5 条那条"真实模型选行为 → 读数确认阶段成果 → 合成后继续非 GUI 行为 → 安全停止并确认松键"的**连续**链，第一次在同一条真实端点运行里逐格取到：第 1–3 步是"观察→模型选参数化行为→本地按读数校验执行→读数 CONFIRMED"，第 3 步 `craft_take_result` 把木棍合成并取走被 CONFIRMED，第 4 步 `close_screen` 关界面、第 5 步又 CONFIRMED 一次 `craft_take_result` 即"合成后继续非 GUI"，末了 `STEP_BUDGET_SPENT` 是心把六步走完自己的收尾、`goal_met: true`（第 6 步模型自陈"已握 4 根木棍、达成 hold_stick"），松键确认回到 `[257]`。
 
 **仍然诚实标注的边界**：(一) `outcome` 仍是 `BRIDGE_LOST`、`bridge_lost_reason` 仍是"IPC channel closed before a complete frame header"——但这一发它是**终判之后的健康收尾**（循环已 `STEP_BUDGET_SPENT` 自停、松键已确认），与六之十一、十二那种"没给出终判就被 SIGTERM、`input_release_failed: true`"的形状是两回事——本仓库对 `BRIDGE_LOST` 的既有判读即"健康收尾"，前提是先有终判。(二) 第 6 步 `close_screen` 撞 `SCREEN_STILL_OPEN` 后步数预算耗尽——这是 6 步这一界定的产物，不是崩溃；多给一步大概率能收回。(三) 第 5 条要的"用不同目标检查通用性"：这一发是 `hold_stick`，另一条换产物（`oak_planks ×3`）的真实端点运行另记，**不以单一产物的成功宣称通用合成已完备**。第 1 条（143 根因、谁触发退出、修复、回归测试、真跑确认）在本发闭合：触发者是 Core/harness 自己，不是游戏或已封桥。
+
+## 六之十四、换产物的通用性探针：安全收尾在第二个目标上复现，合成本身未走完（2026-10-01，run `7cfe263dbd894d51b60ea2e29c6d8ebc`，server run 目录 `run-22`，客户端 pid 273）
+
+第 5 条要"用不同目标检查通用性，不把某一种物品成功等同于通用合成"。这一发把里程碑换成 `hold_oak_planks`（`product_id: minecraft:oak_planks`、`quantity: 3`、`source_item: minecraft:oak_log`），仍是 §四 那条真实 OpenAI-compatible 端点，六步全部 `src=model`、`decision_source: model`、`model_calls: 6`、`model_spent_micro: 27`、`model_refusal: ""`。
+
+**安全收尾这一格在第二个产物上原样复现**（这是六之十三两处修复的通用性证据，与目标物品无关）：
+
+```text
+domain: the autonomous loop reached its own verdict; stopping on a live channel
+domain: session stop said {"release": {"asked": [273], "released": [273], "unconfirmed": []}}
+stop_reason STEP_BUDGET_SPENT   stop_detail ""   input_release_failed false   goal_met false   confirmed 2
+```
+
+即循环先给出自己的终判、松键确认回到 pid 273、没有再出现"没给终判就被 SIGTERM、`input_release_failed: true`"那一形状——修复对换目标同样成立。
+
+**但合成链在这一发没走完，缺口点名**：`steps[i].intent` 逐字——
+
+```text
+step1 break_seen_block {expected_drop_item: minecraft:oak_log}  CONFIRMED   tick 1068 -> 1221   model
+step2 collect_dropped  {item_id: minecraft:oak_log}             UNKNOWN (NO_CONFIRMING_OBSERVATION)  -> 1419  model
+step3 collect_dropped  {item_id: minecraft:oak_log}             UNKNOWN (NO_CONFIRMING_OBSERVATION)  -> 1584  model
+step4 collect_dropped  {item_id: minecraft:oak_log}             UNKNOWN (NO_CONFIRMING_OBSERVATION)  -> 1760  model
+step5 turn_to {pitch:0, yaw:0}                                 CONFIRMED   -> 1837   model
+step6 turn_to {pitch:-30, yaw:0}                               FAILED (AIM_STALLED)  -> 1991  model
+```
+
+第 1 步把目标原木敲下并 CONFIRMED，之后模型连选三次 `collect_dropped` 却都停在 `NO_CONFIRMING_OBSERVATION`（那截掉落物没有以一次可读的入包被确认——多半滚出了可达范围），mind 于是把 `collect_dropped` 写进 `excluded_skills`、改选 `turn_to` 调整朝向，第 5 步 CONFIRMED、第 6 步 `AIM_STALLED`，六步预算耗尽、`goal_met: false`。这条链的"改线"本身是对的（读数不确认就换招、并按名字排除，而不是重试同一笔死磕），卡点在"采拾未被入包读数确认"这一游戏侧方差，不是 143 那一处。
+
+**对第 5 条的诚实结论**：真实端点下"一条连续闭环（模型选→读数确认→合成→继续非 GUI→安全松键）"由六之十三那一发（`hold_stick`）达成；本发证明同一套修复与安全/调整机制**跨产物、跨数量**成立（`input_release_failed: false`、`STEP_BUDGET_SPENT` 自停、全步 `model`），但**完整合成链目前只在单一产物（木棍）上取到活体确认**——换到木板这一发止步于采拾确认、未触及合成，因此**不宣称通用合成已完备**，也不把"安全收尾的通用"当成"合成的通用"。要把通用合成钉死，需要一条换产物、且 `craft_take_result` 到 CONFIRMED、再关界面续跑的非木棍连续运行，或先处理 `collect_dropped` 在掉落物滚出可达时的那一格读数确认。
