@@ -66,6 +66,11 @@ from minekin_core.domain.errors import (
 )
 from minekin_core.domain.ids import KinId, SessionId
 from minekin_core.domain.model_access import model_config
+from minekin_core.domain.operator_config import (
+    apply_operator_config,
+    config_path,
+    load_operator_config,
+)
 
 # A run that ended because the client left is the command succeeding; anything
 # else is why it did not.
@@ -614,6 +619,33 @@ def run(
     return int(ExitCode.USAGE)
 
 
+def apply_persisted_config() -> None:
+    """Fold the dashboard-saved settings into the environment before any reader sees it.
+
+    The operator may have configured the model and the standing goal from the dashboard rather
+    than the shell, and those live in `operator-config.json` under the data root. This is the one
+    place that file is read into the running process, and it runs after `load_local_environment`
+    so the precedence stays a single chain: a name the operator exported in the shell wins, then
+    one the `.env` file carried, then one only the saved document holds. No data root or no
+    document is simply nothing to fold in — not a fault — so a version query, or a machine with no
+    `MINEKIN_HOME` yet, still runs. A document that exists but will not parse is a different
+    thing: the operator saved settings they believe are live, so it raises rather than running on
+    a guess. Only the applied *names* are known here and none are said aloud, because a name that
+    went in is a value that can be printed.
+
+    This folds in configuration only; it never starts, resumes or replays anything. A saved goal
+    waits for an explicit `session start` just as a shell-exported one always has.
+    """
+
+    try:
+        root = data_root()
+    except MinekinError:
+        return
+    if not config_path(root).is_file():
+        return
+    apply_operator_config(load_operator_config(root))
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     try:
         # The operator's `.env` is read here and nowhere deeper: a command that
@@ -622,6 +654,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         # given. Which names went in is not said aloud, because a name that went
         # in is a value that can be printed.
         load_local_environment()
+        apply_persisted_config()
         return run(argv)
     except KeyboardInterrupt:
         return int(ExitCode.INTERRUPTED)
