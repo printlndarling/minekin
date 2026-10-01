@@ -30,12 +30,10 @@ from minekin_core.application.autonomous_play import (
     run_autonomous_loop,
 )
 from minekin_core.application.player_mind import (
-    CRAFT_GRID_TOO_SMALL,
     CRAFT_MATERIALS_MISSING,
     GOAL_ACHIEVED,
     NO_LATEST_OBSERVATION,
     SKILL_OFFER,
-    MindDecisionKind,
     PlayerMind,
     mind_for,
 )
@@ -74,6 +72,7 @@ LOG = "minecraft:oak_log"
 PLANKS = "minecraft:oak_planks"
 STICK = "minecraft:stick"
 PICKAXE = "minecraft:wooden_pickaxe"
+TABLE = "minecraft:crafting_table"
 CAP = 1_000_000
 
 #: The milestone these cells walk the loop against. It is a parameter of the fixture and not a
@@ -325,20 +324,19 @@ def run(
 # ------------------------------------------------------------------------ the closed loop
 
 
-def test_the_loop_walks_the_plan_as_far_as_the_grid_it_can_open() -> None:
+def test_the_loop_walks_the_plan_and_stands_up_the_grid_enabler() -> None:
     # Every reading is what the previous confirmed step would leave behind. Nothing here names
-    # a skill: the order comes from the mind, and so does the stopping — by a precondition's name.
+    # a skill: the order comes from the mind, and so does the stopping — by the step budget once
+    # every craft the two-by-two grid can pay for has run.
     stage = Stage(
-        reading(tick=100, items=((0, LOG, 3),)),
-        reading(tick=140, items=((0, LOG, 2), (1, PLANKS, 4))),
-        reading(tick=180, items=((0, LOG, 1), (1, PLANKS, 8))),
-        reading(tick=220, items=((0, LOG, 1), (1, PLANKS, 6), (2, STICK, 4))),
-        reading(tick=260, items=((0, LOG, 1), (1, PLANKS, 6), (2, STICK, 4))),
+        reading(tick=100, items=((0, LOG, 1),)),
+        reading(tick=140, items=((0, PLANKS, 4),)),
+        reading(tick=180, items=((0, PLANKS, 4), (1, STICK, 2))),
     )
     skills = TapeSkills(stage, {"craft_take_result": confirmed()})
     mind = off_mind()
 
-    result = run(stage, skills, mind, step_budget=4)
+    result = run(stage, skills, mind, step_budget=3)
 
     # The mind asks for the transaction whose product lands where a reading can see it: the
     # recipe click alone leaves the result on the cursor or in the grid, and 2026-09-30's two
@@ -350,22 +348,17 @@ def test_the_loop_walks_the_plan_as_far_as_the_grid_it_can_open() -> None:
     assert [dict(step.intent.arguments) for step in result.steps] == [
         {"target_item": PICKAXE, "quantity": 1}
     ] * 3
-    # Two plank batches before the sticks, where the demo fixture's chain asked for one: the
-    # tool eats three planks and the stick batch it also eats eats two more, so the job is five
-    # planks and a batch of four leaves the reading still short of one. `yields` in the recipe
-    # table is what says so, and no call in this loop names a count.
-    assert [kwargs.get("recipe_id") for _, kwargs in skills.ran] == [PLANKS, PLANKS, STICK]
-    # The last ask is the milestone's own product, a three-by-three shape, and the only screen this
-    # build opens is the inventory's two-by-two. The offer carries craft because the *table* can
-    # pay for a step, so the local reflection asks; the precondition is judged here, before a
-    # command is built, and the ask never leaves. That is the dead end of §3's three named
-    # preconditions — no later reading could answer it differently, so the loop stops by that name
-    # instead of looking around until the harness spends its budget on a Kin that cannot craft.
-    # The budget is deliberately larger than the run: the name is what ended it, not the count.
-    assert mind.last_intent is not None
-    assert mind.last_intent.kind is MindDecisionKind.HOLD
-    assert mind.last_intent.reason == CRAFT_GRID_TOO_SMALL
-    assert result.stop_reason == CRAFT_GRID_TOO_SMALL
+    # The plan for a three-by-three tool reserves the crafting table as its own owed step — the
+    # general grid-enabler the catalog declares through `opens_grid_side`, not a name hardcoded
+    # here. So the chain the off-model loop walks is planks, then the sticks the tool eats, then
+    # the table itself: the last is a two-by-two shape this grid CAN hold, and the step the pickaxe
+    # dead-ended on before the enabler existed is now a payable craft rather than a wall.
+    assert [kwargs.get("recipe_id") for _, kwargs in skills.ran] == [PLANKS, STICK, TABLE]
+    # The run ends on the budget, not on `CRAFT_GRID_TOO_SMALL`: standing a wider grid up is a
+    # runnable plan now, so the terminal craft is reached by placing the table (select, then the
+    # use key) rather than refused against the inventory. That place-then-open is judged against a
+    # live reading in the mind's offer, not by this tape, which carries only the craft outcome.
+    assert result.stop_reason == STEP_BUDGET_SPENT
     assert mind.goal_met is False
     assert len(result.steps) == 3
 

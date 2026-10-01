@@ -283,8 +283,19 @@ def test_a_stage_the_open_grid_cannot_hold_is_never_offered_as_a_craft() -> None
 def test_the_blocked_craft_names_the_precondition_that_is_true_of_the_reading() -> None:
     assert craft_blocker(GOAL, reading(items=((0, LOG, 1),))) == ""
     assert craft_blocker(GOAL, reading()) == CRAFT_MATERIALS_MISSING
+    # Planks and sticks enough for the tool but no table stood up: the plan now reserves the
+    # crafting table as its own owed step, and this bag is one plank short of that two-by-two
+    # shape. The true precondition is a material shortage for the enabler, not a wall the grid
+    # can never clear — that is the whole point of threading the grid side into the act path.
     assert (
-        craft_blocker(GOAL, reading(items=((0, PLANKS, 3), (1, STICK, 2)))) == CRAFT_GRID_TOO_SMALL
+        craft_blocker(GOAL, reading(items=((0, PLANKS, 3), (1, STICK, 2))))
+        == CRAFT_MATERIALS_MISSING
+    )
+    # The same ingredients with the table already in the bag: the only step owed is the
+    # three-by-three the inventory grid cannot hold, so the refusal is now the grid word.
+    assert (
+        craft_blocker(GOAL, reading(items=((0, PLANKS, 3), (1, STICK, 2), (2, TABLE, 1))))
+        == CRAFT_GRID_TOO_SMALL
     )
     # The whole job already in the bag, in whatever shape the crafts left it: nothing is owed,
     # so no precondition is being asked about. The planks that went into the tool are not
@@ -416,7 +427,9 @@ def test_a_three_by_three_step_is_refused_in_the_inventory_and_allowed_at_the_ta
     same bag is a `CRAFT_GRID_TOO_SMALL` in the inventory and a runnable step inside a table
     window — and it is the reading, not a constant, that decides which."""
 
-    nearly = reading(items=((0, PLANKS, 3), (1, STICK, 2)))  # everything but the tool
+    nearly = reading(
+        items=((0, PLANKS, 3), (1, STICK, 2), (2, TABLE, 1))
+    )  # table stood, everything but the tool
     assert crafting_grid_side(nearly) == PLAYER_GRID_SIDE
     assert step_to_run(nearly, PICKAXE, grid_side=PLAYER_GRID_SIDE) is None
     assert blocker_for(nearly, PICKAXE, grid_side=PLAYER_GRID_SIDE) == CRAFT_GRID_TOO_SMALL
@@ -694,11 +707,16 @@ def test_an_ask_the_bag_cannot_pay_for_holds_the_materials_word() -> None:
     assert intent.reason == CRAFT_MATERIALS_MISSING
 
 
-def test_an_ask_for_a_shape_the_open_grid_cannot_hold_holds_the_grid_word() -> None:
-    """A bag that has already paid for the whole chain but the tool: the only step owed is the
-    three-by-three, and the screen this build opens is two-by-two. Nothing is clicked, and the
-    word is the one no later reading can undo — which the reroute table acts on downstream."""
+def test_an_ask_for_a_three_by_three_selects_the_stood_enabler() -> None:
+    """The pickaxe is a three-by-three shape and the inventory grid cannot hold it, so the bare
+    craft ask is out of bounds — but with the table already in the bag the ask is no longer the
+    terminal wall it was before the grid enabler existed. The mind reroutes to the general next
+    step: select the enabler so a later reading can place and open it. Nothing here names a
+    table as a special case; the choice comes from `opens_grid_side` and the enabler-aware
+    `select_target`, and the terminal `CRAFT_GRID_TOO_SMALL` word is still asserted at the
+    craft-precondition level in `test_the_blocked_craft_names_the_precondition_...`."""
 
+    table_and_materials = reading(items=((0, PLANKS, 3), (1, STICK, 2), (2, TABLE, 1)))
     mind, _ = mind_with(
         Decision(
             skill_id="craft_take_result",
@@ -708,10 +726,34 @@ def test_an_ask_for_a_shape_the_open_grid_cannot_hold_holds_the_grid_word() -> N
         )
     )
 
-    intent = mind.next_intent(reading(items=((0, PLANKS, 5), (1, STICK, 2))))
+    intent = mind.next_intent(table_and_materials)
 
-    assert intent.kind is MindDecisionKind.HOLD
-    assert intent.reason == CRAFT_GRID_TOO_SMALL
+    assert intent.kind is MindDecisionKind.INTENT
+    assert intent.skill == "select_hotbar"
+    assert intent.arguments == {"slot": 2, "expected_item_id": TABLE}
+
+
+def test_an_ask_for_a_three_by_three_builds_the_enabler_it_still_owes() -> None:
+    """The same ask against a bag that can pay for the crafting table but has not stood one up:
+    the plan reserves that two-by-two shape as its own owed step, it fits the grid this build can
+    open, and its materials are in the bag — so the ask advances by crafting the table rather than
+    dead-ending on a grid word. This is the general mechanism replacing the per-product wall: no
+    name here is hardcoded to a table, only the catalog's `opens_grid_side`."""
+
+    payable_for_table = reading(items=((0, PLANKS, 5), (1, STICK, 2)))
+    mind, _ = mind_with(
+        Decision(
+            skill_id="craft_take_result",
+            reason="make the pickaxe",
+            intent_generation=1,
+            arguments={"target_item": PICKAXE, "quantity": 1},
+        )
+    )
+
+    intent = mind.next_intent(payable_for_table)
+
+    assert intent.kind is MindDecisionKind.INTENT
+    assert intent.reason != CRAFT_GRID_TOO_SMALL
 
 
 def test_an_ask_names_the_drop_it_wants_even_when_the_milestone_named_another() -> None:

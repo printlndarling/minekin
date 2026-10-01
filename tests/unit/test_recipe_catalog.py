@@ -269,6 +269,47 @@ def test_the_plan_orders_steps_without_deciding_which_grid_they_run_in() -> None
     assert all(step.recipe.fits(PLAYER_GRID_SIDE) for step in planned[:-1])
 
 
+def test_a_named_grid_reserves_the_enabler_that_widens_the_owed_shape() -> None:
+    """Pass the grid a caller can actually open and the plan stops treating a three-by-three as a
+    wall: it folds in the one curated recipe whose `opens_grid_side` reaches that width — here the
+    two-by-two table — as its own owed step, and charges its four planks onto the plank count. The
+    enabler is read off the catalog, never named, so a new wide shape with its own enabler is
+    reserved the same way without a line here changing."""
+
+    assert shaped(build_plan(PICKAXE, grid_side=PLAYER_GRID_SIDE)) == [
+        (PLANKS, 9),
+        (STICK, 2),
+        (PICKAXE, 1),
+        (TABLE, 1),
+    ]
+
+
+def test_the_enabler_is_charged_only_while_a_wider_step_is_still_owed() -> None:
+    """Two readings of the same reservation: a bag holding the intermediates but no table still
+    owes that table (its planks net to the four it eats), while a bag that already stands one up
+    credits it to zero and asks for no more planks. Only the terminal three-by-three stays owed,
+    and the grid check never reaches behind a satisfied enabler."""
+
+    no_table = build_plan(
+        PICKAXE, grid_side=PLAYER_GRID_SIDE, inventory=bag((PLANKS, 3), (STICK, 2))
+    )
+    assert shaped(no_table) == [(PLANKS, 4), (STICK, 0), (PICKAXE, 1), (TABLE, 1)]
+
+    table_held = build_plan(
+        PICKAXE, grid_side=PLAYER_GRID_SIDE, inventory=bag((PLANKS, 3), (STICK, 2), (TABLE, 1))
+    )
+    assert shaped(table_held) == [(PLANKS, 0), (STICK, 0), (PICKAXE, 1), (TABLE, 0)]
+
+
+def test_a_grid_wide_enough_for_the_shape_injects_no_enabler() -> None:
+    """Ask with a three-wide grid — or, as the default, with no grid at all — and the table never
+    appears: the reservation is triggered by a step that is both owed and too wide, and neither
+    holds here. This is why the describe-the-goal surfaces keep the ingredient-only default."""
+
+    assert shaped(build_plan(PICKAXE, grid_side=3)) == [(PLANKS, 5), (STICK, 2), (PICKAXE, 1)]
+    assert TABLE not in [step.product_id for step in steps(build_plan(PICKAXE, grid_side=3))]
+
+
 def test_a_step_carries_no_knowledge_but_the_recipe_it_was_read_from() -> None:
     """A step is a recipe plus a count. It re-declares neither the product id nor the
     ingredients, so there stays exactly one place a game fact can be wrong."""

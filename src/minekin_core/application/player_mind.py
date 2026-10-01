@@ -68,7 +68,10 @@ from minekin_core.domain.recipe_catalog import (
     PLAYER_GRID_SIDE,
     RECIPES,
     BuildStep,
+    Recipe,
     build_plan,
+    grid_enabler_for,
+    largest_grid_in_plan,
     plan_needs_larger_grid,
 )
 from minekin_core.domain.skill_parameters import BEHAVIOR_PARAMETERS, MAX_QUANTITY
@@ -219,7 +222,11 @@ def crafting_grid_side(reading: WorldObservationValue) -> int:
 
 
 def owed_steps(
-    reading: WorldObservationValue, product_id: str, quantity: int = 1
+    reading: WorldObservationValue,
+    product_id: str,
+    quantity: int = 1,
+    *,
+    grid_side: int | None = None,
 ) -> tuple[BuildStep, ...] | str:
     """The steps still outstanding for one product on this reading, in build order.
 
@@ -228,9 +235,17 @@ def owed_steps(
     consumes. That is what closes an ask from a reading rather than from a decision — a bag holding
     the product owes nothing, including the ingredients that already went into it, which no fixed
     shopping list could tell from the same inventory.
+
+    `grid_side` is forwarded to `build_plan` and, when handed over, makes the plan reserve a
+    grid-enabler (a crafting table) as its own owed step so a wider shape has something to be laid
+    out in. Left unset the plan is purely about ingredients, which is what a surface that describes
+    a goal rather than acts on it wants — the act path (`step_to_run`, `blocker_for`) passes the
+    side it is working in so the enabler's cost is charged before the terminal craft.
     """
 
-    planned = build_plan(product_id, quantity=quantity, inventory=reading.inventory)
+    planned = build_plan(
+        product_id, quantity=quantity, inventory=reading.inventory, grid_side=grid_side
+    )
     if isinstance(planned, str):
         return planned
     return tuple(step for step in planned if step.required_total > 0)
@@ -257,7 +272,7 @@ def step_to_run(
     document says which step it ran and which ask it was running toward.
     """
 
-    needed = owed_steps(reading, product_id, quantity)
+    needed = owed_steps(reading, product_id, quantity, grid_side=grid_side)
     if isinstance(needed, str):
         return None
     for step in needed:
@@ -289,7 +304,7 @@ def blocker_for(
 
     if step_to_run(reading, product_id, quantity, grid_side=grid_side) is not None:
         return ""
-    needed = owed_steps(reading, product_id, quantity)
+    needed = owed_steps(reading, product_id, quantity, grid_side=grid_side)
     if isinstance(needed, str):
         return needed
     if not needed:
@@ -393,6 +408,72 @@ def goal_in_hand(milestone: Milestone | None, reading: WorldObservationValue) ->
     return slot is not None and slot == reading.self_state.selected_slot
 
 
+def enabler_to_stand_up(
+    milestone: Milestone | None,
+    reading: WorldObservationValue,
+    *,
+    grid_side: int = PLAYER_GRID_SIDE,
+) -> tuple[Recipe, int] | None:
+    """The held grid-enabler a still-unmet milestone needs stood up, with its slot, or `None`.
+
+    A milestone whose plan reserves a wider-grid enabler (a crafting table) reaches its
+    three-by-three shape by placing and opening that item, not by crafting it again — the craft
+    is what `step_to_run` already returns while the item is missing. Once it is crafted and in
+    the bag while the goal product is not, this names the held recipe so the general
+    select-then-use path can bring it to hand, place it, and open the window the terminal craft
+    needs. Everything is read off `Recipe.opens_grid_side` via `grid_enabler_for` and the plan's
+    own largest shape the current grid cannot hold — no product name is hardcoded and no per-item
+    chain is written, so a newly curated wider grid becomes reachable by adding a catalog row.
+    `None` when there is no milestone, when the goal is already met, when nothing is owed above
+    the current grid (a wide window is up, or the plan fits), when this table knows no enabler
+    for that shape, or when the enabler is not yet held — the last is the crafting step, not a
+    placement.
+    """
+
+    if milestone is None or goal_held(milestone, reading):
+        return None
+    owed = owed_steps(reading, milestone.product_id, milestone.quantity, grid_side=grid_side)
+    if isinstance(owed, str) or not owed:
+        return None
+    needed_side = largest_grid_in_plan(owed)
+    if needed_side <= grid_side:
+        return None
+    enabler = grid_enabler_for(needed_side, within_side=grid_side)
+    if enabler is None:
+        return None
+    for stack in reading.inventory.stacks:
+        if stack.item_id == enabler.product_id:
+            return (enabler, stack.slot)
+    return None
+
+
+def select_target(
+    milestone: Milestone | None,
+    reading: WorldObservationValue,
+    *,
+    grid_side: int = PLAYER_GRID_SIDE,
+) -> tuple[str, int] | None:
+    """Which item to bring to hand now, and its slot — the goal itself, then a held enabler.
+
+    The `hold` direction ends when the goal product is in the selected slot, so that is the first
+    thing select is for. But a milestone that still owes a wider-grid craft gets there by standing
+    a table up, and that needs the table in hand before the use key can place it; with the goal
+    not yet held and the enabler held but not selected, the enabler is what select should reach
+    for. `None` when there is nothing to switch to — no milestone, the goal already in hand, or the
+    enabler already selected (so the use key, not another number key, is the step).
+    """
+
+    if milestone is None:
+        return None
+    slot = goal_slot(milestone, reading)
+    if slot is not None and slot != reading.self_state.selected_slot:
+        return (milestone.product_id, slot)
+    enabler = enabler_to_stand_up(milestone, reading, grid_side=grid_side)
+    if enabler is not None and enabler[1] != reading.self_state.selected_slot:
+        return (enabler[0].product_id, enabler[1])
+    return None
+
+
 def shortfalls(
     milestone: Milestone | None, reading: WorldObservationValue
 ) -> tuple[BuildStep, ...] | str:
@@ -492,7 +573,7 @@ def feasible_skill_ids(
         if craft_options(reading, grid_side=crafting_grid_side(reading))
         else "",
         "select_hotbar"
-        if goal_slot(milestone, reading) not in (None, reading.self_state.selected_slot)
+        if select_target(milestone, reading, grid_side=crafting_grid_side(reading)) is not None
         else "",
         "use_target" if use_target_refusal(reading).accepted else "",
         "turn_to",
@@ -611,6 +692,23 @@ def observation_summary(
         summary["larger_grid_needed"] = isinstance(needed, tuple) and plan_needs_larger_grid(
             needed, grid_side=side
         )
+        # The same catalog answer, but as the item the Kin can act on: the largest shape the plan
+        # lays out that this grid cannot hold decides which grid-enabler opens it, and whether the
+        # bag already holds one tells the answerer whether the next step is to craft it or to
+        # select, place and open the one it has. Read off `Recipe.opens_grid_side`, never a product
+        # name this module remembers — a newly curated wider grid surfaces here as a row would.
+        if isinstance(needed, tuple):
+            needed_side = largest_grid_in_plan(needed)
+            enabler = (
+                grid_enabler_for(needed_side, within_side=side) if needed_side > side else None
+            )
+            if enabler is not None:
+                summary["grid_enabler"] = {
+                    "product_id": enabler.product_id,
+                    "opens_grid_side": enabler.opens_grid_side,
+                    "held": item_total(reading.inventory, enabler.product_id),
+                    "in_hand": enabler.product_id == reading.self_state.main_hand_item_id,
+                }
     return summary
 
 
@@ -1016,19 +1114,21 @@ class PlayerMind:
         if skill == "select_hotbar":
             if self.goal is None:
                 return None, NO_FEASIBLE_SKILL, {}
-            slot = goal_slot(self.goal, reading)
-            if slot is None:
+            target = select_target(self.goal, reading, grid_side=crafting_grid_side(reading))
+            if target is None:
                 return None, GOAL_ACHIEVED, {}
+            item_id, slot = target
+            reason = (
+                f"hold the {item_id} in hand"
+                if item_id == self.goal.product_id
+                else f"select the {item_id} to stand it up"
+            )
             return (
                 SkillPlan(
-                    (
-                        SkillCall(
-                            name="select_hotbar", slot=slot, expected_item_id=self.goal.product_id
-                        ),
-                    )
+                    (SkillCall(name="select_hotbar", slot=slot, expected_item_id=item_id),)
                 ),
-                f"hold the {self.goal.product_id} in hand",
-                {"slot": slot, "expected_item_id": self.goal.product_id},
+                reason,
+                {"slot": slot, "expected_item_id": item_id},
             )
         if skill == "use_target":
             # The use key carries no argument: it acts on what the crosshair reports and what the

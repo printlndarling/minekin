@@ -108,6 +108,14 @@ class Recipe:
     #: a caller can tell a craft it has seen from one it has only been told, without parsing a
     #: comment. See `recipe_coverage`.
     provenance: RecipeProvenance
+    #: The side of the crafting grid this product opens once it is placed and opened — `0` when
+    #: the item opens no grid of its own. This is world knowledge kept as data rather than a name
+    #: a caller hardcodes: a crafting table carries `3` because standing one up and right-clicking
+    #: it yields the three-by-three shape the player's own inventory never holds. A planner that
+    #: knows a product opens a wider grid can make that product a prerequisite of any craft whose
+    #: shape exceeds the grid it can currently read, without naming "the table" anywhere — a newly
+    #: curated wider grid is a new `opens_grid_side` value here, not a new branch downstream.
+    opens_grid_side: int = 0
 
     def fits(self, grid_side: int) -> bool:
         """Whether this shape can be laid out in a `grid_side` by `grid_side` grid.
@@ -152,6 +160,7 @@ RECIPES: Final[Mapping[str, Recipe]] = MappingProxyType(
             grid_height=2,
             yields=1,
             provenance=RecipeProvenance.CURATED_UNWATCHED,
+            opens_grid_side=3,
         ),
         "minecraft:wooden_pickaxe": Recipe(
             product_id="minecraft:wooden_pickaxe",
@@ -275,6 +284,7 @@ def build_plan(
     *,
     quantity: int = 1,
     inventory: InventoryValue | None = None,
+    grid_side: int | None = None,
 ) -> tuple[BuildStep, ...] | str:
     """The order of crafts that leads from a bag to `quantity` of a product, or a name.
 
@@ -294,6 +304,17 @@ def build_plan(
     pushed onto its ingredients, so a partially-built job is short only the remainder, and a
     finished one asks for nothing — which is what lets a later reading, rather than a plan
     author, decide that the work is over.
+
+    `grid_side` is optional and, unlike the argument `resolve_craft` takes, does not reject the
+    plan: it says what the caller can actually work in, and when a step's shape is wider than
+    that the plan grows a prerequisite rather than stopping. With `grid_side` handed over and a
+    craft in the plan too wide for it, `grid_enabler_for` names the item whose product opens a
+    grid wide enough, and that item is folded into the order as its own owed step — with its
+    ingredient cost added to the totals — so the plan reserves what standing one up will spend.
+    When no such enabler is curated, or the wider shape needs no help (a window already holds
+    it, so `grid_side` is wide enough), nothing is injected and the plan is the plain ingredient
+    walk. Leaving `grid_side` unset keeps the plan purely about ingredients, which is what the
+    surfaces that describe a goal rather than act on it want to show.
     """
 
     if product_id not in RECIPES:
@@ -323,25 +344,61 @@ def build_plan(
     if visit(product_id, frozenset()) is not None:
         return CRAFT_RECIPE_UNAVAILABLE
 
-    gross = dict.fromkeys(order, 0)
-    gross[product_id] = quantity
-    owed: dict[str, int] = {}
-    for product in reversed(order):
-        recipe = RECIPES[product]
-        still_needed = gross[product]
-        if inventory is not None:
-            still_needed -= item_total(inventory, product)
-        still_needed = max(still_needed, 0)
-        owed[product] = still_needed
-        if still_needed == 0:
-            continue
-        batches = _batches_for(still_needed, recipe.yields)
-        for item_id, count in recipe.ingredients:
-            if item_id in gross:
-                gross[item_id] += batches * count
+    def credit(stand_up: str) -> tuple[list[str], dict[str, int]]:
+        """The build order and each step's net-owed count, optionally with `stand_up` folded in.
+
+        Run once with no enabler to see what the bag actually still owes, then again with the
+        enabler to charge its ingredients. Crediting happens before a step's demand is pushed onto
+        its ingredients, so a partially-built job is short only the remainder and a finished one
+        asks for nothing — which is what lets a later reading, not a plan author, decide the work
+        is over.
+        """
+
+        local_order = list(order)
+        if stand_up and stand_up not in local_order:
+            local_order.append(stand_up)
+        gross = dict.fromkeys(local_order, 0)
+        gross[product_id] = quantity
+        if stand_up:
+            gross[stand_up] = gross.get(stand_up, 0) + 1
+        owed: dict[str, int] = {}
+        for product in reversed(local_order):
+            recipe = RECIPES[product]
+            still_needed = gross[product]
+            if inventory is not None:
+                still_needed -= item_total(inventory, product)
+            still_needed = max(still_needed, 0)
+            owed[product] = still_needed
+            if still_needed == 0:
+                continue
+            batches = _batches_for(still_needed, recipe.yields)
+            for item_id, count in recipe.ingredients:
+                if item_id in gross:
+                    gross[item_id] += batches * count
+        return local_order, owed
+
+    final_order, owed = credit("")
+    if grid_side is not None:
+        # Only reach for an enabler when a step the bag still OWES is too wide for this grid —
+        # not merely because the plan contains such a shape. A goal already satisfied credits to
+        # zero and asks for nothing, so a held pickaxe must not resurrect a wanted table behind it.
+        widest = max(
+            (
+                max(RECIPES[product].grid_width, RECIPES[product].grid_height)
+                for product, total in owed.items()
+                if total > 0
+            ),
+            default=0,
+        )
+        if widest > grid_side:
+            enabler = grid_enabler_for(widest, within_side=grid_side)
+            if enabler is not None and enabler.product_id not in order:
+                if visit(enabler.product_id, frozenset()) is not None:
+                    return CRAFT_RECIPE_UNAVAILABLE
+                final_order, owed = credit(enabler.product_id)
 
     return tuple(
-        BuildStep(recipe=RECIPES[product], required_total=owed[product]) for product in order
+        BuildStep(recipe=RECIPES[product], required_total=owed[product]) for product in final_order
     )
 
 
@@ -356,11 +413,44 @@ def plan_needs_larger_grid(
     the grid being opened — that question belongs to `resolve_craft`, made against a live reading.
     A caller with only a plan (a pre-run panel with no bag) still wants to know if the goal's last
     step is a three-by-three shape this build cannot open, so the check lives here, read off each
-    step's own `recipe.fits`. A newly curated 3×3 row is caught by this without a line of the
+    step's own `recipe.fits`. A newly curated 3x3 row is caught by this without a line of the
     caller changing.
     """
 
     return any(not step.recipe.fits(grid_side) for step in steps)
+
+
+def largest_grid_in_plan(steps: tuple[BuildStep, ...]) -> int:
+    """The side of the biggest shape any step in this plan lays out — `0` for an empty plan.
+
+    The mirror of `plan_needs_larger_grid`: that asks whether the plan overruns a screen, this
+    answers how big a screen it needs. A planner deciding which grid-enabling craft to stand up
+    reads the target size off the plan rather than off a product name.
+    """
+
+    return max((max(step.recipe.grid_width, step.recipe.grid_height) for step in steps), default=0)
+
+
+def grid_enabler_for(needed_side: int, *, within_side: int = PLAYER_GRID_SIDE) -> Recipe | None:
+    """The craft whose product opens a grid at least `needed_side` wide, buildable inside
+    `within_side` — or `None` when this table knows no way to reach that shape.
+
+    Read off `Recipe.opens_grid_side` rather than a hardcoded item name, so a curated wider grid
+    becomes reachable by adding a row with the right `opens_grid_side`. The enabler must itself
+    fit the grid we can currently work in (`within_side`) and must not need an even larger
+    enabler, or reaching it would be circular — so the search only returns a recipe that fits
+    `within_side`. When several could open the shape, the one opening the smallest sufficient
+    grid wins, keeping the climb as short as the catalog allows.
+    """
+
+    candidates = [
+        recipe
+        for recipe in RECIPES.values()
+        if recipe.opens_grid_side >= needed_side and recipe.fits(within_side)
+    ]
+    if not candidates:
+        return None
+    return min(candidates, key=lambda recipe: (recipe.opens_grid_side, recipe.product_id))
 
 
 def _batches_for(items: int, yields: int) -> int:
