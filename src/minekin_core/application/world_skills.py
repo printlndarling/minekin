@@ -115,6 +115,18 @@ CHASE_STEP_SECONDS: Final[float] = 0.5
 #: would re-send until the timeout.
 CHASE_STEP_MIN_REMAINING_NS: Final[int] = 600_000_000
 
+#: How many escapes one `close_screen` step may send. The craft leaves the window
+#: open on purpose (its own contract forbids confirming a click before a frame says
+#: the click landed), and the escape that closes it is a single key whose effect the
+#: next frame may not have caught yet: a client that was still mid-frame when the
+#: reading was taken reports the window standing, and the one reading after that says
+#: it is gone. Sending the escape once and concluding on the first contradicting frame
+#: is what turned a working escape into a `SCREEN_STILL_OPEN`. This re-sends the same
+#: escape while frames keep arriving that still show the window — it never adds a
+#: different action, so the ban on retrying a side-effecting click is not crossed,
+#: only the number of times the player's own key goes out is bounded.
+CLOSE_SCREEN_MAX_ESCAPES: Final[int] = 3
+
 #: The wire's face enum, keyed by the domain token that names it. Closed
 #: mapping: a face this build cannot spell is a refusal here, not a default on
 #: the channel.
@@ -295,6 +307,7 @@ def _close_screen_details(
     newest: WorldObservationValue,
     *,
     already_closed: bool = False,
+    escapes: int = 0,
 ) -> dict[str, str]:
     """Which window the skill set out to leave, and what the newest reading says
     is standing now.
@@ -303,6 +316,10 @@ def _close_screen_details(
     reported — and the two readings that answer it are the pre-state's window and
     the newest one. Naming both means a `SCREEN_STILL_OPEN` can be argued against
     the window the client reported rather than against the one Core asked about.
+
+    `escapes` is how many times the player's own key went out. A close that sent one
+    escape and gave up is a different thing to fix from one that sent three and still
+    found the window standing, and the run document should say which it saw.
     """
 
     open_now = newest.gui is not None and newest.gui.sync_id is not None
@@ -313,6 +330,7 @@ def _close_screen_details(
         "newest_screen_id": newest.gui.screen_id if open_now and newest.gui is not None else "",
         "newest_sync_id": _window_sync_id(newest),
         "screen_open": "true" if open_now else "false",
+        "escapes": str(escapes),
     }
     if already_closed:
         details["already_closed"] = "true"
@@ -1073,48 +1091,61 @@ class WorldSkills:
                 details=_close_screen_details(pre, pre, already_closed=True),
             )
         deadline = monotonic_ns() + timeout_ns
-        await self._sender.send_control(
-            SCREEN_INPUT_TYPE,
-            control_pb2.ScreenInput(
-                action_id=action_id,
-                lease_id=authority.lease_id,
-                generation=authority.generation,
-                control=control_pb2.SCREEN_CONTROL_CLOSE,
-                deadline_monotonic_ns=authority.deadline_monotonic_ns,
-            ),
-        )
-        closed = await self._wait_until(
-            lambda latest: latest.gui is None or latest.gui.sync_id is None,
-            deadline,
-            action_id=action_id,
-        )
-        if closed is not None:
-            return SkillOutcome(
-                result=ActionResultClass.CONFIRMED,
-                reason="",
-                action_id=action_id,
-                pre_tick=pre.game_tick,
-                post_tick=closed.game_tick,
-                details=_close_screen_details(pre, closed),
+        escapes = 0
+        watch_from = pre.game_tick
+        while escapes < CLOSE_SCREEN_MAX_ESCAPES:
+            escapes += 1
+            await self._sender.send_control(
+                SCREEN_INPUT_TYPE,
+                control_pb2.ScreenInput(
+                    action_id=action_id,
+                    lease_id=authority.lease_id,
+                    generation=authority.generation,
+                    control=control_pb2.SCREEN_CONTROL_CLOSE,
+                    deadline_monotonic_ns=authority.deadline_monotonic_ns,
+                ),
             )
+            # Wait for the next frame and read the window off it, rather than
+            # waiting for the window to be gone. A frame that still reports the
+            # handler is the reason the escape may not have landed yet — so the
+            # loop sends it again; only a frame that reports no handler confirms it,
+            # and only silence stops the listening.
+            newer = await self._wait_until(
+                _newer_reading(watch_from),
+                deadline,
+                action_id=action_id,
+            )
+            if newer is None:
+                break
+            watch_from = newer.game_tick
+            if newer.gui is None or newer.gui.sync_id is None:
+                return SkillOutcome(
+                    result=ActionResultClass.CONFIRMED,
+                    reason="",
+                    action_id=action_id,
+                    pre_tick=pre.game_tick,
+                    post_tick=newer.game_tick,
+                    details=_close_screen_details(pre, newer, escapes=escapes),
+                )
         newest = self._observations.latest or pre
         if newest.game_tick > pre.game_tick:
-            # A frame arrived and says the window is still standing. That is the
-            # reading contradicting the escape, not a channel that never spoke.
+            # Frames arrived and every one of them still reports the window, after
+            # the bounded escapes. That is the reading contradicting the escape, not
+            # a channel that never spoke.
             return SkillOutcome(
                 result=ActionResultClass.FAILED,
                 reason="SCREEN_STILL_OPEN",
                 action_id=action_id,
                 pre_tick=pre.game_tick,
                 post_tick=newest.game_tick,
-                details=_close_screen_details(pre, newest),
+                details=_close_screen_details(pre, newest, escapes=escapes),
             )
         return SkillOutcome(
             result=ActionResultClass.UNKNOWN,
             reason="NO_CONFIRMING_OBSERVATION",
             action_id=action_id,
             pre_tick=pre.game_tick,
-            details=_close_screen_details(pre, newest),
+            details=_close_screen_details(pre, newest, escapes=escapes),
         )
 
     async def select_hotbar(

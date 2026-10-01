@@ -33,6 +33,7 @@ from minekin_core.adapters.bridge.ipc import (
 )
 from minekin_core.application.world_observation import WorldObservationStore
 from minekin_core.application.world_skills import (
+    CLOSE_SCREEN_MAX_ESCAPES,
     ActionAuthority,
     ClientProcessExited,
     WorldSkills,
@@ -1136,7 +1137,14 @@ def test_close_screen_reports_channel_silence_as_no_confirming_observation() -> 
 
 def test_close_screen_fails_when_every_later_reading_still_reports_the_window() -> None:
     """A frame that arrives and says the window is still there is not silence:
-    it is the reading that contradicts the escape, and §4 lets the skill say so."""
+    it is the reading that contradicts the escape, and §4 lets the skill say so.
+
+    One escape that a frame contradicts is not enough to conclude on — the client
+    may still have been mid-frame — so the skill re-sends the same player's key
+    while frames keep arriving that still show the window, and concludes
+    `SCREEN_STILL_OPEN` only once the frames it has seen have all contradicted it
+    and no newer one is coming inside the window.
+    """
 
     async def scenario() -> None:
         store = _open_screen_store((0, LOG, 1))
@@ -1155,7 +1163,80 @@ def test_close_screen_fails_when_every_later_reading_still_reports_the_window() 
         assert outcome.reason == "SCREEN_STILL_OPEN"
         assert outcome.details["newest_screen_id"] == "minecraft:crafting"
         assert outcome.details["newest_sync_id"] == "3"
-        assert sender.types() == [SCREEN_INPUT_TYPE]
+        # The contradicting frame bought exactly one more escape, then silence ended
+        # the listening — two sends, both the same player's key, no other action.
+        assert sender.types() == [SCREEN_INPUT_TYPE, SCREEN_INPUT_TYPE]
+        assert all(
+            command.control == control_pb2.SCREEN_CONTROL_CLOSE for _, command in sender.sent
+        )
+
+    asyncio.run(scenario())
+
+
+def test_close_screen_recovers_when_a_second_escape_lands_after_a_contradicting_frame() -> None:
+    """The recovery this fix exists for: the first frame still reports the window,
+    the next one after a re-sent escape reports it gone, and that is a close — not a
+    `SCREEN_STILL_OPEN` earned by concluding on the first contradiction."""
+
+    async def scenario() -> None:
+        store = _open_screen_store((0, LOG, 1))
+        skills, sender = skill_with(store)
+
+        def answer(message_type: str) -> None:
+            escapes = len(sender.types())
+            if escapes == 1:
+                # The first escape is contradicted by the next frame.
+                store.admit(
+                    reading(
+                        tick=110,
+                        inventory_value=inventory(102, (0, LOG, 1)),
+                        gui=GuiScreenValue(screen_id="minecraft:crafting", sync_id=3),
+                    ),
+                    (),
+                )
+            else:
+                # The re-sent escape lands: a newer reading reports no handler.
+                store.admit(reading(tick=120, inventory_value=inventory(103, (0, LOG, 1))), ())
+
+        sender.on_send = answer
+        outcome = await skills.close_screen(authority=authority(), timeout_ns=2_000_000_000)
+
+        assert outcome.result is ActionResultClass.CONFIRMED
+        assert outcome.post_tick == 120
+        assert outcome.details["screen_open"] == "false"
+        assert outcome.details["escapes"] == "2"
+        assert sender.types() == [SCREEN_INPUT_TYPE, SCREEN_INPUT_TYPE]
+
+    asyncio.run(scenario())
+
+
+def test_close_screen_stops_re_sending_the_escape_after_a_bounded_number() -> None:
+    """The re-send is bounded: a window that every frame keeps reporting is not
+    escaped by an endless drum of the same key, and the step concludes rather than
+    spending its whole lease holding it."""
+
+    async def scenario() -> None:
+        store = _open_screen_store((0, LOG, 1))
+        skills, sender = skill_with(store)
+
+        def contradict(message_type: str) -> None:
+            tick = 101 + len(sender.types())
+            store.admit(
+                reading(
+                    tick=tick,
+                    inventory_value=inventory(101 + tick - 100, (0, LOG, 1)),
+                    gui=GuiScreenValue(screen_id="minecraft:crafting", sync_id=3),
+                ),
+                (),
+            )
+
+        sender.on_send = contradict
+        outcome = await skills.close_screen(authority=authority(), timeout_ns=2_000_000_000)
+
+        assert outcome.result is ActionResultClass.FAILED
+        assert outcome.reason == "SCREEN_STILL_OPEN"
+        assert outcome.details["escapes"] == str(CLOSE_SCREEN_MAX_ESCAPES)
+        assert sender.types() == [SCREEN_INPUT_TYPE] * CLOSE_SCREEN_MAX_ESCAPES
 
     asyncio.run(scenario())
 
@@ -1193,7 +1274,7 @@ def test_an_unnamed_window_is_still_a_window_the_close_has_to_answer_for() -> No
         assert outcome.details["screen_open"] == "true"
         assert outcome.details["newest_screen_id"] == ""
         assert outcome.details["newest_sync_id"] == "7"
-        assert sender.types() == [SCREEN_INPUT_TYPE]
+        assert sender.types() == [SCREEN_INPUT_TYPE, SCREEN_INPUT_TYPE]
 
     asyncio.run(scenario())
 
