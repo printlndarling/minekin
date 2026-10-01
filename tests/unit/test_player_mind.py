@@ -33,14 +33,17 @@ from minekin_core.application.player_mind import (
     MindDecisionKind,
     PlayerMind,
     attribute_failure,
+    blocker_for,
     craft_blocker,
     craft_options,
+    crafting_grid_side,
     feasible_skill_ids,
     mind_for,
     needs_from,
     next_craft,
     screen_open,
     shortfalls,
+    step_to_run,
 )
 from minekin_core.domain.goal_spec import Milestone
 from minekin_core.domain.model_access import (
@@ -355,12 +358,14 @@ def test_an_aiming_that_is_a_miss_does_not_offer_a_mine() -> None:
 # --------------------------------------------------------------- the standing container
 
 
-def test_an_open_container_narrows_the_offer_to_leaving_it() -> None:
-    """A reading that would otherwise offer the break, the collect and the craft offers only the
-    exit — the world actions it displaces are exactly the ones that, sent while the window holds
-    the input, become the `GUI_CONFLICT` the run reads back as a silent stream. The narrowing is
-    the whole fix: it is what lets the Kin leave the screen before it tries to act on the world,
-    rather than hardcoding a close onto the tail of the craft."""
+def test_an_open_container_drops_the_world_actions_and_keeps_the_recipe_click() -> None:
+    """A reading that would otherwise offer the break and the collect loses both while a window
+    holds the input — they are exactly the actions that, sent into a standing screen, become the
+    `GUI_CONFLICT` the run reads back as a silent stream. What survives is the exit and, because a
+    container is the one screen the recipe click runs through, a craft this bag can pay for: the
+    narrowing stops the crosshair/hot-bar skills, not the handler click, and it is what lets the
+    Kin leave the screen before acting on the world rather than hardcoding a close onto the tail
+    of the craft."""
 
     crowded = reading(
         aim=block_aim(),
@@ -369,7 +374,59 @@ def test_an_open_container_narrows_the_offer_to_leaving_it() -> None:
         gui=GuiScreenValue(screen_id="", sync_id=7),
     )
 
-    assert feasible_skill_ids(GOAL, crowded) == (CLOSE_SCREEN,)
+    offer = feasible_skill_ids(GOAL, crowded)
+    assert CLOSE_SCREEN in offer
+    assert "craft_take_result" in offer
+    assert "break_seen_block" not in offer
+    assert "collect_dropped" not in offer
+    assert "turn_to" not in offer
+
+
+def test_a_container_with_nothing_to_craft_narrows_the_offer_to_leaving_it() -> None:
+    """The other half of the same rule: with no curated step the open window can hold, the
+    container leaves only the exit, exactly as before the recipe click was allowed inside a
+    screen — the craft is offered on the table's answer, never by default."""
+
+    empty_handed = reading(
+        aim=block_aim(),
+        entities=(drop(),),
+        gui=GuiScreenValue(screen_id="", sync_id=7),
+    )
+
+    assert feasible_skill_ids(GOAL, empty_handed) == (CLOSE_SCREEN,)
+
+
+def test_a_three_by_three_step_is_refused_in_the_inventory_and_allowed_at_the_table() -> None:
+    """The full pickaxe step is the one curated shape the player's own grid cannot hold, so the
+    same bag is a `CRAFT_GRID_TOO_SMALL` in the inventory and a runnable step inside a table
+    window — and it is the reading, not a constant, that decides which."""
+
+    nearly = reading(items=((0, PLANKS, 3), (1, STICK, 2)))  # everything but the tool
+    assert crafting_grid_side(nearly) == PLAYER_GRID_SIDE
+    assert step_to_run(nearly, PICKAXE, grid_side=PLAYER_GRID_SIDE) is None
+    assert blocker_for(nearly, PICKAXE, grid_side=PLAYER_GRID_SIDE) == CRAFT_GRID_TOO_SMALL
+
+    at_table = reading(
+        items=((0, PLANKS, 3), (1, STICK, 2)),
+        gui=GuiScreenValue(screen_id="minecraft:crafting", sync_id=3),
+    )
+    assert crafting_grid_side(at_table) == 3
+    step = step_to_run(at_table, PICKAXE, grid_side=crafting_grid_side(at_table))
+    assert step is not None and step.recipe.recipe_id == PICKAXE
+
+
+def test_a_standing_table_window_offers_the_three_by_three_craft() -> None:
+    """The offer and the precondition agree: once the reading says a three-by-three window is up
+    and the bag holds the last ingredients, the mind gets `craft_take_result` to click while the
+    window stands, and the world actions a screen displaces stay gone."""
+
+    at_table = reading(
+        items=((0, PLANKS, 3), (1, STICK, 2)),
+        entities=(drop(),),
+        gui=GuiScreenValue(screen_id="minecraft:crafting", sync_id=3),
+    )
+
+    assert set(feasible_skill_ids(GOAL, at_table)) == {CLOSE_SCREEN, "craft_take_result"}
 
 
 def test_a_window_is_the_handler_not_the_screen_name() -> None:

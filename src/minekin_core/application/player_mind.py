@@ -163,9 +163,21 @@ SKILL_OFFER: Final = _checked_offer(
     )
 )
 
-#: The one skill that ends a standing window, and so the only step worth taking while a container is
-#: open. Named once so the feasible set, the local reflection and the call builder agree on it.
+#: The one skill that ends a standing window, and so the only world step worth leaving it for.
+#: Named once so the feasible set, the local reflection and the call builder agree on it.
 CLOSE_SCREEN: Final = "close_screen"
+
+#: The screen-handler id the 1.20.1 client reports while a placed crafting table's window is
+#: open, and the grid that window holds. This is read off the observation rather than assumed:
+#: the player's own inventory reports an empty `screen_id` with handler id 0 (see `screen_open`),
+#: while the table opens a real, typed `CraftingScreenHandler` the Bridge names
+#: `minecraft:crafting`. A non-empty id paired with a live handler is therefore the only reading
+#: that can say the Kin is standing inside a three-by-three — and
+#: `recipe_catalog.PLAYER_GRID_SIDE` is the honest two-by-two default for every other screen.
+#: Nothing here opens that window; this is the reading's answer to "what grid can the next click
+#: fill", which the offer and the craft precondition both consult.
+CRAFTING_TABLE_SCREEN_ID: Final = "minecraft:crafting"
+CRAFTING_TABLE_GRID_SIDE: Final = 3
 
 
 def screen_open(reading: WorldObservationValue) -> bool:
@@ -181,6 +193,26 @@ def screen_open(reading: WorldObservationValue) -> bool:
     """
 
     return reading.gui is not None and reading.gui.sync_id is not None
+
+
+def crafting_grid_side(reading: WorldObservationValue) -> int:
+    """The side of the crafting grid this reading says the Kin is standing inside.
+
+    Two for every screen but the crafting table's — the inventory grid the craft skills open
+    themselves, and the outside world where no window is up yet. Three the moment the client names a
+    typed `minecraft:crafting` handler with a live id, because that placed table is the only screen
+    this build can reach that holds a three-by-three shape. A shape's precondition is judged against
+    the screen that is actually open rather than against a constant, which is why
+    `CRAFT_GRID_TOO_SMALL` can stop being a permanent dead end: it is only true while no table
+    window is standing, and a later reading that opens one answers it differently. Reading the size
+    is not opening it — reaching this state is the general use key's job, and nothing here assumes
+    it.
+    """
+
+    gui = reading.gui
+    if gui is not None and gui.sync_id is not None and gui.screen_id == CRAFTING_TABLE_SCREEN_ID:
+        return CRAFTING_TABLE_GRID_SIDE
+    return PLAYER_GRID_SIDE
 
 
 def owed_steps(
@@ -425,23 +457,31 @@ def feasible_skill_ids(
     reason: the ask chooses among what the summary shows, and this side only judges whether the
     world could carry it out.
 
-    A standing container rewrites the whole offer. The skills this build sends to the world — the
-    break, the walk to a drop, the turn, the number key — all act through the crosshair or the
-    hot bar, and neither is the player's while a container holds the input: the same click that
-    would break a block becomes the `GUI_CONFLICT` that leaves the Kin inside a window holding the
-    keyboard, and the observation stream that goes quiet afterwards is the run reading its way into
-    a `CLIENT_EXITED`. So when this reading says a window is open, the only step that changes the
-    world is leaving it, and the offer narrows to that one name. The next reading, with no handler,
-    opens the full set again — which is the contract's "close the screen when needed, then allow
-    world actions" as a decision rather than a hardcoded tail on the craft.
+    A standing container rewrites most of the offer. The crosshair and hot-bar skills this build
+    sends to the world — the break, the walk to a drop, the turn, the number key — all act through
+    inputs a window has taken: the same click that would break a block becomes the `GUI_CONFLICT`
+    that leaves the Kin inside a window holding the keyboard, and the observation stream that goes
+    quiet afterwards is the run reading its way into a `CLIENT_EXITED`. So the world actions drop
+    out while a handler is up, and leaving it is always offered. But a container is the one screen
+    the recipe click runs *through*, so `craft_take_result` stays offered whenever the table's
+    answer for the grid this open window holds says a step is payable — which is how a
+    three-by-three shape gets crafted inside the very window it needs, rather than only ever being
+    refused against the inventory's two-by-two. Once the handler is gone the next reading opens the
+    world set again — the contract's "close the screen when needed, then allow world actions" as a
+    decision rather than a hardcoded tail on the craft.
     """
 
     if screen_open(reading):
-        return (CLOSE_SCREEN,)
+        offer = [CLOSE_SCREEN]
+        if craft_options(reading, grid_side=crafting_grid_side(reading)):
+            offer.append("craft_take_result")
+        return tuple(offer)
     feasible = {
         "break_seen_block" if reading.aim is not None and reading.aim.block is not None else "",
         "collect_dropped" if _nearest_drop(reading) is not None else "",
-        "craft_take_result" if craft_options(reading) else "",
+        "craft_take_result"
+        if craft_options(reading, grid_side=crafting_grid_side(reading))
+        else "",
         "select_hotbar"
         if goal_slot(milestone, reading) not in (None, reading.self_state.selected_slot)
         else "",
@@ -463,7 +503,9 @@ def needs_from(milestone: Milestone | None, reading: WorldObservationValue) -> d
 
     if goal_held(milestone, reading):
         resource_security = 1
-    elif craft_options(reading) or (milestone is not None and milestone.held(reading) > 0):
+    elif craft_options(reading, grid_side=crafting_grid_side(reading)) or (
+        milestone is not None and milestone.held(reading) > 0
+    ):
         resource_security = 5
     else:
         resource_security = 9
@@ -529,6 +571,7 @@ def observation_summary(
         item_id = entity.item_id or ""
         dropped[item_id] = dropped.get(item_id, 0) + (entity.item_count or 0)
     aim = reading.aim
+    side = crafting_grid_side(reading)
     summary: dict[str, object] = {
         "game_tick": reading.game_tick,
         "inventory": dict(sorted(counts.items())),
@@ -536,8 +579,8 @@ def observation_summary(
         "held_item": reading.self_state.main_hand_item_id or "",
         "aimed_block": aim.targeted_block_id if aim is not None and aim.block is not None else "",
         "dropped_items": dict(sorted(dropped.items())),
-        "crafting_grid_side": PLAYER_GRID_SIDE,
-        "craft_options": list(craft_options(reading)),
+        "crafting_grid_side": side,
+        "craft_options": list(craft_options(reading, grid_side=side)),
         "health": reading.self_state.health,
         "max_health": reading.self_state.max_health,
         "food": reading.self_state.food,
@@ -899,9 +942,15 @@ class PlayerMind:
                 return None, NO_FEASIBLE_SKILL, {}
             quantity = _asked_quantity(arguments, self.goal)
             ask: dict[str, object] = {"target_item": target, "quantity": quantity}
-            step = step_to_run(reading, target, quantity)
+            side = crafting_grid_side(reading)
+            step = step_to_run(reading, target, quantity, grid_side=side)
             if step is None:
-                return None, blocker_for(reading, target, quantity) or CRAFT_MATERIALS_MISSING, ask
+                return (
+                    None,
+                    blocker_for(reading, target, quantity, grid_side=side)
+                    or CRAFT_MATERIALS_MISSING,
+                    ask,
+                )
             return (
                 SkillPlan(
                     (
