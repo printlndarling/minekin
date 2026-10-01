@@ -53,6 +53,7 @@ from minekin_core.domain.control_vocabulary import (
     MINE_CAPABILITY,
     MOVE_CAPABILITY,
     SCREEN_CAPABILITY,
+    USE_CAPABILITY,
 )
 from minekin_core.domain.goal_spec import Milestone
 from minekin_core.domain.model_access import (
@@ -681,8 +682,8 @@ def test_a_mind_with_no_milestone_still_asks_and_never_stops_on_a_held_item() ->
 
 def test_the_ask_covers_the_whole_offer_and_nothing_the_offer_does_not_use() -> None:
     """The lease is decided before the mind chooses, so it has to cover every name it may be
-    offered — and only those: a run that also held `use` or `look` would be a run holding a
-    key nobody told it to hold."""
+    offered — and only those: a run that also held `look` would be a run holding a key nobody
+    told it to hold, while `use` belongs here because `use_target` is now part of the offer."""
 
     ask = AutonomousAsk(skills=SKILL_OFFER, step_budget=DEFAULT_STEP_BUDGET, step_seconds=7.5)
 
@@ -694,6 +695,7 @@ def test_the_ask_covers_the_whole_offer_and_nothing_the_offer_does_not_use() -> 
             SCREEN_CAPABILITY,
             GUI_CAPABILITY,
             HOTBAR_CAPABILITY,
+            USE_CAPABILITY,
         }
     )
     assert ask.lease_seconds == DEFAULT_STEP_BUDGET * 7.5

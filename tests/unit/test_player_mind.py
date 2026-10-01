@@ -223,6 +223,7 @@ def outcome(result: ActionResultClass, reason: str = "") -> SkillOutcome:
 def test_a_log_block_in_view_offers_the_mine_and_a_look() -> None:
     assert set(feasible_skill_ids(GOAL, reading(aim=block_aim()))) == {
         "break_seen_block",
+        "use_target",
         "turn_to",
     }
 
@@ -353,6 +354,20 @@ def test_a_bag_partway_through_the_plan_is_credited_rather_than_asked_to_start_a
 def test_an_aiming_that_is_a_miss_does_not_offer_a_mine() -> None:
     miss = AimTargetValue(game_tick=100, kind=AimKind.MISS)
     assert "break_seen_block" not in feasible_skill_ids(GOAL, reading(aim=miss))
+    # The use key shares the break's precondition: a crosshair that reports nothing is a Kin
+    # right-clicking at empty air, so the same refusal that withholds the mine withholds the use.
+    assert "use_target" not in feasible_skill_ids(GOAL, reading(aim=miss))
+
+
+def test_an_aimed_block_offers_the_use_and_an_empty_hands_still_offer_the_look() -> None:
+    """A block in the crosshair is a thing the client rendered, so the use is a live option — the
+    general means by which a table this bag crafted gets selected, placed and opened on the way to
+    a three-by-three shape. The offer is the same on a plain block aim regardless of the bag: what
+    is placed is the hand's, which is the skill's concern, not this gate's."""
+
+    offer = feasible_skill_ids(GOAL, reading(aim=block_aim()))
+    assert "use_target" in offer
+    assert "turn_to" in offer
 
 
 # --------------------------------------------------------------- the standing container
@@ -450,6 +465,7 @@ def test_a_screen_with_no_handler_leaves_the_full_offer_standing() -> None:
     assert set(feasible_skill_ids(GOAL, subject)) == {
         "break_seen_block",
         "craft_take_result",
+        "use_target",
         "turn_to",
     }
 
@@ -473,6 +489,25 @@ def test_a_model_that_asks_to_leave_the_screen_becomes_a_close_plan() -> None:
     assert intent.arguments == {}
     assert [call.name for call in intent.plan.calls] == [CLOSE_SCREEN]
     assert intent.capabilities == skill_capabilities(CLOSE_SCREEN)
+
+
+def test_a_model_that_asks_to_use_the_aimed_block_becomes_a_use_plan() -> None:
+    """The general place/interact is honoured the same way: one parameterless call carrying the
+    use capability, because the ask is 'right-click the thing in the crosshair' and which thing
+    that is belongs to the reading, not to a per-product chain. This is the step a three-by-three
+    ask uses to put its table down and open it without the mind naming the table at all."""
+
+    mind, _ = mind_with(
+        Decision(skill_id="use_target", reason="use what is in view", intent_generation=1)
+    )
+    intent = mind.next_intent(reading(aim=block_aim(), items=((0, PLANKS, 5),)))
+
+    assert intent.kind is MindDecisionKind.INTENT
+    assert intent.source == DECISION_FROM_MODEL
+    assert intent.skill == "use_target"
+    assert intent.arguments == {}
+    assert [call.name for call in intent.plan.calls] == ["use_target"]
+    assert intent.capabilities == skill_capabilities("use_target")
 
 
 def test_the_off_mind_leaves_an_open_screen_before_it_looks() -> None:
@@ -537,6 +572,7 @@ def test_the_ask_carries_only_what_the_local_layer_computed() -> None:
     assert set(request.feasible_skill_ids) == {
         "break_seen_block",
         "craft_take_result",
+        "use_target",
         "turn_to",
     }
     assert request.needs == needs_from(GOAL, subject)
@@ -792,6 +828,38 @@ def test_a_session_with_no_milestone_asks_about_the_world_and_not_about_a_goal()
     assert STICK in cast("list[str]", summary["craft_options"])
 
 
+def test_the_ask_says_when_the_owed_plan_needs_a_larger_grid() -> None:
+    """Whether the goal's remaining work fits the grid the client can open is a goal-level fact
+    read off the catalog and this reading, not a product name this module carries: the last craft
+    of a pickaxe is a three-by-three shape a two-by-two hand grid cannot hold, so the summary says
+    a larger grid is needed and the Kin reaches it by general means rather than a hand-craft that
+    could only shrug. A goal the hand grid can finish carries the flag as false, and it clears on
+    its own once a wider window is what the reading reports."""
+
+    pickaxe_provider = ScriptedProvider()
+    mind = mind_for(
+        pickaxe_provider,
+        CostLedger(run_cost_cap=CAP),
+        kin_id="kin-01",
+        persona_seed="seed-9",
+        goal=GOAL,
+    )
+    mind.next_intent(reading(items=((0, PLANKS, 8), (1, STICK, 2))))
+    assert pickaxe_provider.requests[0].observation_summary["larger_grid_needed"] is True
+
+    hand = Milestone(product_id=PLANKS, source_item_id=LOG)
+    planks_provider = ScriptedProvider()
+    planks_mind = mind_for(
+        planks_provider,
+        CostLedger(run_cost_cap=CAP),
+        kin_id="kin-02",
+        persona_seed="seed-8",
+        goal=hand,
+    )
+    planks_mind.next_intent(reading(items=((0, LOG, 3),)))
+    assert planks_provider.requests[0].observation_summary["larger_grid_needed"] is False
+
+
 # ------------------------------------------------------------- refusals take the local path
 
 
@@ -931,16 +999,22 @@ def test_an_emptied_offer_blocks_instead_of_replaying() -> None:
     subject = reading(aim=block_aim())
     failing = outcome(ActionResultClass.FAILED, "MINING_STALLED")
 
+    # The reflection acts on every skill the offer can carry on this reading, in its own order:
+    # the break, then the conservative look, then the use on the aimed block as the last resort.
+    # Each spends its budget in turn, so the blocked shape only arrives once even the last of them
+    # is given up on — which is the guarantee that an offer the world refuses does not replay
+    # forever.
     for _ in range(RETRY_BUDGET_PER_SIGNATURE + 1):
         intent = mind.next_intent(subject)
         mind.record_result(intent, failing, subject)
-    # `turn_to` is always offered, so the run keeps a way to look; the blocked shape only
-    # arrives once even that has spent its budget.
+    for _ in range(RETRY_BUDGET_PER_SIGNATURE + 1):
+        intent = mind.next_intent(subject)
+        mind.record_result(intent, failing, subject)
     for _ in range(RETRY_BUDGET_PER_SIGNATURE + 1):
         intent = mind.next_intent(subject)
         mind.record_result(intent, failing, subject)
 
-    assert set(mind.excluded) == {"break_seen_block", "turn_to"}
+    assert set(mind.excluded) == {"break_seen_block", "use_target", "turn_to"}
     assert mind.next_intent(subject).reason == NO_FEASIBLE_SKILL
     assert mind.next_intent(subject).kind is MindDecisionKind.BLOCKED
 

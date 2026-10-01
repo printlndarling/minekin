@@ -69,12 +69,14 @@ from minekin_core.domain.recipe_catalog import (
     RECIPES,
     BuildStep,
     build_plan,
+    plan_needs_larger_grid,
 )
 from minekin_core.domain.skill_parameters import BEHAVIOR_PARAMETERS, MAX_QUANTITY
 from minekin_core.domain.world_actions import (
     ActionResultClass,
     SkillOutcome,
     item_total,
+    use_target_refusal,
 )
 
 #: How many times one skill may fail the same way before the mind stops calling it that
@@ -159,6 +161,7 @@ SKILL_OFFER: Final = _checked_offer(
         "collect_dropped",
         "craft_take_result",
         "select_hotbar",
+        "use_target",
         "turn_to",
     )
 )
@@ -455,7 +458,13 @@ def feasible_skill_ids(
     from an answerer be honoured in a session that has no standing goal at all. `collect_dropped`
     is offered for any dropped item in view, not only for one the milestone names, for the same
     reason: the ask chooses among what the summary shows, and this side only judges whether the
-    world could carry it out.
+    world could carry it out. `use_target` is offered on the skill's own precondition — it fires
+    the use key on whatever the crosshair reports, so a placement against a block and the opening
+    of a standing table or door are one step here, and only a `MISS`/`UNREAD` aim is not. The mind
+    does not guess a target the client never rendered, and it is never offered while a window holds
+    the input. This is how a goal whose last craft needs a three-by-three reaches that shape by
+    general means: select the table, aim the ground, use to place it, aim the table, use to open it,
+    then the recipe click the open window now carries — not a per-product chain.
 
     A standing container rewrites most of the offer. The crosshair and hot-bar skills this build
     sends to the world — the break, the walk to a drop, the turn, the number key — all act through
@@ -485,6 +494,7 @@ def feasible_skill_ids(
         "select_hotbar"
         if goal_slot(milestone, reading) not in (None, reading.self_state.selected_slot)
         else "",
+        "use_target" if use_target_refusal(reading).accepted else "",
         "turn_to",
     }
     return tuple(name for name in SKILL_OFFER if name in feasible)
@@ -593,6 +603,14 @@ def observation_summary(
             "held": milestone.held(reading),
             "direction": milestone.label,
         }
+        # A goal-level fact read off the catalog and this reading, not a product name this module
+        # remembers: the outstanding plan holds a shape the currently readable grid cannot, so the
+        # last craft needs a larger grid the Kin has to stand up. Once a wider window is up `side`
+        # answers three and the flag clears itself — no per-item chain, no guess.
+        needed = owed_steps(reading, milestone.product_id, milestone.quantity)
+        summary["larger_grid_needed"] = isinstance(needed, tuple) and plan_needs_larger_grid(
+            needed, grid_side=side
+        )
     return summary
 
 
@@ -897,10 +915,14 @@ class PlayerMind:
         """The order the local layer uses when no model answered.
 
         Finish what the inventory is short of, pick up what is already on the ground, break
-        what is aimed at, otherwise look. It reads only the needs and the feasible set — the
-        same two inputs a model was offered — so the fallback cannot be doing something the
-        model was not permitted to. `safety` holds a Kin back from starting a break when it is
-        badly hurt, because a broken trunk is not what a half-health reading is asking for.
+        what is aimed at, then look — the look staying ahead of the use keeps the no-model
+        fallback as conservative as it was, right-clicking the aimed block only as the last
+        resort before the set is given up on. Reading the same two inputs a model was offered,
+        the fallback cannot do something the model was not permitted to, and because it can act
+        on every skill in that set it can also exhaust every one: a reading whose offers all keep
+        failing reaches `NO_FEASIBLE_SKILL` instead of replaying a skill the run has already given
+        up on. `safety` holds a Kin back from starting a break when it is badly hurt, because a
+        broken trunk is not what a half-health reading is asking for.
         """
 
         if "close_screen" in feasible:
@@ -915,7 +937,9 @@ class PlayerMind:
             return "break_seen_block"
         if "collect_dropped" in feasible:
             return "collect_dropped"
-        return "turn_to"
+        if "turn_to" in feasible:
+            return "turn_to"
+        return "use_target"
 
     def _call_for(
         self, skill: str, reading: WorldObservationValue, arguments: Mapping[str, object]
@@ -1005,6 +1029,18 @@ class PlayerMind:
                 ),
                 f"hold the {self.goal.product_id} in hand",
                 {"slot": slot, "expected_item_id": self.goal.product_id},
+            )
+        if skill == "use_target":
+            # The use key carries no argument: it acts on what the crosshair reports and what the
+            # hand already holds, so the one precondition is the aim the skill itself checks. A
+            # provider that answered use_target against a MISS/UNREAD aim is refused with the
+            # skill's own token, keeping "the mind offered it" and "the world could run it" equal.
+            if not use_target_refusal(reading).accepted:
+                return None, "USE_TARGET_NOT_AIMED", {}
+            return (
+                SkillPlan((SkillCall(name="use_target"),)),
+                "use the key on the thing in the crosshair — place against it, or open it",
+                {},
             )
         if skill == CLOSE_SCREEN:
             # No argument to honour and nothing to read first: the skill checks its own pre-state
