@@ -76,7 +76,7 @@ export MINEKIN_RUNNER_FORWARD_ENV=<存放密钥的那个变量名>  # 逗号分�
 1. **合成这一步在 2026-09-29 那次运行里拿不到确认。** 那次真实运行的读数是：`break_seen_block`（取木）和 `collect_dropped`（拾取）都是 CONFIRMED，而 `craft` 是 `UNKNOWN / NO_CONFIRMING_OBSERVATION`，归因 `INSUFFICIENT_INFORMATION`。当时量到的边界是：配方点击确实发出去了，客户端进程和服务端连接在整段 5 秒判据窗口里都还活着（服务端日志里能看到加入与 15 秒后的断开），但那一步窗口内**没有任何新的被采纳读数到达** Core。**当时记下的那句"要区分就得扩 run 文档 / 封存 schema，那是主控保留的决定"已经按新读数作废**：run 文档本来就带 `details` 这个自由字段，现在它把三种收尾分开说（`newest_checked_tick` 等于 `pre_tick` ⇒ 通道安静；大于 ⇒ 帧到了而背包同步号没动；`gui_open=false` ⇒ 界面根本没被看见打开），schema 一格没扩。**"通过真实背包/GUI 制作基础工具"这一项目前的完成度**：点击已发出并被桥接受、判据窗口会说明它为什么没确认、默认点击已换成会把成品放进背包的那一笔（下面第 10 条），而"世界确认合成成功"那一格仍待活体读数。**那一格在 2026-09-30 由第 11 条的技能补上并量到了**（run `e1e981553a0d4ea69468f6bc07a88fb5`：木板与木棍两步 CONFIRMED，服务端存档背包 4 根木棍 + 2 块木板），而 `craft` 这一条本身按第 12 条停在 `UNKNOWN`。
 2. **合成产物落在结果槽之后无人取走——这一格已经在 2026-09-30 关掉。** 原先的说法（Core 没有"从结果槽点击取物"这个技能、契约里也没有）**按读数作废**：1.20.1 的桥在**已封的字节上**就吃槽位点击（`docs/validation/v1201-autonomous-loop-and-registry-renewal-2026-09-30.md` 第八节有 file:line），而 Core 侧现在有了 `craft_take_result`（第 11 条）。它读到的确认不靠桥自报：run `e1e98155…` 的 `details` 写明两笔点击、revision 1699→1732→1754，服务端存档背包 4 根木棍 + 2 块木板。仍然在的是第 11 条末尾那一格——光标存放的第三笔在活字节上还没被需要过，也就还没被活字节验证过。
 3. **面板上的技能行不带模型的配置与花费。** `model_enabled`、provider、`model_calls`、`model_spent_micro`、`model_cap_refusals` 只记在 run 文档的 mind 段里；台账的技能行不携带，这两格对只读投影恒为 `not_wired`（措辞与 `mockFixtures.ts` 逐字镜像，防两侧漂移）。**行为参数是这次唯一从 bundle 的 run 文档解析出来的一格**：`behaviorParameters` 读的是 `run.autonomous.steps[].intent.arguments`（脚本运行没有自主段时退回 `mind.executing_arguments`），所以只有**已封且 `verify_addressed_bundle` 校验通过、bundle 里带 run document** 的 run 才有读数，未封的活 run 与不满足任一条的 bundle 一律写成具名缺口而不是空串。投影仍然不改写历史封证，只在读取侧解析已被摘要钉过字节的那份 run document。
-4. **本次演示里"目标"不是大模型选的。** 这台机器上没有可用的模型凭据，所以意图全部来自 `local_reflection`（`MODEL_NOT_CONFIGURED`）。"由大模型自主选定目标"这件事**尚未在真实游戏里验证过**；已经验证的是：没有人类逐步指令、没有预设动作序列，Kin 依然按读数一步步试下来，并在失败后调整。2026-09-30 的那次自主运行把"调整"量到了名字这一层：七步里前四步 CONFIRMED，随后 `turn_to` 连撞三次 `AIM_STALLED`，mind 段于是写下 `excluded_skills: ["turn_to"]`、`retry_budget: 2` 并以 `NO_FEASIBLE_SKILL` 具名收尾（见六之二）——这是改线，不是重试同一笔。
+4. **本次演示里"里程碑/目标"不是大模型选的。** 这里要分清两件不同的事，别把它们混成一句。其一，**答的是哪一步技能**：这台机器先前确实没有可用的模型凭据，所以那一阶段的意图全部来自 `local_reflection`（`MODEL_NOT_CONFIGURED`）；自 §四 那条 OpenAI-compatible 配置接上之后，这一句作为"当前事实"已经不再成立——真实端点已在游戏内逐步作答，run `151e7dc1a64e4d94a66061904f7ce937` 每步的 `decision_source` 都是 `model`、`model_refusal` 为空（见六之十二），`local_reflection` 的读数原样保留为历史。其二，**目标里程碑本身**（要哪件产物、几件、朝哪个方向，即 `hold_stick` 那一条）：它自始至终由操作者用 `MINEKIN_GOAL_*` 递进去，Core 不读任何默认物品，大模型选的是"当前 attempt 哪个技能"而不是"要什么里程碑"。所以"由大模型自主选定里程碑/目标"这件事**仍未在真实游戏里验证过**；已经验证的是：没有人类逐步指令、没有预设动作序列，Kin 依然按读数一步步试下来，并在失败后调整。2026-09-30 的那次自主运行把"调整"量到了名字这一层：七步里前四步 CONFIRMED，随后 `turn_to` 连撞三次 `AIM_STALLED`，mind 段于是写下 `excluded_skills: ["turn_to"]`、`retry_budget: 2` 并以 `NO_FEASIBLE_SKILL` 具名收尾（见六之二）——这是改线，不是重试同一笔。
 5. **桥字节与已封证据不一致这件事已经闭合（2026-09-30）。** 起因是本轮修了两处桥缺陷（界面其实没打开；观察者采集器在界面真打开后会让客户端崩一次），bundle 摘要变了，而 `tests/fixtures/registry/reviewed-tested-bundles.json` 那条 1.20.1 行还指着旧的 recipe/bridge 摘要。当时不是推测：2026-09-29 在本机用默认（registry）路径跑了一次 demo，安装在取 bundle 前就具名拒止并以 rc=11 退出，逐字读数：
    `{"category": "SUPPLY_CHAIN", "component": "launcher.provision", "operation": "fetch", "retryability": "OPERATOR_ACTION", "message": "recipe tests/fixtures/runtime-input/bundle-candidate-1.20.1.json digests to bd6afaee…, not the reviewed 8ce43e26…"}`。
    那两天里本说明的 2)、3) 因此带上 `MINEKIN_DEMO_BUNDLE_PROFILE`——这个旋钮是为"字节已经动了、封证还没续"准备的**证据中立的读法**，不是绕过。V1201 六案在新桥字节下续封、registry 行 renew 之后（读数见 `docs/validation/v1201-autonomous-loop-and-registry-renewal-2026-09-30.md`），默认路径已实测恢复：2026-09-30 本机 `demo.sh --again` 不带任何 profile 旋钮跑通，run `f19caae6a1be42608b0f833fe79dfbdb` 的 `auto_bundle` 段是 `{"bundle_id": "1.20.1-linux-x86_64-offline-java21", "recipe_path": "/src/tests/fixtures/runtime-input/bundle-candidate-1.20.1.json", "launch_plan_digest": "924931e574de…6cc0", "registry_revision": "c2aace9aed0b…", "status": "ready", "reused": 3639, "installed": 0}`，随后 `the session is playable`，前进与停止都被服务端看到，退出码 14 是 harness 到点停问（正常收尾），rc=11 的供应链拒止没有再出现。2)、3) 的命令因此回到默认路径；`MINEKIN_DEMO_BUNDLE_PROFILE` 仍然可用，用途是下一次"字节动了、封证未续"的窗口。旧封证与上面那条 rc=11 读数作为历史读数保留，不改写。
@@ -635,3 +635,64 @@ world_observations {"admitted": 16, "refused": 0, "stale_tick_dropped": 0, "newe
 **第 24 条末那句缺口到这里有字节了**：`SkillStepRecorded` 那一行的成员就是 `step_index / skill / result / reason / attribution / decision_source / model_refusal / goal` 这八个，**没有 `arguments`，也没有 `quantity`**——面板因此说不出"模型当时要的是哪个产物、要几个"，只能说出它选了哪个技能。补那一名是证据格式决定，归主控，本卡不加。
 
 **输入侧**：`session stop said {"asked": [238], "released": [], "unconfirmed": [238], "terminated": [238]}`、`left_alone` 八个历发 marker（本容器里逐个比命令行摘要、不配 ⇒ 不动手）、`session exited 14` ⇒ `input_release_failed: true` 仍是"确认回不来"那一形状，边界照第 6 条与第 23 条那句话读。**不声明**：`goal_met: false`（16 枚木棍这一发没数够，第 4 步那笔在飞）；更线那条路径（`CRAFT_MATERIALS_MISSING` 从世界上回来）至今没在活体上读到过，这一发的 `last_precondition` 也是空串；**不再因"木镐尚未取得"追加专用业务步骤**（主控方向，第 24 条）。3×3 摆格、B 分支（重封 bridge-1201）、`close_screen` 进 `SKILL_OFFER`、`started_at` 进 pid 证明、卷上 marker 累积、台账行要不要多带 `arguments` 这一名，仍全部归主控。
+
+## 六之十二、第一次联系真实供应商的游戏内自主运行（2026-10-01，run `151e7dc1a64e4d94a66061904f7ce937`，server run 目录 `run-19`，会话 `2260acaf5d8a4275ac9825b54a4592d8`，客户端 pid 257）
+
+这一发与六之十一只隔一层，而那一层正是第 3 条要的"分别报告"：**六之十一的端点是 harness 在本会话容器里起的假端点（`127.0.0.1:8818`，`不联系任何真实供应商`）；这一发联系的是 §四 那条真实 OpenAI-compatible 端点**。日志里 `fake`、`8818`、`local-not-a-secret` 各出现 **0 次**——这不是把假端点换个说法，是同一份 `demo.sh --autonomous` 把 `MINEKIN_MODEL_*` 指向了真实地址后重跑。
+
+先照第 3 条的顺序取"一次真实结构化决策"那一格：跑真跑之前，`tools/probe_real_model_decision.py` 在同一台机器上发了一笔、只发一笔（有限，不会循环烧额度），逐字回声（只有安全的半份配置，密钥值与指它的变量名都不进终端）：
+
+```text
+probe-real: endpoint_host=api.commandcode.ai model=deepseek/deepseek-v4.1-flash key_var=MINEKIN_COMMANDCODE_API_KEY provider=openai_compatible
+```
+
+命令逐字（`.tmp/run-real-model-autonomous.sh`：先 `source` 一个 gitignore 的本地文件取回 §四 那六个名字，断言必需名非空而**不打印任何值**，再把密钥变量按名交给 runner）。这里只列导出的名字与演示旋钮，密钥值不落纸：
+
+```bash
+export MINEKIN_MODEL_PROVIDER=openai_compatible
+export MINEKIN_MODEL_BASE_URL=…            # §四 的 OpenAI-compatible 根地址
+export MINEKIN_MODEL=deepseek/deepseek-v4.1-flash
+export MINEKIN_MODEL_API_KEY_ENV=MINEKIN_COMMANDCODE_API_KEY   # 存的是变量名，不是密钥
+export MINEKIN_MODEL_TIMEOUT_MS=8000
+export MINEKIN_MODEL_RUN_COST_CAP=200000
+export MINEKIN_RUNNER_FORWARD_ENV=MINEKIN_COMMANDCODE_API_KEY  # 按名把密钥递进容器
+export MINEKIN_DEMO_VOLUME=minekin-local-demo2
+export MINEKIN_DEMO_AUTONOMOUS_STEPS=6
+export MINEKIN_DEMO_GOAL_PRODUCT=minecraft:stick        # 非木镐的目标，第 5 条要的通用性
+export MINEKIN_DEMO_GOAL_QUANTITY=1
+export MINEKIN_DEMO_GOAL_SOURCE_ITEM=minecraft:oak_log
+bash test-orchestrator/runner/demo.sh --autonomous
+```
+
+harness 逐字两行（真实端点这一发不带"fake model endpoint is serving"那句——那是六之十一假端点才打印的行）：
+
+```text
+demo: this demo hands the mind a standing goal: 1 of minecraft:stick, from minecraft:oak_log
+demo: probing controlled-offline-server-1.20.1.json, preparing the bundle the registry names for it, joining, then letting the PlayerMind choose up to 6 skills from what the Kin sees (the world stacks an oak trunk in the Kin's look to break)
+```
+
+**run 文档逐字（`run.autonomous` 段）**：`decision_source: model`、`model_enabled: true`、`model_calls: 2`、`model_spent_micro: 8`、`model_cap_refusals: 0`、`model_refusal: ""`——两步都由真实答复方给出，没有一步退回本地反思。`direction: hold_stick`，`milestone {"product_id": "minecraft:stick", "quantity": 1, "source_item_id": "minecraft:oak_log"}`（里程碑仍由上面那三个 `MINEKIN_DEMO_GOAL_*` 递进去，见第 4 条其二：模型选技能，不选里程碑）。`intent_generation: 2`、`excluded_skills: []`、`retry_budget: 2`、`goal_met: false`。
+
+`steps[i].intent` 逐字：
+
+```text
+step1 break_seen_block {expected_drop_item: minecraft:oak_log}  CONFIRMED           tick 1058 -> 1226   debdbd… src model   reason "Chop the aimed oak log to start gathering wood for crafting sticks."
+step2 collect_dropped  {item_id: minecraft:oak_log}             UNKNOWN / CLIENT_EXITED  tick 1226           src model   reason "A dropped oak log is present and collecting it advances the wood-to-stick goal."
+```
+
+这一步是本轮第 3、5 条要的"游戏内 观察→真实模型选参数化行为→本地校验执行→按读数确认"那一环第一次在真实端点上取到字节：第 1 步 `break_seen_block` 被下一帧读数（`result_observation_ref: tick=1226`）核对成 CONFIRMED，且 `reason` 是答复方自己按"为做木棍而采木"这句里程碑写的、不是本地反思模板里那句 `break the block in view for …`（对比六之十一 run-16 那五步的 `local_reflection` 措辞）。
+
+**收尾那一组，逐字**：
+
+```text
+stop_reason CLIENT_EXITED   stop_detail "143"   outcome BRIDGE_LOST
+bridge_lost_reason "IPC channel closed before a complete frame header"
+failure_attribution INSUFFICIENT_INFORMATION   goal_met false   excluded_skills []   last_result UNKNOWN   last_result_reason CLIENT_EXITED   retry_budget 2
+decision_source model   model_enabled true   model_calls 2   model_spent_micro 8   model_refusal ""
+input_release_failed true   connection_state PLAYABLE   session_state STOPPED
+session stop said {"asked": [257], "released": [], "unconfirmed": [257], "terminated": [257]}
+```
+
+**这一发把第 20/21 条那面墙第一次量到了真实端点这一侧**：`local_reflection`（六之一…之十）与假端点 `model`（六之十一）之后，真端点 `model` 停在同一格 `stop_detail: "143"`、同一句 `bridge_lost_reason`、同一个 `input_release_failed: true`。也就是说墙与"答的是哪个供应商"无关——它是客户端 JVM 在进入后约十秒离开、Core 在下一帧头之前失去频道，根因在**已封的 bridge-1201 网络线程**那一侧（B 分支，重封归主控）。
+
+**对第 5 条验收的诚实边界——这一发没有达成，缺口点名如下**：第 5 条要的是"一条由真实模型选行为、读数确认阶段成果、**合成后继续非 GUI 行为**、**最终安全停止并确认松键**的连续运行"。这一发满足了前两格（真实模型逐步选、第 1 步读数 CONFIRMED），但（一）没有走到合成那一步就撞上 143，"合成后继续非 GUI"这一格在真实端点上还没有活体读数；（二）`released: []` 而 `unconfirmed: [257]`、`input_release_failed: true`——松键那格是"确认回不来"那一形状，不是"松了并确认"（对照第 6 条：闭环只在心按名字自停的 `NO_FEASIBLE_SKILL` 收尾上量到过，这次是 `CLIENT_EXITED` 把客户端先带走）。所以第 5 条**不判通过**，缺的那两格都卡在 B 分支那面墙上，不用假端点或单测全绿冒充。里程碑换成了非木镐的 `hold_stick`（`quantity: 1`），通用性那一格按第 5 条只在"同一套合成代码换个产物"的意义上成立，不等同于"任意配方都能采集成"。**不声明**：`goal_met: false`（这一发只到采木，没数到木棍）；真实端点下的 `craft`/`craft_take_result` 活体确认、松键闭环，均归 B 分支修复之后的下一次真跑。
