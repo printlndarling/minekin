@@ -791,3 +791,24 @@ step14 turn_to {pitch:-18, yaw:135}  "sweep to look for a spot to place a crafti
 **安全收尾这一格照旧复现**：`the autonomous loop reached its own verdict; stopping on a live channel` → `session stop said {"release": {"asked": [290], "released": [290], "unconfirmed": []}, "status": "stopped", "terminated": [290]}`、`input_release_failed: false`、`session exited 0`。
 
 **诚实结论**：跨产物合成子链（木板+木棍，同一木镐目标）已活体 CONFIRMED，六之十四止步的"采拾确认"这一发也不再是卡点（第 2 步入包 CONFIRMED）；仍未在活字节上完整走通的是**需要 3×3 的终产物那一笔**，且卡点是通用机制缺一格"确定性立起工作台"，而非逐物品链或端点一次性失误。要钉死它，需要在 `larger_grid_needed` 且无更宽窗口可读时，让本地反射确定性地补出"合成工作台→放置→打开→在 3×3 内合成终产物"这一通用序列（不写木镐专用链），再跑一条活体确认持有木镐的运行。**据此第 7 条按字面（采集→拾取→合成→成品确认→关屏→后续非 GUI 世界动作→确认松键）已由六之十三（木棍）与六之九（四步入包）达成；第 5 条的跨产物合成子链由本发达成；3×3 终产物活体确认仍列为未完成。**
+
+
+## 六之十六、复扫俯仰落地后在真实端点重跑的那一发：拾取接近又被量成活体卡点（2026-10-01，run `2da9ae87fd7e40528f3d500920f5d12c`，server run 目录 `run-28`，会话 `366ad9107fab4222b226a9457d581a31`，客户端 pid 229）
+
+提交 `c044de2` 把盲扫的俯仰改成复扫（`SCAN_PITCH_CYCLE_DEGREES = (-18, 55, -55)`）之后，用 §四 那条真实端点（`api.commandcode.ai`、deepseek-v4.1-flash）跑常驻目标 `hold 1×minecraft:oak_planks from minecraft:oak_log`，步数上限 10。逐字取自 run 文档 `run.autonomous.steps`：
+
+1. `break_seen_block{expected_drop_item:oak_log}` → CONFIRMED（`source: model`，tick 852→994）。木头砍下、读数核对到位。
+2. 第 2–4 步 `collect_dropped{oak_log}` 三连 `UNKNOWN / COLLECT_APPROACH_STALLED`（归因 `INSUFFICIENT_INFORMATION`）：掉落物滚到跟前但接近没收窄，背包始终没有 oak_log。
+3. 第 5 步 `turn_to{-18,45}` CONFIRMED、第 6 步 `turn_to{pitch:90,yaw:0}` CONFIRMED——模型自己说「低头看掉落的 oak_log 好把它捡起来」，俯角这一动作是到位的。
+4. 第 7–9 步模型连续 `TIMEOUT`，本地反射接管 `break_seen_block` 三连 `UNKNOWN / NO_CONFIRMING_OBSERVATION`（材料没进包，砍的又是不存在的目标）。
+5. 第 10 步本地反射 `turn_to{-55,135}`（新复扫里的那一档）`FAILED / AIM_STALLED`，`excluded_skills:[break_seen_block,collect_dropped]`，`stop_reason: STEP_BUDGET_SPENT`，`goal_met: false`。
+
+**这一发既没走到合成，也没走到放置**：卡在「把已掉落的 oak_log 收进背包」这一格。六之十四（第 756 行）早已把 `collect_dropped 在掉落物滚出可达时` 点名为候选卡点，本发把它重新量成真实端点下的活体卡点，且与目标产物无关。据此对六之十五「采拾确认不再是卡点」那句作一处诚实修正：那句只在 `run 9e01523a` 那一发运气下成立，同一份代码换一发世界布局就会回到接近 stall。
+
+**复扫俯仰本身不足以解锁放置**：`c044de2` 的 `pitch:-55` 确实在第 10 步出现，却落在 `AIM_STALLED`（gap 不再收窄）。换俯仰角读到的是更多朝向，不等于稳定拿到 `BLOCK` 瞄准；放置前的瞄准获取是与复扫独立的一格问题。
+
+**安全与有界这一格在真实端点上复现**：`input_release_failed: false`、`release{asked:[229],released:[229],unconfirmed:[]}`、`terminated:[229]`、`unresolved:[]`；`world_observations admitted:173 / refused:0 / stale_tick_dropped:0`；同类签名两次预算耗尽即排除、随后按步数上限自停，没有无限重试。
+
+**具名的下一步（先诊断，不盲改）**：`collect_dropped` 的停滞判据在 `world_skills.py:749` 拿 `_drop_distance`（三维含竖直分量）与 `COLLECT_CLOSE_APPROACH_METERS` 比收窄。掉落物停在一到两格之下时，水平走动无法削减竖直分量 ⇒ 三维距离看着不收窄 ⇒ 误判 `COLLECT_APPROACH_STALLED`。这一假设需要一发带 `relative_x/y/z` 读数的活体确认，不在 run 文档里 ⇒ 不在本轮盲改判据。取 `current_next`＝「在真实读数上确认 collect 接近距离该按水平距离判还是按三维距离判，再按确认结果改 `world_skills.py` 的停滞判据并补单测」。
+
+**不声明**：放置 `use_target` 的真实游戏确认仍未取得，保持 `UNKNOWN`；第 7 条按字面仍由六之十三（木棍连续闭环+确认松键）与六之九达成，本发不削减它，也不给 `goal_met` 或任何 `tested/CONFIRMED` 追加冒充。
