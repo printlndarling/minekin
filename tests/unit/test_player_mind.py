@@ -20,6 +20,7 @@ import pytest
 
 from minekin_core.adapters.model import OffModelProvider
 from minekin_core.application.player_mind import (
+    CLOSE_SCREEN,
     CRAFT_MATERIALS_MISSING,
     DECISION_FROM_LOCAL,
     DECISION_FROM_MODEL,
@@ -38,6 +39,7 @@ from minekin_core.application.player_mind import (
     mind_for,
     needs_from,
     next_craft,
+    screen_open,
     shortfalls,
 )
 from minekin_core.domain.goal_spec import Milestone
@@ -55,6 +57,7 @@ from minekin_core.domain.perception import (
     AimTargetValue,
     BlockTargetValue,
     EntityCandidate,
+    GuiScreenValue,
     InventoryStackValue,
     InventoryValue,
     SelfStateValue,
@@ -162,6 +165,7 @@ def reading(
     items: tuple[tuple[int, str, int], ...] = (),
     entities: tuple[EntityCandidate, ...] = (),
     self_state: SelfStateValue | None = None,
+    gui: GuiScreenValue | None = None,
 ) -> WorldObservationValue:
     return WorldObservationValue(
         generation=1,
@@ -171,7 +175,7 @@ def reading(
         inventory=bag(*items),
         visible_entities=entities,
         mining=None,
-        gui=None,
+        gui=gui,
     )
 
 
@@ -346,6 +350,101 @@ def test_a_bag_partway_through_the_plan_is_credited_rather_than_asked_to_start_a
 def test_an_aiming_that_is_a_miss_does_not_offer_a_mine() -> None:
     miss = AimTargetValue(game_tick=100, kind=AimKind.MISS)
     assert "break_seen_block" not in feasible_skill_ids(GOAL, reading(aim=miss))
+
+
+# --------------------------------------------------------------- the standing container
+
+
+def test_an_open_container_narrows_the_offer_to_leaving_it() -> None:
+    """A reading that would otherwise offer the break, the collect and the craft offers only the
+    exit — the world actions it displaces are exactly the ones that, sent while the window holds
+    the input, become the `GUI_CONFLICT` the run reads back as a silent stream. The narrowing is
+    the whole fix: it is what lets the Kin leave the screen before it tries to act on the world,
+    rather than hardcoding a close onto the tail of the craft."""
+
+    crowded = reading(
+        aim=block_aim(),
+        items=((0, PLANKS, 5),),
+        entities=(drop(),),
+        gui=GuiScreenValue(screen_id="", sync_id=7),
+    )
+
+    assert feasible_skill_ids(GOAL, crowded) == (CLOSE_SCREEN,)
+
+
+def test_a_window_is_the_handler_not_the_screen_name() -> None:
+    """The player's own crafting window reports an empty screen id while its handler is live, and
+    `0` is a legal handler id — so only the handler's *absence* says there is nothing to leave."""
+
+    assert screen_open(reading(gui=GuiScreenValue(screen_id="", sync_id=0)))
+    assert not screen_open(
+        reading(gui=GuiScreenValue(screen_id="minecraft:crafting", sync_id=None))
+    )
+    assert not screen_open(reading())
+
+
+def test_a_screen_with_no_handler_leaves_the_full_offer_standing() -> None:
+    """The inverse half: `sync_id=None` is a reading that says no window is up, so the world
+    actions are offered again rather than a close that would spend a step to change nothing."""
+
+    subject = reading(aim=block_aim(), items=((0, PLANKS, 5),))
+
+    assert feasible_skill_ids(GOAL, subject) != (CLOSE_SCREEN,)
+    assert set(feasible_skill_ids(GOAL, subject)) == {
+        "break_seen_block",
+        "craft_take_result",
+        "turn_to",
+    }
+
+
+def test_a_model_that_asks_to_leave_the_screen_becomes_a_close_plan() -> None:
+    """The ask is honoured inside the narrowed offer: one call, no arguments, and the capability
+    the skill layer names for a step that only touches the screen."""
+
+    mind, _ = mind_with(
+        Decision(skill_id=CLOSE_SCREEN, reason="out of the window", intent_generation=1)
+    )
+    intent = mind.next_intent(
+        reading(
+            aim=block_aim(), items=((0, PLANKS, 5),), gui=GuiScreenValue(screen_id="", sync_id=7)
+        )
+    )
+
+    assert intent.kind is MindDecisionKind.INTENT
+    assert intent.source == DECISION_FROM_MODEL
+    assert intent.skill == CLOSE_SCREEN
+    assert intent.arguments == {}
+    assert [call.name for call in intent.plan.calls] == [CLOSE_SCREEN]
+    assert intent.capabilities == skill_capabilities(CLOSE_SCREEN)
+
+
+def test_the_off_mind_leaves_an_open_screen_before_it_looks() -> None:
+    """`off` walks the same narrowing: the local reflection sees only `close_screen` in the offer
+    and chooses it, so a machine with no credentials still steps out of a stuck window instead of
+    sending a crosshair click into it."""
+
+    ledger = CostLedger(run_cost_cap=CAP)
+    mind = mind_for(OffModelProvider(), ledger, goal=GOAL)
+    intent = mind.next_intent(reading(aim=block_aim(), gui=GuiScreenValue(screen_id="", sync_id=3)))
+
+    assert intent.source == DECISION_FROM_LOCAL
+    assert intent.skill == CLOSE_SCREEN
+    assert [call.name for call in intent.plan.calls] == [CLOSE_SCREEN]
+
+
+def test_a_closed_reading_gives_the_world_actions_back() -> None:
+    """The whole point of narrowing rather than banning: the next reading, with no handler, offers
+    the break again — leave the window, then act on the world, as a two-reading sequence the mind
+    closes on its own."""
+
+    ledger = CostLedger(run_cost_cap=CAP)
+    mind = mind_for(OffModelProvider(), ledger, goal=GOAL)
+
+    open_reading = reading(aim=block_aim(), gui=GuiScreenValue(screen_id="", sync_id=3))
+    closed_reading = reading(aim=block_aim())
+
+    assert mind.next_intent(open_reading).skill == CLOSE_SCREEN
+    assert mind.next_intent(closed_reading).skill == "break_seen_block"
 
 
 # --------------------------------------------------------------------------------- the needs

@@ -148,8 +148,11 @@ def _checked_offer(offer: tuple[str, ...]) -> tuple[str, ...]:
 
 #: The order the feasible set is reported in, and so the order a scan of it reads. Listed once here
 #: because a model's offer and the local fallback have to be the same list, not two lists that
-#: happen to agree today. `close_screen` is deliberately absent: it is the one skill whose every
-#: reading is already a success, so offering it would invite a step spent to change nothing.
+#: happen to agree today. `close_screen` is deliberately absent from this standing list: it is the
+#: one skill whose every reading is already a success *when no window is standing*, so offering it
+#: then would invite a step spent to change nothing. It is offered in exactly the one case where a
+#: step it takes does change the world — a container open on the client — which `feasible_skill_ids`
+#: detects off the newest reading rather than from this list.
 SKILL_OFFER: Final = _checked_offer(
     (
         "break_seen_block",
@@ -159,6 +162,25 @@ SKILL_OFFER: Final = _checked_offer(
         "turn_to",
     )
 )
+
+#: The one skill that ends a standing window, and so the only step worth taking while a container is
+#: open. Named once so the feasible set, the local reflection and the call builder agree on it.
+CLOSE_SCREEN: Final = "close_screen"
+
+
+def screen_open(reading: WorldObservationValue) -> bool:
+    """Whether this reading says a container is standing on the client.
+
+    The one fact that distinguishes 'nothing is open' from 'my inventory is' is a handler id, not a
+    screen name: the live client reports the player's own crafting window with an empty screen id
+    while still giving its handler an id (see `world_skills._window_sync_id`), and `0` is a legal
+    handler id for the player inventory, so its absence — not its value — is the only reading that
+    can say there is no window. The skill layer closes on the same test, so the mind that decides
+    *whether* to leave and the skill that leaves cannot disagree about whether there was anything to
+    leave.
+    """
+
+    return reading.gui is not None and reading.gui.sync_id is not None
 
 
 def owed_steps(
@@ -402,8 +424,20 @@ def feasible_skill_ids(
     is offered for any dropped item in view, not only for one the milestone names, for the same
     reason: the ask chooses among what the summary shows, and this side only judges whether the
     world could carry it out.
+
+    A standing container rewrites the whole offer. The skills this build sends to the world — the
+    break, the walk to a drop, the turn, the number key — all act through the crosshair or the
+    hot bar, and neither is the player's while a container holds the input: the same click that
+    would break a block becomes the `GUI_CONFLICT` that leaves the Kin inside a window holding the
+    keyboard, and the observation stream that goes quiet afterwards is the run reading its way into
+    a `CLIENT_EXITED`. So when this reading says a window is open, the only step that changes the
+    world is leaving it, and the offer narrows to that one name. The next reading, with no handler,
+    opens the full set again — which is the contract's "close the screen when needed, then allow
+    world actions" as a decision rather than a hardcoded tail on the craft.
     """
 
+    if screen_open(reading):
+        return (CLOSE_SCREEN,)
     feasible = {
         "break_seen_block" if reading.aim is not None and reading.aim.block is not None else "",
         "collect_dropped" if _nearest_drop(reading) is not None else "",
@@ -826,6 +860,8 @@ class PlayerMind:
         badly hurt, because a broken trunk is not what a half-health reading is asking for.
         """
 
+        if "close_screen" in feasible:
+            return "close_screen"
         if "select_hotbar" in feasible:
             return "select_hotbar"
         if "craft_take_result" in feasible:
@@ -920,6 +956,15 @@ class PlayerMind:
                 ),
                 f"hold the {self.goal.product_id} in hand",
                 {"slot": slot, "expected_item_id": self.goal.product_id},
+            )
+        if skill == CLOSE_SCREEN:
+            # No argument to honour and nothing to read first: the skill checks its own pre-state
+            # and closes on the reading that reports no handler. The mind only reaches here when
+            # this reading already showed a window, so the step is never spent to change nothing.
+            return (
+                SkillPlan((SkillCall(name=CLOSE_SCREEN),)),
+                "leave the open screen so the world can be acted on again",
+                {},
             )
         self.scan_step += 1
         yaw = _asked_number(arguments, "yaw_degrees")
