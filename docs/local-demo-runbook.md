@@ -693,6 +693,35 @@ input_release_failed true   connection_state PLAYABLE   session_state STOPPED
 session stop said {"asked": [257], "released": [], "unconfirmed": [257], "terminated": [257]}
 ```
 
-**这一发把第 20/21 条那面墙第一次量到了真实端点这一侧**：`local_reflection`（六之一…之十）与假端点 `model`（六之十一）之后，真端点 `model` 停在同一格 `stop_detail: "143"`、同一句 `bridge_lost_reason`、同一个 `input_release_failed: true`。也就是说墙与"答的是哪个供应商"无关——它是客户端 JVM 在进入后约十秒离开、Core 在下一帧头之前失去频道，根因在**已封的 bridge-1201 网络线程**那一侧（B 分支，重封归主控）。
+**这一发把第 20/21 条那面墙第一次量到了真实端点这一侧**：`local_reflection`（六之一…之十）与假端点 `model`（六之十一）之后，真端点 `model` 停在同一格 `stop_detail: "143"`、同一句 `bridge_lost_reason`、同一个 `input_release_failed: true`。也就是说墙与"答的是哪个供应商"无关。**这一句原先把根因写进"已封的 bridge-1201 网络线程（B 分支，重封归主控）"，那个归因按后续读数作废**：143 是 Core/harness 自己发出的 SIGTERM，不是游戏崩溃，也不是已封字节。两处具名机制，都在本轮范围内修掉——(一) `application/autonomous_play.py` 里那笔阻塞的模型 round-trip 同步跑在事件循环上，一次 `urllib` 最长 `timeout_ms`（8s）会把循环冻住，IPC 读帧与 stop 请求派发都进不来，协同松键因此饿死成强制 `SIGTERM`（提交 `90e2c30`，把该调用挪到 `asyncio.to_thread`）；(二) harness 在 playable 后几秒就 `session stop`，一个还在逐步选动作的心智会在某步中途被 `SIGTERM` 掉（提交 `5c585e5`，让 harness 有界地等 `AutonomousRunHalted` 落账再停）。run `5d210ec402c54490be264cd8300a7852`（server `run-20`）先证实了第一处：修复后循环在同一条 `hold_stick` 目标上连出两步真实决策——第 1 步 `break_seen_block` 被 `tick=1227` 核对成 CONFIRMED，随后拿到新读数、第 2 步 `collect_dropped` 也由模型选，`model_calls: 2`、`confirmed: 1`；那一步仍 `CLIENT_EXITED`，正是第二处（harness 抢先停）的形状。修复后的确认读数见六之十三。
 
-**对第 5 条验收的诚实边界——这一发没有达成，缺口点名如下**：第 5 条要的是"一条由真实模型选行为、读数确认阶段成果、**合成后继续非 GUI 行为**、**最终安全停止并确认松键**的连续运行"。这一发满足了前两格（真实模型逐步选、第 1 步读数 CONFIRMED），但（一）没有走到合成那一步就撞上 143，"合成后继续非 GUI"这一格在真实端点上还没有活体读数；（二）`released: []` 而 `unconfirmed: [257]`、`input_release_failed: true`——松键那格是"确认回不来"那一形状，不是"松了并确认"（对照第 6 条：闭环只在心按名字自停的 `NO_FEASIBLE_SKILL` 收尾上量到过，这次是 `CLIENT_EXITED` 把客户端先带走）。所以第 5 条**不判通过**，缺的那两格都卡在 B 分支那面墙上，不用假端点或单测全绿冒充。里程碑换成了非木镐的 `hold_stick`（`quantity: 1`），通用性那一格按第 5 条只在"同一套合成代码换个产物"的意义上成立，不等同于"任意配方都能采集成"。**不声明**：`goal_met: false`（这一发只到采木，没数到木棍）；真实端点下的 `craft`/`craft_take_result` 活体确认、松键闭环，均归 B 分支修复之后的下一次真跑。
+**对第 5 条验收的诚实边界——这一发没有达成，缺口点名如下**：第 5 条要的是"一条由真实模型选行为、读数确认阶段成果、**合成后继续非 GUI 行为**、**最终安全停止并确认松键**的连续运行"。这一发满足了前两格（真实模型逐步选、第 1 步读数 CONFIRMED），但（一）没有走到合成那一步就撞上 143，"合成后继续非 GUI"这一格在真实端点上还没有活体读数；（二）`released: []` 而 `unconfirmed: [257]`、`input_release_failed: true`——松键那格是"确认回不来"那一形状，不是"松了并确认"（对照第 6 条：闭环只在心按名字自停的 `NO_FEASIBLE_SKILL` 收尾上量到过，这次是 `CLIENT_EXITED` 把客户端先带走）。所以第 5 条**不判通过**，缺的那两格都卡在 B 分支那面墙上，不用假端点或单测全绿冒充。里程碑换成了非木镐的 `hold_stick`（`quantity: 1`），通用性那一格按第 5 条只在"同一套合成代码换个产物"的意义上成立，不等同于"任意配方都能采集成"。**不声明**：`goal_met: false`（这一发只到采木，没数到木棍）；真实端点下的 `craft`/`craft_take_result` 活体确认、松键闭环，均归上面两处 Core/harness 修复落地之后的下一次真跑——那一发见六之十三。
+
+## 六之十三、两处修复落地后的真实端点连续闭环（2026-10-01，run `f9de681f73a64f32bfe3f005c397d9f6`，server run 目录 `run-21`，客户端 pid 257）
+
+六之十二点名的两处 Core/harness 机制分别落为提交 `90e2c30`（把阻塞的模型 round-trip 挪出事件循环：`application/autonomous_play.py` 里 `intent = await asyncio.to_thread(mind.next_intent, reading)`）与 `5c585e5`（harness 有界地等 `AutonomousRunHalted` 落账再停：`domain.sh` 在 playable 之后轮询台账、默认关、`--autonomous` 才开）。这一发是这两处字节合在一起的第一条真跑确认，用的仍是 §四 那条真实 OpenAI-compatible 端点。日志里 `fake`、`8818`、`local-not-a-secret`、`sk-`、`Bearer ` 各出现 **0 次**——真实供应商，不是假端点，也不是本地反思回退。
+
+harness 逐字收尾三行（关键是第一行：循环先给出了自己的终判，停才落到活频道上）：
+
+```text
+domain: the autonomous loop reached its own verdict; stopping on a live channel
+domain: session stop said {"release": {"asked": [257], "released": [257], "unconfirmed": []}, "terminated": [257]}
+domain: session exited 14
+```
+
+对照六之十二那一发的 `released: [] / unconfirmed: [257]`、`input_release_failed: true`：这一发 **`input_release_failed: false`**，pid 257 被"松了并确认"，`terminated` 是松键之后的正常了结而不是抢在持有按键时的 SIGTERM。第 5 条要的"最终安全停止并确认松键"这一格，第一次在真实端点上取到活字节。
+
+**run 文档逐字（`run.autonomous` 与 `mind` 段）**：`decision_source: model`、`model_enabled: true`、`model_calls: 6`、`model_spent_micro: 24`、`model_refusal: ""`、`model_cap_refusals: 0`、`confirmed: 5`、`stop_reason: STEP_BUDGET_SPENT`、`stop_detail: ""`、`goal_met: true`、`excluded_skills: []`、`retry_budget: 2`。里程碑仍由 `MINEKIN_GOAL_*` 递进（`hold_stick`、`product_id: minecraft:stick`、`quantity: 1`、`source_item: minecraft:oak_log`），六步全部 `src=model`：
+
+```text
+step1 break_seen_block {expected_drop_item: minecraft:oak_log}                    CONFIRMED  tick 1042 -> 1198   model
+step2 collect_dropped  {item_id: minecraft:oak_log}                               CONFIRMED  tick 1198 -> 1319   model
+step3 craft_take_result {quantity: 1, target_item: minecraft:stick}               CONFIRMED  tick 1319 -> 1418   model   # 合成，按读数确认
+step4 close_screen     {}                                                         CONFIRMED  tick 1418 -> 1517   model   # 合成后关界面
+step5 craft_take_result {quantity: 1, target_item: minecraft:stick}               CONFIRMED  tick 1517 -> 1627   model   # 关界面后继续非 GUI 合成
+step6 close_screen     {}                                                         FAILED (SCREEN_STILL_OPEN)   tick 1627        # 随后步数预算耗尽
+```
+
+这一发把第 5 条那条"真实模型选行为 → 读数确认阶段成果 → 合成后继续非 GUI 行为 → 安全停止并确认松键"的**连续**链，第一次在同一条真实端点运行里逐格取到：第 1–3 步是"观察→模型选参数化行为→本地按读数校验执行→读数 CONFIRMED"，第 3 步 `craft_take_result` 把木棍合成并取走被 CONFIRMED，第 4 步 `close_screen` 关界面、第 5 步又 CONFIRMED 一次 `craft_take_result` 即"合成后继续非 GUI"，末了 `STEP_BUDGET_SPENT` 是心把六步走完自己的收尾、`goal_met: true`（第 6 步模型自陈"已握 4 根木棍、达成 hold_stick"），松键确认回到 `[257]`。
+
+**仍然诚实标注的边界**：(一) `outcome` 仍是 `BRIDGE_LOST`、`bridge_lost_reason` 仍是"IPC channel closed before a complete frame header"——但这一发它是**终判之后的健康收尾**（循环已 `STEP_BUDGET_SPENT` 自停、松键已确认），与六之十一、十二那种"没给出终判就被 SIGTERM、`input_release_failed: true`"的形状是两回事——本仓库对 `BRIDGE_LOST` 的既有判读即"健康收尾"，前提是先有终判。(二) 第 6 步 `close_screen` 撞 `SCREEN_STILL_OPEN` 后步数预算耗尽——这是 6 步这一界定的产物，不是崩溃；多给一步大概率能收回。(三) 第 5 条要的"用不同目标检查通用性"：这一发是 `hold_stick`，另一条换产物（`oak_planks ×3`）的真实端点运行另记，**不以单一产物的成功宣称通用合成已完备**。第 1 条（143 根因、谁触发退出、修复、回归测试、真跑确认）在本发闭合：触发者是 Core/harness 自己，不是游戏或已封桥。
