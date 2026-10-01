@@ -127,6 +127,24 @@ CHASE_STEP_MIN_REMAINING_NS: Final[int] = 600_000_000
 #: only the number of times the player's own key goes out is bounded.
 CLOSE_SCREEN_MAX_ESCAPES: Final[int] = 3
 
+#: How much nearer the nearest sighting of a drop has to come between two
+#: corrections for a walk to count as closing on it. A correction that leaves the
+#: drop no nearer is a step into a wall or a hole, not progress, and re-firing it is
+#: the blind repeat the mind is meant to avoid rather than a chase.
+COLLECT_CLOSE_APPROACH_METERS: Final[float] = 0.25
+
+#: How many corrections in a row may fail to close before the step concludes the
+#: approach has stalled. One is a reading taken mid-stride; this many is a Kin that
+#: is not getting there, and it should stop spending the window walking and let the
+#: mind re-aim or move somewhere else.
+COLLECT_MAX_STALLED_CORRECTIONS: Final[int] = 3
+
+#: The two ways a chase ends because the world moved out from under it rather than
+#: because the channel went quiet — both kept distinct from `NO_CONFIRMING_OBSERVATION`
+#: so a reader can tell "it stopped being reachable" from "nothing ever arrived".
+DROP_OUT_OF_VIEW: Final[str] = "DROP_OUT_OF_VIEW"
+COLLECT_APPROACH_STALLED: Final[str] = "COLLECT_APPROACH_STALLED"
+
 #: The wire's face enum, keyed by the domain token that names it. Closed
 #: mapping: a face this build cannot spell is a refusal here, not a default on
 #: the channel.
@@ -222,6 +240,15 @@ def _chase_details(steps: int, newest: WorldObservationValue) -> dict[str, str]:
     """
 
     return {"steps": str(steps), "newest_checked_tick": str(newest.game_tick)}
+
+
+def _drop_distance(drop: EntityCandidate) -> float:
+    """The client's own distance from the Kin to this sighting of a drop — the
+    relative offset's magnitude, which is the only reachability fact the surface
+    carries. Used to tell a walk that closed on the item from one that fired into
+    a wall and left the drop exactly as far away."""
+
+    return math.dist((drop.relative_x, drop.relative_y, drop.relative_z), (0.0, 0.0, 0.0))
 
 
 def _craft_details(
@@ -648,6 +675,9 @@ class WorldSkills:
         # The plan sizes the approach; the corrections after it are this module's
         # own short steps, so a whole window is not spent walking.
         steps = 1
+        chase_reason = "NO_CONFIRMING_OBSERVATION"
+        last_distance = _drop_distance(first_drops[0])
+        stalled = 0
         await self._walk_toward(action_id, authority, first_drops[0], walk_seconds)
         while True:
             post = await self._wait_until(
@@ -667,17 +697,36 @@ class WorldSkills:
                     details=_chase_details(steps, post),
                 )
             drops = seen_drops(post.visible_entities, item_id)
+            if not drops:
+                # The drop left the client's own view without ever arriving in the
+                # bag. There is nothing to aim at, and standing to listen out the
+                # rest of the window buys nothing: conclude so the mind re-scans for
+                # where it went rather than replaying a walk toward an empty spot.
+                chase_reason = DROP_OUT_OF_VIEW
+                break
             walk_ns = round(CHASE_STEP_SECONDS * 1_000_000_000)
-            if not drops or deadline - monotonic_ns() < walk_ns + CHASE_STEP_MIN_REMAINING_NS:
-                # Nothing to walk toward, or the correction no longer fits with a
-                # reading to conclude on: the Kin stands where the last step left
-                # it and the rest of the window is spent listening, not walking.
-                continue
+            if deadline - monotonic_ns() < walk_ns + CHASE_STEP_MIN_REMAINING_NS:
+                # The correction no longer fits with a reading to conclude on: stop
+                # here with the window's remaining silence, not a fresh stall signal.
+                break
+            distance = _drop_distance(drops[0])
+            if distance > last_distance - COLLECT_CLOSE_APPROACH_METERS:
+                # A correction that did not bring the nearest sighting nearer: the
+                # step is not closing on the item. One is a reading caught mid-stride;
+                # this many is an approach that has stalled, and the next move is a
+                # different one, not the same walk fired again.
+                stalled += 1
+                if stalled >= COLLECT_MAX_STALLED_CORRECTIONS:
+                    chase_reason = COLLECT_APPROACH_STALLED
+                    break
+            else:
+                stalled = 0
+            last_distance = distance
             steps += 1
             await self._walk_toward(action_id, authority, drops[0], CHASE_STEP_SECONDS)
         return SkillOutcome(
             result=ActionResultClass.UNKNOWN,
-            reason="NO_CONFIRMING_OBSERVATION",
+            reason=chase_reason,
             action_id=action_id,
             pre_tick=pre.game_tick,
             details=_chase_details(steps, chain),

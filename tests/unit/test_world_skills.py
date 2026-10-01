@@ -34,6 +34,7 @@ from minekin_core.adapters.bridge.ipc import (
 from minekin_core.application.world_observation import WorldObservationStore
 from minekin_core.application.world_skills import (
     CLOSE_SCREEN_MAX_ESCAPES,
+    COLLECT_MAX_STALLED_CORRECTIONS,
     ActionAuthority,
     ClientProcessExited,
     WorldSkills,
@@ -494,9 +495,10 @@ def test_collect_reports_the_frames_a_failed_chase_did_look_at() -> None:
         next_tick = 110
 
         def answer(message_type: str) -> None:
-            # Readings keep arriving and the drop keeps being visible with the
-            # inventory on the same revision: nothing here has been picked up,
-            # and that is a different story from a silent channel.
+            # Readings keep arriving and the drop keeps being reported at the SAME
+            # distance with the inventory on the same revision: the walk is not
+            # closing on it. That is a stalled approach, not a silent channel, and
+            # not a chase worth firing into a wall until the window runs out.
             nonlocal next_tick
             if message_type != AIM_INPUT_TYPE:
                 return
@@ -515,13 +517,105 @@ def test_collect_reports_the_frames_a_failed_chase_did_look_at() -> None:
             item_id="minecraft:oak_log",
             authority=authority(),
             walk_seconds=0.0,
+            timeout_ns=3_000_000_000,
+        )
+
+        assert outcome.result is ActionResultClass.UNKNOWN
+        assert outcome.reason == "COLLECT_APPROACH_STALLED"
+        # Bounded: it stops after the corrections that failed to close, not after the
+        # whole window; and the step count says exactly how many walks it fired.
+        assert int(outcome.details["steps"]) == COLLECT_MAX_STALLED_CORRECTIONS
+        assert int(outcome.details["newest_checked_tick"]) > 100
+
+    asyncio.run(scenario())
+
+
+def test_collect_stops_when_the_reachable_drop_leaves_the_client_view() -> None:
+    """The drop went out of the client's own render without a synced inventory rise,
+    so nothing confirms the pickup and nothing is left to aim at. Concluding here,
+    instead of standing and listening out the window, is what lets the mind re-scan.
+    """
+
+    async def scenario() -> None:
+        store = store_with(
+            reading(
+                tick=100,
+                inventory_value=inventory(100),
+                entities=(oak_log_drop(tick=100),),
+            )
+        )
+        skills, sender = skill_with(store)
+
+        def answer(message_type: str) -> None:
+            if message_type != AIM_INPUT_TYPE:
+                return
+            # A newer tick with the item gone, on the SAME revision — neither a
+            # confirmed rise nor a confirmed loss, so the reading cannot settle it.
+            store.admit(reading(tick=110, inventory_value=inventory(100), entities=()), ())
+
+        sender.on_send = answer
+        outcome = await skills.collect_dropped(
+            item_id="minecraft:oak_log",
+            authority=authority(),
+            walk_seconds=0.0,
             timeout_ns=1_500_000_000,
         )
 
         assert outcome.result is ActionResultClass.UNKNOWN
-        assert outcome.reason == "NO_CONFIRMING_OBSERVATION"
-        assert int(outcome.details["steps"]) >= 2
-        assert int(outcome.details["newest_checked_tick"]) > 100
+        assert outcome.reason == "DROP_OUT_OF_VIEW"
+        assert outcome.details == {"steps": "1", "newest_checked_tick": "110"}
+
+    asyncio.run(scenario())
+
+
+def test_collect_keeps_chasing_while_the_drop_gets_nearer_and_confirms() -> None:
+    """A closing approach is not a stall: the nearest sighting shrinks across
+    corrections, so the chase continues and the synced rise confirms the pickup.
+    This is the control the stall test needs to show the reachability guard fires
+    only on a walk that is genuinely not arriving."""
+
+    async def scenario() -> None:
+        store = store_with(
+            reading(
+                tick=100,
+                inventory_value=inventory(100),
+                entities=(oak_log_drop(tick=100, distance=2.5),),
+            )
+        )
+        skills, sender = skill_with(store)
+        queued = [
+            reading(
+                tick=110,
+                inventory_value=inventory(100),
+                entities=(oak_log_drop(tick=110, distance=1.5),),
+            ),
+            reading(
+                tick=120,
+                inventory_value=inventory(100),
+                entities=(oak_log_drop(tick=120, distance=0.5),),
+            ),
+            reading(
+                tick=130,
+                inventory_value=inventory(130, (0, "minecraft:oak_log", 1)),
+                entities=(),
+            ),
+        ]
+
+        def answer(message_type: str) -> None:
+            if message_type == AIM_INPUT_TYPE and queued:
+                store.admit(queued.pop(0), ())
+
+        sender.on_send = answer
+        outcome = await skills.collect_dropped(
+            item_id="minecraft:oak_log",
+            authority=authority(),
+            walk_seconds=0.0,
+            timeout_ns=10_000_000_000,
+        )
+
+        assert outcome.result is ActionResultClass.CONFIRMED
+        assert outcome.post_tick == 130
+        assert int(outcome.details["steps"]) == 3
 
     asyncio.run(scenario())
 
