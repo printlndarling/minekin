@@ -862,3 +862,20 @@ step14 turn_to {pitch:-18, yaw:135}  "sweep to look for a spot to place a crafti
 **并发撞库这一发不产品记账**：同一时刻我误起了第二发（`32470aba…`，客户端 pid 346、会话 `82cd0f5b…`），两发共用单卷 demo2 的同一 Kin 数据根，第二发的客户端 JVM 在第一首发收尾时被带走，记为 `stop_reason: CLIENT_EXITED / BRIDGE_LOST`、`input_release_failed: true`、`session exited 14`。这是编排/操作层面的自伤（单卷同一时间只能独占跑一发），不是产品缺陷，也不拿它当 `use_target` 的第二个证据；保留此记录以如实记撞库事实，不据此改动产品结论。
 
 **下一格 `current_next`**：单次、独占 demo2 数据根地重跑木镐一发，让 `use_target` 放置落在空的相邻面（俯角不把准星压进自己脚下占位格）；放置若按减量 CONFIRM，则紧接第二次 `use_target` 打开 3×3 并合成 `wooden_pickaxe`，全链由真实模型决策并逐字入账。通过则记第 5 条跨目标 + 第 7 条 3×3 收尾 CONFIRMED，未通过则继续记 UNKNOWN，不美化。
+
+## 六之十九、第二个不同终产物（木棍）在同一真实端点由通用行为逐步确认的那一发：砍→拾取→合成→合成→关屏→选物入手→确认松键 全链 CONFIRMED（2026-10-01，run `da6b72d7f2794e29bfff9e387bfe1cfc`，会话 `48baf6686b38405a943bf16a951e4ff6`，客户端 pid 310，server run 目录 `run-32`，boot_mode `cache_hit`）
+
+目标 `hold 1×minecraft:stick from minecraft:oak_log`，步数上限 10，同一条真实端点（`api.commandcode.ai`、deepseek-v4.1-flash），复用已填充的 demo2 卷。逐字取自 `run.autonomous.steps`——六步全部 `result: CONFIRMED`、全部 `source: model`：
+
+1. `break_seen_block{expected_drop_item:oak_log}` CONFIRMED（tick 1337→1502）。
+2. `collect_dropped{item_id:oak_log}` CONFIRMED（tick 1502→1590）——水平接近判据（`3215c86`）下这一步一步入包。
+3. `craft_take_result{target_item:stick, quantity:1}` CONFIRMED（tick 1590→1722）。
+4. `craft_take_result{target_item:stick, quantity:1}` 再一次 CONFIRMED（tick 1722→1810）——模型自陈「木棍可由已在背包的木板合成」，因单次合成只出 2 根而再合成一笔；这是同一通用技能按读数自适配，非木棍专用链。
+5. `close_screen{}` CONFIRMED（tick 1810→1909），模型读「已持有 4 根木棍、超出所需 1，关掉开着的合成窗」。
+6. `select_hotbar{expected_item_id:stick, slot:7}` CONFIRMED（tick 1909→2019），把它选进手上。
+
+`goal_met: true`、`stop_reason: GOAL_HELD_IN_HAND`、`decision_source: model`、`model_enabled: true`、`model_calls: 6`、`autonomous.confirmed: 6`、`excluded_skills: []`、`model_spent_micro: 26`。安全与有界：`input_release_failed: false`、`release{asked:[310]}`、`terminated:[310]`、`unresolved:[]`、`outcome: STOPPED_ON_REQUEST`、`connection_state: PLAYABLE → session_state: STOPPED、status: ended`；`world_observations admitted:73 / refused:0 / stale_tick_dropped:0`。
+
+**这一发把 #5「多个不同目标」补成两枚不同终产物、均由同一套通用参数化行为承接并逐步真实读数确认**：`oak_planks`（六之十七 run `bfdc6011…`）与本发的 `stick`，同一 Core、无按物品专用模块；`#7` 的连续链「采集→拾取→合成→成品确认→关屏→后续非 GUI 世界动作（选物入手）→确认松键」在第二枚产物上原样复现。
+
+**边界不越**：本发刻意取 2×2 玩家格可合成的终产物，不涉及 `use_target` 放置与 3×3 开窗。需 3×3 的终产物（木镐）那一笔的真实游戏确认仍未取得、保持 `UNKNOWN`（见六之十八：机制已实现+单测通过、模型已自选到放置那一步，但把方块瞄准进自己脚下），本发不替代、不削减它，也不据此给 `use_target` 追加任何 CONFIRMED。
