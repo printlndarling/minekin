@@ -900,7 +900,7 @@ def _autonomous_run_document(arguments: Mapping[str, object]) -> bytes:
     ask this side honoured. Only the members this projection reads are populated.
     """
 
-    document = {
+    document: dict[str, object] = {
         "run": {
             "autonomous": {
                 "stop_reason": "GOAL_MET",
@@ -927,7 +927,7 @@ def _unseal(tmp_path: Path):
     unseal_all(tmp_path)
 
 
-def test_a_sealed_run_document_lands_behaviour_parameters(tmp_path: Path, _unseal) -> None:
+def test_a_sealed_run_document_lands_behaviour_parameters(tmp_path: Path, _unseal: None) -> None:
     """A sealed bundle's newest step gives the panel its redacted behaviour parameters.
 
     This is the enrichment's whole claim: the parameters were never a ledger reading, so
@@ -962,7 +962,9 @@ def test_a_sealed_run_document_lands_behaviour_parameters(tmp_path: Path, _unsea
     assert "run document" in named_gap(group, "modelConfig")
 
 
-def test_a_sealed_bundle_without_a_run_document_keeps_the_gap(tmp_path: Path, _unseal) -> None:
+def test_a_sealed_bundle_without_a_run_document_keeps_the_gap(
+    tmp_path: Path, _unseal: None
+) -> None:
     """A sealed bundle that never recorded a run document is not a value to invent.
 
     The non-vacuity control beside the test above: same seal, same ledger, only the run

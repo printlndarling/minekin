@@ -683,7 +683,7 @@ def _sealed_run_document(root: Path, run_id: str | None) -> Mapping[str, object]
         document = json.loads((directory / _RUN_DOCUMENT_ARTIFACT).read_bytes())
     except (OSError, json.JSONDecodeError):
         return None
-    return document if isinstance(document, dict) else None
+    return cast("dict[str, object]", document) if isinstance(document, dict) else None
 
 
 def _auto_segment(document: Mapping[str, object]) -> Mapping[str, object] | None:
@@ -698,7 +698,7 @@ def _auto_segment(document: Mapping[str, object]) -> Mapping[str, object] | None
     if not isinstance(run, dict):
         return None
     autonomous = cast("dict[str, object]", run).get("autonomous")
-    return autonomous if isinstance(autonomous, dict) else None
+    return cast("dict[str, object]", autonomous) if isinstance(autonomous, dict) else None
 
 
 def _newest_step_arguments(auto: Mapping[str, object]) -> object:

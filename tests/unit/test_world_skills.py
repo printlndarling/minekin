@@ -1261,7 +1261,8 @@ def test_close_screen_fails_when_every_later_reading_still_reports_the_window() 
         # the listening — two sends, both the same player's key, no other action.
         assert sender.types() == [SCREEN_INPUT_TYPE, SCREEN_INPUT_TYPE]
         assert all(
-            command.control == control_pb2.SCREEN_CONTROL_CLOSE for _, command in sender.sent
+            cast(control_pb2.ScreenInput, command).control == control_pb2.SCREEN_CONTROL_CLOSE
+            for _, command in sender.sent
         )
 
     asyncio.run(scenario())
