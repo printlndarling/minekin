@@ -30,6 +30,7 @@ from gateway.readmodel import (
     SNAPSHOT_PATH,
     TIMELINE_PATH,
 )
+from gateway.recipe_read import RECIPE_PATH
 from gateway.server import (
     ROUTE_TABLE,
     GatewayServer,
@@ -216,6 +217,7 @@ def test_the_route_table_lists_the_reads_and_the_three_writes(
     assert f"GET {IDENTITY_PATH}" in lines
     assert f"GET {CONFIG_PATH}" in lines
     assert f"GET {SESSION_PATH}" in lines
+    assert f"GET {RECIPE_PATH}" in lines
     assert not [line for line in lines if re.search(r"\b(PUT|PATCH|DELETE)\b", line)]
 
 

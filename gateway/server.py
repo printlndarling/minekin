@@ -63,6 +63,7 @@ from gateway.readmodel import (
     build_snapshot,
     build_timeline,
 )
+from gateway.recipe_read import RECIPE_PATH, recipe_read
 from gateway.session_control import (
     MAX_STOP_BODY_BYTES,
     SESSION_PATH,
@@ -85,9 +86,11 @@ TIMELINE_PARAMETER = "limit"
 
 #: The whole authorized surface, methods and all: the three frozen reads, the identity
 #: read the rename form reviews, the config read the settings form reviews, the goal read the
-#: task panel reviews, the session read, and the three writes those routes except (the rename, the
-#: config save and the stop). `--routes` prints this so the verb scan sees a POST only where one is
-#: sanctioned. The goal path is a read only — setting a goal stays the config write's job.
+#: task panel reviews, the session read, the recipe-coverage read the boundary panel reviews, and
+#: the three writes those routes except (the rename, the config save and the stop). `--routes`
+#: prints this so the verb scan sees a POST only where one is sanctioned. The goal and recipe paths
+#: are reads only — setting a goal stays the config write's job, and the recipe catalog is product
+#: data no operator edits.
 ROUTE_TABLE: tuple[tuple[str, str], ...] = (
     *(("GET", path) for path in ROUTES),
     ("GET", IDENTITY_PATH),
@@ -97,6 +100,7 @@ ROUTE_TABLE: tuple[tuple[str, str], ...] = (
     ("GET", GOAL_PATH),
     ("GET", SESSION_PATH),
     ("POST", SESSION_STOP_PATH),
+    ("GET", RECIPE_PATH),
 )
 
 
@@ -142,6 +146,9 @@ class ReadService:
 
     def goal(self) -> dict[str, Any]:
         return goal_read(self._root, clock=self._clock, csrf_token=self.csrf_token)
+
+    def recipes(self) -> dict[str, Any]:
+        return recipe_read(clock=self._clock)
 
     def save_config(self, body: Mapping[str, Any]) -> tuple[int, dict[str, Any]]:
         return save_from_request(self._root, body=body)
@@ -201,6 +208,9 @@ class ReadRequestHandler(BaseHTTPRequestHandler):
             return
         if parsed.path == SESSION_PATH:
             self._respond(HTTPStatus.OK, self.service.session())
+            return
+        if parsed.path == RECIPE_PATH:
+            self._respond(HTTPStatus.OK, self.service.recipes())
             return
         self._respond(HTTPStatus.NOT_FOUND, {"error": f"{parsed.path} is not a read model path"})
 
