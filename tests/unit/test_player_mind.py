@@ -28,6 +28,7 @@ from minekin_core.application.player_mind import (
     NO_FEASIBLE_SKILL,
     NO_LATEST_OBSERVATION,
     RETRY_BUDGET_PER_SIGNATURE,
+    SCAN_PITCH_CYCLE_DEGREES,
     SCAN_YAW_STEP_DEGREES,
     FailureCode,
     MindDecisionKind,
@@ -1218,9 +1219,16 @@ def test_a_mind_with_nothing_to_read_holds_and_says_why() -> None:
 
 def test_the_scan_turns_instead_of_stalling_when_there_is_nothing_to_grasp() -> None:
     mind, _ = mind_with()
-    yaw_of = [mind.next_intent(reading()).plan.calls[0].yaw_degrees for _ in range(3)]
+    calls = [mind.next_intent(reading()).plan.calls[0] for _ in range(3)]
+    yaw_of = [call.yaw_degrees for call in calls]
+    pitch_of = [call.pitch_degrees for call in calls]
 
     assert yaw_of == [SCAN_YAW_STEP_DEGREES, 2 * SCAN_YAW_STEP_DEGREES, 3 * SCAN_YAW_STEP_DEGREES]
+    # The pitch steps through a steep-sweep cycle rather than repeating one horizon angle, so
+    # a blind scan can eventually look at the block under the player and hand a placement a face.
+    assert pitch_of == list(SCAN_PITCH_CYCLE_DEGREES)
+    assert any(-90.0 <= p <= 90.0 for p in pitch_of)
+    assert max(abs(p) for p in pitch_of) > 45.0
 
 
 def test_a_fresh_projection_names_every_gap_instead_of_filling_it() -> None:

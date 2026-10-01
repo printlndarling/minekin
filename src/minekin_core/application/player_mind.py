@@ -87,10 +87,15 @@ from minekin_core.domain.world_actions import (
 #: world state is a different problem, and replaying the click is what §3 forbids.
 RETRY_BUDGET_PER_SIGNATURE: Final = 2
 
-#: The heading a scan turns to between intents. The pitch is the one the operator-written
-#: plan uses: a trunk seen from a few blocks away sits below eye level.
+#: The heading a scan turns to between intents. The pitch is swept, not fixed: a single
+#: near-horizon angle only ever catches a trunk a few blocks ahead, and it can never look
+#: down far enough to land on the block directly under the player — which is the face a
+#: placement needs and the reason a Kin holding a table stalled with no `use_target` to make.
+#: Steep in both directions so one of them is "down" whatever way the client counts it, and
+#: stepping the ask rather than repeating `-18` also keeps a signature's retry budget from
+#: collapsing on an identical turn.
 SCAN_YAW_STEP_DEGREES: Final = 45.0
-SCAN_PITCH_DEGREES: Final = -18.0
+SCAN_PITCH_CYCLE_DEGREES: Final = (-18.0, 55.0, -55.0)
 
 #: Reused verbatim from the skill layer so the word for "there was nothing to read" is the
 #: same on both sides of this module, as it already is on both sides of the IPC channel.
@@ -1157,7 +1162,7 @@ class PlayerMind:
         if yaw is None:
             yaw = (self.scan_step * SCAN_YAW_STEP_DEGREES) % 360.0
         if pitch is None:
-            pitch = SCAN_PITCH_DEGREES
+            pitch = SCAN_PITCH_CYCLE_DEGREES[(self.scan_step - 1) % len(SCAN_PITCH_CYCLE_DEGREES)]
         return (
             SkillPlan(
                 (SkillCall(name="turn_to", yaw_degrees=yaw, pitch_degrees=pitch),),
