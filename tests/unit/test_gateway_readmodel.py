@@ -14,6 +14,7 @@ from typing import cast
 
 import pytest
 
+from bundle_support import seal_bundle, unseal_all
 from gateway.readmodel import (
     SCHEMA_VERSION,
     STALE_AFTER_MS,
@@ -889,6 +890,121 @@ def test_skill_step_rows_project_the_newest_step_and_the_count(tmp_path: Path) -
     # Cost and model config are not ledger readings: named gaps that say where they live.
     assert "run document" in named_gap(group, "modelCost")
     assert "run document" in named_gap(group, "modelConfig")
+
+
+def _autonomous_run_document(arguments: Mapping[str, object]) -> bytes:
+    """A run document whose newest step carries exactly these behaviour parameters.
+
+    The shape is Core's own (`autonomous_play.AutonomousRun.as_document`): `steps[]` and
+    `mind` are siblings under `run.autonomous`, and each step's `intent.arguments` is the
+    ask this side honoured. Only the members this projection reads are populated.
+    """
+
+    document = {
+        "run": {
+            "autonomous": {
+                "stop_reason": "GOAL_MET",
+                "confirmed": 1,
+                "steps": [
+                    {
+                        "intent": {"skill": "craft", "arguments": dict(arguments)},
+                        "result": "CONFIRMED",
+                    }
+                ],
+                "mind": {"model_enabled": True, "executing_arguments": {}},
+            }
+        },
+        "run_id": RUN_ID,
+    }
+    return (json.dumps(document, sort_keys=True) + "\n").encode("utf-8")
+
+
+@pytest.fixture()
+def _unseal(tmp_path: Path):
+    """A sealed bundle is read-only and the read-only bit stops cleanup, so undo it after."""
+
+    yield
+    unseal_all(tmp_path)
+
+
+def test_a_sealed_run_document_lands_behaviour_parameters(tmp_path: Path, _unseal) -> None:
+    """A sealed bundle's newest step gives the panel its redacted behaviour parameters.
+
+    This is the enrichment's whole claim: the parameters were never a ledger reading, so
+    they only reach the snapshot by parsing the run document inside a bundle
+    `verify_addressed_bundle` already re-hashed. It also pins that the two fields whose gap
+    wording the Dashboard fixtures mirror verbatim (`modelCost`, `modelConfig`) stay gaps
+    even here — the projection resolves the parameters and nothing else, so neither mirror
+    nor the contract's wording is drifted by this change.
+    """
+
+    joined_run(tmp_path)
+    record(
+        tmp_path,
+        SKILL_STEP_RECORDED,
+        skill_step(1, "craft", "CONFIRMED", "", "", "DECISION_FROM_MODEL"),
+    )
+    seal_bundle(
+        tmp_path / "kin" / str(KIN_ID),
+        {
+            "run-document.json": _autonomous_run_document(
+                {"target_item": "minecraft:stick", "quantity": 4}
+            )
+        },
+        run_id=RUN_ID,
+        seal=True,
+    )
+
+    group = signal(snapshot_of(tmp_path), "skillSteps")
+    assert reported(group, "behaviorParameters") == "quantity=4, target_item=minecraft:stick"
+    # Back-compat: cost and config are still the contract's named gaps, untouched.
+    assert "run document" in named_gap(group, "modelCost")
+    assert "run document" in named_gap(group, "modelConfig")
+
+
+def test_a_sealed_bundle_without_a_run_document_keeps_the_gap(tmp_path: Path, _unseal) -> None:
+    """A sealed bundle that never recorded a run document is not a value to invent.
+
+    The non-vacuity control beside the test above: same seal, same ledger, only the run
+    document missing. The parameters member stays the `not_wired` gap that names where the
+    reading would live rather than rendering an empty `""` the decoder would accept.
+    """
+
+    joined_run(tmp_path)
+    record(
+        tmp_path,
+        SKILL_STEP_RECORDED,
+        skill_step(1, "craft", "CONFIRMED", "", "", "DECISION_FROM_MODEL"),
+    )
+    seal_bundle(
+        tmp_path / "kin" / str(KIN_ID),
+        {"bridge-trace.jsonl": b'{"event":"join"}\n'},
+        run_id=RUN_ID,
+        seal=True,
+    )
+
+    group = signal(snapshot_of(tmp_path), "skillSteps")
+    reason = named_gap(group, "behaviorParameters")
+    assert "run document" in reason
+
+
+def test_an_unsealed_run_keeps_behaviour_parameters_a_gap(tmp_path: Path) -> None:
+    """Nothing is sealed for a live run, so the parameters have no honest reading yet.
+
+    The `joined_run` has a ledger but no bundle at all; `_sealed_run_document` refuses on
+    the missing bundle and the group answers the parameters exactly as it answers cost and
+    config — a named gap, not a guessed set of arguments.
+    """
+
+    joined_run(tmp_path)
+    record(
+        tmp_path,
+        SKILL_STEP_RECORDED,
+        skill_step(1, "craft", "CONFIRMED", "", "", "DECISION_FROM_MODEL"),
+    )
+
+    group = signal(snapshot_of(tmp_path), "skillSteps")
+    assert "run document" in named_gap(group, "behaviorParameters")
 
 
 def test_the_skill_step_timeline_row_reads_the_step_own_verdict(tmp_path: Path) -> None:

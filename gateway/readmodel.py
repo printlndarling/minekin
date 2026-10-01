@@ -206,6 +206,17 @@ _SKILL_MODEL_CONFIG: Final = (
     "模型配置状态（model_enabled 与所配置的 provider）与花费同处：只在 run document 的 "
     "mind 段里记录，台账行不携带，本投影只读台账与已封 bundle 的清单。"
 )
+_SKILL_BEHAVIOR_PARAMETERS: Final = (
+    "行为参数（target_item / quantity / expected_drop_item 之类）只在 run document 的 "
+    "autonomous.steps[].intent.arguments 里记录，技能步行不携带；未封的 run 只读面取不到，"
+    "封证且 bundle 内含 run document 时本投影才解析它。"
+)
+#: The sealer's own name for the run's document inside a sealed bundle
+#: (`tools/seal_run_evidence.py` writes `run-document.json`, via the asserter's constant).
+#: This projection reads that file only off a bundle `verify_addressed_bundle` has already
+#: re-hashed against its manifest, so the bytes it parses are digest-consistent with the
+#: sealed record rather than a second hand-written account of the run.
+_RUN_DOCUMENT_ARTIFACT: Final = "run-document.json"
 
 
 class EventRow(NamedTuple):
@@ -542,7 +553,7 @@ def build_snapshot(
         ),
         "session": _session_group(report, rows, now, source, alive),
         "world": _world_group(rows, now, source, alive),
-        "skillSteps": _skill_steps_group(rows, source),
+        "skillSteps": _skill_steps_group(root, rows, source),
         "versions": _versions_group(root, rows, now, source),
         "bridgeHeartbeat": _heartbeat_group(report, rows, source, alive),
         "selfState": gap(
@@ -645,8 +656,99 @@ def _world_group(
     )
 
 
-def _skill_steps_group(rows: Sequence[EventRow], source: Callable[[str], str]) -> dict[str, Any]:
-    """What the newest run's skill steps recorded, read from the ledger rows alone.
+def _sealed_run_document(root: Path, run_id: str | None) -> Mapping[str, object] | None:
+    """A sealed bundle's `run-document.json`, but only if its bytes verify.
+
+    This is the one place the skillSteps group reaches past the ledger, and it reaches
+    no further than a bundle `verify_addressed_bundle` has already re-hashed against its
+    own manifest: the parse below is of digest-consistent sealed bytes, not a second
+    hand-written account. Any reason the bundle is unreadable — no bundle, not sealed,
+    a digest violation, no run document inside it, unparseable JSON — is answered by
+    `None`, which the caller renders as the same named gaps the ledger-only reading
+    produces. A read model that invented a value here would be doing the thing §4 forbids.
+    """
+
+    if run_id is None:
+        return None
+    try:
+        directory = locate_bundle(root, run_id)
+        verification = verify_addressed_bundle(directory)
+    except MinekinError:
+        return None
+    if not verification.sealed or not verification.verified or verification.manifest is None:
+        return None
+    if not any(record.path == _RUN_DOCUMENT_ARTIFACT for record in verification.manifest.artifacts):
+        return None
+    try:
+        document = json.loads((directory / _RUN_DOCUMENT_ARTIFACT).read_bytes())
+    except (OSError, json.JSONDecodeError):
+        return None
+    return document if isinstance(document, dict) else None
+
+
+def _auto_segment(document: Mapping[str, object]) -> Mapping[str, object] | None:
+    """The `run.autonomous` object, or `None` when the document has no such segment.
+
+    A scripted `--skill-plan` run's document carries no `autonomous` block, so this is
+    the branch that says "the mind readings were never written down here" rather than
+    treating an absent block as a zero-filled one.
+    """
+
+    run = document.get("run")
+    if not isinstance(run, dict):
+        return None
+    autonomous = cast("dict[str, object]", run).get("autonomous")
+    return autonomous if isinstance(autonomous, dict) else None
+
+
+def _newest_step_arguments(auto: Mapping[str, object]) -> object:
+    """The newest recorded step's `intent.arguments`, falling back to the mind's live pair.
+
+    Steps are appended in order, so the last element is the one whose parameters the panel
+    is describing; when a document recorded no steps (a run halted before its first step
+    concluded) the mind's `executing_arguments` is the same question for the in-flight step.
+    """
+
+    steps = auto.get("steps")
+    if isinstance(steps, list) and steps:
+        last = cast("list[object]", steps)[-1]
+        if isinstance(last, dict):
+            intent = cast("dict[str, object]", last).get("intent")
+            if isinstance(intent, dict):
+                return cast("dict[str, object]", intent).get("arguments")
+    mind = auto.get("mind")
+    if isinstance(mind, dict):
+        return cast("dict[str, object]", mind).get("executing_arguments")
+    return None
+
+
+def _redact_arguments(arguments: object) -> str | None:
+    """The behaviour parameters as a flat `key=value` line, carrying only scalar members.
+
+    The set is open by design — `target_item`, `quantity`, `expected_drop_item` and
+    whatever a future skill names — so this lists what the document holds instead of
+    pattern-matching a fixed catalog. Nested values are skipped: they are a structure,
+    and a comma-joined line of them would read as a value the projection did not parse.
+    """
+
+    if not isinstance(arguments, dict):
+        return None
+    parts: list[str] = []
+    for key in sorted(cast("dict[str, object]", arguments)):
+        value = cast("dict[str, object]", arguments)[key]
+        # Every scalar int counts (a `quantity=0` is a reading, not an absence); a string
+        # only counts when it says something, and a bool is excluded because `int(...)` on
+        # one would render `True` as `1` and misreport the parameter.
+        keep = isinstance(value, int) or (isinstance(value, str) and value)
+        if keep and not isinstance(value, bool):
+            parts.append(f"{key}={value}")
+    return ", ".join(parts) if parts else None
+
+
+def _skill_steps_group(
+    root: Path, rows: Sequence[EventRow], source: Callable[[str], str]
+) -> dict[str, Any]:
+    """What the newest run's skill steps recorded, from the ledger rows plus its sealed document.
 
     One row per concluded step, written by `cli/session.py` beside the event reader; the
     newest such row's `run_id` picks the run this group describes, and the count is over the
@@ -754,6 +856,23 @@ def _skill_steps_group(rows: Sequence[EventRow], source: Callable[[str], str]) -
     else:
         count_field = present(len(same_run))
 
+    # Cost and config have no ledger carrier and this projection keeps not parsing the run
+    # document for them, so they stay the named gaps the contract's fixtures mirror verbatim
+    # — a drift between `readmodel.py` and `mockFixtures.ts` is exactly what that wording is
+    # there to prevent. The behaviour parameters are the one mind-segment reading this group
+    # adds: a new member with no mirror to keep in step, resolved only when this run's
+    # bundle is sealed and verified and holds a run document. An unsealed run keeps it a gap.
+    cost_field = missing("not_wired", _SKILL_MODEL_COST)
+    config_field = missing("not_wired", _SKILL_MODEL_CONFIG)
+    parameters_field = missing("not_wired", _SKILL_BEHAVIOR_PARAMETERS)
+    document = _sealed_run_document(root, newest.run_id)
+    if document is not None:
+        auto = _auto_segment(document)
+        if auto is not None:
+            parameters = _redact_arguments(_newest_step_arguments(auto))
+            if parameters is not None:
+                parameters_field = present(parameters)
+
     value = {
         "goal": goal_field,
         "stepIndex": index_field,
@@ -764,10 +883,11 @@ def _skill_steps_group(rows: Sequence[EventRow], source: Callable[[str], str]) -
         "decisionSource": decision_field,
         "modelRefusal": refusal_field,
         "stepCount": count_field,
-        # Not gaps of this projection's making — Core never writes these into any ledger
-        # row, so they name where the reading lives instead of inventing a number.
-        "modelCost": missing("not_wired", _SKILL_MODEL_COST),
-        "modelConfig": missing("not_wired", _SKILL_MODEL_CONFIG),
+        # Cost and config stay gaps of the contract's making; parameters resolve off a
+        # sealed run document and are otherwise the same named gap.
+        "modelCost": cost_field,
+        "modelConfig": config_field,
+        "behaviorParameters": parameters_field,
     }
     return known(
         value,
