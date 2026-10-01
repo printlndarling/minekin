@@ -893,3 +893,16 @@ step14 turn_to {pitch:-18, yaw:135}  "sweep to look for a spot to place a crafti
 **仍不声明**：这一发没取得 `use_target` 放置的真实游戏 CONFIRM，也没让 3×3 终产物（木镐）入包——`#48` 消除的是"同靶空按三连"这种浪费，把模型从重复点击推向先改变瞄准，但放置落在空相邻面→开窗→在 3×3 内合成终产物这一笔的活体确认仍未取得、保持 `UNKNOWN`。护栏本身目前只有单测覆盖，尚未在一发真实端点运行里观察到它把某一步从"重复 use_target"改判为别的技能——那要在下一次独占复跑里逐字入账。
 
 **下一格 `current_next`**：单次、独占 demo2 数据根地再跑一发木镐，观察 `#48` 护栏是否在第 N 次同靶 UNKNOWN 后把 `use_target` 换成 `turn_to`/`break`，从而让准星落到空的相邻面；放置若按减量 CONFIRM，则紧接第二次 `use_target` 打开 3×3 并合成 `wooden_pickaxe`，全程复用通用技能、逐字入账。通过则记跨目标 + 3×3 收尾 CONFIRMED，未通过继续记 UNKNOWN、不美化。
+
+## 六之二十一、护栏 `#48` 落地后在独占新 Kin 根上再跑木镐那一发：本轮根本没有 `use_target` 可挡，卡点上移到"上一级欠步先把 enabler 的材料吃光"（2026-10-02，run `ad147dd4987a40a9bf5d42ccca3b21c0`，会话 `0a2de209f92d48989288fefc2d7058d8`，客户端 pid 1198，server run 目录 `run-35`，Kin 根 `kin-3x3-guard-20261001-195907`，boot_mode `cold`）
+
+这一发仍走 §四 那枚真实 OpenAI-compatible 端点，在一枚新建、独占的 Kin 根上冷启动跑木镐，本意是观察 `#48` 是否会在同靶 `use_target` 连吃 UNKNOWN 后把该技能换掉。实读之下，这一发暴露的是一个更靠前、且与 `#48`/`#44` 都不同的卡点，逐字入账如下。
+
+1. **`#48` 本轮没有触发面，也就谈不上验证**：整条 `steps` 里一次 `use_target` 都没有出现（14 步全是 `break→collect→木板→关屏→木棍→关屏→转身×8`），所以既没被护栏挡住、也没漏放——这一发不能算作对 `#48` 的正例或反例，只能说明失败发生在"能不能走到放置"之前。护栏目前仍只有单测覆盖。
+2. **松键实测读数（第 4 条要求）再次到手**：收尾 `session stop` 的 `release` 写了 `asked [1198] / released [1198] / unconfirmed [] / nothing_held []`，另有 `terminated [1198]`、`unresolved []`、`input_release_failed false`、`outcome STOPPED_ON_REQUEST`、`session exited 0`。`released` 是实打实的一格，不是凭 `asked`/`terminated` 判成，`unconfirmed` 空着也如实读出。
+3. **卡点精确定位在 enabler 预算被吃光**：第 3 步 1 原木→4 木板 CONFIRMED，第 5 步 `step_to_run` 按欠序先出了木棍（2 木板→4 木棍），背包遂只剩 2 木板、4 木棍、0 原木、0 工作台。对着 `feasible_skill_ids` 在 2×2 下逐项读：`craft_take_result` 不再可行——工作台要 4 木板（只剩 2）、木镐要 3×3（无窗）、木板要原木（已空），`craft_options` 空；`use_target` 不可行（准星已不在方块上，且手里根本没有可放置的 enabler）；`select_hotbar` 不可行（终产物与已持 enabler 都不在包）；`break/collect` 在转身扫视后无块无落物 ⇒ 只剩 `turn_to`。于是第 12–14 步 `turn_to` 连吃 `AIM_STALLED`、`turn_to` 被排除，`stop_reason NO_FEASIBLE_SKILL`、`goal_met false`、`confirmed 11`。
+4. **与六之二十（`37368eba…`）的对照说明这是通用规划问题，不是模型运气**：同一份代码、同一目标，那一发在背包仍有 4 木板时先合成并选中了工作台，从而走到了放置（停在 UNKNOWN）；这一发模型先把木板花在了木棍上，使工作台再也付不起，整条 3×3 路在放置之前就断死。差别不在接口缺失，而在 build 顺序/可行性允许一道低阶欠步（木棍）把高阶 enabler（工作台）仍需的共享材料（木板）提前吃光。
+
+**仍不声明**：这一发未取得任何放置或 3×3 木镐的真实游戏 CONFIRM，目标保持 UNKNOWN/未达（不是 FAILED——`verify_craft` 下限本就是 UNKNOWN）；`#48` 既未被证实也未证伪。
+
+**下一格 `current_next`**：先读 `domain/recipe_catalog.py` 的 `build_plan` 与 enabler 预留次序，判明"被预留的 3×3 enabler（工作台）这一道欠步，排在共享材料（木板）的低阶欠步（木棍）之前还是之后"，以及可行性是否应先把 enabler 的料价预留出来；只有据这份读法，才谈得上"通用放置目标选择与前提校验"更靠前那一环的通用修法——不重跑赌模型、不加木镐专用步、不改断言凑绿。
