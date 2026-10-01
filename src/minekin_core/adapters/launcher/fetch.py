@@ -17,6 +17,7 @@ what is already present.
 
 from __future__ import annotations
 
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -32,6 +33,7 @@ from minekin_core.domain.errors import ErrorCategory, MinekinError, Retryability
 DEFAULT_TIMEOUT_S = 60.0
 DEFAULT_MAX_ATTEMPTS = 3
 DEFAULT_JOBS = 8
+DEFAULT_BACKOFF_S = 1.0
 
 
 class UrlOpener(Protocol):
@@ -142,6 +144,8 @@ class ArtifactFetcher:
         timeout_s: float = DEFAULT_TIMEOUT_S,
         max_attempts: int = DEFAULT_MAX_ATTEMPTS,
         jobs: int = DEFAULT_JOBS,
+        sleep: Callable[[float], None] = time.sleep,
+        backoff_base_s: float = DEFAULT_BACKOFF_S,
     ) -> None:
         if timeout_s <= 0:
             raise ValueError("timeout_s must be positive")
@@ -149,11 +153,15 @@ class ArtifactFetcher:
             raise ValueError("max_attempts must be at least one")
         if jobs < 1:
             raise ValueError("jobs must be at least one")
+        if backoff_base_s < 0:
+            raise ValueError("backoff_base_s must not be negative")
         self._store = store
         self._opener = opener
         self._timeout_s = timeout_s
         self._max_attempts = max_attempts
         self._jobs = jobs
+        self._sleep = sleep
+        self._backoff_base_s = backoff_base_s
 
     def fetch(
         self,
@@ -233,10 +241,16 @@ class ArtifactFetcher:
         Only transport errors are retried. A policy refusal or a digest mismatch
         is returned on the first attempt, because the same bytes would fail the
         same check and re-downloading them three times only wastes the mirror.
+
+        Between two transport failures the worker waits, doubling each time from
+        `backoff_base_s`, so a mirror that is briefly overloaded is given room to
+        recover instead of being hammered by three back-to-back requests. No wait
+        follows the last attempt: it failed, and the report is what the operator
+        reads next, not a delay before it.
         """
 
         last: BaseException | None = None
-        for _ in range(self._max_attempts):
+        for attempt in range(self._max_attempts):
             try:
                 with self._opener(artifact.url, self._timeout_s) as source:
                     self._store.install(artifact, source)
@@ -244,6 +258,8 @@ class ArtifactFetcher:
                 return error
             except BaseException as error:
                 last = error
+                if attempt + 1 < self._max_attempts:
+                    self._sleep(self._backoff_base_s * 2**attempt)
                 continue
             return None
         return last

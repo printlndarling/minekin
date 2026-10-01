@@ -66,7 +66,9 @@ class FlakyOpener:
 
 
 def fetcher(store: ArtifactStore, opener: UrlOpener, *, max_attempts: int = 3) -> ArtifactFetcher:
-    return ArtifactFetcher(store, opener=opener, max_attempts=max_attempts)
+    # The no-op sleep keeps retry tests instant; the backoff schedule itself is
+    # asserted separately by a test that records what the sleeper was handed.
+    return ArtifactFetcher(store, opener=opener, max_attempts=max_attempts, sleep=lambda _s: None)
 
 
 def test_a_verified_artifact_is_installed_into_the_store(tmp_path: Path) -> None:
@@ -139,6 +141,45 @@ def test_a_retry_that_succeeds_later_installs_the_artifact(tmp_path: Path) -> No
     assert outcome.complete
     assert outcome.installed == (item.coordinate,)
     assert store.verify(item).read_bytes() == PAYLOAD
+
+
+def test_failed_attempts_back_off_exponentially_and_not_after_the_last(
+    tmp_path: Path,
+) -> None:
+    """A briefly overloaded mirror gets room to recover, then the pass reports."""
+
+    store = ArtifactStore(tmp_path / "store")
+    slept: list[float] = []
+
+    fetcher = ArtifactFetcher(
+        store,
+        opener=FlakyOpener(failures=99),
+        max_attempts=3,
+        sleep=slept.append,
+        backoff_base_s=1.0,
+    )
+
+    outcome = fetcher.fetch([artifact()])
+
+    assert not outcome.complete
+    # Two gaps between three attempts: 1s, then 2s — and nothing after the third.
+    assert slept == [1.0, 2.0]
+
+
+def test_a_first_try_success_or_a_policy_refusal_never_sleeps(tmp_path: Path) -> None:
+    """Backoff is for transport trouble, not for bytes the store already judged."""
+
+    store = ArtifactStore(tmp_path / "store")
+    slept: list[float] = []
+
+    ArtifactFetcher(store, opener=FakeOpener(), max_attempts=3, sleep=slept.append).fetch(
+        [artifact()]
+    )
+    ArtifactFetcher(
+        store, opener=FakeOpener(b"tampered\n"), max_attempts=3, sleep=slept.append
+    ).fetch([artifact()])
+
+    assert slept == []
 
 
 def test_a_timeout_is_classified_as_a_timeout(tmp_path: Path) -> None:
