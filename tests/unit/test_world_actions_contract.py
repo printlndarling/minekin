@@ -38,6 +38,7 @@ from minekin_core.domain.world_actions import (
     mine_target_refusal,
     seen_drops,
     use_target_refusal,
+    use_target_signature,
     verify_block_broken,
     verify_craft,
     verify_hotbar_change,
@@ -609,6 +610,39 @@ def test_placement_collision_spreads_to_the_head_cell_and_side_faces() -> None:
     assert not use_target_refusal(
         reading(state=standing(), aim=aimed_at(block(1, 64, 0, AimFace.WEST)))
     ).accepted
+
+
+def test_use_target_signature_names_the_aimed_target_and_reads_nothing_as_none() -> None:
+    """The identity the repeat guard compares on: the block-and-face (or the entity) the
+    crosshair reports, and `None` for an aim no click could land on — so "there was no
+    target" is never mistaken for "this target was already tried".
+
+    A changed coordinate, a changed face, or a changed entity each read differently, which
+    is what lets a re-aimed placement ask reopen; the same target reads the same.
+    """
+
+    lower = block(4, -2, 9, AimFace.UP)
+    assert use_target_signature(reading(aim=aimed_at(lower))) == ("block", 4, -2, 9, "UP")
+    assert use_target_signature(reading(aim=aimed_at(lower))) == use_target_signature(
+        reading(aim=aimed_at(lower))
+    )
+    # The face the block is placed against is part of the target, not decoration.
+    assert use_target_signature(reading(aim=aimed_at(block(4, -2, 9, AimFace.NORTH)))) != (
+        "block",
+        4,
+        -2,
+        9,
+        "UP",
+    )
+    assert use_target_signature(reading(aim=aimed_entity("obs-1"))) == ("entity", "obs-1")
+    assert use_target_signature(reading(aim=aimed_entity("obs-1"))) != use_target_signature(
+        reading(aim=aimed_entity("obs-2"))
+    )
+    assert use_target_signature(reading()) is None
+    assert use_target_signature(None) is None
+    assert (
+        use_target_signature(reading(aim=AimTargetValue(game_tick=100, kind=AimKind.MISS))) is None
+    )
 
 
 def test_an_unnamed_face_or_entity_aim_stays_tolerant() -> None:

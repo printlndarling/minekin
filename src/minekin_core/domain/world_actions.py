@@ -292,6 +292,33 @@ def use_target_refusal(observation: WorldObservationValue | None) -> ActionRefus
     return ActionRefusalDecision(None)
 
 
+def use_target_signature(observation: WorldObservationValue | None) -> tuple[object, ...] | None:
+    """Which thing the crosshair is on, as a hashable identity — for the mind to tell a
+    repeat click from a fresh one, never for the world to be edited.
+
+    §5 bounds the use key to "the thing already seen", and §4 forbids replaying a
+    side-effecting click. Those two meet at placement: a `use_target` that returned
+    `UNKNOWN` against a given block-and-face (or a given entity) tells the Kin that the
+    click there did nothing, and firing the same key at the SAME target again is the
+    gambling-by-repetition the contract rules out, not a new attempt. This names the
+    target the client reported so a later reading can be compared against the one that
+    was already spent on: a moved aim reads differently and re-opens the step, a held
+    aim reads identically and the mind reaches for the turn instead.
+
+    `None` for the aims no click could land on anyway — nothing seen, or a `MISS`/`UNREAD`
+    ray — so a caller never treats "there was no target" as a target it has tried.
+    """
+
+    aim = observation.aim if observation is not None else None
+    if aim is None:
+        return None
+    if aim.kind is AimKind.BLOCK and aim.block is not None:
+        return ("block", aim.block.x, aim.block.y, aim.block.z, aim.block.face.value)
+    if aim.kind is AimKind.ENTITY:
+        return ("entity", aim.entity_observation_id)
+    return None
+
+
 def _same_block(a: BlockTargetValue, b: BlockTargetValue) -> bool:
     if (a.x, a.y, a.z) != (b.x, b.y, b.z):
         return False

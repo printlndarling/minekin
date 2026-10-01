@@ -80,6 +80,7 @@ from minekin_core.domain.world_actions import (
     SkillOutcome,
     item_total,
     use_target_refusal,
+    use_target_signature,
 )
 
 #: How many times one skill may fail the same way before the mind stops calling it that
@@ -859,6 +860,10 @@ class PlayerMind:
     last_failure: FailureCode | None = field(default=None, init=False)
     last_precondition: str = field(default="", init=False)
     last_model_refusal: str = field(default="", init=False)
+    #: The crosshair target the last *sent* `use_target` click was aimed at. A repeat
+    #: ask against this exact target is the doomed second click §4 forbids, so the mind
+    #: withholds the use key until the aim reads differently — the turn, not a gamble.
+    last_use_aim: tuple[object, ...] | None = field(default=None, init=False)
 
     @property
     def direction(self) -> str:
@@ -908,6 +913,17 @@ class PlayerMind:
         feasible = tuple(
             name for name in feasible_skill_ids(self.goal, reading) if name not in self.excluded
         )
+        # A second use-key click at the exact crosshair target the last one was spent on
+        # — and did nothing to — is the repeat the contract forbids, not a fresh attempt.
+        # Withhold it only while something else remains to reach for (the turn to change
+        # the aim), so the guard redirects rather than strands the run.
+        if (
+            len(feasible) > 1
+            and "use_target" in feasible
+            and self.last_use_aim is not None
+            and use_target_signature(reading) == self.last_use_aim
+        ):
+            feasible = tuple(name for name in feasible if name != "use_target")
         if not feasible:
             intent = MindIntent(
                 kind=MindDecisionKind.BLOCKED,
@@ -956,6 +972,11 @@ class PlayerMind:
         plan, built_reason, honoured = self._call_for(skill, reading, arguments)
         if plan is None:
             return self._hold(built_reason, reading)
+        # A `use_target` plan that was built past its precondition is a click about to spend
+        # on this exact target; remember which one so a repeat ask can be turned away before
+        # the world is asked to do the impossible twice.
+        if skill == "use_target":
+            self.last_use_aim = use_target_signature(reading)
         intent = MindIntent(
             kind=MindDecisionKind.INTENT,
             plan=plan,
@@ -997,6 +1018,7 @@ class PlayerMind:
                 self.attempts.pop((intent.skill, code), None)
             self.last_failure = None
             self.last_precondition = ""
+            self.last_use_aim = None
             self.observe(reading_after)
             return None
         failure = attribute_failure(outcome)
@@ -1129,9 +1151,7 @@ class PlayerMind:
                 else f"select the {item_id} to stand it up"
             )
             return (
-                SkillPlan(
-                    (SkillCall(name="select_hotbar", slot=slot, expected_item_id=item_id),)
-                ),
+                SkillPlan((SkillCall(name="select_hotbar", slot=slot, expected_item_id=item_id),)),
                 reason,
                 {"slot": slot, "expected_item_id": item_id},
             )

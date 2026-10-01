@@ -524,6 +524,60 @@ def test_a_model_that_asks_to_use_the_aimed_block_becomes_a_use_plan() -> None:
     assert intent.capabilities == skill_capabilities("use_target")
 
 
+def test_a_use_spent_on_one_target_is_not_replayed_until_the_aim_moves() -> None:
+    """The repeat a side-effecting click may never be, guarded from the reading rather than
+    the retry count.
+
+    Run `37368eba` fired three placements at a crosshair that kept reading the same block and
+    returned nothing each time — the goal's "不停重跑赌模型选对角度" made concrete. Here the
+    second ask for `use_target` arrives over the SAME aim the first spent on; the offer holds
+    `break_seen_block` and `turn_to` besides it, so the mind turns the use key away and reaches
+    for another act. A moved aim reads as a different target and the step opens again — the
+    guard redirects, it does not strand.
+    """
+
+    moved = AimTargetValue(
+        game_tick=100,
+        kind=AimKind.BLOCK,
+        block=BlockTargetValue(x=5, y=-2, z=9, face=AimFace.UP),
+        targeted_block_id=LOG,
+        distance=2.0,
+    )
+    mind, _ = mind_with(
+        Decision(skill_id="use_target", reason="place what is in hand", intent_generation=1),
+        Decision(skill_id="use_target", reason="place it again", intent_generation=2),
+        Decision(skill_id="use_target", reason="place against the new block", intent_generation=3),
+    )
+
+    first = mind.next_intent(reading(aim=block_aim()))
+    assert first.skill == "use_target"
+    assert mind.last_use_aim is not None
+    mind.record_result(first, outcome(ActionResultClass.UNKNOWN), reading(aim=block_aim()))
+
+    same = mind.next_intent(reading(aim=block_aim()))
+    assert same.skill != "use_target"
+
+    after_turn = mind.next_intent(reading(aim=moved))
+    assert after_turn.skill == "use_target"
+
+
+def test_the_repeat_guard_clears_once_a_step_confirms() -> None:
+    """A confirmed act renews the offer: the target the Kin finally did something to should not
+    stay quarantined, and a fresh block aim is not the spent one anyway."""
+
+    mind, _ = mind_with(
+        Decision(skill_id="use_target", reason="place", intent_generation=1),
+        Decision(skill_id="use_target", reason="open the placed table", intent_generation=2),
+    )
+    first = mind.next_intent(reading(aim=block_aim()))
+    assert first.skill == "use_target"
+    mind.record_result(first, outcome(ActionResultClass.CONFIRMED), reading(aim=block_aim()))
+    assert mind.last_use_aim is None
+
+    second = mind.next_intent(reading(aim=block_aim()))
+    assert second.skill == "use_target"
+
+
 def test_the_off_mind_leaves_an_open_screen_before_it_looks() -> None:
     """`off` walks the same narrowing: the local reflection sees only `close_screen` in the offer
     and chooses it, so a machine with no credentials still steps out of a stuck window instead of
