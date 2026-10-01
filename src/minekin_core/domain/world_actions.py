@@ -38,12 +38,27 @@ from minekin_core.domain.control_vocabulary import (
     USE_CAPABILITY,
 )
 from minekin_core.domain.perception import (
+    AimFace,
     AimKind,
     BlockTargetValue,
     EntityCandidate,
     InventoryValue,
+    SelfStateValue,
     WorldObservationValue,
 )
+
+#: The block a placement lands in, given the face of the aim block the client
+#: clicked: Minecraft puts the new block in the air cell touching that face, not
+#: in the solid one. DOWN/NORTH/WEST carry the negative axis; the enum's own
+#: wording, not a per-item table, so every placeable rides the same geometry.
+FACE_PLACEMENT_OFFSET: Final[Mapping[str, tuple[int, int, int]]] = {
+    AimFace.DOWN.value: (0, -1, 0),
+    AimFace.UP.value: (0, 1, 0),
+    AimFace.NORTH.value: (0, 0, -1),
+    AimFace.SOUTH.value: (0, 0, 1),
+    AimFace.WEST.value: (-1, 0, 0),
+    AimFace.EAST.value: (1, 0, 0),
+}
 
 #: What each skill asks authorisation for, keyed by the skill's own name. The
 #: mapping is in the domain rather than at the call site because the same list
@@ -105,6 +120,10 @@ class ActionRefusal(StrEnum):
     HOTBAR_SLOT_OUT_OF_RANGE = "HOTBAR_SLOT_OUT_OF_RANGE"
     GUI_SYNC_ID_MISMATCH = "GUI_SYNC_ID_MISMATCH"
     USE_TARGET_NOT_AIMED = "USE_TARGET_NOT_AIMED"
+    #: A placement whose only target is the air the player already stands in. The
+    #: server would drop the block back, so the click is a no-op with a side
+    #: effect spent; Core names it before the wire rather than banking an UNKNOWN.
+    PLACEMENT_TARGET_IN_SELF = "PLACEMENT_TARGET_IN_SELF"
 
 
 #: A block face the client did not name cannot disagree with anything, so an
@@ -204,6 +223,50 @@ def gui_click_refusal(
     return ActionRefusalDecision(None)
 
 
+def _placement_cell(block: BlockTargetValue) -> tuple[int, int, int] | None:
+    """The air cell a block placed against `block`'s clicked face would land in.
+
+    `None` when the client named no face (`NOT_READ`/`UNKNOWN`): with no direction
+    there is no cell to collide with, and an un-named face stays the tolerant
+    match §4 already grants rather than becoming a phantom refusal.
+    """
+
+    offset = FACE_PLACEMENT_OFFSET.get(block.face.value)
+    if offset is None:
+        return None
+    return (block.x + offset[0], block.y + offset[1], block.z + offset[2])
+
+
+def _occupied_cells(self_state: SelfStateValue) -> frozenset[tuple[int, int, int]]:
+    """The two blocks a standing player fills: the feet cell and the head cell
+    above it. An absent position reads as no cells, so the check stays silent
+    rather than guessing the origin."""
+
+    if self_state.x is None or self_state.y is None or self_state.z is None:
+        return frozenset()
+    feet = (math.floor(self_state.x), math.floor(self_state.y), math.floor(self_state.z))
+    return frozenset({feet, (feet[0], feet[1] + 1, feet[2])})
+
+
+def placement_target_in_self(observation: WorldObservationValue | None) -> bool:
+    """Whether the only thing the crosshair offers is the air the player is in.
+
+    A block places into the cell touching the clicked face. When that cell is one
+    of the two the standing player already occupies, the server rejects the block
+    and the hand keeps it — so a use there is a spent click that can never
+    confirm. This is the general placement precondition, item-agnostic: it is the
+    same geometry whether the hand holds a crafting table, a torch, or a slab.
+    """
+
+    if observation is None:
+        return False
+    aim = observation.aim
+    if aim is None or aim.kind is not AimKind.BLOCK or aim.block is None:
+        return False
+    cell = _placement_cell(aim.block)
+    return cell is not None and cell in _occupied_cells(observation.self_state)
+
+
 def use_target_refusal(observation: WorldObservationValue | None) -> ActionRefusalDecision:
     """The use key may only fire on something the crosshair actually reports.
 
@@ -213,11 +276,19 @@ def use_target_refusal(observation: WorldObservationValue | None) -> ActionRefus
     a different act than the one the plan asked for. A block or an entity is a
     thing the client rendered, so either may be used — placing against the block
     or activating the villager, chest or door are the same key on the wire.
+
+    Beyond seeing, a block aim must have somewhere to put the block: if the face
+    it is aimed at opens only onto the cell the player is standing in, the use is
+    refused with `PLACEMENT_TARGET_IN_SELF` rather than spending a click the
+    server will bounce. Activation of the aimed block is untouched — it acts on
+    the block under the crosshair, never on the air in front of it.
     """
 
     aim = observation.aim if observation is not None else None
     if aim is None or aim.kind not in (AimKind.BLOCK, AimKind.ENTITY):
         return ActionRefusalDecision(ActionRefusal.USE_TARGET_NOT_AIMED)
+    if placement_target_in_self(observation):
+        return ActionRefusalDecision(ActionRefusal.PLACEMENT_TARGET_IN_SELF)
     return ActionRefusalDecision(None)
 
 

@@ -1137,11 +1137,13 @@ class PlayerMind:
             )
         if skill == "use_target":
             # The use key carries no argument: it acts on what the crosshair reports and what the
-            # hand already holds, so the one precondition is the aim the skill itself checks. A
-            # provider that answered use_target against a MISS/UNREAD aim is refused with the
-            # skill's own token, keeping "the mind offered it" and "the world could run it" equal.
-            if not use_target_refusal(reading).accepted:
-                return None, "USE_TARGET_NOT_AIMED", {}
+            # hand already holds, so the preconditions are the aim the skill itself checks. A
+            # provider that answered use_target against a MISS/UNREAD aim, or one that can only
+            # place into the player's own cell, is refused with the skill's own token — so the
+            # mind falls through to a turn rather than spending a doomed click.
+            refusal = use_target_refusal(reading)
+            if refusal.refusal is not None:
+                return None, refusal.refusal.value, {}
             return (
                 SkillPlan((SkillCall(name="use_target"),)),
                 "use the key on the thing in the crosshair — place against it, or open it",

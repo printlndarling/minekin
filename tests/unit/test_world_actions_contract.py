@@ -569,6 +569,64 @@ def test_a_use_at_empty_air_or_an_unread_aim_is_named(
 
 
 # ---------------------------------------------------------------------------
+# §3: the general placement precondition — no block lands in the player's own cell
+# ---------------------------------------------------------------------------
+
+
+def standing(x: float = 0.5, y: float = 64.0, z: float = 0.5) -> SelfStateValue:
+    """A player whose feet fill (0, 64, 0) and whose head fills (0, 65, 0)."""
+
+    return SelfStateValue(
+        health=20.0, max_health=20.0, food=20, saturation=5.0, alive=True, x=x, y=y, z=z
+    )
+
+
+def test_placing_against_the_floor_under_your_own_feet_is_named() -> None:
+    # The real 3x3 gap: a Kin aims straight down, the crosshair is on the block
+    # below its feet, and the UP face opens onto the very cell it stands in.
+    obs = reading(state=standing(), aim=aimed_at(block(0, 63, 0, AimFace.UP)))
+    decision = use_target_refusal(obs)
+    assert decision.refusal is ActionRefusal.PLACEMENT_TARGET_IN_SELF
+    assert decision.as_document() == {
+        "accepted": False,
+        "refusal": "PLACEMENT_TARGET_IN_SELF",
+    }
+
+
+def test_placing_against_a_free_neighbour_face_is_allowed() -> None:
+    # Two cells over: the same UP face now opens onto air the player is not in.
+    assert use_target_refusal(
+        reading(state=standing(), aim=aimed_at(block(2, 63, 0, AimFace.UP)))
+    ).accepted
+
+
+def test_placement_collision_spreads_to_the_head_cell_and_side_faces() -> None:
+    # Aim at the feet cell itself with UP -> the head cell; a WEST face of the
+    # block east of the player lands back in the feet cell. Both are refused.
+    assert not use_target_refusal(
+        reading(state=standing(), aim=aimed_at(block(0, 64, 0, AimFace.UP)))
+    ).accepted
+    assert not use_target_refusal(
+        reading(state=standing(), aim=aimed_at(block(1, 64, 0, AimFace.WEST)))
+    ).accepted
+
+
+def test_an_unnamed_face_or_entity_aim_stays_tolerant() -> None:
+    # NOT_READ names no direction, so there is no cell to collide with; an
+    # entity is activated on the thing itself, never the air in front of it.
+    assert use_target_refusal(
+        reading(state=standing(), aim=aimed_at(block(0, 63, 0, AimFace.NOT_READ)))
+    ).accepted
+    assert use_target_refusal(reading(state=standing(), aim=aimed_entity())).accepted
+
+
+def test_an_absent_position_refuses_nothing() -> None:
+    # "No position" is not "position zero": with no feet cell to compare the
+    # placement precondition stays silent rather than guessing the origin.
+    assert use_target_refusal(reading(aim=aimed_at(block(0, -1, 0, AimFace.UP)))).accepted
+
+
+# ---------------------------------------------------------------------------
 # §4 row five: the use key answered — a window opened or the hand spent one
 # ---------------------------------------------------------------------------
 
