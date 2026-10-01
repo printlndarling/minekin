@@ -8,6 +8,7 @@ import type {
   KinSnapshot,
   RenameRequest,
   RenameResult,
+  RecipeCoverageInfo,
   SessionControlInfo,
   StopRequest,
   StopResult,
@@ -118,6 +119,14 @@ export interface KinReadAdapter {
    * UI can act on, and it never claims live progress (there is no held-count here to render).
    */
   goal(signal?: AbortSignal): Promise<ReadResult<GoalInfo>>;
+  /**
+   * The recipe catalog's coverage boundary, projected by `gateway/recipe_read.py`: the game version,
+   * the watched/curated split, and one row per known craft — so the panel can name the catalog's
+   * support limit rather than only the plan one product implies. A pure READ with no write partner, so
+   * it hands out no token and the decoded model keeps `universal` at the catalog's hard-wired `false`;
+   * a `true` byte is a contract mismatch, since a finite curated fallback must never read as universal.
+   */
+  recipe(signal?: AbortSignal): Promise<ReadResult<RecipeCoverageInfo>>;
 }
 
 /**

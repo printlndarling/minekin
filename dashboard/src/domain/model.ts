@@ -439,3 +439,55 @@ export interface GoalInfo {
   readonly observedAt: string;
   readonly staleAfterMs: number;
 }
+
+/**
+ * The recipe-coverage read model of `gateway/recipe_read.py::recipe_read`: the whole covered region
+ * of the curated catalog at once — the game version it claims, the watched/curated split, and one
+ * row per known craft — so a panel can show the catalog's support BOUNDARY rather than only the plan
+ * one product implies (`GoalInfo`). This is the criterion-6 surface: the small curated set is honest
+ * precisely because it says out loud what it stands behind.
+ *
+ * Two honesty invariants survive the wire and are enforced at the seam, not trusted from the server:
+ * `universal` is the catalog's hard-wired `false` (a `true` byte is a contract mismatch — a finite
+ * fallback must never read as a general crafting source), and every row's `provenance` distinguishes
+ * a craft watched on the controlled server from one only curated from the game's data. Like the goal
+ * read this is a pure GET with NO write partner, so the payload carries no `csrfToken` at all — there
+ * is nothing here to authorize. A product outside `covered` is simply absent from the rows; the
+ * boundary is the empty room the table makes for it, named elsewhere by `CRAFT_RECIPE_UNAVAILABLE`.
+ */
+export const RECIPE_SCHEMA_VERSION = "kin-dashboard-recipe/1.0.0";
+
+/** How this build came to hold a row — watched crafted, or curated and not yet watched. */
+export type RecipeProvenance = "live_confirmed" | "curated_unwatched";
+
+/** One ingredient a batch of the recipe eats. */
+export interface RecipeIngredient {
+  readonly itemId: string;
+  readonly count: number;
+}
+
+/** One catalog craft: its name, shape, cost, yield, whether this build's grid can hold it, and
+ *  the provenance saying how much the catalog actually stands behind it. */
+export interface RecipeRow {
+  readonly productId: string;
+  readonly recipeId: string;
+  readonly gridWidth: number;
+  readonly gridHeight: number;
+  readonly yields: number;
+  readonly fitsPlayerGrid: boolean;
+  readonly provenance: RecipeProvenance;
+  readonly ingredients: readonly RecipeIngredient[];
+}
+
+export interface RecipeCoverageInfo {
+  readonly gameVersion: string;
+  /** Always `false` — the catalog never claims to know every craft. Enforced at the seam. */
+  readonly universal: false;
+  readonly playerGridSide: number;
+  readonly covered: readonly string[];
+  readonly liveConfirmed: readonly string[];
+  readonly curatedUnwatched: readonly string[];
+  readonly recipes: readonly RecipeRow[];
+  readonly observedAt: string;
+  readonly staleAfterMs: number;
+}

@@ -7,7 +7,7 @@
  * unimplemented surface is a named row on the 数据源与缺口 page, not a tab that renders a stub.
  */
 
-export type PageId = "overview" | "task" | "timeline" | "alerts" | "config" | "identity" | "session" | "data";
+export type PageId = "overview" | "task" | "timeline" | "alerts" | "config" | "identity" | "session" | "recipes" | "data";
 
 export interface NavItem {
   readonly id: PageId;
@@ -28,6 +28,7 @@ export const NAV_GROUPS: readonly NavGroup[] = [
     items: [
       { id: "overview", label: "总览", hint: "是谁、在哪个世界、走到哪一步" },
       { id: "task", label: "任务 · 目标与计划", hint: "已存目标的里程碑与目录推得的合成计划（纯读，不报实时进度）" },
+      { id: "recipes", label: "配方知识 · 覆盖边界", hint: "精选目录覆盖哪些合成、各自形状与来源，并声明它不是通用合成源（纯读）" },
     ],
   },
   {

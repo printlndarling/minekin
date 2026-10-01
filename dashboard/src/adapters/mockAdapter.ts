@@ -21,6 +21,7 @@ import {
   type KinSnapshot,
   type RenameRequest,
   type RenameResult,
+  type RecipeCoverageInfo,
   type SessionControlInfo,
   type StopRequest,
   type StopResult,
@@ -32,6 +33,7 @@ import {
   buildMockConfig,
   buildMockGoal,
   buildMockIdentity,
+  buildMockRecipeCoverage,
   buildMockSession,
   buildMockStopReport,
   mockConfigInitialFields,
@@ -48,6 +50,7 @@ import {
   decodeConfigSavePayload,
   decodeGoalPayload,
   decodeIdentityPayload,
+  decodeRecipeCoveragePayload,
   decodeRenamePayload,
   decodeSessionPayload,
   decodeSnapshotPayload,
@@ -390,6 +393,23 @@ export function createMockAdapter(scenario: MockScenarioId, latencyMs: number): 
         return fail("contract_mismatch", `模拟目标与自身解码器不匹配：${decoded.issues.slice(0, 6).join("；")}`);
       }
       return ok(decoded.goal, "mock", `mock://scenario/${scenario}/goal`);
+    },
+    async recipe(signal?: AbortSignal): Promise<ReadResult<RecipeCoverageInfo>> {
+      await settle();
+      if (signal?.aborted === true) {
+        return fail("cancelled", "读取已取消。");
+      }
+      if (scenario === "read_failed") {
+        return fail("disconnected", "模拟场景：配方覆盖读取失败。");
+      }
+      // The catalog boundary is the same four products and watched/curated split the real
+      // `recipe_coverage()` reports; it is fed through the shared decoder, so a fixture that
+      // mis-shapes the wire surfaces as `contract_mismatch` rather than a plausible-looking panel.
+      const decoded = decodeRecipeCoveragePayload(buildMockRecipeCoverage(scenario, Date.now()));
+      if (!decoded.ok) {
+        return fail("contract_mismatch", `模拟配方覆盖与自身解码器不匹配：${decoded.issues.slice(0, 6).join("；")}`);
+      }
+      return ok(decoded.coverage, "mock", `mock://scenario/${scenario}/recipe`);
     },
   };
 }

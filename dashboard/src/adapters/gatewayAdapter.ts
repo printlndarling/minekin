@@ -2,6 +2,7 @@ import {
   CONFIG_SCHEMA_VERSION,
   GOAL_SCHEMA_VERSION,
   IDENTITY_SCHEMA_VERSION,
+  RECIPE_SCHEMA_VERSION,
   SESSION_SCHEMA_VERSION,
   SNAPSHOT_SCHEMA_VERSION,
   filled,
@@ -32,6 +33,9 @@ import {
   type RenameRequest,
   type RenameResult,
   type RenameStatus,
+  type RecipeCoverageInfo,
+  type RecipeIngredient,
+  type RecipeRow,
   type SelfState,
   type SessionControlInfo,
   type SessionInfo,
@@ -133,6 +137,17 @@ export const SESSION_ENDPOINTS = {
  */
 export const GOAL_ENDPOINTS = {
   goal: "/api/v1/dashboard/goal",
+} as const;
+
+/**
+ * The recipe-coverage surface `gateway/recipe_read.py` opens: one GET that answers the whole covered
+ * region of the curated catalog — the version, the watched/curated split and one row per craft — so
+ * the panel can show the catalog's support BOUNDARY (criterion 6), not only the plan one product
+ * implies. It is a READ with no write sibling, so only this one path exists and — unlike the goal read,
+ * whose payload still echoes a token the seam drops — the recipe payload carries no `csrfToken` at all.
+ */
+export const RECIPE_ENDPOINTS = {
+  recipe: "/api/v1/dashboard/recipe-coverage",
 } as const;
 
 /** The header `gateway/identity.py` requires the rename to echo the identity-GET token back in. */
@@ -1227,6 +1242,151 @@ export function decodeGoalPayload(raw: unknown): GoalDecode {
   };
 }
 
+export type RecipeDecode =
+  | { readonly ok: true; readonly coverage: RecipeCoverageInfo }
+  | { readonly ok: false; readonly issues: readonly string[] };
+
+/** One batch's cost, the same `{item_id, count}` shape the goal plan materials decode. */
+function parseRecipeIngredients(
+  raw: unknown,
+  path: string,
+  issues: string[],
+): RecipeIngredient[] | null {
+  if (!Array.isArray(raw)) {
+    issues.push(`${path}: 期望材料数组`);
+    return null;
+  }
+  const out: RecipeIngredient[] = [];
+  for (const [index, item] of raw.entries()) {
+    const rec = asRecord(item);
+    if (rec === null) {
+      issues.push(`${path}[${index}]: 期望 {item_id, count} 对象`);
+      return null;
+    }
+    const itemId = asString(rec.item_id);
+    if (itemId === null) issues.push(`${path}[${index}].item_id: 缺失或非字符串`);
+    const count = asInteger(rec.count);
+    if (count === null) issues.push(`${path}[${index}].count: 缺失或非整数`);
+    if (itemId === null || count === null) return null;
+    out.push({ itemId, count });
+  }
+  return out;
+}
+
+/** One catalog row `gateway/recipe_read.py::_row` writes, snake_case → camel, with the provenance
+ *  restricted to the two words the catalog actually uses and the grid fit read as a boolean. */
+function parseRecipeRow(raw: unknown, path: string, issues: string[]): RecipeRow | null {
+  const rec = asRecord(raw);
+  if (rec === null) {
+    issues.push(`${path}: 期望 recipe 行对象`);
+    return null;
+  }
+  const productId = asString(rec.product_id);
+  if (productId === null) issues.push(`${path}.product_id: 缺失或非字符串`);
+  const recipeId = asString(rec.recipe_id);
+  if (recipeId === null) issues.push(`${path}.recipe_id: 缺失或非字符串`);
+  const gridWidth = asInteger(rec.grid_width);
+  if (gridWidth === null) issues.push(`${path}.grid_width: 缺失或非整数`);
+  const gridHeight = asInteger(rec.grid_height);
+  if (gridHeight === null) issues.push(`${path}.grid_height: 缺失或非整数`);
+  const yields = asInteger(rec.yields);
+  if (yields === null) issues.push(`${path}.yields: 缺失或非整数`);
+  const fitsPlayerGrid = asBoolean(rec.fits_player_grid);
+  if (fitsPlayerGrid === null) issues.push(`${path}.fits_player_grid: 缺失或非布尔`);
+  const provenance = oneOf(rec.provenance, ["live_confirmed", "curated_unwatched"] as const);
+  if (provenance === null) {
+    issues.push(`${path}.provenance: 期望 live_confirmed 或 curated_unwatched`);
+  }
+  const ingredients = parseRecipeIngredients(rec.ingredients, `${path}.ingredients`, issues);
+  if (
+    productId === null ||
+    recipeId === null ||
+    gridWidth === null ||
+    gridHeight === null ||
+    yields === null ||
+    fitsPlayerGrid === null ||
+    provenance === null ||
+    ingredients === null
+  ) {
+    return null;
+  }
+  return { productId, recipeId, gridWidth, gridHeight, yields, fitsPlayerGrid, provenance, ingredients };
+}
+
+/**
+ * The recipe-coverage read `gateway/recipe_read.py::recipe_read` answers: a flat document decoded
+ * whole or not at all, so a missing field is a `contract_mismatch` rather than a partial fill. There
+ * is NO `csrfToken` on this wire — the read has no write partner — so none is dropped or kept.
+ *
+ * The document's own honesty invariant is enforced here rather than trusted: `universal` must be the
+ * catalog's hard-wired `false`. A byte that is not a boolean OR is `true` is a mismatch, because a
+ * finite curated fallback reading itself as a universal crafting source is exactly the criterion-6
+ * lie this surface exists to prevent — the panel must never be handed a `universal: true` to render.
+ */
+export function decodeRecipeCoveragePayload(raw: unknown): RecipeDecode {
+  const rec = asRecord(raw);
+  if (rec === null) return { ok: false, issues: ["$: 配方覆盖响应不是 object"] };
+  const issues: string[] = [];
+  if (asString(rec.schemaVersion) !== RECIPE_SCHEMA_VERSION) {
+    issues.push(`$.schemaVersion: 期望 ${RECIPE_SCHEMA_VERSION}`);
+  }
+  const observedAt = asString(rec.observedAt);
+  if (observedAt === null) issues.push("$.observedAt: 缺失或非字符串");
+  const staleAfterMs = asNumber(rec.staleAfterMs);
+  if (staleAfterMs === null) issues.push("$.staleAfterMs: 缺失或非数值");
+  const gameVersion = asString(rec.game_version);
+  if (gameVersion === null) issues.push("$.game_version: 缺失或非字符串");
+  const universal = asBoolean(rec.universal);
+  if (universal !== false) issues.push("$.universal: 必须为 false（有限回退不得自称通用合成源）");
+  const playerGridSide = asInteger(rec.player_grid_side);
+  if (playerGridSide === null) issues.push("$.player_grid_side: 缺失或非整数");
+
+  const covered = asStringArray(rec.covered, "$.covered", issues);
+  const liveConfirmed = asStringArray(rec.live_confirmed, "$.live_confirmed", issues);
+  const curatedUnwatched = asStringArray(rec.curated_unwatched, "$.curated_unwatched", issues);
+
+  const recipesRaw = rec.recipes;
+  let recipes: RecipeRow[] | null = null;
+  if (!Array.isArray(recipesRaw)) {
+    issues.push("$.recipes: 期望行数组");
+  } else {
+    recipes = [];
+    for (const [index, item] of recipesRaw.entries()) {
+      const row = parseRecipeRow(item, `$.recipes[${index}]`, issues);
+      if (row === null) return { ok: false, issues };
+      recipes.push(row);
+    }
+  }
+
+  if (
+    issues.length > 0 ||
+    observedAt === null ||
+    staleAfterMs === null ||
+    gameVersion === null ||
+    playerGridSide === null ||
+    covered === null ||
+    liveConfirmed === null ||
+    curatedUnwatched === null ||
+    recipes === null
+  ) {
+    return { ok: false, issues };
+  }
+  return {
+    ok: true,
+    coverage: {
+      gameVersion,
+      universal: false,
+      playerGridSide,
+      covered,
+      liveConfirmed,
+      curatedUnwatched,
+      recipes,
+      observedAt,
+      staleAfterMs,
+    },
+  };
+}
+
 function classifyStatus(status: number, url: string): ReadFailure {
   if (status === 401 || status === 403) {
     return { kind: "permission_denied", message: `${url} → HTTP ${status}：需要 Gateway 管理员只读鉴权。` };
@@ -1417,6 +1577,9 @@ export function createGatewayAdapter(options: GatewayAdapterOptions | null): Kin
       async goal(): Promise<ReadResult<GoalInfo>> {
         return unconfigured();
       },
+      async recipe(): Promise<ReadResult<RecipeCoverageInfo>> {
+        return unconfigured();
+      },
     };
   }
 
@@ -1532,6 +1695,15 @@ export function createGatewayAdapter(options: GatewayAdapterOptions | null): Kin
         return fail("contract_mismatch", `目标契约不匹配：${decoded.issues.slice(0, 6).join("；")}`);
       }
       return ok(decoded.goal, "gateway", `gateway://${GOAL_ENDPOINTS.goal}`);
+    },
+    async recipe(signal?: AbortSignal): Promise<ReadResult<RecipeCoverageInfo>> {
+      const response = await fetchJson(baseUrl, RECIPE_ENDPOINTS.recipe, timeoutMs, signal);
+      if (!response.ok) return { ok: false, failure: response.failure };
+      const decoded = decodeRecipeCoveragePayload(response.data);
+      if (!decoded.ok) {
+        return fail("contract_mismatch", `配方覆盖契约不匹配：${decoded.issues.slice(0, 6).join("；")}`);
+      }
+      return ok(decoded.coverage, "gateway", `gateway://${RECIPE_ENDPOINTS.recipe}`);
     },
   };
 }

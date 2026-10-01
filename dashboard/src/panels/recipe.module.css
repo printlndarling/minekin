@@ -1,0 +1,164 @@
+.state {
+  margin: 0 0 8px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.readFailure {
+  margin: 0 0 8px;
+  font-size: 12px;
+  color: var(--danger, #b3261e);
+}
+
+.freshness {
+  margin: 0 0 8px;
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+.boundary {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--warn-line, #b8860b);
+  border-left-width: 4px;
+  border-radius: 6px;
+  background: var(--warn-surface, rgba(184, 134, 11, 0.08));
+}
+
+.boundaryHead {
+  margin: 0 0 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.boundaryNote {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text);
+}
+
+.split {
+  margin: 0 0 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.splitGroup {
+  display: grid;
+  gap: 4px;
+  flex: 1 1 220px;
+}
+
+.splitGroup dt {
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+.splitGroup dd {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.tag {
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 11px;
+  padding: 2px 6px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.empty {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border: 1px dashed var(--line);
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-dim);
+}
+
+.rows {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 8px;
+}
+
+.row {
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface-2);
+}
+
+.row[data-fits="false"] {
+  border-left: 3px solid var(--warn-line, #b8860b);
+}
+
+.rowHead {
+  margin: 0 0 6px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: baseline;
+}
+
+.rowProduct {
+  font-size: 13px;
+  font-family: var(--mono, ui-monospace, monospace);
+  color: var(--text);
+}
+
+.rowShape {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.rowProvenance {
+  margin: 0 0 6px;
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+.gridBoundary {
+  margin: 0 0 6px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text);
+}
+
+.materials {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 2px;
+}
+
+.material {
+  font-size: 12px;
+  color: var(--text-dim);
+  display: flex;
+  gap: 8px;
+}
+
+.materialCount {
+  font-family: var(--mono, ui-monospace, monospace);
+  color: var(--text-faint);
+}
+
+.caveat {
+  margin: 12px 0 0;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-faint);
+}

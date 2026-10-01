@@ -755,3 +755,62 @@ export function buildMockGoal(
   }
   return { ...base, configured: true, milestone, plan: planned, precondition: null };
 }
+
+/**
+ * `recipe_catalog.RecipeProvenance.LIVE_CONFIRMED`'s product ids, mirrored: the two crafts the Kin
+ * has watched happen on the controlled server. `MOCK_RECIPES` keys the fixture's catalog belief by
+ * product but carries no provenance, so this split is where the fixture states which of those rows
+ * it has seen — everything covered but not listed here is curated-unwatched. It is the same four
+ * products and the same watched/curated line the real `recipe_coverage()` draws, not a second source
+ * of truth: the boundary's real home is `gateway/recipe_read.py`, which `decodeRecipeCoveragePayload`
+ * verifies — including its hard `universal: false`.
+ */
+const MOCK_LIVE_CONFIRMED: readonly string[] = ["minecraft:oak_planks", "minecraft:stick"];
+
+/**
+ * The recipe-coverage document `gateway/recipe_read.py::recipe_read` answers, in the exact wire shape
+ * the shared `decodeRecipeCoveragePayload` parses, so a fixture-driven panel exercises the same
+ * whole-or-nothing decode the gateway bytes go through and the two adapters cannot drift. It reports
+ * the catalog's own boundary as data: the single version these rows claim (`1.20.1`), `universal:
+ * false` (the criterion-6 honesty byte the decoder refuses to accept as `true`), the player-grid side
+ * this build opens, the covered region split into watched and curated, and one row per known craft
+ * with its grid shape, per-batch cost, yield, and `fits_player_grid` — so the panel can mark a
+ * three-by-three pickaxe as beyond the two-by-two grid without re-deriving the fit rule. There is no
+ * `csrfToken` on this wire (the read has no write partner), and no per-goal progress is fabricated:
+ * the rows are catalog facts, not a claim that anything has been crafted this session. `recipe_id`
+ * equals the product id for every vanilla row, exactly as `RECIPES` holds it.
+ */
+export function buildMockRecipeCoverage(scenario: MockScenarioId, nowMs: number): Record<string, unknown> {
+  void scenario;
+  const productIds = Object.keys(MOCK_RECIPES).sort();
+  const liveConfirmed = productIds.filter((id) => MOCK_LIVE_CONFIRMED.includes(id));
+  const curatedUnwatched = productIds.filter((id) => !MOCK_LIVE_CONFIRMED.includes(id));
+  const recipes = productIds.flatMap((id) => {
+    const recipe = MOCK_RECIPES[id];
+    if (recipe === undefined) return [];
+    return [
+      {
+        product_id: id,
+        recipe_id: id,
+        grid_width: recipe.width,
+        grid_height: recipe.height,
+        yields: recipe.yields,
+        fits_player_grid: Math.max(recipe.width, recipe.height) <= MOCK_PLAYER_GRID_SIDE,
+        provenance: MOCK_LIVE_CONFIRMED.includes(id) ? "live_confirmed" : "curated_unwatched",
+        ingredients: recipe.ingredients.map(([item, count]) => ({ item_id: item, count })),
+      },
+    ];
+  });
+  return {
+    schemaVersion: "kin-dashboard-recipe/1.0.0",
+    observedAt: iso(nowMs),
+    staleAfterMs: 8_000,
+    game_version: "1.20.1",
+    universal: false,
+    player_grid_side: MOCK_PLAYER_GRID_SIDE,
+    covered: productIds,
+    live_confirmed: liveConfirmed,
+    curated_unwatched: curatedUnwatched,
+    recipes,
+  };
+}
