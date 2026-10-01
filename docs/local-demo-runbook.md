@@ -906,3 +906,18 @@ step14 turn_to {pitch:-18, yaw:135}  "sweep to look for a spot to place a crafti
 **仍不声明**：这一发未取得任何放置或 3×3 木镐的真实游戏 CONFIRM，目标保持 UNKNOWN/未达（不是 FAILED——`verify_craft` 下限本就是 UNKNOWN）；`#48` 既未被证实也未证伪。
 
 **下一格 `current_next`**：先读 `domain/recipe_catalog.py` 的 `build_plan` 与 enabler 预留次序，判明"被预留的 3×3 enabler（工作台）这一道欠步，排在共享材料（木板）的低阶欠步（木棍）之前还是之后"，以及可行性是否应先把 enabler 的料价预留出来；只有据这份读法，才谈得上"通用放置目标选择与前提校验"更靠前那一环的通用修法——不重跑赌模型、不加木镐专用步、不改断言凑绿。
+
+## 六之二十二、复用已填 Kin 根跑 `--again` 那一发：把「应用重启/复用」「正常 stop」「任务恢复」三件事在活体上分开入账（2026-10-02，run `8c6197a32d4d46cb9ad53612c0e2fe33`，会话 `3a115705e9ec4e648606208ba413d24c`，客户端 pid 295，server run 目录 `run-36`，Kin 根 `kin-3x3-guard-20261001-195907`（复用六之二十一那一发刚填满 store 的同一根），boot_mode `cache_hit`）
+
+这一发对应完成度审计的第 3 条：正常 session stop ≠ 异常断连测试，重启读回配置 ≠ 任务恢复。做法是用无模型 `--again` 在上一发（六之二十一）刚填满 store 的同一 Kin 根上重跑脚本走，专门取「重启/复用」相对「正常 stop」「任务恢复」的活体区分读数，全程不耗模型预算。
+
+1. **store 复用读数**：`boot_mode cache_hit`、`fetch_set 3639 / reused 3639 / installed 0`——bundle 未再下载即直接进入世界，`auto_bundle.status ready`。这正是与冷启动（六之二十一 `boot_mode cold`）相对的那一侧。
+2. **会话机与收尾实读（正常取消/stop 再次活体确认）**：`connection_state PLAYABLE → session_state STOPPED`、`outcome STOPPED_ON_REQUEST`、`input_release_failed false`、`session exited 0`；domain 逐行「the session is playable」「the server saw the Kin walk and stop」「stopping the session」。松键按第 4 条要的实读入账：`release asked[295] / released[295] / unconfirmed [] / nothing_held []`，另有 `terminated[295]`、`unresolved []`、`left_alone []`——`released` 是实读非推断。
+3. **「重启/复用」与「任务恢复」的活体区分（核心）**：`recovery.status reconciled`、`invalidated []`、`waiting []`，且 `autonomous null`（这一发是脚本走，没有把上一发的木镐目标接过来自动重跑）。⇒ 编排层对着已持久化的 store/会话重启时，做的是核对/收尾既有会话，既非静默重连（`reconciled` 而非 reconnect），亦非静默重放目标动作（`autonomous null`、无 goal 续跑）。这就是「重启读回配置 ≠ 任务恢复」在活体上的样子。
+4. **两处诚实保留，不能拿这一发冒充已全验**：
+   - 显式恢复的非空失效子情形（对一枚因非正常收尾而死掉的进程标记做 `invalidated`/`waiting` 回收）本轮是 `invalidated []/waiting []`，因为上一发是 `exited 0` 的干净收尾；非空失效只在 wrapper 被杀 / PID 复用留死标记时自然出现，而那会撞 `OLD_CLIENT_UNPROVEN` 拒起新 run，不在这一发能按需复现——不伪造。
+   - 异常断连（传输掉线 / `BRIDGE_LOST`，与 `STOPPED_ON_REQUEST` 相区分）这一发没有触发；harness 把双开同存档判为 artifact、无干净的按需掉线旋钮，该路径目前只有代码 + 单测层的区分（#8 已闭合），活体逐字读数仍缺。
+
+**仍不声明**：不据此判 #46 全绿。四路里「正常取消/stop」「应用重启/复用＝核对非重放」已在活体分别取得读数；「异常断连」「非空失效的显式恢复」两条活体仍未取。
+
+**下一格 `current_next`**：要么在受控条件下取一次非空失效恢复读数（先接受一次非正常收尾并据其死标记做 reconcile，且不删旧失败材料），要么给异常断连找一个产品级、非 artifact 的按需触发面后再逐字入账；两者都不与 #50/#47/#4 的保留设计决定混做。

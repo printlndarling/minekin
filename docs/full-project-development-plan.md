@@ -185,7 +185,7 @@ Minekin 是一个**能像玩家一样生活的独立 Minecraft 角色系统**，
 
 1. **后台控制逐动词核对（#4，判 PARTIAL）**：`gateway/session_control.py` 的 `_AVAILABLE_CONTROLS` 当前只有 `stop`；`start`/`pause`/`resume` 作为具名缺口写进读模型的 `unavailableControls`——start 需由持有 Bridge IPC 的活动进程发起、只读网关不托管，pause/resume 依赖冻结状态机里尚不存在的 `PAUSED` 态。连接与目标读取是 GET 只读投影，目标提交经 `config_write` 落盘而非独立生命周期写面。因此后台的授权写面是配置保存（含目标）、会话停止、身份确认式改名三处，生命周期四动词只有“停止”这一动词是真的；仅有配置与停止不能判 #4 完整通过。
 2. **动态配方来源仍是待开发（#6）**：`domain/recipe_catalog.py` 的小 curated 集合能推出 product id 与数量，面板把“当前配方库覆盖不到的目标”显示成边界——这只是诚实展示，不等于配方知识来自世界。由世界/游戏真实反馈派生、能对真实目标端到端应答的动态配方来源（[GUI 合成](recipe-knowledge-gui-contract.md)、[研究技能](research-skill-contract.md) 所载）仍未开发，不能因为边界可见就跳过（见 task #47）。
-3. **正常停止 ≠ 异常断连，重启读回 ≠ 任务恢复（#3）**：三者按不同路径分别验——正常取消走 `stop_session` 的“请求—活体松键—按 `/proc` 证明身份后才终止”；异常断连看 Bridge IPC 丢失与 `BRIDGE_LOST`/退出码收尾；应用重启读回的是 operator 配置（模型/目标/预算/身份），恢复的是人物与意图而非旧 lease、GUI 句柄或实体 token。三条不能互相冒充，逐条活体验证仍在进行（见 task #46）。
+3. **正常停止 ≠ 异常断连，重启读回 ≠ 任务恢复（#3）**：三者按不同路径分别验——正常取消走 `stop_session` 的“请求—活体松键—按 `/proc` 证明身份后才终止”；异常断连看 Bridge IPC 丢失与 `BRIDGE_LOST`/退出码收尾；应用重启读回的是 operator 配置（模型/目标/预算/身份），恢复的是人物与意图而非旧 lease、GUI 句柄或实体 token。三条不能互相冒充，逐条活体验证仍在进行（见 task #46）：四路区分里「正常取消/stop」与「应用重启/复用＝核对既有会话、既非静默重连（`recovery.status reconciled`）亦非重放目标（`autonomous null`）」已在活体分别取到读数（六之二十二 run `8c6197a3…`，松键按实读入账 `release released=[295]/unconfirmed []`）；「异常断连」与「非空失效的显式恢复」两条活体读数仍缺，不得转述为已全验。
 4. **确认松键必须有 released/unconfirmed 实际读数（#4 补）**：一次“已确认松键”的判定读的是 run document 的 `release.released` 与 `release.unconfirmed`，不是 `asked`/`terminated`/`unresolved`。木棍活体 run `da6b72d7…` 收尾读数为 `asked=[310]、released=[310]、unconfirmed=[]`，即每一路被按住的输入都在客户端下一 tick 得到释放确认；只有 `asked` 而无 `released`、或带非空 `unconfirmed`，一律不算确认。
 
 ## 9. 设计资料索引
