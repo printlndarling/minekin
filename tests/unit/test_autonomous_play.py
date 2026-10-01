@@ -12,7 +12,8 @@ actually demonstrate.
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Mapping
+import time
+from collections.abc import Callable, Mapping
 from typing import cast
 
 from google.protobuf.message import Message
@@ -252,6 +253,29 @@ class _OneShotProvider:
         return self.answer
 
 
+class _BlockingProvider:
+    """An endpoint that answers over a *synchronous* round-trip, like `urllib.urlopen`.
+
+    It samples a shared heartbeat counter the moment the call starts and the moment it ends. A
+    `next_intent` that ran on the event loop would freeze that counter for the whole sleep —
+    which is the exact mechanism that starved the stop-request watcher and forced the SIGTERM.
+    """
+
+    def __init__(self, answer: Decision, *, delay: float, probe: Callable[[], int]) -> None:
+        self.answer = answer
+        self.delay = delay
+        self.probe = probe
+        self.ticks_at_start = 0
+        self.ticks_at_end = 0
+
+    def decide(self, request: object) -> Decision:
+        del request
+        self.ticks_at_start = self.probe()
+        time.sleep(self.delay)
+        self.ticks_at_end = self.probe()
+        return self.answer
+
+
 def confirmed() -> SkillOutcome:
     return SkillOutcome(result=ActionResultClass.CONFIRMED, reason="", action_id="a-1")
 
@@ -391,6 +415,54 @@ def test_a_decision_that_claims_the_tool_does_not_end_the_run() -> None:
     assert result.stop_reason == STEP_BUDGET_SPENT
     assert mind.goal_met is False
     assert [name for name, _ in skills.ran] == ["craft_take_result", "craft_take_result"]
+
+
+def test_a_blocking_model_round_trip_does_not_freeze_the_event_loop() -> None:
+    """The real provider answers over a blocking socket call, so `next_intent` must leave the loop.
+
+    This is the regression behind the exit-143 diagnosis: run on the loop, a round-trip that
+    sleeps for its `timeout_ms` would stall every other task the supervision needs — the IPC
+    reader delivering the confirming frame, and the stop-request watcher that releases keys over
+    a still-live channel — which is exactly how a cooperative stop became a forced SIGTERM. A
+    heartbeat task runs throughout; the provider samples it at the start and end of its own
+    blocking call. If the loop were frozen the two samples would be equal; they must not be.
+    """
+
+    stage = Stage(
+        reading(tick=100, items=((0, LOG, 1), (1, PLANKS, 2))),
+        reading(tick=140, items=((0, LOG, 1), (1, PLANKS, 2))),
+    )
+    skills = TapeSkills(stage, {"craft_take_result": confirmed()})
+
+    ticks = {"n": 0}
+    provider = _BlockingProvider(
+        Decision(skill_id="craft_take_result", reason="off the loop", intent_generation=1),
+        delay=0.25,
+        probe=lambda: ticks["n"],
+    )
+    mind = mind_for(provider, CostLedger(run_cost_cap=CAP))
+
+    async def heartbeat() -> None:
+        while True:
+            await asyncio.sleep(0.02)
+            ticks["n"] += 1
+
+    async def play() -> None:
+        pulse = asyncio.create_task(heartbeat())
+        try:
+            await run_autonomous_loop(
+                mind=mind,
+                skills=skills,
+                observations=stage,
+                authority=AUTHORITY,
+                step_budget=1,
+            )
+        finally:
+            pulse.cancel()
+
+    asyncio.run(play())
+
+    assert provider.ticks_at_end > provider.ticks_at_start
 
 
 # ------------------------------------------------------------------------- its named endings

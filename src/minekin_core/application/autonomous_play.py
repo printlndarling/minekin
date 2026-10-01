@@ -27,6 +27,7 @@ a real client and against a tape with the same lines of code.
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
@@ -182,7 +183,11 @@ async def run_autonomous_loop(
         if steps and current_ref == asked_on:
             stop_reason = NO_FRESH_OBSERVATION
             break
-        intent = mind.next_intent(reading)
+        # The model call is a blocking socket round-trip (see adapters/model/openai_compatible),
+        # so it goes to a worker thread: run here on the loop, a real endpoint would freeze the
+        # event loop for its full `timeout_ms`, starving the IPC reader and the stop-request
+        # watcher alike — which is how a cooperative release became a forced SIGTERM (exit 143).
+        intent = await asyncio.to_thread(mind.next_intent, reading)
         if intent.kind is not MindDecisionKind.INTENT:
             stop_reason = intent.reason
             break
