@@ -143,6 +143,9 @@ BEHAVIOR_PARAMETERS: Final[Mapping[str, tuple[Parameter, ...]]] = MappingProxyTy
             _number("quantity", ParameterKind.QUANTITY, 1, MAX_QUANTITY),
         ),
         "close_screen": (),
+        # A use takes the aim from the reading, exactly as close_screen takes the
+        # window from it — the model names the behavior and fills in nothing.
+        "use_target": (),
         "select_hotbar": (
             _number("slot", ParameterKind.SLOT, 0, HOTBAR_SLOT_COUNT - 1),
             _item("expected_item_id"),

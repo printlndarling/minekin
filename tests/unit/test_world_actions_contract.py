@@ -37,10 +37,12 @@ from minekin_core.domain.world_actions import (
     item_total,
     mine_target_refusal,
     seen_drops,
+    use_target_refusal,
     verify_block_broken,
     verify_craft,
     verify_hotbar_change,
     verify_item_collected,
+    verify_use_effect,
 )
 
 HEALTHY = SelfStateValue(health=20.0, max_health=20.0, food=20, saturation=5.0, alive=True)
@@ -524,3 +526,129 @@ def test_seen_drops_reports_only_the_item_seen_nearest_first() -> None:
     )
     ordered = seen_drops((far, cow, near), "minecraft:oak_log")
     assert tuple(entity.observation_id for entity in ordered) == ("obs-near", "obs-far")
+
+
+# ---------------------------------------------------------------------------
+# §3: the use key's named refusal — it fires on what the crosshair reports
+# ---------------------------------------------------------------------------
+
+
+def aimed_entity(observation_id: str = "obs-villager") -> AimTargetValue:
+    return AimTargetValue(
+        game_tick=100,
+        kind=AimKind.ENTITY,
+        entity_observation_id=observation_id,
+        entity_type="minecraft:villager",
+        distance=2.0,
+    )
+
+
+def test_a_use_on_a_seen_block_or_entity_passes() -> None:
+    assert use_target_refusal(reading(aim=aimed_at(block()))).accepted
+    assert use_target_refusal(reading(aim=aimed_entity())).accepted
+
+
+@pytest.mark.parametrize(
+    "observation",
+    [
+        None,
+        reading(),  # aim never populated
+        reading(aim=AimTargetValue(game_tick=100, kind=AimKind.MISS)),
+        reading(aim=AimTargetValue(game_tick=100, kind=AimKind.UNREAD)),
+    ],
+)
+def test_a_use_at_empty_air_or_an_unread_aim_is_named(
+    observation: WorldObservationValue | None,
+) -> None:
+    decision = use_target_refusal(observation)
+    assert decision.refusal is ActionRefusal.USE_TARGET_NOT_AIMED
+    assert decision.as_document() == {
+        "accepted": False,
+        "refusal": "USE_TARGET_NOT_AIMED",
+    }
+
+
+# ---------------------------------------------------------------------------
+# §4 row five: the use key answered — a window opened or the hand spent one
+# ---------------------------------------------------------------------------
+
+
+def test_use_confirms_when_a_window_opens_that_was_not_standing() -> None:
+    pre = reading(aim=aimed_entity())
+    post = reading(
+        tick=110,
+        aim=aimed_entity(),
+        gui=GuiScreenValue(screen_id="chest", sync_id=3),
+    )
+    assert verify_use_effect(pre=pre, post=post, held_item_id=None) is ActionResultClass.CONFIRMED
+
+
+def test_use_confirms_when_the_held_item_count_drops_on_a_synced_revision() -> None:
+    pre = reading(
+        aim=aimed_at(block()),
+        inventory=stacks((0, "minecraft:oak_planks", 5)),
+        state=in_hand(0, "minecraft:oak_planks"),
+    )
+    post = reading(
+        tick=110,
+        aim=aimed_at(block()),
+        inventory=InventoryValue(
+            revision=110,
+            stacks=(InventoryStackValue(slot=0, item_id="minecraft:oak_planks", count=4),),
+        ),
+        state=in_hand(0, "minecraft:oak_planks"),
+    )
+    assert (
+        verify_use_effect(pre=pre, post=post, held_item_id="minecraft:oak_planks")
+        is ActionResultClass.CONFIRMED
+    )
+
+
+def test_a_held_count_falling_without_a_synced_revision_is_unknown() -> None:
+    pre = reading(
+        aim=aimed_at(block()),
+        inventory=stacks((0, "minecraft:oak_planks", 5)),
+        state=in_hand(0, "minecraft:oak_planks"),
+    )
+    # The same revision as `stacks` stamps (100), so a decrease here is a wish,
+    # not the server's move.
+    post = reading(
+        tick=110,
+        aim=aimed_at(block()),
+        inventory=stacks((0, "minecraft:oak_planks", 4)),
+        state=in_hand(0, "minecraft:oak_planks"),
+    )
+    assert (
+        verify_use_effect(pre=pre, post=post, held_item_id="minecraft:oak_planks")
+        is ActionResultClass.UNKNOWN
+    )
+
+
+def test_an_empty_handed_use_with_the_window_standing_closed_is_unknown() -> None:
+    # Nothing was in hand to consume and no window opened; the absence of a
+    # synced change is not proof the click failed — a door that needs a key reads
+    # the same as a frame that has not arrived yet.
+    pre = reading(aim=aimed_at(block()))
+    post = reading(tick=110, aim=aimed_at(block()))
+    assert verify_use_effect(pre=pre, post=post, held_item_id=None) is ActionResultClass.UNKNOWN
+
+
+def test_a_use_never_concludes_failed_from_absent_evidence() -> None:
+    pre = reading(aim=aimed_at(block()), inventory=stacks((0, "minecraft:dirt", 3)))
+    post = reading(
+        tick=110,
+        aim=aimed_at(block()),
+        inventory=InventoryValue(
+            revision=110,
+            stacks=(InventoryStackValue(slot=0, item_id="minecraft:dirt", count=3),),
+        ),
+    )
+    verdict = verify_use_effect(pre=pre, post=post, held_item_id="minecraft:dirt")
+    assert verdict is ActionResultClass.UNKNOWN
+    assert verdict is not ActionResultClass.FAILED
+
+
+def test_no_new_reading_confirms_a_use() -> None:
+    pre = reading(aim=aimed_at(block()))
+    same = reading(tick=100, aim=aimed_at(block()))
+    assert verify_use_effect(pre=pre, post=same, held_item_id=None) is ActionResultClass.UNKNOWN

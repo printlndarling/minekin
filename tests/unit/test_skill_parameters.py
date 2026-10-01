@@ -45,7 +45,7 @@ PLANKS = "minecraft:oak_planks"
 
 
 def test_every_skill_this_build_has_declares_the_arguments_it_takes() -> None:
-    """The parameter table and the capability table must cover the same seven names.
+    """The parameter table and the capability table must cover the same eight names.
 
     A skill added to one and not the other is the failure this catches: an offered behavior whose
     parameters nobody stated can only ever be answered with an empty ask, which reads as a model

@@ -35,6 +35,7 @@ from minekin_core.domain.control_vocabulary import (
     MINE_CAPABILITY,
     MOVE_CAPABILITY,
     SCREEN_CAPABILITY,
+    USE_CAPABILITY,
 )
 from minekin_core.domain.perception import (
     AimKind,
@@ -63,6 +64,11 @@ SKILL_CAPABILITIES: Final[Mapping[str, frozenset[str]]] = {
     # for the click that operates one.
     "close_screen": frozenset({SCREEN_CAPABILITY}),
     "select_hotbar": frozenset({HOTBAR_CAPABILITY}),
+    # Right-clicking what the crosshair is on — the use key the contract already
+    # routes as a baseline capability. It covers both placing what is in hand and
+    # activating what is aimed at, because the wire deliberately offers one use
+    # key rather than a separate door per product (see `ScreenControl`'s comment).
+    "use_target": frozenset({USE_CAPABILITY}),
 }
 
 
@@ -98,6 +104,7 @@ class ActionRefusal(StrEnum):
     MINE_TARGET_NOT_AIMED = "MINE_TARGET_NOT_AIMED"
     HOTBAR_SLOT_OUT_OF_RANGE = "HOTBAR_SLOT_OUT_OF_RANGE"
     GUI_SYNC_ID_MISMATCH = "GUI_SYNC_ID_MISMATCH"
+    USE_TARGET_NOT_AIMED = "USE_TARGET_NOT_AIMED"
 
 
 #: A block face the client did not name cannot disagree with anything, so an
@@ -194,6 +201,23 @@ def gui_click_refusal(
         or gui.sync_id != sync_id
     ):
         return ActionRefusalDecision(ActionRefusal.GUI_SYNC_ID_MISMATCH)
+    return ActionRefusalDecision(None)
+
+
+def use_target_refusal(observation: WorldObservationValue | None) -> ActionRefusalDecision:
+    """The use key may only fire on something the crosshair actually reports.
+
+    §5's "all premised on having seen" bounds this skill the same way it bounds
+    mining: a `MISS` (the ray hit nothing) or an `UNREAD` aim (the client never
+    populated it) is a Kin right-clicking at empty air, and a placement there is
+    a different act than the one the plan asked for. A block or an entity is a
+    thing the client rendered, so either may be used — placing against the block
+    or activating the villager, chest or door are the same key on the wire.
+    """
+
+    aim = observation.aim if observation is not None else None
+    if aim is None or aim.kind not in (AimKind.BLOCK, AimKind.ENTITY):
+        return ActionRefusalDecision(ActionRefusal.USE_TARGET_NOT_AIMED)
     return ActionRefusalDecision(None)
 
 
@@ -372,6 +396,51 @@ def verify_hotbar_change(
     if expected_item_id is None:
         return ActionResultClass.CONFIRMED
     if state.main_hand_item_id == expected_item_id:
+        return ActionResultClass.CONFIRMED
+    return ActionResultClass.UNKNOWN
+
+
+def verify_use_effect(
+    *,
+    pre: WorldObservationValue,
+    post: WorldObservationValue,
+    held_item_id: str | None,
+) -> ActionResultClass:
+    """The use key's own row, and it has two confirming readings because the key
+    does two different things depending on what the crosshair was on.
+
+    Activating something — a villager, a chest, a door, a furnace — opens a
+    handler, so a window that was not standing in `pre` and is standing in `post`
+    is the effect. Placing what is in hand consumes one of it, so a *decrease* in
+    the synced total of the held item is the effect. Either confirms; nothing else
+    does, and neither is invented.
+
+    The held-item arm is deliberately the mirror of `verify_craft`'s product
+    check rather than a new count: it compares the two synced readings' totals of
+    the item the pre-state's hand actually held (`held_item_id`, read out of
+    `pre`, never passed in from a plan), and it requires a moved revision before
+    it will believe a change is the server's and not a wish.
+
+    `UNKNOWN` is the floor, never `FAILED`. A use on a block that was out of
+    reach, a door that needs a key the Kin does not hold, or a placement landing
+    on an already-occupied face is a real world the reading cannot distinguish
+    from "the frame after the click has not arrived yet" — and §4's rule is that
+    only a synced change confirms, so the absence of one is not proof of a
+    failure. A skill that concluded `FAILED` here would be retrying a click with
+    a side effect, which the contract forbids.
+    """
+
+    if not _newer(pre, post):
+        return ActionResultClass.UNKNOWN
+    pre_open = pre.gui is not None and pre.gui.sync_id is not None
+    post_open = post.gui is not None and post.gui.sync_id is not None
+    if post_open and not pre_open:
+        return ActionResultClass.CONFIRMED
+    if (
+        held_item_id is not None
+        and _inventory_synced(pre, post)
+        and item_total(post.inventory, held_item_id) < item_total(pre.inventory, held_item_id)
+    ):
         return ActionResultClass.CONFIRMED
     return ActionResultClass.UNKNOWN
 

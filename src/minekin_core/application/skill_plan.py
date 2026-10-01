@@ -62,6 +62,7 @@ _DEFAULTED: Final[dict[str, tuple[str, ...]]] = {
     "craft_take_result": (),
     "close_screen": (),
     "select_hotbar": ("expected_item_id",),
+    "use_target": (),
 }
 
 #: The argument each skill requires, by name. Empty for a skill that can run on
@@ -76,6 +77,7 @@ _REQUIRED: Final[dict[str, tuple[str, ...]]] = {
     "craft_take_result": ("recipe_id", "materials", "product_id"),
     "close_screen": (),
     "select_hotbar": ("slot",),
+    "use_target": (),
 }
 
 #: The keys that replace a skill's whole required set rather than defaulting one
@@ -89,6 +91,7 @@ _ALTERNATIVES: Final[dict[str, tuple[str, ...]]] = {
     "break_seen_block": (),
     "collect_dropped": (),
     "select_hotbar": (),
+    "use_target": (),
 }
 
 #: Every key a plan may use, so a typo is refused by name instead of being
@@ -499,6 +502,8 @@ async def _dispatch(
         )
     if call.name == "close_screen":
         return await skills.close_screen(authority=authority, timeout_ns=timeout_ns)
+    if call.name == "use_target":
+        return await skills.use_target(authority=authority, timeout_ns=timeout_ns)
     return await skills.select_hotbar(
         slot=call.slot,
         authority=authority,

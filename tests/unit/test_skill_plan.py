@@ -48,6 +48,7 @@ from minekin_core.domain.control_vocabulary import (
     MINE_CAPABILITY,
     MOVE_CAPABILITY,
     SCREEN_CAPABILITY,
+    USE_CAPABILITY,
 )
 from minekin_core.domain.recipe_catalog import CRAFT_GRID_TOO_SMALL, CRAFT_RECIPE_UNAVAILABLE
 from minekin_core.domain.world_actions import ActionResultClass, SkillOutcome
@@ -107,6 +108,7 @@ class _TapeSkills(WorldSkills):
                     SCREEN_CAPABILITY,
                     GUI_CAPABILITY,
                     HOTBAR_CAPABILITY,
+                    USE_CAPABILITY,
                 }
             ),
             client_exit=client_exit,
@@ -177,6 +179,15 @@ class _TapeSkills(WorldSkills):
         del authority, timeout_ns
         return await self._answer("close_screen")
 
+    async def use_target(
+        self,
+        *,
+        authority: ActionAuthority,
+        timeout_ns: int = DEFAULT_STEP_TIMEOUT_NS,
+    ) -> SkillOutcome:
+        del authority, timeout_ns
+        return await self._answer("use_target")
+
 
 def _plan(*skills: str) -> SkillPlan:
     """A plan of the named skills, each with the arguments that skill requires."""
@@ -203,6 +214,7 @@ _ARGUMENTS: Final[dict[str, dict[str, object]]] = {
         "product_id": "minecraft:oak_planks",
     },
     "close_screen": {},
+    "use_target": {},
     "select_hotbar": {"slot": 0},
 }
 
@@ -434,6 +446,9 @@ def test_a_skill_name_carries_the_capabilities_it_will_ask_for() -> None:
     # Leaving the window is not a click, so it asks for less than the craft that
     # opened it, and a plan ending in the close gets a lease that says so.
     assert _plan("close_screen").capabilities == frozenset({SCREEN_CAPABILITY})
+    # A use is the right-click primitive the baseline Bridge already negotiates, so
+    # it asks for the use capability alone — not the screen or gui a craft needs.
+    assert _plan("use_target").capabilities == frozenset({USE_CAPABILITY})
     assert _plan("craft_take_result", "close_screen").capabilities == frozenset(
         {SCREEN_CAPABILITY, GUI_CAPABILITY}
     )
@@ -530,6 +545,29 @@ def test_the_close_is_a_plan_step_of_its_own_and_runs_after_the_craft() -> None:
     )
 
     assert skills.ran == ["craft_take_result", "close_screen"]
+    assert sequence.stopped_at == ""
+
+
+def test_a_use_step_routes_to_the_use_skill() -> None:
+    """A plan step named `use_target` dispatches to the skill of that name and to
+    nothing else — the right-click is its own step, not an argument some other
+    skill happens to carry."""
+
+    skills = _TapeSkills(
+        {"use_target": _outcome(ActionResultClass.CONFIRMED)},
+        _RecordingSender(),
+    )
+
+    sequence = asyncio.run(
+        run_skill_plan(
+            skills,
+            _plan("use_target"),
+            authority=AUTHORITY,
+            timeout_ns=DEFAULT_STEP_TIMEOUT_NS,
+        )
+    )
+
+    assert skills.ran == ["use_target"]
     assert sequence.stopped_at == ""
 
 

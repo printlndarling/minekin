@@ -49,6 +49,8 @@ from minekin_core.domain.control_vocabulary import (
     MOVE_INPUT_TYPE,
     SCREEN_CAPABILITY,
     SCREEN_INPUT_TYPE,
+    USE_CAPABILITY,
+    USE_INPUT_TYPE,
     monotonic_ns,
 )
 from minekin_core.domain.ids import OpaqueId
@@ -71,10 +73,12 @@ from minekin_core.domain.world_actions import (
     item_total,
     mine_target_refusal,
     seen_drops,
+    use_target_refusal,
     verify_block_broken,
     verify_craft,
     verify_hotbar_change,
     verify_item_collected,
+    verify_use_effect,
 )
 from minekin_core.generated.minekin.v1 import control_pb2
 
@@ -126,6 +130,14 @@ CHASE_STEP_MIN_REMAINING_NS: Final[int] = 600_000_000
 #: different action, so the ban on retrying a side-effecting click is not crossed,
 #: only the number of times the player's own key goes out is bounded.
 CLOSE_SCREEN_MAX_ESCAPES: Final[int] = 3
+
+#: How long `use_target` holds the use key before letting go. The client
+#: registers the use on its own tick, so a short press-and-release is exactly one
+#: interaction; a longer hold is a player still pressing the button, which on a
+#: block place repeats the placement and on nothing at all is a Kin leaving a key
+#: down. The release is sent before the wait either way, so the tap ends even when
+#: the reading never comes.
+USE_TAP_SECONDS: Final[float] = 0.25
 
 #: How much nearer the nearest sighting of a drop has to come between two
 #: corrections for a walk to count as closing on it. A correction that leaves the
@@ -362,6 +374,31 @@ def _close_screen_details(
     if already_closed:
         details["already_closed"] = "true"
     return details
+
+
+def _use_details(
+    pre: WorldObservationValue,
+    newest: WorldObservationValue,
+    *,
+    held_item_id: str | None,
+) -> dict[str, str]:
+    """What the use key was holding, and which of its two effects the reading saw.
+
+    A use confirms two different ways — a window opened, or the held item's synced
+    count fell — and the run document should say which happened rather than leave
+    it to be inferred from the item in hand. The two window handler ids are the
+    same pair `close_screen` reports, so a use that opened a container and a close
+    that found it standing can be read against each other; `held_item_id` names
+    what was in hand at the ask, so a later argument about the placement is had
+    against bytes rather than memory.
+    """
+
+    return {
+        "newest_checked_tick": str(newest.game_tick),
+        "held_item_id": held_item_id or "",
+        "pre_sync_id": _window_sync_id(pre),
+        "newest_sync_id": _window_sync_id(newest),
+    }
 
 
 def _player_screen_slot(inventory_slot: int) -> int | None:
@@ -1253,6 +1290,65 @@ class WorldSkills:
             post_tick=post.game_tick,
         )
 
+    async def use_target(
+        self,
+        *,
+        authority: ActionAuthority,
+        timeout_ns: int = DEFAULT_STEP_TIMEOUT_NS,
+    ) -> SkillOutcome:
+        """Right-click what the last observation's crosshair reports, and let the
+        later readings say whether the world answered.
+
+        The one general interaction skill: it places what is in hand against a
+        block and activates an entity the client rendered, because the wire offers
+        a single use key rather than a per-product door (§5's "no chunk scan" still
+        holds — the target is the aim the client already read). It *taps*: press,
+        the short hold the client needs to register one use, then release, rather
+        than holding the key across the wait. A held use repeats a placement on
+        every tick, and a Kin that stops on an unknown must not leave the button
+        down — so the release goes out before the wait, and a channel that never
+        answers still ends with the key let go.
+
+        Nothing here decides the verdict: `verify_use_effect` concludes from the
+        readings, and this method only presses the key and hands back what the
+        after-picture said.
+        """
+
+        capability = self._require(USE_CAPABILITY)
+        if capability is not None:
+            return capability
+        pre = self._observations.latest
+        action_id = self._action_id()
+        if pre is None:
+            return _refusal_outcome("NO_LATEST_OBSERVATION", action_id, pre)
+        refusal = use_target_refusal(pre)
+        if refusal.refusal is not None:
+            # §5 bounds this the way it bounds mining: the use fires on a thing the
+            # client *saw*, and a crosshair on empty air or an aim never read is
+            # the §3 refusal made before the wire, not a click into a hole.
+            return _refusal_outcome(refusal.refusal.value, action_id, pre)
+        held = pre.self_state.main_hand_item_id
+        await self._send_use(authority, action_id, use=True)
+        await self._sleep(USE_TAP_SECONDS)
+        await self._send_use(authority, action_id, use=False)
+        deadline = monotonic_ns() + timeout_ns
+        post = await self._wait_until(_newer_reading(pre.game_tick), deadline, action_id=action_id)
+        if post is None:
+            return SkillOutcome(
+                result=ActionResultClass.UNKNOWN,
+                reason="NO_CONFIRMING_OBSERVATION",
+                action_id=action_id,
+                pre_tick=pre.game_tick,
+            )
+        return SkillOutcome(
+            result=verify_use_effect(pre=pre, post=post, held_item_id=held),
+            reason="",
+            action_id=action_id,
+            pre_tick=pre.game_tick,
+            post_tick=post.game_tick,
+            details=_use_details(pre, post, held_item_id=held),
+        )
+
     def _require(self, capability: str) -> SkillOutcome | None:
         """The named refusal when the session was never negotiated for it.
 
@@ -1286,6 +1382,18 @@ class WorldSkills:
                 generation=authority.generation,
                 mining=mining,
                 target=_wire_target(target),
+                deadline_monotonic_ns=authority.deadline_monotonic_ns,
+            ),
+        )
+
+    async def _send_use(self, authority: ActionAuthority, action_id: str, *, use: bool) -> None:
+        await self._sender.send_control(
+            USE_INPUT_TYPE,
+            control_pb2.UseInput(
+                action_id=action_id,
+                lease_id=authority.lease_id,
+                generation=authority.generation,
+                use=use,
                 deadline_monotonic_ns=authority.deadline_monotonic_ns,
             ),
         )

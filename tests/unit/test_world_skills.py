@@ -29,6 +29,8 @@ from minekin_core.adapters.bridge.ipc import (
     MOVE_INPUT_TYPE,
     SCREEN_CAPABILITY,
     SCREEN_INPUT_TYPE,
+    USE_CAPABILITY,
+    USE_INPUT_TYPE,
     monotonic_ns,
 )
 from minekin_core.application.world_observation import WorldObservationStore
@@ -62,6 +64,7 @@ ALL_CAPABILITIES: Final = frozenset(
         SCREEN_CAPABILITY,
         GUI_CAPABILITY,
         MOVE_CAPABILITY,
+        USE_CAPABILITY,
     }
 )
 LOG = "minecraft:oak_log"
@@ -210,6 +213,7 @@ def test_each_skill_refuses_its_ungranted_capability_by_name() -> None:
                 recipe_id="r", materials={PLANKS: 1}, product_id=PLANKS, authority=lease
             ),
             await skills.close_screen(authority=lease),
+            await skills.use_target(authority=lease),
             await skills.select_hotbar(slot=3, authority=lease),
         ]
         for outcome in outcomes:
@@ -1560,5 +1564,160 @@ def test_the_exit_names_the_ask_that_was_in_flight_when_the_client_went() -> Non
         assert isinstance(command, control_pb2.ScreenInput)
         assert raised.action_id == command.action_id
         assert raised.action_id != ""
+
+
+# ---------------------------------------------------------------------------
+# use_target: the one general interaction key — it taps, and a reading concludes
+# ---------------------------------------------------------------------------
+
+
+def hand_state(*, item: str | None, slot: int = 0) -> SelfStateValue:
+    return SelfStateValue(
+        health=20.0,
+        max_health=20.0,
+        food=20,
+        saturation=5.0,
+        alive=True,
+        selected_slot=slot,
+        main_hand_item_id=item,
+    )
+
+
+def entity_aim() -> AimTargetValue:
+    return AimTargetValue(
+        game_tick=100,
+        kind=AimKind.ENTITY,
+        entity_observation_id="obs-villager",
+        entity_type="minecraft:villager",
+        distance=2.0,
+    )
+
+
+def test_use_refuses_a_crosshair_on_air_before_the_wire() -> None:
+    async def scenario() -> None:
+        store = store_with(reading(aim=None))
+        skills, sender = skill_with(store)
+
+        outcome = await skills.use_target(authority=authority())
+        assert outcome.result is ActionResultClass.FAILED
+        assert outcome.reason == "USE_TARGET_NOT_AIMED"
+        assert sender.sent == []
+
+    asyncio.run(scenario())
+
+
+def test_use_reports_no_latest_observation_from_an_empty_store() -> None:
+    async def scenario() -> None:
+        skills, sender = skill_with(store_with())
+
+        outcome = await skills.use_target(authority=authority())
+        assert outcome.result is ActionResultClass.FAILED
+        assert outcome.reason == "NO_LATEST_OBSERVATION"
+        assert sender.sent == []
+
+    asyncio.run(scenario())
+
+
+def test_use_taps_press_then_release_and_confirms_on_the_opened_window() -> None:
+    async def scenario() -> None:
+        store = store_with(reading(tick=100, aim=entity_aim()))
+        skills, sender = skill_with(store)
+        opened = reading(
+            tick=110,
+            aim=entity_aim(),
+            gui=GuiScreenValue(screen_id="minecraft:chest", sync_id=3),
+        )
+        task = asyncio.create_task(admit_later(store, opened))
+
+        outcome = await skills.use_target(authority=authority(), timeout_ns=2_000_000_000)
+        await task
+
+        assert outcome.result is ActionResultClass.CONFIRMED
+        assert sender.types() == [USE_INPUT_TYPE, USE_INPUT_TYPE]
+        presses = [cast(control_pb2.UseInput, message).use for _, message in sender.sent]
+        assert presses == [True, False]
+        assert outcome.details["newest_sync_id"] == "3"
+
+    asyncio.run(scenario())
+
+
+def test_use_confirms_on_a_synced_held_item_decrease() -> None:
+    async def scenario() -> None:
+        store = store_with(
+            reading(
+                tick=100,
+                aim=block_aim(),
+                state_value=hand_state(item=PLANKS),
+                inventory_value=inventory(101, (0, PLANKS, 5)),
+            )
+        )
+        skills, sender = skill_with(store)
+        spent = reading(
+            tick=110,
+            aim=block_aim(),
+            state_value=hand_state(item=PLANKS),
+            inventory_value=inventory(110, (0, PLANKS, 4)),
+        )
+        task = asyncio.create_task(admit_later(store, spent))
+
+        outcome = await skills.use_target(authority=authority(), timeout_ns=2_000_000_000)
+        await task
+
+        assert outcome.result is ActionResultClass.CONFIRMED
+        assert outcome.details["held_item_id"] == PLANKS
+        # One tap only: the decrease was read on the frame after the release, so no
+        # second click is fired to chase a confirmation that already arrived.
+        assert sender.types() == [USE_INPUT_TYPE, USE_INPUT_TYPE]
+
+    asyncio.run(scenario())
+
+
+def test_a_use_the_channel_never_answers_is_unknown_and_fires_no_second_click() -> None:
+    """§4: no reading, no verdict — and the tap already let go of the key before
+    the wait, so a silent channel ends with the button up and exactly one
+    press/release pair rather than a repeated side-effecting click."""
+
+    async def scenario() -> None:
+        store = store_with(reading(tick=100, aim=block_aim()))
+        skills, sender = skill_with(store)
+
+        outcome = await skills.use_target(authority=authority(), timeout_ns=20_000_000)
+
+        assert outcome.result is ActionResultClass.UNKNOWN
+        assert outcome.reason == "NO_CONFIRMING_OBSERVATION"
+        assert sender.types() == [USE_INPUT_TYPE, USE_INPUT_TYPE]
+
+    asyncio.run(scenario())
+
+
+def test_a_use_with_no_confirmed_change_is_unknown_never_failed() -> None:
+    async def scenario() -> None:
+        store = store_with(
+            reading(
+                tick=100,
+                aim=block_aim(),
+                state_value=hand_state(item=PLANKS),
+                inventory_value=inventory(101, (0, PLANKS, 5)),
+            )
+        )
+        skills, sender = skill_with(store)
+        # A newer reading, but the same revision and count and no window: a use
+        # that cannot be told from a frame that has not arrived yet.
+        unchanged = reading(
+            tick=110,
+            aim=block_aim(),
+            state_value=hand_state(item=PLANKS),
+            inventory_value=inventory(101, (0, PLANKS, 5)),
+        )
+        task = asyncio.create_task(admit_later(store, unchanged))
+
+        outcome = await skills.use_target(authority=authority(), timeout_ns=2_000_000_000)
+        await task
+
+        assert outcome.result is ActionResultClass.UNKNOWN
+        assert outcome.result is not ActionResultClass.FAILED
+        # The world never moved, but the tap still let go of the key: exactly one
+        # press/release pair, and no second click chasing an unverdicted change.
+        assert sender.types() == [USE_INPUT_TYPE, USE_INPUT_TYPE]
 
     asyncio.run(scenario())
