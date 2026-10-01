@@ -1,13 +1,13 @@
 /**
  * The shell's navigation model.
  *
- * A page exists only when a real read backs it: the five pages below map onto the
- * three frozen contract GET routes plus the authorized identity read/write. Nothing
- * here reserves a slot for a feature Core cannot answer — an unimplemented surface is
- * a named row on the 数据源与缺口 page, not a tab that renders a stub.
+ * A page exists only when a real read backs it: the pages below map onto the three
+ * frozen contract GET routes plus the two authorized writes (identity rename, config
+ * persist). Nothing here reserves a slot for a feature Core cannot answer — an
+ * unimplemented surface is a named row on the 数据源与缺口 page, not a tab that renders a stub.
  */
 
-export type PageId = "overview" | "timeline" | "alerts" | "identity" | "data";
+export type PageId = "overview" | "timeline" | "alerts" | "config" | "identity" | "data";
 
 export interface NavItem {
   readonly id: PageId;
@@ -39,7 +39,8 @@ export const NAV_GROUPS: readonly NavGroup[] = [
     id: "settings",
     label: "设置",
     items: [
-      { id: "identity", label: "身份 · 改名", hint: "唯一被授权的写面，仅会话停止时" },
+      { id: "config", label: "配置 · 模型与目标", hint: "第二次被授权的写入：仅本机、显式保存、不含密钥" },
+      { id: "identity", label: "身份 · 改名", hint: "被授权的写入之一，仅会话停止时" },
       { id: "data", label: "数据源与缺口", hint: "每条读路的状态，以及未接入的原因" },
     ],
   },

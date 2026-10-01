@@ -1,4 +1,4 @@
-import type { AlertSeverity, AlertState, AlertComponent } from "../domain/model";
+import type { AlertSeverity, AlertState, AlertComponent, ConfigValue } from "../domain/model";
 
 /**
  * Scripted, clearly-labelled fixtures in the EXACT wire shape the Gateway answers
@@ -473,6 +473,78 @@ export function buildMockIdentity(scenario: MockScenarioId, nowMs: number, usern
     state,
     renameAllowed: state === "idle",
     notice: MOCK_IDENTITY_NOTICE,
+    csrfToken: MOCK_IDENTITY_CSRF,
+    observedAt: iso(nowMs),
+    staleAfterMs: 8_000,
+  };
+}
+
+/**
+ * The field vocabulary `gateway/config_write.py` projects, spelled exactly as it sorts them
+ * (`sorted(_KNOWN_FIELDS)`, `sorted(_INT_FIELDS)`, `sorted(KNOWN_PROVIDERS)`), so a mock config
+ * read and a real one feed the shared `decodeConfigPayload` the same way and the panel's provider
+ * select offers the same two names.
+ */
+const MOCK_CONFIG_KNOWN_FIELDS = [
+  "goal_direction",
+  "goal_product_id",
+  "goal_quantity",
+  "goal_source_item_id",
+  "model_api_key_env",
+  "model_base_url",
+  "model_name",
+  "model_provider",
+  "model_run_cost_cap",
+  "model_timeout_ms",
+];
+const MOCK_CONFIG_INT_FIELDS = ["goal_quantity", "model_run_cost_cap", "model_timeout_ms"];
+export const MOCK_CONFIG_PROVIDERS = ["off", "openai_compatible"];
+
+/**
+ * The saved document each scenario starts on. Only `healthy_run_07` is pre-filled — a realistic
+ * `openai_compatible` preset with a placeholder endpoint and NO key (the closest field,
+ * `model_api_key_env`, holds a variable NAME). Every other scenario begins from an empty document,
+ * which is a supported shape (a fresh root): the form renders blank, and a save from blank writes
+ * blank. `read_failed` never reaches a config read (the adapter fails first).
+ */
+export function mockConfigInitialFields(scenario: MockScenarioId): Record<string, ConfigValue> {
+  if (scenario !== "healthy_run_07") return {};
+  return {
+    model_provider: "openai_compatible",
+    model_base_url: "https://model.example.com/v1",
+    model_name: "deepseek-chat",
+    model_api_key_env: "MINEKIN_MODEL_API_KEY",
+    model_timeout_ms: 30000,
+    model_run_cost_cap: 5000000,
+    goal_product_id: "minecraft:wooden_pickaxe",
+    goal_quantity: 1,
+    goal_source_item_id: "minecraft:oak_log",
+    goal_direction: "先挖木头，再合成木镐",
+  };
+}
+
+/**
+ * The config document `gateway/config_write.py::config_read` answers, in the exact wire shape the
+ * shared `decodeConfigPayload` parses. `fields` is the caller's current populated-only document
+ * (the adapter's mutable store), so the next read reflects the last accepted save — the same
+ * observable sequence `operator_config` produces between a save and the following read. Like the
+ * identity fixture, `csrfToken` is the shared mock token the adapter echoes back on a save, never
+ * rendered. `loadError` stays null here; the panel's unreadable-document path is exercised by a
+ * decoder test that feeds a hand-shaped document directly.
+ */
+export function buildMockConfig(
+  scenario: MockScenarioId,
+  nowMs: number,
+  fields: Record<string, ConfigValue> = mockConfigInitialFields(scenario),
+): Record<string, unknown> {
+  return {
+    schemaVersion: "kin-dashboard-config/1.0.0",
+    fields,
+    knownFields: MOCK_CONFIG_KNOWN_FIELDS,
+    intFields: MOCK_CONFIG_INT_FIELDS,
+    providers: MOCK_CONFIG_PROVIDERS,
+    maxBodyBytes: 8192,
+    loadError: null,
     csrfToken: MOCK_IDENTITY_CSRF,
     observedAt: iso(nowMs),
     staleAfterMs: 8_000,

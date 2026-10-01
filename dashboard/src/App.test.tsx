@@ -177,6 +177,25 @@ describe("关键流程：外壳在同一界面上呈现四种缺失", () => {
     expect(await screen.findByTestId("panel-identity")).toBeInTheDocument();
   });
 
+  it("配置页是第二处被授权的写入：导航打开它并写回 #config，总览页仍无表单", async () => {
+    const user = userEvent.setup();
+    window.history.replaceState(null, "", "?adapter=mock&scenario=healthy_run_07");
+    const { container } = render(
+      <App config={{ adapter: "mock", scenario: "healthy_run_07", gatewayBaseUrl: null, latencyMs: 0 }} initialPage="overview" />,
+    );
+    await screen.findByText("运行中");
+    // 总览页保持只读：没有表单，写入面只在配置页出现。
+    expect(container.querySelectorAll("form")).toHaveLength(0);
+
+    await user.click(screen.getByRole("button", { name: /配置 · 模型与目标/ }));
+    expect(window.location.hash).toBe("#config");
+    expect(window.location.search).toContain("adapter=mock");
+    expect(await screen.findByTestId("panel-config")).toBeInTheDocument();
+    // 配置页里 provider 是词表下拉，且页面不含 CSRF 令牌。
+    expect(screen.getByTestId("config-input-model_provider").tagName).toBe("SELECT");
+    expect(document.body.textContent?.toLowerCase()).not.toContain("csrf");
+  });
+
   it("只读边界：没有写操作控件，也不泄漏凭据", async () => {
     render(<App {...mockConfig("healthy_run_07")} />);
     expect((await screen.findAllByText("kin_nova_01")).length).toBeGreaterThan(0);

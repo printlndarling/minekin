@@ -1,0 +1,133 @@
+.state,
+.readFailure {
+  margin: 0 0 8px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.readFailure {
+  color: var(--danger, #b3261e);
+}
+
+.loadError {
+  margin: 0 0 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--danger-line, #b3261e);
+  border-left-width: 4px;
+  border-radius: 6px;
+  background: var(--danger-surface, rgba(179, 38, 30, 0.08));
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text);
+}
+
+.freshness {
+  margin: 0 0 8px;
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+.notice {
+  margin: 8px 0;
+  padding: 10px 12px;
+  border: 1px solid var(--warn-line, #b8860b);
+  border-left-width: 4px;
+  border-radius: 6px;
+  background: var(--warn-surface, rgba(184, 134, 11, 0.08));
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text);
+}
+
+.stability {
+  margin: 0 0 12px;
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+.form {
+  display: grid;
+  gap: 14px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+
+.group {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.groupLabel {
+  padding: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.field {
+  display: grid;
+  gap: 4px;
+}
+
+.inputLabel {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.input {
+  font: inherit;
+  font-size: 13px;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface-2);
+  color: var(--text);
+  max-width: 360px;
+}
+
+.input:disabled {
+  color: var(--text-faint);
+}
+
+.hint {
+  margin: 0;
+  font-size: 11px;
+  color: var(--text-faint);
+  line-height: 1.4;
+}
+
+.fieldError {
+  color: var(--danger, #b3261e);
+}
+
+.submit {
+  font: inherit;
+  font-size: 13px;
+  justify-self: start;
+  padding: 6px 16px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface-2);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.submit:disabled {
+  color: var(--text-faint);
+  cursor: not-allowed;
+}
+
+.result {
+  margin: 10px 0 0;
+  font-size: 12px;
+  color: var(--ok, #1b7f3a);
+}
+
+.refusal {
+  margin: 10px 0 0;
+  font-size: 12px;
+  color: var(--danger, #b3261e);
+}

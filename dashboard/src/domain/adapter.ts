@@ -1,5 +1,8 @@
 import type {
   AlertsEnvelope,
+  ConfigInfo,
+  ConfigSaveRequest,
+  ConfigSaveResult,
   IdentityInfo,
   KinSnapshot,
   RenameRequest,
@@ -56,8 +59,11 @@ export interface TimelineQuery {
  *
  * `identity` and `renameIdentity` are the one authorized exception to the read-only
  * shell (`docs/stable-player-name-2026-09-29.md`): they answer who a Kin is and commit a
- * confirmed rename while that Kin is stopped. They still cannot start, stop, move or
- * otherwise control a session — nothing here reaches a game input or a launcher.
+ * confirmed rename while that Kin is stopped. `config` and `saveConfig` extend that exception
+ * to exactly one more write — persisting the operator's model and goal settings, opened by the
+ * whole-project goal's Phase D. Together these are the only two writes the shell may make; none
+ * of them can start, stop, move or otherwise control a session — nothing here reaches a game
+ * input or a launcher.
  */
 export interface KinReadAdapter {
   describe(): AdapterDescriptor;
@@ -73,6 +79,19 @@ export interface KinReadAdapter {
    * not an exception, so the panel can render it beside the still-current identity.
    */
   renameIdentity(request: RenameRequest, signal?: AbortSignal): Promise<ReadResult<RenameResult>>;
+  /**
+   * The persisted operator settings, the vocabulary the form offers, and the write token. Like
+   * the identity read it hands out the per-process CSRF token (kept beside the model, never in
+   * it); it changes nothing and cannot expose a key — no field of `ConfigInfo` can hold one.
+   */
+  config(signal?: AbortSignal): Promise<ReadResult<ConfigInfo>>;
+  /**
+   * Persist the whole settings document. A field omitted from the request is written as unset.
+   * A refusal (unknown field, bad provider, credential-shaped value, out-of-range count) returns
+   * a `write_refused` failure naming the field and reason, so the panel reports it beside the
+   * document that did NOT change.
+   */
+  saveConfig(request: ConfigSaveRequest, signal?: AbortSignal): Promise<ReadResult<ConfigSaveResult>>;
 }
 
 /**

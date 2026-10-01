@@ -8,7 +8,12 @@ import {
 } from "../domain/adapter";
 import {
   IDENTITY_SCHEMA_VERSION,
+  CONFIG_SCHEMA_VERSION,
   type AlertsEnvelope,
+  type ConfigInfo,
+  type ConfigSaveRequest,
+  type ConfigSaveResult,
+  type ConfigValue,
   type IdentityInfo,
   type IdentityViewSnapshot,
   type KinSnapshot,
@@ -19,14 +24,20 @@ import {
 import {
   MOCK_SCENARIOS,
   buildMockBundle,
+  buildMockConfig,
   buildMockIdentity,
+  mockConfigInitialFields,
+  MOCK_CONFIG_PROVIDERS,
   mockIdentityState,
   mockOfflineUuid,
   type MockScenarioId,
 } from "../fixtures/mockFixtures";
 import { DEFAULT_IDENTITY_NAME, isValidUsername } from "../domain/identityPolicy";
+import { CONFIG_FIELDS, buildSaveFields, validateConfigDraft } from "../domain/configPolicy";
 import {
   decodeAlertsPayload,
+  decodeConfigPayload,
+  decodeConfigSavePayload,
   decodeIdentityPayload,
   decodeRenamePayload,
   decodeSnapshotPayload,
@@ -74,6 +85,18 @@ export function createMockAdapter(scenario: MockScenarioId, latencyMs: number): 
   // the UI; a rename before any successful identity read has nothing to echo and is refused
   // exactly like a request that skipped the GET.
   let csrfIssued = false;
+
+  // In-memory config store: the saved document each scenario starts on, with a successful save
+  // replacing it whole so the NEXT config read reflects what was written — the same observable
+  // sequence `operator_config` produces between `save_operator_config` and the following
+  // `load_operator_config`. Like the identity store, nothing here can start/stop/move a session.
+  const configStore: { fields: Record<string, ConfigValue> } = {
+    fields: mockConfigInitialFields(scenario),
+  };
+  // The config GET is what hands out the (shared) token; a save before any config read is refused
+  // exactly like the real surface refusing one that skipped the GET.
+  let configReadIssued = false;
+  const KNOWN_CONFIG_KEYS = new Set(CONFIG_FIELDS.map((meta) => meta.key));
 
   return {
     describe,
@@ -211,6 +234,69 @@ export function createMockAdapter(scenario: MockScenarioId, latencyMs: number): 
         return fail("contract_mismatch", `模拟改名结果与自身解码器不匹配：${decoded.issues.slice(0, 6).join("；")}`);
       }
       return ok(decoded.result, "mock", `mock://scenario/${scenario}/rename`);
+    },
+    async config(signal?: AbortSignal): Promise<ReadResult<ConfigInfo>> {
+      await settle();
+      if (signal?.aborted === true) {
+        return fail("cancelled", "读取已取消。");
+      }
+      if (scenario === "read_failed") {
+        return fail("disconnected", "模拟场景：配置读取失败。");
+      }
+      const decoded = decodeConfigPayload(buildMockConfig(scenario, Date.now(), configStore.fields));
+      if (!decoded.ok) {
+        return fail("contract_mismatch", `模拟配置与自身解码器不匹配：${decoded.issues.slice(0, 6).join("；")}`);
+      }
+      // The config GET is what hands out the shared token; a save only becomes possible after one read.
+      configReadIssued = true;
+      return ok(decoded.config, "mock", `mock://scenario/${scenario}/config`);
+    },
+    async saveConfig(request: ConfigSaveRequest, signal?: AbortSignal): Promise<ReadResult<ConfigSaveResult>> {
+      await settle();
+      if (signal?.aborted === true) {
+        return fail("cancelled", "保存请求已取消。");
+      }
+      if (scenario === "read_failed") {
+        // Gateway unreachable: the write never arrives, a transport failure rather than a policy
+        // refusal. The mock has no cross-site surface, so the CSRF/origin/media-type layers are
+        // represented by `configReadIssued` below rather than replayed byte-for-byte.
+        return fail("disconnected", "模拟场景：Gateway 不可达，保存请求无法送达。");
+      }
+      if (!configReadIssued) {
+        return fail("write_refused", "missing_or_bad_csrf_token：保存前必须先成功读取配置以取得 CSRF 令牌。");
+      }
+      // Mirror save_from_request's order: the top-level shape first, then each field. The form sends
+      // the whole document, so a save is a replace — a field the body omits is written as unset.
+      const draft: Record<string, string> = {};
+      for (const [key, value] of Object.entries(request.fields)) {
+        if (!KNOWN_CONFIG_KEYS.has(key)) {
+          return fail("write_refused", `invalid_config: not a configurable field: ${key}`);
+        }
+        draft[key] = String(value);
+      }
+      const errors = validateConfigDraft(draft, MOCK_CONFIG_PROVIDERS);
+      // Report the first offender in CONFIG_FIELDS order, the same deterministic way the panel gates.
+      for (const meta of CONFIG_FIELDS) {
+        const message = errors[meta.key];
+        if (message !== undefined) {
+          return fail("write_refused", `invalid_config: ${meta.key}: ${message}`);
+        }
+      }
+      // The save lands whole before the response is shaped, so a refusal above never leaves a partial
+      // document — matching operator_config's atomic write.
+      const savedFields = buildSaveFields(draft);
+      configStore.fields = savedFields;
+      // Route the accepted save through the SAME decoder gateway bytes use, so a mock save result and
+      // a real one cannot drift in shape.
+      const decoded = decodeConfigSavePayload({
+        schemaVersion: CONFIG_SCHEMA_VERSION,
+        status: "saved",
+        fields: savedFields,
+      });
+      if (!decoded.ok) {
+        return fail("contract_mismatch", `模拟保存结果与自身解码器不匹配：${decoded.issues.slice(0, 6).join("；")}`);
+      }
+      return ok(decoded.result, "mock", `mock://scenario/${scenario}/config/save`);
     },
   };
 }

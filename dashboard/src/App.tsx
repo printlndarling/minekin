@@ -7,6 +7,7 @@ import { deriveSessionProgress } from "./domain/sessionProgress";
 import { useAlerts, useSnapshot, useTimeline } from "./hooks/useKinReads";
 import { useNow } from "./hooks/useNow";
 import { IdentityPanel } from "./panels/IdentityPanel";
+import { ConfigPanel } from "./panels/ConfigPanel";
 import { AlertsPanel } from "./panels/AlertsPanel";
 import { CapabilityPanel } from "./panels/CapabilityPanel";
 import { OverviewPanel } from "./panels/OverviewPanel";
@@ -16,15 +17,16 @@ import { TimelinePanel } from "./panels/TimelinePanel";
 import { ContextBar } from "./components/ContextBar";
 import { NAV_GROUPS, pageLabel, type PageId } from "./shell/navigation";
 import { useHashRoute } from "./shell/useHashRoute";
-import { IDENTITY_ENDPOINTS, READ_ENDPOINTS } from "./adapters/gatewayAdapter";
+import { IDENTITY_ENDPOINTS, READ_ENDPOINTS, CONFIG_ENDPOINTS } from "./adapters/gatewayAdapter";
 import { useIdentityRead } from "./hooks/useIdentityController";
+import { useConfigRead } from "./hooks/useConfigController";
 import { readStatusOf, type ReadStatus } from "./shell/readStatus";
 import styles from "./App.module.css";
 
 export type { PageId } from "./shell/navigation";
 
 export const READ_ONLY_STATEMENT =
-  "只读面板：不启动、不暂停、不注入游戏输入，也不持有任何凭据；唯一被授权的例外是身份页那次需显式确认、只在会话停止时生效的改名。";
+  "只读面板：不启动、不暂停、不注入游戏输入，也不持有任何凭据；被授权的例外只有两处显式写入——身份页只在会话停止时生效的改名，与配置页只在显式保存时写入、且从不接收密钥的模型/目标设置。";
 
 export function App({
   config,
@@ -61,6 +63,7 @@ function Dashboard({
   const timelineRead = useTimeline(adapter, [], 50);
   const alertsRead = useAlerts(adapter);
   const identityRead = useIdentityRead(adapter);
+  const configRead = useConfigRead(adapter);
   const sessionProgress = useMemo(() => deriveSessionProgress(timelineRead.items), [timelineRead.items]);
 
   const snapshotStatus = readStatusOf(
@@ -70,11 +73,13 @@ function Dashboard({
   const timelineStatus = readStatusOf(timelineRead, { nowMs });
   const alertsStatus = readStatusOf(alertsRead, { nowMs });
   const identityStatus = readStatusOf(identityRead, { nowMs });
+  const configStatus = readStatusOf(configRead, { nowMs });
 
   const statusFor: Record<PageId, ReadStatus> = {
     overview: snapshotStatus,
     timeline: timelineStatus,
     alerts: alertsStatus,
+    config: configStatus,
     identity: identityStatus,
     data: snapshotStatus,
   };
@@ -165,6 +170,7 @@ function Dashboard({
           {page === "alerts" ? (
             <AlertsPanel envelope={alertsRead.envelope} isLoading={alertsRead.isLoading} failure={alertsRead.failure} />
           ) : null}
+          {page === "config" ? <ConfigPanel adapter={adapter} nowMs={nowMs} /> : null}
           {page === "identity" ? <IdentityPanel adapter={adapter} nowMs={nowMs} /> : null}
           {page === "data" ? (
             <CapabilityPanel
@@ -175,6 +181,7 @@ function Dashboard({
                 { label: "快照读数", path: READ_ENDPOINTS.snapshot, status: snapshotStatus },
                 { label: "事件时间线", path: READ_ENDPOINTS.timeline, status: timelineStatus },
                 { label: "告警信封", path: READ_ENDPOINTS.alerts, status: alertsStatus },
+                { label: "配置读数", path: CONFIG_ENDPOINTS.config, status: configStatus },
                 { label: "身份读数", path: IDENTITY_ENDPOINTS.identity, status: identityStatus },
               ]}
             />
@@ -184,7 +191,7 @@ function Dashboard({
 
       <footer className={styles.footer}>
         <p>
-          三条只读 GET 按 2026-09-28 冻结契约接线，身份面按 2026-09-29 的窄写授权接线；其余能力在「数据源与缺口」页按具名原因列出，不用占位页充数。
+          三条只读 GET 按 2026-09-28 冻结契约接线，身份与配置两处窄写授权按 2026-09-29 起的产品授权接线（都只在本机、需显式提交，且都不接收密钥）；其余能力在「数据源与缺口」页按具名原因列出，不用占位页充数。
         </p>
         <p>P0 Core 不依赖 Node；构建产物是静态文件，可由本地 Gateway 或反向代理直接托管。</p>
       </footer>

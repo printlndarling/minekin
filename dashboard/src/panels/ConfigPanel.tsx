@@ -1,0 +1,212 @@
+import { useEffect, useMemo, useState } from "react";
+import type { FormEvent } from "react";
+import type { KinReadAdapter } from "../domain/adapter";
+import type { ConfigFieldMeta } from "../domain/configPolicy";
+import {
+  CONFIG_GROUPS,
+  buildSaveFields,
+  configFieldsSignature,
+  configIsStale,
+  fieldsToDraft,
+  validateConfigDraft,
+} from "../domain/configPolicy";
+import type { ConfigDraft } from "../domain/configPolicy";
+import { useConfigController } from "../hooks/useConfigController";
+import { Panel } from "../components/Panel";
+import styles from "./config.module.css";
+
+const SECRET_BOUNDARY_NOTE =
+  "这里只保存变量名，绝不保存密钥本身。真正的 API key 留在进程环境里，不入库、不进响应、不进日志、不显示在这个页面上。";
+const WHOLE_DOCUMENT_NOTE =
+  "保存会整份替换当前文档：留空的字段会被写成未设置。字段合法性先在本机核对一次，服务器仍是最终裁判——它拒绝时会说明原因，已存的文档不变。";
+
+/**
+ * The settings surface the whole-project goal authorizes as the second Dashboard write: the
+ * operator's model and goal configuration, persisted through `gateway/config_write.py`. The
+ * read is reported above the form; the form below is the write, and it deliberately mirrors the
+ * server's own gates — it validates on the same rules `configPolicy` reuses from `operator_config`
+ * before enabling 保存, so a value the panel lets through is one it believes the Gateway accepts.
+ * A refusal the server gives still renders here (named, not folded into a generic error) beside
+ * the document that did NOT change. The CSRF token never reaches this component's state or markup.
+ */
+export function ConfigPanel({ adapter, nowMs }: { readonly adapter: KinReadAdapter; readonly nowMs: number }) {
+  const controller = useConfigController(adapter);
+  const { config } = controller;
+  const signature = config === null ? null : configFieldsSignature(config);
+
+  const [draft, setDraft] = useState<ConfigDraft>({});
+  // Re-seed only when the SAVED document's signature actually changes (initial load, or the refetch
+  // after an accepted save). A poll that returns the same document leaves the operator's in-progress
+  // edits untouched, because the signature is unchanged and this effect does not fire.
+  const [seededSignature, setSeededSignature] = useState<string | null>(null);
+  useEffect(() => {
+    if (signature === null || signature === seededSignature) return;
+    setDraft(fieldsToDraft(config!.fields));
+    setSeededSignature(signature);
+  }, [signature, seededSignature, config]);
+
+  const errors = useMemo(
+    () => (config === null ? {} : validateConfigDraft(draft, config.providers)),
+    [draft, config],
+  );
+  const valid = Object.keys(errors).length === 0;
+  const editable = config !== null && !controller.pending;
+
+  const onSubmit = (event: FormEvent<HTMLFormElement>): void => {
+    event.preventDefault();
+    if (config === null || controller.pending || !valid) return;
+    // The form sends the whole document (blanks dropped), matching save_from_request's replace
+    // semantics — a field the body omits is written as unset.
+    controller.submit({ fields: buildSaveFields(draft) });
+  };
+
+  const setField = (key: string, value: string): void => {
+    setDraft((current) => ({ ...current, [key]: value }));
+    if (controller.outcome !== null) controller.clearOutcome();
+  };
+
+  const outcome = controller.outcome;
+
+  return (
+    <Panel
+      title="配置 · 模型与目标"
+      note="这是外壳唯一被授权的第二处写入：只在显式保存时写入配置，不启动、不暂停、不注入游戏输入，也不读取或保存任何密钥。"
+      testId="panel-config"
+    >
+      {controller.isLoading && config === null ? (
+        <p className={styles.state} data-testid="config-loading">
+          正在读取配置…
+        </p>
+      ) : null}
+
+      {controller.failure !== null && config === null ? (
+        <p className={styles.readFailure} data-testid="config-read-failure">
+          配置读数失败（{controller.failure.kind}）：{controller.failure.message}
+        </p>
+      ) : null}
+
+      {config === null ? null : (
+        <>
+          {config.loadError !== null ? (
+            <p className={styles.loadError} data-testid="config-load-error">
+              已存配置无法解析：{config.loadError}。表单仍可编辑，保存会写入一份干净的文档。
+            </p>
+          ) : null}
+
+          <p className={styles.freshness} data-testid="config-freshness">
+            {configIsStale(config, nowMs)
+              ? "读数已陈旧：保存以最新一次成功读取为准。"
+              : `读数新鲜（观测于 ${config.observedAt}）。`}
+          </p>
+
+          <p className={styles.notice} data-testid="config-secret-boundary">
+            {SECRET_BOUNDARY_NOTE}
+          </p>
+          <p className={styles.stability}>{WHOLE_DOCUMENT_NOTE}</p>
+
+          <form className={styles.form} onSubmit={onSubmit}>
+            {CONFIG_GROUPS.map((group) => (
+              <fieldset key={group.id} className={styles.group} data-testid={`config-group-${group.id}`}>
+                <legend className={styles.groupLabel}>{group.label}</legend>
+                {group.fields.map((meta) => (
+                  <ConfigField
+                    key={meta.key}
+                    meta={meta}
+                    value={draft[meta.key] ?? ""}
+                    error={errors[meta.key]}
+                    providers={config.providers}
+                    editable={editable}
+                    onChange={setField}
+                  />
+                ))}
+              </fieldset>
+            ))}
+
+            <button
+              type="submit"
+              className={styles.submit}
+              data-testid="config-submit"
+              disabled={!valid || controller.pending}
+            >
+              {controller.pending ? "保存中…" : "保存配置"}
+            </button>
+          </form>
+
+          {outcome?.ok && outcome.result !== null ? (
+            <p className={styles.result} data-testid="config-result">
+              已保存：写入 {Object.keys(outcome.result.fields).length} 个字段
+              {Object.keys(outcome.result.fields).length === 0 ? "（全部清空）" : ""}。
+            </p>
+          ) : null}
+
+          {outcome !== null && !outcome.ok && outcome.failure !== null ? (
+            <p className={styles.refusal} data-testid="config-refusal">
+              保存被拒绝（{outcome.failure.kind}）：{outcome.failure.message}
+            </p>
+          ) : null}
+        </>
+      )}
+    </Panel>
+  );
+}
+
+function ConfigField({
+  meta,
+  value,
+  error,
+  providers,
+  editable,
+  onChange,
+}: {
+  readonly meta: ConfigFieldMeta;
+  readonly value: string;
+  readonly error: string | undefined;
+  readonly providers: readonly string[];
+  readonly editable: boolean;
+  readonly onChange: (key: string, value: string) => void;
+}) {
+  const id = `config-field-${meta.key}`;
+  return (
+    <div className={styles.field}>
+      <label className={styles.inputLabel} htmlFor={id}>
+        {meta.label}
+      </label>
+      {meta.provider ? (
+        <select
+          id={id}
+          className={styles.input}
+          value={value}
+          disabled={!editable}
+          data-testid={`config-input-${meta.key}`}
+          onChange={(event) => onChange(meta.key, event.target.value)}
+        >
+          {providers.map((provider) => (
+            <option key={provider} value={provider}>
+              {provider}
+            </option>
+          ))}
+        </select>
+      ) : (
+        <input
+          id={id}
+          className={styles.input}
+          type={meta.int ? "number" : "text"}
+          value={value}
+          placeholder={meta.placeholder}
+          disabled={!editable}
+          data-testid={`config-input-${meta.key}`}
+          onChange={(event) => onChange(meta.key, event.target.value)}
+        />
+      )}
+      <p className={styles.hint}>
+        {error !== undefined ? (
+          <span className={styles.fieldError} data-testid={`config-error-${meta.key}`}>
+            {error}
+          </span>
+        ) : (
+          meta.hint
+        )}
+      </p>
+    </div>
+  );
+}

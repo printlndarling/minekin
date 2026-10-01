@@ -265,3 +265,47 @@ export interface RenameResult {
   readonly uuidChanged: boolean;
   readonly notice: string;
 }
+
+/**
+ * The operator-config read model of `gateway/config_write.py::config_read`. It is the second
+ * authorized write surface after the identity rename: the settings form reviews this document
+ * and submits it back whole. Like the identity read it is a flat document, so a decode
+ * mismatch is a whole-read `contract_mismatch`, never a partial fill.
+ *
+ * `fields` carries ONLY the populated settings — an unset field is absent, not null — because
+ * that is exactly the disk shape `operator_config.as_document` projects, and a save replaces
+ * the whole document, so the fields the form sends back must be the fields it wants kept.
+ * No field here can hold an API key: the closest is `model_api_key_env`, a variable NAME.
+ * `csrfToken` is deliberately NOT part of this model (mirroring how the identity decode keeps
+ * the token beside the model) so a panel cannot render it.
+ */
+export const CONFIG_SCHEMA_VERSION = "kin-dashboard-config/1.0.0";
+
+/** A config value on the wire: a string setting or a positive-integer setting. */
+export type ConfigValue = string | number;
+
+export interface ConfigInfo {
+  readonly fields: Readonly<Record<string, ConfigValue>>;
+  readonly knownFields: readonly string[];
+  readonly intFields: readonly string[];
+  readonly providers: readonly string[];
+  readonly maxBodyBytes: number;
+  /** Core's own reason the saved document could not be read; null when it parsed. */
+  readonly loadError: string | null;
+  readonly observedAt: string;
+  readonly staleAfterMs: number;
+}
+
+/**
+ * The whole document a save submits. A field omitted is written as unset, so the form builds
+ * this from its current draft (blanks dropped) rather than sending a patch.
+ */
+export interface ConfigSaveRequest {
+  readonly fields: Record<string, ConfigValue>;
+}
+
+/** The document as it now lives after an accepted save — the same populated-only shape as the read. */
+export interface ConfigSaveResult {
+  readonly status: "saved";
+  readonly fields: Record<string, ConfigValue>;
+}

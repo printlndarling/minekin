@@ -1,4 +1,5 @@
 import {
+  CONFIG_SCHEMA_VERSION,
   IDENTITY_SCHEMA_VERSION,
   SNAPSHOT_SCHEMA_VERSION,
   filled,
@@ -8,6 +9,10 @@ import {
   type AlertComponent,
   type AlertSeverity,
   type AlertState,
+  type ConfigInfo,
+  type ConfigSaveRequest,
+  type ConfigSaveResult,
+  type ConfigValue,
   type EvidenceRef,
   type Field,
   type FieldGapStatus,
@@ -82,6 +87,17 @@ export const READ_ENDPOINTS = {
 export const IDENTITY_ENDPOINTS = {
   identity: "/api/v1/dashboard/identity",
   rename: "/api/v1/dashboard/identity/rename",
+} as const;
+
+/**
+ * The config surface `gateway/config_write.py` opens: one GET that answers what settings are
+ * saved (and hands out the SAME per-process CSRF token the identity read does), and the one POST
+ * save the whole-project goal's Phase D authorizes. Kept apart from `READ_ENDPOINTS` because that
+ * tuple is the frozen read-only contract; these two are the second documented exception.
+ */
+export const CONFIG_ENDPOINTS = {
+  config: "/api/v1/dashboard/config",
+  save: "/api/v1/dashboard/config/save",
 } as const;
 
 /** The header `gateway/identity.py` requires the rename to echo the identity-GET token back in. */
@@ -755,6 +771,129 @@ export function decodeRefusalPayload(raw: unknown): { readonly code: string; rea
   return { code: error, message };
 }
 
+/**
+ * A populated-fields map on the wire: keys are field names, each value is a string setting or a
+ * finite number. A boolean, null, or nested object is rejected — the closed field set never holds
+ * one, so a response that does is a contract mismatch rather than something to coerce.
+ */
+function parseConfigFields(raw: unknown, path: string, issues: string[]): Record<string, ConfigValue> | null {
+  const rec = asRecord(raw);
+  if (rec === null) {
+    issues.push(`${path}: 期望 {字段: 字符串|整数} 对象`);
+    return null;
+  }
+  const out: Record<string, ConfigValue> = {};
+  for (const [key, value] of Object.entries(rec)) {
+    if (typeof value === "string") {
+      out[key] = value;
+      continue;
+    }
+    const n = asNumber(value);
+    if (n === null) {
+      issues.push(`${path}.${key}: 取值必须是字符串或有限数值`);
+      return null;
+    }
+    out[key] = n;
+  }
+  return out;
+}
+
+function asStringArray(raw: unknown, path: string, issues: string[]): string[] | null {
+  if (!Array.isArray(raw)) {
+    issues.push(`${path}: 期望字符串数组`);
+    return null;
+  }
+  const out: string[] = [];
+  for (const [index, item] of raw.entries()) {
+    const s = asString(item);
+    if (s === null) {
+      issues.push(`${path}[${index}]: 数组成员非字符串`);
+      return null;
+    }
+    out.push(s);
+  }
+  return out;
+}
+
+export type ConfigDecode =
+  | { readonly ok: true; readonly config: ConfigInfo; readonly csrfToken: string }
+  | { readonly ok: false; readonly issues: readonly string[] };
+
+/**
+ * The config read `gateway/config_write.py::config_read` answers: a flat document, so any missing
+ * field or wrong shape is a whole-read mismatch rather than a partial fill — the same rule the
+ * identity read follows. `csrfToken` is returned beside the model but deliberately kept OUT of
+ * `ConfigInfo`, so a panel cannot render it, and the adapter echoes it back on the save.
+ *
+ * `loadError` is the one field allowed to be null (an unreadable hand-edited document is reported
+ * that way, not raised); every other field is required.
+ */
+export function decodeConfigPayload(raw: unknown): ConfigDecode {
+  const rec = asRecord(raw);
+  if (rec === null) return { ok: false, issues: ["$: 配置响应不是 object"] };
+  const issues: string[] = [];
+  if (asString(rec.schemaVersion) !== CONFIG_SCHEMA_VERSION) {
+    issues.push(`$.schemaVersion: 期望 ${CONFIG_SCHEMA_VERSION}`);
+  }
+  const fields = parseConfigFields(rec.fields, "$.fields", issues);
+  const knownFields = asStringArray(rec.knownFields, "$.knownFields", issues);
+  const intFields = asStringArray(rec.intFields, "$.intFields", issues);
+  const providers = asStringArray(rec.providers, "$.providers", issues);
+  const maxBodyBytes = asInteger(rec.maxBodyBytes);
+  const loadError = asNullableString(rec.loadError);
+  const csrfToken = asString(rec.csrfToken);
+  const observedAt = asString(rec.observedAt);
+  const staleAfterMs = asNumber(rec.staleAfterMs);
+  if (fields === null) issues.push("$.fields: 缺失或形状不符");
+  if (knownFields === null) issues.push("$.knownFields: 缺失或非数组");
+  if (intFields === null) issues.push("$.intFields: 缺失或非数组");
+  if (providers === null) issues.push("$.providers: 缺失或非数组");
+  if (maxBodyBytes === null) issues.push("$.maxBodyBytes: 缺失或非整数");
+  if (loadError === undefined) issues.push("$.loadError: 缺失或既非字符串也非 null");
+  if (csrfToken === null) issues.push("$.csrfToken: 缺失（无法保存）");
+  if (observedAt === null) issues.push("$.observedAt: 缺失或非字符串");
+  if (staleAfterMs === null) issues.push("$.staleAfterMs: 缺失或非数值");
+  if (issues.length > 0) return { ok: false, issues };
+  return {
+    ok: true,
+    csrfToken: csrfToken as string,
+    config: {
+      fields: fields as Record<string, ConfigValue>,
+      knownFields: knownFields as string[],
+      intFields: intFields as string[],
+      providers: providers as string[],
+      maxBodyBytes: maxBodyBytes as number,
+      loadError: (loadError as string | null) ?? null,
+      observedAt: observedAt as string,
+      staleAfterMs: staleAfterMs as number,
+    },
+  };
+}
+
+export type ConfigSaveDecode =
+  | { readonly ok: true; readonly result: ConfigSaveResult }
+  | { readonly ok: false; readonly issues: readonly string[] };
+
+/**
+ * A save the server accepted (HTTP 2xx): the document as it now lives, in the same populated-only
+ * shape as the read. A refusal never reaches this decoder — the transport routes a non-2xx answer
+ * through `decodeRefusalPayload` instead, so the named field/reason survives.
+ */
+export function decodeConfigSavePayload(raw: unknown): ConfigSaveDecode {
+  const rec = asRecord(raw);
+  if (rec === null) return { ok: false, issues: ["$: 保存响应不是 object"] };
+  const issues: string[] = [];
+  if (asString(rec.schemaVersion) !== CONFIG_SCHEMA_VERSION) {
+    issues.push(`$.schemaVersion: 期望 ${CONFIG_SCHEMA_VERSION}`);
+  }
+  const status = oneOf(rec.status, ["saved"] as const);
+  if (status === null) issues.push("$.status: 未知保存结果");
+  const fields = parseConfigFields(rec.fields, "$.fields", issues);
+  if (fields === null) issues.push("$.fields: 缺失或形状不符");
+  if (status === null || fields === null || issues.length > 0) return { ok: false, issues };
+  return { ok: true, result: { status, fields: fields as Record<string, ConfigValue> } };
+}
+
 function classifyStatus(status: number, url: string): ReadFailure {
   if (status === 401 || status === 403) {
     return { kind: "permission_denied", message: `${url} → HTTP ${status}：需要 Gateway 管理员只读鉴权。` };
@@ -820,18 +959,20 @@ function parseMaybeJson(text: string): unknown {
 }
 
 /**
- * The one POST the identity card authorizes. It carries the per-process CSRF token in
- * `CSRF_HEADER` and `content-type: application/json` — the two headers that together make a
- * cross-site request impossible to forge (a cross-site form cannot set either without a
- * preflight, and this browser→same-origin call is not cross-site). A server refusal comes
- * back as a `refusal` with its named reason; a transport break comes back as a `failure`.
+ * The one shape both authorized writes share: a same-origin POST that echoes the per-process CSRF
+ * token in `CSRF_HEADER` and `content-type: application/json` — the two headers that together make
+ * a cross-site request impossible to forge (a cross-site form cannot set either without a
+ * preflight, and this browser→same-origin call is not cross-site). A server refusal comes back as a
+ * `refusal` with its named reason; a transport break comes back as a `failure`. `cancelledMessage`
+ * lets each write name its own取消 so a UI reads the honest reason for the surface it used.
  */
-async function postRename(
+async function postWrite(
   baseUrl: string,
   path: string,
   timeoutMs: number,
-  body: RenameRequest,
+  body: unknown,
   csrfToken: string,
+  cancelledMessage: string,
   outerSignal?: AbortSignal,
 ): Promise<PostResult> {
   const url = `${baseUrl}${path}`;
@@ -861,7 +1002,7 @@ async function postRename(
   } catch (error) {
     const reason = controller.signal.reason;
     if (reason === "cancelled" || outerSignal?.aborted === true) {
-      return { kind: "failure", failure: { kind: "cancelled", message: "改名请求已取消。" } };
+      return { kind: "failure", failure: { kind: "cancelled", message: cancelledMessage } };
     }
     if (reason === "timeout") {
       return { kind: "failure", failure: { kind: "timeout", message: `${url} 在 ${timeoutMs}ms 内未响应。` } };
@@ -874,6 +1015,21 @@ async function postRename(
     clearTimeout(timer);
     outerSignal?.removeEventListener("abort", onAbort);
   }
+}
+
+/**
+ * The rename POST the identity card authorizes. It carries the CSRF token through the shared write
+ * transport; only its取消 message is rename-specific.
+ */
+async function postRename(
+  baseUrl: string,
+  path: string,
+  timeoutMs: number,
+  body: RenameRequest,
+  csrfToken: string,
+  outerSignal?: AbortSignal,
+): Promise<PostResult> {
+  return postWrite(baseUrl, path, timeoutMs, body, csrfToken, "改名请求已取消。", outerSignal);
 }
 
 /**
@@ -890,7 +1046,7 @@ export function createGatewayAdapter(options: GatewayAdapterOptions | null): Kin
     note:
       options === null
         ? "未设置 VITE_GATEWAY_BASE_URL：契约已冻结，等待 Gateway 基址，期间零网络调用。"
-        : "按 docs/gateway-dashboard-readonly-contract-2026-09-28.md 冻结的三条只读 GET 读取，任何不匹配都会失败关闭而不是猜测；身份页只做 docs/stable-player-name-2026-09-29.md 授权的一次改名写入。",
+        : "按 docs/gateway-dashboard-readonly-contract-2026-09-28.md 冻结的三条只读 GET 读取，任何不匹配都会失败关闭而不是猜测；写入面只有两处经授权的例外：身份页按 docs/stable-player-name-2026-09-29.md 的一次改名，以及配置页持久化模型与目标设置（全项目目标 Phase D）。两者都不能启停会话。",
   });
 
   if (options === null) {
@@ -913,14 +1069,20 @@ export function createGatewayAdapter(options: GatewayAdapterOptions | null): Kin
       async renameIdentity(): Promise<ReadResult<RenameResult>> {
         return unconfigured();
       },
+      async config(): Promise<ReadResult<ConfigInfo>> {
+        return unconfigured();
+      },
+      async saveConfig(): Promise<ReadResult<ConfigSaveResult>> {
+        return unconfigured();
+      },
     };
   }
 
   const { baseUrl: rawBaseUrl, timeoutMs } = options;
   const baseUrl = rawBaseUrl.replace(/\/+$/, "");
-  // Captured from the identity GET and echoed on the rename POST. The token is per-process,
-  // so it is refreshed on every identity poll; a rename before the first successful read has
-  // nothing to echo and the server refuses it — which is the correct, honest outcome.
+  // Captured from the identity GET and echoed on the rename POST; the config GET hands out the SAME
+  // per-process token, so it is refreshed on every identity OR config poll too. A write before the
+  // first successful read has nothing to echo and the server refuses it — which is correct, honest.
   let csrfToken = "";
   return {
     describe,
@@ -974,6 +1136,28 @@ export function createGatewayAdapter(options: GatewayAdapterOptions | null): Kin
         return fail("contract_mismatch", `改名结果契约不匹配：${decoded.issues.slice(0, 6).join("；")}`);
       }
       return ok(decoded.result, "gateway", `gateway://${IDENTITY_ENDPOINTS.rename}`);
+    },
+    async config(signal?: AbortSignal): Promise<ReadResult<ConfigInfo>> {
+      const response = await fetchJson(baseUrl, CONFIG_ENDPOINTS.config, timeoutMs, signal);
+      if (!response.ok) return { ok: false, failure: response.failure };
+      const decoded = decodeConfigPayload(response.data);
+      if (!decoded.ok) {
+        return fail("contract_mismatch", `配置契约不匹配：${decoded.issues.slice(0, 6).join("；")}`);
+      }
+      csrfToken = decoded.csrfToken;
+      return ok(decoded.config, "gateway", `gateway://${CONFIG_ENDPOINTS.config}`);
+    },
+    async saveConfig(request: ConfigSaveRequest, signal?: AbortSignal): Promise<ReadResult<ConfigSaveResult>> {
+      const result = await postWrite(baseUrl, CONFIG_ENDPOINTS.save, timeoutMs, request, csrfToken, "保存请求已取消。", signal);
+      if (result.kind === "failure") return { ok: false, failure: result.failure };
+      if (result.kind === "refusal") {
+        return fail("write_refused", `${result.code}：${result.message}`);
+      }
+      const decoded = decodeConfigSavePayload(result.data);
+      if (!decoded.ok) {
+        return fail("contract_mismatch", `保存结果契约不匹配：${decoded.issues.slice(0, 6).join("；")}`);
+      }
+      return ok(decoded.result, "gateway", `gateway://${CONFIG_ENDPOINTS.save}`);
     },
   };
 }
