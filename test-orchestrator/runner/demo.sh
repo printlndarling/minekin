@@ -334,6 +334,74 @@ if ! docker image inspect "${IMAGE}" >/dev/null 2>&1; then
 fi
 docker volume create "${VOLUME}" >/dev/null
 
+# ---------------------------------------------------------------------------
+# Single data-root / single Kin exclusive guard.
+#
+# One volume holds one Kin root, and that root is a single-writer store: two demo
+# sessions launched against it at once open the same save twice, and the second
+# client tears the first (the losing session ends in the harness-stopped
+# BRIDGE_LOST / exit 14, a harness artifact rather than a product verdict). Nothing
+# on the store can tell a neighbour that another run is coming, so this takes an
+# exclusive *host* lock keyed by volume + Kin root before any container touches it,
+# and a losing run is refused by name rather than clobbering the holder.
+#
+# Why mkdir and not flock: there is no `flock` on a Windows/MSYS runner, and `mkdir`
+# is atomic on every host this script runs on. A lock left by a wrapper killed
+# before its EXIT trap ran must not wedge the store forever, so the lock is treated
+# as fresh for one session window — a second run inside that window is refused, and
+# past it the holder is presumed gone and the lock reclaimed. The window is the
+# run's own SECONDS_LIMIT, so a live session never has its lock expire mid-flight;
+# a lock whose owner line cannot be read fails closed (refused), never reclaimed.
+# ---------------------------------------------------------------------------
+lock_key="$(printf '%s' "${VOLUME}/${KIN}" | tr -c 'A-Za-z0-9._-' '_')"
+LOCK_BASE="${MINEKIN_DEMO_LOCK_DIR:-${REPOSITORY_ROOT}/.tmp/demo-locks}"
+mkdir -p "${LOCK_BASE}" 2>/dev/null
+LOCK_DIR="${LOCK_BASE}/${lock_key}"
+
+write_lock_owner() {
+    printf 'pid=%s\nepoch=%s\ncommand=%s\n' "$$" "$(date +%s)" "${command}" \
+        > "${LOCK_DIR}/owner" 2>/dev/null || true
+}
+
+take_kin_lock_once() {
+    if mkdir "${LOCK_DIR}" 2>/dev/null; then
+        write_lock_owner
+        trap 'rm -rf "${LOCK_DIR}"' EXIT INT TERM
+        return 0
+    fi
+    return 1
+}
+
+held_lock_is_live() {
+    local held_epoch now
+    held_epoch="$(sed -n 's/^epoch=//p' "${LOCK_DIR}/owner" 2>/dev/null || true)"
+    if [ -z "${held_epoch}" ]; then
+        # No readable owner: not proof of a live holder and not proof of a dead one.
+        # Fail closed — refuse rather than open one save in two sessions.
+        return 0
+    fi
+    now="$(date +%s)"
+    [ $(( now - held_epoch )) -le "${SECONDS_LIMIT}" ]
+}
+
+# A reclaim of an expired lock re-takes it; if a racer wins that mkdir first it does
+# not strip the winner's lock — the second `take` simply declines and this run refuses.
+if ! take_kin_lock_once; then
+    if held_lock_is_live; then
+        printf 'demo: the Kin root %s on volume %s is already held by another demo run.\n' "${KIN}" "${VOLUME}" >&2
+        printf '      One store is single-writer: this refuses to open it twice rather than\n' >&2
+        printf '      launching a second client that would tear the first. Wait for that run,\n' >&2
+        printf '      or — only once you are sure it is gone — remove its lock at %s.\n' "${LOCK_DIR}" >&2
+        exit 6
+    fi
+    printf 'demo: reclaiming an expired Kin lock at %s (holder past its session window).\n' "${LOCK_DIR}"
+    rm -rf "${LOCK_DIR}"
+    if ! take_kin_lock_once; then
+        printf 'demo: another run took the Kin root %s lock while this one was reclaiming; refusing.\n' "${KIN}" >&2
+        exit 6
+    fi
+fi
+
 # A clean run owns a Kin root nobody has used yet; a repeat run uses the one this
 # demo filled. `--skills` and `--autonomous` are the same two cases asked with a
 # different action on the end: the store is what decides, not the action, so a demo that

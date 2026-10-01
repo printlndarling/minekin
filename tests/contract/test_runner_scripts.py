@@ -486,6 +486,35 @@ def test_the_kill_paths_name_their_target_instead_of_guessing() -> None:
     assert "this run asks for two faults at once" in text
 
 
+def test_the_demo_locks_one_kin_root_against_a_concurrent_run() -> None:
+    """One volume holds one Kin root, and two sessions open the same save twice.
+
+    The collision used to be discovered by losing it: a second `demo.sh` on the same
+    volume launched a second client that tore the first, and the victim's run ended
+    in the harness-stopped BRIDGE_LOST / exit 14 — a harness artifact, not a verdict.
+    The guard now takes an atomic host lock before any container touches the root and
+    REFUSES a neighbour by name, so the fix is a refusal path rather than a kill path:
+    it must never terminate or clean up a session it did not start.
+    """
+
+    demo = (RUNNER / "demo.sh").read_text(encoding="utf-8")
+
+    # The lock is keyed by volume + Kin root and taken with the atomic mkdir primitive.
+    assert 'lock_key="$(printf \'%s\' "${VOLUME}/${KIN}"' in demo
+    assert "take_kin_lock_once() {" in demo
+    assert 'mkdir "${LOCK_DIR}"' in demo
+    # A live holder is refused by name, past the run's own window the stale lock is
+    # reclaimed, and an unreadable owner fails closed — the three branches.
+    assert "is already held by another demo run" in demo
+    assert "reclaiming an expired Kin lock" in demo
+    assert "exit 6" in demo
+    # The guard releases its own lock on exit, so a clean run cannot wedge the store.
+    assert "trap 'rm -rf \"${LOCK_DIR}\"' EXIT INT TERM" in demo
+    # The guard is a refusal, not a takeover: it must not kill or prune another session.
+    assert "docker kill" not in demo
+    assert "pkill" not in demo
+
+
 def test_a_killed_core_leaves_the_display_it_never_owned() -> None:
     """The runtime window's release line is written on the client's next tick.
 
