@@ -29,7 +29,11 @@ from minekin_core.application.skill_plan import (
     SkillPlanError,
     parse_skill_plan,
 )
-from minekin_core.cli.auto_session import prepare_auto_bundle_start, require_spendable_budget
+from minekin_core.cli.auto_session import (
+    AutoBundleDecision,
+    prepare_auto_bundle_start,
+    require_spendable_budget,
+)
 from minekin_core.cli.doctor import diagnose
 from minekin_core.cli.evidence import verify_run
 from minekin_core.cli.init import initialise_identity
@@ -258,6 +262,24 @@ def _autonomous_ask(args: argparse.Namespace, skill_step_seconds: float) -> Auto
     )
 
 
+def _boot_mode_line(decision: AutoBundleDecision) -> str:
+    """One stderr line naming what kind of start this was, from the fetch counts.
+
+    A cold first prepare and a warm cache reuse look identical from outside while the
+    store is being filled; naming the mode turns a silent multi-minute download into
+    feedback the operator can read, without collapsing the two into one acceptance.
+    """
+
+    if decision.boot_mode == "cache_hit":
+        return (
+            f"client ready from cache: reused {decision.reused} of {decision.fetch_set} artifacts"
+        )
+    return (
+        f"first prepare: fetched {decision.installed}, reused {decision.reused} "
+        f"of {decision.fetch_set} artifacts ({decision.boot_mode})"
+    )
+
+
 def _session_start_auto(args: argparse.Namespace, *, stdout: TextIO, stderr: TextIO) -> int:
     """`session start --auto-bundle`: resolve the target, then launch what it resolved to.
 
@@ -306,6 +328,10 @@ def _session_start_auto(args: argparse.Namespace, *, stdout: TextIO, stderr: Tex
         max_bytes=None if args.max_bytes is None else int(args.max_bytes),
         on_progress=progress,
     )
+    # The fetch lines above say how much was downloaded; this says what kind of start
+    # it was, so a long first prepare is not read as a hang and a warm one is not read
+    # as a fresh download. stdout still carries only the one final document.
+    print(_boot_mode_line(decision), file=stderr, flush=True)
     launch, session_run = asyncio.run(
         start_and_supervise(
             root=root,

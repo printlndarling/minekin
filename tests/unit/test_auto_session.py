@@ -224,8 +224,51 @@ def test_the_resolved_bundle_and_its_recipe_are_what_gets_handed_off(
     document = decision.as_document()
     assert document["kind"] == "auto-bundle-decision"
     assert document["status"] == "ready"
+    # The fake fill installs one artifact and reuses one, so the mixed shape is carried
+    # into the handed-off document rather than rounded to a cold or warm reading.
+    assert document["boot_mode"] == "partially_cached"
     # The endpoint is the operator's business, not part of the decision record.
     assert "endpoint" not in document
+
+
+def test_the_boot_mode_names_cold_and_cache_reuse_apart(
+    tmp_path: Path, filled_store: list[str]
+) -> None:
+    """A start that fetched, one that reused, and a mixed fill are three readings.
+
+    Delivery criterion 1 asks for first-prepare and cache-reuse feedback that a user can
+    tell apart, so the mode is derived from what provisioning moved and never folded: the
+    two ends and the mixed middle each get their own name.
+    """
+
+    handed_off = prepare(tmp_path, [observation(PROTOCOL_1201, "1.20.1")])
+    # The fake fill installs one and reuses one, so the handed-off start is the mixed shape.
+    assert handed_off.boot_mode == "partially_cached"
+
+    cold = replace(handed_off, installed=4, reused=0)
+    warm = replace(handed_off, installed=0, reused=4)
+    assert cold.boot_mode == "cold"
+    assert warm.boot_mode == "cache_hit"
+
+    assert cold.as_document()["boot_mode"] == "cold"
+    assert warm.as_document()["boot_mode"] == "cache_hit"
+
+
+def test_the_boot_mode_line_says_what_the_operator_is_waiting_for(
+    tmp_path: Path, filled_store: list[str]
+) -> None:
+    """The one stderr line names the mode and the counts, differently for cold and warm."""
+
+    handed_off = prepare(tmp_path, [observation(PROTOCOL_1201, "1.20.1")])
+    warm = replace(handed_off, installed=0, reused=4, fetch_set=4)
+    cold = replace(handed_off, installed=4, reused=0, fetch_set=4)
+
+    assert bootstrap_module._boot_mode_line(warm) == (
+        "client ready from cache: reused 4 of 4 artifacts"
+    )
+    assert bootstrap_module._boot_mode_line(cold) == (
+        "first prepare: fetched 4, reused 0 of 4 artifacts (cold)"
+    )
 
 
 def test_the_other_reviewed_bundle_resolves_to_the_other_recipe(
@@ -591,7 +634,16 @@ def handshake_timeouts_handed_off(
         raise AssertionError("the hand-off reached the supervisor")
 
     def fake_prepare(**_kwargs: Any) -> Any:
-        return SimpleNamespace(recipe=tmp_path / "resolved.json", as_document=dict)
+        # Carries the fetch counts the launch's stderr line now reads, so the stub shows
+        # the same shape the real prepare returns rather than only the recipe.
+        return SimpleNamespace(
+            recipe=tmp_path / "resolved.json",
+            as_document=dict,
+            boot_mode="cache_hit",
+            installed=0,
+            reused=1,
+            fetch_set=1,
+        )
 
     def fake_select_kin(_root: Path, _selector: object) -> str:
         return "kin-01"
@@ -667,6 +719,12 @@ def test_an_incomplete_fill_is_a_supply_chain_refusal(
                     category=ErrorCategory.STORAGE,
                     reason="short read",
                 ),
+                FetchFailure(
+                    coordinate="b:1",
+                    url="https://example.invalid/b",
+                    category=ErrorCategory.TIMEOUT,
+                    reason="read timed out",
+                ),
             ),
         )
 
@@ -677,6 +735,12 @@ def test_an_incomplete_fill_is_a_supply_chain_refusal(
 
     assert raised.value.category is ErrorCategory.SUPPLY_CHAIN
     assert "PROVISION_STORAGE" in str(raised.value)
+    # The refusal names the whole shape of the failure, not only the first: how many
+    # dropped and of which kinds, so a stalled mirror reads differently from a bad blob.
+    message = str(raised.value)
+    assert "2 of" in message
+    assert "1 STORAGE" in message
+    assert "1 TIMEOUT" in message
 
 
 def test_a_target_that_moves_between_the_two_asks_stops_the_start(

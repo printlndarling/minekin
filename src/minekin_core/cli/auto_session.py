@@ -20,6 +20,7 @@ from __future__ import annotations
 import json
 import platform
 import time
+from collections import Counter
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -155,6 +156,19 @@ class AutoBundleDecision:
     stopped_pids: tuple[int, ...]
     plan: Mapping[str, Any]
 
+    @property
+    def boot_mode(self) -> str:
+        """Whether this start had to fetch the client or read it from the cache.
+
+        Derived from what provisioning actually moved, not from a guess: a cold first
+        prepare installs bytes, a warm one reuses a complete store, and a partial store
+        is named apart so the two are never folded into the same acceptance reading.
+        """
+
+        if self.installed > 0:
+            return "cold" if self.reused == 0 else "partially_cached"
+        return "cache_hit"
+
     def as_document(self) -> dict[str, object]:
         return {
             "schema_version": 1,
@@ -171,6 +185,7 @@ class AutoBundleDecision:
             "fetch_set": self.fetch_set,
             "installed": self.installed,
             "reused": self.reused,
+            "boot_mode": self.boot_mode,
             "stopped": list(self.stopped_pids),
         }
 
@@ -250,9 +265,21 @@ def _provision(
     report = provision_bundle(plan, store, max_bytes=max_bytes, on_progress=on_progress)
     if not report.complete:
         first = report.failed[0]
+        # The first failure names the exit reason, but a fill that drops many
+        # artifacts must say how many and of which kinds — "one failed, HTTP 503"
+        # and "312 failed, timeout" need different operator actions, and the rest
+        # were previously thrown away on this path.
+        tally = ", ".join(
+            f"{count} {category}"
+            for category, count in sorted(
+                Counter(failure.category.value for failure in report.failed).items()
+            )
+        )
         raise _reject(
-            f"the store could not be completed: {first.coordinate} failed with "
-            f"{first.category.value}; nothing launches against a partial store",
+            f"the store could not be completed: {len(report.failed)} of "
+            f"{len(plan_fetch_set(plan))} artifacts failed ({tally}); first was "
+            f"{first.coordinate} with {first.category.value}; nothing launches against "
+            f"a partial store",
             ErrorCategory.SUPPLY_CHAIN,
             reason=f"PROVISION_{first.category.value}",
         )
