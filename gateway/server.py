@@ -1,12 +1,14 @@
-"""Serving the frozen reads over loopback HTTP, plus the one authorized identity write.
+"""Serving the frozen reads over loopback HTTP, plus the two authorized writes.
 
 `docs/adr/0001-p0-modular-monolith.md` keeps P0 Core free of a web layer, so this is a
 separate process that imports Core's reads rather than a module inside it. Being outside
 the product is the point: there is no path from a request handled here to a lease, an
 admission decision, or a client process, because nothing in this file is able to ask for
-one. `docs/stable-player-name-2026-09-29.md` opens exactly one narrow exception to the
-read-only Dashboard — the identity-settings rename in `gateway.identity` — and nothing
-else: no start, stop, or move control.
+one. The read-only Dashboard has exactly two sanctioned exceptions, and each is a settings
+write, not a control verb: the identity rename in `gateway.identity` (opened by
+`docs/stable-player-name-2026-09-29.md`) and the operator-config save in
+`gateway.config_write` (opened by the whole-project goal's Phase D). Neither starts, stops,
+moves, or otherwise drives a session.
 
 The server owns no state and no cache. Every request re-derives its answer from the
 ledger and the overlays, which is what lets a panel's `observedAt` mean the reading
@@ -18,16 +20,27 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, ClassVar, cast
 from urllib.parse import parse_qs, urlparse
 
+from gateway.config_write import (
+    CONFIG_PATH,
+    CONFIG_SAVE_PATH,
+    MAX_CONFIG_BODY_BYTES,
+    config_read,
+    save_from_request,
+)
+from gateway.config_write import (
+    SCHEMA as CONFIG_SCHEMA,
+)
 from gateway.identity import (
     CSRF_HEADER,
     IDENTITY_PATH,
+    IDENTITY_SCHEMA,
     MAX_RENAME_BODY_BYTES,
     RENAME_PATH,
     authorize_write,
@@ -58,21 +71,24 @@ DEFAULT_PORT = 8787
 TIMELINE_PARAMETER = "limit"
 
 #: The whole authorized surface, methods and all: the three frozen reads, the identity
-#: read the rename form reviews, and the one rename write the identity card excepts.
+#: read the rename form reviews, the config read the settings form reviews, and the two
+#: writes those forms except into the read-only surface (the rename and the config save).
 #: `--routes` prints this so the verb scan sees a POST only where one is sanctioned.
 ROUTE_TABLE: tuple[tuple[str, str], ...] = (
     *(("GET", path) for path in ROUTES),
     ("GET", IDENTITY_PATH),
     ("POST", RENAME_PATH),
+    ("GET", CONFIG_PATH),
+    ("POST", CONFIG_SAVE_PATH),
 )
 
 
 class ReadService:
-    """The Dashboard's reads, plus the one authorized identity write, as callables.
+    """The Dashboard's reads, plus the two authorized writes, as callables.
 
-    The CSRF token is generated once per process and handed out only by the identity
-    read; a rename must echo it back, so a page that could not read it (any origin but
-    this one) cannot write either.
+    The CSRF token is generated once per process and handed out only by the same-origin
+    identity and config reads; both writes must echo it back, so a page that could not read
+    it (any origin but this one) cannot write either.
     """
 
     def __init__(self, *, root: Path, kin_selector: str | None, clock: Clock) -> None:
@@ -103,15 +119,21 @@ class ReadService:
     def rename(self, body: Mapping[str, Any]) -> tuple[int, dict[str, Any]]:
         return rename_from_request(self._root, kin_selector=self._kin_selector, body=body)
 
+    def config(self) -> dict[str, Any]:
+        return config_read(self._root, clock=self._clock, csrf_token=self.csrf_token)
+
+    def save_config(self, body: Mapping[str, Any]) -> tuple[int, dict[str, Any]]:
+        return save_from_request(self._root, body=body)
+
 
 class ReadRequestHandler(BaseHTTPRequestHandler):
-    """GET on a read path, the one sanctioned rename POST, or a refusal.
+    """GET on a read path, a sanctioned write POST, or a refusal.
 
     The refusal matters as much as the read: `404` is what makes the frontend's
     `contract_mismatch` branch ("Gateway 只读接口尚未实现") true rather than a guess, and
     `405` is the answer to a verb this surface does not have on a given path. A POST to
-    anywhere but the rename route still gets that `405`, so the identity write is the
-    only hole in an otherwise write-refusing surface.
+    anywhere but the rename and config-save routes still gets that `405`, so the two
+    settings writes are the only holes in an otherwise write-refusing surface.
     """
 
     protocol_version = "HTTP/1.1"
@@ -136,20 +158,36 @@ class ReadRequestHandler(BaseHTTPRequestHandler):
         if parsed.path == IDENTITY_PATH:
             self._respond(HTTPStatus.OK, self.service.identity())
             return
+        if parsed.path == CONFIG_PATH:
+            self._respond(HTTPStatus.OK, self.service.config())
+            return
         self._respond(HTTPStatus.NOT_FOUND, {"error": f"{parsed.path} is not a read model path"})
 
     def do_POST(self) -> None:
         parsed = urlparse(self.path)
-        if parsed.path != RENAME_PATH:
-            self._refuse()
+        if parsed.path == RENAME_PATH:
+            self._handle_write(MAX_RENAME_BODY_BYTES, IDENTITY_SCHEMA, self.service.rename)
             return
-        self._handle_rename()
+        if parsed.path == CONFIG_SAVE_PATH:
+            self._handle_write(MAX_CONFIG_BODY_BYTES, CONFIG_SCHEMA, self.service.save_config)
+            return
+        self._refuse()
 
-    def _handle_rename(self) -> None:
-        # Read the body first, then authorize, then parse: a request whose source or token
-        # is wrong never has its JSON interpreted, and a keep-alive connection cannot be
-        # left with an unread body to mis-read as the next request.
-        raw, guard = self._read_body()
+    def _handle_write(
+        self,
+        max_body_bytes: int,
+        schema: str,
+        commit: Callable[[Mapping[str, Any]], tuple[int, dict[str, Any]]],
+    ) -> None:
+        """One read-body → authorize → parse → commit flow, shared by every sanctioned write.
+
+        The rename and the config save differ only by their byte cap, their schema label and
+        the service call that commits, so the security-sensitive sequence — read before
+        authorizing, authorize before parsing, never interpret JSON from a request that failed
+        a source check — is written once rather than copied onto the next write surface.
+        """
+
+        raw, guard = self._read_body(max_body_bytes, schema)
         if guard is not None:
             self._respond(*guard)
             return
@@ -159,6 +197,7 @@ class ReadRequestHandler(BaseHTTPRequestHandler):
             content_type=self.headers.get("Content-Type"),
             supplied_token=self.headers.get(CSRF_HEADER),
             csrf_token=self.service.csrf_token,
+            schema=schema,
         )
         if denial is not None:
             self._respond(*denial)
@@ -166,24 +205,42 @@ class ReadRequestHandler(BaseHTTPRequestHandler):
         try:
             document = json.loads(raw.decode("utf-8"))
         except (UnicodeDecodeError, json.JSONDecodeError):
-            self._respond(*refusal(400, "invalid_request", "the rename body is not valid JSON"))
+            self._respond(
+                *refusal(
+                    400, "invalid_request", "the request body is not valid JSON", schema=schema
+                )
+            )
             return
         if not isinstance(document, dict):
-            self._respond(*refusal(400, "invalid_request", "the rename body must be a JSON object"))
+            self._respond(
+                *refusal(
+                    400, "invalid_request", "the request body must be a JSON object", schema=schema
+                )
+            )
             return
         # A decoded JSON object always has string keys; the `dict` check above is the runtime proof.
-        self._respond(*self.service.rename(cast("dict[str, Any]", document)))
+        self._respond(*commit(cast("dict[str, Any]", document)))
 
-    def _read_body(self) -> tuple[bytes, tuple[int, dict[str, Any]] | None]:
-        """The rename body, or the refusal that stopped before reading it."""
+    def _read_body(
+        self, max_body_bytes: int, schema: str
+    ) -> tuple[bytes, tuple[int, dict[str, Any]] | None]:
+        """The request body, or the refusal that stopped before reading it.
+
+        An oversized body also flags the connection to close: the bytes are left unread on
+        the socket, and a keep-alive connection must not hand them to the next request.
+        """
 
         declared = self.headers.get("Content-Length")
         if not declared or not declared.isdigit():
-            return b"", refusal(400, "invalid_request", "a rename must declare a Content-Length")
+            return b"", refusal(
+                400, "invalid_request", "a write must declare a Content-Length", schema=schema
+            )
         size = int(declared)
-        if size > MAX_RENAME_BODY_BYTES:
+        if size > max_body_bytes:
             self.close_connection = True
-            return b"", refusal(413, "invalid_request", "the rename body is too large")
+            return b"", refusal(
+                413, "invalid_request", "the request body is too large", schema=schema
+            )
         return self.rfile.read(size), None
 
     def _refuse(self) -> None:
@@ -245,8 +302,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="gateway.server",
         description=(
-            "Serve the read-only Dashboard API over loopback, plus the one identity "
-            "rename the stable-player-name card authorizes; it cannot start, stop or move."
+            "Serve the read-only Dashboard API over loopback, plus the two authorized "
+            "settings writes (the identity rename and the operator-config save); it "
+            "cannot start, stop or move a session."
         ),
     )
     parser.add_argument(

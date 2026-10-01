@@ -1,7 +1,10 @@
-"""The Gateway's HTTP surface: three reads, every other request a refusal.
+"""The Gateway's HTTP surface: the frozen reads, the two authorized writes, and refusals.
 
-This is the part the contract's acceptance is written against — `恰好三条 GET`, and the
-判别式 that a missing provenance field makes the frontend fail closed rather than guess.
+This is the part the contract's acceptance is written against — the three reads are GET-only,
+every other verb on a read path is a `405`, and the判别式 that a missing provenance field makes
+the frontend fail closed rather than guess. The surface's only two write holes — the identity
+rename and the operator-config save — are tested in their own files; here they appear only as
+route-table entries, so the verb scan proves nothing else is writable.
 """
 
 from __future__ import annotations
@@ -17,6 +20,7 @@ from typing import Any, cast
 
 import pytest
 
+from gateway.config_write import CONFIG_PATH, CONFIG_SAVE_PATH
 from gateway.identity import IDENTITY_PATH, RENAME_PATH
 from gateway.readmodel import (
     ALERTS_PATH,
@@ -187,13 +191,14 @@ def test_responses_are_json_with_a_declared_charset(base_url: str) -> None:
         assert int(response.headers["Content-Length"]) > 0
 
 
-def test_the_route_table_lists_the_reads_and_the_one_rename(
+def test_the_route_table_lists_the_reads_and_the_two_writes(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """The recalculation contract §5.2 asks for, widened for the identity card's exception.
+    """The recalculation contract §5.2 asks for, widened for the two authorized settings writes.
 
-    The three frozen reads stay GET-only; the table gains exactly one POST, and it is the
-    rename — no start/stop/move verb creeps in under the identity exception.
+    The three frozen reads stay GET-only; the table gains exactly two POSTs — the identity
+    rename and the operator-config save — and no start/stop/move verb creeps in under those
+    exceptions.
     """
 
     assert main(["--routes"]) == 0
@@ -202,8 +207,9 @@ def test_the_route_table_lists_the_reads_and_the_one_rename(
     assert lines == [f"{method} {path}" for method, path in ROUTE_TABLE]
     assert [f"GET {path}" for path in ROUTES] == lines[: len(ROUTES)]
     posts = [line for line in lines if line.startswith("POST ")]
-    assert posts == [f"POST {RENAME_PATH}"]
+    assert posts == [f"POST {RENAME_PATH}", f"POST {CONFIG_SAVE_PATH}"]
     assert f"GET {IDENTITY_PATH}" in lines
+    assert f"GET {CONFIG_PATH}" in lines
     assert not [line for line in lines if re.search(r"\b(PUT|PATCH|DELETE)\b", line)]
 
 

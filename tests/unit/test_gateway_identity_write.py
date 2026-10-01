@@ -202,7 +202,7 @@ def test_a_form_encoded_rename_is_refused_before_the_body_is_read(
 
 
 def test_renaming_a_read_route_is_a_405_not_a_rename(base_url: tuple[str, ReadService]) -> None:
-    """The rename is the only hole in an otherwise write-refusing surface."""
+    """The two sanctioned writes are the only holes; a read route stays write-refusing."""
 
     url, service = base_url
     status, _body = post(

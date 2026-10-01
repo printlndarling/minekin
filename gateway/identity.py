@@ -50,6 +50,10 @@ MAX_RENAME_BODY_BYTES: Final = 4096
 
 _IDENTITY_SCHEMA: Final = "kin-dashboard-identity/1.0.0"
 
+#: The same schema under a public name, so the server's shared write handler can label a
+#: rename refusal with the identity version instead of re-reading a private constant.
+IDENTITY_SCHEMA: Final = _IDENTITY_SCHEMA
+
 #: Four dot-separated digit groups, matched whole by `_is_loopback_host`. Deliberately
 #: not `ipaddress`: that library's tolerance of odd address strings has changed between
 #: CPython patch releases, and this is a security predicate that cannot ride on that.
@@ -141,14 +145,18 @@ def identity_read(
     }
 
 
-def refusal(status: int, code: str, message: str) -> tuple[int, dict[str, Any]]:
-    """One refusal, in the shape the identity panel's decoder already expects.
+def refusal(
+    status: int, code: str, message: str, schema: str = _IDENTITY_SCHEMA
+) -> tuple[int, dict[str, Any]]:
+    """One refusal, in the shape a panel's decoder already expects for that surface.
 
     Public because the server's own pre-body guards (an oversized or absent body) answer
-    through it too, so a refused rename reads the same however far it got.
+    through it too, so a refused write reads the same however far it got. `schema` lets the
+    config surface label its refusals with its own version while sharing this one predicate;
+    the identity rename keeps the default.
     """
 
-    return status, {"schemaVersion": _IDENTITY_SCHEMA, "error": code, "message": message}
+    return status, {"schemaVersion": schema, "error": code, "message": message}
 
 
 def _parse_rename_body(raw: Mapping[str, Any]) -> tuple[RenameRequest | None, str]:
@@ -248,22 +256,32 @@ def authorize_write(
     content_type: str | None,
     supplied_token: str | None,
     csrf_token: str,
+    schema: str = _IDENTITY_SCHEMA,
 ) -> tuple[int, dict[str, Any]] | None:
     """Return a refusal for a request that fails a source/auth check, or None to proceed.
 
     Runs before the body is even parsed: an unauthenticated or cross-origin request should
-    not reach the rename logic at all, and a request with no `Host` cannot be proven
-    same-origin, so it is refused rather than assumed local.
+    not reach the write logic at all, and a request with no `Host` cannot be proven
+    same-origin, so it is refused rather than assumed local. `schema` labels the refusals
+    with the calling surface's version, so the rename and the config save share one
+    predicate yet each answer in the shape its own panel decoder expects.
     """
 
     if not host or not _is_loopback_host(host):
-        return refusal(403, "forbidden_host", "the write surface is loopback-only")
+        return refusal(403, "forbidden_host", "the write surface is loopback-only", schema=schema)
     if not _same_origin(origin, host):
-        return refusal(403, "cross_origin", "the rename must come from this panel's own origin")
+        return refusal(
+            403, "cross_origin", "the write must come from this panel's own origin", schema=schema
+        )
     if not content_type or not content_type.lower().startswith("application/json"):
-        return refusal(415, "unsupported_media_type", "the rename body must be application/json")
+        return refusal(
+            415, "unsupported_media_type", "the write body must be application/json", schema=schema
+        )
     if supplied_token is None or not hmac.compare_digest(supplied_token, csrf_token):
         return refusal(
-            401, "missing_or_bad_csrf_token", f"a valid {CSRF_HEADER} is required to rename"
+            401,
+            "missing_or_bad_csrf_token",
+            f"a valid {CSRF_HEADER} is required to write",
+            schema=schema,
         )
     return None
