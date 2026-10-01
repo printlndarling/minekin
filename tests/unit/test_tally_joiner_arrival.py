@@ -3,7 +3,7 @@
 `tools/tally_joiner_arrival.py` reads back statements the launcher stderr already
 carried and turns "never arrived" into one named token per run. Two things have to be
 true for that to be worth reading. First, the tokens are the run's own: the client's
-ending comes from the four members of `SessionOutcome`, and nothing here may invent a
+ending comes from the members of `SessionOutcome`, and nothing here may invent a
 diagnosis the build cannot produce. Second, each token is decided by the line it names
 — a classifier that returned a fixed string whatever it read would look identical in a
 report to one that actually looked. So every shape below is tested twice where it
@@ -167,7 +167,7 @@ def test_a_crash_report_is_what_separates_a_boot_death_from_a_walkout() -> None:
 
 
 def test_an_outcome_the_build_cannot_produce_is_read_as_no_conclusion() -> None:
-    """The four-member enum is a closed set, not a prefix to echo into a report.
+    """The closed enum is a closed set, not a prefix to echo into a report.
 
     A token from a different build or a corrupted line has to fall through to whatever
     the launcher-side sentences say, instead of becoming a new diagnosis nobody declared.

@@ -67,6 +67,14 @@ class SessionOutcome(StrEnum):
     BRIDGE_LOST = "BRIDGE_LOST"
     HANDSHAKE_TIMEOUT = "HANDSHAKE_TIMEOUT"
     HANDSHAKE_FAILED = "HANDSHAKE_FAILED"
+    #: The operator asked this session to let go, Core put the release on a *live*
+    #: channel (or answered that it held nothing), and the stopper then terminated
+    #: the client — so the reader's next frame boundary was the socket closing
+    #: mid-stream. That channel close is the expected consequence of the stop we
+    #: honored, not the Bridge breaking the contract. Kept apart from `BRIDGE_LOST`
+    #: because the two want opposite answers: one is a run that ended as asked and
+    #: released its keys, the other is a peer that stopped speaking by contract.
+    STOPPED_ON_REQUEST = "STOPPED_ON_REQUEST"
 
 
 @dataclass(frozen=True, slots=True)
@@ -277,6 +285,12 @@ class _Progress:
     actions_applied: int = 0
     actions_refused: int = 0
     release_failed: bool = False
+    #: The stop-request branch ran and answered without a send failure: Core either
+    #: put `ReleaseAllInputs` on a live channel or said it held nothing. Read with
+    #: `release_failed`, it is what tells the reader's next channel close apart from
+    #: a contract break — a close after a honored stop is expected, a close with no
+    #: honored stop is the Bridge going silent on its own.
+    stop_honored: bool = False
     connection_cancelled: str = ""
     connection_cancel_failed: bool = False
     #: Which clause of the IPC contract the reader ended on, kept here because the
@@ -503,6 +517,15 @@ async def supervise_session(
                                 progress.release_failed = True
                             else:
                                 progress.connection_cancel_failed = True
+                        else:
+                            # `on_stop_request` returns only after the release has gone
+                            # out over the still-live channel (or after saying this
+                            # session held nothing to release). From here on, a reader
+                            # that ends on the socket closing mid-frame is the stopper
+                            # terminating a client we already let go of — not a contract
+                            # break — and the outcome is chosen on that reading.
+                            if answer is on_stop_request:
+                                progress.stop_honored = True
             finally:
                 branches_done = list(branches)
                 for task in (reader, client, *branches_done):
@@ -515,13 +538,21 @@ async def supervise_session(
             if reader in finished:
                 error = reader.exception()
                 if isinstance(error, IpcProtocolError):
-                    # The Bridge broke the negotiated contract. Anything else is a
-                    # bug in this process and must not be folded into a network
-                    # outcome, so it propagates and the CLI reports an internal
-                    # invariant.
-                    progress.bridge_lost_reason = str(error)
-                    await _wind_down(session, failed=True, on_transition=on_transition)
-                    outcome = SessionOutcome.BRIDGE_LOST
+                    # The Bridge broke the negotiated contract — unless this run was
+                    # stopped on request and had already let go over a live channel,
+                    # in which case the socket closing mid-frame is the stopper
+                    # terminating a client we released, not a peer going back on its
+                    # word. The two need opposite answers and must not share a code.
+                    if progress.stop_honored and not progress.release_failed:
+                        await _wind_down(session, failed=False, on_transition=on_transition)
+                        outcome = SessionOutcome.STOPPED_ON_REQUEST
+                    else:
+                        # Anything else is a bug in this process and must not be folded
+                        # into a network outcome, so it propagates and the CLI reports
+                        # an internal invariant.
+                        progress.bridge_lost_reason = str(error)
+                        await _wind_down(session, failed=True, on_transition=on_transition)
+                        outcome = SessionOutcome.BRIDGE_LOST
                 elif error is not None:
                     # A payload, state-machine, or callback failure is a Core
                     # invariant error, not a normal client exit. Preserve the

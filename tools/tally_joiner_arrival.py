@@ -5,7 +5,7 @@ A run that reports "the joiner never arrived" has already said several different
 things, scattered over the launcher's stderr: whether its launcher was still trying
 when the window closed or had walked out earlier, whether the client left a crash
 report, whether it got far enough to write down its own conclusion, and which of the
-four named outcomes that conclusion carried. Nothing in the harness read those
+named outcomes that conclusion carried. Nothing in the harness read those
 statements back, so one bare line covered a display-library crash at boot, a handshake
 that ran out of time, and a lost bridge. This tool reads them and reports the
 distribution — one named token per run — so a reviewer can see which of them this
@@ -17,7 +17,7 @@ branches of `join_the_published_world` (`test-orchestrator/runner/domain.sh:1729
 The only judgement added here is precedence. The world hearing the arrival outranks
 everything, because it is the fact the wait was built to look for; then the joining
 client's own conclusion outranks any inference the host side made about it, because the
-host cannot see inside the client's process. An outcome token outside the four this
+host cannot see inside the client's process. An outcome token outside the endings this
 build can produce is read as no conclusion, so the tool cannot invent a diagnosis.
 
 A run whose arrival was heard reports `ARRIVED` and is kept out of the unarrived
@@ -47,6 +47,7 @@ JOINER_OUTCOMES: Final = (
     "BRIDGE_LOST",
     "HANDSHAKE_TIMEOUT",
     "HANDSHAKE_FAILED",
+    "STOPPED_ON_REQUEST",
 )
 
 _ARRIVED = re.compile(r"the world heard \S+ arrive")
@@ -80,7 +81,7 @@ def _find(pattern: re.Pattern[str], lines: list[str]) -> tuple[int, str] | None:
 
 
 def _named_outcome(lines: list[str]) -> tuple[int, str, str] | None:
-    """The joining client's own ending, only if it names one of the four real ones."""
+    """The joining client's own ending, only if it names one of the real ones."""
 
     for index, text in enumerate(lines, start=1):
         match = _OUTCOME.search(text)

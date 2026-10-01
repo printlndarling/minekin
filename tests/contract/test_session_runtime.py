@@ -374,6 +374,8 @@ async def _supervise(
     on_input_release: Callable[[], Awaitable[None]] | None = None,
     until_connection_deadline: Callable[[], Awaitable[object]] | None = None,
     on_connection_deadline: Callable[[], Awaitable[None]] | None = None,
+    until_stop_request: Callable[[], Awaitable[object]] | None = None,
+    on_stop_request: Callable[[], Awaitable[None]] | None = None,
     on_session_identity: Callable[[int, Mapping[str, object]], Awaitable[None]] | None = None,
     world_observations: WorldObservationStore | None = None,
 ) -> SessionRun:
@@ -391,6 +393,8 @@ async def _supervise(
             on_input_release=on_input_release,
             until_connection_deadline=until_connection_deadline,
             on_connection_deadline=on_connection_deadline,
+            until_stop_request=until_stop_request,
+            on_stop_request=on_stop_request,
             on_session_identity=on_session_identity,
             world_observations=world_observations,
         ),
@@ -652,6 +656,107 @@ def test_a_bridge_lost_run_names_the_clause_of_the_contract_it_broke(
         assert run.outcome is SessionOutcome.BRIDGE_LOST
         assert run.bridge_lost_reason == "IPC envelope violates the negotiated connection"
         assert run.as_dict()["bridge_lost_reason"] == run.bridge_lost_reason
+
+    asyncio.run(scenario())
+
+
+def test_a_stop_we_honored_reads_the_channel_close_as_an_expected_ending(
+    tmp_path: Path,
+) -> None:
+    """The reader ending mid-frame right after a released stop is the stop, not a break.
+
+    A cooperative stop is Core putting the release on a live channel and the stopper
+    then terminating the client — so the socket is gone by the time the reader next
+    looks. That close is the expected consequence of the run we ended on purpose, and
+    reporting it as `BRIDGE_LOST` (and an abnormal exit) would call a normal stop a
+    contract violation, which is exactly the misrecord this branch exists to undo.
+    """
+
+    async def scenario() -> None:
+        bridge = session()
+        host = BridgeIpcHost(bridge)
+        descriptor = await host.prepare(tmp_path / "descriptor.pb")
+        machine, connections = _in_handshake()
+        peer = Peer(descriptor, bridge)
+        stop_requested = asyncio.Event()
+        released = asyncio.Event()
+
+        async def on_stop_request() -> None:
+            # The release went out over the still-live channel and the callback returns.
+            released.set()
+
+        async def client() -> None:
+            await peer.prove()
+            stop_requested.set()
+            await released.wait()
+            # The stopper terminates the client now that the release answered it.
+            await peer.close()
+
+        running = asyncio.create_task(client())
+        run = await _supervise(
+            host,
+            machine,
+            connections,
+            exit_event=asyncio.Event(),
+            until_stop_request=stop_requested.wait,
+            on_stop_request=on_stop_request,
+        )
+        await running
+
+        assert run.outcome is SessionOutcome.STOPPED_ON_REQUEST
+        assert run.release_failed is False
+        # No contract clause is named: nothing broke one. The channel went because we
+        # stopped the client, and that is not a diagnosis of the Bridge's behavior.
+        assert run.bridge_lost_reason == ""
+        assert run.session_state is SessionState.STOPPED
+        assert connections.active is None
+
+    asyncio.run(scenario())
+
+
+def test_a_stop_whose_release_failed_still_reads_as_a_lost_bridge(tmp_path: Path) -> None:
+    """The distinction is not a cover-up: a stop whose release never landed stays abnormal.
+
+    When the send of the release itself dies, a key may still be pressed and the run
+    did not cleanly let go, so honoring the *request* is not enough — only a release
+    that completed makes the later channel close expected. This is the control that
+    proves the expected-stop branch above classifies on the release, not on the ask.
+    """
+
+    async def scenario() -> None:
+        bridge = session()
+        host = BridgeIpcHost(bridge)
+        descriptor = await host.prepare(tmp_path / "descriptor.pb")
+        machine, connections = _in_handshake()
+        peer = Peer(descriptor, bridge)
+        stop_requested = asyncio.Event()
+        asked = asyncio.Event()
+
+        async def on_stop_request() -> None:
+            asked.set()
+            # The channel died before the release reached the Bridge.
+            raise ConnectionResetError("release channel gone")
+
+        async def client() -> None:
+            await peer.prove()
+            stop_requested.set()
+            await asked.wait()
+            await peer.close()
+
+        running = asyncio.create_task(client())
+        run = await _supervise(
+            host,
+            machine,
+            connections,
+            exit_event=asyncio.Event(),
+            until_stop_request=stop_requested.wait,
+            on_stop_request=on_stop_request,
+        )
+        await running
+
+        assert run.outcome is SessionOutcome.BRIDGE_LOST
+        assert run.release_failed is True
+        assert run.bridge_lost_reason == "IPC channel closed before a complete frame header"
 
     asyncio.run(scenario())
 

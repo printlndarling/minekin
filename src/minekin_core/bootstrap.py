@@ -71,6 +71,10 @@ from minekin_core.domain.model_access import model_config
 # else is why it did not.
 _OUTCOME_EXIT_CODES: dict[SessionOutcome, ExitCode] = {
     SessionOutcome.CLIENT_EXITED: ExitCode.OK,
+    # A stop we honored and released over a live channel: the run ended as asked, so
+    # it is the command succeeding — not the IPC-protocol fault that a genuine bridge
+    # loss carries. Reporting it as 14 would call a normal stop a contract break.
+    SessionOutcome.STOPPED_ON_REQUEST: ExitCode.OK,
     SessionOutcome.BRIDGE_LOST: ExitCode.IPC_PROTOCOL,
     SessionOutcome.HANDSHAKE_FAILED: ExitCode.IPC_PROTOCOL,
     SessionOutcome.HANDSHAKE_TIMEOUT: ExitCode.TIMEOUT,

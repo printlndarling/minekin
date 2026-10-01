@@ -186,6 +186,11 @@ _CONNECTION_EVENTS: dict[ConnectionState, tuple[str, EventSource, TrustClass]] =
 
 _OUTCOME_EVENTS: dict[SessionOutcome, str] = {
     SessionOutcome.CLIENT_EXITED: CLIENT_EXITED,
+    # A stop we honored: the client left because we let go and the stopper terminated
+    # it, which is the §5 event for a run ending with its client — not an interruption.
+    # §5 names no event for "stopped on request", so this reuses the true one rather
+    # than inventing a ledger fact the contract does not carry.
+    SessionOutcome.STOPPED_ON_REQUEST: CLIENT_EXITED,
     SessionOutcome.BRIDGE_LOST: SESSION_INTERRUPTED,
     SessionOutcome.HANDSHAKE_FAILED: SESSION_INTERRUPTED,
     SessionOutcome.HANDSHAKE_TIMEOUT: SESSION_INTERRUPTED,
