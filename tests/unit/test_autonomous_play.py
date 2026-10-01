@@ -66,6 +66,7 @@ from minekin_core.domain.perception import (
     SelfStateValue,
     WorldObservationValue,
 )
+from minekin_core.domain.recipe_catalog import coverage_of, learned_catalog
 from minekin_core.domain.world_actions import ActionResultClass, SkillOutcome
 
 LOG = "minecraft:oak_log"
@@ -730,3 +731,30 @@ def test_a_step_that_lost_its_client_ends_the_run_by_name() -> None:
     assert result.stop_detail == "143"
     assert len(result.steps) == 1
     assert result.steps[0].outcome.reason == CLIENT_EXITED
+
+
+def test_a_run_reads_which_crafts_the_world_confirmed_and_grows_coverage_from_them() -> None:
+    """The dynamic recipe source's first wired edge, end to end. The same loop that stands up the
+    grid enabler answers the next question without any hand-editing: which products did the world
+    *say* it crafted? On this tape planks, sticks and the table each come back `CONFIRMED`, so the
+    run reports exactly those three — and feeding them to `learned_catalog` moves the crafting
+    table, until now only a curated claim, onto the watched side. The pickaxe is the honest
+    residue: its shape needs a 3x3 grid this two-by-two tape never opened, so it was never
+    confirmed and stays curated. Coverage thus grows from readings, and the boundary a reader sees
+    after a run is that run's own, recomputed — not a table somebody marked watched."""
+
+    stage = Stage(
+        reading(tick=100, items=((0, LOG, 1),)),
+        reading(tick=140, items=((0, PLANKS, 4),)),
+        reading(tick=180, items=((0, PLANKS, 4), (1, STICK, 2))),
+    )
+    skills = TapeSkills(stage, {"craft_take_result": confirmed()})
+
+    result = run(stage, skills, off_mind(), step_budget=3)
+
+    assert result.confirmed_craft_products() == frozenset({PLANKS, STICK, TABLE})
+
+    learned = coverage_of(learned_catalog(result.confirmed_craft_products()))
+    assert TABLE in learned.live_confirmed
+    assert TABLE not in learned.curated_only
+    assert learned.curated_only == frozenset({PICKAXE})

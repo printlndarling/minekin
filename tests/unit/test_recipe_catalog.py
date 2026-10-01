@@ -30,6 +30,8 @@ from minekin_core.domain.recipe_catalog import (
     Recipe,
     RecipeProvenance,
     build_plan,
+    coverage_of,
+    learned_catalog,
     recipe_coverage,
     resolve_craft,
 )
@@ -371,3 +373,61 @@ def test_a_product_the_catalog_cannot_answer_for_is_outside_the_declared_cover()
 
     assert "minecraft:diamond_pickaxe" not in recipe_coverage().covered
     assert resolve_craft("minecraft:diamond_pickaxe") == CRAFT_RECIPE_UNAVAILABLE
+
+
+# ------------------------------------------------- the boundary grown from the world's readings
+
+
+def test_a_confirmed_craft_moves_only_that_product_from_curated_to_watched() -> None:
+    """The whole point of the dynamic source: coverage is grown from what the world confirmed, not
+    from somebody editing the table. Here the table alone is asked whether a live run that crafted
+    a workbench has now seen it happen — and only the workbench moves; the pickaxe the same run
+    never confirmed stays curated, and the two rows that were already watched are undisturbed."""
+
+    learned = learned_catalog([TABLE])
+
+    assert learned[TABLE].provenance is RecipeProvenance.LIVE_CONFIRMED
+    assert learned[PICKAXE].provenance is RecipeProvenance.CURATED_UNWATCHED
+    assert learned[PLANKS].provenance is RecipeProvenance.LIVE_CONFIRMED
+
+    boundary = coverage_of(learned)
+    assert TABLE in boundary.live_confirmed
+    assert TABLE not in boundary.curated_only
+    assert PICKAXE in boundary.curated_only
+    assert boundary.covered == frozenset(RECIPES)
+
+
+def test_learning_from_readings_never_invents_a_recipe_for_an_unnamed_product() -> None:
+    """A confirmed craft of a product this build cannot name is knowledge about an *event*, not a
+    recipe row — the synced display carries no stable recipe id, so minting one here is the guess
+    criterion 6 forbids. The un-named id is dropped and `covered` is unchanged."""
+
+    learned = learned_catalog(["minecraft:diamond_pickaxe"])
+
+    assert learned_catalog(["minecraft:diamond_pickaxe"]) == learned_catalog([])
+    assert coverage_of(learned).covered == frozenset(RECIPES)
+
+
+def test_learning_is_idempotent_and_never_demotes_a_watched_craft() -> None:
+    """The same run read twice, or a curated row fed alongside an already-watched one, must leave
+    every watched row watched. Provenance only ever moves toward what the world confirmed, never
+    back, and the function is a pure re-computation rather than a counter that could drift."""
+
+    learned = learned_catalog([PLANKS, TABLE, TABLE])
+
+    assert {p: r.provenance for p, r in learned.items()} == {
+        p: (RecipeProvenance.LIVE_CONFIRMED if p in {PLANKS, STICK, TABLE} else r.provenance)
+        for p, r in RECIPES.items()
+    }
+    assert coverage_of(learned).curated_only == frozenset({PICKAXE})
+
+
+def test_the_curated_base_is_left_untouched_by_learning() -> None:
+    """`learned_catalog` returns a new mapping; the curated `RECIPES` stays the curated base so a
+    run's learned view is that run's own and the published fallback boundary does not quietly shift
+    under a reader who never ran anything."""
+
+    learned_catalog([TABLE, PICKAXE])
+
+    assert recipe_coverage().curated_only == frozenset({TABLE, PICKAXE})
+    assert RECIPES[TABLE].provenance is RecipeProvenance.CURATED_UNWATCHED

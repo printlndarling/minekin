@@ -34,8 +34,8 @@ judged only by the inventory in a later reading, never by this table having been
 
 from __future__ import annotations
 
-from collections.abc import Mapping
-from dataclasses import dataclass
+from collections.abc import Iterable, Mapping
+from dataclasses import dataclass, replace
 from enum import StrEnum
 from types import MappingProxyType
 from typing import Final
@@ -200,26 +200,71 @@ class CoverageBoundary:
     universal: bool
 
 
-def recipe_coverage() -> CoverageBoundary:
-    """The catalog's boundary, computed from the rows themselves.
+def coverage_of(catalog: Mapping[str, Recipe]) -> CoverageBoundary:
+    """The boundary of any catalog, computed from the rows themselves.
 
     Derived rather than written so a row cannot be marked watched in one place and curated in
     another: `covered` is the keys, and the provenance field on each row decides the split. A new
     recipe is only ever a new `RECIPES` entry, and the boundary follows it without a second list
-    somebody could forget to update.
+    somebody could forget to update. This is the shared rule; `recipe_coverage` is it over the
+    curated base and a live run reads its own shrunk curated-only set through it too, so no
+    caller renders one boundary and computes another.
     """
 
     live = frozenset(
         product_id
-        for product_id, recipe in RECIPES.items()
+        for product_id, recipe in catalog.items()
         if recipe.provenance is RecipeProvenance.LIVE_CONFIRMED
     )
     return CoverageBoundary(
         game_version=CATALOG_GAME_VERSION,
-        covered=frozenset(RECIPES),
+        covered=frozenset(catalog),
         live_confirmed=live,
-        curated_only=frozenset(RECIPES) - live,
+        curated_only=frozenset(catalog) - live,
         universal=False,
+    )
+
+
+def recipe_coverage() -> CoverageBoundary:
+    """The curated catalog's boundary — the base case of `coverage_of`."""
+
+    return coverage_of(RECIPES)
+
+
+def learned_catalog(
+    confirmed_product_ids: Iterable[str],
+    *,
+    base: Mapping[str, Recipe] = RECIPES,
+) -> Mapping[str, Recipe]:
+    """Re-mark the rows whose craft the world itself confirmed as watched.
+
+    The input is the product ids of the `verify_craft` calls that came back `CONFIRMED` in a live
+    run — materials down and product up on a synced revision, which is the only reading that
+    turns a curated claim into a watched fact, and exactly the movement `CoverageBoundary`
+    promised when it said the first live craft is what moves a product into `live_confirmed`.
+    This is the seed of a world-derived recipe source: coverage grows from what was observed,
+    not from somebody editing the table.
+
+    Three rules keep it from becoming an invention machine. A product id the base has no row for
+    is ignored — a confirmed craft of something this build cannot name is knowledge about the
+    *event*, not a recipe, and adding a row would be the guess criterion 6 forbids (the contract
+    says a synced display carries no stable recipe id, so a confirmed craft cannot mint one).
+    The function never demotes a live row. And it returns a new mapping rather than touching
+    `RECIPES`, so a curated base stays the curated base and a run's learned view is that run's
+    own, recomputed from readings every time.
+    """
+
+    confirmed = frozenset(confirmed_product_ids)
+    return MappingProxyType(
+        {
+            product_id: (
+                replace(recipe, provenance=RecipeProvenance.LIVE_CONFIRMED)
+                if product_id in confirmed
+                and recipe.provenance is not RecipeProvenance.LIVE_CONFIRMED
+                else recipe
+            )
+            for product_id, recipe in base.items()
+        }
     )
 
 

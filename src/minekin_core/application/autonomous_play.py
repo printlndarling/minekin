@@ -152,6 +152,27 @@ class AutonomousRun:
             "mind": dict(self.mind_document),
         }
 
+    def confirmed_craft_products(self) -> frozenset[str]:
+        """Which products the world confirmed were crafted this run, as product ids.
+
+        The seed of a world-derived recipe source: feed these to
+        :func:`minekin_core.domain.recipe_catalog.learned_catalog` and the coverage boundary
+        reports each one as watched rather than curated. A step counts here only when the reading
+        said `CONFIRMED` and the call named a `product_id` — a break or collect step carries no
+        product, and an UNKNOWN craft is exactly the inconclusive click the contract forbids
+        crediting. This is what a finished run can say about which crafts it saw happen; whether
+        the mind's curated catalog itself is edited from it is a separate, still-open question.
+        """
+
+        products: set[str] = set()
+        for step in self.steps:
+            if step.outcome.result is not ActionResultClass.CONFIRMED:
+                continue
+            for call in step.intent.plan.calls:
+                if call.product_id:
+                    products.add(call.product_id)
+        return frozenset(products)
+
 
 async def run_autonomous_loop(
     *,
