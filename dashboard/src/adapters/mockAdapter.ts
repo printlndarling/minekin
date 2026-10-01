@@ -15,6 +15,7 @@ import {
   type ConfigSaveRequest,
   type ConfigSaveResult,
   type ConfigValue,
+  type GoalInfo,
   type IdentityInfo,
   type IdentityViewSnapshot,
   type KinSnapshot,
@@ -29,6 +30,7 @@ import {
   MOCK_SCENARIOS,
   buildMockBundle,
   buildMockConfig,
+  buildMockGoal,
   buildMockIdentity,
   buildMockSession,
   buildMockStopReport,
@@ -44,6 +46,7 @@ import {
   decodeAlertsPayload,
   decodeConfigPayload,
   decodeConfigSavePayload,
+  decodeGoalPayload,
   decodeIdentityPayload,
   decodeRenamePayload,
   decodeSessionPayload,
@@ -370,6 +373,23 @@ export function createMockAdapter(scenario: MockScenarioId, latencyMs: number): 
         return fail("contract_mismatch", `模拟停止报告与自身解码器不匹配：${decoded.issues.slice(0, 6).join("；")}`);
       }
       return ok(decoded.result, "mock", `mock://scenario/${scenario}/session/stop`);
+    },
+    async goal(signal?: AbortSignal): Promise<ReadResult<GoalInfo>> {
+      await settle();
+      if (signal?.aborted === true) {
+        return fail("cancelled", "读取已取消。");
+      }
+      if (scenario === "read_failed") {
+        return fail("disconnected", "模拟场景：目标读取失败。");
+      }
+      // The goal read projects the SAME `configStore.fields` the config panel just saved, so a
+      // save followed by a goal read shows the milestone and plan that save wrote — the real
+      // config→goal coupling, exercised through the shared decoder.
+      const decoded = decodeGoalPayload(buildMockGoal(scenario, Date.now(), configStore.fields));
+      if (!decoded.ok) {
+        return fail("contract_mismatch", `模拟目标与自身解码器不匹配：${decoded.issues.slice(0, 6).join("；")}`);
+      }
+      return ok(decoded.goal, "mock", `mock://scenario/${scenario}/goal`);
     },
   };
 }

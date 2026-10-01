@@ -1,0 +1,170 @@
+.state {
+  margin: 0 0 8px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.readFailure {
+  margin: 0 0 8px;
+  font-size: 12px;
+  color: var(--danger, #b3261e);
+}
+
+.loadError {
+  margin: 0 0 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--danger-line, #b3261e);
+  border-left-width: 4px;
+  border-radius: 6px;
+  background: var(--danger-surface, rgba(179, 38, 30, 0.08));
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text);
+}
+
+.freshness {
+  margin: 0 0 8px;
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+.empty {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border: 1px dashed var(--line);
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-dim);
+}
+
+.milestone {
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-2);
+}
+
+.direction {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.facts {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.fact {
+  display: grid;
+  gap: 2px;
+}
+
+.fact dt {
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+.fact dd {
+  margin: 0;
+  font-size: 13px;
+  font-family: var(--mono, ui-monospace, monospace);
+  color: var(--text);
+}
+
+.boundary {
+  margin: 12px 0;
+  padding: 10px 12px;
+  border: 1px solid var(--warn-line, #b8860b);
+  border-left-width: 4px;
+  border-radius: 6px;
+  background: var(--warn-surface, rgba(184, 134, 11, 0.08));
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text);
+}
+
+.plan {
+  margin-top: 12px;
+  display: grid;
+  gap: 8px;
+}
+
+.planTitle {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.steps {
+  margin: 0;
+  padding-left: 20px;
+  display: grid;
+  gap: 8px;
+}
+
+.step {
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface-2);
+}
+
+.stepHead {
+  margin: 0 0 6px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: baseline;
+}
+
+.stepProduct {
+  font-size: 13px;
+  font-family: var(--mono, ui-monospace, monospace);
+  color: var(--text);
+}
+
+.stepCount {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.materials {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 2px;
+}
+
+.material {
+  font-size: 12px;
+  color: var(--text-dim);
+  display: flex;
+  gap: 8px;
+}
+
+.materialCount {
+  font-family: var(--mono, ui-monospace, monospace);
+  color: var(--text-faint);
+}
+
+.planCaveat {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-faint);
+}
+
+.stability {
+  margin: 12px 0 0;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-faint);
+}

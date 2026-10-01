@@ -619,3 +619,121 @@ export function buildMockStopReport(state: "running" | "unresolved", kinId = "ki
     unresolved: [],
   };
 }
+
+/**
+ * A TS mirror of `minekin_core.domain.recipe_catalog.RECIPES`, keyed by product id with each
+ * recipe's gross ingredient map and batch yield. It exists so `buildMockGoal` can compute the same
+ * build order the Gateway projects, rather than hard-coding one pickaxe row: the four covered
+ * products are exactly the current curated set, and anything else falls through to the same
+ * `CRAFT_RECIPE_UNAVAILABLE` boundary. This is a fixture's belief about the catalog, not a second
+ * source of truth — the real plan still comes only from `gateway/goal_read.py`, which the shared
+ * `decodeGoalPayload` verifies.
+ */
+const MOCK_RECIPES: Readonly<Record<string, { ingredients: readonly (readonly [string, number])[]; yields: number }>> = {
+  "minecraft:oak_planks": { ingredients: [["minecraft:oak_log", 1]], yields: 4 },
+  "minecraft:stick": { ingredients: [["minecraft:oak_planks", 2]], yields: 4 },
+  "minecraft:crafting_table": { ingredients: [["minecraft:oak_planks", 4]], yields: 1 },
+  "minecraft:wooden_pickaxe": { ingredients: [["minecraft:oak_planks", 3], ["minecraft:stick", 2]], yields: 1 },
+};
+
+/** The `Milestone.label` rule, verbatim: a supplied heading wins, else derive `hold_<path>`. */
+function mockMilestoneLabel(productId: string, direction: string): string {
+  if (direction !== "") return direction;
+  const path = productId.split(":").slice(1).join(":");
+  const joined = path
+    .replace(/-/g, "_")
+    .split("_")
+    .filter((part) => part !== "")
+    .join("_");
+  return joined === "" ? "hold_the_goal_product" : `hold_${joined}`;
+}
+
+/** `build_plan(product_id, quantity, inventory=None)` mirrored without a bag: every count is gross. */
+function mockBuildPlan(
+  productId: string,
+  quantity: number,
+): readonly { product_id: string; required_total: number; materials: readonly { item_id: string; count: number }[] }[] | "CRAFT_RECIPE_UNAVAILABLE" {
+  if (!(productId in MOCK_RECIPES)) return "CRAFT_RECIPE_UNAVAILABLE";
+  const order: string[] = [];
+  const visited = new Set<string>();
+  const visit = (product: string, path: Set<string>): boolean => {
+    if (path.has(product)) return true; // a cycle: the same word the Python resolver uses.
+    const recipe = MOCK_RECIPES[product];
+    if (recipe === undefined || visited.has(product)) return false; // gathered, not crafted.
+    for (const [item] of recipe.ingredients) {
+      if (visit(item, new Set([...path, product]))) return true;
+    }
+    visited.add(product);
+    order.push(product);
+    return false;
+  };
+  if (visit(productId, new Set())) return "CRAFT_RECIPE_UNAVAILABLE";
+  const gross = new Map<string, number>(order.map((product) => [product, 0]));
+  gross.set(productId, quantity);
+  const owed = new Map<string, number>();
+  for (const product of [...order].reverse()) {
+    const recipe = MOCK_RECIPES[product];
+    if (recipe === undefined) continue;
+    const stillNeeded = Math.max(gross.get(product) ?? 0, 0);
+    owed.set(product, stillNeeded);
+    if (stillNeeded === 0) continue;
+    const batches = Math.ceil(stillNeeded / recipe.yields);
+    for (const [item, count] of recipe.ingredients) {
+      if (gross.has(item)) gross.set(item, (gross.get(item) ?? 0) + batches * count);
+    }
+  }
+  return order.flatMap((product) => {
+    const recipe = MOCK_RECIPES[product];
+    if (recipe === undefined) return [];
+    return [
+      {
+        product_id: product,
+        required_total: owed.get(product) ?? 0,
+        materials: recipe.ingredients.map(([item, count]) => ({ item_id: item, count })),
+      },
+    ];
+  });
+}
+
+/**
+ * The goal document `gateway/goal_read.py::goal_read` answers, in the exact wire shape the shared
+ * `decodeGoalPayload` parses, derived from the CURRENT saved config fields (`configStore.fields` in
+ * the adapter). This is the real coupling the panel must exercise: a goal is only what the config
+ * write persisted, and this read projects it — unset product → `configured:false` with a null
+ * projection, a covered product → milestone + gross build plan, an out-of-cover product →
+ * milestone + the named `CRAFT_RECIPE_UNAVAILABLE` precondition (criterion 6's boundary). No live
+ * progress number is ever fabricated: the plan carries gross counts only, matching `_step`'s
+ * documented refusal to net against a bag this surface does not have. `csrfToken` rides along for
+ * wire fidelity but the decoder never reads it into the model, so it stays out of the UI.
+ */
+export function buildMockGoal(
+  scenario: MockScenarioId,
+  nowMs: number,
+  fields: Record<string, ConfigValue> = mockConfigInitialFields(scenario),
+): Record<string, unknown> {
+  const base = {
+    schemaVersion: "kin-dashboard-goal/1.0.0",
+    loadError: null,
+    csrfToken: MOCK_IDENTITY_CSRF,
+    observedAt: iso(nowMs),
+    staleAfterMs: 8_000,
+  };
+  const product = String(fields.goal_product_id ?? "");
+  if (product === "") {
+    return { ...base, configured: false, milestone: null, plan: null, precondition: null };
+  }
+  const quantity = Number.parseInt(String(fields.goal_quantity ?? ""), 10) || 1;
+  const sourceItemId = String(fields.goal_source_item_id ?? "");
+  const direction = String(fields.goal_direction ?? "");
+  const milestone = {
+    product_id: product,
+    quantity,
+    source_item_id: sourceItemId,
+    direction: mockMilestoneLabel(product, direction),
+  };
+  const planned = mockBuildPlan(product, quantity);
+  if (planned === "CRAFT_RECIPE_UNAVAILABLE") {
+    return { ...base, configured: true, milestone, plan: null, precondition: planned };
+  }
+  return { ...base, configured: true, milestone, plan: planned, precondition: null };
+}

@@ -1,5 +1,6 @@
 import {
   CONFIG_SCHEMA_VERSION,
+  GOAL_SCHEMA_VERSION,
   IDENTITY_SCHEMA_VERSION,
   SESSION_SCHEMA_VERSION,
   SNAPSHOT_SCHEMA_VERSION,
@@ -17,6 +18,10 @@ import {
   type EvidenceRef,
   type Field,
   type FieldGapStatus,
+  type GoalInfo,
+  type GoalMilestone,
+  type GoalPlanMaterial,
+  type GoalPlanStep,
   type Heartbeat,
   type IdentityInfo,
   type IdentityViewSnapshot,
@@ -118,6 +123,16 @@ export const CONFIG_ENDPOINTS = {
 export const SESSION_ENDPOINTS = {
   session: "/api/v1/dashboard/session",
   stop: "/api/v1/dashboard/session/stop",
+} as const;
+
+/**
+ * The goal surface `gateway/goal_read.py` opens: one GET that answers the standing milestone the
+ * config write already saved plus the plan the recipe catalog implies. It is a READ, not a fourth
+ * write — setting a goal stays `CONFIG_ENDPOINTS.save`'s job — so only this one path exists and the
+ * per-process token the payload echoes is dropped at the seam rather than captured.
+ */
+export const GOAL_ENDPOINTS = {
+  goal: "/api/v1/dashboard/goal",
 } as const;
 
 /** The header `gateway/identity.py` requires the rename to echo the identity-GET token back in. */
@@ -1072,6 +1087,146 @@ export function decodeStopPayload(raw: unknown): StopDecode {
   return { ok: true, result: { state: state as KinRuntimeState, report } };
 }
 
+export type GoalDecode =
+  | { readonly ok: true; readonly goal: GoalInfo }
+  | { readonly ok: false; readonly issues: readonly string[] };
+
+/** The milestone envelope `Milestone.as_document` writes in snake_case, mapped onto the model. */
+function parseGoalMilestone(raw: unknown, issues: string[]): GoalMilestone | null {
+  const rec = asRecord(raw);
+  if (rec === null) {
+    issues.push("$.milestone: 期望 milestone 对象");
+    return null;
+  }
+  const productId = asString(rec.product_id);
+  if (productId === null) issues.push("$.milestone.product_id: 缺失或非字符串");
+  const quantity = asInteger(rec.quantity);
+  if (quantity === null) issues.push("$.milestone.quantity: 缺失或非整数");
+  const sourceItemId = asString(rec.source_item_id);
+  if (sourceItemId === null) issues.push("$.milestone.source_item_id: 缺失或非字符串");
+  const direction = asString(rec.direction);
+  if (direction === null) issues.push("$.milestone.direction: 缺失或非字符串");
+  if (productId === null || quantity === null || sourceItemId === null || direction === null) return null;
+  return { productId, quantity, sourceItemId, direction };
+}
+
+function parseGoalMaterials(raw: unknown, path: string, issues: string[]): GoalPlanMaterial[] | null {
+  if (!Array.isArray(raw)) {
+    issues.push(`${path}: 期望材料数组`);
+    return null;
+  }
+  const out: GoalPlanMaterial[] = [];
+  for (const [index, item] of raw.entries()) {
+    const rec = asRecord(item);
+    if (rec === null) {
+      issues.push(`${path}[${index}]: 期望 {item_id, count} 对象`);
+      return null;
+    }
+    const itemId = asString(rec.item_id);
+    if (itemId === null) issues.push(`${path}[${index}].item_id: 缺失或非字符串`);
+    const count = asInteger(rec.count);
+    if (count === null) issues.push(`${path}[${index}].count: 缺失或非整数`);
+    if (itemId === null || count === null) return null;
+    out.push({ itemId, count });
+  }
+  return out;
+}
+
+/** The gross build plan `gateway/goal_read.py::_step` writes, one craft per row, snake_case → camel. */
+function parseGoalPlan(raw: unknown, issues: string[]): GoalPlanStep[] | null {
+  if (!Array.isArray(raw)) {
+    issues.push("$.plan: 期望步骤数组");
+    return null;
+  }
+  const out: GoalPlanStep[] = [];
+  for (const [index, item] of raw.entries()) {
+    const rec = asRecord(item);
+    if (rec === null) {
+      issues.push(`$.plan[${index}]: 期望 build step 对象`);
+      return null;
+    }
+    const productId = asString(rec.product_id);
+    if (productId === null) issues.push(`$.plan[${index}].product_id: 缺失或非字符串`);
+    const requiredTotal = asInteger(rec.required_total);
+    if (requiredTotal === null) issues.push(`$.plan[${index}].required_total: 缺失或非整数`);
+    const materials = parseGoalMaterials(rec.materials, `$.plan[${index}].materials`, issues);
+    if (productId === null || requiredTotal === null || materials === null) return null;
+    out.push({ productId, requiredTotal, materials });
+  }
+  return out;
+}
+
+/**
+ * The goal read `gateway/goal_read.py::goal_read` answers: a flat document decoded whole or not at
+ * all, so a missing field is a `contract_mismatch` rather than a partial fill. `csrfToken` is present
+ * on the wire but deliberately NOT returned — this is a pure GET with no write to guard, and keeping
+ * the token out of the seam is what stops a panel from ever rendering it.
+ *
+ * The document's own invariant is enforced here rather than trusted: `configured: false` answers with
+ * a null milestone/plan/precondition, while `configured: true` carries a milestone AND exactly one of
+ * (plan array) or (precondition string). A byte that violates that split is a mismatch, not a state
+ * to render — the panel must never see a goal that is simultaneously planned and blocked.
+ */
+export function decodeGoalPayload(raw: unknown): GoalDecode {
+  const rec = asRecord(raw);
+  if (rec === null) return { ok: false, issues: ["$: 目标响应不是 object"] };
+  const issues: string[] = [];
+  if (asString(rec.schemaVersion) !== GOAL_SCHEMA_VERSION) {
+    issues.push(`$.schemaVersion: 期望 ${GOAL_SCHEMA_VERSION}`);
+  }
+  const configured = asBoolean(rec.configured);
+  if (configured === null) issues.push("$.configured: 缺失或非布尔");
+  const loadError = asNullableString(rec.loadError);
+  if (loadError === undefined) issues.push("$.loadError: 缺失或既非字符串也非 null");
+  const observedAt = asString(rec.observedAt);
+  if (observedAt === null) issues.push("$.observedAt: 缺失或非字符串");
+  const staleAfterMs = asNumber(rec.staleAfterMs);
+  if (staleAfterMs === null) issues.push("$.staleAfterMs: 缺失或非数值");
+
+  const milestoneRaw = rec.milestone;
+  const planRaw = rec.plan;
+  const preconditionRaw = rec.precondition;
+  let milestone: GoalMilestone | null = null;
+  let plan: GoalPlanStep[] | null = null;
+  let precondition: string | null = null;
+
+  if (configured === false) {
+    if (milestoneRaw !== null || planRaw !== null || preconditionRaw !== null) {
+      issues.push("$: 未配置目标时 milestone/plan/precondition 必须全为 null");
+    }
+  } else if (configured === true) {
+    if (milestoneRaw === null) {
+      issues.push("$.milestone: 已配置目标却缺失");
+    } else {
+      milestone = parseGoalMilestone(milestoneRaw, issues);
+    }
+    const hasPlan = Array.isArray(planRaw);
+    const pre = asNullableString(preconditionRaw);
+    const hasPrecondition = typeof pre === "string" && pre !== "";
+    if (hasPlan === hasPrecondition) {
+      issues.push("$: 已配置目标必须恰有 plan 或 precondition 之一");
+    } else if (hasPlan) {
+      plan = parseGoalPlan(planRaw, issues);
+    } else {
+      precondition = pre as string;
+    }
+  }
+
+  if (issues.length > 0) return { ok: false, issues };
+  return {
+    ok: true,
+    goal: {
+      configured: configured as boolean,
+      milestone,
+      plan,
+      precondition,
+      loadError: (loadError as string | null) ?? null,
+      observedAt: observedAt as string,
+      staleAfterMs: staleAfterMs as number,
+    },
+  };
+}
+
 function classifyStatus(status: number, url: string): ReadFailure {
   if (status === 401 || status === 403) {
     return { kind: "permission_denied", message: `${url} → HTTP ${status}：需要 Gateway 管理员只读鉴权。` };
@@ -1259,6 +1414,9 @@ export function createGatewayAdapter(options: GatewayAdapterOptions | null): Kin
       async stopSession(): Promise<ReadResult<StopResult>> {
         return unconfigured();
       },
+      async goal(): Promise<ReadResult<GoalInfo>> {
+        return unconfigured();
+      },
     };
   }
 
@@ -1365,6 +1523,15 @@ export function createGatewayAdapter(options: GatewayAdapterOptions | null): Kin
         return fail("contract_mismatch", `停止结果契约不匹配：${decoded.issues.slice(0, 6).join("；")}`);
       }
       return ok(decoded.result, "gateway", `gateway://${SESSION_ENDPOINTS.stop}`);
+    },
+    async goal(signal?: AbortSignal): Promise<ReadResult<GoalInfo>> {
+      const response = await fetchJson(baseUrl, GOAL_ENDPOINTS.goal, timeoutMs, signal);
+      if (!response.ok) return { ok: false, failure: response.failure };
+      const decoded = decodeGoalPayload(response.data);
+      if (!decoded.ok) {
+        return fail("contract_mismatch", `目标契约不匹配：${decoded.issues.slice(0, 6).join("；")}`);
+      }
+      return ok(decoded.goal, "gateway", `gateway://${GOAL_ENDPOINTS.goal}`);
     },
   };
 }

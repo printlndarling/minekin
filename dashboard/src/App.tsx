@@ -9,6 +9,7 @@ import { useNow } from "./hooks/useNow";
 import { IdentityPanel } from "./panels/IdentityPanel";
 import { ConfigPanel } from "./panels/ConfigPanel";
 import { SessionControlPanel } from "./panels/SessionControlPanel";
+import { GoalPanel } from "./panels/GoalPanel";
 import { AlertsPanel } from "./panels/AlertsPanel";
 import { CapabilityPanel } from "./panels/CapabilityPanel";
 import { OverviewPanel } from "./panels/OverviewPanel";
@@ -18,10 +19,11 @@ import { TimelinePanel } from "./panels/TimelinePanel";
 import { ContextBar } from "./components/ContextBar";
 import { NAV_GROUPS, pageLabel, type PageId } from "./shell/navigation";
 import { useHashRoute } from "./shell/useHashRoute";
-import { IDENTITY_ENDPOINTS, READ_ENDPOINTS, CONFIG_ENDPOINTS, SESSION_ENDPOINTS } from "./adapters/gatewayAdapter";
+import { IDENTITY_ENDPOINTS, READ_ENDPOINTS, CONFIG_ENDPOINTS, SESSION_ENDPOINTS, GOAL_ENDPOINTS } from "./adapters/gatewayAdapter";
 import { useIdentityRead } from "./hooks/useIdentityController";
 import { useConfigRead } from "./hooks/useConfigController";
 import { useSessionRead } from "./hooks/useSessionController";
+import { useGoalRead } from "./hooks/useGoalController";
 import { readStatusOf, type ReadStatus } from "./shell/readStatus";
 import styles from "./App.module.css";
 
@@ -67,6 +69,7 @@ function Dashboard({
   const identityRead = useIdentityRead(adapter);
   const configRead = useConfigRead(adapter);
   const sessionRead = useSessionRead(adapter);
+  const goalRead = useGoalRead(adapter);
   const sessionProgress = useMemo(() => deriveSessionProgress(timelineRead.items), [timelineRead.items]);
 
   const snapshotStatus = readStatusOf(
@@ -78,9 +81,11 @@ function Dashboard({
   const identityStatus = readStatusOf(identityRead, { nowMs });
   const configStatus = readStatusOf(configRead, { nowMs });
   const sessionStatus = readStatusOf(sessionRead, { nowMs });
+  const goalStatus = readStatusOf(goalRead, { nowMs });
 
   const statusFor: Record<PageId, ReadStatus> = {
     overview: snapshotStatus,
+    task: goalStatus,
     timeline: timelineStatus,
     alerts: alertsStatus,
     config: configStatus,
@@ -169,6 +174,7 @@ function Dashboard({
               <SkillStepPanel snapshot={snapshotRead.snapshot} />
             </>
           ) : null}
+          {page === "task" ? <GoalPanel adapter={adapter} nowMs={nowMs} /> : null}
           {page === "timeline" ? (
             <TimelinePanel items={timelineRead.items} isLoading={timelineRead.isLoading} failure={timelineRead.failure} />
           ) : null}
@@ -190,6 +196,7 @@ function Dashboard({
                 { label: "配置读数", path: CONFIG_ENDPOINTS.config, status: configStatus },
                 { label: "身份读数", path: IDENTITY_ENDPOINTS.identity, status: identityStatus },
                 { label: "会话读数", path: SESSION_ENDPOINTS.session, status: sessionStatus },
+                { label: "目标读数", path: GOAL_ENDPOINTS.goal, status: goalStatus },
               ]}
             />
           ) : null}

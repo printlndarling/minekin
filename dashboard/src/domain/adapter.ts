@@ -3,6 +3,7 @@ import type {
   ConfigInfo,
   ConfigSaveRequest,
   ConfigSaveResult,
+  GoalInfo,
   IdentityInfo,
   KinSnapshot,
   RenameRequest,
@@ -109,6 +110,14 @@ export interface KinReadAdapter {
    * buckets are preserved rather than folded into a bare success.
    */
   stopSession(request: StopRequest, signal?: AbortSignal): Promise<ReadResult<StopResult>>;
+  /**
+   * The standing goal the operator already saved, projected by `gateway/goal_read.py`: the milestone
+   * label/product/quantity/source item, and either the gross build plan the curated recipe catalog
+   * implies or the single named precondition saying the product sits outside that catalog's cover.
+   * This is a pure READ — setting a goal stays the config write's job — so it hands out no token the
+   * UI can act on, and it never claims live progress (there is no held-count here to render).
+   */
+  goal(signal?: AbortSignal): Promise<ReadResult<GoalInfo>>;
 }
 
 /**

@@ -392,3 +392,50 @@ export interface StopResult {
   readonly state: KinRuntimeState;
   readonly report: StopReport;
 }
+
+/**
+ * The goal read model of `gateway/goal_read.py::goal_read`: the standing milestone the operator
+ * already saved through the config write, plus the gross build plan the curated recipe catalog
+ * implies for it — or the single named precondition (`CRAFT_RECIPE_UNAVAILABLE`) saying the product
+ * sits OUTSIDE that catalog's declared cover. Like the config/session reads it is a flat document
+ * decoded whole or not at all (a mismatch is a `contract_mismatch`, never a partial fill), and
+ * `csrfToken` is dropped at the seam because this read is pure GET — setting a goal stays the
+ * config write's job, so there is no fourth write to guard.
+ *
+ * The projection carries NO live progress: Core's ledger holds per-step `goal` strings, not a live
+ * inventory snapshot, so `plan` counts are gross (what the goal implies), never how many the bag
+ * already holds. `configured: false` with null milestone/plan/precondition is the honest empty
+ * state (no goal saved), not a fault; a hand-edited unreadable document surfaces through `loadError`
+ * with the same empty projection, mirroring `config_read`.
+ */
+export const GOAL_SCHEMA_VERSION = "kin-dashboard-goal/1.0.0";
+
+/** The saved milestone as the read projects it; `direction` carries Core's derived label. */
+export interface GoalMilestone {
+  readonly productId: string;
+  readonly quantity: number;
+  readonly sourceItemId: string;
+  readonly direction: string;
+}
+
+export interface GoalPlanMaterial {
+  readonly itemId: string;
+  readonly count: number;
+}
+
+/** One owed craft in the implied plan: what it makes, how many in total, and what it eats. */
+export interface GoalPlanStep {
+  readonly productId: string;
+  readonly requiredTotal: number;
+  readonly materials: readonly GoalPlanMaterial[];
+}
+
+export interface GoalInfo {
+  readonly configured: boolean;
+  readonly milestone: GoalMilestone | null;
+  readonly plan: readonly GoalPlanStep[] | null;
+  readonly precondition: string | null;
+  readonly loadError: string | null;
+  readonly observedAt: string;
+  readonly staleAfterMs: number;
+}
