@@ -879,3 +879,17 @@ step14 turn_to {pitch:-18, yaw:135}  "sweep to look for a spot to place a crafti
 **这一发把 #5「多个不同目标」补成两枚不同终产物、均由同一套通用参数化行为承接并逐步真实读数确认**：`oak_planks`（六之十七 run `bfdc6011…`）与本发的 `stick`，同一 Core、无按物品专用模块；`#7` 的连续链「采集→拾取→合成→成品确认→关屏→后续非 GUI 世界动作（选物入手）→确认松键」在第二枚产物上原样复现。
 
 **边界不越**：本发刻意取 2×2 玩家格可合成的终产物，不涉及 `use_target` 放置与 3×3 开窗。需 3×3 的终产物（木镐）那一笔的真实游戏确认仍未取得、保持 `UNKNOWN`（见六之十八：机制已实现+单测通过、模型已自选到放置那一步，但把方块瞄准进自己脚下），本发不替代、不削减它，也不据此给 `use_target` 追加任何 CONFIRMED。
+
+## 六之二十、用全新 Kin 根在冷启动 bundle 上再跑木镐那一发：放置三连 UNKNOWN，以及由它引出并已落地的"同靶不重放"通用护栏（2026-10-02，run `37368eba6634471cbbd2f5ad07b64596`，会话 `ddc4bfd73c7a42e1ae9278c3960baaa5`，客户端 pid 1297，server run 目录 `run-34`，Kin 根 `kin-3x3-fresh-20261002`，boot_mode `cold`）
+
+这一发用 §四 那条真实 OpenAI-compatible 端点，在一枚**全新初始化的 Kin 根**上冷启动跑，为的是把「放置」这一格在干净、独占的条件下再取一次读数，并顺带验证收尾松键的实测形状。
+
+1. **独占单 Kin 根下的干净复跑**：Kin 根 `kin-3x3-fresh-20261002` 是这一发新建的（不是复用 kin-01/kin-local-demo 那种带死进程标记的旧根），所以同一 demo2 卷上不撞 `OLD_CLIENT_UNPROVEN`；`recovery.status: reconciled`、`invalidated: []`、`waiting: []`。收尾行按第 4 条要的实测读数入账：session stop 的 `release` 写了 `asked [1297] / released [1297] / unconfirmed [] / nothing_held []`，另有 `terminated [1297]`、`unresolved []`——松键的 `released` 是一格实打实的读数，不是只凭 `asked`/`terminated` 判成，`unconfirmed` 空着也如实读出。
+2. **材料子链与转身 CONFIRMED**：第 1–6 步 `break→collect→木板→工作台→关屏→break` 连着 CONFIRMED；第 7 步 `collect` `FAILED / NO_SEEN_DROP`（归因 `RESOURCE_UNAVAILABLE`）；第 8 步本地反射 `select_hotbar{crafting_table, slot 8}` CONFIRMED；第 9–11 步 CONFIRMED；第 12–13 步 `turn_to` 转身、低头 CONFIRMED。`confirmed: 12`。
+3. **卡点仍精确落在放置三连**：第 14/15/16 步 `use_target{}` 连续 UNKNOWN（`source: model`，归因 `INSUFFICIENT_INFORMATION`，observation_ref 依次 9398→9497→9574→9673）。三下 `use_target` 之间没有插入任何会改变准星的 `turn_to` 步——也就是模型对着同一瞄准结果连按了三下，正是目标明令禁止的"不停重跑赌模型选对角度"。跑满 16 步额度收尾：`goal_met false`、`stop_reason STEP_BUDGET_SPENT`、`excluded_skills ["use_target"]`、`input_release_failed false`、`outcome STOPPED_ON_REQUEST`、`session exited 0`。
+4. **一处必须说清、以免把第 9/10 步误读成 `verify_craft` 假阳性**：那两步的 INTENT 写着 `craft_take_result{target_item: minecraft:wooden_pickaxe}`，模型以为自己在直接出木镐，但 `verify_craft` 只认"材料全降 + 产物上升 + revision 已移动"。这一发 `goal_met` 恒 false ⇒ 背包里 `minecraft:wooden_pickaxe` 总量始终 0 ⇒ 那两步 CONFIRM 的**不可能是木镐本身**，而是 `step_to_run` 在当时 2×2 网格里挑出的、装得下的那道欠料；`arguments.target_item` 只是模型的诉求，真正点下的配方是首个能付的欠步。所以这两格 CONFIRMED 合法，把它读成假阳性反而是错的。
+5. **由这一发引出并落地的 `#48` 通用护栏**：`domain/world_actions.py` 新增 `use_target_signature(obs)`，把准星读成可比较的签名（方块 =(kind,x,y,z,face)、实体 =(kind,observation_id)、MISS/未读到=None）；`application/player_mind.py` 记住上一次**真正发出**的 `use_target` 所瞄签名 `last_use_aim`，当准星仍指向同一目标且候选技能不止一个时，把 `use_target` 从可行集剔除、转去 `turn_to`/`break` 这类能改变世界读数的动作；任一 CONFIRMED 步清空该记忆，所以准星一旦挪到新方块仍照常尊重。它不新增木镐专用步、也不靠改断言让三连变绿，只是不再允许对同一靶点空按。domain 与 mind 各补单测（同靶第二下不再 use_target、挪靶后重新尊重、CONFIRMED 清空记忆、签名对坐标/面/实体 id 的判别与 MISS→None）。`153` 项目标单测通过，`ruff check`/`ruff format` 干净，落在主干 `main@704eae2`。
+
+**仍不声明**：这一发没取得 `use_target` 放置的真实游戏 CONFIRM，也没让 3×3 终产物（木镐）入包——`#48` 消除的是"同靶空按三连"这种浪费，把模型从重复点击推向先改变瞄准，但放置落在空相邻面→开窗→在 3×3 内合成终产物这一笔的活体确认仍未取得、保持 `UNKNOWN`。护栏本身目前只有单测覆盖，尚未在一发真实端点运行里观察到它把某一步从"重复 use_target"改判为别的技能——那要在下一次独占复跑里逐字入账。
+
+**下一格 `current_next`**：单次、独占 demo2 数据根地再跑一发木镐，观察 `#48` 护栏是否在第 N 次同靶 UNKNOWN 后把 `use_target` 换成 `turn_to`/`break`，从而让准星落到空的相邻面；放置若按减量 CONFIRM，则紧接第二次 `use_target` 打开 3×3 并合成 `wooden_pickaxe`，全程复用通用技能、逐字入账。通过则记跨目标 + 3×3 收尾 CONFIRMED，未通过继续记 UNKNOWN、不美化。
