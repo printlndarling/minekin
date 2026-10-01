@@ -2,12 +2,12 @@
  * The shell's navigation model.
  *
  * A page exists only when a real read backs it: the pages below map onto the three
- * frozen contract GET routes plus the two authorized writes (identity rename, config
- * persist). Nothing here reserves a slot for a feature Core cannot answer — an
+ * frozen contract GET routes plus the three authorized writes (identity rename, config
+ * persist, session stop). Nothing here reserves a slot for a feature Core cannot answer — an
  * unimplemented surface is a named row on the 数据源与缺口 page, not a tab that renders a stub.
  */
 
-export type PageId = "overview" | "timeline" | "alerts" | "config" | "identity" | "data";
+export type PageId = "overview" | "timeline" | "alerts" | "config" | "identity" | "session" | "data";
 
 export interface NavItem {
   readonly id: PageId;
@@ -41,6 +41,7 @@ export const NAV_GROUPS: readonly NavGroup[] = [
     items: [
       { id: "config", label: "配置 · 模型与目标", hint: "第二次被授权的写入：仅本机、显式保存、不含密钥" },
       { id: "identity", label: "身份 · 改名", hint: "被授权的写入之一，仅会话停止时" },
+      { id: "session", label: "会话 · 控制", hint: "第三次被授权的写入：仅停止，先释放输入再停本产品自己的进程" },
       { id: "data", label: "数据源与缺口", hint: "每条读路的状态，以及未接入的原因" },
     ],
   },

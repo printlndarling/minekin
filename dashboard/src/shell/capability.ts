@@ -49,7 +49,7 @@ export const CAPABILITY_ROWS: readonly CapabilityRow[] = [
     surface: "身份读数与停机确认式改名",
     state: "live",
     source: "GET/POST /api/v1/dashboard/identity",
-    detail: "唯一被授权的写面：只在会话停止时、需显式确认、按身份修订号做 compare-and-swap；改名会改变离线 UUID，不迁移服务端物品。",
+    detail: "被授权的写入之一：只在会话停止时、需显式确认、按身份修订号做 compare-and-swap；改名会改变离线 UUID，不迁移服务端物品。",
   },
   {
     surface: "游戏画面（Live View）",
@@ -81,9 +81,17 @@ export const CAPABILITY_ROWS: readonly CapabilityRow[] = [
     detail: "2026-09-28 冻结契约没有 SSE/WebSocket，面板以 5 秒轮询为准，断连表现为连续未落的读取。",
   },
   {
-    surface: "通用写控制端点（启停、移动、注入输入）",
+    surface: "会话停止（先释放输入，再停本产品启动的进程）",
+    state: "live",
+    source: "GET/POST /api/v1/dashboard/session",
+    detail:
+      "第三次被授权的写入：只在会话非空闲时、需显式确认，先释放该 Kin 持有的输入租约，再终止能证明属于本产品的客户端进程；" +
+      "无法确认归属的进程一律 left_alone，不接管。报告按 stopped/blocked 如实呈现，未确认释放不折成干净停止。",
+  },
+  {
+    surface: "通用写控制端点（启动、暂停、恢复、移动、注入输入）",
     state: "reserved",
     source: "本产品阶段不开放",
-    detail: "面板不启动、不暂停、不持有任何凭据；这一条是边界而不是缺口，需要另行授权才会改变。",
+    detail: "面板不启动、不暂停、不注入游戏输入，也不持有任何凭据；这一条是边界而不是缺口，需要另行授权才会改变。",
   },
 ];

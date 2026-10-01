@@ -7,6 +7,9 @@ import type {
   KinSnapshot,
   RenameRequest,
   RenameResult,
+  SessionControlInfo,
+  StopRequest,
+  StopResult,
   TimelineEvent,
   TimelineKind,
 } from "./model";
@@ -57,13 +60,13 @@ export interface TimelineQuery {
  * The single seam the UI reads through. Swapping the mock for the real Gateway
  * means implementing this interface; no component fetches on its own.
  *
- * `identity` and `renameIdentity` are the one authorized exception to the read-only
- * shell (`docs/stable-player-name-2026-09-29.md`): they answer who a Kin is and commit a
- * confirmed rename while that Kin is stopped. `config` and `saveConfig` extend that exception
- * to exactly one more write — persisting the operator's model and goal settings, opened by the
- * whole-project goal's Phase D. Together these are the only two writes the shell may make; none
- * of them can start, stop, move or otherwise control a session — nothing here reaches a game
- * input or a launcher.
+ * `identity`/`renameIdentity`, `config`/`saveConfig` and `session`/`stopSession` are the three
+ * writes the whole-project goal authorizes. The rename commits a confirmed name change while the
+ * Kin is stopped; the config save persists the operator's model and goal settings; the session
+ * surface reads whether a stop is possible and commits an explicit, confirmed stop. None of them
+ * starts, connects, moves or injects a game input — the only control verb `stopSession` performs
+ * reduces activity (it releases held inputs and ends the session through Core's own
+ * `stop_session`), and start/pause/resume stay recorded as unavailable reasons rather than wired.
  */
 export interface KinReadAdapter {
   describe(): AdapterDescriptor;
@@ -92,6 +95,20 @@ export interface KinReadAdapter {
    * document that did NOT change.
    */
   saveConfig(request: ConfigSaveRequest, signal?: AbortSignal): Promise<ReadResult<ConfigSaveResult>>;
+  /**
+   * The observed session state plus what this surface can actually do about it: whether a stop is
+   * allowed, which control verbs exist, and the reason each unavailable one is absent. Like the
+   * identity and config reads it hands out the per-process CSRF token (kept beside the model) and
+   * changes nothing on its own.
+   */
+  session(signal?: AbortSignal): Promise<ReadResult<SessionControlInfo>>;
+  /**
+   * Commit a confirmed stop. A server-side refusal (no running session, missing explicit
+   * confirmation, failed source/auth check) returns a `write_refused` failure naming the reason;
+   * an accepted stop returns Core's report, whose `blocked` status and unconfirmed/unresolved
+   * buckets are preserved rather than folded into a bare success.
+   */
+  stopSession(request: StopRequest, signal?: AbortSignal): Promise<ReadResult<StopResult>>;
 }
 
 /**

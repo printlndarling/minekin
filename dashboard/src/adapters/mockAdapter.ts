@@ -9,6 +9,7 @@ import {
 import {
   IDENTITY_SCHEMA_VERSION,
   CONFIG_SCHEMA_VERSION,
+  SESSION_SCHEMA_VERSION,
   type AlertsEnvelope,
   type ConfigInfo,
   type ConfigSaveRequest,
@@ -19,6 +20,9 @@ import {
   type KinSnapshot,
   type RenameRequest,
   type RenameResult,
+  type SessionControlInfo,
+  type StopRequest,
+  type StopResult,
   type TimelineEvent,
 } from "../domain/model";
 import {
@@ -26,6 +30,8 @@ import {
   buildMockBundle,
   buildMockConfig,
   buildMockIdentity,
+  buildMockSession,
+  buildMockStopReport,
   mockConfigInitialFields,
   MOCK_CONFIG_PROVIDERS,
   mockIdentityState,
@@ -40,7 +46,9 @@ import {
   decodeConfigSavePayload,
   decodeIdentityPayload,
   decodeRenamePayload,
+  decodeSessionPayload,
   decodeSnapshotPayload,
+  decodeStopPayload,
   decodeTimelinePayload,
 } from "./gatewayAdapter";
 
@@ -97,6 +105,13 @@ export function createMockAdapter(scenario: MockScenarioId, latencyMs: number): 
   // exactly like the real surface refusing one that skipped the GET.
   let configReadIssued = false;
   const KNOWN_CONFIG_KEYS = new Set(CONFIG_FIELDS.map((meta) => meta.key));
+
+  // The session GET is what hands out the (shared) token and reports the observed state; a stop
+  // before any session read is refused exactly like one that skipped the GET. Like the identity and
+  // config stores, nothing here can actually start/stop/move a session — `state` is fixed by the
+  // scenario, so only a running/unresolved scenario can ever complete a stop, and an idle one is
+  // refused the way Core's `stop_from_request` refuses an idle Kin.
+  let sessionReadIssued = false;
 
   return {
     describe,
@@ -297,6 +312,64 @@ export function createMockAdapter(scenario: MockScenarioId, latencyMs: number): 
         return fail("contract_mismatch", `模拟保存结果与自身解码器不匹配：${decoded.issues.slice(0, 6).join("；")}`);
       }
       return ok(decoded.result, "mock", `mock://scenario/${scenario}/config/save`);
+    },
+    async session(signal?: AbortSignal): Promise<ReadResult<SessionControlInfo>> {
+      await settle();
+      if (signal?.aborted === true) {
+        return fail("cancelled", "读取已取消。");
+      }
+      if (scenario === "read_failed") {
+        return fail("disconnected", "模拟场景：会话读取失败。");
+      }
+      const decoded = decodeSessionPayload(buildMockSession(scenario, Date.now()));
+      if (!decoded.ok) {
+        return fail("contract_mismatch", `模拟会话读数与自身解码器不匹配：${decoded.issues.slice(0, 6).join("；")}`);
+      }
+      // The session GET is what hands out the shared token and reports the observed state; a stop
+      // only becomes possible after one read. The token stays in this closure, never in the model.
+      sessionReadIssued = true;
+      return ok(decoded.session, "mock", `mock://scenario/${scenario}/session`);
+    },
+    async stopSession(request: StopRequest, signal?: AbortSignal): Promise<ReadResult<StopResult>> {
+      await settle();
+      if (signal?.aborted === true) {
+        return fail("cancelled", "停止请求已取消。");
+      }
+      if (scenario === "read_failed") {
+        // Gateway unreachable: the write never arrives, a transport failure rather than a policy
+        // refusal. The mock has no cross-site surface, so the CSRF/origin/media-type layers are
+        // represented by `sessionReadIssued` below rather than replayed byte-for-byte.
+        return fail("disconnected", "模拟场景：Gateway 不可达，停止请求无法送达。");
+      }
+      if (!sessionReadIssued) {
+        return fail("write_refused", "missing_or_bad_csrf_token：停止前必须先成功读取会话以取得 CSRF 令牌。");
+      }
+      // Mirror stop_from_request's order: the body shape first (unknown fields, then the explicit
+      // confirm), then the session predicate. Every check runs before Core's stop, so a refused
+      // request never releases inputs it was not authorised to release.
+      const body = request as unknown as Record<string, unknown>;
+      const unknown = Object.keys(body).filter((key) => key !== "confirm");
+      if (unknown.length > 0) {
+        return fail("write_refused", `invalid_request：unexpected field(s): ${unknown.sort().join(", ")}`);
+      }
+      if (body.confirm !== true) {
+        return fail("write_refused", "invalid_request：stopping requires an explicit confirmation (confirm must be true)");
+      }
+      const state = mockIdentityState(scenario);
+      if (state === "idle") {
+        return fail("write_refused", "session_not_running：这个 Kin 没有运行中的会话可以停止。");
+      }
+      // The stop lands, then the report is shaped — a blocked report (unconfirmed/unresolved pids)
+      // stays blocked through the SAME decoder, never collapsed to a green one.
+      const decoded = decodeStopPayload({
+        schemaVersion: SESSION_SCHEMA_VERSION,
+        state,
+        report: buildMockStopReport(state),
+      });
+      if (!decoded.ok) {
+        return fail("contract_mismatch", `模拟停止报告与自身解码器不匹配：${decoded.issues.slice(0, 6).join("；")}`);
+      }
+      return ok(decoded.result, "mock", `mock://scenario/${scenario}/session/stop`);
     },
   };
 }

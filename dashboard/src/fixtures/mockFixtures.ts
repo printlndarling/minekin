@@ -550,3 +550,72 @@ export function buildMockConfig(
     staleAfterMs: 8_000,
   };
 }
+
+/**
+ * The three control verbs the session surface withholds, spelled exactly as
+ * `gateway/session_control.py::_UNAVAILABLE_CONTROLS` records them, so a mock read and a real one
+ * feed the panel the same boundary. The mock never fakes these as available: stop is the only verb
+ * this product can perform safely today, and a stopped-only surface is what the fixture answers.
+ */
+const MOCK_SESSION_UNAVAILABLE_CONTROLS: Record<string, string> = {
+  start:
+    "starting a session launches a client and joins a world; that must be hosted by the live `session start` process, which the read-only Gateway is not",
+  pause: "the session state machine has no PAUSED state yet, so there is nothing to pause into",
+  resume: "the session state machine has no PAUSED state yet, so there is nothing to resume",
+};
+
+/**
+ * The session document `gateway/session_control.py::session_read` answers, in the exact wire shape
+ * the shared `decodeSessionPayload` parses. The state mirrors the identity read (the same
+ * `read_status` source the real server trusts), and `stopAllowed` follows the same predicate — a
+ * session that is not idle. Like identity/config, `csrfToken` is the shared mock token the adapter
+ * echoes back on the stop, never rendered. `availableControls` pins only `stop`; the withheld verbs
+ * arrive as the `{verb: reason}` object the decoder turns into ordered rows.
+ */
+export function buildMockSession(scenario: MockScenarioId, nowMs: number): Record<string, unknown> {
+  const state = mockIdentityState(scenario);
+  return {
+    schemaVersion: "kin-dashboard-session/1.0.0",
+    state,
+    stopAllowed: state !== "idle",
+    availableControls: ["stop"],
+    unavailableControls: MOCK_SESSION_UNAVAILABLE_CONTROLS,
+    csrfToken: MOCK_IDENTITY_CSRF,
+    observedAt: iso(nowMs),
+    staleAfterMs: 8_000,
+  };
+}
+
+/**
+ * A stop the mock accepts (HTTP 200), in the exact wire shape `decodeStopPayload` parses: Core's
+ * `StopReport.as_dict` flattens the outcome buckets beside a nested `release`. It is keyed on the
+ * state the mock observed when the stop ran. A `running` session stops cleanly (the one recorded
+ * client pid released and terminated); an `unresolved` one comes back `blocked` with that pid in
+ * `unconfirmed`/`unresolved` — the honest case the panel must not read as success. An `idle` Kin
+ * never reaches here: the mock adapter refuses it as `session_not_running` before building any
+ * report, mirroring the real 409.
+ */
+export function buildMockStopReport(state: "running" | "unresolved", kinId = "kin_nova_01"): Record<string, unknown> {
+  if (state === "unresolved") {
+    return {
+      schema_version: 1,
+      command: "session stop",
+      status: "blocked",
+      kin_id: kinId,
+      release: { asked: [4242], released: [], nothing_held: [], unconfirmed: [4242] },
+      terminated: [],
+      left_alone: [],
+      unresolved: [4242],
+    };
+  }
+  return {
+    schema_version: 1,
+    command: "session stop",
+    status: "stopped",
+    kin_id: kinId,
+    release: { asked: [4242], released: [4242], nothing_held: [], unconfirmed: [] },
+    terminated: [4242],
+    left_alone: [],
+    unresolved: [],
+  };
+}

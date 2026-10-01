@@ -1,6 +1,7 @@
 import {
   CONFIG_SCHEMA_VERSION,
   IDENTITY_SCHEMA_VERSION,
+  SESSION_SCHEMA_VERSION,
   SNAPSHOT_SCHEMA_VERSION,
   filled,
   gapField,
@@ -27,12 +28,19 @@ import {
   type RenameResult,
   type RenameStatus,
   type SelfState,
+  type SessionControlInfo,
   type SessionInfo,
   type SessionMode,
   type SkillStepInfo,
+  type StopReleaseReport,
+  type StopReport,
+  type StopRequest,
+  type StopResult,
+  type StopStatus,
   type TimelineEvent,
   type TimelineKind,
   type TimelineOutcome,
+  type UnavailableControl,
   type VersionSet,
   type WorldInfo,
 } from "../domain/model";
@@ -98,6 +106,18 @@ export const IDENTITY_ENDPOINTS = {
 export const CONFIG_ENDPOINTS = {
   config: "/api/v1/dashboard/config",
   save: "/api/v1/dashboard/config/save",
+} as const;
+
+/**
+ * The session surface `gateway/session_control.py` opens: one GET that answers whether the recorded
+ * Kin can be stopped (and hands out the SAME per-process CSRF token the identity/config reads do),
+ * and the one POST stop the whole-project goal's Phase D authorizes. Kept apart from
+ * `READ_ENDPOINTS` because that tuple is the frozen read-only contract; these two are the third
+ * documented exception — and unlike the config write it reduces activity rather than persisting it.
+ */
+export const SESSION_ENDPOINTS = {
+  session: "/api/v1/dashboard/session",
+  stop: "/api/v1/dashboard/session/stop",
 } as const;
 
 /** The header `gateway/identity.py` requires the rename to echo the identity-GET token back in. */
@@ -894,6 +914,164 @@ export function decodeConfigSavePayload(raw: unknown): ConfigSaveDecode {
   return { ok: true, result: { status, fields: fields as Record<string, ConfigValue> } };
 }
 
+const STOP_STATUSES: readonly StopStatus[] = ["stopped", "blocked"];
+
+/**
+ * A pid bucket on the wire: a JSON array of integers. A non-integer member (a string, a float, a
+ * nested object) is rejected outright — Core only ever lists proven pids, so a response that holds
+ * anything else is a contract mismatch, not something to coerce to a number. The three release
+ * buckets and the three outcome buckets all decode through this so an empty list and a missing key
+ * stay distinguishable at the field level.
+ */
+function asIntArray(raw: unknown, path: string, issues: string[]): number[] | null {
+  if (!Array.isArray(raw)) {
+    issues.push(`${path}: 期望整数数组`);
+    return null;
+  }
+  const out: number[] = [];
+  for (const [index, item] of raw.entries()) {
+    const n = asInteger(item);
+    if (n === null) {
+      issues.push(`${path}[${index}]: 数组成员非整数`);
+      return null;
+    }
+    out.push(n);
+  }
+  return out;
+}
+
+function parseStopRelease(raw: unknown, path: string, issues: string[]): StopReleaseReport | null {
+  const rec = asRecord(raw);
+  if (rec === null) {
+    issues.push(`${path}: 期望 {asked, released, nothing_held, unconfirmed} 对象`);
+    return null;
+  }
+  const asked = asIntArray(rec.asked, `${path}.asked`, issues);
+  const released = asIntArray(rec.released, `${path}.released`, issues);
+  const nothingHeld = asIntArray(rec.nothing_held, `${path}.nothing_held`, issues);
+  const unconfirmed = asIntArray(rec.unconfirmed, `${path}.unconfirmed`, issues);
+  if (asked === null || released === null || nothingHeld === null || unconfirmed === null) return null;
+  return { asked, released, nothingHeld, unconfirmed };
+}
+
+/**
+ * Core's `StopReport.as_dict` spreads the outcome buckets flat (`terminated`, `left_alone`,
+ * `unresolved`) beside the nested `release`, so this reads them from the report root and re-groups
+ * them into the model's `outcome`. `schema_version`/`command` are Core's own envelope and are
+ * deliberately not carried into the panel model. A `blocked` status with a non-empty `unresolved`
+ * or `unconfirmed` stays exactly that — the panel names what was not released rather than collapsing
+ * an uncertain stop into a green one.
+ */
+function parseStopReport(raw: unknown, issues: string[]): StopReport | null {
+  const rec = asRecord(raw);
+  if (rec === null) {
+    issues.push("$.report: 期望 stop report 对象");
+    return null;
+  }
+  const status = oneOf(rec.status, STOP_STATUSES);
+  if (status === null) issues.push("$.report.status: 未知停止结果");
+  const kinId = asString(rec.kin_id);
+  if (kinId === null) issues.push("$.report.kin_id: 缺失或非字符串");
+  const release = parseStopRelease(rec.release, "$.report.release", issues);
+  const terminated = asIntArray(rec.terminated, "$.report.terminated", issues);
+  const leftAlone = asIntArray(rec.left_alone, "$.report.left_alone", issues);
+  const unresolved = asIntArray(rec.unresolved, "$.report.unresolved", issues);
+  if (status === null || kinId === null || release === null || terminated === null || leftAlone === null || unresolved === null) {
+    return null;
+  }
+  return { status, kinId, release, outcome: { terminated, leftAlone, unresolved } };
+}
+
+export type SessionDecode =
+  | { readonly ok: true; readonly session: SessionControlInfo; readonly csrfToken: string }
+  | { readonly ok: false; readonly issues: readonly string[] };
+
+/**
+ * The session read `gateway/session_control.py::session_read` answers: a flat document, so a missing
+ * field or out-of-enum value is a whole-read mismatch rather than a partial fill — the same rule the
+ * identity/config reads follow. `csrfToken` is returned beside the model but kept OUT of
+ * `SessionControlInfo`, so a panel cannot render it, and the adapter echoes it back on the stop.
+ *
+ * `unavailableControls` arrives as a `{verb: reason}` object on the wire; it becomes an ordered array
+ * of `{verb, reason}` so the panel renders the recorded reasons rather than faking buttons. An empty
+ * object is valid — it would mean nothing is withheld — but the server pins start/pause/resume as
+ * the reasons today, so a well-formed read always carries all three.
+ */
+export function decodeSessionPayload(raw: unknown): SessionDecode {
+  const rec = asRecord(raw);
+  if (rec === null) return { ok: false, issues: ["$: 会话响应不是 object"] };
+  const issues: string[] = [];
+  if (asString(rec.schemaVersion) !== SESSION_SCHEMA_VERSION) {
+    issues.push(`$.schemaVersion: 期望 ${SESSION_SCHEMA_VERSION}`);
+  }
+  const state = oneOf(rec.state, KIN_STATES);
+  if (state === null) issues.push("$.state: 未知会话状态");
+  const stopAllowed = asBoolean(rec.stopAllowed);
+  if (stopAllowed === null) issues.push("$.stopAllowed: 缺失或非布尔");
+  const availableControls = asStringArray(rec.availableControls, "$.availableControls", issues);
+  if (availableControls === null) issues.push("$.availableControls: 缺失或非数组");
+  const unavailable = asRecord(rec.unavailableControls);
+  let unavailableControls: UnavailableControl[] | null = [];
+  if (unavailable === null) {
+    issues.push("$.unavailableControls: 期望 {动词: 原因} 对象");
+    unavailableControls = null;
+  } else {
+    const collected: UnavailableControl[] = [];
+    for (const [verb, reason] of Object.entries(unavailable)) {
+      const r = asString(reason);
+      if (r === null) {
+        issues.push(`$.unavailableControls.${verb}: 原因缺失或非字符串`);
+        unavailableControls = null;
+        break;
+      }
+      collected.push({ verb, reason: r });
+    }
+    if (unavailableControls !== null) unavailableControls = collected;
+  }
+  const observedAt = asString(rec.observedAt);
+  if (observedAt === null) issues.push("$.observedAt: 缺失或非字符串");
+  const staleAfterMs = asNumber(rec.staleAfterMs);
+  if (staleAfterMs === null) issues.push("$.staleAfterMs: 缺失或非数值");
+  const csrfToken = asString(rec.csrfToken);
+  if (csrfToken === null) issues.push("$.csrfToken: 缺失（无法停止）");
+  if (issues.length > 0) return { ok: false, issues };
+  return {
+    ok: true,
+    csrfToken: csrfToken as string,
+    session: {
+      state: state as KinRuntimeState,
+      stopAllowed: stopAllowed as boolean,
+      availableControls: availableControls as string[],
+      unavailableControls: unavailableControls as UnavailableControl[],
+      observedAt: observedAt as string,
+      staleAfterMs: staleAfterMs as number,
+    },
+  };
+}
+
+export type StopDecode =
+  | { readonly ok: true; readonly result: StopResult }
+  | { readonly ok: false; readonly issues: readonly string[] };
+
+/**
+ * A stop the server accepted (HTTP 200): the state it observed before acting plus Core's report. A
+ * refusal never reaches this decoder — the transport routes a non-2xx answer through
+ * `decodeRefusalPayload`, so `session_not_running` and an invalid confirmation keep their named code.
+ */
+export function decodeStopPayload(raw: unknown): StopDecode {
+  const rec = asRecord(raw);
+  if (rec === null) return { ok: false, issues: ["$: 停止响应不是 object"] };
+  const issues: string[] = [];
+  if (asString(rec.schemaVersion) !== SESSION_SCHEMA_VERSION) {
+    issues.push(`$.schemaVersion: 期望 ${SESSION_SCHEMA_VERSION}`);
+  }
+  const state = oneOf(rec.state, KIN_STATES);
+  if (state === null) issues.push("$.state: 未知会话状态");
+  const report = parseStopReport(rec.report, issues);
+  if (state === null || report === null || issues.length > 0) return { ok: false, issues };
+  return { ok: true, result: { state: state as KinRuntimeState, report } };
+}
+
 function classifyStatus(status: number, url: string): ReadFailure {
   if (status === 401 || status === 403) {
     return { kind: "permission_denied", message: `${url} → HTTP ${status}：需要 Gateway 管理员只读鉴权。` };
@@ -1046,7 +1224,7 @@ export function createGatewayAdapter(options: GatewayAdapterOptions | null): Kin
     note:
       options === null
         ? "未设置 VITE_GATEWAY_BASE_URL：契约已冻结，等待 Gateway 基址，期间零网络调用。"
-        : "按 docs/gateway-dashboard-readonly-contract-2026-09-28.md 冻结的三条只读 GET 读取，任何不匹配都会失败关闭而不是猜测；写入面只有两处经授权的例外：身份页按 docs/stable-player-name-2026-09-29.md 的一次改名，以及配置页持久化模型与目标设置（全项目目标 Phase D）。两者都不能启停会话。",
+        : "按 docs/gateway-dashboard-readonly-contract-2026-09-28.md 冻结的三条只读 GET 读取，任何不匹配都会失败关闭而不是猜测；写入面有三处经授权的例外：身份页按 docs/stable-player-name-2026-09-29.md 的一次改名，配置页持久化模型与目标设置，以及会话页停止当前 Kin 的会话（全项目目标 Phase D）。停止只释放输入并结束活动，不连接服务器或重放动作；启停其余动词只在读模型里记为不可用原因，不接成按钮。",
   });
 
   if (options === null) {
@@ -1075,14 +1253,21 @@ export function createGatewayAdapter(options: GatewayAdapterOptions | null): Kin
       async saveConfig(): Promise<ReadResult<ConfigSaveResult>> {
         return unconfigured();
       },
+      async session(): Promise<ReadResult<SessionControlInfo>> {
+        return unconfigured();
+      },
+      async stopSession(): Promise<ReadResult<StopResult>> {
+        return unconfigured();
+      },
     };
   }
 
   const { baseUrl: rawBaseUrl, timeoutMs } = options;
   const baseUrl = rawBaseUrl.replace(/\/+$/, "");
-  // Captured from the identity GET and echoed on the rename POST; the config GET hands out the SAME
-  // per-process token, so it is refreshed on every identity OR config poll too. A write before the
-  // first successful read has nothing to echo and the server refuses it — which is correct, honest.
+  // Captured from the identity GET and echoed on the rename POST; the config and session GETs hand
+  // out the SAME per-process token, so it is refreshed on every identity, config OR session poll too.
+  // A write before the first successful read has nothing to echo and the server refuses it — which is
+  // correct, honest.
   let csrfToken = "";
   return {
     describe,
@@ -1158,6 +1343,28 @@ export function createGatewayAdapter(options: GatewayAdapterOptions | null): Kin
         return fail("contract_mismatch", `保存结果契约不匹配：${decoded.issues.slice(0, 6).join("；")}`);
       }
       return ok(decoded.result, "gateway", `gateway://${CONFIG_ENDPOINTS.save}`);
+    },
+    async session(signal?: AbortSignal): Promise<ReadResult<SessionControlInfo>> {
+      const response = await fetchJson(baseUrl, SESSION_ENDPOINTS.session, timeoutMs, signal);
+      if (!response.ok) return { ok: false, failure: response.failure };
+      const decoded = decodeSessionPayload(response.data);
+      if (!decoded.ok) {
+        return fail("contract_mismatch", `会话契约不匹配：${decoded.issues.slice(0, 6).join("；")}`);
+      }
+      csrfToken = decoded.csrfToken;
+      return ok(decoded.session, "gateway", `gateway://${SESSION_ENDPOINTS.session}`);
+    },
+    async stopSession(request: StopRequest, signal?: AbortSignal): Promise<ReadResult<StopResult>> {
+      const result = await postWrite(baseUrl, SESSION_ENDPOINTS.stop, timeoutMs, request, csrfToken, "停止请求已取消。", signal);
+      if (result.kind === "failure") return { ok: false, failure: result.failure };
+      if (result.kind === "refusal") {
+        return fail("write_refused", `${result.code}：${result.message}`);
+      }
+      const decoded = decodeStopPayload(result.data);
+      if (!decoded.ok) {
+        return fail("contract_mismatch", `停止结果契约不匹配：${decoded.issues.slice(0, 6).join("；")}`);
+      }
+      return ok(decoded.result, "gateway", `gateway://${SESSION_ENDPOINTS.stop}`);
     },
   };
 }

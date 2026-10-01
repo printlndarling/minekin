@@ -309,3 +309,86 @@ export interface ConfigSaveResult {
   readonly status: "saved";
   readonly fields: Record<string, ConfigValue>;
 }
+
+/**
+ * The session-control read model of `gateway/session_control.py::session_read`: the observed
+ * session state plus exactly what this surface can do about it. Like the identity and config
+ * reads it is a flat document decoded whole or not at all — a mismatch is a `contract_mismatch`,
+ * never a partial fill — and `csrfToken` stays beside the model rather than inside it.
+ *
+ * `stopAllowed` mirrors the write's own predicate (a session that is not idle), so the panel
+ * enables 停止 for the same reason the server would act, not a poll that raced a launch.
+ * `availableControls` is the verbs this surface offers today (just `stop`); `unavailableControls`
+ * carries a name-and-reason pair per verb the state machine cannot yet honor (start/pause/resume),
+ * so the boundary is rendered rather than faked with a button a later POST would refuse.
+ */
+export const SESSION_SCHEMA_VERSION = "kin-dashboard-session/1.0.0";
+
+export interface UnavailableControl {
+  readonly verb: string;
+  readonly reason: string;
+}
+
+export interface SessionControlInfo {
+  readonly state: KinRuntimeState;
+  readonly stopAllowed: boolean;
+  readonly availableControls: readonly string[];
+  readonly unavailableControls: readonly UnavailableControl[];
+  readonly observedAt: string;
+  readonly staleAfterMs: number;
+}
+
+/**
+ * A confirmed stop submission. `confirm` is the literal `true` type so no call site can request
+ * a stop without having consciously set the flag — the same explicit-confirmation shape the
+ * rename uses, because stopping is a control verb, not a side effect of reading.
+ */
+export interface StopRequest {
+  readonly confirm: true;
+}
+
+/** Core's two stop outcomes: the session either came to a complete stop or left something unresolved. */
+export type StopStatus = "stopped" | "blocked";
+
+/**
+ * The input-release ledger inside a stop report (`StopReleaseReport.as_document`): which held
+ * leases were asked to release, actually released, were never held, or could not be confirmed.
+ * Each list holds the pids in that bucket. `unconfirmed` non-empty is a `UNKNOWN`-style caveat the
+ * panel must not read as success.
+ */
+export interface StopReleaseReport {
+  readonly asked: readonly number[];
+  readonly released: readonly number[];
+  readonly nothingHeld: readonly number[];
+  readonly unconfirmed: readonly number[];
+}
+
+/**
+ * The process-ownership outcome inside a stop report (`StopOutcome.as_document`): which pids were
+ * terminated after their identity was proven, left alone on purpose, or could not be proven.
+ * `unresolved` non-empty means the stop is `blocked`, not complete.
+ */
+export interface StopOutcomeReport {
+  readonly terminated: readonly number[];
+  readonly leftAlone: readonly number[];
+  readonly unresolved: readonly number[];
+}
+
+/**
+ * A stop report the server accepted (HTTP 200), projected from Core's `StopReport.as_dict`. The
+ * wire spells its members in snake_case (`kin_id`, `nothing_held`, `left_alone`); the decoder maps
+ * them onto this camelCase model, keeping the two `int[]` buckets (release / outcome) intact so
+ * the panel can name what was and was not released rather than collapsing a `blocked` stop to a
+ * green one.
+ */
+export interface StopReport {
+  readonly status: StopStatus;
+  readonly kinId: string;
+  readonly release: StopReleaseReport;
+  readonly outcome: StopOutcomeReport;
+}
+
+export interface StopResult {
+  readonly state: KinRuntimeState;
+  readonly report: StopReport;
+}
