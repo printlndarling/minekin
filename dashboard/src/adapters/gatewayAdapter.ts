@@ -329,7 +329,16 @@ function parseEvidence(raw: unknown, issues: string[]): EvidenceRef | null {
  * decode as plain strings rather than pinned enums: they are Core's tokens passed
  * through verbatim, and a token Core adds later must render rather than fail-close
  * the whole snapshot.
+ *
+ * `behaviorParameters` is the one member decoded optionally. Current projection bytes
+ * always emit it, but `readmodel.py` gained it after the run-document read landed, so a
+ * snapshot from an earlier byte omits the key — that must render as a named gap, not
+ * fail-close the whole group. Only its absence is tolerated; a present-but-malformed
+ * member fails like every other one.
  */
+const BEHAVIOR_PARAMETERS_ABSENT_GAP =
+  "本快照字节未携带行为参数成员（投影早于该字段）：行为参数只在已封 bundle 的 run document 里解析。";
+
 function parseSkillSteps(raw: unknown, issues: string[]): SkillStepInfo | null {
   const rec = asRecord(raw);
   if (rec === null) {
@@ -355,6 +364,10 @@ function parseSkillSteps(raw: unknown, issues: string[]): SkillStepInfo | null {
   const stepCount = decodeField(rec.stepCount, "skillSteps.stepCount", issues, asInteger);
   const modelCost = decodeField(rec.modelCost, "skillSteps.modelCost", issues, parseString);
   const modelConfig = decodeField(rec.modelConfig, "skillSteps.modelConfig", issues, parseString);
+  const behaviorParameters =
+    "behaviorParameters" in rec
+      ? decodeField(rec.behaviorParameters, "skillSteps.behaviorParameters", issues, parseString)
+      : gapField<string>("not_wired", BEHAVIOR_PARAMETERS_ABSENT_GAP);
   if (
     goal === null ||
     stepIndex === null ||
@@ -366,11 +379,25 @@ function parseSkillSteps(raw: unknown, issues: string[]): SkillStepInfo | null {
     modelRefusal === null ||
     stepCount === null ||
     modelCost === null ||
-    modelConfig === null
+    modelConfig === null ||
+    behaviorParameters === null
   ) {
     return null;
   }
-  return { goal, stepIndex, skill, result, reason, attribution, decisionSource, modelRefusal, stepCount, modelCost, modelConfig };
+  return {
+    goal,
+    stepIndex,
+    skill,
+    result,
+    reason,
+    attribution,
+    decisionSource,
+    modelRefusal,
+    stepCount,
+    modelCost,
+    modelConfig,
+    behaviorParameters,
+  };
 }
 
 function bareField<T>(

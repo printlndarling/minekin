@@ -273,6 +273,11 @@ describe("skillSteps 组：缺组的旧字节、带组的新字节与成员判�
     expect(fieldValue(group.modelCost)).toBeNull();
     expect(fieldGap(group.modelConfig)?.status).toBe("not_wired");
     expect(fieldGap(group.modelCost)?.reason).toContain("run document");
+    // 向后兼容：FAILED_STEP 这份字节早于 behaviorParameters 成员，缺席要合成具名缺口、
+    // 而不是把整组判成解码失败——面板因此仍能读到其余十一名成员。
+    expect(fieldValue(group.behaviorParameters)).toBeNull();
+    expect(fieldGap(group.behaviorParameters)?.status).toBe("not_wired");
+    expect(fieldGap(group.behaviorParameters)?.reason).toContain("行为参数");
   });
 
   it("脚本运行：goal 是 unavailable 具名缺口，拒止标注「不经过模型」，不冒充空值", () => {
@@ -312,6 +317,28 @@ describe("skillSteps 组：缺组的旧字节、带组的新字节与成员判�
     const decoded = decodeSnapshotPayload(withSkillSteps(realWire(), futureToken), "gateway");
     if (!decoded.ok) throw new Error("应解码成功");
     expect(fieldValue(mustKnow(decoded.snapshot.skillSteps, "skillSteps").result)).toBe("INTERRUPTED");
+  });
+
+  it("behaviorParameters 有值：已封 bundle 解析出的脱敏参数原样解码为 value", () => {
+    const withValue = { ...FAILED_STEP, behaviorParameters: wireFilled("quantity=4, target_item=minecraft:stick") };
+    const decoded = decodeSnapshotPayload(withSkillSteps(realWire(), withValue), "gateway");
+    if (!decoded.ok) throw new Error("应解码成功");
+    expect(fieldValue(mustKnow(decoded.snapshot.skillSteps, "skillSteps").behaviorParameters)).toBe(
+      "quantity=4, target_item=minecraft:stick",
+    );
+  });
+
+  it("behaviorParameters 具名缺口照收；成员存在却畸形 ⇒ 整读拒绝（向后兼容只放行缺席，不放行坏值）", () => {
+    const asGap = {
+      ...FAILED_STEP,
+      behaviorParameters: wireGapField("not_wired", "行为参数只在已封 bundle 的 run document 里解析，未封的 run 只读面取不到。"),
+    };
+    const gapDecoded = decodeSnapshotPayload(withSkillSteps(realWire(), asGap), "gateway");
+    if (!gapDecoded.ok) throw new Error("应解码成功");
+    expect(fieldGap(mustKnow(gapDecoded.snapshot.skillSteps, "skillSteps").behaviorParameters)?.status).toBe("not_wired");
+
+    const malformed = { ...FAILED_STEP, behaviorParameters: { value: null } };
+    expect(decodeSnapshotPayload(withSkillSteps(realWire(), malformed), "gateway").ok).toBe(false);
   });
 });
 

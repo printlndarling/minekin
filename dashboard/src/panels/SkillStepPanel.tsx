@@ -83,7 +83,9 @@ export interface SkillStepPanelProps {
  * readings), so this is the newest concluded step, never the in-flight one, and a Kin
  * that never drove skills keeps the whole group as a named gap rather than a zeroed-out
  * one. Cost and model config are named `not_wired` gaps — Core records them only in the
- * run document, which this read surface does not parse.
+ * run document, which this read surface does not parse. `behaviorParameters` is the
+ * exception: a sealed run's craft step shows its redacted `target_item`/`quantity` here,
+ * and a snapshot byte that omits the member renders as a named gap, not a blank row.
  */
 export function SkillStepPanel({ snapshot }: SkillStepPanelProps) {
   const group = snapshot.skillSteps;
@@ -106,6 +108,7 @@ export function SkillStepPanel({ snapshot }: SkillStepPanelProps) {
           <CountRow label="技能步数" field={group.value.stepCount} format={(v) => `${v} 步`} />
           <MemberRow label="调用花费" field={group.value.modelCost} />
           <MemberRow label="模型配置状态" field={group.value.modelConfig} />
+          <MemberRow label="行为参数" field={group.value.behaviorParameters} />
           <p className={styles.panelNote} data-testid="skill-step-observed">
             最近一步落行于 {formatDateTime(group.observedAt)}；本组取自台账行，不按时间判陈旧。
           </p>

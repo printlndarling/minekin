@@ -110,6 +110,10 @@ export interface EvidenceRef {
  * own enum tokens projected verbatim, and a new token from Core must render rather than
  * fail the whole snapshot decode. `modelCost`/`modelConfig` never carry a value: Core
  * records them only in the run document, which this read surface does not parse.
+ * `behaviorParameters` is the one run-document field the projection DOES parse: it lands
+ * as a value only for a sealed, verified bundle that carries a run document, and stays a
+ * named `not_wired` gap otherwise. It is a backward-compatible addition, so the decoder
+ * tolerates a snapshot from an older projection byte that omits the member entirely.
  */
 export interface SkillStepInfo {
   readonly goal: Field<string>;
@@ -123,6 +127,7 @@ export interface SkillStepInfo {
   readonly stepCount: Field<number>;
   readonly modelCost: Field<string>;
   readonly modelConfig: Field<string>;
+  readonly behaviorParameters: Field<string>;
 }
 
 export interface MediaStreamRef {

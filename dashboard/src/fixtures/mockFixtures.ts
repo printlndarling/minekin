@@ -256,7 +256,9 @@ function evidenceGroup(): Record<string, unknown> {
  * later world readings confirmed. A confirmed step carries no failure reason, no
  * attribution and no refusal — each one a member gap with the Gateway's own sentence,
  * never `""`. Cost and model config are `not_wired` member gaps: Core records them only
- * in the run document, which the read surface does not parse.
+ * in the run document, which the read surface does not parse. `behaviorParameters` is
+ * the one run-document field the projection DOES parse, so a sealed run whose newest
+ * step is a craft shows the honoured, redacted arguments here (`target_item`/`quantity`).
  */
 function skillStepsGroup(): Record<string, unknown> {
   return {
@@ -271,6 +273,7 @@ function skillStepsGroup(): Record<string, unknown> {
     stepCount: wireFilled(4),
     modelCost: wireGapField("not_wired", SKILL_MODEL_COST_GAP),
     modelConfig: wireGapField("not_wired", SKILL_MODEL_CONFIG_GAP),
+    behaviorParameters: wireFilled("quantity=1, target_item=minecraft:wooden_pickaxe"),
   };
 }
 

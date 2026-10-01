@@ -33,6 +33,10 @@ describe("技能步面板：known 组逐成员、缺组具名、绝不折叠成 
     expect(panel).toHaveTextContent("model_calls / model_spent_micro / model_cap_refusals");
     expect(panel).toHaveTextContent("model_enabled");
     expect(panel.textContent).not.toMatch(/花费[:：]?\s*\d/);
+    // 行为参数是 run document 里唯一被解析的成员：已封 bundle 的脱敏参数原样上屏。
+    const parameters = screen.getByTestId("skill-step-行为参数");
+    expect(parameters).toHaveTextContent("target_item=minecraft:wooden_pickaxe");
+    expect(parameters).toHaveTextContent("quantity=1");
   });
 
   it("组级缺口（没有技能步行的 run）：一句具名理由，而不是零值事实", () => {
