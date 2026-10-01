@@ -918,6 +918,6 @@ step14 turn_to {pitch:-18, yaw:135}  "sweep to look for a spot to place a crafti
    - 显式恢复的非空失效子情形（对一枚因非正常收尾而死掉的进程标记做 `invalidated`/`waiting` 回收）本轮是 `invalidated []/waiting []`，因为上一发是 `exited 0` 的干净收尾；非空失效只在 wrapper 被杀 / PID 复用留死标记时自然出现，而那会撞 `OLD_CLIENT_UNPROVEN` 拒起新 run，不在这一发能按需复现——不伪造。
    - 异常断连（传输掉线 / `BRIDGE_LOST`，与 `STOPPED_ON_REQUEST` 相区分）这一发没有触发；harness 把双开同存档判为 artifact、无干净的按需掉线旋钮，该路径目前只有代码 + 单测层的区分（#8 已闭合），活体逐字读数仍缺。
 
-**仍不声明**：不据此判 #46 全绿。四路里「正常取消/stop」「应用重启/复用＝核对非重放」已在活体分别取得读数；「异常断连」「非空失效的显式恢复」两条活体仍未取。
+**仍不声明**：不据此判 #46 全绿。这一发（`8c6197a3…`）自身只取到「正常取消/stop」与「应用重启/复用＝核对非重放」两路读数，未触发后两路。就全局账目而言：「异常断连」早有一枚活体分类读数（第五节第 6 条那一发：`stop_reason CONTROL_CHANNEL_LOST`、`outcome BRIDGE_LOST`、`input_release_failed true`、`unconfirmed [290]`，与正常 stop 的 `unconfirmed []` 成对照），只是由 harness 拆通道触发、非游戏内自发掉线，触发保真度列为保留项；「非空失效的显式恢复」仍只有设计面（重启断言刻意不要求 `invalidated` 为空）与 `invalidated []` 的读数，真正非空的活体读数仍缺。
 
 **下一格 `current_next`**：要么在受控条件下取一次非空失效恢复读数（先接受一次非正常收尾并据其死标记做 reconcile，且不删旧失败材料），要么给异常断连找一个产品级、非 artifact 的按需触发面后再逐字入账；两者都不与 #50/#47/#4 的保留设计决定混做。
