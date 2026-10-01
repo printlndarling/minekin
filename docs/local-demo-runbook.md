@@ -812,3 +812,24 @@ step14 turn_to {pitch:-18, yaw:135}  "sweep to look for a spot to place a crafti
 **具名的下一步（先诊断，不盲改）**：`collect_dropped` 的停滞判据在 `world_skills.py:749` 拿 `_drop_distance`（三维含竖直分量）与 `COLLECT_CLOSE_APPROACH_METERS` 比收窄。掉落物停在一到两格之下时，水平走动无法削减竖直分量 ⇒ 三维距离看着不收窄 ⇒ 误判 `COLLECT_APPROACH_STALLED`。这一假设需要一发带 `relative_x/y/z` 读数的活体确认，不在 run 文档里 ⇒ 不在本轮盲改判据。取 `current_next`＝「在真实读数上确认 collect 接近距离该按水平距离判还是按三维距离判，再按确认结果改 `world_skills.py` 的停滞判据并补单测」。
 
 **不声明**：放置 `use_target` 的真实游戏确认仍未取得，保持 `UNKNOWN`；第 7 条按字面仍由六之十三（木棍连续闭环+确认松键）与六之九达成，本发不削减它，也不给 `goal_met` 或任何 `tested/CONFIRMED` 追加冒充。
+
+
+## 六之十七、把接近判据改量水平距离后在同一真实端点重跑的那一发：砍→拾取→合成→关屏→选物→确认松键全链 CONFIRMED（2026-10-01，run `bfdc6011e4a84c6ab8c05e2a814d989d`，server run 目录 `run-29`，会话 `98b3c63fbe744c30a0566564cbd16d6a`，客户端 pid 338）
+
+在 `3215c86`（`_drop_approach_distance` 取步行真正能收窄的那一维 `hypot(relative_x, relative_z)`，把停滞判据对齐到水平面）之后，用 §四 同一条真实端点（`api.commandcode.ai`、deepseek-v4.1-flash）跑常驻目标 `hold 1×minecraft:oak_planks from minecraft:oak_log`，步数上限 10。逐字取自 run 文档 `run.autonomous.steps`：
+
+1. `break_seen_block{expected_drop_item:oak_log}` → CONFIRMED（`source: model`，tick 1572→1736）。木头砍下、读数核对到位。
+2. `collect_dropped{item_id:oak_log}` → **CONFIRMED**（`source: model`，tick 1736→1857）——这正是六之十六同一目标下三连 `COLLECT_APPROACH_STALLED` 的那一格，改判这一发一步入包。
+3. `craft_take_result{target_item:oak_planks, quantity:1}` → CONFIRMED（tick 1857→1945）。
+4. `close_screen{}` → CONFIRMED（tick 1945→2110），模型读「已持有 4 块木板、超过所需的 1，关掉开着的合成窗」。
+5. `select_hotbar{expected_item_id:oak_planks, slot:8}` → CONFIRMED（tick 2110→2220），把它选进手上。
+
+`goal_met: true`、`stop_reason: GOAL_HELD_IN_HAND`、`autonomous.confirmed: 5`、`decision_source: model`、`model_calls: 5`、`model_enabled: true`、`model_spent_micro: 25`、`excluded_skills: []`。
+
+**这一发把第 7 条按字面在活字节上从头走到尾、且每步由真实模型决策**：采集（砍）→拾取（入包 CONFIRMED）→合成（产物进背包）→成品确认（读数为据的 4 块木板）→关屏→后续非 GUI 世界动作（`select_hotbar` 选入手上）→确认松键。松键逐字为 `release{asked:[338], released:[338], unconfirmed:[]}`、`terminated:[338]`、`unresolved:[]`、`input_release_failed: false`、`outcome: STOPPED_ON_REQUEST`、`session exited 0`。
+
+**对六之十六那句诚实修正的收口**：六之十六说「同一份代码换一发世界布局就会回到接近 stall」——那是三维判据下的旧字节。`3215c86` 之后，同一目标、同一端点这一发不再出现虚假 stall。要说清的边界：这一发证明的是**因竖直分量而误判的接近停滞**被消除了；掉落物真正滚出可达视野仍应走 `DROP_OUT_OF_VIEW`/有界自停，那条与水平还是三维判据无关，本发未触发，也不据此声称已活体确认它。
+
+**仍不声明**：`use_target` 放置与 3×3 终产物（木镐）那一笔的真实游戏确认仍未取得，保持 `UNKNOWN`（见六之十五）。本发是单目标 `oak_planks` 闭环，不替代第 5 条「多个不同目标」的完整覆盖；第 5 条目前由本发（oak_planks 全链由 model 逐步决策）加六之十五（同一木镐目标下木板+木棍跨产物子链）共同支撑，3×3 终产物活体确认仍列为未完成。
+
+**下一格 `current_next`**：把「立起工作台」做成本地反射的确定性通用序列（`larger_grid_needed` 且无更宽窗口可读时，补出「合成工作台→`select_hotbar`→`turn_to`/`use_target` 放置→打开→在 3×3 内合成终产物」，不写木镐专用链），再以真实端点跑一发确认持有木镐——这同时补上第 5 条的跨目标覆盖与 `use_target` 放置的真实游戏确认。
