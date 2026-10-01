@@ -132,6 +132,8 @@ describe("关键流程：外壳在同一界面上呈现四种缺失", () => {
     expect(screen.getByTestId("panel-capability")).toHaveTextContent("没有 framebuffer 采集");
     expect(screen.getByTestId("panel-capability")).toHaveTextContent("没有真源就不显示人格摘要或花费数字");
     expect(screen.getByTestId("panel-capability")).toHaveTextContent("只在 run document 的 mind 段记录");
+    // 脱敏行为参数是本轮点名的 live 面：能力清单要把它列出来，而不是继续当作不解析。
+    expect(screen.getByTestId("panel-capability")).toHaveTextContent("脱敏行为参数");
     // 保留边界与缺陷分开命名：通用写面是有意不开放，不是读不到。
     expect(screen.getByTestId("panel-capability")).toHaveTextContent("暂不开放");
     expect(screen.getByTestId("read-route-table")).toHaveTextContent("/api/v1/dashboard/snapshot");

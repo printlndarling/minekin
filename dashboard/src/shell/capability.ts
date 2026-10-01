@@ -58,12 +58,13 @@ export const CAPABILITY_ROWS: readonly CapabilityRow[] = [
     detail: "没有 framebuffer 采集、媒体鉴权与画面 provenance 之前不渲染任何画面，也不放示例视频。",
   },
   {
-    surface: "自主目标 / 技能步读数 / 失败归因 / 决策来源",
+    surface: "自主目标 / 技能步读数 / 失败归因 / 决策来源 / 脱敏行为参数",
     state: "live",
     source: "GET /api/v1/dashboard/snapshot · skillSteps 组",
     detail:
       "逐行来自台账 SkillStepRecorded：只在一步结论时落行，读的是最近一步而非执行中的那一步；" +
-      "脚本运行没有自主目标就是具名缺口，没跑过技能就是具名缺口，都不折成空值或 0 步。",
+      "脚本运行没有自主目标就是具名缺口，没跑过技能就是具名缺口，都不折成空值或 0 步。" +
+      "脱敏行为参数（target_item/quantity）来自已封 bundle 的 run document，未封或较早的字节仍作具名缺口，不凭猜测填值。",
   },
   {
     surface: "人格摘要 / 关系 / 模型调用花费与配置状态",
