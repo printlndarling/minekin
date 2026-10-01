@@ -833,3 +833,32 @@ step14 turn_to {pitch:-18, yaw:135}  "sweep to look for a spot to place a crafti
 **仍不声明**：`use_target` 放置与 3×3 终产物（木镐）那一笔的真实游戏确认仍未取得，保持 `UNKNOWN`（见六之十五）。本发是单目标 `oak_planks` 闭环，不替代第 5 条「多个不同目标」的完整覆盖；第 5 条目前由本发（oak_planks 全链由 model 逐步决策）加六之十五（同一木镐目标下木板+木棍跨产物子链）共同支撑，3×3 终产物活体确认仍列为未完成。
 
 **下一格 `current_next`**：把「立起工作台」做成本地反射的确定性通用序列（`larger_grid_needed` 且无更宽窗口可读时，补出「合成工作台→`select_hotbar`→`turn_to`/`use_target` 放置→打开→在 3×3 内合成终产物」，不写木镐专用链），再以真实端点跑一发确认持有木镐——这同时补上第 5 条的跨目标覆盖与 `use_target` 放置的真实游戏确认。
+
+## 六之十八、把 3×3 那一笔交给真实模型自选、在同一真实端点上跑木镐的那一发：立起工作台序列逐步 CONFIRMED，唯独「放置」按契约诚实停在 UNKNOWN（2026-10-01，run `ab200996459e4564b9172ed4c52cba3e`，会话 `b951295ace30476ebbe066e1631c5eb5`，客户端 pid 335；另有并发的一发 `32470aba6334443c870014829ca3c85e` 因与上一发共用同一 demo2 数据根而 `CLIENT_EXITED`，见末段）
+
+在 `28e1775` 之后，用 §四 同一条真实端点（`api.commandcode.ai`、deepseek-v4.1-flash）跑常驻目标 `hold 1×minecraft:wooden_pickaxe from minecraft:oak_log`，步数上限 16，不预设动作。逐字取自 run 文档 `run.autonomous.steps`：
+
+1. `break_seen_block{oak_log}` → CONFIRMED（`source: model`，tick 1525→1703）。
+2. `collect_dropped{oak_log}` → CONFIRMED（model，tick 1703→1833）。
+3. `craft_take_result{oak_planks×4}` → CONFIRMED（model，tick 1833→2009）。
+4. `close_screen{}` → CONFIRMED（这一帧模型 `TIMEOUT`，`source: local_reflection` 收尾，tick 2009→2185）。
+5. `craft_take_result{crafting_table×1}` → CONFIRMED（model，tick 2185→2350）——模型自己判定「2×2 装不下木镐，先合成工作台」。
+6. `close_screen{}` → CONFIRMED（model，tick 2350→2449）。
+7. `select_hotbar{crafting_table, slot:8}` → CONFIRMED（model，tick 2449→2570）——把工作台拿在手上。
+8. `turn_to{pitch:-18, yaw:45}` → CONFIRMED（model，tick 2570→2680）。
+9. `turn_to{pitch:90, yaw:0}` → CONFIRMED（model，tick 2680→2878）——模型选择低头对准地面好把工作台放下。
+10–12. `use_target{}` 三连 → **UNKNOWN**（`source: model`，归因 `INSUFFICIENT_INFORMATION`，tick 2878→3120）。
+13. `break_seen_block` → UNKNOWN（`NO_CONFIRMING_OBSERVATION`）。
+14. `turn_to{-55, 135}` → FAILED `AIM_STALLED`。
+15. `break_seen_block` → UNKNOWN。
+16. `turn_to{0, 90}` → FAILED `AIM_STALLED`；`stop_reason: STEP_BUDGET_SPENT`、`goal_met: false`、`excluded_skills:[use_target]`。安全收尾：`input_release_failed: false`、`outcome: STOPPED_ON_REQUEST`、`session exited 0`。
+
+**这一发把「立起工作台」从纸面推到活体，且每一步由真实模型自选参数**：模型没有等本地反射，而是自发走完了「砍→拾→合成木板→关屏→合成工作台→关屏→选入手上→转身→低头」这条通用序列，前九步读数全 CONFIRMED。据此更正总规划里「缺确定性立起工作台、完全交给模型自选」那句：`38–41` 号卡已把该序列（`crafting_grid_side` 从开窗读有效边长、`owed_steps` 把工作台预留成自有步、`step_to_run` 把装不下的合成重路由到能付的更宽步、`use_target` 放置→打开）实现并单测通过；本发进一步显示连模型自发路线也能一路走到放置前。
+
+**卡点精确落在「放置」这一格，且系统按契约诚实停在 UNKNOWN**：`verify_use_effect`（`domain/world_actions.py:403`）只认两种确认——（a）后置读数里新开出一个前置没有的窗口，或（b）手上物品在两帧已同步读数里总量减少（放下一个就少一个）。第 9 步模型把视角转到 `pitch:90` 直对脚下，而工作台放不下玩家自身占据的那一格 ⇒ 既无减量也无开窗 ⇒ 三连 UNKNOWN。`_inventory_synced` 要 revision 先移动才肯认这是服务器的变化而非一厢情愿，所以判 UNKNOWN 是对的：第 7 条明令「UNKNOWN 不得转述为 CONFIRMED」，本发守住了这条地板。
+
+**因此仍不声明**：`use_target` 放置与 3×3 终产物（木镐）的真实游戏确认仍未取得，保持 `UNKNOWN`；第 5 条「多个不同目标」里需要 3×3 的那一笔仍未活体 CONFIRMED。要说清的是**卡点性质已变**：不再是「缺机制」，而是「模型自发路线把放置瞄到了自己身上」——这是真实模型的瞄准/覆盖选择问题，不是逐物品接口的缺失。方向是让放置那一下落在**空的相邻面**（不把准星压进脚下占位格），放置按减量 CONFIRM 后再以一次 `use_target` 打开 3×3 并在其中合成 `wooden_pickaxe`，全程复用同一套通用技能，不新增产物专用链。
+
+**并发撞库这一发不产品记账**：同一时刻我误起了第二发（`32470aba…`，客户端 pid 346、会话 `82cd0f5b…`），两发共用单卷 demo2 的同一 Kin 数据根，第二发的客户端 JVM 在第一首发收尾时被带走，记为 `stop_reason: CLIENT_EXITED / BRIDGE_LOST`、`input_release_failed: true`、`session exited 14`。这是编排/操作层面的自伤（单卷同一时间只能独占跑一发），不是产品缺陷，也不拿它当 `use_target` 的第二个证据；保留此记录以如实记撞库事实，不据此改动产品结论。
+
+**下一格 `current_next`**：单次、独占 demo2 数据根地重跑木镐一发，让 `use_target` 放置落在空的相邻面（俯角不把准星压进自己脚下占位格）；放置若按减量 CONFIRM，则紧接第二次 `use_target` 打开 3×3 并合成 `wooden_pickaxe`，全链由真实模型决策并逐字入账。通过则记第 5 条跨目标 + 第 7 条 3×3 收尾 CONFIRMED，未通过则继续记 UNKNOWN，不美化。
