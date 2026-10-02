@@ -124,6 +124,7 @@ NO_CONFIRMING_OBSERVATION: Final = "NO_CONFIRMING_OBSERVATION"
 GOAL_ACHIEVED: Final = "GOAL_ACHIEVED"
 NO_FEASIBLE_SKILL: Final = "NO_FEASIBLE_SKILL"
 
+PLAYER_DEAD: Final = "PLAYER_DEAD"
 DECISION_PRECONDITION_CHANGED: Final = "DECISION_PRECONDITION_CHANGED"
 DECISION_FROM_MODEL: Final = "model"
 DECISION_FROM_LOCAL: Final = "local_reflection"
@@ -594,6 +595,8 @@ def feasible_skill_ids(
     decision rather than a hardcoded tail on the craft.
     """
 
+    if not reading.self_state.alive:
+        return ()
     if screen_open(reading):
         if goal_in_hand(milestone, reading):
             return (CLOSE_SCREEN,)
@@ -984,6 +987,8 @@ class PlayerMind:
         if reading is None:
             return self._hold(NO_LATEST_OBSERVATION, None)
         self.observe(reading)
+        if not reading.self_state.alive:
+            return self._hold(PLAYER_DEAD, reading)
         if self.holds_goal(reading) and not screen_open(reading):
             return self._hold(GOAL_ACHIEVED, reading)
         contents = _inventory_contents(reading)

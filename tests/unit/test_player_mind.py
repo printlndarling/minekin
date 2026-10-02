@@ -1744,3 +1744,16 @@ def test_empty_container_cycle_requires_material_or_target_change_before_reopeni
     assert rerouted.skill != "use_target"
     changed = reading(tick=160, aim=block_aim(), items=((0, LOG, 1),))
     assert mind.next_intent(changed).skill == "use_target"
+
+
+def test_dead_player_stops_before_model_call_or_screen_action() -> None:
+    provider = ScriptedProvider()
+    mind = mind_for(provider, CostLedger(run_cost_cap=CAP), goal=GOAL)
+    dead = reading(
+        self_state=state(health=0.0, alive=False), gui=GuiScreenValue(screen_id="", sync_id=0)
+    )
+    intent = mind.next_intent(dead)
+    assert intent.kind is MindDecisionKind.HOLD
+    assert intent.reason == "PLAYER_DEAD"
+    assert provider.requests == []
+    assert intent.plan.calls == ()
