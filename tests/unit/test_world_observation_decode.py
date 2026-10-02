@@ -171,6 +171,32 @@ def test_a_no_screen_observation_decodes_as_no_gui_and_never_a_zero_handler() ->
     assert synced.gui.sync_id == 0
 
 
+def test_the_client_recipe_book_decodes_into_a_craftable_set_and_absent_is_empty() -> None:
+    """#47: the wire's `craftable_recipe_ids` is the recipe book the client reports for the open
+    screen, and the decoder reads it as a set. A GuiScreen that names none leaves the empty set
+    (there is nothing to attest), so a Bridge that has not begun reporting it stays inert rather
+    than being mistaken for "nothing is craftable"."""
+
+    reported = observation_pb2.GuiScreen(
+        screen_id="class net.minecraft.screen.CraftingScreenHandler",
+        sync_id=4,
+        craftable_recipe_ids=["minecraft:wooden_pickaxe", "minecraft:stick"],
+    )
+    decoded = decode_world_observation(wire_observation(gui=reported))
+    assert decoded.gui is not None
+    assert decoded.gui.craftable_recipe_ids == frozenset(
+        {"minecraft:wooden_pickaxe", "minecraft:stick"}
+    )
+    assert world_observation_violations(decoded) == ()
+
+    silent = observation_pb2.GuiScreen(
+        screen_id="class net.minecraft.screen.CraftingScreenHandler", sync_id=4
+    )
+    absent = decode_world_observation(wire_observation(gui=silent))
+    assert absent.gui is not None
+    assert absent.gui.craftable_recipe_ids == frozenset()
+
+
 # ---------------------------------------------------------------------------
 # Absence is not zero, one optional field at a time
 # ---------------------------------------------------------------------------

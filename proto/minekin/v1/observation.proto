@@ -248,9 +248,20 @@ message MiningProgress {
 // The screen the client has open, and the handler id its clicks have to match.
 // `sync_id` is absent when no screen is open, because syncId 0 is a real handler
 // (the player's own inventory) and cannot double as "there is none".
+//
+// `craftable_recipe_ids` is the recipe knowledge the *world* supplies: the namespaced
+// ids of the recipes the client's own recipe book reports as craftable right now, given
+// what is in the grid it has open. It is empty when no crafting screen is open, because
+// there is then no grid whose availability the client can speak for. This is a set of ids
+// the client can act on — clicking one is the existing `GuiRecipeClick`, which the client
+// still validates against the game's real recipe set — not an ingredient table the reader
+// has to trust. A craft the client does not name here is answered as not-craftable-now,
+// never guessed at; the curated catalog stays the fallback that names products, not the
+// authority on what this bag and this grid can pay for at this tick.
 message GuiScreen {
   string screen_id = 1;
   optional uint32 sync_id = 2;
+  repeated string craftable_recipe_ids = 3;
 }
 
 // The recurring player-equivalent view: where the Kin is, what its crosshair is on,

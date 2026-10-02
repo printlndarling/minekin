@@ -369,10 +369,20 @@ class MiningProgressValue:
 class GuiScreenValue:
     """The open screen and its handler id. `sync_id` is `None` when no screen is
     open, because 0 is a legal handler id (the player's own inventory) and cannot
-    double as "there is none"."""
+    double as "there is none".
+
+    `craftable_recipe_ids` is the recipe book the *client* reports for the grid it has
+    open: the namespaced ids it can craft right now, given the items in that grid. It is
+    empty when no crafting screen is open (there is then no grid whose availability the
+    client can speak for). This is the world's answer to "can this be made now" — the
+    curated catalog only names products and infers grid shapes; whether a given bag and
+    a given grid can actually pay is read from here, and a product the client does not
+    name here is answered as not-craftable-now, never guessed.
+    """
 
     screen_id: str
     sync_id: int | None
+    craftable_recipe_ids: frozenset[str] = frozenset()
 
 
 @dataclass(frozen=True, slots=True)

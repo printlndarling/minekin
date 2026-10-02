@@ -444,6 +444,30 @@ def test_a_three_by_three_step_is_refused_in_the_inventory_and_allowed_at_the_ta
     assert step is not None and step.recipe.recipe_id == PICKAXE
 
 
+def test_the_client_recipe_book_is_the_authority_the_curated_grid_defers_to() -> None:
+    """#47 dynamic source: when the observation's client-reported book names a recipe, the world
+    attests it is craftable in the screen being stood in, so the curated grid stand-in is not
+    consulted. A reading that reports `minecraft:wooden_pickaxe` craftable yields the step even
+    though the caller handed the two-by-two stand-in — the reading, not the constant, decides.
+    The same book left empty (no screen, or a Bridge that does not yet surface it) falls through
+    to the curated checks, so nothing is offered until the world actually speaks."""
+
+    attested = reading(
+        items=((0, PLANKS, 3), (1, STICK, 2)),
+        gui=GuiScreenValue(
+            screen_id="minecraft:crafting", sync_id=3, craftable_recipe_ids=frozenset({PICKAXE})
+        ),
+    )
+    step = step_to_run(attested, PICKAXE, grid_side=PLAYER_GRID_SIDE)
+    assert step is not None and step.recipe.recipe_id == PICKAXE
+
+    silent = reading(
+        items=((0, PLANKS, 3), (1, STICK, 2)),
+        gui=GuiScreenValue(screen_id="minecraft:crafting", sync_id=3),
+    )
+    assert step_to_run(silent, PICKAXE, grid_side=PLAYER_GRID_SIDE) is None
+
+
 def test_a_standing_table_window_offers_the_three_by_three_craft() -> None:
     """The offer and the precondition agree: once the reading says a three-by-three window is up
     and the bag holds the last ingredients, the mind gets `craft_take_result` to click while the

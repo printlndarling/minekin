@@ -250,12 +250,14 @@ class MiningProgress(_message.Message):
     def __init__(self, game_tick: _Optional[int] = ..., target: _Optional[_Union[_control_pb2.BlockTarget, _Mapping]] = ..., progress: _Optional[float] = ...) -> None: ...
 
 class GuiScreen(_message.Message):
-    __slots__ = ("screen_id", "sync_id")
+    __slots__ = ("screen_id", "sync_id", "craftable_recipe_ids")
     SCREEN_ID_FIELD_NUMBER: _ClassVar[int]
     SYNC_ID_FIELD_NUMBER: _ClassVar[int]
+    CRAFTABLE_RECIPE_IDS_FIELD_NUMBER: _ClassVar[int]
     screen_id: str
     sync_id: int
-    def __init__(self, screen_id: _Optional[str] = ..., sync_id: _Optional[int] = ...) -> None: ...
+    craftable_recipe_ids: _containers.RepeatedScalarFieldContainer[str]
+    def __init__(self, screen_id: _Optional[str] = ..., sync_id: _Optional[int] = ..., craftable_recipe_ids: _Optional[_Iterable[str]] = ...) -> None: ...
 
 class WorldObservation(_message.Message):
     __slots__ = ("generation", "game_tick", "self", "aim", "inventory", "visible_entities", "mining", "gui")

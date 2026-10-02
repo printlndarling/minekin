@@ -281,7 +281,16 @@ def step_to_run(
     needed = owed_steps(reading, product_id, quantity, grid_side=grid_side)
     if isinstance(needed, str):
         return None
+    craftable = reading.gui.craftable_recipe_ids if reading.gui is not None else frozenset()
     for step in needed:
+        if step.recipe.recipe_id in craftable:
+            # The client attests this recipe is craftable in the screen it is standing in — the
+            # grid shape and the bag both pay, read from the world's recipe book rather than
+            # inferred from the curated table. This only ever names a step runnable; an empty or
+            # absent report (no screen open, or a Bridge that does not yet surface the book)
+            # falls through to the curated checks below, so behaviour is unchanged until the
+            # world actually speaks.
+            return step
         if not step.recipe.fits(grid_side):
             continue
         affordable = all(

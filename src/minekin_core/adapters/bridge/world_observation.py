@@ -142,6 +142,7 @@ def decode_gui(gui: observation_pb2.GuiScreen) -> GuiScreenValue:
     return GuiScreenValue(
         screen_id=gui.screen_id,
         sync_id=int(gui.sync_id) if gui.HasField("sync_id") else None,
+        craftable_recipe_ids=frozenset(gui.craftable_recipe_ids),
     )
 
 

@@ -285,6 +285,13 @@ def resolve_craft(
     `inventory` is optional and never defaulted to "affordable": the material check is only
     made when a caller hands over an actual reading, because a resolver that guessed at the
     bag would be the thing in this build that claims to know what the Kin is holding.
+
+    This is the *pre-observation* check: it is made when a plan is parsed, before any screen is
+    open, so it can only reason from the curated table and the shapes it names. Whether a craft
+    the client can actually make right now is read from the world, not here —
+    `player_mind.step_to_run` consults the observation's `GuiScreen.craftable_recipe_ids` for
+    that, which is where the recipe book the Kin is standing in becomes the authority and this
+    table's role shrinks to naming products and their shapes.
     """
 
     recipe = RECIPES.get(product_id)
