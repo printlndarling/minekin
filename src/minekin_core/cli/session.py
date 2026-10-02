@@ -359,10 +359,6 @@ def select_kin(root: Path, selector: str | None) -> KinId:
     # `KinId(...)` would raise a bare ValueError that the CLI redacts. Name it
     # here instead, because "the directory is called `my kin`" is the whole
     # diagnosis and it is not derivable from "unexpected internal failure".
-    # A directory that cannot be an identifier was not put there by `init`, and
-    # `KinId(...)` would raise a bare ValueError that the CLI redacts. Name it
-    # here instead, because "the directory is called `my kin`" is the whole
-    # diagnosis and it is not derivable from "unexpected internal failure".
     for candidate in candidates:
         try:
             KinId(candidate)
