@@ -67,6 +67,7 @@ class _Runner(Protocol):
         online_mode: bool | None = None,
         resource_pack: _ServedPack | None = None,
         enable_status: bool = False,
+        difficulty: str = "normal",
     ) -> dict[str, str]: ...
 
     def resource_pack_zip(self, pack_format: int) -> bytes: ...
@@ -949,3 +950,17 @@ def test_the_status_switch_is_gated_only_on_the_channel_it_would_widen(
             assert outside.host not in refused
         else:
             assert refused is None
+
+
+def test_peaceful_crafting_fixture_is_explicit_and_keeps_player_and_access_rules() -> None:
+    recipe = RUNNER.SERVER_RECIPES["1.20.1"]
+    profile = load_session_server_profile(recipe.profile, minecraft_version=recipe.version)
+    normal = RUNNER.properties_for(profile, level_seed="fixed-seed")
+    peaceful = RUNNER.properties_for(profile, level_seed="fixed-seed", difficulty="peaceful")
+    assert normal["difficulty"] == "normal"
+    assert peaceful == {**normal, "difficulty": "peaceful"}
+    assert peaceful["gamemode"] == "survival"
+    assert peaceful["online-mode"] == "false"
+    assert peaceful["server-ip"] == "127.0.0.1"
+    with pytest.raises(ValueError, match="difficulty"):
+        RUNNER.properties_for(profile, level_seed="fixed-seed", difficulty="invalid")

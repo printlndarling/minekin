@@ -142,6 +142,7 @@ if [[ "${1:-}" == "domain" ]]; then
         # undelivered it would silently fall back to the launcher's own six seconds, which
         # is not behind a walk longer than six.
         -e MINEKIN_DOMAIN_KILL_AFTER_SECONDS
+        -e MINEKIN_DOMAIN_DIFFICULTY
         -e MINEKIN_DOMAIN_KILL_SERVER
         -e MINEKIN_DOMAIN_KILL_CLIENT
         -e MINEKIN_DOMAIN_SOAK_SECONDS -e MINEKIN_DOMAIN_SOAK_INTERVAL

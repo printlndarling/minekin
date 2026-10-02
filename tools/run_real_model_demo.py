@@ -58,6 +58,9 @@ def main() -> int:
     parser.add_argument("--wait-seconds", type=int, default=420)
     parser.add_argument("--cost-cap-micro", type=int, default=10_000)
     parser.add_argument("--provider", choices=("openai_compatible",), default="openai_compatible")
+    parser.add_argument(
+        "--difficulty", choices=("peaceful", "easy", "normal", "hard"), default="normal"
+    )
     parser.add_argument("--bash", type=Path)
     args = parser.parse_args()
     if not 1 <= args.steps <= 64 or not 1 <= args.wait_seconds <= 900:
@@ -85,6 +88,7 @@ def main() -> int:
         {
             "MINEKIN_RUNNER_FORWARD_ENV": ",".join(configured),
             "MINEKIN_SERVER_JAR": ".tmp/mc-1.20.1-server.jar",
+            "MINEKIN_DOMAIN_DIFFICULTY": args.difficulty,
             "MINEKIN_DEMO_VOLUME": args.volume,
             "MINEKIN_DEMO_KIN": args.kin,
             "MINEKIN_DEMO_BUNDLE_PROFILE": (

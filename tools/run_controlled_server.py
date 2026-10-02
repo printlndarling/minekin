@@ -299,6 +299,7 @@ def properties_for(
     online_mode: bool | None = None,
     resource_pack: ServedResourcePack | None = None,
     enable_status: bool = DEFAULT_ENABLE_STATUS,
+    difficulty: str = "normal",
 ) -> dict[str, str]:
     """The server settings the frozen profile implies, plus one refusal to imply.
 
@@ -320,6 +321,8 @@ def properties_for(
     from minekin_core.adapters.launcher.server_profile import SessionServerProfile
 
     assert isinstance(profile, SessionServerProfile)
+    if difficulty not in {"peaceful", "easy", "normal", "hard"}:
+        raise ValueError("difficulty must be peaceful, easy, normal or hard")
     return {
         "online-mode": _online_mode_text(profile, online_mode),
         # A pack the client is required to have, served by this harness for the case
@@ -332,7 +335,7 @@ def properties_for(
         "server-port": str(profile.port),
         "gamemode": "survival",
         "force-gamemode": "true",
-        "difficulty": "normal",
+        "difficulty": difficulty,
         "hardcore": "false",
         "pvp": "true",
         "enable-rcon": "false",
@@ -846,6 +849,9 @@ def main() -> int:
         ),
     )
     parser.add_argument(
+        "--difficulty", choices=("peaceful", "easy", "normal", "hard"), default="normal"
+    )
+    parser.add_argument(
         "--enable-status",
         action="store_true",
         help=(
@@ -928,6 +934,7 @@ def main() -> int:
         online_mode=args.online_mode,
         resource_pack=None if pack_server is None else pack_server.served,
         enable_status=args.enable_status,
+        difficulty=args.difficulty,
     )
     verify_jar(args.jar, recipe)
     write_configuration(

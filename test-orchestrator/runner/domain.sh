@@ -1211,6 +1211,7 @@ elif [ -n "${server_profile}" ]; then
         --directory "${server_directory}" \
         --jar /server/server.jar \
         --accept-eula \
+        --difficulty "${MINEKIN_DOMAIN_DIFFICULTY:-normal}" \
         "${version_args[@]}" \
         "${allow_args[@]}" \
         "${online_args[@]}"         "${pack_args[@]}" \
