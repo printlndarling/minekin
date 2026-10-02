@@ -14,6 +14,7 @@ tested is which verdicts change the next ask.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import cast
 
 import pytest
@@ -1610,3 +1611,25 @@ def test_collect_fallback_prefers_the_goal_resource_when_it_is_visible() -> None
     intent = mind.next_intent(observed)
     assert intent.skill == "collect_dropped"
     assert intent.plan.calls[0].item_id == LOG
+
+
+def test_local_gather_does_not_break_a_visible_block_unrelated_to_the_goal_resource() -> None:
+    mind, _ = mind_with()
+    observed = reading(aim=replace(block_aim(), targeted_block_id="minecraft:dirt"))
+    # The generic break remains available to a model for a reasoned goal, but a
+    # local gather must not invent oak drops from the ground under the crosshair.
+    assert "break_seen_block" in feasible_skill_ids(GOAL, observed)
+    assert mind.next_intent(observed).skill == "turn_to"
+
+
+def test_local_setup_uses_a_held_grid_enabler_even_before_remaining_materials_are_gathered() -> (
+    None
+):
+    mind, _ = mind_with()
+    observed = reading(
+        items=((0, PLANKS, 2), (1, STICK, 4), (6, TABLE, 1)),
+        self_state=replace(state(selected_slot=6), main_hand_item_id=TABLE),
+        aim=block_aim(),
+    )
+    assert blocker_for(observed, PICKAXE) == CRAFT_MATERIALS_MISSING
+    assert mind.next_intent(observed).skill == "use_target"

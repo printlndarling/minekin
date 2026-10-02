@@ -1090,17 +1090,12 @@ class PlayerMind:
         up on. `safety` holds a Kin back from starting a break when it is badly hurt, because a
         broken trunk is not what a half-health reading is asking for.
 
-        The one place the fallback departs from "gather before use" is standing up a grid enabler.
-        `blocker_for` reaches `CRAFT_GRID_TOO_SMALL` only when every step the current screen could
-        hold is already paid — the table is a two-by-two shape, so while the bag still owed one the
-        word would be `CRAFT_MATERIALS_MISSING`, not this one. Reaching it therefore means the
-        materials are in hand and the only thing outstanding is a shape this screen cannot lay out:
-        the next progress is the use key that stands the held enabler up, not another log chopped.
-        A player with enough wood and a table in the pack sets the table up rather than felling
-        another tree, and a fallback that broke/collected/scanned first would spend the whole run
-        on redundant gathering and never reach the wider grid. Keyed on the catalog's blocker word
-        and `opens_grid_side`, never a product name, so a newly curated wider shape is stood up the
-        same way, and a goal that completes in the current grid never takes this branch.
+        A held wider-grid enabler is useful before all terminal materials are paid: stand it
+        up on a legal observed face rather than carrying it through more gathering. The catalog's
+        grid metadata selects the enabler; this does not select a product-specific action chain.
+        Gathering with a named raw resource is conservative: a different block under the crosshair
+        does not prove that breaking it yields the wanted item. A model may still choose the generic
+        break for another reason, while the local gather looks again instead of excavating ground.
         """
 
         if "close_screen" in feasible:
@@ -1109,21 +1104,27 @@ class PlayerMind:
             return "select_hotbar"
         if "craft_take_result" in feasible:
             return "craft_take_result"
+        enabler = enabler_to_stand_up(self.goal, reading, grid_side=crafting_grid_side(reading))
         if (
             "use_target" in feasible
-            and self.goal is not None
-            and blocker_for(
-                reading,
-                self.goal.product_id,
-                self.goal.quantity,
-                grid_side=crafting_grid_side(reading),
-            )
-            == CRAFT_GRID_TOO_SMALL
+            and enabler is not None
+            and reading.self_state.selected_slot == enabler[1]
         ):
             return "use_target"
         if "collect_dropped" in feasible and needs.get("resource_security", 0) >= 5:
             return "collect_dropped"
-        if "break_seen_block" in feasible and needs.get("safety", 0) < 7:
+        if (
+            "break_seen_block" in feasible
+            and needs.get("safety", 0) < 7
+            and (
+                self.goal is None
+                or not self.goal.source_item_id
+                or (
+                    reading.aim is not None
+                    and reading.aim.targeted_block_id == self.goal.source_item_id
+                )
+            )
+        ):
             return "break_seen_block"
         if "collect_dropped" in feasible:
             return "collect_dropped"
