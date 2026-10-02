@@ -154,11 +154,20 @@ COLLECT_MAX_STALLED_CORRECTIONS: Final[int] = 3
 #: How long a `collect` waits for a felled item to register as a rendered entity
 #: before it concludes the drop is not in view. A `break` that CONFIRMED on the same
 #: tick can leave the very next frame still empty — the failure `collect` used to end
-#: on without ever stepping. This is a short, bounded settle, capped by the step's own
+#: on without ever stepping. This is a bounded settle, capped by the step's own
 #: timeout; it parks on the store's wake and re-checks only readings the client admits,
 #: so it waits for a fact the world will report rather than aiming at a cell the
 #: crosshair did not see. A drop already in the first reading never enters it.
-COLLECT_DROP_SETTLE_NS: Final[int] = 400_000_000
+#:
+#: The window has to span a whole report period to do its job: the Bridge publishes on a
+#: 10-tick cadence (~500 ms at 20 tps), so a settle shorter than that returns before the
+#: *next* frame is admitted and the drop it was waiting for could never have been seen.
+#: An earlier 400 ms value did exactly that — it starved the autonomous loop, which then
+#: saw the same `observation_ref` the failed `collect` was built on and stopped on
+#: NO_FRESH_OBSERVATION before the mind could re-aim. This clears two cadences with margin
+#: so a genuinely-registering drop is caught and, when it is not, real time has passed and
+#: a fresh reading lets the mind re-aim instead of the loop stalling on the old one.
+COLLECT_DROP_SETTLE_NS: Final[int] = 1_200_000_000
 
 #: The two ways a chase ends because the world moved out from under it rather than
 #: because the channel went quiet — both kept distinct from `NO_CONFIRMING_OBSERVATION`

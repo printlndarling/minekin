@@ -441,6 +441,54 @@ def test_collect_waits_a_short_settle_for_a_felled_drop_to_register_before_refus
     asyncio.run(scenario())
 
 
+def test_collect_settle_spans_a_full_report_cadence_before_refusing() -> None:
+    async def scenario() -> None:
+        # The Bridge publishes on a 10-tick cadence (~500 ms), so the frame that first
+        # renders a felled drop can land a full report period after the break CONFIRMED.
+        # An earlier settle window shorter than that cadence returned before this reading
+        # was admitted, refused NO_SEEN_DROP on the stale tick, and starved the autonomous
+        # loop into NO_FRESH_OBSERVATION before the mind could re-aim. The settle now clears
+        # the cadence, so a drop that registers on the second frame is still caught.
+        drop_arrives = reading(
+            tick=110,
+            inventory_value=inventory(100),
+            entities=(oak_log_drop(tick=110, distance=2.0),),
+        )
+        came_away = reading(
+            tick=120,
+            inventory_value=inventory(120, (0, "minecraft:oak_log", 1)),
+            entities=(),
+        )
+        store = store_with(reading(tick=100, inventory_value=inventory(100), entities=()))
+        skills, sender = skill_with(store)
+        queued = [came_away]
+
+        def answer(message_type: str) -> None:
+            if message_type == AIM_INPUT_TYPE and queued:
+                store.admit(queued.pop(0), ())
+
+        sender.on_send = answer
+        # A whole report period after the break — past the old 400 ms window, inside the
+        # cadence-spanning one — the item finally appears on the visible list.
+        arrival = asyncio.create_task(admit_after(store, 0.6, drop_arrives))
+        try:
+            outcome = await skills.collect_dropped(
+                item_id="minecraft:oak_log",
+                authority=authority(),
+                walk_seconds=0.0,
+                timeout_ns=10_000_000_000,
+            )
+        finally:
+            await arrival
+
+        assert outcome.result is ActionResultClass.CONFIRMED
+        # The settled second-cadence reading is what it chased, not the empty first frame.
+        assert outcome.pre_tick == 110
+        assert outcome.post_tick == 120
+
+    asyncio.run(scenario())
+
+
 def oak_log_drop(*, tick: int, distance: float = 2.0, vertical: float = 0.0) -> EntityCandidate:
     return EntityCandidate(
         observation_id=f"drop-{tick}",
