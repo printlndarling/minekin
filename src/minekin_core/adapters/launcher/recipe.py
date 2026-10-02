@@ -79,8 +79,8 @@ FABRIC_API_1201_SHA1 = "3e9cdd3e2f827ca9a259df9eb8e31949437b6bd4"
 # Temurin 21 cross-build that the previous digest went through has not been
 # re-run on these. Treating "built twice" as current would be a claim about a
 # machine this pin has not seen, so it is an open task rather than a comment.
-BRIDGE_1201_JAR_SHA256 = "ff2540824ee354149cdc7230d40f9d1eacbbed267ef9cf9936f6f64778672519"
-BRIDGE_1201_JAR_SIZE = 1_442_677
+BRIDGE_1201_JAR_SHA256 = "84ac218f8e2b74906ec469e4302ea8cec248c6b69f366a905a8244a50bfcfe97"
+BRIDGE_1201_JAR_SIZE = 1_444_470
 BRIDGE_1201_JAR_RELATIVE_PATH = "bridge-1201/build/libs/minekin-bridge-1201-0.0.0.jar"
 
 

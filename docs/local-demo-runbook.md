@@ -941,3 +941,20 @@ step14 turn_to {pitch:-18, yaw:135}  "sweep to look for a spot to place a crafti
 本地规则复验 run `ebe69cbe59ee48f0aa728865ac4f0b7f`，会话 `40ec626749dc4f8985bc4e5cbce3225d`，demo2 卷同一 Kin 根，server `run-44`。24 步中 21 步 CONFIRMED：前 15 步完成两轮采集、木板/木棍/工作台并选中工作台；第 17–19 步拾取返回 `NO_SEEN_DROP`，随后到 `STEP_BUDGET_SPENT`，未完成 3×3。`model_calls=0`、来源 `local_reflection`；收尾 `STOPPED_ON_REQUEST`，不是真实模型成功，也不是 sealed evidence。第一次 `run-43` 在 CLI 因 32 超过 24 步上限被拒，未入服，不计入能力验证。
 
 定向回归复现：仅看到泥土掉落物时，PlayerMind 的拾取 offer 可行，却无条件填写 milestone 的橡木资源，必然 `NO_SEEN_DROP`；新测试先红。修复按同一可见观察选物品：目标资源可见时优先它，否则选择最近的可见掉落物。该修复是确定性参数缺陷，不声称已证明 run-44 三次拒止的物品种类（该 run 未记录逐步观察内容）。下一步核对放置前的通用目标选择，再按当前字节复验；不重复跑旧字节赌成功。
+
+
+修复后第二次本地规则复验 run `44026f957f784438bd6cd7290bae5e86`，会话 `cb67650994224f2cbc2f5961cf9aadd1`，server `run-45`：17 步 CONFIRMED，含第 16 步 `use_target` 和随后关屏；最后 `NO_FRESH_OBSERVATION`，`goal_met=false`。观察计数 `admitted=52 / refused=16`，拒收全部 `YAW_OUT_OF_RANGE`，收尾 released `[317]`、unconfirmed `[]`、`STOPPED_ON_REQUEST`。Bridge 原样发送 Minecraft 的累计 yaw；跨 ±180 后角度合法但线格式不合法。`LookAngles.of` 现在将有限 yaw 归一为 (-180,180]，拒绝非有限值，pitch 保持原读数；角度回归先红后绿，完整 Bridge test/build 与产物权限边界检查通过。
+
+新候选 jar/source 摘要已同步 recipe 和 Launcher pin；旧 registry 的 sealed 引用保持不变。当前默认 auto-bundle 会因旧证据摘要与当前构建不符而拒止，验证使用显式候选入口：
+
+```bash
+MINEKIN_SERVER_JAR=.tmp/mc-1.20.1-server.jar \
+MINEKIN_DEMO_VOLUME=minekin-local-demo2 \
+MINEKIN_DEMO_KIN=kin-3x3-fresh-20261002 \
+MINEKIN_DEMO_BUNDLE_PROFILE=/src/tests/fixtures/runtime-input/bundle-candidate-1.20.1.json \
+MINEKIN_DEMO_AUTONOMOUS_STEPS=24 \
+MINEKIN_DEMO_AUTONOMOUS_WAIT_SECONDS=420 \
+  bash test-orchestrator/runner/demo.sh --autonomous
+```
+
+首次候选 `run-46` 因 Launcher pin 尚未同步，在入服前供应链拒止（exit 11）；现已同步并通过 36 项 recipe/Bridge 契约回归。该拒止不是游戏能力失败，不计入成功验证。交互技能还补了“新帧先到、效果稍后到”的有界等待：一次点击后继续观察至确认或原截止，不追加点击；203 项 Core 回归通过。

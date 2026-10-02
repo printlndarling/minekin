@@ -285,7 +285,7 @@ public final class WorldActions {
             if (!Float.isFinite(yawDegrees) || !Float.isFinite(pitchDegrees)) {
                 return Optional.empty();
             }
-            return Optional.of(new LookAngles(yawDegrees, pitchDegrees));
+            return Optional.of(new LookAngles(wrapDegrees(yawDegrees), pitchDegrees));
         }
     }
 
@@ -308,7 +308,7 @@ public final class WorldActions {
 
     /** Wrap a signed angle difference into {@code (-180, 180]}, the shorter way round. */
     public static float wrapDegrees(float degrees) {
-        float wrapped = degrees;
+        float wrapped = degrees % 360.0F;
         while (wrapped > 180.0F) {
             wrapped -= 360.0F;
         }
