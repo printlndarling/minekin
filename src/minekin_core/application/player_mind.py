@@ -1090,9 +1090,10 @@ class PlayerMind:
         up on. `safety` holds a Kin back from starting a break when it is badly hurt, because a
         broken trunk is not what a half-health reading is asking for.
 
-        A held wider-grid enabler is useful before all terminal materials are paid: stand it
-        up on a legal observed face rather than carrying it through more gathering. The catalog's
-        grid metadata selects the enabler; this does not select a product-specific action chain.
+        Stand up a selected wider-grid enabler once the bag can pay the remaining
+        material debt. Premature setup can occupy the face or sightline needed for
+        further gathering, and closing that window loses its grid context. The catalog's
+        blocker and grid metadata select the transition, never a product-specific chain.
         Gathering with a named raw resource is conservative: a different block under the crosshair
         does not prove that breaking it yields the wanted item. A model may still choose the generic
         break for another reason, while the local gather looks again instead of excavating ground.
@@ -1109,6 +1110,14 @@ class PlayerMind:
             "use_target" in feasible
             and enabler is not None
             and reading.self_state.selected_slot == enabler[1]
+            and self.goal is not None
+            and blocker_for(
+                reading,
+                self.goal.product_id,
+                self.goal.quantity,
+                grid_side=crafting_grid_side(reading),
+            )
+            == CRAFT_GRID_TOO_SMALL
         ):
             return "use_target"
         if "collect_dropped" in feasible and needs.get("resource_security", 0) >= 5:

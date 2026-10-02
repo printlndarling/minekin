@@ -1622,9 +1622,7 @@ def test_local_gather_does_not_break_a_visible_block_unrelated_to_the_goal_resou
     assert mind.next_intent(observed).skill == "turn_to"
 
 
-def test_local_setup_uses_a_held_grid_enabler_even_before_remaining_materials_are_gathered() -> (
-    None
-):
+def test_local_setup_gathers_remaining_materials_before_standing_up_the_grid_enabler() -> None:
     mind, _ = mind_with()
     observed = reading(
         items=((0, PLANKS, 2), (1, STICK, 4), (6, TABLE, 1)),
@@ -1632,7 +1630,7 @@ def test_local_setup_uses_a_held_grid_enabler_even_before_remaining_materials_ar
         aim=block_aim(),
     )
     assert blocker_for(observed, PICKAXE) == CRAFT_MATERIALS_MISSING
-    assert mind.next_intent(observed).skill == "use_target"
+    assert mind.next_intent(observed).skill == "break_seen_block"
 
 
 def test_reacquisition_looks_steeply_up_before_abandoning_a_close_resource_heading() -> None:

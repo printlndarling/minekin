@@ -966,3 +966,6 @@ MINEKIN_DEMO_AUTONOMOUS_WAIT_SECONDS=420 \
 
 
 陡角修复后 run `ab02dd30a7a54d72bd9347ed96cd80b1`（会话 `3c0419a66be5410092e4eb8166a552d9`，server `run-49`）接纳203帧、拒收0，45步CONFIRMED。第三次采集在第25–26步CONFIRMED，随后三次木板合成UNKNOWN，最后48步预算截止；正常停止，未完成3×3，模型调用0。客户端日志明确三次都发送 `recipe minecraft:oak_planks` 与 slot0 quick-move。按真实调用缝隙复现并修了两项：拾取先等待已观测的行走朝向再前进；结果槽先等待同一handler内同步材料移入网格，忽略先到的无变化帧，换窗/关窗则停止。不重发配方点击。自主步骤文档现保留执行器原有details，以便后续直接读取库存revision、点击阶段和最新tick。227项相关回归通过；下次真跑使用本次字节，不能以旧run替代。
+
+
+最新时序修复后 run `acbdd60afe574bebaa21cdbcf9f08ee3`（会话 `c7e8a1c936734b6bb6c3db456b4ce3ff`，server `run-50`）：204帧接纳、0拒收，47步CONFIRMED；四次2×2合成均CONFIRMED，details显示 `recipe_fill+result_quick_move` 与库存revision前进。拾取一次 `COLLECT_AIM_NOT_CONFIRMED` 后库存自然拾入，计划继续；工作台交互sync1已确认，但第三根资源未重新获得，48步截止，goal仍false、model_calls=0。据此修正上一轮过早设置网格的排序：仅当剩余材料已支付、catalog blocker为 `CRAFT_GRID_TOO_SMALL` 时优先use；材料仍欠缺则继续通用采集/回看。新回归在过早设置的代码上红、修复后绿。`tools/summarize_demo_run.py <log>` 可直接输出每步来源/结果/details；不输出配置或模型理由，缺完成文档时退出2。
