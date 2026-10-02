@@ -996,3 +996,5 @@ uv run python tools/run_real_model_demo.py --log .tmp/model-demo.log --bash D:/e
 本机代理造成模型假端点两项失败（原应是断连/超时却报502）：模型适配器现对真实回环地址直连，远端端点保持原代理路径。回环判断改为解析IP，127.example.com等外部域名不再获明文HTTP例外；两条安全回归先红后绿，全部102项模型配置/端点测试通过。静态检查通过，密钥仍不记录、不随重定向转发。
 
 Windows后台脚本测试的两项失败来自Git Bash包装器把自带curl插到PATH最前，导致测试触及真实网络而非curl替身。测试入口现在在shell初始化后重置替身优先级，并优先真实bash解释器以覆盖子脚本；产品脚本不改。4项启动/错误/清理/浏览入口测试通过，ruff/format通过。历史registry与当前候选的构建差异仍单列，未用测试变通隐藏。
+
+模型run-55 `3090f05f8d3545c796dfd691a26738d7`（会话f8c49a33973f402999c0f515f72a2609）48调用、42步CONFIRMED、675帧接纳、正常松键，goal未成；空容器反复开关已停止，但第三原料后的三次oak_planks填充UNKNOWN。检查本地Yarn Minecraft字节码：HandledScreen.removed仅onClosed，正常close另调用ClientPlayerEntity.closeHandledScreen并重置处理器/通知服务端；Bridge原setScreen(null)跳过后者。现按currentScreen.close正常路径关闭1.20.1窗口。Java21 test/build及源/工件边界通过；新jar 0c8adfb7…、source fc0e4850…，candidate与Launcher pin及fixture manifest同步，51项契约/配方测试通过。1.21.4未改，旧sealed/registry不改；新字节游戏复验待做。

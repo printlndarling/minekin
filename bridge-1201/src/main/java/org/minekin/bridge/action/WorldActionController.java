@@ -92,8 +92,10 @@ public final class WorldActionController implements WorldClientView {
     @Override
     public void closeScreen() {
         MinecraftClient client = runningClient();
-        if (client != null) {
-            client.setScreen(null);
+        if (client != null && client.currentScreen != null) {
+            // The normal close path also returns the player to the inventory handler
+            // and notifies the server. Removing only the screen strands container state.
+            client.currentScreen.close();
         }
     }
 
