@@ -1381,14 +1381,26 @@ class WorldSkills:
         await self._sleep(USE_TAP_SECONDS)
         await self._send_use(authority, action_id, use=False)
         deadline = monotonic_ns() + timeout_ns
-        post = await self._wait_until(_newer_reading(pre.game_tick), deadline, action_id=action_id)
+        post = await self._wait_until(
+            lambda candidate: (
+                verify_use_effect(pre=pre, post=candidate, held_item_id=held)
+                is ActionResultClass.CONFIRMED
+            ),
+            deadline,
+            action_id=action_id,
+        )
         if post is None:
-            return SkillOutcome(
-                result=ActionResultClass.UNKNOWN,
-                reason="NO_CONFIRMING_OBSERVATION",
-                action_id=action_id,
-                pre_tick=pre.game_tick,
-            )
+            # A newer unchanged frame is not the final answer while the original
+            # observation budget is still open. At expiry retain the latest frame
+            # for an honest UNKNOWN, without sending another side-effecting tap.
+            post = self._observations.latest
+            if post is None or post.game_tick <= pre.game_tick:
+                return SkillOutcome(
+                    result=ActionResultClass.UNKNOWN,
+                    reason="NO_CONFIRMING_OBSERVATION",
+                    action_id=action_id,
+                    pre_tick=pre.game_tick,
+                )
         return SkillOutcome(
             result=verify_use_effect(pre=pre, post=post, held_item_id=held),
             reason="",

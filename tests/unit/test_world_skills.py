@@ -1890,3 +1890,33 @@ def test_a_use_with_no_confirmed_change_is_unknown_never_failed() -> None:
         assert sender.types() == [USE_INPUT_TYPE, USE_INPUT_TYPE]
 
     asyncio.run(scenario())
+
+
+def test_use_waits_for_a_later_effect_after_an_unchanged_newer_frame() -> None:
+    async def scenario() -> None:
+        store = store_with(reading(tick=100, aim=entity_aim()))
+        skills, sender = skill_with(store)
+
+        async def report() -> None:
+            # A newer frame can precede the game's effect. The tap must not be
+            # replayed, but the remaining observation window is still usable.
+            await asyncio.sleep(0.30)
+            store.admit(reading(tick=110, aim=entity_aim()), ())
+            await asyncio.sleep(0.05)
+            store.admit(
+                reading(
+                    tick=120,
+                    aim=entity_aim(),
+                    gui=GuiScreenValue(screen_id="minecraft:crafting", sync_id=3),
+                ),
+                (),
+            )
+
+        task = asyncio.create_task(report())
+        outcome = await skills.use_target(authority=authority(), timeout_ns=500_000_000)
+        await task
+        assert outcome.result is ActionResultClass.CONFIRMED
+        assert outcome.post_tick == 120
+        assert sender.types() == [USE_INPUT_TYPE, USE_INPUT_TYPE]
+
+    asyncio.run(scenario())
