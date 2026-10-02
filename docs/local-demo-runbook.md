@@ -934,3 +934,10 @@ step14 turn_to {pitch:-18, yaw:135}  "sweep to look for a spot to place a crafti
 **仍不声明**：这一发未取得任何放置或 3×3 木镐的真实游戏 CONFIRM；`#50` 的 3×3 终端保持 UNKNOWN/未达，`use_target` 的放置CONFIRM 路径此前也只在 `verify_use_effect` 下限=UNKNOWN 的意义上存在。不据此判 #50/#48 通过，也不把 UNKNOWN 转述为 CONFIRMED。
 
 **下一格 `current_next`**：#50 的通用修法方向已用一枚活体读数钉死在「多目标采集时十字准星未随残柱自动重取」这一环。下一步读 `domain/recipe_catalog.py` 的 `build_plan` 与 enabler 预留次序之外，改把焦点放在 `collect_dropped`/`break_seen_block` 之间的对准交接：判明采集走完后目标射线是否应自动重新对准（而非要求下一条 `turn_to` 用固定角再赌一次），据此才谈得上通用放置目标选择与前提校验更靠前那一环；仍不重跑赌模型、不加木镐专用步、不改断言凑绿。
+
+
+## 当前接管验证（2026-10-03，main@d87ce87）
+
+本地规则复验 run `ebe69cbe59ee48f0aa728865ac4f0b7f`，会话 `40ec626749dc4f8985bc4e5cbce3225d`，demo2 卷同一 Kin 根，server `run-44`。24 步中 21 步 CONFIRMED：前 15 步完成两轮采集、木板/木棍/工作台并选中工作台；第 17–19 步拾取返回 `NO_SEEN_DROP`，随后到 `STEP_BUDGET_SPENT`，未完成 3×3。`model_calls=0`、来源 `local_reflection`；收尾 `STOPPED_ON_REQUEST`，不是真实模型成功，也不是 sealed evidence。第一次 `run-43` 在 CLI 因 32 超过 24 步上限被拒，未入服，不计入能力验证。
+
+定向回归复现：仅看到泥土掉落物时，PlayerMind 的拾取 offer 可行，却无条件填写 milestone 的橡木资源，必然 `NO_SEEN_DROP`；新测试先红。修复按同一可见观察选物品：目标资源可见时优先它，否则选择最近的可见掉落物。该修复是确定性参数缺陷，不声称已证明 run-44 三次拒止的物品种类（该 run 未记录逐步观察内容）。下一步核对放置前的通用目标选择，再按当前字节复验；不重复跑旧字节赌成功。

@@ -1593,3 +1593,20 @@ def test_the_re_aim_landing_on_a_block_re_arms_breaking_so_more_than_one_log_is_
     )
     assert refaced.skill == "break_seen_block"
     assert mind.last_target_block == (0, 64, 5)
+
+
+def test_collect_fallback_uses_a_visible_item_when_goal_resource_is_not_in_view() -> None:
+    mind, _ = mind_with()
+    observed = reading(entities=(drop("minecraft:dirt"),))
+    intent = mind.next_intent(observed)
+    assert intent.skill == "collect_dropped"
+    assert intent.plan.calls[0].item_id == "minecraft:dirt"
+    assert intent.arguments["item_id"] == "minecraft:dirt"
+
+
+def test_collect_fallback_prefers_the_goal_resource_when_it_is_visible() -> None:
+    mind, _ = mind_with()
+    observed = reading(entities=(drop("minecraft:dirt", at=0.5), drop(LOG, at=2.0)))
+    intent = mind.next_intent(observed)
+    assert intent.skill == "collect_dropped"
+    assert intent.plan.calls[0].item_id == LOG

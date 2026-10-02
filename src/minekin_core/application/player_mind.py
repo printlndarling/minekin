@@ -1355,13 +1355,23 @@ class PlayerMind:
         return options[0] if options else ""
 
     def _resource_id(self, reading: WorldObservationValue) -> str:
-        """The item to pick up: the milestone's named resource, or the nearest one on the ground.
+        """The item to pick up: the visible goal resource, or the nearest visible drop.
 
         A standing goal may say what it is built from; with no such name the mind takes what it can
         see, which is the item-agnostic answer and the one the summary already showed.
         """
 
-        if self.goal is not None and self.goal.source_item_id:
+        # A milestone names what is wanted, not what this observation saw. The
+        # feasible offer permits collecting any visible drop; asking for an absent
+        # goal resource would deterministically spend that skill's retry budget.
+        if (
+            self.goal is not None
+            and self.goal.source_item_id
+            and any(
+                candidate.item_id == self.goal.source_item_id
+                for candidate in _visible_item_entities(reading)
+            )
+        ):
             return self.goal.source_item_id
         drop = _nearest_drop(reading)
         return "" if drop is None or drop.item_id is None else drop.item_id
