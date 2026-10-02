@@ -34,10 +34,12 @@ from types import MappingProxyType
 from typing import Final, Protocol
 
 from minekin_core.application.player_mind import (
+    DECISION_PRECONDITION_CHANGED,
     FailureCode,
     MindDecisionKind,
     MindIntent,
     PlayerMind,
+    feasible_skill_ids,
     observation_ref,
     screen_open,
 )
@@ -223,12 +225,28 @@ async def run_autonomous_loop(
         # retry loop that spends the mind's budget on one unchanged moment.
         asked_on = intent.observation_ref
         try:
-            outcome = await perform_skill(
-                skills,
-                intent.plan.calls[0],
-                authority=authority,
-                timeout_ns=timeout_ns,
-            )
+            latest = observations.latest
+            if (
+                latest is not None
+                and observation_ref(latest) != intent.observation_ref
+                and intent.skill not in feasible_skill_ids(mind.goal, latest)
+            ):
+                # A remote decision can outlive the screen or bag it was asked about.
+                # Recheck the current offer without rejecting mere advancing ticks.
+                outcome = SkillOutcome(
+                    result=ActionResultClass.INTERRUPTED,
+                    reason=DECISION_PRECONDITION_CHANGED,
+                    action_id="",
+                    pre_tick=None if reading is None else reading.game_tick,
+                    post_tick=latest.game_tick,
+                )
+            else:
+                outcome = await perform_skill(
+                    skills,
+                    intent.plan.calls[0],
+                    authority=authority,
+                    timeout_ns=timeout_ns,
+                )
         except (OSError, RuntimeError) as error:
             stop_reason = CONTROL_CHANNEL_LOST
             stop_detail = type(error).__name__

@@ -124,6 +124,7 @@ NO_CONFIRMING_OBSERVATION: Final = "NO_CONFIRMING_OBSERVATION"
 GOAL_ACHIEVED: Final = "GOAL_ACHIEVED"
 NO_FEASIBLE_SKILL: Final = "NO_FEASIBLE_SKILL"
 
+DECISION_PRECONDITION_CHANGED: Final = "DECISION_PRECONDITION_CHANGED"
 DECISION_FROM_MODEL: Final = "model"
 DECISION_FROM_LOCAL: Final = "local_reflection"
 
@@ -154,7 +155,7 @@ _ABSENT_REASONS: Final = frozenset(
 #: reading keeps paying for a craft the skill keeps refusing is stopped by the run's own step
 #: budget, not by this one. The name going into the document is what makes that loop visible
 #: instead of merely finite.
-_PRECONDITION_REROUTE: Final = frozenset({CRAFT_MATERIALS_MISSING})
+_PRECONDITION_REROUTE: Final = frozenset({CRAFT_MATERIALS_MISSING, DECISION_PRECONDITION_CHANGED})
 _PRECONDITION_DEAD_END: Final = frozenset({CRAFT_GRID_TOO_SMALL, CRAFT_RECIPE_UNAVAILABLE})
 
 

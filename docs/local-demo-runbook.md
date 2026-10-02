@@ -986,3 +986,5 @@ uv run python tools/run_real_model_demo.py --log .tmp/model-demo.log --bash D:/e
 ```
 
 账本单位与估算费率来自model_access契约，不能将上限直接宣称为供应商实际账单金额。此入口不改配置文件、不打印密钥，普通日志与sealed证据分开。
+
+模型等待期间的观察变化也有独立回归：请求turn_to后GUI在模型返回前打开，旧循环仍执行世界动作；新循环按最新可行集将该步记为INTERRUPTED/DECISION_PRECONDITION_CHANGED并重新规划，不发送已不适用动作、不消耗技能失败重试。仅tick前进不拒绝，物品/位置参数仍由技能实际前提核对。181项心智、闭环、CLI与技能回归通过；授权修复与观察重验待合并后的本地模型复验。

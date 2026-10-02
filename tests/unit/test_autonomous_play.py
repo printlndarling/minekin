@@ -800,3 +800,29 @@ def test_a_goal_already_in_hand_still_closes_the_crafting_window_before_success(
     assert outcome.stop_reason == GOAL_HELD_IN_HAND
     assert [name for name, _ in skills.ran] == ["close_screen"]
     assert stage.latest is not None and stage.latest.gui is None
+
+
+def test_model_choice_is_rechecked_when_a_screen_opens_during_decision() -> None:
+    stage = Stage(
+        reading(tick=100),
+        replace(reading(tick=120), gui=GuiScreenValue(screen_id="minecraft:crafting", sync_id=1)),
+    )
+    skills = TapeSkills(stage, {"turn_to": confirmed()})
+
+    class OpeningScreenProvider:
+        def decide(self, request: object) -> Decision:
+            del request
+            stage.advance()
+            return Decision(
+                skill_id="turn_to",
+                reason="inspect",
+                intent_generation=1,
+                arguments={"yaw_degrees": 0.0, "pitch_degrees": 30.0},
+            )
+
+    mind = mind_for(OpeningScreenProvider(), CostLedger(run_cost_cap=CAP))
+    result = run(stage, skills, mind, step_budget=1)
+    assert skills.ran == []
+    assert result.steps[0].outcome.result is ActionResultClass.INTERRUPTED
+    assert result.steps[0].outcome.reason == "DECISION_PRECONDITION_CHANGED"
+    assert mind.attempts == {}
