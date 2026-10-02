@@ -1,10 +1,13 @@
-import { render, screen } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import { App } from "../App";
 import type { DashboardConfig } from "../adapters/config";
 import { buildMockConfig, type MockScenarioId } from "../fixtures/mockFixtures";
 import { CONFIG_SCHEMA_VERSION } from "../domain/model";
+import { createMockAdapter } from "../adapters/mockAdapter";
+import { ConfigPanel } from "./ConfigPanel";
 
 /**
  * The config panel driven through the same shell the operator uses. These readings prove the
@@ -57,6 +60,7 @@ describe("配置面板：显示已保存的文档", () => {
     await userEvent.type(screen.getByTestId("config-input-goal_direction"), "先砍树再做镐");
     await userEvent.click(submit);
     expect(await screen.findByTestId("config-result")).toHaveTextContent("已保存：写入 1 个字段");
+    await waitFor(() => expect(screen.queryByTestId("config-unsaved")).not.toBeInTheDocument());
   });
 });
 
@@ -128,5 +132,62 @@ describe("配置面板：本机先校验，服务器仍是最终裁判", () => {
     } finally {
       globalThis.fetch = original;
     }
+  });
+});
+
+describe("配置草稿保护", () => {
+  it("clears the dirty state after an accepted save even if the document is unchanged", async () => {
+    openConfig("healthy_run_07");
+    const user = userEvent.setup();
+    const name = await screen.findByTestId("config-input-model_name");
+    await user.clear(name);
+    await user.type(name, "deepseek-chat");
+    await user.click(screen.getByTestId("config-submit"));
+    await screen.findByTestId("config-result");
+    await waitFor(() => expect(screen.queryByTestId("config-unsaved")).not.toBeInTheDocument());
+  });
+
+  it("can explicitly discard changes and clears the unsaved warning", async () => {
+    openConfig("healthy_run_07");
+    const user = userEvent.setup();
+    const name = await screen.findByTestId("config-input-model_name");
+    await user.clear(name);
+    await user.type(name, "local-model");
+    expect(screen.getByTestId("config-unsaved")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "放弃修改，读取已存配置" }));
+    expect(name).toHaveValue("deepseek-chat");
+    expect(screen.queryByTestId("config-unsaved")).not.toBeInTheDocument();
+  });
+
+  it("keeps a dirty draft on a changed poll and blocks overwriting that external change", async () => {
+    const adapter = createMockAdapter("healthy_run_07", 0);
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const saved = await adapter.config(new AbortController().signal);
+    if (!saved.ok) throw new Error("fixture config unavailable");
+    render(<QueryClientProvider client={client}><ConfigPanel adapter={adapter} nowMs={Date.now()} /></QueryClientProvider>);
+    const user = userEvent.setup();
+    const name = await screen.findByTestId("config-input-model_name");
+    await user.clear(name);
+    await user.type(name, "my-draft");
+    act(() => {
+      client.setQueryData(["config", adapter.describe().id], {
+        ...saved, value: { ...saved.value, fields: { ...saved.value.fields, model_name: "external-model" } },
+      });
+    });
+    await waitFor(() => expect(screen.getByTestId("config-unsaved")).toHaveTextContent("在别处发生变化"));
+    expect(name).toHaveValue("my-draft");
+    expect(screen.getByTestId("config-submit")).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: "放弃修改，读取已存配置" }));
+    expect(name).toHaveValue("external-model");
+    expect(screen.getByTestId("config-submit")).toBeEnabled();
+    client.clear();
+  });
+
+  it("links invalid fields to their visible explanation", async () => {
+    openConfig("fields_unknown");
+    const goal = await screen.findByTestId("config-input-goal_product_id");
+    await userEvent.type(goal, "Bad Id");
+    expect(goal).toHaveAttribute("aria-invalid", "true");
+    expect(goal).toHaveAccessibleDescription("必须是游戏里写法的物品 id（namespace:path，小写）。");
   });
 });

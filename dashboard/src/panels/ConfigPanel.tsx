@@ -35,15 +35,34 @@ export function ConfigPanel({ adapter, nowMs }: { readonly adapter: KinReadAdapt
   const signature = config === null ? null : configFieldsSignature(config);
 
   const [draft, setDraft] = useState<ConfigDraft>({});
+  const [edited, setEdited] = useState(false);
   // Re-seed only when the SAVED document's signature actually changes (initial load, or the refetch
   // after an accepted save). A poll that returns the same document leaves the operator's in-progress
   // edits untouched, because the signature is unchanged and this effect does not fire.
   const [seededSignature, setSeededSignature] = useState<string | null>(null);
   useEffect(() => {
-    if (signature === null || signature === seededSignature) return;
+    if (signature === null) return;
+    if (signature === seededSignature) {
+      if (edited && controller.outcome?.ok) setEdited(false);
+      return;
+    }
+    // A different polled document is not permission to erase unsaved operator input.
+    if (edited && !controller.outcome?.ok) return;
     setDraft(fieldsToDraft(config!.fields));
     setSeededSignature(signature);
-  }, [signature, seededSignature, config]);
+    setEdited(false);
+  }, [signature, seededSignature, config, edited, controller.outcome?.ok]);
+
+  const externalChange = edited && signature !== null && signature !== seededSignature;
+  useEffect(() => {
+    if (!edited) return;
+    const warn = (event: BeforeUnloadEvent): void => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [edited]);
 
   const errors = useMemo(
     () => (config === null ? {} : validateConfigDraft(draft, config.providers)),
@@ -54,13 +73,14 @@ export function ConfigPanel({ adapter, nowMs }: { readonly adapter: KinReadAdapt
 
   const onSubmit = (event: FormEvent<HTMLFormElement>): void => {
     event.preventDefault();
-    if (config === null || controller.pending || !valid) return;
+    if (config === null || controller.pending || !valid || externalChange) return;
     // The form sends the whole document (blanks dropped), matching save_from_request's replace
     // semantics — a field the body omits is written as unset.
     controller.submit({ fields: buildSaveFields(draft) });
   };
 
   const setField = (key: string, value: string): void => {
+    setEdited(true);
     setDraft((current) => ({ ...current, [key]: value }));
     if (controller.outcome !== null) controller.clearOutcome();
   };
@@ -103,6 +123,10 @@ export function ConfigPanel({ adapter, nowMs }: { readonly adapter: KinReadAdapt
             {SECRET_BOUNDARY_NOTE}
           </p>
           <p className={styles.stability}>{WHOLE_DOCUMENT_NOTE}</p>
+          {edited ? <p className={styles.notice} role="status" data-testid="config-unsaved">
+            {externalChange ? "已存配置在别处发生变化。你的编辑已保留；请先放弃修改并读取最新配置，再重新编辑，避免覆盖。" :
+              "有未保存修改。关闭或刷新会提示；切换面板会丢失此草稿，请先保存或放弃修改。"}
+          </p> : null}
 
           <form className={styles.form} onSubmit={onSubmit}>
             {CONFIG_GROUPS.map((group) => (
@@ -126,10 +150,17 @@ export function ConfigPanel({ adapter, nowMs }: { readonly adapter: KinReadAdapt
               type="submit"
               className={styles.submit}
               data-testid="config-submit"
-              disabled={!valid || controller.pending}
+              disabled={!valid || controller.pending || externalChange}
             >
               {controller.pending ? "保存中…" : "保存配置"}
             </button>
+            <button type="button" className={styles.submit} disabled={!edited || controller.pending}
+              onClick={() => {
+                setDraft(fieldsToDraft(config.fields));
+                setSeededSignature(signature);
+                setEdited(false);
+                controller.clearOutcome();
+              }}>放弃修改，读取已存配置</button>
           </form>
 
           {outcome?.ok && outcome.result !== null ? (
@@ -178,6 +209,8 @@ function ConfigField({
           value={value}
           disabled={!editable}
           data-testid={`config-input-${meta.key}`}
+          aria-invalid={error !== undefined}
+          aria-describedby={`${id}-hint`}
           onChange={(event) => onChange(meta.key, event.target.value)}
         >
           {providers.map((provider) => (
@@ -195,10 +228,12 @@ function ConfigField({
           placeholder={meta.placeholder}
           disabled={!editable}
           data-testid={`config-input-${meta.key}`}
+          aria-invalid={error !== undefined}
+          aria-describedby={`${id}-hint`}
           onChange={(event) => onChange(meta.key, event.target.value)}
         />
       )}
-      <p className={styles.hint}>
+      <p className={styles.hint} id={`${id}-hint`}>
         {error !== undefined ? (
           <span className={styles.fieldError} data-testid={`config-error-${meta.key}`}>
             {error}
