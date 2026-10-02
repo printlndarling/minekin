@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import time
 from collections.abc import Callable, Mapping
+from dataclasses import replace
 from typing import cast
 
 import pytest
@@ -63,6 +64,7 @@ from minekin_core.domain.model_access import (
     UnavailableReason,
 )
 from minekin_core.domain.perception import (
+    GuiScreenValue,
     InventoryStackValue,
     InventoryValue,
     SelfStateValue,
@@ -239,6 +241,15 @@ class TapeSkills(WorldSkills):
     ) -> SkillOutcome:
         del authority, timeout_ns
         return await self._answer("select_hotbar", slot=slot, expected_item_id=expected_item_id)
+
+    async def close_screen(
+        self,
+        *,
+        authority: ActionAuthority,
+        timeout_ns: int = DEFAULT_STEP_TIMEOUT_NS,
+    ) -> SkillOutcome:
+        del authority, timeout_ns
+        return await self._answer("close_screen")
 
 
 class _OneShotProvider:
@@ -775,3 +786,17 @@ def test_step_document_keeps_the_execution_readings_needed_to_diagnose_unknowns(
     step = AutonomousStep(intent, outcome, None, "tick=130;generation=1")
     document = step.as_document()
     assert document["details"] == dict(outcome.details)
+
+
+def test_a_goal_already_in_hand_still_closes_the_crafting_window_before_success() -> None:
+    opened = replace(
+        reading(tick=100, items=((0, PICKAXE, 1),), selected_slot=0),
+        gui=GuiScreenValue(screen_id="minecraft:crafting", sync_id=1),
+    )
+    closed = reading(tick=110, items=((0, PICKAXE, 1),), selected_slot=0)
+    stage = Stage(opened, closed)
+    skills = TapeSkills(stage, {"close_screen": confirmed()})
+    outcome = run(stage, skills, off_mind(), step_budget=3)
+    assert outcome.stop_reason == GOAL_HELD_IN_HAND
+    assert [name for name, _ in skills.ran] == ["close_screen"]
+    assert stage.latest is not None and stage.latest.gui is None

@@ -594,6 +594,8 @@ def feasible_skill_ids(
     """
 
     if screen_open(reading):
+        if goal_in_hand(milestone, reading):
+            return (CLOSE_SCREEN,)
         offer = [CLOSE_SCREEN]
         if craft_options(reading, grid_side=crafting_grid_side(reading)):
             offer.append("craft_take_result")
@@ -947,7 +949,7 @@ class PlayerMind:
         if reading is None:
             return self._hold(NO_LATEST_OBSERVATION, None)
         self.observe(reading)
-        if self.holds_goal(reading):
+        if self.holds_goal(reading) and not screen_open(reading):
             return self._hold(GOAL_ACHIEVED, reading)
         feasible = tuple(
             name for name in feasible_skill_ids(self.goal, reading) if name not in self.excluded

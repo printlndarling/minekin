@@ -39,6 +39,7 @@ from minekin_core.application.player_mind import (
     MindIntent,
     PlayerMind,
     observation_ref,
+    screen_open,
 )
 from minekin_core.application.skill_plan import perform_skill
 from minekin_core.application.world_skills import (
@@ -249,7 +250,7 @@ async def run_autonomous_loop(
             stop_detail = outcome.details.get("exit_code", "")
             break
         held = after if after is not None else reading
-        if held is not None and mind.holds_goal(held):
+        if held is not None and mind.holds_goal(held) and not screen_open(held):
             stop_reason = GOAL_HELD_IN_HAND
             break
     return AutonomousRun(

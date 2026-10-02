@@ -972,3 +972,6 @@ MINEKIN_DEMO_AUTONOMOUS_WAIT_SECONDS=420 \
 
 
 材料先行复验 run `d5a611ddeec04e13b8d10d37474abef5`（会话 `57a84455299a42488ca19e6ca69e185b`，server `run-51`）：三次采集后的五次2×2合成CONFIRMED，第20步use开窗sync1 CONFIRMED；第21步本地规则立即关窗，随后试做重复工作台而非终产物，三次停在 `clicks=recipe_fill`，48步截止。205帧接纳、0拒收，goalfalse、model_calls0、正常松键停止。根因在 `_reflect` 的关窗优先级：有宽网格可支付当前目标时仍先关窗。真实交接回归“持enabler→use→更晚3×3读数→终产物合成→关窗”在旧代码红；修复优先复用该宽网格的当前目标步骤，完成后仍关窗。另外自然拾入背包的后续同步读数现在可确认拾取，即使转向未完成；换成另一handler时不点击它的slot0。230项相关回归通过，终产物的当前字节真跑仍待执行。
+
+
+通用3×3首条实际成功（当前代码 `f5b7d52`）：run `55a59985a6f642f79ec9771ba25ee75b`，会话 `48e49512f9a8439181a9834cd9c8f6bd`，server `run-52`。21步全部CONFIRMED，三次采集、五次2×2中间合成、工作台use开窗sync1，以及第21步3×3终产物合成（库存revision1387→1409）均由后续读数确认；`goal_met=true / GOAL_HELD_IN_HAND`，66帧接纳、0拒收、`STOPPED_ON_REQUEST`，释放实读无unconfirmed，退出0。来源为local_reflection、model_calls0，不是LLM成功或sealed evidence。此发成品进入已选槽位使循环在GUI尚开时提前成功，因此补关窗收尾：目标在手且GUI打开时只允许close_screen，循环要在关窗确认后才成功；对应真实循环回归先红后绿。231项相关回归与静态检查通过；下一步为同字节真实模型与GUI收尾复验。
