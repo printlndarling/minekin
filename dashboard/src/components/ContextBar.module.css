@@ -1,8 +1,8 @@
 .bar {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-  gap: 10px;
-  margin-bottom: 16px;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr));
+  gap: 14px;
+  margin-bottom: 24px;
 }
 
 .cell {
@@ -10,8 +10,9 @@
   border-left-width: 3px;
   border-radius: var(--radius);
   background: var(--surface);
-  padding: 9px 11px;
-  min-height: 84px;
+  padding: 16px 18px;
+  min-height: 112px;
+  min-width: 0;
 }
 
 .ok {
@@ -31,7 +32,7 @@
 }
 
 .question {
-  margin: 0 0 5px;
+  margin: 0 0 10px;
   font-size: 11px;
   letter-spacing: 0.06em;
   color: var(--text-dim);
@@ -41,8 +42,8 @@
   margin: 0;
   padding: 0;
   list-style: none;
-  font-size: 12px;
-  line-height: 1.55;
+  font-size: 13px;
+  line-height: 1.65;
   overflow-wrap: anywhere;
 }
 
