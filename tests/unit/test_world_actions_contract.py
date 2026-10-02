@@ -612,6 +612,28 @@ def test_placement_collision_spreads_to_the_head_cell_and_side_faces() -> None:
     ).accepted
 
 
+def test_a_player_leaning_over_a_boundary_refuses_the_neighbour_cell_it_shares() -> None:
+    # The server blocks a placement into ANY cell the 0.6-wide player box touches, not
+    # only the cell the feet floor into. A Kin standing at x=0.9 has its box spanning
+    # [0.6, 1.2], so it leans into cell 1; a WEST face of the block at x=2 opens onto
+    # (1, 64, 0) — a cell the player is partly in, which the floor-of-center model read
+    # as free and the hand spent a server-bounced click on. Now named. (Fails before the
+    # box-span fix, where only cells {0} were occupied.)
+    decision = use_target_refusal(
+        reading(state=standing(x=0.9), aim=aimed_at(block(2, 64, 0, AimFace.WEST)))
+    )
+    assert decision.refusal is ActionRefusal.PLACEMENT_TARGET_IN_SELF
+
+
+def test_the_same_neighbour_cell_stays_free_for_a_centered_player() -> None:
+    # Control against over-refusal: the identical (2,64,0).WEST target lands on (1,64,0),
+    # but a player centered at x=0.5 has a box spanning only [0.2, 0.8] and never reaches
+    # cell 1, so the placement is allowed. Only the boundary straddle changes the verdict.
+    assert use_target_refusal(
+        reading(state=standing(x=0.5), aim=aimed_at(block(2, 64, 0, AimFace.WEST)))
+    ).accepted
+
+
 def test_use_target_signature_names_the_aimed_target_and_reads_nothing_as_none() -> None:
     """The identity the repeat guard compares on: the block-and-face (or the entity) the
     crosshair reports, and `None` for an aim no click could land on — so "there was no

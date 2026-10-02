@@ -237,15 +237,39 @@ def _placement_cell(block: BlockTargetValue) -> tuple[int, int, int] | None:
     return (block.x + offset[0], block.y + offset[1], block.z + offset[2])
 
 
+PLAYER_COLLISION_HALF_WIDTH = 0.3
+PLAYER_COLLISION_HEIGHT = 1.8
+
+
 def _occupied_cells(self_state: SelfStateValue) -> frozenset[tuple[int, int, int]]:
-    """The two blocks a standing player fills: the feet cell and the head cell
-    above it. An absent position reads as no cells, so the check stays silent
-    rather than guessing the origin."""
+    """Every block cell the standing player's collision box overlaps, not just the
+    two its feet column floors to.
+
+    A player box is 0.6 wide and 1.8 tall centered on the reported position, so it
+    reaches `PLAYER_COLLISION_HALF_WIDTH` to each side and `PLAYER_COLLISION_HEIGHT`
+    up. The server refuses a block placed into ANY cell the box touches — including
+    the neighbour cell a Kin straddling a boundary leans into, which a floor-of-center
+    model reads as free and the hand then spends a doomed click on. An absent
+    position reads as no cells, so the check stays silent rather than guessing the
+    origin. For a player standing at a cell center the span is exactly the feet cell
+    and the head cell above it, so the common case is unchanged.
+    """
 
     if self_state.x is None or self_state.y is None or self_state.z is None:
         return frozenset()
-    feet = (math.floor(self_state.x), math.floor(self_state.y), math.floor(self_state.z))
-    return frozenset({feet, (feet[0], feet[1] + 1, feet[2])})
+    xs = range(
+        math.floor(self_state.x - PLAYER_COLLISION_HALF_WIDTH),
+        math.floor(self_state.x + PLAYER_COLLISION_HALF_WIDTH) + 1,
+    )
+    ys = range(
+        math.floor(self_state.y),
+        math.floor(self_state.y + PLAYER_COLLISION_HEIGHT) + 1,
+    )
+    zs = range(
+        math.floor(self_state.z - PLAYER_COLLISION_HALF_WIDTH),
+        math.floor(self_state.z + PLAYER_COLLISION_HALF_WIDTH) + 1,
+    )
+    return frozenset((x, y, z) for x in xs for y in ys for z in zs)
 
 
 def placement_target_in_self(observation: WorldObservationValue | None) -> bool:
