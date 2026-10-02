@@ -767,6 +767,20 @@ class WorldSkills:
         if not await self._walk_toward(
             action_id, authority, first_drops[0], walk_seconds, deadline
         ):
+            latest = self._observations.latest
+            if (
+                latest is not None
+                and verify_item_collected(pre=pre, post=latest, item_id=item_id)
+                is ActionResultClass.CONFIRMED
+            ):
+                return SkillOutcome(
+                    result=ActionResultClass.CONFIRMED,
+                    reason="",
+                    action_id=action_id,
+                    pre_tick=pre.game_tick,
+                    post_tick=latest.game_tick,
+                    details=_chase_details(0, latest),
+                )
             return SkillOutcome(
                 result=ActionResultClass.UNKNOWN,
                 reason="COLLECT_AIM_NOT_CONFIRMED",

@@ -1660,3 +1660,50 @@ def test_reacquisition_looks_steeply_up_before_abandoning_a_close_resource_headi
     )
     assert observed.skill == "break_seen_block"
     assert mind.last_target_block == (0, 67, 5)
+
+
+def test_local_mind_uses_the_open_wider_grid_before_closing_it() -> None:
+    mind, _ = mind_with()
+    selected = reading(
+        items=((0, PLANKS, 3), (1, STICK, 2), (6, TABLE, 1)),
+        self_state=replace(state(selected_slot=6), main_hand_item_id=TABLE),
+        aim=block_aim(),
+    )
+    opening = mind.next_intent(selected)
+    assert opening.skill == "use_target"
+    opened = reading(
+        tick=110,
+        items=((0, PLANKS, 3), (1, STICK, 2)),
+        gui=GuiScreenValue(screen_id="minecraft:crafting", sync_id=1),
+    )
+    mind.record_result(
+        opening,
+        SkillOutcome(
+            result=ActionResultClass.CONFIRMED,
+            reason="",
+            action_id="open-1",
+            pre_tick=100,
+            post_tick=110,
+        ),
+        opened,
+    )
+    crafting = mind.next_intent(opened)
+    assert crafting.skill == "craft_take_result"
+    assert crafting.plan.calls[0].product_id == PICKAXE
+    finished = reading(
+        tick=120,
+        items=((0, PICKAXE, 1),),
+        gui=GuiScreenValue(screen_id="minecraft:crafting", sync_id=1),
+    )
+    mind.record_result(
+        crafting,
+        SkillOutcome(
+            result=ActionResultClass.CONFIRMED,
+            reason="",
+            action_id="craft-1",
+            pre_tick=110,
+            post_tick=120,
+        ),
+        finished,
+    )
+    assert mind.next_intent(finished).skill == "close_screen"

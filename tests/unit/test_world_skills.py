@@ -2036,3 +2036,61 @@ def test_result_slot_waits_for_observed_recipe_fill_before_clicking() -> None:
         assert len(_gui_clicks(sender)) == 2
 
     asyncio.run(scenario())
+
+
+def test_collect_confirms_natural_pickup_even_if_the_heading_never_finishes() -> None:
+    async def scenario() -> None:
+        item = EntityCandidate(
+            observation_id="nearby-drop",
+            entity_type="minecraft:item",
+            relative_x=1.0,
+            relative_y=0.0,
+            relative_z=0.0,
+            line_of_sight=True,
+            item_id=LOG,
+            item_count=1,
+        )
+        store = store_with(reading(tick=100, entities=(item,)))
+        skills, sender = skill_with(store)
+
+        def answer(message_type: str) -> None:
+            if message_type == AIM_INPUT_TYPE:
+                store.admit(reading(tick=110, inventory_value=inventory(110, (0, LOG, 1))), ())
+
+        sender.on_send = answer
+        outcome = await skills.collect_dropped(
+            item_id=LOG, authority=authority(), walk_seconds=0.0, timeout_ns=20_000_000
+        )
+        assert outcome.result is ActionResultClass.CONFIRMED
+        assert outcome.post_tick == 110
+        assert sender.types() == [AIM_INPUT_TYPE]
+
+    asyncio.run(scenario())
+
+
+def test_recipe_fill_interrupted_by_another_handler_never_clicks_its_slot_zero() -> None:
+    async def scenario() -> None:
+        store = _player_screen_store((0, LOG, 1))
+        skills, sender = skill_with(store)
+        changed = reading(
+            tick=110,
+            inventory_value=inventory(110),
+            gui=GuiScreenValue(screen_id="minecraft:chest", sync_id=9),
+        )
+        task = asyncio.create_task(admit_later(store, changed))
+        outcome = await skills.craft_take_result(
+            recipe_id="oak_planks",
+            materials={LOG: 1},
+            product_id=PLANKS,
+            authority=authority(),
+            timeout_ns=500_000_000,
+        )
+        await task
+        assert outcome.result is ActionResultClass.UNKNOWN
+        assert outcome.reason == "SCREEN_NOT_CONFIRMED"
+        clicks = _gui_clicks(sender)
+        assert len(clicks) == 1
+        assert clicks[0].HasField("recipe")
+        assert clicks[0].sync_id == 0
+
+    asyncio.run(scenario())

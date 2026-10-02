@@ -969,3 +969,6 @@ MINEKIN_DEMO_AUTONOMOUS_WAIT_SECONDS=420 \
 
 
 最新时序修复后 run `acbdd60afe574bebaa21cdbcf9f08ee3`（会话 `c7e8a1c936734b6bb6c3db456b4ce3ff`，server `run-50`）：204帧接纳、0拒收，47步CONFIRMED；四次2×2合成均CONFIRMED，details显示 `recipe_fill+result_quick_move` 与库存revision前进。拾取一次 `COLLECT_AIM_NOT_CONFIRMED` 后库存自然拾入，计划继续；工作台交互sync1已确认，但第三根资源未重新获得，48步截止，goal仍false、model_calls=0。据此修正上一轮过早设置网格的排序：仅当剩余材料已支付、catalog blocker为 `CRAFT_GRID_TOO_SMALL` 时优先use；材料仍欠缺则继续通用采集/回看。新回归在过早设置的代码上红、修复后绿。`tools/summarize_demo_run.py <log>` 可直接输出每步来源/结果/details；不输出配置或模型理由，缺完成文档时退出2。
+
+
+材料先行复验 run `d5a611ddeec04e13b8d10d37474abef5`（会话 `57a84455299a42488ca19e6ca69e185b`，server `run-51`）：三次采集后的五次2×2合成CONFIRMED，第20步use开窗sync1 CONFIRMED；第21步本地规则立即关窗，随后试做重复工作台而非终产物，三次停在 `clicks=recipe_fill`，48步截止。205帧接纳、0拒收，goalfalse、model_calls0、正常松键停止。根因在 `_reflect` 的关窗优先级：有宽网格可支付当前目标时仍先关窗。真实交接回归“持enabler→use→更晚3×3读数→终产物合成→关窗”在旧代码红；修复优先复用该宽网格的当前目标步骤，完成后仍关窗。另外自然拾入背包的后续同步读数现在可确认拾取，即使转向未完成；换成另一handler时不点击它的slot0。230项相关回归通过，终产物的当前字节真跑仍待执行。

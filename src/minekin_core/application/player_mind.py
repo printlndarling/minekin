@@ -1100,6 +1100,18 @@ class PlayerMind:
         """
 
         if "close_screen" in feasible:
+            if (
+                "craft_take_result" in feasible
+                and self.goal is not None
+                and crafting_grid_side(reading) > PLAYER_GRID_SIDE
+                and next_craft(
+                    self.goal,
+                    reading,
+                    grid_side=crafting_grid_side(reading),
+                )
+                is not None
+            ):
+                return "craft_take_result"
             return "close_screen"
         if "select_hotbar" in feasible:
             return "select_hotbar"
