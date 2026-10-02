@@ -27,6 +27,7 @@ from minekin_core.application.player_mind import (
     GOAL_ACHIEVED,
     NO_FEASIBLE_SKILL,
     NO_LATEST_OBSERVATION,
+    REACQUIRE_PITCH_SWEEP_DEGREES,
     RETRY_BUDGET_PER_SIGNATURE,
     SCAN_PITCH_CYCLE_DEGREES,
     SCAN_YAW_STEP_DEGREES,
@@ -1407,21 +1408,56 @@ def test_the_mind_faces_back_to_the_log_block_it_was_breaking() -> None:
     assert call.yaw_degrees != pytest.approx(SCAN_YAW_STEP_DEGREES)
 
 
-def test_the_resource_re_aim_is_spent_once_so_a_felled_tree_resumes_scanning() -> None:
-    """The memory clears when it is used: if the re-aim lands on no block (the trunk is gone), the
-    next look falls back to the blind sweep rather than turning forever at an empty cell.
+def test_the_re_aim_sweep_is_bounded_so_a_felled_tree_resumes_scanning() -> None:
+    """The re-aim sweeps a bounded set of pitch angles at the recalled heading rather than turning
+    once: if none of them lands the crosshair on a block (the trunk is gone), the memory clears and
+    the next look falls back to the blind sweep, so a felled tree cannot strand the run re-aiming
+    at an empty cell forever.
     """
 
     mind, _ = mind_with()
     mind.next_intent(reading(aim=aim_at(NEAR_LOG)))
     assert mind.last_target_block == (0, 64, 5)
 
-    mind.next_intent(reading())
-    assert mind.last_target_block is None
+    # Each empty reading fires exactly one probe of the sweep and leaves the memory armed.
+    for _ in range(len(REACQUIRE_PITCH_SWEEP_DEGREES)):
+        stepped = mind.next_intent(reading())
+        assert stepped.skill == "turn_to"
+        assert mind.last_target_block == (0, 64, 5)
+    assert mind.reaim_probe == len(REACQUIRE_PITCH_SWEEP_DEGREES)
 
+    # Offsets spent with nothing seen: the memory clears and the blind sweep (a whole multiple of
+    # the scan step) resumes rather than another re-aim at the empty heading.
     after = mind.next_intent(reading())
     assert after.skill == "turn_to"
-    assert after.plan.calls[0].yaw_degrees == pytest.approx((2 * SCAN_YAW_STEP_DEGREES) % 360.0)
+    assert after.plan.calls[0].yaw_degrees % SCAN_YAW_STEP_DEGREES == pytest.approx(0.0)
+    assert mind.last_target_block is None
+    assert mind.reaim_probe == 0
+
+
+def test_the_re_aim_sweep_holds_the_recalled_heading_and_steps_only_the_pitch() -> None:
+    """§5's boundary made observable: across the sweep the heading stays the recalled block's own
+    bearing (never the blind scan's wandering multiple of 45) while only the pitch steps through the
+    fixed offsets. A different pitch is a fresh look along a heading the crosshair already reported,
+    not a new cell the mind inferred.
+    """
+
+    mind, _ = mind_with()
+    mind.next_intent(reading(aim=aim_at(NEAR_LOG)))
+    held_yaw, base_pitch = angle_to_degrees(dx=0.5, dy=0.5, dz=5.5)
+
+    seen_pitch: list[float] = []
+    for _ in range(len(REACQUIRE_PITCH_SWEEP_DEGREES)):
+        stepped = mind.next_intent(reading())
+        call = stepped.plan.calls[0]
+        assert call.yaw_degrees == pytest.approx(held_yaw)
+        assert -180.0 <= call.yaw_degrees <= 180.0
+        assert -90.0 <= call.pitch_degrees <= 90.0
+        seen_pitch.append(call.pitch_degrees)
+
+    # The pitch walks the offset ladder off the same centre, so the probes are distinct looks.
+    assert seen_pitch[0] == pytest.approx(base_pitch)  # offset 0 == the recalled centre
+    assert len(set(round(p, 3) for p in seen_pitch)) == len(REACQUIRE_PITCH_SWEEP_DEGREES)
 
 
 def test_a_re_aim_is_refused_when_the_bag_owes_a_grid_not_a_resource() -> None:
@@ -1493,7 +1529,10 @@ def test_the_re_aim_landing_on_a_block_re_arms_breaking_so_more_than_one_log_is_
 
     turned = mind.next_intent(reading())
     assert turned.skill == "turn_to"
-    assert mind.last_target_block is None
+    # The first probe of the sweep keeps the memory armed — a single empty look is not yet proof
+    # the trunk is gone.
+    assert mind.last_target_block == (0, 64, 5)
+    assert mind.reaim_probe == 1
 
     # The turn put the next block of the same trunk under the crosshair (a different face).
     refaced = mind.next_intent(

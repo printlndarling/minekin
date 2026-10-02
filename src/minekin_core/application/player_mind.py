@@ -99,6 +99,18 @@ RETRY_BUDGET_PER_SIGNATURE: Final = 2
 SCAN_YAW_STEP_DEGREES: Final = 45.0
 SCAN_PITCH_CYCLE_DEGREES: Final = (-18.0, 55.0, -55.0)
 
+#: The pitch offsets a resource re-aim sweeps while it holds the trunk's recalled heading. The
+#: controlled world stacks its oak logs in one vertical column (feet / eye / above-eye at the same
+#: horizontal bearing), so once the block the crosshair reported is broken the ones that stand are
+#: directly above and below that same heading — a single aim at the vacated cell's centre points at
+#: air and misses both. These offsets are fixed degrees, the same kind of angular probe the blind
+#: scan's pitch cycle already uses: they do NOT name a neighbouring cell's coordinates, so which
+#: block (if any) the crosshair reports at each probe stays the client's word and not the mind's
+#: inference — the line §5 draws between "look again along a heading I saw" and "recall a cell I
+#: never saw." Bounded, so a felled trunk whose column is entirely gone sweeps these few angles,
+#: then clears the memory and falls back to the blind scan rather than looping here forever.
+REACQUIRE_PITCH_SWEEP_DEGREES: Final = (0.0, 18.0, -18.0, 36.0, -36.0)
+
 #: Reused verbatim from the skill layer so the word for "there was nothing to read" is the
 #: same on both sides of this module, as it already is on both sides of the IPC channel.
 NO_LATEST_OBSERVATION: Final = "NO_LATEST_OBSERVATION"
@@ -884,6 +896,11 @@ class PlayerMind:
     #: per remembered block (see `_call_for`), so a felled tree that leaves no block in view
     #: cannot strand the run in a re-aim loop: the memory clears and the blind scan resumes.
     last_target_block: tuple[int, int, int] | None = field(default=None, init=False)
+    #: Which `REACQUIRE_PITCH_SWEEP_DEGREES` offset the resource re-aim is on. It advances once per
+    #: re-aim turn and resets when the block is re-armed (a `break_seen_block` follows a landed
+    #: aim) or when the sweep exhausts and the memory clears — so the sweep is bounded and repeats
+    #: only while a real aim is being chased, never across a felled trunk.
+    reaim_probe: int = field(default=0, init=False)
 
     @property
     def direction(self) -> str:
@@ -1152,6 +1169,9 @@ class PlayerMind:
                 return None, "MINE_TARGET_NOT_AIMED", {}
             block = reading.aim.block
             self.last_target_block = (block.x, block.y, block.z)
+            # A landed aim ends the current re-aim sweep; the next lost-block turn starts a fresh
+            # one from this block, rather than resuming an old sweep at a stale offset.
+            self.reaim_probe = 0
             expected = _asked_text(arguments, "expected_drop_item")
             if not expected:
                 expected = self.goal.source_item_id if self.goal is not None else ""
@@ -1233,10 +1253,14 @@ class PlayerMind:
 
         It fires only while the standing milestone still owes its raw material — the reroute word
         `blocker_for` already uses for "go back to the resource" — so it never re-aims at a trunk
-        the bag has finished paying for. It is consumed at most once per remembered cell: the
-        memory clears here, and if the re-aim lands the crosshair back on a block, building the next
-        `break_seen_block` re-arms it; if the tree is gone the aim reads empty and the blind scan
-        resumes, which is what bounds a felled tree from looping the turn.
+        the bag has finished paying for. It is a bounded sweep rather than a single turn: it holds
+        the recalled cell's heading and steps through `REACQUIRE_PITCH_SWEEP_DEGREES`, so a column
+        whose reported block is now broken still gets its standing neighbours back in the
+        crosshair. If a probe lands the crosshair on a block, building the next `break_seen_block`
+        re-arms the memory and resets the sweep; when the offsets run out with nothing seen the
+        memory clears and the blind scan resumes, which is what bounds a felled tree from looping
+        the turn. Every angle here is either the recalled heading or a fixed offset off it — the
+        mind never names a cell the crosshair did not report, the line §5 draws.
         """
 
         if self.goal is None or self.last_target_block is None:
@@ -1244,23 +1268,38 @@ class PlayerMind:
         if blocker_for(reading, self.goal.product_id, grid_side=crafting_grid_side(reading)) != (
             CRAFT_MATERIALS_MISSING
         ):
+            self.reaim_probe = 0
             return None
         self_x, self_y, self_z = reading.self_state.x, reading.self_state.y, reading.self_state.z
         if self_x is None or self_y is None or self_z is None:
+            self.reaim_probe = 0
             return None
         block_x, block_y, block_z = self.last_target_block
-        self.last_target_block = None
-        # Aim at the cell's center, the point a player would look at; `angle_to_degrees` refuses a
-        # zero-length offset (the player standing exactly on the center), and a cell's center is a
-        # half-block off any real position — the guard is belt-and-braces for a degenerate read.
+        # The trunk's heading is the recalled cell's horizontal bearing — data the crosshair
+        # itself reported, so holding it is the authorized memory. The cell's own pitch is the
+        # centre of the sweep; the standing column reaches above and below it at that same heading.
         try:
-            yaw, pitch = angle_to_degrees(
+            yaw, base_pitch = angle_to_degrees(
                 dx=block_x + 0.5 - self_x,
                 dy=block_y + 0.5 - self_y,
                 dz=block_z + 0.5 - self_z,
             )
         except ValueError:
+            self.reaim_probe = 0
+            self.last_target_block = None
             return None
+        if self.reaim_probe >= len(REACQUIRE_PITCH_SWEEP_DEGREES):
+            # The bounded sweep ran out without the crosshair landing a block: the column is gone
+            # (or was never there), so clear the memory and let the blind scan resume — a felled
+            # tree must not strand the run in an endless re-aim.
+            self.reaim_probe = 0
+            self.last_target_block = None
+            return None
+        # A fixed angular offset from the recalled centre, clamped to the client's pitch range: it
+        # does not name a neighbouring cell, it only looks a little higher or lower along a heading
+        # the mind saw, and the crosshair says what is there.
+        pitch = max(-90.0, min(90.0, base_pitch + REACQUIRE_PITCH_SWEEP_DEGREES[self.reaim_probe]))
+        self.reaim_probe += 1
         return (
             SkillPlan((SkillCall(name="turn_to", yaw_degrees=yaw, pitch_degrees=pitch),)),
             "turn back to the resource block this mind was breaking",
