@@ -54,10 +54,13 @@ from minekin_core.domain.world_actions import (
     skill_capabilities,
 )
 
-#: How many steps one call to the loop may take. Twenty-four is several passes of the milestone
-#: chain at the slowest skill, and a run that needs more than that is a run whose world is not
-#: changing; the caller can call the loop again, so this bounds one turn rather than the session.
+#: The default stays small. Multi-stage crafting can legitimately need more than
+#: 24 confirmed actions once gathering, re-aiming and GUI cleanup are counted.
+#: An explicit larger budget is bounded separately; it never disables model cost,
+#: skill timeout, lease expiry or cooperative cancellation.
 DEFAULT_STEP_BUDGET: Final = 24
+MAX_STEP_BUDGET: Final = 64
+
 
 #: The loop's own three endings, beside the reasons an intent already carries.
 GOAL_HELD_IN_HAND: Final = "GOAL_HELD_IN_HAND"

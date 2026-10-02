@@ -16,6 +16,7 @@ import time
 from collections.abc import Callable, Mapping
 from typing import cast
 
+import pytest
 from google.protobuf.message import Message
 
 from minekin_core.adapters.model import OffModelProvider
@@ -549,16 +550,17 @@ def test_a_stop_the_world_caused_names_no_channel_error() -> None:
     assert result.stop_detail == ""
 
 
-def test_the_step_budget_bounds_one_turn_rather_than_the_session() -> None:
-    stage = Stage(*[reading(tick=100 + step) for step in range(10)])
+@pytest.mark.parametrize("step_budget", [4, 48])
+def test_the_step_budget_bounds_one_turn_rather_than_the_session(step_budget: int) -> None:
+    stage = Stage(*[reading(tick=100 + step) for step in range(step_budget + 6)])
     skills = TapeSkills(stage, {"turn_to": confirmed()})
     mind = off_mind()
 
-    result = run(stage, skills, mind, step_budget=4)
+    result = run(stage, skills, mind, step_budget=step_budget)
 
     assert result.stop_reason == STEP_BUDGET_SPENT
-    assert len(result.steps) == 4
-    assert [name for name, _ in skills.ran] == ["turn_to"] * 4
+    assert len(result.steps) == step_budget
+    assert [name for name, _ in skills.ran] == ["turn_to"] * step_budget
 
 
 # ---------------------------------------------------------------------------- the projection

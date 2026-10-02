@@ -106,7 +106,7 @@ from minekin_core.adapters.sqlite.session_log import (
 )
 from minekin_core.adapters.system.clock import SystemClock
 from minekin_core.application.autonomous_play import (
-    DEFAULT_STEP_BUDGET,
+    MAX_STEP_BUDGET,
     AutonomousAsk,
     AutonomousRun,
     AutonomousStep,
@@ -1215,10 +1215,9 @@ async def start_and_supervise(
         # grants the lease before the server's world has reached the client, and
         # a decision is made from a reading that cannot have arrived yet.
         raise _reject("--hold-at join cannot carry --autonomous: a decision needs the world")
-    if autonomous is not None and not 1 <= autonomous.step_budget <= DEFAULT_STEP_BUDGET:
-        # The budget bounds one turn and the caller may ask for another, so a
-        # bigger number is not a longer run — it is a shape nothing here runs.
-        raise _reject(f"--autonomous-steps must be between 1 and {DEFAULT_STEP_BUDGET}")
+    if autonomous is not None and not 1 <= autonomous.step_budget <= MAX_STEP_BUDGET:
+        # A larger explicit turn still has a finite action and lease budget.
+        raise _reject(f"--autonomous-steps must be between 1 and {MAX_STEP_BUDGET}")
     if plan is None and hold_at != HOLD_AT_PLAYABLE:
         # A phase with no request behind it: the operator asked *when* to ask
         # without asking for anything.
