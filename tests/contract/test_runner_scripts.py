@@ -498,21 +498,95 @@ def test_the_demo_locks_one_kin_root_against_a_concurrent_run() -> None:
     """
 
     demo = (RUNNER / "demo.sh").read_text(encoding="utf-8")
+    lib = (RUNNER / "kin_lock.sh").read_text(encoding="utf-8")
 
-    # The lock is keyed by volume + Kin root and taken with the atomic mkdir primitive.
+    # The lock is keyed by volume + Kin root, and the guard takes it through a
+    # sibling file demo.sh sources — so the byte contract and the behavioral test
+    # below exercise the exact primitives the live guard runs.
     assert 'lock_key="$(printf \'%s\' "${VOLUME}/${KIN}"' in demo
-    assert "take_kin_lock_once() {" in demo
-    assert 'mkdir "${LOCK_DIR}"' in demo
+    assert 'source "${HERE}/kin_lock.sh"' in demo
+    # The atomic mkdir primitive and the release trap are the whole guarantee: they
+    # stay on the Kin root the guard just created, and their definition lives in
+    # the sourced lib.
+    assert 'mkdir "${LOCK_DIR}"' in lib
+    assert "trap 'rm -rf \"${LOCK_DIR}\"' EXIT INT TERM" in lib
+    assert "take_kin_lock_once() {" in lib
+    assert "held_lock_is_live() {" in lib
     # A live holder is refused by name, past the run's own window the stale lock is
-    # reclaimed, and an unreadable owner fails closed — the three branches.
+    # reclaimed, and an unreadable owner fails closed — the three branches, in the
+    # acquire/refuse/reclaim flow demo.sh owns.
     assert "is already held by another demo run" in demo
     assert "reclaiming an expired Kin lock" in demo
     assert "exit 6" in demo
     # The guard releases its own lock on exit, so a clean run cannot wedge the store.
-    assert "trap 'rm -rf \"${LOCK_DIR}\"' EXIT INT TERM" in demo
+    assert "trap 'rm -rf \"${LOCK_DIR}\"' EXIT INT TERM" in lib
     # The guard is a refusal, not a takeover: it must not kill or prune another session.
     assert "docker kill" not in demo
     assert "pkill" not in demo
+
+
+def test_the_kin_lock_guard_refuses_a_neighbour_and_reclaims_a_dead_one(
+    tmp_path: Path,
+) -> None:
+    """Drive the real lock primitives in `kin_lock.sh`, not a paraphrase of them.
+
+    The substring contract above proves the bytes are present; this proves they
+    behave: the first acquire wins and writes an owner record, a second acquire on
+    the same root is refused while the holder is live, an epoch past the session
+    window reads as reclaimable, and an owner that cannot be read fails closed. All
+    of it is pure shell against a temp directory — no container, no save touched.
+    """
+
+    if shutil.which("bash") is None:
+        pytest.skip("this runner has no bash to drive the lock primitives")
+
+    # Run with the temp dir as cwd and reference the lock lib by a relative path so no
+    # drive-letter translation is needed on a Git Bash runner. The file demo.sh sources is
+    # copied verbatim, so these are the shipped functions, not a paraphrase of them.
+    lib = RUNNER / "kin_lock.sh"
+    (tmp_path / "kin_lock.sh").write_text(
+        lib.read_text(encoding="utf-8"), encoding="utf-8", newline="\n"
+    )
+    driver = tmp_path / "drive.sh"
+    driver.write_text(
+        "#!/usr/bin/env bash\n"
+        "set -u\n"
+        'command="test-holder"\n'
+        "SECONDS_LIMIT=60\n"
+        'source "./kin_lock.sh"\n'
+        'LOCK_DIR="one"\n'
+        "if take_kin_lock_once; then r1=acquired; else r1=refused; fi\n"
+        "if take_kin_lock_once; then r2=acquired; else r2=refused; fi\n"
+        "if held_lock_is_live; then r3=live; else r3=dead; fi\n"
+        'owner_epoch_lines=$(grep -c "^epoch=" "${LOCK_DIR}/owner" 2>/dev/null || echo 0)\n'
+        'echo "acquire=${r1} second=${r2} live=${r3} owner_epoch_lines=${owner_epoch_lines}"\n'
+        "# an epoch far behind the session window reads as not-live (reclaim-eligible)\n"
+        'rm -rf "${LOCK_DIR}"; mkdir "${LOCK_DIR}"\n'
+        'printf "pid=1\\nepoch=1\\ncommand=x\\n" > "${LOCK_DIR}/owner"\n'
+        "if held_lock_is_live; then r4=live; else r4=dead; fi\n"
+        'echo "expired_live=${r4}"\n'
+        "# an owner with no readable epoch fails closed (treated live, so refused)\n"
+        'rm -rf "${LOCK_DIR}"; mkdir "${LOCK_DIR}"\n'
+        'printf "garbage-without-epoch\\n" > "${LOCK_DIR}/owner"\n'
+        "if held_lock_is_live; then r5=live; else r5=dead; fi\n"
+        'echo "unreadable_live=${r5}"\n',
+        encoding="utf-8",
+        newline="\n",
+    )
+
+    result = subprocess.run(
+        ["bash", "drive.sh"],
+        capture_output=True,
+        text=True,
+        check=False,
+        cwd=str(tmp_path),
+    )
+    assert result.returncode == 0, result.stderr
+
+    out = result.stdout
+    assert "acquire=acquired second=refused live=live owner_epoch_lines=1" in out
+    assert "expired_live=dead" in out
+    assert "unreadable_live=live" in out
 
 
 def test_a_killed_core_leaves_the_display_it_never_owned() -> None:

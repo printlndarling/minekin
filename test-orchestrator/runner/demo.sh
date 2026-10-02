@@ -358,31 +358,12 @@ LOCK_BASE="${MINEKIN_DEMO_LOCK_DIR:-${REPOSITORY_ROOT}/.tmp/demo-locks}"
 mkdir -p "${LOCK_BASE}" 2>/dev/null
 LOCK_DIR="${LOCK_BASE}/${lock_key}"
 
-write_lock_owner() {
-    printf 'pid=%s\nepoch=%s\ncommand=%s\n' "$$" "$(date +%s)" "${command}" \
-        > "${LOCK_DIR}/owner" 2>/dev/null || true
-}
-
-take_kin_lock_once() {
-    if mkdir "${LOCK_DIR}" 2>/dev/null; then
-        write_lock_owner
-        trap 'rm -rf "${LOCK_DIR}"' EXIT INT TERM
-        return 0
-    fi
-    return 1
-}
-
-held_lock_is_live() {
-    local held_epoch now
-    held_epoch="$(sed -n 's/^epoch=//p' "${LOCK_DIR}/owner" 2>/dev/null || true)"
-    if [ -z "${held_epoch}" ]; then
-        # No readable owner: not proof of a live holder and not proof of a dead one.
-        # Fail closed — refuse rather than open one save in two sessions.
-        return 0
-    fi
-    now="$(date +%s)"
-    [ $(( now - held_epoch )) -le "${SECONDS_LIMIT}" ]
-}
+# The primitives live in a sibling file so a behavioral test can drive the real
+# functions in isolation. Sourcing them into this shell keeps the acquire/refuse/
+# reclaim block below — and the release trap `take_kin_lock_once` installs here —
+# exactly as it read when the functions were inline.
+# shellcheck source=./kin_lock.sh
+source "${HERE}/kin_lock.sh"
 
 # A reclaim of an expired lock re-takes it; if a racer wins that mkdir first it does
 # not strip the winner's lock — the second `take` simply declines and this run refuses.
