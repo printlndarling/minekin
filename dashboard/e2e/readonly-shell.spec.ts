@@ -78,7 +78,8 @@ test.describe("只读 Dashboard 外壳关键流程", () => {
     await page.goto(`${url("mock", "healthy_run_07")}#data`);
     const panel = page.getByTestId("panel-capability");
     await expect(panel).toContainText("未接入");
-    await expect(panel).toContainText("Core 尚无权威的人格、目标与成本读数");
+    await expect(panel).toContainText("人格摘要 / 关系 / 模型调用花费与配置状态");
+    await expect(panel).toContainText("自主目标 / 技能步读数 / 失败归因 / 决策来源 / 脱敏行为参数");
     // 通用写面是有意不开放，不能和「读不到」混成一种呈现。
     await expect(panel).toContainText("暂不开放");
   });

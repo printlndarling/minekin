@@ -1,7 +1,8 @@
 import { useState } from "react";
 import type { ReadFailure } from "../domain/adapter";
 import { TIMELINE_KIND_LABELS, TIMELINE_KIND_ORDER, TIMELINE_OUTCOME_LABELS } from "../domain/labels";
-import type { TimelineEvent, TimelineKind } from "../domain/model";
+import type { TimelineEvent, TimelineKind, TimelineOutcome } from "../domain/model";
+import { filterTimeline } from "../domain/timelineFilter";
 import { formatDateTime } from "../lib/format";
 import { Panel } from "../components/Panel";
 import { Pill } from "../components/Pill";
@@ -19,15 +20,37 @@ function optionalNumber(value: number | null, suffix: string): string {
 
 export function TimelinePanel({ items, isLoading, failure }: TimelinePanelProps) {
   const [kinds, setKinds] = useState<readonly TimelineKind[]>([]);
+  const [query, setQuery] = useState("");
+  const [outcome, setOutcome] = useState<TimelineOutcome | "all">("all");
 
   const toggle = (kind: TimelineKind): void => {
     setKinds((prev) => (prev.includes(kind) ? prev.filter((k) => k !== kind) : [...prev, kind]));
   };
 
-  const shown = kinds.length === 0 ? items : items.filter((event) => kinds.includes(event.kind));
+  const shown = failure ? [] : filterTimeline(items, { query, kinds, outcome });
+  const hasFilter = query !== "" || kinds.length > 0 || outcome !== "all";
 
   return (
-    <Panel title="时间线（观察 → 决定 → 意图 → 输入 → 反馈）" note="只读事件流；缺字段显示未知，不补默认值。" testId="panel-timeline">
+    <Panel title="时间线（观察 → 决定 → 意图 → 输入 → 反馈）" note="只检索当前已加载事件，不代表完整历史；缺字段显示未知，不补默认值。" testId="panel-timeline">
+      <div className={styles.toolbar}>
+        <label className={styles.searchLabel}>
+          搜索事件
+          <input className={styles.search} type="search" value={query}
+            placeholder="原因、技能、事件 ID 或来源…" onChange={(event) => setQuery(event.target.value)} />
+        </label>
+        <label className={styles.searchLabel}>
+          事件结果
+          <select className={styles.search} value={outcome}
+            onChange={(event) => setOutcome(event.target.value as TimelineOutcome | "all")}>
+            <option value="all">全部结果</option>
+            {Object.entries(TIMELINE_OUTCOME_LABELS).map(([value, label]) => (
+              <option key={value} value={value}>{label}</option>
+            ))}
+          </select>
+        </label>
+        <button className={styles.chip} type="button" disabled={!hasFilter}
+          onClick={() => { setQuery(""); setKinds([]); setOutcome("all"); }}>清除筛选</button>
+      </div>
       <div className={styles.filters} role="group" aria-label="事件类型过滤">
         {TIMELINE_KIND_ORDER.map((kind) => (
           <button
@@ -41,6 +64,7 @@ export function TimelinePanel({ items, isLoading, failure }: TimelinePanelProps)
           </button>
         ))}
       </div>
+      {!failure && !isLoading ? <p className={styles.summary} role="status">显示 {shown.length} / {items.length} 条已加载事件</p> : null}
       {failure ? <p className={styles.empty}>读取失败（{failure.kind}）：不展示任何缓存事件。</p> : null}
       {isLoading && items.length === 0 ? <p className={styles.empty}>首次读取中…</p> : null}
       {!failure && !isLoading && shown.length === 0 ? <p className={styles.empty}>当前无匹配事件。</p> : null}
