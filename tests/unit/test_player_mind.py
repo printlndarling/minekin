@@ -1463,3 +1463,27 @@ def test_a_re_aim_is_refused_with_no_standing_goal_or_no_position() -> None:
         )
     )
     assert located._reaim_at_resource(no_position) is None
+
+
+def test_the_re_aim_landing_on_a_block_re_arms_breaking_so_more_than_one_log_is_reachable() -> None:
+    """The whole point of the re-aim is a gather that continues: after the look turns back and a
+    later reading puts a block under the crosshair again, a break is offered and re-arms the
+    memory with that cell, so the Kin can fell a second log rather than stalling on the first.
+    This walks the handoff across three readings — arm, blind-turn-with-nothing-in-view, re-face —
+    through `next_intent`, which the isolated branch cells above do not exercise end to end.
+    """
+
+    mind, _ = mind_with()
+    mind.next_intent(reading(aim=aim_at(NEAR_LOG)))
+    assert mind.last_target_block == (0, 64, 5)
+
+    turned = mind.next_intent(reading())
+    assert turned.skill == "turn_to"
+    assert mind.last_target_block is None
+
+    # The turn put the next block of the same trunk under the crosshair (a different face).
+    refaced = mind.next_intent(
+        reading(tick=120, aim=aim_at(BlockTargetValue(x=0, y=64, z=5, face=AimFace.NORTH)))
+    )
+    assert refaced.skill == "break_seen_block"
+    assert mind.last_target_block == (0, 64, 5)
