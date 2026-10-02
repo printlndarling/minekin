@@ -702,6 +702,10 @@ def observation_summary(
         "game_tick": reading.game_tick,
         "inventory": dict(sorted(counts.items())),
         "selected_slot": reading.self_state.selected_slot,
+        "yaw_degrees": reading.self_state.yaw_degrees,
+        "pitch_degrees": reading.self_state.pitch_degrees,
+        "screen_open": screen_open(reading),
+        "screen_id": "" if reading.gui is None else reading.gui.screen_id,
         "held_item": reading.self_state.main_hand_item_id or "",
         "aimed_block": aim.targeted_block_id if aim is not None and aim.block is not None else "",
         "dropped_items": dict(sorted(dropped.items())),
@@ -723,6 +727,23 @@ def observation_summary(
         # remembers: the outstanding plan holds a shape the currently readable grid cannot, so the
         # last craft needs a larger grid the Kin has to stand up. Once a wider window is up `side`
         # answers three and the flag clears itself — no per-item chain, no guess.
+        material_plan = owed_steps(
+            reading, milestone.product_id, milestone.quantity, grid_side=side
+        )
+        summary["craft_plan_source"] = "curated_catalog"
+        summary["craft_plan"] = (
+            [
+                {
+                    "product_id": step.product_id,
+                    "required_total": step.required_total,
+                    "materials": dict(step.materials),
+                    "fits_current_grid": step.recipe.fits(side),
+                }
+                for step in material_plan
+            ]
+            if isinstance(material_plan, tuple)
+            else []
+        )
         needed = owed_steps(reading, milestone.product_id, milestone.quantity)
         summary["larger_grid_needed"] = isinstance(needed, tuple) and plan_needs_larger_grid(
             needed, grid_side=side
@@ -745,6 +766,13 @@ def observation_summary(
                     "in_hand": enabler.product_id == reading.self_state.main_hand_item_id,
                 }
     return summary
+
+
+def _inventory_contents(reading: WorldObservationValue) -> tuple[tuple[str, int], ...]:
+    counts: dict[str, int] = {}
+    for stack in reading.inventory.stacks:
+        counts[stack.item_id] = counts.get(stack.item_id, 0) + stack.count
+    return tuple(sorted(counts.items()))
 
 
 def _visible_item_entities(reading: WorldObservationValue) -> tuple[EntityCandidate, ...]:
@@ -907,6 +935,12 @@ class PlayerMind:
     #: only while a real aim is being chased, never across a felled trunk.
     reaim_probe: int = field(default=0, init=False)
 
+    empty_container_aim: tuple[object, ...] | None = field(default=None, init=False)
+    empty_container_inventory: tuple[tuple[str, int], ...] = field(default=(), init=False)
+    recent_results: list[dict[str, object]] = field(
+        default_factory=list[dict[str, object]], init=False
+    )
+
     @property
     def direction(self) -> str:
         """The heading the run document prints, which is the milestone's and not this module's."""
@@ -952,9 +986,18 @@ class PlayerMind:
         self.observe(reading)
         if self.holds_goal(reading) and not screen_open(reading):
             return self._hold(GOAL_ACHIEVED, reading)
+        contents = _inventory_contents(reading)
+        if contents != self.empty_container_inventory:
+            self.empty_container_aim = None
         feasible = tuple(
             name for name in feasible_skill_ids(self.goal, reading) if name not in self.excluded
         )
+        if (
+            not screen_open(reading)
+            and self.empty_container_aim is not None
+            and use_target_signature(reading) == self.empty_container_aim
+        ):
+            feasible = tuple(name for name in feasible if name != "use_target")
         # A second use-key click at the exact crosshair target the last one was spent on
         # — and did nothing to — is the repeat the contract forbids, not a fresh attempt.
         # Withhold it only while something else remains to reach for (the turn to change
@@ -977,12 +1020,14 @@ class PlayerMind:
             return intent
 
         self.intent_generation += 1
+        summary = observation_summary(self.goal, reading)
+        summary["recent_actions"] = list(self.recent_results)
         request = DecisionRequest(
             observation_ref=observation_ref(reading),
             needs=needs_from(self.goal, reading),
             active_goal=self.direction,
             feasible_skill_ids=feasible,
-            observation_summary=observation_summary(self.goal, reading),
+            observation_summary=summary,
             persona_seed=self.persona_seed,
             budget_remaining_micro=self.ledger.remaining(),
             intent_generation=self.intent_generation,
@@ -1055,6 +1100,26 @@ class PlayerMind:
         """
 
         self.last_result = outcome
+        self.recent_results.append(
+            {
+                "skill": intent.skill,
+                "arguments": dict(intent.arguments),
+                "result": outcome.result.value,
+                "reason": outcome.reason,
+            }
+        )
+        del self.recent_results[:-6]
+        if (
+            intent.skill == "use_target"
+            and outcome.result is ActionResultClass.CONFIRMED
+            and reading_after is not None
+            and screen_open(reading_after)
+            and not craft_options(reading_after, grid_side=crafting_grid_side(reading_after))
+        ):
+            # Opening an unaffordable container and closing it paid no material debt.
+            # Keep that target spent until inventory contents or the target change.
+            self.empty_container_aim = self.last_use_aim
+            self.empty_container_inventory = _inventory_contents(reading_after)
         if outcome.result is ActionResultClass.CONFIRMED:
             for code in FailureCode:
                 self.attempts.pop((intent.skill, code), None)

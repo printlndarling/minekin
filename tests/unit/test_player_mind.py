@@ -1707,3 +1707,40 @@ def test_local_mind_uses_the_open_wider_grid_before_closing_it() -> None:
         finished,
     )
     assert mind.next_intent(finished).skill == "close_screen"
+
+
+def test_model_summary_carries_body_angles_screen_and_catalog_material_debt() -> None:
+    provider = ScriptedProvider()
+    mind = mind_for(provider, CostLedger(run_cost_cap=CAP), goal=GOAL)
+    subject = reading(items=((0, LOG, 1),))
+    mind.next_intent(subject)
+    summary = provider.requests[0].observation_summary
+    assert summary["yaw_degrees"] == subject.self_state.yaw_degrees
+    assert summary["pitch_degrees"] == subject.self_state.pitch_degrees
+    assert summary["screen_open"] is False
+    assert summary["craft_plan_source"] == "curated_catalog"
+    assert summary["craft_plan"]
+
+
+def test_empty_container_cycle_requires_material_or_target_change_before_reopening() -> None:
+    mind, _ = mind_with(
+        Decision(skill_id="use_target", reason="open", intent_generation=1),
+        Decision(skill_id="close_screen", reason="no materials", intent_generation=2),
+        Decision(skill_id="use_target", reason="open again", intent_generation=3),
+        Decision(skill_id="use_target", reason="materials changed", intent_generation=4),
+    )
+    provider = cast(ScriptedProvider, mind.provider)
+    before = reading(aim=block_aim())
+    opened = reading(
+        tick=120, aim=block_aim(), gui=GuiScreenValue(screen_id="minecraft:crafting", sync_id=1)
+    )
+    first = mind.next_intent(before)
+    mind.record_result(first, outcome(ActionResultClass.CONFIRMED), opened)
+    close = mind.next_intent(opened)
+    closed = reading(tick=140, aim=block_aim())
+    mind.record_result(close, outcome(ActionResultClass.CONFIRMED), closed)
+    rerouted = mind.next_intent(closed)
+    assert "use_target" not in provider.requests[-1].feasible_skill_ids
+    assert rerouted.skill != "use_target"
+    changed = reading(tick=160, aim=block_aim(), items=((0, LOG, 1),))
+    assert mind.next_intent(changed).skill == "use_target"

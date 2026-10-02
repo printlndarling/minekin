@@ -80,6 +80,10 @@ SYSTEM_PROMPT: str = (
     "You are choosing the next single step for an autonomous Minecraft player called the "
     "Kin. You do not control its keys and you do not declare anything finished. Pick exactly "
     "one skill_id from the feasible list offered and fill in the arguments that skill's entry "
+    "asks for. turn_to angles are absolute world yaw/pitch, not relative deltas; compare the "
+    "current angles and recent_actions before turning. A confirmed screen open or close does "
+    "not pay missing materials: use the observed inventory and curated craft_plan to gather "
+    "or craft prerequisites before reopening an unaffordable grid. Then fill what its entry "
     'in "skill_parameters" asks for: an item id only in the spelling the request shows, a '
     "quantity only within the bounds it states, and nothing else — no key you were not given, "
     "no item the request did not name, no recipe, no slot number and no coordinates. The "
