@@ -78,6 +78,7 @@ from minekin_core.domain.skill_parameters import BEHAVIOR_PARAMETERS, MAX_QUANTI
 from minekin_core.domain.world_actions import (
     ActionResultClass,
     SkillOutcome,
+    angle_to_degrees,
     item_total,
     use_target_refusal,
     use_target_signature,
@@ -873,6 +874,14 @@ class PlayerMind:
     #: ask against this exact target is the doomed second click §4 forbids, so the mind
     #: withholds the use key until the aim reads differently — the turn, not a gamble.
     last_use_aim: tuple[object, ...] | None = field(default=None, init=False)
+    #: The absolute coordinates of the block the last `break_seen_block` was aimed at, kept so a
+    #: later `collect` that walked the player off the trunk can turn back to face it. A real
+    #: player remembers which tree they were felling; re-aiming at a block already seen is the
+    #: same player-equivalent geometry the walk skill uses on a visible drop, not the forbidden
+    #: chunk scan — it recalls only a cell the crosshair itself once reported. Used at most once
+    #: per remembered block (see `_call_for`), so a felled tree that leaves no block in view
+    #: cannot strand the run in a re-aim loop: the memory clears and the blind scan resumes.
+    last_target_block: tuple[int, int, int] | None = field(default=None, init=False)
 
     @property
     def direction(self) -> str:
@@ -1139,6 +1148,8 @@ class PlayerMind:
         if skill == "break_seen_block":
             if reading.aim is None or reading.aim.block is None:
                 return None, "MINE_TARGET_NOT_AIMED", {}
+            block = reading.aim.block
+            self.last_target_block = (block.x, block.y, block.z)
             expected = _asked_text(arguments, "expected_drop_item")
             if not expected:
                 expected = self.goal.source_item_id if self.goal is not None else ""
@@ -1191,6 +1202,9 @@ class PlayerMind:
         yaw = _asked_number(arguments, "yaw_degrees")
         pitch = _asked_number(arguments, "pitch_degrees")
         if yaw is None:
+            reaim = self._reaim_at_resource(reading)
+            if reaim is not None:
+                return reaim
             yaw = (self.scan_step * SCAN_YAW_STEP_DEGREES) % 360.0
         if pitch is None:
             pitch = SCAN_PITCH_CYCLE_DEGREES[(self.scan_step - 1) % len(SCAN_PITCH_CYCLE_DEGREES)]
@@ -1199,6 +1213,55 @@ class PlayerMind:
                 (SkillCall(name="turn_to", yaw_degrees=yaw, pitch_degrees=pitch),),
             ),
             "look for the next thing the milestone needs",
+            {"yaw_degrees": yaw, "pitch_degrees": pitch},
+        )
+
+    def _reaim_at_resource(
+        self, reading: WorldObservationValue
+    ) -> tuple[SkillPlan, str, Mapping[str, object]] | None:
+        """Turn back to the resource block this mind was just breaking, if that is the hold.
+
+        A `collect` walks the player toward the drop it saw, and the fixed crosshair angle that
+        pointed at the trunk now points at whatever is ahead — so `break_seen_block` leaves the
+        feasible set and the fallback would otherwise blind-scan for the tree again. A player does
+        not scan for a tree they were just felling; they face back toward it. This reproduces that
+        single move from what the reading already reported: the block's own cell (remembered from
+        the crosshair, never chunk-scanned) and the player's position, turned to the client's angle
+        units by the same geometry the walk skill uses on a visible drop.
+
+        It fires only while the standing milestone still owes its raw material — the reroute word
+        `blocker_for` already uses for "go back to the resource" — so it never re-aims at a trunk
+        the bag has finished paying for. It is consumed at most once per remembered cell: the
+        memory clears here, and if the re-aim lands the crosshair back on a block, building the next
+        `break_seen_block` re-arms it; if the tree is gone the aim reads empty and the blind scan
+        resumes, which is what bounds a felled tree from looping the turn.
+        """
+
+        if self.goal is None or self.last_target_block is None:
+            return None
+        if blocker_for(reading, self.goal.product_id, grid_side=crafting_grid_side(reading)) != (
+            CRAFT_MATERIALS_MISSING
+        ):
+            return None
+        position = (reading.self_state.x, reading.self_state.y, reading.self_state.z)
+        if not all(isinstance(value, (int, float)) for value in position):
+            return None
+        block_x, block_y, block_z = self.last_target_block
+        self.last_target_block = None
+        # Aim at the cell's center, the point a player would look at; `angle_to_degrees` refuses a
+        # zero-length offset (the player standing exactly on the center), and a cell's center is a
+        # half-block off any real position — the guard is belt-and-braces for a degenerate read.
+        try:
+            yaw, pitch = angle_to_degrees(
+                dx=block_x + 0.5 - reading.self_state.x,
+                dy=block_y + 0.5 - reading.self_state.y,
+                dz=block_z + 0.5 - reading.self_state.z,
+            )
+        except ValueError:
+            return None
+        return (
+            SkillPlan((SkillCall(name="turn_to", yaw_degrees=yaw, pitch_degrees=pitch),)),
+            "turn back to the resource block this mind was breaking",
             {"yaw_degrees": yaw, "pitch_degrees": pitch},
         )
 

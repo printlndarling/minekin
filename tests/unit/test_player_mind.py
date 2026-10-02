@@ -74,7 +74,12 @@ from minekin_core.domain.recipe_catalog import (
     BuildStep,
     build_plan,
 )
-from minekin_core.domain.world_actions import ActionResultClass, SkillOutcome, skill_capabilities
+from minekin_core.domain.world_actions import (
+    ActionResultClass,
+    SkillOutcome,
+    angle_to_degrees,
+    skill_capabilities,
+)
 
 LOG = "minecraft:oak_log"
 PLANKS = "minecraft:oak_planks"
@@ -1360,3 +1365,101 @@ def test_the_projection_reports_the_result_the_world_gave_and_where_it_came_from
     assert document["last_result"] == ActionResultClass.FAILED.value
     assert document["last_result_reason"] == "MINING_STALLED"
     assert document["failure_attribution"] == "ACTION_NOT_EFFECTIVE"
+
+
+# --------------------------------------------------------------- #50 resource re-acquisition
+
+
+def aim_at(block: BlockTargetValue) -> AimTargetValue:
+    return AimTargetValue(
+        game_tick=100, kind=AimKind.BLOCK, block=block, targeted_block_id=LOG, distance=5.0
+    )
+
+
+#: A log block a few steps north of the default player position (0, 64, 0) — the shape of the
+#: trunk a `break_seen_block` was aimed at before a `collect` walked the Kin off it.
+NEAR_LOG = BlockTargetValue(x=0, y=64, z=5, face=AimFace.UP)
+
+
+def test_the_mind_faces_back_to_the_log_block_it_was_breaking() -> None:
+    """A collect walks the player off the trunk, the crosshair loses it, and the fallback turns
+    back to the cell it was just breaking instead of blind-scanning for it — §5's re-acquisition
+    done the way a player recalls a tree, aimed by the same geometry the walk skill uses on a
+    visible drop, off only the block the crosshair itself once reported.
+    """
+
+    mind, _ = mind_with()
+    armed = mind.next_intent(reading(aim=aim_at(NEAR_LOG)))
+    assert armed.skill == "break_seen_block"
+    assert mind.last_target_block == (0, 64, 5)
+
+    turned = mind.next_intent(reading())
+    assert turned.skill == "turn_to"
+    assert turned.source == DECISION_FROM_LOCAL
+    expected_yaw, expected_pitch = angle_to_degrees(dx=0.5, dy=0.5, dz=5.5)
+    call = turned.plan.calls[0]
+    assert call.yaw_degrees == pytest.approx(expected_yaw)
+    assert call.pitch_degrees == pytest.approx(expected_pitch)
+    # The turn stays inside the client's own units, so it is a legal look and not a clamp.
+    assert -180.0 <= call.yaw_degrees <= 180.0
+    assert -90.0 <= call.pitch_degrees <= 90.0
+    # It is a real re-aim, not the blind sweep's whole-multiple-of-45 heading.
+    assert call.yaw_degrees != pytest.approx(SCAN_YAW_STEP_DEGREES)
+
+
+def test_the_resource_re_aim_is_spent_once_so_a_felled_tree_resumes_scanning() -> None:
+    """The memory clears when it is used: if the re-aim lands on no block (the trunk is gone), the
+    next look falls back to the blind sweep rather than turning forever at an empty cell.
+    """
+
+    mind, _ = mind_with()
+    mind.next_intent(reading(aim=aim_at(NEAR_LOG)))
+    assert mind.last_target_block == (0, 64, 5)
+
+    mind.next_intent(reading())
+    assert mind.last_target_block is None
+
+    after = mind.next_intent(reading())
+    assert after.skill == "turn_to"
+    assert after.plan.calls[0].yaw_degrees == pytest.approx((2 * SCAN_YAW_STEP_DEGREES) % 360.0)
+
+
+def test_a_re_aim_is_refused_when_the_bag_owes_a_grid_not_a_resource() -> None:
+    """The gate is the specific 'go back to the raw item' precondition, not any hold. A bag that
+    has the material but no table owes a screen the re-aim cannot fix, so it must not steer the
+    Kin back to a log it no longer needs — and a refusal leaves the memory intact.
+    """
+
+    mind, _ = mind_with()
+    mind.last_target_block = (0, 64, 5)
+    paid_but_small_grid = reading(items=((0, PLANKS, 3), (1, STICK, 2), (2, TABLE, 1)))
+    assert blocker_for(paid_but_small_grid, PICKAXE) == CRAFT_GRID_TOO_SMALL
+    assert mind._reaim_at_resource(paid_but_small_grid) is None
+    assert mind.last_target_block == (0, 64, 5)
+
+
+def test_a_re_aim_is_refused_with_no_standing_goal_or_no_position() -> None:
+    """Both halves of the geometry must actually be present: a Kin with no standing milestone has
+    no resource to return to, and a reading that never reported a position has no offset to aim
+    from. Neither is a gamble — each falls back to the blind sweep.
+    """
+
+    mindless = mind_for(ScriptedProvider(), CostLedger(run_cost_cap=CAP), goal=None)
+    mindless.last_target_block = (0, 64, 5)
+    assert mindless._reaim_at_resource(reading()) is None
+
+    located = mind_for(ScriptedProvider(), CostLedger(run_cost_cap=CAP), goal=GOAL)
+    located.last_target_block = (0, 64, 5)
+    no_position = reading(
+        self_state=SelfStateValue(
+            health=20.0,
+            max_health=20.0,
+            food=20,
+            saturation=5.0,
+            alive=True,
+            x=None,
+            y=None,
+            z=None,
+        )
+    )
+    assert located._reaim_at_resource(no_position) is None
