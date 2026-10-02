@@ -988,3 +988,5 @@ uv run python tools/run_real_model_demo.py --log .tmp/model-demo.log --bash D:/e
 账本单位与估算费率来自model_access契约，不能将上限直接宣称为供应商实际账单金额。此入口不改配置文件、不打印密钥，普通日志与sealed证据分开。
 
 模型等待期间的观察变化也有独立回归：请求turn_to后GUI在模型返回前打开，旧循环仍执行世界动作；新循环按最新可行集将该步记为INTERRUPTED/DECISION_PRECONDITION_CHANGED并重新规划，不发送已不适用动作、不消耗技能失败重试。仅tick前进不拒绝，物品/位置参数仍由技能实际前提核对。181项心智、闭环、CLI与技能回归通过；授权修复与观察重验待合并后的本地模型复验。
+
+全量回归首次在Windows误用System32/WSL bash，产生116失败，已用Git Bash路径重跑。期间发现候选recipe变更遗漏manifest摘要，现同步且W00与8项fixture边界通过。旧reviewed registry与当前Bridge摘要不一致仍是已知的默认自动入口/历史provenance拒止，未篡改历史记录。摘要工具新增actions_applied/refused、松键结果、模型账本和来源计数，避免把“观察拒收0”误当作“动作拒绝0”；--compact仅显示末5步，省略模型理由与配置。

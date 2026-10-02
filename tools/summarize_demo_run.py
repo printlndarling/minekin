@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+from collections import Counter
 from pathlib import Path
 from typing import Any, cast
 
@@ -13,6 +14,9 @@ PREFIX = "domain: the run document said "
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("log", type=Path)
+    parser.add_argument(
+        "--compact", action="store_true", help="show counts and only the last steps"
+    )
     args = parser.parse_args()
     try:
         lines = args.log.read_text(encoding="utf-8").splitlines()
@@ -37,6 +41,11 @@ def main() -> int:
                 "goal_met": mind.get("goal_met"),
                 "model_calls": mind.get("model_calls"),
                 "confirmed": autonomous.get("confirmed"),
+                "actions_applied": run.get("actions_applied"),
+                "actions_refused": run.get("actions_refused"),
+                "input_release_failed": run.get("input_release_failed"),
+                "model_spent_micro": mind.get("model_spent_micro"),
+                "sources": dict(Counter(step.get("intent", {}).get("source") for step in steps)),
                 "observations": run.get("world_observations"),
                 "steps": [
                     {
@@ -48,6 +57,7 @@ def main() -> int:
                         "details": step.get("details", {}),
                     }
                     for i, step in enumerate(steps, 1)
+                    if not args.compact or i > len(steps) - 5
                 ],
             },
             indent=2,
