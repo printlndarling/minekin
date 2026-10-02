@@ -992,3 +992,5 @@ uv run python tools/run_real_model_demo.py --log .tmp/model-demo.log --bash D:/e
 全量回归首次在Windows误用System32/WSL bash，产生116失败，已用Git Bash路径重跑。期间发现候选recipe变更遗漏manifest摘要，现同步且W00与8项fixture边界通过。旧reviewed registry与当前Bridge摘要不一致仍是已知的默认自动入口/历史provenance拒止，未篡改历史记录。摘要工具新增actions_applied/refused、松键结果、模型账本和来源计数，避免把“观察拒收0”误当作“动作拒绝0”；--compact仅显示末5步，省略模型理由与配置。
 
 授权与重验修复后run `dbe851f882104d1f98deae08a6ee6d0f`（会话e35bb68fb262422fa05de0269283741e、server run-54）48次真实调用、47步CONFIRMED、397帧接纳/0拒收，正常松键停止；47步来源model、1步local_reflection，goal_met=false/STEP_BUDGET_SPENT。后半程反复打开、关闭工作台（末次sync17），3×3关窗已CONFIRMED，未完成终产物。针对停滞补模型观察：当前绝对yaw/pitch、GUI状态、显式curated_catalog材料计划和最近6个实际结果；空材料容器的同靶重开在库存内容不变时撤出可行集，材料或靶变化可恢复。两条回归先红后绿，183项相关测试通过；不是新物品脚本，当前目录边界不扩大。新模型路径待真跑。
+
+本机代理造成模型假端点两项失败（原应是断连/超时却报502）：模型适配器现对真实回环地址直连，远端端点保持原代理路径。回环判断改为解析IP，127.example.com等外部域名不再获明文HTTP例外；两条安全回归先红后绿，全部102项模型配置/端点测试通过。静态检查通过，密钥仍不记录、不随重定向转发。

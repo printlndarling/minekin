@@ -711,3 +711,9 @@ def test_a_model_unavailable_value_has_no_place_to_put_the_other_sides_text() ->
         "status_code": 503,
         "outcome": "rejected",
     }
+
+
+@pytest.mark.parametrize("host", ["127.example.com", "127.0.0.1.example.com"])
+def test_ipv4_looking_external_hostname_cannot_receive_plaintext_credentials(host: str) -> None:
+    with pytest.raises(MinekinError, match="http"):
+        model_config({**OPENAI_ENV, MODEL_BASE_URL_VARIABLE: f"http://{host}/v1"})

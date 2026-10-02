@@ -35,6 +35,7 @@ never creates a directory and never writes anything to disk.
 
 from __future__ import annotations
 
+import ipaddress
 import math
 import os
 import re
@@ -244,13 +245,16 @@ def _positive_int(variable: str, raw: str, operation: str) -> int:
     return parsed
 
 
-def _is_loopback(host: str) -> bool:
+def is_loopback_host(host: str) -> bool:
+    """Recognize actual loopback addresses and the reserved localhost namespace."""
+
     lowered = host.strip("[]").lower()
-    return (
-        lowered in _LOOPBACK_HOSTS
-        or lowered.startswith("127.")
-        or lowered.endswith(_LOOPBACK_SUFFIX)
-    )
+    if lowered in _LOOPBACK_HOSTS or lowered.endswith(_LOOPBACK_SUFFIX):
+        return True
+    try:
+        return ipaddress.ip_address(lowered).is_loopback
+    except ValueError:
+        return False
 
 
 def _checked_base_url(variable: str, raw: str, operation: str) -> str:
@@ -289,7 +293,7 @@ def _checked_base_url(variable: str, raw: str, operation: str) -> str:
         raise _reject(
             operation, f"{ConfigRefusal.BAD_URL}: {variable} must not carry a query or fragment"
         )
-    if parsed.scheme == "http" and not _is_loopback(parsed.hostname or ""):
+    if parsed.scheme == "http" and not is_loopback_host(parsed.hostname or ""):
         raise _reject(
             operation,
             f"{ConfigRefusal.BAD_URL}: {variable} is plain http to a host that is not this "

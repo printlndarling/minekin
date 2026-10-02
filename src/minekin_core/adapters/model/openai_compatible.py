@@ -34,6 +34,7 @@ import contextlib
 import json
 import logging
 import urllib.error
+import urllib.parse
 import urllib.request
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -50,6 +51,7 @@ from minekin_core.domain.model_access import (
     UnavailableReason,
     compose_decision,
     cost_ledger_for,
+    is_loopback_host,
     key_for,
 )
 from minekin_core.domain.skill_parameters import parameters_for
@@ -379,8 +381,15 @@ class OpenAICompatibleProvider:
             # redirect, to another host and to another scheme if the endpoint asks for one.
             call.add_unredirected_header("Authorization", f"Bearer {key}")
 
+        # A loopback endpoint is local even when the host configures a system proxy.
+        # Keep its credential and transport failure on this machine.
+        open_request = (
+            urllib.request.build_opener(urllib.request.ProxyHandler({})).open
+            if is_loopback_host(urllib.parse.urlsplit(url).hostname or "")
+            else urllib.request.urlopen
+        )
         try:
-            with urllib.request.urlopen(call, timeout=self._config.timeout_ms / 1000) as reply:
+            with open_request(call, timeout=self._config.timeout_ms / 1000) as reply:
                 status = reply.status
                 final_url = str(reply.geturl())
                 payload = reply.read(MAX_RESPONSE_BYTES)
