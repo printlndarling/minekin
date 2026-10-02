@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { createAdapter, readDashboardConfig, type DashboardConfig } from "./adapters/config";
 import { DataSourceBanner } from "./components/DataSourceBanner";
 import type { MockScenarioId } from "./fixtures/mockFixtures";
@@ -59,6 +59,7 @@ function Dashboard({
   const resolved = useMemo(() => config ?? readDashboardConfig(window.location.search), [config]);
   const [scenario, setScenario] = useState<MockScenarioId>(resolved.scenario);
   const [page, selectPage] = useHashRoute(initialPage);
+  const mainRef = useRef<HTMLElement>(null);
   const adapter = useMemo(
     () => createAdapter(resolved, resolved.adapter === "mock" ? scenario : resolved.scenario),
     [resolved, scenario],
@@ -110,6 +111,10 @@ function Dashboard({
 
   return (
     <div className={styles.shell}>
+      <a className={styles.skipLink} href="#dashboard-content" onClick={(event) => {
+        event.preventDefault();
+        mainRef.current?.focus();
+      }}>跳到当前面板</a>
       <header className={styles.header}>
         <div>
           <h1 className={styles.title}>Minekin Kin 控制台</h1>
@@ -166,7 +171,7 @@ function Dashboard({
           ))}
         </nav>
 
-        <main className={styles.main} data-testid={`page-${page}`} aria-label={pageLabel(page)}>
+        <main ref={mainRef} id="dashboard-content" tabIndex={-1} className={styles.main} data-testid={`page-${page}`} aria-label={pageLabel(page)}>
           {page === "overview" ? (
             <>
               <OverviewPanel snapshot={snapshotRead.snapshot} nowMs={nowMs} />

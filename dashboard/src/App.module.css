@@ -1,3 +1,20 @@
+.skipLink {
+  position: fixed;
+  top: 12px;
+  left: 16px;
+  z-index: 10;
+  padding: 10px 16px;
+  border: 1px solid var(--accent-line);
+  border-radius: var(--radius);
+  color: var(--text);
+  background: var(--surface);
+  transform: translateY(-160%);
+}
+
+.skipLink:focus {
+  transform: translateY(0);
+}
+
 .shell {
   max-width: 1480px;
   margin: 0 auto;
