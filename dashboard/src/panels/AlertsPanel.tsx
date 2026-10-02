@@ -1,3 +1,4 @@
+import { useState } from "react";
 import type { ReadFailure } from "../domain/adapter";
 import {
   ALERT_COMPONENT_LABELS,
@@ -34,10 +35,35 @@ function itemsOf(envelope: AlertsEnvelope | null): readonly Alert[] {
  * empty list from a live source must never look like the absence of a source.
  */
 export function AlertsPanel({ envelope, isLoading, failure }: AlertsPanelProps) {
+  const [severity, setSeverity] = useState<Alert["severity"] | "all">("all");
+  const [state, setState] = useState<Alert["state"] | "all">("all");
   const items = itemsOf(envelope);
   const hasSource = envelope !== null && envelope.status === "known";
+  const readable = !failure && !isLoading && hasSource;
+  const shown = readable ? items.filter((item) =>
+    (severity === "all" || item.severity === severity) && (state === "all" || item.state === state)) : [];
   return (
     <Panel title="告警与健康摘要" note="告警只呈现，不在此确认或消除；确认动作属于未来的管理写接口。" testId="panel-alerts">
+      {readable && items.length > 0 ? <>
+        <div className={styles.filters}>
+          <label>严重程度
+            <select value={severity} onChange={(event) => setSeverity(event.target.value as Alert["severity"] | "all")}>
+              <option value="all">全部级别</option>
+              {Object.entries(ALERT_SEVERITY_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+            </select>
+          </label>
+          <label>告警状态
+            <select value={state} onChange={(event) => setState(event.target.value as Alert["state"] | "all")}>
+              <option value="all">全部状态</option>
+              {Object.entries(ALERT_STATE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+            </select>
+          </label>
+          <button type="button" disabled={severity === "all" && state === "all"}
+            onClick={() => { setSeverity("all"); setState("all"); }}>清除筛选</button>
+        </div>
+        <p className={styles.empty} role="status">显示 {shown.length} / {items.length} 条已加载告警</p>
+        {shown.length === 0 ? <p className={styles.empty}>当前筛选无匹配告警，不代表没有告警。</p> : null}
+      </> : null}
       {failure ? <p className={styles.empty}>读取失败（{failure.kind}）：不展示任何缓存告警。</p> : null}
       {isLoading ? <p className={styles.empty}>首次读取中…</p> : null}
       {!failure && !isLoading && envelope === null ? (
@@ -56,7 +82,7 @@ export function AlertsPanel({ envelope, isLoading, failure }: AlertsPanelProps) 
         </p>
       ) : null}
       <ul className={styles.list}>
-        {items.map((alertItem) => (
+        {shown.map((alertItem) => (
           <li key={alertItem.alertId} className={styles.item}>
             <div className={styles.head}>
               <Pill text={ALERT_SEVERITY_LABELS[alertItem.severity]} tone={SEVERITY_TONE[alertItem.severity]} />
