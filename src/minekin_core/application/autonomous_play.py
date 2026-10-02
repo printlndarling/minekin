@@ -129,6 +129,7 @@ class AutonomousStep:
             "action_id": self.outcome.action_id,
             "attribution": None if self.attribution is None else self.attribution.value,
             "result_observation_ref": self.result_ref,
+            "details": dict(self.outcome.details),
         }
 
 

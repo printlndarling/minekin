@@ -764,7 +764,15 @@ class WorldSkills:
         chase_reason = "NO_CONFIRMING_OBSERVATION"
         last_distance = _drop_approach_distance(first_drops[0])
         stalled = 0
-        await self._walk_toward(action_id, authority, first_drops[0], walk_seconds)
+        if not await self._walk_toward(
+            action_id, authority, first_drops[0], walk_seconds, deadline
+        ):
+            return SkillOutcome(
+                result=ActionResultClass.UNKNOWN,
+                reason="COLLECT_AIM_NOT_CONFIRMED",
+                action_id=action_id,
+                pre_tick=pre.game_tick,
+            )
         while True:
             post = await self._wait_until(
                 _newer_reading(chain.game_tick), deadline, action_id=action_id
@@ -809,7 +817,11 @@ class WorldSkills:
                 stalled = 0
             last_distance = distance
             steps += 1
-            await self._walk_toward(action_id, authority, drops[0], CHASE_STEP_SECONDS)
+            if not await self._walk_toward(
+                action_id, authority, drops[0], CHASE_STEP_SECONDS, deadline
+            ):
+                chase_reason = "COLLECT_AIM_NOT_CONFIRMED"
+                break
         return SkillOutcome(
             result=ActionResultClass.UNKNOWN,
             reason=chase_reason,
@@ -824,8 +836,9 @@ class WorldSkills:
         authority: ActionAuthority,
         drop: EntityCandidate,
         walk_seconds: float,
-    ) -> None:
-        """Aim at where this reading says the drop is, step, and stop."""
+        deadline: int,
+    ) -> bool:
+        """Wait for the observed walking heading, then step and stop within the same budget."""
 
         yaw, pitch = angle_to_degrees(dx=drop.relative_x, dy=drop.relative_y, dz=drop.relative_z)
         await self._sender.send_control(
@@ -839,12 +852,29 @@ class WorldSkills:
                 deadline_monotonic_ns=authority.deadline_monotonic_ns,
             ),
         )
+        arrived = await self._wait_until(
+            lambda candidate: (
+                candidate.self_state.yaw_degrees is not None
+                and angle_error_degrees(
+                    from_yaw=candidate.self_state.yaw_degrees,
+                    to_yaw=yaw,
+                    from_pitch=0.0,
+                    to_pitch=0.0,
+                )
+                <= AIM_ARRIVAL_TOLERANCE_DEGREES
+            ),
+            deadline,
+            action_id=action_id,
+        )
+        if arrived is None or deadline - monotonic_ns() < round(walk_seconds * 1_000_000_000):
+            return False
         await self._send_walk(action_id, authority, forward=1.0)
         await self._sleep(walk_seconds)
         # The same named release the movement contract already guarantees — a
         # walk with no stop would be a Kin still walking into whatever is there,
         # and that is true of the last step of a chase as much as of the first.
         await self._send_walk(action_id, authority, forward=0.0)
+        return True
 
     async def _send_walk(
         self, action_id: str, authority: ActionAuthority, *, forward: float
@@ -1076,8 +1106,28 @@ class WorldSkills:
             ),
         )
         clicks.append("recipe_fill")
+        fill_sync_id = current.gui.sync_id
+        # A new game tick can arrive before the server has populated the grid.
+        # Inventory material leaving the same live handler is the visible fill
+        # evidence available in this observation schema; an unchanged frame is
+        # not permission to click an empty result slot. Never replay the fill.
         filled = await self._wait_until(
-            _newer_reading(current.game_tick), deadline, action_id=action_id
+            lambda latest: (
+                latest.game_tick > current.game_tick
+                and (
+                    latest.gui is None
+                    or latest.gui.sync_id != fill_sync_id
+                    or (
+                        latest.inventory.revision > current.inventory.revision
+                        and any(
+                            item_total(latest.inventory, item) < item_total(current.inventory, item)
+                            for item in materials
+                        )
+                    )
+                )
+            ),
+            deadline,
+            action_id=action_id,
         )
         if filled is None:
             return SkillOutcome(
@@ -1088,7 +1138,7 @@ class WorldSkills:
                 details=_take_result_details(pre, current, gui_open=True, clicks=clicks),
             )
         chain = filled
-        if chain.gui is None or chain.gui.sync_id is None:
+        if chain.gui is None or chain.gui.sync_id != fill_sync_id:
             return SkillOutcome(
                 result=ActionResultClass.UNKNOWN,
                 reason="SCREEN_NOT_CONFIRMED",

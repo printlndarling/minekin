@@ -28,6 +28,7 @@ from minekin_core.application.autonomous_play import (
     STEP_BUDGET_SPENT,
     AutonomousAsk,
     AutonomousRun,
+    AutonomousStep,
     run_autonomous_loop,
 )
 from minekin_core.application.player_mind import (
@@ -760,3 +761,17 @@ def test_a_run_reads_which_crafts_the_world_confirmed_and_grows_coverage_from_th
     assert TABLE in learned.live_confirmed
     assert TABLE not in learned.curated_only
     assert learned.curated_only == frozenset({PICKAXE})
+
+
+def test_step_document_keeps_the_execution_readings_needed_to_diagnose_unknowns() -> None:
+    intent = off_mind().next_intent(reading())
+    outcome = SkillOutcome(
+        result=ActionResultClass.UNKNOWN,
+        reason="NO_CONFIRMING_OBSERVATION",
+        action_id="craft-1",
+        pre_tick=100,
+        details={"pre_inventory_revision": "100", "newest_inventory_revision": "130"},
+    )
+    step = AutonomousStep(intent, outcome, None, "tick=130;generation=1")
+    document = step.as_document()
+    assert document["details"] == dict(outcome.details)

@@ -1920,3 +1920,119 @@ def test_use_waits_for_a_later_effect_after_an_unchanged_newer_frame() -> None:
         assert sender.types() == [USE_INPUT_TYPE, USE_INPUT_TYPE]
 
     asyncio.run(scenario())
+
+
+def test_collect_does_not_walk_before_the_observed_heading_reaches_the_drop() -> None:
+    async def scenario() -> None:
+        item = EntityCandidate(
+            observation_id="west-drop",
+            entity_type="minecraft:item",
+            relative_x=2.0,
+            relative_y=0.0,
+            relative_z=0.0,
+            line_of_sight=True,
+            item_id="minecraft:oak_log",
+            item_count=1,
+        )
+        store = store_with(reading(tick=100, entities=(item,)))
+        skills, sender = skill_with(store)
+        aimed = asyncio.Event()
+
+        def answer(message_type: str) -> None:
+            if message_type == AIM_INPUT_TYPE:
+                aimed.set()
+            if message_type == MOVE_INPUT_TYPE:
+                move = cast(control_pb2.MoveInput, sender.sent[-1][1])
+                if move.forward:
+                    assert store.latest is not None
+                    assert store.latest.self_state.yaw_degrees == -90.0
+                else:
+                    store.admit(
+                        reading(
+                            tick=130,
+                            state_value=state(yaw=-90.0, pitch=0.0),
+                            inventory_value=inventory(130, (0, "minecraft:oak_log", 1)),
+                        ),
+                        (),
+                    )
+
+        async def turn_report() -> None:
+            await aimed.wait()
+            await asyncio.sleep(0)
+            store.admit(
+                reading(tick=120, entities=(item,), state_value=state(yaw=-90.0, pitch=0.0)), ()
+            )
+
+        sender.on_send = answer
+        reporting = asyncio.create_task(turn_report())
+        result = await skills.collect_dropped(
+            item_id="minecraft:oak_log",
+            authority=authority(),
+            walk_seconds=0.0,
+            timeout_ns=500_000_000,
+        )
+        await reporting
+        assert result.result is ActionResultClass.CONFIRMED
+        assert sender.types() == [AIM_INPUT_TYPE, MOVE_INPUT_TYPE, MOVE_INPUT_TYPE]
+
+    asyncio.run(scenario())
+
+
+def test_result_slot_waits_for_observed_recipe_fill_before_clicking() -> None:
+    async def scenario() -> None:
+        store = _player_screen_store((0, LOG, 1))
+        skills, sender = skill_with(store)
+        recipe_sent = asyncio.Event()
+
+        def answer(message_type: str) -> None:
+            if message_type != GUI_CLICK_INPUT_TYPE:
+                return
+            click = _gui_clicks(sender)[-1]
+            if click.HasField("recipe"):
+                store.admit(
+                    reading(
+                        tick=110,
+                        inventory_value=inventory(110, (0, LOG, 1)),
+                        gui=GuiScreenValue(screen_id="PlayerScreen", sync_id=0),
+                    ),
+                    (),
+                )
+                recipe_sent.set()
+            elif click.HasField("slot"):
+                assert store.latest is not None
+                assert store.latest.inventory.stacks == ()
+                store.admit(
+                    reading(
+                        tick=130,
+                        inventory_value=inventory(130, (0, PLANKS, 4)),
+                        gui=GuiScreenValue(screen_id="PlayerScreen", sync_id=0),
+                    ),
+                    (),
+                )
+
+        async def server_fill() -> None:
+            await recipe_sent.wait()
+            await asyncio.sleep(0.05)
+            store.admit(
+                reading(
+                    tick=120,
+                    inventory_value=inventory(120),
+                    gui=GuiScreenValue(screen_id="PlayerScreen", sync_id=0),
+                ),
+                (),
+            )
+
+        sender.on_send = answer
+        fill = asyncio.create_task(server_fill())
+        outcome = await skills.craft_take_result(
+            recipe_id="oak_planks",
+            materials={LOG: 1},
+            product_id=PLANKS,
+            authority=authority(),
+            timeout_ns=500_000_000,
+        )
+        await fill
+        assert outcome.result is ActionResultClass.CONFIRMED
+        assert len(_gui_clicks(sender)) == 2
+
+    asyncio.run(scenario())
