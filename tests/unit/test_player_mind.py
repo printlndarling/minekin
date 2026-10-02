@@ -1434,7 +1434,11 @@ def test_a_re_aim_is_refused_when_the_bag_owes_a_grid_not_a_resource() -> None:
     mind.last_target_block = (0, 64, 5)
     paid_but_small_grid = reading(items=((0, PLANKS, 3), (1, STICK, 2), (2, TABLE, 1)))
     assert blocker_for(paid_but_small_grid, PICKAXE) == CRAFT_GRID_TOO_SMALL
-    assert mind._reaim_at_resource(paid_but_small_grid) is None
+    reached = mind.next_intent(paid_but_small_grid)
+    # A bag that already has the material but owes a 3-by-3 grid reaches for the table it holds, not
+    # back to a log it no longer needs — and the re-aim memory survives, which a fired re-aim would
+    # have cleared. So the grid debt never steers the Kin to the resource cell.
+    assert reached.skill != "turn_to"
     assert mind.last_target_block == (0, 64, 5)
 
 
@@ -1446,7 +1450,12 @@ def test_a_re_aim_is_refused_with_no_standing_goal_or_no_position() -> None:
 
     mindless = mind_for(ScriptedProvider(), CostLedger(run_cost_cap=CAP), goal=None)
     mindless.last_target_block = (0, 64, 5)
-    assert mindless._reaim_at_resource(reading()) is None
+    turned = mindless.next_intent(reading())
+    # With no standing milestone there is no raw material to return to, so the fallback blind-scans
+    # and the memory survives — the same observable proof of a refusal used above.
+    assert turned.skill == "turn_to"
+    assert turned.plan.calls[0].yaw_degrees % SCAN_YAW_STEP_DEGREES == pytest.approx(0.0)
+    assert mindless.last_target_block == (0, 64, 5)
 
     located = mind_for(ScriptedProvider(), CostLedger(run_cost_cap=CAP), goal=GOAL)
     located.last_target_block = (0, 64, 5)
@@ -1462,7 +1471,12 @@ def test_a_re_aim_is_refused_with_no_standing_goal_or_no_position() -> None:
             z=None,
         )
     )
-    assert located._reaim_at_resource(no_position) is None
+    turned = located.next_intent(no_position)
+    # A reading that never reported a position has no offset to aim from, so even with the goal and
+    # the memory present the turn falls back to the blind sweep rather than a doomed re-aim.
+    assert turned.skill == "turn_to"
+    assert turned.plan.calls[0].yaw_degrees % SCAN_YAW_STEP_DEGREES == pytest.approx(0.0)
+    assert located.last_target_block == (0, 64, 5)
 
 
 def test_the_re_aim_landing_on_a_block_re_arms_breaking_so_more_than_one_log_is_reachable() -> None:
@@ -1470,7 +1484,7 @@ def test_the_re_aim_landing_on_a_block_re_arms_breaking_so_more_than_one_log_is_
     later reading puts a block under the crosshair again, a break is offered and re-arms the
     memory with that cell, so the Kin can fell a second log rather than stalling on the first.
     This walks the handoff across three readings — arm, blind-turn-with-nothing-in-view, re-face —
-    through `next_intent`, which the isolated branch cells above do not exercise end to end.
+    so the memory re-arms for a second log, which the single-refusal cells above do not exercise.
     """
 
     mind, _ = mind_with()

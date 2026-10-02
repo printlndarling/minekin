@@ -263,10 +263,10 @@ def test_the_boot_mode_line_says_what_the_operator_is_waiting_for(
     warm = replace(handed_off, installed=0, reused=4, fetch_set=4)
     cold = replace(handed_off, installed=4, reused=0, fetch_set=4)
 
-    assert bootstrap_module._boot_mode_line(warm) == (
+    assert bootstrap_module._boot_mode_line(warm) == (  # pyright: ignore[reportPrivateUsage]
         "client ready from cache: reused 4 of 4 artifacts"
     )
-    assert bootstrap_module._boot_mode_line(cold) == (
+    assert bootstrap_module._boot_mode_line(cold) == (  # pyright: ignore[reportPrivateUsage]
         "first prepare: fetched 4, reused 0 of 4 artifacts (cold)"
     )
 

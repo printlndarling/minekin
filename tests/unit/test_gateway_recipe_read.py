@@ -20,6 +20,7 @@ import urllib.error
 import urllib.request
 from collections.abc import Iterator
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -41,8 +42,8 @@ PICKAXE = "minecraft:wooden_pickaxe"
 _TIMEOUT = 10
 
 
-def _rows(document: dict) -> dict[str, dict]:  # type: ignore[no-untyped-def]
-    return {row["product_id"]: row for row in document["recipes"]}
+def _rows(document: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    return {str(row["product_id"]): row for row in document["recipes"]}
 
 
 def test_the_read_names_its_schema_and_the_version_it_describes() -> None:

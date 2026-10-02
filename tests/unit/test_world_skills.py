@@ -391,9 +391,7 @@ def test_collect_refuses_to_walk_toward_a_drop_it_never_saw() -> None:
     asyncio.run(scenario())
 
 
-def oak_log_drop(
-    *, tick: int, distance: float = 2.0, vertical: float = 0.0
-) -> EntityCandidate:
+def oak_log_drop(*, tick: int, distance: float = 2.0, vertical: float = 0.0) -> EntityCandidate:
     return EntityCandidate(
         observation_id=f"drop-{tick}",
         entity_type="item",
@@ -1635,6 +1633,8 @@ def test_the_exit_names_the_ask_that_was_in_flight_when_the_client_went() -> Non
         assert isinstance(command, control_pb2.ScreenInput)
         assert raised.action_id == command.action_id
         assert raised.action_id != ""
+
+    asyncio.run(scenario())
 
 
 # ---------------------------------------------------------------------------

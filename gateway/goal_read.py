@@ -33,7 +33,7 @@ the same loopback/same-origin read posture the other `*_read` functions rely on,
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Final
+from typing import Any, Final, cast
 
 from gateway.readmodel import STALE_AFTER_MS
 from minekin_core.application.ports.clock import Clock
@@ -78,8 +78,9 @@ def goal_read(root: Path, *, clock: Clock, csrf_token: str) -> dict[str, Any]:
         config = OperatorConfig()
         load_error = error.safe_message
 
-    fields = config.as_document()["fields"]
-    assert isinstance(fields, dict)  # the document's own shape; narrowed for the projection
+    raw_fields = config.as_document()["fields"]
+    assert isinstance(raw_fields, dict)  # the document's own shape; runtime guard
+    fields = cast("dict[str, Any]", raw_fields)  # narrowed for the projection
 
     base = {
         "schemaVersion": SCHEMA,

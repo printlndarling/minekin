@@ -282,7 +282,9 @@ def step_to_run(
     needed = owed_steps(reading, product_id, quantity, grid_side=grid_side)
     if isinstance(needed, str):
         return None
-    craftable = reading.gui.craftable_recipe_ids if reading.gui is not None else frozenset()
+    craftable: frozenset[str] = (
+        reading.gui.craftable_recipe_ids if reading.gui is not None else frozenset()
+    )
     for step in needed:
         if step.recipe.recipe_id in craftable:
             # The client attests this recipe is craftable in the screen it is standing in — the
@@ -1243,8 +1245,8 @@ class PlayerMind:
             CRAFT_MATERIALS_MISSING
         ):
             return None
-        position = (reading.self_state.x, reading.self_state.y, reading.self_state.z)
-        if not all(isinstance(value, (int, float)) for value in position):
+        self_x, self_y, self_z = reading.self_state.x, reading.self_state.y, reading.self_state.z
+        if self_x is None or self_y is None or self_z is None:
             return None
         block_x, block_y, block_z = self.last_target_block
         self.last_target_block = None
@@ -1253,9 +1255,9 @@ class PlayerMind:
         # half-block off any real position — the guard is belt-and-braces for a degenerate read.
         try:
             yaw, pitch = angle_to_degrees(
-                dx=block_x + 0.5 - reading.self_state.x,
-                dy=block_y + 0.5 - reading.self_state.y,
-                dz=block_z + 0.5 - reading.self_state.z,
+                dx=block_x + 0.5 - self_x,
+                dy=block_y + 0.5 - self_y,
+                dz=block_z + 0.5 - self_z,
             )
         except ValueError:
             return None

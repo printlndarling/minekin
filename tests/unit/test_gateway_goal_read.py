@@ -34,13 +34,13 @@ PICKAXE = "minecraft:wooden_pickaxe"
 _TIMEOUT = 10
 
 
-def _read(tmp_path, fields: dict[str, Any]):  # type: ignore[no-untyped-def]
+def _read(tmp_path: Path, fields: dict[str, Any]) -> dict[str, Any]:
     if fields:
         save_operator_config(tmp_path, OperatorConfig(**fields))
     return goal_read(tmp_path, clock=FakeClock(), csrf_token="token-abc")
 
 
-def test_an_unset_goal_reads_as_a_supported_empty_state(tmp_path) -> None:  # type: ignore[no-untyped-def]
+def test_an_unset_goal_reads_as_a_supported_empty_state(tmp_path: Path) -> None:
     document = _read(tmp_path, {})
 
     assert document["schemaVersion"] == SCHEMA
@@ -52,7 +52,7 @@ def test_an_unset_goal_reads_as_a_supported_empty_state(tmp_path) -> None:  # ty
     assert document["loadError"] is None
 
 
-def test_a_goal_within_the_cover_reads_back_its_milestone_and_gross_plan(tmp_path) -> None:  # type: ignore[no-untyped-def]
+def test_a_goal_within_the_cover_reads_back_its_milestone_and_gross_plan(tmp_path: Path) -> None:
     document = _read(tmp_path, {"goal_product_id": TABLE, "goal_quantity": 2})
 
     assert document["configured"] is True
@@ -68,7 +68,7 @@ def test_a_goal_within_the_cover_reads_back_its_milestone_and_gross_plan(tmp_pat
     assert document["precondition"] is None
 
 
-def test_a_step_carries_the_materials_it_eats_not_a_claim_of_what_is_held(tmp_path) -> None:  # type: ignore[no-untyped-def]
+def test_a_step_carries_the_materials_it_eats_not_a_claim_of_what_is_held(tmp_path: Path) -> None:
     document = _read(tmp_path, {"goal_product_id": TABLE})
 
     planks_step = document["plan"][0]
@@ -78,8 +78,8 @@ def test_a_step_carries_the_materials_it_eats_not_a_claim_of_what_is_held(tmp_pa
 
 
 def test_a_product_outside_the_cover_reads_as_the_named_boundary_not_an_empty_plan(
-    tmp_path,
-) -> None:  # type: ignore[no-untyped-def]
+    tmp_path: Path,
+) -> None:
     document = _read(tmp_path, {"goal_product_id": "minecraft:diamond_pickaxe"})
 
     assert document["configured"] is True
@@ -87,8 +87,8 @@ def test_a_product_outside_the_cover_reads_as_the_named_boundary_not_an_empty_pl
     assert document["precondition"] == CRAFT_RECIPE_UNAVAILABLE
 
 
-def test_a_goal_needing_a_larger_grid_reads_as_the_named_grid_boundary(tmp_path) -> None:  # type: ignore[no-untyped-def]
-    """A pickaxe is in the catalog, but its last step is a 3×3 shape the two-by-two grid this
+def test_a_goal_needing_a_larger_grid_reads_as_the_named_grid_boundary(tmp_path: Path) -> None:
+    """A pickaxe is in the catalog, but its last step is a 3-by-3 shape the two-by-two grid this
     build opens cannot hold. Rather than print a plan the Kin could not finish, the read reports
     the distinct grid boundary — a different word from the out-of-cover one, so the panel can say
     which limit the operator is hitting."""
@@ -101,7 +101,7 @@ def test_a_goal_needing_a_larger_grid_reads_as_the_named_grid_boundary(tmp_path)
     assert document["precondition"] == CRAFT_GRID_TOO_SMALL
 
 
-def test_the_read_never_claims_a_progress_it_cannot_see(tmp_path) -> None:  # type: ignore[no-untyped-def]
+def test_the_read_never_claims_a_progress_it_cannot_see(tmp_path: Path) -> None:
     """The property that keeps this honest: with no live reading folded in, the payload cannot
     carry a key that would read as "the bag holds N" or "the milestone is met"."""
 
@@ -112,7 +112,7 @@ def test_the_read_never_claims_a_progress_it_cannot_see(tmp_path) -> None:  # ty
         assert forbidden not in document["milestone"]
 
 
-def test_an_ordinary_source_and_direction_are_carried_through(tmp_path) -> None:  # type: ignore[no-untyped-def]
+def test_an_ordinary_source_and_direction_are_carried_through(tmp_path: Path) -> None:
     document = _read(
         tmp_path,
         {
