@@ -15,7 +15,12 @@ import pytest
 from minekin_core import bootstrap
 from minekin_core.config import DATA_ROOT_VARIABLE
 from minekin_core.domain.errors import MinekinError
-from minekin_core.domain.goal_spec import GOAL_PRODUCT_VARIABLE, GOAL_QUANTITY_VARIABLE
+from minekin_core.domain.goal_spec import (
+    GOAL_PRODUCT_VARIABLE,
+    GOAL_QUANTITY_VARIABLE,
+    Milestone,
+    milestone_from_environment,
+)
 from minekin_core.domain.model_access import MODEL_VARIABLE
 from minekin_core.domain.operator_config import (
     CONFIG_FILE_NAME,
@@ -93,3 +98,36 @@ def test_a_corrupt_document_raises_rather_than_running_on_a_guess(
 
     with pytest.raises(MinekinError):
         bootstrap.apply_persisted_config()
+
+
+def test_a_saved_milestone_survives_the_fold_into_the_milestone_the_mind_reads(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, clean_goal_env: None
+) -> None:
+    """The two seams compose into the goal-submission loop, which neither side proves alone.
+
+    `test_a_saved_document_folds_into_the_environment` checks the environment names this process
+    writes; `test_goal_spec` checks the milestone a given environment resolves to. A fold that wrote
+    a differently spelled variable, or turned the count into something `milestone_from_environment`
+    would refuse, passes both while the operator's saved goal never reaches the Kin. This pins the
+    full dashboard-to-mind wiring on one real product so that gap cannot open silently.
+    """
+
+    monkeypatch.setenv(DATA_ROOT_VARIABLE, str(tmp_path))
+    save_operator_config(
+        tmp_path,
+        OperatorConfig(
+            goal_product_id="minecraft:stick",
+            goal_quantity=4,
+            goal_source_item_id="minecraft:oak_log",
+            goal_direction="hold_four_sticks",
+        ),
+    )
+
+    bootstrap.apply_persisted_config()
+
+    assert milestone_from_environment() == Milestone(
+        product_id="minecraft:stick",
+        quantity=4,
+        source_item_id="minecraft:oak_log",
+        direction="hold_four_sticks",
+    )
