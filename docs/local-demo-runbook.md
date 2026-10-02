@@ -921,3 +921,16 @@ step14 turn_to {pitch:-18, yaw:135}  "sweep to look for a spot to place a crafti
 **仍不声明**：不据此判 #46 全绿。这一发（`8c6197a3…`）自身只取到「正常取消/stop」与「应用重启/复用＝核对非重放」两路读数，未触发后两路。就全局账目而言：「异常断连」早有一枚活体分类读数（第五节第 6 条那一发：`stop_reason CONTROL_CHANNEL_LOST`、`outcome BRIDGE_LOST`、`input_release_failed true`、`unconfirmed [290]`，与正常 stop 的 `unconfirmed []` 成对照），只是由 harness 拆通道触发、非游戏内自发掉线，触发保真度列为保留项；「非空失效的显式恢复」仍只有设计面（重启断言刻意不要求 `invalidated` 为空）与 `invalidated []` 的读数，真正非空的活体读数仍缺。
 
 **下一格 `current_next`**：要么在受控条件下取一次非空失效恢复读数（先接受一次非正常收尾并据其死标记做 reconcile，且不删旧失败材料），要么给异常断连找一个产品级、非 artifact 的按需触发面后再逐字入账；两者都不与 #50/#47/#4 的保留设计决定混做。
+
+## 六之二十三、用户选定的 Option 1：确定性 `--skills` 计划活体一发，如实停在第二次采集、3×3 终端合成仍保持未达（2026-10-02，run `87d078cf5da2478b85a49ffd211641ef`，会话 `6a4646fbffe44d929adaca2e6c4c1508`，客户端 pid 340，server run 目录 `run-37`，Kin 根 `kin-3x3-fresh-20261002`，boot_mode `cache_hit`，计划文件 `examples/skill-plan-table-and-pickaxe.json`）
+
+这一发对应#50 的通用修法方向：用户明确选了 Option 1——不改契约、只用运营者手写的通用技能确定性计划（`turn_to/break_seen_block/collect_dropped/craft_take_result/close_screen/select_hotbar/use_target`，无木镐专用步）在活体上试一次 3×3 木镐终端。做法是先离线解析该计划（`uv run python`，21 步全部可解析、能力集合不越其点名范围），再在已填 store 的同一 Kin 根上 `--skills` 跑一发，不靠反复重跑赌模型选对角度。
+
+1. **计划落盘与离线可解析**：`examples/skill-plan-table-and-pickaxe.json` 是这份可复现组合的持久载体；`tests/unit/test_skill_plan.py` 的能力上界断言新增 `USE_CAPABILITY`（105-111 注册表本就含 `control.use.v1`，这是第一枚使用 `use_target` 的已提交示例，属刻意且正确的设计对齐，非改断言凑绿）。36 项单测通过，`ruff format --check` 与 `ruff check` 干净。
+2. **活体逐技能实读（`skill_plan` 首非 CONFIRMED 即停，§4 无重试）**：`skills` 记到 5 步——`turn_to CONFIRMED`(1382→1392)、`break_seen_block CONFIRMED`(1392→1462，第一根橡木)、`collect_dropped CONFIRMED`(1462→1494，steps=1)、`turn_to CONFIRMED`(1494→1505)、第二次 `break_seen_block` **FAILED / `MINE_TARGET_NOT_AIMED`**(1505→null)。`skill_stop: break_seen_block`。⇒ 计划连采集阶段第二根都没走完，合成/放置/开窗/3×3 一步都未触及。
+3. **这根停在采集而非放置，说明的是通用问题定位，不是模型运气**：固定射线只破它正下方那一格；第一根倒树后，脚前方残柱的行进/拾取已改变了十字准星下的目标，第二次 `break_seen_block` 对着未对准的角即按 §4 停。这正是#50 已把缺口定位到的「再采集/对准」通用边界——修它要么对准随目标自动重取，要么在采集里带上让目标重新进入射线的步长；不是加木镐专用步、也不是反复重跑赌角度。这一发只跑一次即如实入账。
+4. **松键与收尾实读（第 4 条审计要的实际读数）**：`session exited 0`、`outcome STOPPED_ON_REQUEST`、`input_release_failed false`；`release asked[340] / released[340] / unconfirmed []`——每路被按住的输入都在客户端下一 tick 得到释放确认，非只凭 `asked`。`recovery.status reconciled`、`invalidated []`、`autonomous null`。
+
+**仍不声明**：这一发未取得任何放置或 3×3 木镐的真实游戏 CONFIRM；`#50` 的 3×3 终端保持 UNKNOWN/未达，`use_target` 的放置CONFIRM 路径此前也只在 `verify_use_effect` 下限=UNKNOWN 的意义上存在。不据此判 #50/#48 通过，也不把 UNKNOWN 转述为 CONFIRMED。
+
+**下一格 `current_next`**：#50 的通用修法方向已用一枚活体读数钉死在「多目标采集时十字准星未随残柱自动重取」这一环。下一步读 `domain/recipe_catalog.py` 的 `build_plan` 与 enabler 预留次序之外，改把焦点放在 `collect_dropped`/`break_seen_block` 之间的对准交接：判明采集走完后目标射线是否应自动重新对准（而非要求下一条 `turn_to` 用固定角再赌一次），据此才谈得上通用放置目标选择与前提校验更靠前那一环；仍不重跑赌模型、不加木镐专用步、不改断言凑绿。

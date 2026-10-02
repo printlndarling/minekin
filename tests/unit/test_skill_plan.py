@@ -637,6 +637,7 @@ def test_the_committed_example_plans_all_parse_and_ask_for_no_more_than_they_nam
                 SCREEN_CAPABILITY,
                 GUI_CAPABILITY,
                 HOTBAR_CAPABILITY,
+                USE_CAPABILITY,
             }
         )
 
