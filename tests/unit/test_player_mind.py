@@ -1633,3 +1633,32 @@ def test_local_setup_uses_a_held_grid_enabler_even_before_remaining_materials_ar
     )
     assert blocker_for(observed, PICKAXE) == CRAFT_MATERIALS_MISSING
     assert mind.next_intent(observed).skill == "use_target"
+
+
+def test_reacquisition_looks_steeply_up_before_abandoning_a_close_resource_heading() -> None:
+    mind, _ = mind_with()
+    mind.next_intent(reading(aim=aim_at(NEAR_LOG)))
+    pitches: list[float] = []
+    while mind.last_target_block is not None:
+        intent = mind.next_intent(reading())
+        pitches.append(intent.plan.calls[0].pitch_degrees)
+        if intent.plan.calls[0].pitch_degrees < -80:
+            break
+    assert min(pitches) < -80
+    assert mind.last_target_block == (0, 64, 5)
+    # Only a subsequent client reading, not the sweep, can make the overhead
+    # block a mine target. The successful sighting re-arms the normal break.
+    observed = mind.next_intent(
+        reading(
+            aim=aim_at(
+                BlockTargetValue(
+                    x=0,
+                    y=67,
+                    z=5,
+                    face=AimFace.DOWN,
+                )
+            )
+        )
+    )
+    assert observed.skill == "break_seen_block"
+    assert mind.last_target_block == (0, 67, 5)

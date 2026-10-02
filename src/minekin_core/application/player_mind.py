@@ -111,7 +111,7 @@ SCAN_PITCH_CYCLE_DEGREES: Final = (-18.0, 55.0, -55.0)
 #: §5 draws between "look again along a heading I saw" and "recall a cell I never saw."
 #: Bounded, so a trunk whose column is entirely gone sweeps these few angles, then clears the memory
 #: and falls back to the blind scan rather than looping here forever.
-REACQUIRE_PITCH_SWEEP_DEGREES: Final = (0.0, 55.0, -55.0, 30.0, -30.0)
+REACQUIRE_PITCH_SWEEP_DEGREES: Final = (0.0, 55.0, -55.0, 30.0, -30.0, 85.0, -85.0)
 
 #: Reused verbatim from the skill layer so the word for "there was nothing to read" is the
 #: same on both sides of this module, as it already is on both sides of the IPC channel.
