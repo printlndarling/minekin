@@ -468,6 +468,28 @@ def test_the_client_recipe_book_is_the_authority_the_curated_grid_defers_to() ->
     assert step_to_run(silent, PICKAXE, grid_side=PLAYER_GRID_SIDE) is None
 
 
+def test_a_foreign_recipe_in_the_world_set_opens_no_offer_and_clears_no_blocker() -> None:
+    """The other control for #47's world-authority branch. The book is trusted only where it names
+    a recipe this ask actually owes: an id from elsewhere in the book must not conjure a step, and
+    it must not persuade `blocker_for` that the goal is reachable. The defers-to-authority test
+    proves an attested owed id opens the offer; this proves a foreign id on an empty bag opens
+    nothing — so the branch keys on the recipe identity, not on the book merely being non-empty."""
+
+    FOREIGN = "minecraft:furnace"
+    owed = build_plan(PICKAXE, quantity=1, grid_side=PLAYER_GRID_SIDE)
+    assert isinstance(owed, tuple)
+    assert FOREIGN not in {step.recipe.recipe_id for step in owed}
+
+    foreign = reading(
+        items=(),
+        gui=GuiScreenValue(
+            screen_id="minecraft:crafting", sync_id=3, craftable_recipe_ids=frozenset({FOREIGN})
+        ),
+    )
+    assert step_to_run(foreign, PICKAXE, grid_side=PLAYER_GRID_SIDE) is None
+    assert blocker_for(foreign, PICKAXE, grid_side=PLAYER_GRID_SIDE) != ""
+
+
 def test_a_standing_table_window_offers_the_three_by_three_craft() -> None:
     """The offer and the precondition agree: once the reading says a three-by-three window is up
     and the bag holds the last ingredients, the mind gets `craft_take_result` to click while the
