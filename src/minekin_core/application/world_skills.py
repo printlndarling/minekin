@@ -151,6 +151,15 @@ COLLECT_CLOSE_APPROACH_METERS: Final[float] = 0.25
 #: mind re-aim or move somewhere else.
 COLLECT_MAX_STALLED_CORRECTIONS: Final[int] = 3
 
+#: How long a `collect` waits for a felled item to register as a rendered entity
+#: before it concludes the drop is not in view. A `break` that CONFIRMED on the same
+#: tick can leave the very next frame still empty — the failure `collect` used to end
+#: on without ever stepping. This is a short, bounded settle, capped by the step's own
+#: timeout; it parks on the store's wake and re-checks only readings the client admits,
+#: so it waits for a fact the world will report rather than aiming at a cell the
+#: crosshair did not see. A drop already in the first reading never enters it.
+COLLECT_DROP_SETTLE_NS: Final[int] = 400_000_000
+
 #: The two ways a chase ends because the world moved out from under it rather than
 #: because the channel went quiet — both kept distinct from `NO_CONFIRMING_OBSERVATION`
 #: so a reader can tell "it stopped being reachable" from "nothing ever arrived".
@@ -444,6 +453,14 @@ def _newer_reading(game_tick: int) -> Callable[[WorldObservationValue], bool]:
     return lambda latest: latest.game_tick > game_tick
 
 
+def _drop_arrives(item_id: str) -> Callable[[WorldObservationValue], bool]:
+    """Whether this reading's own visible list reports the dropped item — the single
+    fact the settle wait parks for, and nothing more. It reaches only as far as the
+    client rendered and asks no question about an item it did not report."""
+
+    return lambda latest: bool(seen_drops(latest.visible_entities, item_id))
+
+
 def _turn_reading(
     game_tick: int, yaw_degrees: float, pitch_degrees: float
 ) -> Callable[[WorldObservationValue], bool]:
@@ -711,10 +728,26 @@ class WorldSkills:
         action_id = self._action_id()
         if pre is None:
             return _refusal_outcome("NO_LATEST_OBSERVATION", action_id, pre)
+        deadline = monotonic_ns() + timeout_ns
         first_drops = seen_drops(pre.visible_entities, item_id)
         if not first_drops:
-            return _refusal_outcome("NO_SEEN_DROP", action_id, pre)
-        deadline = monotonic_ns() + timeout_ns
+            # The felled item becomes a rendered entity a beat after the block breaks, so a
+            # `break` that CONFIRMED on the same tick can leave this reading's list still
+            # empty. Before concluding there is nothing to walk to, wait a short, bounded
+            # settle for a newer reading the client admits that does report the drop. It parks
+            # on the store's wake and re-checks only what the client rendered — it never aims
+            # at a cell the crosshair did not see, so §5 holds. A drop already in the first
+            # reading skips this entirely, leaving every confirmed collect on the exact path it
+            # already ran.
+            appeared = await self._wait_until(
+                _drop_arrives(item_id),
+                min(deadline, monotonic_ns() + COLLECT_DROP_SETTLE_NS),
+                action_id=action_id,
+            )
+            if appeared is None:
+                return _refusal_outcome("NO_SEEN_DROP", action_id, pre)
+            pre = appeared
+            first_drops = seen_drops(pre.visible_entities, item_id)
         chain = pre
         # The plan sizes the approach; the corrections after it are this module's
         # own short steps, so a whole window is not spent walking.

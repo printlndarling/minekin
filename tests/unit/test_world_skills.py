@@ -382,11 +382,61 @@ def test_collect_refuses_to_walk_toward_a_drop_it_never_saw() -> None:
         skills, sender = skill_with(store)
 
         outcome = await skills.collect_dropped(
-            item_id="minecraft:oak_log", authority=authority(), walk_seconds=0.0
+            item_id="minecraft:oak_log",
+            authority=authority(),
+            walk_seconds=0.0,
+            timeout_ns=50_000_000,
         )
         assert outcome.result is ActionResultClass.FAILED
         assert outcome.reason == "NO_SEEN_DROP"
         assert sender.sent == []
+
+    asyncio.run(scenario())
+
+
+def test_collect_waits_a_short_settle_for_a_felled_drop_to_register_before_refusing() -> None:
+    async def scenario() -> None:
+        # The failure a real run ended on: the `break` CONFIRMED on the same tick, so the
+        # very next frame had not yet rendered the item, and the old `collect` refused
+        # without ever stepping. A bounded settle for the newer reading that does report
+        # the drop turns that instant refusal into the walk the item was about to get.
+        drop_arrives = reading(
+            tick=110,
+            inventory_value=inventory(100),
+            entities=(oak_log_drop(tick=110, distance=2.0),),
+        )
+        came_away = reading(
+            tick=120,
+            inventory_value=inventory(120, (0, "minecraft:oak_log", 1)),
+            entities=(),
+        )
+        store = store_with(reading(tick=100, inventory_value=inventory(100), entities=()))
+        skills, sender = skill_with(store)
+        queued = [came_away]
+
+        def answer(message_type: str) -> None:
+            if message_type == AIM_INPUT_TYPE and queued:
+                store.admit(queued.pop(0), ())
+
+        sender.on_send = answer
+        # The item registers a beat after the break, exactly as the run reported it.
+        arrival = asyncio.create_task(admit_later(store, drop_arrives))
+        try:
+            outcome = await skills.collect_dropped(
+                item_id="minecraft:oak_log",
+                authority=authority(),
+                walk_seconds=0.0,
+                timeout_ns=10_000_000_000,
+            )
+        finally:
+            await arrival
+
+        assert outcome.result is ActionResultClass.CONFIRMED
+        # The settled, newer reading — not the empty first frame — is what it chased, and
+        # it stepped toward the drop rather than refusing (the whole point of the settle).
+        assert outcome.pre_tick == 110
+        assert outcome.post_tick == 120
+        assert sender.types().count(AIM_INPUT_TYPE) >= 1
 
     asyncio.run(scenario())
 
