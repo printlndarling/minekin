@@ -99,17 +99,19 @@ RETRY_BUDGET_PER_SIGNATURE: Final = 2
 SCAN_YAW_STEP_DEGREES: Final = 45.0
 SCAN_PITCH_CYCLE_DEGREES: Final = (-18.0, 55.0, -55.0)
 
-#: The pitch offsets a resource re-aim sweeps while it holds the trunk's recalled heading. The
-#: controlled world stacks its oak logs in one vertical column (feet / eye / above-eye at the same
-#: horizontal bearing), so once the block the crosshair reported is broken the ones that stand are
-#: directly above and below that same heading — a single aim at the vacated cell's centre points at
-#: air and misses both. These offsets are fixed degrees, the same kind of angular probe the blind
-#: scan's pitch cycle already uses: they do NOT name a neighbouring cell's coordinates, so which
-#: block (if any) the crosshair reports at each probe stays the client's word and not the mind's
-#: inference — the line §5 draws between "look again along a heading I saw" and "recall a cell I
-#: never saw." Bounded, so a felled trunk whose column is entirely gone sweeps these few angles,
-#: then clears the memory and falls back to the blind scan rather than looping here forever.
-REACQUIRE_PITCH_SWEEP_DEGREES: Final = (0.0, 18.0, -18.0, 36.0, -36.0)
+#: The pitch angles a resource re-aim probes while it holds the trunk's recalled heading. Measured
+#: on a live run: `collect` parks the Kin beside the block it just broke, so aiming at that vacated
+#: cell points steeply DOWN, while the members of a vertical trunk that still stand are near the
+#: horizon or above it — a ±18° wobble off the vacated cell's own steep pitch never crossed the
+#: horizon and found nothing, and only the blind scan's `+55` look-up landed the next log. So these
+#: probes are absolute pitch angles that span that up-range, held at the recalled yaw. They are the
+#: same kind of fixed look the blind scan already issues, only pinned to a heading the crosshair
+#: reported — a bounded set of generic angles, NOT a neighbouring cell's coordinates, so which
+#: block (if any) each probe reveals stays the client's word and not the mind's inference: the line
+#: §5 draws between "look again along a heading I saw" and "recall a cell I never saw."
+#: Bounded, so a trunk whose column is entirely gone sweeps these few angles, then clears the memory
+#: and falls back to the blind scan rather than looping here forever.
+REACQUIRE_PITCH_SWEEP_DEGREES: Final = (0.0, 55.0, -55.0, 30.0, -30.0)
 
 #: Reused verbatim from the skill layer so the word for "there was nothing to read" is the
 #: same on both sides of this module, as it already is on both sides of the IPC channel.
@@ -1257,10 +1259,10 @@ class PlayerMind:
         the recalled cell's heading and steps through `REACQUIRE_PITCH_SWEEP_DEGREES`, so a column
         whose reported block is now broken still gets its standing neighbours back in the
         crosshair. If a probe lands the crosshair on a block, building the next `break_seen_block`
-        re-arms the memory and resets the sweep; when the offsets run out with nothing seen the
+        re-arms the memory and resets the sweep; when the probes run out with nothing seen the
         memory clears and the blind scan resumes, which is what bounds a felled tree from looping
-        the turn. Every angle here is either the recalled heading or a fixed offset off it — the
-        mind never names a cell the crosshair did not report, the line §5 draws.
+        the turn. Every angle here is either the recalled heading or a generic pitch the blind scan
+        already uses — the mind never names a cell the crosshair did not report, the line §5 draws.
         """
 
         if self.goal is None or self.last_target_block is None:
@@ -1275,11 +1277,13 @@ class PlayerMind:
             self.reaim_probe = 0
             return None
         block_x, block_y, block_z = self.last_target_block
-        # The trunk's heading is the recalled cell's horizontal bearing — data the crosshair
-        # itself reported, so holding it is the authorized memory. The cell's own pitch is the
-        # centre of the sweep; the standing column reaches above and below it at that same heading.
+        # The trunk's heading is the recalled cell's horizontal bearing — data the crosshair itself
+        # reported, so holding it is the authorized memory. The cell's own pitch is discarded: the
+        # standing column sits near the horizon or above it once the reported block is gone, so the
+        # probes below are absolute generic pitches pinned to this heading, not an offset off the
+        # vacated cell's (steeply-down) angle.
         try:
-            yaw, base_pitch = angle_to_degrees(
+            yaw, _ = angle_to_degrees(
                 dx=block_x + 0.5 - self_x,
                 dy=block_y + 0.5 - self_y,
                 dz=block_z + 0.5 - self_z,
@@ -1295,10 +1299,10 @@ class PlayerMind:
             self.reaim_probe = 0
             self.last_target_block = None
             return None
-        # A fixed angular offset from the recalled centre, clamped to the client's pitch range: it
-        # does not name a neighbouring cell, it only looks a little higher or lower along a heading
-        # the mind saw, and the crosshair says what is there.
-        pitch = max(-90.0, min(90.0, base_pitch + REACQUIRE_PITCH_SWEEP_DEGREES[self.reaim_probe]))
+        # A generic absolute pitch the blind scan already issues, only pinned to the recalled
+        # heading: it names no neighbouring cell, it looks along a bearing the mind saw, and the
+        # crosshair says what is there.
+        pitch = REACQUIRE_PITCH_SWEEP_DEGREES[self.reaim_probe]
         self.reaim_probe += 1
         return (
             SkillPlan((SkillCall(name="turn_to", yaw_degrees=yaw, pitch_degrees=pitch),)),

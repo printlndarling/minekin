@@ -1397,10 +1397,13 @@ def test_the_mind_faces_back_to_the_log_block_it_was_breaking() -> None:
     turned = mind.next_intent(reading())
     assert turned.skill == "turn_to"
     assert turned.source == DECISION_FROM_LOCAL
-    expected_yaw, expected_pitch = angle_to_degrees(dx=0.5, dy=0.5, dz=5.5)
+    expected_yaw, _ = angle_to_degrees(dx=0.5, dy=0.5, dz=5.5)
     call = turned.plan.calls[0]
+    # The heading is the recalled cell's own bearing; the first probe is a generic absolute pitch
+    # (the sweep no longer aims at the vacated cell's steep angle — a live run showed that angle
+    # points at the ground beside a trunk whose members stand above it).
     assert call.yaw_degrees == pytest.approx(expected_yaw)
-    assert call.pitch_degrees == pytest.approx(expected_pitch)
+    assert call.pitch_degrees == pytest.approx(REACQUIRE_PITCH_SWEEP_DEGREES[0])
     # The turn stays inside the client's own units, so it is a legal look and not a clamp.
     assert -180.0 <= call.yaw_degrees <= 180.0
     assert -90.0 <= call.pitch_degrees <= 90.0
@@ -1444,7 +1447,7 @@ def test_the_re_aim_sweep_holds_the_recalled_heading_and_steps_only_the_pitch() 
 
     mind, _ = mind_with()
     mind.next_intent(reading(aim=aim_at(NEAR_LOG)))
-    held_yaw, base_pitch = angle_to_degrees(dx=0.5, dy=0.5, dz=5.5)
+    held_yaw, _ = angle_to_degrees(dx=0.5, dy=0.5, dz=5.5)
 
     seen_pitch: list[float] = []
     for _ in range(len(REACQUIRE_PITCH_SWEEP_DEGREES)):
@@ -1455,9 +1458,11 @@ def test_the_re_aim_sweep_holds_the_recalled_heading_and_steps_only_the_pitch() 
         assert -90.0 <= call.pitch_degrees <= 90.0
         seen_pitch.append(call.pitch_degrees)
 
-    # The pitch walks the offset ladder off the same centre, so the probes are distinct looks.
-    assert seen_pitch[0] == pytest.approx(base_pitch)  # offset 0 == the recalled centre
-    assert len(set(round(p, 3) for p in seen_pitch)) == len(REACQUIRE_PITCH_SWEEP_DEGREES)
+    # The pitch walks a fixed generic ladder (crossing the horizon toward an up-look) while the
+    # heading stays pinned to the recalled bearing, so the probes are distinct looks not a re-aim
+    # at the vacated cell's steep-down angle.
+    assert seen_pitch == list(REACQUIRE_PITCH_SWEEP_DEGREES)
+    assert len(set(seen_pitch)) == len(REACQUIRE_PITCH_SWEEP_DEGREES)
 
 
 def test_a_re_aim_is_refused_when_the_bag_owes_a_grid_not_a_resource() -> None:
