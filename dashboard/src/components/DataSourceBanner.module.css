@@ -1,9 +1,9 @@
 .banner {
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: var(--surface-2);
-  padding: 10px 12px;
-  margin-bottom: 14px;
+  padding: 14px 18px;
+  margin-bottom: 18px;
   display: grid;
   grid-template-columns: 1fr auto;
   gap: 8px;
@@ -20,6 +20,8 @@
 }
 
 .left {
+  min-width: 0;
+  overflow-wrap: anywhere;
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
@@ -93,4 +95,14 @@
   border: 1px solid var(--bad-line);
   border-radius: 6px;
   padding: 6px 8px;
+}
+
+@media (max-width: 600px) {
+  .banner {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .right {
+    flex-wrap: wrap;
+  }
 }

@@ -1,15 +1,15 @@
 :root {
-  --bg: #10131a;
-  --surface: #171b24;
-  --surface-2: #1e2330;
-  --line: #2b3242;
-  --line-soft: #232937;
-  --text: #e6e9f0;
-  --text-dim: #9aa4b8;
-  --text-faint: #6b7488;
+  --bg: #0b1214;
+  --surface: #121e22;
+  --surface-2: #1a2a30;
+  --line: #31464d;
+  --line-soft: #24383f;
+  --text: #edf5f4;
+  --text-dim: #b0c3c8;
+  --text-faint: #92aab1;
   --invert-text: #10131a;
-  --accent-line: #3d5afe;
-  --accent-bg: #1b2140;
+  --accent-line: #75dcc5;
+  --accent-bg: #173b35;
   --ok-ink: #4ad295;
   --ok-bg: #12291f;
   --ok-line: #1d4a37;
@@ -19,8 +19,14 @@
   --bad-ink: #ff6b6b;
   --bad-bg: #2b1719;
   --bad-line: #55292e;
-  --radius: 8px;
-  --focus: #6f8bff;
+  --radius: 12px;
+  --focus: #91ead7;
+  --danger: var(--bad-ink);
+  --danger-line: var(--bad-line);
+  --danger-surface: var(--bad-bg);
+  --warn-surface: var(--warn-bg);
+  --ok: var(--ok-ink);
+  --font-mono: ui-monospace, "Cascadia Mono", Consolas, monospace;
   color-scheme: dark;
 }
 
@@ -30,7 +36,8 @@
 
 body {
   margin: 0;
-  background: var(--bg);
+  background: radial-gradient(ellipse at 85% 0%, #16332f 0%, transparent 45%), var(--bg);
+  min-width: 320px;
   color: var(--text);
   font-family: system-ui, "Segoe UI", "Noto Sans SC", sans-serif;
   font-size: 14px;
@@ -43,9 +50,35 @@ input {
   font: inherit;
 }
 
+button,
+input:not([type="checkbox"]),
+select {
+  min-height: 40px;
+}
+
+input,
+select {
+  max-width: 100%;
+  accent-color: var(--accent-line);
+}
+
+button:disabled {
+  cursor: not-allowed;
+}
+
+a {
+  color: var(--focus);
+  text-underline-offset: 3px;
+}
+
+::selection {
+  background: var(--accent-bg);
+  color: var(--text);
+}
+
 :where(button, a, input, select):focus-visible {
   outline: 2px solid var(--focus);
-  outline-offset: 1px;
+  outline-offset: 3px;
 }
 
 .muted {
@@ -54,6 +87,7 @@ input {
 }
 
 code {
-  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-family: var(--font-mono);
   font-size: 12px;
+  overflow-wrap: anywhere;
 }

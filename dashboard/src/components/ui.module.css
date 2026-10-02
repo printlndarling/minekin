@@ -1,18 +1,21 @@
 .panel {
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: 16px;
   background: var(--surface);
-  padding: 12px 14px;
-  margin-bottom: 12px;
+  padding: 20px 24px;
+  margin-bottom: 18px;
+  box-shadow: 0 8px 28px #00000018;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .panelTitle {
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 600;
   letter-spacing: 0.04em;
-  color: var(--text-dim);
+  color: var(--text);
   text-transform: uppercase;
-  margin: 0 0 8px;
+  margin: 0 0 16px;
 }
 
 .panelNote {
@@ -26,8 +29,8 @@
   grid-template-columns: minmax(96px, 14%) minmax(120px, 1fr) auto;
   gap: 8px;
   align-items: baseline;
-  padding: 5px 0;
-  border-bottom: 1px dashed var(--line-soft);
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line-soft);
 }
 
 .row:last-child {
@@ -40,6 +43,7 @@
 }
 
 .rowValue {
+  min-width: 0;
   font-variant-numeric: tabular-nums;
   word-break: break-word;
 }
@@ -70,7 +74,7 @@
 
 .pill {
   display: inline-block;
-  padding: 1px 7px;
+  padding: 3px 9px;
   border-radius: 999px;
   font-size: 11px;
   border: 1px solid transparent;
@@ -99,4 +103,24 @@
   color: var(--text-dim);
   background: var(--surface-2);
   border-color: var(--line);
+}
+
+@media (max-width: 600px) {
+  .panel {
+    padding: 16px;
+  }
+
+  .row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 6px;
+  }
+
+  .rowLabel {
+    grid-column: 1 / -1;
+  }
+
+  .rowMeta,
+  .rowReason {
+    grid-column: 1 / -1;
+  }
 }

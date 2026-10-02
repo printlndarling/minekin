@@ -1,22 +1,22 @@
 .shell {
-  max-width: 1280px;
+  max-width: 1480px;
   margin: 0 auto;
-  padding: 22px 22px 44px;
+  padding: 32px 32px 48px;
 }
 
 .header {
   display: flex;
   justify-content: space-between;
-  align-items: flex-end;
+  align-items: center;
   gap: 16px;
-  margin-bottom: 12px;
+  margin-bottom: 24px;
 }
 
 .title {
-  font-size: 21px;
+  font-size: clamp(24px, 2.5vw, 32px);
   font-weight: 650;
   letter-spacing: 0.01em;
-  margin: 0 0 4px;
+  margin: 0 0 8px;
 }
 
 .subtitle {
@@ -35,35 +35,27 @@
 
 .body {
   display: grid;
-  grid-template-columns: 190px minmax(0, 1fr);
-  gap: 18px;
+  grid-template-columns: 218px minmax(0, 1fr);
+  gap: 24px;
   align-items: start;
-}
-
-@media (max-width: 860px) {
-  .body {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .nav {
-    flex-direction: row;
-    flex-wrap: wrap;
-    position: static;
-  }
 }
 
 .nav {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 22px;
   position: sticky;
-  top: 14px;
+  top: 24px;
+  padding: 18px 12px;
+  background: var(--surface);
+  border: 1px solid var(--line-soft);
+  border-radius: 16px;
 }
 
 .group {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 5px;
 }
 
 .groupLabel {
@@ -88,7 +80,8 @@
   background: transparent;
   border: 1px solid transparent;
   border-radius: var(--radius);
-  padding: 6px 8px;
+  padding: 10px 12px;
+  min-height: 52px;
   cursor: pointer;
 }
 
@@ -99,8 +92,9 @@
 
 .navActive {
   color: var(--text);
-  background: var(--surface-2);
-  border-color: var(--line);
+  background: var(--accent-bg);
+  border-color: var(--accent-line);
+  box-shadow: inset 3px 0 var(--accent-line);
 }
 
 .navText {
@@ -144,6 +138,7 @@
 
 .main {
   min-height: 420px;
+  min-width: 0;
 }
 
 .footer {
@@ -156,4 +151,38 @@
 
 .footer p {
   margin: 0 0 6px;
+}
+
+@media (max-width: 860px) {
+  .shell {
+    padding: 20px 16px 32px;
+  }
+
+  .header {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .body {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 16px;
+  }
+
+  .nav {
+    flex-direction: row;
+    position: static;
+    overflow-x: auto;
+    gap: 20px;
+    padding: 12px;
+  }
+
+  .group {
+    flex: 0 0 auto;
+  }
+
+  .navItem,
+  .navActive {
+    min-width: 150px;
+  }
 }
