@@ -450,6 +450,54 @@ def test_a_three_by_three_step_is_refused_in_the_inventory_and_allowed_at_the_ta
     assert step is not None and step.recipe.recipe_id == PICKAXE
 
 
+def test_the_fallback_stands_up_a_held_enabler_instead_of_gathering_more() -> None:
+    """The no-model fallback used to break or scan whenever the crosshair still saw a block, even
+    once the bag could already pay for the tool — so it chopped redundant logs and never reached the
+    three-by-three. `CRAFT_GRID_TOO_SMALL` is the catalog's word for "every shape this screen holds
+    is paid and the only step left needs a wider one," and it can only be reached while the enabler
+    is in the bag (owing a table would say `CRAFT_MATERIALS_MISSING`). Standing that table up is the
+    next progress, so the fallback right-clicks it rather than gathering — keyed on the blocker word
+    and the aim, never a product name. The table sits in the selected slot, so this reading is past
+    selecting and into placement."""
+
+    table_selected = reading(
+        items=((0, PLANKS, 3), (1, STICK, 2), (2, TABLE, 1)),
+        aim=block_aim(),
+        entities=(drop(),),
+        self_state=state(selected_slot=2),
+    )
+    mind, _ = mind_with()
+
+    intent = mind.next_intent(table_selected)
+
+    assert intent.kind is MindDecisionKind.INTENT
+    assert intent.source == DECISION_FROM_LOCAL
+    assert intent.skill == "use_target"
+    # The break and the collect stayed offered — the fallback chose to stand the table up over them.
+    assert {"break_seen_block", "collect_dropped"} <= set(feasible_skill_ids(GOAL, table_selected))
+
+
+def test_the_fallback_still_gathers_when_the_wider_step_is_short_of_materials() -> None:
+    """The stand-up branch must not fire while a material is genuinely owed. With no table in the
+    bag the pickaxe's blocker is `CRAFT_MATERIALS_MISSING`, not the grid word, so the same aimed
+    block is still worth breaking — this is the control that keeps the positive cell from being an
+    always-use quirk rather than a precondition answer."""
+
+    no_table = reading(
+        items=((0, PLANKS, 3), (1, STICK, 2)),
+        aim=block_aim(),
+        self_state=state(selected_slot=0),
+    )
+    assert blocker_for(no_table, PICKAXE, grid_side=PLAYER_GRID_SIDE) == CRAFT_MATERIALS_MISSING
+    mind, _ = mind_with()
+
+    intent = mind.next_intent(no_table)
+
+    assert intent.kind is MindDecisionKind.INTENT
+    assert intent.source == DECISION_FROM_LOCAL
+    assert intent.skill == "break_seen_block"
+
+
 def test_the_client_recipe_book_is_the_authority_the_curated_grid_defers_to() -> None:
     """#47 dynamic source: when the observation's client-reported book names a recipe, the world
     attests it is craftable in the screen being stood in, so the curated grid stand-in is not
