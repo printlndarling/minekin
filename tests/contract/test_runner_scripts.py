@@ -6239,11 +6239,19 @@ def panel_drive(
     stub_bin = str(home / "bin")
     keep = [entry for entry in environment["PATH"].split(os.pathsep) if entry != stub_bin]
     environment["PATH"] = os.pathsep.join([stub_bin, *keep])
+    environment["STUB_BIN"] = stub_bin
 
     bash = shutil.which("bash")
     assert bash is not None, f"no bash on PATH to drive {script} with"
     result = subprocess.run(
-        [bash, str(home / "test-orchestrator" / "runner" / script), *args],
+        [
+            bash,
+            "-c",
+            'export PATH="$(cd "$STUB_BIN" && pwd):$(dirname "$BASH"):$PATH"; source "$@"',
+            "panel-test",
+            str(home / "test-orchestrator" / "runner" / script),
+            *args,
+        ],
         capture_output=True,
         check=False,
         cwd=str(home),
