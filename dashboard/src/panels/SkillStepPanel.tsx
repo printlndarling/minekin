@@ -16,6 +16,16 @@ const RESULT_LABELS: Record<string, string> = {
   CONFIRMED: "已确认",
   FAILED: "失败",
   UNKNOWN: "结果未知",
+  INTERRUPTED: "已中断",
+};
+
+const REASON_LABELS: Record<string, string> = {
+  DECISION_PRECONDITION_CHANGED: "观察已变化，本步撤回并重新规划",
+  COLLECT_AIM_NOT_CONFIRMED: "尚未确认行走朝向，未开始前进",
+  NO_CONFIRMING_OBSERVATION: "等待期限内未观察到动作效果",
+  SCREEN_STILL_OPEN: "窗口仍未关闭",
+  GUI_CONFLICT: "当前窗口占用输入",
+  DEADLINE_EXCEEDED: "输入授权期限已到",
 };
 
 function memberLabel<T>(field: Field<T>): string {
@@ -101,7 +111,7 @@ export function SkillStepPanel({ snapshot }: SkillStepPanelProps) {
           <CountRow label="最近步序" field={group.value.stepIndex} format={(v) => `第 ${v} 步`} />
           <MemberRow label="技能" field={group.value.skill} />
           <MemberRow label="实际结果" field={group.value.result} gloss={(v) => RESULT_LABELS[v] ?? v} />
-          <MemberRow label="失败原因" field={group.value.reason} />
+          <MemberRow label="结果原因" field={group.value.reason} gloss={(v) => REASON_LABELS[v] ?? v} />
           <MemberRow label="失败归因" field={group.value.attribution} />
           <MemberRow label="决策来源" field={group.value.decisionSource} />
           <MemberRow label="模型拒止" field={group.value.modelRefusal} />
