@@ -975,3 +975,14 @@ MINEKIN_DEMO_AUTONOMOUS_WAIT_SECONDS=420 \
 
 
 通用3×3首条实际成功（当前代码 `f5b7d52`）：run `55a59985a6f642f79ec9771ba25ee75b`，会话 `48e49512f9a8439181a9834cd9c8f6bd`，server `run-52`。21步全部CONFIRMED，三次采集、五次2×2中间合成、工作台use开窗sync1，以及第21步3×3终产物合成（库存revision1387→1409）均由后续读数确认；`goal_met=true / GOAL_HELD_IN_HAND`，66帧接纳、0拒收、`STOPPED_ON_REQUEST`，释放实读无unconfirmed，退出0。来源为local_reflection、model_calls0，不是LLM成功或sealed evidence。此发成品进入已选槽位使循环在GUI尚开时提前成功，因此补关窗收尾：目标在手且GUI打开时只允许close_screen，循环要在关窗确认后才成功；对应真实循环回归先红后绿。231项相关回归与静态检查通过；下一步为同字节真实模型与GUI收尾复验。
+
+
+真实模型当前字节复验（main@b13eaba）：run `94b6cc2d7d9a4040b856e023bc7a1bd5`、会话 `3d9e4c6f929a4670a2c04f723ecaeda5`、server run-53。40次真实调用、35步CONFIRMED、489帧接纳/0观察拒收，但goal_met=false、NO_FEASIBLE_SKILL；含local_reflection回退，不是纯模型成功。工作台交互后模型选择挖掘被GUI_CONFLICT拒绝，三次关窗客户端报DEADLINE_EXCEEDED：授权原按48×5秒计算，漏了模型调用等待。新增回归复现240秒不足，修为每步“动作等待+已配置模型超时”；off路径不扩展授权。62项定向测试、ruff/pyright通过；修后真跑尚待。正常STOPPED_ON_REQUEST、input_release_failed=false，无sealed登记。
+
+真实模型复验入口已跟踪，读取.env字面赋值而不执行shell，只把模型配置及所引用密钥传给子进程；本次启用仅对子进程生效。示例：
+
+```powershell
+uv run python tools/run_real_model_demo.py --log .tmp/model-demo.log --bash D:/env/Git/bin/bash.exe --steps 48 --cost-cap-micro 10000
+```
+
+账本单位与估算费率来自model_access契约，不能将上限直接宣称为供应商实际账单金额。此入口不改配置文件、不打印密钥，普通日志与sealed证据分开。

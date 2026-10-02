@@ -98,6 +98,7 @@ class AutonomousAsk:
     skills: tuple[str, ...]
     step_budget: int
     step_seconds: float
+    decision_seconds: float = 0.0
 
     @property
     def capabilities(self) -> frozenset[str]:
@@ -108,9 +109,9 @@ class AutonomousAsk:
 
     @property
     def lease_seconds(self) -> float:
-        """Long enough for every step the mind may take, at the slowest step's window."""
+        """Cover each bounded decision and its following world-confirmation window."""
 
-        return self.step_budget * self.step_seconds
+        return self.step_budget * (self.step_seconds + self.decision_seconds)
 
 
 @dataclass(frozen=True, slots=True)

@@ -536,3 +536,27 @@ def test_a_scripted_run_does_not_read_the_model_environment(
     args = parse_args(["session", "start", "--profile", "profile.json"])
 
     assert _autonomous_ask(args, DEFAULT_SKILL_STEP_TIMEOUT_S) is None
+
+
+def test_autonomous_lease_includes_each_configured_model_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    clear_model_environment(monkeypatch)
+    monkeypatch.setenv(MODEL_PROVIDER_VARIABLE, PROVIDER_OPENAI_COMPATIBLE)
+    monkeypatch.setenv(MODEL_BASE_URL_VARIABLE, "https://example.invalid/v1")
+    monkeypatch.setenv(MODEL_VARIABLE, "model")
+    monkeypatch.setenv(MODEL_TIMEOUT_MS_VARIABLE, "8000")
+    args = parse_args(
+        [
+            "session",
+            "start",
+            "--profile",
+            "profile.json",
+            "--autonomous",
+            "--autonomous-steps",
+            "48",
+        ]
+    )
+    ask = _autonomous_ask(args, 5.0)
+    assert ask is not None
+    assert ask.lease_seconds == 48 * (5.0 + 8.0)

@@ -252,13 +252,14 @@ def _autonomous_ask(args: argparse.Namespace, skill_step_seconds: float) -> Auto
         )
     if not args.autonomous:
         return None
-    model_config()
+    config = model_config()
     return AutonomousAsk(
         skills=SKILL_OFFER,
         step_budget=(
             DEFAULT_STEP_BUDGET if args.autonomous_steps is None else int(args.autonomous_steps)
         ),
         step_seconds=skill_step_seconds,
+        decision_seconds=config.timeout_ms / 1000.0 if config.enabled else 0.0,
     )
 
 
