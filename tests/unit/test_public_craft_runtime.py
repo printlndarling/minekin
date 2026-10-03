@@ -17,6 +17,10 @@ from minekin_core.domain.errors import MinekinError
 from minekin_core.domain.goal_spec import Milestone
 from minekin_core.domain.model_access import CostLedger, Decision, DecisionRequest
 from minekin_core.domain.perception import (
+    AimFace,
+    AimKind,
+    AimTargetValue,
+    BlockTargetValue,
     GuiScreenValue,
     InventoryStackValue,
     InventoryValue,
@@ -72,6 +76,7 @@ def reading(
     gui: GuiScreenValue | None = None,
     alive: bool = True,
     selected_slot: int = 0,
+    aim: AimTargetValue | None = None,
 ) -> WorldObservationValue:
     return WorldObservationValue(
         generation=1,
@@ -89,7 +94,7 @@ def reading(
             pitch_degrees=0,
             selected_slot=selected_slot,
         ),
-        aim=None,
+        aim=aim,
         inventory=InventoryValue(
             1,
             tuple(
@@ -100,6 +105,16 @@ def reading(
         visible_entities=(),
         mining=None,
         gui=gui,
+    )
+
+
+def block_aim(block_id: str) -> AimTargetValue:
+    return AimTargetValue(
+        game_tick=100,
+        kind=AimKind.BLOCK,
+        block=BlockTargetValue(x=4, y=-2, z=9, face=AimFace.UP),
+        targeted_block_id=block_id,
+        distance=2.0,
     )
 
 
@@ -420,6 +435,35 @@ def test_public_grid_block_reroutes_into_standing_the_enabler_up(tmp_path: Path)
     assert intent.source == "local_reflection"
     assert intent.arguments == {"slot": 0, "expected_item_id": "minecraft:crafting_table"}
     assert mind.last_precondition == "CRAFT_GRID_TOO_SMALL"
+
+
+def test_public_gather_breaks_a_block_the_plan_names(tmp_path: Path) -> None:
+    provider = Provider("minecraft:stone_pickaxe")
+    mind = mind_for(
+        provider,
+        CostLedger(run_cost_cap=1000),
+        goal=STONE_PICKAXE_GOAL,
+        craft_knowledge=source(tmp_path),
+        model_enabled=False,
+    )
+    intent = mind.next_intent(reading({}, aim=block_aim("minecraft:cobbled_deepslate")))
+    assert intent.kind is MindDecisionKind.INTENT
+    assert intent.skill == "break_seen_block"
+    assert intent.source == "local_reflection"
+
+
+def test_public_gather_looks_away_from_a_block_the_plan_does_not_name(tmp_path: Path) -> None:
+    provider = Provider("minecraft:stone_pickaxe")
+    mind = mind_for(
+        provider,
+        CostLedger(run_cost_cap=1000),
+        goal=STONE_PICKAXE_GOAL,
+        craft_knowledge=source(tmp_path),
+        model_enabled=False,
+    )
+    intent = mind.next_intent(reading({}, aim=block_aim("minecraft:dirt")))
+    assert intent.kind is MindDecisionKind.INTENT
+    assert intent.skill == "turn_to"
 
 
 def test_public_goal_summary_names_the_uncoverable_raw_floor(tmp_path: Path) -> None:

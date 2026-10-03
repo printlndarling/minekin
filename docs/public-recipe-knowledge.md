@@ -36,6 +36,6 @@ composition root 按**实际启动 profile 的版本**绑定源，版本/摘要�
 
 宽网格同样接通了：当欠步的形状超过当前格子时，`step_toward` 按既有策展 opener 行（`Recipe.opens_grid_side`，不硬编码物品名）先返回**立起 enabler 的那一笔合成**（其材料不够则 `CRAFT_MATERIALS_MISSING`，即去采集；enabler 已在袋中则报 `CRAFT_GRID_TOO_SMALL`），由同一套 select→place→open 通用路径选中、放置、开窗；`PlayerMind` 的 blocker/enabler/select 三处问题改由同一知识源回答，公开目标与策展目标的改线、回收与立桌行为因此一致。enabler 行本身仍住在策展表（档案不携带 `opens_grid_side`，新 opener 是新增一行，不是改代码）。
 
-缺料也从"一个名字"变成"一张清单"：计划付不动的**原始料**（档案没有配方、需求超过袋存者）按计数收进 `raw_shortfall`，由 `PublicCraftKnowledge.missing_raw` 读出，公开目标的模型摘要因此带 `missing_raw`——采集哪一路有了依据（tag 格按计划自己的确定性候选解出，是满足配方的选择而非对同 tag 其他项的否定）。采集执行仍走既有通用行为。
+缺料也从"一个名字"变成"一张清单"：计划付不动的**原始料**（档案没有配方、需求超过袋存者）按计数收进 `raw_shortfall`，由 `PublicCraftKnowledge.missing_raw` 读出，公开目标的模型摘要因此带 `missing_raw`——采集哪一路有了依据（tag 格按计划自己的确定性候选解出，是满足配方的选择而非对同 tag 其他项的否定）。本地采集也按同一张清单选靶：`_reflect` 的挖块过滤认 source 名与 `missing_raw` 名字的并集，仍只匹配准星自报的方块名、不猜方块掉落。采集执行本身仍是既有通用行为。
 
 仍然未完成：公开目标走完"立桌→开窗→3×3 合成"的**真实游戏读数**、真实采集路线的活体验收与完整 GUI 收尾。运行代码测试以脚本 provider 验证不同成品走同一个行为，不是实际 LLM 或游戏结果证明。

@@ -1,5 +1,7 @@
 # Minekin 开发执行计划（现行唯一队列）
 
+> 2026-10-04 追加（M 直接落主干，基线 `bf8f32e`）：**本地采集跟着计划的缺料走**。`_reflect` 的挖块过滤从"只认里程碑的 source_item_id"改为 `_gather_wants`：source 名与（配置公开源时）`missing_raw` 的名字并集；仍只按准星自报的方块名匹配、不猜方块掉落——保守性不变，名字来源从"记着的一个"变成"算出来的那张清单"。门：`tests/unit` 全量 `3409 passed, 2 skipped`、不带参数的 `uv run pyright` 全仓 0 errors、ruff 0/0。**未证按实**：真实采集路线与游戏读数未取。
+
 > 2026-10-04 追加（M 直接落主干，基线 `eb0944c`）：**缺料从"一个名字"变"一张清单"**。`_owed_plan` 把计划付不动的原始料（档案无配方者，需求减袋存为正）按计数收进 `raw_shortfall`，新增 `PublicCraftKnowledge.missing_raw`（协议同步）；公开目标在模型摘要里带 `missing_raw`（tag 格按计划的确定性候选解出，docstring 注明该选择满足配方、不否定同 tag 其他项）——采集路线因此有据可选，执行仍走既有通用采集。门：`tests/unit` 全量 `3407 passed, 2 skipped`、不带参数的 `uv run pyright` 全仓 0 errors、ruff 0/0。**未证按实**：真实采集路线选择与游戏读数未取。
 
 > 2026-10-04 追加（M 直接落主干，基线 `daa0839`）：**撞格的合成问句不再一票停跑**。`_decision` 的改线集合在 `_enabler_to_stand_up(reading)` 非空（enabler 已在袋中）时纳入 `CRAFT_GRID_TOO_SMALL`：模型或本地点名一个当前格子放不下的目标合成时，改线到 select→place→open 的通用立桌路径；opener 未知或未持有时行为不变（仍 HOLD）。公开路径此格可达（档案的 `craft_options` 覆盖目标树之外的产品，答案落在供予集内），策展路径因供予集与欠序同源而实际不可达——两处判定共用同一知识源助手。门：`tests/unit` 全量 `3404 passed, 2 skipped`、不带参数的 `uv run pyright` 全仓 0 errors、ruff 0/0。

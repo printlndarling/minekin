@@ -1110,6 +1110,30 @@ class PlayerMind:
             )
         return enabler_to_stand_up(self.goal, reading, grid_side=side)
 
+    def _gather_wants(self, reading: WorldObservationValue) -> frozenset[str]:
+        """The raw items a local gather would be for, from whichever plan is bound.
+
+        The milestone's own source name is what a curated run has always used; with version
+        knowledge bound, the plan's uncoverable floor (`missing_raw`) joins it, so the local
+        break follows what the recipe arithmetic is short of instead of one remembered name.
+        It stays a name match against the crosshair's own report — a block nobody said drops
+        the wanted item is not broken — which is the conservatism the contract keeps.
+        """
+
+        wanted: set[str] = set()
+        if self.goal is not None and self.goal.source_item_id:
+            wanted.add(self.goal.source_item_id)
+        if self.goal is not None and self.craft_knowledge is not None:
+            wanted.update(
+                self.craft_knowledge.missing_raw(
+                    self.goal.product_id,
+                    reading,
+                    quantity=self.goal.quantity,
+                    grid_side=crafting_grid_side(reading),
+                )
+            )
+        return frozenset(wanted)
+
     def _select_target(self, reading: WorldObservationValue) -> tuple[str, int] | None:
         """Which held item the goal wants in hand — its product, or the grid-opener."""
 
@@ -1466,8 +1490,10 @@ class PlayerMind:
         further gathering, and closing that window loses its grid context. The catalog's
         blocker and grid metadata select the transition, never a product-specific chain.
         Gathering with a named raw resource is conservative: a different block under the crosshair
-        does not prove that breaking it yields the wanted item. A model may still choose the generic
-        break for another reason, while the local gather looks again instead of excavating ground.
+        does not prove that breaking it yields the wanted item, and with version knowledge bound
+        the names are the plan's own uncoverable floor rather than one remembered source item. A
+        model may still choose the generic break for another reason, while the local gather looks
+        again instead of excavating ground.
         """
 
         if "close_screen" in feasible:
@@ -1500,16 +1526,14 @@ class PlayerMind:
             return "use_target"
         if "collect_dropped" in feasible and needs.get("resource_security", 0) >= 5:
             return "collect_dropped"
+        wants = self._gather_wants(reading)
         if (
             "break_seen_block" in feasible
             and needs.get("safety", 0) < 7
             and (
                 self.goal is None
-                or not self.goal.source_item_id
-                or (
-                    reading.aim is not None
-                    and reading.aim.targeted_block_id == self.goal.source_item_id
-                )
+                or not wants
+                or (reading.aim is not None and reading.aim.targeted_block_id in wants)
             )
         ):
             return "break_seen_block"
