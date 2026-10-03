@@ -34,6 +34,7 @@ from minekin_core.application.world_skills import (
     CLIENT_EXITED,
     ActionAuthority,
     ClientProcessExited,
+    PlayerDied,
     SkillCall,
     WorldSkills,
 )
@@ -451,6 +452,14 @@ async def perform_skill(
         # `UNKNOWN` rather than `FAILED`: the command went out and the world may have
         # changed by the time the JVM died, which is a fact this run cannot read.
         return _client_exited_outcome(exit_error.exit_code, exit_error.action_id)
+    except PlayerDied as interrupted:
+        return SkillOutcome(
+            result=ActionResultClass.INTERRUPTED,
+            reason="PLAYER_DEAD",
+            action_id=interrupted.action_id,
+            post_tick=interrupted.game_tick,
+            details={"release_send_failed": "true"} if interrupted.release_failed else {},
+        )
 
 
 async def _dispatch(

@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import time
 from collections.abc import Callable
+from dataclasses import replace
 from typing import Any, Final, cast
 
 import pytest
@@ -36,12 +37,14 @@ from minekin_core.adapters.bridge.ipc import (
     USE_INPUT_TYPE,
     monotonic_ns,
 )
+from minekin_core.application.skill_plan import perform_skill
 from minekin_core.application.world_observation import WorldObservationStore
 from minekin_core.application.world_skills import (
     CLOSE_SCREEN_MAX_ESCAPES,
     COLLECT_MAX_STALLED_CORRECTIONS,
     ActionAuthority,
     ClientProcessExited,
+    SkillCall,
     WorldSkills,
 )
 from minekin_core.domain.perception import (
@@ -2457,5 +2460,181 @@ def test_consume_spends_one_window_across_both_phases(monkeypatch: Any) -> None:
         assert outcome.result is ActionResultClass.UNKNOWN
         assert sender.types() == [HOTBAR_SELECT_INPUT_TYPE, USE_INPUT_TYPE, USE_INPUT_TYPE]
         assert elapsed < 1.5
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "turn_to",
+        "break_seen_block",
+        "collect_dropped",
+        "craft",
+        "craft_take_result",
+        "close_screen",
+        "select_hotbar",
+        "use_target",
+        "consume_item",
+    ],
+)
+def test_dead_body_refuses_every_skill_before_any_command(name: str) -> None:
+    async def scenario() -> None:
+        dead = replace(state(), health=0.0, alive=False)
+        store = store_with(reading(state_value=dead))
+        skills, sender = skill_with(store)
+        outcome = await perform_skill(
+            skills,
+            SkillCall(
+                name=name,
+                item_id="minecraft:apple",
+                slot=0,
+                recipe_id="minecraft:oak_planks",
+                product_id=PLANKS,
+                materials=((LOG, 1),),
+            ),
+            authority=authority(),
+            timeout_ns=1_000_000,
+        )
+        assert sender.sent == []
+        assert outcome.result is ActionResultClass.FAILED
+        assert outcome.reason == "PLAYER_DEAD"
+
+    asyncio.run(scenario())
+
+
+def test_death_during_consumption_interrupts_instead_of_confirming_inventory_loss() -> None:
+    async def scenario() -> None:
+        first = reading(
+            state_value=_hungry_state(selected_slot=0, main_hand="minecraft:apple"),
+            aim=miss_aim(100),
+            inventory_value=inventory(100, (0, "minecraft:apple", 2)),
+        )
+        dead = reading(
+            tick=120,
+            state_value=replace(state(), health=0.0, alive=False),
+            aim=miss_aim(120),
+            inventory_value=inventory(120),
+        )
+        store = store_with(first)
+        skills, sender = skill_with(store)
+
+        def die_after_press(message_type: str) -> None:
+            if message_type == USE_INPUT_TYPE:
+                message = cast(control_pb2.UseInput, sender.sent[-1][1])
+                if message.use:
+                    assert store.admit(dead, ())
+
+        sender.on_send = die_after_press
+        outcome = await perform_skill(
+            skills,
+            SkillCall(name="consume_item", item_id="minecraft:apple"),
+            authority=authority(),
+            timeout_ns=1_000_000_000,
+        )
+        assert outcome.result is ActionResultClass.INTERRUPTED
+        assert outcome.reason == "PLAYER_DEAD"
+        assert outcome.post_tick == 120
+        assert [
+            cast(control_pb2.UseInput, m).use for t, m in sender.sent if t == USE_INPUT_TYPE
+        ] == [True, False]
+        assert outcome.action_id
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize(
+    ("name", "message_type", "field"),
+    [
+        ("break_seen_block", MINE_INPUT_TYPE, "mining"),
+        ("collect_dropped", MOVE_INPUT_TYPE, "forward"),
+        ("use_target", USE_INPUT_TYPE, "use"),
+        ("consume_item", USE_INPUT_TYPE, "use"),
+    ],
+)
+@pytest.mark.parametrize("interruption", ["death", "cancel"])
+def test_held_action_stops_on_death_or_cancellation(
+    name: str, message_type: str, field: str, interruption: str
+) -> None:
+    async def scenario() -> None:
+        first = reading(aim=block_aim(), entities=(oak_log_drop(tick=100),))
+        if name == "consume_item":
+            first = reading(
+                state_value=_hungry_state(selected_slot=0, main_hand="minecraft:apple"),
+                aim=miss_aim(100),
+                inventory_value=inventory(100, (0, "minecraft:apple", 2)),
+            )
+        dead = reading(
+            tick=120, state_value=replace(state(), health=0.0, alive=False), aim=miss_aim(120)
+        )
+        store = store_with(first)
+        skills, sender = skill_with(store)
+        pressed = asyncio.Event()
+
+        def interrupt_after_press(sent_type: str) -> None:
+            if sent_type == message_type and getattr(sender.sent[-1][1], field):
+                pressed.set()
+                if interruption == "death":
+                    assert store.admit(dead, ())
+
+        sender.on_send = interrupt_after_press
+        pending = asyncio.create_task(
+            perform_skill(
+                skills,
+                SkillCall(
+                    name=name,
+                    item_id="minecraft:apple" if name == "consume_item" else LOG,
+                    walk_seconds=1.0,
+                ),
+                authority=authority(),
+                timeout_ns=5_000_000_000,
+            )
+        )
+        await asyncio.wait_for(pressed.wait(), timeout=1)
+        if interruption == "cancel":
+            pending.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await pending
+        else:
+            outcome = await asyncio.wait_for(pending, timeout=1)
+            assert outcome.result is ActionResultClass.INTERRUPTED
+            assert outcome.reason == "PLAYER_DEAD" and outcome.post_tick == 120
+        assert [getattr(m, field) for t, m in sender.sent if t == message_type] == [1, 0]
+
+    asyncio.run(scenario())
+
+
+def test_failed_stop_send_cannot_replace_observed_death() -> None:
+    async def scenario() -> None:
+        first = reading(
+            state_value=_hungry_state(selected_slot=0, main_hand="minecraft:apple"),
+            aim=miss_aim(100),
+            inventory_value=inventory(100, (0, "minecraft:apple", 2)),
+        )
+        dead = reading(
+            tick=120, state_value=replace(state(), health=0.0, alive=False), aim=miss_aim(120)
+        )
+        store = store_with(first)
+
+        class LostReleaseSender(RecordingSender):
+            async def send_control(self, message_type: str, message: Message) -> None:
+                await super().send_control(message_type, message)
+                if message_type == USE_INPUT_TYPE:
+                    if cast(control_pb2.UseInput, message).use:
+                        assert store.admit(dead, ())
+                    else:
+                        raise ConnectionError("fixture stop transport unavailable")
+
+        sender = LostReleaseSender()
+        skills = WorldSkills(sender=sender, observations=store, capabilities=ALL_CAPABILITIES)
+        outcome = await perform_skill(
+            skills,
+            SkillCall(name="consume_item", item_id="minecraft:apple"),
+            authority=authority(),
+            timeout_ns=1_000_000_000,
+        )
+        assert outcome.reason == "PLAYER_DEAD" and outcome.result is ActionResultClass.INTERRUPTED
+        assert outcome.details == {"release_send_failed": "true"}
+        assert len(sender.sent) == 2
 
     asyncio.run(scenario())

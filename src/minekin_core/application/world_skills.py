@@ -28,7 +28,8 @@ from __future__ import annotations
 
 import asyncio
 import math
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import AsyncGenerator, Awaitable, Callable, Mapping
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import Final, Protocol
 
@@ -578,6 +579,16 @@ class ClientProcessExited(RuntimeError):
         self.action_id = action_id
 
 
+class PlayerDied(RuntimeError):
+    """An admitted body observation ended this action before its confirmation."""
+
+    def __init__(self, *, action_id: str, game_tick: int) -> None:
+        super().__init__("PLAYER_DEAD")
+        self.action_id = action_id
+        self.game_tick = game_tick
+        self.release_failed = False
+
+
 def _client_still_running() -> int | None:
     return None
 
@@ -745,41 +756,42 @@ class WorldSkills:
         target = block
         await self._send_mine(authority, action_id, target, mining=True)
         deadline = monotonic_ns() + timeout_ns
-        chain = pre
-        while True:
-            post = await self._wait_until(
-                _newer_reading(chain.game_tick), deadline, action_id=action_id
-            )
-            if post is None:
-                # Either the window ran out or it is still open; only a closed
-                # window ends the wait.
-                if monotonic_ns() >= deadline:
-                    await self._send_mine(authority, action_id, target, mining=False)
+        async with self._release_on_exit(
+            lambda: self._send_mine(authority, action_id, target, mining=False)
+        ):
+            chain = pre
+            while True:
+                post = await self._wait_until(
+                    _newer_reading(chain.game_tick), deadline, action_id=action_id
+                )
+                if post is None:
+                    # Either the window ran out or it is still open; only a closed
+                    # window ends the wait.
+                    if monotonic_ns() >= deadline:
+                        return SkillOutcome(
+                            result=ActionResultClass.UNKNOWN,
+                            reason="NO_CONFIRMING_OBSERVATION",
+                            action_id=action_id,
+                            pre_tick=pre.game_tick,
+                        )
+                    continue
+                verdict = verify_block_broken(
+                    pre=chain,
+                    post=post,
+                    target=target,
+                    expected_drop_item=expected_drop_item,
+                )
+                if verdict is not ActionResultClass.UNKNOWN:
+                    # Whatever the reading said, the key comes back the way every
+                    # hold ends: the same named stop, not a lease left to lapse.
                     return SkillOutcome(
-                        result=ActionResultClass.UNKNOWN,
-                        reason="NO_CONFIRMING_OBSERVATION",
+                        result=verdict,
+                        reason="" if verdict is ActionResultClass.CONFIRMED else "MINING_STALLED",
                         action_id=action_id,
                         pre_tick=pre.game_tick,
+                        post_tick=post.game_tick,
                     )
-                continue
-            verdict = verify_block_broken(
-                pre=chain,
-                post=post,
-                target=target,
-                expected_drop_item=expected_drop_item,
-            )
-            if verdict is not ActionResultClass.UNKNOWN:
-                # Whatever the reading said, the key comes back the way every
-                # hold ends: the same named stop, not a lease left to lapse.
-                await self._send_mine(authority, action_id, target, mining=False)
-                return SkillOutcome(
-                    result=verdict,
-                    reason="" if verdict is ActionResultClass.CONFIRMED else "MINING_STALLED",
-                    action_id=action_id,
-                    pre_tick=pre.game_tick,
-                    post_tick=post.game_tick,
-                )
-            chain = post
+                chain = post
 
     async def collect_dropped(
         self,
@@ -955,11 +967,13 @@ class WorldSkills:
         if arrived is None or deadline - monotonic_ns() < round(walk_seconds * 1_000_000_000):
             return False
         await self._send_walk(action_id, authority, forward=1.0)
-        await self._sleep(walk_seconds)
+        async with self._release_on_exit(
+            lambda: self._send_walk(action_id, authority, forward=0.0)
+        ):
+            await self._sleep(walk_seconds, action_id=action_id)
         # The same named release the movement contract already guarantees — a
         # walk with no stop would be a Kin still walking into whatever is there,
         # and that is true of the last step of a chase as much as of the first.
-        await self._send_walk(action_id, authority, forward=0.0)
         return True
 
     async def _send_walk(
@@ -1514,8 +1528,8 @@ class WorldSkills:
             return _refusal_outcome(refusal.refusal.value, action_id, pre)
         held = pre.self_state.main_hand_item_id
         await self._send_use(authority, action_id, use=True)
-        await self._sleep(USE_TAP_SECONDS)
-        await self._send_use(authority, action_id, use=False)
+        async with self._release_on_exit(lambda: self._send_use(authority, action_id, use=False)):
+            await self._sleep(USE_TAP_SECONDS, action_id=action_id)
         deadline = monotonic_ns() + timeout_ns
         post = await self._wait_until(
             lambda candidate: (
@@ -1637,12 +1651,12 @@ class WorldSkills:
             max(0, deadline - monotonic_ns()),
         )
         await self._send_use(authority, action_id, use=True)
-        post = await self._wait_until(
-            _meal_arrives(pre=pre, item_id=item_id),
-            monotonic_ns() + hold_ns,
-            action_id=action_id,
-        )
-        await self._send_use(authority, action_id, use=False)
+        async with self._release_on_exit(lambda: self._send_use(authority, action_id, use=False)):
+            post = await self._wait_until(
+                _meal_arrives(pre=pre, item_id=item_id),
+                monotonic_ns() + hold_ns,
+                action_id=action_id,
+            )
         if post is None:
             # Nothing confirmed while the key was down, so the wait continues on what
             # is left of the step's own window — the release has already gone out, and
@@ -1683,6 +1697,9 @@ class WorldSkills:
         """
 
         if capability in self._capabilities:
+            latest = self._observations.latest
+            if latest is not None and not latest.self_state.alive:
+                return _refusal_outcome("PLAYER_DEAD", "", latest)
             return None
         return SkillOutcome(
             result=ActionResultClass.FAILED,
@@ -1747,16 +1764,49 @@ class WorldSkills:
         carries, and a default here would let a site decide it by accident.
         """
 
+        self._check_alive(action_id)
         remaining_ns = deadline - monotonic_ns()
         if remaining_ns <= 0:
             return None
         gone = self._client_exit()
         if gone is not None:
             raise ClientProcessExited(gone, action_id=action_id)
-        return await self._outlive_client(
-            self._observations.wait_until(predicate, timeout_s=remaining_ns / 1_000_000_000),
+        post = await self._outlive_client(
+            self._observations.wait_until(
+                lambda candidate: not candidate.self_state.alive or predicate(candidate),
+                timeout_s=remaining_ns / 1_000_000_000,
+            ),
             action_id=action_id,
         )
+        self._check_alive(action_id)
+        return post
+
+    def _check_alive(self, action_id: str) -> None:
+        latest = self._observations.latest
+        if latest is not None and not latest.self_state.alive:
+            raise PlayerDied(action_id=action_id, game_tick=latest.game_tick)
+
+    @asynccontextmanager
+    async def _release_on_exit(
+        self, release: Callable[[], Awaitable[None]]
+    ) -> AsyncGenerator[None]:
+        """Attempt the held key's stop on success, death, cancellation or failure.
+
+        A failed stop send must not replace an already observed death or process
+        exit. It is not a Bridge acknowledgement; session wind-down still owns
+        the lease release and records transport failure independently.
+        """
+        try:
+            yield
+        except BaseException as interrupted:
+            try:
+                await release()
+            except (OSError, RuntimeError):
+                if isinstance(interrupted, PlayerDied):
+                    interrupted.release_failed = True
+            raise
+        else:
+            await release()
 
     async def _outlive_client(
         self, wait: Awaitable[WorldObservationValue | None], *, action_id: str
@@ -1782,10 +1832,14 @@ class WorldSkills:
                 pending.cancel()
                 await asyncio.gather(pending, return_exceptions=True)
 
-    async def _sleep(self, seconds: float) -> None:
+    async def _sleep(self, seconds: float, *, action_id: str) -> None:
         if seconds <= 0:
             return
-        await asyncio.sleep(seconds)
+        await self._wait_until(
+            lambda candidate: False,
+            monotonic_ns() + round(seconds * 1_000_000_000),
+            action_id=action_id,
+        )
 
 
 def _angle_error(
