@@ -1,6 +1,6 @@
 # Minekin 开发执行计划（现行唯一队列）
 
-> 当前施工（2026-10-03）：`current_next: C-NONEMPTY-LEASE-CANCEL-BRIDGE-RECOVERY-010`。受管生命周期 C009 已取得本地 Docker 1.20.1 观察模式的准备取消、时限到期、客户端 SIGKILL 与 Gateway 丢失恢复读数；客户端非零/未知退出码不再显示正常结束，时限与主动取消分别具名，Windows 作业记录替换短暂共享冲突有限重试。重启只读不重放，显式清理后有界等待空闲；该案例释放回执 unconfirmed，不能据此声称确认松键。详见[当前构建登记](current-build-acceptance-2026-10-03.md)。下一项验证实际持有非空输入租约时的取消、断连与释放；人格读盘接线并行推进。阶段 A–F 尚未完整交付，用户远程服未连接。下方日期化段落仅作历史追溯。
+> 当前施工（2026-10-03）：`current_next: D-PHYSIOLOGY-OBSERVATION-AND-EAT-011`。C009/C010 已取得本地受管启动的取消、时限、进程退出、重启不重放及非空租约取消/客户端丢失读数；最后两例使用显式 control_path_test_double，不计真实 LLM 成功。CLI 持移动输入的后台停止有 released 回执，后台自主取消记录 had_lease=true；客户端 SIGKILL 显示 BRIDGE_LOST/-9，inputReleaseFailed=false 不能证明 Bridge 确认释放，界面现明确确认不可用。Gateway 原配置已恢复，受控端点已停止。详见[当前构建登记](current-build-acceptance-2026-10-03.md)。下一项从玩家等价健康/饥饿观察、通用食用前提与结果确认推进生存；仍存活客户端的断连/watchdog 松键、死亡恢复及长时间生存继续保留缺口。阶段 A–F 未完整交付，用户远程服未连接。下方日期化段落仅作历史追溯。
 
 
 > 全项目阶段与产品进度入口：[全项目开发总规划](full-project-development-plan.md)（2026-09-29）。当前能力是本地受控入服与操作，不是完整自主游玩。本文继续管理唯一 `current_next` 和 lane 领取；总规划不自动改动在工任务、证据门或高影响授权。后续排卡优先交付可用后台、基础资源技能和自主闭环，避免只扩大文档/审计。下方日期化读数保留为历史时点，不代表今日阶段摘要。

@@ -54,7 +54,7 @@ class Fixture:
         )
         return result.stdout.strip()
 
-    def start(self, seconds: int) -> str:
+    def start(self, seconds: int, *, autonomous_steps: int = 0) -> str:
         config = self.request("server")
         if config["fields"] != {"host": "127.0.0.1", "port": 25566}:
             raise ValueError("Save the controlled loopback endpoint before this test")
@@ -68,7 +68,7 @@ class Fixture:
                 "allowRemote": False,
                 "maxDownloadBytes": 0,
                 "durationSeconds": seconds,
-                "autonomousSteps": 0,
+                "autonomousSteps": autonomous_steps,
             },
         )
         return result["jobId"]
@@ -120,7 +120,7 @@ class Fixture:
             time.sleep(0.25)
         raise TimeoutError("The stopped fixture client remained alive after the cleanup deadline")
 
-    def restart_gateway(self, job: dict[str, Any]) -> None:
+    def restart_gateway(self, job: dict[str, Any], *, environment_file: str | None = None) -> None:
         argv = [
             "python",
             "-m",
@@ -146,7 +146,20 @@ class Fixture:
             "signal.pidfd_send_signal(fd,signal.SIGKILL); os.close(fd)"
         )
         subprocess.run(
-            ["docker", "exec", "--detach", self.container, "xvfb-run", "-a", *argv],
+            [
+                "docker",
+                "exec",
+                "--detach",
+                self.container,
+                "xvfb-run",
+                "-a",
+                *(
+                    []
+                    if environment_file is None
+                    else ["env", f"MINEKIN_ENV_FILE={environment_file}"]
+                ),
+                *argv,
+            ],
             check=True,
             capture_output=True,
             timeout=30,
