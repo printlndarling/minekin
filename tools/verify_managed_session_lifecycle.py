@@ -160,6 +160,111 @@ class Fixture:
         raise TimeoutError("The replacement Gateway did not become readable")
 
 
+def held_stop(fixture: Fixture) -> dict[str, Any]:
+    """Drive the CLI's generic move lease, then stop through the Dashboard API."""
+    config = fixture.request("server")
+    assert config["fields"] == {"host": "127.0.0.1", "port": 25566}
+    assert fixture.request("session")["state"] == "idle"
+    fixture.token = config["csrfToken"]
+    probe = fixture.request(
+        "server/probe", {"revision": config["revision"], "confirm": True, "allowRemote": False}
+    )
+    assert probe["supportStatus"] == "RESOLVED" and probe["minecraftVersion"] == "1.20.1"
+    profile = fixture.docker(
+        "from pathlib import Path; from gateway.server_config import profile_snapshot; "
+        f"print(profile_snapshot(Path('/data'),{config['fields']!r},{config['revision']!r},"
+        f"minecraft_version={probe['minecraftVersion']!r}))"
+    )
+    database = f"/data/kin/{fixture.kin}/kin.sqlite3"
+    baseline = int(
+        fixture.docker(
+            "import sqlite3; "
+            f"c=sqlite3.connect('file:{database}?mode=ro',uri=True); "
+            "print(c.execute('select coalesce(max(position),0) from event').fetchone()[0])"
+        )
+    )
+
+    def events() -> list[dict[str, Any]]:
+        return json.loads(
+            fixture.docker(
+                "import sqlite3,json; "
+                f"c=sqlite3.connect('file:{database}?mode=ro',uri=True); "
+                "c.row_factory=sqlite3.Row; "
+                "rows=c.execute('select position,run_id,session_id,event_type,payload_json "
+                f"from event where position>? order by position',({baseline},)).fetchall(); "
+                "print(json.dumps([dict(r) for r in rows]))"
+            )
+        )
+
+    command = [
+        "docker",
+        "exec",
+        fixture.container,
+        "xvfb-run",
+        "-a",
+        "env",
+        "MINEKIN_HOME=/data",
+        f"MINEKIN_KIN_ID={fixture.kin}",
+        "python",
+        "-m",
+        "minekin_core",
+        "session",
+        "start",
+        "--auto-bundle",
+        "/src/tests/fixtures/registry/reviewed-tested-bundles.json",
+        "--server-profile",
+        profile,
+        "--hold-forward-seconds",
+        "120",
+    ]
+    process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    try:
+        deadline = time.monotonic() + 100
+        before: list[dict[str, Any]] = []
+        while time.monotonic() < deadline:
+            before = events()
+            grants = [r for r in before if r["event_type"] == "InputLeaseGranted"]
+            if grants:
+                assert len({r["run_id"] for r in before}) == 1, "Concurrent fixture run"
+                assert not any(r["event_type"] == "InputReleased" for r in before)
+                break
+            if process.poll() is not None:
+                stdout, stderr = process.communicate()
+                raise RuntimeError(
+                    "Fixture ended before acquiring input: " + (stdout or stderr)[-1500:]
+                )
+            time.sleep(0.25)
+        else:
+            raise TimeoutError("The fixture did not acquire the generic move lease")
+        report = fixture.request("session/stop", {"confirm": True})["report"]
+        assert report["release"]["released"] and not report["release"]["unconfirmed"], report
+        stdout, stderr = process.communicate(timeout=30)
+        assert process.returncode == 0, stderr[-1000:]
+        after = events()
+        releases = [r for r in after if r["event_type"] == "InputReleased"]
+        assert any(json.loads(r["payload_json"]).get("had_lease") is True for r in releases), (
+            "No nonempty input release was recorded for this run"
+        )
+        assert any(
+            r["event_type"] == "ClientProcessExited"
+            and json.loads(r["payload_json"]).get("outcome") == "STOPPED_ON_REQUEST"
+            for r in after
+        ), "This run did not record a requested stop"
+        assert fixture.request("session")["state"] == "idle"
+        return {
+            "beforeStop": before,
+            "afterStop": after,
+            "stop": report,
+            "cliExitCode": process.returncode,
+            "cliResultAvailable": bool(stdout.strip()),
+        }
+    finally:
+        if process.poll() is None:
+            if fixture.request("session")["state"] != "idle":
+                fixture.request("session/stop", {"confirm": True})
+            process.communicate(timeout=30)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--gateway", default="http://127.0.0.1:8789")
@@ -174,11 +279,23 @@ def main() -> int:
     parser.add_argument(
         "--only-restart", action="store_true", help="Run only the Gateway-loss case"
     )
+    parser.add_argument(
+        "--only-held-stop", action="store_true", help="CLI generic movement stopped through Gateway"
+    )
     args = parser.parse_args()
     if args.only_restart and not args.restart_gateway:
         parser.error("--only-restart requires --restart-gateway")
     fixture = Fixture(args.gateway, args.container, args.kin)
     results: dict[str, Any] = {}
+
+    if args.only_held_stop:
+        if args.restart_gateway or args.only_restart:
+            parser.error("--only-held-stop is a separate control-path verification")
+        results["held_stop"] = held_stop(fixture)
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        args.output.write_text(json.dumps(results, indent=2) + "\n", encoding="utf-8")
+        print(json.dumps({"case": "held_stop", "status": "passed"}), flush=True)
+        return 0
 
     if not args.only_restart:
         job_id = fixture.start(300)

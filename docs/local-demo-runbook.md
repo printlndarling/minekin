@@ -1037,3 +1037,5 @@ uv run python tools/verify_managed_session_lifecycle.py --container minekin-serv
 ```
 
 工具顺序验证准备取消、真实入服后的时限收尾、该会话客户端被杀，以及可选的精确 Gateway 进程丢失。`--restart-gateway --only-restart` 可单独复验恢复；它只读观察中断作业，不自动重放，必要时显式停止后有界等待空闲。结果写普通 JSON；观察模式不持租约，不证明持键释放。崩溃注入使用 Linux pidfd 与该会话身份复核，不适用于用户远程服务器或任意进程。
+
+同一工具加 `--only-held-stop`（不与重启选项组合）可单独验证 CLI 通用移动控制在取得非空租约后由后台停止。它核对单一新 run、停止前无释放、回执 released/无 unconfirmed、账本 had_lease=true 与 STOPPED_ON_REQUEST、进程退出和后台 idle。此形态不调用模型，不代替后台自主受管启动或断连恢复验收。
