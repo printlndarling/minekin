@@ -1806,3 +1806,35 @@ def test_search_hint_uses_observed_cell_bearing_without_claiming_remaining_block
     expected, _ = angle_to_degrees(dx=x + 0.5 - body.x, dy=y + 0.5 - body.y, dz=z + 0.5 - body.z)
     assert hint["suggested_yaw_degrees"] == pytest.approx(expected)
     assert mind.last_target_block == remembered
+
+
+def test_new_visible_drop_restores_collect_after_old_target_retry_exhaustion() -> None:
+    mind, _ = mind_with()
+    first = reading(entities=(drop(),))
+    failed = outcome(ActionResultClass.UNKNOWN, "COLLECT_APPROACH_STALLED")
+    for _ in range(RETRY_BUDGET_PER_SIGNATURE + 1):
+        intent = mind.next_intent(first)
+        assert intent.skill == "collect_dropped"
+        mind.record_result(intent, failed, first)
+    assert mind.next_intent(first).skill != "collect_dropped"
+    # A changed relative offset of the same entity does not buy more retries.
+    moved = reading(entities=(replace(drop(), relative_x=2.0),))
+    assert mind.next_intent(moved).skill != "collect_dropped"
+    # A newly observed entity is a different approach, rather than an immortal skill ban.
+    fresh = reading(entities=(replace(drop(), observation_id="fresh-drop"),))
+    assert mind.next_intent(fresh).skill == "collect_dropped"
+    assert "collect_dropped" not in mind.excluded
+    assert not any(skill == "collect_dropped" for skill, _ in mind.attempts)
+
+
+def test_reseeing_old_drop_does_not_replenish_exhausted_collect_budget() -> None:
+    mind, _ = mind_with()
+    old = reading(entities=(drop(),))
+    mind.next_intent(old)
+    fresh = reading(entities=(replace(drop(), observation_id="fresh-drop"),))
+    failed = outcome(ActionResultClass.UNKNOWN, "COLLECT_APPROACH_STALLED")
+    for _ in range(RETRY_BUDGET_PER_SIGNATURE + 1):
+        intent = mind.next_intent(fresh)
+        mind.record_result(intent, failed, fresh)
+    assert mind.next_intent(reading()).skill != "collect_dropped"
+    assert mind.next_intent(old).skill != "collect_dropped"

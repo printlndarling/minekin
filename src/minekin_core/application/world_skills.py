@@ -258,7 +258,7 @@ def _wire_target(target: BlockTargetValue) -> control_pb2.BlockTarget:
     return control_pb2.BlockTarget(x=target.x, y=target.y, z=target.z, face=face)
 
 
-def _chase_details(steps: int, newest: WorldObservationValue) -> dict[str, str]:
+def _chase_details(steps: int, newest: WorldObservationValue, *, item_id: str) -> dict[str, str]:
     """What the chase did, in the field the run document already carries for it.
 
     `post_tick` keeps its meaning — the reading that confirmed the pickup, so a
@@ -269,7 +269,13 @@ def _chase_details(steps: int, newest: WorldObservationValue) -> dict[str, str]:
     different things.
     """
 
-    return {"steps": str(steps), "newest_checked_tick": str(newest.game_tick)}
+    details = {"steps": str(steps), "newest_checked_tick": str(newest.game_tick)}
+    drops = seen_drops(newest.visible_entities, item_id)
+    if drops:
+        nearest = min(drops, key=_drop_approach_distance)
+        details["nearest_drop_horizontal_meters"] = f"{_drop_approach_distance(nearest):.3f}"
+        details["nearest_drop_vertical_meters"] = f"{nearest.relative_y:.3f}"
+    return details
 
 
 def _drop_approach_distance(drop: EntityCandidate) -> float:
@@ -779,7 +785,7 @@ class WorldSkills:
                     action_id=action_id,
                     pre_tick=pre.game_tick,
                     post_tick=latest.game_tick,
-                    details=_chase_details(0, latest),
+                    details=_chase_details(0, latest, item_id=item_id),
                 )
             return SkillOutcome(
                 result=ActionResultClass.UNKNOWN,
@@ -802,7 +808,7 @@ class WorldSkills:
                     action_id=action_id,
                     pre_tick=pre.game_tick,
                     post_tick=post.game_tick,
-                    details=_chase_details(steps, post),
+                    details=_chase_details(steps, post, item_id=item_id),
                 )
             drops = seen_drops(post.visible_entities, item_id)
             if not drops:
@@ -841,7 +847,7 @@ class WorldSkills:
             reason=chase_reason,
             action_id=action_id,
             pre_tick=pre.game_tick,
-            details=_chase_details(steps, chain),
+            details=_chase_details(steps, chain, item_id=item_id),
         )
 
     async def _walk_toward(

@@ -579,7 +579,12 @@ def test_collect_reports_that_no_newer_reading_arrived_when_the_channel_was_sile
         assert outcome.post_tick is None
         # The newest reading it concluded on is the pre-state itself: nothing
         # newer ever arrived, which is the channel's silence and not the world's.
-        assert outcome.details == {"steps": "1", "newest_checked_tick": "100"}
+        assert outcome.details == {
+            "steps": "1",
+            "newest_checked_tick": "100",
+            "nearest_drop_horizontal_meters": "2.000",
+            "nearest_drop_vertical_meters": "0.000",
+        }
 
     asyncio.run(scenario())
 

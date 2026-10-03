@@ -938,6 +938,9 @@ class PlayerMind:
     #: only while a real aim is being chased, never across a felled trunk.
     reaim_probe: int = field(default=0, init=False)
 
+    observed_drop_ids: set[tuple[int, str]] = field(
+        default_factory=set[tuple[int, str]], init=False
+    )
     empty_container_aim: tuple[object, ...] | None = field(default=None, init=False)
     empty_container_inventory: tuple[tuple[str, int], ...] = field(default=(), init=False)
     recent_results: list[dict[str, object]] = field(
@@ -991,6 +994,17 @@ class PlayerMind:
             return self._hold(PLAYER_DEAD, reading)
         if self.holds_goal(reading) and not screen_open(reading):
             return self._hold(GOAL_ACHIEVED, reading)
+        drop_ids = {
+            (reading.generation, entity.observation_id)
+            for entity in _visible_item_entities(reading)
+        }
+        if drop_ids - self.observed_drop_ids:
+            # A newly visible drop changes the approach problem. Pose/tick changes or
+            # re-seeing the same failed entity do not replenish its retry budget.
+            self.excluded.discard("collect_dropped")
+            for code in FailureCode:
+                self.attempts.pop(("collect_dropped", code), None)
+            self.observed_drop_ids.update(drop_ids)
         contents = _inventory_contents(reading)
         if contents != self.empty_container_inventory:
             self.empty_container_aim = None

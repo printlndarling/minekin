@@ -1,6 +1,6 @@
 # Minekin 开发执行计划（现行唯一队列）
 
-> 当前施工（2026-10-03）：`current_next: S3-MODEL-PROGRESS-AND-RECOVERY-004`。本机Docker正常难度run-56被史莱姆杀死，已补PLAYER_DEAD无动作停止；和平run-57确认48次真实模型调用、47步CONFIRMED与正常松键，但模型水平扫描停滞，目标未成。现补此前可见资源的方向/俯仰搜索建议及实际合成产物，定向复验后推进断连/重启恢复与后台。当前Bridge关窗走正常客户端生命周期，显式候选profile可用，默认registry仍旧构建；历史sealed记录保持原样。全量回归遗留的代理/脚本/fixture问题已定向修复，历史provenance差异仍未清除。下方旧current_next/lane仅供历史追溯。
+> 当前施工（2026-10-03）：`current_next: S3-COLLECT-RECOVERY-005`。本机Docker和平run-58为48真实模型调用、45步CONFIRMED、3次挖掘，目标未成；3次拾取UNKNOWN后collect_dropped整会话排除，后续新掉落无法再试。现新可见掉落实体可恢复拾取预算，同实体运动/重新出现不刷新预算；补接近距离读数，定向游戏验证后推进断连/重启恢复及后台安全启动。模型已获可见资源方向/俯仰建议与实际产物；后台3×3预览含工作台成本，232项前端通过。显式候选profile可用，默认registry仍旧构建，历史sealed记录保持原样。下方旧current_next/lane仅供历史追溯。
 
 
 > 全项目阶段与产品进度入口：[全项目开发总规划](full-project-development-plan.md)（2026-09-29）。当前能力是本地受控入服与操作，不是完整自主游玩。本文继续管理唯一 `current_next` 和 lane 领取；总规划不自动改动在工任务、证据门或高影响授权。后续排卡优先交付可用后台、基础资源技能和自主闭环，避免只扩大文档/审计。下方日期化读数保留为历史时点，不代表今日阶段摘要。
