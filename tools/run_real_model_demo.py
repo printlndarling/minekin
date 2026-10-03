@@ -79,6 +79,11 @@ def main() -> int:
     parser.add_argument("--goal-product", default="minecraft:wooden_pickaxe")
     parser.add_argument("--goal-quantity", type=int, default=1)
     parser.add_argument("--goal-source", default="minecraft:oak_log")
+    parser.add_argument(
+        "--bundle-profile",
+        default="",
+        help="explicit candidate override; default uses the reviewed automatic registry",
+    )
     parser.add_argument("--bash", type=Path)
     args = parser.parse_args()
     if not 1 <= args.steps <= 64 or not 1 <= args.wait_seconds <= 900:
@@ -114,9 +119,7 @@ def main() -> int:
             "MINEKIN_DOMAIN_DIFFICULTY": args.difficulty,
             "MINEKIN_DEMO_VOLUME": args.volume,
             "MINEKIN_DEMO_KIN": args.kin,
-            "MINEKIN_DEMO_BUNDLE_PROFILE": (
-                "/src/tests/fixtures/runtime-input/bundle-candidate-1.20.1.json"
-            ),
+            "MINEKIN_DEMO_BUNDLE_PROFILE": args.bundle_profile,
             "MINEKIN_DEMO_AUTONOMOUS_STEPS": str(args.steps),
             "MINEKIN_DEMO_AUTONOMOUS_WAIT_SECONDS": str(args.wait_seconds),
             "MINEKIN_MODEL_RUN_COST_CAP": str(args.cost_cap_micro),

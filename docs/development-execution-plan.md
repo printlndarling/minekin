@@ -1,6 +1,6 @@
 # Minekin 开发执行计划（现行唯一队列）
 
-> 当前施工（2026-10-03）：`current_next: A-CURRENT-BUILD-ENTRY-AND-RECOVERY-006`。本机Docker和平run-59在行为基线751613e完成：17真实模型调用、14步model/3步local_reflection、17步CONFIRMED，工作台打开→3×3木镐→关窗→持有目标，正常松键。仍欠不同目标、断连/重启恢复及后台安全启动；下一步新增当前构建的入服/停止封证与登记，恢复默认auto-bundle入口，不改写历史sealed。运行统计旧口径将STARTED/SUCCEEDED误计拒绝，现独立状态计数并只计FAILED，旧run原样保留。下方旧current_next/lane仅供历史追溯。
+> 当前施工（2026-10-03）：`current_next: B-MULTI-GOAL-AND-RECOVERY-007`。run-59真实模型完成3×3/关窗与持有目标（14模型/3本地回退）；当前Bridge新增020/080封证、独立重判与provenance通过，默认auto-bundle实际入服/行走/停止已恢复。登记只含新构建六项证明，旧资料不改，详见[当前构建登记](current-build-acceptance-2026-10-03.md)。下一步默认入口验证8木板等不同目标，然后断连/重启恢复与后台安全启动。新运行计数区分STARTED/SUCCEEDED/FAILED，旧run保留旧口径。下方旧current_next/lane仅供历史追溯。
 
 
 > 全项目阶段与产品进度入口：[全项目开发总规划](full-project-development-plan.md)（2026-09-29）。当前能力是本地受控入服与操作，不是完整自主游玩。本文继续管理唯一 `current_next` 和 lane 领取；总规划不自动改动在工任务、证据门或高影响授权。后续排卡优先交付可用后台、基础资源技能和自主闭环，避免只扩大文档/审计。下方日期化读数保留为历史时点，不代表今日阶段摘要。
