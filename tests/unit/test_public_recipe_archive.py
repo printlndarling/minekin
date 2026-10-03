@@ -8,6 +8,8 @@ import json
 import subprocess
 import sys
 import zipfile
+from collections.abc import Mapping
+from itertools import product
 from pathlib import Path
 
 import pytest
@@ -15,13 +17,21 @@ import pytest
 from minekin_core.adapters.public_recipe_archive import load_recipe_knowledge
 
 
-def jar(documents: dict[str, object], *, version: str = "1.20.1") -> bytes:
+def jar(
+    documents: dict[str, object],
+    *,
+    version: str = "1.20.1",
+    tags: Mapping[str, object] | None = None,
+) -> bytes:
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w") as archive:
         archive.writestr("version.json", json.dumps({"id": version}))
         for recipe_id, document in documents.items():
             namespace, name = recipe_id.split(":")
             archive.writestr(f"data/{namespace}/recipes/{name}.json", json.dumps(document))
+        for tag_id, document in (tags or {}).items():
+            namespace, name = tag_id.split(":")
+            archive.writestr(f"data/{namespace}/tags/items/{name}.json", json.dumps(document))
     return buffer.getvalue()
 
 
@@ -208,3 +218,125 @@ def test_cli_rejects_mismatch_without_emitting_knowledge(tmp_path: Path) -> None
     assert result.returncode == 2
     assert "RECIPE_VERSION_MISMATCH" in result.stderr
     assert result.stdout == ""
+
+
+def test_public_tags_expand_recursively_and_match_mixed_materials(tmp_path: Path) -> None:
+    raw = jar(
+        {"minecraft:tool": shaped()},
+        tags={
+            "minecraft:planks": {"values": ["#minecraft:wood", "minecraft:birch_planks"]},
+            "minecraft:wood": {"values": ["minecraft:oak_planks"]},
+        },
+    )
+    knowledge = load_recipe_knowledge(path_for(tmp_path, raw), game_version="1.20.1")
+    assert knowledge.item_tags["minecraft:planks"] == (
+        "minecraft:birch_planks",
+        "minecraft:oak_planks",
+    )
+    inventory = {"minecraft:oak_planks": 2, "minecraft:birch_planks": 1, "minecraft:stick": 2}
+    cells = knowledge.materials_for("minecraft:tool", inventory)
+    assert cells is not None
+    assert cells.count("minecraft:oak_planks") == 2
+    assert cells.count("minecraft:birch_planks") == 1
+    assert cells.count("minecraft:stick") == 2
+    assert cells.count(None) == 4
+    assert inventory == {
+        "minecraft:oak_planks": 2,
+        "minecraft:birch_planks": 1,
+        "minecraft:stick": 2,
+    }
+    assert knowledge.materials_for("minecraft:tool", inventory | {"minecraft:stick": 1}) is None
+
+
+def test_alternative_matching_reroutes_instead_of_greedy_false_failure(tmp_path: Path) -> None:
+    document = {
+        "type": "minecraft:crafting_shapeless",
+        "ingredients": [
+            [{"item": "minecraft:a"}, {"item": "minecraft:b"}],
+            {"item": "minecraft:a"},
+        ],
+        "result": {"item": "minecraft:output"},
+    }
+    knowledge = load_recipe_knowledge(
+        path_for(tmp_path, jar({"minecraft:recipe": document})), game_version="1.20.1"
+    )
+    assert knowledge.materials_for("minecraft:recipe", {"minecraft:a": 1, "minecraft:b": 1}) == (
+        "minecraft:b",
+        "minecraft:a",
+    )
+    assert knowledge.materials_for("minecraft:recipe", {"minecraft:a": 1}) is None
+    assert knowledge.materials_for("minecraft:recipe", {"minecraft:a": True}) is None
+    assert knowledge.materials_for("minecraft:recipe", {"minecraft:a": -1}) is None
+
+
+def test_missing_tag_is_unknown_not_implicitly_any_owned_item(tmp_path: Path) -> None:
+    knowledge = load_recipe_knowledge(
+        path_for(tmp_path, jar({"minecraft:tool": shaped()})), game_version="1.20.1"
+    )
+    assert (
+        knowledge.materials_for(
+            "minecraft:tool", {"minecraft:oak_planks": 64, "minecraft:stick": 64}
+        )
+        is None
+    )
+    assert knowledge.materials_for("minecraft:unknown", {}) is None
+
+
+@pytest.mark.parametrize(
+    "tags,reason",
+    [
+        ({"minecraft:a": {"values": ["#minecraft:a"]}}, "CYCLE_OR_DEPTH"),
+        (
+            {
+                "minecraft:a": {"values": ["#minecraft:b"]},
+                "minecraft:b": {"values": ["#minecraft:a"]},
+            },
+            "CYCLE_OR_DEPTH",
+        ),
+        ({"minecraft:a": {"values": ["#minecraft:absent"]}}, "REFERENCE_MISSING"),
+    ],
+)
+def test_tag_cycles_and_required_missing_references_are_refused(
+    tmp_path: Path, tags: dict[str, object], reason: str
+) -> None:
+    with pytest.raises(ValueError, match=f"RECIPE_TAG_{reason}"):
+        load_recipe_knowledge(
+            path_for(tmp_path, jar({"minecraft:tool": shaped()}, tags=tags)), game_version="1.20.1"
+        )
+
+
+def test_optional_missing_tag_is_explicitly_optional(tmp_path: Path) -> None:
+    tags = {
+        "minecraft:a": {
+            "values": [{"id": "#minecraft:missing", "required": False}, "minecraft:stick"]
+        }
+    }
+    knowledge = load_recipe_knowledge(
+        path_for(tmp_path, jar({"minecraft:tool": shaped()}, tags=tags)), game_version="1.20.1"
+    )
+    assert knowledge.item_tags["minecraft:a"] == ("minecraft:stick",)
+
+
+def test_matching_agrees_with_exhaustive_small_inventory_oracle(tmp_path: Path) -> None:
+    alternatives = (("minecraft:a",), ("minecraft:b",), ("minecraft:a", "minecraft:b"))
+    for slots in product(alternatives, repeat=3):
+        document = {
+            "type": "minecraft:crafting_shapeless",
+            "ingredients": [[{"item": item} for item in slot] for slot in slots],
+            "result": {"item": "minecraft:output"},
+        }
+        knowledge = load_recipe_knowledge(
+            path_for(tmp_path, jar({"minecraft:recipe": document})), game_version="1.20.1"
+        )
+        for a_count, b_count in product(range(3), repeat=2):
+            inventory = {"minecraft:a": a_count, "minecraft:b": b_count}
+            possible = any(
+                choice.count("minecraft:a") <= a_count and choice.count("minecraft:b") <= b_count
+                for choice in product(*slots)
+            )
+            matched = knowledge.materials_for("minecraft:recipe", inventory)
+            assert (matched is not None) == possible
+            if matched is not None:
+                assert matched.count("minecraft:a") <= a_count
+                assert matched.count("minecraft:b") <= b_count
+                assert all(item in slot for item, slot in zip(matched, slots, strict=True))

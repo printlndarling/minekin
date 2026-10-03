@@ -35,6 +35,7 @@ def main() -> None:
                 "current_materials": "not_observed",
                 "runtime_planner_connected": False,
                 "crafting_recipes_loaded": len(knowledge.recipes),
+                "public_item_tags_loaded": len(knowledge.item_tags),
                 "unsupported_types": dict(knowledge.unsupported_types),
                 "recipes": [asdict(recipe) for recipe in knowledge.for_product(args.product)],
             },

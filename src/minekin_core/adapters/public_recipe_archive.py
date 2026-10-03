@@ -21,6 +21,7 @@ from typing import Any, cast
 
 _ID = re.compile(r"[a-z0-9_.-]+:[a-z0-9_./-]+\Z")
 _ENTRY = re.compile(r"data/([a-z0-9_.-]+)/recipes/([a-z0-9_./-]+)\.json\Z")
+_TAG_ENTRY = re.compile(r"data/([a-z0-9_.-]+)/tags/items/([a-z0-9_./-]+)\.json\Z")
 _MAX_ARCHIVE = 256 * 1024 * 1024
 _MAX_NESTED = 64 * 1024 * 1024
 _MAX_JSON = 64 * 1024
@@ -55,10 +56,64 @@ class RecipeKnowledge:
     digest_matched: bool
     recipes: tuple[PublicRecipe, ...]
     unsupported_types: Mapping[str, int]
+    item_tags: Mapping[str, tuple[str, ...]]
 
     def for_product(self, product_id: str) -> tuple[PublicRecipe, ...]:
         """All source recipes producing an item; do not guess a preferred variant."""
         return tuple(recipe for recipe in self.recipes if recipe.product_id == product_id)
+
+    def materials_for(
+        self, recipe_id: str, inventory: Mapping[str, int]
+    ) -> tuple[str | None, ...] | None:
+        """Match one batch to caller-supplied counts, retaining empty shaped cells.
+
+        This is public-knowledge planning, NOT current-server craft admission. A
+        missing tag is unknown and fails closed; available OR alternatives share
+        inventory capacity, so one item cannot pay two cells. No inventory facts
+        are saved or fabricated. The caller still checks freshness and GUI state.
+        """
+        recipe = next((row for row in self.recipes if row.recipe_id == recipe_id), None)
+        if recipe is None or any(
+            type(count) is not int or count < 0 for count in inventory.values()
+        ):
+            return None
+        candidates: dict[int, tuple[str, ...]] = {}
+        for index, slot in enumerate(recipe.slots):
+            if not slot:
+                continue
+            items: set[str] = set()
+            for option in slot:
+                if option.kind == "item":
+                    items.add(option.identifier)
+                elif option.identifier not in self.item_tags:
+                    return None
+                else:
+                    items.update(self.item_tags[option.identifier])
+            candidates[index] = tuple(sorted(item for item in items if inventory.get(item, 0) > 0))
+        allocated: dict[str, list[int]] = {}
+        selected: dict[int, str] = {}
+
+        def assign(index: int, seen: set[str]) -> bool:
+            # Capacity-constrained bipartite matching; at most nine occupied cells.
+            for item in candidates[index]:
+                if item in seen:
+                    continue
+                seen.add(item)
+                owners = allocated.setdefault(item, [])
+                if len(owners) < inventory[item]:
+                    owners.append(index)
+                    selected[index] = item
+                    return True
+                for offset, previous in enumerate(tuple(owners)):
+                    if assign(previous, seen):
+                        owners[offset] = index
+                        selected[index] = item
+                        return True
+            return False
+
+        if any(not assign(index, set()) for index in candidates):
+            return None
+        return tuple(selected.get(index) for index in range(len(recipe.slots)))
 
 
 def _object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -190,6 +245,68 @@ def _read_recipes(
     return tuple(recipes), unsupported
 
 
+def _read_tags(archive: zipfile.ZipFile) -> Mapping[str, tuple[str, ...]]:
+    entries = sorted(name for name in archive.namelist() if _TAG_ENTRY.fullmatch(name))
+    if (
+        len(entries) > _MAX_RECIPES
+        or sum(archive.getinfo(name).file_size for name in entries) > _MAX_TOTAL_JSON
+    ):
+        raise ValueError("RECIPE_TAG_SOURCE_TOO_LARGE")
+    definitions: dict[str, tuple[tuple[str, bool], ...]] = {}
+    for name in entries:
+        match = _TAG_ENTRY.fullmatch(name)
+        assert match is not None
+        tag_id = _identifier(f"{match[1]}:{match[2]}")
+        document, _ = _json(archive, name)
+        if not isinstance(document, dict):
+            raise ValueError("RECIPE_INVALID_TAG")
+        document = cast(dict[str, Any], document)
+        values = document.get("values")
+        if not isinstance(values, list):
+            raise ValueError("RECIPE_INVALID_TAG")
+        values = cast(list[Any], values)
+        if len(values) > 4096:
+            raise ValueError("RECIPE_TAG_SOURCE_TOO_LARGE")
+        parsed: list[tuple[str, bool]] = []
+        for value in values:
+            required = True
+            if isinstance(value, dict):
+                entry = cast(dict[str, Any], value)
+                required = entry.get("required", True)
+                if type(required) is not bool or set(entry) - {"id", "required"}:
+                    raise ValueError("RECIPE_INVALID_TAG")
+                value = entry.get("id")
+            if not isinstance(value, str):
+                raise ValueError("RECIPE_INVALID_TAG")
+            reference = value.startswith("#")
+            identifier = _identifier(value[1:] if reference else value)
+            parsed.append((("#" if reference else "") + identifier, required))
+        definitions[tag_id] = tuple(parsed)
+    expanded: dict[str, tuple[str, ...]] = {}
+
+    def expand(tag_id: str, ancestors: frozenset[str]) -> tuple[str, ...]:
+        if tag_id in ancestors or len(ancestors) >= 32:
+            raise ValueError("RECIPE_TAG_CYCLE_OR_DEPTH")
+        if tag_id in expanded:
+            return expanded[tag_id]
+        items: set[str] = set()
+        for identifier, required in definitions[tag_id]:
+            if not identifier.startswith("#"):
+                items.add(identifier)
+            elif identifier[1:] in definitions:
+                items.update(expand(identifier[1:], ancestors | {tag_id}))
+            elif required:
+                raise ValueError("RECIPE_TAG_REFERENCE_MISSING")
+            if len(items) > 4096:
+                raise ValueError("RECIPE_TAG_SOURCE_TOO_LARGE")
+        expanded[tag_id] = tuple(sorted(items))
+        return expanded[tag_id]
+
+    for tag_id in definitions:
+        expand(tag_id, frozenset())
+    return MappingProxyType(expanded)
+
+
 def load_recipe_knowledge(
     path: Path, *, game_version: str, expected_sha256: str | None = None
 ) -> RecipeKnowledge:
@@ -221,12 +338,14 @@ def load_recipe_knowledge(
                 raise ValueError("RECIPE_DUPLICATE_ARCHIVE_ENTRY")
             if any(_ENTRY.fullmatch(name) for name in names):
                 recipes, unsupported = _read_recipes(archive, game_version)
+                tags = _read_tags(archive)
             else:
                 name = f"META-INF/versions/{game_version}/server-{game_version}.jar"
                 if archive.getinfo(name).file_size > _MAX_NESTED:
                     raise ValueError("RECIPE_NESTED_ARCHIVE_TOO_LARGE")
                 with zipfile.ZipFile(io.BytesIO(archive.read(name))) as nested:
                     recipes, unsupported = _read_recipes(nested, game_version)
+                    tags = _read_tags(nested)
     except (
         zipfile.BadZipFile,
         KeyError,
@@ -237,5 +356,10 @@ def load_recipe_knowledge(
     ) as exc:
         raise ValueError("RECIPE_ARCHIVE_INVALID") from exc
     return RecipeKnowledge(
-        game_version, digest, expected_sha256 is not None, recipes, MappingProxyType(unsupported)
+        game_version,
+        digest,
+        expected_sha256 is not None,
+        recipes,
+        MappingProxyType(unsupported),
+        tags,
     )
