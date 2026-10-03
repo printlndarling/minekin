@@ -139,6 +139,33 @@ that matters is the host-side binding. The panel then reads through the dev serv
 answers no CORS preflight and a cross-origin request from `127.0.0.1:5175` would be
 refused by the browser before it reached the Gateway.
 
+### The panel's own acceptance, in one shape
+
+The browser suite is not part of CI (the workflow's `dashboard` job gates `pnpm build`
+and `pnpm test`; a Chromium download on every push is not). The read-only pair needs
+only a published Gateway, and every `--gateway` run above already is one:
+
+```text
+MINEKIN_DEMO_GATEWAY_PORT=8500 bash test-orchestrator/runner/demo.sh --gateway
+MINEKIN_GATEWAY_TARGET=http://127.0.0.1:8500 E2E_LIVE_GATEWAY=1 E2E_LIVE_EXPERIENCES=1 \
+    pnpm --dir dashboard e2e
+```
+
+On 2026-10-04 that pair reported **23 passed, 6 skipped** against the filled
+`minekin-local-demo` volume — `live-gateway-session` and `experiences-live` reading the
+real ledger in a browser, the latter leaving a screenshot artifact. The six skips are
+specs whose opt-in names are unset, and each name is a different demand:
+`E2E_LIVE_GATEWAY_DOWN=1` (with `E2E_LIVE_GATEWAY_RECOVER=1` adding the recovery leg)
+wants a Gateway the operator can kill mid-suite; `E2E_LIVE_IDENTITY=1` a disposable
+identity; `E2E_MODEL_TEST_LIVE=1` a disposable Gateway root; `E2E_SERVER_CONFIG_LIVE=1`
+controlled local Minecraft plus a Gateway; and `E2E_SESSION_START_LIVE=1` the full
+controlled set, for the browser driving a real session end to end.
+
+One port note, for Windows hosts: Docker refuses a port that sits inside a Hyper-V
+exclusion range (`netsh interface ipv4 show excludedportrange protocol=tcp` lists
+them; 8745–8844 was such a window on the machine that wrote this), which is why
+`MINEKIN_DEMO_GATEWAY_PORT` exists as a knob.
+
 ### A server that requires a pack, and a client that refuses one
 
 `MINEKIN_DOMAIN_RESOURCE_PACK=1` builds a resource pack, serves it on loopback, and
