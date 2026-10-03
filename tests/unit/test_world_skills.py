@@ -16,6 +16,7 @@ import time
 from collections.abc import Callable
 from typing import Any, Final, cast
 
+import pytest
 from google.protobuf.message import Message
 
 from minekin_core.adapters.bridge.ipc import (
@@ -2241,6 +2242,43 @@ def test_consume_unknown_buys_no_second_press(monkeypatch: Any) -> None:
             ActionResultClass.UNKNOWN,
             "NO_CONFIRMING_OBSERVATION",
         )
+        assert sender.types() == [USE_INPUT_TYPE, USE_INPUT_TYPE]
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("food_after,item_after", [(0, 1), (8, 2)])
+def test_consume_newer_nonconfirming_frame_keeps_a_reason(
+    monkeypatch: Any, food_after: int, item_after: int
+) -> None:
+    """An item disappearing without a bar rise must not become unexplained success."""
+    monkeypatch.setattr("minekin_core.application.world_skills.CONSUME_HOLD_SECONDS", 0.01)
+
+    async def scenario() -> None:
+        first = reading(
+            tick=100,
+            state_value=_hungry_state(food=8, selected_slot=3, main_hand="minecraft:apple"),
+            aim=miss_aim(100),
+            inventory_value=inventory(100, (3, "minecraft:apple", 2)),
+        )
+        store = store_with(first)
+        skills, sender = skill_with(store)
+        newer = reading(
+            tick=120,
+            state_value=_hungry_state(
+                food=food_after, selected_slot=3, main_hand="minecraft:apple"
+            ),
+            aim=miss_aim(120),
+            inventory_value=inventory(120, (3, "minecraft:apple", item_after)),
+        )
+        task = asyncio.create_task(admit_after(store, 0.005, newer))
+        outcome = await skills.consume_item(
+            item_id="minecraft:apple", authority=authority(), timeout_ns=200_000_000
+        )
+        await task
+        assert outcome.result is ActionResultClass.UNKNOWN
+        assert outcome.reason == "NO_CONFIRMING_OBSERVATION"
+        assert outcome.post_tick == 120
         assert sender.types() == [USE_INPUT_TYPE, USE_INPUT_TYPE]
 
     asyncio.run(scenario())

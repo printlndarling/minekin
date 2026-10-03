@@ -1664,9 +1664,10 @@ class WorldSkills:
                     action_id=action_id,
                     pre_tick=pre.game_tick,
                 )
+        result = verify_consume_effect(pre=pre, post=post, item_id=item_id)
         return SkillOutcome(
-            result=verify_consume_effect(pre=pre, post=post, item_id=item_id),
-            reason="",
+            result=result,
+            reason="NO_CONFIRMING_OBSERVATION" if result is ActionResultClass.UNKNOWN else "",
             action_id=action_id,
             pre_tick=pre.game_tick,
             post_tick=post.game_tick,
