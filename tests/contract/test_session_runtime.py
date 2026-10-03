@@ -920,6 +920,10 @@ def test_an_action_result_is_counted_as_the_bridge_answered(tmp_path: Path) -> N
             await _drive_to_playable(peer, machine)
             await peer.action_result(status=control_pb2.ACTION_STATUS_ACCEPTED)
             await peer.action_result(status=control_pb2.ACTION_STATUS_FAILED)
+            await peer.action_result(status=control_pb2.ACTION_STATUS_STARTED)
+            await peer.action_result(status=control_pb2.ACTION_STATUS_SUCCEEDED)
+            await peer.action_result(status=control_pb2.ACTION_STATUS_CANCELLED)
+            await peer.action_result(status=control_pb2.ACTION_STATUS_UNKNOWN_AFTER_DISCONNECT)
             await asyncio.sleep(0.05)
             exit_event.set()
             await peer.close()
@@ -935,6 +939,14 @@ def test_an_action_result_is_counted_as_the_bridge_answered(tmp_path: Path) -> N
         assert run.events_ignored == 0
         document = run.as_dict()
         assert document["actions_applied"] == 1
+        assert document["action_status_counts"] == {
+            "ACCEPTED": 1,
+            "FAILED": 1,
+            "STARTED": 1,
+            "SUCCEEDED": 1,
+            "CANCELLED": 1,
+            "UNKNOWN_AFTER_DISCONNECT": 1,
+        }
         assert document["input_release_failed"] is False
 
     asyncio.run(scenario())

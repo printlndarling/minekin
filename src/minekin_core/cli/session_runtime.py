@@ -103,6 +103,7 @@ class SessionRun:
     world_observations_unheld: int = 0
     actions_applied: int = 0
     actions_refused: int = 0
+    action_status_counts: dict[str, int] = field(default_factory=dict[str, int])
     release_failed: bool = False
     input_refusal: str = ""
     #: The reason Core abandoned a connection attempt, empty when it abandoned
@@ -206,6 +207,7 @@ class SessionRun:
             # move and a Kin that was never able to.
             "actions_applied": self.actions_applied,
             "actions_refused": self.actions_refused,
+            "action_status_counts": dict(self.action_status_counts),
             # Whether the session could say goodbye. The Bridge releases on its
             # own when the channel goes, so this is about Core's side of the
             # promise and is recorded rather than assumed.
@@ -284,6 +286,7 @@ class _Progress:
     world_observations_unheld: int = 0
     actions_applied: int = 0
     actions_refused: int = 0
+    action_status_counts: dict[str, int] = field(default_factory=dict[str, int])
     release_failed: bool = False
     #: The stop-request branch ran and answered without a send failure: Core either
     #: put `ReleaseAllInputs` on a live channel or said it held nothing. Read with
@@ -676,9 +679,16 @@ async def _read_events(
                 await on_playable()
             continue
         if isinstance(message, control_pb2.ActionResult):
+            try:
+                status = control_pb2.ActionStatus.Name(message.status).removeprefix(
+                    "ACTION_STATUS_"
+                )
+            except ValueError:
+                status = "UNRECOGNIZED"
+            progress.action_status_counts[status] = progress.action_status_counts.get(status, 0) + 1
             if message.status == control_pb2.ACTION_STATUS_ACCEPTED:
                 progress.actions_applied += 1
-            else:
+            elif message.status == control_pb2.ACTION_STATUS_FAILED:
                 progress.actions_refused += 1
             continue
         if isinstance(message, observation_pb2.HostLifecycle):
@@ -906,6 +916,7 @@ def _report(
         world_observations_unheld=progress.world_observations_unheld,
         actions_applied=progress.actions_applied,
         actions_refused=progress.actions_refused,
+        action_status_counts=dict(progress.action_status_counts),
         release_failed=progress.release_failed,
         connection_cancelled=progress.connection_cancelled,
         connection_cancel_failed=progress.connection_cancel_failed,

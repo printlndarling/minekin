@@ -43,6 +43,12 @@ def main() -> int:
                 "confirmed": autonomous.get("confirmed"),
                 "actions_applied": run.get("actions_applied"),
                 "actions_refused": run.get("actions_refused"),
+                "action_status_counts": run.get("action_status_counts"),
+                "action_counting": (
+                    "status_separated"
+                    if "action_status_counts" in run
+                    else "legacy_nonaccepted_counted_as_refused"
+                ),
                 "input_release_failed": run.get("input_release_failed"),
                 "model_spent_micro": mind.get("model_spent_micro"),
                 "sources": dict(Counter(step.get("intent", {}).get("source") for step in steps)),
