@@ -6,6 +6,7 @@ import { DEFAULT_IDENTITY_NAME, identityIsStale, isValidUsername } from "../doma
 import { useIdentityController } from "../hooks/useIdentityController";
 import { Panel } from "../components/Panel";
 import styles from "./identity.module.css";
+import { SavedPersonaPanel } from "./SavedPersonaPanel";
 
 const STABILITY_NOTE =
   `新身份默认 ${DEFAULT_IDENTITY_NAME}；启动、重试、死亡或换服都不会随机改名——名字是持久化身份的一部分，只有这里的一次显式确认才能改动它。`;
@@ -43,7 +44,7 @@ export function IdentityPanel({ adapter, nowMs }: { readonly adapter: KinReadAda
   const outcome = controller.outcome;
 
   return (
-    <Panel
+    <><Panel
       title="身份 · 游戏 ID"
       note="修改角色名会改变离线身份。请先停止会话，再确认保存。"
       testId="panel-identity"
@@ -179,5 +180,7 @@ export function IdentityPanel({ adapter, nowMs }: { readonly adapter: KinReadAda
         </>
       )}
     </Panel>
+      {identity === null ? null : <SavedPersonaPanel persona={identity.persona} />}
+    </>
   );
 }

@@ -28,6 +28,7 @@ import {
   type GoalPlanStep,
   type Heartbeat,
   type IdentityInfo,
+  type SavedPersona,
   type IdentityViewSnapshot,
   type KinRuntimeState,
   type KinSnapshot,
@@ -729,6 +730,29 @@ export type IdentityDecode =
   | { readonly ok: true; readonly identity: IdentityInfo; readonly csrfToken: string }
   | { readonly ok: false; readonly issues: readonly string[] };
 
+function parseSavedPersona(raw: unknown, issues: string[]): SavedPersona | null {
+  const rec = asRecord(raw);
+  const traits = rec === null ? null : asRecord(rec.traits);
+  const names = ["social_initiative", "cooperation", "orderliness", "curiosity", "risk_tolerance"];
+  const values = ["autonomy", "fairness", "resource_security", "belonging", "exploration", "creation"];
+  const allowed = ["manifest_sha256", "schema_version", "algorithm", "traits", "value_priority"];
+  if (rec === null || Object.keys(rec).some((key) => !allowed.includes(key)) ||
+      typeof rec.manifest_sha256 !== "string" || !/^[0-9a-f]{64}$/.test(rec.manifest_sha256) ||
+      rec.schema_version !== 1 || rec.algorithm !== "persona-blake2b-v1" || traits === null ||
+      Object.keys(traits).length !== names.length || names.some((name) =>
+        typeof traits[name] !== "number" || !Number.isInteger(traits[name]) || traits[name] < 1 || traits[name] > 9) ||
+      !Array.isArray(rec.value_priority) || rec.value_priority.length !== values.length ||
+      new Set(rec.value_priority).size !== values.length ||
+      rec.value_priority.some((value: unknown) => typeof value !== "string" || !values.includes(value))) {
+    issues.push("$.persona: 已保存人格字段不合法或携带非公开字段");
+    return null;
+  }
+  return {
+    manifest_sha256: rec.manifest_sha256, schema_version: 1, algorithm: rec.algorithm,
+    traits: traits as Record<string, number>, value_priority: rec.value_priority as string[],
+  };
+}
+
 /**
  * The identity read `gateway/identity.py::identity_read` answers: a flat document, so any
  * missing field or out-of-enum value is a whole-document mismatch rather than a partial
@@ -752,6 +776,9 @@ export function decodeIdentityPayload(raw: unknown): IdentityDecode {
   const csrfToken = asString(rec.csrfToken);
   const observedAt = asString(rec.observedAt);
   const staleAfterMs = asNumber(rec.staleAfterMs);
+  const persona = "persona" in rec
+    ? decodeField(rec.persona, "$.persona", issues, (value) => parseSavedPersona(value, issues))
+    : gapField<SavedPersona>("not_wired", "旧身份接口未携带已保存人格，不能据此判断人格是否存在。");
   if (kinId === null) issues.push("$.kinId: 缺失或非字符串");
   if (username === null) issues.push("$.username: 缺失或非字符串");
   if (uuidCanonical === null) issues.push("$.uuidCanonical: 缺失或非字符串");
@@ -762,7 +789,7 @@ export function decodeIdentityPayload(raw: unknown): IdentityDecode {
   if (csrfToken === null) issues.push("$.csrfToken: 缺失（无法改名）");
   if (observedAt === null) issues.push("$.observedAt: 缺失或非字符串");
   if (staleAfterMs === null) issues.push("$.staleAfterMs: 缺失或非数值");
-  if (issues.length > 0) return { ok: false, issues };
+  if (issues.length > 0 || persona === null) return { ok: false, issues };
   return {
     ok: true,
     csrfToken: csrfToken as string,
@@ -776,6 +803,7 @@ export function decodeIdentityPayload(raw: unknown): IdentityDecode {
       notice: notice as string,
       observedAt: observedAt as string,
       staleAfterMs: staleAfterMs as number,
+      persona,
     },
   };
 }

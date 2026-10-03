@@ -237,6 +237,15 @@ export interface IdentityInfo {
   readonly notice: string;
   readonly observedAt: string;
   readonly staleAfterMs: number;
+  readonly persona?: Field<SavedPersona>;
+}
+
+export interface SavedPersona {
+  readonly manifest_sha256: string;
+  readonly schema_version: number;
+  readonly algorithm: string;
+  readonly traits: Readonly<Record<string, number>>;
+  readonly value_priority: readonly string[];
 }
 
 /** One identity snapshot as a rename report carries it: the name and its derived UUID. */

@@ -30,7 +30,10 @@ from pathlib import Path
 from typing import Any, Final
 
 from gateway.readmodel import STALE_AFTER_MS
+from gateway.signals import missing, present
+from minekin_core.adapters.filestore.persona_store import persona_path, read_persona
 from minekin_core.application.ports.clock import Clock
+from minekin_core.cli.init import kin_directory
 from minekin_core.cli.rename import RENAME_NOTICE, rename_identity, show_identity
 from minekin_core.cli.session import select_kin
 from minekin_core.cli.status import ObservedState, read_status
@@ -142,7 +145,22 @@ def identity_read(
         "csrfToken": csrf_token,
         "observedAt": clock.utc_now().isoformat(),
         "staleAfterMs": STALE_AFTER_MS,
+        "persona": saved_persona_read(kin_directory(root, kin_id), str(kin_id)),
     }
+
+
+def saved_persona_read(kin_dir: Path, kin_id: str) -> dict[str, Any]:
+    """Read the saved manifest, never redraw it or expose its creation seed."""
+    if not persona_path(kin_dir).exists():
+        return missing("unavailable", "PERSONA_NOT_INITIALISED: 该角色没有已保存人格, 不自动生成。")
+    try:
+        persona = read_persona(kin_dir)
+        if persona.kin_id != kin_id:
+            return missing("unavailable", "PERSONA_KIN_MISMATCH: 人格不属于当前角色, 拒绝展示。")
+        return present(persona.decision_context())
+    except (MinekinError, OSError, UnicodeError):
+        # A validation error may quote malformed input. Do not return it to the browser.
+        return missing("unavailable", "PERSONA_UNREADABLE: 已保存人格损坏、不受支持或无法读取。")
 
 
 def refusal(
