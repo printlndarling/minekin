@@ -44,13 +44,19 @@ def test_the_table_cannot_be_widened_at_runtime() -> None:
         cast("dict[str, int]", FOODS)["minecraft:apple"] = 99
 
 
-@pytest.mark.parametrize(
-    "module",
-    ["application/player_mind.py", "application/world_skills.py", "domain/world_actions.py"],
-)
-def test_the_product_path_never_names_a_food(module: str) -> None:
-    source = (Path(__file__).resolve().parents[2] / "src" / "minekin_core" / module).read_text(
-        encoding="utf-8"
-    )
-    for item_id in FOODS:
-        assert item_id not in source, f"{module} names {item_id}"
+def test_the_product_never_names_a_food_outside_the_catalog() -> None:
+    """The whole shipped package, not a hand-picked list of modules: the catalog is
+    the only place a food id may live, and a scan that named its files could be
+    outrun by a food added anywhere else (the count is asserted so an empty tree
+    cannot pass this vacuously)."""
+
+    root = Path(__file__).resolve().parents[2] / "src" / "minekin_core"
+    scanned = 0
+    for path in sorted(root.rglob("*.py")):
+        if path.name == "food_catalog.py" or "generated" in path.parts:
+            continue
+        source = path.read_text(encoding="utf-8")
+        for item_id in FOODS:
+            assert item_id not in source, f"{path.relative_to(root)} names {item_id}"
+        scanned += 1
+    assert scanned > 0

@@ -142,15 +142,21 @@ CLOSE_SCREEN_MAX_ESCAPES: Final[int] = 3
 #: the reading never comes.
 USE_TAP_SECONDS: Final[float] = 0.25
 
-#: How long `consume_item` holds the use key while a meal completes. Eating is the
-#: one use that *is* a hold: vanilla completes one item after 32 client ticks of
-#: continuous use (1.6 s at 20 tps), and the client starts counting on the tick
-#: after the key goes down. 2.5 s clears one completion with margin for a client
-#: hitch while staying below the ~3.2 s a second completion would need — and since
-#: a client keeps restarting the meal while the key is held, that bound is what
-#: makes one call eat exactly one item of a stack rather than as many as fit in the
-#: window. The release goes out before the wait either way, so a channel that never
-#: answers still ends with the key let go.
+#: The longest `consume_item` holds the use key — a cap, not a fixed wait. The hold
+#: ends on the first reading that shows the meal (bar up and stack down on one synced
+#: frame), so a responsive channel releases within about one observation of the
+#: completion; this cap only decides when nothing ever confirms. Eating is the one use
+#: that *is* a hold: vanilla completes one item after 32 client ticks of continuous use
+#: (1.6 s at 20 tps — 16 ticks for a snack-speed food like dried kelp), the client
+#: starts counting on the tick after the key goes down, and it restarts the meal while
+#: the key stays down. 2.5 s clears the slower completion plus one observation interval
+#: (~0.5 s) even when a hitch stretches it, which is what keeps the release honest:
+#: a second consecutive bite needs another full 16/32 ticks, so the frame that concludes
+#: the hold always arrives before one could complete — one call confirms one item even
+#: on a snack, where a blind hold of this length could have finished two. On the
+#: no-confirmation path (a channel that answers nothing) the cap can still let a snack
+#: complete twice; meals cannot, because two 32-tick completions would need 3.2 s and
+#: the cap is below it.
 CONSUME_HOLD_SECONDS: Final[float] = 2.5
 
 #: How much nearer the nearest sighting of a drop has to come between two
@@ -517,6 +523,23 @@ def _drop_arrives(item_id: str) -> Callable[[WorldObservationValue], bool]:
     client rendered and asks no question about an item it did not report."""
 
     return lambda latest: bool(seen_drops(latest.visible_entities, item_id))
+
+
+def _meal_arrives(
+    *, pre: WorldObservationValue, item_id: str
+) -> Callable[[WorldObservationValue], bool]:
+    """The predicate both of `consume_item`'s waits conclude on: a later reading whose
+    own synced frame shows the meal — the bar up and the stack down, exactly the
+    verdict the step reports. One predicate for the hold cap and the remaining step
+    window, so the frame that ends the hold is never re-judged by a second rule."""
+
+    def arrived(candidate: WorldObservationValue) -> bool:
+        return (
+            verify_consume_effect(pre=pre, post=candidate, item_id=item_id)
+            is ActionResultClass.CONFIRMED
+        )
+
+    return arrived
 
 
 def _turn_reading(
@@ -1530,23 +1553,32 @@ class WorldSkills:
         authority: ActionAuthority,
         timeout_ns: int = DEFAULT_STEP_TIMEOUT_NS,
     ) -> SkillOutcome:
-        """Eat one known food: bring it to hand, hold the use key for the client's own
-        eating time, and let the readings say whether a meal happened.
+        """Eat one known food: bring it to hand, hold the use key until the readings
+        say the meal landed (bounded), and conclude from that same frame.
 
         The wire has no eat verb and does not need one: a player eats by holding the use
         key with the food in hand while the crosshair is on nothing — the same key
-        `use_target` taps, held for the client's own eating duration instead, under the
-        same lease that already ends every held key. The two phases are each judged
-        against the reading that precedes them, so the number key and the use key never
-        ride on a frame older than the one that justified them: the refusal decides from
-        `pre`, the selection has to be confirmed by a later `self` reading before the
-        press, and the press's precondition is re-asked of the newest reading there is.
+        `use_target` taps, held for the client's own eating time instead, under the same
+        lease that already ends every held key. The hold ends on the first reading that
+        shows the meal — the bar up and the stack down on one synced frame, the exact
+        verdict this step reports — and never runs past `CONSUME_HOLD_SECONDS` when no
+        reading does. The release therefore goes out even when the channel never answers,
+        and because a second consecutive bite would need another full 16/32 ticks of
+        held use, cancelling it is what makes one call confirm one item.
+
+        Every phase is judged against the reading that precedes it: the refusal decides
+        from `pre`, the selection has to be confirmed by a later `self` reading before
+        the press, and the press's precondition is re-asked of the newest reading there
+        is. One window (`timeout_ns`) covers all of it — the selection prep, the held
+        meal and the concluding wait — because that is the window the plan's lease was
+        sized for (`sequence_lease_seconds` grants `timeout + STEP_LEASE_HEADROOM_S`),
+        and a step that quietly spent two windows could outlive its own lease.
 
         Nothing here decides the verdict: `verify_consume_effect` concludes from the
-        readings — the hunger bar up and the stack down on one synced frame — and this
-        method only presses the key and hands back what the after-picture said. A hold
-        that confirms nothing is `UNKNOWN`, and no second press follows it: one meal
-        attempt per call, the same rule every side effect lives under.
+        readings, and this method only presses the key and hands back what the
+        after-picture said. A hold that confirms nothing is `UNKNOWN`, and no second
+        press follows it: one meal attempt per call, the same rule every side effect
+        lives under.
         """
 
         for capability_name in (HOTBAR_CAPABILITY, USE_CAPABILITY):
@@ -1554,6 +1586,11 @@ class WorldSkills:
             if capability is not None:
                 return capability
         action_id = self._action_id()
+        # One window for the whole skill, the way every other multi-send step spends
+        # its own: the selection prep, the held meal and the concluding wait all draw
+        # from this deadline, so the step can never outlive the lease headroom the plan
+        # sized for a single wait window.
+        deadline = monotonic_ns() + timeout_ns
         pre = self._observations.latest
         if pre is None:
             return _refusal_outcome("NO_LATEST_OBSERVATION", action_id, pre)
@@ -1569,7 +1606,9 @@ class WorldSkills:
                 slot=slot,
                 authority=authority,
                 expected_item_id=item_id,
-                timeout_ns=timeout_ns,
+                # The selection gets what is left of the one window, so a slow
+                # selection shortens the meal ahead rather than extending the step.
+                timeout_ns=max(0, deadline - monotonic_ns()),
             )
             if selected.result is not ActionResultClass.CONFIRMED:
                 # The number key's own verdict, kept verbatim and labelled with the
@@ -1593,18 +1632,26 @@ class WorldSkills:
             # that drifted between selection and press is named before the key goes
             # down rather than after a click it could not justify.
             return _refusal_outcome(refusal.refusal.value, action_id, pre)
+        hold_ns = min(
+            int(CONSUME_HOLD_SECONDS * 1_000_000_000),
+            max(0, deadline - monotonic_ns()),
+        )
         await self._send_use(authority, action_id, use=True)
-        await self._sleep(CONSUME_HOLD_SECONDS)
-        await self._send_use(authority, action_id, use=False)
-        deadline = monotonic_ns() + timeout_ns
         post = await self._wait_until(
-            lambda candidate: (
-                verify_consume_effect(pre=pre, post=candidate, item_id=item_id)
-                is ActionResultClass.CONFIRMED
-            ),
-            deadline,
+            _meal_arrives(pre=pre, item_id=item_id),
+            monotonic_ns() + hold_ns,
             action_id=action_id,
         )
+        await self._send_use(authority, action_id, use=False)
+        if post is None:
+            # Nothing confirmed while the key was down, so the wait continues on what
+            # is left of the step's own window — the release has already gone out, and
+            # no second press follows whatever the remaining window says.
+            post = await self._wait_until(
+                _meal_arrives(pre=pre, item_id=item_id),
+                deadline,
+                action_id=action_id,
+            )
         if post is None:
             # A newer unchanged frame is not the final answer while the window is
             # still open. At expiry retain the latest frame for an honest UNKNOWN —

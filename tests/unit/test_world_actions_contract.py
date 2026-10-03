@@ -38,8 +38,8 @@ from minekin_core.domain.world_actions import (
     hotbar_slot_for_item,
     hotbar_slot_refusal,
     item_total,
-    known_food_items,
     mine_target_refusal,
+    reachable_food_items,
     seen_drops,
     use_target_refusal,
     use_target_signature,
@@ -836,15 +836,33 @@ def test_the_hotbar_lookup_ignores_the_wider_bag() -> None:
     assert hotbar_slot_for_item(bag, "minecraft:stone") is None
 
 
-def test_known_food_items_counts_the_bag_once_per_item() -> None:
-    bag = inventory_at(
-        100,
-        (0, "minecraft:apple", 2),
-        (9, "minecraft:apple", 1),
-        (1, "minecraft:bread", 1),
-        (2, "minecraft:stone", 4),
+def test_reachable_food_items_lists_the_hotbar_meals_once_each() -> None:
+    pre = reading(
+        inventory=inventory_at(
+            100,
+            (0, "minecraft:apple", 2),
+            (9, "minecraft:apple", 1),
+            (1, "minecraft:bread", 1),
+            (2, "minecraft:stone", 4),
+        )
     )
-    assert known_food_items(bag) == ("minecraft:apple", "minecraft:bread")
+    # Slot 9 is the wider bag, which no number key reaches: the second apple adds
+    # nothing, and one entry per reachable item id comes back.
+    assert reachable_food_items(pre) == ("minecraft:apple", "minecraft:bread")
+
+    # A whole curated food the hotbar cannot reach is left out — it would only be
+    # an ask the skill refuses by name (`CONSUME_ITEM_NOT_IN_HOTBAR`).
+    bag_only = reading(
+        inventory=inventory_at(100, (12, "minecraft:apple", 2), (1, "minecraft:bread", 1))
+    )
+    assert reachable_food_items(bag_only) == ("minecraft:bread",)
+
+    # The hand's own item is reachable by definition, whatever the stack list says.
+    held = reading(
+        state=hungry_state(selected_slot=4, main_hand="minecraft:apple"),
+        inventory=inventory_at(100, (1, "minecraft:bread", 1)),
+    )
+    assert reachable_food_items(held) == ("minecraft:apple", "minecraft:bread")
 
 
 def test_the_consume_refusal_walks_its_reasons_in_order() -> None:

@@ -44,6 +44,7 @@ from minekin_core.application.player_mind import (
     mind_for,
     needs_from,
     next_craft,
+    observation_summary,
     screen_open,
     select_target,
     shortfalls,
@@ -2037,3 +2038,18 @@ def test_a_consume_refusal_costs_no_budget_and_keeps_the_skill_available() -> No
     assert "consume_item" not in mind.excluded
     assert "consume_item" in feasible_skill_ids(None, pre)
     assert mind.attempts == {}
+
+
+def test_the_summary_lists_only_meals_the_hotbar_can_reach() -> None:
+    """`consumable_items` is the actionable view, not a bag census: a food only the
+    wider bag holds would be a name the model could pick and the skill refuse."""
+
+    pre = reading(
+        aim=clear_aim(),
+        items=((12, "minecraft:apple", 2), (2, "minecraft:bread", 1)),
+        self_state=state(food=14),
+    )
+
+    summary = observation_summary(None, pre)
+
+    assert summary["consumable_items"] == ["minecraft:bread"]

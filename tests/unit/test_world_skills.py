@@ -12,6 +12,7 @@ mine key must arrive on every path that stops.
 from __future__ import annotations
 
 import asyncio
+import time
 from collections.abc import Callable
 from typing import Any, Final, cast
 
@@ -2274,5 +2275,149 @@ def test_consume_refuses_a_full_bar_and_an_occupied_crosshair_before_the_wire() 
             "CONSUME_AIM_NOT_CLEAR",
         )
         assert sender.sent == []
+
+    asyncio.run(scenario())
+
+
+def test_consume_releases_as_soon_as_a_reading_confirms(monkeypatch: Any) -> None:
+    """The hold is a cap, not a fixed wait: the release follows the frame that shows
+    the meal. That is what keeps one call to one item even on a snack-speed food —
+    a blind hold of the full cap could have finished a second bite, because a client
+    restarts the meal as long as the key stays down."""
+
+    monkeypatch.setattr("minekin_core.application.world_skills.CONSUME_HOLD_SECONDS", 6.0)
+
+    async def scenario() -> None:
+        first = reading(
+            tick=100,
+            state_value=_hungry_state(selected_slot=3, main_hand="minecraft:apple"),
+            aim=miss_aim(100),
+            inventory_value=inventory(100, (3, "minecraft:apple", 2)),
+        )
+        store = store_with(first)
+        skills, sender = skill_with(store)
+        eaten = reading(
+            tick=120,
+            state_value=_hungry_state(food=12, selected_slot=3, main_hand="minecraft:apple"),
+            aim=miss_aim(120),
+            inventory_value=inventory(120, (3, "minecraft:apple", 1)),
+        )
+        task = asyncio.create_task(admit_after(store, 0.05, eaten))
+
+        started = time.monotonic()
+        outcome = await skills.consume_item(item_id="minecraft:apple", authority=authority())
+        elapsed = time.monotonic() - started
+        await task
+
+        assert outcome.result is ActionResultClass.CONFIRMED
+        assert outcome.post_tick == 120
+        assert sender.types() == [USE_INPUT_TYPE, USE_INPUT_TYPE]
+        # Six seconds of hold were allowed and a confirming frame arrived at ~0.05 s;
+        # a release that waited out the cap would be the defect this pins.
+        assert elapsed < 2.0
+
+    asyncio.run(scenario())
+
+
+def test_consume_rechecks_the_bar_between_selection_and_press(monkeypatch: Any) -> None:
+    """The frame that confirms the selection is the frame the press is judged against:
+    a bar that filled meanwhile is named before the key goes down, rather than spent on
+    a meal the world no longer owes."""
+
+    monkeypatch.setattr("minekin_core.application.world_skills.CONSUME_HOLD_SECONDS", 0.01)
+
+    async def scenario() -> None:
+        first = reading(
+            tick=100,
+            state_value=_hungry_state(),
+            aim=miss_aim(100),
+            inventory_value=inventory(100, (3, "minecraft:apple", 2)),
+        )
+        store = store_with(first)
+        skills, sender = skill_with(store)
+        filled = reading(
+            tick=110,
+            state_value=_hungry_state(food=20, selected_slot=3, main_hand="minecraft:apple"),
+            aim=miss_aim(110),
+            inventory_value=inventory(110, (3, "minecraft:apple", 2)),
+        )
+        task = asyncio.create_task(admit_later(store, filled))
+
+        outcome = await skills.consume_item(item_id="minecraft:apple", authority=authority())
+        await task
+
+        assert (outcome.result, outcome.reason) == (
+            ActionResultClass.FAILED,
+            "CONSUME_NOT_HUNGRY",
+        )
+        assert sender.types() == [HOTBAR_SELECT_INPUT_TYPE]
+
+    asyncio.run(scenario())
+
+
+def test_consume_labels_a_selection_that_never_confirmed_with_its_phase() -> None:
+    async def scenario() -> None:
+        first = reading(
+            tick=100,
+            state_value=_hungry_state(),
+            aim=miss_aim(100),
+            inventory_value=inventory(100, (3, "minecraft:apple", 2)),
+        )
+        store = store_with(first)
+        skills, sender = skill_with(store)
+
+        outcome = await skills.consume_item(
+            item_id="minecraft:apple", authority=authority(), timeout_ns=60_000_000
+        )
+
+        assert (outcome.result, outcome.reason) == (
+            ActionResultClass.UNKNOWN,
+            "NO_CONFIRMING_OBSERVATION",
+        )
+        # The reader of a failed meal should not have to infer which of the two steps
+        # the verdict was about.
+        assert outcome.details["phase"] == "select_hotbar"
+        assert sender.types() == [HOTBAR_SELECT_INPUT_TYPE]
+
+    asyncio.run(scenario())
+
+
+def test_consume_spends_one_window_across_both_phases(monkeypatch: Any) -> None:
+    """One `timeout_ns` covers selection, hold and the concluding wait: a slow
+    selection shortens the meal ahead instead of the step outliving the lease the
+    plan sized for a single wait window."""
+
+    monkeypatch.setattr("minekin_core.application.world_skills.CONSUME_HOLD_SECONDS", 6.0)
+
+    async def scenario() -> None:
+        first = reading(
+            tick=100,
+            state_value=_hungry_state(),
+            aim=miss_aim(100),
+            inventory_value=inventory(100, (3, "minecraft:apple", 2)),
+        )
+        store = store_with(first)
+        skills, sender = skill_with(store)
+        chosen = reading(
+            tick=110,
+            state_value=_hungry_state(selected_slot=3, main_hand="minecraft:apple"),
+            aim=miss_aim(110),
+            inventory_value=inventory(105, (3, "minecraft:apple", 2)),
+        )
+        task = asyncio.create_task(admit_later(store, chosen))
+
+        started = time.monotonic()
+        outcome = await skills.consume_item(
+            item_id="minecraft:apple", authority=authority(), timeout_ns=400_000_000
+        )
+        elapsed = time.monotonic() - started
+        await task
+
+        # The selection consumed a slice of the 0.4 s window and the hold cap could
+        # only use what was left; a skill that granted the hold a second full window
+        # (a patched cap of six seconds) would run past two seconds here.
+        assert outcome.result is ActionResultClass.UNKNOWN
+        assert sender.types() == [HOTBAR_SELECT_INPUT_TYPE, USE_INPUT_TYPE, USE_INPUT_TYPE]
+        assert elapsed < 1.5
 
     asyncio.run(scenario())

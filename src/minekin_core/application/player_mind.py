@@ -85,7 +85,7 @@ from minekin_core.domain.world_actions import (
     consume_candidate,
     consume_item_refusal,
     item_total,
-    known_food_items,
+    reachable_food_items,
     use_target_refusal,
     use_target_signature,
 )
@@ -739,9 +739,10 @@ def observation_summary(
     `craft_options` is the table's answer for this bag, not a list of items this module knows, so a
     session with a new curated row shows it without a code change and a session with no milestone
     still has something true to say about what the bag could become. `consumable_items` is the
-    same kind of answer for the food table: the meals this build can act on, present in this bag —
-    it states the curated boundary to the answerer instead of letting it guess at foods the skill
-    would refuse by name.
+    same kind of answer for the food table: the meals this build can act on within the hotbar's
+    reach — it states the curated boundary to the answerer instead of letting it guess at foods
+    the skill would refuse by name, and it leaves out bag-only stacks for the same reason it
+    exists: a listed item is one the skill can actually run for.
     """
 
     counts: dict[str, int] = {}
@@ -766,7 +767,7 @@ def observation_summary(
         "dropped_items": dict(sorted(dropped.items())),
         "crafting_grid_side": side,
         "craft_options": list(craft_options(reading, grid_side=side)),
-        "consumable_items": list(known_food_items(reading.inventory)),
+        "consumable_items": list(reachable_food_items(reading)),
         "health": reading.self_state.health,
         "max_health": reading.self_state.max_health,
         "food": reading.self_state.food,

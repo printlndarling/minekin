@@ -395,14 +395,26 @@ def hotbar_slot_for_item(inventory: InventoryValue, item_id: str) -> int | None:
     return None
 
 
-def known_food_items(inventory: InventoryValue) -> tuple[str, ...]:
-    """Every curated food the bag holds, one entry per item id, sorted. A view of the
-    build's table over the reading's counters — the same kind of answer `craft_options`
-    gives for what the bag could become, and never a claim about the world."""
+def reachable_food_items(observation: WorldObservationValue) -> tuple[str, ...]:
+    """Every curated food this reading can actually bring to hand, one entry per item
+    id, sorted — the bag-wide table view filtered to what a number key can select.
 
-    return tuple(
-        sorted({stack.item_id for stack in inventory.stacks if is_known_food(stack.item_id)})
-    )
+    A stack the hotbar (0..8) already carries, or the held hand, qualifies; one the
+    wider bag alone holds does not, because no skill here moves items between the two
+    and listing it would invite exactly the ask the skill refuses by name
+    (`CONSUME_ITEM_NOT_IN_HOTBAR`). The same kind of answer `craft_options` gives for
+    what the bag could pay for, and never a claim about the world.
+    """
+
+    held = observation.self_state.main_hand_item_id
+    reachable = {
+        stack.item_id
+        for stack in observation.inventory.stacks
+        if is_known_food(stack.item_id) and 0 <= stack.slot < HOTBAR_SLOT_COUNT
+    }
+    if held is not None and is_known_food(held):
+        reachable.add(held)
+    return tuple(sorted(reachable))
 
 
 def consume_candidate(observation: WorldObservationValue) -> str | None:
