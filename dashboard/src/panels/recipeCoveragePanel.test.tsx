@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { App } from "../App";
 import type { DashboardConfig } from "../adapters/config";
@@ -23,6 +23,31 @@ function openRecipes(scenario: DashboardConfig["scenario"]): void {
 }
 
 describe("配方知识面板：投影目录自己的覆盖边界", () => {
+  it("按材料与产物组合检索，忽略大小写和空白；清空恢复目录", async () => {
+    openRecipes("healthy_run_07");
+    await screen.findByTestId("recipe-boundary");
+    const input = screen.getByRole("searchbox", { name: "搜索产物、配方 ID 或材料" });
+    fireEvent.change(input, { target: { value: "  OAK_LOG   PLANKS " } });
+    expect(screen.getByTestId("recipe-row-minecraft:oak_planks")).toBeInTheDocument();
+    expect(screen.queryByTestId("recipe-row-minecraft:crafting_table")).toBeNull();
+    expect(screen.getByRole("status")).toHaveTextContent("显示 1 /");
+    // 过滤不删除来源或扩大目录覆盖声明。
+    expect(screen.getByTestId("recipe-universal-false")).toHaveTextContent("通用合成源：否");
+    fireEvent.click(screen.getByRole("button", { name: "清空搜索" }));
+    expect(input).toHaveValue("");
+    expect(screen.getByTestId("recipe-row-minecraft:crafting_table")).toBeInTheDocument();
+  });
+
+  it("无匹配不冒充游戏没有配方，搜索字符按字面匹配", async () => {
+    openRecipes("healthy_run_07");
+    await screen.findByTestId("recipe-boundary");
+    fireEvent.change(screen.getByRole("searchbox"), { target: { value: ".*" } });
+    expect(screen.getByText("没有匹配的目录配方；这不代表游戏中不存在该配方。")).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent("显示 0 /");
+    expect(screen.queryByTestId("recipe-empty")).toBeNull();
+    expect(screen.queryByTestId("recipe-row-minecraft:oak_planks")).toBeNull();
+  });
+
   it("显示版本、覆盖数、两格网格与 universal:false 边界，逐项列出配方行", async () => {
     openRecipes("healthy_run_07");
     // 外壳先挂载、读数随后到达，因此等待边界块本身而不是面板容器。

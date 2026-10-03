@@ -1,3 +1,4 @@
+import { useState } from "react";
 import type { KinReadAdapter } from "../domain/adapter";
 import type { RecipeRow } from "../domain/model";
 import { useRecipeCoverageRead } from "../hooks/useRecipeCoverageController";
@@ -35,6 +36,13 @@ export function RecipeCoveragePanel({
   readonly nowMs: number;
 }) {
   const { coverage, failure, isLoading } = useRecipeCoverageRead(adapter);
+  const [search, setSearch] = useState("");
+  const terms = search.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  const recipes = (coverage?.recipes ?? []).filter((row) => {
+    const text = [row.productId, row.recipeId, ...row.ingredients.map((ingredient) => ingredient.itemId)]
+      .join(" ").toLowerCase();
+    return terms.every((term) => text.includes(term));
+  });
 
   return (
     <Panel
@@ -99,13 +107,23 @@ export function RecipeCoveragePanel({
             </div>
           </dl>
 
+          <div>
+            <label htmlFor="recipe-search">搜索产物、配方 ID 或材料</label>
+            <input id="recipe-search" type="search" value={search}
+              onChange={(event) => setSearch(event.target.value)} placeholder="例如 oak_log planks" />
+            <button type="button" disabled={search.length === 0} onClick={() => setSearch("")}>清空搜索</button>
+            <p role="status">显示 {recipes.length} / {coverage.recipes.length} 条目录配方，不代表本次合成结果。</p>
+          </div>
+
           {coverage.recipes.length === 0 ? (
             <p className={styles.empty} data-testid="recipe-empty">
               目录当前没有可列出的配方行。
             </p>
+          ) : recipes.length === 0 ? (
+            <p className={styles.empty}>没有匹配的目录配方；这不代表游戏中不存在该配方。</p>
           ) : (
             <ul className={styles.rows}>
-              {coverage.recipes.map((row) => (
+              {recipes.map((row) => (
                 <li
                   key={row.productId}
                   className={styles.row}
