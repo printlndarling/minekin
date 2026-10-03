@@ -287,6 +287,22 @@ def test_step_toward_names_the_enablers_missing_materials(tmp_path: Path) -> Non
     )
 
 
+def test_missing_raw_names_the_floor_the_plan_cannot_cover(tmp_path: Path) -> None:
+    knowledge = source(tmp_path)
+    current = reading({"minecraft:cobblestone": 3})
+    assert dict(
+        knowledge.missing_raw("minecraft:stone_pickaxe", current, quantity=1, grid_side=3)
+    ) == {"minecraft:oak_log": 1}
+
+
+def test_missing_raw_resolves_a_tag_cell_the_plans_own_way(tmp_path: Path) -> None:
+    knowledge = source(tmp_path)
+    current = reading({"minecraft:cobblestone": 1})
+    assert dict(
+        knowledge.missing_raw("minecraft:stone_pickaxe", current, quantity=1, grid_side=3)
+    ) == {"minecraft:cobbled_deepslate": 2, "minecraft:oak_log": 1}
+
+
 def test_public_enabler_to_stand_up_reads_the_held_table_and_its_slot(tmp_path: Path) -> None:
     knowledge = source(tmp_path)
     held = reading(
@@ -404,6 +420,19 @@ def test_public_grid_block_reroutes_into_standing_the_enabler_up(tmp_path: Path)
     assert intent.source == "local_reflection"
     assert intent.arguments == {"slot": 0, "expected_item_id": "minecraft:crafting_table"}
     assert mind.last_precondition == "CRAFT_GRID_TOO_SMALL"
+
+
+def test_public_goal_summary_names_the_uncoverable_raw_floor(tmp_path: Path) -> None:
+    provider = SkillProvider("turn_to")
+    mind = mind_for(
+        provider,
+        CostLedger(run_cost_cap=1000),
+        goal=STONE_PICKAXE_GOAL,
+        craft_knowledge=source(tmp_path),
+    )
+    mind.next_intent(reading({"minecraft:oak_planks": 4, "minecraft:stick": 2}))
+    summary = provider.requests[0].observation_summary
+    assert summary["missing_raw"] == {"minecraft:cobbled_deepslate": 3}
 
 
 def test_public_goal_selects_the_held_enabler_to_stand_it_up(tmp_path: Path) -> None:

@@ -1,5 +1,7 @@
 # Minekin 开发执行计划（现行唯一队列）
 
+> 2026-10-04 追加（M 直接落主干，基线 `eb0944c`）：**缺料从"一个名字"变"一张清单"**。`_owed_plan` 把计划付不动的原始料（档案无配方者，需求减袋存为正）按计数收进 `raw_shortfall`，新增 `PublicCraftKnowledge.missing_raw`（协议同步）；公开目标在模型摘要里带 `missing_raw`（tag 格按计划的确定性候选解出，docstring 注明该选择满足配方、不否定同 tag 其他项）——采集路线因此有据可选，执行仍走既有通用采集。门：`tests/unit` 全量 `3407 passed, 2 skipped`、不带参数的 `uv run pyright` 全仓 0 errors、ruff 0/0。**未证按实**：真实采集路线选择与游戏读数未取。
+
 > 2026-10-04 追加（M 直接落主干，基线 `daa0839`）：**撞格的合成问句不再一票停跑**。`_decision` 的改线集合在 `_enabler_to_stand_up(reading)` 非空（enabler 已在袋中）时纳入 `CRAFT_GRID_TOO_SMALL`：模型或本地点名一个当前格子放不下的目标合成时，改线到 select→place→open 的通用立桌路径；opener 未知或未持有时行为不变（仍 HOLD）。公开路径此格可达（档案的 `craft_options` 覆盖目标树之外的产品，答案落在供予集内），策展路径因供予集与欠序同源而实际不可达——两处判定共用同一知识源助手。门：`tests/unit` 全量 `3404 passed, 2 skipped`、不带参数的 `uv run pyright` 全仓 0 errors、ruff 0/0。
 
 > 2026-10-04 追加（M 直接落主干，基线 `7f16731`）：**公开目标也会立工作台了**。`step_toward` 在欠步形状超过当前格子且无 fitting 可付步时，按策展 opener 行返回"立 enabler 的那一笔合成"（材料不够 → `CRAFT_MATERIALS_MISSING` 去采集；已持有 → `CRAFT_GRID_TOO_SMALL` 交给 select→place→open）；`PlayerMind` 新增 `_goal_craft_blocker` / `_enabler_to_stand_up` / `_select_target` 三个同源助手并替换原策展专用调用点（`_reflect` 立桌分支、回收重瞄、select_hotbar 供予与实参、摘要 `grid_enabler`），公开目标与策展目标在这三处行为一致。门：`tests/unit` 全量 `3403 passed, 2 skipped`、不带参数的 `uv run pyright` 全仓 0 errors、ruff 0/0（首次全量跑有一枚 Windows 回环 flake：`tests/unit/test_control_model_fixture.py` 单跑即绿、复跑全量绿）。**未证按实**：公开目标"立桌→开窗→3×3 合成"的真实游戏读数仍缺；缺料采集路线未开发。

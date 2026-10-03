@@ -123,6 +123,15 @@ class CraftKnowledge(Protocol):
         grid_side: int,
     ) -> tuple[Recipe, int] | None: ...
 
+    def missing_raw(
+        self,
+        product_id: str,
+        reading: WorldObservationValue,
+        *,
+        quantity: int = 1,
+        grid_side: int,
+    ) -> Mapping[str, int]: ...
+
     def as_document(self) -> dict[str, object]: ...
 
 
@@ -1256,6 +1265,16 @@ class PlayerMind:
                         "held": item_total(reading.inventory, enabler[0].product_id),
                         "in_hand": enabler[0].product_id == reading.self_state.main_hand_item_id,
                     }
+                missing = self.craft_knowledge.missing_raw(
+                    self.goal.product_id,
+                    reading,
+                    quantity=self.goal.quantity,
+                    grid_side=crafting_grid_side(reading),
+                )
+                if missing:
+                    # Which resource a gather would have to bring back, so a route can be
+                    # chosen from the plan instead of from one remembered source item.
+                    summary["missing_raw"] = dict(missing)
         summary["recent_actions"] = list(self.recent_results)
         summary["view_search"] = self._view_search_summary(reading)
         request = DecisionRequest(

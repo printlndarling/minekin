@@ -41,6 +41,9 @@ class _PublicOwedPlan:
     owed: Mapping[str, int]
     chosen: Mapping[str, PublicRecipe]
     rows_by_product: Mapping[str, tuple[PublicRecipe, ...]]
+    #: The raw floor (items the archive has no recipe for) this plan cannot pay from the bag:
+    #: everything above it is a craft, and what is left over is what a gather would bring back.
+    raw_shortfall: Mapping[str, int]
 
 
 @dataclass(frozen=True, slots=True)
@@ -220,6 +223,13 @@ class PublicCraftKnowledge:
                         candidates[0],
                     )
                     gross[demand] = gross.get(demand, 0) + missing
+        shortfall: dict[str, int] = {}
+        for item_id, demanded in gross.items():
+            if item_id in rows_by_product:
+                continue  # a craft, not a gather: its own node already answered for it
+            missing = demanded - pool.get(item_id, 0)
+            if missing > 0:
+                shortfall[item_id] = missing
         return _PublicOwedPlan(
             order=tuple(order),
             owed=MappingProxyType(dict(owed)),
@@ -227,6 +237,7 @@ class PublicCraftKnowledge:
             rows_by_product=MappingProxyType(
                 {product: tuple(rows) for product, rows in rows_by_product.items()}
             ),
+            raw_shortfall=MappingProxyType(shortfall),
         )
 
     def step_toward(
@@ -377,6 +388,27 @@ class PublicCraftKnowledge:
             if stack.item_id == enabler.product_id:
                 return (enabler, stack.slot)
         return None
+
+    def missing_raw(
+        self, product_id: str, reading: WorldObservationValue, *, quantity: int = 1, grid_side: int
+    ) -> Mapping[str, int]:
+        """The raw floor this plan cannot pay from the bag, as item counts, or empty.
+
+        Raw means an item the archive has no recipe for: everything above it is an owed craft
+        (`step_toward`'s business), and what is left over here is what a gather would have to
+        bring back. This is the plan's selection basis for a gathering route — which resource
+        to go find — and it is knowledge-side arithmetic on one reading, never a claim that
+        the world has or lacks anything: the caller still gathers through observed blocks.
+        A cell whose tag offers several alternatives is resolved to the plan's own deterministic
+        candidate, which satisfies the recipe without asserting the sibling alternatives are
+        wrong. Refused plans (unknown product, self-eating recipes) have no floor to name and
+        answer with an empty mapping, same as a fully paid one.
+        """
+
+        plan = self._owed_plan(product_id, reading, quantity=quantity, grid_side=grid_side)
+        if isinstance(plan, str):
+            return {}
+        return plan.raw_shortfall
 
     def as_document(self) -> dict[str, object]:
         return {
