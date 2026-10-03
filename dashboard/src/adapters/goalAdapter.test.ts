@@ -152,15 +152,16 @@ describe("decodeGoalPayload：整份解码", () => {
 });
 
 describe("mock 目标与真实解码器闭环", () => {
-  it("healthy_run_07（预填木镐）产出的文档被解码器整份接住，落到需要更大网格的具名边界", () => {
+  it("healthy_run_07（预填木镐）解码工作台前提与材料预算", () => {
     const decoded = decodeGoalPayload(buildMockGoal("healthy_run_07", Date.now()));
     expect(decoded.ok).toBe(true);
     if (!decoded.ok) return;
     expect(decoded.goal.configured).toBe(true);
-    // 木镐要 3×3 网格，当前 Kin 只开得出 2×2 界面：mock 的目录信念与 Gateway 一致，投影成具名
-    // 边界而不是一个执行不了的计划——闭环测的正是这份一致性，而非某个特定形状。
-    expect(decoded.goal.plan).toBeNull();
-    expect(decoded.goal.precondition).toBe("CRAFT_GRID_TOO_SMALL");
+    expect(decoded.goal.precondition).toBeNull();
+    expect(decoded.goal.plan?.map((step) => step.productId)).toEqual([
+      "minecraft:oak_planks", "minecraft:stick", "minecraft:crafting_table", "minecraft:wooden_pickaxe",
+    ]);
+    expect(decoded.goal.plan?.[0]?.requiredTotal).toBe(9);
   });
 
   it("网格内产物（工作台）的 mock 目标仍落到多步行计划，闭环覆盖计划与边界两种形状", () => {
