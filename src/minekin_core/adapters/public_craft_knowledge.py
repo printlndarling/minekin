@@ -20,6 +20,7 @@ from minekin_core.domain.recipe_catalog import (
     BuildStep,
     Recipe,
     RecipeProvenance,
+    grid_enabler_for,
 )
 
 
@@ -30,6 +31,16 @@ def _inventory_counts(reading: WorldObservationValue) -> Counter[str]:
     for stack in reading.inventory.stacks:
         counts[stack.item_id] += stack.count
     return counts
+
+
+@dataclass(frozen=True, slots=True)
+class _PublicOwedPlan:
+    """One product's dependency-ordered owed counts over the archive, keyed by product."""
+
+    order: tuple[str, ...]
+    owed: Mapping[str, int]
+    chosen: Mapping[str, PublicRecipe]
+    rows_by_product: Mapping[str, tuple[PublicRecipe, ...]]
 
 
 @dataclass(frozen=True, slots=True)
@@ -98,34 +109,19 @@ class PublicCraftKnowledge:
             )
         return MappingProxyType(result)
 
-    def step_toward(
-        self,
-        product_id: str,
-        reading: WorldObservationValue,
-        *,
-        quantity: int = 1,
-        grid_side: int,
-    ) -> BuildStep | str:
-        """The first owed craft on the way to `quantity` of a product, or what blocks it.
+    def _owed_plan(
+        self, product_id: str, reading: WorldObservationValue, *, quantity: int, grid_side: int
+    ) -> _PublicOwedPlan | str:
+        """The dependency-ordered owed counts over the archive, or the name that stops the walk.
 
-        This generalises the direct batch `available` answers: where that only ever offers a
-        craft this bag can pay for in one go, this walks the archive's own recipes down through
-        every craftable ingredient, multiplies each layer out of its own `result.count`, and
-        returns the nearest owed step this bag can actually run — so a pickaxe whose sticks are
-        missing is answered with the stick craft, not with `CRAFT_MATERIALS_MISSING` about a bag
-        that can pay for everything but the shape.
-
-        The reading's own counts pay the cells first (shared across a tag's alternatives, the
-        same capacity rule `materials_for` applies), and only what is left over is demanded from
-        whichever alternative the archive can craft rather than gather. A cell whose tag the
-        archive does not know is never planned around: it can only ever refuse at payability,
-        never get a guessed item.
-
-        Refusal words keep `refusal_for`'s meaning and its precedence — grid before bag before an
-        open window's recipe book — and `CRAFT_RECIPE_UNAVAILABLE` covers both a product the
-        archive cannot answer for and a recipe graph that eats itself. The plan is knowledge-side
-        arithmetic on one reading, not admission: the caller still judges the step against a
-        fresh frame and the GUI, and only a later reading's inventory confirms anything.
+        Shared by `step_toward` (which selects the nearest runnable step) and
+        `enabler_to_stand_up` (which reads the widest owed shape), so both answer from one
+        arithmetic. The walk is the archive's own graph in demand order: every craftable
+        ingredient an earlier step, counts multiplied out of each recipe's `result.count`, and
+        the reading's counts paying cells first across a tag's alternatives — only what the bag
+        cannot cover is demanded from whichever alternative the archive can craft. Cells whose
+        tag the archive does not know are never planned around. A recipe graph that eats itself
+        refuses with `CRAFT_RECIPE_UNAVAILABLE`.
         """
 
         rows_by_product: dict[str, list[PublicRecipe]] = {}
@@ -163,6 +159,7 @@ class PublicCraftKnowledge:
             return tuple(sorted(items))
 
         order: list[str] = []
+        chosen: dict[str, PublicRecipe] = {}
         visited: set[str] = set()
 
         def visit(product: str, path: frozenset[str]) -> str | None:
@@ -184,6 +181,7 @@ class PublicCraftKnowledge:
                     if failure is not None:
                         return failure
             visited.add(product)
+            chosen[product] = row
             order.append(product)
             return None
 
@@ -191,13 +189,11 @@ class PublicCraftKnowledge:
         if failure is not None:
             return failure
 
-        counts = _inventory_counts(reading)
-        pool = Counter(counts)
+        pool = Counter(_inventory_counts(reading))
         gross: dict[str, int] = {product_id: quantity}
         owed: dict[str, int] = {}
         for product in reversed(order):
-            row = variant(product)
-            assert row is not None  # only products the archive answers for enter `order`
+            row = chosen[product]
             still = max(0, gross.get(product, 0) - pool.get(product, 0))
             owed[product] = still
             if still == 0:
@@ -224,8 +220,54 @@ class PublicCraftKnowledge:
                         candidates[0],
                     )
                     gross[demand] = gross.get(demand, 0) + missing
+        return _PublicOwedPlan(
+            order=tuple(order),
+            owed=MappingProxyType(dict(owed)),
+            chosen=MappingProxyType(dict(chosen)),
+            rows_by_product=MappingProxyType(
+                {product: tuple(rows) for product, rows in rows_by_product.items()}
+            ),
+        )
 
-        owed_products = [product for product in order if owed.get(product, 0) > 0]
+    def step_toward(
+        self,
+        product_id: str,
+        reading: WorldObservationValue,
+        *,
+        quantity: int = 1,
+        grid_side: int,
+    ) -> BuildStep | str:
+        """The first owed craft on the way to `quantity` of a product, or what blocks it.
+
+        This generalises the direct batch `available` answers: where that only ever offers a
+        craft this bag can pay for in one go, this walks the archive's own recipes down through
+        every craftable ingredient and returns the nearest owed step this bag can actually run —
+        so a pickaxe whose sticks are missing is answered with the stick craft, not with
+        `CRAFT_MATERIALS_MISSING` about a bag that can pay for everything but the shape.
+
+        When every owed step's shape is wider than the grid this reading opens, the curated
+        grid-opener rows answer the same question they answer for curated plans: an item whose
+        product opens a wide enough grid and can be made inside the current one becomes this
+        plan's next craft; once it is already held the word is `CRAFT_GRID_TOO_SMALL` — placing
+        and opening it is the mind's move, not a second craft — and while its own materials are
+        short the word is `CRAFT_MATERIALS_MISSING`, which is the gather, not a dead end.
+
+        Refusal words keep `refusal_for`'s meaning and its precedence — grid before bag before
+        an open window's recipe book — and `CRAFT_RECIPE_UNAVAILABLE` covers both a product the
+        archive cannot answer for and a recipe graph that eats itself. The plan is
+        knowledge-side arithmetic on one reading, not admission: the caller still judges the
+        step against a fresh frame and the GUI, and only a later reading's inventory confirms
+        anything.
+        """
+
+        plan = self._owed_plan(product_id, reading, quantity=quantity, grid_side=grid_side)
+        if isinstance(plan, str):
+            return plan
+        counts = _inventory_counts(reading)
+        book: frozenset[str] = (
+            frozenset() if reading.gui is None else reading.gui.craftable_recipe_ids
+        )
+        owed_products = [product for product in plan.order if plan.owed.get(product, 0) > 0]
         if not owed_products:
             # The bag already covers the ask; a caller short of the product never sees this
             # branch, and the word is the one a missing step is mapped to anyway.
@@ -234,7 +276,7 @@ class PublicCraftKnowledge:
         gui_report = reading.gui is not None and reading.gui.sync_id is not None
         for product in owed_products:
             for row in sorted(
-                rows_by_product[product],
+                plan.rows_by_product[product],
                 key=lambda row: (row.recipe_id not in book, row.recipe_id),
             ):
                 if max(row.width, row.height) > grid_side:
@@ -255,24 +297,86 @@ class PublicCraftKnowledge:
                         yields=row.count,
                         provenance=RecipeProvenance.PUBLIC_VERSION,
                     ),
-                    required_total=owed[product],
+                    required_total=plan.owed[product],
                 )
+
+        widest = max(
+            (
+                max(plan.chosen[product].width, plan.chosen[product].height)
+                for product in owed_products
+            ),
+            default=0,
+        )
+        if widest > grid_side:
+            enabler = grid_enabler_for(widest, within_side=grid_side)
+            if enabler is not None:
+                if counts.get(enabler.product_id, 0) > 0:
+                    # Held: standing it up is the mind's next move, not a second craft.
+                    return CRAFT_GRID_TOO_SMALL
+                if all(counts.get(item_id, 0) >= count for item_id, count in enabler.ingredients):
+                    if gui_report and enabler.recipe_id not in book:
+                        return "GUI_RECIPE_UNKNOWN"
+                    return BuildStep(recipe=enabler, required_total=1)
+                return CRAFT_MATERIALS_MISSING
 
         if not any(
             max(row.width, row.height) <= grid_side
             for product in owed_products
-            for row in rows_by_product[product]
+            for row in plan.rows_by_product[product]
         ):
             return CRAFT_GRID_TOO_SMALL
         if gui_report and any(
             max(row.width, row.height) <= grid_side
             and self.knowledge.materials_for(row.recipe_id, counts) is not None
             for product in owed_products
-            for row in rows_by_product[product]
+            for row in plan.rows_by_product[product]
         ):
             # Payable steps exist; every one of them is one the open window does not name.
             return "GUI_RECIPE_UNKNOWN"
         return CRAFT_MATERIALS_MISSING
+
+    def enabler_to_stand_up(
+        self,
+        product_id: str,
+        reading: WorldObservationValue,
+        *,
+        quantity: int = 1,
+        grid_side: int,
+    ) -> tuple[Recipe, int] | None:
+        """The held grid-opener this plan needs stood up, with its slot, or `None`.
+
+        The same question `player_mind.enabler_to_stand_up` asks of a curated plan, asked of
+        this one: while the product is not yet held and a still-owed step's shape is wider than
+        the grid being read, `None` means either there is nothing to stand up (the plan fits,
+        or an opener for that shape is unknown to the curated rows) or the opener is still a
+        craft — which is `step_toward`'s step. When the bag already holds one, its recipe and
+        slot are returned for the general select-place-open path. No product name is hardcoded
+        here; a newly curated opener row becomes reachable without a change.
+        """
+
+        counts = _inventory_counts(reading)
+        if counts.get(product_id, 0) >= quantity:
+            return None
+        plan = self._owed_plan(product_id, reading, quantity=quantity, grid_side=grid_side)
+        if isinstance(plan, str):
+            return None
+        needed = max(
+            (
+                max(plan.chosen[product].width, plan.chosen[product].height)
+                for product in plan.order
+                if plan.owed.get(product, 0) > 0
+            ),
+            default=0,
+        )
+        if needed <= grid_side:
+            return None
+        enabler = grid_enabler_for(needed, within_side=grid_side)
+        if enabler is None:
+            return None
+        for stack in reading.inventory.stacks:
+            if stack.item_id == enabler.product_id:
+                return (enabler, stack.slot)
+        return None
 
     def as_document(self) -> dict[str, object]:
         return {

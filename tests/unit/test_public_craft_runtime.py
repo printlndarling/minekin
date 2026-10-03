@@ -14,6 +14,7 @@ from minekin_core.adapters.public_recipe_archive import load_recipe_knowledge
 from minekin_core.application.player_mind import MindDecisionKind, mind_for
 from minekin_core.cli.session import mind_for_run
 from minekin_core.domain.errors import MinekinError
+from minekin_core.domain.goal_spec import Milestone
 from minekin_core.domain.model_access import CostLedger, Decision, DecisionRequest
 from minekin_core.domain.perception import (
     GuiScreenValue,
@@ -66,7 +67,11 @@ def archive(tmp_path: Path) -> Path:
 
 
 def reading(
-    items: Mapping[str, int], *, gui: GuiScreenValue | None = None, alive: bool = True
+    items: Mapping[str, int],
+    *,
+    gui: GuiScreenValue | None = None,
+    alive: bool = True,
+    selected_slot: int = 0,
 ) -> WorldObservationValue:
     return WorldObservationValue(
         generation=1,
@@ -82,6 +87,7 @@ def reading(
             z=0,
             yaw_degrees=0,
             pitch_degrees=0,
+            selected_slot=selected_slot,
         ),
         aim=None,
         inventory=InventoryValue(
@@ -253,12 +259,50 @@ def test_step_toward_names_missing_raw_materials_before_any_layer_can_pay(
     )
 
 
-def test_step_toward_says_when_only_the_grid_blocks_the_owed_step(tmp_path: Path) -> None:
+def test_step_toward_crafts_the_grid_enabler_before_a_wider_product(tmp_path: Path) -> None:
+    knowledge = source(tmp_path)
+    current = reading({"minecraft:oak_planks": 4, "minecraft:stick": 2})
+    step = knowledge.step_toward("minecraft:stone_pickaxe", current, quantity=1, grid_side=2)
+    assert isinstance(step, BuildStep)
+    assert step.product_id == "minecraft:crafting_table"
+    assert step.recipe.recipe_id == "minecraft:crafting_table"
+    assert dict(step.materials) == {"minecraft:oak_planks": 4}
+
+
+def test_step_toward_says_when_the_held_enabler_is_all_that_is_left(tmp_path: Path) -> None:
+    knowledge = source(tmp_path)
+    current = reading({"minecraft:crafting_table": 1})
+    assert (
+        knowledge.step_toward("minecraft:stone_pickaxe", current, quantity=1, grid_side=2)
+        == "CRAFT_GRID_TOO_SMALL"
+    )
+
+
+def test_step_toward_names_the_enablers_missing_materials(tmp_path: Path) -> None:
     knowledge = source(tmp_path)
     current = reading({"minecraft:stick": 2, "minecraft:cobblestone": 3})
     assert (
         knowledge.step_toward("minecraft:stone_pickaxe", current, quantity=1, grid_side=2)
-        == "CRAFT_GRID_TOO_SMALL"
+        == "CRAFT_MATERIALS_MISSING"
+    )
+
+
+def test_public_enabler_to_stand_up_reads_the_held_table_and_its_slot(tmp_path: Path) -> None:
+    knowledge = source(tmp_path)
+    held = reading(
+        {"minecraft:crafting_table": 1, "minecraft:cobblestone": 3, "minecraft:stick": 2}
+    )
+    stand = knowledge.enabler_to_stand_up("minecraft:stone_pickaxe", held, quantity=1, grid_side=2)
+    assert stand is not None
+    assert stand[0].product_id == "minecraft:crafting_table"
+    assert stand[1] == 0
+    wide = reading(
+        {"minecraft:crafting_table": 1},
+        gui=GuiScreenValue("minecraft:crafting", 4, frozenset({"minecraft:stone_pickaxe"})),
+    )
+    assert (
+        knowledge.enabler_to_stand_up("minecraft:stone_pickaxe", wide, quantity=1, grid_side=3)
+        is None
     )
 
 
@@ -278,3 +322,76 @@ def test_step_toward_defers_to_the_open_screen_recipe_book(tmp_path: Path) -> No
     )
     assert isinstance(step, BuildStep)
     assert step.product_id == "minecraft:stick"
+
+
+class SkillProvider:
+    def __init__(self, skill_id: str) -> None:
+        self.skill_id = skill_id
+        self.requests: list[DecisionRequest] = []
+
+    def decide(self, request: DecisionRequest) -> Decision:
+        self.requests.append(request)
+        return Decision(
+            skill_id=self.skill_id,
+            reason="fixture answer",
+            intent_generation=request.intent_generation,
+            arguments={},
+        )
+
+
+STONE_PICKAXE_GOAL = Milestone(
+    product_id="minecraft:stone_pickaxe",
+    source_item_id="minecraft:cobblestone",
+    direction="hold_a_stone_pickaxe",
+)
+
+
+def test_public_goal_crafts_the_enabler_before_the_wide_product(tmp_path: Path) -> None:
+    provider = Provider("minecraft:stone_pickaxe")
+    mind = mind_for(
+        provider,
+        CostLedger(run_cost_cap=1000),
+        goal=STONE_PICKAXE_GOAL,
+        craft_knowledge=source(tmp_path),
+    )
+    intent = mind.next_intent(reading({"minecraft:oak_planks": 4, "minecraft:stick": 2}))
+    assert intent.kind is MindDecisionKind.INTENT
+    call = intent.plan.calls[0]
+    assert call.product_id == "minecraft:crafting_table"
+    assert dict(call.materials) == {"minecraft:oak_planks": 4}
+
+
+def test_public_goal_summary_names_the_held_enabler_to_stand_up(tmp_path: Path) -> None:
+    provider = SkillProvider("turn_to")
+    mind = mind_for(
+        provider,
+        CostLedger(run_cost_cap=1000),
+        goal=STONE_PICKAXE_GOAL,
+        craft_knowledge=source(tmp_path),
+    )
+    current = reading({"minecraft:crafting_table": 1}, selected_slot=3)
+    assert "select_hotbar" in mind.feasible_skills(current)
+    mind.next_intent(current)
+    summary = provider.requests[0].observation_summary
+    assert summary["grid_enabler"] == {
+        "product_id": "minecraft:crafting_table",
+        "opens_grid_side": 3,
+        "held": 1,
+        "in_hand": False,
+    }
+
+
+def test_public_goal_selects_the_held_enabler_to_stand_it_up(tmp_path: Path) -> None:
+    provider = SkillProvider("select_hotbar")
+    mind = mind_for(
+        provider,
+        CostLedger(run_cost_cap=1000),
+        goal=STONE_PICKAXE_GOAL,
+        craft_knowledge=source(tmp_path),
+    )
+    intent = mind.next_intent(reading({"minecraft:crafting_table": 1}, selected_slot=3))
+    assert intent.kind is MindDecisionKind.INTENT
+    call = intent.plan.calls[0]
+    assert call.name == "select_hotbar"
+    assert call.slot == 0
+    assert call.expected_item_id == "minecraft:crafting_table"

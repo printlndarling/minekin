@@ -114,6 +114,15 @@ class CraftKnowledge(Protocol):
         grid_side: int,
     ) -> BuildStep | str: ...
 
+    def enabler_to_stand_up(
+        self,
+        product_id: str,
+        reading: WorldObservationValue,
+        *,
+        quantity: int = 1,
+        grid_side: int,
+    ) -> tuple[Recipe, int] | None: ...
+
     def as_document(self) -> dict[str, object]: ...
 
 
@@ -1060,6 +1069,52 @@ class PlayerMind:
             return {}
         return self.craft_knowledge.available(reading, grid_side=crafting_grid_side(reading))
 
+    def _goal_craft_blocker(self, reading: WorldObservationValue) -> str:
+        """The standing goal's craft obstacle on this reading, from whichever plan is bound.
+
+        One word per obstacle, from the same source the ask will be answered by: the curated
+        table when nothing else is configured, the version archive when it is. Callers that act
+        on `CRAFT_MATERIALS_MISSING` or `CRAFT_GRID_TOO_SMALL` (the re-aim, the enabler
+        placement) therefore keep their meaning for imported products too, instead of reading a
+        curated-only `CRAFT_RECIPE_UNAVAILABLE`.
+        """
+
+        if self.goal is None:
+            return ""
+        side = crafting_grid_side(reading)
+        if self.craft_knowledge is not None:
+            step = self.craft_knowledge.step_toward(
+                self.goal.product_id, reading, quantity=self.goal.quantity, grid_side=side
+            )
+            return step if isinstance(step, str) else ""
+        return blocker_for(reading, self.goal.product_id, self.goal.quantity, grid_side=side)
+
+    def _enabler_to_stand_up(self, reading: WorldObservationValue) -> tuple[Recipe, int] | None:
+        """The held grid-opener the goal needs stood up, from whichever plan is bound."""
+
+        if self.goal is None:
+            return None
+        side = crafting_grid_side(reading)
+        if self.craft_knowledge is not None:
+            return self.craft_knowledge.enabler_to_stand_up(
+                self.goal.product_id, reading, quantity=self.goal.quantity, grid_side=side
+            )
+        return enabler_to_stand_up(self.goal, reading, grid_side=side)
+
+    def _select_target(self, reading: WorldObservationValue) -> tuple[str, int] | None:
+        """Which held item the goal wants in hand — its product, or the grid-opener."""
+
+        if self.goal is None:
+            return None
+        if goal_held(self.goal, reading) and not goal_in_hand(self.goal, reading):
+            slot = goal_slot(self.goal, reading)
+            if slot is not None:
+                return (self.goal.product_id, slot)
+        enabler = self._enabler_to_stand_up(reading)
+        if enabler is not None and enabler[1] != reading.self_state.selected_slot:
+            return (enabler[0].product_id, enabler[1])
+        return None
+
     def craft_options_for(self, reading: WorldObservationValue) -> tuple[str, ...]:
         if self.craft_knowledge is not None:
             return tuple(sorted(self.public_crafts(reading)))
@@ -1069,18 +1124,23 @@ class PlayerMind:
         feasible = feasible_skill_ids(self.goal, reading)
         if self.craft_knowledge is None:
             return feasible
-        feasible = tuple(name for name in feasible if name != "craft_take_result")
+        added = [name for name in feasible if name != "craft_take_result"]
         if (
             reading.self_state.alive
             and not (screen_open(reading) and goal_in_hand(self.goal, reading))
             and self.craft_options_for(reading)
         ):
-            return (
-                (*feasible, "craft_take_result")
-                if "craft_take_result" not in feasible
-                else feasible
-            )
-        return feasible
+            added.append("craft_take_result")
+        if (
+            reading.self_state.alive
+            and not screen_open(reading)
+            and "select_hotbar" not in added
+            and self._select_target(reading) is not None
+        ):
+            # The curated offer only names a select target for curated plans; an imported
+            # goal's held grid-opener is the same move and must be offered all the same.
+            added.append("select_hotbar")
+        return tuple(added)
 
     def observe(self, reading: WorldObservationValue | None) -> None:
         """Say whether the direction is met, off a reading, because nothing else may say it.
@@ -1186,7 +1246,16 @@ class PlayerMind:
                 reason = step if isinstance(step, str) else ""
                 summary["larger_grid_needed"] = reason == CRAFT_GRID_TOO_SMALL
                 summary["goal_recipe_refusal"] = reason
-                summary.pop("grid_enabler", None)
+                enabler = self._enabler_to_stand_up(reading)
+                if enabler is None:
+                    summary.pop("grid_enabler", None)
+                else:
+                    summary["grid_enabler"] = {
+                        "product_id": enabler[0].product_id,
+                        "opens_grid_side": enabler[0].opens_grid_side,
+                        "held": item_total(reading.inventory, enabler[0].product_id),
+                        "in_hand": enabler[0].product_id == reading.self_state.main_hand_item_id,
+                    }
         summary["recent_actions"] = list(self.recent_results)
         summary["view_search"] = self._view_search_summary(reading)
         request = DecisionRequest(
@@ -1395,19 +1464,12 @@ class PlayerMind:
             return "select_hotbar"
         if "craft_take_result" in feasible:
             return "craft_take_result"
-        enabler = enabler_to_stand_up(self.goal, reading, grid_side=crafting_grid_side(reading))
+        enabler = self._enabler_to_stand_up(reading)
         if (
             "use_target" in feasible
             and enabler is not None
             and reading.self_state.selected_slot == enabler[1]
-            and self.goal is not None
-            and blocker_for(
-                reading,
-                self.goal.product_id,
-                self.goal.quantity,
-                grid_side=crafting_grid_side(reading),
-            )
-            == CRAFT_GRID_TOO_SMALL
+            and self._goal_craft_blocker(reading) == CRAFT_GRID_TOO_SMALL
         ):
             return "use_target"
         if "collect_dropped" in feasible and needs.get("resource_security", 0) >= 5:
@@ -1559,7 +1621,7 @@ class PlayerMind:
         if skill == "select_hotbar":
             if self.goal is None:
                 return None, NO_FEASIBLE_SKILL, {}
-            target = select_target(self.goal, reading, grid_side=crafting_grid_side(reading))
+            target = self._select_target(reading)
             if target is None:
                 return None, "NO_SELECT_TARGET", {}
             item_id, slot = target
@@ -1627,13 +1689,7 @@ class PlayerMind:
         if (
             self.last_target_block is not None
             and self.goal is not None
-            and blocker_for(
-                reading,
-                self.goal.product_id,
-                self.goal.quantity,
-                grid_side=crafting_grid_side(reading),
-            )
-            == CRAFT_MATERIALS_MISSING
+            and self._goal_craft_blocker(reading) == CRAFT_MATERIALS_MISSING
             and all(value is not None for value in position)
         ):
             x, y, z = position
@@ -1681,12 +1737,7 @@ class PlayerMind:
 
         if self.goal is None or self.last_target_block is None:
             return None
-        if blocker_for(
-            reading,
-            self.goal.product_id,
-            self.goal.quantity,
-            grid_side=crafting_grid_side(reading),
-        ) != (CRAFT_MATERIALS_MISSING):
+        if self._goal_craft_blocker(reading) != CRAFT_MATERIALS_MISSING:
             self.reaim_probe = 0
             return None
         self_x, self_y, self_z = reading.self_state.x, reading.self_state.y, reading.self_state.z
