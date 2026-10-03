@@ -917,6 +917,7 @@ class PlayerMind:
     goal: Milestone | None = None
     model_enabled: bool = True
     persona: PersonaManifest | None = None
+    session_history: Mapping[str, object] = field(default_factory=dict[str, object])
     intent_generation: int = 0
     goal_met: bool = field(default=False, init=False)
     scan_step: int = field(default=0, init=False)
@@ -1063,6 +1064,7 @@ class PlayerMind:
             observation_summary=summary,
             persona_seed=self.persona_seed,
             persona=self.persona,
+            session_history=self.session_history,
             budget_remaining_micro=self.ledger.remaining(),
             intent_generation=self.intent_generation,
         )
@@ -1599,6 +1601,7 @@ class PlayerMind:
         return {
             "direction": self.direction,
             "persona_context": None if self.persona is None else self.persona.decision_context(),
+            "session_history": dict(self.session_history),
             "milestone": None if self.goal is None else self.goal.as_document(),
             "goal_met": self.goal_met,
             "current_intent": None if intent is None else intent.as_document(),
@@ -1630,6 +1633,7 @@ def mind_for(
     goal: Milestone | None = None,
     model_enabled: bool = True,
     persona: PersonaManifest | None = None,
+    session_history: Mapping[str, object] | None = None,
 ) -> PlayerMind:
     """Build a mind for one session from what the session already resolved.
 
@@ -1650,4 +1654,5 @@ def mind_for(
         goal=goal,
         model_enabled=model_enabled,
         persona=persona,
+        session_history={} if session_history is None else dict(session_history),
     )

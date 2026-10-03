@@ -79,6 +79,9 @@ MAX_RESPONSE_BYTES: int = 65_536
 RESPONSE_FORMAT: Mapping[str, object] = {"type": "json_object"}
 
 SYSTEM_PROMPT: str = (
+    "session_history is explicitly historical software lifecycle evidence, not current world "
+    "facts or permission to replay an old action. A last phase of STOPPED does not prove key "
+    "release, a saved world, or goal success. Use only the current observation for actions. "
     "The structured persona, when supplied, describes this player's stable tendencies and "
     "ordered values. Weigh relevant traits against the actual situation when choosing among "
     "feasible skills; never treat a trait as a fixed action script or permission to bypass "
@@ -441,14 +444,11 @@ class OpenAICompatibleProvider:
             "observation": dict(request.observation_summary),
             "active_goal": request.active_goal,
             "needs": dict(sorted(request.needs.items())),
+            "session_history": dict(request.session_history),
             "feasible_skill_ids": list(request.feasible_skill_ids),
             "skill_parameters": parameters_for(request.feasible_skill_ids),
             "persona_seed": request.persona_seed if request.persona is None else "",
-            "persona": (
-                None
-                if request.persona is None
-                else request.persona.decision_context()
-            ),
+            "persona": (None if request.persona is None else request.persona.decision_context()),
             "budget_remaining": request.budget_remaining_micro,
             "intent_generation": request.intent_generation,
         }

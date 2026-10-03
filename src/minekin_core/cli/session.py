@@ -87,6 +87,7 @@ from minekin_core.adapters.launcher.supervisor import ProcessIdentity, ProcessSu
 from minekin_core.adapters.model import model_provider_for
 from minekin_core.adapters.sqlite.connection import connect_reader
 from minekin_core.adapters.sqlite.identity_store import read_identity_root
+from minekin_core.adapters.sqlite.session_history import read_last_session
 from minekin_core.adapters.sqlite.session_log import (
     AUTH_POLICY_FROZEN,
     AUTONOMOUS_RUN_HALTED,
@@ -1015,7 +1016,11 @@ def launched_minecraft_version(profile: Path) -> str:
 
 
 def mind_for_run(
-    kin_id: str, environ: Mapping[str, str] | None = None, *, kin_dir: Path | None = None
+    kin_id: str,
+    environ: Mapping[str, str] | None = None,
+    *,
+    kin_dir: Path | None = None,
+    exclude_run_id: str = "",
 ) -> PlayerMind:
     """The mind for one run, from what this operator's environment configures.
 
@@ -1042,6 +1047,13 @@ def mind_for_run(
         ledger,
         kin_id=kin_id,
         persona=persona,
+        session_history=(
+            {}
+            if kin_dir is None
+            else read_last_session(
+                kin_dir / DATABASE_NAME, kin_id=kin_id, exclude_run_id=exclude_run_id
+            )
+        ),
         goal=milestone_from_environment(environ),
         model_enabled=config.enabled,
     )
@@ -1689,6 +1701,7 @@ async def start_and_supervise(
             str(prepared.kin_id),
             model_environment,
             kin_dir=kin_directory(root, KinId(prepared.kin_id)),
+            exclude_run_id=str(prepared.run_id),
         )
         # One counter across whichever ask this run carries: the ledger reader's question
         # is "which step of the sequence is this", and a scripted plan and a mind-written

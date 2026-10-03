@@ -121,6 +121,29 @@ def test_missing_manifest_is_unknown_not_redrawn(
     assert arrivals[0]["persona"] is None
 
 
+def test_historical_lifecycle_is_data_not_world_knowledge(
+    endpoint: tuple[str, list[dict[str, Any]]],
+) -> None:
+    url, arrivals = endpoint
+    history = {
+        "status": "found",
+        "freshness": "historical",
+        "current_world_applicability": "unknown",
+        "world_facts": "not_retrieved",
+        "record": {"last_recorded_phase": "STOPPED", "input_release": "unknown"},
+    }
+    answer = provider(url).decide(
+        DecisionRequest(
+            observation_ref="new-observation",
+            feasible_skill_ids=("turn_to",),
+            session_history=history,
+        )
+    )
+    assert isinstance(answer, Decision)
+    assert arrivals[0]["session_history"] == history
+    assert arrivals[0]["feasible_skill_ids"] == ["turn_to"]
+
+
 def test_mind_passes_the_saved_manifest_to_its_real_provider(
     endpoint: tuple[str, list[dict[str, Any]]],
 ) -> None:

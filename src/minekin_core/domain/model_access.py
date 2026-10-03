@@ -489,6 +489,8 @@ class DecisionRequest:
     intent_generation: int = 1
     #: Trusted persisted tendencies, not a model-authored personality or a fresh seed draw.
     persona: PersonaManifest | None = None
+    #: Historical software lifecycle only; never current inventory, locations or permissions.
+    session_history: Mapping[str, object] = field(default_factory=dict[str, object])
 
     def __post_init__(self) -> None:
         if not self.observation_ref:
