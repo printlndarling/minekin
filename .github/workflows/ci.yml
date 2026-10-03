@@ -98,3 +98,29 @@ jobs:
           javac -version
           uv run --no-project python tools/check_bridge_protocol.py
           uv run --no-project python tools/check_bridge_proto_java.py
+
+  # The Dashboard's toolchain is pnpm's, not uv's, and until this job existed no CI
+  # step ran it: a `tsc` error in an opt-in e2e spec reached main on 2026-10-04 while
+  # every job above stayed green, found only by rebuilding the panel by hand. The
+  # operator's primary entry deserves at least the gate the library has. The browser
+  # suite (`pnpm e2e`) stays out on purpose — its non-live half would download
+  # Chromium on every push and its live half needs a running Gateway, so it remains
+  # the operator-run acceptance the runner README documents.
+  dashboard:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: dashboard
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        with:
+          version: 11.21.0
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: "22"
+          cache: pnpm
+          cache-dependency-path: dashboard/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - run: pnpm test

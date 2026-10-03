@@ -24,7 +24,11 @@ test("real Gateway history reaches the identity page without rewriting past verd
   const expectedLabels: Record<string, string> = {
     CONFIRMED: "已确认", UNKNOWN: "结果未知", FAILED: "失败", INTERRUPTED: "已中断", STARTED: "已开始",
   };
-  await expect(first).toContainText(expectedLabels[records[0].result]);
+  const expectedLabel = expectedLabels[records[0].result as string];
+  // A result token with no label is a reading this test cannot judge; failing on the
+  // missing label keeps the assertion from passing on an empty substring instead.
+  expect(expectedLabel, `unknown experience result token: ${records[0].result}`).toBeDefined();
+  await expect(first).toContainText(expectedLabel as string);
   await first.getByText("事件与运行引用").click();
   await expect(first.getByText(`event=${records[0].event_id} · position=${records[0].event_position}`)).toBeVisible();
   await expect(panel).toContainText("过去结果不证明当前世界");
