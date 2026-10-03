@@ -25,6 +25,7 @@ from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any, Final, NamedTuple, cast
 
+from gateway.mind_context import history_summary, persona_summary
 from gateway.signals import gap, known, missing, present
 from minekin_core.adapters.bridge.ipc import DEFAULT_HEARTBEAT_INTERVAL_MS
 from minekin_core.adapters.evidence.bundle import BundleVerification, verify_addressed_bundle
@@ -865,6 +866,13 @@ def _skill_steps_group(
     cost_field = missing("not_wired", _SKILL_MODEL_COST)
     config_field = missing("not_wired", _SKILL_MODEL_CONFIG)
     parameters_field = missing("not_wired", _SKILL_BEHAVIOR_PARAMETERS)
+    persona_field = missing(
+        "not_wired",
+        "人格输入只读已校验封存运行文档；当前没有可读的人格记录，不证明模型已采用人格。",
+    )
+    history_field = missing(
+        "not_wired", "历史记忆输入只读已校验封存运行文档；当前没有可读记录，不补造当前世界知识。"
+    )
     document = _sealed_run_document(root, newest.run_id)
     if document is not None:
         auto = _auto_segment(document)
@@ -872,6 +880,14 @@ def _skill_steps_group(
             parameters = _redact_arguments(_newest_step_arguments(auto))
             if parameters is not None:
                 parameters_field = present(parameters)
+            mind = auto.get("mind")
+            if isinstance(mind, dict):
+                persona = persona_summary(cast("dict[str, object]", mind))
+                history = history_summary(cast("dict[str, object]", mind))
+                if persona is not None:
+                    persona_field = present(persona)
+                if history is not None:
+                    history_field = present(history)
 
     value = {
         "goal": goal_field,
@@ -888,6 +904,8 @@ def _skill_steps_group(
         "modelCost": cost_field,
         "modelConfig": config_field,
         "behaviorParameters": parameters_field,
+        "personaContext": persona_field,
+        "sessionHistory": history_field,
     }
     return known(
         value,

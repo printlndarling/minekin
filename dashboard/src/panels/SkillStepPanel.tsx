@@ -94,7 +94,9 @@ export interface SkillStepPanelProps {
  * that never drove skills keeps the whole group as a named gap rather than a zeroed-out
  * one. Cost and model config are named `not_wired` gaps — Core records them only in the
  * run document, which this read surface does not parse. `behaviorParameters` is the
- * exception: a sealed run's craft step shows its redacted `target_item`/`quantity` here,
+ * exception: a sealed run's craft step shows its redacted `target_item`/`quantity` here;
+ * persona and history summaries likewise require that verified document and describe inputs,
+ * not model adoption or current-world knowledge,
  * and a snapshot byte that omits the member renders as a named gap, not a blank row.
  */
 export function SkillStepPanel({ snapshot }: SkillStepPanelProps) {
@@ -119,6 +121,9 @@ export function SkillStepPanel({ snapshot }: SkillStepPanelProps) {
           <MemberRow label="调用花费" field={group.value.modelCost} />
           <MemberRow label="模型配置状态" field={group.value.modelConfig} />
           <MemberRow label="行为参数" field={group.value.behaviorParameters} />
+          <MemberRow label="人格输入来源" field={group.value.personaContext} />
+          <MemberRow label="历史记忆输入" field={group.value.sessionHistory} />
+          <p className={styles.panelNote}>这两项描述封存运行的心智输入，不证明模型采纳或人格生效；历史阶段不代表当前背包、已松键或目标成功。</p>
           <p className={styles.panelNote} data-testid="skill-step-observed">
             最近一步落行于 {formatDateTime(group.observedAt)}；本组取自台账行，不按时间判陈旧。
           </p>

@@ -449,6 +449,12 @@ function parseSkillSteps(raw: unknown, issues: string[]): SkillStepInfo | null {
     "behaviorParameters" in rec
       ? decodeField(rec.behaviorParameters, "skillSteps.behaviorParameters", issues, parseString)
       : gapField<string>("not_wired", BEHAVIOR_PARAMETERS_ABSENT_GAP);
+  const personaContext = "personaContext" in rec
+    ? decodeField(rec.personaContext, "skillSteps.personaContext", issues, parseString)
+    : gapField<string>("not_wired", "旧快照未携带人格输入来源，不证明模型已采用人格。");
+  const sessionHistory = "sessionHistory" in rec
+    ? decodeField(rec.sessionHistory, "skillSteps.sessionHistory", issues, parseString)
+    : gapField<string>("not_wired", "旧快照未携带历史记忆输入，不补造当前世界知识。");
   if (
     goal === null ||
     stepIndex === null ||
@@ -461,7 +467,7 @@ function parseSkillSteps(raw: unknown, issues: string[]): SkillStepInfo | null {
     stepCount === null ||
     modelCost === null ||
     modelConfig === null ||
-    behaviorParameters === null
+    behaviorParameters === null || personaContext === null || sessionHistory === null
   ) {
     return null;
   }
@@ -478,6 +484,8 @@ function parseSkillSteps(raw: unknown, issues: string[]): SkillStepInfo | null {
     modelCost,
     modelConfig,
     behaviorParameters,
+    personaContext,
+    sessionHistory,
   };
 }
 

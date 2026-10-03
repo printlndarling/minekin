@@ -16,6 +16,34 @@ function snapshotFrom(wire: Record<string, unknown>, source: "mock" | "gateway")
 }
 
 describe("技能步面板：known 组逐成员、缺组具名、绝不折叠成 0 步", () => {
+  it("心智输入来源原样展示，但不声称模型采纳或历史已松键", () => {
+    const wire = buildMockBundle("healthy_run_07", NOW).snapshot;
+    const group = wire.skillSteps as Record<string, unknown>;
+    const value = group.value as Record<string, unknown>;
+    value.personaContext = { value: "manifest_sha256=abc; curiosity=7" };
+    value.sessionHistory = { value: "event_id=old-event; last_recorded_phase=STOPPED; input_release=unknown" };
+    render(<SkillStepPanel snapshot={snapshotFrom(wire, "gateway")} />);
+    expect(screen.getByTestId("skill-step-人格输入来源")).toHaveTextContent("curiosity=7");
+    expect(screen.getByTestId("skill-step-历史记忆输入")).toHaveTextContent("input_release=unknown");
+    expect(screen.getByTestId("panel-skill-steps")).toHaveTextContent("不证明模型采纳或人格生效");
+  });
+
+  it("旧成员缺席可兼容，存在但畸形的来源拒绝解码", () => {
+    const wire = buildMockBundle("healthy_run_07", NOW).snapshot;
+    const group = wire.skillSteps as Record<string, unknown>;
+    const value = group.value as Record<string, unknown>;
+    delete value.personaContext;
+    delete value.sessionHistory;
+    render(<SkillStepPanel snapshot={snapshotFrom(wire, "gateway")} />);
+    expect(screen.getByTestId("skill-step-人格输入来源")).toHaveTextContent("旧快照未携带");
+    expect(screen.getByTestId("skill-step-历史记忆输入")).toHaveTextContent("旧快照未携带");
+    value.personaContext = { value: null };
+    expect(decodeSnapshotPayload(wire, "gateway").ok).toBe(false);
+    delete value.personaContext;
+    value.sessionHistory = { gap: { status: "unknown", reason: "" } };
+    expect(decodeSnapshotPayload(wire, "gateway").ok).toBe(false);
+  });
+
   it("known 组：最近一步的值原样上屏，按构造为空的成员显示带 Core 原文的缺口", () => {
     const snapshot = snapshotFrom(buildMockBundle("healthy_run_07", NOW).snapshot, "mock");
     render(<SkillStepPanel snapshot={snapshot} />);
