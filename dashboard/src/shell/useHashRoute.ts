@@ -5,7 +5,7 @@ import { pageFromHash, type PageId } from "./navigation";
  * The page the address bar selects, kept in `#fragment` so a panel can be deep-linked
  * and a browser back step lands where the operator came from.
  *
- * Writing the fragment with `replaceState` rather than assigning `location.hash` keeps
+ * Writing the fragment with `pushState` keeps a history entry for each selected page and
  * the query string intact: `?adapter=gateway&gateway=/gateway` is what makes the page
  * read the real Kin at all, and losing it on a tab click would silently re-point the
  * whole shell at the unconfigured adapter.
@@ -16,11 +16,15 @@ export function useHashRoute(initialPage?: PageId): readonly [PageId, (next: Pag
   useEffect(() => {
     const onHashChange = (): void => setPage(pageFromHash(window.location.hash));
     window.addEventListener("hashchange", onHashChange);
-    return () => window.removeEventListener("hashchange", onHashChange);
+    window.addEventListener("popstate", onHashChange);
+    return () => {
+      window.removeEventListener("hashchange", onHashChange);
+      window.removeEventListener("popstate", onHashChange);
+    };
   }, []);
 
   const select = useCallback((next: PageId): void => {
-    window.history.replaceState(null, "", `#${next}`);
+    if (window.location.hash !== `#${next}`) window.history.pushState(null, "", `#${next}`);
     setPage(next);
   }, []);
 
