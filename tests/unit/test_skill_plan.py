@@ -188,6 +188,16 @@ class _TapeSkills(WorldSkills):
         del authority, timeout_ns
         return await self._answer("use_target")
 
+    async def consume_item(
+        self,
+        *,
+        item_id: str,
+        authority: ActionAuthority,
+        timeout_ns: int = DEFAULT_STEP_TIMEOUT_NS,
+    ) -> SkillOutcome:
+        del item_id, authority, timeout_ns
+        return await self._answer("consume_item")
+
 
 def _plan(*skills: str) -> SkillPlan:
     """A plan of the named skills, each with the arguments that skill requires."""
@@ -203,6 +213,7 @@ _ARGUMENTS: Final[dict[str, dict[str, object]]] = {
     "turn_to": {},
     "break_seen_block": {},
     "collect_dropped": {"item_id": "minecraft:oak_log"},
+    "consume_item": {"item_id": "minecraft:apple"},
     "craft": {
         "recipe_id": "minecraft:oak_planks",
         "materials": {"minecraft:oak_log": 1},
@@ -569,6 +580,48 @@ def test_a_use_step_routes_to_the_use_skill() -> None:
 
     assert skills.ran == ["use_target"]
     assert sequence.stopped_at == ""
+
+
+def test_a_consume_step_routes_to_the_consume_skill() -> None:
+    """A plan step named `consume_item` dispatches to the eating skill — a meal is
+    its own step that names the item, not a flag some other skill carries."""
+
+    skills = _TapeSkills(
+        {"consume_item": _outcome(ActionResultClass.CONFIRMED)},
+        _RecordingSender(),
+    )
+
+    sequence = asyncio.run(
+        run_skill_plan(
+            skills,
+            _plan("consume_item"),
+            authority=AUTHORITY,
+            timeout_ns=DEFAULT_STEP_TIMEOUT_NS,
+        )
+    )
+
+    assert skills.ran == ["consume_item"]
+    assert sequence.stopped_at == ""
+
+
+def test_a_meal_with_no_item_named_is_refused_as_the_missing_argument() -> None:
+    sender = _RecordingSender()
+    skills = WorldSkills(
+        sender=sender, observations=WorldObservationStore(), capabilities=frozenset()
+    )
+
+    missing = asyncio.run(
+        perform_skill(
+            skills,
+            SkillCall(name="consume_item"),
+            authority=AUTHORITY,
+            timeout_ns=DEFAULT_STEP_TIMEOUT_NS,
+        )
+    )
+
+    assert (missing.result, missing.reason) == (ActionResultClass.FAILED, SKILL_ARGUMENT_MISSING)
+    assert missing.details["missing"] == "item_id"
+    assert sender.sent == []
 
 
 def test_a_call_this_build_cannot_express_is_refused_before_the_wire() -> None:

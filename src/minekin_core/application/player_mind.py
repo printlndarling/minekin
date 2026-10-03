@@ -77,10 +77,15 @@ from minekin_core.domain.recipe_catalog import (
 )
 from minekin_core.domain.skill_parameters import BEHAVIOR_PARAMETERS, MAX_QUANTITY
 from minekin_core.domain.world_actions import (
+    CONSUME_REFUSAL_REASONS,
+    ActionRefusal,
     ActionResultClass,
     SkillOutcome,
     angle_to_degrees,
+    consume_candidate,
+    consume_item_refusal,
     item_total,
+    known_food_items,
     use_target_refusal,
     use_target_signature,
 )
@@ -137,12 +142,29 @@ DECISION_FROM_LOCAL: Final = "local_reflection"
 #: resource: more wood would not move it, and the thing that is absent is a skill for the
 #: screen the recipe needs. A product the table has no row for is absent in the same way —
 #: no reading makes it craftable, and the missing thing is curated knowledge, not material.
+#: The consume refusals split the same way: a food the curated table has no row for is
+#: missing knowledge, while a short bag, a full hunger bar, a bag-only stack and a
+#: crosshair on something are all facts a later reading can answer differently.
 _NOT_IMPLEMENTED_REASONS: Final = frozenset(
-    {SKILL_UNKNOWN, SKILL_ARGUMENT_MISSING, CRAFT_GRID_TOO_SMALL, CRAFT_RECIPE_UNAVAILABLE}
+    {
+        SKILL_UNKNOWN,
+        SKILL_ARGUMENT_MISSING,
+        CRAFT_GRID_TOO_SMALL,
+        CRAFT_RECIPE_UNAVAILABLE,
+        ActionRefusal.CONSUME_ITEM_NOT_KNOWN_FOOD.value,
+    }
 )
 _UNREADABLE_REASONS: Final = frozenset({NO_LATEST_OBSERVATION, NO_CONFIRMING_OBSERVATION})
 _ABSENT_REASONS: Final = frozenset(
-    {"NO_SEEN_DROP", CRAFT_MATERIALS_MISSING, "MINE_TARGET_NOT_AIMED"}
+    {
+        "NO_SEEN_DROP",
+        CRAFT_MATERIALS_MISSING,
+        "MINE_TARGET_NOT_AIMED",
+        ActionRefusal.CONSUME_ITEM_MISSING.value,
+        ActionRefusal.CONSUME_ITEM_NOT_IN_HOTBAR.value,
+        ActionRefusal.CONSUME_NOT_HUNGRY.value,
+        ActionRefusal.CONSUME_AIM_NOT_CLEAR.value,
+    }
 )
 
 #: Which named preconditions the world can still undo. The two sets decide what a refusal
@@ -156,8 +178,13 @@ _ABSENT_REASONS: Final = frozenset(
 #: A reroute name spends no budget at all, which is honest about what bounds it: a mind whose
 #: reading keeps paying for a craft the skill keeps refusing is stopped by the run's own step
 #: budget, not by this one. The name going into the document is what makes that loop visible
-#: instead of merely finite.
-_PRECONDITION_REROUTE: Final = frozenset({CRAFT_MATERIALS_MISSING, DECISION_PRECONDITION_CHANGED})
+#: instead of merely finite. Every consume refusal reroutes for the same reading of the rule:
+#: what it refused was one candidate — this bag, this bar, this aim — and a later frame (or a
+#: later answer) may name a different one, so excluding the whole skill would forbid the meal
+#: that is one reading away.
+_PRECONDITION_REROUTE: Final = (
+    frozenset({CRAFT_MATERIALS_MISSING, DECISION_PRECONDITION_CHANGED}) | CONSUME_REFUSAL_REASONS
+)
 _PRECONDITION_DEAD_END: Final = frozenset({CRAFT_GRID_TOO_SMALL, CRAFT_RECIPE_UNAVAILABLE})
 
 
@@ -186,6 +213,7 @@ SKILL_OFFER: Final = _checked_offer(
     (
         "break_seen_block",
         "collect_dropped",
+        "consume_item",
         "craft_take_result",
         "select_hotbar",
         "use_target",
@@ -563,6 +591,22 @@ def craft_blocker(
     return "" if blocker == GOAL_ACHIEVED else blocker
 
 
+def consume_offerable(reading: WorldObservationValue) -> bool:
+    """Whether this reading supports a meal right now.
+
+    Two questions asked of one reading, on purpose: is there a curated food the hotbar
+    can reach (`consume_candidate`), and does the skill's own precondition admit it here
+    (`consume_item_refusal`) — a full hunger bar, a crosshair resting on something, or a
+    stack only the wider bag holds each take the offer away, and the asker then reaches
+    for a turn or a gather instead of a meal that cannot happen. An offer computed from
+    an older frame would be a model choosing inside a set the skill is about to refuse,
+    so both halves are judged against the same reading the skill will see.
+    """
+
+    candidate = consume_candidate(reading)
+    return candidate is not None and consume_item_refusal(reading, candidate).accepted
+
+
 def feasible_skill_ids(
     milestone: Milestone | None, reading: WorldObservationValue
 ) -> tuple[str, ...]:
@@ -611,6 +655,7 @@ def feasible_skill_ids(
     feasible = {
         "break_seen_block" if reading.aim is not None and reading.aim.block is not None else "",
         "collect_dropped" if _nearest_drop(reading) is not None else "",
+        "consume_item" if consume_offerable(reading) else "",
         "craft_take_result"
         if craft_options(reading, grid_side=crafting_grid_side(reading))
         else "",
@@ -693,7 +738,10 @@ def observation_summary(
 
     `craft_options` is the table's answer for this bag, not a list of items this module knows, so a
     session with a new curated row shows it without a code change and a session with no milestone
-    still has something true to say about what the bag could become.
+    still has something true to say about what the bag could become. `consumable_items` is the
+    same kind of answer for the food table: the meals this build can act on, present in this bag —
+    it states the curated boundary to the answerer instead of letting it guess at foods the skill
+    would refuse by name.
     """
 
     counts: dict[str, int] = {}
@@ -718,6 +766,7 @@ def observation_summary(
         "dropped_items": dict(sorted(dropped.items())),
         "crafting_grid_side": side,
         "craft_options": list(craft_options(reading, grid_side=side)),
+        "consumable_items": list(known_food_items(reading.inventory)),
         "health": reading.self_state.health,
         "max_health": reading.self_state.max_health,
         "food": reading.self_state.food,
@@ -1097,10 +1146,12 @@ class PlayerMind:
             # A model can ask for a quantity or intermediate product already held.
             # That closes its request, not the standing milestone checked above.
             built_reason = "REQUEST_ALREADY_SATISFIED"
-        if (
-            plan is None
-            and self.goal is not None
-            and built_reason in {"REQUEST_ALREADY_SATISFIED", CRAFT_MATERIALS_MISSING}
+        if plan is None and (
+            built_reason in CONSUME_REFUSAL_REASONS
+            or (
+                self.goal is not None
+                and built_reason in {"REQUEST_ALREADY_SATISFIED", CRAFT_MATERIALS_MISSING}
+            )
         ):
             self.last_precondition = built_reason
             refusal = refusal or built_reason
@@ -1109,7 +1160,10 @@ class PlayerMind:
             remaining = feasible
             # Every candidate comes from the observation's offer, and each is tried
             # once. An invalid model craft cannot stop an otherwise payable route,
-            # or trap reflection retrying the same unaffordable craft indefinitely.
+            # or trap reflection retrying the same unaffordable craft indefinitely —
+            # and a meal named past its precondition is the same shape: the refusal is
+            # filed, and the offer's own candidates (another food, a turn, the gather)
+            # get their one try rather than the run ending on one wrong guess.
             while remaining and plan is None:
                 skill = self._reflect(remaining, needs, reading)
                 plan, built_reason, honoured = self._call_for(skill, reading, {})
@@ -1216,7 +1270,9 @@ class PlayerMind:
     ) -> str:
         """The order the local layer uses when no model answered.
 
-        Finish what the inventory is short of, pick up what is already on the ground, break
+        A hungry Kin eats before it works: when `safety` says the reading itself is asking
+        for care and the offer carries a meal, that meal goes first. Finish what the
+        inventory is short of, pick up what is already on the ground, break
         what is aimed at, then look — the look staying ahead of the use keeps the no-model
         fallback as conservative as it was, right-clicking the aimed block only as the last
         resort before the set is given up on. Reading the same two inputs a model was offered,
@@ -1249,6 +1305,8 @@ class PlayerMind:
             ):
                 return "craft_take_result"
             return "close_screen"
+        if "consume_item" in feasible and needs.get("safety", 0) >= 3:
+            return "consume_item"
         if "select_hotbar" in feasible:
             return "select_hotbar"
         if "craft_take_result" in feasible:
@@ -1340,6 +1398,24 @@ class PlayerMind:
                     else f"craft {step.product_id} toward {target}"
                 ),
                 ask,
+            )
+        if skill == "consume_item":
+            # The ask may name the meal or leave it to this side; an answerer that named
+            # nothing (and the local reflection always names nothing) gets the reading's
+            # own candidate — the largest curated food the hotbar can reach. Whatever the
+            # name is, the skill's own precondition judges it against this same reading,
+            # so a model's wrong guess becomes the skill's named refusal rather than a
+            # key pressed on something that was never food.
+            target = _asked_text(arguments, "target_item") or (consume_candidate(reading) or "")
+            if not target:
+                return None, ActionRefusal.CONSUME_ITEM_MISSING.value, {}
+            refusal = consume_item_refusal(reading, target)
+            if refusal.refusal is not None:
+                return None, refusal.refusal.value, {"target_item": target}
+            return (
+                SkillPlan((SkillCall(name="consume_item", item_id=target),)),
+                f"eat the {target} to answer the hunger bar",
+                {"target_item": target},
             )
         if skill == "collect_dropped":
             item_id = _asked_text(arguments, "item_id") or self._resource_id(reading)

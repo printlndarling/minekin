@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable
-from typing import Final, cast
+from typing import Any, Final, cast
 
 from google.protobuf.message import Message
 
@@ -23,6 +23,7 @@ from minekin_core.adapters.bridge.ipc import (
     GUI_CAPABILITY,
     GUI_CLICK_INPUT_TYPE,
     HOTBAR_CAPABILITY,
+    HOTBAR_SELECT_INPUT_TYPE,
     MINE_CAPABILITY,
     MINE_INPUT_TYPE,
     MOVE_CAPABILITY,
@@ -2097,5 +2098,181 @@ def test_recipe_fill_interrupted_by_another_handler_never_clicks_its_slot_zero()
         assert len(clicks) == 1
         assert clicks[0].HasField("recipe")
         assert clicks[0].sync_id == 0
+
+    asyncio.run(scenario())
+
+
+# ---------------------------------------------------------------------------
+# The consume row: the number key when needed, then the use key held for the
+# meal's own duration, concluded only by one frame with the bar up and the
+# stack down.
+# ---------------------------------------------------------------------------
+
+
+def _hungry_state(
+    *,
+    food: int = 8,
+    selected_slot: int | None = None,
+    main_hand: str | None = None,
+) -> SelfStateValue:
+    return SelfStateValue(
+        health=20.0,
+        max_health=20.0,
+        food=food,
+        saturation=5.0,
+        alive=True,
+        yaw_degrees=0.0,
+        pitch_degrees=0.0,
+        selected_slot=selected_slot,
+        main_hand_item_id=main_hand,
+    )
+
+
+def test_consume_refuses_its_preconditions_before_the_wire() -> None:
+    async def scenario() -> None:
+        store = store_with(reading(tick=100, state_value=_hungry_state(), aim=miss_aim(100)))
+        skills, sender = skill_with(store)
+
+        outcome = await skills.consume_item(item_id="minecraft:apple", authority=authority())
+
+        assert (outcome.result, outcome.reason) == (
+            ActionResultClass.FAILED,
+            "CONSUME_ITEM_MISSING",
+        )
+        assert sender.sent == []
+
+    asyncio.run(scenario())
+
+
+def test_consume_selects_the_slot_then_holds_the_use_key_until_one_frame_confirms(
+    monkeypatch: Any,
+) -> None:
+    monkeypatch.setattr("minekin_core.application.world_skills.CONSUME_HOLD_SECONDS", 0.01)
+
+    async def scenario() -> None:
+        first = reading(
+            tick=100,
+            state_value=_hungry_state(),
+            aim=miss_aim(100),
+            inventory_value=inventory(100, (3, "minecraft:apple", 2)),
+        )
+        store = store_with(first)
+        skills, sender = skill_with(store)
+        chosen = reading(
+            tick=110,
+            state_value=_hungry_state(selected_slot=3, main_hand="minecraft:apple"),
+            aim=miss_aim(110),
+            inventory_value=inventory(105, (3, "minecraft:apple", 2)),
+        )
+        eaten = reading(
+            tick=130,
+            state_value=_hungry_state(food=12, selected_slot=3, main_hand="minecraft:apple"),
+            aim=miss_aim(130),
+            inventory_value=inventory(125, (3, "minecraft:apple", 1)),
+        )
+        selecting = asyncio.create_task(admit_later(store, chosen))
+        eating = asyncio.create_task(admit_after(store, 0.05, eaten))
+
+        outcome = await skills.consume_item(item_id="minecraft:apple", authority=authority())
+        await selecting
+        await eating
+
+        assert outcome.result is ActionResultClass.CONFIRMED
+        assert outcome.post_tick == 130
+        assert sender.types() == [HOTBAR_SELECT_INPUT_TYPE, USE_INPUT_TYPE, USE_INPUT_TYPE]
+        assert cast(control_pb2.UseInput, sender.sent[1][1]).use is True
+        assert cast(control_pb2.UseInput, sender.sent[2][1]).use is False
+        assert outcome.details["food_before"] == "8"
+        assert outcome.details["food_after"] == "12"
+        assert outcome.details["item_before"] == "2"
+        assert outcome.details["item_after"] == "1"
+
+    asyncio.run(scenario())
+
+
+def test_consume_with_the_food_already_in_hand_sends_no_number_key(monkeypatch: Any) -> None:
+    monkeypatch.setattr("minekin_core.application.world_skills.CONSUME_HOLD_SECONDS", 0.01)
+
+    async def scenario() -> None:
+        first = reading(
+            tick=100,
+            state_value=_hungry_state(selected_slot=3, main_hand="minecraft:apple"),
+            aim=miss_aim(100),
+            inventory_value=inventory(100, (3, "minecraft:apple", 2)),
+        )
+        store = store_with(first)
+        skills, sender = skill_with(store)
+        eaten = reading(
+            tick=120,
+            state_value=_hungry_state(food=12, selected_slot=3, main_hand="minecraft:apple"),
+            aim=miss_aim(120),
+            inventory_value=inventory(120, (3, "minecraft:apple", 1)),
+        )
+        task = asyncio.create_task(admit_later(store, eaten))
+
+        outcome = await skills.consume_item(item_id="minecraft:apple", authority=authority())
+        await task
+
+        assert outcome.result is ActionResultClass.CONFIRMED
+        assert sender.types() == [USE_INPUT_TYPE, USE_INPUT_TYPE]
+
+    asyncio.run(scenario())
+
+
+def test_consume_unknown_buys_no_second_press(monkeypatch: Any) -> None:
+    monkeypatch.setattr("minekin_core.application.world_skills.CONSUME_HOLD_SECONDS", 0.01)
+
+    async def scenario() -> None:
+        first = reading(
+            tick=100,
+            state_value=_hungry_state(selected_slot=3, main_hand="minecraft:apple"),
+            aim=miss_aim(100),
+            inventory_value=inventory(100, (3, "minecraft:apple", 2)),
+        )
+        store = store_with(first)
+        skills, sender = skill_with(store)
+
+        outcome = await skills.consume_item(
+            item_id="minecraft:apple", authority=authority(), timeout_ns=60_000_000
+        )
+
+        assert (outcome.result, outcome.reason) == (
+            ActionResultClass.UNKNOWN,
+            "NO_CONFIRMING_OBSERVATION",
+        )
+        assert sender.types() == [USE_INPUT_TYPE, USE_INPUT_TYPE]
+
+    asyncio.run(scenario())
+
+
+def test_consume_refuses_a_full_bar_and_an_occupied_crosshair_before_the_wire() -> None:
+    async def scenario() -> None:
+        full = reading(
+            tick=100,
+            state_value=_hungry_state(food=20, selected_slot=3, main_hand="minecraft:apple"),
+            aim=miss_aim(100),
+            inventory_value=inventory(100, (3, "minecraft:apple", 2)),
+        )
+        store = store_with(full)
+        skills, sender = skill_with(store)
+        outcome = await skills.consume_item(item_id="minecraft:apple", authority=authority())
+        assert (outcome.result, outcome.reason) == (
+            ActionResultClass.FAILED,
+            "CONSUME_NOT_HUNGRY",
+        )
+
+        aimed = reading(
+            tick=110,
+            state_value=_hungry_state(selected_slot=3, main_hand="minecraft:apple"),
+            aim=block_aim(),
+            inventory_value=inventory(110, (3, "minecraft:apple", 2)),
+        )
+        store.admit(aimed, ())
+        outcome = await skills.consume_item(item_id="minecraft:apple", authority=authority())
+        assert (outcome.result, outcome.reason) == (
+            ActionResultClass.FAILED,
+            "CONSUME_AIM_NOT_CLEAR",
+        )
+        assert sender.sent == []
 
     asyncio.run(scenario())

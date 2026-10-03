@@ -1931,3 +1931,109 @@ def test_model_timeout_with_partial_output_still_searches_for_missing_materials(
     assert intent.source == DECISION_FROM_LOCAL
     assert intent.model_refusal == UnavailableReason.TIMEOUT.value
     assert mind.last_precondition == CRAFT_MATERIALS_MISSING
+
+
+# ------------------------------------------------------------------------------- the meal
+
+
+def clear_aim() -> AimTargetValue:
+    return AimTargetValue(game_tick=100, kind=AimKind.MISS)
+
+
+def meal_reading(
+    *,
+    food: int = 4,
+    slot: int = 3,
+    item: str = "minecraft:apple",
+    count: int = 2,
+) -> WorldObservationValue:
+    return reading(
+        aim=clear_aim(),
+        items=((slot, item, count),),
+        self_state=state(food=food),
+    )
+
+
+def test_a_hungry_reading_offers_a_meal_only_inside_its_preconditions() -> None:
+    assert "consume_item" in feasible_skill_ids(None, meal_reading())
+    # A full bar is the one state where a meal changes nothing the verdict reads.
+    assert "consume_item" not in feasible_skill_ids(None, meal_reading(food=20))
+    # A crosshair on a block: the use key would fire there first.
+    assert "consume_item" not in feasible_skill_ids(
+        None,
+        reading(
+            aim=block_aim(),
+            items=((3, "minecraft:apple", 2),),
+            self_state=state(food=8),
+        ),
+    )
+    # In the bag proper: no number key reaches it.
+    assert "consume_item" not in feasible_skill_ids(
+        None,
+        reading(aim=clear_aim(), items=((12, "minecraft:apple", 2),), self_state=state(food=8)),
+    )
+    # Not a curated food.
+    assert "consume_item" not in feasible_skill_ids(
+        None,
+        reading(aim=clear_aim(), items=((3, "minecraft:stone", 2),), self_state=state(food=8)),
+    )
+
+
+def test_the_local_reflection_eats_before_it_works_when_the_bar_is_low() -> None:
+    ledger = CostLedger(run_cost_cap=CAP)
+    mind = mind_for(OffModelProvider(), ledger, goal=None)
+
+    intent = mind.next_intent(meal_reading(food=4))
+    assert intent.kind is MindDecisionKind.INTENT
+    assert intent.skill == "consume_item"
+    assert intent.source == DECISION_FROM_LOCAL
+    assert [call.name for call in intent.plan.calls] == ["consume_item"]
+    assert intent.plan.calls[0].item_id == "minecraft:apple"
+    assert intent.arguments == {"target_item": "minecraft:apple"}
+
+    # With the bar fine nothing is asking for care, so the local layer does not
+    # spend a step on a meal and looks around instead.
+    assert mind.next_intent(meal_reading(food=14)).skill == "turn_to"
+
+
+def test_a_model_meal_the_precondition_refuses_reroutes_to_a_real_candidate() -> None:
+    mind, _ = mind_with(
+        Decision(
+            skill_id="consume_item",
+            reason="eat the rock",
+            intent_generation=1,
+            arguments={"target_item": "minecraft:stone"},
+        ),
+        goal=None,
+    )
+    pre = reading(
+        aim=clear_aim(),
+        items=((3, "minecraft:stone", 1), (4, "minecraft:apple", 2)),
+        self_state=state(food=4),
+    )
+
+    intent = mind.next_intent(pre)
+
+    assert intent.kind is MindDecisionKind.INTENT
+    assert intent.skill == "consume_item"
+    assert intent.source == DECISION_FROM_LOCAL
+    assert intent.model_refusal == "CONSUME_ITEM_NOT_KNOWN_FOOD"
+    assert intent.arguments == {"target_item": "minecraft:apple"}
+    assert mind.last_precondition == "CONSUME_ITEM_NOT_KNOWN_FOOD"
+
+
+def test_a_consume_refusal_costs_no_budget_and_keeps_the_skill_available() -> None:
+    mind, _ = mind_with(goal=None)
+    pre = meal_reading(food=4)
+    intent = mind.next_intent(pre)
+    assert intent.skill == "consume_item"
+
+    failure = mind.record_result(
+        intent, outcome(ActionResultClass.FAILED, "CONSUME_ITEM_MISSING"), pre
+    )
+
+    assert failure is FailureCode.RESOURCE_UNAVAILABLE
+    assert mind.last_precondition == "CONSUME_ITEM_MISSING"
+    assert "consume_item" not in mind.excluded
+    assert "consume_item" in feasible_skill_ids(None, pre)
+    assert mind.attempts == {}

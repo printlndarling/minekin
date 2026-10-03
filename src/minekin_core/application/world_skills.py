@@ -68,13 +68,16 @@ from minekin_core.domain.world_actions import (
     SkillOutcome,
     angle_error_degrees,
     angle_to_degrees,
+    consume_item_refusal,
     gui_click_refusal,
+    hotbar_slot_for_item,
     hotbar_slot_refusal,
     item_total,
     mine_target_refusal,
     seen_drops,
     use_target_refusal,
     verify_block_broken,
+    verify_consume_effect,
     verify_craft,
     verify_hotbar_change,
     verify_item_collected,
@@ -138,6 +141,17 @@ CLOSE_SCREEN_MAX_ESCAPES: Final[int] = 3
 #: down. The release is sent before the wait either way, so the tap ends even when
 #: the reading never comes.
 USE_TAP_SECONDS: Final[float] = 0.25
+
+#: How long `consume_item` holds the use key while a meal completes. Eating is the
+#: one use that *is* a hold: vanilla completes one item after 32 client ticks of
+#: continuous use (1.6 s at 20 tps), and the client starts counting on the tick
+#: after the key goes down. 2.5 s clears one completion with margin for a client
+#: hitch while staying below the ~3.2 s a second completion would need — and since
+#: a client keeps restarting the meal while the key is held, that bound is what
+#: makes one call eat exactly one item of a stack rather than as many as fit in the
+#: window. The release goes out before the wait either way, so a channel that never
+#: answers still ends with the key let go.
+CONSUME_HOLD_SECONDS: Final[float] = 2.5
 
 #: How much nearer the nearest sighting of a drop has to come between two
 #: corrections for a walk to count as closing on it. A correction that leaves the
@@ -429,6 +443,35 @@ def _use_details(
         "held_item_id": held_item_id or "",
         "pre_sync_id": _window_sync_id(pre),
         "newest_sync_id": _window_sync_id(newest),
+    }
+
+
+def _consume_details(
+    pre: WorldObservationValue,
+    newest: WorldObservationValue,
+    *,
+    item_id: str,
+) -> dict[str, str]:
+    """What the two readings the verdict compared actually said, in the step's own
+    fields — the hunger bar and the stack on either side of the meal.
+
+    These are the same two facts `verify_consume_effect` concluded from, so the run
+    document can be read without re-deriving them from frames that are gone: the
+    player-visible health/hunger observations become durable at the one place they
+    decided something. `newest_checked_tick` is the same word `_use_details` uses for
+    the frame an expired wait was concluded against, so a confirmed step and an
+    unknown one name their final reading the same way.
+    """
+
+    return {
+        "newest_checked_tick": str(newest.game_tick),
+        "item_id": item_id,
+        "food_before": str(pre.self_state.food),
+        "food_after": str(newest.self_state.food),
+        "health_before": f"{pre.self_state.health:.1f}",
+        "health_after": f"{newest.self_state.health:.1f}",
+        "item_before": str(item_total(pre.inventory, item_id)),
+        "item_after": str(item_total(newest.inventory, item_id)),
     }
 
 
@@ -1478,6 +1521,109 @@ class WorldSkills:
             pre_tick=pre.game_tick,
             post_tick=post.game_tick,
             details=_use_details(pre, post, held_item_id=held),
+        )
+
+    async def consume_item(
+        self,
+        *,
+        item_id: str,
+        authority: ActionAuthority,
+        timeout_ns: int = DEFAULT_STEP_TIMEOUT_NS,
+    ) -> SkillOutcome:
+        """Eat one known food: bring it to hand, hold the use key for the client's own
+        eating time, and let the readings say whether a meal happened.
+
+        The wire has no eat verb and does not need one: a player eats by holding the use
+        key with the food in hand while the crosshair is on nothing — the same key
+        `use_target` taps, held for the client's own eating duration instead, under the
+        same lease that already ends every held key. The two phases are each judged
+        against the reading that precedes them, so the number key and the use key never
+        ride on a frame older than the one that justified them: the refusal decides from
+        `pre`, the selection has to be confirmed by a later `self` reading before the
+        press, and the press's precondition is re-asked of the newest reading there is.
+
+        Nothing here decides the verdict: `verify_consume_effect` concludes from the
+        readings — the hunger bar up and the stack down on one synced frame — and this
+        method only presses the key and hands back what the after-picture said. A hold
+        that confirms nothing is `UNKNOWN`, and no second press follows it: one meal
+        attempt per call, the same rule every side effect lives under.
+        """
+
+        for capability_name in (HOTBAR_CAPABILITY, USE_CAPABILITY):
+            capability = self._require(capability_name)
+            if capability is not None:
+                return capability
+        action_id = self._action_id()
+        pre = self._observations.latest
+        if pre is None:
+            return _refusal_outcome("NO_LATEST_OBSERVATION", action_id, pre)
+        refusal = consume_item_refusal(pre, item_id)
+        if refusal.refusal is not None:
+            return _refusal_outcome(refusal.refusal.value, action_id, pre)
+        if pre.self_state.main_hand_item_id != item_id:
+            slot = hotbar_slot_for_item(pre.inventory, item_id)
+            # The refusal above admits only an item already held or one the hotbar can
+            # reach, so the slot exists for every ask that gets this far.
+            assert slot is not None
+            selected = await self.select_hotbar(
+                slot=slot,
+                authority=authority,
+                expected_item_id=item_id,
+                timeout_ns=timeout_ns,
+            )
+            if selected.result is not ActionResultClass.CONFIRMED:
+                # The number key's own verdict, kept verbatim and labelled with the
+                # phase it belonged to: a selection that never confirmed is not a meal
+                # that failed, and the reader of the document should not have to infer
+                # which of the two steps the reading was about.
+                return SkillOutcome(
+                    result=selected.result,
+                    reason=selected.reason,
+                    action_id=selected.action_id,
+                    pre_tick=selected.pre_tick,
+                    post_tick=selected.post_tick,
+                    details={**selected.details, "phase": "select_hotbar"},
+                )
+            pre = self._observations.latest
+            if pre is None:
+                return _refusal_outcome("NO_LATEST_OBSERVATION", action_id, pre)
+        refusal = consume_item_refusal(pre, item_id)
+        if refusal.refusal is not None:
+            # Re-asked of the freshest frame, so a hunger bar that filled or an aim
+            # that drifted between selection and press is named before the key goes
+            # down rather than after a click it could not justify.
+            return _refusal_outcome(refusal.refusal.value, action_id, pre)
+        await self._send_use(authority, action_id, use=True)
+        await self._sleep(CONSUME_HOLD_SECONDS)
+        await self._send_use(authority, action_id, use=False)
+        deadline = monotonic_ns() + timeout_ns
+        post = await self._wait_until(
+            lambda candidate: (
+                verify_consume_effect(pre=pre, post=candidate, item_id=item_id)
+                is ActionResultClass.CONFIRMED
+            ),
+            deadline,
+            action_id=action_id,
+        )
+        if post is None:
+            # A newer unchanged frame is not the final answer while the window is
+            # still open. At expiry retain the latest frame for an honest UNKNOWN —
+            # the key is already up, and no second press follows.
+            post = self._observations.latest
+            if post is None or post.game_tick <= pre.game_tick:
+                return SkillOutcome(
+                    result=ActionResultClass.UNKNOWN,
+                    reason="NO_CONFIRMING_OBSERVATION",
+                    action_id=action_id,
+                    pre_tick=pre.game_tick,
+                )
+        return SkillOutcome(
+            result=verify_consume_effect(pre=pre, post=post, item_id=item_id),
+            reason="",
+            action_id=action_id,
+            pre_tick=pre.game_tick,
+            post_tick=post.game_tick,
+            details=_consume_details(pre, post, item_id=item_id),
         )
 
     def _require(self, capability: str) -> SkillOutcome | None:

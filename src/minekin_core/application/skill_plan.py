@@ -58,6 +58,7 @@ _DEFAULTED: Final[dict[str, tuple[str, ...]]] = {
     "turn_to": ("yaw_degrees", "pitch_degrees"),
     "break_seen_block": ("expected_drop_item",),
     "collect_dropped": ("walk_seconds",),
+    "consume_item": (),
     "craft": ("craft_all",),
     "craft_take_result": (),
     "close_screen": (),
@@ -73,6 +74,7 @@ _REQUIRED: Final[dict[str, tuple[str, ...]]] = {
     "turn_to": (),
     "break_seen_block": (),
     "collect_dropped": ("item_id",),
+    "consume_item": ("item_id",),
     "craft": ("recipe_id", "materials", "product_id"),
     "craft_take_result": ("recipe_id", "materials", "product_id"),
     "close_screen": (),
@@ -90,6 +92,7 @@ _ALTERNATIVES: Final[dict[str, tuple[str, ...]]] = {
     "turn_to": (),
     "break_seen_block": (),
     "collect_dropped": (),
+    "consume_item": (),
     "select_hotbar": (),
     "use_target": (),
 }
@@ -481,6 +484,12 @@ async def _dispatch(
             item_id=call.item_id,
             authority=authority,
             walk_seconds=call.walk_seconds,
+            timeout_ns=timeout_ns,
+        )
+    if call.name == "consume_item":
+        return await skills.consume_item(
+            item_id=call.item_id,
+            authority=authority,
             timeout_ns=timeout_ns,
         )
     if call.name == "craft":

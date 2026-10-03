@@ -37,7 +37,10 @@ from minekin_core.domain.control_vocabulary import (
     SCREEN_CAPABILITY,
     USE_CAPABILITY,
 )
+from minekin_core.domain.food_catalog import is_known_food, nutrition_for
 from minekin_core.domain.perception import (
+    HOTBAR_SLOT_COUNT,
+    MAX_FOOD,
     AimFace,
     AimKind,
     BlockTargetValue,
@@ -84,6 +87,13 @@ SKILL_CAPABILITIES: Final[Mapping[str, frozenset[str]]] = {
     # activating what is aimed at, because the wire deliberately offers one use
     # key rather than a separate door per product (see `ScreenControl`'s comment).
     "use_target": frozenset({USE_CAPABILITY}),
+    # Eating is the number key plus the use key held: the food has to be brought
+    # to hand (a hotbar select) before the meal can start, and the meal itself is
+    # the use key under the lease. Both are declared even though a food already
+    # in hand needs no select — a skill that sometimes sends a message must
+    # declare it always, or the lease that covers it would depend on which frame
+    # happened to be read.
+    "consume_item": frozenset({HOTBAR_CAPABILITY, USE_CAPABILITY}),
 }
 
 
@@ -124,6 +134,32 @@ class ActionRefusal(StrEnum):
     #: server would drop the block back, so the click is a no-op with a side
     #: effect spent; Core names it before the wire rather than banking an UNKNOWN.
     PLACEMENT_TARGET_IN_SELF = "PLACEMENT_TARGET_IN_SELF"
+    #: The consume skill's own words, all decided against the last reading before a
+    #: key is pressed. Eating has no dedicated wire message — it is the use key held
+    #: with a food in hand and nothing in the crosshair's way — so every one of these
+    #: is a Core-side precondition, and they exist for the same reason the others do:
+    #: the run document has to say *why* no meal happened, in a word the ledger can
+    #: be searched for. `CONSUME_ITEM_NOT_KNOWN_FOOD` names the curated table's
+    #: boundary (see `domain/food_catalog.py`); it is not a claim about the game.
+    CONSUME_ITEM_MISSING = "CONSUME_ITEM_MISSING"
+    CONSUME_ITEM_NOT_KNOWN_FOOD = "CONSUME_ITEM_NOT_KNOWN_FOOD"
+    CONSUME_ITEM_NOT_IN_HOTBAR = "CONSUME_ITEM_NOT_IN_HOTBAR"
+    CONSUME_NOT_HUNGRY = "CONSUME_NOT_HUNGRY"
+    CONSUME_AIM_NOT_CLEAR = "CONSUME_AIM_NOT_CLEAR"
+
+
+#: The consume refusals as the strings a run carries. Kept beside the enum because the
+#: mind's reroute tables are keyed by the string token every ledger row carries, and a
+#: second spelling of a refusal is the one way those two could drift apart.
+CONSUME_REFUSAL_REASONS: Final[frozenset[str]] = frozenset(
+    {
+        ActionRefusal.CONSUME_ITEM_MISSING.value,
+        ActionRefusal.CONSUME_ITEM_NOT_KNOWN_FOOD.value,
+        ActionRefusal.CONSUME_ITEM_NOT_IN_HOTBAR.value,
+        ActionRefusal.CONSUME_NOT_HUNGRY.value,
+        ActionRefusal.CONSUME_AIM_NOT_CLEAR.value,
+    }
+)
 
 
 #: A block face the client did not name cannot disagree with anything, so an
@@ -341,6 +377,97 @@ def use_target_signature(observation: WorldObservationValue | None) -> tuple[obj
     if aim.kind is AimKind.ENTITY:
         return ("entity", aim.entity_observation_id)
     return None
+
+
+def hotbar_slot_for_item(inventory: InventoryValue, item_id: str) -> int | None:
+    """The first hotbar slot (0..8) holding the item, or `None` when only the wider bag
+    does — or holds nothing of it at all.
+
+    The summary's slot numbers are the client's own: 0..8 are the nine a number key can
+    reach, anything higher lives in the bag proper, and §3's hotbar rule is that moving
+    something between the two is a container click this build does not make behind the
+    player's back. So a meal in the bag and not the hotbar stays refused by name.
+    """
+
+    for stack in inventory.stacks:
+        if stack.item_id == item_id and 0 <= stack.slot < HOTBAR_SLOT_COUNT:
+            return stack.slot
+    return None
+
+
+def known_food_items(inventory: InventoryValue) -> tuple[str, ...]:
+    """Every curated food the bag holds, one entry per item id, sorted. A view of the
+    build's table over the reading's counters — the same kind of answer `craft_options`
+    gives for what the bag could become, and never a claim about the world."""
+
+    return tuple(
+        sorted({stack.item_id for stack in inventory.stacks if is_known_food(stack.item_id)})
+    )
+
+
+def consume_candidate(observation: WorldObservationValue) -> str | None:
+    """The meal this build would reach for from this reading, or `None` when there is
+    no candidate at all.
+
+    Candidate selection is a fact about the *build's* table and the *bag's* counters, not
+    about the world's answer — whether a meal can actually happen is
+    `consume_item_refusal`'s question, asked on the same reading. Only hotbar-reachable
+    foods qualify (a number key has to be able to bring the stack to hand; see
+    `hotbar_slot_for_item`), and the order is deterministic: the largest curated meal
+    first, ties broken by the item id so two readings over the same bag pick the same
+    food.
+    """
+
+    best: tuple[int, str] | None = None
+    for stack in observation.inventory.stacks:
+        if not 0 <= stack.slot < HOTBAR_SLOT_COUNT:
+            continue
+        points = nutrition_for(stack.item_id)
+        if points is None:
+            continue
+        if best is None or points > best[0] or (points == best[0] and stack.item_id < best[1]):
+            best = (points, stack.item_id)
+    return None if best is None else best[1]
+
+
+def consume_item_refusal(observation: WorldObservationValue, item_id: str) -> ActionRefusalDecision:
+    """Every reason not to hold the use key on this item, decided against this reading.
+
+    The consume skill has no wire-side twin to disagree with: there is no eat message,
+    only the use key held, so all of its preconditions live here and answer with the
+    same kind of named token as the ones the Bridge owns for other skills. In order:
+
+    - the item has to be in the bag at all (`CONSUME_ITEM_MISSING`) and in the curated
+      table (`CONSUME_ITEM_NOT_KNOWN_FOOD`; the table's boundary is a fact about this
+      build, stated as one);
+    - the hunger bar has to have room (`CONSUME_NOT_HUNGRY`) — a full bar is the one
+      state where a meal demonstrably changes nothing, and §4's confirmation below reads
+      the bar, so a "meal" at a full bar could never be told from a wish. Items that can
+      be eaten at full hunger are outside this build's curated table for exactly that
+      reason (see `food_catalog`);
+    - the stack has to be bringable to hand (`CONSUME_ITEM_NOT_IN_HOTBAR`), which the
+      held item trivially is;
+    - the crosshair has to be on nothing (`CONSUME_AIM_NOT_CLEAR`). This is the one
+      precondition that is not about the meal: the use key fires at what the crosshair
+      reports first, so a door, a trapdoor or a chest under the aim would take the click
+      instead of the mouth — a side effect the contract's no-replay rule makes expensive.
+      A positive `MISS` is the client saying "I looked and there is nothing"; an unread
+      aim is not that statement and is refused the same way.
+    """
+
+    if item_total(observation.inventory, item_id) <= 0:
+        return ActionRefusalDecision(ActionRefusal.CONSUME_ITEM_MISSING)
+    if not is_known_food(item_id):
+        return ActionRefusalDecision(ActionRefusal.CONSUME_ITEM_NOT_KNOWN_FOOD)
+    if observation.self_state.food >= MAX_FOOD:
+        return ActionRefusalDecision(ActionRefusal.CONSUME_NOT_HUNGRY)
+    held = observation.self_state.main_hand_item_id == item_id
+    if not held and hotbar_slot_for_item(observation.inventory, item_id) is None:
+        return ActionRefusalDecision(ActionRefusal.CONSUME_ITEM_NOT_IN_HOTBAR)
+    aim = observation.aim
+    if aim is None or aim.kind is not AimKind.MISS:
+        return ActionRefusalDecision(ActionRefusal.CONSUME_AIM_NOT_CLEAR)
+    return ActionRefusalDecision(None)
 
 
 def _same_block(a: BlockTargetValue, b: BlockTargetValue) -> bool:
@@ -563,6 +690,40 @@ def verify_use_effect(
         and _inventory_synced(pre, post)
         and item_total(post.inventory, held_item_id) < item_total(pre.inventory, held_item_id)
     ):
+        return ActionResultClass.CONFIRMED
+    return ActionResultClass.UNKNOWN
+
+
+def verify_consume_effect(
+    *,
+    pre: WorldObservationValue,
+    post: WorldObservationValue,
+    item_id: str,
+) -> ActionResultClass:
+    """The consume row: the hunger bar up and the stack down, on one synced reading.
+
+    Eating has no window to open and no placement to watch — its two effects are the two
+    the HUD itself shows. The bar rising is the meal; the stack shrinking is *this* item
+    paying for it. Requiring both on the same reading is what keeps either alone from
+    confirming: a bar that rose for any other reason (a command, an effect) without the
+    stack moving is not this meal, and a stack that shrank without the bar rising is the
+    item going somewhere else — dropped, moved, or the click landing on something that
+    took it. The revision gate is the usual one: only the server's own sync makes a
+    change believable, and both changes live in that same sync.
+
+    `UNKNOWN` is the floor, never `FAILED`, for the same reason `verify_use_effect` has
+    that floor: a frame that has not caught up yet and a meal the world genuinely
+    declined are indistinguishable from two readings, and the contract forbids retrying
+    a click on an unproven side effect. The precondition that the aim was clear means
+    the click had no other target to spend itself on; everything else is waiting, and
+    §4's rule is that nothing confirms without the sync.
+    """
+
+    if not _newer(pre, post) or not _inventory_synced(pre, post):
+        return ActionResultClass.UNKNOWN
+    eaten = item_total(post.inventory, item_id) < item_total(pre.inventory, item_id)
+    restored = post.self_state.food > pre.self_state.food
+    if eaten and restored:
         return ActionResultClass.CONFIRMED
     return ActionResultClass.UNKNOWN
 

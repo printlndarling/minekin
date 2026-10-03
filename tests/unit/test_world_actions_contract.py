@@ -32,14 +32,19 @@ from minekin_core.domain.world_actions import (
     ActionResultClass,
     angle_error_degrees,
     angle_to_degrees,
+    consume_candidate,
+    consume_item_refusal,
     gui_click_refusal,
+    hotbar_slot_for_item,
     hotbar_slot_refusal,
     item_total,
+    known_food_items,
     mine_target_refusal,
     seen_drops,
     use_target_refusal,
     use_target_signature,
     verify_block_broken,
+    verify_consume_effect,
     verify_craft,
     verify_hotbar_change,
     verify_item_collected,
@@ -766,3 +771,191 @@ def test_no_new_reading_confirms_a_use() -> None:
     pre = reading(aim=aimed_at(block()))
     same = reading(tick=100, aim=aimed_at(block()))
     assert verify_use_effect(pre=pre, post=same, held_item_id=None) is ActionResultClass.UNKNOWN
+
+
+# ---------------------------------------------------------------------------
+# §3/§4: the consume row — a meal is one frame with the bar up and the stack
+# down, and every way of not earning that frame is named or stays unknown.
+# ---------------------------------------------------------------------------
+
+
+def hungry_state(
+    *,
+    food: int = 8,
+    selected_slot: int | None = None,
+    main_hand: str | None = None,
+) -> SelfStateValue:
+    return SelfStateValue(
+        health=20.0,
+        max_health=20.0,
+        food=food,
+        saturation=5.0,
+        alive=True,
+        selected_slot=selected_slot,
+        main_hand_item_id=main_hand,
+    )
+
+
+def miss(tick: int = 100) -> AimTargetValue:
+    return AimTargetValue(game_tick=tick, kind=AimKind.MISS)
+
+
+def inventory_at(revision: int, *pairs: tuple[int, str, int]) -> InventoryValue:
+    return InventoryValue(
+        revision=revision,
+        stacks=tuple(
+            InventoryStackValue(slot=slot, item_id=item_id, count=count)
+            for slot, item_id, count in pairs
+        ),
+    )
+
+
+def test_the_meal_candidate_prefers_the_largest_reachable_food() -> None:
+    pre = reading(
+        inventory=stacks(
+            (1, "minecraft:carrot", 3),
+            (4, "minecraft:bread", 5),
+            (12, "minecraft:pumpkin_pie", 1),
+        )
+    )
+    # The pie restores more than the bread, but it sits in the bag proper — a
+    # number key cannot reach slot 12, so it is not a candidate this build can
+    # act on, and the bread is.
+    assert consume_candidate(pre) == "minecraft:bread"
+
+    tie = reading(inventory=stacks((2, "minecraft:golden_apple", 1), (0, "minecraft:apple", 1)))
+    assert consume_candidate(tie) == "minecraft:apple"
+
+    assert consume_candidate(reading(inventory=stacks((0, "minecraft:stone", 4)))) is None
+
+
+def test_the_hotbar_lookup_ignores_the_wider_bag() -> None:
+    bag = inventory_at(100, (12, "minecraft:apple", 1), (3, "minecraft:bread", 1))
+    assert hotbar_slot_for_item(bag, "minecraft:bread") == 3
+    assert hotbar_slot_for_item(bag, "minecraft:apple") is None
+    assert hotbar_slot_for_item(bag, "minecraft:stone") is None
+
+
+def test_known_food_items_counts_the_bag_once_per_item() -> None:
+    bag = inventory_at(
+        100,
+        (0, "minecraft:apple", 2),
+        (9, "minecraft:apple", 1),
+        (1, "minecraft:bread", 1),
+        (2, "minecraft:stone", 4),
+    )
+    assert known_food_items(bag) == ("minecraft:apple", "minecraft:bread")
+
+
+def test_the_consume_refusal_walks_its_reasons_in_order() -> None:
+    # Nothing of it in the bag at all.
+    pre = reading(state=hungry_state(), aim=miss())
+    assert (
+        consume_item_refusal(pre, "minecraft:apple").refusal is ActionRefusal.CONSUME_ITEM_MISSING
+    )
+    # Present, but the curated table has no row: this build will not try it.
+    pre = reading(state=hungry_state(), aim=miss(), inventory=stacks((3, "minecraft:stone", 1)))
+    assert (
+        consume_item_refusal(pre, "minecraft:stone").refusal
+        is ActionRefusal.CONSUME_ITEM_NOT_KNOWN_FOOD
+    )
+    # A full bar is the one state where a meal changes nothing the verdict can read.
+    pre = reading(
+        state=hungry_state(food=20), aim=miss(), inventory=stacks((3, "minecraft:apple", 1))
+    )
+    assert consume_item_refusal(pre, "minecraft:apple").refusal is ActionRefusal.CONSUME_NOT_HUNGRY
+    # In the bag proper, so no number key can bring it to hand.
+    pre = reading(state=hungry_state(), aim=miss(), inventory=stacks((12, "minecraft:apple", 1)))
+    assert (
+        consume_item_refusal(pre, "minecraft:apple").refusal
+        is ActionRefusal.CONSUME_ITEM_NOT_IN_HOTBAR
+    )
+    # The crosshair rests on a block: the use key would fire there first.
+    pre = reading(
+        state=hungry_state(), aim=aimed_at(block()), inventory=stacks((3, "minecraft:apple", 1))
+    )
+    assert (
+        consume_item_refusal(pre, "minecraft:apple").refusal is ActionRefusal.CONSUME_AIM_NOT_CLEAR
+    )
+    # No aim read at all is not the positive "looked and saw nothing".
+    pre = reading(state=hungry_state(), inventory=stacks((3, "minecraft:apple", 1)))
+    assert (
+        consume_item_refusal(pre, "minecraft:apple").refusal is ActionRefusal.CONSUME_AIM_NOT_CLEAR
+    )
+    # A hotbar food under a clear crosshair is the accepted case.
+    pre = reading(state=hungry_state(), aim=miss(), inventory=stacks((3, "minecraft:apple", 1)))
+    assert consume_item_refusal(pre, "minecraft:apple").accepted
+    # One already in hand needs no number key to have a slot.
+    pre = reading(
+        state=hungry_state(selected_slot=4, main_hand="minecraft:apple"),
+        aim=miss(),
+        inventory=stacks((4, "minecraft:apple", 1)),
+    )
+    assert consume_item_refusal(pre, "minecraft:apple").accepted
+
+
+def test_a_meal_confirms_on_one_frame_with_the_bar_up_and_the_stack_down() -> None:
+    pre = reading(
+        tick=100, state=hungry_state(food=8), inventory=inventory_at(300, (3, "minecraft:apple", 2))
+    )
+    post = reading(
+        tick=120,
+        state=hungry_state(food=12),
+        inventory=inventory_at(320, (3, "minecraft:apple", 1)),
+    )
+    assert (
+        verify_consume_effect(pre=pre, post=post, item_id="minecraft:apple")
+        is ActionResultClass.CONFIRMED
+    )
+
+
+def test_a_meal_does_not_confirm_on_half_the_evidence() -> None:
+    pre = reading(
+        tick=100, state=hungry_state(food=8), inventory=inventory_at(300, (3, "minecraft:apple", 2))
+    )
+    # The bar rose, the stack did not move: not this meal.
+    bar_only = reading(
+        tick=120,
+        state=hungry_state(food=12),
+        inventory=inventory_at(320, (3, "minecraft:apple", 2)),
+    )
+    assert (
+        verify_consume_effect(pre=pre, post=bar_only, item_id="minecraft:apple")
+        is ActionResultClass.UNKNOWN
+    )
+    # The stack shrank, the bar did not: the item went somewhere else.
+    stack_only = reading(
+        tick=120, state=hungry_state(food=8), inventory=inventory_at(320, (3, "minecraft:apple", 1))
+    )
+    assert (
+        verify_consume_effect(pre=pre, post=stack_only, item_id="minecraft:apple")
+        is ActionResultClass.UNKNOWN
+    )
+
+
+def test_a_meal_does_not_confirm_without_a_newer_frame_or_a_synced_revision() -> None:
+    pre = reading(
+        tick=100,
+        state=hungry_state(food=8),
+        inventory=inventory_at(300, (3, "minecraft:apple", 2)),
+    )
+    # Both changes present, but the inventory revision never moved: a wish.
+    unsynced = reading(
+        tick=120,
+        state=hungry_state(food=12),
+        inventory=inventory_at(300, (3, "minecraft:apple", 1)),
+    )
+    assert (
+        verify_consume_effect(pre=pre, post=unsynced, item_id="minecraft:apple")
+        is ActionResultClass.UNKNOWN
+    )
+    # The same frame is not a later one.
+    same = reading(
+        tick=100,
+        state=hungry_state(food=12),
+        inventory=inventory_at(320, (3, "minecraft:apple", 1)),
+    )
+    assert (
+        verify_consume_effect(pre=pre, post=same, item_id="minecraft:apple")
+        is ActionResultClass.UNKNOWN
+    )

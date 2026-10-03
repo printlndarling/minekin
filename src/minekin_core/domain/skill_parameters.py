@@ -118,8 +118,8 @@ def _number(name: str, kind: ParameterKind, minimum: float, maximum: float) -> P
     return Parameter(name=name, kind=kind, minimum=minimum, maximum=maximum)
 
 
-#: Every behavior this build has, with the arguments it takes. Listed for all seven names rather
-#: than the five currently offered so that adding one to the offer cannot silently mean "a
+#: Every behavior this build has, with the arguments it takes. Listed for all names rather than
+#: only the ones currently offered so that adding one to the offer cannot silently mean "a
 #: behavior whose parameters nobody stated": an offered skill with no row here can only ever be
 #: answered with an empty ask, since there is no declaration that would say what a key means.
 BEHAVIOR_PARAMETERS: Final[Mapping[str, tuple[Parameter, ...]]] = MappingProxyType(
@@ -133,6 +133,11 @@ BEHAVIOR_PARAMETERS: Final[Mapping[str, tuple[Parameter, ...]]] = MappingProxyTy
             _item("item_id"),
             _number("walk_seconds", ParameterKind.SECONDS, 0.1, 30.0),
         ),
+        # Eating names the meal, not the method: the ask is an item id, the curated table
+        # says whether this build can act on it at all, and the reading decides the rest.
+        # A model's guess about what is edible is a candidate like any other — the row in
+        # the table is the boundary, and the world's next reading is the verdict.
+        "consume_item": (_item("target_item", required=True),),
         "craft": (
             _item("target_item", required=True),
             _number("quantity", ParameterKind.QUANTITY, 1, MAX_QUANTITY),

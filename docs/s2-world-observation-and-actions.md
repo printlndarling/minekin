@@ -73,3 +73,14 @@
 - `tools/check_bridge_protocol.py`、`check_bridge_proto_java.py`、`check_bridge_host_boundary.py`、`check_bridge_artifacts.py` 绿；新增的 Minecraft 调用需要在 `check_bridge_proto_java.py` 的 stub 集合里有对应签名（stub 的签名从已编译客户端读，不靠猜）。
 - Python 侧 `information_class` 全覆盖测试要把新事件类型逐个点名；`tests/contract/test_bridge_java_constants.py` 绑定两侧常量。
 - 活体读数只在本地受控会话里取，不连接用户的远程测试服。
+
+## 7. 追加修订（2026-10-03）：通用食用 `consume_item`
+
+食用**不是新线格式**：线上没有 eat 消息，一个玩家吃东西就是手里拿着食物、准星落在空处时按住使用键，直到客户端自己的进食时长走完。所以这一格复用两件已有消息——`HotbarSelectInput`（把食物换到手上）与 `UseInput` 的按住/松开（`use=true` … `use=false`）——`proto/` 与两个 Bridge 根一字未动；新增的是 Core 技能面、前提词与结果行。
+
+- **前提**（全部由最新一帧判定，任一不成立即具名拒绝、不进线）：目标物在背包（`CONSUME_ITEM_MISSING`）、在 `domain/food_catalog.py` 的过渡策展表内（`CONSUME_ITEM_NOT_KNOWN_FOOD`——该词说的是"本构建没有这一行"，不是"游戏认为不能吃"）、饥饿条有空间（`CONSUME_NOT_HUNGRY`；满格是唯一"吃了也读不出变化"的状态，确认读的就是那条，故按此拒绝）、可被 0..8 的快捷键带到手上（`CONSUME_ITEM_NOT_IN_HOTBAR`；把物品从背包挪进快捷栏是容器点击，本版不做）、准星是正面的 `MISS`（`CONSUME_AIM_NOT_CLEAR`；使用键会先打中准星上的东西——门、活板门、箱子、弓的拉弦都是真实副作用，本版不用"先试试看"去赌它）。
+- **执行形状**：未在手上 → 先发 `HotbarSelectInput`，由**更晚的一帧** `self` 确认槽位与手持物（`verify_hotbar_change`）；随后 `use=true`，按住 `CONSUME_HOLD_SECONDS = 2.5 s`（原版一次进食 32 客户端 tick = 1.6 s，客户端在按下后下一 tick 起算；2.5 s 覆盖一次完成并留客户端抖动余量，同时低于两次完成所需的约 3.2 s ⇒ 一次调用在整摞食物上也只吃一件），再 `use=false`，然后等读数。按下与松开都发生在等待之前，频道不再作答也以松键收尾。
+- **§4 结果核对新增一行**：确认 = **同一帧同步修订上，饥饿条上升且该物在背包里的总数下降**。两臂缺一不确认（只有条升 = 别的原因；只有数降 = 去向别处）。`UNKNOWN` 是地板，不判 `FAILED`；`UNKNOWN` 不买第二次按键。
+- 步骤 `details` 记 `item_id / food_before / food_after / health_before / health_after / item_before / item_after / newest_checked_tick`：健康/饥饿这两格玩家可见观察由此在 run 文档里留下作出判断的那两帧。
+- **心智侧**：`consume_item` 进入 `SKILL_OFFER`；可行性 = 存在可及候选（表内食物且 0..8 或已在手）且上述前提整组通过；本地反思在 `safety ≥ 3`（饥饿 ≤ 6 或生命 < 90%）时先吃再做别的；五条拒绝词全部按**改线**处理（不烧重试额度、不整场排除技能——被拒的是一个候选，下一帧可以换一个）；模型点名不成立的食物时沿同一条改线落到本次读数自己的候选上并把原名记进 `model_refusal`。`observation_summary` 新增 `consumable_items`（表 ∩ 背包），与 `craft_options` 同类：把本构建能行动的边界明说给答复方。
+- **边界（照实登记）**：`food_catalog` 是过渡策展子集，明确声称不做全量；会返还容器的饮品/炖菜与以效果为主的满格情形（如金苹果在满格时）不在本版；扩展路线是让 Bridge 在 `InventorySummary` 每摞上报客户端注册表的 `isFood()`（版本精确），届时本表退役。当前线上没有这个字段，不得声称知识来自世界。

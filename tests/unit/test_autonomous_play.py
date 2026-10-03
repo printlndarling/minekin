@@ -64,6 +64,8 @@ from minekin_core.domain.model_access import (
     UnavailableReason,
 )
 from minekin_core.domain.perception import (
+    AimKind,
+    AimTargetValue,
     GuiScreenValue,
     InventoryStackValue,
     InventoryValue,
@@ -106,6 +108,8 @@ def reading(
     tick: int = 100,
     items: tuple[tuple[int, str, int], ...] = (),
     selected_slot: int | None = None,
+    food: int = 20,
+    aim: AimTargetValue | None = None,
 ) -> WorldObservationValue:
     return WorldObservationValue(
         generation=1,
@@ -113,14 +117,14 @@ def reading(
         self_state=SelfStateValue(
             health=20.0,
             max_health=20.0,
-            food=20,
+            food=food,
             saturation=5.0,
             alive=True,
             yaw_degrees=0.0,
             pitch_degrees=0.0,
             selected_slot=selected_slot,
         ),
-        aim=None,
+        aim=aim,
         inventory=InventoryValue(
             revision=tick,
             stacks=tuple(
@@ -250,6 +254,16 @@ class TapeSkills(WorldSkills):
     ) -> SkillOutcome:
         del authority, timeout_ns
         return await self._answer("close_screen")
+
+    async def consume_item(
+        self,
+        *,
+        item_id: str,
+        authority: ActionAuthority,
+        timeout_ns: int = DEFAULT_STEP_TIMEOUT_NS,
+    ) -> SkillOutcome:
+        del authority, timeout_ns
+        return await self._answer("consume_item", item_id=item_id)
 
 
 class _OneShotProvider:
@@ -826,3 +840,27 @@ def test_model_choice_is_rechecked_when_a_screen_opens_during_decision() -> None
     assert result.steps[0].outcome.result is ActionResultClass.INTERRUPTED
     assert result.steps[0].outcome.reason == "DECISION_PRECONDITION_CHANGED"
     assert mind.attempts == {}
+
+
+def test_the_loop_eats_when_the_bar_is_low_and_the_bag_holds_a_meal() -> None:
+    """A hungry Kin with no milestone still lives: the local layer reaches for the
+    meal the reading supports, the step runs the consume skill the plan names, and
+    the run goes on afterwards — the same loop, one more skill in its offer."""
+
+    miss_aim = AimTargetValue(game_tick=100, kind=AimKind.MISS)
+    later_miss = AimTargetValue(game_tick=140, kind=AimKind.MISS)
+    stage = Stage(
+        reading(tick=100, items=((0, "minecraft:apple", 2),), food=4, aim=miss_aim),
+        reading(tick=140, items=((0, "minecraft:apple", 1),), food=8, aim=later_miss),
+    )
+    skills = TapeSkills(stage, {"consume_item": confirmed(), "turn_to": confirmed()})
+    mind = off_mind(goal=None)
+
+    result = run(stage, skills, mind, step_budget=2)
+
+    assert next(name for name, _ in skills.ran) == "consume_item"
+    assert skills.ran[0][1] == {"item_id": "minecraft:apple"}
+    assert result.steps[0].intent.arguments == {"target_item": "minecraft:apple"}
+    assert result.steps[0].outcome.result is ActionResultClass.CONFIRMED
+    assert result.stop_reason == STEP_BUDGET_SPENT
+    assert mind.goal_met is False
