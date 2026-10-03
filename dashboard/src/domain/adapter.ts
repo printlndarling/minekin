@@ -4,6 +4,7 @@ import type {
   ConfigSaveRequest,
   ConfigSaveResult,
   ModelTestResult,
+  ServerConfigInfo, ServerSaveRequest, ServerSaveResult, ServerProbeResult,
   GoalInfo,
   IdentityInfo,
   KinSnapshot,
@@ -99,6 +100,9 @@ export interface KinReadAdapter {
    */
   saveConfig(request: ConfigSaveRequest, signal?: AbortSignal): Promise<ReadResult<ConfigSaveResult>>;
   testModel(signal?: AbortSignal): Promise<ReadResult<ModelTestResult>>;
+  serverConfig(signal?: AbortSignal): Promise<ReadResult<ServerConfigInfo>>;
+  saveServer(request: ServerSaveRequest, signal?: AbortSignal): Promise<ReadResult<ServerSaveResult>>;
+  probeServer(revision: number, allowRemote: boolean, signal?: AbortSignal): Promise<ReadResult<ServerProbeResult>>;
   /**
    * The observed session state plus what this surface can actually do about it: whether a stop is
    * allowed, which control verbs exist, and the reason each unavailable one is absent. Like the

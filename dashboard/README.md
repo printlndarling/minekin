@@ -55,7 +55,15 @@ pnpm run e2e            # Playwright，自动起 vite preview（127.0.0.1:5176�
 
 读真实 Gateway 时不要从面板直连它的端口：契约只答三条 GET、自己不回应跨域预检，浏览器会在请求到达 Gateway 之前拒掉 `127.0.0.1:5175 → 127.0.0.1:8787`。开发服务器因此把 `/gateway/*` 反代到 Gateway（`vite.config.ts` 的 `server.proxy`，目标由 `MINEKIN_GATEWAY_TARGET` 覆盖，默认 `http://127.0.0.1:8787`），出浏览器的路径是 `/gateway/api/v1/dashboard/snapshot`，到达的是契约自己的 `/api/v1/dashboard/snapshot`。Gateway 的起法见 `test-orchestrator/runner/README.md` 的「Reading it from a browser」：`bash test-orchestrator/runner/demo.sh --gateway` 把 Demo 卷的只读模型发布在 `127.0.0.1:8787`，随后 `pnpm dev` 打开 `http://127.0.0.1:5175/?adapter=gateway&gateway=/gateway`。
 
-## 目录
+## 服务器配置与版本探测（2026-10-03）
+
+打开 `#server`，填写 IP 字面量和端口并保存，再点击「探测服务器版本」。设置保存在 Gateway 数据根的 `dashboard-settings.sqlite3`；修订冲突拒绝覆盖，草稿保留。探测使用保存配置的固定快照，远程目标还需勾选该地址的显式许可；页面不会自动探测或自动加入世界。支持状态来自当前登记和实际 Gateway 所在平台，未支持的版本/平台具名返回。模拟适配器拒绝真实探测。
+
+实际浏览器复验需要受控 Docker Gateway（仅宿主127.0.0.1:8789发布）与容器内127.0.0.1:25566的Minecraft 1.20.1服务：先构建Dashboard，再设置 `MINEKIN_GATEWAY_TARGET=http://127.0.0.1:8789`、`E2E_SERVER_CONFIG_LIVE=1`，运行 `pnpm e2e e2e/server-config-live.spec.ts`。用例保存配置、刷新验证持久化、检查OBSERVED/763/1.20.1/RESOLVED/Linux，验证草稿禁用与390px布局。只针对可修改的本地测试数据根运行；不指向用户远程服。
+
+启动会话仍待实现；探测成功只证明服务器状态响应和已登记客户端匹配。
+
+## 目录结构
 
 ```text
 src/domain/     Signal 读模型、快照/时间线/告警/身份类型、adapter 接口、中文标签、会话阶段推导

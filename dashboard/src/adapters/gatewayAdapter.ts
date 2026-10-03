@@ -16,6 +16,7 @@ import {
   type ConfigSaveRequest,
   type ConfigSaveResult,
   type ModelTestResult,
+  type ServerConfigInfo, type ServerSaveRequest, type ServerSaveResult, type ServerProbeResult,
   type ConfigValue,
   type EvidenceRef,
   type Field,
@@ -95,6 +96,18 @@ export const READ_ENDPOINTS = {
   timeline: "/api/v1/dashboard/timeline",
   alerts: "/api/v1/dashboard/alerts",
 } as const;
+
+function validServerFields(raw: unknown): raw is ServerSaveResult["fields"] {
+  const rec = asRecord(raw);
+  return rec !== null && typeof rec.host === "string" && rec.host.length > 0 &&
+    typeof rec.port === "number" && Number.isSafeInteger(rec.port) && rec.port > 0 && rec.port <= 65535;
+}
+
+function validServerRecord(rec: Record<string, unknown> | null): rec is Record<string, unknown> {
+  return rec !== null && rec.schemaVersion === "kin-dashboard-server/1.0.0" && rec.authMode === "offline" &&
+    typeof rec.revision === "number" && Number.isSafeInteger(rec.revision) && rec.revision >= 0 &&
+    (rec.fields === null || validServerFields(rec.fields));
+}
 
 /**
  * The identity surface `docs/stable-player-name-2026-09-29.md` opens: one GET that answers
@@ -1572,6 +1585,9 @@ export function createGatewayAdapter(options: GatewayAdapterOptions | null): Kin
       async testModel(): Promise<ReadResult<ModelTestResult>> {
         return unconfigured();
       },
+      async serverConfig(): Promise<ReadResult<ServerConfigInfo>> { return unconfigured(); },
+      async saveServer(): Promise<ReadResult<ServerSaveResult>> { return unconfigured(); },
+      async probeServer(): Promise<ReadResult<ServerProbeResult>> { return unconfigured(); },
       async session(): Promise<ReadResult<SessionControlInfo>> {
         return unconfigured();
       },
@@ -1656,6 +1672,40 @@ export function createGatewayAdapter(options: GatewayAdapterOptions | null): Kin
       }
       csrfToken = decoded.csrfToken;
       return ok(decoded.config, "gateway", `gateway://${CONFIG_ENDPOINTS.config}`);
+    },
+    async serverConfig(signal?: AbortSignal): Promise<ReadResult<ServerConfigInfo>> {
+      const response = await fetchJson(baseUrl, "/api/v1/dashboard/server", timeoutMs, signal);
+      if (!response.ok) return { ok: false, failure: response.failure };
+      const rec = asRecord(response.data);
+      if (!validServerRecord(rec) || typeof rec.csrfToken !== "string" || typeof rec.observedAt !== "string" ||
+          !(rec.loadError === null || typeof rec.loadError === "string")) return fail("contract_mismatch", "服务器配置结果契约不匹配。");
+      csrfToken = rec.csrfToken;
+      return ok({ revision: rec.revision as number, fields: rec.fields as ServerConfigInfo["fields"],
+        authMode: "offline", loadError: rec.loadError, observedAt: rec.observedAt }, "gateway", "gateway://server");
+    },
+    async saveServer(request: ServerSaveRequest, signal?: AbortSignal): Promise<ReadResult<ServerSaveResult>> {
+      const response = await postWrite(baseUrl, "/api/v1/dashboard/server/save", timeoutMs, request, csrfToken, "保存已取消。", signal);
+      if (response.kind === "failure") return { ok: false, failure: response.failure };
+      if (response.kind === "refusal") return fail("write_refused", `${response.code}：${response.message}`);
+      const rec = asRecord(response.data);
+      if (!validServerRecord(rec) || rec.fields === null) return fail("contract_mismatch", "服务器保存结果契约不匹配。");
+      return ok({ revision: rec.revision as number, fields: rec.fields as ServerSaveResult["fields"] }, "gateway", "gateway://server/save");
+    },
+    async probeServer(revision: number, allowRemote: boolean, signal?: AbortSignal): Promise<ReadResult<ServerProbeResult>> {
+      const response = await postWrite(baseUrl, "/api/v1/dashboard/server/probe", Math.max(timeoutMs, 10_000), { revision, confirm: true, allowRemote }, csrfToken, "探测已取消。", signal);
+      if (response.kind === "failure") return { ok: false, failure: response.failure };
+      if (response.kind === "refusal") return fail("write_refused", `${response.code}：${response.message}`);
+      const rec = asRecord(response.data);
+      const textOrNull = (v: unknown) => v === null || typeof v === "string";
+      if (rec === null || rec.schemaVersion !== "kin-dashboard-server/1.0.0" || !validServerFields(rec.fields) ||
+          !Number.isSafeInteger(rec.revision) || typeof rec.outcome !== "string" || typeof rec.supportStatus !== "string" ||
+          typeof rec.osArch !== "string" || !textOrNull(rec.serverVersion) || !textOrNull(rec.bundleId) || !textOrNull(rec.minecraftVersion) ||
+          !(rec.protocol === null || Number.isSafeInteger(rec.protocol)) || !Array.isArray(rec.supportReasons) || !rec.supportReasons.every((r) => typeof r === "string"))
+        return fail("contract_mismatch", "服务器探测结果契约不匹配。");
+      return ok({ revision: rec.revision as number, fields: rec.fields as ServerProbeResult["fields"],
+        outcome: rec.outcome, protocol: rec.protocol as number | null, serverVersion: rec.serverVersion as string | null,
+        supportStatus: rec.supportStatus, supportReasons: rec.supportReasons as string[], bundleId: rec.bundleId as string | null,
+        minecraftVersion: rec.minecraftVersion as string | null, osArch: rec.osArch }, "gateway", "gateway://server/probe");
     },
     async testModel(signal?: AbortSignal): Promise<ReadResult<ModelTestResult>> {
       const path = "/api/v1/dashboard/model/test";

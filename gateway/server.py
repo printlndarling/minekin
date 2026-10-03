@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sqlite3
 import sys
 import threading
 from collections.abc import Callable, Mapping
@@ -18,6 +19,7 @@ from pathlib import Path
 from typing import Any, ClassVar, cast
 from urllib.parse import parse_qs, urlparse
 
+from gateway import server_config
 from gateway.config_write import (
     CONFIG_PATH,
     CONFIG_SAVE_PATH,
@@ -90,6 +92,9 @@ ROUTE_TABLE: tuple[tuple[str, str], ...] = (
     ("GET", CONFIG_PATH),
     ("POST", CONFIG_SAVE_PATH),
     ("POST", MODEL_TEST_PATH),
+    ("GET", server_config.SERVER_CONFIG_PATH),
+    ("POST", server_config.SERVER_SAVE_PATH),
+    ("POST", server_config.SERVER_PROBE_PATH),
     ("GET", GOAL_PATH),
     ("GET", SESSION_PATH),
     ("POST", SESSION_STOP_PATH),
@@ -111,6 +116,7 @@ class ReadService:
         self._clock = clock
         self._control_lock = threading.Lock()
         self._model_test_lock = threading.Lock()
+        self._server_probe_lock = threading.Lock()
         self.csrf_token = new_csrf_token()
 
     def snapshot(self) -> dict[str, Any]:
@@ -146,6 +152,40 @@ class ReadService:
 
     def save_config(self, body: Mapping[str, Any]) -> tuple[int, dict[str, Any]]:
         return save_from_request(self._root, body=body)
+
+    def server_config(self) -> dict[str, Any]:
+        return server_config.server_read(self._root, clock=self._clock, csrf_token=self.csrf_token)
+
+    def save_server(self, body: Mapping[str, Any]) -> tuple[int, dict[str, Any]]:
+        try:
+            return server_config.save_from_request(self._root, body=body)
+        except (sqlite3.Error, OSError):
+            return refusal(
+                500,
+                "server_storage_failed",
+                "Server settings could not be saved.",
+                schema=server_config.SCHEMA,
+            )
+
+    def probe_server(self, body: Mapping[str, Any]) -> tuple[int, dict[str, Any]]:
+        if not self._server_probe_lock.acquire(blocking=False):
+            return refusal(
+                409,
+                "server_probe_in_progress",
+                "A server probe is already running.",
+                schema=server_config.SCHEMA,
+            )
+        try:
+            return server_config.probe_from_request(self._root, body=body)
+        except (sqlite3.Error, OSError):
+            return refusal(
+                500,
+                "server_storage_failed",
+                "Server settings could not be read.",
+                schema=server_config.SCHEMA,
+            )
+        finally:
+            self._server_probe_lock.release()
 
     def test_model(self, body: Mapping[str, Any]) -> tuple[int, dict[str, Any]]:
         if not self._model_test_lock.acquire(blocking=False):
@@ -209,6 +249,9 @@ class ReadRequestHandler(BaseHTTPRequestHandler):
         if parsed.path == CONFIG_PATH:
             self._respond(HTTPStatus.OK, self.service.config())
             return
+        if parsed.path == server_config.SERVER_CONFIG_PATH:
+            self._respond(HTTPStatus.OK, self.service.server_config())
+            return
         if parsed.path == GOAL_PATH:
             self._respond(HTTPStatus.OK, self.service.goal())
             return
@@ -222,6 +265,16 @@ class ReadRequestHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         parsed = urlparse(self.path)
+        if parsed.path == server_config.SERVER_SAVE_PATH:
+            self._handle_write(
+                server_config.MAX_BODY_BYTES, server_config.SCHEMA, self.service.save_server
+            )
+            return
+        if parsed.path == server_config.SERVER_PROBE_PATH:
+            self._handle_write(
+                server_config.MAX_BODY_BYTES, server_config.SCHEMA, self.service.probe_server
+            )
+            return
         if parsed.path == RENAME_PATH:
             self._handle_write(MAX_RENAME_BODY_BYTES, IDENTITY_SCHEMA, self.service.rename)
             return

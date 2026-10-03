@@ -15,6 +15,7 @@ import {
   type ConfigSaveRequest,
   type ConfigSaveResult,
   type ModelTestResult,
+  type ServerConfigInfo, type ServerSaveRequest, type ServerSaveResult, type ServerProbeResult,
   type ConfigValue,
   type GoalInfo,
   type IdentityInfo,
@@ -111,6 +112,9 @@ export function createMockAdapter(scenario: MockScenarioId, latencyMs: number): 
   // The config GET is what hands out the (shared) token; a save before any config read is refused
   // exactly like the real surface refusing one that skipped the GET.
   let configReadIssued = false;
+  let serverReadIssued = false;
+  let serverRevision = 0;
+  let serverFields: ServerConfigInfo["fields"] = null;
   const KNOWN_CONFIG_KEYS = new Set(CONFIG_FIELDS.map((meta) => meta.key));
 
   // The session GET is what hands out the (shared) token and reports the observed state; a stop
@@ -272,6 +276,22 @@ export function createMockAdapter(scenario: MockScenarioId, latencyMs: number): 
       // The config GET is what hands out the shared token; a save only becomes possible after one read.
       configReadIssued = true;
       return ok(decoded.config, "mock", `mock://scenario/${scenario}/config`);
+    },
+    async serverConfig(): Promise<ReadResult<ServerConfigInfo>> {
+      serverReadIssued = true;
+      return ok({ revision: serverRevision, fields: serverFields, authMode: "offline", loadError: null,
+        observedAt: new Date().toISOString() }, "mock", "mock://server");
+    },
+    async saveServer(request: ServerSaveRequest): Promise<ReadResult<ServerSaveResult>> {
+      if (!serverReadIssued || request.revision !== serverRevision) return fail("write_refused", "server_config_changed");
+      if (!request.fields.host || !Number.isInteger(request.fields.port) || request.fields.port < 1 || request.fields.port > 65535)
+        return fail("write_refused", "invalid_server_config");
+      serverFields = { ...request.fields };
+      serverRevision += 1;
+      return ok({ revision: serverRevision, fields: serverFields }, "mock", "mock://server/save");
+    },
+    async probeServer(): Promise<ReadResult<ServerProbeResult>> {
+      return fail("write_refused", "模拟数据不能探测真实 Minecraft 服务器。");
     },
     async testModel(): Promise<ReadResult<ModelTestResult>> {
       return fail("write_refused", "模拟数据不能验证真实模型连接。请切换到本地 Gateway。");

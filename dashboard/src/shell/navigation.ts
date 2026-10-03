@@ -7,7 +7,7 @@
  * unimplemented surface is a named row on the 数据源与缺口 page, not a tab that renders a stub.
  */
 
-export type PageId = "overview" | "task" | "timeline" | "alerts" | "config" | "identity" | "session" | "recipes" | "data";
+export type PageId = "overview" | "task" | "timeline" | "alerts" | "config" | "server" | "identity" | "session" | "recipes" | "data";
 
 export interface NavItem {
   readonly id: PageId;
@@ -43,9 +43,10 @@ export const NAV_GROUPS: readonly NavGroup[] = [
     id: "settings",
     label: "设置",
     items: [
-      { id: "config", label: "配置 · 模型与目标", hint: "第二次被授权的写入：仅本机、显式保存、不含密钥" },
-      { id: "identity", label: "身份 · 改名", hint: "被授权的写入之一，仅会话停止时" },
-      { id: "session", label: "会话 · 控制", hint: "第三次被授权的写入：仅停止，先释放输入再停本产品自己的进程" },
+      { id: "config", label: "配置 · 模型与目标", hint: "保存模型和目标，显式测试连接；密钥由进程环境提供" },
+      { id: "server", label: "服务器 · 连接设置", hint: "保存地址并探测版本，使用修订检查避免覆盖他人的修改" },
+      { id: "identity", label: "身份 · 改名", hint: "会话停止后修改角色名称" },
+      { id: "session", label: "会话 · 控制", hint: "停止会话，释放输入并关闭本产品的客户端" },
       { id: "data", label: "数据源与缺口", hint: "每条读路的状态，以及未接入的原因" },
     ],
   },

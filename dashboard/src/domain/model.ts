@@ -319,6 +319,29 @@ export interface ModelTestResult {
   readonly estimatedCostMicro: number;
 }
 
+export interface ServerFields { readonly host: string; readonly port: number; }
+export interface ServerConfigInfo {
+  readonly revision: number;
+  readonly fields: ServerFields | null;
+  readonly authMode: "offline";
+  readonly loadError: string | null;
+  readonly observedAt: string;
+}
+export interface ServerSaveRequest { readonly revision: number; readonly fields: ServerFields; }
+export interface ServerSaveResult { readonly revision: number; readonly fields: ServerFields; }
+export interface ServerProbeResult {
+  readonly revision: number;
+  readonly fields: ServerFields;
+  readonly outcome: string;
+  readonly protocol: number | null;
+  readonly serverVersion: string | null;
+  readonly supportStatus: string;
+  readonly supportReasons: readonly string[];
+  readonly bundleId: string | null;
+  readonly minecraftVersion: string | null;
+  readonly osArch: string;
+}
+
 /**
  * The session-control read model of `gateway/session_control.py::session_read`: the observed
  * session state plus exactly what this surface can do about it. Like the identity and config

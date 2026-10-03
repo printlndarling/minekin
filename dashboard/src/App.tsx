@@ -8,6 +8,7 @@ import { useAlerts, useSnapshot, useTimeline } from "./hooks/useKinReads";
 import { useNow } from "./hooks/useNow";
 import { IdentityPanel } from "./panels/IdentityPanel";
 import { ConfigPanel } from "./panels/ConfigPanel";
+import { ServerPanel, useServerRead } from "./panels/ServerPanel";
 import { SessionControlPanel } from "./panels/SessionControlPanel";
 import { GoalPanel } from "./panels/GoalPanel";
 import { RecipeCoveragePanel } from "./panels/RecipeCoveragePanel";
@@ -71,6 +72,7 @@ function Dashboard({
   const alertsRead = useAlerts(adapter);
   const identityRead = useIdentityRead(adapter);
   const configRead = useConfigRead(adapter);
+  const serverRead = useServerRead(adapter);
   const sessionRead = useSessionRead(adapter);
   const goalRead = useGoalRead(adapter);
   const recipeRead = useRecipeCoverageRead(adapter);
@@ -94,6 +96,7 @@ function Dashboard({
     timeline: timelineStatus,
     alerts: alertsStatus,
     config: configStatus,
+    server: readStatusOf(serverRead, { nowMs }),
     identity: identityStatus,
     session: sessionStatus,
     recipes: recipeStatus,
@@ -193,6 +196,7 @@ function Dashboard({
             <AlertsPanel envelope={alertsRead.envelope} isLoading={alertsRead.isLoading} failure={alertsRead.failure} />
           ) : null}
           {page === "config" ? <ConfigPanel adapter={adapter} nowMs={nowMs} /> : null}
+          {page === "server" ? <ServerPanel adapter={adapter} /> : null}
           {page === "identity" ? <IdentityPanel adapter={adapter} nowMs={nowMs} /> : null}
           {page === "session" ? <SessionControlPanel adapter={adapter} nowMs={nowMs} /> : null}
           {page === "data" ? (
@@ -205,6 +209,7 @@ function Dashboard({
                 { label: "事件时间线", path: READ_ENDPOINTS.timeline, status: timelineStatus },
                 { label: "告警信封", path: READ_ENDPOINTS.alerts, status: alertsStatus },
                 { label: "配置读数", path: CONFIG_ENDPOINTS.config, status: configStatus },
+                { label: "服务器设置", path: "/api/v1/dashboard/server", status: statusFor.server },
                 { label: "身份读数", path: IDENTITY_ENDPOINTS.identity, status: identityStatus },
                 { label: "会话读数", path: SESSION_ENDPOINTS.session, status: sessionStatus },
                 { label: "目标读数", path: GOAL_ENDPOINTS.goal, status: goalStatus },
