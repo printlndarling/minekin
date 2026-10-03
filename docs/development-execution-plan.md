@@ -1,5 +1,10 @@
 # Minekin 开发执行计划（现行唯一队列）
 
+> 2026-10-03 追加（`current_next` 仍为 `D-PHYSIOLOGY-OBSERVATION-AND-EAT-011`）：通用食用已按"前提→执行→读数确认"落地并推干。`consume_item` 进入技能面与心智可行集，复用 `UseInput` 按住/松开 + `HotbarSelectInput`——**proto 与两个 Bridge 根一字未动**；五条具名前提（`CONSUME_ITEM_MISSING / CONSUME_ITEM_NOT_KNOWN_FOOD / CONSUME_NOT_HUNGRY / CONSUME_ITEM_NOT_IN_HOTBAR / CONSUME_AIM_NOT_CLEAR`）全部按**改线**处理（不烧重试额度、不排除技能）；确认读"同一帧同步修订上条升 + 该物总数降"两臂（`verify_consume_effect`），步骤 `details` 落 `food/health/item` 前后值与最终核对帧；食物知识住在 `domain/food_catalog.py` 的过渡策展表内（边界与扩展路线见 [S2 契约 §7](s2-world-observation-and-actions.md)）；本地反思在 `safety ≥ 3` 时先吃再做别的。门：全量 `3737 passed, 2 skipped`、全仓严格 `uv run pyright` 0 errors、ruff 干净；`ad5540b` 起 CI 全绿——此前每个 run 都红在同一处 Linux-only pyright 误报（`tests/unit/test_gateway_session_jobs.py` 注入 Windows 专有的 `winerror`），已按该文件既有的 pyright 忽略风格修掉。活体夹具（`MINEKIN_DOMAIN_HUNGRY_KIN`：三只苹果 + 一发短促高浓度饥饿效果）与 `examples/skill-plan-eat.json` 已推送（`375d5a1`，其 CI 尚在跑）；**两发活体在 2026-10-03 13:09 被本机后台内存守卫中断**（非运行失败：run-22 已干净停服、无残留容器、kin 根完整），按守卫要求等待用户放行后重跑，恢复命令逐字如下——
+> `MINEKIN_SERVER_JAR=.tmp/mc-1.20.1-server.jar MINEKIN_DOMAIN_HUNGRY_KIN=1 MINEKIN_DEMO_SKILL_PLAN=/src/examples/skill-plan-eat.json bash test-orchestrator/runner/demo.sh --skills --again`
+> `MINEKIN_SERVER_JAR=.tmp/mc-1.20.1-server.jar MINEKIN_DOMAIN_HUNGRY_KIN=1 MINEKIN_DEMO_GOAL_PRODUCT= MINEKIN_DEMO_AUTONOMOUS_STEPS=6 bash test-orchestrator/runner/demo.sh --autonomous --again`
+> 活体读数到手前，这一格只算**代码、契约与受控单测完成**，不宣称真实游戏结果；死亡恢复、仍存活客户端的断连/watchdog 松键及长时间生存等缺口一字不变。
+>
 > 当前施工（2026-10-03）：`current_next: D-PHYSIOLOGY-OBSERVATION-AND-EAT-011`。C009/C010 已取得本地受管启动的取消、时限、进程退出、重启不重放及非空租约取消/客户端丢失读数；最后两例使用显式 control_path_test_double，不计真实 LLM 成功。CLI 持移动输入的后台停止有 released 回执，后台自主取消记录 had_lease=true；客户端 SIGKILL 显示 BRIDGE_LOST/-9，inputReleaseFailed=false 不能证明 Bridge 确认释放，界面现明确确认不可用。Gateway 原配置已恢复，受控端点已停止。详见[当前构建登记](current-build-acceptance-2026-10-03.md)。下一项从玩家等价健康/饥饿观察、通用食用前提与结果确认推进生存；仍存活客户端的断连/watchdog 松键、死亡恢复及长时间生存继续保留缺口。阶段 A–F 未完整交付，用户远程服未连接。下方日期化段落仅作历史追溯。
 
 
