@@ -38,6 +38,7 @@ import threading
 import time
 import zipfile
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import TYPE_CHECKING, BinaryIO
@@ -618,39 +619,18 @@ def resource_trunk_commands(player: str) -> list[str]:
 
 
 def meal_commands(player: str) -> list[str]:
-    """The two console lines that give a player a meal and a reason to eat it.
+    """Begin a bounded hunger preparation, before any food is handed out.
 
-    Eating is the one world skill whose precondition is a state of the *HUD* rather
-    than of the world — the consume skill refuses a full hunger bar by name because
-    that is the one state where the confirmation reading (the bar rising) can never
-    arrive — and the flat controlled world drains no bar on any useful clock. So the
-    fixture hands the Kin both halves of the scene, and both choices are settled by
-    the game's own numbers rather than by preference:
-
-    * **Three apples.** `give` fills the empty inventory from its first slot, which
-      is the hotbar the number key can reach; three is two more than one meal needs,
-      so a run that eats once and then eats again is still the same scenario rather
-      than a second fixture.
-
-    * **A short, steep hunger effect (`minecraft:hunger`, 10 s, amplifier 200).**
-      Exhaustion accrues at five thousandths of a point per tick per amplifier
-      level, so this empties a full bar — saturation first, then the twenty points —
-      in a handful of seconds and then *expires*. A still-live effect would keep
-      draining faster than one observation interval can confirm a meal against; a
-      weaker one would leave the bar above the threshold at which the local layer
-      reaches for food at all. The one cost is the starvation window between the
-      drain landing and the Kin's own decision to eat, measured in single points of
-      health, which is why the dose is short rather than strong-and-long.
-
-    The name is checked like every other console command here (a newline would be a
-    second command), and the item and effect ids are constants of the fixture.
+    The runner polls foodLevel, explicitly clears Hunger at food <= 6, then
+    gives three apples only after the server confirms that specific clear.
+    meal-ready.json is written only after the give acknowledgement. This is
+    test setup, not a player observation or proof of a successful consume.
     """
 
     _checked_player(player)
-    return [
-        f"give {player} minecraft:apple 3",
-        f"effect give {player} minecraft:hunger 10 200",
-    ]
+    from tools.hungry_fixture import HungryFixture
+
+    return HungryFixture(player).begin("", 0)
 
 
 #: What the block probe has the server say, one state each. Named here because
@@ -927,6 +907,12 @@ def main() -> int:
     if args.ready_timeout <= 0:
         print("--ready-timeout must be positive", file=sys.stderr)
         return 2
+    if args.hungry_kin and args.difficulty == "peaceful":
+        print(
+            "--hungry-kin requires a difficulty that preserves hunger; peaceful refused",
+            file=sys.stderr,
+        )
+        return 2
     if args.probe_every_seconds <= 0:
         print("--probe-every-seconds must be positive", file=sys.stderr)
         return 2
@@ -1054,7 +1040,9 @@ def main() -> int:
     target = None if not args.use_target else use_target_command(probe_players[0])
     initial_block = None if not args.use_target else initial_block_probe_command(probe_players[0])
     resource_trunk = None if not args.resource_trunk else resource_trunk_commands(probe_players[0])
-    meal = None if not args.hungry_kin else meal_commands(probe_players[0])
+    from tools.hungry_fixture import HungryFixture
+
+    meal = None if not args.hungry_kin else HungryFixture(probe_players[0])
     #: Whether the trunk's three logs have gone in. Kept once, and the whole reason it
     #: is once rather than a cadence: unlike the use target the trunk is not re-placed
     #: while the Kin turns, because its breaking is the observation the run wants.
@@ -1218,26 +1206,32 @@ def main() -> int:
                                 process.stdin.flush()
                                 print(f"{label}: {watched_player}")
                             pending.clear()
-                    if (
-                        meal is not None
-                        and not meal_served
-                        and process.stdin is not None
-                        and has_joined(log, meal_player)
-                    ):
-                        # The owed-at-join moment, for the reason the trunk documents:
-                        # `give` and `effect` at a player who has not joined fail with
-                        # "No entity was found", a line in a console nobody reads. Once,
-                        # and only once — the meal is a counter the run reads down, and
-                        # a second helping would refill it mid-observation.
-                        meal_served = True
-                        for line in meal:
+                    if meal is not None and not meal_served and process.stdin is not None:
+                        text = log.read_text(encoding="utf-8", errors="replace")
+                        commands = []
+                        if meal.phase == "waiting_join":
+                            if has_joined(log, meal_player):
+                                commands = meal.begin(text, time.monotonic())
+                        else:
+                            commands = meal.update(text, time.monotonic())
+                        for line in commands:
                             process.stdin.write((line + "\n").encode())
                             process.stdin.flush()
-                        print(
-                            f"served the hungry-kin fixture to {meal_player}: three "
-                            "minecraft:apple in the bag and a 10 s hunger effect at "
-                            "amplifier 200"
-                        )
+                        if meal.phase == "ready":
+                            marker = {
+                                "state": "ready",
+                                "player": meal_player,
+                                "food": meal.food,
+                                "effectClearConfirmed": True,
+                                "mealGivenConfirmed": True,
+                                "observedAt": datetime.now(UTC).isoformat(),
+                            }
+                            marker_path = args.directory / "meal-ready.json"
+                            pending_marker = args.directory / "meal-ready.pending.json"
+                            pending_marker.write_text(json.dumps(marker), encoding="utf-8")
+                            pending_marker.replace(marker_path)
+                            meal_served = True
+                            print(f"hungry fixture ready for {meal_player}; hunger effect cleared")
                     time.sleep(0.1)
                 return process.returncode
         finally:
@@ -1250,6 +1244,7 @@ def main() -> int:
 
 
 if __name__ == "__main__":
+    sys.path.insert(0, str(REPOSITORY_ROOT))
     try:
         raise SystemExit(main())
     except KeyboardInterrupt:

@@ -1060,3 +1060,5 @@ uv run python -m tools.verify_managed_autonomous_recovery --container minekin-se
 它使用无密钥的回环测试端点调用 turn_to，分别验证后台取消非空租约、该会话客户端丢失、空闲收尾，然后恢复原 Gateway 环境配置。写入阶段报告，读取不重放；端点仅测试控制路径，不是真实模型能力证据。SIGKILL 后释放发送未报错不等于 Bridge 确认，仍存活客户端 watchdog 另验。
 
 2026-10-04 HUD 观察实现：当前Core对已接纳的玩家视角观察每100游戏tick记录 PlayerStateObserved（health/max_health/food、tick、generation）；后台输出当前运行 health/food 与事件时间，10秒过期，不回显额外payload。旧运行、已收尾或无法确认存活的客户端不当成当前身体；无输入的观察模式亦能记录，proto/Bridge未改。129项定向回归与类型/静态检查通过；当前实现的真实游戏显示待复验。食用 run-72 中 apple减少而food下降不能过确认；先同步夹具饥饿效果结束与动作开始，再复验，完整生存未交付。
+
+2026-10-04 饥饿夹具准备：受控服务器改为先给 Hunger 并查询 foodLevel，读到 food≤6 后显式清除；只在收到该玩家 Hunger 清除回执后给三个苹果，收到给物回执才原子写入该 server run 的 meal-ready.json。整个准备共享60秒期限；和平难度具名拒绝，避免自然恢复混入食用确认。标记是测试准备状态，不进入模型观察、不代表 consume 成功。动作启动与该标记及新鲜玩家观察的同步仍待接入；run-72 的 UNKNOWN 保留，当前未新增真实进食成功证据。

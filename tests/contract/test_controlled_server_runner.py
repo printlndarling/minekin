@@ -712,18 +712,10 @@ def test_the_resource_trunk_refuses_the_asks_it_cannot_answer(
         RUNNER.main()
 
 
-def test_the_meal_is_an_apple_stack_and_one_short_steep_hunger_effect() -> None:
-    """The flat world drains no hunger bar, so the fixture hands the Kin both halves.
-
-    Three apples, because `give` fills the empty inventory from its first slot — the
-    hotbar the number key can reach — and one 10 s hunger effect at amplifier 200,
-    which empties the bar in a handful of seconds and then expires; a still-live
-    effect would drain through the very reading that confirms the meal.
-    """
-
+def test_the_meal_starts_draining_before_serving_food() -> None:
     assert RUNNER.meal_commands("Kin") == [
-        "give Kin minecraft:apple 3",
         "effect give Kin minecraft:hunger 10 200",
+        "data get entity Kin foodLevel",
     ]
 
 
@@ -733,6 +725,32 @@ def test_the_meal_refuses_a_name_that_is_not_a_player() -> None:
     for injection in ("Kin\nstop", "Kin; stop", "Kin`op`", "Ki n", "", "Kin\n", "ab"):
         with pytest.raises(SystemExit, match="not a vanilla player name"):
             RUNNER.meal_commands(injection)
+
+
+def test_hungry_preparation_refuses_peaceful_before_creating_a_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    directory = tmp_path / "run"
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            TOOL,
+            "--directory",
+            str(directory),
+            "--jar",
+            str(tmp_path / "server.jar"),
+            "--accept-eula",
+            "--hungry-kin",
+            "--probe-player",
+            "Kin",
+            "--difficulty",
+            "peaceful",
+        ],
+    )
+    assert RUNNER.main() == 2
+    assert "peaceful refused" in capsys.readouterr().err
+    assert not directory.exists()
 
 
 @pytest.mark.parametrize(
