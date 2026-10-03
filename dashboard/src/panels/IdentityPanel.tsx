@@ -7,6 +7,7 @@ import { useIdentityController } from "../hooks/useIdentityController";
 import { Panel } from "../components/Panel";
 import styles from "./identity.module.css";
 import { SavedPersonaPanel } from "./SavedPersonaPanel";
+import { ExperiencesPanel } from "./ExperiencesPanel";
 
 const STABILITY_NOTE =
   `新身份默认 ${DEFAULT_IDENTITY_NAME}；启动、重试、死亡或换服都不会随机改名——名字是持久化身份的一部分，只有这里的一次显式确认才能改动它。`;
@@ -181,6 +182,7 @@ export function IdentityPanel({ adapter, nowMs }: { readonly adapter: KinReadAda
       )}
     </Panel>
       {identity === null ? null : <SavedPersonaPanel persona={identity.persona} />}
+      {identity === null ? null : <ExperiencesPanel experiences={identity.experiences} />}
     </>
   );
 }

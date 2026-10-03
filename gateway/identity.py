@@ -32,8 +32,9 @@ from typing import Any, Final
 from gateway.readmodel import STALE_AFTER_MS
 from gateway.signals import missing, present
 from minekin_core.adapters.filestore.persona_store import persona_path, read_persona
+from minekin_core.adapters.sqlite.skill_history import read_skill_experiences
 from minekin_core.application.ports.clock import Clock
-from minekin_core.cli.init import kin_directory
+from minekin_core.cli.init import DATABASE_NAME, kin_directory
 from minekin_core.cli.rename import RENAME_NOTICE, rename_identity, show_identity
 from minekin_core.cli.session import select_kin
 from minekin_core.cli.status import ObservedState, read_status
@@ -146,7 +147,18 @@ def identity_read(
         "observedAt": clock.utc_now().isoformat(),
         "staleAfterMs": STALE_AFTER_MS,
         "persona": saved_persona_read(kin_directory(root, kin_id), str(kin_id)),
+        "experiences": saved_experiences_read(kin_directory(root, kin_id), str(kin_id)),
     }
+
+
+def saved_experiences_read(kin_dir: Path, kin_id: str) -> dict[str, Any]:
+    """Recent recorded outcomes, not the exact inputs of a particular model call."""
+    history = read_skill_experiences(kin_dir / DATABASE_NAME, kin_id=kin_id)
+    if history["status"] in {"found", "not_retrieved"}:
+        return present(history["records"])
+    return missing(
+        "unavailable", f"EXPERIENCES_{str(history['status']).upper()}: 无法读取角色行为经历。"
+    )
 
 
 def saved_persona_read(kin_dir: Path, kin_id: str) -> dict[str, Any]:

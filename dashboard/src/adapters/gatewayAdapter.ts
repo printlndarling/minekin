@@ -29,6 +29,7 @@ import {
   type Heartbeat,
   type IdentityInfo,
   type SavedPersona,
+  type SkillExperience,
   type IdentityViewSnapshot,
   type KinRuntimeState,
   type KinSnapshot,
@@ -765,6 +766,36 @@ function parseSavedPersona(raw: unknown, issues: string[]): SavedPersona | null 
  * fill. `csrfToken` is returned beside the model but deliberately left OUT of `IdentityInfo`
  * — a panel must not be able to render the token, and the adapter keeps it for the rename.
  */
+function parseExperiences(raw: unknown, issues: string[]): readonly SkillExperience[] | null {
+  if (!Array.isArray(raw) || raw.length > 8) {
+    issues.push("$.experiences: 期望最多 8 条经历");
+    return null;
+  }
+  const records: SkillExperience[] = [];
+  const keys = ["event_id", "event_position", "run_id", "session_id", "observed_at_utc",
+    "source", "trust_class", "skill", "result", "reason", "decision_source"];
+  const ref = (value: unknown): value is string => typeof value === "string" && /^[A-Za-z0-9_-]{1,128}$/.test(value);
+  for (const entry of raw) {
+    const rec = asRecord(entry);
+    if (rec === null || Object.keys(rec).length !== keys.length || keys.some((key) => !(key in rec)) ||
+        !ref(rec.event_id) || !ref(rec.run_id) || !(rec.session_id === null || ref(rec.session_id)) ||
+        typeof rec.event_position !== "number" || !Number.isSafeInteger(rec.event_position) || rec.event_position < 1 ||
+        typeof rec.observed_at_utc !== "string" || rec.observed_at_utc.length > 40 ||
+        !Number.isFinite(Date.parse(rec.observed_at_utc)) || !/(Z|[+-]\d{2}:\d{2})$/.test(rec.observed_at_utc) ||
+        rec.source !== "CORE" || rec.trust_class !== "CORE" ||
+        typeof rec.skill !== "string" || !/^[a-z_]{1,64}$/.test(rec.skill) ||
+        typeof rec.result !== "string" || !["STARTED", "CONFIRMED", "FAILED", "INTERRUPTED", "UNKNOWN"].includes(rec.result) ||
+        typeof rec.reason !== "string" || !/^[A-Z0-9_]{0,96}$/.test(rec.reason) ||
+        typeof rec.decision_source !== "string" ||
+        !["model", "local_reflection", "OPERATOR_PLAN", ""].includes(rec.decision_source)) {
+      issues.push("$.experiences: 历史记录字段不合法或携带非公开字段");
+      return null;
+    }
+    records.push(rec as unknown as SkillExperience);
+  }
+  return records;
+}
+
 export function decodeIdentityPayload(raw: unknown): IdentityDecode {
   const rec = asRecord(raw);
   if (rec === null) return { ok: false, issues: ["$: 身份响应不是 object"] };
@@ -785,6 +816,9 @@ export function decodeIdentityPayload(raw: unknown): IdentityDecode {
   const persona = "persona" in rec
     ? decodeField(rec.persona, "$.persona", issues, (value) => parseSavedPersona(value, issues))
     : gapField<SavedPersona>("not_wired", "旧身份接口未携带已保存人格，不能据此判断人格是否存在。");
+  const experiences = "experiences" in rec
+    ? decodeField(rec.experiences, "$.experiences", issues, (value) => parseExperiences(value, issues))
+    : gapField<readonly SkillExperience[]>("not_wired", "旧身份接口未携带行为经历，不能据此判断历史是否存在。");
   if (kinId === null) issues.push("$.kinId: 缺失或非字符串");
   if (username === null) issues.push("$.username: 缺失或非字符串");
   if (uuidCanonical === null) issues.push("$.uuidCanonical: 缺失或非字符串");
@@ -795,7 +829,7 @@ export function decodeIdentityPayload(raw: unknown): IdentityDecode {
   if (csrfToken === null) issues.push("$.csrfToken: 缺失（无法改名）");
   if (observedAt === null) issues.push("$.observedAt: 缺失或非字符串");
   if (staleAfterMs === null) issues.push("$.staleAfterMs: 缺失或非数值");
-  if (issues.length > 0 || persona === null) return { ok: false, issues };
+  if (issues.length > 0 || persona === null || experiences === null) return { ok: false, issues };
   return {
     ok: true,
     csrfToken: csrfToken as string,
@@ -810,6 +844,7 @@ export function decodeIdentityPayload(raw: unknown): IdentityDecode {
       observedAt: observedAt as string,
       staleAfterMs: staleAfterMs as number,
       persona,
+      experiences,
     },
   };
 }

@@ -238,6 +238,21 @@ export interface IdentityInfo {
   readonly observedAt: string;
   readonly staleAfterMs: number;
   readonly persona?: Field<SavedPersona>;
+  readonly experiences?: Field<readonly SkillExperience[]>;
+}
+
+export interface SkillExperience {
+  readonly event_id: string;
+  readonly event_position: number;
+  readonly run_id: string;
+  readonly session_id: string | null;
+  readonly observed_at_utc: string;
+  readonly source: "CORE";
+  readonly trust_class: "CORE";
+  readonly skill: string;
+  readonly result: string;
+  readonly reason: string;
+  readonly decision_source: string;
 }
 
 export interface SavedPersona {
