@@ -384,6 +384,12 @@ function parseSelfState(raw: unknown, issues: string[]): SelfState | null {
     issues.push("selfState.value: 期望仅含 health/food 数值");
     return null;
   }
+  // The projection does not carry max_health, so do not cap health at vanilla
+  // 20: effects may raise it. Food is still an integer hunger level in [0, 20].
+  if (health < 0 || !Number.isInteger(food) || food < 0 || food > 20) {
+    issues.push("selfState.value: 生命必须非负，饥饿必须是 0..20 的整数");
+    return null;
+  }
   return { health, food };
 }
 

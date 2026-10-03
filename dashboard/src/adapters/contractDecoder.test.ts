@@ -201,6 +201,29 @@ describe("信封与组内成员的判别式（失败关闭，不补默认值）"
     expect(decodeSnapshotPayload(wire, "gateway").ok).toBe(false);
   });
 
+  it.each([
+    { health: -1, food: 10 },
+    { health: 20, food: -1 },
+    { health: 20, food: 21 },
+    { health: 20, food: 3.5 },
+  ])("拒绝不可能的 HUD 数值 %j", (value) => {
+    const wire = realWire();
+    (wire.selfState as Record<string, unknown>).value = value;
+    const decoded = decodeSnapshotPayload(wire, "gateway");
+    expect(decoded.ok).toBe(false);
+    if (!decoded.ok) expect(decoded.issues.join("；")).toContain("selfState.value");
+  });
+
+  it.each([
+    { health: 0, food: 0 },
+    { health: 17.5, food: 20 },
+    { health: 40, food: 10 },
+  ])("保留合法 HUD 数值，不假设最大生命固定为 20：%j", (value) => {
+    const wire = realWire();
+    (wire.selfState as Record<string, unknown>).value = value;
+    expect(decodeSnapshotPayload(wire, "gateway").ok).toBe(true);
+  });
+
   it("缺口状态没有理由的顶层信封 ⇒ 拒绝（§2.2 第 2 条）", () => {
     const wire = realWire();
     wire.evidence = { status: "unknown", value: null, sourceRef: "core://x", observedAt: null, staleAfterMs: null };
