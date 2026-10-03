@@ -1757,3 +1757,52 @@ def test_dead_player_stops_before_model_call_or_screen_action() -> None:
     assert intent.reason == "PLAYER_DEAD"
     assert provider.requests == []
     assert intent.plan.calls == ()
+
+
+def test_model_recent_result_names_executed_prerequisite_and_inventory_change() -> None:
+    mind, _ = mind_with(
+        Decision(
+            skill_id="craft_take_result",
+            reason="toward goal",
+            intent_generation=1,
+            arguments={"target_item": PICKAXE, "quantity": 1},
+        ),
+    )
+    before = reading(items=((0, LOG, 1),))
+    intent = mind.next_intent(before)
+    assert intent.plan.calls[0].product_id == PLANKS
+    after = reading(tick=120, items=((0, PLANKS, 4),))
+    mind.record_result(intent, outcome(ActionResultClass.CONFIRMED), after)
+    mind.next_intent(after)
+    provider = cast(ScriptedProvider, mind.provider)
+    recent = cast(
+        list[dict[str, object]], provider.requests[-1].observation_summary["recent_actions"]
+    )
+    result = recent[-1]
+    assert cast(dict[str, object], result["arguments"])["target_item"] == PICKAXE
+    assert result["executed_product_id"] == PLANKS
+    assert result["inventory_after"] == {PLANKS: 4}
+
+
+def test_search_hint_uses_observed_cell_bearing_without_claiming_remaining_blocks() -> None:
+    mind, _ = mind_with()
+    provider = cast(ScriptedProvider, mind.provider)
+    mind.next_intent(reading())
+    initial = cast(dict[str, object], provider.requests[-1].observation_summary["view_search"])
+    assert initial["source"] == "body_angles"
+    observed = reading(aim=block_aim())
+    assert mind.next_intent(observed).skill == "break_seen_block"
+    remembered = mind.last_target_block
+    assert remembered is not None
+    subject = reading()
+    mind.next_intent(subject)
+    hint = cast(dict[str, object], provider.requests[-1].observation_summary["view_search"])
+    assert hint["source"] == "previously_seen_crosshair_cell"
+    assert hint["target_presence"] == "unconfirmed"
+    assert hint["pitch_candidates_degrees"] == list(REACQUIRE_PITCH_SWEEP_DEGREES)
+    x, y, z = remembered
+    body = subject.self_state
+    assert body.x is not None and body.y is not None and body.z is not None
+    expected, _ = angle_to_degrees(dx=x + 0.5 - body.x, dy=y + 0.5 - body.y, dz=z + 0.5 - body.z)
+    assert hint["suggested_yaw_degrees"] == pytest.approx(expected)
+    assert mind.last_target_block == remembered

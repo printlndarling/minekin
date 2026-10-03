@@ -1027,6 +1027,7 @@ class PlayerMind:
         self.intent_generation += 1
         summary = observation_summary(self.goal, reading)
         summary["recent_actions"] = list(self.recent_results)
+        summary["view_search"] = self._view_search_summary(reading)
         request = DecisionRequest(
             observation_ref=observation_ref(reading),
             needs=needs_from(self.goal, reading),
@@ -1111,6 +1112,12 @@ class PlayerMind:
                 "arguments": dict(intent.arguments),
                 "result": outcome.result.value,
                 "reason": outcome.reason,
+                "executed_product_id": (
+                    intent.plan.calls[0].product_id if intent.plan.calls else ""
+                ),
+                "inventory_after": (
+                    dict(_inventory_contents(reading_after)) if reading_after is not None else None
+                ),
             }
         )
         del self.recent_results[:-6]
@@ -1360,6 +1367,41 @@ class PlayerMind:
             "look for the next thing the milestone needs",
             {"yaw_degrees": yaw, "pitch_degrees": pitch},
         )
+
+    def _view_search_summary(self, reading: WorldObservationValue) -> dict[str, object]:
+        """Camera suggestions from public body state and a previously observed crosshair cell.
+
+        The remembered cell may now be empty. Its bearing is a place to look again, never a
+        claim that a neighbouring block exists. Suggestions do not execute or replace model asks.
+        """
+        yaw = ((reading.self_state.yaw_degrees or 0.0) + SCAN_YAW_STEP_DEGREES) % 360.0
+        pitches = SCAN_PITCH_CYCLE_DEGREES
+        source = "body_angles"
+        position = (reading.self_state.x, reading.self_state.y, reading.self_state.z)
+        if (
+            self.last_target_block is not None
+            and self.goal is not None
+            and blocker_for(reading, self.goal.product_id, grid_side=crafting_grid_side(reading))
+            == CRAFT_MATERIALS_MISSING
+            and all(value is not None for value in position)
+        ):
+            x, y, z = position
+            assert x is not None and y is not None and z is not None
+            bx, by, bz = self.last_target_block
+            try:
+                yaw, _ = angle_to_degrees(dx=bx + 0.5 - x, dy=by + 0.5 - y, dz=bz + 0.5 - z)
+            except ValueError:
+                pass
+            else:
+                pitches = REACQUIRE_PITCH_SWEEP_DEGREES
+                source = "previously_seen_crosshair_cell"
+        return {
+            "source": source,
+            "target_presence": "unconfirmed",
+            "suggested_yaw_degrees": yaw,
+            "suggested_pitch_degrees": pitches[self.scan_step % len(pitches)],
+            "pitch_candidates_degrees": list(pitches),
+        }
 
     def _reaim_at_resource(
         self, reading: WorldObservationValue

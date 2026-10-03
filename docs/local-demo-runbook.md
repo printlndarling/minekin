@@ -1004,3 +1004,5 @@ Windows后台脚本测试的两项失败来自Git Bash包装器把自带curl插�
 新关闭路径模型复验run `81ccd77af0df4b8ba330f33cb67fdcd8`（会话f0e60c2a22d844cbba9bd8ffe871bdd6、server run-56）20模型调用、17步CONFIRMED，正常停止，goal未成；不是容器修复失败的直接证据：服务端18:03:35明确“Kin was slain by Slime”，随后死亡画面sync0不可关闭，心智错误重试close三次。现死亡观察立即PLAYER_DEAD停止、无模型调用或GUI动作，等待期间死亡也撤出全部可行行为；148项相关回归、静态检查通过。自动复活/避敌仍属于未交付生存范围。
 
 基础合成夹具新增显式难度参数：run_controlled_server --difficulty（默认normal）、runner MINEKIN_DOMAIN_DIFFICULTY、模型复验工具 --difficulty。peaceful仅用于隔离GUI/材料机制，不宣称生存通过；原survival模式、离线loopback、默认normal与权限不变。41项工具/配置与12项runner路由测试、ruff/pyright与bash -n通过；随后用--difficulty peaceful复验当前Bridge。
+
+和平难度本机Docker run-57（非用户远程服，server.properties已核difficulty=peaceful），run `0e18b5d79437461e93fcd56847b5d647`、会话79b6c2debf054092bd21cb57c34f46c8：48真实调用、41步model/7步local_reflection、47步CONFIRMED、673帧/0观察拒收，动作13应用/175拒绝，松键正常，goal=false/STEP_BUDGET_SPENT。模型长时间仅pitch0扫描；第34步本地抬头55°才找到下一块木头，不能把转向确认视为目标进展。现模型summary补可见过的crosshair cell方向与通用俯仰候选（明确当前位置目标未确认，无隐藏读取），仍由模型选择；recent_actions保留目标参数并另报实际执行产物与后续库存。实际产物回归先红后绿，搜索方向和缺坐标回归通过；新模型字节仍待游戏验证。
