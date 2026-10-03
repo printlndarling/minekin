@@ -308,9 +308,9 @@ def _stopped_clients(
 
     Stopping is what makes this a switch rather than a second player: the new session has
     its own overlay directory, but the old client would still be in the same world. A
-    process this run cannot prove is its own is reported and never touched — taking over
-    or force-killing a stray client is the operator's call (`PROCESS-RECOVERY-001`), so
-    this path declines and the caller exits `PROCESS` with nothing new launched.
+    process whose identity cannot be read is reported and never touched; this path
+    declines with nothing new launched. A PID whose command line proves it belongs to
+    another process means the recorded client is gone, so it does not block a new one.
     """
 
     outcome = stop_recorded_clients(
@@ -319,7 +319,7 @@ def _stopped_clients(
         read_cmdline=read_cmdline,
         terminate=terminate,
     )
-    blocked = sorted(set(outcome.unresolved) | set(outcome.left_alone))
+    blocked = sorted(set(outcome.unresolved))
     if blocked:
         raise _reject(
             f"a recorded client is running that this run cannot prove is its own: {blocked}; "

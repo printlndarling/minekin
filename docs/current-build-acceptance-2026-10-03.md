@@ -20,3 +20,5 @@
 后续不同目标运行 `2cf80ab6afa1446b8a0e2f178316e5a5`（8块木板、run-64、本地和平模式）暴露数量不足即结束的缺陷：8次真实模型调用后 stop_reason=GOAL_HELD_IN_HAND，但 goal_met=false，不能计成功。已修正结束条件为库存总量满足且任一匹配堆栈已选中；数量不足时不提供为结束而选择部分产物的动作。三个回归涵盖数量不足、跨堆栈选中及动作选择，相关122项测试通过。基线d527116全量3630项通过、2项平台跳过。修正后的真跑run-65在启动阶段被 OLD_CLIENT_UNPROVEN 拒绝，尚未验证游戏结果；下一步查明旧客户端归属记录，不接管不明进程。
 
 史莱姆死亡发生在本机Docker的run-56（Minecraft 1.20.1，difficulty=normal，server-ip=127.0.0.1，port=25566）；服务端日志记载 Kin was slain by Slime。后续和平模式合成运行不属于生存验收，未连接用户远程服务器。
+
+run-65启动误拒绝已定位：auto-bundle把底层已经判为命令行不匹配的left_alone PID也列入未解决客户端。入口现在只以unresolved拒绝，之后仍重新查询客户端身份；外来进程不接管、不发信号，历史marker不删不改。新的回归先红后绿；相关73项通过、1项平台跳过，全仓pyright通过。run-66（89fec0bf9d674a4cb54feeced5f5ac0f）经同卷默认入口实际PLAYABLE、正常停止且松键确认，证明启动恢复；最终goal_met=false，另一个局部合成请求满足被误标为整个GOAL_ACHIEVED的问题仍待修复，因此不计目标成功。

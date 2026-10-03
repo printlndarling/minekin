@@ -767,24 +767,39 @@ def test_a_recorded_client_that_cannot_be_proven_blocks_the_start(
     tmp_path: Path, filled_store: list[str]
 ) -> None:
     killed: list[int] = []
-    for name, reader in (
-        ("unreadable", cmdline(None)),
-        ("reused-number", cmdline(b"someone-else\x00")),
-    ):
-        with pytest.raises(MinekinError) as raised:
-            prepare(
-                tmp_path,
-                [observation(PROTOCOL_1201, "1.20.1")],
-                run_root=marked_run_root(tmp_path / name),
-                liveness=alive,
-                read_cmdline=reader,
-                terminate=recording_terminate(killed),
-            )
+    with pytest.raises(MinekinError) as raised:
+        prepare(
+            tmp_path,
+            [observation(PROTOCOL_1201, "1.20.1")],
+            run_root=marked_run_root(tmp_path),
+            liveness=alive,
+            read_cmdline=cmdline(None),
+            terminate=recording_terminate(killed),
+        )
 
-        assert raised.value.category is ErrorCategory.PROCESS, name
-        assert "OLD_CLIENT_UNPROVEN" in str(raised.value)
+    assert raised.value.category is ErrorCategory.PROCESS
+    assert "OLD_CLIENT_UNPROVEN" in str(raised.value)
     # Unprovable is not a licence to signal anything.
     assert killed == []
+
+
+def test_a_proven_reused_pid_does_not_block_a_new_client_or_get_signalled(
+    tmp_path: Path, filled_store: list[str]
+) -> None:
+    killed: list[int] = []
+    root = marked_run_root(tmp_path)
+    markers_before = {path: path.read_bytes() for path in root.rglob("process.json")}
+    decision = prepare(
+        tmp_path,
+        [observation(PROTOCOL_1201, "1.20.1")],
+        run_root=root,
+        liveness=alive,
+        read_cmdline=cmdline(b"someone-else\x00"),
+        terminate=recording_terminate(killed),
+    )
+    assert decision.recipe is not None
+    assert killed == []
+    assert {path: path.read_bytes() for path in root.rglob("process.json")} == markers_before
 
 
 def test_a_client_that_never_exits_within_the_window_blocks_the_start(
