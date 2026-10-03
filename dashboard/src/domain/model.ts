@@ -436,6 +436,7 @@ export interface SessionStartRequest {
   readonly autonomousSteps: number;
 }
 export interface SessionJob {
+  readonly clientExitCode?: number | null;
   readonly jobId: string;
   readonly phase: string;
   readonly reason: string;

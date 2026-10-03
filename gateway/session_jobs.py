@@ -32,7 +32,9 @@ ACTIVE = {"preparing", "supervising", "stopping"}
 
 
 class StartCancelled(Exception):
-    pass
+    def __init__(self, reason: str = "START_CANCELLED") -> None:
+        self.reason = reason
+        super().__init__(reason)
 
 
 def _lock(path: Path) -> BinaryIO | None:
@@ -85,6 +87,8 @@ class SessionJobs:
                 if lease is not None:
                     lease.close()
                     job = {**job, "phase": "interrupted", "reason": "SUPERVISOR_NOT_RUNNING"}
+                elif (directory / f"{job.get('jobId')}.cancel").exists():
+                    job = {**job, "phase": "stopping"}
             return {"schemaVersion": SCHEMA, "job": job}
         except (ValueError, OSError):
             return {"schemaVersion": SCHEMA, "job": None, "error": "JOB_RECORD_UNREADABLE"}
@@ -182,6 +186,7 @@ class SessionJobs:
             job: dict[str, Any] = {
                 "schemaVersion": SCHEMA,
                 "jobId": job_id,
+                "supervisorPid": os.getpid(),
                 "phase": "preparing",
                 "reason": "",
                 "serverRevision": probe["revision"],
@@ -214,7 +219,16 @@ class SessionJobs:
         for name in (f"{job['jobId']}.json", "latest.json"):
             temporary = directory / f".{name}.{uuid.uuid4().hex}.tmp"
             temporary.write_bytes(payload)
-            temporary.replace(directory / name)
+            for attempt in range(11):
+                try:
+                    temporary.replace(directory / name)
+                    break
+                except PermissionError as error:
+                    # Windows readers can momentarily deny a rename while holding the
+                    # old file. Retry only sharing/access violations, with a small bound.
+                    if getattr(error, "winerror", None) not in {5, 32, 33} or attempt == 10:
+                        raise
+                    time.sleep(0.01)
 
     def request_stop(self) -> bool:
         record = self.read().get("job")
@@ -245,6 +259,8 @@ class SessionJobs:
         deadline = time.monotonic() + body["durationSeconds"]
         done = threading.Event()
         session_id = uuid.uuid4().hex
+        job["sessionId"] = session_id
+        stop_cause: list[str] = []
 
         def owns_client() -> bool:
             return any(
@@ -254,12 +270,10 @@ class SessionJobs:
             )
 
         def check() -> None:
-            if (
-                self._cancel.is_set()
-                or (directory / f"{job['jobId']}.cancel").exists()
-                or time.monotonic() >= deadline
-            ):
+            if self._cancel.is_set() or (directory / f"{job['jobId']}.cancel").exists():
                 raise StartCancelled()
+            if time.monotonic() >= deadline:
+                raise StartCancelled("RUN_DURATION_EXPIRED")
 
         def progress(completed: int, total: int) -> None:
             check()
@@ -270,8 +284,9 @@ class SessionJobs:
             while not done.wait(0.2):
                 try:
                     check()
-                except StartCancelled:
+                except StartCancelled as cancelled:
                     if owns_client():
+                        stop_cause.append(cancelled.reason)
                         stop_session(self.root, kin_selector=self.kin_selector)
                         return
 
@@ -279,6 +294,7 @@ class SessionJobs:
             target=stop_when_requested, name="minekin-job-stop", daemon=False
         )
         try:
+            self._publish(directory, job)
             check()
             decision = prepare_auto_bundle_start(
                 registry_path=server_config.REGISTRY_PATH,
@@ -322,21 +338,21 @@ class SessionJobs:
                     model_environment=env,
                 )
             )
+            normal = result.outcome.value == "STOPPED_ON_REQUEST" or (
+                result.outcome.value == "CLIENT_EXITED" and result.client_exit_code == 0
+            )
             job.update(
-                phase="ended"
-                if result.outcome.value in {"CLIENT_EXITED", "STOPPED_ON_REQUEST"}
-                else "failed",
-                reason=""
-                if result.outcome.value in {"CLIENT_EXITED", "STOPPED_ON_REQUEST"}
-                else result.outcome.value,
+                phase="ended" if normal else "failed",
+                reason=stop_cause[0] if stop_cause else "" if normal else result.outcome.value,
                 outcome=result.outcome.value,
                 inputReleaseFailed=result.as_dict()["input_release_failed"],
                 sessionId=launch.session_id,
                 runId=launch.run_id,
                 bridgeLostReason=result.as_dict()["bridge_lost_reason"],
+                clientExitCode=result.client_exit_code,
             )
-        except StartCancelled:
-            job.update(phase="ended", reason="START_CANCELLED")
+        except StartCancelled as cancelled:
+            job.update(phase="ended", reason=cancelled.reason)
         except MinekinError as error:
             job.update(phase="failed", reason=error.category.value)
         except Exception:

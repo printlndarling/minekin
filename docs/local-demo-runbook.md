@@ -1027,3 +1027,13 @@ run-59 `93ebaa4b01554a43882da2c0e0fc2a04`（会话3fa51cab34ea4970a4e458e5b1d00a
 2. **收尾读数**：两份作业记录（`/data/kin/kin-3x3-fresh-20261002/run/dashboard-jobs/<jobId>.json` 与只读端点 `GET /api/v1/dashboard/session/job`）均为 `phase=ended · reason="" · outcome=STOPPED_ON_REQUEST · inputReleaseFailed=false · bridgeLostReason="" · installed=0 · total=3639`（store 全复用、无下载）；两发的 stop receipt 都是 `release=NOTHING_HELD`（`stop-requests/<session>-generation-1-pid-299/844.receipt.json`）——观察模式从未持键，这是一条真读数而不是「已确认松键」的替代：持键场景的 `released/unconfirmed` 仍以第六节各发为准。
 3. **首提失败如实保留，修复不是放宽判据**：第一发（同一个 e2e）在 run-70 上被服务器拒止——`run-70/server.log:54-55` 逐字 `Disconnecting …name=Kin… You are not white-listed on this server!`，因为该容器起服务器时没带 `--allow-player Kin`（`run-70/whitelist.json` 为 `[]`）。修法是用既有工具重启服务器并显式 `--allow-player Kin`（`run-71/whitelist.json` 含 `Kin`/`8f40376b-c23f-3ef1-b553-5564eea75639`），e2e 字节随后两发连续通过；判据、1.20.1 登记、封存字节一字节未动。
 4. **边界**：两发都是观察模式（`autonomousSteps=0`，不调用模型、不持输入）、单 Kin、loopback、普通运行记录（不是 sealed evidence）。受管路径的取消（preparing/supervising）、时限到期、客户端崩溃/被杀的收尾映射目前只有单测覆盖（`tests/unit/test_gateway_session_jobs.py`、`tests/unit/test_session_supervision.py`），活体读数仍缺，列为下一卡 `C-MANAGED-START-CANCEL-TIMEOUT-RECOVERY-009`；暂停/恢复仍为具名边界。门：全量 `3675 passed, 2 skipped`、ruff check/format 0、全仓 pyright 0、四仓库检查与 `git diff --check` 0、前端 240 项与生产构建通过。
+
+## 受管会话生命周期复验
+
+跟踪工具仅接受显式本地夹具，需已有空闲 Gateway、已保存 127.0.0.1:25566、匹配客户端缓存及允许 Kin 的受控服务器。运行：
+
+```powershell
+uv run python tools/verify_managed_session_lifecycle.py --container minekin-server-config-20261003 --kin kin-3x3-fresh-20261002 --restart-gateway --output .tmp/managed-lifecycle.json
+```
+
+工具顺序验证准备取消、真实入服后的时限收尾、该会话客户端被杀，以及可选的精确 Gateway 进程丢失。`--restart-gateway --only-restart` 可单独复验恢复；它只读观察中断作业，不自动重放，必要时显式停止后有界等待空闲。结果写普通 JSON；观察模式不持租约，不证明持键释放。崩溃注入使用 Linux pidfd 与该会话身份复核，不适用于用户远程服务器或任意进程。

@@ -1699,9 +1699,11 @@ export function createGatewayAdapter(options: GatewayAdapterOptions | null): Kin
           typeof job.reason !== "string" || !validServerFields(job.fields) ||
           ![job.serverRevision, job.installed, job.total].every((n) => typeof n === "number" && Number.isSafeInteger(n) && n >= 0) ||
           !(job.outcome === null || typeof job.outcome === "string") ||
+          !(job.clientExitCode === undefined || job.clientExitCode === null || Number.isSafeInteger(job.clientExitCode)) ||
           !(job.inputReleaseFailed === null || typeof job.inputReleaseFailed === "boolean"))
         return fail("contract_mismatch", "会话启动记录契约不匹配。");
       const value: SessionJob = { jobId: job.jobId, phase: String(job.phase), reason: job.reason,
+        clientExitCode: typeof job.clientExitCode === "number" && Number.isSafeInteger(job.clientExitCode) ? job.clientExitCode : null,
         fields: job.fields as SessionJob["fields"], serverRevision: job.serverRevision as number,
         installed: job.installed as number, total: job.total as number, outcome: job.outcome as string | null,
         inputReleaseFailed: job.inputReleaseFailed as boolean | null };

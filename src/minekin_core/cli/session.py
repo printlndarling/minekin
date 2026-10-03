@@ -2013,6 +2013,7 @@ async def start_and_supervise(
                 else AutonomousRun(stop_reason=skill_stop[0])
             ).as_document(),
         )
+    run = replace(run, client_exit_code=prepared.supervisor.poll())
     # How the run ended is Core's own observation, whatever the Bridge reported
     # along the way.
     await record(

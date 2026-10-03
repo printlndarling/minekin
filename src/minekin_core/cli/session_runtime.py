@@ -105,6 +105,7 @@ class SessionRun:
     actions_refused: int = 0
     action_status_counts: dict[str, int] = field(default_factory=dict[str, int])
     release_failed: bool = False
+    client_exit_code: int | None = None
     input_refusal: str = ""
     #: The reason Core abandoned a connection attempt, empty when it abandoned
     #: none. Recorded on the document for the same reason `input_refusal` is: §5
@@ -212,6 +213,7 @@ class SessionRun:
             # own when the channel goes, so this is about Core's side of the
             # promise and is recorded rather than assumed.
             "input_release_failed": self.release_failed,
+            "client_exit_code": self.client_exit_code,
             # Why this run never held the input, in the arbiter's words. Empty
             # when it held what it asked for. The document rather than the
             # ledger, because a refusal means no release is ever sent and the
