@@ -166,7 +166,12 @@ def test_the_session_read_serves_over_http_with_the_handed_out_token(
     assert document["csrfToken"] == service.csrf_token
     assert document["state"] == "running"
     assert document["stopAllowed"] is True
-    assert document["availableControls"] == ["stop"]
+    # Served through `ReadService`, which composes the managed-start surface
+    # (`gateway/session_jobs.py`) onto this module's stop-only read: the base read
+    # still offers `stop` alone (and its own test above pins that), while the panel
+    # sees the two verbs the Gateway can actually carry out.
+    assert document["availableControls"] == ["stop", "start"]
+    assert set(document["unavailableControls"]) == {"pause", "resume"}
 
 
 # --------------------------------------------------------------------------------------

@@ -30,12 +30,13 @@ function sessionIsStale(observedAt: string, staleAfterMs: number, nowMs: number)
 
 /**
  * The session-control surface the goal authorizes (capability 6: 暂停、恢复和停止). Everything above
- * the form reports the observed session and the ONE verb this process performs safely today — stop.
- * start/pause/resume are listed as named `unavailableControls` rather than rendered as buttons that a
- * later POST would refuse. The submit mirrors the server's own gates: it is reachable only when
- * `stopAllowed` (a session that is not idle) and the operator has confirmed. A `blocked` stop report
- * — one that left inputs unconfirmed or a process unresolved — stays spelled as blocked, never folded
- * into a green one.
+ * the form reports the observed session and the verbs this Gateway actually carries out — `stop`
+ * here, and the managed `start` whose own bounded form sits above this panel. pause/resume are
+ * listed as named `unavailableControls` rather than rendered as buttons that a later POST would
+ * refuse. The submit mirrors the server's own gates: it is reachable only when `stopAllowed` (a
+ * session that is not idle) and the operator has confirmed. A `blocked` stop report — one that left
+ * inputs unconfirmed or a process unresolved — stays spelled as blocked, never folded into a green
+ * one.
  */
 export function SessionControlPanel({
   adapter,
@@ -143,7 +144,7 @@ export function SessionControlPanel({
           </form>
 
           {outcome?.ok && outcome.result !== null ? (
-            <StopReportView report={outcome.result.report} />
+            outcome.result.jobCancelRequested ? <p role="status">已请求取消启动，等待后台任务结束；请核对启动任务状态。</p> : <StopReportView report={outcome.result.report} />
           ) : null}
 
           {outcome !== null && !outcome.ok && outcome.failure !== null ? (

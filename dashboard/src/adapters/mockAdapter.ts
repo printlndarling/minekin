@@ -27,6 +27,7 @@ import {
   type SessionControlInfo,
   type StopRequest,
   type StopResult,
+  type SessionStartResult, type SessionJobInfo,
   type TimelineEvent,
 } from "../domain/model";
 import {
@@ -281,6 +282,10 @@ export function createMockAdapter(scenario: MockScenarioId, latencyMs: number): 
       serverReadIssued = true;
       return ok({ revision: serverRevision, fields: serverFields, authMode: "offline", loadError: null,
         observedAt: new Date().toISOString() }, "mock", "mock://server");
+    },
+    async sessionJob(): Promise<ReadResult<SessionJobInfo>> { return ok({ job: null }, "mock", "mock://session/job"); },
+    async startSession(): Promise<ReadResult<SessionStartResult>> {
+      return fail("write_refused", "模拟数据不能启动真实 Minecraft 客户端。");
     },
     async saveServer(request: ServerSaveRequest): Promise<ReadResult<ServerSaveResult>> {
       if (!serverReadIssued || request.revision !== serverRevision) return fail("write_refused", "server_config_changed");

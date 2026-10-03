@@ -42,8 +42,8 @@ describe("mock 会话读取与停止", () => {
     expect(result.source).toBe("mock");
     expect(result.value.state).toBe("running");
     expect(result.value.stopAllowed).toBe(true);
-    expect(result.value.availableControls).toEqual(["stop"]);
-    expect(result.value.unavailableControls.map((c) => c.verb)).toEqual(["start", "pause", "resume"]);
+    expect(result.value.availableControls).toEqual(["stop", "start"]);
+    expect(result.value.unavailableControls.map((c) => c.verb)).toEqual(["pause", "resume"]);
     // The token lives in the wire document and the decoder output, never in SessionControlInfo.
     expect(JSON.stringify(result.value)).not.toContain("csrf");
   });

@@ -558,8 +558,6 @@ export function buildMockConfig(
  * this product can perform safely today, and a stopped-only surface is what the fixture answers.
  */
 const MOCK_SESSION_UNAVAILABLE_CONTROLS: Record<string, string> = {
-  start:
-    "starting a session launches a client and joins a world; that must be hosted by the live `session start` process, which the read-only Gateway is not",
   pause: "the session state machine has no PAUSED state yet, so there is nothing to pause into",
   resume: "the session state machine has no PAUSED state yet, so there is nothing to resume",
 };
@@ -569,8 +567,9 @@ const MOCK_SESSION_UNAVAILABLE_CONTROLS: Record<string, string> = {
  * the shared `decodeSessionPayload` parses. The state mirrors the identity read (the same
  * `read_status` source the real server trusts), and `stopAllowed` follows the same predicate — a
  * session that is not idle. Like identity/config, `csrfToken` is the shared mock token the adapter
- * echoes back on the stop, never rendered. `availableControls` pins only `stop`; the withheld verbs
- * arrive as the `{verb: reason}` object the decoder turns into ordered rows.
+ * echoes back on the stop, never rendered. `availableControls` mirrors the composed live surface —
+ * `stop` plus the managed `start` the Gateway supervises — while `pause`/`resume` arrive as the
+ * `{verb: reason}` object the decoder turns into ordered rows.
  */
 export function buildMockSession(scenario: MockScenarioId, nowMs: number): Record<string, unknown> {
   const state = mockIdentityState(scenario);
@@ -578,7 +577,7 @@ export function buildMockSession(scenario: MockScenarioId, nowMs: number): Recor
     schemaVersion: "kin-dashboard-session/1.0.0",
     state,
     stopAllowed: state !== "idle",
-    availableControls: ["stop"],
+    availableControls: ["stop", "start"],
     unavailableControls: MOCK_SESSION_UNAVAILABLE_CONTROLS,
     csrfToken: MOCK_IDENTITY_CSRF,
     observedAt: iso(nowMs),

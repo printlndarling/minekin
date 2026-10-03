@@ -350,9 +350,10 @@ export interface ServerProbeResult {
  *
  * `stopAllowed` mirrors the write's own predicate (a session that is not idle), so the panel
  * enables 停止 for the same reason the server would act, not a poll that raced a launch.
- * `availableControls` is the verbs this surface offers today (just `stop`); `unavailableControls`
- * carries a name-and-reason pair per verb the state machine cannot yet honor (start/pause/resume),
- * so the boundary is rendered rather than faked with a button a later POST would refuse.
+ * `availableControls` is the verbs the composed surface offers today (`stop` plus the managed
+ * `start` `gateway/session_jobs.py` supervises); `unavailableControls` carries a name-and-reason
+ * pair per verb the state machine cannot yet honor (pause/resume), so the boundary is rendered
+ * rather than faked with a button a later POST would refuse.
  */
 export const SESSION_SCHEMA_VERSION = "kin-dashboard-session/1.0.0";
 
@@ -423,7 +424,30 @@ export interface StopReport {
 export interface StopResult {
   readonly state: KinRuntimeState;
   readonly report: StopReport;
+  readonly jobCancelRequested?: boolean;
 }
+
+export interface SessionStartRequest {
+  readonly confirm: true;
+  readonly serverRevision: number;
+  readonly allowRemote: boolean;
+  readonly maxDownloadBytes: number;
+  readonly durationSeconds: number;
+  readonly autonomousSteps: number;
+}
+export interface SessionJob {
+  readonly jobId: string;
+  readonly phase: string;
+  readonly reason: string;
+  readonly fields: ServerFields;
+  readonly serverRevision: number;
+  readonly installed: number;
+  readonly total: number;
+  readonly outcome: string | null;
+  readonly inputReleaseFailed: boolean | null;
+}
+export interface SessionJobInfo { readonly job: SessionJob | null; }
+export interface SessionStartResult { readonly jobId: string; readonly phase: "preparing"; }
 
 /**
  * The goal read model of `gateway/goal_read.py::goal_read`: the standing milestone the operator

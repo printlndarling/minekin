@@ -22,6 +22,13 @@ order is not arbitrary. Of the four verbs a panel eventually needs — start, pa
   `PAUSED` session state the frozen state machine does not have. Both are honest gaps, recorded in
   the read model's `unavailableControls` rather than faked.
 
+Since 2026-10-03 that "no detached supervisor" premise has a successor rather than a refutation:
+`gateway/session_jobs.py` is a supervised, bounded start owned by the Gateway process itself, and
+`ReadService.session` composes it onto this module's read — appending `start` to the available
+verbs and dropping the base reason above before anything is served. This module stays the stop-only
+surface its own tests pin; the served composition is pinned by the HTTP case in
+`tests/unit/test_gateway_session_control.py`.
+
 Ownership is the boundary that makes even stop safe to expose, and this layer does not weaken it:
 `stop_session` terminates a pid only after proving it from its recorded argv digest, and reports a
 process it cannot prove rather than killing it (a host that cannot read `/proc` proves nothing, so

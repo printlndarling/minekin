@@ -10,6 +10,7 @@ import { IdentityPanel } from "./panels/IdentityPanel";
 import { ConfigPanel } from "./panels/ConfigPanel";
 import { ServerPanel, useServerRead } from "./panels/ServerPanel";
 import { SessionControlPanel } from "./panels/SessionControlPanel";
+import { SessionStartPanel } from "./panels/SessionStartPanel";
 import { GoalPanel } from "./panels/GoalPanel";
 import { RecipeCoveragePanel } from "./panels/RecipeCoveragePanel";
 import { AlertsPanel } from "./panels/AlertsPanel";
@@ -198,7 +199,7 @@ function Dashboard({
           {page === "config" ? <ConfigPanel adapter={adapter} nowMs={nowMs} /> : null}
           {page === "server" ? <ServerPanel adapter={adapter} /> : null}
           {page === "identity" ? <IdentityPanel adapter={adapter} nowMs={nowMs} /> : null}
-          {page === "session" ? <SessionControlPanel adapter={adapter} nowMs={nowMs} /> : null}
+          {page === "session" ? <><SessionStartPanel adapter={adapter} /><SessionControlPanel adapter={adapter} nowMs={nowMs} /></> : null}
           {page === "data" ? (
             <CapabilityPanel
               descriptor={descriptor}

@@ -68,9 +68,11 @@ from gateway.session_control import (
 from gateway.session_control import (
     SCHEMA as SESSION_SCHEMA,
 )
+from gateway.session_jobs import JOB_PATH, START_PATH, SessionJobs
+from gateway.session_jobs import SCHEMA as JOB_SCHEMA
 from minekin_core.adapters.system.clock import SystemClock
 from minekin_core.application.ports.clock import Clock
-from minekin_core.cli.session import select_kin
+from minekin_core.cli.session import select_kin, stop_session
 from minekin_core.domain.errors import MinekinError
 
 DEFAULT_PORT = 8787
@@ -98,6 +100,8 @@ ROUTE_TABLE: tuple[tuple[str, str], ...] = (
     ("GET", GOAL_PATH),
     ("GET", SESSION_PATH),
     ("POST", SESSION_STOP_PATH),
+    ("GET", JOB_PATH),
+    ("POST", START_PATH),
     ("GET", RECIPE_PATH),
 )
 
@@ -117,6 +121,7 @@ class ReadService:
         self._control_lock = threading.Lock()
         self._model_test_lock = threading.Lock()
         self._server_probe_lock = threading.Lock()
+        self.jobs = SessionJobs(root, kin_selector)
         self.csrf_token = new_csrf_token()
 
     def snapshot(self) -> dict[str, Any]:
@@ -201,17 +206,59 @@ class ReadService:
             self._model_test_lock.release()
 
     def session(self) -> dict[str, Any]:
-        return session_read(
+        result = session_read(
             self._root,
             kin_selector=self._kin_selector,
             clock=self._clock,
             csrf_token=self.csrf_token,
         )
+        job = self.jobs.read().get("job")
+        result["availableControls"].append("start")
+        result["unavailableControls"].pop("start", None)
+        if job is not None and job.get("phase") in {"preparing", "supervising", "stopping"}:
+            result["stopAllowed"] = True
+        return result
+
+    def start(self, body: Mapping[str, Any]) -> tuple[int, dict[str, Any]]:
+        with self._control_lock:
+            try:
+                return self.jobs.start(body)
+            except MinekinError as error:
+                return refusal(400, "start_refused", error.category.value, schema=JOB_SCHEMA)
+            except (OSError, sqlite3.Error, ValueError):
+                return refusal(
+                    500,
+                    "start_preparation_failed",
+                    "Configuration or storage could not be prepared.",
+                    schema=JOB_SCHEMA,
+                )
 
     def stop(self, body: Mapping[str, Any]) -> tuple[int, dict[str, Any]]:
         # One control write at a time: the lock serialises a double-click so the second stop
         # waits for the first to run rather than racing it through `stop_session`.
         with self._control_lock:
+            if set(body) != {"confirm"} or body.get("confirm") is not True:
+                return refusal(
+                    400, "invalid_request", "confirm=true is required", schema=SESSION_SCHEMA
+                )
+            cancelled = self.jobs.request_stop()
+            if (
+                cancelled
+                and session_read(
+                    self._root,
+                    kin_selector=self._kin_selector,
+                    clock=self._clock,
+                    csrf_token=self.csrf_token,
+                )["state"]
+                == "idle"
+            ):
+                report = stop_session(self._root, kin_selector=self._kin_selector)
+                return 202, {
+                    "schemaVersion": SESSION_SCHEMA,
+                    "state": "idle",
+                    "report": report.as_dict(),
+                    "jobCancelRequested": True,
+                }
             return stop_from_request(self._root, kin_selector=self._kin_selector, body=body)
 
 
@@ -230,6 +277,9 @@ class ReadRequestHandler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
+        if parsed.path == JOB_PATH:
+            self._respond(HTTPStatus.OK, self.service.jobs.read())
+            return
         if parsed.path == SNAPSHOT_PATH:
             self._respond(HTTPStatus.OK, self.service.snapshot())
             return
@@ -288,6 +338,9 @@ class ReadRequestHandler(BaseHTTPRequestHandler):
             return
         if parsed.path == SESSION_STOP_PATH:
             self._handle_write(MAX_STOP_BODY_BYTES, SESSION_SCHEMA, self.service.stop)
+            return
+        if parsed.path == START_PATH:
+            self._handle_write(1024, JOB_SCHEMA, self.service.start)
             return
         self._refuse()
 
@@ -500,6 +553,7 @@ def main(argv: list[str] | None = None) -> int:
         pass
     finally:
         server.server_close()
+        service.jobs.close()
     return 0
 
 

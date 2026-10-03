@@ -125,9 +125,15 @@ def save_from_request(root: Path, *, body: Mapping[str, Any]) -> tuple[int, dict
     }
 
 
-def _profile_snapshot(root: Path, fields: dict[str, Any], revision: int) -> Path:
+def profile_snapshot(
+    root: Path, fields: dict[str, Any], revision: int, *, minecraft_version: str | None = None
+) -> Path:
     registry = load_reviewed_registry(json.loads(REGISTRY_PATH.read_bytes()))
     versions = sorted({entry.version_text for entry in registry.entries})
+    if minecraft_version is not None:
+        if minecraft_version not in versions:
+            raise ValueError("Requested version is not in the reviewed registry")
+        versions = [minecraft_version]
     document = {
         "schema_version": 2,
         "profile_id": "dashboard-server",
@@ -185,7 +191,7 @@ def probe_from_request(root: Path, *, body: Mapping[str, Any]) -> tuple[int, dic
             schema=SCHEMA,
         )
     try:
-        path = _profile_snapshot(root, _validated_fields(fields), revision)
+        path = profile_snapshot(root, _validated_fields(fields), revision)
         observation = run_probe(path, timeout_s=5)
         registry = load_reviewed_registry(json.loads(REGISTRY_PATH.read_bytes()))
         decision = resolve(registry, observation, os_arch=host_os_arch())

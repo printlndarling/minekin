@@ -8,9 +8,10 @@ import type { MockScenarioId } from "../fixtures/mockFixtures";
 /**
  * The session-control panel driven through the same shell the operator uses. These readings prove the
  * card's acceptance on the shipped UI: the observed session is shown, the stop is gated behind a
- * non-idle session plus an explicit confirmation, the withheld start/pause/resume verbs are named
- * rather than rendered as buttons, a clean stop and a blocked stop read apart, a server refusal stays
- * named — and the per-process CSRF token never reaches the rendered page.
+ * non-idle session plus an explicit confirmation, the offered stop/start verbs read as available
+ * while the withheld pause/resume verbs are named rather than rendered as buttons, a clean stop and
+ * a blocked stop read apart, a server refusal stays named — and the per-process CSRF token never
+ * reaches the rendered page.
  */
 
 function mockSession(scenario: MockScenarioId): DashboardConfig {
@@ -22,14 +23,15 @@ function openSession(scenario: MockScenarioId): void {
 }
 
 describe("会话面板：显示观察到的会话", () => {
-  it("运行场景显示 运行中 / 可执行 stop / 三个暂不开放动词，且不泄漏 CSRF 令牌", async () => {
+  it("运行场景显示 运行中 / 可执行 stop 与受管 start / 两个暂不开放动词，且不泄漏 CSRF 令牌", async () => {
     openSession("healthy_run_07");
     expect(await screen.findByTestId("panel-session-control")).toBeInTheDocument();
     await screen.findByTestId("session-state");
     expect(screen.getByTestId("session-state")).toHaveTextContent("运行中");
     expect(screen.getByTestId("session-available")).toHaveTextContent("stop");
+    expect(screen.getByTestId("session-available")).toHaveTextContent("start");
     const unavailable = screen.getByTestId("session-unavailable");
-    expect(unavailable).toHaveTextContent("启动");
+    expect(unavailable).not.toHaveTextContent("启动");
     expect(unavailable).toHaveTextContent("暂停");
     expect(unavailable).toHaveTextContent("恢复");
     // The token lives in the decoder and the adapter closure, never the rendered model.
@@ -52,7 +54,7 @@ describe("会话面板：停止只在会话非空闲且显式确认时可用", (
     expect(screen.getByTestId("session-state")).toHaveTextContent("空闲");
     expect(screen.getByTestId("session-stop-locked")).toHaveTextContent("没有运行中的会话");
     expect(screen.getByTestId("session-stop-submit")).toBeDisabled();
-    expect(screen.getByRole("checkbox")).toBeDisabled();
+    expect(screen.getByTestId("panel-session-control").querySelector("input[type=checkbox]")!).toBeDisabled();
   });
 
   it("运行会话：确认后才提交，成功后如实报告已停止并列出已终止进程", async () => {
@@ -61,7 +63,7 @@ describe("会话面板：停止只在会话非空闲且显式确认时可用", (
     const submit = screen.getByTestId("session-stop-submit");
     // A non-idle session alone is not a confirmed submission.
     expect(submit).toBeDisabled();
-    await userEvent.click(screen.getByRole("checkbox"));
+    await userEvent.click(screen.getByTestId("panel-session-control").querySelector("input[type=checkbox]")!);
     expect(submit).toBeEnabled();
     await userEvent.click(submit);
 
@@ -75,7 +77,7 @@ describe("会话面板：停止只在会话非空闲且显式确认时可用", (
   it("未定会话：停止回报 blocked，未确认释放不折成干净的已停止", async () => {
     openSession("bridge_disconnected");
     await screen.findByTestId("session-state");
-    await userEvent.click(screen.getByRole("checkbox"));
+    await userEvent.click(screen.getByTestId("panel-session-control").querySelector("input[type=checkbox]")!);
     await userEvent.click(screen.getByTestId("session-stop-submit"));
 
     expect(await screen.findByTestId("session-result-blocked")).toBeInTheDocument();
@@ -124,7 +126,7 @@ describe("会话面板：停止只在会话非空闲且显式确认时可用", (
         />,
       );
       await screen.findByTestId("session-state");
-      await userEvent.click(screen.getByRole("checkbox"));
+      await userEvent.click(screen.getByTestId("panel-session-control").querySelector("input[type=checkbox]")!);
       await userEvent.click(screen.getByTestId("session-stop-submit"));
 
       const refusal = await screen.findByTestId("session-refusal");

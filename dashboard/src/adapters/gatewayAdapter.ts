@@ -16,6 +16,7 @@ import {
   type ConfigSaveRequest,
   type ConfigSaveResult,
   type ModelTestResult,
+  type SessionStartRequest, type SessionStartResult, type SessionJobInfo, type SessionJob,
   type ServerConfigInfo, type ServerSaveRequest, type ServerSaveResult, type ServerProbeResult,
   type ConfigValue,
   type EvidenceRef,
@@ -1113,7 +1114,7 @@ export function decodeStopPayload(raw: unknown): StopDecode {
   if (state === null) issues.push("$.state: 未知会话状态");
   const report = parseStopReport(rec.report, issues);
   if (state === null || report === null || issues.length > 0) return { ok: false, issues };
-  return { ok: true, result: { state: state as KinRuntimeState, report } };
+  return { ok: true, result: { state: state as KinRuntimeState, report, jobCancelRequested: rec.jobCancelRequested === true } };
 }
 
 export type GoalDecode =
@@ -1586,6 +1587,8 @@ export function createGatewayAdapter(options: GatewayAdapterOptions | null): Kin
         return unconfigured();
       },
       async serverConfig(): Promise<ReadResult<ServerConfigInfo>> { return unconfigured(); },
+      async sessionJob(): Promise<ReadResult<SessionJobInfo>> { return unconfigured(); },
+      async startSession(): Promise<ReadResult<SessionStartResult>> { return unconfigured(); },
       async saveServer(): Promise<ReadResult<ServerSaveResult>> { return unconfigured(); },
       async probeServer(): Promise<ReadResult<ServerProbeResult>> { return unconfigured(); },
       async session(): Promise<ReadResult<SessionControlInfo>> {
@@ -1682,6 +1685,37 @@ export function createGatewayAdapter(options: GatewayAdapterOptions | null): Kin
       csrfToken = rec.csrfToken;
       return ok({ revision: rec.revision as number, fields: rec.fields as ServerConfigInfo["fields"],
         authMode: "offline", loadError: rec.loadError, observedAt: rec.observedAt }, "gateway", "gateway://server");
+    },
+    async sessionJob(signal?: AbortSignal): Promise<ReadResult<SessionJobInfo>> {
+      const response = await fetchJson(baseUrl, "/api/v1/dashboard/session/job", timeoutMs, signal);
+      if (!response.ok) return { ok: false, failure: response.failure };
+      const rec = asRecord(response.data);
+      if (rec === null || rec.schemaVersion !== "kin-dashboard-session-job/1.0.0" || rec.error !== undefined)
+        return fail("contract_mismatch", "会话启动记录不可读。");
+      if (rec.job === null) return ok({ job: null }, "gateway", "gateway://session/job");
+      const job = asRecord(rec.job);
+      if (job === null || typeof job.jobId !== "string" || !/^[a-f0-9]{32}$/.test(job.jobId) ||
+          !["preparing", "supervising", "stopping", "ended", "failed", "interrupted"].includes(String(job.phase)) ||
+          typeof job.reason !== "string" || !validServerFields(job.fields) ||
+          ![job.serverRevision, job.installed, job.total].every((n) => typeof n === "number" && Number.isSafeInteger(n) && n >= 0) ||
+          !(job.outcome === null || typeof job.outcome === "string") ||
+          !(job.inputReleaseFailed === null || typeof job.inputReleaseFailed === "boolean"))
+        return fail("contract_mismatch", "会话启动记录契约不匹配。");
+      const value: SessionJob = { jobId: job.jobId, phase: String(job.phase), reason: job.reason,
+        fields: job.fields as SessionJob["fields"], serverRevision: job.serverRevision as number,
+        installed: job.installed as number, total: job.total as number, outcome: job.outcome as string | null,
+        inputReleaseFailed: job.inputReleaseFailed as boolean | null };
+      return ok({ job: value }, "gateway", "gateway://session/job");
+    },
+    async startSession(request: SessionStartRequest, signal?: AbortSignal): Promise<ReadResult<SessionStartResult>> {
+      const response = await postWrite(baseUrl, "/api/v1/dashboard/session/start", Math.max(timeoutMs, 10_000), request, csrfToken, "启动请求已取消。", signal);
+      if (response.kind === "failure") return { ok: false, failure: response.failure };
+      if (response.kind === "refusal") return fail("write_refused", `${response.code}：${response.message}`);
+      const rec = asRecord(response.data);
+      if (rec === null || rec.schemaVersion !== "kin-dashboard-session-job/1.0.0" ||
+          typeof rec.jobId !== "string" || !/^[a-f0-9]{32}$/.test(rec.jobId) || rec.phase !== "preparing")
+        return fail("contract_mismatch", "会话启动响应契约不匹配。");
+      return ok({ jobId: rec.jobId, phase: "preparing" }, "gateway", "gateway://session/start");
     },
     async saveServer(request: ServerSaveRequest, signal?: AbortSignal): Promise<ReadResult<ServerSaveResult>> {
       const response = await postWrite(baseUrl, "/api/v1/dashboard/server/save", timeoutMs, request, csrfToken, "保存已取消。", signal);

@@ -42,6 +42,7 @@ from gateway.server import (
 )
 from gateway.server_config import SERVER_PROBE_PATH, SERVER_SAVE_PATH
 from gateway.session_control import SESSION_PATH, SESSION_STOP_PATH
+from gateway.session_jobs import START_PATH
 from gateway_support import joined_run
 from minekin_core.application.ports.clock import FakeClock
 
@@ -218,6 +219,7 @@ def test_the_route_table_lists_the_reads_and_the_three_writes(
         f"POST {SERVER_SAVE_PATH}",
         f"POST {SERVER_PROBE_PATH}",
         f"POST {SESSION_STOP_PATH}",
+        f"POST {START_PATH}",
     ]
     assert f"GET {IDENTITY_PATH}" in lines
     assert f"GET {CONFIG_PATH}" in lines

@@ -1,4 +1,5 @@
 import type {
+  SessionStartRequest, SessionStartResult, SessionJobInfo,
   AlertsEnvelope,
   ConfigInfo,
   ConfigSaveRequest,
@@ -64,15 +65,19 @@ export interface TimelineQuery {
  * The single seam the UI reads through. Swapping the mock for the real Gateway
  * means implementing this interface; no component fetches on its own.
  *
- * `identity`/`renameIdentity`, `config`/`saveConfig` and `session`/`stopSession` are the three
- * writes the whole-project goal authorizes. The rename commits a confirmed name change while the
- * Kin is stopped; the config save persists the operator's model and goal settings; the session
- * surface reads whether a stop is possible and commits an explicit, confirmed stop. None of them
- * starts, connects, moves or injects a game input — the only control verb `stopSession` performs
- * reduces activity (it releases held inputs and ends the session through Core's own
- * `stop_session`), and start/pause/resume stay recorded as unavailable reasons rather than wired.
+ * `identity`/`renameIdentity`, `config`/`saveConfig`, `session`/`stopSession` and
+ * `sessionJob`/`startSession` are the writes the whole-project goal authorizes. The rename commits
+ * a confirmed name change while the Kin is stopped; the config save persists the operator's model
+ * and goal settings; the session surface reads whether a stop is possible and commits an explicit,
+ * confirmed stop; the start surface commits one explicitly confirmed, bounded supervised launch
+ * the Gateway owns as a background job. No surface moves or injects a game input — `stopSession`
+ * only reduces activity (it releases held inputs and ends the session through Core's own
+ * `stop_session`), `startSession` only asks the Gateway's own supervisor to prepare and supervise a
+ * launch, and pause/resume stay recorded as unavailable reasons rather than wired.
  */
 export interface KinReadAdapter {
+  sessionJob(signal?: AbortSignal): Promise<ReadResult<SessionJobInfo>>;
+  startSession(request: SessionStartRequest, signal?: AbortSignal): Promise<ReadResult<SessionStartResult>>;
   describe(): AdapterDescriptor;
   snapshot(signal?: AbortSignal): Promise<ReadResult<KinSnapshot>>;
   timeline(query: TimelineQuery, signal?: AbortSignal): Promise<ReadResult<readonly TimelineEvent[]>>;

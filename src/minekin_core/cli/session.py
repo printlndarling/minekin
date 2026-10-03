@@ -1014,7 +1014,7 @@ def launched_minecraft_version(profile: Path) -> str:
     return version
 
 
-def _mind_for_run(kin_id: str) -> PlayerMind:
+def _mind_for_run(kin_id: str, environ: Mapping[str, str] | None = None) -> PlayerMind:
     """The mind for one run, from what this operator's environment configures.
 
     Built here rather than passed in from `bootstrap`: the run's own cost account has
@@ -1028,14 +1028,14 @@ def _mind_for_run(kin_id: str) -> PlayerMind:
     default product to fall back to: the demo that wants a pickaxe says so, in the harness.
     """
 
-    config = model_config()
+    config = model_config(environ)
     ledger = cost_ledger_for(config)
     return mind_for(
-        model_provider_for(config, ledger=ledger),
+        model_provider_for(config, ledger=ledger, environ=environ),
         ledger,
         kin_id=kin_id,
-        persona_seed=configured_persona_seed() or "",
-        goal=milestone_from_environment(),
+        persona_seed=configured_persona_seed(environ) or "",
+        goal=milestone_from_environment(environ),
         model_enabled=config.enabled,
     )
 
@@ -1074,6 +1074,8 @@ async def start_and_supervise(
     skill_plan: SkillPlan | None = None,
     skill_step_seconds: float = DEFAULT_SKILL_STEP_TIMEOUT_S,
     autonomous: AutonomousAsk | None = None,
+    before_client_launch: Callable[[], None] | None = None,
+    model_environment: Mapping[str, str] | None = None,
 ) -> tuple[SessionLaunch, SessionRun]:
     """Start a managed session with a live Bridge and stay with it until it ends.
 
@@ -1254,7 +1256,15 @@ async def start_and_supervise(
     # a client that finds no descriptor refuses to come up at all.
     await host.prepare(prepared.bridge_descriptor)
 
-    launch = await launch_prepared_async(prepared)
+    try:
+        if before_client_launch is not None:
+            before_client_launch()
+        launch = await launch_prepared_async(prepared)
+    except BaseException:
+        # A supervising caller can cancel a prepared launch before a JVM exists.
+        # Close the already-bound IPC listener even when its final gate refuses.
+        await host.close()
+        raise
     await advance_session(session, SessionState.WAITING_BRIDGE, record_transition)
     await advance_session(session, SessionState.HANDSHAKING, record_transition)
 
@@ -1668,7 +1678,11 @@ async def start_and_supervise(
             deadline_monotonic_ns=deadline,
         )
         timeout_ns = int(plan.skill_step_seconds * 1_000_000_000)
-        mind = _mind_for_run(str(prepared.kin_id))
+        mind = (
+            _mind_for_run(str(prepared.kin_id))
+            if model_environment is None
+            else _mind_for_run(str(prepared.kin_id), model_environment)
+        )
         # One counter across whichever ask this run carries: the ledger reader's question
         # is "which step of the sequence is this", and a scripted plan and a mind-written
         # one both answer it with a position rather than with a timestamp nobody aligns.

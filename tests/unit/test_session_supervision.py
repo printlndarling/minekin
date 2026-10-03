@@ -106,6 +106,42 @@ from session_support import (  # type: ignore[import-not-found]
 )
 
 SESSION_ID = "session-01"
+
+
+def test_cancel_after_ipc_preparation_closes_listener_without_spawning(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = ready_data_root(tmp_path, monkeypatch)
+    closed: list[bool] = []
+    original_close = BridgeIpcHost.close
+
+    async def close(host: BridgeIpcHost) -> None:
+        await original_close(host)
+        closed.append(True)
+
+    async def forbidden_launch(*args: Any, **kwargs: Any) -> SessionLaunch:
+        raise AssertionError("A cancelled prepared launch must not spawn")
+
+    def cancel() -> None:
+        raise RuntimeError("cancelled before launch")
+
+    monkeypatch.setattr(BridgeIpcHost, "close", close)
+    monkeypatch.setattr(session_module, "launch_prepared_async", forbidden_launch)
+    with pytest.raises(RuntimeError, match="cancelled before launch"):
+        asyncio.run(
+            start_and_supervise(
+                root=root,
+                profile=PROFILE,
+                java_executable=JAVA,
+                session_id=SESSION_ID,
+                generation=1,
+                before_client_launch=cancel,
+            )
+        )
+    assert closed == [True]
+
+
 GENERATION = 1
 JAVA = Path("/usr/lib/jvm/temurin-21/bin/java")
 CONNECTION_LIFECYCLE_TYPE = "minekin.v1.ConnectionLifecycle"

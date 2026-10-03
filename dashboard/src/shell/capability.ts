@@ -89,9 +89,17 @@ export const CAPABILITY_ROWS: readonly CapabilityRow[] = [
       "无法确认归属的进程一律 left_alone，不接管。报告按 stopped/blocked 如实呈现，未确认释放不折成干净停止。",
   },
   {
-    surface: "通用写控制端点（启动、暂停、恢复、移动、注入输入）",
+    surface: "受管会话启动（版本准备、监督运行与取消）",
+    state: "live",
+    source: "GET /api/v1/dashboard/session/job · POST /api/v1/dashboard/session/start",
+    detail:
+      "第四次被授权的写入：显式确认后由 Gateway 自己持有的一次受监督启动，绑定已保存服务器修订与版本探测（未登记版本具名拒绝），" +
+      "按时限、动作步数与下载预算收口；作业记录落盘，刷新页面不会自动重启，取消或到时先释放输入再停止客户端，结果如实回报。",
+  },
+  {
+    surface: "通用写控制端点（暂停、恢复、移动、注入输入）",
     state: "reserved",
     source: "本产品阶段不开放",
-    detail: "面板不启动、不暂停、不注入游戏输入，也不持有任何凭据；这一条是边界而不是缺口，需要另行授权才会改变。",
+    detail: "面板不暂停、不恢复、不注入游戏输入，也不持有任何凭据；这一条是边界而不是缺口，需要另行授权才会改变。",
   },
 ];

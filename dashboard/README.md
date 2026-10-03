@@ -1,6 +1,6 @@
 # Minekin Dashboard
 
-当前控制台提供状态与日志、模型与目标配置、模型连接测试、身份改名和停止会话。服务器设置、启动与暂停/恢复仍待实现；完整产品进度见[总规划](../docs/full-project-development-plan.md)。
+当前控制台提供状态与日志、模型与目标配置、模型连接测试、身份改名、停止会话，以及受管启动（显式确认、有界监督，见下文）。服务器设置已接入；暂停/恢复仍待实现；完整产品进度见[总规划](../docs/full-project-development-plan.md)。
 
 早期只读契约和身份写面文档保留为历史依据；现行范围以用户完整项目目标与当前实现为准。
 
@@ -14,7 +14,7 @@
 
 边界（并用测试固定，不只是写在文档里）：
 
-- 当前可保存配置、修改停止状态下的身份、测试模型及停止会话；启动/暂停/恢复未接入；
+- 当前可保存配置、修改停止状态下的身份、测试模型、启动受管会话及停止会话；暂停/恢复未接入；
 - 不连 Bridge、不连数据库、不持有凭据（页面上不出现 token/密钥字段）；
 - 不伪造 Live View：没有真帧源时不渲染 `<video>/<canvas>/<img>`，只显示具名缺口与前置条件；
 - 所有写请求复用同源、回环和 CSRF 校验；身份修改按修订号检查，连接测试拒绝并发重复调用；
@@ -61,7 +61,13 @@ pnpm run e2e            # Playwright，自动起 vite preview（127.0.0.1:5176�
 
 实际浏览器复验需要受控 Docker Gateway（仅宿主127.0.0.1:8789发布）与容器内127.0.0.1:25566的Minecraft 1.20.1服务：先构建Dashboard，再设置 `MINEKIN_GATEWAY_TARGET=http://127.0.0.1:8789`、`E2E_SERVER_CONFIG_LIVE=1`，运行 `pnpm e2e e2e/server-config-live.spec.ts`。用例保存配置、刷新验证持久化、检查OBSERVED/763/1.20.1/RESOLVED/Linux，验证草稿禁用与390px布局。只针对可修改的本地测试数据根运行；不指向用户远程服。
 
-启动会话仍待实现；探测成功只证明服务器状态响应和已登记客户端匹配。
+探测成功只证明服务器状态响应和已登记客户端匹配，不启动客户端；受管启动见下一节。
+
+## 受管会话启动（2026-10-03）
+
+打开 `#session`，在「启动受管会话」里选择运行方式（仅入服观察，或按已保存模型与目标自主运行）与时限，勾选确认后提交。启动是 Gateway 自己持有的一个有界后台任务：绑定已保存的服务器修订并先做版本探测（未登记版本具名拒绝），按时限、动作步数与下载预算收口；作业记录落盘（`GET /api/v1/dashboard/session/job`），刷新页面不会重启任务；「停止会话」会取消该任务——先释放输入再停止客户端。准备阶段的取消、时限到期与崩溃收尾由单元测试覆盖，浏览器用例只依赖真实读数。
+
+实际浏览器复验（2026-10-03，受控 Docker）：容器内以 `--allow-player Kin` 启动的受控 1.20.1 服务器（server run 目录 `run-71`）加位于同一容器、仅宿主 `127.0.0.1:8789` 发布的 Gateway；先 `pnpm build`，再以 `MINEKIN_GATEWAY_TARGET=http://127.0.0.1:8789`、`E2E_SESSION_START_LIVE=1` 运行 `pnpm e2e e2e/session-start-live.spec.ts`。两发连续 PASS（47.3s / 48.8s）：job `ce7c970b…` 与 `87d2fac0…` 都实际入服（服务端日志逐字 `Kin joined the game` / `lost connection: Disconnected`）并在页面读到「已入服/会话进入可玩」后从面板停止，作业读数 `STOPPED_ON_REQUEST`、`inputReleaseFailed=false`、`bridgeLostReason=""`，store 全复用（0/3639）；stop receipt 为 `release=NOTHING_HELD`（观察模式不持输入租约，不冒充「已确认松键」）。首提曾因容器白名单为空被服务器拒止（`You are not white-listed on this server!`），按既有工具加 `--allow-player Kin` 重启服务器后复验，判据未放宽。局限：观察模式、单 Kin、loopback；暂停/恢复与断连后恢复不在本页。
 
 ## 目录结构
 
