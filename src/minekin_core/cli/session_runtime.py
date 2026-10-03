@@ -41,7 +41,7 @@ from minekin_core.domain.host_publication import (
     host_publication,
 )
 from minekin_core.domain.information_class import admit_to_cognition
-from minekin_core.domain.perception import world_observation_violations
+from minekin_core.domain.perception import WorldObservationValue, world_observation_violations
 from minekin_core.domain.session_material import (
     RecordedSessionMaterial,
     identity_ledger_record,
@@ -346,6 +346,7 @@ async def supervise_session(
     world_observations: WorldObservationStore | None = None,
     until_skills_ready: Callable[[], Awaitable[object]] | None = None,
     on_run_skills: Callable[[], Awaitable[None]] | None = None,
+    on_world_observation: Callable[[WorldObservationValue], Awaitable[None]] | None = None,
 ) -> SessionRun:
     """Wait for the handshake, follow the Bridge, and stop when the client does.
 
@@ -466,6 +467,7 @@ async def supervise_session(
                     on_resource_pack_policy,
                     on_session_identity,
                     world_observations,
+                    on_world_observation,
                 ),
                 name="minekin-bridge-events",
             )
@@ -626,6 +628,7 @@ async def _read_events(
     on_resource_pack_policy: Callable[[int, str], Awaitable[None]] | None = None,
     on_session_identity: Callable[[int, Mapping[str, object]], Awaitable[None]] | None = None,
     world_observations: WorldObservationStore | None = None,
+    on_world_observation: Callable[[WorldObservationValue], Awaitable[None]] | None = None,
 ) -> None:
     """Apply every reported phase until the channel ends or the run is cancelled."""
 
@@ -730,7 +733,11 @@ async def _read_events(
                     None if attempt is None else attempt.generation.value
                 )
                 observation = decode_world_observation(message)
-                world_observations.admit(observation, world_observation_violations(observation))
+                admitted = world_observations.admit(
+                    observation, world_observation_violations(observation)
+                )
+                if admitted and on_world_observation is not None:
+                    await on_world_observation(observation)
             elif knowledge.admitted:
                 # Kept, but with nobody holding it: a reading the gate let through
                 # that no store was wired to receive. Without this the absence of

@@ -84,6 +84,7 @@ SKILL_STEP_RECORDED = "SkillStepRecorded"
 #: would see the last step's failure reason and `SessionInterrupted` and conclude the channel
 #: went, when the readings say the mind excluded a skill and stopped by name.
 AUTONOMOUS_RUN_HALTED = "AutonomousRunHalted"
+PLAYER_STATE_OBSERVED = "PlayerStateObserved"
 
 SESSION_EVENT_TYPES = frozenset(
     {
@@ -103,6 +104,7 @@ SESSION_EVENT_TYPES = frozenset(
         SESSION_IDENTITY_COMPARED,
         SKILL_STEP_RECORDED,
         AUTONOMOUS_RUN_HALTED,
+        PLAYER_STATE_OBSERVED,
     }
 )
 

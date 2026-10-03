@@ -21,6 +21,7 @@ value would lie.
 from __future__ import annotations
 
 import json
+import math
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any, Final, NamedTuple, cast
@@ -41,6 +42,7 @@ from minekin_core.adapters.sqlite.session_log import (
     INPUT_RELEASED,
     JOIN_OBSERVED,
     PLAYABLE_ESTABLISHED,
+    PLAYER_STATE_OBSERVED,
     PROCESS_FAILED,
     PROCESS_STARTED,
     RESOURCE_PACK_POLICY_APPLIED,
@@ -557,13 +559,7 @@ def build_snapshot(
         "skillSteps": _skill_steps_group(root, rows, source),
         "versions": _versions_group(root, rows, now, source),
         "bridgeHeartbeat": _heartbeat_group(report, rows, source, alive),
-        "selfState": gap(
-            "unavailable",
-            "Core 不落相干性快照行：health/food 只在会话内存里，只读投影取不到。",
-            source_ref=source("selfState"),
-            observed_at=None,
-            stale_after_ms=None,
-        ),
+        "selfState": self_state_group(rows, source("selfState"), alive=alive),
         "evidence": _evidence_group(root, rows, now, source),
         "liveView": gap(
             "not_wired",
@@ -573,6 +569,56 @@ def build_snapshot(
             stale_after_ms=None,
         ),
     }
+
+
+def self_state_group(rows: Sequence[EventRow], source_ref: str, *, alive: bool) -> dict[str, Any]:
+    sample = _latest(rows, frozenset({PLAYER_STATE_OBSERVED}))
+    current_run = rows[-1].run_id if rows else None
+    if sample is None or sample.run_id != current_run:
+        return gap(
+            "unavailable",
+            "当前运行尚无已校验的生命与饥饿读数。",
+            source_ref=source_ref,
+            observed_at=None,
+            stale_after_ms=None,
+        )
+    ending = _latest(rows, END_OF_RUN)
+    if not alive or (ending is not None and ending.position > sample.position):
+        return gap(
+            "unknown",
+            "无法确认当前客户端仍在世界中；旧读数不作为当前状态。",
+            source_ref=source_ref,
+            observed_at=sample.observed_at_utc,
+            stale_after_ms=10000,
+        )
+    health, food, maximum = (sample.payload.get(name) for name in ("health", "food", "max_health"))
+    valid = (
+        isinstance(health, (int, float))
+        and not isinstance(health, bool)
+        and isinstance(maximum, (int, float))
+        and not isinstance(maximum, bool)
+        and math.isfinite(health)
+        and math.isfinite(maximum)
+        and 0 <= health <= maximum
+        and maximum > 0
+        and isinstance(food, int)
+        and not isinstance(food, bool)
+        and 0 <= food <= 20
+    )
+    if not valid:
+        return gap(
+            "unknown",
+            "生命与饥饿记录不符合玩家 HUD 数据约束。",
+            source_ref=source_ref,
+            observed_at=sample.observed_at_utc,
+            stale_after_ms=10000,
+        )
+    return known(
+        {"health": health, "food": food},
+        source_ref=source_ref,
+        observed_at=sample.observed_at_utc,
+        stale_after_ms=10000,
+    )
 
 
 def _session_group(
@@ -1032,6 +1078,7 @@ TIMELINE_READING: Final[Mapping[str, tuple[str, str]]] = {
     HELLO_ACCEPTED: ("session", "applied"),
     JOIN_OBSERVED: ("server_feedback", "applied"),
     PLAYABLE_ESTABLISHED: ("session", "applied"),
+    PLAYER_STATE_OBSERVED: ("observation", "applied"),
     INPUT_LEASE_GRANTED: ("input", "applied"),
     INPUT_RELEASED: ("input", "released"),
     INPUT_REFUSED: ("input", "rejected"),

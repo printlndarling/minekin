@@ -98,6 +98,7 @@ from minekin_core.adapters.sqlite.session_log import (
     INPUT_RELEASED,
     JOIN_OBSERVED,
     PLAYABLE_ESTABLISHED,
+    PLAYER_STATE_OBSERVED,
     RESOURCE_PACK_POLICY_APPLIED,
     SESSION_IDENTITY_COMPARED,
     SESSION_INTERRUPTED,
@@ -114,6 +115,7 @@ from minekin_core.application.autonomous_play import (
     AutonomousStep,
     run_autonomous_loop,
 )
+from minekin_core.application.physiology import PhysiologySampler
 from minekin_core.application.player_mind import PlayerMind, mind_for
 from minekin_core.application.recovery_service import RecoveryReport
 from minekin_core.application.skill_plan import (
@@ -153,6 +155,7 @@ from minekin_core.domain.input_control import (
 )
 from minekin_core.domain.lease_watchdog import LeaseWatchdog
 from minekin_core.domain.model_access import cost_ledger_for, model_config
+from minekin_core.domain.perception import WorldObservationValue
 from minekin_core.domain.recovery import START_CLIENT
 from minekin_core.domain.session_material import RecordedSessionMaterial
 from minekin_core.domain.session_state import SessionState, SessionStateMachine
@@ -1594,12 +1597,21 @@ async def start_and_supervise(
         await release_inputs(plan.arbiter, ReleaseReason.TIMEOUT)
 
     # The readings the skills act on and conclude from, and the two cells the
-    # hooks below fill in for the run document to read afterwards. A store only
-    # when a plan will read it, because the runtime gates observation intake on
-    # its presence.
-    observations = (
-        WorldObservationStore() if skill_plan is not None or autonomous is not None else None
-    )
+    # hooks below fill in for the run document to read afterwards. Observation
+    # mode also admits player HUD readings; it still grants no input lease.
+    observations = WorldObservationStore()
+    physiology = PhysiologySampler()
+
+    async def on_world_observation(reading: WorldObservationValue) -> None:
+        payload = physiology.sample(reading)
+        if payload is not None:
+            await record(
+                PLAYER_STATE_OBSERVED,
+                payload,
+                source=EventSource.BRIDGE,
+                trust_class=TrustClass.BRIDGE_FILTERED,
+            )
+
     skill_outcome: list[SkillSequence | None] = [None]
     skill_stop: list[str] = [""]
     autonomous_outcome: list[AutonomousRun | None] = [None]
@@ -1628,7 +1640,7 @@ async def start_and_supervise(
         stops with that reason rather than driving a client it no longer may.
         """
 
-        if plan is None or plan.arbiter is None or plan.lease is None or observations is None:
+        if plan is None or plan.arbiter is None or plan.lease is None:
             # The checker's hazard: `playable` is only set once a lease exists.
             # A refusal to *start* is already recorded by `present_the_plan`, so
             # nothing is added here and the reason stays in `plan.refusal`.
@@ -1982,6 +1994,7 @@ async def start_and_supervise(
         # the plan's own branch is armed for the same reason: with no plan there is
         # a watcher that can never fire.
         world_observations=observations,
+        on_world_observation=on_world_observation,
         until_skills_ready=(
             None if (skill_plan is None and autonomous is None) else until_skills_ready
         ),
