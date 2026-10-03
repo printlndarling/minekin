@@ -4,6 +4,7 @@ import { isKnown } from "../domain/signals";
 import { fieldText, formatDateTime, formatNumber } from "../lib/format";
 import { Panel } from "../components/Panel";
 import { SignalValue } from "../components/SignalValue";
+import { PlayerVitalsPanel } from "./PlayerVitalsPanel";
 
 export function OverviewPanel({ snapshot, nowMs }: { readonly snapshot: KinSnapshot; readonly nowMs: number }) {
   const lease = snapshot.bridgeHeartbeat;
@@ -23,6 +24,8 @@ export function OverviewPanel({ snapshot, nowMs }: { readonly snapshot: KinSnaps
           }
         />
       </Panel>
+
+      <PlayerVitalsPanel signal={snapshot.selfState} nowMs={nowMs} />
 
       <Panel title="会话与版本" note="generation 变化意味着旧 lease、旧观察与新会话不可混用。" testId="panel-session">
         <SignalValue
@@ -49,12 +52,6 @@ export function OverviewPanel({ snapshot, nowMs }: { readonly snapshot: KinSnaps
           format={(v) =>
             `runtime ${fieldText(v.runtime, (r) => r)} · java ${fieldText(v.java, (j) => j)} · loader ${fieldText(v.fabricLoader, (f) => f)} · bridge ${fieldText(v.bridge, (b) => b)} · bundle ${fieldText(v.clientBundle, (c) => c)}`
           }
-        />
-        <SignalValue
-          label="自身状态（玩家可知）"
-          signal={snapshot.selfState}
-          nowMs={nowMs}
-          format={(v) => `生命 ${formatNumber(v.health)} · 饥饿 ${formatNumber(v.food, 0)}`}
         />
       </Panel>
 

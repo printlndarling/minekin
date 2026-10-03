@@ -1,0 +1,19 @@
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 10rem), 1fr));
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.reading {
+  display: grid;
+  gap: .5rem;
+  padding: 1rem;
+  border: 1px solid var(--line);
+  border-radius: .75rem;
+}
+
+.reading strong { font-size: 1.75rem; font-variant-numeric: tabular-nums; }
+.reading meter { width: 100%; accent-color: #6ee7b7; }
+.reading small, .notice { color: var(--text-dim); }
+.notice { font-size: .85rem; overflow-wrap: anywhere; }
