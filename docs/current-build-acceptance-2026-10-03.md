@@ -16,3 +16,7 @@
 默认自动入口普通复验 `a7313ff99b3c49998181289a5618ec6e`（会话dcf7bc6159a140d89248c19b5ff0cc55）：未指定候选profile，registry选包，实际PLAYABLE，服务端观察行走并停止，STOPPED_ON_REQUEST、input_release_failed=false。这是普通运行记录，不是第三份sealed evidence。
 
 116项版本解析/fixture/provenance/安装/自动入口回归通过。真实模型复验工具默认亦使用自动registry；`--bundle-profile`仅作新候选明确覆盖，两个入口及目标传参有定向测试。完整项目仍在推进：不同模型目标、异常恢复、后台启动和生存待验证/开发。
+
+后续不同目标运行 `2cf80ab6afa1446b8a0e2f178316e5a5`（8块木板、run-64、本地和平模式）暴露数量不足即结束的缺陷：8次真实模型调用后 stop_reason=GOAL_HELD_IN_HAND，但 goal_met=false，不能计成功。已修正结束条件为库存总量满足且任一匹配堆栈已选中；数量不足时不提供为结束而选择部分产物的动作。三个回归涵盖数量不足、跨堆栈选中及动作选择，相关122项测试通过。基线d527116全量3630项通过、2项平台跳过。修正后的真跑run-65在启动阶段被 OLD_CLIENT_UNPROVEN 拒绝，尚未验证游戏结果；下一步查明旧客户端归属记录，不接管不明进程。
+
+史莱姆死亡发生在本机Docker的run-56（Minecraft 1.20.1，difficulty=normal，server-ip=127.0.0.1，port=25566）；服务端日志记载 Kin was slain by Slime。后续和平模式合成运行不属于生存验收，未连接用户远程服务器。

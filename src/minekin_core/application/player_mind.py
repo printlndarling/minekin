@@ -428,7 +428,7 @@ def goal_slot(milestone: Milestone | None, reading: WorldObservationValue) -> in
 
 
 def goal_in_hand(milestone: Milestone | None, reading: WorldObservationValue) -> bool:
-    """Whether the milestone item is the slot the player has selected.
+    """Whether the milestone quantity is held and its item is selected.
 
     The direction is *hold* the thing, not obtain it once, so "in hand" is the condition that ends
     a run rather than "in the bag somewhere". An unread `selected_slot` counts as not in hand: the
@@ -436,10 +436,12 @@ def goal_in_hand(milestone: Milestone | None, reading: WorldObservationValue) ->
     was already held.
     """
 
-    if milestone is None:
+    if milestone is None or not goal_held(milestone, reading):
         return False
-    slot = goal_slot(milestone, reading)
-    return slot is not None and slot == reading.self_state.selected_slot
+    return any(
+        stack.item_id == milestone.product_id and stack.slot == reading.self_state.selected_slot
+        for stack in reading.inventory.stacks
+    )
 
 
 def enabler_to_stand_up(
@@ -499,9 +501,10 @@ def select_target(
 
     if milestone is None:
         return None
-    slot = goal_slot(milestone, reading)
-    if slot is not None and slot != reading.self_state.selected_slot:
-        return (milestone.product_id, slot)
+    if goal_held(milestone, reading) and not goal_in_hand(milestone, reading):
+        slot = goal_slot(milestone, reading)
+        if slot is not None:
+            return (milestone.product_id, slot)
     enabler = enabler_to_stand_up(milestone, reading, grid_side=grid_side)
     if enabler is not None and enabler[1] != reading.self_state.selected_slot:
         return (enabler[0].product_id, enabler[1])

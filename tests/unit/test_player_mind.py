@@ -45,6 +45,7 @@ from minekin_core.application.player_mind import (
     needs_from,
     next_craft,
     screen_open,
+    select_target,
     shortfalls,
     step_to_run,
 )
@@ -1838,3 +1839,23 @@ def test_reseeing_old_drop_does_not_replenish_exhausted_collect_budget() -> None
         mind.record_result(intent, failed, fresh)
     assert mind.next_intent(reading()).skill != "collect_dropped"
     assert mind.next_intent(old).skill != "collect_dropped"
+
+
+def test_selected_goal_item_does_not_finish_an_unmet_quantity() -> None:
+    mind, _ = mind_with(goal=PLANK_GOAL)
+    subject = reading(items=((0, PLANKS, 4),), self_state=state(selected_slot=0))
+    assert not mind.holds_goal(subject)
+    assert mind.next_intent(subject).reason != GOAL_ACHIEVED
+
+
+def test_goal_quantity_can_span_stacks_with_a_later_matching_stack_selected() -> None:
+    mind, _ = mind_with(goal=PLANK_GOAL)
+    subject = reading(items=((0, PLANKS, 4), (1, PLANKS, 4)), self_state=state(selected_slot=1))
+    assert mind.holds_goal(subject)
+    assert mind.next_intent(subject).reason == GOAL_ACHIEVED
+
+
+def test_partial_goal_output_does_not_displace_missing_materials_with_selection() -> None:
+    subject = reading(items=((3, PLANKS, 4),), self_state=state(selected_slot=0))
+    assert select_target(PLANK_GOAL, subject) is None
+    assert "select_hotbar" not in feasible_skill_ids(PLANK_GOAL, subject)
