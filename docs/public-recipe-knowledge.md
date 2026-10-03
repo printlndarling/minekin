@@ -32,4 +32,6 @@ $env:MINEKIN_RECIPE_ARCHIVE_SHA256='<可信下载记录中的SHA256>'
 
 composition root 按**实际启动 profile 的版本**绑定源，版本/摘要不符具名拒绝。没有配置时保持过渡目录路径；不自动扫描 `.tmp`，不偷偷联网。查询工具本身仍无游戏控制，所以工具输出 `runtime_planner_connected=false` 不代表配置过的 Core 未接线。
 
-目前接通的是**库存已足够的一批合成**与模型结构化目标参数；跨多层原料的自动规划、缺料时选择采集路线、完整 GUI 收尾仍需继续开发和真实游戏验收。配置公开源时，模型摘要明确 `multi_stage_plan_available=false`，不拿旧四种物品的递归计划冒充公开源完整规划。运行代码测试以脚本 provider 验证不同成品走同一个行为，不是实际 LLM 或游戏结果证明。
+2026-10-04 起接通的是**逐层欠序的第一步**：`PublicCraftKnowledge.step_toward` 用同一份公开配方把目标递归展开（依赖先序、每层按各自 `result.count` 折算批次、tag 替代项按容量共享先扣当前库存、自食配方按名字拒止），返回"这一帧真能跑的最前欠步"——目标产品的中间层（如合成石镐前的木棍）因此会被解成可执行的 `craft_take_result`，而不是把缺料一律报成 `CRAFT_MATERIALS_MISSING`；拒止词与优先级不变（先网格、再背包、最后开着的界面的配方书，`GUI_RECIPE_UNKNOWN`）。模型摘要相应给出 `craft_plan_source=public_version_stepwise`、`multi_stage_plan_available=true` 与当前那一步（不是完整路线），`as_document.multi_stage_planner` 为 `stepwise`。
+
+仍然未完成：**缺料时选择采集路线**（原始料见底时只报 `CRAFT_MATERIALS_MISSING`，采集由心侧改线）、**公开知识下的宽网格 enabler**（档案不携带 `opens_grid_side`，3×3 仍走既有策展路径或真实开窗读数）、**完整 GUI 收尾**与真实游戏验收。运行代码测试以脚本 provider 验证不同成品走同一个行为，不是实际 LLM 或游戏结果证明。

@@ -92,7 +92,8 @@ from minekin_core.domain.world_actions import (
 
 
 class CraftKnowledge(Protocol):
-    """Version knowledge can propose a payable batch, never grant input authority."""
+    """Version knowledge can propose a payable batch, or the first owed step toward a bigger
+    one, and never grant input authority."""
 
     def knows_product(self, product_id: str) -> bool: ...
 
@@ -103,6 +104,15 @@ class CraftKnowledge(Protocol):
     def refusal_for(
         self, product_id: str, reading: WorldObservationValue, *, grid_side: int
     ) -> str: ...
+
+    def step_toward(
+        self,
+        product_id: str,
+        reading: WorldObservationValue,
+        *,
+        quantity: int = 1,
+        grid_side: int,
+    ) -> BuildStep | str: ...
 
     def as_document(self) -> dict[str, object]: ...
 
@@ -1153,24 +1163,27 @@ class PlayerMind:
             summary["craft_options"] = list(self.craft_options_for(reading))
             summary["public_recipe_knowledge"] = self.craft_knowledge.as_document()
             if self.goal is not None:
-                payable = self.public_crafts(reading).get(self.goal.product_id)
-                summary["craft_plan_source"] = "public_version_direct_batch"
-                summary["multi_stage_plan_available"] = False
+                step = self.craft_knowledge.step_toward(
+                    self.goal.product_id,
+                    reading,
+                    quantity=self.goal.quantity,
+                    grid_side=crafting_grid_side(reading),
+                )
+                summary["craft_plan_source"] = "public_version_stepwise"
+                summary["multi_stage_plan_available"] = True
                 summary["craft_plan"] = (
                     []
-                    if payable is None
+                    if isinstance(step, str)
                     else [
                         {
-                            "product_id": payable.product_id,
-                            "required_total": max(0, self.goal.quantity - self.goal.held(reading)),
-                            "materials": dict(payable.ingredients),
+                            "product_id": step.product_id,
+                            "required_total": step.required_total,
+                            "materials": dict(step.materials),
                             "fits_current_grid": True,
                         }
                     ]
                 )
-                reason = self.craft_knowledge.refusal_for(
-                    self.goal.product_id, reading, grid_side=crafting_grid_side(reading)
-                )
+                reason = step if isinstance(step, str) else ""
                 summary["larger_grid_needed"] = reason == CRAFT_GRID_TOO_SMALL
                 summary["goal_recipe_refusal"] = reason
                 summary.pop("grid_enabler", None)
@@ -1446,24 +1459,34 @@ class PlayerMind:
             side = crafting_grid_side(reading)
             if item_total(reading.inventory, target) >= quantity:
                 return None, GOAL_ACHIEVED, ask
-            public_recipe = self.public_crafts(reading).get(target)
-            if public_recipe is not None:
-                return (
-                    SkillPlan(
-                        (
-                            SkillCall(
-                                name="craft_take_result",
-                                recipe_id=public_recipe.recipe_id,
-                                product_id=public_recipe.product_id,
-                                materials=public_recipe.ingredients,
-                            ),
-                        )
-                    ),
-                    f"craft {target} from public version knowledge; GUI confirmation required",
-                    ask,
-                )
             if self.craft_knowledge is not None:
-                return None, self.craft_knowledge.refusal_for(target, reading, grid_side=side), ask
+                step = self.craft_knowledge.step_toward(
+                    target, reading, quantity=quantity, grid_side=side
+                )
+                if not isinstance(step, str):
+                    toward = (
+                        f"craft {target} from public version knowledge; GUI confirmation required"
+                        if step.product_id == target
+                        else (
+                            f"craft {step.product_id} toward {target} from public version "
+                            "knowledge; GUI confirmation required"
+                        )
+                    )
+                    return (
+                        SkillPlan(
+                            (
+                                SkillCall(
+                                    name="craft_take_result",
+                                    recipe_id=step.recipe.recipe_id,
+                                    product_id=step.product_id,
+                                    materials=step.materials,
+                                ),
+                            )
+                        ),
+                        toward,
+                        ask,
+                    )
+                return None, step, ask
             step = step_to_run(reading, target, quantity, grid_side=side)
             if step is None:
                 return (

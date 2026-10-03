@@ -99,7 +99,7 @@ SYSTEM_PROMPT: str = (
     "pitch as well as yaw when horizontal turns reveal nothing. recent_actions separates the "
     "requested goal from executed_product_id and inventory_after; a prerequisite craft does "
     "not finish the requested goal. A confirmed screen open or close does "
-    "not pay missing materials: use the observed inventory and curated craft_plan to gather "
+    "not pay missing materials: use the observed inventory and craft_plan to gather "
     "or craft prerequisites before reopening an unaffordable grid. Then fill what its entry "
     'in "skill_parameters" asks for: an item id only in the spelling the request shows, a '
     "quantity only within the bounds it states, and nothing else — no key you were not given, "

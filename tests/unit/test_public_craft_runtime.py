@@ -22,7 +22,7 @@ from minekin_core.domain.perception import (
     SelfStateValue,
     WorldObservationValue,
 )
-from minekin_core.domain.recipe_catalog import RecipeProvenance
+from minekin_core.domain.recipe_catalog import BuildStep, RecipeProvenance
 
 
 def archive(tmp_path: Path) -> Path:
@@ -53,6 +53,12 @@ def archive(tmp_path: Path) -> Path:
                 "type": "minecraft:crafting_shapeless",
                 "ingredients": [{"item": "minecraft:oak_log"}],
                 "result": {"item": "minecraft:oak_planks", "count": 4},
+            },
+            "stick": {
+                "type": "minecraft:crafting_shaped",
+                "pattern": ["#", "#"],
+                "key": {"#": {"item": "minecraft:oak_planks"}},
+                "result": {"item": "minecraft:stick", "count": 4},
             },
         }.items():
             jar.writestr(f"data/minecraft/recipes/{name}.json", json.dumps(document))
@@ -204,3 +210,71 @@ def test_cli_composition_binds_knowledge_to_actual_launch_version(tmp_path: Path
             environment | {"MINEKIN_RECIPE_ARCHIVE_SHA256": "0" * 64},
             game_version="1.20.1",
         )
+
+
+def test_public_goal_resolves_to_the_first_intermediate_craft_step(tmp_path: Path) -> None:
+    provider = Provider("minecraft:stone_pickaxe")
+    mind = mind_for(provider, CostLedger(run_cost_cap=1000), craft_knowledge=source(tmp_path))
+    current = reading({"minecraft:oak_planks": 2, "minecraft:cobblestone": 3})
+    intent = mind.next_intent(current)
+    assert intent.kind is MindDecisionKind.INTENT
+    assert intent.skill == "craft_take_result"
+    call = intent.plan.calls[0]
+    assert call.product_id == "minecraft:stick"
+    assert call.recipe_id == "minecraft:stick"
+    assert dict(call.materials) == {"minecraft:oak_planks": 2}
+    knowledge = mind.craft_knowledge
+    assert knowledge is not None
+    step = knowledge.step_toward("minecraft:stone_pickaxe", current, quantity=1, grid_side=2)
+    assert isinstance(step, BuildStep)
+    assert step.product_id == "minecraft:stick"
+    assert step.required_total == 2
+
+
+def test_public_chain_closes_on_the_product_once_the_layer_is_paid(tmp_path: Path) -> None:
+    knowledge = source(tmp_path)
+    gui = GuiScreenValue("minecraft:crafting", 4, frozenset({"minecraft:stone_pickaxe"}))
+    current = reading({"minecraft:stick": 2, "minecraft:cobblestone": 3}, gui=gui)
+    step = knowledge.step_toward("minecraft:stone_pickaxe", current, quantity=1, grid_side=3)
+    assert isinstance(step, BuildStep)
+    assert step.product_id == "minecraft:stone_pickaxe"
+    assert step.recipe.recipe_id == "minecraft:stone_pickaxe"
+    assert dict(step.materials) == {"minecraft:cobblestone": 3, "minecraft:stick": 2}
+
+
+def test_step_toward_names_missing_raw_materials_before_any_layer_can_pay(
+    tmp_path: Path,
+) -> None:
+    knowledge = source(tmp_path)
+    current = reading({"minecraft:cobblestone": 3})
+    assert (
+        knowledge.step_toward("minecraft:stone_pickaxe", current, quantity=1, grid_side=3)
+        == "CRAFT_MATERIALS_MISSING"
+    )
+
+
+def test_step_toward_says_when_only_the_grid_blocks_the_owed_step(tmp_path: Path) -> None:
+    knowledge = source(tmp_path)
+    current = reading({"minecraft:stick": 2, "minecraft:cobblestone": 3})
+    assert (
+        knowledge.step_toward("minecraft:stone_pickaxe", current, quantity=1, grid_side=2)
+        == "CRAFT_GRID_TOO_SMALL"
+    )
+
+
+def test_step_toward_defers_to_the_open_screen_recipe_book(tmp_path: Path) -> None:
+    knowledge = source(tmp_path)
+    items = {"minecraft:oak_planks": 2, "minecraft:cobblestone": 3}
+    blind = GuiScreenValue("minecraft:crafting", 4, frozenset())
+    assert (
+        knowledge.step_toward(
+            "minecraft:stone_pickaxe", reading(items, gui=blind), quantity=1, grid_side=3
+        )
+        == "GUI_RECIPE_UNKNOWN"
+    )
+    named = GuiScreenValue("minecraft:crafting", 4, frozenset({"minecraft:stick"}))
+    step = knowledge.step_toward(
+        "minecraft:stone_pickaxe", reading(items, gui=named), quantity=1, grid_side=3
+    )
+    assert isinstance(step, BuildStep)
+    assert step.product_id == "minecraft:stick"
