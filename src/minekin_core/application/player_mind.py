@@ -868,6 +868,9 @@ class MindIntent:
     observation_ref: str = ""
     model_refusal: str = ""
     arguments: Mapping[str, object] = field(default_factory=dict[str, object])
+    #: Input provenance for a model-selected step, not proof of a trait causing it.
+    #: Local reflection does not currently consult personality and must not claim it did.
+    persona_context_ref: str | None = None
 
     @property
     def skill(self) -> str:
@@ -889,6 +892,7 @@ class MindIntent:
             "observation_ref": self.observation_ref,
             "model_refusal": self.model_refusal,
             "arguments": dict(self.arguments),
+            "persona_context_ref": self.persona_context_ref,
         }
 
 
@@ -1124,6 +1128,11 @@ class PlayerMind:
             observation_ref=request.observation_ref,
             model_refusal=refusal,
             arguments=honoured,
+            persona_context_ref=(
+                str(self.persona.decision_context()["manifest_sha256"])
+                if source == DECISION_FROM_MODEL and self.persona is not None
+                else None
+            ),
         )
         self.last_intent = intent
         return intent

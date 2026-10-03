@@ -16,6 +16,7 @@ from typing import Any
 import pytest
 
 from minekin_core.adapters.filestore.persona_store import read_persona, write_persona
+from minekin_core.adapters.model import OffModelProvider
 from minekin_core.adapters.model.openai_compatible import OpenAICompatibleProvider
 from minekin_core.application.player_mind import mind_for
 from minekin_core.cli.session import mind_for_run
@@ -138,9 +139,33 @@ def test_mind_passes_the_saved_manifest_to_its_real_provider(
         mining=None,
         gui=None,
     )
-    mind.next_intent(reading)
+    intent = mind.next_intent(reading)
     assert arrivals[0]["persona"]["traits"] == dict(persona.traits)
     assert mind.persona == persona
+    assert mind.as_document()["persona_context"] == persona.decision_context()
+    assert (
+        intent.as_document()["persona_context_ref"] == persona.decision_context()["manifest_sha256"]
+    )
+
+
+def test_local_reflection_does_not_claim_a_personality_influence() -> None:
+    persona = derive_persona("kin-persona", "saved-seed")
+    mind = mind_for(
+        OffModelProvider(), CostLedger(run_cost_cap=500_000), kin_id="kin-persona", persona=persona
+    )
+    reading = WorldObservationValue(
+        generation=1,
+        game_tick=100,
+        self_state=SelfStateValue(20, 20, 20, 5, True, yaw_degrees=0, pitch_degrees=0),
+        aim=None,
+        inventory=InventoryValue(1, ()),
+        visible_entities=(),
+        mining=None,
+        gui=None,
+    )
+    intent = mind.next_intent(reading)
+    assert intent.source == "local_reflection"
+    assert intent.as_document()["persona_context_ref"] is None
     assert mind.as_document()["persona_context"] == persona.decision_context()
 
 
