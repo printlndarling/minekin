@@ -18,6 +18,8 @@ import pytest
 from minekin_core.adapters.filestore.persona_store import read_persona, write_persona
 from minekin_core.adapters.model.openai_compatible import OpenAICompatibleProvider
 from minekin_core.application.player_mind import mind_for
+from minekin_core.cli.session import mind_for_run
+from minekin_core.domain.errors import MinekinError
 from minekin_core.domain.model_access import CostLedger, Decision, DecisionRequest, model_config
 from minekin_core.domain.perception import InventoryValue, SelfStateValue, WorldObservationValue
 from minekin_core.domain.persona import derive_persona
@@ -154,3 +156,35 @@ def test_persona_from_another_kin_is_refused_before_any_call(
             persona=derive_persona("kin-persona", "saved-seed"),
         )
     assert arrivals == []
+
+
+def test_runtime_reloads_saved_personality_not_the_environment_seed(tmp_path: Path) -> None:
+    original = derive_persona("kin-persona", "original-seed")
+    write_persona(tmp_path, original)
+    first = mind_for_run("kin-persona", {"MINEKIN_PERSONA_SEED": "env-first"}, kin_dir=tmp_path)
+    restarted = mind_for_run(
+        "kin-persona", {"MINEKIN_PERSONA_SEED": "env-changed"}, kin_dir=tmp_path
+    )
+    assert first.persona == restarted.persona == original
+    assert restarted.persona_seed == ""
+    assert first.as_document()["persona_context"] == restarted.as_document()["persona_context"]
+    assert read_persona(tmp_path) == original
+
+
+def test_runtime_missing_persona_does_not_create_or_redraw(tmp_path: Path) -> None:
+    missing = tmp_path / "legacy-kin"
+    mind = mind_for_run("kin-persona", {"MINEKIN_PERSONA_SEED": "new-seed"}, kin_dir=missing)
+    assert mind.persona is None
+    assert mind.as_document()["persona_context"] is None
+    assert mind.persona_seed == ""
+    assert not missing.exists()
+
+
+def test_runtime_refuses_corrupt_or_foreign_saved_persona(tmp_path: Path) -> None:
+    original = derive_persona("other-kin", "seed")
+    path = write_persona(tmp_path, original)
+    with pytest.raises(ValueError, match="belong to this Kin"):
+        mind_for_run("kin-persona", {}, kin_dir=tmp_path)
+    path.write_text("{broken-json", encoding="utf-8")
+    with pytest.raises(MinekinError, match="readable JSON"):
+        mind_for_run("kin-persona", {}, kin_dir=tmp_path)

@@ -37,6 +37,7 @@ from minekin_core.adapters.bridge.ipc import (
     BridgeSession,
     monotonic_ns,
 )
+from minekin_core.adapters.filestore.persona_store import persona_path, read_persona
 from minekin_core.adapters.launcher.artifacts import ArtifactStore, SessionOverlayStore
 from minekin_core.adapters.launcher.assets import materialise_assets
 from minekin_core.adapters.launcher.game_options import prepare_game_options
@@ -134,7 +135,6 @@ from minekin_core.cli.session_runtime import (
     advance_session,
     supervise_session,
 )
-from minekin_core.config import configured_persona_seed
 from minekin_core.domain.auth_policy import AuthPolicy
 from minekin_core.domain.connection import ConnectionGenerations, ConnectionState
 from minekin_core.domain.errors import ErrorCategory, MinekinError, Retryability
@@ -1014,7 +1014,9 @@ def launched_minecraft_version(profile: Path) -> str:
     return version
 
 
-def _mind_for_run(kin_id: str, environ: Mapping[str, str] | None = None) -> PlayerMind:
+def mind_for_run(
+    kin_id: str, environ: Mapping[str, str] | None = None, *, kin_dir: Path | None = None
+) -> PlayerMind:
     """The mind for one run, from what this operator's environment configures.
 
     Built here rather than passed in from `bootstrap`: the run's own cost account has
@@ -1030,11 +1032,16 @@ def _mind_for_run(kin_id: str, environ: Mapping[str, str] | None = None) -> Play
 
     config = model_config(environ)
     ledger = cost_ledger_for(config)
+    # The saved manifest owns personality. Environment seeds only create a Kin;
+    # they never redraw it during a run. Legacy roots without a manifest stay unknown.
+    persona = (
+        read_persona(kin_dir) if kin_dir is not None and persona_path(kin_dir).exists() else None
+    )
     return mind_for(
         model_provider_for(config, ledger=ledger, environ=environ),
         ledger,
         kin_id=kin_id,
-        persona_seed=configured_persona_seed(environ) or "",
+        persona=persona,
         goal=milestone_from_environment(environ),
         model_enabled=config.enabled,
     )
@@ -1678,10 +1685,10 @@ async def start_and_supervise(
             deadline_monotonic_ns=deadline,
         )
         timeout_ns = int(plan.skill_step_seconds * 1_000_000_000)
-        mind = (
-            _mind_for_run(str(prepared.kin_id))
-            if model_environment is None
-            else _mind_for_run(str(prepared.kin_id), model_environment)
+        mind = mind_for_run(
+            str(prepared.kin_id),
+            model_environment,
+            kin_dir=kin_directory(root, KinId(prepared.kin_id)),
         )
         # One counter across whichever ask this run carries: the ledger reader's question
         # is "which step of the sequence is this", and a scripted plan and a mind-written
