@@ -43,6 +43,17 @@ bash test-orchestrator/runner/demo.sh --browse
 
 固定种子的平坦世界不长树，所以 `--skills` 与 `--autonomous` 都会自己向 harness 要一段可破坏的资源（入口在内部设 `MINEKIN_DOMAIN_RESOURCE_TRUNK=1`，把橡木原木堆在 Kin 正前方）；没有可看的东西，选择器就无从选择。操作者**不需要也不应该**再手工设它：`demo.sh` 已经设了，而它和 `MINEKIN_DOMAIN_USE_TARGET`/`MINEKIN_DOMAIN_PROBE_SECOND` 同设会被 `domain.sh` 具名拒止。
 
+想吃东西的场景另有夹具：`MINEKIN_DOMAIN_HUNGRY_KIN=1`（直接设在 demo 命令的环境里，`run.sh` 按名转发）会在 Kin 入服时给它三只苹果，再用一发短促高浓度饥饿效果把饥饿条清空——食用技能的前提是"饥饿条有空间"，而平坦受控世界不会在任何有用时限内自己把条耗下来。它与 `MINEKIN_DOMAIN_USE_TARGET` 同设会被具名拒止：使用键会先打中准星上的方块，那会让每一次进食都成拒绝。仓库里的确定性探针计划是 `examples/skill-plan-eat.json`（先转向空处让准星落空，再吃苹果）：
+
+```bash
+MINEKIN_SERVER_JAR=.tmp/mc-1.20.1-server.jar \
+MINEKIN_DOMAIN_HUNGRY_KIN=1 \
+MINEKIN_DEMO_SKILL_PLAN=/src/examples/skill-plan-eat.json \
+  bash test-orchestrator/runner/demo.sh --skills --again
+```
+
+自主入口同理，把目标留空就是"没有常驻目标的 Kin"（选择器自己决定先吃）：`MINEKIN_DOMAIN_HUNGRY_KIN=1 MINEKIN_DEMO_GOAL_PRODUCT= bash test-orchestrator/runner/demo.sh --autonomous --again`。两发都还没跑过活体（2026-10-03 首发被本机后台内存守卫中断），读数落地后按第五节编号补登。
+
 ## 三、跑完之后在哪里读结果
 
 1. **终端里的 run 文档**。会话退出前，`domain.sh` 会把 Core 的 run 文档原样打印一行。`--autonomous` 那次要读的是 `run.autonomous`：`direction`（这次的目标）、`steps[]`（每一步的 `intent.skill / intent.reason / result / reason / attribution / result_observation_ref`）、`stop_reason`、以及 mind 自己的账（`decision_source`、`model_enabled`、`model_refusal`、`model_calls`、`model_spent_micro`）。
