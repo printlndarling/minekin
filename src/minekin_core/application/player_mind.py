@@ -1305,6 +1305,10 @@ class PlayerMind:
                 self.goal is not None
                 and built_reason in {"REQUEST_ALREADY_SATISFIED", CRAFT_MATERIALS_MISSING}
             )
+            or (
+                built_reason == CRAFT_GRID_TOO_SMALL
+                and self._enabler_to_stand_up(reading) is not None
+            )
         ):
             self.last_precondition = built_reason
             refusal = refusal or built_reason
@@ -1316,7 +1320,10 @@ class PlayerMind:
             # or trap reflection retrying the same unaffordable craft indefinitely —
             # and a meal named past its precondition is the same shape: the refusal is
             # filed, and the offer's own candidates (another food, a turn, the gather)
-            # get their one try rather than the run ending on one wrong guess.
+            # get their one try rather than the run ending on one wrong guess. The grid
+            # word joins them only with the enabler already in the bag: standing it up
+            # is a runnable route (`_enabler_to_stand_up`), so an ask that hit the wall
+            # is not allowed to halt a run that has a placement left to make.
             while remaining and plan is None:
                 skill = self._reflect(remaining, needs, reading)
                 plan, built_reason, honoured = self._call_for(skill, reading, {})

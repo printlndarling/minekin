@@ -381,6 +381,31 @@ def test_public_goal_summary_names_the_held_enabler_to_stand_up(tmp_path: Path) 
     }
 
 
+def test_public_grid_block_reroutes_into_standing_the_enabler_up(tmp_path: Path) -> None:
+    provider = Provider("minecraft:stone_pickaxe")
+    mind = mind_for(
+        provider,
+        CostLedger(run_cost_cap=1000),
+        goal=STONE_PICKAXE_GOAL,
+        craft_knowledge=source(tmp_path),
+    )
+    current = reading(
+        {
+            "minecraft:crafting_table": 1,
+            "minecraft:stick": 2,
+            "minecraft:cobblestone": 3,
+            "minecraft:oak_planks": 2,
+        },
+        selected_slot=3,
+    )
+    intent = mind.next_intent(current)
+    assert intent.kind is MindDecisionKind.INTENT
+    assert intent.skill == "select_hotbar"
+    assert intent.source == "local_reflection"
+    assert intent.arguments == {"slot": 0, "expected_item_id": "minecraft:crafting_table"}
+    assert mind.last_precondition == "CRAFT_GRID_TOO_SMALL"
+
+
 def test_public_goal_selects_the_held_enabler_to_stand_it_up(tmp_path: Path) -> None:
     provider = SkillProvider("select_hotbar")
     mind = mind_for(
