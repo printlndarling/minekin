@@ -843,7 +843,7 @@ def test_an_ask_for_a_product_the_table_does_not_know_holds_the_uncurated_word()
     assert intent.plan.calls == ()
 
 
-def test_an_ask_the_bag_cannot_pay_for_holds_the_materials_word() -> None:
+def test_an_ask_the_bag_cannot_pay_for_reroutes_with_the_materials_word() -> None:
     """The offer was built from a craft the bag *can* pay for (two planks make sticks), while the
     ask named a product whose chain it cannot (a table wants four planks). The two questions are
     separate, so the answer is honoured as a choice and refused as a plan, under the word that
@@ -860,8 +860,12 @@ def test_an_ask_the_bag_cannot_pay_for_holds_the_materials_word() -> None:
 
     intent = mind.next_intent(reading(items=((0, PLANKS, 2),)))
 
-    assert intent.kind is MindDecisionKind.HOLD
-    assert intent.reason == CRAFT_MATERIALS_MISSING
+    assert intent.kind is MindDecisionKind.INTENT
+    assert intent.skill == "craft_take_result"
+    assert intent.plan.calls[0].product_id == STICK
+    assert intent.source == DECISION_FROM_LOCAL
+    assert intent.model_refusal == CRAFT_MATERIALS_MISSING
+    assert mind.last_precondition == CRAFT_MATERIALS_MISSING
 
 
 def test_an_ask_for_a_three_by_three_selects_the_stood_enabler() -> None:
@@ -1859,3 +1863,71 @@ def test_partial_goal_output_does_not_displace_missing_materials_with_selection(
     subject = reading(items=((3, PLANKS, 4),), self_state=state(selected_slot=0))
     assert select_target(PLANK_GOAL, subject) is None
     assert "select_hotbar" not in feasible_skill_ids(PLANK_GOAL, subject)
+
+
+@pytest.mark.parametrize("target,quantity", [(PLANKS, 4), (STICK, 4)])
+def test_a_satisfied_model_subgoal_continues_the_outstanding_milestone(
+    target: str,
+    quantity: int,
+) -> None:
+    mind, _ = mind_with(
+        Decision(
+            skill_id="craft_take_result",
+            reason="finish this subgoal",
+            intent_generation=1,
+            arguments={"target_item": target, "quantity": quantity},
+        ),
+        goal=PLANK_GOAL,
+    )
+    subject = reading(items=((0, PLANKS, 4), (1, LOG, 1), (2, STICK, 4)))
+    intent = mind.next_intent(subject)
+    assert intent.kind is MindDecisionKind.INTENT
+    assert intent.skill == "craft_take_result"
+    assert intent.plan.calls[0].product_id == PLANKS
+    assert intent.arguments == {"target_item": PLANKS, "quantity": 8}
+    assert intent.source == DECISION_FROM_LOCAL
+    assert intent.model_refusal == "REQUEST_ALREADY_SATISFIED"
+    assert not mind.goal_met
+
+
+def test_a_satisfied_request_without_a_goal_does_not_claim_goal_success() -> None:
+    mind, _ = mind_with(
+        Decision(
+            skill_id="craft_take_result",
+            reason="make four",
+            intent_generation=1,
+            arguments={"target_item": PLANKS, "quantity": 4},
+        ),
+        goal=None,
+    )
+    intent = mind.next_intent(reading(items=((0, PLANKS, 4), (1, LOG, 1))))
+    assert intent.reason == "REQUEST_ALREADY_SATISFIED"
+    assert not mind.goal_met
+
+
+def test_an_unpayable_goal_craft_reroutes_to_search_instead_of_retrying_craft() -> None:
+    mind, _ = mind_with(
+        Decision(
+            skill_id="craft_take_result",
+            reason="make eight",
+            intent_generation=1,
+            arguments={"target_item": PLANKS, "quantity": 8},
+        ),
+        goal=PLANK_GOAL,
+    )
+    intent = mind.next_intent(reading(items=((0, PLANKS, 4),)))
+    assert intent.kind is MindDecisionKind.INTENT
+    assert intent.skill == "turn_to"
+    assert intent.source == DECISION_FROM_LOCAL
+    assert intent.model_refusal == CRAFT_MATERIALS_MISSING
+    assert not mind.goal_met
+
+
+def test_model_timeout_with_partial_output_still_searches_for_missing_materials() -> None:
+    mind, _ = mind_with(ModelUnavailable(UnavailableReason.TIMEOUT), goal=PLANK_GOAL)
+    intent = mind.next_intent(reading(items=((0, PLANKS, 4),)))
+    assert intent.kind is MindDecisionKind.INTENT
+    assert intent.skill == "turn_to"
+    assert intent.source == DECISION_FROM_LOCAL
+    assert intent.model_refusal == UnavailableReason.TIMEOUT.value
+    assert mind.last_precondition == CRAFT_MATERIALS_MISSING

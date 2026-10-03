@@ -1080,6 +1080,27 @@ class PlayerMind:
             skill, source = self._reflect(feasible, needs, reading), DECISION_FROM_LOCAL
         self.last_model_refusal = refusal
         plan, built_reason, honoured = self._call_for(skill, reading, arguments)
+        if plan is None and built_reason == GOAL_ACHIEVED:
+            # A model can ask for a quantity or intermediate product already held.
+            # That closes its request, not the standing milestone checked above.
+            built_reason = "REQUEST_ALREADY_SATISFIED"
+        if (
+            plan is None
+            and self.goal is not None
+            and built_reason in {"REQUEST_ALREADY_SATISFIED", CRAFT_MATERIALS_MISSING}
+        ):
+            self.last_precondition = built_reason
+            refusal = refusal or built_reason
+            self.last_model_refusal = refusal
+            source, reason = DECISION_FROM_LOCAL, ""
+            remaining = feasible
+            # Every candidate comes from the observation's offer, and each is tried
+            # once. An invalid model craft cannot stop an otherwise payable route,
+            # or trap reflection retrying the same unaffordable craft indefinitely.
+            while remaining and plan is None:
+                skill = self._reflect(remaining, needs, reading)
+                plan, built_reason, honoured = self._call_for(skill, reading, {})
+                remaining = tuple(name for name in remaining if name != skill)
         if plan is None:
             return self._hold(built_reason, reading)
         # A `use_target` plan that was built past its precondition is a click about to spend
@@ -1332,7 +1353,7 @@ class PlayerMind:
                 return None, NO_FEASIBLE_SKILL, {}
             target = select_target(self.goal, reading, grid_side=crafting_grid_side(reading))
             if target is None:
-                return None, GOAL_ACHIEVED, {}
+                return None, "NO_SELECT_TARGET", {}
             item_id, slot = target
             reason = (
                 f"hold the {item_id} in hand"
@@ -1398,7 +1419,12 @@ class PlayerMind:
         if (
             self.last_target_block is not None
             and self.goal is not None
-            and blocker_for(reading, self.goal.product_id, grid_side=crafting_grid_side(reading))
+            and blocker_for(
+                reading,
+                self.goal.product_id,
+                self.goal.quantity,
+                grid_side=crafting_grid_side(reading),
+            )
             == CRAFT_MATERIALS_MISSING
             and all(value is not None for value in position)
         ):
@@ -1447,9 +1473,12 @@ class PlayerMind:
 
         if self.goal is None or self.last_target_block is None:
             return None
-        if blocker_for(reading, self.goal.product_id, grid_side=crafting_grid_side(reading)) != (
-            CRAFT_MATERIALS_MISSING
-        ):
+        if blocker_for(
+            reading,
+            self.goal.product_id,
+            self.goal.quantity,
+            grid_side=crafting_grid_side(reading),
+        ) != (CRAFT_MATERIALS_MISSING):
             self.reaim_probe = 0
             return None
         self_x, self_y, self_z = reading.self_state.x, reading.self_state.y, reading.self_state.z
