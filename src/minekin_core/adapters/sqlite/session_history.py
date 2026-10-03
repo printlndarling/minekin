@@ -11,6 +11,7 @@ from typing import cast
 
 from minekin_core.adapters.sqlite.connection import connect_reader
 from minekin_core.adapters.sqlite.session_log import SESSION_STATE_TRANSITIONED
+from minekin_core.adapters.sqlite.skill_history import read_skill_experiences
 from minekin_core.application.ports.event_store import JsonValue, payload_digest
 from minekin_core.domain.errors import MinekinError
 from minekin_core.domain.session_state import SessionState
@@ -32,6 +33,9 @@ def read_last_session(
         "current_world_applicability": "unknown",
         "world_facts": "not_retrieved",
         "record": None,
+        "skill_experiences": read_skill_experiences(
+            database, kin_id=kin_id, exclude_run_id=exclude_run_id
+        ),
     }
     if not database.is_file():
         packet["status"] = "ledger_missing"

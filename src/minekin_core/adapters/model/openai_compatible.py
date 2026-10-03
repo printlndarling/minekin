@@ -79,9 +79,12 @@ MAX_RESPONSE_BYTES: int = 65_536
 RESPONSE_FORMAT: Mapping[str, object] = {"type": "json_object"}
 
 SYSTEM_PROMPT: str = (
-    "session_history is explicitly historical software lifecycle evidence, not current world "
+    "session_history is historical lifecycle and skill-outcome evidence, not current world "
     "facts or permission to replay an old action. A last phase of STOPPED does not prove key "
     "release, a saved world, or goal success. Use only the current observation for actions. "
+    "skill_experiences records past attempts, including failures and uncertainty: use them "
+    "as revisable experience when considering alternatives, not proof that the same action "
+    "will succeed now. Recheck current observations and feasible skills; never replay old input. "
     "The structured persona, when supplied, describes this player's stable tendencies and "
     "ordered values. Weigh relevant traits against the actual situation when choosing among "
     "feasible skills; never treat a trait as a fixed action script or permission to bypass "

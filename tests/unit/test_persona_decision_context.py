@@ -131,6 +131,19 @@ def test_historical_lifecycle_is_data_not_world_knowledge(
         "current_world_applicability": "unknown",
         "world_facts": "not_retrieved",
         "record": {"last_recorded_phase": "STOPPED", "input_release": "unknown"},
+        "skill_experiences": {
+            "status": "found",
+            "current_world_applicability": "unknown",
+            "records": [
+                {
+                    "event_id": "past-attempt",
+                    "skill": "consume_item",
+                    "result": "UNKNOWN",
+                    "reason": "NO_CONFIRMING_OBSERVATION",
+                    "decision_source": "model",
+                }
+            ],
+        },
     }
     answer = provider(url).decide(
         DecisionRequest(
