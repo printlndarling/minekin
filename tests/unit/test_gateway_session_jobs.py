@@ -191,7 +191,11 @@ def test_job_publication_retries_only_bounded_windows_sharing_errors(
         if len(calls) <= failures:
             error = PermissionError("injected reader conflict")
             if winerror is not None:
-                error.winerror = winerror
+                # `winerror` is Windows-only in typeshed, but the production classifier
+                # reads it with `getattr` and this simulation has to carry the same shape
+                # on every platform the suite runs on — including the Linux CI that
+                # type-checks this very assignment.
+                error.winerror = winerror  # pyright: ignore[reportAttributeAccessIssue]
             raise error
         return original(path, target)
 
