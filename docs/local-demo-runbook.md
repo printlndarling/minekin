@@ -1014,3 +1014,5 @@ Windows后台脚本测试的两项失败来自Git Bash包装器把自带curl插�
 方向记忆模型复验run-58 `cdca3cf0185d48629ca2a9157a35b7f9`（会话1d6a9ddb9d8f47c89266a1156c02717d、本机Docker和平，基线4a4fc6f）48真实调用、32步model/16步local_reflection、45CONFIRMED、726帧/0观察拒收，23动作应用/177拒绝，松键正常，goal=false/STEP_BUDGET_SPENT。3次挖掘；第2/3步拾取COLLECT_APPROACH_STALLED、第7步COLLECT_AIM_NOT_CONFIRMED后collect整会话排除，后来新挖落物也无法尝试。现新可见实体ID可恢复拾取预算；同实体移动/重新出现不刷新，generation计入身份，仍有步骤上限。回归先红后绿，另补追踪目标物品最近掉落的水平/垂直距离读数，避免UNKNOWN缺少定位信息；新字节游戏复验待做。
 
 run-59 `93ebaa4b01554a43882da2c0e0fc2a04`（会话3fa51cab34ea4970a4e458e5b1d00a62、本机Docker和平、行为基线751613e/Bridge0c8adfb7）真实模型目标成功：17次调用、14步model/3步local_reflection、17步CONFIRMED、221帧/0观察拒收，GOAL_HELD_IN_HAND，goal=true，正常松键。末段15 use_target打开sync1、16木镐3×3库存2897→2919、17关窗2974 screen=false，后续目标持有检查通过。这是受控场景普通运行记录，不是sealed、不代表全生存或多目标通过。旧run动作字段13/21沿旧口径保留；检查实际IPC发现非ACCEPTED全算refused（包含STARTED/SUCCEEDED），现按全部状态独立计数、refused只算FAILED，摘要工具标注历史口径。IPC真实消息回归先红后绿，27项运行契约、ruff/pyright通过。
+
+受跟踪的真实模型复验工具支持--goal-product/--goal-quantity/--goal-source，沿用原demo参数化目标与同一技能，不增物品动作链；验证命名空间ID及1..64数量，13项工具回归及静态检查通过。用于随后8木板等不同目标验证；当前夹具仅提供oak_log，不宣称可验证任意资源环境。

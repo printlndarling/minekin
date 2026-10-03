@@ -10,6 +10,8 @@ import shutil
 import subprocess
 from pathlib import Path
 
+from minekin_core.domain.skill_parameters import MAX_QUANTITY, is_item_id
+
 ROOT = Path(__file__).resolve().parents[1]
 NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
@@ -48,6 +50,19 @@ def model_environment(path: Path) -> dict[str, str]:
     return selected
 
 
+def goal_environment(product: str, quantity: int, source_item: str) -> dict[str, str]:
+    """Pass a typed goal to the existing parameterized demo, without adding an action chain."""
+    if not is_item_id(product) or not is_item_id(source_item):
+        raise ValueError("goal and source must be namespaced item identifiers")
+    if isinstance(quantity, bool) or not 1 <= quantity <= MAX_QUANTITY:
+        raise ValueError(f"goal quantity must be 1..{MAX_QUANTITY}")
+    return {
+        "MINEKIN_DEMO_GOAL_PRODUCT": product,
+        "MINEKIN_DEMO_GOAL_QUANTITY": str(quantity),
+        "MINEKIN_DEMO_GOAL_SOURCE_ITEM": source_item,
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--model-env", type=Path, default=ROOT / ".env")
@@ -61,12 +76,19 @@ def main() -> int:
     parser.add_argument(
         "--difficulty", choices=("peaceful", "easy", "normal", "hard"), default="normal"
     )
+    parser.add_argument("--goal-product", default="minecraft:wooden_pickaxe")
+    parser.add_argument("--goal-quantity", type=int, default=1)
+    parser.add_argument("--goal-source", default="minecraft:oak_log")
     parser.add_argument("--bash", type=Path)
     args = parser.parse_args()
     if not 1 <= args.steps <= 64 or not 1 <= args.wait_seconds <= 900:
         parser.error("steps must be 1..64 and wait-seconds 1..900")
     if not 1 <= args.cost_cap_micro <= 1_000_000:
         parser.error("cost-cap-micro must be 1..1000000 ledger units")
+    try:
+        goal_values = goal_environment(args.goal_product, args.goal_quantity, args.goal_source)
+    except ValueError as error:
+        parser.error(str(error))
     try:
         configured = model_environment(args.model_env)
     except (OSError, ValueError):
@@ -84,6 +106,7 @@ def main() -> int:
     environment = dict(os.environ)
     configured["MINEKIN_MODEL_RUN_COST_CAP"] = str(args.cost_cap_micro)
     environment.update(configured)
+    environment.update(goal_values)
     environment.update(
         {
             "MINEKIN_RUNNER_FORWARD_ENV": ",".join(configured),
