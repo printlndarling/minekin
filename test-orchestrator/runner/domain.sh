@@ -2143,6 +2143,18 @@ fi
 # Named rather than spelled at the redirect, because the branch that reports this client
 # never got there reads the same file back out (see `name_the_session_launch_last_words`),
 # and a path copied twice is a path one of the two can drift from.
+# --- hungry-kin-preparation begin ---
+if [[ -n "${hungry_kin}" ]]; then
+    if ! "${client_env[@]}" python /src/tools/prepare_hungry_kin.py \
+            --server-directory "${server_directory}" --player "${probe:-${player}}" -- "$@"; then
+        printf 'domain: hungry fixture preparation failed; action session was not started\n' >&2
+        exit 2
+    fi
+    # The observation-only preparation has its own overlay. It must not become
+    # this action session's evidence or be selected as its fresh client log.
+    logs_before=$(ls /data/kin/*/run/session/*/generation-*/logs/latest.log 2>/dev/null | sort)
+fi
+# --- hungry-kin-preparation end ---
 session_error_file=/tmp/domain-session.err
 sh -c '"$@"; session_rc=$?; exit "${session_rc}"' minekin-session-supervisor \
     "${client_env[@]}" python -m minekin_core "$@" "${lan_args[@]}" \

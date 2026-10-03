@@ -1062,3 +1062,9 @@ uv run python -m tools.verify_managed_autonomous_recovery --container minekin-se
 2026-10-04 HUD 观察实现：当前Core对已接纳的玩家视角观察每100游戏tick记录 PlayerStateObserved（health/max_health/food、tick、generation）；后台输出当前运行 health/food 与事件时间，10秒过期，不回显额外payload。旧运行、已收尾或无法确认存活的客户端不当成当前身体；无输入的观察模式亦能记录，proto/Bridge未改。129项定向回归与类型/静态检查通过；当前实现的真实游戏显示待复验。食用 run-72 中 apple减少而food下降不能过确认；先同步夹具饥饿效果结束与动作开始，再复验，完整生存未交付。
 
 2026-10-04 饥饿夹具准备：受控服务器改为先给 Hunger 并查询 foodLevel，读到 food≤6 后显式清除；只在收到该玩家 Hunger 清除回执后给三个苹果，收到给物回执才原子写入该 server run 的 meal-ready.json。整个准备共享60秒期限；和平难度具名拒绝，避免自然恢复混入食用确认。标记是测试准备状态，不进入模型观察、不代表 consume 成功。动作启动与该标记及新鲜玩家观察的同步仍待接入；run-72 的 UNKNOWN 保留，当前未新增真实进食成功证据。
+
+2026-10-04 准备屏障接线：HUNGRY_KIN 入口先运行 tools/prepare_hungry_kin.py，无输入观察会话沿原来的入服与 Bridge 观察路径取得准备完成之后的新鲜 health>0/food≤6 读数，再停止该自有客户端；正式动作会话另起，日志基线刷新。仅接受新的编号 server run、匹配的回环离线设置，拒绝未知启动参数、旧标记和并发客户端；清理验证 Linux 子进程归属，收尾核对无 InputLeaseGranted、STOPPED_ON_REQUEST 和空闲。准备标记不交给模型，库存/瞄准前提仍由正式 consume 行为检查。
+
+本地 run-73 实际准备成功：观察 run f08ba76a953d4e5290a4a35ab3f1ced6，玩家读数 health=20、food=20/tick840→food=5/tick942；该玩家 Hunger 清除和三个苹果给物回执后写入标记，新读数晚于标记。停止 nothing_held=[168]、unconfirmed=[]、Core退出0、账本 STOPPED_ON_REQUEST，无输入租约事件。随后正式动作 run e664c909951f4bfe9fa3c1087e246125 仅记录启动，因宿主可用内存降至约660MB停止容器，未取得进食结果，harness退出143；不算当前进食或死亡恢复通过，不算模型验证或封存证据。读回材料为 .tmp/hunger-ready-evidence-20261004.json；原始准备记录仍在持久卷 server-runs/run-73。
+
+资源停止后的环境：旧测试容器带 --rm，停止后自动移除，minekin-local-demo2 持久卷保留。已重建同名 minekin-server-config-20261003 为 created 状态，保持原镜像/卷/和平模式及仅127.0.0.1:8789端口，未重新启动JVM或后台。内存恢复后可 docker start minekin-server-config-20261003，确认服务器 ready 后再启动一次后台：docker exec -d minekin-server-config-20261003 xvfb-run -a python -m gateway.server --data-root /data --kin kin-3x3-fresh-20261002 --host 0.0.0.0 --port 8789。当前入口暂不可访问，正式进食复验仍待资源允许。
