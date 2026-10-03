@@ -332,6 +332,24 @@ class BuildStep:
         return self.recipe.ingredients
 
 
+@dataclass(frozen=True, slots=True)
+class OwedStep:
+    """One owed position in a build order, payable or not, read off one bag.
+
+    `BuildStep` is the shape a planner hands back when it has resolved a runnable craft; this
+    is the *listing* shape: every owed craft in order, each carrying whether the grid being
+    read can hold its shape and — when the caller's counts could resolve it — that step's own
+    batch cost. `materials` of `None` is not zero and not a price: it says this reading could
+    not pay the step, and the name of what is missing is the refusal a planner returns beside
+    the list.
+    """
+
+    product_id: str
+    required_total: int
+    fits_grid_side: bool
+    materials: tuple[tuple[str, int], ...] | None
+
+
 def build_plan(
     product_id: str,
     *,

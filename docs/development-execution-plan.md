@@ -1,5 +1,7 @@
 # Minekin 开发执行计划（现行唯一队列）
 
+> 2026-10-04 追加（M 直接落主干，基线 `8295073`）：**公开目标的完整欠序链进入模型摘要**。新增 `domain/recipe_catalog.OwedStep`（列表形态；`materials=None` 意为该读数付不动这一步，不是空价）与 `PublicCraftKnowledge.owed_chain`；`craft_plan` 从"单步"改为整条链（`product_id` / `required_total` / `fits_current_grid`，可解出的位置带 `materials`），与策展路径的摘要形状对齐。门：相关三枚测试文件 `158 passed`；`tests/unit` 全量本机 3409 passed / 2 failed，两枚红均为负载窗口的 Windows 回环型 flake（`test_control_model_fixture`、`test_gateway_session_jobs.py::test_client_exit_requires_a_confirmed_clean_code[-9-failed]`，单跑各自绿），按既有口径以 CI（Linux）全量为判据；不带参数的 `uv run pyright` 全仓 0 errors、ruff 0/0。**未证按实**：真实游戏读数未取。
+
 > 2026-10-04 追加（M 直接落主干，基线 `bf8f32e`）：**本地采集跟着计划的缺料走**。`_reflect` 的挖块过滤从"只认里程碑的 source_item_id"改为 `_gather_wants`：source 名与（配置公开源时）`missing_raw` 的名字并集；仍只按准星自报的方块名匹配、不猜方块掉落——保守性不变，名字来源从"记着的一个"变成"算出来的那张清单"。门：`tests/unit` 全量 `3409 passed, 2 skipped`、不带参数的 `uv run pyright` 全仓 0 errors、ruff 0/0。**未证按实**：真实采集路线与游戏读数未取。
 
 > 2026-10-04 追加（M 直接落主干，基线 `eb0944c`）：**缺料从"一个名字"变"一张清单"**。`_owed_plan` 把计划付不动的原始料（档案无配方者，需求减袋存为正）按计数收进 `raw_shortfall`，新增 `PublicCraftKnowledge.missing_raw`（协议同步）；公开目标在模型摘要里带 `missing_raw`（tag 格按计划的确定性候选解出，docstring 注明该选择满足配方、不否定同 tag 其他项）——采集路线因此有据可选，执行仍走既有通用采集。门：`tests/unit` 全量 `3407 passed, 2 skipped`、不带参数的 `uv run pyright` 全仓 0 errors、ruff 0/0。**未证按实**：真实采集路线选择与游戏读数未取。

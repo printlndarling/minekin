@@ -6,6 +6,7 @@ import json
 import zipfile
 from collections.abc import Mapping
 from pathlib import Path
+from typing import cast
 
 import pytest
 
@@ -435,6 +436,42 @@ def test_public_grid_block_reroutes_into_standing_the_enabler_up(tmp_path: Path)
     assert intent.source == "local_reflection"
     assert intent.arguments == {"slot": 0, "expected_item_id": "minecraft:crafting_table"}
     assert mind.last_precondition == "CRAFT_GRID_TOO_SMALL"
+
+
+def test_public_owed_chain_orders_the_chain_the_goal_owes(tmp_path: Path) -> None:
+    knowledge = source(tmp_path)
+    current = reading({"minecraft:oak_planks": 2, "minecraft:cobblestone": 3})
+    chain = knowledge.owed_chain("minecraft:stone_pickaxe", current, quantity=1, grid_side=2)
+    assert not isinstance(chain, str)
+    assert [(entry.product_id, entry.required_total) for entry in chain] == [
+        ("minecraft:stick", 2),
+        ("minecraft:stone_pickaxe", 1),
+    ]
+    assert chain[0].materials == (("minecraft:oak_planks", 2),)
+    assert chain[1].materials is None
+    assert chain[0].fits_grid_side is True
+    assert chain[1].fits_grid_side is False
+
+
+def test_public_goal_summary_carries_the_whole_owed_chain(tmp_path: Path) -> None:
+    provider = SkillProvider("turn_to")
+    mind = mind_for(
+        provider,
+        CostLedger(run_cost_cap=1000),
+        goal=STONE_PICKAXE_GOAL,
+        craft_knowledge=source(tmp_path),
+    )
+    mind.next_intent(reading({"minecraft:oak_planks": 2, "minecraft:cobblestone": 3}))
+    summary = provider.requests[0].observation_summary
+    plan = cast("list[dict[str, object]]", summary["craft_plan"])
+    assert [(entry["product_id"], entry["required_total"]) for entry in plan] == [
+        ("minecraft:stick", 2),
+        ("minecraft:stone_pickaxe", 1),
+    ]
+    assert plan[0]["materials"] == {"minecraft:oak_planks": 2}
+    assert "materials" not in plan[1]
+    assert plan[0]["fits_current_grid"] is True
+    assert plan[1]["fits_current_grid"] is False
 
 
 def test_public_gather_breaks_a_block_the_plan_names(tmp_path: Path) -> None:

@@ -18,6 +18,7 @@ from minekin_core.domain.recipe_catalog import (
     CRAFT_MATERIALS_MISSING,
     CRAFT_RECIPE_UNAVAILABLE,
     BuildStep,
+    OwedStep,
     Recipe,
     RecipeProvenance,
     grid_enabler_for,
@@ -345,6 +346,51 @@ class PublicCraftKnowledge:
             # Payable steps exist; every one of them is one the open window does not name.
             return "GUI_RECIPE_UNKNOWN"
         return CRAFT_MATERIALS_MISSING
+
+    def owed_chain(
+        self,
+        product_id: str,
+        reading: WorldObservationValue,
+        *,
+        quantity: int = 1,
+        grid_side: int,
+    ) -> tuple[OwedStep, ...] | str:
+        """Every owed craft on the way to a product, in build order, or the name that stops
+        the walk.
+
+        The listing view of `_owed_plan`: each entry carries what it owes and whether the grid
+        being read can hold it, and resolves its own batch cost against this reading only when
+        the bag can pay it (`materials` is `None` otherwise — a refusal word, not an empty
+        price). `step_toward` is this list's first runnable position; this is what a decision
+        context shows so a multi-step goal reads as a chain rather than as one step with no
+        idea what comes after it.
+        """
+
+        plan = self._owed_plan(product_id, reading, quantity=quantity, grid_side=grid_side)
+        if isinstance(plan, str):
+            return plan
+        counts = _inventory_counts(reading)
+        entries: list[OwedStep] = []
+        for product in plan.order:
+            owed = plan.owed.get(product, 0)
+            if owed <= 0:
+                continue
+            row = plan.chosen[product]
+            cells = self.knowledge.materials_for(row.recipe_id, counts)
+            materials = (
+                None
+                if cells is None
+                else tuple(sorted(Counter(item for item in cells if item is not None).items()))
+            )
+            entries.append(
+                OwedStep(
+                    product_id=row.product_id,
+                    required_total=owed,
+                    fits_grid_side=max(row.width, row.height) <= grid_side,
+                    materials=materials,
+                )
+            )
+        return tuple(entries)
 
     def enabler_to_stand_up(
         self,

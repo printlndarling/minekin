@@ -69,6 +69,7 @@ from minekin_core.domain.recipe_catalog import (
     PLAYER_GRID_SIDE,
     RECIPES,
     BuildStep,
+    OwedStep,
     Recipe,
     build_plan,
     grid_enabler_for,
@@ -113,6 +114,15 @@ class CraftKnowledge(Protocol):
         quantity: int = 1,
         grid_side: int,
     ) -> BuildStep | str: ...
+
+    def owed_chain(
+        self,
+        product_id: str,
+        reading: WorldObservationValue,
+        *,
+        quantity: int = 1,
+        grid_side: int,
+    ) -> tuple[OwedStep, ...] | str: ...
 
     def enabler_to_stand_up(
         self,
@@ -1264,16 +1274,27 @@ class PlayerMind:
                 )
                 summary["craft_plan_source"] = "public_version_stepwise"
                 summary["multi_stage_plan_available"] = True
+                chain = self.craft_knowledge.owed_chain(
+                    self.goal.product_id,
+                    reading,
+                    quantity=self.goal.quantity,
+                    grid_side=crafting_grid_side(reading),
+                )
                 summary["craft_plan"] = (
                     []
-                    if isinstance(step, str)
+                    if isinstance(chain, str)
                     else [
                         {
-                            "product_id": step.product_id,
-                            "required_total": step.required_total,
-                            "materials": dict(step.materials),
-                            "fits_current_grid": True,
+                            "product_id": entry.product_id,
+                            "required_total": entry.required_total,
+                            "fits_current_grid": entry.fits_grid_side,
+                            **(
+                                {"materials": dict(entry.materials)}
+                                if entry.materials is not None
+                                else {}
+                            ),
                         }
+                        for entry in chain
                     ]
                 )
                 reason = step if isinstance(step, str) else ""
