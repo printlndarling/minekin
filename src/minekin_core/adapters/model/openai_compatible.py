@@ -79,6 +79,11 @@ MAX_RESPONSE_BYTES: int = 65_536
 RESPONSE_FORMAT: Mapping[str, object] = {"type": "json_object"}
 
 SYSTEM_PROMPT: str = (
+    "The structured persona, when supplied, describes this player's stable tendencies and "
+    "ordered values. Weigh relevant traits against the actual situation when choosing among "
+    "feasible skills; never treat a trait as a fixed action script or permission to bypass "
+    "observation, materials, safety or authorization. A missing persona means unknown, not "
+    "permission to invent one. "
     "You are choosing the next single step for an autonomous Minecraft player called the "
     "Kin. You do not control its keys and you do not declare anything finished. Pick exactly "
     "one skill_id from the feasible list offered and fill in the arguments that skill's entry "
@@ -438,7 +443,12 @@ class OpenAICompatibleProvider:
             "needs": dict(sorted(request.needs.items())),
             "feasible_skill_ids": list(request.feasible_skill_ids),
             "skill_parameters": parameters_for(request.feasible_skill_ids),
-            "persona_seed": request.persona_seed,
+            "persona_seed": request.persona_seed if request.persona is None else "",
+            "persona": (
+                None
+                if request.persona is None
+                else request.persona.decision_context()
+            ),
             "budget_remaining": request.budget_remaining_micro,
             "intent_generation": request.intent_generation,
         }

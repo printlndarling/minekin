@@ -15,6 +15,7 @@ boot while claiming to persist one.
 from __future__ import annotations
 
 import hashlib
+import json
 from dataclasses import dataclass
 from typing import Final, cast
 
@@ -77,6 +78,21 @@ class PersonaManifest:
             "kin_id": self.kin_id,
             "persona_seed": self.persona_seed,
             "traits": {name: value for name, value in self.traits},
+            "value_priority": list(self.value_priority),
+        }
+
+    def decision_context(self) -> dict[str, object]:
+        """Versioned decision inputs and provenance, without the identity or raw seed.
+
+        The digest identifies the saved manifest, not a model claim about which trait
+        caused an action. Changes in environment or provider do not change these bytes.
+        """
+        encoded = json.dumps(self.as_dict(), sort_keys=True, separators=(",", ":")).encode()
+        return {
+            "manifest_sha256": hashlib.sha256(encoded).hexdigest(),
+            "schema_version": self.schema_version,
+            "algorithm": self.algorithm,
+            "traits": dict(self.traits),
             "value_priority": list(self.value_priority),
         }
 

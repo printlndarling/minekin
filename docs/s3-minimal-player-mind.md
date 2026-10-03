@@ -55,6 +55,11 @@ S3 只做调度契约五种对象中的两样：**当前意图**与一项**长�
   未设置时 `init` 抽取一次并连同人格持久化，因此这个 Kin 是谁事后仍可由它自己的目录复现。
   `minekin persona show` 只读回人格与算法/版本，不回显种子。人格没有进 SQLite，`schema.sql`
   与迁移的冻结摘要因此不变。
+  2026-10-03：决策接口现在可携带已保存的 Manifest，把五项倾向、价值排序、版本与
+  `manifest_sha256` 作为受约束输入传给模型，并写入心智运行记录；不外发原始 seed。
+  缺失 Manifest 明确为未知，其他 Kin 的 Manifest 在建心智时拒绝。此接口已用本地
+  假端点验证，**启动模块读盘接线仍在施工，尚不声明默认运行具有人格影响，也未证明
+  真实 LLM 在游戏里表现出不同人格**。人格不扩张可行动作或权限，也不映射为固定脚本。
 - 失败归因先实现四类真实可判的：`RESOURCE_UNAVAILABLE`、`SKILL_NOT_IMPLEMENTED`、
   `ACTION_NOT_EFFECTIVE`、`INSUFFICIENT_INFORMATION`。同一失败上下文签名耗尽重试预算后
   必须换方法、等待或放弃，不得原样重放。

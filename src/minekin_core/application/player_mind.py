@@ -61,6 +61,7 @@ from minekin_core.domain.model_access import (
     UnavailableReason,
 )
 from minekin_core.domain.perception import EntityCandidate, WorldObservationValue
+from minekin_core.domain.persona import PersonaManifest
 from minekin_core.domain.recipe_catalog import (
     CRAFT_GRID_TOO_SMALL,
     CRAFT_MATERIALS_MISSING,
@@ -911,6 +912,7 @@ class PlayerMind:
     persona_seed: str = ""
     goal: Milestone | None = None
     model_enabled: bool = True
+    persona: PersonaManifest | None = None
     intent_generation: int = 0
     goal_met: bool = field(default=False, init=False)
     scan_step: int = field(default=0, init=False)
@@ -949,6 +951,10 @@ class PlayerMind:
     recent_results: list[dict[str, object]] = field(
         default_factory=list[dict[str, object]], init=False
     )
+
+    def __post_init__(self) -> None:
+        if self.persona is not None and self.persona.kin_id != self.kin_id:
+            raise ValueError("the persisted persona must belong to this Kin")
 
     @property
     def direction(self) -> str:
@@ -1052,6 +1058,7 @@ class PlayerMind:
             feasible_skill_ids=feasible,
             observation_summary=summary,
             persona_seed=self.persona_seed,
+            persona=self.persona,
             budget_remaining_micro=self.ledger.remaining(),
             intent_generation=self.intent_generation,
         )
@@ -1582,6 +1589,7 @@ class PlayerMind:
         result = self.last_result
         return {
             "direction": self.direction,
+            "persona_context": None if self.persona is None else self.persona.decision_context(),
             "milestone": None if self.goal is None else self.goal.as_document(),
             "goal_met": self.goal_met,
             "current_intent": None if intent is None else intent.as_document(),
@@ -1612,6 +1620,7 @@ def mind_for(
     persona_seed: str = "",
     goal: Milestone | None = None,
     model_enabled: bool = True,
+    persona: PersonaManifest | None = None,
 ) -> PlayerMind:
     """Build a mind for one session from what the session already resolved.
 
@@ -1631,4 +1640,5 @@ def mind_for(
         persona_seed=persona_seed,
         goal=goal,
         model_enabled=model_enabled,
+        persona=persona,
     )

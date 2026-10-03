@@ -46,6 +46,7 @@ from enum import StrEnum
 from typing import Final, Literal, cast
 
 from minekin_core.domain.errors import ErrorCategory, MinekinError, Retryability, redact_text
+from minekin_core.domain.persona import PersonaManifest
 from minekin_core.domain.skill_parameters import validate_arguments
 
 #: The operator-facing names, kept together because §1 of the contract is a table: a
@@ -486,6 +487,8 @@ class DecisionRequest:
     budget_remaining_micro: int = 0
     #: The generation these keys would be issued for; an answer from another is late.
     intent_generation: int = 1
+    #: Trusted persisted tendencies, not a model-authored personality or a fresh seed draw.
+    persona: PersonaManifest | None = None
 
     def __post_init__(self) -> None:
         if not self.observation_ref:
