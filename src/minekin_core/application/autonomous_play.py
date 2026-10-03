@@ -39,7 +39,6 @@ from minekin_core.application.player_mind import (
     MindDecisionKind,
     MindIntent,
     PlayerMind,
-    feasible_skill_ids,
     observation_ref,
     screen_open,
 )
@@ -229,7 +228,7 @@ async def run_autonomous_loop(
             if (
                 latest is not None
                 and observation_ref(latest) != intent.observation_ref
-                and intent.skill not in feasible_skill_ids(mind.goal, latest)
+                and intent.skill not in mind.feasible_skills(latest)
             ):
                 # A remote decision can outlive the screen or bag it was asked about.
                 # Recheck the current offer without rejecting mere advancing ticks.

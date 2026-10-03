@@ -90,6 +90,23 @@ from minekin_core.domain.world_actions import (
     use_target_signature,
 )
 
+
+class CraftKnowledge(Protocol):
+    """Version knowledge can propose a payable batch, never grant input authority."""
+
+    def knows_product(self, product_id: str) -> bool: ...
+
+    def available(
+        self, reading: WorldObservationValue, *, grid_side: int
+    ) -> Mapping[str, Recipe]: ...
+
+    def refusal_for(
+        self, product_id: str, reading: WorldObservationValue, *, grid_side: int
+    ) -> str: ...
+
+    def as_document(self) -> dict[str, object]: ...
+
+
 #: How many times one skill may fail the same way before the mind stops calling it that
 #: way. Two is a retry and a second attempt; a third identical failure against the same
 #: world state is a different problem, and replaying the click is what §3 forbids.
@@ -968,6 +985,7 @@ class PlayerMind:
     model_enabled: bool = True
     persona: PersonaManifest | None = None
     session_history: Mapping[str, object] = field(default_factory=dict[str, object])
+    craft_knowledge: CraftKnowledge | None = None
     intent_generation: int = 0
     goal_met: bool = field(default=False, init=False)
     scan_step: int = field(default=0, init=False)
@@ -1027,6 +1045,33 @@ class PlayerMind:
 
         return goal_in_hand(self.goal, reading)
 
+    def public_crafts(self, reading: WorldObservationValue) -> Mapping[str, Recipe]:
+        if self.craft_knowledge is None:
+            return {}
+        return self.craft_knowledge.available(reading, grid_side=crafting_grid_side(reading))
+
+    def craft_options_for(self, reading: WorldObservationValue) -> tuple[str, ...]:
+        if self.craft_knowledge is not None:
+            return tuple(sorted(self.public_crafts(reading)))
+        return craft_options(reading, grid_side=crafting_grid_side(reading))
+
+    def feasible_skills(self, reading: WorldObservationValue) -> tuple[str, ...]:
+        feasible = feasible_skill_ids(self.goal, reading)
+        if self.craft_knowledge is None:
+            return feasible
+        feasible = tuple(name for name in feasible if name != "craft_take_result")
+        if (
+            reading.self_state.alive
+            and not (screen_open(reading) and goal_in_hand(self.goal, reading))
+            and self.craft_options_for(reading)
+        ):
+            return (
+                (*feasible, "craft_take_result")
+                if "craft_take_result" not in feasible
+                else feasible
+            )
+        return feasible
+
     def observe(self, reading: WorldObservationValue | None) -> None:
         """Say whether the direction is met, off a reading, because nothing else may say it.
 
@@ -1073,7 +1118,7 @@ class PlayerMind:
         if contents != self.empty_container_inventory:
             self.empty_container_aim = None
         feasible = tuple(
-            name for name in feasible_skill_ids(self.goal, reading) if name not in self.excluded
+            name for name in self.feasible_skills(reading) if name not in self.excluded
         )
         if (
             not screen_open(reading)
@@ -1104,6 +1149,31 @@ class PlayerMind:
 
         self.intent_generation += 1
         summary = observation_summary(self.goal, reading)
+        if self.craft_knowledge is not None:
+            summary["craft_options"] = list(self.craft_options_for(reading))
+            summary["public_recipe_knowledge"] = self.craft_knowledge.as_document()
+            if self.goal is not None:
+                payable = self.public_crafts(reading).get(self.goal.product_id)
+                summary["craft_plan_source"] = "public_version_direct_batch"
+                summary["multi_stage_plan_available"] = False
+                summary["craft_plan"] = (
+                    []
+                    if payable is None
+                    else [
+                        {
+                            "product_id": payable.product_id,
+                            "required_total": max(0, self.goal.quantity - self.goal.held(reading)),
+                            "materials": dict(payable.ingredients),
+                            "fits_current_grid": True,
+                        }
+                    ]
+                )
+                reason = self.craft_knowledge.refusal_for(
+                    self.goal.product_id, reading, grid_side=crafting_grid_side(reading)
+                )
+                summary["larger_grid_needed"] = reason == CRAFT_GRID_TOO_SMALL
+                summary["goal_recipe_refusal"] = reason
+                summary.pop("grid_enabler", None)
         summary["recent_actions"] = list(self.recent_results)
         summary["view_search"] = self._view_search_summary(reading)
         request = DecisionRequest(
@@ -1374,6 +1444,26 @@ class PlayerMind:
             quantity = _asked_quantity(arguments, self.goal)
             ask: dict[str, object] = {"target_item": target, "quantity": quantity}
             side = crafting_grid_side(reading)
+            if item_total(reading.inventory, target) >= quantity:
+                return None, GOAL_ACHIEVED, ask
+            public_recipe = self.public_crafts(reading).get(target)
+            if public_recipe is not None:
+                return (
+                    SkillPlan(
+                        (
+                            SkillCall(
+                                name="craft_take_result",
+                                recipe_id=public_recipe.recipe_id,
+                                product_id=public_recipe.product_id,
+                                materials=public_recipe.ingredients,
+                            ),
+                        )
+                    ),
+                    f"craft {target} from public version knowledge; GUI confirmation required",
+                    ask,
+                )
+            if self.craft_knowledge is not None:
+                return None, self.craft_knowledge.refusal_for(target, reading, grid_side=side), ask
             step = step_to_run(reading, target, quantity, grid_side=side)
             if step is None:
                 return (
@@ -1629,7 +1719,7 @@ class PlayerMind:
             return asked
         if self.goal is not None:
             return self.goal.product_id
-        options = craft_options(reading)
+        options = self.craft_options_for(reading)
         return options[0] if options else ""
 
     def _resource_id(self, reading: WorldObservationValue) -> str:
@@ -1679,6 +1769,9 @@ class PlayerMind:
             "direction": self.direction,
             "persona_context": None if self.persona is None else self.persona.decision_context(),
             "session_history": dict(self.session_history),
+            "public_recipe_knowledge": None
+            if self.craft_knowledge is None
+            else self.craft_knowledge.as_document(),
             "milestone": None if self.goal is None else self.goal.as_document(),
             "goal_met": self.goal_met,
             "current_intent": None if intent is None else intent.as_document(),
@@ -1711,6 +1804,7 @@ def mind_for(
     model_enabled: bool = True,
     persona: PersonaManifest | None = None,
     session_history: Mapping[str, object] | None = None,
+    craft_knowledge: CraftKnowledge | None = None,
 ) -> PlayerMind:
     """Build a mind for one session from what the session already resolved.
 
@@ -1732,4 +1826,5 @@ def mind_for(
         model_enabled=model_enabled,
         persona=persona,
         session_history={} if session_history is None else dict(session_history),
+        craft_knowledge=craft_knowledge,
     )

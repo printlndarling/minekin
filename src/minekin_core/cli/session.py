@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field, replace
@@ -85,6 +86,8 @@ from minekin_core.adapters.launcher.stop_request import (
 )
 from minekin_core.adapters.launcher.supervisor import ProcessIdentity, ProcessSupervisor
 from minekin_core.adapters.model import model_provider_for
+from minekin_core.adapters.public_craft_knowledge import PublicCraftKnowledge
+from minekin_core.adapters.public_recipe_archive import load_recipe_knowledge
 from minekin_core.adapters.sqlite.connection import connect_reader
 from minekin_core.adapters.sqlite.identity_store import read_identity_root
 from minekin_core.adapters.sqlite.session_history import read_last_session
@@ -1024,6 +1027,7 @@ def mind_for_run(
     *,
     kin_dir: Path | None = None,
     exclude_run_id: str = "",
+    game_version: str | None = None,
 ) -> PlayerMind:
     """The mind for one run, from what this operator's environment configures.
 
@@ -1040,6 +1044,22 @@ def mind_for_run(
 
     config = model_config(environ)
     ledger = cost_ledger_for(config)
+    environment = os.environ if environ is None else environ
+    archive = environment.get("MINEKIN_RECIPE_ARCHIVE", "")
+    craft_knowledge = None
+    if archive:
+        if game_version is None:
+            raise _reject("public recipe knowledge requires the actual launched game version")
+        try:
+            craft_knowledge = PublicCraftKnowledge(
+                load_recipe_knowledge(
+                    Path(archive),
+                    game_version=game_version,
+                    expected_sha256=environment.get("MINEKIN_RECIPE_ARCHIVE_SHA256") or None,
+                )
+            )
+        except (OSError, ValueError) as exc:
+            raise _reject(f"public recipe knowledge refused: {exc}") from exc
     # The saved manifest owns personality. Environment seeds only create a Kin;
     # they never redraw it during a run. Legacy roots without a manifest stay unknown.
     persona = (
@@ -1059,6 +1079,7 @@ def mind_for_run(
         ),
         goal=milestone_from_environment(environ),
         model_enabled=config.enabled,
+        craft_knowledge=craft_knowledge,
     )
 
 
@@ -1714,6 +1735,7 @@ async def start_and_supervise(
             model_environment,
             kin_dir=kin_directory(root, KinId(prepared.kin_id)),
             exclude_run_id=str(prepared.run_id),
+            game_version=launched_minecraft_version(profile),
         )
         # One counter across whichever ask this run carries: the ledger reader's question
         # is "which step of the sequence is this", and a scripted plan and a mind-written

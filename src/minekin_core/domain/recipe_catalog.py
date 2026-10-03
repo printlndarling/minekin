@@ -81,6 +81,7 @@ class RecipeProvenance(StrEnum):
     LIVE_CONFIRMED = "live_confirmed"
     #: Curated from the game's own 1.20.1 data; no live run has confirmed this craft end to end.
     CURATED_UNWATCHED = "curated_unwatched"
+    PUBLIC_VERSION = "public_version"
 
 
 @dataclass(frozen=True, slots=True)

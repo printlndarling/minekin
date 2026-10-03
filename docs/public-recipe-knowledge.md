@@ -17,8 +17,19 @@ uv run --frozen python -m tools.inspect_recipe_knowledge <本地版本JAR路径>
 
 2026-10-04 本地实测：已有 `.tmp/mc-1.20.1-server.jar` 的 SHA256 为 `3af73a9dc5a102e38147946360dd27d4d70bae7055bf91cf2151cd5d121b79e0`；1174 条资源中导入 822 条普通合成、其余 352 条按类型报告。查询石镐读出 3×3 布局、`minecraft:stone_tool_materials` 标签和木棍槽位，未添加物品专用动作代码。这是公开知识读取验证，不是游戏合成成功证据。
 
-## 尚未完成的运行接线
+## 运行接线与尚未完成部分
 
 `RecipeKnowledge.materials_for(recipe_id, inventory)` 已能根据调用方传入的物品数量为一批配方匹配原料，保留空格；OR 替代项共享库存容量，不能重复花同一件物品。使用容量约束匹配，避免贪心先占稀缺原料导致假缺料；未知 tag、未知配方或数量非法返回不可解析。结果只是知识侧计划，仍不是当前服务器准入。
 
-当前 `PlayerMind` / `recipe_catalog` 仍使用四条过渡记录；此工具不改变其覆盖范围，输出 `runtime_planner_connected=false`。下一环需要把版本绑定的知识作为依赖送入通用规划接口，将真实库存读数交给匹配器，并保持玩家配方书/当前 GUI 准入与游戏后验确认；模型可以提出目标或配方假设，但知识不能直接签发按键。优先替换过渡目录，不逐物品追加动作链。
+`PlayerMind` 已接可选 `CraftKnowledge` 依赖。配置公开源后，模型的可合成目标与通用 `craft_take_result` 材料由该源和当前库存推导；打开 GUI 后还必须出现在当前 GUI 的可合成集合中。旧四条目录不能绕过这个检查；库存变动时自主循环按同一知识源重算 offer。成品是否进入背包仍由原有游戏反馈判断，知识与模型选择都不等于 CONFIRMED。
+
+运行前在 Core 进程配置：
+
+```powershell
+$env:MINEKIN_RECIPE_ARCHIVE='<本地版本JAR绝对路径>'
+$env:MINEKIN_RECIPE_ARCHIVE_SHA256='<可信下载记录中的SHA256>'
+```
+
+composition root 按**实际启动 profile 的版本**绑定源，版本/摘要不符具名拒绝。没有配置时保持过渡目录路径；不自动扫描 `.tmp`，不偷偷联网。查询工具本身仍无游戏控制，所以工具输出 `runtime_planner_connected=false` 不代表配置过的 Core 未接线。
+
+目前接通的是**库存已足够的一批合成**与模型结构化目标参数；跨多层原料的自动规划、缺料时选择采集路线、完整 GUI 收尾仍需继续开发和真实游戏验收。配置公开源时，模型摘要明确 `multi_stage_plan_available=false`，不拿旧四种物品的递归计划冒充公开源完整规划。运行代码测试以脚本 provider 验证不同成品走同一个行为，不是实际 LLM 或游戏结果证明。
