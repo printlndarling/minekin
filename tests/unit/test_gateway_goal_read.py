@@ -25,7 +25,7 @@ from gateway.goal_read import GOAL_PATH, SCHEMA, goal_read
 from gateway.server import GatewayServer, ReadRequestHandler, ReadService
 from minekin_core.application.ports.clock import FakeClock
 from minekin_core.domain.operator_config import OperatorConfig, save_operator_config
-from minekin_core.domain.recipe_catalog import CRAFT_GRID_TOO_SMALL, CRAFT_RECIPE_UNAVAILABLE
+from minekin_core.domain.recipe_catalog import CRAFT_RECIPE_UNAVAILABLE
 
 TABLE = "minecraft:crafting_table"
 PLANKS = "minecraft:oak_planks"
@@ -87,18 +87,15 @@ def test_a_product_outside_the_cover_reads_as_the_named_boundary_not_an_empty_pl
     assert document["precondition"] == CRAFT_RECIPE_UNAVAILABLE
 
 
-def test_a_goal_needing_a_larger_grid_reads_as_the_named_grid_boundary(tmp_path: Path) -> None:
-    """A pickaxe is in the catalog, but its last step is a 3-by-3 shape the two-by-two grid this
-    build opens cannot hold. Rather than print a plan the Kin could not finish, the read reports
-    the distinct grid boundary — a different word from the out-of-cover one, so the panel can say
-    which limit the operator is hitting."""
-
+def test_a_larger_grid_goal_includes_enabler_cost_before_the_wider_craft(tmp_path: Path) -> None:
     document = _read(tmp_path, {"goal_product_id": PICKAXE})
-
     assert document["configured"] is True
-    assert document["milestone"]["product_id"] == PICKAXE
-    assert document["plan"] is None
-    assert document["precondition"] == CRAFT_GRID_TOO_SMALL
+    assert document["precondition"] is None
+    steps = document["plan"]
+    products = [row["product_id"] for row in steps]
+    assert products.index(TABLE) < products.index(PICKAXE)
+    assert next(row["required_total"] for row in steps if row["product_id"] == PLANKS) == 9
+    assert next(row["required_total"] for row in steps if row["product_id"] == TABLE) == 1
 
 
 def test_the_read_never_claims_a_progress_it_cannot_see(tmp_path: Path) -> None:

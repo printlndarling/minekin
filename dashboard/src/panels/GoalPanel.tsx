@@ -4,7 +4,7 @@ import { Panel } from "../components/Panel";
 import styles from "./goal.module.css";
 
 const SOURCE_NOTE =
-  "目标是在配置页保存、由 Core 落进环境后读回的：这里只把那份已存目标投影出来，不提交、不改动，也不显示实时进度。合成计划是按配方推得的总量（gross），不是背包里已有多少——这个读数拿不到背包快照，所以从不编一个已完成数出来。";
+  "这是下次运行使用的已存目标。合成计划显示总材料预算（非背包已有），包含需要制作的工作台；实际进展请查看会话动作记录。";
 
 function goalIsStale(observedAt: string, staleAfterMs: number, nowMs: number): boolean {
   const at = Date.parse(observedAt);
@@ -21,7 +21,7 @@ function goalIsStale(observedAt: string, staleAfterMs: number, nowMs: number): b
  */
 function boundaryCopy(precondition: string): string {
   if (precondition === "CRAFT_GRID_TOO_SMALL") {
-    return "该产物在精选目录内，但合成计划的最后一步是 3×3 形状，需要先放置工作台才能展开——当前版本没有可放置或打开工作台的技能，因此这里不投影一份无法执行的计划。这是执行能力的已知边界，不是通用合成能力。";
+    return "该配方需要更大的合成网格，当前配方知识没有提供可达到该网格的前提。";
   }
   if (precondition === "CRAFT_RECIPE_UNAVAILABLE") {
     return "该产物不在当前精选目录内，因此没有可投影的合成计划。这是目录覆盖的已知边界，不是通用合成能力；小目录只是暂时回退，不能冒充全量知识来源。";
@@ -44,7 +44,7 @@ export function GoalPanel({ adapter, nowMs }: { readonly adapter: KinReadAdapter
   return (
     <Panel
       title="任务 · 目标与合成计划"
-      note="这一页是纯读：它显示配置页已存的目标，不提交目标、不控制会话、也不注入游戏输入。密钥从不进入这个读数。"
+      note="查看已保存的目标与合成材料预算。前往配置页修改目标。"
       testId="panel-goal"
     >
       {isLoading && goal === null ? (

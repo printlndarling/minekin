@@ -22,7 +22,7 @@ function openTask(scenario: DashboardConfig["scenario"]): void {
 }
 
 describe("任务面板：投影已保存的目标", () => {
-  it("已存的目录内目标显示里程碑；越出两格合成面时给出具名网格边界而非可执行计划", async () => {
+  it("已存的3×3目标显示工作台前提与完整材料计划", async () => {
     openTask("healthy_run_07");
     expect(await screen.findByTestId("panel-goal")).toBeInTheDocument();
     const product = await screen.findByTestId("goal-product");
@@ -30,12 +30,10 @@ describe("任务面板：投影已保存的目标", () => {
     expect(screen.getByTestId("goal-quantity")).toHaveTextContent("1");
     expect(screen.getByTestId("goal-source")).toHaveTextContent("minecraft:oak_log");
 
-    // 木镐在目录内，但其配方需要 3×3 网格——当前版本没有可放置/打开工作台的技能，
-    // 所以面板给出具名网格边界，而不是投影一份最后一步无法执行的计划。
-    const boundary = await screen.findByTestId("goal-boundary");
-    expect(boundary).toHaveTextContent("CRAFT_GRID_TOO_SMALL");
-    expect(boundary).toHaveTextContent("3×3");
-    expect(screen.queryByTestId("goal-plan")).toBeNull();
+    const plan = await screen.findByTestId("goal-plan");
+    expect(plan).toHaveTextContent("minecraft:crafting_table");
+    expect(screen.getByTestId("goal-step-minecraft:oak_planks")).toHaveTextContent("9");
+    expect(screen.queryByTestId("goal-boundary")).toBeNull();
 
     // 页面不含 CSRF，也不含编造的已完成数量。
     expect(document.body.textContent?.toLowerCase()).not.toContain("csrf");

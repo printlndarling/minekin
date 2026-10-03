@@ -626,16 +626,16 @@ export function buildMockStopReport(state: "running" | "unresolved", kinId = "ki
  * compute the same build order and the same grid boundary the Gateway projects, rather than
  * hard-coding one pickaxe row: the four covered products are exactly the current curated set, an
  * out-of-cover product falls through to `CRAFT_RECIPE_UNAVAILABLE`, and a plan whose last step needs
- * a wider grid than this build can open falls through to `CRAFT_GRID_TOO_SMALL`. This is a fixture's
+ * a wider grid without a known enabler falls through to `CRAFT_GRID_TOO_SMALL`. This is a fixture's
  * belief about the catalog, not a second source of truth — the real plan and its boundary still come
  * only from `gateway/goal_read.py`, which the shared `decodeGoalPayload` verifies.
  */
 const MOCK_RECIPES: Readonly<
-  Record<string, { ingredients: readonly (readonly [string, number])[]; yields: number; width: number; height: number }>
+  Record<string, { ingredients: readonly (readonly [string, number])[]; yields: number; width: number; height: number; opensGrid?: number }>
 > = {
   "minecraft:oak_planks": { ingredients: [["minecraft:oak_log", 1]], yields: 4, width: 1, height: 1 },
   "minecraft:stick": { ingredients: [["minecraft:oak_planks", 2]], yields: 4, width: 1, height: 2 },
-  "minecraft:crafting_table": { ingredients: [["minecraft:oak_planks", 4]], yields: 1, width: 2, height: 2 },
+  "minecraft:crafting_table": { ingredients: [["minecraft:oak_planks", 4]], yields: 1, width: 2, height: 2, opensGrid: 3 },
   "minecraft:wooden_pickaxe": { ingredients: [["minecraft:oak_planks", 3], ["minecraft:stick", 2]], yields: 1, width: 3, height: 3 },
 };
 
@@ -677,16 +677,19 @@ function mockBuildPlan(
     return false;
   };
   if (visit(productId, new Set())) return "CRAFT_RECIPE_UNAVAILABLE";
-  // The grid boundary is read off the plan's own steps, exactly as `goal_read` applies
-  // `plan_needs_larger_grid` after `build_plan` — a known recipe whose shape will not fit is a
-  // named grid boundary, not a plan to print.
+  // A wider shape adds the curated grid enabler and its cost; no enabler is a named boundary.
   const needsLargerGrid = order.some((product) => {
     const recipe = MOCK_RECIPES[product];
     return recipe !== undefined && Math.max(recipe.width, recipe.height) > MOCK_PLAYER_GRID_SIDE;
   });
-  if (needsLargerGrid) return "CRAFT_GRID_TOO_SMALL";
+  const widest = Math.max(...order.map((product) => Math.max(MOCK_RECIPES[product]!.width, MOCK_RECIPES[product]!.height)));
+  const enabler = needsLargerGrid ? Object.entries(MOCK_RECIPES).find(([, recipe]) =>
+    (recipe.opensGrid ?? 0) >= widest && Math.max(recipe.width, recipe.height) <= MOCK_PLAYER_GRID_SIDE)?.[0] : undefined;
+  if (needsLargerGrid && enabler === undefined) return "CRAFT_GRID_TOO_SMALL";
+  if (enabler !== undefined && visit(enabler, new Set())) return "CRAFT_RECIPE_UNAVAILABLE";
   const gross = new Map<string, number>(order.map((product) => [product, 0]));
   gross.set(productId, quantity);
+  if (enabler !== undefined) gross.set(enabler, (gross.get(enabler) ?? 0) + 1);
   const owed = new Map<string, number>();
   for (const product of [...order].reverse()) {
     const recipe = MOCK_RECIPES[product];
@@ -698,6 +701,11 @@ function mockBuildPlan(
     for (const [item, count] of recipe.ingredients) {
       if (gross.has(item)) gross.set(item, (gross.get(item) ?? 0) + batches * count);
     }
+  }
+  if (enabler !== undefined) {
+    const index = order.findIndex((product) => Math.max(MOCK_RECIPES[product]!.width, MOCK_RECIPES[product]!.height) > MOCK_PLAYER_GRID_SIDE);
+    order.splice(order.indexOf(enabler), 1);
+    order.splice(index, 0, enabler);
   }
   return order.flatMap((product) => {
     const recipe = MOCK_RECIPES[product];
@@ -719,7 +727,7 @@ function mockBuildPlan(
  * write persisted, and this read projects it — unset product → `configured:false` with a null
  * projection, a buildable covered product → milestone + gross build plan, and a goal that stops
  * short of a runnable plan → milestone + its named precondition (out-of-cover → `CRAFT_RECIPE_UNAVAILABLE`,
- * a step needing a wider grid → `CRAFT_GRID_TOO_SMALL`; both criterion 6's boundary). No live
+ * a wider grid with no known enabler → `CRAFT_GRID_TOO_SMALL`). No live
  * progress number is ever fabricated: the plan carries gross counts only, matching `_step`'s
  * documented refusal to net against a bag this surface does not have. `csrfToken` rides along for
  * wire fidelity but the decoder never reads it into the model, so it stays out of the UI.

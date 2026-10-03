@@ -42,7 +42,7 @@ export function IdentityPanel({ adapter, nowMs }: { readonly adapter: KinReadAda
   return (
     <Panel
       title="身份 · 游戏 ID"
-      note="这是只读外壳唯一被授权的写入面：只在会话停止时改名，不启动、不暂停、不注入游戏输入。"
+      note="修改角色名会改变离线身份。请先停止会话，再确认保存。"
       testId="panel-identity"
     >
       {controller.isLoading && identity === null ? (

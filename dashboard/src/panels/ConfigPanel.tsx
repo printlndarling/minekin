@@ -90,7 +90,7 @@ export function ConfigPanel({ adapter, nowMs }: { readonly adapter: KinReadAdapt
   return (
     <Panel
       title="配置 · 模型与目标"
-      note="这是外壳唯一被授权的第二处写入：只在显式保存时写入配置，不启动、不暂停、不注入游戏输入，也不读取或保存任何密钥。"
+      note="设置模型连接与角色目标，点击保存后生效。API 密钥通过进程环境提供，此处仅保存变量名。"
       testId="panel-config"
     >
       {controller.isLoading && config === null ? (

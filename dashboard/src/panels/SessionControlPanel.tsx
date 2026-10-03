@@ -61,7 +61,7 @@ export function SessionControlPanel({
   return (
     <Panel
       title="会话 · 控制"
-      note="这是第三次被授权的写入：只在本机、需显式确认、仅停止能安全执行的动作——先释放输入再停进程，不启动、不暂停、不注入游戏输入，也不持有任何凭据。"
+      note="查看会话状态并停止运行。停止前会先释放角色按键；无法确认释放时会显示原因。"
       testId="panel-session-control"
     >
       {controller.isLoading && session === null ? (
