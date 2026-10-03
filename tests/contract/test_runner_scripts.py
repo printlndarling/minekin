@@ -254,6 +254,94 @@ def test_the_goal_the_demo_names_is_the_goal_the_wrapper_delivers() -> None:
     )
 
 
+#: The two names the session inside reads for version knowledge. `mind_for_run` opens the
+#: archive from these and falls back to the curated table without them, so a name that does
+#: not cross the wrapper produces a run the operator reads as knowledge-driven while no
+#: archive was ever opened — the same silent-shape fault this file exists for, one seam out.
+RECIPE_ARCHIVE_KNOBS = frozenset({"MINEKIN_RECIPE_ARCHIVE", "MINEKIN_RECIPE_ARCHIVE_SHA256"})
+
+_ARCHIVE_BEGIN = "# --- recipe-archive-path begin ---"
+_ARCHIVE_END = "# --- recipe-archive-path end ---"
+
+
+def recipe_archive_block(script: str) -> str:
+    return script[script.index(_ARCHIVE_BEGIN) : script.index(_ARCHIVE_END)]
+
+
+def test_the_recipe_archive_names_reach_the_session_inside_the_runner() -> None:
+    """Both names, forward and read, pinned the way the goal names are.
+
+    `run.sh` is the only hop into the container, and it must both name the pair in its
+    `-e` list and read the archive name itself in the path guard, because the value
+    docker forwards is the one this script exported after translating it.
+    """
+
+    wrapper = (RUNNER / "run.sh").read_text(encoding="utf-8")
+
+    delivered = set(re.findall(r"-e\s+(MINEKIN_RECIPE_ARCHIVE[A-Z0-9_]*)", wrapper))
+    assert delivered == set(RECIPE_ARCHIVE_KNOBS), (
+        f"run.sh forwards these archive names into the container: {sorted(delivered)}"
+    )
+    region = recipe_archive_block(wrapper)
+    assert "MINEKIN_RECIPE_ARCHIVE" in region, (
+        "run.sh no longer translates MINEKIN_RECIPE_ARCHIVE; if the archive left the runner "
+        "surface, drop the two names from the -e list and this test together"
+    )
+
+
+def test_the_recipe_archive_path_is_translated_to_the_containers_spelling(
+    tmp_path: Path,
+) -> None:
+    """A repository file named in the operator's spelling is handed over as `/src/...`.
+
+    The value crosses docker untouched, so the spelling this script exports is the spelling
+    the session opens; a host path that stayed host-shaped would reach the composition root
+    as a missing-file refusal about the wrong side of the mount. Driven through bash over the
+    shipped region: inside the repository, in-container passthrough, outside, and absent.
+    """
+
+    wrapper = (RUNNER / "run.sh").read_text(encoding="utf-8")
+    block = recipe_archive_block(wrapper)
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "public.jar").write_bytes(b"x")
+    outside = tmp_path / "outside.jar"
+    outside.write_bytes(b"x")
+    repository_root = repo.as_posix()
+    if shutil.which("cygpath"):
+        converted = subprocess.run(
+            ["cygpath", "-m", str(repo)], capture_output=True, text=True, check=True
+        )
+        repository_root = converted.stdout.strip()
+    script = tmp_path / "drive-archive-path.sh"
+    script.write_text(
+        "set -euo pipefail\n"
+        f"REPOSITORY_ROOT={shlex.quote(repository_root)}\n"
+        'export MINEKIN_RECIPE_ARCHIVE="$1"\n'
+        f"{block}\n"
+        "printf '<VALUE=%s>\\n' \"${MINEKIN_RECIPE_ARCHIVE}\"\n",
+        encoding="utf-8",
+    )
+    bash = shutil.which("bash")
+    assert bash, "the shipped guard is shell code and there is no bash to drive it"
+
+    def drive(value: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [bash, script.as_posix(), value], capture_output=True, text=True, check=False
+        )
+
+    inside = drive((repo / "public.jar").as_posix())
+    assert inside.returncode == 0, inside.stderr
+    assert "<VALUE=/src/public.jar>" in inside.stdout
+    passthrough = drive("/src/public.jar")
+    assert passthrough.returncode == 0, passthrough.stderr
+    assert "<VALUE=/src/public.jar>" in passthrough.stdout
+    refused = drive(outside.as_posix())
+    assert refused.returncode == 2 and "outside" in refused.stderr
+    absent = drive((repo / "absent.jar").as_posix())
+    assert absent.returncode == 2 and "not a file" in absent.stderr
+
+
 #: The four names `demo.sh` reads for its standing goal. These are the demo's own spelling, not
 #: `goal_spec`'s: this is the layer that is allowed to state the fixture item at all.
 DEMO_GOAL_KNOBS = (

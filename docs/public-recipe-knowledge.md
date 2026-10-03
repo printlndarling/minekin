@@ -32,6 +32,13 @@ $env:MINEKIN_RECIPE_ARCHIVE_SHA256='<可信下载记录中的SHA256>'
 
 composition root 按**实际启动 profile 的版本**绑定源，版本/摘要不符具名拒绝。没有配置时保持过渡目录路径；不自动扫描 `.tmp`，不偷偷联网。查询工具本身仍无游戏控制，所以工具输出 `runtime_planner_connected=false` 不代表配置过的 Core 未接线。
 
+受控 demo 里不需要另配转发名单：把仓库内的归档按宿主拼法交给 `run.sh`，它会折算成容器读得到的 `/src/...` 再按名递进容器（容器形与两侧都读不到的路径各自具名拒绝）：
+
+```bash
+MINEKIN_SERVER_JAR=.tmp/mc-1.20.1-server.jar MINEKIN_RECIPE_ARCHIVE=.tmp/mc-1.20.1-server.jar \
+    bash test-orchestrator/runner/demo.sh --autonomous
+```
+
 2026-10-04 起接通的是**逐层欠序的第一步**：`PublicCraftKnowledge.step_toward` 用同一份公开配方把目标递归展开（依赖先序、每层按各自 `result.count` 折算批次、tag 替代项按容量共享先扣当前库存、自食配方按名字拒止），返回"这一帧真能跑的最前欠步"——目标产品的中间层（如合成石镐前的木棍）因此会被解成可执行的 `craft_take_result`，而不是把缺料一律报成 `CRAFT_MATERIALS_MISSING`；拒止词与优先级不变（先网格、再背包、最后开着的界面的配方书，`GUI_RECIPE_UNKNOWN`）。模型摘要相应给出 `craft_plan_source=public_version_stepwise`、`multi_stage_plan_available=true` 与当前那一步（不是完整路线），`as_document.multi_stage_planner` 为 `stepwise`。
 
 宽网格同样接通了：当欠步的形状超过当前格子时，`step_toward` 按既有策展 opener 行（`Recipe.opens_grid_side`，不硬编码物品名）先返回**立起 enabler 的那一笔合成**（其材料不够则 `CRAFT_MATERIALS_MISSING`，即去采集；enabler 已在袋中则报 `CRAFT_GRID_TOO_SMALL`），由同一套 select→place→open 通用路径选中、放置、开窗；`PlayerMind` 的 blocker/enabler/select 三处问题改由同一知识源回答，公开目标与策展目标的改线、回收与立桌行为因此一致。enabler 行本身仍住在策展表（档案不携带 `opens_grid_side`，新 opener 是新增一行，不是改代码）。

@@ -133,6 +133,42 @@ if [[ "${1:-}" == "domain" ]]; then
             SERVER_JAR="$(cygpath -m "${SERVER_JAR}")"
         fi
     fi
+    # --- recipe-archive-path begin ---
+    # The version-knowledge archive is opened by the session inside this container, where
+    # `/src` is this repository; a host path naming a file this repository carries is
+    # exported under the in-container spelling, and anything readable from neither side is
+    # refused here, before docker, instead of carried to the composition root as a worse
+    # sentence. A value already in container form is passed through after a host-side check.
+    if [[ -n "${MINEKIN_RECIPE_ARCHIVE:-}" ]]; then
+        case "${MINEKIN_RECIPE_ARCHIVE}" in
+            /src/*)
+                if [[ ! -f "${REPOSITORY_ROOT}/${MINEKIN_RECIPE_ARCHIVE#/src/}" ]]; then
+                    echo "MINEKIN_RECIPE_ARCHIVE is not a file this repository carries: ${MINEKIN_RECIPE_ARCHIVE}" >&2
+                    exit 2
+                fi
+                ;;
+            *)
+                if [[ ! -f "${MINEKIN_RECIPE_ARCHIVE}" ]]; then
+                    echo "MINEKIN_RECIPE_ARCHIVE is not a file: ${MINEKIN_RECIPE_ARCHIVE}" >&2
+                    exit 2
+                fi
+                archive_absolute="$(cd "$(dirname "${MINEKIN_RECIPE_ARCHIVE}")" && pwd)/$(basename "${MINEKIN_RECIPE_ARCHIVE}")"
+                if command -v cygpath >/dev/null 2>&1; then
+                    archive_absolute="$(cygpath -m "${archive_absolute}")"
+                fi
+                case "${archive_absolute}" in
+                    "${REPOSITORY_ROOT}"/*)
+                        export MINEKIN_RECIPE_ARCHIVE="/src/${archive_absolute#"${REPOSITORY_ROOT}/"}"
+                        ;;
+                    *)
+                        echo "MINEKIN_RECIPE_ARCHIVE is outside ${REPOSITORY_ROOT}: ${MINEKIN_RECIPE_ARCHIVE}" >&2
+                        exit 2
+                        ;;
+                esac
+                ;;
+        esac
+    fi
+    # --- recipe-archive-path end ---
     # `-e NAME` without a value forwards the host's, and an unset one stays
     # unset: the runner does not invent a world for the operator.
     EXTRA_ARGS=(-e MINEKIN_DOMAIN_SUMMON
@@ -238,7 +274,12 @@ if [[ "${1:-}" == "domain" ]]; then
         # credential: the listener binds loopback inside the container, and unset means no
         # listener at all, so every other case is unaffected byte for byte.
         -e MINEKIN_DOMAIN_FAKE_MODEL_PORT
-        -e MINEKIN_PERSONA_SEED)
+        -e MINEKIN_PERSONA_SEED
+        # The version-knowledge archive, opened by the session this container runs: a path
+        # and an optional trusted digest, never a credential. Unset leaves the composition
+        # root on its curated fallback, and the path guard above runs before docker sees
+        # either name.
+        -e MINEKIN_RECIPE_ARCHIVE -e MINEKIN_RECIPE_ARCHIVE_SHA256)
     # The operator's own credential variable, named by them and never by this script.
     # A key must not be written into the repository or a log, so there is no flag for a
     # value here: `MINEKIN_RUNNER_FORWARD_ENV` carries comma-separated variable NAMES and

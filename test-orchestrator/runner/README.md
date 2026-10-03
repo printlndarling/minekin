@@ -82,6 +82,12 @@ is kept for every run that does not ask), and the walk itself
 `MINEKIN_DEMO_CASE` names a registered case to seal the run against; unset, the run
 still prints its own document, which is where Core's verdicts live.
 
+`MINEKIN_RECIPE_ARCHIVE` points the session at a public version archive — a file this
+repository carries, named in the host's own spelling, because `run.sh` hands docker the
+`/src/...` name the container reads it by — so crafts can be planned beyond the curated
+fallback; `MINEKIN_RECIPE_ARCHIVE_SHA256` pins the digest when the operator has one.
+Unset, nothing changes. A path readable from neither side is refused before docker starts.
+
 A death is a separate ask. `MINEKIN_DEMO_KILL=Kin` has the world kill that Kin during
 the session and `MINEKIN_DEMO_KILL_AFTER_SECONDS` says how long after its join line the
 world does it (30). Unset, nobody dies. The entry refuses a timing that is not a whole
