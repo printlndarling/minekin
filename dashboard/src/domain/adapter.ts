@@ -3,6 +3,7 @@ import type {
   ConfigInfo,
   ConfigSaveRequest,
   ConfigSaveResult,
+  ModelTestResult,
   GoalInfo,
   IdentityInfo,
   KinSnapshot,
@@ -97,6 +98,7 @@ export interface KinReadAdapter {
    * document that did NOT change.
    */
   saveConfig(request: ConfigSaveRequest, signal?: AbortSignal): Promise<ReadResult<ConfigSaveResult>>;
+  testModel(signal?: AbortSignal): Promise<ReadResult<ModelTestResult>>;
   /**
    * The observed session state plus what this surface can actually do about it: whether a stop is
    * allowed, which control verbs exist, and the reason each unavailable one is absent. Like the

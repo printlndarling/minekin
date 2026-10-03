@@ -14,6 +14,7 @@ import {
   type ConfigInfo,
   type ConfigSaveRequest,
   type ConfigSaveResult,
+  type ModelTestResult,
   type ConfigValue,
   type GoalInfo,
   type IdentityInfo,
@@ -271,6 +272,9 @@ export function createMockAdapter(scenario: MockScenarioId, latencyMs: number): 
       // The config GET is what hands out the shared token; a save only becomes possible after one read.
       configReadIssued = true;
       return ok(decoded.config, "mock", `mock://scenario/${scenario}/config`);
+    },
+    async testModel(): Promise<ReadResult<ModelTestResult>> {
+      return fail("write_refused", "模拟数据不能验证真实模型连接。请切换到本地 Gateway。");
     },
     async saveConfig(request: ConfigSaveRequest, signal?: AbortSignal): Promise<ReadResult<ConfigSaveResult>> {
       await settle();

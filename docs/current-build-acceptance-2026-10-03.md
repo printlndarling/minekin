@@ -24,3 +24,5 @@
 run-65启动误拒绝已定位：auto-bundle把底层已经判为命令行不匹配的left_alone PID也列入未解决客户端。入口现在只以unresolved拒绝，之后仍重新查询客户端身份；外来进程不接管、不发信号，历史marker不删不改。新的回归先红后绿；相关73项通过、1项平台跳过，全仓pyright通过。run-66（89fec0bf9d674a4cb54feeced5f5ac0f）经同卷默认入口实际PLAYABLE、正常停止且松键确认，证明启动恢复；最终goal_met=false，另一个局部合成请求满足被误标为整个GOAL_ACHIEVED的问题仍待修复，因此不计目标成功。
 
 局部请求与最终目标已分开：已有数量/中间产物只记REQUEST_ALREADY_SATISFIED，目标未满足时按观测允许的动作做有界本地改线；模型超时后的反思也逐个排除无法支付的候选，保留原TIMEOUT及材料前提。run-67/68分别停在材料不足和超时后的不可支付回退，失败保留，未重复不改代码赌结果。修正后的run-69（3c34378d079a4168a224d57529b288b8，会话4e336e7491a446e2ada82927011a427a，本地和平模式）完成8木板、选中目标且关窗：GOAL_HELD_IN_HAND、goal_met=true，11真实模型调用，7模型动作/4本地回退，10确认/1前提变化中断，172观测/0拒止，input_release_failed=false。估算73 micro不等于供应商账单。127项心智/自主循环回归通过；这是普通真模型运行记录，不是sealed evidence，不支持长期生存或纯模型逐步控制的主张。
+
+后台模型测试：配置页显式POST，共享回环/同源/CSRF校验，拒绝并发重复调用；返回状态、具名原因、耗时、调用记录与估算成本，不执行模型决策。实际模型函数调用一次connected（2906ms、timeout8000ms、估算3 micro）；真实浏览器经Vite代理调用实际Gateway，在独立model-test-browser根保存off后得到MODEL_NOT_CONFIGURED/零调用，390px无横向溢出。两者分别证明真实供应商调用与实际浏览器/HTTP链路，不宣称该浏览器路径联系了供应商。113项相关配置/HTTP/模型测试、236项前端全量、全仓pyright、构建通过；详细复验入口见[Dashboard说明](../dashboard/README.md)。历史只读审批文案从用户页头移除；服务器设置、受管启动、暂停/恢复仍未接入。

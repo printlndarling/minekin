@@ -215,4 +215,4 @@ describe("关键流程：外壳在同一界面上呈现四种缺失", () => {
   });
 });
 
-const READ_ONLY_TEXT = "只读面板";
+const READ_ONLY_TEXT = "运行控制台";

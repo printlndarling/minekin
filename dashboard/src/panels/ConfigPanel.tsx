@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useMutation } from "@tanstack/react-query";
 import type { FormEvent } from "react";
 import type { KinReadAdapter } from "../domain/adapter";
 import type { ConfigFieldMeta } from "../domain/configPolicy";
@@ -31,6 +32,7 @@ const WHOLE_DOCUMENT_NOTE =
  */
 export function ConfigPanel({ adapter, nowMs }: { readonly adapter: KinReadAdapter; readonly nowMs: number }) {
   const controller = useConfigController(adapter);
+  const modelTest = useMutation({ mutationFn: () => adapter.testModel(), retry: false });
   const { config } = controller;
   const signature = config === null ? null : configFieldsSignature(config);
 
@@ -86,6 +88,7 @@ export function ConfigPanel({ adapter, nowMs }: { readonly adapter: KinReadAdapt
   };
 
   const outcome = controller.outcome;
+  useEffect(() => modelTest.reset(), [signature, edited, modelTest.reset]);
 
   return (
     <Panel
@@ -162,6 +165,26 @@ export function ConfigPanel({ adapter, nowMs }: { readonly adapter: KinReadAdapt
                 controller.clearOutcome();
               }}>放弃修改，读取已存配置</button>
           </form>
+
+          <p className={styles.notice}>
+            连接测试使用已保存配置与 Gateway 进程环境（环境优先），最多等待 20 秒。
+            点击会尝试一次模型调用，可能产生费用；返回的决策不会执行游戏动作。
+          </p>
+          <button type="button" className={styles.submit} data-testid="model-test-submit"
+            disabled={edited || controller.pending || modelTest.isPending || config.loadError !== null}
+            onClick={() => modelTest.mutate()}>
+            {modelTest.isPending ? "测试连接中…" : "测试已保存的模型连接"}
+          </button>
+          {modelTest.data !== undefined ? (
+            <p className={modelTest.data.ok && modelTest.data.value.status === "connected" ? styles.result : styles.refusal} role="status" data-testid="model-test-result">
+              {modelTest.data.ok
+                ? `${modelTest.data.value.status === "connected" ? "模型连接与决策格式通过" : `模型不可用：${modelTest.data.value.reason}`} · ${modelTest.data.value.elapsedMs} ms · 调用记录 ${modelTest.data.value.modelCalls} · 估算成本 ${modelTest.data.value.estimatedCostMicro} micro（非账单）`
+                : `连接测试失败：${modelTest.data.failure.message}`}
+            </p>
+          ) : null}
+          {modelTest.isError ? <p className={styles.refusal} role="alert">
+            连接测试未完成，请检查 Gateway 连接后重试。
+          </p> : null}
 
           {outcome?.ok && outcome.result !== null ? (
             <p className={styles.result} data-testid="config-result">

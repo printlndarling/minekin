@@ -22,6 +22,7 @@ import pytest
 
 from gateway.config_write import CONFIG_PATH, CONFIG_SAVE_PATH
 from gateway.identity import IDENTITY_PATH, RENAME_PATH
+from gateway.model_test import MODEL_TEST_PATH
 from gateway.readmodel import (
     ALERTS_PATH,
     MAX_TIMELINE_LIMIT,
@@ -212,6 +213,7 @@ def test_the_route_table_lists_the_reads_and_the_three_writes(
     assert posts == [
         f"POST {RENAME_PATH}",
         f"POST {CONFIG_SAVE_PATH}",
+        f"POST {MODEL_TEST_PATH}",
         f"POST {SESSION_STOP_PATH}",
     ]
     assert f"GET {IDENTITY_PATH}" in lines

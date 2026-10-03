@@ -15,6 +15,7 @@ import {
   type ConfigInfo,
   type ConfigSaveRequest,
   type ConfigSaveResult,
+  type ModelTestResult,
   type ConfigValue,
   type EvidenceRef,
   type Field,
@@ -1534,12 +1535,12 @@ export function createGatewayAdapter(options: GatewayAdapterOptions | null): Kin
   const describe = (): AdapterDescriptor => ({
     id: options === null ? "gateway:unconfigured" : `gateway:${options.baseUrl}`,
     kind: "gateway",
-    label: options === null ? "Gateway 只读接口 · 未配置" : `Gateway 只读接口 · ${options.baseUrl}`,
+    label: options === null ? "本地 Gateway · 未配置" : `本地 Gateway · ${options.baseUrl}`,
     mock: false,
     note:
       options === null
-        ? "未设置 VITE_GATEWAY_BASE_URL：契约已冻结，等待 Gateway 基址，期间零网络调用。"
-        : "按 docs/gateway-dashboard-readonly-contract-2026-09-28.md 冻结的三条只读 GET 读取，任何不匹配都会失败关闭而不是猜测；写入面有三处经授权的例外：身份页按 docs/stable-player-name-2026-09-29.md 的一次改名，配置页持久化模型与目标设置，以及会话页停止当前 Kin 的会话（全项目目标 Phase D）。停止只释放输入并结束活动，不连接服务器或重放动作；启停其余动词只在读模型里记为不可用原因，不接成按钮。",
+        ? "请设置本地 Gateway 地址以读取角色状态。"
+        : "读取本地角色的状态、动作与日志。配置、身份修改、模型连接测试及停止会话均在对应页面显式提交。",
   });
 
   if (options === null) {
@@ -1566,6 +1567,9 @@ export function createGatewayAdapter(options: GatewayAdapterOptions | null): Kin
         return unconfigured();
       },
       async saveConfig(): Promise<ReadResult<ConfigSaveResult>> {
+        return unconfigured();
+      },
+      async testModel(): Promise<ReadResult<ModelTestResult>> {
         return unconfigured();
       },
       async session(): Promise<ReadResult<SessionControlInfo>> {
@@ -1652,6 +1656,22 @@ export function createGatewayAdapter(options: GatewayAdapterOptions | null): Kin
       }
       csrfToken = decoded.csrfToken;
       return ok(decoded.config, "gateway", `gateway://${CONFIG_ENDPOINTS.config}`);
+    },
+    async testModel(signal?: AbortSignal): Promise<ReadResult<ModelTestResult>> {
+      const path = "/api/v1/dashboard/model/test";
+      const result = await postWrite(baseUrl, path, Math.max(timeoutMs, 25_000), { confirm: true }, csrfToken, "模型测试请求已取消。", signal);
+      if (result.kind === "failure") return { ok: false, failure: result.failure };
+      if (result.kind === "refusal") return fail("write_refused", `${result.code}：${result.message}`);
+      const rec = asRecord(result.data);
+      if (rec === null || rec.schemaVersion !== "kin-dashboard-model-test/1.0.0" ||
+          (rec.status !== "connected" && rec.status !== "unavailable") ||
+          typeof rec.reason !== "string" ||
+          ![rec.elapsedMs, rec.timeoutMs, rec.modelCalls, rec.estimatedCostMicro].every((n) => typeof n === "number" && Number.isSafeInteger(n) && n >= 0)) {
+        return fail("contract_mismatch", "模型测试结果契约不匹配。");
+      }
+      return ok({ status: rec.status, reason: rec.reason, elapsedMs: rec.elapsedMs as number,
+        timeoutMs: rec.timeoutMs as number, modelCalls: rec.modelCalls as number,
+        estimatedCostMicro: rec.estimatedCostMicro as number }, "gateway", `gateway://${path}`);
     },
     async saveConfig(request: ConfigSaveRequest, signal?: AbortSignal): Promise<ReadResult<ConfigSaveResult>> {
       const result = await postWrite(baseUrl, CONFIG_ENDPOINTS.save, timeoutMs, request, csrfToken, "保存请求已取消。", signal);

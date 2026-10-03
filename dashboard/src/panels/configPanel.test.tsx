@@ -1,7 +1,8 @@
 import { act, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { ok } from "../domain/adapter";
 import { App } from "../App";
 import type { DashboardConfig } from "../adapters/config";
 import { buildMockConfig, type MockScenarioId } from "../fixtures/mockFixtures";
@@ -25,6 +26,34 @@ function mockConfig(scenario: MockScenarioId): DashboardConfig {
 function openConfig(scenario: MockScenarioId): void {
   render(<App config={mockConfig(scenario)} initialPage="config" />);
 }
+
+describe("模型连接测试", () => {
+  it("不会把模拟数据报成真实连接成功", async () => {
+    openConfig("healthy_run_07");
+    await userEvent.click(await screen.findByTestId("model-test-submit"));
+    expect(await screen.findByTestId("model-test-result")).toHaveTextContent("模拟数据不能验证真实模型连接");
+  });
+
+  it("只显式调用一次；显示结果和估算，编辑草稿后清除旧结果并禁用测试", async () => {
+    const adapter = createMockAdapter("healthy_run_07", 0);
+    const test = vi.spyOn(adapter, "testModel").mockResolvedValue(ok({
+      status: "connected", reason: "", elapsedMs: 42, timeoutMs: 20_000,
+      modelCalls: 1, estimatedCostMicro: 3,
+    }, "gateway", "gateway://model-test"));
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(<QueryClientProvider client={client}><ConfigPanel adapter={adapter} nowMs={Date.now()} /></QueryClientProvider>);
+    const button = await screen.findByTestId("model-test-submit");
+    expect(test).not.toHaveBeenCalled();
+    await userEvent.click(button);
+    expect(await screen.findByTestId("model-test-result")).toHaveTextContent("模型连接与决策格式通过");
+    expect(screen.getByTestId("model-test-result")).toHaveTextContent("42 ms");
+    expect(screen.getByTestId("model-test-result")).toHaveTextContent("非账单");
+    expect(test).toHaveBeenCalledTimes(1);
+    await userEvent.type(screen.getByTestId("config-input-model_name"), "-changed");
+    expect(button).toBeDisabled();
+    expect(screen.queryByTestId("model-test-result")).toBeNull();
+  });
+});
 
 describe("配置面板：显示已保存的文档", () => {
   it("预填场景把文档灌进表单，provider 是词表下拉，且页面不含 CSRF 令牌", async () => {

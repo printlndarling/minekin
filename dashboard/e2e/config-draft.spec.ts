@@ -17,3 +17,16 @@ test("config draft can be discarded, while invalid fields explain why saving is 
   await page.getByRole("button", { name: "放弃修改，读取已存配置" }).click();
   await expect(page.getByTestId("config-submit")).toBeEnabled();
 });
+
+test("model test rejects mock success and requires saving the draft first", async ({ page }) => {
+  await page.goto("/?adapter=mock&scenario=healthy_run_07#config");
+  const button = page.getByTestId("model-test-submit");
+  await expect(button).toBeEnabled();
+  await button.click();
+  await expect(page.getByTestId("model-test-result")).toContainText("模拟数据不能验证真实模型连接");
+  await page.getByTestId("config-input-model_name").fill("unsaved-model");
+  await expect(button).toBeDisabled();
+  await expect(page.getByTestId("model-test-result")).toHaveCount(0);
+  await page.getByRole("button", { name: "放弃修改，读取已存配置" }).click();
+  await expect(button).toBeEnabled();
+});

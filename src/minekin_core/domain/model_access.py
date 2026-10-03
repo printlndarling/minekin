@@ -360,7 +360,7 @@ def model_config(environ: Mapping[str, str] | None = None) -> ModelConfig:
             f"{ConfigRefusal.UNKNOWN_PROVIDER}: {MODEL_PROVIDER_VARIABLE} is "
             f"{_shown(raw_provider)}, not one of {' or '.join(KNOWN_PROVIDERS)}",
         )
-    if provider is PROVIDER_OFF:
+    if provider == PROVIDER_OFF:
         # The whole of the `off` path: one variable read, no validation of anything an unused
         # endpoint would have needed, and no way for it to raise.
         return ModelConfig(provider=PROVIDER_OFF)

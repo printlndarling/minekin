@@ -32,6 +32,33 @@ async function withFetch<T>(impl: typeof fetch, run: () => Promise<T>): Promise<
   }
 }
 
+describe("Gateway 模型测试传输", () => {
+  it.each([false, true])("带 CSRF 的显式 POST，拒绝不完整的结果：%s", async (malformed) => {
+    const calls: RequestInit[] = [];
+    const impl = (async (_url: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.method === "POST") {
+        calls.push(init);
+        return jsonResponse(malformed ? { status: "connected" } : {
+          schemaVersion: "kin-dashboard-model-test/1.0.0", status: "unavailable",
+          reason: "TIMEOUT", elapsedMs: 1000, timeoutMs: 1000, modelCalls: 1, estimatedCostMicro: 0,
+        });
+      }
+      return jsonResponse(buildMockConfig("healthy_run_07", Date.now()));
+    }) as typeof fetch;
+    await withFetch(impl, async () => {
+      const adapter = createGatewayAdapter({ baseUrl: "http://127.0.0.1:8000", timeoutMs: 1000 });
+      await adapter.config();
+      const result = await adapter.testModel();
+      expect(result.ok).toBe(!malformed);
+      if (!result.ok) expect(result.failure.kind).toBe("contract_mismatch");
+      else expect(result.value.reason).toBe("TIMEOUT");
+    });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.body).toBe('{"confirm":true}');
+    expect((calls[0]?.headers as Record<string, string>)[CSRF_HEADER]).toBe("mock-csrf-token");
+  });
+});
+
 describe("mock 配置读取与保存", () => {
   it("预填场景读到 openai_compatible 预设，逐字段与共享解码器一致，且模型里没有 CSRF", async () => {
     const result = await createMockAdapter("healthy_run_07", 0).config();

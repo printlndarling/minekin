@@ -1,12 +1,12 @@
-# Minekin Dashboard（只读外壳 + 唯一被授权的身份写面）
+# Minekin Dashboard
 
-卡片：`DASHBOARD-READONLY-SHELL-001`（并行计划 D lane）与后续的 `S1` 外壳重做。独占路径 `dashboard/**`；本目录之外的文件不属于这些卡。
+当前控制台提供状态与日志、模型与目标配置、模型连接测试、身份改名和停止会话。服务器设置、启动与暂停/恢复仍待实现；完整产品进度见[总规划](../docs/full-project-development-plan.md)。
 
-依据文档：`docs/standalone-runtime-dashboard.md`、`docs/gateway-dashboard-readonly-contract-2026-09-28.md`、`docs/stable-player-name-2026-09-29.md`。冲突时以那几份文档与真实 P0 证据为准。
+早期只读契约和身份写面文档保留为历史依据；现行范围以用户完整项目目标与当前实现为准。
 
 ## 这一层是什么
 
-一个 Kin 运行控制台：**五条页面全部由真实读数支撑**——总览（运行状态 / 会话与版本 / 证据来源 + 当前会话阶段）、时间线、告警、身份 · 改名、数据源与缺口。所有数值都来自一个可替换的 read adapter，默认接**本地 Gateway 的真实只读契约**；模拟数据只有显式 `?adapter=mock` 时才用，并在页头横幅上具名标注。
+角色状态、任务、时间线、告警、身份、配置与配方边界来自可替换的 adapter，默认连接本地 Gateway。模拟数据仅在显式 `?adapter=mock` 时使用，并在横幅标注；模拟模式不能验证真实模型连接。
 
 顶部常驻的**上下文条**用一屏回答操作者真正要问的四件事：它是谁（身份读数 + revision + 离线 UUID）、在哪个世界（profile / epoch / 是否入服）、正在干什么（运行态、链路、租约、台账里最远阶段）、为什么没运行或没完成（连续未落地的读取、会话收尾行、输入被拒原因、无告警源、活动告警）。左侧导航的每一项带该页读路的实时状态（在读 / 读取中 / 连续 N 次未落 / 失败 · 具名原因），页面由地址片段选择，可直接深链 `#timeline`、`#alerts`、`#identity`、`#data`。
 
@@ -14,13 +14,17 @@
 
 边界（并用测试固定，不只是写在文档里）：
 
-- 不启动、不暂停、不急停、不注入游戏输入；除身份改名外不提供任何写操作入口；
+- 当前可保存配置、修改停止状态下的身份、测试模型及停止会话；启动/暂停/恢复未接入；
 - 不连 Bridge、不连数据库、不持有凭据（页面上不出现 token/密钥字段）；
 - 不伪造 Live View：没有真帧源时不渲染 `<video>/<canvas>/<img>`，只显示具名缺口与前置条件；
-- 唯一的写面：`docs/stable-player-name-2026-09-29.md` 授权的那一次改名，只在会话停止时可用、需显式确认、按身份修订号做 compare-and-swap，服务器具名拒止原样回显；
+- 所有写请求复用同源、回环和 CSRF 校验；身份修改按修订号检查，连接测试拒绝并发重复调用；
 - 不改动 P0 Core：Core 侧不新增 Node 依赖，本目录构建产物是静态文件，由 Gateway 或反向代理托管。
 
 ## 已验证内容（真实读数）
+
+2026-10-03：模型连接测试由配置页发起 `POST /api/v1/dashboard/model/test`，使用已保存配置与 Gateway 进程环境（环境优先）。请求尝试一次结构化模型决策，连接超时配置上限20秒，返回具名原因、耗时、调用记录与估算成本；不会执行决策、回显模型原文或密钥，也不自动重试。未保存草稿时禁用测试，编辑配置会清除旧结果。真实模型函数调用一次返回 connected（2906ms、估算3 micro），与真实浏览器→Vite代理→Gateway 的 off/零调用验证分开记录；不把假端点或模拟面板当成真实模型结果。
+
+可复现浏览器测试：先在独立 `MINEKIN_HOME` 初始化一个 Kin，用 `MINEKIN_ENV_FILE` 指向空配置文件并清除该测试进程的 `MINEKIN_MODEL_*` 覆盖；启动 `uv run python -m gateway.server --data-root <测试根> --kin <测试Kin> --port 8789`。在另一终端设置 `MINEKIN_GATEWAY_TARGET=http://127.0.0.1:8789`、`E2E_MODEL_TEST_LIVE=1`，运行 `pnpm build` 与 `pnpm exec playwright test e2e/model-test-live.spec.ts`。此用例保存 off，仅验证实际HTTP链路，无付费调用；390px窄屏布局也检查无横向溢出。单元/API 的本地假端点仅用作格式和错误边界测试。
 
 2026-09-29 外壳重做后，同一条链路（typecheck → Vitest → build → Playwright）在 Node 24.18.0 + pnpm 11.21.0 上的读数：
 

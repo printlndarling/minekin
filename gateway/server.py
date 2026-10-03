@@ -1,19 +1,8 @@
-"""Serving the frozen reads over loopback HTTP, plus the three authorized writes.
+"""Loopback Dashboard reads and explicit identity, config, model-test and stop requests.
 
-`docs/adr/0001-p0-modular-monolith.md` keeps P0 Core free of a web layer, so this is a
-separate process that imports Core's reads rather than a module inside it. Being outside
-the product is the point: there is no path from a request handled here to a lease or an
-admission decision, because nothing in this file is able to ask for one. The read-only
-Dashboard has exactly three sanctioned exceptions, opened by the whole-project goal's
-Phase D in a deliberate order — two settings writes, then one control verb: the identity
-rename in `gateway.identity` (opened by `docs/stable-player-name-2026-09-29.md`), the
-operator-config save in `gateway.config_write`, and the session stop in
-`gateway.session_control`. None starts, moves or drives a session's activity; stop only
-ends one, and only by delegating to Core's own `stop_session`.
-
-The server owns no state and no cache. Every request re-derives its answer from the
-ledger and the overlays, which is what lets a panel's `observedAt` mean the reading
-rather than the moment someone last bothered to look.
+The web layer remains outside Core. Writes share the same origin and CSRF guard;
+model testing can call a provider but cannot issue game inputs. Reads are projected
+from current persisted state, and overlapping control/test requests are serialized.
 """
 
 from __future__ import annotations
@@ -52,6 +41,9 @@ from gateway.identity import (
     refusal,
     rename_from_request,
 )
+from gateway.model_test import MAX_BODY_BYTES as MAX_MODEL_TEST_BODY_BYTES
+from gateway.model_test import MODEL_TEST_PATH, test_from_request
+from gateway.model_test import SCHEMA as MODEL_TEST_SCHEMA
 from gateway.readmodel import (
     ALERTS_PATH,
     DEFAULT_TIMELINE_LIMIT,
@@ -87,7 +79,7 @@ TIMELINE_PARAMETER = "limit"
 #: The whole authorized surface, methods and all: the three frozen reads, the identity
 #: read the rename form reviews, the config read the settings form reviews, the goal read the
 #: task panel reviews, the session read, the recipe-coverage read the boundary panel reviews, and
-#: the three writes those routes except (the rename, the config save and the stop). `--routes`
+#: the explicit rename, config save, model test and stop requests. `--routes`
 #: prints this so the verb scan sees a POST only where one is sanctioned. The goal and recipe paths
 #: are reads only — setting a goal stays the config write's job, and the recipe catalog is product
 #: data no operator edits.
@@ -97,6 +89,7 @@ ROUTE_TABLE: tuple[tuple[str, str], ...] = (
     ("POST", RENAME_PATH),
     ("GET", CONFIG_PATH),
     ("POST", CONFIG_SAVE_PATH),
+    ("POST", MODEL_TEST_PATH),
     ("GET", GOAL_PATH),
     ("GET", SESSION_PATH),
     ("POST", SESSION_STOP_PATH),
@@ -105,7 +98,7 @@ ROUTE_TABLE: tuple[tuple[str, str], ...] = (
 
 
 class ReadService:
-    """The Dashboard's reads, plus the three authorized writes, as callables.
+    """The Dashboard's reads and authorized requests as callables.
 
     The CSRF token is generated once per process and handed out only by the same-origin
     identity, config and session reads; every write echoes it back, so a page that could not read
@@ -117,6 +110,7 @@ class ReadService:
         self._kin_selector = kin_selector
         self._clock = clock
         self._control_lock = threading.Lock()
+        self._model_test_lock = threading.Lock()
         self.csrf_token = new_csrf_token()
 
     def snapshot(self) -> dict[str, Any]:
@@ -153,6 +147,19 @@ class ReadService:
     def save_config(self, body: Mapping[str, Any]) -> tuple[int, dict[str, Any]]:
         return save_from_request(self._root, body=body)
 
+    def test_model(self, body: Mapping[str, Any]) -> tuple[int, dict[str, Any]]:
+        if not self._model_test_lock.acquire(blocking=False):
+            return refusal(
+                409,
+                "model_test_in_progress",
+                "已有模型连接测试正在执行。",
+                schema=MODEL_TEST_SCHEMA,
+            )
+        try:
+            return test_from_request(self._root, body=body)
+        finally:
+            self._model_test_lock.release()
+
     def session(self) -> dict[str, Any]:
         return session_read(
             self._root,
@@ -174,8 +181,7 @@ class ReadRequestHandler(BaseHTTPRequestHandler):
     The refusal matters as much as the read: `404` is what makes the frontend's
     `contract_mismatch` branch ("Gateway 只读接口尚未实现") true rather than a guess, and
     `405` is the answer to a verb this surface does not have on a given path. A POST to
-    anywhere but the rename, config-save and session-stop routes still gets that `405`, so
-    the three sanctioned writes are the only holes in an otherwise write-refusing surface.
+    Requests outside the explicit route table get a refusal.
     """
 
     protocol_version = "HTTP/1.1"
@@ -221,6 +227,11 @@ class ReadRequestHandler(BaseHTTPRequestHandler):
             return
         if parsed.path == CONFIG_SAVE_PATH:
             self._handle_write(MAX_CONFIG_BODY_BYTES, CONFIG_SCHEMA, self.service.save_config)
+            return
+        if parsed.path == MODEL_TEST_PATH:
+            self._handle_write(
+                MAX_MODEL_TEST_BODY_BYTES, MODEL_TEST_SCHEMA, self.service.test_model
+            )
             return
         if parsed.path == SESSION_STOP_PATH:
             self._handle_write(MAX_STOP_BODY_BYTES, SESSION_SCHEMA, self.service.stop)
@@ -374,8 +385,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="gateway.server",
         description=(
-            "Serve the read-only Dashboard API over loopback, plus the three authorized "
-            "writes (the identity rename, the operator-config save, and stopping a "
+            "Serve Dashboard reads over loopback, plus identity rename, config save, "
+            "model connection testing and stopping a "
             "session); it cannot start, pause, resume, or move a session."
         ),
     )

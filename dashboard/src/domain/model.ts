@@ -310,6 +310,15 @@ export interface ConfigSaveResult {
   readonly fields: Record<string, ConfigValue>;
 }
 
+export interface ModelTestResult {
+  readonly status: "connected" | "unavailable";
+  readonly reason: string;
+  readonly elapsedMs: number;
+  readonly timeoutMs: number;
+  readonly modelCalls: number;
+  readonly estimatedCostMicro: number;
+}
+
 /**
  * The session-control read model of `gateway/session_control.py::session_read`: the observed
  * session state plus exactly what this surface can do about it. Like the identity and config

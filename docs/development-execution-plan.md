@@ -1,6 +1,6 @@
 # Minekin 开发执行计划（现行唯一队列）
 
-> 当前施工（2026-10-03）：`current_next: B-MULTI-GOAL-AND-RECOVERY-007`。run-59真实模型完成3×3/关窗与持有目标（14模型/3本地回退）；当前Bridge新增020/080封证、独立重判与provenance通过，默认auto-bundle实际入服/行走/停止已恢复。登记只含新构建六项证明，旧资料不改，详见[当前构建登记](current-build-acceptance-2026-10-03.md)。下一步默认入口验证8木板等不同目标，然后断连/重启恢复与后台安全启动。新运行计数区分STARTED/SUCCEEDED/FAILED，旧run保留旧口径。下方旧current_next/lane仅供历史追溯。
+> 当前施工（2026-10-03）：`current_next: C-SERVER-CONFIG-AND-SAFE-START-008`。本地真模型已完成工作台3×3/关窗（run-59，14模型/3回退）与8木板（run-69，7模型/4回退）；数量与局部请求结束条件、有界材料/超时改线、PID复用误拒绝已修复。后台新增模型连接测试，真实调用、真实HTTP/浏览器off路径分别验证，详见[当前构建登记](current-build-acceptance-2026-10-03.md)与[Dashboard说明](../dashboard/README.md)。下一步持久化服务器配置、版本探测与后台受管启动，先本地受控服务器；保留断连/崩溃/死亡恢复、暂停恢复与长期生存缺口。Bridge登记只含新构建六项证明，历史封证不改；新运行分开统计STARTED/SUCCEEDED/FAILED。下方旧current_next/lane仅供历史追溯。
 
 
 > 全项目阶段与产品进度入口：[全项目开发总规划](full-project-development-plan.md)（2026-09-29）。当前能力是本地受控入服与操作，不是完整自主游玩。本文继续管理唯一 `current_next` 和 lane 领取；总规划不自动改动在工任务、证据门或高影响授权。后续排卡优先交付可用后台、基础资源技能和自主闭环，避免只扩大文档/审计。下方日期化读数保留为历史时点，不代表今日阶段摘要。
