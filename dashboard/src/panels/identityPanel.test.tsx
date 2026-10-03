@@ -1,6 +1,9 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { createMockAdapter } from "../adapters/mockAdapter";
+import { IdentityPanel } from "./IdentityPanel";
 import { App } from "../App";
 import type { DashboardConfig } from "../adapters/config";
 import { buildMockIdentity, type MockScenarioId } from "../fixtures/mockFixtures";
@@ -45,6 +48,45 @@ describe("身份面板：显示已持久化的身份", () => {
 });
 
 describe("身份面板：改名只在会话停止且显式确认时可用", () => {
+  it("提交事件也检查确认；修改草稿撤销确认，重新确认后只发新名字", async () => {
+    const adapter = createMockAdapter("fields_unknown", 0);
+    const rename = vi.spyOn(adapter, "renameIdentity");
+    render(<QueryClientProvider client={new QueryClient()}><IdentityPanel adapter={adapter} nowMs={Date.now()} /></QueryClientProvider>);
+    await screen.findByTestId("identity-username");
+    const input = screen.getByLabelText(/新名字/);
+    const form = screen.getByTestId("identity-submit").closest("form")!;
+    await userEvent.type(input, "nova_kin");
+    fireEvent.submit(form);
+    expect(rename).not.toHaveBeenCalled();
+    fireEvent.change(input, { target: { value: "bad!" } });
+    await userEvent.click(screen.getByRole("checkbox"));
+    fireEvent.submit(form);
+    expect(rename).not.toHaveBeenCalled();
+    fireEvent.change(input, { target: { value: "nova_kin" } });
+    await userEvent.click(screen.getByRole("checkbox"));
+    await userEvent.clear(input);
+    await userEvent.type(input, "other_kin");
+    expect(screen.getByRole("checkbox")).not.toBeChecked();
+    fireEvent.submit(form);
+    expect(rename).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole("checkbox"));
+    fireEvent.submit(form);
+    await waitFor(() => expect(rename).toHaveBeenCalledTimes(1));
+    expect(rename.mock.calls[0]?.[0]).toEqual({ username: "other_kin", confirm: true, expectedRevision: 1 });
+    expect(screen.getByRole("checkbox")).not.toBeChecked();
+  });
+
+  it("会话运行时，直接提交事件也不发改名请求", async () => {
+    const adapter = createMockAdapter("healthy_run_07", 0);
+    const rename = vi.spyOn(adapter, "renameIdentity");
+    render(<QueryClientProvider client={new QueryClient()}><IdentityPanel adapter={adapter} nowMs={Date.now()} /></QueryClientProvider>);
+    await screen.findByTestId("identity-username");
+    fireEvent.change(screen.getByLabelText(/新名字/), { target: { value: "other_kin" } });
+    fireEvent.click(screen.getByRole("checkbox"));
+    fireEvent.submit(screen.getByTestId("identity-submit").closest("form")!);
+    expect(rename).not.toHaveBeenCalled();
+  });
+
   it("会话运行中：提交禁用并说明原因，输入框也不可写", async () => {
     openIdentity("healthy_run_07");
     await screen.findByTestId("identity-username");

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import type { KinReadAdapter } from "../domain/adapter";
 import { KIN_STATE_LABELS } from "../domain/labels";
@@ -24,17 +24,20 @@ export function IdentityPanel({ adapter, nowMs }: { readonly adapter: KinReadAda
   const [confirmed, setConfirmed] = useState(false);
   const { identity } = controller;
 
+  useEffect(() => setConfirmed(false), [identity?.identityRevision, identity?.renameAllowed]);
+
   const trimmed = draft.trim();
   const nameValid = isValidUsername(trimmed);
   const sameAsCurrent = identity !== null && trimmed === identity.username;
 
   const onSubmit = (event: FormEvent<HTMLFormElement>): void => {
     event.preventDefault();
-    if (identity === null || controller.pending) return;
+    if (identity === null || !identity.renameAllowed || !nameValid || !confirmed || controller.pending) return;
     // expectedRevision is the compare-and-swap token: whatever identity Core held at the
     // last poll. A concurrent rename advances it, and the server refuses on mismatch rather
     // than overwriting the newer name.
     controller.submit({ username: trimmed, confirm: true, expectedRevision: identity.identityRevision });
+    setConfirmed(false);
   };
 
   const outcome = controller.outcome;
@@ -114,6 +117,7 @@ export function IdentityPanel({ adapter, nowMs }: { readonly adapter: KinReadAda
               disabled={!identity.renameAllowed || controller.pending}
               onChange={(event) => {
                 setDraft(event.target.value);
+                setConfirmed(false);
                 if (outcome !== null) controller.clearOutcome();
               }}
             />
