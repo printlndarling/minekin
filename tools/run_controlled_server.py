@@ -617,6 +617,42 @@ def resource_trunk_commands(player: str) -> list[str]:
     ]
 
 
+def meal_commands(player: str) -> list[str]:
+    """The two console lines that give a player a meal and a reason to eat it.
+
+    Eating is the one world skill whose precondition is a state of the *HUD* rather
+    than of the world — the consume skill refuses a full hunger bar by name because
+    that is the one state where the confirmation reading (the bar rising) can never
+    arrive — and the flat controlled world drains no bar on any useful clock. So the
+    fixture hands the Kin both halves of the scene, and both choices are settled by
+    the game's own numbers rather than by preference:
+
+    * **Three apples.** `give` fills the empty inventory from its first slot, which
+      is the hotbar the number key can reach; three is two more than one meal needs,
+      so a run that eats once and then eats again is still the same scenario rather
+      than a second fixture.
+
+    * **A short, steep hunger effect (`minecraft:hunger`, 10 s, amplifier 200).**
+      Exhaustion accrues at five thousandths of a point per tick per amplifier
+      level, so this empties a full bar — saturation first, then the twenty points —
+      in a handful of seconds and then *expires*. A still-live effect would keep
+      draining faster than one observation interval can confirm a meal against; a
+      weaker one would leave the bar above the threshold at which the local layer
+      reaches for food at all. The one cost is the starvation window between the
+      drain landing and the Kin's own decision to eat, measured in single points of
+      health, which is why the dose is short rather than strong-and-long.
+
+    The name is checked like every other console command here (a newline would be a
+    second command), and the item and effect ids are constants of the fixture.
+    """
+
+    _checked_player(player)
+    return [
+        f"give {player} minecraft:apple 3",
+        f"effect give {player} minecraft:hunger 10 200",
+    ]
+
+
 #: What the block probe has the server say, one state each. Named here because
 #: the asserter reads them and the two sides have to be one string. The state is
 #: asked as a predicate rather than read as data, for a measured reason: `data get
@@ -812,6 +848,17 @@ def main() -> int:
         ),
     )
     parser.add_argument(
+        "--hungry-kin",
+        action="store_true",
+        help=(
+            "feed the probed player three apples and drain its hunger bar to nothing "
+            "with one short steep hunger effect, so a world-skill run has a low bar "
+            "and a meal the number key can reach; written once, at the join, and "
+            "refused alongside --use-target, which keeps a block where the meal "
+            "needs a clear crosshair"
+        ),
+    )
+    parser.add_argument(
         "--probe-player",
         action="append",
         default=[],
@@ -984,13 +1031,39 @@ def main() -> int:
             "--resource-trunk and --use-target both put a block in the same kin's look, "
             "and two blocks do not say which one the Kin is supposed to break"
         )
+    if args.hungry_kin and not probe_players:
+        # The shape `--use-target` and `--resource-trunk` share: a meal is given to
+        # somebody, and a meal given to nobody is a bar this run never read.
+        raise SystemExit("--hungry-kin needs --probe-player to feed")
+    if args.hungry_kin and len(probe_players) > 1:
+        # One kin, for the same reason one look is one look: two fed names leave the
+        # run unable to say whose bar the meal was for.
+        raise SystemExit(
+            "--hungry-kin feeds one kin, and "
+            f"{len(probe_players)} --probe-player names do not say which: {probe_players}"
+        )
+    if args.hungry_kin and args.use_target:
+        # The meal's Core-side precondition needs the crosshair on nothing (a use that
+        # lands on a block goes to the block first), and `--use-target` keeps a block
+        # where the Kin is looking; together they would make every meal a refusal.
+        raise SystemExit(
+            "--hungry-kin needs the crosshair to land on nothing for a meal, and "
+            "--use-target keeps a block where the kin is looking; the pair would "
+            "make every meal a refusal"
+        )
     target = None if not args.use_target else use_target_command(probe_players[0])
     initial_block = None if not args.use_target else initial_block_probe_command(probe_players[0])
     resource_trunk = None if not args.resource_trunk else resource_trunk_commands(probe_players[0])
+    meal = None if not args.hungry_kin else meal_commands(probe_players[0])
     #: Whether the trunk's three logs have gone in. Kept once, and the whole reason it
     #: is once rather than a cadence: unlike the use target the trunk is not re-placed
     #: while the Kin turns, because its breaking is the observation the run wants.
     trunk_placed = False
+    #: Whether the meal has been served. Written once for the trunk's own reason: the
+    #: apples are the resource the run eats, and re-giving them would refill the bag the
+    #: confirmation is counting down.
+    meal_served = False
+    meal_player = probe_players[0] if args.hungry_kin else ""
     asked_about_block = args.use_target
     #: Every block the server has said it placed, oldest first. A list rather than
     #: one position because the block is placed again and again while the Kin
@@ -1145,6 +1218,26 @@ def main() -> int:
                                 process.stdin.flush()
                                 print(f"{label}: {watched_player}")
                             pending.clear()
+                    if (
+                        meal is not None
+                        and not meal_served
+                        and process.stdin is not None
+                        and has_joined(log, meal_player)
+                    ):
+                        # The owed-at-join moment, for the reason the trunk documents:
+                        # `give` and `effect` at a player who has not joined fail with
+                        # "No entity was found", a line in a console nobody reads. Once,
+                        # and only once — the meal is a counter the run reads down, and
+                        # a second helping would refill it mid-observation.
+                        meal_served = True
+                        for line in meal:
+                            process.stdin.write((line + "\n").encode())
+                            process.stdin.flush()
+                        print(
+                            f"served the hungry-kin fixture to {meal_player}: three "
+                            "minecraft:apple in the bag and a 10 s hunger effect at "
+                            "amplifier 200"
+                        )
                     time.sleep(0.1)
                 return process.returncode
         finally:

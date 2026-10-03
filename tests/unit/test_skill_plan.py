@@ -787,3 +787,19 @@ def test_a_plan_stops_at_the_step_that_lost_its_client() -> None:
         assert steps[1].outcome.reason == CLIENT_EXITED
 
     asyncio.run(scenario())
+
+
+def test_the_committed_meal_plan_is_the_two_steps_the_probe_runs() -> None:
+    """The probe's plan is pinned where it ships: one turn away from whatever is in front
+    (the meal's Core-side precondition needs a crosshair on nothing, and the flat world
+    stacks its resource trunk three blocks ahead of the join), then the meal itself —
+    named as an item id, so the step exercises select-then-eat rather than assuming a
+    hand the run never checked."""
+
+    path = EXAMPLES / "skill-plan-eat.json"
+
+    plan = parse_skill_plan(json.loads(path.read_text(encoding="utf-8")), source=path.name)
+
+    assert [call.name for call in plan.calls] == ["turn_to", "consume_item"]
+    assert plan.calls[0].pitch_degrees == -55.0
+    assert plan.calls[1].item_id == "minecraft:apple"

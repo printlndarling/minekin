@@ -203,6 +203,13 @@ use_target="${MINEKIN_DOMAIN_USE_TARGET:-}"
 # Default-off: unset adds nothing to the probe arguments, exactly what every run did
 # before this knob existed.
 resource_trunk="${MINEKIN_DOMAIN_RESOURCE_TRUNK:-}"
+# A meal for the Kin and a reason to eat it, for a run whose world skill is `consume_item`.
+# The consume precondition that matters here is the hunger bar itself — a full bar refuses
+# the meal by name — and the flat controlled world drains no bar on any useful clock, so
+# `tools/run_controlled_server.py` gives three apples and one short steep hunger effect at
+# the join. Default-off: unset adds nothing to the probe arguments, exactly what every run
+# did before this knob existed.
+hungry_kin="${MINEKIN_DOMAIN_HUNGRY_KIN:-}"
 # A session that is meant to *host*: the client is put in a world it owns and asked to
 # publish it to LAN. The port is named rather than chosen by the client, because the
 # point of publishing is that something else can be pointed at it — and a client that
@@ -988,6 +995,31 @@ if [[ -n "${resource_trunk}" ]]; then
 fi
 # --- resource-trunk-guard end ---
 #
+# The hungry-kin fixture's own two refusals, said at the same point the trunk's are —
+# before the server's run directory is numbered, before the JVM, before anything this
+# run could leave on disk. `tools/run_controlled_server.py` refuses the same shapes as
+# its backstop.
+#
+#   * `MINEKIN_DOMAIN_PROBE_SECOND` makes two probed names, and the meal is served to
+#     one kin whose hunger bar the reading is meant to explain — the pair does not say
+#     whose;
+#   * `MINEKIN_DOMAIN_USE_TARGET` keeps a block where the Kin is looking, and the meal's
+#     Core-side precondition needs the crosshair to land on nothing — the pair would
+#     make every meal a refusal, which is a fixture guaranteeing its own failure.
+# --- hungry-kin-guard begin (the contract test extracts this region) ---
+if [[ -n "${hungry_kin}" ]]; then
+    if [[ -n "${probe_second}" ]]; then
+        printf 'domain: MINEKIN_DOMAIN_HUNGRY_KIN feeds one probed kin a meal and MINEKIN_DOMAIN_PROBE_SECOND adds a second probed name (%s); the pair does not say whose hunger bar the meal is for -- refused here, before anything is written\n' \
+            "${probe_second}" >&2
+        exit 2
+    fi
+    if [[ -n "${use_target}" ]]; then
+        printf 'domain: MINEKIN_DOMAIN_HUNGRY_KIN needs the kin crosshair to land on nothing for the meal and MINEKIN_DOMAIN_USE_TARGET keeps a block where it is looking; the pair would make every meal a refusal -- refused here, before anything is written\n' >&2
+        exit 2
+    fi
+fi
+# --- hungry-kin-guard end ---
+#
 # The second name, when the run named one, is *appended* after the first and
 # never put in its place: the first name is what the judgement gates above read.
 # With the knob unset the branch below does not run, and `probe_args` stays
@@ -1009,6 +1041,14 @@ if [[ -n "${resource_trunk}" ]]; then
     probe_args+=(--resource-trunk)
 fi
 # --- resource-trunk-forge end ---
+# The meal, when the run asked for one, appended the same default-off way the trunk's is:
+# unset, this branch does not run and `probe_args` stays byte-identical to what it was
+# before the knob existed.
+# --- hungry-kin-forge begin (the contract test extracts this region) ---
+if [[ -n "${hungry_kin}" ]]; then
+    probe_args+=(--hungry-kin)
+fi
+# --- hungry-kin-forge end ---
 #
 # Who this run asked the server about, for the bundle that has to say so
 # (V1201-PROBE-TARGET-HANDOVER-001, cell 2).

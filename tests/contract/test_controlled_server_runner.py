@@ -96,6 +96,7 @@ class _Runner(Protocol):
     def position_probe_command(self, player: str) -> str: ...
     def probe_console_commands(self, players: list[str]) -> list[str]: ...
     def resource_trunk_commands(self, player: str) -> list[str]: ...
+    def meal_commands(self, player: str) -> list[str]: ...
     def kill_command(self, player: str) -> str: ...
 
     def main(self) -> int: ...
@@ -686,6 +687,76 @@ def test_the_resource_trunk_refuses_the_asks_it_cannot_answer(
     match: str,
 ) -> None:
     """Three named refusals: no look to put it in, two looks, or a look already used."""
+
+    def skips_the_jar_pin(path: Path, recipe: _Recipe) -> None:
+        return None
+
+    monkeypatch.setattr(RUNNER, "verify_jar", skips_the_jar_pin)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            TOOL,
+            "--directory",
+            str(tmp_path / "run"),
+            "--jar",
+            str(tmp_path / "server.jar"),
+            "--java",
+            str(tmp_path / "java"),
+            "--accept-eula",
+            *flags,
+        ],
+    )
+
+    with pytest.raises(SystemExit, match=match):
+        RUNNER.main()
+
+
+def test_the_meal_is_an_apple_stack_and_one_short_steep_hunger_effect() -> None:
+    """The flat world drains no hunger bar, so the fixture hands the Kin both halves.
+
+    Three apples, because `give` fills the empty inventory from its first slot — the
+    hotbar the number key can reach — and one 10 s hunger effect at amplifier 200,
+    which empties the bar in a handful of seconds and then expires; a still-live
+    effect would drain through the very reading that confirms the meal.
+    """
+
+    assert RUNNER.meal_commands("Kin") == [
+        "give Kin minecraft:apple 3",
+        "effect give Kin minecraft:hunger 10 200",
+    ]
+
+
+def test_the_meal_refuses_a_name_that_is_not_a_player() -> None:
+    """A console command takes the name verbatim, so the meal is checked, not escaped."""
+
+    for injection in ("Kin\nstop", "Kin; stop", "Kin`op`", "Ki n", "", "Kin\n", "ab"):
+        with pytest.raises(SystemExit, match="not a vanilla player name"):
+            RUNNER.meal_commands(injection)
+
+
+@pytest.mark.parametrize(
+    ("flags", "match"),
+    [
+        (["--hungry-kin"], "needs --probe-player"),
+        (
+            ["--hungry-kin", "--probe-player", "Kin", "--probe-player", "Joiner_Kin"],
+            "do not say which",
+        ),
+        (
+            ["--hungry-kin", "--use-target", "--probe-player", "Kin"],
+            "every meal a refusal",
+        ),
+    ],
+    ids=["no-probe-player", "two-probe-names", "with-use-target"],
+)
+def test_the_meal_refuses_the_asks_it_cannot_answer(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    flags: list[str],
+    match: str,
+) -> None:
+    """Three named refusals: no kin to feed, two kins, or a look that would eat the meal."""
 
     def skips_the_jar_pin(path: Path, recipe: _Recipe) -> None:
         return None

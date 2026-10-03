@@ -1,0 +1,7 @@
+{
+  "schema_version": 1,
+  "skills": [
+    {"skill": "turn_to", "yaw_degrees": 0.0, "pitch_degrees": -55.0},
+    {"skill": "consume_item", "item_id": "minecraft:apple"}
+  ]
+}

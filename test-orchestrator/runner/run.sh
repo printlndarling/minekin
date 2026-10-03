@@ -195,6 +195,13 @@ if [[ "${1:-}" == "domain" ]]; then
         # H1j, H1l and H1o closed for the names around it. The append and the three
         # named refusals live in `domain.sh`; this line casts no default of its own.
         -e MINEKIN_DOMAIN_RESOURCE_TRUNK
+        # The world-skill run's meal and hunger fixture, forwarded the same bare way and
+        # for the same reason the trunk is: a knob `domain.sh` reads and this wrapper
+        # does not deliver arrives empty, takes the "not asked for" branch, and the run
+        # completes on the full-bar flat world it was never meant to demonstrate. The
+        # append and the two named refusals live in `domain.sh`; this line casts no
+        # default of its own.
+        -e MINEKIN_DOMAIN_HUNGRY_KIN
         # The two seal-handover switches of the probe-target carrier. Forwarding them
         # is the whole of this wrapper's involvement: the value casting, the triple
         # and pair of named refusals all live in `domain.sh`, and these lines invent

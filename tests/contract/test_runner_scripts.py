@@ -1644,6 +1644,20 @@ RESOURCE_TRUNK_USE_TARGET_REFUSAL = (
     "one the Kin is supposed to break -- refused here, before anything is written"
 )
 
+#: The meal fixture's two named refusals, stored verbatim the same way the trunk's are
+#: and for the same reason: a paraphrase would let the guard rephrase itself and stay
+#: green. The probe-second one carries the second name as its `%s`.
+HUNGRY_KIN_PROBE_SECOND_REFUSAL = (
+    "domain: MINEKIN_DOMAIN_HUNGRY_KIN feeds one probed kin a meal and "
+    "MINEKIN_DOMAIN_PROBE_SECOND adds a second probed name (%s); the pair does not say "
+    "whose hunger bar the meal is for -- refused here, before anything is written"
+)
+HUNGRY_KIN_USE_TARGET_REFUSAL = (
+    "domain: MINEKIN_DOMAIN_HUNGRY_KIN needs the kin crosshair to land on nothing for "
+    "the meal and MINEKIN_DOMAIN_USE_TARGET keeps a block where it is looking; the pair "
+    "would make every meal a refusal -- refused here, before anything is written"
+)
+
 #: Prints the array the shipped construction built, one bracketed word per argv slot.
 PROBE_ARGS_CAPTURE = """printf '  <%s>' "${probe_args[@]}"
 printf '\\n'
@@ -1689,6 +1703,22 @@ def resource_trunk_region(text: str, name: str) -> str:
     start = text.index(begin)
     lines = text[start : text.index(end, start)].splitlines(keepends=True)
     assert len(lines) > 2, f"the resource-trunk {name} region came out empty; wrong markers"
+    return "".join(lines[1:])
+
+
+def hungry_kin_region(text: str, name: str) -> str:
+    """One shipped region of the hungry-kin fixture, marker to marker, sans begin line.
+
+    Same rule the trunk's regions follow: every reading here runs the bytes a run
+    executes, so changing them moves a test before it moves a live run. An empty
+    extraction says so rather than making every driven reading vacuous.
+    """
+
+    begin = f"# --- hungry-kin-{name} begin"
+    end = f"# --- hungry-kin-{name} end ---"
+    start = text.index(begin)
+    lines = text[start : text.index(end, start)].splitlines(keepends=True)
+    assert len(lines) > 2, f"the hungry-kin {name} region came out empty; wrong markers"
     return "".join(lines[1:])
 
 
@@ -1931,6 +1961,41 @@ def test_the_resource_trunk_refusals_are_shipped_verbatim_and_answer_before_any_
     # adding names there would silently widen that extraction and its exit-2 census.
     assert guard > text.index("# --- second-probe-guard end ---")
     assert resource_trunk_region(text, "guard").count("exit 2") == 2
+
+
+def test_the_hungry_kin_knob_is_read_once_and_default_off() -> None:
+    """`MINEKIN_DOMAIN_HUNGRY_KIN` is read the one literal way and appends once.
+
+    The same shape the resource trunk takes — one assignment beside the use target it
+    is refused against, empty by default; the append is a guarded branch, so an unset
+    knob does not touch `probe_args` at all — plus the fixture's own two refusals,
+    shipped verbatim and said before anything is written.
+    """
+
+    text = (RUNNER / "domain.sh").read_text(encoding="utf-8")
+
+    assert text.count('hungry_kin="${MINEKIN_DOMAIN_HUNGRY_KIN:-}"') == 1
+    assert text.count("probe_args+=(--hungry-kin)") == 1
+    # The append is a guarded branch on the local, never an unconditional one and never
+    # a re-read of the environment, so an unset knob cannot move `probe_args`.
+    forge = hungry_kin_region(text, "forge")
+    assert 'if [[ -n "${hungry_kin}" ]]; then' in forge
+    assert forge.index('if [[ -n "${hungry_kin}"') < forge.index("probe_args+=(--hungry-kin)")
+    # And it never borrows another knob's name or replaces an earlier argument.
+    assert "--use-target" not in forge
+    assert "--resource-trunk" not in forge
+
+    assert text.count(HUNGRY_KIN_PROBE_SECOND_REFUSAL) == 1
+    assert text.count(HUNGRY_KIN_USE_TARGET_REFUSAL) == 1
+
+    guard = text.index("# --- hungry-kin-guard begin")
+    assert guard < text.index('probe_args=(--probe-player "${probe:-${player}}"')
+    assert guard < text.index('server_directory=""')
+    assert guard < text.index("python /src/tools/run_controlled_server.py")
+    # Its own guard, beside the trunk's rather than spliced into it: writing names into
+    # that region would silently widen an extraction another card already reads.
+    assert guard > text.index("# --- resource-trunk-guard end ---")
+    assert hungry_kin_region(text, "guard").count("exit 2") == 2
 
 
 @pytest.mark.parametrize(
