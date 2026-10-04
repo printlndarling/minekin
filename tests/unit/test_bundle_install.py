@@ -8,6 +8,13 @@ and the fact that a half-finished install still does not satisfy `session start`
 A fake transport can never serve bytes matching a reviewed pin, so "an empty store
 fills" is not provable here — that is the controlled runner's real run, and the
 refusals below are what a unit test can actually show.
+
+The shipped registry is historical: its citations name the build their sealed runs
+used, and the fixtures in this checkout pin the candidate build. Every gate below is
+about the entry format, the digest agreement and the ordering, so `_entry()` re-derives
+the build identity from the fixture on disk — a synthetic stand-in, never evidence,
+and never written back to the shipped file. That the shipped entry refuses a moved
+fixture is tested where the registry lives (`test_tested_provenance.py`).
 """
 
 from __future__ import annotations
@@ -21,6 +28,7 @@ from typing import BinaryIO
 
 import pytest
 
+from launcher_support import current_candidate_entry, current_candidate_registry
 from minekin_core.adapters.launcher.artifacts import ArtifactStore
 from minekin_core.adapters.launcher.fetch import ArtifactFetcher
 from minekin_core.adapters.launcher.provision import (
@@ -40,7 +48,9 @@ BUNDLE_ID = "1.20.1-linux-x86_64-offline-java21"
 
 
 def _entry() -> RegistryEntry:
-    return reviewed_entry(REGISTRY, BUNDLE_ID)
+    """The reviewed entry with its build identity re-derived from the fixture on disk."""
+
+    return current_candidate_entry(reviewed_entry(REGISTRY, BUNDLE_ID))
 
 
 def _install(
@@ -168,12 +178,12 @@ def test_an_install_that_could_fetch_nothing_leaves_session_start_refusing(
         require_store_complete(plan, store)
 
 
-def _argv(store: Path, *extra: str) -> list[str]:
+def _argv(store: Path, *extra: str, registry: Path = REGISTRY) -> list[str]:
     return [
         "bundle",
         "install",
         "--registry",
-        str(REGISTRY),
+        str(registry),
         "--bundle-id",
         BUNDLE_ID,
         "--max-bytes",
@@ -203,7 +213,12 @@ def test_a_dry_run_reports_the_reviewed_job_without_touching_the_network(
     tmp_path: Path,
 ) -> None:
     stdout = io.StringIO()
-    code = run([*_argv(tmp_path / "store"), "--dry-run"], stdout=stdout, stderr=io.StringIO())
+    registry = current_candidate_registry(REGISTRY, tmp_path / "registry.json")
+    code = run(
+        [*_argv(tmp_path / "store", registry=registry), "--dry-run"],
+        stdout=stdout,
+        stderr=io.StringIO(),
+    )
 
     document = json.loads(stdout.getvalue())
     assert code == int(ExitCode.OK)

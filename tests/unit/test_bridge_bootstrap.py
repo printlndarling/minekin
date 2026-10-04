@@ -165,11 +165,12 @@ def test_a_secret_that_is_not_256_bits_is_refused(secret: bytes) -> None:
 
 
 #: Measured against the proof the shipped code builds for the reviewed 1.21.4 plan
-#: with these secrets. The digest moved on 2026-09-25 because the plan it is computed
-#: over moved — the root now declares the versions its own runtime reports, which
-#: rebuilt the Bridge jar and renewed the recipe — and it is the shipped function, not
-#: this file, that says what the proof is.
-BRIDGE_HELLO_PROOF_1214 = "3f89c8d43e4dd7f1c4b44411580cd50bc9285d82d739d637157b7917923b37f3"
+#: with these secrets. The digest moves whenever the plan it is computed over moves —
+#: on 2026-09-25 because the root began declaring the versions its own runtime reports,
+#: and on 2026-10-04 because the candidate fixture was re-pinned to the rebuilt Bridge
+#: for the additive respawn schema — and it is the shipped function, not this file,
+#: that says what the proof is.
+BRIDGE_HELLO_PROOF_1214 = "8df5e3d7d01114744cc33b9530a7d39d399a52fd5b08830d650225030dab470c"
 
 
 def authenticate(

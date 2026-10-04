@@ -23,6 +23,7 @@ from typing import Any
 import pytest
 
 import minekin_core.cli.auto_session as auto_session
+from launcher_support import current_candidate_entry, current_candidate_registry
 from minekin_core import bootstrap as bootstrap_module
 from minekin_core.adapters.launcher.fetch import ArtifactFetcher, FetchFailure
 from minekin_core.adapters.launcher.orphans import Liveness, write_marker
@@ -100,8 +101,17 @@ def observation(
 
 
 def entry(bundle_id: str = ID_1201) -> RegistryEntry:
+    """The reviewed entry with its build identity re-derived from the fixture on disk.
+
+    The shipped registry is historical — its citations name the build their sealed
+    runs used, while the fixture pins the candidate this checkout builds — and the
+    composition below is about ordering and refusals, so it runs against an entry
+    that vouches for today's bytes. The shipped entry refusing the moved fixture is
+    the designed reading and is tested where the registry lives.
+    """
+
     registry = load_reviewed_registry(json.loads(REGISTRY.read_bytes()))
-    return registry.by_id()[bundle_id]
+    return current_candidate_entry(registry.by_id()[bundle_id])
 
 
 def probe_that_answers(readings: Sequence[ProbeObservation]) -> Callable[[Path], ProbeObservation]:
@@ -195,7 +205,7 @@ def prepare(
 ) -> AutoBundleDecision:
     asked: list[int] = []
     return prepare_auto_bundle_start(
-        registry_path=REGISTRY,
+        registry_path=current_candidate_registry(REGISTRY, tmp_path / "registry.json"),
         server_profile=server_profile,
         run_root=run_root or (tmp_path / "run"),
         max_bytes=max_bytes,
@@ -425,7 +435,7 @@ def test_a_store_that_is_short_without_a_declared_budget_refuses_before_fetching
     # and the refusal has to come from the budget rule rather than from a stub.
     with pytest.raises(MinekinError) as raised:
         prepare_auto_bundle_start(
-            registry_path=REGISTRY,
+            registry_path=current_candidate_registry(REGISTRY, tmp_path / "registry.json"),
             server_profile=TARGET,
             run_root=tmp_path / "run",
             max_bytes=None,
@@ -484,7 +494,7 @@ def test_a_positive_budget_still_refuses_by_name_when_the_fill_outgrows_it(
 
     with pytest.raises(MinekinError) as raised:
         prepare_auto_bundle_start(
-            registry_path=REGISTRY,
+            registry_path=current_candidate_registry(REGISTRY, tmp_path / "registry.json"),
             server_profile=TARGET,
             run_root=tmp_path / "run",
             max_bytes=1,
