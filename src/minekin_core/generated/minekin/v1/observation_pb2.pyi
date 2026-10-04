@@ -132,7 +132,7 @@ class CallbackBudgetWindow(_message.Message):
     def __init__(self, label: _Optional[str] = ..., window: _Optional[int] = ..., opened_at_nanos: _Optional[int] = ..., recorded: _Optional[int] = ..., micros: _Optional[_Iterable[int]] = ...) -> None: ...
 
 class SelfState(_message.Message):
-    __slots__ = ("health", "max_health", "food", "saturation", "on_ground", "alive", "current_screen", "x", "y", "z", "yaw_degrees", "pitch_degrees", "selected_slot", "main_hand_item_id")
+    __slots__ = ("health", "max_health", "food", "saturation", "on_ground", "alive", "current_screen", "x", "y", "z", "yaw_degrees", "pitch_degrees", "selected_slot", "main_hand_item_id", "respawn_available")
     HEALTH_FIELD_NUMBER: _ClassVar[int]
     MAX_HEALTH_FIELD_NUMBER: _ClassVar[int]
     FOOD_FIELD_NUMBER: _ClassVar[int]
@@ -147,6 +147,7 @@ class SelfState(_message.Message):
     PITCH_DEGREES_FIELD_NUMBER: _ClassVar[int]
     SELECTED_SLOT_FIELD_NUMBER: _ClassVar[int]
     MAIN_HAND_ITEM_ID_FIELD_NUMBER: _ClassVar[int]
+    RESPAWN_AVAILABLE_FIELD_NUMBER: _ClassVar[int]
     health: float
     max_health: float
     food: int
@@ -161,7 +162,8 @@ class SelfState(_message.Message):
     pitch_degrees: float
     selected_slot: int
     main_hand_item_id: str
-    def __init__(self, health: _Optional[float] = ..., max_health: _Optional[float] = ..., food: _Optional[int] = ..., saturation: _Optional[float] = ..., on_ground: bool = ..., alive: bool = ..., current_screen: _Optional[str] = ..., x: _Optional[float] = ..., y: _Optional[float] = ..., z: _Optional[float] = ..., yaw_degrees: _Optional[float] = ..., pitch_degrees: _Optional[float] = ..., selected_slot: _Optional[int] = ..., main_hand_item_id: _Optional[str] = ...) -> None: ...
+    respawn_available: bool
+    def __init__(self, health: _Optional[float] = ..., max_health: _Optional[float] = ..., food: _Optional[int] = ..., saturation: _Optional[float] = ..., on_ground: bool = ..., alive: bool = ..., current_screen: _Optional[str] = ..., x: _Optional[float] = ..., y: _Optional[float] = ..., z: _Optional[float] = ..., yaw_degrees: _Optional[float] = ..., pitch_degrees: _Optional[float] = ..., selected_slot: _Optional[int] = ..., main_hand_item_id: _Optional[str] = ..., respawn_available: bool = ...) -> None: ...
 
 class InventoryStack(_message.Message):
     __slots__ = ("slot", "item_id", "count", "damage")

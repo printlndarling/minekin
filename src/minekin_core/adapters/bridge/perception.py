@@ -40,6 +40,9 @@ def decode_self_state(snapshot: observation_pb2.InitialObservation) -> SelfState
         food=snapshot.self.food,
         saturation=snapshot.self.saturation,
         alive=snapshot.self.alive,
+        respawn_available=(
+            snapshot.self.respawn_available if snapshot.self.HasField("respawn_available") else None
+        ),
     )
 
 

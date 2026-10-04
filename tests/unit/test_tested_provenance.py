@@ -35,8 +35,10 @@ import pytest
 
 from bundle_support import manifest as sealed_manifest
 from minekin_core.adapters.evidence.bundle import verify_bundle, write_bundle
+from minekin_core.adapters.launcher.launch_plan import build_launch_plan
 from minekin_core.adapters.launcher.recipe import (
     BRIDGE_1201_JAR_RELATIVE_PATH,
+    BRIDGE_1201_JAR_SHA256,
     MINECRAFT_1201_VERSION,
 )
 from minekin_core.domain.version_probe import ProbeObservation, ProbeOutcome
@@ -139,7 +141,14 @@ def seal(data_root: Path, entry: dict[str, Any], *, seal_bytes: bool = False) ->
 def cite_sealed(data_root: Path, tmp_path: Path, *, seal_bytes: bool = False) -> dict[str, Any]:
     """A one-entry registry whose citation points at a bundle that is really there."""
 
-    entry = entry_document()
+    # A synthetic unit-test entry for the current candidate, not a replacement
+    # for the historical reviewed registry or proof of a real game run.
+    recipe = REPOSITORY_ROOT / "tests/fixtures/runtime-input/bundle-candidate-1.20.1.json"
+    entry = entry_document(
+        bridge_digest=BRIDGE_1201_JAR_SHA256,
+        recipe_digest=hashlib.sha256(recipe.read_bytes().replace(b"\r\n", b"\n")).hexdigest(),
+        launch_plan_digest=build_launch_plan(recipe)["plan_sha256"],
+    )
     directory = seal(data_root, entry, seal_bytes=seal_bytes)
     entry["evidence"] = [citation(RUN_ID, entry, digest=verify_bundle(directory).bundle_digest)]
     return entry
@@ -357,7 +366,7 @@ def test_an_entry_backed_by_the_artifacts_it_names_verifies(
         )
     entry = cite_sealed(data_root, tmp_path)
     document = report_for(tmp_path, data_root, registry_file(tmp_path, entry))
-    assert document["verified"] is True
+    assert document["verified"] is True, findings(document, entry["bundle_id"])
     assert findings(document, entry["bundle_id"]) == []
 
 
@@ -533,3 +542,20 @@ def test_verifying_provenance_leaves_resolution_exactly_as_it_was(tmp_path: Path
     )
     after = resolve(registry, observation, os_arch="linux-x86_64")
     assert after.as_document() == before.as_document()
+
+
+def test_historical_tested_entry_cannot_promote_a_new_candidate_build(
+    data_root: Path, tmp_path: Path
+) -> None:
+    entry = entry_document()
+    directory = seal(data_root, entry)
+    entry["evidence"] = [citation(RUN_ID, entry, digest=verify_bundle(directory).bundle_digest)]
+    document = report_for(tmp_path, data_root, registry_file(tmp_path, entry))
+    assert document["verified"] is False
+    assert ProvenanceViolation.RECIPE_DIGEST_MISMATCH.value in violations(
+        document, entry["bundle_id"]
+    )
+    if (REPOSITORY_ROOT / BRIDGE_1201_JAR_RELATIVE_PATH).is_file():
+        assert ProvenanceViolation.BRIDGE_JAR_DIGEST_MISMATCH.value in violations(
+            document, entry["bundle_id"]
+        )

@@ -45,8 +45,10 @@ FABRIC_API_SHA1 = "1c7871b6af04edc8b8f0dbad12606d67f6118a11"
 # Bridge source is not allowed to "just work". The jar has to be rebuilt and
 # this pin renewed, because a plan that names this digest and ships other bytes
 # is the failure the pin exists to catch.
-BRIDGE_JAR_SHA256 = "0ee2070b97ba6583ca004cc3f0e4a0e547697d0693dc635c3143c655cc2475f4"
-BRIDGE_JAR_SIZE = 1_310_646
+# 2026-10-04: additive respawn observation schema; local Java 21 build pin.
+# Earlier cross-platform/game evidence below belongs to its historical bytes.
+BRIDGE_JAR_SHA256 = "2e3b39ebe290dcd9d008e30e618c977d4bdec8363905728a50c82e25971b395c"
+BRIDGE_JAR_SIZE = 1_407_376
 BRIDGE_JAR_RELATIVE_PATH = "bridge/build/libs/minekin-bridge-0.0.0.jar"
 
 # The second bundle. These are the reviewed pins for Minecraft 1.20.1, each one
@@ -73,14 +75,14 @@ FABRIC_API_1201_SHA1 = "3e9cdd3e2f827ca9a259df9eb8e31949437b6bd4"
 # same way 1.21.4's is — a digest this file's reader refuses other bytes for.
 #
 # What is NOT carried over is the older pins' two-platform claim. These bytes
-# were produced once, on Windows with JDK 21.0.12.1+1-LTS-4
+# were reproduced twice on Windows with JDK 21.0.12.1+1-LTS-4
 # (`./gradlew --no-daemon -p bridge-1201 remapJar`), from the `bridge-1201/`
 # tree whose digest is recorded in the 1.20.1 candidate recipe; the Linux
 # Temurin 21 cross-build that the previous digest went through has not been
-# re-run on these. Treating "built twice" as current would be a claim about a
-# machine this pin has not seen, so it is an open task rather than a comment.
-BRIDGE_1201_JAR_SHA256 = "0c8adfb7bcaa5700cdb74e316ba9ab4fa5cb5acb995cc705d27f9ef09736972e"
-BRIDGE_1201_JAR_SIZE = 1_444_472
+# re-run on these. Windows repetition is not a Linux cross-build or current
+# game acceptance; both remain open tasks.
+BRIDGE_1201_JAR_SHA256 = "482eb6608ed3366a0f6d00928e192133cb39668263fec26107af59b12ea0c912"
+BRIDGE_1201_JAR_SIZE = 1_446_244
 BRIDGE_1201_JAR_RELATIVE_PATH = "bridge-1201/build/libs/minekin-bridge-1201-0.0.0.jar"
 
 

@@ -85,7 +85,8 @@ public final class WorldObservationCollector {
                         .setFood(player.getHungerManager().getFoodLevel())
                         .setSaturation(player.getHungerManager().getSaturationLevel())
                         .setOnGround(player.isOnGround())
-                        .setAlive(player.isAlive());
+                        .setAlive(player.isAlive())
+                        .setRespawnAvailable(RespawnScreenReader.available(client));
         Vec3d position = player.getPos();
         self.setX(position.x).setY(position.y).setZ(position.z);
         WorldActions.LookAngles angles =

@@ -307,3 +307,26 @@ def test_mining_absent_is_none_and_mining_present_keeps_a_zero_progress() -> Non
     # sentence the HUD fields get from `None` meaning "never asked".
     assert started.mining.progress == 0.0
     assert started.mining.target.face is AimFace.UP
+
+
+def test_respawn_availability_distinguishes_unread_unavailable_and_available() -> None:
+    from minekin_core.adapters.bridge.perception import decode_self_state as decode_initial
+
+    for value in (None, False, True):
+        body = observation_pb2.SelfState(health=0, max_health=20, food=20, alive=False)
+        if value is not None:
+            body.respawn_available = value
+        wire = wire_observation()
+        wire.self.CopyFrom(body)
+        recurring = decode_world_observation(wire)
+        initial = decode_initial(observation_pb2.InitialObservation(self=body))
+        assert recurring.self_state.respawn_available is value
+        assert initial.respawn_available is value
+        assert world_observation_violations(recurring) == ()
+
+
+def test_a_respawn_affordance_on_a_living_body_is_not_admitted() -> None:
+    wire = wire_observation()
+    wire.self.respawn_available = True
+    decoded = decode_world_observation(wire)
+    assert IntegrityViolation.RESPAWN_AVAILABLE_WHILE_ALIVE in world_observation_violations(decoded)

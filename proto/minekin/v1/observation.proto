@@ -152,6 +152,10 @@ message SelfState {
   // being absent, not by this being zero.
   optional uint32 selected_slot = 13;
   optional string main_hand_item_id = 14;
+  // Whether the current death screen has an enabled, visible vanilla respawn
+  // button. This is a screen affordance, not permission to change game mode.
+  // Absent means the Bridge has not read it; spectating is never respawning.
+  optional bool respawn_available = 15;
 }
 
 message InventoryStack {

@@ -67,6 +67,9 @@ def decode_self_state(
         food=message.food,
         saturation=message.saturation,
         alive=message.alive,
+        respawn_available=(
+            message.respawn_available if message.HasField("respawn_available") else None
+        ),
         x=message.x if message.HasField("x") else None,
         y=message.y if message.HasField("y") else None,
         z=message.z if message.HasField("z") else None,

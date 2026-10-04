@@ -69,6 +69,7 @@ class IntegrityViolation(StrEnum):
     FOOD_OUT_OF_RANGE = "FOOD_OUT_OF_RANGE"
     SATURATION_NEGATIVE = "SATURATION_NEGATIVE"
     ALIVE_DISAGREES_WITH_HEALTH = "ALIVE_DISAGREES_WITH_HEALTH"
+    RESPAWN_AVAILABLE_WHILE_ALIVE = "RESPAWN_AVAILABLE_WHILE_ALIVE"
     INVENTORY_REVISION_UNSET = "INVENTORY_REVISION_UNSET"
     STACK_COUNT_OUT_OF_RANGE = "STACK_COUNT_OUT_OF_RANGE"
     STACK_ITEM_MISSING = "STACK_ITEM_MISSING"
@@ -129,6 +130,8 @@ class SelfStateValue:
     #: empty hand by leaving this absent, not by naming a fake item. "The hotbar
     #: was not read at all" is `selected_slot` being `None`, not this.
     main_hand_item_id: str | None = None
+    #: The visible death-screen action; None means unread, False means unavailable.
+    respawn_available: bool | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -246,6 +249,8 @@ def self_state_violations(state: SelfStateValue) -> tuple[IntegrityViolation, ..
         violations.add(IntegrityViolation.FOOD_OUT_OF_RANGE)
     if math.isfinite(state.saturation) and state.saturation < 0:
         violations.add(IntegrityViolation.SATURATION_NEGATIVE)
+    if state.alive and state.respawn_available is True:
+        violations.add(IntegrityViolation.RESPAWN_AVAILABLE_WHILE_ALIVE)
     if state.alive != (state.health > 0):
         violations.add(IntegrityViolation.ALIVE_DISAGREES_WITH_HEALTH)
     for value, limit, token in (

@@ -186,7 +186,11 @@ def test_a_resolution_carries_the_attribution_a_report_needs() -> None:
     assert document["pin_applied"] is False
     bundle = document["bundle"]
     assert isinstance(bundle, dict)
-    assert bundle["recipe_digest"] == _digest_of_reviewed_recipe_line(
+    # Resolution attributes the historical registry entry. It must not silently
+    # substitute today's candidate recipe for the build its citations actually name.
+    entry = next(entry for entry in loaded.entries if entry.version_text == "1.20.1")
+    assert bundle["recipe_digest"] == entry.recipe_digest
+    assert bundle["recipe_digest"] != _digest_of_reviewed_recipe_line(
         "tests/fixtures/runtime-input/bundle-candidate-1.20.1.json"
     )
 

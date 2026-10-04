@@ -101,6 +101,7 @@ public final class ClientSnapshot {
                 .setSaturation(player.getHungerManager().getSaturationLevel())
                 .setOnGround(player.isOnGround())
                 .setAlive(player.isAlive())
+                .setRespawnAvailable(RespawnScreenReader.available(client))
                 // A screen *class*, never its text: the title of a screen can be
                 // anything the client was told, and this is a product event.
                 .setCurrentScreen(screen == null ? "" : screen.getClass().getSimpleName())
