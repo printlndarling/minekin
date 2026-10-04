@@ -1,5 +1,7 @@
 # Minekin 开发执行计划（现行唯一队列）
 
+> 2026-10-04 追加（M 直接落主干，基线 `2a2a1d0`）：**指标对照三族第一遍走完，50 个名字各有落点**。族②/③入 [roadmap-metrics-coverage.md](roadmap-metrics-coverage.md)：反射三件与 `instruction_boundary_trace` 判"定义在、实现未接"；`unauthorized_read_count`/`belief_leak_count` 的验收定义在 perception-implementation、具名计数器未实现；成本侧有字节（`model_calls` 等）而延迟分布未核到；技能经历检索、归因/额度机制、`persona_store`、目标/决策来源判"部分"；社交与记忆大宗判"定义在、实现未接"。下一步从"建对照"转为"把部分/未核到逐条落到字段与测试名"（F 收口对账物）。CI `2a2a1d0` 四作业全绿。
+
 > 2026-10-04 追加（M 直接落主干，基线 `8c22119`）：**指标对照走完族①（证据与轨迹）第一遍**。`docs/roadmap-metrics-coverage.md` 增表：证据/轨迹类里，bundle/registry/case 链、入服与身份、存储单写锁、IPC/租约、供应链、只读面板（含本夜真实网关浏览器读数）均判"有字节"；宿主三件（`hosted_world_trace`/`host_control_trace`/`host_commit_trace`）判"契约在、实现未接（HOST/PERSIST 待决策）"；媒体两件判"契约在、实现未接"；`auth_secret_exposure_trace` 判"待决策"。族②（感知/反射/安全）与族③（mind/社交/成本）留下一遍；未核到者按实留白，不猜。CI `8c22119` 四作业全绿。
 
 > 2026-10-04 追加（M 直接落主干，基线 `78ef18d`）：**F 待办「指标对照」的第一半落地**。新增 [roadmap 衡量方式的词面覆盖](roadmap-metrics-coverage.md)：对 roadmap「衡量方式」的 50 个指标做全仓 `git grep -F` 词面扫描（基线 `78ef18d`，命令可复现）——**47 个只在 roadmap.md 出现**，3 个逐字在别处（`event_to_input_ticks` → media 契约；`unauthorized_read_count` / `belief_leak_count` → perception-implementation）。文档写明"词面未现 ≠ 无承载 ≠ 已满足"，并把逐指标对照（名字 → 承载处 → 状态）登记为 F 阶段整卡。CI `78ef18d` 四作业全绿。

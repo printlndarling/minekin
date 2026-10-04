@@ -43,6 +43,25 @@
 
 族②（感知/反射/安全：`reflex_success_rate`、`stale_intent_rejected`、`unauthorized_read_count`、`belief_leak_count`、`event_to_input_ticks`、`instruction_boundary_trace`）与族③（mind/社交/学习/成本）留下一遍；`event_to_input_ticks` 的词面承载已在 [headless-client-media-contract.md](headless-client-media-contract.md)、反射窗口契约在 [reflex-latency-contract.md](reflex-latency-contract.md)，逐项状态待核。
 
+## 第二半 · 族②（感知/反射/安全）与族③（mind/社交/学习/成本）第一遍
+
+同一口径：只写本遍核过的指针；未核到者留白。
+
+| 指标 | 承载处（本遍核过） | 状态 |
+| --- | --- | --- |
+| `reflex_success_rate` / `stale_intent_rejected` / `event_to_input_ticks` | [reflex-latency-contract.md](reflex-latency-contract.md)（`event_to_input_ticks` 词面另见 [headless-client-media-contract.md](headless-client-media-contract.md)；`src/` 本遍未见 reflex 实现） | 定义在、实现未接 |
+| `unauthorized_read_count` / `belief_leak_count` | [perception-implementation.md](perception-implementation.md) 把两者写成回放验收**必须分别报告**的项；可见性边界本体由 `domain/perception.py` 与 `tests/unit/test_perception.py` 承载 | 验收定义在；具名计数器未实现（本遍未核到计数字段） |
+| `instruction_boundary_trace` | [instruction-boundary.md](instruction-boundary.md) | 契约在、实现未接（src/tests 本遍未见逐字承载） |
+| `model_cost_and_latency` | 成本侧：mind 文档 `model_calls` / `model_spent_micro` / `model_cap_refusals`（player_mind 组装）+ 端点超时配置 | 有字节（成本）；延迟分布的统计本遍未核到 |
+| `bootstrap_action_trace` | run 文档 `steps[]`（`result`/`reason`/`attribution`/`decision_source`）与历史活体 CONFIRMED 读数 | 有字节（部分；"中断后恢复"维本遍未核） |
+| `repeat_failure_rate` / `skill_invocation_trace` | `record_result` 的归因/额度/`excluded_skills`/`last_precondition` 机制与其单测；"自主提炼组合技能"未见实现 | 部分（调用/回退/修订侧有字节；提炼未接） |
+| `memory_retrieval_trace` | `adapters/sqlite/skill_history.py`（`read_skill_experiences`）→ `session_history.py` 组装进模型上下文；后台经历面板（2026-10-04 真网关读数）；[memory-retrieval-consolidation-contract.md](memory-retrieval-consolidation-contract.md) | 部分（技能经历/重启检索有字节；人物/地点/陈旧度维未接） |
+| `persona_creation_trace` / `persona_behavior_trace` | `adapters/filestore/persona_store.py` + 后台人格展示 + persona 输入来源 trace | 部分（存储/展示/trace 侧有字节；生成器 seed/复现矩阵本遍未核） |
+| `goal_progress` / `decision_agency_trace` | run 文档 `goal_met`/`stop_reason`/milestone 与 `decision_source`/`model_refusal`/改线读数 | 部分（目标达成与决策来源有字节；"自主产生/修改目标的依据、运行者请求与目标劫持对照"未接） |
+| 其余社交/记忆/学习/日程类（`personality_continuity`、`starter_relationship_trace`、`social_consistency`、`emotion_action_trace`、`attribution_accuracy`、`memory_revision_trace`、`goal_horizon_trace`、`choice_context_trace`、`site_choice_trace`、`domain_knowledge_trace`、`ability_growth_trace`、`world_guide_accuracy`、`learning_reuse_trace`、`research_to_action_trace`、`mode_lifecycle_trace`、`attention_intent_trace`、`claim_evidence_trace`、`exception_usage_trace`、`perception_mode_trace`） | 契约/设计在：[persona-generation-contract.md](persona-generation-contract.md)、[memory-retrieval-consolidation-contract.md](memory-retrieval-consolidation-contract.md)、[social-attribution-contract.md](social-attribution-contract.md)、[decision-agency.md](decision-agency.md)、[attention-intent.md](attention-intent.md)、[learning.md](learning.md)、[world-guide.md](world-guide.md) / [world-guide-implementation.md](world-guide-implementation.md)、[research-skill-contract.md](research-skill-contract.md) | 定义在、实现未接（S5/S6；逐项指针本遍未一一核） |
+
+至此 50 个指标名都有一行落点（有字节 / 部分 / 定义在-未接 / 待决策 / 本遍未核到）。原 10-04 第一半的"47 个只在 roadmap.md 出现"仍成立——本对照用的是**概念与指针**，不是词面。
+
 ## 下一步（F 阶段整卡）
 
-逐指标建"名字 → 具体承载处（文件/字段/测试/case）→ 状态（已承载 / 部分（具名缺哪一维）/ 未承载）"对照。可从三类已知承载家族起步：①证据与轨迹类（bundle / registry / case + run document 各段）；②心智与社交类（mind 段字段与对应契约、单测）；③成本与延迟类（`model_calls` / `model_spent_micro` / 时间戳）。逐项核对后把本文件并进去，成为 F 收口的对账物。
+三族第一遍已于 2026-10-04 走完：50 个名字各有落点（有字节 / 部分 / 定义在-未接 / 待决策 / 本遍未核到）。剩下的工作不是"建对照"而是"把每条落到可复核的字段与测试名"：逐项深核标着「部分」与「本遍未核到」的维度（延迟分布、具名计数器、中断恢复、生成器复现矩阵等），在 F 收口时把本文件作为对账物一并闭合。
