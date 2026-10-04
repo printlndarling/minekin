@@ -1204,8 +1204,7 @@ class PlayerMind:
         the Kin goes back to work rather than reporting an item it has lost.
         """
 
-        if reading is not None:
-            self.goal_met = goal_held(self.goal, reading)
+        self.goal_met = reading is not None and goal_held(self.goal, reading)
 
     def next_intent(self, reading: WorldObservationValue | None) -> MindIntent:
         """Ask — of the model, or of the reflection below — what to do about this reading.
@@ -1217,9 +1216,9 @@ class PlayerMind:
         document is read for afterwards.
         """
 
+        self.observe(reading)
         if reading is None:
             return self._hold(NO_LATEST_OBSERVATION, None)
-        self.observe(reading)
         if not reading.self_state.alive:
             return self._hold(PLAYER_DEAD, reading)
         if self.holds_goal(reading) and not screen_open(reading):

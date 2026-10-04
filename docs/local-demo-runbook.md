@@ -1075,3 +1075,6 @@ uv run python -m tools.verify_managed_autonomous_recovery --container minekin-se
 2026-10-04 重生观察前提：1.20.1 的 InitialObservation/WorldObservation 新增可选 SelfState.respawn_available。只读取当前 DeathScreen 中启用、可见且翻译键为 deathScreen.respawn 的按钮；disabled、隐藏、旁观、退出、字面标签及存活身体均不会给出可用。旧 Bridge 未读该字段时 Core 保留 None，不当 False 或 True；存活且可用的矛盾帧经完整性门拒绝。未接入重生输入、模型选择重生或死亡后继续，按钮可用读数不是重生成功。
 
 共享 schema 已重新构建两根 Bridge，candidate recipe/Launcher jar pin/fixture manifest 更新；1.21.4 不读取新字段，保持未知。历史 reviewed-tested-bundles.json 和封存材料未改，新候选不能由旧 run 晋级：自动 tested 入口会拒绝构建身份不匹配，当前新构建须走显式 candidate profile；恢复 automatic tested 路径需要新构建实际运行/封存及独立复判后登记。467项相关 Python 回归、两根 Gradle build/test 与工件边界通过；重生按钮两项 Java 用例使用实际 DeathScreen/ButtonWidget，但不是真实客户端运行。Linux交叉构建与新游戏验收仍待完成。下一步接入独立协商的重生动作，复核当前按钮前提，只以后续同代际存活观察确认结果，未知不重发。
+
+
+自主循环的终止回答也重验身体：HOLD/BLOCKED 等非动作回答在模型等待后重新 observe，期间死亡（含已恢复存活）优先落 PLAYER_DEAD，观察丢失落 NO_LATEST_OBSERVATION，世界代际变化落 DECISION_PRECONDITION_CHANGED/WORLD_GENERATION_CHANGED；没有发送动作或虚构步骤。当前观察缺失时 goal_met 不沿用旧库存结论。四项回归先红后绿，相关心智/自主循环/公开配方运行时175项通过；这是单测验证，重生动作与新构建活体验收仍待完成。

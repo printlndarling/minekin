@@ -252,7 +252,19 @@ async def run_autonomous_loop(
         # watcher alike — which is how a cooperative release became a forced SIGTERM (exit 143).
         intent = await asyncio.to_thread(mind.next_intent, reading)
         if intent.kind is not MindDecisionKind.INTENT:
-            stop_reason = intent.reason
+            current = observations.latest
+            mind.observe(current)
+            if observations.death_count != death_count or (
+                current is not None and not current.self_state.alive
+            ):
+                stop_reason = PLAYER_DEAD
+            elif current is None:
+                stop_reason = NO_LATEST_OBSERVATION
+            elif current.generation != authority.generation:
+                stop_reason = DECISION_PRECONDITION_CHANGED
+                stop_detail = "WORLD_GENERATION_CHANGED"
+            else:
+                stop_reason = intent.reason
             break
         # The ask is stamped, not the answer: the next turn may not be built on the reading this
         # intent already used, which is what makes a stalled world a named stop instead of a

@@ -37,9 +37,12 @@ from minekin_core.application.player_mind import (
     GOAL_ACHIEVED,
     NO_LATEST_OBSERVATION,
     SKILL_OFFER,
+    MindDecisionKind,
+    MindIntent,
     PlayerMind,
     mind_for,
 )
+from minekin_core.application.skill_plan import SkillPlan
 from minekin_core.application.world_observation import WorldObservationStore
 from minekin_core.application.world_skills import (
     CLIENT_EXITED,
@@ -1115,3 +1118,47 @@ def test_death_then_live_during_model_call_cannot_reuse_the_old_decision() -> No
         assert mind.attempts == {}
 
     asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("change", ["death", "death_then_live", "generation", "missing"])
+def test_a_terminal_mind_answer_is_rechecked_against_the_current_body(
+    monkeypatch: pytest.MonkeyPatch, change: str
+) -> None:
+    first = reading(items=((0, PICKAXE, 1),))
+    later = reading(tick=120)
+    if change == "death":
+        later = replace(later, self_state=replace(later.self_state, health=0, alive=False))
+    if change == "generation":
+        later = replace(later, generation=2)
+    stage = Stage(first, None if change == "missing" else later)
+    skills = TapeSkills(stage, {})
+    mind = off_mind()
+
+    def terminal(self: PlayerMind, before: WorldObservationValue | None) -> MindIntent:
+        self.observe(before)
+        stage.advance()
+        if change == "death_then_live":
+            stage.death_count += 1
+        return MindIntent(
+            kind=MindDecisionKind.HOLD,
+            plan=SkillPlan(()),
+            reason="MODEL_HOLD",
+            observation_ref="old-reading",
+        )
+
+    monkeypatch.setattr(PlayerMind, "next_intent", terminal)
+    result = run(stage, skills, mind)
+    assert (
+        result.stop_reason
+        == {
+            "death": "PLAYER_DEAD",
+            "death_then_live": "PLAYER_DEAD",
+            "generation": "DECISION_PRECONDITION_CHANGED",
+            "missing": "NO_LATEST_OBSERVATION",
+        }[change]
+    )
+    assert result.steps == ()
+    assert skills.ran == []
+    assert mind.goal_met is False
+    if change == "generation":
+        assert result.stop_detail == "WORLD_GENERATION_CHANGED"
