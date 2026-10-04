@@ -93,9 +93,13 @@ FABRIC_API_1201_SHA1 = "3e9cdd3e2f827ca9a259df9eb8e31949437b6bd4"
 # gate as an unlisted type and fail-closed the session with a generic
 # BRIDGE_FAULT (live run `4ed8b9e7…`, see the demo runbook's 六之二十五) — and
 # writes the faulting exception into the fail-closed log lines, because that
-# generic reason was the same run's only words about the cause.
-BRIDGE_1201_JAR_SHA256 = "d06672e4d3193e1191dffed26d045efd4715150bd9041510b72e0cccd0585411"
-BRIDGE_1201_JAR_SIZE = 1_454_062
+# generic reason was the same run's only words about the cause. A second
+# 2026-10-05 renewal reports the recipe book's craftable set for the open grid
+# (`CraftableRecipeReader`), the reading the public knowledge path needs before
+# it can offer any craft inside an open 3x3 window — the wide-grid craft was
+# structurally unreachable without it (card S3-WIDE-GRID-CRAFT-CLOSURE-001).
+BRIDGE_1201_JAR_SHA256 = "38acc0354f2452ed69887d19eb0e6bcacaa86a8535c022d5754315501e8033c3"
+BRIDGE_1201_JAR_SIZE = 1_455_903
 BRIDGE_1201_JAR_RELATIVE_PATH = "bridge-1201/build/libs/minekin-bridge-1201-0.0.0.jar"
 
 

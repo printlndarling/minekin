@@ -6,6 +6,7 @@ import io.minekin.protocol.v1.BlockFace;
 import io.minekin.protocol.v1.BlockTarget;
 import io.minekin.protocol.v1.GuiScreen;
 import io.minekin.protocol.v1.MiningProgress;
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 
@@ -258,18 +259,23 @@ public final class WorldActions {
     }
 
     /**
-     * The screen the client has open, and its handler id only when there is one.
+     * The screen the client has open, and its handler id only when there is one, with the
+     * recipe book's craftable set for that screen's grid.
      *
      * <p>{@code sync_id} is absent with no screen because sync id 0 is a real handler
      * (the player's own inventory) and cannot double as "there is none." A reader that
      * saw a 0 would believe a container were open when the game is taking keyboard
-     * input.
+     * input. The craftable ids follow the same rule from the other side: with no screen
+     * there is no grid the client is speaking for, so the set is empty and is only
+     * carried while a screen is open.
      */
-    public static GuiScreen guiScreen(String screenLabel, boolean screenOpen, int syncId) {
+    public static GuiScreen guiScreen(
+            String screenLabel, boolean screenOpen, int syncId, List<String> craftableRecipeIds) {
         GuiScreen.Builder screen =
                 GuiScreen.newBuilder().setScreenId(screenLabel == null ? "" : screenLabel);
         if (screenOpen) {
             screen.setSyncId(syncId);
+            screen.addAllCraftableRecipeIds(craftableRecipeIds);
         }
         return screen.build();
     }

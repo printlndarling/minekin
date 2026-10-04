@@ -71,7 +71,12 @@ public final class WorldObservationCollector {
                         .setSelf(selfState(client, player))
                         .setInventory(inventory(player, tick))
                         .addAllVisibleEntities(visibleEntities(player))
-                        .setGui(WorldActions.guiScreen(screenLabel(client), screenOpen(client), syncId(client)));
+                        .setGui(
+                                WorldActions.guiScreen(
+                                        screenLabel(client),
+                                        screenOpen(client),
+                                        syncId(client),
+                                        CraftableRecipeReader.readable(client)));
         WorldActions.aimTarget(CrosshairReader.read(client), tick).ifPresent(view::setAim);
         mining(client, tick).ifPresent(view::setMining);
         return view.build();
