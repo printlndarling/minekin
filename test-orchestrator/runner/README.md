@@ -178,6 +178,16 @@ same port back inside the wait window, and the page recovers itself — **2 pass
 (24.2s)**, with the literal recovery line
 `读数正常 · 末次成功 0 秒前 · 每 5 秒轮询 · 已自行恢复 1 次读取中断（最近连续 3 次失败、持续 15 秒）`.
 
+The two lighter live specs also ran that day, each against a disposable Kin root the
+harness made itself on the same volume with `run.sh init` (a second `--kin-id`): with
+`E2E_MODEL_TEST_LIVE=1` the browser saves provider `off` through the real config write
+and the model test answers `MODEL_NOT_CONFIGURED` with `调用记录 0` and no `格式通过`
+line, mobile width intact — **1 passed (2.5s)**; with `E2E_LIVE_IDENTITY=1` the panel's
+explicit-confirm rename travels the `/gateway` proxy into Core's compare-and-swap and
+lands in the real SQLite identity root — **1 passed (2.5s)**. One trap to note: `init`
+defaults the username to the demo's `Kin`, so the identity spec's `minekin` assertion
+needs `MINEKIN_USERNAME=minekin` at init time.
+
 ### A server that requires a pack, and a client that refuses one
 
 `MINEKIN_DOMAIN_RESOURCE_PACK=1` builds a resource pack, serves it on loopback, and

@@ -1,5 +1,7 @@
 # Minekin 开发执行计划（现行唯一队列）
 
+> 2026-10-04 追加（M 直接落主干，基线 `2a5d659`）：**面板的两条轻量活体 spec 也跑实**（受控本地、真 Gateway、无游戏）。`E2E_MODEL_TEST_LIVE=1`：浏览器把 provider 存成 off（走真实配置写面），模型测试如实回 `MODEL_NOT_CONFIGURED`/`调用记录 0`/无 `格式通过`、移动宽度不溢出——**1 passed (2.5s)**；`E2E_LIVE_IDENTITY=1`：对一枚新 `minekin` 根，面板显式确认改名经 `/gateway` 代理进 Core 的 compare-and-swap、落到真实 SQLite 身份根——**1 passed (2.5s)**。种子根用 `run.sh init` 在同一卷上新建（操作陷阱：init 默认用户名是演示用的 `Kin`，要满足身份 spec 的 `minekin` 断言需 `MINEKIN_USERNAME=minekin`）；两个测试网关按发布端口停净。读数写进 runner README。**未动**：`E2E_SERVER_CONFIG_LIVE`（需 25566 上的受控服务器）与 `E2E_SESSION_START_LIVE`（需整局游戏）本日未跑。
+
 > 2026-10-04 追加（M 直接落主干，基线 `4b118bd`）：**面板的断连/恢复两腿跑实**（受控本地、真 Gateway、无游戏）。DOWN 腿在无监听端口上 `1 passed (6.9s)`（且该用例在网关在线时会红，绿非恒真）；RECOVER 腿由操作者在等待窗内置回同端口，`2 passed (24.2s)`，恢复字面 `读数正常 · 末次成功 0 秒前 · 每 5 秒轮询 · 已自行恢复 1 次读取中断（最近连续 3 次失败、持续 15 秒）`；读数与"按发布端口停容器（按名字找会看漏）"的操作注意事项写进 runner README。**范围按实**：这是后台侧断连路径的字节，不是"仍存活客户端的游戏断连/watchdog 松键"活体那一格。CI `4b118bd` 四作业全绿。
 
 > 2026-10-04 追加（M 直接落主干，基线 `f15227f`）：**指标对照深核第二批**（[roadmap-metrics-coverage.md](roadmap-metrics-coverage.md)）。①`model_cost_and_latency` 行加深并更正：延迟侧机制在 `domain/budget.py`（回调窗折百分位、无价格概念），与 `CostLedger` 的分离由 `test_model_cost_ledger.py:65` 的导入图测试钉住，但**模型调用延迟未接入**该账目；②`bootstrap_action_trace` 的"中断后恢复"维落到三组具名机制测试（collect 纠偏 / 关屏有界逃逸 / 死亡中断与松键）；③两枚感知计数器的近邻字节落在 `test_perception.py` 的分类计数与 evidence-ready 文档（具名字段仍未核到，不冒充）；④persona 生成/上下文侧落 `test_persona.py` / `test_persona_decision_context.py` / `test_gateway_saved_persona.py`。CI `f15227f` 四作业全绿（含并发提交 `89e4969`）。
