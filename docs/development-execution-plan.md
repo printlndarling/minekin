@@ -1,5 +1,7 @@
 # Minekin 开发执行计划（现行唯一队列）
 
+> 2026-10-04 追加（M 直接落主干，基线 `2954eb2`）：**F 阶段前置对账（第一遍）**。通读 `roadmap.md`/`player-journey.md`：阶段 0–5 与扩展里程碑全部在总规划 §3/§4/§9 有承接口（0→S0、1→S2/S4、2→S3/S5、3→S6、4→S8、游戏进度→S9、多 Kin→S10、模组→S11；54 个能力场景由 §9 末句整组承接为检验案例），未发现被悄悄删掉的阶段或承诺；可选在线认证、媒体旁路、HOST/PERSIST 均已在待决策/待接入清单上有名。**未承接的一处具名**：roadmap「衡量方式」的 ~55 个 trace 指标没有一张"指标 → 判定位置"的对照表（现由 run 文档计数器、封存 bundle 与已注册 case 分散承载）——列为 F 阶段待办，不在本轮展开。CI `2954eb2` 四作业全绿。
+
 > 2026-10-04 追加（M 直接落主干，基线 `03674b0`）：**总规划 §8 读数按本夜交付刷新**（四行：当前产品阶段 / 已能演示 / 下一里程碑 / 产品欠缺；旧 10-01 读数原样保留为上表历史时点），§1 的 C 行补上 "CI dashboard 门 + 真实网关浏览器验收（vitest 274、Playwright 23 passed / 6 skipped）"。CI `03674b0` 四作业全绿。
 
 > 2026-10-04 追加（M 直接落主干，基线 `849e652`）：**面板验收有了可复制的操作配方；CI 四作业全绿**。runner README 新增 "The panel's own acceptance, in one shape"：`--gateway` + `E2E_LIVE_GATEWAY=1 E2E_LIVE_EXPERIENCES=1 pnpm --dir dashboard e2e`，附 2026-10-04 本机真实读数（**23 passed / 6 skipped**，含 `live-gateway-session` 与 `experiences-live` 对真实台账）、七个 opt-in 变量各自的额外要求（DOWN/RECOVER/IDENTITY/MODEL_TEST/SERVER_CONFIG/SESSION_START），以及 Windows 端口排除段的说明。`849e652` 的 CI（python / protocol / bridge-static / **dashboard**）四作业全绿——dashboard 作业自本夜起成为常驻门。
