@@ -1,5 +1,7 @@
 # Minekin 开发执行计划（现行唯一队列）
 
+> 2026-10-04 追加（M 直接落主干，基线 `8c22119`）：**指标对照走完族①（证据与轨迹）第一遍**。`docs/roadmap-metrics-coverage.md` 增表：证据/轨迹类里，bundle/registry/case 链、入服与身份、存储单写锁、IPC/租约、供应链、只读面板（含本夜真实网关浏览器读数）均判"有字节"；宿主三件（`hosted_world_trace`/`host_control_trace`/`host_commit_trace`）判"契约在、实现未接（HOST/PERSIST 待决策）"；媒体两件判"契约在、实现未接"；`auth_secret_exposure_trace` 判"待决策"。族②（感知/反射/安全）与族③（mind/社交/成本）留下一遍；未核到者按实留白，不猜。CI `8c22119` 四作业全绿。
+
 > 2026-10-04 追加（M 直接落主干，基线 `78ef18d`）：**F 待办「指标对照」的第一半落地**。新增 [roadmap 衡量方式的词面覆盖](roadmap-metrics-coverage.md)：对 roadmap「衡量方式」的 50 个指标做全仓 `git grep -F` 词面扫描（基线 `78ef18d`，命令可复现）——**47 个只在 roadmap.md 出现**，3 个逐字在别处（`event_to_input_ticks` → media 契约；`unauthorized_read_count` / `belief_leak_count` → perception-implementation）。文档写明"词面未现 ≠ 无承载 ≠ 已满足"，并把逐指标对照（名字 → 承载处 → 状态）登记为 F 阶段整卡。CI `78ef18d` 四作业全绿。
 
 > 2026-10-04 追加（M 直接落主干，基线 `2954eb2`）：**F 阶段前置对账（第一遍）**。通读 `roadmap.md`/`player-journey.md`：阶段 0–5 与扩展里程碑全部在总规划 §3/§4/§9 有承接口（0→S0、1→S2/S4、2→S3/S5、3→S6、4→S8、游戏进度→S9、多 Kin→S10、模组→S11；54 个能力场景由 §9 末句整组承接为检验案例），未发现被悄悄删掉的阶段或承诺；可选在线认证、媒体旁路、HOST/PERSIST 均已在待决策/待接入清单上有名。**未承接的一处具名**：roadmap「衡量方式」的 ~55 个 trace 指标没有一张"指标 → 判定位置"的对照表（现由 run 文档计数器、封存 bundle 与已注册 case 分散承载）——列为 F 阶段待办，不在本轮展开。CI `2954eb2` 四作业全绿。
