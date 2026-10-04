@@ -32,12 +32,18 @@ const WHOLE_DOCUMENT_NOTE =
  */
 export function ConfigPanel({ adapter, nowMs }: { readonly adapter: KinReadAdapter; readonly nowMs: number }) {
   const controller = useConfigController(adapter);
-  const modelTest = useMutation({ mutationFn: () => adapter.testModel(), retry: false });
+  const modelTest = useMutation({
+    mutationFn: (_context: { signature: string | null; draftRevision: number }) => adapter.testModel(),
+    retry: false,
+  });
   const { config } = controller;
   const signature = config === null ? null : configFieldsSignature(config);
 
   const [draft, setDraft] = useState<ConfigDraft>({});
   const [edited, setEdited] = useState(false);
+  const [draftRevision, setDraftRevision] = useState(0);
+  // A -> B -> A during a request must not make its old answer current again.
+  useEffect(() => setDraftRevision((current) => current + 1), [signature]);
   // Re-seed only when the SAVED document's signature actually changes (initial load, or the refetch
   // after an accepted save). A poll that returns the same document leaves the operator's in-progress
   // edits untouched, because the signature is unchanged and this effect does not fire.
@@ -82,13 +88,17 @@ export function ConfigPanel({ adapter, nowMs }: { readonly adapter: KinReadAdapt
   };
 
   const setField = (key: string, value: string): void => {
+    setDraftRevision((current) => current + 1);
     setEdited(true);
     setDraft((current) => ({ ...current, [key]: value }));
     if (controller.outcome !== null) controller.clearOutcome();
   };
 
   const outcome = controller.outcome;
-  useEffect(() => modelTest.reset(), [signature, edited, modelTest.reset]);
+  // Resetting a pending mutation does not cancel its network request. Keep it busy,
+  // and bind its eventual answer to the saved configuration and draft generation.
+  const modelTestCurrent = !edited && modelTest.variables?.signature === signature &&
+    modelTest.variables?.draftRevision === draftRevision;
 
   return (
     <Panel
@@ -159,6 +169,7 @@ export function ConfigPanel({ adapter, nowMs }: { readonly adapter: KinReadAdapt
             </button>
             <button type="button" className={styles.submit} disabled={!edited || controller.pending}
               onClick={() => {
+                setDraftRevision((current) => current + 1);
                 setDraft(fieldsToDraft(config.fields));
                 setSeededSignature(signature);
                 setEdited(false);
@@ -172,17 +183,20 @@ export function ConfigPanel({ adapter, nowMs }: { readonly adapter: KinReadAdapt
           </p>
           <button type="button" className={styles.submit} data-testid="model-test-submit"
             disabled={edited || controller.pending || modelTest.isPending || config.loadError !== null}
-            onClick={() => modelTest.mutate()}>
+            onClick={() => modelTest.mutate({ signature, draftRevision })}>
             {modelTest.isPending ? "测试连接中…" : "测试已保存的模型连接"}
           </button>
-          {modelTest.data !== undefined ? (
+          {modelTest.data !== undefined && modelTestCurrent ? (
             <p className={modelTest.data.ok && modelTest.data.value.status === "connected" ? styles.result : styles.refusal} role="status" data-testid="model-test-result">
               {modelTest.data.ok
                 ? `${modelTest.data.value.status === "connected" ? "模型连接与决策格式通过" : `模型不可用：${modelTest.data.value.reason}`} · ${modelTest.data.value.elapsedMs} ms · 调用记录 ${modelTest.data.value.modelCalls} · 估算成本 ${modelTest.data.value.estimatedCostMicro} micro（非账单）`
                 : `连接测试失败：${modelTest.data.failure.message}`}
             </p>
           ) : null}
-          {modelTest.isError ? <p className={styles.refusal} role="alert">
+          {!modelTest.isPending && (modelTest.data !== undefined || modelTest.isError) && !modelTestCurrent ? (
+            <p className={styles.notice} role="status">连接测试期间配置或草稿已变化，旧结果不适用于当前设置；请按需重新测试。</p>
+          ) : null}
+          {modelTest.isError && modelTestCurrent ? <p className={styles.refusal} role="alert">
             连接测试未完成，请检查 Gateway 连接后重试。
           </p> : null}
 

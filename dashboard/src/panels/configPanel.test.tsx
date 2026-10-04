@@ -28,6 +28,59 @@ function openConfig(scenario: MockScenarioId): void {
 }
 
 describe("模型连接测试", () => {
+  it("在途编辑再放弃不会复活旧成功或开放第二次调用", async () => {
+    const adapter = createMockAdapter("healthy_run_07", 0);
+    let finish!: () => void;
+    const test = vi.spyOn(adapter, "testModel").mockImplementation(() => new Promise((resolve) => {
+      finish = () => resolve(ok({ status: "connected", reason: "", elapsedMs: 42,
+        timeoutMs: 20_000, modelCalls: 1, estimatedCostMicro: 3 }, "gateway", "gateway://model-test"));
+    }));
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(<QueryClientProvider client={client}><ConfigPanel adapter={adapter} nowMs={Date.now()} /></QueryClientProvider>);
+    const button = await screen.findByTestId("model-test-submit");
+    await userEvent.click(button);
+    await userEvent.type(screen.getByTestId("config-input-model_name"), "-changed");
+    await userEvent.click(screen.getByRole("button", { name: "放弃修改，读取已存配置" }));
+    expect(button).toBeDisabled();
+    await userEvent.click(button);
+    expect(test).toHaveBeenCalledTimes(1);
+    await act(async () => finish());
+    await waitFor(() => expect(button).toBeEnabled());
+    expect(screen.queryByTestId("model-test-result")).toBeNull();
+    expect(screen.getByText(/旧结果不适用于当前设置/)).toBeInTheDocument();
+    client.clear();
+  });
+
+  it("外部配置更新使在途测试结果失效，新测试才对应新配置", async () => {
+    const adapter = createMockAdapter("healthy_run_07", 0);
+    const response = ok({ status: "connected" as const, reason: "", elapsedMs: 42,
+      timeoutMs: 20_000, modelCalls: 1, estimatedCostMicro: 3 }, "gateway", "gateway://model-test");
+    let finish!: () => void;
+    const test = vi.spyOn(adapter, "testModel").mockImplementationOnce(() => new Promise((resolve) => {
+      finish = () => resolve(response);
+    })).mockResolvedValue(response);
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(<QueryClientProvider client={client}><ConfigPanel adapter={adapter} nowMs={Date.now()} /></QueryClientProvider>);
+    const button = await screen.findByTestId("model-test-submit");
+    await userEvent.click(button);
+    const saved = await adapter.config(new AbortController().signal);
+    if (!saved.ok) throw new Error("fixture config unavailable");
+    act(() => client.setQueryData(["config", adapter.describe().id], {
+      ...saved, value: { ...saved.value, fields: { ...saved.value.fields, model_name: "new-model" } },
+    }));
+    await waitFor(() => expect(screen.getByTestId("config-input-model_name")).toHaveValue("new-model"));
+    act(() => client.setQueryData(["config", adapter.describe().id], saved));
+    await waitFor(() => expect(screen.getByTestId("config-input-model_name")).toHaveValue("deepseek-chat"));
+    expect(button).toBeDisabled();
+    await act(async () => finish());
+    await waitFor(() => expect(button).toBeEnabled());
+    expect(screen.queryByTestId("model-test-result")).toBeNull();
+    await userEvent.click(button);
+    expect(await screen.findByTestId("model-test-result")).toHaveTextContent("模型连接与决策格式通过");
+    expect(test).toHaveBeenCalledTimes(2);
+    client.clear();
+  });
+
   it("不会把模拟数据报成真实连接成功", async () => {
     openConfig("healthy_run_07");
     await userEvent.click(await screen.findByTestId("model-test-submit"));
