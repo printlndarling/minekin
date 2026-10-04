@@ -1545,7 +1545,21 @@ class PlayerMind:
         if "consume_item" in feasible and needs.get("safety", 0) >= 3:
             return "consume_item"
         if "select_hotbar" in feasible:
-            return "select_hotbar"
+            standing_up = self._select_target(reading)
+            holding_product = (
+                standing_up is not None
+                and self.goal is not None
+                and standing_up[0] == self.goal.product_id
+            )
+            # The enabler goes to hand only once the bag can pay the remaining material debt:
+            # `CRAFT_GRID_TOO_SMALL` is the catalog's word for "every shape this screen holds is
+            # paid and the wider one is what is missing" — the same gate the use key waits for
+            # below. Standing it up early spends the same four planks again later: a live run
+            # selected the freshly-crafted table while the pickaxe was one plank short, placed
+            # and opened it, closed it to gather, and then re-crafted a second table because a
+            # placed table cannot be reselected — one plank short of the tool at the budget's end.
+            if holding_product or self._goal_craft_blocker(reading) == CRAFT_GRID_TOO_SMALL:
+                return "select_hotbar"
         if "craft_take_result" in feasible:
             return "craft_take_result"
         enabler = self._enabler_to_stand_up(reading)

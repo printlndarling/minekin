@@ -1639,6 +1639,38 @@ def test_local_setup_gathers_remaining_materials_before_standing_up_the_grid_ena
     assert mind.next_intent(observed).skill == "break_seen_block"
 
 
+def test_local_setup_leaves_an_unselected_table_in_the_bag_until_the_debt_is_paid() -> None:
+    """The local fallback stood the enabler up the moment it was crafted: select -> place -> open
+    while the pickaxe was still one plank short (live run a7c2ffd4, steps 15-17). The window was
+    then closed for gathering — world actions need it gone — and the next wide craft re-crafted a
+    second table, because a placed table cannot be reselected; the run ended one plank short of
+    the tool. The enabler goes to hand only once the remaining material debt is paid — the same
+    CRAFT_GRID_TOO_SMALL gate the use key already waits for, and the sentence `_reflect`'s own
+    docstring already promised. Once the debt is paid, selecting is the right move again, which
+    the second half pins."""
+
+    mind, _ = mind_with()
+    observed = reading(
+        items=((0, PLANKS, 2), (1, STICK, 4), (6, TABLE, 1)),
+        self_state=state(selected_slot=0),
+        aim=aim_at(NEAR_LOG),
+    )
+    assert blocker_for(observed, PICKAXE) == CRAFT_MATERIALS_MISSING
+
+    intent = mind.next_intent(observed)
+
+    assert intent.skill != "select_hotbar"
+    assert intent.skill == "break_seen_block"
+
+    paid = reading(
+        items=((0, PLANKS, 3), (1, STICK, 2), (6, TABLE, 1)),
+        self_state=state(selected_slot=0),
+        aim=aim_at(NEAR_LOG),
+    )
+    assert blocker_for(paid, PICKAXE) == CRAFT_GRID_TOO_SMALL
+    assert mind.next_intent(paid).skill == "select_hotbar"
+
+
 def test_reacquisition_looks_steeply_up_before_abandoning_a_close_resource_heading() -> None:
     mind, _ = mind_with()
     mind.next_intent(reading(aim=aim_at(NEAR_LOG)))
