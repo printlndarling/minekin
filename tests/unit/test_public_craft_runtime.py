@@ -277,7 +277,7 @@ def test_step_toward_names_missing_raw_materials_before_any_layer_can_pay(
 
 def test_step_toward_crafts_the_grid_enabler_before_a_wider_product(tmp_path: Path) -> None:
     knowledge = source(tmp_path)
-    current = reading({"minecraft:oak_planks": 4, "minecraft:stick": 2})
+    current = reading({"minecraft:oak_planks": 4, "minecraft:stick": 2, "minecraft:cobblestone": 3})
     step = knowledge.step_toward("minecraft:stone_pickaxe", current, quantity=1, grid_side=2)
     assert isinstance(step, BuildStep)
     assert step.product_id == "minecraft:crafting_table"
@@ -285,12 +285,50 @@ def test_step_toward_crafts_the_grid_enabler_before_a_wider_product(tmp_path: Pa
     assert dict(step.materials) == {"minecraft:oak_planks": 4}
 
 
+def test_step_toward_waits_for_the_remaining_debt_before_crafting_the_enabler(
+    tmp_path: Path,
+) -> None:
+    # The enabler's own four planks break the pickaxe's payment when the bag is short: the
+    # gather comes first, and only a reading richer by the missing material returns the table
+    # step. A live run craft-and-stood the table here instead, closed the window as unpayable,
+    # gathered the missing log, and re-crafted a second table -- two tables against a twelve
+    # plank supply and the tool never made (run 939fac49; card
+    # S3-WIDE-GRID-CRAFT-CLOSURE-001).
+    knowledge = source(tmp_path)
+    short = reading({"minecraft:oak_planks": 4, "minecraft:stick": 2})
+    assert (
+        knowledge.step_toward("minecraft:stone_pickaxe", short, quantity=1, grid_side=2)
+        == "CRAFT_MATERIALS_MISSING"
+    )
+
+    paid = reading({"minecraft:oak_planks": 4, "minecraft:stick": 2, "minecraft:cobblestone": 3})
+    step = knowledge.step_toward("minecraft:stone_pickaxe", paid, quantity=1, grid_side=2)
+    assert isinstance(step, BuildStep)
+    assert step.product_id == "minecraft:crafting_table"
+
+
 def test_step_toward_says_when_the_held_enabler_is_all_that_is_left(tmp_path: Path) -> None:
     knowledge = source(tmp_path)
-    current = reading({"minecraft:crafting_table": 1})
+    current = reading(
+        {"minecraft:crafting_table": 1, "minecraft:cobblestone": 3, "minecraft:stick": 2}
+    )
     assert (
         knowledge.step_toward("minecraft:stone_pickaxe", current, quantity=1, grid_side=2)
         == "CRAFT_GRID_TOO_SMALL"
+    )
+
+
+def test_step_toward_gathers_before_standing_a_held_enabler_for_an_unpaid_product(
+    tmp_path: Path,
+) -> None:
+    # A held table with the wide product's own materials still short is a gather, not a
+    # stand-up: standing it up opened a window the craft could not use, closed it again, and
+    # the placed table cannot be reselected (run a7c2ffd4's steps 15-25).
+    knowledge = source(tmp_path)
+    current = reading({"minecraft:crafting_table": 1, "minecraft:stick": 2})
+    assert (
+        knowledge.step_toward("minecraft:stone_pickaxe", current, quantity=1, grid_side=2)
+        == "CRAFT_MATERIALS_MISSING"
     )
 
 
@@ -386,7 +424,9 @@ def test_public_goal_crafts_the_enabler_before_the_wide_product(tmp_path: Path) 
         goal=STONE_PICKAXE_GOAL,
         craft_knowledge=source(tmp_path),
     )
-    intent = mind.next_intent(reading({"minecraft:oak_planks": 4, "minecraft:stick": 2}))
+    intent = mind.next_intent(
+        reading({"minecraft:oak_planks": 4, "minecraft:stick": 2, "minecraft:cobblestone": 3})
+    )
     assert intent.kind is MindDecisionKind.INTENT
     call = intent.plan.calls[0]
     assert call.product_id == "minecraft:crafting_table"

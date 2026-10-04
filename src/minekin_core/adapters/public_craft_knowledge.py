@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections import Counter
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from types import MappingProxyType
 
@@ -362,13 +362,32 @@ class PublicCraftKnowledge:
         if widest > grid_side:
             enabler = grid_enabler_for(widest, within_side=grid_side)
             if enabler is not None:
+                wide_owed = [
+                    product
+                    for product in owed_products
+                    if max(plan.chosen[product].width, plan.chosen[product].height) > grid_side
+                ]
                 if counts.get(enabler.product_id, 0) > 0:
-                    # Held: standing it up is the mind's next move, not a second craft.
-                    return CRAFT_GRID_TOO_SMALL
+                    # Held: standing it up is the mind's next move, not a second craft — but
+                    # only once the crafts the wider grid is for are paid; a window opened for
+                    # a craft the bag cannot run is closed again unspent, and a placed table
+                    # cannot be reselected, so the gather comes first.
+                    if self._wide_owed_paid(plan, wide_owed, counts):
+                        return CRAFT_GRID_TOO_SMALL
+                    return CRAFT_MATERIALS_MISSING
                 if all(counts.get(item_id, 0) >= count for item_id, count in enabler.ingredients):
                     if gui_report and enabler.recipe_id not in book:
                         return "GUI_RECIPE_UNKNOWN"
-                    return BuildStep(recipe=enabler, required_total=1)
+                    reserved = Counter(counts)
+                    for item_id, count in enabler.ingredients:
+                        reserved[item_id] -= count
+                    if self._wide_owed_paid(plan, wide_owed, reserved):
+                        return BuildStep(recipe=enabler, required_total=1)
+                    # The enabler's own materials would break the payment of the product they
+                    # open the grid for: the gather comes first (a live run craft-and-stood
+                    # the table here, gathered the missing log, and re-crafted a second table
+                    # — two tables against a twelve-plank supply, tool never made).
+                    return CRAFT_MATERIALS_MISSING
                 return CRAFT_MATERIALS_MISSING
 
         if not any(
@@ -386,6 +405,25 @@ class PublicCraftKnowledge:
             # Payable steps exist; every one of them is one the open window does not name.
             return "GUI_RECIPE_UNKNOWN"
         return CRAFT_MATERIALS_MISSING
+
+    def _wide_owed_paid(
+        self,
+        plan: _PublicOwedPlan,
+        wide_owed: Sequence[str],
+        counts: Mapping[str, int],
+    ) -> bool:
+        """Whether every craft the wider grid is for stays payable on the given stock.
+
+        The enabler opens the grid for these products' crafts and nothing else, so spending on
+        it is only progress while those crafts stay runnable. Per-product capacity matching,
+        the same arithmetic the owed plan uses; with several wide products sharing one stock
+        this stays a bounded heuristic, not a global optimum.
+        """
+
+        return all(
+            self.knowledge.materials_for(plan.chosen[product].recipe_id, counts) is not None
+            for product in wide_owed
+        )
 
     def owed_chain(
         self,
