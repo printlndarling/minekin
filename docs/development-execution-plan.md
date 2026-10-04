@@ -1,5 +1,7 @@
 # Minekin 开发执行计划（现行唯一队列）
 
+> 2026-10-04 追加（M 直接落主干，基线 `03674b0`）：**总规划 §8 读数按本夜交付刷新**（四行：当前产品阶段 / 已能演示 / 下一里程碑 / 产品欠缺；旧 10-01 读数原样保留为上表历史时点），§1 的 C 行补上 "CI dashboard 门 + 真实网关浏览器验收（vitest 274、Playwright 23 passed / 6 skipped）"。CI `03674b0` 四作业全绿。
+
 > 2026-10-04 追加（M 直接落主干，基线 `849e652`）：**面板验收有了可复制的操作配方；CI 四作业全绿**。runner README 新增 "The panel's own acceptance, in one shape"：`--gateway` + `E2E_LIVE_GATEWAY=1 E2E_LIVE_EXPERIENCES=1 pnpm --dir dashboard e2e`，附 2026-10-04 本机真实读数（**23 passed / 6 skipped**，含 `live-gateway-session` 与 `experiences-live` 对真实台账）、七个 opt-in 变量各自的额外要求（DOWN/RECOVER/IDENTITY/MODEL_TEST/SERVER_CONFIG/SESSION_START），以及 Windows 端口排除段的说明。`849e652` 的 CI（python / protocol / bridge-static / **dashboard**）四作业全绿——dashboard 作业自本夜起成为常驻门。
 
 > 2026-10-04 追加（M 直接落主干，基线 `19ca8f2`）：**新 dashboard 作业首跑红，当场修**。红在 `pnpm install --frozen-lockfile`：pnpm 11 的忽略构建脚本门（`ERR_PNPM_IGNORED_BUILDS esbuild@0.28.2`）以退出码 1 结算，而 `dashboard/pnpm-workspace.yaml` 里的 `allowBuilds` 被提交成了字面占位串（`esbuild: set this to true or false`）。本轮改成 `esbuild: true`（`onlyBuiltDependencies: [esbuild]` 原样保留）；本机 `pnpm install --frozen-lockfile` 现在 **RC=0**（esbuild postinstall 跑通，并打印 "Lockfile passes supply-chain policies"），`pnpm build` / `pnpm test` 复跑 **RC=0**。`19ca8f2` 那发的 dashboard 作业红、python/protocol/bridge-static 三作业绿；本发推送后 dashboard 作业应得第一个真结论（以 CI 为准）。
