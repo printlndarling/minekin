@@ -10,12 +10,18 @@ test("built console persists config and identity through real same-origin Gatewa
   await expect(page.getByTestId("data-source-banner")).toContainText("真实读数");
   await page.getByRole("button", { name: "配置 · 模型与目标" }).click();
   await page.getByTestId("config-input-goal_direction").fill("Inspect the nearby safe area");
+  await page.getByTestId("config-input-model_request_rate").fill("0");
+  await page.getByTestId("config-input-model_response_rate").fill("2000");
   await page.getByTestId("config-submit").click();
   await expect(page.getByTestId("config-result")).toContainText("已保存");
   await page.reload();
   await expect(page.getByTestId("config-input-goal_direction")).toHaveValue("Inspect the nearby safe area");
   const config = await (await request.get("/api/v1/dashboard/config")).json();
   expect(config.fields.goal_direction).toBe("Inspect the nearby safe area");
+  expect(config.fields.model_request_rate).toBe(0);
+  expect(config.fields.model_response_rate).toBe(2000);
+  await expect(page.getByTestId("config-input-model_request_rate")).toHaveValue("0");
+  await expect(page.getByTestId("config-input-model_response_rate")).toHaveValue("2000");
 
   await page.getByRole("button", { name: "身份 · 改名" }).click();
   await expect(page.getByTestId("identity-username")).toHaveText("minekin");

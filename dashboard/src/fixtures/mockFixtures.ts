@@ -495,9 +495,11 @@ const MOCK_CONFIG_KNOWN_FIELDS = [
   "model_name",
   "model_provider",
   "model_run_cost_cap",
+  "model_request_rate",
+  "model_response_rate",
   "model_timeout_ms",
 ];
-const MOCK_CONFIG_INT_FIELDS = ["goal_quantity", "model_run_cost_cap", "model_timeout_ms"];
+const MOCK_CONFIG_INT_FIELDS = ["goal_quantity", "model_run_cost_cap", "model_timeout_ms", "model_request_rate", "model_response_rate"];
 export const MOCK_CONFIG_PROVIDERS = ["off", "openai_compatible"];
 
 /**

@@ -67,6 +67,8 @@ export const CONFIG_FIELDS: readonly ConfigFieldMeta[] = [
   ),
   field("model_timeout_ms", "单次调用超时（毫秒）", "一次模型调用的最长等待，超时即有界失败，不无限重试。", "30000", { int: true }),
   field("model_run_cost_cap", "整轮费用上限（微单位）", "一个 run 的调用花费上限，达到即拒止继续调用。", "5000000", { int: true }),
+  field("model_request_rate", "请求费率（微单位 / 百万 token）", "用户提供的估算费率，留空沿用 2500；0 是显式零费率，不证明免费。与预算使用同一单位，不是供应商账单。", "2500", { int: true }),
+  field("model_response_rate", "响应费率（微单位 / 百万 token）", "用户提供的估算费率，留空沿用 10000；usage 缺失时估算仍不完整。仅影响后续运行，不修改旧账本。", "10000", { int: true }),
   field("goal_product_id", "目标产物", "玩家可见的游戏物品 id（namespace:path，小写）。", "minecraft:wooden_pickaxe", { item: true }),
   field("goal_quantity", "目标数量", "一次请求的成品数量，受单组上限约束。", "1", { int: true }),
   field("goal_source_item_id", "起点材料", "已知的起始物品 id（namespace:path，小写），可留空。", "minecraft:oak_log", { item: true }),
@@ -74,8 +76,8 @@ export const CONFIG_FIELDS: readonly ConfigFieldMeta[] = [
 ];
 
 export const CONFIG_GROUPS: readonly { id: ConfigGroupId; label: string; fields: readonly ConfigFieldMeta[] }[] = [
-  { id: "model", label: "模型与预算", fields: CONFIG_FIELDS.slice(0, 6) },
-  { id: "goal", label: "目标", fields: CONFIG_FIELDS.slice(6) },
+  { id: "model", label: "模型与预算", fields: CONFIG_FIELDS.filter((meta) => meta.key.startsWith("model_")) },
+  { id: "goal", label: "目标", fields: CONFIG_FIELDS.filter((meta) => meta.key.startsWith("goal_")) },
 ];
 
 /**
@@ -149,8 +151,9 @@ export function validateConfigDraft(draft: ConfigDraft, providers: readonly stri
 
     if (meta.int) {
       const parsed = Number(value);
-      if (!Number.isInteger(parsed) || parsed < 1) {
-        errors[meta.key] = "必须是 ≥ 1 的整数。";
+      const minimum = meta.key === "model_request_rate" || meta.key === "model_response_rate" ? 0 : 1;
+      if (!Number.isInteger(parsed) || parsed < minimum) {
+        errors[meta.key] = `必须是 ≥ ${minimum} 的整数。`;
       } else if (parsed > intCeiling(meta.key)) {
         errors[meta.key] = `不能超过 ${intCeiling(meta.key)}。`;
       }

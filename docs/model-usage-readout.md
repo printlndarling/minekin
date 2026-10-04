@@ -9,3 +9,7 @@
 旧台账行没有字段时仍显示 `not_wired`；畸形、新字段带非 allowlist 成员或数值不合法时显示 `unknown`，不当作零花费。脚本动作和尚无技能步的运行不被补造模型账本。
 
 验证：`test_model_usage_totals.py` 的真实 SQLite 台账→Gateway 投影、成本账本单测、前端技能步组件及会话回归；此增量尚未取得新 JVM/真实模型/浏览器活体读数。
+
+费率配置增量：后台可保存 `model_request_rate` / `model_response_rate`，单位为与总预算一致的微单位/百万 token，取值 0–1000000000；留空使用既有默认 2500/10000，0 只表示显式零估算费率，不证明实际免费。对应环境变量为 `MINEKIN_MODEL_REQUEST_MICRO_PER_MILLION_TOKENS` / `MINEKIN_MODEL_RESPONSE_MICRO_PER_MILLION_TOKENS`，进程环境优先于保存值。后续创建的运行账本使用解析后的费率并记录它们；不重算旧运行，不抓取供应商价格。配置文档 minor 升至 1.1，同 major 旧文档仍可加载；旧版本读者不认识新增字段时可能使用默认率，不应让新旧程序并发改写整份配置。
+
+费率验证包括持久配置→环境优先→实际账本 token 计价、非法值保留旧配置、零费率和真实 Chromium 保存/刷新；不等于对账或新真实模型游玩验收。

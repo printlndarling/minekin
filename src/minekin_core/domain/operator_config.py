@@ -59,6 +59,8 @@ from minekin_core.domain.model_access import (
     MODEL_API_KEY_ENV_VARIABLE,
     MODEL_BASE_URL_VARIABLE,
     MODEL_PROVIDER_VARIABLE,
+    MODEL_REQUEST_RATE_VARIABLE,
+    MODEL_RESPONSE_RATE_VARIABLE,
     MODEL_RUN_COST_CAP_VARIABLE,
     MODEL_TIMEOUT_MS_VARIABLE,
     MODEL_VARIABLE,
@@ -69,7 +71,7 @@ from minekin_core.domain.skill_parameters import MAX_QUANTITY, is_item_id
 #: what the reader will not guess across; a minor merely means fields an older reader ignores.
 SCHEMA_NAME: Final = "minekin-operator-config"
 SCHEMA_MAJOR: Final = 1
-SCHEMA_VERSION: Final = f"{SCHEMA_NAME}/{SCHEMA_MAJOR}.0"
+SCHEMA_VERSION: Final = f"{SCHEMA_NAME}/{SCHEMA_MAJOR}.1"
 
 CONFIG_FILE_NAME: Final = "operator-config.json"
 
@@ -116,6 +118,8 @@ class OperatorConfig:
     model_api_key_env: str = ""
     model_timeout_ms: int | None = None
     model_run_cost_cap: int | None = None
+    model_request_rate: int | None = None
+    model_response_rate: int | None = None
     goal_product_id: str = ""
     goal_quantity: int | None = None
     goal_source_item_id: str = ""
@@ -155,6 +159,8 @@ _ENV_NAME: Final[dict[str, str]] = {
     "model_api_key_env": MODEL_API_KEY_ENV_VARIABLE,
     "model_timeout_ms": MODEL_TIMEOUT_MS_VARIABLE,
     "model_run_cost_cap": MODEL_RUN_COST_CAP_VARIABLE,
+    "model_request_rate": MODEL_REQUEST_RATE_VARIABLE,
+    "model_response_rate": MODEL_RESPONSE_RATE_VARIABLE,
     "goal_product_id": GOAL_PRODUCT_VARIABLE,
     "goal_quantity": GOAL_QUANTITY_VARIABLE,
     "goal_source_item_id": GOAL_SOURCE_ITEM_VARIABLE,
@@ -185,6 +191,8 @@ def _raw_fields(config: OperatorConfig) -> list[tuple[str, object]]:
         ("model_api_key_env", config.model_api_key_env),
         ("model_timeout_ms", config.model_timeout_ms),
         ("model_run_cost_cap", config.model_run_cost_cap),
+        ("model_request_rate", config.model_request_rate),
+        ("model_response_rate", config.model_response_rate),
         ("goal_product_id", config.goal_product_id),
         ("goal_quantity", config.goal_quantity),
         ("goal_source_item_id", config.goal_source_item_id),
@@ -248,6 +256,10 @@ def _validated_field(name: str, value: object) -> object:
         return candidate
     if name in {"model_timeout_ms", "model_run_cost_cap", "goal_quantity"}:
         return _checked_positive_int(name, value)
+    if name in {"model_request_rate", "model_response_rate"}:
+        if type(value) is not int or not 0 <= value <= _MAX_INT:
+            raise ConfigRefusal(name, f"must be an integer between 0 and {_MAX_INT}")
+        return value
     raise ConfigRefusal(name, "has no validator, which is a programming mistake")
 
 
@@ -387,6 +399,8 @@ def _from_fields(fields: dict[str, object]) -> OperatorConfig:
         model_api_key_env=text("model_api_key_env"),
         model_timeout_ms=number("model_timeout_ms"),
         model_run_cost_cap=number("model_run_cost_cap"),
+        model_request_rate=number("model_request_rate"),
+        model_response_rate=number("model_response_rate"),
         goal_product_id=text("goal_product_id"),
         goal_quantity=number("goal_quantity"),
         goal_source_item_id=text("goal_source_item_id"),

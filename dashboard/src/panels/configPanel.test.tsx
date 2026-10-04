@@ -147,6 +147,20 @@ describe("配置面板：显示已保存的文档", () => {
 });
 
 describe("配置面板：本机先校验，服务器仍是最终裁判", () => {
+  it("估算费率允许显式零，拒绝负数并说明不是供应商账单", async () => {
+    openConfig("fields_unknown");
+    const rate = await screen.findByTestId("config-input-model_request_rate");
+    await userEvent.type(rate, "-1");
+    expect(screen.getByTestId("config-error-model_request_rate")).toHaveTextContent("≥ 0");
+    expect(screen.getByTestId("config-submit")).toBeDisabled();
+    await userEvent.clear(rate);
+    await userEvent.type(rate, "0");
+    expect(screen.getByTestId("config-submit")).toBeEnabled();
+    expect(rate).toHaveAccessibleDescription(/不是供应商账单/);
+    await userEvent.click(screen.getByTestId("config-submit"));
+    expect(await screen.findByTestId("config-result")).toHaveTextContent("写入 1 个字段");
+  });
+
   it("非法物品 id 在提交前就被挡住：具名报错且保存按钮禁用", async () => {
     openConfig("fields_unknown");
     const goal = await screen.findByTestId("config-input-goal_product_id");

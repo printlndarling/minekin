@@ -57,6 +57,8 @@ MODEL_VARIABLE: Final = "MINEKIN_MODEL"
 MODEL_API_KEY_ENV_VARIABLE: Final = "MINEKIN_MODEL_API_KEY_ENV"
 MODEL_TIMEOUT_MS_VARIABLE: Final = "MINEKIN_MODEL_TIMEOUT_MS"
 MODEL_RUN_COST_CAP_VARIABLE: Final = "MINEKIN_MODEL_RUN_COST_CAP"
+MODEL_REQUEST_RATE_VARIABLE: Final = "MINEKIN_MODEL_REQUEST_MICRO_PER_MILLION_TOKENS"
+MODEL_RESPONSE_RATE_VARIABLE: Final = "MINEKIN_MODEL_RESPONSE_MICRO_PER_MILLION_TOKENS"
 
 type ProviderName = Literal["off", "openai_compatible"]
 
@@ -78,9 +80,8 @@ DEFAULT_MODEL_TIMEOUT_MS: Final = 8_000
 DEFAULT_RUN_COST_CAP_MICRO: Final = 500_000
 
 #: The rates a ledger prices reported tokens with. There is no price source in the
-#: contract and `ModelConfig` has no price fields, so the rate is a stated constant that
-#: travels with every projection, and `CostLedger` takes it as a parameter so an operator
-#: who knows the real rate can say so. Rounding is upwards: a fraction of a micro-unit
+#: contract, so defaults are estimates, not quotes. Operators may state their own rates;
+#: every ledger records the actual rates used. Rounding is upwards: a fraction of a micro-unit
 #: that was spent is not free.
 TOKENS_PER_MILLION: Final = 1_000_000
 DEFAULT_REQUEST_MICRO_PER_MILLION_TOKENS: Final = 2_500
@@ -307,7 +308,7 @@ def _checked_base_url(variable: str, raw: str, operation: str) -> str:
 class ModelConfig:
     """What the operator says about models — and every field is safe to log.
 
-    These six strings and two integers are the entire surface this build holds about a
+    These named settings and numeric budget/rate values are the surface this build holds about a
     model endpoint. No field is a secret and none can become one: `api_key_env` is the
     *name* of the variable holding the key, so `repr()` of a config, of anything embedding
     one, and of any refusal raised while reading one all print the name. The key itself is
@@ -329,6 +330,8 @@ class ModelConfig:
     timeout_ms: int = DEFAULT_MODEL_TIMEOUT_MS
     #: One run's spend limit, in micro-currency; see `DEFAULT_RUN_COST_CAP_MICRO`.
     run_cost_cap: int = DEFAULT_RUN_COST_CAP_MICRO
+    request_micro_per_million_tokens: int = DEFAULT_REQUEST_MICRO_PER_MILLION_TOKENS
+    response_micro_per_million_tokens: int = DEFAULT_RESPONSE_MICRO_PER_MILLION_TOKENS
 
     @property
     def enabled(self) -> bool:
@@ -412,7 +415,29 @@ def model_config(environ: Mapping[str, str] | None = None) -> ModelConfig:
         api_key_env=api_key_env,
         timeout_ms=timeout_ms,
         run_cost_cap=run_cost_cap,
+        request_micro_per_million_tokens=_configured_rate(
+            source, MODEL_REQUEST_RATE_VARIABLE, DEFAULT_REQUEST_MICRO_PER_MILLION_TOKENS
+        ),
+        response_micro_per_million_tokens=_configured_rate(
+            source, MODEL_RESPONSE_RATE_VARIABLE, DEFAULT_RESPONSE_MICRO_PER_MILLION_TOKENS
+        ),
     )
+
+
+def _configured_rate(source: Mapping[str, str], variable: str, default: int) -> int:
+    raw = source.get(variable, "").strip()
+    if not raw:
+        return default
+    try:
+        value = int(raw)
+    except ValueError:
+        value = -1
+    if not 0 <= value <= 1_000_000_000:
+        raise _reject(
+            "resolve",
+            f"{ConfigRefusal.BAD_NUMBER}: {variable} must be an integer between 0 and 1000000000",
+        )
+    return value
 
 
 def key_for(config: ModelConfig, environ: Mapping[str, str] | None = None) -> str | None:
@@ -826,6 +851,10 @@ class CostLedger:
 
 
 def cost_ledger_for(config: ModelConfig) -> CostLedger:
-    """A ledger capped the way this operator configured it, at the stated default rates."""
+    """A ledger using this run's configured cap and operator-supplied estimate rates."""
 
-    return CostLedger(run_cost_cap=config.run_cost_cap)
+    return CostLedger(
+        run_cost_cap=config.run_cost_cap,
+        request_micro_per_million_tokens=config.request_micro_per_million_tokens,
+        response_micro_per_million_tokens=config.response_micro_per_million_tokens,
+    )

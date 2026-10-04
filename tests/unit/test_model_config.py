@@ -37,6 +37,8 @@ from minekin_core.domain.model_access import (
     MODEL_API_KEY_ENV_VARIABLE,
     MODEL_BASE_URL_VARIABLE,
     MODEL_PROVIDER_VARIABLE,
+    MODEL_REQUEST_RATE_VARIABLE,
+    MODEL_RESPONSE_RATE_VARIABLE,
     MODEL_RUN_COST_CAP_VARIABLE,
     MODEL_TIMEOUT_MS_VARIABLE,
     MODEL_VARIABLE,
@@ -66,6 +68,8 @@ CONFIG_VARIABLES = frozenset(
         MODEL_API_KEY_ENV_VARIABLE,
         MODEL_TIMEOUT_MS_VARIABLE,
         MODEL_RUN_COST_CAP_VARIABLE,
+        MODEL_REQUEST_RATE_VARIABLE,
+        MODEL_RESPONSE_RATE_VARIABLE,
     }
 )
 
@@ -425,6 +429,8 @@ def test_no_field_of_a_config_can_hold_a_credential() -> None:
         "api_key_env",
         "timeout_ms",
         "run_cost_cap",
+        "request_micro_per_million_tokens",
+        "response_micro_per_million_tokens",
     }
     assert "api_key_env" in printed
     assert FAKE_KEY_VARIABLE in printed

@@ -54,7 +54,15 @@ SCHEMA: Final = "kin-dashboard-config/1.0.0"
 #: from the dataclass so the payload this layer projects is a deliberate whitelist: a field
 #: `operator_config` adds later cannot ride onto the Dashboard surface until it is named
 #: here, which is the same identity rule `readmodel.py` applies to its own projections.
-_INT_FIELDS: Final = frozenset({"model_timeout_ms", "model_run_cost_cap", "goal_quantity"})
+_INT_FIELDS: Final = frozenset(
+    {
+        "model_timeout_ms",
+        "model_run_cost_cap",
+        "goal_quantity",
+        "model_request_rate",
+        "model_response_rate",
+    }
+)
 _STR_FIELDS: Final = frozenset(
     {
         "model_provider",
