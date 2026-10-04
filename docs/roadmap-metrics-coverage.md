@@ -52,7 +52,7 @@
 | `reflex_success_rate` / `stale_intent_rejected` / `event_to_input_ticks` | [reflex-latency-contract.md](reflex-latency-contract.md)（`event_to_input_ticks` 词面另见 [headless-client-media-contract.md](headless-client-media-contract.md)；`src/` 本遍未见 reflex 实现） | 定义在、实现未接 |
 | `unauthorized_read_count` / `belief_leak_count` | [perception-implementation.md](perception-implementation.md) 把两者写成回放验收**必须分别报告**的项；可见性边界本体由 `domain/perception.py` 与 `tests/unit/test_perception.py` 承载 | 验收定义在；具名计数器未实现（本遍未核到计数字段） |
 | `instruction_boundary_trace` | [instruction-boundary.md](instruction-boundary.md) | 契约在、实现未接（src/tests 本遍未见逐字承载） |
-| `model_cost_and_latency` | 成本侧：mind 文档 `model_calls` / `model_spent_micro` / `model_cap_refusals`（player_mind 组装）+ 端点超时配置 | 有字节（成本）；延迟分布的统计本遍未核到 |
+| `model_cost_and_latency` | 成本侧：mind 文档 `model_calls` / `model_spent_micro` / `model_cap_refusals`（player_mind 组装）+ 端点超时配置；延迟/分布侧：`domain/budget.py` 把回调窗折成百分位（无价格概念），`test_model_cost_ledger.py:65` 以导入图钉住与 `CostLedger` 的分离 | 部分（成本有字节；**模型调用延迟未接入**那份百分位账目） |
 | `bootstrap_action_trace` | run 文档 `steps[]`（`result`/`reason`/`attribution`/`decision_source`）与历史活体 CONFIRMED 读数 | 有字节（部分；"中断后恢复"维本遍未核） |
 | `repeat_failure_rate` / `skill_invocation_trace` | `record_result` 的归因/额度/`excluded_skills`/`last_precondition` 机制与其单测；"自主提炼组合技能"未见实现 | 部分（调用/回退/修订侧有字节；提炼未接） |
 | `memory_retrieval_trace` | `adapters/sqlite/skill_history.py`（`read_skill_experiences`）→ `session_history.py` 组装进模型上下文；后台经历面板（2026-10-04 真网关读数）；[memory-retrieval-consolidation-contract.md](memory-retrieval-consolidation-contract.md) | 部分（技能经历/重启检索有字节；人物/地点/陈旧度维未接） |
@@ -72,6 +72,15 @@
 | `bootstrap_action_trace` | `tests/unit/test_autonomous_play.py::test_step_document_keeps_the_execution_readings_needed_to_diagnose_unknowns`、`::test_a_run_reads_which_crafts_the_world_confirmed_and_grows_coverage_from_them` |
 
 其余"部分/未核到"维度（延迟分布、具名计数器、中断恢复、生成器复现矩阵等）留下一批。
+
+### 深核第二批（2026-10-04，基线 `f15227f`）
+
+| 指标 | 落到字节的测试/机制名（行号随基线） |
+| --- | --- |
+| `bootstrap_action_trace`（"中断后的恢复"维） | `tests/unit/test_world_skills.py`：`COLLECT_MAX_STALLED_CORRECTIONS` 具名纠偏（第 640、799–800 行）、`CLOSE_SCREEN_MAX_ESCAPES` 有界逃逸（1515–1516）、`PLAYER_DEAD` 中断与松键（2501–2637） |
+| `unauthorized_read_count` / `belief_leak_count`（近邻字节） | `tests/unit/test_perception.py::test_an_entity_behind_a_wall_is_dropped_and_counted`（149）、`::test_occlusion_misses_and_distance_misses_are_reported_separately`（218）、`::test_the_admission_document_is_evidence_ready`（296）——分类计数与证据文档已实现；**两枚具名字段仍未核到** |
+| `model_cost_and_latency`（延迟侧） | 见上表更新：百分位机制在 `domain/budget.py`，模型调用延迟未接入；分离由 `test_model_cost_ledger.py:65` 的导入图测试钉住 |
+| `persona_creation_trace` / `persona_behavior_trace`（生成与上下文侧） | `tests/unit/test_persona.py`、`test_persona_decision_context.py`；后台读取存量人格：`test_gateway_saved_persona.py` |
 
 ## 下一步（F 阶段整卡）
 
