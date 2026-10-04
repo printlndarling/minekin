@@ -87,6 +87,9 @@ class ObservationSource(Protocol):
     @property
     def latest(self) -> WorldObservationValue | None: ...
 
+    @property
+    def death_count(self) -> int: ...
+
 
 @dataclass(frozen=True, slots=True)
 class AutonomousAsk:
@@ -238,6 +241,7 @@ async def run_autonomous_loop(
     asked_on = ""
     for _ in range(step_budget):
         reading = observations.latest
+        death_count = observations.death_count
         current_ref = "" if reading is None else observation_ref(reading)
         if steps and current_ref == asked_on:
             stop_reason = NO_FRESH_OBSERVATION
@@ -263,6 +267,8 @@ async def run_autonomous_loop(
                 after=latest,
                 authority=authority,
             )
+            if observations.death_count != death_count:
+                invalidation = PLAYER_DEAD
             if invalidation:
                 # A remote decision can outlive the screen or bag it was asked about.
                 # Recheck the current offer without rejecting mere advancing ticks.
@@ -306,7 +312,11 @@ async def run_autonomous_loop(
             stop_reason = CLIENT_EXITED
             stop_detail = outcome.details.get("exit_code", "")
             break
-        if outcome.reason == PLAYER_DEAD or (current is not None and not current.self_state.alive):
+        if (
+            outcome.reason == PLAYER_DEAD
+            or observations.death_count != death_count
+            or (current is not None and not current.self_state.alive)
+        ):
             stop_reason = PLAYER_DEAD
             break
         if current is None:

@@ -446,7 +446,10 @@ async def perform_skill(
         # name one when there was.
         return _client_exited_outcome(gone, "")
     try:
-        return await _dispatch(skills, call, authority=authority, timeout_ns=timeout_ns)
+        async with skills.body_attempt():
+            outcome = await _dispatch(skills, call, authority=authority, timeout_ns=timeout_ns)
+            skills.check_body_interruption(outcome.action_id)
+            return outcome
     except ClientProcessExited as exit_error:
         # The wait gave up because the process that would have answered it is gone.
         # `UNKNOWN` rather than `FAILED`: the command went out and the world may have

@@ -30,6 +30,7 @@ import asyncio
 import math
 from collections.abc import AsyncGenerator, Awaitable, Callable, Mapping
 from contextlib import asynccontextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import Final, Protocol
 
@@ -610,6 +611,23 @@ class WorldSkills:
         self._capabilities = capabilities
         self._action_id = action_id
         self._client_exit = client_exit
+        self._body_start: ContextVar[int | None] = ContextVar("body_start", default=None)
+
+    @asynccontextmanager
+    async def body_attempt(self) -> AsyncGenerator[None]:
+        """Scope an execution to the life observed at its start, including nested skills."""
+        token = self._body_start.set(self._observations.death_count)
+        try:
+            yield
+        finally:
+            self._body_start.reset(token)
+
+    def check_body_interruption(self, action_id: str) -> None:
+        started = self._body_start.get()
+        if started is not None and self._observations.death_count != started:
+            tick = self._observations.last_death_tick
+            assert tick is not None
+            raise PlayerDied(action_id=action_id, game_tick=tick)
 
     def client_exit_code(self) -> int | None:
         """What the launcher's supervisor says about the client process, right now.
@@ -1771,17 +1789,20 @@ class WorldSkills:
         gone = self._client_exit()
         if gone is not None:
             raise ClientProcessExited(gone, action_id=action_id)
+
+        def observed(candidate: WorldObservationValue) -> bool:
+            self.check_body_interruption(action_id)
+            return not candidate.self_state.alive or predicate(candidate)
+
         post = await self._outlive_client(
-            self._observations.wait_until(
-                lambda candidate: not candidate.self_state.alive or predicate(candidate),
-                timeout_s=remaining_ns / 1_000_000_000,
-            ),
+            self._observations.wait_until(observed, timeout_s=remaining_ns / 1_000_000_000),
             action_id=action_id,
         )
         self._check_alive(action_id)
         return post
 
     def _check_alive(self, action_id: str) -> None:
+        self.check_body_interruption(action_id)
         latest = self._observations.latest
         if latest is not None and not latest.self_state.alive:
             raise PlayerDied(action_id=action_id, game_tick=latest.game_tick)
@@ -1824,6 +1845,7 @@ class WorldSkills:
                 finished, _ = await asyncio.wait({pending}, timeout=CLIENT_EXIT_POLL_S)
                 if finished:
                     return pending.result()
+                self._check_alive(action_id)
                 gone = self._client_exit()
                 if gone is not None:
                     raise ClientProcessExited(gone, action_id=action_id)

@@ -338,3 +338,22 @@ def test_wait_until_answers_a_predicate_the_current_reading_already_holds() -> N
         assert none is None
 
     asyncio.run(scenario())
+
+
+def test_admitted_death_survives_a_newer_live_frame_without_counting_rejected_frames() -> None:
+    store = WorldObservationStore(expected_generation=1)
+    live = reading(100)
+    dead = replace(reading(101), self_state=replace(HEALTHY, health=0.0, alive=False))
+    assert admit(store, live)
+    assert admit(store, dead)
+    assert admit(store, replace(dead, game_tick=102))
+    assert admit(store, reading(103))
+    assert store.death_count == 1
+    assert store.last_death_tick == 101
+    assert not admit(store, dead)
+    assert not admit(store, replace(dead, generation=2, game_tick=104))
+    assert not store.admit(replace(dead, game_tick=104), (IntegrityViolation.YAW_OUT_OF_RANGE,))
+    assert store.death_count == 1
+    assert admit(store, replace(dead, game_tick=105))
+    assert store.death_count == 2
+    assert store.last_death_tick == 105

@@ -2639,3 +2639,101 @@ def test_failed_stop_send_cannot_replace_observed_death() -> None:
         assert len(sender.sent) == 2
 
     asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("prior_death", [False, True])
+def test_consumption_uses_deaths_since_its_start_even_when_latest_is_live(
+    prior_death: bool,
+) -> None:
+    async def scenario() -> None:
+        first = reading(
+            state_value=_hungry_state(selected_slot=0, main_hand="minecraft:apple"),
+            aim=miss_aim(100),
+            inventory_value=inventory(100, (0, "minecraft:apple", 2)),
+        )
+        dead = reading(tick=110, state_value=replace(state(), health=0.0, alive=False))
+        revived = replace(first, game_tick=120)
+        store = store_with(first)
+        if prior_death:
+            assert store.admit(dead, ())
+            assert store.admit(revived, ())
+        skills, sender = skill_with(store)
+        eaten = reading(
+            tick=140,
+            state_value=replace(first.self_state, food=20),
+            aim=miss_aim(140),
+            inventory_value=inventory(140, (0, "minecraft:apple", 1)),
+        )
+
+        def answer(message_type: str) -> None:
+            if (
+                message_type == USE_INPUT_TYPE
+                and cast(control_pb2.UseInput, sender.sent[-1][1]).use
+            ):
+                if not prior_death:
+                    assert store.admit(dead, ())
+                assert store.admit(eaten, ())
+
+        sender.on_send = answer
+        outcome = await perform_skill(
+            skills,
+            SkillCall(name="consume_item", item_id="minecraft:apple"),
+            authority=authority(),
+            timeout_ns=1_000_000_000,
+        )
+        assert outcome.result is (
+            ActionResultClass.CONFIRMED if prior_death else ActionResultClass.INTERRUPTED
+        )
+        if not prior_death:
+            assert outcome.reason == "PLAYER_DEAD"
+            assert outcome.post_tick == 110
+        assert [
+            cast(control_pb2.UseInput, m).use for t, m in sender.sent if t == USE_INPUT_TYPE
+        ] == [True, False]
+
+    asyncio.run(scenario())
+
+
+def test_transient_death_wakes_an_in_progress_held_wait_before_its_deadline() -> None:
+    async def scenario() -> None:
+        first = reading(
+            state_value=_hungry_state(selected_slot=0, main_hand="minecraft:apple"),
+            aim=miss_aim(100),
+            inventory_value=inventory(100, (0, "minecraft:apple", 2)),
+        )
+        store = store_with(first)
+        skills, sender = skill_with(store)
+        loop = asyncio.get_running_loop()
+
+        def transition() -> None:
+            assert store.admit(
+                reading(tick=110, state_value=replace(state(), health=0, alive=False)), ()
+            )
+            # A newer live reading with no food gain leaves the ordinary wait
+            # predicate false; the retained death must wake and interrupt it.
+            assert store.admit(replace(first, game_tick=120), ())
+
+        def answer(message_type: str) -> None:
+            if (
+                message_type == USE_INPUT_TYPE
+                and cast(control_pb2.UseInput, sender.sent[-1][1]).use
+            ):
+                loop.call_soon(transition)
+
+        sender.on_send = answer
+        outcome = await asyncio.wait_for(
+            perform_skill(
+                skills,
+                SkillCall(name="consume_item", item_id="minecraft:apple"),
+                authority=authority(),
+                timeout_ns=2_000_000_000,
+            ),
+            timeout=0.5,
+        )
+        assert outcome.reason == "PLAYER_DEAD"
+        assert outcome.post_tick == 110
+        assert [
+            cast(control_pb2.UseInput, m).use for t, m in sender.sent if t == USE_INPUT_TYPE
+        ] == [True, False]
+
+    asyncio.run(scenario())

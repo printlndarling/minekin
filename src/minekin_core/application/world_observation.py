@@ -52,6 +52,8 @@ class WorldObservationStore:
     _latest: WorldObservationValue | None = field(default=None, init=False)
     _refusals: tuple[ObservationRefusal, ...] = field(default=(), init=False)
     _accepted: int = field(default=0, init=False)
+    _death_count: int = field(default=0, init=False)
+    _last_death_tick: int | None = field(default=None, init=False)
     _stale_ticks: int = field(default=0, init=False)
     _newest_stale_tick: int | None = field(default=None, init=False)
     _wake: asyncio.Event = field(default_factory=asyncio.Event, init=False)
@@ -59,6 +61,15 @@ class WorldObservationStore:
     @property
     def latest(self) -> WorldObservationValue | None:
         return self._latest
+
+    @property
+    def death_count(self) -> int:
+        """Admitted live-to-dead transitions, retained across newer live frames."""
+        return self._death_count
+
+    @property
+    def last_death_tick(self) -> int | None:
+        return self._last_death_tick
 
     @property
     def accepted_count(self) -> int:
@@ -143,6 +154,9 @@ class WorldObservationStore:
             if self._newest_stale_tick is None or value.game_tick > self._newest_stale_tick:
                 self._newest_stale_tick = value.game_tick
             return False
+        if not value.self_state.alive and (self._latest is None or self._latest.self_state.alive):
+            self._death_count += 1
+            self._last_death_tick = value.game_tick
         self._latest = value
         self._accepted += 1
         self._wake.set()

@@ -145,6 +145,7 @@ class Stage:
     def __init__(self, *readings: WorldObservationValue | None) -> None:
         self.current: WorldObservationValue | None = readings[0] if readings else None
         self.follow_ups = list(readings[1:])
+        self.death_count = 0
 
     @property
     def latest(self) -> WorldObservationValue | None:
@@ -1074,3 +1075,43 @@ def test_death_observed_while_recording_a_step_wins_over_goal_completion() -> No
     assert result.steps[0].outcome.result is ActionResultClass.CONFIRMED
     assert result.stop_reason == "PLAYER_DEAD"
     assert mind.goal_met is False
+
+
+def test_death_then_live_during_model_call_cannot_reuse_the_old_decision() -> None:
+    async def scenario() -> None:
+        first = reading()
+        dead = replace(
+            reading(tick=120), self_state=replace(first.self_state, health=0, alive=False)
+        )
+        revived = reading(tick=140)
+        store = WorldObservationStore(expected_generation=1)
+        assert store.admit(first, ())
+        skills = TapeSkills(Stage(first), {"turn_to": confirmed()})
+
+        class RevivingProvider:
+            def decide(self, request: object) -> Decision:
+                del request
+                assert store.admit(dead, ())
+                assert store.admit(revived, ())
+                return Decision(
+                    skill_id="turn_to",
+                    reason="inspect",
+                    intent_generation=1,
+                    arguments={"yaw_degrees": 0.0, "pitch_degrees": 30.0},
+                )
+
+        mind = mind_for(RevivingProvider(), CostLedger(run_cost_cap=CAP))
+        result = await run_autonomous_loop(
+            mind=mind,
+            skills=skills,
+            observations=store,
+            authority=AUTHORITY,
+            step_budget=1,
+            timeout_ns=1_000_000_000,
+        )
+        assert skills.ran == []
+        assert result.stop_reason == "PLAYER_DEAD"
+        assert result.steps[0].outcome.details["invalidated_by"] == "PLAYER_DEAD"
+        assert mind.attempts == {}
+
+    asyncio.run(scenario())
