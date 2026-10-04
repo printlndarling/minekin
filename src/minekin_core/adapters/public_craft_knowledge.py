@@ -47,6 +47,29 @@ class _PublicOwedPlan:
     raw_shortfall: Mapping[str, int]
 
 
+@dataclass(slots=True)
+class _PlanningStock:
+    """Private simulated reservations; never promoted to an observed inventory."""
+
+    pool: Counter[str]
+    order: list[str]
+    owed: Counter[str]
+    chosen: dict[str, PublicRecipe]
+    raw: Counter[str]
+
+    def copy(self) -> _PlanningStock:
+        return _PlanningStock(
+            self.pool.copy(),
+            self.order.copy(),
+            self.owed.copy(),
+            self.chosen.copy(),
+            self.raw.copy(),
+        )
+
+    def cost(self) -> tuple[int, int, int]:
+        return sum(self.raw.values()), len(self.order), sum(self.owed.values())
+
+
 @dataclass(frozen=True, slots=True)
 class PublicCraftKnowledge:
     knowledge: RecipeKnowledge
@@ -120,38 +143,25 @@ class PublicCraftKnowledge:
 
         Shared by `step_toward` (which selects the nearest runnable step) and
         `enabler_to_stand_up` (which reads the widest owed shape), so both answer from one
-        arithmetic. The walk is the archive's own graph in demand order: every craftable
-        ingredient an earlier step, counts multiplied out of each recipe's `result.count`, and
-        the reading's counts paying cells first across a tag's alternatives — only what the bag
-        cannot cover is demanded from whichever alternative the archive can craft. Cells whose
-        tag the archive does not know are never planned around. A recipe graph that eats itself
-        refuses with `CRAFT_RECIPE_UNAVAILABLE`.
+        arithmetic. Inventory is reserved before expanding unmet demand. Alternative branches
+        are tried on isolated simulated stock, preferring fewer missing raw inputs. This is a
+        bounded heuristic, not a globally optimal search. Surplus pays later cells, without
+        becoming a live inventory fact. Unknown tags and unfunded cyclic branches refuse;
+        one cyclic variant does not invalidate a different usable variant.
         """
 
         rows_by_product: dict[str, list[PublicRecipe]] = {}
         for row in self.knowledge.recipes:
             rows_by_product.setdefault(row.product_id, []).append(row)
-        if product_id not in rows_by_product:
+        if (
+            product_id not in rows_by_product
+            or type(quantity) is not int
+            or not 0 < quantity <= 4096
+        ):
             return CRAFT_RECIPE_UNAVAILABLE
         book: frozenset[str] = (
             frozenset() if reading.gui is None else reading.gui.craftable_recipe_ids
         )
-
-        def variant(product: str) -> PublicRecipe | None:
-            """One deterministic recipe per product: a book-named, fitting, smaller row wins."""
-
-            rows = rows_by_product.get(product)
-            if not rows:
-                return None
-            fitting = [row for row in rows if max(row.width, row.height) <= grid_side] or rows
-            return min(
-                fitting,
-                key=lambda row: (
-                    row.recipe_id not in book,
-                    max(row.width, row.height),
-                    row.recipe_id,
-                ),
-            )
 
         def cell_items(cell: tuple[IngredientOption, ...]) -> tuple[str, ...]:
             items: set[str] = set()
@@ -162,83 +172,113 @@ class PublicCraftKnowledge:
                     items.update(self.knowledge.item_tags.get(option.identifier, ()))
             return tuple(sorted(items))
 
-        order: list[str] = []
-        chosen: dict[str, PublicRecipe] = {}
-        visited: set[str] = set()
+        remaining = 20_000
 
-        def visit(product: str, path: frozenset[str]) -> str | None:
-            """Depth-first over craftable ingredients only: a step is never listed before what
-            it eats, and a recipe that eats itself refuses by name."""
-
-            if product in path:
-                return CRAFT_RECIPE_UNAVAILABLE
-            if product in visited:
+        def demand(
+            product: str, count: int, stock: _PlanningStock, path: frozenset[str]
+        ) -> _PlanningStock | None:
+            nonlocal remaining
+            remaining -= 1
+            if remaining < 0 or len(path) >= 32:
                 return None
-            row = variant(product)
-            if row is None:
-                return None  # gathered rather than crafted: the plan ends where the archive does
-            for cell in row.slots:
-                for item in cell_items(cell):
-                    if item not in rows_by_product:
-                        continue
-                    failure = visit(item, path | {product})
-                    if failure is not None:
-                        return failure
-            visited.add(product)
-            chosen[product] = row
-            order.append(product)
-            return None
-
-        failure = visit(product_id, frozenset())
-        if failure is not None:
-            return failure
-
-        pool = Counter(_inventory_counts(reading))
-        gross: dict[str, int] = {product_id: quantity}
-        owed: dict[str, int] = {}
-        for product in reversed(order):
-            row = chosen[product]
-            still = max(0, gross.get(product, 0) - pool.get(product, 0))
-            owed[product] = still
-            if still == 0:
-                continue
-            batches = -(-still // row.count)
-            for cell in row.slots:
-                if not cell:
+            stock = stock.copy()
+            used = min(count, stock.pool[product])
+            stock.pool[product] -= used
+            if product in stock.chosen:
+                stock.owed[product] += used
+            missing = count - used
+            if not missing:
+                return stock  # observed/reserved stock pays before any cycle expansion
+            if product in path:
+                return None
+            rows = rows_by_product.get(product)
+            if not rows:
+                stock.raw[product] += missing
+                return stock
+            best: _PlanningStock | None = None
+            for row in sorted(
+                rows,
+                key=lambda row: (
+                    self.knowledge.materials_for(row.recipe_id, stock.pool) is None,
+                    row.recipe_id not in book,
+                    max(row.width, row.height) > grid_side,
+                    max(row.width, row.height),
+                    row.recipe_id,
+                ),
+            ):
+                # A product is represented by one variant in the public chain.
+                if product in stock.chosen and stock.chosen[product] != row:
                     continue
-                candidates = cell_items(cell)
-                if not candidates:
-                    continue  # unknown tag: payability refuses this step, never a guess
-                taken = 0
-                for item in sorted(candidates, key=lambda item: (-pool.get(item, 0), item)):
-                    if taken >= batches:
+                candidate = stock.copy()
+                batches = -(-missing // row.count)
+                payable = self.knowledge.materials_for(row.recipe_id, stock.pool)
+                if payable is not None and batches == 1:
+                    # Use the capacity matcher for a fully funded batch; a greedy
+                    # OR-cell reservation could steal a later cell's only option.
+                    for item in payable:
+                        if item is not None:
+                            candidate.pool[item] -= 1
+                            if item in candidate.chosen:
+                                candidate.owed[item] += 1
+                    if product not in candidate.chosen:
+                        candidate.order.append(product)
+                    candidate.chosen[product] = row
+                    candidate.owed[product] += missing
+                    candidate.pool[product] += row.count - missing
+                    return candidate
+                viable = True
+                for cell in row.slots:
+                    if not cell:
+                        continue
+                    items = cell_items(cell)
+                    # Share observed stock across alternatives and across cells.
+                    need = batches
+                    for item in sorted(items, key=lambda item: (-candidate.pool[item], item)):
+                        take = min(need, candidate.pool[item])
+                        candidate.pool[item] -= take
+                        if item in candidate.chosen:
+                            candidate.owed[item] += take
+                        need -= take
+                    if not need:
+                        continue
+                    child_best: _PlanningStock | None = None
+                    for item in items:
+                        child = demand(item, need, candidate, path | {product})
+                        if child is not None and (
+                            child_best is None or child.cost() < child_best.cost()
+                        ):
+                            child_best = child
+                    if child_best is None:
+                        viable = False
                         break
-                    used = min(batches - taken, pool.get(item, 0))
-                    if used:
-                        pool[item] -= used
-                        taken += used
-                missing = batches - taken
-                if missing:
-                    demand = next(
-                        (item for item in candidates if item in rows_by_product),
-                        candidates[0],
-                    )
-                    gross[demand] = gross.get(demand, 0) + missing
-        shortfall: dict[str, int] = {}
-        for item_id, demanded in gross.items():
-            if item_id in rows_by_product:
-                continue  # a craft, not a gather: its own node already answered for it
-            missing = demanded - pool.get(item_id, 0)
-            if missing > 0:
-                shortfall[item_id] = missing
+                    candidate = child_best
+                if not viable:
+                    continue
+                if product not in candidate.chosen:
+                    candidate.order.append(product)
+                candidate.chosen[product] = row
+                candidate.owed[product] += missing
+                candidate.pool[product] += batches * row.count - missing
+                if best is None or candidate.cost() < best.cost():
+                    best = candidate
+            return best
+
+        planned = demand(
+            product_id,
+            quantity,
+            _PlanningStock(_inventory_counts(reading), [], Counter(), {}, Counter()),
+            frozenset(),
+        )
+        if planned is None or remaining < 0:
+            return CRAFT_RECIPE_UNAVAILABLE
         return _PublicOwedPlan(
-            order=tuple(order),
-            owed=MappingProxyType(dict(owed)),
-            chosen=MappingProxyType(dict(chosen)),
+            order=tuple(planned.order),
+            owed=MappingProxyType(dict(planned.owed)),
+            chosen=MappingProxyType(dict(planned.chosen)),
             rows_by_product=MappingProxyType(
                 {product: tuple(rows) for product, rows in rows_by_product.items()}
             ),
-            raw_shortfall=MappingProxyType(shortfall),
+            raw_shortfall=MappingProxyType(dict(planned.raw)),
         )
 
     def step_toward(
