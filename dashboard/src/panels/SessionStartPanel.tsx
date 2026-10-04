@@ -4,6 +4,7 @@ import type { KinReadAdapter } from "../domain/adapter";
 import type { SessionStartRequest } from "../domain/model";
 import { Panel } from "../components/Panel";
 import { useServerRead } from "./ServerPanel";
+import { SessionJobProgress } from "./SessionJobProgress";
 import styles from "./config.module.css";
 
 export function SessionStartPanel({ adapter }: { readonly adapter: KinReadAdapter }) {
@@ -43,6 +44,6 @@ export function SessionStartPanel({ adapter }: { readonly adapter: KinReadAdapte
     {start.data ? <p role="status" data-testid="session-start-result">{start.data.ok ? "启动请求已接受，等待实际入服读数。" : `启动失败：${start.data.failure.message}`}</p> : null}
     {start.isError ? <p role="alert">启动请求未完成，请检查 Gateway 连接。</p> : null}
     {query.data && !query.data.ok ? <p role="alert">启动状态读取失败：{query.data.failure.message}</p> : null}
-    {job ? <p role="status" data-testid="session-job-status">任务 {job.phase} · {job.fields.host}:{job.fields.port} · 准备 {job.installed}/{job.total} · {job.reason || job.outcome || "等待结果"}{job.clientExitCode !== null && job.clientExitCode !== undefined ? ` · 客户端退出码 ${job.clientExitCode}` : ""}{job.inputReleaseFailed === true ? " · 按键释放未确认" : job.outcome === "BRIDGE_LOST" ? " · 连接已丢失，Bridge 释放确认不可用" : ""}。入服状态见上方世界与会话读数；结束任务不会自动重连。</p> : <p>尚无后台启动记录。</p>}
+    {job ? <SessionJobProgress job={job} /> : <p>尚无后台启动记录。</p>}
   </Panel>;
 }

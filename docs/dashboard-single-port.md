@@ -29,3 +29,5 @@ pnpm --dir dashboard exec playwright test --config playwright.single-port.config
 该独立套件自己启动 loopback Gateway 和临时 SQLite 身份，不启动 Vite、不替换 fetch，也不接入用户数据根。Chromium 验证根页面转向真实 API、目标保存与刷新读回、停机显式改名与 SQLite revision、跨源写拒绝和私有文件拒绝；不点击启动/探测/模型测试。需要已安装 Playwright Chromium；端口占用时设置 `E2E_SINGLE_PORT`，不会复用未知服务。
 
 验收夹具独有的带随机令牌退出请求会先关闭数据库再清理它自己创建的临时根；该测试控制路由不存在于产品 Gateway。异常硬杀仍可能留下系统临时目录，不能自动扫描删除其他会话数据。2026-10-04 本机 Chromium 两用例通过（真实界面和真实本地 API，未包含游戏/JVM/模型供应商）。
+
+启动任务卡分别显示准备、监督、收尾、失败与监督中断。准备进度按处理文件条数计（含缓存核对），不是下载字节或入服百分比；准备返回后的新取得/缓存复用计数也不证明游戏可操作。准备中取消或失败时，不把中间计数当作完整缓存清单；输入释放沿用独立读数，不从任务结束推断。新增窄屏 Chromium 用例仅替换任务查询以覆盖准备→监督两种界面状态，另外两用例仍走真实 Gateway/SQLite；三用例均不是游戏或真实下载验收。
