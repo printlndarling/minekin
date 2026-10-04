@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import re
 import sqlite3
+from collections import Counter
 from datetime import datetime
 from pathlib import Path
 from typing import cast
@@ -16,6 +17,9 @@ from minekin_core.domain.errors import MinekinError
 from minekin_core.domain.world_actions import ActionResultClass, skill_capabilities
 
 MAX_EXPERIENCES = 8
+MAX_SCAN = 64
+MAX_PATTERNS = 8
+CONTEXT_BUDGET_BYTES = 16_384
 
 
 def read_skill_experiences(
@@ -25,16 +29,24 @@ def read_skill_experiences(
 
     A past CONFIRMED outcome is not evidence of today's inventory, terrain or
     permissions. No coordinates, arguments, goals or free-form model/chat text
-    enter this packet. An invalid row invalidates the window rather than silently
+    enter this packet. An invalid row invalidates the scanned window rather than silently
     selecting an older success. The original ledger is never repaired or rewritten.
     """
     packet: dict[str, object] = {
-        "retriever_version": "skill-experiences-v1",
+        "retriever_version": "skill-experiences-v2",
         "status": "not_retrieved",
         "freshness": "historical",
         "current_world_applicability": "unknown",
         "world_facts": "not_retrieved",
+        "game_version_applicability": "unknown",
+        "context_budget_bytes": CONTEXT_BUDGET_BYTES,
+        "scan_limit": MAX_SCAN,
+        "scanned_records": 0,
+        "older_records_not_scanned": False,
+        "records_omitted_within_scan": 0,
+        "patterns_omitted_within_scan": 0,
         "records": [],
+        "patterns": [],
     }
     if not database.is_file():
         packet["status"] = "ledger_missing"
@@ -47,7 +59,7 @@ def read_skill_experiences(
                 "substr(payload_json,1,4097) AS payload_json,payload_hash "
                 "FROM event WHERE kin_id=? AND run_id<>? AND event_type=? "
                 "AND source='CORE' AND trust_class='CORE' ORDER BY position DESC LIMIT ?",
-                (kin_id, exclude_run_id, SKILL_STEP_RECORDED, MAX_EXPERIENCES),
+                (kin_id, exclude_run_id, SKILL_STEP_RECORDED, MAX_SCAN + 1),
             ).fetchall()
         finally:
             connection.close()
@@ -55,8 +67,9 @@ def read_skill_experiences(
         packet["status"] = "ledger_unavailable"
         return packet
     records: list[dict[str, object]] = []
+    packet["older_records_not_scanned"] = len(rows) > MAX_SCAN
     try:
-        for row in rows:
+        for row in rows[:MAX_SCAN]:
             if len(row["payload_json"]) > 4096:
                 raise ValueError("experience payload exceeds budget")
             raw: object = json.loads(row["payload_json"])
@@ -106,7 +119,46 @@ def read_skill_experiences(
     except (ValueError, TypeError, UnicodeError):
         packet["status"] = "invalid_record"
         return packet
-    packet["records"] = records
+    # Summaries are deterministic projections of validated events, not model
+    # stories or lifetime success rates. Keep contradictory result classes and
+    # their latest references rather than laundering UNKNOWN into success.
+    by_skill: dict[str, list[dict[str, object]]] = {}
+    for record in records:
+        by_skill.setdefault(str(record["skill"]), []).append(record)
+    patterns: list[dict[str, object]] = []
+    for skill, attempts in list(by_skill.items())[:MAX_PATTERNS]:
+        latest: dict[str, object] = {}
+        for attempt in attempts:
+            latest.setdefault(str(attempt["result"]), attempt["event_id"])
+        patterns.append(
+            {
+                "skill": skill,
+                "source": "CORE",
+                "trust_class": "CORE",
+                "freshness": "historical",
+                "current_world_applicability": "unknown",
+                "result_counts": dict(Counter(str(attempt["result"]) for attempt in attempts)),
+                "reason_counts": dict(
+                    Counter(str(attempt["reason"]) for attempt in attempts if attempt["reason"])
+                ),
+                "latest_by_result": latest,
+            }
+        )
+    visible = records[:MAX_EXPERIENCES]
+    packet["records"] = visible
+    packet["patterns"] = patterns
+    packet["scanned_records"] = len(records)
+    packet["records_omitted_within_scan"] = len(records) - len(visible)
+    packet["patterns_omitted_within_scan"] = len(by_skill) - len(patterns)
     if records:
         packet["status"] = "found"
+    # Bound the actual UTF-8 model context, including references and metadata.
+    # Omission is explicit; the original ledger remains untouched and retrievable.
+    while len(json.dumps(packet, ensure_ascii=False).encode("utf-8")) > CONTEXT_BUDGET_BYTES:
+        if patterns:
+            patterns.pop()
+            packet["patterns_omitted_within_scan"] = len(by_skill) - len(patterns)
+        else:
+            visible.pop()
+            packet["records_omitted_within_scan"] = len(records) - len(visible)
     return packet
