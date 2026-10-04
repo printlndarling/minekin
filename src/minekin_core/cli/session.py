@@ -158,6 +158,7 @@ from minekin_core.domain.input_control import (
 )
 from minekin_core.domain.lease_watchdog import LeaseWatchdog
 from minekin_core.domain.model_access import cost_ledger_for, model_config
+from minekin_core.domain.model_usage import ModelUsageTotals
 from minekin_core.domain.perception import WorldObservationValue
 from minekin_core.domain.recovery import START_CLIENT
 from minekin_core.domain.session_material import RecordedSessionMaterial
@@ -1765,6 +1766,7 @@ async def start_and_supervise(
                     "decision_source": step.intent.source,
                     "model_refusal": step.intent.model_refusal,
                     "goal": mind.direction,
+                    "model_usage": ModelUsageTotals.capture(mind.ledger).as_document(),
                 }
             )
 

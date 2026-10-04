@@ -1,5 +1,7 @@
 # 只读 Gateway / Dashboard 契约冻结记录（`DASHBOARD-GATEWAY-READONLY-CONTRACT-001`）
 
+2026-10-04 增量：[模型调用与预算读数](model-usage-readout.md) 接通新技能步自己的 `modelCost`；下文“恒为 not_wired”是旧行/旧实现记录，不再描述所有新行。快照字段形状与路由不变，旧记录仍保持具名缺口。
+
 日期：2026-09-28（M 主控，第七十九轮）。base：主干 `5c73f6ac46e281f78e7e26e081decd65cf91e64f`（工作树干净，`git status --porcelain` 0 行）。
 授权来源：[本地 LAN 控制队列](v1201-lan-control-next-2026-09-27.md) §3 —— 「若某条线卡住，仍可推进的独立工作」的第一类：只读接口/身份与脱敏设计，**不接线上真实写接口**。
 

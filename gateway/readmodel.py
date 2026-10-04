@@ -56,6 +56,7 @@ from minekin_core.cli.evidence import locate_bundle
 from minekin_core.cli.session import database_for, select_kin
 from minekin_core.cli.status import ClientSummary, StatusReport, read_status
 from minekin_core.domain.errors import MinekinError
+from minekin_core.domain.model_usage import ModelUsageTotals
 
 SCHEMA_VERSION: Final = "kin-dashboard-readmodel/1.0.0"
 
@@ -903,13 +904,20 @@ def _skill_steps_group(
     else:
         count_field = present(len(same_run))
 
-    # Cost and config have no ledger carrier and this projection keeps not parsing the run
-    # document for them, so they stay the named gaps the contract's fixtures mirror verbatim
+    # Legacy cost rows and config have no ledger carrier. Their fallback gaps remain
+    # the named gaps the contract's fixtures mirror verbatim
     # — a drift between `readmodel.py` and `mockFixtures.ts` is exactly what that wording is
     # there to prevent. The behaviour parameters are the one mind-segment reading this group
     # adds: a new member with no mirror to keep in step, resolved only when this run's
     # bundle is sealed and verified and holds a run document. An unsealed run keeps it a gap.
     cost_field = missing("not_wired", _SKILL_MODEL_COST)
+    if "model_usage" in payload:
+        usage = ModelUsageTotals.from_payload(payload["model_usage"])
+        cost_field = (
+            present(usage.summary())
+            if usage is not None
+            else missing("unknown", "该技能步的模型预算读数不合法, 未补造零花费。")
+        )
     config_field = missing("not_wired", _SKILL_MODEL_CONFIG)
     parameters_field = missing("not_wired", _SKILL_BEHAVIOR_PARAMETERS)
     persona_field = missing(
@@ -945,8 +953,8 @@ def _skill_steps_group(
         "decisionSource": decision_field,
         "modelRefusal": refusal_field,
         "stepCount": count_field,
-        # Cost and config stay gaps of the contract's making; parameters resolve off a
-        # sealed run document and are otherwise the same named gap.
+        # Cost is this row's allowlisted step-time accounting when recorded;
+        # config remains a gap. Parameters require a verified sealed document.
         "modelCost": cost_field,
         "modelConfig": config_field,
         "behaviorParameters": parameters_field,

@@ -57,6 +57,18 @@ describe("技能步面板：known 组逐成员、缺组具名、绝不折叠成 
     expect(screen.getByTestId("panel-skill-steps")).toHaveTextContent("不证明模型采纳或人格生效");
   });
 
+  it("显示该技能步累计预算估算和未知 usage，不称为实际账单", () => {
+    const wire = buildMockBundle("healthy_run_07", NOW).snapshot;
+    const group = wire.skillSteps as Record<string, unknown>;
+    const value = group.value as Record<string, unknown>;
+    value.modelCost = { value: "截至该技能步: 账本调用 2; 预算估算 50/1000 微单位; usage 不完整 1 次; 预算拒绝 1 次; 请求/响应费率 1000000/2000000 微单位/百万 token; 不是供应商账单" };
+    render(<SkillStepPanel snapshot={snapshotFrom(wire, "gateway")} />);
+    const cost = screen.getByTestId("skill-step-调用花费");
+    for (const text of ["截至该技能步", "账本调用 2", "50/1000", "usage 不完整 1", "不是供应商账单"]) {
+      expect(cost).toHaveTextContent(text);
+    }
+  });
+
   it("known 组：最近一步的值原样上屏，按构造为空的成员显示带 Core 原文的缺口", () => {
     const snapshot = snapshotFrom(buildMockBundle("healthy_run_07", NOW).snapshot, "mock");
     render(<SkillStepPanel snapshot={snapshot} />);
