@@ -1,5 +1,7 @@
 # Minekin 开发执行计划（现行唯一队列）
 
+> 2026-10-04 追加（M 直接落主干，基线 `4b118bd`）：**面板的断连/恢复两腿跑实**（受控本地、真 Gateway、无游戏）。DOWN 腿在无监听端口上 `1 passed (6.9s)`（且该用例在网关在线时会红，绿非恒真）；RECOVER 腿由操作者在等待窗内置回同端口，`2 passed (24.2s)`，恢复字面 `读数正常 · 末次成功 0 秒前 · 每 5 秒轮询 · 已自行恢复 1 次读取中断（最近连续 3 次失败、持续 15 秒）`；读数与"按发布端口停容器（按名字找会看漏）"的操作注意事项写进 runner README。**范围按实**：这是后台侧断连路径的字节，不是"仍存活客户端的游戏断连/watchdog 松键"活体那一格。CI `4b118bd` 四作业全绿。
+
 > 2026-10-04 追加（M 直接落主干，基线 `f15227f`）：**指标对照深核第二批**（[roadmap-metrics-coverage.md](roadmap-metrics-coverage.md)）。①`model_cost_and_latency` 行加深并更正：延迟侧机制在 `domain/budget.py`（回调窗折百分位、无价格概念），与 `CostLedger` 的分离由 `test_model_cost_ledger.py:65` 的导入图测试钉住，但**模型调用延迟未接入**该账目；②`bootstrap_action_trace` 的"中断后恢复"维落到三组具名机制测试（collect 纠偏 / 关屏有界逃逸 / 死亡中断与松键）；③两枚感知计数器的近邻字节落在 `test_perception.py` 的分类计数与 evidence-ready 文档（具名字段仍未核到，不冒充）；④persona 生成/上下文侧落 `test_persona.py` / `test_persona_decision_context.py` / `test_gateway_saved_persona.py`。CI `f15227f` 四作业全绿（含并发提交 `89e4969`）。
 
 > 2026-10-04 追加（M 直接落主干，基线 `2a2a1d0`）：**指标对照三族第一遍走完，50 个名字各有落点**。族②/③入 [roadmap-metrics-coverage.md](roadmap-metrics-coverage.md)：反射三件与 `instruction_boundary_trace` 判"定义在、实现未接"；`unauthorized_read_count`/`belief_leak_count` 的验收定义在 perception-implementation、具名计数器未实现；成本侧有字节（`model_calls` 等）而延迟分布未核到；技能经历检索、归因/额度机制、`persona_store`、目标/决策来源判"部分"；社交与记忆大宗判"定义在、实现未接"。下一步从"建对照"转为"把部分/未核到逐条落到字段与测试名"（F 收口对账物）。CI `2a2a1d0` 四作业全绿。

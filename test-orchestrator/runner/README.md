@@ -164,7 +164,19 @@ controlled set, for the browser driving a real session end to end.
 One port note, for Windows hosts: Docker refuses a port that sits inside a Hyper-V
 exclusion range (`netsh interface ipv4 show excludedportrange protocol=tcp` lists
 them; 8745–8844 was such a window on the machine that wrote this), which is why
-`MINEKIN_DEMO_GATEWAY_PORT` exists as a knob.
+`MINEKIN_DEMO_GATEWAY_PORT` exists as a knob. And the `--gateway` container belongs to
+the operator to stop: find it by its published port (`docker ps --filter publish=8500`),
+not by name — a wrapper that is killed does not always take its container with it.
+
+The disconnect pair runs against the same shape. With **no listener** on the target
+port, `E2E_LIVE_GATEWAY_DOWN=1 pnpm e2e e2e/live-gateway-disconnect.spec.ts` proved the
+panel says 断连 with the consecutive-failure count, the outage duration and the retry
+cadence, and does not fall back to mock readings — **1 passed (6.9s)** on 2026-10-04
+(the test refuses to pass while the Gateway answers, so the green is not vacuous).
+`E2E_LIVE_GATEWAY_DOWN=1 E2E_LIVE_GATEWAY_RECOVER=1` then has the operator bring the
+same port back inside the wait window, and the page recovers itself — **2 passed
+(24.2s)**, with the literal recovery line
+`读数正常 · 末次成功 0 秒前 · 每 5 秒轮询 · 已自行恢复 1 次读取中断（最近连续 3 次失败、持续 15 秒）`.
 
 ### A server that requires a pack, and a client that refuses one
 
