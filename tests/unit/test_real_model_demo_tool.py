@@ -78,7 +78,7 @@ def test_model_demo_uses_auto_registry_or_explicit_candidate_and_forwards_goal(
 
     def fake_run(command: list[str], **kwargs: Any) -> SimpleNamespace:
         captured.update(kwargs)
-        assert command[-1] == "--autonomous"
+        captured["command"] = list(command)
         return SimpleNamespace(returncode=0)
 
     argv = [
@@ -99,6 +99,16 @@ def test_model_demo_uses_auto_registry_or_explicit_candidate_and_forwards_goal(
     monkeypatch.setattr("sys.argv", argv)
     monkeypatch.setattr(run_real_model_demo.subprocess, "run", fake_run)
     assert run_real_model_demo.main() == 0
-    assert captured["env"]["MINEKIN_DEMO_BUNDLE_PROFILE"] == profile
+    if profile.startswith("/"):
+        # A POSIX-looking profile cannot ride the environment across the MSYS boundary (MSYS
+        # rewrites it against its install root); it is exported inside the script text instead,
+        # and the env copy is blanked so nothing converts anything.
+        assert captured["env"]["MINEKIN_DEMO_BUNDLE_PROFILE"] == ""
+        script = captured["command"][-1]
+        assert f"export MINEKIN_DEMO_BUNDLE_PROFILE={profile}" in script
+        assert script.endswith("test-orchestrator/runner/demo.sh --autonomous")
+    else:
+        assert captured["env"]["MINEKIN_DEMO_BUNDLE_PROFILE"] == profile
+        assert captured["command"][-1] == "--autonomous"
     assert captured["env"]["MINEKIN_DEMO_GOAL_PRODUCT"] == "minecraft:oak_planks"
     assert captured["env"]["MINEKIN_DEMO_GOAL_QUANTITY"] == "8"

@@ -127,9 +127,28 @@ def main() -> int:
     )
     args.log.parent.mkdir(parents=True, exist_ok=True)
     print("Starting one local model demo; output is saved to the requested log.", flush=True)
+    # A POSIX-looking path cannot cross the native -> MSYS environment boundary: MSYS rewrites
+    # any value that looks like an absolute path against its own install root (measured: a
+    # /src/... bundle profile arrived as D:/env/Git/src/...), so the one variable that carries
+    # one is re-exported inside the script text, where bash assigns it itself, and its env
+    # copy is blanked so nothing converts anything.
+    command = [str(bash)]
+    inline: list[str] = []
+    for name in ("MINEKIN_DEMO_BUNDLE_PROFILE",):
+        value = environment.get(name, "")
+        if value.startswith("/"):
+            inline.append(f"export {name}={shlex.quote(value)}")
+            environment[name] = ""
+    if inline:
+        command += [
+            "-c",
+            "; ".join(inline) + "; exec bash test-orchestrator/runner/demo.sh --autonomous",
+        ]
+    else:
+        command += ["test-orchestrator/runner/demo.sh", "--autonomous"]
     with args.log.open("w", encoding="utf-8") as output:
         return subprocess.run(
-            [str(bash), "test-orchestrator/runner/demo.sh", "--autonomous"],
+            command,
             cwd=ROOT,
             env=environment,
             stdout=output,
