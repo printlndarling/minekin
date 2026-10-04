@@ -188,6 +188,16 @@ lands in the real SQLite identity root — **1 passed (2.5s)**. One trap to note
 defaults the username to the demo's `Kin`, so the identity spec's `minekin` assertion
 needs `MINEKIN_USERNAME=minekin` at init time.
 
+Two live specs remain unrun with their recipes already on disk rather than missing:
+`E2E_SERVER_CONFIG_LIVE` and `E2E_SESSION_START_LIVE` both need the Gateway and the
+controlled 1.20.1 server **inside one container**, published only on a loopback port —
+the runbook records the exact shape of the last such run (`C-SERVER-CONFIG-AND-SAFE-START-008`:
+server container with a published `127.0.0.1` port, the gateway started in-container,
+then the spec pointed at that port) and the recovery entry it left behind (a
+`minekin-server-config-20261003` container in `created` state). Both start a server JVM
+and sit behind the host resource window the runbook names, and the recorded command
+carries `--accept-eula`, which this harness does not run on its own.
+
 ### A server that requires a pack, and a client that refuses one
 
 `MINEKIN_DOMAIN_RESOURCE_PACK=1` builds a resource pack, serves it on loopback, and
