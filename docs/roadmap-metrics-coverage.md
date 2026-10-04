@@ -62,6 +62,17 @@
 
 至此 50 个指标名都有一行落点（有字节 / 部分 / 定义在-未接 / 待决策 / 本遍未核到）。原 10-04 第一半的"47 个只在 roadmap.md 出现"仍成立——本对照用的是**概念与指针**，不是词面。
 
+### 深核第一批：把"部分"行落到具体测试名（2026-10-04，基线 `483bcd2`）
+
+| 指标 | 落到字节的测试/机制名（行号随基线） |
+| --- | --- |
+| `repeat_failure_rate` / `skill_invocation_trace` | `tests/unit/test_player_mind.py` 第 1186–1211 行：`RETRY_BUDGET_PER_SIGNATURE` 循环后 `as_document()["excluded_skills"] == ["break_seen_block"]`；`tests/unit/test_gateway_readmodel.py` 第 1067–1161 行：面板对 `excluded_skills` / `last_precondition` 的渲染与"改线还是放弃"的分辨 |
+| `model_cost_and_latency`（成本侧） | `tests/unit/test_player_mind.py:1407`（`document["model_spent_micro"] == 0`）；`tests/unit/test_autonomous_play.py::test_the_run_document_says_who_chose_and_what_the_world_said` |
+| `memory_retrieval_trace`（技能经历侧） | `tests/unit/test_skill_history.py`、`tests/unit/test_gateway_experiences.py`、`tests/unit/test_persona_decision_context.py`（重启后经历进决策上下文，2026-10-04 真网关浏览器读数同证） |
+| `bootstrap_action_trace` | `tests/unit/test_autonomous_play.py::test_step_document_keeps_the_execution_readings_needed_to_diagnose_unknowns`、`::test_a_run_reads_which_crafts_the_world_confirmed_and_grows_coverage_from_them` |
+
+其余"部分/未核到"维度（延迟分布、具名计数器、中断恢复、生成器复现矩阵等）留下一批。
+
 ## 下一步（F 阶段整卡）
 
 三族第一遍已于 2026-10-04 走完：50 个名字各有落点（有字节 / 部分 / 定义在-未接 / 待决策 / 本遍未核到）。剩下的工作不是"建对照"而是"把每条落到可复核的字段与测试名"：逐项深核标着「部分」与「本遍未核到」的维度（延迟分布、具名计数器、中断恢复、生成器复现矩阵等），在 F 收口时把本文件作为对账物一并闭合。
