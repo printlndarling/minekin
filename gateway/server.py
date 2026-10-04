@@ -30,6 +30,7 @@ from gateway.config_write import (
 from gateway.config_write import (
     SCHEMA as CONFIG_SCHEMA,
 )
+from gateway.dashboard_assets import DashboardAssets
 from gateway.goal_read import GOAL_PATH, goal_read
 from gateway.identity import (
     CSRF_HEADER,
@@ -274,9 +275,27 @@ class ReadRequestHandler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
     server_version = "MinekinGateway/1"
     service: ClassVar[ReadService]
+    dashboard_assets: ClassVar[DashboardAssets | None] = None
 
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
+        if self.dashboard_assets is not None:
+            asset = self.dashboard_assets.get(parsed.path)
+            if asset is not None:
+                if parsed.path in ("/", "/index.html") and not parsed.query:
+                    self.send_response(HTTPStatus.FOUND)
+                    self.send_header("Location", "/?adapter=gateway&gateway=.")
+                    self.send_header("Content-Length", "0")
+                    self.end_headers()
+                    return
+                self.send_response(HTTPStatus.OK)
+                self.send_header("Content-Type", asset.content_type)
+                self.send_header("Content-Length", str(len(asset.body)))
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("X-Content-Type-Options", "nosniff")
+                self.end_headers()
+                self.wfile.write(asset.body)
+                return
         if parsed.path == JOB_PATH:
             self._respond(HTTPStatus.OK, self.service.jobs.read())
             return
@@ -492,8 +511,8 @@ def build_parser() -> argparse.ArgumentParser:
         prog="gateway.server",
         description=(
             "Serve Dashboard reads over loopback, plus identity rename, config save, "
-            "model connection testing and stopping a "
-            "session); it cannot start, pause, resume, or move a session."
+            "model connection testing and managed session start/stop. "
+            "It cannot pause, resume, or directly move a player."
         ),
     )
     parser.add_argument(
@@ -511,6 +530,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--host", default="127.0.0.1", help="bind address; loopback unless you mean otherwise"
     )
     parser.add_argument("--port", type=int, default=DEFAULT_PORT)
+    parser.add_argument(
+        "--dashboard-dir",
+        type=Path,
+        default=None,
+        help="optionally serve a trusted dashboard build (dashboard/dist) on this same port",
+    )
     parser.add_argument(
         "--routes",
         action="store_true",
@@ -530,9 +555,16 @@ def main(argv: list[str] | None = None) -> int:
     if args.routes:
         return print_routes()
 
+    try:
+        dashboard_assets = DashboardAssets(args.dashboard_dir) if args.dashboard_dir else None
+    except (OSError, ValueError) as error:
+        print(f"gateway cannot load dashboard build: {type(error).__name__}", file=sys.stderr)
+        return 1
+
     clock: Clock = SystemClock()
     service = ReadService(root=args.data_root, kin_selector=args.kin, clock=clock)
     ReadRequestHandler.service = service
+    ReadRequestHandler.dashboard_assets = dashboard_assets
     try:
         # One read up front: a root that is missing or holds two Kins is an operator
         # mistake, and it is cheaper to say so before a browser starts polling.
