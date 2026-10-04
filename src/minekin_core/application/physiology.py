@@ -11,17 +11,21 @@ from minekin_core.domain.perception import WorldObservationValue
 class PhysiologySampler:
     generation: int | None = None
     last_tick: int | None = None
+    alive: bool | None = None
 
     def sample(self, reading: WorldObservationValue) -> dict[str, int | float] | None:
         # One sample per 100 game ticks, including an immediate first sample per
-        # generation. Decisions still use every admitted frame in memory.
+        # generation and immediate death/return-to-life transitions. Decisions
+        # still use every admitted frame in memory.
         if (
             self.generation == reading.generation
+            and self.alive == reading.self_state.alive
             and self.last_tick is not None
             and reading.game_tick - self.last_tick < 100
         ):
             return None
         self.generation, self.last_tick = reading.generation, reading.game_tick
+        self.alive = reading.self_state.alive
         return {
             "health": reading.self_state.health,
             "max_health": reading.self_state.max_health,

@@ -60,6 +60,7 @@ from minekin_core.domain.goal_spec import Milestone
 from minekin_core.domain.model_access import (
     CostLedger,
     Decision,
+    DecisionRequest,
     ModelUnavailable,
     UnavailableReason,
 )
@@ -863,4 +864,213 @@ def test_the_loop_eats_when_the_bar_is_low_and_the_bag_holds_a_meal() -> None:
     assert result.steps[0].intent.arguments == {"target_item": "minecraft:apple"}
     assert result.steps[0].outcome.result is ActionResultClass.CONFIRMED
     assert result.stop_reason == STEP_BUDGET_SPENT
+    assert mind.goal_met is False
+
+
+@pytest.mark.parametrize("change", ["health", "hunger", "generation", "missing"])
+def test_model_choice_is_invalidated_by_new_safety_or_world_context(change: str) -> None:
+    first = reading(
+        items=((0, "minecraft:apple", 2),), aim=AimTargetValue(game_tick=100, kind=AimKind.MISS)
+    )
+    later: WorldObservationValue | None = reading(
+        tick=120,
+        items=((0, "minecraft:apple", 2),),
+        aim=AimTargetValue(game_tick=120, kind=AimKind.MISS),
+    )
+    if change == "health":
+        later = replace(later, self_state=replace(later.self_state, health=4))
+    elif change == "hunger":
+        later = replace(later, self_state=replace(later.self_state, food=4))
+    elif change == "generation":
+        later = replace(later, generation=2)
+    else:
+        later = None
+    stage = Stage(first, later)
+    skills = TapeSkills(stage, {"turn_to": confirmed()})
+
+    class ChangingBodyProvider:
+        def decide(self, request: object) -> Decision:
+            del request
+            stage.advance()
+            return Decision(
+                skill_id="turn_to",
+                reason="inspect",
+                intent_generation=1,
+                arguments={"yaw_degrees": 0.0, "pitch_degrees": 30.0},
+            )
+
+    mind = mind_for(ChangingBodyProvider(), CostLedger(run_cost_cap=CAP))
+    result = run(stage, skills, mind, step_budget=1)
+    assert skills.ran == []
+    assert result.steps[0].outcome.result is ActionResultClass.INTERRUPTED
+    assert result.steps[0].outcome.reason == "DECISION_PRECONDITION_CHANGED"
+    assert mind.attempts == {}
+
+
+def test_death_during_model_choice_has_priority_over_the_step_budget() -> None:
+    first = reading()
+    dead = replace(reading(tick=120), self_state=replace(first.self_state, health=0, alive=False))
+    stage = Stage(first, dead)
+    skills = TapeSkills(stage, {"turn_to": confirmed()})
+
+    class DyingProvider:
+        def decide(self, request: object) -> Decision:
+            del request
+            stage.advance()
+            return Decision(
+                skill_id="turn_to",
+                reason="inspect",
+                intent_generation=1,
+                arguments={"yaw_degrees": 0.0, "pitch_degrees": 30.0},
+            )
+
+    mind = mind_for(DyingProvider(), CostLedger(run_cost_cap=CAP))
+    result = run(stage, skills, mind, step_budget=1)
+    assert skills.ran == []
+    assert result.stop_reason == "PLAYER_DEAD"
+    assert mind.attempts == {}
+
+
+def test_dead_body_does_not_satisfy_a_goal_even_with_last_held_inventory() -> None:
+    first = reading(items=((2, PICKAXE, 1),))
+    dead = replace(
+        reading(tick=140, items=((2, PICKAXE, 1),), selected_slot=2),
+        self_state=replace(first.self_state, health=0, alive=False, selected_slot=2),
+    )
+    stage = Stage(first, dead)
+    skills = TapeSkills(stage, {"select_hotbar": confirmed()})
+    mind = off_mind()
+    result = run(stage, skills, mind, step_budget=1)
+    assert result.stop_reason == "PLAYER_DEAD"
+    assert mind.goal_met is False
+
+
+def test_observed_death_does_not_spend_the_skill_retry_budget() -> None:
+    first = reading()
+    dead = replace(reading(tick=140), self_state=replace(first.self_state, health=0, alive=False))
+    stage = Stage(first, dead)
+    skills = TapeSkills(
+        stage,
+        {
+            "turn_to": SkillOutcome(
+                result=ActionResultClass.INTERRUPTED, reason="PLAYER_DEAD", action_id="action"
+            )
+        },
+    )
+    mind = off_mind(goal=None)
+    result = run(stage, skills, mind, step_budget=1)
+    assert result.stop_reason == "PLAYER_DEAD"
+    assert mind.attempts == {} and mind.excluded == set()
+
+
+def test_changed_safety_replans_using_current_body_without_spending_retries() -> None:
+    first = reading(
+        items=((0, "minecraft:apple", 2),), aim=AimTargetValue(game_tick=100, kind=AimKind.MISS)
+    )
+    hungry = reading(
+        tick=120,
+        items=((0, "minecraft:apple", 2),),
+        food=4,
+        aim=AimTargetValue(game_tick=120, kind=AimKind.MISS),
+    )
+    fed = reading(
+        tick=140,
+        items=((0, "minecraft:apple", 1),),
+        food=8,
+        selected_slot=0,
+        aim=AimTargetValue(game_tick=140, kind=AimKind.MISS),
+    )
+    stage = Stage(first, hungry, fed)
+    skills = TapeSkills(stage, {"consume_item": confirmed()})
+
+    class UpdatingProvider:
+        def __init__(self) -> None:
+            self.needs: list[int] = []
+
+        def decide(self, request: DecisionRequest) -> Decision:
+            self.needs.append(request.needs["safety"])
+            if len(self.needs) == 1:
+                stage.advance()
+                return Decision(
+                    skill_id="turn_to",
+                    reason="inspect",
+                    intent_generation=1,
+                    arguments={"yaw_degrees": 0.0, "pitch_degrees": 30.0},
+                )
+            return Decision(
+                skill_id="consume_item",
+                reason="eat",
+                intent_generation=2,
+                arguments={"target_item": "minecraft:apple"},
+            )
+
+    provider = UpdatingProvider()
+    mind = mind_for(provider, CostLedger(run_cost_cap=CAP), goal=None)
+    result = run(stage, skills, mind, step_budget=2)
+    assert provider.needs == [1, 3]
+    assert [name for name, _ in skills.ran] == ["consume_item"]
+    assert result.steps[0].outcome.details["invalidated_by"] == "SAFETY_NEED_INCREASED"
+    assert result.steps[1].outcome.result is ActionResultClass.CONFIRMED
+    assert mind.attempts == {} and mind.excluded == set()
+
+
+@pytest.mark.parametrize(
+    ("health_before", "food_before", "health_after", "food_after"),
+    [
+        (20, 20, 19, 19),
+        (4, 20, 6, 20),
+        (20, 4, 20, 8),
+    ],
+)
+def test_advancing_or_improving_body_does_not_invalidate_a_feasible_decision(
+    health_before: float, food_before: int, health_after: float, food_after: int
+) -> None:
+    first = reading(food=food_before)
+    first = replace(first, self_state=replace(first.self_state, health=health_before))
+    later = reading(tick=120, food=food_after)
+    later = replace(later, self_state=replace(later.self_state, health=health_after))
+    stage = Stage(first, later)
+    skills = TapeSkills(stage, {"turn_to": confirmed()})
+
+    class AdvancingProvider:
+        def decide(self, request: object) -> Decision:
+            del request
+            stage.advance()
+            return Decision(
+                skill_id="turn_to",
+                reason="inspect",
+                intent_generation=1,
+                arguments={"yaw_degrees": 0.0, "pitch_degrees": 30.0},
+            )
+
+    mind = mind_for(AdvancingProvider(), CostLedger(run_cost_cap=CAP), goal=None)
+    result = run(stage, skills, mind, step_budget=1)
+    assert len(skills.ran) == 1
+    assert result.steps[0].outcome.result is ActionResultClass.CONFIRMED
+
+
+def test_death_observed_while_recording_a_step_wins_over_goal_completion() -> None:
+    first = reading(items=((2, PICKAXE, 1),))
+    held = reading(tick=140, items=((2, PICKAXE, 1),), selected_slot=2)
+    dead = replace(held, game_tick=141, self_state=replace(held.self_state, health=0, alive=False))
+    stage = Stage(first, held)
+    skills = TapeSkills(stage, {"select_hotbar": confirmed()})
+    mind = off_mind()
+
+    async def report(step: AutonomousStep) -> None:
+        assert step.outcome.result is ActionResultClass.CONFIRMED
+        stage.current = dead
+
+    result = asyncio.run(
+        run_autonomous_loop(
+            mind=mind,
+            skills=skills,
+            observations=stage,
+            authority=AUTHORITY,
+            step_budget=1,
+            on_step=report,
+        )
+    )
+    assert result.steps[0].outcome.result is ActionResultClass.CONFIRMED
+    assert result.stop_reason == "PLAYER_DEAD"
     assert mind.goal_met is False

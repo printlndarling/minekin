@@ -35,11 +35,14 @@ from typing import Final, Protocol
 
 from minekin_core.application.player_mind import (
     DECISION_PRECONDITION_CHANGED,
+    NO_LATEST_OBSERVATION,
+    PLAYER_DEAD,
     FailureCode,
     MindDecisionKind,
     MindIntent,
     PlayerMind,
     observation_ref,
+    safety_need,
     screen_open,
 )
 from minekin_core.application.skill_plan import perform_skill
@@ -181,6 +184,34 @@ class AutonomousRun:
         return frozenset(products)
 
 
+def _decision_invalidation(
+    *,
+    mind: PlayerMind,
+    intent: MindIntent,
+    before: WorldObservationValue | None,
+    after: WorldObservationValue | None,
+    authority: ActionAuthority,
+) -> str:
+    if after is None:
+        return "OBSERVATION_LOST"
+    if after.generation != authority.generation or (
+        before is not None and after.generation != before.generation
+    ):
+        return "WORLD_GENERATION_CHANGED"
+    if not after.self_state.alive:
+        return PLAYER_DEAD
+    if before is not None:
+        previous_safety = safety_need(before)
+        current_safety = safety_need(after)
+        if current_safety >= 3 and current_safety > previous_safety:
+            return "SAFETY_NEED_INCREASED"
+    if observation_ref(
+        after
+    ) != intent.observation_ref and intent.skill not in mind.feasible_skills(after):
+        return "SKILL_PRECONDITION_CHANGED"
+    return ""
+
+
 async def run_autonomous_loop(
     *,
     mind: PlayerMind,
@@ -225,11 +256,14 @@ async def run_autonomous_loop(
         asked_on = intent.observation_ref
         try:
             latest = observations.latest
-            if (
-                latest is not None
-                and observation_ref(latest) != intent.observation_ref
-                and intent.skill not in mind.feasible_skills(latest)
-            ):
+            invalidation = _decision_invalidation(
+                mind=mind,
+                intent=intent,
+                before=reading,
+                after=latest,
+                authority=authority,
+            )
+            if invalidation:
                 # A remote decision can outlive the screen or bag it was asked about.
                 # Recheck the current offer without rejecting mere advancing ticks.
                 outcome = SkillOutcome(
@@ -237,7 +271,8 @@ async def run_autonomous_loop(
                     reason=DECISION_PRECONDITION_CHANGED,
                     action_id="",
                     pre_tick=None if reading is None else reading.game_tick,
-                    post_tick=latest.game_tick,
+                    post_tick=None if latest is None else latest.game_tick,
+                    details={"invalidated_by": invalidation},
                 )
             else:
                 outcome = await perform_skill(
@@ -259,6 +294,10 @@ async def run_autonomous_loop(
             # watching a long run asks is what the Kin is doing *now*, and the answer has
             # to be on the ledger before the next step's reading replaces it.
             await on_step(steps[-1])
+        # Reporting can yield to the reader. Keep the step's original result
+        # attribution, but conclude the run from the body's current observation.
+        current = observations.latest
+        mind.observe(current)
         if outcome.reason == CLIENT_EXITED:
             # The step is on the ledger with the exit code, and no step after it can be
             # concluded either: the client that would have answered it is the process
@@ -267,8 +306,20 @@ async def run_autonomous_loop(
             stop_reason = CLIENT_EXITED
             stop_detail = outcome.details.get("exit_code", "")
             break
-        held = after if after is not None else reading
-        if held is not None and mind.holds_goal(held) and not screen_open(held):
+        if outcome.reason == PLAYER_DEAD or (current is not None and not current.self_state.alive):
+            stop_reason = PLAYER_DEAD
+            break
+        if current is None:
+            stop_reason = NO_LATEST_OBSERVATION
+            break
+        if (
+            outcome.details.get("invalidated_by") == "WORLD_GENERATION_CHANGED"
+            or current.generation != authority.generation
+        ):
+            stop_reason = DECISION_PRECONDITION_CHANGED
+            stop_detail = "WORLD_GENERATION_CHANGED"
+            break
+        if mind.holds_goal(current) and not screen_open(current):
             stop_reason = GOAL_HELD_IN_HAND
             break
     return AutonomousRun(

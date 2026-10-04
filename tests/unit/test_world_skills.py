@@ -1149,11 +1149,15 @@ def test_craft_take_result_deposits_a_product_the_reading_says_is_stuck_outside_
             inventory_value=inventory(103, (0, PLANKS, 4)),
             gui=GuiScreenValue(screen_id="PlayerScreen", sync_id=0),
         )
-        tasks = [
-            asyncio.create_task(admit_after(store, 0.01, fill)),
-            asyncio.create_task(admit_after(store, 0.05, still_stuck)),
-            asyncio.create_task(admit_after(store, 0.10, deposited)),
-        ]
+        replies = iter((fill, still_stuck, deposited))
+
+        def answer(message_type: str) -> None:
+            if message_type == GUI_CLICK_INPUT_TYPE:
+                # Each frame answers its corresponding click. Independent timers
+                # can overwrite the cursor frame before a loaded loop reads it.
+                assert store.admit(next(replies), ())
+
+        sender.on_send = answer
 
         outcome = await skills.craft_take_result(
             recipe_id="oak_planks",
@@ -1162,9 +1166,6 @@ def test_craft_take_result_deposits_a_product_the_reading_says_is_stuck_outside_
             authority=authority(),
             timeout_ns=2_000_000_000,
         )
-        for task in tasks:
-            await task
-
         assert outcome.result is ActionResultClass.CONFIRMED
         clicks = _gui_clicks(sender)
         assert len(clicks) == 3

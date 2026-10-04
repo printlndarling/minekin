@@ -238,7 +238,8 @@ _ABSENT_REASONS: Final = frozenset(
 #: later answer) may name a different one, so excluding the whole skill would forbid the meal
 #: that is one reading away.
 _PRECONDITION_REROUTE: Final = (
-    frozenset({CRAFT_MATERIALS_MISSING, DECISION_PRECONDITION_CHANGED}) | CONSUME_REFUSAL_REASONS
+    frozenset({CRAFT_MATERIALS_MISSING, DECISION_PRECONDITION_CHANGED, PLAYER_DEAD})
+    | CONSUME_REFUSAL_REASONS
 )
 _PRECONDITION_DEAD_END: Final = frozenset({CRAFT_GRID_TOO_SMALL, CRAFT_RECIPE_UNAVAILABLE})
 
@@ -499,7 +500,11 @@ def attribute_failure(outcome: SkillOutcome) -> FailureCode:
 def goal_held(milestone: Milestone | None, reading: WorldObservationValue) -> bool:
     """Whether a reading says the standing milestone is met. No milestone, nothing met."""
 
-    return milestone is not None and milestone.held(reading) >= milestone.quantity
+    return (
+        reading.self_state.alive
+        and milestone is not None
+        and milestone.held(reading) >= milestone.quantity
+    )
 
 
 def goal_slot(milestone: Milestone | None, reading: WorldObservationValue) -> int | None:
@@ -742,18 +747,21 @@ def needs_from(milestone: Milestone | None, reading: WorldObservationValue) -> d
         resource_security = 5
     else:
         resource_security = 9
+    return {"resource_security": resource_security, "safety": safety_need(reading)}
+
+
+def safety_need(reading: WorldObservationValue) -> int:
+    """The current body's urgency, without consulting goals or recipe knowledge."""
     health = reading.self_state.health
     max_health = reading.self_state.max_health or 1.0
     food = reading.self_state.food
     if not reading.self_state.alive:
-        safety = 9
+        return 9
     elif health < max_health * 0.5 or food <= 2:
-        safety = 7
+        return 7
     elif health < max_health * 0.9 or food <= 6:
-        safety = 3
-    else:
-        safety = 1
-    return {"resource_security": resource_security, "safety": safety}
+        return 3
+    return 1
 
 
 def _nearest_drop(reading: WorldObservationValue) -> EntityCandidate | None:

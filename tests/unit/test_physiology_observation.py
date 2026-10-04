@@ -30,7 +30,7 @@ def wire(
         generation=generation,
         game_tick=tick,
         self=observation_pb2.SelfState(
-            health=health, max_health=20, food=12, saturation=0, alive=True
+            health=health, max_health=20, food=12, saturation=0, alive=health > 0
         ),
         inventory=observation_pb2.InventorySummary(revision=tick),
     )
@@ -139,3 +139,60 @@ def test_closed_clients_and_new_runs_do_not_reuse_old_hud_values() -> None:
     assert self_state_group([sample, ended], "hud", alive=True)["status"] == "unknown"
     next_run = row(3, event_type="SessionProcessStarted", run_id="new")
     assert self_state_group([sample, ended, next_run], "hud", alive=True)["status"] == "unavailable"
+
+
+def test_death_and_return_to_life_are_recorded_without_waiting_for_cadence() -> None:
+    sampler = PhysiologySampler()
+    live = decode_world_observation(wire())
+    assert sampler.sample(live) is not None
+    dead = replace(live, game_tick=101, self_state=replace(live.self_state, health=0, alive=False))
+    recorded = sampler.sample(dead)
+    assert recorded is not None and recorded["health"] == 0 and recorded["game_tick"] == 101
+    assert sampler.sample(replace(dead, game_tick=102)) is None
+    returned = replace(live, game_tick=103)
+    recorded = sampler.sample(returned)
+    assert recorded is not None and recorded["health"] == 18 and recorded["game_tick"] == 103
+    assert sampler.sample(replace(returned, game_tick=104)) is None
+
+
+def test_admitted_death_reaches_hud_callback_before_regular_sample_interval() -> None:
+    messages = iter([wire(), wire(101, health=0), wire(102, health=0), wire(103)])
+
+    class Host:
+        async def receive_event(self) -> object:
+            try:
+                message = next(messages)
+            except StopIteration:
+                raise EOFError("end of test stream") from None
+            return SimpleNamespace(
+                message=message, envelope=SimpleNamespace(message_type=WORLD_OBSERVATION_TYPE)
+            )
+
+    sampler = PhysiologySampler()
+    recorded: list[dict[str, int | float]] = []
+
+    async def observed(reading: WorldObservationValue) -> None:
+        sample = sampler.sample(reading)
+        if sample is not None:
+            recorded.append(sample)
+
+    async def run() -> None:
+        connections = ConnectionGenerations()
+        connections.begin(OpaqueId("controlled-profile"), "a" * 64)
+        with pytest.raises(EOFError):
+            await session_runtime._read_events(  # pyright: ignore[reportPrivateUsage]
+                cast(BridgeIpcHost, Host()),
+                SessionStateMachine(),
+                connections,
+                session_runtime._Progress(),  # pyright: ignore[reportPrivateUsage]
+                None,
+                None,
+                None,
+                None,
+                world_observations=WorldObservationStore(),
+                on_world_observation=observed,
+            )
+
+    asyncio.run(run())
+    assert [sample["game_tick"] for sample in recorded] == [100, 101, 103]
+    assert [sample["health"] for sample in recorded] == [18, 0, 18]
