@@ -307,6 +307,35 @@ def test_step_toward_waits_for_the_remaining_debt_before_crafting_the_enabler(
     assert step.product_id == "minecraft:crafting_table"
 
 
+def test_step_toward_crafts_a_banked_logs_planks_for_the_enablers_own_cost(
+    tmp_path: Path,
+) -> None:
+    # The enabler's four planks are short by two, and the bag's own log can pay exactly that
+    # difference: the plank craft is the step -- not a gather, and not the table yet. A live
+    # run stalled turning while a usable log sat in its pocket (run 5e635133; card
+    # S3-WIDE-GRID-CRAFT-CLOSURE-001).
+    knowledge = source(tmp_path)
+    banked = reading(
+        {
+            "minecraft:oak_planks": 2,
+            "minecraft:cobblestone": 3,
+            "minecraft:stick": 2,
+            "minecraft:oak_log": 1,
+        }
+    )
+    step = knowledge.step_toward("minecraft:stone_pickaxe", banked, quantity=1, grid_side=2)
+    assert isinstance(step, BuildStep)
+    assert step.product_id == "minecraft:oak_planks"
+
+    without_log = reading(
+        {"minecraft:oak_planks": 2, "minecraft:cobblestone": 3, "minecraft:stick": 2}
+    )
+    assert (
+        knowledge.step_toward("minecraft:stone_pickaxe", without_log, quantity=1, grid_side=2)
+        == "CRAFT_MATERIALS_MISSING"
+    )
+
+
 def test_step_toward_says_when_the_held_enabler_is_all_that_is_left(tmp_path: Path) -> None:
     knowledge = source(tmp_path)
     current = reading(

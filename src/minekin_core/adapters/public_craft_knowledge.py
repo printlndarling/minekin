@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections import Counter
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
 
@@ -139,6 +139,32 @@ class PublicCraftKnowledge:
     def _owed_plan(
         self, product_id: str, reading: WorldObservationValue, *, quantity: int, grid_side: int
     ) -> _PublicOwedPlan | str:
+        """The dependency-ordered owed counts over the archive, for this reading's bag.
+
+        The reading's inventory and open-screen book bound to `_owed_plan_for_counts` — the
+        same arithmetic the reserve check replans with on a reduced stock.
+        """
+
+        book: frozenset[str] = (
+            frozenset() if reading.gui is None else reading.gui.craftable_recipe_ids
+        )
+        return self._owed_plan_for_counts(
+            product_id,
+            _inventory_counts(reading),
+            quantity=quantity,
+            grid_side=grid_side,
+            book=book,
+        )
+
+    def _owed_plan_for_counts(
+        self,
+        product_id: str,
+        counts: Mapping[str, int],
+        *,
+        quantity: int,
+        grid_side: int,
+        book: frozenset[str],
+    ) -> _PublicOwedPlan | str:
         """The dependency-ordered owed counts over the archive, or the name that stops the walk.
 
         Shared by `step_toward` (which selects the nearest runnable step) and
@@ -159,9 +185,6 @@ class PublicCraftKnowledge:
             or not 0 < quantity <= 4096
         ):
             return CRAFT_RECIPE_UNAVAILABLE
-        book: frozenset[str] = (
-            frozenset() if reading.gui is None else reading.gui.craftable_recipe_ids
-        )
 
         def cell_items(cell: tuple[IngredientOption, ...]) -> tuple[str, ...]:
             items: set[str] = set()
@@ -266,7 +289,7 @@ class PublicCraftKnowledge:
         planned = demand(
             product_id,
             quantity,
-            _PlanningStock(_inventory_counts(reading), [], Counter(), {}, Counter()),
+            _PlanningStock(Counter(counts), [], Counter(), {}, Counter()),
             frozenset(),
         )
         if planned is None or remaining < 0:
@@ -319,14 +342,122 @@ class PublicCraftKnowledge:
         book: frozenset[str] = (
             frozenset() if reading.gui is None else reading.gui.craftable_recipe_ids
         )
+        gui_report = reading.gui is not None and reading.gui.sync_id is not None
         owed_products = [product for product in plan.order if plan.owed.get(product, 0) > 0]
         if not owed_products:
             # The bag already covers the ask; a caller short of the product never sees this
             # branch, and the word is the one a missing step is mapped to anyway.
             return CRAFT_MATERIALS_MISSING
 
-        gui_report = reading.gui is not None and reading.gui.sync_id is not None
-        for product in owed_products:
+        step = self._first_runnable_step(
+            plan, counts, grid_side=grid_side, book=book, gui_report=gui_report
+        )
+        if step is not None:
+            return step
+
+        widest = max(
+            (
+                max(plan.chosen[product].width, plan.chosen[product].height)
+                for product in owed_products
+            ),
+            default=0,
+        )
+        if widest > grid_side:
+            enabler = grid_enabler_for(widest, within_side=grid_side)
+            if enabler is not None:
+                held = counts.get(enabler.product_id, 0) > 0
+                if not held and not all(
+                    counts.get(item_id, 0) >= count for item_id, count in enabler.ingredients
+                ):
+                    # The enabler's own cost may itself be payable through a craft — a banked
+                    # log into the planks — so plan the first short ingredient and run that
+                    # step before giving the gather word. One ingredient at a time is the
+                    # real shape (the curated openers have one); more would need the shared
+                    # stock arithmetic the owed plan already does for products.
+                    short = next(
+                        (item_id, count)
+                        for item_id, count in enabler.ingredients
+                        if counts.get(item_id, 0) < count
+                    )
+                    ingredient_plan = self._owed_plan_for_counts(
+                        short[0], counts, quantity=short[1], grid_side=grid_side, book=book
+                    )
+                    if not isinstance(ingredient_plan, str):
+                        first = self._first_runnable_step(
+                            ingredient_plan,
+                            counts,
+                            grid_side=grid_side,
+                            book=book,
+                            gui_report=gui_report,
+                        )
+                        if first is not None:
+                            return first
+                    return CRAFT_MATERIALS_MISSING
+                if not held and gui_report and enabler.recipe_id not in book:
+                    return "GUI_RECIPE_UNKNOWN"
+                reserved = Counter(counts)
+                if not held:
+                    for item_id, count in enabler.ingredients:
+                        reserved[item_id] -= count
+                # What the bag still owes once the enabler is paid, planned and walked at
+                # the grid the enabler opens — the crafts it is for must be directly
+                # runnable inside that window, because a placed table cannot be reselected.
+                reduced = self._owed_plan_for_counts(
+                    product_id, reserved, quantity=quantity, grid_side=widest, book=book
+                )
+                leading: BuildStep | None = None
+                if not isinstance(reduced, str):
+                    leading = self._first_runnable_step(
+                        reduced, reserved, grid_side=widest, book=book, gui_report=gui_report
+                    )
+                if leading is not None and leading.product_id != product_id:
+                    # An earlier step is still owed on the reserved stock — turning a banked
+                    # log into the planks the wide craft needs, say: do it first, so the
+                    # window opens on a bag the wide craft can actually use.
+                    return leading
+                if leading is not None:
+                    # The wide craft itself is what the reserved bag can run: the enabler is
+                    # the move — craft it, or stand the held one up. Either way the four
+                    # planks it costs are already accounted for above.
+                    if held:
+                        return CRAFT_GRID_TOO_SMALL
+                    return BuildStep(recipe=enabler, required_total=1)
+                return CRAFT_MATERIALS_MISSING
+
+        if not any(
+            max(row.width, row.height) <= grid_side
+            for product in owed_products
+            for row in plan.rows_by_product[product]
+        ):
+            return CRAFT_GRID_TOO_SMALL
+        if gui_report and any(
+            max(row.width, row.height) <= grid_side
+            and self.knowledge.materials_for(row.recipe_id, counts) is not None
+            for product in owed_products
+            for row in plan.rows_by_product[product]
+        ):
+            # Payable steps exist; every one of them is one the open window does not name.
+            return "GUI_RECIPE_UNKNOWN"
+        return CRAFT_MATERIALS_MISSING
+
+    def _first_runnable_step(
+        self,
+        plan: _PublicOwedPlan,
+        counts: Mapping[str, int],
+        *,
+        grid_side: int,
+        book: frozenset[str],
+        gui_report: bool,
+    ) -> BuildStep | None:
+        """The plan's first owed step this bag can run on the given stock, or None.
+
+        The walk `step_toward` has always done — build order, the open window's book last —
+        lifted so the reserve check can ask it of a reduced stock: whatever it answers is what
+        a bag missing the enabler's cost would do next, and the enabler may only be spent when
+        the answer is the wide craft itself.
+        """
+
+        for product in (product for product in plan.order if plan.owed.get(product, 0) > 0):
             for row in sorted(
                 plan.rows_by_product[product],
                 key=lambda row: (row.recipe_id not in book, row.recipe_id),
@@ -351,79 +482,7 @@ class PublicCraftKnowledge:
                     ),
                     required_total=plan.owed[product],
                 )
-
-        widest = max(
-            (
-                max(plan.chosen[product].width, plan.chosen[product].height)
-                for product in owed_products
-            ),
-            default=0,
-        )
-        if widest > grid_side:
-            enabler = grid_enabler_for(widest, within_side=grid_side)
-            if enabler is not None:
-                wide_owed = [
-                    product
-                    for product in owed_products
-                    if max(plan.chosen[product].width, plan.chosen[product].height) > grid_side
-                ]
-                if counts.get(enabler.product_id, 0) > 0:
-                    # Held: standing it up is the mind's next move, not a second craft — but
-                    # only once the crafts the wider grid is for are paid; a window opened for
-                    # a craft the bag cannot run is closed again unspent, and a placed table
-                    # cannot be reselected, so the gather comes first.
-                    if self._wide_owed_paid(plan, wide_owed, counts):
-                        return CRAFT_GRID_TOO_SMALL
-                    return CRAFT_MATERIALS_MISSING
-                if all(counts.get(item_id, 0) >= count for item_id, count in enabler.ingredients):
-                    if gui_report and enabler.recipe_id not in book:
-                        return "GUI_RECIPE_UNKNOWN"
-                    reserved = Counter(counts)
-                    for item_id, count in enabler.ingredients:
-                        reserved[item_id] -= count
-                    if self._wide_owed_paid(plan, wide_owed, reserved):
-                        return BuildStep(recipe=enabler, required_total=1)
-                    # The enabler's own materials would break the payment of the product they
-                    # open the grid for: the gather comes first (a live run craft-and-stood
-                    # the table here, gathered the missing log, and re-crafted a second table
-                    # — two tables against a twelve-plank supply, tool never made).
-                    return CRAFT_MATERIALS_MISSING
-                return CRAFT_MATERIALS_MISSING
-
-        if not any(
-            max(row.width, row.height) <= grid_side
-            for product in owed_products
-            for row in plan.rows_by_product[product]
-        ):
-            return CRAFT_GRID_TOO_SMALL
-        if gui_report and any(
-            max(row.width, row.height) <= grid_side
-            and self.knowledge.materials_for(row.recipe_id, counts) is not None
-            for product in owed_products
-            for row in plan.rows_by_product[product]
-        ):
-            # Payable steps exist; every one of them is one the open window does not name.
-            return "GUI_RECIPE_UNKNOWN"
-        return CRAFT_MATERIALS_MISSING
-
-    def _wide_owed_paid(
-        self,
-        plan: _PublicOwedPlan,
-        wide_owed: Sequence[str],
-        counts: Mapping[str, int],
-    ) -> bool:
-        """Whether every craft the wider grid is for stays payable on the given stock.
-
-        The enabler opens the grid for these products' crafts and nothing else, so spending on
-        it is only progress while those crafts stay runnable. Per-product capacity matching,
-        the same arithmetic the owed plan uses; with several wide products sharing one stock
-        this stays a bounded heuristic, not a global optimum.
-        """
-
-        return all(
-            self.knowledge.materials_for(plan.chosen[product].recipe_id, counts) is not None
-            for product in wide_owed
-        )
+        return None
 
     def owed_chain(
         self,
