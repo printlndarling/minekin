@@ -14,6 +14,7 @@ tested is which verdicts change the next ask.
 
 from __future__ import annotations
 
+import math
 from dataclasses import replace
 from typing import cast
 
@@ -28,7 +29,6 @@ from minekin_core.application.player_mind import (
     GOAL_ACHIEVED,
     NO_FEASIBLE_SKILL,
     NO_LATEST_OBSERVATION,
-    REACQUIRE_PITCH_SWEEP_DEGREES,
     RETRY_BUDGET_PER_SIGNATURE,
     SCAN_PITCH_CYCLE_DEGREES,
     SCAN_YAW_STEP_DEGREES,
@@ -1437,6 +1437,14 @@ def aim_at(block: BlockTargetValue) -> AimTargetValue:
 NEAR_LOG = BlockTargetValue(x=0, y=64, z=5, face=AimFace.UP)
 
 
+def reacquire_ladder() -> list[float]:
+    """The rungs `_reacquire_probe` computes for NEAR_LOG: its column, one and two cells' worth
+    of angle per rung at the five-and-a-half-block distance the reading reports."""
+
+    cell = math.degrees(math.atan2(1.0, math.hypot(0.5, 5.5)))
+    return [0.0, cell, -cell, 2.0 * cell, -2.0 * cell]
+
+
 def test_the_mind_faces_back_to_the_log_block_it_was_breaking() -> None:
     """A collect walks the player off the trunk, the crosshair loses it, and the fallback turns
     back to the cell it was just breaking instead of blind-scanning for it — §5's re-acquisition
@@ -1454,11 +1462,11 @@ def test_the_mind_faces_back_to_the_log_block_it_was_breaking() -> None:
     assert turned.source == DECISION_FROM_LOCAL
     expected_yaw, _ = angle_to_degrees(dx=0.5, dy=0.5, dz=5.5)
     call = turned.plan.calls[0]
-    # The heading is the recalled cell's own bearing; the first probe is a generic absolute pitch
-    # (the sweep no longer aims at the vacated cell's steep angle — a live run showed that angle
-    # points at the ground beside a trunk whose members stand above it).
+    # The heading is the recalled cell's own bearing; the first probe is the ladder's horizon
+    # rung (the sweep no longer aims at the vacated cell's steep angle — a live run showed that
+    # angle points at the ground beside a trunk whose members stand above it).
     assert call.yaw_degrees == pytest.approx(expected_yaw)
-    assert call.pitch_degrees == pytest.approx(REACQUIRE_PITCH_SWEEP_DEGREES[0])
+    assert call.pitch_degrees == pytest.approx(reacquire_ladder()[0])
     # The turn stays inside the client's own units, so it is a legal look and not a clamp.
     assert -180.0 <= call.yaw_degrees <= 180.0
     assert -90.0 <= call.pitch_degrees <= 90.0
@@ -1478,11 +1486,11 @@ def test_the_re_aim_sweep_is_bounded_so_a_felled_tree_resumes_scanning() -> None
     assert mind.last_target_block == (0, 64, 5)
 
     # Each empty reading fires exactly one probe of the sweep and leaves the memory armed.
-    for _ in range(len(REACQUIRE_PITCH_SWEEP_DEGREES)):
+    for _ in range(len(reacquire_ladder())):
         stepped = mind.next_intent(reading())
         assert stepped.skill == "turn_to"
         assert mind.last_target_block == (0, 64, 5)
-    assert mind.reaim_probe == len(REACQUIRE_PITCH_SWEEP_DEGREES)
+    assert mind.reaim_probe == len(reacquire_ladder())
 
     # Offsets spent with nothing seen: the memory clears and the blind sweep (a whole multiple of
     # the scan step) resumes rather than another re-aim at the empty heading.
@@ -1505,7 +1513,7 @@ def test_the_re_aim_sweep_holds_the_recalled_heading_and_steps_only_the_pitch() 
     held_yaw, _ = angle_to_degrees(dx=0.5, dy=0.5, dz=5.5)
 
     seen_pitch: list[float] = []
-    for _ in range(len(REACQUIRE_PITCH_SWEEP_DEGREES)):
+    for _ in range(len(reacquire_ladder())):
         stepped = mind.next_intent(reading())
         call = stepped.plan.calls[0]
         assert call.yaw_degrees == pytest.approx(held_yaw)
@@ -1513,11 +1521,11 @@ def test_the_re_aim_sweep_holds_the_recalled_heading_and_steps_only_the_pitch() 
         assert -90.0 <= call.pitch_degrees <= 90.0
         seen_pitch.append(call.pitch_degrees)
 
-    # The pitch walks a fixed generic ladder (crossing the horizon toward an up-look) while the
+    # The pitch walks the recalled column's cell offsets at the measured distance while the
     # heading stays pinned to the recalled bearing, so the probes are distinct looks not a re-aim
     # at the vacated cell's steep-down angle.
-    assert seen_pitch == list(REACQUIRE_PITCH_SWEEP_DEGREES)
-    assert len(set(seen_pitch)) == len(REACQUIRE_PITCH_SWEEP_DEGREES)
+    assert seen_pitch == pytest.approx(reacquire_ladder())
+    assert len(set(seen_pitch)) == len(reacquire_ladder())
 
 
 def test_a_re_aim_is_refused_when_the_bag_owes_a_grid_not_a_resource() -> None:
@@ -1671,17 +1679,21 @@ def test_local_setup_leaves_an_unselected_table_in_the_bag_until_the_debt_is_pai
     assert mind.next_intent(paid).skill == "select_hotbar"
 
 
-def test_reacquisition_looks_steeply_up_before_abandoning_a_close_resource_heading() -> None:
+def test_reacquisition_sweeps_the_recalled_columns_cell_offsets() -> None:
     mind, _ = mind_with()
     mind.next_intent(reading(aim=aim_at(NEAR_LOG)))
     pitches: list[float] = []
-    while mind.last_target_block is not None:
+    while True:
         intent = mind.next_intent(reading())
-        pitches.append(intent.plan.calls[0].pitch_degrees)
-        if intent.plan.calls[0].pitch_degrees < -80:
+        if mind.last_target_block is None:
+            # This call was the one that exhausted the ladder: its turn is the blind scan's,
+            # not a rung.
             break
-    assert min(pitches) < -80
-    assert mind.last_target_block == (0, 64, 5)
+        pitches.append(intent.plan.calls[0].pitch_degrees)
+    # One rung per cell of the recalled column at the measured distance, then the memory clears:
+    # the ladder covers the block standing above or below the vacated cell — which the old fixed
+    # ladder could not at three blocks, turning away from a trunk with a usable log still in it.
+    assert pitches == pytest.approx(reacquire_ladder())
     # Only a subsequent client reading, not the sweep, can make the overhead
     # block a mine target. The successful sighting re-arms the normal break.
     observed = mind.next_intent(
@@ -1837,10 +1849,13 @@ def test_search_hint_uses_observed_cell_bearing_without_claiming_remaining_block
     hint = cast(dict[str, object], provider.requests[-1].observation_summary["view_search"])
     assert hint["source"] == "previously_seen_crosshair_cell"
     assert hint["target_presence"] == "unconfirmed"
-    assert hint["pitch_candidates_degrees"] == list(REACQUIRE_PITCH_SWEEP_DEGREES)
     x, y, z = remembered
     body = subject.self_state
     assert body.x is not None and body.y is not None and body.z is not None
+    cell = math.degrees(math.atan2(1.0, max(math.hypot(x + 0.5 - body.x, z + 0.5 - body.z), 0.5)))
+    assert hint["pitch_candidates_degrees"] == pytest.approx(
+        [0.0, cell, -cell, 2.0 * cell, -2.0 * cell]
+    )
     expected, _ = angle_to_degrees(dx=x + 0.5 - body.x, dy=y + 0.5 - body.y, dz=z + 0.5 - body.z)
     assert hint["suggested_yaw_degrees"] == pytest.approx(expected)
     assert mind.last_target_block == remembered

@@ -160,19 +160,15 @@ RETRY_BUDGET_PER_SIGNATURE: Final = 2
 SCAN_YAW_STEP_DEGREES: Final = 45.0
 SCAN_PITCH_CYCLE_DEGREES: Final = (-18.0, 55.0, -55.0)
 
-#: The pitch angles a resource re-aim probes while it holds the trunk's recalled heading. Measured
-#: on a live run: `collect` parks the Kin beside the block it just broke, so aiming at that vacated
-#: cell points steeply DOWN, while the members of a vertical trunk that still stand are near the
-#: horizon or above it — a ±18° wobble off the vacated cell's own steep pitch never crossed the
-#: horizon and found nothing, and only the blind scan's `+55` look-up landed the next log. So these
-#: probes are absolute pitch angles that span that up-range, held at the recalled yaw. They are the
-#: same kind of fixed look the blind scan already issues, only pinned to a heading the crosshair
-#: reported — a bounded set of generic angles, NOT a neighbouring cell's coordinates, so which
-#: block (if any) each probe reveals stays the client's word and not the mind's inference: the line
-#: §5 draws between "look again along a heading I saw" and "recall a cell I never saw."
-#: Bounded, so a trunk whose column is entirely gone sweeps these few angles, then clears the memory
-#: and falls back to the blind scan rather than looping here forever.
-REACQUIRE_PITCH_SWEEP_DEGREES: Final = (0.0, 55.0, -55.0, 30.0, -30.0, 85.0, -85.0)
+#: The pitch ladder a resource re-aim sweeps while it holds the trunk's recalled heading is
+#: computed per reading by `PlayerMind._reacquire_probe` — one and two cells' worth of angle at
+#: the distance the reading reports (`0, ±Δ, ±2Δ`, `Δ = atan(1/d)`). An earlier fixed ladder
+#: (0, ±30, ±55, ±85) was measured against a column at three blocks, where its standing members
+#: sit ±16..20° from a remembered cell: none of the fixed probes hit them, and a live run turned
+#: away from a trunk with a usable log still standing in it. The ladder stays the same kind of
+#: look the blind scan issues — a bounded set of pitches pinned to a heading the crosshair
+#: reported, NOT a neighbouring cell's coordinates, so which block (if any) each probe reveals
+#: stays the client's word and not the mind's inference.
 
 #: Reused verbatim from the skill layer so the word for "there was nothing to read" is the
 #: same on both sides of this module, as it already is on both sides of the IPC channel.
@@ -1058,10 +1054,10 @@ class PlayerMind:
     #: per remembered block (see `_call_for`), so a felled tree that leaves no block in view
     #: cannot strand the run in a re-aim loop: the memory clears and the blind scan resumes.
     last_target_block: tuple[int, int, int] | None = field(default=None, init=False)
-    #: Which `REACQUIRE_PITCH_SWEEP_DEGREES` offset the resource re-aim is on. It advances once per
-    #: re-aim turn and resets when the block is re-armed (a `break_seen_block` follows a landed
-    #: aim) or when the sweep exhausts and the memory clears — so the sweep is bounded and repeats
-    #: only while a real aim is being chased, never across a felled trunk.
+    #: Which rung of the re-aim ladder (`_reacquire_probe`) the resource re-aim is on. It advances
+    #: once per re-aim turn and resets when the block is re-armed (a `break_seen_block` follows a
+    #: landed aim) or when the sweep exhausts and the memory clears — so the sweep is bounded and
+    #: repeats only while a real aim is being chased, never across a felled trunk.
     reaim_probe: int = field(default=0, init=False)
 
     observed_drop_ids: set[tuple[int, str]] = field(
@@ -1781,24 +1777,16 @@ class PlayerMind:
         claim that a neighbouring block exists. Suggestions do not execute or replace model asks.
         """
         yaw = ((reading.self_state.yaw_degrees or 0.0) + SCAN_YAW_STEP_DEGREES) % 360.0
-        pitches = SCAN_PITCH_CYCLE_DEGREES
+        pitches: tuple[float, ...] = SCAN_PITCH_CYCLE_DEGREES
         source = "body_angles"
-        position = (reading.self_state.x, reading.self_state.y, reading.self_state.z)
         if (
             self.last_target_block is not None
             and self.goal is not None
             and self._goal_craft_blocker(reading) == CRAFT_MATERIALS_MISSING
-            and all(value is not None for value in position)
         ):
-            x, y, z = position
-            assert x is not None and y is not None and z is not None
-            bx, by, bz = self.last_target_block
-            try:
-                yaw, _ = angle_to_degrees(dx=bx + 0.5 - x, dy=by + 0.5 - y, dz=bz + 0.5 - z)
-            except ValueError:
-                pass
-            else:
-                pitches = REACQUIRE_PITCH_SWEEP_DEGREES
+            probe = self._reacquire_probe(reading)
+            if probe is not None:
+                yaw, pitches = probe
                 source = "previously_seen_crosshair_cell"
         return {
             "source": source,
@@ -1824,13 +1812,14 @@ class PlayerMind:
         It fires only while the standing milestone still owes its raw material — the reroute word
         `blocker_for` already uses for "go back to the resource" — so it never re-aims at a trunk
         the bag has finished paying for. It is a bounded sweep rather than a single turn: it holds
-        the recalled cell's heading and steps through `REACQUIRE_PITCH_SWEEP_DEGREES`, so a column
-        whose reported block is now broken still gets its standing neighbours back in the
-        crosshair. If a probe lands the crosshair on a block, building the next `break_seen_block`
-        re-arms the memory and resets the sweep; when the probes run out with nothing seen the
-        memory clears and the blind scan resumes, which is what bounds a felled tree from looping
-        the turn. Every angle here is either the recalled heading or a generic pitch the blind scan
-        already uses — the mind never names a cell the crosshair did not report, the line §5 draws.
+        the recalled cell's heading and steps the pitch ladder `_reacquire_probe` computes for the
+        distance the reading reports, so a column whose reported block is now broken still gets
+        its standing neighbours back in the crosshair — the offsets are one and two cells' worth
+        of angle at that measured distance, not a fixed ladder that misses a column standing at
+        three blocks. If a probe lands the crosshair on a block, building the next
+        `break_seen_block` re-arms the memory and resets the sweep; when the probes run out with
+        nothing seen the memory clears and the blind scan resumes, which is what bounds a felled
+        tree from looping the turn.
         """
 
         if self.goal is None or self.last_target_block is None:
@@ -1838,16 +1827,64 @@ class PlayerMind:
         if self._goal_craft_blocker(reading) != CRAFT_MATERIALS_MISSING:
             self.reaim_probe = 0
             return None
-        self_x, self_y, self_z = reading.self_state.x, reading.self_state.y, reading.self_state.z
-        if self_x is None or self_y is None or self_z is None:
+        if (
+            reading.self_state.x is None
+            or reading.self_state.y is None
+            or reading.self_state.z is None
+        ):
+            # A reading that never reported a position has no offset to aim from: the memory
+            # stays, the sweep resets, and this look falls back to the blind scan.
             self.reaim_probe = 0
             return None
+        probe = self._reacquire_probe(reading)
+        if probe is None:
+            # The recalled geometry itself is unusable (a degenerate angle): the memory is worth
+            # nothing, so it clears rather than being retried forever.
+            self.reaim_probe = 0
+            self.last_target_block = None
+            return None
+        yaw, ladder = probe
+        if self.reaim_probe >= len(ladder):
+            # The bounded sweep ran out without the crosshair landing a block: the column is gone
+            # (or was never there), so clear the memory and let the blind scan resume — a felled
+            # tree must not strand the run in an endless re-aim.
+            self.reaim_probe = 0
+            self.last_target_block = None
+            return None
+        # A pitch pinned to the recalled heading, one cell of the standing column per rung: it
+        # names no neighbouring cell, it looks along a bearing the mind saw, and the crosshair
+        # says what is there.
+        pitch = ladder[self.reaim_probe]
+        self.reaim_probe += 1
+        return (
+            SkillPlan((SkillCall(name="turn_to", yaw_degrees=yaw, pitch_degrees=pitch),)),
+            "turn back to the resource block this mind was breaking",
+            {"yaw_degrees": yaw, "pitch_degrees": pitch},
+        )
+
+    def _reacquire_probe(
+        self, reading: WorldObservationValue
+    ) -> tuple[float, tuple[float, ...]] | None:
+        """The recalled cell's bearing and the pitch ladder that sweeps its column.
+
+        The trunk's heading is the recalled cell's horizontal bearing — data the crosshair
+        itself reported, so holding it is the authorized memory — and the rungs are the angles
+        one and two cells above or below that bearing at the distance this reading reports:
+        `Δ = atan(1 block / d)`, so 0, ±Δ, ±2Δ. The cell's own pitch is discarded (the standing
+        column sits near the horizon or above the reported cell once that one is broken). A
+        fixed ladder could not do this: at three blocks a column's members are ±16..20° apart
+        from the remembered cell, and no fixed probe of ±30/±55 hit them — a live run turned
+        away from a trunk with a usable log still standing in it. None when the geometry is
+        unusable (no recall, or an undefined angle), which the callers treat as clearing the
+        memory.
+        """
+
+        if self.last_target_block is None:
+            return None
+        self_x, self_y, self_z = reading.self_state.x, reading.self_state.y, reading.self_state.z
+        if self_x is None or self_y is None or self_z is None:
+            return None
         block_x, block_y, block_z = self.last_target_block
-        # The trunk's heading is the recalled cell's horizontal bearing — data the crosshair itself
-        # reported, so holding it is the authorized memory. The cell's own pitch is discarded: the
-        # standing column sits near the horizon or above it once the reported block is gone, so the
-        # probes below are absolute generic pitches pinned to this heading, not an offset off the
-        # vacated cell's (steeply-down) angle.
         try:
             yaw, _ = angle_to_degrees(
                 dx=block_x + 0.5 - self_x,
@@ -1855,26 +1892,16 @@ class PlayerMind:
                 dz=block_z + 0.5 - self_z,
             )
         except ValueError:
-            self.reaim_probe = 0
-            self.last_target_block = None
             return None
-        if self.reaim_probe >= len(REACQUIRE_PITCH_SWEEP_DEGREES):
-            # The bounded sweep ran out without the crosshair landing a block: the column is gone
-            # (or was never there), so clear the memory and let the blind scan resume — a felled
-            # tree must not strand the run in an endless re-aim.
-            self.reaim_probe = 0
-            self.last_target_block = None
-            return None
-        # A generic absolute pitch the blind scan already issues, only pinned to the recalled
-        # heading: it names no neighbouring cell, it looks along a bearing the mind saw, and the
-        # crosshair says what is there.
-        pitch = REACQUIRE_PITCH_SWEEP_DEGREES[self.reaim_probe]
-        self.reaim_probe += 1
-        return (
-            SkillPlan((SkillCall(name="turn_to", yaw_degrees=yaw, pitch_degrees=pitch),)),
-            "turn back to the resource block this mind was breaking",
-            {"yaw_degrees": yaw, "pitch_degrees": pitch},
-        )
+        horizontal = math.hypot(block_x + 0.5 - self_x, block_z + 0.5 - self_z)
+        cell = math.degrees(math.atan2(1.0, max(horizontal, 0.5)))
+        ladder: list[float] = []
+        for offset in (0.0, cell, -cell, 2.0 * cell, -2.0 * cell):
+            if -90.0 <= offset <= 90.0 and not any(
+                math.isclose(offset, seen, abs_tol=1e-6) for seen in ladder
+            ):
+                ladder.append(offset)
+        return yaw, tuple(ladder)
 
     def _asked_product(
         self, arguments: Mapping[str, object], reading: WorldObservationValue
