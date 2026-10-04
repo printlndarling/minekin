@@ -93,7 +93,7 @@ def test_projection_requires_verified_sealed_document(tmp_path: Path) -> None:
     # A ledger step does not establish that a persona or memory was used.
     assert "gap" in before["skillSteps"]["value"]["personaContext"]
     assert "gap" in before["skillSteps"]["value"]["sessionHistory"]
-    document = {"run_id": RUN_ID, "run": {"autonomous": {"mind": mind_context()}}}
+    document = {"run_id": RUN_ID, "run": {"autonomous": {"mind": experience_context()}}}
     try:
         seal_bundle(
             tmp_path / "kin" / str(KIN_ID),
@@ -105,6 +105,79 @@ def test_projection_requires_verified_sealed_document(tmp_path: Path) -> None:
         values = after["skillSteps"]["value"]
         assert "manifest_sha256=" in values["personaContext"]["value"]
         assert "old-event" in values["sessionHistory"]["value"]
+        assert "FAILED=2" in values["sessionHistory"]["value"]
+        assert "UNKNOWN=1" in values["sessionHistory"]["value"]
         assert "canary-secret" not in json.dumps(after)
     finally:
         unseal_all(tmp_path)
+
+
+def experience_context() -> dict[str, object]:
+    context = mind_context()
+    history = cast("dict[str, object]", context["session_history"])
+    history["skill_experiences"] = {
+        "retriever_version": "skill-experiences-v2",
+        "status": "found",
+        "freshness": "historical",
+        "current_world_applicability": "unknown",
+        "game_version_applicability": "unknown",
+        "world_facts": "not_retrieved",
+        "scanned_records": 16,
+        "records_omitted_within_scan": 8,
+        "patterns_omitted_within_scan": 0,
+        "older_records_not_scanned": False,
+        "patterns": [
+            {
+                "skill": "consume_item",
+                "source": "CORE",
+                "trust_class": "CORE",
+                "freshness": "historical",
+                "current_world_applicability": "unknown",
+                "result_counts": {"FAILED": 2, "UNKNOWN": 1, "CONFIRMED": 1},
+                "latest_by_result": {
+                    "FAILED": "fail",
+                    "UNKNOWN": "uncertain",
+                    "CONFIRMED": "success",
+                },
+                "private_note": "canary-secret",
+            }
+        ],
+    }
+    return context
+
+
+def test_recorded_patterns_keep_failure_unknown_and_retrieval_boundaries() -> None:
+    text = history_summary(experience_context())
+    assert text is not None
+    for expected in (
+        "历史技能窗口 16/64",
+        "FAILED=2",
+        "UNKNOWN=1",
+        "CONFIRMED=1",
+        "event=uncertain",
+        "省略明细 8",
+        "世界/版本适用性未知",
+    ):
+        assert expected in text
+    assert "canary-secret" not in text
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"scanned_records": True},
+        {"scanned_records": 65},
+        {"older_records_not_scanned": True},
+        {"game_version_applicability": "confirmed"},
+        {"records_omitted_within_scan": -1},
+        {"patterns": [dict[str, object]()]},
+    ],
+)
+def test_bad_pattern_metadata_is_not_rendered(changes: dict[str, object]) -> None:
+    context = experience_context()
+    history = cast("dict[str, object]", context["session_history"])
+    packet = cast("dict[str, object]", history["skill_experiences"])
+    packet.update(changes)
+    text = history_summary(context)
+    assert text is not None and "技能经历摘要不合法" in text
+    assert "FAILED=2" not in text

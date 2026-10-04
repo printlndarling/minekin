@@ -44,6 +44,19 @@ describe("技能步面板：known 组逐成员、缺组具名、绝不折叠成 
     expect(decodeSnapshotPayload(wire, "gateway").ok).toBe(false);
   });
 
+  it("展示记录过的经历计数和省略边界，不把未知改成成功", () => {
+    const wire = buildMockBundle("healthy_run_07", NOW).snapshot;
+    const group = wire.skillSteps as Record<string, unknown>;
+    const value = group.value as Record<string, unknown>;
+    value.sessionHistory = { value: "historical; 历史技能窗口 16/64 条; 省略明细 8 条; 世界/版本适用性未知; consume_item: FAILED=2 [event=fail], UNKNOWN=1 [event=uncertain], CONFIRMED=1 [event=success]" };
+    render(<SkillStepPanel snapshot={snapshotFrom(wire, "gateway")} />);
+    const history = screen.getByTestId("skill-step-历史记忆输入");
+    for (const text of ["16/64", "省略明细 8", "FAILED=2", "UNKNOWN=1", "CONFIRMED=1", "世界/版本适用性未知"]) {
+      expect(history).toHaveTextContent(text);
+    }
+    expect(screen.getByTestId("panel-skill-steps")).toHaveTextContent("不证明模型采纳或人格生效");
+  });
+
   it("known 组：最近一步的值原样上屏，按构造为空的成员显示带 Core 原文的缺口", () => {
     const snapshot = snapshotFrom(buildMockBundle("healthy_run_07", NOW).snapshot, "mock");
     render(<SkillStepPanel snapshot={snapshot} />);
