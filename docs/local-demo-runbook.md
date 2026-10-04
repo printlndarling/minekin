@@ -82,6 +82,8 @@ export MINEKIN_RUNNER_FORWARD_ENV=<存放密钥的那个变量名>  # 逗号分�
 
 一个都没设的时候，这次运行仍然完整跑通，只是每一步的来源是 `local_reflection`，并且 run 文档与面板都会写出 `MODEL_NOT_CONFIGURED`——**这是明说的降级，不是假装问过模型**。
 
+2026-10-05 本机实测（两条都可行）：①在 git bash 里 `set -a; . ./.env; set +a`，再 `export MINEKIN_MODEL_PROVIDER=openai_compatible MINEKIN_MODEL_RUN_COST_CAP=200000 MINEKIN_RUNNER_FORWARD_ENV="MINEKIN_MODEL,MINEKIN_MODEL_PROVIDER,MINEKIN_MODEL_BASE_URL,MINEKIN_MODEL_TIMEOUT_MS,MINEKIN_MODEL_RUN_COST_CAP,MINEKIN_MODEL_API_KEY_ENV,${MINEKIN_MODEL_API_KEY_ENV}"`，然后按第二节跑 `demo.sh --autonomous`（密钥只在变量里，回显与日志不出现）；②或直接用 `uv run python tools/run_real_model_demo.py --log .tmp/model-run.log --bundle-profile /src/tests/fixtures/runtime-input/bundle-candidate-1.20.1.json`——POSIX 形态的 profile 现在在脚本文本内 export，绕开 MSYS 对原生环境值的路径改写（`7be108d`）。**受控世界在 normal 难度、游戏内夜间会刷敌对生物**（2026-10-05 run-89 被史莱姆击杀 9 次、无反击/逃跑）；只验合成链的 run 给 `MINEKIN_DOMAIN_DIFFICULTY=peaceful`。
+
 ## 五、已知限制（具名，不用测试数量掩盖）
 
 1. **合成这一步在 2026-09-29 那次运行里拿不到确认。** 那次真实运行的读数是：`break_seen_block`（取木）和 `collect_dropped`（拾取）都是 CONFIRMED，而 `craft` 是 `UNKNOWN / NO_CONFIRMING_OBSERVATION`，归因 `INSUFFICIENT_INFORMATION`。当时量到的边界是：配方点击确实发出去了，客户端进程和服务端连接在整段 5 秒判据窗口里都还活着（服务端日志里能看到加入与 15 秒后的断开），但那一步窗口内**没有任何新的被采纳读数到达** Core。**当时记下的那句"要区分就得扩 run 文档 / 封存 schema，那是主控保留的决定"已经按新读数作废**：run 文档本来就带 `details` 这个自由字段，现在它把三种收尾分开说（`newest_checked_tick` 等于 `pre_tick` ⇒ 通道安静；大于 ⇒ 帧到了而背包同步号没动；`gui_open=false` ⇒ 界面根本没被看见打开），schema 一格没扩。**"通过真实背包/GUI 制作基础工具"这一项目前的完成度**：点击已发出并被桥接受、判据窗口会说明它为什么没确认、默认点击已换成会把成品放进背包的那一笔（下面第 10 条），而"世界确认合成成功"那一格仍待活体读数。**那一格在 2026-09-30 由第 11 条的技能补上并量到了**（run `e1e981553a0d4ea69468f6bc07a88fb5`：木板与木棍两步 CONFIRMED，服务端存档背包 4 根木棍 + 2 块木板），而 `craft` 这一条本身按第 12 条停在 `UNKNOWN`。
