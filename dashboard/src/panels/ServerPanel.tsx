@@ -10,7 +10,7 @@ export function useServerRead(adapter: KinReadAdapter) {
     queryFn: ({ signal }) => adapter.serverConfig(signal), refetchInterval: 5000, refetchOnWindowFocus: false });
   return { config: query.data?.ok ? query.data.value : null,
     failure: query.data !== undefined && !query.data.ok ? query.data.failure : null,
-    isLoading: query.isLoading, isFetching: query.isFetching };
+    isLoading: query.isLoading, isFetching: query.isFetching, isError: query.isError };
 }
 
 export function ServerPanel({ adapter }: { readonly adapter: KinReadAdapter }) {
