@@ -49,6 +49,8 @@ from minekin_core.domain.control_vocabulary import (
     MINE_INPUT_TYPE,
     MOVE_CAPABILITY,
     MOVE_INPUT_TYPE,
+    RESPAWN_CAPABILITY,
+    RESPAWN_INPUT_TYPE,
     SCREEN_CAPABILITY,
     SCREEN_INPUT_TYPE,
     USE_CAPABILITY,
@@ -628,6 +630,10 @@ class WorldSkills:
             tick = self._observations.last_death_tick
             assert tick is not None
             raise PlayerDied(action_id=action_id, game_tick=tick)
+
+    @property
+    def supports_respawn(self) -> bool:
+        return RESPAWN_CAPABILITY in self._capabilities
 
     def client_exit_code(self) -> int | None:
         """What the launcher's supervisor says about the client process, right now.
@@ -1706,6 +1712,71 @@ class WorldSkills:
             details=_consume_details(pre, post, item_id=item_id),
         )
 
+    async def respawn(
+        self, *, authority: ActionAuthority, timeout_ns: int = DEFAULT_STEP_TIMEOUT_NS
+    ) -> SkillOutcome:
+        """Ask once for the visible respawn affordance, then read the new live body."""
+        pre = self._observations.latest
+        if RESPAWN_CAPABILITY not in self._capabilities:
+            return SkillOutcome(
+                result=ActionResultClass.FAILED,
+                reason=CAPABILITY_NOT_GRANTED,
+                action_id="",
+                details={"capability": RESPAWN_CAPABILITY},
+            )
+        if pre is None:
+            return _refusal_outcome("NO_LATEST_OBSERVATION", "", pre)
+        if pre.generation != authority.generation:
+            return _refusal_outcome("WORLD_GENERATION_CHANGED", "", pre)
+        if pre.self_state.alive:
+            return _refusal_outcome("RESPAWN_ALREADY_ALIVE", "", pre)
+        if pre.self_state.respawn_available is not True:
+            return _refusal_outcome("RESPAWN_UNAVAILABLE", "", pre)
+        action_id = self._action_id()
+        await self._sender.send_control(
+            RESPAWN_INPUT_TYPE,
+            control_pb2.RespawnInput(
+                action_id=action_id,
+                lease_id=authority.lease_id,
+                generation=authority.generation,
+                deadline_monotonic_ns=authority.deadline_monotonic_ns,
+            ),
+        )
+        post = await self._outlive_client(
+            self._observations.wait_until(
+                lambda latest: (
+                    latest.game_tick > pre.game_tick
+                    and (latest.generation != authority.generation or latest.self_state.alive)
+                ),
+                timeout_s=timeout_ns / 1_000_000_000,
+            ),
+            action_id=action_id,
+            allow_dead=True,
+        )
+        self.check_body_interruption(action_id)
+        if post is None:
+            return SkillOutcome(
+                result=ActionResultClass.UNKNOWN,
+                reason="RESPAWN_NOT_CONFIRMED",
+                action_id=action_id,
+                pre_tick=pre.game_tick,
+            )
+        if post.generation != authority.generation:
+            return SkillOutcome(
+                result=ActionResultClass.INTERRUPTED,
+                reason="WORLD_GENERATION_CHANGED",
+                action_id=action_id,
+                pre_tick=pre.game_tick,
+                post_tick=post.game_tick,
+            )
+        return SkillOutcome(
+            result=ActionResultClass.CONFIRMED,
+            reason="",
+            action_id=action_id,
+            pre_tick=pre.game_tick,
+            post_tick=post.game_tick,
+        )
+
     def _require(self, capability: str) -> SkillOutcome | None:
         """The named refusal when the session was never negotiated for it.
 
@@ -1830,7 +1901,11 @@ class WorldSkills:
             await release()
 
     async def _outlive_client(
-        self, wait: Awaitable[WorldObservationValue | None], *, action_id: str
+        self,
+        wait: Awaitable[WorldObservationValue | None],
+        *,
+        action_id: str,
+        allow_dead: bool = False,
     ) -> WorldObservationValue | None:
         """Let the client's own exit interrupt a wait, and cancel the wait for it.
 
@@ -1845,7 +1920,10 @@ class WorldSkills:
                 finished, _ = await asyncio.wait({pending}, timeout=CLIENT_EXIT_POLL_S)
                 if finished:
                     return pending.result()
-                self._check_alive(action_id)
+                if allow_dead:
+                    self.check_body_interruption(action_id)
+                else:
+                    self._check_alive(action_id)
                 gone = self._client_exit()
                 if gone is not None:
                     raise ClientProcessExited(gone, action_id=action_id)

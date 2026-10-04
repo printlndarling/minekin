@@ -168,9 +168,9 @@ def test_a_secret_that_is_not_256_bits_is_refused(secret: bytes) -> None:
 #: with these secrets. The digest moves whenever the plan it is computed over moves —
 #: on 2026-09-25 because the root began declaring the versions its own runtime reports,
 #: and on 2026-10-04 because the candidate fixture was re-pinned to the rebuilt Bridge
-#: for the additive respawn schema — and it is the shipped function, not this file,
-#: that says what the proof is.
-BRIDGE_HELLO_PROOF_1214 = "8df5e3d7d01114744cc33b9530a7d39d399a52fd5b08830d650225030dab470c"
+#: for the additive respawn schema and then for the respawn input message — and it is
+#: the shipped function, not this file, that says what the proof is.
+BRIDGE_HELLO_PROOF_1214 = "b77384a6df7624482793db414de2e18049ebfa24838f9cf857c80c8bff3ae122"
 
 
 def authenticate(

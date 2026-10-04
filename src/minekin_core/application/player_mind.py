@@ -270,6 +270,7 @@ SKILL_OFFER: Final = _checked_offer(
         "break_seen_block",
         "collect_dropped",
         "consume_item",
+        "respawn",
         "craft_take_result",
         "select_hotbar",
         "use_target",
@@ -704,7 +705,7 @@ def feasible_skill_ids(
     """
 
     if not reading.self_state.alive:
-        return ()
+        return ("respawn",) if reading.self_state.respawn_available is True else ()
     if screen_open(reading):
         if goal_in_hand(milestone, reading):
             return (CLOSE_SCREEN,)
@@ -835,6 +836,7 @@ def observation_summary(
         "max_health": reading.self_state.max_health,
         "food": reading.self_state.food,
         "alive": reading.self_state.alive,
+        "respawn_available": reading.self_state.respawn_available,
     }
     if milestone is not None:
         summary["goal"] = {
@@ -1219,7 +1221,7 @@ class PlayerMind:
         self.observe(reading)
         if reading is None:
             return self._hold(NO_LATEST_OBSERVATION, None)
-        if not reading.self_state.alive:
+        if not reading.self_state.alive and reading.self_state.respawn_available is not True:
             return self._hold(PLAYER_DEAD, reading)
         if self.holds_goal(reading) and not screen_open(reading):
             return self._hold(GOAL_ACHIEVED, reading)
@@ -1524,6 +1526,8 @@ class PlayerMind:
         again instead of excavating ground.
         """
 
+        if "respawn" in feasible:
+            return "respawn"
         if "close_screen" in feasible:
             if (
                 "craft_take_result" in feasible
@@ -1590,6 +1594,8 @@ class PlayerMind:
         name, which is what the projection and the attribution table already read.
         """
 
+        if skill == "respawn":
+            return SkillPlan((SkillCall(name="respawn"),)), "use the visible respawn button", {}
         if skill == "craft_take_result":
             target = self._asked_product(arguments, reading)
             if not target:

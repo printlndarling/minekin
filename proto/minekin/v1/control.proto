@@ -270,3 +270,13 @@ message GuiClickInput {
   }
   uint64 deadline_monotonic_ns = 7;
 }
+
+
+// The currently visible, enabled vanilla respawn button. No game-mode change,
+// server command or replay: the client rechecks its death screen on execution.
+message RespawnInput {
+  string action_id = 1;
+  string lease_id = 2;
+  uint64 generation = 3;
+  uint64 deadline_monotonic_ns = 4;
+}

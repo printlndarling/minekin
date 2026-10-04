@@ -339,3 +339,15 @@ class GuiClickInput(_message.Message):
     recipe: GuiRecipeClick
     deadline_monotonic_ns: int
     def __init__(self, action_id: _Optional[str] = ..., lease_id: _Optional[str] = ..., generation: _Optional[int] = ..., sync_id: _Optional[int] = ..., slot: _Optional[_Union[GuiSlotClick, _Mapping]] = ..., recipe: _Optional[_Union[GuiRecipeClick, _Mapping]] = ..., deadline_monotonic_ns: _Optional[int] = ...) -> None: ...
+
+class RespawnInput(_message.Message):
+    __slots__ = ("action_id", "lease_id", "generation", "deadline_monotonic_ns")
+    ACTION_ID_FIELD_NUMBER: _ClassVar[int]
+    LEASE_ID_FIELD_NUMBER: _ClassVar[int]
+    GENERATION_FIELD_NUMBER: _ClassVar[int]
+    DEADLINE_MONOTONIC_NS_FIELD_NUMBER: _ClassVar[int]
+    action_id: str
+    lease_id: str
+    generation: int
+    deadline_monotonic_ns: int
+    def __init__(self, action_id: _Optional[str] = ..., lease_id: _Optional[str] = ..., generation: _Optional[int] = ..., deadline_monotonic_ns: _Optional[int] = ...) -> None: ...

@@ -65,6 +65,7 @@ _DEFAULTED: Final[dict[str, tuple[str, ...]]] = {
     "close_screen": (),
     "select_hotbar": ("expected_item_id",),
     "use_target": (),
+    "respawn": (),
 }
 
 #: The argument each skill requires, by name. Empty for a skill that can run on
@@ -81,6 +82,7 @@ _REQUIRED: Final[dict[str, tuple[str, ...]]] = {
     "close_screen": (),
     "select_hotbar": ("slot",),
     "use_target": (),
+    "respawn": (),
 }
 
 #: The keys that replace a skill's whole required set rather than defaulting one
@@ -96,6 +98,7 @@ _ALTERNATIVES: Final[dict[str, tuple[str, ...]]] = {
     "consume_item": (),
     "select_hotbar": (),
     "use_target": (),
+    "respawn": (),
 }
 
 #: Every key a plan may use, so a typo is refused by name instead of being
@@ -478,6 +481,8 @@ async def _dispatch(
     this function only maps a call's name onto the method that carries it.
     """
 
+    if call.name == "respawn":
+        return await skills.respawn(authority=authority, timeout_ns=timeout_ns)
     if call.name == "turn_to":
         return await skills.turn_to(
             yaw_degrees=call.yaw_degrees,

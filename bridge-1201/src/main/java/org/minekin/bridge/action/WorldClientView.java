@@ -46,6 +46,9 @@ public interface WorldClientView {
     /** Dismisses whatever screen the client has open. */
     void closeScreen();
 
+    /** Presses only the currently enabled visible vanilla respawn button. */
+    boolean respawn();
+
     /** Whether a screen currently holds the keyboard. */
     boolean screenOpen();
 

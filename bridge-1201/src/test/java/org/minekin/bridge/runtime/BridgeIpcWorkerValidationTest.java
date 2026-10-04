@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.minekin.protocol.v1.ConnectWorld;
+import io.minekin.protocol.v1.RespawnInput;
 import io.minekin.protocol.v1.LookInput;
 import io.minekin.protocol.v1.MoveInput;
 import io.minekin.protocol.v1.ReleaseAllInputs;
@@ -257,4 +258,22 @@ final class BridgeIpcWorkerValidationTest {
                 BridgeInputController.ReleaseReason.BRIDGE_FAULT,
                 BridgeIpcWorker.reasonFor(new IllegalStateException("an invariant broke")));
     }
+    @Test
+    void respawnRequiresBoundedIdentityGenerationAndADeadline() {
+        RespawnInput valid = RespawnInput.newBuilder()
+                .setActionId("respawn-1").setLeaseId("lease-1")
+                .setGeneration(1).setDeadlineMonotonicNs(10_000).build();
+        assertDoesNotThrow(() -> BridgeIpcWorker.validateRespawn(valid));
+        for (RespawnInput invalid : new RespawnInput[] {
+            valid.toBuilder().setActionId("").build(),
+            valid.toBuilder().setLeaseId("").build(),
+            valid.toBuilder().setActionId("x".repeat(129)).build(),
+            valid.toBuilder().setGeneration(0).build(),
+            valid.toBuilder().setDeadlineMonotonicNs(0).build()
+        }) {
+            assertThrows(IllegalArgumentException.class,
+                    () -> BridgeIpcWorker.validateRespawn(invalid));
+        }
+    }
+
 }

@@ -10,6 +10,7 @@ from typing import Any, cast
 
 from minekin_core.domain.control_vocabulary import (
     BASELINE_CAPABILITIES,
+    RESPAWN_CAPABILITY,
     WORLD_ACTION_CAPABILITIES,
 )
 from minekin_core.domain.errors import ErrorCategory, MinekinError, Retryability
@@ -45,10 +46,14 @@ FABRIC_API_SHA1 = "1c7871b6af04edc8b8f0dbad12606d67f6118a11"
 # Bridge source is not allowed to "just work". The jar has to be rebuilt and
 # this pin renewed, because a plan that names this digest and ships other bytes
 # is the failure the pin exists to catch.
-# 2026-10-04: additive respawn observation schema; local Java 21 build pin.
-# Earlier cross-platform/game evidence below belongs to its historical bytes.
-BRIDGE_JAR_SHA256 = "2e3b39ebe290dcd9d008e30e618c977d4bdec8363905728a50c82e25971b395c"
-BRIDGE_JAR_SIZE = 1_407_376
+# 2026-10-04(1): additive respawn observation schema; local Java 21 build pin.
+# 2026-10-04(2): additive respawn input message; both roots rebuilt on Windows
+# with JDK 21.0.12.1+1-LTS-4 (`./gradlew check --rerun-tasks`, 15 tasks
+# executed), each jar produced twice. The Linux cross-build and game acceptance
+# have not been re-run on these bytes; earlier cross-platform/game evidence
+# belongs to the historical bytes above.
+BRIDGE_JAR_SHA256 = "caee47eacae11a880fa8c2f7551f174aab9a2b0c127ad6c46e90159a93a3af85"
+BRIDGE_JAR_SIZE = 1_413_073
 BRIDGE_JAR_RELATIVE_PATH = "bridge/build/libs/minekin-bridge-0.0.0.jar"
 
 # The second bundle. These are the reviewed pins for Minecraft 1.20.1, each one
@@ -76,13 +81,14 @@ FABRIC_API_1201_SHA1 = "3e9cdd3e2f827ca9a259df9eb8e31949437b6bd4"
 #
 # What is NOT carried over is the older pins' two-platform claim. These bytes
 # were reproduced twice on Windows with JDK 21.0.12.1+1-LTS-4
-# (`./gradlew --no-daemon -p bridge-1201 remapJar`), from the `bridge-1201/`
+# (`./gradlew --no-daemon remapJar --rerun-tasks`), from the `bridge-1201/`
 # tree whose digest is recorded in the 1.20.1 candidate recipe; the Linux
 # Temurin 21 cross-build that the previous digest went through has not been
 # re-run on these. Windows repetition is not a Linux cross-build or current
-# game acceptance; both remain open tasks.
-BRIDGE_1201_JAR_SHA256 = "482eb6608ed3366a0f6d00928e192133cb39668263fec26107af59b12ea0c912"
-BRIDGE_1201_JAR_SIZE = 1_446_244
+# game acceptance; both remain open tasks. The 2026-10-04 renewal covers both
+# the respawn observation field and the respawn input message.
+BRIDGE_1201_JAR_SHA256 = "778c790bb93928cc4b604b47037322f051134393c8f30a92c9a678d31033896d"
+BRIDGE_1201_JAR_SIZE = 1_453_864
 BRIDGE_1201_JAR_RELATIVE_PATH = "bridge-1201/build/libs/minekin-bridge-1201-0.0.0.jar"
 
 
@@ -148,7 +154,7 @@ def session_capabilities(minecraft_version: str) -> frozenset[str]:
     """
 
     if minecraft_version in WORLD_ACTION_VERSIONS:
-        return BASELINE_CAPABILITIES | WORLD_ACTION_CAPABILITIES
+        return BASELINE_CAPABILITIES | WORLD_ACTION_CAPABILITIES | {RESPAWN_CAPABILITY}
     return BASELINE_CAPABILITIES
 
 

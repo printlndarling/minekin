@@ -47,6 +47,7 @@ from minekin_core.domain.control_vocabulary import (
     HOTBAR_CAPABILITY,
     MINE_CAPABILITY,
     MOVE_CAPABILITY,
+    RESPAWN_CAPABILITY,
     SCREEN_CAPABILITY,
     USE_CAPABILITY,
 )
@@ -687,6 +688,7 @@ def test_the_committed_example_plans_all_parse_and_ask_for_no_more_than_they_nam
                 AIM_CAPABILITY,
                 MINE_CAPABILITY,
                 MOVE_CAPABILITY,
+                RESPAWN_CAPABILITY,
                 SCREEN_CAPABILITY,
                 GUI_CAPABILITY,
                 HOTBAR_CAPABILITY,
@@ -803,3 +805,13 @@ def test_the_committed_meal_plan_is_the_two_steps_the_probe_runs() -> None:
     assert [call.name for call in plan.calls] == ["turn_to", "consume_item"]
     assert plan.calls[0].pitch_degrees == -55.0
     assert plan.calls[1].item_id == "minecraft:apple"
+
+
+def test_the_respawn_example_is_one_parameterless_bounded_skill() -> None:
+    from minekin_core.domain.control_vocabulary import RESPAWN_CAPABILITY
+    from minekin_core.domain.world_actions import skill_capabilities
+
+    plan = parse_skill_plan(json.loads((EXAMPLES / "skill-plan-respawn.json").read_bytes()))
+    assert len(plan.calls) == 1
+    assert plan.calls[0].name == "respawn"
+    assert skill_capabilities("respawn") == frozenset({RESPAWN_CAPABILITY})

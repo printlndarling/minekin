@@ -47,6 +47,7 @@ from minekin_core.application.world_skills import (
     SkillCall,
     WorldSkills,
 )
+from minekin_core.domain.control_vocabulary import RESPAWN_CAPABILITY, RESPAWN_INPUT_TYPE
 from minekin_core.domain.perception import (
     AimFace,
     AimKind,
@@ -2735,5 +2736,93 @@ def test_transient_death_wakes_an_in_progress_held_wait_before_its_deadline() ->
         assert [
             cast(control_pb2.UseInput, m).use for t, m in sender.sent if t == USE_INPUT_TYPE
         ] == [True, False]
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize(
+    "condition",
+    ["no_permission", "no_observation", "alive", "unread", "unavailable", "wrong_generation"],
+)
+def test_respawn_refuses_before_any_request_unless_the_visible_action_is_available(
+    condition: str,
+) -> None:
+    async def scenario() -> None:
+        body = replace(state(), health=0, alive=False, respawn_available=True)
+        pre = reading(state_value=body)
+        caps = ALL_CAPABILITIES | {RESPAWN_CAPABILITY}
+        store = WorldObservationStore(expected_generation=1)
+        expected = {
+            "no_permission": "CAPABILITY_NOT_GRANTED",
+            "no_observation": "NO_LATEST_OBSERVATION",
+            "alive": "RESPAWN_ALREADY_ALIVE",
+            "unread": "RESPAWN_UNAVAILABLE",
+            "unavailable": "RESPAWN_UNAVAILABLE",
+            "wrong_generation": "WORLD_GENERATION_CHANGED",
+        }[condition]
+        if condition == "no_permission":
+            caps = ALL_CAPABILITIES
+        elif condition == "alive":
+            pre = reading()
+        elif condition == "unread":
+            pre = replace(pre, self_state=replace(body, respawn_available=None))
+        elif condition == "unavailable":
+            pre = replace(pre, self_state=replace(body, respawn_available=False))
+        elif condition == "wrong_generation":
+            store.expected_generation = 2
+            pre = replace(pre, generation=2)
+        if condition != "no_observation":
+            assert store.admit(pre, ())
+        skills, sender = skill_with(store, caps)
+        outcome = await perform_skill(
+            skills, SkillCall(name="respawn"), authority=authority(), timeout_ns=1_000_000
+        )
+        assert outcome.reason == expected
+        assert sender.sent == []
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("answer", ["live", "still_dead", "generation"])
+def test_respawn_requests_once_and_only_confirms_a_new_same_generation_live_reading(
+    answer: str,
+) -> None:
+    async def scenario() -> None:
+        pre = reading(state_value=replace(state(), health=0, alive=False, respawn_available=True))
+        store = store_with(pre)
+        skills, sender = skill_with(store, ALL_CAPABILITIES | {RESPAWN_CAPABILITY})
+
+        def reply(message_type: str) -> None:
+            if message_type != RESPAWN_INPUT_TYPE:
+                return
+            if answer == "live":
+                assert store.admit(reading(tick=120), ())
+            elif answer == "generation":
+                store.expected_generation = 2
+                assert store.admit(replace(reading(tick=120), generation=2), ())
+            else:
+                assert store.admit(replace(pre, game_tick=120), ())
+
+        sender.on_send = reply
+        outcome = await perform_skill(
+            skills, SkillCall(name="respawn"), authority=authority(), timeout_ns=5_000_000
+        )
+        assert len(sender.sent) == 1
+        assert sender.types() == [RESPAWN_INPUT_TYPE]
+        command = cast(control_pb2.RespawnInput, sender.sent[0][1])
+        assert command.lease_id == "lease-1"
+        assert command.generation == 1
+        assert (
+            outcome.result
+            is {
+                "live": ActionResultClass.CONFIRMED,
+                "still_dead": ActionResultClass.UNKNOWN,
+                "generation": ActionResultClass.INTERRUPTED,
+            }[answer]
+        )
+        if answer == "still_dead":
+            assert outcome.reason == "RESPAWN_NOT_CONFIRMED"
+        else:
+            assert outcome.post_tick == 120
 
     asyncio.run(scenario())

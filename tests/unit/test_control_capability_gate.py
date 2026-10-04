@@ -32,6 +32,8 @@ from minekin_core.adapters.bridge.ipc import (
     MINE_INPUT_TYPE,
     MOVE_CAPABILITY,
     OBSERVE_WORLD_CAPABILITY,
+    RESPAWN_CAPABILITY,
+    RESPAWN_INPUT_TYPE,
     SCREEN_CAPABILITY,
     SCREEN_INPUT_TYPE,
     WORLD_OBSERVATION_TYPE,
@@ -137,3 +139,11 @@ def test_types_without_a_capability_gate_are_not_refused() -> None:
     # A connect command still gates on the admission capability even though S1
     # built it: the pair that must keep refusing is the new and the old alike.
     assert check_control_capability(everything, CONNECT_WORLD_TYPE) == ADMISSION_CAPABILITY
+
+
+def test_respawn_has_its_own_capability_instead_of_borrowing_screen_or_use_permission() -> None:
+    assert (
+        check_control_capability({SCREEN_CAPABILITY, MOVE_CAPABILITY}, RESPAWN_INPUT_TYPE)
+        == RESPAWN_CAPABILITY
+    )
+    assert check_control_capability({RESPAWN_CAPABILITY}, RESPAWN_INPUT_TYPE) is None

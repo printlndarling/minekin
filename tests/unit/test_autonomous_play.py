@@ -56,6 +56,7 @@ from minekin_core.domain.control_vocabulary import (
     HOTBAR_CAPABILITY,
     MINE_CAPABILITY,
     MOVE_CAPABILITY,
+    RESPAWN_CAPABILITY,
     SCREEN_CAPABILITY,
     USE_CAPABILITY,
 )
@@ -153,6 +154,13 @@ class Stage:
     @property
     def latest(self) -> WorldObservationValue | None:
         return self.current
+
+    async def wait_until(
+        self, predicate: Callable[[WorldObservationValue], bool], *, timeout_s: float
+    ) -> WorldObservationValue | None:
+        del timeout_s
+        current = self.latest
+        return current if current is not None and predicate(current) else None
 
     def advance(self) -> None:
         if self.follow_ups:
@@ -723,6 +731,7 @@ def test_the_ask_covers_the_whole_offer_and_nothing_the_offer_does_not_use() -> 
             GUI_CAPABILITY,
             HOTBAR_CAPABILITY,
             USE_CAPABILITY,
+            RESPAWN_CAPABILITY,
         }
     )
     assert ask.lease_seconds == DEFAULT_STEP_BUDGET * 7.5
@@ -1162,3 +1171,92 @@ def test_a_terminal_mind_answer_is_rechecked_against_the_current_body(
     assert mind.goal_met is False
     if change == "generation":
         assert result.stop_detail == "WORLD_GENERATION_CHANGED"
+
+
+@pytest.mark.parametrize("confirmed_respawn", [True, False])
+def test_model_selected_respawn_reobserves_the_new_life_or_stops_without_replay(
+    confirmed_respawn: bool,
+) -> None:
+    from minekin_core.domain.control_vocabulary import AIM_INPUT_TYPE, RESPAWN_INPUT_TYPE
+
+    async def scenario() -> None:
+        first = reading()
+        dead = replace(
+            first,
+            self_state=replace(first.self_state, health=0, alive=False, respawn_available=False),
+        )
+        ready = replace(
+            dead, game_tick=120, self_state=replace(dead.self_state, respawn_available=True)
+        )
+        revived = reading(tick=140)
+        store = WorldObservationStore(expected_generation=1)
+        assert store.admit(dead, ())
+        sent: list[str] = []
+        requests: list[DecisionRequest] = []
+
+        class Provider:
+            def decide(self, request: DecisionRequest) -> Decision:
+                requests.append(request)
+                if len(requests) == 1:
+                    assert request.feasible_skill_ids == ("respawn",)
+                    return Decision(skill_id="respawn", reason="recover", intent_generation=1)
+                assert "respawn" not in request.feasible_skill_ids
+                return Decision(
+                    skill_id="turn_to",
+                    reason="inspect new life",
+                    intent_generation=1,
+                    arguments={"yaw_degrees": 0.0, "pitch_degrees": 30.0},
+                )
+
+        class Sender:
+            async def send_control(self, message_type: str, message: Message) -> None:
+                del message
+                sent.append(message_type)
+                if message_type == RESPAWN_INPUT_TYPE and confirmed_respawn:
+                    assert store.admit(revived, ())
+                elif message_type == AIM_INPUT_TYPE:
+                    assert store.admit(
+                        replace(
+                            reading(tick=160),
+                            self_state=replace(first.self_state, pitch_degrees=30.0),
+                        ),
+                        (),
+                    )
+
+        async def enable_button() -> None:
+            await asyncio.sleep(0.001)
+            assert store.admit(ready, ())
+
+        enabled = asyncio.create_task(enable_button())
+        skills = WorldSkills(
+            sender=Sender(),
+            observations=store,
+            capabilities=ALL_CAPABILITIES | {RESPAWN_CAPABILITY},
+        )
+        mind = mind_for(Provider(), CostLedger(run_cost_cap=CAP), goal=None)
+        result = await run_autonomous_loop(
+            mind=mind,
+            skills=skills,
+            observations=store,
+            authority=AUTHORITY,
+            step_budget=2,
+            timeout_ns=20_000_000,
+        )
+        await enabled
+        assert sent.count(RESPAWN_INPUT_TYPE) == 1
+        assert result.steps[0].intent.skill == "respawn"
+        assert result.steps[0].intent.source == "model"
+        if confirmed_respawn:
+            assert sent == [RESPAWN_INPUT_TYPE, AIM_INPUT_TYPE]
+            assert len(requests) == 2
+            assert result.steps[0].outcome.result is ActionResultClass.CONFIRMED
+            assert result.steps[1].intent.skill == "turn_to"
+            assert result.stop_reason == STEP_BUDGET_SPENT
+        else:
+            assert sent == [RESPAWN_INPUT_TYPE]
+            assert len(requests) == 1
+            assert result.steps[0].outcome.result is ActionResultClass.UNKNOWN
+            assert result.stop_reason == "RESPAWN_NOT_CONFIRMED"
+        assert mind.goal_met is False
+
+    asyncio.run(scenario())

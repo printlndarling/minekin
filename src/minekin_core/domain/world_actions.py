@@ -34,6 +34,7 @@ from minekin_core.domain.control_vocabulary import (
     HOTBAR_CAPABILITY,
     MINE_CAPABILITY,
     MOVE_CAPABILITY,
+    RESPAWN_CAPABILITY,
     SCREEN_CAPABILITY,
     USE_CAPABILITY,
 )
@@ -87,6 +88,7 @@ SKILL_CAPABILITIES: Final[Mapping[str, frozenset[str]]] = {
     # activating what is aimed at, because the wire deliberately offers one use
     # key rather than a separate door per product (see `ScreenControl`'s comment).
     "use_target": frozenset({USE_CAPABILITY}),
+    "respawn": frozenset({RESPAWN_CAPABILITY}),
     # Eating is the number key plus the use key held: the food has to be brought
     # to hand (a hotbar select) before the meal can start, and the meal itself is
     # the use key under the lease. Both are declared even though a food already

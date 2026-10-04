@@ -90,6 +90,10 @@ class ObservationSource(Protocol):
     @property
     def death_count(self) -> int: ...
 
+    async def wait_until(
+        self, predicate: Callable[[WorldObservationValue], bool], *, timeout_s: float
+    ) -> WorldObservationValue | None: ...
+
 
 @dataclass(frozen=True, slots=True)
 class AutonomousAsk:
@@ -201,8 +205,12 @@ def _decision_invalidation(
         before is not None and after.generation != before.generation
     ):
         return "WORLD_GENERATION_CHANGED"
-    if not after.self_state.alive:
+    if not after.self_state.alive and intent.skill != "respawn":
         return PLAYER_DEAD
+    if intent.skill == "respawn" and (
+        after.self_state.alive or after.self_state.respawn_available is not True
+    ):
+        return "SKILL_PRECONDITION_CHANGED"
     if before is not None:
         previous_safety = safety_need(before)
         current_safety = safety_need(after)
@@ -240,7 +248,30 @@ async def run_autonomous_loop(
     stop_detail = ""
     asked_on = ""
     for _ in range(step_budget):
+        stop_reason = STEP_BUDGET_SPENT
         reading = observations.latest
+        if (
+            reading is not None
+            and not reading.self_state.alive
+            and reading.self_state.respawn_available is False
+            and skills.supports_respawn
+        ):
+            # Vanilla briefly disables its death-screen buttons. Wait only for a
+            # newer visible affordance, within the existing step timeout and lease.
+            await observations.wait_until(
+                lambda latest: (
+                    latest.generation != authority.generation
+                    or latest.self_state.alive
+                    or latest.self_state.respawn_available is True
+                ),
+                timeout_s=min(timeout_ns / 1_000_000_000, 2.0),
+            )
+            reading = observations.latest
+        if reading is not None and reading.generation != authority.generation:
+            mind.observe(reading)
+            stop_reason = DECISION_PRECONDITION_CHANGED
+            stop_detail = "WORLD_GENERATION_CHANGED"
+            break
         death_count = observations.death_count
         current_ref = "" if reading is None else observation_ref(reading)
         if steps and current_ref == asked_on:
@@ -316,6 +347,9 @@ async def run_autonomous_loop(
         # attribution, but conclude the run from the body's current observation.
         current = observations.latest
         mind.observe(current)
+        if intent.skill == "respawn" and outcome.result is not ActionResultClass.CONFIRMED:
+            stop_reason = outcome.reason or "RESPAWN_NOT_CONFIRMED"
+            break
         if outcome.reason == CLIENT_EXITED:
             # The step is on the ledger with the exit code, and no step after it can be
             # concluded either: the client that would have answered it is the process
@@ -330,6 +364,14 @@ async def run_autonomous_loop(
             or (current is not None and not current.self_state.alive)
         ):
             stop_reason = PLAYER_DEAD
+            if (
+                current is not None
+                and not current.self_state.alive
+                and current.self_state.respawn_available is not None
+                and skills.supports_respawn
+                and intent.skill != "respawn"
+            ):
+                continue
             break
         if current is None:
             stop_reason = NO_LATEST_OBSERVATION

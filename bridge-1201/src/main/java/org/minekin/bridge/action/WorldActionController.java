@@ -8,6 +8,7 @@ import net.minecraft.screen.slot.SlotActionType;
 import net.minecraft.util.Identifier;
 import org.minekin.bridge.input.BridgeInputController;
 import org.minekin.bridge.input.KeySink;
+import org.minekin.bridge.runtime.RespawnScreenReader;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -97,6 +98,11 @@ public final class WorldActionController implements WorldClientView {
             // and notifies the server. Removing only the screen strands container state.
             client.currentScreen.close();
         }
+    }
+
+    @Override
+    public boolean respawn() {
+        return RespawnScreenReader.press(runningClient());
     }
 
     @Override

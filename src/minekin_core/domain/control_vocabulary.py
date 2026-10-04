@@ -45,6 +45,7 @@ AIM_CAPABILITY: Final = "control.aim.v1"
 MINE_CAPABILITY: Final = "control.mine.v1"
 HOTBAR_CAPABILITY: Final = "control.hotbar.v1"
 SCREEN_CAPABILITY: Final = "control.screen.v1"
+RESPAWN_CAPABILITY: Final = "control.respawn.v1"
 GUI_CAPABILITY: Final = "control.gui.v1"
 OBSERVE_WORLD_CAPABILITY: Final = "observe.world.v1"
 # Publishing the world the client is hosting is not an input skill and is not
@@ -99,6 +100,7 @@ AIM_INPUT_TYPE: Final = "minekin.v1.AimInput"
 MINE_INPUT_TYPE: Final = "minekin.v1.MineInput"
 HOTBAR_SELECT_INPUT_TYPE: Final = "minekin.v1.HotbarSelectInput"
 SCREEN_INPUT_TYPE: Final = "minekin.v1.ScreenInput"
+RESPAWN_INPUT_TYPE: Final = "minekin.v1.RespawnInput"
 GUI_CLICK_INPUT_TYPE: Final = "minekin.v1.GuiClickInput"
 
 #: The stable refusal token for a command whose capability was never negotiated.

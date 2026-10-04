@@ -40,6 +40,7 @@ public final class HandshakeGate {
     public static final String MINE_CAPABILITY = "control.mine.v1";
     public static final String HOTBAR_CAPABILITY = "control.hotbar.v1";
     public static final String SCREEN_CAPABILITY = "control.screen.v1";
+    public static final String RESPAWN_CAPABILITY = "control.respawn.v1";
     public static final String GUI_CAPABILITY = "control.gui.v1";
     public static final String OBSERVE_WORLD_CAPABILITY = "observe.world.v1";
     // And publishing the world this client is hosting. Not an input skill, so not

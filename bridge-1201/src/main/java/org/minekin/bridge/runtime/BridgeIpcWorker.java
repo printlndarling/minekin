@@ -30,6 +30,7 @@ import io.minekin.protocol.v1.ProtocolVersion;
 import io.minekin.protocol.v1.ReleaseAllInputs;
 import io.minekin.protocol.v1.ResourcePackPolicy;
 import io.minekin.protocol.v1.ScreenInput;
+import io.minekin.protocol.v1.RespawnInput;
 import io.minekin.protocol.v1.UseInput;
 import io.minekin.protocol.v1.WorldObservation;
 import java.io.IOException;
@@ -83,6 +84,7 @@ public final class BridgeIpcWorker implements AutoCloseable {
     public static final String MINE_INPUT_TYPE = "minekin.v1.MineInput";
     public static final String HOTBAR_SELECT_INPUT_TYPE = "minekin.v1.HotbarSelectInput";
     public static final String SCREEN_INPUT_TYPE = "minekin.v1.ScreenInput";
+    public static final String RESPAWN_INPUT_TYPE = "minekin.v1.RespawnInput";
     public static final String GUI_CLICK_INPUT_TYPE = "minekin.v1.GuiClickInput";
     public static final String WORLD_OBSERVATION_TYPE = "minekin.v1.WorldObservation";
     private static final Logger LOGGER = LoggerFactory.getLogger("minekin-bridge");
@@ -326,6 +328,10 @@ public final class BridgeIpcWorker implements AutoCloseable {
         }
         if (message instanceof HotbarSelectCommand hotbar) {
             applyHotbar(hotbar);
+            return true;
+        }
+        if (message instanceof RespawnCommand respawn) {
+            applyRespawn(respawn);
             return true;
         }
         if (message instanceof ScreenCommand screen) {
@@ -628,6 +634,29 @@ public final class BridgeIpcWorker implements AutoCloseable {
      * player's own key, and a screen installed behind it would be a second door to the same
      * window.
      */
+    private void applyRespawn(RespawnCommand command) {
+        BridgeInputController controller = input;
+        if (controller == null) {
+            return;
+        }
+        RespawnInput value = command.value();
+        BridgeInputController.Outcome guard = controller.preflight(
+                monotonicNow(), command.deadlineNanos(), value.getGeneration(), false);
+        if (!guard.applied()) {
+            publishResult(value.getActionId(), value.getGeneration(),
+                    ActionStatus.ACTION_STATUS_FAILED, guard.refusalCode());
+            return;
+        }
+        WorldClientView view = worldView;
+        if (view == null || !view.inWorld() || !view.respawn()) {
+            publishResult(value.getActionId(), value.getGeneration(),
+                    ActionStatus.ACTION_STATUS_FAILED, "RESPAWN_UNAVAILABLE");
+            return;
+        }
+        publishResult(value.getActionId(), value.getGeneration(),
+                ActionStatus.ACTION_STATUS_STARTED, "");
+    }
+
     private void applyScreen(ScreenCommand command) {
         BridgeInputController controller = input;
         if (controller == null) {
@@ -1273,6 +1302,14 @@ public final class BridgeIpcWorker implements AutoCloseable {
                         envelope.getMonotonicNs(),
                         deadline -> new HotbarSelectCommand(command, deadline),
                         "HotbarSelectInput");
+            } else if (RESPAWN_INPUT_TYPE.equals(envelope.getMessageType())) {
+                RespawnInput command = RespawnInput.parseFrom(envelope.getPayload());
+                validateRespawn(command);
+                handleActionOrRefuseCapability(
+                        state, HandshakeGate.RESPAWN_CAPABILITY,
+                        command.getActionId(), command.getGeneration(),
+                        command.getDeadlineMonotonicNs(), envelope.getMonotonicNs(),
+                        deadline -> new RespawnCommand(command, deadline), "RespawnInput");
             } else if (SCREEN_INPUT_TYPE.equals(envelope.getMessageType())) {
                 ScreenInput command = ScreenInput.parseFrom(envelope.getPayload());
                 validateScreen(command);
@@ -1636,6 +1673,14 @@ public final class BridgeIpcWorker implements AutoCloseable {
         }
     }
 
+    /** A respawn request must carry a bounded action identity and a finite lease deadline. */
+    static void validateRespawn(RespawnInput command) {
+        if (!identityOk(command.getActionId(), command.getLeaseId(), command.getGeneration())
+                || command.getDeadlineMonotonicNs() == 0) {
+            throw new IllegalArgumentException("RespawnInput violates negotiated input bounds");
+        }
+    }
+
     /** A screen control that names no action this build can take is a command with no meaning. */
     static void validateScreen(ScreenInput command) {
         io.minekin.protocol.v1.ScreenControl control = command.getControl();
@@ -1843,6 +1888,7 @@ public final class BridgeIpcWorker implements AutoCloseable {
                     MineCommand,
                     HotbarSelectCommand,
                     ScreenCommand,
+                    RespawnCommand,
                     GuiClickCommand {}
 
     public enum Notice implements ClientMessage {
@@ -1889,6 +1935,8 @@ public final class BridgeIpcWorker implements AutoCloseable {
             HotbarSelectInput value, long deadlineNanos) implements ClientMessage {}
 
     public record ScreenCommand(ScreenInput value, long deadlineNanos) implements ClientMessage {}
+
+    public record RespawnCommand(RespawnInput value, long deadlineNanos) implements ClientMessage {}
 
     public record GuiClickCommand(
             GuiClickInput value, long deadlineNanos) implements ClientMessage {}
