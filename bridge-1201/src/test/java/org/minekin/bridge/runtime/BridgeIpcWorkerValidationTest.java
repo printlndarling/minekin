@@ -276,4 +276,34 @@ final class BridgeIpcWorkerValidationTest {
         }
     }
 
+    @Test
+    void everyInputTypeTheControlLoopDispatchesIsAllowedOnTheControlChannel() {
+        // One entry per dispatch branch in `heartbeatLoop`. A bounds check that passes
+        // is not enough: a type the loop handles but the envelope allowlist omits is
+        // refused by `EnvelopeGate.validate` before the branch runs, and the client is
+        // stopped with a generic BRIDGE_FAULT that cannot say which frame did it. That
+        // is how RespawnInput's first live send ended a run whose branch, capability,
+        // bounds check and Java test all existed (2026-10-05) — only this list was
+        // never told. Add the type here when you add the branch, or this fails.
+        assertTrue(
+                BridgeIpcWorker.controlEnvelopeTypes()
+                        .containsAll(
+                                java.util.List.of(
+                                        BridgeIpcWorker.CORE_HELLO_TYPE,
+                                        BridgeIpcWorker.HEARTBEAT_TYPE,
+                                        BridgeIpcWorker.CONNECT_WORLD_TYPE,
+                                        BridgeIpcWorker.CANCEL_CONNECTION_TYPE,
+                                        BridgeIpcWorker.OPEN_LAN_TYPE,
+                                        BridgeIpcWorker.RELEASE_ALL_INPUTS_TYPE,
+                                        BridgeIpcWorker.MOVE_INPUT_TYPE,
+                                        BridgeIpcWorker.LOOK_INPUT_TYPE,
+                                        BridgeIpcWorker.USE_INPUT_TYPE,
+                                        BridgeIpcWorker.AIM_INPUT_TYPE,
+                                        BridgeIpcWorker.MINE_INPUT_TYPE,
+                                        BridgeIpcWorker.HOTBAR_SELECT_INPUT_TYPE,
+                                        BridgeIpcWorker.RESPAWN_INPUT_TYPE,
+                                        BridgeIpcWorker.SCREEN_INPUT_TYPE,
+                                        BridgeIpcWorker.GUI_CLICK_INPUT_TYPE)));
+    }
+
 }

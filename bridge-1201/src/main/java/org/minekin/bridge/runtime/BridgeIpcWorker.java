@@ -645,16 +645,23 @@ public final class BridgeIpcWorker implements AutoCloseable {
         if (!guard.applied()) {
             publishResult(value.getActionId(), value.getGeneration(),
                     ActionStatus.ACTION_STATUS_FAILED, guard.refusalCode());
+            LOGGER.warn("bridge refused respawn {}: {}", value.getActionId(), guard.refusalCode());
             return;
         }
         WorldClientView view = worldView;
         if (view == null || !view.inWorld() || !view.respawn()) {
             publishResult(value.getActionId(), value.getGeneration(),
                     ActionStatus.ACTION_STATUS_FAILED, "RESPAWN_UNAVAILABLE");
+            LOGGER.warn("bridge refused respawn {}: RESPAWN_UNAVAILABLE", value.getActionId());
             return;
         }
         publishResult(value.getActionId(), value.getGeneration(),
                 ActionStatus.ACTION_STATUS_STARTED, "");
+        // The one input whose success leaves no other trace in the client log: every
+        // other action says `bridge applied …` as its command is placed. The live
+        // run of 2026-10-05 confirmed the respawn from the world's next frame while
+        // this file stayed silent about it, which is one evidence path too few.
+        LOGGER.info("bridge applied respawn {} (visible button)", value.getActionId());
     }
 
     private void applyScreen(ScreenCommand command) {
@@ -1053,6 +1060,12 @@ public final class BridgeIpcWorker implements AutoCloseable {
             heartbeatLoop(descriptor, heartbeat);
         } catch (Exception error) {
             if (!stopping.get()) {
+                // The reason line this leads to is a category; the exception is the
+                // only place the cause itself is ever written down. RespawnInput's
+                // first live send (2026-10-05) fail-closed as a bare BRIDGE_FAULT
+                // with no other words anywhere, and the cause had to be
+                // reconstructed from the code.
+                LOGGER.error("bridge control loop faulted", error);
                 failClosed(reasonFor(error));
             }
         } finally {
@@ -1071,6 +1084,35 @@ public final class BridgeIpcWorker implements AutoCloseable {
             socket.close();
             throw error;
         }
+    }
+
+    /**
+     * The message types Core may send on the control channel: one entry per dispatch
+     * branch in {@link #heartbeatLoop}. A type the loop handles but this allowlist
+     * omits is not refused by name — {@code EnvelopeGate.validate} fails before the
+     * branch runs, which fail-closes the whole session under a generic
+     * {@code BRIDGE_FAULT} with no words about which frame did it. That is exactly
+     * how {@code RespawnInput}'s first real send stopped a live client (2026-10-05):
+     * the branch, the capability and the command all existed and only this set had
+     * not been told. `BridgeIpcWorkerValidationTest` pins the two lists together.
+     */
+    static Set<String> controlEnvelopeTypes() {
+        return Set.of(
+                CORE_HELLO_TYPE,
+                HEARTBEAT_TYPE,
+                CONNECT_WORLD_TYPE,
+                CANCEL_CONNECTION_TYPE,
+                OPEN_LAN_TYPE,
+                RELEASE_ALL_INPUTS_TYPE,
+                MOVE_INPUT_TYPE,
+                LOOK_INPUT_TYPE,
+                USE_INPUT_TYPE,
+                AIM_INPUT_TYPE,
+                MINE_INPUT_TYPE,
+                HOTBAR_SELECT_INPUT_TYPE,
+                RESPAWN_INPUT_TYPE,
+                SCREEN_INPUT_TYPE,
+                GUI_CLICK_INPUT_TYPE);
     }
 
     private HeartbeatState handshake(BootstrapDescriptorAdapter.AdaptedDescriptor descriptor)
@@ -1093,21 +1135,7 @@ public final class BridgeIpcWorker implements AutoCloseable {
                         descriptor.expected().generation(),
                         descriptor.expected().clientInstanceId()),
                 Channel.CHANNEL_CONTROL,
-                Set.of(
-                        CORE_HELLO_TYPE,
-                        HEARTBEAT_TYPE,
-                        CONNECT_WORLD_TYPE,
-                        CANCEL_CONNECTION_TYPE,
-                        OPEN_LAN_TYPE,
-                        RELEASE_ALL_INPUTS_TYPE,
-                        MOVE_INPUT_TYPE,
-                        LOOK_INPUT_TYPE,
-                        USE_INPUT_TYPE,
-                        AIM_INPUT_TYPE,
-                        MINE_INPUT_TYPE,
-                        HOTBAR_SELECT_INPUT_TYPE,
-                        SCREEN_INPUT_TYPE,
-                        GUI_CLICK_INPUT_TYPE));
+                controlEnvelopeTypes());
         Envelope reply = control.read(handshakeTimeout);
         gate.validate(reply);
         if (!CORE_HELLO_TYPE.equals(reply.getMessageType())) {
@@ -1176,10 +1204,12 @@ public final class BridgeIpcWorker implements AutoCloseable {
         } catch (InterruptedException interrupted) {
             Thread.currentThread().interrupt();
             if (!stopping.get()) {
+                LOGGER.error("bridge event writer was interrupted", interrupted);
                 failClosed();
             }
         } catch (Exception error) {
             if (!stopping.get()) {
+                LOGGER.error("bridge event writer faulted", error);
                 failClosed();
             }
         }
