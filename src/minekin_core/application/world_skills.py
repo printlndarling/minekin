@@ -2009,22 +2009,42 @@ class WorldSkills:
         # deciding layer asked for it -- hostile, animal, trader, it is not this layer's
         # judgement what the type means. A named kind narrows the same scan; the local
         # reflex's choice to swing only at curated hostiles lives in the mind, not here.
-        target = nearest_visible(
-            pre,
-            kinds=frozenset({target_entity_type}) if target_entity_type else None,
-            within=ATTACK_REACH_BLOCKS,
-        )
+        swing = swing_seconds if swing_seconds else FIGHT_SWING_SECONDS
+        action_id = self._action_id()
+        deadline = monotonic_ns() + timeout_ns
+        wanted_kinds = frozenset({target_entity_type}) if target_entity_type else None
+        target = nearest_visible(pre, kinds=wanted_kinds, within=ATTACK_REACH_BLOCKS)
         if target is None:
-            return _refusal_outcome("FIGHT_THREAT_OUT_OF_REACH", "", pre)
+            # A body visible but just out of reach is a body that may be one hop away --
+            # the enemy every fight is against moves itself. So the step spends its own
+            # window asking the newest reading again, and when one reports the wanted
+            # body in reach the aim and the swing follow from THAT frame. A window that
+            # ends with nothing in reach refuses by the same name, decided on the latest
+            # reading: the ask had its whole lease, so the words are earned.
+            latest = await self._outlive_client(
+                self._observations.wait_until(
+                    lambda reading: (
+                        reading.generation == authority.generation
+                        and nearest_visible(reading, kinds=wanted_kinds, within=ATTACK_REACH_BLOCKS)
+                        is not None
+                    ),
+                    timeout_s=max(0.1, (deadline - monotonic_ns()) / 1_000_000_000),
+                ),
+                action_id=action_id,
+            )
+            if latest is None:
+                return _refusal_outcome(
+                    "FIGHT_THREAT_OUT_OF_REACH", action_id, self._observations.latest or pre
+                )
+            pre = latest
+            target = nearest_visible(pre, kinds=wanted_kinds, within=ATTACK_REACH_BLOCKS)
+            assert target is not None
         entity, _distance = target
         yaw, pitch = angle_to_degrees(
             dx=entity.relative_x,
             dy=entity.relative_y - EYE_HEIGHT_BLOCKS,
             dz=entity.relative_z,
         )
-        swing = swing_seconds if swing_seconds else FIGHT_SWING_SECONDS
-        action_id = self._action_id()
-        deadline = monotonic_ns() + timeout_ns
         # Bring the best curated weapon to hand first, when one is within a number key's
         # reach: the same shape as the meal's selection phase, spending the same single
         # window. A bag with no curated weapon in reach fights as before, bare -- the

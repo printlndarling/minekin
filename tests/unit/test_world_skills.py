@@ -3602,3 +3602,74 @@ def test_fight_back_labels_a_selection_that_never_confirmed_with_its_phase() -> 
         assert sender.types() == [HOTBAR_SELECT_INPUT_TYPE]
 
     asyncio.run(scenario())
+
+
+def test_fight_back_waits_bounded_for_a_body_to_come_into_reach() -> None:
+    """A body visible but just out of reach is a body that may be one hop away. The step
+    spends its own window asking the newest reading again; when one reports it in reach,
+    the swing follows from that frame and confirms through the same world sentence."""
+
+    async def scenario() -> None:
+        far = slime_entity(tick=100, at=5.0)
+        near = slime_entity(tick=200, at=2.0)
+        store = store_with(positioned(tick=100, entities=(far,)))
+        skills, sender = skill_with(store)
+        yaw, pitch = angle_to_degrees(
+            dx=near.relative_x,
+            dy=near.relative_y - EYE_HEIGHT_BLOCKS,
+            dz=near.relative_z,
+        )
+        queued = [
+            positioned(
+                tick=210,
+                yaw=yaw,
+                pitch=pitch,
+                entities=(near,),
+                aim=slime_aim(210, entity_id="slime-200"),
+            ),
+            positioned(tick=220),
+        ]
+
+        def answer(message_type: str) -> None:
+            if message_type in (AIM_INPUT_TYPE, MINE_INPUT_TYPE) and queued:
+                store.admit(queued.pop(0), ())
+
+        sender.on_send = answer
+
+        async def admit_near() -> None:
+            store.admit(positioned(tick=200, entities=(near,)), ())
+
+        task = asyncio.create_task(admit_near())
+        outcome = await skills.fight_back(
+            authority=authority(), swing_seconds=1.0, timeout_ns=3_000_000_000
+        )
+        await task
+
+        assert outcome.result is ActionResultClass.CONFIRMED
+        assert outcome.details["target"] == "minecraft:slime"
+        mines = [message for kind, message in sender.sent if kind == MINE_INPUT_TYPE]
+        assert [message.mining for message in mines] == [True, False]  # type: ignore[attr-defined]
+
+    asyncio.run(scenario())
+
+
+def test_fight_back_refuses_by_name_when_nothing_enters_reach_within_the_window() -> None:
+    """The wait is bounded by the step's own window: a threat that never comes into
+    reach is the same named refusal, decided on the latest reading."""
+
+    async def scenario() -> None:
+        far = slime_entity(tick=100, at=5.0)
+        store = store_with(positioned(tick=100, entities=(far,)))
+        skills, sender = skill_with(store)
+
+        outcome = await skills.fight_back(
+            authority=authority(), swing_seconds=1.0, timeout_ns=60_000_000
+        )
+
+        assert (outcome.result, outcome.reason) == (
+            ActionResultClass.FAILED,
+            "FIGHT_THREAT_OUT_OF_REACH",
+        )
+        assert sender.types() == []
+
+    asyncio.run(scenario())
