@@ -24,6 +24,12 @@ set -euo pipefail
 seconds="${MINEKIN_DOMAIN_SECONDS:-240}"
 player="${MINEKIN_USERNAME:-minekin}"
 summon="${MINEKIN_DOMAIN_SUMMON:-}"
+# Where the summoned body goes, for a scene whose first step must already see it: at the
+# world spawn it wanders for as long as the join takes and can end up outside the
+# reading's view (measured: run `c50073f8…`'s `APPROACH_ENTITY_NOT_VISIBLE`), while this
+# places it in the probed kin's look at the join. Default-off: unset adds nothing to the
+# probe arguments.
+summon_front="${MINEKIN_DOMAIN_SUMMON_FRONT:-}"
 # A `MINEKIN-DOMAIN-TIME-PHASE-001` schedule for the server's world clock: comma-separated
 # `SECONDS:PHASE` entries, each a real `time set` this many seconds after the first join,
 # so a bounded run can live several in-game days without spending an hour of wall clock.
@@ -951,6 +957,11 @@ summon_args=()
 if [[ -n "${summon}" ]]; then
     summon_args=(--summon "${summon}")
 fi
+# --- summon-front-forge begin (the contract test extracts this region) ---
+if [[ -n "${summon_front}" ]]; then
+    summon_args+=(--summon-front)
+fi
+# --- summon-front-forge end ---
 
 # A run that is supposed to move the Kin has to be able to ask the server where
 # the Kin is: the server does not log where anyone walks, and the acceptance for
@@ -1054,6 +1065,19 @@ if [[ -n "${armed_kin}" ]]; then
     fi
 fi
 # --- armed-kin-guard end ---
+#
+# The front-placed summon's own refusal, said at the same point the others are — before
+# the server's run directory is numbered, before the JVM. It places *the* summoned body,
+# so without `MINEKIN_DOMAIN_SUMMON` there is nothing to place;
+# `tools/run_controlled_server.py` refuses the same shape as its backstop.
+# --- summon-front-guard begin (the contract test extracts this region) ---
+if [[ -n "${summon_front}" ]]; then
+    if [[ -z "${summon}" ]]; then
+        printf 'domain: MINEKIN_DOMAIN_SUMMON_FRONT places the summoned body in the kin look and MINEKIN_DOMAIN_SUMMON is empty; the pair does not say which entity -- refused here, before anything is written\n' >&2
+        exit 2
+    fi
+fi
+# --- summon-front-guard end ---
 #
 # The second name, when the run named one, is *appended* after the first and
 # never put in its place: the first name is what the judgement gates above read.

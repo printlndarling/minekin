@@ -1817,6 +1817,22 @@ def hungry_kin_region(text: str, name: str) -> str:
     return "".join(lines[1:])
 
 
+def summon_front_region(text: str, name: str) -> str:
+    """One shipped region of the front-placed summon, marker to marker, sans begin line.
+
+    Same rule the other fixtures' regions follow: every reading here runs the bytes a
+    run executes, so changing them moves a test before it moves a live run. An empty
+    extraction says so rather than making every driven reading vacuous.
+    """
+
+    begin = f"# --- summon-front-{name} begin"
+    end = f"# --- summon-front-{name} end ---"
+    start = text.index(begin)
+    lines = text[start : text.index(end, start)].splitlines(keepends=True)
+    assert len(lines) > 2, f"the summon-front {name} region came out empty; wrong markers"
+    return "".join(lines[1:])
+
+
 def armed_kin_region(text: str, name: str) -> str:
     """One shipped region of the armed-kin fixture, marker to marker, sans begin line.
 
@@ -2159,6 +2175,30 @@ def test_the_armed_kin_knob_is_read_once_and_default_off() -> None:
 
     run = (RUNNER / "run.sh").read_text(encoding="utf-8")
     assert "        -e MINEKIN_DOMAIN_ARMED_KIN" in run.splitlines()
+
+
+def test_the_summon_front_knob_is_read_once_default_off_and_guarded() -> None:
+    """`MINEKIN_DOMAIN_SUMMON_FRONT` is read the one literal way and appends to the
+    summon's own argument list, guarded on the summon being named: it places *the*
+    summoned body, so without `MINEKIN_DOMAIN_SUMMON` there is nothing to place."""
+
+    text = (RUNNER / "domain.sh").read_text(encoding="utf-8")
+
+    assert text.count('summon_front="${MINEKIN_DOMAIN_SUMMON_FRONT:-}"') == 1
+    assert text.count("summon_args+=(--summon-front)") == 1
+
+    guard = summon_front_region(text, "guard")
+    assert guard.count("exit 2") == 1
+    assert guard.index("${summon}") < guard.index("exit 2")
+
+    forge = summon_front_region(text, "forge")
+    assert 'if [[ -n "${summon_front}" ]]; then' in forge
+    assert forge.index('if [[ -n "${summon_front}"') < forge.index("summon_args+=(--summon-front)")
+    # And it never re-adds the entity flag itself: the summon args stay the summon's.
+    assert "--summon " not in forge
+
+    run = (RUNNER / "run.sh").read_text(encoding="utf-8")
+    assert "        -e MINEKIN_DOMAIN_SUMMON_FRONT" in run.splitlines()
 
 
 def clear_hostiles_region(text: str, name: str) -> str:

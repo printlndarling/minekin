@@ -424,6 +424,31 @@ def summon_command(entity_type: str) -> str:
     return f"summon {entity_type} ~ ~ ~"
 
 
+#: How far in front of the probed player a front-placed summon lands, in blocks. Four,
+#: for the trunk's geometry: outside the fight's three-block reach, so the reading
+#: includes the walk, and inside the four-and-a-half-block reach of a break check.
+SUMMON_FRONT_BLOCKS = 4
+
+
+def summon_front_command(entity_type: str, player: str) -> str:
+    """The console line that puts one entity in front of a joined player, or a refusal.
+
+    The same measured reason the resource trunk is placed relative to the player: an
+    entity summoned at the world spawn before the client joins wanders for as long as
+    the join takes and can end up outside the view the Kin's first reading is taken
+    from -- a fight probe then reads `APPROACH_ENTITY_NOT_VISIBLE` about a world that
+    does contain the body (measured: run `c50073f8...`'s approach failed against the
+    join-time scan). `execute at` inherits the player's own position and facing, so
+    the body lands in the look by construction, and the join gate makes the command
+    legal: `execute at` a player who has not joined is a console error nobody reads.
+    """
+
+    if not _ENTITY_ID.fullmatch(entity_type):
+        raise SystemExit(f"not a vanilla entity id: {entity_type!r}")
+    _checked_player(player)
+    return f"execute at {player} run summon {entity_type} ^ ^ ^{SUMMON_FRONT_BLOCKS}"
+
+
 #: The phases a `--time-phase` schedule may name, as the tick each sets. Numbers rather
 #: than the console's own day/noon/night words: the word is a promise about the sky the
 #: server is free to redefine between versions, while the number is what the run record
@@ -869,6 +894,16 @@ def main() -> int:
         help="put one entity at the world spawn, so the world is not empty",
     )
     parser.add_argument(
+        "--summon-front",
+        action="store_true",
+        help=(
+            "place the --summon entity in the probed player's look at the join "
+            "instead of at the world spawn before it; for scenes whose first step "
+            "must see the body (a fight probe), where a spawn-placed entity can "
+            "wander out of view during the join"
+        ),
+    )
+    parser.add_argument(
         "--time-phase",
         action="append",
         default=[],
@@ -1148,9 +1183,32 @@ def main() -> int:
             "--armed-kin arms one kin, and "
             f"{len(probe_players)} --probe-player names do not say which: {probe_players}"
         )
+    if args.summon_front and args.summon is None:
+        # In front of *what*: the entity comes from --summon, and without it there is
+        # nothing to place.
+        raise SystemExit("--summon-front needs --summon to say which entity")
+    if args.summon_front and not probe_players:
+        # In front of *whom*: the placement inherits a player's position and facing,
+        # and a body placed in front of nobody is a scene this run never built.
+        raise SystemExit("--summon-front needs --probe-player to stand in front of")
+    if args.summon_front and len(probe_players) > 1:
+        # One kin, for the same reason the meal and the weapons take one: with two
+        # names the run cannot say whose look the body was placed in.
+        raise SystemExit(
+            "--summon-front places one body in one look, and "
+            f"{len(probe_players)} --probe-player names do not say which: {probe_players}"
+        )
     target = None if not args.use_target else use_target_command(probe_players[0])
     initial_block = None if not args.use_target else initial_block_probe_command(probe_players[0])
     resource_trunk = None if not args.resource_trunk else resource_trunk_commands(probe_players[0])
+    summon_front: tuple[str, str] | None = None
+    if args.summon_front:
+        assert args.summon is not None  # validated above: --summon-front needs --summon
+        summon_front = (
+            summon_front_command(args.summon, probe_players[0]),
+            probe_players[0],
+        )
+    summon_front_written = False
     from tools.hungry_fixture import HungryFixture
 
     meal = None if not args.hungry_kin else HungryFixture(probe_players[0])
@@ -1212,9 +1270,11 @@ def main() -> int:
                 tail = log.read_text(encoding="utf-8", errors="replace").splitlines()[-20:]
                 print("\n".join(tail), file=sys.stderr)
                 return 1
-            if summon is not None and process.stdin is not None:
+            if summon is not None and process.stdin is not None and not args.summon_front:
                 # After ready and before anything connects: the entity has to
-                # exist by the time a client takes its first snapshot.
+                # exist by the time a client takes its first snapshot. Front-placed
+                # summons skip this write -- they need a joined player to stand in
+                # front of, and happen at the join instead (see the loop below).
                 process.stdin.write((summon + "\n").encode())
                 process.stdin.flush()
                 print(f"summoned: {args.summon}")
@@ -1285,6 +1345,17 @@ def main() -> int:
                             process.stdin.write((CLEAR_HOSTILES_COMMAND + "\n").encode())
                             process.stdin.flush()
                             print("cleared every non-player entity at the join")
+                        if summon_front is not None and not summon_front_written:
+                            # The trunk's owed-at-join moment, and its measured reason:
+                            # `execute at` an unjoined player is a console error nobody
+                            # reads. Written once: a body re-placed every turn would not
+                            # be the same target the fight reading is about.
+                            front_command, front_player = summon_front
+                            if has_joined(log, front_player):
+                                summon_front_written = True
+                                process.stdin.write((front_command + "\n").encode())
+                                process.stdin.flush()
+                                print(f"summoned in front of {front_player}: {args.summon}")
                         if resource_trunk is not None and bursted and not trunk_placed:
                             # The same owed-at-join moment as the use target, and for the
                             # same measured reason: `setblock` at a player who has not

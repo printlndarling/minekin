@@ -253,6 +253,11 @@ if [[ "${1:-}" == "domain" ]]; then
         # empty and the run proceeds unarmed. The append, the guard and the refusal all
         # live in `domain.sh`; this line casts no default of its own.
         -e MINEKIN_DOMAIN_ARMED_KIN
+        # Where the summoned body goes, forwarded for the same reason: a knob
+        # `domain.sh` reads and this wrapper does not deliver arrives empty and the
+        # body lands at the world spawn. The append and the refusal live in
+        # `domain.sh`; this line casts no default of its own.
+        -e MINEKIN_DOMAIN_SUMMON_FRONT
         # The two seal-handover switches of the probe-target carrier. Forwarding them
         # is the whole of this wrapper's involvement: the value casting, the triple
         # and pair of named refusals all live in `domain.sh`, and these lines invent
