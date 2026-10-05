@@ -267,8 +267,17 @@ message GuiClickInput {
   oneof click {
     GuiSlotClick slot = 5;
     GuiRecipeClick recipe = 6;
+    GuiButtonClick button = 8;
   }
   uint64 deadline_monotonic_ns = 7;
+}
+
+// A click on a named button of the open screen, by the id the screen assigns it --
+// the same vanilla button-click packet a hand would send. Merchants select an offer
+// this way before the result slot can pay it out; the id is validated by the client
+// against the screen it actually has open.
+message GuiButtonClick {
+  uint32 button_id = 1;
 }
 
 // The currently visible, enabled vanilla respawn button. No game-mode change,

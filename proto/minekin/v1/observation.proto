@@ -266,6 +266,25 @@ message GuiScreen {
   string screen_id = 1;
   optional uint32 sync_id = 2;
   repeated string craftable_recipe_ids = 3;
+  // What an open merchant screen is offering, in the client's own order. A reading of
+  // the screen the player can see -- the same boundary the recipe book keeps -- and
+  // empty for every screen that is not a merchant's. The prices are the ADJUSTED asks
+  // (what this trade costs right now), never the base prices the offer was built from.
+  repeated TradeOffer trade_offers = 4;
+}
+
+// One row of an open merchant's offer list.
+message TradeOffer {
+  string first_item_id = 1;
+  uint32 first_count = 2;
+  // Absent (empty id, count 0) for the many offers that ask for one item only.
+  string second_item_id = 3;
+  uint32 second_count = 4;
+  string sell_item_id = 5;
+  uint32 sell_count = 6;
+  uint32 uses = 7;
+  uint32 max_uses = 8;
+  bool disabled = 9;
 }
 
 // The recurring player-equivalent view: where the Kin is, what its crosshair is on,

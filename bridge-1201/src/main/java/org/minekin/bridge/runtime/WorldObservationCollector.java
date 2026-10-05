@@ -76,7 +76,8 @@ public final class WorldObservationCollector {
                                         screenLabel(client),
                                         screenOpen(client),
                                         syncId(client),
-                                        CraftableRecipeReader.readable(client)));
+                                        CraftableRecipeReader.readable(client),
+                                        TradeOfferReader.readable(client)));
         WorldActions.aimTarget(CrosshairReader.read(client), tick).ifPresent(view::setAim);
         mining(client, tick).ifPresent(view::setMining);
         return view.build();

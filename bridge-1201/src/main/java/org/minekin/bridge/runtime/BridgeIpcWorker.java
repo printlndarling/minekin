@@ -15,6 +15,7 @@ import io.minekin.protocol.v1.ConnectionPhase;
 import io.minekin.protocol.v1.CoreHello;
 import io.minekin.protocol.v1.Envelope;
 import io.minekin.protocol.v1.GuiClickInput;
+import io.minekin.protocol.v1.GuiButtonClick;
 import io.minekin.protocol.v1.GuiRecipeClick;
 import io.minekin.protocol.v1.GuiSlotClick;
 import io.minekin.protocol.v1.Heartbeat;
@@ -793,6 +794,17 @@ public final class BridgeIpcWorker implements AutoCloseable {
                         "");
                 LOGGER.info(
                         "bridge clicked recipe {} in {}", recipe.getRecipeId(), value.getActionId());
+            }
+            case BUTTON -> {
+                GuiButtonClick button = value.getButton();
+                view.clickButton(button.getButtonId());
+                publishResult(
+                        value.getActionId(),
+                        value.getGeneration(),
+                        ActionStatus.ACTION_STATUS_STARTED,
+                        "");
+                LOGGER.info(
+                        "bridge clicked button {} in {}", button.getButtonId(), value.getActionId());
             }
             default -> {
                 // Reachable only if a command with no click slipped past the inbound shape

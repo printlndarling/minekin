@@ -63,4 +63,7 @@ public interface WorldClientView {
 
     /** Crafts a known recipe from the screen the client already has open. */
     void clickRecipe(String recipeId, boolean craftAll);
+
+    /** A vanilla button click on the open screen, by the id the screen assigned. */
+    void clickButton(int buttonId);
 }

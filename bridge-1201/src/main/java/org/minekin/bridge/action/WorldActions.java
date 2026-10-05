@@ -283,12 +283,17 @@ public final class WorldActions {
      * carried while a screen is open.
      */
     public static GuiScreen guiScreen(
-            String screenLabel, boolean screenOpen, int syncId, List<String> craftableRecipeIds) {
+            String screenLabel,
+            boolean screenOpen,
+            int syncId,
+            List<String> craftableRecipeIds,
+            List<io.minekin.protocol.v1.TradeOffer> tradeOffers) {
         GuiScreen.Builder screen =
                 GuiScreen.newBuilder().setScreenId(screenLabel == null ? "" : screenLabel);
         if (screenOpen) {
             screen.setSyncId(syncId);
             screen.addAllCraftableRecipeIds(craftableRecipeIds);
+            screen.addAllTradeOffers(tradeOffers);
         }
         return screen.build();
     }

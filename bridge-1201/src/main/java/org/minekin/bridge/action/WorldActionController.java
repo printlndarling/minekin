@@ -168,6 +168,21 @@ public final class WorldActionController implements WorldClientView {
         LOGGER.info("bridge clicked recipe {} (craftAll={})", recipeId, craftAll);
     }
 
+    @Override
+    public void clickButton(int buttonId) {
+        MinecraftClient client = runningClient();
+        if (client == null || client.player == null || client.interactionManager == null) {
+            return;
+        }
+        // The id is the screen's own vocabulary (a merchant's offer index, and whatever
+        // other screens assign); an id the screen does not know is answered by the screen
+        // itself with no effect, which is the client's validate-then-act order, not this
+        // layer inventing a check it cannot make.
+        int syncId = client.player.currentScreenHandler.syncId;
+        client.interactionManager.clickButton(syncId, buttonId);
+        LOGGER.info("bridge clicked button {}", buttonId);
+    }
+
     private static SlotActionType toSlotAction(SlotClickMode mode) {
         return switch (mode) {
             case SLOT_CLICK_MODE_PICK -> SlotActionType.PICKUP;
