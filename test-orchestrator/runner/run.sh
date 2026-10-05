@@ -263,6 +263,12 @@ if [[ "${1:-}" == "domain" ]]; then
         # and the world spawns bodies the probe did not summon. The append lives
         # in `domain.sh`; this line casts no default of its own.
         -e MINEKIN_DOMAIN_NO_AMBIENT_SPAWNS
+        # The decision policy the operator chose for this run, delivered to the
+        # session verbatim: the CLI validates the word and marks the source, and an
+        # unset value stays unset so the product's own default (model) applies. A
+        # run that wants the rule strategy running ordinary behaviour has to say
+        # so explicitly -- there is no other way in and no silent fallback out.
+        -e MINEKIN_DECISION_POLICY
         # The two seal-handover switches of the probe-target carrier. Forwarding them
         # is the whole of this wrapper's involvement: the value casting, the triple
         # and pair of named refusals all live in `domain.sh`, and these lines invent

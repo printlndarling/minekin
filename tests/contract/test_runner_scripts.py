@@ -2223,6 +2223,15 @@ def test_the_summon_front_knob_is_read_once_default_off_and_guarded() -> None:
     assert "        -e MINEKIN_DOMAIN_SUMMON_FRONT" in run.splitlines()
 
 
+def test_the_decision_policy_is_forwarded_verbatim() -> None:
+    """The operator's decision policy reaches the session untouched: the wrapper
+    delivers the name, the CLI validates the word and marks the source, and an
+    unset value stays unset so the product default applies."""
+
+    run = (RUNNER / "run.sh").read_text(encoding="utf-8")
+    assert "        -e MINEKIN_DECISION_POLICY" in run.splitlines()
+
+
 def test_the_no_ambient_spawns_knob_is_read_once_default_off_and_forwarded() -> None:
     """`MINEKIN_DOMAIN_NO_AMBIENT_SPAWNS` is read the one literal way and appends to
     the probe arguments, so an entity probe can be about the summoned body alone

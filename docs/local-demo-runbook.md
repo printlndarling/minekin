@@ -1264,3 +1264,11 @@ MINEKIN_DEMO_VOLUME=minekin-local-demo2 MINEKIN_DEMO_KIN=kin-3x3-fresh-20261002 
 - 计划形状被量着改了四稿（长扫→双扫→直进→三扫）；**"战斗窗口在 Kin 存活期内打开"这一格仍未取得**：转向烧时与史莱姆接近赛跑是当前的形状瓶颈，不是核心或桥的行为。
 
 **下一发（更接近产品路径）**：`--autonomous` + 显式 `rules` 策略（如实标记来源），armed + front 史莱姆，让 reflex 在史莱姆进入 3 格的第一帧就选 `fight_back`（正是产品里会发生的路径），读 `details.weapon` 与击杀/脱离的世界读数；或把 front 距离常量收紧一档。**不声明**：武器选择/挥击/击杀的活体读数仍缺。
+
+## 六之三十七、显式 rules 的自主场景两发（2026-10-06，runs `dd73ba42…`/Q、`1db02131…`/R；普通运行记录、非 sealed）
+
+**入口侧（`run.sh` + 契约测试）**：`MINEKIN_DECISION_POLICY` 补进转发名单——raw demo 流现在可以把显式策略传进容器且由 CLI 校验、如实标记；不设＝产品默认（model），没有静默回退。
+
+- **Q（有默认 goal）**：armed 夹具给的木镐**恰好把 demo 的默认目标"持有一把木镐"直接满足**——第一帧 `GOAL_ACHIEVED` 即收口（两件夹具互相打架的实例，按实记录）。逐字读数：`decision_policy: "rules"`、`model_enabled: false`、`model_calls: 0`——显式策略在 raw demo 流上如实标记。
+- **R（空 goal：`MINEKIN_DEMO_GOAL_PRODUCT=`）**：10 步用满、`confirmed: 7`、`STEP_BUDGET_SPENT`、release `released:[186] unconfirmed:[]`：`break_seen_block` CONFIRMED → **`retreat` CONFIRMED ×2（危险反射对真实史莱姆开火）** → `collect_dropped` UNKNOWN ×3（既有瞄准散布）→ `turn_to` CONFIRMED ×2 → `break_seen_block` CONFIRMED → `collect_dropped` CONFIRMED；每步 `source: local_reflection`。**`fight_back` 未被反射选中**（史莱姆在场、retreat 出现而 fight 未出现；资源树干也在场分了刺激）。下一发把树干关掉（`MINEKIN_DOMAIN_RESOURCE_TRUNK=`）让 slime 成为唯一分叉对象、并压小步数预算，继续收 `fight_back` 的 `details.weapon` 与挥击读数。
+- **不声明**：武器选择/挥击/击杀的活体读数仍缺。
