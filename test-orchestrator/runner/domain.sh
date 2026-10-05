@@ -221,6 +221,13 @@ resource_trunk="${MINEKIN_DOMAIN_RESOURCE_TRUNK:-}"
 # the join. Default-off: unset adds nothing to the probe arguments, exactly what every run
 # did before this knob existed.
 hungry_kin="${MINEKIN_DOMAIN_HUNGRY_KIN:-}"
+# A weapon pair for the Kin, for a run whose world skill is `fight_back`. The flat
+# controlled world hands out nothing, and the fight's named lever is *which* weapon the
+# curated table brings to hand, so `tools/run_controlled_server.py` gives a wooden
+# pickaxe and a stone axe at the join — deliberately unequal, so the reading can say the
+# bigger number won rather than the only stack there was. Default-off: unset adds
+# nothing to the probe arguments, exactly what every run did before this knob existed.
+armed_kin="${MINEKIN_DOMAIN_ARMED_KIN:-}"
 # A session that is meant to *host*: the client is put in a world it owns and asked to
 # publish it to LAN. The port is named rather than chosen by the client, because the
 # point of publishing is that something else can be pointed at it — and a client that
@@ -1031,6 +1038,23 @@ if [[ -n "${hungry_kin}" ]]; then
 fi
 # --- hungry-kin-guard end ---
 #
+# The armed-kin fixture's own refusal, said at the same point the meal's are — before
+# the server's run directory is numbered, before the JVM, before anything this run could
+# leave on disk. `tools/run_controlled_server.py` refuses the same shape as its backstop.
+#
+#   * `MINEKIN_DOMAIN_PROBE_SECOND` makes two probed names, and the weapons are handed
+#     to one kin whose hand the reading is meant to explain — the pair does not say
+#     whose.
+# --- armed-kin-guard begin (the contract test extracts this region) ---
+if [[ -n "${armed_kin}" ]]; then
+    if [[ -n "${probe_second}" ]]; then
+        printf 'domain: MINEKIN_DOMAIN_ARMED_KIN hands its weapons to one probed kin and MINEKIN_DOMAIN_PROBE_SECOND adds a second probed name (%s); the pair does not say whose hand the reading is about -- refused here, before anything is written\n' \
+            "${probe_second}" >&2
+        exit 2
+    fi
+fi
+# --- armed-kin-guard end ---
+#
 # The second name, when the run named one, is *appended* after the first and
 # never put in its place: the first name is what the judgement gates above read.
 # With the knob unset the branch below does not run, and `probe_args` stays
@@ -1080,6 +1104,15 @@ if [[ -n "${hungry_kin}" ]]; then
     probe_args+=(--hungry-kin)
 fi
 # --- hungry-kin-forge end ---
+#
+# The weapon pair, appended the same default-off way the meal's is: unset, this branch
+# does not run and `probe_args` stays byte-identical to what it was before the knob
+# existed.
+# --- armed-kin-forge begin (the contract test extracts this region) ---
+if [[ -n "${armed_kin}" ]]; then
+    probe_args+=(--armed-kin)
+fi
+# --- armed-kin-forge end ---
 #
 # Who this run asked the server about, for the bundle that has to say so
 # (V1201-PROBE-TARGET-HANDOVER-001, cell 2).

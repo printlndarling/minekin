@@ -248,6 +248,11 @@ if [[ "${1:-}" == "domain" ]]; then
         # append and the two named refusals live in `domain.sh`; this line casts no
         # default of its own.
         -e MINEKIN_DOMAIN_HUNGRY_KIN
+        # The weapon pair the fight run's reading is made of, forwarded for the same
+        # reason: a knob `domain.sh` reads and this wrapper does not deliver arrives
+        # empty and the run proceeds unarmed. The append, the guard and the refusal all
+        # live in `domain.sh`; this line casts no default of its own.
+        -e MINEKIN_DOMAIN_ARMED_KIN
         # The two seal-handover switches of the probe-target carrier. Forwarding them
         # is the whole of this wrapper's involvement: the value casting, the triple
         # and pair of named refusals all live in `domain.sh`, and these lines invent

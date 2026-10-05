@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "skills": [
+    {
+      "skill": "approach_entity",
+      "target_entity_type": "minecraft:slime",
+      "stop_within": 2.0
+    },
+    {
+      "skill": "fight_back",
+      "target_entity_type": "minecraft:slime",
+      "swing_seconds": 3.0
+    },
+    {
+      "skill": "fight_back",
+      "target_entity_type": "minecraft:slime",
+      "swing_seconds": 3.0
+    },
+    {
+      "skill": "fight_back",
+      "target_entity_type": "minecraft:slime",
+      "swing_seconds": 3.0
+    },
+    {
+      "skill": "fight_back",
+      "target_entity_type": "minecraft:slime",
+      "swing_seconds": 3.0
+    }
+  ]
+}

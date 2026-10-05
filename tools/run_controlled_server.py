@@ -928,6 +928,16 @@ def main() -> int:
         ),
     )
     parser.add_argument(
+        "--armed-kin",
+        action="store_true",
+        help=(
+            "give the probed player a deliberately unequal weapon pair (wooden "
+            "pickaxe, stone axe) once it has joined, so a fight run can read which "
+            "weapon the curated table brought to hand; written once, at the join, "
+            "and confirmed off the server's own give acknowledgements"
+        ),
+    )
+    parser.add_argument(
         "--probe-player",
         action="append",
         default=[],
@@ -1127,12 +1137,27 @@ def main() -> int:
             "--use-target keeps a block where the kin is looking; the pair would "
             "make every meal a refusal"
         )
+    if args.armed_kin and not probe_players:
+        # The same shape the hungry fixture shares: weapons are given to somebody,
+        # and weapons given to nobody are a reading this run never takes.
+        raise SystemExit("--armed-kin needs --probe-player to arm")
+    if args.armed_kin and len(probe_players) > 1:
+        # One kin, for the same reason one look is one look: two armed names leave
+        # the run unable to say whose hand the reading was about.
+        raise SystemExit(
+            "--armed-kin arms one kin, and "
+            f"{len(probe_players)} --probe-player names do not say which: {probe_players}"
+        )
     target = None if not args.use_target else use_target_command(probe_players[0])
     initial_block = None if not args.use_target else initial_block_probe_command(probe_players[0])
     resource_trunk = None if not args.resource_trunk else resource_trunk_commands(probe_players[0])
     from tools.hungry_fixture import HungryFixture
 
     meal = None if not args.hungry_kin else HungryFixture(probe_players[0])
+    from tools.armed_fixture import ArmedFixture
+
+    armory = None if not args.armed_kin else ArmedFixture(probe_players[0])
+    armed_ready = False
     #: Whether the trunk's three logs have gone in. Kept once, and the whole reason it
     #: is once rather than a cadence: unlike the use target the trunk is not re-placed
     #: while the Kin turns, because its breaking is the observation the run wants.
@@ -1336,6 +1361,20 @@ def main() -> int:
                             pending_marker.replace(marker_path)
                             meal_served = True
                             print(f"hungry fixture ready for {meal_player}; hunger effect cleared")
+                    if armory is not None and not armed_ready and process.stdin is not None:
+                        text = log.read_text(encoding="utf-8", errors="replace")
+                        commands = []
+                        if armory.phase == "waiting_join":
+                            if has_joined(log, armory.player):
+                                commands = armory.begin(text, time.monotonic())
+                        else:
+                            commands = armory.update(text, time.monotonic())
+                        for line in commands:
+                            process.stdin.write((line + "\n").encode())
+                            process.stdin.flush()
+                        if armory.phase == "ready":
+                            armed_ready = True
+                            print(f"armed fixture ready for {armory.player}")
                     # The `--time-phase` schedule: anchored at the first join, one line
                     # written per due phase. A console write from here, like the other
                     # fixtures — the server stays the only side that changes the world.
