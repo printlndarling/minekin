@@ -301,6 +301,7 @@ def properties_for(
     resource_pack: ServedResourcePack | None = None,
     enable_status: bool = DEFAULT_ENABLE_STATUS,
     difficulty: str = "normal",
+    ambient_spawns: bool = True,
 ) -> dict[str, str]:
     """The server settings the frozen profile implies, plus one refusal to imply.
 
@@ -324,7 +325,7 @@ def properties_for(
     assert isinstance(profile, SessionServerProfile)
     if difficulty not in {"peaceful", "easy", "normal", "hard"}:
         raise ValueError("difficulty must be peaceful, easy, normal or hard")
-    return {
+    properties = {
         "online-mode": _online_mode_text(profile, online_mode),
         # A pack the client is required to have, served by this harness for the case
         # where the profile's policy is to refuse one. Empty when nothing is served,
@@ -367,6 +368,16 @@ def properties_for(
         "pause-when-empty-seconds": "0",
         "motd": f"Minekin controlled offline test domain ({profile.profile_id})",
     }
+    if not ambient_spawns:
+        # Vanilla's own defaults leave both on, and the measured consequence is a
+        # flat controlled world that is not entity-empty: an entity probe's join
+        # scan read 3-4 candidate bodies with only one summoned. A reading that is
+        # about the summoned body alone has to switch the world's own spawns off,
+        # or it races them into the same 64 blocks. Written only when asked, so
+        # every other run's settings file stays byte-identical.
+        properties["spawn-animals"] = "false"
+        properties["spawn-monsters"] = "false"
+    return properties
 
 
 def write_configuration(
@@ -904,6 +915,15 @@ def main() -> int:
         ),
     )
     parser.add_argument(
+        "--no-ambient-spawns",
+        action="store_true",
+        help=(
+            "switch vanilla spawning off in the controlled world (spawn-animals "
+            "and spawn-monsters false), so an entity probe's reading is about the "
+            "summoned body and not the flat world's own passive spawns"
+        ),
+    )
+    parser.add_argument(
         "--time-phase",
         action="append",
         default=[],
@@ -1102,6 +1122,7 @@ def main() -> int:
         resource_pack=None if pack_server is None else pack_server.served,
         enable_status=args.enable_status,
         difficulty=args.difficulty,
+        ambient_spawns=not args.no_ambient_spawns,
     )
     verify_jar(args.jar, recipe)
     write_configuration(

@@ -1817,6 +1817,17 @@ def hungry_kin_region(text: str, name: str) -> str:
     return "".join(lines[1:])
 
 
+def no_ambient_spawns_region(text: str, name: str) -> str:
+    """One shipped region of the no-ambient-spawns knob, marker to marker, sans begin line."""
+
+    begin = f"# --- no-ambient-spawns-{name} begin"
+    end = f"# --- no-ambient-spawns-{name} end ---"
+    start = text.index(begin)
+    lines = text[start : text.index(end, start)].splitlines(keepends=True)
+    assert len(lines) > 2, f"the no-ambient-spawns {name} region came out empty; wrong markers"
+    return "".join(lines[1:])
+
+
 def summon_front_region(text: str, name: str) -> str:
     """One shipped region of the front-placed summon, marker to marker, sans begin line.
 
@@ -2199,6 +2210,31 @@ def test_the_summon_front_knob_is_read_once_default_off_and_guarded() -> None:
 
     run = (RUNNER / "run.sh").read_text(encoding="utf-8")
     assert "        -e MINEKIN_DOMAIN_SUMMON_FRONT" in run.splitlines()
+
+
+def test_the_no_ambient_spawns_knob_is_read_once_default_off_and_forwarded() -> None:
+    """`MINEKIN_DOMAIN_NO_AMBIENT_SPAWNS` is read the one literal way and appends to
+    the probe arguments, so an entity probe can be about the summoned body alone
+    instead of racing the flat world's own passive spawns."""
+
+    text = (RUNNER / "domain.sh").read_text(encoding="utf-8")
+
+    assert text.count('no_ambient_spawns="${MINEKIN_DOMAIN_NO_AMBIENT_SPAWNS:-}"') == 1
+    assert text.count("probe_args+=(--no-ambient-spawns)") == 1
+
+    forge = no_ambient_spawns_region(text, "forge")
+    assert 'if [[ -n "${no_ambient_spawns}" ]]; then' in forge
+    assert forge.index('if [[ -n "${no_ambient_spawns}"') < forge.index(
+        "probe_args+=(--no-ambient-spawns)"
+    )
+    # And it never borrows another knob's name or replaces an earlier argument.
+    assert "--use-target" not in forge
+    assert "--resource-trunk" not in forge
+    assert "--hungry-kin" not in forge
+    assert "--armed-kin" not in forge
+
+    run = (RUNNER / "run.sh").read_text(encoding="utf-8")
+    assert "        -e MINEKIN_DOMAIN_NO_AMBIENT_SPAWNS" in run.splitlines()
 
 
 def clear_hostiles_region(text: str, name: str) -> str:

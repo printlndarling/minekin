@@ -30,6 +30,11 @@ summon="${MINEKIN_DOMAIN_SUMMON:-}"
 # places it in the probed kin's look at the join. Default-off: unset adds nothing to the
 # probe arguments.
 summon_front="${MINEKIN_DOMAIN_SUMMON_FRONT:-}"
+# Whether the controlled world keeps vanilla's own spawning. Default is vanilla's
+# (on), which the measured join scans showed leaves a flat world that is not
+# entity-empty; an entity probe that must be about the summoned body alone turns
+# both switches off through this knob. Default-off: unset adds nothing.
+no_ambient_spawns="${MINEKIN_DOMAIN_NO_AMBIENT_SPAWNS:-}"
 # A `MINEKIN-DOMAIN-TIME-PHASE-001` schedule for the server's world clock: comma-separated
 # `SECONDS:PHASE` entries, each a real `time set` this many seconds after the first join,
 # so a bounded run can live several in-game days without spending an hour of wall clock.
@@ -1137,6 +1142,15 @@ if [[ -n "${armed_kin}" ]]; then
     probe_args+=(--armed-kin)
 fi
 # --- armed-kin-forge end ---
+#
+# The empty-world switch, appended the same default-off way: unset, this branch
+# does not run and `probe_args` stays byte-identical to what it was before the
+# knob existed.
+# --- no-ambient-spawns-forge begin (the contract test extracts this region) ---
+if [[ -n "${no_ambient_spawns}" ]]; then
+    probe_args+=(--no-ambient-spawns)
+fi
+# --- no-ambient-spawns-forge end ---
 #
 # Who this run asked the server about, for the bundle that has to say so
 # (V1201-PROBE-TARGET-HANDOVER-001, cell 2).

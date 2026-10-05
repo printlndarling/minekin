@@ -258,6 +258,11 @@ if [[ "${1:-}" == "domain" ]]; then
         # body lands at the world spawn. The append and the refusal live in
         # `domain.sh`; this line casts no default of its own.
         -e MINEKIN_DOMAIN_SUMMON_FRONT
+        # Whether the world keeps its own spawns, forwarded for the same reason:
+        # a knob `domain.sh` reads and this wrapper does not deliver arrives empty
+        # and the world spawns bodies the probe did not summon. The append lives
+        # in `domain.sh`; this line casts no default of its own.
+        -e MINEKIN_DOMAIN_NO_AMBIENT_SPAWNS
         # The two seal-handover switches of the probe-target carrier. Forwarding them
         # is the whole of this wrapper's involvement: the value casting, the triple
         # and pair of named refusals all live in `domain.sh`, and these lines invent
