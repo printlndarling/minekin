@@ -1003,6 +1003,7 @@ def test_the_ask_shows_the_counts_an_argument_has_to_be_chosen_from() -> None:
 
     summary = provider.requests[0].observation_summary
     assert summary["game_tick"] == 100
+    assert summary["time_of_day"] == "day"
     assert summary["inventory"] == {LOG: 2, PLANKS: 5}
     assert summary["dropped_items"] == {COAL: 1}
     assert summary["crafting_grid_side"] == PLAYER_GRID_SIDE
@@ -1015,6 +1016,22 @@ def test_the_ask_shows_the_counts_an_argument_has_to_be_chosen_from() -> None:
     }
     for absent in ("x", "y", "z", "relative_x", "entities", "coordinates", "session"):
         assert absent not in summary
+
+
+def test_the_summary_names_the_time_of_day_from_the_world_clock() -> None:
+    """A threat that has never been seen and a night the clock will turn are both real parts of
+    survival, and only one of them is visible in this reading — so the model-facing summary
+    carries the band name `time_of_day` beside the raw tick. The tick here is on day three:
+    the name comes from the day cycle's remainder, not from the world's age."""
+
+    provider = ScriptedProvider()
+    mind = mind_for(provider, CostLedger(run_cost_cap=CAP), kin_id="kin-01", persona_seed="seed-9")
+
+    mind.next_intent(reading(tick=2 * 24_000 + 15_000))
+
+    summary = provider.requests[0].observation_summary
+    assert summary["game_tick"] == 63_000
+    assert summary["time_of_day"] == "night"
 
 
 def test_a_session_with_no_milestone_asks_about_the_world_and_not_about_a_goal() -> None:

@@ -52,6 +52,7 @@ from minekin_core.application.skill_plan import (
 )
 from minekin_core.application.world_skills import SkillCall
 from minekin_core.domain.danger_catalog import nearest_hostile
+from minekin_core.domain.daylight import time_of_day
 from minekin_core.domain.goal_spec import Milestone
 from minekin_core.domain.model_access import (
     MAX_REASON_CHARS,
@@ -851,6 +852,7 @@ def observation_summary(
     side = crafting_grid_side(reading)
     summary: dict[str, object] = {
         "game_tick": reading.game_tick,
+        "time_of_day": time_of_day(reading.game_tick),
         "inventory": dict(sorted(counts.items())),
         "selected_slot": reading.self_state.selected_slot,
         "yaw_degrees": reading.self_state.yaw_degrees,
