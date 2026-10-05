@@ -1225,3 +1225,17 @@ MINEKIN_DEMO_VOLUME=minekin-local-demo2 MINEKIN_DEMO_KIN=kin-3x3-fresh-20261002 
 3. run `abea874529c940aeb04a8b30ea9ab164`（session `c9578d4016b24d60a7360f6e44fab729`，server run 目录 `run-135`）：`Summoned new Slime` 与 `minekin joined` **同一秒**（front 放置生效）；第 1 步 `turn_to` CONFIRMED（621→632）、第 2 步 `turn_to` 回扫途中 **`UNKNOWN / CLIENT_EXITED`、`details.exit_code "143"`**——客户端在第二位非物品实体出现后约 9 秒**静默死亡**：无 crash-report、无 hs_err、服务端逐字 `minekin lost connection: Disconnected`、客户端日志停在转向中间。**这是具名近身 143 缺陷在战斗场景的又一次复现**（该缺陷此前已收窄为"距任何非物品实体 ≤~1 格、数秒后，任意难度、任意种类，静默 143"，与桥字节候选 `53efca18…` 的嫌疑名单并存）——**带工具打的活体收口被它挡在门前**。按纪律：无修复不再重跑此场景。
 
 **不声明**：三发均为普通运行记录、非 sealed；候选字节未封存/登记；武器选择/挥击/击杀未在活体确认；近身 143 未解除（本轮起它是下一卡的直接对象）。
+
+## 六之三十四、近身 143 鉴别第一轮：JVM 健康侧读数、场景事实与结构阻断（2026-10-06，捕获 runs `b141a76f…`/`2e99994f…`/`e76791c4…` 等八发）
+
+按十六段排的顺序逐一实测（复现场景：`--summon-front` 猪/史莱姆 + `skill-plan-probe-pig.json`，kin `kin-3x3-fresh-20261002`，用户名显式钉 `Kin`）：
+
+**① 旧桥对照——结构上被堵死（按实登记，不再空试）。** `adapters/launcher/recipe.py:343`（1.20.1 候选）与 `:439`（1.21.4）把 bundle recipe 的 bridge pin 与**当前候选身份**比对（jar digest/size + 用活工作区源码树现算的 `source_digest`），任何非候选桥都无法走 bundle/候选 profile 的路——这正是"候选≠已审"的设计；`.tmp/bundle-probe-oldbridge.json` 的两发尝试（run-124/125）分别死在 pin 不符与缺文件。做旧桥对照需要一个不移动 pin 的受控机制（尚未设计），本卡不代做。
+
+**② JVM 侧捕获——八发全部复现死亡（BRIDGE_LOST/143），且死前 JVM 完全健康。** 用 `jcmd Thread.print`（host 侧落盘）在死亡前 5–10 秒取到完整 43 线程 dump：`Render thread` 正常在 GL11 `glDrawElements`（世界渲染热路径），`minekin-bridge-ipc` 正常在 `heartbeatLoop→NioEnvelopeChannel.read→EPoll.wait` 等 Core 帧，`minekin-bridge-events` 正常 park 在**空**的 `BoundedChannel.take`（事件队列没有积压）——**没有死线程、没有锁、没有出箱积压**。客户端日志无 `failing closed`/fault 行、无 vanilla `Stopping!`、无 crash-report/hs_err；`docker events` 无 kill/stop（容器是在 CLI 自己以 14 退出后才 die）；服务端读到的是**干净的 `Disconnected`**；客户端日志停在转向中间（最后一秒无任何字）。CLI 的 stdout/stderr（`/tmp/domain-session.*`）在运行期采样为空（文档与异常只在退出时落盘）。**杀掉者仍未具名**，但已被逼近到"容器进程树内的某个 SIGTERM"——且不是 CLI 已具名的任何停止路径（那些都会先有 released 回执，本场景 `input_release_failed: true`、`unasked` 无 released）。
+
+**③ 场景事实（新）：所谓 empty controlled world 并不空。** join+1s 的实体扫描逐字 `bridge knows of 3 entity candidate(s)`、+14 tick `4`、`collected 4 entity candidate(s) within 64.0 blocks, 3 confirmed visible`——除召唤体之外还有**自然生成的被动生物**（平坦世界默认 `spawn-animals` 开着）。这解释了历次探针死亡时间的散布（"到没到 ≤1 格"之外还有别的身体在场），也给下一批鉴别提了一个零成本对照：`spawn-animals=false` 的场景里同探针还死不死。
+
+**④ 捕获工具（`.tmp/capture-runner.sh`，本机可复跑）**：容器启动即后台 `apt-get install strace`，join 后按 KnotClient pid 每轮 `jcmd Thread.print`+`kill -3`+CLI 输出取样；strace（`-e trace=signal` 捉 `si_pid`）本日八发未落盘（-o 文件未出现，apt/ptrace/缓冲三嫌疑未分），下一轮改为**host 侧前台流式捕获** `docker exec <c> sh -c "strace -f -e trace=signal -p <pid>" > .tmp/strace-live.txt`（stderr 行进管道逐行落盘，容器死也不丢已到的行；ptrace 被拒也会逐字显形）。
+
+**不声明**：以上全是普通运行记录、非 sealed；"谁发的 SIGTERM"仍未具名；近身 143 未解除。同轮附记：身份默认改动后旧 kin 根（身份 `Kin`）与探针默认名（`minekin`）不匹配会让运行在 `server ready` 静默干等——复现旧根场景须显式 `MINEKIN_USERNAME=Kin`（已入记忆）。
