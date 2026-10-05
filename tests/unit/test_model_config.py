@@ -29,6 +29,7 @@ import pytest
 from minekin_core.domain import model_access
 from minekin_core.domain.errors import ErrorCategory, MinekinError
 from minekin_core.domain.model_access import (
+    DEFAULT_MODEL_MAX_ATTEMPTS,
     DEFAULT_MODEL_TIMEOUT_MS,
     DEFAULT_RUN_COST_CAP_MICRO,
     KNOWN_PROVIDERS,
@@ -36,6 +37,7 @@ from minekin_core.domain.model_access import (
     MAX_REASON_CHARS,
     MODEL_API_KEY_ENV_VARIABLE,
     MODEL_BASE_URL_VARIABLE,
+    MODEL_MAX_ATTEMPTS_VARIABLE,
     MODEL_PROVIDER_VARIABLE,
     MODEL_REQUEST_RATE_VARIABLE,
     MODEL_RESPONSE_RATE_VARIABLE,
@@ -66,6 +68,7 @@ CONFIG_VARIABLES = frozenset(
         MODEL_BASE_URL_VARIABLE,
         MODEL_VARIABLE,
         MODEL_API_KEY_ENV_VARIABLE,
+        MODEL_MAX_ATTEMPTS_VARIABLE,
         MODEL_TIMEOUT_MS_VARIABLE,
         MODEL_RUN_COST_CAP_VARIABLE,
         MODEL_REQUEST_RATE_VARIABLE,
@@ -428,6 +431,7 @@ def test_no_field_of_a_config_can_hold_a_credential() -> None:
         "model",
         "api_key_env",
         "timeout_ms",
+        "max_attempts",
         "run_cost_cap",
         "request_micro_per_million_tokens",
         "response_micro_per_million_tokens",
@@ -723,3 +727,23 @@ def test_a_model_unavailable_value_has_no_place_to_put_the_other_sides_text() ->
 def test_ipv4_looking_external_hostname_cannot_receive_plaintext_credentials(host: str) -> None:
     with pytest.raises(MinekinError, match="http"):
         model_config({**OPENAI_ENV, MODEL_BASE_URL_VARIABLE: f"http://{host}/v1"})
+
+
+def test_the_attempt_count_defaults_to_two_and_is_bounded() -> None:
+    """The retry the provider runs is an operator-visible number: two attempts by default,
+    1..5 when named, read only when a model is actually configured."""
+
+    assert model_config(OPENAI_ENV).max_attempts == DEFAULT_MODEL_MAX_ATTEMPTS
+    assert model_config({**OPENAI_ENV, MODEL_MAX_ATTEMPTS_VARIABLE: "3"}).max_attempts == 3
+    assert model_config({**OPENAI_ENV, MODEL_MAX_ATTEMPTS_VARIABLE: " 1 "}).max_attempts == 1
+
+    for bad in ("0", "-1", "six", "2.5", "9", "true"):
+        message = refusal(
+            lambda bad=bad: model_config({**OPENAI_ENV, MODEL_MAX_ATTEMPTS_VARIABLE: bad})
+        )
+        assert MODEL_MAX_ATTEMPTS_VARIABLE in message
+
+    # `off` never reads it, like every other variable a run that contacts nothing does not use.
+    assert (
+        model_config({MODEL_MAX_ATTEMPTS_VARIABLE: "9"}).max_attempts == DEFAULT_MODEL_MAX_ATTEMPTS
+    )

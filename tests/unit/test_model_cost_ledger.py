@@ -325,6 +325,11 @@ def test_a_record_names_the_call_not_the_credential() -> None:
         "outcome",
         "reason",
         "status_code",
+        # Redacted diagnostics: our own numbers and phase tokens, never endpoint text.
+        "attempts",
+        "timeout_ms",
+        "elapsed_ms",
+        "phase",
     }
     assert FAKE_KEY not in printed
     assert record.outcome is CallOutcome.OK

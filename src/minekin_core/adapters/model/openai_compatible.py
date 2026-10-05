@@ -33,12 +33,13 @@ from __future__ import annotations
 import contextlib
 import json
 import logging
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import cast
+from typing import Final, cast
 
 from minekin_core.domain.errors import MinekinError
 from minekin_core.domain.model_access import (
@@ -140,18 +141,47 @@ class _Rejected:
     counts: _Counts
 
 
+#: Which failures one bounded retry may re-ask about. A timeout or a transport error says
+#: nothing about the answer -- the endpoint may simply have been slow or the socket dropped --
+#: while a status refusal or a malformed reply is deterministic and a second ask would only
+#: spend the budget again. A retry re-asks the endpoint for a decision; it never re-runs a
+#: skill, because nothing the model layer does has a game side effect.
+_RETRYABLE_REASONS: Final[frozenset[UnavailableReason]] = frozenset(
+    {UnavailableReason.TIMEOUT, UnavailableReason.TRANSPORT_FAILURE}
+)
+
+
+def _elapsed_ms(started: float) -> int:
+    """Whole milliseconds since `started`, floored at zero."""
+
+    return max(0, int((time.monotonic() - started) * 1000))
+
+
 class _CallFailed(Exception):
     """A call that produced nothing, carrying only what is safe to say about it.
 
     The reason is an enum and the status an integer. There is no field for text, so raising
     this, catching it, logging it or leaving it in a traceback cannot repeat what the endpoint
-    wrote.
+    wrote. The diagnostics are our own numbers and phase tokens: which stage of the exchange
+    failed ("open" while awaiting the response head, "read" while reading the body, "status"
+    when a status was refused), how long that attempt ran, and the per-attempt budget.
     """
 
-    def __init__(self, reason: UnavailableReason, status_code: int | None = None) -> None:
+    def __init__(
+        self,
+        reason: UnavailableReason,
+        status_code: int | None = None,
+        *,
+        phase: str,
+        elapsed_ms: int,
+        timeout_ms: int,
+    ) -> None:
         super().__init__(reason.value)
         self.reason = reason
         self.status_code = status_code
+        self.phase = phase
+        self.elapsed_ms = elapsed_ms
+        self.timeout_ms = timeout_ms
 
 
 def _non_negative_int(value: object) -> int | None:
@@ -317,34 +347,87 @@ class OpenAICompatibleProvider:
             logger.warning("model key unavailable: %s", error.safe_message)
             return refusal
 
+        # Bounded attempts: a timeout or a transport error is re-asked once by default, because
+        # neither says anything about the answer. A refusal the endpoint chose (a status) and a
+        # reply this side cannot read are deterministic and are not retried. The whole call is
+        # bounded by attempts x timeout_ms, and when it gives up the record says exactly how
+        # many attempts it took and how long they ran.
+        attempt_limit = max(1, self._config.max_attempts)
+        call_started = time.monotonic()
+        attempts = 0
+        last_phase: str | None = None
         try:
-            status, payload = self._exchange(request, key)
-        except _CallFailed as failed:
-            refusal = ModelUnavailable(failed.reason, failed.status_code)
-            self._account(refusal, generation)
-            logger.warning(
-                "model call failed: reason=%s status=%s generation=%d",
-                refusal.reason.value,
-                refusal.status_code,
-                generation,
-            )
-            return refusal
+            while True:
+                attempts += 1
+                try:
+                    status, payload = self._exchange(request, key)
+                    break
+                except _CallFailed as failed:
+                    last_phase = failed.phase
+                    if failed.reason in _RETRYABLE_REASONS and attempts < attempt_limit:
+                        logger.warning(
+                            "model call attempt %d/%d failed: reason=%s status=%s phase=%s "
+                            "elapsed_ms=%d timeout_ms=%d generation=%d; retrying",
+                            attempts,
+                            attempt_limit,
+                            failed.reason.value,
+                            failed.status_code,
+                            failed.phase,
+                            failed.elapsed_ms,
+                            failed.timeout_ms,
+                            generation,
+                        )
+                        continue
+                    refusal = ModelUnavailable(failed.reason, failed.status_code)
+                    self._account(
+                        refusal,
+                        generation,
+                        attempts=attempts,
+                        elapsed_ms=_elapsed_ms(call_started),
+                        phase=failed.phase,
+                    )
+                    logger.warning(
+                        "model call failed: reason=%s status=%s attempts=%d phase=%s "
+                        "elapsed_ms=%d timeout_ms=%d generation=%d",
+                        refusal.reason.value,
+                        refusal.status_code,
+                        attempts,
+                        failed.phase,
+                        _elapsed_ms(call_started),
+                        failed.timeout_ms,
+                        generation,
+                    )
+                    return refusal
         except Exception as error:
             # The last net, so that nothing here can stop the Kin. An unexpected failure is
             # reported by its type name and nothing else: an exception's text can carry a URL,
             # and a URL can carry what was sent to it.
             refusal = ModelUnavailable(UnavailableReason.TRANSPORT_FAILURE)
-            self._account(refusal, generation)
+            self._account(
+                refusal,
+                generation,
+                attempts=attempts,
+                elapsed_ms=_elapsed_ms(call_started),
+                phase=last_phase,
+            )
             logger.warning(
-                "model call raised %s; treated as unavailable (generation=%d)",
+                "model call raised %s; treated as unavailable (attempts=%d generation=%d)",
                 type(error).__name__,
+                attempts,
                 generation,
             )
             return refusal
 
         read = self._read_reply(payload)
         if isinstance(read, _Rejected):
-            self._account(read.refusal, generation, read.counts)
+            self._account(
+                read.refusal,
+                generation,
+                read.counts,
+                attempts=attempts,
+                elapsed_ms=_elapsed_ms(call_started),
+                phase=last_phase,
+            )
             logger.warning(
                 "model reply unusable: reason=%s status=%d generation=%d",
                 read.refusal.reason.value,
@@ -366,7 +449,14 @@ class OpenAICompatibleProvider:
             # back inside the completion has it removed before anything in Core holds the text.
             secrets=() if key is None else (key,),
         )
-        self._account(decision, generation, read.counts)
+        self._account(
+            decision,
+            generation,
+            read.counts,
+            attempts=attempts,
+            elapsed_ms=_elapsed_ms(call_started),
+            phase=last_phase,
+        )
         logger.info(
             "model call returned: status=%d prompt_tokens=%s completion_tokens=%s "
             "generation=%d outcome=%s",
@@ -382,7 +472,7 @@ class OpenAICompatibleProvider:
         """Send one bounded request and return its status and bytes.
 
         Raises `_CallFailed` for every way an exchange can fail, carrying none of the other
-        side's text.
+        side's text -- only our reason, status, phase and timings.
         """
 
         body = json.dumps(self._body(request)).encode("utf-8")
@@ -403,28 +493,48 @@ class OpenAICompatibleProvider:
             if is_loopback_host(urllib.parse.urlsplit(url).hostname or "")
             else urllib.request.urlopen
         )
+        timeout_ms = self._config.timeout_ms
+        started = time.monotonic()
+
+        def failed(
+            reason: UnavailableReason, status_code: int | None = None, phase: str = "open"
+        ) -> _CallFailed:
+            return _CallFailed(
+                reason,
+                status_code,
+                phase=phase,
+                elapsed_ms=_elapsed_ms(started),
+                timeout_ms=timeout_ms,
+            )
+
         try:
-            with open_request(call, timeout=self._config.timeout_ms / 1000) as reply:
-                status = reply.status
-                final_url = str(reply.geturl())
-                payload = reply.read(MAX_RESPONSE_BYTES)
+            reply = open_request(call, timeout=timeout_ms / 1000)
         except urllib.error.HTTPError as error:
             _drain(error)
-            raise _CallFailed(UnavailableReason.PROVIDER_STATUS, error.code) from None
+            raise failed(UnavailableReason.PROVIDER_STATUS, error.code, "status") from None
         except TimeoutError:
-            raise _CallFailed(UnavailableReason.TIMEOUT) from None
+            raise failed(UnavailableReason.TIMEOUT, None, "open") from None
         except urllib.error.URLError as error:
             # Only the reason's type is read: it can be a string naming the URL that was tried.
             if isinstance(error.reason, TimeoutError):
-                raise _CallFailed(UnavailableReason.TIMEOUT) from None
-            raise _CallFailed(UnavailableReason.TRANSPORT_FAILURE) from None
+                raise failed(UnavailableReason.TIMEOUT, None, "open") from None
+            raise failed(UnavailableReason.TRANSPORT_FAILURE, None, "open") from None
         except OSError:
-            raise _CallFailed(UnavailableReason.TRANSPORT_FAILURE) from None
+            raise failed(UnavailableReason.TRANSPORT_FAILURE, None, "open") from None
+        try:
+            with reply:
+                status = reply.status
+                final_url = str(reply.geturl())
+                payload = reply.read(MAX_RESPONSE_BYTES)
+        except TimeoutError:
+            raise failed(UnavailableReason.TIMEOUT, None, "read") from None
+        except OSError:
+            raise failed(UnavailableReason.TRANSPORT_FAILURE, None, "read") from None
 
         if final_url != url:
-            raise _CallFailed(UnavailableReason.REDIRECTED, status)
+            raise failed(UnavailableReason.REDIRECTED, status, "status")
         if status >= 400:
-            raise _CallFailed(UnavailableReason.PROVIDER_STATUS, status)
+            raise failed(UnavailableReason.PROVIDER_STATUS, status, "status")
         return status, payload
 
     def _body(self, request: DecisionRequest) -> dict[str, object]:
@@ -501,8 +611,17 @@ class OpenAICompatibleProvider:
         outcome: Decision | ModelUnavailable,
         intent_generation: int,
         counts: _Counts | None = None,
+        *,
+        attempts: int | None = None,
+        elapsed_ms: int | None = None,
+        phase: str | None = None,
     ) -> None:
-        """Append the one record this call owes, priced from reported counts only."""
+        """Append the one record this call owes, priced from reported counts only.
+
+        The diagnostics travel beside the verdict: attempts, the per-attempt budget, the whole
+        call's elapsed time and the last failed phase. They are this side's numbers and tokens,
+        so a record can be logged or projected without a second review.
+        """
 
         reported = counts if counts is not None else _Counts()
         decided = isinstance(outcome, Decision)
@@ -515,4 +634,8 @@ class OpenAICompatibleProvider:
             response_tokens=reported.response_tokens,
             reason=None if decided else outcome.reason,
             status_code=None if decided else outcome.status_code,
+            attempts=attempts,
+            timeout_ms=self._config.timeout_ms,
+            elapsed_ms=elapsed_ms,
+            phase=phase,
         )

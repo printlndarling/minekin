@@ -41,7 +41,7 @@
 # Environment (all but the jar have defaults):
 #   MINEKIN_DEMO_VOLUME      named volume holding the Kin root      (minekin-local-demo)
 #   MINEKIN_DEMO_KIN         Kin root this demo owns                (kin-local-demo)
-#   MINEKIN_DEMO_USERNAME    the account the world admits           (Kin)
+#   MINEKIN_DEMO_USERNAME    the account the world admits           (minekin)
 #   MINEKIN_DEMO_SERVER_PROFILE  in-container Server Profile path   (the 1.20.1 controlled one)
 #   MINEKIN_DEMO_REGISTRY    in-container bundle registry path      (the reviewed tested bundles)
 #   MINEKIN_DEMO_BUNDLE_PROFILE  name a bundle profile instead of a registry: the run admits
@@ -103,7 +103,7 @@ REPOSITORY_ROOT="$(cd "${HERE}/../.." && pwd)"
 IMAGE="${MINEKIN_RUNNER_IMAGE:-minekin-runner:local}"
 VOLUME="${MINEKIN_DEMO_VOLUME:-minekin-local-demo}"
 KIN="${MINEKIN_DEMO_KIN:-kin-local-demo}"
-USERNAME="${MINEKIN_DEMO_USERNAME:-Kin}"
+USERNAME="${MINEKIN_DEMO_USERNAME:-minekin}"
 SERVER_PROFILE="${MINEKIN_DEMO_SERVER_PROFILE:-/src/tests/fixtures/runtime-input/controlled-offline-server-1.20.1.json}"
 REGISTRY="${MINEKIN_DEMO_REGISTRY:-/src/tests/fixtures/registry/reviewed-tested-bundles.json}"
 # Which bundle source the session is given. Only one may be named, and the CLI's own

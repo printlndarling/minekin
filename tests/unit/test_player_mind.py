@@ -2997,3 +2997,41 @@ def test_the_summary_lists_only_meals_the_hotbar_can_reach() -> None:
     summary = observation_summary(None, pre)
 
     assert summary["consumable_items"] == ["minecraft:bread"]
+
+
+def test_the_document_carries_the_newest_model_call_redacted_diagnostics() -> None:
+    """A run that stopped on a model failure carries the call's numbers, not only the word
+    TIMEOUT: attempts, the per-attempt budget, elapsed time and the failed phase -- all this
+    side's own facts. A mind that never called says null instead of a fabricated record."""
+
+    mind, ledger = mind_with()
+    ledger.record_call(
+        "openai_compatible",
+        "kin-test-model",
+        1,
+        CallOutcome.TIMEOUT,
+        reason=UnavailableReason.TIMEOUT,
+        attempts=2,
+        timeout_ms=8000,
+        elapsed_ms=16012,
+        phase="open",
+    )
+
+    assert mind.as_document()["last_model_call"] == {
+        "provider": "openai_compatible",
+        "model": "kin-test-model",
+        "request_tokens": None,
+        "response_tokens": None,
+        "estimated_cost": 0,
+        "intent_generation": 1,
+        "outcome": "timeout",
+        "reason": "TIMEOUT",
+        "status_code": None,
+        "attempts": 2,
+        "timeout_ms": 8000,
+        "elapsed_ms": 16012,
+        "phase": "open",
+    }
+
+    fresh, _ = mind_with()
+    assert fresh.as_document()["last_model_call"] is None

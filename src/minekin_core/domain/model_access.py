@@ -56,11 +56,18 @@ MODEL_BASE_URL_VARIABLE: Final = "MINEKIN_MODEL_BASE_URL"
 MODEL_VARIABLE: Final = "MINEKIN_MODEL"
 MODEL_API_KEY_ENV_VARIABLE: Final = "MINEKIN_MODEL_API_KEY_ENV"
 MODEL_TIMEOUT_MS_VARIABLE: Final = "MINEKIN_MODEL_TIMEOUT_MS"
+MODEL_MAX_ATTEMPTS_VARIABLE: Final = "MINEKIN_MODEL_MAX_ATTEMPTS"
 MODEL_RUN_COST_CAP_VARIABLE: Final = "MINEKIN_MODEL_RUN_COST_CAP"
 MODEL_REQUEST_RATE_VARIABLE: Final = "MINEKIN_MODEL_REQUEST_MICRO_PER_MILLION_TOKENS"
 MODEL_RESPONSE_RATE_VARIABLE: Final = "MINEKIN_MODEL_RESPONSE_MICRO_PER_MILLION_TOKENS"
 
 type ProviderName = Literal["off", "openai_compatible"]
+
+#: How many attempts one decision call may make: the first, plus one bounded retry by
+#: default. The total wall-clock bound is attempts x `timeout_ms`; the operator may set
+#: `MINEKIN_MODEL_MAX_ATTEMPTS` to 1 to keep the single-attempt shape.
+DEFAULT_MODEL_MAX_ATTEMPTS: Final = 2
+MAX_MODEL_ATTEMPTS: Final = 5
 
 #: `off` is a product capability and not a placeholder: with it the Kin reflects, runs
 #: approved skills and takes conservative actions exactly as before, and every call site
@@ -328,6 +335,9 @@ class ModelConfig:
     api_key_env: str = ""
     #: One call's wall-clock limit.
     timeout_ms: int = DEFAULT_MODEL_TIMEOUT_MS
+    #: How many attempts one decision call may make (1..`MAX_MODEL_ATTEMPTS`); a retry only
+    #: ever re-asks the endpoint for a decision, never re-runs a skill.
+    max_attempts: int = DEFAULT_MODEL_MAX_ATTEMPTS
     #: One run's spend limit, in micro-currency; see `DEFAULT_RUN_COST_CAP_MICRO`.
     run_cost_cap: int = DEFAULT_RUN_COST_CAP_MICRO
     request_micro_per_million_tokens: int = DEFAULT_REQUEST_MICRO_PER_MILLION_TOKENS
@@ -344,7 +354,7 @@ def model_config(environ: Mapping[str, str] | None = None) -> ModelConfig:
     """Read the model configuration, defaulting to no model at all.
 
     Permissive about the shape a machine without credentials has, refusing about an
-    operator's mistakes. Under `off` the other five variables are not read at all: nothing is
+    operator's mistakes. Under `off` the other six variables are not read at all: nothing is
     contacted, so a stale `MINEKIN_MODEL_TIMEOUT_MS` left in a shell profile or a CI image
     cannot stop a run that was never going to use it. That is what makes `off` a capability
     rather than a missing dependency. A non-`off` provider with no endpoint or no model name
@@ -401,6 +411,18 @@ def model_config(environ: Mapping[str, str] | None = None) -> ModelConfig:
         if raw_timeout
         else DEFAULT_MODEL_TIMEOUT_MS
     )
+    raw_attempts = source.get(MODEL_MAX_ATTEMPTS_VARIABLE, "").strip()
+    max_attempts = (
+        _positive_int(MODEL_MAX_ATTEMPTS_VARIABLE, raw_attempts, "resolve")
+        if raw_attempts
+        else DEFAULT_MODEL_MAX_ATTEMPTS
+    )
+    if max_attempts > MAX_MODEL_ATTEMPTS:
+        raise _reject(
+            "resolve",
+            f"{ConfigRefusal.BAD_NUMBER}: {MODEL_MAX_ATTEMPTS_VARIABLE} must be between 1 "
+            f"and {MAX_MODEL_ATTEMPTS}",
+        )
     raw_cap = source.get(MODEL_RUN_COST_CAP_VARIABLE, "").strip()
     run_cost_cap = (
         _positive_int(MODEL_RUN_COST_CAP_VARIABLE, raw_cap, "resolve")
@@ -414,6 +436,7 @@ def model_config(environ: Mapping[str, str] | None = None) -> ModelConfig:
         model=model,
         api_key_env=api_key_env,
         timeout_ms=timeout_ms,
+        max_attempts=max_attempts,
         run_cost_cap=run_cost_cap,
         request_micro_per_million_tokens=_configured_rate(
             source, MODEL_REQUEST_RATE_VARIABLE, DEFAULT_REQUEST_MICRO_PER_MILLION_TOKENS
@@ -692,6 +715,14 @@ class CostRecord:
     outcome: CallOutcome
     reason: UnavailableReason | None = None
     status_code: int | None = None
+    #: The redacted diagnostics of the call: numbers and this side's own tokens only. How many
+    #: attempts it took, the per-attempt wall-clock budget, the whole call's elapsed time, and
+    #: the phase of the last failed attempt ("open" while awaiting the response head, "read"
+    #: while reading the body, "status" for a refused status). None when a reader never ran.
+    attempts: int | None = None
+    timeout_ms: int | None = None
+    elapsed_ms: int | None = None
+    phase: str | None = None
 
     def as_document(self) -> dict[str, object]:
         return {
@@ -704,6 +735,10 @@ class CostRecord:
             "outcome": self.outcome.value,
             "reason": self.reason.value if self.reason is not None else None,
             "status_code": self.status_code,
+            "attempts": self.attempts,
+            "timeout_ms": self.timeout_ms,
+            "elapsed_ms": self.elapsed_ms,
+            "phase": self.phase,
         }
 
 
@@ -781,6 +816,10 @@ class CostLedger:
         response_tokens: int | None = None,
         reason: UnavailableReason | None = None,
         status_code: int | None = None,
+        attempts: int | None = None,
+        timeout_ms: int | None = None,
+        elapsed_ms: int | None = None,
+        phase: str | None = None,
     ) -> CostRecord:
         """Price what the provider reported and append it, in one step.
 
@@ -796,6 +835,10 @@ class CostLedger:
                 request_tokens=request_tokens,
                 response_tokens=response_tokens,
                 estimated_cost=self.estimate(request_tokens, response_tokens),
+                attempts=attempts,
+                timeout_ms=timeout_ms,
+                elapsed_ms=elapsed_ms,
+                phase=phase,
                 intent_generation=intent_generation,
                 outcome=outcome,
                 reason=reason,

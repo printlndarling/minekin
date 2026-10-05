@@ -40,7 +40,7 @@ fi
 
 IMAGE="${MINEKIN_RUNNER_IMAGE:-minekin-runner:local}"
 DATA_VOLUME="${MINEKIN_RUNNER_DATA:-minekin-runner-data}"
-USERNAME="${MINEKIN_USERNAME:-Kin}"
+USERNAME="${MINEKIN_USERNAME:-minekin}"
 
 # Publishing one container port on the host, for the shapes where something outside
 # the container has to reach a service inside it — today that is only the Dashboard's

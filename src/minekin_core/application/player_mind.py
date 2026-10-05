@@ -2506,6 +2506,13 @@ class PlayerMind:
             "model_calls": self.ledger.calls,
             "model_spent_micro": self.ledger.spent,
             "model_cap_refusals": self.ledger.cap_refusals,
+            # The newest call's redacted diagnostics -- attempts, the per-attempt budget,
+            # elapsed time, the failed phase and the reason -- so a run that stopped on a
+            # model failure carries the facts a timeout claim has to stand on instead of
+            # only the word TIMEOUT.
+            "last_model_call": (
+                None if not self.ledger.records else self.ledger.records[-1].as_document()
+            ),
         }
 
 

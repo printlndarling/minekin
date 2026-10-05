@@ -6835,3 +6835,44 @@ def test_both_demo_entries_route_browse_to_their_own_volume_and_kin(tmp_path: Pa
             f"{script} did not name the argument it added: {result.stderr}"
         )
         assert panel_container_runs(home) == [], f"{script} started something before refusing"
+
+
+# ------------------------------------------------- the demo's default player identity
+
+
+def test_the_demo_identity_defaults_to_the_product_name_and_an_explicit_one_wins(
+    tmp_path: Path,
+) -> None:
+    """The demo entry names the product's default account (`minekin`); an operator's explicit
+    MINEKIN_DEMO_USERNAME still wins, because the default is the `:-` fallback of the same
+    variable the run is handed."""
+
+    demo = (RUNNER / "demo.sh").read_text(encoding="utf-8")
+    line = re.search(r"^USERNAME=.*$", demo, re.M)
+    assert line is not None, "demo.sh no longer states the account it admits"
+    body = "set -euo pipefail\n" + line.group(0) + '\nprintf "%s" "${USERNAME}"\n'
+    assert run_shelled(tmp_path, body, None, "username-default").stdout == "minekin"
+    assert (
+        run_shelled(tmp_path, body, {"MINEKIN_DEMO_USERNAME": "Alice"}, "username-explicit").stdout
+        == "Alice"
+    )
+
+
+def test_the_demo_help_names_the_minekin_default_and_helpers_agree() -> None:
+    demo = (RUNNER / "demo.sh").read_text(encoding="utf-8")
+    assert re.search(r"USERNAME=\"\$\{MINEKIN_DEMO_USERNAME:-minekin\}\"", demo)
+    assert re.search(r"MINEKIN_DEMO_USERNAME\s+the account the world admits\s+\(minekin\)", demo)
+    run = (RUNNER / "run.sh").read_text(encoding="utf-8")
+    assert re.search(r'USERNAME="\$\{MINEKIN_USERNAME:-minekin\}"', run)
+    domain = (RUNNER / "domain.sh").read_text(encoding="utf-8")
+    assert re.search(r'player="\$\{MINEKIN_USERNAME:-minekin\}"', domain)
+
+
+def test_a_restart_never_re_initialises_an_existing_kin_root() -> None:
+    """The identity is written once by `init`, and the demo calls `init` only when the Kin
+    root is absent: a restart reuses the stored identity (and an operator rename) untouched."""
+
+    demo = (RUNNER / "demo.sh").read_text(encoding="utf-8")
+    guard = demo.index('"[ -d /data/kin/${KIN} ]"')
+    init = demo.index('run.sh" init --kin-id "${KIN}"')
+    assert guard < init, "the init call is no longer guarded by the absent-root check"

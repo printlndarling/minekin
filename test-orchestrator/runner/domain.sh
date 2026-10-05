@@ -22,7 +22,7 @@
 set -euo pipefail
 
 seconds="${MINEKIN_DOMAIN_SECONDS:-240}"
-player="${MINEKIN_USERNAME:-Kin}"
+player="${MINEKIN_USERNAME:-minekin}"
 summon="${MINEKIN_DOMAIN_SUMMON:-}"
 # A `MINEKIN-DOMAIN-TIME-PHASE-001` schedule for the server's world clock: comma-separated
 # `SECONDS:PHASE` entries, each a real `time set` this many seconds after the first join,

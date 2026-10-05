@@ -92,6 +92,9 @@ class Behavior:
     status: int = 200
     body: bytes = b""
     sleep_s: float = 0.0
+    #: Delay only the first arrival, so one bounded retry can be measured: attempt one dies
+    #: on the client's budget, attempt two is answered immediately.
+    sleep_first_s: float = 0.0
     location: str | None = None
     echo: bool = False
     silent: bool = False
@@ -148,6 +151,8 @@ class Endpoint:
                     return
                 if outer.behavior.sleep_s:
                     time.sleep(outer.behavior.sleep_s)
+                if len(outer.arrivals) == 1 and outer.behavior.sleep_first_s:
+                    time.sleep(outer.behavior.sleep_first_s)
                 status, body, location = outer.behavior.reply(
                     arrival, first=len(outer.arrivals) == 1
                 )
@@ -261,6 +266,7 @@ def config_for(
     timeout_ms: int = 2_000,
     cap: int = 500_000,
     api_key_env: str = FAKE_KEY_VARIABLE,
+    max_attempts: int = 2,
 ) -> ModelConfig:
     return ModelConfig(
         provider=provider,
@@ -269,6 +275,7 @@ def config_for(
         api_key_env=api_key_env,
         timeout_ms=timeout_ms,
         run_cost_cap=cap,
+        max_attempts=max_attempts,
     )
 
 
@@ -997,3 +1004,120 @@ def test_the_isolation_check_would_have_caught_a_leak() -> None:
 
     clean = ["off", "chop_tree", "MODEL_NOT_CONFIGURED", "503"]
     assert_clean(clean, label="control: a clean corpus")
+
+
+# ------------------------------------------------ bounded attempts and redacted diagnostics
+
+
+def test_a_timeout_is_retried_once_and_the_record_carries_the_attempts(
+    serve: Callable[[Behavior], Endpoint],
+) -> None:
+    """One slow first attempt inside the bounded retry: the second answer lands, and the one
+    record says how many attempts the call took and how long the whole call ran."""
+
+    endpoint = serve(Behavior(body=decision_content("chop_tree", "second try"), sleep_first_s=0.6))
+    provider = OpenAICompatibleProvider(config_for(endpoint, timeout_ms=80), environment())
+
+    answered = provider.decide(offer())
+
+    assert isinstance(answered, Decision)
+    assert len(endpoint.arrivals) == 2
+    record = provider.ledger.records[-1]
+    assert record.outcome is CallOutcome.OK
+    assert record.attempts == 2
+    assert record.timeout_ms == 80
+    assert record.elapsed_ms is not None and record.elapsed_ms >= 80
+    # The first attempt died awaiting the response head; that phase is what the record names.
+    assert record.phase == "open"
+
+
+def test_exhausted_attempts_stop_the_call_with_the_diagnostics_recorded(
+    serve: Callable[[Behavior], Endpoint],
+) -> None:
+    """Both attempts outlast the budget: the named stop is TIMEOUT, one record is owed, and
+    it says attempts=2 with the budget and elapsed time -- the facts a remote-failure claim
+    has to stand on, and no others."""
+
+    endpoint = serve(Behavior(body=decision_content("chop_tree", "late"), sleep_s=0.6))
+    provider = OpenAICompatibleProvider(config_for(endpoint, timeout_ms=80), environment())
+
+    answered = provider.decide(offer())
+
+    assert isinstance(answered, ModelUnavailable)
+    assert answered.reason is UnavailableReason.TIMEOUT
+    assert len(endpoint.arrivals) == 2
+    assert len(provider.ledger.records) == 1
+    record = provider.ledger.records[-1]
+    assert record.attempts == 2
+    assert record.timeout_ms == 80
+    assert record.elapsed_ms is not None and record.elapsed_ms >= 160
+    assert record.phase == "open"
+
+
+def test_a_status_refusal_is_not_retried(
+    serve: Callable[[Behavior], Endpoint],
+) -> None:
+    """A 4xx is deterministic: one attempt, one record, phase=status -- no wasted retry."""
+
+    endpoint = serve(Behavior(status=400, body=b"nope"))
+    provider = OpenAICompatibleProvider(config_for(endpoint), environment())
+
+    answered = provider.decide(offer())
+
+    assert isinstance(answered, ModelUnavailable)
+    assert answered.reason is UnavailableReason.PROVIDER_STATUS
+    assert len(endpoint.arrivals) == 1
+    record = provider.ledger.records[-1]
+    assert record.attempts == 1
+    assert record.phase == "status"
+
+
+def test_a_transport_failure_is_retried_within_the_same_bound(
+    serve: Callable[[Behavior], Endpoint],
+) -> None:
+    endpoint = serve(Behavior(silent=True))
+    provider = OpenAICompatibleProvider(config_for(endpoint, timeout_ms=500), environment())
+
+    answered = provider.decide(offer())
+
+    assert isinstance(answered, ModelUnavailable)
+    assert answered.reason is UnavailableReason.TRANSPORT_FAILURE
+    assert len(endpoint.arrivals) == 2
+    record = provider.ledger.records[-1]
+    assert record.attempts == 2
+    assert record.phase == "open"
+
+
+def test_max_attempts_one_keeps_the_single_attempt_shape(
+    serve: Callable[[Behavior], Endpoint],
+) -> None:
+    endpoint = serve(Behavior(body=decision_content("chop_tree", "late"), sleep_s=0.6))
+    provider = OpenAICompatibleProvider(
+        config_for(endpoint, timeout_ms=80, max_attempts=1), environment()
+    )
+
+    answered = provider.decide(offer())
+
+    assert isinstance(answered, ModelUnavailable)
+    assert answered.reason is UnavailableReason.TIMEOUT
+    assert len(endpoint.arrivals) == 1
+    assert provider.ledger.records[-1].attempts == 1
+
+
+def test_the_diagnostics_carry_neither_the_endpoint_nor_the_key(
+    serve: Callable[[Behavior], Endpoint], caplog: pytest.LogCaptureFixture
+) -> None:
+    """The added numbers are ours: no URL, no path, no credential shows up in the record
+    document or in anything the logger was handed."""
+
+    with caplog.at_level(logging.DEBUG):
+        endpoint = serve(Behavior(body=decision_content("chop_tree", "late"), sleep_s=0.6))
+        provider = OpenAICompatibleProvider(config_for(endpoint, timeout_ms=80), environment())
+        provider.decide(offer())
+
+    rendered = json.dumps(provider.ledger.records[-1].as_document(), ensure_ascii=False)
+    for text in (rendered, caplog.text):
+        assert endpoint.base_url not in text
+        assert "chat/completions" not in text
+        for fragment in SECRET_FRAGMENTS:
+            assert fragment not in text
