@@ -45,7 +45,6 @@ dashboard can mistake a deterministic order for a model.
 from __future__ import annotations
 
 import math
-import os
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -67,6 +66,7 @@ from minekin_core.domain.danger_catalog import (
     nearest_hostile,
 )
 from minekin_core.domain.daylight import time_of_day
+from minekin_core.domain.decision_policy import DecisionPolicy
 from minekin_core.domain.goal_spec import Milestone
 from minekin_core.domain.model_access import (
     MAX_REASON_CHARS,
@@ -224,47 +224,6 @@ PLAYER_DEAD: Final = "PLAYER_DEAD"
 DECISION_PRECONDITION_CHANGED: Final = "DECISION_PRECONDITION_CHANGED"
 DECISION_FROM_MODEL: Final = "model"
 DECISION_FROM_LOCAL: Final = "local_reflection"
-
-
-class DecisionPolicy(StrEnum):
-    """Who decides an ordinary step, and what a failure of the decider means.
-
-    `MODEL` is the product's autonomy: the answerer chooses every ordinary step and its key
-    parameters from the offer it is shown, and a refusal — timeout, missing credential, spent
-    budget, malformed or illegal answer — stops the run under that name rather than letting
-    local code take the decision over. `RULES` is the explicitly selected offline strategy the
-    old demos run on: the order in `_reflect` decides, the provider is never consulted, and
-    every step is recorded as `local_reflection`. There is no implicit third mode: an
-    unconfigured model or a missing key is not a licence for the rules to decide.
-    """
-
-    MODEL = "model"
-    RULES = "rules"
-
-
-#: The environment variable through which an operator explicitly selects the strategy.
-#: Unset means `MODEL`; `off` or a missing key never selects `RULES` on its own.
-DECISION_POLICY_VARIABLE: Final = "MINEKIN_DECISION_POLICY"
-
-
-def decision_policy_from_environment(
-    environ: Mapping[str, str] | None = None,
-) -> DecisionPolicy:
-    """The strategy the operator selected, or `MODEL` when the environment is silent.
-
-    An empty value means "not selected"; anything else must be one of the declared names, and
-    a misspelling is refused by name rather than quietly degrading to a default nobody chose.
-    """
-
-    source = os.environ if environ is None else environ
-    raw = source.get(DECISION_POLICY_VARIABLE, "").strip().lower()
-    if not raw:
-        return DecisionPolicy.MODEL
-    try:
-        return DecisionPolicy(raw)
-    except ValueError as exc:
-        declared = ", ".join(policy.value for policy in DecisionPolicy)
-        raise ValueError(f"{DECISION_POLICY_VARIABLE} must be one of: {declared}") from exc
 
 
 #: Which refusal words mean which of §3's four attributions. Anything unlisted lands in

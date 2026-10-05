@@ -31,6 +31,7 @@ from typing import Any, Final, cast
 from gateway.identity import refusal
 from gateway.readmodel import STALE_AFTER_MS
 from minekin_core.application.ports.clock import Clock
+from minekin_core.domain.decision_policy import KNOWN_POLICIES
 from minekin_core.domain.errors import MinekinError
 from minekin_core.domain.operator_config import (
     KNOWN_PROVIDERS,
@@ -69,6 +70,7 @@ _STR_FIELDS: Final = frozenset(
         "model_base_url",
         "model_name",
         "model_api_key_env",
+        "decision_policy",
         "goal_product_id",
         "goal_source_item_id",
         "goal_direction",
@@ -101,6 +103,7 @@ def config_read(root: Path, *, clock: Clock, csrf_token: str) -> dict[str, Any]:
         "knownFields": sorted(_KNOWN_FIELDS),
         "intFields": sorted(_INT_FIELDS),
         "providers": sorted(KNOWN_PROVIDERS),
+        "policies": sorted(KNOWN_POLICIES),
         "maxBodyBytes": MAX_CONFIG_BODY_BYTES,
         "loadError": load_error,
         "csrfToken": csrf_token,

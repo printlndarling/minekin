@@ -7,6 +7,11 @@ from pathlib import Path
 
 import pytest
 
+from minekin_core.domain.decision_policy import (
+    DECISION_POLICY_VARIABLE,
+    DecisionPolicy,
+    decision_policy_from_environment,
+)
 from minekin_core.domain.errors import MinekinError
 from minekin_core.domain.operator_config import (
     CONFIG_FILE_NAME,
@@ -158,3 +163,67 @@ def test_to_environment_uses_the_readers_own_variable_names() -> None:
     env = _full_config().to_environment()
     assert env["MINEKIN_MODEL_BASE_URL"] == "https://example.test/v1"
     assert env["MINEKIN_GOAL_SOURCE_ITEM"] == "minecraft:oak_log"
+
+
+# --------------------------------------------------------------------- the decision policy field
+
+
+def test_an_old_document_without_a_policy_reads_as_the_model_default(tmp_path: Path) -> None:
+    """A document written before this field existed is not an error and not a rule choice:
+    the field reads empty, its environment selects nothing, and an unselected environment is
+    the model policy -- the reader's default, never `rules`."""
+
+    (tmp_path / CONFIG_FILE_NAME).write_text(
+        json.dumps(
+            {
+                "schemaVersion": "minekin-operator-config/1.0",
+                "fields": {"model_name": "some/model"},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    loaded = load_operator_config(tmp_path)
+
+    assert loaded.model_name == "some/model"
+    assert loaded.decision_policy == ""
+    assert DECISION_POLICY_VARIABLE not in loaded.to_environment()
+    assert decision_policy_from_environment(loaded.to_environment()) is DecisionPolicy.MODEL
+
+
+def test_an_explicit_rule_choice_round_trips_and_reaches_the_launch_environment(
+    tmp_path: Path,
+) -> None:
+    saved = save_operator_config(tmp_path, OperatorConfig(decision_policy="rules"))
+
+    assert saved.decision_policy == "rules"
+    assert load_operator_config(tmp_path).decision_policy == "rules"
+    assert saved.to_environment()[DECISION_POLICY_VARIABLE] == "rules"
+
+
+def test_an_unknown_policy_is_refused_by_field_and_leaves_the_old_document_whole(
+    tmp_path: Path,
+) -> None:
+    save_operator_config(tmp_path, OperatorConfig(decision_policy="rules"))
+
+    with pytest.raises(ConfigRefusal) as raised:
+        save_operator_config(tmp_path, OperatorConfig(decision_policy="sometimes"))
+
+    assert raised.value.field == "decision_policy"
+    assert "unknown policy" in raised.value.reason
+    # The refused save wrote nothing: the previously saved rule choice is still the document.
+    assert load_operator_config(tmp_path).decision_policy == "rules"
+
+
+def test_a_credential_shaped_policy_value_is_refused_like_every_string_field(
+    tmp_path: Path,
+) -> None:
+    """The new field is a name from a closed vocabulary, never a place a key can land: a
+    pasted token is caught by the same secret-shape check the other string fields use."""
+
+    with pytest.raises(ConfigRefusal) as raised:
+        save_operator_config(tmp_path, OperatorConfig(decision_policy="sk-" + "a" * 40))
+
+    assert raised.value.field == "decision_policy"
+    assert "credential" in raised.value.reason
+    assert not config_path(tmp_path).exists()

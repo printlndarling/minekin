@@ -50,7 +50,6 @@ from minekin_core.application.player_mind import (
     craft_blocker,
     craft_options,
     crafting_grid_side,
-    decision_policy_from_environment,
     feasible_skill_ids,
     mind_for,
     needs_from,
@@ -61,6 +60,7 @@ from minekin_core.application.player_mind import (
     shortfalls,
     step_to_run,
 )
+from minekin_core.domain.decision_policy import decision_policy_from_environment
 from minekin_core.domain.goal_spec import Milestone
 from minekin_core.domain.model_access import (
     CallOutcome,

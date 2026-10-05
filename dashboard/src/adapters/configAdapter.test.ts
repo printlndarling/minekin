@@ -273,3 +273,39 @@ describe("gateway 配置读取与保存（真实传输 + CSRF 回显）", () => 
     expect(Object.keys(decoded.config)).not.toContain("csrfToken");
   });
 });
+
+describe("决策策略词表与读写", () => {
+  it("配置读取投影策略词表；字节缺失即整读契约不符", async () => {
+    const result = await createMockAdapter("healthy_run_07", 0).config();
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.policies).toEqual(["model", "rules"]);
+
+    const wire = buildMockConfig("healthy_run_07", Date.now()) as Record<string, unknown>;
+    delete wire.policies;
+    const decoded = decodeConfigPayload(wire);
+    expect(decoded.ok).toBe(false);
+    if (!decoded.ok) expect(decoded.issues.join(" | ")).toContain("policies");
+  });
+
+  it("保存 rules 后读回仍是 rules；未知策略被具名拒止且文档不变", async () => {
+    const adapter = createMockAdapter("fields_unknown", 0);
+    await adapter.config();
+
+    const saved = await adapter.saveConfig({ fields: { decision_policy: "rules" } });
+    expect(saved.ok).toBe(true);
+    const again = await adapter.config();
+    expect(again.ok).toBe(true);
+    if (again.ok) expect(again.value.fields.decision_policy).toBe("rules");
+
+    const bad = await adapter.saveConfig({ fields: { decision_policy: "sometimes" } });
+    expect(bad.ok).toBe(false);
+    if (!bad.ok) {
+      expect(bad.failure.message).toContain("decision_policy");
+      expect(bad.failure.message).toContain("未知策略");
+    }
+    const unchanged = await adapter.config();
+    expect(unchanged.ok).toBe(true);
+    if (unchanged.ok) expect(unchanged.value.fields.decision_policy).toBe("rules");
+  });
+});

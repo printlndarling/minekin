@@ -48,3 +48,16 @@ describe("历史经历只读查看", () => {
     expect(decodeIdentityPayload(wire(records)).ok).toBe(false);
   });
 });
+
+describe("历史记录不被今天的策略改写", () => {
+  it("来源保持记录时的原样，并写明历史行不携带当时的决策模式", () => {
+    const result = decodeIdentityPayload(wire());
+    if (!result.ok) throw new Error(result.issues.join(";"));
+    render(<ExperiencesPanel experiences={result.identity.experiences} />);
+    const panel = screen.getByTestId("panel-experiences");
+    expect(panel).toHaveTextContent("决策来源：模型");
+    expect(panel).toHaveTextContent("历史记录不携带当时的决策模式");
+    expect(panel).toHaveTextContent("旧实现的隐式失败回退");
+    expect(panel).toHaveTextContent("不能判定");
+  });
+});

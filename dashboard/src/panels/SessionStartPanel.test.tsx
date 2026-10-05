@@ -64,6 +64,7 @@ describe("受管启动", () => {
     vi.spyOn(adapter, "sessionJob").mockResolvedValue(ok({ job: {
       jobId: "a".repeat(32), phase: "failed", reason: outcome, fields: { host: "127.0.0.1", port: 25566 },
       serverRevision: 1, installed: 0, total: 3639, outcome, inputReleaseFailed: false, clientExitCode: -9,
+      decisionPolicy: null, decisionPolicySource: null,
     } }, "mock", "mock://session/job"));
     const start = vi.spyOn(adapter, "startSession");
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });

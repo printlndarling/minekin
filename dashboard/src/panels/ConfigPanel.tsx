@@ -73,7 +73,7 @@ export function ConfigPanel({ adapter, nowMs }: { readonly adapter: KinReadAdapt
   }, [edited]);
 
   const errors = useMemo(
-    () => (config === null ? {} : validateConfigDraft(draft, config.providers)),
+    () => (config === null ? {} : validateConfigDraft(draft, config.providers, config.policies)),
     [draft, config],
   );
   const valid = Object.keys(errors).length === 0;
@@ -145,6 +145,11 @@ export function ConfigPanel({ adapter, nowMs }: { readonly adapter: KinReadAdapt
             {CONFIG_GROUPS.map((group) => (
               <fieldset key={group.id} className={styles.group} data-testid={`config-group-${group.id}`}>
                 <legend className={styles.groupLabel}>{group.label}</legend>
+                {group.note !== undefined ? (
+                  <p className={styles.hint} data-testid={`config-group-note-${group.id}`}>
+                    {group.note}
+                  </p>
+                ) : null}
                 {group.fields.map((meta) => (
                   <ConfigField
                     key={meta.key}
@@ -152,6 +157,7 @@ export function ConfigPanel({ adapter, nowMs }: { readonly adapter: KinReadAdapt
                     value={draft[meta.key] ?? ""}
                     error={errors[meta.key]}
                     providers={config.providers}
+                    policies={config.policies}
                     editable={editable}
                     onChange={setField}
                   />
@@ -223,6 +229,7 @@ function ConfigField({
   value,
   error,
   providers,
+  policies,
   editable,
   onChange,
 }: {
@@ -230,6 +237,7 @@ function ConfigField({
   readonly value: string;
   readonly error: string | undefined;
   readonly providers: readonly string[];
+  readonly policies: readonly string[];
   readonly editable: boolean;
   readonly onChange: (key: string, value: string) => void;
 }) {
@@ -239,7 +247,7 @@ function ConfigField({
       <label className={styles.inputLabel} htmlFor={id}>
         {meta.label}
       </label>
-      {meta.provider ? (
+      {meta.provider || meta.policy ? (
         <select
           id={id}
           className={styles.input}
@@ -250,9 +258,12 @@ function ConfigField({
           aria-describedby={`${id}-hint`}
           onChange={(event) => onChange(meta.key, event.target.value)}
         >
-          {providers.map((provider) => (
-            <option key={provider} value={provider}>
-              {provider}
+          {meta.policy ? (
+            <option value="">（未设置，默认 model）</option>
+          ) : null}
+          {(meta.policy ? policies : providers).map((choice) => (
+            <option key={choice} value={choice}>
+              {choice}
             </option>
           ))}
         </select>

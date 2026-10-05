@@ -14,6 +14,7 @@ import pytest
 
 from minekin_core import bootstrap
 from minekin_core.config import DATA_ROOT_VARIABLE
+from minekin_core.domain.decision_policy import DECISION_POLICY_VARIABLE
 from minekin_core.domain.errors import MinekinError
 from minekin_core.domain.goal_spec import (
     GOAL_PRODUCT_VARIABLE,
@@ -28,7 +29,12 @@ from minekin_core.domain.operator_config import (
     save_operator_config,
 )
 
-_TRACKED_NAMES = (GOAL_PRODUCT_VARIABLE, GOAL_QUANTITY_VARIABLE, MODEL_VARIABLE)
+_TRACKED_NAMES = (
+    GOAL_PRODUCT_VARIABLE,
+    GOAL_QUANTITY_VARIABLE,
+    MODEL_VARIABLE,
+    DECISION_POLICY_VARIABLE,
+)
 
 
 @pytest.fixture
@@ -131,3 +137,37 @@ def test_a_saved_milestone_survives_the_fold_into_the_milestone_the_mind_reads(
         source_item_id="minecraft:oak_log",
         direction="hold_four_sticks",
     )
+
+
+def test_a_saved_rule_policy_reaches_the_environment_and_a_shell_choice_outranks_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, clean_goal_env: None
+) -> None:
+    """The decision policy is a persisted choice like the goal: saved `rules` must arrive as the
+    name the mind reads, and a shell statement made later still wins over the file."""
+
+    monkeypatch.setenv(DATA_ROOT_VARIABLE, str(tmp_path))
+    save_operator_config(tmp_path, OperatorConfig(decision_policy="rules"))
+
+    bootstrap.apply_persisted_config()
+
+    assert os.environ[DECISION_POLICY_VARIABLE] == "rules"
+
+    monkeypatch.setenv(DECISION_POLICY_VARIABLE, "model")
+    bootstrap.apply_persisted_config()
+
+    assert os.environ[DECISION_POLICY_VARIABLE] == "model"
+
+
+def test_provider_off_without_a_saved_policy_folds_in_no_policy_name(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, clean_goal_env: None
+) -> None:
+    """Disabling the provider must not select the rules: the folded environment carries no
+    policy name at all, and the reader's default (`model`) is what an explicit stop means."""
+
+    monkeypatch.setenv(DATA_ROOT_VARIABLE, str(tmp_path))
+    monkeypatch.delenv(DECISION_POLICY_VARIABLE, raising=False)
+    save_operator_config(tmp_path, OperatorConfig(model_provider="off"))
+
+    bootstrap.apply_persisted_config()
+
+    assert os.environ.get(DECISION_POLICY_VARIABLE) is None

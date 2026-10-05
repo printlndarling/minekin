@@ -19,6 +19,21 @@ const RESULT_LABELS: Record<string, string> = {
   INTERRUPTED: "已中断",
 };
 
+/**
+ * The gloss for the source token, never a re-label. `local_reflection` is local code doing the
+ * step -- an imminent-protection step or the rules strategy -- and this ledger row does not say
+ * which mode was chosen at the time, so the gloss does not claim either and the panel says so.
+ * Both spellings are glossed because the ledger writes Core's lowercase tokens while older
+ * fixtures and gap texts use the enum spellings.
+ */
+const SOURCE_LABELS: Record<string, string> = {
+  model: "模型决策",
+  DECISION_FROM_MODEL: "模型决策",
+  local_reflection: "本地执行（安全保护或规则策略）",
+  DECISION_FROM_LOCAL: "本地执行（安全保护或规则策略）",
+  OPERATOR_PLAN: "操作员计划",
+};
+
 const REASON_LABELS: Record<string, string> = {
   DECISION_PRECONDITION_CHANGED: "观察已变化，本步撤回并重新规划",
   COLLECT_AIM_NOT_CONFIRMED: "尚未确认行走朝向，未开始前进",
@@ -101,6 +116,8 @@ export interface SkillStepPanelProps {
  */
 export function SkillStepPanel({ snapshot }: SkillStepPanelProps) {
   const group = snapshot.skillSteps;
+  const refusal =
+    isKnown(group) && "value" in group.value.modelRefusal ? group.value.modelRefusal.value : null;
   return (
     <Panel
       title="技能步读数（逐行来自台账 SkillStepRecorded）"
@@ -115,7 +132,11 @@ export function SkillStepPanel({ snapshot }: SkillStepPanelProps) {
           <MemberRow label="实际结果" field={group.value.result} gloss={(v) => RESULT_LABELS[v] ?? v} />
           <MemberRow label="结果原因" field={group.value.reason} gloss={(v) => REASON_LABELS[v] ?? v} />
           <MemberRow label="失败归因" field={group.value.attribution} />
-          <MemberRow label="决策来源" field={group.value.decisionSource} />
+          <MemberRow
+            label="决策来源"
+            field={group.value.decisionSource}
+            gloss={(v) => SOURCE_LABELS[v] ?? v}
+          />
           <MemberRow label="模型拒止" field={group.value.modelRefusal} />
           <CountRow label="技能步数" field={group.value.stepCount} format={(v) => `${v} 步`} />
           <MemberRow label="调用花费" field={group.value.modelCost} />
@@ -124,6 +145,14 @@ export function SkillStepPanel({ snapshot }: SkillStepPanelProps) {
           <MemberRow label="人格输入来源" field={group.value.personaContext} />
           <MemberRow label="历史记忆输入" field={group.value.sessionHistory} />
           <p className={styles.panelNote}>这两项描述封存运行的心智输入，不证明模型采纳或人格生效；历史阶段不代表当前背包、已松键或目标成功。</p>
+          <p className={styles.panelNote} data-testid="skill-step-source-note">
+            决策来源是 Core 记录的原始 token，本面板只加中文注释。local_reflection 表示这一步由本地代码执行：可能是紧迫安全保护（例如挨打时撤离一步）、规则策略（rules）的决策，或旧实现的隐式失败回退；该台账行不携带当时选择的决策模式，历史不能判定——不以今天的保存配置、本次启动读数倒推历史。
+          </p>
+          {refusal === "MODEL_NOT_CONFIGURED" ? (
+            <p className={styles.panelNote} data-testid="skill-step-model-guidance">
+              模型未配置：请在「配置 · 模型与目标」页填写模型连接后重试；当前构建按 MODEL_NOT_CONFIGURED 具名停止，不会自动切换到规则策略；历史运行是否如此没有记录，不做推断。
+            </p>
+          ) : null}
           <p className={styles.panelNote} data-testid="skill-step-observed">
             最近一步落行于 {formatDateTime(group.observedAt)}；本组取自台账行，不按时间判陈旧。
           </p>

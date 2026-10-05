@@ -119,11 +119,7 @@ from minekin_core.application.autonomous_play import (
     run_autonomous_loop,
 )
 from minekin_core.application.physiology import PhysiologySampler
-from minekin_core.application.player_mind import (
-    PlayerMind,
-    decision_policy_from_environment,
-    mind_for,
-)
+from minekin_core.application.player_mind import PlayerMind, mind_for
 from minekin_core.application.recovery_service import RecoveryReport
 from minekin_core.application.skill_plan import (
     SkillPlan,
@@ -147,6 +143,7 @@ from minekin_core.cli.session_runtime import (
 )
 from minekin_core.domain.auth_policy import AuthPolicy
 from minekin_core.domain.connection import ConnectionGenerations, ConnectionState
+from minekin_core.domain.decision_policy import decision_policy_from_environment
 from minekin_core.domain.errors import ErrorCategory, MinekinError, Retryability
 from minekin_core.domain.events import EventSource, TrustClass
 from minekin_core.domain.goal_spec import milestone_from_environment

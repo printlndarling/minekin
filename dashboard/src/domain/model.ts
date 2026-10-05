@@ -316,6 +316,8 @@ export interface ConfigInfo {
   readonly knownFields: readonly string[];
   readonly intFields: readonly string[];
   readonly providers: readonly string[];
+  /** The decision-mode vocabulary `domain/decision_policy.py` owns (model / rules). */
+  readonly policies: readonly string[];
   readonly maxBodyBytes: number;
   /** Core's own reason the saved document could not be read; null when it parsed. */
   readonly loadError: string | null;
@@ -473,6 +475,11 @@ export interface SessionJob {
   readonly total: number;
   readonly outcome: string | null;
   readonly inputReleaseFailed: boolean | null;
+  /** The mode this launch actually ran, captured at the start boundary; null = not recorded
+   *  (a job from before the field existed -- never back-filled from today's configuration). */
+  readonly decisionPolicy: string | null;
+  /** Where the captured mode came from: environment / config / default; null = not recorded. */
+  readonly decisionPolicySource: string | null;
 }
 export interface SessionJobInfo { readonly job: SessionJob | null; }
 export interface SessionStartResult { readonly jobId: string; readonly phase: "preparing"; }

@@ -981,6 +981,7 @@ export function decodeConfigPayload(raw: unknown): ConfigDecode {
   const knownFields = asStringArray(rec.knownFields, "$.knownFields", issues);
   const intFields = asStringArray(rec.intFields, "$.intFields", issues);
   const providers = asStringArray(rec.providers, "$.providers", issues);
+  const policies = asStringArray(rec.policies, "$.policies", issues);
   const maxBodyBytes = asInteger(rec.maxBodyBytes);
   const loadError = asNullableString(rec.loadError);
   const csrfToken = asString(rec.csrfToken);
@@ -990,6 +991,7 @@ export function decodeConfigPayload(raw: unknown): ConfigDecode {
   if (knownFields === null) issues.push("$.knownFields: 缺失或非数组");
   if (intFields === null) issues.push("$.intFields: 缺失或非数组");
   if (providers === null) issues.push("$.providers: 缺失或非数组");
+  if (policies === null) issues.push("$.policies: 缺失或非数组");
   if (maxBodyBytes === null) issues.push("$.maxBodyBytes: 缺失或非整数");
   if (loadError === undefined) issues.push("$.loadError: 缺失或既非字符串也非 null");
   if (csrfToken === null) issues.push("$.csrfToken: 缺失（无法保存）");
@@ -1004,6 +1006,7 @@ export function decodeConfigPayload(raw: unknown): ConfigDecode {
       knownFields: knownFields as string[],
       intFields: intFields as string[],
       providers: providers as string[],
+      policies: policies as string[],
       maxBodyBytes: maxBodyBytes as number,
       loadError: (loadError as string | null) ?? null,
       observedAt: observedAt as string,
@@ -1777,13 +1780,22 @@ export function createGatewayAdapter(options: GatewayAdapterOptions | null): Kin
           ![job.serverRevision, job.installed, job.total].every((n) => typeof n === "number" && Number.isSafeInteger(n) && n >= 0) ||
           !(job.outcome === null || typeof job.outcome === "string") ||
           !(job.clientExitCode === undefined || job.clientExitCode === null || Number.isSafeInteger(job.clientExitCode)) ||
-          !(job.inputReleaseFailed === null || typeof job.inputReleaseFailed === "boolean"))
+          !(job.inputReleaseFailed === null || typeof job.inputReleaseFailed === "boolean") ||
+          !(job.decisionPolicy === undefined || job.decisionPolicy === null ||
+            job.decisionPolicy === "model" || job.decisionPolicy === "rules") ||
+          !(job.decisionPolicySource === undefined || job.decisionPolicySource === null ||
+            job.decisionPolicySource === "environment" || job.decisionPolicySource === "config" ||
+            job.decisionPolicySource === "default"))
         return fail("contract_mismatch", "会话启动记录契约不匹配。");
       const value: SessionJob = { jobId: job.jobId, phase: String(job.phase), reason: job.reason,
         clientExitCode: typeof job.clientExitCode === "number" && Number.isSafeInteger(job.clientExitCode) ? job.clientExitCode : null,
         fields: job.fields as SessionJob["fields"], serverRevision: job.serverRevision as number,
         installed: job.installed as number, total: job.total as number, outcome: job.outcome as string | null,
-        inputReleaseFailed: job.inputReleaseFailed as boolean | null };
+        inputReleaseFailed: job.inputReleaseFailed as boolean | null,
+        // Absent on records from before this field existed: null is "not recorded", and no
+        // default is filled from the saved configuration here.
+        decisionPolicy: job.decisionPolicy === "model" || job.decisionPolicy === "rules" ? job.decisionPolicy : null,
+        decisionPolicySource: typeof job.decisionPolicySource === "string" ? job.decisionPolicySource : null };
       return ok({ job: value }, "gateway", "gateway://session/job");
     },
     async startSession(request: SessionStartRequest, signal?: AbortSignal): Promise<ReadResult<SessionStartResult>> {

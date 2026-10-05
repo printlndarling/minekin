@@ -48,6 +48,7 @@ from pathlib import Path
 from typing import Final, cast
 
 from minekin_core.config import LOCAL_ENV_NAME_PATTERN
+from minekin_core.domain.decision_policy import DECISION_POLICY_VARIABLE, KNOWN_POLICIES
 from minekin_core.domain.errors import ErrorCategory, MinekinError, Retryability
 from minekin_core.domain.goal_spec import (
     GOAL_DIRECTION_VARIABLE,
@@ -120,6 +121,7 @@ class OperatorConfig:
     model_run_cost_cap: int | None = None
     model_request_rate: int | None = None
     model_response_rate: int | None = None
+    decision_policy: str = ""
     goal_product_id: str = ""
     goal_quantity: int | None = None
     goal_source_item_id: str = ""
@@ -161,6 +163,7 @@ _ENV_NAME: Final[dict[str, str]] = {
     "model_run_cost_cap": MODEL_RUN_COST_CAP_VARIABLE,
     "model_request_rate": MODEL_REQUEST_RATE_VARIABLE,
     "model_response_rate": MODEL_RESPONSE_RATE_VARIABLE,
+    "decision_policy": DECISION_POLICY_VARIABLE,
     "goal_product_id": GOAL_PRODUCT_VARIABLE,
     "goal_quantity": GOAL_QUANTITY_VARIABLE,
     "goal_source_item_id": GOAL_SOURCE_ITEM_VARIABLE,
@@ -193,6 +196,7 @@ def _raw_fields(config: OperatorConfig) -> list[tuple[str, object]]:
         ("model_run_cost_cap", config.model_run_cost_cap),
         ("model_request_rate", config.model_request_rate),
         ("model_response_rate", config.model_response_rate),
+        ("decision_policy", config.decision_policy),
         ("goal_product_id", config.goal_product_id),
         ("goal_quantity", config.goal_quantity),
         ("goal_source_item_id", config.goal_source_item_id),
@@ -238,6 +242,13 @@ def _validated_field(name: str, value: object) -> object:
         if provider not in KNOWN_PROVIDERS:
             raise ConfigRefusal(name, f"unknown provider; choose one of {sorted(KNOWN_PROVIDERS)}")
         return provider
+    if name == "decision_policy":
+        # The vocabulary `domain.decision_policy` owns; a value outside it is caught here with
+        # the field name attached rather than read later as a licence nobody granted.
+        policy = _checked_string(name, value)
+        if policy not in KNOWN_POLICIES:
+            raise ConfigRefusal(name, f"unknown policy; choose one of {sorted(KNOWN_POLICIES)}")
+        return policy
     if name in {"model_base_url", "model_name", "goal_direction"}:
         return _checked_string(name, value)
     if name == "model_api_key_env":
@@ -401,6 +412,7 @@ def _from_fields(fields: dict[str, object]) -> OperatorConfig:
         model_run_cost_cap=number("model_run_cost_cap"),
         model_request_rate=number("model_request_rate"),
         model_response_rate=number("model_response_rate"),
+        decision_policy=text("decision_policy"),
         goal_product_id=text("goal_product_id"),
         goal_quantity=number("goal_quantity"),
         goal_source_item_id=text("goal_source_item_id"),

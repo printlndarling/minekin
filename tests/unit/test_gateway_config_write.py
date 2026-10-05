@@ -177,6 +177,7 @@ def test_a_saved_key_reference_persists_as_a_name_not_a_value(
         "model_api_key_env",
         "model_timeout_ms",
         "model_run_cost_cap",
+        "decision_policy",
         "goal_product_id",
         "goal_quantity",
         "goal_source_item_id",
@@ -312,3 +313,45 @@ def test_the_config_read_reports_a_hand_broken_document_without_raising(tmp_path
     assert document["fields"] == {}
     assert document["loadError"]
     assert document["knownFields"]
+
+
+# ------------------------------------------------------------------ the decision policy surface
+
+
+def test_the_config_read_projects_the_policy_vocabulary(
+    base_url: tuple[str, ReadService, Path],
+) -> None:
+    """The panel's mode select is fed the true vocabulary, not a frontend guess."""
+
+    url, _service, _root = base_url
+    status, document = get(url + CONFIG_PATH)
+
+    assert status == 200
+    assert document["policies"] == ["model", "rules"]
+
+
+def test_a_saved_rule_policy_persists_and_is_echoed(
+    base_url: tuple[str, ReadService, Path],
+) -> None:
+    url, service, root = base_url
+    body = dict(VALID_FIELDS, decision_policy="rules")
+
+    status, result = post(
+        url + CONFIG_SAVE_PATH, body={"fields": body}, headers=_headers(url, service)
+    )
+
+    assert status == 200, result
+    assert result["fields"]["decision_policy"] == "rules"
+    assert load_operator_config(root).decision_policy == "rules"
+    _status, refreshed = get(url + CONFIG_PATH)
+    assert refreshed["fields"]["decision_policy"] == "rules"
+
+
+def test_an_unknown_policy_is_refused_by_name_and_writes_nothing(tmp_path: Path) -> None:
+    status, result = save_from_request(tmp_path, body={"fields": {"decision_policy": "sometimes"}})
+
+    assert status == 400
+    assert result["error"] == "invalid_config"
+    assert "decision_policy" in result["message"]
+    assert "unknown policy" in result["message"]
+    assert load_operator_config(tmp_path).is_empty()

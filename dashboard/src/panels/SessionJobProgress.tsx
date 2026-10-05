@@ -10,6 +10,12 @@ const PHASES: Readonly<Record<string, { label: string; explanation: string }>> =
   interrupted: { label: "监督已中断", explanation: "旧任务的监督进程不在运行。客户端可能仍在，需要核对会话状态；不会自动接管或重启。" },
 };
 
+const POLICY_SOURCE_LABELS: Readonly<Record<string, string>> = {
+  environment: "环境（含 env 文件，优先）",
+  config: "保存配置",
+  default: "默认",
+};
+
 export function SessionJobProgress({ job }: { readonly job: SessionJob }) {
   const phase = PHASES[job.phase] ?? { label: "任务状态未知", explanation: "尚不认识此阶段，不推断客户端可操作。" };
   const countsValid = Number.isSafeInteger(job.installed) && Number.isSafeInteger(job.total) &&
@@ -30,6 +36,18 @@ export function SessionJobProgress({ job }: { readonly job: SessionJob }) {
       <p className={styles.note}>此进度按文件条数计，不是下载字节或游戏进入进度；包含缓存核对。</p>
     </> : cacheKnown ? <p>新取得文件 {job.installed} · 缓存复用 {job.total - job.installed} · 总计 {job.total}。
       文件准备成功不等于入服成功。</p> : null}
+    <p className={styles.note} data-testid="session-job-decision-policy">
+      {job.decisionPolicy === null
+        ? "本次启动的决策模式未记录（旧作业记录没有这个字段，不回填默认值）。"
+        : `本次启动决策模式：${job.decisionPolicy}（来源：${
+            job.decisionPolicySource === null
+              ? "未记录"
+              : POLICY_SOURCE_LABELS[job.decisionPolicySource] ?? job.decisionPolicySource
+          }）。`}
+    </p>
+    <p className={styles.note} data-testid="session-job-policy-note">
+      该读数在本次受管启动时捕获：保存配置只是下一次启动的输入，启动时进程环境同名变量优先；之后修改保存值不会改写本作业记录。旧作业没有该字段时显示未记录，不推断。
+    </p>
     {job.reason || job.outcome ? <p>收尾/原因：{job.reason || job.outcome}</p> : null}
     {job.clientExitCode !== null && job.clientExitCode !== undefined ? <p>客户端退出码 {job.clientExitCode}</p> : null}
     {job.inputReleaseFailed === true ? <p className={styles.warning} role="alert">按键释放未确认，请核对会话和客户端收尾。</p>

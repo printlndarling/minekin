@@ -40,6 +40,7 @@ import {
   buildMockSession,
   buildMockStopReport,
   mockConfigInitialFields,
+  MOCK_CONFIG_POLICIES,
   MOCK_CONFIG_PROVIDERS,
   mockIdentityState,
   mockOfflineUuid,
@@ -324,7 +325,7 @@ export function createMockAdapter(scenario: MockScenarioId, latencyMs: number): 
         }
         draft[key] = String(value);
       }
-      const errors = validateConfigDraft(draft, MOCK_CONFIG_PROVIDERS);
+      const errors = validateConfigDraft(draft, MOCK_CONFIG_PROVIDERS, MOCK_CONFIG_POLICIES);
       // Report the first offender in CONFIG_FIELDS order, the same deterministic way the panel gates.
       for (const meta of CONFIG_FIELDS) {
         const message = errors[meta.key];

@@ -250,3 +250,59 @@ describe("gateway 会话读取与停止（真实传输 + CSRF 回显）", () => 
     expect(stopDecoded.result.report.status).toBe("blocked");
   });
 });
+
+describe("受管作业的启动策略读数", () => {
+  function jobWire(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+    return {
+      schemaVersion: "kin-dashboard-session-job/1.0.0",
+      job: {
+        jobId: "b".repeat(32), phase: "ended", reason: "",
+        fields: { host: "127.0.0.1", port: 25566 }, serverRevision: 1,
+        installed: 0, total: 3, outcome: "STOPPED_ON_REQUEST", inputReleaseFailed: false,
+        decisionPolicy: "rules", decisionPolicySource: "environment",
+        ...overrides,
+      },
+    };
+  }
+
+  it("逐字解码启动时捕获的实际模式与来源，不按当前配置改写", async () => {
+    await withFetch((async () => jsonResponse(jobWire())) as typeof fetch, async () => {
+      const adapter = createGatewayAdapter({ baseUrl: "http://127.0.0.1:8000", timeoutMs: 1000 });
+      const result = await adapter.sessionJob();
+      expect(result.ok).toBe(true);
+      if (!result.ok || result.value.job === null) return;
+      expect(result.value.job.decisionPolicy).toBe("rules");
+      expect(result.value.job.decisionPolicySource).toBe("environment");
+    });
+  });
+
+  it("旧作业记录缺字段时读成 null（未记录），不补默认模式", async () => {
+    const wire = jobWire();
+    const job = wire.job as Record<string, unknown>;
+    delete job.decisionPolicy;
+    delete job.decisionPolicySource;
+    await withFetch((async () => jsonResponse(wire)) as typeof fetch, async () => {
+      const adapter = createGatewayAdapter({ baseUrl: "http://127.0.0.1:8000", timeoutMs: 1000 });
+      const result = await adapter.sessionJob();
+      expect(result.ok).toBe(true);
+      if (!result.ok || result.value.job === null) return;
+      expect(result.value.job.decisionPolicy).toBeNull();
+      expect(result.value.job.decisionPolicySource).toBeNull();
+    });
+  });
+
+  it("非词表的模式值或来源值拒绝整读，不猜一个相近值", async () => {
+    await withFetch((async () => jsonResponse(jobWire({ decisionPolicy: "sometimes" }))) as typeof fetch, async () => {
+      const adapter = createGatewayAdapter({ baseUrl: "http://127.0.0.1:8000", timeoutMs: 1000 });
+      const result = await adapter.sessionJob();
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.failure.kind).toBe("contract_mismatch");
+    });
+    await withFetch((async () => jsonResponse(jobWire({ decisionPolicySource: "somewhere" }))) as typeof fetch, async () => {
+      const adapter = createGatewayAdapter({ baseUrl: "http://127.0.0.1:8000", timeoutMs: 1000 });
+      const result = await adapter.sessionJob();
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.failure.kind).toBe("contract_mismatch");
+    });
+  });
+});

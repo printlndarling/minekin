@@ -15,7 +15,7 @@ export function ExperiencesPanel({ experiences }: {
 }) {
   const records = experiences !== undefined && "value" in experiences ? experiences.value : null;
   return <Panel title="最近行为经历" testId="panel-experiences"
-    note="最多 8 条同角色台账记录，可含当前运行；不是某次模型调用的精确输入。过去结果不证明当前世界、背包或权限，不提供动作重放。">
+    note="最多 8 条同角色台账记录，可含当前运行；不是某次模型调用的精确输入。过去结果不证明当前世界、背包或权限，不提供动作重放。历史记录不携带当时的决策模式（当时的本地执行也可能是旧实现的隐式失败回退），不能判定；来源 token 保持记录时的原样，不按今天的配置或运行解释。">
     {records === null ? <p className={styles.state}>
       {experiences !== undefined && "gap" in experiences ? experiences.gap.reason : "接口尚未提供经历读数。"}
     </p> : records.length === 0 ? <p className={styles.state}>已读取台账，尚无行为经历记录。</p> : <ol aria-label="最近行为经历">

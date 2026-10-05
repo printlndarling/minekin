@@ -24,6 +24,8 @@
 
 2026-10-03：模型连接测试由配置页发起 `POST /api/v1/dashboard/model/test`，使用已保存配置与 Gateway 进程环境（环境优先）。请求尝试一次结构化模型决策，连接超时配置上限20秒，返回具名原因、耗时、调用记录与估算成本；不会执行决策、回显模型原文或密钥，也不自动重试。未保存草稿时禁用测试，编辑配置会清除旧结果。真实模型函数调用一次返回 connected（2906ms、估算3 micro），与真实浏览器→Vite代理→Gateway 的 off/零调用验证分开记录；不把假端点或模拟面板当成真实模型结果。
 
+2026-10-05：配置页新增「决策模式」字段（`decision_policy`，词表 model / rules，缺省与未设置均为 model）。`rules` 表示由本地规则策略代行且 provider 不被咨询，页面明确标注它不是 LLM 自主；`off` 或缺密钥不会隐含 rules——模型策略下缺模型、超时或回答被拒时运行按具名原因停止，不会自动切换策略；紧迫安全保护仍由本地代码负责，技能步面板把 `local_reflection` 如实注为「本地执行」，不冒认模型来源，历史记录不按今天的策略重新解释。保存写入数据根 `operator-config.json` 的 `decision_policy` 字段，它是**下一次受管启动的输入**；真正生效由启动时决定——进程环境（含 env 文件）中的同名变量优先于保存值。启动边界会把实际运行的模式与来源（环境/保存配置/默认）捕获进作业记录（`decisionPolicy`/`decisionPolicySource`），会话页展示的是这份启动时读数；之后修改保存值不会改写既有作业记录，旧作业没有该字段时显示未记录、不回填默认。策略与模型 provider 是两个独立维度。真实网关浏览器复验：以独立 `MINEKIN_HOME`（`MINEKIN_ENV_FILE` 指向空文件、Gateway 进程无 `MINEKIN_MODEL_*` 覆盖）启动 `uv run python -m gateway.server --data-root <根> --kin <Kin> --port 8789`，设 `MINEKIN_GATEWAY_TARGET=http://127.0.0.1:8789`、`E2E_CONFIG_POLICY_LIVE=1`，运行 `pnpm exec playwright test e2e/config-policy-live.spec.ts`：保存 rules→回读仍是 rules→清除回未设置，390px 窄屏无横向溢出，全程不发起模型调用。
+
 可复现浏览器测试：先在独立 `MINEKIN_HOME` 初始化一个 Kin，用 `MINEKIN_ENV_FILE` 指向空配置文件并清除该测试进程的 `MINEKIN_MODEL_*` 覆盖；启动 `uv run python -m gateway.server --data-root <测试根> --kin <测试Kin> --port 8789`。在另一终端设置 `MINEKIN_GATEWAY_TARGET=http://127.0.0.1:8789`、`E2E_MODEL_TEST_LIVE=1`，运行 `pnpm build` 与 `pnpm exec playwright test e2e/model-test-live.spec.ts`。此用例保存 off，仅验证实际HTTP链路，无付费调用；390px窄屏布局也检查无横向溢出。单元/API 的本地假端点仅用作格式和错误边界测试。
 
 2026-09-29 外壳重做后，同一条链路（typecheck → Vitest → build → Playwright）在 Node 24.18.0 + pnpm 11.21.0 上的读数：

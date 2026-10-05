@@ -16,7 +16,7 @@ import type { ConfigInfo, ConfigValue } from "./model";
 /** The form holds every field as a string; integer fields are parsed only at save time. */
 export type ConfigDraft = Record<string, string>;
 
-export type ConfigGroupId = "model" | "goal";
+export type ConfigGroupId = "model" | "goal" | "decision";
 
 export interface ConfigFieldMeta {
   readonly key: string;
@@ -27,6 +27,9 @@ export interface ConfigFieldMeta {
   readonly int: boolean;
   /** Render a provider `<select>` from the read's `providers` vocabulary rather than free text. */
   readonly provider: boolean;
+  /** Render a decision-mode `<select>` from the read's `policies` vocabulary, plus the
+   *  explicit "unset (default model)" affordance. */
+  readonly policy: boolean;
   readonly item: boolean;
   readonly envName: boolean;
 }
@@ -36,7 +39,7 @@ const field = (
   label: string,
   hint: string,
   placeholder: string,
-  flags: { int?: boolean; provider?: boolean; item?: boolean; envName?: boolean } = {},
+  flags: { int?: boolean; provider?: boolean; policy?: boolean; item?: boolean; envName?: boolean } = {},
 ): ConfigFieldMeta => ({
   key,
   label,
@@ -44,6 +47,7 @@ const field = (
   placeholder,
   int: flags.int === true,
   provider: flags.provider === true,
+  policy: flags.policy === true,
   item: flags.item === true,
   envName: flags.envName === true,
 });
@@ -69,15 +73,35 @@ export const CONFIG_FIELDS: readonly ConfigFieldMeta[] = [
   field("model_run_cost_cap", "整轮费用上限（微单位）", "一个 run 的调用花费上限，达到即拒止继续调用。", "5000000", { int: true }),
   field("model_request_rate", "请求费率（微单位 / 百万 token）", "用户提供的估算费率，留空沿用 2500；0 是显式零费率，不证明免费。与预算使用同一单位，不是供应商账单。", "2500", { int: true }),
   field("model_response_rate", "响应费率（微单位 / 百万 token）", "用户提供的估算费率，留空沿用 10000；usage 缺失时估算仍不完整。仅影响后续运行，不修改旧账本。", "10000", { int: true }),
+  field(
+    "decision_policy",
+    "决策模式",
+    "model：普通行为由模型依据当前观察选择；rules：由本地规则策略代行，不是 LLM 自主。这里保存的是下一次受管启动的输入；启动时进程环境（含 env 文件）中的同名变量优先，运行中途不切换。",
+    "model",
+    { policy: true },
+  ),
   field("goal_product_id", "目标产物", "玩家可见的游戏物品 id（namespace:path，小写）。", "minecraft:wooden_pickaxe", { item: true }),
   field("goal_quantity", "目标数量", "一次请求的成品数量，受单组上限约束。", "1", { int: true }),
   field("goal_source_item_id", "起点材料", "已知的起始物品 id（namespace:path，小写），可留空。", "minecraft:oak_log", { item: true }),
   field("goal_direction", "目标补充说明", "给模型的一句话目标描述，可留空。", "先挖木头，再合成木镐"),
 ];
 
-export const CONFIG_GROUPS: readonly { id: ConfigGroupId; label: string; fields: readonly ConfigFieldMeta[] }[] = [
+export const DECISION_GROUP_NOTE =
+  "model：普通行为由模型依据当前观察选择；rules：由本地规则策略代行，不是 LLM 自主。这里保存的只是保存值，" +
+  "是下一次受管启动的输入：未设置即 model；真正生效的模式由启动时决定——进程环境（含 env 文件）中的同名变量优先于保存值，" +
+  "运行中途不切换。off 或缺密钥不会隐含 rules；缺模型、超时或回答被拒时按具名原因停止，当前构建不会自动切换策略。" +
+  "紧迫安全保护（例如挨打时撤离一步）始终由本地代码负责，来源记为本地执行，不代表模型或规则决策。" +
+  "每次受管启动实际运行的模式以会话面板的作业读数（启动时捕获）为准。";
+
+export const CONFIG_GROUPS: readonly {
+  id: ConfigGroupId;
+  label: string;
+  note?: string;
+  fields: readonly ConfigFieldMeta[];
+}[] = [
   { id: "model", label: "模型与预算", fields: CONFIG_FIELDS.filter((meta) => meta.key.startsWith("model_")) },
   { id: "goal", label: "目标", fields: CONFIG_FIELDS.filter((meta) => meta.key.startsWith("goal_")) },
+  { id: "decision", label: "决策模式", note: DECISION_GROUP_NOTE, fields: CONFIG_FIELDS.filter((meta) => meta.policy) },
 ];
 
 /**
@@ -141,7 +165,11 @@ export function buildSaveFields(draft: ConfigDraft): Record<string, ConfigValue>
  * the server will run. This is the single source reused by both the panel's submit gate and the
  * mock adapter's refusal, so a name the panel lets through is a name the Gateway also accepts.
  */
-export function validateConfigDraft(draft: ConfigDraft, providers: readonly string[]): Record<string, string> {
+export function validateConfigDraft(
+  draft: ConfigDraft,
+  providers: readonly string[],
+  policies: readonly string[],
+): Record<string, string> {
   const errors: Record<string, string> = {};
   for (const meta of CONFIG_FIELDS) {
     const raw = draft[meta.key];
@@ -167,6 +195,12 @@ export function validateConfigDraft(draft: ConfigDraft, providers: readonly stri
     if (meta.provider) {
       if (!providers.includes(value)) {
         errors[meta.key] = `未知后端，请从 ${providers.join(" / ")} 中选择。`;
+      }
+      continue;
+    }
+    if (meta.policy) {
+      if (!policies.includes(value)) {
+        errors[meta.key] = `未知策略，请从 ${policies.join(" / ")} 中选择。`;
       }
       continue;
     }

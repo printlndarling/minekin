@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
@@ -285,5 +285,44 @@ describe("配置草稿保护", () => {
     await userEvent.type(goal, "Bad Id");
     expect(goal).toHaveAttribute("aria-invalid", "true");
     expect(goal).toHaveAccessibleDescription("必须是游戏里写法的物品 id（namespace:path，小写）。");
+  });
+});
+
+describe("决策模式：明确选择，规则不是 LLM 自主", () => {
+  it("模式是词表下拉：未设置显示为默认 model，帮助写明 rules 非 LLM 自主且缺模型不自动切换", async () => {
+    openConfig("healthy_run_07");
+    const select = await screen.findByTestId("config-input-decision_policy");
+    expect(select.tagName).toBe("SELECT");
+    // The healthy fixture stores no explicit policy: the select shows the unset affordance,
+    // which the copy ties to the model default.
+    expect(select).toHaveValue("");
+    expect(within(select).getByRole("option", { name: /未设置.*默认 model/ })).toBeInTheDocument();
+    expect(within(select).getByRole("option", { name: "model" })).toBeInTheDocument();
+    expect(within(select).getByRole("option", { name: "rules" })).toBeInTheDocument();
+
+    const panel = screen.getByTestId("panel-config");
+    expect(panel).toHaveTextContent("不是 LLM 自主");
+    expect(panel).toHaveTextContent("不会自动切换");
+    expect(panel).toHaveTextContent("off 或缺密钥");
+    expect(panel).toHaveTextContent("安全保护");
+    // The saved choice is not the running value: the copy says so and states the precedence.
+    expect(panel).toHaveTextContent("保存值");
+    expect(panel).toHaveTextContent("下一次受管启动的输入");
+    expect(panel).toHaveTextContent("优先于保存值");
+  });
+
+  it("键盘选择 rules 并保存：请求携带 decision_policy=rules，读回保持该选择", async () => {
+    const adapter = createMockAdapter("fields_unknown", 0);
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(<QueryClientProvider client={client}><ConfigPanel adapter={adapter} nowMs={Date.now()} /></QueryClientProvider>);
+    const select = await screen.findByTestId("config-input-decision_policy");
+    select.focus();
+    await userEvent.selectOptions(select, "rules");
+    await userEvent.click(screen.getByTestId("config-submit"));
+    expect(await screen.findByTestId("config-result")).toHaveTextContent("已保存：写入 1 个字段");
+    const again = await adapter.config();
+    expect(again.ok).toBe(true);
+    if (again.ok) expect(again.value.fields.decision_policy).toBe("rules");
+    client.clear();
   });
 });

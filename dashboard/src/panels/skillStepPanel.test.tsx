@@ -149,3 +149,44 @@ describe("技能步面板：known 组逐成员、缺组具名、绝不折叠成 
     expect(panel).not.toHaveTextContent("失败 · FAILED");
   });
 });
+
+describe("决策来源的诚实展示：不冒认模型，也不替历史行猜策略", () => {
+  it("local_reflection 显示为本地执行并注明该行不携带当时策略", () => {
+    const wire = buildMockBundle("healthy_run_07", NOW).snapshot;
+    const group = wire.skillSteps as Record<string, unknown>;
+    const value = { ...(group.value as Record<string, unknown>) };
+    value.decisionSource = { value: "local_reflection" };
+    value.modelRefusal = { value: "TIMEOUT" };
+    group.value = value;
+    render(<SkillStepPanel snapshot={snapshotFrom(wire, "gateway")} />);
+    const row = screen.getByTestId("skill-step-决策来源");
+    expect(row).toHaveTextContent("本地执行");
+    expect(row).toHaveTextContent("local_reflection");
+    expect(row).not.toHaveTextContent("模型决策");
+    const panel = screen.getByTestId("panel-skill-steps");
+    expect(panel).toHaveTextContent("不携带当时选择的决策模式");
+    expect(panel).toHaveTextContent("安全保护");
+    // History cannot be judged: an old local step may even be the old implementation's
+    // implicit fallback, and today's configuration must not be back-projected onto it.
+    expect(panel).toHaveTextContent("旧实现");
+    expect(panel).toHaveTextContent("不能判定");
+    expect(panel).toHaveTextContent("倒推历史");
+  });
+
+  it("缺模型拒止给出配置指引，并注明不会自动切换到规则策略", () => {
+    const wire = buildMockBundle("healthy_run_07", NOW).snapshot;
+    const group = wire.skillSteps as Record<string, unknown>;
+    const value = { ...(group.value as Record<string, unknown>) };
+    value.decisionSource = { value: "local_reflection" };
+    value.modelRefusal = { value: "MODEL_NOT_CONFIGURED" };
+    group.value = value;
+    render(<SkillStepPanel snapshot={snapshotFrom(wire, "gateway")} />);
+    const panel = screen.getByTestId("panel-skill-steps");
+    expect(panel).toHaveTextContent("MODEL_NOT_CONFIGURED");
+    expect(panel).toHaveTextContent("配置 · 模型与目标");
+    expect(panel).toHaveTextContent("不会自动切换到规则策略");
+    // The claim is about the current build; old runs are not asserted to have behaved the same.
+    expect(panel).toHaveTextContent("当前构建");
+    expect(panel).toHaveTextContent("历史运行是否如此没有记录");
+  });
+});

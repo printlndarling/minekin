@@ -501,6 +501,7 @@ const MOCK_CONFIG_KNOWN_FIELDS = [
 ];
 const MOCK_CONFIG_INT_FIELDS = ["goal_quantity", "model_run_cost_cap", "model_timeout_ms", "model_request_rate", "model_response_rate"];
 export const MOCK_CONFIG_PROVIDERS = ["off", "openai_compatible"];
+export const MOCK_CONFIG_POLICIES = ["model", "rules"];
 
 /**
  * The saved document each scenario starts on. Only `healthy_run_07` is pre-filled — a realistic
@@ -545,6 +546,7 @@ export function buildMockConfig(
     knownFields: MOCK_CONFIG_KNOWN_FIELDS,
     intFields: MOCK_CONFIG_INT_FIELDS,
     providers: MOCK_CONFIG_PROVIDERS,
+    policies: MOCK_CONFIG_POLICIES,
     maxBodyBytes: 8192,
     loadError: null,
     csrfToken: MOCK_IDENTITY_CSRF,

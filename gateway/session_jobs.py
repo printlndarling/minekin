@@ -21,6 +21,11 @@ from minekin_core.cli.init import run_root
 from minekin_core.cli.session import select_kin, start_and_supervise, stop_session
 from minekin_core.cli.status import ObservedState, read_status
 from minekin_core.config import forwarded_environment, java_executable, load_local_environment
+from minekin_core.domain.decision_policy import (
+    DECISION_POLICY_VARIABLE,
+    KNOWN_POLICIES,
+    decision_policy_from_environment,
+)
 from minekin_core.domain.errors import MinekinError
 from minekin_core.domain.model_access import model_config
 from minekin_core.domain.operator_config import apply_operator_config, load_operator_config
@@ -169,9 +174,30 @@ class SessionJobs:
             )
             env = dict(os.environ)
             load_local_environment(env)
-            apply_operator_config(load_operator_config(self.root), env)
+            # The name already in the captured environment -- exported by the shell or read
+            # from the env file -- outranks the saved document, the same precedence
+            # `apply_operator_config` applies below. Recorded only as its source word.
+            policy_from_environment = DECISION_POLICY_VARIABLE in env
+            applied = apply_operator_config(load_operator_config(self.root), env)
             # Validate the captured configuration without changing Gateway's process environment.
             model_config(env)
+            try:
+                captured_policy = decision_policy_from_environment(env)
+            except ValueError:
+                # A misspelled policy is refused by name here -- before a worker exists, before
+                # any bundle preparation, and long before a JVM could fail generically.
+                return refusal(
+                    400,
+                    "invalid_decision_policy",
+                    f"{DECISION_POLICY_VARIABLE} must be one of: "
+                    f"{', '.join(sorted(KNOWN_POLICIES))}",
+                    schema=SCHEMA,
+                )
+            policy_source = (
+                "environment"
+                if policy_from_environment
+                else ("config" if DECISION_POLICY_VARIABLE in applied else "default")
+            )
             java = java_executable(env)
             directory = self._directory()
             lease = _lock(directory / "owner.lock")
@@ -191,6 +217,12 @@ class SessionJobs:
                 "reason": "",
                 "serverRevision": probe["revision"],
                 "fields": probe["fields"],
+                # The mode this launch will actually run, captured and validated at the start
+                # boundary: environment (shell/env file) > saved document > model default.
+                # A fact about this job only -- old records carry neither key, and the read
+                # side must not fill them from the latest configuration.
+                "decisionPolicy": captured_policy.value,
+                "decisionPolicySource": policy_source,
                 "autonomousSteps": body["autonomousSteps"],
                 "durationSeconds": body["durationSeconds"],
                 "installed": 0,
