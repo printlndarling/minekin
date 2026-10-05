@@ -50,6 +50,10 @@ HOSTILE_ENTITY_TYPES: Final = frozenset(
 #: Horizontal reach, in blocks, for a visible hostile to count as a threat to the body.
 THREAT_RANGE_BLOCKS: Final = 8.0
 
+#: How far a swing can land, in blocks: the survival attack range a player's arm has. A
+#: hostile inside the threat range but outside this one is a reason to move, not to swing.
+ATTACK_REACH_BLOCKS: Final = 3.0
+
 
 def nearest_hostile(reading: WorldObservationValue) -> tuple[EntityCandidate, float] | None:
     """The nearest visible, in-sight hostile within range: the reported entity and its
@@ -74,3 +78,17 @@ def nearest_hostile(reading: WorldObservationValue) -> tuple[EntityCandidate, fl
         if nearest is None or distance < nearest[1]:
             nearest = (entity, distance)
     return nearest
+
+
+def attackable_hostile(reading: WorldObservationValue) -> tuple[EntityCandidate, float] | None:
+    """The nearest visible hostile a swing could actually land on, or None.
+
+    The same single reader as `nearest_hostile`, narrowed to attack reach: a threat further
+    out is something to leave or approach, never something a swing reaches, and offering a
+    swing that cannot land would be the stand-still step the night soaks died in.
+    """
+
+    found = nearest_hostile(reading)
+    if found is None or found[1] > ATTACK_REACH_BLOCKS:
+        return None
+    return found

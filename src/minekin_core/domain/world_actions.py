@@ -100,6 +100,10 @@ SKILL_CAPABILITIES: Final[Mapping[str, frozenset[str]]] = {
     # the same two capabilities a collect walks with, because it is the same walk,
     # pointed away instead of toward.
     "retreat": frozenset({MOVE_CAPABILITY, AIM_CAPABILITY}),
+    # A fight aims at a reported entity and holds the attack key with no block named: the
+    # aim a retreat takes plus the key a mine holds, pointed at the thing instead of away
+    # from it. Same two capabilities, because it is the same look and the same key.
+    "fight_back": frozenset({MINE_CAPABILITY, AIM_CAPABILITY}),
 }
 
 

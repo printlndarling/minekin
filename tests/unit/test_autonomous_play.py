@@ -47,6 +47,7 @@ from minekin_core.application.world_observation import WorldObservationStore
 from minekin_core.application.world_skills import (
     CLIENT_EXITED,
     DEFAULT_STEP_TIMEOUT_NS,
+    RETREAT_FLEE_SECONDS,
     ActionAuthority,
     WorldSkills,
 )
@@ -219,6 +220,16 @@ class TapeSkills(WorldSkills):
     ) -> SkillOutcome:
         del authority, timeout_ns
         return await self._answer("retreat", hold_seconds=hold_seconds)
+
+    async def fight_back(
+        self,
+        *,
+        authority: ActionAuthority,
+        swing_seconds: float = 0.0,
+        timeout_ns: int = DEFAULT_STEP_TIMEOUT_NS,
+    ) -> SkillOutcome:
+        del authority, timeout_ns
+        return await self._answer("fight_back", swing_seconds=swing_seconds)
 
     async def break_seen_block(
         self,
@@ -1272,11 +1283,60 @@ def test_model_selected_respawn_reobserves_the_new_life_or_stops_without_replay(
     asyncio.run(scenario())
 
 
-def test_the_loop_steps_away_from_a_visible_slime() -> None:
-    """The retreat path end to end through the loop: a slime in sight makes the mind leave
-    before anything else, and the reading after the step has no threat in view, so the
-    ordinary work resumes. This is the seam a live crash (KeyError under INTERNAL_INVARIANT)
-    went through; the fake refuses any skill but the ones it declares."""
+def test_the_loop_steps_away_from_a_visible_slime_that_just_hit() -> None:
+    """The retreat path end to end through the loop: a slime in sight with a fresh hit on
+    the body makes the mind leave before anything else, and the reading after the step has
+    no threat in view, so the ordinary work resumes. This is the seam a live crash (KeyError
+    under INTERNAL_INVARIANT) went through; the fake refuses any skill but the ones it
+    declares."""
+
+    from minekin_core.domain.perception import EntityCandidate
+
+    slime = EntityCandidate(
+        observation_id="e-slime",
+        entity_type="minecraft:slime",
+        relative_x=2.0,
+        relative_y=0.0,
+        relative_z=0.0,
+        line_of_sight=True,
+    )
+    mind = off_mind()
+    # The body was at full health on an earlier reading, so the slime's approach reads as
+    # a hit already taken -- which outranks swinging back, and escalates the hold.
+    mind.observe(reading(tick=90, items=((0, LOG, 1),)))
+    hurt = replace(reading(tick=100, items=((0, LOG, 1),)).self_state, health=12.0)
+    first = replace(
+        reading(tick=100, items=((0, LOG, 1),)),
+        visible_entities=(slime,),
+        self_state=hurt,
+    )
+    after = reading(tick=140, items=((0, LOG, 1),))
+    stage = Stage(first, after, after)
+    skills = TapeSkills(
+        stage,
+        {
+            "retreat": confirmed(),
+            "fight_back": confirmed(),
+            "break_seen_block": confirmed(),
+            "turn_to": confirmed(),
+            "craft_take_result": confirmed(),
+        },
+    )
+
+    result = run(stage, skills, mind, step_budget=2)
+
+    assert skills.ran, (result.stop_reason, result.stop_detail, result.steps)
+    assert next(name for name, _ in skills.ran) == "retreat"
+    # A rendered threat with a fresh hit escalates to the long hold: the one-step retreat
+    # lost ground to pursuers (the 2026-10-05 soaks), so the hit buys the flee.
+    assert skills.ran[0][1] == {"hold_seconds": RETREAT_FLEE_SECONDS}
+    assert result.stop_reason == STEP_BUDGET_SPENT
+
+
+def test_the_loop_swings_back_at_a_slime_in_reach_and_resumes() -> None:
+    """The fight path end to end through the loop: a whole-bodied Kin with a hostile in
+    reach swings instead of scanning, and the reading after the swings no longer renders
+    the entity, so the ordinary work resumes."""
 
     from minekin_core.domain.perception import EntityCandidate
 
@@ -1295,6 +1355,7 @@ def test_the_loop_steps_away_from_a_visible_slime() -> None:
         stage,
         {
             "retreat": confirmed(),
+            "fight_back": confirmed(),
             "break_seen_block": confirmed(),
             "turn_to": confirmed(),
             "craft_take_result": confirmed(),
@@ -1305,8 +1366,7 @@ def test_the_loop_steps_away_from_a_visible_slime() -> None:
     result = run(stage, skills, mind, step_budget=2)
 
     assert skills.ran, (result.stop_reason, result.stop_detail, result.steps)
-    assert next(name for name, _ in skills.ran) == "retreat"
-    # A rendered threat with health intact takes the bearing the reading holds and no
-    # named hold: the default one-step retreat, not the escalated blind walk.
-    assert skills.ran[0][1] == {"hold_seconds": 0.0}
+    assert next(name for name, _ in skills.ran) == "fight_back"
+    # Nothing named: the skill's own default hold, not a number the mind invented.
+    assert skills.ran[0][1] == {"swing_seconds": 0.0}
     assert result.stop_reason == STEP_BUDGET_SPENT

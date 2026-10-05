@@ -860,6 +860,49 @@ def test_dispatch_maps_a_retreat_call_onto_the_retreat_skill() -> None:
     assert skills.seen == (authority, 3.5, 5_000_000_000)
 
 
+def test_dispatch_maps_a_fight_call_onto_the_fight_skill() -> None:
+    """The same seam the retreat pin holds: a name without its own dispatch branch falls
+    through to whichever branch is last and crashes a live run by name. The fake refuses
+    every attribute but `fight_back`, so any other route fails the test."""
+
+    import asyncio
+
+    from minekin_core.application import skill_plan as skill_plan_module
+    from minekin_core.application.skill_plan import SkillCall
+    from minekin_core.application.world_skills import ActionAuthority
+    from minekin_core.domain.ids import OpaqueId
+
+    class OnlyFight:
+        def __init__(self) -> None:
+            self.seen: tuple[object, float, int] | None = None
+
+        async def fight_back(
+            self, *, authority: object, swing_seconds: float, timeout_ns: int
+        ) -> str:
+            self.seen = (authority, swing_seconds, timeout_ns)
+            return "outcome"
+
+        def __getattr__(self, name: object) -> object:
+            raise AssertionError(f"dispatch reached an unexpected skill: {name}")
+
+    authority = ActionAuthority(
+        lease_id=OpaqueId.new().value,
+        generation=1,
+        deadline_monotonic_ns=1_000_000_000,
+    )
+    skills = OnlyFight()
+    outcome = asyncio.run(
+        skill_plan_module._dispatch(
+            skills,  # type: ignore[arg-type]
+            SkillCall(name="fight_back", swing_seconds=2.5),
+            authority=authority,
+            timeout_ns=5_000_000_000,
+        )
+    )
+    assert outcome == "outcome"
+    assert skills.seen == (authority, 2.5, 5_000_000_000)
+
+
 def test_every_declared_skill_states_its_required_arguments() -> None:
     """The parameter table and the plan-call required set must name the same skills.
 

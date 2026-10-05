@@ -51,7 +51,7 @@ from minekin_core.application.skill_plan import (
     SkillPlan,
 )
 from minekin_core.application.world_skills import RETREAT_FLEE_SECONDS, SkillCall
-from minekin_core.domain.danger_catalog import nearest_hostile
+from minekin_core.domain.danger_catalog import attackable_hostile, nearest_hostile
 from minekin_core.domain.daylight import time_of_day
 from minekin_core.domain.goal_spec import Milestone
 from minekin_core.domain.model_access import (
@@ -278,6 +278,7 @@ SKILL_OFFER: Final = _checked_offer(
         "break_seen_block",
         "collect_dropped",
         "consume_item",
+        "fight_back",
         "respawn",
         "retreat",
         "craft_take_result",
@@ -286,6 +287,11 @@ SKILL_OFFER: Final = _checked_offer(
         "turn_to",
     )
 )
+
+#: Under this many HUD points the mind stops trading blows and leaves: seven of ten
+#: hearts, where a fight that is losing stops being a fight and becomes the death the
+#: soaks died. Above it, a hostile in reach is worth hitting back at.
+FIGHT_MIN_HEALTH: Final = 13.0
 
 #: The skills the mind does not START while a threat is on it (see `PlayerMind._threat`) —
 #: the swings, the blind walks to drops and the screen work are the steps a night slime
@@ -741,6 +747,14 @@ def feasible_skill_ids(
         "break_seen_block" if reading.aim is not None and reading.aim.block is not None else "",
         "collect_dropped" if _nearest_drop(reading) is not None else "",
         "consume_item" if consume_offerable(reading) else "",
+        # Offered only for a hostile the client renders in sight INSIDE attack reach: a
+        # swing at a threat further out cannot land, and a swing at nothing is the
+        # stand-still step the night soaks died in.
+        "fight_back"
+        if reading.self_state.alive
+        and not screen_open(reading)
+        and attackable_hostile(reading) is not None
+        else "",
         "craft_take_result"
         if craft_options(reading, grid_side=crafting_grid_side(reading))
         else "",
@@ -1655,6 +1669,16 @@ class PlayerMind:
             ):
                 return "craft_take_result"
             return "close_screen"
+        if (
+            "fight_back" in feasible
+            and not self.recent_damage
+            and (reading.self_state.health or 0.0) >= FIGHT_MIN_HEALTH
+        ):
+            # A hostile in reach with a body still whole and nothing fresh hurting it:
+            # hit back. A hit just taken means leaving first -- the two orderings are the
+            # whole difference between a Kin that clears its ground and one that dies in
+            # place, and the next reading re-decides either way.
+            return "fight_back"
         if "retreat" in feasible:
             # A threat the client renders in sight, a hit already taken, or ground a death
             # just proved deadly: leave. Every slime death happened in a step that stood
@@ -1727,6 +1751,18 @@ class PlayerMind:
         name, which is what the projection and the attribution table already read.
         """
 
+        if skill == "fight_back":
+            if attackable_hostile(reading) is None:
+                # Nothing in reach to swing at: the same no-op the feasible set never
+                # offers, refused here for a provider that named it anyway.
+                return None, NO_FEASIBLE_SKILL, {}
+            swing = _asked_number(arguments, "swing_seconds")
+            ask: dict[str, object] = {"swing_seconds": swing} if swing is not None else {}
+            return (
+                SkillPlan((SkillCall(name="fight_back", swing_seconds=swing or 0.0),)),
+                "swing back at the nearest visible threat in reach",
+                ask,
+            )
         if skill == "retreat":
             asked_hold = _asked_number(arguments, "hold_seconds")
             hostile = nearest_hostile(reading)

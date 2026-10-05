@@ -1412,14 +1412,19 @@ def slime(*, at: float = 2.0, los: bool = True) -> EntityCandidate:
 
 def test_a_visible_hostile_stops_the_stand_still_work() -> None:
     """Run-89: a night slime slew the Kin nine times while it kept mining and crafting. A
-    hostile the client renders in sight within reach withholds the starts that stand still --
-    the swing, the walk to a drop, the screen work -- leaving the honest remainder: face it,
-    eat, close, respawn. A hostile out of sight or out of reach is a fact, not a stop-work
+    hostile the client renders in sight within reach withholds the starts that stand still —
+    the dig, the walk to a drop, the screen work — leaving the honest remainder: hit it
+    (in reach, body whole), leave it (fresh hit, or out of reach), eat, close, respawn. A
+    hostile out of sight or out of range of the threat scan is a fact, not a stop-work
     alarm."""
 
     mind, _ = mind_with()
     observed = reading(aim=block_aim(), entities=(slime(),))
-    assert mind.next_intent(observed).skill == "retreat"
+    assert mind.next_intent(observed).skill == "fight_back"
+
+    # Inside the threat scan but beyond a swing: a reason to leave, not to swing air.
+    out_of_reach = reading(aim=block_aim(), entities=(slime(at=5.0),))
+    assert mind.next_intent(out_of_reach).skill == "retreat"
 
     behind_the_camera = reading(aim=block_aim(), entities=(slime(los=False),))
     assert mind.next_intent(behind_the_camera).skill == "break_seen_block"
@@ -1487,6 +1492,44 @@ def test_a_hit_with_a_threat_in_sight_escalates_the_hold() -> None:
     assert intent.skill == "retreat"
     assert intent.plan.calls[0].hold_seconds == RETREAT_FLEE_SECONDS
     assert intent.reason == "step away from the nearest visible threat"
+
+
+def test_a_fresh_hit_turns_a_fight_into_a_leave_and_a_low_body_never_trades() -> None:
+    """The two orderings that keep a fight from becoming the death the soaks died: a hit
+    just taken means leaving first (the next reading re-decides), and a body under the
+    trading line leaves rather than trades even with nothing fresh hurting it."""
+
+    mind, _ = mind_with()
+    mind.observe(reading(self_state=state(health=20.0)))
+    hit = reading(tick=200, entities=(slime(),), self_state=state(health=12.0))
+    assert mind.next_intent(hit).skill == "retreat"
+
+    mind.observe(replace(hit, game_tick=250, self_state=state(health=8.0)))
+    weak = reading(tick=300, entities=(slime(),), self_state=state(health=8.0))
+    assert mind.next_intent(weak).skill == "retreat"
+
+
+def test_fight_back_honours_a_named_swing_and_defaults_it_otherwise() -> None:
+    mind, _ = mind_with(
+        Decision(
+            skill_id="fight_back",
+            reason="swat it",
+            intent_generation=1,
+            arguments={"swing_seconds": 6},
+        )
+    )
+    intent = mind.next_intent(reading(entities=(slime(),)))
+
+    assert intent.skill == "fight_back"
+    assert intent.plan.calls[0].swing_seconds == 6.0
+    assert intent.arguments["swing_seconds"] == 6.0
+
+    local, _ = mind_with()
+    default = local.next_intent(reading(entities=(slime(),)))
+    assert default.skill == "fight_back"
+    # Nothing named: the skill's own default hold, not a number this side invented.
+    assert default.plan.calls[0].swing_seconds == 0.0
+    assert default.arguments == {}
 
 
 def test_a_fresh_hit_refunds_the_retreat_step_the_budget_spent() -> None:

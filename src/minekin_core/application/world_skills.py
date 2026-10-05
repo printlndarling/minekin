@@ -57,7 +57,7 @@ from minekin_core.domain.control_vocabulary import (
     USE_INPUT_TYPE,
     monotonic_ns,
 )
-from minekin_core.domain.danger_catalog import nearest_hostile
+from minekin_core.domain.danger_catalog import attackable_hostile, nearest_hostile
 from minekin_core.domain.ids import OpaqueId
 from minekin_core.domain.perception import (
     AimFace,
@@ -111,6 +111,12 @@ RETREAT_FLEE_SECONDS: Final[float] = 4.0
 RETREAT_HOLD_MIN_SECONDS: Final[float] = 0.5
 RETREAT_HOLD_MAX_SECONDS: Final[float] = 5.0
 RETREAT_CONFIRM_BLOCKS: Final[float] = 0.5
+#: How long one fight holds the attack key, and the bounds a named swing sits inside. A
+#: player's swing lands about twice a second, so this is a handful of swings at a naked
+#: hostile -- and still short enough to re-read the world with the thing maybe still in it.
+FIGHT_SWING_SECONDS: Final[float] = 3.0
+FIGHT_SWING_MIN_SECONDS: Final[float] = 0.5
+FIGHT_SWING_MAX_SECONDS: Final[float] = 8.0
 
 #: Why a skill stops waiting. The observation cadence is a constant of the
 #: Bridge's build (10 tick), so a skill that never saw a newer reading inside
@@ -281,6 +287,8 @@ class SkillCall:
     #: A retreat's hold, when the caller named one; zero is "nobody said", which is the
     #: skill's own default step.
     hold_seconds: float = 0.0
+    #: A fight's swing time, when the caller named one; zero is the skill's own default hold.
+    swing_seconds: float = 0.0
     materials: tuple[tuple[str, int], ...] = ()
     craft_all: bool = True
 
@@ -1939,6 +1947,135 @@ class WorldSkills:
             },
         )
 
+    async def fight_back(
+        self,
+        *,
+        authority: ActionAuthority,
+        swing_seconds: float = 0.0,
+        timeout_ns: int = DEFAULT_STEP_TIMEOUT_NS,
+    ) -> SkillOutcome:
+        """Face the nearest hostile the reading reported in reach and swing at it.
+
+        The other half of the 2026-10-05 night soaks' question: retreating walked the body
+        away, and a camp that followed it never stopped. The target is the reported offset
+        of a visible, in-sight hostile inside attack reach, aimed at with the same geometry
+        a retreat reverses; the swings are one bounded hold of the same attack key the mine
+        path holds, released through the same named exit, with NO block named -- the wire
+        allows that only for an entity. Confirmation is the honest sentence and no more:
+        a later reading no longer renders that entity, which is not the same claim as
+        "it died" -- it may equally have left the view, and the next decision reads
+        whatever is there. One hold per call on purpose: the mind re-reads the world
+        between swings.
+        """
+
+        for capability in (MINE_CAPABILITY, AIM_CAPABILITY):
+            refusal = self._require(capability)
+            if refusal is not None:
+                return refusal
+        pre = self._observations.latest
+        if pre is None:
+            return _refusal_outcome("NO_LATEST_OBSERVATION", "", pre)
+        if pre.generation != authority.generation:
+            return _refusal_outcome("WORLD_GENERATION_CHANGED", "", pre)
+        if pre.gui is not None and pre.gui.sync_id is not None:
+            return _refusal_outcome("FIGHT_SCREEN_OPEN", "", pre)
+        if swing_seconds and not (
+            math.isfinite(swing_seconds)
+            and FIGHT_SWING_MIN_SECONDS <= swing_seconds <= FIGHT_SWING_MAX_SECONDS
+        ):
+            return _refusal_outcome("FIGHT_SWING_INVALID", "", pre)
+        if nearest_hostile(pre) is None:
+            return _refusal_outcome("FIGHT_THREAT_NOT_VISIBLE", "", pre)
+        target = attackable_hostile(pre)
+        if target is None:
+            return _refusal_outcome("FIGHT_THREAT_OUT_OF_REACH", "", pre)
+        entity, _distance = target
+        yaw, pitch = angle_to_degrees(
+            dx=entity.relative_x, dy=entity.relative_y, dz=entity.relative_z
+        )
+        swing = swing_seconds if swing_seconds else FIGHT_SWING_SECONDS
+        action_id = self._action_id()
+        deadline = monotonic_ns() + timeout_ns
+        await self._sender.send_control(
+            AIM_INPUT_TYPE,
+            control_pb2.AimInput(
+                action_id=action_id,
+                lease_id=authority.lease_id,
+                generation=authority.generation,
+                yaw_degrees=yaw,
+                pitch_degrees=pitch,
+                deadline_monotonic_ns=authority.deadline_monotonic_ns,
+            ),
+        )
+        arrived = await self._wait_until(
+            lambda candidate: (
+                candidate.self_state.yaw_degrees is not None
+                and candidate.self_state.pitch_degrees is not None
+                and angle_error_degrees(
+                    from_yaw=candidate.self_state.yaw_degrees,
+                    to_yaw=yaw,
+                    from_pitch=candidate.self_state.pitch_degrees,
+                    to_pitch=pitch,
+                )
+                <= AIM_ARRIVAL_TOLERANCE_DEGREES
+            ),
+            deadline,
+            action_id=action_id,
+        )
+        if arrived is None:
+            return SkillOutcome(
+                result=ActionResultClass.UNKNOWN,
+                reason="NO_CONFIRMING_OBSERVATION",
+                action_id=action_id,
+                pre_tick=pre.game_tick,
+            )
+        await self._send_swing(authority, action_id, swing=True)
+        async with self._release_on_exit(
+            lambda: self._send_swing(authority, action_id, swing=False)
+        ):
+            await self._sleep(swing, action_id=action_id)
+        post = await self._outlive_client(
+            self._observations.wait_until(
+                lambda latest: (
+                    latest.game_tick > pre.game_tick
+                    and (
+                        latest.generation != authority.generation
+                        or _target_unseen(entity.observation_id)(latest)
+                    )
+                ),
+                timeout_s=max(0.1, (deadline - monotonic_ns()) / 1_000_000_000),
+            ),
+            action_id=action_id,
+        )
+        self.check_body_interruption(action_id)
+        if post is None:
+            return SkillOutcome(
+                result=ActionResultClass.UNKNOWN,
+                reason="FIGHT_NOT_CONFIRMED",
+                action_id=action_id,
+                pre_tick=pre.game_tick,
+            )
+        if post.generation != authority.generation:
+            return SkillOutcome(
+                result=ActionResultClass.INTERRUPTED,
+                reason="WORLD_GENERATION_CHANGED",
+                action_id=action_id,
+                pre_tick=pre.game_tick,
+                post_tick=post.game_tick,
+            )
+        return SkillOutcome(
+            result=ActionResultClass.CONFIRMED,
+            reason="",
+            action_id=action_id,
+            pre_tick=pre.game_tick,
+            post_tick=post.game_tick,
+            details={
+                "target": entity.entity_type,
+                "swing_seconds": f"{swing:g}",
+                "newest_checked_tick": str(post.game_tick),
+            },
+        )
+
     def _require(self, capability: str) -> SkillOutcome | None:
         """The named refusal when the session was never negotiated for it.
 
@@ -1975,6 +2112,25 @@ class WorldSkills:
                 generation=authority.generation,
                 mining=mining,
                 target=_wire_target(target),
+                deadline_monotonic_ns=authority.deadline_monotonic_ns,
+            ),
+        )
+
+    async def _send_swing(self, authority: ActionAuthority, action_id: str, *, swing: bool) -> None:
+        """The attack key with NO block named: a swing at whatever the crosshair is on.
+
+        Not `_send_mine`: a mine names the block it must be aimed at, and the wire refuses
+        a swing at anything but an entity precisely so a dig can never be asked for by
+        accident. The empty target is the whole difference between the two calls.
+        """
+
+        await self._sender.send_control(
+            MINE_INPUT_TYPE,
+            control_pb2.MineInput(
+                action_id=action_id,
+                lease_id=authority.lease_id,
+                generation=authority.generation,
+                mining=swing,
                 deadline_monotonic_ns=authority.deadline_monotonic_ns,
             ),
         )
@@ -2102,6 +2258,19 @@ class WorldSkills:
             monotonic_ns() + round(seconds * 1_000_000_000),
             action_id=action_id,
         )
+
+
+def _target_unseen(entity_id: str) -> Callable[[WorldObservationValue], bool]:
+    """Whether a later reading no longer renders the entity a swing was aimed at.
+
+    The honest sentence and no more: the entity that was rendered is not rendered now --
+    it may be dead, it may have left the view, and no reading of the moment tells those
+    apart. Both end the swing the same way, and the next decision reads what is there.
+    """
+
+    return lambda latest: all(
+        candidate.observation_id != entity_id for candidate in latest.visible_entities
+    )
 
 
 def _horizontal_movement(

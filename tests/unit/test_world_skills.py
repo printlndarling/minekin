@@ -2971,6 +2971,104 @@ def test_retreat_keeps_moving_on_a_named_hold_with_nothing_in_sight() -> None:
     asyncio.run(scenario())
 
 
+def test_fight_back_aims_at_the_hostile_swings_without_a_block_and_ends_unseen() -> None:
+    """The whole fight: aim at the reported offset, hold the attack key with NO block named
+    (the wire allows that only for an entity), and confirm on the honest sentence -- a later
+    reading no longer renders that entity, which is not the claim that it died."""
+
+    async def scenario() -> None:
+        slime = slime_entity(tick=100)
+        store = store_with(positioned(tick=100, entities=(slime,)))
+        skills, sender = skill_with(store)
+        yaw, _pitch = angle_to_degrees(
+            dx=slime.relative_x, dy=slime.relative_y, dz=slime.relative_z
+        )
+        queued = [positioned(tick=110, yaw=yaw), positioned(tick=120)]
+
+        def answer(message_type: str) -> None:
+            if message_type in (AIM_INPUT_TYPE, MINE_INPUT_TYPE) and queued:
+                store.admit(queued.pop(0), ())
+
+        sender.on_send = answer
+        outcome = await skills.fight_back(
+            authority=authority(), swing_seconds=1.0, timeout_ns=10_000_000_000
+        )
+
+        assert outcome.result is ActionResultClass.CONFIRMED
+        assert outcome.post_tick == 120
+        assert outcome.details["target"] == "minecraft:slime"
+        assert outcome.details["swing_seconds"] == "1"
+        aims = [message for kind, message in sender.sent if kind == AIM_INPUT_TYPE]
+        assert len(aims) == 1
+        assert aims[0].yaw_degrees == pytest.approx(yaw)  # type: ignore[attr-defined]
+        mines = [message for kind, message in sender.sent if kind == MINE_INPUT_TYPE]
+        # One hold and one release, and no block target on either: naming a block would
+        # make this a dig, which the wire refuses against an entity on purpose.
+        assert [message.mining for message in mines] == [True, False]  # type: ignore[attr-defined]
+        assert not any(message.HasField("target") for message in mines)
+
+    asyncio.run(scenario())
+
+
+def test_fight_back_refuses_by_name_without_a_target_or_with_a_bad_swing() -> None:
+    async def scenario() -> None:
+        empty, empty_sender = skill_with(store_with(reading(tick=100)))
+        outcome = await empty.fight_back(authority=authority(), timeout_ns=1_000_000_000)
+        assert outcome.result is ActionResultClass.FAILED
+        assert outcome.reason == "FIGHT_THREAT_NOT_VISIBLE"
+        assert empty_sender.sent == []
+
+        far = store_with(positioned(tick=100, entities=(slime_entity(tick=100, at=5.0),)))
+        far_skills, far_sender = skill_with(far)
+        outcome = await far_skills.fight_back(authority=authority(), timeout_ns=1_000_000_000)
+        assert outcome.reason == "FIGHT_THREAT_OUT_OF_REACH"
+        assert far_sender.sent == []
+
+        near = store_with(positioned(tick=100, entities=(slime_entity(tick=100),)))
+        near_skills, near_sender = skill_with(near)
+        for swing in (0.2, 9.0, float("nan")):
+            outcome = await near_skills.fight_back(
+                authority=authority(), swing_seconds=swing, timeout_ns=1_000_000_000
+            )
+            assert outcome.result is ActionResultClass.FAILED, swing
+            assert outcome.reason == "FIGHT_SWING_INVALID", swing
+        assert near_sender.sent == []
+
+    asyncio.run(scenario())
+
+
+def test_fight_back_reads_unknown_when_the_entity_is_still_rendered() -> None:
+    async def scenario() -> None:
+        slime = slime_entity(tick=100)
+        store = store_with(positioned(tick=100, entities=(slime,)))
+        skills, sender = skill_with(store)
+        yaw, _pitch = angle_to_degrees(
+            dx=slime.relative_x, dy=slime.relative_y, dz=slime.relative_z
+        )
+        # The SAME entity (same observation_id -- the uuid the wire uses) still rendered:
+        # the swings ran and the thing is still there, so nothing is confirmed.
+        queued = [
+            positioned(tick=110, yaw=yaw),
+            positioned(tick=120, entities=(slime,)),
+        ]
+
+        def answer(message_type: str) -> None:
+            if message_type in (AIM_INPUT_TYPE, MINE_INPUT_TYPE) and queued:
+                store.admit(queued.pop(0), ())
+
+        sender.on_send = answer
+        outcome = await skills.fight_back(
+            authority=authority(), swing_seconds=1.0, timeout_ns=2_000_000_000
+        )
+
+        assert outcome.result is ActionResultClass.UNKNOWN
+        assert outcome.reason == "FIGHT_NOT_CONFIRMED"
+        mines = [message for kind, message in sender.sent if kind == MINE_INPUT_TYPE]
+        assert [message.mining for message in mines] == [True, False]  # type: ignore[attr-defined]
+
+    asyncio.run(scenario())
+
+
 def test_retreat_refuses_a_hold_outside_its_bounds() -> None:
     async def scenario() -> None:
         store = store_with(reading(tick=100))
