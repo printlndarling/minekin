@@ -3,18 +3,18 @@
   "skills": [
     {
       "skill": "turn_to",
-      "yaw_degrees": 170.0,
+      "yaw_degrees": 0.0,
+      "pitch_degrees": -18.0
+    },
+    {
+      "skill": "turn_to",
+      "yaw_degrees": 180.0,
       "pitch_degrees": -18.0
     },
     {
       "skill": "turn_to",
       "yaw_degrees": 0.0,
       "pitch_degrees": -18.0
-    },
-    {
-      "skill": "approach_entity",
-      "target_entity_type": "minecraft:slime",
-      "stop_within": 2.0
     },
     {
       "skill": "fight_back",

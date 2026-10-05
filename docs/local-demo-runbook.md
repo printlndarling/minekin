@@ -1253,3 +1253,14 @@ MINEKIN_DEMO_VOLUME=minekin-local-demo2 MINEKIN_DEMO_KIN=kin-3x3-fresh-20261002 
 **归因更正（按实、不重写历史）：** 本档六之三十四与十六段所载"距任何非物品实体 ≤~1 格、数秒后静默 143"的探针家族读数——它们的 143 由此文更正为 **harness teardown 与计划时长的时间巧合**；实体类型/难度/桥字节候选 `53efca18…` 在本组读数中**不再有嫌疑**（旧桥对照本就因 pin 审计走不通，从未取得字节对照）。**保留具名缺口**：supervisor 的 branch 里执行中的计划仍未与 stop watcher 赛跑——操作者停止一个**运行中的计划会话**仍会走硬 SIGTERM 路径（harness 不再当这个操作者）。原始 2026-10-05 史莱姆场景的死亡（`Slain by Slime`，autonomous 流）不受本更正影响。
 
 **不声明**：普通运行记录、非 sealed；修复后的 harness 尚未在"会挥击的实体场景"（fight 计划）上复跑——那是 `D-SURVIVAL-FIGHT-ARMED-001` 的下一发。
+
+## 六之三十六、修复后的战斗场景四发（2026-10-06，runs `runL`–`runP`；均普通运行记录、非 sealed）
+
+**harness 侧全部干净**：四发（peaceful 一发、normal 三发）都走 `the plan concluded (N step(s) recorded)` → 协作停止 `release released:[183/184/187] unconfirmed:[]` → `STOPPED_ON_REQUEST`，无任何中途 143。armed 场景逐字确认：`Gave 1 [Wooden Pickaxe] to minekin`、`Gave 1 [Stone Axe] to minekin` 与 `Summoned new Slime` 同秒。
+
+**内容侧读数（计划的真实行为，按实登记）：**
+- **peaceful 一发（`runL`）**：`approach_entity` 在 tick 760 `FAILED / APPROACH_ENTITY_NOT_VISIBLE`——**peaceful 下召唤出的敌对体被游戏移除**（战斗场景须 normal）。
+- **normal 三发**：`turn_to` 全部 CONFIRMED；其中两发（M/P）Kin 在转向阶段被史莱姆击杀（server.log 逐字 `minekin was slain by Slime`，join 后 9–11 秒；Kin 全程未持械、未反击）——第 3 步 `INTERRUPTED / PLAYER_DEAD`。唯一一发让 `fight_back` 跑到（`runO`，tick 611）按内容返回 `FIGHT_THREAT_OUT_OF_REACH`（史莱姆尚未进 3 格；该检查与击杀之间约 4 秒，史莱姆从 4 格接近到近战正是这个跨度）。
+- 计划形状被量着改了四稿（长扫→双扫→直进→三扫）；**"战斗窗口在 Kin 存活期内打开"这一格仍未取得**：转向烧时与史莱姆接近赛跑是当前的形状瓶颈，不是核心或桥的行为。
+
+**下一发（更接近产品路径）**：`--autonomous` + 显式 `rules` 策略（如实标记来源），armed + front 史莱姆，让 reflex 在史莱姆进入 3 格的第一帧就选 `fight_back`（正是产品里会发生的路径），读 `details.weapon` 与击杀/脱离的世界读数；或把 front 距离常量收紧一档。**不声明**：武器选择/挥击/击杀的活体读数仍缺。
