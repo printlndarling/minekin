@@ -50,7 +50,11 @@ from minekin_core.application.skill_plan import (
     SKILL_UNKNOWN,
     SkillPlan,
 )
-from minekin_core.application.world_skills import RETREAT_FLEE_SECONDS, SkillCall
+from minekin_core.application.world_skills import (
+    FIGHT_MIN_HEALTH,
+    RETREAT_FLEE_SECONDS,
+    SkillCall,
+)
 from minekin_core.domain.danger_catalog import attackable_hostile, nearest_hostile
 from minekin_core.domain.daylight import time_of_day
 from minekin_core.domain.goal_spec import Milestone
@@ -287,11 +291,6 @@ SKILL_OFFER: Final = _checked_offer(
         "turn_to",
     )
 )
-
-#: Under this many HUD points the mind stops trading blows and leaves: seven of ten
-#: hearts, where a fight that is losing stops being a fight and becomes the death the
-#: soaks died. Above it, a hostile in reach is worth hitting back at.
-FIGHT_MIN_HEALTH: Final = 13.0
 
 #: The skills the mind does not START while a threat is on it (see `PlayerMind._threat`) —
 #: the swings, the blind walks to drops and the screen work are the steps a night slime

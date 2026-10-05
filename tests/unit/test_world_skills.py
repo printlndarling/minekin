@@ -3036,6 +3036,52 @@ def test_fight_back_aims_at_the_hostile_swings_without_a_block_and_ends_unseen()
         # make this a dig, which the wire refuses against an entity on purpose.
         assert [message.mining for message in mines] == [True, False]  # type: ignore[attr-defined]
         assert not any(message.HasField("target") for message in mines)
+        # Walk it down while the key is held, and stop walking on the same exit: standing
+        # between hops is where the slime's hits landed (the summon deaths of run-5).
+        moves = [message for kind, message in sender.sent if kind == MOVE_INPUT_TYPE]
+        assert [message.forward for message in moves] == [1.0, 0.0]  # type: ignore[attr-defined]
+
+    asyncio.run(scenario())
+
+
+def test_fight_back_breaks_off_mid_swing_when_the_body_drops_under_the_line() -> None:
+    """A body that drops under the trading line mid-swing ends the fight there: the
+    releases go out (attack and walk both) and the verdict stays the honest UNKNOWN,
+    so the next decision re-reads a world it may want to leave."""
+
+    async def scenario() -> None:
+        slime = slime_entity(tick=100)
+        store = store_with(positioned(tick=100, entities=(slime,)))
+        skills, sender = skill_with(store)
+        yaw, pitch = angle_to_degrees(
+            dx=slime.relative_x,
+            dy=slime.relative_y - EYE_HEIGHT_BLOCKS,
+            dz=slime.relative_z,
+        )
+        hurt = replace(
+            positioned(tick=120, entities=(slime,), aim=slime_aim(120)).self_state,
+            health=8.0,
+        )
+        queued = [
+            positioned(tick=110, yaw=yaw, pitch=pitch, entities=(slime,), aim=slime_aim(110)),
+            replace(positioned(tick=120, entities=(slime,), aim=slime_aim(120)), self_state=hurt),
+        ]
+
+        def answer(message_type: str) -> None:
+            if message_type in (AIM_INPUT_TYPE, MINE_INPUT_TYPE) and queued:
+                store.admit(queued.pop(0), ())
+
+        sender.on_send = answer
+        outcome = await skills.fight_back(
+            authority=authority(), swing_seconds=5.0, timeout_ns=2_000_000_000
+        )
+
+        assert outcome.result is ActionResultClass.UNKNOWN
+        assert outcome.reason == "FIGHT_NOT_CONFIRMED"
+        mines = [message for kind, message in sender.sent if kind == MINE_INPUT_TYPE]
+        moves = [message for kind, message in sender.sent if kind == MOVE_INPUT_TYPE]
+        assert [message.mining for message in mines] == [True, False]  # type: ignore[attr-defined]
+        assert [message.forward for message in moves] == [1.0, 0.0]  # type: ignore[attr-defined]
 
     asyncio.run(scenario())
 

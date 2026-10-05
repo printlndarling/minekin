@@ -118,6 +118,11 @@ FIGHT_SWING_SECONDS: Final[float] = 3.0
 FIGHT_SWING_MIN_SECONDS: Final[float] = 0.5
 FIGHT_SWING_MAX_SECONDS: Final[float] = 8.0
 
+#: The HUD line under which a fight breaks off: a body trading below it is the death the
+#: soaks died, so the swing releases and the next decision may leave instead. The mind
+#: reads the same number as its fight-or-flight line.
+FIGHT_MIN_HEALTH: Final[float] = 13.0
+
 #: The client's own standing eye height above its feet (1.20.1's constant). Entity offsets on
 #: the wire are feet-to-feet, so an aim "at" an entity from the eye must drop by this much or
 #: the ray flies over anything shorter than the eye: measured live on the fight run
@@ -2106,9 +2111,12 @@ class WorldSkills:
         """
 
         pressed = False
+        walking = False
         window_end = min(deadline, monotonic_ns() + round(swing_seconds * 1_000_000_000))
 
         async def release() -> None:
+            if walking:
+                await self._send_walk(action_id, authority, forward=0.0)
             if pressed:
                 await self._send_swing(authority, action_id, swing=False)
 
@@ -2119,6 +2127,17 @@ class WorldSkills:
                     return
                 if _target_unseen(entity.observation_id)(current):
                     return
+                health = current.self_state.health
+                if health is not None and health < FIGHT_MIN_HEALTH:
+                    # The body dropped under the trading line mid-swing: break it off now
+                    # and let the next decision leave. Standing in the exchange below
+                    # this line is the death the soaks died, not a fight.
+                    return
+                if not walking:
+                    # Walk it down: a slime that hops away is followed while the key is
+                    # held, and standing still between hops was where its hits landed.
+                    walking = True
+                    await self._send_walk(action_id, authority, forward=1.0)
                 listed = next(
                     (
                         candidate
