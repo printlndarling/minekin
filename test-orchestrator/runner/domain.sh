@@ -3291,6 +3291,55 @@ if [ "${autonomous_wait_seconds}" -gt 0 ]; then
     fi
 fi
 
+# --- skill-plan-wait begin (the contract test extracts this region) ---
+# A plan session keeps supervising after its sequence stops -- the CLI does not
+# exit when the plan does -- so stopping the session right after the join SIGTERMs
+# a client mid-step instead. Measured: --skills probes died as exit 143 /
+# BRIDGE_LOST whenever their plan outlived the teardown window, with the stop's
+# own receipt showing the request but no cooperative release. What ends a plan is
+# its own last step row: every step writes `SkillStepRecorded`, a step window is
+# about twelve seconds, and the sequence stops at the first step the world did not
+# confirm. So this waits -- asked of the ledger, like every other wait here --
+# until no new step row has arrived for longer than a step window, then lets the
+# stop land on a settled session; the overall budget stays the run's own.
+plan_asked=0
+for argument in "$@"; do
+    if [ "${argument}" = "--skill-plan" ]; then
+        plan_asked=1
+        break
+    fi
+done
+if [ "${plan_asked}" -eq 1 ] && kill -0 "${session_pid}" 2>/dev/null; then
+    plan_deadline=$((SECONDS + seconds))
+    plan_steps=''
+    plan_settled=0
+    while [ "${SECONDS}" -lt "${plan_deadline}" ]; do
+        if ! kill -0 "${session_pid}" 2>/dev/null; then
+            printf 'domain: the plan session ended on its own\n' >&2
+            break
+        fi
+        plan_count=$(/opt/sqlite/bin/sqlite3 "${ledger}" \
+            "select count(*) from event where run_id='${run_id}' and event_type='SkillStepRecorded';" \
+            2>/dev/null || true)
+        if [ -n "${plan_count}" ] && [ "${plan_count}" = "${plan_steps}" ]; then
+            plan_settled=$((plan_settled + 1))
+        else
+            plan_settled=0
+            plan_steps="${plan_count}"
+        fi
+        if [ "${plan_settled}" -ge 20 ]; then
+            printf 'domain: the plan concluded (%s step(s) recorded); the stop follows\n' \
+                "${plan_steps}" >&2
+            break
+        fi
+        sleep 1
+    done
+    if kill -0 "${session_pid}" 2>/dev/null && [ "${plan_settled}" -lt 20 ]; then
+        printf 'domain: the plan had not concluded within %ss; stopping it\n' "${seconds}" >&2
+    fi
+fi
+# --- skill-plan-wait end ---
+
 printf 'domain: stopping the session\n' >&2
 
 # Idempotent, and it identifies the client by its recorded pid and command line

@@ -1817,6 +1817,17 @@ def hungry_kin_region(text: str, name: str) -> str:
     return "".join(lines[1:])
 
 
+def skill_plan_wait_region(text: str) -> str:
+    """The plan-completion wait, marker to marker, sans begin line."""
+
+    begin = "# --- skill-plan-wait begin"
+    end = "# --- skill-plan-wait end ---"
+    start = text.index(begin)
+    lines = text[start : text.index(end, start)].splitlines(keepends=True)
+    assert len(lines) > 2, "the skill-plan-wait region came out empty; wrong markers"
+    return "".join(lines[1:])
+
+
 def no_ambient_spawns_region(text: str, name: str) -> str:
     """One shipped region of the no-ambient-spawns knob, marker to marker, sans begin line."""
 
@@ -2235,6 +2246,35 @@ def test_the_no_ambient_spawns_knob_is_read_once_default_off_and_forwarded() -> 
 
     run = (RUNNER / "run.sh").read_text(encoding="utf-8")
     assert "        -e MINEKIN_DOMAIN_NO_AMBIENT_SPAWNS" in run.splitlines()
+
+
+def test_a_plan_session_is_waited_for_before_the_teardown_stop() -> None:
+    """The teardown must not stop a plan session that is still running its steps.
+
+    Stopping one SIGTERMs the client mid-step -- measured as exit 143 /
+    BRIDGE_LOST with a stop receipt that has no cooperative release, because a
+    plan executing inside the supervisor's branch is not raced against the stop
+    watcher. The wait scans the same args the session was started with and sits
+    right before the stop, after the autonomous verdict wait.
+    """
+
+    text = (RUNNER / "domain.sh").read_text(encoding="utf-8")
+
+    wait = skill_plan_wait_region(text)
+    assert '"--skill-plan"' in wait
+    assert 'kill -0 "${session_pid}"' in wait
+    assert "sleep 1" in wait
+    # Asked of the ledger, like every other wait here: the plan is done when no
+    # new step row has arrived for longer than a step window.
+    assert "/opt/sqlite/bin/sqlite3" in wait
+    assert "SkillStepRecorded" in wait
+
+    stop = text.index("printf 'domain: stopping the session")
+    assert text.index("# --- skill-plan-wait begin") < stop
+    assert text.index("# --- skill-plan-wait end ---") < stop
+    assert text.index('if [ "${autonomous_wait_seconds}" -gt 0 ]') < text.index(
+        "# --- skill-plan-wait begin"
+    )
 
 
 def clear_hostiles_region(text: str, name: str) -> str:
