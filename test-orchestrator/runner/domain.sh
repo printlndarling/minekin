@@ -24,6 +24,12 @@ set -euo pipefail
 seconds="${MINEKIN_DOMAIN_SECONDS:-240}"
 player="${MINEKIN_USERNAME:-Kin}"
 summon="${MINEKIN_DOMAIN_SUMMON:-}"
+# A `MINEKIN-DOMAIN-TIME-PHASE-001` schedule for the server's world clock: comma-separated
+# `SECONDS:PHASE` entries, each a real `time set` this many seconds after the first join,
+# so a bounded run can live several in-game days without spending an hour of wall clock.
+# Default-off: unset, no `--time-phase` reaches the server tool and the world keeps the
+# vanilla clock every earlier run had.
+time_phase="${MINEKIN_DOMAIN_TIME_PHASE:-}"
 probe="${MINEKIN_DOMAIN_PROBE:-}"
 # The run's *second* probe target (V1201-LAN-SECOND-NAMED-PROBE-TARGET-001).
 # Default-off: unset means the run asks one name, exactly what every run did
@@ -1041,6 +1047,19 @@ if [[ -n "${resource_trunk}" ]]; then
     probe_args+=(--resource-trunk)
 fi
 # --- resource-trunk-forge end ---
+# The world-clock schedule, when the run asked for one, appended the same default-off way
+# the trunk's is: unset, this branch does not run and `probe_args` stays byte-identical to
+# what it was before the knob existed. One `SECONDS:PHASE` per comma, each becoming its own
+# `--time-phase`; the tool parses and refuses them, and an emptied entry is refused there
+# too rather than dropped here.
+# --- time-phase-forge begin (the contract test extracts this region) ---
+if [[ -n "${time_phase}" ]]; then
+    IFS=',' read -r -a time_phase_specs <<<"${time_phase}"
+    for time_phase_spec in "${time_phase_specs[@]}"; do
+        probe_args+=(--time-phase "${time_phase_spec}")
+    done
+fi
+# --- time-phase-forge end ---
 # The meal, when the run asked for one, appended the same default-off way the trunk's is:
 # unset, this branch does not run and `probe_args` stays byte-identical to what it was
 # before the knob existed.

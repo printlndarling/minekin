@@ -172,6 +172,11 @@ if [[ "${1:-}" == "domain" ]]; then
     # `-e NAME` without a value forwards the host's, and an unset one stays
     # unset: the runner does not invent a world for the operator.
     EXTRA_ARGS=(-e MINEKIN_DOMAIN_SUMMON
+        # The world-clock schedule, forwarded beside the summon for the same reason: it is
+        # a fixture the run asked the server for, and an undelivered one would leave the
+        # domain reading a world whose clock never moved — a quiet run that seals as evidence
+        # for a schedule that never happened.
+        -e MINEKIN_DOMAIN_TIME_PHASE
         -e MINEKIN_DOMAIN_PROBE -e MINEKIN_DOMAIN_PROBE_SECONDS -e MINEKIN_DOMAIN_LOOK
         -e MINEKIN_DOMAIN_KILL -e MINEKIN_DOMAIN_KICK -e MINEKIN_DOMAIN_KILL_CORE
         # When that death happens is a separate ask, and `domain.sh` reads it by name;

@@ -424,6 +424,70 @@ def summon_command(entity_type: str) -> str:
     return f"summon {entity_type} ~ ~ ~"
 
 
+#: The phases a `--time-phase` schedule may name, as the tick each sets. Numbers rather
+#: than the console's own day/noon/night words: the word is a promise about the sky the
+#: server is free to redefine between versions, while the number is what the run record
+#: can be read against afterwards.
+TIME_PHASES = {
+    "day": 1000,
+    "noon": 6000,
+    "sunset": 12000,
+    "night": 14000,
+    "midnight": 18000,
+}
+
+
+def parse_time_phases(specs: list[str]) -> list[tuple[float, str]]:
+    """The `(seconds after the first join, console line)` schedule, or a refusal.
+
+    One in-game day is twenty real minutes, so a run that wants several days of
+    survival — nights with the threats they bring — spends an hour to see three.
+    The schedule compresses the wall clock without lying about the sky: each line
+    is a real `time set` the server applies to the real world clock, so spawning,
+    light and the observation's own `game_tick` all move as they would if the days
+    had simply passed. Seconds are measured from the moment a player first joined,
+    which is when there is a world for a Kin to survive in; a schedule therefore
+    cannot fire into an unjoined server and mistake the quiet for calm.
+    """
+
+    schedule: list[tuple[float, str]] = []
+    seen: set[float] = set()
+    for spec in specs:
+        seconds_text, separator, phase = spec.partition(":")
+        if not separator or phase not in TIME_PHASES:
+            raise SystemExit(
+                f"not a SECONDS:PHASE time phase: {spec!r} "
+                f"(phases: {', '.join(sorted(TIME_PHASES))})"
+            )
+        try:
+            seconds = float(seconds_text)
+        except ValueError:
+            raise SystemExit(f"not a number of seconds: {spec!r}") from None
+        if not seconds > 0:
+            raise SystemExit(f"a time phase at {seconds:g}s is not after the join: {spec!r}")
+        if seconds in seen:
+            raise SystemExit(f"two time phases at +{seconds:g}s would race: {spec!r}")
+        seen.add(seconds)
+        schedule.append((seconds, f"time set {TIME_PHASES[phase]}"))
+    return sorted(schedule)
+
+
+#: The server's own line when anyone joins: the anchor the time schedule counts from.
+#: Not tied to a probed name, because the schedule is about the world's clock and not
+#: about which account is standing in it.
+PLAYER_JOINED = re.compile(r"\b[A-Za-z0-9_]{1,16} joined the game\b")
+
+
+def any_player_joined(log: Path) -> bool:
+    """Whether the server has said anyone is in the world."""
+
+    try:
+        text = log.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return False
+    return PLAYER_JOINED.search(text) is not None
+
+
 def kill_command(player: str) -> str:
     """The console line that kills a player, or a refusal.
 
@@ -794,6 +858,16 @@ def main() -> int:
         metavar="ENTITY_TYPE",
         help="put one entity at the world spawn, so the world is not empty",
     )
+    parser.add_argument(
+        "--time-phase",
+        action="append",
+        default=[],
+        metavar="SECONDS:PHASE",
+        help=(
+            "set the world clock to a phase this many seconds after the first join; "
+            "repeat for a schedule (phases: " + ", ".join(sorted(TIME_PHASES)) + ")"
+        ),
+    )
     parser.add_argument("--java", type=Path, default=None)
     parser.add_argument(
         "--kick-player",
@@ -985,6 +1059,7 @@ def main() -> int:
     )
 
     summon = None if args.summon is None else summon_command(args.summon)
+    time_phases = parse_time_phases(args.time_phase)
     probe_players = list(args.probe_player)
     probe = probe_console_commands(probe_players)
     if args.use_target and not probe_players:
@@ -1075,6 +1150,10 @@ def main() -> int:
     # player started, and a probe that waited a full interval would only say it
     # again.
     next_probe = 0.0
+    # The `--time-phase` clock: when the first join happened, and which scheduled line is
+    # next. Untouched when no schedule was given, so runs without one pay nothing.
+    time_anchor: float | None = None
+    next_time_phase = 0
     java = args.java or java_executable()
     log = args.directory / "server.log"
     with log.open("wb") as stream:
@@ -1232,6 +1311,24 @@ def main() -> int:
                             pending_marker.replace(marker_path)
                             meal_served = True
                             print(f"hungry fixture ready for {meal_player}; hunger effect cleared")
+                    # The `--time-phase` schedule: anchored at the first join, one line
+                    # written per due phase. A console write from here, like the other
+                    # fixtures — the server stays the only side that changes the world.
+                    if time_phases and process.stdin is not None:
+                        if time_anchor is None and any_player_joined(log):
+                            time_anchor = time.monotonic()
+                            print("time phases anchored: a player is in the world")
+                        if time_anchor is not None:
+                            elapsed = time.monotonic() - time_anchor
+                            while (
+                                next_time_phase < len(time_phases)
+                                and elapsed >= time_phases[next_time_phase][0]
+                            ):
+                                seconds, line = time_phases[next_time_phase]
+                                process.stdin.write((line + "\n").encode())
+                                process.stdin.flush()
+                                print(f"time phase at +{seconds:g}s after join: {line}")
+                                next_time_phase += 1
                     time.sleep(0.1)
                 return process.returncode
         finally:

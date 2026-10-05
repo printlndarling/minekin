@@ -1810,6 +1810,22 @@ def hungry_kin_region(text: str, name: str) -> str:
     return "".join(lines[1:])
 
 
+def time_phase_region(text: str, name: str) -> str:
+    """One shipped region of the world-clock schedule, marker to marker, sans begin line.
+
+    Same rule the fixture regions follow: every reading here runs the bytes a run
+    executes, so changing them moves a test before it moves a live run. An empty
+    extraction says so rather than making every driven reading vacuous.
+    """
+
+    begin = f"# --- time-phase-{name} begin"
+    end = f"# --- time-phase-{name} end ---"
+    start = text.index(begin)
+    lines = text[start : text.index(end, start)].splitlines(keepends=True)
+    assert len(lines) > 2, f"the time-phase {name} region came out empty; wrong markers"
+    return "".join(lines[1:])
+
+
 def second_probe_region(text: str, name: str) -> str:
     """One shipped region of the second probe name, marker to marker, sans begin line.
 
@@ -2084,6 +2100,38 @@ def test_the_hungry_kin_knob_is_read_once_and_default_off() -> None:
     # that region would silently widen an extraction another card already reads.
     assert guard > text.index("# --- resource-trunk-guard end ---")
     assert hungry_kin_region(text, "guard").count("exit 2") == 2
+
+
+def test_the_time_phase_knob_is_read_once_and_default_off() -> None:
+    """`MINEKIN_DOMAIN_TIME_PHASE` is read the one literal way and appends once per entry.
+
+    The same shape the resource trunk takes — one assignment at the top, empty by default;
+    the append is a guarded branch, so an unset knob does not touch `probe_args` at all.
+    The run.sh half of the seam is pinned too: an undelivered schedule would leave the
+    domain reading a world whose clock never moved, which seals as evidence for a run that
+    was asked to live through several in-game days and instead lived through none.
+    """
+
+    text = (RUNNER / "domain.sh").read_text(encoding="utf-8")
+    wrapper = (RUNNER / "run.sh").read_text(encoding="utf-8")
+
+    assert text.count('time_phase="${MINEKIN_DOMAIN_TIME_PHASE:-}"') == 1
+    # The append is a guarded branch on the local, never an unconditional one and never
+    # a re-read of the environment, so an unset knob cannot move `probe_args`.
+    forge = time_phase_region(text, "forge")
+    assert 'if [[ -n "${time_phase}" ]]; then' in forge
+    assert forge.index('if [[ -n "${time_phase}"') < forge.index(
+        'probe_args+=(--time-phase "${time_phase_spec}")'
+    )
+    # And it never borrows another knob's name or replaces an earlier argument.
+    assert "--use-target" not in forge
+    assert "--resource-trunk" not in forge
+    assert "--hungry-kin" not in forge
+
+    delivered = set(re.findall(r"-e\s+(MINEKIN_DOMAIN_TIME_PHASE)", wrapper))
+    assert delivered == {"MINEKIN_DOMAIN_TIME_PHASE"}, (
+        f"run.sh forwards these time-phase names into the container: {sorted(delivered)}"
+    )
 
 
 @pytest.mark.parametrize(

@@ -93,6 +93,8 @@ class _Runner(Protocol):
     def read_back_enable_status(self, directory: Path) -> str: ...
 
     def summon_command(self, entity_type: str) -> str: ...
+    def parse_time_phases(self, specs: list[str]) -> list[tuple[float, str]]: ...
+    def any_player_joined(self, log: Path) -> bool: ...
     def position_probe_command(self, player: str) -> str: ...
     def probe_console_commands(self, players: list[str]) -> list[str]: ...
     def resource_trunk_commands(self, player: str) -> list[str]: ...
@@ -514,6 +516,56 @@ def test_a_summon_is_a_console_line_and_never_a_second_command() -> None:
     ):
         with pytest.raises(SystemExit, match="not a vanilla entity id"):
             RUNNER.summon_command(injection)
+
+
+def test_a_time_phase_schedule_is_console_lines_ordered_by_their_second() -> None:
+    """One in-game day is twenty real minutes, so a bounded run that wants several days of
+    survival compresses the wall clock instead of the world: every line is a real `time set`
+    on the server's own clock, which spawning, light and the observation's `game_tick` all
+    follow exactly as if the days had passed. The phase is a fixed tick, not the console's
+    day/night word, so the run record can be read back against the number that was set."""
+
+    assert RUNNER.parse_time_phases(["240:night", "60:day"]) == [
+        (60.0, "time set 1000"),
+        (240.0, "time set 14000"),
+    ]
+    assert RUNNER.parse_time_phases(["600:midnight", "300:noon"]) == [
+        (300.0, "time set 6000"),
+        (600.0, "time set 18000"),
+    ]
+    assert RUNNER.parse_time_phases([]) == []
+
+
+def test_a_time_phase_is_refused_unless_it_is_seconds_and_an_after_join_phase() -> None:
+    for spec in ("night", "60", "60:dusk", "60:night:x", "ten:night", "60:", ":night"):
+        with pytest.raises(SystemExit):
+            RUNNER.parse_time_phases([spec])
+    # A phase at or before the join cannot be a phase after it.
+    for spec in ("0:night", "-5:night", "0.0:day"):
+        with pytest.raises(SystemExit, match="not after the join"):
+            RUNNER.parse_time_phases([spec])
+    # Two lines at the same second would race each other in the console.
+    with pytest.raises(SystemExit, match="would race"):
+        RUNNER.parse_time_phases(["30:day", "30:night"])
+
+
+def test_the_time_phase_anchor_is_a_join_line_whatever_the_name(tmp_path: Path) -> None:
+    """The schedule counts from when someone is in the world, because a phase fired into an
+    unjoined server would record its quiet as calm."""
+
+    log = tmp_path / "server.log"
+    assert RUNNER.any_player_joined(log) is False  # no log yet, no join
+    log.write_text(
+        '[12:00:00] [Server thread/INFO]: Done (2.5s)! For help, type "help"\n',
+        encoding="utf-8",
+    )
+    assert RUNNER.any_player_joined(log) is False
+    log.write_text(
+        log.read_text(encoding="utf-8")
+        + "[12:00:03] [Server thread/INFO]: minekin joined the game\n",
+        encoding="utf-8",
+    )
+    assert RUNNER.any_player_joined(log) is True
 
 
 def test_a_position_probe_is_a_console_line_and_never_a_second_command() -> None:
