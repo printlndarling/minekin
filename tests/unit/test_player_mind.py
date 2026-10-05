@@ -1069,6 +1069,100 @@ def test_an_open_merchants_offers_travel_with_index_and_payability() -> None:
     assert rows[1]["payable"] is True  # 21 wheat and one emerald pay the second offer
 
 
+def merchant_screen() -> GuiScreenValue:
+    return GuiScreenValue(
+        screen_id="minecraft:merchant",
+        sync_id=4,
+        trade_offers=(
+            TradeOfferValue(
+                first_item_id="minecraft:emerald",
+                first_count=3,
+                second_item_id="",
+                second_count=0,
+                sell_item_id="minecraft:bread",
+                sell_count=2,
+                uses=4,
+                max_uses=12,
+                disabled=False,
+            ),
+            TradeOfferValue(
+                first_item_id="minecraft:wheat",
+                first_count=20,
+                second_item_id="minecraft:emerald",
+                second_count=1,
+                sell_item_id="minecraft:emerald",
+                sell_count=1,
+                uses=0,
+                max_uses=16,
+                disabled=False,
+            ),
+        ),
+    )
+
+
+def test_an_open_merchants_rows_are_offered_and_the_models_row_is_honoured() -> None:
+    """The choice the trade summary exists for: the rows are offered with their indices,
+    and the model's own pick -- not the first row, and not any list of this side's --
+    runs as written."""
+
+    provider = ScriptedProvider(
+        Decision(
+            skill_id="trade",
+            reason="twenty wheat and an emerald for an emerald back is worth it",
+            intent_generation=1,
+            arguments={"offer_index": 1},
+        )
+    )
+    mind = mind_for(provider, CostLedger(run_cost_cap=CAP), kin_id="kin-01", persona_seed="seed-9")
+    observed = reading(items=((0, WHEAT, 21), (1, EMERALD, 1)), gui=merchant_screen())
+
+    intent = mind.next_intent(observed)
+
+    assert "trade" in provider.requests[-1].feasible_skill_ids
+    assert intent.skill == "trade"
+    assert intent.plan.calls[0].offer_index == 1
+    assert intent.arguments["offer_index"] == 1
+
+
+def test_the_local_reflex_takes_the_first_payable_merchant_row() -> None:
+    mind, _ = mind_with()
+    observed = reading(items=((0, WHEAT, 21), (1, EMERALD, 1)), gui=merchant_screen())
+
+    intent = mind.next_intent(observed)
+
+    # Row 0 wants three emeralds (the bag has one); row 1 wants the wheat and the one
+    # emerald -- the reflex takes the first row the counts actually support.
+    assert intent.skill == "trade"
+    assert intent.plan.calls[0].offer_index == 1
+
+
+def test_a_rendered_trader_can_be_faced_by_name_on_the_models_call() -> None:
+    trader = EntityCandidate(
+        observation_id="e-trader",
+        entity_type="minecraft:wandering_trader",
+        relative_x=3.0,
+        relative_y=0.0,
+        relative_z=0.0,
+        line_of_sight=True,
+    )
+    provider = ScriptedProvider(
+        Decision(
+            skill_id="look_at_entity",
+            reason="face the trader to open its offers",
+            intent_generation=1,
+            arguments={"target_entity_type": "minecraft:wandering_trader"},
+        )
+    )
+    mind = mind_for(provider, CostLedger(run_cost_cap=CAP), kin_id="kin-01", persona_seed="seed-9")
+
+    intent = mind.next_intent(reading(entities=(trader,)))
+
+    assert "look_at_entity" in provider.requests[-1].feasible_skill_ids
+    assert intent.skill == "look_at_entity"
+    assert intent.plan.calls[0].target_entity_type == "minecraft:wandering_trader"
+    assert intent.arguments["target_entity_type"] == "minecraft:wandering_trader"
+
+
 def test_the_model_sees_every_rendered_body_nearest_first_with_distance_and_sight() -> None:
     """Recognition is generic: every rendered body the client reported travels to the
     answerer with the game's own type, the distance a player would judge, and whether the

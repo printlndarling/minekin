@@ -294,6 +294,8 @@ SKILL_OFFER: Final = _checked_offer(
         "fight_back",
         "respawn",
         "retreat",
+        "look_at_entity",
+        "trade",
         "craft_take_result",
         "select_hotbar",
         "use_target",
@@ -750,6 +752,11 @@ def feasible_skill_ids(
         offer = [CLOSE_SCREEN]
         if craft_options(reading, grid_side=crafting_grid_side(reading)):
             offer.append("craft_take_result")
+        # An open merchant's offer list is what a trade choice is made between; whether to
+        # take one (and WHICH) is the deciding layer's judgement, this side only says the
+        # rows are there.
+        if reading.gui is not None and reading.gui.trade_offers:
+            offer.append("trade")
         return tuple(offer)
     feasible = {
         "break_seen_block" if reading.aim is not None and reading.aim.block is not None else "",
@@ -764,6 +771,11 @@ def feasible_skill_ids(
         if reading.self_state.alive
         and not screen_open(reading)
         and nearest_visible(reading, within=ATTACK_REACH_BLOCKS) is not None
+        else "",
+        # Facing any rendered body in sight: the leg every entity interaction starts from,
+        # offered generically for the same reason the fight is -- the meaning is the call.
+        "look_at_entity"
+        if reading.self_state.alive and not screen_open(reading) and nearest_visible(reading)
         else "",
         "craft_take_result"
         if craft_options(reading, grid_side=crafting_grid_side(reading))
@@ -838,6 +850,29 @@ def _nearest_drop(reading: WorldObservationValue) -> EntityCandidate | None:
             (entity.relative_x, entity.relative_y, entity.relative_z), (0.0, 0.0, 0.0)
         ),
     )
+
+
+def _first_payable_offer(reading: WorldObservationValue) -> int | None:
+    """The first row of the open merchant's list this bag can pay right now, or None.
+
+    Offered rows are the screen's, not this side's; this is only the no-model reflex
+    picking one, and it picks the first the counts support -- the same numbers the
+    summary shows the model and the skill checks again when the click lands.
+    """
+
+    if reading.gui is None:
+        return None
+    for index, offer in enumerate(reading.gui.trade_offers):
+        if offer.disabled or offer.uses >= offer.max_uses:
+            continue
+        if item_total(reading.inventory, offer.first_item_id) < offer.first_count:
+            continue
+        if offer.second_item_id and (
+            item_total(reading.inventory, offer.second_item_id) < offer.second_count
+        ):
+            continue
+        return index
+    return None
 
 
 def observation_summary(
@@ -1713,6 +1748,11 @@ class PlayerMind:
 
         if "respawn" in feasible:
             return "respawn"
+        if "trade" in feasible and _first_payable_offer(reading) is not None:
+            # A merchant window is open and one of its rows is payable: the local backstop
+            # takes the first such row. Which row (or whether any) is the model's call
+            # when one answered; this is the no-model reflex's own choice.
+            return "trade"
         if "close_screen" in feasible:
             if (
                 "craft_take_result" in feasible
@@ -1812,6 +1852,34 @@ class PlayerMind:
         name, which is what the projection and the attribution table already read.
         """
 
+        if skill == "trade":
+            asked_index = _asked_number(arguments, "offer_index")
+            offers = () if reading.gui is None else reading.gui.trade_offers
+            index = int(asked_index) if asked_index is not None else _first_payable_offer(reading)
+            if index is None or not 0 <= index < len(offers):
+                return None, NO_FEASIBLE_SKILL, {}
+            offer = offers[index]
+            ask_offer: dict[str, object] = {"offer_index": index}
+            return (
+                SkillPlan((SkillCall(name="trade", offer_index=index),)),
+                (
+                    f"trade {offer.first_count}x{offer.first_item_id} for "
+                    f"{offer.sell_count}x{offer.sell_item_id}"
+                ),
+                ask_offer,
+            )
+        if skill == "look_at_entity":
+            named_kind = arguments.get("target_entity_type")
+            kind = named_kind if isinstance(named_kind, str) and named_kind else ""
+            target = nearest_visible(reading, kinds=frozenset({kind}) if kind else None)
+            if target is None:
+                return None, NO_FEASIBLE_SKILL, {}
+            ask_look: dict[str, object] = {"target_entity_type": kind} if kind else {}
+            return (
+                SkillPlan((SkillCall(name="look_at_entity", target_entity_type=kind),)),
+                f"face the {kind or target[0].entity_type}",
+                ask_look,
+            )
         if skill == "fight_back":
             named = arguments.get("target_entity_type")
             kind = named if isinstance(named, str) and named else ""

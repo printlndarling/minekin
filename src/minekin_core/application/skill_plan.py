@@ -69,9 +69,15 @@ _DEFAULTED: Final[dict[str, tuple[str, ...]]] = {
     # The hold a retreat walks for: the mind supplies it from the reading's damage state
     # when nobody said, and a named one is the caller's claim to walk blind.
     "retreat": ("hold_seconds",),
+    # The kind a look faces, defaulted the same way a fight's is: nobody said means the
+    # nearest rendered body.
+    "look_at_entity": ("target_entity_type",),
     # The swing time a fight walks for, defaulted the same way the retreat hold is, and
     # the optional kind: both are the caller's to name, neither is filled by a roster.
     "fight_back": ("swing_seconds", "target_entity_type"),
+    # A trade names its row; nothing about it is filled from this side's reading (the row's
+    # costs and payout are the screen's own, checked again when the click lands).
+    "trade": (),
 }
 
 #: The argument each skill requires, by name. Empty for a skill that can run on
@@ -93,6 +99,11 @@ _REQUIRED: Final[dict[str, tuple[str, ...]]] = {
     # the aim: the call names the behavior and fills in nothing.
     "retreat": (),
     "fight_back": (),
+    # The row of the open merchant's list this trade takes: a number, so this table
+    # checks only that the skill was asked at all -- a row past the list's end is the
+    # skill's own TRADE_OFFER_UNKNOWN.
+    "trade": ("offer_index",),
+    "look_at_entity": (),
 }
 
 #: The keys that replace a skill's whole required set rather than defaulting one
@@ -111,6 +122,8 @@ _ALTERNATIVES: Final[dict[str, tuple[str, ...]]] = {
     "respawn": (),
     "retreat": (),
     "fight_back": (),
+    "trade": (),
+    "look_at_entity": (),
 }
 
 #: Every key a plan may use, so a typo is refused by name instead of being
@@ -505,6 +518,18 @@ async def _dispatch(
         return await skills.fight_back(
             authority=authority,
             swing_seconds=call.swing_seconds,
+            target_entity_type=call.target_entity_type,
+            timeout_ns=timeout_ns,
+        )
+    if call.name == "trade":
+        return await skills.trade(
+            offer_index=call.offer_index,
+            authority=authority,
+            timeout_ns=timeout_ns,
+        )
+    if call.name == "look_at_entity":
+        return await skills.look_at_entity(
+            authority=authority,
             target_entity_type=call.target_entity_type,
             timeout_ns=timeout_ns,
         )

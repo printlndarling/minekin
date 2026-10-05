@@ -60,6 +60,7 @@ from minekin_core.domain.perception import (
     InventoryValue,
     SelfStateValue,
     WorldObservationValue,
+    TradeOfferValue,
 )
 from minekin_core.domain.world_actions import ActionResultClass, angle_to_degrees
 from minekin_core.generated.minekin.v1 import control_pb2
@@ -168,6 +169,37 @@ def block_aim() -> AimTargetValue:
 
 def miss_aim(tick: int) -> AimTargetValue:
     return AimTargetValue(game_tick=tick, kind=AimKind.MISS)
+
+
+def merchant_gui(*, sync_id: int = 4) -> GuiScreenValue:
+    return GuiScreenValue(
+        screen_id="minecraft:merchant",
+        sync_id=sync_id,
+        trade_offers=(
+            TradeOfferValue(
+                first_item_id="minecraft:emerald",
+                first_count=3,
+                second_item_id="",
+                second_count=0,
+                sell_item_id="minecraft:bread",
+                sell_count=2,
+                uses=4,
+                max_uses=12,
+                disabled=False,
+            ),
+            TradeOfferValue(
+                first_item_id="minecraft:wheat",
+                first_count=20,
+                second_item_id="minecraft:emerald",
+                second_count=1,
+                sell_item_id="minecraft:emerald",
+                sell_count=1,
+                uses=0,
+                max_uses=16,
+                disabled=False,
+            ),
+        ),
+    )
 
 
 def slime_aim(tick: int, entity_id: str = "slime-100") -> AimTargetValue:
@@ -3136,6 +3168,119 @@ def test_fight_back_honours_a_named_entity_kind_over_the_nearest_body() -> None:
         assert outcome.details["target"] == "minecraft:pig"
         aims = [message for kind, message in sender.sent if kind == AIM_INPUT_TYPE]
         assert aims[0].yaw_degrees == pytest.approx(pig_yaw)  # type: ignore[attr-defined]
+
+    asyncio.run(scenario())
+
+
+def test_trade_selects_the_row_then_quick_moves_the_result_and_confirms_on_the_payout() -> None:
+    """The whole trade: a button click naming the row (the screen's vocabulary), then a
+    quick move on the merchant's result slot -- and CONFIRMED only when a later reading
+    shows the ask down and the payout up on one synced revision."""
+
+    async def scenario() -> None:
+        store = store_with(
+            reading(
+                tick=100,
+                gui=merchant_gui(),
+                inventory_value=inventory(100, (0, "minecraft:emerald", 5)),
+            )
+        )
+        skills, sender = skill_with(store)
+        after_select = reading(
+            tick=110,
+            gui=merchant_gui(),
+            inventory_value=inventory(100, (0, "minecraft:emerald", 5)),
+        )
+        paid = reading(
+            tick=130,
+            gui=merchant_gui(),
+            inventory_value=inventory(130, (0, "minecraft:emerald", 2), (1, "minecraft:bread", 2)),
+        )
+        queued = [after_select, paid]
+
+        def answer(message_type: str) -> None:
+            if message_type == GUI_CLICK_INPUT_TYPE and queued:
+                store.admit(queued.pop(0), ())
+
+        sender.on_send = answer
+        outcome = await skills.trade(offer_index=0, authority=authority(), timeout_ns=5_000_000_000)
+
+        assert outcome.result is ActionResultClass.CONFIRMED
+        assert outcome.post_tick == 130
+        assert outcome.details["clicks"] == "offer_select+result_quick_move"
+        assert outcome.details["offer_index"] == "0"
+        assert outcome.details["sell_item_id"] == "minecraft:bread"
+        assert outcome.details["sell_count_before"] == "0"
+        assert outcome.details["sell_count_after"] == "2"
+        clicks = [message for kind, message in sender.sent if kind == GUI_CLICK_INPUT_TYPE]
+        assert clicks[0].WhichOneof("click") == "button"  # type: ignore[attr-defined]
+        assert clicks[0].button.button_id == 0  # type: ignore[attr-defined]
+        assert clicks[1].WhichOneof("click") == "slot"  # type: ignore[attr-defined]
+        assert clicks[1].slot.slot_id == 2  # type: ignore[attr-defined]
+        assert clicks[1].slot.mode == control_pb2.SLOT_CLICK_MODE_QUICK_MOVE  # type: ignore[attr-defined]
+
+    asyncio.run(scenario())
+
+
+def test_trade_refuses_by_name_outside_the_rows_it_read() -> None:
+    async def scenario() -> None:
+        closed, closed_sender = skill_with(store_with(reading(tick=100)))
+        outcome = await closed.trade(offer_index=0, authority=authority(), timeout_ns=1_000_000_000)
+        assert outcome.result is ActionResultClass.FAILED
+        assert outcome.reason == "TRADE_SCREEN_NOT_OPEN"
+        assert closed_sender.sent == []
+
+        open_store = store_with(reading(tick=100, gui=merchant_gui()))
+        opn, opn_sender = skill_with(open_store)
+        outcome = await opn.trade(offer_index=7, authority=authority(), timeout_ns=1_000_000_000)
+        assert outcome.reason == "TRADE_OFFER_UNKNOWN"
+        assert opn_sender.sent == []
+
+        empty_bag, bag_sender = skill_with(store_with(reading(tick=100, gui=merchant_gui())))
+        outcome = await empty_bag.trade(
+            offer_index=0, authority=authority(), timeout_ns=1_000_000_000
+        )
+        assert outcome.reason == "TRADE_INSUFFICIENT_MATERIALS"
+        assert bag_sender.sent == []
+
+    asyncio.run(scenario())
+
+
+def test_look_at_entity_faces_the_named_kind_and_confirms_on_arrival() -> None:
+    async def scenario() -> None:
+        slime = slime_entity(tick=100, at=2.5)
+        pig_body = EntityCandidate(
+            observation_id="pig-100",
+            entity_type="minecraft:pig",
+            relative_x=1.0,
+            relative_y=0.0,
+            relative_z=0.0,
+            line_of_sight=True,
+        )
+        store = store_with(positioned(tick=100, entities=(pig_body, slime)))
+        skills, sender = skill_with(store)
+        yaw, pitch = angle_to_degrees(
+            dx=slime.relative_x,
+            dy=slime.relative_y - EYE_HEIGHT_BLOCKS,
+            dz=slime.relative_z,
+        )
+        queued = [positioned(tick=110, yaw=yaw, pitch=pitch, entities=(pig_body, slime))]
+
+        def answer(message_type: str) -> None:
+            if message_type == AIM_INPUT_TYPE and queued:
+                store.admit(queued.pop(0), ())
+
+        sender.on_send = answer
+        outcome = await skills.look_at_entity(
+            authority=authority(),
+            target_entity_type="minecraft:slime",
+            timeout_ns=5_000_000_000,
+        )
+
+        assert outcome.result is ActionResultClass.CONFIRMED
+        assert outcome.details["target"] == "minecraft:slime"
+        aims = [message for kind, message in sender.sent if kind == AIM_INPUT_TYPE]
+        assert aims[0].yaw_degrees == pytest.approx(yaw)  # type: ignore[attr-defined]
 
     asyncio.run(scenario())
 

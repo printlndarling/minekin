@@ -78,6 +78,7 @@ class ParameterKind(StrEnum):
     SLOT = "slot"
     ANGLE = "angle"
     SECONDS = "seconds"
+    INDEX = "index"
     FLAG = "flag"
 
 
@@ -163,6 +164,21 @@ BEHAVIOR_PARAMETERS: Final[Mapping[str, tuple[Parameter, ...]]] = MappingProxyTy
             _number("swing_seconds", ParameterKind.SECONDS, 0.5, 8.0),
             _item("target_entity_type"),
         ),
+        # A trade names WHICH row of the open merchant's list to take: the index is the
+        # button the screen assigned, the same number the summary's rows carry. What the
+        # row costs and pays is the screen's reading, checked again when the key lands.
+        "trade": (
+            Parameter(
+                name="offer_index",
+                kind=ParameterKind.INDEX,
+                required=True,
+                minimum=0,
+                maximum=64,
+            ),
+        ),
+        # Facing a rendered body: the same aim the fight takes, without the swing -- the
+        # "look at it" leg any interaction with an entity starts from.
+        "look_at_entity": (_item("target_entity_type"),),
         # A use takes the aim from the reading, exactly as close_screen takes the
         # window from it — the model names the behavior and fills in nothing.
         "use_target": (),
@@ -236,8 +252,9 @@ def _fits(parameter: Parameter, value: object) -> bool:
         return isinstance(value, str) and bool(_ITEM_ID_PATTERN.fullmatch(value))
     if isinstance(value, bool) or not isinstance(value, int | float):
         return False
-    if parameter.kind in (ParameterKind.QUANTITY, ParameterKind.SLOT):
-        # A whole number of items or a slot index: `2.5` planks is not a thing to ask for.
+    if parameter.kind in (ParameterKind.QUANTITY, ParameterKind.SLOT, ParameterKind.INDEX):
+        # A whole number of items, a slot, or a row of a list: `2.5` planks is not a
+        # thing to ask for, and row 2.5 of an offer list is not a row.
         return float(value).is_integer() and _within(parameter, float(value))
     return _within(parameter, float(value))
 

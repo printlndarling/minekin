@@ -90,6 +90,7 @@ from minekin_core.domain.world_actions import (
     verify_craft,
     verify_hotbar_change,
     verify_item_collected,
+    verify_trade,
     verify_use_effect,
 )
 from minekin_core.generated.minekin.v1 import control_pb2
@@ -309,6 +310,9 @@ class SkillCall:
     #: The entity kind a fight aims for when the caller named one; empty is "the nearest
     #: rendered body in reach", and the type is never a filter of this side's choosing.
     target_entity_type: str = ""
+    #: Which row of an open merchant's offer list a trade takes; -1 is "nobody said",
+    #: which the plan layer refuses before a skill is ever asked.
+    offer_index: int = -1
     materials: tuple[tuple[str, int], ...] = ()
     craft_all: bool = True
 
@@ -2062,6 +2066,195 @@ class WorldSkills:
             },
         )
 
+    async def look_at_entity(
+        self,
+        *,
+        authority: ActionAuthority,
+        target_entity_type: str = "",
+        timeout_ns: int = DEFAULT_STEP_TIMEOUT_NS,
+    ) -> SkillOutcome:
+        """Face the nearest rendered body in sight, or the nearest of a named kind.
+
+        The "look at it" leg any entity interaction starts from -- the same aim a fight
+        takes before its swing, without the key -- and generic the same way: any rendered
+        body in sight can be faced, and whether it is worth facing is the caller's call.
+        No walking: a body out of arm's reach is beyond this step, and the caller composes
+        more steps (or the world moves it) from the next reading.
+        """
+
+        capability = self._require(AIM_CAPABILITY)
+        if capability is not None:
+            return capability
+        pre = self._observations.latest
+        if pre is None:
+            return _refusal_outcome("NO_LATEST_OBSERVATION", "", pre)
+        if pre.generation != authority.generation:
+            return _refusal_outcome("WORLD_GENERATION_CHANGED", "", pre)
+        if pre.gui is not None and pre.gui.sync_id is not None:
+            return _refusal_outcome("LOOK_ENTITY_SCREEN_OPEN", "", pre)
+        target = nearest_visible(
+            pre,
+            kinds=frozenset({target_entity_type}) if target_entity_type else None,
+        )
+        if target is None:
+            return _refusal_outcome("LOOK_ENTITY_NOT_VISIBLE", "", pre)
+        entity, distance = target
+        yaw, pitch = angle_to_degrees(
+            dx=entity.relative_x,
+            dy=entity.relative_y - EYE_HEIGHT_BLOCKS,
+            dz=entity.relative_z,
+        )
+        action_id = self._action_id()
+        deadline = monotonic_ns() + timeout_ns
+        if not await self._aim_until_arrived(
+            action_id, authority, yaw, pitch, base=pre, deadline=deadline
+        ):
+            return SkillOutcome(
+                result=ActionResultClass.UNKNOWN,
+                reason="NO_CONFIRMING_OBSERVATION",
+                action_id=action_id,
+                pre_tick=pre.game_tick,
+            )
+        post = self._observations.latest
+        post_tick = (
+            post.game_tick if post is not None and post.game_tick > pre.game_tick else pre.game_tick
+        )
+        return SkillOutcome(
+            result=ActionResultClass.CONFIRMED,
+            reason="",
+            action_id=action_id,
+            pre_tick=pre.game_tick,
+            post_tick=post_tick,
+            details={
+                "target": entity.entity_type,
+                "distance_blocks": f"{distance:.1f}",
+                "newest_checked_tick": str(post_tick),
+            },
+        )
+
+    async def trade(
+        self,
+        *,
+        offer_index: int,
+        authority: ActionAuthority,
+        timeout_ns: int = DEFAULT_STEP_TIMEOUT_NS,
+    ) -> SkillOutcome:
+        """Take one row of the open merchant's offer list: select it, then quick-move the result.
+
+        Two clicks, the same pair a craft ends with: a button click naming the row (the
+        screen's own vocabulary, validated by the screen), then a quick move on the
+        result slot -- the merchant screen's slot 2 -- which is the click that pays the
+        asks and delivers the payout. Both preconditions are read, never assumed: the row
+        exists in the reading's offer list, is not disabled or out of uses, and this bag
+        can pay its asks right now; a click the numbers do not support is refused by name
+        rather than spent. The verdict is the world's, `verify_trade`'s row: asks down and
+        payout up on one synced revision, or UNKNOWN.
+        """
+
+        for capability in (SCREEN_CAPABILITY, GUI_CAPABILITY):
+            refusal = self._require(capability)
+            if refusal is not None:
+                return refusal
+        pre = self._observations.latest
+        action_id = self._action_id()
+        if pre is None:
+            return _refusal_outcome("NO_LATEST_OBSERVATION", action_id, pre)
+        if pre.gui is None or pre.gui.sync_id is None:
+            return _refusal_outcome("TRADE_SCREEN_NOT_OPEN", action_id, pre)
+        offers = pre.gui.trade_offers
+        if offer_index < 0 or offer_index >= len(offers):
+            return _refusal_outcome("TRADE_OFFER_UNKNOWN", action_id, pre)
+        offer = offers[offer_index]
+        if offer.disabled or offer.uses >= offer.max_uses:
+            return _refusal_outcome("TRADE_OFFER_SPENT", action_id, pre)
+        if item_total(pre.inventory, offer.first_item_id) < offer.first_count or (
+            offer.second_item_id
+            and item_total(pre.inventory, offer.second_item_id) < offer.second_count
+        ):
+            return _refusal_outcome("TRADE_INSUFFICIENT_MATERIALS", action_id, pre)
+        refusal = gui_click_refusal(pre, pre.gui.sync_id)
+        if refusal.refusal is not None:
+            return _refusal_outcome(refusal.refusal.value, action_id, pre)
+        deadline = monotonic_ns() + timeout_ns
+        clicks: list[str] = []
+        await self._sender.send_control(
+            GUI_CLICK_INPUT_TYPE,
+            control_pb2.GuiClickInput(
+                action_id=action_id,
+                lease_id=authority.lease_id,
+                generation=authority.generation,
+                sync_id=pre.gui.sync_id,
+                button=control_pb2.GuiButtonClick(button_id=offer_index),
+                deadline_monotonic_ns=authority.deadline_monotonic_ns,
+            ),
+        )
+        clicks.append("offer_select")
+        selected = await self._wait_until(
+            _newer_reading(pre.game_tick), deadline, action_id=action_id
+        )
+        if selected is None:
+            return SkillOutcome(
+                result=ActionResultClass.UNKNOWN,
+                reason="NO_CONFIRMING_OBSERVATION",
+                action_id=action_id,
+                pre_tick=pre.game_tick,
+                details=_trade_details(pre, None, offer_index, clicks),
+            )
+        if selected.gui is None or selected.gui.sync_id != pre.gui.sync_id:
+            return SkillOutcome(
+                result=ActionResultClass.UNKNOWN,
+                reason="SCREEN_NOT_CONFIRMED",
+                action_id=action_id,
+                pre_tick=pre.game_tick,
+                details=_trade_details(pre, selected, offer_index, clicks),
+            )
+        await self._sender.send_control(
+            GUI_CLICK_INPUT_TYPE,
+            control_pb2.GuiClickInput(
+                action_id=action_id,
+                lease_id=authority.lease_id,
+                generation=authority.generation,
+                sync_id=selected.gui.sync_id,
+                slot=control_pb2.GuiSlotClick(
+                    slot_id=2,
+                    button=1,
+                    mode=control_pb2.SLOT_CLICK_MODE_QUICK_MOVE,
+                ),
+                deadline_monotonic_ns=authority.deadline_monotonic_ns,
+            ),
+        )
+        clicks.append("result_quick_move")
+        chain = selected
+        while True:
+            post = await self._wait_until(
+                _newer_reading(chain.game_tick), deadline, action_id=action_id
+            )
+            if post is None:
+                return SkillOutcome(
+                    result=ActionResultClass.UNKNOWN,
+                    reason="TRADE_NOT_CONFIRMED",
+                    action_id=action_id,
+                    pre_tick=pre.game_tick,
+                    details=_trade_details(pre, chain, offer_index, clicks),
+                )
+            verdict = verify_trade(
+                pre=pre,
+                post=post,
+                first_item_id=offer.first_item_id,
+                second_item_id=offer.second_item_id,
+                sell_item_id=offer.sell_item_id,
+            )
+            if verdict is not ActionResultClass.UNKNOWN:
+                return SkillOutcome(
+                    result=verdict,
+                    reason="",
+                    action_id=action_id,
+                    pre_tick=pre.game_tick,
+                    post_tick=post.game_tick,
+                    details=_trade_details(pre, post, offer_index, clicks),
+                )
+            chain = post
+
     def _require(self, capability: str) -> SkillOutcome | None:
         """The named refusal when the session was never negotiated for it.
 
@@ -2399,6 +2592,34 @@ def _crosshair_on(observation: WorldObservationValue, entity_id: str) -> bool:
 
     aim = observation.aim
     return aim is not None and aim.kind is AimKind.ENTITY and aim.entity_observation_id == entity_id
+
+
+def _trade_details(
+    pre: WorldObservationValue,
+    post: WorldObservationValue | None,
+    offer_index: int,
+    clicks: list[str],
+) -> dict[str, str]:
+    """The trade's own words: which row, which clicks reached the screen, and what the
+    inventory revision and the payout item read before and after — nothing inferred."""
+
+    sell_item = ""
+    if pre.gui is not None and 0 <= offer_index < len(pre.gui.trade_offers):
+        sell_item = pre.gui.trade_offers[offer_index].sell_item_id
+    details = {
+        "offer_index": str(offer_index),
+        "sell_item_id": sell_item,
+        "sell_count_before": str(item_total(pre.inventory, sell_item)) if sell_item else "",
+        "clicks": "+".join(clicks),
+        "pre_inventory_revision": str(pre.inventory.revision),
+    }
+    if post is not None:
+        details["newest_inventory_revision"] = str(post.inventory.revision)
+        details["sell_count_after"] = (
+            str(item_total(post.inventory, sell_item)) if sell_item else ""
+        )
+        details["newest_checked_tick"] = str(post.game_tick)
+    return details
 
 
 def _target_unseen(entity_id: str) -> Callable[[WorldObservationValue], bool]:

@@ -104,6 +104,12 @@ SKILL_CAPABILITIES: Final[Mapping[str, frozenset[str]]] = {
     # aim a retreat takes plus the key a mine holds, pointed at the thing instead of away
     # from it. Same two capabilities, because it is the same look and the same key.
     "fight_back": frozenset({MINE_CAPABILITY, AIM_CAPABILITY}),
+    # A trade selects a row of the open merchant's list and takes its result: two screen
+    # clicks, the same pair a craft ends with.
+    "trade": frozenset({SCREEN_CAPABILITY, GUI_CAPABILITY}),
+    # Facing a rendered body is the aim a fight takes, without the key: the leg every
+    # interaction with an entity (a trade, later more) starts from.
+    "look_at_entity": frozenset({AIM_CAPABILITY}),
 }
 
 
@@ -644,6 +650,38 @@ def verify_craft(
     )
     product_up = item_total(post.inventory, product_id) > item_total(pre.inventory, product_id)
     if materials_down and product_up:
+        return ActionResultClass.CONFIRMED
+    return ActionResultClass.UNKNOWN
+
+
+def verify_trade(
+    *,
+    pre: WorldObservationValue,
+    post: WorldObservationValue,
+    first_item_id: str,
+    second_item_id: str,
+    sell_item_id: str,
+) -> ActionResultClass:
+    """§4 row three, for a merchant: the asks down and the payout up on one synced
+    revision, or nothing was confirmed.
+
+    The item IDs rather than amounts, for `verify_craft`'s own reason: the contract's
+    word is that the ask *decreased* and the payout *increased*, and handing in the
+    offer's numbers where the pre-action totals belong would stop confirming without
+    failing. The second ask is optional because most offers ask for one item; when
+    the row named one it must come down too.
+    """
+
+    if not _newer(pre, post) or not _inventory_synced(pre, post):
+        return ActionResultClass.UNKNOWN
+    first_down = item_total(post.inventory, first_item_id) < item_total(
+        pre.inventory, first_item_id
+    )
+    second_down = not second_item_id or item_total(post.inventory, second_item_id) < item_total(
+        pre.inventory, second_item_id
+    )
+    sell_up = item_total(post.inventory, sell_item_id) > item_total(pre.inventory, sell_item_id)
+    if first_down and second_down and sell_up:
         return ActionResultClass.CONFIRMED
     return ActionResultClass.UNKNOWN
 
