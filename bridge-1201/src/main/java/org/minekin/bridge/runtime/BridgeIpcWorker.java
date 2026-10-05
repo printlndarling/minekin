@@ -537,7 +537,8 @@ public final class BridgeIpcWorker implements AutoCloseable {
                 return;
             }
             Optional<String> refusal =
-                    WorldActions.mineTargetRefusal(value.getTarget(), view.crosshair());
+                    WorldActions.mineTargetRefusal(
+                            value.hasTarget() ? value.getTarget() : null, view.crosshair());
             if (refusal.isPresent()) {
                 publishResult(
                         value.getActionId(),

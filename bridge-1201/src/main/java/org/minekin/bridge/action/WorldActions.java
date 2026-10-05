@@ -146,7 +146,20 @@ public final class WorldActions {
      */
     public static Optional<String> mineTargetRefusal(
             BlockTarget requested, AimCrosshair current) {
-        if (requested == null || current == null || current.kind() != CrosshairKind.BLOCK) {
+        if (current == null || current.kind() == CrosshairKind.NOT_READ) {
+            return Optional.of(REFUSED_MINE_TARGET_NOT_AIMED);
+        }
+        if (requested == null) {
+            // No block named: the call asks to swing at whatever the crosshair is on, which
+            // is how a minecraft body attacks. Only an entity can be hit that way -- a MISS
+            // is air, and a swing at air is the wasted step the named-block rule already
+            // refuses. (The fight response measured out of the 2026-10-05 night soaks: one
+            // key, two uses, and the observation's ENTITY crosshair kind was already there.)
+            return current.kind() == CrosshairKind.ENTITY
+                    ? Optional.empty()
+                    : Optional.of(REFUSED_MINE_TARGET_NOT_AIMED);
+        }
+        if (current.kind() != CrosshairKind.BLOCK) {
             return Optional.of(REFUSED_MINE_TARGET_NOT_AIMED);
         }
         if (requested.getX() != current.x()

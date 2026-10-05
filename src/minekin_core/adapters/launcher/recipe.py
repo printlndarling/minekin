@@ -98,8 +98,12 @@ FABRIC_API_1201_SHA1 = "3e9cdd3e2f827ca9a259df9eb8e31949437b6bd4"
 # (`CraftableRecipeReader`), the reading the public knowledge path needs before
 # it can offer any craft inside an open 3x3 window — the wide-grid craft was
 # structurally unreachable without it (card S3-WIDE-GRID-CRAFT-CLOSURE-001).
-BRIDGE_1201_JAR_SHA256 = "38acc0354f2452ed69887d19eb0e6bcacaa86a8535c022d5754315501e8033c3"
-BRIDGE_1201_JAR_SIZE = 1_455_903
+# A third 2026-10-05 renewal widens the mine guard for the fight response: a mine
+# request that names NO block swings at whatever the crosshair is on, which is only
+# an entity — the one Minecraft key serving both a swing and a dig, which the night
+# soaks needed before "hit back" could exist at all (card D-SURVIVAL-FIGHT-BACK-001).
+BRIDGE_1201_JAR_SHA256 = "118cdae869da1c18778836c0eff1d4a2c404f1fd2a66eb9909a1a17b598c37ba"
+BRIDGE_1201_JAR_SIZE = 1_455_984
 BRIDGE_1201_JAR_RELATIVE_PATH = "bridge-1201/build/libs/minekin-bridge-1201-0.0.0.jar"
 
 
