@@ -2507,7 +2507,7 @@ class WorldSkills:
                 if _target_unseen(entity.observation_id)(current):
                     return
                 health = current.self_state.health
-                if health is not None and health < FIGHT_MIN_HEALTH:
+                if health < FIGHT_MIN_HEALTH:
                     # The body dropped under the trading line mid-swing: break it off now
                     # and let the next decision leave. Standing in the exchange below
                     # this line is the death the soaks died, not a fight.

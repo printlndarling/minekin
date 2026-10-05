@@ -848,7 +848,7 @@ def test_dispatch_maps_a_retreat_call_onto_the_retreat_skill() -> None:
     )
     skills = OnlyRetreat()
     outcome = asyncio.run(
-        skill_plan_module._dispatch(
+        skill_plan_module._dispatch(  # pyright: ignore[reportPrivateUsage] -- focused dispatch regression
             skills,  # type: ignore[arg-type]
             SkillCall(name="retreat", hold_seconds=3.5),
             authority=authority,
@@ -875,7 +875,9 @@ def test_the_plan_reader_reads_every_key_the_tables_allow() -> None:
     import inspect
 
     from minekin_core.application import skill_plan as skill_plan_module
-    from minekin_core.application.skill_plan import _KNOWN_KEYS
+    from minekin_core.application.skill_plan import (
+        _KNOWN_KEYS,  # pyright: ignore[reportPrivateUsage] -- table drift regression
+    )
 
     tree = ast.parse(inspect.getsource(skill_plan_module))
     read_keys: set[str] = set()
@@ -908,7 +910,7 @@ def test_dispatch_maps_a_fight_call_onto_the_fight_skill() -> None:
 
     class OnlyFight:
         def __init__(self) -> None:
-            self.seen: tuple[object, float, int] | None = None
+            self.seen: tuple[object, float, str, int] | None = None
 
         async def fight_back(
             self,
@@ -931,7 +933,7 @@ def test_dispatch_maps_a_fight_call_onto_the_fight_skill() -> None:
     )
     skills = OnlyFight()
     outcome = asyncio.run(
-        skill_plan_module._dispatch(
+        skill_plan_module._dispatch(  # pyright: ignore[reportPrivateUsage] -- focused dispatch regression
             skills,  # type: ignore[arg-type]
             SkillCall(name="fight_back", swing_seconds=2.5, target_entity_type="minecraft:slime"),
             authority=authority,
@@ -955,6 +957,6 @@ def test_every_declared_skill_states_its_required_arguments() -> None:
     from minekin_core.domain.skill_parameters import BEHAVIOR_PARAMETERS
 
     names = set(BEHAVIOR_PARAMETERS)
-    assert set(skill_plan_module._REQUIRED) == names
-    assert set(skill_plan_module._DEFAULTED) == names
-    assert set(skill_plan_module._ALTERNATIVES) == names
+    assert set(skill_plan_module._REQUIRED) == names  # pyright: ignore[reportPrivateUsage]
+    assert set(skill_plan_module._DEFAULTED) == names  # pyright: ignore[reportPrivateUsage]
+    assert set(skill_plan_module._ALTERNATIVES) == names  # pyright: ignore[reportPrivateUsage]
