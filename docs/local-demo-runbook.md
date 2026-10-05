@@ -1202,3 +1202,13 @@ MINEKIN_DEMO_VOLUME=minekin-local-demo2 MINEKIN_DEMO_KIN=kin-3x3-fresh-20261002 
 **同批读出的具名摩擦（未修，下一卡）：空背包时归档计划的原木格子按字典序取确定性候选 `minecraft:acacia_log`**（`missing_raw` 给 `{acacia_log: 2}`），而目标 source 与受控场景都是 oak；模型照摘要去搜 acacia（第 3 发连扫 4 次 `turn_to`），或先破眼前的 oak（第 2 发）。**离线按真实归档复现**：空包 → `{acacia_log: 2}`；袋中 1 根 oak → `{oak_log: 1}`；3 根 oak → `{}`；1 根 birch → `{birch_log: 1}`（`domain`/`adapters` 的池优先规则在空包时退化为字典序）。即"存量优先"只在拿到第一根之后才生效，空包窗口里摘要说的资源名是任意的；同日在 Oct-5 的 runA/runB 日志里也已出现同样的 "acacia" 措辞。修法与判据留给下一卡（让目标配置的 source item 在等价标签候选里优先），先代码与单测，活体在好窗口再取。
 
 **不声明**：三发均为普通运行记录、非 sealed；候选字节未封存/登记；近身 143 未解除；各发 `client_exit_code: 143` 均为停止路径信号；端点停滞的根因（对端/中间层）仍未定。
+
+## 六之三十二、目标 source item 在等价标签候选中优先（2026-10-06，`997faea`，活体 run `b00524d8…`）
+
+**交付（先红后绿 + 全仓 pyright 0 / ruff 0/0 / format 干净 / 相关 185 项绿）。** `PublicCraftKnowledge` 的 `step_toward`/`owed_chain`/`enabler_to_stand_up`/`missing_raw` 新增 `preferred: tuple[str, ...] = ()`：分支比较键由 `cost()` 扩为 `(cost, 离路 raw 数)`——两条代价相同的路线里，floor 收在调用者点名资源上的那条赢；**存量永远先付**（袋里已持的兄弟项保留自己的分支）。`CraftKnowledge` 协议同步（pyright 首跑把漏掉协议这一层量了出来，29 处指向同一处），`PlayerMind._preferred_raw()` 把 `goal.source_item_id` 作为偏好穿过 7 个调用点。测试 5 新（4 知识层 + 1 心层摘要端到端）+ 1 处旧钉子按其设计意图更新（摘要 floor 的名字从字典序兄弟改为目标 source）。
+
+**离线按真实归档复现（822 配方）：** `preferred=()` 空包 → `{acacia_log: 2}`（旧行为保留）；`preferred=(oak_log,)` 空包 → **`{oak_log: 2}`**；1 根 oak 在手两种都 → `{oak_log: 1}`。
+
+**活体（同一候选字节、peaceful、木镐×1、kin `kin-policy-live-3x3-c`、`--timeout-ms 20000`；run `b00524d8261642479c66fad61859089b`、session `f3a4d3aa272d4ef686c73a8939a33ce5`）：** 整个 run 文档 `acacia` 出现 **0 次**（对照：同日修前 run `ecd597ae…` 的模型理由逐字含 "missing acacia logs"），`oak` 11 次。逐步——第 1 步 `close_screen` "The crosshair is aimed at an oak log, and harvesting it provides the missing raw material for the wooden pickaxe plan."（INTERRUPTED/窗口自消失）；第 2 步 **`break_seen_block` CONFIRMED**；第 3 步 **`collect_dropped` CONFIRMED**（"A dropped oak log is present and must be picked up for the wooden pickaxe plan."——本系列首个活体拾取 CONFIRMED，同日修前两发都是 `UNKNOWN/COLLECT_AIM_NOT_CONFIRMED`）；第 4 步再破（"…gathering a second log is the next prerequisite for crafting the wooden pickaxe."，INTERRUPTED/前提变化）；第 5 步 `turn_to` **CONFIRMED**（"Need a second oak_log for 5 planks, so sweep the view toward the suggested bearing to re-find a tree to break next."）；第 6 次决策端点在两次 20s 内均无响应头（`elapsed_ms: 41146`、phase open）按名 `TIMEOUT` 停。`model_calls: 6`、spent 93、cap 0、`goal_met: false`、confirmed 3、release `asked:[184] released:[184] unconfirmed:[]`。**判据达成**：空包摘要不再点名任意兄弟项（模型自己的话从 acacia 改成 oak），同一读数下计划保持确定（单测与离线复现）。**未达成**：3×3 终产物闭环仍待端点不中断的窗口；本发停车在端点停滞，与计划无关。
+
+**不声明**：普通运行记录、非 sealed；候选字节未封存/登记；3×3 闭环仍缺；近身 143 未解除。
