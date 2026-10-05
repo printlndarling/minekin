@@ -1277,3 +1277,9 @@ MINEKIN_DEMO_VOLUME=minekin-local-demo2 MINEKIN_DEMO_KIN=kin-3x3-fresh-20261002 
 ## 六之三十八、修复后 harness 上的 3×3 真实模型一发（2026-10-06，run `7dfa0d6d…`；普通运行记录、非 sealed）
 
 `tools/run_real_model_demo.py`（`--timeout-ms 20000`、木镐×1、peaceful、候选 profile、归档 `3af73a9d…`；发前健康探针 3.5s/3.2s）：**模型驱动出真实动作且全部 CONFIRMED——`break_seen_block`（tick→）与 `collect_dropped` 两步 `source: model`**；第 3 次决策调用再次撞上端点停滞窗口（两次尝试各 20s 无响应头，`elapsed_ms: 41089`、phase `open`），按名 `TIMEOUT` 停；`model_calls: 3`、spent 28、`goal_met: false`、release `asked:[182] released:[182] unconfirmed:[]`。**结论与既往一致**：模型闭环在本构建上推进到多步真实动作，3×3 终产物收口仍被端点窗口的间歇停滞限制；有界重试与具名停止按设计工作。**不声明**：3×3 闭环仍缺；候选字节未封存/登记。
+
+## 六之三十九、`fight_back` 的窗口内等待落地并在活体上行使（2026-10-06，`fd1286e`，run `runU`；普通运行记录、非 sealed）
+
+**动机**：计划/模型选中 `fight_back` 时，跳跃中的史莱姆常恰在 3 格之外 → 立即 `FIGHT_THREAT_OUT_OF_REACH` → 序列在第一步非 CONFIRMED 处停下（修复前战斗四发的共同死点）。**实现**：`fight_back` 在"有可见身体但不在攻击距离"时，用**自己的步窗**等待最新读数把目标带进 3 格（`_outlive_client` 包住 `wait_until`）；带进后从**那一帧**取几何与目标继续瞄准/挥击；窗尽仍无 → 同一个具名拒止，决定落在最新读数上（"等待用满整段租约，词才算挣到"）。**单测**新增两格（进入即挥击：红转绿；始终不入窗：按名拒止且零输入）+ 既有即距单元全数不变；全仓 pyright 0、ruff 0/0、相关 311 项绿。
+
+**活体（run `runU`，armed + front 史莱姆 + normal）**：`turn_to` CONFIRMED ×3（551→562、640→651、739→750）后，`fight_back` 于 **pre_tick 849 以 `FIGHT_THREAT_OUT_OF_REACH` 拒止——等待真的被行使（~99 tick ≈ 5s 的窗口被用满**，非此前的即刻拒止）；本发史莱姆在整个窗内未进入 3 格（且与前几发不同，未击杀 Kin——接近行为有发间变异）。协作停止、`STOPPED_ON_REQUEST`、`the plan concluded (4 step(s) recorded)` 均干净。**武器握持读数仍待一发"史莱姆在窗内进 3 格"的活体**；机制侧已按设计行使。**不声明**：`details.weapon` 与挥击/击杀的世界读数仍缺。
