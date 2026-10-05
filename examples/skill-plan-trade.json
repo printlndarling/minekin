@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "skills": [
+    {"skill": "look_at_entity", "target_entity_type": "minecraft:wandering_trader"},
+    {"skill": "use_target"},
+    {"skill": "trade", "offer_index": 0},
+    {"skill": "close_screen"}
+  ]
+}
