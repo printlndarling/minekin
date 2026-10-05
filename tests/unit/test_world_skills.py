@@ -3247,9 +3247,7 @@ def test_approach_entity_concludes_by_name_on_refusals_and_a_body_already_within
         assert outcome.reason == "APPROACH_ENTITY_NOT_VISIBLE"
         assert empty_sender.sent == []
 
-        inside_store = store_with(
-            positioned(tick=100, entities=(trader_entity(tick=100, at=2.0),))
-        )
+        inside_store = store_with(positioned(tick=100, entities=(trader_entity(tick=100, at=2.0),)))
         inside, inside_sender = skill_with(inside_store)
         outcome = await inside.approach_entity(authority=authority(), timeout_ns=1_000_000_000)
         assert outcome.result is ActionResultClass.CONFIRMED
