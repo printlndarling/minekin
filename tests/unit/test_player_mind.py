@@ -71,6 +71,7 @@ from minekin_core.domain.perception import (
     InventoryStackValue,
     InventoryValue,
     SelfStateValue,
+    TradeOfferValue,
     WorldObservationValue,
 )
 from minekin_core.domain.recipe_catalog import (
@@ -88,6 +89,8 @@ from minekin_core.domain.world_actions import (
 )
 
 LOG = "minecraft:oak_log"
+WHEAT = "minecraft:wheat"
+EMERALD = "minecraft:emerald"
 PLANKS = "minecraft:oak_planks"
 STICK = "minecraft:stick"
 PICKAXE = "minecraft:wooden_pickaxe"
@@ -1017,6 +1020,53 @@ def test_the_ask_shows_the_counts_an_argument_has_to_be_chosen_from() -> None:
     }
     for absent in ("x", "y", "z", "relative_x", "entities", "coordinates", "session"):
         assert absent not in summary
+
+
+def test_an_open_merchants_offers_travel_with_index_and_payability() -> None:
+    """The rows a trade choice is made of: each offer's index (the button a choice names),
+    its ask and payout verbatim, and whether this bag can pay right now -- computed from
+    the same inventory the click will be checked against."""
+
+    provider = ScriptedProvider()
+    mind = mind_for(provider, CostLedger(run_cost_cap=CAP), kin_id="kin-01", persona_seed="seed-9")
+    gui = GuiScreenValue(
+        screen_id="minecraft:merchant",
+        sync_id=4,
+        trade_offers=(
+            TradeOfferValue(
+                first_item_id="minecraft:emerald",
+                first_count=3,
+                second_item_id="",
+                second_count=0,
+                sell_item_id="minecraft:bread",
+                sell_count=2,
+                uses=4,
+                max_uses=12,
+                disabled=False,
+            ),
+            TradeOfferValue(
+                first_item_id="minecraft:wheat",
+                first_count=20,
+                second_item_id="minecraft:emerald",
+                second_count=1,
+                sell_item_id="minecraft:emerald",
+                sell_count=1,
+                uses=0,
+                max_uses=16,
+                disabled=False,
+            ),
+        ),
+    )
+    observed = reading(items=((0, WHEAT, 21), (1, EMERALD, 1)), gui=gui)
+
+    mind.next_intent(observed)
+
+    summary = provider.requests[-1].observation_summary
+    rows = cast("list[dict[str, object]]", summary["trade_offers"])
+    assert [row["offer_index"] for row in rows] == [0, 1]
+    assert rows[0]["sell_item_id"] == "minecraft:bread"
+    assert rows[0]["payable"] is False  # one emerald held, three asked
+    assert rows[1]["payable"] is True  # 21 wheat and one emerald pay the second offer
 
 
 def test_the_model_sees_every_rendered_body_nearest_first_with_distance_and_sight() -> None:

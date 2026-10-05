@@ -252,14 +252,38 @@ class MiningProgress(_message.Message):
     def __init__(self, game_tick: _Optional[int] = ..., target: _Optional[_Union[_control_pb2.BlockTarget, _Mapping]] = ..., progress: _Optional[float] = ...) -> None: ...
 
 class GuiScreen(_message.Message):
-    __slots__ = ("screen_id", "sync_id", "craftable_recipe_ids")
+    __slots__ = ("screen_id", "sync_id", "craftable_recipe_ids", "trade_offers")
     SCREEN_ID_FIELD_NUMBER: _ClassVar[int]
     SYNC_ID_FIELD_NUMBER: _ClassVar[int]
     CRAFTABLE_RECIPE_IDS_FIELD_NUMBER: _ClassVar[int]
+    TRADE_OFFERS_FIELD_NUMBER: _ClassVar[int]
     screen_id: str
     sync_id: int
     craftable_recipe_ids: _containers.RepeatedScalarFieldContainer[str]
-    def __init__(self, screen_id: _Optional[str] = ..., sync_id: _Optional[int] = ..., craftable_recipe_ids: _Optional[_Iterable[str]] = ...) -> None: ...
+    trade_offers: _containers.RepeatedCompositeFieldContainer[TradeOffer]
+    def __init__(self, screen_id: _Optional[str] = ..., sync_id: _Optional[int] = ..., craftable_recipe_ids: _Optional[_Iterable[str]] = ..., trade_offers: _Optional[_Iterable[_Union[TradeOffer, _Mapping]]] = ...) -> None: ...
+
+class TradeOffer(_message.Message):
+    __slots__ = ("first_item_id", "first_count", "second_item_id", "second_count", "sell_item_id", "sell_count", "uses", "max_uses", "disabled")
+    FIRST_ITEM_ID_FIELD_NUMBER: _ClassVar[int]
+    FIRST_COUNT_FIELD_NUMBER: _ClassVar[int]
+    SECOND_ITEM_ID_FIELD_NUMBER: _ClassVar[int]
+    SECOND_COUNT_FIELD_NUMBER: _ClassVar[int]
+    SELL_ITEM_ID_FIELD_NUMBER: _ClassVar[int]
+    SELL_COUNT_FIELD_NUMBER: _ClassVar[int]
+    USES_FIELD_NUMBER: _ClassVar[int]
+    MAX_USES_FIELD_NUMBER: _ClassVar[int]
+    DISABLED_FIELD_NUMBER: _ClassVar[int]
+    first_item_id: str
+    first_count: int
+    second_item_id: str
+    second_count: int
+    sell_item_id: str
+    sell_count: int
+    uses: int
+    max_uses: int
+    disabled: bool
+    def __init__(self, first_item_id: _Optional[str] = ..., first_count: _Optional[int] = ..., second_item_id: _Optional[str] = ..., second_count: _Optional[int] = ..., sell_item_id: _Optional[str] = ..., sell_count: _Optional[int] = ..., uses: _Optional[int] = ..., max_uses: _Optional[int] = ..., disabled: bool = ...) -> None: ...
 
 class WorldObservation(_message.Message):
     __slots__ = ("generation", "game_tick", "self", "aim", "inventory", "visible_entities", "mining", "gui")

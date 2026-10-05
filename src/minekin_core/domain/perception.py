@@ -371,6 +371,26 @@ class MiningProgressValue:
 
 
 @dataclass(frozen=True, slots=True)
+class TradeOfferValue:
+    """One row of an open merchant's offer list, as the client's screen reports it.
+
+    The prices are the asks as they stand (the wire sends the adjusted buy stacks), the
+    second buy is `""` for the many offers that ask for one item only, and `disabled`
+    plus `uses`/`max_uses` are the screen's own state — never recomputed here.
+    """
+
+    first_item_id: str
+    first_count: int
+    second_item_id: str
+    second_count: int
+    sell_item_id: str
+    sell_count: int
+    uses: int
+    max_uses: int
+    disabled: bool
+
+
+@dataclass(frozen=True, slots=True)
 class GuiScreenValue:
     """The open screen and its handler id. `sync_id` is `None` when no screen is
     open, because 0 is a legal handler id (the player's own inventory) and cannot
@@ -388,6 +408,9 @@ class GuiScreenValue:
     screen_id: str
     sync_id: int | None
     craftable_recipe_ids: frozenset[str] = frozenset()
+    #: What an open merchant offers, in the client's own order; empty for every screen
+    #: that is not a merchant's (same boundary the recipe book keeps).
+    trade_offers: tuple[TradeOfferValue, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

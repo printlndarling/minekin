@@ -895,6 +895,36 @@ def observation_summary(
         "pitch_degrees": reading.self_state.pitch_degrees,
         "screen_open": screen_open(reading),
         "screen_id": "" if reading.gui is None else reading.gui.screen_id,
+        # What an open merchant offers, each row with its index (the button a choice
+        # names) and whether this bag can pay it right now -- the numbers the choice is
+        # made of, read off the same screen the click will land on.
+        "trade_offers": [
+            {
+                "offer_index": index,
+                "first_item_id": offer.first_item_id,
+                "first_count": offer.first_count,
+                "second_item_id": offer.second_item_id,
+                "second_count": offer.second_count,
+                "sell_item_id": offer.sell_item_id,
+                "sell_count": offer.sell_count,
+                "uses": offer.uses,
+                "max_uses": offer.max_uses,
+                "disabled": offer.disabled,
+                "payable": (
+                    not offer.disabled
+                    and offer.uses < offer.max_uses
+                    and item_total(reading.inventory, offer.first_item_id) >= offer.first_count
+                    and (
+                        not offer.second_item_id
+                        or item_total(reading.inventory, offer.second_item_id)
+                        >= offer.second_count
+                    )
+                ),
+            }
+            for index, offer in enumerate(
+                () if reading.gui is None else reading.gui.trade_offers
+            )
+        ],
         "held_item": reading.self_state.main_hand_item_id or "",
         "aimed_block": aim.targeted_block_id if aim is not None and aim.block is not None else "",
         "dropped_items": dict(sorted(dropped.items())),

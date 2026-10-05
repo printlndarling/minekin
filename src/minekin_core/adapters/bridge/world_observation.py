@@ -30,6 +30,7 @@ from minekin_core.domain.perception import (
     InventoryValue,
     MiningProgressValue,
     SelfStateValue,
+    TradeOfferValue,
     WorldObservationValue,
 )
 from minekin_core.generated.minekin.v1 import control_pb2, observation_pb2
@@ -146,6 +147,20 @@ def decode_gui(gui: observation_pb2.GuiScreen) -> GuiScreenValue:
         screen_id=gui.screen_id,
         sync_id=int(gui.sync_id) if gui.HasField("sync_id") else None,
         craftable_recipe_ids=frozenset(gui.craftable_recipe_ids),
+        trade_offers=tuple(
+            TradeOfferValue(
+                first_item_id=offer.first_item_id,
+                first_count=offer.first_count,
+                second_item_id=offer.second_item_id,
+                second_count=offer.second_count,
+                sell_item_id=offer.sell_item_id,
+                sell_count=offer.sell_count,
+                uses=offer.uses,
+                max_uses=offer.max_uses,
+                disabled=offer.disabled,
+            )
+            for offer in gui.trade_offers
+        ),
     )
 
 

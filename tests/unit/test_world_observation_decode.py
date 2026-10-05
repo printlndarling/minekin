@@ -197,6 +197,61 @@ def test_the_client_recipe_book_decodes_into_a_craftable_set_and_absent_is_empty
     assert absent.gui.craftable_recipe_ids == frozenset()
 
 
+def test_an_open_merchants_offers_decode_row_by_row_and_absent_is_empty() -> None:
+    """The wire's trade rows are the open merchant's list in the client's order: the
+    adjusted buy stacks, the optional second, the sell stack, uses/max and disabled,
+    verbatim. A GuiScreen that names none leaves the empty tuple, so every non-merchant
+    screen (and a Bridge that has not begun reporting) stays inert."""
+
+    reported = observation_pb2.GuiScreen(
+        screen_id="class net.minecraft.screen.MerchantScreenHandler",
+        sync_id=5,
+        trade_offers=[
+            observation_pb2.TradeOffer(
+                first_item_id="minecraft:emerald",
+                first_count=3,
+                sell_item_id="minecraft:bread",
+                sell_count=2,
+                uses=4,
+                max_uses=12,
+            ),
+            observation_pb2.TradeOffer(
+                first_item_id="minecraft:wheat",
+                first_count=20,
+                second_item_id="minecraft:emerald",
+                second_count=1,
+                sell_item_id="minecraft:emerald",
+                sell_count=1,
+                uses=0,
+                max_uses=16,
+                disabled=True,
+            ),
+        ],
+    )
+    decoded = decode_world_observation(wire_observation(gui=reported))
+    assert decoded.gui is not None
+    offers = decoded.gui.trade_offers
+    assert len(offers) == 2
+    assert offers[0].first_item_id == "minecraft:emerald"
+    assert offers[0].first_count == 3
+    assert offers[0].second_item_id == ""
+    assert offers[0].sell_item_id == "minecraft:bread"
+    assert offers[0].sell_count == 2
+    assert offers[0].uses == 4
+    assert offers[0].max_uses == 12
+    assert offers[0].disabled is False
+    assert offers[1].second_item_id == "minecraft:emerald"
+    assert offers[1].disabled is True
+    assert world_observation_violations(decoded) == ()
+
+    silent = observation_pb2.GuiScreen(
+        screen_id="class net.minecraft.screen.MerchantScreenHandler", sync_id=5
+    )
+    absent = decode_world_observation(wire_observation(gui=silent))
+    assert absent.gui is not None
+    assert absent.gui.trade_offers == ()
+
+
 # ---------------------------------------------------------------------------
 # Absence is not zero, one optional field at a time
 # ---------------------------------------------------------------------------
