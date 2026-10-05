@@ -161,6 +161,16 @@ RETRY_BUDGET_PER_SIGNATURE: Final = 2
 SCAN_YAW_STEP_DEGREES: Final = 45.0
 SCAN_PITCH_CYCLE_DEGREES: Final = (-18.0, 55.0, -55.0)
 
+#: The scan's phase drift: every complete 8-heading circle shifts the next circle by this much.
+#: Without it the scan is exactly periodic in 24 steps (8 headings x 3 pitches) — a live run
+#: died, respawned, and then swept that same 24-step cycle for 23 turns without ever landing a
+#: heading within half a block of a trunk three blocks away (a log there subtends ±9.5°, and a
+#: 45° grid can sit up to 22.5° off), so the identical miss repeated forever. The drift visits
+#: the 45° grid, then the 15° midpoints, then the 30° midpoints: 24 headings covering every
+#: multiple of 15° exactly once before the cycle repeats — the crosshair is guaranteed to sweep
+#: a ≥1-block-wide target within ~3.8 blocks (half-width ≥ 7.5°).
+SCAN_YAW_DRIFT_DEGREES: Final = 15.0
+
 #: The pitch ladder a resource re-aim sweeps while it holds the trunk's recalled heading is
 #: computed per reading by `PlayerMind._reacquire_probe` — one and two cells' worth of angle at
 #: the distance the reading reports (`0, ±Δ, ±2Δ`, `Δ = atan(1/d)`). An earlier fixed ladder
@@ -1844,7 +1854,10 @@ class PlayerMind:
             reaim = self._reaim_at_resource(reading)
             if reaim is not None:
                 return reaim
-            yaw = (self.scan_step * SCAN_YAW_STEP_DEGREES) % 360.0
+            yaw = (
+                self.scan_step * SCAN_YAW_STEP_DEGREES
+                + ((self.scan_step - 1) // 8 % 3) * SCAN_YAW_DRIFT_DEGREES
+            ) % 360.0
         if pitch is None:
             pitch = SCAN_PITCH_CYCLE_DEGREES[(self.scan_step - 1) % len(SCAN_PITCH_CYCLE_DEGREES)]
         return (

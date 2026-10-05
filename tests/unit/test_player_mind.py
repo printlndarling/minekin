@@ -31,6 +31,7 @@ from minekin_core.application.player_mind import (
     NO_LATEST_OBSERVATION,
     RETRY_BUDGET_PER_SIGNATURE,
     SCAN_PITCH_CYCLE_DEGREES,
+    SCAN_YAW_DRIFT_DEGREES,
     SCAN_YAW_STEP_DEGREES,
     FailureCode,
     MindDecisionKind,
@@ -1436,6 +1437,22 @@ def test_the_scan_turns_instead_of_stalling_when_there_is_nothing_to_grasp() -> 
     assert pitch_of == list(SCAN_PITCH_CYCLE_DEGREES)
     assert any(-90.0 <= p <= 90.0 for p in pitch_of)
     assert max(abs(p) for p in pitch_of) > 45.0
+
+
+def test_a_full_scan_cycle_covers_all_twenty_four_fifteen_degree_headings() -> None:
+    """45° steps alone repeat identically every 24 turns (8 headings x 3 pitches), so a target
+    sitting in a gap between headings — a log three blocks out subtends ±9.5°, a gap can be
+    22.5° wide — is missed by the same 24-step cycle forever; a live post-respawn run swept 23
+    turns of one such cycle without landing on the trunk it was standing in front of. The phase
+    drift makes the cycle visit the 45° grid, then both midpoints: all 24 multiples of 15°, each
+    exactly once — within half a block at the scan's working distance."""
+    mind, _ = mind_with()
+    yaws = [mind.next_intent(reading()).plan.calls[0].yaw_degrees % 360.0 for _ in range(24)]
+
+    assert sorted(yaws) == [pytest.approx(15.0 * k % 360.0) for k in range(24)]
+    # The drift is what breaks the old resonance: the second circle is not the first again.
+    assert set(yaws[:8]).isdisjoint(yaws[8:16])
+    assert pytest.approx(0.0) == SCAN_YAW_STEP_DEGREES % SCAN_YAW_DRIFT_DEGREES
 
 
 def test_a_fresh_projection_names_every_gap_instead_of_filling_it() -> None:
