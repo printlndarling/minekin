@@ -1868,32 +1868,9 @@ class WorldSkills:
                 dx=entity.relative_x, dy=entity.relative_y, dz=entity.relative_z
             )
             away_yaw = ((toward_yaw + 360.0) % 360.0) - 180.0
-            await self._sender.send_control(
-                AIM_INPUT_TYPE,
-                control_pb2.AimInput(
-                    action_id=action_id,
-                    lease_id=authority.lease_id,
-                    generation=authority.generation,
-                    yaw_degrees=away_yaw,
-                    pitch_degrees=0.0,
-                    deadline_monotonic_ns=authority.deadline_monotonic_ns,
-                ),
-            )
-            arrived = await self._wait_until(
-                lambda candidate: (
-                    candidate.self_state.yaw_degrees is not None
-                    and angle_error_degrees(
-                        from_yaw=candidate.self_state.yaw_degrees,
-                        to_yaw=away_yaw,
-                        from_pitch=0.0,
-                        to_pitch=0.0,
-                    )
-                    <= AIM_ARRIVAL_TOLERANCE_DEGREES
-                ),
-                deadline,
-                action_id=action_id,
-            )
-            if arrived is None:
+            if not await self._aim_until_arrived(
+                action_id, authority, away_yaw, 0.0, base=pre, deadline=deadline
+            ):
                 return SkillOutcome(
                     result=ActionResultClass.UNKNOWN,
                     reason="NO_CONFIRMING_OBSERVATION",
@@ -2006,33 +1983,9 @@ class WorldSkills:
         swing = swing_seconds if swing_seconds else FIGHT_SWING_SECONDS
         action_id = self._action_id()
         deadline = monotonic_ns() + timeout_ns
-        await self._sender.send_control(
-            AIM_INPUT_TYPE,
-            control_pb2.AimInput(
-                action_id=action_id,
-                lease_id=authority.lease_id,
-                generation=authority.generation,
-                yaw_degrees=yaw,
-                pitch_degrees=pitch,
-                deadline_monotonic_ns=authority.deadline_monotonic_ns,
-            ),
-        )
-        arrived = await self._wait_until(
-            lambda candidate: (
-                candidate.self_state.yaw_degrees is not None
-                and candidate.self_state.pitch_degrees is not None
-                and angle_error_degrees(
-                    from_yaw=candidate.self_state.yaw_degrees,
-                    to_yaw=yaw,
-                    from_pitch=candidate.self_state.pitch_degrees,
-                    to_pitch=pitch,
-                )
-                <= AIM_ARRIVAL_TOLERANCE_DEGREES
-            ),
-            deadline,
-            action_id=action_id,
-        )
-        if arrived is None:
+        if not await self._aim_until_arrived(
+            action_id, authority, yaw, pitch, base=pre, deadline=deadline
+        ):
             return SkillOutcome(
                 result=ActionResultClass.UNKNOWN,
                 reason="NO_CONFIRMING_OBSERVATION",
@@ -2125,6 +2078,57 @@ class WorldSkills:
                 deadline_monotonic_ns=authority.deadline_monotonic_ns,
             ),
         )
+
+    async def _aim_until_arrived(
+        self,
+        action_id: str,
+        authority: ActionAuthority,
+        yaw_degrees: float,
+        pitch_degrees: float,
+        *,
+        base: WorldObservationValue,
+        deadline: int,
+    ) -> bool:
+        """Re-ask one absolute heading until a reading reports the angles arrived.
+
+        One aim command moves the client at most `WorldActions.MAX_AIM_DEGREES_PER_COMMAND`
+        and answers STARTED when there is further to go, so a caller that sends once and
+        then waits is waiting for a step the client was never asked to take. Measured live
+        on the fight runs (b2e3ebeaa70b..., b77dac8d...): every away or body aim further
+        than one clamp timed out with NO_CONFIRMING_OBSERVATION while the scan turns --
+        which re-ask, the loop `turn_to` has had from the start -- arrived. The same shape
+        here: send, re-read the next frame, re-ask the same target from it, and never
+        assume the turn finished because it was asked.
+
+        True when a reading shows the angles arrived; False when the deadline ran out
+        first. Both callers file an unarrived aim the same way, so no separate stall
+        verdict is needed here beyond the deadline.
+        """
+
+        while True:
+            await self._sender.send_control(
+                AIM_INPUT_TYPE,
+                control_pb2.AimInput(
+                    action_id=action_id,
+                    lease_id=authority.lease_id,
+                    generation=authority.generation,
+                    yaw_degrees=yaw_degrees,
+                    pitch_degrees=pitch_degrees,
+                    deadline_monotonic_ns=authority.deadline_monotonic_ns,
+                ),
+            )
+            post = await self._wait_until(
+                _turn_reading(base.game_tick, yaw_degrees, pitch_degrees),
+                deadline,
+                action_id=action_id,
+            )
+            if post is None:
+                if monotonic_ns() >= deadline:
+                    return False
+                continue
+            base = post
+            if _angle_arrived(post, yaw_degrees, pitch_degrees):
+                return True
 
     async def _send_swing(self, authority: ActionAuthority, action_id: str, *, swing: bool) -> None:
         """The attack key with NO block named: a swing at whatever the crosshair is on.
