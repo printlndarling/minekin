@@ -42,6 +42,7 @@ from minekin_core.application.world_observation import WorldObservationStore
 from minekin_core.application.world_skills import (
     CLOSE_SCREEN_MAX_ESCAPES,
     COLLECT_MAX_STALLED_CORRECTIONS,
+    EYE_HEIGHT_BLOCKS,
     ActionAuthority,
     ClientProcessExited,
     SkillCall,
@@ -2845,6 +2846,7 @@ def positioned(
     x: float = 0.0,
     z: float = 0.0,
     yaw: float | None = 0.0,
+    pitch: float = 0.0,
     entities: tuple[EntityCandidate, ...] = (),
 ) -> WorldObservationValue:
     return reading(
@@ -2859,7 +2861,7 @@ def positioned(
             y=64.0,
             z=z,
             yaw_degrees=yaw,
-            pitch_degrees=0.0,
+            pitch_degrees=pitch,
         ),
         entities=entities,
     )
@@ -2980,10 +2982,15 @@ def test_fight_back_aims_at_the_hostile_swings_without_a_block_and_ends_unseen()
         slime = slime_entity(tick=100)
         store = store_with(positioned(tick=100, entities=(slime,)))
         skills, sender = skill_with(store)
-        yaw, _pitch = angle_to_degrees(
-            dx=slime.relative_x, dy=slime.relative_y, dz=slime.relative_z
+        # The offset is feet-to-feet; the aim is from the eye, so the pitch drops by the
+        # eye height or the ray flies over anything shorter than the eye (the measured
+        # MINE_TARGET_NOT_AIMED refusals of run b2e3ebeaa70b...).
+        yaw, pitch = angle_to_degrees(
+            dx=slime.relative_x,
+            dy=slime.relative_y - EYE_HEIGHT_BLOCKS,
+            dz=slime.relative_z,
         )
-        queued = [positioned(tick=110, yaw=yaw), positioned(tick=120)]
+        queued = [positioned(tick=110, yaw=yaw, pitch=pitch), positioned(tick=120)]
 
         def answer(message_type: str) -> None:
             if message_type in (AIM_INPUT_TYPE, MINE_INPUT_TYPE) and queued:
@@ -3001,6 +3008,9 @@ def test_fight_back_aims_at_the_hostile_swings_without_a_block_and_ends_unseen()
         aims = [message for kind, message in sender.sent if kind == AIM_INPUT_TYPE]
         assert len(aims) == 1
         assert aims[0].yaw_degrees == pytest.approx(yaw)  # type: ignore[attr-defined]
+        # Down at the body, not level from the eye: the pitch is the eye-height correction.
+        assert pitch > 10.0
+        assert aims[0].pitch_degrees == pytest.approx(pitch)  # type: ignore[attr-defined]
         mines = [message for kind, message in sender.sent if kind == MINE_INPUT_TYPE]
         # One hold and one release, and no block target on either: naming a block would
         # make this a dig, which the wire refuses against an entity on purpose.
@@ -3042,13 +3052,15 @@ def test_fight_back_reads_unknown_when_the_entity_is_still_rendered() -> None:
         slime = slime_entity(tick=100)
         store = store_with(positioned(tick=100, entities=(slime,)))
         skills, sender = skill_with(store)
-        yaw, _pitch = angle_to_degrees(
-            dx=slime.relative_x, dy=slime.relative_y, dz=slime.relative_z
+        yaw, pitch = angle_to_degrees(
+            dx=slime.relative_x,
+            dy=slime.relative_y - EYE_HEIGHT_BLOCKS,
+            dz=slime.relative_z,
         )
         # The SAME entity (same observation_id -- the uuid the wire uses) still rendered:
         # the swings ran and the thing is still there, so nothing is confirmed.
         queued = [
-            positioned(tick=110, yaw=yaw),
+            positioned(tick=110, yaw=yaw, pitch=pitch),
             positioned(tick=120, entities=(slime,)),
         ]
 

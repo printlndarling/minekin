@@ -118,6 +118,14 @@ FIGHT_SWING_SECONDS: Final[float] = 3.0
 FIGHT_SWING_MIN_SECONDS: Final[float] = 0.5
 FIGHT_SWING_MAX_SECONDS: Final[float] = 8.0
 
+#: The client's own standing eye height above its feet (1.20.1's constant). Entity offsets on
+#: the wire are feet-to-feet, so an aim "at" an entity from the eye must drop by this much or
+#: the ray flies over anything shorter than the eye: measured live on the fight run
+#: b2e3ebeaa70b404ea5aaa3a12f1e96f1 -- a slime two blocks out stayed under a level aim, the
+#: crosshair never read it, and the bridge refused every swing MINE_TARGET_NOT_AIMED (the
+#: no-target guard doing exactly its job against an aim that was not on the thing).
+EYE_HEIGHT_BLOCKS: Final[float] = 1.62
+
 #: Why a skill stops waiting. The observation cadence is a constant of the
 #: Bridge's build (10 tick), so a skill that never saw a newer reading inside
 #: its own window is reporting the channel's silence, not the world's.
@@ -1991,7 +1999,9 @@ class WorldSkills:
             return _refusal_outcome("FIGHT_THREAT_OUT_OF_REACH", "", pre)
         entity, _distance = target
         yaw, pitch = angle_to_degrees(
-            dx=entity.relative_x, dy=entity.relative_y, dz=entity.relative_z
+            dx=entity.relative_x,
+            dy=entity.relative_y - EYE_HEIGHT_BLOCKS,
+            dz=entity.relative_z,
         )
         swing = swing_seconds if swing_seconds else FIGHT_SWING_SECONDS
         action_id = self._action_id()
