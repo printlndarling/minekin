@@ -32,6 +32,7 @@ from minekin_core.domain.world_actions import (
     ActionResultClass,
     angle_error_degrees,
     angle_to_degrees,
+    best_wieldable_weapon,
     consume_candidate,
     consume_item_refusal,
     gui_click_refusal,
@@ -40,6 +41,7 @@ from minekin_core.domain.world_actions import (
     item_total,
     mine_target_refusal,
     reachable_food_items,
+    reachable_weapons,
     seen_drops,
     use_target_refusal,
     use_target_signature,
@@ -863,6 +865,49 @@ def test_reachable_food_items_lists_the_hotbar_meals_once_each() -> None:
         inventory=inventory_at(100, (1, "minecraft:bread", 1)),
     )
     assert reachable_food_items(held) == ("minecraft:apple", "minecraft:bread")
+
+
+def test_reachable_weapons_lists_the_hotbar_weapons_once_each_and_picks_the_best() -> None:
+    pre = reading(
+        inventory=inventory_at(
+            100,
+            (0, "minecraft:wooden_sword", 1),
+            (9, "minecraft:stone_axe", 1),
+            (1, "minecraft:stone_axe", 1),
+            (2, "minecraft:oak_log", 4),
+        )
+    )
+    # Slot 9 is the wider bag, which no number key reaches: the second axe adds
+    # nothing, and one entry per reachable item id comes back.
+    assert reachable_weapons(pre) == ("minecraft:stone_axe", "minecraft:wooden_sword")
+    # The most damage wins the hand -- the stone axe's 9 over the wooden sword's 4 --
+    # and the answer carries the damage the ordering was made of.
+    assert best_wieldable_weapon(pre) == ("minecraft:stone_axe", 9)
+
+    # A whole curated weapon the hotbar cannot reach is left out: no skill moves
+    # items between bag and hotbar, so naming it would only invite an ask the fight
+    # cannot honour.
+    bag_only = reading(
+        inventory=inventory_at(
+            100, (12, "minecraft:stone_axe", 1), (1, "minecraft:wooden_sword", 1)
+        )
+    )
+    assert reachable_weapons(bag_only) == ("minecraft:wooden_sword",)
+    assert best_wieldable_weapon(bag_only) == ("minecraft:wooden_sword", 4)
+
+    # The hand's own weapon is reachable by definition, whatever the stack list says.
+    held = reading(
+        state=hungry_state(selected_slot=4, main_hand="minecraft:wooden_sword"),
+        inventory=inventory_at(100, (1, "minecraft:stone_axe", 1)),
+    )
+    assert reachable_weapons(held) == ("minecraft:stone_axe", "minecraft:wooden_sword")
+    assert best_wieldable_weapon(held) == ("minecraft:stone_axe", 9)
+
+    # Nothing curated in reach: bare hands, and the empty answer is a fact about this
+    # build's table, not about the bag.
+    bare = reading(inventory=inventory_at(100, (0, "minecraft:oak_log", 1)))
+    assert reachable_weapons(bare) == ()
+    assert best_wieldable_weapon(bare) is None
 
 
 def test_the_consume_refusal_walks_its_reasons_in_order() -> None:

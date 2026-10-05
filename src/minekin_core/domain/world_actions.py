@@ -50,6 +50,7 @@ from minekin_core.domain.perception import (
     SelfStateValue,
     WorldObservationValue,
 )
+from minekin_core.domain.weapon_catalog import attack_damage_for, is_known_weapon
 
 #: The block a placement lands in, given the face of the aim block the client
 #: clicked: Minecraft puts the new block in the air cell touching that face, not
@@ -434,6 +435,55 @@ def reachable_food_items(observation: WorldObservationValue) -> tuple[str, ...]:
     if held is not None and is_known_food(held):
         reachable.add(held)
     return tuple(sorted(reachable))
+
+
+def reachable_weapons(observation: WorldObservationValue) -> tuple[str, ...]:
+    """Every curated weapon this reading can actually bring to hand, one entry per item
+    id, sorted — the same hotbar-reach rule as `reachable_food_items` and for the same
+    reason: no skill here moves items between the wider bag and the hotbar, so a weapon
+    the number keys cannot reach is not one the fight could hold. The hand's own item
+    counts by definition, whatever the stack list says.
+    """
+
+    held = observation.self_state.main_hand_item_id
+    reachable = {
+        stack.item_id
+        for stack in observation.inventory.stacks
+        if is_known_weapon(stack.item_id) and 0 <= stack.slot < HOTBAR_SLOT_COUNT
+    }
+    if held is not None and is_known_weapon(held):
+        reachable.add(held)
+    return tuple(sorted(reachable))
+
+
+def best_wieldable_weapon(observation: WorldObservationValue) -> tuple[str, int] | None:
+    """The curated weapon this reading can actually bring to hand with the most attack
+    damage, and that damage; `None` when no curated weapon is within a number key's
+    reach. Same reach as `reachable_weapons`, one entry per item id, and deterministic
+    on ties (the smaller item id wins, so two readings over the same bag choose the
+    same weapon).
+
+    Ordering only: the number says which stack wins the hand, never that a swing will
+    land — the world's next reading is the only thing that can say that.
+    """
+
+    best: tuple[str, int] | None = None
+    for stack in observation.inventory.stacks:
+        if not 0 <= stack.slot < HOTBAR_SLOT_COUNT:
+            continue
+        points = attack_damage_for(stack.item_id)
+        if points is None:
+            continue
+        if best is None or points > best[1] or (points == best[1] and stack.item_id < best[0]):
+            best = (stack.item_id, points)
+    held = observation.self_state.main_hand_item_id
+    if isinstance(held, str):
+        held_points = attack_damage_for(held)
+        if held_points is not None and (
+            best is None or held_points > best[1] or (held_points == best[1] and held < best[0])
+        ):
+            best = (held, held_points)
+    return best
 
 
 def consume_candidate(observation: WorldObservationValue) -> str | None:

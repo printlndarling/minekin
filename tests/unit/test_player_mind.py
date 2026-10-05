@@ -2999,6 +2999,25 @@ def test_the_summary_lists_only_meals_the_hotbar_can_reach() -> None:
     assert summary["consumable_items"] == ["minecraft:bread"]
 
 
+def test_the_summary_lists_only_weapons_the_hotbar_can_reach() -> None:
+    """`wieldable_items` is the actionable view, not a bag census: a weapon only the
+    wider bag holds is one no number key can bring to hand before a fight."""
+
+    pre = reading(
+        aim=clear_aim(),
+        items=(
+            (12, "minecraft:stone_axe", 1),
+            (2, "minecraft:wooden_sword", 1),
+            (0, "minecraft:oak_log", 3),
+        ),
+        self_state=state(),
+    )
+
+    summary = observation_summary(None, pre)
+
+    assert summary["wieldable_items"] == ["minecraft:wooden_sword"]
+
+
 def test_the_document_carries_the_newest_model_call_redacted_diagnostics() -> None:
     """A run that stopped on a model failure carries the call's numbers, not only the word
     TIMEOUT: attempts, the per-attempt budget, elapsed time and the failed phase -- all this

@@ -3454,3 +3454,151 @@ def test_retreat_refuses_a_hold_outside_its_bounds() -> None:
         assert sender.sent == []
 
     asyncio.run(scenario())
+
+
+# ------------------------------------------------- the weapon the fight brings to hand
+
+
+def _armed_state(
+    *,
+    selected_slot: int,
+    main_hand: str,
+    yaw: float | None = None,
+    pitch: float | None = None,
+) -> SelfStateValue:
+    return SelfStateValue(
+        health=20.0,
+        max_health=20.0,
+        food=20,
+        saturation=5.0,
+        alive=True,
+        yaw_degrees=yaw,
+        pitch_degrees=pitch,
+        selected_slot=selected_slot,
+        main_hand_item_id=main_hand,
+    )
+
+
+def test_fight_back_brings_the_best_reachable_weapon_to_hand_before_swinging() -> None:
+    """The curated weapon table's one use: with a pickaxe in slot 1 and an axe in
+    slot 2, the fight presses the axe's number key first -- and the details say which
+    weapon the swing was made with. Ordering only: the confirmation is still the
+    world's own later reading."""
+
+    async def scenario() -> None:
+        slime = slime_entity(tick=100)
+        armed = inventory(100, (1, "minecraft:wooden_pickaxe", 1), (2, "minecraft:stone_axe", 1))
+        store = store_with(reading(tick=100, inventory_value=armed, entities=(slime,)))
+        skills, sender = skill_with(store)
+        yaw, pitch = angle_to_degrees(
+            dx=slime.relative_x,
+            dy=slime.relative_y - EYE_HEIGHT_BLOCKS,
+            dz=slime.relative_z,
+        )
+        queued = [
+            reading(
+                tick=105,
+                state_value=_armed_state(selected_slot=2, main_hand="minecraft:stone_axe"),
+                inventory_value=armed,
+                entities=(slime,),
+            ),
+            reading(
+                tick=110,
+                state_value=_armed_state(
+                    selected_slot=2, main_hand="minecraft:stone_axe", yaw=yaw, pitch=pitch
+                ),
+                inventory_value=armed,
+                entities=(slime,),
+                aim=slime_aim(110),
+            ),
+            reading(tick=120),
+        ]
+
+        def answer(message_type: str) -> None:
+            if (
+                message_type in (HOTBAR_SELECT_INPUT_TYPE, AIM_INPUT_TYPE, MINE_INPUT_TYPE)
+                and queued
+            ):
+                store.admit(queued.pop(0), ())
+
+        sender.on_send = answer
+        outcome = await skills.fight_back(
+            authority=authority(), swing_seconds=1.0, timeout_ns=10_000_000_000
+        )
+
+        assert outcome.result is ActionResultClass.CONFIRMED
+        assert outcome.details["weapon"] == "minecraft:stone_axe"
+        assert sender.types()[0] == HOTBAR_SELECT_INPUT_TYPE
+        select = sender.sent[0][1]
+        assert select.slot == 2  # type: ignore[attr-defined]
+
+    asyncio.run(scenario())
+
+
+def test_fight_back_fights_bare_handed_when_no_curated_weapon_is_reachable() -> None:
+    """No curated weapon in the hotbar's reach: no number key is pressed and the swing
+    proceeds exactly as before, with the empty weapon name in the details saying why."""
+
+    async def scenario() -> None:
+        slime = slime_entity(tick=100)
+        store = store_with(
+            reading(
+                tick=100,
+                inventory_value=inventory(100, (0, "minecraft:oak_log", 3)),
+                entities=(slime,),
+            )
+        )
+        skills, sender = skill_with(store)
+        yaw, pitch = angle_to_degrees(
+            dx=slime.relative_x,
+            dy=slime.relative_y - EYE_HEIGHT_BLOCKS,
+            dz=slime.relative_z,
+        )
+        queued = [
+            positioned(tick=110, yaw=yaw, pitch=pitch, entities=(slime,), aim=slime_aim(110)),
+            positioned(tick=120),
+        ]
+
+        def answer(message_type: str) -> None:
+            if message_type in (AIM_INPUT_TYPE, MINE_INPUT_TYPE) and queued:
+                store.admit(queued.pop(0), ())
+
+        sender.on_send = answer
+        outcome = await skills.fight_back(
+            authority=authority(), swing_seconds=1.0, timeout_ns=10_000_000_000
+        )
+
+        assert outcome.result is ActionResultClass.CONFIRMED
+        assert outcome.details["weapon"] == ""
+        assert sender.types()[0] != HOTBAR_SELECT_INPUT_TYPE
+
+    asyncio.run(scenario())
+
+
+def test_fight_back_labels_a_selection_that_never_confirmed_with_its_phase() -> None:
+    """A weapon that never reaches the hand is the number key's own verdict, labelled
+    with the phase it belonged to -- not a fight that failed."""
+
+    async def scenario() -> None:
+        slime = slime_entity(tick=100)
+        store = store_with(
+            reading(
+                tick=100,
+                inventory_value=inventory(100, (2, "minecraft:stone_axe", 1)),
+                entities=(slime,),
+            )
+        )
+        skills, sender = skill_with(store)
+
+        outcome = await skills.fight_back(
+            authority=authority(), swing_seconds=1.0, timeout_ns=60_000_000
+        )
+
+        assert (outcome.result, outcome.reason) == (
+            ActionResultClass.UNKNOWN,
+            "NO_CONFIRMING_OBSERVATION",
+        )
+        assert outcome.details["phase"] == "select_hotbar"
+        assert sender.types() == [HOTBAR_SELECT_INPUT_TYPE]
+
+    asyncio.run(scenario())
