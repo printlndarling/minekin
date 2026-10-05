@@ -110,6 +110,9 @@ SKILL_CAPABILITIES: Final[Mapping[str, frozenset[str]]] = {
     # Facing a rendered body is the aim a fight takes, without the key: the leg every
     # interaction with an entity (a trade, later more) starts from.
     "look_at_entity": frozenset({AIM_CAPABILITY}),
+    # Walking to a body is the same walk a collect takes toward a drop, pointed at a
+    # rendered entity: the move key and the aim that sets its heading.
+    "approach_entity": frozenset({MOVE_CAPABILITY, AIM_CAPABILITY}),
 }
 
 

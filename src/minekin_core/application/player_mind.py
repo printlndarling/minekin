@@ -294,6 +294,7 @@ SKILL_OFFER: Final = _checked_offer(
         "fight_back",
         "respawn",
         "retreat",
+        "approach_entity",
         "look_at_entity",
         "trade",
         "craft_take_result",
@@ -775,6 +776,11 @@ def feasible_skill_ids(
         # Facing any rendered body in sight: the leg every entity interaction starts from,
         # offered generically for the same reason the fight is -- the meaning is the call.
         "look_at_entity"
+        if reading.self_state.alive and not screen_open(reading) and nearest_visible(reading)
+        else "",
+        # Walking to a rendered body, offered beside the look for the same reason: any
+        # visible body can be gone to, and whether it is worth going to is the call.
+        "approach_entity"
         if reading.self_state.alive and not screen_open(reading) and nearest_visible(reading)
         else "",
         "craft_take_result"
@@ -1867,6 +1873,31 @@ class PlayerMind:
                     f"{offer.sell_count}x{offer.sell_item_id}"
                 ),
                 ask_offer,
+            )
+        if skill == "approach_entity":
+            named_body = arguments.get("target_entity_type")
+            body_kind = named_body if isinstance(named_body, str) and named_body else ""
+            body = nearest_visible(reading, kinds=frozenset({body_kind}) if body_kind else None)
+            if body is None:
+                return None, NO_FEASIBLE_SKILL, {}
+            asked_stop = _asked_number(arguments, "stop_within")
+            ask_walk: dict[str, object] = {}
+            if body_kind:
+                ask_walk["target_entity_type"] = body_kind
+            if asked_stop is not None:
+                ask_walk["stop_within"] = asked_stop
+            return (
+                SkillPlan(
+                    (
+                        SkillCall(
+                            name="approach_entity",
+                            target_entity_type=body_kind,
+                            stop_within=asked_stop or 0.0,
+                        ),
+                    )
+                ),
+                f"walk to the {body_kind or body[0].entity_type}",
+                ask_walk,
             )
         if skill == "look_at_entity":
             named_kind = arguments.get("target_entity_type")

@@ -3172,6 +3172,101 @@ def test_fight_back_honours_a_named_entity_kind_over_the_nearest_body() -> None:
     asyncio.run(scenario())
 
 
+def trader_entity(*, tick: int, at: float) -> EntityCandidate:
+    return EntityCandidate(
+        observation_id="trader-100",
+        entity_type="minecraft:wandering_trader",
+        relative_x=at,
+        relative_y=0.0,
+        relative_z=0.0,
+        line_of_sight=True,
+    )
+
+
+def test_approach_entity_walks_until_the_reading_reports_it_within_the_named_distance() -> None:
+    """The walk the live trade run measured missing: aim at the body's reported offset,
+    step, re-read, repeat -- and CONFIRMED only when a reading reports the distance at or
+    inside the stop."""
+
+    async def scenario() -> None:
+        start = trader_entity(tick=100, at=6.0)
+        store = store_with(positioned(tick=100, entities=(start,)))
+        skills, sender = skill_with(store)
+        yaw, pitch = angle_to_degrees(
+            dx=start.relative_x, dy=start.relative_y - EYE_HEIGHT_BLOCKS, dz=start.relative_z
+        )
+        closer = trader_entity(tick=120, at=4.0)
+        yaw2, pitch2 = angle_to_degrees(
+            dx=closer.relative_x, dy=closer.relative_y - EYE_HEIGHT_BLOCKS, dz=closer.relative_z
+        )
+        queued = [
+            positioned(tick=110, yaw=yaw, pitch=pitch, entities=(start,)),
+            positioned(tick=120, entities=(closer,)),
+            positioned(tick=130, yaw=yaw2, pitch=pitch2, entities=(closer,)),
+            positioned(tick=140, entities=(trader_entity(tick=140, at=2.0),)),
+        ]
+        moves_sent = 0
+
+        def answer(message_type: str) -> None:
+            nonlocal moves_sent
+            if message_type == MOVE_INPUT_TYPE:
+                moves_sent += 1
+                if moves_sent % 2 == 0:
+                    # The release of each walk; nothing new enters the world for it.
+                    return
+            if message_type in (AIM_INPUT_TYPE, MOVE_INPUT_TYPE) and queued:
+                store.admit(queued.pop(0), ())
+
+        sender.on_send = answer
+        outcome = await skills.approach_entity(
+            authority=authority(),
+            target_entity_type="minecraft:wandering_trader",
+            stop_within=2.5,
+            timeout_ns=10_000_000_000,
+        )
+
+        assert outcome.result is ActionResultClass.CONFIRMED
+        assert outcome.post_tick == 140
+        assert outcome.details["target"] == "minecraft:wandering_trader"
+        assert outcome.details["distance_blocks"] == "2.00"
+        assert outcome.details["steps"] == "2"
+        moves = [message for kind, message in sender.sent if kind == MOVE_INPUT_TYPE]
+        # Two steps walked and the key let go after each: [hold, release] twice.
+        assert [message.forward for message in moves] == [1.0, 0.0, 1.0, 0.0]  # type: ignore[attr-defined]
+
+    asyncio.run(scenario())
+
+
+def test_approach_entity_concludes_by_name_on_refusals_and_a_body_already_within() -> None:
+    async def scenario() -> None:
+        empty_store = store_with(reading(tick=100))
+        empty, empty_sender = skill_with(empty_store)
+        outcome = await empty.approach_entity(authority=authority(), timeout_ns=1_000_000_000)
+        assert outcome.result is ActionResultClass.FAILED
+        assert outcome.reason == "APPROACH_ENTITY_NOT_VISIBLE"
+        assert empty_sender.sent == []
+
+        inside_store = store_with(
+            positioned(tick=100, entities=(trader_entity(tick=100, at=2.0),))
+        )
+        inside, inside_sender = skill_with(inside_store)
+        outcome = await inside.approach_entity(authority=authority(), timeout_ns=1_000_000_000)
+        assert outcome.result is ActionResultClass.CONFIRMED
+        assert outcome.details["steps"] == "0"
+        assert inside_sender.sent == []
+
+        bad_stop, bad_sender = skill_with(
+            store_with(positioned(tick=100, entities=(trader_entity(tick=100, at=6.0),)))
+        )
+        outcome = await bad_stop.approach_entity(
+            authority=authority(), stop_within=0.1, timeout_ns=1_000_000_000
+        )
+        assert outcome.reason == "APPROACH_STOP_INVALID"
+        assert bad_sender.sent == []
+
+    asyncio.run(scenario())
+
+
 def test_trade_selects_the_row_then_quick_moves_the_result_and_confirms_on_the_payout() -> None:
     """The whole trade: a button click naming the row (the screen's vocabulary), then a
     quick move on the merchant's result slot -- and CONFIRMED only when a later reading

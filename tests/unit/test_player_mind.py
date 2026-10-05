@@ -1136,6 +1136,34 @@ def test_the_local_reflex_takes_the_first_payable_merchant_row() -> None:
     assert intent.plan.calls[0].offer_index == 1
 
 
+def test_a_rendered_trader_can_be_walked_to_on_the_models_call() -> None:
+    trader = EntityCandidate(
+        observation_id="e-trader",
+        entity_type="minecraft:wandering_trader",
+        relative_x=9.0,
+        relative_y=0.0,
+        relative_z=0.0,
+        line_of_sight=True,
+    )
+    provider = ScriptedProvider(
+        Decision(
+            skill_id="approach_entity",
+            reason="walk into arm's reach before using the trader",
+            intent_generation=1,
+            arguments={"target_entity_type": "minecraft:wandering_trader", "stop_within": 2.0},
+        )
+    )
+    mind = mind_for(provider, CostLedger(run_cost_cap=CAP), kin_id="kin-01", persona_seed="seed-9")
+
+    intent = mind.next_intent(reading(entities=(trader,)))
+
+    assert "approach_entity" in provider.requests[-1].feasible_skill_ids
+    assert intent.skill == "approach_entity"
+    assert intent.plan.calls[0].target_entity_type == "minecraft:wandering_trader"
+    assert intent.plan.calls[0].stop_within == 2.0
+    assert intent.arguments["stop_within"] == 2.0
+
+
 def test_a_rendered_trader_can_be_faced_by_name_on_the_models_call() -> None:
     trader = EntityCandidate(
         observation_id="e-trader",

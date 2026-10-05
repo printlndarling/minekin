@@ -217,6 +217,13 @@ COLLECT_CLOSE_APPROACH_METERS: Final[float] = 0.25
 #: mind re-aim or move somewhere else.
 COLLECT_MAX_STALLED_CORRECTIONS: Final[int] = 3
 
+#: How close an approach walks to a body before stopping (arm's reach, minus a step), how
+#: long each step walks, and the most steps one approach takes before it concludes. Bounded
+#: on purpose: a body behind a wall would otherwise be walked at until the whole window ran.
+APPROACH_STOP_BLOCKS: Final[float] = 2.5
+APPROACH_STEP_SECONDS: Final[float] = 1.0
+APPROACH_MAX_STEPS: Final[int] = 6
+
 #: How long a `collect` waits for a felled item to register as a rendered entity
 #: before it concludes the drop is not in view. A `break` that CONFIRMED on the same
 #: tick can leave the very next frame still empty — the failure `collect` used to end
@@ -313,6 +320,8 @@ class SkillCall:
     #: Which row of an open merchant's offer list a trade takes; -1 is "nobody said",
     #: which the plan layer refuses before a skill is ever asked.
     offer_index: int = -1
+    #: How close an approach stops, in blocks; zero is the skill's own default reach.
+    stop_within: float = 0.0
     materials: tuple[tuple[str, int], ...] = ()
     craft_all: bool = True
 
@@ -2063,6 +2072,155 @@ class WorldSkills:
                 "target": entity.entity_type,
                 "swing_seconds": f"{swing:g}",
                 "newest_checked_tick": str(post.game_tick),
+            },
+        )
+
+    async def approach_entity(
+        self,
+        *,
+        authority: ActionAuthority,
+        target_entity_type: str = "",
+        stop_within: float = 0.0,
+        timeout_ns: int = DEFAULT_STEP_TIMEOUT_NS,
+    ) -> SkillOutcome:
+        """Walk to a rendered body until the reading reports it within a named distance.
+
+        The walk a collect takes toward a drop, pointed at any rendered entity: aim at the
+        body's reported offset (re-asked until it lands), take one bounded step, then let
+        the next reading size the next step -- a body that moves keeps being walked at from
+        where it now is. CONFIRMED only when a reading reports the distance at or inside
+        `stop_within`; a body that left the view mid-walk, or one the steps never closed
+        on, concludes by name, and every step walks for a bounded time under the same
+        named release as every other walk in this class.
+        """
+
+        for capability in (MOVE_CAPABILITY, AIM_CAPABILITY):
+            refusal = self._require(capability)
+            if refusal is not None:
+                return refusal
+        pre = self._observations.latest
+        action_id = self._action_id()
+        if pre is None:
+            return _refusal_outcome("NO_LATEST_OBSERVATION", action_id, pre)
+        if pre.generation != authority.generation:
+            return _refusal_outcome("WORLD_GENERATION_CHANGED", action_id, pre)
+        if pre.gui is not None and pre.gui.sync_id is not None:
+            return _refusal_outcome("APPROACH_SCREEN_OPEN", action_id, pre)
+        stop = stop_within if stop_within else APPROACH_STOP_BLOCKS
+        if not math.isfinite(stop) or not 0.5 <= stop <= 8.0:
+            return _refusal_outcome("APPROACH_STOP_INVALID", action_id, pre)
+        first = nearest_visible(
+            pre,
+            kinds=frozenset({target_entity_type}) if target_entity_type else None,
+        )
+        if first is None:
+            return _refusal_outcome("APPROACH_ENTITY_NOT_VISIBLE", action_id, pre)
+        entity, distance = first
+        deadline = monotonic_ns() + timeout_ns
+        if distance <= stop:
+            return SkillOutcome(
+                result=ActionResultClass.CONFIRMED,
+                reason="",
+                action_id=action_id,
+                pre_tick=pre.game_tick,
+                post_tick=pre.game_tick,
+                details={
+                    "target": entity.entity_type,
+                    "distance_blocks": f"{distance:.2f}",
+                    "steps": "0",
+                    "newest_checked_tick": str(pre.game_tick),
+                },
+            )
+        steps = 0
+        current = pre
+        while steps < APPROACH_MAX_STEPS:
+            if monotonic_ns() >= deadline:
+                break
+            listed = next(
+                (
+                    candidate
+                    for candidate in current.visible_entities
+                    if candidate.observation_id == entity.observation_id
+                ),
+                None,
+            )
+            if listed is None:
+                return SkillOutcome(
+                    result=ActionResultClass.UNKNOWN,
+                    reason="APPROACH_ENTITY_GONE",
+                    action_id=action_id,
+                    pre_tick=pre.game_tick,
+                    post_tick=current.game_tick,
+                    details={
+                        "target": entity.entity_type,
+                        "steps": str(steps),
+                        "newest_checked_tick": str(current.game_tick),
+                    },
+                )
+            yaw, pitch = angle_to_degrees(
+                dx=listed.relative_x,
+                dy=listed.relative_y - EYE_HEIGHT_BLOCKS,
+                dz=listed.relative_z,
+            )
+            if not await self._aim_until_arrived(
+                action_id, authority, yaw, pitch, base=current, deadline=deadline
+            ):
+                return SkillOutcome(
+                    result=ActionResultClass.UNKNOWN,
+                    reason="NO_CONFIRMING_OBSERVATION",
+                    action_id=action_id,
+                    pre_tick=pre.game_tick,
+                    post_tick=current.game_tick,
+                    details={"target": entity.entity_type, "steps": str(steps)},
+                )
+            await self._send_walk(action_id, authority, forward=1.0)
+            async with self._release_on_exit(
+                lambda: self._send_walk(action_id, authority, forward=0.0)
+            ):
+                await self._sleep(APPROACH_STEP_SECONDS, action_id=action_id)
+            steps += 1
+            nxt = await self._wait_until(
+                _newer_reading(current.game_tick), deadline, action_id=action_id
+            )
+            if nxt is None:
+                break
+            current = nxt
+            listed_now = next(
+                (
+                    candidate
+                    for candidate in current.visible_entities
+                    if candidate.observation_id == entity.observation_id
+                ),
+                None,
+            )
+            if listed_now is None:
+                continue  # the next loop pass names it gone
+            now_distance = math.hypot(listed_now.relative_x, listed_now.relative_z)
+            if now_distance <= stop:
+                return SkillOutcome(
+                    result=ActionResultClass.CONFIRMED,
+                    reason="",
+                    action_id=action_id,
+                    pre_tick=pre.game_tick,
+                    post_tick=current.game_tick,
+                    details={
+                        "target": entity.entity_type,
+                        "distance_blocks": f"{now_distance:.2f}",
+                        "steps": str(steps),
+                        "newest_checked_tick": str(current.game_tick),
+                    },
+                )
+        latest = self._observations.latest or current
+        return SkillOutcome(
+            result=ActionResultClass.UNKNOWN,
+            reason="APPROACH_NOT_CONFIRMED",
+            action_id=action_id,
+            pre_tick=pre.game_tick,
+            post_tick=latest.game_tick,
+            details={
+                "target": entity.entity_type,
+                "steps": str(steps),
+                "newest_checked_tick": str(latest.game_tick),
             },
         )
 

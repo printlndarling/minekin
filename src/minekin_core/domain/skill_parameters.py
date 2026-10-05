@@ -79,6 +79,7 @@ class ParameterKind(StrEnum):
     ANGLE = "angle"
     SECONDS = "seconds"
     INDEX = "index"
+    DISTANCE = "distance"
     FLAG = "flag"
 
 
@@ -179,6 +180,13 @@ BEHAVIOR_PARAMETERS: Final[Mapping[str, tuple[Parameter, ...]]] = MappingProxyTy
         # Facing a rendered body: the same aim the fight takes, without the swing -- the
         # "look at it" leg any interaction with an entity starts from.
         "look_at_entity": (_item("target_entity_type"),),
+        # Walking to a rendered body: the kind to go to (empty = the nearest) and the
+        # distance at which the walk stops -- a number a plan names, not a constant hidden
+        # behind the skill.
+        "approach_entity": (
+            _item("target_entity_type"),
+            _number("stop_within", ParameterKind.DISTANCE, 0.5, 8.0),
+        ),
         # A use takes the aim from the reading, exactly as close_screen takes the
         # window from it — the model names the behavior and fills in nothing.
         "use_target": (),

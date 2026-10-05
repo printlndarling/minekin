@@ -72,6 +72,7 @@ _DEFAULTED: Final[dict[str, tuple[str, ...]]] = {
     # The kind a look faces, defaulted the same way a fight's is: nobody said means the
     # nearest rendered body.
     "look_at_entity": ("target_entity_type",),
+    "approach_entity": ("target_entity_type", "stop_within"),
     # The swing time a fight walks for, defaulted the same way the retreat hold is, and
     # the optional kind: both are the caller's to name, neither is filled by a roster.
     "fight_back": ("swing_seconds", "target_entity_type"),
@@ -104,6 +105,7 @@ _REQUIRED: Final[dict[str, tuple[str, ...]]] = {
     # skill's own TRADE_OFFER_UNKNOWN.
     "trade": ("offer_index",),
     "look_at_entity": (),
+    "approach_entity": (),
 }
 
 #: The keys that replace a skill's whole required set rather than defaulting one
@@ -124,6 +126,7 @@ _ALTERNATIVES: Final[dict[str, tuple[str, ...]]] = {
     "fight_back": (),
     "trade": (),
     "look_at_entity": (),
+    "approach_entity": (),
 }
 
 #: Every key a plan may use, so a typo is refused by name instead of being
@@ -531,6 +534,13 @@ async def _dispatch(
         return await skills.look_at_entity(
             authority=authority,
             target_entity_type=call.target_entity_type,
+            timeout_ns=timeout_ns,
+        )
+    if call.name == "approach_entity":
+        return await skills.approach_entity(
+            authority=authority,
+            target_entity_type=call.target_entity_type,
+            stop_within=call.stop_within,
             timeout_ns=timeout_ns,
         )
     if call.name == "turn_to":
