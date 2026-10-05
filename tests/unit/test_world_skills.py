@@ -175,7 +175,7 @@ def slime_aim(tick: int, entity_id: str = "slime-100") -> AimTargetValue:
         game_tick=tick,
         kind=AimKind.ENTITY,
         entity_observation_id=entity_id,
-        entity_type="minecraft:slime",
+        entity_type="minecraft:slime" if entity_id.startswith("slime") else "",
         distance=2.0,
     )
 
@@ -3082,6 +3082,60 @@ def test_fight_back_breaks_off_mid_swing_when_the_body_drops_under_the_line() ->
         moves = [message for kind, message in sender.sent if kind == MOVE_INPUT_TYPE]
         assert [message.mining for message in mines] == [True, False]  # type: ignore[attr-defined]
         assert [message.forward for message in moves] == [1.0, 0.0]  # type: ignore[attr-defined]
+
+    asyncio.run(scenario())
+
+
+def test_fight_back_honours_a_named_entity_kind_over_the_nearest_body() -> None:
+    """The caller's judgement picks the body: with a slime and a pig both in reach, a fight
+    for the pig aims at the pig -- the skill holds no roster of its own, only the scan."""
+
+    async def scenario() -> None:
+        from minekin_core.domain.perception import EntityCandidate
+
+        slime = slime_entity(tick=100, at=1.5)
+        pig_entity = EntityCandidate(
+            observation_id="pig-100",
+            entity_type="minecraft:pig",
+            relative_x=2.5,
+            relative_y=0.0,
+            relative_z=0.0,
+            line_of_sight=True,
+        )
+        store = store_with(positioned(tick=100, entities=(slime, pig_entity)))
+        skills, sender = skill_with(store)
+        pig_yaw, pig_pitch = angle_to_degrees(
+            dx=pig_entity.relative_x,
+            dy=pig_entity.relative_y - EYE_HEIGHT_BLOCKS,
+            dz=pig_entity.relative_z,
+        )
+        queued = [
+            positioned(
+                tick=110,
+                yaw=pig_yaw,
+                pitch=pig_pitch,
+                entities=(slime, pig_entity),
+                aim=slime_aim(110, entity_id="pig-100"),
+            ),
+            positioned(tick=120, entities=(slime,)),
+        ]
+
+        def answer(message_type: str) -> None:
+            if message_type in (AIM_INPUT_TYPE, MINE_INPUT_TYPE) and queued:
+                store.admit(queued.pop(0), ())
+
+        sender.on_send = answer
+        outcome = await skills.fight_back(
+            authority=authority(),
+            swing_seconds=1.0,
+            target_entity_type="minecraft:pig",
+            timeout_ns=10_000_000_000,
+        )
+
+        assert outcome.result is ActionResultClass.CONFIRMED
+        assert outcome.details["target"] == "minecraft:pig"
+        aims = [message for kind, message in sender.sent if kind == AIM_INPUT_TYPE]
+        assert aims[0].yaw_degrees == pytest.approx(pig_yaw)  # type: ignore[attr-defined]
 
     asyncio.run(scenario())
 

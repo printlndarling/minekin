@@ -57,7 +57,10 @@ from minekin_core.domain.control_vocabulary import (
     USE_INPUT_TYPE,
     monotonic_ns,
 )
-from minekin_core.domain.danger_catalog import attackable_hostile, nearest_hostile
+from minekin_core.domain.danger_catalog import (
+    ATTACK_REACH_BLOCKS,
+    nearest_hostile,
+)
 from minekin_core.domain.ids import OpaqueId
 from minekin_core.domain.perception import (
     AimFace,
@@ -67,6 +70,7 @@ from minekin_core.domain.perception import (
     InventoryValue,
     WorldObservationValue,
 )
+from minekin_core.domain.visible_entities import nearest_visible
 from minekin_core.domain.world_actions import (
     ActionRefusal,
     ActionResultClass,
@@ -302,6 +306,9 @@ class SkillCall:
     hold_seconds: float = 0.0
     #: A fight's swing time, when the caller named one; zero is the skill's own default hold.
     swing_seconds: float = 0.0
+    #: The entity kind a fight aims for when the caller named one; empty is "the nearest
+    #: rendered body in reach", and the type is never a filter of this side's choosing.
+    target_entity_type: str = ""
     materials: tuple[tuple[str, int], ...] = ()
     craft_all: bool = True
 
@@ -1942,9 +1949,10 @@ class WorldSkills:
         *,
         authority: ActionAuthority,
         swing_seconds: float = 0.0,
+        target_entity_type: str = "",
         timeout_ns: int = DEFAULT_STEP_TIMEOUT_NS,
     ) -> SkillOutcome:
-        """Face the nearest hostile the reading reported in reach and swing at it.
+        """Face the nearest rendered entity the reading reports in reach and swing at it.
 
         The other half of the 2026-10-05 night soaks' question: retreating walked the body
         away, and a camp that followed it never stopped. The target is the reported offset
@@ -1974,9 +1982,17 @@ class WorldSkills:
             and FIGHT_SWING_MIN_SECONDS <= swing_seconds <= FIGHT_SWING_MAX_SECONDS
         ):
             return _refusal_outcome("FIGHT_SWING_INVALID", "", pre)
-        if nearest_hostile(pre) is None:
+        if nearest_visible(pre, line_of_sight=True) is None:
             return _refusal_outcome("FIGHT_THREAT_NOT_VISIBLE", "", pre)
-        target = attackable_hostile(pre)
+        # Generic on purpose: ANY rendered body in reach is a legitimate target when the
+        # deciding layer asked for it -- hostile, animal, trader, it is not this layer's
+        # judgement what the type means. A named kind narrows the same scan; the local
+        # reflex's choice to swing only at curated hostiles lives in the mind, not here.
+        target = nearest_visible(
+            pre,
+            kinds=frozenset({target_entity_type}) if target_entity_type else None,
+            within=ATTACK_REACH_BLOCKS,
+        )
         if target is None:
             return _refusal_outcome("FIGHT_THREAT_OUT_OF_REACH", "", pre)
         entity, _distance = target

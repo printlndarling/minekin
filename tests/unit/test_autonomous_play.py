@@ -226,10 +226,13 @@ class TapeSkills(WorldSkills):
         *,
         authority: ActionAuthority,
         swing_seconds: float = 0.0,
+        target_entity_type: str = "",
         timeout_ns: int = DEFAULT_STEP_TIMEOUT_NS,
     ) -> SkillOutcome:
         del authority, timeout_ns
-        return await self._answer("fight_back", swing_seconds=swing_seconds)
+        return await self._answer(
+            "fight_back", swing_seconds=swing_seconds, target_entity_type=target_entity_type
+        )
 
     async def break_seen_block(
         self,
@@ -1367,6 +1370,7 @@ def test_the_loop_swings_back_at_a_slime_in_reach_and_resumes() -> None:
 
     assert skills.ran, (result.stop_reason, result.stop_detail, result.steps)
     assert next(name for name, _ in skills.ran) == "fight_back"
-    # Nothing named: the skill's own default hold, not a number the mind invented.
-    assert skills.ran[0][1] == {"swing_seconds": 0.0}
+    # Nothing named: the skill's own default hold and the nearest body, not a target the
+    # mind invented.
+    assert skills.ran[0][1] == {"swing_seconds": 0.0, "target_entity_type": ""}
     assert result.stop_reason == STEP_BUDGET_SPENT

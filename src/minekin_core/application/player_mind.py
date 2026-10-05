@@ -55,7 +55,11 @@ from minekin_core.application.world_skills import (
     RETREAT_FLEE_SECONDS,
     SkillCall,
 )
-from minekin_core.domain.danger_catalog import attackable_hostile, nearest_hostile
+from minekin_core.domain.danger_catalog import (
+    ATTACK_REACH_BLOCKS,
+    attackable_hostile,
+    nearest_hostile,
+)
 from minekin_core.domain.daylight import time_of_day
 from minekin_core.domain.goal_spec import Milestone
 from minekin_core.domain.model_access import (
@@ -83,6 +87,11 @@ from minekin_core.domain.recipe_catalog import (
     plan_needs_larger_grid,
 )
 from minekin_core.domain.skill_parameters import BEHAVIOR_PARAMETERS, MAX_QUANTITY
+from minekin_core.domain.visible_entities import (
+    SUMMARY_ENTITY_LIMIT,
+    nearest_visible,
+    rendered_entities,
+)
 from minekin_core.domain.world_actions import (
     CONSUME_REFUSAL_REASONS,
     ActionRefusal,
@@ -746,13 +755,15 @@ def feasible_skill_ids(
         "break_seen_block" if reading.aim is not None and reading.aim.block is not None else "",
         "collect_dropped" if _nearest_drop(reading) is not None else "",
         "consume_item" if consume_offerable(reading) else "",
-        # Offered only for a hostile the client renders in sight INSIDE attack reach: a
-        # swing at a threat further out cannot land, and a swing at nothing is the
-        # stand-still step the night soaks died in.
+        # Offered for ANY rendered body in sight inside attack reach -- the game's type id
+        # is shown, and what the body means (kill it? it is a slime; leave it? it is a pig;
+        # hit it anyway? the model may say so) is the deciding layer's judgement. Only the
+        # reach bound is this side's: a swing further out cannot land, and a swing at
+        # nothing is the stand-still step the night soaks died in.
         "fight_back"
         if reading.self_state.alive
         and not screen_open(reading)
-        and attackable_hostile(reading) is not None
+        and nearest_visible(reading, within=ATTACK_REACH_BLOCKS) is not None
         else "",
         "craft_take_result"
         if craft_options(reading, grid_side=crafting_grid_side(reading))
@@ -866,6 +877,18 @@ def observation_summary(
     summary: dict[str, object] = {
         "game_tick": reading.game_tick,
         "time_of_day": time_of_day(reading.game_tick),
+        # The generic entity reading: nearest rendered bodies first, each with the type the
+        # game names, the horizontal distance a player would judge, and whether the Kin can
+        # see it. What any of them MEANS -- hostile, animal, trader, worth hitting -- is the
+        # answerer's judgement; this side contributes the reading, not the verdict.
+        "visible_entities": [
+            {
+                "entity_type": entity.entity_type,
+                "distance_blocks": round(math.hypot(entity.relative_x, entity.relative_z), 1),
+                "line_of_sight": bool(entity.line_of_sight),
+            }
+            for entity in rendered_entities(reading)[:SUMMARY_ENTITY_LIMIT]
+        ],
         "inventory": dict(sorted(counts.items())),
         "selected_slot": reading.self_state.selected_slot,
         "yaw_degrees": reading.self_state.yaw_degrees,
@@ -1380,8 +1403,14 @@ class PlayerMind:
         ):
             feasible = tuple(name for name in feasible if name != "use_target")
         threat = self._threat(reading)
+        # The model sees the WHOLE offer; the local backstop sees what the curated danger
+        # reading leaves. Choosing what a rendered entity MEANS for this moment -- hit it,
+        # leave it, keep working past it -- is the judgement the model exists for, so the
+        # curated roster never narrows what the model is shown or may choose; it teaches
+        # only the no-model reflex which bodies to flinch from.
+        local_feasible = feasible
         if threat is not None:
-            feasible = tuple(name for name in feasible if name not in DANGER_SUPPRESSED)
+            local_feasible = tuple(name for name in feasible if name not in DANGER_SUPPRESSED)
         if not feasible:
             intent = MindIntent(
                 kind=MindDecisionKind.BLOCKED,
@@ -1487,10 +1516,10 @@ class PlayerMind:
                 arguments = answer.arguments
             else:
                 refusal = UnavailableReason.DECISION_OUT_OF_BOUNDS.value
-                skill, source = self._reflect(feasible, needs, reading), DECISION_FROM_LOCAL
+                skill, source = self._reflect(local_feasible, needs, reading), DECISION_FROM_LOCAL
         else:
             refusal = answer.reason.value
-            skill, source = self._reflect(feasible, needs, reading), DECISION_FROM_LOCAL
+            skill, source = self._reflect(local_feasible, needs, reading), DECISION_FROM_LOCAL
         self.last_model_refusal = refusal
         plan, built_reason, honoured = self._call_for(skill, reading, arguments)
         if plan is None and built_reason == GOAL_ACHIEVED:
@@ -1512,7 +1541,7 @@ class PlayerMind:
             refusal = refusal or built_reason
             self.last_model_refusal = refusal
             source, reason = DECISION_FROM_LOCAL, ""
-            remaining = feasible
+            remaining = local_feasible
             # Every candidate comes from the observation's offer, and each is tried
             # once. An invalid model craft cannot stop an otherwise payable route,
             # or trap reflection retrying the same unaffordable craft indefinitely —
@@ -1668,7 +1697,11 @@ class PlayerMind:
             ):
                 return "craft_take_result"
             return "close_screen"
-        if "fight_back" in feasible and (reading.self_state.health or 0.0) >= FIGHT_MIN_HEALTH:
+        if (
+            "fight_back" in feasible
+            and (reading.self_state.health or 0.0) >= FIGHT_MIN_HEALTH
+            and attackable_hostile(reading) is not None
+        ):
             # A hostile in reach with a body whole enough to trade: hit it. Leaving
             # against a pursuer that keeps pace means its next hit is already on the way --
             # measured live on the summon run cfbdfa76...: with a fresh hit vetoing the
@@ -1750,15 +1783,33 @@ class PlayerMind:
         """
 
         if skill == "fight_back":
-            if attackable_hostile(reading) is None:
-                # Nothing in reach to swing at: the same no-op the feasible set never
-                # offers, refused here for a provider that named it anyway.
+            named = arguments.get("target_entity_type")
+            kind = named if isinstance(named, str) and named else ""
+            target = nearest_visible(
+                reading,
+                kinds=frozenset({kind}) if kind else None,
+                within=ATTACK_REACH_BLOCKS,
+            )
+            if target is None:
+                # Nothing in reach to swing at (or nothing of the named kind): the same
+                # no-op the feasible set never offers, refused here for a provider that
+                # named it anyway.
                 return None, NO_FEASIBLE_SKILL, {}
             swing = _asked_number(arguments, "swing_seconds")
             ask: dict[str, object] = {"swing_seconds": swing} if swing is not None else {}
+            if kind:
+                ask["target_entity_type"] = kind
             return (
-                SkillPlan((SkillCall(name="fight_back", swing_seconds=swing or 0.0),)),
-                "swing back at the nearest visible threat in reach",
+                SkillPlan(
+                    (
+                        SkillCall(
+                            name="fight_back",
+                            swing_seconds=swing or 0.0,
+                            target_entity_type=kind,
+                        ),
+                    )
+                ),
+                f"swing at the {kind or target[0].entity_type} in reach",
                 ask,
             )
         if skill == "retreat":

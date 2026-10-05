@@ -877,9 +877,14 @@ def test_dispatch_maps_a_fight_call_onto_the_fight_skill() -> None:
             self.seen: tuple[object, float, int] | None = None
 
         async def fight_back(
-            self, *, authority: object, swing_seconds: float, timeout_ns: int
+            self,
+            *,
+            authority: object,
+            swing_seconds: float,
+            target_entity_type: str,
+            timeout_ns: int,
         ) -> str:
-            self.seen = (authority, swing_seconds, timeout_ns)
+            self.seen = (authority, swing_seconds, target_entity_type, timeout_ns)
             return "outcome"
 
         def __getattr__(self, name: object) -> object:
@@ -894,13 +899,13 @@ def test_dispatch_maps_a_fight_call_onto_the_fight_skill() -> None:
     outcome = asyncio.run(
         skill_plan_module._dispatch(
             skills,  # type: ignore[arg-type]
-            SkillCall(name="fight_back", swing_seconds=2.5),
+            SkillCall(name="fight_back", swing_seconds=2.5, target_entity_type="minecraft:slime"),
             authority=authority,
             timeout_ns=5_000_000_000,
         )
     )
     assert outcome == "outcome"
-    assert skills.seen == (authority, 2.5, 5_000_000_000)
+    assert skills.seen == (authority, 2.5, "minecraft:slime", 5_000_000_000)
 
 
 def test_every_declared_skill_states_its_required_arguments() -> None:

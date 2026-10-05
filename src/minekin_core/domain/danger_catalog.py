@@ -1,10 +1,17 @@
-"""The transitional curated roster of entity types the mind treats as threats.
+"""The transitional curated roster of hostile types — the LOCAL backstop's knowledge.
 
 A small table, not a claim about every hostile in the game — the same boundary the food
 catalog keeps: names come from the client's own report (`EntityCandidate.entity_type` on a
 visible, in-sight entity), never from a hidden entity list, and an entity this table does
 not name is simply not treated as a threat, never guessed into or out of one. The roster
 grows one data row at a time; no code below it names an entity type.
+
+What this table is NOT: the gate on what may be done about a rendered entity. Recognition
+is generic (`domain.visible_entities`: every rendered body with its type, distance and
+line of sight), the generic behaviors take any named target, and what an entity MEANS for
+this moment — hit it, leave it, keep working — is the deciding layer's judgement (the
+model's when one is configured). This roster only teaches the no-model reflex which
+rendered bodies to flinch from; it narrows nothing the model is shown or may choose.
 
 The range is the melee reach a hostile closes in a few seconds, measured against the run
 that motivated the table: run-89 (2026-10-05), where a night slime slew the Kin nine times
@@ -14,10 +21,10 @@ not a reason to stop working.
 
 from __future__ import annotations
 
-import math
 from typing import Final
 
 from minekin_core.domain.perception import EntityCandidate, WorldObservationValue
+from minekin_core.domain.visible_entities import nearest_visible
 
 #: Entity types (the game's own namespaced ids) whose visible presence near the Kin stops
 #: stand-still work. Curated, version-agnostic at the id level: an id no world uses is
@@ -59,36 +66,30 @@ def nearest_hostile(reading: WorldObservationValue) -> tuple[EntityCandidate, fl
     """The nearest visible, in-sight hostile within range: the reported entity and its
     horizontal distance.
 
-    Only what the client rendered counts: an item entity is not a threat, a hostile out of
-    line of sight is not proven to be on this body, and one beyond the range is a fact for
-    the summary rather than a stop-work alarm. None when no such entity is visible. The
-    entity travels with the answer because a retreat needs its reported offset, and naming
-    the offset again outside this scan would be a second reader of the same list.
+    The generic scan (`domain.visible_entities`) with this table's roster as the kinds
+    filter — one reader of the rendered list, and the roster is this catalog's whole
+    contribution. None when no such entity is visible; the entity travels with the answer
+    because a retreat needs its reported offset.
     """
 
-    nearest: tuple[EntityCandidate, float] | None = None
-    for entity in reading.visible_entities:
-        if entity.item_id is not None or not entity.line_of_sight:
-            continue
-        if entity.entity_type not in HOSTILE_ENTITY_TYPES:
-            continue
-        distance = math.hypot(entity.relative_x, entity.relative_z)
-        if distance > THREAT_RANGE_BLOCKS:
-            continue
-        if nearest is None or distance < nearest[1]:
-            nearest = (entity, distance)
-    return nearest
+    return nearest_visible(
+        reading,
+        kinds=HOSTILE_ENTITY_TYPES,
+        within=THREAT_RANGE_BLOCKS,
+    )
 
 
 def attackable_hostile(reading: WorldObservationValue) -> tuple[EntityCandidate, float] | None:
-    """The nearest visible hostile a swing could actually land on, or None.
+    """The nearest visible hostile a swing could land on, for the LOCAL backstop.
 
-    The same single reader as `nearest_hostile`, narrowed to attack reach: a threat further
-    out is something to leave or approach, never something a swing reaches, and offering a
-    swing that cannot land would be the stand-still step the night soaks died in.
+    The same scan as `nearest_hostile`, narrowed to attack reach. The model's fight offer
+    does NOT come from here — it is generic (`nearest_visible` over any body), because what
+    may be hit is the model's judgement; this name exists so the no-model reflex does not
+    punch a passing pig.
     """
 
-    found = nearest_hostile(reading)
-    if found is None or found[1] > ATTACK_REACH_BLOCKS:
-        return None
-    return found
+    return nearest_visible(
+        reading,
+        kinds=HOSTILE_ENTITY_TYPES,
+        within=ATTACK_REACH_BLOCKS,
+    )

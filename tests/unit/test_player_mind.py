@@ -1019,6 +1019,52 @@ def test_the_ask_shows_the_counts_an_argument_has_to_be_chosen_from() -> None:
         assert absent not in summary
 
 
+def test_the_model_sees_every_rendered_body_nearest_first_with_distance_and_sight() -> None:
+    """Recognition is generic: every rendered body the client reported travels to the
+    answerer with the game's own type, the distance a player would judge, and whether the
+    Kin can see it -- nearest first, capped so a crowd stays a count, items excluded (the
+    dropped-items row is their own fact)."""
+
+    provider = ScriptedProvider()
+    mind = mind_for(provider, CostLedger(run_cost_cap=CAP), kin_id="kin-01", persona_seed="seed-9")
+    observed = reading(entities=(slime(at=4.0), pig(at=1.5), drop()))
+
+    mind.next_intent(observed)
+
+    summary = provider.requests[-1].observation_summary
+    assert summary["visible_entities"] == [
+        {"entity_type": "minecraft:pig", "distance_blocks": 1.5, "line_of_sight": True},
+        {"entity_type": "minecraft:slime", "distance_blocks": 4.0, "line_of_sight": True},
+    ]
+
+
+def test_the_offer_lets_the_model_choose_what_a_rendered_body_means() -> None:
+    """The architecture rule: recognition is generic, the offer is not pre-narrowed, and
+    the semantics of an entity are the deciding layer's judgement. A pig in reach may be
+    attacked; the model may keep working with a slime on it; both answers run as written.
+    The curated roster narrows only the no-model reflex."""
+
+    attacking, _ = mind_with(
+        Decision(
+            skill_id="fight_back",
+            reason="that pig is dinner",
+            intent_generation=1,
+            arguments={"target_entity_type": "minecraft:pig"},
+        )
+    )
+    swat = attacking.next_intent(reading(entities=(pig(at=2.0),)))
+    assert swat.skill == "fight_back"
+    assert swat.plan.calls[0].target_entity_type == "minecraft:pig"
+
+    working, _ = mind_with(
+        Decision(skill_id="break_seen_block", reason="keep working", intent_generation=1)
+    )
+    # A slime in threat range no longer pre-removes the work from the model's offer: the
+    # model judges for itself whether this moment is for the tree or for the slime.
+    intent = working.next_intent(reading(aim=block_aim(), entities=(slime(at=4.0),)))
+    assert intent.skill == "break_seen_block"
+
+
 def test_the_summary_names_the_time_of_day_from_the_world_clock() -> None:
     """A threat that has never been seen and a night the clock will turn are both real parts of
     survival, and only one of them is visible in this reading — so the model-facing summary
@@ -1403,6 +1449,17 @@ def slime(*, at: float = 2.0, los: bool = True) -> EntityCandidate:
     return EntityCandidate(
         observation_id="e-slime",
         entity_type="minecraft:slime",
+        relative_x=at,
+        relative_y=0.0,
+        relative_z=0.0,
+        line_of_sight=los,
+    )
+
+
+def pig(*, at: float = 2.0, los: bool = True) -> EntityCandidate:
+    return EntityCandidate(
+        observation_id="e-pig",
+        entity_type="minecraft:pig",
         relative_x=at,
         relative_y=0.0,
         relative_z=0.0,

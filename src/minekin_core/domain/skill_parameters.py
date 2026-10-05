@@ -159,7 +159,10 @@ BEHAVIOR_PARAMETERS: Final[Mapping[str, tuple[Parameter, ...]]] = MappingProxyTy
         # A fight is the mine key pointed at a hostile the reading rendered in reach: the
         # answer names the behavior, the reading supplies the target, and the swing time is
         # the one thing a caller may name -- how long to keep hitting before re-reading.
-        "fight_back": (_number("swing_seconds", ParameterKind.SECONDS, 0.5, 8.0),),
+        "fight_back": (
+            _number("swing_seconds", ParameterKind.SECONDS, 0.5, 8.0),
+            _item("target_entity_type"),
+        ),
         # A use takes the aim from the reading, exactly as close_screen takes the
         # window from it — the model names the behavior and fills in nothing.
         "use_target": (),
