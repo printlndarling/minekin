@@ -2,13 +2,48 @@
 
 from __future__ import annotations
 
+import io
 import json
 import threading
 import urllib.error
 import urllib.request
+from email.message import Message
+from typing import Protocol, cast
 
 import pytest
 from tools.control_model_fixture import fixture_server
+
+
+class _PostHandler(Protocol):
+    path: str
+    headers: Message
+    rfile: io.BytesIO
+    wfile: io.BytesIO
+    request_version: str
+    requestline: str
+    command: str
+
+    def do_POST(self) -> None: ...
+
+
+def test_credential_rejection_consumes_the_bounded_body_before_closing() -> None:
+    payload = b'{"messages": []}'
+    with fixture_server("owned-control-test", port=0) as server:
+        handler_type = cast(type[_PostHandler], server.RequestHandlerClass)
+        handler = object.__new__(handler_type)
+        handler.path = "/v1/chat/completions"
+        handler.headers = Message()
+        handler.headers["Content-Length"] = str(len(payload))
+        handler.headers["Authorization"] = "Bearer deliberately-fake-test-credential"
+        handler.rfile = io.BytesIO(payload)
+        handler.wfile = io.BytesIO()
+        handler.request_version = "HTTP/1.0"
+        handler.requestline = "POST /v1/chat/completions HTTP/1.0"
+        handler.command = "POST"
+        handler.do_POST()
+        assert handler.rfile.tell() == len(payload)
+        assert b"400 Bad Request" in handler.wfile.getvalue()
+        assert b"fixture accepts no credentials" in handler.wfile.getvalue()
 
 
 def test_control_double_uses_the_feasible_offer_and_refuses_credentials() -> None:

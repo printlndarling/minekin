@@ -34,6 +34,10 @@ def fixture_server(token: str, *, port: int = 18991) -> ThreadingHTTPServer:
             )
 
         def do_POST(self) -> None:
+            length = int(self.headers.get("Content-Length", "0"))
+            # Drain only a bounded body before rejecting and closing. Closing with unread
+            # POST bytes can reset the Windows connection before the 400 reaches its peer.
+            payload = self.rfile.read(length) if 0 < length <= 65536 else b""
             if self.path == f"/control/{token}/stop":
                 self.reply(200, {"stopped": True})
                 threading.Thread(target=self.server.shutdown, daemon=True).start()
@@ -41,11 +45,10 @@ def fixture_server(token: str, *, port: int = 18991) -> ThreadingHTTPServer:
             if self.path != "/v1/chat/completions" or self.headers.get("Authorization"):
                 self.reply(400, {"error": "fixture accepts no credentials"})
                 return
-            length = int(self.headers.get("Content-Length", "0"))
             if not 0 < length <= 65536:
                 self.reply(400, {})
                 return
-            request = json.loads(self.rfile.read(length))
+            request = json.loads(payload)
             offer = json.loads(request["messages"][-1]["content"])
             if "turn_to" not in offer["feasible_skill_ids"]:
                 self.reply(400, {"error": "turn is not feasible"})
