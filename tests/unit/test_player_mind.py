@@ -1494,15 +1494,17 @@ def test_a_hit_with_a_threat_in_sight_escalates_the_hold() -> None:
     assert intent.reason == "step away from the nearest visible threat"
 
 
-def test_a_fresh_hit_turns_a_fight_into_a_leave_and_a_low_body_never_trades() -> None:
-    """The two orderings that keep a fight from becoming the death the soaks died: a hit
-    just taken means leaving first (the next reading re-decides), and a body under the
-    trading line leaves rather than trades even with nothing fresh hurting it."""
+def test_an_in_reach_hostile_is_fought_even_after_a_hit_and_a_low_body_leaves() -> None:
+    """The rule the summon run cfbdfa76... measured into place: against a pursuer, leaving
+    on every fresh hit never ends the chase (forty retreats over two minutes, two deaths
+    inside them, not one fight), so a body still above the trading line hits back with the
+    thing in reach regardless of a hit just taken -- while a body under the line leaves
+    whether or not anything is fresh."""
 
     mind, _ = mind_with()
     mind.observe(reading(self_state=state(health=20.0)))
-    hit = reading(tick=200, entities=(slime(),), self_state=state(health=12.0))
-    assert mind.next_intent(hit).skill == "retreat"
+    hit = reading(tick=200, entities=(slime(),), self_state=state(health=18.0))
+    assert mind.next_intent(hit).skill == "fight_back"
 
     mind.observe(replace(hit, game_tick=250, self_state=state(health=8.0)))
     weak = reading(tick=300, entities=(slime(),), self_state=state(health=8.0))

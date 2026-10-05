@@ -1669,21 +1669,20 @@ class PlayerMind:
             ):
                 return "craft_take_result"
             return "close_screen"
-        if (
-            "fight_back" in feasible
-            and not self.recent_damage
-            and (reading.self_state.health or 0.0) >= FIGHT_MIN_HEALTH
-        ):
-            # A hostile in reach with a body still whole and nothing fresh hurting it:
-            # hit back. A hit just taken means leaving first -- the two orderings are the
-            # whole difference between a Kin that clears its ground and one that dies in
-            # place, and the next reading re-decides either way.
+        if "fight_back" in feasible and (reading.self_state.health or 0.0) >= FIGHT_MIN_HEALTH:
+            # A hostile in reach with a body whole enough to trade: hit it. Leaving
+            # against a pursuer that keeps pace means its next hit is already on the way --
+            # measured live on the summon run cfbdfa76...: with a fresh hit vetoing the
+            # fight, forty retreats in two minutes never ended the chase, and two deaths
+            # landed inside it. A swing the reading says can land is the step that ends
+            # one; only a body under the trading line still leaves.
             return "fight_back"
         if "retreat" in feasible:
-            # A threat the client renders in sight, a hit already taken, or ground a death
-            # just proved deadly: leave. Every slime death happened in a step that stood
-            # still (run-89), and leaving is the whole response this build has — the
-            # next reading decides whether another step follows.
+            # Nothing to hit inside reach (a threat further out, a fresh hit with a low
+            # body, or ground a death just proved deadly): leave. Every slime death
+            # happened in a step that stood still (run-89), and leaving is the whole
+            # response this build has — the next reading decides whether another step
+            # follows.
             return "retreat"
         if "consume_item" in feasible and needs.get("safety", 0) >= 3:
             return "consume_item"
