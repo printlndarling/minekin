@@ -3231,7 +3231,8 @@ def test_approach_entity_walks_until_the_reading_reports_it_within_the_named_dis
         assert outcome.details["distance_blocks"] == "2.00"
         assert outcome.details["steps"] == "2"
         moves = [message for kind, message in sender.sent if kind == MOVE_INPUT_TYPE]
-        # Two steps walked and the key let go after each: [hold, release] twice.
+        # Two steps walked and the key let go after each: [hold, release] twice, each walk
+        # the longest the remaining budget supports rather than a fixed stride.
         assert [message.forward for message in moves] == [1.0, 0.0, 1.0, 0.0]  # type: ignore[attr-defined]
 
     asyncio.run(scenario())

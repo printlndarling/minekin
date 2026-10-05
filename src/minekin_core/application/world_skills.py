@@ -222,6 +222,13 @@ COLLECT_MAX_STALLED_CORRECTIONS: Final[int] = 3
 #: on purpose: a body behind a wall would otherwise be walked at until the whole window ran.
 APPROACH_STOP_BLOCKS: Final[float] = 2.5
 APPROACH_STEP_SECONDS: Final[float] = 1.0
+#: The longest one step may walk, and the slice of the window kept back for the aim-ask
+#: and the frame that follows it. Measured live (run 5afcfe84...: two one-second steps
+#: toward a trader 11 blocks out, then APPROACH_NOT_CONFIRMED on the plan's five-second
+#: window): walking the longest step the remaining budget supports -- instead of a fixed
+#: one-second stride -- is what lets one call actually close a dozen blocks.
+APPROACH_MAX_STEP_SECONDS: Final[float] = 2.5
+APPROACH_WINDOW_RESERVE_SECONDS: Final[float] = 1.2
 APPROACH_MAX_STEPS: Final[int] = 6
 
 #: How long a `collect` waits for a felled item to register as a rendered entity
@@ -2173,11 +2180,16 @@ class WorldSkills:
                     post_tick=current.game_tick,
                     details={"target": entity.entity_type, "steps": str(steps)},
                 )
+            remaining_s = (deadline - monotonic_ns()) / 1_000_000_000
+            step_seconds = min(
+                APPROACH_MAX_STEP_SECONDS,
+                max(APPROACH_STEP_SECONDS, remaining_s - APPROACH_WINDOW_RESERVE_SECONDS),
+            )
             await self._send_walk(action_id, authority, forward=1.0)
             async with self._release_on_exit(
                 lambda: self._send_walk(action_id, authority, forward=0.0)
             ):
-                await self._sleep(APPROACH_STEP_SECONDS, action_id=action_id)
+                await self._sleep(step_seconds, action_id=action_id)
             steps += 1
             nxt = await self._wait_until(
                 _newer_reading(current.game_tick), deadline, action_id=action_id
