@@ -18,7 +18,7 @@ import pytest
 from minekin_core.adapters.filestore.persona_store import read_persona, write_persona
 from minekin_core.adapters.model import OffModelProvider
 from minekin_core.adapters.model.openai_compatible import OpenAICompatibleProvider
-from minekin_core.application.player_mind import mind_for
+from minekin_core.application.player_mind import DecisionPolicy, mind_for
 from minekin_core.cli.session import mind_for_run
 from minekin_core.domain.errors import MinekinError
 from minekin_core.domain.model_access import CostLedger, Decision, DecisionRequest, model_config
@@ -187,7 +187,11 @@ def test_mind_passes_the_saved_manifest_to_its_real_provider(
 def test_local_reflection_does_not_claim_a_personality_influence() -> None:
     persona = derive_persona("kin-persona", "saved-seed")
     mind = mind_for(
-        OffModelProvider(), CostLedger(run_cost_cap=500_000), kin_id="kin-persona", persona=persona
+        OffModelProvider(),
+        CostLedger(run_cost_cap=500_000),
+        kin_id="kin-persona",
+        persona=persona,
+        policy=DecisionPolicy.RULES,
     )
     reading = WorldObservationValue(
         generation=1,

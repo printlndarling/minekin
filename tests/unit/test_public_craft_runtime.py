@@ -10,9 +10,10 @@ from typing import cast
 
 import pytest
 
+from minekin_core.adapters.model import OffModelProvider
 from minekin_core.adapters.public_craft_knowledge import PublicCraftKnowledge
 from minekin_core.adapters.public_recipe_archive import load_recipe_knowledge
-from minekin_core.application.player_mind import MindDecisionKind, mind_for
+from minekin_core.application.player_mind import DecisionPolicy, MindDecisionKind, mind_for
 from minekin_core.cli.session import mind_for_run
 from minekin_core.domain.errors import MinekinError
 from minekin_core.domain.goal_spec import Milestone
@@ -430,11 +431,22 @@ class SkillProvider:
 
     def decide(self, request: DecisionRequest) -> Decision:
         self.requests.append(request)
+        arguments: dict[str, object] = {}
+        if self.skill_id == "select_hotbar":
+            # A well-formed answer names the slot it wants: read it off the summary's own
+            # HUD row, the same visibility a player has. The old empty ask would now be
+            # refused as missing its required slot, which is the point of the parameter.
+            hotbar = cast("list[dict[str, object]]", request.observation_summary["hotbar"])
+            first = hotbar[0]
+            arguments = {
+                "slot": first["slot"],
+                "expected_item_id": first["item_id"],
+            }
         return Decision(
             skill_id=self.skill_id,
             reason="fixture answer",
             intent_generation=request.intent_generation,
-            arguments={},
+            arguments=arguments,
         )
 
 
@@ -482,14 +494,15 @@ def test_public_goal_summary_names_the_held_enabler_to_stand_up(tmp_path: Path) 
     }
 
 
-def test_public_grid_block_reroutes_into_standing_the_enabler_up(tmp_path: Path) -> None:
-    provider = Provider("minecraft:stone_pickaxe")
-    mind = mind_for(
-        provider,
-        CostLedger(run_cost_cap=1000),
-        goal=STONE_PICKAXE_GOAL,
-        craft_knowledge=source(tmp_path),
-    )
+def test_public_grid_block_is_reported_to_the_model_and_stood_up_by_the_rules(
+    tmp_path: Path,
+) -> None:
+    """The grid word reached through imported knowledge. Under the model policy the ask is
+    reported and the run stops by name — standing the enabler up is a decision for the next
+    observation. Under the explicitly selected rules strategy the same reading is where the
+    enabler choreography lives: select the held table the catalog says opens the wider shape.
+    """
+
     current = reading(
         {
             "minecraft:crafting_table": 1,
@@ -499,12 +512,29 @@ def test_public_grid_block_reroutes_into_standing_the_enabler_up(tmp_path: Path)
         },
         selected_slot=3,
     )
-    intent = mind.next_intent(current)
+    model_mind = mind_for(
+        Provider("minecraft:stone_pickaxe"),
+        CostLedger(run_cost_cap=1000),
+        goal=STONE_PICKAXE_GOAL,
+        craft_knowledge=source(tmp_path),
+    )
+    stopped = model_mind.next_intent(current)
+    assert stopped.kind is MindDecisionKind.HOLD
+    assert stopped.reason == "CRAFT_GRID_TOO_SMALL"
+    assert stopped.plan.calls == ()
+
+    rules_mind = mind_for(
+        OffModelProvider(),
+        CostLedger(run_cost_cap=1000),
+        goal=STONE_PICKAXE_GOAL,
+        craft_knowledge=source(tmp_path),
+        policy=DecisionPolicy.RULES,
+    )
+    intent = rules_mind.next_intent(current)
     assert intent.kind is MindDecisionKind.INTENT
     assert intent.skill == "select_hotbar"
     assert intent.source == "local_reflection"
     assert intent.arguments == {"slot": 0, "expected_item_id": "minecraft:crafting_table"}
-    assert mind.last_precondition == "CRAFT_GRID_TOO_SMALL"
 
 
 def test_public_owed_chain_orders_the_chain_the_goal_owes(tmp_path: Path) -> None:
@@ -544,13 +574,13 @@ def test_public_goal_summary_carries_the_whole_owed_chain(tmp_path: Path) -> Non
 
 
 def test_public_gather_breaks_a_block_the_plan_names(tmp_path: Path) -> None:
-    provider = Provider("minecraft:stone_pickaxe")
     mind = mind_for(
-        provider,
+        OffModelProvider(),
         CostLedger(run_cost_cap=1000),
         goal=STONE_PICKAXE_GOAL,
         craft_knowledge=source(tmp_path),
         model_enabled=False,
+        policy=DecisionPolicy.RULES,
     )
     intent = mind.next_intent(reading({}, aim=block_aim("minecraft:cobbled_deepslate")))
     assert intent.kind is MindDecisionKind.INTENT
@@ -559,13 +589,13 @@ def test_public_gather_breaks_a_block_the_plan_names(tmp_path: Path) -> None:
 
 
 def test_public_gather_looks_away_from_a_block_the_plan_does_not_name(tmp_path: Path) -> None:
-    provider = Provider("minecraft:stone_pickaxe")
     mind = mind_for(
-        provider,
+        OffModelProvider(),
         CostLedger(run_cost_cap=1000),
         goal=STONE_PICKAXE_GOAL,
         craft_knowledge=source(tmp_path),
         model_enabled=False,
+        policy=DecisionPolicy.RULES,
     )
     intent = mind.next_intent(reading({}, aim=block_aim("minecraft:dirt")))
     assert intent.kind is MindDecisionKind.INTENT

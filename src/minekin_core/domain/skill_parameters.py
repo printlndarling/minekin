@@ -190,8 +190,17 @@ BEHAVIOR_PARAMETERS: Final[Mapping[str, tuple[Parameter, ...]]] = MappingProxyTy
         # A use takes the aim from the reading, exactly as close_screen takes the
         # window from it — the model names the behavior and fills in nothing.
         "use_target": (),
+        # A hotbar selection names WHICH of the nine slots to hold. The slot is the choice,
+        # so it is required: an answer that leaves it out would otherwise have one picked
+        # for it, and the expectation is what the ask believes that slot holds.
         "select_hotbar": (
-            _number("slot", ParameterKind.SLOT, 0, HOTBAR_SLOT_COUNT - 1),
+            Parameter(
+                name="slot",
+                kind=ParameterKind.SLOT,
+                required=True,
+                minimum=0,
+                maximum=HOTBAR_SLOT_COUNT - 1,
+            ),
             _item("expected_item_id"),
         ),
     }

@@ -30,16 +30,22 @@ The provider is a structural protocol declared here rather than imported from
 `adapters/model`: the frozen dependency direction forbids this layer from naming an adapter, and a
 one-method port is exactly the kind of seam both sides should describe alone.
 
-`off` is a supported shape, not a degraded one. When there is no model — no credentials, a
-stopped endpoint, a spend already at the cap — the provider's named refusal is recorded and the
-local reflection below picks the next step from the same feasible set the model was
-offered. Such a run reports a decision source of `local_reflection` in every projection of
-it, so nobody reading the dashboard can mistake a deterministic shortlist for a model.
+Who decides is a policy the operator selects, never something inherited from whether a model
+happens to be reachable. Under `DecisionPolicy.MODEL` — the default — every ordinary step is the
+model's: a timeout, a missing credential, a spent cap, or an answer this side refuses is a named
+stop with the reason kept, never a silent switch to the rule order below. The one thing that
+still moves without a decision is the bounded step out of damage being taken now
+(`_imminent_protection`); death, hunger and combat are conditions the deciding layer owns, not
+reflexes. Under the explicitly selected `DecisionPolicy.RULES` — the offline strategy the old
+demos run on — the order in `_reflect` decides every step and no provider is consulted; those
+runs report a decision source of `local_reflection` in every projection, so nobody reading the
+dashboard can mistake a deterministic order for a model.
 """
 
 from __future__ import annotations
 
 import math
+import os
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -86,7 +92,12 @@ from minekin_core.domain.recipe_catalog import (
     largest_grid_in_plan,
     plan_needs_larger_grid,
 )
-from minekin_core.domain.skill_parameters import BEHAVIOR_PARAMETERS, MAX_QUANTITY
+from minekin_core.domain.skill_parameters import (
+    BEHAVIOR_PARAMETERS,
+    HOTBAR_SLOT_COUNT,
+    MAX_QUANTITY,
+    validate_arguments,
+)
 from minekin_core.domain.visible_entities import (
     SUMMARY_ENTITY_LIMIT,
     nearest_visible,
@@ -205,11 +216,56 @@ NO_CONFIRMING_OBSERVATION: Final = "NO_CONFIRMING_OBSERVATION"
 #: go on waiting, and the projection shows which.
 GOAL_ACHIEVED: Final = "GOAL_ACHIEVED"
 NO_FEASIBLE_SKILL: Final = "NO_FEASIBLE_SKILL"
+#: A hotbar ask whose named expectation the reading contradicts: the ask is inapplicable as
+#: written and is refused by its own name — never answered with another slot or another item.
+SELECT_ITEM_NOT_IN_SLOT: Final = "SELECT_ITEM_NOT_IN_SLOT"
 
 PLAYER_DEAD: Final = "PLAYER_DEAD"
 DECISION_PRECONDITION_CHANGED: Final = "DECISION_PRECONDITION_CHANGED"
 DECISION_FROM_MODEL: Final = "model"
 DECISION_FROM_LOCAL: Final = "local_reflection"
+
+
+class DecisionPolicy(StrEnum):
+    """Who decides an ordinary step, and what a failure of the decider means.
+
+    `MODEL` is the product's autonomy: the answerer chooses every ordinary step and its key
+    parameters from the offer it is shown, and a refusal — timeout, missing credential, spent
+    budget, malformed or illegal answer — stops the run under that name rather than letting
+    local code take the decision over. `RULES` is the explicitly selected offline strategy the
+    old demos run on: the order in `_reflect` decides, the provider is never consulted, and
+    every step is recorded as `local_reflection`. There is no implicit third mode: an
+    unconfigured model or a missing key is not a licence for the rules to decide.
+    """
+
+    MODEL = "model"
+    RULES = "rules"
+
+
+#: The environment variable through which an operator explicitly selects the strategy.
+#: Unset means `MODEL`; `off` or a missing key never selects `RULES` on its own.
+DECISION_POLICY_VARIABLE: Final = "MINEKIN_DECISION_POLICY"
+
+
+def decision_policy_from_environment(
+    environ: Mapping[str, str] | None = None,
+) -> DecisionPolicy:
+    """The strategy the operator selected, or `MODEL` when the environment is silent.
+
+    An empty value means "not selected"; anything else must be one of the declared names, and
+    a misspelling is refused by name rather than quietly degrading to a default nobody chose.
+    """
+
+    source = os.environ if environ is None else environ
+    raw = source.get(DECISION_POLICY_VARIABLE, "").strip().lower()
+    if not raw:
+        return DecisionPolicy.MODEL
+    try:
+        return DecisionPolicy(raw)
+    except ValueError as exc:
+        declared = ", ".join(policy.value for policy in DecisionPolicy)
+        raise ValueError(f"{DECISION_POLICY_VARIABLE} must be one of: {declared}") from exc
+
 
 #: Which refusal words mean which of §3's four attributions. Anything unlisted lands in
 #: `ACTION_NOT_EFFECTIVE`: the four codes are deliberately coarse, and the skill's own
@@ -280,7 +336,7 @@ def _checked_offer(offer: tuple[str, ...]) -> tuple[str, ...]:
 
 
 #: The order the feasible set is reported in, and so the order a scan of it reads. Listed once here
-#: because a model's offer and the local fallback have to be the same list, not two lists that
+#: because a model's offer and the rule order have to be the same list, not two lists that
 #: happen to agree today. `close_screen` is deliberately absent from this standing list: it is the
 #: one skill whose every reading is already a success *when no window is standing*, so offering it
 #: then would invite a step spent to change nothing. It is offered in exactly the one case where a
@@ -642,6 +698,18 @@ def select_target(
     return None
 
 
+def hotbar_choice_available(reading: WorldObservationValue) -> bool:
+    """Whether the reading shows any of the nine HUD slots holding something.
+
+    The generic half of the selection offer: the number keys address those nine slots
+    whatever the standing goal, so a valid choice exists whenever one of them carries an
+    item — independent of any gather target. Whether to select, and which slot, is the
+    deciding layer's call; this only says the slots are there.
+    """
+
+    return any(0 <= stack.slot < HOTBAR_SLOT_COUNT for stack in reading.inventory.stacks)
+
+
 def shortfalls(
     milestone: Milestone | None, reading: WorldObservationValue
 ) -> tuple[BuildStep, ...] | str:
@@ -794,8 +862,13 @@ def feasible_skill_ids(
         and not screen_open(reading)
         and nearest_hostile(reading) is not None
         else "",
+        # The generic selection capability: a valid choice exists whenever the nine HUD slots
+        # the number keys address hold something, whatever the standing goal — it is not
+        # hidden because a gather target happens to point at one of them. The choice itself
+        # (which slot, and whether it is worth selecting) is the deciding layer's.
         "select_hotbar"
         if select_target(milestone, reading, grid_side=crafting_grid_side(reading)) is not None
+        or hotbar_choice_available(reading)
         else "",
         "use_target" if use_target_refusal(reading).accepted else "",
         "turn_to",
@@ -858,29 +931,6 @@ def _nearest_drop(reading: WorldObservationValue) -> EntityCandidate | None:
     )
 
 
-def _first_payable_offer(reading: WorldObservationValue) -> int | None:
-    """The first row of the open merchant's list this bag can pay right now, or None.
-
-    Offered rows are the screen's, not this side's; this is only the no-model reflex
-    picking one, and it picks the first the counts support -- the same numbers the
-    summary shows the model and the skill checks again when the click lands.
-    """
-
-    if reading.gui is None:
-        return None
-    for index, offer in enumerate(reading.gui.trade_offers):
-        if offer.disabled or offer.uses >= offer.max_uses:
-            continue
-        if item_total(reading.inventory, offer.first_item_id) < offer.first_count:
-            continue
-        if offer.second_item_id and (
-            item_total(reading.inventory, offer.second_item_id) < offer.second_count
-        ):
-            continue
-        return index
-    return None
-
-
 def observation_summary(
     milestone: Milestone | None, reading: WorldObservationValue
 ) -> dict[str, object]:
@@ -931,6 +981,14 @@ def observation_summary(
             for entity in rendered_entities(reading)[:SUMMARY_ENTITY_LIMIT]
         ],
         "inventory": dict(sorted(counts.items())),
+        # The player's own HUD row: which of the nine number-key slots holds what. A slot the
+        # model may name in `select_hotbar` has to be visible to the model, the same way the
+        # hotbar is visible to the player — counts alone would make every slot a guess.
+        "hotbar": [
+            {"slot": stack.slot, "item_id": stack.item_id, "count": stack.count}
+            for stack in sorted(reading.inventory.stacks, key=lambda stack: stack.slot)
+            if 0 <= stack.slot < HOTBAR_SLOT_COUNT
+        ],
         "selected_slot": reading.self_state.selected_slot,
         "yaw_degrees": reading.self_state.yaw_degrees,
         "pitch_degrees": reading.self_state.pitch_degrees,
@@ -957,14 +1015,11 @@ def observation_summary(
                     and item_total(reading.inventory, offer.first_item_id) >= offer.first_count
                     and (
                         not offer.second_item_id
-                        or item_total(reading.inventory, offer.second_item_id)
-                        >= offer.second_count
+                        or item_total(reading.inventory, offer.second_item_id) >= offer.second_count
                     )
                 ),
             }
-            for index, offer in enumerate(
-                () if reading.gui is None else reading.gui.trade_offers
-            )
+            for index, offer in enumerate(() if reading.gui is None else reading.gui.trade_offers)
         ],
         "held_item": reading.self_state.main_hand_item_id or "",
         "aimed_block": aim.targeted_block_id if aim is not None and aim.block is not None else "",
@@ -1068,19 +1123,27 @@ def _asked_number(arguments: Mapping[str, object], key: str) -> float | None:
     return float(value)
 
 
-def _asked_quantity(arguments: Mapping[str, object], milestone: Milestone | None) -> int:
-    """How many of a product the ask wants: the answer's number, or the milestone's, then one.
+def _asked_quantity(
+    arguments: Mapping[str, object],
+    milestone: Milestone | None,
+    *,
+    policy: DecisionPolicy,
+) -> int:
+    """How many of a product the ask wants: the answer's number, then — for the rule strategy
+    only — the milestone's, then one.
 
     The bounds are re-checked rather than trusted, even though `compose_decision` judged them,
-    because the local fallback reaches here with no answer at all and the same arithmetic then has
+    because the rule strategy reaches here with no answer at all and the same arithmetic then has
     to hold. A quantity is capped at a stack because that is what the ask vocabulary says, and a
-    plan that wanted more is a sequence of asks, not one of them.
+    plan that wanted more is a sequence of asks, not one of them. The milestone rung is the
+    rules' own default and is never taken for a model's ask: the operator's quantity is not the
+    model's decision.
     """
 
     asked = _asked_number(arguments, "quantity")
     if asked is not None and asked.is_integer() and 1 <= asked <= MAX_QUANTITY:
         return int(asked)
-    if milestone is not None:
+    if policy is DecisionPolicy.RULES and milestone is not None:
         return milestone.quantity
     return 1
 
@@ -1171,6 +1234,9 @@ class PlayerMind:
     persona_seed: str = ""
     goal: Milestone | None = None
     model_enabled: bool = True
+    #: Who decides ordinary steps. `MODEL` by default: the provider answers, and its failure is
+    #: a named stop, not a fallback. `RULES` is the explicitly selected offline strategy.
+    policy: DecisionPolicy = DecisionPolicy.MODEL
     persona: PersonaManifest | None = None
     session_history: Mapping[str, object] = field(default_factory=dict[str, object])
     craft_knowledge: CraftKnowledge | None = None
@@ -1280,6 +1346,27 @@ class PlayerMind:
             needs["safety"] = max(needs["safety"], 7)
         return needs
 
+    def _imminent_protection(
+        self, feasible: tuple[str, ...], reading: WorldObservationValue
+    ) -> str | None:
+        """The one step local code may take without a decision, or `None`.
+
+        Scope, stated because the words stretch easily: this is not a reflex family. Death,
+        hunger and combat are ordinary conditions the deciding layer owns — an automatic
+        respawn, an automatic meal or an automatic swing would each be local code making a
+        choice that was asked of the model. What survives is the narrow row of the original
+        table: damage being taken *now* — a health drop between the last two readings, or a
+        hostile the client renders inside swing reach — buys one bounded step away, and
+        nothing else. The step is still the retreat skill's own: a named hold, released
+        through the same named exit, confirmed only by a later reading that the body moved.
+        """
+
+        if "retreat" not in feasible:
+            return None
+        if self.recent_damage or attackable_hostile(reading) is not None:
+            return "retreat"
+        return None
+
     def _goal_craft_blocker(self, reading: WorldObservationValue) -> str:
         """The standing goal's craft obstacle on this reading, from whichever plan is bound.
 
@@ -1350,6 +1437,21 @@ class PlayerMind:
             return (enabler[0].product_id, enabler[1])
         return None
 
+    def _rule_arguments(self, skill: str, reading: WorldObservationValue) -> Mapping[str, object]:
+        """The defaults the rule strategy's own choice implies — built here and only here.
+
+        The one parameter map the rules fill in for themselves is a hotbar selection's slot,
+        derived from the milestone or the held enabler. A model's ask never borrows it: an
+        answer that did not name its slot is refused by name, not answered with the goal's.
+        """
+
+        if skill == "select_hotbar":
+            target = self._select_target(reading)
+            if target is not None:
+                item_id, slot = target
+                return {"slot": slot, "expected_item_id": item_id}
+        return {}
+
     def craft_options_for(self, reading: WorldObservationValue) -> tuple[str, ...]:
         if self.craft_knowledge is not None:
             return tuple(sorted(self.public_crafts(reading)))
@@ -1370,10 +1472,11 @@ class PlayerMind:
             reading.self_state.alive
             and not screen_open(reading)
             and "select_hotbar" not in added
-            and self._select_target(reading) is not None
+            and (self._select_target(reading) is not None or hotbar_choice_available(reading))
         ):
             # The curated offer only names a select target for curated plans; an imported
-            # goal's held grid-opener is the same move and must be offered all the same.
+            # goal's held grid-opener is the same move and must be offered all the same --
+            # and so is the generic "these nine slots hold something" case.
             added.append("select_hotbar")
         return tuple(added)
 
@@ -1478,7 +1581,7 @@ class PlayerMind:
         # reading leaves. Choosing what a rendered entity MEANS for this moment -- hit it,
         # leave it, keep working past it -- is the judgement the model exists for, so the
         # curated roster never narrows what the model is shown or may choose; it teaches
-        # only the no-model reflex which bodies to flinch from.
+        # only the rule order (and the imminent-protection gate) which bodies to flinch from.
         local_feasible = feasible
         if threat is not None:
             local_feasible = tuple(name for name in feasible if name not in DANGER_SUPPRESSED)
@@ -1568,65 +1671,93 @@ class PlayerMind:
             budget_remaining_micro=self.ledger.remaining(),
             intent_generation=self.intent_generation,
         )
-        answer = self.provider.decide(request)
-        needs = self._needs(reading)
         refusal = ""
         reason = ""
         arguments: Mapping[str, object] = {}
-        if isinstance(answer, Decision):
-            # The shipped port already files this as `DECISION_OUT_OF_BOUNDS`, so the branch
-            # is for a provider that answers with a `Decision` it built itself. Keeping the
-            # check here means an endpoint that invents a skill gets the same conservative
-            # path as one that times out, instead of a plan nobody offered.
-            if answer.skill_id in feasible:
-                skill, source, reason = (
-                    answer.skill_id,
-                    DECISION_FROM_MODEL,
-                    answer.reason[:MAX_REASON_CHARS],
-                )
-                arguments = answer.arguments
-            else:
-                refusal = UnavailableReason.DECISION_OUT_OF_BOUNDS.value
-                skill, source = self._reflect(local_feasible, needs, reading), DECISION_FROM_LOCAL
+        needs = self._needs(reading)
+        skill: str = ""
+        source: str = ""
+        if self.policy is DecisionPolicy.RULES:
+            # The explicitly selected rule strategy: the order in `_reflect` is the decider
+            # and the provider is never consulted, so no model call is spent or recorded.
+            # The one rule-constructed parameter map (the hotbar default) is built here and
+            # only here -- a model's ask never has its parameters filled from the milestone.
+            skill = self._reflect(local_feasible, needs, reading)
+            source = DECISION_FROM_LOCAL
+            arguments = self._rule_arguments(skill, reading)
         else:
-            refusal = answer.reason.value
-            skill, source = self._reflect(local_feasible, needs, reading), DECISION_FROM_LOCAL
-        self.last_model_refusal = refusal
+            answer = self.provider.decide(request)
+            if isinstance(answer, Decision) and answer.skill_id in feasible:
+                # The shipped port already files an out-of-bounds skill or an illegal ask as
+                # a `ModelUnavailable`; this branch is for a provider that built its own
+                # `Decision`, and the argument check runs here so an ask this side cannot
+                # honour is refused by name instead of reaching the wire as a click.
+                honoured_arguments = validate_arguments(answer.skill_id, answer.arguments)
+                if isinstance(honoured_arguments, str):
+                    refusal = honoured_arguments
+                else:
+                    skill, source, reason = (
+                        answer.skill_id,
+                        DECISION_FROM_MODEL,
+                        answer.reason[:MAX_REASON_CHARS],
+                    )
+                    arguments = honoured_arguments
+            elif isinstance(answer, Decision):
+                refusal = UnavailableReason.DECISION_OUT_OF_BOUNDS.value
+            else:
+                refusal = answer.reason.value
+            self.last_model_refusal = refusal
+            if not skill:
+                # The deciding layer was asked and did not answer with something this side
+                # can run. No ordinary behaviour is substituted for its choice -- that would
+                # be the silent switch to the rule order the contract forbids, and a payable
+                # merchant row or an owed craft is not a decision. The only thing that still
+                # moves is the bounded step out of damage being taken now; otherwise the run
+                # stops under the named reason with the refusal kept beside it.
+                protection = self._imminent_protection(local_feasible, reading)
+                if protection is None:
+                    return self._hold(refusal, reading, model_refusal=refusal)
+                skill, source, reason, arguments = protection, DECISION_FROM_LOCAL, "", {}
         plan, built_reason, honoured = self._call_for(skill, reading, arguments)
         if plan is None and built_reason == GOAL_ACHIEVED:
-            # A model can ask for a quantity or intermediate product already held.
-            # That closes its request, not the standing milestone checked above.
+            # An ask for a quantity or intermediate product already held closes that request,
+            # not the standing milestone checked above.
             built_reason = "REQUEST_ALREADY_SATISFIED"
-        if plan is None and (
-            built_reason in CONSUME_REFUSAL_REASONS
-            or (
-                self.goal is not None
-                and built_reason in {"REQUEST_ALREADY_SATISFIED", CRAFT_MATERIALS_MISSING}
-            )
-            or (
-                built_reason == CRAFT_GRID_TOO_SMALL
-                and self._enabler_to_stand_up(reading) is not None
+        if (
+            plan is None
+            and self.policy is DecisionPolicy.RULES
+            and (
+                built_reason in CONSUME_REFUSAL_REASONS
+                or (
+                    self.goal is not None
+                    and built_reason in {"REQUEST_ALREADY_SATISFIED", CRAFT_MATERIALS_MISSING}
+                )
+                or (
+                    built_reason == CRAFT_GRID_TOO_SMALL
+                    and self._enabler_to_stand_up(reading) is not None
+                )
             )
         ):
+            # The rule order repairs its own choice from the offer's remaining candidates,
+            # one try each -- that is the rules strategy deciding again, never a model's ask
+            # being replaced. Under the model policy this repair does not exist: the reason
+            # is reported and the run stops.
             self.last_precondition = built_reason
-            refusal = refusal or built_reason
-            self.last_model_refusal = refusal
             source, reason = DECISION_FROM_LOCAL, ""
             remaining = local_feasible
-            # Every candidate comes from the observation's offer, and each is tried
-            # once. An invalid model craft cannot stop an otherwise payable route,
-            # or trap reflection retrying the same unaffordable craft indefinitely —
-            # and a meal named past its precondition is the same shape: the refusal is
-            # filed, and the offer's own candidates (another food, a turn, the gather)
-            # get their one try rather than the run ending on one wrong guess. The grid
-            # word joins them only with the enabler already in the bag: standing it up
-            # is a runnable route (`_enabler_to_stand_up`), so an ask that hit the wall
-            # is not allowed to halt a run that has a placement left to make.
             while remaining and plan is None:
                 skill = self._reflect(remaining, needs, reading)
-                plan, built_reason, honoured = self._call_for(skill, reading, {})
+                plan, built_reason, honoured = self._call_for(
+                    skill, reading, self._rule_arguments(skill, reading)
+                )
                 remaining = tuple(name for name in remaining if name != skill)
         if plan is None:
+            if self.policy is DecisionPolicy.MODEL:
+                # The reason a model's ask could not become a command goes back beside the
+                # refusal, so the document says which decision met which obstacle.
+                self.last_precondition = built_reason
+                self.last_model_refusal = refusal or built_reason
+                return self._hold(built_reason, reading, model_refusal=refusal or built_reason)
             return self._hold(built_reason, reading)
         # A `use_target` plan that was built past its precondition is a click about to spend
         # on this exact target; remember which one so a repeat ask can be turned away before
@@ -1727,18 +1858,19 @@ class PlayerMind:
     def _reflect(
         self, feasible: tuple[str, ...], needs: Mapping[str, int], reading: WorldObservationValue
     ) -> str:
-        """The order the local layer uses when no model answered.
+        """The order the explicitly selected rule strategy decides in (`DecisionPolicy.RULES`).
 
+        This is the offline decider the old demos run on, never a fallback: under the model
+        policy a failed or refused answer stops the run by name instead of arriving here.
         A hungry Kin eats before it works: when `safety` says the reading itself is asking
         for care and the offer carries a meal, that meal goes first. Finish what the
         inventory is short of, pick up what is already on the ground, break
-        what is aimed at, then look — the look staying ahead of the use keeps the no-model
-        fallback as conservative as it was, right-clicking the aimed block only as the last
-        resort before the set is given up on. Reading the same two inputs a model was offered,
-        the fallback cannot do something the model was not permitted to, and because it can act
-        on every skill in that set it can also exhaust every one: a reading whose offers all keep
-        failing reaches `NO_FEASIBLE_SKILL` instead of replaying a skill the run has already given
-        up on. `safety` holds a Kin back from starting a break when it is badly hurt, because a
+        what is aimed at, then look — the look staying ahead of the use keeps the rule order
+        as conservative as it was, right-clicking the aimed block only as the last resort
+        before the set is given up on. Because the order can act on every skill in the offer
+        it can also exhaust every one: a reading whose offers all keep failing reaches
+        `NO_FEASIBLE_SKILL` instead of replaying a skill the run has already given up on.
+        `safety` holds a Kin back from starting a break when it is badly hurt, because a
         broken trunk is not what a half-health reading is asking for.
 
         Stand up a selected wider-grid enabler once the bag can pay the remaining
@@ -1754,11 +1886,9 @@ class PlayerMind:
 
         if "respawn" in feasible:
             return "respawn"
-        if "trade" in feasible and _first_payable_offer(reading) is not None:
-            # A merchant window is open and one of its rows is payable: the local backstop
-            # takes the first such row. Which row (or whether any) is the model's call
-            # when one answered; this is the no-model reflex's own choice.
-            return "trade"
+        # No trade branch: which row of an open merchant's list to take is a purchase, and a
+        # payable row is a fact about the offer, not an intent. The row only ever comes from
+        # an explicit `offer_index` -- the model's ask or an operator's plan.
         if "close_screen" in feasible:
             if (
                 "craft_take_result" in feasible
@@ -1801,6 +1931,10 @@ class PlayerMind:
                 and self.goal is not None
                 and standing_up[0] == self.goal.product_id
             )
+            # The rules may only select a slot they can derive a target for: the generic
+            # offer now carries select whenever the HUD holds anything, and without this a
+            # reading whose table is already in hand would have the rule order name a
+            # selection with no slot to name instead of pressing the use key.
             # The enabler goes to hand only once the bag can pay the remaining material debt:
             # `CRAFT_GRID_TOO_SMALL` is the catalog's word for "every shape this screen holds is
             # paid and the wider one is what is missing" — the same gate the use key waits for
@@ -1808,9 +1942,14 @@ class PlayerMind:
             # selected the freshly-crafted table while the pickaxe was one plank short, placed
             # and opened it, closed it to gather, and then re-crafted a second table because a
             # placed table cannot be reselected — one plank short of the tool at the budget's end.
-            if holding_product or self._goal_craft_blocker(reading) == CRAFT_GRID_TOO_SMALL:
+            if standing_up is not None and (
+                holding_product or self._goal_craft_blocker(reading) == CRAFT_GRID_TOO_SMALL
+            ):
                 return "select_hotbar"
-        if "craft_take_result" in feasible:
+        if "craft_take_result" in feasible and self.goal is not None:
+            # Only a standing milestone tells the rules what to make. With no goal there is
+            # nothing this side was told to craft, and the table's first payable row would be
+            # code picking a product -- a decision, not an execution.
             return "craft_take_result"
         enabler = self._enabler_to_stand_up(reading)
         if (
@@ -1861,8 +2000,13 @@ class PlayerMind:
         if skill == "trade":
             asked_index = _asked_number(arguments, "offer_index")
             offers = () if reading.gui is None else reading.gui.trade_offers
-            index = int(asked_index) if asked_index is not None else _first_payable_offer(reading)
-            if index is None or not 0 <= index < len(offers):
+            if asked_index is None or not asked_index.is_integer():
+                # The row is the choice, and there is no default row: "the first one this bag
+                # can pay" is a fact about the offer, not a purchase intent, and filling it
+                # in here would be this side deciding what to buy.
+                return None, SKILL_ARGUMENT_MISSING, {}
+            index = int(asked_index)
+            if not 0 <= index < len(offers):
                 return None, NO_FEASIBLE_SKILL, {}
             offer = offers[index]
             ask_offer: dict[str, object] = {"offer_index": index}
@@ -1976,10 +2120,10 @@ class PlayerMind:
         if skill == "respawn":
             return SkillPlan((SkillCall(name="respawn"),)), "use the visible respawn button", {}
         if skill == "craft_take_result":
-            target = self._asked_product(arguments, reading)
+            target = self._asked_product(arguments)
             if not target:
                 return None, NO_FEASIBLE_SKILL, {}
-            quantity = _asked_quantity(arguments, self.goal)
+            quantity = _asked_quantity(arguments, self.goal, policy=self.policy)
             ask: dict[str, object] = {"target_item": target, "quantity": quantity}
             side = crafting_grid_side(reading)
             if item_total(reading.inventory, target) >= quantity:
@@ -2040,8 +2184,8 @@ class PlayerMind:
             )
         if skill == "consume_item":
             # The ask may name the meal or leave it to this side; an answerer that named
-            # nothing (and the local reflection always names nothing) gets the reading's
-            # own candidate — the largest curated food the hotbar can reach. Whatever the
+            # nothing (and the rule order always names nothing) gets the reading's own
+            # candidate — the largest curated food the hotbar can reach. Whatever the
             # name is, the skill's own precondition judges it against this same reading,
             # so a model's wrong guess becomes the skill's named refusal rather than a
             # key pressed on something that was never food.
@@ -2060,11 +2204,17 @@ class PlayerMind:
             item_id = _asked_text(arguments, "item_id") or self._resource_id(reading)
             if not item_id:
                 return None, "NO_SEEN_DROP", {}
-            return (
-                SkillPlan((SkillCall(name="collect_dropped", item_id=item_id),)),
-                f"collect the {item_id} in view",
-                {"item_id": item_id},
-            )
+            walk = _asked_number(arguments, "walk_seconds")
+            honoured_collect: dict[str, object] = {"item_id": item_id}
+            if walk is None:
+                # Nobody said: the skill's own default step, not a number this side invents.
+                collect_plan = SkillPlan((SkillCall(name="collect_dropped", item_id=item_id),))
+            else:
+                honoured_collect["walk_seconds"] = walk
+                collect_plan = SkillPlan(
+                    (SkillCall(name="collect_dropped", item_id=item_id, walk_seconds=float(walk)),)
+                )
+            return (collect_plan, f"collect the {item_id} in view", honoured_collect)
         if skill == "break_seen_block":
             if reading.aim is None or reading.aim.block is None:
                 return None, "MINE_TARGET_NOT_AIMED", {}
@@ -2074,29 +2224,54 @@ class PlayerMind:
             # one from this block, rather than resuming an old sweep at a stale offset.
             self.reaim_probe = 0
             expected = _asked_text(arguments, "expected_drop_item")
-            if not expected:
-                expected = self.goal.source_item_id if self.goal is not None else ""
+            if not expected and self.policy is DecisionPolicy.RULES and self.goal is not None:
+                # The rule strategy may borrow the milestone's source item as its own
+                # expectation; a model's ask without one is an ask with no expectation, and
+                # the operator's goal is not the model's belief about what the block drops.
+                expected = self.goal.source_item_id
             return (
                 SkillPlan((SkillCall(name="break_seen_block", expected_drop_item=expected),)),
                 f"break the block in view for {expected or 'what it drops'}",
                 {"expected_drop_item": expected},
             )
         if skill == "select_hotbar":
-            if self.goal is None:
-                return None, NO_FEASIBLE_SKILL, {}
-            target = self._select_target(reading)
-            if target is None:
-                return None, "NO_SELECT_TARGET", {}
-            item_id, slot = target
-            reason = (
-                f"hold the {item_id} in hand"
-                if item_id == self.goal.product_id
-                else f"select the {item_id} to stand it up"
-            )
+            asked_slot = _asked_number(arguments, "slot")
+            if asked_slot is None or not asked_slot.is_integer():
+                # The slot is the choice. There is no default slot and no goal substitution:
+                # an ask that did not name one is refused by name. (The rule strategy's own
+                # default is constructed in `_rule_arguments`, and only there.)
+                return None, SKILL_ARGUMENT_MISSING, {}
+            slot = int(asked_slot)
+            if not 0 <= slot < HOTBAR_SLOT_COUNT:
+                return None, ActionRefusal.HOTBAR_SLOT_OUT_OF_RANGE.value, {}
+            expected_item = _asked_text(arguments, "expected_item_id")
+            if expected_item and not any(
+                stack.item_id == expected_item and stack.slot == slot
+                for stack in reading.inventory.stacks
+            ):
+                # The expectation is part of the ask: selecting that slot while the reading
+                # says it holds something else would be answering a different ask, and this
+                # side never swaps in another slot or another item.
+                return (
+                    None,
+                    SELECT_ITEM_NOT_IN_SLOT,
+                    {"slot": slot, "expected_item_id": expected_item},
+                )
+            honoured_select: dict[str, object] = {"slot": slot}
+            if expected_item:
+                honoured_select["expected_item_id"] = expected_item
+            if not expected_item:
+                reason = f"select hotbar slot {slot}"
+            elif self.goal is not None and expected_item == self.goal.product_id:
+                reason = f"hold the {expected_item} in hand"
+            else:
+                reason = f"select the {expected_item} in slot {slot}"
             return (
-                SkillPlan((SkillCall(name="select_hotbar", slot=slot, expected_item_id=item_id),)),
+                SkillPlan(
+                    (SkillCall(name="select_hotbar", slot=slot, expected_item_id=expected_item),)
+                ),
                 reason,
-                {"slot": slot, "expected_item_id": item_id},
+                honoured_select,
             )
         if skill == "use_target":
             # The use key carries no argument: it acts on what the crosshair reports and what the
@@ -2175,7 +2350,7 @@ class PlayerMind:
 
         A `collect` walks the player toward the drop it saw, and the fixed crosshair angle that
         pointed at the trunk now points at whatever is ahead — so `break_seen_block` leaves the
-        feasible set and the fallback would otherwise blind-scan for the tree again. A player does
+        feasible set and the rule order would otherwise blind-scan for the tree again. A player does
         not scan for a tree they were just felling; they face back toward it. This reproduces that
         single move from what the reading already reported: the block's own cell (remembered from
         the crosshair, never chunk-scanned) and the player's position, turned to the client's angle
@@ -2275,23 +2450,20 @@ class PlayerMind:
                 ladder.append(offset)
         return yaw, tuple(ladder)
 
-    def _asked_product(
-        self, arguments: Mapping[str, object], reading: WorldObservationValue
-    ) -> str:
-        """Which product a craft ask is for: the answer's, then the milestone's, then the table's.
+    def _asked_product(self, arguments: Mapping[str, object]) -> str:
+        """Which product a craft ask is for: the answer's, or the standing milestone's.
 
-        The last rung is what lets a session with no standing milestone honour a craft ask at all —
-        and it is the table's own first option, not a default item this module remembers, so a
-        reflection with nothing to work toward still starts from a product the reading can pay for.
+        There is no third rung, and the milestone rung belongs to the rule strategy alone: an
+        ask that names no product is refused by name rather than code picking one — the
+        table's first payable option is a fact about the table, not a decision.
         """
 
         asked = _asked_text(arguments, "target_item")
         if asked:
             return asked
-        if self.goal is not None:
+        if self.policy is DecisionPolicy.RULES and self.goal is not None:
             return self.goal.product_id
-        options = self.craft_options_for(reading)
-        return options[0] if options else ""
+        return ""
 
     def _resource_id(self, reading: WorldObservationValue) -> str:
         """The item to pick up: the visible goal resource, or the nearest visible drop.
@@ -2315,12 +2487,24 @@ class PlayerMind:
         drop = _nearest_drop(reading)
         return "" if drop is None or drop.item_id is None else drop.item_id
 
-    def _hold(self, reason: str, reading: WorldObservationValue | None) -> MindIntent:
+    def _hold(
+        self,
+        reason: str,
+        reading: WorldObservationValue | None,
+        *,
+        model_refusal: str = "",
+    ) -> MindIntent:
+        """A named stop. `model_refusal` carries the deciding layer's own word for a hold that
+        happened because its answer never landed, so the run document says which decision met
+        which obstacle instead of only the stop's name.
+        """
+
         intent = MindIntent(
             kind=MindDecisionKind.HOLD,
             plan=SkillPlan(()),
             reason=reason,
             observation_ref="" if reading is None else observation_ref(reading),
+            model_refusal=model_refusal,
         )
         self.last_intent = intent
         return intent
@@ -2354,6 +2538,7 @@ class PlayerMind:
             "last_result_reason": "" if result is None else result.reason,
             "failure_attribution": "" if self.last_failure is None else self.last_failure.value,
             "last_precondition": self.last_precondition,
+            "decision_policy": self.policy.value,
             "model_enabled": self.model_enabled,
             "model_refusal": self.last_model_refusal,
             "intent_generation": self.intent_generation,
@@ -2373,6 +2558,7 @@ def mind_for(
     persona_seed: str = "",
     goal: Milestone | None = None,
     model_enabled: bool = True,
+    policy: DecisionPolicy = DecisionPolicy.MODEL,
     persona: PersonaManifest | None = None,
     session_history: Mapping[str, object] | None = None,
     craft_knowledge: CraftKnowledge | None = None,
@@ -2385,7 +2571,12 @@ def mind_for(
     already reads for the model and identity surfaces.
 
     `goal` has no default item. A caller that names none gets a mind that breaks what it is aimed
-    at, collects what it sees, looks around, and crafts only what an ask tells it to.
+    at, collects what it sees, looks around, and crafts only what an ask tells it to — under the
+    model policy every one of those steps is the model's; under the explicitly selected rules
+    policy the order in `_reflect` decides them.
+
+    `policy` defaults to `DecisionPolicy.MODEL` because autonomy is the product and the rules
+    are a strategy the operator opts into; neither `off` nor a missing key selects it here.
     """
 
     return PlayerMind(
@@ -2395,6 +2586,7 @@ def mind_for(
         persona_seed=persona_seed,
         goal=goal,
         model_enabled=model_enabled,
+        policy=policy,
         persona=persona,
         session_history={} if session_history is None else dict(session_history),
         craft_knowledge=craft_knowledge,

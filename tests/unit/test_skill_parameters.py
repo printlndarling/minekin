@@ -139,6 +139,9 @@ def test_an_item_id_is_the_games_spelling_or_it_is_not_one(value: object, expect
         ("select_hotbar", {"slot": 8}, None),
         ("select_hotbar", {"slot": 9}, MODEL_ARGUMENTS_INVALID),
         ("select_hotbar", {"slot": -1}, MODEL_ARGUMENTS_INVALID),
+        # The slot is the choice: an answer that leaves it out is missing, not defaulted.
+        ("select_hotbar", {}, MODEL_ARGUMENTS_MISSING),
+        ("select_hotbar", {"expected_item_id": PLANKS}, MODEL_ARGUMENTS_MISSING),
         ("turn_to", {"yaw_degrees": -180.0, "pitch_degrees": 90.0}, None),
         ("turn_to", {"yaw_degrees": 181.5}, MODEL_ARGUMENTS_INVALID),
         ("turn_to", {"pitch_degrees": -91.0}, MODEL_ARGUMENTS_INVALID),

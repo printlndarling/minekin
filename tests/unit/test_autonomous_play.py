@@ -4,9 +4,9 @@
 run. What is under test here is the turn between them: that a run asks once, acts once, then
 reads again; that the milestone chain is walked *by the loop* rather than by a plan someone
 wrote; that a decision claiming the goal did not finish anything; and that every way the loop
-can end arrives as a word rather than as silence or a stack trace. The chain test runs against
-the shipped `off` provider, because that is the shape a machine without model credentials can
-actually demonstrate.
+can end arrives as a word rather than as silence or a stack trace. The chain tests run under
+the explicitly selected `rules` policy — the offline demo shape, chosen by the operator and
+never inferred from a missing credential.
 """
 
 from __future__ import annotations
@@ -37,6 +37,7 @@ from minekin_core.application.player_mind import (
     GOAL_ACHIEVED,
     NO_LATEST_OBSERVATION,
     SKILL_OFFER,
+    DecisionPolicy,
     MindDecisionKind,
     MindIntent,
     PlayerMind,
@@ -350,11 +351,13 @@ def failed(reason: str = "MINING_STALLED") -> SkillOutcome:
 
 
 def off_mind(goal: Milestone | None = GOAL) -> PlayerMind:
-    """A mind on the shipped `off` provider, holding the milestone the fixture names.
+    """A mind on the shipped `off` provider under the explicitly selected rule strategy.
 
-    The goal is an argument here rather than a default the product carries: which of these cells
-    walks a craft chain and which one wanders a world with nothing to want is decided by what the
-    caller hands in, and the loop's own behaviour must read the same either way.
+    The offline demo shape: no credentials, so the operator selected `rules` — never because
+    `off` implies it. The goal is an argument here rather than a default the product carries:
+    which of these cells walks a craft chain and which one wanders a world with nothing to want
+    is decided by what the caller hands in, and the loop's own behaviour must read the same
+    either way.
     """
 
     return mind_for(
@@ -363,6 +366,7 @@ def off_mind(goal: Milestone | None = GOAL) -> PlayerMind:
         kin_id="kin-01",
         goal=goal,
         model_enabled=False,
+        policy=DecisionPolicy.RULES,
     )
 
 
@@ -450,8 +454,10 @@ def test_the_loop_closes_on_a_reading_that_shows_the_tool_held() -> None:
 
 
 def test_a_decision_that_claims_the_tool_does_not_end_the_run() -> None:
-    # The provider says the craft finishes the milestone; the bag says it did not. The run
-    # keeps going and the direction stays unmet, which is the whole of §4's rule.
+    # The provider says the craft finishes the milestone; the bag says it did not, so the
+    # direction stays unmet — the whole of §4's rule. The one-shot provider then refuses the
+    # next ask, and under the model policy that refusal is a named stop rather than a cue for
+    # the rules to carry on.
     stage = Stage(
         reading(tick=100, items=((0, LOG, 1), (1, PLANKS, 1), (2, STICK, 2))),
         reading(tick=140, items=((0, LOG, 1), (1, PLANKS, 1), (2, STICK, 2))),
@@ -464,6 +470,7 @@ def test_a_decision_that_claims_the_tool_does_not_end_the_run() -> None:
                 skill_id="craft_take_result",
                 reason="this finishes the pickaxe",
                 intent_generation=1,
+                arguments={"target_item": PICKAXE, "quantity": 1},
             )
         ),
         CostLedger(run_cost_cap=CAP),
@@ -471,9 +478,9 @@ def test_a_decision_that_claims_the_tool_does_not_end_the_run() -> None:
 
     result = run(stage, skills, mind, step_budget=2)
 
-    assert result.stop_reason == STEP_BUDGET_SPENT
+    assert [name for name, _ in skills.ran] == ["craft_take_result"]
+    assert result.stop_reason == "TRANSPORT_FAILURE"
     assert mind.goal_met is False
-    assert [name for name, _ in skills.ran] == ["craft_take_result", "craft_take_result"]
 
 
 def test_a_blocking_model_round_trip_does_not_freeze_the_event_loop() -> None:
@@ -668,7 +675,10 @@ def test_the_run_document_says_who_chose_and_what_the_world_said() -> None:
     assert block["direction"] == "hold_wooden_pickaxe"
     assert block["milestone"] == GOAL.as_document()
     assert block["goal_met"] is False
-    assert block["model_refusal"] == "MODEL_NOT_CONFIGURED"
+    # The rule strategy never consults the provider, so there is no refusal to show — the
+    # policy field is what says these steps were the rules' by the operator's choice.
+    assert block["decision_policy"] == "rules"
+    assert block["model_refusal"] == ""
     assert block["model_calls"] == 0
 
 
@@ -717,26 +727,29 @@ def test_the_same_loop_walks_a_milestone_other_than_the_fixture_one() -> None:
 def test_a_mind_with_no_milestone_still_asks_and_never_stops_on_a_held_item() -> None:
     """A session that named no goal is a shape of run, not a misconfiguration.
 
-    Nothing in Core wants the pickaxe on the Kin's own behalf, so the loop has to keep working off
-    the readings alone when the milestone is absent — and it must not end on `GOAL_HELD_IN_HAND`,
-    because no item was ever asked to be held. The run document says so in the same two fields a
-    reader of a run with a goal reads.
+    Nothing in Core wants a product on the Kin's own behalf — including the rule order, which
+    must not pick the table's first payable row when neither a milestone nor an ask named it: a
+    craftable bag with no goal gets the conservative look, not an invented product. And the run
+    must not end on `GOAL_HELD_IN_HAND`, because no item was ever asked to be held. The run
+    document says so in the same two fields a reader of a run with a goal reads.
     """
 
     stage = Stage(
         reading(tick=100, items=((0, LOG, 3),)),
         reading(tick=140, items=((0, LOG, 2), (1, PLANKS, 4)), selected_slot=0),
     )
-    skills = TapeSkills(stage, {"craft_take_result": confirmed()})
+    skills = TapeSkills(stage, {"turn_to": confirmed()})
 
     document = run(stage, skills, off_mind(goal=None)).as_document()
 
     block = mind_row(document)
+    assert [name for name, _ in skills.ran] == ["turn_to", "turn_to"]
+    assert "craft_take_result" not in {name for name, _ in skills.ran}
     assert document["stop_reason"] == NO_FRESH_OBSERVATION
     assert block["milestone"] is None
     assert block["direction"] == ""
     assert block["goal_met"] is False
-    assert intent_row(step_rows(document)[0])["skill"] == "craft_take_result"
+    assert intent_row(step_rows(document)[0])["skill"] == "turn_to"
 
 
 def test_the_ask_covers_the_whole_offer_and_nothing_the_offer_does_not_use() -> None:

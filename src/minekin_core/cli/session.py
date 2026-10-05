@@ -119,7 +119,11 @@ from minekin_core.application.autonomous_play import (
     run_autonomous_loop,
 )
 from minekin_core.application.physiology import PhysiologySampler
-from minekin_core.application.player_mind import PlayerMind, mind_for
+from minekin_core.application.player_mind import (
+    PlayerMind,
+    decision_policy_from_environment,
+    mind_for,
+)
 from minekin_core.application.recovery_service import RecoveryReport
 from minekin_core.application.skill_plan import (
     SkillPlan,
@@ -1035,17 +1039,25 @@ def mind_for_run(
     Built here rather than passed in from `bootstrap`: the run's own cost account has
     to be the one the session's spend projection reads, and only this module knows
     when the run starts. A configured-but-disabled model still builds a mind — it
-    answers with `MODEL_NOT_CONFIGURED` and the run documents that, which is the
-    honest reading of "no credentials" and not a reason to refuse to play.
+    answers with `MODEL_NOT_CONFIGURED`, and under the default model policy the run
+    stops under that name rather than the rules deciding in its place.
 
     The milestone comes from `MINEKIN_GOAL_PRODUCT` and its three companions, and an
     environment that names none gets a Kin with no standing craft target. Core holds no
     default product to fall back to: the demo that wants a pickaxe says so, in the harness.
+
+    Who decides ordinary steps is the operator's explicit choice through
+    `MINEKIN_DECISION_POLICY` (`model` when unset, `rules` for the offline demos); an
+    unconfigured model never selects the rules by itself.
     """
 
     config = model_config(environ)
     ledger = cost_ledger_for(config)
     environment = os.environ if environ is None else environ
+    try:
+        policy = decision_policy_from_environment(environment)
+    except ValueError as exc:
+        raise _reject(str(exc)) from exc
     archive = environment.get("MINEKIN_RECIPE_ARCHIVE", "")
     craft_knowledge = None
     if archive:
@@ -1080,6 +1092,7 @@ def mind_for_run(
         ),
         goal=milestone_from_environment(environ),
         model_enabled=config.enabled,
+        policy=policy,
         craft_knowledge=craft_knowledge,
     )
 

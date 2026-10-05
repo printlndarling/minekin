@@ -4,9 +4,15 @@ These cover §3 of `docs/s3-minimal-player-mind.md` at the layer that owns it: t
 one reading supports, the two needs derived from player-equivalent fields, the precondition
 check that stops an unaffordable craft from ever becoming a command, the four failure
 attributions and the retry budget that acts on them, and the rule that the direction closes on
-a later reading rather than on a decision's own claim. Both shapes are exercised — a scripted
-provider that answers, and the shipped `off` provider that refuses by name — because `off` is a
-product capability and its path is the one a machine without credentials walks.
+a later reading rather than on a decision's own claim.
+
+The two decision policies are tested separately, never through one another
+(`docs/decision-agency.md` §运行时决策失败与通用执行边界): the model policy cells pass
+`policy=DecisionPolicy.MODEL` and show that a refused, stale or illegal answer stops the run
+under its own name — nothing ordinary is substituted, and only a bounded step out of damage
+being taken now still moves. The rule cells keep the fixture default `DecisionPolicy.RULES`,
+the explicit offline strategy the old demos select: the rule order decides, the provider is
+never consulted, and every step records `local_reflection`.
 
 Nothing here needs a client. The skills' verdicts are tested where they are produced; what is
 tested is which verdicts change the next ask.
@@ -34,6 +40,8 @@ from minekin_core.application.player_mind import (
     SCAN_PITCH_CYCLE_DEGREES,
     SCAN_YAW_DRIFT_DEGREES,
     SCAN_YAW_STEP_DEGREES,
+    SELECT_ITEM_NOT_IN_SLOT,
+    DecisionPolicy,
     FailureCode,
     MindDecisionKind,
     PlayerMind,
@@ -42,6 +50,7 @@ from minekin_core.application.player_mind import (
     craft_blocker,
     craft_options,
     crafting_grid_side,
+    decision_policy_from_environment,
     feasible_skill_ids,
     mind_for,
     needs_from,
@@ -212,18 +221,30 @@ class ScriptedProvider:
 
 
 def mind_with(
-    *answers: Decision | ModelUnavailable, goal: Milestone | None = GOAL
+    *answers: Decision | ModelUnavailable,
+    goal: Milestone | None = GOAL,
+    policy: DecisionPolicy = DecisionPolicy.RULES,
 ) -> tuple[PlayerMind, CostLedger]:
     """A mind over a scripted provider and one milestone, which the caller names.
 
     The milestone is a parameter of the helper rather than a constant inside it because the point
     of these cells is that the same mind runs a different product: a test that could only be run
     about a pickaxe would be testing the fixture, not the interface.
+
+    The fixture default is the explicit rule strategy, because the cells that pass no answers
+    are the rule order's own — the old offline demos' shape. A cell about the model policy
+    passes `policy=DecisionPolicy.MODEL` and says so, so no rule cell can pass for a model
+    one.
     """
 
     ledger = CostLedger(run_cost_cap=CAP)
     mind = mind_for(
-        ScriptedProvider(*answers), ledger, kin_id="kin-01", persona_seed="seed-9", goal=goal
+        ScriptedProvider(*answers),
+        ledger,
+        kin_id="kin-01",
+        persona_seed="seed-9",
+        goal=goal,
+        policy=policy,
     )
     return mind, ledger
 
@@ -337,18 +358,21 @@ def test_a_milestone_closed_from_a_reading_asks_for_no_craft() -> None:
 
 def test_a_model_asking_for_a_craft_the_grid_cannot_hold_produces_no_craft_command() -> None:
     """The offer is built from the same resolution as the command, so an endpoint that asks
-    for `craft_take_result` on a reading whose only shortfall needs three by three gets the
-    out-of-bounds refusal and the conservative look — never a click into a grid that cannot
-    hold the shape."""
+    for `craft_take_result` on a reading whose only shortfall needs three by three is refused
+    out of bounds — and under the model policy the refusal is a named stop, never a local
+    click into a grid that cannot hold the shape."""
 
     paid = reading(items=((0, PLANKS, 3), (1, STICK, 2)))
     mind, _ = mind_with(
-        Decision(skill_id="craft_take_result", reason="make the pickaxe", intent_generation=1)
+        Decision(skill_id="craft_take_result", reason="make the pickaxe", intent_generation=1),
+        policy=DecisionPolicy.MODEL,
     )
 
     intent = mind.next_intent(paid)
 
-    assert [call.name for call in intent.plan.calls] == ["turn_to"]
+    assert intent.kind is MindDecisionKind.HOLD
+    assert intent.reason == "DECISION_OUT_OF_BOUNDS"
+    assert intent.plan.calls == ()
     assert intent.model_refusal == "DECISION_OUT_OF_BOUNDS"
 
 
@@ -504,6 +528,9 @@ def test_the_fallback_still_gathers_when_the_wider_step_is_short_of_materials() 
     assert intent.kind is MindDecisionKind.INTENT
     assert intent.source == DECISION_FROM_LOCAL
     assert intent.skill == "break_seen_block"
+    # The rules' own goal-derived expectation still rides along; the model cells above prove
+    # the same parameter is never borrowed for a model's ask.
+    assert intent.plan.calls[0].expected_drop_item == LOG
 
 
 def test_the_client_recipe_book_is_the_authority_the_curated_grid_defers_to() -> None:
@@ -587,6 +614,7 @@ def test_a_screen_with_no_handler_leaves_the_full_offer_standing() -> None:
     assert set(feasible_skill_ids(GOAL, subject)) == {
         "break_seen_block",
         "craft_take_result",
+        "select_hotbar",  # the HUD slots are visible, so the generic choice is offered
         "use_target",
         "turn_to",
     }
@@ -597,7 +625,8 @@ def test_a_model_that_asks_to_leave_the_screen_becomes_a_close_plan() -> None:
     the skill layer names for a step that only touches the screen."""
 
     mind, _ = mind_with(
-        Decision(skill_id=CLOSE_SCREEN, reason="out of the window", intent_generation=1)
+        Decision(skill_id=CLOSE_SCREEN, reason="out of the window", intent_generation=1),
+        policy=DecisionPolicy.MODEL,
     )
     intent = mind.next_intent(
         reading(
@@ -620,7 +649,8 @@ def test_a_model_that_asks_to_use_the_aimed_block_becomes_a_use_plan() -> None:
     ask uses to put its table down and open it without the mind naming the table at all."""
 
     mind, _ = mind_with(
-        Decision(skill_id="use_target", reason="use what is in view", intent_generation=1)
+        Decision(skill_id="use_target", reason="use what is in view", intent_generation=1),
+        policy=DecisionPolicy.MODEL,
     )
     intent = mind.next_intent(reading(aim=block_aim(), items=((0, PLANKS, 5),)))
 
@@ -655,6 +685,7 @@ def test_a_use_spent_on_one_target_is_not_replayed_until_the_aim_moves() -> None
         Decision(skill_id="use_target", reason="place what is in hand", intent_generation=1),
         Decision(skill_id="use_target", reason="place it again", intent_generation=2),
         Decision(skill_id="use_target", reason="place against the new block", intent_generation=3),
+        policy=DecisionPolicy.MODEL,
     )
 
     first = mind.next_intent(reading(aim=block_aim()))
@@ -676,6 +707,7 @@ def test_the_repeat_guard_clears_once_a_step_confirms() -> None:
     mind, _ = mind_with(
         Decision(skill_id="use_target", reason="place", intent_generation=1),
         Decision(skill_id="use_target", reason="open the placed table", intent_generation=2),
+        policy=DecisionPolicy.MODEL,
     )
     first = mind.next_intent(reading(aim=block_aim()))
     assert first.skill == "use_target"
@@ -686,13 +718,13 @@ def test_the_repeat_guard_clears_once_a_step_confirms() -> None:
     assert second.skill == "use_target"
 
 
-def test_the_off_mind_leaves_an_open_screen_before_it_looks() -> None:
-    """`off` walks the same narrowing: the local reflection sees only `close_screen` in the offer
-    and chooses it, so a machine with no credentials still steps out of a stuck window instead of
-    sending a crosshair click into it."""
+def test_the_rule_mind_leaves_an_open_screen_before_it_looks() -> None:
+    """The explicitly selected rule strategy walks the same narrowing: the rule order sees only
+    `close_screen` in the offer and chooses it, so an offline demo still steps out of a stuck
+    window instead of sending a crosshair click into it."""
 
     ledger = CostLedger(run_cost_cap=CAP)
-    mind = mind_for(OffModelProvider(), ledger, goal=GOAL)
+    mind = mind_for(OffModelProvider(), ledger, goal=GOAL, policy=DecisionPolicy.RULES)
     intent = mind.next_intent(reading(aim=block_aim(), gui=GuiScreenValue(screen_id="", sync_id=3)))
 
     assert intent.source == DECISION_FROM_LOCAL
@@ -706,7 +738,7 @@ def test_a_closed_reading_gives_the_world_actions_back() -> None:
     closes on its own."""
 
     ledger = CostLedger(run_cost_cap=CAP)
-    mind = mind_for(OffModelProvider(), ledger, goal=GOAL)
+    mind = mind_for(OffModelProvider(), ledger, goal=GOAL, policy=DecisionPolicy.RULES)
 
     open_reading = reading(aim=block_aim(), gui=GuiScreenValue(screen_id="", sync_id=3))
     closed_reading = reading(aim=block_aim())
@@ -748,6 +780,7 @@ def test_the_ask_carries_only_what_the_local_layer_computed() -> None:
     assert set(request.feasible_skill_ids) == {
         "break_seen_block",
         "craft_take_result",
+        "select_hotbar",  # a visible HUD slot is a generic choice, milestone or not
         "use_target",
         "turn_to",
     }
@@ -755,13 +788,17 @@ def test_the_ask_carries_only_what_the_local_layer_computed() -> None:
     assert request.persona_seed == "seed-9"
     assert request.budget_remaining_micro == ledger.remaining()
     assert request.intent_generation == 1
-    assert mind.next_intent(subject).intent_generation == 2
+    # The second ask happens (and is refused by the empty script) with the next generation:
+    # the number advances per ask, which is what a stale answer is judged against.
+    assert mind.next_intent(subject).kind is MindDecisionKind.HOLD
+    assert mind.intent_generation == 2
     assert provider.requests[1].intent_generation == 2
 
 
 def test_a_choice_inside_the_offer_becomes_a_plan_with_arguments() -> None:
     mind, _ = mind_with(
-        Decision(skill_id="collect_dropped", reason="it is on the ground", intent_generation=1)
+        Decision(skill_id="collect_dropped", reason="it is on the ground", intent_generation=1),
+        policy=DecisionPolicy.MODEL,
     )
     intent = mind.next_intent(reading(entities=(drop(),), aim=block_aim()))
 
@@ -814,6 +851,7 @@ def test_the_same_craft_code_honours_a_different_product_every_time(
             arguments={"target_item": target, "quantity": quantity},
         ),
         goal=milestone,
+        policy=DecisionPolicy.MODEL,
     )
 
     intent = mind.next_intent(reading(items=items))
@@ -839,7 +877,8 @@ def test_an_ask_for_a_product_the_table_does_not_know_holds_the_uncurated_word()
             reason="make me a sword",
             intent_generation=1,
             arguments={"target_item": "minecraft:iron_sword", "quantity": 1},
-        )
+        ),
+        policy=DecisionPolicy.MODEL,
     )
 
     intent = mind.next_intent(reading(items=((0, PLANKS, 5),)))
@@ -849,11 +888,12 @@ def test_an_ask_for_a_product_the_table_does_not_know_holds_the_uncurated_word()
     assert intent.plan.calls == ()
 
 
-def test_an_ask_the_bag_cannot_pay_for_reroutes_with_the_materials_word() -> None:
+def test_an_unpayable_model_craft_is_reported_not_replaced() -> None:
     """The offer was built from a craft the bag *can* pay for (two planks make sticks), while the
     ask named a product whose chain it cannot (a table wants four planks). The two questions are
-    separate, so the answer is honoured as a choice and refused as a plan, under the word that
-    sends the Kin back to the resource rather than the one that gives the skill up."""
+    separate, so the answer is honoured as a choice and refused as a plan — and under the model
+    policy the materials word stops the run; local code does not choose the sticks the bag
+    could have made instead."""
 
     mind, _ = mind_with(
         Decision(
@@ -861,27 +901,24 @@ def test_an_ask_the_bag_cannot_pay_for_reroutes_with_the_materials_word() -> Non
             reason="make a crafting table",
             intent_generation=1,
             arguments={"target_item": TABLE, "quantity": 1},
-        )
+        ),
+        policy=DecisionPolicy.MODEL,
     )
 
     intent = mind.next_intent(reading(items=((0, PLANKS, 2),)))
 
-    assert intent.kind is MindDecisionKind.INTENT
-    assert intent.skill == "craft_take_result"
-    assert intent.plan.calls[0].product_id == STICK
-    assert intent.source == DECISION_FROM_LOCAL
-    assert intent.model_refusal == CRAFT_MATERIALS_MISSING
+    assert intent.kind is MindDecisionKind.HOLD
+    assert intent.reason == CRAFT_MATERIALS_MISSING
+    assert intent.plan.calls == ()
     assert mind.last_precondition == CRAFT_MATERIALS_MISSING
 
 
-def test_an_ask_for_a_three_by_three_selects_the_stood_enabler() -> None:
-    """The pickaxe is a three-by-three shape and the inventory grid cannot hold it, so the bare
-    craft ask is out of bounds — but with the table already in the bag the ask is no longer the
-    terminal wall it was before the grid enabler existed. The mind reroutes to the general next
-    step: select the enabler so a later reading can place and open it. Nothing here names a
-    table as a special case; the choice comes from `opens_grid_side` and the enabler-aware
-    `select_target`, and the terminal `CRAFT_GRID_TOO_SMALL` word is still asserted at the
-    craft-precondition level in `test_the_blocked_craft_names_the_precondition_...`."""
+def test_a_three_by_three_ask_the_open_grid_cannot_hold_is_reported_not_rerouted() -> None:
+    """The pickaxe is a three-by-three shape and the inventory grid cannot hold it, so the
+    terminal craft is not even offered while the two-by-two is up — the ask is refused out of
+    bounds. Choosing the next move (select the table, place it, open it) is a decision, so the
+    model re-decides from a new observation; the rule strategy's cells below are where the
+    enabler choreography lives."""
 
     table_and_materials = reading(items=((0, PLANKS, 3), (1, STICK, 2), (2, TABLE, 1)))
     mind, _ = mind_with(
@@ -890,12 +927,29 @@ def test_an_ask_for_a_three_by_three_selects_the_stood_enabler() -> None:
             reason="make the pickaxe",
             intent_generation=1,
             arguments={"target_item": PICKAXE, "quantity": 1},
-        )
+        ),
+        policy=DecisionPolicy.MODEL,
     )
 
     intent = mind.next_intent(table_and_materials)
 
+    assert intent.kind is MindDecisionKind.HOLD
+    assert intent.reason == "DECISION_OUT_OF_BOUNDS"
+    assert intent.plan.calls == ()
+
+
+def test_the_rule_order_selects_the_stood_enabler_toward_the_three_by_three() -> None:
+    """The rules strategy's side of the same reading: with the table in the bag and every
+    two-by-two shape paid, the rule order reaches for the enabler — select it so a later
+    reading can place and open it — because the goal is the rules' own standing target."""
+
+    table_and_materials = reading(items=((0, PLANKS, 3), (1, STICK, 2), (2, TABLE, 1)))
+    mind, _ = mind_with()
+
+    intent = mind.next_intent(table_and_materials)
+
     assert intent.kind is MindDecisionKind.INTENT
+    assert intent.source == DECISION_FROM_LOCAL
     assert intent.skill == "select_hotbar"
     assert intent.arguments == {"slot": 2, "expected_item_id": TABLE}
 
@@ -914,7 +968,8 @@ def test_an_ask_for_a_three_by_three_builds_the_enabler_it_still_owes() -> None:
             reason="make the pickaxe",
             intent_generation=1,
             arguments={"target_item": PICKAXE, "quantity": 1},
-        )
+        ),
+        policy=DecisionPolicy.MODEL,
     )
 
     intent = mind.next_intent(payable_for_table)
@@ -934,7 +989,8 @@ def test_an_ask_names_the_drop_it_wants_even_when_the_milestone_named_another() 
             reason="it is on the ground",
             intent_generation=1,
             arguments={"item_id": COAL},
-        )
+        ),
+        policy=DecisionPolicy.MODEL,
     )
 
     intent = mind.next_intent(reading(entities=(drop(COAL),)))
@@ -955,7 +1011,8 @@ def test_an_ask_of_an_angle_replaces_the_scan_step() -> None:
             reason="look east and down",
             intent_generation=1,
             arguments={"yaw_degrees": 90.0, "pitch_degrees": -45.0},
-        )
+        ),
+        policy=DecisionPolicy.MODEL,
     )
 
     intent = mind.next_intent(reading())
@@ -964,15 +1021,171 @@ def test_an_ask_of_an_angle_replaces_the_scan_step() -> None:
     assert (call.yaw_degrees, call.pitch_degrees) == (90.0, -45.0)
 
 
-def test_a_local_choice_carries_the_arguments_the_milestone_and_reading_imply() -> None:
-    """An ask nobody put to a model still gets its parameters filled, from the milestone and the
-    reading, and the document says which: `source=local` beside an `arguments` map that names the
-    product the mind was working toward. Without this the fallback would be a second, undocumented
-    way of deciding what a craft is for."""
+def test_a_models_hotbar_slot_is_executed_where_named_not_the_goal_slot() -> None:
+    """Independent-measurement counterexample: the model named slot 1 (planks) while the
+    milestone's product sits in slot 0. The call must select slot 1 — the standing goal
+    never replaces an explicit parameter, and the run records the model's own ask."""
+
+    mind, _ = mind_with(
+        Decision(
+            skill_id="select_hotbar",
+            reason="put the planks in hand",
+            intent_generation=1,
+            arguments={"slot": 1, "expected_item_id": PLANKS},
+        ),
+        policy=DecisionPolicy.MODEL,
+    )
+    observed = reading(items=((0, PICKAXE, 1), (1, PLANKS, 4)))
+
+    intent = mind.next_intent(observed)
+
+    assert intent.kind is MindDecisionKind.INTENT
+    assert intent.source == DECISION_FROM_MODEL
+    call = intent.plan.calls[0]
+    assert call.name == "select_hotbar"
+    assert (call.slot, call.expected_item_id) == (1, PLANKS)
+    assert intent.arguments == {"slot": 1, "expected_item_id": PLANKS}
+
+
+def test_a_hotbar_choice_needs_no_standing_milestone() -> None:
+    """The general selection capability is offered for the player-visible hotbar slots even
+    when no milestone stands: it must not be hidden because there is no gather target."""
+
+    mind, _ = mind_with(
+        Decision(
+            skill_id="select_hotbar",
+            reason="planks to hand",
+            intent_generation=1,
+            arguments={"slot": 2, "expected_item_id": PLANKS},
+        ),
+        goal=None,
+        policy=DecisionPolicy.MODEL,
+    )
+    provider = cast(ScriptedProvider, mind.provider)
+    observed = reading(items=((2, PLANKS, 3),), self_state=state(selected_slot=0))
+
+    intent = mind.next_intent(observed)
+
+    assert "select_hotbar" in provider.requests[-1].feasible_skill_ids
+    assert intent.kind is MindDecisionKind.INTENT
+    assert intent.plan.calls[0].slot == 2
+    assert intent.arguments == {"slot": 2, "expected_item_id": PLANKS}
+
+
+def test_a_hotbar_ask_whose_expected_item_is_not_there_is_refused_not_swapped() -> None:
+    """Slot 1 holds planks; the model asked for slot 1 expecting coal. The ask is
+    inapplicable as written and gets its own name back — neither the planks nor the goal's
+    pickaxe in slot 0 is selected in its place."""
+
+    mind, _ = mind_with(
+        Decision(
+            skill_id="select_hotbar",
+            reason="coal to hand",
+            intent_generation=1,
+            arguments={"slot": 1, "expected_item_id": COAL},
+        ),
+        policy=DecisionPolicy.MODEL,
+    )
+    observed = reading(items=((0, PICKAXE, 1), (1, PLANKS, 4)))
+
+    intent = mind.next_intent(observed)
+
+    assert intent.kind is MindDecisionKind.HOLD
+    assert intent.reason == SELECT_ITEM_NOT_IN_SLOT
+    assert intent.plan.calls == ()
+
+
+def test_a_hotbar_ask_without_a_slot_is_refused_by_name() -> None:
+    """The slot is the choice; a self-built answer that names the skill but not the slot is
+    refused before anything is selected, not filled from the goal."""
+
+    mind, _ = mind_with(
+        Decision(skill_id="select_hotbar", reason="something to hand", intent_generation=1),
+        policy=DecisionPolicy.MODEL,
+    )
+    observed = reading(items=((0, PICKAXE, 1), (1, PLANKS, 4)))
+
+    intent = mind.next_intent(observed)
+
+    assert intent.kind is MindDecisionKind.HOLD
+    assert intent.reason == "MODEL_ARGUMENTS_MISSING"
+    assert intent.plan.calls == ()
+
+
+def test_a_models_walk_seconds_reaches_the_collect_call() -> None:
+    """`collect_dropped` declares `walk_seconds`; an answer that names it must have the walk
+    run for that many seconds, not the parameter silently dropped on the floor."""
+
+    mind, _ = mind_with(
+        Decision(
+            skill_id="collect_dropped",
+            reason="walk it down",
+            intent_generation=1,
+            arguments={"item_id": LOG, "walk_seconds": 7.5},
+        ),
+        policy=DecisionPolicy.MODEL,
+    )
+
+    intent = mind.next_intent(reading(entities=(drop(),)))
+
+    assert intent.kind is MindDecisionKind.INTENT
+    call = intent.plan.calls[0]
+    assert call.name == "collect_dropped"
+    assert call.item_id == LOG
+    assert call.walk_seconds == 7.5
+    assert intent.arguments == {"item_id": LOG, "walk_seconds": 7.5}
+
+
+def test_a_models_craft_quantity_is_not_taken_from_the_milestone() -> None:
+    """The milestone wants eight planks; the model's ask named the product and no quantity.
+    The missing number must not be filled from the operator's goal — one is the ask's own
+    default, and the milestone's eight is not the model's decision."""
+
+    mind, _ = mind_with(
+        Decision(
+            skill_id="craft_take_result",
+            reason="one plank",
+            intent_generation=1,
+            arguments={"target_item": PLANKS},
+        ),
+        goal=PLANK_GOAL,
+        policy=DecisionPolicy.MODEL,
+    )
+
+    intent = mind.next_intent(reading(items=((0, LOG, 1),)))
+
+    assert intent.kind is MindDecisionKind.INTENT
+    assert intent.arguments == {"target_item": PLANKS, "quantity": 1}
+
+
+def test_a_models_break_is_not_told_what_to_expect_from_the_milestone() -> None:
+    """`expected_drop_item` omitted is an ask with no expectation — not an invitation to
+    borrow the milestone's source item. The rules branch keeps its own goal-derived fill
+    (the gather cells below), and only there."""
+
+    mind, _ = mind_with(
+        Decision(skill_id="break_seen_block", reason="dig it", intent_generation=1),
+        policy=DecisionPolicy.MODEL,
+    )
+
+    intent = mind.next_intent(reading(aim=block_aim()))
+
+    assert intent.kind is MindDecisionKind.INTENT
+    assert intent.plan.calls[0].expected_drop_item == ""
+    assert intent.arguments == {"expected_drop_item": ""}
+
+
+def test_a_rule_choice_carries_the_arguments_the_milestone_and_reading_imply() -> None:
+    """A step nobody put to a model still gets its parameters filled, from the milestone and the
+    reading, and the document says which: `source=local_reflection` beside an `arguments` map
+    that names the product the milestone was working toward. Without this the rule order would
+    be a second, undocumented way of saying what a craft is for."""
 
     provider = OffModelProvider()
     ledger = CostLedger(run_cost_cap=CAP)
-    mind = mind_for(provider, ledger, goal=PLANK_GOAL, model_enabled=False)
+    mind = mind_for(
+        provider, ledger, goal=PLANK_GOAL, model_enabled=False, policy=DecisionPolicy.RULES
+    )
 
     intent = mind.next_intent(reading(items=((0, LOG, 1),)))
 
@@ -1124,16 +1337,78 @@ def test_an_open_merchants_rows_are_offered_and_the_models_row_is_honoured() -> 
     assert intent.arguments["offer_index"] == 1
 
 
-def test_the_local_reflex_takes_the_first_payable_merchant_row() -> None:
+@pytest.mark.parametrize(
+    "refusal",
+    [UnavailableReason.TIMEOUT, UnavailableReason.MODEL_NOT_CONFIGURED],
+)
+def test_a_payable_merchant_row_is_not_bought_when_the_model_is_silent(
+    refusal: UnavailableReason,
+) -> None:
+    """The first minimum counterexample of `docs/decision-agency.md` §运行时决策失败与通用执行边界:
+    the same payable offer must not produce an ordinary purchase input when the model refuses or
+    is unavailable. Row 1 (wheat + one emerald) is payable; a timeout and a missing credential
+    both stop the run under their own name, and no trade plan is built for either."""
+
+    mind, _ = mind_with(ModelUnavailable(refusal), policy=DecisionPolicy.MODEL)
+    observed = reading(items=((0, WHEAT, 21), (1, EMERALD, 1)), gui=merchant_screen())
+
+    intent = mind.next_intent(observed)
+
+    assert intent.kind is MindDecisionKind.HOLD
+    assert intent.reason == refusal.value
+    assert intent.plan.calls == ()
+    assert intent.model_refusal == refusal.value
+    assert intent.skill != "trade"
+
+
+def test_a_refused_trade_answer_is_never_replaced_with_another_row() -> None:
+    """The second minimum counterexample: a model answer this side cannot honour — here the row
+    argument is missing — is returned by name, never filled in with the first payable row."""
+
+    mind, _ = mind_with(
+        ModelUnavailable(UnavailableReason.MODEL_ARGUMENTS_MISSING),
+        policy=DecisionPolicy.MODEL,
+    )
+    observed = reading(items=((0, WHEAT, 21), (1, EMERALD, 1)), gui=merchant_screen())
+
+    intent = mind.next_intent(observed)
+
+    assert intent.kind is MindDecisionKind.HOLD
+    assert intent.reason == "MODEL_ARGUMENTS_MISSING"
+    assert intent.plan.calls == ()
+
+
+def test_a_self_built_trade_without_a_row_is_refused_before_any_substitution() -> None:
+    """A provider that bypasses the port's argument check still cannot get a row chosen for it:
+    the row is the choice, and `validate_arguments` refuses the ask by name."""
+
+    mind, _ = mind_with(
+        Decision(skill_id="trade", reason="buy something", intent_generation=1),
+        policy=DecisionPolicy.MODEL,
+    )
+    observed = reading(items=((0, WHEAT, 21), (1, EMERALD, 1)), gui=merchant_screen())
+
+    intent = mind.next_intent(observed)
+
+    assert intent.kind is MindDecisionKind.HOLD
+    assert intent.reason == "MODEL_ARGUMENTS_MISSING"
+    assert intent.plan.calls == ()
+
+
+def test_the_rule_order_never_buys_the_first_payable_row_either() -> None:
+    """The rule strategy has no trade branch at all: a merchant window with a payable row is
+    left, not shopped. The row only ever comes from an explicit `offer_index` — a model's ask
+    or an operator's plan."""
+
     mind, _ = mind_with()
     observed = reading(items=((0, WHEAT, 21), (1, EMERALD, 1)), gui=merchant_screen())
 
     intent = mind.next_intent(observed)
 
-    # Row 0 wants three emeralds (the bag has one); row 1 wants the wheat and the one
-    # emerald -- the reflex takes the first row the counts actually support.
-    assert intent.skill == "trade"
-    assert intent.plan.calls[0].offer_index == 1
+    assert intent.kind is MindDecisionKind.INTENT
+    assert intent.source == DECISION_FROM_LOCAL
+    assert intent.skill == CLOSE_SCREEN
+    assert intent.plan.calls[0].name == CLOSE_SCREEN
 
 
 def test_a_rendered_trader_can_be_walked_to_on_the_models_call() -> None:
@@ -1222,14 +1497,16 @@ def test_the_offer_lets_the_model_choose_what_a_rendered_body_means() -> None:
             reason="that pig is dinner",
             intent_generation=1,
             arguments={"target_entity_type": "minecraft:pig"},
-        )
+        ),
+        policy=DecisionPolicy.MODEL,
     )
     swat = attacking.next_intent(reading(entities=(pig(at=2.0),)))
     assert swat.skill == "fight_back"
     assert swat.plan.calls[0].target_entity_type == "minecraft:pig"
 
     working, _ = mind_with(
-        Decision(skill_id="break_seen_block", reason="keep working", intent_generation=1)
+        Decision(skill_id="break_seen_block", reason="keep working", intent_generation=1),
+        policy=DecisionPolicy.MODEL,
     )
     # A slime in threat range no longer pre-removes the work from the model's offer: the
     # model judges for itself whether this moment is for the tree or for the slime.
@@ -1301,30 +1578,58 @@ def test_the_ask_says_when_the_owed_plan_needs_a_larger_grid() -> None:
     assert planks_provider.requests[0].observation_summary["larger_grid_needed"] is False
 
 
-# ------------------------------------------------------------- refusals take the local path
+# ------------------------------------------- a failed decision is a named stop, not a rule tree
 
 
-def test_the_off_provider_leaves_a_named_refusal_and_a_local_choice() -> None:
+def test_an_off_model_stops_by_name_instead_of_letting_the_rules_play() -> None:
+    """`off` is a missing credential, not a licence: under the default model policy the run
+    stops with the provider's own word, and no ordinary behavior is chosen in its place. The
+    ledger still stays empty — `off` asks nothing and costs nothing."""
+
     ledger = CostLedger(run_cost_cap=CAP)
     mind = mind_for(OffModelProvider(), ledger, model_enabled=False, goal=GOAL)
     intent = mind.next_intent(reading(aim=block_aim()))
 
-    assert intent.source == DECISION_FROM_LOCAL
-    assert intent.skill == "break_seen_block"
+    assert intent.kind is MindDecisionKind.HOLD
+    assert intent.reason == UnavailableReason.MODEL_NOT_CONFIGURED.value
+    assert intent.plan.calls == ()
     assert intent.model_refusal == UnavailableReason.MODEL_NOT_CONFIGURED.value
-    # `off` asks nothing, so it costs nothing: the ledger stays empty rather than filling
-    # with refusals that would read as a failing model.
     assert ledger.calls == 0
     assert ledger.spent == 0
     document = mind.as_document()
-    assert document["decision_source"] == DECISION_FROM_LOCAL
+    assert document["decision_policy"] == "model"
     assert document["model_refusal"] == "MODEL_NOT_CONFIGURED"
     assert document["model_enabled"] is False
 
 
-def test_the_local_order_finishes_the_chain_before_it_looks() -> None:
+def test_explicit_rules_strategy_plays_without_ever_asking_the_provider() -> None:
+    """The offline demos' shape has to be selected: with the rules policy the rule order
+    decides, the provider is never consulted — its queued answer would have been used
+    otherwise — and the document says `local_reflection` beside a policy nobody can mistake
+    for the model's."""
+
+    provider = ScriptedProvider(
+        Decision(skill_id="turn_to", reason="queued but never asked", intent_generation=1)
+    )
     ledger = CostLedger(run_cost_cap=CAP)
-    mind = mind_for(OffModelProvider(), ledger, goal=GOAL)
+    mind = mind_for(provider, ledger, goal=GOAL, policy=DecisionPolicy.RULES)
+
+    intent = mind.next_intent(reading(aim=block_aim()))
+
+    assert provider.requests == []
+    assert intent.kind is MindDecisionKind.INTENT
+    assert intent.source == DECISION_FROM_LOCAL
+    assert intent.skill == "break_seen_block"
+    assert intent.model_refusal == ""
+    document = mind.as_document()
+    assert document["decision_policy"] == "rules"
+    assert document["model_refusal"] == ""
+    assert document["model_calls"] == 0
+
+
+def test_the_rule_order_finishes_the_chain_before_it_looks() -> None:
+    ledger = CostLedger(run_cost_cap=CAP)
+    mind = mind_for(OffModelProvider(), ledger, goal=GOAL, policy=DecisionPolicy.RULES)
 
     assert (
         mind.next_intent(reading(items=((0, LOG, 1), (1, PLANKS, 1), (2, STICK, 2)))).skill
@@ -1339,27 +1644,37 @@ def test_the_local_order_finishes_the_chain_before_it_looks() -> None:
 
 
 def test_a_choice_outside_the_offer_is_refused_by_name_and_not_run() -> None:
-    mind, _ = mind_with(Decision(skill_id="fly_to_the_log", reason="sure", intent_generation=1))
+    mind, _ = mind_with(
+        Decision(skill_id="fly_to_the_log", reason="sure", intent_generation=1),
+        policy=DecisionPolicy.MODEL,
+    )
     intent = mind.next_intent(reading())
 
-    assert intent.skill == "turn_to"
-    assert intent.source == DECISION_FROM_LOCAL
+    assert intent.kind is MindDecisionKind.HOLD
+    assert intent.reason == UnavailableReason.DECISION_OUT_OF_BOUNDS.value
     assert intent.model_refusal == UnavailableReason.DECISION_OUT_OF_BOUNDS.value
-    assert {call.name for call in intent.plan.calls} == {"turn_to"}
+    assert intent.plan.calls == ()
 
 
-def test_a_late_answer_takes_the_same_conservative_path_as_a_timeout() -> None:
-    mind, _ = mind_with(ModelUnavailable(UnavailableReason.STALE_GENERATION))
+def test_a_late_answer_stops_the_run_instead_of_taking_over() -> None:
+    mind, _ = mind_with(
+        ModelUnavailable(UnavailableReason.STALE_GENERATION), policy=DecisionPolicy.MODEL
+    )
     subject = reading(aim=block_aim())
     intent = mind.next_intent(subject)
 
+    assert intent.kind is MindDecisionKind.HOLD
+    assert intent.reason == "STALE_GENERATION"
     assert intent.model_refusal == "STALE_GENERATION"
-    assert intent.source == DECISION_FROM_LOCAL
+    assert intent.plan.calls == ()
     assert mind.direction == GOAL.label
     assert mind.goal_met is False
 
 
-def test_the_cost_cap_refuses_calls_and_not_playing() -> None:
+def test_the_cost_cap_stops_the_run_and_not_just_the_next_call() -> None:
+    """A spent budget is a model-policy failure like any other: the refusal is named, the run
+    stops, and the rules do not quietly take the step the budget refused to pay for."""
+
     ledger = CostLedger(run_cost_cap=10)
     ledger.record_call(
         "openai_compatible",
@@ -1376,11 +1691,95 @@ def test_the_cost_cap_refuses_calls_and_not_playing() -> None:
     )
     intent = mind.next_intent(reading(aim=block_aim(), items=((0, LOG, 1),)))
 
-    assert intent.kind is MindDecisionKind.INTENT
-    assert intent.model_refusal == "RUN_COST_CAP_REACHED"
+    assert intent.kind is MindDecisionKind.HOLD
+    assert intent.reason == "RUN_COST_CAP_REACHED"
+    assert intent.plan.calls == ()
     document = mind.as_document()
     assert document["model_cap_refusals"] == 1
     assert document["model_calls"] == 0
+
+
+# ------------------------------- the one local step the model policy still owns: imminent harm
+
+
+def test_a_hostile_inside_reach_preempts_a_silent_model_with_a_retreat_not_a_fight() -> None:
+    """Damage that can land right now is the narrow row local code keeps. A slime inside the
+    swing reach is imminent, so one bounded step away is taken under the refusal — and it is
+    the retreat, never the swing: whether to fight is the judgement the model was asked for."""
+
+    mind, _ = mind_with(ModelUnavailable(UnavailableReason.TIMEOUT), policy=DecisionPolicy.MODEL)
+    intent = mind.next_intent(reading(entities=(slime(at=2.0),)))
+
+    assert intent.kind is MindDecisionKind.INTENT
+    assert intent.skill == "retreat"
+    assert intent.source == DECISION_FROM_LOCAL
+    assert intent.model_refusal == "TIMEOUT"
+
+
+def test_death_under_the_model_policy_is_not_auto_respawned() -> None:
+    """A respawn is recovery, not protection from imminent harm: with the model silent, the
+    dead body's run stops under the refusal name. The named stop is the operator's cue, and
+    the release path still lets go of every key."""
+
+    mind, _ = mind_with(ModelUnavailable(UnavailableReason.TIMEOUT), policy=DecisionPolicy.MODEL)
+    dead = reading(self_state=replace(state(alive=False), respawn_available=True))
+
+    intent = mind.next_intent(dead)
+
+    assert intent.kind is MindDecisionKind.HOLD
+    assert intent.reason == "TIMEOUT"
+    assert intent.skill != "respawn"
+    assert intent.plan.calls == ()
+
+
+def test_hunger_under_the_model_policy_is_not_auto_eaten() -> None:
+    """Eating is an ordinary survival choice, not imminent protection: a silent model with a
+    meal in reach still gets a named stop, not a local bite."""
+
+    mind, _ = mind_with(
+        ModelUnavailable(UnavailableReason.TIMEOUT), goal=None, policy=DecisionPolicy.MODEL
+    )
+    intent = mind.next_intent(meal_reading(food=4))
+
+    assert intent.kind is MindDecisionKind.HOLD
+    assert intent.reason == "TIMEOUT"
+    assert intent.skill != "consume_item"
+    assert intent.plan.calls == ()
+
+
+def test_a_hostile_out_of_reach_is_not_imminent_enough_to_preempt() -> None:
+    """A body the client renders five blocks out is a fact for the summary, not a stop-work
+    alarm: outside the swing reach and with no damage yet taken, the silent model's run
+    stops instead of the rules choosing a response."""
+
+    mind, _ = mind_with(ModelUnavailable(UnavailableReason.TIMEOUT), policy=DecisionPolicy.MODEL)
+    intent = mind.next_intent(reading(entities=(slime(at=5.0),)))
+
+    assert intent.kind is MindDecisionKind.HOLD
+    assert intent.reason == "TIMEOUT"
+    assert intent.plan.calls == ()
+
+
+def test_the_policy_defaults_to_model_and_the_environment_selects_rules_explicitly() -> None:
+    assert decision_policy_from_environment({}) is DecisionPolicy.MODEL
+    assert decision_policy_from_environment({"MINEKIN_DECISION_POLICY": "rules"}) is (
+        DecisionPolicy.RULES
+    )
+    assert decision_policy_from_environment({"MINEKIN_DECISION_POLICY": " MODEL "}) is (
+        DecisionPolicy.MODEL
+    )
+    with pytest.raises(ValueError, match="MINEKIN_DECISION_POLICY"):
+        decision_policy_from_environment({"MINEKIN_DECISION_POLICY": "off"})
+
+    # The run's mind reads that selection and defaults to the model policy when it is silent.
+    from minekin_core.cli.session import mind_for_run
+    from minekin_core.domain.errors import MinekinError
+
+    assert mind_for_run("kin-policy", {}).policy is DecisionPolicy.MODEL
+    selected = mind_for_run("kin-policy", {"MINEKIN_DECISION_POLICY": "rules"})
+    assert selected.policy is DecisionPolicy.RULES
+    with pytest.raises(MinekinError, match="MINEKIN_DECISION_POLICY"):
+        mind_for_run("kin-policy", {"MINEKIN_DECISION_POLICY": "sometimes"})
 
 
 # ---------------------------------------------------------------- results and their attribution
@@ -1555,8 +1954,12 @@ def test_a_precondition_no_reading_can_undo_gives_the_skill_up_on_the_first_word
 def test_a_decision_that_claims_the_goal_does_not_close_it() -> None:
     mind, _ = mind_with(
         Decision(
-            skill_id="craft_take_result", reason="this finishes the pickaxe", intent_generation=1
-        )
+            skill_id="craft_take_result",
+            reason="this finishes the pickaxe",
+            intent_generation=1,
+            arguments={"target_item": PICKAXE, "quantity": 1},
+        ),
+        policy=DecisionPolicy.MODEL,
     )
     subject = reading(items=((0, LOG, 1), (1, PLANKS, 1), (2, STICK, 2)))
     intent = mind.next_intent(subject)
@@ -1663,7 +2066,15 @@ def test_a_visible_hostile_stops_the_stand_still_work() -> None:
 
 
 def test_a_health_drop_is_a_hit_even_with_nothing_in_view() -> None:
-    mind, _ = mind_with()
+    """The one step the model policy still takes without a decision: damage being taken now.
+    The provider refused, so the retreat is local code's — and the request the refusal
+    answered still carried the danger it was refused for."""
+
+    mind, _ = mind_with(
+        ModelUnavailable(UnavailableReason.TIMEOUT),
+        Decision(skill_id="break_seen_block", reason="keep working", intent_generation=2),
+        policy=DecisionPolicy.MODEL,
+    )
     provider = cast(ScriptedProvider, mind.provider)
     mind.observe(reading(self_state=state(health=20.0)))
     observed = reading(tick=200, aim=block_aim(), self_state=state(health=15.0))
@@ -1672,6 +2083,8 @@ def test_a_health_drop_is_a_hit_even_with_nothing_in_view() -> None:
     # there is no bearing to take -- the mind leaves on a named hold from where it stands.
     intent = mind.next_intent(observed)
     assert intent.skill == "retreat"
+    assert intent.source == DECISION_FROM_LOCAL
+    assert intent.model_refusal == "TIMEOUT"
     assert intent.arguments["hold_seconds"] == RETREAT_FLEE_SECONDS
     assert intent.plan.calls[0].hold_seconds == RETREAT_FLEE_SECONDS
     summary = cast(dict[str, object], provider.requests[-1].observation_summary)
@@ -1679,7 +2092,7 @@ def test_a_health_drop_is_a_hit_even_with_nothing_in_view() -> None:
     assert provider.requests[-1].needs["safety"] >= 7
 
     # The next unhurt reading is not a hit: the flag is about the pair of readings, not a
-    # latched alarm, and the work is offered again.
+    # latched alarm, and the work is offered again -- by the model, whose next answer stands.
     recovered = reading(tick=300, aim=block_aim(), self_state=state(health=15.0))
     assert mind.next_intent(recovered).skill == "break_seen_block"
 
@@ -1747,7 +2160,8 @@ def test_fight_back_honours_a_named_swing_and_defaults_it_otherwise() -> None:
             reason="swat it",
             intent_generation=1,
             arguments={"swing_seconds": 6},
-        )
+        ),
+        policy=DecisionPolicy.MODEL,
     )
     intent = mind.next_intent(reading(entities=(slime(),)))
 
@@ -1797,7 +2211,8 @@ def test_a_named_hold_from_the_model_is_honoured() -> None:
             reason="keep moving while it is dark",
             intent_generation=1,
             arguments={"hold_seconds": 3.0},
-        )
+        ),
+        policy=DecisionPolicy.MODEL,
     )
     intent = mind.next_intent(reading(entities=(slime(),)))
 
@@ -1996,7 +2411,9 @@ def test_a_re_aim_is_refused_with_no_standing_goal_or_no_position() -> None:
     from. Neither is a gamble — each falls back to the blind sweep.
     """
 
-    mindless = mind_for(ScriptedProvider(), CostLedger(run_cost_cap=CAP), goal=None)
+    mindless = mind_for(
+        ScriptedProvider(), CostLedger(run_cost_cap=CAP), goal=None, policy=DecisionPolicy.RULES
+    )
     mindless.last_target_block = (0, 64, 5)
     turned = mindless.next_intent(reading())
     # With no standing milestone there is no raw material to return to, so the fallback blind-scans
@@ -2005,7 +2422,9 @@ def test_a_re_aim_is_refused_with_no_standing_goal_or_no_position() -> None:
     assert turned.plan.calls[0].yaw_degrees % SCAN_YAW_STEP_DEGREES == pytest.approx(0.0)
     assert mindless.last_target_block == (0, 64, 5)
 
-    located = mind_for(ScriptedProvider(), CostLedger(run_cost_cap=CAP), goal=GOAL)
+    located = mind_for(
+        ScriptedProvider(), CostLedger(run_cost_cap=CAP), goal=GOAL, policy=DecisionPolicy.RULES
+    )
     located.last_target_block = (0, 64, 5)
     no_position = reading(
         self_state=SelfStateValue(
@@ -2222,6 +2641,7 @@ def test_empty_container_cycle_requires_material_or_target_change_before_reopeni
         Decision(skill_id="close_screen", reason="no materials", intent_generation=2),
         Decision(skill_id="use_target", reason="open again", intent_generation=3),
         Decision(skill_id="use_target", reason="materials changed", intent_generation=4),
+        policy=DecisionPolicy.MODEL,
     )
     provider = cast(ScriptedProvider, mind.provider)
     before = reading(aim=block_aim())
@@ -2261,6 +2681,7 @@ def test_model_recent_result_names_executed_prerequisite_and_inventory_change() 
             intent_generation=1,
             arguments={"target_item": PICKAXE, "quantity": 1},
         ),
+        policy=DecisionPolicy.MODEL,
     )
     before = reading(items=((0, LOG, 1),))
     intent = mind.next_intent(before)
@@ -2279,7 +2700,12 @@ def test_model_recent_result_names_executed_prerequisite_and_inventory_change() 
 
 
 def test_search_hint_uses_observed_cell_bearing_without_claiming_remaining_blocks() -> None:
-    mind, _ = mind_with()
+    mind, _ = mind_with(
+        Decision(skill_id="turn_to", reason="scan", intent_generation=1),
+        Decision(skill_id="break_seen_block", reason="fell it", intent_generation=2),
+        Decision(skill_id="turn_to", reason="scan again", intent_generation=3),
+        policy=DecisionPolicy.MODEL,
+    )
     provider = cast(ScriptedProvider, mind.provider)
     mind.next_intent(reading())
     initial = cast(dict[str, object], provider.requests[-1].observation_summary["view_search"])
@@ -2352,16 +2778,27 @@ def test_goal_quantity_can_span_stacks_with_a_later_matching_stack_selected() ->
 
 
 def test_partial_goal_output_does_not_displace_missing_materials_with_selection() -> None:
+    """Four of the eight planks is not the goal in hand, so the goal-derived selection target
+    stays `None`. The generic offer still carries `select_hotbar` — the slots are visible and
+    that choice is the deciding layer's — but the rule order does not reach for it while
+    materials are still owed: its craft branch comes first."""
+
     subject = reading(items=((3, PLANKS, 4),), self_state=state(selected_slot=0))
     assert select_target(PLANK_GOAL, subject) is None
-    assert "select_hotbar" not in feasible_skill_ids(PLANK_GOAL, subject)
+    assert "select_hotbar" in feasible_skill_ids(PLANK_GOAL, subject)
+    mind, _ = mind_with(goal=PLANK_GOAL)
+    assert mind.next_intent(subject).skill != "select_hotbar"
 
 
 @pytest.mark.parametrize("target,quantity", [(PLANKS, 4), (STICK, 4)])
-def test_a_satisfied_model_subgoal_continues_the_outstanding_milestone(
+def test_a_satisfied_model_subgoal_is_reported_and_not_extended_to_the_milestone(
     target: str,
     quantity: int,
 ) -> None:
+    """The ask was for four the bag already holds. The milestone still owes more, but
+    extending the model's satisfied request to the milestone's quantity would be local code
+    choosing the next goal — so the request is reported as satisfied and the run stops."""
+
     mind, _ = mind_with(
         Decision(
             skill_id="craft_take_result",
@@ -2370,14 +2807,13 @@ def test_a_satisfied_model_subgoal_continues_the_outstanding_milestone(
             arguments={"target_item": target, "quantity": quantity},
         ),
         goal=PLANK_GOAL,
+        policy=DecisionPolicy.MODEL,
     )
     subject = reading(items=((0, PLANKS, 4), (1, LOG, 1), (2, STICK, 4)))
     intent = mind.next_intent(subject)
-    assert intent.kind is MindDecisionKind.INTENT
-    assert intent.skill == "craft_take_result"
-    assert intent.plan.calls[0].product_id == PLANKS
-    assert intent.arguments == {"target_item": PLANKS, "quantity": 8}
-    assert intent.source == DECISION_FROM_LOCAL
+    assert intent.kind is MindDecisionKind.HOLD
+    assert intent.reason == "REQUEST_ALREADY_SATISFIED"
+    assert intent.plan.calls == ()
     assert intent.model_refusal == "REQUEST_ALREADY_SATISFIED"
     assert not mind.goal_met
 
@@ -2391,13 +2827,19 @@ def test_a_satisfied_request_without_a_goal_does_not_claim_goal_success() -> Non
             arguments={"target_item": PLANKS, "quantity": 4},
         ),
         goal=None,
+        policy=DecisionPolicy.MODEL,
     )
     intent = mind.next_intent(reading(items=((0, PLANKS, 4), (1, LOG, 1))))
     assert intent.reason == "REQUEST_ALREADY_SATISFIED"
+    assert intent.plan.calls == ()
     assert not mind.goal_met
 
 
-def test_an_unpayable_goal_craft_reroutes_to_search_instead_of_retrying_craft() -> None:
+def test_an_unpayable_goal_craft_is_reported_not_rerouted_to_search() -> None:
+    """The model asked for eight planks; the bag cannot pay the next stage. The materials
+    word goes back to the decision layer as a named stop — the local search the old fallback
+    would have started is exactly the silent rule-tree continuation the contract forbids."""
+
     mind, _ = mind_with(
         Decision(
             skill_id="craft_take_result",
@@ -2406,23 +2848,31 @@ def test_an_unpayable_goal_craft_reroutes_to_search_instead_of_retrying_craft() 
             arguments={"target_item": PLANKS, "quantity": 8},
         ),
         goal=PLANK_GOAL,
+        policy=DecisionPolicy.MODEL,
     )
     intent = mind.next_intent(reading(items=((0, PLANKS, 4),)))
-    assert intent.kind is MindDecisionKind.INTENT
-    assert intent.skill == "turn_to"
-    assert intent.source == DECISION_FROM_LOCAL
-    assert intent.model_refusal == CRAFT_MATERIALS_MISSING
+    assert intent.kind is MindDecisionKind.HOLD
+    assert intent.reason == CRAFT_MATERIALS_MISSING
+    assert intent.plan.calls == ()
+    assert mind.last_precondition == CRAFT_MATERIALS_MISSING
     assert not mind.goal_met
 
 
-def test_model_timeout_with_partial_output_still_searches_for_missing_materials() -> None:
-    mind, _ = mind_with(ModelUnavailable(UnavailableReason.TIMEOUT), goal=PLANK_GOAL)
+def test_a_model_timeout_does_not_search_for_missing_materials_on_the_rules_behalf() -> None:
+    """The flagship counterexample: partial output and a milestone used to send the rules off
+    to gather. A timeout now stops the run under its own name, milestone or not."""
+
+    mind, _ = mind_with(
+        ModelUnavailable(UnavailableReason.TIMEOUT),
+        goal=PLANK_GOAL,
+        policy=DecisionPolicy.MODEL,
+    )
     intent = mind.next_intent(reading(items=((0, PLANKS, 4),)))
-    assert intent.kind is MindDecisionKind.INTENT
-    assert intent.skill == "turn_to"
-    assert intent.source == DECISION_FROM_LOCAL
+    assert intent.kind is MindDecisionKind.HOLD
+    assert intent.reason == UnavailableReason.TIMEOUT.value
+    assert intent.plan.calls == ()
     assert intent.model_refusal == UnavailableReason.TIMEOUT.value
-    assert mind.last_precondition == CRAFT_MATERIALS_MISSING
+    assert not mind.goal_met
 
 
 # ------------------------------------------------------------------------------- the meal
@@ -2471,9 +2921,9 @@ def test_a_hungry_reading_offers_a_meal_only_inside_its_preconditions() -> None:
     )
 
 
-def test_the_local_reflection_eats_before_it_works_when_the_bar_is_low() -> None:
+def test_the_rule_order_eats_before_it_works_when_the_bar_is_low() -> None:
     ledger = CostLedger(run_cost_cap=CAP)
-    mind = mind_for(OffModelProvider(), ledger, goal=None)
+    mind = mind_for(OffModelProvider(), ledger, goal=None, policy=DecisionPolicy.RULES)
 
     intent = mind.next_intent(meal_reading(food=4))
     assert intent.kind is MindDecisionKind.INTENT
@@ -2483,12 +2933,16 @@ def test_the_local_reflection_eats_before_it_works_when_the_bar_is_low() -> None
     assert intent.plan.calls[0].item_id == "minecraft:apple"
     assert intent.arguments == {"target_item": "minecraft:apple"}
 
-    # With the bar fine nothing is asking for care, so the local layer does not
+    # With the bar fine nothing is asking for care, so the rule order does not
     # spend a step on a meal and looks around instead.
     assert mind.next_intent(meal_reading(food=14)).skill == "turn_to"
 
 
-def test_a_model_meal_the_precondition_refuses_reroutes_to_a_real_candidate() -> None:
+def test_a_model_meal_the_precondition_refuses_is_reported_not_replaced() -> None:
+    """The model named a rock. The refusal goes back by name — the apple the rules would
+    have picked is another ordinary choice, and choosing it here would be the substitution
+    §运行时决策失败与通用执行边界 forbids."""
+
     mind, _ = mind_with(
         Decision(
             skill_id="consume_item",
@@ -2497,6 +2951,7 @@ def test_a_model_meal_the_precondition_refuses_reroutes_to_a_real_candidate() ->
             arguments={"target_item": "minecraft:stone"},
         ),
         goal=None,
+        policy=DecisionPolicy.MODEL,
     )
     pre = reading(
         aim=clear_aim(),
@@ -2506,11 +2961,9 @@ def test_a_model_meal_the_precondition_refuses_reroutes_to_a_real_candidate() ->
 
     intent = mind.next_intent(pre)
 
-    assert intent.kind is MindDecisionKind.INTENT
-    assert intent.skill == "consume_item"
-    assert intent.source == DECISION_FROM_LOCAL
-    assert intent.model_refusal == "CONSUME_ITEM_NOT_KNOWN_FOOD"
-    assert intent.arguments == {"target_item": "minecraft:apple"}
+    assert intent.kind is MindDecisionKind.HOLD
+    assert intent.reason == "CONSUME_ITEM_NOT_KNOWN_FOOD"
+    assert intent.plan.calls == ()
     assert mind.last_precondition == "CONSUME_ITEM_NOT_KNOWN_FOOD"
 
 
