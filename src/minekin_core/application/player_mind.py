@@ -268,6 +268,7 @@ SKILL_OFFER: Final = _checked_offer(
         "collect_dropped",
         "consume_item",
         "respawn",
+        "retreat",
         "craft_take_result",
         "select_hotbar",
         "use_target",
@@ -732,6 +733,14 @@ def feasible_skill_ids(
         "craft_take_result"
         if craft_options(reading, grid_side=crafting_grid_side(reading))
         else "",
+        # Offered only when the client itself renders a hostile in sight within reach: a
+        # retreat without a visible threat has no bearing to take, and a name that guesses
+        # one is a step the world never showed.
+        "retreat"
+        if reading.self_state.alive
+        and not screen_open(reading)
+        and nearest_hostile(reading) is not None
+        else "",
         "select_hotbar"
         if select_target(milestone, reading, grid_side=crafting_grid_side(reading)) is not None
         else "",
@@ -1130,7 +1139,7 @@ class PlayerMind:
         threat: dict[str, object] = {"recent_damage": self.recent_damage}
         if hostile is not None:
             threat["nearest_hostile"] = {
-                "entity_type": hostile[0],
+                "entity_type": hostile[0].entity_type,
                 "distance_blocks": round(hostile[1], 2),
             }
         return threat
@@ -1603,6 +1612,11 @@ class PlayerMind:
             ):
                 return "craft_take_result"
             return "close_screen"
+        if "retreat" in feasible:
+            # A threat the client renders in sight: leave. Every slime death happened in a
+            # step that stood still (run-89), and one step away is the whole response this
+            # build has — the next reading decides whether another follows.
+            return "retreat"
         if "consume_item" in feasible and needs.get("safety", 0) >= 3:
             return "consume_item"
         if "select_hotbar" in feasible:
@@ -1669,6 +1683,12 @@ class PlayerMind:
         name, which is what the projection and the attribution table already read.
         """
 
+        if skill == "retreat":
+            return (
+                SkillPlan((SkillCall(name="retreat"),)),
+                "step away from the nearest visible threat",
+                {},
+            )
         if skill == "respawn":
             return SkillPlan((SkillCall(name="respawn"),)), "use the visible respawn button", {}
         if skill == "craft_take_result":

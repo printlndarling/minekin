@@ -149,6 +149,10 @@ BEHAVIOR_PARAMETERS: Final[Mapping[str, tuple[Parameter, ...]]] = MappingProxyTy
         ),
         "close_screen": (),
         "respawn": (),
+        # A retreat takes its bearing from the reading's own hostile report, exactly as
+        # close_screen takes the window and use_target the aim: the answer names the behavior
+        # and fills in nothing, and a reading with no visible threat refuses it by name.
+        "retreat": (),
         # A use takes the aim from the reading, exactly as close_screen takes the
         # window from it — the model names the behavior and fills in nothing.
         "use_target": (),

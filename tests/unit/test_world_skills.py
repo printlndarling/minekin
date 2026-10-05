@@ -60,7 +60,7 @@ from minekin_core.domain.perception import (
     SelfStateValue,
     WorldObservationValue,
 )
-from minekin_core.domain.world_actions import ActionResultClass
+from minekin_core.domain.world_actions import ActionResultClass, angle_to_degrees
 from minekin_core.generated.minekin.v1 import control_pb2
 
 ALL_CAPABILITIES: Final = frozenset(
@@ -2824,5 +2824,115 @@ def test_respawn_requests_once_and_only_confirms_a_new_same_generation_live_read
             assert outcome.reason == "RESPAWN_NOT_CONFIRMED"
         else:
             assert outcome.post_tick == 120
+
+    asyncio.run(scenario())
+
+
+def slime_entity(*, tick: int, at: float = 2.0, los: bool = True) -> EntityCandidate:
+    return EntityCandidate(
+        observation_id=f"slime-{tick}",
+        entity_type="minecraft:slime",
+        relative_x=at,
+        relative_y=0.0,
+        relative_z=0.0,
+        line_of_sight=los,
+    )
+
+
+def positioned(
+    *,
+    tick: int,
+    x: float = 0.0,
+    z: float = 0.0,
+    yaw: float | None = 0.0,
+    entities: tuple[EntityCandidate, ...] = (),
+) -> WorldObservationValue:
+    return reading(
+        tick=tick,
+        state_value=SelfStateValue(
+            health=20.0,
+            max_health=20.0,
+            food=20,
+            saturation=5.0,
+            alive=True,
+            x=x,
+            y=64.0,
+            z=z,
+            yaw_degrees=yaw,
+            pitch_degrees=0.0,
+        ),
+        entities=entities,
+    )
+
+
+def test_retreat_turns_away_from_a_visible_hostile_steps_and_names_its_release() -> None:
+    async def scenario() -> None:
+        store = store_with(positioned(tick=100, entities=(slime_entity(tick=100),)))
+        skills, sender = skill_with(store)
+        away_yaw, _ = angle_to_degrees(dx=-2.0, dy=0.0, dz=0.0)
+        queued = [
+            positioned(tick=110, yaw=away_yaw),
+            positioned(tick=120, x=-1.5),
+        ]
+
+        def answer(message_type: str) -> None:
+            if message_type in (AIM_INPUT_TYPE, MOVE_INPUT_TYPE) and queued:
+                store.admit(queued.pop(0), ())
+
+        sender.on_send = answer
+        outcome = await skills.retreat(authority=authority(), timeout_ns=10_000_000_000)
+
+        assert outcome.result is ActionResultClass.CONFIRMED
+        assert outcome.post_tick == 120
+        assert outcome.details["moved_blocks"] == "1.50"
+        assert outcome.details["hostile"] == "minecraft:slime"
+        aims = [message for kind, message in sender.sent if kind == AIM_INPUT_TYPE]
+        # Away is the reported offset's own bearing, reversed -- the same geometry collect
+        # walks toward a drop with, pointed the other way.
+        assert len(aims) == 1
+        assert aims[0].yaw_degrees == pytest.approx(away_yaw)  # type: ignore[attr-defined]
+        moves = [message for kind, message in sender.sent if kind == MOVE_INPUT_TYPE]
+        # One step, and it stopped: a retreat that left the key down would be a Kin still
+        # walking when it reports.
+        assert [message.forward for message in moves] == [1.0, 0.0]  # type: ignore[attr-defined]
+
+    asyncio.run(scenario())
+
+
+def test_retreat_refuses_by_name_when_no_hostile_is_visible() -> None:
+    async def scenario() -> None:
+        store = store_with(reading(tick=100))
+        skills, sender = skill_with(store)
+
+        outcome = await skills.retreat(authority=authority(), timeout_ns=1_000_000_000)
+
+        assert outcome.result is ActionResultClass.FAILED
+        assert outcome.reason == "RETREAT_THREAT_NOT_VISIBLE"
+        assert sender.sent == []
+
+    asyncio.run(scenario())
+
+
+def test_retreat_reads_unknown_when_the_body_never_moved() -> None:
+    async def scenario() -> None:
+        store = store_with(positioned(tick=100, entities=(slime_entity(tick=100),)))
+        skills, sender = skill_with(store)
+        away_yaw, _ = angle_to_degrees(dx=-2.0, dy=0.0, dz=0.0)
+        queued = [
+            positioned(tick=110, yaw=away_yaw),
+            positioned(tick=120, x=0.0),
+        ]
+
+        def answer(message_type: str) -> None:
+            if message_type in (AIM_INPUT_TYPE, MOVE_INPUT_TYPE) and queued:
+                store.admit(queued.pop(0), ())
+
+        sender.on_send = answer
+        outcome = await skills.retreat(authority=authority(), timeout_ns=2_000_000_000)
+
+        assert outcome.result is ActionResultClass.UNKNOWN
+        assert outcome.reason == "RETREAT_NOT_CONFIRMED"
+        moves = [message for kind, message in sender.sent if kind == MOVE_INPUT_TYPE]
+        assert [message.forward for message in moves] == [1.0, 0.0]  # type: ignore[attr-defined]
 
     asyncio.run(scenario())

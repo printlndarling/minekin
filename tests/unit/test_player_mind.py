@@ -1398,7 +1398,7 @@ def test_a_visible_hostile_stops_the_stand_still_work() -> None:
 
     mind, _ = mind_with()
     observed = reading(aim=block_aim(), entities=(slime(),))
-    assert mind.next_intent(observed).skill == "turn_to"
+    assert mind.next_intent(observed).skill == "retreat"
 
     behind_the_camera = reading(aim=block_aim(), entities=(slime(los=False),))
     assert mind.next_intent(behind_the_camera).skill == "break_seen_block"

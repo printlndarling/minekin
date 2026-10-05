@@ -96,6 +96,10 @@ SKILL_CAPABILITIES: Final[Mapping[str, frozenset[str]]] = {
     # declare it always, or the lease that covers it would depend on which frame
     # happened to be read.
     "consume_item": frozenset({HOTBAR_CAPABILITY, USE_CAPABILITY}),
+    # A retreat turns away from a hostile the reading reported and takes one step:
+    # the same two capabilities a collect walks with, because it is the same walk,
+    # pointed away instead of toward.
+    "retreat": frozenset({MOVE_CAPABILITY, AIM_CAPABILITY}),
 }
 
 

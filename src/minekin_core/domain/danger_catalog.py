@@ -17,7 +17,7 @@ from __future__ import annotations
 import math
 from typing import Final
 
-from minekin_core.domain.perception import WorldObservationValue
+from minekin_core.domain.perception import EntityCandidate, WorldObservationValue
 
 #: Entity types (the game's own namespaced ids) whose visible presence near the Kin stops
 #: stand-still work. Curated, version-agnostic at the id level: an id no world uses is
@@ -51,15 +51,18 @@ HOSTILE_ENTITY_TYPES: Final = frozenset(
 THREAT_RANGE_BLOCKS: Final = 8.0
 
 
-def nearest_hostile(reading: WorldObservationValue) -> tuple[str, float] | None:
-    """The nearest visible, in-sight hostile within range: type and horizontal distance.
+def nearest_hostile(reading: WorldObservationValue) -> tuple[EntityCandidate, float] | None:
+    """The nearest visible, in-sight hostile within range: the reported entity and its
+    horizontal distance.
 
     Only what the client rendered counts: an item entity is not a threat, a hostile out of
     line of sight is not proven to be on this body, and one beyond the range is a fact for
-    the summary rather than a stop-work alarm. None when no such entity is visible.
+    the summary rather than a stop-work alarm. None when no such entity is visible. The
+    entity travels with the answer because a retreat needs its reported offset, and naming
+    the offset again outside this scan would be a second reader of the same list.
     """
 
-    nearest: tuple[str, float] | None = None
+    nearest: tuple[EntityCandidate, float] | None = None
     for entity in reading.visible_entities:
         if entity.item_id is not None or not entity.line_of_sight:
             continue
@@ -69,5 +72,5 @@ def nearest_hostile(reading: WorldObservationValue) -> tuple[str, float] | None:
         if distance > THREAT_RANGE_BLOCKS:
             continue
         if nearest is None or distance < nearest[1]:
-            nearest = (entity.entity_type, distance)
+            nearest = (entity, distance)
     return nearest

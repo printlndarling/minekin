@@ -57,6 +57,7 @@ from minekin_core.domain.control_vocabulary import (
     USE_INPUT_TYPE,
     monotonic_ns,
 )
+from minekin_core.domain.danger_catalog import nearest_hostile
 from minekin_core.domain.ids import OpaqueId
 from minekin_core.domain.perception import (
     AimFace,
@@ -93,6 +94,12 @@ from minekin_core.generated.minekin.v1 import control_pb2
 #: clamp: the Bridge still owns the 20-degrees-per-command bound; this is only
 #: the tolerance under which "facing the thing" is true of two float reads.
 AIM_ARRIVAL_TOLERANCE_DEGREES: Final[float] = 2.0
+
+#: How long one retreat step holds the forward key, and how far the body must have moved
+#: for the step to count. Short by design: a retreat is one step, not a journey -- the mind
+#: re-reads the world between steps, and run-89's slime was slower than this walk.
+RETREAT_STEP_SECONDS: Final[float] = 1.5
+RETREAT_CONFIRM_BLOCKS: Final[float] = 0.5
 
 #: Why a skill stops waiting. The observation cadence is a constant of the
 #: Bridge's build (10 tick), so a skill that never saw a newer reading inside
@@ -1777,6 +1784,119 @@ class WorldSkills:
             post_tick=post.game_tick,
         )
 
+    async def retreat(
+        self, *, authority: ActionAuthority, timeout_ns: int = DEFAULT_STEP_TIMEOUT_NS
+    ) -> SkillOutcome:
+        """Turn away from the nearest visible hostile and take one bounded step.
+
+        The response run-89 never had: a night slime slew a Kin that kept working. The bearing
+        is the reported offset's own geometry, reversed; the step is one short hold of the same
+        forward key `collect_dropped` walks with, released through the same named exit; and only
+        a later frame whose position actually moved confirms it, so a step the world refused
+        reads UNKNOWN rather than done. One step per call on purpose: the mind re-reads the
+        world between steps, and a retreat that has arrived keeps being reconsidered from what
+        the next reading shows.
+        """
+
+        for capability in (MOVE_CAPABILITY, AIM_CAPABILITY):
+            refusal = self._require(capability)
+            if refusal is not None:
+                return refusal
+        pre = self._observations.latest
+        if pre is None:
+            return _refusal_outcome("NO_LATEST_OBSERVATION", "", pre)
+        if pre.generation != authority.generation:
+            return _refusal_outcome("WORLD_GENERATION_CHANGED", "", pre)
+        if pre.gui is not None and pre.gui.sync_id is not None:
+            return _refusal_outcome("RETREAT_SCREEN_OPEN", "", pre)
+        hostile = nearest_hostile(pre)
+        if hostile is None:
+            return _refusal_outcome("RETREAT_THREAT_NOT_VISIBLE", "", pre)
+        entity, _distance = hostile
+        toward_yaw, _ = angle_to_degrees(
+            dx=entity.relative_x, dy=entity.relative_y, dz=entity.relative_z
+        )
+        away_yaw = ((toward_yaw + 360.0) % 360.0) - 180.0
+        action_id = self._action_id()
+        deadline = monotonic_ns() + timeout_ns
+        await self._sender.send_control(
+            AIM_INPUT_TYPE,
+            control_pb2.AimInput(
+                action_id=action_id,
+                lease_id=authority.lease_id,
+                generation=authority.generation,
+                yaw_degrees=away_yaw,
+                pitch_degrees=0.0,
+                deadline_monotonic_ns=authority.deadline_monotonic_ns,
+            ),
+        )
+        arrived = await self._wait_until(
+            lambda candidate: (
+                candidate.self_state.yaw_degrees is not None
+                and angle_error_degrees(
+                    from_yaw=candidate.self_state.yaw_degrees,
+                    to_yaw=away_yaw,
+                    from_pitch=0.0,
+                    to_pitch=0.0,
+                )
+                <= AIM_ARRIVAL_TOLERANCE_DEGREES
+            ),
+            deadline,
+            action_id=action_id,
+        )
+        if arrived is None:
+            return SkillOutcome(
+                result=ActionResultClass.UNKNOWN,
+                reason="NO_CONFIRMING_OBSERVATION",
+                action_id=action_id,
+                pre_tick=pre.game_tick,
+            )
+        await self._send_walk(action_id, authority, forward=1.0)
+        async with self._release_on_exit(
+            lambda: self._send_walk(action_id, authority, forward=0.0)
+        ):
+            await self._sleep(RETREAT_STEP_SECONDS, action_id=action_id)
+        post = await self._outlive_client(
+            self._observations.wait_until(
+                lambda latest: (
+                    latest.game_tick > pre.game_tick
+                    and (latest.generation != authority.generation or _walked_away(pre, latest))
+                ),
+                timeout_s=max(0.1, (deadline - monotonic_ns()) / 1_000_000_000),
+            ),
+            action_id=action_id,
+        )
+        self.check_body_interruption(action_id)
+        if post is None:
+            return SkillOutcome(
+                result=ActionResultClass.UNKNOWN,
+                reason="RETREAT_NOT_CONFIRMED",
+                action_id=action_id,
+                pre_tick=pre.game_tick,
+            )
+        if post.generation != authority.generation:
+            return SkillOutcome(
+                result=ActionResultClass.INTERRUPTED,
+                reason="WORLD_GENERATION_CHANGED",
+                action_id=action_id,
+                pre_tick=pre.game_tick,
+                post_tick=post.game_tick,
+            )
+        moved = _horizontal_movement(pre, post)
+        assert moved is not None  # the wait only accepts a frame that reports movement
+        return SkillOutcome(
+            result=ActionResultClass.CONFIRMED,
+            reason="",
+            action_id=action_id,
+            pre_tick=pre.game_tick,
+            post_tick=post.game_tick,
+            details={
+                "moved_blocks": f"{moved:.2f}",
+                "hostile": entity.entity_type,
+                "newest_checked_tick": str(post.game_tick),
+            },
+        )
+
     def _require(self, capability: str) -> SkillOutcome | None:
         """The named refusal when the session was never negotiated for it.
 
@@ -1940,6 +2060,29 @@ class WorldSkills:
             monotonic_ns() + round(seconds * 1_000_000_000),
             action_id=action_id,
         )
+
+
+def _horizontal_movement(
+    before: WorldObservationValue, after: WorldObservationValue
+) -> float | None:
+    """How far the body's horizontal position moved between two readings, or None.
+
+    None when either reading has no position to compare — absence is not zero movement,
+    and a retreat must not confirm against a reading that never said where the body is.
+    """
+
+    bx, bz = before.self_state.x, before.self_state.z
+    ax, az = after.self_state.x, after.self_state.z
+    if bx is None or bz is None or ax is None or az is None:
+        return None
+    return math.hypot(ax - bx, az - bz)
+
+
+def _walked_away(before: WorldObservationValue, after: WorldObservationValue) -> bool:
+    """Whether the later reading shows a real horizontal step since the earlier one."""
+
+    moved = _horizontal_movement(before, after)
+    return moved is not None and moved >= RETREAT_CONFIRM_BLOCKS
 
 
 def _angle_error(
