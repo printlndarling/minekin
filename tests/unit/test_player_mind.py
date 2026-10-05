@@ -1378,6 +1378,52 @@ def test_a_mind_with_nothing_to_read_holds_and_says_why() -> None:
     assert intent.observation_ref == ""
 
 
+def slime(*, at: float = 2.0, los: bool = True) -> EntityCandidate:
+    return EntityCandidate(
+        observation_id="e-slime",
+        entity_type="minecraft:slime",
+        relative_x=at,
+        relative_y=0.0,
+        relative_z=0.0,
+        line_of_sight=los,
+    )
+
+
+def test_a_visible_hostile_stops_the_stand_still_work() -> None:
+    """Run-89: a night slime slew the Kin nine times while it kept mining and crafting. A
+    hostile the client renders in sight within reach withholds the starts that stand still --
+    the swing, the walk to a drop, the screen work -- leaving the honest remainder: face it,
+    eat, close, respawn. A hostile out of sight or out of reach is a fact, not a stop-work
+    alarm."""
+
+    mind, _ = mind_with()
+    observed = reading(aim=block_aim(), entities=(slime(),))
+    assert mind.next_intent(observed).skill == "turn_to"
+
+    behind_the_camera = reading(aim=block_aim(), entities=(slime(los=False),))
+    assert mind.next_intent(behind_the_camera).skill == "break_seen_block"
+
+    far_away = reading(aim=block_aim(), entities=(slime(at=20.0),))
+    assert mind.next_intent(far_away).skill == "break_seen_block"
+
+
+def test_a_health_drop_is_a_hit_even_with_nothing_in_view() -> None:
+    mind, _ = mind_with()
+    provider = cast(ScriptedProvider, mind.provider)
+    mind.observe(reading(self_state=state(health=20.0)))
+    observed = reading(tick=200, aim=block_aim(), self_state=state(health=15.0))
+
+    assert mind.next_intent(observed).skill == "turn_to"
+    summary = cast(dict[str, object], provider.requests[-1].observation_summary)
+    assert summary["danger"] == {"recent_damage": True}
+    assert provider.requests[-1].needs["safety"] >= 7
+
+    # The next unhurt reading is not a hit: the flag is about the pair of readings, not a
+    # latched alarm, and the work is offered again.
+    recovered = reading(tick=300, aim=block_aim(), self_state=state(health=15.0))
+    assert mind.next_intent(recovered).skill == "break_seen_block"
+
+
 def test_the_scan_turns_instead_of_stalling_when_there_is_nothing_to_grasp() -> None:
     mind, _ = mind_with()
     calls = [mind.next_intent(reading()).plan.calls[0] for _ in range(3)]

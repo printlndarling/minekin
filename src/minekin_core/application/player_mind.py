@@ -51,6 +51,7 @@ from minekin_core.application.skill_plan import (
     SkillPlan,
 )
 from minekin_core.application.world_skills import SkillCall
+from minekin_core.domain.danger_catalog import nearest_hostile
 from minekin_core.domain.goal_spec import Milestone
 from minekin_core.domain.model_access import (
     MAX_REASON_CHARS,
@@ -272,6 +273,21 @@ SKILL_OFFER: Final = _checked_offer(
         "use_target",
         "turn_to",
     )
+)
+
+#: The skills the mind does not START while a threat is on it (see `PlayerMind._threat`) —
+#: the swings, the blind walks to drops and the screen work are the steps a night slime
+#: killed the Kin in (run-89, nine `Kin was slain by Slime`). What remains is honest: face
+#: the threat, eat, close a screen already open, respawn. Suppression withholds starts, not
+#: finishes: a close_screen or consume already in flight is not this filter's business.
+DANGER_SUPPRESSED: Final = frozenset(
+    {
+        "break_seen_block",
+        "collect_dropped",
+        "craft_take_result",
+        "select_hotbar",
+        "use_target",
+    }
 )
 
 #: The one skill that ends a standing window, and so the only world step worth leaving it for.
@@ -1063,6 +1079,11 @@ class PlayerMind:
     observed_drop_ids: set[tuple[int, str]] = field(
         default_factory=set[tuple[int, str]], init=False
     )
+    #: The last observed health, and whether the newest reading came in lower: the drop is the
+    #: one damage signal a reading carries with no attacker in view. Set in `observe`, so the
+    #: comparison is between two readings of the world and never a reading against itself.
+    last_health: float | None = field(default=None, init=False)
+    recent_damage: bool = field(default=False, init=False)
     empty_container_aim: tuple[object, ...] | None = field(default=None, init=False)
     empty_container_inventory: tuple[tuple[str, int], ...] = field(default=(), init=False)
     recent_results: list[dict[str, object]] = field(
@@ -1093,6 +1114,38 @@ class PlayerMind:
         if self.craft_knowledge is None:
             return {}
         return self.craft_knowledge.available(reading, grid_side=crafting_grid_side(reading))
+
+    def _threat(self, reading: WorldObservationValue) -> dict[str, object] | None:
+        """What this reading says about being in danger, or None when it says nothing.
+
+        Two signals, both player-visible: a hostile entity the client renders in sight within
+        reach (`nearest_hostile`), and a health lower than the previous reading's — the drop
+        that means a hit landed even when the attacker is behind the camera. The summary
+        carries this to a model as a fact; `DANGER_SUPPRESSED` and the safety tier act on it.
+        """
+
+        hostile = nearest_hostile(reading)
+        if hostile is None and not self.recent_damage:
+            return None
+        threat: dict[str, object] = {"recent_damage": self.recent_damage}
+        if hostile is not None:
+            threat["nearest_hostile"] = {
+                "entity_type": hostile[0],
+                "distance_blocks": round(hostile[1], 2),
+            }
+        return threat
+
+    def _needs(self, reading: WorldObservationValue) -> dict[str, int]:
+        """`needs_from` with the danger overlay: a threat reads at the badly-hurt tier.
+
+        The same number the break guard already honours, so every consumer of `needs` — the
+        local order and the request sent to a model — sees the escalation from one seam.
+        """
+
+        needs = needs_from(self.goal, reading)
+        if self._threat(reading) is not None:
+            needs["safety"] = max(needs["safety"], 7)
+        return needs
 
     def _goal_craft_blocker(self, reading: WorldObservationValue) -> str:
         """The standing goal's craft obstacle on this reading, from whichever plan is bound.
@@ -1203,6 +1256,13 @@ class PlayerMind:
         """
 
         self.goal_met = reading is not None and goal_held(self.goal, reading)
+        if reading is not None:
+            # The one damage signal a reading carries by itself: a health the previous reading
+            # did not show. Kept here rather than in `needs_from` because a drop is a fact
+            # about two readings, not about one.
+            health = reading.self_state.health
+            self.recent_damage = self.last_health is not None and health < self.last_health
+            self.last_health = health
 
     def next_intent(self, reading: WorldObservationValue | None) -> MindIntent:
         """Ask — of the model, or of the reflection below — what to do about this reading.
@@ -1255,6 +1315,9 @@ class PlayerMind:
             and use_target_signature(reading) == self.last_use_aim
         ):
             feasible = tuple(name for name in feasible if name != "use_target")
+        threat = self._threat(reading)
+        if threat is not None:
+            feasible = tuple(name for name in feasible if name not in DANGER_SUPPRESSED)
         if not feasible:
             intent = MindIntent(
                 kind=MindDecisionKind.BLOCKED,
@@ -1327,9 +1390,11 @@ class PlayerMind:
                     summary["missing_raw"] = dict(missing)
         summary["recent_actions"] = list(self.recent_results)
         summary["view_search"] = self._view_search_summary(reading)
+        if threat is not None:
+            summary["danger"] = threat
         request = DecisionRequest(
             observation_ref=observation_ref(reading),
-            needs=needs_from(self.goal, reading),
+            needs=self._needs(reading),
             active_goal=self.direction,
             feasible_skill_ids=feasible,
             observation_summary=summary,
@@ -1340,7 +1405,7 @@ class PlayerMind:
             intent_generation=self.intent_generation,
         )
         answer = self.provider.decide(request)
-        needs = needs_from(self.goal, reading)
+        needs = self._needs(reading)
         refusal = ""
         reason = ""
         arguments: Mapping[str, object] = {}
