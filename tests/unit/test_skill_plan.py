@@ -857,3 +857,21 @@ def test_dispatch_maps_a_retreat_call_onto_the_retreat_skill() -> None:
     )
     assert outcome == "outcome"
     assert skills.seen == (authority, 5_000_000_000)
+
+
+def test_every_declared_skill_states_its_required_arguments() -> None:
+    """The parameter table and the plan-call required set must name the same skills.
+
+    This is the drift that bit twice in one day: a skill added to the parameter table but
+    missing from this module's tables fell through at `perform_skill`'s `_REQUIRED[call.name]`
+    as a bare KeyError under INTERNAL_INVARIANT -- a live run died with no traceback that
+    named the skill. A name in one table and not the other fails here instead.
+    """
+
+    from minekin_core.application import skill_plan as skill_plan_module
+    from minekin_core.domain.skill_parameters import BEHAVIOR_PARAMETERS
+
+    names = set(BEHAVIOR_PARAMETERS)
+    assert set(skill_plan_module._REQUIRED) == names
+    assert set(skill_plan_module._DEFAULTED) == names
+    assert set(skill_plan_module._ALTERNATIVES) == names

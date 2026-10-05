@@ -66,6 +66,7 @@ _DEFAULTED: Final[dict[str, tuple[str, ...]]] = {
     "select_hotbar": ("expected_item_id",),
     "use_target": (),
     "respawn": (),
+    "retreat": (),
 }
 
 #: The argument each skill requires, by name. Empty for a skill that can run on
@@ -83,6 +84,9 @@ _REQUIRED: Final[dict[str, tuple[str, ...]]] = {
     "select_hotbar": ("slot",),
     "use_target": (),
     "respawn": (),
+    # Its bearing comes from the reading's own hostile report, the same way the use key takes
+    # the aim: the call names the behavior and fills in nothing.
+    "retreat": (),
 }
 
 #: The keys that replace a skill's whole required set rather than defaulting one
@@ -99,6 +103,7 @@ _ALTERNATIVES: Final[dict[str, tuple[str, ...]]] = {
     "select_hotbar": (),
     "use_target": (),
     "respawn": (),
+    "retreat": (),
 }
 
 #: Every key a plan may use, so a typo is refused by name instead of being

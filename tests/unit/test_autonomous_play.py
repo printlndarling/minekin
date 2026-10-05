@@ -210,6 +210,15 @@ class TapeSkills(WorldSkills):
         del authority, timeout_ns
         return await self._answer("turn_to", yaw_degrees=yaw_degrees, pitch_degrees=pitch_degrees)
 
+    async def retreat(
+        self,
+        *,
+        authority: ActionAuthority,
+        timeout_ns: int = DEFAULT_STEP_TIMEOUT_NS,
+    ) -> SkillOutcome:
+        del authority, timeout_ns
+        return await self._answer("retreat")
+
     async def break_seen_block(
         self,
         *,
@@ -1260,3 +1269,40 @@ def test_model_selected_respawn_reobserves_the_new_life_or_stops_without_replay(
         assert mind.goal_met is False
 
     asyncio.run(scenario())
+
+
+def test_the_loop_steps_away_from_a_visible_slime() -> None:
+    """The retreat path end to end through the loop: a slime in sight makes the mind leave
+    before anything else, and the reading after the step has no threat in view, so the
+    ordinary work resumes. This is the seam a live crash (KeyError under INTERNAL_INVARIANT)
+    went through; the fake refuses any skill but the ones it declares."""
+
+    from minekin_core.domain.perception import EntityCandidate
+
+    slime = EntityCandidate(
+        observation_id="e-slime",
+        entity_type="minecraft:slime",
+        relative_x=2.0,
+        relative_y=0.0,
+        relative_z=0.0,
+        line_of_sight=True,
+    )
+    first = replace(reading(tick=100, items=((0, LOG, 1),)), visible_entities=(slime,))
+    after = reading(tick=140, items=((0, LOG, 1),))
+    stage = Stage(first, after, after)
+    skills = TapeSkills(
+        stage,
+        {
+            "retreat": confirmed(),
+            "break_seen_block": confirmed(),
+            "turn_to": confirmed(),
+            "craft_take_result": confirmed(),
+        },
+    )
+    mind = off_mind()
+
+    result = run(stage, skills, mind, step_budget=2)
+
+    assert skills.ran, (result.stop_reason, result.stop_detail, result.steps)
+    assert next(name for name, _ in skills.ran) == "retreat"
+    assert result.stop_reason == STEP_BUDGET_SPENT

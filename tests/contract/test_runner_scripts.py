@@ -3491,9 +3491,11 @@ def test_a_session_that_never_arrived_quotes_its_own_launcher_stderr() -> None:
     text = (RUNNER / "domain.sh").read_text(encoding="utf-8")
 
     assert text.count(f"{SESSION_LAST_WORDS_HELPER}() {{") == 1
-    # Two never-arrived prongs on the main client's wait, and nothing else calls it: the
+    # Two never-arrived prongs on the main client's wait, a third for a session that died
+    # before the autonomous loop wrote its verdict -- its traceback lives in the same file
+    # and nowhere else once the --rm container is gone -- and nothing else calls it: the
     # joining client already has its own last words, read on its own branch.
-    assert text.count(f"\n        {SESSION_LAST_WORDS_HELPER}\n") == 2
+    assert text.count(f"\n        {SESSION_LAST_WORDS_HELPER}\n") == 3
 
     # The path is written down once and the launch redirects into that name, so the branch
     # cannot be reading a file the client never had.

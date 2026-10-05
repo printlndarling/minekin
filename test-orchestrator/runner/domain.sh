@@ -3179,6 +3179,10 @@ if [ "${autonomous_wait_seconds}" -gt 0 ]; then
         printf 'domain: the autonomous loop reached its own verdict; stopping on a live channel\n' >&2
     elif ! kill -0 "${session_pid}" 2>/dev/null; then
         printf 'domain: the session ended before the loop wrote its verdict\n' >&2
+        # The Core process's own last words, from the file its stderr was redirected to:
+        # a session that died mid-loop leaves its traceback there and nowhere else, and
+        # the --rm container takes the file away the moment this script stops asking.
+        name_the_session_launch_last_words
     else
         printf 'domain: the loop had not halted within %ss; stopping it\n' \
             "${autonomous_wait_seconds}" >&2
