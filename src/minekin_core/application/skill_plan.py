@@ -289,6 +289,11 @@ def _parse_call(item: Mapping[str, Any], index: int) -> SkillCall:
         expected_drop_item=_text(item, index, name, "expected_drop_item"),
         expected_item_id=_text(item, index, name, "expected_item_id"),
         walk_seconds=_number(item, index, name, "walk_seconds", 1.0),
+        hold_seconds=_number(item, index, name, "hold_seconds", 0.0),
+        swing_seconds=_number(item, index, name, "swing_seconds", 0.0),
+        target_entity_type=_text(item, index, name, "target_entity_type"),
+        offer_index=_int(item, index, name, "offer_index", -1),
+        stop_within=_number(item, index, name, "stop_within", 0.0),
         materials=materials,
         craft_all=_flag(item, index, name, "craft_all", True),
     )

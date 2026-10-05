@@ -860,6 +860,40 @@ def test_dispatch_maps_a_retreat_call_onto_the_retreat_skill() -> None:
     assert skills.seen == (authority, 3.5, 5_000_000_000)
 
 
+def test_the_plan_reader_reads_every_key_the_tables_allow() -> None:
+    """The drift this pins: `parse_skill_plan` builds SkillCall from an explicit key list,
+    and when that list fell behind the tables five newer keys (hold_seconds, swing_seconds,
+    target_entity_type, offer_index, stop_within) passed the unknown-key check and were then
+    silently dropped -- a plan that named them ran on defaults (measured live: a trade plan's
+    approach walked to a slime because its named trader type never reached the call).
+
+    The pin reads the constructor's keyword names out of the function's own source, so a
+    table row added without a reader turns this red before a plan can lose the key quietly.
+    """
+
+    import ast
+    import inspect
+
+    from minekin_core.application import skill_plan as skill_plan_module
+    from minekin_core.application.skill_plan import _KNOWN_KEYS
+
+    tree = ast.parse(inspect.getsource(skill_plan_module))
+    read_keys: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call) and getattr(node.func, "id", "") == "SkillCall":
+            read_keys.update(keyword.arg for keyword in node.keywords if keyword.arg)
+
+    expected: set[str] = set()
+    for known in _KNOWN_KEYS.values():
+        expected.update(known)
+    # `product` is the by-product SPELLING of a craft, resolved into recipe/materials
+    # before the call is built; it is deliberately not its own SkillCall keyword.
+    expected.discard("product")
+
+    missing = sorted(expected - read_keys)
+    assert missing == [], f"plan keys the tables allow but the reader drops: {missing}"
+
+
 def test_dispatch_maps_a_fight_call_onto_the_fight_skill() -> None:
     """The same seam the retreat pin holds: a name without its own dispatch branch falls
     through to whichever branch is last and crashes a live run by name. The fake refuses
