@@ -1489,6 +1489,33 @@ def test_a_hit_with_a_threat_in_sight_escalates_the_hold() -> None:
     assert intent.reason == "step away from the nearest visible threat"
 
 
+def test_a_fresh_hit_refunds_the_retreat_step_the_budget_spent() -> None:
+    """A reflex is not a step the world refused forever: its precondition is danger, and
+    danger arrives as new evidence -- a fresh hit (or a fresh respawn) replenishes it the
+    way a newly visible drop replenishes the collect. Without this, run-98's third night
+    died four times with `retreat` already excluded and no step left that could answer."""
+
+    mind, _ = mind_with()
+    hit = reading(tick=200, entities=(slime(),), self_state=state(health=12.0))
+    for tick in (200, 220, 240):
+        intent = mind.next_intent(replace(hit, game_tick=tick))
+        assert intent.skill == "retreat", tick
+        mind.record_result(
+            intent,
+            outcome(ActionResultClass.UNKNOWN, "RETREAT_NOT_CONFIRMED"),
+            replace(hit, game_tick=tick + 5),
+        )
+
+    # The budget is spent: re-seeing the same situation no longer offers the step.
+    assert "retreat" in mind.excluded
+    assert mind.next_intent(replace(hit, game_tick=300)).skill != "retreat"
+
+    # A fresh hit is new evidence, and it refunds the reflex on the spot.
+    worse = reading(tick=400, entities=(slime(),), self_state=state(health=6.0))
+    assert mind.next_intent(worse).skill == "retreat"
+    assert "retreat" not in mind.excluded
+
+
 def test_a_named_hold_from_the_model_is_honoured() -> None:
     mind, _ = mind_with(
         Decision(

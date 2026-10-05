@@ -1318,6 +1318,17 @@ class PlayerMind:
             for code in FailureCode:
                 self.attempts.pop(("collect_dropped", code), None)
             self.observed_drop_ids.update(drop_ids)
+        if "retreat" in self.excluded and (self.recent_damage or self.just_respawned):
+            # The same rule one step further out: a reflex's whole precondition is danger,
+            # and danger arrives as new evidence -- a fresh hit or a fresh respawn refunds
+            # the step the way a newly visible drop refunds the collect. Without this the
+            # budget spent in one bad window excluded the only danger response for the rest
+            # of the run: measured on the third night of the 2026-10-05 soak
+            # (run 161f530ac2fe47e189ac00761de23ca3), four deaths after the exclusion and
+            # no step left that could answer one.
+            self.excluded.discard("retreat")
+            for code in FailureCode:
+                self.attempts.pop(("retreat", code), None)
         contents = _inventory_contents(reading)
         if contents != self.empty_container_inventory:
             self.empty_container_aim = None
