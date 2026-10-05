@@ -102,6 +102,16 @@ def main() -> int:
     parser.add_argument("--steps", type=int, default=48)
     parser.add_argument("--wait-seconds", type=int, default=420)
     parser.add_argument("--cost-cap-micro", type=int, default=10_000)
+    parser.add_argument(
+        "--timeout-ms",
+        type=int,
+        default=None,
+        help=(
+            "per-attempt model request budget in milliseconds (1000..60000); the whole "
+            "decision call is bounded by attempts x this budget. Default: the value in "
+            "the model environment, else the product default"
+        ),
+    )
     parser.add_argument("--provider", choices=("openai_compatible",), default="openai_compatible")
     parser.add_argument(
         "--difficulty", choices=("peaceful", "easy", "normal", "hard"), default="normal"
@@ -120,6 +130,8 @@ def main() -> int:
         parser.error("steps must be 1..64 and wait-seconds 1..900")
     if not 1 <= args.cost_cap_micro <= 1_000_000:
         parser.error("cost-cap-micro must be 1..1000000 ledger units")
+    if args.timeout_ms is not None and not 1_000 <= args.timeout_ms <= 60_000:
+        parser.error("timeout-ms must be 1000..60000")
     # The entry point's own policy decision comes before anything is read or launched: an
     # explicit `rules` (or a misspelling) refuses by name here, and no model call or game
     # subprocess exists to override it in.
@@ -136,6 +148,10 @@ def main() -> int:
     except (OSError, ValueError):
         parser.error("cannot read literal model configuration; no values were printed")
     configured["MINEKIN_MODEL_PROVIDER"] = args.provider
+    if args.timeout_ms is not None:
+        # An operator-set per-run budget lands under the same name the model layer reads and
+        # travels with the forwarded names, so the container's timeout is the one named here.
+        configured["MINEKIN_MODEL_TIMEOUT_MS"] = str(args.timeout_ms)
     configured.update(policy_values)
     bash = args.bash
     if bash is None:

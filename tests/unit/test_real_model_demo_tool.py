@@ -239,3 +239,110 @@ def test_a_misspelled_parent_policy_is_refused_before_any_subprocess(
     assert raised.value.code != 0
     assert calls == []
     assert "must be one of" in capsys.readouterr().err
+
+
+# --------------------------------------------- the per-attempt model request budget
+
+
+def test_the_model_demo_can_name_a_per_attempt_timeout_budget(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The per-attempt budget is the operator's to set per run: the flag lands in the child's
+    environment and in the forwarded names, so the container reads the same number the entry
+    point was told -- overriding whatever the model environment file carried."""
+
+    config = tmp_path / "model.env"
+    config.write_text("MINEKIN_MODEL=example-model\nMINEKIN_MODEL_TIMEOUT_MS=8000\n")
+    captured: dict[str, Any] = {}
+
+    def fake_run(command: list[str], **kwargs: Any) -> SimpleNamespace:
+        captured.update(kwargs)
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "model-demo",
+            "--model-env",
+            str(config),
+            "--log",
+            str(tmp_path / "run.log"),
+            "--bash",
+            str(tmp_path / "bash"),
+            "--timeout-ms",
+            "20000",
+        ],
+    )
+    monkeypatch.setattr(run_real_model_demo.subprocess, "run", fake_run)
+    assert run_real_model_demo.main() == 0
+    assert captured["env"]["MINEKIN_MODEL_TIMEOUT_MS"] == "20000"
+    assert "MINEKIN_MODEL_TIMEOUT_MS" in captured["env"]["MINEKIN_RUNNER_FORWARD_ENV"].split(",")
+
+
+def test_without_the_flag_the_model_environment_keeps_its_own_timeout(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config = tmp_path / "model.env"
+    config.write_text("MINEKIN_MODEL=example-model\nMINEKIN_MODEL_TIMEOUT_MS=12000\n")
+    captured: dict[str, Any] = {}
+
+    def fake_run(command: list[str], **kwargs: Any) -> SimpleNamespace:
+        captured.update(kwargs)
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "model-demo",
+            "--model-env",
+            str(config),
+            "--log",
+            str(tmp_path / "run.log"),
+            "--bash",
+            str(tmp_path / "bash"),
+        ],
+    )
+    monkeypatch.setattr(run_real_model_demo.subprocess, "run", fake_run)
+    assert run_real_model_demo.main() == 0
+    assert captured["env"]["MINEKIN_MODEL_TIMEOUT_MS"] == "12000"
+
+
+@pytest.mark.parametrize("value", ["999", "60001", "0", "-1"])
+def test_an_out_of_range_timeout_is_refused_before_any_subprocess(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    value: str,
+) -> None:
+    """The refusal happens before the model environment is read or any subprocess exists,
+    so a typo costs nothing and names the flag."""
+
+    calls: list[Any] = []
+
+    def fake_run(*args: Any, **kwargs: Any) -> SimpleNamespace:
+        calls.append(args)
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(run_real_model_demo.subprocess, "run", fake_run)
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "model-demo",
+            "--model-env",
+            str(tmp_path / "missing.env"),
+            "--log",
+            str(tmp_path / "run.log"),
+            "--bash",
+            str(tmp_path / "bash"),
+            "--timeout-ms",
+            value,
+        ],
+    )
+
+    with pytest.raises(SystemExit) as raised:
+        run_real_model_demo.main()
+
+    assert raised.value.code != 0
+    assert calls == []
+    err = capsys.readouterr().err
+    assert "timeout-ms must be 1000..60000" in err
