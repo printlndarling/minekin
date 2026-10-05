@@ -139,6 +139,7 @@ class CraftKnowledge(Protocol):
         *,
         quantity: int = 1,
         grid_side: int,
+        preferred: tuple[str, ...] = (),
     ) -> BuildStep | str: ...
 
     def owed_chain(
@@ -148,6 +149,7 @@ class CraftKnowledge(Protocol):
         *,
         quantity: int = 1,
         grid_side: int,
+        preferred: tuple[str, ...] = (),
     ) -> tuple[OwedStep, ...] | str: ...
 
     def enabler_to_stand_up(
@@ -157,6 +159,7 @@ class CraftKnowledge(Protocol):
         *,
         quantity: int = 1,
         grid_side: int,
+        preferred: tuple[str, ...] = (),
     ) -> tuple[Recipe, int] | None: ...
 
     def missing_raw(
@@ -166,6 +169,7 @@ class CraftKnowledge(Protocol):
         *,
         quantity: int = 1,
         grid_side: int,
+        preferred: tuple[str, ...] = (),
     ) -> Mapping[str, int]: ...
 
     def as_document(self) -> dict[str, object]: ...
@@ -1341,7 +1345,11 @@ class PlayerMind:
         side = crafting_grid_side(reading)
         if self.craft_knowledge is not None:
             step = self.craft_knowledge.step_toward(
-                self.goal.product_id, reading, quantity=self.goal.quantity, grid_side=side
+                self.goal.product_id,
+                reading,
+                quantity=self.goal.quantity,
+                grid_side=side,
+                preferred=self._preferred_raw(),
             )
             return step if isinstance(step, str) else ""
         return blocker_for(reading, self.goal.product_id, self.goal.quantity, grid_side=side)
@@ -1354,9 +1362,26 @@ class PlayerMind:
         side = crafting_grid_side(reading)
         if self.craft_knowledge is not None:
             return self.craft_knowledge.enabler_to_stand_up(
-                self.goal.product_id, reading, quantity=self.goal.quantity, grid_side=side
+                self.goal.product_id,
+                reading,
+                quantity=self.goal.quantity,
+                grid_side=side,
+                preferred=self._preferred_raw(),
             )
         return enabler_to_stand_up(self.goal, reading, grid_side=side)
+
+    def _preferred_raw(self) -> tuple[str, ...]:
+        """The goal's configured source item as the plan's ordered route start.
+
+        Among equivalent tag alternatives — any log, any plank, either stone — the operator
+        named the resource this run starts from, and the model-facing floor should read that
+        name before the archive's alphabetical first member. Empty when no goal names a
+        source; the plan stays deterministic either way.
+        """
+
+        if self.goal is not None and self.goal.source_item_id:
+            return (self.goal.source_item_id,)
+        return ()
 
     def _gather_wants(self, reading: WorldObservationValue) -> frozenset[str]:
         """The raw items a local gather would be for, from whichever plan is bound.
@@ -1565,6 +1590,7 @@ class PlayerMind:
                     reading,
                     quantity=self.goal.quantity,
                     grid_side=crafting_grid_side(reading),
+                    preferred=self._preferred_raw(),
                 )
                 summary["craft_plan_source"] = "public_version_stepwise"
                 summary["multi_stage_plan_available"] = True
@@ -1573,6 +1599,7 @@ class PlayerMind:
                     reading,
                     quantity=self.goal.quantity,
                     grid_side=crafting_grid_side(reading),
+                    preferred=self._preferred_raw(),
                 )
                 summary["craft_plan"] = (
                     []
@@ -1609,6 +1636,7 @@ class PlayerMind:
                     reading,
                     quantity=self.goal.quantity,
                     grid_side=crafting_grid_side(reading),
+                    preferred=self._preferred_raw(),
                 )
                 if missing:
                     # Which resource a gather would have to bring back, so a route can be
@@ -2089,7 +2117,11 @@ class PlayerMind:
                 return None, GOAL_ACHIEVED, ask
             if self.craft_knowledge is not None:
                 step = self.craft_knowledge.step_toward(
-                    target, reading, quantity=quantity, grid_side=side
+                    target,
+                    reading,
+                    quantity=quantity,
+                    grid_side=side,
+                    preferred=self._preferred_raw(),
                 )
                 if not isinstance(step, str):
                     toward = (

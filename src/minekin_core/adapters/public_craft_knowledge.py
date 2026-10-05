@@ -137,12 +137,21 @@ class PublicCraftKnowledge:
         return MappingProxyType(result)
 
     def _owed_plan(
-        self, product_id: str, reading: WorldObservationValue, *, quantity: int, grid_side: int
+        self,
+        product_id: str,
+        reading: WorldObservationValue,
+        *,
+        quantity: int,
+        grid_side: int,
+        preferred: tuple[str, ...] = (),
     ) -> _PublicOwedPlan | str:
         """The dependency-ordered owed counts over the archive, for this reading's bag.
 
         The reading's inventory and open-screen book bound to `_owed_plan_for_counts` — the
-        same arithmetic the reserve check replans with on a reduced stock.
+        same arithmetic the reserve check replans with on a reduced stock. `preferred` is the
+        caller's ordered route start (the milestone's source item): among equivalents it
+        ranks before the archive's alphabetical first member; observed stock still pays
+        first, so a held alternative keeps its own branch.
         """
 
         book: frozenset[str] = (
@@ -154,6 +163,7 @@ class PublicCraftKnowledge:
             quantity=quantity,
             grid_side=grid_side,
             book=book,
+            preferred=preferred,
         )
 
     def _owed_plan_for_counts(
@@ -164,13 +174,17 @@ class PublicCraftKnowledge:
         quantity: int,
         grid_side: int,
         book: frozenset[str],
+        preferred: tuple[str, ...] = (),
     ) -> _PublicOwedPlan | str:
         """The dependency-ordered owed counts over the archive, or the name that stops the walk.
 
         Shared by `step_toward` (which selects the nearest runnable step) and
         `enabler_to_stand_up` (which reads the widest owed shape), so both answer from one
         arithmetic. Inventory is reserved before expanding unmet demand. Alternative branches
-        are tried on isolated simulated stock, preferring fewer missing raw inputs. This is a
+        are tried on isolated simulated stock, preferring fewer missing raw inputs, and a
+        `preferred` item outranks the alphabetical first member when two branches cost the
+        same: an empty bag has no stock to steer a tag cell, so the plan's placeholder names
+        the caller's declared route start instead of whichever sibling sorts first. This is a
         bounded heuristic, not a globally optimal search. Surplus pays later cells, without
         becoming a live inventory fact. Unknown tags and unfunded cyclic branches refuse;
         one cyclic variant does not invalidate a different usable variant.
@@ -196,6 +210,14 @@ class PublicCraftKnowledge:
             return tuple(sorted(items))
 
         remaining = 20_000
+        preferred_set = frozenset(preferred)
+
+        def ranked(stock: _PlanningStock) -> tuple[int, int, int, int]:
+            # The plan's own cost first, then how much of its floor is off the caller's named
+            # route: two branches that cost the same are not equivalent when one of them
+            # gathers the resource this run was configured to start from.
+            off_route = sum(count for item, count in stock.raw.items() if item not in preferred_set)
+            return (*stock.cost(), off_route)
 
         def demand(
             product: str, count: int, stock: _PlanningStock, path: frozenset[str]
@@ -268,7 +290,7 @@ class PublicCraftKnowledge:
                     for item in items:
                         child = demand(item, need, candidate, path | {product})
                         if child is not None and (
-                            child_best is None or child.cost() < child_best.cost()
+                            child_best is None or ranked(child) < ranked(child_best)
                         ):
                             child_best = child
                     if child_best is None:
@@ -282,7 +304,7 @@ class PublicCraftKnowledge:
                 candidate.chosen[product] = row
                 candidate.owed[product] += missing
                 candidate.pool[product] += batches * row.count - missing
-                if best is None or candidate.cost() < best.cost():
+                if best is None or ranked(candidate) < ranked(best):
                     best = candidate
             return best
 
@@ -311,6 +333,7 @@ class PublicCraftKnowledge:
         *,
         quantity: int = 1,
         grid_side: int,
+        preferred: tuple[str, ...] = (),
     ) -> BuildStep | str:
         """The first owed craft on the way to `quantity` of a product, or what blocks it.
 
@@ -335,7 +358,9 @@ class PublicCraftKnowledge:
         anything.
         """
 
-        plan = self._owed_plan(product_id, reading, quantity=quantity, grid_side=grid_side)
+        plan = self._owed_plan(
+            product_id, reading, quantity=quantity, grid_side=grid_side, preferred=preferred
+        )
         if isinstance(plan, str):
             return plan
         counts = _inventory_counts(reading)
@@ -380,7 +405,12 @@ class PublicCraftKnowledge:
                         if counts.get(item_id, 0) < count
                     )
                     ingredient_plan = self._owed_plan_for_counts(
-                        short[0], counts, quantity=short[1], grid_side=grid_side, book=book
+                        short[0],
+                        counts,
+                        quantity=short[1],
+                        grid_side=grid_side,
+                        book=book,
+                        preferred=preferred,
                     )
                     if not isinstance(ingredient_plan, str):
                         first = self._first_runnable_step(
@@ -403,7 +433,12 @@ class PublicCraftKnowledge:
                 # the grid the enabler opens — the crafts it is for must be directly
                 # runnable inside that window, because a placed table cannot be reselected.
                 reduced = self._owed_plan_for_counts(
-                    product_id, reserved, quantity=quantity, grid_side=widest, book=book
+                    product_id,
+                    reserved,
+                    quantity=quantity,
+                    grid_side=widest,
+                    book=book,
+                    preferred=preferred,
                 )
                 leading: BuildStep | None = None
                 if not isinstance(reduced, str):
@@ -491,6 +526,7 @@ class PublicCraftKnowledge:
         *,
         quantity: int = 1,
         grid_side: int,
+        preferred: tuple[str, ...] = (),
     ) -> tuple[OwedStep, ...] | str:
         """Every owed craft on the way to a product, in build order, or the name that stops
         the walk.
@@ -503,7 +539,9 @@ class PublicCraftKnowledge:
         idea what comes after it.
         """
 
-        plan = self._owed_plan(product_id, reading, quantity=quantity, grid_side=grid_side)
+        plan = self._owed_plan(
+            product_id, reading, quantity=quantity, grid_side=grid_side, preferred=preferred
+        )
         if isinstance(plan, str):
             return plan
         counts = _inventory_counts(reading)
@@ -536,6 +574,7 @@ class PublicCraftKnowledge:
         *,
         quantity: int = 1,
         grid_side: int,
+        preferred: tuple[str, ...] = (),
     ) -> tuple[Recipe, int] | None:
         """The held grid-opener this plan needs stood up, with its slot, or `None`.
 
@@ -551,7 +590,9 @@ class PublicCraftKnowledge:
         counts = _inventory_counts(reading)
         if counts.get(product_id, 0) >= quantity:
             return None
-        plan = self._owed_plan(product_id, reading, quantity=quantity, grid_side=grid_side)
+        plan = self._owed_plan(
+            product_id, reading, quantity=quantity, grid_side=grid_side, preferred=preferred
+        )
         if isinstance(plan, str):
             return None
         needed = max(
@@ -573,7 +614,13 @@ class PublicCraftKnowledge:
         return None
 
     def missing_raw(
-        self, product_id: str, reading: WorldObservationValue, *, quantity: int = 1, grid_side: int
+        self,
+        product_id: str,
+        reading: WorldObservationValue,
+        *,
+        quantity: int = 1,
+        grid_side: int,
+        preferred: tuple[str, ...] = (),
     ) -> Mapping[str, int]:
         """The raw floor this plan cannot pay from the bag, as item counts, or empty.
 
@@ -588,7 +635,9 @@ class PublicCraftKnowledge:
         answer with an empty mapping, same as a fully paid one.
         """
 
-        plan = self._owed_plan(product_id, reading, quantity=quantity, grid_side=grid_side)
+        plan = self._owed_plan(
+            product_id, reading, quantity=quantity, grid_side=grid_side, preferred=preferred
+        )
         if isinstance(plan, str):
             return {}
         return plan.raw_shortfall

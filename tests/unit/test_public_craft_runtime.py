@@ -612,7 +612,9 @@ def test_public_goal_summary_names_the_uncoverable_raw_floor(tmp_path: Path) -> 
     )
     mind.next_intent(reading({"minecraft:oak_planks": 4, "minecraft:stick": 2}))
     summary = provider.requests[0].observation_summary
-    assert summary["missing_raw"] == {"minecraft:cobbled_deepslate": 3}
+    # The floor's stone is the goal's own declared source (`minecraft:cobblestone`), not the
+    # archive's alphabetical sibling: the route start ranks equivalent alternatives.
+    assert summary["missing_raw"] == {"minecraft:cobblestone": 3}
 
 
 def test_public_goal_selects_the_held_enabler_to_stand_it_up(tmp_path: Path) -> None:
@@ -629,3 +631,89 @@ def test_public_goal_selects_the_held_enabler_to_stand_it_up(tmp_path: Path) -> 
     assert call.name == "select_hotbar"
     assert call.slot == 0
     assert call.expected_item_id == "minecraft:crafting_table"
+
+
+# ------------------------------- the goal's source item among equivalent tag alternatives
+
+
+def test_missing_raw_prefers_the_named_source_item_over_the_alphabetical_candidate(
+    tmp_path: Path,
+) -> None:
+    """An empty bag has no stock to steer a tag cell, and the plan's placeholder used to be
+    the archive's alphabetical first member (`minecraft:cobbled_deepslate`) even when the
+    route was configured from `minecraft:cobblestone`. The caller's named source now ranks
+    the alternatives, so the floor names the item the run actually means to gather."""
+
+    knowledge = source(tmp_path)
+    assert dict(
+        knowledge.missing_raw(
+            "minecraft:stone_pickaxe",
+            reading({}),
+            quantity=1,
+            grid_side=3,
+            preferred=("minecraft:cobblestone",),
+        )
+    ) == {"minecraft:cobblestone": 3, "minecraft:oak_log": 1}
+
+
+def test_without_a_preference_the_alphabetical_candidate_stays(tmp_path: Path) -> None:
+    knowledge = source(tmp_path)
+    assert dict(
+        knowledge.missing_raw("minecraft:stone_pickaxe", reading({}), quantity=1, grid_side=3)
+    ) == {"minecraft:cobbled_deepslate": 3, "minecraft:oak_log": 1}
+
+
+def test_a_bag_that_already_pays_keeps_its_own_stone_over_the_preference(tmp_path: Path) -> None:
+    """Stock beats the preference: a bag holding the other member of the tag pays its own
+    way, and the plan does not re-route to the named item while a real payable stack sits
+    there."""
+
+    knowledge = source(tmp_path)
+    held = reading({"minecraft:cobbled_deepslate": 3, "minecraft:oak_log": 1})
+    assert (
+        dict(
+            knowledge.missing_raw(
+                "minecraft:stone_pickaxe",
+                held,
+                quantity=1,
+                grid_side=3,
+                preferred=("minecraft:cobblestone",),
+            )
+        )
+        == {}
+    )
+
+
+def test_the_residual_after_stock_prefers_the_named_source(tmp_path: Path) -> None:
+    """One held cobblestone pays one cell of the three-cell tag; the remaining two used to
+    fall back to the alphabetical sibling, and now follow the named source -- gather more of
+    what you already started with, not a different stone."""
+
+    knowledge = source(tmp_path)
+    assert dict(
+        knowledge.missing_raw(
+            "minecraft:stone_pickaxe",
+            reading({"minecraft:cobblestone": 1}),
+            quantity=1,
+            grid_side=3,
+            preferred=("minecraft:cobblestone",),
+        )
+    ) == {"minecraft:cobblestone": 2, "minecraft:oak_log": 1}
+
+
+def test_the_summary_names_the_goals_source_item_in_an_empty_bag(tmp_path: Path) -> None:
+    """End to end through the mind: the model-facing floor of an empty bag names the source
+    the milestone was configured with, not the archive's alphabetical sibling."""
+
+    provider = SkillProvider("turn_to")
+    mind = mind_for(
+        provider,
+        CostLedger(run_cost_cap=1000),
+        goal=STONE_PICKAXE_GOAL,
+        craft_knowledge=source(tmp_path),
+    )
+    mind.next_intent(reading({}))
+    summary = provider.requests[0].observation_summary
+    missing = cast("dict[str, int]", summary["missing_raw"])
+    assert "minecraft:cobblestone" in missing
+    assert "minecraft:cobbled_deepslate" not in missing
