@@ -264,6 +264,13 @@ _ARCHIVE_BEGIN = "# --- recipe-archive-path begin ---"
 _ARCHIVE_END = "# --- recipe-archive-path end ---"
 
 
+def test_the_runner_forwards_decision_policy_without_selecting_one() -> None:
+    """An explicit host choice must arrive; provider-off never selects rules."""
+    text = (RUNNER / "run.sh").read_text(encoding="utf-8")
+    assert re.search(r"-e\s+MINEKIN_DECISION_POLICY(?=\s|$)", text)
+    assert not re.search(r"-e\s+MINEKIN_DECISION_POLICY=", text)
+
+
 def recipe_archive_block(script: str) -> str:
     return script[script.index(_ARCHIVE_BEGIN) : script.index(_ARCHIVE_END)]
 

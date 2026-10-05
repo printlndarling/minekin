@@ -265,13 +265,16 @@ if [[ "${1:-}" == "domain" ]]; then
         # reads, and none of them is a credential: `MINEKIN_MODEL_API_KEY_ENV` names the
         # variable that holds the key, and the key itself arrives by that name through
         # MINEKIN_RUNNER_FORWARD_ENV below. Forwarded by name for the same reason as
-        # every knob above — undelivered a knob arrives empty, the mind takes its
-        # "no model configured" branch, and the run then reports a decision it made
-        # locally as though the operator's model had been asked. `MINEKIN_PERSONA_SEED`
+        # every knob above — undelivered a knob arrives empty and the mind takes its
+        # "no model configured" branch instead of asking the chosen provider.
+        # `MINEKIN_PERSONA_SEED`
         # belongs here for the same reason: an unseeded persona is a different Kin.
         -e MINEKIN_MODEL_PROVIDER -e MINEKIN_MODEL_BASE_URL -e MINEKIN_MODEL
         -e MINEKIN_MODEL_API_KEY_ENV -e MINEKIN_MODEL_TIMEOUT_MS
         -e MINEKIN_MODEL_RUN_COST_CAP
+        # Pass the operator's explicit decision policy unchanged. Unset stays unset:
+        # disabling a provider must not implicitly authorize a local rule strategy.
+        -e MINEKIN_DECISION_POLICY
         # The standing milestone, which since this build's parameterization is an argument and not
         # a constant: `goal_spec.py` reads these four and holds no default item, so a name that is
         # not delivered is a Kin with no standing craft target rather than the pickaxe one. A demo
