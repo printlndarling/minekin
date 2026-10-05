@@ -62,9 +62,13 @@ from minekin_core.domain.world_actions import (
 #: The default stays small. Multi-stage crafting can legitimately need more than
 #: 24 confirmed actions once gathering, re-aiming and GUI cleanup are counted.
 #: An explicit larger budget is bounded separately; it never disables model cost,
-#: skill timeout, lease expiry or cooperative cancellation.
+#: skill timeout, lease expiry or cooperative cancellation. The ceiling itself moved
+#: from 64 when the first bounded survival soak needed to outlast several compressed
+#: day cycles: a scanning minute is only a handful of steps, so living through three
+#: nights is a few hundred — and it stays a number the operator names, not an
+#: unlimited run.
 DEFAULT_STEP_BUDGET: Final = 24
-MAX_STEP_BUDGET: Final = 64
+MAX_STEP_BUDGET: Final = 512
 
 
 #: The loop's own three endings, beside the reasons an intent already carries.

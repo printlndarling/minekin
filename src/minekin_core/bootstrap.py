@@ -22,7 +22,11 @@ from minekin_core.adapters.launcher.provision import (
     reviewed_entry,
 )
 from minekin_core.adapters.system.clock import SystemClock
-from minekin_core.application.autonomous_play import DEFAULT_STEP_BUDGET, AutonomousAsk
+from minekin_core.application.autonomous_play import (
+    DEFAULT_STEP_BUDGET,
+    MAX_STEP_BUDGET,
+    AutonomousAsk,
+)
 from minekin_core.application.player_mind import SKILL_OFFER
 from minekin_core.application.skill_plan import (
     SkillPlan,
@@ -252,12 +256,22 @@ def _autonomous_ask(args: argparse.Namespace, skill_step_seconds: float) -> Auto
         )
     if not args.autonomous:
         return None
+    steps = DEFAULT_STEP_BUDGET if args.autonomous_steps is None else int(args.autonomous_steps)
+    if not 1 <= steps <= MAX_STEP_BUDGET:
+        # The same refusal the session's own guard gives, made here as well so the
+        # ask that is built is always one a lease can keep; a soak that outlasts
+        # several compressed day cycles is still a number the operator names.
+        raise MinekinError(
+            "cli",
+            "session start",
+            ErrorCategory.CONFIG,
+            Retryability.OPERATOR_ACTION,
+            f"--autonomous-steps must be between 1 and {MAX_STEP_BUDGET}",
+        )
     config = model_config()
     return AutonomousAsk(
         skills=SKILL_OFFER,
-        step_budget=(
-            DEFAULT_STEP_BUDGET if args.autonomous_steps is None else int(args.autonomous_steps)
-        ),
+        step_budget=steps,
         step_seconds=skill_step_seconds,
         decision_seconds=config.timeout_ms / 1000.0 if config.enabled else 0.0,
     )

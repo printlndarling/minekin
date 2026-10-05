@@ -13,7 +13,7 @@ import pytest
 from minekin_core import bootstrap
 from minekin_core.adapters.launcher.launch_plan import find_workspace_root
 from minekin_core.adapters.sqlite.connection import SQLiteCompatibilityError
-from minekin_core.application.autonomous_play import DEFAULT_STEP_BUDGET
+from minekin_core.application.autonomous_play import DEFAULT_STEP_BUDGET, MAX_STEP_BUDGET
 from minekin_core.application.player_mind import SKILL_OFFER
 from minekin_core.bootstrap import (
     _autonomous_ask,  # pyright: ignore[reportPrivateUsage]
@@ -489,6 +489,51 @@ def test_a_step_budget_without_the_flag_that_would_use_it_is_refused(
     assert raised.value.retryability is Retryability.OPERATOR_ACTION
     # Not merely the knob's own name, which any message about it would repeat.
     assert "with --autonomous" in raised.value.safe_message
+
+
+def test_the_step_budget_ceiling_admits_a_bounded_soak_and_refuses_one_step_past_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The ceiling is the bound the operator asked for, not an unlimited run.
+
+    A survival soak has to outlast several compressed day cycles, and a scanning
+    minute is only a handful of steps — so the accepted ceiling has to be big enough
+    to cross nights, while one step more is still refused by name.
+    """
+
+    clear_model_environment(monkeypatch)
+
+    accepted = parse_args(
+        [
+            "session",
+            "start",
+            "--profile",
+            "profile.json",
+            "--autonomous",
+            "--autonomous-steps",
+            str(MAX_STEP_BUDGET),
+        ]
+    )
+    ask = _autonomous_ask(accepted, DEFAULT_SKILL_STEP_TIMEOUT_S)
+    assert ask is not None, "--autonomous produced no ask, so these readings are vacuous"
+    assert ask.step_budget == MAX_STEP_BUDGET
+
+    over = parse_args(
+        [
+            "session",
+            "start",
+            "--profile",
+            "profile.json",
+            "--autonomous",
+            "--autonomous-steps",
+            str(MAX_STEP_BUDGET + 1),
+        ]
+    )
+    with pytest.raises(MinekinError) as raised:
+        _autonomous_ask(over, DEFAULT_SKILL_STEP_TIMEOUT_S)
+    assert raised.value.category is ErrorCategory.CONFIG
+    assert raised.value.retryability is Retryability.OPERATOR_ACTION
+    assert "between 1 and" in raised.value.safe_message
 
 
 def test_an_unusable_model_config_refuses_before_there_is_an_ask(
