@@ -35,6 +35,20 @@ uv run python tools/verify_fixture_digests.py
 uv run python tools/check_workflow_pins.py
 ```
 
+### Windows 的 shell 契约测试
+
+先用 `Get-Command bash -All` 核对实际解释器。Windows 原生 Python 驱动本仓库 shell 测试时，需要 Git Bash 与其 `cygpath`；若 `C:\Windows\System32\bash.exe`（WSL 启动器）抢在前面，`D:/…` 临时脚本路径会被交给 Linux，报 `No such file or directory`。这是执行环境错配，不应通过跳过 shell 测试或降低断言来解决。
+
+例如本机 Git 安装在 `D:\env\Git`，仅在当前 PowerShell/测试进程调整路径（其他安装位置须替换；不修改系统设置）：
+
+```powershell
+$env:PATH = 'D:\env\Git\bin;D:\env\Git\usr\bin;' + $env:PATH
+Get-Command bash, cygpath
+uv run --frozen pytest -q tests/contract/test_runner_scripts.py
+```
+
+2026-10-05 同树定位：首个失败实际执行 `System32\bash.exe`，退出 127；只改变上述解释器选择后，runner 契约 168 项通过。此读数仅证明该测试环境修复，不代表真实客户端验收或全项目完成。CI/Linux 的原生 bash 不适用 Windows 路径调整。
+
 Python 侧的协议生成物是**提交进仓库**的（它们要进 wheel），所以改 `.proto` 之后必须重跑生成器；CI 会重跑一遍并 `git diff --exit-code`，用提交的字节与冻结的 schema 对账：
 
 ```text
