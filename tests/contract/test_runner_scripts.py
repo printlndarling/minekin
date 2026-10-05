@@ -2102,6 +2102,46 @@ def test_the_hungry_kin_knob_is_read_once_and_default_off() -> None:
     assert hungry_kin_region(text, "guard").count("exit 2") == 2
 
 
+def clear_hostiles_region(text: str, name: str) -> str:
+    """One shipped region of the clear-hostiles fixture, marker to marker, sans begin line."""
+
+    begin = f"# --- clear-hostiles-{name} begin"
+    end = f"# --- clear-hostiles-{name} end ---"
+    start = text.index(begin)
+    lines = text[start : text.index(end, start)].splitlines(keepends=True)
+    assert len(lines) > 2, f"the clear-hostiles {name} region came out empty; wrong markers"
+    return "".join(lines[1:])
+
+
+def test_the_clear_hostiles_knob_is_read_once_and_default_off() -> None:
+    """`MINEKIN_DOMAIN_CLEAR_HOSTILES` is read the one literal way and appends once.
+
+    The same shape every default-off fixture takes, plus the run.sh hop: an
+    undelivered clear would leave the soak measuring the previous run's leftovers as
+    if they were its own behaviour, which is exactly the confound the knob exists to
+    remove.
+    """
+
+    text = (RUNNER / "domain.sh").read_text(encoding="utf-8")
+    wrapper = (RUNNER / "run.sh").read_text(encoding="utf-8")
+
+    assert text.count('clear_hostiles="${MINEKIN_DOMAIN_CLEAR_HOSTILES:-}"') == 1
+    forge = clear_hostiles_region(text, "forge")
+    assert 'if [[ -n "${clear_hostiles}" ]]; then' in forge
+    assert forge.index('if [[ -n "${clear_hostiles}"') < forge.index(
+        "probe_args+=(--clear-hostiles)"
+    )
+    assert "--use-target" not in forge
+    assert "--resource-trunk" not in forge
+    assert "--hungry-kin" not in forge
+    assert "--time-phase" not in forge
+
+    delivered = set(re.findall(r"-e\s+(MINEKIN_DOMAIN_CLEAR_HOSTILES)", wrapper))
+    assert delivered == {"MINEKIN_DOMAIN_CLEAR_HOSTILES"}, (
+        f"run.sh forwards these clear-hostiles names into the container: {sorted(delivered)}"
+    )
+
+
 def test_the_time_phase_knob_is_read_once_and_default_off() -> None:
     """`MINEKIN_DOMAIN_TIME_PHASE` is read the one literal way and appends once per entry.
 

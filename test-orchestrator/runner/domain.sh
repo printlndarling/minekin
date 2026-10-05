@@ -30,6 +30,11 @@ summon="${MINEKIN_DOMAIN_SUMMON:-}"
 # Default-off: unset, no `--time-phase` reaches the server tool and the world keeps the
 # vanilla clock every earlier run had.
 time_phase="${MINEKIN_DOMAIN_TIME_PHASE:-}"
+# `MINEKIN-DOMAIN-CLEAR-HOSTILES-001`: kill every non-player entity once a player has
+# joined, so a soak does not start on the standing population another soak left.
+# Default-off: unset, no `--clear-hostiles` reaches the server tool and the world is
+# carried over exactly as every earlier run left it.
+clear_hostiles="${MINEKIN_DOMAIN_CLEAR_HOSTILES:-}"
 probe="${MINEKIN_DOMAIN_PROBE:-}"
 # The run's *second* probe target (V1201-LAN-SECOND-NAMED-PROBE-TARGET-001).
 # Default-off: unset means the run asks one name, exactly what every run did
@@ -1060,6 +1065,13 @@ if [[ -n "${time_phase}" ]]; then
     done
 fi
 # --- time-phase-forge end ---
+# Clearing hostiles, when the run asked for it, appended the same default-off way the
+# other fixtures are: unset, this branch does not run and `probe_args` stays byte-identical.
+# --- clear-hostiles-forge begin (the contract test extracts this region) ---
+if [[ -n "${clear_hostiles}" ]]; then
+    probe_args+=(--clear-hostiles)
+fi
+# --- clear-hostiles-forge end ---
 # The meal, when the run asked for one, appended the same default-off way the trunk's is:
 # unset, this branch does not run and `probe_args` stays byte-identical to what it was
 # before the knob existed.

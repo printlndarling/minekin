@@ -94,6 +94,7 @@ class _Runner(Protocol):
 
     def summon_command(self, entity_type: str) -> str: ...
     def parse_time_phases(self, specs: list[str]) -> list[tuple[float, str]]: ...
+    CLEAR_HOSTILES_COMMAND: str
     def any_player_joined(self, log: Path) -> bool: ...
     def position_probe_command(self, player: str) -> str: ...
     def probe_console_commands(self, players: list[str]) -> list[str]: ...
@@ -566,6 +567,19 @@ def test_the_time_phase_anchor_is_a_join_line_whatever_the_name(tmp_path: Path) 
         encoding="utf-8",
     )
     assert RUNNER.any_player_joined(log) is True
+
+
+def test_the_entity_clear_is_one_static_console_line_with_no_input_in_it() -> None:
+    """A soak's opening conditions are part of its reading: slimes and spiders do not
+    burn at dawn, so a world another soak left behind starts the next run with a
+    standing population (measured: 17 deaths, then 45, on one schedule). The line
+    takes nothing from anywhere, so there is no name to check and no second command
+    to smuggle."""
+
+    line = RUNNER.CLEAR_HOSTILES_COMMAND
+
+    assert line == "kill @e[type=!minecraft:player]"
+    assert "\n" not in line and ";" not in line
 
 
 def test_a_position_probe_is_a_console_line_and_never_a_second_command() -> None:

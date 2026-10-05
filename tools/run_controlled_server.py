@@ -488,6 +488,16 @@ def any_player_joined(log: Path) -> bool:
     return PLAYER_JOINED.search(text) is not None
 
 
+#: The console line that clears every entity but a player. A soak that starts on a
+#: world another soak left behind does not start from the same conditions: slimes and
+#: spiders do not burn at dawn, so each compressed night leaves a standing population
+#: and the next run's death rate measures the world's history rather than its own
+#: behaviour -- measured across the 2026-10-05 soaks (17 deaths, then 45 on the same
+#: schedule with more mobs already standing). A static line with no user input in it,
+#: so there is nothing here to escape or inject.
+CLEAR_HOSTILES_COMMAND = "kill @e[type=!minecraft:player]"
+
+
 def kill_command(player: str) -> str:
     """The console line that kills a player, or a refusal.
 
@@ -870,6 +880,11 @@ def main() -> int:
     )
     parser.add_argument("--java", type=Path, default=None)
     parser.add_argument(
+        "--clear-hostiles",
+        action="store_true",
+        help="kill every non-player entity once a player has joined, so a soak starts clean",
+    )
+    parser.add_argument(
         "--kick-player",
         default=None,
         metavar="NAME",
@@ -1122,6 +1137,7 @@ def main() -> int:
     #: is once rather than a cadence: unlike the use target the trunk is not re-placed
     #: while the Kin turns, because its breaking is the observation the run wants.
     trunk_placed = False
+    hostiles_cleared = False
     #: Whether the meal has been served. Written once for the trunk's own reason: the
     #: apples are the resource the run eats, and re-giving them would refill the bag the
     #: confirmation is counting down.
@@ -1235,6 +1251,15 @@ def main() -> int:
                             if initial_block is not None:
                                 process.stdin.write((initial_block + "\n").encode())
                                 process.stdin.flush()
+                        if args.clear_hostiles and bursted and not hostiles_cleared:
+                            # The same owed-at-join moment as the trunk, and before it: a
+                            # world left by another soak is not the same starting
+                            # condition, and a kill at an unjoined player's feet would
+                            # fire a console error nobody reads.
+                            hostiles_cleared = True
+                            process.stdin.write((CLEAR_HOSTILES_COMMAND + "\n").encode())
+                            process.stdin.flush()
+                            print("cleared every non-player entity at the join")
                         if resource_trunk is not None and bursted and not trunk_placed:
                             # The same owed-at-join moment as the use target, and for the
                             # same measured reason: `setblock` at a player who has not

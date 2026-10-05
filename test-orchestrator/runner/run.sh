@@ -177,6 +177,11 @@ if [[ "${1:-}" == "domain" ]]; then
         # domain reading a world whose clock never moved — a quiet run that seals as evidence
         # for a schedule that never happened.
         -e MINEKIN_DOMAIN_TIME_PHASE
+        # The start-of-run entity clear, forwarded beside the schedule it pairs with:
+        # a soak's opening conditions are part of the ask, and a knob that never
+        # arrives would measure the previous run's leftovers as if they were this
+        # run's behaviour.
+        -e MINEKIN_DOMAIN_CLEAR_HOSTILES
         -e MINEKIN_DOMAIN_PROBE -e MINEKIN_DOMAIN_PROBE_SECONDS -e MINEKIN_DOMAIN_LOOK
         -e MINEKIN_DOMAIN_KILL -e MINEKIN_DOMAIN_KICK -e MINEKIN_DOMAIN_KILL_CORE
         # When that death happens is a separate ask, and `domain.sh` reads it by name;
