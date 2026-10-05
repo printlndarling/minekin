@@ -59,8 +59,8 @@ from minekin_core.domain.perception import (
     InventoryStackValue,
     InventoryValue,
     SelfStateValue,
-    WorldObservationValue,
     TradeOfferValue,
+    WorldObservationValue,
 )
 from minekin_core.domain.world_actions import ActionResultClass, angle_to_degrees
 from minekin_core.generated.minekin.v1 import control_pb2
