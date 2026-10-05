@@ -2936,3 +2936,52 @@ def test_retreat_reads_unknown_when_the_body_never_moved() -> None:
         assert [message.forward for message in moves] == [1.0, 0.0]  # type: ignore[attr-defined]
 
     asyncio.run(scenario())
+
+
+def test_retreat_keeps_moving_on_a_named_hold_with_nothing_in_sight() -> None:
+    """The blind leg: a hit that landed between readings leaves no hostile to take a
+    bearing from, so the caller names the hold and the walk goes where the body faces.
+    No aim is sent -- there is no bearing this reading supports, and inventing one would
+    be a step the world never showed."""
+
+    async def scenario() -> None:
+        store = store_with(positioned(tick=100))
+        skills, sender = skill_with(store)
+        queued = [positioned(tick=120, x=-6.0)]
+
+        def answer(message_type: str) -> None:
+            if message_type == MOVE_INPUT_TYPE and queued:
+                store.admit(queued.pop(0), ())
+
+        sender.on_send = answer
+        outcome = await skills.retreat(
+            authority=authority(), hold_seconds=1.0, timeout_ns=10_000_000_000
+        )
+
+        assert outcome.result is ActionResultClass.CONFIRMED
+        assert outcome.details["bearing"] == "current_heading_on_named_hold"
+        assert outcome.details["hostile"] == ""
+        assert outcome.details["hold_seconds"] == "1"
+        assert outcome.details["moved_blocks"] == "6.00"
+        aims = [message for kind, message in sender.sent if kind == AIM_INPUT_TYPE]
+        assert aims == []
+        moves = [message for kind, message in sender.sent if kind == MOVE_INPUT_TYPE]
+        assert [message.forward for message in moves] == [1.0, 0.0]  # type: ignore[attr-defined]
+
+    asyncio.run(scenario())
+
+
+def test_retreat_refuses_a_hold_outside_its_bounds() -> None:
+    async def scenario() -> None:
+        store = store_with(reading(tick=100))
+        skills, sender = skill_with(store)
+
+        for hold in (0.2, 5.5, float("nan")):
+            outcome = await skills.retreat(
+                authority=authority(), hold_seconds=hold, timeout_ns=1_000_000_000
+            )
+            assert outcome.result is ActionResultClass.FAILED, hold
+            assert outcome.reason == "RETREAT_HOLD_INVALID", hold
+        assert sender.sent == []
+
+    asyncio.run(scenario())

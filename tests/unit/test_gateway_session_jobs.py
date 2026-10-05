@@ -12,6 +12,7 @@ import pytest
 
 from gateway import session_jobs
 from gateway.server import ReadService
+from minekin_core.application.autonomous_play import MAX_STEP_BUDGET
 from minekin_core.application.ports.clock import FakeClock
 from minekin_core.cli.init import initialise_identity
 from minekin_core.cli.session_runtime import SessionOutcome, SessionRun
@@ -62,7 +63,7 @@ def jobs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> session_jobs.Sessio
         {"durationSeconds": True},
         {"durationSeconds": 0},
         {"maxDownloadBytes": -1},
-        {"autonomousSteps": 65},
+        {"autonomousSteps": MAX_STEP_BUDGET + 1},
         {"arbitraryPath": "secret"},
     ],
 )

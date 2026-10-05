@@ -214,10 +214,11 @@ class TapeSkills(WorldSkills):
         self,
         *,
         authority: ActionAuthority,
+        hold_seconds: float = 0.0,
         timeout_ns: int = DEFAULT_STEP_TIMEOUT_NS,
     ) -> SkillOutcome:
         del authority, timeout_ns
-        return await self._answer("retreat")
+        return await self._answer("retreat", hold_seconds=hold_seconds)
 
     async def break_seen_block(
         self,
@@ -1305,4 +1306,7 @@ def test_the_loop_steps_away_from_a_visible_slime() -> None:
 
     assert skills.ran, (result.stop_reason, result.stop_detail, result.steps)
     assert next(name for name, _ in skills.ran) == "retreat"
+    # A rendered threat with health intact takes the bearing the reading holds and no
+    # named hold: the default one-step retreat, not the escalated blind walk.
+    assert skills.ran[0][1] == {"hold_seconds": 0.0}
     assert result.stop_reason == STEP_BUDGET_SPENT

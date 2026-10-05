@@ -66,7 +66,9 @@ _DEFAULTED: Final[dict[str, tuple[str, ...]]] = {
     "select_hotbar": ("expected_item_id",),
     "use_target": (),
     "respawn": (),
-    "retreat": (),
+    # The hold a retreat walks for: the mind supplies it from the reading's damage state
+    # when nobody said, and a named one is the caller's claim to walk blind.
+    "retreat": ("hold_seconds",),
 }
 
 #: The argument each skill requires, by name. Empty for a skill that can run on
@@ -489,7 +491,11 @@ async def _dispatch(
     if call.name == "respawn":
         return await skills.respawn(authority=authority, timeout_ns=timeout_ns)
     if call.name == "retreat":
-        return await skills.retreat(authority=authority, timeout_ns=timeout_ns)
+        return await skills.retreat(
+            authority=authority,
+            hold_seconds=call.hold_seconds,
+            timeout_ns=timeout_ns,
+        )
     if call.name == "turn_to":
         return await skills.turn_to(
             yaw_degrees=call.yaw_degrees,

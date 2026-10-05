@@ -50,7 +50,7 @@ from minekin_core.application.skill_plan import (
     SKILL_UNKNOWN,
     SkillPlan,
 )
-from minekin_core.application.world_skills import SkillCall
+from minekin_core.application.world_skills import RETREAT_FLEE_SECONDS, SkillCall
 from minekin_core.domain.danger_catalog import nearest_hostile
 from minekin_core.domain.daylight import time_of_day
 from minekin_core.domain.goal_spec import Milestone
@@ -1105,6 +1105,11 @@ class PlayerMind:
     #: comparison is between two readings of the world and never a reading against itself.
     last_health: float | None = field(default=None, init=False)
     recent_damage: bool = field(default=False, init=False)
+    #: True from a CONFIRMED respawn until the first CONFIRMED step that is not one. The
+    #: spot the death happened on is the one place the next reading has already proven
+    #: dangerous (the 2026-10-05 soak: 37 deaths, every respawn back into the same camp),
+    #: so the first thing this mind does with a body again is carry it off that spot.
+    just_respawned: bool = field(default=False, init=False)
     empty_container_aim: tuple[object, ...] | None = field(default=None, init=False)
     empty_container_inventory: tuple[tuple[str, int], ...] = field(default=(), init=False)
     recent_results: list[dict[str, object]] = field(
@@ -1319,6 +1324,20 @@ class PlayerMind:
         feasible = tuple(
             name for name in self.feasible_skills(reading) if name not in self.excluded
         )
+        if (
+            reading.self_state.alive
+            and not screen_open(reading)
+            and "retreat" not in feasible
+            and (self.recent_damage or self.just_respawned)
+        ):
+            # A threat the client renders is not the only thing worth leaving: a health
+            # drop is damage a hit already did, and a respawn is a spot the world has
+            # already proven deadly around. Both outrank staying -- the 2026-10-05 soak
+            # died 37 times in one night with nothing hostile ever in sight (the kills
+            # landed between readings), because the offer needed a rendered hostile to
+            # exist at all. The step is still the skill's: a named hold, and the world's
+            # next reading decides whether another follows.
+            feasible = (*feasible, "retreat")
         if (
             not screen_open(reading)
             and self.empty_container_aim is not None
@@ -1563,6 +1582,7 @@ class PlayerMind:
             self.last_failure = None
             self.last_precondition = ""
             self.last_use_aim = None
+            self.just_respawned = intent.skill == "respawn"
             self.observe(reading_after)
             return None
         failure = attribute_failure(outcome)
@@ -1625,9 +1645,10 @@ class PlayerMind:
                 return "craft_take_result"
             return "close_screen"
         if "retreat" in feasible:
-            # A threat the client renders in sight: leave. Every slime death happened in a
-            # step that stood still (run-89), and one step away is the whole response this
-            # build has — the next reading decides whether another follows.
+            # A threat the client renders in sight, a hit already taken, or ground a death
+            # just proved deadly: leave. Every slime death happened in a step that stood
+            # still (run-89), and leaving is the whole response this build has — the
+            # next reading decides whether another step follows.
             return "retreat"
         if "consume_item" in feasible and needs.get("safety", 0) >= 3:
             return "consume_item"
@@ -1696,10 +1717,36 @@ class PlayerMind:
         """
 
         if skill == "retreat":
+            asked_hold = _asked_number(arguments, "hold_seconds")
+            hostile = nearest_hostile(reading)
+            hurt = self.recent_damage or self.just_respawned
+            if hostile is None and asked_hold is None and not hurt:
+                # Nothing visible to leave, nothing said about what to do about it: the
+                # same no-op the feasible set never offers, refused here for a provider
+                # that named it anyway.
+                return None, NO_FEASIBLE_SKILL, {}
+            if hostile is not None:
+                hold = (
+                    asked_hold
+                    if asked_hold is not None
+                    else (RETREAT_FLEE_SECONDS if hurt else 0.0)
+                )
+                reason = "step away from the nearest visible threat"
+            else:
+                # No bearing from the reading -- the damage is what the last two readings
+                # disagreed about, so walk the heading the body already faces and let the
+                # hold be the name of the claim.
+                hold = RETREAT_FLEE_SECONDS if asked_hold is None else asked_hold
+                reason = (
+                    "get off the spot the last death happened on"
+                    if self.just_respawned and not self.recent_damage
+                    else "keep moving -- hurt, with nothing hostile in sight"
+                )
+            ask: dict[str, object] = {"hold_seconds": hold} if hold else {}
             return (
-                SkillPlan((SkillCall(name="retreat"),)),
-                "step away from the nearest visible threat",
-                {},
+                SkillPlan((SkillCall(name="retreat", hold_seconds=hold),)),
+                reason,
+                ask,
             )
         if skill == "respawn":
             return SkillPlan((SkillCall(name="respawn"),)), "use the visible respawn button", {}

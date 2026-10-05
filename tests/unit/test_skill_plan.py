@@ -832,10 +832,10 @@ def test_dispatch_maps_a_retreat_call_onto_the_retreat_skill() -> None:
 
     class OnlyRetreat:
         def __init__(self) -> None:
-            self.seen: tuple[object, int] | None = None
+            self.seen: tuple[object, float, int] | None = None
 
-        async def retreat(self, *, authority: object, timeout_ns: int) -> str:
-            self.seen = (authority, timeout_ns)
+        async def retreat(self, *, authority: object, hold_seconds: float, timeout_ns: int) -> str:
+            self.seen = (authority, hold_seconds, timeout_ns)
             return "outcome"
 
         def __getattr__(self, name: str) -> object:
@@ -850,13 +850,14 @@ def test_dispatch_maps_a_retreat_call_onto_the_retreat_skill() -> None:
     outcome = asyncio.run(
         skill_plan_module._dispatch(
             skills,  # type: ignore[arg-type]
-            SkillCall(name="retreat"),
+            SkillCall(name="retreat", hold_seconds=3.5),
             authority=authority,
             timeout_ns=5_000_000_000,
         )
     )
     assert outcome == "outcome"
-    assert skills.seen == (authority, 5_000_000_000)
+    # The hold the caller named is the hold the skill is asked for, not dropped on the way.
+    assert skills.seen == (authority, 3.5, 5_000_000_000)
 
 
 def test_every_declared_skill_states_its_required_arguments() -> None:

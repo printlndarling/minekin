@@ -151,8 +151,11 @@ BEHAVIOR_PARAMETERS: Final[Mapping[str, tuple[Parameter, ...]]] = MappingProxyTy
         "respawn": (),
         # A retreat takes its bearing from the reading's own hostile report, exactly as
         # close_screen takes the window and use_target the aim: the answer names the behavior
-        # and fills in nothing, and a reading with no visible threat refuses it by name.
-        "retreat": (),
+        # and fills in nothing, and a reading with no visible threat refuses it by name --
+        # unless the call names a hold, which is the caller's claim to keep moving on the
+        # heading the body already faces (a hit taken between readings leaves damage no
+        # reading of the moment carries).
+        "retreat": (_number("hold_seconds", ParameterKind.SECONDS, 0.5, 5.0),),
         # A use takes the aim from the reading, exactly as close_screen takes the
         # window from it — the model names the behavior and fills in nothing.
         "use_target": (),

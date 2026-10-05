@@ -96,9 +96,20 @@ from minekin_core.generated.minekin.v1 import control_pb2
 AIM_ARRIVAL_TOLERANCE_DEGREES: Final[float] = 2.0
 
 #: How long one retreat step holds the forward key, and how far the body must have moved
-#: for the step to count. Short by design: a retreat is one step, not a journey -- the mind
-#: re-reads the world between steps, and run-89's slime was slower than this walk.
+#: for the step to count. Short by design: a retreat from a threat in sight is one step,
+#: not a journey -- the mind re-reads the world between steps.
 RETREAT_STEP_SECONDS: Final[float] = 1.5
+#: How long the escape holds when the caller says it is hurt or names the hold itself:
+#: about seventeen blocks of ground, past the eight-block threat reach and then some. The
+#: one-step hold lost ground to pursuers that strike again in ten seconds -- measured on
+#: the 2026-10-05 survival soak, 37 deaths around the world spawn in one night, almost all
+#: landing between readings of a Kin that stood and scanned. The escalation is bounded: one
+#: walk the caller named, and the mind re-reads the world after it either way.
+RETREAT_FLEE_SECONDS: Final[float] = 4.0
+#: The bounds a named hold has to sit inside. Below the floor a "step" the world can confirm
+#: is not guaranteed; above the ceiling it stops being a step away and becomes a journey.
+RETREAT_HOLD_MIN_SECONDS: Final[float] = 0.5
+RETREAT_HOLD_MAX_SECONDS: Final[float] = 5.0
 RETREAT_CONFIRM_BLOCKS: Final[float] = 0.5
 
 #: Why a skill stops waiting. The observation cadence is a constant of the
@@ -267,6 +278,9 @@ class SkillCall:
     expected_drop_item: str = ""
     expected_item_id: str = ""
     walk_seconds: float = 1.0
+    #: A retreat's hold, when the caller named one; zero is "nobody said", which is the
+    #: skill's own default step.
+    hold_seconds: float = 0.0
     materials: tuple[tuple[str, int], ...] = ()
     craft_all: bool = True
 
@@ -1785,17 +1799,28 @@ class WorldSkills:
         )
 
     async def retreat(
-        self, *, authority: ActionAuthority, timeout_ns: int = DEFAULT_STEP_TIMEOUT_NS
+        self,
+        *,
+        authority: ActionAuthority,
+        hold_seconds: float = 0.0,
+        timeout_ns: int = DEFAULT_STEP_TIMEOUT_NS,
     ) -> SkillOutcome:
         """Turn away from the nearest visible hostile and take one bounded step.
 
-        The response run-89 never had: a night slime slew a Kin that kept working. The bearing
-        is the reported offset's own geometry, reversed; the step is one short hold of the same
-        forward key `collect_dropped` walks with, released through the same named exit; and only
-        a later frame whose position actually moved confirms it, so a step the world refused
-        reads UNKNOWN rather than done. One step per call on purpose: the mind re-reads the
-        world between steps, and a retreat that has arrived keeps being reconsidered from what
-        the next reading shows.
+        The response run-89 never had: a night slime slew a Kin that kept working. With a
+        hostile in sight the bearing is the reported offset's own geometry, reversed; the step
+        is one hold of the same forward key `collect_dropped` walks with, released through the
+        same named exit; and only a later frame whose position actually moved confirms it, so a
+        step the world refused reads UNKNOWN rather than done.
+
+        Without a visible hostile the step still exists when the caller names how long to hold
+        it: a hit that arrived between readings left damage the skill can no longer see, so the
+        named hold is the caller's claim -- walk the heading the body already faces, because the
+        deaths in the 2026-10-05 soak (37 in one night around the spawn) all landed on a Kin
+        that stood and scanned. A call with neither threat nor hold asks for nothing and is
+        refused by name. One step per call on purpose: the mind re-reads the world between
+        steps, and a retreat that has arrived keeps being reconsidered from what the next
+        reading shows.
         """
 
         for capability in (MOVE_CAPABILITY, AIM_CAPABILITY):
@@ -1809,53 +1834,68 @@ class WorldSkills:
             return _refusal_outcome("WORLD_GENERATION_CHANGED", "", pre)
         if pre.gui is not None and pre.gui.sync_id is not None:
             return _refusal_outcome("RETREAT_SCREEN_OPEN", "", pre)
+        if hold_seconds and not (
+            math.isfinite(hold_seconds)
+            and RETREAT_HOLD_MIN_SECONDS <= hold_seconds <= RETREAT_HOLD_MAX_SECONDS
+        ):
+            return _refusal_outcome("RETREAT_HOLD_INVALID", "", pre)
         hostile = nearest_hostile(pre)
-        if hostile is None:
+        if hostile is None and not hold_seconds:
             return _refusal_outcome("RETREAT_THREAT_NOT_VISIBLE", "", pre)
-        entity, _distance = hostile
-        toward_yaw, _ = angle_to_degrees(
-            dx=entity.relative_x, dy=entity.relative_y, dz=entity.relative_z
-        )
-        away_yaw = ((toward_yaw + 360.0) % 360.0) - 180.0
+        hold = hold_seconds if hold_seconds else RETREAT_STEP_SECONDS
         action_id = self._action_id()
         deadline = monotonic_ns() + timeout_ns
-        await self._sender.send_control(
-            AIM_INPUT_TYPE,
-            control_pb2.AimInput(
-                action_id=action_id,
-                lease_id=authority.lease_id,
-                generation=authority.generation,
-                yaw_degrees=away_yaw,
-                pitch_degrees=0.0,
-                deadline_monotonic_ns=authority.deadline_monotonic_ns,
-            ),
-        )
-        arrived = await self._wait_until(
-            lambda candidate: (
-                candidate.self_state.yaw_degrees is not None
-                and angle_error_degrees(
-                    from_yaw=candidate.self_state.yaw_degrees,
-                    to_yaw=away_yaw,
-                    from_pitch=0.0,
-                    to_pitch=0.0,
-                )
-                <= AIM_ARRIVAL_TOLERANCE_DEGREES
-            ),
-            deadline,
-            action_id=action_id,
-        )
-        if arrived is None:
-            return SkillOutcome(
-                result=ActionResultClass.UNKNOWN,
-                reason="NO_CONFIRMING_OBSERVATION",
-                action_id=action_id,
-                pre_tick=pre.game_tick,
+        hostile_type = ""
+        if hostile is not None:
+            entity, _distance = hostile
+            toward_yaw, _ = angle_to_degrees(
+                dx=entity.relative_x, dy=entity.relative_y, dz=entity.relative_z
             )
+            away_yaw = ((toward_yaw + 360.0) % 360.0) - 180.0
+            await self._sender.send_control(
+                AIM_INPUT_TYPE,
+                control_pb2.AimInput(
+                    action_id=action_id,
+                    lease_id=authority.lease_id,
+                    generation=authority.generation,
+                    yaw_degrees=away_yaw,
+                    pitch_degrees=0.0,
+                    deadline_monotonic_ns=authority.deadline_monotonic_ns,
+                ),
+            )
+            arrived = await self._wait_until(
+                lambda candidate: (
+                    candidate.self_state.yaw_degrees is not None
+                    and angle_error_degrees(
+                        from_yaw=candidate.self_state.yaw_degrees,
+                        to_yaw=away_yaw,
+                        from_pitch=0.0,
+                        to_pitch=0.0,
+                    )
+                    <= AIM_ARRIVAL_TOLERANCE_DEGREES
+                ),
+                deadline,
+                action_id=action_id,
+            )
+            if arrived is None:
+                return SkillOutcome(
+                    result=ActionResultClass.UNKNOWN,
+                    reason="NO_CONFIRMING_OBSERVATION",
+                    action_id=action_id,
+                    pre_tick=pre.game_tick,
+                )
+            bearing = "away_from_visible_hostile"
+            hostile_type = entity.entity_type
+        else:
+            # No bearing to take and none invented: the hold itself is the claim, and the
+            # walk goes the way the body already faces -- standing still is what the deaths
+            # were made of.
+            bearing = "current_heading_on_named_hold"
         await self._send_walk(action_id, authority, forward=1.0)
         async with self._release_on_exit(
             lambda: self._send_walk(action_id, authority, forward=0.0)
         ):
-            await self._sleep(RETREAT_STEP_SECONDS, action_id=action_id)
+            await self._sleep(hold, action_id=action_id)
         post = await self._outlive_client(
             self._observations.wait_until(
                 lambda latest: (
@@ -1892,7 +1932,9 @@ class WorldSkills:
             post_tick=post.game_tick,
             details={
                 "moved_blocks": f"{moved:.2f}",
-                "hostile": entity.entity_type,
+                "hostile": hostile_type,
+                "bearing": bearing,
+                "hold_seconds": f"{hold:g}",
                 "newest_checked_tick": str(post.game_tick),
             },
         )

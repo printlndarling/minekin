@@ -29,6 +29,7 @@ from minekin_core.application.player_mind import (
     GOAL_ACHIEVED,
     NO_FEASIBLE_SKILL,
     NO_LATEST_OBSERVATION,
+    RETREAT_FLEE_SECONDS,
     RETRY_BUDGET_PER_SIGNATURE,
     SCAN_PITCH_CYCLE_DEGREES,
     SCAN_YAW_DRIFT_DEGREES,
@@ -1113,7 +1114,9 @@ def test_the_local_order_finishes_the_chain_before_it_looks() -> None:
     )
     assert mind.next_intent(reading(entities=(drop(),))).skill == "collect_dropped"
     hurt = reading(aim=block_aim(), self_state=state(health=6.0))
-    assert mind.next_intent(hurt).skill == "turn_to"
+    # A hit already taken outranks the chain the way a rendered threat does: with nothing
+    # hostile in the reading, the drop is the evidence and leaving is the step.
+    assert mind.next_intent(hurt).skill == "retreat"
     assert mind.next_intent(reading(aim=block_aim())).skill == "break_seen_block"
 
 
@@ -1431,7 +1434,12 @@ def test_a_health_drop_is_a_hit_even_with_nothing_in_view() -> None:
     mind.observe(reading(self_state=state(health=20.0)))
     observed = reading(tick=200, aim=block_aim(), self_state=state(health=15.0))
 
-    assert mind.next_intent(observed).skill == "turn_to"
+    # The drop is the whole evidence, and it buys a step: nothing hostile is rendered, so
+    # there is no bearing to take -- the mind leaves on a named hold from where it stands.
+    intent = mind.next_intent(observed)
+    assert intent.skill == "retreat"
+    assert intent.arguments["hold_seconds"] == RETREAT_FLEE_SECONDS
+    assert intent.plan.calls[0].hold_seconds == RETREAT_FLEE_SECONDS
     summary = cast(dict[str, object], provider.requests[-1].observation_summary)
     assert summary["danger"] == {"recent_damage": True}
     assert provider.requests[-1].needs["safety"] >= 7
@@ -1440,6 +1448,61 @@ def test_a_health_drop_is_a_hit_even_with_nothing_in_view() -> None:
     # latched alarm, and the work is offered again.
     recovered = reading(tick=300, aim=block_aim(), self_state=state(health=15.0))
     assert mind.next_intent(recovered).skill == "break_seen_block"
+
+
+def test_a_respawn_makes_the_next_step_off_the_death_spot() -> None:
+    """The 2026-10-05 soak: 37 deaths in one night, every respawn back into the same camp
+    with nothing hostile rendered between the hops -- the reading offered another scan and
+    the Kin died scanning. A CONFIRMED respawn now puts 'leave' in the offer until the
+    first CONFIRMED step that is not one, and the leave is a named hold: the one leg of
+    retreat that needs no bearing, because the ground itself is the evidence."""
+
+    mind, _ = mind_with()
+    dead = reading(self_state=replace(state(alive=False), respawn_available=True))
+    respawn = mind.next_intent(dead)
+    assert respawn.skill == "respawn"
+    mind.record_result(respawn, outcome(ActionResultClass.CONFIRMED), reading(tick=150))
+
+    leaving = mind.next_intent(reading(tick=160, aim=block_aim()))
+    assert leaving.skill == "retreat"
+    assert leaving.arguments["hold_seconds"] == RETREAT_FLEE_SECONDS
+    assert leaving.plan.calls[0].hold_seconds == RETREAT_FLEE_SECONDS
+    assert leaving.reason == "get off the spot the last death happened on"
+    mind.record_result(leaving, outcome(ActionResultClass.CONFIRMED), reading(tick=200))
+
+    # The spot has been left: the ordinary order resumes on the next calm reading.
+    assert mind.next_intent(reading(tick=210, aim=block_aim())).skill == "break_seen_block"
+
+
+def test_a_hit_with_a_threat_in_sight_escalates_the_hold() -> None:
+    """A rendered threat takes the reading's own bearing; a hit already taken says the
+    one-step hold is not enough ground, so the same step walks for the long hold."""
+
+    mind, _ = mind_with()
+    mind.observe(reading(self_state=state(health=20.0)))
+    hit = reading(tick=200, entities=(slime(),), self_state=state(health=12.0))
+
+    intent = mind.next_intent(hit)
+
+    assert intent.skill == "retreat"
+    assert intent.plan.calls[0].hold_seconds == RETREAT_FLEE_SECONDS
+    assert intent.reason == "step away from the nearest visible threat"
+
+
+def test_a_named_hold_from_the_model_is_honoured() -> None:
+    mind, _ = mind_with(
+        Decision(
+            skill_id="retreat",
+            reason="keep moving while it is dark",
+            intent_generation=1,
+            arguments={"hold_seconds": 3.0},
+        )
+    )
+    intent = mind.next_intent(reading(entities=(slime(),)))
+
+    assert intent.skill == "retreat"
+    assert intent.plan.calls[0].hold_seconds == 3.0
+    assert intent.arguments["hold_seconds"] == 3.0
 
 
 def test_the_scan_turns_instead_of_stalling_when_there_is_nothing_to_grasp() -> None:
