@@ -1,11 +1,25 @@
 {
   "schema_version": 1,
   "skills": [
-    {"skill": "approach_entity", "target_entity_type": "minecraft:wandering_trader", "stop_within": 2.5},
-    {"skill": "approach_entity", "target_entity_type": "minecraft:wandering_trader", "stop_within": 2.5},
-    {"skill": "look_at_entity", "target_entity_type": "minecraft:wandering_trader"},
-    {"skill": "use_target"},
-    {"skill": "trade", "offer_index": 0},
-    {"skill": "close_screen"}
+    {
+      "skill": "approach_entity",
+      "target_entity_type": "minecraft:wandering_trader",
+      "stop_within": 2.5
+    },
+    {
+      "skill": "approach_entity",
+      "target_entity_type": "minecraft:wandering_trader",
+      "stop_within": 2.5
+    },
+    {
+      "skill": "use_target"
+    },
+    {
+      "skill": "trade",
+      "offer_index": 0
+    },
+    {
+      "skill": "close_screen"
+    }
   ]
 }
