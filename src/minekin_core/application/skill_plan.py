@@ -483,6 +483,8 @@ async def _dispatch(
 
     if call.name == "respawn":
         return await skills.respawn(authority=authority, timeout_ns=timeout_ns)
+    if call.name == "retreat":
+        return await skills.retreat(authority=authority, timeout_ns=timeout_ns)
     if call.name == "turn_to":
         return await skills.turn_to(
             yaw_degrees=call.yaw_degrees,

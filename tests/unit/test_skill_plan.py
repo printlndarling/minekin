@@ -815,3 +815,45 @@ def test_the_respawn_example_is_one_parameterless_bounded_skill() -> None:
     assert len(plan.calls) == 1
     assert plan.calls[0].name == "respawn"
     assert skill_capabilities("respawn") == frozenset({RESPAWN_CAPABILITY})
+
+
+def test_dispatch_maps_a_retreat_call_onto_the_retreat_skill() -> None:
+    """The name the mind emits is the name the dispatcher must route -- not whichever branch
+    happens to fall last. Shipping retreat without this branch crashed a live run with
+    INTERNAL_INVARIANT: the call fell through to `select_hotbar` with no slot. The fake
+    refuses every attribute but `retreat`, so any other route fails the test by name."""
+
+    import asyncio
+
+    from minekin_core.application import skill_plan as skill_plan_module
+    from minekin_core.application.skill_plan import SkillCall
+    from minekin_core.application.world_skills import ActionAuthority
+    from minekin_core.domain.ids import OpaqueId
+
+    class OnlyRetreat:
+        def __init__(self) -> None:
+            self.seen: tuple[object, int] | None = None
+
+        async def retreat(self, *, authority: object, timeout_ns: int) -> str:
+            self.seen = (authority, timeout_ns)
+            return "outcome"
+
+        def __getattr__(self, name: str) -> object:
+            raise AssertionError(f"dispatch reached an unexpected skill: {name}")
+
+    authority = ActionAuthority(
+        lease_id=OpaqueId.new().value,
+        generation=1,
+        deadline_monotonic_ns=1_000_000_000,
+    )
+    skills = OnlyRetreat()
+    outcome = asyncio.run(
+        skill_plan_module._dispatch(
+            skills,  # type: ignore[arg-type]
+            SkillCall(name="retreat"),
+            authority=authority,
+            timeout_ns=5_000_000_000,
+        )
+    )
+    assert outcome == "outcome"
+    assert skills.seen == (authority, 5_000_000_000)
