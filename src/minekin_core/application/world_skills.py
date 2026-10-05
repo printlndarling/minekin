@@ -1992,11 +1992,13 @@ class WorldSkills:
                 action_id=action_id,
                 pre_tick=pre.game_tick,
             )
-        await self._send_swing(authority, action_id, swing=True)
-        async with self._release_on_exit(
-            lambda: self._send_swing(authority, action_id, swing=False)
-        ):
-            await self._sleep(swing, action_id=action_id)
+        await self._swing_on_target(
+            action_id,
+            authority,
+            entity,
+            swing_seconds=swing,
+            deadline=deadline,
+        )
         post = await self._outlive_client(
             self._observations.wait_until(
                 lambda latest: (
@@ -2078,6 +2080,84 @@ class WorldSkills:
                 deadline_monotonic_ns=authority.deadline_monotonic_ns,
             ),
         )
+
+    async def _swing_on_target(
+        self,
+        action_id: str,
+        authority: ActionAuthority,
+        entity: EntityCandidate,
+        *,
+        swing_seconds: float,
+        deadline: int,
+    ) -> None:
+        """Hold the attack key on a moving target until it leaves the view or the window ends.
+
+        A hostile that hops moves off a fixed ray within a second: measured live on the
+        summon run 9a4a82c3..., the fight aim arrived exactly at the computed angles and the
+        bridge still refused the press MINE_TARGET_NOT_AIMED, because by press time the
+        slime was no longer under the crosshair. So the press is gated on the client's own
+        crosshair reading naming THIS entity -- the phrase the wire already carries -- and
+        while the key is held the aim is re-derived from every newer reading, because
+        tracking a hopping body is what a hand does with a mouse. The release goes through
+        the same named exit as every other hold in this class, and only if a press happened.
+
+        The caller's post-wait still decides the verdict (`_target_unseen`); this method
+        only operates the key honestly in between.
+        """
+
+        pressed = False
+        window_end = min(deadline, monotonic_ns() + round(swing_seconds * 1_000_000_000))
+
+        async def release() -> None:
+            if pressed:
+                await self._send_swing(authority, action_id, swing=False)
+
+        try:
+            current = self._observations.latest
+            while current is not None:
+                if monotonic_ns() >= window_end:
+                    return
+                if _target_unseen(entity.observation_id)(current):
+                    return
+                listed = next(
+                    (
+                        candidate
+                        for candidate in current.visible_entities
+                        if candidate.observation_id == entity.observation_id
+                    ),
+                    None,
+                )
+                if listed is not None:
+                    track_yaw, track_pitch = angle_to_degrees(
+                        dx=listed.relative_x,
+                        dy=listed.relative_y - EYE_HEIGHT_BLOCKS,
+                        dz=listed.relative_z,
+                    )
+                    await self._sender.send_control(
+                        AIM_INPUT_TYPE,
+                        control_pb2.AimInput(
+                            action_id=action_id,
+                            lease_id=authority.lease_id,
+                            generation=authority.generation,
+                            yaw_degrees=track_yaw,
+                            pitch_degrees=track_pitch,
+                            deadline_monotonic_ns=authority.deadline_monotonic_ns,
+                        ),
+                    )
+                if not pressed and _crosshair_on(current, entity.observation_id):
+                    pressed = True
+                    await self._send_swing(authority, action_id, swing=True)
+                base_tick = current.game_tick
+                nxt = await self._wait_until(
+                    lambda latest, since=base_tick: latest.game_tick > since,
+                    window_end,
+                    action_id=action_id,
+                )
+                if nxt is None:
+                    return
+                current = nxt
+        finally:
+            await release()
 
     async def _aim_until_arrived(
         self,
@@ -2272,6 +2352,18 @@ class WorldSkills:
             monotonic_ns() + round(seconds * 1_000_000_000),
             action_id=action_id,
         )
+
+
+def _crosshair_on(observation: WorldObservationValue, entity_id: str) -> bool:
+    """Whether this reading's crosshair is on the named entity, in the client's own words.
+
+    The same sentence the swing guard in the Bridge checks a moment later: a press decided
+    from a reading that said the crosshair was on the thing is the closest a hold can come
+    to asking while looking.
+    """
+
+    aim = observation.aim
+    return aim is not None and aim.kind is AimKind.ENTITY and aim.entity_observation_id == entity_id
 
 
 def _target_unseen(entity_id: str) -> Callable[[WorldObservationValue], bool]:

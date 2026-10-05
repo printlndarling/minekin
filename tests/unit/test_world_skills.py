@@ -170,6 +170,16 @@ def miss_aim(tick: int) -> AimTargetValue:
     return AimTargetValue(game_tick=tick, kind=AimKind.MISS)
 
 
+def slime_aim(tick: int, entity_id: str = "slime-100") -> AimTargetValue:
+    return AimTargetValue(
+        game_tick=tick,
+        kind=AimKind.ENTITY,
+        entity_observation_id=entity_id,
+        entity_type="minecraft:slime",
+        distance=2.0,
+    )
+
+
 def skill_with(
     store: WorldObservationStore,
     capabilities: frozenset[str] = ALL_CAPABILITIES,
@@ -2848,6 +2858,7 @@ def positioned(
     yaw: float | None = 0.0,
     pitch: float = 0.0,
     entities: tuple[EntityCandidate, ...] = (),
+    aim: AimTargetValue | None = None,
 ) -> WorldObservationValue:
     return reading(
         tick=tick,
@@ -2864,6 +2875,7 @@ def positioned(
             pitch_degrees=pitch,
         ),
         entities=entities,
+        aim=aim,
     )
 
 
@@ -2990,7 +3002,13 @@ def test_fight_back_aims_at_the_hostile_swings_without_a_block_and_ends_unseen()
             dy=slime.relative_y - EYE_HEIGHT_BLOCKS,
             dz=slime.relative_z,
         )
-        queued = [positioned(tick=110, yaw=yaw, pitch=pitch), positioned(tick=120)]
+        # The arrival frame also carries the entity and the client's own crosshair reading
+        # naming it: the press is gated on that phrase (the slime hop of run 9a4a82c3...
+        # walked off a stale ray between aim and press, and the bridge refused it).
+        queued = [
+            positioned(tick=110, yaw=yaw, pitch=pitch, entities=(slime,), aim=slime_aim(110)),
+            positioned(tick=120),
+        ]
 
         def answer(message_type: str) -> None:
             if message_type in (AIM_INPUT_TYPE, MINE_INPUT_TYPE) and queued:
@@ -3006,7 +3024,9 @@ def test_fight_back_aims_at_the_hostile_swings_without_a_block_and_ends_unseen()
         assert outcome.details["target"] == "minecraft:slime"
         assert outcome.details["swing_seconds"] == "1"
         aims = [message for kind, message in sender.sent if kind == AIM_INPUT_TYPE]
-        assert len(aims) == 1
+        # First the arrival ask, then one tracked correction from the newest reading while
+        # the key is held: aiming at a body that hops is a hand's job, not one sentence.
+        assert len(aims) >= 1
         assert aims[0].yaw_degrees == pytest.approx(yaw)  # type: ignore[attr-defined]
         # Down at the body, not level from the eye: the pitch is the eye-height correction.
         assert pitch > 10.0
@@ -3060,8 +3080,8 @@ def test_fight_back_reads_unknown_when_the_entity_is_still_rendered() -> None:
         # The SAME entity (same observation_id -- the uuid the wire uses) still rendered:
         # the swings ran and the thing is still there, so nothing is confirmed.
         queued = [
-            positioned(tick=110, yaw=yaw, pitch=pitch),
-            positioned(tick=120, entities=(slime,)),
+            positioned(tick=110, yaw=yaw, pitch=pitch, entities=(slime,), aim=slime_aim(110)),
+            positioned(tick=120, entities=(slime,), aim=slime_aim(120)),
         ]
 
         def answer(message_type: str) -> None:
