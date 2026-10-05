@@ -194,6 +194,7 @@ Minekin 是一个**能像玩家一样生活的独立 Minecraft 角色系统**，
 **2026-10-05 危险面收口：** 危险读数（可见敌对 + 生命下落）+ 可行集收窄 + `retreat` 通用技能落地（含三处本卡撞出的真缺陷修复与四表守卫），史莱姆场景死亡 9→1、循环打断（run `af16af0a…`；详见[启动说明](local-demo-runbook.md) 九段与[执行计划](development-execution-plan.md)头部第八段）。**仍具名未动**：候选字节封存/登记、多日生存长跑（`current_next = D-SURVIVAL-LONG-RUN-001`；背后挨打无方位、重生后重获目标的转身循环）、拾取确认的散布、后台的暂停/恢复与观战媒体旁路（阶段 C 具名边界）。
 **2026-10-06 刷新：** 默认身份归位（demo 入口默认 `minekin`，活体身份库只读复核）与模型调用脱敏诊断/有界重试已推干（`e740fe7`；`27919b9` 加 `--timeout-ms` 演示旋钮）。操作者端点按窗口可用：好窗口 3–5.5s，坏窗口整段 ≥100s 无响应头（实测，不作配额结论）。三发有界真跑：一发模型驱动出真实动作（`break_seen_block` CONFIRMED＋两次自发 `turn_to` 回瞄），一发在端点健康时因模型回答参数非法按名停（`MODEL_ARGUMENTS_INVALID`）——均干净松键；3×3 终产物在当前端点窗口下仍未取到完整闭环。**新具名摩擦**：空背包时归档计划点名 `acacia_log` 而场景/目标为 oak（离线复现），模型照摘要去搜 acacia；`current_next = S3-GATHER-ROUTE-SOURCE-PREFERENCE-001`（让目标 source item 在等价标签候选中优先）。
 **2026-10-06 同日追加：** 该项已交付并推干（`997faea`：四个规划入口新增 `preferred`，`PlayerMind` 穿目标 source item；先红后绿 + 全仓 pyright 0）；活体 run `b00524d8…` 上模型理由改点 oak（`acacia` 0 次）、`break_seen_block` 与 `collect_dropped` 连续 CONFIRMED（修前同场景两发拾取均 UNKNOWN），随后端点停滞按名 `TIMEOUT` 停——3×3 终产物闭环仍待端点不中断窗口。下一项 `D-SURVIVAL-FIGHT-ARMED-001`（带工具打：策展武器表 + `fight_back` 先持械）。
+**2026-10-06 同日第三发：** 带工具打的能力与场景夹具（`--armed-kin` 不等武器对、`--summon-front` 视线前放置）已交付推干；活体三发把场景修好，但第三发在第二位非物品实体出现约 9 秒时客户端**静默 143**——具名近身 143 缺陷的战斗场景复现。`current_next = D-POINT-BLANK-CRASH-DISCRIMINATOR-001`（按十六段顺序鉴别旧桥/桥上层/线程；战斗与交易的近身活体缺口保持具名）。
 
 ### 8.1 完成度逐项审计（2026-10-01 按代码与真跑读数复核）
 
