@@ -8,8 +8,14 @@ import re
 import shlex
 import shutil
 import subprocess
+from collections.abc import Mapping
 from pathlib import Path
 
+from minekin_core.domain.decision_policy import (
+    DECISION_POLICY_VARIABLE,
+    KNOWN_POLICIES,
+    DecisionPolicy,
+)
 from minekin_core.domain.skill_parameters import MAX_QUANTITY, is_item_id
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -48,6 +54,30 @@ def model_environment(path: Path) -> dict[str, str]:
         if key_name in values:
             selected[key_name] = values[key_name]
     return selected
+
+
+def child_policy_environment(environ: Mapping[str, str] | None = None) -> dict[str, str]:
+    """The decision policy to spell explicitly into the child this entry point launches.
+
+    This tool exists to run a real model, so it names `model` rather than letting the child
+    inherit whatever the parent happened to carry: an unset or explicit `model` parent value
+    becomes an explicit `model`. An explicit `rules` -- or a misspelling -- is refused by name
+    instead of being silently overridden, because an operator who set it meant it and a demo
+    that quietly ran the other mode would misreport what was exercised.
+    """
+
+    source = os.environ if environ is None else environ
+    raw = source.get(DECISION_POLICY_VARIABLE, "").strip().lower()
+    if raw in ("", DecisionPolicy.MODEL.value):
+        return {DECISION_POLICY_VARIABLE: DecisionPolicy.MODEL.value}
+    if raw == DecisionPolicy.RULES.value:
+        raise ValueError(
+            f"{DECISION_POLICY_VARIABLE}=rules is explicitly set; this real-model demo runs the "
+            "model policy and will not silently override that choice"
+        )
+    raise ValueError(
+        f"{DECISION_POLICY_VARIABLE} must be one of: {', '.join(sorted(KNOWN_POLICIES))}"
+    )
 
 
 def goal_environment(product: str, quantity: int, source_item: str) -> dict[str, str]:
@@ -90,6 +120,13 @@ def main() -> int:
         parser.error("steps must be 1..64 and wait-seconds 1..900")
     if not 1 <= args.cost_cap_micro <= 1_000_000:
         parser.error("cost-cap-micro must be 1..1000000 ledger units")
+    # The entry point's own policy decision comes before anything is read or launched: an
+    # explicit `rules` (or a misspelling) refuses by name here, and no model call or game
+    # subprocess exists to override it in.
+    try:
+        policy_values = child_policy_environment()
+    except ValueError as error:
+        parser.error(str(error))
     try:
         goal_values = goal_environment(args.goal_product, args.goal_quantity, args.goal_source)
     except ValueError as error:
@@ -99,6 +136,7 @@ def main() -> int:
     except (OSError, ValueError):
         parser.error("cannot read literal model configuration; no values were printed")
     configured["MINEKIN_MODEL_PROVIDER"] = args.provider
+    configured.update(policy_values)
     bash = args.bash
     if bash is None:
         git = shutil.which("git")
