@@ -1273,3 +1273,7 @@ MINEKIN_DEMO_VOLUME=minekin-local-demo2 MINEKIN_DEMO_KIN=kin-3x3-fresh-20261002 
 - **R（空 goal：`MINEKIN_DEMO_GOAL_PRODUCT=`）**：10 步用满、`confirmed: 7`、`STEP_BUDGET_SPENT`、release `released:[186] unconfirmed:[]`：`break_seen_block` CONFIRMED → **`retreat` CONFIRMED ×2（危险反射对真实史莱姆开火）** → `collect_dropped` UNKNOWN ×3（既有瞄准散布）→ `turn_to` CONFIRMED ×2 → `break_seen_block` CONFIRMED → `collect_dropped` CONFIRMED；每步 `source: local_reflection`。**`fight_back` 未被反射选中**（史莱姆在场、retreat 出现而 fight 未出现；资源树干也在场分了刺激）。下一发把树干关掉（`MINEKIN_DOMAIN_RESOURCE_TRUNK=`）让 slime 成为唯一分叉对象、并压小步数预算，继续收 `fight_back` 的 `details.weapon` 与挥击读数。
 - **S（树干关掉、步数 6）**：`retreat` CONFIRMED ×2 → `turn_to` CONFIRMED ×2 → `break_seen_block` CONFIRMED → `collect_dropped` CONFIRMED → `STEP_BUDGET_SPENT`（confirmed 6，全部 `source: local_reflection`）——**仍未被反射选中 `fight_back`**：威胁在场、生命≥13 的条件下 reflex 先退后采，冲突分叉（退/打）按当前规则的实际行为如实记录。武器握持的活体读数由此从"场景调参"转入**产品行为问题**（reflex 的打/退分叉判据，或走 model 策略路径在好窗口取）；不再是 harness 或场景的缺口。
 - **不声明**：武器选择/挥击/击杀的活体读数仍缺。
+
+## 六之三十八、修复后 harness 上的 3×3 真实模型一发（2026-10-06，run `7dfa0d6d…`；普通运行记录、非 sealed）
+
+`tools/run_real_model_demo.py`（`--timeout-ms 20000`、木镐×1、peaceful、候选 profile、归档 `3af73a9d…`；发前健康探针 3.5s/3.2s）：**模型驱动出真实动作且全部 CONFIRMED——`break_seen_block`（tick→）与 `collect_dropped` 两步 `source: model`**；第 3 次决策调用再次撞上端点停滞窗口（两次尝试各 20s 无响应头，`elapsed_ms: 41089`、phase `open`），按名 `TIMEOUT` 停；`model_calls: 3`、spent 28、`goal_met: false`、release `asked:[182] released:[182] unconfirmed:[]`。**结论与既往一致**：模型闭环在本构建上推进到多步真实动作，3×3 终产物收口仍被端点窗口的间歇停滞限制；有界重试与具名停止按设计工作。**不声明**：3×3 闭环仍缺；候选字节未封存/登记。
