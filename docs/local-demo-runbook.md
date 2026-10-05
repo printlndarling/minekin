@@ -1239,3 +1239,17 @@ MINEKIN_DEMO_VOLUME=minekin-local-demo2 MINEKIN_DEMO_KIN=kin-3x3-fresh-20261002 
 **④ 捕获工具（`.tmp/capture-runner.sh`，本机可复跑）**：容器启动即后台 `apt-get install strace`，join 后按 KnotClient pid 每轮 `jcmd Thread.print`+`kill -3`+CLI 输出取样；strace（`-e trace=signal` 捉 `si_pid`）本日八发未落盘（-o 文件未出现，apt/ptrace/缓冲三嫌疑未分），下一轮改为**host 侧前台流式捕获** `docker exec <c> sh -c "strace -f -e trace=signal -p <pid>" > .tmp/strace-live.txt`（stderr 行进管道逐行落盘，容器死也不丢已到的行；ptrace 被拒也会逐字显形）。
 
 **不声明**：以上全是普通运行记录、非 sealed；"谁发的 SIGTERM"仍未具名；近身 143 未解除。同轮附记：身份默认改动后旧 kin 根（身份 `Kin`）与探针默认名（`minekin`）不匹配会让运行在 `server ready` 静默干等——复现旧根场景须显式 `MINEKIN_USERNAME=Kin`（已入记忆）。
+
+## 六之三十五、近身 143 收口：根因是 harness 自己的 teardown（2026-10-06，修复 `a4b21ce`）
+
+**根因（先由回执、再由 strace 指名）。** `domain.sh` 的 `--skills` 流在 "the session is playable" 之后**没有等待计划**：~2 秒后即启动 `python -m minekin_core session stop`；停止器的协作窗口（约 5 秒）一过，仍在中途执行计划的客户端被 **SIGTERM**——落成 `CLIENT_EXITED / exit_code 143 / BRIDGE_LOST`、释放 `asked` 而无 `released`。十发复现（run `4245abc9…`/`194fd0bb…` 等同族）**每一发都有 join 后数秒写下的 stop-request 回执**（`requested_at` 与死亡只差 5.0s），此前被读成"近身实体数秒后猝死"的时序，实为"步行/转向计划刚好活过约 6–9 秒窗口"的时间巧合。具名方式：自建 tracer 容器（`docker run --pid=container:<session> --cap-add=SYS_PTRACE`，因为内核 `ptrace_scope=1` 拒绝普通 `strace -p`；镜像 `minekin-strace:local` = runner 镜像 + strace）流式 `strace -f -e trace=signal`，在死亡前 5 秒抓到逐字 `--- SIGTERM {si_signo=SIGTERM, si_code=SI_USER, si_pid=469, si_uid=0} ---`，并与每轮 `ps` 转储对上：`469 1 S python -m minekin_core session stop`。
+
+**修复（`a4b21ce`）。** `--skill-plan` 会话在 teardown 停它之前**等计划收尾**：计划收尾不在"进程退出"上（计划会话按设计会在计划结束后继续监管、不退出），而在 ledger 的 `SkillStepRecorded` 上——每步必写一行、步窗约 12 秒、序列在第一步未确认处停下；**20 秒无新行即收尾**，随后停止落在已静置的会话上；总预算仍是该 run 自带的 `seconds`。契约测试把区域与次序钉住（在 `stopping the session` 之前、在 autonomous 判决等待之后）。
+
+**同场景前后对照（`skill-plan-probe-pig.json` + front 猪 + 旧 kin）：**
+- 修前（十发）：~join+9s 被停，`turn_to` CONFIRMED 后第二步 `CLIENT_EXITED/143`、`BRIDGE_LOST`、`release {"asked":[N], "released":[], "unconfirmed":[N]}`。
+- 修后（run `2369477e…`/session `867ed014…`）：`turn_to` CONFIRMED ×2，`approach_entity` 按**自身内容** `FAILED / APPROACH_ENTITY_NOT_VISIBLE`（猪彼时不在视野——这是计划的真实读数）；`domain: the plan concluded (3 step(s) recorded); the stop follows`；协作停止逐字 `release {"asked":[184], "released":[184], "unconfirmed":[]}`、**`outcome: "STOPPED_ON_REQUEST"`**、回执 `.receipt.json` 落盘；唯一一次 SIGTERM 发生在释放之后，是既有的停止路径信号。
+
+**归因更正（按实、不重写历史）：** 本档六之三十四与十六段所载"距任何非物品实体 ≤~1 格、数秒后静默 143"的探针家族读数——它们的 143 由此文更正为 **harness teardown 与计划时长的时间巧合**；实体类型/难度/桥字节候选 `53efca18…` 在本组读数中**不再有嫌疑**（旧桥对照本就因 pin 审计走不通，从未取得字节对照）。**保留具名缺口**：supervisor 的 branch 里执行中的计划仍未与 stop watcher 赛跑——操作者停止一个**运行中的计划会话**仍会走硬 SIGTERM 路径（harness 不再当这个操作者）。原始 2026-10-05 史莱姆场景的死亡（`Slain by Slime`，autonomous 流）不受本更正影响。
+
+**不声明**：普通运行记录、非 sealed；修复后的 harness 尚未在"会挥击的实体场景"（fight 计划）上复跑——那是 `D-SURVIVAL-FIGHT-ARMED-001` 的下一发。
