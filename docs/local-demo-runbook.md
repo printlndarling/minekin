@@ -1283,3 +1283,14 @@ MINEKIN_DEMO_VOLUME=minekin-local-demo2 MINEKIN_DEMO_KIN=kin-3x3-fresh-20261002 
 **动机**：计划/模型选中 `fight_back` 时，跳跃中的史莱姆常恰在 3 格之外 → 立即 `FIGHT_THREAT_OUT_OF_REACH` → 序列在第一步非 CONFIRMED 处停下（修复前战斗四发的共同死点）。**实现**：`fight_back` 在"有可见身体但不在攻击距离"时，用**自己的步窗**等待最新读数把目标带进 3 格（`_outlive_client` 包住 `wait_until`）；带进后从**那一帧**取几何与目标继续瞄准/挥击；窗尽仍无 → 同一个具名拒止，决定落在最新读数上（"等待用满整段租约，词才算挣到"）。**单测**新增两格（进入即挥击：红转绿；始终不入窗：按名拒止且零输入）+ 既有即距单元全数不变；全仓 pyright 0、ruff 0/0、相关 311 项绿。
 
 **活体（run `runU`，armed + front 史莱姆 + normal）**：`turn_to` CONFIRMED ×3（551→562、640→651、739→750）后，`fight_back` 于 **pre_tick 849 以 `FIGHT_THREAT_OUT_OF_REACH` 拒止——等待真的被行使（~99 tick ≈ 5s 的窗口被用满**，非此前的即刻拒止）；本发史莱姆在整个窗内未进入 3 格（且与前几发不同，未击杀 Kin——接近行为有发间变异）。协作停止、`STOPPED_ON_REQUEST`、`the plan concluded (4 step(s) recorded)` 均干净。**武器握持读数仍待一发"史莱姆在窗内进 3 格"的活体**；机制侧已按设计行使。**不声明**：`details.weapon` 与挥击/击杀的世界读数仍缺。
+
+## 六之四十、武器握持在活体上被行使；挥击被跳动靶的按门拒止（2026-10-06，`runV`，步窗 15s；普通运行记录、非 sealed）
+
+计划改早（`[turn, fight×5]`，`MINEKIN_DEMO_STEP_SECONDS=15`）。客户端日志逐秒（`00:01:13` join，前有**自然被动生物在场**：`16 entity candidate(s) … 15 confirmed visible`）：
+1. `00:01:14` `turn_to` CONFIRMED（aim 0°/-18° 到达）。
+2. `00:01:15` **`bridge selected hotbar slot 1`** —— **武器表在活体上选对了：槽 1 = 石斧（9），不是槽 0 的木镐（2）**；随后 aim `9ec44e72…` 到达 8.59°/-14.33°。
+3. `00:01:16` `bridge pressed move.forward`（持键追击）→ 每帧重瞄 stepping（俯仰 +20°/步）→ **`bridge refused mine 9ec44e72…: MINE_TARGET_NOT_AIMED`**——**按下攻击键的那一帧客户端准星上不是该实体**（史莱姆跳离射线；第十段已具名的"跳动靶"闸门在同帧复现）。
+4. `00:01:17` 松 move.forward、`applied mine (mining=false)`——按键收尾干净、从未真正挥出。
+5. `00:01:20` **`minekin was slain by Slime`** —— 等待/瞄准期间被史莱姆打掉的血把 Kin 打死；步结果 `INTERRUPTED / PLAYER_DEAD`。
+
+**按实登记**：**握持机制（选表、按下标、切至手）已在活体行使并留下客户端逐字读数**；`details.weapon` 的 CONFIRMED 行仍缺，因为挥击未落地且步未确认。两个**具名战斗质量缺口**由此成为下一张卡的输入：①**按门与跳动靶**——按下瞬间的准星点名失败是当前的命中瓶颈（"按住期间每帧重瞄"救不了按下帧本身；是否在有界窗内允许有限次重按是产品决定）；②**交战节奏**——站在 3 格圈里等/瞄的数秒里换血是负交换（对 16HP 大史莱姆石斧 9/击本应两击收口，但首个按下就被跳开）。**不声明**：击杀/挥击 CONFIRMED 读数仍缺；近身 143 族已在六之三十五更正，与本发无关（本发死亡是 `Slain by Slime`，真实的游戏死亡）。
