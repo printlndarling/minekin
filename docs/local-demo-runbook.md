@@ -1465,3 +1465,13 @@ step: collect_dropped INTERRUPTED SESSION_STOP_REQUESTED (action_id ee48578c…)
 **收尾**：`released:[202]/unconfirmed:[]`、`STOPPED_ON_REQUEST`、`release_failed:false`；`model_calls:14`、spent 289。**按实**：立桌一步 **未发出** `use_target`（选桌在手后它转去补木料），3×3 终产物未闭；该步序（选桌→瞄地面→本该 use）在它自己的理由里有，但没被选中——留给节奏/策略面，不在本卡改。
 
 **同发暴露并修复的记忆切片修正（活体找到，先红后绿）**：`goal_history` 按**目标产物**精确匹配——而一趟奔向木镐的 run 的步骤产物是原木/木板/工作台，于是"为这个目标试过什么"永远是空。修正：**按目标域召回**——写侧自主 payload 增 `goal_product_id`（取自 mind.goal），读侧匹配三路（步骤产物＝目标 ∥ 显式 `goal_product_id` ∥ 旧行当时写下的 `hold_<product>` 标签，仅对唯一产物生效、不会借邻域历史）；packet 锚类改 `goal_scope`、记录行带 `product_id`。测试 8 绿（2 新：目标域命中、旧标签容错）；邻套件 263 绿；门（uv）：pyright 0/0/0、ruff 0、format 515、全仓 **4174 passed / 2 skipped**。
+
+## 六之五十三、目标域召回的活体首证与它的第一个缺陷（2026-10-06，run `de2eefb9…`，普通运行记录、非 sealed）
+
+**背景**：上一发（六之五十二）把 `goal_history` 从"目标产物"改为"目标域"三路匹配（产物 ∥ `goal_product_id` ∥ 旧行 `hold_<product>` 标签）。本发（run `de2eefb994954a1daafc8c068a59c101`）是修正后的第一跑。
+
+**首个"回忆内容"活体读数**：该 run 的 offer 里 `goal_history` 逐字 `status: "found"`——`records` 是**上一发（run `908e2129…`，13 步深跑）的真实步骤**、按位置倒序、只含木镐目标域：`collect_dropped UNKNOWN（COLLECT_AIM_NOT_CONFIRMED）`、`break_seen_block CONFIRMED`、`turn_to`、`select_hotbar`、`close_screen` 等各带 `run_id/position/product_id/source/trust_class`；`records_omitted_within_scan: 11`（扫到、非本目标域的行，如实计数）。**"为这个目标最近试过什么、停在哪"第一次以真数据进入模型 offer**。不声明它改变了本发决策（本发模型理由未引用历史；价值判定要更长的活体样本）。
+
+**同发暴露并修复的第二个召回缺陷（先红后绿）**：`skipped_unreadable: 45`——扫描窗里大量旧行（脚本计划/战斗探针）的理由是长自由文本、超 240 字符界，被**整行丢弃**成"不可读"。真实历史因显示界而丢失（"unreadable"名不副实）。修正：**长理由截断携带**（`reason[:239] + "…"`，界仍成立、行不再丢，`skipped_unreadable` 归零）；`skill/result` 仍严格界（短令牌，超界即畸形）。旧测试按其设计意图改写为"截断而非丢弃"（RED→GREEN）。8 测试绿、邻套件 190 绿；门（uv）：pyright 0/0/0、ruff 0、format 515、全仓 pytest 绿。
+
+**run 本体的按实读数**：`break_seen_block`→`collect_dropped`→`craft_take_result`（木板）三段 CONFIRMED（`source: model`），第 4 次决策 41.7s 端点停滞按名 `TIMEOUT`（calls 4、spent 61）；收尾 `released:[205]/unconfirmed:[]`、`STOPPED_ON_REQUEST`、`release_failed:false`。端点窗口本日总体上"2-3 步后 41s 停滞"的节奏未变；3×3 仍差"立桌（`use_target`）→开窗→3×3 合成"末段。

@@ -27,8 +27,11 @@ from minekin_core.domain.errors import MinekinError
 #: and the accounts say what the bound left out.
 SCAN_LIMIT: int = 64
 RECORD_LIMIT: int = 8
-#: The longest reason a record may carry forward. A step's reason is a sentence;
-#: a payload that claims more than this is not carried at all past the bound.
+#: The longest reason a record may carry forward. A step's reason is free text,
+#: so a longer one is clipped with an ellipsis rather than dropped — found live:
+#: skipping long-reason rows loses whole runs of real history to a display bound
+#: (the first recall scan lost 45), and the row's position still finds the full
+#: text for anyone who wants it.
 MAX_REASON_CHARS: int = 240
 
 
@@ -126,10 +129,16 @@ def _record(row: sqlite3.Row) -> dict[str, object] | None:
             if not isinstance(value, str) or len(value) > 128:
                 return None
             scopes[key] = value
-        for key in ("skill", "result", "reason"):
+        for key in ("skill", "result"):
             field = payload.get(key, "")
             if not isinstance(field, str) or len(field) > MAX_REASON_CHARS:
                 return None
+        reason = payload.get("reason", "")
+        if not isinstance(reason, str):
+            return None
+        clipped_reason = (
+            reason if len(reason) <= MAX_REASON_CHARS else reason[: MAX_REASON_CHARS - 1] + "…"
+        )
         for key in ("event_id", "run_id"):
             reference = row[key]
             if reference is not None and (not isinstance(reference, str) or len(reference) > 128):
@@ -152,7 +161,7 @@ def _record(row: sqlite3.Row) -> dict[str, object] | None:
             "trust_class": row["trust_class"],
             "skill": payload["skill"],
             "result": payload["result"],
-            "reason": payload["reason"],
+            "reason": clipped_reason,
             "product_id": anchor,
         },
     }

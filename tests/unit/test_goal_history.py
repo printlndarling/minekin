@@ -209,13 +209,25 @@ def test_the_record_bound_is_stated_and_never_silently_exceeded(tmp_path: Path) 
     assert packet["scan_limit"] == SCAN_LIMIT
 
 
-def test_a_reason_past_the_bound_is_not_carried(tmp_path: Path) -> None:
+def test_a_reason_past_the_bound_is_carried_clipped(tmp_path: Path) -> None:
+    """A long reason is clipped, not dropped.
+
+    Found live: the first recall scan skipped 45 rows as "unreadable" because
+    their free-text reasons exceeded the bound — real history lost to a display
+    limit. The bound still holds (the reader caps the text), but the row is
+    carried with an ellipsis and its references, so a reader can find the full
+    row by position.
+    """
+
     database = _database(tmp_path)
-    _step(database, position_hint=1, run_id="run-loud", reason="x" * (MAX_REASON_CHARS + 1))
-    _step(database, position_hint=2, run_id="run-quiet")
+    _step(database, position_hint=1, run_id="run-loud", reason="x" * (MAX_REASON_CHARS + 100))
 
     packet = recall_goal_history(database, kin_id="kin-one", product_id="minecraft:wooden_pickaxe")
 
     records = cast("list[dict[str, object]]", packet["records"])
-    assert [record["run_id"] for record in records] == ["run-quiet"]
-    assert packet["skipped_unreadable"] == 1
+    assert [record["run_id"] for record in records] == ["run-loud"]
+    reason = records[0]["reason"]
+    assert isinstance(reason, str)
+    assert len(reason) == MAX_REASON_CHARS
+    assert reason.endswith("…")
+    assert packet["skipped_unreadable"] == 0
