@@ -21,6 +21,47 @@ from minekin_core.domain.errors import MinekinError
 from minekin_core.domain.session_state import SessionState
 
 
+def _recorded_input_release(connection: sqlite3.Connection, kin_id: str, run_id: str) -> str:
+    """Read bounded latest facts, never turn corrupt or earlier release into safety."""
+    latest: dict[str, sqlite3.Row | None] = {}
+    for event_type in (INPUT_LEASE_GRANTED, INPUT_RELEASED):
+        latest[event_type] = connection.execute(
+            "SELECT position,substr(payload_json,1,4097) AS payload_json,payload_hash "
+            "FROM event WHERE kin_id=? AND run_id=? AND event_type=? "
+            "AND source='CORE' AND trust_class='CORE' ORDER BY position DESC LIMIT 1",
+            (kin_id, run_id, event_type),
+        ).fetchone()
+    grant = latest[INPUT_LEASE_GRANTED]
+    release = latest[INPUT_RELEASED]
+    if grant is None:
+        return "nothing_held"
+    generations: dict[str, int] = {}
+    try:
+        for event_type, fact in latest.items():
+            if fact is None:
+                continue
+            text = fact["payload_json"]
+            if not isinstance(text, str) or len(text) > 4096:
+                return "unknown"
+            value: object = json.loads(text)
+            if not isinstance(value, dict):
+                return "unknown"
+            payload = cast("dict[str, JsonValue]", value)
+            if payload_digest(payload) != fact["payload_hash"]:
+                return "unknown"
+            generation = payload.get("generation")
+            if type(generation) is not int or generation <= 0:
+                return "unknown"
+            generations[event_type] = generation
+    except (TypeError, ValueError, UnicodeError):
+        return "unknown"
+    if release is None or release["position"] < grant["position"]:
+        return "not_released"
+    if generations[INPUT_RELEASED] != generations[INPUT_LEASE_GRANTED]:
+        return "unknown"
+    return "released_recorded"
+
+
 def read_last_session(
     database: Path, *, kin_id: str, exclude_run_id: str = ""
 ) -> dict[str, object]:
@@ -63,22 +104,9 @@ def read_last_session(
             # The same run's own lease facts, from the same ledger the record row
             # came from: read here, while the connection is open, and only for
             # this run — another session's release must not answer for this one.
-            granted = False
-            released = False
+            input_release = "unknown"
             if row is not None and isinstance(row["run_id"], str):
-                lease_row = connection.execute(
-                    "SELECT 1 FROM event WHERE kin_id=? AND run_id=? AND event_type=? "
-                    "AND source='CORE' AND trust_class='CORE' LIMIT 1",
-                    (kin_id, row["run_id"], INPUT_LEASE_GRANTED),
-                ).fetchone()
-                granted = lease_row is not None
-                if granted:
-                    release_row = connection.execute(
-                        "SELECT 1 FROM event WHERE kin_id=? AND run_id=? AND event_type=? "
-                        "AND source='CORE' AND trust_class='CORE' LIMIT 1",
-                        (kin_id, row["run_id"], INPUT_RELEASED),
-                    ).fetchone()
-                    released = release_row is not None
+                input_release = _recorded_input_release(connection, kin_id, row["run_id"])
         finally:
             connection.close()
     except (sqlite3.Error, MinekinError, OSError):
@@ -123,8 +151,6 @@ def read_last_session(
         "source": "CORE",
         "trust_class": "CORE",
         "last_recorded_phase": phase.value,
-        "input_release": (
-            "nothing_held" if not granted else "released_recorded" if released else "not_released"
-        ),
+        "input_release": input_release,
     }
     return packet
