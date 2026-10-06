@@ -35,6 +35,7 @@ from minekin_core.domain.control_vocabulary import (
     MINE_CAPABILITY,
     MOVE_CAPABILITY,
     RESPAWN_CAPABILITY,
+    SAY_CAPABILITY,
     SCREEN_CAPABILITY,
     USE_CAPABILITY,
 )
@@ -115,6 +116,10 @@ SKILL_CAPABILITIES: Final[Mapping[str, frozenset[str]]] = {
     # rendered entity: the move key and the aim that sets its heading.
     "approach_entity": frozenset({MOVE_CAPABILITY, AIM_CAPABILITY}),
     "move_to": frozenset({MOVE_CAPABILITY, AIM_CAPABILITY}),
+    # One chat line through the client's own send: no key, no screen — the one
+    # skill whose whole effect is words, gated by the capability that says this
+    # session consented to the Kin speaking at all.
+    "say": frozenset({SAY_CAPABILITY}),
 }
 
 
@@ -167,6 +172,15 @@ class ActionRefusal(StrEnum):
     CONSUME_ITEM_NOT_IN_HOTBAR = "CONSUME_ITEM_NOT_IN_HOTBAR"
     CONSUME_NOT_HUNGRY = "CONSUME_NOT_HUNGRY"
     CONSUME_AIM_NOT_CLEAR = "CONSUME_AIM_NOT_CLEAR"
+    #: The say skill's own words. The three text refusals are the Bridge's words
+    #: spelled the same here on purpose — the same line is refused by name whether
+    #: it stopped on this side of the channel or the other. The budget is Core's
+    #: own bound on how much one run may say: a cap, not a silence rule; the mind
+    #: still chooses every line inside it.
+    SAY_TEXT_EMPTY = "SAY_TEXT_EMPTY"
+    SAY_TEXT_TOO_LONG = "SAY_TEXT_TOO_LONG"
+    SAY_TEXT_IS_A_COMMAND = "SAY_TEXT_IS_A_COMMAND"
+    SAY_BUDGET_EXHAUSTED = "SAY_BUDGET_EXHAUSTED"
 
 
 #: The consume refusals as the strings a run carries. Kept beside the enum because the

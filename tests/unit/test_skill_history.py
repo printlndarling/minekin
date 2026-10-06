@@ -216,7 +216,7 @@ def test_patterns_reach_the_model_without_replaying_or_excluding_skills(database
     assert patterns[0]["result_counts"] == {"UNKNOWN": 1}
     assert patterns[0]["latest_by_result"] == {"UNKNOWN": "failed-before-restart"}
     assert not mind.excluded
-    assert requests[0].feasible_skill_ids == ("turn_to",)
+    assert requests[0].feasible_skill_ids == ("say", "turn_to")
 
 
 def test_context_eviction_is_counted_and_does_not_modify_the_ledger(

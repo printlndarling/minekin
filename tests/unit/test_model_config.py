@@ -605,6 +605,43 @@ def test_a_malformed_commitment_is_carried_for_the_gate_not_silently_dropped() -
 
 
 # ---------------------------------------------------------------------------
+# §2.6: the one ask whose values leave toward other people
+# ---------------------------------------------------------------------------
+
+
+def test_a_well_shaped_line_passes_even_though_secrets_are_in_scope() -> None:
+    chosen = compose_decision(
+        offer(feasible_skill_ids=("say",)),
+        "say",
+        "say hello",
+        arguments={"text": "hello everyone"},
+        secrets=(FAKE_KEY,),
+    )
+
+    assert isinstance(chosen, Decision)
+    assert chosen.arguments == {"text": "hello everyone"}
+
+
+def test_a_line_the_secret_rule_would_touch_is_refused_not_spoken_as_a_placeholder() -> None:
+    """Redaction swaps a secret for `<redacted>`; a reason keeps that placeholder, but
+    speech must not — `<redacted>` on other people's screens is not something the Kin
+    said, and silently word-swapping its speech would put words in its mouth. A line
+    that trips the rule is refused by name, and the model may say it differently."""
+
+    for text in (FAKE_KEY, f"ask about {FAKE_KEY} later"):
+        refused = compose_decision(
+            offer(feasible_skill_ids=("say",)),
+            "say",
+            "say something",
+            arguments={"text": text},
+            secrets=(FAKE_KEY,),
+        )
+
+        assert isinstance(refused, ModelUnavailable), text
+        assert refused.reason is UnavailableReason.MODEL_ARGUMENTS_INVALID
+
+
+# ---------------------------------------------------------------------------
 # §2: the arguments an answer fills in
 # ---------------------------------------------------------------------------
 

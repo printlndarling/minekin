@@ -83,6 +83,9 @@ _DEFAULTED: Final[dict[str, tuple[str, ...]]] = {
     # A place on the ground is named outright: nothing about it is filled in from
     # this side's reading, and both coordinates are the ask.
     "move_to": (),
+    # The words are the whole ask; nothing about them is defaultable, and nothing
+    # about them is filled in from this side's reading.
+    "say": (),
 }
 
 #: The argument each skill requires, by name. Empty for a skill that can run on
@@ -111,6 +114,9 @@ _REQUIRED: Final[dict[str, tuple[str, ...]]] = {
     "move_to": ("x", "z"),
     "look_at_entity": (),
     "approach_entity": (),
+    # The one line the call will speak: required, because a plan that says nothing
+    # has nothing to say, and the bounds are re-checked before the wire.
+    "say": ("text",),
 }
 
 #: The keys that replace a skill's whole required set rather than defaulting one
@@ -133,6 +139,7 @@ _ALTERNATIVES: Final[dict[str, tuple[str, ...]]] = {
     "move_to": (),
     "look_at_entity": (),
     "approach_entity": (),
+    "say": (),
 }
 
 #: Every key a plan may use, so a typo is refused by name instead of being
@@ -307,6 +314,7 @@ def _parse_call(item: Mapping[str, Any], index: int) -> SkillCall:
         target_entity_type=_text(item, index, name, "target_entity_type"),
         offer_index=_int(item, index, name, "offer_index", -1),
         stop_within=_number(item, index, name, "stop_within", 0.0),
+        text=_text(item, index, name, "text"),
         materials=materials,
         craft_all=_flag(item, index, name, "craft_all", True),
     )
@@ -539,6 +547,8 @@ async def _dispatch(
 
     if call.name == "respawn":
         return await skills.respawn(authority=authority, timeout_ns=timeout_ns)
+    if call.name == "say":
+        return await skills.say(call.text, authority=authority, timeout_ns=timeout_ns)
     if call.name == "retreat":
         return await skills.retreat(
             authority=authority,

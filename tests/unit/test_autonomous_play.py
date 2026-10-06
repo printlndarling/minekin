@@ -59,6 +59,7 @@ from minekin_core.domain.control_vocabulary import (
     MINE_CAPABILITY,
     MOVE_CAPABILITY,
     RESPAWN_CAPABILITY,
+    SAY_CAPABILITY,
     SCREEN_CAPABILITY,
     USE_CAPABILITY,
 )
@@ -769,6 +770,7 @@ def test_the_ask_covers_the_whole_offer_and_nothing_the_offer_does_not_use() -> 
             HOTBAR_CAPABILITY,
             USE_CAPABILITY,
             RESPAWN_CAPABILITY,
+            SAY_CAPABILITY,
         }
     )
     assert ask.lease_seconds == DEFAULT_STEP_BUDGET * 7.5

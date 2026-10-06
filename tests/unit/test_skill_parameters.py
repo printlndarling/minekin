@@ -28,12 +28,14 @@ from minekin_core.domain.model_access import UnavailableReason
 from minekin_core.domain.skill_parameters import (
     BEHAVIOR_PARAMETERS,
     MAX_QUANTITY,
+    MAX_SAY_CHARS,
     MODEL_ARGUMENTS_INVALID,
     MODEL_ARGUMENTS_MISSING,
     MODEL_ARGUMENTS_UNKNOWN,
     ParameterKind,
     is_item_id,
     parameters_for,
+    text_parameter_names,
     validate_arguments,
 )
 from minekin_core.domain.world_actions import SKILL_CAPABILITIES
@@ -235,3 +237,51 @@ def test_the_kinds_are_the_ones_the_table_uses() -> None:
         parameter.kind for parameters in BEHAVIOR_PARAMETERS.values() for parameter in parameters
     }
     assert used == set(ParameterKind)
+
+
+# --------------------------------------------------------------------------- the one text kind
+
+
+def test_say_declares_the_one_free_text_argument_and_its_cap() -> None:
+    declared = BEHAVIOR_PARAMETERS["say"]
+
+    assert [parameter.name for parameter in declared] == ["text"]
+    assert declared[0].kind is ParameterKind.TEXT
+    assert declared[0].required is True
+    assert declared[0].maximum == MAX_SAY_CHARS
+
+
+def test_a_well_shaped_line_is_honoured_verbatim() -> None:
+    # Taken as spoken: nothing here trims, rewrites or completes the words.
+    assert validate_arguments("say", {"text": "  hello there  "}) == {"text": "  hello there  "}
+
+
+def test_a_line_that_is_not_speech_is_refused_by_the_arguments_gate() -> None:
+    """Blank is nothing said, a leading slash is a command the server would execute,
+    and past the cap the line is refused rather than clipped — the words are the Kin's
+    to mean (the assertion is parametrised over the strings below for that reason)."""
+
+    for text in ("", "   ", "x" * (MAX_SAY_CHARS + 1), "/kill", "  /tp 0 0", 12):
+        assert validate_arguments("say", {"text": text}) == MODEL_ARGUMENTS_INVALID, text
+
+
+def test_the_cap_is_a_boundary_not_a_margin() -> None:
+    at_cap = "x" * MAX_SAY_CHARS
+    assert validate_arguments("say", {"text": at_cap}) == {"text": at_cap}
+
+
+def test_say_takes_no_other_key() -> None:
+    assert (
+        validate_arguments("say", {"text": "hello", "target_item": "minecraft:stick"})
+        == MODEL_ARGUMENTS_UNKNOWN
+    )
+
+
+def test_text_is_the_only_kind_whose_values_leave_toward_people() -> None:
+    """`text_parameter_names` is what the secret rule hangs off, so the set it names
+    has to be exactly the free-text arguments — a kind added later without a caller
+    is fine; a text argument that this helper misses would be words sent unredacted."""
+
+    assert text_parameter_names("say") == ("text",)
+    assert text_parameter_names("craft") == ()
+    assert text_parameter_names("not_a_skill") == ()

@@ -67,6 +67,8 @@ from minekin_core.domain.control_vocabulary import (
     MOVE_INPUT_TYPE,
     RESPAWN_CAPABILITY,
     RESPAWN_INPUT_TYPE,
+    SAY_CAPABILITY,
+    SAY_INPUT_TYPE,
     SCREEN_CAPABILITY,
     SCREEN_INPUT_TYPE,
     USE_CAPABILITY,
@@ -86,6 +88,7 @@ from minekin_core.domain.perception import (
     InventoryValue,
     WorldObservationValue,
 )
+from minekin_core.domain.skill_parameters import MAX_SAY_CHARS
 from minekin_core.domain.visible_entities import nearest_visible
 from minekin_core.domain.world_actions import (
     ActionRefusal,
@@ -152,6 +155,12 @@ FIGHT_SWING_MAX_SECONDS: Final[float] = 8.0
 #: press frame. The operator's decision (2026-10-06): a bounded re-press inside the
 #: window, and the bound's end concludes by the refusal's own name.
 FIGHT_MAX_PRESS_ATTEMPTS: Final[int] = 3
+
+#: How many chat lines one run may send. A cap, not a silence rule: the mind
+#: chooses every line, and this is the executor's bound on how much a single run
+#: can put into other people's screens — a chatty loop that keeps re-asking is
+#: refused by name (`SAY_BUDGET_EXHAUSTED`) instead of talking forever.
+SAY_BUDGET_PER_RUN: Final[int] = 20
 
 #: The HUD line under which a fight breaks off: a body trading below it is the death the
 #: soaks died, so the swing releases and the next decision may leave instead. The mind
@@ -383,6 +392,9 @@ class SkillCall:
     offer_index: int = -1
     #: How close an approach stops, in blocks; zero is the skill's own default reach.
     stop_within: float = 0.0
+    #: The one line a `say` call speaks — the only free text a plan carries. Empty
+    #: is "nobody said", which the skill refuses by name before the wire.
+    text: str = ""
     materials: tuple[tuple[str, int], ...] = ()
     craft_all: bool = True
 
@@ -396,6 +408,25 @@ def _refusal_outcome(
         action_id=action_id,
         pre_tick=None if pre is None else pre.game_tick,
     )
+
+
+def _say_text_refusal(text: object) -> str:
+    """The Bridge's own rules re-checked before the wire — the same three words.
+
+    Blank, past `MAX_SAY_CHARS`, or command-shaped (a leading slash the server
+    would parse into an execution) is refused here first, so the common case never
+    spends a wire round-trip to learn what this side already knew; the Bridge's
+    identical checks stay as the second lock on the same door, and the words are
+    spelled the same on both sides because the same line must read the same.
+    """
+
+    if not isinstance(text, str) or not text.strip():
+        return ActionRefusal.SAY_TEXT_EMPTY.value
+    if len(text) > MAX_SAY_CHARS:
+        return ActionRefusal.SAY_TEXT_TOO_LONG.value
+    if text.lstrip().startswith("/"):
+        return ActionRefusal.SAY_TEXT_IS_A_COMMAND.value
+    return ""
 
 
 def _wire_target(target: BlockTargetValue) -> control_pb2.BlockTarget:
@@ -765,8 +796,14 @@ class WorldSkills:
         #: caller that manages no process.
         self._stop_requested = stop_requested
         #: The session's per-action outcomes, when the caller has one: the Bridge's
-        #: own answer for a press, which a swing reads before pressing again.
+        #: own answer for a press, which a swing reads before pressing again — and
+        #: what the say skill reads for its confirmation, because speech has no
+        #: world acknowledgement to conclude from.
         self._action_outcomes = action_outcomes
+        #: How many lines this run has said. A run budget, not a rate: it bounds
+        #: how much one run can put into other people's screens, and every line
+        #: inside it is still the mind's own choice.
+        self._says_sent = 0
         self._body_start: ContextVar[int | None] = ContextVar("body_start", default=None)
 
     @asynccontextmanager
@@ -800,6 +837,9 @@ class WorldSkills:
     @property
     def supports_respawn(self) -> bool:
         return RESPAWN_CAPABILITY in self._capabilities
+
+    def supports_say(self) -> bool:
+        return SAY_CAPABILITY in self._capabilities
 
     def client_exit_code(self) -> int | None:
         """What the launcher's supervisor says about the client process, right now.
@@ -1963,6 +2003,104 @@ class WorldSkills:
             pre_tick=pre.game_tick,
             post_tick=post.game_tick,
         )
+
+    async def say(
+        self,
+        text: str,
+        *,
+        authority: ActionAuthority,
+        timeout_ns: int = DEFAULT_STEP_TIMEOUT_NS,
+    ) -> SkillOutcome:
+        """One chat line through the client's own send, confirmed by the client accepting it.
+
+        Speech has no world acknowledgement — no later reading can say a line was
+        heard — so this skill's confirmation is the one fact that exists: the client
+        accepted the line for sending. That fact arrives as the Bridge's own
+        `ActionResult` for this action id, read from the same per-action registry a
+        swing reads its refusals from; `CLIENT_SENT` is the reason word, and nothing
+        stronger is ever claimed. A caller with no registry keeps the optimistic
+        shape the swing kept for its registry-less calls: the send call returned, so
+        the step concludes on that. The refusals a bad line earns are named the same
+        here as on the Bridge, because the same line must read the same whichever
+        side of the channel stopped it.
+        """
+
+        if SAY_CAPABILITY not in self._capabilities:
+            return SkillOutcome(
+                result=ActionResultClass.FAILED,
+                reason=CAPABILITY_NOT_GRANTED,
+                action_id="",
+                details={"capability": SAY_CAPABILITY},
+            )
+        refusal = _say_text_refusal(text)
+        if refusal:
+            return _refusal_outcome(refusal, "", self._observations.latest)
+        if self._says_sent >= SAY_BUDGET_PER_RUN:
+            return _refusal_outcome(
+                ActionRefusal.SAY_BUDGET_EXHAUSTED.value, "", self._observations.latest
+            )
+        action_id = self._action_id()
+        self._says_sent += 1
+        await self._sender.send_control(
+            SAY_INPUT_TYPE,
+            control_pb2.SayInput(
+                action_id=action_id,
+                lease_id=authority.lease_id,
+                generation=authority.generation,
+                deadline_monotonic_ns=authority.deadline_monotonic_ns,
+                text=text,
+            ),
+        )
+        pre_tick = (
+            None if self._observations.latest is None else self._observations.latest.game_tick
+        )
+        if self._action_outcomes is None:
+            return SkillOutcome(
+                result=ActionResultClass.CONFIRMED,
+                reason="CLIENT_SENT",
+                action_id=action_id,
+                pre_tick=pre_tick,
+            )
+        outcome = await self._await_action_outcome(action_id, timeout_ns=timeout_ns)
+        self.check_interruption(action_id)
+        if outcome is None:
+            return SkillOutcome(
+                result=ActionResultClass.UNKNOWN,
+                reason="SAY_NOT_CONFIRMED",
+                action_id=action_id,
+                pre_tick=pre_tick,
+            )
+        status, reason_code = outcome
+        if status in (ACTION_FAILED, ACTION_CANCELLED):
+            return SkillOutcome(
+                result=ActionResultClass.FAILED,
+                reason=reason_code or "SAY_REFUSED",
+                action_id=action_id,
+                pre_tick=pre_tick,
+            )
+        return SkillOutcome(
+            result=ActionResultClass.CONFIRMED,
+            reason="CLIENT_SENT",
+            action_id=action_id,
+            pre_tick=pre_tick,
+        )
+
+    async def _await_action_outcome(
+        self, action_id: str, *, timeout_ns: int
+    ) -> tuple[str, str] | None:
+        """Poll the per-action registry until the Bridge answers for this id, or the window ends."""
+
+        outcomes = self._action_outcomes
+        assert outcomes is not None
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + timeout_ns / 1_000_000_000
+        while True:
+            outcome = outcomes.latest(action_id)
+            if outcome is not None:
+                return outcome
+            if loop.time() >= deadline:
+                return None
+            await asyncio.sleep(0.05)
 
     async def retreat(
         self,

@@ -103,6 +103,13 @@ PLAYER_CHAT_OBSERVED = "PlayerChatObserved"
 #: overflow). Its own row so an omission is stated rather than implied — a reader
 #: of the ledger sees the gap, not a shorter conversation.
 PLAYER_CHAT_OMITTED = "PlayerChatOmitted"
+#: One line the Kin said, recorded when the client accepted it for sending —
+#: speech's only confirmation, because the world gives no acknowledgement of it.
+#: The words live here and nowhere else in the product's own files: the Bridge
+#: deliberately does not log a sent line's content, and Core writes this row only
+#: for an accepted send, never for a refused one (a refusal is a step row's
+#: business, and it means the world never heard anything).
+KIN_SAID = "KinSaid"
 
 SESSION_EVENT_TYPES = frozenset(
     {
@@ -127,6 +134,7 @@ SESSION_EVENT_TYPES = frozenset(
         COMMITMENT_REJECTED,
         PLAYER_CHAT_OBSERVED,
         PLAYER_CHAT_OMITTED,
+        KIN_SAID,
     }
 )
 

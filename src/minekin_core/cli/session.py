@@ -104,6 +104,7 @@ from minekin_core.adapters.sqlite.session_log import (
     INPUT_REFUSED,
     INPUT_RELEASED,
     JOIN_OBSERVED,
+    KIN_SAID,
     PLAYABLE_ESTABLISHED,
     PLAYER_CHAT_OBSERVED,
     PLAYER_CHAT_OMITTED,
@@ -173,6 +174,7 @@ from minekin_core.domain.recovery import CONNECT_WORLD, INPUT_LEASE, START_CLIEN
 from minekin_core.domain.session_material import RecordedSessionMaterial
 from minekin_core.domain.session_state import SessionState, SessionStateMachine
 from minekin_core.domain.time import Deadline, MonotonicInstant
+from minekin_core.domain.world_actions import ActionResultClass, SkillOutcome
 from minekin_core.generated.minekin.v1 import control_pb2
 
 SupervisorFactory = Callable[[Path], ProcessSupervisor]
@@ -1172,6 +1174,24 @@ def _chat_records(
     return rows
 
 
+def _said_record(intent: MindIntent, outcome: SkillOutcome) -> dict[str, object] | None:
+    """The KinSaid row one step owes, or None when no speech act happened.
+
+    Recorded only for an accepted send: `CLIENT_SENT` is speech's whole
+    confirmation, and a line the client refused never reached anyone — a "said"
+    row for it would be the ledger claiming a speech act that did not happen.
+    The words come from the intent's honoured ask, which passed the answer gate
+    (bounds) and the redaction before it was ever carried this far.
+    """
+
+    if intent.skill != "say" or outcome.result is not ActionResultClass.CONFIRMED:
+        return None
+    spoken = intent.arguments.get("text")
+    if not isinstance(spoken, str) or not spoken:
+        return None
+    return {"text": spoken, "action_id": outcome.action_id}
+
+
 def mind_for_run(
     kin_id: str,
     environ: Mapping[str, str] | None = None,
@@ -2025,6 +2045,9 @@ async def start_and_supervise(
                     session_history=mind.session_history,
                 )
                 await record(event_type, payload, source=EventSource.CORE, trust_class=trust)
+            said = _said_record(step.intent, step.outcome)
+            if said is not None:
+                await record(KIN_SAID, said, source=EventSource.CORE, trust_class=TrustClass.CORE)
 
         async def on_plan_step(step: SkillStep) -> None:
             # A scripted sequence has no goal and no model to refuse, so the two names the

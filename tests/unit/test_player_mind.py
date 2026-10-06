@@ -261,12 +261,13 @@ def test_a_log_block_in_view_offers_the_mine_and_a_look() -> None:
     assert set(feasible_skill_ids(GOAL, reading(aim=block_aim()))) == {
         "break_seen_block",
         "use_target",
+        "say",  # speech has no reading precondition: offered wherever the body lives
         "turn_to",
     }
 
 
 def test_nothing_in_view_offers_only_the_conservative_look() -> None:
-    assert feasible_skill_ids(GOAL, reading()) == ("turn_to",)
+    assert feasible_skill_ids(GOAL, reading()) == ("say", "turn_to")
 
 
 def test_any_seen_drop_offers_collecting_and_the_ask_names_which() -> None:
@@ -459,7 +460,7 @@ def test_a_container_with_nothing_to_craft_narrows_the_offer_to_leaving_it() -> 
         gui=GuiScreenValue(screen_id="", sync_id=7),
     )
 
-    assert feasible_skill_ids(GOAL, empty_handed) == (CLOSE_SCREEN,)
+    assert feasible_skill_ids(GOAL, empty_handed) == (CLOSE_SCREEN, "say")
 
 
 def test_a_three_by_three_step_is_refused_in_the_inventory_and_allowed_at_the_table() -> None:
@@ -591,7 +592,7 @@ def test_a_standing_table_window_offers_the_three_by_three_craft() -> None:
         gui=GuiScreenValue(screen_id="minecraft:crafting", sync_id=3),
     )
 
-    assert set(feasible_skill_ids(GOAL, at_table)) == {CLOSE_SCREEN, "craft_take_result"}
+    assert set(feasible_skill_ids(GOAL, at_table)) == {CLOSE_SCREEN, "craft_take_result", "say"}
 
 
 def test_a_window_is_the_handler_not_the_screen_name() -> None:
@@ -617,6 +618,7 @@ def test_a_screen_with_no_handler_leaves_the_full_offer_standing() -> None:
         "craft_take_result",
         "select_hotbar",  # the HUD slots are visible, so the generic choice is offered
         "use_target",
+        "say",
         "turn_to",
     }
 
@@ -849,6 +851,7 @@ def test_the_ask_carries_only_what_the_local_layer_computed() -> None:
         "craft_take_result",
         "select_hotbar",  # a visible HUD slot is a generic choice, milestone or not
         "use_target",
+        "say",
         "turn_to",
     }
     assert request.needs == needs_from(GOAL, subject)

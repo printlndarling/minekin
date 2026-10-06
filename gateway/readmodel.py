@@ -43,6 +43,7 @@ from minekin_core.adapters.sqlite.session_log import (
     INPUT_REFUSED,
     INPUT_RELEASED,
     JOIN_OBSERVED,
+    KIN_SAID,
     PLAYABLE_ESTABLISHED,
     PLAYER_CHAT_OBSERVED,
     PLAYER_CHAT_OMITTED,
@@ -160,6 +161,8 @@ _COMMITMENT_REJECTED_DETAIL_FIELDS: Final = ("reason_code", "evidence_ref", "tex
 # row shows only the count — there are no words to show, which is the point.
 _CHAT_DETAIL_FIELDS: Final = ("sender", "text")
 _CHAT_OMITTED_DETAIL_FIELDS: Final = ("omitted",)
+# The Kin's own spoken line: the words, which are the whole row.
+_SAID_DETAIL_FIELDS: Final = ("text",)
 
 # The skill-step row is what a running autonomous/skill session leaves in the ledger: one
 # concluded step with the verdict of the *later world readings*, never the Bridge's own
@@ -452,6 +455,8 @@ def _detail(row: EventRow) -> str | None:
         return _named_detail(row.payload, _CHAT_DETAIL_FIELDS)
     if row.event_type == PLAYER_CHAT_OMITTED:
         return _named_detail(row.payload, _CHAT_OMITTED_DETAIL_FIELDS)
+    if row.event_type == KIN_SAID:
+        return _named_detail(row.payload, _SAID_DETAIL_FIELDS)
     parts = [
         f"{name}={row.payload[name]}"
         for name in _DETAIL_FIELDS
@@ -1124,6 +1129,10 @@ TIMELINE_READING: Final[Mapping[str, tuple[str, str]]] = {
     # not on the panel", which is exactly what the row exists to say.
     PLAYER_CHAT_OBSERVED: ("observation", "applied"),
     PLAYER_CHAT_OMITTED: ("observation", "unknown"),
+    # A line the Kin said. `applied` would overclaim: the client accepted the send,
+    # and whether anyone heard it is exactly what no reading can tell — so the
+    # outcome is the one word that admits it, and the words are in the detail.
+    KIN_SAID: ("input", "unknown"),
     INPUT_LEASE_GRANTED: ("input", "applied"),
     INPUT_RELEASED: ("input", "released"),
     INPUT_REFUSED: ("input", "rejected"),

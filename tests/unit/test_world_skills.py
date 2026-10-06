@@ -48,13 +48,19 @@ from minekin_core.application.world_skills import (
     CLOSE_SCREEN_MAX_ESCAPES,
     COLLECT_MAX_STALLED_CORRECTIONS,
     EYE_HEIGHT_BLOCKS,
+    SAY_BUDGET_PER_RUN,
     ActionAuthority,
     ClientProcessExited,
     SessionStopRequested,
     SkillCall,
     WorldSkills,
 )
-from minekin_core.domain.control_vocabulary import RESPAWN_CAPABILITY, RESPAWN_INPUT_TYPE
+from minekin_core.domain.control_vocabulary import (
+    RESPAWN_CAPABILITY,
+    RESPAWN_INPUT_TYPE,
+    SAY_CAPABILITY,
+    SAY_INPUT_TYPE,
+)
 from minekin_core.domain.perception import (
     AimFace,
     AimKind,
@@ -80,6 +86,12 @@ ALL_CAPABILITIES: Final = frozenset(
         GUI_CAPABILITY,
         MOVE_CAPABILITY,
         USE_CAPABILITY,
+        # Speech is part of the default capable set, the way the world actions
+        # are: a cell about say should exercise the line, not the capability gate
+        # — the gate has its own cell. Respawn stays OUT on purpose: the respawn
+        # cells use this set as "everything except", and adding it here would
+        # quietly satisfy their no-permission case.
+        SAY_CAPABILITY,
     }
 )
 LOG = "minecraft:oak_log"
@@ -4272,3 +4284,97 @@ def test_fight_back_refuses_by_name_when_nothing_enters_reach_within_the_window(
         assert sender.types() == []
 
     asyncio.run(scenario())
+
+
+# --------------------------------------------------------------------------- say: the one line
+
+
+def test_say_refuses_before_the_wire_when_the_line_is_not_speech() -> None:
+    """Blank lines, lines past the cap and command-shaped lines are refused by name
+    here first — the same three words the Bridge would use, because the same line
+    must read the same whichever side of the channel stopped it — and nothing is sent."""
+
+    skills, sender = skill_with(store_with(reading()))
+    cases = [
+        ("", "SAY_TEXT_EMPTY"),
+        ("   ", "SAY_TEXT_EMPTY"),
+        ("x" * 257, "SAY_TEXT_TOO_LONG"),
+        ("/kill", "SAY_TEXT_IS_A_COMMAND"),
+        ("  /tp 0 0", "SAY_TEXT_IS_A_COMMAND"),
+    ]
+    for text, refusal in cases:
+        outcome = asyncio.run(skills.say(text, authority=authority()))
+        assert (outcome.result, outcome.reason) == (ActionResultClass.FAILED, refusal), text
+    assert sender.types() == []
+
+
+def test_say_without_the_capability_is_refused_by_name_and_sends_nothing() -> None:
+    skills, sender = skill_with(store_with(reading()), capabilities=frozenset())
+
+    outcome = asyncio.run(skills.say("hello", authority=authority()))
+
+    assert outcome.result is ActionResultClass.FAILED
+    assert outcome.reason == "CAPABILITY_NOT_GRANTED"
+    assert outcome.details == {"capability": SAY_CAPABILITY}
+    assert sender.types() == []
+
+
+def test_an_accepted_line_is_confirmed_by_the_clients_own_answer() -> None:
+    """Speech has no world acknowledgement, so the confirmation is the Bridge's own
+    STARTED for this action id — read from the per-action registry — and the wire
+    frame carries the words verbatim under the lease."""
+
+    outcomes = ActionOutcomeRegistry()
+    skills, sender = skill_with(store_with(reading()), action_outcomes=outcomes)
+
+    def answer(message_type: str, frame: Message) -> None:
+        if message_type == SAY_INPUT_TYPE and isinstance(frame, control_pb2.SayInput):
+            outcomes.record(frame.action_id, status=ACCEPTED)
+
+    sender.on_frame = answer
+    outcome = asyncio.run(skills.say("hello there", authority=authority()))
+
+    assert (outcome.result, outcome.reason) == (ActionResultClass.CONFIRMED, "CLIENT_SENT")
+    assert sender.types() == [SAY_INPUT_TYPE]
+    sent = cast(control_pb2.SayInput, sender.sent[0][1])
+    assert sent.text == "hello there"
+    assert sent.lease_id == "lease-1"
+    assert sent.generation == 1
+
+
+def test_a_line_the_bridge_refuses_keeps_the_bridges_own_word() -> None:
+    outcomes = ActionOutcomeRegistry()
+    skills, sender = skill_with(store_with(reading()), action_outcomes=outcomes)
+
+    def answer(message_type: str, frame: Message) -> None:
+        if message_type == SAY_INPUT_TYPE and isinstance(frame, control_pb2.SayInput):
+            outcomes.record(frame.action_id, status=FAILED, reason_code="SAY_UNAVAILABLE")
+
+    sender.on_frame = answer
+    outcome = asyncio.run(skills.say("hello", authority=authority()))
+
+    assert (outcome.result, outcome.reason) == (ActionResultClass.FAILED, "SAY_UNAVAILABLE")
+
+
+def test_the_run_budget_bounds_how_much_one_run_can_say() -> None:
+    outcomes = ActionOutcomeRegistry()
+    skills, sender = skill_with(store_with(reading()), action_outcomes=outcomes)
+
+    def answer(message_type: str, frame: Message) -> None:
+        if message_type == SAY_INPUT_TYPE and isinstance(frame, control_pb2.SayInput):
+            outcomes.record(frame.action_id, status=ACCEPTED)
+
+    sender.on_frame = answer
+    for index in range(SAY_BUDGET_PER_RUN):
+        outcome = asyncio.run(skills.say(f"line {index}", authority=authority()))
+        assert outcome.result is ActionResultClass.CONFIRMED
+
+    outcome = asyncio.run(skills.say("one too many", authority=authority()))
+
+    assert (outcome.result, outcome.reason) == (
+        ActionResultClass.FAILED,
+        "SAY_BUDGET_EXHAUSTED",
+    )
+    assert [kind for kind in sender.types() if kind == SAY_INPUT_TYPE] == [SAY_INPUT_TYPE] * (
+        SAY_BUDGET_PER_RUN
+    )

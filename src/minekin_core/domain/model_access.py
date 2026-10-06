@@ -47,7 +47,11 @@ from typing import Any, Final, Literal, cast
 
 from minekin_core.domain.errors import ErrorCategory, MinekinError, Retryability, redact_text
 from minekin_core.domain.persona import PersonaManifest
-from minekin_core.domain.skill_parameters import validate_arguments
+from minekin_core.domain.skill_parameters import (
+    MODEL_ARGUMENTS_INVALID,
+    text_parameter_names,
+    validate_arguments,
+)
 
 #: The operator-facing names, kept together because §1 of the contract is a table: a
 #: renamed variable must be renamed in the docs, in the refusal text, and in the tests.
@@ -635,6 +639,33 @@ _COMMITMENT_ECHO_CHARS: Final = 512
 _COMMITMENT_ECHO_KEYS: Final = 8
 
 
+def _redacted_free_text(
+    skill_id: str, arguments: Mapping[str, object], secrets: tuple[str, ...]
+) -> Mapping[str, object] | str:
+    """The ask with its text-kind values held to the secret rule — checked, not swapped.
+
+    Everything else an ask may carry is a key into knowledge this side owns; a text
+    argument is the Kin's words headed for other people's screens, and the same rule
+    that redacts a decision's reason applies to words that leave toward humans. But
+    a reason is redacted and kept; words are refused if redaction would touch them:
+    speaking "<redacted>" from someone else's screen is not something the Kin said,
+    and silently word-swapping its speech would put words in its mouth. A line that
+    trips the rule is refused by name, and the model may say it differently.
+    """
+
+    names = text_parameter_names(skill_id)
+    if not names:
+        return arguments
+    redacted = dict(arguments)
+    for name in names:
+        value = redacted.get(name)
+        if not isinstance(value, str):
+            continue
+        if redact_text(value, secrets=secrets) != value:
+            return MODEL_ARGUMENTS_INVALID
+    return redacted
+
+
 def _bounded_commitment(value: object, *, secrets: tuple[str, ...]) -> object | None:
     """The answer's commitment field, redacted and shrunk for the road — never judged here.
 
@@ -712,11 +743,17 @@ def compose_decision(
     honoured = validate_arguments(skill_id, given)
     if isinstance(honoured, str):
         return ModelUnavailable(UnavailableReason(honoured))
+    # The ask is redacted after it is judged and before anything holds it: the words
+    # of a text argument leave toward other people's screens, and the secrets of this
+    # call are only in scope here.
+    redacted = _redacted_free_text(skill_id, honoured, secrets=secrets)
+    if isinstance(redacted, str):
+        return ModelUnavailable(UnavailableReason(redacted))
     return Decision(
         skill_id=skill_id,
         reason=redact_text(reason, secrets=secrets)[:MAX_REASON_CHARS],
         intent_generation=request.intent_generation,
-        arguments=honoured,
+        arguments=redacted,
         commitment=_bounded_commitment(commitment, secrets=secrets),
     )
 

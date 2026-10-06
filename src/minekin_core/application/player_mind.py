@@ -320,6 +320,7 @@ SKILL_OFFER: Final = _checked_offer(
         "craft_take_result",
         "select_hotbar",
         "use_target",
+        "say",
         "turn_to",
     )
 )
@@ -781,7 +782,7 @@ def feasible_skill_ids(
         return ("respawn",) if reading.self_state.respawn_available is True else ()
     if screen_open(reading):
         if goal_in_hand(milestone, reading):
-            return (CLOSE_SCREEN,)
+            return (CLOSE_SCREEN, "say")
         offer = [CLOSE_SCREEN]
         if craft_options(reading, grid_side=crafting_grid_side(reading)):
             offer.append("craft_take_result")
@@ -790,6 +791,9 @@ def feasible_skill_ids(
         # rows are there.
         if reading.gui is not None and reading.gui.trade_offers:
             offer.append("trade")
+        # Speech is not a world input: a window holds the keyboard, not the voice,
+        # and a Kin browsing a trade may still want to answer what was said to it.
+        offer.append("say")
         return tuple(offer)
     feasible = {
         "break_seen_block" if reading.aim is not None and reading.aim.block is not None else "",
@@ -835,6 +839,11 @@ def feasible_skill_ids(
         or hotbar_choice_available(reading)
         else "",
         "use_target" if use_target_refusal(reading).accepted else "",
+        # The one behavioral offer with no reading precondition at all: whether to
+        # speak — and what to say — is wholly the deciding layer's, and the only
+        # bound is the run's own say budget in the executor. Offered wherever the
+        # body lives, screens included (speech is not a world input).
+        "say",
         "turn_to",
     }
     return tuple(name for name in SKILL_OFFER if name in feasible)
@@ -1570,10 +1579,13 @@ class PlayerMind:
             feasible = tuple(name for name in feasible if name != "use_target")
         # A second use-key click at the exact crosshair target the last one was spent on
         # — and did nothing to — is the repeat the contract forbids, not a fresh attempt.
-        # Withhold it only while something else remains to reach for (the turn to change
-        # the aim), so the guard redirects rather than strands the run.
+        # Withhold it only while another ACT is left to reach for, so the guard redirects
+        # rather than strands the run. Speech is not a redirect — the turn to change the
+        # aim is — so the alternative must be a skill that acts on the world, not merely
+        # a name in the offer: counting `say` here would withhold the re-aim retry from
+        # the rule order on the strength of an utterance it cannot make.
         if (
-            len(feasible) > 1
+            any(name not in ("use_target", "say") for name in feasible)
             and "use_target" in feasible
             and self.last_use_aim is not None
             and use_target_signature(reading) == self.last_use_aim
@@ -1585,9 +1597,28 @@ class PlayerMind:
         # leave it, keep working past it -- is the judgement the model exists for, so the
         # curated roster never narrows what the model is shown or may choose; it teaches
         # only the rule order (and the imminent-protection gate) which bodies to flinch from.
+        #
+        # The rule order additionally has no words to say: nothing in a reading a line could
+        # be derived from, so `_rule_arguments` could not build `say`'s ask, and a deterministic
+        # order that picked it would pick a skill it cannot fill. A rules run therefore never
+        # speaks; the model's offer above keeps the skill, because whether and what to say is
+        # exactly the judgement the model exists for.
         local_feasible = feasible
+        if self.policy is DecisionPolicy.RULES:
+            local_feasible = tuple(name for name in feasible if name != "say")
         if threat is not None:
-            local_feasible = tuple(name for name in feasible if name not in DANGER_SUPPRESSED)
+            local_feasible = tuple(name for name in local_feasible if name not in DANGER_SUPPRESSED)
+        if not local_feasible and self.policy is DecisionPolicy.RULES:
+            # The rule order's own set is exhausted: nothing it can still try. The
+            # model policy's equivalent check is the one below, on its whole offer.
+            intent = MindIntent(
+                kind=MindDecisionKind.BLOCKED,
+                plan=SkillPlan(()),
+                reason=NO_FEASIBLE_SKILL,
+                observation_ref=observation_ref(reading),
+            )
+            self.last_intent = intent
+            return intent
         if not feasible:
             intent = MindIntent(
                 kind=MindDecisionKind.BLOCKED,
@@ -2131,6 +2162,18 @@ class PlayerMind:
             )
         if skill == "respawn":
             return SkillPlan((SkillCall(name="respawn"),)), "use the visible respawn button", {}
+        if skill == "say":
+            # The words are the ask, taken as spoken: nothing here rewrites,
+            # shortens or completes them — a line that is blank, past the cap or
+            # command-shaped is refused by the skill under its own name, and the
+            # secrets of the call were redacted at the answer gate before this
+            # point was ever reached.
+            spoken = arguments.get("text")
+            return (
+                SkillPlan((SkillCall(name="say", text=spoken if isinstance(spoken, str) else ""),)),
+                "say one line",
+                {"text": spoken} if isinstance(spoken, str) else {},
+            )
         if skill == "craft_take_result":
             target = self._asked_product(arguments)
             if not target:

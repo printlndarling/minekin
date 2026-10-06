@@ -60,6 +60,7 @@ from minekin_core.adapters.sqlite.session_log import (
     INPUT_LEASE_GRANTED,
     INPUT_RELEASED,
     JOIN_OBSERVED,
+    KIN_SAID,
     PLAYABLE_ESTABLISHED,
     PROCESS_FAILED,
     PROCESS_STARTED,
@@ -684,6 +685,22 @@ def test_the_commitment_rows_read_as_the_minds_own_verdicts(tmp_path: Path) -> N
     assert rejected["kind"] == "decision"
     assert rejected["outcome"] == "rejected"
     assert rejected["detail"] == "reason_code=COMMITMENT_NO_EVIDENCE, text_chars=30"
+
+
+def test_a_said_row_reads_as_speech_with_its_words_and_an_honest_outcome(tmp_path: Path) -> None:
+    """Whether anyone heard a line is exactly what no reading can tell, so the row's
+    outcome is `unknown`; the words are the detail — the Kin spoke publicly, and the
+    panel shows what it said rather than claiming it was understood."""
+
+    seed_kin(tmp_path)
+    record(tmp_path, KIN_SAID, {"text": "hello everyone", "action_id": "say-1"})
+
+    by_title = {event["title"]: event for event in build_timeline(tmp_path, limit=5)}
+
+    said = by_title[KIN_SAID]
+    assert said["kind"] == "input"
+    assert said["outcome"] == "unknown"
+    assert said["detail"] == "text=hello everyone"
 
 
 def test_the_projection_never_echoes_a_credential_held_by_a_ledger_row(tmp_path: Path) -> None:

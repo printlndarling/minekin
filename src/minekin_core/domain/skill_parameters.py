@@ -45,6 +45,12 @@ MAX_QUANTITY: Final = MAX_STACK_COUNT
 #: never sees the bound has no reason to stay inside it.
 HOTBAR_SLOT_COUNT: Final = 9
 
+#: The longest line `say` will carry, the same cap the observation side holds for a
+#: heard line and the Bridge re-checks before sending. One number, three gates: the
+#: ask is bounded here, the skill re-checks before the wire, and the Bridge refuses
+#: rather than clips a line past it — the words are the Kin's to mean.
+MAX_SAY_CHARS: Final = 256
+
 #: One item id, as the game writes it: a lowercase namespace, a colon, a lowercase path. Kept
 #: strict because the value is a lookup key into curated knowledge — an answer of `Wooden
 #: Pickaxe` is not a near miss to be normalised, it is an item nobody has a recipe for.
@@ -81,6 +87,11 @@ class ParameterKind(StrEnum):
     INDEX = "index"
     DISTANCE = "distance"
     FLAG = "flag"
+    #: One line of free text the Kin will say. The only kind whose value is not a
+    #: key into curated knowledge but the Kin's own words; bounded by `maximum`
+    #: characters the same way a number is bounded, and refused when blank or
+    #: command-shaped before it can reach the wire (see `_fits`).
+    TEXT = "text"
 
 
 @dataclass(frozen=True, slots=True)
@@ -209,8 +220,38 @@ BEHAVIOR_PARAMETERS: Final[Mapping[str, tuple[Parameter, ...]]] = MappingProxyTy
             ),
             _item("expected_item_id"),
         ),
+        # One line of chat, the Kin's own words — the only free text this vocabulary
+        # ever carries, and bounded like everything else: the cap is the same the
+        # Bridge holds, a blank line is not speech, and a line the server would parse
+        # as a command ("/...") is refused here before it can become one there. What
+        # the Kin says is redacted against this side's secrets before anything sends
+        # it — see `compose_decision`'s handling of text-kind arguments.
+        "say": (
+            Parameter(
+                name="text",
+                kind=ParameterKind.TEXT,
+                required=True,
+                maximum=MAX_SAY_CHARS,
+            ),
+        ),
     }
 )
+
+
+def text_parameter_names(behavior: str) -> tuple[str, ...]:
+    """The free-text arguments of one behavior — values that leave toward a human.
+
+    Public because the answer gate is not the last reader of them: everything else
+    here is a key into curated knowledge this side owns, while a text argument is
+    the Kin's words headed for other people's screens, and the one place that holds
+    the secrets of a call (`compose_decision`) is where they are redacted.
+    """
+
+    return tuple(
+        parameter.name
+        for parameter in BEHAVIOR_PARAMETERS.get(behavior, ())
+        if parameter.kind is ParameterKind.TEXT
+    )
 
 
 def parameters_for(behaviors: Sequence[str]) -> dict[str, list[dict[str, object]]]:
@@ -273,6 +314,18 @@ def _fits(parameter: Parameter, value: object) -> bool:
         return isinstance(value, bool)
     if parameter.kind is ParameterKind.ITEM_ID:
         return isinstance(value, str) and bool(_ITEM_ID_PATTERN.fullmatch(value))
+    if parameter.kind is ParameterKind.TEXT:
+        if not isinstance(value, str):
+            return False
+        if not value.strip():
+            # A blank line is not speech.
+            return False
+        if value.lstrip().startswith("/"):
+            # The server parses chat content into commands, so a line with a
+            # leading slash is the client executing something rather than
+            # talking; it is refused here before it can become one downstream.
+            return False
+        return parameter.maximum is None or len(value) <= parameter.maximum
     if isinstance(value, bool) or not isinstance(value, int | float):
         return False
     if parameter.kind in (ParameterKind.QUANTITY, ParameterKind.SLOT, ParameterKind.INDEX):

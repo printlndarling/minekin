@@ -11,6 +11,7 @@ from typing import Any, cast
 from minekin_core.domain.control_vocabulary import (
     BASELINE_CAPABILITIES,
     RESPAWN_CAPABILITY,
+    SAY_CAPABILITY,
     WORLD_ACTION_CAPABILITIES,
 )
 from minekin_core.domain.errors import ErrorCategory, MinekinError, Retryability
@@ -174,7 +175,9 @@ def session_capabilities(minecraft_version: str) -> frozenset[str]:
     """
 
     if minecraft_version in WORLD_ACTION_VERSIONS:
-        return BASELINE_CAPABILITIES | WORLD_ACTION_CAPABILITIES | {RESPAWN_CAPABILITY}
+        return (
+            BASELINE_CAPABILITIES | WORLD_ACTION_CAPABILITIES | {RESPAWN_CAPABILITY, SAY_CAPABILITY}
+        )
     return BASELINE_CAPABILITIES
 
 
