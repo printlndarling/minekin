@@ -1543,3 +1543,17 @@ step: collect_dropped INTERRUPTED SESSION_STOP_REQUESTED (action_id ee48578c…)
 **先红后绿**：Core 10 格（decode 4＋账本行 4＋摘要 1＋边界 1）；桥 6 格 JUnit；协议 kernel（两树）/host-boundary（两树）/scaffold/proto-java 夹具门逐一复核 `OK`。调试按实登记：player_mind 一处锚点误伤 docstring 立即修复；pyright 收窄问题以 `cast` 按房规收口。
 
 **按实/不声明**：单元＋构建面。**不声明活体**：真实玩家说话、Kin 在 offer 里引用其话语的读数——等活体线恢复（需要一个真实发言者）。**跨平台可复现性**：新 jar 尚未在容器里重验（历史惯例要求两平台逐字节相同）——**具名待办，不声明**。门（uv）：pyright 0/0/0、ruff 0、format 523、全仓 **4218 passed / 2 skipped**。
+
+## 六之六十、Kin 开口：模型选词、桥执行、双向走账（2026-10-07，两层两投：`cd638ae` 桥 ＋ `5451d4f` Core；单元＋构建面）
+
+**缺口**：聊天卡只做了"听见"；"能聊天"（社会线"能聊天、合作、拒绝"的第一条）还缺"出声"。而出声是本仓第一处**Kin 的文本离开本机、进入他人屏幕**——迄今为止最敏感的方向；纪律要围绕它长，而不是让话先漏出去。
+
+**交付**：
+1. **线（`control.proto`）**：`SayInput{action_id, lease_id, generation, deadline, text}` ＋ 独立能力 `control.chat.v1`（"能在世界里动手"≠"能对世界说话"——协商处即同意所在）；注释写死：走客户端自己的聊天发送路径（绝不 `sendChatCommand`——服务端把聊天内容解析成命令）；超界**拒而不裁**，与听来的行相反（听者尽力保存、说者必须言其所选）；发送无服务端确认，能确认的上限是"客户端收下了这行"。
+2. **桥**：`SayCommand` 解析/门禁/执行全路；`WorldClientView.say` 经 `sendChatMessage`（**从钉住的 yarn jar javap 实测签名**）；三条按名拒止 `SAY_TEXT_EMPTY/TOO_LONG/IS_A_COMMAND`（首非空格字符为 '/' 即拒）；内容**不在桥日志留字**（词只住 Core 账本）。JUnit 新增 bounds＋拒止矩阵。
+3. **Core**：参数词汇表新增 **TEXT 种类**（`say.text` 必填、上限 256；空/斜杠开头按 `MODEL_ARGUMENTS_INVALID` 拒）；**secret 规则**——`compose_decision` 是本侧唯一手持秘密之处，text 值若被 redact 触碰则**整行拒止**（理由可以留占位符，言语不可以：他人屏幕上出现占位符不是 Kin 说过的话）；`WorldSkills.say`：能力门→格式门（与桥同词、先于线上拒）→**每 run 额度 `SAY_BUDGET_PER_RUN=20`**（上限不是噤声规则；额度内的每一行仍是心自己的选择）→发送→**从每动作结果注册表**（重按卡留下的机器）读客户端对这次按下的答复，`CLIENT_SENT` 收口，绝不宣称更强；`KinSaid` 账本行只对**被接收的发送**落账（被拒的行世界从未听见，落"说了"就是让账本声称一次没有发生过的言语行为）；offer 处处上架（无阅读前提；开着的窗口占键盘不占喉舌）；规则序**不能说话**（阅读里推不出一行字，`_rule_arguments` 填不出它）；同靶 use 护栏不再把纯言语算作"可以转向的别的事"；提示词加纪律（短句、第一人称、绝不假装系统/运营者、绝不含密钥与私配置、也不对自己下指令；沉默也是选择）。
+4. **pin 链**（又一次走完）：Loom 构建绿；jar `16e517ed…`(1,483,139) → `5bb026dc…`(1,491,407)；`recipe.py` 能力表达式加 SAY、候选 recipe 三字段、manifest 行、pb2（control.proto）逐项续期。**两道对账门按其设计当场咬人**：Java/Python 能力表双向比对抓出单侧词汇；provenance 门抓出"源树动了、钉没动"——都在同一批里当场满足。
+
+**先红后绿**：桥 2 格 JUnit；Core：参数 6、compose 2、技能 5、账本行 4、gateway 1；既有钉按设计意图更新（offer 集合 ×6、能力并集 ×2、历史钉 ×1、respawn 负例集回归）。**一处真缺陷由测试逼出并修**：同靶 use 护栏原先"只要有别的名字可转向就撤 use_target"，say 上架后它把言语算成了转向目标、把规则序的复瞄重试搁死——改成"转向目标必须是会行动的名字"。
+
+**按实/不声明**：单元＋构建面。**不声明活体**：真实玩家读到 Kin 的一行、以及 Kin 对别人话的应答——等活体线恢复且场上有第二个真人。门（uv）：pyright 0/0/0、ruff 0、format 523、全仓 **4235 passed / 2 skipped**。
