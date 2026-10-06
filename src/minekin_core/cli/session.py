@@ -1865,6 +1865,7 @@ async def start_and_supervise(
                     "goal": mind.direction,
                     "model_usage": ModelUsageTotals.capture(mind.ledger).as_document(),
                     "product_id": _mind_step_product(step.intent),
+                    "goal_product_id": "" if mind.goal is None else mind.goal.product_id,
                 }
             )
 

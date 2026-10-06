@@ -47,7 +47,7 @@ def recall_goal_history(
         "status": "not_retrieved",
         "freshness": "historical",
         "current_world_applicability": "unknown",
-        "anchor": {"kind": "product_id", "value": product_id},
+        "anchor": {"kind": "goal_scope", "value": product_id},
         "scan_limit": SCAN_LIMIT,
         "record_limit": limit,
         "records_omitted_within_scan": 0,
@@ -84,7 +84,7 @@ def recall_goal_history(
         if decoded is None:
             skipped += 1
             continue
-        if decoded["anchor"] != product_id:
+        if not _scopes_the_goal(decoded, product_id):
             omitted += 1
             continue
         if len(records) >= limit:
@@ -120,6 +120,12 @@ def _record(row: sqlite3.Row) -> dict[str, object] | None:
         anchor = payload.get("product_id")
         if not isinstance(anchor, str) or len(anchor) > 128:
             return None
+        scopes: dict[str, str] = {}
+        for key in ("goal_product_id", "goal"):
+            value = payload.get(key, "")
+            if not isinstance(value, str) or len(value) > 128:
+                return None
+            scopes[key] = value
         for key in ("skill", "result", "reason"):
             field = payload.get(key, "")
             if not isinstance(field, str) or len(field) > MAX_REASON_CHARS:
@@ -135,6 +141,8 @@ def _record(row: sqlite3.Row) -> dict[str, object] | None:
         return None
     return {
         "anchor": anchor,
+        "goal_product_id": scopes["goal_product_id"],
+        "goal": scopes["goal"],
         "record": {
             "event_id": row["event_id"],
             "event_position": row["position"],
@@ -145,5 +153,22 @@ def _record(row: sqlite3.Row) -> dict[str, object] | None:
             "skill": payload["skill"],
             "result": payload["result"],
             "reason": payload["reason"],
+            "product_id": anchor,
         },
     }
+
+
+def _scopes_the_goal(decoded: dict[str, object], product_id: str) -> bool:
+    """Whether one decoded row is an episode of the asked-for goal.
+
+    Three ways a row can belong: it made the goal's product, it was taken under
+    the goal the mind recorded explicitly, or — for rows written before that
+    field existed — it carries the goal label the mind wrote then
+    (`hold_<product>`). The label is honored for exactly one product, so a
+    near-miss cannot borrow another goal's history.
+    """
+
+    if decoded.get("anchor") == product_id or decoded.get("goal_product_id") == product_id:
+        return True
+    short = product_id.split(":", 1)[-1]
+    return decoded.get("goal") == f"hold_{short}"

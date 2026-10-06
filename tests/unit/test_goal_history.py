@@ -35,6 +35,8 @@ def _step(
     skill: str = "craft_take_result",
     result: str = "CONFIRMED",
     reason: str = "",
+    goal_product_id: str = "",
+    goal: str = "",
     corrupt: bool = False,
 ) -> None:
     del position_hint
@@ -43,6 +45,8 @@ def _step(
         "result": result,
         "reason": reason,
         "product_id": product_id,
+        "goal_product_id": goal_product_id,
+        "goal": goal,
     }
     digest = "0" * 64 if corrupt else payload_digest(payload)
     with sqlite3.connect(database) as connection:
@@ -81,6 +85,65 @@ def test_recall_returns_anchored_steps_newest_first_with_sources(tmp_path: Path)
     assert records[0]["source"] == "CORE"
     assert records[0]["trust_class"] == "CORE"
     assert packet["records_omitted_within_scan"] == 1
+
+
+def test_the_anchor_scopes_the_goal_not_only_its_final_product(tmp_path: Path) -> None:
+    """A run toward the pickaxe spends its steps on logs, planks and the table —
+    the goal's episodes are those steps, not only a pickaxe craft that may not
+    exist yet. Scoped by the goal the step was taken under, the recall answers
+    "what have I tried toward this goal"; steps of other runs answer only for
+    their own goals.
+    """
+
+    database = _database(tmp_path)
+    _step(
+        database,
+        position_hint=1,
+        run_id="run-toward",
+        product_id="minecraft:oak_planks",
+        goal_product_id="minecraft:wooden_pickaxe",
+    )
+    _step(
+        database,
+        position_hint=2,
+        run_id="run-other",
+        product_id="minecraft:oak_planks",
+        goal_product_id="minecraft:oak_planks",
+    )
+
+    packet = recall_goal_history(database, kin_id="kin-one", product_id="minecraft:wooden_pickaxe")
+
+    records = cast("list[dict[str, object]]", packet["records"])
+    assert [record["run_id"] for record in records] == ["run-toward"]
+    assert records[0]["product_id"] == "minecraft:oak_planks"
+
+
+def test_a_goal_label_written_before_the_explicit_field_still_matches(tmp_path: Path) -> None:
+    """Rows written before the explicit goal field exist could only name their
+    goal the way the mind wrote it then (`hold_<product>`); the reader honors
+    that label for exactly one product, so the recall is not blind to its own
+    near past."""
+
+    database = _database(tmp_path)
+    _step(
+        database,
+        position_hint=1,
+        run_id="run-legacy",
+        product_id="minecraft:oak_planks",
+        goal="hold_wooden_pickaxe",
+    )
+    _step(
+        database,
+        position_hint=2,
+        run_id="run-other-goal",
+        product_id="minecraft:stick",
+        goal="hold_wooden_sword",
+    )
+
+    packet = recall_goal_history(database, kin_id="kin-one", product_id="minecraft:wooden_pickaxe")
+
+    records = cast("list[dict[str, object]]", packet["records"])
+    assert [record["run_id"] for record in records] == ["run-legacy"]
 
 
 def test_recall_concludes_not_retrieved_without_an_anchor_or_a_hit(tmp_path: Path) -> None:

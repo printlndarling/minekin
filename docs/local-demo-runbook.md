@@ -1452,3 +1452,16 @@ step: collect_dropped INTERRUPTED SESSION_STOP_REQUESTED (action_id ee48578c…)
 **收尾**：domain "the autonomous loop reached its own verdict; stopping on a live channel"；`session stop` 逐字 `release {"asked":[223],"released":[223],"unconfirmed":[]}`、`terminated:[223]`；`session exited 0`、`outcome: STOPPED_ON_REQUEST`、`input_release_failed: false`。
 
 **按实/不声明**：3×3 终产物（立桌→开窗→镐）**仍未闭**——本发在木板之后撞端点停滞按名停，与计划无关；每发全新世界与背包（旧世界不延续），闭环需要一次窗口里连过 7-9 个决策。**已达成**：模型自主链的"破→拾→合成"三段全部由 `source: model` 选出并各自世界确认；`model_spent 62`、无 cap 拒绝、每步参数逐字在案。普通运行记录、非 sealed。
+
+## 六之五十二、十三步的深跑：模型亲手造出工作台，以及"目标域召回"的活体修正（2026-10-06，run `908e2129…`，普通运行记录、非 sealed）
+
+**run `908e2129018149fc8b00643ad10c3101`（run-168，修复后的第一发）是本项目迄今最深的一次模型自主跑：13 步里 12 CONFIRMED**（此前最好 3）：
+1-2. `break_seen_block`＋`collect_dropped` CONFIRMED（理由逐字含 oak→planks→pickaxe 链）。
+3. 第二根原木的 `break_seen_block` `INTERRUPTED/SKILL_PRECONDITION_CHANGED`（决策期间世界变了的失效闸，设计行为）。
+4. `craft_take_result` **oak_planks CONFIRMED**（`recipe_fill+result_quick_move`，修订→1856）。
+5. **`craft_take_result` crafting_table CONFIRMED**（"fits the current 2x2 grid using the 4 oak planks"）——**项目里第一个模型亲手造出的工作台**。
+6. `close_screen` CONFIRMED（"close it so the held crafting table can be placed to open a 3x3"——它的理由已经把"立桌→开窗"写全）。
+7. `turn_to` CONFIRMED；8. **`select_hotbar` slot 8 = crafting_table CONFIRMED**；9. `turn_to`（俯 44°，瞄地面）；10. `break` CONFIRMED；11. `turn_to`（仰 -44°，"sweep down to the previously seen crosshair cell"）；12. `break` CONFIRMED（"required 5 planks" 的理由——它在凑镐所需木料）；13. `collect_dropped` UNKNOWN。第 14 次决策 41.6s 端点停滞按名 `TIMEOUT` 停。
+**收尾**：`released:[202]/unconfirmed:[]`、`STOPPED_ON_REQUEST`、`release_failed:false`；`model_calls:14`、spent 289。**按实**：立桌一步 **未发出** `use_target`（选桌在手后它转去补木料），3×3 终产物未闭；该步序（选桌→瞄地面→本该 use）在它自己的理由里有，但没被选中——留给节奏/策略面，不在本卡改。
+
+**同发暴露并修复的记忆切片修正（活体找到，先红后绿）**：`goal_history` 按**目标产物**精确匹配——而一趟奔向木镐的 run 的步骤产物是原木/木板/工作台，于是"为这个目标试过什么"永远是空。修正：**按目标域召回**——写侧自主 payload 增 `goal_product_id`（取自 mind.goal），读侧匹配三路（步骤产物＝目标 ∥ 显式 `goal_product_id` ∥ 旧行当时写下的 `hold_<product>` 标签，仅对唯一产物生效、不会借邻域历史）；packet 锚类改 `goal_scope`、记录行带 `product_id`。测试 8 绿（2 新：目标域命中、旧标签容错）；邻套件 263 绿；门（uv）：pyright 0/0/0、ruff 0、format 515、全仓 **4174 passed / 2 skipped**。
