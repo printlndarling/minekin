@@ -1503,3 +1503,18 @@ step: collect_dropped INTERRUPTED SESSION_STOP_REQUESTED (action_id ee48578c…)
 3. **挥击重按（`_swing_on_target`）**：**每次按下带自己的 action id**（结果归属不再靠猜）；按下后进入等待——ACCEPTED/STARTED/SUCCEEDED ⇒ 键持有（释放用该按下的 id，仍走具名出口）；FAILED/CANCELLED ⇒ 计一次拒绝，下一帧重新点名目标即重按，**上界 3 次**（`FIGHT_MAX_PRESS_ATTEMPTS`）；上界用尽 ⇒ 整步按名收口 `FAILED / MINE_TARGET_NOT_AIMED`（details 带 `presses`/`press_refusals`）；退出前的最后一帧也会读一次待决结果（最后一下的拒止不会被漏掉，末帧的接受也照样拥有释放）。无注册表的直接单元调用保持旧乐观行为（向后兼容）。
 
 **先红后绿**：注册表 4 测试（最新/有界裁剪/重触/空值不记录）；技能 2 测试（三按两拒后第三下被接受 ⇒ CONFIRMED、`presses:"3"`、`press_refusals:"2"`、三次按下三个不同 id、只释放被接受的那下；三按全拒 ⇒ `FAILED/MINE_TARGET_NOT_AIMED`、`presses:"3"`、无释放）；会话 1 测试（假桥在**事件通道**发一条 FAILED `ActionResult` ⇒ 注册表逐字 `("FAILED","MINE_TARGET_NOT_AIMED")`）。调试按实：初版登记在错通道被丢（ActionResult 是事件不是控制）、`_read_events` 参数漏线致 NameError——都修后全绿。门（uv）：pyright 0/0/0、ruff 0、format 517、全仓 **4182 passed / 2 skipped**。**不声明活体**：召唤史莱姆的真实重按读数（runV 场景复刻）等活体线恢复后取；战斗质量缺口②（换血节奏）随重按落地复评。
+
+## 六之五十七、承诺候选：模型可建议、网关按矩阵校验、按证据落账（2026-10-07，单元面交付；活体待窗口）
+
+**缺口（记忆计划切片 B 的具名缺口）**：契约要求启动自我包装载"未完成承诺及期限"，而"承诺"在本仓**完全不存在**；LLM 可建议/网关校验的写者治理（记忆契约规则 7）此前只有设计没有落地。计划同时点了"无死码"要求：候选的**生产者（模型建议）、校验者（矩阵）、存储与消费者（恢复包装载）必须同卡**，否则任何一半都是无人认领的代码。
+
+**交付（设计→实现）**：
+1. **候选形状与矩阵（`domain/commitment.py`）**：模型答案可附可选 `commit: {text, due?, evidence_ref}`；四个具名拒止——`COMMITMENT_SCHEMA`（非对象/类型不符/多余字段；**多余字段即"越权"格**：schema 里没有能当权限使的字段，带未声明键的候选被按名拒绝而不是静默丢键）、`COMMITMENT_NO_EVIDENCE`（无引）、`COMMITMENT_UNBOUNDED`（空文本或超预算；text≤240 与 `goal_history.MAX_REASON_CHARS` 对齐、due≤64）、`COMMITMENT_UNKNOWN_EVIDENCE`（引用**不在这份 offer 实际展示过的见证集里**，逐字匹配、近错即错）。
+2. **线（适配器与门）**：`Decision.commitment` 承载**未判决**候选；`compose_decision` 在秘密在场处先 redact 再限长（键名与值同规），**非对象值原样携带**给门（在适配器消失的字段永远无法被按名拒止）；假端点端到端钉住"回包 JSON→Decision 携带"，并把被引用的 `observation_ref` 从端点**实际收到**的 body 上核对（"见证是 offer 里有的"是事实而非声称）。择源：仅**被采纳的模型决定**携带候选——被拒的决定与规则步绝不携带（不合意的决定不是这只 Kin 的意图）。
+3. **判与记（会话层）**：`_commitment_verdict` 纯函数——见证集＝请求的 `observation_ref` ＋上一会话记录的 `event_id`；接受 ⇒ `CommitmentRecorded`（text/due/evidence_ref/observation_ref）；拒绝 ⇒ `CommitmentRejected`（reason_code＋有界诊断：长度、消毒键名、引用回显；**绝不回显被拒文本**）。两者 `source=CORE`、`trust_class=MODEL_SUGGESTED`（新增 TrustClass 值：写入者是 Core、词句是远端的——读者不用追问检查是谁跑的就分得清）。存储＝**事件账本本身**（不建表）："未完成"目前＝全部已记录（没有完成事件就没有完成过滤），文档写明这是设计而非推断——完成事件出现时它是旁边的一条新行，历史不改写。
+4. **读与装载（`adapters/sqlite/commitment_history.py`）**：`read_unfinished_commitments`（`commitments-v1`；扫描 64/记录 8，digest 校验、坏行跳过计数、长文本省略号截断而不丢行——goal_history 的教训前置应用；`reading_rule: remembered_intent_revalidate` 随包）。`mind_for_run` 挂进 `session_history["commitments"]`（**含本 run 自己的行**：重读 offer 时 Kin 看得见三步前对自己许过的诺）。系统提示加一条纪律（意图≠现状≠许可）＋答案形状文档化可选 `commit` 字段。
+5. **台账面**：gateway 时间线为两种新事件补读法（`decision/applied` 与 `decision/rejected` 及 detail）——**覆盖测试当场把它抓红**（"每条 session 事件都要有时间线读法"正是它的存在意义）。
+
+**先红后绿**：域矩阵 8＋组合面 2＋假端点 2＋心携带 2＋判据 5＋读侧 7（含**真 `SessionEventLog` 写入→新读者读回**的整路：重启后承诺仍在，因为它是账本行而不是会话状态）＋gateway 1。调试按实登记：历史钉按其设计意图扩展（挂载点＋1）；pyright 严模下 `Mapping` 收窄致 27 错——依房规 `cast` 收窄后 0/0/0；gateway 覆盖测试抓红一次（新事件缺读法）——那正是它该做的。
+
+**按实/不声明**：单元面。**不声明活体**：真实模型在跑里真的附 `commit`、以及下一会话真的"记得但要重验"的读数——等活体线恢复后取。门（uv）：pyright 0/0/0、ruff 0、format 522、全仓 **4209 passed / 2 skipped**。

@@ -344,11 +344,15 @@ def test_managed_mind_reloads_prior_history_without_restoring_actions(
     assert first.session_history == restarted.session_history
     assert first.session_history["status"] == "found"
     history = cast("dict[str, object]", first.as_document()["session_history"])
-    # The mind's packet is the retrieval packet plus the memory plan's first
-    # slice; this run holds no goal, so the slice says exactly that.
+    # The mind's packet is the retrieval packet plus the memory plan's slices;
+    # this run holds no goal and nothing was ever committed, so both slices say
+    # exactly that rather than an empty story.
     goal_history = cast("dict[str, object]", history.pop("goal_history"))
     assert goal_history["status"] == "no_anchor"
     assert goal_history["records"] == []
+    commitments = cast("dict[str, object]", history.pop("commitments"))
+    assert commitments["status"] == "not_retrieved"
+    assert commitments["records"] == []
     assert history == read_last_session(target, kin_id="kin-one", exclude_run_id="current-run")
     assert first.as_document()["current_intent"] is None
     assert not first.goal_met

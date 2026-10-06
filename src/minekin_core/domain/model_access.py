@@ -43,7 +43,7 @@ import urllib.parse
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import Final, Literal, cast
+from typing import Any, Final, Literal, cast
 
 from minekin_core.domain.errors import ErrorCategory, MinekinError, Retryability, redact_text
 from minekin_core.domain.persona import PersonaManifest
@@ -575,6 +575,11 @@ class Decision:
     reason: str
     intent_generation: int
     arguments: Mapping[str, object] = field(default_factory=dict[str, object])
+    #: The commitment candidate the answer attached, as it read: bounded and redacted on
+    #: the way in, and judged by nobody — `domain.commitment` is the one reader of what it
+    #: may contain, and the session layer is the only recorder of the verdict. `None` means
+    #: the answer proposed none.
+    commitment: object | None = None
 
     def as_document(self) -> dict[str, object]:
         return {
@@ -622,6 +627,41 @@ class ModelUnavailable:
         }
 
 
+#: How much of an attached commitment candidate is even carried toward the gate, and how
+#: many of its fields. The candidate is remote text headed for a durable row, so it is
+#: redacted and shrunk here; whether it may BECOME a commitment is `domain.commitment`'s
+#: decision, and every refusal it names is recorded by the caller rather than swallowed.
+_COMMITMENT_ECHO_CHARS: Final = 512
+_COMMITMENT_ECHO_KEYS: Final = 8
+
+
+def _bounded_commitment(value: object, *, secrets: tuple[str, ...]) -> object | None:
+    """The answer's commitment field, redacted and shrunk for the road — never judged here.
+
+    A non-object value is carried as it read rather than collapsed to nothing: "the answer
+    attached a commitment field of the wrong shape" is a refusal the gate must be able to
+    name, and a field that vanished here could never be refused by name at all.
+    """
+
+    if value is None:
+        return None
+    if isinstance(value, str):
+        return redact_text(value, secrets=secrets)[:_COMMITMENT_ECHO_CHARS]
+    if not isinstance(value, Mapping):
+        return value
+    fields = cast("Mapping[str, Any]", value)
+    echo: dict[str, object] = {}
+    for key, item in list(fields.items())[:_COMMITMENT_ECHO_KEYS]:
+        # Key names are remote text too, and one of them could be an echoed credential;
+        # they are redacted on the same rule as the values before anything holds them.
+        name = redact_text(key, secrets=secrets)[:64]
+        if isinstance(item, str):
+            echo[name] = redact_text(item, secrets=secrets)[:_COMMITMENT_ECHO_CHARS]
+        else:
+            echo[name] = item
+    return echo
+
+
 def compose_decision(
     request: DecisionRequest,
     skill_id: str,
@@ -629,6 +669,7 @@ def compose_decision(
     intent_generation: int | None = None,
     *,
     arguments: Mapping[str, object] | None = None,
+    commitment: object | None = None,
     secrets: tuple[str, ...] = (),
 ) -> Decision | ModelUnavailable:
     """Judge one proposed choice, and the ask that came with it, against the offer.
@@ -655,6 +696,11 @@ def compose_decision(
     sent (`secrets`, which the provider fills with the key it just put on the wire) and only
     afterwards is it cut to length — cutting first would let a slice of a credential survive
     as a fragment too short for any pattern to recognise.
+
+    The commitment a decision may carry rides under the same rule — redacted and bounded
+    here, and unjudged on purpose: the schema, budgets and evidence check for commitments
+    live in `domain.commitment`, so the answer's suggestion never bypasses a gate by
+    arriving through this one.
     """
 
     supplied = request.intent_generation if intent_generation is None else intent_generation
@@ -671,6 +717,7 @@ def compose_decision(
         reason=redact_text(reason, secrets=secrets)[:MAX_REASON_CHARS],
         intent_generation=request.intent_generation,
         arguments=honoured,
+        commitment=_bounded_commitment(commitment, secrets=secrets),
     )
 
 

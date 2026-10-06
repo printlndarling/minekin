@@ -88,6 +88,7 @@ from minekin_core.adapters.launcher.supervisor import ProcessIdentity, ProcessSu
 from minekin_core.adapters.model import model_provider_for
 from minekin_core.adapters.public_craft_knowledge import PublicCraftKnowledge
 from minekin_core.adapters.public_recipe_archive import load_recipe_knowledge
+from minekin_core.adapters.sqlite.commitment_history import read_unfinished_commitments
 from minekin_core.adapters.sqlite.connection import connect_reader
 from minekin_core.adapters.sqlite.goal_history import recall_goal_history
 from minekin_core.adapters.sqlite.identity_store import read_identity_root
@@ -96,6 +97,8 @@ from minekin_core.adapters.sqlite.session_log import (
     AUTH_POLICY_FROZEN,
     AUTONOMOUS_RUN_HALTED,
     CLIENT_EXITED,
+    COMMITMENT_RECORDED,
+    COMMITMENT_REJECTED,
     HELLO_ACCEPTED,
     INPUT_LEASE_GRANTED,
     INPUT_REFUSED,
@@ -144,6 +147,7 @@ from minekin_core.cli.session_runtime import (
     supervise_session,
 )
 from minekin_core.domain.auth_policy import AuthPolicy
+from minekin_core.domain.commitment import Commitment, judge_commitment_candidate
 from minekin_core.domain.connection import ConnectionGenerations, ConnectionState
 from minekin_core.domain.decision_policy import decision_policy_from_environment
 from minekin_core.domain.errors import ErrorCategory, MinekinError, Retryability
@@ -1044,6 +1048,93 @@ def _mind_step_product(intent: MindIntent) -> str:
     return calls[0].product_id if calls else ""
 
 
+def _shown_commitment_references(
+    observation_ref: str, session_history: Mapping[str, object]
+) -> frozenset[str]:
+    """The tokens an answer could have seen and cited.
+
+    The observation handle the request was made under, and the event id the
+    last-session record showed — those are the references the offer actually
+    carries. A citation outside this set was never shown, which is the whole of
+    what `COMMITMENT_UNKNOWN_EVIDENCE` means.
+    """
+
+    witnesses: set[str] = set()
+    if observation_ref:
+        witnesses.add(observation_ref)
+    record = session_history.get("record")
+    if isinstance(record, Mapping):
+        shown = cast("Mapping[str, Any]", record)
+        event_id = shown.get("event_id")
+        if isinstance(event_id, str) and event_id:
+            witnesses.add(event_id)
+    return frozenset(witnesses)
+
+
+def _candidate_diagnostics(candidate: object) -> dict[str, object]:
+    """Bounded numbers and sanitised field names about a refused candidate.
+
+    Never its text: a refusal row exists so a reader can tell "nothing was
+    proposed" from "everything was refused", and lengths plus field names answer
+    that without giving the refused text a second home it already failed to earn.
+    """
+
+    if not isinstance(candidate, Mapping):
+        return {"text_chars": 0, "due_chars": 0, "evidence_ref": "", "keys": []}
+    fields = cast("Mapping[str, Any]", candidate)
+    text = fields.get("text")
+    due = fields.get("due")
+    evidence = fields.get("evidence_ref")
+    keys: list[str] = []
+    for key in list(fields.keys())[:8]:
+        safe = "".join(ch for ch in key if ch.isalnum() or ch in "._-")[:32]
+        keys.append(safe if safe else "<unnamed>")
+    return {
+        "text_chars": len(text) if isinstance(text, str) else 0,
+        "due_chars": len(due) if isinstance(due, str) else 0,
+        "evidence_ref": evidence[:128] if isinstance(evidence, str) else "",
+        "keys": sorted(keys),
+    }
+
+
+def _commitment_verdict(
+    candidate: object,
+    *,
+    observation_ref: str,
+    session_history: Mapping[str, object],
+) -> tuple[str, dict[str, object], TrustClass]:
+    """One candidate in, one event to record out — accepted or refused by name.
+
+    A pure function of the candidate, the witnesses the answer was shown, and the
+    matrix in `domain.commitment`: the event type, payload and trust label of
+    every outcome are pinned by unit cells rather than argued from a live run.
+    Both outcomes are labelled `MODEL_SUGGESTED` — the words were remote text
+    even when this side accepted or refused them, and the label says so without
+    a reader asking who ran the check.
+    """
+
+    judged = judge_commitment_candidate(
+        candidate,
+        witnesses=_shown_commitment_references(observation_ref, session_history),
+    )
+    if isinstance(judged, Commitment):
+        return (
+            COMMITMENT_RECORDED,
+            {
+                "text": judged.text,
+                "due": judged.due,
+                "evidence_ref": judged.evidence_ref,
+                "observation_ref": observation_ref,
+            },
+            TrustClass.MODEL_SUGGESTED,
+        )
+    return (
+        COMMITMENT_REJECTED,
+        {"reason_code": judged, **_candidate_diagnostics(candidate)},
+        TrustClass.MODEL_SUGGESTED,
+    )
+
+
 def mind_for_run(
     kin_id: str,
     environ: Mapping[str, str] | None = None,
@@ -1117,6 +1208,13 @@ def mind_for_run(
             kin_id=kin_id,
             product_id="" if goal is None else goal.product_id,
             exclude_run_id=exclude_run_id,
+        )
+        # Slice B's consumer: the intentions this Kin recorded and has not closed.
+        # Read from the same ledger, bounded and cited; the current run's own rows
+        # are included so a re-read offer shows what the Kin just promised itself.
+        session_history["commitments"] = read_unfinished_commitments(
+            kin_dir / DATABASE_NAME,
+            kin_id=kin_id,
         )
     return mind_for(
         model_provider_for(config, ledger=ledger, environ=environ),
@@ -1876,6 +1974,18 @@ async def start_and_supervise(
                     "goal_product_id": "" if mind.goal is None else mind.goal.product_id,
                 }
             )
+            if step.intent.commitment is not None:
+                # Slice B's judging site: the candidate the honoured decision carried
+                # is judged against the witnesses this offer showed, and recorded
+                # either way — an accepted intention, or a refusal by name. Never a
+                # silent shrug: "the Kin promised itself nothing" and "everything it
+                # proposed was refused" are different rows for the same reader.
+                event_type, payload, trust = _commitment_verdict(
+                    step.intent.commitment,
+                    observation_ref=step.intent.observation_ref,
+                    session_history=mind.session_history,
+                )
+                await record(event_type, payload, source=EventSource.CORE, trust_class=trust)
 
         async def on_plan_step(step: SkillStep) -> None:
             # A scripted sequence has no goal and no model to refuse, so the two names the

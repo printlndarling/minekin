@@ -54,6 +54,8 @@ from minekin_core.adapters.sqlite.session_log import (
     AUTH_POLICY_FROZEN,
     AUTONOMOUS_RUN_HALTED,
     CLIENT_EXITED,
+    COMMITMENT_RECORDED,
+    COMMITMENT_REJECTED,
     HELLO_ACCEPTED,
     INPUT_LEASE_GRANTED,
     INPUT_RELEASED,
@@ -642,6 +644,46 @@ def test_every_ledger_event_type_has_a_timeline_reading() -> None:
     assert TIMELINE_READING[PROCESS_FAILED] == ("fault", "rejected")
     assert TIMELINE_READING[INPUT_RELEASED] == ("input", "released")
     assert TIMELINE_READING[AUTONOMOUS_RUN_HALTED] == ("decision", "applied")
+
+
+def test_the_commitment_rows_read_as_the_minds_own_verdicts(tmp_path: Path) -> None:
+    """Slice B's rows on the panel: the accepted intention shows its words and citation,
+    the refusal shows the matrix cell that refused it — and the refused text, which never
+    earned a row, has no second home in the detail either."""
+
+    seed_kin(tmp_path)
+    record(
+        tmp_path,
+        COMMITMENT_RECORDED,
+        {
+            "text": "come back to the cave",
+            "due": "",
+            "evidence_ref": "tick=1;generation=1",
+            "observation_ref": "tick=1;generation=1",
+        },
+    )
+    record(
+        tmp_path,
+        COMMITMENT_REJECTED,
+        {
+            "reason_code": "COMMITMENT_NO_EVIDENCE",
+            "text_chars": 30,
+            "due_chars": 0,
+            "evidence_ref": "",
+            "keys": ["text"],
+        },
+    )
+
+    by_title = {event["title"]: event for event in build_timeline(tmp_path, limit=5)}
+
+    recorded = by_title[COMMITMENT_RECORDED]
+    assert recorded["kind"] == "decision"
+    assert recorded["outcome"] == "applied"
+    assert recorded["detail"] == "text=come back to the cave, evidence_ref=tick=1;generation=1"
+    rejected = by_title[COMMITMENT_REJECTED]
+    assert rejected["kind"] == "decision"
+    assert rejected["outcome"] == "rejected"
+    assert rejected["detail"] == "reason_code=COMMITMENT_NO_EVIDENCE, text_chars=30"
 
 
 def test_the_projection_never_echoes_a_credential_held_by_a_ledger_row(tmp_path: Path) -> None:

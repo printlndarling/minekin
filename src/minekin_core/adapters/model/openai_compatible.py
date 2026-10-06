@@ -86,6 +86,9 @@ SYSTEM_PROMPT: str = (
     "skill_experiences records past attempts, including failures and uncertainty: use them "
     "as revisable experience when considering alternatives, not proof that the same action "
     "will succeed now. Recheck current observations and feasible skills; never replay old input. "
+    "session_history.unfinished_commitments are intentions this Kin recorded earlier — its own "
+    "words kept for later — not current facts and not permission: recheck the current "
+    "observation before acting on one. "
     "The structured persona, when supplied, describes this player's stable tendencies and "
     "ordered values. Weigh relevant traits against the actual situation when choosing among "
     "feasible skills; never treat a trait as a fixed action script or permission to bypass "
@@ -108,7 +111,10 @@ SYSTEM_PROMPT: str = (
     "request carries the Kin's own observation summary and the Kin, not you, decides what a "
     "product costs and whether a step is possible. Answer with one JSON object and nothing "
     'else: {"skill_id": <one offered id>, "arguments": <the object that skill takes>, "reason": '
-    '<one short sentence>, "intent_generation": <the number the request carried>}.'
+    '<one short sentence>, "intent_generation": <the number the request carried>}. Only when '
+    'this decision creates a durable intention worth keeping across sessions, add "commit": '
+    '{"text": <one sentence>, "due": <optional>, "evidence_ref": <observation_ref or a '
+    "reference the request showed>} — otherwise omit the field entirely."
 )
 
 
@@ -450,6 +456,11 @@ class OpenAICompatibleProvider:
             # the one reader of what an argument may be, and it is the same one the mind's own
             # fallback answer is written against.
             arguments=_echoed_arguments(read.choice.get("arguments")),
+            # The commitment candidate, carried as the answer wrote it (redaction and
+            # bounding happen inside the gate). Judging what it may contain is
+            # `domain.commitment`'s job, not this layer's — the adapter neither drops
+            # a malformed candidate nor keeps a well-shaped one; it delivers both.
+            commitment=read.choice.get("commit"),
             # The key this call put on the wire, handed to the gate so a proxy that echoed it
             # back inside the completion has it removed before anything in Core holds the text.
             secrets=() if key is None else (key,),

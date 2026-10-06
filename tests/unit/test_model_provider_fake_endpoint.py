@@ -250,12 +250,15 @@ def decision_content(
     reason: str,
     generation: int | None = GENERATION,
     arguments: Mapping[str, object] | None = None,
+    commitment: object | None = None,
 ) -> bytes:
     payload: dict[str, object] = {"skill_id": skill_id, "reason": reason}
     if arguments is not None:
         payload["arguments"] = arguments
     if generation is not None:
         payload["intent_generation"] = generation
+    if commitment is not None:
+        payload["commit"] = commitment
     return envelope(json.dumps(payload))
 
 
@@ -364,6 +367,55 @@ def test_the_normal_shape_answers_with_a_decision_inside_the_offer(
     assert len(endpoint.arrivals) == 1
     assert endpoint.arrivals[0].path == endpoint.completions_path
     assert endpoint.arrivals[0].authorization == f"Bearer {FAKE_KEY}"
+
+
+def test_a_commitment_the_answer_attached_rides_into_the_decision(
+    serve: Callable[[Behavior], Endpoint],
+) -> None:
+    """The whole road for slice B's candidate: reply JSON -> parsed -> carried.
+
+    This layer only delivers; the schema, budgets and evidence check run in
+    `domain.commitment` at the judging site. The observation handle the candidate
+    cites is asserted off the body the endpoint actually received, so "a reference
+    the answer was shown" is a fact about the offer rather than a claim here.
+    """
+
+    endpoint = serve(
+        Behavior(
+            body=decision_content(
+                "chop_tree",
+                "the cave is worth a return",
+                commitment={
+                    "text": "come back to the cave",
+                    "due": "before the next night",
+                    "evidence_ref": "obs-1042",
+                },
+            )
+        )
+    )
+    provider = OpenAICompatibleProvider(config_for(endpoint), environment())
+
+    answered = provider.decide(offer())
+
+    assert isinstance(answered, Decision)
+    assert answered.commitment == {
+        "text": "come back to the cave",
+        "due": "before the next night",
+        "evidence_ref": "obs-1042",
+    }
+    assert shown_offer(endpoint.arrivals[0])["observation_ref"] == "obs-1042"
+
+
+def test_a_reply_without_a_commitment_leaves_the_field_absent(
+    serve: Callable[[Behavior], Endpoint],
+) -> None:
+    endpoint = serve(Behavior(body=decision_content("wait", "the light is going")))
+    provider = OpenAICompatibleProvider(config_for(endpoint), environment())
+
+    answered = provider.decide(offer())
+
+    assert isinstance(answered, Decision)
+    assert answered.commitment is None
 
 
 def test_the_call_is_accounted_for_with_the_usage_the_endpoint_reported(

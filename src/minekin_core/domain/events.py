@@ -23,3 +23,8 @@ class TrustClass(StrEnum):
     LAUNCHER = "LAUNCHER"
     OPERATOR = "OPERATOR"
     UNTRUSTED_WORLD_CONTENT = "UNTRUSTED_WORLD_CONTENT"
+    #: Text a model suggested and a gateway accepted: the writer was Core, the words
+    #: were remote. Kept apart from CORE so a reader can tell an intention this side
+    #: wrote from one it agreed to keep, without asking who ran the check
+    #: (`docs/memory-retrieval-consolidation-contract.md`, rule 7).
+    MODEL_SUGGESTED = "MODEL_SUGGESTED"

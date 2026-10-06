@@ -662,6 +662,56 @@ def test_a_model_that_asks_to_use_the_aimed_block_becomes_a_use_plan() -> None:
     assert intent.capabilities == skill_capabilities("use_target")
 
 
+def test_a_commitment_the_model_attached_rides_with_the_intent_it_became() -> None:
+    """Slice B's candidate travels with the honoured decision it annotated — unjudged
+    here, because the matrix and the evidence check live at the judging site. What this
+    cell pins is the carry: the intent the session layer will judge holds exactly the
+    candidate the answer wrote, and nothing reconstructs or rewrites it on the way."""
+
+    candidate = {"text": "come back to the cave", "evidence_ref": "tick=120;generation=1"}
+    mind, _ = mind_with(
+        Decision(
+            skill_id="use_target",
+            reason="use what is in view",
+            intent_generation=1,
+            commitment=candidate,
+        ),
+        policy=DecisionPolicy.MODEL,
+    )
+
+    intent = mind.next_intent(reading(aim=block_aim(), items=((0, PLANKS, 5),)))
+
+    assert intent.kind is MindDecisionKind.INTENT
+    assert intent.source == DECISION_FROM_MODEL
+    assert intent.commitment == candidate
+
+
+def test_a_commitment_never_rides_a_refused_answer_or_a_rule_step() -> None:
+    """Two ways a suggestion must die with its carrier: the answer was refused (so the
+    intention was never this Kin's to keep), or no answer existed at all — the rule
+    strategy decides locally and has no model text to carry, which must stay true even
+    if a reason string happens to look like a promise."""
+
+    refused, _ = mind_with(
+        Decision(
+            skill_id="mine_diamonds",
+            reason="why not",
+            intent_generation=1,
+            commitment={"text": "come back later", "evidence_ref": "tick=120;generation=1"},
+        ),
+        policy=DecisionPolicy.MODEL,
+    )
+    refused_intent = refused.next_intent(reading(aim=block_aim(), items=((0, PLANKS, 5),)))
+    assert refused_intent.kind is MindDecisionKind.HOLD
+    assert refused_intent.commitment is None
+
+    ruled, _ = mind_with()
+    ruled_intent = ruled.next_intent(reading(aim=block_aim(), items=((0, PLANKS, 5),)))
+    assert ruled_intent.kind is MindDecisionKind.INTENT
+    assert ruled_intent.source == DECISION_FROM_LOCAL
+    assert ruled_intent.commitment is None
+
+
 def test_a_use_spent_on_one_target_is_not_replayed_until_the_aim_moves() -> None:
     """The repeat a side-effecting click may never be, guarded from the reading rather than
     the retry count.

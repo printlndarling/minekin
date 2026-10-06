@@ -22,7 +22,7 @@ from __future__ import annotations
 import inspect
 from collections.abc import Callable, Iterator, Mapping
 from dataclasses import fields
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
@@ -552,6 +552,56 @@ def test_a_bare_echoed_key_is_removed_by_the_secret_the_caller_sent() -> None:
 
     assert isinstance(chosen, Decision)
     assert FAKE_KEY not in chosen.reason
+
+
+# ---------------------------------------------------------------------------
+# §2.5: the commitment candidate an answer may attach
+# ---------------------------------------------------------------------------
+
+
+def test_a_well_shaped_commitment_rides_into_the_decision_redacted_and_bounded() -> None:
+    """The candidate is remote text headed for a durable row, so the gate redacts it here
+    and judges it nowhere: what it may contain is `domain.commitment`'s question, and the
+    answered decision stays a decision with a suggestion beside it, not a stored intent.
+    """
+
+    chosen = compose_decision(
+        offer(),
+        "chop_tree",
+        "the cave is worth coming back to",
+        commitment={
+            "text": f"return to the cave ({FAKE_KEY})",
+            "due": "before the next night",
+            "evidence_ref": "obs-1042",
+        },
+        secrets=(FAKE_KEY,),
+    )
+
+    assert isinstance(chosen, Decision)
+    carried = chosen.commitment
+    assert isinstance(carried, dict)
+    fields = cast("Mapping[str, object]", carried)
+    assert FAKE_KEY not in str(fields)
+    assert fields["due"] == "before the next night"
+    assert fields["evidence_ref"] == "obs-1042"
+    # The judged verdict is what gets recorded — by the session layer's own event — so
+    # the raw candidate never rides inside a decision document.
+    assert "commitment" not in chosen.as_document()
+
+
+def test_a_malformed_commitment_is_carried_for_the_gate_not_silently_dropped() -> None:
+    """A field of the wrong shape is a refusal the gate must be able to name; a field
+    that vanished on the way would leave the answer looking like it never suggested one.
+    """
+
+    chosen = compose_decision(offer(), "chop_tree", "why not", commitment="remember this")
+
+    assert isinstance(chosen, Decision)
+    assert chosen.commitment == "remember this"
+
+    absent = compose_decision(offer(), "chop_tree", "why not")
+    assert isinstance(absent, Decision)
+    assert absent.commitment is None
 
 
 # ---------------------------------------------------------------------------

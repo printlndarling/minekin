@@ -85,6 +85,15 @@ SKILL_STEP_RECORDED = "SkillStepRecorded"
 #: went, when the readings say the mind excluded a skill and stopped by name.
 AUTONOMOUS_RUN_HALTED = "AutonomousRunHalted"
 PLAYER_STATE_OBSERVED = "PlayerStateObserved"
+#: One commitment candidate the judging site accepted: an intention the Kin keeps, with
+#: the reference it cited. Its own event rather than a table because nothing closes a
+#: commitment yet — when completion exists it will be another row beside this one, and
+#: the reader derives "unfinished" rather than a mutable column rewriting history.
+COMMITMENT_RECORDED = "CommitmentRecorded"
+#: The same candidate refused, by name, with bounded diagnostics and no raw text: a
+#: refusal is worth a row for the same reason a stop is — the reader of a run that
+#: promised itself nothing should see whether nothing was proposed or everything was.
+COMMITMENT_REJECTED = "CommitmentRejected"
 
 SESSION_EVENT_TYPES = frozenset(
     {
@@ -105,6 +114,8 @@ SESSION_EVENT_TYPES = frozenset(
         SKILL_STEP_RECORDED,
         AUTONOMOUS_RUN_HALTED,
         PLAYER_STATE_OBSERVED,
+        COMMITMENT_RECORDED,
+        COMMITMENT_REJECTED,
     }
 )
 

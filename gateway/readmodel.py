@@ -36,6 +36,8 @@ from minekin_core.adapters.sqlite.session_log import (
     AUTH_POLICY_FROZEN,
     AUTONOMOUS_RUN_HALTED,
     CLIENT_EXITED,
+    COMMITMENT_RECORDED,
+    COMMITMENT_REJECTED,
     HELLO_ACCEPTED,
     INPUT_LEASE_GRANTED,
     INPUT_REFUSED,
@@ -143,6 +145,14 @@ _AUTH_DETAIL_FIELDS: Final = (
     "server_profile_id",
     "server_profile_revision",
 )
+
+# The commitment rows, kept apart for the same reason the two lists above exist: the
+# generic projection carries none of their fields. An accepted intention shows the words
+# the Kin keeps, its optional deadline, and the reference it cited; a refusal shows the
+# matrix cell that refused it and the length of what it refused — never the refused text,
+# which has no second home here.
+_COMMITMENT_DETAIL_FIELDS: Final = ("text", "due", "evidence_ref")
+_COMMITMENT_REJECTED_DETAIL_FIELDS: Final = ("reason_code", "evidence_ref", "text_chars")
 
 # The skill-step row is what a running autonomous/skill session leaves in the ledger: one
 # concluded step with the verdict of the *later world readings*, never the Bridge's own
@@ -397,6 +407,17 @@ def _identity_detail(payload: Mapping[str, Any]) -> list[str]:
     return parts
 
 
+def _named_detail(payload: Mapping[str, Any], fields: Sequence[str]) -> str | None:
+    """The named fields as `name=value` parts; an empty string is the auth row's omission."""
+
+    parts = [
+        f"{name}={payload[name]}"
+        for name in fields
+        if isinstance(payload.get(name), str | int) and payload[name] != ""
+    ]
+    return ", ".join(parts) if parts else None
+
+
 def _detail(row: EventRow) -> str | None:
     if row.event_type == AUTONOMOUS_RUN_HALTED:
         parts: list[str] = []
@@ -415,12 +436,11 @@ def _detail(row: EventRow) -> str | None:
         # already in `_DETAIL_FIELDS` and would double-project, and an empty-by-construction
         # member (`goal=""` for a scripted plan) is omitted here the way the auth projection
         # omits a null member — the snapshot group spells out why it is empty, in words.
-        parts = [
-            f"{name}={row.payload[name]}"
-            for name in _SKILL_STEP_DETAIL_FIELDS
-            if isinstance(row.payload.get(name), str | int) and row.payload[name] != ""
-        ]
-        return ", ".join(parts) if parts else None
+        return _named_detail(row.payload, _SKILL_STEP_DETAIL_FIELDS)
+    if row.event_type == COMMITMENT_RECORDED:
+        return _named_detail(row.payload, _COMMITMENT_DETAIL_FIELDS)
+    if row.event_type == COMMITMENT_REJECTED:
+        return _named_detail(row.payload, _COMMITMENT_REJECTED_DETAIL_FIELDS)
     parts = [
         f"{name}={row.payload[name]}"
         for name in _DETAIL_FIELDS
@@ -1101,6 +1121,11 @@ TIMELINE_READING: Final[Mapping[str, tuple[str, str]]] = {
     # The run's last word, in the same family as the two decision rows above: `applied` says
     # Core recorded the halt, not that the halt was a success — the name is in `stop_reason`.
     AUTONOMOUS_RUN_HALTED: ("decision", "applied"),
+    # Slice B's two rows: the mind's own commitment candidates as the gateway judged them.
+    # Same decision family as the halt row — `applied` says Core kept the intention, not
+    # that the intention happened; `rejected` is the matrix cell in the payload's name.
+    COMMITMENT_RECORDED: ("decision", "applied"),
+    COMMITMENT_REJECTED: ("decision", "rejected"),
     # The one row whose outcome this table cannot carry: whether it was applied is a reading
     # of its own payload, so the entry below is only the fallback when that reading fails.
     SESSION_IDENTITY_COMPARED: ("observation", "unknown"),

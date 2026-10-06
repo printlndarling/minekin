@@ -1156,6 +1156,11 @@ class MindIntent:
     #: Input provenance for a model-selected step, not proof of a trait causing it.
     #: Local reflection does not currently consult personality and must not claim it did.
     persona_context_ref: str | None = None
+    #: The commitment candidate the honoured model answer attached, carried so the session
+    #: layer can judge it (`domain.commitment`) and record the verdict. It never rides a
+    #: refused answer or a rule step: an intention suggested by a decision this side would
+    #: not run is not an intention of this Kin.
+    commitment: object | None = None
 
     @property
     def skill(self) -> str:
@@ -1665,6 +1670,7 @@ class PlayerMind:
         refusal = ""
         reason = ""
         arguments: Mapping[str, object] = {}
+        commitment: object | None = None
         needs = self._needs(reading)
         skill: str = ""
         source: str = ""
@@ -1693,6 +1699,10 @@ class PlayerMind:
                         answer.reason[:MAX_REASON_CHARS],
                     )
                     arguments = honoured_arguments
+                    # Only an honoured answer's suggestion travels: the gate refuses its
+                    # content later by name, but a decision this side would not run never
+                    # gets to be an intention in the first place.
+                    commitment = answer.commitment
             elif isinstance(answer, Decision):
                 refusal = UnavailableReason.DECISION_OUT_OF_BOUNDS.value
             else:
@@ -1764,6 +1774,7 @@ class PlayerMind:
             observation_ref=request.observation_ref,
             model_refusal=refusal,
             arguments=honoured,
+            commitment=commitment,
             persona_context_ref=(
                 str(self.persona.decision_context()["manifest_sha256"])
                 if source == DECISION_FROM_MODEL and self.persona is not None
