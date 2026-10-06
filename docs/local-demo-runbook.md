@@ -1481,3 +1481,14 @@ step: collect_dropped INTERRUPTED SESSION_STOP_REQUESTED (action_id ee48578c…)
 **动机（活体读数逼出来的诊断缺格）**：本日四发模型跑的停车形状一致——`phase:"open"`、两次尝试合计约 41.6s、**零响应头**；而单发探针多数在数秒内成功（偶发两种：8.9s 超预算但重试即成，或两次全超）。要论证"停滞是否与请求体积相关"（对象：逐发增长的摘要——本轮起还多了 `goal_history` 记录），账本里必须先有**每次问了多少字节**这个数。
 
 **交付（先红后绿）**：`CostRecord.request_bytes`（`record_call` 同步）；适配器在序列化 body 处取 `len(body)`，**成功/被拒/超时/传输失败各路径都落账**（失败经 `_CallFailed.request_bytes` 带出）；诊断文本原样（只加数字）；`last_model_call`、run document、账本投影随之携带。**测试**：成功调用的 `request_bytes` 逐字等于假端点**实际收到**的 body 字节数；超时重试那发的记录同样核对该相等（端点自己的视角钉住）；账本"无文本字段"不变式钉更新（新字段仍是数字）。调试中按实登记：`_account` 的签名更新漏了一处导致 30 红——修后全绿；字段形状钉与 mind 文档钉各按其设计意图更新。门（uv）：pyright 0/0/0、ruff 0、format 515、全仓 **4175 passed / 2 skipped**。**下一发真正停滞的读数将带字节数**——停滞与体积的相关性从此可用数字论证而不是猜。
+
+## 六之五十五、被 reap 的一发的账本重建（2026-10-06，run `45416a38…`，普通运行记录、非 sealed）
+
+**经过（按实）**：趁端点窗口起的一发模型跑，其**后台监督进程被内存守护 SIGKILL**（平台行为，非命令失败）；容器内会话自行跑完 420s 窗口并退出，**日志止于 reap 时刻**（写日志者是死掉的工具进程），读数改从**卷内账本只读重建**——`SkillStepRecorded` 逐步行 + `AutonomousRunHalted`：
+
+- 步 1 `break_seen_block` **CONFIRMED**（`decision_source: model`，`model_usage.calls=1`）；
+- 步 2 `collect_dropped` `UNKNOWN / COLLECT_APPROACH_STALLED`（calls=2）——**受阻跳反应在活体场景里的第一个"跳也没追上"的按名结局**（该发字节含 `fd1286e` 之后的全部修复与跳反应）；
+- 步 3 `collect_dropped` `UNKNOWN / COLLECT_AIM_NOT_CONFIRMED`（calls=3，模型自选重试）；
+- `AutonomousRunHalted`：`confirmed: 1`、`steps: 3`、`stop_reason: "TIMEOUT"`；`InputReleased(had_lease=true, reason=EXPLICIT)` 干净。
+- **同发核验了两个新字段在真实会话里落账**：每步 payload 逐字带 `goal_product_id: "minecraft:wooden_pickaxe"`（目标域召回的写侧），与 `decision_source: "model"`。
+**按实**：这发的 `request_bytes` 读数随 run document 一起死于被杀进程的 stdout，**不可恢复**——"第一枚带字节数的真停滞读数"仍待一次监督进程存活到停车的运行；容器已自行退出（无遗留）。该发不重跑（守护要求）。
