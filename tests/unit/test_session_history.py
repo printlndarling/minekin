@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import sqlite3
 from pathlib import Path
+from typing import cast
 
 import pytest
 
@@ -342,9 +343,13 @@ def test_managed_mind_reloads_prior_history_without_restoring_actions(
     restarted = mind_for_run("kin-one", {}, kin_dir=tmp_path, exclude_run_id="current-run")
     assert first.session_history == restarted.session_history
     assert first.session_history["status"] == "found"
-    assert first.as_document()["session_history"] == read_last_session(
-        target, kin_id="kin-one", exclude_run_id="current-run"
-    )
+    history = cast("dict[str, object]", first.as_document()["session_history"])
+    # The mind's packet is the retrieval packet plus the memory plan's first
+    # slice; this run holds no goal, so the slice says exactly that.
+    goal_history = cast("dict[str, object]", history.pop("goal_history"))
+    assert goal_history["status"] == "no_anchor"
+    assert goal_history["records"] == []
+    assert history == read_last_session(target, kin_id="kin-one", exclude_run_id="current-run")
     assert first.as_document()["current_intent"] is None
     assert not first.goal_met
     assert "event-current" not in json.dumps(first.session_history)

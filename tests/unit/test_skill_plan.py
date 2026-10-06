@@ -481,6 +481,43 @@ def test_the_lease_last_as_long_as_the_whole_sequence_may_wait() -> None:
     assert sequence_lease_seconds((), step_seconds) == 0.0
 
 
+def test_a_craft_step_carries_the_product_it_was_asked_for() -> None:
+    """The step's document — and the ledger row built from it — names the product
+    the call was for, so recall can anchor on what was being made rather than on
+    guesses from reasons or skill names; a call that names none carries empty."""
+
+    from minekin_core.application.skill_plan import SkillCall, SkillPlan
+
+    skills = _TapeSkills(
+        {
+            "craft_take_result": _outcome(ActionResultClass.CONFIRMED),
+            "turn_to": _outcome(ActionResultClass.CONFIRMED),
+        },
+        _RecordingSender(),
+    )
+    plan = SkillPlan(
+        (
+            SkillCall(
+                name="craft_take_result",
+                recipe_id="minecraft:stick",
+                materials=(("minecraft:oak_planks", 2),),
+                product_id="minecraft:stick",
+            ),
+            SkillCall(name="turn_to"),
+        ),
+        source="test",
+    )
+
+    sequence = asyncio.run(
+        run_skill_plan(skills, plan, authority=AUTHORITY, timeout_ns=DEFAULT_STEP_TIMEOUT_NS)
+    )
+
+    document = sequence.as_document()
+    steps = cast("list[Mapping[str, object]]", document["steps"])
+    assert steps[0]["product_id"] == "minecraft:stick"
+    assert steps[1]["product_id"] == ""
+
+
 def test_the_sequence_stops_at_the_first_step_the_world_did_not_confirm() -> None:
     sender = _RecordingSender()
     skills = _TapeSkills(

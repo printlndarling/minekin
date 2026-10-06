@@ -1426,3 +1426,15 @@ step: collect_dropped INTERRUPTED SESSION_STOP_REQUESTED (action_id ee48578c…)
 **先红后绿**：2 新测试（同名/异名/未名三态；伪造的 UNTRUSTED 行不落名）＋1 旧钉按设计意图更新（无 auth 事件的夹具读作 `""`）。文件 17 绿、邻套件 232 绿；门（uv）：pyright 0/0/0、ruff 0、format 512、全仓 **4164 passed / 2 skipped**。
 
 **同批所有权观察（按实登记）**：本轮开工时发现**另一位执行者**已在 `992c92a` 之上落下并推送 `60ad043`（把我的 `input_release` 内联布尔换成 `_recorded_input_release`：digest/generation/顺序校验，"两枚控制端反例：损坏与乱序的释放行被报成 released_recorded"）。核验：其提交与我的在工改动**兼容**（同 helper 名、同语义加严），无覆盖损失；协调时 `ListAgents` **无在场会话**（对方已退出），本卡在其加严后的形状上继续（server_profile_id 走同一纪律），未改动其逻辑；在工测试改动保留、未与其提交冲突。
+
+## 六之五十、记忆子系统第一格落地：目标域情节召回（2026-10-06，单元面交付）
+
+**设计先行**：新增 [记忆子系统实施设计](../docs/memory-gateway-implementation-plan.md)（本仓库把契约落地的顺序、形状、切片与消费方——切片 A 立即可建、B 需写者治理、C 等社交/地标面；含"现状=代码核验"清单与明确不做项）。按其切片 A 同发实现：
+
+**写侧（核验修正）**：`SkillStepRecorded` 的 payload 此前不带产物，按产物检索无从谈起——`SkillStep` 增 `product_id`（构造自 `SkillCall.product_id`，同时进步骤文档），计划路径的 payload 直接取之、自主路径取该步 intent 的 `product_id` 参数（空则空）。先红后绿钉住步骤文档形状。
+
+**读侧**：新 `adapters/sqlite/goal_history.py` 的 `recall_goal_history`——确定性键（kin + 非当前 run + `product_id` 命中）、位置倒序、有界（`SCAN_LIMIT=64`/`RECORD_LIMIT=8`/reason 240 字符），标出不变量：无锚 `no_anchor`、无命中 `not_retrieved`、无账 `ledger_missing`、损坏行跳过并计数（digest 校验），每条带 `run_id`/`position`/`observed_at_utc`/`source`/`trust_class`。
+
+**消费方**：`mind_for_run` 把 `goal_history` 装进 `session_history`（目标存在给锚、无目标如实 `no_anchor`）——模型从此看得到"为这个目标最近试过什么、停在哪哪"（按技能聚合的 `skill-experiences-v2` 回答不了）。**不声明**：其决策价值（模型据此改道）需活体读数，等窗口；不写任何表、不改系统提示。
+
+**测试与门**：6 新读侧（命中序/无锚/无账/损坏跳过计数/跨 run 隔离/界与省略声明/超长 reason 不携带）＋1 新写侧＋1 旧钉按设计意图更新（mind 包=检索包+切片）；**变异反证**：抽掉 digest 校验 → 损坏行测试按名红，恢复即绿。门（uv）：pyright 0/0/0、ruff 0、format 515、全仓 **4171 passed / 2 skipped**。

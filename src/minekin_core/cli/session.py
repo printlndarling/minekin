@@ -89,6 +89,7 @@ from minekin_core.adapters.model import model_provider_for
 from minekin_core.adapters.public_craft_knowledge import PublicCraftKnowledge
 from minekin_core.adapters.public_recipe_archive import load_recipe_knowledge
 from minekin_core.adapters.sqlite.connection import connect_reader
+from minekin_core.adapters.sqlite.goal_history import recall_goal_history
 from minekin_core.adapters.sqlite.identity_store import read_identity_root
 from minekin_core.adapters.sqlite.session_history import read_last_session
 from minekin_core.adapters.sqlite.session_log import (
@@ -1081,25 +1082,34 @@ def mind_for_run(
     persona = (
         read_persona(kin_dir) if kin_dir is not None and persona_path(kin_dir).exists() else None
     )
+    goal = milestone_from_environment(environ)
+    session_history: dict[str, object] = {}
+    if kin_dir is not None:
+        session_history = read_last_session(
+            kin_dir / DATABASE_NAME,
+            kin_id=kin_id,
+            exclude_run_id=exclude_run_id,
+            # Which world this run is for, so the packet can say whether the
+            # last session's was the same one. Empty means nobody said, and
+            # the comparison stays `unknown` rather than guessing.
+            current_server_profile_id=current_server_profile_id,
+        )
+        # The memory plan's first slice: what this goal was recently tried for,
+        # from the ledger's own anchor. No goal means no anchor, and the recall
+        # says exactly that rather than searching for nothing.
+        session_history["goal_history"] = recall_goal_history(
+            kin_dir / DATABASE_NAME,
+            kin_id=kin_id,
+            product_id="" if goal is None else goal.product_id,
+            exclude_run_id=exclude_run_id,
+        )
     return mind_for(
         model_provider_for(config, ledger=ledger, environ=environ),
         ledger,
         kin_id=kin_id,
         persona=persona,
-        session_history=(
-            {}
-            if kin_dir is None
-            else read_last_session(
-                kin_dir / DATABASE_NAME,
-                kin_id=kin_id,
-                exclude_run_id=exclude_run_id,
-                # Which world this run is for, so the packet can say whether the
-                # last session's was the same one. Empty means nobody said, and
-                # the comparison stays `unknown` rather than guessing.
-                current_server_profile_id=current_server_profile_id,
-            )
-        ),
-        goal=milestone_from_environment(environ),
+        session_history=session_history,
+        goal=goal,
         model_enabled=config.enabled,
         policy=policy,
         craft_knowledge=craft_knowledge,
@@ -1840,6 +1850,7 @@ async def start_and_supervise(
                     "model_refusal": step.intent.model_refusal,
                     "goal": mind.direction,
                     "model_usage": ModelUsageTotals.capture(mind.ledger).as_document(),
+                    "product_id": str(step.intent.arguments.get("product_id", "")),
                 }
             )
 
@@ -1857,6 +1868,7 @@ async def start_and_supervise(
                     "decision_source": "OPERATOR_PLAN",
                     "model_refusal": "",
                     "goal": "",
+                    "product_id": step.product_id,
                 }
             )
 

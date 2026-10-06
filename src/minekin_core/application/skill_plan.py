@@ -168,6 +168,10 @@ class SkillStep:
 
     name: str
     outcome: SkillOutcome
+    #: The product the call was for, when it named one. Carried on the step so
+    #: the document and the ledger row built from it can be anchored by what was
+    #: being made rather than by guessing from reasons or skill names.
+    product_id: str = ""
 
     def as_document(self) -> dict[str, object]:
         return {
@@ -178,6 +182,7 @@ class SkillStep:
             "pre_tick": self.outcome.pre_tick,
             "post_tick": self.outcome.post_tick,
             "details": dict(self.outcome.details),
+            "product_id": self.product_id,
         }
 
 
@@ -441,7 +446,7 @@ async def run_skill_plan(
     steps: list[SkillStep] = []
     for call in plan.calls:
         outcome = await perform_skill(skills, call, authority=authority, timeout_ns=timeout_ns)
-        step = SkillStep(call.name, outcome)
+        step = SkillStep(call.name, outcome, call.product_id)
         steps.append(step)
         if on_step is not None:
             # Each step is reported the moment the readings conclude it, so a reader of the
