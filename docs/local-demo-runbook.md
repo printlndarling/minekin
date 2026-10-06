@@ -1343,3 +1343,16 @@ step: collect_dropped INTERRUPTED SESSION_STOP_REQUESTED (action_id ee48578c…)
 ```
 
 客户端同发的关键三行：`02:23:57 bridge pressed move.forward`（第三步的追赶起步）→ `02:24:00 bridge released move.forward` ＋ **`bridge released 1 input(s) after CORE_REQUEST (EXPLICIT)`**——不满 45s 窗口的 3 秒处、客户端还活着时，松键已由核发请求、被 Bridge 确认；全程无 `failing closed`、无 `cancelling`。域内 harness 的收尾 `session stop` 随后如实报 `released: []`（已无可释放——没有第二次释放）。**按实**：中断点是"读数经过的地方+等待循环的轮询节奏"，已发出的单条命令至多再按一拍走；步与步之间的停由下一步的边界检查兑现（同样记为 INTERRUPTED）。普通运行记录、非 sealed。
+
+## 六之四十三、模型跑的第二次同形读数与一次环境中止（2026-10-06，run `6b55b430…`，普通运行记录、非 sealed）
+
+**背景**：端点单发探针健康（`elapsed_ms: 5203`，`source=model`）→ 立即启动有界模型跑（`tools/run_real_model_demo.py`，48 步、`--timeout-ms 20000`、cap 10000、peaceful、木镐×1、kin `kin-policy-live-3x3-c`、候选 bundle profile、`MINEKIN_RUNNER_FORWARD_ENV` 路径）。
+
+**环境中止（先记全）**：后台监督进程被平台内存守护 SIGKILL（提示词面：系统内存紧张时的既定保护，明说不是命令自身失败，并要求不再自行重启该运行）。**容器内的 demo 会话未受影响，继续跑完**；发现容器仍活后，以另一个进程协作停（`session stop`）并收尾，容器随 `--rm` 消失。
+
+**读数**（run `6b55b430940548b9ba205942d7d50c6c`、server run 目录 run-165、session `1472dd33…`、步窗 20s）：
+1. 第 1 步 `break_seen_block` **CONFIRMED**（`source: model`，理由逐字 "I am aimed at an oak log and need wood to begin crafting a wooden pickaxe."，tick 582→731）。
+2. 第 2 步 `collect_dropped` **CONFIRMED**（`source: model`，理由逐字 "The oak log just dropped nearby and must be collected before crafting planks."，tick 731→841，details `steps: "2"`）。
+3. 第 3 次决策两次尝试无响应头（`elapsed_ms: 41639`、`phase: "open"`）→ 心落 `HOLD`＋`model_refusal: "TIMEOUT"`、`stop_reason: "TIMEOUT"`、`goal_met: false`、`model_calls: 3`、`model_spent_micro: 26`。
+
+**按实/不声明**：第三次决策期间本侧为回收环境发过一次协作停（回执逐字 `release {"asked":[187],"released":[187],"unconfirmed":[]}`、`terminated:[187]`——客户端在**活通道**上先松键、后被杀，这是停止路径的又一枚确认，但它出自环境回收、不是本卡的一次干净停止读数）；domain 随后读到自主循环自己的终局（"the autonomous loop reached its own verdict"）、收尾 `session exited 0`、`outcome STOPPED_ON_REQUEST`、`input_release_failed: false`。**这是一发部分读数：终局与清理竞争，不作为干净闭环；3×3 终产物缺口不变**。与上一发 `b00524d8…` 同形：模型驱动真实两步后撞约 41s 端点停滞按名 `TIMEOUT` 停。**本卡活体半边因环境（内存守护）不再自行重跑，等操作者指示；期间推进不依赖该跑的工作。**
