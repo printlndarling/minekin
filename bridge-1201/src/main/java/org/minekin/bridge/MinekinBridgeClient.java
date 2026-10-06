@@ -7,6 +7,7 @@ import io.minekin.protocol.v1.WorldObservation;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientLifecycleEvents;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
+import net.fabricmc.fabric.api.client.message.v1.ClientReceiveMessageEvents;
 import net.fabricmc.fabric.api.client.networking.v1.ClientLoginConnectionEvents;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
 import net.minecraft.client.MinecraftClient;
@@ -24,6 +25,7 @@ import org.minekin.bridge.protocol.HandshakeGate;
 import org.minekin.bridge.runtime.BridgeIpcWorker;
 import org.minekin.bridge.runtime.BridgeMetrics;
 import org.minekin.bridge.runtime.BridgePhaseMachine;
+import org.minekin.bridge.runtime.ChatInbox;
 import org.minekin.bridge.runtime.ClientAdmissionController;
 import org.minekin.bridge.runtime.ClientRuntimeIdentity;
 import org.minekin.bridge.runtime.HostController;
@@ -247,7 +249,13 @@ public final class MinekinBridgeClient implements ClientModInitializer {
                 // The join arms the snapshot, which the tick above then takes: it is
                 // what Core admits to make the session playable, and it cannot be
                 // taken here because the server's world has not reached the client.
-                controller::joinSeen));
+                // A new play session also starts with an empty chat inbox: the
+                // previous session's unread backlog must not surface as this one's
+                // conversation, and a message cannot belong to a world it predates.
+                () -> {
+                    ChatInbox.clear();
+                    controller.joinSeen();
+                }));
         ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> observe(
                 client,
                 controller,
@@ -268,6 +276,26 @@ public final class MinekinBridgeClient implements ClientModInitializer {
                             BridgeInputController.ReleaseReason.LEFT_PLAYABLE, "PLAY_ENDED"));
                     controller.playEnded();
                 }));
+
+        // Player chat, captured as it arrives — the one place the client hears
+        // another account's words. Only the chat display type is registered for:
+        // the GAME event carries server and system text, and the wire surface
+        // deliberately has no channel for it (an unattributed line is skipped in
+        // the inbox, and never sent without a sender). The tick the line arrived
+        // at is read off the client here rather than stamped later, because when
+        // the game said something is part of what was heard.
+        ClientReceiveMessageEvents.CHAT.register(
+                (message, signedMessage, sender, params, receptionTimestamp) -> {
+                    if (sender == null) {
+                        return;
+                    }
+                    long tick = 0L;
+                    MinecraftClient client = MinecraftClient.getInstance();
+                    if (client.world != null) {
+                        tick = client.world.getTime();
+                    }
+                    ChatInbox.record(tick, sender.getName(), message.getString());
+                });
 
         admission = controller;
         worker = created;
@@ -293,6 +321,13 @@ public final class MinekinBridgeClient implements ClientModInitializer {
      */
     private void publishWorldObservation(MinecraftClient client, BridgeIpcWorker worker) {
         if (!worker.hasCapability(HandshakeGate.OBSERVE_WORLD_CAPABILITY)) {
+            // No session is listening: chat heard now is nobody's memory — the
+            // previous session's backlog included — so the inbox is kept empty
+            // rather than handed to the next session as if it had heard it. The
+            // overflow counter is for lines lost to a flood *while* a session
+            // was listening; dropping an unmeasured backlog here would make that
+            // count a lie.
+            ChatInbox.clear();
             return;
         }
         if (client.player == null || client.world == null) {

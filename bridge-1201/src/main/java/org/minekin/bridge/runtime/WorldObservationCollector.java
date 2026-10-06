@@ -6,6 +6,7 @@ import io.minekin.protocol.v1.BlockTarget;
 import io.minekin.protocol.v1.InventoryStack;
 import io.minekin.protocol.v1.InventorySummary;
 import io.minekin.protocol.v1.MiningProgress;
+import io.minekin.protocol.v1.PlayerChatMessage;
 import io.minekin.protocol.v1.SelfState;
 import io.minekin.protocol.v1.VisibleEntity;
 import io.minekin.protocol.v1.WorldObservation;
@@ -80,6 +81,20 @@ public final class WorldObservationCollector {
                                         TradeOfferReader.readable(client)));
         WorldActions.aimTarget(CrosshairReader.read(client), tick).ifPresent(view::setAim);
         mining(client, tick).ifPresent(view::setMining);
+        // The chat the client heard since the previous observation: drained here,
+        // oldest first, and reported with the overflow count when the ring had to
+        // drop lines — an omission is stated, never implied (see `ChatInbox`).
+        ChatInbox.Drain chat = ChatInbox.drain();
+        for (ChatInbox.Line line : chat.lines()) {
+            view.addChat(
+                    PlayerChatMessage.newBuilder()
+                            .setGameTick(line.gameTick())
+                            .setSender(line.sender())
+                            .setText(line.text()));
+        }
+        if (chat.omitted() > 0) {
+            view.setChatOmitted(chat.omitted());
+        }
         return view.build();
     }
 

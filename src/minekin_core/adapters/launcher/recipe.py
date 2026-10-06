@@ -107,8 +107,8 @@ FABRIC_API_1201_SHA1 = "3e9cdd3e2f827ca9a259df9eb8e31949437b6bd4"
 # book keeps) and a named screen button can be clicked — the vanilla offer-select a
 # trade needs — so the model can judge a rendered trader the way it judges a slime
 # (card D-ENTITY-BEHAVIORS-001).
-BRIDGE_1201_JAR_SHA256 = "53efca18255b0da7ab90aafb9c8a689868f8ad45050c39c9993e01af6907ee72"
-BRIDGE_1201_JAR_SIZE = 1_471_239
+BRIDGE_1201_JAR_SHA256 = "16e517edfb5a08027b63c2e32389c3aceebf4083be7c17cb371e7694b4e67fd6"
+BRIDGE_1201_JAR_SIZE = 1_483_139
 BRIDGE_1201_JAR_RELATIVE_PATH = "bridge-1201/build/libs/minekin-bridge-1201-0.0.0.jar"
 
 
