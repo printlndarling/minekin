@@ -1438,3 +1438,17 @@ step: collect_dropped INTERRUPTED SESSION_STOP_REQUESTED (action_id ee48578c…)
 **消费方**：`mind_for_run` 把 `goal_history` 装进 `session_history`（目标存在给锚、无目标如实 `no_anchor`）——模型从此看得到"为这个目标最近试过什么、停在哪哪"（按技能聚合的 `skill-experiences-v2` 回答不了）。**不声明**：其决策价值（模型据此改道）需活体读数，等窗口；不写任何表、不改系统提示。
 
 **测试与门**：6 新读侧（命中序/无锚/无账/损坏跳过计数/跨 run 隔离/界与省略声明/超长 reason 不携带）＋1 新写侧＋1 旧钉按设计意图更新（mind 包=检索包+切片）；**变异反证**：抽掉 digest 校验 → 损坏行测试按名红，恢复即绿。门（uv）：pyright 0/0/0、ruff 0、format 515、全仓 **4171 passed / 2 skipped**。
+
+## 六之五十一、模型亲手合成成功的第一行：破→拾→合成木板 CONFIRMED（2026-10-06，run `dbb19cfc…`，普通运行记录、非 sealed）
+
+**背景**：端点探针健康但偏慢（首试 8.6s 超时、重试 14.1s 成功，`source=model`）→ 立即起有界模型跑（`tools/run_real_model_demo.py`：48 步、`--timeout-ms 20000`、cap 10000、peaceful、木镐×1、kin `kin-policy-live-3x3-c`、候选 bundle profile）。本轮起，模型 offer 首次携带记忆计划的**切片 A**（`goal_history`，本日 `b16553f` 接线）——本发读数里它如实为 `not_retrieved`（产物锚自本日起才有：旧行无 `product_id`；诚实空包正是设计行为），**该切片在真实 offer 里端到端走过一遍**。
+
+**run `dbb19cfcc33b47368f6f91c7b3a6f9a3`（server run 目录 run-166）逐步逐字**：
+1. `break_seen_block` **CONFIRMED**（`source: model`；args `{"expected_drop_item":"minecraft:oak_log"}`；理由 "The crosshair is aimed at a visible oak log, so breaking it is the direct way to start gathering wood for the pickaxe."；结果读数 tick=1363）。
+2. `collect_dropped` **CONFIRMED**（`source: model`；args `{"item_id":"minecraft:oak_log","walk_seconds":3.0}`；理由 "Collecting the observed dropped oak log is the nearest prerequisite toward the wooden pickaxe craft plan."；details `steps:"1"`；tick=1572）。
+3. **`craft_take_result` CONFIRMED（`source: model`）**——**本项目的第一个模型亲手合成成功读数**：args `{"quantity":4,"target_item":"minecraft:oak_planks"}`，理由 "Convert the single oak_log in inventory into oak_planks, the first prerequisite of the wooden_pickaxe craft plan."，details 逐字 `clicks:"recipe_fill+result_quick_move"`、`gui_open:"true"`、库存修订 1814→1858；tick=1858。配方由归档知识解析（模型给目标+参数，非逐物品链）。
+4. 第 4 次决策：两次尝试共 41.2s 无响应头（`phase:"open"`）→ 心 `HOLD`＋`model_refusal: "TIMEOUT"`、`stop_reason: "TIMEOUT"`、`goal_met: false`、`model_calls: 4`、`spent 62`。
+
+**收尾**：domain "the autonomous loop reached its own verdict; stopping on a live channel"；`session stop` 逐字 `release {"asked":[223],"released":[223],"unconfirmed":[]}`、`terminated:[223]`；`session exited 0`、`outcome: STOPPED_ON_REQUEST`、`input_release_failed: false`。
+
+**按实/不声明**：3×3 终产物（立桌→开窗→镐）**仍未闭**——本发在木板之后撞端点停滞按名停，与计划无关；每发全新世界与背包（旧世界不延续），闭环需要一次窗口里连过 7-9 个决策。**已达成**：模型自主链的"破→拾→合成"三段全部由 `source: model` 选出并各自世界确认；`model_spent 62`、无 cap 拒绝、每步参数逐字在案。普通运行记录、非 sealed。
