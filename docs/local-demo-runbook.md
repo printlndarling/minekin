@@ -1382,3 +1382,16 @@ step: collect_dropped INTERRUPTED SESSION_STOP_REQUESTED (action_id ee48578c…)
 **先红后绿**：2 新（跳后放行→CONFIRMED＋`jumps "1"`；跳后仍原地→`RETREAT_PATH_BLOCKED`、`post_tick 130`）＋1 旧钉按其设计意图更新（`test_retreat_reads_unknown_when_the_body_never_moved` 现在逐字断言第二跳的 MOVE `jump=True`——原来的单步 `[1.0, 0.0]` 形状正是被本卡改变的行为）。RED 首跑逐字 `KeyError: 'jumps'`；调试中发现测试侧的旧 admission 习惯（release 帧也吃队列）会让跳被跳过——新测试按"只有 hold 帧吃队列"钉住。四套件 364 passed；门（uv）：pyright 0/0/0、ruff 0、format 512、全仓 **4149 passed / 2 skipped**。
 
 **按实/不声明**：连续两发 nav 交付均为**单元面**；真实游戏场景（背面矮墙）与 3×3 窗口一起等环境窗口恢复后补取。`fight_back` 的接近与 `retreat` 的命名 hold 变体天然共享同一读帧循环（hold 变体在有跳时也会走同一路径），未单列。
+
+## 六之四十六、连接尝试也是账本上的效果：发送前开单、结论时关闭（2026-10-06，单元面交付；活体待窗口）
+
+**缺口**：§8 的效果开单者此前只有 `START_CLIENT` 与 `INPUT_LEASE`；**连接尝试**（`ConnectWorld`，恢复表的 `CONNECT_WORLD`＝INVALIDATE 类，"它所属的 generation 已结束"）在账本上没有痕迹——崩溃在连接期（局面最含糊的一段：Kin 可能在世界里，也可能不在）的 run 对 reconcile 不可见。
+
+**交付**：`on_ready` 里 `connections.begin` 与命令构造之后、**`send_control` 之前** `open_effect(CONNECT_WORLD, idempotency_key=command.request_id)`；发送抛错（命令从未离开）当场 settle 后重抛（与租约同一形状）。结算点四处，全部收在一个 `settle_connect_effect()`：
+1. `on_connection` 的三个**结论**状态——`PLAYABLE`（世界收下了 join）、`DISCONNECTED`、`FAILED`——在事件记录**之后**结算；`JOIN_SEEN` 等进度报告**不**结算（尝试仍在飞）；
+2. `on_connection_deadline`：cancel 发出、generation 关闭之后；
+3. `on_wind_down`：一次干净收尾不能把意图留下（只有崩溃才留——那正是下一次 reconcile 的活）。
+
+**先绿后突变（本轮实现先行，用变异证明测试会咬）**：2 新测试（连接帧在线上时逐字 `("CONNECT_WORLD","pending")`、`JOIN_SEEN` 后**仍 pending**、`Playable` 后 completed；断连终态后 completed）；共享一个"把连接命令推上线"的测试助手上半段。两个变异逐一验证：①抽掉 open（`connect_effect[0] = ""`）→ 首断言按名红；②抽掉 playable/DISCONNECTED/FAILED 的结算块 → completed 断言按名红——原样恢复后绿。测试首跑暴露真实时序：事件先落账、结算紧随其后，因此断言等的是**outbox 自己的** completed 行而不是事件的到达瞬间（已写进注释）。门（uv）：pyright 0/0/0、ruff 0、format 512、全仓 **4151 passed / 2 skipped**。
+
+**按实/不声明**：单元面；活体（真实连接期杀进程 → 下一次启动 `invalidated` 含该 id）与其余活体项一起等窗口。`RELEASE_ALL`／`STOP_SESSION`（RETRY 类）的"重放＝下一次 wind-down 的释放"语义触碰重启断言（`waiting` 须空），仍列**待设计**，不随本卡代做。

@@ -2265,6 +2265,227 @@ def test_the_lease_effect_lives_only_as_long_as_the_keys_can(
     assert run.outcome is SessionOutcome.CLIENT_EXITED
 
 
+def _start_connect_scenario(
+    root: Path,
+) -> tuple[asyncio.Task[tuple[SessionLaunch, SessionRun]], LiveProcess, ProcessSupervisor]:
+    """Start a session up to the point where its connect command is on the wire.
+
+    Shared by the two connect-effect tests so the only difference between them is
+    what the fake Bridge reports after the command: an attempt that concludes at
+    the join, and one that ends before it.
+    """
+
+    process = LiveProcess()
+    supervisor = live_supervisor(process, descriptor_path(root), [])
+    running = asyncio.create_task(
+        start_and_supervise(
+            root=root,
+            profile=PROFILE,
+            java_executable=JAVA,
+            session_id=SESSION_ID,
+            generation=GENERATION,
+            supervisor_factory=lambda _logs: supervisor,
+            handshake_timeout=5.0,
+            exit_poll_s=0.01,
+            server_profile=SERVER_PROFILE,
+        )
+    )
+    return running, process, supervisor
+
+
+async def _connect_frame_reached(
+    root: Path, running: asyncio.Task[tuple[SessionLaunch, SessionRun]]
+) -> tuple[
+    session_pb2.BridgeBootstrapDescriptor,
+    BridgeSession,
+    asyncio.StreamReader,
+    asyncio.StreamWriter,
+    asyncio.StreamWriter,
+    control_pb2.ConnectWorld,
+]:
+    """Drive the handshake until the connect command is read off the control channel."""
+
+    del running
+    path = descriptor_path(root)
+    await _wait_until(path.is_file)
+    descriptor = session_pb2.BridgeBootstrapDescriptor.FromString(path.read_bytes())
+    bridge = BridgeSession(
+        kin_id=descriptor.kin_id,
+        session_id=descriptor.session_id,
+        generation=descriptor.generation,
+        client_instance_id=descriptor.client_instance_id,
+        bundle_digest=descriptor.bundle_digest,
+        bridge_digest=descriptor.bridge_digest,
+        minecraft_version="1.21.4",
+        fabric_loader_version="0.16.9",
+        launch_nonce=descriptor.launch_nonce,
+        session_key=descriptor.session_key,
+    )
+    control_reader, control_writer = await connect(descriptor, envelope_pb2.CHANNEL_CONTROL)
+    _event_reader, event_writer = await connect(descriptor, envelope_pb2.CHANNEL_EVENT)
+    await write_frame(
+        control_writer,
+        envelope(
+            bridge,
+            BRIDGE_HELLO_TYPE,
+            envelope_pb2.CHANNEL_CONTROL,
+            1,
+            hello(bridge).SerializeToString(deterministic=True),
+        ),
+    )
+    await asyncio.wait_for(read_frame(control_reader), 5)
+    connect_frame = await _wait_for_control_message(control_reader, CONNECT_WORLD_TYPE)
+    command = control_pb2.ConnectWorld.FromString(connect_frame.payload)
+    return descriptor, bridge, control_reader, control_writer, event_writer, command
+
+
+def test_the_connect_attempt_is_an_effect_open_until_the_attempt_concludes(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    """§8 for the connection: the intent is on the ledger before the command that
+    carries it, stays open across progress reports, and closes when the attempt
+    concludes.
+
+    A crash mid-connect otherwise leaves nothing for the next start to close —
+    and the generation the attempt belonged to is exactly what reconciliation
+    names when it does.
+    """
+
+    root = ready_data_root(tmp_path, monkeypatch)
+    database = root / "kin" / "kin-01" / "kin.sqlite3"
+
+    async def scenario() -> tuple[
+        list[tuple[str, str]], list[tuple[str, str]], list[tuple[str, str]]
+    ]:
+        running, process, _supervisor = _start_connect_scenario(root)
+        (
+            _descriptor,
+            bridge,
+            _control_reader,
+            control_writer,
+            event_writer,
+            command,
+        ) = await _connect_frame_reached(root, running)
+        # The command is on the wire, so the intent must already be on the ledger.
+        in_flight = _outbox_rows(database)
+        for sequence, phase in enumerate(CONNECTED_PHASES, start=1):
+            await write_frame(
+                event_writer,
+                envelope(
+                    bridge,
+                    CONNECTION_LIFECYCLE_TYPE,
+                    envelope_pb2.CHANNEL_EVENT,
+                    sequence,
+                    _lifecycle(bridge, command, phase).SerializeToString(deterministic=True),
+                ),
+            )
+        await _wait_until(lambda: any(row[0] == JOIN_OBSERVED for row in _ledger_rows(database)))
+        after_join_seen = _outbox_rows(database)
+        await write_frame(
+            event_writer,
+            envelope(
+                bridge,
+                INITIAL_OBSERVATION_TYPE,
+                envelope_pb2.CHANNEL_EVENT,
+                len(CONNECTED_PHASES) + 1,
+                first_snapshot(
+                    generation=bridge.generation, material=_material(root)
+                ).SerializeToString(deterministic=True),
+            ),
+        )
+        await _wait_until(
+            lambda: any(row[0] == PLAYABLE_ESTABLISHED for row in _ledger_rows(database))
+        )
+        # The event is recorded first and the intent closes right after it, so the
+        # conclusion to read is the outbox's own, not the event's arrival moment.
+        await _wait_until(
+            lambda: ("CONNECT_WORLD", "completed") in _outbox_rows(database),
+            what="the connect effect to close at playable",
+        )
+        after_playable = _outbox_rows(database)
+        process.exited = True
+        _launch, run = await asyncio.wait_for(running, 10)
+        await close_writers(control_writer, event_writer)
+        assert run.outcome is SessionOutcome.CLIENT_EXITED
+        return in_flight, after_join_seen, after_playable
+
+    in_flight, after_join_seen, after_playable = asyncio.run(scenario())
+
+    assert ("CONNECT_WORLD", "pending") in in_flight
+    # A progress report is not a conclusion: the attempt is still in flight after
+    # the join is seen, so the intent is still open.
+    assert ("CONNECT_WORLD", "pending") in after_join_seen
+    # Playable is the attempt's own conclusion, and the item closes with it.
+    assert ("CONNECT_WORLD", "completed") in after_playable
+
+
+def test_a_connection_that_ends_closes_the_attempts_effect(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    """The attempt's conclusion includes the bad ones: a connection that ended has
+    a result, so its intent is not left for the next start to close."""
+
+    root = ready_data_root(tmp_path, monkeypatch)
+    database = root / "kin" / "kin-01" / "kin.sqlite3"
+
+    async def scenario() -> list[tuple[str, str]]:
+        running, process, _supervisor = _start_connect_scenario(root)
+        (
+            _descriptor,
+            bridge,
+            _control_reader,
+            control_writer,
+            event_writer,
+            command,
+        ) = await _connect_frame_reached(root, running)
+        for sequence, phase in enumerate(CONNECTED_PHASES, start=1):
+            await write_frame(
+                event_writer,
+                envelope(
+                    bridge,
+                    CONNECTION_LIFECYCLE_TYPE,
+                    envelope_pb2.CHANNEL_EVENT,
+                    sequence,
+                    _lifecycle(bridge, command, phase).SerializeToString(deterministic=True),
+                ),
+            )
+        # The world goes away before the join ever became playable.
+        await write_frame(
+            event_writer,
+            envelope(
+                bridge,
+                CONNECTION_LIFECYCLE_TYPE,
+                envelope_pb2.CHANNEL_EVENT,
+                len(CONNECTED_PHASES) + 1,
+                observation_pb2.ConnectionLifecycle(
+                    generation=bridge.generation,
+                    server_profile_id=command.server_profile_id,
+                    server_profile_revision=command.server_profile_revision,
+                    phase=observation_pb2.CONNECTION_PHASE_DISCONNECTED,
+                    failure_reason=observation_pb2.ADMISSION_FAILURE_REASON_UNSPECIFIED,
+                    terminal=True,
+                ).SerializeToString(deterministic=True),
+            ),
+        )
+        await _wait_until(
+            lambda: any(row[0] == SESSION_INTERRUPTED for row in _ledger_rows(database))
+        )
+        # Same order as playable: the event lands first, the intent closes after it.
+        await _wait_until(
+            lambda: ("CONNECT_WORLD", "completed") in _outbox_rows(database),
+            what="the connect effect to close at the failed attempt",
+        )
+        closed = _outbox_rows(database)
+        process.exited = True
+        _launch, _run = await asyncio.wait_for(running, 10)
+        await close_writers(control_writer, event_writer)
+        return closed
+
+    closed = asyncio.run(scenario())
+
+    assert ("CONNECT_WORLD", "completed") in closed
+
+
 def test_a_session_holding_nothing_answers_that_instead_of_sending(
     tmp_path: Path, monkeypatch: Any
 ) -> None:

@@ -161,7 +161,7 @@ from minekin_core.domain.lease_watchdog import LeaseWatchdog
 from minekin_core.domain.model_access import cost_ledger_for, model_config
 from minekin_core.domain.model_usage import ModelUsageTotals
 from minekin_core.domain.perception import WorldObservationValue
-from minekin_core.domain.recovery import INPUT_LEASE, START_CLIENT
+from minekin_core.domain.recovery import CONNECT_WORLD, INPUT_LEASE, START_CLIENT
 from minekin_core.domain.session_material import RecordedSessionMaterial
 from minekin_core.domain.session_state import SessionState, SessionStateMachine
 from minekin_core.domain.time import Deadline, MonotonicInstant
@@ -1399,7 +1399,21 @@ async def start_and_supervise(
             generation=attempt.generation.value,
             deadline_monotonic_ns=attempt_deadline[0],
         )
-        await host.send_control(CONNECT_WORLD_TYPE, command)
+        # §8 for the connection attempt: the intent is on the ledger before the
+        # command that carries it. A crash mid-connect then leaves something for
+        # the next start to invalidate — the generation it belonged to is over —
+        # rather than a world the Kin may or may not be standing in.
+        connect_effect[0] = await prepared.ledger.open_effect(
+            effect_type=CONNECT_WORLD, idempotency_key=command.request_id
+        )
+        try:
+            await host.send_control(CONNECT_WORLD_TYPE, command)
+        except (OSError, RuntimeError):
+            # The command never left: the attempt has its result before it began,
+            # and an intent about a command nobody received is not something to
+            # leave for the next start to close.
+            await settle_connect_effect()
+            raise
 
     async def until_connection_deadline() -> None:
         """Wait out the attempt's own deadline, if an attempt was made at all."""
@@ -1453,6 +1467,8 @@ async def start_and_supervise(
             ),
         )
         connections.close(active.generation)
+        # Cancelling concluded the attempt, so the intent closes with it.
+        await settle_connect_effect()
         # Kept for the run document, which is replaced into after the supervisor
         # returns: the value belongs to the run, and only this caller knows it —
         # the same shape `input_refusal` has, for the same reason.
@@ -1963,11 +1979,27 @@ async def start_and_supervise(
         """
 
         if plan is None or plan.arbiter is None:
+            await settle_connect_effect()
             return
         plan.watchdog.disarm()
         if stop_released[0]:
+            await settle_connect_effect()
             return
         await release_inputs(plan.arbiter, ReleaseReason.EXPLICIT)
+        await settle_connect_effect()
+
+    async def settle_connect_effect() -> None:
+        """Close the connection attempt's intent once the attempt has a result.
+
+        Any conclusion is a result: the world admitted the join, the connection
+        failed or ended, the deadline cancelled it, or the run wound down around
+        it. Only a crash leaves the item open, and that is the one case the next
+        start's reconciliation is for.
+        """
+
+        if connect_effect[0]:
+            await prepared.ledger.settle_effect(connect_effect[0])
+            connect_effect[0] = ""
 
     async def on_connection(state: ConnectionState, reason: str) -> None:
         recorded = _CONNECTION_EVENTS.get(state)
@@ -1983,6 +2015,15 @@ async def start_and_supervise(
             # event. A failure with no category is one nobody can act on.
             payload["reason"] = reason
         await record(event_type, payload, source=source, trust_class=trust_class)
+        if state in (
+            ConnectionState.PLAYABLE,
+            ConnectionState.DISCONNECTED,
+            ConnectionState.FAILED,
+        ):
+            # The attempt concluded — admitted, failed, or gone — so the intent it
+            # carried closes here. JOIN_SEEN and the phases before it are progress
+            # reports, not conclusions, and the item stays open across them.
+            await settle_connect_effect()
         if state is ConnectionState.JOIN_SEEN and hold_at == HOLD_AT_JOIN:
             # Asked *after* the join is recorded, so the ledger reads in the order
             # the run lived it: the world the Kin joined, and then the answer to a
@@ -2033,6 +2074,11 @@ async def start_and_supervise(
     # run has already sent.
     asked_to_stop: list[StopRequest | None] = [None]
     stop_released: list[str] = [""]
+    #: The outbox item that carries the connection attempt as an effect (§8),
+    #: from the command's send to the attempt's conclusion. A crash in between
+    #: is what the next start's reconciliation invalidates: the generation the
+    #: attempt belonged to is over, and a reconnect is a new generation.
+    connect_effect: list[str] = [""]
 
     run = await supervise_session(
         host=host,
